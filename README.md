@@ -7,19 +7,7 @@
 A visual workspace for Claude Code — watch your agents work as a live bubble
 map, and configure sub-agents without ever opening `settings.json`.
 
-<img src="docs/media/hero.gif" alt="Vibisual demo — hooks streaming into the bubble map, sub-agents configured visually" width="720" />
-
-<sub>Hooks streaming into the bubble map, sub-agents configured visually.</sub>
-
-<br />
-<br />
-
-<a href="https://youtu.be/asJ_Z-75uqc">
-  <img src="https://img.youtube.com/vi/asJ_Z-75uqc/maxresdefault.jpg"
-       alt="Full 2-minute walkthrough on YouTube" width="480" />
-</a>
-
-<sub>▶ <a href="https://youtu.be/asJ_Z-75uqc">Full 2-minute walkthrough on YouTube</a></sub>
+<!-- hero demo removed temporarily — re-adding with fresh filename -->
 
 <br />
 
