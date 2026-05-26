@@ -9,8 +9,6 @@ map, and configure sub-agents without ever opening `settings.json`.
 
 ![Vibisual demo — hooks streaming into the bubble map, sub-agents configured visually](docs/media/demo.gif)
 
-▶ [Full 2-minute walkthrough on YouTube](https://youtu.be/asJ_Z-75uqc)
-
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%E2%89%A520-brightgreen.svg)](https://nodejs.org)
 [![Built with Claude Code](https://img.shields.io/badge/built%20with-Claude%20Code-7c3aed)](https://claude.com/claude-code)
@@ -54,6 +52,12 @@ build the harness on a canvas:
 What used to be a buried `settings.json` tree is now a workflow you can
 see, edit, and rearrange at any time.
 
+## Watch the full walkthrough
+
+[![Vibisual — full walkthrough on YouTube](https://img.youtube.com/vi/asJ_Z-75uqc/maxresdefault.jpg)](https://youtu.be/asJ_Z-75uqc)
+
+▶ [Watch on YouTube — 2-minute walkthrough](https://youtu.be/asJ_Z-75uqc)
+
 ## Quick Start
 
 You'll need **Node.js ≥ 20**, **pnpm**, and the **Claude CLI** (`claude`)
@@ -86,17 +90,6 @@ bubble map. A timestamped backup is kept next to it
 
 Tested on Windows. macOS and Linux builds are available but not extensively tested.
 
-## Tech Stack
-
-- Node.js 20+ / pnpm monorepo: `shared` / `server` / `client` / `desktop`
-- React 18 + TypeScript 5 + Vite + [@xyflow/react](https://reactflow.dev)
-  for the graph
-- Express + WebSocket (ws) for the hook stream
-- Tailwind CSS
-- Zustand for state
-- Electron (desktop shell, electron-vite preview)
-- Vitest + React Testing Library
-
 ## License
 
 Apache License 2.0 — see [LICENSE](LICENSE). "Vibisual" and the Vibisual logo are trademarks of the project maintainers; see [TRADEMARK.md](TRADEMARK.md) for the policy.
@@ -110,9 +103,3 @@ The project uses the **Developer Certificate of Origin** — just sign off your 
 ```bash
 git commit -s -m "your change here"
 ```
-
-## Acknowledgments
-
-- [Anthropic Claude Code](https://claude.com/claude-code) — the CLI Vibisual visualizes.
-- [@xyflow/react](https://reactflow.dev) — the graph engine.
-- [Lucide](https://lucide.dev) — icons.
