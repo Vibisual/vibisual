@@ -177,18 +177,3 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). I use the
 git commit -s -m "your change here"
 ```
 
-## Acknowledgments
-
-- [Anthropic Claude Code](https://claude.com/claude-code) — the CLI this
-  visualizes, and the tool I used to build most of this.
-- [@xyflow/react](https://reactflow.dev) — the graph engine doing the
-  heavy visual lifting.
-- [Lucide](https://lucide.dev) — icons.
-
----
-
-<div align="center">
-
-Built one bubble at a time, with Claude Code.
-
-</div>
