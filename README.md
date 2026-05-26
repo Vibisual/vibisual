@@ -20,16 +20,24 @@ map, and configure sub-agents without ever opening `settings.json`.
 
 ---
 
-## What it does today
+## What it does
 
-**Hook-driven visualization.** Claude Code emits hook events on every
-action — `PreToolUse`, `PostToolUse`, `UserPromptSubmit`, `SessionStart`,
-and more. Vibisual subscribes to that stream and renders each event as a
-node on a live bubble map. Sub-agent spawns become edges. Tool calls
-become child bubbles. Keyword links connect related work across sessions.
+Vibisual does two things.
 
-**Visual sub-agent configuration.** Click any agent bubble and a panel
-opens with:
+### 1. Visualizes Claude Code through hooks
+
+Every Claude Code hook event — `PreToolUse`, `PostToolUse`,
+`UserPromptSubmit`, `SessionStart`, and others — becomes a node on a
+live bubble map. Sub-agent spawns become edges. Tool calls become child
+bubbles. Keyword links connect related work across sessions.
+
+The terminal output of a multi-agent Claude session is a tree printed
+as a wall of text. Vibisual draws that tree as it grows.
+
+### 2. Configures custom sub-agents through a visual UI
+
+Click any agent bubble to open a configuration panel and define a
+sub-agent without editing `settings.json`:
 
 - Model (Opus / Sonnet / Haiku)
 - Permission mode
@@ -37,19 +45,11 @@ opens with:
 - Max turns
 - Isolation (worktree or in-place)
 - Effort / reasoning level
-- Skills enabled
+- Skills
 - Color & label
 - Per-agent rules
 
-Save it. The next run picks it up.
-
-**Other things in there:**
-
-- Multi-project workspace with per-project state isolation
-- Checkpoints & session replay
-- Permission prompts surfaced in-app (no terminal swapping)
-- Keyword graph across sessions
-- A handful of built-in skills: runapp, runserver, reinstall, and more
+Save the configuration; the next run picks it up.
 
 ## Quick Start
 
