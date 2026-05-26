@@ -4,6 +4,12 @@
 
 ### See your AI agents think.
 
+</div>
+
+<img src="docs/media/demo.gif" alt="Vibisual demo — hooks streaming into the bubble map, sub-agents configured visually" width="100%" />
+
+<div align="center">
+
 A visual workspace for Claude Code — watch your agents work as a live bubble
 map, and configure sub-agents without ever opening `settings.json`.
 
@@ -13,8 +19,6 @@ map, and configure sub-agents without ever opening `settings.json`.
 [![Status: early](https://img.shields.io/badge/status-early-orange)](#)
 
 </div>
-
-<img src="docs/media/demo.gif" alt="Vibisual demo — hooks streaming into the bubble map, sub-agents configured visually" width="100%" />
 
 ---
 
