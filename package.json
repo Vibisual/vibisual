@@ -1,0 +1,27 @@
+{
+  "name": "vibisual",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI agent activity visualizer with bubble maps",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Vibisual/vibisual.git"
+  },
+  "homepage": "https://github.com/Vibisual/vibisual#readme",
+  "bugs": {
+    "url": "https://github.com/Vibisual/vibisual/issues"
+  },
+  "scripts": {
+    "build": "pnpm --filter=@vibisual/shared --filter=@vibisual/server --filter=@vibisual/client -r build && pnpm --filter @vibisual/desktop build",
+    "build:win": "pnpm --filter=@vibisual/shared --filter=@vibisual/server --filter=@vibisual/client -r build && pnpm --filter @vibisual/desktop dist:win",
+    "build:mac": "pnpm --filter=@vibisual/shared --filter=@vibisual/server --filter=@vibisual/client -r build && pnpm --filter @vibisual/desktop dist:mac",
+    "build:linux": "pnpm --filter=@vibisual/shared --filter=@vibisual/server --filter=@vibisual/client -r build && pnpm --filter @vibisual/desktop dist:linux"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild", "electron"]
+  }
+}

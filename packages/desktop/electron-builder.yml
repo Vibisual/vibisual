@@ -1,0 +1,76 @@
+appId: com.vibisual.app
+productName: Vibisual
+copyright: Copyright © 2026 Vibisual
+
+directories:
+  output: dist
+  buildResources: resources
+
+# electron-vite emits the bundled main/preload/renderer into out/.
+files:
+  - out/**
+  - package.json
+# electron-builder's default file walk + pnpm symlinks don't reliably copy the
+# server's dist + node_modules into the package (.gitignore excludes dist; pnpm
+# symlinks confuse the walker). Instead an afterPack hook copies real files
+# (symlinks dereferenced) into the packaged tree after electron-builder finishes
+# its standard work.
+afterPack: ./build/after-pack.cjs
+
+# Disable asar packaging entirely. The pnpm symlink layout doesn't play well
+# with electron-builder's asarUnpack matching — better_sqlite3.node ended up
+# inside the asar (dlopen unfriendly) and sqlite-vec's platform DLL was
+# missing. With asar:false everything ships as plain files and the child Node
+# process can dlopen natives directly. Trade-off: marginally larger install
+# footprint, easier-to-inspect app code. Acceptable for current scope.
+asar: false
+
+# Skip electron-builder's default native rebuild (we control it explicitly via
+# @electron/rebuild — npmRebuild would try to use node-gyp against the system
+# Node version, which is exactly the ABI mismatch we're avoiding).
+npmRebuild: false
+nodeGypRebuild: false
+buildDependenciesFromSource: false
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: resources/icons/icon.ico
+  # signAndEditExecutable=false disables both signing AND rcedit (icon embed). We
+  # turn it off because enabling it triggers a winCodeSign cache download whose 7z
+  # contains macOS symlinks — those fail to extract on Windows without Developer
+  # Mode / admin. Instead, after-pack.cjs invokes rcedit directly to embed the
+  # brand bubble icon into Vibisual.exe, bypassing the cache download entirely.
+  signAndEditExecutable: false
+  # Code signing slot — certificate wiring is deferred (SCENARIO.md §3.7 / task §7).
+  # certificateFile / certificatePassword left unset on purpose.
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  artifactName: ${productName}-${version}-setup.${ext}
+  # Brand bubble — installer wizard window, uninstaller, and Start-menu/Desktop shortcuts
+  # all use the multi-size .ico so Windows renders crisp at every DPI.
+  installerIcon: resources/icons/icon.ico
+  uninstallerIcon: resources/icons/icon.ico
+  installerHeaderIcon: resources/icons/icon.ico
+
+mac:
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+  # icon: resources/icons/icon.icns   # Stage 8
+  category: public.app-category.developer-tools
+
+linux:
+  target:
+    - AppImage
+  icon: resources/icons/icon.png
+  category: Development
+
+# electron-updater feed slot — server infra (GitHub Releases / self-hosted)
+# is out of this scope (SCENARIO.md §10); kept here as a placeholder anchor.
+# publish:
+#   provider: github
