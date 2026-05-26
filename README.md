@@ -12,16 +12,6 @@ map, and configure sub-agents without ever opening `settings.json`.
 <sub>Hooks streaming into the bubble map, sub-agents configured visually.</sub>
 
 <br />
-<br />
-
-<a href="https://youtu.be/asJ_Z-75uqc">
-  <img src="https://img.youtube.com/vi/asJ_Z-75uqc/maxresdefault.jpg"
-       alt="Full 2-minute walkthrough on YouTube" width="480" />
-</a>
-
-<sub>▶ <a href="https://youtu.be/asJ_Z-75uqc">Full 2-minute walkthrough on YouTube</a></sub>
-
-<br />
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%E2%89%A520-brightgreen.svg)](https://nodejs.org)
