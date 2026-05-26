@@ -28,9 +28,9 @@ Vibisual does two things.
 
 ### 1. Visualizes Claude Code through hooks
 
-Every Claude Code hook event — `PreToolUse`, `PostToolUse`,
-`UserPromptSubmit`, `SessionStart`, and others — becomes a node on a
-live bubble map. Sub-agent spawns become edges. Tool calls become child
+Supported Claude Code hook events — including `PreToolUse`, `PostToolUse`,
+`UserPromptSubmit`, `SessionStart`, and others — become nodes on a live
+bubble map. Sub-agent spawns become edges. Tool calls become child
 bubbles. Keyword links connect related work across sessions.
 
 The terminal output of a multi-agent Claude session is a tree printed
@@ -49,9 +49,10 @@ build the harness on a canvas:
 - **Wire them with edges.** Connect agents with task edges to define
   handoffs and dependencies between them. The edges become the
   control-flow graph of your harness.
-- **The graph is the harness.** At runtime, Vibisual reads the graph
-  and spawns Claude Code sub-agents accordingly. The same canvas you
-  designed on is the canvas you watch the run on.
+- **The graph defines the harness.** In the current early release,
+  Vibisual reads the graph and launches the corresponding Claude Code
+  sub-agent workflow. The same canvas you designed on is the canvas
+  you watch the run on.
 
 What used to be a buried `settings.json` tree is now a workflow you can
 see, edit, and rearrange at any time.
@@ -66,13 +67,16 @@ see, edit, and rearrange at any time.
 
 ### Install on Windows
 
-1. Install the **Claude CLI** if you don't have it yet:
+1. Install the **Claude CLI** if you don't have it yet. The recommended
+   path is the [official Claude Code installation guide](https://docs.claude.com/claude-code/setup).
+
+   For npm-based installs:
 
    ```
    npm install -g @anthropic-ai/claude-code
    ```
 
-   (Requires [Node.js ≥ 20](https://nodejs.org).)
+   (npm install requires [Node.js ≥ 20](https://nodejs.org).)
 
 2. Download the latest installer from the
    [Releases page](https://github.com/Vibisual/vibisual/releases/latest)
@@ -108,6 +112,23 @@ bubble map. A timestamped backup is kept next to it
 
 Tested on Windows. macOS and Linux builds are available but not extensively tested.
 
+## Security and privacy
+
+Vibisual installs Claude Code hooks that can receive hook event payloads
+such as prompts, tool calls, file paths, shell commands, and session
+metadata.
+
+By default, Vibisual is intended to run locally. Review the hook
+configuration before use, especially in repositories containing
+secrets, private code, credentials, or customer data.
+
+Claude Code command hooks run with the permissions of your local user
+account. Only install hooks from code you trust.
+
+Vibisual creates a timestamped backup of `~/.claude/settings.json`
+before writing its managed hook block. To disable automatic hook
+installation, set `VIBISUAL_SKIP_HOOK_INSTALL=1` before first launch.
+
 ## License
 
 Apache License 2.0 — see [LICENSE](LICENSE). "Vibisual" and the Vibisual logo are trademarks of the project maintainers; see [TRADEMARK.md](TRADEMARK.md) for the policy.
@@ -115,3 +136,7 @@ Apache License 2.0 — see [LICENSE](LICENSE). "Vibisual" and the Vibisual logo 
 ## Contributing
 
 Before opening a pull request, please read [CONTRIBUTING.md](CONTRIBUTING.md). It covers the licensing terms that apply to contributions — including a DCO sign-off requirement and an additional grant that lets the project relicense contributed code for future commercial offerings.
+
+## Disclaimer
+
+Vibisual is an independent open-source project and is not affiliated with, endorsed by, or sponsored by Anthropic. Claude and Claude Code are trademarks of their respective owners.
