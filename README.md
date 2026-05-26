@@ -64,21 +64,37 @@ see, edit, and rearrange at any time.
 
 ## Quick Start
 
-You'll need **Node.js ≥ 20**, **pnpm**, and the **Claude CLI** (`claude`)
-on your PATH.
+### Install on Windows
+
+1. Install the **Claude CLI** if you don't have it yet:
+
+   ```
+   npm install -g @anthropic-ai/claude-code
+   ```
+
+   (Requires [Node.js ≥ 20](https://nodejs.org).)
+
+2. Download the latest installer from the
+   [Releases page](https://github.com/Vibisual/vibisual/releases/latest)
+   and run it:
+
+   ```
+   Vibisual-0.1.0-setup.exe
+   ```
+
+3. Launch Vibisual.
+
+### Build from source (macOS / Linux / contributors)
 
 ```bash
 git clone https://github.com/Vibisual/vibisual.git
 cd vibisual
 pnpm install
 
-# Build everything and launch the desktop app
+# Build and launch the desktop app
 node scripts/runapp.mjs
-```
 
-To build a distributable installer:
-
-```bash
+# Or build a distributable installer
 pnpm build:win    # Windows NSIS installer
 pnpm build:mac    # macOS dmg
 pnpm build:linux  # AppImage
