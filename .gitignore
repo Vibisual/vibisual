@@ -1,0 +1,101 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+out/
+build-output/
+*.tsbuildinfo
+
+# Electron / electron-builder artifacts
+packages/desktop/dist/
+packages/desktop/out/
+*.exe
+*.dmg
+*.AppImage
+*.deb
+*.rpm
+*.snap
+*.blockmap
+builder-debug.yml
+builder-effective-config.yaml
+# electron-updater publish manifests (auto-generated per release)
+latest.yml
+latest-mac.yml
+latest-linux.yml
+# unpacked build trees
+win-unpacked/
+mac/
+mac-arm64/
+linux-unpacked/
+
+# Code-signing certificates (electron-builder.yml has cert slots — never commit keys)
+*.pem
+*.key
+*.p12
+*.pfx
+*.cer
+*.crt
+
+# Lockfiles from other package managers (this project uses pnpm only)
+package-lock.json
+yarn.lock
+
+# Vibisual project data (written into user projects, not the repo)
+.vibisual/
+
+# Runtime secrets (loaded from userData/secrets.json at runtime)
+secrets.json
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+logs/
+
+# Editor / IDE
+.vscode/
+.idea/
+.history/
+*.swp
+*.swo
+*~
+*.bak
+
+# Vite local-only config (vite.config.*.local.ts, etc.)
+*.local.*
+
+# Process / runtime
+*.pid
+*.seed
+*.pid.lock
+
+# OS
+.DS_Store
+._*
+.AppleDouble
+.LSOverride
+Thumbs.db
+ehthumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# Claude Code per-project state (avoid leaking internal session/skills/agents)
+.claude/
+.mddbai/
+
+# Test / coverage
+coverage/
+.nyc_output/
+
+# Vite cache
+.vite/
+
+# TypeScript
+*.tsbuildinfo

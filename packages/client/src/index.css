@@ -1,0 +1,468 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+@theme {
+  --font-sans: 'Pretendard', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'D2Coding', ui-monospace, monospace;
+}
+
+/* §3.7 v2.10 — 통합 타이틀바 드래그 영역. Electron `titleBarStyle: 'hidden'` +
+ * `titleBarOverlay`(Windows) / 트래픽 라이트(Mac) 위에 React 헤더가 타이틀바 역할을 한다.
+ * Header 루트는 `app-drag` 로 윈도우 드래그 가능, 안의 버튼/메뉴는 `app-nodrag` 로 클릭 가능. */
+.app-drag {
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+.app-nodrag {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+@keyframes pulse-ring {
+  0% {
+    transform: scale(1);
+    opacity: 0.4;
+  }
+  100% {
+    transform: scale(1.8);
+    opacity: 0;
+  }
+}
+
+@keyframes slide-in-right {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-12px);
+  }
+}
+
+/* v1.33 — Task Edge 이벤트 펄스. offset-path(엣지 path)를 따라 아이콘이 source→target 으로
+ * 3회 연속 이동. 엣지 자체의 모양은 변하지 않고 이 펄스만 이벤트 때 잠깐 뜬다. */
+@keyframes task-edge-travel {
+  from { offset-distance: 0%; opacity: 0; }
+  8%   { opacity: 1; }
+  92%  { opacity: 1; }
+  to   { offset-distance: 100%; opacity: 0; }
+}
+
+@utility animate-pulse-ring {
+  animation: pulse-ring 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* §7.6 GitStatusCard — root 버블 새로고침 sweep. conic-gradient 를 회전시켜
+ * "무언가 돌아가는 중"을 가볍게 표시한다. 완료되면 즉시 제거. */
+@keyframes git-sweep {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@utility animate-git-sweep {
+  animation: git-sweep 1.2s linear infinite;
+}
+
+@utility animate-slide-in-right {
+  animation: slide-in-right 0.2s ease-out both;
+}
+
+@keyframes slide-in-left {
+  from {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@utility animate-slide-in-left {
+  animation: slide-in-left 0.2s ease-out both;
+}
+
+@utility animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+/* §5.5 #17-1 — IDE 오버레이 에이전트 전환 sheen.
+ * 유리 표면에 빛이 비스듬히 한 번 스쳐 지나가는 iOS 풍 연출.
+ * skew 된 화이트 그라데이션 띠가 좌 → 우로 통과하며 한 번만 빛난다. */
+@keyframes ide-switch-sheen {
+  0%   { opacity: 0; transform: translateX(-60%) skewX(-14deg); }
+  18%  { opacity: 1; }
+  100% { opacity: 0; transform: translateX(180%) skewX(-14deg); }
+}
+
+@utility animate-ide-switch-sheen {
+  animation: ide-switch-sheen 360ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+/* ─── 메뉴 드롭다운 (Apple-style) ─── */
+
+@keyframes menu-in {
+  0% { opacity: 0; transform: translateY(-4px) scale(0.97); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.menu-dropdown {
+  animation: menu-in 0.15s cubic-bezier(0.2, 0, 0, 1) both;
+  transform-origin: top left;
+}
+
+/* ─── Apple-style 버블 프레스 (스프링 복귀) ─── */
+
+.bubble-press {
+  transition:
+    transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1),
+    filter 0.18s ease-out,
+    border-color 0.3s ease,
+    box-shadow 0.3s ease;
+}
+
+.bubble-press:active {
+  transform: scale(0.93);
+  filter: brightness(1.15) saturate(1.1);
+  transition:
+    transform 0.08s cubic-bezier(0.25, 0.1, 0.25, 1),
+    filter 0.08s ease-out;
+}
+
+/* ─── Apple-style 더블클릭 열림 ─── */
+
+@keyframes bubble-open {
+  0%   { transform: scale(1);     filter: brightness(1)    saturate(1); }
+  10%  { transform: scale(0.94);  filter: brightness(1.15) saturate(1.05); }
+  32%  { transform: scale(1.07);  filter: brightness(1.32) saturate(1.15); }
+  52%  { transform: scale(0.985); filter: brightness(1.08) saturate(1.02); }
+  72%  { transform: scale(1.01);  filter: brightness(1.03) saturate(1); }
+  100% { transform: scale(1);     filter: brightness(1)    saturate(1); }
+}
+
+@utility animate-bubble-open {
+  animation: bubble-open 0.48s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* ─── 선택 태양 코로나 회전 (CSS transform = 컴포지터 처리, 메인스레드 부하와 무관) ─── */
+
+@keyframes sun-spin {
+  to { transform: rotate(360deg); }
+}
+
+@utility animate-sun-spin {
+  animation: sun-spin 32s linear infinite;
+  transform-origin: center;
+  will-change: transform;
+}
+
+/* ─── 말풍선 페이드인 ─── */
+
+@keyframes fade-in {
+  0% { opacity: 0; transform: translateX(-50%) translateY(4px); }
+  100% { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+@utility animate-fade-in {
+  animation: fade-in 0.3s ease-out both;
+}
+
+/* ─── 버블 스폰/디스폰 ─── */
+
+@keyframes bubble-spawn {
+  0%   { opacity: 0; transform: scale(0); }
+  60%  { opacity: 1; transform: scale(1.12); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes bubble-despawn {
+  0%   { opacity: 1; transform: scale(1); }
+  40%  { opacity: 0.8; transform: scale(1.08); }
+  100% { opacity: 0; transform: scale(0); }
+}
+
+.bubble-spawn {
+  animation: bubble-spawn 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.bubble-despawn {
+  animation: bubble-despawn 0.25s cubic-bezier(0.4, 0, 1, 1) both;
+}
+
+/* ─── Ghost 버블 (fade out over lifetime) ─── */
+
+.bubble-ghost {
+  border-style: dashed !important;
+}
+
+.bubble-ghost-label {
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+  text-decoration-color: rgba(255, 255, 255, 0.4);
+}
+
+/* ─── 장면 전환 (폴더 진입/복귀) ─── */
+
+@keyframes scene-zoom-in {
+  0% { opacity: 0; transform: scale(1.15); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes scene-zoom-out {
+  0% { opacity: 0; transform: scale(0.9); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+.scene-zoom-in {
+  animation: scene-zoom-in 0.22s cubic-bezier(0.25, 0.1, 0.25, 1) both;
+}
+
+.scene-zoom-out {
+  animation: scene-zoom-out 0.22s cubic-bezier(0.25, 0.1, 0.25, 1) both;
+}
+
+/* ─── 터미널 그룹 프로그레스 바 ─── */
+
+@keyframes slide {
+  0%   { transform: translateX(-100%); }
+  50%  { transform: translateX(200%); }
+  100% { transform: translateX(-100%); }
+}
+
+/* ─── 전역 스크롤바 기본값 (앱 전체 공통 톤) ─── */
+/* Firefox / 최신 엔진 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 116, 139, 0.28) transparent;
+}
+
+/* WebKit / Chromium */
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.28);
+  border-radius: 9999px;
+  transition: background 0.2s;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.5);
+}
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ─── 커스텀 스크롤바 (기본 숨김, hover 시 페이드인) ─── */
+
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color 0.3s;
+}
+
+.scrollbar-thin:hover {
+  scrollbar-color: rgba(100, 116, 139, 0.35) transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  width: 5px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 4px 0;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 9999px;
+  transition: background 0.3s;
+}
+
+.scrollbar-thin:hover::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.3);
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.5);
+}
+
+/* ─── 스크롤 페이드 — 물결 그라데이션 + 애니메이션 ─── */
+
+.scroll-fade {
+  position: relative;
+  overflow: hidden;
+}
+
+.scroll-fade-top,
+.scroll-fade-bottom {
+  pointer-events: none;
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  height: 12px;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+
+.scroll-fade-top.visible,
+.scroll-fade-bottom.visible {
+  opacity: 1;
+}
+
+/* 상단 — 위에서 아래로 페이드 */
+.scroll-fade-top {
+  top: 0;
+  background:
+    linear-gradient(to bottom, rgba(148, 163, 184, 0.18) 0%, rgba(148, 163, 184, 0.06) 40%, transparent 100%);
+}
+
+/* 하단 — 아래에서 위로 페이드 */
+.scroll-fade-bottom {
+  bottom: 0;
+  background:
+    linear-gradient(to top, rgba(148, 163, 184, 0.18) 0%, rgba(148, 163, 184, 0.06) 40%, transparent 100%);
+}
+
+/* 좌/우 — 가로 스크롤 에지 페이드 (IDE 탭바 등) */
+.scroll-fade-left,
+.scroll-fade-right {
+  pointer-events: none;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 10;
+  width: 16px;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+
+.scroll-fade-left.visible,
+.scroll-fade-right.visible {
+  opacity: 1;
+}
+
+.scroll-fade-left {
+  left: 0;
+  background:
+    linear-gradient(to right, rgba(148, 163, 184, 0.22) 0%, rgba(148, 163, 184, 0.08) 40%, transparent 100%);
+}
+
+.scroll-fade-right {
+  right: 0;
+  background:
+    linear-gradient(to left, rgba(148, 163, 184, 0.22) 0%, rgba(148, 163, 184, 0.08) 40%, transparent 100%);
+}
+
+/* 가로 스크롤바 — .scrollbar-thin 의 가로 보강 (높이만 추가) */
+.scrollbar-thin::-webkit-scrollbar:horizontal {
+  height: 5px;
+}
+
+/* 네이티브 스크롤바 완전 제거 (오버레이 썸을 별도 DOM 으로 그릴 때) */
+.scrollbar-overlay {
+  scrollbar-width: none;
+}
+.scrollbar-overlay::-webkit-scrollbar {
+  display: none;
+}
+
+
+/* ─── 커스텀 체크박스 (슬레이트 톤, 스크롤바와 동일 계열) ─── */
+
+.checkbox-slate {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid rgba(100, 116, 139, 0.4);
+  border-radius: 3px;
+  background: rgba(30, 41, 59, 0.6);
+  cursor: pointer;
+  position: relative;
+  flex-shrink: 0;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.checkbox-slate:hover {
+  border-color: rgba(148, 163, 184, 0.6);
+  background: rgba(51, 65, 85, 0.5);
+}
+
+.checkbox-slate:checked {
+  border-color: rgba(139, 92, 246, 0.7);
+  background: rgba(139, 92, 246, 0.25);
+}
+
+.checkbox-slate:checked::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 0.5px;
+  width: 5px;
+  height: 8px;
+  border: solid rgba(196, 181, 253, 0.9);
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(45deg);
+}
+
+/* 터미널 스타일 — 초록 글로우 */
+.scrollbar-terminal {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(52, 211, 153, 0.25) transparent;
+}
+
+.scrollbar-terminal::-webkit-scrollbar {
+  width: 5px;
+}
+
+.scrollbar-terminal::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 4px 0;
+}
+
+.scrollbar-terminal::-webkit-scrollbar-thumb {
+  background: rgba(52, 211, 153, 0.2);
+  border-radius: 9999px;
+  transition: background 0.2s;
+}
+
+.scrollbar-terminal::-webkit-scrollbar-thumb:hover {
+  background: rgba(52, 211, 153, 0.45);
+  box-shadow: 0 0 6px rgba(52, 211, 153, 0.3);
+}
+
+/* ─── IDE 오버레이 마크다운 — 인라인 코드 칩 (VS Code 채팅 톤) ───
+ * react-markdown + @tailwindcss/typography 의 인라인 <code> 는 기본적으로
+ * 백틱 글리프(::before/::after)만 붙고 배경이 없어 본문에 묻힌다.
+ * VS Code/GitHub 처럼 둥근 슬레이트 칩 배경 + 모노폰트로 떠 보이게 한다.
+ * fenced code block(<pre> 내부 <code>)은 제외 — 거기는 자체 배경이 이미 있다. */
+.ide-md :where(code):not(:where(pre *)) {
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+  font-weight: 500;
+  color: #eceef1;
+  background: rgba(140, 149, 165, 0.24);
+  border-radius: 4px;
+  padding: 1.5px 5px;
+}
+
+.ide-md :where(code):not(:where(pre *))::before,
+.ide-md :where(code):not(:where(pre *))::after {
+  content: none;
+}
