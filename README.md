@@ -34,22 +34,25 @@ bubbles. Keyword links connect related work across sessions.
 The terminal output of a multi-agent Claude session is a tree printed
 as a wall of text. Vibisual draws that tree as it grows.
 
-### 2. Configures custom sub-agents through a visual UI
+### 2. Designs the harness as a visual graph
 
-Click any agent bubble to open a configuration panel and define a
-sub-agent without editing `settings.json`:
+The bubble map is both the runtime view **and** the design surface for
+your harness. Instead of editing `settings.json` in a text editor, you
+build the harness on a canvas:
 
-- Model (Opus / Sonnet / Haiku)
-- Permission mode
-- Allowed tools
-- Max turns
-- Isolation (worktree or in-place)
-- Effort / reasoning level
-- Skills
-- Color & label
-- Per-agent rules
+- **Place agents as nodes.** Drop a bubble onto the canvas to define a
+  new sub-agent. Each node carries its own configuration — model,
+  permission mode, tools, isolation, max turns, effort level, skills,
+  and per-agent rules.
+- **Wire them with edges.** Connect agents with task edges to define
+  handoffs and dependencies between them. The edges become the
+  control-flow graph of your harness.
+- **The graph is the harness.** At runtime, Vibisual reads the graph
+  and spawns Claude Code sub-agents accordingly. The same canvas you
+  designed on is the canvas you watch the run on.
 
-Save the configuration; the next run picks it up.
+What used to be a buried `settings.json` tree is now a workflow you can
+see, edit, and rearrange at any time.
 
 ## Quick Start
 
