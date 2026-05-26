@@ -135,7 +135,7 @@ Apache License 2.0 — see [LICENSE](LICENSE). "Vibisual" and the Vibisual logo 
 
 ## Contributing
 
-Before opening a pull request, please read [CONTRIBUTING.md](CONTRIBUTING.md). It covers the licensing terms that apply to contributions — including a DCO sign-off requirement and an additional grant that lets the project relicense contributed code for future commercial offerings.
+By contributing, you agree to the DCO sign-off requirement and the additional contribution terms described in [CONTRIBUTING.md](CONTRIBUTING.md), including permission for project maintainers to relicense contributions for future commercial offerings.
 
 ## Disclaimer
 
