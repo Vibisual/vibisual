@@ -105,22 +105,30 @@ bubble map. A timestamped backup is kept next to it
 
 Tested on Windows. macOS and Linux builds are available but not extensively tested.
 
+## Status
+
+Vibisual is currently an early preview release.
+
+Version 0.1.0 is intended for experimentation, demos, and feedback.
+Expect bugs, incomplete features, rough edges, and occasional breaking
+changes.
+
+Vibisual is not recommended for critical production workflows or
+repositories containing highly sensitive data.
+
 ## Security and privacy
 
-Vibisual installs Claude Code hooks that can receive hook event payloads
-such as prompts, tool calls, file paths, shell commands, and session
-metadata.
+Vibisual uses Claude Code hooks to visualize agent activity. Hook
+payloads may include prompts, tool calls, file paths, shell commands,
+session metadata, and other local development context.
 
-By default, Vibisual is intended to run locally. Review the hook
-configuration before use, especially in repositories containing
-secrets, private code, credentials, or customer data.
+Vibisual is currently intended for local experimentation. Review the
+generated hook configuration before use, especially in repositories
+containing secrets, credentials, private code, customer data, or
+production systems.
 
 Claude Code command hooks run with the permissions of your local user
-account. Only install hooks from code you trust.
-
-Vibisual creates a timestamped backup of `~/.claude/settings.json`
-before writing its managed hook block. To disable automatic hook
-installation, set `VIBISUAL_SKIP_HOOK_INSTALL=1` before first launch.
+account. Only install and run hooks from code you trust.
 
 ## License
 
@@ -132,4 +140,6 @@ By contributing, you agree to the DCO sign-off requirement and the additional co
 
 ## Disclaimer
 
-Vibisual is an independent open-source project and is not affiliated with, endorsed by, or sponsored by Anthropic. Claude and Claude Code are trademarks of their respective owners.
+Vibisual is an independent open-source project and is not affiliated with, endorsed by, or sponsored by Anthropic.
+
+Claude, Claude Code, and Anthropic are trademarks or registered trademarks of Anthropic, PBC. All product names, logos, and brands are property of their respective owners.
