@@ -7,14 +7,14 @@
 A visual workspace for Claude Code — watch your agents work as a live bubble
 map, and configure sub-agents without ever opening `settings.json`.
 
-![Vibisual demo — hooks streaming into the bubble map, sub-agents configured visually](docs/media/demo.gif)
-
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%E2%89%A520-brightgreen.svg)](https://nodejs.org)
 [![Built with Claude Code](https://img.shields.io/badge/built%20with-Claude%20Code-7c3aed)](https://claude.com/claude-code)
 [![Status: early](https://img.shields.io/badge/status-early-orange)](#)
 
 </div>
+
+<img src="docs/media/demo.gif" alt="Vibisual demo — hooks streaming into the bubble map, sub-agents configured visually" width="100%" />
 
 ---
 
