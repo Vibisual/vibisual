@@ -67,18 +67,11 @@ see, edit, and rearrange at any time.
 
 ### Install on Windows
 
-1. Install the **Claude CLI** if you don't have it yet. The recommended
-   path is the [official Claude Code installation guide](https://docs.claude.com/claude-code/setup).
+Vibisual is a hooks-based visualizer that runs on top of the
+[Claude CLI](https://claude.com/claude-code). The Claude CLI must
+already be installed and available on your PATH.
 
-   For npm-based installs:
-
-   ```
-   npm install -g @anthropic-ai/claude-code
-   ```
-
-   (npm install requires [Node.js ≥ 20](https://nodejs.org).)
-
-2. Download the latest installer from the
+1. Download the latest installer from the
    [Releases page](https://github.com/Vibisual/vibisual/releases/latest)
    and run it:
 
@@ -86,7 +79,7 @@ see, edit, and rearrange at any time.
    Vibisual-0.1.0-setup.exe
    ```
 
-3. Launch Vibisual.
+2. Launch Vibisual.
 
 ### Build from source (contributors)
 
