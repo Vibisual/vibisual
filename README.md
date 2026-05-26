@@ -10,8 +10,8 @@
 
 <div align="center">
 
-A visual workspace for Claude Code — watch your agents work as a live bubble
-map, and configure sub-agents without ever opening `settings.json`.
+Visualize agent behavior through hooks, or build your harness by placing
+custom agent bubbles on a canvas.
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%E2%89%A520-brightgreen.svg)](https://nodejs.org)
