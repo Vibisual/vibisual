@@ -84,7 +84,7 @@ see, edit, and rearrange at any time.
 
 3. Launch Vibisual.
 
-### Build from source (macOS / Linux / contributors)
+### Build from source (contributors)
 
 ```bash
 git clone https://github.com/Vibisual/vibisual.git
@@ -94,10 +94,8 @@ pnpm install
 # Build and launch the desktop app
 node scripts/runapp.mjs
 
-# Or build a distributable installer
-pnpm build:win    # Windows NSIS installer
-pnpm build:mac    # macOS dmg
-pnpm build:linux  # AppImage
+# Build a Windows installer
+pnpm build:win
 ```
 
 ### About the hook installer
