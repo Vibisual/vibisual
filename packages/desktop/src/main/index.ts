@@ -148,6 +148,13 @@ async function startHookListener(expressApp: Express): Promise<number> {
 
     // /health is public — health checks must not require auth.
     const isHealth = path === '/health';
+    // dispatch 라우트는 외부 `claude` 자식 프로세스(서브에이전트 LLM) 가 호출자라
+    // per-launch 토큰을 전달받을 채널이 없다. listener 가 127.0.0.1 에만 listen 하고
+    // dispatch 핸들러 자체가 edgeId/target 등록 여부를 검증하므로(:3634-3643) 임의 호출
+    // 차단은 이미 보장됨. 토큰 게이트는 hook 이벤트·permission-check·ask-user-question
+    // 라우트에서만 유지하고 dispatch 만 면제. (회귀 픽스 — 토큰 도입 PR 이 dispatch
+    // 송신측에 토큰 전달 채널을 추가하지 않아 401 로 영구 차단되던 것 해소.)
+    const isDispatch = path === '/api/task-edges/dispatch';
 
     // All other whitelisted paths require the per-launch token (item #7).
     if (
@@ -163,7 +170,7 @@ async function startHookListener(expressApp: Express): Promise<number> {
       return;
     }
 
-    if (!isHealth) {
+    if (!isHealth && !isDispatch) {
       const incoming = req.headers['x-vibisual-hook-token'];
       if (incoming !== hookToken) {
         res.statusCode = 401;
