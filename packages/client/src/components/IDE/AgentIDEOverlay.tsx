@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { SubAgent, SubAgentStreamEvent } from '@vibisual/shared';
-import { useGraphStore } from '../../stores/graphStore.js';
+import { useGraphStore, selectIDEOverlay } from '../../stores/graphStore.js';
 import { IDEActivityBar } from './IDEActivityBar.js';
 import { IDETabBar } from './IDETabBar.js';
 import { IDESidebar } from './IDESidebar.js';
@@ -25,13 +25,14 @@ const MIN_FLOAT_H = 320;
 
 export const AgentIDEOverlay = memo(function AgentIDEOverlay(): React.JSX.Element | null {
   const { t } = useTranslation();
-  const agentId = useGraphStore((s) => s.ideOverlay.agentId);
-  const activeSessionId = useGraphStore((s) => s.ideOverlay.activeSessionId);
+  const agentId = useGraphStore((s) => selectIDEOverlay(s).agentId);
+  const overlayProjectId = useGraphStore((s) => selectIDEOverlay(s).projectId);
+  const activeSessionId = useGraphStore((s) => selectIDEOverlay(s).activeSessionId);
   const closeOverlay = useGraphStore((s) => s.closeIDEOverlay);
   const setSession = useGraphStore((s) => s.setIDEActiveSession);
   const setIDEDocked = useGraphStore((s) => s.setIDEDocked);
-  const storeDockedRight = useGraphStore((s) => s.ideOverlay.dockedRight);
-  const storeDockWidth = useGraphStore((s) => s.ideOverlay.dockWidth);
+  const storeDockedRight = useGraphStore((s) => selectIDEOverlay(s).dockedRight);
+  const storeDockWidth = useGraphStore((s) => selectIDEOverlay(s).dockWidth);
   const agent = useGraphStore((s) => agentId ? s.nodeMap[agentId] : undefined);
   const subAgents = useGraphStore((s) => (agentId ? s.subAgents[agentId] : undefined) ?? EMPTY_SUBS);
 
@@ -48,17 +49,19 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay(): React.JSX.Elemen
   const [snapPreview, setSnapPreview] = useState<boolean>(false);
   const [flashKey, setFlashKey] = useState<number>(0);
   const windowRef = useRef<HTMLDivElement | null>(null);
-  const prevAgentIdRef = useRef<string | null>(null);
+  const prevRef = useRef<{ agentId: string | null; projectId: string | null }>({ agentId: null, projectId: null });
 
-  // §5.5 #17-1 (v2.17) — agentId 전이 처리:
+  // §5.5 #17-1 (v2.17) — agentId/projectId 전이 처리:
   //   (a) null → truthy : 새로 열림 — store.dockedRight 가 true 면 docked-right 복원, 아니면 modal
-  //   (b) truthy → truthy(다른 id) : 같은 오버레이에서 에이전트 교체 → mode 유지 + flash
-  //   (c) truthy → null : 닫힘 — 로컬 mode 도 'modal' 리셋 (v2.20: 재오픈 시 stale 'docked-right'
-  //       가 sync effect 를 통해 store.dockedRight 를 다시 켜는 회귀 차단)
+  //   (b) 프로젝트 전환 (overlayProjectId 변경) : 새 프로젝트 슬롯의 dockedRight 기준으로 mode 재초기화. flash 없음.
+  //   (c) 같은 프로젝트에서 agentId 만 교체 : 모드 유지 + flash
+  //   (d) truthy → null : 닫힘 — 로컬 mode 도 'modal' 리셋
   useEffect(() => {
-    const prev = prevAgentIdRef.current;
-    prevAgentIdRef.current = agentId ?? null;
-    if (agentId && !prev) {
+    const prev = prevRef.current;
+    prevRef.current = { agentId: agentId ?? null, projectId: overlayProjectId };
+    const projectChanged = prev.projectId !== overlayProjectId;
+    if (agentId && (!prev.agentId || projectChanged)) {
+      // 새 열림 또는 프로젝트 전환 — 해당 프로젝트의 dockedRight 기준으로 mode 결정
       if (storeDockedRight) {
         setMode('docked-right');
         setDockWidth(storeDockWidth);
@@ -66,15 +69,15 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay(): React.JSX.Elemen
         setMode('modal');
       }
       setMaximized(false);
-    } else if (agentId && prev && prev !== agentId) {
+    } else if (agentId && prev.agentId && prev.agentId !== agentId && !projectChanged) {
       setFlashKey((k) => k + 1);
-    } else if (!agentId && prev) {
+    } else if (!agentId && prev.agentId) {
       // 닫힘 — 로컬 상태 리셋
       setMode('modal');
       setMaximized(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agentId]);
+  }, [agentId, overlayProjectId]);
 
   // §5.5 #17-1 (v2.18) — mode/dockWidth 를 store 에 sync. DetailPanel 이 좌/우 위치 판단에 사용.
   // (v2.20) 닫힌 상태(agentId null) 에서는 sync 금지 — closeIDEOverlay 가 이미 dockedRight=false 로 리셋했는데

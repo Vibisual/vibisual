@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { BubbleData, BashEntry, ServerEntry, AgentEvent, FileEdit, SubAgent, SessionTokenData, TurnTokenUsage, AgentConfig } from '@vibisual/shared';
 import { BUBBLE_COLORS, PANEL_DEFAULT_WIDTH, PANEL_MIN_WIDTH, PANEL_MAX_WIDTH, MAX_FILE_EDITS } from '@vibisual/shared';
-import { useGraphStore } from '../../stores/graphStore.js';
+import { useGraphStore, selectIDEOverlay } from '../../stores/graphStore.js';
 import { ScrollFade } from '../ScrollFade.js';
 import { BashHistoryList } from './BashHistoryList.js';
 import { ServerList } from './ServerList.js';
@@ -112,7 +112,8 @@ export function DetailPanel({
   const rateLimits = useGraphStore((s) => s.rateLimits);
 
   // §5.5 #17-1 (v2.18) — IDE 가 우측 도킹된 상태면 DetailPanel 을 왼쪽으로.
-  const ideDockedRight = useGraphStore((s) => s.ideOverlay.dockedRight);
+  // selectIDEOverlay 는 activeProject 의 슬롯만 반환하므로 자동으로 현재 탭의 IDE 만 반영.
+  const ideDockedRight = useGraphStore((s) => selectIDEOverlay(s).dockedRight);
   const panelOnLeft = ideDockedRight;
 
   // 세션 토큰 팝업

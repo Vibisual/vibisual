@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { SubAgent, SubAgentHistoryItem } from '@vibisual/shared';
-import { useGraphStore } from '../../stores/graphStore.js';
+import { useGraphStore, selectIDEOverlay } from '../../stores/graphStore.js';
 import { TabContextMenu } from '../Layout/TabContextMenu.js';
 
 interface IDETabBarProps {
@@ -25,8 +25,8 @@ export const IDETabBar = memo(function IDETabBar({
   onNewSession,
 }: IDETabBarProps): React.JSX.Element {
   const { t } = useTranslation();
-  const activeSessionId = useGraphStore((s) => s.ideOverlay.activeSessionId);
-  const agentId = useGraphStore((s) => s.ideOverlay.agentId);
+  const activeSessionId = useGraphStore((s) => selectIDEOverlay(s).activeSessionId);
+  const agentId = useGraphStore((s) => selectIDEOverlay(s).agentId);
   const setSession = useGraphStore((s) => s.setIDEActiveSession);
   const tabPins = useGraphStore((s) => s.tabPins);
   const acknowledgedSubAgents = useGraphStore((s) => s.acknowledgedSubAgents);
@@ -369,7 +369,7 @@ export const IDETabBar = memo(function IDETabBar({
 
 function HistoryButton(): React.JSX.Element | null {
   const { t } = useTranslation();
-  const agentId = useGraphStore((s) => s.ideOverlay.agentId);
+  const agentId = useGraphStore((s) => selectIDEOverlay(s).agentId);
   const setSession = useGraphStore((s) => s.setIDEActiveSession);
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<SubAgentHistoryItem[] | null>(null);

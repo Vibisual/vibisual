@@ -116,10 +116,12 @@ export interface IframeTab {
 /** IDE 오버레이 사이드바 뷰 타입 */
 export type IDEViewType = 'terminal' | 'files' | 'events';
 
-/** IDE 오버레이 상태 */
+/** IDE 오버레이 상태 — 프로젝트 단위로 독립적으로 보관 (ideOverlays[projectId]). */
 export interface IDEOverlayState {
   /** 열려있는 에이전트 ID (null이면 닫힘) */
   agentId: string | null;
+  /** 이 IDE 가 속한 프로젝트 ID. ideOverlays 의 키와 동일 — 일관성 보장용. */
+  projectId: string | null;
   /** 현재 선택된 세션(SubAgent) ID (null이면 메인 세션) */
   activeSessionId: string | null;
   /** 사이드바 뷰 */
@@ -130,6 +132,26 @@ export interface IDEOverlayState {
   dockedRight: boolean;
   /** §5.5 #17-1 — 도킹 폭 (px). DetailPanel 이 우측 도킹된 IDE 를 피해 좌측에 뜰 때 사용. */
   dockWidth: number;
+}
+
+/** IDE 닫힘/없음 상태 기본값. selectIDEOverlay 가 미보유 프로젝트에 대해 반환. */
+export const DEFAULT_IDE_OVERLAY: IDEOverlayState = {
+  agentId: null,
+  projectId: null,
+  activeSessionId: null,
+  activeView: 'terminal',
+  sidebarCollapsed: true,
+  dockedRight: false,
+  dockWidth: 480,
+};
+
+/** 현재 활성 프로젝트 탭의 IDE 오버레이 상태를 반환. 없으면 기본값. */
+export function selectIDEOverlay(state: {
+  ideOverlays: Record<string, IDEOverlayState>;
+  activeProject: string | null;
+}): IDEOverlayState {
+  if (!state.activeProject) return DEFAULT_IDE_OVERLAY;
+  return state.ideOverlays[state.activeProject] ?? DEFAULT_IDE_OVERLAY;
 }
 
 /** agentId → sessionId (agent.path に格納) */
@@ -475,8 +497,8 @@ interface GraphState {
   subAgentStreams: Record<string, SubAgentStreamEvent[]>;
   appendStreamEvent: (event: SubAgentStreamEvent) => void;
   loadStreamBuffers: (buffers: Record<string, SubAgentStreamEvent[]>) => void;
-  /** IDE 오버레이 상태 */
-  ideOverlay: IDEOverlayState;
+  /** IDE 오버레이 상태 — 프로젝트별 독립 슬롯 (projectId → state). 활성 탭의 슬롯만 화면에 노출. */
+  ideOverlays: Record<string, IDEOverlayState>;
   openIDEOverlay: (agentId: string) => void;
   closeIDEOverlay: () => void;
   setIDEActiveSession: (sessionId: string | null) => void;
@@ -1397,7 +1419,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   loadStreamBuffers: (buffers) => set((s) => ({
     subAgentStreams: { ...s.subAgentStreams, ...buffers },
   })),
-  ideOverlay: { agentId: null, activeSessionId: null, activeView: 'terminal', sidebarCollapsed: true, dockedRight: false, dockWidth: 480 },
+  ideOverlays: {},
   openIDEOverlay: (agentId) => set((state) => {
     // 우선순위: (1) 마지막 활성 서브에이전트 → (2) Default 서브에이전트 → (3) null
     const subAgents = state.subAgents[agentId] ?? [];
@@ -1407,38 +1429,62 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     const initialSession =
       (lastActive && exists(lastActive) ? lastActive : null)
       ?? (defaultSub && exists(defaultSub) ? defaultSub : null);
-    // §5.5 #17-1 (v2.17) — 이미 우측 도킹 상태면 agentId 만 교체 + dockedRight/dockWidth 유지.
-    // 닫힌 상태(agentId===null) 에서 새로 열 때만 modal 로 리셋되며 dockedRight=false.
-    const wasOpen = state.ideOverlay.agentId !== null;
-    const keepDock = wasOpen && state.ideOverlay.dockedRight;
+    // IDE 를 소유하는 프로젝트 = 에이전트가 속한 프로젝트(없으면 현재 활성 프로젝트로 폴백).
+    const ownerProject = state.agentProjects[agentId] ?? state.activeProject;
+    if (!ownerProject) return {}; // 소속 프로젝트 미상이면 무시
+    const prev = state.ideOverlays[ownerProject];
+    // §5.5 #17-1 (v2.17) — 같은 프로젝트의 IDE 가 이미 우측 도킹 상태면 agentId 만 교체 + dockedRight/dockWidth 유지.
+    const wasOpen = !!prev?.agentId;
+    const keepDock = wasOpen && !!prev?.dockedRight;
     return {
-      ideOverlay: {
-        agentId,
-        activeSessionId: initialSession,
-        activeView: 'terminal',
-        sidebarCollapsed: true,
-        dockedRight: keepDock,
-        dockWidth: keepDock ? state.ideOverlay.dockWidth : 480,
+      ideOverlays: {
+        ...state.ideOverlays,
+        [ownerProject]: {
+          agentId,
+          projectId: ownerProject,
+          activeSessionId: initialSession,
+          activeView: 'terminal',
+          sidebarCollapsed: true,
+          dockedRight: keepDock,
+          dockWidth: keepDock ? (prev?.dockWidth ?? 480) : 480,
+        },
       },
     };
   }),
-  closeIDEOverlay: () => set({
-    ideOverlay: { agentId: null, activeSessionId: null, activeView: 'terminal', sidebarCollapsed: true, dockedRight: false, dockWidth: 480 },
+  closeIDEOverlay: () => set((state) => {
+    // 닫기는 현재 활성 프로젝트의 슬롯 대상. 슬롯 자체 제거 = 깨끗한 초기 상태로 복귀.
+    const proj = state.activeProject;
+    if (!proj || !state.ideOverlays[proj]) return {};
+    const next = { ...state.ideOverlays };
+    delete next[proj];
+    return { ideOverlays: next };
   }),
-  setIDEDocked: (docked, dockWidth) => set((s) => ({
-    ideOverlay: {
-      ...s.ideOverlay,
-      dockedRight: docked,
-      dockWidth: dockWidth ?? s.ideOverlay.dockWidth,
-    },
-  })),
+  setIDEDocked: (docked, dockWidth) => set((s) => {
+    const proj = s.activeProject;
+    if (!proj) return {};
+    const cur = s.ideOverlays[proj];
+    if (!cur) return {};
+    return {
+      ideOverlays: {
+        ...s.ideOverlays,
+        [proj]: { ...cur, dockedRight: docked, dockWidth: dockWidth ?? cur.dockWidth },
+      },
+    };
+  }),
   setIDEActiveSession: (sessionId) => set((s) => {
+    const proj = s.activeProject;
+    if (!proj) return {};
+    const cur = s.ideOverlays[proj];
+    if (!cur) return {};
     const next: Partial<GraphState> = {
-      ideOverlay: { ...s.ideOverlay, activeSessionId: sessionId },
+      ideOverlays: {
+        ...s.ideOverlays,
+        [proj]: { ...cur, activeSessionId: sessionId },
+      },
     };
     // sticky 선택 맵 동시 업데이트 — IDE 오버레이가 닫혀도 버블이 이 선택을 유지
-    if (s.ideOverlay.agentId && sessionId) {
-      next.selectedSubByAgent = { ...s.selectedSubByAgent, [s.ideOverlay.agentId]: sessionId };
+    if (cur.agentId && sessionId) {
+      next.selectedSubByAgent = { ...s.selectedSubByAgent, [cur.agentId]: sessionId };
     }
     // 탭 클릭 = 완료 알림 확인 — 도트가 녹색이었으면 회색으로 전환되도록 ack 마킹
     if (sessionId && !s.acknowledgedSubAgents[sessionId]) {
@@ -1450,12 +1496,24 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   selectSubForAgent: (agentId, subId) => set((s) => ({
     selectedSubByAgent: { ...s.selectedSubByAgent, [agentId]: subId },
   })),
-  setIDEActiveView: (view) => set((s) => ({
-    ideOverlay: { ...s.ideOverlay, activeView: view },
-  })),
-  toggleIDESidebar: () => set((s) => ({
-    ideOverlay: { ...s.ideOverlay, sidebarCollapsed: !s.ideOverlay.sidebarCollapsed },
-  })),
+  setIDEActiveView: (view) => set((s) => {
+    const proj = s.activeProject;
+    if (!proj) return {};
+    const cur = s.ideOverlays[proj];
+    if (!cur) return {};
+    return {
+      ideOverlays: { ...s.ideOverlays, [proj]: { ...cur, activeView: view } },
+    };
+  }),
+  toggleIDESidebar: () => set((s) => {
+    const proj = s.activeProject;
+    if (!proj) return {};
+    const cur = s.ideOverlays[proj];
+    if (!cur) return {};
+    return {
+      ideOverlays: { ...s.ideOverlays, [proj]: { ...cur, sidebarCollapsed: !cur.sidebarCollapsed } },
+    };
+  }),
   uiLocale: DEFAULT_UI_LOCALE,
   applyUiLocale: (locale) => {
     set({ uiLocale: locale });

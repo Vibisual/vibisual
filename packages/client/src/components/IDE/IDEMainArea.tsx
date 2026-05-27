@@ -1,7 +1,7 @@
 import { memo, useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { QueuedCommand, SubAgent, SubAgentStreamEvent, AgentEvent } from '@vibisual/shared';
-import { useGraphStore, agentSessionInputKey } from '../../stores/graphStore.js';
+import { useGraphStore, agentSessionInputKey, selectIDEOverlay } from '../../stores/graphStore.js';
 import type { AgentSessionInputAttachment } from '../../stores/graphStore.js';
 import { StreamRenderer } from './StreamRenderer.js';
 import { AskQuestionCard } from './AskQuestionCard.js';
@@ -838,7 +838,7 @@ export const IDEMainArea = memo(function IDEMainArea({
   isCustom,
 }: IDEMainAreaProps): React.JSX.Element {
   const { t } = useTranslation();
-  const activeSessionId = useGraphStore((s) => s.ideOverlay.activeSessionId);
+  const activeSessionId = useGraphStore((s) => selectIDEOverlay(s).activeSessionId);
   const markSubAcknowledged = useGraphStore((s) => s.markSubAcknowledged);
   // 사용자가 메인 영역(스크롤 영역) 안을 클릭하면 현재 sub 의 완료 알림을 확인 처리(녹색→회색).
   const handleAckClick = useCallback(() => {

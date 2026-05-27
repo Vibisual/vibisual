@@ -1,6 +1,6 @@
 import { memo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useGraphStore } from '../../stores/graphStore.js';
+import { useGraphStore, selectIDEOverlay } from '../../stores/graphStore.js';
 import type { IDEViewType } from '../../stores/graphStore.js';
 
 interface ActivityItem {
@@ -17,10 +17,10 @@ const ACTIVITIES: ActivityItem[] = [
 
 export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element {
   const { t } = useTranslation();
-  const activeView = useGraphStore((s) => s.ideOverlay.activeView);
+  const activeView = useGraphStore((s) => selectIDEOverlay(s).activeView);
   const setActiveView = useGraphStore((s) => s.setIDEActiveView);
   const toggleSidebar = useGraphStore((s) => s.toggleIDESidebar);
-  const sidebarCollapsed = useGraphStore((s) => s.ideOverlay.sidebarCollapsed);
+  const sidebarCollapsed = useGraphStore((s) => selectIDEOverlay(s).sidebarCollapsed);
 
   const handleClick = useCallback((view: IDEViewType) => {
     if (activeView === view && !sidebarCollapsed) {
