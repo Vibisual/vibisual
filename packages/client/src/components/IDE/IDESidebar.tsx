@@ -1,7 +1,7 @@
 import { memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { SubAgent, AgentEvent, QueuedCommand, FileEdit, ActivityEdge } from '@vibisual/shared';
-import { useGraphStore } from '../../stores/graphStore.js';
+import { useGraphStore, selectIDEOverlay } from '../../stores/graphStore.js';
 import type { IDEViewType } from '../../stores/graphStore.js';
 import { ScrollFade } from '../ScrollFade.js';
 
@@ -189,8 +189,8 @@ const VIEW_MAP: Record<IDEViewType, React.FC<{ agentId: string }>> = {
 };
 
 export const IDESidebar = memo(function IDESidebar({ agentId }: IDESidebarProps): React.JSX.Element {
-  const activeView = useGraphStore((s) => s.ideOverlay.activeView);
-  const collapsed = useGraphStore((s) => s.ideOverlay.sidebarCollapsed);
+  const activeView = useGraphStore((s) => selectIDEOverlay(s).activeView);
+  const collapsed = useGraphStore((s) => selectIDEOverlay(s).sidebarCollapsed);
   const View = VIEW_MAP[activeView];
 
   if (collapsed) return <></>;

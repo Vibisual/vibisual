@@ -31,7 +31,7 @@ import type {
   CommentBox,
   BubbleData,
 } from '@vibisual/shared';
-import { useGraphStore } from '../stores/graphStore.js';
+import { useGraphStore, selectIDEOverlay } from '../stores/graphStore.js';
 
 interface Params {
   rfRef: RefObject<ReactFlowInstance | null>;
@@ -315,7 +315,8 @@ export function useCanvasClipboard({
       if (currentFolderId !== null) return; // 메인 뷰 전용
       // IDE 오버레이 모달이 열려 있으면 캔버스 클립보드 비활성 —
       // 출력 영역(div/span/pre) 텍스트 선택 후 Ctrl+C 가 네이티브 복사로 가도록 보존.
-      if (useGraphStore.getState().ideOverlay.agentId) return;
+      // selectIDEOverlay 는 활성 탭의 IDE 슬롯만 반환하므로 다른 탭 IDE 는 영향 X.
+      if (selectIDEOverlay(useGraphStore.getState()).agentId) return;
       if (!(e.ctrlKey || e.metaKey)) return;
       if (e.altKey || e.shiftKey) return;
       if (isEditableTarget(e.target)) return;

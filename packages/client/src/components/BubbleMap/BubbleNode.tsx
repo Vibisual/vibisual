@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import type { BubbleData, BubbleStyleConfig } from '@vibisual/shared';
 import { BUBBLE_STYLES, BUBBLE_TEXT_WIDTH_RATIO, BUBBLE_TEXT_REF_SIZE, GIT_STATUS_CONFIG } from '@vibisual/shared';
 import { calcBubbleSize } from '../../utils/sizeCalc.js';
-import { useGraphStore } from '../../stores/graphStore.js';
+import { useGraphStore, selectIDEOverlay } from '../../stores/graphStore.js';
 
 type BubbleNodeData = BubbleData & Record<string, unknown>;
 
@@ -284,8 +284,8 @@ export const BubbleNode = memo(function BubbleNode({
   //  - (1) 이 있으면 동작중 컨텍스트를 실시간 반영
   //  - 없으면 사용자가 IDE 에서 골라본 sub 로 전환(요구사항: "동작중인게 없을 경우 그 선택한거로 변경")
   const subAgentsMap = useGraphStore((s) => s.subAgents);
-  const ideAgentId = useGraphStore((s) => s.ideOverlay.agentId);
-  const ideActiveSessionId = useGraphStore((s) => s.ideOverlay.activeSessionId);
+  const ideAgentId = useGraphStore((s) => selectIDEOverlay(s).agentId);
+  const ideActiveSessionId = useGraphStore((s) => selectIDEOverlay(s).activeSessionId);
   const stickySelectedSubId = useGraphStore((s) => s.selectedSubByAgent[data.id]);
   const effectiveSubOverride = useMemo(() => {
     if (!isAgent || !data.customCreated) return null;

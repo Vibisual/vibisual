@@ -6,7 +6,6 @@ import {
   AVAILABLE_AGENT_TOOLS,
   DEFAULT_AGENT_CONFIG,
   CONTI_AGENT_RULES,
-  AGENT_PRESETS,
   isOpusModel,
 } from '@vibisual/shared';
 import { HexColorPicker } from 'react-colorful';
@@ -378,8 +377,8 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
   // §4 v1.53 — Opus 1M 컨텍스트 토글. **기본 ON** — undefined/'1m' 둘 다 체크, '200k' 만 언체크.
   const [contextWindow, setContextWindow] = useState<'1m' | '200k' | undefined>(base.contextWindow);
   const oneMillionEnabled = contextWindow !== '200k';
-  // §4 v1.53 — 프리셋 트레이스. 사용자가 폼을 만지면 dirty 마킹 ❌ (메타만)
-  const [presetId, setPresetId] = useState<string | undefined>(base.presetId);
+  // §4 v1.53 — 프리셋 트레이스 (UI 제거됨, 기존 값은 save 시 그대로 보존)
+  const [presetId] = useState<string | undefined>(base.presetId);
   const [rules, setRules] = useState(base.rules ?? '');
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [showRulesEditor, setShowRulesEditor] = useState(false);
@@ -474,23 +473,6 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
     finally { setSaving(false); }
   }, [agentId, buildPayload, onClose]);
 
-  // §4 v1.53 — 프리셋 선택 → 폼 즉시 갱신 (저장 전까지 dirty, 사용자가 Save 눌러야 적용)
-  const applyPreset = useCallback((id: string) => {
-    const preset = AGENT_PRESETS.find((p) => p.id === id);
-    if (!preset) return;
-    const c = preset.config;
-    if (c.model !== undefined) setModel(c.model);
-    if (c.tools !== undefined) setTools([...c.tools]);
-    if (c.permissionMode !== undefined) setPermissionMode(c.permissionMode);
-    if (c.effort !== undefined) setEffort(c.effort);
-    if (c.maxTurns !== undefined) setMaxTurns(c.maxTurns);
-    if (c.isolation !== undefined) setIsolation(c.isolation);
-    if (c.disallowedTools !== undefined) setDisallowedTools([...c.disallowedTools]);
-    // rules 는 정의된 경우에만 덮어쓰기 (general-purpose 는 undefined → 사용자 룰 보존)
-    if (c.rules !== undefined) setRules(c.rules);
-    setPresetId(id);
-  }, []);
-
   const availableToAdd = AVAILABLE_AGENT_TOOLS.filter((t) => !tools.includes(t));
 
   return (
@@ -514,37 +496,6 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
         {/* Body */}
         <ScrollFade fill className="flex-1">
           <div className="flex flex-col gap-4 p-4">
-
-            {/* §4 v1.53 — Preset selector. 선택 시 폼 즉시 채워짐(저장 전까지 dirty) */}
-            <div className="flex flex-col gap-1">
-              <label className="flex items-center text-xs font-medium text-gray-400">
-                {t('panel.agentConfig.preset.label', { defaultValue: 'Preset' })}
-                <InfoTip text={t('panel.agentConfig.preset.tip', {
-                  defaultValue: 'Quick-start: tools / permissionMode / effort / rules 를 한 번에 채웁니다. 이후 자유 편집 가능 (메타만 추적).',
-                })} />
-              </label>
-              <CustomSelect
-                value={presetId ?? ''}
-                onChange={(v) => { if (v) applyPreset(v); }}
-                options={[
-                  { value: '', description: t('panel.agentConfig.preset.custom', { defaultValue: '(custom — 프리셋 미적용)' }) },
-                  ...AGENT_PRESETS.map((p) => ({
-                    value: p.id,
-                    description: t(`panel.agentConfig.preset.${p.id}`, { defaultValue: p.id }),
-                  })),
-                ]}
-              />
-              {presetId && (
-                <p className="flex items-center gap-1.5 text-[10px] text-emerald-400/80">
-                  <svg viewBox="0 0 24 24" className="h-3 w-3 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                  <span>
-                    {t('panel.agentConfig.preset.applied', { defaultValue: '프리셋 적용됨 — 폼은 자유 편집 가능' })}: {presetId}
-                  </span>
-                </p>
-              )}
-            </div>
 
             {/* Model */}
             <div className="flex flex-col gap-1">
