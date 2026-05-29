@@ -202,6 +202,17 @@ function findRcedit() {
   if (process.env.RCEDIT_PATH && existsSync(process.env.RCEDIT_PATH)) {
     return process.env.RCEDIT_PATH;
   }
+  // Deterministic source: the `rcedit` npm package ships the binary. This is what makes the
+  // icon embed work on CI — GitHub Actions runners have no winCodeSign cache (we set
+  // signAndEditExecutable=false, which skips that download), so without this the packaged
+  // Vibisual.exe shipped with the default Electron icon.
+  try {
+    const pkgJson = require.resolve('rcedit/package.json');
+    const candidate = join(dirname(pkgJson), 'bin', 'rcedit-x64.exe');
+    if (existsSync(candidate)) return candidate;
+  } catch {
+    /* rcedit not installed — fall through to the local cache fallback */
+  }
   const cacheRoot = join(os.homedir(), 'AppData', 'Local', 'electron-builder', 'Cache', 'winCodeSign');
   if (!existsSync(cacheRoot)) return null;
   let entries;

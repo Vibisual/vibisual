@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-05-29
+
+### Fixed
+- App icon reverted to the default Electron icon on builds produced in CI (and therefore on auto-updated installs). The brand icon is embedded into `Vibisual.exe` with `rcedit`, which the GitHub Actions runners couldn't locate (no winCodeSign cache). The `rcedit` binary now ships as a build dependency, so every build — local and CI — embeds the icon.
+
 ## [0.1.1] - 2026-05-29
 
 ### Added
@@ -30,5 +35,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - Dropped preset options from the custom agent settings.
 
-[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/Vibisual/vibisual/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/Vibisual/vibisual/compare/v0.1.0...v0.1.1
