@@ -574,9 +574,6 @@
     },
     "mainArea": {
       "scrollPrompt": "Zum Prompt scrollen",
-      "noSessions": "Noch keine Sessions",
-      "noActivity": "Keine Aktivität in dieser Session",
-      "startHint": "Geben Sie unten einen Befehl ein, um eine neue Session zu starten",
       "inputPlaceholderNew": "Befehl eingeben, um eine neue Session zu starten...",
       "inputPlaceholder": "Befehl eingeben...",
       "run": "Ausführen",

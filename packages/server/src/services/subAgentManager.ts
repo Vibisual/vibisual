@@ -73,6 +73,18 @@ function buildConfigArgs(config: AgentConfig): string[] {
 /** claude CLI 경로 — `services/claudeBin.ts` 가 SSOT (§5.7 #23-1 v1.59 버전 체크와 동일 바이너리). */
 const CLAUDE_BIN = resolveClaudeBin().binPath;
 
+/**
+ * Persistent child process — VS Code Claude Code 확장과 같은 long-lived 모델.
+ * 매 턴 fresh spawn (`claude -p --print --resume <id>`) 대신 에이전트당 1개 자식을 띄워두고
+ * stdin 으로 다음 턴 메시지만 추가. 2턴째부터 node boot + claude init + JSONL 재로드 +
+ * MCP 재연결 + hook 재초기화 비용이 0.
+ *
+ * 안전장치 — `VIBISUAL_PERSISTENT_CHILD=0` 으로 즉시 옛 동작(매 턴 fresh spawn) 복원.
+ * claude 바이너리가 multi-turn stdin 을 지원 안 하는 버전이면 자식이 result 후 자연 종료 →
+ * crash 복구 경로가 sub.sessionId 보존 → 다음 턴이 --resume 으로 자동 폴백.
+ */
+const PERSISTENT_CHILD_ENABLED = process.env['VIBISUAL_PERSISTENT_CHILD'] !== '0';
+
 /** subagent 카운터 (라벨 생성용) */
 let subCounter = 0;
 
@@ -233,6 +245,25 @@ export class SubAgentManager {
   /** 사용자가 stop() 호출로 명시 중지한 subagentId — close 핸들러에서 '유저 중지' vs '에러' 를 구분해
    *  cmd.result 를 `[Stopped by user]` 로 채우고 sub.status 를 idle 로 복귀시키기 위함. */
   private stoppedByUser = new Set<string>();
+  /** Persistent child — 자식이 turn 사이 idle(다음 stdin write 대기) 인가. true 면 reuse 가능.
+   *  result 라인 도착 시 true, 새 stdin write 직전 false. */
+  private persistentChildReady = new Map<string, boolean>();
+  /** Persistent child — 의도적 종료 마킹(stop/remove/shutdownAll). close 핸들러에서 crash 와 구분하기 위함.
+   *  마킹 없이 close 되면 crash 경로로 sub.sessionId 보존(다음 execute 가 --resume 으로 복구). */
+  private intentionalKill = new Set<string>();
+  /** Persistent child — 턴 사이에 살아남는 stdout line buffer. fresh spawn 에선 매번 새로 만들지만
+   *  persistent child 는 같은 stdout 스트림이 여러 턴을 흘리므로 map 으로 보존. */
+  private persistentLineBuf = new Map<string, string>();
+  /** Persistent child — 현재 진행 중인 turn 의 cmd/turnCount/resultText/killed/maxTurns/parentCwd.
+   *  fresh spawn 또는 reuse 시점에 새 값으로 set, result 라인 도착 시 delete. */
+  private persistentInFlightCmd = new Map<string, {
+    cmd: QueuedCommand;
+    turnCount: number;
+    resultText: string | undefined;
+    killed: boolean;
+    maxTurns: number;
+    parentCwd: string;
+  }>();
   /** 부모 에이전트 → 프로젝트 해석 콜백 (영속화 경로 계산용) */
   private projectResolver: AgentProjectResolver | null = null;
 
@@ -645,9 +676,14 @@ export class SubAgentManager {
 
     const child = this.runningChildren.get(subAgentId);
     if (child) {
+      this.intentionalKill.add(subAgentId);
       try { child.kill('SIGTERM'); } catch { /* already dead */ }
       this.runningChildren.delete(subAgentId);
     }
+    // persistent maps cleanup — remove 시 sub 자체가 archive 되므로 turn-in-flight 추적도 폐기.
+    this.persistentChildReady.delete(subAgentId);
+    this.persistentLineBuf.delete(subAgentId);
+    this.persistentInFlightCmd.delete(subAgentId);
 
     // §5.7 #23-2 v1.60 — agent-view 정리: supervisor 의 worker + worktree 도 함께 제거.
     const av = this.runningAgentViewWatchers.get(subAgentId);
@@ -697,10 +733,13 @@ export class SubAgentManager {
       return true;
     }
 
-    // legacy 경로: SIGTERM.
+    // legacy 경로: SIGTERM. persistent child 의 경우에도 동일 — intentionalKill 마킹으로
+    // close 핸들러가 crash 경로(sessionId 보존) 가 아닌 user-stop 경로로 분기한다.
     const child = this.runningChildren.get(subAgentId);
     if (!child) return false;
     this.stoppedByUser.add(subAgentId);
+    this.intentionalKill.add(subAgentId);
+    try { child.stdin?.end(); } catch { /* ignore */ }
     try { child.kill('SIGTERM'); } catch { /* already dead */ }
     logger.info(`SubAgent stop requested by user: ${subAgentId}`);
     return true;
@@ -998,7 +1037,17 @@ export class SubAgentManager {
 
   /**
    * §5.7 #23-2 v1.60 — Legacy `claude -p` 경로(stream-json over stdin).
-   * 기존 execute() 본문 그대로 이동. Agent View 비활성 환경에서만 호출됨.
+   *
+   * v2.x persistent-child 모델 — `VIBISUAL_PERSISTENT_CHILD` 가 켜져 있고 sub.sessionId 가 있으면
+   * 매 턴 fresh spawn 대신 sub 당 자식 1개를 long-lived 로 유지하고 stdin 으로 다음 턴만 추가.
+   *   • 1st turn (no sessionId)            : legacy (--print) — sessionId 캡처 후 자식 종료.
+   *   • 2nd turn (sessionId, no live child): persistent fresh spawn (--resume, no --print).
+   *   • 3rd+ turn (live ready child)       : reuse — stdin 으로 prompt 만 write, return.
+   *
+   * 안전장치: VIBISUAL_PERSISTENT_CHILD=0 → 매 턴 fresh spawn 으로 즉시 폴백.
+   * 크래시 복구: persistent child 가 의도치 않게 종료되면 sub.sessionId 보존 → 다음 execute 가
+   * 자동으로 fresh persistent spawn 으로 복구. claude 바이너리가 multi-turn stdin 미지원이면
+   * 자연히 이 경로를 타게 됨(기능적으로는 옛 매 턴 spawn 과 동등).
    */
   private _executeViaLegacy(
     cmd: QueuedCommand,
@@ -1008,15 +1057,51 @@ export class SubAgentManager {
     configArgs: string[],
     maxTurns: number,
   ): void {
+    const usePersistent = PERSISTENT_CHILD_ENABLED && !!sub.sessionId;
+
+    // ─── REUSE PATH ─────────────────────────────────────────────────────
+    // 살아있는 자식 + ready=true 면 fresh spawn 없이 stdin write 만으로 다음 턴 시작.
+    // node boot + claude init + JSONL 재로드 + MCP 재연결 + hook 재초기화 비용 = 0.
+    const existingChild = this.runningChildren.get(sub.id);
+    if (usePersistent && existingChild && this.persistentChildReady.get(sub.id) === true) {
+      this.persistentChildReady.set(sub.id, false);
+      this.persistentInFlightCmd.set(sub.id, {
+        cmd, turnCount: 0, resultText: undefined, killed: false, maxTurns, parentCwd,
+      });
+      try {
+        const inputLine = JSON.stringify({
+          type: 'user',
+          message: { role: 'user', content: [{ type: 'text', text: prompt }] },
+        }) + '\n';
+        existingChild.stdin?.write(inputLine, 'utf8');
+        logger.info(`SubAgent ${sub.id} persistent child REUSED — sending next prompt via stdin (no fresh spawn)`);
+      } catch (err) {
+        // stdin write 실패 — child 가 이미 죽었을 수 있음. close 핸들러가 정리할 것.
+        logger.warn(`SubAgent ${sub.id} persistent stdin write failed: ${err instanceof Error ? err.message : String(err)} — child may have died, will respawn next turn`);
+        this.persistentInFlightCmd.delete(sub.id);
+        this.persistentChildReady.delete(sub.id);
+        cmd.status = 'error';
+        this.onSubStatusChange?.(sub.parentAgentId);
+        this.onComplete?.();
+      }
+      return;
+    }
+
+    // ─── FRESH SPAWN ────────────────────────────────────────────────────
     // v1.33 Windows 인코딩 픽스 — 기존엔 prompt 를 argv(-p <prompt>) 로 넘겼으나 claude.exe 가
     // Windows 에서 argv 를 OEM(cp949) 로 해석하는 경로가 있어 한글/CJK 가 mojibake 됨.
     // 대신 `--input-format stream-json` 으로 stdin 에 user 메시지를 UTF-8 로 써 넘기면 argv 경로를
     // 완전히 우회해 UTF-8 가 보존된다. output-format 은 기존처럼 stream-json 사용.
-    const args = sub.sessionId
-      ? ['--resume', sub.sessionId, '--print', ...configArgs, '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose']
-      : ['--print', ...configArgs, '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose'];
+    //
+    // persistent: --print 없음. 자식이 result 후 stdin 대기 상태로 살아있어 다음 턴 재사용 가능.
+    // legacy:     기존대로 --print 포함. 자식이 result 후 자연 종료.
+    const args = usePersistent
+      ? ['--resume', sub.sessionId, ...configArgs, '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose']
+      : (sub.sessionId
+          ? ['--resume', sub.sessionId, '--print', ...configArgs, '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose']
+          : ['--print', ...configArgs, '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose']);
 
-    logger.info(`SubAgent ${sub.id} legacy executing: "${cmd.text.slice(0, 50)}..."${configArgs.length > 0 ? ` [config: ${configArgs.join(' ')}]` : ''}`);
+    logger.info(`SubAgent ${sub.id} ${usePersistent ? 'persistent spawning' : 'legacy executing'}: "${cmd.text.slice(0, 50)}..."${configArgs.length > 0 ? ` [config: ${configArgs.join(' ')}]` : ''}`);
 
     try {
       const child = spawn(CLAUDE_BIN, args, {
@@ -1036,9 +1121,18 @@ export class SubAgentManager {
       });
       this.runningChildren.set(sub.id, child);
 
+      if (usePersistent) {
+        this.persistentChildReady.set(sub.id, false);
+        this.persistentLineBuf.set(sub.id, '');
+        this.persistentInFlightCmd.set(sub.id, {
+          cmd, turnCount: 0, resultText: undefined, killed: false, maxTurns, parentCwd,
+        });
+      }
+
       // v1.33 — prompt 를 stream-json 한 줄로 stdin 에 UTF-8 바이트로 write.
       // content 를 text block 배열로 감싸서 보내면 Claude 가 단일 user 턴으로 처리.
-      // 마지막에 stdin end() 로 더 이상 입력 없음을 통지 → Claude 가 응답 후 종료.
+      // legacy: stdin.end() 로 더 이상 입력 없음을 통지 → Claude 가 응답 후 종료.
+      // persistent: stdin 을 열어둔다 → 자식이 result 후 다음 user 라인을 기다리며 살아있음.
       try {
         const inputLine = JSON.stringify({
           type: 'user',
@@ -1049,13 +1143,13 @@ export class SubAgentManager {
         }) + '\n';
         child.stdin?.setDefaultEncoding('utf8');
         child.stdin?.write(inputLine, 'utf8');
-        child.stdin?.end();
+        if (!usePersistent) child.stdin?.end();
       } catch (err) {
         logger.warn(`SubAgent ${sub.id} stdin write failed: ${err instanceof Error ? err.message : String(err)}`);
       }
 
+      // Legacy 경로 전용 closure state — persistent 경로는 persistentInFlightCmd 맵 사용.
       let stdout = '';
-      // 이 명령 실행 내에서만 유효한 로컬 카운터 (다른 명령/서브에이전트와 독립)
       let turnCount = 0;
       let killed = false;
       let lineBuf = '';
@@ -1064,10 +1158,22 @@ export class SubAgentManager {
         // v1.33 — 명시적 UTF-8 디코딩. 기본 toString() 은 보통 utf8 이지만 플랫폼/Node 버전에
         // 따라 OEM fallback 될 수 있어 안전하게 고정.
         const text = chunk.toString('utf8');
-        stdout += text;
 
-        // 실시간 라인 파싱 — assistant 메시지를 턴으로 카운트
-        // stream-json은 줄 단위 JSON이므로 \n 기준으로 분리
+        // ── PERSISTENT 경로: 맵 기반 line 버퍼 + result 라인 인라인 검출 ──
+        if (usePersistent) {
+          let buf = this.persistentLineBuf.get(sub!.id) ?? '';
+          buf += text;
+          const lines = buf.split('\n');
+          buf = lines.pop() ?? '';
+          this.persistentLineBuf.set(sub!.id, buf);
+          for (const line of lines) {
+            this._handlePersistentStdoutLine(line, sub!, child);
+          }
+          return;
+        }
+
+        // ── LEGACY 경로: closure 기반 ──
+        stdout += text;
         lineBuf += text;
         const lines = lineBuf.split('\n');
         lineBuf = lines.pop() ?? ''; // 마지막 불완전 라인은 다음 chunk에서 이어서 파싱
@@ -1076,10 +1182,6 @@ export class SubAgentManager {
           try {
             const obj = JSON.parse(line) as Record<string, unknown>;
             // 첫 system/init 라인에서 session_id 즉시 캡처.
-            // 기존엔 child.on('close') 에서만 채웠는데 그 시점은 실행 종료 후라
-            // 실행 중 fire 되는 hook 이벤트의 session_id 와 sub.sessionId 가 매칭되지 않아
-            // projectGraph.processHookEvent 의 sub→parent redirect 가 항상 miss → 떠돌이 ghost agent 가 생기고
-            // 파일/폴더 엣지가 부모 커스텀 에이전트 버블에 안 붙음. 스트리밍 중 즉시 채워야 한다.
             if (!sub!.sessionId && obj['type'] === 'system' && typeof obj['session_id'] === 'string') {
               sub!.sessionId = obj['session_id'] as string;
               logger.info(`SubAgent ${sub!.id} session assigned (stream): ${sub!.sessionId}`);
@@ -1089,6 +1191,7 @@ export class SubAgentManager {
               turnCount++;
               if (maxTurns > 0 && turnCount >= maxTurns && !killed) {
                 killed = true;
+                this.intentionalKill.add(sub!.id);
                 child.kill('SIGTERM');
                 logger.warn(`SubAgent ${sub!.id} killed: max turns reached (${turnCount}/${maxTurns})`);
               }
@@ -1112,80 +1215,43 @@ export class SubAgentManager {
       });
 
       child.on('close', (code) => {
-        // stream-json stdout에서 세션 ID + 결과 추출
-        let resultText: string | undefined;
-        for (const line of stdout.split('\n')) {
-          if (!line.trim()) continue;
-          try {
-            const obj = JSON.parse(line) as Record<string, unknown>;
-            // init 메시지에서 session_id
-            if (obj['type'] === 'system' && typeof obj['session_id'] === 'string' && !sub!.sessionId) {
-              sub!.sessionId = obj['session_id'];
-              logger.info(`SubAgent ${sub!.id} session assigned: ${sub!.sessionId}`);
-            }
-            // result 메시지에서 결과 텍스트 + 토큰 (stream-json result에 포함될 수 있음)
-            if (obj['type'] === 'result' && typeof obj['result'] === 'string') {
-              resultText = obj['result'];
-              // stream-json result에 total_input_tokens/total_output_tokens가 있으면 바로 수집
-              if (typeof obj['total_input_tokens'] === 'number') {
-                sub!.totalInputTokens = obj['total_input_tokens'] as number;
-              }
-              if (typeof obj['total_output_tokens'] === 'number') {
-                sub!.totalOutputTokens = obj['total_output_tokens'] as number;
-              }
-            }
-          } catch { /* skip non-json */ }
-        }
+        // ── PERSISTENT 경로: intentional vs crash 분기 ──
+        if (usePersistent) {
+          const wasIntentional = this.intentionalKill.delete(sub!.id);
+          this.runningChildren.delete(sub!.id);
+          this.persistentChildReady.delete(sub!.id);
+          this.persistentLineBuf.delete(sub!.id);
+          const inFlight = this.persistentInFlightCmd.get(sub!.id);
+          this.persistentInFlightCmd.delete(sub!.id);
 
-        // stdout에서 못 읽으면 JSONL 폴백
-        if (!resultText && sub!.sessionId) {
-          resultText = readLastAssistantMessage(parentCwd, sub!.sessionId) ?? undefined;
-        }
-
-        if (resultText) {
-          sub!.lastResult = resultText;
-          cmd.result = resultText;
-        }
-
-        // 토큰 사용량 수집 (JSONL에서 읽기)
-        if (sub!.sessionId) {
-          try {
-            const tokenData = readSessionTokenData(parentCwd, sub!.sessionId);
-            if (tokenData && tokenData.turns.length > 0) {
-              const prevInput = sub!.totalInputTokens ?? 0;
-              const prevOutput = sub!.totalOutputTokens ?? 0;
-              let totalIn = 0;
-              let totalOut = 0;
-              for (const t of tokenData.turns) {
-                totalIn += t.inputTokens + t.cacheReadTokens + t.cacheCreateTokens;
-                totalOut += t.outputTokens;
-              }
-              sub!.totalInputTokens = totalIn;
-              sub!.totalOutputTokens = totalOut;
-              // 이 명령의 증분 토큰
-              cmd.inputTokens = Math.max(0, totalIn - prevInput);
-              cmd.outputTokens = Math.max(0, totalOut - prevOutput);
-              // 마지막 턴의 모델명
-              const lastTurn = tokenData.turns[tokenData.turns.length - 1];
-              if (lastTurn?.model) sub!.modelName = lastTurn.model;
-              logger.info(`SubAgent ${sub!.id} tokens: in=${totalIn}, out=${totalOut}, delta_in=${cmd.inputTokens}, delta_out=${cmd.outputTokens}`);
+          if (!wasIntentional) {
+            // 크래시 — sub.sessionId 는 의도적으로 유지(다음 execute 가 --resume 으로 자연 복구).
+            logger.warn(`SubAgent ${sub!.id} persistent child exited unexpectedly (code=${code}) — preserving sessionId for resume on next turn`);
+            if (inFlight) {
+              inFlight.cmd.status = 'error';
+              inFlight.cmd.result = `[Persistent child crashed (code=${code}); retry on next turn]`;
+              sub!.status = 'error';
+              sub!.lastActivityAt = Date.now();
+              this.onSubStatusChange?.(sub!.parentAgentId);
+              this.onComplete?.();
             }
-          } catch (err) {
-            logger.debug(`SubAgent ${sub!.id} token read failed: ${err instanceof Error ? err.message : String(err)}`);
+            return;
           }
+
+          // 의도된 종료(stop/remove/shutdown) — in-flight 가 있으면 finalize, 없으면 단순 정리.
+          if (inFlight) {
+            this._finalizeLegacyCommand(sub!, inFlight.cmd, inFlight.parentCwd, undefined, inFlight.turnCount, inFlight.killed, inFlight.maxTurns, code, '', /*deleteRunningChild=*/false);
+          } else {
+            sub!.status = 'idle';
+            sub!.lastActivityAt = Date.now();
+            this.onSubStatusChange?.(sub!.parentAgentId);
+            this.onComplete?.();
+          }
+          return;
         }
 
-        const userStopped = this.stoppedByUser.delete(sub!.id);
-        sub!.status = userStopped ? 'idle' : ((killed || code !== 0) ? 'error' : 'idle');
-        sub!.lastActivityAt = Date.now();
-        cmd.status = userStopped ? 'completed' : (killed ? 'error' : (code === 0 ? 'completed' : 'error'));
-        if (userStopped) cmd.result = `[Stopped by user]${resultText ? `\n\n${resultText}` : ''}`;
-        else if (killed) cmd.result = `[Stopped: max turns reached (${turnCount}/${maxTurns})]${resultText ? `\n\n${resultText}` : ''}`;
-
-        logger.info(`SubAgent ${sub!.id} finished (code=${code}, killed=${killed}, userStopped=${userStopped}, turns=${turnCount}, result=${resultText ? 'yes' : 'no'})`);
-        this.runningChildren.delete(sub!.id);
-        this.onSubStatusChange?.(sub!.parentAgentId);
-        this.onComplete?.();
+        // ── LEGACY 경로: 기존 close 핸들러 ──
+        this._finalizeLegacyCommand(sub!, cmd, parentCwd, undefined, turnCount, killed, maxTurns, code, stdout, /*deleteRunningChild=*/true);
       });
     } catch (err) {
       logger.warn(`SubAgent ${sub!.id} spawn failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -1194,6 +1260,179 @@ export class SubAgentManager {
       this.onSubStatusChange?.(sub.parentAgentId);
       this.onComplete?.();
     }
+  }
+
+  /**
+   * Persistent child stdout 라인 핸들러.
+   * `result` 라인 도착이 turn 의 종료 신호 — child 는 죽이지 않고 다음 stdin write 대기 상태로 둔다.
+   *
+   * 순서 함정: `_finalizeLegacyCommand` → `onComplete` → `processNextCommand` → `execute` 가 동기 호출 체인이라,
+   * 다음 execute 의 reuse 분기가 `persistentChildReady === true` 를 보려면 finalize **전** 에 ready=true 가
+   * set 되어 있어야 한다. 그 다음 턴이 이미 큐에 쌓여 있으면 그 자리에서 stdin write 로 즉시 reuse 됨.
+   */
+  private _handlePersistentStdoutLine(line: string, sub: SubAgent, child: ChildProcess): void {
+    if (!line.trim()) return;
+    let obj: Record<string, unknown>;
+    try { obj = JSON.parse(line) as Record<string, unknown>; } catch { return; }
+
+    // session_id 캡처 — 첫 system 라인. persistent 경로는 --resume 이라 이미 sub.sessionId 가 있지만,
+    // claude 가 새 session 으로 회전시키는 케이스가 있으면 따라간다.
+    if (!sub.sessionId && obj['type'] === 'system' && typeof obj['session_id'] === 'string') {
+      sub.sessionId = obj['session_id'] as string;
+      logger.info(`SubAgent ${sub.id} session assigned (persistent stream): ${sub.sessionId}`);
+    }
+
+    const inFlight = this.persistentInFlightCmd.get(sub.id);
+
+    // assistant 턴 카운트 + maxTurns 가드.
+    if (obj['type'] === 'assistant' && inFlight && !inFlight.killed) {
+      inFlight.turnCount++;
+      if (inFlight.maxTurns > 0 && inFlight.turnCount >= inFlight.maxTurns) {
+        inFlight.killed = true;
+        this.intentionalKill.add(sub.id);
+        try { child.kill('SIGTERM'); } catch { /* already dead */ }
+        logger.warn(`SubAgent ${sub.id} killed: max turns reached (${inFlight.turnCount}/${inFlight.maxTurns})`);
+      }
+    }
+
+    // 스트림 이벤트 — 클라 중계.
+    const streamEvts = parseStreamLine(obj, sub.id, sub.parentAgentId);
+    for (const evt of streamEvts) this.emitStreamEvent(evt);
+
+    // ── CRITICAL: result 라인 = turn 종료. child 는 살려둔다. ──
+    if (obj['type'] === 'result' && inFlight) {
+      const resultText: string | undefined =
+        typeof obj['result'] === 'string' ? (obj['result'] as string) : undefined;
+      if (typeof obj['total_input_tokens'] === 'number') sub.totalInputTokens = obj['total_input_tokens'] as number;
+      if (typeof obj['total_output_tokens'] === 'number') sub.totalOutputTokens = obj['total_output_tokens'] as number;
+
+      // ORDER MATTERS — 함정 주석 참조.
+      // 1) line 버퍼 리셋 (이 줄 이후의 다음 턴 chunk 가 들어와도 깨끗히 시작).
+      this.persistentLineBuf.set(sub.id, '');
+      // 2) ready=true 를 finalize **전** 에 set. finalize 가 onComplete → processNextCommand → execute 를 동기 호출
+      //    하므로, ready=true 가 그 호출 전에 set 안 되면 reuse 분기가 영영 안 탄다.
+      this.persistentChildReady.set(sub.id, true);
+      // 3) in-flight 폐기 — 다음 턴이 fresh value 로 set.
+      this.persistentInFlightCmd.delete(sub.id);
+      // 4) finalize — child.kill / stdin.end 호출 ❌ (자식 살려둠).
+      logger.info(`SubAgent ${sub.id} persistent result detected (turns=${inFlight.turnCount}) — finalizing turn, child stays alive`);
+      this._finalizeLegacyCommand(sub, inFlight.cmd, inFlight.parentCwd, resultText, inFlight.turnCount, inFlight.killed, inFlight.maxTurns, 0, '', /*deleteRunningChild=*/false);
+    }
+  }
+
+  /**
+   * turn 종료 시 cmd/sub 마무리 + 콜백 트리거.
+   * legacy(child 종료 후)·persistent(child 살림) 양쪽이 공유 — `deleteRunningChild` 가 분기.
+   *
+   * @param stdout  legacy 경로는 누적 stdout 을 줘서 init/result 라인을 재파싱하게 한다.
+   *                persistent 경로는 result 라인을 이미 인라인 처리했으므로 빈 문자열 + resultText 미리 채워서 호출.
+   */
+  private _finalizeLegacyCommand(
+    sub: SubAgent,
+    cmd: QueuedCommand,
+    parentCwd: string,
+    initialResultText: string | undefined,
+    turnCount: number,
+    killed: boolean,
+    maxTurns: number,
+    code: number | null,
+    stdout: string,
+    deleteRunningChild: boolean,
+  ): void {
+    let resultText = initialResultText;
+
+    // Legacy close 경로: stdout 누적분에서 session_id + result + tokens 재파싱.
+    if (stdout) {
+      for (const line of stdout.split('\n')) {
+        if (!line.trim()) continue;
+        try {
+          const obj = JSON.parse(line) as Record<string, unknown>;
+          if (obj['type'] === 'system' && typeof obj['session_id'] === 'string' && !sub.sessionId) {
+            sub.sessionId = obj['session_id'];
+            logger.info(`SubAgent ${sub.id} session assigned: ${sub.sessionId}`);
+          }
+          if (obj['type'] === 'result' && typeof obj['result'] === 'string' && !resultText) {
+            resultText = obj['result'];
+            if (typeof obj['total_input_tokens'] === 'number') sub.totalInputTokens = obj['total_input_tokens'] as number;
+            if (typeof obj['total_output_tokens'] === 'number') sub.totalOutputTokens = obj['total_output_tokens'] as number;
+          }
+        } catch { /* skip non-json */ }
+      }
+    }
+
+    // stdout에서 못 읽으면 JSONL 폴백.
+    if (!resultText && sub.sessionId) {
+      resultText = readLastAssistantMessage(parentCwd, sub.sessionId) ?? undefined;
+    }
+
+    if (resultText) {
+      sub.lastResult = resultText;
+      cmd.result = resultText;
+    }
+
+    // 토큰 사용량 — JSONL 누적 read (persistent 경로도 매 턴 누적 갱신 필요).
+    if (sub.sessionId) {
+      try {
+        const tokenData = readSessionTokenData(parentCwd, sub.sessionId);
+        if (tokenData && tokenData.turns.length > 0) {
+          const prevInput = sub.totalInputTokens ?? 0;
+          const prevOutput = sub.totalOutputTokens ?? 0;
+          let totalIn = 0;
+          let totalOut = 0;
+          for (const t of tokenData.turns) {
+            totalIn += t.inputTokens + t.cacheReadTokens + t.cacheCreateTokens;
+            totalOut += t.outputTokens;
+          }
+          sub.totalInputTokens = totalIn;
+          sub.totalOutputTokens = totalOut;
+          cmd.inputTokens = Math.max(0, totalIn - prevInput);
+          cmd.outputTokens = Math.max(0, totalOut - prevOutput);
+          const lastTurn = tokenData.turns[tokenData.turns.length - 1];
+          if (lastTurn?.model) sub.modelName = lastTurn.model;
+          logger.info(`SubAgent ${sub.id} tokens: in=${totalIn}, out=${totalOut}, delta_in=${cmd.inputTokens}, delta_out=${cmd.outputTokens}`);
+        }
+      } catch (err) {
+        logger.debug(`SubAgent ${sub.id} token read failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
+    const userStopped = this.stoppedByUser.delete(sub.id);
+    const isErr = killed || (code !== null && code !== 0);
+    sub.status = userStopped ? 'idle' : (isErr ? 'error' : 'idle');
+    sub.lastActivityAt = Date.now();
+    cmd.status = userStopped ? 'completed' : (killed ? 'error' : ((code === null || code === 0) ? 'completed' : 'error'));
+    if (userStopped) cmd.result = `[Stopped by user]${resultText ? `\n\n${resultText}` : ''}`;
+    else if (killed) cmd.result = `[Stopped: max turns reached (${turnCount}/${maxTurns})]${resultText ? `\n\n${resultText}` : ''}`;
+
+    logger.info(`SubAgent ${sub.id} finished (code=${code === null ? 'persistent' : code}, killed=${killed}, userStopped=${userStopped}, turns=${turnCount}, result=${resultText ? 'yes' : 'no'})`);
+    if (deleteRunningChild) this.runningChildren.delete(sub.id);
+    this.onSubStatusChange?.(sub.parentAgentId);
+    this.onComplete?.();
+  }
+
+  /**
+   * 앱 종료 시(Electron before-quit) 모든 persistent child 를 깨끗이 종료.
+   * intentionalKill 마킹 → stdin.end → SIGTERM → 2초 후 SIGKILL fallback.
+   */
+  async shutdownAllPersistentChildren(): Promise<void> {
+    if (this.runningChildren.size === 0) return;
+    const ids = [...this.runningChildren.keys()];
+    logger.info(`shutdownAllPersistentChildren: terminating ${ids.length} child(ren) [${ids.join(', ')}]`);
+    const promises: Promise<void>[] = [];
+    for (const [subId, child] of this.runningChildren) {
+      this.intentionalKill.add(subId);
+      try { child.stdin?.end(); } catch { /* ignore */ }
+      try { child.kill('SIGTERM'); } catch { /* already dead */ }
+      promises.push(new Promise<void>((resolve) => {
+        const timer = setTimeout(() => {
+          try { child.kill('SIGKILL'); } catch { /* */ }
+          resolve();
+        }, 2000);
+        child.once('exit', () => { clearTimeout(timer); resolve(); });
+      }));
+    }
+    await Promise.all(promises);
+    logger.info('shutdownAllPersistentChildren: done');
   }
 
 }

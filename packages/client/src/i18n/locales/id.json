@@ -574,9 +574,6 @@
     },
     "mainArea": {
       "scrollPrompt": "Gulir ke prompt",
-      "noSessions": "Belum ada sesi",
-      "noActivity": "Tidak ada aktivitas di sesi ini",
-      "startHint": "Ketik perintah di bawah untuk memulai sesi baru",
       "inputPlaceholderNew": "Masukkan perintah untuk memulai sesi baru...",
       "inputPlaceholder": "Masukkan perintah...",
       "run": "Jalankan",

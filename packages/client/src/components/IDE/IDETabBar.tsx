@@ -357,7 +357,13 @@ export const IDETabBar = memo(function IDETabBar({
           isDefault={ctxIsDefault}
           hasOthers={ctxHasOthers}
           hasRight={ctxHasRight}
-          onAction={handleCtxAction}
+          showDetach={false}
+          onAction={(action) => {
+            // §5.4 #14-1 — IDE 서브에이전트 탭은 detach 미지원. showDetach=false 라 도달하지 않지만
+            // 타입 좁힘을 위해 가드.
+            if (action === 'detach') return;
+            handleCtxAction(action);
+          }}
           onClose={() => setCtx(null)}
         />
       )}

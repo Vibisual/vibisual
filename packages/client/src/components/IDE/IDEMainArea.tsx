@@ -1,8 +1,10 @@
 import { memo, useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import type { QueuedCommand, SubAgent, SubAgentStreamEvent, AgentEvent } from '@vibisual/shared';
 import { useGraphStore, agentSessionInputKey, selectIDEOverlay } from '../../stores/graphStore.js';
 import type { AgentSessionInputAttachment } from '../../stores/graphStore.js';
+import { useAvailableSkills, type SkillInfo } from '../../hooks/useAvailableSkills.js';
 import { StreamRenderer } from './StreamRenderer.js';
 import { AskQuestionCard } from './AskQuestionCard.js';
 
@@ -449,6 +451,10 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
   const agentIdRef = useRef<string>(agentId);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // §5.5 #17-2 v2.30 / #17-4 v2.32 — 슬래시 자동완성. `useAvailableSkills` 가 모듈 캐시를 공유.
+  const { skills: availableSkills, loaded: skillsLoaded } = useAvailableSkills();
+  const [slashIndex, setSlashIndex] = useState(0);
+
   useEffect(() => { sidRef.current = sid; }, [sid]);
   useEffect(() => { agentIdRef.current = agentId; }, [agentId]);
 
@@ -621,13 +627,66 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
     setTimeout(() => setStopping(false), 1500);
   }, [agentId, activeSessionId, stopping]);
 
+  // §5.5 #17-2 v2.30 — text 가 `/` 로 시작하고 첫 토큰을 아직 타이핑 중이면 드롭다운 활성.
+  // 매칭 0개여도 드롭다운은 열려 "No matching skills" hint 표기.
+  const slashState = useMemo(() => {
+    if (!text.startsWith('/')) return null;
+    const firstWord = text.slice(1).split(/\s/)[0] ?? '';
+    if (text.length > firstWord.length + 1) return null;
+    const filter = firstWord.toLowerCase();
+    const matched = filter.length === 0
+      ? availableSkills
+      : availableSkills.filter((s) => s.name.toLowerCase().includes(filter));
+    return { filter, matched };
+  }, [text, availableSkills]);
+
+  const slashOpen = slashState !== null;
+  const slashKey = slashState?.filter ?? '';
+  useEffect(() => { setSlashIndex(0); }, [slashKey]);
+
+  const confirmSlash = useCallback((skill: SkillInfo) => {
+    setAgentSessionInputText(agentId, activeSessionId, `/${skill.name} `);
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+      el.style.height = 'auto';
+      el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+    });
+  }, [agentId, activeSessionId, setAgentSessionInputText]);
+
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (slashOpen && slashState) {
+      const matched = slashState.matched;
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (matched.length > 0) setSlashIndex((i) => Math.min(matched.length - 1, i + 1));
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (matched.length > 0) setSlashIndex((i) => Math.max(0, i - 1));
+        return;
+      }
+      if ((e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) && matched.length > 0) {
+        e.preventDefault();
+        const picked = matched[Math.min(slashIndex, matched.length - 1)];
+        if (picked) confirmSlash(picked);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setText('');
+        return;
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       if (executingForSession) return;
       handleSubmit();
     }
-  }, [handleSubmit, executingForSession]);
+  }, [slashOpen, slashState, slashIndex, confirmSlash, setText, handleSubmit, executingForSession]);
 
   const handleInput = useCallback(() => {
     const el = textareaRef.current;
@@ -639,7 +698,49 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
   }, [activeSessionId, markSubAcknowledged]);
 
   return (
-    <div className="flex flex-col gap-1.5 border-t border-gray-700 bg-gray-900/80 px-3 py-2">
+    <div className="relative flex flex-col gap-1.5 border-t border-gray-700 bg-gray-900/80 px-3 py-2">
+      {/* §5.5 #17-2 v2.30 — 슬래시 자동완성 드롭다운 (입력행 바로 위) */}
+      {slashOpen && slashState && (
+        <div className="absolute bottom-full left-0 right-0 mb-1 max-h-72 overflow-y-auto rounded-t border border-b-0 border-gray-700 bg-gray-900 shadow-lg scrollbar-thin">
+          {slashState.matched.length === 0 ? (
+            <div className="px-3 py-2 text-[11px] text-gray-500">
+              {skillsLoaded ? t('ide.mainArea.slashEmpty') : t('ide.mainArea.slashLoading')}
+            </div>
+          ) : (
+            slashState.matched.map((s, idx) => {
+              const isActive = idx === Math.min(slashIndex, slashState.matched.length - 1);
+              const accentBg = s.source === 'project' ? 'bg-emerald-500/15' : 'bg-purple-500/15';
+              const accentText = s.source === 'project' ? 'text-emerald-400' : 'text-purple-400';
+              return (
+                <button
+                  key={`${s.source}:${s.name}`}
+                  type="button"
+                  onMouseDown={(ev) => { ev.preventDefault(); confirmSlash(s); }}
+                  onMouseEnter={() => setSlashIndex(idx)}
+                  className={`flex w-full flex-col gap-0.5 px-3 py-1.5 text-left transition-colors ${isActive ? accentBg : 'hover:bg-gray-800/60'}`}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span className={`font-mono text-[12px] font-semibold ${accentText}`}>/{s.name}</span>
+                    {s.source === 'plugin' && s.pluginName && (
+                      <span className="rounded bg-purple-500/15 px-1 py-0.5 text-[9px] uppercase tracking-wide text-purple-400/80">
+                        {s.pluginName}
+                      </span>
+                    )}
+                  </div>
+                  {s.description && (
+                    <span className="line-clamp-2 text-[10px] leading-tight text-gray-500">
+                      {s.description}
+                    </span>
+                  )}
+                </button>
+              );
+            })
+          )}
+          <div className="border-t border-gray-800 bg-gray-950/70 px-3 py-1 text-[10px] text-gray-600">
+            {t('ide.mainArea.slashHint')}
+          </div>
+        </div>
+      )}
       {attachments.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {attachments.map((a) => (
@@ -691,6 +792,8 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
           placeholder={activeSessionId === null ? t('ide.mainArea.inputPlaceholderNew') : t('ide.mainArea.inputPlaceholder')}
           className="scrollbar-thin min-h-[28px] flex-1 resize-none bg-transparent text-[13px] leading-7 text-gray-200 placeholder-gray-500 outline-none"
           style={{ maxHeight: 120 }}
+          data-ide-input={agentId}
+          data-ide-input-session={activeSessionId ?? ''}
         />
         {executingForSession ? (
           <button
@@ -831,6 +934,80 @@ function StreamStatusBar({ commands, scrollRef }: StreamStatusBarProps): React.J
   );
 }
 
+// ─── 우클릭 컨텍스트 메뉴 (v2.31 §5.5 #17-3) ───
+
+interface ContextMenuItem {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  disabledTitle?: string;
+}
+
+function TerminalContextMenu({
+  x, y, items, onClose,
+}: {
+  x: number;
+  y: number;
+  items: ContextMenuItem[];
+  onClose: () => void;
+}): React.JSX.Element {
+  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ left: number; top: number }>({ left: x, top: y });
+
+  // 뷰포트 클리핑: 메뉴가 화면 밖으로 넘치면 좌상단 좌표 보정 (mount 직후 1회).
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    let left = x;
+    let top = y;
+    if (left + r.width > window.innerWidth - 8) left = Math.max(8, window.innerWidth - r.width - 8);
+    if (top + r.height > window.innerHeight - 8) top = Math.max(8, window.innerHeight - r.height - 8);
+    setPos({ left, top });
+  }, [x, y]);
+
+  // 외부 mousedown / Esc → 닫기.
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('mousedown', onDown, true);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('mousedown', onDown, true);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [onClose]);
+
+  return createPortal(
+    <div
+      ref={ref}
+      style={{ position: 'fixed', left: pos.left, top: pos.top, zIndex: 9999 }}
+      className="min-w-[180px] rounded border border-gray-700 bg-gray-900 py-1 shadow-xl"
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      {items.map((it, i) => (
+        <button
+          key={i}
+          type="button"
+          disabled={it.disabled}
+          title={it.disabled ? it.disabledTitle : undefined}
+          onClick={() => { if (!it.disabled) { it.onClick(); onClose(); } }}
+          className={`flex w-full items-center px-3 py-1.5 text-left text-[12px] transition-colors ${
+            it.disabled
+              ? 'cursor-not-allowed text-gray-600'
+              : 'text-gray-200 hover:bg-blue-500/20'
+          }`}
+        >
+          {it.label}
+        </button>
+      ))}
+    </div>,
+    document.body,
+  );
+}
+
 // ─── 메인 영역 ───
 
 export const IDEMainArea = memo(function IDEMainArea({
@@ -864,6 +1041,86 @@ export const IDEMainArea = memo(function IDEMainArea({
 
   // Hook 메인 뷰(activeSessionId===null) = read-only, 서브에이전트 탭 = interactive
   const isReadOnly = !isCustom && activeSessionId === null;
+
+  // §5.5 #17-3 v2.31 — 우클릭 컨텍스트 메뉴.
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; selection: string } | null>(null);
+  const setAgentSessionInputText = useGraphStore((s) => s.setAgentSessionInputText);
+  const addCommand = useGraphStore((s) => s.addCommand);
+
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    // textarea 위 우클릭은 가로채지 ❌ (브라우저 기본 Paste/Cut/Spell-check 보존).
+    const tgt = e.target as HTMLElement;
+    if (tgt.closest('textarea, input, [contenteditable="true"]')) return;
+    const sel = (window.getSelection()?.toString() ?? '').trim();
+    e.preventDefault();
+    setCtxMenu({ x: e.clientX, y: e.clientY, selection: sel });
+  }, []);
+
+  const closeCtxMenu = useCallback(() => setCtxMenu(null), []);
+
+  const ctxItems = useMemo<ContextMenuItem[]>(() => {
+    const sel = ctxMenu?.selection ?? '';
+    const hasSel = sel.length > 0;
+    const selectionRequired = t('ide.mainArea.ctxSelectionRequired');
+    return [
+      {
+        label: t('ide.mainArea.ctxCopy'),
+        disabled: !hasSel,
+        disabledTitle: selectionRequired,
+        onClick: () => {
+          if (typeof navigator !== 'undefined' && navigator.clipboard) {
+            navigator.clipboard.writeText(sel).catch(() => {});
+          }
+        },
+      },
+      {
+        label: t('ide.mainArea.ctxQuoteReply'),
+        disabled: !hasSel || isReadOnly,
+        disabledTitle: !hasSel ? selectionRequired : undefined,
+        onClick: () => {
+          const quoted = sel.split('\n').map((line) => `> ${line}`).join('\n');
+          const key = agentSessionInputKey(agentId, activeSessionId);
+          const existing = useGraphStore.getState().agentSessionInputs[key]?.text ?? '';
+          const next = existing.length > 0 ? `${quoted}\n${existing}` : `${quoted}\n`;
+          setAgentSessionInputText(agentId, activeSessionId, next);
+          // textarea 자동 focus + cursor end + 자동높이 — data-ide-input 셀렉터로 매칭.
+          requestAnimationFrame(() => {
+            const sessionAttr = activeSessionId ?? '';
+            const ta = document.querySelector<HTMLTextAreaElement>(
+              `textarea[data-ide-input="${agentId}"][data-ide-input-session="${sessionAttr}"]`,
+            );
+            if (!ta) return;
+            ta.focus();
+            ta.setSelectionRange(ta.value.length, ta.value.length);
+            ta.style.height = 'auto';
+            ta.style.height = `${Math.min(ta.scrollHeight, 120)}px`;
+          });
+        },
+      },
+      {
+        label: t('ide.mainArea.ctxSendAsPrompt'),
+        disabled: !hasSel || isReadOnly,
+        disabledTitle: !hasSel ? selectionRequired : undefined,
+        onClick: () => {
+          addCommand(agentId, sel, activeSessionId, []);
+        },
+      },
+      {
+        label: t('ide.mainArea.ctxSelectAll'),
+        onClick: () => {
+          const el = scrollRef.current;
+          if (!el) return;
+          const range = document.createRange();
+          range.selectNodeContents(el);
+          const selObj = window.getSelection();
+          if (selObj) {
+            selObj.removeAllRanges();
+            selObj.addRange(range);
+          }
+        },
+      },
+    ];
+  }, [ctxMenu, isReadOnly, t, agentId, activeSessionId, setAgentSessionInputText, addCommand]);
 
   // 스트림 데이터 조립: 서브 탭이면 해당 스트림만, 메인이면 전체
   const streams = useMemo<Record<string, SubAgentStreamEvent[]>>(() => {
@@ -930,6 +1187,7 @@ export const IDEMainArea = memo(function IDEMainArea({
         ref={scrollRef}
         onScroll={handleScroll}
         onClick={handleAckClick}
+        onContextMenu={handleContextMenu}
         className="scrollbar-thin min-h-0 flex-1 overflow-y-auto bg-gray-950"
       >
         {activeSessionId !== null ? (
@@ -947,19 +1205,8 @@ export const IDEMainArea = memo(function IDEMainArea({
               </div>
             )}
           </>
-        ) : items.length === 0 && askCards.length === 0 ? (
-          <div className="flex h-full items-center justify-center">
-            <div className="text-center">
-              <p className="text-sm text-gray-600">
-                {subAgents.length === 0 ? t('ide.mainArea.noSessions') : t('ide.mainArea.noActivity')}
-              </p>
-              {isCustom && subAgents.length === 0 && (
-                <p className="mt-1 text-xs text-gray-700">{t('ide.mainArea.startHint')}</p>
-              )}
-            </div>
-          </div>
         ) : (
-          /* ── Agent 탭: 기존 터미널 라인 + AskUserQuestion 카드 ── */
+          /* ── Agent 탭(메인): 기존 터미널 라인 + AskUserQuestion 카드. 비어있을 땐 그냥 빈 배경(미니멀) ── */
           <div className="py-1">
             {items.map((item) =>
               item.kind === 'group'
@@ -991,6 +1238,16 @@ export const IDEMainArea = memo(function IDEMainArea({
         <div className="flex h-8 items-center justify-center border-t border-gray-700 bg-gray-900/60">
           <span className="text-[10px] text-gray-600">{t('ide.mainArea.readOnly')}</span>
         </div>
+      )}
+
+      {/* §5.5 #17-3 v2.31 — 우클릭 컨텍스트 메뉴 */}
+      {ctxMenu && (
+        <TerminalContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          items={ctxItems}
+          onClose={closeCtxMenu}
+        />
       )}
     </div>
   );

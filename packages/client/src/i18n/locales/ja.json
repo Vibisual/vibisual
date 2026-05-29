@@ -574,9 +574,6 @@
     },
     "mainArea": {
       "scrollPrompt": "プロンプトへスクロール",
-      "noSessions": "セッションがありません",
-      "noActivity": "このセッションにアクティビティがありません",
-      "startHint": "下にコマンドを入力して新しいセッションを開始",
       "inputPlaceholderNew": "新しいセッションを開始するコマンドを入力...",
       "inputPlaceholder": "コマンドを入力...",
       "run": "実行",

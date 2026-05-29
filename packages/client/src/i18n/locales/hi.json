@@ -574,9 +574,6 @@
     },
     "mainArea": {
       "scrollPrompt": "प्रॉम्प्ट तक स्क्रॉल करें",
-      "noSessions": "अभी कोई session नहीं",
-      "noActivity": "इस session में कोई गतिविधि नहीं",
-      "startHint": "नई session शुरू करने के लिए नीचे कमांड टाइप करें",
       "inputPlaceholderNew": "नई session शुरू करने के लिए कमांड दर्ज करें...",
       "inputPlaceholder": "कमांड दर्ज करें...",
       "run": "चलाएं",

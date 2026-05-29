@@ -18,6 +18,7 @@ import { FolderFileTree } from './FolderFileTree.js';
 import { RootFileList } from './RootFileList.js';
 import { TaskEdgeDetail } from './TaskEdgeDetail.js';
 import { CommentBoxDetail } from './CommentBoxDetail.js';
+import { AutoAgentPanel } from './AutoAgentPanel.js';
 import { GitStatusCard } from './GitStatusCard.js';
 import { ContiHistoryDetail } from './ContiHistoryDetail.js';
 import { TASK_EDGE_STYLES } from '@vibisual/shared';
@@ -537,6 +538,9 @@ export function DetailPanel({
       {/* Content */}
       <ScrollFade fill className="flex-1">
         <div className="flex flex-col gap-4 p-4">
+          {/* §5.3 #10-2 v2.37 — Auto Agent 메타 버블 전용 패널 */}
+          {node.bubbleType === 'auto' && <AutoAgentPanel node={node} />}
+
           {/* Path */}
           {hasPath && (
             <div className="flex flex-col gap-0.5">

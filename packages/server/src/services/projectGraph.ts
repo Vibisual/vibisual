@@ -41,6 +41,7 @@ import type {
   ContiWorkSource,
   ToolDurationEntry,
   CompactCount,
+  AutoAgentSummary,
 } from '@vibisual/shared';
 import { MAX_BASH_HISTORY, MAX_FILE_EDITS, MAX_WRITE_DIFF_BYTES, DEFAULT_MAX_SATELLITES, SATELLITE_MAX_BOUNDS, MAX_AGENTS, SATELLITE_TYPES, AGENT_FADE_DURATION, BUBBLE_TTL, GHOST_FADE_DURATION, FILE_EXISTENCE_MISS_THRESHOLD, FRONTEND_SERVER_PATTERNS, IFRAME_DEAD_GRACE_MS, parseModelFamily, DEFAULT_AGENT_CONFIG, AVAILABLE_AGENT_TOOLS, DEFAULT_UI_LOCALE, COMMENT_BOX_DEFAULTS, READ_TOOLS, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL } from '@vibisual/shared';
 import type { ServerKind, UiLocale } from '@vibisual/shared';
@@ -403,6 +404,48 @@ export class ProjectGraph {
     this.completedCommandArchiveRef = ref;
   }
 
+  /**
+   * §5.5 #17-4 v2.36 — 프로젝트별 스킬 사용 카운트 (skill name → count).
+   * `POST /api/commands/:sessionId` 가 명령 텍스트 줄머리 `/skill-name` 매칭마다 증분.
+   * 클라 SkillsView 가 정렬 키·배지로 사용. 영속화 대상.
+   */
+  private skillUsageCounts = new Map<string, number>();
+
+  /** 명령 텍스트 줄머리 `/<word>` 토큰들에 대해 카운트 증분 + broadcast 트리거. */
+  recordSkillUsageFromCommandText(text: string): void {
+    if (!text) return;
+    const matches = text.match(/^\/([A-Za-z0-9_-]+)/gm);
+    if (!matches || matches.length === 0) return;
+    for (const m of matches) {
+      const name = m.slice(1);
+      if (!name) continue;
+      this.skillUsageCounts.set(name, (this.skillUsageCounts.get(name) ?? 0) + 1);
+    }
+    this.bumpMutationVersion();
+  }
+
+  /**
+   * snapshot 직렬화용 — `{ [projectName]: { [skillName]: count } }`.
+   * 빈 맵 또는 primary project 미확정이면 undefined.
+   * 여러 ProjectGraph 인스턴스의 카운트가 mergeSnapshots 에서 projectName 1차 키로 보존된다.
+   */
+  getSkillUsageCountsRecord(): Record<string, Record<string, number>> | undefined {
+    if (this.skillUsageCounts.size === 0) return undefined;
+    const primary = this.getPrimaryProject();
+    if (!primary) return undefined;
+    const inner: Record<string, number> = {};
+    for (const [k, v] of this.skillUsageCounts) inner[k] = v;
+    return { [primary.name]: inner };
+  }
+
+  /** checkpoint 직렬화용 — flat skillName → count (체크포인트는 이미 프로젝트별 파일이라 1차 키 불필요). */
+  getSkillUsageCountsFlat(): Record<string, number> | undefined {
+    if (this.skillUsageCounts.size === 0) return undefined;
+    const out: Record<string, number> = {};
+    for (const [k, v] of this.skillUsageCounts) out[k] = v;
+    return out;
+  }
+
   /** 프로젝트 루트 경로 (외부에서 경로 검증용) */
   getRoot(): string | null {
     return this.root;
@@ -487,6 +530,12 @@ export class ProjectGraph {
 
   /** 에이전트 간 작업 흐름 엣지 (TaskEdge ID → TaskEdge) */
   private taskEdges = new Map<string, TaskEdge>();
+
+  /**
+   * §5.3 #10-2 v2.37 — Auto Agent 가 생성한 서브 군의 메타 (autoAgentSessionId → AutoAgentSummary).
+   * 영속화 대상 (ProjectCheckpoint.autoAgentSummaries).
+   */
+  private autoAgentSummaries = new Map<string, AutoAgentSummary>();
   /**
    * §5.3 #12-1 v1.91 — 현재 권한 승인 팝업 대기 중인 에이전트 id 집합.
    * PreToolUse 훅이 동기 hold(최대 60s) 하는 동안 에이전트는 "블록된 활성" 상태다.
@@ -1222,6 +1271,72 @@ export class ProjectGraph {
       this.registerProject(cwd);
     }
     return agent;
+  }
+
+  /**
+   * §5.3 #10-2 v2.37 — Auto Agent 메타 버블 생성. 커스텀 에이전트와 구조 동일하되 `bubbleType='auto'`.
+   * Auto Agent 는 사용자 자연어 요청을 받아 서브 커스텀 에이전트 군을 자동 spawn 하는 메타 동작 전담.
+   * 자체는 일반 작업(코드/탐색) ❌. customCreated=true 로 표기 — 영속화·삭제 cascade 등 기존 경로 재사용.
+   */
+  createAutoAgent(label: string, position?: { x: number; y: number }, projectName?: string | null): BubbleData {
+    this.agentCounter += 1;
+    const sessionId = `auto-${Date.now().toString(36)}-${this.agentCounter}`;
+    const baseName = label || `Auto Agent ${this.agentCounter}`;
+    const uniqueName = this.uniqueLabel(baseName);
+    const agent: BubbleData = {
+      id: `agent-${hashString(sessionId)}`,
+      label: uniqueName,
+      bubbleType: 'auto',
+      path: sessionId,
+      status: 'idle',
+      activity: 0,
+      lastActivity: Date.now(),
+      customCreated: true,
+      position,
+    };
+    this.agents.set(sessionId, agent);
+    const cwd = this.resolveProjectCwd(projectName ?? null);
+    if (cwd) {
+      this.sessionCwds.set(sessionId, cwd);
+      this.registerProject(cwd);
+    }
+    // 초기 빈 요약 슬롯 — 사용자가 메시지 보내기 전까지 phase='idle'
+    this.autoAgentSummaries.set(sessionId, {
+      autoAgentId: sessionId,
+      complexity: 'low',
+      topology: 'autopilot',
+      spawnedAgentIds: [],
+      entryAgentId: '',
+      userRequest: '',
+      phase: 'idle',
+      startedAt: Date.now(),
+      askQuestionsEnabled: true,
+    });
+    return agent;
+  }
+
+  /** §5.3 #10-2 v2.37 — 특정 auto-agent 의 요약 메타 조회 */
+  getAutoAgentSummary(autoAgentId: string): AutoAgentSummary | null {
+    return this.autoAgentSummaries.get(autoAgentId) ?? null;
+  }
+
+  /** §5.3 #10-2 v2.37 — 요약 메타 갱신 (런타임에서 phase 진행 시 호출) */
+  setAutoAgentSummary(autoAgentId: string, summary: AutoAgentSummary): void {
+    this.autoAgentSummaries.set(autoAgentId, summary);
+  }
+
+  /** §5.3 #10-2 v2.37 — 요약 메타 부분 갱신 (phase·finalSummary 등) */
+  updateAutoAgentSummary(autoAgentId: string, patch: Partial<AutoAgentSummary>): AutoAgentSummary | null {
+    const existing = this.autoAgentSummaries.get(autoAgentId);
+    if (!existing) return null;
+    const next: AutoAgentSummary = { ...existing, ...patch };
+    this.autoAgentSummaries.set(autoAgentId, next);
+    return next;
+  }
+
+  /** §5.3 #10-2 v2.37 — 전체 요약 메타 맵 (broadcast 스냅샷용) */
+  getAutoAgentSummaries(): Record<string, AutoAgentSummary> {
+    return Object.fromEntries(this.autoAgentSummaries);
   }
 
   /** 캔버스에서 파이프라인 에이전트 생성 (부모 1 + 자식 4 원자적 생성) */
@@ -2296,6 +2411,8 @@ export class ProjectGraph {
       activeContiWork: this.activeContiWork.size > 0 ? this.getActiveContiWorkRecord() : undefined,
       recentToolDurations: this.recentToolDurations.size > 0 ? this.getRecentToolDurations() : undefined,
       compactCounts: this.compactCounts.size > 0 ? this.getCompactCounts() : undefined,
+      skillUsageCounts: this.getSkillUsageCountsRecord(),
+      autoAgentSummaries: this.autoAgentSummaries.size > 0 ? this.getAutoAgentSummaries() : undefined,
     };
 
     // (2b) 계산 결과를 캐시에 저장
@@ -2424,6 +2541,8 @@ export class ProjectGraph {
       layoutBoundsHalfHeight: this.layoutBoundsByProject.get(project.name)?.hh,
       contis: this.contis.size > 0 ? this.getContisRecord() : undefined,
       compactCounts: this.compactCounts.size > 0 ? this.getCompactCounts() : undefined,
+      skillUsageCounts: this.getSkillUsageCountsFlat(),
+      autoAgentSummaries: this.autoAgentSummaries.size > 0 ? this.getAutoAgentSummaries() : undefined,
     };
   }
 
@@ -3143,8 +3262,12 @@ export class ProjectGraph {
 
     // subagent 복원 — cp.project로 해당 프로젝트의 sub-streams 디렉토리에서 스트림 복원
     // archivedSubAgents(탭 닫힌 이력)도 함께 복원 → 폴더 버튼 "다시 열기" 리스트 복원
+    //
+    // subAgentManager 는 전역 싱글톤 — 부팅 시 N개 프로젝트가 순차 hydrate 되면 매 호출마다
+    // registry.clear() 가 일어나 마지막 프로젝트의 sub 만 살아남는 버그 회피용으로 mergeSnapshot 사용.
+    // (다른 프로젝트의 parent agentId 는 서로 겹치지 않으므로 누적이 항상 안전.)
     if (cp.subAgents) {
-      subAgentManager.restore(cp.subAgents, cp.subAgentCounter ?? 0, cp.project, cp.archivedSubAgents);
+      subAgentManager.mergeSnapshot(cp.subAgents, cp.subAgentCounter ?? 0, cp.project, cp.archivedSubAgents);
     }
 
     // hiddenProjects 복원
@@ -3212,6 +3335,26 @@ export class ProjectGraph {
     if (cp.compactCounts) {
       for (const [sid, c] of Object.entries(cp.compactCounts)) {
         this.compactCounts.set(sid, c);
+      }
+    }
+
+    // §5.5 #17-4 v2.36 — 프로젝트별 스킬 사용 카운트 복원
+    this.skillUsageCounts.clear();
+    if (cp.skillUsageCounts) {
+      for (const [name, n] of Object.entries(cp.skillUsageCounts)) {
+        if (typeof n === 'number' && Number.isFinite(n) && n > 0) {
+          this.skillUsageCounts.set(name, n);
+        }
+      }
+    }
+
+    // §5.3 #10-2 v2.37 — Auto Agent 요약 메타 복원
+    this.autoAgentSummaries.clear();
+    if (cp.autoAgentSummaries) {
+      for (const [id, summary] of Object.entries(cp.autoAgentSummaries)) {
+        if (summary && typeof summary === 'object') {
+          this.autoAgentSummaries.set(id, summary);
+        }
       }
     }
 

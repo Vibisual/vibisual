@@ -574,9 +574,6 @@
     },
     "mainArea": {
       "scrollPrompt": "Scorri al prompt",
-      "noSessions": "Nessuna sessione",
-      "noActivity": "Nessuna attività in questa sessione",
-      "startHint": "Digita un comando in basso per avviare una nuova sessione",
       "inputPlaceholderNew": "Inserisci un comando per avviare una nuova sessione...",
       "inputPlaceholder": "Inserisci comando...",
       "run": "Esegui",

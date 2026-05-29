@@ -1,12 +1,29 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { useGraphStore } from '../../stores/graphStore.js';
 import type { IframeTab } from '../../stores/graphStore.js';
 import { TabContextMenu } from './TabContextMenu.js';
 
 type TabItem =
-  | { kind: 'project'; key: string; name: string; path: string; count: number; activeCount: number }
+  | {
+      kind: 'project';
+      key: string;
+      name: string;
+      path: string;
+      count: number;
+      activeCount: number;
+      completedCount: number;
+    }
   | { kind: 'iframe'; key: string; tab: IframeTab };
+
+// Header 우측 인디케이터와 동일 신호 — active>0 파랑, completed>0 녹색, 그 외 회색.
+type ProjectDotState = 'idle' | 'completed' | 'active';
+const PROJECT_DOT_STYLES: Record<ProjectDotState, string> = {
+  idle: 'bg-gray-400',
+  completed: 'bg-emerald-400 animate-pulse',
+  active: 'bg-blue-400 animate-pulse',
+};
 
 /** projectId 정규화 — 서버 appState(경로키)와 동일 semantics. */
 function npClient(p: string): string {
@@ -36,6 +53,10 @@ export function TabBar(): React.JSX.Element | null {
   const tabPins = useGraphStore((s) => s.tabPins);
   const defaultTabbarKey = useGraphStore((s) => s.defaultTabbarKey);
   const appState = useGraphStore((s) => s.appState);
+  // SCENARIO.md §5.4 #14-1 (v2.29) — 별창으로 분리된 탭은 메인 TabBar 에서 숨김.
+  const detachedTabKeys = useGraphStore((s) => s.detachedTabKeys);
+  // Redock hover 상태(별창 헤더 드래그가 메인 탭바 위에 있을 때 별창이 메인에 푸시).
+  const [redockHoverKey, setRedockHoverKey] = useState<string | null>(null);
 
   // 프로젝트 탭은 서버 appState가 SSOT, iframe 탭은 로컬 tabPins/defaultTabbarKey가 SSOT.
   const isItemPinned = useCallback((item: TabItem): boolean => {
@@ -66,6 +87,9 @@ export function TabBar(): React.JSX.Element | null {
         const activeCount = agents.filter(
           (a) => agentIds.includes(a.id) && a.status === 'active',
         ).length;
+        const completedCount = agents.filter(
+          (a) => agentIds.includes(a.id) && a.status === 'completed',
+        ).length;
         return {
           kind: 'project' as const,
           key: `p:${info.name}`,
@@ -73,6 +97,7 @@ export function TabBar(): React.JSX.Element | null {
           path: info.path,
           count: agentIds.length,
           activeCount,
+          completedCount,
         };
       });
   }, [registeredProjects, agentProjects, agents]);
@@ -112,21 +137,64 @@ export function TabBar(): React.JSX.Element | null {
   const orderedTabs = useMemo(() => {
     return tabOrder
       .map((key) => tabMap.get(key))
-      .filter((t): t is TabItem => !!t);
-  }, [tabOrder, tabMap]);
+      .filter((t): t is TabItem => !!t)
+      // §5.4 #14-1 — 별창으로 분리된 탭은 메인 탭바에서 숨김.
+      .filter((t) => !detachedTabKeys[t.key]);
+  }, [tabOrder, tabMap, detachedTabKeys]);
+
+  // §5.4 #14-1 (v2.29) — 별창이 메인에 푸시하는 redock-hover/commit 구독.
+  // 메인 윈도우의 TabBar 만 이 신호를 본다(별창은 자기 자신을 띄운 게 아니라 detach 한 측이 메인).
+  useEffect(() => {
+    const api = typeof window !== 'undefined' ? window.api : undefined;
+    if (!api?.window) return;
+    const offHover = api.window.onRedockHover(({ tabKey, hovering }) => {
+      setRedockHoverKey(hovering ? tabKey : null);
+    });
+    const offCommit = api.window.onRedockCommit(({ tabKey }) => {
+      setRedockHoverKey((cur) => (cur === tabKey ? null : cur));
+    });
+    return () => {
+      offHover();
+      offCommit();
+    };
+  }, []);
 
   // --- Drag & Drop ---
   const dragIndexRef = useRef<number | null>(null);
+  const dragKeyRef = useRef<string | null>(null);
+  const tabBarRectRef = useRef<DOMRect | null>(null);
   const [dragKey, setDragKey] = useState<string | null>(null);
+  // §5.4 #14-1 — 드래그 중 마우스가 탭바 밖에 있어 detach 가 예상되는 상태일 때 detach-hint 표시.
+  const [detachHint, setDetachHint] = useState(false);
+  // §5.4 #14-1 v2.30 — cursor 옆에 따라다니는 floating hint card 위치 + 상태.
+  // outside = true 면 "여기 놓으면 별창" 메시지(amber), false 면 "탭바 안에서 떼면 순서 변경"(neutral).
+  const [floatingHint, setFloatingHint] = useState<{ x: number; y: number; outside: boolean; label: string } | null>(null);
 
   const handleDragStart = useCallback(
     (e: React.DragEvent, index: number, key: string) => {
       dragIndexRef.current = index;
+      dragKeyRef.current = key;
       setDragKey(key);
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('text/plain', key);
+      // bounding rect 는 dragstart 시점이 아니라 dragOver 시점에 lazy 캡처(scrollEl 이 이 시점엔 안전).
+      tabBarRectRef.current = null;
+
+      // §5.4 #14-1 v2.35 — native dragImage 를 1×1 transparent 로 비워서 cursor 옆에 박스가
+      // 두 개 보이는 문제 해결. 실제 사용자 시야에 보이는 박스는 우리 floating hint card 하나만.
+      try {
+        const transparent = document.createElement('canvas');
+        transparent.width = 1;
+        transparent.height = 1;
+        transparent.style.cssText = 'position:absolute;top:-9999px;left:-9999px;';
+        document.body.appendChild(transparent);
+        e.dataTransfer.setDragImage(transparent, 0, 0);
+        window.setTimeout(() => {
+          try { document.body.removeChild(transparent); } catch { /* noop */ }
+        }, 0);
+      } catch { /* noop */ }
     },
-    [],
+    [tabMap],
   );
 
   const handleDragOver = useCallback(
@@ -147,10 +215,105 @@ export function TabBar(): React.JSX.Element | null {
     [],
   );
 
-  const handleDragEnd = useCallback(() => {
-    dragIndexRef.current = null;
-    setDragKey(null);
+  // §5.4 #14-1 v2.35 — safe-zone 을 TabBar scroll 영역에서 **헤더 행 전체**로 확장.
+  // 사용자 의도: File 메뉴 등 헤더 안 어디서든 reorder 영역, 헤더 띠를 벗어나야(=캔버스로 내려와야) detach hint.
+  // 헤더 행 = h-9 (= 36px) 띠 전체(가로 무관). 메인 윈도우 좌상단 (clientY 0) 에서 36px 까지가 safe.
+  // 별창에서도 동일 — 별창의 미니 타이틀바도 36px 띠지만 별창엔 TabBar 가 없으므로 이 컨테이너 자체가 마운트 안 됨.
+  const HEADER_SAFE_HEIGHT = 36;
+
+  const handleContainerDragOver = useCallback((e: React.DragEvent) => {
+    if (!dragKeyRef.current) return;
+    e.preventDefault();
+    const inside = e.clientY < HEADER_SAFE_HEIGHT;
+    setDetachHint(!inside);
   }, []);
+
+  // §5.4 #14-1 v2.30+v2.35 — 드래그 중 cursor 위치를 document 레벨로 추적해 floating hint card 띄움.
+  // 캔버스/메인 영역 등 탭바 밖으로 가도 이벤트가 잡혀야 하므로 document.body 에 부착.
+  // safe-zone 판정 = 헤더 행 전체(세로 36px 띠).
+  useEffect(() => {
+    if (!dragKey) {
+      setFloatingHint(null);
+      return;
+    }
+    const handleDocDragOver = (e: DragEvent): void => {
+      if (!dragKeyRef.current) return;
+      e.preventDefault();
+      const inside = e.clientY < HEADER_SAFE_HEIGHT;
+      const item = tabMap.get(dragKeyRef.current);
+      const label =
+        item?.kind === 'project' ? item.name : item?.kind === 'iframe' ? item.tab.label : dragKeyRef.current;
+      setFloatingHint({ x: e.clientX, y: e.clientY, outside: !inside, label });
+      setDetachHint(!inside);
+    };
+    document.addEventListener('dragover', handleDocDragOver);
+    return () => {
+      document.removeEventListener('dragover', handleDocDragOver);
+    };
+  }, [dragKey, tabMap]);
+
+  // 탭바 자체에서 dragleave 가 발생해도 hint 즉시 OFF 하지 않음 — drag image 가 위에 떠 있으면
+  // dragover/dragleave 가 깜빡거릴 수 있어 좌표 기반으로만 판정.
+
+  const handleDragEnd = useCallback((e: React.DragEvent) => {
+    const draggedKey = dragKeyRef.current;
+    dragIndexRef.current = null;
+    dragKeyRef.current = null;
+    setDragKey(null);
+    setDetachHint(false);
+    setFloatingHint(null);
+    tabBarRectRef.current = null;
+    if (!draggedKey) return;
+
+    // §5.4 #14-1 v2.35 — dragEnd 좌표가 헤더 행(36px 띠) 밖이면 detach 트리거.
+    const outside = e.clientY >= 36;
+    if (!outside) return;
+
+    const item = tabMap.get(draggedKey);
+    if (!item) return;
+
+    const api = typeof window !== 'undefined' ? window.api : undefined;
+    if (!api?.window) {
+      // packaged 가 아닌 경우엔 detach 불가 — 단순 noop.
+      return;
+    }
+
+    // screen 좌표가 필요(BrowserWindow 좌상단 기준) — Electron MouseEvent 의 screenX/Y 사용.
+    const cursor = { x: e.screenX, y: e.screenY };
+
+    void api.window
+      .detach({ kind: item.kind, tabKey: draggedKey, cursor })
+      .then(({ reused }) => {
+        // 활성 탭을 detach 한 경우 메인을 다음 visible 탭으로 자동 전환(§5.4 #14-1 B).
+        // detach 후 server 의 detachedTabKeys 가 broadcast 되어 store 가 즉시 갱신됨.
+        // 메인의 activeProject/activeIframeId 가 detach 된 탭과 같으면 다음 탭으로 이동.
+        if (reused) return;
+        const store = useGraphStore.getState();
+        const wasActiveProject = item.kind === 'project' && store.activeProject === item.name;
+        const wasActiveIframe = item.kind === 'iframe' && store.activeIframeId === item.tab.id;
+        if (!wasActiveProject && !wasActiveIframe) return;
+        const remaining = tabOrder
+          .map((k) => tabMap.get(k))
+          .filter((t): t is TabItem => !!t)
+          .filter((t) => t.key !== draggedKey)
+          // 새로 detach 된 키는 아직 store 에 반영 안 됐을 수 있으므로 명시 제외.
+          .filter((t) => !store.detachedTabKeys[t.key]);
+        const nextTab = remaining[0] ?? null;
+        if (!nextTab) {
+          // 비울 수 없는 setter 가 없으므로 직접 store set.
+          store.setActiveProjectLocal(null);
+          store.setActiveIframeIdLocal(null);
+        } else if (nextTab.kind === 'project') {
+          // 메인은 setActiveProject(서버 patch 포함) 호출 — local 이 아니라 정식 액션.
+          store.setActiveProject(nextTab.name);
+        } else {
+          store.setActiveIframeTab(nextTab.tab.id);
+        }
+      })
+      .catch((err) => {
+        console.error('[TabBar] detach failed', err);
+      });
+  }, [tabMap, tabOrder]);
 
   // --- Stub tab click ---
   // --- Close handlers ---
@@ -197,9 +360,36 @@ export function TabBar(): React.JSX.Element | null {
     return orderedTabs.some((it, i) => i > ctx.index && !isItemPinned(it));
   }, [ctx, orderedTabs, isItemPinned]);
 
-  const handleCtxAction = useCallback((action: 'close' | 'closeOthers' | 'closeRight' | 'closeAll' | 'togglePin' | 'toggleDefault') => {
+  const handleCtxAction = useCallback((action: 'close' | 'closeOthers' | 'closeRight' | 'closeAll' | 'togglePin' | 'toggleDefault' | 'detach') => {
     if (!ctx || !ctxItem) return;
     const store = useGraphStore.getState();
+
+    // §5.4 #14-1 — 컨텍스트 메뉴로 detach. cursor 좌표는 컨텍스트 메뉴 위치 사용.
+    if (action === 'detach') {
+      const api = typeof window !== 'undefined' ? window.api : undefined;
+      if (!api?.window) return;
+      void api.window.detach({
+        kind: ctxItem.kind,
+        tabKey: ctxItem.key,
+        cursor: { x: ctx.x, y: ctx.y },
+      });
+      // 활성 탭이면 다음 visible 탭으로 자동 전환.
+      const wasActiveProject = ctxItem.kind === 'project' && store.activeProject === ctxItem.name;
+      const wasActiveIframe = ctxItem.kind === 'iframe' && store.activeIframeId === ctxItem.tab.id;
+      if (wasActiveProject || wasActiveIframe) {
+        const remaining = orderedTabs.filter((t) => t.key !== ctxItem.key);
+        const next = remaining[0];
+        if (!next) {
+          store.setActiveProjectLocal(null);
+          store.setActiveIframeIdLocal(null);
+        } else if (next.kind === 'project') {
+          store.setActiveProject(next.name);
+        } else {
+          store.setActiveIframeTab(next.tab.id);
+        }
+      }
+      return;
+    }
 
     if (action === 'togglePin') {
       if (ctxItem.kind === 'project') {
@@ -338,8 +528,66 @@ export function TabBar(): React.JSX.Element | null {
   // §3.7 v2.13/v2.14 — Chrome 스타일 탭. h-full 로 헤더(h-9) 꽉 채움, 고정 폭(w-40),
   // 라벨 truncate, 활성 탭은 콘텐츠 배경(gray-950) + 상단 2px 액센트 → 헤더 하단 구분선을
   // "씹고" 콘텐츠로 떨어지는 tab-folder 효과. 탭 간 1px 우측 구분선.
+  // §5.4 #14-1 — redock-hover 가 활성이면 탭바 자체에 드롭존 글로우. 별창 헤더가 메인 탭바 위로
+  // 옮겨와 있을 때 사용자에게 "여기 떨어뜨리면 합쳐짐" 시각 신호.
+  const tabBarRedockGlow = redockHoverKey !== null;
   return (
-    <div className="group/tabscroll relative flex h-full min-w-0 flex-1 items-stretch">
+    <div
+      className={`group/tabscroll relative flex h-full min-w-0 flex-1 items-stretch transition-colors duration-150 ${
+        tabBarRedockGlow ? 'bg-blue-900/30 ring-1 ring-inset ring-blue-400/60' : ''
+      } ${detachHint ? 'opacity-60' : ''}`}
+      data-redock-target={tabBarRedockGlow ? '1' : undefined}
+      onDragOver={handleContainerDragOver}
+    >
+      {tabBarRedockGlow && (
+        <span className="pointer-events-none absolute inset-x-2 top-0 z-10 flex items-center justify-center text-[10px] font-semibold uppercase tracking-wider text-blue-200">
+          {t('tabDetach.redockZoneHint', { defaultValue: 'Drop here to redock' })}
+        </span>
+      )}
+      {detachHint && (
+        <span className="pointer-events-none absolute inset-x-2 bottom-0 z-10 flex items-center justify-center text-[10px] font-medium tracking-wide text-amber-300/90">
+          {t('tabDetach.detachHint', { defaultValue: 'Drop outside the tab bar to open in a new window' })}
+        </span>
+      )}
+      {/* §5.4 #14-1 v2.30 — cursor 옆에 따라다니는 floating hint card. outside=true 일 때만 강조. */}
+      {floatingHint && createPortal(
+        <div
+          data-tab-floating-hint="1"
+          className={`pointer-events-none fixed z-[9999] flex max-w-[260px] flex-col gap-0.5 rounded-md px-2.5 py-1.5 text-[11px] font-medium shadow-lg shadow-black/50 transition-colors duration-100 ${
+            floatingHint.outside
+              ? 'bg-[#1f2937] text-amber-200 ring-1 ring-amber-400/60'
+              : 'bg-[#1f2937]/85 text-gray-300 ring-1 ring-white/[0.08]'
+          }`}
+          style={{
+            left: floatingHint.x + 18,
+            top: floatingHint.y + 18,
+          }}
+        >
+          <div className="flex items-center gap-1">
+            {floatingHint.outside ? (
+              <svg className="h-3 w-3 flex-shrink-0 text-amber-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M14 4h6v6" />
+                <path d="M10 14L20 4" />
+                <path d="M20 14v6H4V4h6" />
+              </svg>
+            ) : (
+              <svg className="h-3 w-3 flex-shrink-0 text-gray-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M8 5h13" />
+                <path d="M8 12h13" />
+                <path d="M8 19h13" />
+                <path d="M3 5h.01M3 12h.01M3 19h.01" />
+              </svg>
+            )}
+            <span className="truncate text-[12px] font-semibold text-white">{floatingHint.label}</span>
+          </div>
+          <span className={floatingHint.outside ? 'text-amber-200/95' : 'text-gray-400/90'}>
+            {floatingHint.outside
+              ? t('tabDetach.detachCardTitle', { defaultValue: 'Drop here to open as new window' })
+              : t('tabDetach.reorderCardSubtitle', { defaultValue: 'Stay inside the tab bar to reorder' })}
+          </span>
+        </div>,
+        document.body,
+      )}
       <div
         ref={setScrollEl}
         onWheel={handleWheel}
@@ -385,6 +633,30 @@ export function TabBar(): React.JSX.Element | null {
                 </span>
               )}
               <span className="min-w-0 flex-1 truncate">{item.name}</span>
+              {item.count > 0 && (() => {
+                const dotState: ProjectDotState =
+                  item.activeCount > 0
+                    ? 'active'
+                    : item.completedCount > 0
+                      ? 'completed'
+                      : 'idle';
+                const tooltip =
+                  item.activeCount > 0
+                    ? t('header.agentStatus.tooltipWorking', {
+                        active: item.activeCount,
+                        total: item.count,
+                      })
+                    : t('header.agentStatus.tooltipCompleted', { count: item.count });
+                return (
+                  <span
+                    title={tooltip}
+                    className="flex flex-shrink-0 items-center gap-1 text-[10px] tabular-nums text-gray-300"
+                  >
+                    <span className={`h-1.5 w-1.5 rounded-full ${PROJECT_DOT_STYLES[dotState]}`} />
+                    <span>{item.activeCount}/{item.count}</span>
+                  </span>
+                );
+              })()}
               <button
                 type="button"
                 draggable={false}

@@ -574,9 +574,6 @@
     },
     "mainArea": {
       "scrollPrompt": "Défiler jusqu'à l'invite",
-      "noSessions": "Aucune session pour l'instant",
-      "noActivity": "Aucune activité dans cette session",
-      "startHint": "Saisissez une commande ci-dessous pour démarrer une nouvelle session",
       "inputPlaceholderNew": "Saisir une commande pour démarrer une nouvelle session...",
       "inputPlaceholder": "Saisir une commande...",
       "run": "Exécuter",

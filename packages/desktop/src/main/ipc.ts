@@ -8,6 +8,20 @@ import {
   shutdownServerLogService,
   type ClientConnection,
 } from '@vibisual/server';
+import {
+  openDetached,
+  closeByTabKey,
+  closeByWindowId,
+  listDetached,
+  hasTabKey,
+  getCursorScreenPoint,
+  getMainContentBounds,
+  pushRedockHover,
+  redockCommit,
+  startDetachDragByWindowId,
+  endDetachDragByWindowId,
+  type DetachKind,
+} from './windowManager';
 
 // IPC hub — SCENARIO.md §3.7 (in-process 통합).
 //
@@ -140,6 +154,69 @@ export function setupIpc(expressApp: Express): IpcHub {
     for (const m of buildConnectionMessages()) {
       if (!event.sender.isDestroyed()) event.sender.send('vibisual:ws', m);
     }
+    // SCENARIO.md §5.4 #14-1 — 별창/메인 모두 현재 detached 목록을 즉시 알아야 한다.
+    if (!event.sender.isDestroyed()) {
+      event.sender.send('vibisual:detached:list', listDetached());
+    }
+  });
+
+  // ─── §5.4 #14-1 (v2.29) Detach/Redock 채널 ───────────────────────────────
+  ipcMain.handle(
+    'vibisual:window:detach',
+    (
+      _event,
+      payload: { kind: DetachKind; tabKey: string; cursor?: { x: number; y: number } },
+    ): { windowId: number; reused: boolean } => {
+      if (!payload || (payload.kind !== 'project' && payload.kind !== 'iframe')) {
+        throw new Error('vibisual:window:detach — invalid kind');
+      }
+      if (typeof payload.tabKey !== 'string' || payload.tabKey.length === 0) {
+        throw new Error('vibisual:window:detach — tabKey required');
+      }
+      return openDetached({
+        kind: payload.kind,
+        tabKey: payload.tabKey,
+        cursor: payload.cursor,
+      });
+    },
+  );
+
+  ipcMain.handle('vibisual:window:close-detached', (_event, tabKey: string): boolean => {
+    return closeByTabKey(tabKey);
+  });
+
+  ipcMain.handle('vibisual:window:close-self', (event): boolean => {
+    // 별창의 X 가 아니라 별창 안의 "메인으로 합치기" 버튼 같은 데서 자기 창 직접 닫기용.
+    const wcId = event.sender.id;
+    // detached 매핑이 있는 창이면 closeByWindowId, 아니면 BrowserWindow.fromWebContents 로 닫음.
+    return closeByWindowId(wcId);
+  });
+
+  ipcMain.handle('vibisual:window:list-detached', () => listDetached());
+  ipcMain.handle('vibisual:window:has-tab', (_e, tabKey: string) => hasTabKey(tabKey));
+
+  ipcMain.handle('vibisual:window:cursor-screen', () => getCursorScreenPoint());
+  ipcMain.handle('vibisual:window:main-bounds', () => getMainContentBounds());
+
+  ipcMain.handle(
+    'vibisual:window:redock-drag',
+    (_e, payload: { tabKey: string; hovering: boolean }): void => {
+      if (typeof payload?.tabKey !== 'string') return;
+      pushRedockHover(payload.tabKey, !!payload.hovering);
+    },
+  );
+
+  ipcMain.handle('vibisual:window:redock-commit', (_e, tabKey: string): boolean => {
+    if (typeof tabKey !== 'string' || tabKey.length === 0) return false;
+    return redockCommit(tabKey);
+  });
+
+  // §5.4 #14-1 v2.30 — 별창 미니 타이틀바 드래그 시작/종료.
+  ipcMain.handle('vibisual:window:detach-drag-start', (event): boolean => {
+    return startDetachDragByWindowId(event.sender.id);
+  });
+  ipcMain.handle('vibisual:window:detach-drag-end', (event, commit: boolean): boolean => {
+    return endDetachDragByWindowId(event.sender.id, !!commit);
   });
 
   return {
@@ -148,6 +225,17 @@ export function setupIpc(expressApp: Express): IpcHub {
       ipcMain.removeHandler('vibisual:fetch');
       ipcMain.removeHandler('vibisual:send');
       ipcMain.removeHandler('vibisual:ws-connect');
+      ipcMain.removeHandler('vibisual:window:detach');
+      ipcMain.removeHandler('vibisual:window:close-detached');
+      ipcMain.removeHandler('vibisual:window:close-self');
+      ipcMain.removeHandler('vibisual:window:list-detached');
+      ipcMain.removeHandler('vibisual:window:has-tab');
+      ipcMain.removeHandler('vibisual:window:cursor-screen');
+      ipcMain.removeHandler('vibisual:window:main-bounds');
+      ipcMain.removeHandler('vibisual:window:redock-drag');
+      ipcMain.removeHandler('vibisual:window:redock-commit');
+      ipcMain.removeHandler('vibisual:window:detach-drag-start');
+      ipcMain.removeHandler('vibisual:window:detach-drag-end');
       shutdownIframeLogStreamer();
       shutdownServerLogService();
       connections.clear();

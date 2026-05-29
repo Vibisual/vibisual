@@ -1,4 +1,4 @@
-import type { BubbleType, BubbleStyleConfig, EdgeStyleConfig, AgentRole, PipelineChildConfig, PipelineType, AgentConfig, AgentPreset, TaskEdgeTemplate, TaskEdgeKind, UiLocale } from './types.js';
+import type { BubbleType, BubbleStyleConfig, EdgeStyleConfig, AgentRole, PipelineChildConfig, PipelineType, AgentConfig, AgentPreset, TaskEdgeTemplate, TaskEdgeKind, UiLocale, AutoAgentRole, AutoAgentTopology, AutoAgentTemplate, AutoAgentTopologyPreset } from './types.js';
 
 // ─── UI 다국어 (i18n) ───
 
@@ -133,6 +133,14 @@ export const BUBBLE_STYLES: Record<BubbleType, BubbleStyleConfig> = {
     icon: 'conti',
     ringIdle: 'border-emerald-300 border-dashed',
     ringActive: 'border-emerald-500 border-dashed shadow-lg shadow-emerald-500/30',
+  },
+  // §5.3 #10-2 v2.37 — Auto Agent (메타 에이전트). 커스텀 에이전트(#3B82F6)보다 어두운 다크블루.
+  auto: {
+    color: '#1E3A8A',
+    glow: '#3B82F6',
+    icon: 'auto',
+    ringIdle: 'border-blue-900',
+    ringActive: 'border-blue-700 shadow-lg shadow-blue-900/40',
   },
 };
 
@@ -1207,3 +1215,239 @@ export const SERVER_LOG_CLIENT_BUFFER_MAX = 2000;
 export const SERVER_LOG_BATCH_MS = 50;
 /** ServerLogPopup "최근 N줄만" 토글 ON 시 렌더할 최근 라인 수 (§7.7 v2.3) — DOM 비용 고정. */
 export const SERVER_LOG_RECENT_VIEW_LIMIT = 200;
+
+// ─── §5.3 #10-2 v2.37 — Auto Agent (메타 에이전트) ───
+
+/**
+ * Auto Agent 가 spawn 한 서브 커스텀 에이전트들을 본인 주변에 원형 배치할 때의 반지름 (px).
+ * 너무 좁으면 겹치고, 너무 넓으면 화면 밖. 일반 캔버스 viewBox 가정.
+ */
+export const AUTO_AGENT_LAYOUT_RADIUS = 280;
+
+/**
+ * Auto Agent 가 high 복잡도 판정 시 발사할 명확화 질문 최대 개수.
+ * 너무 많으면 사용자 인내심 소진, 너무 적으면 정보 부족.
+ */
+export const AUTO_AGENT_MAX_CLARIFYING_QUESTIONS = 3;
+
+/**
+ * 역할별 기본 AgentConfig 정책 — SCENARIO §5.3 #10-2 의 "역할 카탈로그" 테이블 SSOT.
+ * Auto Agent 가 서브 에이전트 spawn 시 이 값을 `setAgentConfig` 로 즉시 적용.
+ * 새 역할 추가 시 여기 한 줄 + `AutoAgentRole` 유니온 한 줄.
+ */
+export const AUTO_AGENT_ROLE_POLICY: Record<AutoAgentRole, Partial<AgentConfig>> = {
+  pm: {
+    model: 'opus',
+    tools: ['Read', 'Grep', 'Glob', 'Bash'],
+    permissionMode: 'default',
+    effort: 'medium',
+    color: '#7C3AED',
+    rules:
+      '# Role: Project Manager (Auto Agent 가 자동 spawn)\n\n' +
+      '- 사용자 요청을 받아 적절한 서브 에이전트(architect/coder/reviewer/tester 등)에게 작업을 분배한다.\n' +
+      '- 직접 코드 수정은 하지 말고, 라우팅·요약·중계 역할에 집중.\n' +
+      '- 서브의 결과가 들어오면 1~2문 요약을 사용자에게 보고.',
+  },
+  planner: {
+    model: 'opus',
+    tools: ['Read', 'Grep', 'Glob', 'Bash'],
+    permissionMode: 'plan',
+    effort: 'medium',
+    color: '#0EA5E9',
+    rules:
+      '# Role: Planner (Auto Agent 가 자동 spawn)\n\n' +
+      '- 구현 전략·트레이드오프·중요 파일을 정리하는 설계 에이전트. plan 모드.\n' +
+      '- 코드를 수정하지 말고 "변경 대상 / 변경 요지 / 위험 / 검증 방법" 4 섹션 산출.',
+  },
+  architect: {
+    model: 'opus',
+    tools: ['Read', 'Grep', 'Glob', 'Bash'],
+    permissionMode: 'plan',
+    effort: 'high',
+    color: '#14B8A6',
+    rules:
+      '# Role: Architect (Auto Agent 가 자동 spawn)\n\n' +
+      '- 시스템 구조·경계·의존성을 설계한다. ADR 형식 산출.\n' +
+      '- 코드는 수정하지 말고 다이어그램/표/구조 설명만.',
+  },
+  coder: {
+    model: 'sonnet',
+    tools: ['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob'],
+    permissionMode: 'default',
+    effort: 'medium',
+    color: '#F59E0B',
+    rules:
+      '# Role: Coder (Auto Agent 가 자동 spawn)\n\n' +
+      '- 받은 명세대로 실제 코드를 작성/수정한다.\n' +
+      '- 작업 완료 후 변경 파일 목록과 핵심 변경 요점을 보고.',
+  },
+  reviewer: {
+    model: 'sonnet',
+    tools: ['Read', 'Grep', 'Glob', 'Bash'],
+    permissionMode: 'default',
+    effort: 'medium',
+    color: '#EF4444',
+    rules:
+      '# Role: Reviewer (Auto Agent 가 자동 spawn)\n\n' +
+      '- 보안·성능·코드 품질 다각도 리뷰. 파일 수정 ❌.\n' +
+      '- 발견 이슈는 file:line + 근거 + 권장 수정. 잘된 점도 함께.\n' +
+      '- 결론은 "approve" 또는 "REJECT: <reason>" 한 줄로 명시.',
+  },
+  tester: {
+    model: 'sonnet',
+    tools: ['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob'],
+    permissionMode: 'default',
+    effort: 'low',
+    color: '#10B981',
+    rules:
+      '# Role: Tester (Auto Agent 가 자동 spawn)\n\n' +
+      '- 받은 명세대로 테스트 작성·실행. 단위·통합 테스트 우선.\n' +
+      '- 실패 시 정확한 출력 인용 + 1문장 진단.',
+  },
+  researcher: {
+    model: 'haiku',
+    tools: ['Read', 'Grep', 'Glob', 'WebSearch', 'WebFetch', 'Bash'],
+    permissionMode: 'default',
+    effort: 'low',
+    color: '#A855F7',
+    rules:
+      '# Role: Researcher (Auto Agent 가 자동 spawn)\n\n' +
+      '- 외부/내부 자료 조사. 출처 명시.\n' +
+      '- 결과는 핵심 3-5 bullet + 링크/파일경로.',
+  },
+  'doc-writer': {
+    model: 'haiku',
+    tools: ['Read', 'Write', 'Edit', 'Bash'],
+    permissionMode: 'default',
+    effort: 'low',
+    color: '#06B6D4',
+    rules:
+      '# Role: Doc Writer (Auto Agent 가 자동 spawn)\n\n' +
+      '- 받은 코드 변경/명세를 문서로 정리. README, CHANGELOG, API 문서.\n' +
+      '- 톤은 간결·기술적. 예시 코드 포함.',
+  },
+  'deep-interviewer': {
+    model: 'opus',
+    tools: ['Read', 'Bash'],
+    permissionMode: 'plan',
+    effort: 'medium',
+    color: '#F472B6',
+    rules:
+      '# Role: Deep Interviewer (Auto Agent 가 자동 spawn)\n\n' +
+      '- 사용자 요구를 소크라테스식 질문법으로 정제한다.\n' +
+      '- 모호한 의도·숨겨진 가정·우선순위를 한 번에 하나씩 질문.\n' +
+      '- 답이 모이면 명세 1쪽 분량으로 정리.',
+  },
+};
+
+/**
+ * 역할별 사용자-가시 메타 (라벨·설명).
+ */
+export const AUTO_AGENT_TEMPLATES: readonly AutoAgentTemplate[] = [
+  { role: 'pm', label: 'PM', description: 'Routes user request to sub-agents and summarizes results.', config: AUTO_AGENT_ROLE_POLICY.pm },
+  { role: 'planner', label: 'Planner', description: 'Plans implementation strategy without modifying code.', config: AUTO_AGENT_ROLE_POLICY.planner },
+  { role: 'architect', label: 'Architect', description: 'Designs system structure, boundaries, and dependencies.', config: AUTO_AGENT_ROLE_POLICY.architect },
+  { role: 'coder', label: 'Coder', description: 'Writes and modifies actual code per spec.', config: AUTO_AGENT_ROLE_POLICY.coder },
+  { role: 'reviewer', label: 'Reviewer', description: 'Reviews code for security, performance, quality. Read-only.', config: AUTO_AGENT_ROLE_POLICY.reviewer },
+  { role: 'tester', label: 'Tester', description: 'Writes and runs tests.', config: AUTO_AGENT_ROLE_POLICY.tester },
+  { role: 'researcher', label: 'Researcher', description: 'Investigates external/internal references.', config: AUTO_AGENT_ROLE_POLICY.researcher },
+  { role: 'doc-writer', label: 'Doc Writer', description: 'Writes documentation.', config: AUTO_AGENT_ROLE_POLICY['doc-writer'] },
+  { role: 'deep-interviewer', label: 'Deep Interviewer', description: 'Clarifies vague requests via Socratic questioning.', config: AUTO_AGENT_ROLE_POLICY['deep-interviewer'] },
+];
+
+/**
+ * 토폴로지 프리셋 카탈로그 — 어떤 role 들을 어떻게 엣지로 연결할지.
+ * 새 토폴로지 추가 시 여기 한 항목 + `AutoAgentTopology` 유니온 한 줄 + `selectTopology` 분기 한 줄.
+ *
+ * `offsetAngleDeg`: auto-agent 버블 기준 각도(도, 0=오른쪽, 시계 반대 — 표준 수학 각도).
+ *   원형 배치를 위해 노드 수에 따라 균등 분포.
+ * `entry`: 정확히 1개의 노드만 true. 사용자 메시지 forward 대상.
+ */
+export const AUTO_AGENT_TOPOLOGY_PRESETS: Record<AutoAgentTopology, AutoAgentTopologyPreset> = {
+  pipeline: {
+    topology: 'pipeline',
+    label: 'Pipeline',
+    description: 'Linear chain: planner → coder → reviewer. Each stage passes artifact to next.',
+    nodes: [
+      { role: 'planner', offsetAngleDeg: 150, entry: true },
+      { role: 'coder', offsetAngleDeg: 30 },
+      { role: 'reviewer', offsetAngleDeg: 270 },
+    ],
+    edges: [
+      { from: 'planner', to: 'coder', kind: 'artifact', returnFormat: 'artifact' },
+      { from: 'coder', to: 'reviewer', kind: 'artifact', returnFormat: 'summary' },
+    ],
+  },
+  team: {
+    topology: 'team',
+    label: 'Team (PM hub + workers)',
+    description: 'PM routes user request to architect/coder/tester, collects via reviewer, summarizes back.',
+    nodes: [
+      { role: 'pm', offsetAngleDeg: 90, entry: true },
+      { role: 'architect', offsetAngleDeg: 180 },
+      { role: 'coder', offsetAngleDeg: 30 },
+      { role: 'tester', offsetAngleDeg: 330 },
+      { role: 'reviewer', offsetAngleDeg: 270 },
+    ],
+    edges: [
+      { from: 'pm', to: 'architect', kind: 'command', commandMode: 'shared', returnFormat: 'summary' },
+      { from: 'pm', to: 'coder', kind: 'command', commandMode: 'shared', returnFormat: 'both' },
+      { from: 'pm', to: 'tester', kind: 'command', commandMode: 'shared', returnFormat: 'summary' },
+      { from: 'coder', to: 'reviewer', kind: 'artifact', returnFormat: 'summary' },
+      { from: 'tester', to: 'reviewer', kind: 'artifact', returnFormat: 'summary' },
+      { from: 'reviewer', to: 'pm', kind: 'artifact', returnFormat: 'summary' },
+    ],
+  },
+  ralph: {
+    topology: 'ralph',
+    label: 'Ralph (Team + critique loop)',
+    description: 'Team topology + reviewer can reject (force-rework) coder via critique edge. Up to 5 cycles.',
+    nodes: [
+      { role: 'pm', offsetAngleDeg: 90, entry: true },
+      { role: 'architect', offsetAngleDeg: 180 },
+      { role: 'coder', offsetAngleDeg: 30 },
+      { role: 'tester', offsetAngleDeg: 330 },
+      { role: 'reviewer', offsetAngleDeg: 270 },
+    ],
+    edges: [
+      { from: 'pm', to: 'architect', kind: 'command', commandMode: 'shared', returnFormat: 'summary' },
+      { from: 'pm', to: 'coder', kind: 'command', commandMode: 'shared', returnFormat: 'both' },
+      { from: 'pm', to: 'tester', kind: 'command', commandMode: 'shared', returnFormat: 'summary' },
+      { from: 'coder', to: 'reviewer', kind: 'artifact', returnFormat: 'summary' },
+      { from: 'tester', to: 'reviewer', kind: 'artifact', returnFormat: 'summary' },
+      { from: 'reviewer', to: 'pm', kind: 'artifact', returnFormat: 'summary' },
+      // critique primary — 서버가 force-rework 면 자매 auto-rework command 엣지 자동 생성
+      { from: 'reviewer', to: 'coder', kind: 'critique', critiqueAuthority: 'force-rework' },
+    ],
+  },
+  autopilot: {
+    topology: 'autopilot',
+    label: 'Autopilot (single super agent)',
+    description: 'A single general-purpose agent that handles everything end-to-end.',
+    nodes: [
+      { role: 'coder', offsetAngleDeg: 0, entry: true },
+    ],
+    edges: [],
+  },
+};
+
+/**
+ * Auto Agent 본체에 자동 박히는 기본 rules (사용자가 AgentConfigPopup 에서 덮어쓰기 가능).
+ * 본인은 작업하지 않고 메타 동작(생성·디스패치·요약 수령)만 한다는 책임 분리 명시.
+ */
+export const AUTO_AGENT_DEFAULT_RULES = `# Role: Auto Agent (Vibisual 메타 에이전트)
+
+이 에이전트는 **다른 커스텀 에이전트들을 자동 생성·연결·디스패치하는 메타 역할**입니다.
+
+## 책임
+- 사용자 자연어 요청을 받아 적절한 토폴로지(pipeline/team/ralph/autopilot)를 선택
+- 역할 카탈로그(planner/architect/coder/reviewer/tester/...)에서 필요한 에이전트들을 spawn
+- 노드 간 Task Edge 자동 연결
+- 사용자 메시지를 엔트리 노드에 forward
+- 서브 군 작업 완료 시 1~2문 요약을 사용자에게 보고
+
+## 금지
+- 자신은 코드를 직접 수정·탐색하지 않습니다 (메타 역할만)
+- 서브 에이전트들이 만든 산출물을 임의로 수정하지 않습니다
+- 사용자 명시 승인 없이 서브 군을 삭제·재구성하지 않습니다
+`;

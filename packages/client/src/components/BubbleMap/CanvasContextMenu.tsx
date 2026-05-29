@@ -9,6 +9,8 @@ interface CanvasContextMenuProps {
   canvasX: number;
   canvasY: number;
   onCreateCustomAgent: (canvasX: number, canvasY: number) => void;
+  /** §5.3 #10-2 v2.37 — Auto Agent 메타 버블 생성 */
+  onCreateAutoAgent: (canvasX: number, canvasY: number) => void;
   onCreatePipeline: (type: PipelineType, canvasX: number, canvasY: number) => void;
   onCreateWorktree: (canvasX: number, canvasY: number) => void;
   onClose: () => void;
@@ -22,6 +24,7 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
   canvasX,
   canvasY,
   onCreateCustomAgent,
+  onCreateAutoAgent,
   onCreatePipeline,
   onCreateWorktree,
   onClose,
@@ -54,6 +57,11 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
     onCreateCustomAgent(canvasX, canvasY);
     onClose();
   }, [onCreateCustomAgent, onClose, canvasX, canvasY]);
+
+  const handleCreateAutoAgent = useCallback(() => {
+    onCreateAutoAgent(canvasX, canvasY);
+    onClose();
+  }, [onCreateAutoAgent, onClose, canvasX, canvasY]);
 
   const handleCreateWorktree = useCallback(() => {
     onCreateWorktree(canvasX, canvasY);
@@ -89,6 +97,24 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
             <line x1="8" y1="12" x2="16" y2="12" />
           </svg>
           <span>{t('canvas.contextMenu.createCustomAgent')}</span>
+        </button>
+
+        {/* §5.3 #10-2 v2.37 — Auto Agent (메타 에이전트, 다크 톤) */}
+        <button
+          type="button"
+          className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-800 transition-colors"
+          onClick={handleCreateAutoAgent}
+        >
+          <svg className="h-4 w-4 shrink-0 text-blue-900" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M8 9.5a4 4 0 0 1 8 0" />
+            <circle cx="12" cy="13.5" r="2.2" />
+            <path d="M9.5 17.5h5" />
+          </svg>
+          <div className="flex flex-col">
+            <span>{t('canvas.contextMenu.createAutoAgent')}</span>
+            <span className="text-xs text-gray-500">{t('canvas.contextMenu.createAutoAgentHint')}</span>
+          </div>
         </button>
 
         {/* Worktree 생성 — master 최신 기준 새 git worktree */}

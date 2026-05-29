@@ -33,6 +33,42 @@
       "file": "File",
       "openFolder": "Open Folder..."
     },
+    "autoAgent": {
+      "title": "Auto Agent",
+      "placeholder": "Describe what you want — e.g. \"Add OAuth login to the dashboard\"",
+      "send": "Send",
+      "shortcutHint": "Ctrl/Cmd + Enter to send",
+      "toggleQuestionsTip": "When ON, asks clarifying questions for high-complexity requests before spawning.",
+      "questionsOn": "Ask if complex",
+      "questionsOff": "Skip questions",
+      "clarifying": "I need a couple of clarifications before spawning a team",
+      "notePlaceholder": "Add a note (optional)",
+      "submitAnswers": "Submit answers",
+      "summary": "Summary",
+      "spawnedCount": "Spawned {{count}} sub-agent(s)",
+      "entryHint": "Sub-agents now running. Talk to me here for follow-ups.",
+      "phase": {
+        "idle": "Idle — type a request to start",
+        "analyzing": "Analyzing request…",
+        "asking": "Awaiting your clarifications",
+        "spawning": "Spawning agents…",
+        "dispatching": "Dispatching to entry agent…",
+        "running": "Sub-agents working",
+        "completed": "Done",
+        "error": "Error"
+      },
+      "complexity": {
+        "low": "Low complexity",
+        "medium": "Medium complexity",
+        "high": "High complexity"
+      },
+      "topology": {
+        "pipeline": "Pipeline",
+        "team": "Team",
+        "ralph": "Ralph (team + critique loop)",
+        "autopilot": "Autopilot (single agent)"
+      }
+    },
     "detailPanel": {
       "close": "Close",
       "closePanel": "Close panel",
@@ -574,9 +610,6 @@
     },
     "mainArea": {
       "scrollPrompt": "Scroll to prompt",
-      "noSessions": "No sessions yet",
-      "noActivity": "No activity in this session",
-      "startHint": "Type a command below to start a new session",
       "inputPlaceholderNew": "Enter command to start a new session...",
       "inputPlaceholder": "Enter command...",
       "run": "Run",
@@ -586,7 +619,15 @@
       "readOnly": "Read-only — select a session tab or create new",
       "attachmentError": "ERR",
       "statusError": "Error",
-      "statusCompleted": "Completed"
+      "statusCompleted": "Completed",
+      "slashHint": "↑↓ navigate · Tab/Enter select · Esc cancel",
+      "slashEmpty": "No matching skills",
+      "slashLoading": "Loading skills…",
+      "ctxCopy": "Copy",
+      "ctxQuoteReply": "Quote reply",
+      "ctxSendAsPrompt": "Send as new prompt",
+      "ctxSelectAll": "Select all",
+      "ctxSelectionRequired": "Select text first"
     },
     "askQuestion": {
       "title": "Question",
@@ -608,7 +649,8 @@
     "activityBar": {
       "terminal": "Terminal",
       "files": "Files",
-      "results": "Results"
+      "results": "Results",
+      "skills": "Skills"
     },
     "sidebar": {
       "sessions": "Sessions",
@@ -616,7 +658,12 @@
       "events": "Events ({{count}})",
       "noFileEdits": "No file edits yet",
       "noEvents": "No events yet",
-      "hasResult": "has result"
+      "hasResult": "has result",
+      "skills": "Skills ({{count}})",
+      "projectSkills": "Project ({{count}})",
+      "pluginSkills": "Plugins ({{count}})",
+      "noSkills": "No skills installed",
+      "skillsLoading": "Loading skills…"
     },
     "statusBar": {
       "custom": "Custom",
@@ -634,7 +681,9 @@
       "clickToExpand": "Click to expand",
       "clickToCollapse": "Click to collapse",
       "expand": "expand",
-      "collapse": "collapse"
+      "collapse": "collapse",
+      "copy": "Copy",
+      "copied": "Copied"
     }
   },
   "bubbleMap": {
@@ -774,7 +823,24 @@
     "pinTooltip": "Pinned tabs are protected from Close Others / Close to the Right / Close All.",
     "setDefault": "Set as Default",
     "unsetDefault": "Unset Default",
-    "defaultTooltip": "Default tab opens automatically when there is no last-active tab to restore."
+    "defaultTooltip": "Default tab opens automatically when there is no last-active tab to restore.",
+    "detach": "Detach to new window"
+  },
+  "tabDetach": {
+    "detachHint": "Drop outside the tab bar to open in a new window",
+    "osDragHint": "Drag here to move the window",
+    "detachCardTitle": "Drop here to open as new window",
+    "detachCardSubtitle": "Release the mouse outside the tab bar",
+    "reorderCardSubtitle": "Stay inside the tab bar to reorder",
+    "redockHint": "release to redock",
+    "redockZoneHint": "Drop here to redock",
+    "redockCardTitle": "Drop on the main tab bar to redock",
+    "redockCardSubtitle": "Or release anywhere else to leave detached",
+    "detachedBadge": "detached",
+    "closeWindow": "Close window",
+    "missingTitle": "Tab no longer available",
+    "missingProject": "The project \"{{name}}\" is not loaded in this Vibisual instance.",
+    "missingIframe": "The iframe tab \"{{id}}\" was closed."
   },
   "canvas": {
     "stubPlaceholder": "This project is on disk only. Click the tab to load.",
@@ -787,6 +853,8 @@
     },
     "contextMenu": {
       "createCustomAgent": "Create Custom Agent",
+      "createAutoAgent": "Create Auto Agent",
+      "createAutoAgentHint": "Meta agent — auto-spawns a custom agent team from your prompt",
       "createWorktree": "Create Worktree",
       "createWorktreeHint": "New workspace from latest master"
     },
@@ -828,6 +896,7 @@
       "awaitingPermission": "Awaiting your permission",
       "awaitingInput": "Waiting for your input",
       "idle": "Idle",
+      "autoIdle": "Auto Agent — describe what you want",
       "hint": {
         "enter": "Double-click to enter",
         "openIDE": "Double-click to open IDE",

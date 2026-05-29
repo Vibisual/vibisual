@@ -10,6 +10,7 @@ import { DEFAULT_PORT, SESSION_SCAN_INTERVAL, FILE_EXISTENCE_CHECK_INTERVAL, SAT
 import type { HookEventPayload, WSMessage, QueuedCommand, SessionTokenData, PipelineType, AgentConfig, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, SubAgentHistoryItem, UiLocale, PermissionDecision, RulesHistoryEntry, Conti, CanvasClipboardPayload, CanvasPasteResponse, AskUserQuestionDecision, AskUserQuestionAnswer, AskUserQuestionOption, AskUserQuestionItem, AskUserQuestionToolInput } from '@vibisual/shared';
 import { permissionBroker } from './services/permissionBroker.js';
 import { askUserQuestionBroker } from './services/askUserQuestionBroker.js';
+import { AutoAgentRuntime } from './services/autoAgentRuntime.js';
 import { BUBBLE_COLORS, READ_TOOLS } from '@vibisual/shared';
 import { broadcast } from './broadcastBus.js';
 import { graphManager } from './services/projectGraphManager.js';
@@ -46,6 +47,9 @@ export {
 export { ensureClaudeHooksInstalled } from './services/hookInstaller.js';
 // §4 v1.98 — 진단 에러 로그: desktop main 이 자기 프로세스 에러를 recordDiagnostic 으로 적재.
 export { recordDiagnostic, diagnosticService } from './services/diagnosticService.js';
+// Persistent SubAgent child — desktop main 의 before-quit 핸들러가
+// `subAgentManager.shutdownAllPersistentChildren()` 으로 long-lived claude 자식들을 깨끗이 종료.
+export { subAgentManager } from './services/subAgentManager.js';
 
 // §3.7 v2.8 — hook loopback 리스너 포트. 통합(in-process) 모델에서 외부 `claude` 프로세스
 // (hook curl·커스텀 위임 엣지 dispatch)가 in-process 서버에 닿는 유일한 네트워크 포트다.
@@ -818,6 +822,39 @@ export async function runServer(): Promise<RunServerHandle> {
     broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getSnapshot() });
   }
 
+  // §5.3 #10-2 v2.37 — Auto Agent 런타임. 사용자 메시지 → 서브 군 자동 생성·dispatch.
+  // enqueueCommand 는 기존 `commandQueues` Map 에 push + processNextCommand 즉시 발사.
+  const autoAgentRuntime = new AutoAgentRuntime({
+    graphManager,
+    setAgentConfig: (agentId, config) => {
+      // index.ts 의 PUT /api/agent-config 와 동일 효과 — 최소형(머지 X, 풀 set).
+      // partial 입력이라도 호출자가 머지 후 전달 가정. 여기선 전체로 저장.
+      graphManager.setAgentConfig(agentId, config as import('@vibisual/shared').AgentConfig);
+    },
+    enqueueCommand: (sessionId, text) => {
+      let queue = commandQueues.get(sessionId);
+      if (!queue) { queue = []; commandQueues.set(sessionId, queue); }
+      const cmd: QueuedCommand = {
+        id: `cmd-${Date.now()}-${queue.length}`,
+        text,
+        timestamp: Date.now(),
+        subAgentId: null,
+        status: 'queued' as const,
+      };
+      queue.push(cmd);
+      processNextCommand(sessionId);
+    },
+    broadcastSnapshot,
+    saveCheckpoint: () => saveCheckpoint(),
+    broadcastAutoAgentProgress: (autoAgentId, summary) => {
+      broadcast({
+        type: 'auto_agent_progress',
+        timestamp: Date.now(),
+        payload: { autoAgentId, summary },
+      });
+    },
+  });
+
   /** POST /api/layout-bounds/:projectName — 루트 캔버스 바운딩 박스 크기 저장 */
   app.post('/api/layout-bounds/:projectName', (req, res) => {
     const { projectName } = req.params;
@@ -1024,6 +1061,9 @@ export async function runServer(): Promise<RunServerHandle> {
       ...(resolvedAttachments ? { attachments: resolvedAttachments } : {}),
     };
     queue.push(cmd);
+    // §5.5 #17-4 v2.36 — 명령 텍스트의 `/skill-name` 토큰들을 프로젝트 사용 카운트에 반영.
+    //                    SkillsView 가 정렬 키·배지로 사용.
+    graphManager.recordSkillUsageFromCommandText(sessionId, cmd.text);
     res.json({ ok: true, command: cmd });
     broadcastSnapshot();
 
@@ -1091,6 +1131,70 @@ export async function runServer(): Promise<RunServerHandle> {
     } catch (err) {
       logger.error('POST /api/create-custom-agent failed', err);
       res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /** §5.3 #10-2 v2.37 — Auto Agent 메타 버블 생성 (캔버스 우클릭 메뉴) */
+  app.post('/api/create-auto-agent', (req, res) => {
+    try {
+      const { label, x, y, project } = req.body as { label?: string; x?: number; y?: number; project?: string };
+      const position = typeof x === 'number' && typeof y === 'number' ? { x, y } : undefined;
+      const agent = graphManager.createAutoAgent(label ?? '', position, project ?? null);
+      broadcastSnapshot();
+      saveCheckpoint();
+      res.json({ ok: true, agent });
+    } catch (err) {
+      logger.error('POST /api/create-auto-agent failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /** §5.3 #10-2 v2.37 — Auto Agent 에게 사용자 메시지 전달 → 자동 spawn + dispatch */
+  app.post('/api/auto-agent/:sessionId/message', (req, res) => {
+    try {
+      const { sessionId } = req.params;
+      const { text } = req.body as { text?: string };
+      if (typeof text !== 'string' || !text.trim()) {
+        return res.status(400).json({ error: 'text required' });
+      }
+      const summary = autoAgentRuntime.processRequest(sessionId, text.trim());
+      res.json({ ok: true, summary });
+    } catch (err) {
+      logger.error('POST /api/auto-agent/:sessionId/message failed', err);
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Internal server error' });
+    }
+  });
+
+  /** §5.3 #10-2 v2.37 — Auto Agent "질문하기" 토글 */
+  app.post('/api/auto-agent/:sessionId/toggle-questions', (req, res) => {
+    try {
+      const { sessionId } = req.params;
+      const { enabled } = req.body as { enabled?: boolean };
+      if (typeof enabled !== 'boolean') {
+        return res.status(400).json({ error: 'enabled must be boolean' });
+      }
+      const summary = autoAgentRuntime.toggleQuestions(sessionId, enabled);
+      if (!summary) return res.status(404).json({ error: 'auto-agent not found' });
+      res.json({ ok: true, summary });
+    } catch (err) {
+      logger.error('POST /api/auto-agent/:sessionId/toggle-questions failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /** §5.3 #10-2 v2.37 — Auto Agent 명확화 질문에 사용자 답을 보내고 spawn 재개 */
+  app.post('/api/auto-agent/:sessionId/answer-questions', (req, res) => {
+    try {
+      const { sessionId } = req.params;
+      const { answers } = req.body as { answers?: { questionIndex: number; selectedLabels: string[]; note?: string }[] };
+      if (!Array.isArray(answers)) {
+        return res.status(400).json({ error: 'answers must be array' });
+      }
+      const summary = autoAgentRuntime.resumeWithAnswers(sessionId, answers);
+      res.json({ ok: true, summary });
+    } catch (err) {
+      logger.error('POST /api/auto-agent/:sessionId/answer-questions failed', err);
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Internal server error' });
     }
   });
 
