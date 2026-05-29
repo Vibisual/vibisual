@@ -13,6 +13,13 @@
       "disconnected": "切断",
       "viewLogs": "サーバーログを表示"
     },
+    "update": {
+      "available": "アップデート {{version}}",
+      "availableTooltip": "バージョン {{version}} が利用可能で、バックグラウンドでダウンロード中です",
+      "downloading": "更新中 {{percent}}%",
+      "restart": "再起動して更新",
+      "restartTooltip": "バージョン {{version}} の準備が完了しました — 再起動して適用してください"
+    },
     "agentStatus": {
       "waiting": "エージェント待機中",
       "completed": "{{count}}件完了",
@@ -31,7 +38,96 @@
   "panel": {
     "fileMenu": {
       "file": "ファイル",
-      "openFolder": "フォルダーを開く..."
+      "openFolder": "フォルダーを開く...",
+      "options": "オプション…"
+    },
+    "options": {
+      "title": "オプション",
+      "unsaved": "未保存",
+      "discardConfirm": "未保存の変更を破棄しますか?",
+      "apply": "適用",
+      "cancel": "キャンセル",
+      "saving": "保存中…",
+      "comingSoon": "近日対応",
+      "comingSoonDesc": "このカテゴリは今後の設定用に予約されています。",
+      "categories": {
+        "agent": "エージェントのデフォルト",
+        "appearance": "表示",
+        "notifications": "通知",
+        "permissions": "権限",
+        "advanced": "詳細",
+        "version": "バージョン"
+      },
+      "version": {
+        "title": "バージョン・概要",
+        "intro": "Vibisualがエージェントのスポーンに使用するClaude Codeバイナリと、その入手元。",
+        "refresh": "再スキャン",
+        "scanning": "インストールを確認中…",
+        "claudeCode": "Claude Code（使用中）",
+        "current": "現在",
+        "latest": "最新 (npm)",
+        "updateAvailable": "アップデートあり",
+        "upToDate": "最新",
+        "registryError": "npm確認失敗",
+        "installations": "インストール済み",
+        "auto": "自動（推奨）",
+        "autoDesc": "Vibisualが自動的に選択します",
+        "activeBadge": "使用中",
+        "unknownVer": "不明",
+        "restartHint": "選択を保存しました。新規スポーンエージェントに反映するにはVibisualを再起動してください。",
+        "about": "概要",
+        "repo": "GitHubリポジトリ",
+        "marketplace": "VS Code MarketplaceのClaude Code"
+      },
+      "agent": {
+        "intro": "これらのデフォルト設定は新規作成されるカスタムエージェントに適用されます。既存のエージェントには影響しません。",
+        "model": "モデル",
+        "permissionMode": "権限モード",
+        "effort": "思考深度",
+        "maxTurns": "最大ターン数 (0 = 無制限)",
+        "isolation": "分離",
+        "tools": "ツール (許可リスト)",
+        "disallowedTools": "無効化ツール (拒否リスト)",
+        "rules": "デフォルトルール (Markdown)",
+        "rulesPlaceholder": "# 全新規エージェントに注入するオプションのデフォルトルール\n- ...",
+        "color": "デフォルトバブルカラー (hex、任意)"
+      }
+    },
+    "autoAgent": {
+      "title": "Auto Agent",
+      "placeholder": "やりたいことを説明してください — 例: \"ダッシュボードにOAuthログインを追加\"",
+      "send": "送信",
+      "shortcutHint": "Ctrl/Cmd + Enter で送信",
+      "toggleQuestionsTip": "ONにすると、複雑度の高いリクエストの場合にスポーン前に確認質問を行います。",
+      "questionsOn": "複雑なら質問",
+      "questionsOff": "質問をスキップ",
+      "clarifying": "チームをスポーンする前にいくつか確認させてください",
+      "notePlaceholder": "メモを追加（任意）",
+      "submitAnswers": "回答を送信",
+      "summary": "サマリー",
+      "spawnedCount": "{{count}}件のサブエージェントを起動しました",
+      "entryHint": "サブエージェントが稼働中です。フォローアップはここに入力してください。",
+      "phase": {
+        "idle": "待機中 — リクエストを入力してください",
+        "analyzing": "リクエストを分析中…",
+        "asking": "確認回答を待機中",
+        "spawning": "エージェントをスポーン中…",
+        "dispatching": "エントリーエージェントへディスパッチ中…",
+        "running": "サブエージェント稼働中",
+        "completed": "完了",
+        "error": "エラー"
+      },
+      "complexity": {
+        "low": "複雑度: 低",
+        "medium": "複雑度: 中",
+        "high": "複雑度: 高"
+      },
+      "topology": {
+        "pipeline": "Pipeline",
+        "team": "Team",
+        "ralph": "Ralph（チーム + クリティークループ）",
+        "autopilot": "Autopilot（シングルエージェント）"
+      }
     },
     "detailPanel": {
       "close": "閉じる",
@@ -583,7 +679,15 @@
       "readOnly": "読み取り専用 — セッションタブを選択するか新規作成してください",
       "attachmentError": "ERR",
       "statusError": "エラー",
-      "statusCompleted": "完了"
+      "statusCompleted": "完了",
+      "slashHint": "↑↓ 移動 · Tab/Enter 選択 · Esc キャンセル",
+      "slashEmpty": "一致するスキルなし",
+      "slashLoading": "スキルを読み込み中…",
+      "ctxCopy": "コピー",
+      "ctxQuoteReply": "引用返信",
+      "ctxSendAsPrompt": "新しいプロンプトとして送信",
+      "ctxSelectAll": "すべて選択",
+      "ctxSelectionRequired": "先にテキストを選択してください"
     },
     "askQuestion": {
       "title": "質問",
@@ -605,7 +709,8 @@
     "activityBar": {
       "terminal": "ターミナル",
       "files": "ファイル",
-      "results": "結果"
+      "results": "結果",
+      "skills": "スキル"
     },
     "sidebar": {
       "sessions": "セッション",
@@ -613,7 +718,16 @@
       "events": "イベント ({{count}})",
       "noFileEdits": "ファイル編集はまだありません",
       "noEvents": "イベントはまだありません",
-      "hasResult": "結果あり"
+      "hasResult": "結果あり",
+      "skills": "スキル ({{count}})",
+      "projectSkills": "プロジェクト ({{count}})",
+      "pluginSkills": "プラグイン ({{count}})",
+      "noSkills": "スキルがインストールされていません",
+      "skillsLoading": "スキルを読み込み中…",
+      "deleteSkillTitle": "スキルを削除",
+      "deleteSkillConfirm": "このスキルを削除しますか?",
+      "deleteSkillYes": "削除",
+      "deleteSkillNo": "キャンセル"
     },
     "statusBar": {
       "custom": "カスタム",
@@ -631,7 +745,9 @@
       "clickToExpand": "クリックして展開",
       "clickToCollapse": "クリックして折りたたむ",
       "expand": "展開",
-      "collapse": "折りたたむ"
+      "collapse": "折りたたむ",
+      "copy": "コピー",
+      "copied": "コピー済み"
     }
   },
   "bubbleMap": {
@@ -771,7 +887,24 @@
     "pinTooltip": "固定タブは「他を閉じる」「右側を閉じる」「すべて閉じる」から保護されます。",
     "setDefault": "既定に設定",
     "unsetDefault": "既定を解除",
-    "defaultTooltip": "既定タブは、復元すべき最後のアクティブタブがない場合に自動的に開きます。"
+    "defaultTooltip": "既定タブは、復元すべき最後のアクティブタブがない場合に自動的に開きます。",
+    "detach": "新しいウィンドウに切り離す"
+  },
+  "tabDetach": {
+    "detachHint": "タブバーの外にドロップすると新しいウィンドウで開きます",
+    "osDragHint": "ここにドラッグしてウィンドウを移動",
+    "detachCardTitle": "ここにドロップして新しいウィンドウで開く",
+    "detachCardSubtitle": "タブバーの外でマウスを離してください",
+    "reorderCardSubtitle": "タブバー内に留まると並び替えになります",
+    "redockHint": "離すと再ドック",
+    "redockZoneHint": "ここにドロップして再ドック",
+    "redockCardTitle": "メインタブバーにドロップして再ドック",
+    "redockCardSubtitle": "他の場所で離すと切り離し状態のままになります",
+    "detachedBadge": "切り離し済み",
+    "closeWindow": "ウィンドウを閉じる",
+    "missingTitle": "タブが利用できません",
+    "missingProject": "プロジェクト \"{{name}}\" はこのVibisualインスタンスに読み込まれていません。",
+    "missingIframe": "iframeタブ \"{{id}}\" は閉じられました。"
   },
   "canvas": {
     "stubPlaceholder": "このプロジェクトはディスク上のみです。タブをクリックして読み込んでください。",
@@ -784,6 +917,8 @@
     },
     "contextMenu": {
       "createCustomAgent": "カスタムエージェントを作成",
+      "createAutoAgent": "Auto Agentを作成",
+      "createAutoAgentHint": "メタエージェント — プロンプトからカスタムエージェントチームを自動スポーン",
       "createWorktree": "Worktreeを作成",
       "createWorktreeHint": "最新のmasterから新しいワークスペースを作成"
     },
@@ -825,6 +960,7 @@
       "awaitingPermission": "権限の確認待ち",
       "awaitingInput": "入力を待機中",
       "idle": "待機中",
+      "autoIdle": "Auto Agent — やりたいことを説明してください",
       "hint": {
         "enter": "ダブルクリックで入る",
         "openIDE": "ダブルクリックでIDEを開く",

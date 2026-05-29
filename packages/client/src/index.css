@@ -246,6 +246,18 @@ body[data-ide-dock="right"] .fixed.inset-0 {
   100% { transform: translateX(-100%); }
 }
 
+/* ─── 사고 중(thinking) 말줄임 애니메이션 — "." → ".." → "..." 반복 (VS Code 스타일 1줄) ─── */
+@keyframes thinking-ellipsis {
+  0%        { content: '.'; }
+  33%       { content: '..'; }
+  66%, 100% { content: '...'; }
+}
+/* span.thinking-ellipsis 자체는 비워 두고 ::after 가 점을 그린다. 폭 고정(width)로 레이아웃 흔들림 방지. */
+.thinking-ellipsis::after {
+  content: '...';
+  animation: thinking-ellipsis 1.2s steps(1, end) infinite;
+}
+
 /* ─── 전역 스크롤바 기본값 (앱 전체 공통 톤) ─── */
 /* Firefox / 최신 엔진 */
 * {

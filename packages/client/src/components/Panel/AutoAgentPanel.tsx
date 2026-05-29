@@ -53,6 +53,7 @@ export const AutoAgentPanel = memo(function AutoAgentPanel({ node }: AutoAgentPa
     switch (phase) {
       case 'analyzing': return t('panel.autoAgent.phase.analyzing');
       case 'asking': return t('panel.autoAgent.phase.asking');
+      case 'building': return t('panel.autoAgent.phase.building');
       case 'spawning': return t('panel.autoAgent.phase.spawning');
       case 'dispatching': return t('panel.autoAgent.phase.dispatching');
       case 'running': return t('panel.autoAgent.phase.running');
@@ -112,6 +113,13 @@ export const AutoAgentPanel = memo(function AutoAgentPanel({ node }: AutoAgentPa
           </span>
         )}
       </div>
+
+      {/* building 단계 — 빌더가 하네스를 구축 중. 출력은 버블 IDE 오버레이로 확인. */}
+      {phase === 'building' && (
+        <div className="rounded border border-blue-900 bg-blue-950/20 px-3 py-2 text-xs text-blue-200">
+          {t('panel.autoAgent.buildingHint')}
+        </div>
+      )}
 
       {/* asking 단계 — 질문 폼 */}
       {phase === 'asking' && summary?.questionsAsked && (

@@ -47,6 +47,8 @@ import { ProjectGraph, type ProcessResult } from './projectGraph.js';
 import { loadCheckpointByMeta, writeCheckpoint, projectDirForInfo } from './statePersistence.js';
 import { appStateAddOpenProject, loadAppState } from './appState.js';
 import { diagnosticService } from './diagnosticService.js';
+import { modelRegistryService } from './modelRegistryService.js';
+import { userDefaultsService } from './userDefaultsService.js';
 import { logger } from '../logger.js';
 import { dbg } from './debugLog.js';
 
@@ -1412,6 +1414,12 @@ export class ProjectGraphManager {
     if (diagLog.length > 0) {
       snapshot = { ...snapshot, diagnosticLog: diagLog };
     }
+
+    // §4 v2.38 — 모델 레지스트리 주입 (클라 AgentConfigPopup 버전 sub-드롭다운 데이터)
+    snapshot = { ...snapshot, modelRegistry: modelRegistryService.getRegistry() };
+
+    // §4 v2.42 — 사용자 글로벌 옵션 주입 (Options 창 데이터)
+    snapshot = { ...snapshot, userDefaults: userDefaultsService.get() };
 
     return snapshot;
   }

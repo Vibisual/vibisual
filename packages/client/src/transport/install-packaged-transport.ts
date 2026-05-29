@@ -11,6 +11,8 @@
 // Rationale: "renderer fetch/WS → window.api 일괄 교체" (Stage 4) at a single
 // chokepoint instead of editing every call site. UI source stays untouched.
 
+import type { UpdateState } from '@vibisual/shared';
+
 interface FetchInitWire {
   method?: string;
   headers?: Record<string, string>;
@@ -64,6 +66,14 @@ export interface PackagedWindowApi {
   onDragState(cb: (payload: { dragging: boolean; hovering: boolean }) => void): () => void;
 }
 
+// §4 v2.44 자동 업데이트 surface. UpdateState 는 shared 계약.
+export interface PackagedUpdateApi {
+  check(): Promise<UpdateState>;
+  install(): Promise<boolean>;
+  getState(): Promise<UpdateState>;
+  onStatus(cb: (state: UpdateState) => void): () => void;
+}
+
 export interface PackagedApi {
   serverInfo(): Promise<{ port: number; running: boolean }>;
   request(path: string, init?: FetchInitWire): Promise<FetchResponseWire>;
@@ -71,6 +81,7 @@ export interface PackagedApi {
   connect(): Promise<void>;
   onMessage(cb: (payload: unknown) => void): () => void;
   window: PackagedWindowApi;
+  update: PackagedUpdateApi;
 }
 
 declare global {

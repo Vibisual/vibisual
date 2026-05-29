@@ -1,6 +1,6 @@
 {
   "name": "@vibisual/desktop",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "Vibisual Electron desktop shell — main process runs the server in-process (§3.7)",
@@ -17,12 +17,16 @@
     "dist": "electron-vite build && electron-builder",
     "dist:win": "electron-vite build && electron-builder --win",
     "dist:mac": "electron-vite build && electron-builder --mac",
-    "dist:linux": "electron-vite build && electron-builder --linux"
+    "dist:linux": "electron-vite build && electron-builder --linux",
+    "publish:win": "electron-vite build && electron-builder --win --publish always",
+    "publish:mac": "electron-vite build && electron-builder --mac --publish always",
+    "publish:linux": "electron-vite build && electron-builder --linux --publish always"
   },
   "dependencies": {
     "@vibisual/client": "workspace:*",
     "@vibisual/server": "workspace:*",
     "@vibisual/shared": "workspace:*",
+    "electron-updater": "^6.3.9",
     "light-my-request": "^6.6.0"
   },
   "devDependencies": {

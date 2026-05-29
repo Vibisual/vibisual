@@ -8,7 +8,7 @@ import { BrowserWindow, screen } from 'electron';
 // 별창은 자동으로 같은 graph_snapshot 을 받는다(main/index.ts setBroadcastSink 가
 // BrowserWindow.getAllWindows() 순회 — 별창도 그 순회에 포함).
 //
-// Redock-drag(v2.30): 별창의 미니 타이틀바를 잡고 끌면 별창 자체가 mini ghost(220×56,
+// Redock-drag(v2.30): 별창의 미니 타이틀바를 잡고 끌면 별창 자체가 mini ghost(MINI_W×MINI_H,
 // opacity 0.85, alwaysOnTop)로 축소되어 cursor 를 따라다닌다. 메인 헤더 영역 위에서
 // 떼면 redock, 그 외 위치에서 떼면 원본 bounds/opacity 복원.
 
@@ -40,9 +40,9 @@ const POPUP_DEFAULT_H = 720;
 const POPUP_MIN_W = 480;
 const POPUP_MIN_H = 320;
 
-// Mini ghost 사이즈 — 사용자가 dragImage 칩처럼 작게 느끼도록.
-const MINI_W = 240;
-const MINI_H = 56;
+// Mini ghost 사이즈 — detach 시 cursor 옆 floating hint card 와 동일한 컴팩트 칩 느낌.
+const MINI_W = 200;
+const MINI_H = 44;
 // 메인 윈도우의 redock zone: 타이틀바(36) + 탭바(36) ≈ 72px. 살짝 더 여유.
 const MAIN_HEADER_ZONE = 72;
 // drag polling 주기. 16ms ≈ 60fps.
@@ -257,6 +257,9 @@ export function startDetachDragByWindowId(windowId: number): boolean {
   // mini 박스의 좌상단을 cursor 좌상단 가까이에 두되 cursor 가 항상 박스 안에 들어오도록 약간 좌상단 오프셋.
   // x: cursor.x - 24 (왼쪽으로 24px), y: cursor.y - 16 (위로 16px). 박스 안에서 cursor 위치 ≈ 좌측 1/10.
   win.setAlwaysOnTop(true, 'pop-up-menu');
+  // 별창 minWidth/minHeight(POPUP_MIN_*) 가 setBounds 를 클램프하므로, mini ghost 동안은
+  // 최소 크기를 mini 크기로 풀어준다. endDetachDrag 복원 시 원래 최소 크기로 되돌린다.
+  try { win.setMinimumSize(MINI_W, MINI_H); } catch { /* noop */ }
   win.setBounds({ x: Math.round(c.x - 24), y: Math.round(c.y - 16), width: MINI_W, height: MINI_H }, false);
   try { win.setOpacity(0.85); } catch { /* noop */ }
   // 미니 모드에 진입했음을 별창 renderer 에게 알림 (미니 박스에 메시지 표시용).
@@ -323,6 +326,8 @@ export function endDetachDragByWindowId(windowId: number, commit: boolean): bool
     win.webContents.send('vibisual:tab:redock-drag-state', { dragging: false, hovering: false });
   }
   try { win.setAlwaysOnTop(false); } catch { /* noop */ }
+  // mini ghost 진입 시 풀었던 최소 크기를 원래 값으로 복원.
+  try { win.setMinimumSize(POPUP_MIN_W, POPUP_MIN_H); } catch { /* noop */ }
   if (entry.originalBounds) {
     // 마우스 위치에 따라 복원된 창이 cursor 근처에 있게 (자연스러운 위치).
     // 다만 사용자가 별창을 모니터를 옮겨 다녔으면 그 위치를 존중하는 게 자연 → cursor 기준 중앙으로.

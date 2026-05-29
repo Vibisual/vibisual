@@ -13,6 +13,13 @@
       "disconnected": "Disconnected",
       "viewLogs": "View server logs"
     },
+    "update": {
+      "available": "Update {{version}}",
+      "availableTooltip": "Version {{version}} is available and downloading in the background",
+      "downloading": "Updating {{percent}}%",
+      "restart": "Restart to update",
+      "restartTooltip": "Version {{version}} is ready — restart to apply"
+    },
     "agentStatus": {
       "waiting": "Waiting for agent",
       "completed": "{{count}} completed",
@@ -31,7 +38,60 @@
   "panel": {
     "fileMenu": {
       "file": "File",
-      "openFolder": "Open Folder..."
+      "openFolder": "Open Folder...",
+      "options": "Options…"
+    },
+    "options": {
+      "title": "Options",
+      "unsaved": "unsaved",
+      "discardConfirm": "Discard unsaved changes?",
+      "apply": "Apply",
+      "cancel": "Cancel",
+      "saving": "Saving…",
+      "comingSoon": "Coming soon",
+      "comingSoonDesc": "This category is reserved for future settings.",
+      "categories": {
+        "agent": "Agent Defaults",
+        "appearance": "Appearance",
+        "notifications": "Notifications",
+        "permissions": "Permissions",
+        "advanced": "Advanced",
+        "version": "Version"
+      },
+      "version": {
+        "title": "Version & About",
+        "intro": "The Claude Code binary Vibisual uses to spawn agents, and where it comes from.",
+        "refresh": "Rescan",
+        "scanning": "Scanning installations…",
+        "claudeCode": "Claude Code (in use)",
+        "current": "Current",
+        "latest": "Latest (npm)",
+        "updateAvailable": "Update available",
+        "upToDate": "Up to date",
+        "registryError": "npm check failed",
+        "installations": "Installations",
+        "auto": "Auto (recommended)",
+        "autoDesc": "Let Vibisual pick automatically",
+        "activeBadge": "active",
+        "unknownVer": "unknown",
+        "restartHint": "Selection saved. Restart Vibisual to apply it to newly spawned agents.",
+        "about": "About",
+        "repo": "GitHub repository",
+        "marketplace": "Claude Code on VS Code Marketplace"
+      },
+      "agent": {
+        "intro": "These defaults apply to newly created custom agents. Existing agents are not affected.",
+        "model": "Model",
+        "permissionMode": "Permission Mode",
+        "effort": "Effort",
+        "maxTurns": "Max Turns (0 = unlimited)",
+        "isolation": "Isolation",
+        "tools": "Tools (allow-list)",
+        "disallowedTools": "Disallowed Tools (deny-list)",
+        "rules": "Default Rules (markdown)",
+        "rulesPlaceholder": "# Optional default rules injected into every new agent\n- ...",
+        "color": "Default Bubble Color (hex, optional)"
+      }
     },
     "autoAgent": {
       "title": "Auto Agent",
@@ -47,10 +107,12 @@
       "summary": "Summary",
       "spawnedCount": "Spawned {{count}} sub-agent(s)",
       "entryHint": "Sub-agents now running. Talk to me here for follow-ups.",
+      "buildingHint": "The builder is designing agents and connections on the canvas. Open this bubble to watch it work.",
       "phase": {
         "idle": "Idle — type a request to start",
         "analyzing": "Analyzing request…",
         "asking": "Awaiting your clarifications",
+        "building": "Building harness…",
         "spawning": "Spawning agents…",
         "dispatching": "Dispatching to entry agent…",
         "running": "Sub-agents working",
@@ -66,7 +128,8 @@
         "pipeline": "Pipeline",
         "team": "Team",
         "ralph": "Ralph (team + critique loop)",
-        "autopilot": "Autopilot (single agent)"
+        "autopilot": "Autopilot (single agent)",
+        "custom": "Custom (builder-designed)"
       }
     },
     "detailPanel": {
@@ -663,7 +726,11 @@
       "projectSkills": "Project ({{count}})",
       "pluginSkills": "Plugins ({{count}})",
       "noSkills": "No skills installed",
-      "skillsLoading": "Loading skills…"
+      "skillsLoading": "Loading skills…",
+      "deleteSkillTitle": "Delete skill",
+      "deleteSkillConfirm": "Delete this skill?",
+      "deleteSkillYes": "Delete",
+      "deleteSkillNo": "Cancel"
     },
     "statusBar": {
       "custom": "Custom",

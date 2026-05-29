@@ -1,4 +1,5 @@
-import type { BubbleType, BubbleStyleConfig, EdgeStyleConfig, AgentRole, PipelineChildConfig, PipelineType, AgentConfig, AgentPreset, TaskEdgeTemplate, TaskEdgeKind, UiLocale, AutoAgentRole, AutoAgentTopology, AutoAgentTemplate, AutoAgentTopologyPreset } from './types.js';
+import type { BubbleType, BubbleStyleConfig, EdgeStyleConfig, AgentRole, PipelineChildConfig, PipelineType, AgentConfig, AgentPreset, TaskEdgeTemplate, TaskEdgeKind, UiLocale, AutoAgentRole, AutoAgentTopology, AutoAgentTemplate, AutoAgentTopologyPreset, ModelPricing, ModelFamily, ModelRegistry, ModelRegistryEntry } from './types.js';
+export type { ModelPricing, ModelFamily, ModelRegistry, ModelRegistryEntry } from './types.js';
 
 // ─── UI 다국어 (i18n) ───
 
@@ -191,16 +192,19 @@ export const IFRAME_BUBBLE_WIDTH = 140;
 export const IFRAME_BUBBLE_HEIGHT = 90;
 
 // ─── 모델 컨텍스트 한도 (토큰) ───
+//
+// §4 v2.38 — 정적 테이블은 시드(폴백)로 격하. 런타임 SSOT 는 server `ModelRegistryService` 가 빌드해
+// `GraphSnapshot.modelRegistry` 로 클라에 전달하는 `ModelRegistry`.
+// 콜사이트는 `getModelContextLimit(modelId, registry?)` 헬퍼 통일.
 
-export const MODEL_CONTEXT_LIMITS: Record<string, number> = {
-  'claude-opus-4-7': 1_000_000,
-  'claude-opus-4-6': 1_000_000,
-  'claude-opus-4-5-20250414': 200_000,
-  'claude-sonnet-4-6': 200_000,
-  'claude-sonnet-4-5-20250414': 200_000,
-  'claude-haiku-4-5-20251001': 200_000,
-};
-/** 알 수 없는 모델의 기본 컨텍스트 한도 */
+/**
+ * @deprecated v2.40 — 풀ID 기반 컨텍스트 한도 테이블 폐기.
+ * 컨텍스트 한도 = 패밀리 디폴트(`MODEL_FAMILY_DEFAULTS`) 만으로 충분. Opus = 1M, Sonnet/Haiku = 200k.
+ * `getModelContextLimit` 헬퍼가 (1) 레지스트리 entry → (2) 패밀리 디폴트 → (3) `DEFAULT_CONTEXT_LIMIT` 순으로 해소.
+ * 시드 테이블 유지 안 함 — 신규 풀ID 출시 시 코드 수정 불필요.
+ */
+export const MODEL_CONTEXT_LIMITS: Record<string, number> = {};
+/** 알 수 없는 모델의 기본 컨텍스트 한도 — 패밀리 추론 실패 시 최종 폴백. */
 export const DEFAULT_CONTEXT_LIMIT = 200_000;
 
 // ─── 에이전트 ───
@@ -325,34 +329,102 @@ export const PHYSICS_SLEEP_THRESHOLD = 0.1;
 export const PHYSICS_SLEEP_FRAMES = 15;
 
 // ─── 모델 가격 ($ per 1M tokens) ───
+//
+// §4 v2.38 — `MODEL_PRICING` 정적 테이블은 시드(폴백)로 격하. 런타임 SSOT 는 `ModelRegistry`.
+// 콜사이트는 `getModelPricing(modelId, registry?)` 헬퍼 통일.
 
-export interface ModelPricing {
-  input: number;
-  output: number;
-  cacheRead: number;
-  cacheWrite: number;
-}
+/**
+ * @deprecated v2.40 — 풀ID 기반 가격 테이블 폐기.
+ * 가격 = 패밀리 디폴트(`MODEL_FAMILY_DEFAULTS`) 만으로 추정. Anthropic 의 패밀리내 minor 버전이 가격이 같다는
+ * 관찰에 기반 — 새로운 가격대가 등장하면 그때 `MODEL_FAMILY_DEFAULTS` 만 갱신.
+ * `getModelPricing` 헬퍼가 (1) 레지스트리 entry.pricing → (2) 패밀리 디폴트 → (3) `DEFAULT_PRICING` 순.
+ */
+export const MODEL_PRICING: Record<string, ModelPricing> = {};
 
-export const MODEL_PRICING: Record<string, ModelPricing> = {
-  'claude-opus-4-7':              { input: 15,  output: 75, cacheRead: 1.50, cacheWrite: 18.75 },
-  'claude-opus-4-6':              { input: 15,  output: 75, cacheRead: 1.50, cacheWrite: 18.75 },
-  'claude-opus-4-5-20250414':     { input: 15,  output: 75, cacheRead: 1.50, cacheWrite: 18.75 },
-  'claude-sonnet-4-6':            { input: 3,   output: 15, cacheRead: 0.30, cacheWrite: 3.75 },
-  'claude-sonnet-4-5-20250414':   { input: 3,   output: 15, cacheRead: 0.30, cacheWrite: 3.75 },
-  'claude-haiku-4-5-20251001':    { input: 0.80, output: 4,  cacheRead: 0.08, cacheWrite: 1.00 },
-};
-
+/** 알 수 없는 모델 최종 폴백 — 패밀리 추론도 실패할 때만(보수적 = Opus 톤). */
 export const DEFAULT_PRICING: ModelPricing = { input: 15, output: 75, cacheRead: 1.50, cacheWrite: 18.75 };
 
-/** 토큰 수 → 비용($) 계산 */
+/**
+ * §4 v2.38 — 패밀리별 디폴트(미지의 풀ID 폴백).
+ * Anthropic `/v1/models` 가 신규 풀ID 만 알려주고 가격/한도는 안 주므로 패밀리 톤으로 추정.
+ * 정확한 값은 시드 테이블 업데이트(또는 displayName 기반 룩업) 로 보강.
+ */
+export const MODEL_FAMILY_DEFAULTS: Record<ModelFamily, { contextWindow: number; pricing: ModelPricing }> = {
+  opus:   { contextWindow: 1_000_000, pricing: { input: 15,   output: 75, cacheRead: 1.50, cacheWrite: 18.75 } },
+  sonnet: { contextWindow:   200_000, pricing: { input:  3,   output: 15, cacheRead: 0.30, cacheWrite:  3.75 } },
+  haiku:  { contextWindow:   200_000, pricing: { input:  0.80, output: 4, cacheRead: 0.08, cacheWrite:  1.00 } },
+};
+
+/**
+ * §4 v2.38 — 풀ID prefix 에서 패밀리 추론.
+ * 예: `claude-opus-4-8` → `'opus'`, `claude-sonnet-4-6` → `'sonnet'`.
+ * 매칭 실패 시 undefined.
+ */
+export function parseFamilyFromFullId(id: string | undefined | null): ModelFamily | undefined {
+  if (!id) return undefined;
+  const m = /^claude-(opus|sonnet|haiku)-/.exec(id);
+  return m?.[1] as ModelFamily | undefined;
+}
+
+/**
+ * §4 v2.38 — 풀ID → 가격. 우선순위:
+ * (1) registry 에 entry.pricing 정의 → 그대로
+ * (2) 시드 `MODEL_PRICING[id]` → 그대로
+ * (3) 패밀리 추론 → `MODEL_FAMILY_DEFAULTS[family].pricing`
+ * (4) `DEFAULT_PRICING`
+ *
+ * registry 가 없으면 (1) 건너뛰고 (2)~(4) 만 평가 — 클라/서버 어느 쪽에서도 호출 가능.
+ */
+export function getModelPricing(modelId: string | undefined | null, registry?: ModelRegistry | null): ModelPricing {
+  if (!modelId) return DEFAULT_PRICING;
+  const entry = registry?.entries.find((e) => e.id === modelId);
+  if (entry?.pricing) return entry.pricing;
+  const seed = MODEL_PRICING[modelId];
+  if (seed) return seed;
+  const family = parseFamilyFromFullId(modelId);
+  if (family) return MODEL_FAMILY_DEFAULTS[family].pricing;
+  return DEFAULT_PRICING;
+}
+
+/**
+ * §4 v2.38 — 풀ID → 컨텍스트 한도(토큰). 우선순위는 `getModelPricing` 과 동일 구조.
+ */
+export function getModelContextLimit(modelId: string | undefined | null, registry?: ModelRegistry | null): number {
+  if (!modelId) return DEFAULT_CONTEXT_LIMIT;
+  const entry = registry?.entries.find((e) => e.id === modelId);
+  if (entry?.contextWindow) return entry.contextWindow;
+  const seed = MODEL_CONTEXT_LIMITS[modelId];
+  if (seed) return seed;
+  const family = parseFamilyFromFullId(modelId);
+  if (family) return MODEL_FAMILY_DEFAULTS[family].contextWindow;
+  return DEFAULT_CONTEXT_LIMIT;
+}
+
+/**
+ * §4 v2.40 — alias(`'opus'`/`'sonnet'`/`'haiku'`) → 현재 latest 풀ID.
+ *
+ * 레지스트리 entry 의 `isLatestOfFamily=true` 만 사용. 시드 폴백 ❌ — 코드 측 alias 해소를 폐기했으므로
+ * 레지스트리가 비어 있으면 그냥 undefined 반환. 호출 측은 alias 그대로 CLI 에 넘김(CLI 가 latest 해소).
+ *
+ * 이 함수의 의미가 UI 라벨용("Latest = X" 표시) 으로 좁혀짐 — 실제 CLI 인자 빌드엔 사용 ❌.
+ */
+export function resolveAliasToLatest(alias: string | undefined | null, registry?: ModelRegistry | null): string | undefined {
+  if (!alias) return undefined;
+  if (alias !== 'opus' && alias !== 'sonnet' && alias !== 'haiku') return undefined;
+  const family = alias as ModelFamily;
+  return registry?.entries.find((e) => e.family === family && e.isLatestOfFamily)?.id;
+}
+
+/** 토큰 수 → 비용($) 계산 — v2.38: registry 우선 가격 조회. */
 export function calculateTokenCost(
   inputTokens: number,
   outputTokens: number,
   cacheReadTokens: number,
   cacheCreateTokens: number,
   model?: string,
+  registry?: ModelRegistry | null,
 ): { total: number; input: number; output: number; cacheRead: number; cacheWrite: number } {
-  const p: ModelPricing = (model ? MODEL_PRICING[model] : undefined) ?? DEFAULT_PRICING;
+  const p: ModelPricing = getModelPricing(model, registry);
   const input = (inputTokens / 1_000_000) * p.input;
   const output = (outputTokens / 1_000_000) * p.output;
   const cacheRead = (cacheReadTokens / 1_000_000) * p.cacheRead;
@@ -368,20 +440,34 @@ export const AVAILABLE_AGENT_MODELS: readonly string[] = [
 ];
 
 /**
- * §4 v1.53 — 풀ID 변형(특정 minor 버전 핀). CLI `--model` 은 alias / 풀ID 둘 다 받음.
- * UI 는 alias 와 풀ID 를 그룹화해 같은 드롭다운에 표시. 신규 모델 출시 시 한 줄 추가.
- *
- * 1M 컨텍스트 변형(`[1m]` suffix) 은 별도 상수로 두지 않고 `AgentConfig.contextWindow='1m'` 토글로 처리
- * — Opus 패밀리 + contextWindow='1m' 조합일 때 서버 `buildConfigArgs` 가 `[1m]` 를 append.
+ * @deprecated v2.40 — 정적 풀ID 시드 폐기.
+ * 신규 모델 출시 시 코드 수정 불필요 — CLI 가 alias 를 latest 로 직접 해소하고(`opus[1m]` 가 alias 그대로 4.8+1M 작동 확인 — CLI 2.1.154),
+ * 풀ID 핀이 필요한 사용자만 `ANTHROPIC_API_KEY` 설정 시 `/v1/models` 응답에서 버전 sub-드롭다운이 자동 채워짐.
+ * 빈 배열 유지 — `AVAILABLE_AGENT_MODEL_IDS` 합집합도 alias 3종 만 남음.
  */
-export const AVAILABLE_AGENT_MODEL_FULL_IDS: readonly string[] = [
-  'claude-opus-4-7',
-  'claude-opus-4-6',
-  'claude-sonnet-4-6',
-  'claude-haiku-4-5-20251001',
-];
+export const AVAILABLE_AGENT_MODEL_FULL_IDS: readonly string[] = [];
 
-/** §4 v1.53 — alias 와 풀ID 합집합. CLI `--model` 가드용. */
+/**
+ * §4 v2.38 — 시드 풀ID 들을 `ModelRegistryEntry[]` 형태로 빌드.
+ * 서버 `ModelRegistryService` 가 부팅 시 첫 번째로 적재.
+ */
+export const MODEL_SEED_ENTRIES: readonly ModelRegistryEntry[] = AVAILABLE_AGENT_MODEL_FULL_IDS.map((id): ModelRegistryEntry => {
+  const family = parseFamilyFromFullId(id);
+  return {
+    id,
+    family: family ?? 'opus',
+    contextWindow: MODEL_CONTEXT_LIMITS[id],
+    pricing: MODEL_PRICING[id],
+    source: 'seed',
+  };
+});
+
+/**
+ * §4 v1.53 — alias 와 풀ID 합집합. CLI `--model` 가드용.
+ *
+ * v2.38 주의 — 이 정적 합집합은 시드 한정. 서버 `subAgentManager.buildConfigArgs` 는 런타임 레지스트리
+ * (`modelRegistryService.getRegistry().entries`) 를 우선 조회하고 시드는 폴백.
+ */
 export const AVAILABLE_AGENT_MODEL_IDS: readonly string[] = [
   ...AVAILABLE_AGENT_MODELS,
   ...AVAILABLE_AGENT_MODEL_FULL_IDS,
@@ -416,6 +502,12 @@ export const AVAILABLE_AGENT_TOOLS: readonly string[] = [
 
 /** §5.3 #12-2 v2.26 — AskUserQuestion 요청 타임아웃 (60s, permissionBroker 와 동일 윈도우) */
 export const ASK_USER_QUESTION_TIMEOUT_MS = 60_000;
+
+/** §4 v2.43 — 옵션창 Version 탭: 설치본 하나당 `--version` probe 타임아웃 (정상 응답 수십 ms) */
+export const CLAUDE_VERSION_PROBE_TIMEOUT_MS = 2_500;
+
+/** §4 v2.43 — 옵션창 Version 탭: 다중 설치본 스캔 시 probe 할 최대 후보 수 (폭주 가드) */
+export const CLAUDE_INSTALL_SCAN_MAX = 24;
 
 /** v1.36 — STRICT delegation enforcement 경로(dispatch curl)가 Bash 에 의존하므로
  *  사용자가 UI 에서 제거할 수 없고, STRICT strip 계산에서도 항상 보존된다.
@@ -1200,6 +1292,15 @@ export const CANVAS_CLIPBOARD_SCHEMA_VERSION = 1 as const;
 export const CANVAS_CLIPBOARD_DEFAULT_PASTE_OFFSET = 40;
 
 
+// ─── 자동 업데이트 (§4 v2.44) ───
+
+/**
+ * 자동 업데이트 주기 체크 간격 (ms). desktop main 의 updaterManager 는 부팅 직후(윈도우가
+ * 뜬 뒤 ~10s)에 첫 체크를 1회 하고, 그 다음부터 이 간격으로 반복 체크한다. 4시간 — 너무
+ * 잦으면 GitHub API 부담·네트워크 노이즈, 너무 드물면 새 릴리스 인지가 늦다.
+ */
+export const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
+
 // ─── 진단 에러 로그 (§4 v1.98) ───
 
 /** 서버 diagnosticService ring buffer 최대 보관 건수. 초과 시 가장 오래된 것부터 제거. */
@@ -1338,6 +1439,42 @@ export const AUTO_AGENT_ROLE_POLICY: Record<AutoAgentRole, Partial<AgentConfig>>
       '- 모호한 의도·숨겨진 가정·우선순위를 한 번에 하나씩 질문.\n' +
       '- 답이 모이면 명세 1쪽 분량으로 정리.',
   },
+  // ── v2.46 — OMO(oh-my-openagent) 전문가 archetype 차용 ──
+  oracle: {
+    model: 'opus',
+    tools: ['Read', 'Grep', 'Glob', 'Bash'],
+    permissionMode: 'plan',
+    effort: 'high',
+    color: '#6366F1',
+    rules:
+      '# Role: Oracle (Auto Agent 가 자동 spawn — OMO Oracle 차용)\n\n' +
+      '- 아키텍처 진단·난해한 버그의 근본 원인 분석 전담. 코드 수정 ❌(plan 모드).\n' +
+      '- 가설을 세우고 근거(파일:라인·로그·재현 경로)로 검증한 뒤 결론을 낸다.\n' +
+      '- 출력: 근본 원인 1~2문 + 권장 수정 방향 + 위험. 추측은 "추정"으로 명시.',
+  },
+  librarian: {
+    model: 'sonnet',
+    tools: ['Read', 'Grep', 'Glob', 'WebSearch', 'WebFetch'],
+    permissionMode: 'default',
+    effort: 'low',
+    color: '#0D9488',
+    rules:
+      '# Role: Librarian (Auto Agent 가 자동 spawn — OMO Librarian 차용)\n\n' +
+      '- 내부 코드·문서 + 외부 공식 문서/레퍼런스를 찾아 정리한다. 코드 수정 ❌.\n' +
+      '- 출처(파일경로·URL)를 반드시 명시. 핵심 인용 + 3-5 bullet 요약.',
+  },
+  explore: {
+    model: 'haiku',
+    tools: ['Read', 'Grep', 'Glob'],
+    permissionMode: 'default',
+    effort: 'low',
+    color: '#22D3EE',
+    rules:
+      '# Role: Explore (Auto Agent 가 자동 spawn — OMO Explore 차용)\n\n' +
+      '- 코드베이스를 빠르게 훑어 관련 파일·심볼·정의의 **위치**를 찾아 보고한다.\n' +
+      '- 전체 파일을 정독하지 말고 발췌만. 분석·평가 ❌ — 어디에 무엇이 있는지만.\n' +
+      '- 출력: `file:line` 목록 + 한 줄 설명.',
+  },
 };
 
 /**
@@ -1353,6 +1490,9 @@ export const AUTO_AGENT_TEMPLATES: readonly AutoAgentTemplate[] = [
   { role: 'researcher', label: 'Researcher', description: 'Investigates external/internal references.', config: AUTO_AGENT_ROLE_POLICY.researcher },
   { role: 'doc-writer', label: 'Doc Writer', description: 'Writes documentation.', config: AUTO_AGENT_ROLE_POLICY['doc-writer'] },
   { role: 'deep-interviewer', label: 'Deep Interviewer', description: 'Clarifies vague requests via Socratic questioning.', config: AUTO_AGENT_ROLE_POLICY['deep-interviewer'] },
+  { role: 'oracle', label: 'Oracle', description: 'Diagnoses architecture and hard bugs. Read-only.', config: AUTO_AGENT_ROLE_POLICY.oracle },
+  { role: 'librarian', label: 'Librarian', description: 'Searches internal/external docs and references.', config: AUTO_AGENT_ROLE_POLICY.librarian },
+  { role: 'explore', label: 'Explore', description: 'Fast read-only codebase exploration — reports locations.', config: AUTO_AGENT_ROLE_POLICY.explore },
 ];
 
 /**
@@ -1363,7 +1503,7 @@ export const AUTO_AGENT_TEMPLATES: readonly AutoAgentTemplate[] = [
  *   원형 배치를 위해 노드 수에 따라 균등 분포.
  * `entry`: 정확히 1개의 노드만 true. 사용자 메시지 forward 대상.
  */
-export const AUTO_AGENT_TOPOLOGY_PRESETS: Record<AutoAgentTopology, AutoAgentTopologyPreset> = {
+export const AUTO_AGENT_TOPOLOGY_PRESETS: Record<Exclude<AutoAgentTopology, 'custom'>, AutoAgentTopologyPreset> = {
   pipeline: {
     topology: 'pipeline',
     label: 'Pipeline',
@@ -1430,6 +1570,167 @@ export const AUTO_AGENT_TOPOLOGY_PRESETS: Record<AutoAgentTopology, AutoAgentTop
     edges: [],
   },
 };
+
+// ─── §5.3 #10-2 v2.45 — 하네스 빌더 에이전트 ───
+
+/**
+ * Auto Agent 가 "하네스 빌더"로 스폰될 때 자신에게 적용하는 AgentConfig.
+ * - 빌더는 loopback REST 를 Bash(curl) 로 자율 호출해야 하므로 bypassPermissions.
+ * - 프로젝트를 살펴 최적 하네스를 설계하기 위해 Read/Grep/Glob, 필요 시 Agent.
+ * - 직접 코드 작업은 하지 않으므로 Write/Edit 는 제외(빌더가 *만드는* 서브가 수행).
+ * - 모호 요청 인터뷰가 필요하면 런타임이 tools 에 'AskUserQuestion' 을 추가한다(askQuestionsEnabled).
+ */
+export const AUTO_AGENT_BUILDER_CONFIG: Partial<AgentConfig> = {
+  model: 'opus',
+  effort: 'high',
+  permissionMode: 'bypassPermissions',
+  tools: ['Bash', 'Read', 'Grep', 'Glob', 'Agent'],
+  color: '#1E3A8A',
+  maxTurns: 0,
+};
+
+/**
+ * 빌더가 인터뷰(명확화 질문)를 할 수 있도록 추가하는 도구.
+ * 런타임이 askQuestionsEnabled 면 builder tools 에 합친다.
+ */
+export const AUTO_AGENT_BUILDER_INTERVIEW_TOOL = 'AskUserQuestion';
+
+/** 역할 카탈로그를 빌더 프롬프트용 markdown 표 한 묶음으로 직렬화 (권고 참고, 강제 아님). */
+function serializeRoleCatalog(): string {
+  return (Object.keys(AUTO_AGENT_ROLE_POLICY) as AutoAgentRole[])
+    .map((role) => {
+      const p = AUTO_AGENT_ROLE_POLICY[role];
+      const tools = (p.tools ?? []).join(', ');
+      return `| ${role} | ${p.model ?? 'opus'} | ${p.effort ?? 'default'} | ${p.permissionMode ?? 'default'} | ${tools} |`;
+    })
+    .join('\n');
+}
+
+/**
+ * §5.3 #10-2 v2.45 — 스폰된 하네스 빌더 에이전트에게 주입할 시스템 규칙(rules).
+ *
+ * 빌더는 이 규칙 + 사용자 원본 요청(별도 task 본문)을 받아, 아래 loopback REST API 를
+ * Bash(curl) 로 호출해 사용자 의도에 맞는 멀티-에이전트 하네스(버블 + Task Edge)를
+ * 캔버스에 직접 구축하고, 엔트리 에이전트에 사용자 요청을 forward 한다.
+ *
+ * 동적 값(serverBase=hook loopback 포트, 배치 중심 좌표, 프로젝트명)은 서버 런타임이 주입.
+ */
+export function buildHarnessBuilderRules(args: {
+  serverBase: string;
+  centerX: number;
+  centerY: number;
+  layoutRadius?: number;
+  projectName: string | null;
+}): string {
+  const { serverBase, centerX, centerY, projectName } = args;
+  const radius = args.layoutRadius ?? AUTO_AGENT_LAYOUT_RADIUS;
+  const projectField = projectName ? `"${projectName}"` : 'null';
+  const toolList = AVAILABLE_AGENT_TOOLS.join(', ');
+
+  return `# 역할: Vibisual 하네스 빌더 (Harness Architect)
+
+당신은 Vibisual 캔버스 위에서 **멀티-에이전트 하네스를 설계·구축하는 메타 에이전트**입니다.
+사용자가 자연어로 요청한 작업을 보고, 그 작업을 가장 잘 수행할 **커스텀 에이전트 군(버블) + 작업 위임 연결(Task Edge)** 을
+아래 REST API 를 호출해 직접 만들어 냅니다. **당신은 직접 코드를 수정하지 않습니다** — 하네스를 짓고,
+엔트리 에이전트에게 사용자 요청을 넘기는 것까지가 당신의 일입니다. 실제 작업은 당신이 만든 서브 에이전트들이 합니다.
+
+## 캔버스 모델 (반드시 이해)
+- **버블(Bubble) = 커스텀 에이전트 1개.** 각자 독립된 Claude 세션 + 고유 AgentConfig(model/tools/permissionMode/effort/rules).
+- **Task Edge = 에이전트 간 작업 위임.** source → target 방향. source 가 target 에게 일을 시키고 결과를 받는다.
+- 좋은 하네스 = 작업을 역할로 분해 → 역할마다 적합한 모델·도구를 가진 버블 → 의존 순서대로 엣지 연결 → 엔트리에서 시작.
+
+## IntentGate — 먼저 의도부터 분류 (가장 먼저)
+하네스를 짓기 전에, 사용자 요청을 아래 한 유형으로 분류하고 그에 맞는 형태로 시작한다(고정은 아님, 출발점):
+| 의도 | 신호 | 권장 하네스 형태 |
+|---|---|---|
+| quick-fix | 파일/함수 지목 + 단순 수정 | 단일 coder (또는 explore→coder) |
+| feature | 새 기능·다중 단계 | pm 허브 + (architect)+coder+tester+reviewer |
+| research | "조사/비교/알아봐" | librarian + explore + researcher → 요약 |
+| debug | "안 돼/버그/원인" | oracle(원인 분석) → coder(수정) → tester |
+| refactor | "리팩터링/정리/구조 개선" | explore(현황) → architect(설계) → coder → reviewer |
+분류 결과를 짧게 밝힌 뒤 설계로 넘어간다.
+
+## 작업 절차 (순서대로)
+1. **요청 파악**: 위 IntentGate 로 유형을 정하고, (필요하면) 프로젝트를 Read/Grep/Glob 으로 빠르게 살펴 범위를 잡는다.
+2. **(모호하면) 인터뷰**: AskUserQuestion 도구가 주어졌다면, 산출물 형태·우선순위·범위가 불분명할 때 1~3개 질문으로 좁힌다. 명확하면 건너뛴다.
+3. **하네스 설계**: 몇 개의 어떤 역할이 필요한지, 각 역할에 어떤 모델·도구·권한이 적합한지, 누가 누구에게 위임하는지(엣지) 결정. 단순 작업은 1개로 충분, 복잡하면 PM 허브 + 워커 + 리뷰어. **고정 틀에 끼워맞추지 말고 요청에 맞춰 새로 설계**한다.
+4. **버블 생성**: 역할마다 \`POST /api/create-custom-agent\` 호출 → 응답의 \`agent.id\`(설정/엣지용)와 \`agent.path\`(엔트리 kickoff용 sessionId)를 반드시 캡처.
+5. **설정 주입**: 버블마다 \`PUT /api/agent-config/:agentId\` 로 model/tools/permissionMode/effort/rules 배정. rules 에는 그 에이전트의 역할·산출물 형식을 또렷이 적는다.
+6. **엣지 연결**: 의존 관계대로 \`POST /api/task-edges\` 로 연결.
+7. **엔트리 기동**: 시작점 에이전트의 sessionId 로 \`POST /api/commands/:sessionId\` 에 **사용자 원본 요청**을 forward(text/plain).
+8. **마무리 보고**: 만든 버블·엣지·각자의 역할을 2~5줄로 요약. (당신은 여기서 종료 — 실제 작업은 서브들이 이어간다.)
+
+## REST API (서버 베이스: \`${serverBase}\`)
+모든 호출은 Bash(curl)로. JSON 본문은 heredoc 으로 보내 escape 부담을 줄인다. node(v20)가 항상 있으니 응답 파싱은 node 로.
+
+### 1) 버블 생성
+\`\`\`bash
+RESP=$(curl -s -X POST "${serverBase}/api/create-custom-agent" \\
+  -H 'Content-Type: application/json' --data-binary @- <<'JSON'
+{"label":"Coder","x":${Math.round(centerX + radius)},"y":${Math.round(centerY)},"project":${projectField}}
+JSON
+)
+AGENT_ID=$(printf '%s' "$RESP" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const o=JSON.parse(s);process.stdout.write(o.agent.id)})")
+AGENT_PATH=$(printf '%s' "$RESP" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const o=JSON.parse(s);process.stdout.write(o.agent.path)})")
+\`\`\`
+- 응답: \`{ ok:true, agent:{ id, label, path, position, ... } }\`. \`id\`=설정/엣지용, \`path\`=세션(=kickoff용).
+
+### 2) 설정 주입 (model/tools/permissionMode/effort/rules)
+\`\`\`bash
+curl -s -X PUT "${serverBase}/api/agent-config/$AGENT_ID" \\
+  -H 'Content-Type: application/json' --data-binary @- <<'JSON'
+{"model":"sonnet","tools":["Read","Write","Edit","Bash","Grep","Glob"],"permissionMode":"default","effort":"medium","rules":"# Role: Coder\\n받은 명세대로 코드를 작성한다. 완료 후 변경 파일과 요점을 보고."}
+JSON
+\`\`\`
+- 부분 업데이트 허용. \`Bash\` 는 항상 포함됨(서버 강제). rules 의 줄바꿈은 \`\\n\`.
+
+### 3) 엣지 연결 (작업 위임)
+\`\`\`bash
+RESP=$(curl -s -X POST "${serverBase}/api/task-edges" \\
+  -H 'Content-Type: application/json' --data-binary @- <<'JSON'
+{"sourceAgentId":"<PM_ID>","targetAgentId":"<CODER_ID>","command":"이 기능을 구현하라","forwardMode":"manual","kind":"command"}
+JSON
+)
+EDGE_ID=$(printf '%s' "$RESP" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const o=JSON.parse(s);process.stdout.write(o.data.id)})")
+\`\`\`
+- 필수: \`sourceAgentId\`,\`targetAgentId\`,\`command\`,\`forwardMode\`('manual'|'auto'). 선택: \`kind\`('command'|'artifact'|'request'|'critique'), \`returnFormat\`('summary'|'full'|'both'), \`commandMode\`('shared'|'tool-delegation'|'mode-delegation').
+
+### 4) 엔트리 기동 (사용자 원본 요청 forward — escape-free)
+\`\`\`bash
+curl -s -X POST "${serverBase}/api/commands/<ENTRY_AGENT_PATH>" \\
+  -H 'Content-Type: text/plain; charset=utf-8' --data-binary @- <<'EOF'
+<사용자 원본 요청 전문을 그대로 — JSON escape 불필요, 여러 줄 OK>
+EOF
+\`\`\`
+- \`<ENTRY_AGENT_PATH>\` = 1)에서 캡처한 엔트리 버블의 \`agent.path\`(sessionId).
+
+## 모델 선택 가이드 (권고)
+- **opus** — 최고 수준 추론·설계·리뷰. 1M 컨텍스트. PM/architect/planner/reviewer 등 머리 쓰는 역할.
+- **sonnet** — 균형. 실제 구현(coder/tester) 의 기본.
+- **haiku** — 빠르고 저렴. 단순·반복(문서/조사)·대량 처리.
+
+## 권한 모드
+\`default\`(승인 필요) · \`acceptEdits\`(편집 자동승인) · \`plan\`(읽기·계획만, 변경 ❌) · \`bypassPermissions\`(전부 자동).
+실제 코드 변경 워커는 \`acceptEdits\` 또는 \`bypassPermissions\`, 리뷰/설계는 \`plan\` 이 흔하다.
+
+## 사용 가능한 도구
+${toolList}
+
+## 역할 권고 카탈로그 (참고용 — 강제 아님, 필요에 따라 가감)
+| role | model | effort | permissionMode | tools |
+|---|---|---|---|---|
+${serializeRoleCatalog()}
+
+## 배치 좌표
+- 캔버스 중심(당신=auto-agent 버블 위치) = (${Math.round(centerX)}, ${Math.round(centerY)}). 버블들을 이 점 주위 반지름 ${radius}px 안에 적당히 분산 배치(겹치지 않게).
+- 예: 노드 N개면 360/N 도 간격으로 \`x = center.x + ${radius}*cos(θ)\`, \`y = center.y - ${radius}*sin(θ)\`.
+
+## 금지·주의
+- **직접 파일 수정 ❌** (Write/Edit 없음). 코드 작업은 당신이 만든 서브가 한다.
+- 한 역할에 너무 많은 책임을 몰지 말 것. 단순 요청에 과한 군단 ❌, 복잡 요청에 단일 에이전트 ❌ — 요청 규모에 비례.
+- 만든 버블·엣지가 실제로 응답에 \`ok:true\` 로 생성됐는지 확인하고 진행. 실패하면 본문을 점검해 교정.
+- 모든 curl 의 서버 베이스는 반드시 \`${serverBase}\` (이 주소만 in-process 서버에 닿는다).`;
+}
 
 /**
  * Auto Agent 본체에 자동 박히는 기본 rules (사용자가 AgentConfigPopup 에서 덮어쓰기 가능).

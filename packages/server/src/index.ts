@@ -14,12 +14,14 @@ import { AutoAgentRuntime } from './services/autoAgentRuntime.js';
 import { BUBBLE_COLORS, READ_TOOLS } from '@vibisual/shared';
 import { broadcast } from './broadcastBus.js';
 import { graphManager } from './services/projectGraphManager.js';
+import { modelRegistryService } from './services/modelRegistryService.js';
+import { userDefaultsService } from './services/userDefaultsService.js';
 import { isPortAlive, killByPort, respawn } from './services/processChecker.js';
 import { discoverProjectMetas, migrateLegacy, migrateLegacySaveRootToProjectDirs, pruneOrphanWorktreeDirs, SaveScheduler, writeCheckpoint } from './services/statePersistence.js';
-import { loadAppState, saveAppState, patchAppState, appStateAddOpenProject, appStateRemoveOpenProject, appStatePruneStaleProjectNames } from './services/appState.js';
+import { loadAppState, saveAppState, patchAppState, appStateAddOpenProject, appStateRemoveOpenProject, appStatePruneStaleProjectNames, appStateGetSkillOrder, appStateSetSkillOrder, appStateRemoveSkillFromOrder } from './services/appState.js';
 import { ensureClaudeHooksInstalled } from './services/hookInstaller.js';
 import { isAgentViewEnabled, reconcileOnBoot as agentViewReconcileOnBoot } from './services/claudeAgentViewService.js';
-import { getClaudeVersionInfo, installLatestClaude, getInflightInstall, invalidateLatestCache } from './services/claudeVersionService.js';
+import { getClaudeVersionInfo, getClaudeInstallsInfo, installLatestClaude, getInflightInstall, invalidateLatestCache } from './services/claudeVersionService.js';
 import { agentTracker } from './services/agentTracker.js';
 import { discoverSessions, findPidBySession, isProcessAlive, readSessionTokenData, setLivenessProbeListener } from './services/sessionDiscovery.js';
 import { SessionLifecycleManager } from './services/sessionLifecycle.js';
@@ -150,6 +152,22 @@ export async function runServer(): Promise<RunServerHandle> {
   graphManager.setOnMutated(() => broadcastSnapshot());
   gitStatusService.setChangeListener(() => broadcastSnapshot());
 
+  // §4 v2.38 — 모델 레지스트리 부팅 시 비동기 refresh (시드는 이미 적재됨).
+  // 완료/실패 무관, listener 가 WS 푸시 담당.
+  modelRegistryService.refreshIfStale().catch((err) => {
+    logger.warn(`[modelRegistry] refresh error: ${err instanceof Error ? err.message : String(err)}`);
+  });
+  modelRegistryService.subscribe((reg) => {
+    broadcast({ type: 'model_registry_updated', timestamp: Date.now(), payload: reg });
+    // 시드 → api-merged 전환 시 snapshot 의 modelRegistry 도 갱신해야 하므로 그래프 한 번 푸시.
+    broadcastSnapshot();
+  });
+
+  // §4 v2.42 — 사용자 옵션 갱신 broadcast (다른 창/탭 즉시 반영)
+  userDefaultsService.subscribe((d) => {
+    broadcast({ type: 'user_defaults_updated', timestamp: Date.now(), payload: d });
+  });
+
   /** 프로세스 부팅 시각 — Debug 패널 "Restart Server"가 startedAt 증가로 재시작 여부 확인 */
   const SERVER_STARTED_AT = Date.now();
 
@@ -183,6 +201,29 @@ export async function runServer(): Promise<RunServerHandle> {
       supportedLocales: [...SUPPORTED_UI_LOCALES],
       nodeVersion: process.version,
     });
+  });
+
+  // §4 v2.38 — 동적 모델 레지스트리 (시드 + /v1/models 머지 결과)
+  app.get('/api/models', (_req, res) => {
+    res.json(modelRegistryService.getRegistry());
+  });
+
+  // §4 v2.42 — 사용자 글로벌 옵션 (Options 창 SSOT)
+  app.get('/api/user-defaults', (_req, res) => {
+    res.json(userDefaultsService.get());
+  });
+  app.put('/api/user-defaults', async (req, res) => {
+    try {
+      const patch = req.body as Partial<import('@vibisual/shared').UserDefaults>;
+      if (!patch || typeof patch !== 'object') {
+        res.status(400).json({ ok: false, error: 'invalid body' });
+        return;
+      }
+      const next = await userDefaultsService.update(patch);
+      res.json({ ok: true, userDefaults: next });
+    } catch (err) {
+      res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+    }
   });
 
   app.put('/api/ui-locale', (req, res) => {
@@ -846,6 +887,9 @@ export async function runServer(): Promise<RunServerHandle> {
     },
     broadcastSnapshot,
     saveCheckpoint: () => saveCheckpoint(),
+    // §5.3 #10-2 v2.45 — 빌더가 curl 로 닿을 loopback 베이스. buildOutboundEdgesRulesSection 과 동일 근거
+    // (외부 claude 프로세스는 hook 리스너 동적 포트로만 in-process 서버에 닿음).
+    getServerBase: () => `http://127.0.0.1:${hookListenerPort ?? port}`,
     broadcastAutoAgentProgress: (autoAgentId, summary) => {
       broadcast({
         type: 'auto_agent_progress',
@@ -971,10 +1015,23 @@ export async function runServer(): Promise<RunServerHandle> {
     });
   });
 
-  /** POST /api/commands/:sessionId — 명령 추가 */
+  /** POST /api/commands/:sessionId — 명령 추가.
+   *  두 경로 수용: (1) JSON `{ text, subAgentId?, attachments? }`,
+   *  (2) raw text/plain 본문 — 하네스 빌더(§5.3 #10-2 v2.45) 가 엔트리 노드를 escape-free 로 kickoff. */
   app.post('/api/commands/:sessionId', (req, res) => {
     const { sessionId } = req.params;
-    const { text, subAgentId, attachments } = req.body as { text?: string; subAgentId?: string | null; attachments?: string[] };
+    let text: string | undefined;
+    let subAgentId: string | null | undefined;
+    let attachments: string[] | undefined;
+    if (typeof req.body === 'string') {
+      // express.text() 가 파싱한 raw 본문. 끝의 heredoc 잔여 개행만 정리.
+      text = req.body.replace(/\r\n/g, '\n').replace(/\n+$/, '');
+    } else {
+      const body = (req.body ?? {}) as { text?: string; subAgentId?: string | null; attachments?: string[] };
+      text = body.text;
+      subAgentId = body.subAgentId;
+      attachments = body.attachments;
+    }
     if (typeof text !== 'string' || !text.trim()) {
       res.status(400).json({ error: 'text required' });
       return;
@@ -1887,9 +1944,75 @@ export async function runServer(): Promise<RunServerHandle> {
         }
       } catch { /* ignore */ }
 
-      res.json({ ok: true, skills });
+      res.json({ ok: true, skills, order: appStateGetSkillOrder() });
     } catch (err) {
       logger.error('GET /api/available-skills failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /** §5.5 #17-4 — 등록된 프로젝트들의 .claude/skills/ 에서 frontmatter name 이 일치하는 스킬 폴더 절대경로 탐색. */
+  function findProjectSkillDir(skillName: string): string | null {
+    for (const info of Object.values(graphManager.getSnapshot().projects)) {
+      const skillsDir = path.join(info.path, '.claude', 'skills');
+      try {
+        if (!fs.existsSync(skillsDir)) continue;
+        for (const entry of fs.readdirSync(skillsDir, { withFileTypes: true })) {
+          if (!entry.isDirectory()) continue;
+          const dir = path.join(skillsDir, entry.name);
+          const parsed = parseSkillMd(path.join(dir, 'SKILL.md'));
+          if (parsed && parsed.name === skillName) return dir;
+        }
+      } catch { /* next project */ }
+    }
+    return null;
+  }
+
+  /** DELETE /api/skill — 프로젝트 스킬을 디스크에서 제거 (source==='project' 만).
+   *  frontmatter name 으로 폴더를 찾아 해당 스킬 디렉토리 전체를 삭제하고 고정 순서에서도 제거. */
+  app.delete('/api/skill', (req, res) => {
+    try {
+      const { name, source } = req.body as { name?: string; source?: string };
+      if (typeof name !== 'string' || !name.trim()) {
+        res.status(400).json({ error: 'name required' });
+        return;
+      }
+      if (source !== 'project') {
+        // 플러그인 스킬은 전역 설치본이라 디스크 삭제 대상에서 제외 (프로젝트 스킬만 제거).
+        res.status(400).json({ error: 'only project skills can be deleted' });
+        return;
+      }
+      const dir = findProjectSkillDir(name.trim());
+      if (!dir) {
+        res.status(404).json({ error: 'skill not found' });
+        return;
+      }
+      fs.rmSync(dir, { recursive: true, force: true });
+      appStateRemoveSkillFromOrder(name.trim());
+      logger.info(`Skill deleted from disk: ${dir} ("${name.trim()}")`);
+      res.json({ ok: true });
+    } catch (err) {
+      logger.error('DELETE /api/skill failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /** PUT /api/skill-order — SkillsView 고정 순서 저장 (type 별 전체 가시 순서 치환). */
+  app.put('/api/skill-order', (req, res) => {
+    try {
+      const { type, order } = req.body as { type?: string; order?: unknown };
+      if (type !== 'project' && type !== 'plugin') {
+        res.status(400).json({ error: 'type must be project|plugin' });
+        return;
+      }
+      if (!Array.isArray(order) || order.some((x) => typeof x !== 'string')) {
+        res.status(400).json({ error: 'order must be string[]' });
+        return;
+      }
+      appStateSetSkillOrder(type, order as string[]);
+      res.json({ ok: true, order: appStateGetSkillOrder() });
+    } catch (err) {
+      logger.error('PUT /api/skill-order failed', err);
       res.status(500).json({ error: 'Internal server error' });
     }
   });
@@ -2156,6 +2279,22 @@ export async function runServer(): Promise<RunServerHandle> {
       res.json({ ok: true, info });
     } catch (err) {
       logger.error('GET /api/claude-version failed', err);
+      res.status(500).json({ ok: false, error: (err as Error).message });
+    }
+  });
+
+  /**
+   * §4 v2.43 — GET /api/claude-installs
+   * 옵션창 Version 탭 데이터: PC 에 깔린 모든 claude 설치본 + 현재 활성/선택 + Vibisual·런타임 메타 + npm latest.
+   * `?refresh=1` 로 registry 캐시 무효화. 선택 저장은 기존 `PUT /api/user-defaults {claudeBinPath}` 재사용.
+   */
+  app.get('/api/claude-installs', async (req, res) => {
+    try {
+      const force = req.query['refresh'] === '1';
+      const info = await getClaudeInstallsInfo(force);
+      res.json({ ok: true, info });
+    } catch (err) {
+      logger.error('GET /api/claude-installs failed', err);
       res.status(500).json({ ok: false, error: (err as Error).message });
     }
   });

@@ -1,11 +1,26 @@
 import { spawn } from 'node:child_process';
 import https from 'node:https';
+import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
-import type { ClaudeVersionInfo, ClaudeInstallProgress, WSMessage } from '@vibisual/shared';
+import type {
+  ClaudeVersionInfo,
+  ClaudeInstallProgress,
+  ClaudeInstall,
+  ClaudeInstallsInfo,
+  WSMessage,
+} from '@vibisual/shared';
+import { CLAUDE_VERSION_PROBE_TIMEOUT_MS, CLAUDE_INSTALL_SCAN_MAX } from '@vibisual/shared';
 import { logger } from '../logger.js';
 import { broadcast } from '../broadcastBus.js';
-import { resolveClaudeBin, type ClaudeBinSource, type ClaudeBinInfo } from './claudeBin.js';
+import {
+  resolveClaudeBin,
+  discoverAllClaudeBins,
+  readClaudeBinOverride,
+  type ClaudeBinSource,
+  type ClaudeBinInfo,
+} from './claudeBin.js';
 
 /** §5.7 #23-1 v1.59 — npm registry 조회 캐시 TTL */
 const REGISTRY_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -43,7 +58,10 @@ let inflightInstall: InstallSession | null = null;
  * `<bin> --version` 실행 후 stdout 에서 semver 추출.
  * 정상 출력 예: "2.1.139 (Claude Code)" 또는 "2.1.139".
  */
-function detectCurrentVersion(binPath: string): Promise<{ version: string | null; error?: string }> {
+function detectCurrentVersion(
+  binPath: string,
+  timeoutMs: number = VERSION_DETECT_TIMEOUT_MS,
+): Promise<{ version: string | null; error?: string }> {
   return new Promise((resolve) => {
     let resolved = false;
     const child = spawn(binPath, ['--version'], {
@@ -64,8 +82,8 @@ function detectCurrentVersion(binPath: string): Promise<{ version: string | null
     };
 
     const timer = setTimeout(() => {
-      finish({ version: null, error: `--version timed out after ${VERSION_DETECT_TIMEOUT_MS}ms` });
-    }, VERSION_DETECT_TIMEOUT_MS);
+      finish({ version: null, error: `--version timed out after ${timeoutMs}ms` });
+    }, timeoutMs);
 
     child.on('error', (err) => {
       clearTimeout(timer);
@@ -141,6 +159,20 @@ function isOutdated(current: string | null, latest: string | null): boolean {
   return false;
 }
 
+/** latest 조회 (5분 TTL in-memory 캐시 공유). forceRefresh=true 면 캐시 무효화. */
+async function getLatestCached(forceRefresh = false): Promise<CachedLatest> {
+  if (
+    !forceRefresh &&
+    latestCache &&
+    Date.now() - latestCache.fetchedAt < REGISTRY_CACHE_TTL_MS
+  ) {
+    return latestCache;
+  }
+  const r = await fetchLatestVersion();
+  latestCache = { version: r.version, fetchedAt: Date.now(), error: r.error };
+  return latestCache;
+}
+
 /**
  * 현재/최신 버전 조회 + outdated 판정.
  * latest 는 5분 TTL 캐시. forceRefresh=true 면 캐시 무효화.
@@ -149,18 +181,7 @@ export async function getClaudeVersionInfo(forceRefresh = false): Promise<Claude
   const bin = resolveClaudeBin();
   const detected = await detectCurrentVersion(bin.binPath);
 
-  let latestEntry: CachedLatest;
-  if (
-    !forceRefresh &&
-    latestCache &&
-    Date.now() - latestCache.fetchedAt < REGISTRY_CACHE_TTL_MS
-  ) {
-    latestEntry = latestCache;
-  } else {
-    const r = await fetchLatestVersion();
-    latestEntry = { version: r.version, fetchedAt: Date.now(), error: r.error };
-    latestCache = latestEntry;
-  }
+  const latestEntry = await getLatestCached(forceRefresh);
 
   // PATH 폴백이지만 검출도 실패 → 'unknown' 로 격하 (안내만 가능, 자동설치 ❌)
   let source: ClaudeBinSource = bin.source;
@@ -181,6 +202,107 @@ export async function getClaudeVersionInfo(forceRefresh = false): Promise<Claude
 /** 캐시 무효화 — 클라가 dismiss/install 후 재조회를 강제할 때 호출. */
 export function invalidateLatestCache(): void {
   latestCache = null;
+}
+
+/**
+ * §4 v2.43 — Vibisual 자체 버전을 **동적** 으로 read (하드코딩 ❌).
+ * 우선순위: (1) `npm_package_version` 환경변수, (2) 이 모듈에서 위로 올라가며 만나는 첫 package.json 의 version.
+ * 1회 계산 후 캐시.
+ */
+let appVersionCache: string | null = null;
+function readAppVersion(): string {
+  if (appVersionCache !== null) return appVersionCache;
+  const fromEnv = process.env['npm_package_version'];
+  if (fromEnv && /^\d+\.\d+\.\d+/.test(fromEnv)) {
+    appVersionCache = fromEnv;
+    return appVersionCache;
+  }
+  try {
+    let dir = path.dirname(fileURLToPath(import.meta.url));
+    for (let i = 0; i < 8; i++) {
+      const pkg = path.join(dir, 'package.json');
+      try {
+        const raw = fs.readFileSync(pkg, 'utf-8');
+        const parsed = JSON.parse(raw) as { version?: unknown; name?: unknown };
+        // 워크스페이스 패키지(@vibisual/server 등) 도 같은 0.x 버전을 공유하므로 첫 매치 채택.
+        if (typeof parsed.version === 'string' && parsed.version.length > 0) {
+          appVersionCache = parsed.version;
+          return appVersionCache;
+        }
+      } catch {
+        /* 이 레벨엔 package.json 없음/파싱불가 — 위로 */
+      }
+      const parent = path.dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+  } catch {
+    /* fileURLToPath 실패 등 */
+  }
+  appVersionCache = 'unknown';
+  return appVersionCache;
+}
+
+/**
+ * §4 v2.43 — 옵션창 Version 탭 전체 데이터. PC 에 깔린 모든 claude 설치본을 발견·probe 하고
+ * 현재 활성/선택 표시 + Vibisual·런타임 메타 + npm latest 를 묶어 반환. 전부 런타임 동적.
+ */
+export async function getClaudeInstallsInfo(forceRefresh = false): Promise<ClaudeInstallsInfo> {
+  const active = resolveClaudeBin();
+  const override = readClaudeBinOverride();
+
+  // 발견 + 상한. active 바이너리가 후보에 없으면(예: bare 'claude' 폴백) 앞에 보강.
+  const candidates = discoverAllClaudeBins().slice(0, CLAUDE_INSTALL_SCAN_MAX);
+  const norm = (p: string): string => (process.platform === 'win32' ? p.toLowerCase() : p);
+  const hasActive = candidates.some((c) => norm(c.binPath) === norm(active.binPath));
+  if (!hasActive && active.binPath) {
+    candidates.unshift({
+      binPath: active.binPath,
+      source: active.source === 'unknown' ? 'path' : active.source,
+    });
+  }
+
+  // 각 후보 병렬 probe (probe 전용 타임아웃).
+  const [latestEntry, probed] = await Promise.all([
+    getLatestCached(forceRefresh),
+    Promise.all(
+      candidates.map(async (c): Promise<ClaudeInstall> => {
+        const det = await detectCurrentVersion(c.binPath, CLAUDE_VERSION_PROBE_TIMEOUT_MS);
+        return {
+          binPath: c.binPath,
+          source: c.source,
+          version: det.version,
+          detectError: det.error,
+          active: norm(c.binPath) === norm(active.binPath),
+          selected: override != null && norm(c.binPath) === norm(override),
+        };
+      }),
+    ),
+  ]);
+
+  // 정렬: active 우선 → 버전 검출된 것 우선 → 경로 알파벳.
+  probed.sort((a, b) => {
+    if (a.active !== b.active) return a.active ? -1 : 1;
+    const av = a.version ? 0 : 1;
+    const bv = b.version ? 0 : 1;
+    if (av !== bv) return av - bv;
+    return a.binPath.localeCompare(b.binPath);
+  });
+
+  return {
+    installs: probed,
+    overridePath: override,
+    appVersion: readAppVersion(),
+    latest: latestEntry.version,
+    registryError: latestEntry.error,
+    runtime: {
+      node: process.versions.node,
+      electron: process.versions.electron,
+      platform: process.platform,
+      arch: process.arch,
+    },
+    scannedAt: Date.now(),
+  };
 }
 
 function pushProgress(): void {

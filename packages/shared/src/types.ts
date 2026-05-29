@@ -838,7 +838,11 @@ export type WSMessageType =
   | 'ask_user_question'
   | 'ask_user_question_resolved'
   // §5.3 #10-2 v2.37 — Auto Agent 진행/완료 신호 (요약은 graph_snapshot.autoAgentSummaries 로 전달)
-  | 'auto_agent_progress';
+  | 'auto_agent_progress'
+  // §4 v2.38 — 모델 레지스트리 갱신 (시드 + /v1/models 머지 결과). payload = ModelRegistry
+  | 'model_registry_updated'
+  // §4 v2.42 — Options 창에서 사용자 글로벌 디폴트 갱신. payload = UserDefaults
+  | 'user_defaults_updated';
 
 /** §5.3 #28 v1.47 — 콘티 생성/패치 완료 토스트용 페이로드. 본체는 graph_snapshot 에서 받는다. */
 export interface ContiEventPayload {
@@ -1007,6 +1011,56 @@ export interface ClaudeInstallProgress {
   newVersion?: string;
   /** error 시 사람 읽기용 메시지 */
   error?: string;
+}
+
+/**
+ * §4 v2.43 — PC 에서 발견된 단일 `claude` 설치본. 옵션창 Version 탭의 선택 목록 항목.
+ * `claudeBin.discoverAllClaudeBins()` 가 모든 후보(VS Code 변종 확장 + PATH 전체 + 알려진 위치)를
+ * realpath dedupe 후 각각 `--version` probe 하여 만든다.
+ */
+export interface ClaudeInstall {
+  /** 절대 경로 (realpath 정규화) */
+  binPath: string;
+  /** 출처 — `ClaudeVersionInfo.source` 와 동일 의미 */
+  source: 'vscode-extension' | 'path' | 'unknown';
+  /** `--version` 파싱 결과 ("2.1.154" 등). probe 실패 시 null. */
+  version: string | null;
+  /** probe 실패 시 원인 (UI 노출용) */
+  detectError?: string;
+  /** 현재 `resolveClaudeBin()` 이 실제로 고른 활성 바이너리면 true */
+  active: boolean;
+  /** 사용자가 명시 선택(override)한 경로와 일치하면 true */
+  selected: boolean;
+}
+
+/**
+ * §4 v2.43 — `GET /api/claude-installs` 응답 = 옵션창 Version 탭 전체 데이터.
+ * 하드코딩 0 — 모든 필드 런타임 동적(설치본 probe / package.json / process / npm registry).
+ */
+export interface ClaudeInstallsInfo {
+  /** 발견된 모든 설치본 (active 우선, 그다음 source·version 정렬) */
+  installs: ClaudeInstall[];
+  /** 사용자가 고정(override)한 경로. null = 자동 탐색 모드. */
+  overridePath: string | null;
+  /** Vibisual 자체 버전 (package.json `version` 동적 read) */
+  appVersion: string;
+  /** npm registry `@anthropic-ai/claude-code` latest 태그 (5분 TTL 캐시 공유). 실패 시 null. */
+  latest: string | null;
+  /** registry 조회 실패 시 원인 (UI 노출용) */
+  registryError?: string;
+  /** 런타임 환경 — About 섹션 표준 요소. 전부 `process.*` 에서 동적. */
+  runtime: {
+    /** process.versions.node */
+    node: string;
+    /** process.versions.electron — 데스크톱 앱에서만 채워짐 */
+    electron?: string;
+    /** process.platform ('win32' | 'darwin' | 'linux' ...) */
+    platform: string;
+    /** process.arch ('x64' | 'arm64' ...) */
+    arch: string;
+  };
+  /** 스캔 시각 (Date.now()) */
+  scannedAt: number;
 }
 
 /** isSessionInUse 실행 결과 — debug용으로 클라 콘솔에 출력 */
@@ -1192,6 +1246,13 @@ export interface AppState {
    * @deprecated v1.63 이전: 이름 → 절대경로 매핑. 부팅 마이그레이션 입력으로만 1회 읽고 더는 쓰지 않음.
    */
   projectPaths?: Record<string, string>;
+  /**
+   * §5.5 #17-4 — SkillsView 사용자 고정 순서 (드래그 재정렬). 머신 단위 전역.
+   * type(`project`/`plugin`)별 스킬명 배열. 배열에 들어있는 스킬은 그 순서로 고정 렌더,
+   * 없는(새로 추가된) 스킬은 기본 정렬(count desc → name asc) 후 뒤에 append.
+   * 사용자가 한 번이라도 드래그하면 그 타입의 전체 가시 순서를 캡처해 여기에 저장.
+   */
+  skillOrder?: { project?: string[]; plugin?: string[] };
   /** 마지막 업데이트 타임스탬프 (epoch ms). */
   updatedAt: number;
 }
@@ -1336,6 +1397,17 @@ export interface GraphSnapshot {
    * 미설정 시 빈 맵.
    */
   autoAgentSummaries?: Record<string, AutoAgentSummary>;
+
+  /**
+   * §4 v2.38 — 동적 모델 레지스트리. 서버가 부팅 시 시드 + `/v1/models` 머지로 빌드.
+   * 클라 AgentConfigPopup 의 버전 sub-드롭다운 데이터 소스. 미설정 시 클라는 시드로 자체 폴백.
+   */
+  modelRegistry?: ModelRegistry;
+  /**
+   * §4 v2.42 — 사용자 글로벌 옵션(Options 창). 미설정 시 클라는 빈 객체로 처리.
+   * 신규 에이전트 spawn 시 서버가 `agentConfig` 머지에 사용.
+   */
+  userDefaults?: UserDefaults;
 }
 
 /** 폴더 내 파일/디렉토리 엔트리 (폴더 트리 표시용) */
@@ -1539,6 +1611,106 @@ export interface TokenCategoryEstimate {
   detail?: string;
 }
 
+// ─── User Defaults (§4 v2.42) ───
+
+/**
+ * §4 v2.42 — 사용자 글로벌 옵션/디폴트.
+ *
+ * File 메뉴 → Options 창에서 편집. `~/.vibisual/user-defaults.json` 글로벌 1건(프로젝트 무관).
+ * 신규 커스텀 에이전트 생성 시 `agentConfig` 가 `DEFAULT_AGENT_CONFIG` 위에 덮어쓰이는 프리셋 역할.
+ * 기존 에이전트엔 영향 ❌ — 신규 spawn 시점에만 적용.
+ *
+ * 카테고리:
+ * - agentConfig — Agent Defaults 탭(1차 구현). Partial<AgentConfig> 라 undefined 필드는 DEFAULT 유지.
+ * - appearance — Appearance 탭(uiLocale 만 1차, 나머지 추후).
+ * - notifications / permissions / advanced — placeholder 슬롯(1차는 빈 객체).
+ */
+export interface UserDefaults {
+  /** §4 v2.42 — 신규 에이전트 기본 설정. Partial — 미설정 필드는 `DEFAULT_AGENT_CONFIG` 사용. */
+  agentConfig?: Partial<AgentConfig>;
+  /** §4 v2.42 — 외관. 1차는 uiLocale 만. */
+  appearance?: {
+    uiLocale?: UiLocale;
+  };
+  /** §4 v2.42 — 알림. 1차 placeholder. */
+  notifications?: Record<string, unknown>;
+  /** §4 v2.42 — 권한 승인 UX. 1차 placeholder. */
+  permissions?: Record<string, unknown>;
+  /** §4 v2.42 — 고급(API 키·bin 경로·debug). 1차 placeholder. */
+  advanced?: Record<string, unknown>;
+  /**
+   * §4 v2.43 — 옵션창 Version 탭에서 사용자가 선택한 `claude` 바이너리 절대 경로(override).
+   * 미설정/빈 문자열 = 자동 탐색(`resolveClaudeBin` 기본 우선순위). 설정 시 `resolveClaudeBin` 이
+   * 최우선 반환(파일 존재 검증 후). `subAgentManager` 가 모듈 로드 시 1회 캡처하므로 변경은 다음 실행에 적용.
+   */
+  claudeBinPath?: string;
+  /** §4 v2.42 — 마지막 갱신 시각 (ms). PUT 응답·broadcast 디버그용. */
+  updatedAt: number;
+}
+
+// ─── Model Registry (§4 v2.38) ───
+
+/** 모델 패밀리 alias — UI 드롭다운 + `--model` CLI alias. */
+export type ModelFamily = 'opus' | 'sonnet' | 'haiku';
+
+/**
+ * 단일 모델 풀ID 의 레지스트리 항목.
+ *
+ * source='seed' = constants.ts 의 시드 테이블에서 적재(오프라인 또는 부팅 시).
+ * source='api' = `GET https://api.anthropic.com/v1/models` 응답에서 머지.
+ * 같은 id 가 양쪽에 있으면 api 가 displayName/createdAt 등 추가 필드를 덮어쓰되,
+ * 시드 측 pricing/contextWindow 가 정의돼 있으면 보존(가격은 API 미제공).
+ */
+export interface ModelRegistryEntry {
+  /** Anthropic 풀 모델 ID (예: `claude-opus-4-8`). */
+  id: string;
+  /** 패밀리 — id prefix 로 추론(`claude-(opus|sonnet|haiku)-`). */
+  family: ModelFamily;
+  /** 사람이 읽는 라벨 (예: "Claude Opus 4.8"). 없으면 UI 가 id 표시. */
+  displayName?: string;
+  /** 출시일 (ms). 패밀리 내 latest 선정 기준. 없으면 seed 기준 정렬 후순위. */
+  createdAt?: number;
+  /** 컨텍스트 한도 (토큰). 미정의 시 `MODEL_FAMILY_DEFAULTS[family].contextWindow` 폴백. */
+  contextWindow?: number;
+  /** 가격 (per 1M tokens). 미정의 시 `MODEL_FAMILY_DEFAULTS[family].pricing` 폴백. */
+  pricing?: ModelPricing;
+  /** 패밀리 내 latest 인지 — `resolveAliasToLatest` 가 부팅 시 1회 셋. */
+  isLatestOfFamily?: boolean;
+  /**
+   * 출처:
+   * - 'cli-scan' = Claude Code CLI 바이너리에서 raw scan 으로 발견 (§4 v2.41 — 주 소스, 0 하드코딩).
+   * - 'api' = `/v1/models` API 응답 머지(키 있을 때).
+   * - 'seed' = (deprecated) 정적 시드 — v2.40 에서 빈 배열로 격하.
+   */
+  source: 'seed' | 'cli-scan' | 'api';
+}
+
+/** 모델 가격표 (per 1M tokens, USD). */
+export interface ModelPricing {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+}
+
+/**
+ * 서버가 부팅 시 빌드해 클라에 전달하는 전체 레지스트리.
+ *
+ * sourceMix:
+ * - 'seed-only' = (legacy) v2.40 이후 시드 빈 배열이라 사실상 발생 안 함.
+ * - 'cli-scan' = §4 v2.41 — Claude Code 바이너리 raw scan 만. API 키 없을 때 표준 경로.
+ * - 'cli-scan+api' = CLI scan + `/v1/models` 머지.
+ * - 'api-merged' = (legacy v2.38) API 만. 현재는 cli-scan 항상 우선 시도.
+ *
+ * 클라 AgentConfigPopup 버전 sub-드롭다운의 데이터 소스. WS `model_registry_updated` 로 갱신.
+ * 영속화 ❌ (서버 측 `.vibisual/model-registry.json` 캐시는 별개 — TTL 기반).
+ */
+export interface ModelRegistry {
+  entries: ModelRegistryEntry[];
+  updatedAt: number;
+  sourceMix: 'seed-only' | 'cli-scan' | 'cli-scan+api' | 'api-merged';
+}
+
 /** 에이전트 설정 — 디테일 패널에서 편집, ProjectCheckpoint에 저장 */
 export interface AgentConfig {
   /** 사용 모델 (예: "sonnet", "opus", "haiku") */
@@ -1598,6 +1770,13 @@ export interface AgentConfig {
    * 사용자가 이후 폼을 편집해도 자동 invalidate ❌ — 메타 추적만. undefined = 프리셋 미사용(수동 구성).
    */
   presetId?: string;
+  /**
+   * §4 v2.38 — 특정 모델 풀ID 핀(예: `'claude-opus-4-7'`).
+   * undefined = alias 모드 = `model` alias 가 가리키는 **현재 latest** 풀ID 사용.
+   * 정의 시 풀ID 가 우선 — 서버 buildConfigArgs 가 resolveAliasToLatest 건너뛰고 그대로 CLI 에 전달.
+   * AgentConfigPopup 의 버전 sub-드롭다운이 이 값을 관리.
+   */
+  modelVersion?: string;
 }
 
 // ─── Agent Preset (§4 v1.53) ───
@@ -1905,13 +2084,16 @@ export type AutoAgentRole =
   | 'tester'
   | 'researcher'
   | 'doc-writer'
-  | 'deep-interviewer';
+  | 'deep-interviewer'
+  | 'oracle'
+  | 'librarian'
+  | 'explore';
 
 /**
  * Auto Agent 가 선택할 수 있는 토폴로지 카탈로그.
  * pipeline=직선 체인, team=PM 허브+워커, ralph=team+critique 루프, autopilot=단일 슈퍼.
  */
-export type AutoAgentTopology = 'pipeline' | 'team' | 'ralph' | 'autopilot';
+export type AutoAgentTopology = 'pipeline' | 'team' | 'ralph' | 'autopilot' | 'custom';
 
 /** 사용자 요청의 복잡도 휴리스틱 판정값 */
 export type AutoAgentComplexity = 'low' | 'medium' | 'high';
@@ -1922,6 +2104,7 @@ export type AutoAgentPhase =
   | 'analyzing'
   | 'asking'
   | 'spawning'
+  | 'building'
   | 'dispatching'
   | 'running'
   | 'completed'
@@ -2030,4 +2213,49 @@ export interface AutoAgentSpawnedNode {
   agentId: string;
   sessionId: string;
   position: { x: number; y: number };
+}
+
+// ─── §4 v2.44 — 자동 업데이트 (electron-updater + GitHub Releases) ─────────
+//
+// 업데이트 상태는 프로젝트 그래프 데이터(GraphSnapshot/ProjectCheckpoint)가 아니라
+// Electron shell 상태다. server 코어를 거치지 않고 desktop main↔renderer 전용 IPC
+// 채널(`vibisual:update:*`)로만 흐른다(§5.4 #14-1 별창 IPC 선례). 이 타입은 그 IPC
+// 페이로드의 main↔renderer 계약 — 양쪽이 같은 모양에 합의하기 위한 shared 정의.
+
+/**
+ * 자동 업데이트 진행 단계.
+ * - `idle`        : 아직 체크 전 / 초기.
+ * - `checking`    : GitHub Releases 의 latest 메타 조회 중.
+ * - `available`   : 새 버전 발견 (autoDownload=true 라 곧 downloading 으로 전이).
+ * - `downloading` : 새 빌드 다운로드 중 (`percent`/`bytesPerSecond` 갱신).
+ * - `downloaded`  : 다운로드 완료 — 재시작하면 적용 (사용자 액션 대기).
+ * - `up-to-date`  : 현재가 최신.
+ * - `error`       : 체크/다운로드 실패 (`error` 메시지).
+ */
+export type UpdatePhase =
+  | 'idle'
+  | 'checking'
+  | 'available'
+  | 'downloading'
+  | 'downloaded'
+  | 'up-to-date'
+  | 'error';
+
+/** main 프로세스 updaterManager 가 정규화해 renderer 로 푸시하는 업데이트 상태. */
+export interface UpdateState {
+  phase: UpdatePhase;
+  /** 현재 실행 중인 앱 버전 (package.json version). */
+  currentVersion: string;
+  /** 발견된 새 버전 (available/downloading/downloaded 일 때). */
+  newVersion?: string;
+  /** 다운로드 진행률 0~100 (downloading 일 때). */
+  percent?: number;
+  /** 다운로드 속도 (bytes/sec, downloading 일 때). */
+  bytesPerSecond?: number;
+  /** 릴리스 노트 (available/downloaded 일 때, 있으면). */
+  releaseNotes?: string;
+  /** 에러 메시지 (phase==='error' 일 때). */
+  error?: string;
+  /** 마지막 체크 완료 시각 (ms). */
+  checkedAt?: number;
 }

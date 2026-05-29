@@ -7,6 +7,14 @@ import type { AgentSessionInputAttachment } from '../../stores/graphStore.js';
 import { useAvailableSkills, type SkillInfo } from '../../hooks/useAvailableSkills.js';
 import { StreamRenderer } from './StreamRenderer.js';
 import { AskQuestionCard } from './AskQuestionCard.js';
+import { SystemNode, parseSystemSubtype } from './SystemNode.js';
+import { ThinkingDots, ThinkingLiveLine } from './ThinkingIndicator.js';
+
+/** SDK 가 생각 중 반복 송출하는 system 펄스 subtype — 본문에 쌓이지 않게 라이브 1줄로 대체. */
+const THINKING_PULSE_SUBTYPE = 'thinking_tokens';
+function isThinkingPulse(evt: { eventType: string; content: string }): boolean {
+  return evt.eventType === 'system' && parseSystemSubtype(evt.content) === THINKING_PULSE_SUBTYPE;
+}
 
 const EMPTY_COMMANDS: QueuedCommand[] = [];
 const EMPTY_SUBS: SubAgent[] = [];
@@ -42,7 +50,7 @@ interface TerminalEntry {
 interface TerminalGroup {
   kind: 'group';
   id: string;
-  groupType: 'tool' | 'text';
+  groupType: 'tool' | 'text' | 'thinking';
   header: string;
   toolName?: string;
   timestamp: number;
@@ -52,7 +60,14 @@ interface TerminalGroup {
   isActive: boolean;
 }
 
-type TerminalItem = (TerminalEntry & { kind?: undefined }) | TerminalGroup;
+/** 생각 중 라이브 1줄 — 실제 thinking 중일 때만 본문 하단에 1개 등장 */
+interface TerminalThinkingLive {
+  kind: 'thinking-live';
+  id: string;
+  timestamp: number;
+}
+
+type TerminalItem = (TerminalEntry & { kind?: undefined }) | TerminalGroup | TerminalThinkingLive;
 
 /** 스트림 이벤트 + 명령 대기열 + agentEvents를 통합하여 터미널 항목 생성 */
 function buildEntries(
@@ -112,6 +127,7 @@ function buildEntries(
       if (!subLabelMap.has(subId) && subAgents.length > 0) continue;
       const label = subLabelMap.get(subId);
       for (const evt of events) {
+        if (isThinkingPulse(evt)) continue; // 생각 중 펄스는 본문에 쌓지 않음 (라이브 1줄로 대체)
         entries.push({
           id: evt.id,
           type: evt.eventType,
@@ -127,6 +143,7 @@ function buildEntries(
     const events = streams[activeSessionId];
     if (events) {
       for (const evt of events) {
+        if (isThinkingPulse(evt)) continue; // 생각 중 펄스는 본문에 쌓지 않음 (라이브 1줄로 대체)
         entries.push({
           id: evt.id,
           type: evt.eventType,
@@ -165,13 +182,37 @@ function buildEntries(
 
 // ─── flat 항목 → 그룹화 ───
 
-/** tool_use+tool_result 쌍을 접을 수 있는 그룹으로, 연속 text를 하나로 묶기 */
-function groupEntries(flat: TerminalEntry[]): TerminalItem[] {
+/** tool_use+tool_result 쌍을 접을 수 있는 그룹으로, 연속 text를 하나로 묶기.
+ *  thinking 블록은 항상 하나로 합쳐 VS Code 처럼 "생각 중 …" 1줄로 표시한다.
+ *  agentBusy 이고 thinking 이 마지막 항목이면 = 아직 생각 중 → 도트 애니메이션. */
+function groupEntries(flat: TerminalEntry[], agentBusy: boolean): TerminalItem[] {
   const items: TerminalItem[] = [];
   let i = 0;
 
   while (i < flat.length) {
     const cur = flat[i]!;
+
+    // thinking → 연속 thinking 을 항상 1개 그룹으로 합치기 (단독 thinking 포함)
+    if (cur.type === 'thinking') {
+      const children: TerminalEntry[] = [cur];
+      let j = i + 1;
+      while (j < flat.length && flat[j]!.type === 'thinking') {
+        children.push(flat[j]!);
+        j++;
+      }
+      items.push({
+        kind: 'group',
+        id: `grp-${cur.id}`,
+        groupType: 'thinking',
+        header: '',
+        timestamp: cur.timestamp,
+        sessionLabel: cur.sessionLabel,
+        entries: children,
+        isActive: false,
+      });
+      i = j;
+      continue;
+    }
 
     // tool_use → 뒤따르는 tool_result(들)까지 그룹 (단독 tool_use도 감쌈 → 활성 표시)
     if (cur.type === 'tool_use') {
@@ -226,6 +267,15 @@ function groupEntries(flat: TerminalEntry[]): TerminalItem[] {
     i++;
   }
 
+  // 마지막 항목이 thinking 그룹이고 에이전트가 작동 중이면 = 아직 생각 중 → 활성(도트 애니메이션).
+  // 이후 text/tool 이 따라붙으면 생각이 끝난 것이므로 정적 1줄(접힘)로 남는다.
+  if (agentBusy) {
+    const last = items[items.length - 1];
+    if (last && last.kind === 'group' && last.groupType === 'thinking') {
+      last.isActive = true;
+    }
+  }
+
   return items;
 }
 
@@ -243,6 +293,11 @@ const TYPE_STYLES: Record<string, { color: string; prefix: string }> = {
 };
 
 function TerminalLine({ entry }: { entry: TerminalEntry }): React.JSX.Element {
+  // SDK system 메시지 subtype([task_started] 등)은 날 텍스트 대신 깔끔한 칩으로.
+  if (entry.type === 'system') {
+    const subtype = parseSystemSubtype(entry.text);
+    if (subtype) return <SystemNode subtype={subtype} />;
+  }
   const style = TYPE_STYLES[entry.type] ?? TYPE_STYLES['text']!;
 
   return (
@@ -383,6 +438,71 @@ function TerminalGroupLine({ group }: { group: TerminalGroup }): React.JSX.Eleme
           <div className="h-full w-1/3 animate-pulse rounded-full bg-blue-500/60"
             style={{ animation: 'slide 1.5s ease-in-out infinite' }}
           />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── 사고 중(thinking) — VS Code 스타일 1줄 "생각 중 …" + 접이식 전체 보기 ───
+
+function ThinkingGroupLine({ group }: { group: TerminalGroup }): React.JSX.Element {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const fullText = group.entries.map((e) => e.text).join('');
+  const preview = fullText.replace(/\s+/g, ' ').trim().slice(0, 100);
+
+  return (
+    <div className="mx-1.5 my-0.5 overflow-hidden rounded border-l-2 border-violet-500/40">
+      {/* 헤더 — 클릭으로 전체 사고 과정 토글 */}
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="group/hdr flex w-full items-center gap-2 px-2.5 py-1 text-left transition-colors hover:bg-violet-500/10"
+        title={open ? 'Click to collapse' : 'Click to expand'}
+      >
+        {/* 시간 */}
+        <span className="flex-shrink-0 select-none text-[10px] text-gray-500">
+          {formatTime(group.timestamp)}
+        </span>
+
+        {/* 셰브론 */}
+        <span className="flex h-4 w-4 flex-shrink-0 items-center justify-center">
+          <svg
+            className={`h-2.5 w-2.5 text-violet-400/70 transition-transform group-hover/hdr:text-violet-300 ${open ? 'rotate-90' : ''}`}
+            viewBox="0 0 24 24"
+            fill="currentColor"
+          >
+            <path d="M8 5v14l11-7z" />
+          </svg>
+        </span>
+
+        {group.sessionLabel && (
+          <span className="flex-shrink-0 rounded bg-cyan-500/15 px-1 py-0.5 text-[10px] font-semibold text-cyan-400/80">
+            {group.sessionLabel}
+          </span>
+        )}
+
+        {/* "생각 중" 라벨 — 진행 중이면 도트 애니메이션 */}
+        <span className="flex flex-shrink-0 items-center gap-0.5 text-[12px] italic text-violet-300/85">
+          {t('ide.streamRenderer.thinking')}
+          {group.isActive && <ThinkingDots />}
+        </span>
+
+        {/* 완료 후 접힘 상태일 때만 첫 문장 미리보기 */}
+        {!open && !group.isActive && preview && (
+          <span className="min-w-0 flex-1 truncate text-[12px] italic text-violet-300/50">
+            {preview}
+          </span>
+        )}
+      </button>
+
+      {/* 펼친 전체 사고 과정 */}
+      {open && (
+        <div className="border-t border-violet-500/20 bg-gray-950/50 px-4 py-2.5">
+          <div className="whitespace-pre-wrap break-words text-[13px] italic leading-relaxed text-violet-200/90">
+            {fullText}
+          </div>
         </div>
       )}
     </div>
@@ -1139,7 +1259,23 @@ export const IDEMainArea = memo(function IDEMainArea({
 
   const items = useMemo(() => {
     const flat = buildEntries(commands, subAgents, streams, activeSessionId, agentEvents);
-    return groupEntries(flat);
+    const agentBusy = commands.some((c) => c.status === 'executing' || c.status === 'queued');
+    const grouped = groupEntries(flat, agentBusy);
+
+    // 라이브 "생각 중 …" 1줄 — 에이전트 작동 중이고 가장 최근 스트림 이벤트가 thinking 펄스면
+    // (= 지금 실제로 생각 중) 본문 하단에 1개만 띄운다. 출력이 시작되면 사라진다.
+    if (agentBusy) {
+      let latest: SubAgentStreamEvent | null = null;
+      for (const evts of Object.values(streams)) {
+        for (const e of evts) {
+          if (!latest || e.timestamp > latest.timestamp) latest = e;
+        }
+      }
+      if (latest && isThinkingPulse(latest)) {
+        grouped.push({ kind: 'thinking-live', id: 'thinking-live', timestamp: latest.timestamp });
+      }
+    }
+    return grouped;
   }, [commands, subAgents, streams, activeSessionId, agentEvents]);
 
   // §5.3 #12-2 v2.26 — 이 에이전트 (+ 활성 세션) 의 AskUserQuestion 카드 목록.
@@ -1210,8 +1346,12 @@ export const IDEMainArea = memo(function IDEMainArea({
           <div className="py-1">
             {items.map((item) =>
               item.kind === 'group'
-                ? <TerminalGroupLine key={item.id} group={item} />
-                : <TerminalLine key={item.id} entry={item} />,
+                ? (item.groupType === 'thinking'
+                    ? <ThinkingGroupLine key={item.id} group={item} />
+                    : <TerminalGroupLine key={item.id} group={item} />)
+                : item.kind === 'thinking-live'
+                  ? <ThinkingLiveLine key={item.id} label={t('ide.streamRenderer.thinking')} />
+                  : <TerminalLine key={item.id} entry={item} />,
             )}
             {askCards.map((req) => (
               <AskQuestionCard key={req.requestId} request={req} />

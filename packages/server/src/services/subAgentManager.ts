@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import type { ProjectInfo, SubAgent, SubAgentStatus, QueuedCommand, AgentConfig, SubAgentStreamEvent, StreamEventType, AgentViewJobState } from '@vibisual/shared';
-import { AVAILABLE_AGENT_MODEL_IDS, DEFAULT_AGENT_CONFIG, isOpusModel } from '@vibisual/shared';
+import { DEFAULT_AGENT_CONFIG, isOpusModel } from '@vibisual/shared';
 import { logger } from '../logger.js';
 import { readLastAssistantMessage, readSessionTokenData, getSessionJsonlPath } from './sessionDiscovery.js';
 import * as streamBufferStore from './streamBufferStore.js';
@@ -20,17 +20,17 @@ export type AgentProjectResolver = (parentAgentId: string) => ProjectInfo | null
 function buildConfigArgs(config: AgentConfig): string[] {
   const args: string[] = [];
 
-  // 모델 — CLI `--model` 은 alias(opus/sonnet/haiku) / 풀ID(claude-opus-4-7 등) 둘 다 받음.
-  // §4 v1.53 — 1M 컨텍스트 기본 ON. Opus 패밀리 + contextWindow !== '200k' 면 모델명에 [1m] suffix 부여.
-  //   - alias 'opus' → 'claude-opus-4-7[1m]' (최신 Opus 풀ID 로 핀)
-  //   - 풀ID 'claude-opus-4-7' → 'claude-opus-4-7[1m]'
-  //   - 이미 [1m] 가 붙어 있으면 그대로
-  //   - 사용자가 명시적으로 '200k' 로 opt-out 했을 때만 [1m] 미부여
-  if (config.model && AVAILABLE_AGENT_MODEL_IDS.includes(config.model)) {
-    let modelArg = config.model;
-    if (config.contextWindow !== '200k' && isOpusModel(config.model) && !modelArg.endsWith('[1m]')) {
-      const fullId = modelArg === 'opus' ? 'claude-opus-4-7' : modelArg;
-      modelArg = `${fullId}[1m]`;
+  // 모델 — §4 v2.40: alias 해소를 CLI 에 위임. Vibisual 측 변환 ❌.
+  //   - `--model opus` → CLI 가 자체적으로 현재 latest Opus(=4.8) 로 해소
+  //   - `--model opus[1m]` → alias + 1M 도 그대로 작동 (CLI 2.1.154 확인됨)
+  //   - 사용자가 `modelVersion` 으로 풀ID 핀했으면 그것 우선
+  //   - 정적 가드(`AVAILABLE_AGENT_MODEL_IDS.includes(...)`) 제거 — 신규 모델 출시 시 코드 수정 불필요.
+  //     CLI 가 모델명 검증 담당. 잘못된 값이면 spawn 시점에 에러.
+  if (config.model) {
+    const base = config.modelVersion?.trim() || config.model;
+    let modelArg = base;
+    if (config.contextWindow !== '200k' && isOpusModel(base) && !modelArg.endsWith('[1m]')) {
+      modelArg = `${modelArg}[1m]`;
     }
     args.push('--model', modelArg);
   }
@@ -200,9 +200,12 @@ export function parseStreamLine(
 
   // 시스템 메시지 — hook_started/hook_response/init 같은 세션 메타는 UI 노이즈라 버린다.
   // session_id는 클라가 필요로 하지 않음(서버가 내부적으로 subAgent.sessionId에 저장).
+  // notification: index.ts classifyNotification 이 이미 버블 뱃지 + 브라우저 알림으로 처리 → 본문 중복.
+  // turn_duration: claudeAgentViewWatcher 의 "턴 종료" 내부 신호 → 사용자에게 의미 없음.
+  // 나머지 subtype(task_started 등)은 [subtype] 형태로 보내고, 클라가 왼쪽 레일 노드로 렌더한다(SystemNode).
   if (type === 'system') {
     const subtype = obj['subtype'] as string | undefined;
-    const noisy = new Set(['hook_started', 'hook_response', 'hook_completed', 'init']);
+    const noisy = new Set(['hook_started', 'hook_response', 'hook_completed', 'init', 'notification', 'turn_duration']);
     if (subtype && noisy.has(subtype)) return [];
     return [{ ...makeBase(), eventType: 'system', content: subtype ? `[${subtype}]` : 'system' }];
   }

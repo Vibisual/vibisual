@@ -3,9 +3,10 @@ import path from 'node:path';
 import os from 'node:os';
 import { execSync, spawn } from 'node:child_process';
 import {
-  INITIAL_AGENT_COUNT, MAX_AGENT_EVENTS, MODEL_CONTEXT_LIMITS, DEFAULT_CONTEXT_LIMIT,
+  INITIAL_AGENT_COUNT, MAX_AGENT_EVENTS, getModelContextLimit,
   TOKEN_BYTES_RATIO, TOKEN_FIXED_CATEGORIES,
 } from '@vibisual/shared';
+import { modelRegistryService } from './modelRegistryService.js';
 import type { AgentEvent, TodoItem, TurnTokenUsage, TokenCategoryEstimate, SessionTokenData } from '@vibisual/shared';
 import { logger } from '../logger.js';
 import { dbg } from './debugLog.js';
@@ -749,7 +750,7 @@ export function readContextInfo(cwd: string, sessionId: string): AgentContextInf
     }
 
     if (!lastModel) return null;
-    const contextMax = MODEL_CONTEXT_LIMITS[lastModel] ?? DEFAULT_CONTEXT_LIMIT;
+    const contextMax = getModelContextLimit(lastModel, modelRegistryService.getRegistry());
 
     return {
       modelName: lastModel,
