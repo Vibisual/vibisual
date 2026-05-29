@@ -1,6 +1,6 @@
 {
   "name": "@vibisual/desktop",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "type": "module",
   "description": "Vibisual Electron desktop shell — main process runs the server in-process (§3.7)",
@@ -40,6 +40,7 @@
     "electron": "^31.7.7",
     "electron-builder": "^24.13.3",
     "electron-vite": "^3.1.0",
+    "rcedit": "^3.1.0",
     "tailwindcss": "^4.1.0",
     "typescript": "^5.7.0",
     "vite": "^6.3.0"
