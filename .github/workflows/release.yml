@@ -38,6 +38,9 @@ jobs:
           - os: ubuntu-latest
             script: release:linux
     runs-on: ${{ matrix.os }}
+    # macOS 빌드는 코드서명·공증 미배선이라 실패할 수 있다(mac 자동 업데이트는 서명 전까지 불가).
+    # win/linux 발행을 막지 않도록 mac 잡 실패는 전체 워크플로를 깨지 않게 둔다.
+    continue-on-error: ${{ matrix.os == 'macos-latest' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
