@@ -99,6 +99,8 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     store.applySkillUsageCounts(snap.skillUsageCounts);
     store.applyAutoAgentSummaries(snap.autoAgentSummaries);
     store.applyDiagnosticLog(snap.diagnosticLog);
+    store.applyModelRegistry(snap.modelRegistry);
+    store.applyUserDefaults(snap.userDefaults);
   }, []);
 
   const flushSnapshot = useCallback(() => {
@@ -288,6 +290,16 @@ export function useWebSocket(url: string): UseWebSocketReturn {
             if (p && typeof p.installId === 'string') {
               store.setClaudeInstallProgress(p);
             }
+            break;
+          }
+          case 'model_registry_updated': {
+            // §4 v2.38 — 시드→api-merged 전환 또는 TTL refresh 시 단독 push.
+            store.applyModelRegistry(parsed.payload as import('@vibisual/shared').ModelRegistry);
+            break;
+          }
+          case 'user_defaults_updated': {
+            // §4 v2.42 — 사용자가 Options 창에서 Apply → 다른 창들도 즉시 반영.
+            store.applyUserDefaults(parsed.payload as import('@vibisual/shared').UserDefaults);
             break;
           }
         }

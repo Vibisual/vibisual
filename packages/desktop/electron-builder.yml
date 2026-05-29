@@ -70,7 +70,16 @@ linux:
   icon: resources/icons/icon.png
   category: Development
 
-# electron-updater feed slot — server infra (GitHub Releases / self-hosted)
-# is out of this scope (SCENARIO.md §10); kept here as a placeholder anchor.
-# publish:
-#   provider: github
+# electron-updater feed — SCENARIO.md §4 v2.44 자동 업데이트.
+# 이 publish 설정이 있어야 electron-builder 가 빌드 산출물에 app-update.yml 을 베이킹하고,
+# `--publish always` 빌드 시 setup + latest.yml(+blockmap)을 GitHub Releases 에 업로드한다.
+# main 의 updaterManager(autoUpdater)는 이 피드를 읽어 최신 버전을 감지·다운로드한다.
+# ⚠️ 소스 main 푸시 ≠ 릴리스 — 버전 bump + 릴리스 발행(.github/workflows/release.yml)이 있어야
+#    업데이트가 트리거된다.
+publish:
+  provider: github
+  owner: Vibisual
+  repo: vibisual
+  # electron-builder 기본값은 draft(초안) — 업데이터(autoUpdater)는 draft 릴리스를 읽지 못한다.
+  # release 로 두어야 태그 푸시 시 정식 발행되어 설치된 앱이 latest.yml 을 감지한다.
+  releaseType: release

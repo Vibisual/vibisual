@@ -9,6 +9,14 @@ import { useTranslation } from 'react-i18next';
 import Markdown from 'react-markdown';
 import type { Components } from 'react-markdown';
 import type { SubAgentStreamEvent, QueuedCommand } from '@vibisual/shared';
+import { SystemNode, parseSystemSubtype } from './SystemNode.js';
+import { ThinkingDots, ThinkingLiveLine } from './ThinkingIndicator.js';
+
+/** SDK 가 생각 중 반복 송출하는 system 펄스 subtype — 본문에 쌓이지 않게 라이브 1줄로 대체. */
+const THINKING_PULSE_SUBTYPE = 'thinking_tokens';
+function isThinkingPulse(evt: { eventType: string; content: string }): boolean {
+  return evt.eventType === 'system' && parseSystemSubtype(evt.content) === THINKING_PULSE_SUBTYPE;
+}
 
 // ─── 타입 ───
 
@@ -40,6 +48,8 @@ interface StreamThinking {
   id: string;
   content: string;
   timestamp: number;
+  /** 아직 생각 중(에이전트 작동 중 + 마지막 항목) → 도트 애니메이션 */
+  isActive?: boolean;
 }
 
 interface StreamSystem {
@@ -56,7 +66,14 @@ interface StreamResult {
   timestamp: number;
 }
 
-type StreamItem = StreamText | StreamThinking | StreamGroup | StreamSystem | StreamResult;
+/** 생각 중 라이브 1줄 — 실제 thinking 중일 때만 본문 하단에 1개 등장 */
+interface StreamThinkingLive {
+  kind: 'thinking-live';
+  id: string;
+  timestamp: number;
+}
+
+type StreamItem = StreamText | StreamThinking | StreamGroup | StreamSystem | StreamResult | StreamThinkingLive;
 
 // ─── 이벤트 → 아이템 변환 ───
 
@@ -138,6 +155,13 @@ function buildStreamItems(events: SubAgentStreamEvent[], commands?: QueuedComman
 
   while (i < events.length) {
     const evt = events[i]!;
+
+    // 생각 중 펄스(thinking_tokens)는 본문에 쌓지 않는다. text/thinking 버퍼도 끊지 않아
+    // 펄스를 사이에 두고도 앞뒤 텍스트가 한 블록으로 유지된다. 라이브 1줄은 아래에서 별도 처리.
+    if (isThinkingPulse(evt)) {
+      i++;
+      continue;
+    }
 
     if (evt.eventType === 'text') {
       flushThink();
@@ -230,6 +254,22 @@ function buildStreamItems(events: SubAgentStreamEvent[], commands?: QueuedComman
   // 타임스탬프 기준 안정 정렬 — 프롬프트(command)가 항상 최상단에 오도록 유지하되,
   // 스트림 이벤트들끼리는 발생 순서 유지.
   items.sort((a, b) => a.timestamp - b.timestamp);
+
+  // 마지막 항목이 thinking 이고 에이전트가 작동 중이면 = 아직 생각 중 → 활성(도트 애니메이션).
+  // 이후 text/tool 이 따라붙으면 생각이 끝난 것이므로 정적 1줄(접힘)로 남는다.
+  if (agentBusy) {
+    const last = items[items.length - 1];
+    if (last && last.kind === 'thinking') last.isActive = true;
+  }
+
+  // 라이브 "생각 중 …" 1줄 — 에이전트 작동 중이고 가장 최근 스트림 이벤트가 thinking 펄스면
+  // (= 지금 실제로 생각 중) 본문 하단에 1개만 띄운다. 출력이 시작되면(최근 이벤트가 text 등)
+  // 사라진다. 펄스가 아무리 쏟아져도 화면엔 항상 이 1줄만.
+  const lastRaw = events[events.length - 1];
+  if (agentBusy && lastRaw && isThinkingPulse(lastRaw)) {
+    items.push({ kind: 'thinking-live', id: 'thinking-live', timestamp: lastRaw.timestamp });
+  }
+
   return items;
 }
 
@@ -394,35 +434,38 @@ const ToolBlock = memo(function ToolBlock({ item }: { item: StreamGroup }): Reac
   );
 });
 
-/** assistant thinking — 접어둔 사고 과정 블록 (Claude CLI 스타일, 연보라·이탤릭) */
+/** assistant thinking — VS Code 스타일 1줄 "생각 중 …" + 접이식 전체 보기 (연보라·이탤릭) */
 const ThinkingBlock = memo(function ThinkingBlock({ item }: { item: StreamThinking }): React.JSX.Element {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
-  const preview = item.content.replace(/\s+/g, ' ').slice(0, 100);
+  const preview = item.content.replace(/\s+/g, ' ').trim().slice(0, 100);
   return (
-    <div className="mx-2 my-1 overflow-hidden rounded-md border-l-2 border-violet-500/40 bg-violet-500/5">
+    <div className="mx-2 my-1 overflow-hidden rounded-md border-l-2 border-violet-500/40">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="group/hdr flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition-colors hover:bg-violet-500/10"
+        className="group/hdr flex w-full items-center gap-2 px-2.5 py-1 text-left transition-colors hover:bg-violet-500/10"
       >
         <span className="flex h-4 w-4 flex-shrink-0 items-center justify-center">
-          <svg className={`h-2.5 w-2.5 text-violet-400/70 transition-transform ${open ? 'rotate-90' : ''}`} viewBox="0 0 24 24" fill="currentColor">
+          <svg className={`h-2.5 w-2.5 text-violet-400/70 transition-transform group-hover/hdr:text-violet-300 ${open ? 'rotate-90' : ''}`} viewBox="0 0 24 24" fill="currentColor">
             <path d="M8 5v14l11-7z" />
           </svg>
         </span>
-        <span className="rounded bg-violet-500/20 px-1.5 py-0.5 text-[11px] font-bold uppercase text-violet-300">
+        {/* "생각 중" 라벨 — 진행 중이면 도트 애니메이션 */}
+        <span className="flex flex-shrink-0 items-center gap-0.5 text-[12px] italic text-violet-300/85">
           {t('ide.streamRenderer.thinking')}
+          {item.isActive && <ThinkingDots />}
         </span>
-        {!open && (
-          <span className="min-w-0 flex-1 truncate text-[12px] italic text-violet-300/75">
+        {/* 완료 후 접힘 상태일 때만 첫 문장 미리보기 */}
+        {!open && !item.isActive && preview && (
+          <span className="min-w-0 flex-1 truncate text-[12px] italic text-violet-300/50">
             {preview}
           </span>
         )}
       </button>
       {open && (
         <div className="border-t border-violet-500/20 bg-gray-950/50 px-4 py-2.5">
-          <div className="whitespace-pre-wrap text-[13px] italic leading-relaxed text-violet-200/90">
+          <div className="whitespace-pre-wrap break-words text-[13px] italic leading-relaxed text-violet-200/90">
             {item.content}
           </div>
         </div>
@@ -431,8 +474,10 @@ const ThinkingBlock = memo(function ThinkingBlock({ item }: { item: StreamThinki
   );
 });
 
-/** system 메시지 (hook_started 등) */
+/** system 메시지 — SDK subtype([task_started] 등)은 깔끔한 칩, 그 외 임의 본문은 텍스트 폴백 */
 function SystemLine({ item }: { item: StreamSystem }): React.JSX.Element {
+  const subtype = parseSystemSubtype(item.content);
+  if (subtype) return <SystemNode subtype={subtype} />;
   return (
     <div className="px-4 py-1">
       <span className="font-mono text-[12px] text-gray-400">{item.content}</span>
@@ -499,6 +544,7 @@ export const StreamRenderer = memo(function StreamRenderer({ events, commands }:
           case 'result':   return <ResultBlock key={item.id} item={item} />;
           case 'system':   return <SystemLine key={item.id} item={item} />;
           case 'command':  return <CommandBlock key={item.id} item={item} />;
+          case 'thinking-live': return <ThinkingLiveLine key={item.id} label={t('ide.streamRenderer.thinking')} />;
         }
       })}
     </div>

@@ -1,0 +1,65 @@
+# SCENARIO.md §4 v2.44 — 자동 업데이트 릴리스 자동화.
+#
+# `v*` 태그(예: v0.1.1)를 푸시하면 win/mac/linux 빌드 산출물(setup/dmg/AppImage + latest*.yml
+# + blockmap)을 GitHub Releases 에 자동 업로드한다. 그제서야 설치된 앱의 electron-updater 가
+# 새 버전을 감지·다운로드한다.
+#
+# ⚠️ 소스 main 푸시만으로는 릴리스가 만들어지지 않는다 — 반드시 버전 bump 후 태그 푸시:
+#     1) packages/desktop/package.json 의 "version" 을 올린다 (예: 0.1.0 → 0.1.1)
+#     2) git tag v0.1.1 && git push origin v0.1.1
+#   (버전 숫자 0.1.1 은 예시일 뿐, 어떤 값으로 올릴지는 전적으로 사용자가 정한다.)
+#
+# ⚠️ Windows 미서명 빌드는 자동 업데이트는 동작하나 SmartScreen 경고가 뜬다. macOS 는
+#    서명+공증이 없으면 자동 업데이트가 차단된다(현재 코드서명 슬롯 미배선 — SCENARIO §3.7 / task §7).
+#    그래도 빌드/발행 자체는 성공한다.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  # 수동 트리거도 허용(태그 없이 테스트 빌드 — draft 로 올라간다).
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            script: release:win
+          - os: macos-latest
+            script: release:mac
+          - os: ubuntu-latest
+            script: release:linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build and publish
+        run: pnpm run ${{ matrix.script }}
+        env:
+          # electron-builder 가 GitHub Releases 에 업로드할 때 쓰는 토큰.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # macOS 코드서명 자동 탐색 비활성(미서명 빌드를 실패시키지 않음).
+          CSC_IDENTITY_AUTO_DISCOVERY: false

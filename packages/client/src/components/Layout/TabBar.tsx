@@ -539,16 +539,8 @@ export function TabBar(): React.JSX.Element | null {
       data-redock-target={tabBarRedockGlow ? '1' : undefined}
       onDragOver={handleContainerDragOver}
     >
-      {tabBarRedockGlow && (
-        <span className="pointer-events-none absolute inset-x-2 top-0 z-10 flex items-center justify-center text-[10px] font-semibold uppercase tracking-wider text-blue-200">
-          {t('tabDetach.redockZoneHint', { defaultValue: 'Drop here to redock' })}
-        </span>
-      )}
-      {detachHint && (
-        <span className="pointer-events-none absolute inset-x-2 bottom-0 z-10 flex items-center justify-center text-[10px] font-medium tracking-wide text-amber-300/90">
-          {t('tabDetach.detachHint', { defaultValue: 'Drop outside the tab bar to open in a new window' })}
-        </span>
-      )}
+      {/* §5.4 #14-1 — redock/detach 시 상단 바 안내 텍스트는 제거. 글로우(tabBarRedockGlow)와
+          opacity(detachHint) 시각 신호만 유지하고, 안내는 cursor 옆 floating card 로만 노출. */}
       {/* §5.4 #14-1 v2.30 — cursor 옆에 따라다니는 floating hint card. outside=true 일 때만 강조. */}
       {floatingHint && createPortal(
         <div

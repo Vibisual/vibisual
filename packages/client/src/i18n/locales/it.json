@@ -13,6 +13,13 @@
       "disconnected": "Disconnesso",
       "viewLogs": "Visualizza log server"
     },
+    "update": {
+      "available": "Aggiornamento {{version}}",
+      "availableTooltip": "La versione {{version}} è disponibile e si sta scaricando in background",
+      "downloading": "Aggiornamento {{percent}}%",
+      "restart": "Riavvia per aggiornare",
+      "restartTooltip": "La versione {{version}} è pronta — riavvia per applicarla"
+    },
     "agentStatus": {
       "waiting": "In attesa dell'agent",
       "completed": "{{count}} completati",
@@ -31,7 +38,96 @@
   "panel": {
     "fileMenu": {
       "file": "File",
-      "openFolder": "Apri cartella..."
+      "openFolder": "Apri cartella...",
+      "options": "Opzioni…"
+    },
+    "options": {
+      "title": "Opzioni",
+      "unsaved": "non salvato",
+      "discardConfirm": "Annullare le modifiche non salvate?",
+      "apply": "Applica",
+      "cancel": "Annulla",
+      "saving": "Salvataggio…",
+      "comingSoon": "Prossimamente",
+      "comingSoonDesc": "Questa categoria è riservata a impostazioni future.",
+      "categories": {
+        "agent": "Valori predefiniti Agent",
+        "appearance": "Aspetto",
+        "notifications": "Notifiche",
+        "permissions": "Permessi",
+        "advanced": "Avanzate",
+        "version": "Versione"
+      },
+      "version": {
+        "title": "Versione e informazioni",
+        "intro": "Il binario Claude Code che Vibisual usa per avviare gli agent e la sua provenienza.",
+        "refresh": "Riscansiona",
+        "scanning": "Scansione installazioni…",
+        "claudeCode": "Claude Code (in uso)",
+        "current": "Corrente",
+        "latest": "Ultima (npm)",
+        "updateAvailable": "Aggiornamento disponibile",
+        "upToDate": "Aggiornato",
+        "registryError": "Verifica npm non riuscita",
+        "installations": "Installazioni",
+        "auto": "Auto (consigliato)",
+        "autoDesc": "Lascia che Vibisual scelga automaticamente",
+        "activeBadge": "attivo",
+        "unknownVer": "sconosciuto",
+        "restartHint": "Selezione salvata. Riavvia Vibisual per applicarla ai nuovi agent avviati.",
+        "about": "Informazioni",
+        "repo": "Repository GitHub",
+        "marketplace": "Claude Code su VS Code Marketplace"
+      },
+      "agent": {
+        "intro": "Questi valori predefiniti si applicano agli agent personalizzati di nuova creazione. Gli agent esistenti non sono influenzati.",
+        "model": "Modello",
+        "permissionMode": "Modalità permessi",
+        "effort": "Sforzo",
+        "maxTurns": "Turni massimi (0 = illimitato)",
+        "isolation": "Isolamento",
+        "tools": "Strumenti (allow-list)",
+        "disallowedTools": "Strumenti bloccati (deny-list)",
+        "rules": "Regole predefinite (markdown)",
+        "rulesPlaceholder": "# Regole predefinite opzionali iniettate in ogni nuovo agent\n- ...",
+        "color": "Colore bolla predefinito (hex, opzionale)"
+      }
+    },
+    "autoAgent": {
+      "title": "Auto Agent",
+      "placeholder": "Descrivi cosa vuoi — es. \"Aggiungi login OAuth alla dashboard\"",
+      "send": "Invia",
+      "shortcutHint": "Ctrl/Cmd + Invio per inviare",
+      "toggleQuestionsTip": "Se ON, chiede domande di chiarimento per richieste ad alta complessità prima di avviare.",
+      "questionsOn": "Chiedi se complesso",
+      "questionsOff": "Salta domande",
+      "clarifying": "Ho bisogno di alcune chiarificazioni prima di avviare il team",
+      "notePlaceholder": "Aggiungi una nota (opzionale)",
+      "submitAnswers": "Invia risposte",
+      "summary": "Riepilogo",
+      "spawnedCount": "Avviati {{count}} sub-agent",
+      "entryHint": "Sub-agent in esecuzione. Scrivimi qui per follow-up.",
+      "phase": {
+        "idle": "Inattivo — digita una richiesta per iniziare",
+        "analyzing": "Analisi richiesta…",
+        "asking": "In attesa delle tue chiarificazioni",
+        "spawning": "Avvio agent…",
+        "dispatching": "Invio all'agent di ingresso…",
+        "running": "Sub-agent in esecuzione",
+        "completed": "Completato",
+        "error": "Errore"
+      },
+      "complexity": {
+        "low": "Complessità bassa",
+        "medium": "Complessità media",
+        "high": "Complessità alta"
+      },
+      "topology": {
+        "pipeline": "Pipeline",
+        "team": "Team",
+        "ralph": "Ralph (team + ciclo di critica)",
+        "autopilot": "Autopilot (agent singolo)"
+      }
     },
     "detailPanel": {
       "close": "Chiudi",
@@ -583,7 +679,15 @@
       "readOnly": "Sola lettura — seleziona una scheda sessione o creane una nuova",
       "attachmentError": "ERR",
       "statusError": "Errore",
-      "statusCompleted": "Completato"
+      "statusCompleted": "Completato",
+      "slashHint": "↑↓ naviga · Tab/Invio seleziona · Esc annulla",
+      "slashEmpty": "Nessuna skill corrispondente",
+      "slashLoading": "Caricamento skill…",
+      "ctxCopy": "Copia",
+      "ctxQuoteReply": "Cita risposta",
+      "ctxSendAsPrompt": "Invia come nuovo prompt",
+      "ctxSelectAll": "Seleziona tutto",
+      "ctxSelectionRequired": "Seleziona prima del testo"
     },
     "askQuestion": {
       "title": "Domanda",
@@ -605,7 +709,8 @@
     "activityBar": {
       "terminal": "Terminale",
       "files": "File",
-      "results": "Risultati"
+      "results": "Risultati",
+      "skills": "Skill"
     },
     "sidebar": {
       "sessions": "Sessioni",
@@ -613,7 +718,16 @@
       "events": "Eventi ({{count}})",
       "noFileEdits": "Nessuna modifica file ancora",
       "noEvents": "Nessun evento ancora",
-      "hasResult": "ha risultato"
+      "hasResult": "ha risultato",
+      "skills": "Skill ({{count}})",
+      "projectSkills": "Progetto ({{count}})",
+      "pluginSkills": "Plugin ({{count}})",
+      "noSkills": "Nessuna skill installata",
+      "skillsLoading": "Caricamento skill…",
+      "deleteSkillTitle": "Elimina skill",
+      "deleteSkillConfirm": "Eliminare questa skill?",
+      "deleteSkillYes": "Elimina",
+      "deleteSkillNo": "Annulla"
     },
     "statusBar": {
       "custom": "Personalizzato",
@@ -631,7 +745,9 @@
       "clickToExpand": "Clicca per espandere",
       "clickToCollapse": "Clicca per comprimere",
       "expand": "espandi",
-      "collapse": "comprimi"
+      "collapse": "comprimi",
+      "copy": "Copia",
+      "copied": "Copiato"
     }
   },
   "bubbleMap": {
@@ -771,7 +887,24 @@
     "pinTooltip": "Le schede bloccate sono protette da Chiudi le altre / Chiudi a destra / Chiudi tutte.",
     "setDefault": "Imposta come predefinita",
     "unsetDefault": "Rimuovi predefinita",
-    "defaultTooltip": "La scheda predefinita si apre automaticamente quando non c'è un'ultima scheda attiva da ripristinare."
+    "defaultTooltip": "La scheda predefinita si apre automaticamente quando non c'è un'ultima scheda attiva da ripristinare.",
+    "detach": "Scollega in nuova finestra"
+  },
+  "tabDetach": {
+    "detachHint": "Rilascia fuori dalla barra schede per aprire in una nuova finestra",
+    "osDragHint": "Trascina qui per spostare la finestra",
+    "detachCardTitle": "Rilascia qui per aprire come nuova finestra",
+    "detachCardSubtitle": "Rilascia il mouse fuori dalla barra schede",
+    "reorderCardSubtitle": "Resta nella barra schede per riordinare",
+    "redockHint": "rilascia per riagganciare",
+    "redockZoneHint": "Rilascia qui per riagganciare",
+    "redockCardTitle": "Rilascia sulla barra schede principale per riagganciare",
+    "redockCardSubtitle": "O rilascia altrove per lasciare scollegato",
+    "detachedBadge": "scollegato",
+    "closeWindow": "Chiudi finestra",
+    "missingTitle": "Scheda non più disponibile",
+    "missingProject": "Il progetto \"{{name}}\" non è caricato in questa istanza Vibisual.",
+    "missingIframe": "La scheda iframe \"{{id}}\" è stata chiusa."
   },
   "canvas": {
     "stubPlaceholder": "Questo progetto è solo su disco. Clicca sulla scheda per caricarlo.",
@@ -784,6 +917,8 @@
     },
     "contextMenu": {
       "createCustomAgent": "Crea Agent personalizzato",
+      "createAutoAgent": "Crea Auto Agent",
+      "createAutoAgentHint": "Meta agent — lancia automaticamente un team di agent personalizzati dal tuo prompt",
       "createWorktree": "Crea Worktree",
       "createWorktreeHint": "Nuovo workspace dal master più recente"
     },
@@ -825,6 +960,7 @@
       "awaitingPermission": "In attesa del tuo permesso",
       "awaitingInput": "In attesa del tuo input",
       "idle": "Inattivo",
+      "autoIdle": "Auto Agent — descrivi cosa vuoi",
       "hint": {
         "enter": "Doppio clic per entrare",
         "openIDE": "Doppio clic per aprire IDE",

@@ -56,6 +56,7 @@ import type { LocalSession, AgentContextInfo } from './sessionDiscovery.js';
 import { resolveSessionTitle, readUserMessages, readLastAssistantMessage, readContextInfo, discoverSessions, findPidBySession, isSessionInUse, getSessionJsonlPath, listJsonlSessionIds } from './sessionDiscovery.js';
 import { logger } from '../logger.js';
 import { dbg } from './debugLog.js';
+import { userDefaultsService } from './userDefaultsService.js';
 
 // ─── 유틸 (순수 함수) ───
 
@@ -1264,6 +1265,15 @@ export class ProjectGraph {
       position,
     };
     this.agents.set(sessionId, agent);
+    // §4 v2.42 — 신규 에이전트 기본 설정 = DEFAULT_AGENT_CONFIG 위에 userDefaults.agentConfig 머지.
+    // 사용자가 Options 창에서 정의한 디폴트가 새 에이전트에 자동 적용. 기존 에이전트엔 영향 ❌.
+    const userAgentDefaults = userDefaultsService.get().agentConfig ?? {};
+    this.agentConfigs.set(agent.id, {
+      ...DEFAULT_AGENT_CONFIG,
+      ...userAgentDefaults,
+      tools: userAgentDefaults.tools ? [...userAgentDefaults.tools] : [...DEFAULT_AGENT_CONFIG.tools],
+      skills: userAgentDefaults.skills ? [...userAgentDefaults.skills] : [...DEFAULT_AGENT_CONFIG.skills],
+    });
     // activeProject name → 해당 프로젝트의 원본 cwd 조회
     const cwd = this.resolveProjectCwd(projectName ?? null);
     if (cwd) {

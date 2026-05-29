@@ -13,6 +13,13 @@
       "disconnected": "Terputus",
       "viewLogs": "Lihat log server"
     },
+    "update": {
+      "available": "Perbarui {{version}}",
+      "availableTooltip": "Versi {{version}} tersedia dan sedang diunduh di latar belakang",
+      "downloading": "Memperbarui {{percent}}%",
+      "restart": "Mulai ulang untuk memperbarui",
+      "restartTooltip": "Versi {{version}} siap — mulai ulang untuk menerapkan"
+    },
     "agentStatus": {
       "waiting": "Menunggu agent",
       "completed": "{{count}} selesai",
@@ -31,7 +38,96 @@
   "panel": {
     "fileMenu": {
       "file": "File",
-      "openFolder": "Buka Folder..."
+      "openFolder": "Buka Folder...",
+      "options": "Opsi…"
+    },
+    "options": {
+      "title": "Opsi",
+      "unsaved": "belum disimpan",
+      "discardConfirm": "Buang perubahan yang belum disimpan?",
+      "apply": "Terapkan",
+      "cancel": "Batal",
+      "saving": "Menyimpan…",
+      "comingSoon": "Segera hadir",
+      "comingSoonDesc": "Kategori ini dicadangkan untuk pengaturan mendatang.",
+      "categories": {
+        "agent": "Default Agent",
+        "appearance": "Tampilan",
+        "notifications": "Notifikasi",
+        "permissions": "Izin",
+        "advanced": "Lanjutan",
+        "version": "Versi"
+      },
+      "version": {
+        "title": "Versi & Tentang",
+        "intro": "Binary Claude Code yang digunakan Vibisual untuk memunculkan agent, dan asalnya.",
+        "refresh": "Pindai ulang",
+        "scanning": "Memindai instalasi…",
+        "claudeCode": "Claude Code (digunakan)",
+        "current": "Saat ini",
+        "latest": "Terbaru (npm)",
+        "updateAvailable": "Pembaruan tersedia",
+        "upToDate": "Sudah terbaru",
+        "registryError": "Pemeriksaan npm gagal",
+        "installations": "Instalasi",
+        "auto": "Otomatis (direkomendasikan)",
+        "autoDesc": "Biarkan Vibisual memilih secara otomatis",
+        "activeBadge": "aktif",
+        "unknownVer": "tidak diketahui",
+        "restartHint": "Pilihan disimpan. Mulai ulang Vibisual untuk menerapkannya ke agent yang baru dimunculkan.",
+        "about": "Tentang",
+        "repo": "Repositori GitHub",
+        "marketplace": "Claude Code di VS Code Marketplace"
+      },
+      "agent": {
+        "intro": "Default ini berlaku untuk agent kustom yang baru dibuat. Agent yang sudah ada tidak terpengaruh.",
+        "model": "Model",
+        "permissionMode": "Mode Izin",
+        "effort": "Upaya",
+        "maxTurns": "Maks Giliran (0 = tidak terbatas)",
+        "isolation": "Isolasi",
+        "tools": "Tools (daftar izin)",
+        "disallowedTools": "Tools yang Diblokir (daftar tolak)",
+        "rules": "Aturan Default (markdown)",
+        "rulesPlaceholder": "# Aturan default opsional yang disuntikkan ke setiap agent baru\n- ...",
+        "color": "Warna Bubble Default (hex, opsional)"
+      }
+    },
+    "autoAgent": {
+      "title": "Auto Agent",
+      "placeholder": "Jelaskan yang Anda inginkan — mis. \"Tambahkan login OAuth ke dashboard\"",
+      "send": "Kirim",
+      "shortcutHint": "Ctrl/Cmd + Enter untuk kirim",
+      "toggleQuestionsTip": "Jika ON, mengajukan pertanyaan klarifikasi untuk permintaan kompleks sebelum memunculkan agent.",
+      "questionsOn": "Tanya jika kompleks",
+      "questionsOff": "Lewati pertanyaan",
+      "clarifying": "Saya perlu beberapa klarifikasi sebelum memunculkan tim",
+      "notePlaceholder": "Tambahkan catatan (opsional)",
+      "submitAnswers": "Kirim jawaban",
+      "summary": "Ringkasan",
+      "spawnedCount": "Memunculkan {{count}} sub-agent",
+      "entryHint": "Sub-agent sedang berjalan. Tanya saya di sini untuk tindak lanjut.",
+      "phase": {
+        "idle": "Idle — ketik permintaan untuk mulai",
+        "analyzing": "Menganalisis permintaan…",
+        "asking": "Menunggu klarifikasi Anda",
+        "spawning": "Memunculkan agent…",
+        "dispatching": "Mengirim ke entry agent…",
+        "running": "Sub-agent bekerja",
+        "completed": "Selesai",
+        "error": "Error"
+      },
+      "complexity": {
+        "low": "Kompleksitas rendah",
+        "medium": "Kompleksitas sedang",
+        "high": "Kompleksitas tinggi"
+      },
+      "topology": {
+        "pipeline": "Pipeline",
+        "team": "Team",
+        "ralph": "Ralph (team + critique loop)",
+        "autopilot": "Autopilot (agent tunggal)"
+      }
     },
     "detailPanel": {
       "close": "Tutup",
@@ -583,7 +679,15 @@
       "readOnly": "Hanya baca — pilih tab sesi atau buat baru",
       "attachmentError": "ERR",
       "statusError": "Error",
-      "statusCompleted": "Selesai"
+      "statusCompleted": "Selesai",
+      "slashHint": "↑↓ navigasi · Tab/Enter pilih · Esc batal",
+      "slashEmpty": "Tidak ada skill yang cocok",
+      "slashLoading": "Memuat skill…",
+      "ctxCopy": "Salin",
+      "ctxQuoteReply": "Kutip balasan",
+      "ctxSendAsPrompt": "Kirim sebagai prompt baru",
+      "ctxSelectAll": "Pilih semua",
+      "ctxSelectionRequired": "Pilih teks terlebih dahulu"
     },
     "askQuestion": {
       "title": "Pertanyaan",
@@ -605,7 +709,8 @@
     "activityBar": {
       "terminal": "Terminal",
       "files": "File",
-      "results": "Hasil"
+      "results": "Hasil",
+      "skills": "Skills"
     },
     "sidebar": {
       "sessions": "Sesi",
@@ -613,7 +718,16 @@
       "events": "Event ({{count}})",
       "noFileEdits": "Belum ada edit file",
       "noEvents": "Belum ada event",
-      "hasResult": "ada hasil"
+      "hasResult": "ada hasil",
+      "skills": "Skills ({{count}})",
+      "projectSkills": "Proyek ({{count}})",
+      "pluginSkills": "Plugin ({{count}})",
+      "noSkills": "Tidak ada skill terinstal",
+      "skillsLoading": "Memuat skill…",
+      "deleteSkillTitle": "Hapus skill",
+      "deleteSkillConfirm": "Hapus skill ini?",
+      "deleteSkillYes": "Hapus",
+      "deleteSkillNo": "Batal"
     },
     "statusBar": {
       "custom": "Kustom",
@@ -631,7 +745,9 @@
       "clickToExpand": "Klik untuk perluas",
       "clickToCollapse": "Klik untuk ciutkan",
       "expand": "perluas",
-      "collapse": "ciutkan"
+      "collapse": "ciutkan",
+      "copy": "Salin",
+      "copied": "Tersalin"
     }
   },
   "bubbleMap": {
@@ -771,7 +887,24 @@
     "pinTooltip": "Tab yang di-pin terlindungi dari Tutup Lainnya / Tutup ke Kanan / Tutup Semua.",
     "setDefault": "Jadikan Default",
     "unsetDefault": "Hapus Default",
-    "defaultTooltip": "Tab default terbuka otomatis jika tidak ada tab terakhir yang bisa dipulihkan."
+    "defaultTooltip": "Tab default terbuka otomatis jika tidak ada tab terakhir yang bisa dipulihkan.",
+    "detach": "Lepas ke jendela baru"
+  },
+  "tabDetach": {
+    "detachHint": "Jatuhkan di luar tab bar untuk dibuka di jendela baru",
+    "osDragHint": "Seret ke sini untuk memindahkan jendela",
+    "detachCardTitle": "Jatuhkan di sini untuk dibuka sebagai jendela baru",
+    "detachCardSubtitle": "Lepaskan mouse di luar tab bar",
+    "reorderCardSubtitle": "Tetap di dalam tab bar untuk mengurutkan ulang",
+    "redockHint": "lepaskan untuk redock",
+    "redockZoneHint": "Jatuhkan di sini untuk redock",
+    "redockCardTitle": "Jatuhkan ke tab bar utama untuk redock",
+    "redockCardSubtitle": "Atau lepaskan di tempat lain untuk tetap terlepas",
+    "detachedBadge": "terlepas",
+    "closeWindow": "Tutup jendela",
+    "missingTitle": "Tab tidak lagi tersedia",
+    "missingProject": "Proyek \"{{name}}\" tidak dimuat di instance Vibisual ini.",
+    "missingIframe": "Tab iframe \"{{id}}\" telah ditutup."
   },
   "canvas": {
     "stubPlaceholder": "Proyek ini hanya ada di disk. Klik tab untuk muat.",
@@ -784,6 +917,8 @@
     },
     "contextMenu": {
       "createCustomAgent": "Buat Agent Kustom",
+      "createAutoAgent": "Buat Auto Agent",
+      "createAutoAgentHint": "Meta agent — otomatis memunculkan tim agent kustom dari prompt Anda",
       "createWorktree": "Buat Worktree",
       "createWorktreeHint": "Ruang kerja baru dari master terbaru"
     },
@@ -825,6 +960,7 @@
       "awaitingPermission": "Menunggu izin Anda",
       "awaitingInput": "Menunggu input Anda",
       "idle": "Idle",
+      "autoIdle": "Auto Agent — jelaskan yang Anda inginkan",
       "hint": {
         "enter": "Klik dua kali untuk masuk",
         "openIDE": "Klik dua kali untuk buka IDE",

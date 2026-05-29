@@ -13,6 +13,13 @@
       "disconnected": "डिस्कनेक्टेड",
       "viewLogs": "सर्वर लॉग देखें"
     },
+    "update": {
+      "available": "अपडेट {{version}}",
+      "availableTooltip": "संस्करण {{version}} उपलब्ध है और पृष्ठभूमि में डाउनलोड हो रहा है",
+      "downloading": "अपडेट हो रहा है {{percent}}%",
+      "restart": "अपडेट के लिए पुनः शुरू करें",
+      "restartTooltip": "संस्करण {{version}} तैयार है — लागू करने के लिए पुनः शुरू करें"
+    },
     "agentStatus": {
       "waiting": "Agent की प्रतीक्षा",
       "completed": "{{count}} पूर्ण",
@@ -31,7 +38,96 @@
   "panel": {
     "fileMenu": {
       "file": "फ़ाइल",
-      "openFolder": "फ़ोल्डर खोलें..."
+      "openFolder": "फ़ोल्डर खोलें...",
+      "options": "विकल्प…"
+    },
+    "options": {
+      "title": "विकल्प",
+      "unsaved": "असहेजा",
+      "discardConfirm": "असहेजे बदलाव छोड़ें?",
+      "apply": "लागू करें",
+      "cancel": "रद्द करें",
+      "saving": "सहेजा जा रहा है…",
+      "comingSoon": "जल्द आएगा",
+      "comingSoonDesc": "यह श्रेणी भविष्य की सेटिंग्स के लिए आरक्षित है।",
+      "categories": {
+        "agent": "Agent डिफ़ॉल्ट",
+        "appearance": "दिखावट",
+        "notifications": "सूचनाएं",
+        "permissions": "अनुमतियां",
+        "advanced": "उन्नत",
+        "version": "संस्करण"
+      },
+      "version": {
+        "title": "संस्करण और परिचय",
+        "intro": "Claude Code binary जो Vibisual agents spawn करने के लिए उपयोग करता है, और यह कहाँ से आती है।",
+        "refresh": "पुनः स्कैन करें",
+        "scanning": "इंस्टॉलेशन स्कैन हो रही हैं…",
+        "claudeCode": "Claude Code (उपयोग में)",
+        "current": "वर्तमान",
+        "latest": "नवीनतम (npm)",
+        "updateAvailable": "अपडेट उपलब्ध",
+        "upToDate": "अप टू डेट",
+        "registryError": "npm जाँच विफल",
+        "installations": "इंस्टॉलेशन",
+        "auto": "Auto (अनुशंसित)",
+        "autoDesc": "Vibisual को स्वतः चुनने दें",
+        "activeBadge": "सक्रिय",
+        "unknownVer": "अज्ञात",
+        "restartHint": "चयन सहेजा गया। नए spawn किए गए agents पर लागू करने के लिए Vibisual पुनः शुरू करें।",
+        "about": "परिचय",
+        "repo": "GitHub repository",
+        "marketplace": "VS Code Marketplace पर Claude Code"
+      },
+      "agent": {
+        "intro": "ये डिफ़ॉल्ट नए बनाए गए custom agents पर लागू होते हैं। मौजूदा agents प्रभावित नहीं होते।",
+        "model": "मॉडल",
+        "permissionMode": "अनुमति मोड",
+        "effort": "प्रयास",
+        "maxTurns": "अधिकतम टर्न्स (0 = असीमित)",
+        "isolation": "आइसोलेशन",
+        "tools": "टूल्स (allow-list)",
+        "disallowedTools": "अस्वीकृत टूल्स (deny-list)",
+        "rules": "डिफ़ॉल्ट नियम (markdown)",
+        "rulesPlaceholder": "# Optional default rules injected into every new agent\n- ...",
+        "color": "डिफ़ॉल्ट Bubble रंग (hex, वैकल्पिक)"
+      }
+    },
+    "autoAgent": {
+      "title": "Auto Agent",
+      "placeholder": "जो चाहते हैं वह बताएं — जैसे \"Dashboard में OAuth login जोड़ें\"",
+      "send": "भेजें",
+      "shortcutHint": "Ctrl/Cmd + Enter से भेजें",
+      "toggleQuestionsTip": "चालू होने पर, spawning से पहले उच्च-जटिलता अनुरोधों के लिए स्पष्टीकरण प्रश्न पूछता है।",
+      "questionsOn": "जटिल होने पर पूछें",
+      "questionsOff": "प्रश्न छोड़ें",
+      "clarifying": "Team spawn करने से पहले मुझे कुछ स्पष्टीकरण चाहिए",
+      "notePlaceholder": "नोट जोड़ें (वैकल्पिक)",
+      "submitAnswers": "उत्तर सबमिट करें",
+      "summary": "सारांश",
+      "spawnedCount": "{{count}} sub-agent(s) spawn किए गए",
+      "entryHint": "Sub-agents अब चल रहे हैं। अनुवर्ती कार्यों के लिए यहाँ बात करें।",
+      "phase": {
+        "idle": "निष्क्रिय — शुरू करने के लिए अनुरोध टाइप करें",
+        "analyzing": "अनुरोध विश्लेषण हो रहा है…",
+        "asking": "आपके स्पष्टीकरण की प्रतीक्षा",
+        "spawning": "Agents spawn हो रहे हैं…",
+        "dispatching": "Entry agent को भेजा जा रहा है…",
+        "running": "Sub-agents काम कर रहे हैं",
+        "completed": "पूर्ण",
+        "error": "त्रुटि"
+      },
+      "complexity": {
+        "low": "कम जटिलता",
+        "medium": "मध्यम जटिलता",
+        "high": "उच्च जटिलता"
+      },
+      "topology": {
+        "pipeline": "Pipeline",
+        "team": "Team",
+        "ralph": "Ralph (team + critique loop)",
+        "autopilot": "Autopilot (single agent)"
+      }
     },
     "detailPanel": {
       "close": "बंद करें",
@@ -583,7 +679,15 @@
       "readOnly": "Read-only — कोई session टैब चुनें या नया बनाएं",
       "attachmentError": "त्रुटि",
       "statusError": "त्रुटि",
-      "statusCompleted": "पूर्ण"
+      "statusCompleted": "पूर्ण",
+      "slashHint": "↑↓ नेविगेट करें · Tab/Enter चुनें · Esc रद्द करें",
+      "slashEmpty": "कोई मिलान skill नहीं",
+      "slashLoading": "Skills लोड हो रही हैं…",
+      "ctxCopy": "कॉपी करें",
+      "ctxQuoteReply": "उद्धृत उत्तर",
+      "ctxSendAsPrompt": "नए प्रॉम्प्ट के रूप में भेजें",
+      "ctxSelectAll": "सभी चुनें",
+      "ctxSelectionRequired": "पहले टेक्स्ट चुनें"
     },
     "askQuestion": {
       "title": "प्रश्न",
@@ -605,7 +709,8 @@
     "activityBar": {
       "terminal": "Terminal",
       "files": "फ़ाइलें",
-      "results": "परिणाम"
+      "results": "परिणाम",
+      "skills": "Skills"
     },
     "sidebar": {
       "sessions": "Sessions",
@@ -613,7 +718,16 @@
       "events": "इवेंट्स ({{count}})",
       "noFileEdits": "अभी कोई फ़ाइल संपादन नहीं",
       "noEvents": "अभी कोई इवेंट नहीं",
-      "hasResult": "परिणाम है"
+      "hasResult": "परिणाम है",
+      "skills": "Skills ({{count}})",
+      "projectSkills": "Project ({{count}})",
+      "pluginSkills": "Plugins ({{count}})",
+      "noSkills": "कोई skill इंस्टॉल नहीं",
+      "skillsLoading": "Skills लोड हो रही हैं…",
+      "deleteSkillTitle": "Skill हटाएं",
+      "deleteSkillConfirm": "यह skill हटाएं?",
+      "deleteSkillYes": "हटाएं",
+      "deleteSkillNo": "रद्द करें"
     },
     "statusBar": {
       "custom": "Custom",
@@ -631,7 +745,9 @@
       "clickToExpand": "विस्तार के लिए क्लिक करें",
       "clickToCollapse": "संकुचित करने के लिए क्लिक करें",
       "expand": "विस्तार करें",
-      "collapse": "संकुचित करें"
+      "collapse": "संकुचित करें",
+      "copy": "कॉपी करें",
+      "copied": "कॉपी हो गया"
     }
   },
   "bubbleMap": {
@@ -771,7 +887,24 @@
     "pinTooltip": "पिन किए गए टैब Close Others / Close to the Right / Close All से सुरक्षित रहते हैं।",
     "setDefault": "डिफ़ॉल्ट के रूप में सेट करें",
     "unsetDefault": "डिफ़ॉल्ट हटाएं",
-    "defaultTooltip": "डिफ़ॉल्ट टैब तब स्वतः खुलता है जब पुनर्स्थापित करने के लिए कोई last-active टैब न हो।"
+    "defaultTooltip": "डिफ़ॉल्ट टैब तब स्वतः खुलता है जब पुनर्स्थापित करने के लिए कोई last-active टैब न हो।",
+    "detach": "नई विंडो में अलग करें"
+  },
+  "tabDetach": {
+    "detachHint": "नई विंडो में खोलने के लिए टैब बार से बाहर छोड़ें",
+    "osDragHint": "विंडो हिलाने के लिए यहाँ खींचें",
+    "detachCardTitle": "नई विंडो के रूप में खोलने के लिए यहाँ छोड़ें",
+    "detachCardSubtitle": "टैब बार से बाहर माउस छोड़ें",
+    "reorderCardSubtitle": "क्रम बदलने के लिए टैब बार के अंदर रहें",
+    "redockHint": "redock करने के लिए छोड़ें",
+    "redockZoneHint": "Redock करने के लिए यहाँ छोड़ें",
+    "redockCardTitle": "Redock करने के लिए मुख्य टैब बार पर छोड़ें",
+    "redockCardSubtitle": "या अलग रखने के लिए कहीं और छोड़ें",
+    "detachedBadge": "अलग",
+    "closeWindow": "विंडो बंद करें",
+    "missingTitle": "टैब अब उपलब्ध नहीं",
+    "missingProject": "प्रोजेक्ट \"{{name}}\" इस Vibisual instance में लोड नहीं है।",
+    "missingIframe": "iframe टैब \"{{id}}\" बंद हो गया।"
   },
   "canvas": {
     "stubPlaceholder": "यह प्रोजेक्ट केवल डिस्क पर है। लोड करने के लिए टैब क्लिक करें।",
@@ -784,6 +917,8 @@
     },
     "contextMenu": {
       "createCustomAgent": "Custom Agent बनाएं",
+      "createAutoAgent": "Auto Agent बनाएं",
+      "createAutoAgentHint": "Meta agent — आपके प्रॉम्प्ट से custom agent team स्वतः spawn करता है",
       "createWorktree": "Worktree बनाएं",
       "createWorktreeHint": "नवीनतम master से नया workspace"
     },
@@ -825,6 +960,7 @@
       "awaitingPermission": "आपकी अनुमति की प्रतीक्षा",
       "awaitingInput": "आपके इनपुट की प्रतीक्षा",
       "idle": "निष्क्रिय",
+      "autoIdle": "Auto Agent — जो चाहते हैं वह बताएं",
       "hint": {
         "enter": "अंदर जाने के लिए डबल-क्लिक करें",
         "openIDE": "IDE खोलने के लिए डबल-क्लिक करें",

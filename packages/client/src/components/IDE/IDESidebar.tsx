@@ -1,9 +1,9 @@
-import { memo, useMemo, useCallback } from 'react';
+import { memo, useMemo, useCallback, useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { SubAgent, AgentEvent, QueuedCommand, FileEdit, ActivityEdge } from '@vibisual/shared';
 import { useGraphStore, selectIDEOverlay, agentSessionInputKey } from '../../stores/graphStore.js';
 import type { IDEViewType } from '../../stores/graphStore.js';
-import { useAvailableSkills, type SkillInfo } from '../../hooks/useAvailableSkills.js';
+import { useAvailableSkills, deleteSkill, persistSkillOrder, type SkillInfo } from '../../hooks/useAvailableSkills.js';
 import { ScrollFade } from '../ScrollFade.js';
 
 const EMPTY_SUBS: SubAgent[] = [];
@@ -183,9 +183,28 @@ function EventsView({ agentId }: { agentId: string }): React.JSX.Element {
 
 // ─── Skills view: 프로젝트 + 플러그인 스킬 목록 (§5.5 #17-4 v2.32) ───
 
+type SkillSource = 'project' | 'plugin';
+
+/** 고정 순서(pinned) 우선 정렬: pinned 에 있는 스킬은 그 순서로, 나머지는 cmp 로 정렬 후 뒤에 append. */
+function applyPinnedOrder(
+  list: SkillInfo[],
+  pinned: string[],
+  cmp: (a: SkillInfo, b: SkillInfo) => number,
+): SkillInfo[] {
+  const byName = new Map(list.map((s) => [s.name, s]));
+  const used = new Set<string>();
+  const head: SkillInfo[] = [];
+  for (const n of pinned) {
+    const s = byName.get(n);
+    if (s && !used.has(n)) { head.push(s); used.add(n); }
+  }
+  const rest = list.filter((s) => !used.has(s.name)).sort(cmp);
+  return [...head, ...rest];
+}
+
 function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
   const { t } = useTranslation();
-  const { skills, loaded } = useAvailableSkills();
+  const { skills, order, loaded } = useAvailableSkills();
   const activeSessionId = useGraphStore((s) => selectIDEOverlay(s).activeSessionId);
   const setAgentSessionInputText = useGraphStore((s) => s.setAgentSessionInputText);
   // §5.5 #17-4 v2.36 — 이 에이전트가 속한 프로젝트의 카운트만 정렬·배지 표시.
@@ -194,9 +213,13 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
     projectName ? (s.skillUsageCounts[projectName] ?? null) : null,
   );
 
+  // 삭제 확인(인라인 2-step) 대상 스킬명. 드래그 in-flight 상태(타입 + 가시 순서).
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [liveDrag, setLiveDrag] = useState<{ type: SkillSource; names: string[] } | null>(null);
+  const dragNameRef = useRef<string | null>(null);
+
   const { projectSkills, pluginSkills } = useMemo(() => {
     const getCount = (name: string): number => projectCounts?.[name] ?? 0;
-    // 같은 섹션 내 정렬: count desc → name asc.
     const cmp = (a: SkillInfo, b: SkillInfo): number => {
       const d = getCount(b.name) - getCount(a.name);
       return d !== 0 ? d : a.name.localeCompare(b.name);
@@ -207,10 +230,13 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
       if (s.source === 'project') project.push(s);
       else plugin.push(s);
     }
-    project.sort(cmp);
-    plugin.sort(cmp);
-    return { projectSkills: project, pluginSkills: plugin };
-  }, [skills, projectCounts]);
+    const pinnedFor = (type: SkillSource): string[] =>
+      liveDrag?.type === type ? liveDrag.names : (type === 'project' ? order.project : order.plugin);
+    return {
+      projectSkills: applyPinnedOrder(project, pinnedFor('project'), cmp),
+      pluginSkills: applyPinnedOrder(plugin, pinnedFor('plugin'), cmp),
+    };
+  }, [skills, projectCounts, order, liveDrag]);
 
   const insertSkill = useCallback((skill: SkillInfo) => {
     const key = agentSessionInputKey(agentId, activeSessionId);
@@ -232,15 +258,58 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
     });
   }, [agentId, activeSessionId, setAgentSessionInputText]);
 
-  const renderSkill = useCallback((s: SkillInfo) => {
+  // ── 드래그 재정렬 (같은 타입 내에서만) ──
+  const handleDragStart = useCallback((e: React.DragEvent, type: SkillSource, names: string[], name: string) => {
+    dragNameRef.current = name;
+    setLiveDrag({ type, names });
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', name);
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent, type: SkillSource, overName: string) => {
+    const dragged = dragNameRef.current;
+    if (dragged === null) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setLiveDrag((prev) => {
+      if (!prev || prev.type !== type) return prev; // 타입이 다르면 무시(교차 이동 금지).
+      const names = [...prev.names];
+      const from = names.indexOf(dragged);
+      const to = names.indexOf(overName);
+      if (from < 0 || to < 0 || from === to) return prev;
+      names.splice(from, 1);
+      names.splice(to, 0, dragged);
+      return { type, names };
+    });
+  }, []);
+
+  const handleDragEnd = useCallback(() => {
+    dragNameRef.current = null;
+    setLiveDrag((prev) => {
+      if (prev) void persistSkillOrder(prev.type, prev.names);
+      return null;
+    });
+  }, []);
+
+  const handleDelete = useCallback((s: SkillInfo) => {
+    setConfirmDelete(null);
+    void deleteSkill(s.name, s.source);
+  }, []);
+
+  const renderSkill = useCallback((s: SkillInfo, orderedNames: string[]) => {
     const accentText = s.source === 'project' ? 'text-emerald-400' : 'text-purple-400';
     const count = projectCounts?.[s.name] ?? 0;
+    const confirming = confirmDelete === s.name;
     return (
       <li
         key={`${s.source}:${s.name}`}
-        className="cursor-pointer rounded px-2 py-1.5 transition-colors hover:bg-gray-700/60"
-        onClick={() => insertSkill(s)}
-        title={s.description}
+        draggable
+        onDragStart={(e) => handleDragStart(e, s.source, orderedNames, s.name)}
+        onDragOver={(e) => handleDragOver(e, s.source, s.name)}
+        onDragEnd={handleDragEnd}
+        className="group relative cursor-grab rounded px-2 py-1.5 transition-colors hover:bg-gray-700/60 active:cursor-grabbing"
+        onClick={() => { if (!confirming) insertSkill(s); }}
+        title={confirming ? undefined : s.description}
       >
         <div className="flex items-center gap-1.5">
           <span className={`truncate font-mono text-[11px] font-semibold ${accentText}`}>
@@ -256,15 +325,57 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
               {count}×
             </span>
           )}
+          {/* 삭제 X — 프로젝트 스킬만, hover 시 노출. */}
+          {s.source === 'project' && !confirming && (
+            <button
+              type="button"
+              draggable={false}
+              onClick={(e) => { e.stopPropagation(); setConfirmDelete(s.name); }}
+              onMouseDown={(e) => e.stopPropagation()}
+              onDragStart={(e) => e.preventDefault()}
+              title={t('ide.sidebar.deleteSkillTitle')}
+              aria-label={t('ide.sidebar.deleteSkillTitle')}
+              className={`flex h-4 w-4 flex-shrink-0 items-center justify-center rounded text-gray-500 opacity-0 transition-opacity hover:bg-red-500/20 hover:text-red-300 group-hover:opacity-100 ${count > 0 ? 'ml-1' : 'ml-auto'}`}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3">
+                <path d="M18 6 6 18M6 6l12 12" />
+              </svg>
+            </button>
+          )}
         </div>
-        {s.description && (
-          <p className="mt-0.5 line-clamp-2 text-[10px] leading-tight text-gray-500">
-            {s.description}
-          </p>
+        {confirming ? (
+          <div className="mt-1 flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+            <span className="truncate text-[10px] text-red-300/90">{t('ide.sidebar.deleteSkillConfirm')}</span>
+            <button
+              type="button"
+              draggable={false}
+              onClick={(e) => { e.stopPropagation(); handleDelete(s); }}
+              className="ml-auto flex-shrink-0 rounded bg-red-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-red-300 transition-colors hover:bg-red-500/30"
+            >
+              {t('ide.sidebar.deleteSkillYes')}
+            </button>
+            <button
+              type="button"
+              draggable={false}
+              onClick={(e) => { e.stopPropagation(); setConfirmDelete(null); }}
+              className="flex-shrink-0 rounded bg-gray-600/40 px-1.5 py-0.5 text-[10px] font-medium text-gray-300 transition-colors hover:bg-gray-600/60"
+            >
+              {t('ide.sidebar.deleteSkillNo')}
+            </button>
+          </div>
+        ) : (
+          s.description && (
+            <p className="mt-0.5 line-clamp-2 text-[10px] leading-tight text-gray-500">
+              {s.description}
+            </p>
+          )
         )}
       </li>
     );
-  }, [insertSkill, projectCounts]);
+  }, [insertSkill, projectCounts, confirmDelete, handleDragStart, handleDragOver, handleDragEnd, handleDelete, t]);
+
+  const projectNames = useMemo(() => projectSkills.map((s) => s.name), [projectSkills]);
+  const pluginNames = useMemo(() => pluginSkills.map((s) => s.name), [pluginSkills]);
 
   return (
     <div className="flex flex-col gap-1 p-2">
@@ -283,7 +394,7 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
                 <span className="px-1 text-[9px] font-medium uppercase tracking-wider text-emerald-400/60">
                   {t('ide.sidebar.projectSkills', { count: projectSkills.length })}
                 </span>
-                <ul className="flex flex-col gap-0.5">{projectSkills.map(renderSkill)}</ul>
+                <ul className="flex flex-col gap-0.5">{projectSkills.map((s) => renderSkill(s, projectNames))}</ul>
               </div>
             )}
             {pluginSkills.length > 0 && (
@@ -291,7 +402,7 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
                 <span className="px-1 text-[9px] font-medium uppercase tracking-wider text-purple-400/60">
                   {t('ide.sidebar.pluginSkills', { count: pluginSkills.length })}
                 </span>
-                <ul className="flex flex-col gap-0.5">{pluginSkills.map(renderSkill)}</ul>
+                <ul className="flex flex-col gap-0.5">{pluginSkills.map((s) => renderSkill(s, pluginNames))}</ul>
               </div>
             )}
           </div>

@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { electronAPI } from '@electron-toolkit/preload';
+import type { UpdateState } from '@vibisual/shared';
 
 // Preload — SCENARIO.md §3.7 / §3.4 contextBridge surface.
 //
@@ -102,6 +103,21 @@ const api = {
       const listener = (_e: unknown, payload: { dragging: boolean; hovering: boolean }): void => cb(payload);
       ipcRenderer.on('vibisual:tab:redock-drag-state', listener);
       return () => ipcRenderer.removeListener('vibisual:tab:redock-drag-state', listener);
+    },
+  },
+  /** §4 v2.44 자동 업데이트 surface — VS Code 식 업데이트 버튼. */
+  update: {
+    /** 수동 체크 트리거(부팅 직후·주기 체크는 main 이 자동). 갱신된 상태를 반환. */
+    check: (): Promise<UpdateState> => ipcRenderer.invoke('vibisual:update:check'),
+    /** 다운로드 완료 상태에서 재시작+설치. true=실행됨. */
+    install: (): Promise<boolean> => ipcRenderer.invoke('vibisual:update:install'),
+    /** 현재 업데이트 상태 1회 조회(마운트 시 초기값 채우기). */
+    getState: (): Promise<UpdateState> => ipcRenderer.invoke('vibisual:update:get-state'),
+    /** main 이 푸시하는 업데이트 상태 구독 — checking/available/downloading/downloaded/error. */
+    onStatus: (cb: (state: UpdateState) => void): (() => void) => {
+      const listener = (_e: unknown, state: UpdateState): void => cb(state);
+      ipcRenderer.on('vibisual:update:status', listener);
+      return () => ipcRenderer.removeListener('vibisual:update:status', listener);
     },
   },
 };

@@ -1,46 +1,42 @@
 /**
- * §5.3 #10-2 v2.37 — Auto Agent 런타임.
+ * §5.3 #10-2 v2.45 — Auto Agent 런타임 (하네스 빌더 전환).
  *
- * 사용자 자연어 요청을 받아 (1) 휴리스틱 복잡도 판정 → (2) 토폴로지 선택 →
- * (3) 서브 커스텀 에이전트 군 spawn + AgentConfig 자동 채움 →
- * (4) Task Edge 자동 연결 → (5) 사용자 메시지를 엔트리 노드의 command queue 에 forward →
- * (6) 진행 상태/요약을 auto-agent 의 AutoAgentSummary 슬롯에 기록.
+ * 사용자 자연어 요청 1건을 받아 → auto-agent 버블 자신의 AgentConfig 를 "하네스 빌더" 설정으로 바꾸고
+ * (rules = buildHarnessBuilderRules), 사용자 원본 요청을 자기 세션에 enqueue → 기존 processNextCommand
+ * 스폰 경로가 빌더를 띄운다. 빌더(스폰된 Claude)는 loopback REST API 를 curl 로 호출해 커스텀 에이전트
+ * 군 + Task Edge 하네스를 자율 구축하고 엔트리 노드에 사용자 요청을 forward.
  *
- * 본인은 `claude -p` spawn 하지 않는다 — 메타 동작(orchestration)만. 서브 에이전트들은 사용자가 더블클릭해
- * IDE 오버레이를 열면 큐에 쌓인 메시지가 자동 처리된다.
+ * v2.37 의 휴리스틱 프리셋 spawn(analyzeComplexity → selectTopology → AUTO_AGENT_TOPOLOGY_PRESETS) 은 폐기.
+ * 복잡도/토폴로지/질문 휴리스틱 함수는 빌더 프롬프트 참고·요약 배지용으로만 잔존(아래 export).
  */
 
 import { logger } from '../logger.js';
 import type {
-  AutoAgentRole,
   AutoAgentTopology,
   AutoAgentComplexity,
   AutoAgentSummary,
-  AutoAgentTopologyPreset,
-  AutoAgentSpawnedNode,
-  QueuedCommand,
+  AgentConfig,
 } from '@vibisual/shared';
 import {
   AUTO_AGENT_LAYOUT_RADIUS,
-  AUTO_AGENT_ROLE_POLICY,
-  AUTO_AGENT_TOPOLOGY_PRESETS,
+  AUTO_AGENT_BUILDER_CONFIG,
+  AUTO_AGENT_BUILDER_INTERVIEW_TOOL,
+  buildHarnessBuilderRules,
   DEFAULT_AGENT_CONFIG,
-  AVAILABLE_AGENT_TOOLS,
 } from '@vibisual/shared';
 import type { ProjectGraphManager } from './projectGraphManager.js';
 
-// ─── 복잡도 휴리스틱 ───
+// ─── 복잡도 휴리스틱 (요약 배지·빌더 참고용 — v2.45부터 spawn 분기에는 미사용) ───
 
 /**
  * 사용자 요청 1줄 → low/medium/high.
- * 정확한 분류보다 "토폴로지 분기를 만들기 위한 신호" 가 목적이라 휴리스틱으로 충분.
+ * v2.45: 더 이상 토폴로지 분기에 쓰이지 않고, AutoAgentSummary.complexity 배지(정보 표시)로만 활용.
  */
 export function analyzeComplexity(message: string): AutoAgentComplexity {
   const text = message.trim();
   const lower = text.toLowerCase();
   const length = text.length;
 
-  // 모호 신호 (vague intents) — 짧고 동사·대상이 불명확
   const vagueKeywords = [
     '도와줘', '도와주세요', '뭐', '뭔가', '어떻게', '어떡', '알아서',
     'help', 'something', 'somehow', 'idk', "i don't know",
@@ -48,11 +44,9 @@ export function analyzeComplexity(message: string): AutoAgentComplexity {
   ];
   const isVague = vagueKeywords.some((k) => lower.includes(k));
 
-  // 다중 도메인 신호 — 한 요청에 여러 큰 축이 등장
   const domainKeywords = ['auth', '인증', 'db', '데이터베이스', 'ui', '프론트', '백엔드', 'backend', 'frontend', 'api', '서버', 'server', '클라이언트', 'client', '결제', 'payment'];
   const domainHitCount = domainKeywords.reduce((acc, k) => (lower.includes(k) ? acc + 1 : acc), 0);
 
-  // 구체 신호 — 파일·함수 경로 또는 명확한 동사
   const hasFilePath = /[./\\][a-zA-Z0-9_-]+\.[a-z]{1,5}\b/.test(text);
   const hasFunctionRef = /\b[a-zA-Z_][\w]*\s*\(/.test(text);
   const concreteVerbs = ['리팩터링', '리펙터링', '수정', '추가', '제거', '삭제', '리네임', 'rename', 'refactor', 'add', 'remove', 'fix', 'update'];
@@ -66,11 +60,8 @@ export function analyzeComplexity(message: string): AutoAgentComplexity {
 }
 
 /**
- * 복잡도 + 메시지 키워드 → 토폴로지 선택.
- * - autopilot: 사용자가 "그냥 알아서", "단일" 류 명시
- * - low: pipeline (직선 체인)
- * - medium: team (PM 허브)
- * - high: ralph (team + critique rework 루프)
+ * 복잡도 + 메시지 키워드 → 토폴로지 권고값.
+ * v2.45: spawn 분기 폐기. 빌더 프롬프트가 참고할 수 있는 권고 신호로만 잔존(현재 호출처 없음).
  */
 export function selectTopology(complexity: AutoAgentComplexity, message: string): AutoAgentTopology {
   const lower = message.toLowerCase();
@@ -82,17 +73,14 @@ export function selectTopology(complexity: AutoAgentComplexity, message: string)
   return 'ralph';
 }
 
-// ─── 명확화 질문 생성 ───
-
 /**
- * high 복잡도일 때 사용자에게 띄울 명확화 질문 2~3개 생성 (휴리스틱).
- * LLM 호출 없이 결정적으로 — "범위", "산출물", "주력 모듈" 류 표준 질문.
+ * high 복잡도일 때 띄울 명확화 질문 2~3개 (휴리스틱).
+ * v2.45: 빌더가 AskUserQuestion 도구로 직접 인터뷰하므로 spawn 분기에는 미사용. 참고용 잔존.
  */
 export function generateClarifyingQuestions(message: string): { question: string; options: { label: string; description?: string }[]; multiSelect: boolean }[] {
   const lower = message.toLowerCase();
   const questions: { question: string; options: { label: string; description?: string }[]; multiSelect: boolean }[] = [];
 
-  // Q1 — 산출물 형태
   questions.push({
     question: '원하는 산출물의 형태는?',
     multiSelect: false,
@@ -103,7 +91,6 @@ export function generateClarifyingQuestions(message: string): { question: string
     ],
   });
 
-  // Q2 — 우선순위
   questions.push({
     question: '품질 vs 속도, 어느 쪽이 우선?',
     multiSelect: false,
@@ -114,7 +101,6 @@ export function generateClarifyingQuestions(message: string): { question: string
     ],
   });
 
-  // Q3 — 도메인 (다중 도메인 의심 시만)
   const hasAuth = lower.includes('auth') || lower.includes('인증');
   const hasDb = lower.includes('db') || lower.includes('데이터');
   const hasUi = lower.includes('ui') || lower.includes('프론트');
@@ -134,40 +120,20 @@ export function generateClarifyingQuestions(message: string): { question: string
   return questions.slice(0, 3);
 }
 
-// ─── 노드 배치 (원형) ───
-
-/**
- * Auto-agent 버블 위치 기준으로 N개의 노드를 프리셋 각도에 따라 원형 배치.
- * 반지름 = AUTO_AGENT_LAYOUT_RADIUS.
- */
-function computeNodePositions(
-  autoAgentPos: { x: number; y: number },
-  preset: AutoAgentTopologyPreset,
-): { role: AutoAgentRole; position: { x: number; y: number } }[] {
-  return preset.nodes.map((n) => {
-    const rad = (n.offsetAngleDeg * Math.PI) / 180;
-    return {
-      role: n.role,
-      position: {
-        x: autoAgentPos.x + Math.cos(rad) * AUTO_AGENT_LAYOUT_RADIUS,
-        y: autoAgentPos.y - Math.sin(rad) * AUTO_AGENT_LAYOUT_RADIUS, // y 는 화면 좌표라 -sin
-      },
-    };
-  });
-}
-
 // ─── 런타임 본체 ───
 
 export interface AutoAgentRuntimeDeps {
   graphManager: ProjectGraphManager;
   /** 커스텀 에이전트 설정 저장 — index.ts 의 동일 함수와 동일 효과 */
-  setAgentConfig: (agentId: string, config: Partial<import('@vibisual/shared').AgentConfig>) => void;
-  /** 사용자 메시지를 엔트리 노드의 command queue 에 enqueue */
+  setAgentConfig: (agentId: string, config: Partial<AgentConfig>) => void;
+  /** 명령을 세션 큐에 enqueue + processNextCommand 즉시 발사 (= 스폰 트리거) */
   enqueueCommand: (sessionId: string, text: string) => void;
   /** 변경 후 클라이언트에 스냅샷 broadcast */
   broadcastSnapshot: () => void;
   /** 체크포인트 저장 (영속) */
   saveCheckpoint: () => void;
+  /** 빌더가 curl 로 닿을 loopback 서버 베이스 URL (hook 리스너 포트). */
+  getServerBase: () => string;
   /** auto-agent 진행 신호 WS broadcast (선택) */
   broadcastAutoAgentProgress?: (autoAgentId: string, summary: AutoAgentSummary) => void;
 }
@@ -176,54 +142,84 @@ export class AutoAgentRuntime {
   constructor(private readonly deps: AutoAgentRuntimeDeps) {}
 
   /**
-   * 사용자 메시지 1건을 받아 처리.
-   * - high 복잡도 + askQuestionsEnabled 면 phase='asking' 으로 두고 질문 모음만 채워 즉시 반환.
-   *   사용자가 별도 endpoint 로 답을 주면 `resumeWithAnswers` 가 spawn 단계로 진입.
-   * - 그 외는 즉시 spawn → dispatch.
+   * 사용자 메시지 1건을 받아 하네스 빌더를 기동한다.
+   * 1) auto-agent 버블 자신의 AgentConfig 를 빌더 설정(rules=하네스 빌더 프롬프트)으로 set.
+   * 2) 사용자 원본 요청을 auto-agent 자기 세션에 enqueue → 기존 processNextCommand 가 빌더를 스폰.
    */
   processRequest(autoAgentSessionId: string, message: string): AutoAgentSummary {
     const inst = this.deps.graphManager.findInstanceByAutoAgentSession(autoAgentSessionId);
     if (!inst) {
       throw new Error(`auto-agent not found: ${autoAgentSessionId}`);
     }
+    const autoBubble = inst.getAgentBySession(autoAgentSessionId);
+    if (!autoBubble) {
+      throw new Error(`auto-agent bubble not found: ${autoAgentSessionId}`);
+    }
     const existing = inst.getAutoAgentSummary(autoAgentSessionId);
     const askQuestionsEnabled = existing?.askQuestionsEnabled ?? true;
 
+    // 정보 표시용 배지 (spawn 분기에는 미사용)
     const complexity = analyzeComplexity(message);
-    const topology = selectTopology(complexity, message);
 
-    const initial: AutoAgentSummary = {
+    // ── 빌더 config 조립 ──
+    const center = autoBubble.position ?? { x: 0, y: 0 };
+    const projectName = inst.getPrimaryProjectName() ?? null;
+    const serverBase = this.deps.getServerBase();
+    const rules = buildHarnessBuilderRules({
+      serverBase,
+      centerX: center.x,
+      centerY: center.y,
+      layoutRadius: AUTO_AGENT_LAYOUT_RADIUS,
+      projectName,
+    });
+    const tools = [...(AUTO_AGENT_BUILDER_CONFIG.tools ?? [])];
+    if (askQuestionsEnabled && !tools.includes(AUTO_AGENT_BUILDER_INTERVIEW_TOOL)) {
+      tools.push(AUTO_AGENT_BUILDER_INTERVIEW_TOOL);
+    }
+    const builderConfig: AgentConfig = {
+      ...DEFAULT_AGENT_CONFIG,
+      ...AUTO_AGENT_BUILDER_CONFIG,
+      tools,
+      rules,
+    };
+    this.deps.setAgentConfig(autoBubble.id, builderConfig);
+
+    const summary: AutoAgentSummary = {
       autoAgentId: autoAgentSessionId,
       complexity,
-      topology,
+      topology: 'custom',
       spawnedAgentIds: [],
       entryAgentId: '',
       userRequest: message,
-      phase: 'analyzing',
+      phase: 'building',
       startedAt: Date.now(),
       askQuestionsEnabled,
+      ...(existing?.questionsAsked ? { questionsAsked: existing.questionsAsked } : {}),
     };
-    inst.setAutoAgentSummary(autoAgentSessionId, initial);
+    inst.setAutoAgentSummary(autoAgentSessionId, summary);
+    this.notify(autoAgentSessionId, summary);
 
-    // 명확화 질문 분기 — high + 토글 ON
-    if (complexity === 'high' && askQuestionsEnabled) {
-      const questions = generateClarifyingQuestions(message).map((q) => ({ ...q }));
-      const askingSummary: AutoAgentSummary = {
-        ...initial,
-        phase: 'asking',
-        questionsAsked: questions,
-      };
-      inst.setAutoAgentSummary(autoAgentSessionId, askingSummary);
-      this.notify(autoAgentSessionId, askingSummary);
-      return askingSummary;
+    // ── 빌더 스폰: 사용자 원본 요청을 auto-agent 자기 세션에 enqueue (= processNextCommand 즉시 발사) ──
+    try {
+      this.deps.enqueueCommand(autoAgentSessionId, message);
+    } catch (err) {
+      logger.error(`auto-agent builder spawn failed: ${err instanceof Error ? err.message : String(err)}`);
+      const errored: AutoAgentSummary = { ...summary, phase: 'error' };
+      inst.setAutoAgentSummary(autoAgentSessionId, errored);
+      this.notify(autoAgentSessionId, errored);
+      this.deps.broadcastSnapshot();
+      return errored;
     }
 
-    // 즉시 spawn
-    return this.spawnAndDispatch(autoAgentSessionId, message, complexity, topology);
+    this.deps.broadcastSnapshot();
+    this.deps.saveCheckpoint();
+    return summary;
   }
 
   /**
-   * asking 단계에서 사용자가 답을 보냈을 때 호출. 답을 기록하고 spawn → dispatch.
+   * asking 단계에서 사용자가 답을 보냈을 때 호출(레거시 엔드포인트 호환).
+   * v2.45: 빌더가 AskUserQuestion 으로 직접 인터뷰하므로 asking 단계는 발생하지 않음.
+   * 답이 들어오면 답을 기록하고 원본 요청으로 빌더를 (재)기동한다.
    */
   resumeWithAnswers(
     autoAgentSessionId: string,
@@ -233,21 +229,17 @@ export class AutoAgentRuntime {
     if (!inst) throw new Error(`auto-agent not found: ${autoAgentSessionId}`);
     const summary = inst.getAutoAgentSummary(autoAgentSessionId);
     if (!summary) throw new Error(`auto-agent summary not found: ${autoAgentSessionId}`);
-    if (summary.phase !== 'asking') {
-      logger.warn(`resumeWithAnswers called for non-asking phase: ${summary.phase}`);
-    }
     const questionsAsked = (summary.questionsAsked ?? []).map((q, i) => {
       const answer = answers.find((a) => a.questionIndex === i);
       if (!answer) return q;
       return { ...q, answer: { selectedLabels: answer.selectedLabels, ...(answer.note ? { note: answer.note } : {}) } };
     });
-    const next: AutoAgentSummary = { ...summary, questionsAsked };
-    inst.setAutoAgentSummary(autoAgentSessionId, next);
-    return this.spawnAndDispatch(autoAgentSessionId, summary.userRequest, summary.complexity, summary.topology);
+    inst.setAutoAgentSummary(autoAgentSessionId, { ...summary, questionsAsked });
+    return this.processRequest(autoAgentSessionId, summary.userRequest);
   }
 
   /**
-   * 토글 갱신 — UI 의 "질문하기" 버튼.
+   * 토글 갱신 — UI 의 "질문하기" 버튼. ON 이면 빌더 tools 에 AskUserQuestion 포함.
    */
   toggleQuestions(autoAgentSessionId: string, enabled: boolean): AutoAgentSummary | null {
     const inst = this.deps.graphManager.findInstanceByAutoAgentSession(autoAgentSessionId);
@@ -261,113 +253,8 @@ export class AutoAgentRuntime {
   }
 
   /**
-   * 토폴로지에 따라 서브 커스텀 에이전트들을 spawn 하고 Task Edge 연결 후
-   * 엔트리 노드에 사용자 원본 메시지를 enqueue.
-   */
-  private spawnAndDispatch(
-    autoAgentSessionId: string,
-    userRequest: string,
-    complexity: AutoAgentComplexity,
-    topology: AutoAgentTopology,
-  ): AutoAgentSummary {
-    const inst = this.deps.graphManager.findInstanceByAutoAgentSession(autoAgentSessionId);
-    if (!inst) throw new Error(`auto-agent not found: ${autoAgentSessionId}`);
-    const autoBubble = inst.getAgentBySession(autoAgentSessionId);
-    if (!autoBubble) throw new Error(`auto-agent bubble not found: ${autoAgentSessionId}`);
-    const autoPos = autoBubble.position ?? { x: 0, y: 0 };
-    const preset = AUTO_AGENT_TOPOLOGY_PRESETS[topology];
-
-    // phase: spawning
-    inst.updateAutoAgentSummary(autoAgentSessionId, { phase: 'spawning' });
-    this.notify(autoAgentSessionId, inst.getAutoAgentSummary(autoAgentSessionId)!);
-
-    // 노드 배치 + spawn
-    const positioned = computeNodePositions(autoPos, preset);
-    const spawned: AutoAgentSpawnedNode[] = [];
-    const projectName = inst.getPrimaryProjectName() ?? null;
-    const labelPrefix = autoBubble.label.replace(/^Auto[:\s]*/i, '').trim() || 'Auto';
-    for (const node of positioned) {
-      const policy = AUTO_AGENT_ROLE_POLICY[node.role];
-      const label = `${labelPrefix} · ${node.role}`;
-      const bubble = this.deps.graphManager.createCustomAgent(label, node.position, projectName);
-      // 기본 + role 정책 머지 (사용자가 이후 자유 편집 가능)
-      const merged: import('@vibisual/shared').AgentConfig = {
-        ...DEFAULT_AGENT_CONFIG,
-        ...policy,
-        tools: policy.tools ?? [...AVAILABLE_AGENT_TOOLS],
-      };
-      this.deps.setAgentConfig(bubble.id, merged);
-      spawned.push({ role: node.role, agentId: bubble.id, sessionId: bubble.path, position: node.position });
-    }
-
-    // role → agentId 매핑 (같은 role 이 여러 번 있을 경우 첫 번째 만 entry 후보)
-    const roleToAgentId = new Map<AutoAgentRole, string>();
-    for (const s of spawned) {
-      if (!roleToAgentId.has(s.role)) roleToAgentId.set(s.role, s.agentId);
-    }
-
-    // Task Edge 생성
-    for (const e of preset.edges) {
-      const from = roleToAgentId.get(e.from);
-      const to = roleToAgentId.get(e.to);
-      if (!from || !to) {
-        logger.warn(`auto-agent: edge role ${e.from}→${e.to} missing spawned node`);
-        continue;
-      }
-      try {
-        inst.createTaskEdge(from, to, '', 'auto', null, {
-          kind: e.kind,
-          ...(e.returnFormat !== undefined && { returnFormat: e.returnFormat }),
-          ...(e.commandMode !== undefined && { commandMode: e.commandMode }),
-          ...(e.critiqueAuthority !== undefined && { critiqueAuthority: e.critiqueAuthority }),
-        });
-      } catch (err) {
-        logger.warn(`auto-agent createTaskEdge failed: ${err instanceof Error ? err.message : String(err)}`);
-      }
-    }
-
-    // 엔트리 노드 결정
-    const entryNode = preset.nodes.find((n) => n.entry);
-    if (!entryNode) throw new Error(`topology ${topology} missing entry node`);
-    const entrySpawned = spawned.find((s) => s.role === entryNode.role);
-    if (!entrySpawned) throw new Error(`entry role ${entryNode.role} not spawned`);
-
-    // phase: dispatching
-    inst.updateAutoAgentSummary(autoAgentSessionId, { phase: 'dispatching' });
-
-    // 사용자 메시지를 엔트리 노드의 command queue 로 enqueue
-    try {
-      this.deps.enqueueCommand(entrySpawned.sessionId, userRequest);
-    } catch (err) {
-      logger.error(`auto-agent enqueueCommand failed: ${err instanceof Error ? err.message : String(err)}`);
-    }
-
-    // 최종 요약 (phase=running, 완료는 후속 Stop 훅에서 갱신)
-    const finalSummary: AutoAgentSummary = {
-      autoAgentId: autoAgentSessionId,
-      complexity,
-      topology,
-      spawnedAgentIds: spawned.map((s) => s.agentId),
-      entryAgentId: entrySpawned.agentId,
-      userRequest,
-      phase: 'running',
-      startedAt: Date.now(),
-      askQuestionsEnabled: inst.getAutoAgentSummary(autoAgentSessionId)?.askQuestionsEnabled ?? true,
-      questionsAsked: inst.getAutoAgentSummary(autoAgentSessionId)?.questionsAsked,
-    };
-    inst.setAutoAgentSummary(autoAgentSessionId, finalSummary);
-    this.notify(autoAgentSessionId, finalSummary);
-
-    // broadcast + 체크포인트
-    this.deps.broadcastSnapshot();
-    this.deps.saveCheckpoint();
-
-    return finalSummary;
-  }
-
-  /**
-   * 외부 (Stop 훅 등) 에서 엔트리 에이전트 완료 신호 수신 시 호출 — 요약 합성.
-   * 본 라운드는 마지막 응답 텍스트의 첫 200자를 그대로 finalSummary 로 사용.
+   * 외부 (Stop 훅 등) 에서 빌더 완료 신호 수신 시 호출 — 요약 합성.
+   * 마지막 응답 텍스트의 첫 200자를 finalSummary 로 사용.
    */
   handleCompletion(autoAgentSessionId: string, finalText?: string): AutoAgentSummary | null {
     const inst = this.deps.graphManager.findInstanceByAutoAgentSession(autoAgentSessionId);

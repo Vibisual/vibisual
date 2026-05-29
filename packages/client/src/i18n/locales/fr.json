@@ -13,6 +13,13 @@
       "disconnected": "Déconnecté",
       "viewLogs": "Voir les journaux du serveur"
     },
+    "update": {
+      "available": "Mise à jour {{version}}",
+      "availableTooltip": "La version {{version}} est disponible et se télécharge en arrière-plan",
+      "downloading": "Mise à jour {{percent}}%",
+      "restart": "Redémarrer pour mettre à jour",
+      "restartTooltip": "La version {{version}} est prête — redémarrer pour appliquer"
+    },
     "agentStatus": {
       "waiting": "En attente d'un agent",
       "completed": "{{count}} terminés",
@@ -31,7 +38,96 @@
   "panel": {
     "fileMenu": {
       "file": "Fichier",
-      "openFolder": "Ouvrir un dossier..."
+      "openFolder": "Ouvrir un dossier...",
+      "options": "Options…"
+    },
+    "options": {
+      "title": "Options",
+      "unsaved": "non enregistré",
+      "discardConfirm": "Abandonner les modifications non enregistrées ?",
+      "apply": "Appliquer",
+      "cancel": "Annuler",
+      "saving": "Enregistrement…",
+      "comingSoon": "Bientôt disponible",
+      "comingSoonDesc": "Cette catégorie est réservée aux futurs paramètres.",
+      "categories": {
+        "agent": "Défauts d'agent",
+        "appearance": "Apparence",
+        "notifications": "Notifications",
+        "permissions": "Permissions",
+        "advanced": "Avancé",
+        "version": "Version"
+      },
+      "version": {
+        "title": "Version & À propos",
+        "intro": "Le binaire Claude Code utilisé par Vibisual pour lancer les agents, et son origine.",
+        "refresh": "Rescanner",
+        "scanning": "Recherche des installations…",
+        "claudeCode": "Claude Code (en cours d'utilisation)",
+        "current": "Actuelle",
+        "latest": "Dernière (npm)",
+        "updateAvailable": "Mise à jour disponible",
+        "upToDate": "À jour",
+        "registryError": "Vérification npm échouée",
+        "installations": "Installations",
+        "auto": "Auto (recommandé)",
+        "autoDesc": "Laisser Vibisual choisir automatiquement",
+        "activeBadge": "actif",
+        "unknownVer": "inconnu",
+        "restartHint": "Sélection enregistrée. Redémarrez Vibisual pour l'appliquer aux agents nouvellement lancés.",
+        "about": "À propos",
+        "repo": "Dépôt GitHub",
+        "marketplace": "Claude Code sur VS Code Marketplace"
+      },
+      "agent": {
+        "intro": "Ces défauts s'appliquent aux agents personnalisés nouvellement créés. Les agents existants ne sont pas affectés.",
+        "model": "Modèle",
+        "permissionMode": "Mode de permission",
+        "effort": "Effort",
+        "maxTurns": "Tours maximum (0 = illimité)",
+        "isolation": "Isolation",
+        "tools": "Outils (liste d'autorisation)",
+        "disallowedTools": "Outils interdits (liste de refus)",
+        "rules": "Règles par défaut (markdown)",
+        "rulesPlaceholder": "# Règles par défaut optionnelles injectées dans chaque nouvel agent\n- ...",
+        "color": "Couleur de bulle par défaut (hex, facultatif)"
+      }
+    },
+    "autoAgent": {
+      "title": "Agent Auto",
+      "placeholder": "Décrivez ce que vous souhaitez — ex. : « Ajouter une connexion OAuth au tableau de bord »",
+      "send": "Envoyer",
+      "shortcutHint": "Ctrl/Cmd + Entrée pour envoyer",
+      "toggleQuestionsTip": "Activé : pose des questions de clarification pour les requêtes très complexes avant de lancer.",
+      "questionsOn": "Demander si complexe",
+      "questionsOff": "Ignorer les questions",
+      "clarifying": "J'ai besoin de quelques précisions avant de lancer une équipe",
+      "notePlaceholder": "Ajouter une note (facultatif)",
+      "submitAnswers": "Soumettre les réponses",
+      "summary": "Résumé",
+      "spawnedCount": "{{count}} sous-agent(s) lancé(s)",
+      "entryHint": "Sous-agents en cours. Parlez-moi ici pour les suites.",
+      "phase": {
+        "idle": "Inactif — saisissez une requête pour commencer",
+        "analyzing": "Analyse de la requête…",
+        "asking": "En attente de vos précisions",
+        "spawning": "Lancement des agents…",
+        "dispatching": "Envoi à l'agent d'entrée…",
+        "running": "Sous-agents en cours",
+        "completed": "Terminé",
+        "error": "Erreur"
+      },
+      "complexity": {
+        "low": "Complexité faible",
+        "medium": "Complexité moyenne",
+        "high": "Complexité élevée"
+      },
+      "topology": {
+        "pipeline": "Pipeline",
+        "team": "Équipe",
+        "ralph": "Ralph (équipe + boucle de critique)",
+        "autopilot": "Autopilote (agent unique)"
+      }
     },
     "detailPanel": {
       "close": "Fermer",
@@ -583,7 +679,15 @@
       "readOnly": "Lecture seule — sélectionner un onglet de session ou en créer un nouveau",
       "attachmentError": "ERR",
       "statusError": "Erreur",
-      "statusCompleted": "Terminé"
+      "statusCompleted": "Terminé",
+      "slashHint": "↑↓ naviguer · Tab/Entrée sélectionner · Échap annuler",
+      "slashEmpty": "Aucune compétence correspondante",
+      "slashLoading": "Chargement des compétences…",
+      "ctxCopy": "Copier",
+      "ctxQuoteReply": "Citer en réponse",
+      "ctxSendAsPrompt": "Envoyer comme nouvelle invite",
+      "ctxSelectAll": "Tout sélectionner",
+      "ctxSelectionRequired": "Sélectionnez du texte d'abord"
     },
     "askQuestion": {
       "title": "Question",
@@ -605,7 +709,8 @@
     "activityBar": {
       "terminal": "Terminal",
       "files": "Fichiers",
-      "results": "Résultats"
+      "results": "Résultats",
+      "skills": "Compétences"
     },
     "sidebar": {
       "sessions": "Sessions",
@@ -613,7 +718,16 @@
       "events": "Événements ({{count}})",
       "noFileEdits": "Aucune modification de fichier pour l'instant",
       "noEvents": "Aucun événement pour l'instant",
-      "hasResult": "a un résultat"
+      "hasResult": "a un résultat",
+      "skills": "Compétences ({{count}})",
+      "projectSkills": "Projet ({{count}})",
+      "pluginSkills": "Plugins ({{count}})",
+      "noSkills": "Aucune compétence installée",
+      "skillsLoading": "Chargement des compétences…",
+      "deleteSkillTitle": "Supprimer la compétence",
+      "deleteSkillConfirm": "Supprimer cette compétence ?",
+      "deleteSkillYes": "Supprimer",
+      "deleteSkillNo": "Annuler"
     },
     "statusBar": {
       "custom": "Personnalisé",
@@ -631,7 +745,9 @@
       "clickToExpand": "Cliquer pour développer",
       "clickToCollapse": "Cliquer pour réduire",
       "expand": "développer",
-      "collapse": "réduire"
+      "collapse": "réduire",
+      "copy": "Copier",
+      "copied": "Copié"
     }
   },
   "bubbleMap": {
@@ -771,7 +887,24 @@
     "pinTooltip": "Les onglets épinglés sont protégés des actions Fermer les autres / Fermer à droite / Fermer tout.",
     "setDefault": "Définir par défaut",
     "unsetDefault": "Retirer par défaut",
-    "defaultTooltip": "L'onglet par défaut s'ouvre automatiquement quand il n'y a pas de dernier onglet actif à restaurer."
+    "defaultTooltip": "L'onglet par défaut s'ouvre automatiquement quand il n'y a pas de dernier onglet actif à restaurer.",
+    "detach": "Détacher dans une nouvelle fenêtre"
+  },
+  "tabDetach": {
+    "detachHint": "Déposer en dehors de la barre d'onglets pour ouvrir dans une nouvelle fenêtre",
+    "osDragHint": "Glisser ici pour déplacer la fenêtre",
+    "detachCardTitle": "Déposer ici pour ouvrir dans une nouvelle fenêtre",
+    "detachCardSubtitle": "Relâchez la souris en dehors de la barre d'onglets",
+    "reorderCardSubtitle": "Restez dans la barre d'onglets pour réorganiser",
+    "redockHint": "relâcher pour redocker",
+    "redockZoneHint": "Déposer ici pour redocker",
+    "redockCardTitle": "Déposer sur la barre d'onglets principale pour redocker",
+    "redockCardSubtitle": "Ou relâchez ailleurs pour laisser détaché",
+    "detachedBadge": "détaché",
+    "closeWindow": "Fermer la fenêtre",
+    "missingTitle": "Onglet indisponible",
+    "missingProject": "Le projet « {{name}} » n'est pas chargé dans cette instance Vibisual.",
+    "missingIframe": "L'onglet iframe « {{id}} » a été fermé."
   },
   "canvas": {
     "stubPlaceholder": "Ce projet est uniquement sur disque. Cliquez sur l'onglet pour le charger.",
@@ -784,6 +917,8 @@
     },
     "contextMenu": {
       "createCustomAgent": "Créer un agent personnalisé",
+      "createAutoAgent": "Créer un agent auto",
+      "createAutoAgentHint": "Méta-agent — génère automatiquement une équipe d'agents personnalisés depuis votre invite",
       "createWorktree": "Créer un Worktree",
       "createWorktreeHint": "Nouvel espace de travail depuis le master le plus récent"
     },
@@ -825,6 +960,7 @@
       "awaitingPermission": "En attente de votre permission",
       "awaitingInput": "En attente de votre saisie",
       "idle": "Inactif",
+      "autoIdle": "Agent Auto — décrivez ce que vous souhaitez",
       "hint": {
         "enter": "Double-cliquer pour entrer",
         "openIDE": "Double-cliquer pour ouvrir l'IDE",

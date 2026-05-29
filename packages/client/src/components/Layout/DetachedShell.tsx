@@ -142,7 +142,7 @@ function DetailPanelHost({ children }: { children: React.ReactNode }): React.JSX
 
 // ─── Mini title bar — mini-ghost drag → redock ────────────────────────────
 //
-// v2.30: 사용자가 미니 타이틀바를 잡으면 별창 본체가 mini ghost(240×56, opacity 0.85)로
+// v2.30: 사용자가 미니 타이틀바를 잡으면 별창 본체가 mini ghost(200×44, opacity 0.85)로
 // 축소되어 cursor 따라간다. 메인 헤더 영역 위에서 떼면 redock, 그 외 위치에선 원본 복원.
 // 이전 polling 은 main 의 windowManager 가 담당 — renderer 는 pointer down/up 신호만 보낸다.
 
@@ -188,7 +188,7 @@ function DetachedTitleBar({ kind, tabKey, title }: DetachedTitleBarProps): React
     void window.api?.window?.closeSelf();
   }, []);
 
-  // 미니 모드면 박스 전체를 mini ghost 모양으로 재구성 (320×56 안에 라벨 + 메시지).
+  // 미니 모드면 박스 전체를 mini ghost 모양으로 재구성 (200×44 안에 라벨 + 메시지).
   if (dragging) {
     return (
       <div

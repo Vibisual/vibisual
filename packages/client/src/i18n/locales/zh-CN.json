@@ -13,6 +13,13 @@
       "disconnected": "已断开",
       "viewLogs": "查看服务器日志"
     },
+    "update": {
+      "available": "更新 {{version}}",
+      "availableTooltip": "版本 {{version}} 可用，正在后台下载",
+      "downloading": "更新中 {{percent}}%",
+      "restart": "重启以应用更新",
+      "restartTooltip": "版本 {{version}} 已就绪 — 重启以应用"
+    },
     "agentStatus": {
       "waiting": "等待 Agent",
       "completed": "{{count}} 项已完成",
@@ -31,7 +38,96 @@
   "panel": {
     "fileMenu": {
       "file": "文件",
-      "openFolder": "打开文件夹..."
+      "openFolder": "打开文件夹...",
+      "options": "选项…"
+    },
+    "options": {
+      "title": "选项",
+      "unsaved": "未保存",
+      "discardConfirm": "放弃未保存的更改？",
+      "apply": "应用",
+      "cancel": "取消",
+      "saving": "保存中…",
+      "comingSoon": "即将推出",
+      "comingSoonDesc": "此分类保留给未来的设置。",
+      "categories": {
+        "agent": "Agent 默认值",
+        "appearance": "外观",
+        "notifications": "通知",
+        "permissions": "权限",
+        "advanced": "高级",
+        "version": "版本"
+      },
+      "version": {
+        "title": "版本与关于",
+        "intro": "Vibisual 用于派生 Agent 的 Claude Code 二进制文件及其来源。",
+        "refresh": "重新扫描",
+        "scanning": "正在扫描安装…",
+        "claudeCode": "Claude Code（使用中）",
+        "current": "当前版本",
+        "latest": "最新版（npm）",
+        "updateAvailable": "有可用更新",
+        "upToDate": "已是最新",
+        "registryError": "npm 检查失败",
+        "installations": "安装列表",
+        "auto": "自动（推荐）",
+        "autoDesc": "由 Vibisual 自动选择",
+        "activeBadge": "使用中",
+        "unknownVer": "未知",
+        "restartHint": "已保存选择。重启 Vibisual 后将对新派生的 Agent 生效。",
+        "about": "关于",
+        "repo": "GitHub 仓库",
+        "marketplace": "VS Code Marketplace 上的 Claude Code"
+      },
+      "agent": {
+        "intro": "这些默认值适用于新创建的自定义 Agent，已有 Agent 不受影响。",
+        "model": "模型",
+        "permissionMode": "权限模式",
+        "effort": "思考深度",
+        "maxTurns": "最大轮次（0 = 不限）",
+        "isolation": "隔离",
+        "tools": "工具（允许列表）",
+        "disallowedTools": "禁用工具（拒绝列表）",
+        "rules": "默认规则（Markdown）",
+        "rulesPlaceholder": "# 可选的默认规则，注入到每个新 Agent\n- ...",
+        "color": "默认气泡颜色（hex，可选）"
+      }
+    },
+    "autoAgent": {
+      "title": "Auto Agent",
+      "placeholder": "描述你想要的内容 — 例如「在仪表盘添加 OAuth 登录」",
+      "send": "发送",
+      "shortcutHint": "Ctrl/Cmd + Enter 发送",
+      "toggleQuestionsTip": "开启后，对高复杂度请求在派生前询问澄清问题。",
+      "questionsOn": "复杂时询问",
+      "questionsOff": "跳过询问",
+      "clarifying": "派生团队前需要几点说明",
+      "notePlaceholder": "添加备注（可选）",
+      "submitAnswers": "提交答案",
+      "summary": "摘要",
+      "spawnedCount": "已派生 {{count}} 个子 Agent",
+      "entryHint": "子 Agent 正在运行。在此与我对话以进行后续操作。",
+      "phase": {
+        "idle": "空闲 — 输入请求以开始",
+        "analyzing": "分析请求中…",
+        "asking": "等待您的说明",
+        "spawning": "派生 Agent 中…",
+        "dispatching": "调度到入口 Agent 中…",
+        "running": "子 Agent 工作中",
+        "completed": "完成",
+        "error": "错误"
+      },
+      "complexity": {
+        "low": "低复杂度",
+        "medium": "中复杂度",
+        "high": "高复杂度"
+      },
+      "topology": {
+        "pipeline": "Pipeline",
+        "team": "Team",
+        "ralph": "Ralph（团队 + 评审循环）",
+        "autopilot": "Autopilot（单 Agent）"
+      }
     },
     "detailPanel": {
       "close": "关闭",
@@ -583,7 +679,15 @@
       "readOnly": "只读 — 请选择 Session 标签或新建",
       "attachmentError": "错误",
       "statusError": "错误",
-      "statusCompleted": "已完成"
+      "statusCompleted": "已完成",
+      "slashHint": "↑↓ 导航 · Tab/Enter 选择 · Esc 取消",
+      "slashEmpty": "无匹配技能",
+      "slashLoading": "加载技能中…",
+      "ctxCopy": "复制",
+      "ctxQuoteReply": "引用回复",
+      "ctxSendAsPrompt": "作为新提示发送",
+      "ctxSelectAll": "全选",
+      "ctxSelectionRequired": "请先选择文本"
     },
     "askQuestion": {
       "title": "问题",
@@ -605,7 +709,8 @@
     "activityBar": {
       "terminal": "终端",
       "files": "文件",
-      "results": "结果"
+      "results": "结果",
+      "skills": "技能"
     },
     "sidebar": {
       "sessions": "Sessions",
@@ -613,7 +718,16 @@
       "events": "事件（{{count}}）",
       "noFileEdits": "暂无文件编辑",
       "noEvents": "暂无事件",
-      "hasResult": "有结果"
+      "hasResult": "有结果",
+      "skills": "技能（{{count}}）",
+      "projectSkills": "项目（{{count}}）",
+      "pluginSkills": "插件（{{count}}）",
+      "noSkills": "未安装技能",
+      "skillsLoading": "加载技能中…",
+      "deleteSkillTitle": "删除技能",
+      "deleteSkillConfirm": "删除此技能？",
+      "deleteSkillYes": "删除",
+      "deleteSkillNo": "取消"
     },
     "statusBar": {
       "custom": "自定义",
@@ -631,7 +745,9 @@
       "clickToExpand": "点击展开",
       "clickToCollapse": "点击折叠",
       "expand": "展开",
-      "collapse": "折叠"
+      "collapse": "折叠",
+      "copy": "复制",
+      "copied": "已复制"
     }
   },
   "bubbleMap": {
@@ -771,7 +887,24 @@
     "pinTooltip": "已固定标签不受关闭其他/关闭右侧/关闭全部操作影响。",
     "setDefault": "设为默认",
     "unsetDefault": "取消默认",
-    "defaultTooltip": "无上次活跃标签时，默认标签将自动打开。"
+    "defaultTooltip": "无上次活跃标签时，默认标签将自动打开。",
+    "detach": "分离到新窗口"
+  },
+  "tabDetach": {
+    "detachHint": "拖到标签栏外以在新窗口中打开",
+    "osDragHint": "拖到此处以移动窗口",
+    "detachCardTitle": "拖到此处以新窗口打开",
+    "detachCardSubtitle": "在标签栏外松开鼠标",
+    "reorderCardSubtitle": "在标签栏内移动以重新排序",
+    "redockHint": "松开以重新停靠",
+    "redockZoneHint": "拖到此处以重新停靠",
+    "redockCardTitle": "拖到主标签栏以重新停靠",
+    "redockCardSubtitle": "或在其他位置松开保持分离状态",
+    "detachedBadge": "已分离",
+    "closeWindow": "关闭窗口",
+    "missingTitle": "标签已不可用",
+    "missingProject": "项目「{{name}}」未在此 Vibisual 实例中加载。",
+    "missingIframe": "iframe 标签「{{id}}」已关闭。"
   },
   "canvas": {
     "stubPlaceholder": "此项目仅在磁盘上。点击标签以加载。",
@@ -784,6 +917,8 @@
     },
     "contextMenu": {
       "createCustomAgent": "创建自定义 Agent",
+      "createAutoAgent": "创建 Auto Agent",
+      "createAutoAgentHint": "元 Agent — 根据你的提示自动派生自定义 Agent 团队",
       "createWorktree": "创建 Worktree",
       "createWorktreeHint": "从最新 master 创建新工作区"
     },
@@ -825,6 +960,7 @@
       "awaitingPermission": "等待您的授权",
       "awaitingInput": "等待您的输入",
       "idle": "空闲",
+      "autoIdle": "Auto Agent — 描述你想要的内容",
       "hint": {
         "enter": "双击进入",
         "openIDE": "双击打开 IDE",

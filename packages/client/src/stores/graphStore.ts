@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { BubbleData, ActivityEdge, BashEntry, ServerEntry, AgentEvent, FileEdit, AgentPhase, ProjectInfo, QueuedCommand, SubAgent, ServerKind, PipelineType, PipelineState, AgentConfig, SubAgentStreamEvent, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, UiLocale, ProjectMetaSnapshot, AppState, AppStatePatch, CommentBox, Conti, ActiveContiWork, ToolDurationEntry, CompactCount, RateLimitInfo, DiagnosticEntry, AutoAgentSummary } from '@vibisual/shared';
+import type { BubbleData, ActivityEdge, BashEntry, ServerEntry, AgentEvent, FileEdit, AgentPhase, ProjectInfo, QueuedCommand, SubAgent, ServerKind, PipelineType, PipelineState, AgentConfig, SubAgentStreamEvent, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, UiLocale, ProjectMetaSnapshot, AppState, AppStatePatch, CommentBox, Conti, ActiveContiWork, ToolDurationEntry, CompactCount, RateLimitInfo, DiagnosticEntry, AutoAgentSummary, ModelRegistry, UserDefaults } from '@vibisual/shared';
 import { DEFAULT_UI_LOCALE } from '@vibisual/shared';
 import { changeUiLocale } from '../i18n/index.js';
 import { calcFileSizeRange } from '../utils/sizeCalc.js';
@@ -270,6 +270,10 @@ interface GraphState {
   skillUsageCounts: Record<string, Record<string, number>>;
   /** §5.3 #10-2 v2.37 — Auto Agent 가 spawn 한 군의 요약 메타 (autoAgentSessionId → summary). */
   autoAgentSummaries: Record<string, AutoAgentSummary>;
+  /** §4 v2.38 — 동적 모델 레지스트리 (서버 modelRegistryService 가 시드+/v1/models 머지 후 push). */
+  modelRegistry: ModelRegistry | null;
+  /** §4 v2.42 — 사용자 글로벌 옵션 (Options 창 SSOT). */
+  userDefaults: UserDefaults | null;
   /** §4 v1.50 — Claude.ai 한도 사용률 (글로벌, 외부 statusline 푸시). */
   rateLimits: RateLimitInfo | null;
   /** §4 v1.98 — 진단 에러 로그 (글로벌 ring buffer, append 순). DebugPanel 에러 뷰어용. */
@@ -551,6 +555,10 @@ interface GraphState {
   applyAutoAgentSummaries: (summaries: Record<string, AutoAgentSummary> | undefined) => void;
   /** §4 v1.98 — graph_snapshot 수신 시 진단 에러 로그 반영. */
   applyDiagnosticLog: (log: DiagnosticEntry[] | undefined) => void;
+  /** §4 v2.38 — graph_snapshot 또는 model_registry_updated 수신 시 레지스트리 반영. */
+  applyModelRegistry: (reg: ModelRegistry | undefined) => void;
+  /** §4 v2.42 — graph_snapshot 또는 user_defaults_updated 수신 시 옵션 반영. */
+  applyUserDefaults: (d: UserDefaults | undefined) => void;
   /** UI에서 언어 변경 요청 — 서버 PUT /api/ui-locale 후 성공 시 applyUiLocale 호출. */
   setUiLocale: (locale: UiLocale) => Promise<void>;
 
@@ -779,6 +787,8 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   compactCounts: {},
   skillUsageCounts: {},
   autoAgentSummaries: {},
+  modelRegistry: null,
+  userDefaults: null,
   rateLimits: null,
   diagnosticLog: [],
   contiBoardOpen: null,
@@ -1607,6 +1617,8 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   applySkillUsageCounts: (counts) => set({ skillUsageCounts: counts ?? {} }),
   applyAutoAgentSummaries: (summaries) => set({ autoAgentSummaries: summaries ?? {} }),
   applyDiagnosticLog: (log) => set({ diagnosticLog: log ?? [] }),
+  applyModelRegistry: (reg) => set({ modelRegistry: reg ?? null }),
+  applyUserDefaults: (d) => set({ userDefaults: d ?? null }),
   setUiLocale: async (locale) => {
     const res = await fetch(`${API_BASE}/api/ui-locale`, {
       method: 'PUT',

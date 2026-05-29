@@ -22,6 +22,8 @@ import {
   endDetachDragByWindowId,
   type DetachKind,
 } from './windowManager';
+import { checkForUpdates, quitAndInstall, getUpdateState } from './updaterManager';
+import type { UpdateState } from '@vibisual/shared';
 
 // IPC hub — SCENARIO.md §3.7 (in-process 통합).
 //
@@ -219,6 +221,13 @@ export function setupIpc(expressApp: Express): IpcHub {
     return endDetachDragByWindowId(event.sender.id, !!commit);
   });
 
+  // ─── §4 v2.44 자동 업데이트 채널 ──────────────────────────────────────────
+  // 상태 push 는 updaterManager 가 직접 webContents 로 보낸다(vibisual:update:status).
+  // 여기서는 renderer→main 의 invoke 액션만 등록한다.
+  ipcMain.handle('vibisual:update:check', (): Promise<UpdateState> => checkForUpdates());
+  ipcMain.handle('vibisual:update:install', (): boolean => quitAndInstall());
+  ipcMain.handle('vibisual:update:get-state', (): UpdateState => getUpdateState());
+
   return {
     stop(): void {
       ipcMain.removeHandler('vibisual:server-info');
@@ -236,6 +245,9 @@ export function setupIpc(expressApp: Express): IpcHub {
       ipcMain.removeHandler('vibisual:window:redock-commit');
       ipcMain.removeHandler('vibisual:window:detach-drag-start');
       ipcMain.removeHandler('vibisual:window:detach-drag-end');
+      ipcMain.removeHandler('vibisual:update:check');
+      ipcMain.removeHandler('vibisual:update:install');
+      ipcMain.removeHandler('vibisual:update:get-state');
       shutdownIframeLogStreamer();
       shutdownServerLogService();
       connections.clear();

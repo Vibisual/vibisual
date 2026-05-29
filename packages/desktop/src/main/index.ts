@@ -2,7 +2,7 @@ import { join } from 'node:path';
 import { createServer, type Server as HttpServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
-import { app, shell, BrowserWindow, protocol } from 'electron';
+import { app, shell, BrowserWindow, protocol, screen } from 'electron';
 import { electronApp, optimizer } from '@electron-toolkit/utils';
 import { inject, type DispatchFunc } from 'light-my-request';
 import type { Express } from 'express';
@@ -10,6 +10,7 @@ import { runServer, setBroadcastSink, setHookListenerPort, ensureClaudeHooksInst
 import { setupIpc, type IpcHub } from './ipc';
 import { loadSecrets } from './secrets';
 import { configureWindowManager, closeAll as closeAllDetachedWindows } from './windowManager';
+import { initAutoUpdater, stopAutoUpdater } from './updaterManager';
 
 // Vibisual desktop main — SCENARIO.md §3.7 (in-process 통합, 단일 프로세스).
 //
@@ -89,6 +90,20 @@ function createWindow(): void {
   });
 
   mainWindow.on('ready-to-show', () => mainWindow.show());
+
+  // §3.7 — 최대화 후 복원(restore) 시 OS 기본 동작은 직전 위치·크기로 되돌리는데, 화면이 작거나
+  // 직전 bounds 가 거의 풀스크린이면 "복원했는지 모를" 만큼 차이가 안 난다. 복원 시에는 항상
+  // 현재 디스플레이의 작업영역 중앙에 명확히 작아진 크기로 다시 배치해 "복원됨"이 한눈에 보이게 한다.
+  mainWindow.on('unmaximize', () => {
+    if (mainWindow.isDestroyed()) return;
+    const display = screen.getDisplayMatching(mainWindow.getBounds());
+    const wa = display.workArea;
+    const width = Math.min(1280, Math.round(wa.width * 0.78));
+    const height = Math.min(800, Math.round(wa.height * 0.82));
+    const x = Math.round(wa.x + (wa.width - width) / 2);
+    const y = Math.round(wa.y + (wa.height - height) / 2);
+    mainWindow.setBounds({ x, y, width, height });
+  });
 
   // §3.7 v2.12 — `titleBarStyle: 'hidden'` + `titleBarOverlay` Windows 조합에서 간헐적으로
   // `ready-to-show` 가 안 떠 창이 영구 숨김 상태가 되는 회귀가 보고됨. 3초 fallback —
@@ -358,6 +373,10 @@ app.whenReady().then(async () => {
 
   createWindow();
 
+  // §4 v2.44 — 자동 업데이트 매니저 기동(패키지 빌드에서만 실제 동작, preview 면 no-op).
+  // createWindow 이후라 첫 상태 push 가 메인 윈도우에 도달한다.
+  initAutoUpdater();
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
@@ -377,6 +396,9 @@ app.on('before-quit', (event) => {
 
   // §5.4 #14-1 — 메인 종료 시 detached 별창 일괄 정리(서버 영속화 ❌, in-memory 라 자연 소멸).
   closeAllDetachedWindows();
+
+  // §4 v2.44 — 업데이트 체크 타이머 해제.
+  stopAutoUpdater();
 
   ipcHub?.stop();
   ipcHub = null;

@@ -13,6 +13,13 @@
       "disconnected": "연결 끊김",
       "viewLogs": "서버 로그 보기"
     },
+    "update": {
+      "available": "업데이트 {{version}}",
+      "availableTooltip": "{{version}} 버전이 있어 백그라운드에서 다운로드 중입니다",
+      "downloading": "업데이트 {{percent}}%",
+      "restart": "재시작하여 업데이트",
+      "restartTooltip": "{{version}} 버전 준비 완료 — 재시작하면 적용됩니다"
+    },
     "agentStatus": {
       "waiting": "에이전트 대기 중",
       "completed": "{{count}}개 완료",
@@ -31,7 +38,60 @@
   "panel": {
     "fileMenu": {
       "file": "파일",
-      "openFolder": "폴더 열기..."
+      "openFolder": "폴더 열기...",
+      "options": "옵션…"
+    },
+    "options": {
+      "title": "옵션",
+      "unsaved": "저장 안 됨",
+      "discardConfirm": "저장하지 않은 변경 사항을 버리시겠습니까?",
+      "apply": "적용",
+      "cancel": "취소",
+      "saving": "저장 중…",
+      "comingSoon": "준비 중",
+      "comingSoonDesc": "이 항목은 향후 설정을 위해 예약되어 있습니다.",
+      "categories": {
+        "agent": "에이전트 기본값",
+        "appearance": "외관",
+        "notifications": "알림",
+        "permissions": "권한",
+        "advanced": "고급",
+        "version": "버전"
+      },
+      "version": {
+        "title": "버전 및 정보",
+        "intro": "Vibisual이 에이전트를 생성할 때 사용하는 Claude Code 바이너리와 그 출처입니다.",
+        "refresh": "다시 검색",
+        "scanning": "설치 항목 검색 중…",
+        "claudeCode": "Claude Code (사용 중)",
+        "current": "현재",
+        "latest": "최신 (npm)",
+        "updateAvailable": "업데이트 가능",
+        "upToDate": "최신 상태",
+        "registryError": "npm 확인 실패",
+        "installations": "설치 항목",
+        "auto": "자동 (권장)",
+        "autoDesc": "Vibisual이 자동으로 선택",
+        "activeBadge": "활성",
+        "unknownVer": "알 수 없음",
+        "restartHint": "선택이 저장되었습니다. 새로 생성되는 에이전트에 적용하려면 Vibisual을 재시작하세요.",
+        "about": "정보",
+        "repo": "GitHub 저장소",
+        "marketplace": "VS Code Marketplace의 Claude Code"
+      },
+      "agent": {
+        "intro": "이 기본값은 새로 생성되는 커스텀 에이전트에만 적용됩니다. 기존 에이전트는 영향을 받지 않습니다.",
+        "model": "모델",
+        "permissionMode": "권한 모드",
+        "effort": "사고 깊이",
+        "maxTurns": "최대 턴 수 (0 = 무제한)",
+        "isolation": "격리 모드",
+        "tools": "도구 (허용 목록)",
+        "disallowedTools": "차단 도구 (거부 목록)",
+        "rules": "기본 규칙 (마크다운)",
+        "rulesPlaceholder": "# 새 에이전트마다 주입될 기본 규칙 (선택)\n- ...",
+        "color": "기본 버블 색상 (hex, 선택)"
+      }
     },
     "autoAgent": {
       "title": "오토 에이전트",
@@ -47,10 +107,12 @@
       "summary": "요약",
       "spawnedCount": "서브 에이전트 {{count}}개 생성됨",
       "entryHint": "서브 에이전트들이 작업 중입니다. 후속은 여기서 이어서 말해주세요.",
+      "buildingHint": "빌더가 캔버스에 에이전트와 연결을 설계하고 있습니다. 이 버블을 열면 진행 과정을 볼 수 있습니다.",
       "phase": {
         "idle": "대기 중 — 요청을 입력해 시작",
         "analyzing": "요청 분석 중…",
         "asking": "명확화 답변 대기 중",
+        "building": "하네스 구축 중…",
         "spawning": "에이전트 생성 중…",
         "dispatching": "엔트리 에이전트로 전달 중…",
         "running": "서브 에이전트 작업 중",
@@ -66,7 +128,8 @@
         "pipeline": "파이프라인",
         "team": "팀",
         "ralph": "랠프 (팀 + 비평 루프)",
-        "autopilot": "오토파일럿 (단일 에이전트)"
+        "autopilot": "오토파일럿 (단일 에이전트)",
+        "custom": "커스텀 (빌더 설계)"
       }
     },
     "detailPanel": {
@@ -663,7 +726,11 @@
       "projectSkills": "프로젝트 ({{count}})",
       "pluginSkills": "플러그인 ({{count}})",
       "noSkills": "설치된 스킬 없음",
-      "skillsLoading": "스킬 불러오는 중…"
+      "skillsLoading": "스킬 불러오는 중…",
+      "deleteSkillTitle": "스킬 삭제",
+      "deleteSkillConfirm": "정말 삭제하시겠습니까?",
+      "deleteSkillYes": "삭제",
+      "deleteSkillNo": "취소"
     },
     "statusBar": {
       "custom": "커스텀",

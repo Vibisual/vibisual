@@ -319,6 +319,18 @@ export const IDETabBar = memo(function IDETabBar({
           </div>
         );
           })}
+          {/* 세션 탭 바로 옆 인라인 New 버튼 — 우측 끝 + 버튼이 멀어서, 마지막 탭 옆에 바로 붙는다(크롬식). */}
+          <button
+            type="button"
+            onClick={onNewSession}
+            className="flex h-8 w-8 flex-shrink-0 items-center justify-center self-end text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300"
+            title={t('ide.tabbar.newSession')}
+          >
+            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+          </button>
         </div>
         {/* 좌/우 에지 페이드 — 가려진 방향에만 표시 (imperative class toggle) */}
         <div ref={fadeLeftRef} className="scroll-fade-left" />

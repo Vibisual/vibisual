@@ -7,7 +7,9 @@ import {
   DEFAULT_AGENT_CONFIG,
   CONTI_AGENT_RULES,
   isOpusModel,
+  resolveAliasToLatest,
 } from '@vibisual/shared';
+import type { ModelFamily } from '@vibisual/shared';
 import { HexColorPicker } from 'react-colorful';
 import { ScrollFade } from '../ScrollFade.js';
 import { useGraphStore } from '../../stores/graphStore.js';
@@ -358,6 +360,9 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
   }), [t]);
 
   const [model, setModel] = useState(base.model);
+  // §4 v2.38 — 특정 풀ID 핀. undefined = alias=latest 모드.
+  const [modelVersion, setModelVersion] = useState<string | undefined>(base.modelVersion);
+  const modelRegistry = useGraphStore((s) => s.modelRegistry);
   // v1.37 — 툴 구성은 사용자 책임 (Bash 등 자동 포함 없음).
   const [tools, setTools] = useState<string[]>([...base.tools]);
   const [permissionMode, setPermissionMode] = useState(base.permissionMode);
@@ -427,7 +432,68 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
   const handleModelChange = useCallback((v: string) => {
     setModel(v);
     if (v !== 'opus') setEffort('default');
+    // §4 v2.38 — 패밀리 변경 시 기존 modelVersion 핀 무효 → alias=latest 모드로 복귀
+    setModelVersion(undefined);
   }, []);
+
+  // §4 v2.41 — 현재 패밀리(alias) 의 버전 옵션 목록 (compact).
+  // CLI 바이너리 raw scan 결과에서 패밀리 필터 + semver 내림차순.
+  // VSCode 스타일로 **최신 + 직전 1개** 만 노출 → 총 2 + Latest(alias) + Custom = 최대 4 옵션.
+  const VERSION_OPTIONS = useMemo((): SelectOption[] => {
+    const family = (model === 'opus' || model === 'sonnet' || model === 'haiku') ? model as ModelFamily : null;
+    if (!family) return [];
+    const fams = (modelRegistry?.entries ?? []).filter((e) => e.family === family);
+    fams.sort((a, b) => {
+      const pa = /^claude-(?:opus|sonnet|haiku)-(\d+)-(\d{1,2})$/.exec(a.id);
+      const pb = /^claude-(?:opus|sonnet|haiku)-(\d+)-(\d{1,2})$/.exec(b.id);
+      const aMaj = pa ? Number(pa[1]) : 0;
+      const aMin = pa ? Number(pa[2]) : 0;
+      const bMaj = pb ? Number(pb[1]) : 0;
+      const bMin = pb ? Number(pb[2]) : 0;
+      if (aMaj !== bMaj) return bMaj - aMaj;
+      if (aMin !== bMin) return bMin - aMin;
+      return b.id.localeCompare(a.id);
+    });
+    // 최신 + 직전 1개만 (사용자가 핀한 modelVersion 이 그 둘에 없으면 추가로 포함 — 표시 유지)
+    const topTwo = fams.slice(0, 2).map((e) => e.id);
+    const visible = new Set(topTwo);
+    if (modelVersion && !visible.has(modelVersion)) visible.add(modelVersion);
+    const latestId = resolveAliasToLatest(family, modelRegistry);
+    const latestLabel = latestId
+      ? t('panel.agentConfig.modelVersion.latestWith', { defaultValue: 'Latest ({{id}})', id: latestId })
+      : t('panel.agentConfig.modelVersion.latest', { defaultValue: 'Latest (alias)' });
+    const opts: SelectOption[] = [{ value: '__latest__', description: latestLabel }];
+    for (const e of fams) {
+      if (!visible.has(e.id)) continue;
+      opts.push({ value: e.id, description: e.id });
+    }
+    opts.push({ value: '__custom__', description: t('panel.agentConfig.modelVersion.custom', { defaultValue: 'Custom…' }) });
+    return opts;
+  }, [model, modelRegistry, modelVersion, t]);
+
+  // 현재 modelVersion 이 옵션 리스트에 있는지 — 없으면 Custom 모드(사용자 직접 타이핑)
+  const isCustomVersion = useMemo(() => {
+    if (!modelVersion) return false;
+    return !(modelRegistry?.entries ?? []).some((e) => e.id === modelVersion);
+  }, [modelVersion, modelRegistry]);
+
+  const effectiveVersionValue = modelVersion
+    ? (isCustomVersion ? '__custom__' : modelVersion)
+    : '__latest__';
+
+  const handleVersionChange = useCallback((v: string) => {
+    if (v === '__latest__') setModelVersion(undefined);
+    else if (v === '__custom__') setModelVersion((prev) => prev ?? `claude-${model}-`);
+    else setModelVersion(v);
+  }, [model]);
+
+  // §4 v2.41 — Model 셀렉트 바로 아래 작은 글씨 라벨: CLI 에 실제로 전달될 모델 인자.
+  // alias 모드면 "opus[1m]" 식, 풀ID 핀이면 "claude-opus-4-7[1m]" 식.
+  const effectiveCliArg = useMemo(() => {
+    const base = modelVersion?.trim() || model;
+    const suffix = (model === 'opus' && contextWindow !== '200k') ? '[1m]' : '';
+    return base + suffix;
+  }, [model, modelVersion, contextWindow]);
 
   const removeTool = useCallback((t: string) => setTools((p) => p.filter((x) => x !== t)), []);
   const removeSkill = useCallback((s: string) => setSkills((p) => p.filter((x) => x !== s)), []);
@@ -454,10 +520,12 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
     contextWindow: isOpus && contextWindow === '200k' ? '200k' : undefined,
     // §4 v1.53 — 프리셋 트레이스 메타
     presetId,
+    // §4 v2.38 — 풀ID 핀 (undefined = alias=latest 모드)
+    modelVersion,
   }), [
     model, tools, permissionMode, permissionTimeoutPolicy, skills, color, maxTurns, isolation, effort,
     isOpus, disallowedTools, rules, customMode,
-    contextWindow, presetId,
+    contextWindow, presetId, modelVersion,
   ]);
 
   const handleSave = useCallback(async () => {
@@ -501,6 +569,35 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
             <div className="flex flex-col gap-1">
               <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.model.label')}<InfoTip text={FIELD_TIPS.model} /></label>
               <CustomSelect value={model} onChange={handleModelChange} options={MODEL_OPTIONS} />
+
+              {/* §4 v2.41 — 작은 인라인 버전 라인. `version: claude-opus-4-8 ▾` 식.
+                  native <select> 로 컴팩트 + 옵션 4개 이내 (Latest / 최신 / 직전 / Custom…) */}
+              <div className="mt-0.5 flex items-center gap-1 px-0.5 text-[10px] text-gray-500">
+                <span className="uppercase tracking-wider">{t('panel.agentConfig.modelVersion.label', { defaultValue: 'Version' })}:</span>
+                <select
+                  value={effectiveVersionValue}
+                  onChange={(e) => handleVersionChange(e.target.value)}
+                  className="cursor-pointer rounded border border-gray-700/50 bg-gray-900/40 px-1 py-0 font-mono text-[10px] text-gray-300 outline-none hover:border-gray-600 focus:border-blue-500"
+                >
+                  {VERSION_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>{o.description}</option>
+                  ))}
+                </select>
+                {/* alias 모드일 때 → 실제 전달 인자 미리보기 */}
+                {modelVersion === undefined && (
+                  <span className="font-mono text-gray-600">→ {effectiveCliArg}</span>
+                )}
+                {isCustomVersion && (
+                  <input
+                    type="text"
+                    value={modelVersion ?? ''}
+                    onChange={(e) => setModelVersion(e.target.value)}
+                    placeholder={`claude-${model}-X-Y`}
+                    className="flex-1 rounded border border-gray-700 bg-gray-900 px-1.5 py-0 font-mono text-[10px] text-gray-200 placeholder:text-gray-600 focus:border-blue-500 focus:outline-none"
+                  />
+                )}
+              </div>
+
               {/* §4 v1.53 — Opus 1M 컨텍스트 토글. 기본 ON (undefined === checked). uncheck 시 '200k' opt-out 저장 */}
               {isOpusModel(model) && (
                 <label className="mt-1 flex cursor-pointer items-center gap-2 rounded border border-gray-700/60 bg-gray-900/40 px-2.5 py-1.5 hover:border-gray-600">
@@ -512,9 +609,6 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                   />
                   <span className="text-xs text-gray-300">
                     {t('panel.agentConfig.contextWindow.oneMillion', { defaultValue: '1M context window' })}
-                  </span>
-                  <span className="ml-auto rounded bg-blue-500/15 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-blue-400">
-                    Opus 4.7
                   </span>
                 </label>
               )}

@@ -1,6 +1,6 @@
 {
   "name": "vibisual",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "AI agent activity visualizer with bubble maps",
   "license": "Apache-2.0",
@@ -16,7 +16,10 @@
     "build": "pnpm --filter=@vibisual/shared --filter=@vibisual/server --filter=@vibisual/client -r build && pnpm --filter @vibisual/desktop build",
     "build:win": "pnpm --filter=@vibisual/shared --filter=@vibisual/server --filter=@vibisual/client -r build && pnpm --filter @vibisual/desktop dist:win",
     "build:mac": "pnpm --filter=@vibisual/shared --filter=@vibisual/server --filter=@vibisual/client -r build && pnpm --filter @vibisual/desktop dist:mac",
-    "build:linux": "pnpm --filter=@vibisual/shared --filter=@vibisual/server --filter=@vibisual/client -r build && pnpm --filter @vibisual/desktop dist:linux"
+    "build:linux": "pnpm --filter=@vibisual/shared --filter=@vibisual/server --filter=@vibisual/client -r build && pnpm --filter @vibisual/desktop dist:linux",
+    "release:win": "pnpm --filter=@vibisual/shared --filter=@vibisual/server --filter=@vibisual/client -r build && pnpm --filter @vibisual/desktop publish:win",
+    "release:mac": "pnpm --filter=@vibisual/shared --filter=@vibisual/server --filter=@vibisual/client -r build && pnpm --filter @vibisual/desktop publish:mac",
+    "release:linux": "pnpm --filter=@vibisual/shared --filter=@vibisual/server --filter=@vibisual/client -r build && pnpm --filter @vibisual/desktop publish:linux"
   },
   "engines": {
     "node": ">=20.0.0"
