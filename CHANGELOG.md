@@ -7,11 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.2] - 2026-05-29
-
-### Fixed
-- App icon reverted to the default Electron icon on builds produced in CI (and therefore on auto-updated installs). The brand icon is embedded into `Vibisual.exe` with `rcedit`, which the GitHub Actions runners couldn't locate (no winCodeSign cache). The `rcedit` binary now ships as a build dependency, so every build — local and CI — embeds the icon.
-
 ## [0.1.1] - 2026-05-29
 
 ### Added
@@ -28,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Custom agent settings** were streamlined around the dynamic model selection.
 
 ### Fixed
+- Auto-update installs silently (one-click) and restarts on its own — no installer wizard, no "Failed to uninstall old application files" error.
+- The brand app icon is embedded into the executable on every build (local and CI) via a bundled `rcedit`, so installed/updated builds no longer fall back to the default Electron icon.
 - IDE window no longer overlays onto other projects; each project keeps its own window state independently.
 - Custom delegation edge dispatch no longer fails with 401 Unauthorized. The loopback hook listener now exempts the `/api/task-edges/dispatch` route from the per-launch token gate, since external `claude` subagent processes have no channel to receive that token. The route remains safe because the listener binds to 127.0.0.1 only and the dispatch handler still validates the edge ID and target agent.
 - Local dev-server detection and embedded preview matching were hardened (inline `node -e` servers, positional-port commands, and probe commands like `curl` are now handled correctly).
@@ -35,6 +32,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - Dropped preset options from the custom agent settings.
 
-[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.1.2...HEAD
-[0.1.2]: https://github.com/Vibisual/vibisual/compare/v0.1.1...v0.1.2
+[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.1.1...HEAD
 [0.1.1]: https://github.com/Vibisual/vibisual/compare/v0.1.0...v0.1.1

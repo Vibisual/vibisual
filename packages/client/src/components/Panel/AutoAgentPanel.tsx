@@ -94,6 +94,9 @@ export const AutoAgentPanel = memo(function AutoAgentPanel({ node }: AutoAgentPa
         </button>
       </div>
 
+      {/* 설명 — 하네스 설정 전용 자동 툴 */}
+      <p className="text-[11px] leading-relaxed text-gray-500">{t('panel.autoAgent.description')}</p>
+
       {/* 진행 상태 라인 */}
       <div className={`flex items-center gap-2 rounded border px-2.5 py-1.5 text-xs ${
         phase === 'completed' ? 'border-emerald-700 bg-emerald-950/30 text-emerald-300'
