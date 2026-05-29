@@ -190,6 +190,14 @@ function mergeSnapshots(a: GraphSnapshot, b: GraphSnapshot): GraphSnapshot {
     recentToolDurations: { ...(a.recentToolDurations ?? {}), ...(b.recentToolDurations ?? {}) },
     compactCounts: { ...(a.compactCounts ?? {}), ...(b.compactCounts ?? {}) },
     rateLimits: b.rateLimits ?? a.rateLimits,
+    // §5.5 #17-4 v2.36 — 스킬 사용 카운트는 projectName 1차 키 → 단순 spread 안전.
+    // 같은 projectName 이 양쪽에 들어올 가능성 ❌ (각 ProjectGraph 가 primary 하나).
+    skillUsageCounts: (() => {
+      const av = a.skillUsageCounts;
+      const bv = b.skillUsageCounts;
+      if (!av && !bv) return undefined;
+      return { ...(av ?? {}), ...(bv ?? {}) };
+    })(),
   };
 }
 
@@ -276,6 +284,8 @@ function relabelSubSnapshot(snap: GraphSnapshot, from: string, to: string): Grap
     gitDirty: renameKey(snap.gitDirty),
     layoutBoundsByProject: renameKey(snap.layoutBoundsByProject),
     commentBoxes: snap.commentBoxes?.map((c) => (c.projectName === from ? { ...c, projectName: to } : c)),
+    // §5.5 #17-4 v2.36 — projectName 1차 키 relabel.
+    skillUsageCounts: renameKey(snap.skillUsageCounts),
   };
 }
 
@@ -872,6 +882,13 @@ export class ProjectGraphManager {
     for (const i of this.instances.values()) i.recordCompact(sessionId);
   }
 
+  /** §5.5 #17-4 v2.36 — 명령 텍스트에서 `/skill-name` 매칭마다 사용 카운트 증분. */
+  recordSkillUsageFromCommandText(sessionId: string, text: string): void {
+    const inst = this.getInstanceForSession(sessionId);
+    if (inst) { inst.recordSkillUsageFromCommandText(text); return; }
+    // fallback: 어디에도 매핑 안 되면 무시 (orphan session — 보통 발생 안 함)
+  }
+
   /** §4 v1.50 — Claude.ai 한도 사용률 갱신 (글로벌, statusline 외부 푸시). */
   setRateLimits(info: Partial<Omit<RateLimitInfo, 'updatedAt'>>): void {
     this.globalRateLimits = {
@@ -941,6 +958,51 @@ export class ProjectGraphManager {
       return this.primaryInstance()!.createCustomAgent(label, position, projectName);
     }
     return inst.createCustomAgent(label, position, projectName);
+  }
+
+  /** §5.3 #10-2 v2.37 — Auto Agent 메타 버블 생성 위임. createCustomAgent 와 동일한 인스턴스 라우팅. */
+  createAutoAgent(
+    label: string,
+    position?: { x: number; y: number },
+    projectName?: string | null,
+  ): BubbleData {
+    const inst = projectName
+      ? (this.getInstanceByName(projectName) ?? this.primaryInstance())
+      : this.primaryInstance();
+    if (!inst) {
+      this.registerProject(process.cwd());
+      return this.primaryInstance()!.createAutoAgent(label, position, projectName);
+    }
+    return inst.createAutoAgent(label, position, projectName);
+  }
+
+  /** §5.3 #10-2 v2.37 — auto-agent sessionId 로 인스턴스 검색해 요약 메타 조회 */
+  getAutoAgentSummary(autoAgentSessionId: string): import('@vibisual/shared').AutoAgentSummary | null {
+    for (const inst of this.instances.values()) {
+      const s = inst.getAutoAgentSummary(autoAgentSessionId);
+      if (s) return s;
+    }
+    return null;
+  }
+
+  /** §5.3 #10-2 v2.37 — 요약 메타 부분 갱신 */
+  updateAutoAgentSummary(
+    autoAgentSessionId: string,
+    patch: Partial<import('@vibisual/shared').AutoAgentSummary>,
+  ): import('@vibisual/shared').AutoAgentSummary | null {
+    for (const inst of this.instances.values()) {
+      const updated = inst.updateAutoAgentSummary(autoAgentSessionId, patch);
+      if (updated) return updated;
+    }
+    return null;
+  }
+
+  /** §5.3 #10-2 v2.37 — 어느 인스턴스가 이 auto-agent 를 소유하는지 조회 (projectName 조회용) */
+  findInstanceByAutoAgentSession(autoAgentSessionId: string): ProjectGraph | null {
+    for (const inst of this.instances.values()) {
+      if (inst.getAutoAgentSummary(autoAgentSessionId)) return inst;
+    }
+    return null;
   }
 
   createPipeline(

@@ -111,6 +111,15 @@ export type {
   ClaudeInstallProgress,
   AgentViewRosterEntry,
   AgentViewJobState,
+  AutoAgentRole,
+  AutoAgentTopology,
+  AutoAgentComplexity,
+  AutoAgentPhase,
+  AutoAgentTemplate,
+  AutoAgentTopologyPreset,
+  AutoAgentClarifyingQuestion,
+  AutoAgentSummary,
+  AutoAgentSpawnedNode,
 } from './types.js';
 
 export type { ModelPricing } from './constants.js';
@@ -237,6 +246,12 @@ export {
   CANVAS_CLIPBOARD_SCHEMA_VERSION,
   CANVAS_CLIPBOARD_DEFAULT_PASTE_OFFSET,
   DIAGNOSTIC_LOG_MAX,
+  AUTO_AGENT_LAYOUT_RADIUS,
+  AUTO_AGENT_MAX_CLARIFYING_QUESTIONS,
+  AUTO_AGENT_ROLE_POLICY,
+  AUTO_AGENT_TEMPLATES,
+  AUTO_AGENT_TOPOLOGY_PRESETS,
+  AUTO_AGENT_DEFAULT_RULES,
 } from './constants.js';
 
 // §5.3 #28 v1.60 — STAMP_CATALOG 메타 타입 (constants.ts 에 정의됨)

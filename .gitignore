@@ -93,9 +93,21 @@ $RECYCLE.BIN/
 # Test / coverage
 coverage/
 .nyc_output/
+# Source tree must not contain test folders (build & ship code only)
+__tests__/
 
 # Vite cache
 .vite/
 
 # TypeScript
 *.tsbuildinfo
+
+# === Private dev assets (Claude / mddbai / SSOT) — NEVER PUBLISH ===
+/CLAUDE.md
+/docs/SCENARIO.md
+/docs/KEYWORD_GRAPH.md
+/docs/rules/
+/docs/conti-vibisual-usage-scenario.json
+
+/scripts/*.mjs
+dev/

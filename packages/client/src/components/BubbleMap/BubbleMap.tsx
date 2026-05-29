@@ -349,6 +349,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
   // 캔버스 우클릭 컨텍스트 메뉴
   const [ctxMenu, setCtxMenu] = useState<{ screenX: number; screenY: number; canvasX: number; canvasY: number } | null>(null);
   const createCustomAgent = useGraphStore((s) => s.createCustomAgent);
+  const createAutoAgent = useGraphStore((s) => s.createAutoAgent);
   const createPipeline = useGraphStore((s) => s.createPipeline);
   const createWorktree = useGraphStore((s) => s.createWorktree);
   const pendingWorktrees = useGraphStore((s) => s.pendingWorktrees);
@@ -1472,6 +1473,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
           canvasX={ctxMenu.canvasX}
           canvasY={ctxMenu.canvasY}
           onCreateCustomAgent={createCustomAgent}
+          onCreateAutoAgent={createAutoAgent}
           onCreatePipeline={createPipeline}
           onCreateWorktree={createWorktree}
           onClose={handleCtxClose}

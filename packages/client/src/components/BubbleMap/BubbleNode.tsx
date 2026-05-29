@@ -68,6 +68,12 @@ const ICON_PATHS: Record<BubbleStyleConfig['icon'], { viewBox: string; d: string
     d: 'M3 4h7v7H3zM14 4h7v7h-7zM3 13h7v7H3zM14 13h7v7h-7z',
     fill: false,
   },
+  // Auto Agent (메타 에이전트) — 별 + 작은 회전 점 (병행 작업 stub)
+  auto: {
+    viewBox: '0 0 24 24',
+    d: 'M12 2l1.5 4.5L18 8l-4.5 1.5L12 14l-1.5-4.5L6 8l4.5-1.5L12 2z M19 16l.7 1.8L21.5 19l-1.8.7L19 22l-.7-1.8L16.5 19l1.8-.7L19 16z',
+    fill: false,
+  },
 };
 
 function BubbleIcon({ icon, px }: { icon: BubbleStyleConfig['icon']; px?: number }): React.JSX.Element {

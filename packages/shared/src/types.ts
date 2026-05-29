@@ -123,7 +123,7 @@ export type NodeStatus =
   | 'awaiting_permission';
 
 /** 버블 타입 — 시각 카테고리 */
-export type BubbleType = 'agent' | 'internal_folder' | 'external_folder' | 'file' | 'bash' | 'root' | 'back' | 'ghost' | 'iframe' | 'pipeline' | 'worktree' | 'conti';
+export type BubbleType = 'agent' | 'internal_folder' | 'external_folder' | 'file' | 'bash' | 'root' | 'back' | 'ghost' | 'iframe' | 'pipeline' | 'worktree' | 'conti' | 'auto';
 
 // ─── Git Status (§7.6 GitStatusCard) ───
 
@@ -396,7 +396,7 @@ export interface GhostInfo {
 export interface BubbleStyleConfig {
   color: string;
   glow: string;
-  icon: 'agent' | 'folder' | 'file' | 'terminal' | 'root' | 'back' | 'ghost' | 'iframe' | 'pipeline' | 'conti';
+  icon: 'agent' | 'folder' | 'file' | 'terminal' | 'root' | 'back' | 'ghost' | 'iframe' | 'pipeline' | 'conti' | 'auto';
   ringIdle: string;
   ringActive: string;
 }
@@ -836,7 +836,9 @@ export type WSMessageType =
   | 'claude_install_progress'
   // §5.3 #12-2 v2.26 — AskUserQuestion IDE 인라인 카드
   | 'ask_user_question'
-  | 'ask_user_question_resolved';
+  | 'ask_user_question_resolved'
+  // §5.3 #10-2 v2.37 — Auto Agent 진행/완료 신호 (요약은 graph_snapshot.autoAgentSummaries 로 전달)
+  | 'auto_agent_progress';
 
 /** §5.3 #28 v1.47 — 콘티 생성/패치 완료 토스트용 페이로드. 본체는 graph_snapshot 에서 받는다. */
 export interface ContiEventPayload {
@@ -1318,6 +1320,22 @@ export interface GraphSnapshot {
 
   /** §4 v1.98 — 진단 에러 로그 (글로벌 ring buffer, 최신순). 영속화 ❌ — 런타임 캐시. */
   diagnosticLog?: DiagnosticEntry[];
+
+  /**
+   * §5.5 #17-4 v2.36 — 프로젝트별 스킬 사용 카운트 (projectName → skillName → count).
+   * 같은 스킬명이 여러 프로젝트에서 충돌하지 않도록 projectName 으로 1차 키.
+   * `POST /api/commands/:sessionId` 가 명령 텍스트 줄머리 `/skill-name` 매칭마다 증분.
+   * SkillsView 가 `agentProjects[agentId]` 로 프로젝트 키 조회 후 정렬·배지에 사용.
+   */
+  skillUsageCounts?: Record<string, Record<string, number>>;
+
+  /**
+   * §5.3 #10-2 v2.37 — Auto Agent 가 spawn 한 커스텀 에이전트 군의 메타.
+   * key = auto-agent 의 sessionId (예: `auto-...`).
+   * 클라가 auto-agent 버블의 진행 상태/요약 슬롯 렌더에 사용.
+   * 미설정 시 빈 맵.
+   */
+  autoAgentSummaries?: Record<string, AutoAgentSummary>;
 }
 
 /** 폴더 내 파일/디렉토리 엔트리 (폴더 트리 표시용) */
@@ -1474,6 +1492,20 @@ export interface ProjectCheckpoint {
    * 에이전트 삭제 시 cascade. 빈 맵이거나 미설정 시 모두 유효.
    */
   contis?: Record<string, Conti>;
+
+  /**
+   * §5.5 #17-4 v2.36 — 프로젝트별 스킬 사용 카운트 (skillName → count).
+   * 명령 텍스트 줄머리 `/skill-name` 매칭 시 증분. SkillsView 정렬·배지에 사용.
+   * optional — 구버전 체크포인트 하위호환. 미설정이면 빈 맵으로 복원.
+   */
+  skillUsageCounts?: Record<string, number>;
+
+  /**
+   * §5.3 #10-2 v2.37 — Auto Agent 가 spawn 한 커스텀 에이전트 군의 요약 메타.
+   * key = auto-agent sessionId. optional — 구버전 체크포인트 하위 호환.
+   * 미설정이면 빈 맵으로 복원. 영속 대상(사용자 산출물 트레이스).
+   */
+  autoAgentSummaries?: Record<string, AutoAgentSummary>;
 }
 
 // ─── Token Usage ───
@@ -1856,4 +1888,146 @@ export interface SessionTokenData {
   turns: TurnTokenUsage[];
   /** 카테고리별 추정 분류 (최신 턴 기준, 내림차순) */
   categories: TokenCategoryEstimate[];
+}
+
+// ─── §5.3 #10-2 v2.37 — Auto Agent (메타 에이전트) ───
+
+/**
+ * Auto Agent 가 spawn 할 수 있는 커스텀 에이전트의 역할 카탈로그.
+ * 새 역할 추가 시 유니온 한 줄 + `AUTO_AGENT_ROLE_POLICY` 한 줄.
+ */
+export type AutoAgentRole =
+  | 'pm'
+  | 'planner'
+  | 'architect'
+  | 'coder'
+  | 'reviewer'
+  | 'tester'
+  | 'researcher'
+  | 'doc-writer'
+  | 'deep-interviewer';
+
+/**
+ * Auto Agent 가 선택할 수 있는 토폴로지 카탈로그.
+ * pipeline=직선 체인, team=PM 허브+워커, ralph=team+critique 루프, autopilot=단일 슈퍼.
+ */
+export type AutoAgentTopology = 'pipeline' | 'team' | 'ralph' | 'autopilot';
+
+/** 사용자 요청의 복잡도 휴리스틱 판정값 */
+export type AutoAgentComplexity = 'low' | 'medium' | 'high';
+
+/** Auto Agent 의 진행 상태 (UI 진행 표시용) */
+export type AutoAgentPhase =
+  | 'idle'
+  | 'analyzing'
+  | 'asking'
+  | 'spawning'
+  | 'dispatching'
+  | 'running'
+  | 'completed'
+  | 'error';
+
+/**
+ * 역할별 기본 AgentConfig 템플릿.
+ * `AUTO_AGENT_TEMPLATES[role]` 로 조회, `AUTO_AGENT_ROLE_POLICY[role]` 가 partial AgentConfig 를 정의.
+ */
+export interface AutoAgentTemplate {
+  role: AutoAgentRole;
+  /** 사용자에게 보일 영문 라벨 (예: "Coder", "Reviewer") */
+  label: string;
+  /** 역할 설명 (auto-agent 가 토폴로지 결정 시 참조) */
+  description: string;
+  /** 이 역할로 spawn 될 때 기본으로 들어갈 AgentConfig partial */
+  config: Partial<AgentConfig>;
+}
+
+/**
+ * 토폴로지 프리셋 — 어떤 role 들을 어떤 엣지로 연결할지.
+ * `nodes.entry === true` 인 노드가 사용자 메시지 forward 대상(=엔트리).
+ * 정확히 1개의 entry 필수.
+ */
+export interface AutoAgentTopologyPreset {
+  topology: AutoAgentTopology;
+  /** 사용자 라벨 (예: "Team — PM hub + workers") */
+  label: string;
+  /** 짧은 설명 */
+  description: string;
+  /** 이 토폴로지로 spawn 할 노드 정의 */
+  nodes: {
+    role: AutoAgentRole;
+    /** auto-agent 버블 기준 각도(도, 0=오른쪽, 시계 반대) — 원형 자동 배치용 */
+    offsetAngleDeg: number;
+    /** 정확히 1개의 노드만 entry=true */
+    entry?: boolean;
+  }[];
+  /** 노드 간 엣지 정의 (role 기준 — auto-agent 가 실제 spawn 후 id 로 치환) */
+  edges: {
+    from: AutoAgentRole;
+    to: AutoAgentRole;
+    kind: TaskEdgeKind;
+    returnFormat?: TaskEdgeReturnFormat;
+    /** kind='critique' 일 때만 의미 — force-rework=자매 auto-rework 엣지 자동 동반 */
+    critiqueAuthority?: TaskEdgeCritiqueAuthority;
+    /** kind='command' 일 때만 의미 — shared/tool-delegation/mode-delegation */
+    commandMode?: TaskEdgeCommandMode;
+  }[];
+}
+
+/**
+ * Auto Agent 가 사용자에게 띄우는 명확화 질문 1개.
+ * IDE 인라인 카드(§5.3 #12-2 AskUserQuestion 패턴 재사용) 또는 간이 panel 둘 다 호환.
+ */
+export interface AutoAgentClarifyingQuestion {
+  /** 질문 텍스트 */
+  question: string;
+  /** 옵션 라벨 (1~4개). 빈 배열이면 자유 입력만. */
+  options: { label: string; description?: string }[];
+  /** true 면 다중 선택 */
+  multiSelect: boolean;
+  /** 사용자가 입력한 답 (resolve 후 채워짐) */
+  answer?: { selectedLabels: string[]; note?: string };
+}
+
+/**
+ * Auto Agent 1회 요청의 완전한 메타.
+ * key = auto-agent 의 sessionId. ProjectCheckpoint·GraphSnapshot 양쪽 동치.
+ */
+export interface AutoAgentSummary {
+  /** auto-agent 버블의 sessionId (= 영속화 키) */
+  autoAgentId: string;
+  /** 휴리스틱 판정 결과 */
+  complexity: AutoAgentComplexity;
+  /** 선택된 토폴로지 */
+  topology: AutoAgentTopology;
+  /** spawn 된 커스텀 에이전트들의 sessionId 목록 (생성 순서) */
+  spawnedAgentIds: string[];
+  /** 그중 사용자 메시지 forward 대상 entry agent 의 sessionId */
+  entryAgentId: string;
+  /** 사용자가 보낸 원본 요청 (1회) */
+  userRequest: string;
+  /** asking 단계에서 발사된 명확화 질문들 (high 복잡도 + 토글 ON 일 때만 채워짐) */
+  questionsAsked?: AutoAgentClarifyingQuestion[];
+  /** 현재 진행 단계 */
+  phase: AutoAgentPhase;
+  /** 완료 시 1~2문 요약 (auto-agent 버블 summary 슬롯에 표시) */
+  finalSummary?: string;
+  /** 에러 발생 시 메시지 */
+  errorMessage?: string;
+  /** 요청 시작 시각 (ms) */
+  startedAt: number;
+  /** 완료 시각 (ms) — 미완료 시 undefined */
+  completedAt?: number;
+  /** 명확화 질문 토글 — true 면 high 복잡도에서 질문 발사. 기본 true. */
+  askQuestionsEnabled: boolean;
+}
+
+/**
+ * Auto Agent 가 spawn 한 노드 1개의 결과 (런타임 처리용 내부 타입).
+ * 영속화 ❌ — `autoAgentSummaries.spawnedAgentIds` 만 영속.
+ */
+export interface AutoAgentSpawnedNode {
+  role: AutoAgentRole;
+  agentId: string;
+  sessionId: string;
+  position: { x: number; y: number };
 }

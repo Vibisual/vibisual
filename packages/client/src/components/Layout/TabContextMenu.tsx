@@ -1,7 +1,7 @@
 import { memo, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 
-export type TabContextAction = 'close' | 'closeOthers' | 'closeRight' | 'closeAll' | 'togglePin' | 'toggleDefault';
+export type TabContextAction = 'close' | 'closeOthers' | 'closeRight' | 'closeAll' | 'togglePin' | 'toggleDefault' | 'detach';
 
 interface TabContextMenuProps {
   x: number;
@@ -10,6 +10,8 @@ interface TabContextMenuProps {
   isDefault: boolean;
   hasOthers: boolean;
   hasRight: boolean;
+  /** §5.4 #14-1 — 별창 분리 메뉴 노출 여부. 기본 true. IDE 서브에이전트 탭 등에선 false. */
+  showDetach?: boolean;
   onAction: (key: TabContextAction) => void;
   onClose: () => void;
 }
@@ -21,6 +23,7 @@ export const TabContextMenu = memo(function TabContextMenu({
   isDefault,
   hasOthers,
   hasRight,
+  showDetach = true,
   onAction,
   onClose,
 }: TabContextMenuProps): React.JSX.Element {
@@ -67,6 +70,16 @@ export const TabContextMenu = memo(function TabContextMenu({
       label: isDefault ? t('tabMenu.unsetDefault') : t('tabMenu.setDefault'),
       tooltip: t('tabMenu.defaultTooltip'),
     },
+    // §5.4 #14-1 (v2.29) — Drag-out 외에 컨텍스트 메뉴로도 분리 가능. showDetach=false 면 항목 제외.
+    ...(showDetach
+      ? [
+          {
+            key: 'detach' as const,
+            label: t('tabMenu.detach', { defaultValue: 'Detach to new window' }),
+            separatorAbove: true,
+          },
+        ]
+      : []),
   ];
 
   const handleClick = (action: TabContextAction, disabled?: boolean): void => {

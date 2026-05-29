@@ -4,9 +4,10 @@
  * Hook 에이전트의 Agent 탭(기존 TerminalLine)과 분리.
  * assistant text → 마크다운 렌더링, tool_use/tool_result → 접이식 그룹.
  */
-import { memo, useState, useMemo } from 'react';
+import { memo, useState, useMemo, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import Markdown from 'react-markdown';
+import type { Components } from 'react-markdown';
 import type { SubAgentStreamEvent, QueuedCommand } from '@vibisual/shared';
 
 // ─── 타입 ───
@@ -232,14 +233,68 @@ function buildStreamItems(events: SubAgentStreamEvent[], commands?: QueuedComman
   return items;
 }
 
+// ─── 마크다운 커스텀 렌더러 ───
+
+/** 펜스드/인덴트 코드 블록 — 우상단 호버 시 복사 버튼.
+ *  react-markdown 의 `pre` 슬롯 교체. 내부 `<code>` 는 그대로 children 으로 받는다.
+ *  텍스트 추출은 ref 의 `textContent` 로 — 중첩 syntax 토큰까지 한 번에 잡힌다. */
+function CodeBlock({ children, ...rest }: React.HTMLAttributes<HTMLPreElement>): React.JSX.Element {
+  const { t } = useTranslation();
+  const preRef = useRef<HTMLPreElement>(null);
+  const [copied, setCopied] = useState(false);
+  const timerRef = useRef<number | null>(null);
+
+  const onCopy = useCallback(() => {
+    const text = preRef.current?.textContent ?? '';
+    if (!text) return;
+    void navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+      timerRef.current = window.setTimeout(() => setCopied(false), 1400);
+    }).catch(() => { /* clipboard 권한 거부 — 조용히 무시 */ });
+  }, []);
+
+  return (
+    <div className="group/code relative">
+      <pre ref={preRef} {...rest}>{children}</pre>
+      <button
+        type="button"
+        onClick={onCopy}
+        title={copied ? t('ide.streamRenderer.copied') : t('ide.streamRenderer.copy')}
+        aria-label={copied ? t('ide.streamRenderer.copied') : t('ide.streamRenderer.copy')}
+        className={`absolute right-1.5 top-1.5 inline-flex items-center gap-1 rounded border px-1.5 py-1 text-[10px] font-medium transition-opacity ${
+          copied
+            ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300 opacity-100'
+            : 'border-white/10 bg-gray-900/70 text-gray-300 opacity-0 group-hover/code:opacity-100 hover:border-white/20 hover:bg-gray-800/80 hover:text-gray-100 focus:opacity-100'
+        }`}
+      >
+        {copied ? (
+          // check
+          <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+        ) : (
+          // copy (overlapping squares)
+          <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect x="9" y="9" width="11" height="11" rx="2" />
+            <path d="M5 15V5a2 2 0 0 1 2-2h10" />
+          </svg>
+        )}
+      </button>
+    </div>
+  );
+}
+
+const mdComponents: Components = { pre: CodeBlock };
+
 // ─── 개별 렌더러 ───
 
 /** assistant 텍스트 → 마크다운 */
 const TextBlock = memo(function TextBlock({ item }: { item: StreamText }): React.JSX.Element {
   return (
     <div className="px-4 py-2">
-      <div className="ide-md prose prose-invert prose-sm max-w-none leading-relaxed prose-p:my-1.5 prose-p:leading-relaxed prose-pre:my-2 prose-pre:bg-gray-800/80 prose-pre:text-[12px] prose-headings:text-gray-100 prose-headings:text-[15px] prose-li:my-1 prose-strong:text-gray-100">
-        <Markdown>{item.content}</Markdown>
+      <div className="ide-md prose prose-invert prose-sm max-w-none leading-relaxed prose-p:my-1.5 prose-p:leading-relaxed prose-pre:my-2 prose-headings:text-gray-100 prose-headings:text-[15px] prose-li:my-1 prose-strong:text-gray-100">
+        <Markdown components={mdComponents}>{item.content}</Markdown>
       </div>
     </div>
   );
@@ -390,7 +445,7 @@ function ResultBlock({ item }: { item: StreamResult }): React.JSX.Element {
   return (
     <div className="mx-2 my-1 rounded-md border border-emerald-500/20 bg-emerald-500/5 px-4 py-2.5">
       <div className="ide-md prose prose-invert prose-sm max-w-none leading-relaxed prose-p:my-1.5 prose-p:leading-relaxed prose-strong:text-gray-100">
-        <Markdown>{item.content}</Markdown>
+        <Markdown components={mdComponents}>{item.content}</Markdown>
       </div>
     </div>
   );
@@ -412,7 +467,7 @@ function CommandBlock({ item }: { item: StreamCommand }): React.JSX.Element {
           isError ? 'border-red-500/20 bg-red-500/5' : 'border-emerald-500/20 bg-emerald-500/5'
         }`}>
           <div className="ide-md prose prose-invert prose-sm max-w-none leading-relaxed prose-p:my-1.5 prose-p:leading-relaxed">
-            <Markdown>{item.result}</Markdown>
+            <Markdown components={mdComponents}>{item.result}</Markdown>
           </div>
         </div>
       )}

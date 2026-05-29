@@ -33,6 +33,42 @@
       "file": "파일",
       "openFolder": "폴더 열기..."
     },
+    "autoAgent": {
+      "title": "오토 에이전트",
+      "placeholder": "원하는 작업을 자연어로 설명 — 예: \"대시보드에 OAuth 로그인 추가해줘\"",
+      "send": "보내기",
+      "shortcutHint": "Ctrl/Cmd + Enter 로 보내기",
+      "toggleQuestionsTip": "켜면 복잡한 요청에 대해 명확화 질문을 먼저 던지고 spawn 합니다.",
+      "questionsOn": "복잡하면 질문",
+      "questionsOff": "질문 건너뛰기",
+      "clarifying": "에이전트 군을 만들기 전에 몇 가지 명확히 해주세요",
+      "notePlaceholder": "메모 (선택)",
+      "submitAnswers": "답변 제출",
+      "summary": "요약",
+      "spawnedCount": "서브 에이전트 {{count}}개 생성됨",
+      "entryHint": "서브 에이전트들이 작업 중입니다. 후속은 여기서 이어서 말해주세요.",
+      "phase": {
+        "idle": "대기 중 — 요청을 입력해 시작",
+        "analyzing": "요청 분석 중…",
+        "asking": "명확화 답변 대기 중",
+        "spawning": "에이전트 생성 중…",
+        "dispatching": "엔트리 에이전트로 전달 중…",
+        "running": "서브 에이전트 작업 중",
+        "completed": "완료",
+        "error": "오류"
+      },
+      "complexity": {
+        "low": "낮은 복잡도",
+        "medium": "중간 복잡도",
+        "high": "높은 복잡도"
+      },
+      "topology": {
+        "pipeline": "파이프라인",
+        "team": "팀",
+        "ralph": "랠프 (팀 + 비평 루프)",
+        "autopilot": "오토파일럿 (단일 에이전트)"
+      }
+    },
     "detailPanel": {
       "close": "닫기",
       "closePanel": "패널 닫기",
@@ -574,9 +610,6 @@
     },
     "mainArea": {
       "scrollPrompt": "프롬프트로 이동",
-      "noSessions": "아직 세션 없음",
-      "noActivity": "이 세션에 활동 없음",
-      "startHint": "아래에 명령을 입력하여 새 세션 시작",
       "inputPlaceholderNew": "새 세션을 시작할 명령 입력...",
       "inputPlaceholder": "명령 입력...",
       "run": "실행",
@@ -586,7 +619,15 @@
       "readOnly": "읽기 전용 — 세션 탭 선택 또는 새로 만들기",
       "attachmentError": "오류",
       "statusError": "오류",
-      "statusCompleted": "완료"
+      "statusCompleted": "완료",
+      "slashHint": "↑↓ 이동 · Tab/Enter 선택 · Esc 취소",
+      "slashEmpty": "일치하는 스킬 없음",
+      "slashLoading": "스킬 불러오는 중…",
+      "ctxCopy": "복사",
+      "ctxQuoteReply": "인용 답글",
+      "ctxSendAsPrompt": "새 명령으로 전송",
+      "ctxSelectAll": "전체 선택",
+      "ctxSelectionRequired": "텍스트를 먼저 선택하세요"
     },
     "askQuestion": {
       "title": "질문",
@@ -608,7 +649,8 @@
     "activityBar": {
       "terminal": "터미널",
       "files": "파일",
-      "results": "결과"
+      "results": "결과",
+      "skills": "스킬"
     },
     "sidebar": {
       "sessions": "세션",
@@ -616,7 +658,12 @@
       "events": "이벤트 ({{count}})",
       "noFileEdits": "파일 편집 없음",
       "noEvents": "이벤트 없음",
-      "hasResult": "결과 있음"
+      "hasResult": "결과 있음",
+      "skills": "스킬 ({{count}})",
+      "projectSkills": "프로젝트 ({{count}})",
+      "pluginSkills": "플러그인 ({{count}})",
+      "noSkills": "설치된 스킬 없음",
+      "skillsLoading": "스킬 불러오는 중…"
     },
     "statusBar": {
       "custom": "커스텀",
@@ -634,7 +681,9 @@
       "clickToExpand": "클릭하여 펼치기",
       "clickToCollapse": "클릭하여 접기",
       "expand": "펼치기",
-      "collapse": "접기"
+      "collapse": "접기",
+      "copy": "복사",
+      "copied": "복사됨"
     }
   },
   "bubbleMap": {
@@ -774,7 +823,24 @@
     "pinTooltip": "고정된 탭은 다른 탭 닫기 / 오른쪽 탭 닫기 / 모두 닫기로부터 보호됩니다.",
     "setDefault": "기본값으로 설정",
     "unsetDefault": "기본값 해제",
-    "defaultTooltip": "마지막 활성 탭을 복원할 수 없을 때 기본 탭이 자동으로 열립니다."
+    "defaultTooltip": "마지막 활성 탭을 복원할 수 없을 때 기본 탭이 자동으로 열립니다.",
+    "detach": "새 창으로 분리"
+  },
+  "tabDetach": {
+    "detachHint": "탭바 밖에 놓으면 별도 창으로 분리됩니다",
+    "osDragHint": "여기를 끌어 창 위치 이동",
+    "detachCardTitle": "여기에 놓으면 별창으로 분리됩니다",
+    "detachCardSubtitle": "탭바 바깥에서 마우스를 떼세요",
+    "reorderCardSubtitle": "탭바 안에서 떼면 순서가 바뀝니다",
+    "redockHint": "여기서 떼면 다시 합쳐집니다",
+    "redockZoneHint": "여기에 놓으면 다시 합쳐집니다",
+    "redockCardTitle": "본체 탭바 위에 놓으면 다시 합쳐집니다",
+    "redockCardSubtitle": "다른 곳에 놓으면 분리 상태 유지",
+    "detachedBadge": "분리됨",
+    "closeWindow": "창 닫기",
+    "missingTitle": "탭을 사용할 수 없습니다",
+    "missingProject": "프로젝트 \"{{name}}\"이(가) 이 Vibisual 인스턴스에 로드되어 있지 않습니다.",
+    "missingIframe": "iframe 탭 \"{{id}}\"이(가) 닫혔습니다."
   },
   "canvas": {
     "stubPlaceholder": "이 프로젝트는 디스크에만 있습니다. 탭을 클릭하여 로드하세요.",
@@ -787,6 +853,8 @@
     },
     "contextMenu": {
       "createCustomAgent": "커스텀 에이전트 만들기",
+      "createAutoAgent": "오토 에이전트 만들기",
+      "createAutoAgentHint": "메타 에이전트 — 자연어 한 줄로 커스텀 에이전트 군을 자동 spawn",
       "createWorktree": "Worktree 만들기",
       "createWorktreeHint": "최신 master 기준 새 작업 공간"
     },
@@ -828,6 +896,7 @@
       "awaitingPermission": "권한 승인 대기 중",
       "awaitingInput": "입력 대기 중",
       "idle": "대기",
+      "autoIdle": "오토 에이전트 — 원하는 작업을 입력하세요",
       "hint": {
         "enter": "더블클릭하여 진입",
         "openIDE": "더블클릭하여 IDE 열기",

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { BubbleData, ActivityEdge, BashEntry, ServerEntry, AgentEvent, FileEdit, AgentPhase, ProjectInfo, QueuedCommand, SubAgent, ServerKind, PipelineType, PipelineState, AgentConfig, SubAgentStreamEvent, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, UiLocale, ProjectMetaSnapshot, AppState, AppStatePatch, CommentBox, Conti, ActiveContiWork, ToolDurationEntry, CompactCount, RateLimitInfo, DiagnosticEntry } from '@vibisual/shared';
+import type { BubbleData, ActivityEdge, BashEntry, ServerEntry, AgentEvent, FileEdit, AgentPhase, ProjectInfo, QueuedCommand, SubAgent, ServerKind, PipelineType, PipelineState, AgentConfig, SubAgentStreamEvent, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, UiLocale, ProjectMetaSnapshot, AppState, AppStatePatch, CommentBox, Conti, ActiveContiWork, ToolDurationEntry, CompactCount, RateLimitInfo, DiagnosticEntry, AutoAgentSummary } from '@vibisual/shared';
 import { DEFAULT_UI_LOCALE } from '@vibisual/shared';
 import { changeUiLocale } from '../i18n/index.js';
 import { calcFileSizeRange } from '../utils/sizeCalc.js';
@@ -113,8 +113,8 @@ export interface IframeTab {
   serverKind: ServerKind;
 }
 
-/** IDE 오버레이 사이드바 뷰 타입 */
-export type IDEViewType = 'terminal' | 'files' | 'events';
+/** IDE 오버레이 사이드바 뷰 타입 — §5.5 #17-4 v2.32 에서 'skills' 추가 */
+export type IDEViewType = 'terminal' | 'files' | 'events' | 'skills';
 
 /** IDE 오버레이 상태 — 프로젝트 단위로 독립적으로 보관 (ideOverlays[projectId]). */
 export interface IDEOverlayState {
@@ -266,6 +266,10 @@ interface GraphState {
   recentToolDurations: Record<string, ToolDurationEntry[]>;
   /** §4 v1.50 — 에이전트(session)별 컨텍스트 컴팩션 누적 카운트 + 마지막 시각. */
   compactCounts: Record<string, CompactCount>;
+  /** §5.5 #17-4 v2.36 — 프로젝트별 스킬 사용 카운트 (projectName → skillName → count). SkillsView 정렬·배지. */
+  skillUsageCounts: Record<string, Record<string, number>>;
+  /** §5.3 #10-2 v2.37 — Auto Agent 가 spawn 한 군의 요약 메타 (autoAgentSessionId → summary). */
+  autoAgentSummaries: Record<string, AutoAgentSummary>;
   /** §4 v1.50 — Claude.ai 한도 사용률 (글로벌, 외부 statusline 푸시). */
   rateLimits: RateLimitInfo | null;
   /** §4 v1.98 — 진단 에러 로그 (글로벌 ring buffer, append 순). DebugPanel 에러 뷰어용. */
@@ -352,6 +356,17 @@ interface GraphState {
   openIframeTab: (tab: IframeTab) => void;
   closeIframeTab: (id: string) => void;
   setActiveIframeTab: (id: string) => void;
+  /**
+   * SCENARIO.md §5.4 #14-1 (v2.29) — 별창으로 분리된 탭 키들.
+   * desktop main 의 windowManager 가 SSOT, IPC 'vibisual:detached:list' 푸시로 모든 윈도우 sync.
+   * 메인 TabBar 는 이 집합에 포함된 키를 렌더링에서 제외 (탭이 사라진 것처럼 보임 — 별창에서만 표시).
+   * 영속화 ❌(앱 재시작 시 비움 → 모든 탭 메인 복귀).
+   */
+  detachedTabKeys: Record<string, 'project' | 'iframe'>;
+  applyDetachedList: (list: Array<{ tabKey: string; kind: 'project' | 'iframe' }>) => void;
+  /** 별창에서만 사용 — 자기 창의 단일 탭을 강제로 활성화 (서버 patchAppState 호출 ❌). */
+  setActiveProjectLocal: (name: string | null) => void;
+  setActiveIframeIdLocal: (id: string | null) => void;
   /**
    * 탭 Pin 상태 (localStorage 영속). 키 포맷:
    * - `project:<name>` — TabBar의 프로젝트 탭
@@ -483,6 +498,17 @@ interface GraphState {
   focusOnNode: (id: string) => void;
   clearFocusNode: () => void;
   createCustomAgent: (canvasX: number, canvasY: number) => void;
+  /** §5.3 #10-2 v2.37 — Auto Agent 메타 버블 생성 */
+  createAutoAgent: (canvasX: number, canvasY: number) => void;
+  /** §5.3 #10-2 v2.37 — Auto Agent 에게 자연어 메시지 → 서버 spawn + dispatch */
+  sendMessageToAutoAgent: (autoAgentSessionId: string, text: string) => void;
+  /** §5.3 #10-2 v2.37 — Auto Agent "질문하기" 토글 */
+  toggleAutoAgentQuestions: (autoAgentSessionId: string, enabled: boolean) => void;
+  /** §5.3 #10-2 v2.37 — 명확화 질문에 사용자 답 전송 → spawn 재개 */
+  answerAutoAgentQuestions: (
+    autoAgentSessionId: string,
+    answers: { questionIndex: number; selectedLabels: string[]; note?: string }[],
+  ) => void;
   createPipeline: (type: PipelineType, canvasX: number, canvasY: number) => void;
   createWorktree: (canvasX: number, canvasY: number) => void;
   /** 서버 응답 대기 중 낙관적 worktree 버블 — 클라이언트 전용 placeholder */
@@ -519,6 +545,10 @@ interface GraphState {
     compactCounts: Record<string, CompactCount> | undefined,
     rateLimits: RateLimitInfo | undefined,
   ) => void;
+  /** §5.5 #17-4 v2.36 — graph_snapshot 의 스킬 사용 카운트 반영. */
+  applySkillUsageCounts: (counts: Record<string, Record<string, number>> | undefined) => void;
+  /** §5.3 #10-2 v2.37 — graph_snapshot 의 Auto Agent 요약 메타 반영. */
+  applyAutoAgentSummaries: (summaries: Record<string, AutoAgentSummary> | undefined) => void;
   /** §4 v1.98 — graph_snapshot 수신 시 진단 에러 로그 반영. */
   applyDiagnosticLog: (log: DiagnosticEntry[] | undefined) => void;
   /** UI에서 언어 변경 요청 — 서버 PUT /api/ui-locale 후 성공 시 applyUiLocale 호출. */
@@ -747,6 +777,8 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   activeContiWork: {},
   recentToolDurations: {},
   compactCounts: {},
+  skillUsageCounts: {},
+  autoAgentSummaries: {},
   rateLimits: null,
   diagnosticLog: [],
   contiBoardOpen: null,
@@ -1225,6 +1257,24 @@ export const useGraphStore = create<GraphState>((set, get) => ({
 
   iframeTabs: [],
   activeIframeId: null,
+  detachedTabKeys: {},
+  applyDetachedList: (list) =>
+    set(() => {
+      const next: Record<string, 'project' | 'iframe'> = {};
+      for (const e of list) next[e.tabKey] = e.kind;
+      return { detachedTabKeys: next };
+    }),
+  setActiveProjectLocal: (name) =>
+    set((state) => ({
+      activeProject: name,
+      currentProject: name ? state.projects[name] ?? null : null,
+      currentFolderId: null,
+      navStack: [],
+      selectedNodeId: null,
+      selectIntentId: null,
+      activeIframeId: null,
+    })),
+  setActiveIframeIdLocal: (id) => set(() => ({ activeIframeId: id })),
   openIframeTab: (tab) => set((state) => {
     const exists = state.iframeTabs.find((t) => t.id === tab.id);
     if (exists) return { activeIframeId: tab.id };
@@ -1330,6 +1380,36 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ label: '', x: canvasX, y: canvasY, project }),
+    }).catch(() => {});
+  },
+  // §5.3 #10-2 v2.37 — Auto Agent
+  createAutoAgent: (canvasX, canvasY) => {
+    const project = selectEffectiveProject(get());
+    fetch(`${API_BASE}/api/create-auto-agent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ label: '', x: canvasX, y: canvasY, project }),
+    }).catch(() => {});
+  },
+  sendMessageToAutoAgent: (autoAgentSessionId, text) => {
+    fetch(`${API_BASE}/api/auto-agent/${encodeURIComponent(autoAgentSessionId)}/message`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    }).catch(() => {});
+  },
+  toggleAutoAgentQuestions: (autoAgentSessionId, enabled) => {
+    fetch(`${API_BASE}/api/auto-agent/${encodeURIComponent(autoAgentSessionId)}/toggle-questions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    }).catch(() => {});
+  },
+  answerAutoAgentQuestions: (autoAgentSessionId, answers) => {
+    fetch(`${API_BASE}/api/auto-agent/${encodeURIComponent(autoAgentSessionId)}/answer-questions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ answers }),
     }).catch(() => {});
   },
   createPipeline: (type, canvasX, canvasY) => {
@@ -1524,6 +1604,8 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     compactCounts: compactCounts ?? {},
     rateLimits: rateLimits ?? null,
   }),
+  applySkillUsageCounts: (counts) => set({ skillUsageCounts: counts ?? {} }),
+  applyAutoAgentSummaries: (summaries) => set({ autoAgentSummaries: summaries ?? {} }),
   applyDiagnosticLog: (log) => set({ diagnosticLog: log ?? [] }),
   setUiLocale: async (locale) => {
     const res = await fetch(`${API_BASE}/api/ui-locale`, {

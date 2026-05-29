@@ -1,8 +1,9 @@
-import { memo, useMemo } from 'react';
+import { memo, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { SubAgent, AgentEvent, QueuedCommand, FileEdit, ActivityEdge } from '@vibisual/shared';
-import { useGraphStore, selectIDEOverlay } from '../../stores/graphStore.js';
+import { useGraphStore, selectIDEOverlay, agentSessionInputKey } from '../../stores/graphStore.js';
 import type { IDEViewType } from '../../stores/graphStore.js';
+import { useAvailableSkills, type SkillInfo } from '../../hooks/useAvailableSkills.js';
 import { ScrollFade } from '../ScrollFade.js';
 
 const EMPTY_SUBS: SubAgent[] = [];
@@ -180,12 +181,133 @@ function EventsView({ agentId }: { agentId: string }): React.JSX.Element {
   );
 }
 
+// ─── Skills view: 프로젝트 + 플러그인 스킬 목록 (§5.5 #17-4 v2.32) ───
+
+function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
+  const { t } = useTranslation();
+  const { skills, loaded } = useAvailableSkills();
+  const activeSessionId = useGraphStore((s) => selectIDEOverlay(s).activeSessionId);
+  const setAgentSessionInputText = useGraphStore((s) => s.setAgentSessionInputText);
+  // §5.5 #17-4 v2.36 — 이 에이전트가 속한 프로젝트의 카운트만 정렬·배지 표시.
+  const projectName = useGraphStore((s) => s.agentProjects[agentId]);
+  const projectCounts = useGraphStore((s) =>
+    projectName ? (s.skillUsageCounts[projectName] ?? null) : null,
+  );
+
+  const { projectSkills, pluginSkills } = useMemo(() => {
+    const getCount = (name: string): number => projectCounts?.[name] ?? 0;
+    // 같은 섹션 내 정렬: count desc → name asc.
+    const cmp = (a: SkillInfo, b: SkillInfo): number => {
+      const d = getCount(b.name) - getCount(a.name);
+      return d !== 0 ? d : a.name.localeCompare(b.name);
+    };
+    const project: SkillInfo[] = [];
+    const plugin: SkillInfo[] = [];
+    for (const s of skills) {
+      if (s.source === 'project') project.push(s);
+      else plugin.push(s);
+    }
+    project.sort(cmp);
+    plugin.sort(cmp);
+    return { projectSkills: project, pluginSkills: plugin };
+  }, [skills, projectCounts]);
+
+  const insertSkill = useCallback((skill: SkillInfo) => {
+    const key = agentSessionInputKey(agentId, activeSessionId);
+    const existing = useGraphStore.getState().agentSessionInputs[key]?.text ?? '';
+    const insert = `/${skill.name} `;
+    const next = existing.length > 0 ? `${insert}\n${existing}` : insert;
+    setAgentSessionInputText(agentId, activeSessionId, next);
+    // textarea 자동 focus — §5.5 #17-3 의 data-ide-input 셀렉터 재사용.
+    requestAnimationFrame(() => {
+      const sessionAttr = activeSessionId ?? '';
+      const ta = document.querySelector<HTMLTextAreaElement>(
+        `textarea[data-ide-input="${agentId}"][data-ide-input-session="${sessionAttr}"]`,
+      );
+      if (!ta) return;
+      ta.focus();
+      ta.setSelectionRange(ta.value.length, ta.value.length);
+      ta.style.height = 'auto';
+      ta.style.height = `${Math.min(ta.scrollHeight, 120)}px`;
+    });
+  }, [agentId, activeSessionId, setAgentSessionInputText]);
+
+  const renderSkill = useCallback((s: SkillInfo) => {
+    const accentText = s.source === 'project' ? 'text-emerald-400' : 'text-purple-400';
+    const count = projectCounts?.[s.name] ?? 0;
+    return (
+      <li
+        key={`${s.source}:${s.name}`}
+        className="cursor-pointer rounded px-2 py-1.5 transition-colors hover:bg-gray-700/60"
+        onClick={() => insertSkill(s)}
+        title={s.description}
+      >
+        <div className="flex items-center gap-1.5">
+          <span className={`truncate font-mono text-[11px] font-semibold ${accentText}`}>
+            /{s.name}
+          </span>
+          {s.source === 'plugin' && s.pluginName && (
+            <span className="flex-shrink-0 rounded bg-purple-500/15 px-1 py-0.5 text-[9px] uppercase tracking-wide text-purple-400/80">
+              {s.pluginName}
+            </span>
+          )}
+          {count > 0 && (
+            <span className="ml-auto flex-shrink-0 rounded bg-blue-500/15 px-1 py-0.5 font-mono text-[9px] font-semibold text-blue-300/90">
+              {count}×
+            </span>
+          )}
+        </div>
+        {s.description && (
+          <p className="mt-0.5 line-clamp-2 text-[10px] leading-tight text-gray-500">
+            {s.description}
+          </p>
+        )}
+      </li>
+    );
+  }, [insertSkill, projectCounts]);
+
+  return (
+    <div className="flex flex-col gap-1 p-2">
+      <span className="px-1 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+        {t('ide.sidebar.skills', { count: skills.length })}
+      </span>
+      <ScrollFade maxHeight={500}>
+        {!loaded ? (
+          <div className="px-2 py-4 text-center text-xs text-gray-600">{t('ide.sidebar.skillsLoading')}</div>
+        ) : skills.length === 0 ? (
+          <div className="px-2 py-4 text-center text-xs text-gray-600">{t('ide.sidebar.noSkills')}</div>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {projectSkills.length > 0 && (
+              <div className="flex flex-col gap-1">
+                <span className="px-1 text-[9px] font-medium uppercase tracking-wider text-emerald-400/60">
+                  {t('ide.sidebar.projectSkills', { count: projectSkills.length })}
+                </span>
+                <ul className="flex flex-col gap-0.5">{projectSkills.map(renderSkill)}</ul>
+              </div>
+            )}
+            {pluginSkills.length > 0 && (
+              <div className="flex flex-col gap-1">
+                <span className="px-1 text-[9px] font-medium uppercase tracking-wider text-purple-400/60">
+                  {t('ide.sidebar.pluginSkills', { count: pluginSkills.length })}
+                </span>
+                <ul className="flex flex-col gap-0.5">{pluginSkills.map(renderSkill)}</ul>
+              </div>
+            )}
+          </div>
+        )}
+      </ScrollFade>
+    </div>
+  );
+}
+
 // ─── 뷰 라우터 ───
 
 const VIEW_MAP: Record<IDEViewType, React.FC<{ agentId: string }>> = {
   terminal: TerminalView,
   files: FilesView,
   events: EventsView,
+  skills: SkillsView,
 };
 
 export const IDESidebar = memo(function IDESidebar({ agentId }: IDESidebarProps): React.JSX.Element {

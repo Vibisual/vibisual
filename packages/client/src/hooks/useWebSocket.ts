@@ -96,6 +96,8 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     if (snap.uiLocale) store.applyUiLocale(snap.uiLocale);
     store.applyLayoutBoundsByProject(snap.layoutBoundsByProject);
     store.applyV150Metrics(snap.recentToolDurations, snap.compactCounts, snap.rateLimits);
+    store.applySkillUsageCounts(snap.skillUsageCounts);
+    store.applyAutoAgentSummaries(snap.autoAgentSummaries);
     store.applyDiagnosticLog(snap.diagnosticLog);
   }, []);
 

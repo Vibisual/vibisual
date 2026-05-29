@@ -473,3 +473,27 @@ body[data-ide-dock="right"] .fixed.inset-0 {
 .ide-md :where(code):not(:where(pre *))::after {
   content: none;
 }
+
+/* ─── IDE 오버레이 마크다운 — 펜스드 코드/인덴트 블록 (<pre>) ───
+ * 기본 prose-invert + prose-pre:bg-gray-800/80 조합은 반투명 배경 위에
+ * slate-300 톤 텍스트라 12px 에서 흐릿하게 묻혀 보인다.
+ * 배경을 짙고 불투명하게, 텍스트는 밝은 회백색 + 약간 보강된 자간/스무딩으로
+ * 또렷하게 만든다. (TextBlock / ResultBlock / CommandBlock 모두 적용) */
+.ide-md :where(pre) {
+  background: #1a1c20;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  color: #e6e8ec;
+  border-radius: 6px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.ide-md :where(pre code) {
+  color: inherit;
+  font-family: var(--font-mono);
+  font-weight: 450;
+  font-size: 12.5px;
+  line-height: 1.55;
+  background: transparent;
+  letter-spacing: 0;
+}

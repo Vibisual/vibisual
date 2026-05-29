@@ -574,9 +574,6 @@
     },
     "mainArea": {
       "scrollPrompt": "Rolar até o prompt",
-      "noSessions": "Nenhuma sessão ainda",
-      "noActivity": "Nenhuma atividade nesta sessão",
-      "startHint": "Digite um comando abaixo para iniciar uma nova sessão",
       "inputPlaceholderNew": "Digite um comando para iniciar uma nova sessão...",
       "inputPlaceholder": "Digite um comando...",
       "run": "Executar",

@@ -30,12 +30,47 @@ interface FetchResponseWire {
   /** `body` 가 base64 인코딩 바이너리임을 표시 — 비텍스트 응답(이미지 등) 무손실 수신. */
   bodyEncoding?: 'base64';
 }
+// SCENARIO.md §5.4 #14-1 (v2.29) — 별창 detach/redock surface.
+export type DetachKindWire = 'project' | 'iframe';
+export interface DetachedTabInfoWire {
+  windowId: number;
+  tabKey: string;
+  kind: DetachKindWire;
+}
+export interface DetachPayloadWire {
+  kind: DetachKindWire;
+  tabKey: string;
+  cursor?: { x: number; y: number };
+}
+export interface RectWire { x: number; y: number; width: number; height: number }
+export interface PointWire { x: number; y: number }
+
+export interface PackagedWindowApi {
+  detach(payload: DetachPayloadWire): Promise<{ windowId: number; reused: boolean }>;
+  closeDetached(tabKey: string): Promise<boolean>;
+  closeSelf(): Promise<boolean>;
+  listDetached(): Promise<DetachedTabInfoWire[]>;
+  hasTab(tabKey: string): Promise<boolean>;
+  cursorScreen(): Promise<PointWire>;
+  mainBounds(): Promise<RectWire | null>;
+  redockDrag(tabKey: string, hovering: boolean): Promise<void>;
+  redockCommit(tabKey: string): Promise<boolean>;
+  onDetachedList(cb: (list: DetachedTabInfoWire[]) => void): () => void;
+  onRedockHover(cb: (payload: { tabKey: string; hovering: boolean }) => void): () => void;
+  onRedockCommit(cb: (payload: { tabKey: string; kind: DetachKindWire | null }) => void): () => void;
+  // §5.4 #14-1 v2.30 — 별창 mini-ghost 드래그.
+  startDetachDrag(): Promise<boolean>;
+  endDetachDrag(commit: boolean): Promise<boolean>;
+  onDragState(cb: (payload: { dragging: boolean; hovering: boolean }) => void): () => void;
+}
+
 export interface PackagedApi {
   serverInfo(): Promise<{ port: number; running: boolean }>;
   request(path: string, init?: FetchInitWire): Promise<FetchResponseWire>;
   send(message: unknown): Promise<void>;
   connect(): Promise<void>;
   onMessage(cb: (payload: unknown) => void): () => void;
+  window: PackagedWindowApi;
 }
 
 declare global {

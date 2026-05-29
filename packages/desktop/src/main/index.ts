@@ -6,9 +6,10 @@ import { app, shell, BrowserWindow, protocol } from 'electron';
 import { electronApp, optimizer } from '@electron-toolkit/utils';
 import { inject, type DispatchFunc } from 'light-my-request';
 import type { Express } from 'express';
-import { runServer, setBroadcastSink, setHookListenerPort, ensureClaudeHooksInstalled, recordDiagnostic } from '@vibisual/server';
+import { runServer, setBroadcastSink, setHookListenerPort, ensureClaudeHooksInstalled, recordDiagnostic, subAgentManager } from '@vibisual/server';
 import { setupIpc, type IpcHub } from './ipc';
 import { loadSecrets } from './secrets';
+import { configureWindowManager, closeAll as closeAllDetachedWindows } from './windowManager';
 
 // Vibisual desktop main — SCENARIO.md §3.7 (in-process 통합, 단일 프로세스).
 //
@@ -32,6 +33,7 @@ protocol.registerSchemesAsPrivileged([
 
 let ipcHub: IpcHub | null = null;
 let hookListener: HttpServer | null = null;
+let primaryMainWindow: BrowserWindow | null = null;
 
 // Per-launch token for hook listener auth (item #7). Generated once at startup.
 let hookToken: string = randomBytes(24).toString('hex');
@@ -124,6 +126,15 @@ function createWindow(): void {
   // §3.7 v2.2 — dev 모드 폐기. renderer 는 항상 디스크의 프로덕션 빌드 산출물에서 로드한다
   // (electron-vite preview·packaged 동일 경로). renderer dev 서버·ELECTRON_RENDERER_URL 분기 없음.
   void mainWindow.loadFile(join(__dirname, '../renderer/index.html'));
+
+  // SCENARIO.md §5.4 #14-1 (v2.29) — 별창 매니저가 메인 윈도우를 참조해야 한다(redock 푸시 대상).
+  primaryMainWindow = mainWindow;
+  mainWindow.on('closed', () => {
+    if (primaryMainWindow === mainWindow) primaryMainWindow = null;
+    // §5.4 #14-1 (v2.34) — 본체가 닫히면 별창도 같이 닫힌다(사용자 의도: "본체 꺼지면 별창도 같이").
+    // 그렇지 않으면 별창이 살아있는 한 window-all-closed 가 발생하지 않아 앱이 quit 하지 못함.
+    closeAllDetachedWindows();
+  });
 }
 
 /**
@@ -342,6 +353,9 @@ app.whenReady().then(async () => {
     console.error('[main] backend boot failed:', err);
   }
 
+  // §5.4 #14-1 — windowManager 가 메인 윈도우를 알아야 redock-hover 푸시 가능.
+  configureWindowManager({ getMainWindow: () => primaryMainWindow });
+
   createWindow();
 
   app.on('activate', () => {
@@ -361,6 +375,9 @@ app.on('before-quit', (event) => {
   quitting = true;
   event.preventDefault();
 
+  // §5.4 #14-1 — 메인 종료 시 detached 별창 일괄 정리(서버 영속화 ❌, in-memory 라 자연 소멸).
+  closeAllDetachedWindows();
+
   ipcHub?.stop();
   ipcHub = null;
 
@@ -369,5 +386,12 @@ app.on('before-quit', (event) => {
     : Promise.resolve();
   hookListener = null;
 
-  Promise.all([listenerClose]).finally(() => app.exit(0));
+  // Persistent SubAgent children — VS Code Claude Code 확장과 같은 long-lived 모델에서
+  // 살아있는 claude 자식들을 깨끗이 종료. 마킹 → stdin.end → SIGTERM → 2s 후 SIGKILL.
+  // 마킹 없이 죽이면 close 핸들러가 crash 경로로 분기해 다음 부팅 시 잔여 sessionId 로 오탐.
+  const subShutdown = subAgentManager.shutdownAllPersistentChildren().catch((err: unknown) => {
+    console.warn('[main] shutdownAllPersistentChildren failed:', err);
+  });
+
+  Promise.all([listenerClose, subShutdown]).finally(() => app.exit(0));
 });

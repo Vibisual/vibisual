@@ -574,9 +574,6 @@
     },
     "mainArea": {
       "scrollPrompt": "滚动到提示词",
-      "noSessions": "暂无 Session",
-      "noActivity": "此 Session 暂无活动",
-      "startHint": "在下方输入命令以开始新 Session",
       "inputPlaceholderNew": "输入命令以开始新 Session...",
       "inputPlaceholder": "输入命令...",
       "run": "运行",
