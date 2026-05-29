@@ -47,9 +47,13 @@ win:
   # certificateFile / certificatePassword left unset on purpose.
 
 nsis:
-  oneClick: false
+  # §4 v2.44 — 자동 업데이트가 무인(조용히)으로 돌려면 oneClick 인스톨러가 필요하다.
+  # oneClick:false(조립형 마법사)는 자동 업데이트의 "기존 파일 제거" 단계에서
+  # "Failed to uninstall old application files (2)" 류 에러 + 마법사 노출이 잦다.
+  # oneClick:true + perMachine:false = per-user 무인 설치/업데이트(관리자 권한 불필요).
+  oneClick: true
   perMachine: false
-  allowToChangeInstallationDirectory: true
+  # allowToChangeInstallationDirectory 는 oneClick:false 에서만 유효 — 제거.
   artifactName: ${productName}-${version}-setup.${ext}
   # Brand bubble — installer wizard window, uninstaller, and Start-menu/Desktop shortcuts
   # all use the multi-size .ico so Windows renders crisp at every DPI.

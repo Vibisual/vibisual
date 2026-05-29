@@ -118,8 +118,8 @@ export async function checkForUpdates(): Promise<UpdateState> {
 export function quitAndInstall(): boolean {
   if (!app.isPackaged) return false;
   if (state.phase !== 'downloaded') return false;
-  // isSilent=false(설치 진행 표시), isForceRunAfter=true(설치 후 앱 재기동).
-  autoUpdater.quitAndInstall(false, true);
+  // isSilent=true — 마법사 없이 무인 설치(oneClick 인스톨러와 짝). isForceRunAfter=true — 설치 후 앱 재기동.
+  autoUpdater.quitAndInstall(true, true);
   return true;
 }
 
