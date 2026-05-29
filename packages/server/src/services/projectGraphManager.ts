@@ -1004,6 +1004,13 @@ export class ProjectGraphManager {
     for (const inst of this.instances.values()) {
       if (inst.getAutoAgentSummary(autoAgentSessionId)) return inst;
     }
+    // v2.46 — summary 맵이 비어도(체크포인트 복원·인스턴스 재하이드레이션으로 ephemeral 요약 유실)
+    // auto 버블이 살아있으면 그 인스턴스를 반환. 버블이 SSOT, 요약은 파생물 → 버블 기준 판정.
+    // (processRequest 는 요약이 없으면 새로 만들므로 안전.)
+    for (const inst of this.instances.values()) {
+      const bubble = inst.getAgentBySession(autoAgentSessionId);
+      if (bubble && bubble.bubbleType === 'auto') return inst;
+    }
     return null;
   }
 
