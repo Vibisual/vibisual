@@ -396,7 +396,8 @@
         "low": "최소 사고. 빠르지만 덜 철저함.",
         "medium": "균형 잡힌 사고 깊이.",
         "high": "깊은 추론. 느리지만 철저함.",
-        "xhigh": "초고도 추론 (Opus 4.7+). 대부분의 코딩 작업에 권장."
+        "xhigh": "초고도 추론 (Opus 4.7+). 대부분의 코딩 작업에 권장.",
+        "max": "토큰 제약 없는 최대 추론 (Opus 4.8). 가장 어려운 판단용 — 단순 작업엔 과사고할 수 있음."
       },
       "tools": {
         "label": "도구",
@@ -752,6 +753,12 @@
       "collapse": "접기",
       "copy": "복사",
       "copied": "복사됨"
+    },
+    "report": {
+      "title": "작업 신고",
+      "didTitle": "AI가 한 일",
+      "userActionsTitle": "사용자가 할 일",
+      "nextStepsTitle": "다음 단계"
     }
   },
   "bubbleMap": {
@@ -905,6 +912,9 @@
     "redockCardTitle": "본체 탭바 위에 놓으면 다시 합쳐집니다",
     "redockCardSubtitle": "다른 곳에 놓으면 분리 상태 유지",
     "detachedBadge": "분리됨",
+    "minimizeWindow": "최소화",
+    "maximizeWindow": "최대화",
+    "restoreWindow": "이전 크기로",
     "closeWindow": "창 닫기",
     "missingTitle": "탭을 사용할 수 없습니다",
     "missingProject": "프로젝트 \"{{name}}\"이(가) 이 Vibisual 인스턴스에 로드되어 있지 않습니다.",

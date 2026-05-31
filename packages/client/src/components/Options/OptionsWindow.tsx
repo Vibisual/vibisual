@@ -30,7 +30,8 @@ const REPO_URL = 'https://github.com/Vibisual/vibisual';
 const MODEL_VALUES = ['opus', 'sonnet', 'haiku'] as const;
 const PERMISSION_VALUES = ['default', 'acceptEdits', 'plan', 'bypassPermissions'] as const;
 const ISOLATION_VALUES = ['none', 'worktree'] as const;
-const EFFORT_VALUES = ['default', 'low', 'medium', 'high', 'xhigh'] as const;
+// SSOT = shared `AVAILABLE_EFFORT_LEVELS` (§4 v2.48). 'max' = Opus 4.8 최대 추론. 드리프트 주의.
+const EFFORT_VALUES = ['default', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
 
 interface OptionsWindowProps {
   open: boolean;

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { BubbleData, ActivityEdge, BashEntry, ServerEntry, AgentEvent, FileEdit, AgentPhase, ProjectInfo, QueuedCommand, SubAgent, ServerKind, PipelineType, PipelineState, AgentConfig, SubAgentStreamEvent, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, UiLocale, ProjectMetaSnapshot, AppState, AppStatePatch, CommentBox, Conti, ActiveContiWork, ToolDurationEntry, CompactCount, RateLimitInfo, DiagnosticEntry, AutoAgentSummary, ModelRegistry, UserDefaults } from '@vibisual/shared';
+import type { BubbleData, ActivityEdge, BashEntry, ServerEntry, AgentEvent, FileEdit, AgentPhase, ProjectInfo, QueuedCommand, SubAgent, ServerKind, PipelineType, PipelineState, AgentConfig, SubAgentStreamEvent, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, UiLocale, ProjectMetaSnapshot, AppState, AppStatePatch, CommentBox, Conti, ActiveContiWork, ToolDurationEntry, CompactCount, RateLimitInfo, DiagnosticEntry, AutoAgentSummary, ModelRegistry, UserDefaults, AgentReport } from '@vibisual/shared';
 import { DEFAULT_UI_LOCALE } from '@vibisual/shared';
 import { changeUiLocale } from '../i18n/index.js';
 import { calcFileSizeRange } from '../utils/sizeCalc.js';
@@ -51,6 +51,9 @@ const ACTIVE_PROJECT_KEY = 'vibisual:activeProject';
 const DEFAULT_TABBAR_KEY = 'vibisual:defaultTabbar';
 const DEFAULT_SUBAGENTS_KEY = 'vibisual:defaultSubAgents';
 const TAB_PINS_KEY = 'vibisual:tabPins';
+// 서브에이전트 완료 확인(ack) 상태 — 재시작 후에도 "확인함(회색)" 이 유지되도록 localStorage 영속.
+// 없으면 부팅 시 메모리 기본값 {} 으로 시작 → idle sub 들이 전부 미확인(녹색)으로 회귀.
+const ACK_SUBAGENTS_KEY = 'vibisual:ackSubAgents';
 
 function loadSavedActiveProject(): string | null {
   try {
@@ -270,6 +273,8 @@ interface GraphState {
   skillUsageCounts: Record<string, Record<string, number>>;
   /** §5.3 #10-2 v2.37 — Auto Agent 가 spawn 한 군의 요약 메타 (autoAgentSessionId → summary). */
   autoAgentSummaries: Record<string, AutoAgentSummary>;
+  /** §4 v2.52 — 에이전트 작업 신고 (agentId → AgentReport[]). IDE 색 구분 카드. */
+  agentReports: Record<string, AgentReport[]>;
   /** §4 v2.38 — 동적 모델 레지스트리 (서버 modelRegistryService 가 시드+/v1/models 머지 후 push). */
   modelRegistry: ModelRegistry | null;
   /** §4 v2.42 — 사용자 글로벌 옵션 (Options 창 SSOT). */
@@ -553,6 +558,8 @@ interface GraphState {
   applySkillUsageCounts: (counts: Record<string, Record<string, number>> | undefined) => void;
   /** §5.3 #10-2 v2.37 — graph_snapshot 의 Auto Agent 요약 메타 반영. */
   applyAutoAgentSummaries: (summaries: Record<string, AutoAgentSummary> | undefined) => void;
+  /** §4 v2.52 — graph_snapshot 의 에이전트 작업 신고 반영. */
+  applyAgentReports: (reports: Record<string, AgentReport[]> | undefined) => void;
   /** §4 v1.98 — graph_snapshot 수신 시 진단 에러 로그 반영. */
   applyDiagnosticLog: (log: DiagnosticEntry[] | undefined) => void;
   /** §4 v2.38 — graph_snapshot 또는 model_registry_updated 수신 시 레지스트리 반영. */
@@ -634,10 +641,12 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   queuedCommands: {},
   completedCommands: {},
   subAgents: {},
-  acknowledgedSubAgents: {},
+  acknowledgedSubAgents: loadJSON<Record<string, true>>(ACK_SUBAGENTS_KEY, {}),
   markSubAcknowledged: (subId) => set((state) => {
     if (state.acknowledgedSubAgents[subId]) return state;
-    return { acknowledgedSubAgents: { ...state.acknowledgedSubAgents, [subId]: true } };
+    const next: Record<string, true> = { ...state.acknowledgedSubAgents, [subId]: true };
+    saveJSON(ACK_SUBAGENTS_KEY, next);
+    return { acknowledgedSubAgents: next };
   }),
   pipelineChildren: {},
   pipelines: {},
@@ -787,6 +796,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   compactCounts: {},
   skillUsageCounts: {},
   autoAgentSummaries: {},
+  agentReports: {},
   modelRegistry: null,
   userDefaults: null,
   rateLimits: null,
@@ -1009,6 +1019,8 @@ export const useGraphStore = create<GraphState>((set, get) => ({
           delete nextAck[id];
         }
       }
+      // ack 변동(완료 재발생으로 해제 / 사라진 sub 정리)을 localStorage 에 반영 — 재시작 후 색 유지.
+      if (ackChanged) saveJSON(ACK_SUBAGENTS_KEY, nextAck);
       const saved = loadSavedActiveProject();
       // Default Tabbar 탭 중 프로젝트 타입만 부트 폴백 후보로 사용 (iframe은 세션 한정이라 재접속 시 복원 대상 아님)
       const defaultProject = state.defaultTabbarKey?.startsWith('project:')
@@ -1579,6 +1591,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     // 탭 클릭 = 완료 알림 확인 — 도트가 녹색이었으면 회색으로 전환되도록 ack 마킹
     if (sessionId && !s.acknowledgedSubAgents[sessionId]) {
       next.acknowledgedSubAgents = { ...s.acknowledgedSubAgents, [sessionId]: true };
+      saveJSON(ACK_SUBAGENTS_KEY, next.acknowledgedSubAgents);
     }
     return next;
   }),
@@ -1616,6 +1629,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   }),
   applySkillUsageCounts: (counts) => set({ skillUsageCounts: counts ?? {} }),
   applyAutoAgentSummaries: (summaries) => set({ autoAgentSummaries: summaries ?? {} }),
+  applyAgentReports: (reports) => set({ agentReports: reports ?? {} }),
   applyDiagnosticLog: (log) => set({ diagnosticLog: log ?? [] }),
   applyModelRegistry: (reg) => set({ modelRegistry: reg ?? null }),
   applyUserDefaults: (d) => set({ userDefaults: d ?? null }),

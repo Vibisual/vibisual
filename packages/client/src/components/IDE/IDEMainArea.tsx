@@ -1,12 +1,13 @@
 import { memo, useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import type { QueuedCommand, SubAgent, SubAgentStreamEvent, AgentEvent } from '@vibisual/shared';
+import type { QueuedCommand, SubAgent, SubAgentStreamEvent, AgentEvent, AgentReport } from '@vibisual/shared';
 import { useGraphStore, agentSessionInputKey, selectIDEOverlay } from '../../stores/graphStore.js';
 import type { AgentSessionInputAttachment } from '../../stores/graphStore.js';
 import { useAvailableSkills, type SkillInfo } from '../../hooks/useAvailableSkills.js';
 import { StreamRenderer } from './StreamRenderer.js';
 import { AskQuestionCard } from './AskQuestionCard.js';
+import { AgentReportCard } from './AgentReportCard.js';
 import { SystemNode, parseSystemSubtype } from './SystemNode.js';
 import { ThinkingDots, ThinkingLiveLine } from './ThinkingIndicator.js';
 
@@ -20,6 +21,7 @@ const EMPTY_COMMANDS: QueuedCommand[] = [];
 const EMPTY_SUBS: SubAgent[] = [];
 const EMPTY_EVENTS: AgentEvent[] = [];
 const EMPTY_STREAM_EVENTS: SubAgentStreamEvent[] = [];
+const EMPTY_REPORTS: import('@vibisual/shared').AgentReport[] = [];
 
 interface IDEMainAreaProps {
   agentId: string;
@@ -606,11 +608,21 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
     }
   }, [draftForAgent, agentId, activeSessionId, consumeAgentInputDraft, setAgentSessionInputText]);
 
-  // unmount 시 (IDE 닫기 등) 이 agent 의 모든 세션 draft 첨부를 일괄 정리.
-  // 세션 전환은 unmount 가 아니므로 첨부가 보존된다(원하는 동작).
+  // unmount 시 이 agent 의 모든 세션 draft(text+첨부)를 일괄 정리 — 단 "진짜 IDE 닫기" 일 때만.
+  // §5.3 #28 v2.x — IDE 오버레이는 ideOverlays[projectId] 로 프로젝트 단위 보관이라(selectIDEOverlay)
+  //   옆 프로젝트 탭으로 전환만 해도 AgentIDEOverlay 가 null 을 리턴해 이 컴포넌트가 unmount 된다.
+  //   그 unmount 에서 draft 를 지우면 탭 복귀 시 치던 텍스트/첨부가 사라진다(사용자 보고 버그).
+  //   closeIDEOverlay 는 ideOverlays 슬롯을 통째로 삭제하므로, unmount 시점에 어떤 슬롯이든
+  //   이 agent 의 IDE 가 아직 열려 있으면(=탭 전환) draft 를 보존하고, 아무 슬롯도 없을 때만(=닫힘) 정리한다.
+  // 세션 전환은 애초에 unmount 가 아니므로 늘 보존된다.
   useEffect(() => {
     return () => {
-      const removed = takeAgentSessionInputs(agentIdRef.current);
+      const aid = agentIdRef.current;
+      const stillOpen = Object.values(useGraphStore.getState().ideOverlays).some(
+        (o) => o.agentId === aid,
+      );
+      if (stillOpen) return;
+      const removed = takeAgentSessionInputs(aid);
       const s = sidRef.current;
       for (const a of removed) URL.revokeObjectURL(a.previewUrl);
       if (!s) return;
@@ -1296,6 +1308,28 @@ export const IDEMainArea = memo(function IDEMainArea({
     return matches.sort((a, b) => a.createdAt - b.createdAt);
   }, [pendingAskQuestions, agentId, activeSessionId, subAgents]);
 
+  // §4 v2.52 — 이 에이전트의 작업 신고 카드. agentReports 는 agentId 1차 키.
+  // 메인 탭(activeSessionId === null): 이 에이전트의 모든 신고. sub 탭: 그 세션(subAgentId) 신고만.
+  const agentReportsForAgent = useGraphStore((s) => s.agentReports[agentId] ?? EMPTY_REPORTS);
+  const reportCards = useMemo(() => {
+    const matches = agentReportsForAgent.filter((r) =>
+      activeSessionId !== null ? r.subAgentId === activeSessionId : true,
+    );
+    return [...matches].sort((a, b) => a.createdAt - b.createdAt);
+  }, [agentReportsForAgent, activeSessionId]);
+
+  // §4 v2.53 — 메인 탭(Hook 에이전트): 터미널 항목 + 작업 신고 카드를 timestamp 로 합쳐 시간순 인라인 배치.
+  //   예전엔 신고를 items 뒤에 따로 붙여 항상 하단 고정됐다(이후 대화가 위에 쌓여 카드가 영영 맨 아래).
+  //   이제 createdAt 시점에 끼어든 뒤 다음 대화가 그 아래로 쌓여 자연스럽게 위로 밀려 올라간다.
+  const mainTimeline = useMemo(() => {
+    const merged: Array<{ ts: number; node: { t: 'item'; item: TerminalItem } | { t: 'report'; report: AgentReport } }> = [
+      ...items.map((item) => ({ ts: item.timestamp, node: { t: 'item' as const, item } })),
+      ...reportCards.map((r) => ({ ts: r.createdAt, node: { t: 'report' as const, report: r } })),
+    ];
+    merged.sort((a, b) => a.ts - b.ts);
+    return merged.map((m) => m.node);
+  }, [items, reportCards]);
+
   // Auto-scroll — 유저가 위로 스크롤하면 비활성화, 바닥 근처면 활성화
   const handleScroll = useCallback(() => {
     const el = scrollRef.current;
@@ -1314,7 +1348,7 @@ export const IDEMainArea = memo(function IDEMainArea({
     if (autoScrollRef.current && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [items.length, askCards.length]);
+  }, [items.length, askCards.length, reportCards.length]);
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -1329,9 +1363,11 @@ export const IDEMainArea = memo(function IDEMainArea({
         {activeSessionId !== null ? (
           /* ── Sub 탭: CLI 스타일 스트림 렌더러 (마크다운 + 접이식 도구) ── */
           <>
+            {/* §4 v2.53 — 작업 신고 카드는 StreamRenderer 안에서 createdAt 기준 인라인 합류(하단 고정 ❌). */}
             <StreamRenderer
               events={activeStreamEvents}
               commands={commands.filter((c) => c.subAgentId === activeSessionId)}
+              reports={reportCards}
             />
             {askCards.length > 0 && (
               <div className="py-1">
@@ -1344,14 +1380,17 @@ export const IDEMainArea = memo(function IDEMainArea({
         ) : (
           /* ── Agent 탭(메인): 기존 터미널 라인 + AskUserQuestion 카드. 비어있을 땐 그냥 빈 배경(미니멀) ── */
           <div className="py-1">
-            {items.map((item) =>
-              item.kind === 'group'
-                ? (item.groupType === 'thinking'
-                    ? <ThinkingGroupLine key={item.id} group={item} />
-                    : <TerminalGroupLine key={item.id} group={item} />)
-                : item.kind === 'thinking-live'
-                  ? <ThinkingLiveLine key={item.id} label={t('ide.streamRenderer.thinking')} />
-                  : <TerminalLine key={item.id} entry={item} />,
+            {/* §4 v2.53 — 터미널 항목과 작업 신고 카드를 시간순으로 합친 mainTimeline 을 렌더(신고 하단 고정 ❌). */}
+            {mainTimeline.map((n) =>
+              n.t === 'report'
+                ? <AgentReportCard key={n.report.id} report={n.report} />
+                : n.item.kind === 'group'
+                  ? (n.item.groupType === 'thinking'
+                      ? <ThinkingGroupLine key={n.item.id} group={n.item} />
+                      : <TerminalGroupLine key={n.item.id} group={n.item} />)
+                  : n.item.kind === 'thinking-live'
+                    ? <ThinkingLiveLine key={n.item.id} label={t('ide.streamRenderer.thinking')} />
+                    : <TerminalLine key={n.item.id} entry={n.item} />,
             )}
             {askCards.map((req) => (
               <AskQuestionCard key={req.requestId} request={req} />

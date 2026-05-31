@@ -51,6 +51,9 @@ export interface PackagedWindowApi {
   detach(payload: DetachPayloadWire): Promise<{ windowId: number; reused: boolean }>;
   closeDetached(tabKey: string): Promise<boolean>;
   closeSelf(): Promise<boolean>;
+  minimizeSelf(): Promise<boolean>;
+  toggleMaximizeSelf(): Promise<boolean>;
+  onMaximizeState(cb: (payload: { maximized: boolean }) => void): () => void;
   listDetached(): Promise<DetachedTabInfoWire[]>;
   hasTab(tabKey: string): Promise<boolean>;
   cursorScreen(): Promise<PointWire>;

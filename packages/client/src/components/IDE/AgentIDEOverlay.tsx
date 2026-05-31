@@ -41,6 +41,13 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay(): React.JSX.Elemen
   const [maximized, setMaximized] = useState(false);
   const toggleMaximized = useCallback(() => setMaximized((v) => !v), []);
 
+  // 타이틀바 더블클릭 — 최대화 버튼과 동일 효과 (버튼 자손에서 시작된 더블클릭은 제외)
+  const handleTitleBarDoubleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement;
+    if (target.closest('button')) return;
+    toggleMaximized();
+  }, [toggleMaximized]);
+
   // §5.5 #17-1 윈도우 모드 — 닫고 다시 열 때 modal 리셋 (휘발)
   const [mode, setMode] = useState<OverlayMode>('modal');
   const [floatPos, setFloatPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -118,6 +125,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay(): React.JSX.Elemen
 
     let dragging = false;
     let currentMode = mode;
+    let currentMaximized = maximized;
     let nextW = rect.width;
     let nextH = rect.height;
 
@@ -127,8 +135,18 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay(): React.JSX.Elemen
       if (!dragging) {
         if (Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) return;
         dragging = true;
-        // modal/docked → floating 전이 시 사이즈 결정
-        if (currentMode === 'modal') {
+        if (currentMaximized) {
+          // 최대화 상태에서 끌면 자동 복원 → floating 으로 전이 후 이동 (Windows 스냅 해제와 동일)
+          const w = floatSize.w > 0 ? floatSize.w : Math.max(MIN_FLOAT_W, Math.round(window.innerWidth * 0.56));
+          const h = floatSize.h > 0 ? floatSize.h : Math.max(MIN_FLOAT_H, Math.round(window.innerHeight * 0.56));
+          nextW = w;
+          nextH = h;
+          setFloatSize({ w, h });
+          setMaximized(false);
+          setMode('floating');
+          currentMode = 'floating';
+          currentMaximized = false;
+        } else if (currentMode === 'modal') {
           nextW = Math.max(MIN_FLOAT_W, Math.round(window.innerWidth * 0.56)); // 56vw (80vw * 0.7)
           nextH = Math.max(MIN_FLOAT_H, Math.round(window.innerHeight * 0.56));
           setFloatSize({ w: nextW, h: nextH });
@@ -168,7 +186,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay(): React.JSX.Elemen
 
     window.addEventListener('mousemove', handleMove);
     window.addEventListener('mouseup', handleUp);
-  }, [mode, floatSize.w, floatSize.h]);
+  }, [mode, maximized, floatSize.w, floatSize.h]);
 
   // 도킹 좌측 리사이즈 핸들
   const handleDockResize = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
@@ -341,6 +359,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay(): React.JSX.Elemen
             §5.5 #17-1 — 타이틀바 드래그로 modal↔floating↔docked 전이. */}
         <div
           onMouseDown={handleTitleBarMouseDown}
+          onDoubleClick={handleTitleBarDoubleClick}
           className="flex h-10 flex-shrink-0 items-center justify-between border-b border-gray-700 bg-[#1a2236] px-4 select-none cursor-grab active:cursor-grabbing"
         >
           <div className="flex items-center gap-2">

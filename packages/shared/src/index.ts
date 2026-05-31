@@ -23,6 +23,7 @@ export type {
   AskUserQuestionOption,
   AskUserQuestionItem,
   AskUserQuestionToolInput,
+  AgentReport,
   GraphSnapshot,
   Result,
   CommandPayload,
@@ -272,6 +273,8 @@ export {
   AUTO_AGENT_BUILDER_CONFIG,
   AUTO_AGENT_BUILDER_INTERVIEW_TOOL,
   buildHarnessBuilderRules,
+  AGENT_REPORT_MAX_PER_AGENT,
+  buildAgentReportRules,
 } from './constants.js';
 
 // §5.3 #28 v1.60 — STAMP_CATALOG 메타 타입 (constants.ts 에 정의됨)

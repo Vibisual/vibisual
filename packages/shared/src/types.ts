@@ -842,7 +842,9 @@ export type WSMessageType =
   // §4 v2.38 — 모델 레지스트리 갱신 (시드 + /v1/models 머지 결과). payload = ModelRegistry
   | 'model_registry_updated'
   // §4 v2.42 — Options 창에서 사용자 글로벌 디폴트 갱신. payload = UserDefaults
-  | 'user_defaults_updated';
+  | 'user_defaults_updated'
+  // §4 v2.52 — 에이전트 작업 신고(did/userActions) 수신 신호. 본체는 graph_snapshot.agentReports
+  | 'agent_report';
 
 /** §5.3 #28 v1.47 — 콘티 생성/패치 완료 토스트용 페이로드. 본체는 graph_snapshot 에서 받는다. */
 export interface ContiEventPayload {
@@ -1291,6 +1293,34 @@ export type SessionSource = 'hook' | 'jsonl' | 'process';
 export type SessionLifeStatus = 'active' | 'idle';
 
 /** 그래프 스냅샷 — 클라이언트 초기 연결 시 전체 상태 전달 */
+/**
+ * §4 v2.52 — 에이전트 작업 신고 (커스텀/스폰 에이전트 전용).
+ *
+ * "AI 가 한 일(did)" 과 "사용자가 직접 해야 할 일(userActions)" 을 에이전트가 작업 완료 시
+ * 구조화해 loopback `POST /api/agent-report` 로 신고한다(하네스 빌더 curl 패턴 재사용 — §5.3 #10-2).
+ * IDE 가 이 신고를 색 구분 카드로 렌더: did=중립(회색/체크), userActions=amber 강조, nextSteps=보조.
+ * Hook 에이전트는 우리가 rules 를 통제하지 않아 신고 지시문이 안 들어가므로 신고하지 않는다
+ * → 기존 텍스트 렌더만 유지(하이브리드). `agentId` 가 1차 렌더 필터 키.
+ */
+export interface AgentReport {
+  /** 신고 고유 ID (서버가 발급). */
+  id: string;
+  /** 신고한 (부모) 에이전트 ID — Vibisual 관할 custom agent. 렌더 필터 1차 키. */
+  agentId: string;
+  /** 호출 sub 인스턴스(IDE 세션 탭) ID. 있으면 그 탭에 귀속, 없으면(undefined) 메인 탭. */
+  subAgentId?: string;
+  /** AI 가 실제로 끝낸 일 (완료 항목). */
+  did: string[];
+  /** 사용자가 직접 해야 할 일 (에이전트가 대신 못 하는 액션 — 빌드 실행/에디터 조작/외부 승인 등). */
+  userActions: string[];
+  /** 다음 단계 / 후속 작업 (선택). */
+  nextSteps?: string[];
+  /** 자유 메모 / 헤드라인 (선택). */
+  note?: string;
+  /** 신고 시각 (서버 stamp, Date.now()). */
+  createdAt: number;
+}
+
 export interface GraphSnapshot {
   /** hydrated 프로젝트 목록 (projectName → ProjectInfo). keys와 stubProjects keys는 겹치지 않음 */
   projects: Record<string, ProjectInfo>;
@@ -1408,6 +1438,13 @@ export interface GraphSnapshot {
    * 신규 에이전트 spawn 시 서버가 `agentConfig` 머지에 사용.
    */
   userDefaults?: UserDefaults;
+
+  /**
+   * §4 v2.52 — 에이전트 작업 신고 (agentId → AgentReport[], 최신순 append).
+   * 커스텀/스폰 에이전트가 `POST /api/agent-report` 로 보낸 did/userActions 구조화 신고.
+   * 클라 IDE 가 agentId/subAgentId 로 필터해 색 구분 카드로 렌더. 미설정 시 빈 맵.
+   */
+  agentReports?: Record<string, AgentReport[]>;
 }
 
 /** 폴더 내 파일/디렉토리 엔트리 (폴더 트리 표시용) */
@@ -1578,6 +1615,13 @@ export interface ProjectCheckpoint {
    * 미설정이면 빈 맵으로 복원. 영속 대상(사용자 산출물 트레이스).
    */
   autoAgentSummaries?: Record<string, AutoAgentSummary>;
+
+  /**
+   * §4 v2.52 — 에이전트 작업 신고 (agentId → AgentReport[]) 영속화.
+   * optional — 구버전 체크포인트 하위 호환. 미설정이면 빈 맵으로 복원.
+   * 완료 신고는 세션을 넘어 의미 있는 산출물 트레이스라 영속 대상.
+   */
+  agentReports?: Record<string, AgentReport[]>;
 }
 
 // ─── Token Usage ───

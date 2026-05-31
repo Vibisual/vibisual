@@ -33,6 +33,10 @@ interface DetachedEntry {
   dragTimer: NodeJS.Timeout | null;
   /** drag 중 마지막 hover 상태. pointerup 시 redockCommit 결정에 사용. */
   lastHover: boolean;
+  /** drag 모드 진입 직전 최대화 상태였는지. 복원 시 다시 maximize 하기 위함. */
+  wasMaximized: boolean;
+  /** startDetachDrag~endDetachDrag 동안 true. 비동기 복원 대기 중 떼더라도 지연 진입을 막는다. */
+  dragActive: boolean;
 }
 
 const POPUP_DEFAULT_W = 1100;
@@ -141,9 +145,21 @@ export function openDetached(opts: DetachOptions): { windowId: number; reused: b
     originalOpacity: 1,
     dragTimer: null,
     lastHover: false,
+    wasMaximized: false,
+    dragActive: false,
   };
   byTabKey.set(opts.tabKey, entry);
   byWindowId.set(win.id, entry);
+
+  // §5.4 #14-1 — 별창 미니 타이틀바의 최대화/복원 버튼 아이콘이 OS 더블클릭 등으로 바뀐
+  // 실제 창 상태를 따라가도록, maximize/unmaximize 시 renderer 에 상태를 푸시한다.
+  const pushMaximizeState = (): void => {
+    if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
+      win.webContents.send('vibisual:window:maximize-state', { maximized: win.isMaximized() });
+    }
+  };
+  win.on('maximize', pushMaximizeState);
+  win.on('unmaximize', pushMaximizeState);
 
   win.on('closed', () => {
     if (entry.dragTimer) {
@@ -159,7 +175,10 @@ export function openDetached(opts: DetachOptions): { windowId: number; reused: b
   void win.loadFile(join(__dirname, '../renderer/index.html'), { hash });
 
   win.webContents.once('did-finish-load', () => {
-    if (!win.isDestroyed()) win.webContents.send('vibisual:detached:list', listDetached());
+    if (!win.isDestroyed()) {
+      win.webContents.send('vibisual:detached:list', listDetached());
+      win.webContents.send('vibisual:window:maximize-state', { maximized: win.isMaximized() });
+    }
   });
 
   notifyChange();
@@ -177,6 +196,25 @@ export function closeByWindowId(windowId: number): boolean {
   const entry = byWindowId.get(windowId);
   if (!entry) return false;
   if (!entry.window.isDestroyed()) entry.window.close();
+  return true;
+}
+
+// §5.4 #14-1 — 별창 미니 타이틀바의 최소화 버튼. event.sender.id 로 자기 창 식별.
+export function minimizeByWindowId(windowId: number): boolean {
+  const entry = byWindowId.get(windowId);
+  if (!entry || entry.window.isDestroyed()) return false;
+  entry.window.minimize();
+  return true;
+}
+
+// §5.4 #14-1 — 별창 미니 타이틀바의 최대화/복원 토글. 상태 변화는 maximize/unmaximize
+// 이벤트 핸들러(openDetached)가 renderer 로 푸시하므로 여기선 토글만 한다.
+export function toggleMaximizeByWindowId(windowId: number): boolean {
+  const entry = byWindowId.get(windowId);
+  if (!entry || entry.window.isDestroyed()) return false;
+  const win = entry.window;
+  if (win.isMaximized()) win.unmaximize();
+  else win.maximize();
   return true;
 }
 
@@ -234,29 +272,20 @@ export function redockCommit(tabKey: string): boolean {
 // 메인 탭바에 redock-hover 푸시 + 별창 자신에게도 hover 신호 전달(미니 박스에 "release to redock"
 // 라벨 표시용). pointerup 시 commit=hovering 으로 endDetachDrag 호출.
 
-export function startDetachDragByWindowId(windowId: number): boolean {
-  const entry = byWindowId.get(windowId);
-  if (!entry) return false;
-  if (entry.dragTimer) return true; // 이미 drag 중
-  if (entry.window.isDestroyed()) return false;
-
+// mini ghost 로 축소 + cursor 추적 폴링 시작. unmaximize/leave-full-screen 이 실제로 끝난
+// 뒤(또는 처음부터 일반 창이면 즉시) 호출돼야 setBounds 가 OS 복원에 덮이지 않는다.
+// 이벤트와 폴백 타이머가 모두 호출할 수 있으므로 dragTimer 존재 여부로 1회만 진입한다.
+function enterMiniGhostAndPoll(entry: DetachedEntry): void {
   const win = entry.window;
-  entry.originalBounds = (() => {
-    const b = win.getBounds();
-    return { x: b.x, y: b.y, width: b.width, height: b.height };
-  })();
-  try {
-    entry.originalOpacity = win.getOpacity();
-  } catch {
-    entry.originalOpacity = 1;
-  }
-  entry.lastHover = false;
+  if (win.isDestroyed()) return;
+  if (!entry.dragActive) return; // 복원 대기 중 사용자가 이미 떼어 drag 가 끝났다 — 지연 진입 취소.
+  if (entry.dragTimer) return; // 이미 진입(이벤트+폴백 중복 방지)
 
   // cursor 위치 즉시 mini 사이즈로 축소 + cursor 따라가도록.
   const c = screen.getCursorScreenPoint();
   // mini 박스의 좌상단을 cursor 좌상단 가까이에 두되 cursor 가 항상 박스 안에 들어오도록 약간 좌상단 오프셋.
   // x: cursor.x - 24 (왼쪽으로 24px), y: cursor.y - 16 (위로 16px). 박스 안에서 cursor 위치 ≈ 좌측 1/10.
-  win.setAlwaysOnTop(true, 'pop-up-menu');
+  try { win.setAlwaysOnTop(true, 'pop-up-menu'); } catch { /* noop */ }
   // 별창 minWidth/minHeight(POPUP_MIN_*) 가 setBounds 를 클램프하므로, mini ghost 동안은
   // 최소 크기를 mini 크기로 풀어준다. endDetachDrag 복원 시 원래 최소 크기로 되돌린다.
   try { win.setMinimumSize(MINI_W, MINI_H); } catch { /* noop */ }
@@ -296,6 +325,47 @@ export function startDetachDragByWindowId(windowId: number): boolean {
       }
     }
   }, DRAG_POLL_MS);
+}
+
+export function startDetachDragByWindowId(windowId: number): boolean {
+  const entry = byWindowId.get(windowId);
+  if (!entry) return false;
+  if (entry.dragTimer) return true; // 이미 drag 중
+  if (entry.window.isDestroyed()) return false;
+
+  const win = entry.window;
+  // 최대화/전체화면 상태에선 Electron 이 setBounds 를 무시(no-op)해서 mini ghost 로 줄지 않는다
+  // (→ 화면 전체에 미니 박스가 펼쳐진 채 멈추는 "파랑 화면" 버그). Windows 의 unmaximize/
+  // leave-full-screen 은 비동기라 그 직후의 setBounds 는 OS 복원 애니메이션에 덮인다. 그래서
+  // 복원 이벤트가 끝난 시점에 enterMiniGhostAndPoll 을 호출한다(이벤트 누락 대비 폴백 타이머 병행).
+  entry.dragActive = true;
+  const wasFullScreen = win.isFullScreen();
+  const wasMaximized = win.isMaximized();
+  entry.wasMaximized = wasMaximized;
+
+  // 복원용 원본 bounds 는 (최대화/전체화면이었다면) 그 이전의 일반 bounds 를 쓴다.
+  entry.originalBounds = (() => {
+    const b = wasMaximized || wasFullScreen ? win.getNormalBounds() : win.getBounds();
+    return { x: b.x, y: b.y, width: b.width, height: b.height };
+  })();
+  try {
+    entry.originalOpacity = win.getOpacity();
+  } catch {
+    entry.originalOpacity = 1;
+  }
+  entry.lastHover = false;
+
+  if (wasFullScreen) {
+    win.once('leave-full-screen', () => enterMiniGhostAndPoll(entry));
+    setTimeout(() => enterMiniGhostAndPoll(entry), 140);
+    try { win.setFullScreen(false); } catch { enterMiniGhostAndPoll(entry); }
+  } else if (wasMaximized) {
+    win.once('unmaximize', () => enterMiniGhostAndPoll(entry));
+    setTimeout(() => enterMiniGhostAndPoll(entry), 140);
+    try { win.unmaximize(); } catch { enterMiniGhostAndPoll(entry); }
+  } else {
+    enterMiniGhostAndPoll(entry);
+  }
 
   return true;
 }
@@ -303,6 +373,8 @@ export function startDetachDragByWindowId(windowId: number): boolean {
 export function endDetachDragByWindowId(windowId: number, commit: boolean): boolean {
   const entry = byWindowId.get(windowId);
   if (!entry) return false;
+  // 비동기 복원(unmaximize) 대기 중 지연 진입(enterMiniGhostAndPoll)을 취소.
+  entry.dragActive = false;
   if (entry.dragTimer) {
     clearInterval(entry.dragTimer);
     entry.dragTimer = null;
@@ -328,6 +400,14 @@ export function endDetachDragByWindowId(windowId: number, commit: boolean): bool
   try { win.setAlwaysOnTop(false); } catch { /* noop */ }
   // mini ghost 진입 시 풀었던 최소 크기를 원래 값으로 복원.
   try { win.setMinimumSize(POPUP_MIN_W, POPUP_MIN_H); } catch { /* noop */ }
+  if (entry.wasMaximized) {
+    // 최대화 상태에서 redock 을 취소했으면 다시 최대화로 되돌린다(원래 모습 그대로).
+    try { win.setOpacity(entry.originalOpacity || 1); } catch { /* noop */ }
+    try { win.maximize(); } catch { /* noop */ }
+    entry.wasMaximized = false;
+    entry.originalBounds = null;
+    return true;
+  }
   if (entry.originalBounds) {
     // 마우스 위치에 따라 복원된 창이 cursor 근처에 있게 (자연스러운 위치).
     // 다만 사용자가 별창을 모니터를 옮겨 다녔으면 그 위치를 존중하는 게 자연 → cursor 기준 중앙으로.

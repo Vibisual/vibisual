@@ -525,13 +525,16 @@ export const AVAILABLE_ISOLATION_MODES: readonly string[] = [
 ];
 
 /**
- * 선택 가능한 사고 깊이 (effort) — Opus 4.7+ (2026-05~)
+ * 선택 가능한 사고 깊이 (effort) — Opus 4.8+ (2026-05~)
  *
- * §4 v1.49 — Opus 4.7 신규 등급 `xhigh` 를 최상단으로 추가.
+ * §4 v1.49 — Opus 4.7 신규 등급 `xhigh` 추가.
+ * §4 v2.48 — Opus 4.8 은 low/medium/high/xhigh/max 5등급을 모두 별개로 지원(공식 문서 2026-05).
+ *   v1.49 에서 빠졌던 `'max'`(토큰 제약 없는 최대 추론, per-spawn 세션 단위)를 최상단으로 재도입.
  * 서버는 string 패스스루이므로 SDK/CLI 가 인식하는 신규 값을 즉시 사용 가능.
+ * ⚠️ 클라 하드코딩 `EFFORT_VALUES`(AgentConfigPopup / OptionsWindow)와 값이 일치해야 한다 — 드리프트 주의.
  */
 export const AVAILABLE_EFFORT_LEVELS: readonly string[] = [
-  'default', 'low', 'medium', 'high', 'xhigh',
+  'default', 'low', 'medium', 'high', 'xhigh', 'max',
 ];
 
 /** 선택 가능한 메모리 모드 */
@@ -1398,12 +1401,15 @@ export const AUTO_AGENT_ROLE_POLICY: Record<AutoAgentRole, Partial<AgentConfig>>
     model: 'sonnet',
     tools: ['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob'],
     permissionMode: 'default',
-    effort: 'low',
+    effort: 'medium',
     color: '#10B981',
     rules:
-      '# Role: Tester (Auto Agent 가 자동 spawn)\n\n' +
+      '# Role: Tester (Auto Agent 가 자동 spawn — 결정적 통과 조건)\n\n' +
       '- 받은 명세대로 테스트 작성·실행. 단위·통합 테스트 우선.\n' +
-      '- 실패 시 정확한 출력 인용 + 1문장 진단.',
+      '- **반드시 프로젝트의 빌드·타입체크·테스트를 실제로 실행해 검증한다** — 추정 ❌, Bash 로 직접 돌린다.\n' +
+      '  - 명령은 프로젝트에 맞게 감지: pnpm 모노레포면 `pnpm build && pnpm typecheck && pnpm test`, 그 외 package.json 의 scripts / Makefile / 빌드 도구를 살펴 적절한 것.\n' +
+      '- **판정은 결정적으로**: 모두 통과하면 `PASS`, 하나라도 실패하면 첫 줄에 `REJECT: <한 줄 사유>` 를 명시하고 실패한 명령의 정확한 출력을 인용한다.\n' +
+      '- `REJECT` 를 내면 critique(force-rework) 엣지를 통해 coder 에게 자동 재작업이 라우팅된다 — "대충 됐다" 로 통과시키지 말 것.',
   },
   researcher: {
     model: 'haiku',
@@ -1617,12 +1623,13 @@ function serializeRoleCatalog(): string {
  */
 export function buildHarnessBuilderRules(args: {
   serverBase: string;
+  serverToken: string;
   centerX: number;
   centerY: number;
   layoutRadius?: number;
   projectName: string | null;
 }): string {
-  const { serverBase, centerX, centerY, projectName } = args;
+  const { serverBase, serverToken, centerX, centerY, projectName } = args;
   const radius = args.layoutRadius ?? AUTO_AGENT_LAYOUT_RADIUS;
   const projectField = projectName ? `"${projectName}"` : 'null';
   const toolList = AVAILABLE_AGENT_TOOLS.join(', ');
@@ -1656,16 +1663,23 @@ export function buildHarnessBuilderRules(args: {
 3. **하네스 설계**: 몇 개의 어떤 역할이 필요한지, 각 역할에 어떤 모델·도구·권한이 적합한지, 누가 누구에게 위임하는지(엣지) 결정. 단순 작업은 1개로 충분, 복잡하면 PM 허브 + 워커 + 리뷰어. **고정 틀에 끼워맞추지 말고 요청에 맞춰 새로 설계**한다.
 4. **버블 생성**: 역할마다 \`POST /api/create-custom-agent\` 호출 → 응답의 \`agent.id\`(설정/엣지용)와 \`agent.path\`(엔트리 kickoff용 sessionId)를 반드시 캡처.
 5. **설정 주입**: 버블마다 \`PUT /api/agent-config/:agentId\` 로 model/tools/permissionMode/effort/rules 배정. rules 에는 그 에이전트의 역할·산출물 형식을 또렷이 적는다.
-6. **엣지 연결**: 의존 관계대로 \`POST /api/task-edges\` 로 연결.
-7. **엔트리 기동**: 시작점 에이전트의 sessionId 로 \`POST /api/commands/:sessionId\` 에 **사용자 원본 요청**을 forward(text/plain).
-8. **마무리 보고**: 만든 버블·엣지·각자의 역할을 2~5줄로 요약. (당신은 여기서 종료 — 실제 작업은 서브들이 이어간다.)
+6. **엣지 연결**: 의존 관계대로 \`POST /api/task-edges\` 로 연결. **코드를 변경하는 작업이면 검증 엣지를 반드시 포함**(바로 아래 "검증 엣지" 절 참고).
+7. **엔트리 기동**: 시작점(=오케스트라) 에이전트의 sessionId 로 \`POST /api/commands/:sessionId\` 에 **사용자 원본 요청**을 forward(text/plain).
+8. **마무리 보고**: 만든 버블·엣지·각자의 역할을 2~5줄로 요약하고, **"이후 추가 명령은 〈엔트리 버블 라벨〉 버블에 입력하세요"** 를 명시(사용자가 어느 버블을 오케스트라로 다룰지 알도록). (당신은 여기서 종료 — 실제 작업은 서브들이 이어간다.)
+
+## 검증 엣지 — 코드 변경 시 필수 (v2.48)
+- **코드를 변경하는 의도**(feature / refactor / debug / 파일 쓰기를 동반하는 quick-fix)면, reviewer 또는 tester 에서 coder 로 향하는 **검증 엣지를 최소 1개** 반드시 깐다. \`kind:"critique"\`, \`critiqueAuthority:"force-rework"\` 로 만들면, 리뷰어의 \`REJECT\` 나 테스터의 빌드/테스트 실패가 **자동으로 coder 재작업으로 라우팅**된다(서버가 짝(auto-rework) 엣지를 자동 생성).
+- 권장 형태: coder → reviewer(리뷰), tester → coder(\`critique+force-rework\`), reviewer → coder(\`critique+force-rework\`). 즉 "만들고 → 검증하고 → 실패하면 되돌아가 고친다" 루프를 엣지로 구성.
+- **예외**: 읽기 전용 조사(research), 단순 질의, 파일을 쓰지 않는 초소형 작업은 검증 엣지 불필요.
 
 ## REST API (서버 베이스: \`${serverBase}\`)
 모든 호출은 Bash(curl)로. JSON 본문은 heredoc 으로 보내 escape 부담을 줄인다. node(v20)가 항상 있으니 응답 파싱은 node 로.
+**인증 필수**: 모든 구축 호출에 헤더 \`-H 'x-vibisual-hook-token: ${serverToken}'\` 를 반드시 붙인다(이게 없으면 401). 아래 예시에 이미 포함돼 있다.
 
 ### 1) 버블 생성
 \`\`\`bash
 RESP=$(curl -s -X POST "${serverBase}/api/create-custom-agent" \\
+  -H 'x-vibisual-hook-token: ${serverToken}' \\
   -H 'Content-Type: application/json' --data-binary @- <<'JSON'
 {"label":"Coder","x":${Math.round(centerX + radius)},"y":${Math.round(centerY)},"project":${projectField}}
 JSON
@@ -1678,6 +1692,7 @@ AGENT_PATH=$(printf '%s' "$RESP" | node -e "let s='';process.stdin.on('data',d=>
 ### 2) 설정 주입 (model/tools/permissionMode/effort/rules)
 \`\`\`bash
 curl -s -X PUT "${serverBase}/api/agent-config/$AGENT_ID" \\
+  -H 'x-vibisual-hook-token: ${serverToken}' \\
   -H 'Content-Type: application/json' --data-binary @- <<'JSON'
 {"model":"sonnet","tools":["Read","Write","Edit","Bash","Grep","Glob"],"permissionMode":"default","effort":"medium","rules":"# Role: Coder\\n받은 명세대로 코드를 작성한다. 완료 후 변경 파일과 요점을 보고."}
 JSON
@@ -1687,17 +1702,29 @@ JSON
 ### 3) 엣지 연결 (작업 위임)
 \`\`\`bash
 RESP=$(curl -s -X POST "${serverBase}/api/task-edges" \\
+  -H 'x-vibisual-hook-token: ${serverToken}' \\
   -H 'Content-Type: application/json' --data-binary @- <<'JSON'
 {"sourceAgentId":"<PM_ID>","targetAgentId":"<CODER_ID>","command":"이 기능을 구현하라","forwardMode":"manual","kind":"command"}
 JSON
 )
 EDGE_ID=$(printf '%s' "$RESP" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const o=JSON.parse(s);process.stdout.write(o.data.id)})")
 \`\`\`
-- 필수: \`sourceAgentId\`,\`targetAgentId\`,\`command\`,\`forwardMode\`('manual'|'auto'). 선택: \`kind\`('command'|'artifact'|'request'|'critique'), \`returnFormat\`('summary'|'full'|'both'), \`commandMode\`('shared'|'tool-delegation'|'mode-delegation').
+- 필수: \`sourceAgentId\`,\`targetAgentId\`,\`command\`,\`forwardMode\`('manual'|'auto'). 선택: \`kind\`('command'|'artifact'|'request'|'critique'), \`returnFormat\`('summary'|'full'|'both'), \`commandMode\`('shared'|'tool-delegation'|'mode-delegation'), \`critiqueAuthority\`('force-rework'|'comment-only', kind='critique' 한정).
+
+#### 검증(critique) 엣지 예시 — reviewer/tester → coder
+\`\`\`bash
+curl -s -X POST "${serverBase}/api/task-edges" \\
+  -H 'x-vibisual-hook-token: ${serverToken}' \\
+  -H 'Content-Type: application/json' --data-binary @- <<'JSON'
+{"sourceAgentId":"<TESTER_ID>","targetAgentId":"<CODER_ID>","command":"빌드/테스트 실패 시 원인을 고쳐 다시 통과시켜라","forwardMode":"auto","kind":"critique","critiqueAuthority":"force-rework"}
+JSON
+\`\`\`
+- \`critique\`+\`force-rework\` 이면 서버가 같은 방향의 auto-rework(command) 자매 엣지를 자동 생성 — REJECT/실패 시 coder 가 자동으로 재작업한다. 별도 명령 엣지를 또 만들 필요 ❌.
 
 ### 4) 엔트리 기동 (사용자 원본 요청 forward — escape-free)
 \`\`\`bash
 curl -s -X POST "${serverBase}/api/commands/<ENTRY_AGENT_PATH>" \\
+  -H 'x-vibisual-hook-token: ${serverToken}' \\
   -H 'Content-Type: text/plain; charset=utf-8' --data-binary @- <<'EOF'
 <사용자 원본 요청 전문을 그대로 — JSON escape 불필요, 여러 줄 OK>
 EOF
@@ -1712,6 +1739,11 @@ EOF
 ## 권한 모드
 \`default\`(승인 필요) · \`acceptEdits\`(편집 자동승인) · \`plan\`(읽기·계획만, 변경 ❌) · \`bypassPermissions\`(전부 자동).
 실제 코드 변경 워커는 \`acceptEdits\` 또는 \`bypassPermissions\`, 리뷰/설계는 \`plan\` 이 흔하다.
+
+## 사고 깊이(effort) 가이드
+\`low\`(빠름·단순) · \`medium\`(균형) · \`high\`(깊은 추론, 대부분의 코딩 기본) · \`xhigh\`(더 깊게) · \`max\`(토큰 제약 없는 최대 추론).
+- \`max\`/\`xhigh\` 는 architect·oracle·reviewer 처럼 **되돌리기 비싼 판단**을 하는 역할에. coder/tester 같은 실행 역할은 \`medium\`~\`high\` 면 충분.
+- effort 는 Opus 패밀리에서 가장 또렷하게 작동(\`max\` 는 Opus 4.8 지원). 단순·반복 역할에 \`max\` 를 남발하면 과사고로 느려진다 — 비대칭 배분이 정석.
 
 ## 사용 가능한 도구
 ${toolList}
@@ -1730,6 +1762,52 @@ ${serializeRoleCatalog()}
 - 한 역할에 너무 많은 책임을 몰지 말 것. 단순 요청에 과한 군단 ❌, 복잡 요청에 단일 에이전트 ❌ — 요청 규모에 비례.
 - 만든 버블·엣지가 실제로 응답에 \`ok:true\` 로 생성됐는지 확인하고 진행. 실패하면 본문을 점검해 교정.
 - 모든 curl 의 서버 베이스는 반드시 \`${serverBase}\` (이 주소만 in-process 서버에 닿는다).`;
+}
+
+// ─── §4 v2.52 — 에이전트 작업 신고 (did/userActions 색 구분) ───
+
+/** agentId 당 보관하는 작업 신고 최대 개수 (ring buffer 캡, 초과 시 오래된 것부터 제거). */
+export const AGENT_REPORT_MAX_PER_AGENT = 50;
+
+/**
+ * §4 v2.52 — 커스텀/스폰 에이전트에게 주입할 "작업 신고" 지시문 (시스템 프롬프트 꼬리표).
+ *
+ * 서버 `processNextCommand` 가 커스텀 에이전트(customCreated) spawn 시점에 contextSummary 끝에
+ * append 한다. 동적 값(serverBase=hook loopback 포트, 토큰, agentId, subAgentId)은 서버가 주입 —
+ * 하네스 빌더(`buildHarnessBuilderRules`) 의 curl 패턴과 동일 인프라(토큰 인증 loopback) 재사용.
+ * Hook 에이전트는 우리가 spawn 하지 않으므로 이 지시문이 안 들어가 신고도 안 함(하이브리드 경계).
+ */
+export function buildAgentReportRules(args: {
+  serverBase: string;
+  serverToken: string;
+  agentId: string;
+  subAgentId?: string;
+}): string {
+  const { serverBase, serverToken, agentId, subAgentId } = args;
+  const subField = subAgentId ? `"${subAgentId}"` : 'null';
+  return `
+
+# 작업 신고 (Vibisual IDE 색 구분)
+**사용자가 직접 해야 할 일(\`userActions\`)이 실제로 생긴 완료 보고에서만** 아래 엔드포인트로 **구조화 신고**를 함께 보낸다 — "이건 직접 해주세요"(빌드 실행, 에디터 조작, 외부 승인 등) 류 안내가 보고에 섞였을 때가 그 경우다. Vibisual IDE 가 이 신고를 받아 "AI 가 한 일" 과 "사용자가 할 일" 을 **색으로 구분**해 보여준다(사용자가 긴 글을 다 안 읽어도 한눈에 파악).
+
+**단순 완료·일상 대화·질문 답변·사용자 손이 필요 없는 보고에서는 호출하지 마라.** 매번 보내면 카드가 도배돼 오히려 신호가 묻힌다 — 신고는 "사용자가 할 일이 있을 때만" 자연스럽게 뜨는 게 목적이다.
+
+- \`did\`: 네가(=AI) 실제로 끝낸 일(사용자 액션의 맥락으로 함께 첨부).
+- \`userActions\`: 네가 대신 할 수 없어 **사용자가 직접 해야 하는 일**(빌드 실행, 에디터 조작, 외부 승인 등). **이게 비면 신고 자체를 보내지 마라.**
+- \`nextSteps\`: 다음 차례 작업(선택).
+
+\`userActions\` 가 있는 완료 보고 직전에만 Bash 로 1회 호출한다(실패해도 무시하고 자연어 보고는 그대로 진행):
+\`\`\`bash
+curl -s -X POST "${serverBase}/api/agent-report" \\
+  -H 'x-vibisual-hook-token: ${serverToken}' \\
+  -H 'Content-Type: application/json' --data-binary @- <<'JSON'
+{"agentId":"${agentId}","subAgentId":${subField},"did":["완료한 일 1","완료한 일 2"],"userActions":["사용자가 직접 해야 할 일 1"],"nextSteps":["다음 단계 1"]}
+JSON
+\`\`\`
+- **\`userActions\` 가 비어 있으면 신고 자체를 보내지 마라** — 빈 신고는 카드만 늘려 신호를 묻는다.
+- **자연어 보고 본문에는 "사용자가 할 일 / 직접 해주세요" 류 섹션을 헤딩·불릿으로 따로 반복하지 마라.** 그 역할은 이 신고가 만드는 **색 카드(\`userActions\`)** 가 한다 — 본문에 또 나열하면 "긴 글 안 읽어도 색으로 구분"이라는 취지가 무너진다. 본문은 핵심 결론·맥락만 간결히 쓰고, 사용자가 직접 해야 하는 일은 \`userActions\` 배열에만 담는다.
+- 이 신고는 **표시 전용** — 실제 작업/판정 로직과 무관하며, 보내든 안 보내든 결과엔 영향이 없다.
+- 토큰 헤더(\`x-vibisual-hook-token\`)가 없으면 401 이다. 위 예시에 이미 포함돼 있다.`;
 }
 
 /**

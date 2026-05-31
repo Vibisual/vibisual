@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "description": "Vibisual Electron desktop shell — main process runs the server in-process (§3.7)",
+  "author": "Vibisual",
   "engines": {
     "node": ">=20"
   },

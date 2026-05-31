@@ -42,8 +42,9 @@ import type {
   ToolDurationEntry,
   CompactCount,
   AutoAgentSummary,
+  AgentReport,
 } from '@vibisual/shared';
-import { MAX_BASH_HISTORY, MAX_FILE_EDITS, MAX_WRITE_DIFF_BYTES, DEFAULT_MAX_SATELLITES, SATELLITE_MAX_BOUNDS, MAX_AGENTS, SATELLITE_TYPES, AGENT_FADE_DURATION, BUBBLE_TTL, GHOST_FADE_DURATION, FILE_EXISTENCE_MISS_THRESHOLD, FRONTEND_SERVER_PATTERNS, IFRAME_DEAD_GRACE_MS, parseModelFamily, DEFAULT_AGENT_CONFIG, AVAILABLE_AGENT_TOOLS, DEFAULT_UI_LOCALE, COMMENT_BOX_DEFAULTS, READ_TOOLS, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL } from '@vibisual/shared';
+import { MAX_BASH_HISTORY, MAX_FILE_EDITS, MAX_WRITE_DIFF_BYTES, DEFAULT_MAX_SATELLITES, SATELLITE_MAX_BOUNDS, MAX_AGENTS, SATELLITE_TYPES, AGENT_FADE_DURATION, BUBBLE_TTL, GHOST_FADE_DURATION, FILE_EXISTENCE_MISS_THRESHOLD, FRONTEND_SERVER_PATTERNS, IFRAME_DEAD_GRACE_MS, parseModelFamily, DEFAULT_AGENT_CONFIG, AVAILABLE_AGENT_TOOLS, DEFAULT_UI_LOCALE, COMMENT_BOX_DEFAULTS, READ_TOOLS, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, AGENT_REPORT_MAX_PER_AGENT } from '@vibisual/shared';
 import type { ServerKind, UiLocale } from '@vibisual/shared';
 import { EdgeManager } from './edgeManager.js';
 import { extractPort, extractPortFromInlineEval, extractPortFromScriptFile, isPortAlive, isProbeCommand, isVibisualLauncherCommand } from './processChecker.js';
@@ -537,6 +538,11 @@ export class ProjectGraph {
    * 영속화 대상 (ProjectCheckpoint.autoAgentSummaries).
    */
   private autoAgentSummaries = new Map<string, AutoAgentSummary>();
+  /**
+   * §4 v2.52 — 에이전트 작업 신고 (agentId → AgentReport[]). did/userActions 색 구분용.
+   * 영속화 대상 (ProjectCheckpoint.agentReports). ring buffer 캡 = AGENT_REPORT_MAX_PER_AGENT.
+   */
+  private agentReports = new Map<string, AgentReport[]>();
   /**
    * §5.3 #12-1 v1.91 — 현재 권한 승인 팝업 대기 중인 에이전트 id 집합.
    * PreToolUse 훅이 동기 hold(최대 60s) 하는 동안 에이전트는 "블록된 활성" 상태다.
@@ -1347,6 +1353,28 @@ export class ProjectGraph {
   /** §5.3 #10-2 v2.37 — 전체 요약 메타 맵 (broadcast 스냅샷용) */
   getAutoAgentSummaries(): Record<string, AutoAgentSummary> {
     return Object.fromEntries(this.autoAgentSummaries);
+  }
+
+  /**
+   * §4 v2.52 — 에이전트 작업 신고 추가 (agentId → AgentReport[], append + ring buffer 캡).
+   * 커스텀/스폰 에이전트가 `POST /api/agent-report` 로 보낸 did/userActions 구조화 신고를 적재.
+   */
+  addAgentReport(report: AgentReport): void {
+    const list = this.agentReports.get(report.agentId) ?? [];
+    list.push(report);
+    if (list.length > AGENT_REPORT_MAX_PER_AGENT) {
+      list.splice(0, list.length - AGENT_REPORT_MAX_PER_AGENT);
+    }
+    this.agentReports.set(report.agentId, list);
+    this.bumpMutationVersion();
+  }
+
+  /** §4 v2.52 — 작업 신고 전체 맵 (broadcast 스냅샷/체크포인트용). 빈 맵이면 undefined. */
+  getAgentReportsRecord(): Record<string, AgentReport[]> | undefined {
+    if (this.agentReports.size === 0) return undefined;
+    const out: Record<string, AgentReport[]> = {};
+    for (const [k, v] of this.agentReports) out[k] = [...v];
+    return out;
   }
 
   /** 캔버스에서 파이프라인 에이전트 생성 (부모 1 + 자식 4 원자적 생성) */
@@ -2423,6 +2451,7 @@ export class ProjectGraph {
       compactCounts: this.compactCounts.size > 0 ? this.getCompactCounts() : undefined,
       skillUsageCounts: this.getSkillUsageCountsRecord(),
       autoAgentSummaries: this.autoAgentSummaries.size > 0 ? this.getAutoAgentSummaries() : undefined,
+      agentReports: this.getAgentReportsRecord(),
     };
 
     // (2b) 계산 결과를 캐시에 저장
@@ -2553,6 +2582,7 @@ export class ProjectGraph {
       compactCounts: this.compactCounts.size > 0 ? this.getCompactCounts() : undefined,
       skillUsageCounts: this.getSkillUsageCountsFlat(),
       autoAgentSummaries: this.autoAgentSummaries.size > 0 ? this.getAutoAgentSummaries() : undefined,
+      agentReports: this.getAgentReportsRecord(),
     };
   }
 
@@ -2910,6 +2940,16 @@ export class ProjectGraph {
         }
         return Object.keys(out).length > 0 ? out : undefined;
       })(),
+      // §4 v2.52/v2.55 — 작업 신고: 이 프로젝트 소속 에이전트(버블 id)분만 필터해 영속.
+      //   (v2.52 도입 시 getSnapshot/toCheckpoint 에만 넣고 정작 디스크 포맷인 toProjectCheckpoint 에
+      //    빠뜨려, 껐다 켜면 신고 카드가 사라지던 버그 → v2.55 hotfix. contis 누락(v1.59)과 동형.)
+      agentReports: (() => {
+        const out: Record<string, AgentReport[]> = {};
+        for (const [agentId, reports] of this.agentReports) {
+          if (projectBubbleIds.has(agentId) && reports.length > 0) out[agentId] = [...reports];
+        }
+        return Object.keys(out).length > 0 ? out : undefined;
+      })(),
     };
   }
 
@@ -3034,6 +3074,25 @@ export class ProjectGraph {
       for (const [sessionId, cmds] of Object.entries(cp.completedCommands)) {
         if (!this.completedCommandArchiveRef.has(sessionId)) {
           this.completedCommandArchiveRef.set(sessionId, [...cmds]);
+        }
+      }
+    }
+
+    // §4 v2.55 — 작업 신고 병합 (agentId 키, 기존 우선 + 신규 id 만 추가, createdAt 정렬 후 캡 유지).
+    //   restoreFromCheckpoint 는 clear 후 set 이지만, merge 경로(다중 프로젝트 합치기)는 누적이어야 한다.
+    if (cp.agentReports) {
+      for (const [agentId, reports] of Object.entries(cp.agentReports)) {
+        if (!Array.isArray(reports) || reports.length === 0) continue;
+        const existing = this.agentReports.get(agentId);
+        if (!existing) {
+          this.agentReports.set(agentId, [...reports]);
+        } else {
+          const seen = new Set(existing.map((r) => r.id));
+          for (const r of reports) if (!seen.has(r.id)) existing.push(r);
+          existing.sort((a, b) => a.createdAt - b.createdAt);
+          if (existing.length > AGENT_REPORT_MAX_PER_AGENT) {
+            existing.splice(0, existing.length - AGENT_REPORT_MAX_PER_AGENT);
+          }
         }
       }
     }
@@ -3364,6 +3423,16 @@ export class ProjectGraph {
       for (const [id, summary] of Object.entries(cp.autoAgentSummaries)) {
         if (summary && typeof summary === 'object') {
           this.autoAgentSummaries.set(id, summary);
+        }
+      }
+    }
+
+    // §4 v2.52 — 에이전트 작업 신고 복원
+    this.agentReports.clear();
+    if (cp.agentReports) {
+      for (const [agentId, reports] of Object.entries(cp.agentReports)) {
+        if (Array.isArray(reports) && reports.length > 0) {
+          this.agentReports.set(agentId, [...reports]);
         }
       }
     }
