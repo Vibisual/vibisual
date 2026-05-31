@@ -12,6 +12,8 @@ import {
   openDetached,
   closeByTabKey,
   closeByWindowId,
+  minimizeByWindowId,
+  toggleMaximizeByWindowId,
   listDetached,
   hasTabKey,
   getCursorScreenPoint,
@@ -194,6 +196,15 @@ export function setupIpc(expressApp: Express): IpcHub {
     return closeByWindowId(wcId);
   });
 
+  // §5.4 #14-1 — 별창 자기 창의 최소화/최대화(복원) 토글. 닫기(close-self) 와 동일하게
+  // event.sender.id 로 자기 창을 식별한다.
+  ipcMain.handle('vibisual:window:minimize-self', (event): boolean => {
+    return minimizeByWindowId(event.sender.id);
+  });
+  ipcMain.handle('vibisual:window:toggle-maximize-self', (event): boolean => {
+    return toggleMaximizeByWindowId(event.sender.id);
+  });
+
   ipcMain.handle('vibisual:window:list-detached', () => listDetached());
   ipcMain.handle('vibisual:window:has-tab', (_e, tabKey: string) => hasTabKey(tabKey));
 
@@ -237,6 +248,8 @@ export function setupIpc(expressApp: Express): IpcHub {
       ipcMain.removeHandler('vibisual:window:detach');
       ipcMain.removeHandler('vibisual:window:close-detached');
       ipcMain.removeHandler('vibisual:window:close-self');
+      ipcMain.removeHandler('vibisual:window:minimize-self');
+      ipcMain.removeHandler('vibisual:window:toggle-maximize-self');
       ipcMain.removeHandler('vibisual:window:list-detached');
       ipcMain.removeHandler('vibisual:window:has-tab');
       ipcMain.removeHandler('vibisual:window:cursor-screen');

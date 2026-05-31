@@ -396,7 +396,8 @@
         "low": "Minimal thinking. Faster but less thorough.",
         "medium": "Balanced thinking depth.",
         "high": "Deep reasoning. Slower but thorough.",
-        "xhigh": "Extra-high reasoning (Opus 4.7+). Recommended for most coding work."
+        "xhigh": "Extra-high reasoning (Opus 4.7+). Recommended for most coding work.",
+        "max": "Maximum reasoning, no token limit (Opus 4.8). For the hardest judgment calls; may overthink simple tasks."
       },
       "tools": {
         "label": "Tools",
@@ -752,6 +753,12 @@
       "collapse": "collapse",
       "copy": "Copy",
       "copied": "Copied"
+    },
+    "report": {
+      "title": "Work report",
+      "didTitle": "What the AI did",
+      "userActionsTitle": "What you need to do",
+      "nextStepsTitle": "Next steps"
     }
   },
   "bubbleMap": {
@@ -905,6 +912,9 @@
     "redockCardTitle": "Drop on the main tab bar to redock",
     "redockCardSubtitle": "Or release anywhere else to leave detached",
     "detachedBadge": "detached",
+    "minimizeWindow": "Minimize",
+    "maximizeWindow": "Maximize",
+    "restoreWindow": "Restore",
     "closeWindow": "Close window",
     "missingTitle": "Tab no longer available",
     "missingProject": "The project \"{{name}}\" is not loaded in this Vibisual instance.",

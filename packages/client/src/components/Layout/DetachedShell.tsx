@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { BubbleMap } from '../BubbleMap/BubbleMap.js';
 import { CanvasBreadcrumb } from '../BubbleMap/CanvasBreadcrumb.js';
@@ -156,6 +156,11 @@ function DetachedTitleBar({ kind, tabKey, title }: DetachedTitleBarProps): React
   const { t } = useTranslation();
   const [dragging, setDragging] = useState(false);
   const [hovering, setHovering] = useState(false);
+  const [maximized, setMaximized] = useState(false);
+  // pointerdown 으로 redock 드래그를 시작했는지. main 의 mini-ghost 진입(dragging push)은
+  // unmaximize 복원을 기다려 약간 늦으므로, 그 사이 떼더라도 항상 endDetachDrag 를 보내야
+  // main 의 지연 진입이 취소된다(파랑 화면 잔류 방지).
+  const initiatedRef = useRef(false);
 
   // main 이 polling 중 dragging/hovering 변경을 push — 그 신호로 미니 박스 모양 갱신.
   useEffect(() => {
@@ -168,21 +173,40 @@ function DetachedTitleBar({ kind, tabKey, title }: DetachedTitleBarProps): React
     return () => { off(); };
   }, []);
 
+  // main 이 maximize/unmaximize(OS 더블클릭 포함) 시 푸시하는 상태로 최대화/복원 아이콘 토글.
+  useEffect(() => {
+    const api = window.api;
+    if (!api?.window?.onMaximizeState) return;
+    const off = api.window.onMaximizeState((s) => setMaximized(s.maximized));
+    return () => { off(); };
+  }, []);
+
+  const handleMinimize = useCallback((): void => {
+    void window.api?.window?.minimizeSelf();
+  }, []);
+
+  const handleToggleMaximize = useCallback((): void => {
+    void window.api?.window?.toggleMaximizeSelf();
+  }, []);
+
   const handlePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>): void => {
     if (e.button !== 0) return;
     // pointer capture — 마우스가 어디로 가든 pointerup 을 우리가 받게.
     try { (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId); } catch { /* noop */ }
+    initiatedRef.current = true;
     void window.api?.window?.startDetachDrag();
   }, []);
 
   const handlePointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>): void => {
-    if (!dragging) return;
-    const commit = hovering; // main 이 polling 한 마지막 hover 상태
+    // dragging push 가 아직 안 왔어도, 드래그를 시작했으면 반드시 종료를 보낸다.
+    if (!initiatedRef.current) return;
+    initiatedRef.current = false;
+    const commit = hovering; // main 이 polling 한 마지막 hover 상태(미진입이면 false → 복원)
     setDragging(false);
     setHovering(false);
     void window.api?.window?.endDetachDrag(commit);
     try { (e.currentTarget as HTMLDivElement).releasePointerCapture(e.pointerId); } catch { /* noop */ }
-  }, [dragging, hovering]);
+  }, [hovering]);
 
   const handleClose = useCallback((): void => {
     void window.api?.window?.closeSelf();
@@ -273,13 +297,46 @@ function DetachedTitleBar({ kind, tabKey, title }: DetachedTitleBarProps): React
         title={t('tabDetach.osDragHint', { defaultValue: 'Drag here to move the window' })}
       />
 
-      {/* (c) 닫기 버튼 — app-nodrag 라 OS 드래그 영향 받지 않음. */}
+      {/* (c) 최소화 · 최대화/복원 · 닫기 버튼 — app-nodrag 라 OS 드래그 영향 받지 않음. */}
       <div className="flex flex-shrink-0 items-center gap-1 pr-2 app-nodrag">
         <button
           type="button"
           onPointerDown={(e) => e.stopPropagation()}
-          onClick={handleClose}
+          onClick={handleMinimize}
           className="flex h-6 w-6 items-center justify-center rounded text-gray-400 transition-colors hover:bg-white/[0.08] hover:text-gray-100"
+          title={t('tabDetach.minimizeWindow', { defaultValue: 'Minimize' })}
+        >
+          <svg className="h-3.5 w-3.5" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+            <path d="M2.5 6h7" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={handleToggleMaximize}
+          className="flex h-6 w-6 items-center justify-center rounded text-gray-400 transition-colors hover:bg-white/[0.08] hover:text-gray-100"
+          title={
+            maximized
+              ? t('tabDetach.restoreWindow', { defaultValue: 'Restore' })
+              : t('tabDetach.maximizeWindow', { defaultValue: 'Maximize' })
+          }
+        >
+          {maximized ? (
+            <svg className="h-3.5 w-3.5" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3.5" y="3.5" width="6" height="6" rx="0.5" />
+              <path d="M2.5 8V2.5H8" />
+            </svg>
+          ) : (
+            <svg className="h-3.5 w-3.5" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="2.5" y="2.5" width="7" height="7" rx="0.5" />
+            </svg>
+          )}
+        </button>
+        <button
+          type="button"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={handleClose}
+          className="flex h-6 w-6 items-center justify-center rounded text-gray-400 transition-colors hover:bg-red-500/80 hover:text-white"
           title={t('tabDetach.closeWindow', { defaultValue: 'Close window' })}
         >
           <svg className="h-3.5 w-3.5" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">

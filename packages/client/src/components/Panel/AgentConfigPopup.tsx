@@ -22,7 +22,8 @@ const MODEL_VALUES = ['opus', 'sonnet', 'haiku'] as const;
 const PERMISSION_VALUES = ['default', 'acceptEdits', 'plan', 'bypassPermissions'] as const;
 const ISOLATION_VALUES = ['none', 'worktree'] as const;
 // §4 v1.49 — Opus 4.7 신규 등급 'xhigh' (이전 'max' 대체)
-const EFFORT_VALUES = ['default', 'low', 'medium', 'high', 'xhigh'] as const;
+// SSOT = shared `AVAILABLE_EFFORT_LEVELS` (§4 v2.48). 'max' = Opus 4.8 최대 추론. 드리프트 주의.
+const EFFORT_VALUES = ['default', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
 
 // ─── Portal Tooltip ───
 

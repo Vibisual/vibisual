@@ -98,6 +98,7 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     store.applyV150Metrics(snap.recentToolDurations, snap.compactCounts, snap.rateLimits);
     store.applySkillUsageCounts(snap.skillUsageCounts);
     store.applyAutoAgentSummaries(snap.autoAgentSummaries);
+    store.applyAgentReports(snap.agentReports);
     store.applyDiagnosticLog(snap.diagnosticLog);
     store.applyModelRegistry(snap.modelRegistry);
     store.applyUserDefaults(snap.userDefaults);

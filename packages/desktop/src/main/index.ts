@@ -6,7 +6,7 @@ import { app, shell, BrowserWindow, protocol, screen } from 'electron';
 import { electronApp, optimizer } from '@electron-toolkit/utils';
 import { inject, type DispatchFunc } from 'light-my-request';
 import type { Express } from 'express';
-import { runServer, setBroadcastSink, setHookListenerPort, ensureClaudeHooksInstalled, recordDiagnostic, subAgentManager } from '@vibisual/server';
+import { runServer, setBroadcastSink, setHookListenerPort, setHookListenerToken, ensureClaudeHooksInstalled, recordDiagnostic, subAgentManager } from '@vibisual/server';
 import { setupIpc, type IpcHub } from './ipc';
 import { loadSecrets } from './secrets';
 import { configureWindowManager, closeAll as closeAllDetachedWindows } from './windowManager';
@@ -182,16 +182,27 @@ async function startHookListener(expressApp: Express): Promise<number> {
     // 송신측에 토큰 전달 채널을 추가하지 않아 401 로 영구 차단되던 것 해소.)
     const isDispatch = path === '/api/task-edges/dispatch';
 
+    // §5.3 #10-2 v2.47 — 하네스 빌더 구축 경로. 외부 빌더(spawn 된 claude)가 버블·엣지·설정·
+    // kickoff 를 만들려면 이 loopback 으로 와야 한다. 토큰 게이트 필수(아래 분기 — health/dispatch 만 면제).
+    const isBuilderPath =
+      path === '/api/create-custom-agent' ||
+      path === '/api/task-edges' ||
+      path.startsWith('/api/agent-config/') ||
+      path.startsWith('/api/commands/');
+
     // All other whitelisted paths require the per-launch token (item #7).
     if (
       path !== '/health' &&
       path !== '/api/hook-event' &&
       path !== '/api/permission-check' &&
       path !== '/api/ask-user-question' &&
-      path !== '/api/task-edges/dispatch'
+      path !== '/api/task-edges/dispatch' &&
+      // §4 v2.52 — 커스텀/스폰 에이전트의 작업 신고(did/userActions). 토큰 인증 필수(아래 분기).
+      path !== '/api/agent-report' &&
+      !isBuilderPath
     ) {
       res.statusCode = 404;
-      res.end('Vibisual hook listener — only /api/hook-event, /api/permission-check, /api/task-edges/dispatch and /health are served here.');
+      res.end('Vibisual hook listener — only hook ingest, edge dispatch, harness-builder construction routes and /health are served here.');
       req.resume();
       return;
     }
@@ -327,6 +338,8 @@ async function bootBackend(): Promise<void> {
   const hookPort = await startHookListener(handle.app);
   // §3.7 v2.8 — server 코어가 커스텀 위임 엣지 dispatch curl URL 을 이 포트로 조립하도록 주입.
   setHookListenerPort(hookPort);
+  // §5.3 #10-2 v2.47 — 하네스 빌더 구축 curl 인증용 per-launch 토큰을 server 코어에 주입.
+  setHookListenerToken(hookToken);
   console.log(`[main] hook listener on http://127.0.0.1:${hookPort} (loopback — hook + edge dispatch ingest)`);
 
   // Item #1 — VIBISUAL_SKIP_HOOK_INSTALL opt-out gate.

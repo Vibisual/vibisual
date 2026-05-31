@@ -815,7 +815,7 @@ export function DetailPanel({
                       {durations.map((d) => (
                         <span
                           key={`${d.ts}-${d.tool}`}
-                          className="rounded bg-gray-700/60 px-1.5 py-0.5 text-[10px] font-mono text-gray-300"
+                          className="max-w-full break-all rounded bg-gray-700/60 px-1.5 py-0.5 text-[10px] font-mono text-gray-300"
                           title={new Date(d.ts).toLocaleTimeString()}
                         >
                           {d.tool} {formatDurationMs(d.durationMs)}

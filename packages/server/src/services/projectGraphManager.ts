@@ -200,6 +200,20 @@ function mergeSnapshots(a: GraphSnapshot, b: GraphSnapshot): GraphSnapshot {
       if (!av && !bv) return undefined;
       return { ...(av ?? {}), ...(bv ?? {}) };
     })(),
+    // §5.3 #10-2 v2.37 — Auto Agent 요약 (agentId/sessionId 키, b 우선). 단일 인스턴스면 그대로 통과.
+    autoAgentSummaries: (() => {
+      const av = a.autoAgentSummaries;
+      const bv = b.autoAgentSummaries;
+      if (!av && !bv) return undefined;
+      return { ...(av ?? {}), ...(bv ?? {}) };
+    })(),
+    // §4 v2.52 — 에이전트 작업 신고 (agentId 1차 키 → 단순 spread 안전, b 우선).
+    agentReports: (() => {
+      const av = a.agentReports;
+      const bv = b.agentReports;
+      if (!av && !bv) return undefined;
+      return { ...(av ?? {}), ...(bv ?? {}) };
+    })(),
   };
 }
 
@@ -1047,6 +1061,17 @@ export class ProjectGraphManager {
 
   getAgentConfig(agentId: string): AgentConfig | undefined {
     return this.findInstanceByAgentId(agentId)?.getAgentConfig(agentId);
+  }
+
+  /**
+   * §4 v2.52 — 에이전트 작업 신고 적재. report.agentId 소속 인스턴스로 라우팅.
+   * 인스턴스를 못 찾으면(미등록) primary 폴백. 반환값으로 성공 여부 전달.
+   */
+  addAgentReport(report: import('@vibisual/shared').AgentReport): boolean {
+    const inst = this.findInstanceByAgentId(report.agentId) ?? this.primaryInstance();
+    if (!inst) return false;
+    inst.addAgentReport(report);
+    return true;
   }
 
   setAgentConfig(agentId: string, config: AgentConfig): void {

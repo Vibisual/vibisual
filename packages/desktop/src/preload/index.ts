@@ -64,6 +64,15 @@ const api = {
     closeDetached: (tabKey: string): Promise<boolean> =>
       ipcRenderer.invoke('vibisual:window:close-detached', tabKey),
     closeSelf: (): Promise<boolean> => ipcRenderer.invoke('vibisual:window:close-self'),
+    minimizeSelf: (): Promise<boolean> => ipcRenderer.invoke('vibisual:window:minimize-self'),
+    toggleMaximizeSelf: (): Promise<boolean> =>
+      ipcRenderer.invoke('vibisual:window:toggle-maximize-self'),
+    /** main 이 maximize/unmaximize 시 푸시하는 자기 창의 최대화 상태 구독(아이콘 토글용). */
+    onMaximizeState: (cb: (payload: { maximized: boolean }) => void): (() => void) => {
+      const listener = (_e: unknown, payload: { maximized: boolean }): void => cb(payload);
+      ipcRenderer.on('vibisual:window:maximize-state', listener);
+      return () => ipcRenderer.removeListener('vibisual:window:maximize-state', listener);
+    },
     listDetached: (): Promise<DetachedTabInfoWire[]> =>
       ipcRenderer.invoke('vibisual:window:list-detached'),
     hasTab: (tabKey: string): Promise<boolean> =>

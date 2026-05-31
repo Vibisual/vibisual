@@ -134,6 +134,8 @@ export interface AutoAgentRuntimeDeps {
   saveCheckpoint: () => void;
   /** 빌더가 curl 로 닿을 loopback 서버 베이스 URL (hook 리스너 포트). */
   getServerBase: () => string;
+  /** 빌더 구축 curl 인증용 per-launch 토큰(x-vibisual-hook-token). */
+  getServerToken: () => string;
   /** auto-agent 진행 신호 WS broadcast (선택) */
   broadcastAutoAgentProgress?: (autoAgentId: string, summary: AutoAgentSummary) => void;
 }
@@ -165,8 +167,10 @@ export class AutoAgentRuntime {
     const center = autoBubble.position ?? { x: 0, y: 0 };
     const projectName = inst.getPrimaryProjectName() ?? null;
     const serverBase = this.deps.getServerBase();
+    const serverToken = this.deps.getServerToken();
     const rules = buildHarnessBuilderRules({
       serverBase,
+      serverToken,
       centerX: center.x,
       centerY: center.y,
       layoutRadius: AUTO_AGENT_LAYOUT_RADIUS,

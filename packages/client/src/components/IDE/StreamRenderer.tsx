@@ -8,9 +8,10 @@ import { memo, useState, useMemo, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import Markdown from 'react-markdown';
 import type { Components } from 'react-markdown';
-import type { SubAgentStreamEvent, QueuedCommand } from '@vibisual/shared';
+import type { SubAgentStreamEvent, QueuedCommand, AgentReport } from '@vibisual/shared';
 import { SystemNode, parseSystemSubtype } from './SystemNode.js';
 import { ThinkingDots, ThinkingLiveLine } from './ThinkingIndicator.js';
+import { AgentReportCard } from './AgentReportCard.js';
 
 /** SDK 가 생각 중 반복 송출하는 system 펄스 subtype — 본문에 쌓이지 않게 라이브 1줄로 대체. */
 const THINKING_PULSE_SUBTYPE = 'thinking_tokens';
@@ -24,6 +25,8 @@ interface StreamRendererProps {
   events: SubAgentStreamEvent[];
   /** 완료된 명령 (스트림 없을 때 폴백 표시용) */
   commands?: QueuedCommand[];
+  /** §4 v2.53 — 이 세션의 작업 신고. createdAt 기준으로 스트림에 인라인 합류(맨 아래 고정 ❌). */
+  reports?: AgentReport[];
 }
 
 interface StreamGroup {
@@ -73,7 +76,15 @@ interface StreamThinkingLive {
   timestamp: number;
 }
 
-type StreamItem = StreamText | StreamThinking | StreamGroup | StreamSystem | StreamResult | StreamThinkingLive;
+/** §4 v2.53 — 작업 신고 카드 (createdAt 을 timestamp 로 삼아 스트림에 시간순 합류) */
+interface StreamReport {
+  kind: 'report';
+  id: string;
+  report: AgentReport;
+  timestamp: number;
+}
+
+type StreamItem = StreamText | StreamThinking | StreamGroup | StreamSystem | StreamResult | StreamThinkingLive | StreamReport;
 
 // ─── 이벤트 → 아이템 변환 ───
 
@@ -89,7 +100,7 @@ interface StreamCommand {
 
 type StreamItemFull = StreamItem | StreamCommand;
 
-function buildStreamItems(events: SubAgentStreamEvent[], commands?: QueuedCommand[]): StreamItemFull[] {
+function buildStreamItems(events: SubAgentStreamEvent[], commands?: QueuedCommand[], reports?: AgentReport[]): StreamItemFull[] {
   const items: StreamItemFull[] = [];
 
   // 사용자 프롬프트(완료/진행/큐 전부) → 각 명령마다 프롬프트 블록으로 앞부분에 삽입.
@@ -251,6 +262,14 @@ function buildStreamItems(events: SubAgentStreamEvent[], commands?: QueuedComman
   }
 
   flushAll();
+
+  // §4 v2.53 — 작업 신고 카드를 createdAt 타임스탬프로 합류 → 아래 sort 가 스트림 사이 시간순 인터리브.
+  //   (예전엔 StreamRenderer 바깥에서 맨 끝에 붙여 항상 하단 고정됐다. 이제 도착 시점에 끼어든 뒤
+  //    이후 스트림 이벤트가 그 아래로 쌓여 자연스럽게 위로 밀려 올라간다.)
+  for (const r of reports ?? []) {
+    items.push({ kind: 'report', id: `report-${r.id}`, report: r, timestamp: r.createdAt });
+  }
+
   // 타임스탬프 기준 안정 정렬 — 프롬프트(command)가 항상 최상단에 오도록 유지하되,
   // 스트림 이벤트들끼리는 발생 순서 유지.
   items.sort((a, b) => a.timestamp - b.timestamp);
@@ -522,9 +541,9 @@ function CommandBlock({ item }: { item: StreamCommand }): React.JSX.Element {
 
 // ─── 메인 렌더러 ───
 
-export const StreamRenderer = memo(function StreamRenderer({ events, commands }: StreamRendererProps): React.JSX.Element {
+export const StreamRenderer = memo(function StreamRenderer({ events, commands, reports }: StreamRendererProps): React.JSX.Element {
   const { t } = useTranslation();
-  const items = useMemo(() => buildStreamItems(events, commands), [events, commands]);
+  const items = useMemo(() => buildStreamItems(events, commands, reports), [events, commands, reports]);
 
   if (items.length === 0) {
     return (
@@ -545,6 +564,7 @@ export const StreamRenderer = memo(function StreamRenderer({ events, commands }:
           case 'system':   return <SystemLine key={item.id} item={item} />;
           case 'command':  return <CommandBlock key={item.id} item={item} />;
           case 'thinking-live': return <ThinkingLiveLine key={item.id} label={t('ide.streamRenderer.thinking')} />;
+          case 'report':   return <AgentReportCard key={item.id} report={item.report} />;
         }
       })}
     </div>

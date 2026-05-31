@@ -6,8 +6,8 @@ import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { exec, execFile } from 'node:child_process';
 import multer from 'multer';
-import { DEFAULT_PORT, SESSION_SCAN_INTERVAL, FILE_EXISTENCE_CHECK_INTERVAL, SATELLITE_TYPES, IFRAME_PROXY_PATH, AGENT_IDLE_THRESHOLD_MS, AGENT_IDLE_SWEEP_INTERVAL_MS, TASK_EDGE_DISPATCH_DEFAULT_TIMEOUT_MS, TASK_EDGE_CRITIQUE_MAX_REWORK_LIMIT, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, SUPPORTED_UI_LOCALES, CONTI_AGENT_RULES, RULES_HISTORY_MAX, CANVAS_CLIPBOARD_SCHEMA_VERSION } from '@vibisual/shared';
-import type { HookEventPayload, WSMessage, QueuedCommand, SessionTokenData, PipelineType, AgentConfig, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, SubAgentHistoryItem, UiLocale, PermissionDecision, RulesHistoryEntry, Conti, CanvasClipboardPayload, CanvasPasteResponse, AskUserQuestionDecision, AskUserQuestionAnswer, AskUserQuestionOption, AskUserQuestionItem, AskUserQuestionToolInput } from '@vibisual/shared';
+import { DEFAULT_PORT, SESSION_SCAN_INTERVAL, FILE_EXISTENCE_CHECK_INTERVAL, SATELLITE_TYPES, IFRAME_PROXY_PATH, AGENT_IDLE_THRESHOLD_MS, AGENT_IDLE_SWEEP_INTERVAL_MS, TASK_EDGE_DISPATCH_DEFAULT_TIMEOUT_MS, TASK_EDGE_CRITIQUE_MAX_REWORK_LIMIT, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, SUPPORTED_UI_LOCALES, CONTI_AGENT_RULES, RULES_HISTORY_MAX, CANVAS_CLIPBOARD_SCHEMA_VERSION, buildAgentReportRules } from '@vibisual/shared';
+import type { HookEventPayload, WSMessage, QueuedCommand, SessionTokenData, PipelineType, AgentConfig, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, SubAgentHistoryItem, UiLocale, PermissionDecision, RulesHistoryEntry, Conti, CanvasClipboardPayload, CanvasPasteResponse, AskUserQuestionDecision, AskUserQuestionAnswer, AskUserQuestionOption, AskUserQuestionItem, AskUserQuestionToolInput, AgentReport } from '@vibisual/shared';
 import { permissionBroker } from './services/permissionBroker.js';
 import { askUserQuestionBroker } from './services/askUserQuestionBroker.js';
 import { AutoAgentRuntime } from './services/autoAgentRuntime.js';
@@ -61,6 +61,13 @@ export { subAgentManager } from './services/subAgentManager.js';
 let hookListenerPort: number | null = null;
 export function setHookListenerPort(port: number): void {
   hookListenerPort = port;
+}
+
+// §5.3 #10-2 v2.47 — loopback 리스너 per-launch 토큰. desktop main 의 hookToken 을 주입받아
+// 하네스 빌더 rules 의 구축 curl 헤더(x-vibisual-hook-token)에 실어 보낸다(§3.7 v2.47).
+let hookListenerToken: string | null = null;
+export function setHookListenerToken(token: string): void {
+  hookListenerToken = token;
 }
 
 export interface RunServerHandle { app: import('express').Express; }
@@ -849,10 +856,22 @@ export async function runServer(): Promise<RunServerHandle> {
       if (next.status !== 'queued') continue;
       if (busy.has(next.subAgentId)) continue;
       busy.add(next.subAgentId); // 같은 sub에 두 개 동시 dispatch 금지
+      // §4 v2.52 — 커스텀/스폰 에이전트에만 "작업 신고" 지시문 주입(Hook 에이전트 제외 = 하이브리드 경계).
+      //   하네스 빌더와 동일 인프라(토큰 인증 loopback)로 did/userActions 를 POST /api/agent-report 신고 →
+      //   IDE 가 색 구분 카드 렌더. agentId=부모 버블, subAgentId=이 세션(탭) 키로 baked.
+      let dispatchContext = contextSummary;
+      if (agent.customCreated) {
+        dispatchContext = contextSummary + buildAgentReportRules({
+          serverBase: `http://127.0.0.1:${hookListenerPort ?? port}`,
+          serverToken: hookListenerToken ?? '',
+          agentId: agent.id,
+          ...(next.subAgentId ? { subAgentId: next.subAgentId } : {}),
+        });
+      }
       // v1.33 — edgesBlock 을 separately 전달해 resume(--resume) 경로에서도 매 턴 prepend.
       //         엣지가 생기거나 바뀌었을 때 세션 재시작 없이도 즉시 인지하도록.
       // v1.77 (Direction A) — 커스텀 에이전트면 customParent=true → execute 가 --bg 우회, legacy 고정.
-      subAgentManager.execute(next, cwd, contextSummary, effectiveConfig, edgesBlock, { customParent: !!agent.customCreated });
+      subAgentManager.execute(next, cwd, dispatchContext, effectiveConfig, edgesBlock, { customParent: !!agent.customCreated });
       dispatched = true;
     }
 
@@ -890,6 +909,7 @@ export async function runServer(): Promise<RunServerHandle> {
     // §5.3 #10-2 v2.45 — 빌더가 curl 로 닿을 loopback 베이스. buildOutboundEdgesRulesSection 과 동일 근거
     // (외부 claude 프로세스는 hook 리스너 동적 포트로만 in-process 서버에 닿음).
     getServerBase: () => `http://127.0.0.1:${hookListenerPort ?? port}`,
+    getServerToken: () => hookListenerToken ?? '',
     broadcastAutoAgentProgress: (autoAgentId, summary) => {
       broadcast({
         type: 'auto_agent_progress',
@@ -2505,6 +2525,54 @@ export async function runServer(): Promise<RunServerHandle> {
     } catch (err) {
       logger.error('GET /api/ask-user-question/pending failed', err);
       res.status(500).json({ ok: false, pending: [] });
+    }
+  });
+
+  /**
+   * §4 v2.52 — POST /api/agent-report
+   * 커스텀/스폰 에이전트가 작업 완료 시 did/userActions 를 구조화 신고(loopback curl, 토큰 인증).
+   * 서버는 id/createdAt 을 stamp 해 ProjectGraph 에 적재하고 broadcast → IDE 가 색 구분 카드 렌더.
+   * 표시 전용 — 게임플레이/판정 로직과 무관. Hook 에이전트는 신고 지시문이 없어 호출하지 않음.
+   */
+  app.post('/api/agent-report', (req, res) => {
+    try {
+      const body = (req.body ?? {}) as Partial<AgentReport>;
+      if (typeof body.agentId !== 'string' || !body.agentId) {
+        res.status(400).json({ ok: false, error: 'agentId required' });
+        return;
+      }
+      const toStrArray = (v: unknown): string[] =>
+        Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string' && s.trim().length > 0) : [];
+      const did = toStrArray(body.did);
+      const userActions = toStrArray(body.userActions);
+      const nextSteps = toStrArray(body.nextSteps);
+      // 내용이 전혀 없으면 무시 (빈 신고로 카드만 늘리지 않음)
+      if (did.length === 0 && userActions.length === 0 && nextSteps.length === 0) {
+        res.status(400).json({ ok: false, error: 'empty report' });
+        return;
+      }
+      const report: AgentReport = {
+        id: randomUUID(),
+        agentId: body.agentId,
+        ...(typeof body.subAgentId === 'string' && body.subAgentId ? { subAgentId: body.subAgentId } : {}),
+        did,
+        userActions,
+        ...(nextSteps.length > 0 ? { nextSteps } : {}),
+        ...(typeof body.note === 'string' && body.note.trim() ? { note: body.note.trim() } : {}),
+        createdAt: Date.now(),
+      };
+      const ok = graphManager.addAgentReport(report);
+      if (!ok) {
+        res.status(404).json({ ok: false, error: 'agent not found' });
+        return;
+      }
+      broadcast({ type: 'agent_report', payload: { agentId: report.agentId, subAgentId: report.subAgentId } } as WSMessage);
+      broadcastSnapshot();
+      saveCheckpoint();
+      res.json({ ok: true, id: report.id });
+    } catch (err) {
+      logger.error('POST /api/agent-report failed', err);
+      res.status(500).json({ ok: false, error: 'internal error' });
     }
   });
 
