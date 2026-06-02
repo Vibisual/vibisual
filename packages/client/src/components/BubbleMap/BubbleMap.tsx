@@ -349,6 +349,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
   // 캔버스 우클릭 컨텍스트 메뉴
   const [ctxMenu, setCtxMenu] = useState<{ screenX: number; screenY: number; canvasX: number; canvasY: number } | null>(null);
   const createCustomAgent = useGraphStore((s) => s.createCustomAgent);
+  const createCmdAgent = useGraphStore((s) => s.createCmdAgent);
   const createAutoAgent = useGraphStore((s) => s.createAutoAgent);
   const createPipeline = useGraphStore((s) => s.createPipeline);
   const createWorktree = useGraphStore((s) => s.createWorktree);
@@ -1414,12 +1415,28 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
   }, []);
 
 
-  // 탭 전환 / 페이지 닫기: sendBeacon (POST — 언로드 시에도 전송 보장)
+  // 탭 전환 / 페이지 닫기: 언로드 시에도 전송 보장. navigator.sendBeacon 은 http(s) 에서만 동작하고
+  // 패키지 앱(file:// 로 renderer 로드)에서는 "Beacons are only supported over HTTP(S)" 로 throw 한다.
+  // → http(s) 일 때만 beacon, 그 외(file://)는 keepalive fetch 로 fallback(패키지 transport 가 가로채
+  //   loopback 서버로 라우팅). 어떤 경우든 예외가 새어 나가 visibilitychange 핸들러를 깨지 않게 try.
   const flushPositionsBeacon = useCallback(() => {
     const body = buildPositionPayload();
     if (!body) return;
     const url = `/api/bubbles/positions`;
-    navigator.sendBeacon(url, new Blob([body], { type: 'application/json' }));
+    try {
+      if (location.protocol === 'http:' || location.protocol === 'https:') {
+        navigator.sendBeacon(url, new Blob([body], { type: 'application/json' }));
+        return;
+      }
+    } catch { /* fall through to fetch */ }
+    try {
+      void fetch(url, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+        keepalive: true,
+      }).catch(() => {});
+    } catch { /* noop */ }
   }, [buildPositionPayload]);
 
   useEffect(() => {
@@ -1473,6 +1490,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
           canvasX={ctxMenu.canvasX}
           canvasY={ctxMenu.canvasY}
           onCreateCustomAgent={createCustomAgent}
+          onCreateCmdAgent={createCmdAgent}
           onCreateAutoAgent={createAutoAgent}
           onCreatePipeline={createPipeline}
           onCreateWorktree={createWorktree}

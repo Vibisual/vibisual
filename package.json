@@ -1,6 +1,6 @@
 {
   "name": "vibisual",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "AI agent activity visualizer with bubble maps",
   "license": "Apache-2.0",
@@ -25,6 +25,6 @@
     "node": ">=20.0.0"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["esbuild", "electron"]
+    "onlyBuiltDependencies": ["esbuild", "electron", "node-pty"]
   }
 }

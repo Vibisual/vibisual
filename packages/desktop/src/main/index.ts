@@ -11,6 +11,7 @@ import { setupIpc, type IpcHub } from './ipc';
 import { loadSecrets } from './secrets';
 import { configureWindowManager, closeAll as closeAllDetachedWindows } from './windowManager';
 import { initAutoUpdater, stopAutoUpdater } from './updaterManager';
+import { killAllTerminals } from './terminalManager';
 
 // Vibisual desktop main — SCENARIO.md §3.7 (in-process 통합, 단일 프로세스).
 //
@@ -199,6 +200,8 @@ async function startHookListener(expressApp: Express): Promise<number> {
       path !== '/api/task-edges/dispatch' &&
       // §4 v2.52 — 커스텀/스폰 에이전트의 작업 신고(did/userActions). 토큰 인증 필수(아래 분기).
       path !== '/api/agent-report' &&
+      // §4 v2.60 — 커스텀/스폰 에이전트의 사용자 질문 카드(question + prompts). 토큰 인증 필수.
+      path !== '/api/agent-questions' &&
       !isBuilderPath
     ) {
       res.statusCode = 404;
@@ -412,6 +415,9 @@ app.on('before-quit', (event) => {
 
   // §4 v2.44 — 업데이트 체크 타이머 해제.
   stopAutoUpdater();
+
+  // §4 v2.63 — 살아있는 임베디드 터미널 PTY 일괄 종료(좀비 셸 방지).
+  killAllTerminals();
 
   ipcHub?.stop();
   ipcHub = null;

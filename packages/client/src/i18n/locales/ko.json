@@ -18,7 +18,11 @@
       "availableTooltip": "{{version}} 버전이 있어 백그라운드에서 다운로드 중입니다",
       "downloading": "업데이트 {{percent}}%",
       "restart": "재시작하여 업데이트",
-      "restartTooltip": "{{version}} 버전 준비 완료 — 재시작하면 적용됩니다"
+      "restartTooltip": "{{version}} 버전 준비 완료 — 재시작하면 적용됩니다",
+      "confirmTitle": "재시작하여 업데이트할까요?",
+      "confirmBody": "업데이트하면 앱이 종료되고 다시 설치됩니다. 진행 중인 에이전트 작업이나 저장하지 않은 변경 내용은 사라질 수 있습니다.",
+      "confirmHint": "중요한 커스텀 에이전트 작업이 있다면 먼저 마무리한 뒤 업데이트해 주세요.",
+      "confirmCancel": "취소"
     },
     "agentStatus": {
       "waiting": "에이전트 대기 중",
@@ -662,6 +666,7 @@
       "restoreLabel": "복원",
       "resizeDock": "독 크기 조정",
       "customLabel": "커스텀",
+      "cmdLabel": "CMD",
       "hookLabel": "Hook"
     },
     "tabbar": {
@@ -672,6 +677,24 @@
       "loading": "불러오는 중...",
       "noClosedSessions": "복원할 닫힌 세션이 없습니다.",
       "agentTabLabel": "Agent"
+    },
+    "terminal": {
+      "unavailable": "임베디드 터미널은 Vibisual 데스크톱 앱에서만 사용할 수 있습니다.",
+      "exited": "claude 종료됨 (코드 {{code}})",
+      "createFailed": "터미널을 열지 못했습니다: {{error}}",
+      "harnessNote": "사용자가 직접 모는 인터랙티브 세션 — 하네스 배선은 Vibisual 이 시각적으로 돕지만, 실행 권한은 Claude Code 안에 있습니다.",
+      "copy": "복사",
+      "paste": "붙여넣기",
+      "selectAll": "전체 선택",
+      "clear": "화면 지우기",
+      "find": "검색",
+      "findPlaceholder": "터미널에서 검색",
+      "findNext": "다음 일치",
+      "findPrev": "이전 일치",
+      "findClose": "검색 닫기",
+      "fontIncrease": "글자 크게",
+      "fontDecrease": "글자 작게",
+      "fontReset": "글자 크기 초기화"
     },
     "mainArea": {
       "scrollPrompt": "프롬프트로 이동",
@@ -759,6 +782,13 @@
       "didTitle": "AI가 한 일",
       "userActionsTitle": "사용자가 할 일",
       "nextStepsTitle": "다음 단계"
+    },
+    "question": {
+      "title": "질문",
+      "copy": "복사",
+      "copied": "복사됨",
+      "instant": "즉시 전송",
+      "instantSent": "전송됨"
     }
   },
   "bubbleMap": {
@@ -899,7 +929,8 @@
     "setDefault": "기본값으로 설정",
     "unsetDefault": "기본값 해제",
     "defaultTooltip": "마지막 활성 탭을 복원할 수 없을 때 기본 탭이 자동으로 열립니다.",
-    "detach": "새 창으로 분리"
+    "detach": "새 창으로 분리",
+    "rename": "이름 변경"
   },
   "tabDetach": {
     "detachHint": "탭바 밖에 놓으면 별도 창으로 분리됩니다",
@@ -931,6 +962,8 @@
     },
     "contextMenu": {
       "createCustomAgent": "커스텀 에이전트 만들기",
+      "createCmdAgent": "CMD 에이전트 만들기",
+      "createCmdAgentHint": "사용자가 직접 모는 인터랙티브 터미널(구독 과금) — 하네스 배선은 Vibisual 이 시각적으로 돕지만 실행 권한은 Claude Code 안에 있습니다",
       "createAutoAgent": "오토 에이전트 만들기",
       "createAutoAgentHint": "메타 에이전트 — 자연어 한 줄로 커스텀 에이전트 군을 자동 spawn",
       "createWorktree": "Worktree 만들기",

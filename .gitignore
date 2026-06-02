@@ -103,11 +103,18 @@ __tests__/
 *.tsbuildinfo
 
 # === Private dev assets (Claude / mddbai / SSOT) — NEVER PUBLISH ===
+# 위치 고정 개인 자산 (로더·참조 때문에 이동 불가 — 개별 차단)
 /CLAUDE.md
 /docs/SCENARIO.md
 /docs/KEYWORD_GRAPH.md
 /docs/rules/
 /docs/conti-vibisual-usage-scenario.json
+/docs/CHANGELOG_ARCHIVE.md
 
 /scripts/*.mjs
 dev/
+
+# 이동형 개인 자산은 전부 이 한 폴더 안에만 둔다 (folder 단위 차단 — 새 파일도 자동 보호).
+# docs/ 등 공개 폴더에 개인 파일을 절대 만들지 말 것. 새 개인 artifact = 여기로.
+/.private/
+/.docvault/

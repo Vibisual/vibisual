@@ -1,6 +1,8 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
 import type { ProjectInfo, SubAgent, SubAgentStatus, QueuedCommand, AgentConfig, SubAgentStreamEvent, StreamEventType, AgentViewJobState } from '@vibisual/shared';
 import { DEFAULT_AGENT_CONFIG, isOpusModel } from '@vibisual/shared';
 import { logger } from '../logger.js';
@@ -68,6 +70,116 @@ function buildConfigArgs(config: AgentConfig): string[] {
   }
 
   return args;
+}
+
+/**
+ * §4 v2.63 — 인터랙티브(임베디드 PTY) 스폰용 claude CLI 인자.
+ *
+ * 헤드리스 경로(`buildConfigArgs` + `-p --print --input-format … --output-format …`)와 달리
+ * **`-p`/stream 플래그를 붙이지 않는다** — 진짜 인터랙티브 REPL 로 띄워 사용자가 직접 몰게 한다
+ * (구독 과금 + Anthropic ToS 합법선, §4 v2.63). `buildConfigArgs` 가 만드는 설정 인자
+ * (model/permission/effort/tools/disallowedTools/isolation)는 그대로 공유 — "내가 설정한 세팅 그대로".
+ * 헤드리스 경로는 rules 를 매 턴 프롬프트(contextSummary)에 주입하지만 인터랙티브는 그 경로가 없으므로
+ * rules 를 `--append-system-prompt` 로 1회 주입한다.
+ */
+export function buildInteractiveClaudeArgs(
+  config: AgentConfig,
+  opts: { includeRules?: boolean } = {},
+): string[] {
+  const args = buildConfigArgs(config);
+  // includeRules 기본 false — 임베디드 터미널은 셸 프롬프트에 명령을 prefill 하는데
+  // 멀티라인 rules 를 한 줄 명령에 넣으면 셸 파싱이 깨진다(데스크톱 터미널 매니저 경로).
+  // 직접 spawn(argv 배열) 경로에서만 includeRules:true 로 rules 를 안전히 주입.
+  if (opts.includeRules) {
+    const rules = config.rules?.trim();
+    if (rules) args.push('--append-system-prompt', rules);
+  }
+  return args;
+}
+
+/** §4 v2.64 — CMD 에이전트 로컬 스토어 폴더(`~/.vibisual/cmd-agents/<agentId>/`). rules·세션맵 공용. */
+function cmdAgentDir(agentId: string): string {
+  // agentId 는 `agent-<hash>`(콜론/슬래시 없음)지만 방어적으로 안전한 문자만 남긴다.
+  const safeId = agentId.replace(/[^\w.-]/g, '_');
+  return path.join(os.homedir(), '.vibisual', 'cmd-agents', safeId);
+}
+
+/** termId(`term:<agentId>:<session>`) → { agentId, sessionToken }. 형식이 어긋나면 null. */
+function parseTermId(termId: string): { agentId: string; sessionToken: string } | null {
+  const parts = termId.split(':');
+  if (parts.length < 3 || parts[0] !== 'term' || !parts[1]) return null;
+  return { agentId: parts[1], sessionToken: parts.slice(2).join(':') || 'main' };
+}
+
+/**
+ * §4 v2.63 — CMD(인터랙티브 터미널) 에이전트의 Agent Rules 를 **파일 기반**으로 claude 에 전달.
+ *
+ * 인터랙티브 prefill 은 셸 한 줄이라 멀티라인 rules 를 `--append-system-prompt` 인자로 못 넣는다
+ * (개행이 셸 명령을 조기 제출시킴). 대신 Vibisual 관리 폴더(`~/.vibisual/cmd-agents/<agentId>/CLAUDE.md`)에
+ * rules 를 써 두고, 터미널 매니저가 `--add-dir <dir>` 로 그 폴더를 물려준다. claude 는 add-dir 된 폴더의
+ * CLAUDE.md 를 자동 참조(메모리/지시)하므로 멀티라인·따옴표·레포 오염 문제 없이 rules 가 적용된다.
+ *   - 사용자 레포가 아니라 `~/.vibisual` 아래라 공개/커밋 위험 없음.
+ *   - 에이전트 단위 폴더라 그 에이전트의 모든 CMD 세션이 같은 rules 공유. 새 세션 스폰 때마다 최신 rules 로 재기록
+ *     → AgentSettings 에서 rules 수정 후 "+" 새 세션을 열면 반영(이미 떠 있는 세션엔 소급 X).
+ *
+ * @returns rules 가 있으면 그 폴더 절대경로, 없으면 null(=`--add-dir` 생략).
+ */
+export function prepareInteractiveRulesDir(agentId: string, config: AgentConfig): string | null {
+  const rules = config.rules?.trim();
+  if (!rules) return null;
+  const dir = cmdAgentDir(agentId);
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    const body = `# Agent Rules (Vibisual CMD agent)\n\n${rules}\n`;
+    fs.writeFileSync(path.join(dir, 'CLAUDE.md'), body, 'utf-8');
+    return dir;
+  } catch (err) {
+    logger.warn(`[cmd-agent] rules dir write failed: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
+}
+
+/**
+ * §4 v2.64 — CMD(인터랙티브 터미널) 세션 연속성. 인터랙티브 claude 가 쏘는 hook 의 session_id
+ * (claude 대화 UUID)를 termId 별로 `~/.vibisual/cmd-agents/<agentId>/sessions.json` 에 저장한다.
+ * 앱을 완전히 종료하면 PTY(cmd.exe+claude) 자체는 죽지만 claude 는 대화를 JSONL 로 남기므로,
+ * 재시작 후 같은 termId 로 터미널을 다시 열 때 `claude --resume <id>` 로 prefill 해 직전 대화를
+ * 이어받는다(SCENARIO §23-2 의 헤드리스 `--resume` 연속성 패턴을 인터랙티브로 확장).
+ * 그래프 상태가 아니라 터미널 프로세스 부기라 체크포인트가 아닌 CMD 로컬 스토어(rules CLAUDE.md
+ * 와 같은 폴더)에 둔다. 값이 바뀔 때만 write — 같은 REPL 의 session id 는 안정적이라 사실상 1회.
+ */
+export function recordCmdTermSession(termId: string, claudeSessionId: string): void {
+  const parsed = parseTermId(termId);
+  if (!parsed || !claudeSessionId) return;
+  const dir = cmdAgentDir(parsed.agentId);
+  const file = path.join(dir, 'sessions.json');
+  try {
+    let map: Record<string, string> = {};
+    if (fs.existsSync(file)) {
+      try { map = JSON.parse(fs.readFileSync(file, 'utf-8')) as Record<string, string>; } catch { map = {}; }
+    }
+    if (map[parsed.sessionToken] === claudeSessionId) return; // 변화 없음 — disk write 생략
+    map[parsed.sessionToken] = claudeSessionId;
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(file, JSON.stringify(map, null, 2), 'utf-8');
+  } catch (err) {
+    logger.warn(`[cmd-agent] session record failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+/** termId 의 직전 claude 대화 sessionId 조회(없으면 null). 터미널 스폰 시 `--resume` prefill 용. */
+export function getCmdResumeSession(termId: string): string | null {
+  const parsed = parseTermId(termId);
+  if (!parsed) return null;
+  const file = path.join(cmdAgentDir(parsed.agentId), 'sessions.json');
+  try {
+    if (!fs.existsSync(file)) return null;
+    const map = JSON.parse(fs.readFileSync(file, 'utf-8')) as Record<string, string>;
+    const id = map[parsed.sessionToken];
+    return typeof id === 'string' && id ? id : null;
+  } catch {
+    return null;
+  }
 }
 
 /** claude CLI 경로 — `services/claudeBin.ts` 가 SSOT (§5.7 #23-1 v1.59 버전 체크와 동일 바이너리). */

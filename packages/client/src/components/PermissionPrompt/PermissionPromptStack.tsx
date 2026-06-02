@@ -256,6 +256,13 @@ function InlineStyles(): React.JSX.Element {
  */
 export function PermissionPromptStack(): React.JSX.Element | null {
   const pending = useGraphStore((s) => s.pendingPermissions);
+  // §5.3 #12-1 v2.64 — 윈도우/프로젝트 격리. pendingPermissions 는 전역(모든 broadcast 수신)
+  // 이지만, 이 윈도우가 보고 있는 프로젝트(activeProject — 메인은 현재 탭, 별창은
+  // setActiveProjectLocal 로 set 한 자기 단일 탭)의 카드만 띄운다. §3.5 상 같은 프로젝트는
+  // 메인·별창 중 한 곳에만 활성 노출되므로, 이 필터로 (1) 다른 프로젝트로 전환 시 이전
+  // 프로젝트 팝업이 따라오는 누출, (2) 멀티뷰에서 같은 카드가 여러 창에 중복 표시되는 문제가
+  // 동시에 차단된다. projectName 이 비어 귀속 불명한 요청만 안전망으로 모든 창에 표시.
+  const activeProject = useGraphStore((s) => s.activeProject);
 
   // 부트 시 서버 재연결 — 대기 목록 복구
   useEffect(() => {
@@ -284,8 +291,10 @@ export function PermissionPromptStack(): React.JSX.Element | null {
 
   const ordered = useMemo(() => {
     // createdAt 오래된 순(뒤에 쌓임) → 최신은 배열 마지막 = top
-    return Object.values(pending).sort((a, b) => a.createdAt - b.createdAt);
-  }, [pending]);
+    return Object.values(pending)
+      .filter((req) => !req.projectName || req.projectName === activeProject)
+      .sort((a, b) => a.createdAt - b.createdAt);
+  }, [pending, activeProject]);
 
   if (ordered.length === 0) return null;
 

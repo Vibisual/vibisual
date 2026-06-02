@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { electronAPI } from '@electron-toolkit/preload';
-import type { UpdateState } from '@vibisual/shared';
+import type { UpdateState, AgentConfig } from '@vibisual/shared';
 
 // Preload — SCENARIO.md §3.7 / §3.4 contextBridge surface.
 //
@@ -127,6 +127,32 @@ const api = {
       const listener = (_e: unknown, state: UpdateState): void => cb(state);
       ipcRenderer.on('vibisual:update:status', listener);
       return () => ipcRenderer.removeListener('vibisual:update:status', listener);
+    },
+  },
+  /** §4 v2.63 임베디드 인터랙티브 터미널 surface — IDE 창 안 PTY. */
+  terminal: {
+    /** 셸+claude prefill PTY 생성. termId 는 renderer 가 (agent+session) 으로 부여. */
+    create: (spec: { termId: string; cwd: string; config: AgentConfig; cols?: number; rows?: number }): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke('vibisual:term:create', spec),
+    /** xterm 키 입력 → PTY stdin. */
+    write: (termId: string, data: string): Promise<void> =>
+      ipcRenderer.invoke('vibisual:term:write', { termId, data }),
+    /** xterm 리사이즈 → PTY. */
+    resize: (termId: string, cols: number, rows: number): Promise<void> =>
+      ipcRenderer.invoke('vibisual:term:resize', { termId, cols, rows }),
+    /** PTY 종료(컴포넌트 unmount / IDE 닫기 / 모드 전환). */
+    kill: (termId: string): Promise<void> => ipcRenderer.invoke('vibisual:term:kill', termId),
+    /** main 이 PTY 출력 바이트를 푸시 — 해당 termId 만 골라 xterm.write. */
+    onData: (cb: (payload: { termId: string; data: string }) => void): (() => void) => {
+      const listener = (_e: unknown, payload: { termId: string; data: string }): void => cb(payload);
+      ipcRenderer.on('vibisual:term:data', listener);
+      return () => ipcRenderer.removeListener('vibisual:term:data', listener);
+    },
+    /** main 이 PTY 종료를 푸시 — xterm 에 종료 안내 표시. */
+    onExit: (cb: (payload: { termId: string; exitCode: number }) => void): (() => void) => {
+      const listener = (_e: unknown, payload: { termId: string; exitCode: number }): void => cb(payload);
+      ipcRenderer.on('vibisual:term:exit', listener);
+      return () => ipcRenderer.removeListener('vibisual:term:exit', listener);
     },
   },
 };

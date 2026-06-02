@@ -272,25 +272,55 @@ export function redockCommit(tabKey: string): boolean {
 // 메인 탭바에 redock-hover 푸시 + 별창 자신에게도 hover 신호 전달(미니 박스에 "release to redock"
 // 라벨 표시용). pointerup 시 commit=hovering 으로 endDetachDrag 호출.
 
-// mini ghost 로 축소 + cursor 추적 폴링 시작. unmaximize/leave-full-screen 이 실제로 끝난
-// 뒤(또는 처음부터 일반 창이면 즉시) 호출돼야 setBounds 가 OS 복원에 덮이지 않는다.
-// 이벤트와 폴백 타이머가 모두 호출할 수 있으므로 dragTimer 존재 여부로 1회만 진입한다.
+// mini ghost 로 축소 + cursor 추적 폴링 시작. 최대화/전체화면이어도 동일하게 동작한다.
+//
+// ⚠ frame:false(테두리 없는) 창에선 Windows 에서 unmaximize()/leave-full-screen 이 ~130ms 비동기다.
+// 그 동안 ① isMaximized() 가 계속 true 이고 ② maximize 스타일이 걸린 채라 setBounds() 가 no-op 이라
+// mini 로 줄지 못한다. 그래서 풀스크린 카드가 ~130ms 떠 있다가 사용자가 그 전에 손을 떼면 redock 실패.
+//
+// 해결(v2.36): 줄여야 할 만큼 큰 창이면 win.hide() 로 숨긴 채 unmaximize()+setBounds(mini) 를 한다.
+// 창이 보이지 않으면 Windows DWM 이 복원 애니메이션을 돌리지 않고 즉시 처리하므로, 곧바로 이어지는
+// show() 시점엔 이미 mini 크기로 cursor 옆에 떠 있다("최대화든 일반이든 잡으면 즉시 따라옴").
+// 일반(비최대화) 창은 hide/show 없이 바로 setBounds — 불필요한 깜빡임 회피.
+//
+// 폴링 루프는 그대로 두어, 혹시 위 즉시 축소가 일부 환경에서 덜 먹어도(실제 getBounds 가 여전히 큼)
+// 매 틱 unmaximize+setBounds(mini) 를 재시도하는 안전망 역할을 한다.
 function enterMiniGhostAndPoll(entry: DetachedEntry): void {
   const win = entry.window;
   if (win.isDestroyed()) return;
   if (!entry.dragActive) return; // 복원 대기 중 사용자가 이미 떼어 drag 가 끝났다 — 지연 진입 취소.
-  if (entry.dragTimer) return; // 이미 진입(이벤트+폴백 중복 방지)
+  if (entry.dragTimer) return; // 이미 진입(중복 방지)
 
-  // cursor 위치 즉시 mini 사이즈로 축소 + cursor 따라가도록.
-  const c = screen.getCursorScreenPoint();
-  // mini 박스의 좌상단을 cursor 좌상단 가까이에 두되 cursor 가 항상 박스 안에 들어오도록 약간 좌상단 오프셋.
-  // x: cursor.x - 24 (왼쪽으로 24px), y: cursor.y - 16 (위로 16px). 박스 안에서 cursor 위치 ≈ 좌측 1/10.
+  // 시각 설정. 상태값에 의존하지 않고 무조건 호출.
   try { win.setAlwaysOnTop(true, 'pop-up-menu'); } catch { /* noop */ }
   // 별창 minWidth/minHeight(POPUP_MIN_*) 가 setBounds 를 클램프하므로, mini ghost 동안은
   // 최소 크기를 mini 크기로 풀어준다. endDetachDrag 복원 시 원래 최소 크기로 되돌린다.
   try { win.setMinimumSize(MINI_W, MINI_H); } catch { /* noop */ }
-  win.setBounds({ x: Math.round(c.x - 24), y: Math.round(c.y - 16), width: MINI_W, height: MINI_H }, false);
   try { win.setOpacity(0.85); } catch { /* noop */ }
+
+  // cursor 좌상단에 살짝 오프셋해 박스가 cursor 를 감싸도록 — 첫 프레임부터 mini 위치에 둔다.
+  const cur0 = screen.getCursorScreenPoint();
+  const miniRect = { x: Math.round(cur0.x - 24), y: Math.round(cur0.y - 16), width: MINI_W, height: MINI_H };
+
+  // 줄여야 할 만큼 크면(= 최대화/전체화면) 숨긴 채 즉시 해제+축소 → show. 실제 bounds 로 판정해
+  // frame:false 의 isMaximized() 부정확 버그를 우회한다.
+  const cb = win.getBounds();
+  const needsForceShrink = cb.width > MINI_W * 2 || cb.height > MINI_H * 3;
+  if (needsForceShrink) {
+    try { win.hide(); } catch { /* noop */ }
+    try { win.setFullScreen(false); } catch { /* noop */ }
+    try { win.unmaximize(); } catch { /* noop */ }
+    try { win.setBounds(miniRect, false); } catch { /* noop */ }
+    // show(): 숨기기 직전 active 였던 이 별창을 그대로 다시 active 로 표시 → 포커스 net-zero.
+    // 드래그 종료 신호(renderer window mouseup)가 이 창에 확실히 도달하도록 active 로 둔다
+    // (showInactive 면 직전 포커스를 떨궈 mouseup 라우팅이 불안정해질 수 있다).
+    try { win.show(); } catch { /* noop */ }
+  } else {
+    try { win.setFullScreen(false); } catch { /* noop */ }
+    try { win.unmaximize(); } catch { /* noop */ }
+    try { win.setBounds(miniRect, false); } catch { /* noop */ }
+  }
+
   // 미니 모드에 진입했음을 별창 renderer 에게 알림 (미니 박스에 메시지 표시용).
   if (!win.webContents.isDestroyed()) {
     win.webContents.send('vibisual:tab:redock-drag-state', { dragging: true, hovering: false });
@@ -304,7 +334,15 @@ function enterMiniGhostAndPoll(entry: DetachedEntry): void {
       }
       return;
     }
+    // 아직 mini 보다 크면(= 최대화/전체화면이 남아있음) 해제를 한 번 더 시도. 상태 플래그가 아니라
+    // 실제 bounds 로 판정해 frame:false 의 isMaximized() 부정확 버그를 우회한다.
+    const cb = win.getBounds();
+    if (cb.width > MINI_W * 2 || cb.height > MINI_H * 3) {
+      try { win.setFullScreen(false); } catch { /* noop */ }
+      try { win.unmaximize(); } catch { /* noop */ }
+    }
     const cur = screen.getCursorScreenPoint();
+    // mini 박스의 좌상단을 cursor 좌상단 가까이에 두되 cursor 가 항상 박스 안에 들어오도록 약간 좌상단 오프셋.
     win.setBounds(
       { x: Math.round(cur.x - 24), y: Math.round(cur.y - 16), width: MINI_W, height: MINI_H },
       false,
@@ -334,10 +372,8 @@ export function startDetachDragByWindowId(windowId: number): boolean {
   if (entry.window.isDestroyed()) return false;
 
   const win = entry.window;
-  // 최대화/전체화면 상태에선 Electron 이 setBounds 를 무시(no-op)해서 mini ghost 로 줄지 않는다
-  // (→ 화면 전체에 미니 박스가 펼쳐진 채 멈추는 "파랑 화면" 버그). Windows 의 unmaximize/
-  // leave-full-screen 은 비동기라 그 직후의 setBounds 는 OS 복원 애니메이션에 덮인다. 그래서
-  // 복원 이벤트가 끝난 시점에 enterMiniGhostAndPoll 을 호출한다(이벤트 누락 대비 폴백 타이머 병행).
+  // 최대화/전체화면 상태여도 enterMiniGhostAndPoll 가 내부에서 해제를 트리거하고, 해제가 실제로
+  // 끝난 시점(afterUnmaximized 폴링)에야 mini ghost 로 줄인다 → "최대화 풀고 드래그" 가 보장된다.
   entry.dragActive = true;
   const wasFullScreen = win.isFullScreen();
   const wasMaximized = win.isMaximized();
@@ -355,17 +391,7 @@ export function startDetachDragByWindowId(windowId: number): boolean {
   }
   entry.lastHover = false;
 
-  if (wasFullScreen) {
-    win.once('leave-full-screen', () => enterMiniGhostAndPoll(entry));
-    setTimeout(() => enterMiniGhostAndPoll(entry), 140);
-    try { win.setFullScreen(false); } catch { enterMiniGhostAndPoll(entry); }
-  } else if (wasMaximized) {
-    win.once('unmaximize', () => enterMiniGhostAndPoll(entry));
-    setTimeout(() => enterMiniGhostAndPoll(entry), 140);
-    try { win.unmaximize(); } catch { enterMiniGhostAndPoll(entry); }
-  } else {
-    enterMiniGhostAndPoll(entry);
-  }
+  enterMiniGhostAndPoll(entry);
 
   return true;
 }
@@ -400,26 +426,37 @@ export function endDetachDragByWindowId(windowId: number, commit: boolean): bool
   try { win.setAlwaysOnTop(false); } catch { /* noop */ }
   // mini ghost 진입 시 풀었던 최소 크기를 원래 값으로 복원.
   try { win.setMinimumSize(POPUP_MIN_W, POPUP_MIN_H); } catch { /* noop */ }
-  if (entry.wasMaximized) {
-    // 최대화 상태에서 redock 을 취소했으면 다시 최대화로 되돌린다(원래 모습 그대로).
-    try { win.setOpacity(entry.originalOpacity || 1); } catch { /* noop */ }
-    try { win.maximize(); } catch { /* noop */ }
-    entry.wasMaximized = false;
-    entry.originalBounds = null;
-    return true;
-  }
-  if (entry.originalBounds) {
-    // 마우스 위치에 따라 복원된 창이 cursor 근처에 있게 (자연스러운 위치).
-    // 다만 사용자가 별창을 모니터를 옮겨 다녔으면 그 위치를 존중하는 게 자연 → cursor 기준 중앙으로.
-    const c = screen.getCursorScreenPoint();
-    const nw = entry.originalBounds.width;
-    const nh = entry.originalBounds.height;
-    win.setBounds(
-      { x: Math.round(c.x - nw / 2), y: Math.round(c.y - 18), width: nw, height: nh },
-      false,
-    );
-  }
-  try { win.setOpacity(entry.originalOpacity || 1); } catch { /* noop */ }
+  // §5.4 #14-1 — 최대화 상태에서 좌측 redock 트리거를 잡았다 떼면(메인 헤더까지 끌지 않아
+  // 재합치기는 취소된 경우) 최대화를 풀고 일반 창으로 복원한다. 이전엔 wasMaximized 면 다시
+  // maximize 했으나, 사용자가 그 버튼을 눌러 본체로 넣으려 할 때 최대화가 그대로 유지되는 문제가
+  // 있었다 → 누르면 최대화 해제 + 기존 일반 창 동작.
+  const bounds = entry.originalBounds;
+  entry.wasMaximized = false;
   entry.originalBounds = null;
+  try { win.setOpacity(entry.originalOpacity || 1); } catch { /* noop */ }
+  // 복원 위치는 cursor 근처(뗀 자리)로. 좌표는 한 번만 정해 매 틱 같은 rect 로 재시도한다.
+  const cur = screen.getCursorScreenPoint();
+  const target = bounds
+    ? { x: Math.round(cur.x - bounds.width / 2), y: Math.round(cur.y - 18), width: bounds.width, height: bounds.height }
+    : null;
+  // §5.4 #14-1 — 최대화/전체화면이었으면 setBounds 가 먹지 않으므로(그리고 frame:false 는
+  // isMaximized() 가 부정확하므로) 실제 bounds 가 target 크기에 근접할 때까지 매 틱 unmaximize +
+  // setBounds 를 재시도한다. 이전엔 wasMaximized 면 다시 maximize 했으나, 사용자가 본체로 넣으려
+  // 할 때 최대화가 유지되는 문제 → 누르면 최대화 해제 + 기존 일반 창 동작.
+  if (target) {
+    const applyRestore = (tries: number): void => {
+      if (win.isDestroyed()) return;
+      const cb = win.getBounds();
+      if (cb.width > target.width + 40 || cb.height > target.height + 40) {
+        try { win.setFullScreen(false); } catch { /* noop */ }
+        try { win.unmaximize(); } catch { /* noop */ }
+      }
+      win.setBounds(target, false);
+      const after = win.getBounds();
+      const done = Math.abs(after.width - target.width) <= 40 && Math.abs(after.height - target.height) <= 40;
+      if (!done && tries > 0) setTimeout(() => applyRestore(tries - 1), DRAG_POLL_MS);
+    };
+    applyRestore(40);
+  }
   return true;
 }

@@ -204,11 +204,14 @@ function applyPinnedOrder(
 
 function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
   const { t } = useTranslation();
-  const { skills, order, loaded } = useAvailableSkills();
+  // §5.5 #17-4 v2.36 — 이 에이전트가 속한 프로젝트의 카운트만 정렬·배지 표시.
+  // v2.59 — 스킬 목록도 이 프로젝트의 .claude/skills/ 만 조회(탭별 개별).
+  // 스킬 목록 조회는 agentId 를 권위 키로 넘긴다 — 서버가 그 에이전트의 소속 인스턴스에서
+  // 프로젝트 path 를 직접 해소하므로, 활성 프로젝트 오염·표시명 어긋남에 영향받지 않는다.
+  const projectName = useGraphStore((s) => s.agentProjects[agentId]);
+  const { skills, order, loaded } = useAvailableSkills(projectName, agentId);
   const activeSessionId = useGraphStore((s) => selectIDEOverlay(s).activeSessionId);
   const setAgentSessionInputText = useGraphStore((s) => s.setAgentSessionInputText);
-  // §5.5 #17-4 v2.36 — 이 에이전트가 속한 프로젝트의 카운트만 정렬·배지 표시.
-  const projectName = useGraphStore((s) => s.agentProjects[agentId]);
   const projectCounts = useGraphStore((s) =>
     projectName ? (s.skillUsageCounts[projectName] ?? null) : null,
   );
@@ -311,8 +314,8 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
         onClick={() => { if (!confirming) insertSkill(s); }}
         title={confirming ? undefined : s.description}
       >
-        <div className="flex items-center gap-1.5">
-          <span className={`truncate font-mono text-[11px] font-semibold ${accentText}`}>
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className={`min-w-0 truncate font-mono text-[11px] font-semibold ${accentText}`}>
             /{s.name}
           </span>
           {s.source === 'plugin' && s.pluginName && (

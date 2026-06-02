@@ -41,6 +41,7 @@ import type {
   ActiveContiWork,
   ContiWorkSource,
   RateLimitInfo,
+  ExecutionMode,
 } from '@vibisual/shared';
 import { DEFAULT_UI_LOCALE } from '@vibisual/shared';
 import { ProjectGraph, type ProcessResult } from './projectGraph.js';
@@ -211,6 +212,13 @@ function mergeSnapshots(a: GraphSnapshot, b: GraphSnapshot): GraphSnapshot {
     agentReports: (() => {
       const av = a.agentReports;
       const bv = b.agentReports;
+      if (!av && !bv) return undefined;
+      return { ...(av ?? {}), ...(bv ?? {}) };
+    })(),
+    // §4 v2.60 — 에이전트 질문 카드 (agentReports 와 동형).
+    agentQuestions: (() => {
+      const av = a.agentQuestions;
+      const bv = b.agentQuestions;
       if (!av && !bv) return undefined;
       return { ...(av ?? {}), ...(bv ?? {}) };
     })(),
@@ -964,6 +972,7 @@ export class ProjectGraphManager {
     label: string,
     position?: { x: number; y: number },
     projectName?: string | null,
+    options?: { executionMode?: ExecutionMode },
   ): BubbleData {
     const inst = projectName
       ? (this.getInstanceByName(projectName) ?? this.primaryInstance())
@@ -971,9 +980,9 @@ export class ProjectGraphManager {
     if (!inst) {
       // 인스턴스가 없으면 임시 등록
       this.registerProject(process.cwd());
-      return this.primaryInstance()!.createCustomAgent(label, position, projectName);
+      return this.primaryInstance()!.createCustomAgent(label, position, projectName, options);
     }
-    return inst.createCustomAgent(label, position, projectName);
+    return inst.createCustomAgent(label, position, projectName, options);
   }
 
   /** §5.3 #10-2 v2.37 — Auto Agent 메타 버블 생성 위임. createCustomAgent 와 동일한 인스턴스 라우팅. */
@@ -1071,6 +1080,14 @@ export class ProjectGraphManager {
     const inst = this.findInstanceByAgentId(report.agentId) ?? this.primaryInstance();
     if (!inst) return false;
     inst.addAgentReport(report);
+    return true;
+  }
+
+  /** §4 v2.60 — 에이전트 질문 카드 적재. report.agentId 소속 인스턴스로 라우팅(addAgentReport 와 동형). */
+  addAgentQuestions(q: import('@vibisual/shared').AgentQuestions): boolean {
+    const inst = this.findInstanceByAgentId(q.agentId) ?? this.primaryInstance();
+    if (!inst) return false;
+    inst.addAgentQuestions(q);
     return true;
   }
 
@@ -2065,6 +2082,19 @@ export class ProjectGraphManager {
       if (found) return found;
     }
     return undefined;
+  }
+
+  /**
+   * agentId → 소속 프로젝트의 디스크 path. 어느 인스턴스가 소유하든 찾는다.
+   * 스킬 목록처럼 "이 에이전트가 속한 프로젝트" 가 권위 기준일 때 사용 — 클라가 보내는
+   * 표시명에 의존하지 않아 활성 프로젝트 오염·이름 충돌·미해소에 영향받지 않는다.
+   */
+  getProjectPathForAgent(agentId: string): string | null {
+    for (const inst of this.instances.values()) {
+      const p = inst.getAgentProjectPath(agentId);
+      if (p) return p;
+    }
+    return null;
   }
 
   getPrimaryProject(): ProjectInfo | null {

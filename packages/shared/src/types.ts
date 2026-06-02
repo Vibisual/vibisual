@@ -50,6 +50,20 @@ export interface HookEventPayload {
   stop_reason?: string;
   /** UserPromptSubmit 이벤트의 프롬프트 본문 */
   prompt?: string;
+  /**
+   * §4 v2.64 — CMD(인터랙티브 터미널) 에이전트 소유자 태그.
+   * Vibisual 이 띄운 CMD 터미널의 claude 는 env `VIBISUAL_OWNER_AGENT_ID`(=그 CMD 버블의 agentId)
+   * 를 물려받고, handler.mjs 가 /api/hook-event 본문에 이 필드로 실어 보낸다. 서버는 이 agentId 의
+   * CMD 버블 세션으로 이벤트를 직접 귀속해 별개 Hook 버블(touchAgent orphan)을 만들지 않는다.
+   * **명시 토큰**이라 §17 Hook≠Custom 경계의 cwd 휴리스틱 흡수와 달리 외부 세션 오흡수 위험이 없다.
+   */
+  _vibisualOwnerAgentId?: string;
+  /**
+   * §4 v2.64 — CMD 터미널 소유자 termId(`term:<agentId>:<session>`). PTY env `VIBISUAL_OWNER_TERM_ID`
+   * 로 셸→claude→handler 상속. 서버가 이 termId 별로 claude 대화 sessionId 를 기록해 두면,
+   * 앱 재시작 후 같은 termId 의 터미널을 다시 열 때 `claude --resume <id>` 로 직전 대화를 이어받는다.
+   */
+  _vibisualOwnerTermId?: string;
 }
 
 /**
@@ -844,7 +858,9 @@ export type WSMessageType =
   // §4 v2.42 — Options 창에서 사용자 글로벌 디폴트 갱신. payload = UserDefaults
   | 'user_defaults_updated'
   // §4 v2.52 — 에이전트 작업 신고(did/userActions) 수신 신호. 본체는 graph_snapshot.agentReports
-  | 'agent_report';
+  | 'agent_report'
+  // §4 v2.60 — 에이전트 질문 카드 수신 신호. 본체는 graph_snapshot.agentQuestions
+  | 'agent_questions';
 
 /** §5.3 #28 v1.47 — 콘티 생성/패치 완료 토스트용 페이로드. 본체는 graph_snapshot 에서 받는다. */
 export interface ContiEventPayload {
@@ -1321,6 +1337,44 @@ export interface AgentReport {
   createdAt: number;
 }
 
+/**
+ * §4 v2.60 — 에이전트 질문 카드의 개별 질문 항목.
+ *
+ * 자연어 질문 + 그에 대한 제안 응답 프롬프트(0~N). 각 프롬프트는 IDE 카드에서 복사 박스 +
+ * (복사 / 즉시 전송) 버튼으로 렌더된다. "즉시 전송" 은 그 프롬프트를 해당 세션에 새 명령으로 보낸다.
+ */
+export interface AgentQuestionItem {
+  /** 질문 본문 (자연어). */
+  question: string;
+  /** 선택: 짧은 헤더 라벨 (질문 요지). */
+  header?: string;
+  /** 제안 응답 프롬프트 목록 (0~N). 각각 복사 박스 + 복사/즉시전송 버튼. 비어도 됨(질문만 강조). */
+  prompts: string[];
+}
+
+/**
+ * §4 v2.60 — 에이전트 질문 신고 (커스텀/스폰 에이전트 전용).
+ *
+ * AI 가 사용자에게 자연어로 던지는 질문(1~N개)을 눈에 띄게 보여주기 위한 카드. 작업 신고(AgentReport)와
+ * 동일 골격 — 에이전트가 작업 끝에 loopback `POST /api/agent-questions` 로 구조화 신고(토큰 인증).
+ * 기존 AskUserQuestion(선택지 + 60초 동기 hold)과는 **별개 메커니즘** — 이쪽은 비차단이고, 사용자가
+ * 제안 프롬프트를 복사하거나 "즉시" 버튼으로 새 명령 전송해 답한다. `agentId` 가 1차 렌더 필터 키.
+ */
+export interface AgentQuestions {
+  /** 신고 고유 ID (서버가 발급). */
+  id: string;
+  /** 신고한 (부모) 에이전트 ID — Vibisual 관할 custom agent. 렌더 필터 1차 키. */
+  agentId: string;
+  /** 호출 sub 인스턴스(IDE 세션 탭) ID. 있으면 그 탭에 귀속, 없으면(undefined) 메인 탭. */
+  subAgentId?: string;
+  /** 질문 항목들 (1~N). */
+  items: AgentQuestionItem[];
+  /** 자유 메모 / 전체 맥락 한 줄 (선택). */
+  note?: string;
+  /** 신고 시각 (서버 stamp, Date.now()). */
+  createdAt: number;
+}
+
 export interface GraphSnapshot {
   /** hydrated 프로젝트 목록 (projectName → ProjectInfo). keys와 stubProjects keys는 겹치지 않음 */
   projects: Record<string, ProjectInfo>;
@@ -1445,6 +1499,13 @@ export interface GraphSnapshot {
    * 클라 IDE 가 agentId/subAgentId 로 필터해 색 구분 카드로 렌더. 미설정 시 빈 맵.
    */
   agentReports?: Record<string, AgentReport[]>;
+
+  /**
+   * §4 v2.60 — 에이전트 질문 카드 (agentId → AgentQuestions[], 최신순 append).
+   * 커스텀/스폰 에이전트가 `POST /api/agent-questions` 로 보낸 질문 + 제안 프롬프트.
+   * 클라 IDE 가 agentId/subAgentId 로 필터해 질문 카드로 렌더. 미설정 시 빈 맵.
+   */
+  agentQuestions?: Record<string, AgentQuestions[]>;
 }
 
 /** 폴더 내 파일/디렉토리 엔트리 (폴더 트리 표시용) */
@@ -1622,6 +1683,66 @@ export interface ProjectCheckpoint {
    * 완료 신고는 세션을 넘어 의미 있는 산출물 트레이스라 영속 대상.
    */
   agentReports?: Record<string, AgentReport[]>;
+
+  /**
+   * §4 v2.60 — 에이전트 질문 카드 (agentId → AgentQuestions[]) 영속화.
+   * optional — 구버전 체크포인트 하위 호환. 미설정이면 빈 맵으로 복원.
+   */
+  agentQuestions?: Record<string, AgentQuestions[]>;
+
+  /**
+   * §3.2.1-3 v2.63 — 명시적으로 삭제된 커스텀 에이전트 sessionId 묘비.
+   * identity.json 의 `deletedSessionIds` 와 같은 의미·소스. checkpoint 에도 실어
+   * deriveIdentity 가 단일 소스에서 파생할 수 있게 한다(필터·왕복 일관성).
+   * optional — 구버전 체크포인트 하위 호환. 미설정이면 빈 배열.
+   */
+  deletedCustomAgentIds?: string[];
+}
+
+/**
+ * §3.2.2 v2.62 — 정체성/휘발성 물리 분리.
+ * `identity.json` 으로 저빈도·고신뢰 저장되는 **잃으면 안 되는 정체성 데이터**.
+ *
+ * 휘발성 런타임 상태(status·lastActivity·노드·엣지 스냅샷·런타임 큐)는 여기 ❌ —
+ * 그건 고빈도 `checkpoint.json` 에만 산다. 복원 순서: checkpoint 전체 복원 →
+ * identity 로 누락 정체성 **보충**(이미 있으면 덮어쓰지 않음, 없으면 부활).
+ *
+ * checkpoint 가 비거나 깨져도 커스텀 에이전트는 identity 에서 되살아난다.
+ * identity.json 이 없으면(구버전) 기존 단일 파일 동작 그대로(완전 하위호환).
+ */
+export interface ProjectIdentity {
+  /** 전방 호환 — 미래 구조 변경 대비. 현재 1. 로드 시 `>= 1` 이면 수용. */
+  version: number;
+  project: ProjectInfo;
+  /** 저장 시각 (epoch ms). */
+  savedAt: number;
+  /** 라벨 생성 번호 유지 (checkpoint.graph.agentCounter 와 최대값 동기). */
+  agentCounter: number;
+  /**
+   * 사용자가 만든 커스텀 에이전트(+Auto Agent·파이프라인 합성 포함, `customCreated=true`)의
+   * 정체성 버블. sessionId → BubbleData. 런타임 상태 필드는 복원 시 정규화되지만,
+   * id/label/sessionId/생성·position 같은 정체성은 여기서 권위를 갖는다.
+   */
+  customAgents: Record<string, BubbleData>;
+  /** 에이전트별 설정 (agent id → AgentConfig). */
+  agentConfigs: Record<string, AgentConfig>;
+  /** 사용자 지정 라벨 (agent id → label). */
+  customLabels: Record<string, string>;
+  /** 커스텀 에이전트 세션의 소속 cwd (sessionId → cwd). 저장 필터·재개의 근거. */
+  sessionCwds: Record<string, string>;
+  /** 에이전트 간 작업 흐름 엣지 (TaskEdge id → TaskEdge). */
+  taskEdges: Record<string, TaskEdge>;
+  /** Comment Box 목록 (이 프로젝트 스코프). */
+  commentBoxes: CommentBox[];
+  /** 콘티 데이터 (contiId → Conti). */
+  contis: Record<string, Conti>;
+  /**
+   * §3.2.1-3 v2.63 — 사용자가 **명시적으로 삭제**한 커스텀 에이전트의 sessionId 묘비.
+   * shrink guard 가 "정상 삭제(여기 기록됨)"와 "복원 실패(미기록 소멸)"를 구분하는 신호.
+   * 부활(mergeIdentityIntoCheckpoint) 시 이 집합의 sessionId 는 되살리지 않는다 → 유령 부활 차단.
+   * optional — 구버전 identity.json 하위호환. 미설정이면 빈 배열로 취급.
+   */
+  deletedSessionIds?: string[];
 }
 
 // ─── Token Usage ───
@@ -1821,7 +1942,21 @@ export interface AgentConfig {
    * AgentConfigPopup 의 버전 sub-드롭다운이 이 값을 관리.
    */
   modelVersion?: string;
+  /**
+   * §4 v2.63 — 실행(스폰) 모드 축. `permissionMode`/`customMode` 와 **직교**.
+   * undefined 또는 `'headless'` = 기존 동작(서버가 `claude -p` 헤드리스로 스폰, 프로그래매틱 과금).
+   * `'interactive-terminal'` = 더블클릭 시 IDE 창 안에 임베디드 PTY 터미널을 띄워
+   *   사용자가 직접 모는 인터랙티브 `claude` REPL 실행(구독 과금). 6/15 프로그래매틱 과금 분리 대응.
+   * 위장 우회 ❌ — 사람이 루프 안에 있는 진짜 인터랙티브 세션 전용(Anthropic ToS 합법선).
+   */
+  executionMode?: ExecutionMode;
 }
+
+/**
+ * §4 v2.63 — 커스텀 에이전트 실행(스폰) 모드.
+ * 'headless' = 기존 `claude -p` 백그라운드 스폰. 'interactive-terminal' = IDE 임베디드 PTY REPL.
+ */
+export type ExecutionMode = 'headless' | 'interactive-terminal';
 
 // ─── Agent Preset (§4 v1.53) ───
 

@@ -25,7 +25,15 @@ import {
   type DetachKind,
 } from './windowManager';
 import { checkForUpdates, quitAndInstall, getUpdateState } from './updaterManager';
-import type { UpdateState } from '@vibisual/shared';
+import {
+  createTerminal,
+  writeTerminal,
+  resizeTerminal,
+  killTerminal,
+  killTerminalsForWebContents,
+  type CreateTerminalSpec,
+} from './terminalManager';
+import type { UpdateState, AgentConfig } from '@vibisual/shared';
 
 // IPC hub — SCENARIO.md §3.7 (in-process 통합).
 //
@@ -239,6 +247,34 @@ export function setupIpc(expressApp: Express): IpcHub {
   ipcMain.handle('vibisual:update:install', (): boolean => quitAndInstall());
   ipcMain.handle('vibisual:update:get-state', (): UpdateState => getUpdateState());
 
+  // ─── §4 v2.63 임베디드 인터랙티브 터미널 채널 ─────────────────────────────
+  // data/exit push 는 terminalManager 가 직접 webContents.send('vibisual:term:data'|'vibisual:term:exit').
+  // 여기서는 renderer→main 의 invoke 액션(create/write/resize/kill)만 등록한다.
+  ipcMain.handle(
+    'vibisual:term:create',
+    (event, spec: { termId: string; cwd: string; config: AgentConfig; cols?: number; rows?: number }): { ok: boolean; error?: string } => {
+      if (!spec || typeof spec.termId !== 'string' || !spec.termId) {
+        return { ok: false, error: 'termId required' };
+      }
+      // 창이 닫히면 그 webContents 의 PTY 들을 정리(좀비 셸 방지). once 가 여러 번 붙어도 무해.
+      event.sender.once('destroyed', () => killTerminalsForWebContents(event.sender.id));
+      return createTerminal(event.sender, spec as CreateTerminalSpec);
+    },
+  );
+  ipcMain.handle('vibisual:term:write', (_event, payload: { termId: string; data: string }): void => {
+    if (payload && typeof payload.termId === 'string' && typeof payload.data === 'string') {
+      writeTerminal(payload.termId, payload.data);
+    }
+  });
+  ipcMain.handle('vibisual:term:resize', (_event, payload: { termId: string; cols: number; rows: number }): void => {
+    if (payload && typeof payload.termId === 'string') {
+      resizeTerminal(payload.termId, payload.cols, payload.rows);
+    }
+  });
+  ipcMain.handle('vibisual:term:kill', (_event, termId: string): void => {
+    if (typeof termId === 'string') killTerminal(termId);
+  });
+
   return {
     stop(): void {
       ipcMain.removeHandler('vibisual:server-info');
@@ -261,6 +297,10 @@ export function setupIpc(expressApp: Express): IpcHub {
       ipcMain.removeHandler('vibisual:update:check');
       ipcMain.removeHandler('vibisual:update:install');
       ipcMain.removeHandler('vibisual:update:get-state');
+      ipcMain.removeHandler('vibisual:term:create');
+      ipcMain.removeHandler('vibisual:term:write');
+      ipcMain.removeHandler('vibisual:term:resize');
+      ipcMain.removeHandler('vibisual:term:kill');
       shutdownIframeLogStreamer();
       shutdownServerLogService();
       connections.clear();

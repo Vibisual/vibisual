@@ -242,6 +242,23 @@ async function main() {
   const isPreToolUse = payload.hook_event_name === 'PreToolUse';
   const isStop = payload.hook_event_name === 'Stop';
 
+  // §4 v2.64 — CMD(인터랙티브 터미널) 에이전트 소유자 태그. Vibisual 이 띄운 CMD 터미널의
+  //   claude 는 env VIBISUAL_OWNER_AGENT_ID(=그 CMD 버블 agentId)를 물려받는다. 트래킹 본문에
+  //   `_vibisualOwnerAgentId` 로 실으면 서버 processHookEvent 가 이 이벤트를 그 CMD 버블로
+  //   귀속(별개 Hook 버블 차단). 권한 검사(permission-check/ask)는 건드리지 않는다 — 시각 귀속
+  //   전용이며, 인터랙티브 세션 권한은 Claude Code 기본 정책(사람이 루프 안)에 맡긴다.
+  const ownerAgentId = process.env.VIBISUAL_OWNER_AGENT_ID;
+  // §4 v2.64 — termId 도 함께 실어 보낸다. 서버가 termId 별로 claude 대화 sessionId 를 기록해
+  //   앱 재시작 후 `claude --resume` 으로 직전 대화를 이어받게 한다.
+  const ownerTermId = process.env.VIBISUAL_OWNER_TERM_ID;
+  const trackingBody = (ownerAgentId || ownerTermId)
+    ? JSON.stringify({
+        ...payload,
+        ...(ownerAgentId ? { _vibisualOwnerAgentId: ownerAgentId } : {}),
+        ...(ownerTermId ? { _vibisualOwnerTermId: ownerTermId } : {}),
+      })
+    : input;
+
   let response;
   if (isPreToolUse) {
     // §5.3 #12-2 v2.26 — AskUserQuestion 은 별도 broker 로 분기.
@@ -276,7 +293,7 @@ async function main() {
     fetch(SERVER_URL, {
       method: 'POST',
       headers: hookHeaders({}),
-      body: input,
+      body: trackingBody,
     }).catch(() => {});
   } else if (!isPreToolUse) {
     // Non-PreToolUse, non-Stop: short await so the event reaches the server before exit.
@@ -286,7 +303,7 @@ async function main() {
       await fetch(SERVER_URL, {
         method: 'POST',
         headers: hookHeaders({}),
-        body: input,
+        body: trackingBody,
         signal: controller.signal,
       }).catch(() => {}).finally(() => clearTimeout(tid));
     } catch {
@@ -300,7 +317,7 @@ async function main() {
       await fetch(SERVER_URL, {
         method: 'POST',
         headers: hookHeaders({}),
-        body: input,
+        body: trackingBody,
         signal: controller.signal,
       }).catch(() => {}).finally(() => clearTimeout(tid));
     } catch {

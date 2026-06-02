@@ -1,13 +1,15 @@
 import { memo, useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import type { QueuedCommand, SubAgent, SubAgentStreamEvent, AgentEvent, AgentReport } from '@vibisual/shared';
+import type { QueuedCommand, SubAgent, SubAgentStreamEvent, AgentEvent, AgentReport, AgentQuestions } from '@vibisual/shared';
 import { useGraphStore, agentSessionInputKey, selectIDEOverlay } from '../../stores/graphStore.js';
 import type { AgentSessionInputAttachment } from '../../stores/graphStore.js';
 import { useAvailableSkills, type SkillInfo } from '../../hooks/useAvailableSkills.js';
 import { StreamRenderer } from './StreamRenderer.js';
 import { AskQuestionCard } from './AskQuestionCard.js';
 import { AgentReportCard } from './AgentReportCard.js';
+import { AgentQuestionCard } from './AgentQuestionCard.js';
+import { IDETerminalView } from './IDETerminalView.js';
 import { SystemNode, parseSystemSubtype } from './SystemNode.js';
 import { ThinkingDots, ThinkingLiveLine } from './ThinkingIndicator.js';
 
@@ -22,6 +24,7 @@ const EMPTY_SUBS: SubAgent[] = [];
 const EMPTY_EVENTS: AgentEvent[] = [];
 const EMPTY_STREAM_EVENTS: SubAgentStreamEvent[] = [];
 const EMPTY_REPORTS: import('@vibisual/shared').AgentReport[] = [];
+const EMPTY_QUESTIONS: import('@vibisual/shared').AgentQuestions[] = [];
 
 interface IDEMainAreaProps {
   agentId: string;
@@ -535,6 +538,7 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
   const addCommand = useGraphStore((s) => s.addCommand);
   const agents = useGraphStore((s) => s.agents);
   const registerAttachmentPreview = useGraphStore((s) => s.registerAttachmentPreview);
+  const openImageLightbox = useGraphStore((s) => s.openImageLightbox);
   const markSubAcknowledged = useGraphStore((s) => s.markSubAcknowledged);
   // §5.3 #28 v1.48 — 세션 스코프 draft (text + attachments) store 구독.
   // 세션 탭 전환 시 입력 내용이 해당 세션에 매여 유지된다. key = agentSessionInputKey(agentId, activeSessionId).
@@ -574,7 +578,9 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // §5.5 #17-2 v2.30 / #17-4 v2.32 — 슬래시 자동완성. `useAvailableSkills` 가 모듈 캐시를 공유.
-  const { skills: availableSkills, loaded: skillsLoaded } = useAvailableSkills();
+  // v2.59 — 이 에이전트가 속한 프로젝트의 스킬만 자동완성(탭별 개별 조회).
+  const slashProjectName = useGraphStore((s) => s.agentProjects[agentId]);
+  const { skills: availableSkills, loaded: skillsLoaded } = useAvailableSkills(slashProjectName, agentId);
   const [slashIndex, setSlashIndex] = useState(0);
 
   useEffect(() => { sidRef.current = sid; }, [sid]);
@@ -884,7 +890,8 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
               <img
                 src={a.previewUrl}
                 alt=""
-                className={`h-full w-full object-cover ${a.uploading || a.error ? 'opacity-40' : ''}`}
+                onClick={() => { if (!a.uploading && !a.error) openImageLightbox(a.previewUrl); }}
+                className={`h-full w-full object-cover ${a.uploading || a.error ? 'opacity-40' : 'cursor-zoom-in'}`}
               />
               {a.uploading && (
                 <div className="absolute inset-0 flex items-center justify-center">
@@ -972,6 +979,7 @@ const STATUS_SUMMARY_MAX = 80;
 function StreamStatusBar({ commands, scrollRef }: StreamStatusBarProps): React.JSX.Element | null {
   const { t } = useTranslation();
   const attachmentPreviews = useGraphStore((s) => s.attachmentPreviews);
+  const openImageLightbox = useGraphStore((s) => s.openImageLightbox);
   // 우선순위: 실행 중 > 최신 완료/에러. queued 단독은 하단 표시 대상 아님.
   const target = useMemo(() => {
     const executing = commands.find((c) => c.status === 'executing');
@@ -1025,12 +1033,14 @@ function StreamStatusBar({ commands, scrollRef }: StreamStatusBarProps): React.J
         {attachmentThumbs.length > 0 && (
           <div className="flex flex-shrink-0 items-center gap-1">
             {attachmentThumbs.map((a) => (
-              <img
+              <button
                 key={a.basename}
-                src={a.url}
-                alt=""
-                className="h-5 w-5 rounded border border-gray-700 object-cover"
-              />
+                type="button"
+                onClick={() => openImageLightbox(a.url)}
+                className="h-5 w-5 flex-shrink-0 overflow-hidden rounded border border-gray-700"
+              >
+                <img src={a.url} alt="" className="h-full w-full cursor-zoom-in object-cover" />
+              </button>
             ))}
           </div>
         )}
@@ -1142,6 +1152,45 @@ function TerminalContextMenu({
 
 // ─── 메인 영역 ───
 
+// ─── v2.61 첨부 이미지 라이트박스 — 전역 transient state(imageLightbox)를 body 로 portal. ───
+//      입력칩 · 실행 상태바 · 대화 스트림의 어떤 썸네일을 클릭해도 여기서 전체화면 확대.
+function ImageLightboxHost(): React.JSX.Element | null {
+  const { t } = useTranslation();
+  const url = useGraphStore((s) => s.imageLightbox);
+  const close = useGraphStore((s) => s.closeImageLightbox);
+  useEffect(() => {
+    if (!url) return;
+    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') close(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [url, close]);
+  if (!url) return null;
+  return createPortal(
+    <div
+      onClick={close}
+      className="fixed inset-0 z-[9999] flex cursor-zoom-out items-center justify-center bg-black/80 p-6"
+      role="dialog"
+      aria-modal="true"
+    >
+      <img
+        src={url}
+        alt=""
+        onClick={(e) => e.stopPropagation()}
+        className="max-h-[92vh] max-w-[92vw] rounded-lg border border-gray-700 shadow-2xl"
+      />
+      <button
+        type="button"
+        onClick={close}
+        aria-label={t('panel.detailPanel.close')}
+        className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-gray-200 transition-colors hover:bg-black/80"
+      >
+        <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+      </button>
+    </div>,
+    document.body,
+  );
+}
+
 export const IDEMainArea = memo(function IDEMainArea({
   agentId,
   isCustom,
@@ -1173,6 +1222,11 @@ export const IDEMainArea = memo(function IDEMainArea({
 
   // Hook 메인 뷰(activeSessionId===null) = read-only, 서브에이전트 탭 = interactive
   const isReadOnly = !isCustom && activeSessionId === null;
+
+  // §4 v2.63 — CMD(interactive-terminal) 에이전트는 **모든 탭**이 임베디드 PTY 터미널.
+  // 탭(세션)마다 독립 termId → "+"=새 cmd 터미널, IDE 닫았다 열어도 reattach 로 보존.
+  const executionMode = useGraphStore((s) => s.agentConfigs[agentId]?.executionMode);
+  const showInteractiveTerminal = isCustom && executionMode === 'interactive-terminal';
 
   // §5.5 #17-3 v2.31 — 우클릭 컨텍스트 메뉴.
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; selection: string } | null>(null);
@@ -1318,17 +1372,32 @@ export const IDEMainArea = memo(function IDEMainArea({
     return [...matches].sort((a, b) => a.createdAt - b.createdAt);
   }, [agentReportsForAgent, activeSessionId]);
 
-  // §4 v2.53 — 메인 탭(Hook 에이전트): 터미널 항목 + 작업 신고 카드를 timestamp 로 합쳐 시간순 인라인 배치.
-  //   예전엔 신고를 items 뒤에 따로 붙여 항상 하단 고정됐다(이후 대화가 위에 쌓여 카드가 영영 맨 아래).
-  //   이제 createdAt 시점에 끼어든 뒤 다음 대화가 그 아래로 쌓여 자연스럽게 위로 밀려 올라간다.
+  // §4 v2.60 — 이 에이전트의 질문 카드. reportCards 와 동일 필터/정렬.
+  const agentQuestionsForAgent = useGraphStore((s) => s.agentQuestions[agentId] ?? EMPTY_QUESTIONS);
+  const questionCards = useMemo(() => {
+    const matches = agentQuestionsForAgent.filter((q) =>
+      activeSessionId !== null ? q.subAgentId === activeSessionId : true,
+    );
+    return [...matches].sort((a, b) => a.createdAt - b.createdAt);
+  }, [agentQuestionsForAgent, activeSessionId]);
+
+  // §4 v2.53/v2.57 — 메인 탭: 터미널 항목 + 작업 신고 카드를 합쳐 정렬. 신고는 createdAt 그대로가 아니라
+  //   **그 신고가 속한 턴의 끝**(createdAt 이후 첫 프롬프트 직전, 없으면 맨 끝)에 배치 — StreamRenderer 와 동일.
+  //   작업 도중 카드가 중간에 끼는 걸 막고, 다음 턴 대화가 오면 자연스럽게 위로 밀려 올라가게 한다.
   const mainTimeline = useMemo(() => {
-    const merged: Array<{ ts: number; node: { t: 'item'; item: TerminalItem } | { t: 'report'; report: AgentReport } }> = [
+    const cmdTsAsc = commands.map((c) => c.timestamp).sort((a, b) => a - b);
+    const turnEndSortTs = (createdAt: number): number => {
+      for (const ts of cmdTsAsc) { if (ts > createdAt) return ts - 0.5; }
+      return Number.MAX_SAFE_INTEGER;
+    };
+    const merged: Array<{ ts: number; node: { t: 'item'; item: TerminalItem } | { t: 'report'; report: AgentReport } | { t: 'question'; questions: AgentQuestions } }> = [
       ...items.map((item) => ({ ts: item.timestamp, node: { t: 'item' as const, item } })),
-      ...reportCards.map((r) => ({ ts: r.createdAt, node: { t: 'report' as const, report: r } })),
+      ...reportCards.map((r) => ({ ts: turnEndSortTs(r.createdAt), node: { t: 'report' as const, report: r } })),
+      ...questionCards.map((q) => ({ ts: turnEndSortTs(q.createdAt), node: { t: 'question' as const, questions: q } })),
     ];
     merged.sort((a, b) => a.ts - b.ts);
     return merged.map((m) => m.node);
-  }, [items, reportCards]);
+  }, [items, reportCards, questionCards, commands]);
 
   // Auto-scroll — 유저가 위로 스크롤하면 비활성화, 바닥 근처면 활성화
   const handleScroll = useCallback(() => {
@@ -1348,7 +1417,18 @@ export const IDEMainArea = memo(function IDEMainArea({
     if (autoScrollRef.current && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [items.length, askCards.length, reportCards.length]);
+  }, [items.length, askCards.length, reportCards.length, questionCards.length]);
+
+  // §4 v2.63 — 인터랙티브 터미널 모드: 활성 탭(세션)을 임베디드 PTY 로 렌더.
+  //   key=termId 라 탭 전환 시 그 세션 터미널로 교체(PTY 는 main 에서 보존 → reattach).
+  //   모든 hook 은 위에서 이미 호출됐으므로 여기서 조기 return 해도 Rules of Hooks 안전.
+  if (showInteractiveTerminal) {
+    return (
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <IDETerminalView key={activeSessionId ?? 'main'} agentId={agentId} sessionId={activeSessionId} />
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -1368,6 +1448,7 @@ export const IDEMainArea = memo(function IDEMainArea({
               events={activeStreamEvents}
               commands={commands.filter((c) => c.subAgentId === activeSessionId)}
               reports={reportCards}
+              questions={questionCards}
             />
             {askCards.length > 0 && (
               <div className="py-1">
@@ -1384,13 +1465,15 @@ export const IDEMainArea = memo(function IDEMainArea({
             {mainTimeline.map((n) =>
               n.t === 'report'
                 ? <AgentReportCard key={n.report.id} report={n.report} />
-                : n.item.kind === 'group'
-                  ? (n.item.groupType === 'thinking'
-                      ? <ThinkingGroupLine key={n.item.id} group={n.item} />
-                      : <TerminalGroupLine key={n.item.id} group={n.item} />)
-                  : n.item.kind === 'thinking-live'
-                    ? <ThinkingLiveLine key={n.item.id} label={t('ide.streamRenderer.thinking')} />
-                    : <TerminalLine key={n.item.id} entry={n.item} />,
+                : n.t === 'question'
+                  ? <AgentQuestionCard key={n.questions.id} questions={n.questions} />
+                  : n.item.kind === 'group'
+                    ? (n.item.groupType === 'thinking'
+                        ? <ThinkingGroupLine key={n.item.id} group={n.item} />
+                        : <TerminalGroupLine key={n.item.id} group={n.item} />)
+                    : n.item.kind === 'thinking-live'
+                      ? <ThinkingLiveLine key={n.item.id} label={t('ide.streamRenderer.thinking')} />
+                      : <TerminalLine key={n.item.id} entry={n.item} />,
             )}
             {askCards.map((req) => (
               <AskQuestionCard key={req.requestId} request={req} />
@@ -1418,6 +1501,9 @@ export const IDEMainArea = memo(function IDEMainArea({
           <span className="text-[10px] text-gray-600">{t('ide.mainArea.readOnly')}</span>
         </div>
       )}
+
+      {/* v2.61 — 첨부 이미지 라이트박스 (입력칩·상태바·대화 썸네일 클릭 시 전체화면 확대) */}
+      <ImageLightboxHost />
 
       {/* §5.5 #17-3 v2.31 — 우클릭 컨텍스트 메뉴 */}
       {ctxMenu && (

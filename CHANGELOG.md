@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-06-02
+
+### Added
+- **CMD Agent — embedded interactive terminal.** A new agent type (canvas right-click → Create CMD Agent) opens a real terminal right inside the IDE with `claude` pre-filled, that you drive yourself. Unlike spawned agents it runs on your Claude subscription (interactive billing) instead of the API. It's a full terminal: copy / paste / select-all / clear, in-terminal find with next/previous matches, and font-size controls, plus a right-click context menu. Vibisual visualizes the session and wires the harness, while execution authority stays inside Claude Code.
+- **Work report cards.** When an agent finishes something that still needs your hands, it can file a structured report that the IDE renders as colour-coded cards — "What the AI did", "What you need to do", and "Next steps" — so you can tell at a glance what's done versus what still needs you, without reading the whole message.
+- **Question cards.** When an agent needs a decision from you, its question now surfaces as a highlighted card with ready-to-send suggested replies. Each reply sits in a copy box with Copy and Send-now buttons (Send-now dispatches that reply as a new prompt).
+- **Update confirmation.** The "Restart to update" button now asks for confirmation first, warning that in-progress agent work or unsaved changes may be lost, and suggesting you finish important custom-agent work before applying the update.
+- **Window controls on detached tabs.** Detached / free-floating windows now have Minimize, Maximize, and Restore controls, and tabs can be renamed or detached to a new window from their context menu.
+
+### Changed
+- **Reasoning effort levels** were expanded with clearer guidance, including an Extra-high tier (Opus 4.7+, recommended for most coding work) and a Maximum tier (Opus 4.8, no token limit for the hardest judgment calls).
+
+### Fixed
+- Detached frameless windows now restore correctly after being maximized (maximize/restore state is judged from the window bounds), and redock-by-drag back onto the tab bar is more reliable.
+- Per-project state — including agent work reports — now survives an app restart instead of being lost when the app is closed and reopened.
+
 ## [0.1.1] - 2026-05-29
 
 ### Added
@@ -32,5 +48,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - Dropped preset options from the custom agent settings.
 
-[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/Vibisual/vibisual/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/Vibisual/vibisual/compare/v0.1.0...v0.1.1

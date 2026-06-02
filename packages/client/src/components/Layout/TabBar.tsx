@@ -360,7 +360,7 @@ export function TabBar(): React.JSX.Element | null {
     return orderedTabs.some((it, i) => i > ctx.index && !isItemPinned(it));
   }, [ctx, orderedTabs, isItemPinned]);
 
-  const handleCtxAction = useCallback((action: 'close' | 'closeOthers' | 'closeRight' | 'closeAll' | 'togglePin' | 'toggleDefault' | 'detach') => {
+  const handleCtxAction = useCallback((action: 'close' | 'closeOthers' | 'closeRight' | 'closeAll' | 'togglePin' | 'toggleDefault' | 'detach' | 'rename') => {
     if (!ctx || !ctxItem) return;
     const store = useGraphStore.getState();
 

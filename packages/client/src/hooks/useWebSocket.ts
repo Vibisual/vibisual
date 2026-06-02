@@ -58,6 +58,10 @@ export function useWebSocket(url: string): UseWebSocketReturn {
   // graph_snapshot 코얼레스 — 버스트 시 마지막 스냅샷만 적용 (16ms 트레일링).
   const snapshotPendingRef = useRef<GraphSnapshot | null>(null);
   const snapshotTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // §9 — sub_agent_stream 배치 — 도착분을 16ms 창에 모았다가 store action 1회로 합쳐 적용.
+  // 커스텀 에이전트 다중 실행 시 매 스트림 라인마다 구독자 전원 재평가하던 것을 16ms당 1회로.
+  const streamPendingRef = useRef<SubAgentStreamEvent[]>([]);
+  const streamTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const applyGraphSnapshot = useCallback((snap: GraphSnapshot) => {
     const store = useGraphStore.getState();
@@ -99,6 +103,7 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     store.applySkillUsageCounts(snap.skillUsageCounts);
     store.applyAutoAgentSummaries(snap.autoAgentSummaries);
     store.applyAgentReports(snap.agentReports);
+    store.applyAgentQuestions(snap.agentQuestions);
     store.applyDiagnosticLog(snap.diagnosticLog);
     store.applyModelRegistry(snap.modelRegistry);
     store.applyUserDefaults(snap.userDefaults);
@@ -110,6 +115,13 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     snapshotPendingRef.current = null;
     if (snap) applyGraphSnapshot(snap);
   }, [applyGraphSnapshot]);
+
+  const flushStreamEvents = useCallback(() => {
+    streamTimerRef.current = null;
+    const buffered = streamPendingRef.current;
+    streamPendingRef.current = [];
+    if (buffered.length > 0) useGraphStore.getState().appendStreamEvents(buffered);
+  }, []);
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
@@ -172,7 +184,11 @@ export function useWebSocket(url: string): UseWebSocketReturn {
           case 'sub_agent_stream': {
             const event = parsed.payload as SubAgentStreamEvent;
             if (event && typeof event.subAgentId === 'string') {
-              store.appendStreamEvent(event);
+              // 16ms 배치 — 도착 순서대로 큐에 모았다가 flush 시 한 번에 합쳐 적용.
+              streamPendingRef.current.push(event);
+              if (streamTimerRef.current === null) {
+                streamTimerRef.current = setTimeout(flushStreamEvents, WS_BATCH_INTERVAL);
+              }
             }
             break;
           }
@@ -332,7 +348,7 @@ export function useWebSocket(url: string): UseWebSocketReturn {
       console.warn(`[Vibisual] Cannot connect to server (${url}). Check if the server is running.`);
       ws.close();
     };
-  }, [url, flushSnapshot]);
+  }, [url, flushSnapshot, flushStreamEvents]);
 
   useEffect(() => {
     connect();
@@ -340,6 +356,7 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
       if (snapshotTimerRef.current) clearTimeout(snapshotTimerRef.current);
+      if (streamTimerRef.current) clearTimeout(streamTimerRef.current);
       const ws = wsRef.current;
       if (ws) {
         ws.onerror = null;

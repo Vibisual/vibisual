@@ -1,7 +1,7 @@
 import { memo, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 
-export type TabContextAction = 'close' | 'closeOthers' | 'closeRight' | 'closeAll' | 'togglePin' | 'toggleDefault' | 'detach';
+export type TabContextAction = 'close' | 'closeOthers' | 'closeRight' | 'closeAll' | 'togglePin' | 'toggleDefault' | 'detach' | 'rename';
 
 interface TabContextMenuProps {
   x: number;
@@ -12,6 +12,8 @@ interface TabContextMenuProps {
   hasRight: boolean;
   /** §5.4 #14-1 — 별창 분리 메뉴 노출 여부. 기본 true. IDE 서브에이전트 탭 등에선 false. */
   showDetach?: boolean;
+  /** 이름 변경 메뉴 노출 여부. 기본 false. IDE 서브에이전트 탭에서만 true. */
+  showRename?: boolean;
   onAction: (key: TabContextAction) => void;
   onClose: () => void;
 }
@@ -24,6 +26,7 @@ export const TabContextMenu = memo(function TabContextMenu({
   hasOthers,
   hasRight,
   showDetach = true,
+  showRename = false,
   onAction,
   onClose,
 }: TabContextMenuProps): React.JSX.Element {
@@ -55,7 +58,16 @@ export const TabContextMenu = memo(function TabContextMenu({
     separatorAbove?: boolean;
     tooltip?: string;
   }> = [
-    { key: 'close', label: t('tabMenu.close') },
+    // 이름 변경 — IDE 서브에이전트 탭에서만(showRename). 인라인 편집 진입 트리거.
+    ...(showRename
+      ? [
+          {
+            key: 'rename' as const,
+            label: t('tabMenu.rename', { defaultValue: 'Rename' }),
+          },
+        ]
+      : []),
+    { key: 'close', label: t('tabMenu.close'), separatorAbove: showRename },
     { key: 'closeOthers', label: t('tabMenu.closeOthers'), disabled: !hasOthers },
     { key: 'closeRight', label: t('tabMenu.closeRight'), disabled: !hasRight },
     { key: 'closeAll', label: t('tabMenu.closeAll') },

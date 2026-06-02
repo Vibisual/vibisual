@@ -32,6 +32,35 @@ export const IDETabBar = memo(function IDETabBar({
   const acknowledgedSubAgents = useGraphStore((s) => s.acknowledgedSubAgents);
   const defaultSubAgents = useGraphStore((s) => s.defaultSubAgents);
   const defaultSubId = agentId ? defaultSubAgents[agentId] ?? null : null;
+  const subAgentLabels = useGraphStore((s) => s.subAgentLabels);
+  const setSubAgentLabel = useGraphStore((s) => s.setSubAgentLabel);
+
+  // 탭 이름 인라인 편집 — 편집 중인 탭 id와 입력값.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState('');
+
+  // 표시용 라벨 — 사용자 지정(subAgentLabels) 우선, 없으면 서버 기본 라벨.
+  const displayLabel = useCallback(
+    (sub: SubAgent): string => subAgentLabels[sub.id] ?? sub.label,
+    [subAgentLabels],
+  );
+
+  const startRename = useCallback((subId: string) => {
+    const sub = subAgents.find((s) => s.id === subId);
+    setEditValue(subAgentLabels[subId] ?? sub?.label ?? '');
+    setEditingId(subId);
+  }, [subAgents, subAgentLabels]);
+
+  const commitRename = useCallback((subId: string) => {
+    setSubAgentLabel(subId, editValue);
+    setEditingId(null);
+    setEditValue('');
+  }, [editValue, setSubAgentLabel]);
+
+  const cancelRename = useCallback(() => {
+    setEditingId(null);
+    setEditValue('');
+  }, []);
 
   // 드래그 재정렬 — 드래그 중인 탭 id와 커서가 올라가 있는 대상 id
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -85,9 +114,14 @@ export const IDETabBar = memo(function IDETabBar({
       const next = subAgents[idx + 1] ?? subAgents[idx - 1] ?? null;
       setSession(next ? next.id : null);
     }
-    fetch(`/api/subagents/${agentId}/${subId}`, { method: 'DELETE' })
-      .catch(() => { /* snapshot이 권위 */ });
     const store = useGraphStore.getState();
+    // §4 v2.63 — CMD 에이전트의 세션 탭은 임베디드 PTY 핸들이기도 하다. 탭을 명시적으로 닫으면
+    //   그 세션의 PTY 도 종료(좀비 셸 방지). 비-CMD 에이전트엔 해당 termId 가 없어 no-op.
+    void window.api?.terminal?.kill(`term:${agentId}:${subId}`);
+    // 낙관적 제거 — 서버 DELETE 왕복/브로드캐스트(혹은 stale full-snapshot)를 기다리지 않고 즉시 탭 제거.
+    store.optimisticRemoveSubAgent(agentId, subId);
+    fetch(`/api/subagents/${agentId}/${subId}`, { method: 'DELETE' })
+      .catch(() => { /* snapshot이 권위 — 인텐트가 정리될 때까지 유지 */ });
     store.setTabPin(`subagent:${subId}`, false);
     // 닫힌 서브에이전트가 Default였으면 Default도 해제
     if (store.defaultSubAgents[agentId] === subId) {
@@ -303,7 +337,25 @@ export const IDETabBar = memo(function IDETabBar({
               </span>
             )}
             <span className={`h-1.5 w-1.5 rounded-full ${dot}`} />
-            <span className="max-w-[100px] truncate">{sub.label}</span>
+            {editingId === sub.id ? (
+              <input
+                autoFocus
+                value={editValue}
+                onChange={(e) => setEditValue(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
+                onKeyDown={(e) => {
+                  e.stopPropagation();
+                  if (e.key === 'Enter') commitRename(sub.id);
+                  else if (e.key === 'Escape') cancelRename();
+                }}
+                onBlur={() => commitRename(sub.id)}
+                className="w-[120px] rounded border border-blue-400/60 bg-gray-900 px-1 py-0.5 text-xs text-gray-100 outline-none"
+              />
+            ) : (
+              // 탭 크기 고정 — 이름이 길면 ...(truncate).
+              <span className="w-[120px] truncate">{displayLabel(sub)}</span>
+            )}
             <button
               type="button"
               onClick={(e) => handleClose(e, sub.id)}
@@ -370,10 +422,12 @@ export const IDETabBar = memo(function IDETabBar({
           hasOthers={ctxHasOthers}
           hasRight={ctxHasRight}
           showDetach={false}
+          showRename
           onAction={(action) => {
             // §5.4 #14-1 — IDE 서브에이전트 탭은 detach 미지원. showDetach=false 라 도달하지 않지만
             // 타입 좁힘을 위해 가드.
             if (action === 'detach') return;
+            if (action === 'rename') { startRename(ctx.subId); return; }
             handleCtxAction(action);
           }}
           onClose={() => setCtx(null)}
@@ -426,11 +480,9 @@ function HistoryButton(): React.JSX.Element | null {
       createdAt: item.lastActivityAt,
       lastActivityAt: item.lastActivityAt,
     };
-    useGraphStore.setState((s) => {
-      const list = s.subAgents[agentId] ?? [];
-      if (list.some((x) => x.id === stub.id)) return {};
-      return { subAgents: { ...s.subAgents, [agentId]: [...list, stub] } };
-    });
+    // 낙관적 복원 — 서버 restore 왕복 전에 즉시 탭 추가. full-snapshot race 에도 유지되도록
+    // 복원 인텐트로 등록(loadSnapshot 이 스냅샷에 반영될 때까지 다시 채워 넣음).
+    useGraphStore.getState().optimisticRestoreSubAgent(agentId, stub);
     setSession(stub.id);
     setOpen(false);
     fetch(`/api/subagents/${agentId}/restore`, {
