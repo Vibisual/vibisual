@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { BubbleData, ActivityEdge, BashEntry, ServerEntry, AgentEvent, FileEdit, AgentPhase, ProjectInfo, QueuedCommand, SubAgent, ServerKind, PipelineType, PipelineState, AgentConfig, SubAgentStreamEvent, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, UiLocale, ProjectMetaSnapshot, AppState, AppStatePatch, CommentBox, Conti, ActiveContiWork, ToolDurationEntry, CompactCount, RateLimitInfo, DiagnosticEntry, AutoAgentSummary, ModelRegistry, UserDefaults, AgentReport } from '@vibisual/shared';
+import type { BubbleData, ActivityEdge, BashEntry, ServerEntry, AgentEvent, FileEdit, AgentPhase, ProjectInfo, QueuedCommand, SubAgent, ServerKind, PipelineType, PipelineState, AgentConfig, SubAgentStreamEvent, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, UiLocale, ProjectMetaSnapshot, AppState, AppStatePatch, CommentBox, Conti, ActiveContiWork, ToolDurationEntry, CompactCount, RateLimitInfo, DiagnosticEntry, AutoAgentSummary, ModelRegistry, UserDefaults, AgentReport, AgentQuestions } from '@vibisual/shared';
 import { DEFAULT_UI_LOCALE } from '@vibisual/shared';
 import { changeUiLocale } from '../i18n/index.js';
 import { calcFileSizeRange } from '../utils/sizeCalc.js';
@@ -51,6 +51,7 @@ const ACTIVE_PROJECT_KEY = 'vibisual:activeProject';
 const DEFAULT_TABBAR_KEY = 'vibisual:defaultTabbar';
 const DEFAULT_SUBAGENTS_KEY = 'vibisual:defaultSubAgents';
 const TAB_PINS_KEY = 'vibisual:tabPins';
+const SUBAGENT_LABELS_KEY = 'vibisual:subAgentLabels';
 // 서브에이전트 완료 확인(ack) 상태 — 재시작 후에도 "확인함(회색)" 이 유지되도록 localStorage 영속.
 // 없으면 부팅 시 메모리 기본값 {} 으로 시작 → idle sub 들이 전부 미확인(녹색)으로 회귀.
 const ACK_SUBAGENTS_KEY = 'vibisual:ackSubAgents';
@@ -212,7 +213,17 @@ interface GraphState {
    *  active → idle 전이 시 자동 해제(다음 완료는 다시 녹색).
    *  탭 클릭/메인영역 클릭/타이핑 시 set. */
   acknowledgedSubAgents: Record<string, true>;
+  /** 낙관적 제거 인텐트 — subId → parentAgentId. 서버 DELETE 왕복/스냅샷 전에 탭을 즉시 감춘다(파생 시 차감). */
+  pendingSubAgentRemovals: Record<string, string>;
+  /** 낙관적 복원 인텐트 — subId → SubAgent stub. 서버 restore 전에 탭을 즉시 띄운다(파생 시 합산). */
+  pendingSubAgentRestores: Record<string, SubAgent>;
   markSubAcknowledged: (subId: string) => void;
+  /** 탭 닫기 — 서버 응답 전에 즉시 제거(낙관적). full-snapshot race 에도 유지된다. */
+  optimisticRemoveSubAgent: (agentId: string, subAgentId: string) => void;
+  /** 히스토리 세션 다시 열기 — 서버 응답 전에 즉시 탭 추가(낙관적). full-snapshot race 에도 유지된다. */
+  optimisticRestoreSubAgent: (agentId: string, subAgent: SubAgent) => void;
+  /** 인텐트 정리 — 권위 스냅샷이 제거/복원을 반영했을 때 호출. */
+  clearPendingSubAgentIntent: (subAgentId: string) => void;
   /** 파이프라인 부모 ID → 자식 에이전트 버블 목록 */
   pipelineChildren: Record<string, BubbleData[]>;
   /** 파이프라인 부모 ID → 파이프라인 상태 */
@@ -275,6 +286,8 @@ interface GraphState {
   autoAgentSummaries: Record<string, AutoAgentSummary>;
   /** §4 v2.52 — 에이전트 작업 신고 (agentId → AgentReport[]). IDE 색 구분 카드. */
   agentReports: Record<string, AgentReport[]>;
+  /** §4 v2.60 — 에이전트 질문 카드 (agentId → AgentQuestions[]). IDE 질문 카드. */
+  agentQuestions: Record<string, AgentQuestions[]>;
   /** §4 v2.38 — 동적 모델 레지스트리 (서버 modelRegistryService 가 시드+/v1/models 머지 후 push). */
   modelRegistry: ModelRegistry | null;
   /** §4 v2.42 — 사용자 글로벌 옵션 (Options 창 SSOT). */
@@ -312,6 +325,10 @@ interface GraphState {
   contiBoardOpen: { agentId: string; contiId: string } | null;
   openContiBoard: (agentId: string, contiId: string) => void;
   closeContiBoard: () => void;
+  /** v2.61 — 첨부 이미지 라이트박스(전체화면 확대) URL. null=닫힘. 전환 상태이므로 영속화 ❌. */
+  imageLightbox: string | null;
+  openImageLightbox: (url: string) => void;
+  closeImageLightbox: () => void;
   /** 콘티 생성 in-flight (agentId Set) — UX 스피너용. 완료 시 자동 제거. */
   contiGenerating: Record<string, true>;
   /** 사용자가 "새 콘티 생성" 버튼 누름 — 서버 POST /api/conti/generate. */
@@ -397,6 +414,9 @@ interface GraphState {
    * 에이전트 IDE의 Default 서브에이전트 (localStorage 영속). `{ [agentId]: subAgentId }`.
    * IDE 오버레이 열릴 때 `selectedSubByAgent[agentId]`(마지막 활성)가 없으면 Default로 폴백.
    */
+  /** 서브에이전트 탭 사용자 지정 이름. subId → 라벨. 빈 값은 저장 안 함(기본 라벨 복귀). 클라 영속. */
+  subAgentLabels: Record<string, string>;
+  setSubAgentLabel: (subId: string, label: string) => void;
   defaultSubAgents: Record<string, string>;
   setDefaultSubAgent: (agentId: string, subAgentId: string | null) => void;
   /**
@@ -507,6 +527,8 @@ interface GraphState {
   focusOnNode: (id: string) => void;
   clearFocusNode: () => void;
   createCustomAgent: (canvasX: number, canvasY: number) => void;
+  /** §4 v2.63 — CMD(인터랙티브 터미널) 에이전트 생성. 커스텀 에이전트 기반 + executionMode baked. */
+  createCmdAgent: (canvasX: number, canvasY: number) => void;
   /** §5.3 #10-2 v2.37 — Auto Agent 메타 버블 생성 */
   createAutoAgent: (canvasX: number, canvasY: number) => void;
   /** §5.3 #10-2 v2.37 — Auto Agent 에게 자연어 메시지 → 서버 spawn + dispatch */
@@ -531,6 +553,8 @@ interface GraphState {
   /** SubAgent 스트림 이벤트 (subAgentId → events[]) — IDE 터미널 표시용 */
   subAgentStreams: Record<string, SubAgentStreamEvent[]>;
   appendStreamEvent: (event: SubAgentStreamEvent) => void;
+  /** §9 — sub_agent_stream 16ms 배치 수신. 도착 순서대로 합쳐 set 1회 (구독자 재평가 1회). */
+  appendStreamEvents: (events: SubAgentStreamEvent[]) => void;
   loadStreamBuffers: (buffers: Record<string, SubAgentStreamEvent[]>) => void;
   /** IDE 오버레이 상태 — 프로젝트별 독립 슬롯 (projectId → state). 활성 탭의 슬롯만 화면에 노출. */
   ideOverlays: Record<string, IDEOverlayState>;
@@ -560,6 +584,8 @@ interface GraphState {
   applyAutoAgentSummaries: (summaries: Record<string, AutoAgentSummary> | undefined) => void;
   /** §4 v2.52 — graph_snapshot 의 에이전트 작업 신고 반영. */
   applyAgentReports: (reports: Record<string, AgentReport[]> | undefined) => void;
+  /** §4 v2.60 — graph_snapshot 의 에이전트 질문 카드 반영. */
+  applyAgentQuestions: (questions: Record<string, AgentQuestions[]> | undefined) => void;
   /** §4 v1.98 — graph_snapshot 수신 시 진단 에러 로그 반영. */
   applyDiagnosticLog: (log: DiagnosticEntry[] | undefined) => void;
   /** §4 v2.38 — graph_snapshot 또는 model_registry_updated 수신 시 레지스트리 반영. */
@@ -641,6 +667,35 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   queuedCommands: {},
   completedCommands: {},
   subAgents: {},
+  pendingSubAgentRemovals: {},
+  pendingSubAgentRestores: {},
+  optimisticRemoveSubAgent: (agentId, subAgentId) =>
+    set((s) => {
+      const nextRestores = { ...s.pendingSubAgentRestores };
+      delete nextRestores[subAgentId];
+      return {
+        pendingSubAgentRemovals: { ...s.pendingSubAgentRemovals, [subAgentId]: agentId },
+        pendingSubAgentRestores: nextRestores,
+      };
+    }),
+  optimisticRestoreSubAgent: (agentId, subAgent) =>
+    set((s) => {
+      const nextRemovals = { ...s.pendingSubAgentRemovals };
+      delete nextRemovals[subAgent.id];
+      return {
+        pendingSubAgentRestores: { ...s.pendingSubAgentRestores, [subAgent.id]: subAgent },
+        pendingSubAgentRemovals: nextRemovals,
+      };
+    }),
+  clearPendingSubAgentIntent: (subAgentId) =>
+    set((s) => {
+      if (!(subAgentId in s.pendingSubAgentRemovals) && !(subAgentId in s.pendingSubAgentRestores)) return s;
+      const nextRemovals = { ...s.pendingSubAgentRemovals };
+      const nextRestores = { ...s.pendingSubAgentRestores };
+      delete nextRemovals[subAgentId];
+      delete nextRestores[subAgentId];
+      return { pendingSubAgentRemovals: nextRemovals, pendingSubAgentRestores: nextRestores };
+    }),
   acknowledgedSubAgents: loadJSON<Record<string, true>>(ACK_SUBAGENTS_KEY, {}),
   markSubAcknowledged: (subId) => set((state) => {
     if (state.acknowledgedSubAgents[subId]) return state;
@@ -797,11 +852,13 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   skillUsageCounts: {},
   autoAgentSummaries: {},
   agentReports: {},
+  agentQuestions: {},
   modelRegistry: null,
   userDefaults: null,
   rateLimits: null,
   diagnosticLog: [],
   contiBoardOpen: null,
+  imageLightbox: null,
   contiGenerating: {},
   contiElementPatching: {},
   agentInputDrafts: {},
@@ -869,6 +926,8 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   },
   openContiBoard: (agentId, contiId) => set({ contiBoardOpen: { agentId, contiId } }),
   closeContiBoard: () => set({ contiBoardOpen: null }),
+  openImageLightbox: (url) => set({ imageLightbox: url }),
+  closeImageLightbox: () => set({ imageLightbox: null }),
   generateConti: async (agentId) => {
     set((s) => ({ contiGenerating: { ...s.contiGenerating, [agentId]: true } }));
     try {
@@ -986,6 +1045,13 @@ export const useGraphStore = create<GraphState>((set, get) => ({
         if (c.attachments) for (const p of c.attachments) activeBasenames.add(basenameOf(p));
       }
     }
+    // v2.61 — 완료 명령도 attachments 를 보존하므로(서버가 더 이상 unlink/필드 클리어 안 함),
+    //         그 blob preview 를 revoke 하지 않는다 → 전송 후에도 대화 스트림에 썸네일 유지.
+    for (const queue of Object.values(completedCommands)) {
+      for (const c of queue) {
+        if (c.attachments) for (const p of c.attachments) activeBasenames.add(basenameOf(p));
+      }
+    }
 
     // 서브에이전트 ack 상태 diff — active → idle 전이는 ack 해제(다음 완료는 다시 녹색),
     // 스냅샷에서 사라진 sub 은 ack 집합에서도 정리.
@@ -1013,8 +1079,15 @@ export const useGraphStore = create<GraphState>((set, get) => ({
           }
         }
       }
+      // "스냅샷에서 사라진 sub 은 ack 정리" — 단, **직전 상태에 있던(=우리가 인지하던) sub 이
+      // 이번 스냅샷에서 빠진 경우만** 정리한다.
+      // getSnapshot 의 subAgents 는 그 시점에 hydrate 된 프로젝트 인스턴스들의 합집합이라,
+      // 부팅 직후(인스턴스 복원 전)나 타 프로젝트 미hydrate 상태에선 비거나 부분적이다.
+      // "이번 스냅샷에 없다" 만으로 지우면 localStorage 에서 로드한, 아직 한 번도 못 본 ack 를
+      // 전부 삭제 → 그 빈 값이 디스크에 덮여 "재시작하면 또 전부 녹색" 이 재발한다.
+      // prevSubStatusById 에 있던 것만 = 실제로 닫혀 사라진 것만 정리해 이 오삭제를 막는다.
       for (const id of Object.keys(nextAck)) {
-        if (!currentSubIds.has(id)) {
+        if (prevSubStatusById[id] !== undefined && !currentSubIds.has(id)) {
           ensureClone();
           delete nextAck[id];
         }
@@ -1329,6 +1402,15 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     saveJSON(DEFAULT_SUBAGENTS_KEY, next);
     return { defaultSubAgents: next };
   }),
+  subAgentLabels: loadJSON<Record<string, string>>(SUBAGENT_LABELS_KEY, {}),
+  setSubAgentLabel: (subId, label) => set((state) => {
+    const next = { ...state.subAgentLabels };
+    const trimmed = label.trim();
+    // 빈 이름은 사용자 지정 해제 → 서버 기본 라벨(Sub #N)로 복귀.
+    if (trimmed) next[subId] = trimmed; else delete next[subId];
+    saveJSON(SUBAGENT_LABELS_KEY, next);
+    return { subAgentLabels: next };
+  }),
   appState: null,
   applyAppState: (appState) => set({ appState: appState ?? null }),
   patchAppState: async (patch) => {
@@ -1402,6 +1484,15 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ label: '', x: canvasX, y: canvasY, project }),
+    }).catch(() => {});
+  },
+  // §4 v2.63 — CMD(인터랙티브 터미널) 에이전트. 동일 엔드포인트에 executionMode 플래그만 추가.
+  createCmdAgent: (canvasX, canvasY) => {
+    const project = selectEffectiveProject(get());
+    fetch(`${API_BASE}/api/create-custom-agent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ label: '', x: canvasX, y: canvasY, project, executionMode: 'interactive-terminal' }),
     }).catch(() => {});
   },
   // §5.3 #10-2 v2.37 — Auto Agent
@@ -1518,6 +1609,17 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     const next = prev ? [...prev, event] : [event];
     return { subAgentStreams: { ...s.subAgentStreams, [event.subAgentId]: next } };
   }),
+  appendStreamEvents: (events) => set((s) => {
+    if (events.length === 0) return {};
+    // 단건 append 와 동일 머지(prev ? [...prev, ev] : [ev])를 도착 순서대로 누적 —
+    // 페어링(tool_use↔tool_result)이 의존하는 순서 보존. 객체 spread 1회 + set 1회로 묶는다.
+    const nextStreams: Record<string, SubAgentStreamEvent[]> = { ...s.subAgentStreams };
+    for (const event of events) {
+      const prev = nextStreams[event.subAgentId];
+      nextStreams[event.subAgentId] = prev ? [...prev, event] : [event];
+    }
+    return { subAgentStreams: nextStreams };
+  }),
   loadStreamBuffers: (buffers) => set((s) => ({
     subAgentStreams: { ...s.subAgentStreams, ...buffers },
   })),
@@ -1630,6 +1732,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   applySkillUsageCounts: (counts) => set({ skillUsageCounts: counts ?? {} }),
   applyAutoAgentSummaries: (summaries) => set({ autoAgentSummaries: summaries ?? {} }),
   applyAgentReports: (reports) => set({ agentReports: reports ?? {} }),
+  applyAgentQuestions: (questions) => set({ agentQuestions: questions ?? {} }),
   applyDiagnosticLog: (log) => set({ diagnosticLog: log ?? [] }),
   applyModelRegistry: (reg) => set({ modelRegistry: reg ?? null }),
   applyUserDefaults: (d) => set({ userDefaults: d ?? null }),

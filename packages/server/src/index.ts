@@ -6,12 +6,12 @@ import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { exec, execFile } from 'node:child_process';
 import multer from 'multer';
-import { DEFAULT_PORT, SESSION_SCAN_INTERVAL, FILE_EXISTENCE_CHECK_INTERVAL, SATELLITE_TYPES, IFRAME_PROXY_PATH, AGENT_IDLE_THRESHOLD_MS, AGENT_IDLE_SWEEP_INTERVAL_MS, TASK_EDGE_DISPATCH_DEFAULT_TIMEOUT_MS, TASK_EDGE_CRITIQUE_MAX_REWORK_LIMIT, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, SUPPORTED_UI_LOCALES, CONTI_AGENT_RULES, RULES_HISTORY_MAX, CANVAS_CLIPBOARD_SCHEMA_VERSION, buildAgentReportRules } from '@vibisual/shared';
-import type { HookEventPayload, WSMessage, QueuedCommand, SessionTokenData, PipelineType, AgentConfig, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, SubAgentHistoryItem, UiLocale, PermissionDecision, RulesHistoryEntry, Conti, CanvasClipboardPayload, CanvasPasteResponse, AskUserQuestionDecision, AskUserQuestionAnswer, AskUserQuestionOption, AskUserQuestionItem, AskUserQuestionToolInput, AgentReport } from '@vibisual/shared';
+import { DEFAULT_PORT, SESSION_SCAN_INTERVAL, FILE_EXISTENCE_CHECK_INTERVAL, SATELLITE_TYPES, IFRAME_PROXY_PATH, AGENT_IDLE_THRESHOLD_MS, AGENT_IDLE_SWEEP_INTERVAL_MS, TASK_EDGE_DISPATCH_DEFAULT_TIMEOUT_MS, TASK_EDGE_CRITIQUE_MAX_REWORK_LIMIT, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, SUPPORTED_UI_LOCALES, CONTI_AGENT_RULES, RULES_HISTORY_MAX, CANVAS_CLIPBOARD_SCHEMA_VERSION, buildAgentReportRules, buildAgentQuestionRules } from '@vibisual/shared';
+import type { HookEventPayload, WSMessage, QueuedCommand, SessionTokenData, PipelineType, AgentConfig, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, SubAgentHistoryItem, UiLocale, PermissionDecision, RulesHistoryEntry, Conti, CanvasClipboardPayload, CanvasPasteResponse, AskUserQuestionDecision, AskUserQuestionAnswer, AskUserQuestionOption, AskUserQuestionItem, AskUserQuestionToolInput, AgentReport, AgentQuestions, AgentQuestionItem } from '@vibisual/shared';
 import { permissionBroker } from './services/permissionBroker.js';
 import { askUserQuestionBroker } from './services/askUserQuestionBroker.js';
 import { AutoAgentRuntime } from './services/autoAgentRuntime.js';
-import { BUBBLE_COLORS, READ_TOOLS } from '@vibisual/shared';
+import { BUBBLE_COLORS, READ_TOOLS, WS_BATCH_INTERVAL } from '@vibisual/shared';
 import { broadcast } from './broadcastBus.js';
 import { graphManager } from './services/projectGraphManager.js';
 import { modelRegistryService } from './services/modelRegistryService.js';
@@ -25,7 +25,7 @@ import { getClaudeVersionInfo, getClaudeInstallsInfo, installLatestClaude, getIn
 import { agentTracker } from './services/agentTracker.js';
 import { discoverSessions, findPidBySession, isProcessAlive, readSessionTokenData, setLivenessProbeListener } from './services/sessionDiscovery.js';
 import { SessionLifecycleManager } from './services/sessionLifecycle.js';
-import { subAgentManager } from './services/subAgentManager.js';
+import { subAgentManager, recordCmdTermSession } from './services/subAgentManager.js';
 import { validatePathWithinRoot } from './services/pathValidator.js';
 import { openFile, openFileAtSearch, openFolder } from './services/editorLauncher.js';
 import { iframeProxyHandler } from './services/iframeProxy.js';
@@ -51,7 +51,10 @@ export { ensureClaudeHooksInstalled } from './services/hookInstaller.js';
 export { recordDiagnostic, diagnosticService } from './services/diagnosticService.js';
 // Persistent SubAgent child — desktop main 의 before-quit 핸들러가
 // `subAgentManager.shutdownAllPersistentChildren()` 으로 long-lived claude 자식들을 깨끗이 종료.
-export { subAgentManager } from './services/subAgentManager.js';
+export { subAgentManager, buildInteractiveClaudeArgs, prepareInteractiveRulesDir, recordCmdTermSession, getCmdResumeSession } from './services/subAgentManager.js';
+// §4 v2.63 — desktop main 의 임베디드 터미널 매니저가 인터랙티브 claude 를 스폰할 때
+// 같은 바이너리(버전 체크/헤드리스 스폰과 동일 SSOT)를 쓰도록 경로 resolver 를 노출.
+export { resolveClaudeBin } from './services/claudeBin.js';
 
 // §3.7 v2.8 — hook loopback 리스너 포트. 통합(in-process) 모델에서 외부 `claude` 프로세스
 // (hook curl·커스텀 위임 엣지 dispatch)가 in-process 서버에 닿는 유일한 네트워크 포트다.
@@ -370,6 +373,24 @@ export async function runServer(): Promise<RunServerHandle> {
         return;
       }
 
+      // §4 v2.64 — CMD(인터랙티브 터미널) 소유자 태그면 상태/그래프 귀속을 그 CMD 버블 세션으로
+      //   일원화한다. 이후 markActive/markStop·Notification·processHookEvent 가 모두 CMD 버블을
+      //   가리켜 별개 Hook 버블/오완료(recompute) 대신 Hook 에이전트와 동일한 라이프사이클
+      //   (tool→active, Stop→completed→idle)을 탄다. lifecycle 만은 OS 세션 liveness 추적이라
+      //   claude 원본 session(아래 claudeSessionId)을 그대로 쓴다(합성 custom 세션 미주입).
+      const claudeSessionId = body.session_id;
+      if (body._vibisualOwnerAgentId) {
+        const ownerSession = graphManager.findSessionByAgentId(body._vibisualOwnerAgentId);
+        if (ownerSession) body.session_id = ownerSession;
+      }
+
+      // §4 v2.64 — CMD 터미널 연속성: 이 인터랙티브 claude 대화의 sessionId(rewrite 전 원본)를
+      //   termId 별로 기록해 둔다. 앱을 완전히 종료하면 PTY 는 죽지만, 재시작 후 같은 termId 로
+      //   터미널을 다시 열 때 terminalManager 가 이 값으로 `claude --resume <id>` 를 prefill 한다.
+      if (body._vibisualOwnerTermId && claudeSessionId) {
+        recordCmdTermSession(body._vibisualOwnerTermId, claudeSessionId);
+      }
+
       // Stop → 즉시 completed, 그 외 → active
       if (body.hook_event_name === 'Stop') {
         agentTracker.markStop(body.session_id);
@@ -378,8 +399,8 @@ export async function runServer(): Promise<RunServerHandle> {
       }
 
       // sessionLifecycle에 활동 신호 전파 (PID는 여기서 알 수 없으므로 null)
-      if (body.session_id && body.cwd) {
-        lifecycle.registerFromToolUse(body.session_id, body.cwd, null);
+      if (claudeSessionId && body.cwd) {
+        lifecycle.registerFromToolUse(claudeSessionId, body.cwd, null);
       }
 
       // §4 v1.49 — Notification 서브타입 → 버블 시각 신호.
@@ -861,12 +882,14 @@ export async function runServer(): Promise<RunServerHandle> {
       //   IDE 가 색 구분 카드 렌더. agentId=부모 버블, subAgentId=이 세션(탭) 키로 baked.
       let dispatchContext = contextSummary;
       if (agent.customCreated) {
-        dispatchContext = contextSummary + buildAgentReportRules({
+        const ruleArgs = {
           serverBase: `http://127.0.0.1:${hookListenerPort ?? port}`,
           serverToken: hookListenerToken ?? '',
           agentId: agent.id,
           ...(next.subAgentId ? { subAgentId: next.subAgentId } : {}),
-        });
+        };
+        // §4 v2.52 작업 신고 + v2.60 질문 카드 지시문을 함께 주입(동일 loopback 인프라).
+        dispatchContext = contextSummary + buildAgentReportRules(ruleArgs) + buildAgentQuestionRules(ruleArgs);
       }
       // v1.33 — edgesBlock 을 separately 전달해 resume(--resume) 경로에서도 매 턴 prepend.
       //         엣지가 생기거나 바뀌었을 때 세션 재시작 없이도 즉시 인지하도록.
@@ -878,8 +901,19 @@ export async function runServer(): Promise<RunServerHandle> {
     if (dispatched) broadcastSnapshot();
   }
 
+  // §9 — graph_snapshot 16ms trailing 디바운스. 커스텀 에이전트 다중 실행 시 매 mutation
+  // (setOnMutated)마다 풀 getSnapshot()+broadcast 하던 것을 16ms 창 1회로 합친다.
+  // 30+ 호출 사이트는 그대로 — 본체만 큐잉. flush 시점에 getSnapshot()을 읽으므로
+  // 창 안의 모든 변경이 최신 상태로 반영(스케줄 시점 캡처 ❌ → 누락 0).
+  // 인라인 직송 broadcast({type:'graph_snapshot'...}) 13곳은 즉시 송신이지만, trailing 이
+  // 그 뒤에 떠도 최신 상태를 다시 읽어 보내므로 stale 덮어쓰기 없음.
+  let snapshotBroadcastTimer: ReturnType<typeof setTimeout> | null = null;
   function broadcastSnapshot(): void {
-    broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getSnapshot() });
+    if (snapshotBroadcastTimer !== null) return; // 이미 예약됨 — trailing flush 가 최신 스냅샷을 읽는다
+    snapshotBroadcastTimer = setTimeout(() => {
+      snapshotBroadcastTimer = null;
+      broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getSnapshot() });
+    }, WS_BATCH_INTERVAL);
   }
 
   // §5.3 #10-2 v2.37 — Auto Agent 런타임. 사용자 메시지 → 서브 군 자동 생성·dispatch.
@@ -1196,12 +1230,14 @@ export async function runServer(): Promise<RunServerHandle> {
     broadcastSnapshot();
   });
 
-  /** POST /api/create-custom-agent — 캔버스에서 커스텀 에이전트 생성 */
+  /** POST /api/create-custom-agent — 캔버스에서 커스텀 에이전트 생성.
+   *  §4 v2.63 — `executionMode:'interactive-terminal'` 이면 CMD(인터랙티브 터미널) 에이전트로 baked. */
   app.post('/api/create-custom-agent', (req, res) => {
     try {
-      const { label, x, y, project } = req.body as { label?: string; x?: number; y?: number; project?: string };
+      const { label, x, y, project, executionMode } = req.body as { label?: string; x?: number; y?: number; project?: string; executionMode?: 'headless' | 'interactive-terminal' };
       const position = typeof x === 'number' && typeof y === 'number' ? { x, y } : undefined;
-      const agent = graphManager.createCustomAgent(label ?? '', position, project ?? null);
+      const options = executionMode === 'interactive-terminal' ? { executionMode } : undefined;
+      const agent = graphManager.createCustomAgent(label ?? '', position, project ?? null, options);
       broadcastSnapshot();
       saveCheckpoint();
       res.json({ ok: true, agent });
@@ -1919,19 +1955,97 @@ export async function runServer(): Promise<RunServerHandle> {
     return results;
   }
 
-  /** GET /api/available-skills — 프로젝트 + 설치 플러그인 스킬 목록 */
-  app.get('/api/available-skills', (_req, res) => {
+  /**
+   * 슬래시 커맨드 `.md` 1개 파싱 → description. (커맨드는 skill 과 달리 frontmatter 가 선택)
+   * frontmatter `description:` 우선, 없으면 본문 첫 비어있지 않은 줄(헤딩/HTML 주석 제외) — Claude Code 규칙.
+   */
+  function parseCommandMd(filePath: string): { description: string } | null {
+    try {
+      const content = fs.readFileSync(filePath, 'utf8');
+      const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+      const fm = fmMatch?.[1] ?? '';
+      const body = fmMatch ? (fmMatch[2] ?? '') : content;
+      const descMatch = fm.match(/^description:\s*["']?(.*?)["']?\s*$/m);
+      if (descMatch?.[1]) {
+        return { description: descMatch[1].trim().replace(/^["']|["']$/g, '') };
+      }
+      const firstLine = body
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .find((l) => l.length > 0 && !l.startsWith('#') && !l.startsWith('<!--'));
+      return { description: firstLine ?? '' };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * `.claude/commands/` 재귀 스캔 → SkillInfo[]. Claude Code 가 슬래시 커맨드를 읽는 디렉토리.
+   * 최상위 `foo.md` → `foo`, 하위폴더 `bar/baz.md` → `bar:baz` (네임스페이스). skill 폴더와 달리 폴더가 아니라 `.md` 파일이 단위.
+   */
+  function scanCommandsDir(baseDir: string, source: 'project' | 'plugin', pluginName?: string): SkillInfo[] {
+    const results: SkillInfo[] = [];
+    const walk = (dir: string, prefix: string): void => {
+      let entries: fs.Dirent[];
+      try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+      for (const entry of entries) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          walk(full, prefix ? `${prefix}:${entry.name}` : entry.name);
+        } else if (entry.isFile() && entry.name.endsWith('.md')) {
+          const base = entry.name.slice(0, -'.md'.length);
+          const name = prefix ? `${prefix}:${base}` : base;
+          const parsed = parseCommandMd(full);
+          results.push({ name, description: parsed?.description ?? '', source, pluginName });
+        }
+      }
+    };
+    if (!fs.existsSync(baseDir)) return results;
+    walk(baseDir, '');
+    return results;
+  }
+
+  /**
+   * GET /api/available-skills — 프로젝트 + 설치 플러그인 스킬 목록.
+   * §5.5 #17-2/#17-4 v2.59 — `?agent=<id>`(권위) 또는 `?project=<name>` 지정 시 그 프로젝트의
+   * `.claude/skills/` + `.claude/commands/`(Claude Code 슬래시 커맨드) 를 프로젝트 스킬로 반환.
+   * 미지정 시 전 프로젝트 병합(하위 호환 fallback).
+   * plugin 스킬은 `~/.claude/plugins` 전역이라 project 와 무관하게 항상 동일.
+   */
+  app.get('/api/available-skills', (req, res) => {
     try {
       const skills: SkillInfo[] = [];
       const seen = new Set<string>();
 
-      // 1) 프로젝트 스킬: 등록된 각 프로젝트의 .claude/skills/
-      for (const info of Object.values(graphManager.getSnapshot().projects)) {
-        const projectSkillsDir = path.join(info.path, '.claude', 'skills');
+      // 1) 프로젝트 스킬 — 스캔할 프로젝트 경로 결정.
+      //    우선순위: agent(권위) → project(표시명/path 해소) → 미지정 시 전 프로젝트.
+      //    v2.59 클라는 스냅샷의 전역 유일 표시명을 보내는데, 활성 프로젝트 오염·이름 충돌·
+      //    미해소로 어긋날 수 있다. agentId 가 있으면 그 에이전트의 소속 인스턴스(=cwd 기준
+      //    실제 프로젝트)에서 path 를 직접 얻어 "그 프로젝트의 .claude/skills" 만 정확히 읽는다.
+      const agentParam = typeof req.query.agent === 'string' ? req.query.agent : '';
+      const projectParam = typeof req.query.project === 'string' ? req.query.project : '';
+      const scoped = agentParam || projectParam;
+      let scopedPath: string | null = null;
+      if (agentParam) scopedPath = graphManager.getProjectPathForAgent(agentParam);
+      if (!scopedPath && projectParam) {
+        scopedPath = graphManager.resolveProjectRef(projectParam)?.path ?? null;
+      }
+      const projectDirs: string[] = scoped
+        ? (scopedPath ? [scopedPath] : []) // 지정했으나 미해소 → 빈 목록(전역 병합으로 새지 않게)
+        : Object.values(graphManager.getSnapshot().projects).map((info) => info.path);
+      for (const projectPath of projectDirs) {
+        // skill 폴더(.claude/skills) 를 먼저 — 같은 이름이면 skill 이 command 를 이긴다(Claude Code 규칙).
+        const projectSkillsDir = path.join(projectPath, '.claude', 'skills');
         for (const s of scanSkillsDir(projectSkillsDir, 'project')) {
           if (!seen.has(s.name)) { seen.add(s.name); skills.push(s); }
         }
+        // 슬래시 커맨드(.claude/commands) — Claude Code 가 프로젝트 스킬처럼 노출하는 곳. (P_MPS_DEV 의 26개 등)
+        const projectCommandsDir = path.join(projectPath, '.claude', 'commands');
+        for (const s of scanCommandsDir(projectCommandsDir, 'project')) {
+          if (!seen.has(s.name)) { seen.add(s.name); skills.push(s); }
+        }
       }
+      logger.info(`[skills] agent="${agentParam}" project="${projectParam}" → path=${scopedPath ?? 'null'} dirs=${projectDirs.length} projectSkills=${skills.length}`);
 
       // 2) 설치된 플러그인 스킬: ~/.claude/plugins/marketplaces/*/
       const pluginsBase = path.join(os.homedir(), '.claude', 'plugins', 'marketplaces');
@@ -2123,6 +2237,13 @@ export async function runServer(): Promise<RunServerHandle> {
         contextWindow: body.contextWindow === '200k' ? '200k' : body.contextWindow === '1m' ? '1m' : undefined,
         // §4 v1.53 — 프리셋 트레이스 메타. 값 검증은 클라에 위임(자유 문자열).
         presetId: typeof body.presetId === 'string' && body.presetId.trim() ? body.presetId.trim() : undefined,
+        // §4 v2.63 — executionMode 는 에이전트 정체성(CMD vs 헤드리스)이라 AgentConfigPopup 이 보내지 않는다.
+        //   PUT 이 config 를 새로 빌드하므로 여기서 prev 값을 명시 보존하지 않으면 설정 저장 시 CMD→커스텀 으로
+        //   되돌아간다(회귀). body 에 명시값이 오면 그걸, 아니면 이전 값을 유지.
+        executionMode:
+          body.executionMode === 'interactive-terminal' || body.executionMode === 'headless'
+            ? body.executionMode
+            : prev?.executionMode,
       };
       // §5.3 #28 v1.47 — Custom Mode 는 커스텀 에이전트(customCreated=true) 에만 켤 수 있음.
       // Hook 에이전트는 사용자가 직접 만든 게 아니라 모드 강제 부착 ❌.
@@ -2572,6 +2693,62 @@ export async function runServer(): Promise<RunServerHandle> {
       res.json({ ok: true, id: report.id });
     } catch (err) {
       logger.error('POST /api/agent-report failed', err);
+      res.status(500).json({ ok: false, error: 'internal error' });
+    }
+  });
+
+  /**
+   * §4 v2.60 — POST /api/agent-questions
+   * 커스텀/스폰 에이전트가 사용자에게 던지는 질문(1~N) + 제안 프롬프트를 구조화 신고(loopback curl, 토큰 인증).
+   * 서버는 id/createdAt 을 stamp 해 ProjectGraph 에 적재하고 broadcast → IDE 가 질문 카드 렌더.
+   * 표시 전용. Hook 에이전트는 지시문이 없어 호출하지 않음. agent-report 와 동형 골격.
+   */
+  app.post('/api/agent-questions', (req, res) => {
+    try {
+      const body = (req.body ?? {}) as Partial<AgentQuestions>;
+      if (typeof body.agentId !== 'string' || !body.agentId) {
+        res.status(400).json({ ok: false, error: 'agentId required' });
+        return;
+      }
+      // items 정규화 — question 비어있는 항목 버림, prompts 는 비문자열/공백 제거.
+      const rawItems = Array.isArray(body.items) ? body.items : [];
+      const items: AgentQuestionItem[] = [];
+      for (const it of rawItems) {
+        if (!it || typeof it !== 'object') continue;
+        const question = typeof it.question === 'string' ? it.question.trim() : '';
+        if (!question) continue;
+        const prompts = Array.isArray(it.prompts)
+          ? it.prompts.filter((p): p is string => typeof p === 'string' && p.trim().length > 0).map((p) => p.trim())
+          : [];
+        items.push({
+          question,
+          ...(typeof it.header === 'string' && it.header.trim() ? { header: it.header.trim() } : {}),
+          prompts,
+        });
+      }
+      if (items.length === 0) {
+        res.status(400).json({ ok: false, error: 'empty questions' });
+        return;
+      }
+      const questions: AgentQuestions = {
+        id: randomUUID(),
+        agentId: body.agentId,
+        ...(typeof body.subAgentId === 'string' && body.subAgentId ? { subAgentId: body.subAgentId } : {}),
+        items,
+        ...(typeof body.note === 'string' && body.note.trim() ? { note: body.note.trim() } : {}),
+        createdAt: Date.now(),
+      };
+      const ok = graphManager.addAgentQuestions(questions);
+      if (!ok) {
+        res.status(404).json({ ok: false, error: 'agent not found' });
+        return;
+      }
+      broadcast({ type: 'agent_questions', payload: { agentId: questions.agentId, subAgentId: questions.subAgentId } } as WSMessage);
+      broadcastSnapshot();
+      saveCheckpoint();
+      res.json({ ok: true, id: questions.id });
+    } catch (err) {
+      logger.error('POST /api/agent-questions failed', err);
       res.status(500).json({ ok: false, error: 'internal error' });
     }
   });
@@ -4540,29 +4717,11 @@ export async function runServer(): Promise<RunServerHandle> {
         }
       }
 
-      // v1.35 — attachments cleanup: 완료된 명령의 paste 이미지 파일 삭제 + 필드 클리어.
-      // archive.push 이전에 처리하여 아카이브에는 attachments 흔적이 남지 않음.
-      // v1.38 — unlink 후 해당 서브세션 디렉토리가 비면 함께 제거 (다른 커맨드 파일 있으면 rmdir ENOTEMPTY 로 실패 — 무시).
-      const emptyDirCandidates = new Set<string>();
-      for (const cmd of done) {
-        if (!cmd.attachments || cmd.attachments.length === 0) continue;
-        for (const filePath of cmd.attachments) {
-          emptyDirCandidates.add(path.dirname(filePath));
-          fs.unlink(filePath, (err) => {
-            if (err && (err as NodeJS.ErrnoException).code !== 'ENOENT') {
-              logger.warn(`attachment cleanup failed: ${filePath} — ${err.message}`);
-            }
-          });
-        }
-        delete cmd.attachments;
-      }
-      for (const dir of emptyDirCandidates) {
-        fs.rmdir(dir, (err) => {
-          if (err && (err as NodeJS.ErrnoException).code !== 'ENOTEMPTY' && (err as NodeJS.ErrnoException).code !== 'ENOENT') {
-            logger.warn(`attachment subdir cleanup failed: ${dir} — ${err.message}`);
-          }
-        });
-      }
+      // v2.61 — attachments 보존: 종전(v1.35/v1.38)엔 완료 시 paste 이미지 파일을 unlink + cmd.attachments
+      //   필드 클리어해 "전송 직후 사라져 무엇을 보냈는지 확인 불가"(사용자 보고)였다. 이제 파일·필드를
+      //   모두 보존하여 archive(완료 명령)에 attachments 경로가 남고, 클라(StreamRenderer CommandBlock)가
+      //   대화 스트림에 썸네일을 인라인 표시 + 클릭 시 라이트박스 확대한다.
+      //   누적 파일 정리(세션 종료/주기) 정책은 후속 과제.
 
       let archive = completedCommandArchive.get(sessionId);
       if (!archive) { archive = []; completedCommandArchive.set(sessionId, archive); }

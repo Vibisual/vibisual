@@ -43,9 +43,10 @@ import type {
   CompactCount,
   AutoAgentSummary,
   AgentReport,
+  AgentQuestions,
 } from '@vibisual/shared';
-import { MAX_BASH_HISTORY, MAX_FILE_EDITS, MAX_WRITE_DIFF_BYTES, DEFAULT_MAX_SATELLITES, SATELLITE_MAX_BOUNDS, MAX_AGENTS, SATELLITE_TYPES, AGENT_FADE_DURATION, BUBBLE_TTL, GHOST_FADE_DURATION, FILE_EXISTENCE_MISS_THRESHOLD, FRONTEND_SERVER_PATTERNS, IFRAME_DEAD_GRACE_MS, parseModelFamily, DEFAULT_AGENT_CONFIG, AVAILABLE_AGENT_TOOLS, DEFAULT_UI_LOCALE, COMMENT_BOX_DEFAULTS, READ_TOOLS, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, AGENT_REPORT_MAX_PER_AGENT } from '@vibisual/shared';
-import type { ServerKind, UiLocale } from '@vibisual/shared';
+import { MAX_BASH_HISTORY, MAX_FILE_EDITS, MAX_WRITE_DIFF_BYTES, DEFAULT_MAX_SATELLITES, SATELLITE_MAX_BOUNDS, MAX_AGENTS, SATELLITE_TYPES, AGENT_FADE_DURATION, BUBBLE_TTL, GHOST_FADE_DURATION, FILE_EXISTENCE_MISS_THRESHOLD, FRONTEND_SERVER_PATTERNS, IFRAME_DEAD_GRACE_MS, parseModelFamily, DEFAULT_AGENT_CONFIG, AVAILABLE_AGENT_TOOLS, DEFAULT_UI_LOCALE, COMMENT_BOX_DEFAULTS, READ_TOOLS, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, AGENT_REPORT_MAX_PER_AGENT, AGENT_QUESTIONS_MAX_PER_AGENT, DELETED_AGENT_TOMBSTONE_MAX, CMD_AGENT_COLOR } from '@vibisual/shared';
+import type { ServerKind, UiLocale, ExecutionMode } from '@vibisual/shared';
 import { EdgeManager } from './edgeManager.js';
 import { extractPort, extractPortFromInlineEval, extractPortFromScriptFile, isPortAlive, isProbeCommand, isVibisualLauncherCommand } from './processChecker.js';
 import { BackgroundShellWatcher, parseBackgroundShellResponse, scanActiveBackgroundShells } from './backgroundShellWatcher.js';
@@ -54,7 +55,7 @@ import { sanitizeContiOnLoad } from './contiManager.js';
 import { isShortAlive as isAgentViewShortAlive, isShortWorking as isAgentViewShortWorking, readRoster as readAgentViewRoster } from './claudeAgentViewService.js';
 import { pipelineManager } from './pipelineManager.js';
 import type { LocalSession, AgentContextInfo } from './sessionDiscovery.js';
-import { resolveSessionTitle, readUserMessages, readLastAssistantMessage, readContextInfo, discoverSessions, findPidBySession, isSessionInUse, getSessionJsonlPath, listJsonlSessionIds } from './sessionDiscovery.js';
+import { resolveSessionTitle, readUserMessages, readLastAssistantMessage, readContextInfo, discoverSessions, findPidBySession, isSessionInUse, getSessionJsonlPath, listJsonlSessionIds, findEntrypointBySession } from './sessionDiscovery.js';
 import { logger } from '../logger.js';
 import { dbg } from './debugLog.js';
 import { userDefaultsService } from './userDefaultsService.js';
@@ -382,6 +383,12 @@ export class ProjectGraph {
   >();
   /** 사용자 지정 라벨 (agentId → label). 자동 이름보다 우선 */
   private customLabels = new Map<string, string>();
+  /**
+   * §3.2.1-3 v2.63 — 사용자가 명시적으로 삭제한 커스텀 에이전트 sessionId 묘비.
+   * identity.json 의 shrink guard 가 "정상 삭제 vs 복원 실패"를 구분하는 신호이자,
+   * 부활 시 이 sessionId 는 되살리지 않게 하는 차단 목록. removeBubble(커스텀) 에서 기록.
+   */
+  private deletedCustomAgents = new Set<string>();
   /** 에이전트 이벤트 캐시 (agent ID → events) + 갱신 시각 */
   private agentEventsCache: { data: Record<string, AgentEvent[]>; updatedAt: number } = { data: {}, updatedAt: 0 };
   private static readonly EVENT_CACHE_TTL = 5_000;
@@ -543,6 +550,11 @@ export class ProjectGraph {
    * 영속화 대상 (ProjectCheckpoint.agentReports). ring buffer 캡 = AGENT_REPORT_MAX_PER_AGENT.
    */
   private agentReports = new Map<string, AgentReport[]>();
+  /**
+   * §4 v2.60 — 에이전트 질문 카드 (agentId → AgentQuestions[]). 질문 + 제안 프롬프트.
+   * 영속화 대상 (ProjectCheckpoint.agentQuestions). ring buffer 캡 = AGENT_QUESTIONS_MAX_PER_AGENT.
+   */
+  private agentQuestions = new Map<string, AgentQuestions[]>();
   /**
    * §5.3 #12-1 v1.91 — 현재 권한 승인 팝업 대기 중인 에이전트 id 집합.
    * PreToolUse 훅이 동기 hold(최대 60s) 하는 동안 에이전트는 "블록된 활성" 상태다.
@@ -1254,10 +1266,17 @@ export class ProjectGraph {
   }
 
   /** 캔버스에서 사용자가 직접 커스텀 에이전트 생성 */
-  createCustomAgent(label: string, position?: { x: number; y: number }, projectName?: string | null): BubbleData {
+  createCustomAgent(
+    label: string,
+    position?: { x: number; y: number },
+    projectName?: string | null,
+    options?: { executionMode?: ExecutionMode },
+  ): BubbleData {
     this.agentCounter += 1;
     const sessionId = `custom-${Date.now().toString(36)}-${this.agentCounter}`;
-    const baseName = label || `Custom Agent ${this.agentCounter}`;
+    // §4 v2.63 — CMD(인터랙티브 터미널) 에이전트는 생성 시점에 executionMode + 구분 색 + 이름을 baked.
+    const cmdMode = options?.executionMode === 'interactive-terminal';
+    const baseName = label || `${cmdMode ? 'CMD' : 'Custom'} Agent ${this.agentCounter}`;
     const uniqueName = this.uniqueLabel(baseName);
     const agent: BubbleData = {
       id: `agent-${hashString(sessionId)}`,
@@ -1274,11 +1293,16 @@ export class ProjectGraph {
     // §4 v2.42 — 신규 에이전트 기본 설정 = DEFAULT_AGENT_CONFIG 위에 userDefaults.agentConfig 머지.
     // 사용자가 Options 창에서 정의한 디폴트가 새 에이전트에 자동 적용. 기존 에이전트엔 영향 ❌.
     const userAgentDefaults = userDefaultsService.get().agentConfig ?? {};
+    // §4 v2.63 — 우클릭 "CMD Agent" 전용. 사용자 토글 ❌ — 2트랙(헤드리스 하네스 vs 인터랙티브 cmd) 분리.
     this.agentConfigs.set(agent.id, {
       ...DEFAULT_AGENT_CONFIG,
       ...userAgentDefaults,
       tools: userAgentDefaults.tools ? [...userAgentDefaults.tools] : [...DEFAULT_AGENT_CONFIG.tools],
       skills: userAgentDefaults.skills ? [...userAgentDefaults.skills] : [...DEFAULT_AGENT_CONFIG.skills],
+      // §4 v2.63 — executionMode 는 userDefaults 에서 **절대 상속하지 않는다**(레거시 토글 잔재 차단).
+      //   CMD 는 우클릭 "CMD Agent"(명시 options) 로만 baked. 일반 커스텀 에이전트는 항상 헤드리스.
+      executionMode: cmdMode ? 'interactive-terminal' as const : undefined,
+      ...(cmdMode ? { color: CMD_AGENT_COLOR } : {}),
     });
     // activeProject name → 해당 프로젝트의 원본 cwd 조회
     const cwd = this.resolveProjectCwd(projectName ?? null);
@@ -1377,6 +1401,28 @@ export class ProjectGraph {
     return out;
   }
 
+  /**
+   * §4 v2.60 — 에이전트 질문 카드 추가 (agentId → AgentQuestions[], append + ring buffer 캡).
+   * 커스텀/스폰 에이전트가 `POST /api/agent-questions` 로 보낸 질문 + 제안 프롬프트를 적재.
+   */
+  addAgentQuestions(q: AgentQuestions): void {
+    const list = this.agentQuestions.get(q.agentId) ?? [];
+    list.push(q);
+    if (list.length > AGENT_QUESTIONS_MAX_PER_AGENT) {
+      list.splice(0, list.length - AGENT_QUESTIONS_MAX_PER_AGENT);
+    }
+    this.agentQuestions.set(q.agentId, list);
+    this.bumpMutationVersion();
+  }
+
+  /** §4 v2.60 — 질문 카드 전체 맵 (broadcast 스냅샷/체크포인트용). 빈 맵이면 undefined. */
+  getAgentQuestionsRecord(): Record<string, AgentQuestions[]> | undefined {
+    if (this.agentQuestions.size === 0) return undefined;
+    const out: Record<string, AgentQuestions[]> = {};
+    for (const [k, v] of this.agentQuestions) out[k] = [...v];
+    return out;
+  }
+
   /** 캔버스에서 파이프라인 에이전트 생성 (부모 1 + 자식 4 원자적 생성) */
   createPipeline(
     type: PipelineType,
@@ -1409,7 +1455,26 @@ export class ProjectGraph {
     }
     // fallback: 첫 번째 프로젝트 or root
     const first = [...this.projects.values()][0];
-    return first?.path ?? null;
+    if (first?.path) return first.path;
+    // v2.62 — projects 가 아직 비어도(부팅 초기/하이드레이트 전) primary/root 로 폴백.
+    // 여기서 null 을 돌려주면 createCustomAgent 가 sessionCwds 등록을 통째로 스킵 →
+    // 그 커스텀 에이전트가 toProjectCheckpoint 의 getProjectSessionIds 필터에서 탈락 →
+    // 다음 저장 때 조용히 소멸하던 직접 원인(§3.2.1). 항상 cwd 를 확보한다.
+    return this.getPrimaryProject()?.path ?? this.root ?? null;
+  }
+
+  /**
+   * §3.2.1-3 v2.63 — 명시 삭제 묘비 기록 + 단조 증가 상한(DELETED_AGENT_TOMBSTONE_MAX).
+   * Set 은 삽입 순서를 보존하므로 한도 초과 시 가장 오래된 묘비부터 버린다.
+   * (sessionId 는 전역 유니크라 재생성되지 않아 안전하게 prune 할 길이 없으므로 상한만 둠.)
+   */
+  private addTombstone(sessionId: string): void {
+    this.deletedCustomAgents.add(sessionId);
+    while (this.deletedCustomAgents.size > DELETED_AGENT_TOMBSTONE_MAX) {
+      const oldest = this.deletedCustomAgents.values().next().value;
+      if (oldest === undefined) break;
+      this.deletedCustomAgents.delete(oldest);
+    }
   }
 
   /** 버블 삭제 (노드 ID 기준). 에이전트가 다시 사용하면 재생성됨. 루트 버블은 삭제 불가.
@@ -1469,6 +1534,10 @@ export class ProjectGraph {
     // 에이전트 삭제
     for (const [sessionId, agent] of this.agents) {
       if (agent.id === nodeId) {
+        // §3.2.1-3 v2.63 — 커스텀 에이전트의 명시적 삭제는 묘비에 기록한다.
+        // 이게 없으면 identity.json shrink guard 가 정상 삭제를 복원 실패로 오인해
+        // 막아버려, 재시작 시 삭제했던 에이전트가 유령으로 부활한다.
+        if (agent.customCreated) this.addTombstone(sessionId);
         this.agents.delete(sessionId);
         this.sessionCwds.delete(sessionId);
         this.pendingTitles.delete(sessionId);
@@ -1806,6 +1875,10 @@ export class ProjectGraph {
       // 부모 agent.id → parent session_id 로 redirect 해 부모 버블이 대신 attribution 받게 한다.
       if (!this.agents.has(payload.session_id)) {
         const workerSessionId = payload.session_id;
+        // §4 v2.64 — CMD(인터랙티브 터미널) 소유자 태그(`_vibisualOwnerAgentId`)는 라우트
+        //   (/api/hook-event)에서 이미 session_id 를 그 CMD 버블 세션으로 rewrite 하므로
+        //   여기 도달 시점엔 agents.has(session_id) 가 참 → 이 블록을 타지 않는다. 별도 redirect 불필요.
+
         // v1.68: agent-view 복구 후 서브에이전트 hook 의 session_id 는 supervisor 가 준
         // agentViewSessionId 라 sub.sessionId 매칭만으론 놓쳐 orphan 버블이 새로 생긴다.
         // 두 키 모두로 부모를 찾아 원래 명령을 낸 커스텀 에이전트에 흡수시킨다.
@@ -1826,7 +1899,12 @@ export class ProjectGraph {
         // touchAgent 가 워크트리 워커 ghost 를 만들어 커스텀 부모가 영영 고립된다.
         // payload.cwd 가 git 워크트리면, 그 워크트리의 부모 프로젝트에 속한
         // customCreated 에이전트(서브를 띄운 주체)에게 귀속시킨다 — 가장 최근 활동 sub 기준.
-        if (!this.agents.has(payload.session_id) && payload.cwd) {
+        // §17 경계 보존 — 진짜 외부 Claude Code 훅 세션(entrypoint=vscode)은 이 워크트리
+        // 폴백으로 커스텀 부모에 **절대** 흡수하지 않는다. 이 폴백의 정당한 대상은 우리가
+        // 띄운 헤드리스(`claude -p`) 워크트리 워커뿐 — vscode 진입점이면 사용자가 직접 켠
+        // 독립 세션이므로 자체 Hook 에이전트 버블을 갖도록 흘려보낸다(Hook≠Custom 불합치).
+        if (!this.agents.has(payload.session_id) && payload.cwd
+          && findEntrypointBySession(workerSessionId) !== 'vscode') {
           const parentSid = this.resolveWorktreeOwnerSession(payload.cwd);
           if (parentSid) payload.session_id = parentSid;
         }
@@ -2452,6 +2530,7 @@ export class ProjectGraph {
       skillUsageCounts: this.getSkillUsageCountsRecord(),
       autoAgentSummaries: this.autoAgentSummaries.size > 0 ? this.getAutoAgentSummaries() : undefined,
       agentReports: this.getAgentReportsRecord(),
+      agentQuestions: this.getAgentQuestionsRecord(),
     };
 
     // (2b) 계산 결과를 캐시에 저장
@@ -2583,6 +2662,7 @@ export class ProjectGraph {
       skillUsageCounts: this.getSkillUsageCountsFlat(),
       autoAgentSummaries: this.autoAgentSummaries.size > 0 ? this.getAutoAgentSummaries() : undefined,
       agentReports: this.getAgentReportsRecord(),
+      agentQuestions: this.getAgentQuestionsRecord(),
     };
   }
 
@@ -2660,6 +2740,17 @@ export class ProjectGraph {
       const proj = this.getProjectForCwd(cwd);
       const name = this.resolveTabProjectName(proj, cwd);
       if (name === projectName) result.add(sessionId);
+    }
+    // v2.62 — 안전망: customCreated 에이전트인데 sessionCwds 에 cwd 매핑이 아예 없는
+    // (등록 누락/구버전 체크포인트) 경우, primary 프로젝트 탭에 귀속시켜 저장 필터에서
+    // 탈락하지 않게 한다. cwd 가 있는 세션은 위 워크트리-귀속 규칙 그대로(중복 add 무해).
+    // 이미 다른 프로젝트로 귀속된 세션은 건드리지 않는다(sessionCwds.has 가드).
+    if (projectName === this.getPrimaryProjectName()) {
+      for (const [sessionId, agent] of this.agents) {
+        if (agent.customCreated && !this.sessionCwds.has(sessionId)) {
+          result.add(sessionId);
+        }
+      }
     }
     return result;
   }
@@ -2950,6 +3041,20 @@ export class ProjectGraph {
         }
         return Object.keys(out).length > 0 ? out : undefined;
       })(),
+      // §4 v2.60 — 질문 카드: 이 프로젝트 소속 에이전트(버블 id)분만 필터해 영속(agentReports 와 동형).
+      agentQuestions: (() => {
+        const out: Record<string, AgentQuestions[]> = {};
+        for (const [agentId, qs] of this.agentQuestions) {
+          if (projectBubbleIds.has(agentId) && qs.length > 0) out[agentId] = [...qs];
+        }
+        return Object.keys(out).length > 0 ? out : undefined;
+      })(),
+      // §3.2.1-3 v2.63 — 명시 삭제된 커스텀 에이전트 묘비. 이미 삭제돼 세션이 없으므로
+      //   프로젝트 필터를 걸 키가 없다 → 전체 묘비를 그대로 싣는다(다른 프로젝트 sessionId 가
+      //   섞여도 그 프로젝트엔 해당 세션이 존재하지 않아 무해, 부활 차단에만 쓰임).
+      deletedCustomAgentIds: this.deletedCustomAgents.size > 0
+        ? [...this.deletedCustomAgents]
+        : undefined,
     };
   }
 
@@ -3097,6 +3202,24 @@ export class ProjectGraph {
       }
     }
 
+    // §4 v2.60 — 질문 카드 병합 (agentReports 와 동형).
+    if (cp.agentQuestions) {
+      for (const [agentId, qs] of Object.entries(cp.agentQuestions)) {
+        if (!Array.isArray(qs) || qs.length === 0) continue;
+        const existing = this.agentQuestions.get(agentId);
+        if (!existing) {
+          this.agentQuestions.set(agentId, [...qs]);
+        } else {
+          const seen = new Set(existing.map((q) => q.id));
+          for (const q of qs) if (!seen.has(q.id)) existing.push(q);
+          existing.sort((a, b) => a.createdAt - b.createdAt);
+          if (existing.length > AGENT_QUESTIONS_MAX_PER_AGENT) {
+            existing.splice(0, existing.length - AGENT_QUESTIONS_MAX_PER_AGENT);
+          }
+        }
+      }
+    }
+
     // §5.7 #23-2 v1.60 — agent-view 생존 sub 의 status 를 'active' 로 되돌려 orphan 봉합 회피.
     // restore 가 status='active' → 'idle' 로 강등한 후 아래 orphan 정리가 봉합해버리므로,
     // 그 직전에 **실제 턴 진행 중**인 worker 만 'active' 로 복원 (isShortWorking = roster + state.json).
@@ -3208,6 +3331,11 @@ export class ProjectGraph {
         });
         this.contis.set(cid, restored);
       }
+    }
+
+    // §3.2.1-3 v2.63 — 묘비 병합(누적, 상한 적용). 여러 프로젝트 합칠 때 삭제 이력 유실 방지.
+    if (cp.deletedCustomAgentIds) {
+      for (const sid of cp.deletedCustomAgentIds) this.addTombstone(sid);
     }
 
     // 루트 캔버스 바운딩 박스: 해당 프로젝트 키에 저장(이미 있으면 보존)
@@ -3352,6 +3480,10 @@ export class ProjectGraph {
     // agentConfigs 복원
     if (cp.agentConfigs) {
       this.agentConfigs = new Map(Object.entries(cp.agentConfigs));
+      // §4 v2.63 — 색 기반 레거시 토글 마이그레이션은 제거. executionMode 가 이제 PUT 에서 보존되는
+      //   에이전트 정체성이라, CMD 에이전트 색을 teal 에서 바꾸면 색 휴리스틱이 executionMode 를 잘못
+      //   지우는 footgun 이 된다. 누수 원인은 createCustomAgent(상속 차단) + userDefaultsService(잔재 정리)
+      //   에서 이미 막혔고 기존 데이터는 정리·영속화 완료. executionMode 를 그대로 신뢰한다.
     }
 
     // observedTools 복원
@@ -3399,6 +3531,9 @@ export class ProjectGraph {
     // §5.3 #28 (L) v1.58 — 인플라이트 작업 트래커는 영속화 ❌ — 서버 재기동 시 비움
     this.activeContiWork.clear();
 
+    // §3.2.1-3 v2.63 — 명시 삭제 묘비 복원(전체 교체). 부활 차단·shrink guard 신호 유지.
+    this.deletedCustomAgents = new Set(cp.deletedCustomAgentIds ?? []);
+
     // §4 v1.50 — compactCounts 복원 (도구 시간/한도는 런타임이라 복원 ❌)
     this.compactCounts.clear();
     if (cp.compactCounts) {
@@ -3433,6 +3568,16 @@ export class ProjectGraph {
       for (const [agentId, reports] of Object.entries(cp.agentReports)) {
         if (Array.isArray(reports) && reports.length > 0) {
           this.agentReports.set(agentId, [...reports]);
+        }
+      }
+    }
+
+    // §4 v2.60 — 에이전트 질문 카드 복원
+    this.agentQuestions.clear();
+    if (cp.agentQuestions) {
+      for (const [agentId, qs] of Object.entries(cp.agentQuestions)) {
+        if (Array.isArray(qs) && qs.length > 0) {
+          this.agentQuestions.set(agentId, [...qs]);
         }
       }
     }
@@ -3805,6 +3950,13 @@ export class ProjectGraph {
    * 반환값: 상태가 바뀌면 true (호출자가 broadcast 필요 여부 판단용).
    */
   recomputeCustomAgentStatus(parentAgentId: string): boolean {
+    // §4 v2.64 — CMD(인터랙티브 터미널) 에이전트는 서브 집계로 상태를 매기지 않는다.
+    //   자기 인터랙티브 claude 세션의 redirect 된 hook 스트림(touchAgent active + Stop completed)
+    //   으로 상태가 정해진다 — Hook 에이전트와 동일. 서브가 0개라 여기서 강등하면 활동 중에도
+    //   10초 sweep 마다 completed 로 튀어 엣지가 뜯기는 오완료 회귀가 난다.
+    if (this.agentConfigs.get(parentAgentId)?.executionMode === 'interactive-terminal') {
+      return false;
+    }
     let found: BubbleData | null = null;
     let foundSessionId: string | null = null;
     for (const [sid, agent] of this.agents) {
@@ -5159,6 +5311,16 @@ export class ProjectGraph {
       if (agent?.id !== agentId) continue;
       const proj = this.getProjectForCwd(cwd);
       return proj?.name ?? (path.basename(cwd) || 'unknown');
+    }
+    return null;
+  }
+
+  /** agentId → 소속 프로젝트의 디스크 path (스킬 스캔 등 경로 작업용). 못 찾으면 null. */
+  getAgentProjectPath(agentId: string): string | null {
+    for (const [sessionId, cwd] of this.sessionCwds) {
+      const agent = this.agents.get(sessionId);
+      if (agent?.id !== agentId) continue;
+      return this.getProjectForCwd(cwd)?.path ?? (cwd || null);
     }
     return null;
   }

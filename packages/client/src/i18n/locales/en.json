@@ -18,7 +18,11 @@
       "availableTooltip": "Version {{version}} is available and downloading in the background",
       "downloading": "Updating {{percent}}%",
       "restart": "Restart to update",
-      "restartTooltip": "Version {{version}} is ready — restart to apply"
+      "restartTooltip": "Version {{version}} is ready — restart to apply",
+      "confirmTitle": "Restart to update?",
+      "confirmBody": "Updating will close and reinstall the app. Any in-progress agent work or unsaved changes may be lost.",
+      "confirmHint": "If you have important custom agent work, finish it first, then update.",
+      "confirmCancel": "Cancel"
     },
     "agentStatus": {
       "waiting": "Waiting for agent",
@@ -662,6 +666,7 @@
       "restoreLabel": "Restore",
       "resizeDock": "Resize dock",
       "customLabel": "Custom",
+      "cmdLabel": "CMD",
       "hookLabel": "Hook"
     },
     "tabbar": {
@@ -672,6 +677,24 @@
       "loading": "Loading...",
       "noClosedSessions": "No closed sessions to restore.",
       "agentTabLabel": "Agent"
+    },
+    "terminal": {
+      "unavailable": "The embedded terminal is available only in the Vibisual desktop app.",
+      "exited": "claude exited (code {{code}})",
+      "createFailed": "Failed to open terminal: {{error}}",
+      "harnessNote": "Interactive session you drive — Vibisual visualizes & assists harness wiring, but execution authority lives inside Claude Code.",
+      "copy": "Copy",
+      "paste": "Paste",
+      "selectAll": "Select all",
+      "clear": "Clear",
+      "find": "Find",
+      "findPlaceholder": "Find in terminal",
+      "findNext": "Next match",
+      "findPrev": "Previous match",
+      "findClose": "Close search",
+      "fontIncrease": "Increase font size",
+      "fontDecrease": "Decrease font size",
+      "fontReset": "Reset font size"
     },
     "mainArea": {
       "scrollPrompt": "Scroll to prompt",
@@ -759,6 +782,13 @@
       "didTitle": "What the AI did",
       "userActionsTitle": "What you need to do",
       "nextStepsTitle": "Next steps"
+    },
+    "question": {
+      "title": "Question",
+      "copy": "Copy",
+      "copied": "Copied",
+      "instant": "Send now",
+      "instantSent": "Sent"
     }
   },
   "bubbleMap": {
@@ -899,7 +929,8 @@
     "setDefault": "Set as Default",
     "unsetDefault": "Unset Default",
     "defaultTooltip": "Default tab opens automatically when there is no last-active tab to restore.",
-    "detach": "Detach to new window"
+    "detach": "Detach to new window",
+    "rename": "Rename"
   },
   "tabDetach": {
     "detachHint": "Drop outside the tab bar to open in a new window",
@@ -931,6 +962,8 @@
     },
     "contextMenu": {
       "createCustomAgent": "Create Custom Agent",
+      "createCmdAgent": "Create CMD Agent",
+      "createCmdAgentHint": "Interactive terminal you drive yourself (subscription billing) — Vibisual visualizes & assists harness wiring, but execution lives inside Claude Code",
       "createAutoAgent": "Create Auto Agent",
       "createAutoAgentHint": "Meta agent — auto-spawns a custom agent team from your prompt",
       "createWorktree": "Create Worktree",

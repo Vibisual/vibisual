@@ -34,9 +34,37 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay(): React.JSX.Elemen
   const storeDockedRight = useGraphStore((s) => selectIDEOverlay(s).dockedRight);
   const storeDockWidth = useGraphStore((s) => selectIDEOverlay(s).dockWidth);
   const agent = useGraphStore((s) => agentId ? s.nodeMap[agentId] : undefined);
-  const subAgents = useGraphStore((s) => (agentId ? s.subAgents[agentId] : undefined) ?? EMPTY_SUBS);
+  // 낙관적 인텐트(닫기/복원)를 권위 스냅샷 위에 덮어 IDE 탭 즉시성 보장. 스냅샷이 반영하면 아래 useEffect 가 정리.
+  const rawSubAgents = useGraphStore((s) => (agentId ? s.subAgents[agentId] : undefined) ?? EMPTY_SUBS);
+  const pendingSubRemovals = useGraphStore((s) => s.pendingSubAgentRemovals);
+  const pendingSubRestores = useGraphStore((s) => s.pendingSubAgentRestores);
+  const subAgents = useMemo(() => {
+    if (!agentId) return EMPTY_SUBS;
+    let list = rawSubAgents;
+    if (list.some((sa) => pendingSubRemovals[sa.id] === agentId)) {
+      list = list.filter((sa) => pendingSubRemovals[sa.id] !== agentId);
+    }
+    const adds = Object.values(pendingSubRestores).filter(
+      (stub) => stub.parentAgentId === agentId && !list.some((sa) => sa.id === stub.id),
+    );
+    return adds.length > 0 ? [...list, ...adds] : list;
+  }, [agentId, rawSubAgents, pendingSubRemovals, pendingSubRestores]);
+  // 권위 스냅샷이 인텐트를 반영했으면 정리(제거: 목록에서 사라짐 / 복원: 목록에 등장).
+  useEffect(() => {
+    if (!agentId) return;
+    const clear = useGraphStore.getState().clearPendingSubAgentIntent;
+    for (const [subId, aid] of Object.entries(pendingSubRemovals)) {
+      if (aid === agentId && !rawSubAgents.some((sa) => sa.id === subId)) clear(subId);
+    }
+    for (const [subId, stub] of Object.entries(pendingSubRestores)) {
+      if (stub.parentAgentId === agentId && rawSubAgents.some((sa) => sa.id === subId)) clear(subId);
+    }
+  }, [agentId, rawSubAgents, pendingSubRemovals, pendingSubRestores]);
 
   const isCustom = agent?.customCreated ?? false;
+  // §4 v2.63 — CMD(인터랙티브 터미널) 에이전트: 라벨/자동 세션 분기. customCreated 기반이라 isCustom 도 true.
+  const executionMode = useGraphStore((s) => (agentId ? s.agentConfigs[agentId]?.executionMode : undefined));
+  const isCmdAgent = isCustom && executionMode === 'interactive-terminal';
 
   const [maximized, setMaximized] = useState(false);
   const toggleMaximized = useCallback(() => setMaximized((v) => !v), []);
@@ -254,6 +282,13 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay(): React.JSX.Elemen
     }).catch(() => {});
   }, [agentId, setSession]);
 
+  // §4 v2.63 — CMD 에이전트는 항상 ≥1 터미널 탭. IDE 가 열렸는데 세션이 0개면 자동으로 하나 연다
+  //   ("+"=새 cmd 터미널 모델과 동일 경로). 마지막 탭을 닫아도 새로 하나 생겨 빈 cmd 에이전트 방지.
+  useEffect(() => {
+    if (!isCmdAgent || !agentId) return;
+    if (subAgents.length === 0 && activeSessionId === null) handleNewSession();
+  }, [isCmdAgent, agentId, subAgents.length, activeSessionId, handleNewSession]);
+
   // Active session SubAgent data
   const activeSession = useMemo(() => {
     if (!activeSessionId) return null;
@@ -368,9 +403,9 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay(): React.JSX.Elemen
             </svg>
             <span className="text-sm font-semibold text-gray-200">{agent.label}</span>
             <span className={`rounded px-1.5 py-0.5 text-[9px] font-semibold ${
-              isCustom ? 'bg-blue-500/15 text-blue-400' : 'bg-gray-600/30 text-gray-500'
+              isCmdAgent ? 'bg-teal-500/15 text-teal-300' : isCustom ? 'bg-blue-500/15 text-blue-400' : 'bg-gray-600/30 text-gray-500'
             }`}>
-              {isCustom ? t('ide.overlay.customLabel') : t('ide.overlay.hookLabel')}
+              {isCmdAgent ? t('ide.overlay.cmdLabel') : isCustom ? t('ide.overlay.customLabel') : t('ide.overlay.hookLabel')}
             </span>
           </div>
           <div className="flex items-center gap-1">

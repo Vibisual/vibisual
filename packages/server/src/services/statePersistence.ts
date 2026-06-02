@@ -8,9 +8,11 @@ import type {
   ActivityEdge,
   ProjectInfo,
   ProjectCheckpoint,
+  ProjectIdentity,
   ProjectMeta,
   ProjectMetaSnapshot,
 } from '@vibisual/shared';
+import { CHECKPOINT_BACKUP_GENERATIONS } from '@vibisual/shared';
 import { logger } from '../logger.js';
 
 // v1.52: 체크포인트 = 각 프로젝트 폴더 안의 `<projectPath>/.vibisual/save/`.
@@ -18,6 +20,80 @@ import { logger } from '../logger.js';
 // 워크트리는 워크트리 폴더 자체 안(ProjectInfo.path 가 워크트리 절대경로).
 
 const SAVE_SUBDIR = '.vibisual/save';
+/** §3.2.2 v2.62 — 정체성 데이터 물리 분리 파일명. checkpoint.json 과 같은 save 디렉토리. */
+const IDENTITY_FILENAME = 'identity.json';
+const CHECKPOINT_FILENAME = 'checkpoint.json';
+
+// ─── §3.2.1 v2.62 손실 방지 인프라: 원자적 쓰기 + 다세대 백업 + 복구 ───
+
+/**
+ * 원자적 파일 쓰기 — `<file>.tmp` 에 쓰고 fsync 후 rename 으로 교체.
+ * 쓰는 도중 프로세스 종료·전원 손실에도 기존 파일이 반파되지 않는다(§3.2.1-1).
+ * rename 은 같은 디렉토리 내에서 원자적. 디렉토리 fsync 까지 시도(가능한 플랫폼).
+ */
+function atomicWriteFileSync(filePath: string, data: string): void {
+  const dir = path.dirname(filePath);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  const tmp = `${filePath}.tmp`;
+  const fd = fs.openSync(tmp, 'w');
+  try {
+    fs.writeFileSync(fd, data, 'utf8');
+    try { fs.fsyncSync(fd); } catch { /* 일부 FS 는 fsync 미지원 — best effort */ }
+  } finally {
+    fs.closeSync(fd);
+  }
+  fs.renameSync(tmp, filePath);
+  // 디렉토리 엔트리(rename 메타데이터)도 디스크 도달 강제 — 전원 손실 시 옛 파일 부활 방지.
+  try {
+    const dfd = fs.openSync(dir, 'r');
+    try { fs.fsyncSync(dfd); } catch { /* Windows 등은 디렉토리 fsync 미지원 — best effort */ }
+    finally { fs.closeSync(dfd); }
+  } catch { /* 디렉토리 open 실패해도 rename 자체는 이미 완료 */ }
+}
+
+/**
+ * 저장 직전 기존 파일을 다세대 백업으로 회전(`<file>.bak1 → .bak2 → ... → .bakN`).
+ * 가장 오래된 세대(.bakN)는 폐기, 현재 파일을 .bak1 로 복사(원자 쓰기가 곧 덮어쓸 것이므로
+ * 복사 후 보존). 논리적 실수(빈/급감 저장)·사용자 실수의 수동 복구 안전망(§3.2.1-2).
+ */
+function rotateBackups(filePath: string, generations: number = CHECKPOINT_BACKUP_GENERATIONS): void {
+  if (generations < 1) return;
+  if (!fs.existsSync(filePath)) return;
+  try {
+    // 가장 오래된 것부터 한 칸씩 밀어낸다: .bak(N-1) → .bakN, ..., .bak1 → .bak2
+    for (let i = generations - 1; i >= 1; i -= 1) {
+      const from = `${filePath}.bak${i}`;
+      const to = `${filePath}.bak${i + 1}`;
+      if (fs.existsSync(from)) {
+        try { fs.renameSync(from, to); } catch { /* 한 세대 밀기 실패는 비치명 */ }
+      }
+    }
+    // 현재 파일 → .bak1 (copy: 원본은 곧 atomicWrite 가 교체하므로 복사로 보존)
+    fs.copyFileSync(filePath, `${filePath}.bak1`);
+  } catch (err) {
+    logger.warn(`rotateBackups: failed for ${filePath}: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+/** 백업 세대(.bak1~N)에서 유효 JSON 을 찾아 파싱 반환. 손상 시 다음 세대 시도(§3.2.1-4). */
+function loadFromBackups<T>(
+  filePath: string,
+  validate: (obj: Record<string, unknown>) => boolean,
+  generations: number = CHECKPOINT_BACKUP_GENERATIONS,
+): { data: T; bakIndex: number } | null {
+  for (let i = 1; i <= generations; i += 1) {
+    const bak = `${filePath}.bak${i}`;
+    if (!fs.existsSync(bak)) continue;
+    try {
+      const raw = fs.readFileSync(bak, 'utf8');
+      const parsed: unknown = JSON.parse(raw);
+      if (typeof parsed === 'object' && parsed !== null && validate(parsed as Record<string, unknown>)) {
+        return { data: parsed as T, bakIndex: i };
+      }
+    } catch { /* 이 세대 손상 — 다음 세대로 */ }
+  }
+  return null;
+}
 
 // 마이그레이션 전용 — 구 위치는 1회만 스캔해서 끌어올린 뒤 .bak 백업.
 const LEGACY_SAVE_ROOT = path.resolve(process.cwd(), '../../save');
@@ -80,6 +156,96 @@ function writeMeta(dir: string, project: ProjectInfo): void {
 
 // ─── 체크포인트 ───
 
+/**
+ * §3.2.2 v2.62 — 체크포인트에서 정체성(identity) 데이터를 파생한다.
+ * 잃으면 안 되는 것만 추린다: customCreated 에이전트 정체성 + agentConfigs + customLabels
+ * + sessionCwds + taskEdges + commentBoxes + contis. 휘발성 런타임 상태는 제외.
+ */
+function deriveIdentity(cp: ProjectCheckpoint): ProjectIdentity {
+  const customAgents: Record<string, BubbleData> = {};
+  for (const [sessionId, agent] of Object.entries(cp.graph.agents)) {
+    if (agent.customCreated) customAgents[sessionId] = agent;
+  }
+  return {
+    version: 1,
+    project: cp.project,
+    savedAt: cp.savedAt ?? Date.now(),
+    agentCounter: cp.graph.agentCounter,
+    customAgents,
+    agentConfigs: cp.agentConfigs ?? {},
+    customLabels: cp.customLabels ?? {},
+    sessionCwds: cp.graph.refs.sessionCwds ?? {},
+    taskEdges: cp.taskEdges ?? {},
+    commentBoxes: cp.commentBoxes ?? [],
+    contis: cp.contis ?? {},
+    deletedSessionIds: cp.deletedCustomAgentIds ?? [],
+  };
+}
+
+function isValidIdentityObj(obj: Record<string, unknown>): boolean {
+  // 전방 호환: version >= 1 이면 수용(미래 구조도 거부하지 않음, §3.2.1-5).
+  const v = obj['version'];
+  return typeof v === 'number' && v >= 1 && typeof obj['customAgents'] === 'object';
+}
+
+/** identity.json 1개를 읽어 반환(백업 복구 포함). 없거나 손상되면 null. */
+export function loadIdentityFromDir(saveDir: string): ProjectIdentity | null {
+  const filePath = path.join(saveDir, IDENTITY_FILENAME);
+  try {
+    if (fs.existsSync(filePath)) {
+      const raw = fs.readFileSync(filePath, 'utf8');
+      const parsed: unknown = JSON.parse(raw);
+      if (typeof parsed === 'object' && parsed !== null && isValidIdentityObj(parsed as Record<string, unknown>)) {
+        return parsed as ProjectIdentity;
+      }
+      logger.warn(`loadIdentity: ${filePath} invalid — trying backups`);
+    }
+  } catch (err) {
+    logger.warn(`loadIdentity: parse failed at ${filePath} (${err instanceof Error ? err.message : String(err)}) — trying backups`);
+  }
+  const recovered = loadFromBackups<ProjectIdentity>(filePath, isValidIdentityObj);
+  if (recovered) {
+    logger.warn(`loadIdentity: recovered from ${IDENTITY_FILENAME}.bak${recovered.bakIndex}`);
+    return recovered.data;
+  }
+  return null;
+}
+
+/**
+ * §3.2.1-3 v2.63 — 빈/급감 덮어쓰기 거부 가드 (묘비 기반 정밀 구분).
+ *
+ * 디스크 identity 의 커스텀 에이전트 중, 지금 저장본에서 사라진 것들을 본다:
+ *  - 사라진 게 **전부 묘비(deletedSessionIds)로 설명되면** = 사용자 명시 삭제 → 저장 진행(true).
+ *  - 묘비로 **설명 안 되는 소멸이 하나라도 있으면** = 복원 실패로 인한 유실 의심 → 보류(false).
+ *
+ * 이로써 "정상 삭제는 그대로 반영(유령 부활 ❌), 복원 실패는 디스크 보존(원본 파괴 ❌)"이
+ * 깔끔히 갈린다. nextIdentity.deletedSessionIds 는 메모리 묘비의 직렬화본. true=저장 진행.
+ */
+function passesShrinkGuard(saveDir: string, nextIdentity: ProjectIdentity): boolean {
+  const prev = loadIdentityFromDir(saveDir);
+  if (!prev) return true; // 비교 대상 없음 — 첫 저장
+
+  const prevIds = Object.keys(prev.customAgents ?? {});
+  if (prevIds.length === 0) return true; // 디스크에 정체성이 없으면 보호할 것도 없음
+
+  const nextAgents = nextIdentity.customAgents ?? {};
+  const tombstones = new Set(nextIdentity.deletedSessionIds ?? []);
+
+  // 디스크엔 있었는데 새 저장본엔 없고, 묘비로도 설명 안 되는 sessionId = 설명 불가 소멸.
+  const unexplained = prevIds.filter((sid) => !(sid in nextAgents) && !tombstones.has(sid));
+  if (unexplained.length > 0) {
+    logger.warn(
+      `writeCheckpoint: shrink guard — ${unexplained.length} custom agent(s) vanished without ` +
+      `an explicit-delete tombstone (likely a failed restore / empty-state overwrite); ` +
+      `preserving existing identity.json. Tombstoned (intentional) deletes still apply normally. ` +
+      `Vanished ids: ${unexplained.slice(0, 5).map((s) => s.slice(0, 12)).join(', ')}` +
+      `${unexplained.length > 5 ? ` (+${unexplained.length - 5})` : ''}`,
+    );
+    return false;
+  }
+  return true;
+}
+
 export function writeCheckpoint(checkpoint: ProjectCheckpoint): void {
   // Ghost 체크포인트 생성 방지 가드.
   // project.path 가 비었거나 name 이 placeholder("unknown") 면 저장 거부.
@@ -104,38 +270,68 @@ export function writeCheckpoint(checkpoint: ProjectCheckpoint): void {
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
     writeMeta(dir, checkpoint.project);
-    fs.writeFileSync(path.join(dir, 'checkpoint.json'), JSON.stringify(checkpoint), 'utf8');
+
+    const cpPath = path.join(dir, CHECKPOINT_FILENAME);
+    const identity = deriveIdentity(checkpoint);
+
+    // §3.2.1-3 빈/급감 가드 — identity 가 비어 보이면 identity.json 은 보존(체크포인트는 저장).
+    // checkpoint.json 자체는 휘발성 포함 전체 스냅샷이라 정상 저장하되(현재 화면 반영),
+    // 권위 있는 정체성 파일(identity.json)만 빈 상태로 덮어쓰지 않는다.
+    const identityOk = passesShrinkGuard(dir, identity);
+
+    // §3.2.1-2 백업 롤링 후 §3.2.1-1 원자적 쓰기.
+    rotateBackups(cpPath);
+    atomicWriteFileSync(cpPath, JSON.stringify(checkpoint));
+
+    if (identityOk) {
+      const idPath = path.join(dir, IDENTITY_FILENAME);
+      rotateBackups(idPath);
+      atomicWriteFileSync(idPath, JSON.stringify(identity));
+    }
 
     const worktreeTag = checkpoint.project.parentProjectPath ? ' [worktree]' : '';
     logger.debug(
       `Checkpoint saved: ${checkpoint.project.name}${worktreeTag} (seq=${checkpoint.seq}, ` +
       `${Object.keys(checkpoint.graph.agents).length} agents, ` +
-      `${Object.keys(checkpoint.graph.nodes).length} nodes)`,
+      `${Object.keys(checkpoint.graph.nodes).length} nodes, ` +
+      `${Object.keys(identity.customAgents).length} custom identity${identityOk ? '' : ' [guarded]'})`,
     );
   } catch (err) {
     logger.error('Checkpoint write failed', err);
   }
 }
 
-/** 체크포인트 파일 1개를 읽어 반환. 경로 기반 — worktree/일반 공통. */
+function isValidCheckpointObj(obj: Record<string, unknown>): boolean {
+  // 전방 호환(§3.2.1-5): version >= 1 이면 수용(미래 버전도 버리지 않음) + graph 존재.
+  const v = obj['version'];
+  return typeof v === 'number' && v >= 1 && typeof obj['graph'] === 'object' && obj['graph'] !== null;
+}
+
+/** 체크포인트 파일 1개를 읽어 반환. 경로 기반 — worktree/일반 공통.
+ *  손상 시 .bak1~N 백업에서 복구 시도(§3.2.1-4). */
 function loadCheckpointFromPath(filePath: string): ProjectCheckpoint | null {
   try {
-    if (!fs.existsSync(filePath)) return null;
-
-    const raw = fs.readFileSync(filePath, 'utf8');
-    const data: unknown = JSON.parse(raw);
-    if (typeof data !== 'object' || data === null) return null;
-    const obj = data as Record<string, unknown>;
-    if (obj['version'] !== 1 || !obj['graph']) return null;
-
-    const cp = data as ProjectCheckpoint;
-    const tag = cp.project.parentProjectPath ? ' [worktree]' : '';
-    logger.info(`Checkpoint loaded: ${cp.project.name}${tag} (seq=${cp.seq})`);
-    return cp;
+    if (fs.existsSync(filePath)) {
+      const raw = fs.readFileSync(filePath, 'utf8');
+      const data: unknown = JSON.parse(raw);
+      if (typeof data === 'object' && data !== null && isValidCheckpointObj(data as Record<string, unknown>)) {
+        const cp = data as ProjectCheckpoint;
+        const tag = cp.project.parentProjectPath ? ' [worktree]' : '';
+        logger.info(`Checkpoint loaded: ${cp.project.name}${tag} (seq=${cp.seq})`);
+        return cp;
+      }
+      logger.warn(`Checkpoint invalid (not version>=1 / no graph): ${filePath} — trying backups`);
+    }
   } catch (err) {
-    logger.error(`Checkpoint load failed: ${filePath}`, err);
-    return null;
+    logger.error(`Checkpoint load failed: ${filePath} — trying backups`, err);
   }
+  // §3.2.1-4 백업 복구 — 빈 상태로 출발하지 않는다.
+  const recovered = loadFromBackups<ProjectCheckpoint>(filePath, isValidCheckpointObj);
+  if (recovered) {
+    logger.warn(`Checkpoint recovered from ${CHECKPOINT_FILENAME}.bak${recovered.bakIndex}: ${recovered.data.project?.name}`);
+    return recovered.data;
+  }
+  return null;
 }
 
 /** v1.52: 분산 저장에선 워크트리 체크포인트가 워크트리 폴더 자체에 살므로
@@ -158,12 +354,17 @@ export function discoverProjectMetas(projectPaths: string[]): ProjectMetaSnapsho
   function buildSnap(saveDir: string): ProjectMetaSnapshot | null {
     const mp = path.join(saveDir, 'project.json');
     const cpPath = path.join(saveDir, 'checkpoint.json');
-    if (!fs.existsSync(mp) || !fs.existsSync(cpPath)) return null;
+    // v2.62 — checkpoint.json 이 사라졌어도 identity.json(또는 그 백업)이 있으면 발견 대상.
+    // loadCheckpointByMeta 가 identity 골격으로 부활시킨다(§3.2.2). project.json 은 필수.
+    const cpAlive = fs.existsSync(cpPath) || fs.existsSync(`${cpPath}.bak1`);
+    const idAlive = fs.existsSync(path.join(saveDir, IDENTITY_FILENAME))
+      || fs.existsSync(path.join(saveDir, `${IDENTITY_FILENAME}.bak1`));
+    if (!fs.existsSync(mp) || (!cpAlive && !idAlive)) return null;
     try {
       const meta = JSON.parse(fs.readFileSync(mp, 'utf8')) as ProjectMeta;
       let lastSavedAt = meta.lastSavedAt ?? 0;
       if (!lastSavedAt) {
-        try { lastSavedAt = fs.statSync(cpPath).mtimeMs; } catch { /* keep 0 */ }
+        try { lastSavedAt = fs.statSync(fs.existsSync(cpPath) ? cpPath : mp).mtimeMs; } catch { /* keep 0 */ }
       }
       return {
         project: meta.project,
@@ -219,9 +420,121 @@ export function discoverProjectMetas(projectPaths: string[]): ProjectMetaSnapsho
   return [...byPath.values()];
 }
 
-/** meta.checkpointPath의 체크포인트 1개를 로드. 검증 실패 시 null. */
+/**
+ * §3.2.2 v2.62 — checkpoint 에 identity 의 정체성을 보충 병합한다(in-place).
+ * checkpoint 가 비거나 일부 손실됐어도 identity.json 의 커스텀 에이전트/설정/엣지를 되살린다.
+ * **이미 checkpoint 에 있는 키는 덮어쓰지 않는다**(checkpoint = 더 최신 휘발 상태 포함). 없으면 부활.
+ */
+function mergeIdentityIntoCheckpoint(cp: ProjectCheckpoint, identity: ProjectIdentity): void {
+  // §3.2.1-3 v2.63 — 묘비 우선 합산: checkpoint 와 identity 양쪽 삭제 이력 합집합.
+  //   부활 차단 + 다음 저장 왕복에서 묘비 유실 방지.
+  const tombstones = new Set<string>([
+    ...(cp.deletedCustomAgentIds ?? []),
+    ...(identity.deletedSessionIds ?? []),
+  ]);
+  if (tombstones.size > 0) cp.deletedCustomAgentIds = [...tombstones];
+
+  // 커스텀 에이전트 부활 — checkpoint.graph.agents 에 없고, **묘비에 없는** sessionId 만 보충.
+  //   묘비에 있는(=사용자가 명시 삭제한) 에이전트는 절대 되살리지 않는다(유령 부활 차단).
+  for (const [sessionId, agent] of Object.entries(identity.customAgents ?? {})) {
+    if (tombstones.has(sessionId)) continue;
+    if (!cp.graph.agents[sessionId]) cp.graph.agents[sessionId] = agent;
+  }
+  // sessionCwds 보충 — 저장 필터·재개 근거. 없고 묘비에도 없는 것만.
+  cp.graph.refs.sessionCwds = cp.graph.refs.sessionCwds ?? {};
+  for (const [sid, cwd] of Object.entries(identity.sessionCwds ?? {})) {
+    if (tombstones.has(sid)) continue;
+    if (!(sid in cp.graph.refs.sessionCwds)) cp.graph.refs.sessionCwds[sid] = cwd;
+  }
+  // agentConfigs 보충.
+  if (identity.agentConfigs && Object.keys(identity.agentConfigs).length > 0) {
+    cp.agentConfigs = cp.agentConfigs ?? {};
+    for (const [id, cfg] of Object.entries(identity.agentConfigs)) {
+      if (!(id in cp.agentConfigs)) cp.agentConfigs[id] = cfg;
+    }
+  }
+  // customLabels 보충.
+  if (identity.customLabels && Object.keys(identity.customLabels).length > 0) {
+    cp.customLabels = cp.customLabels ?? {};
+    for (const [id, label] of Object.entries(identity.customLabels)) {
+      if (!(id in cp.customLabels)) cp.customLabels[id] = label;
+    }
+  }
+  // taskEdges 보충.
+  if (identity.taskEdges && Object.keys(identity.taskEdges).length > 0) {
+    cp.taskEdges = cp.taskEdges ?? {};
+    for (const [id, edge] of Object.entries(identity.taskEdges)) {
+      if (!(id in cp.taskEdges)) cp.taskEdges[id] = edge;
+    }
+  }
+  // commentBoxes 보충 — id 기준 합집합.
+  if (identity.commentBoxes && identity.commentBoxes.length > 0) {
+    const existing = cp.commentBoxes ?? [];
+    const seen = new Set(existing.map((b) => b.id));
+    cp.commentBoxes = [...existing, ...identity.commentBoxes.filter((b) => !seen.has(b.id))];
+  }
+  // contis 보충.
+  if (identity.contis && Object.keys(identity.contis).length > 0) {
+    cp.contis = cp.contis ?? {};
+    for (const [id, conti] of Object.entries(identity.contis)) {
+      if (!(id in cp.contis)) cp.contis[id] = conti;
+    }
+  }
+  // agentCounter 는 최대값 유지(라벨 번호 역행 방지).
+  cp.graph.agentCounter = Math.max(cp.graph.agentCounter ?? 0, identity.agentCounter ?? 0);
+}
+
+/** meta.checkpointPath의 체크포인트 1개를 로드 + identity.json 보충(§3.2.2). 검증 실패 시 null. */
 export function loadCheckpointByMeta(meta: ProjectMetaSnapshot): ProjectCheckpoint | null {
-  return loadCheckpointFromPath(meta.checkpointPath);
+  const saveDir = path.dirname(meta.checkpointPath);
+  let cp = loadCheckpointFromPath(meta.checkpointPath);
+  const identity = loadIdentityFromDir(saveDir);
+
+  // checkpoint 가 완전히 죽었지만 identity 는 살아있으면 — identity 로 최소 골격을 세워 부활.
+  if (!cp && identity) {
+    logger.warn(`loadCheckpoint: checkpoint dead but identity.json alive — reconstructing skeleton for "${identity.project.name}"`);
+    cp = buildCheckpointSkeletonFromIdentity(identity);
+  }
+  if (!cp) return null;
+
+  if (identity) mergeIdentityIntoCheckpoint(cp, identity);
+  return cp;
+}
+
+/** identity.json 만 살아남았을 때 — 최소 유효 ProjectCheckpoint 골격을 만든다(정체성 부활용). */
+function buildCheckpointSkeletonFromIdentity(identity: ProjectIdentity): ProjectCheckpoint {
+  // §3.2.1-3 — 골격 단계부터 묘비(명시 삭제) 에이전트는 제외(이후 merge 는 "없는 것만 보충"이라
+  //   여기서 넣으면 제거되지 않으므로 처음부터 빼야 유령 부활이 안 생긴다).
+  const tombstones = new Set(identity.deletedSessionIds ?? []);
+  const liveAgents: Record<string, BubbleData> = {};
+  for (const [sid, agent] of Object.entries(identity.customAgents ?? {})) {
+    if (!tombstones.has(sid)) liveAgents[sid] = agent;
+  }
+  return {
+    version: 1,
+    project: identity.project,
+    seq: 0,
+    savedAt: identity.savedAt ?? Date.now(),
+    graph: {
+      agentCounter: identity.agentCounter ?? 0,
+      agents: liveAgents,
+      nodes: {},
+      projects: { [identity.project.path.replace(/\\/g, '/').toLowerCase()]: identity.project },
+      hierarchy: { topLevelPaths: [], childrenMap: {}, satelliteMap: {} },
+      refs: { nodeAgentRefs: {}, sessionCwds: { ...identity.sessionCwds } },
+    },
+    activity: { bashHistory: {}, runningServers: {}, fileEdits: {} },
+    edges: {
+      main: { edges: {}, groups: {}, refs: {} },
+      inner: { edges: {}, groups: {}, refs: {} },
+    },
+    agentConfigs: { ...identity.agentConfigs },
+    customLabels: { ...identity.customLabels },
+    taskEdges: { ...identity.taskEdges },
+    commentBoxes: [...identity.commentBoxes],
+    contis: { ...identity.contis },
+    deletedCustomAgentIds: identity.deletedSessionIds ?? [],
+  };
 }
 
 // ─── 스케줄러 ───

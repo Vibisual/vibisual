@@ -214,6 +214,8 @@ export const BubbleNode = memo(function BubbleNode({
   const baseStyle = BUBBLE_STYLES[data.bubbleType];
   // 에이전트 커스텀 색상 — AgentConfig.color가 있으면 기본 스타일 오버라이드
   const customColor = useGraphStore((s) => data.bubbleType === 'agent' ? s.agentConfigs[data.id]?.color : undefined);
+  // §4 v2.63 — CMD(인터랙티브 터미널) 에이전트면 라벨 옆 'CMD' 배지로 구분.
+  const isCmdAgent = useGraphStore((s) => data.bubbleType === 'agent' && s.agentConfigs[data.id]?.executionMode === 'interactive-terminal');
   // §2.4 v1.67 — 갓 스폰된 커스텀 에이전트 idle empty-state: 라이브 세션 전 빈 하단을 설정 모델명으로 메움
   const configModel = useGraphStore((s) => data.bubbleType === 'agent' ? s.agentConfigs[data.id]?.model : undefined);
   const style = useMemo<BubbleStyleConfig>(() => {
@@ -548,6 +550,17 @@ export const BubbleNode = memo(function BubbleNode({
       ? 'border-blue-400 shadow-md shadow-blue-400/30'
       : '';
 
+  // §4 v2.63 — 에이전트 종류 구분 배지(라벨 아래): CMD(인터랙티브 터미널) / 커스텀(우리가 오케스트레이션) /
+  //   훅(Claude Code 이벤트 캡처). 셋 다 같은 위치·타이포로 색만 달라 한눈에 구분된다. auto 버블(bubbleType='auto')은
+  //   고유 별 아이콘이 있어 제외(isAgent=false). 라벨 텍스트는 **영어 고정** — i18n 미대상(사용자 지정).
+  const agentBadge = isCmdAgent
+    ? { text: 'CMD', cls: 'bg-teal-500/25 text-teal-100' }
+    : isAgent && data.customCreated
+      ? { text: 'Custom', cls: 'bg-indigo-500/25 text-indigo-100' }
+      : isAgent
+        ? { text: 'Hook', cls: 'bg-slate-500/30 text-slate-200' }
+        : null;
+
   return (
     <div
       ref={wrapperRef}
@@ -623,8 +636,20 @@ export const BubbleNode = memo(function BubbleNode({
           >
             {data.label}
           </span>
+          {agentBadge && (
+            <span
+              className={`rounded px-1 font-bold uppercase tracking-wide ${agentBadge.cls}`}
+              style={{ fontSize: Math.max(5, Math.round(8 * ts)) }}
+            >
+              {agentBadge.text}
+            </span>
+          )}
           {data.lastTool && isActive && size >= 55 && (
-            <span style={{ fontSize: Math.max(6, Math.round(11 * ts)) }} className="font-medium text-white/70">
+            <span
+              style={{ fontSize: Math.max(6, Math.round(11 * ts)), maxWidth: size * BUBBLE_TEXT_WIDTH_RATIO }}
+              className="block truncate text-center font-medium text-white/70"
+              title={data.lastTool}
+            >
               {data.lastTool}
             </span>
           )}

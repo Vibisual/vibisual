@@ -291,6 +291,21 @@ export const CHECKPOINT_INTERVAL = 500;
 /** 물리 엔진 위치 자동 저장 주기 (ms) */
 export const POSITION_SAVE_INTERVAL = 30_000;
 
+/**
+ * §3.2.1 v2.62 — 영속 파일(checkpoint.json / identity.json) 다세대 백업 보관 수.
+ * 저장 직전 기존 파일을 `<file>.bak1 → .bak2 → ... → .bak<N>` 로 회전 보관한다.
+ * 논리적 실수(빈/급감 저장)·사용자 실수를 N 세대 전까지 수동 복구 가능.
+ */
+export const CHECKPOINT_BACKUP_GENERATIONS = 3;
+
+/**
+ * §3.2.1-3 v2.63 — 명시 삭제 커스텀 에이전트 묘비(deletedCustomAgents) 최대 보관 수.
+ * 묘비는 "이미 삭제된 sessionId 의 부활 차단" 신호. sessionId 가 전역 유니크(시간+카운터)라
+ * 절대 재생성되지 않아 안전하게 prune 할 길이 없으므로, 단조 증가를 막는 상한만 둔다.
+ * 한도 초과 시 가장 오래된 묘비부터 버린다(최근 삭제분이 부활 차단에 더 중요).
+ */
+export const DELETED_AGENT_TOMBSTONE_MAX = 1000;
+
 // ─── 버블 렌더링 ───
 
 /** 텍스트 라벨 최대 너비 = size * TEXT_WIDTH_RATIO */
@@ -548,6 +563,23 @@ export const AVAILABLE_CUSTOM_MODES = [
   { value: 'review', enabled: false },
   { value: 'debug', enabled: false },
 ] as const;
+
+/**
+ * §4 v2.63 — 선택 가능한 실행(스폰) 모드. `AgentConfig.executionMode` 축.
+ * 'headless'(기본) = 서버가 `claude -p` 헤드리스 스폰(프로그래매틱 과금).
+ * 'interactive-terminal' = IDE 창 안 임베디드 PTY 로 인터랙티브 `claude` REPL(구독 과금, 6/15 대응).
+ */
+export const AVAILABLE_EXECUTION_MODES = [
+  { value: 'headless', enabled: true },
+  { value: 'interactive-terminal', enabled: true },
+] as const;
+
+/**
+ * §4 v2.63 — CMD(인터랙티브 터미널) 에이전트 버블의 구분 색(teal-600).
+ * 우클릭 "CMD Agent" 로 생성 시 agentConfig.color 에 baked → 일반 커스텀 에이전트(blue)와 한눈에 구별.
+ * 사용자가 이후 색을 바꾸면 그 값이 우선(기능 표식은 executionMode 가 전담, 색은 cosmetic).
+ */
+export const CMD_AGENT_COLOR = '#0d9488';
 
 /**
  * §5.3 #28 (K) v1.48 — 콘티 모드 진입 시 자동으로 `AgentConfig.rules` 에 박히는 강제 룰셋.
@@ -1805,8 +1837,51 @@ curl -s -X POST "${serverBase}/api/agent-report" \\
 JSON
 \`\`\`
 - **\`userActions\` 가 비어 있으면 신고 자체를 보내지 마라** — 빈 신고는 카드만 늘려 신호를 묻는다.
-- **자연어 보고 본문에는 "사용자가 할 일 / 직접 해주세요" 류 섹션을 헤딩·불릿으로 따로 반복하지 마라.** 그 역할은 이 신고가 만드는 **색 카드(\`userActions\`)** 가 한다 — 본문에 또 나열하면 "긴 글 안 읽어도 색으로 구분"이라는 취지가 무너진다. 본문은 핵심 결론·맥락만 간결히 쓰고, 사용자가 직접 해야 하는 일은 \`userActions\` 배열에만 담는다.
+- **신고로 보낸 내용(\`did\`/\`userActions\`/\`nextSteps\`)을 자연어 보고 본문에 목록·헤딩으로 다시 나열하지 마라.** 그 목록은 이 신고가 만드는 **색 카드**가 보여준다 — "한 일", "사용자가 할 일", "다음 단계", "원인/수정/확인" 같은 섹션을 본문에 또 풀어 쓰면 사용자가 **같은 내용을 두 번 읽게 돼**("중첩된다 / 버그 같다"고 느낀다) "긴 글 안 읽어도 색으로 구분"이라는 취지가 무너진다. **신고를 보낼 때 자연어 본문은 1~2문장 결론으로 최소화**하고(카드에 안 담기는 짧은 근거·맥락만), 한 일·할 일·다음 단계의 목록 자체는 카드(did/userActions/nextSteps)에만 담는다.
 - 이 신고는 **표시 전용** — 실제 작업/판정 로직과 무관하며, 보내든 안 보내든 결과엔 영향이 없다.
+- 토큰 헤더(\`x-vibisual-hook-token\`)가 없으면 401 이다. 위 예시에 이미 포함돼 있다.`;
+}
+
+/** agentId 당 보관하는 질문 카드 최대 개수 (ring buffer 캡, 초과 시 오래된 것부터 제거). */
+export const AGENT_QUESTIONS_MAX_PER_AGENT = 50;
+
+/**
+ * §4 v2.60 — 커스텀/스폰 에이전트에게 주입할 "사용자 질문" 지시문 (시스템 프롬프트 꼬리표).
+ *
+ * 작업 신고(`buildAgentReportRules`)와 동일 인프라(토큰 인증 loopback). 에이전트가 사용자에게 자연어로
+ * 질문을 던질 때, 그 질문(1~N개)과 각 질문의 제안 응답 프롬프트를 구조화해 `POST /api/agent-questions`
+ * 로 보낸다 → IDE 가 눈에 띄는 질문 카드 + 각 프롬프트마다 복사/즉시전송 버튼을 렌더. 비차단.
+ * Hook 에이전트는 spawn/rules 통제 밖이라 이 지시문이 안 들어가 호출하지 않는다.
+ */
+export function buildAgentQuestionRules(args: {
+  serverBase: string;
+  serverToken: string;
+  agentId: string;
+  subAgentId?: string;
+}): string {
+  const { serverBase, serverToken, agentId, subAgentId } = args;
+  const subField = subAgentId ? `"${subAgentId}"` : 'null';
+  return `
+
+# 사용자 질문 (Vibisual IDE 질문 카드)
+사용자에게 **질문을 던지며 답을 기다리는 보고**(예: "~순으로 할까요?", "A안과 B안 중 무엇으로 갈까요?")를 할 때는, 그 질문이 본문 텍스트에 묻히지 않도록 아래 엔드포인트로 **구조화 질문 신고**도 함께 보낸다. Vibisual IDE 가 이를 **눈에 띄는 질문 카드**로 띄우고, 각 질문 아래 **제안 응답 프롬프트**를 복사 박스로 감싸 **복사 / 즉시 전송** 버튼을 단다(즉시 = 그 프롬프트를 새 명령으로 바로 전송).
+
+- \`items\`: 질문 배열. 질문이 1개면 1개, 여러 개면 그대로 N개.
+  - \`question\`: 질문 본문(자연어).
+  - \`header\`: 질문 요지 한 줄(선택).
+  - \`prompts\`: 사용자가 그대로 보내면 되는 **제안 응답 프롬프트** 목록(0~N). 사용자가 고를 만한 답을 그가 1인칭으로 말하듯 적어라(예: "네, A1 계측 → 1차(A1+B1) → 측정 후 판단 순으로 0차부터 착수해 주세요."). 선택지가 갈리면 여러 개 넣어라.
+
+질문이 있는 보고 직전에만 Bash 로 1회 호출한다(실패해도 무시하고 자연어 보고는 그대로 진행):
+\`\`\`bash
+curl -s -X POST "${serverBase}/api/agent-questions" \\
+  -H 'x-vibisual-hook-token: ${serverToken}' \\
+  -H 'Content-Type: application/json' --data-binary @- <<'JSON'
+{"agentId":"${agentId}","subAgentId":${subField},"items":[{"question":"이 순서로 진행할까요?","header":"진행 순서 확인","prompts":["네, 그 순서로 진행해 주세요.","아니요, B안으로 가 주세요."]}]}
+JSON
+\`\`\`
+- **질문이 없으면(단순 완료·일상 대화) 호출하지 마라.** 질문 카드는 "사용자 답이 필요할 때만" 뜨는 게 목적이다.
+- 자연어 본문에 같은 질문·제안 답을 목록으로 다시 나열하지 마라 — 그건 이 카드가 보여준다. 본문은 짧은 맥락만.
+- 이 신고는 **표시 전용** — 실제 작업/판정 로직과 무관하다.
 - 토큰 헤더(\`x-vibisual-hook-token\`)가 없으면 401 이다. 위 예시에 이미 포함돼 있다.`;
 }
 

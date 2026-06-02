@@ -8,10 +8,12 @@ import { memo, useState, useMemo, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import Markdown from 'react-markdown';
 import type { Components } from 'react-markdown';
-import type { SubAgentStreamEvent, QueuedCommand, AgentReport } from '@vibisual/shared';
+import type { SubAgentStreamEvent, QueuedCommand, AgentReport, AgentQuestions } from '@vibisual/shared';
 import { SystemNode, parseSystemSubtype } from './SystemNode.js';
 import { ThinkingDots, ThinkingLiveLine } from './ThinkingIndicator.js';
 import { AgentReportCard } from './AgentReportCard.js';
+import { useGraphStore } from '../../stores/graphStore.js';
+import { AgentQuestionCard } from './AgentQuestionCard.js';
 
 /** SDK 가 생각 중 반복 송출하는 system 펄스 subtype — 본문에 쌓이지 않게 라이브 1줄로 대체. */
 const THINKING_PULSE_SUBTYPE = 'thinking_tokens';
@@ -27,6 +29,8 @@ interface StreamRendererProps {
   commands?: QueuedCommand[];
   /** §4 v2.53 — 이 세션의 작업 신고. createdAt 기준으로 스트림에 인라인 합류(맨 아래 고정 ❌). */
   reports?: AgentReport[];
+  /** §4 v2.60 — 이 세션의 질문 카드. reports 와 동일하게 턴 끝에 합류. */
+  questions?: AgentQuestions[];
 }
 
 interface StreamGroup {
@@ -84,7 +88,15 @@ interface StreamReport {
   timestamp: number;
 }
 
-type StreamItem = StreamText | StreamThinking | StreamGroup | StreamSystem | StreamResult | StreamThinkingLive | StreamReport;
+/** §4 v2.60 — 질문 카드 (createdAt 을 timestamp 로 삼아 스트림에 시간순 합류) */
+interface StreamQuestion {
+  kind: 'question';
+  id: string;
+  questions: AgentQuestions;
+  timestamp: number;
+}
+
+type StreamItem = StreamText | StreamThinking | StreamGroup | StreamSystem | StreamResult | StreamThinkingLive | StreamReport | StreamQuestion;
 
 // ─── 이벤트 → 아이템 변환 ───
 
@@ -96,11 +108,13 @@ interface StreamCommand {
   result: string;
   status: string;
   timestamp: number;
+  /** v2.61 — 전송한 paste 이미지 첨부의 절대경로(완료 후에도 보존). basename 으로 blob preview 조회. */
+  attachments?: string[];
 }
 
 type StreamItemFull = StreamItem | StreamCommand;
 
-function buildStreamItems(events: SubAgentStreamEvent[], commands?: QueuedCommand[], reports?: AgentReport[]): StreamItemFull[] {
+function buildStreamItems(events: SubAgentStreamEvent[], commands?: QueuedCommand[], reports?: AgentReport[], questions?: AgentQuestions[]): StreamItemFull[] {
   const items: StreamItemFull[] = [];
 
   // 사용자 프롬프트(완료/진행/큐 전부) → 각 명령마다 프롬프트 블록으로 앞부분에 삽입.
@@ -116,6 +130,7 @@ function buildStreamItems(events: SubAgentStreamEvent[], commands?: QueuedComman
         result: hasStream ? '' : (cmd.result ?? ''), // 스트림이 있으면 결과는 스트림에서 렌더
         status: cmd.status,
         timestamp: cmd.timestamp,
+        attachments: cmd.attachments,
       });
     }
   }
@@ -263,11 +278,21 @@ function buildStreamItems(events: SubAgentStreamEvent[], commands?: QueuedComman
 
   flushAll();
 
-  // §4 v2.53 — 작업 신고 카드를 createdAt 타임스탬프로 합류 → 아래 sort 가 스트림 사이 시간순 인터리브.
-  //   (예전엔 StreamRenderer 바깥에서 맨 끝에 붙여 항상 하단 고정됐다. 이제 도착 시점에 끼어든 뒤
-  //    이후 스트림 이벤트가 그 아래로 쌓여 자연스럽게 위로 밀려 올라간다.)
+  // §4 v2.53/v2.57 — 작업 신고 카드 배치. createdAt 위치에 그대로 꽂으면 같은 턴의 최종 답변(신고 직후
+  //   이어 오는 text/result)보다 카드가 위에 와 "작업 중간에 갑자기 낀" 모양이 된다. 대신 **그 신고가
+  //   속한 턴의 끝**(= createdAt 이후 첫 사용자 프롬프트 직전, 없으면 현재 맨 끝)으로 민다. 다음 턴 대화가
+  //   오면 그 프롬프트 경계 덕에 카드가 이전 턴 끝에 고정돼 자연스럽게 위로 밀려 올라간다.
+  const cmdTsAsc = (commands ?? []).map((c) => c.timestamp).sort((a, b) => a - b);
+  const turnEndSortTs = (createdAt: number): number => {
+    for (const ts of cmdTsAsc) { if (ts > createdAt) return ts - 0.5; }
+    return Number.MAX_SAFE_INTEGER;
+  };
   for (const r of reports ?? []) {
-    items.push({ kind: 'report', id: `report-${r.id}`, report: r, timestamp: r.createdAt });
+    items.push({ kind: 'report', id: `report-${r.id}`, report: r, timestamp: turnEndSortTs(r.createdAt) });
+  }
+  // §4 v2.60 — 질문 카드도 동일하게 턴 끝 배치.
+  for (const q of questions ?? []) {
+    items.push({ kind: 'question', id: `question-${q.id}`, questions: q, timestamp: turnEndSortTs(q.createdAt) });
   }
 
   // 타임스탬프 기준 안정 정렬 — 프롬프트(command)가 항상 최상단에 오도록 유지하되,
@@ -518,6 +543,17 @@ function ResultBlock({ item }: { item: StreamResult }): React.JSX.Element {
 /** 명령 폴백 (스트림 없을 때). 실행 중 인디케이터는 하단 StreamStatusBar 가 담당 — 여기선 프롬프트/결과만. */
 function CommandBlock({ item }: { item: StreamCommand }): React.JSX.Element {
   const isError = item.status === 'error';
+  // v2.61 — 전송한 첨부 이미지를 사용자 프롬프트 아래 썸네일로 표시. blob preview 를 basename 으로 조회.
+  //          클릭 시 전역 라이트박스로 확대 → "전송 후 사라져 뭘 보냈는지 확인 불가" 해소.
+  const attachmentPreviews = useGraphStore((s) => s.attachmentPreviews);
+  const openImageLightbox = useGraphStore((s) => s.openImageLightbox);
+  const thumbs = (item.attachments ?? [])
+    .map((p) => {
+      const parts = p.split(/[/\\]/);
+      const basename = parts[parts.length - 1] ?? '';
+      return { basename, url: attachmentPreviews[basename] };
+    })
+    .filter((a): a is { basename: string; url: string } => !!a.url);
   return (
     <div className="px-4 py-2" data-cmd-id={item.id}>
       {/* 프롬프트 */}
@@ -525,6 +561,21 @@ function CommandBlock({ item }: { item: StreamCommand }): React.JSX.Element {
         <span className="flex-shrink-0 text-[13px] font-bold text-blue-400">{'>'}</span>
         <span className="text-[13px] leading-relaxed text-blue-200">{item.prompt}</span>
       </div>
+      {/* 전송한 첨부 이미지 썸네일 (클릭 → 라이트박스) */}
+      {thumbs.length > 0 && (
+        <div className="mb-1.5 flex flex-wrap gap-2 pl-5">
+          {thumbs.map((a) => (
+            <button
+              key={a.basename}
+              type="button"
+              onClick={() => openImageLightbox(a.url)}
+              className="h-16 w-16 flex-shrink-0 overflow-hidden rounded border border-gray-700 bg-gray-800 transition-opacity hover:opacity-80"
+            >
+              <img src={a.url} alt="" className="h-full w-full cursor-zoom-in object-cover" />
+            </button>
+          ))}
+        </div>
+      )}
       {/* 결과 */}
       {item.result && (
         <div className={`rounded-md border px-3 py-2 ${
@@ -541,9 +592,9 @@ function CommandBlock({ item }: { item: StreamCommand }): React.JSX.Element {
 
 // ─── 메인 렌더러 ───
 
-export const StreamRenderer = memo(function StreamRenderer({ events, commands, reports }: StreamRendererProps): React.JSX.Element {
+export const StreamRenderer = memo(function StreamRenderer({ events, commands, reports, questions }: StreamRendererProps): React.JSX.Element {
   const { t } = useTranslation();
-  const items = useMemo(() => buildStreamItems(events, commands, reports), [events, commands, reports]);
+  const items = useMemo(() => buildStreamItems(events, commands, reports, questions), [events, commands, reports, questions]);
 
   if (items.length === 0) {
     return (
@@ -565,6 +616,7 @@ export const StreamRenderer = memo(function StreamRenderer({ events, commands, r
           case 'command':  return <CommandBlock key={item.id} item={item} />;
           case 'thinking-live': return <ThinkingLiveLine key={item.id} label={t('ide.streamRenderer.thinking')} />;
           case 'report':   return <AgentReportCard key={item.id} report={item.report} />;
+          case 'question': return <AgentQuestionCard key={item.id} questions={item.questions} />;
         }
       })}
     </div>

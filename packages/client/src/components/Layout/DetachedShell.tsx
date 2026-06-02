@@ -157,10 +157,13 @@ function DetachedTitleBar({ kind, tabKey, title }: DetachedTitleBarProps): React
   const [dragging, setDragging] = useState(false);
   const [hovering, setHovering] = useState(false);
   const [maximized, setMaximized] = useState(false);
-  // pointerdown 으로 redock 드래그를 시작했는지. main 의 mini-ghost 진입(dragging push)은
-  // unmaximize 복원을 기다려 약간 늦으므로, 그 사이 떼더라도 항상 endDetachDrag 를 보내야
-  // main 의 지연 진입이 취소된다(파랑 화면 잔류 방지).
+  // pointerdown 으로 redock 드래그를 시작했는지. 종료(뗌) 판정은 window 레벨 mouseup 으로 한다 —
+  // 최대화 창을 unmaximize 하면 그 창의 pointer 가 pointercancel 로 취소될 수 있어, 엘리먼트의
+  // onPointerUp/onPointerCancel 에 의존하면 드래그가 도중에 끊겨 "기본 창으로 복원하고 끝"나 버린다.
+  // mouseup 은 pointer 취소와 무관하게 물리적 버튼 해제에 항상 발생하므로 안전한 종료 신호다.
   const initiatedRef = useRef(false);
+  // window mouseup 핸들러에서 최신 hovering 을 읽기 위한 ref (콜백 closure 의 stale 값 방지).
+  const hoveringRef = useRef(false);
 
   // main 이 polling 중 dragging/hovering 변경을 push — 그 신호로 미니 박스 모양 갱신.
   useEffect(() => {
@@ -169,6 +172,7 @@ function DetachedTitleBar({ kind, tabKey, title }: DetachedTitleBarProps): React
     const off = api.window.onDragState((s) => {
       setDragging(s.dragging);
       setHovering(s.hovering);
+      hoveringRef.current = s.hovering;
     });
     return () => { off(); };
   }, []);
@@ -189,24 +193,29 @@ function DetachedTitleBar({ kind, tabKey, title }: DetachedTitleBarProps): React
     void window.api?.window?.toggleMaximizeSelf();
   }, []);
 
-  const handlePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>): void => {
-    if (e.button !== 0) return;
-    // pointer capture — 마우스가 어디로 가든 pointerup 을 우리가 받게.
-    try { (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId); } catch { /* noop */ }
-    initiatedRef.current = true;
-    void window.api?.window?.startDetachDrag();
-  }, []);
-
-  const handlePointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>): void => {
-    // dragging push 가 아직 안 왔어도, 드래그를 시작했으면 반드시 종료를 보낸다.
+  // 드래그 종료 — window mouseup 으로 호출(엘리먼트 pointer 이벤트가 unmaximize 로 cancel 돼도 안전).
+  const endDrag = useCallback((): void => {
     if (!initiatedRef.current) return;
     initiatedRef.current = false;
-    const commit = hovering; // main 이 polling 한 마지막 hover 상태(미진입이면 false → 복원)
+    window.removeEventListener('mouseup', endDrag);
+    const commit = hoveringRef.current; // main 이 polling 한 마지막 hover 상태(미진입이면 false → 복원)
     setDragging(false);
     setHovering(false);
+    hoveringRef.current = false;
     void window.api?.window?.endDetachDrag(commit);
-    try { (e.currentTarget as HTMLDivElement).releasePointerCapture(e.pointerId); } catch { /* noop */ }
-  }, [hovering]);
+  }, []);
+
+  const handlePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>): void => {
+    if (e.button !== 0) return;
+    initiatedRef.current = true;
+    // window mouseup 을 권위 있는 종료 신호로 등록 — 마우스가 어디서 떼지든, 또 unmaximize 로
+    // 엘리먼트 pointer 가 취소되든 상관없이 물리적 해제 시 endDrag 가 1회 호출된다.
+    window.addEventListener('mouseup', endDrag);
+    void window.api?.window?.startDetachDrag();
+  }, [endDrag]);
+
+  // 언마운트(별창 닫힘) 시 잔여 리스너 정리.
+  useEffect(() => () => { window.removeEventListener('mouseup', endDrag); }, [endDrag]);
 
   const handleClose = useCallback((): void => {
     void window.api?.window?.closeSelf();
@@ -225,8 +234,6 @@ function DetachedTitleBar({ kind, tabKey, title }: DetachedTitleBarProps): React
             : 'bg-[#1f2937] ring-1 ring-amber-400/50 shadow-lg shadow-black/60'
         } rounded-md`}
         onPointerDown={handlePointerDown}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerUp}
       >
         <div className="flex items-center gap-1.5">
           {kind === 'project' ? (
@@ -270,8 +277,6 @@ function DetachedTitleBar({ kind, tabKey, title }: DetachedTitleBarProps): React
         data-redock-trigger="1"
         className="app-nodrag flex flex-shrink-0 items-center gap-2 px-3 text-[12px] font-medium text-gray-200 cursor-grab active:cursor-grabbing hover:bg-white/[0.04]"
         onPointerDown={handlePointerDown}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerUp}
         title={t('tabDetach.redockHint', { defaultValue: 'Drag to the main tab bar to redock' })}
       >
         {kind === 'project' ? (

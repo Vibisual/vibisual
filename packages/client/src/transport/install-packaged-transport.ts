@@ -11,7 +11,7 @@
 // Rationale: "renderer fetch/WS → window.api 일괄 교체" (Stage 4) at a single
 // chokepoint instead of editing every call site. UI source stays untouched.
 
-import type { UpdateState } from '@vibisual/shared';
+import type { UpdateState, AgentConfig } from '@vibisual/shared';
 
 interface FetchInitWire {
   method?: string;
@@ -77,6 +77,16 @@ export interface PackagedUpdateApi {
   onStatus(cb: (state: UpdateState) => void): () => void;
 }
 
+// §4 v2.63 임베디드 인터랙티브 터미널 surface — IDE 창 안 PTY.
+export interface PackagedTerminalApi {
+  create(spec: { termId: string; cwd: string; config: AgentConfig; cols?: number; rows?: number }): Promise<{ ok: boolean; error?: string }>;
+  write(termId: string, data: string): Promise<void>;
+  resize(termId: string, cols: number, rows: number): Promise<void>;
+  kill(termId: string): Promise<void>;
+  onData(cb: (payload: { termId: string; data: string }) => void): () => void;
+  onExit(cb: (payload: { termId: string; exitCode: number }) => void): () => void;
+}
+
 export interface PackagedApi {
   serverInfo(): Promise<{ port: number; running: boolean }>;
   request(path: string, init?: FetchInitWire): Promise<FetchResponseWire>;
@@ -85,6 +95,8 @@ export interface PackagedApi {
   onMessage(cb: (payload: unknown) => void): () => void;
   window: PackagedWindowApi;
   update: PackagedUpdateApi;
+  /** §4 v2.63 — 임베디드 터미널. dev/web 모드(window.api 없음)에선 부재. */
+  terminal?: PackagedTerminalApi;
 }
 
 declare global {

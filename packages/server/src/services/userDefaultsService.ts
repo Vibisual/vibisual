@@ -34,6 +34,12 @@ class UserDefaultsService {
         const raw = fsSync.readFileSync(STORE_FILE, 'utf-8');
         const parsed = JSON.parse(raw) as UserDefaults;
         if (parsed && typeof parsed === 'object') {
+          // §4 v2.63 — 레거시 토글 잔재 정리: executionMode 는 더는 글로벌 디폴트가 아니다(우클릭 CMD 전용).
+          //   예전 Options 토글이 agentConfig.executionMode 를 저장해 두면 새 커스텀 에이전트가 전부 CMD 로
+          //   생성되던 회귀를 차단 — 로드 시 1회 제거하고 다음 save 때 디스크에서도 사라진다.
+          if (parsed.agentConfig && 'executionMode' in parsed.agentConfig) {
+            delete (parsed.agentConfig as { executionMode?: unknown }).executionMode;
+          }
           logger.info(`[userDefaults] loaded from ${STORE_FILE}`);
           return { ...parsed, updatedAt: parsed.updatedAt ?? Date.now() };
         }

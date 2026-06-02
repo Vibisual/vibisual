@@ -9,6 +9,8 @@ interface CanvasContextMenuProps {
   canvasX: number;
   canvasY: number;
   onCreateCustomAgent: (canvasX: number, canvasY: number) => void;
+  /** §4 v2.63 — CMD(인터랙티브 터미널) 에이전트 생성 */
+  onCreateCmdAgent: (canvasX: number, canvasY: number) => void;
   /** §5.3 #10-2 v2.37 — Auto Agent 메타 버블 생성 */
   onCreateAutoAgent: (canvasX: number, canvasY: number) => void;
   onCreatePipeline: (type: PipelineType, canvasX: number, canvasY: number) => void;
@@ -24,6 +26,7 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
   canvasX,
   canvasY,
   onCreateCustomAgent,
+  onCreateCmdAgent,
   onCreateAutoAgent,
   onCreatePipeline,
   onCreateWorktree,
@@ -57,6 +60,11 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
     onCreateCustomAgent(canvasX, canvasY);
     onClose();
   }, [onCreateCustomAgent, onClose, canvasX, canvasY]);
+
+  const handleCreateCmdAgent = useCallback(() => {
+    onCreateCmdAgent(canvasX, canvasY);
+    onClose();
+  }, [onCreateCmdAgent, onClose, canvasX, canvasY]);
 
   const handleCreateAutoAgent = useCallback(() => {
     onCreateAutoAgent(canvasX, canvasY);
@@ -97,6 +105,24 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
             <line x1="8" y1="12" x2="16" y2="12" />
           </svg>
           <span>{t('canvas.contextMenu.createCustomAgent')}</span>
+        </button>
+
+        {/* §4 v2.63 — CMD 에이전트 (인터랙티브 임베디드 터미널, teal 톤). 우리는 시각화·보조만,
+            실행/오케스트레이션 권한은 Claude Code 안에 있음(힌트로 명시). */}
+        <button
+          type="button"
+          className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-800 transition-colors"
+          onClick={handleCreateCmdAgent}
+        >
+          <svg className="h-4 w-4 shrink-0 text-teal-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="2.5" y="4" width="19" height="16" rx="2" />
+            <path d="M6 9l3 3-3 3" />
+            <line x1="12" y1="15" x2="16" y2="15" />
+          </svg>
+          <div className="flex flex-col">
+            <span>{t('canvas.contextMenu.createCmdAgent')}</span>
+            <span className="text-xs text-gray-500">{t('canvas.contextMenu.createCmdAgentHint')}</span>
+          </div>
         </button>
 
         {/* §5.3 #10-2 v2.37 — Auto Agent (메타 에이전트, 다크 톤) */}
