@@ -212,6 +212,9 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
   const { skills, order, loaded } = useAvailableSkills(projectName, agentId);
   const activeSessionId = useGraphStore((s) => selectIDEOverlay(s).activeSessionId);
   const setAgentSessionInputText = useGraphStore((s) => s.setAgentSessionInputText);
+  // §4 v2.63 — CMD(interactive-terminal) 에이전트는 textarea 대신 임베디드 PTY 가 렌더된다.
+  // 그 경우 스킬 클릭은 draft store 가 아니라 PTY stdin 으로 `/skill ` 을 직접 타이핑한다.
+  const executionMode = useGraphStore((s) => s.agentConfigs[agentId]?.executionMode);
   const projectCounts = useGraphStore((s) =>
     projectName ? (s.skillUsageCounts[projectName] ?? null) : null,
   );
@@ -242,9 +245,16 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
   }, [skills, projectCounts, order, liveDrag]);
 
   const insertSkill = useCallback((skill: SkillInfo) => {
+    const insert = `/${skill.name} `;
+    // CMD(interactive-terminal): 임베디드 PTY 에 직접 타이핑. 줄바꿈은 보내지 않아(사용자가 Enter)
+    // claude prefill 처럼 `/skill ` 만 입력행에 채워둔다. termId 는 IDETerminalView 와 동일 규약.
+    if (executionMode === 'interactive-terminal' && window.api?.terminal) {
+      const termId = `term:${agentId}:${activeSessionId ?? 'main'}`;
+      void window.api.terminal.write(termId, insert);
+      return;
+    }
     const key = agentSessionInputKey(agentId, activeSessionId);
     const existing = useGraphStore.getState().agentSessionInputs[key]?.text ?? '';
-    const insert = `/${skill.name} `;
     const next = existing.length > 0 ? `${insert}\n${existing}` : insert;
     setAgentSessionInputText(agentId, activeSessionId, next);
     // textarea 자동 focus — §5.5 #17-3 의 data-ide-input 셀렉터 재사용.
@@ -259,7 +269,7 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
       ta.style.height = 'auto';
       ta.style.height = `${Math.min(ta.scrollHeight, 120)}px`;
     });
-  }, [agentId, activeSessionId, setAgentSessionInputText]);
+  }, [agentId, activeSessionId, setAgentSessionInputText, executionMode]);
 
   // ── 드래그 재정렬 (같은 타입 내에서만) ──
   const handleDragStart = useCallback((e: React.DragEvent, type: SkillSource, names: string[], name: string) => {
@@ -381,11 +391,11 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
   const pluginNames = useMemo(() => pluginSkills.map((s) => s.name), [pluginSkills]);
 
   return (
-    <div className="flex flex-col gap-1 p-2">
+    <div className="flex min-h-0 flex-1 flex-col gap-1 p-2">
       <span className="px-1 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
         {t('ide.sidebar.skills', { count: skills.length })}
       </span>
-      <ScrollFade maxHeight={500}>
+      <ScrollFade fill className="flex-1">
         {!loaded ? (
           <div className="px-2 py-4 text-center text-xs text-gray-600">{t('ide.sidebar.skillsLoading')}</div>
         ) : skills.length === 0 ? (
@@ -432,7 +442,7 @@ export const IDESidebar = memo(function IDESidebar({ agentId }: IDESidebarProps)
   if (collapsed) return <></>;
 
   return (
-    <div className="flex w-52 flex-shrink-0 flex-col border-r border-gray-700 bg-gray-900/50">
+    <div className="flex w-52 min-h-0 flex-shrink-0 flex-col border-r border-gray-700 bg-gray-900/50">
       <View agentId={agentId} />
     </div>
   );

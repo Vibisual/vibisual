@@ -6,8 +6,8 @@ import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { exec, execFile } from 'node:child_process';
 import multer from 'multer';
-import { DEFAULT_PORT, SESSION_SCAN_INTERVAL, FILE_EXISTENCE_CHECK_INTERVAL, SATELLITE_TYPES, IFRAME_PROXY_PATH, AGENT_IDLE_THRESHOLD_MS, AGENT_IDLE_SWEEP_INTERVAL_MS, TASK_EDGE_DISPATCH_DEFAULT_TIMEOUT_MS, TASK_EDGE_CRITIQUE_MAX_REWORK_LIMIT, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, SUPPORTED_UI_LOCALES, CONTI_AGENT_RULES, RULES_HISTORY_MAX, CANVAS_CLIPBOARD_SCHEMA_VERSION, buildAgentReportRules, buildAgentQuestionRules } from '@vibisual/shared';
-import type { HookEventPayload, WSMessage, QueuedCommand, SessionTokenData, PipelineType, AgentConfig, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, SubAgentHistoryItem, UiLocale, PermissionDecision, RulesHistoryEntry, Conti, CanvasClipboardPayload, CanvasPasteResponse, AskUserQuestionDecision, AskUserQuestionAnswer, AskUserQuestionOption, AskUserQuestionItem, AskUserQuestionToolInput, AgentReport, AgentQuestions, AgentQuestionItem } from '@vibisual/shared';
+import { DEFAULT_PORT, SESSION_SCAN_INTERVAL, FILE_EXISTENCE_CHECK_INTERVAL, SATELLITE_TYPES, IFRAME_PROXY_PATH, AGENT_IDLE_THRESHOLD_MS, AGENT_IDLE_SWEEP_INTERVAL_MS, TASK_EDGE_DISPATCH_DEFAULT_TIMEOUT_MS, TASK_EDGE_CRITIQUE_MAX_REWORK_LIMIT, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, SUPPORTED_UI_LOCALES, CONTI_AGENT_RULES, RULES_HISTORY_MAX, CANVAS_CLIPBOARD_SCHEMA_VERSION, buildAgentReportRules, buildAgentQuestionRules, buildAgentReviewRules } from '@vibisual/shared';
+import type { HookEventPayload, WSMessage, QueuedCommand, SessionTokenData, PipelineType, AgentConfig, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, SubAgentHistoryItem, UiLocale, PermissionDecision, RulesHistoryEntry, Conti, CanvasClipboardPayload, CanvasPasteResponse, AskUserQuestionDecision, AskUserQuestionAnswer, AskUserQuestionOption, AskUserQuestionItem, AskUserQuestionToolInput, AgentReport, AgentQuestions, AgentQuestionItem, AgentReview } from '@vibisual/shared';
 import { permissionBroker } from './services/permissionBroker.js';
 import { askUserQuestionBroker } from './services/askUserQuestionBroker.js';
 import { AutoAgentRuntime } from './services/autoAgentRuntime.js';
@@ -888,8 +888,8 @@ export async function runServer(): Promise<RunServerHandle> {
           agentId: agent.id,
           ...(next.subAgentId ? { subAgentId: next.subAgentId } : {}),
         };
-        // §4 v2.52 작업 신고 + v2.60 질문 카드 지시문을 함께 주입(동일 loopback 인프라).
-        dispatchContext = contextSummary + buildAgentReportRules(ruleArgs) + buildAgentQuestionRules(ruleArgs);
+        // §4 v2.52 작업 신고 + v2.60 질문 카드 + v2.70 검수 요청 지시문을 함께 주입(동일 loopback 인프라).
+        dispatchContext = contextSummary + buildAgentReportRules(ruleArgs) + buildAgentQuestionRules(ruleArgs) + buildAgentReviewRules(ruleArgs);
       }
       // v1.33 — edgesBlock 을 separately 전달해 resume(--resume) 경로에서도 매 턴 prepend.
       //         엣지가 생기거나 바뀌었을 때 세션 재시작 없이도 즉시 인지하도록.
@@ -1823,6 +1823,31 @@ export async function runServer(): Promise<RunServerHandle> {
     res.json({ ok: true });
   });
 
+  /** POST /api/subagents/:agentId/remove-bulk — 여러 탭을 한 번에 닫기
+   *  (컨텍스트 메뉴 "다른 탭 닫기 / 오른쪽 닫기 / 모두 닫기").
+   *  N개를 개별 DELETE 로 닫으면 매 요청마다 broadcastSnapshot + saveCheckpoint(전체 직렬화 +
+   *  worktree prune)가 돌아 "닫닫 닫" 하며 한 개씩 느리게 닫히는 체감을 만든다. 한 요청으로 모두
+   *  제거한 뒤 broadcast/checkpoint 는 1회만 수행한다. */
+  app.post('/api/subagents/:agentId/remove-bulk', (req, res) => {
+    const body = req.body as { ids?: unknown } | undefined;
+    const ids = Array.isArray(body?.ids)
+      ? body!.ids.filter((x): x is string => typeof x === 'string')
+      : null;
+    if (!ids || ids.length === 0) {
+      res.status(400).json({ ok: false, error: 'ids must be non-empty string[]' });
+      return;
+    }
+    let removed = 0;
+    for (const id of ids) {
+      if (subAgentManager.remove(id)) removed++;
+    }
+    if (removed > 0) {
+      broadcastSnapshot();
+      saveCheckpoint();
+    }
+    res.json({ ok: true, removed });
+  });
+
   /** GET /api/subagents/:agentId/history — 이 부모 에이전트가 과거에 소유했던(탭 닫은) SubAgent 목록.
    *  소프트 아카이브에서 읽음 → 다른 에이전트·VSCode 메인 세션은 섞이지 않음. */
   app.get('/api/subagents/:agentId/history', (req, res) => {
@@ -2749,6 +2774,53 @@ export async function runServer(): Promise<RunServerHandle> {
       res.json({ ok: true, id: questions.id });
     } catch (err) {
       logger.error('POST /api/agent-questions failed', err);
+      res.status(500).json({ ok: false, error: 'internal error' });
+    }
+  });
+
+  /**
+   * §4 v2.70 — POST /api/agent-review
+   * 커스텀/스폰 에이전트가 사용자 지시 작업을 완료한 뒤 changes/checkpoints 검수 요청을 구조화 신고(loopback curl, 토큰 인증).
+   * 서버는 id/createdAt 을 stamp 해 ProjectGraph 에 적재하고 broadcast → IDE 가 보라색 검수 카드 렌더.
+   * userActions("직접 해")와 성격이 다르다 — 이쪽은 "AI 가 완료한 결과를 검수". agent-report/agent-questions 와 동형 골격.
+   */
+  app.post('/api/agent-review', (req, res) => {
+    try {
+      const body = (req.body ?? {}) as Partial<AgentReview>;
+      if (typeof body.agentId !== 'string' || !body.agentId) {
+        res.status(400).json({ ok: false, error: 'agentId required' });
+        return;
+      }
+      const toStrArray = (v: unknown): string[] =>
+        Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string' && s.trim().length > 0).map((s) => s.trim()) : [];
+      const changes = toStrArray(body.changes);
+      const checkpoints = toStrArray(body.checkpoints);
+      // changes 가 비면 검수 요청으로서 의미가 없으므로 무시 (빈 카드만 늘리지 않음).
+      if (changes.length === 0) {
+        res.status(400).json({ ok: false, error: 'empty review (changes required)' });
+        return;
+      }
+      const review: AgentReview = {
+        id: randomUUID(),
+        agentId: body.agentId,
+        ...(typeof body.subAgentId === 'string' && body.subAgentId ? { subAgentId: body.subAgentId } : {}),
+        ...(typeof body.instruction === 'string' && body.instruction.trim() ? { instruction: body.instruction.trim() } : {}),
+        changes,
+        checkpoints,
+        ...(typeof body.note === 'string' && body.note.trim() ? { note: body.note.trim() } : {}),
+        createdAt: Date.now(),
+      };
+      const ok = graphManager.addAgentReview(review);
+      if (!ok) {
+        res.status(404).json({ ok: false, error: 'agent not found' });
+        return;
+      }
+      broadcast({ type: 'agent_review', payload: { agentId: review.agentId, subAgentId: review.subAgentId } } as WSMessage);
+      broadcastSnapshot();
+      saveCheckpoint();
+      res.json({ ok: true, id: review.id });
+    } catch (err) {
+      logger.error('POST /api/agent-review failed', err);
       res.status(500).json({ ok: false, error: 'internal error' });
     }
   });

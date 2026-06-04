@@ -789,6 +789,12 @@
       "copied": "복사됨",
       "instant": "즉시 전송",
       "instantSent": "전송됨"
+    },
+    "review": {
+      "title": "검수 요청",
+      "instructionTitle": "받은 지시",
+      "changesTitle": "고친 내용",
+      "checkpointsTitle": "검수 포인트"
     }
   },
   "bubbleMap": {
@@ -982,6 +988,13 @@
       "empty": "캔버스 클립보드가 비어 있습니다",
       "failed": "붙여넣기 실패",
       "invalidVersion": "클립보드 형식이 이 버전과 호환되지 않습니다"
+    },
+    "bookmark": {
+      "assigned": "북마크 {{slot}} → {{label}}",
+      "assignEmpty": "지정할 대상이 없습니다 — 버블을 선택하거나 에이전트 IDE 를 먼저 여세요",
+      "jumped": "{{label}} 로 이동",
+      "jumpEmpty": "북마크 {{slot}} 가 비어 있습니다",
+      "jumpMissing": "북마크 대상을 더 이상 찾을 수 없습니다"
     }
   },
   "common": {

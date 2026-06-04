@@ -44,13 +44,14 @@ import type {
   AutoAgentSummary,
   AgentReport,
   AgentQuestions,
+  AgentReview,
 } from '@vibisual/shared';
-import { MAX_BASH_HISTORY, MAX_FILE_EDITS, MAX_WRITE_DIFF_BYTES, DEFAULT_MAX_SATELLITES, SATELLITE_MAX_BOUNDS, MAX_AGENTS, SATELLITE_TYPES, AGENT_FADE_DURATION, BUBBLE_TTL, GHOST_FADE_DURATION, FILE_EXISTENCE_MISS_THRESHOLD, FRONTEND_SERVER_PATTERNS, IFRAME_DEAD_GRACE_MS, parseModelFamily, DEFAULT_AGENT_CONFIG, AVAILABLE_AGENT_TOOLS, DEFAULT_UI_LOCALE, COMMENT_BOX_DEFAULTS, READ_TOOLS, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, AGENT_REPORT_MAX_PER_AGENT, AGENT_QUESTIONS_MAX_PER_AGENT, DELETED_AGENT_TOMBSTONE_MAX, CMD_AGENT_COLOR } from '@vibisual/shared';
+import { MAX_BASH_HISTORY, MAX_FILE_EDITS, MAX_WRITE_DIFF_BYTES, DEFAULT_MAX_SATELLITES, SATELLITE_MAX_BOUNDS, MAX_AGENTS, SATELLITE_TYPES, AGENT_FADE_DURATION, BUBBLE_TTL, GHOST_FADE_DURATION, FILE_EXISTENCE_MISS_THRESHOLD, FRONTEND_SERVER_PATTERNS, IFRAME_DEAD_GRACE_MS, parseModelFamily, DEFAULT_AGENT_CONFIG, AVAILABLE_AGENT_TOOLS, DEFAULT_UI_LOCALE, COMMENT_BOX_DEFAULTS, READ_TOOLS, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, AGENT_REPORT_MAX_PER_AGENT, AGENT_QUESTIONS_MAX_PER_AGENT, AGENT_REVIEWS_MAX_PER_AGENT, DELETED_AGENT_TOMBSTONE_MAX, CMD_AGENT_COLOR, MAX_AGENT_EVENTS } from '@vibisual/shared';
 import type { ServerKind, UiLocale, ExecutionMode } from '@vibisual/shared';
 import { EdgeManager } from './edgeManager.js';
 import { extractPort, extractPortFromInlineEval, extractPortFromScriptFile, isPortAlive, isProbeCommand, isVibisualLauncherCommand } from './processChecker.js';
 import { BackgroundShellWatcher, parseBackgroundShellResponse, scanActiveBackgroundShells } from './backgroundShellWatcher.js';
-import { subAgentManager } from './subAgentManager.js';
+import { subAgentManager, getCmdSessionIds } from './subAgentManager.js';
 import { sanitizeContiOnLoad } from './contiManager.js';
 import { isShortAlive as isAgentViewShortAlive, isShortWorking as isAgentViewShortWorking, readRoster as readAgentViewRoster } from './claudeAgentViewService.js';
 import { pipelineManager } from './pipelineManager.js';
@@ -555,6 +556,11 @@ export class ProjectGraph {
    * 영속화 대상 (ProjectCheckpoint.agentQuestions). ring buffer 캡 = AGENT_QUESTIONS_MAX_PER_AGENT.
    */
   private agentQuestions = new Map<string, AgentQuestions[]>();
+  /**
+   * §4 v2.70 — 에이전트 검수 요청 카드 (agentId → AgentReview[]). changes/checkpoints 검수용.
+   * 영속화 대상 (ProjectCheckpoint.agentReviews). ring buffer 캡 = AGENT_REVIEWS_MAX_PER_AGENT.
+   */
+  private agentReviews = new Map<string, AgentReview[]>();
   /**
    * §5.3 #12-1 v1.91 — 현재 권한 승인 팝업 대기 중인 에이전트 id 집합.
    * PreToolUse 훅이 동기 hold(최대 60s) 하는 동안 에이전트는 "블록된 활성" 상태다.
@@ -1420,6 +1426,28 @@ export class ProjectGraph {
     if (this.agentQuestions.size === 0) return undefined;
     const out: Record<string, AgentQuestions[]> = {};
     for (const [k, v] of this.agentQuestions) out[k] = [...v];
+    return out;
+  }
+
+  /**
+   * §4 v2.70 — 에이전트 검수 요청 카드 추가 (agentId → AgentReview[], append + ring buffer 캡).
+   * 커스텀/스폰 에이전트가 `POST /api/agent-review` 로 보낸 changes/checkpoints 검수 요청을 적재.
+   */
+  addAgentReview(review: AgentReview): void {
+    const list = this.agentReviews.get(review.agentId) ?? [];
+    list.push(review);
+    if (list.length > AGENT_REVIEWS_MAX_PER_AGENT) {
+      list.splice(0, list.length - AGENT_REVIEWS_MAX_PER_AGENT);
+    }
+    this.agentReviews.set(review.agentId, list);
+    this.bumpMutationVersion();
+  }
+
+  /** §4 v2.70 — 검수 요청 카드 전체 맵 (broadcast 스냅샷/체크포인트용). 빈 맵이면 undefined. */
+  getAgentReviewsRecord(): Record<string, AgentReview[]> | undefined {
+    if (this.agentReviews.size === 0) return undefined;
+    const out: Record<string, AgentReview[]> = {};
+    for (const [k, v] of this.agentReviews) out[k] = [...v];
     return out;
   }
 
@@ -2531,6 +2559,7 @@ export class ProjectGraph {
       autoAgentSummaries: this.autoAgentSummaries.size > 0 ? this.getAutoAgentSummaries() : undefined,
       agentReports: this.getAgentReportsRecord(),
       agentQuestions: this.getAgentQuestionsRecord(),
+      agentReviews: this.getAgentReviewsRecord(),
     };
 
     // (2b) 계산 결과를 캐시에 저장
@@ -2663,6 +2692,7 @@ export class ProjectGraph {
       autoAgentSummaries: this.autoAgentSummaries.size > 0 ? this.getAutoAgentSummaries() : undefined,
       agentReports: this.getAgentReportsRecord(),
       agentQuestions: this.getAgentQuestionsRecord(),
+      agentReviews: this.getAgentReviewsRecord(),
     };
   }
 
@@ -3049,6 +3079,15 @@ export class ProjectGraph {
         }
         return Object.keys(out).length > 0 ? out : undefined;
       })(),
+      // §4 v2.70 — 검수 요청 카드: 이 프로젝트 소속 에이전트(버블 id)분만 필터해 영속(agentReports 와 동형).
+      //   (v2.55 영속화 함정 사전 반영 — 디스크 포맷인 toProjectCheckpoint 에 반드시 포함.)
+      agentReviews: (() => {
+        const out: Record<string, AgentReview[]> = {};
+        for (const [agentId, reviews] of this.agentReviews) {
+          if (projectBubbleIds.has(agentId) && reviews.length > 0) out[agentId] = [...reviews];
+        }
+        return Object.keys(out).length > 0 ? out : undefined;
+      })(),
       // §3.2.1-3 v2.63 — 명시 삭제된 커스텀 에이전트 묘비. 이미 삭제돼 세션이 없으므로
       //   프로젝트 필터를 걸 키가 없다 → 전체 묘비를 그대로 싣는다(다른 프로젝트 sessionId 가
       //   섞여도 그 프로젝트엔 해당 세션이 존재하지 않아 무해, 부활 차단에만 쓰임).
@@ -3215,6 +3254,24 @@ export class ProjectGraph {
           existing.sort((a, b) => a.createdAt - b.createdAt);
           if (existing.length > AGENT_QUESTIONS_MAX_PER_AGENT) {
             existing.splice(0, existing.length - AGENT_QUESTIONS_MAX_PER_AGENT);
+          }
+        }
+      }
+    }
+
+    // §4 v2.70 — 검수 요청 카드 병합 (agentReports/agentQuestions 와 동형).
+    if (cp.agentReviews) {
+      for (const [agentId, reviews] of Object.entries(cp.agentReviews)) {
+        if (!Array.isArray(reviews) || reviews.length === 0) continue;
+        const existing = this.agentReviews.get(agentId);
+        if (!existing) {
+          this.agentReviews.set(agentId, [...reviews]);
+        } else {
+          const seen = new Set(existing.map((r) => r.id));
+          for (const r of reviews) if (!seen.has(r.id)) existing.push(r);
+          existing.sort((a, b) => a.createdAt - b.createdAt);
+          if (existing.length > AGENT_REVIEWS_MAX_PER_AGENT) {
+            existing.splice(0, existing.length - AGENT_REVIEWS_MAX_PER_AGENT);
           }
         }
       }
@@ -3578,6 +3635,16 @@ export class ProjectGraph {
       for (const [agentId, qs] of Object.entries(cp.agentQuestions)) {
         if (Array.isArray(qs) && qs.length > 0) {
           this.agentQuestions.set(agentId, [...qs]);
+        }
+      }
+    }
+
+    // §4 v2.70 — 에이전트 검수 요청 카드 복원
+    this.agentReviews.clear();
+    if (cp.agentReviews) {
+      for (const [agentId, reviews] of Object.entries(cp.agentReviews)) {
+        if (Array.isArray(reviews) && reviews.length > 0) {
+          this.agentReviews.set(agentId, [...reviews]);
         }
       }
     }
@@ -5039,7 +5106,24 @@ export class ProjectGraph {
     for (const [sessionId, cwd] of this.sessionCwds) {
       const agent = this.agents.get(sessionId);
       if (!agent) continue;
-      const events = readUserMessages(cwd, sessionId);
+      // §4 v2.68 — CMD(인터랙티브 터미널) 결과 소싱. CMD 대화는 합성 세션(custom-…)이 아니라 claude
+      //   대화 UUID(.jsonl)에 쌓인다(hook 이 session_id 를 합성 세션으로 rewrite → readUserMessages(cwd,
+      //   합성세션)은 항상 빈 배열). recordCmdTermSession 이 적어둔 termId→UUID 맵에서 UUID 들을 모아
+      //   각각 읽어 합친다(세션 탭이 여러 개면 여러 UUID). 병합 시 id 에 UUID 접두 → React 키 충돌 방지.
+      const isCmd = this.agentConfigs.get(agent.id)?.executionMode === 'interactive-terminal';
+      let events: AgentEvent[];
+      if (isCmd) {
+        const merged: AgentEvent[] = [];
+        for (const uuid of getCmdSessionIds(agent.id)) {
+          for (const e of readUserMessages(cwd, uuid)) {
+            merged.push({ ...e, id: `${uuid}:${e.id}` });
+          }
+        }
+        merged.sort((a, b) => b.timestamp - a.timestamp);
+        events = merged.slice(0, MAX_AGENT_EVENTS);
+      } else {
+        events = readUserMessages(cwd, sessionId);
+      }
       if (events.length === 0) continue;
 
       // poppedCommands 매칭 — JSONL user 메시지 텍스트 ↔ pop된 명령 텍스트

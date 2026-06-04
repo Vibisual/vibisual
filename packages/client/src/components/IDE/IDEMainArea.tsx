@@ -1,7 +1,7 @@
 import { memo, useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import type { QueuedCommand, SubAgent, SubAgentStreamEvent, AgentEvent, AgentReport, AgentQuestions } from '@vibisual/shared';
+import type { QueuedCommand, SubAgent, SubAgentStreamEvent, AgentEvent, AgentReport, AgentQuestions, AgentReview } from '@vibisual/shared';
 import { useGraphStore, agentSessionInputKey, selectIDEOverlay } from '../../stores/graphStore.js';
 import type { AgentSessionInputAttachment } from '../../stores/graphStore.js';
 import { useAvailableSkills, type SkillInfo } from '../../hooks/useAvailableSkills.js';
@@ -9,6 +9,7 @@ import { StreamRenderer } from './StreamRenderer.js';
 import { AskQuestionCard } from './AskQuestionCard.js';
 import { AgentReportCard } from './AgentReportCard.js';
 import { AgentQuestionCard } from './AgentQuestionCard.js';
+import { AgentReviewCard } from './AgentReviewCard.js';
 import { IDETerminalView } from './IDETerminalView.js';
 import { SystemNode, parseSystemSubtype } from './SystemNode.js';
 import { ThinkingDots, ThinkingLiveLine } from './ThinkingIndicator.js';
@@ -25,6 +26,7 @@ const EMPTY_EVENTS: AgentEvent[] = [];
 const EMPTY_STREAM_EVENTS: SubAgentStreamEvent[] = [];
 const EMPTY_REPORTS: import('@vibisual/shared').AgentReport[] = [];
 const EMPTY_QUESTIONS: import('@vibisual/shared').AgentQuestions[] = [];
+const EMPTY_REVIEWS: import('@vibisual/shared').AgentReview[] = [];
 
 interface IDEMainAreaProps {
   agentId: string;
@@ -1381,6 +1383,15 @@ export const IDEMainArea = memo(function IDEMainArea({
     return [...matches].sort((a, b) => a.createdAt - b.createdAt);
   }, [agentQuestionsForAgent, activeSessionId]);
 
+  // §4 v2.70 — 이 에이전트의 검수 요청 카드. reportCards/questionCards 와 동일 필터/정렬.
+  const agentReviewsForAgent = useGraphStore((s) => s.agentReviews[agentId] ?? EMPTY_REVIEWS);
+  const reviewCards = useMemo(() => {
+    const matches = agentReviewsForAgent.filter((r) =>
+      activeSessionId !== null ? r.subAgentId === activeSessionId : true,
+    );
+    return [...matches].sort((a, b) => a.createdAt - b.createdAt);
+  }, [agentReviewsForAgent, activeSessionId]);
+
   // §4 v2.53/v2.57 — 메인 탭: 터미널 항목 + 작업 신고 카드를 합쳐 정렬. 신고는 createdAt 그대로가 아니라
   //   **그 신고가 속한 턴의 끝**(createdAt 이후 첫 프롬프트 직전, 없으면 맨 끝)에 배치 — StreamRenderer 와 동일.
   //   작업 도중 카드가 중간에 끼는 걸 막고, 다음 턴 대화가 오면 자연스럽게 위로 밀려 올라가게 한다.
@@ -1390,14 +1401,15 @@ export const IDEMainArea = memo(function IDEMainArea({
       for (const ts of cmdTsAsc) { if (ts > createdAt) return ts - 0.5; }
       return Number.MAX_SAFE_INTEGER;
     };
-    const merged: Array<{ ts: number; node: { t: 'item'; item: TerminalItem } | { t: 'report'; report: AgentReport } | { t: 'question'; questions: AgentQuestions } }> = [
+    const merged: Array<{ ts: number; node: { t: 'item'; item: TerminalItem } | { t: 'report'; report: AgentReport } | { t: 'question'; questions: AgentQuestions } | { t: 'review'; review: AgentReview } }> = [
       ...items.map((item) => ({ ts: item.timestamp, node: { t: 'item' as const, item } })),
       ...reportCards.map((r) => ({ ts: turnEndSortTs(r.createdAt), node: { t: 'report' as const, report: r } })),
       ...questionCards.map((q) => ({ ts: turnEndSortTs(q.createdAt), node: { t: 'question' as const, questions: q } })),
+      ...reviewCards.map((r) => ({ ts: turnEndSortTs(r.createdAt), node: { t: 'review' as const, review: r } })),
     ];
     merged.sort((a, b) => a.ts - b.ts);
     return merged.map((m) => m.node);
-  }, [items, reportCards, questionCards, commands]);
+  }, [items, reportCards, questionCards, reviewCards, commands]);
 
   // Auto-scroll — 유저가 위로 스크롤하면 비활성화, 바닥 근처면 활성화
   const handleScroll = useCallback(() => {
@@ -1417,7 +1429,7 @@ export const IDEMainArea = memo(function IDEMainArea({
     if (autoScrollRef.current && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [items.length, askCards.length, reportCards.length, questionCards.length]);
+  }, [items.length, askCards.length, reportCards.length, questionCards.length, reviewCards.length]);
 
   // §4 v2.63 — 인터랙티브 터미널 모드: 활성 탭(세션)을 임베디드 PTY 로 렌더.
   //   key=termId 라 탭 전환 시 그 세션 터미널로 교체(PTY 는 main 에서 보존 → reattach).
@@ -1449,6 +1461,7 @@ export const IDEMainArea = memo(function IDEMainArea({
               commands={commands.filter((c) => c.subAgentId === activeSessionId)}
               reports={reportCards}
               questions={questionCards}
+              reviews={reviewCards}
             />
             {askCards.length > 0 && (
               <div className="py-1">
@@ -1465,6 +1478,8 @@ export const IDEMainArea = memo(function IDEMainArea({
             {mainTimeline.map((n) =>
               n.t === 'report'
                 ? <AgentReportCard key={n.report.id} report={n.report} />
+                : n.t === 'review'
+                  ? <AgentReviewCard key={n.review.id} review={n.review} />
                 : n.t === 'question'
                   ? <AgentQuestionCard key={n.questions.id} questions={n.questions} />
                   : n.item.kind === 'group'

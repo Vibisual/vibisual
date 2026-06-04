@@ -1,6 +1,6 @@
 {
   "name": "@vibisual/desktop",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
   "type": "module",
   "description": "Vibisual Electron desktop shell — main process runs the server in-process (§3.7)",

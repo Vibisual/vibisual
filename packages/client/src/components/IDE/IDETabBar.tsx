@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { SubAgent, SubAgentHistoryItem } from '@vibisual/shared';
 import { useGraphStore, selectIDEOverlay } from '../../stores/graphStore.js';
 import { TabContextMenu } from '../Layout/TabContextMenu.js';
+import { HoverTooltip } from '../Layout/HoverTooltip.js';
 
 interface IDETabBarProps {
   subAgents: SubAgent[];
@@ -62,11 +63,34 @@ export const IDETabBar = memo(function IDETabBar({
     setEditValue('');
   }, []);
 
+  // F2 단축키 — 활성 탭의 인라인 이름 편집을 시작(VS Code 동일). 이미 편집 중이거나 활성 탭이
+  // 없으면 무시. 임베디드 터미널이 포커스를 쥔 상태(xterm textarea)에서도 동작해야 하므로
+  // input/textarea 포커스를 가드하지 않는다 — 대신 editingId 로 리네임 입력 자기 자신만 제외.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (e.key !== 'F2') return;
+      if (editingId) return;
+      if (!activeSessionId) return;
+      if (!subAgents.some((s) => s.id === activeSessionId)) return;
+      e.preventDefault();
+      startRename(activeSessionId);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [editingId, activeSessionId, subAgents, startRename]);
+
   // 드래그 재정렬 — 드래그 중인 탭 id와 커서가 올라가 있는 대상 id
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
 
   const handleDragStart = useCallback((e: React.DragEvent, subId: string) => {
+    // 닫기 버튼/이름 편집 입력 위에서 시작된 드래그는 무시. 탭 div 가 draggable 이라 X 위에서 살짝만
+    // 움직여도 네이티브 dragstart 가 발화하며 click 이벤트를 삼켜 "닫기 눌러도 바로 안 닫힘"(다시 눌러야
+    // 닫힘) 버그를 유발한다. 버튼/입력에서 시작된 드래그는 막아 클릭이 정상 전달되게 한다.
+    if ((e.target as HTMLElement).closest('button, input')) {
+      e.preventDefault();
+      return;
+    }
     setDraggingId(subId);
     e.dataTransfer.effectAllowed = 'move';
     // Firefox 호환 — data 없으면 드래그 취소됨
@@ -106,28 +130,63 @@ export const IDETabBar = memo(function IDETabBar({
     setDragOverId(null);
   }, []);
 
-  const deleteSubAgent = useCallback((subId: string) => {
-    if (!agentId) return;
-    // 활성 탭을 닫으면 직전/다음 탭으로 이동, 없으면 null
-    if (activeSessionId === subId) {
-      const idx = subAgents.findIndex((s) => s.id === subId);
-      const next = subAgents[idx + 1] ?? subAgents[idx - 1] ?? null;
-      setSession(next ? next.id : null);
+  // 활성 탭이 닫히는 집합에 포함되면 인접한 생존 탭(앞→뒤 순)으로 이동, 없으면 null.
+  // 단일/일괄 닫기 공용 — 일괄 닫기에서 active 가 대상에 있어도 한 번에 올바른 생존 탭을 고른다.
+  const reassignActiveIfClosing = useCallback((closing: Set<string>) => {
+    if (!activeSessionId || !closing.has(activeSessionId)) return;
+    const idx = subAgents.findIndex((s) => s.id === activeSessionId);
+    let survivor: SubAgent | undefined;
+    for (let i = idx + 1; i < subAgents.length; i++) {
+      const s = subAgents[i];
+      if (s && !closing.has(s.id)) { survivor = s; break; }
     }
+    if (!survivor) {
+      for (let i = idx - 1; i >= 0; i--) {
+        const s = subAgents[i];
+        if (s && !closing.has(s.id)) { survivor = s; break; }
+      }
+    }
+    setSession(survivor ? survivor.id : null);
+  }, [activeSessionId, subAgents, setSession]);
+
+  // 탭 1개의 로컬 정리(서버 요청 제외) — PTY 종료 + 낙관적 제거 + 핀/Default 해제.
+  // 단일·일괄 닫기가 공유한다. 서버 요청은 호출부가 단일 DELETE 또는 일괄 POST 로 1회만 보낸다.
+  const purgeSubLocal = useCallback((subId: string) => {
+    if (!agentId) return;
     const store = useGraphStore.getState();
     // §4 v2.63 — CMD 에이전트의 세션 탭은 임베디드 PTY 핸들이기도 하다. 탭을 명시적으로 닫으면
     //   그 세션의 PTY 도 종료(좀비 셸 방지). 비-CMD 에이전트엔 해당 termId 가 없어 no-op.
     void window.api?.terminal?.kill(`term:${agentId}:${subId}`);
-    // 낙관적 제거 — 서버 DELETE 왕복/브로드캐스트(혹은 stale full-snapshot)를 기다리지 않고 즉시 탭 제거.
+    // 낙관적 제거 — 서버 왕복/브로드캐스트(혹은 stale full-snapshot)를 기다리지 않고 즉시 탭 제거.
     store.optimisticRemoveSubAgent(agentId, subId);
-    fetch(`/api/subagents/${agentId}/${subId}`, { method: 'DELETE' })
-      .catch(() => { /* snapshot이 권위 — 인텐트가 정리될 때까지 유지 */ });
     store.setTabPin(`subagent:${subId}`, false);
     // 닫힌 서브에이전트가 Default였으면 Default도 해제
     if (store.defaultSubAgents[agentId] === subId) {
       store.setDefaultSubAgent(agentId, null);
     }
-  }, [agentId, activeSessionId, subAgents, setSession]);
+  }, [agentId]);
+
+  const deleteSubAgent = useCallback((subId: string) => {
+    if (!agentId) return;
+    reassignActiveIfClosing(new Set([subId]));
+    purgeSubLocal(subId);
+    fetch(`/api/subagents/${agentId}/${subId}`, { method: 'DELETE' })
+      .catch(() => { /* snapshot이 권위 — 인텐트가 정리될 때까지 유지 */ });
+  }, [agentId, reassignActiveIfClosing, purgeSubLocal]);
+
+  // 여러 탭 일괄 닫기 — 개별 DELETE(매번 broadcast+checkpoint) 대신 1회 일괄 POST 로 서버 부하/지연을
+  // 없앤다("다른 탭 닫기"가 한 개씩 느리게 닫히던 버그). 낙관적 제거는 즉시 모두 반영(React 가 배치).
+  const deleteSubAgents = useCallback((ids: string[]) => {
+    if (!agentId || ids.length === 0) return;
+    if (ids.length === 1) { deleteSubAgent(ids[0]!); return; }
+    reassignActiveIfClosing(new Set(ids));
+    for (const id of ids) purgeSubLocal(id);
+    fetch(`/api/subagents/${agentId}/remove-bulk`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    }).catch(() => { /* snapshot이 권위 — 인텐트가 정리될 때까지 유지 */ });
+  }, [agentId, reassignActiveIfClosing, purgeSubLocal, deleteSubAgent]);
 
   const handleClose = useCallback((e: React.MouseEvent, subId: string) => {
     e.stopPropagation();
@@ -263,10 +322,9 @@ export const IDETabBar = memo(function IDETabBar({
       targets = subAgents.filter((s) => !tabPins[`subagent:${s.id}`]);
     }
 
-    for (const target of targets) {
-      deleteSubAgent(target.id);
-    }
-  }, [ctx, ctxIsPinned, ctxIsDefault, agentId, subAgents, tabPins, deleteSubAgent]);
+    // 단일은 단일 DELETE, 다중은 1회 일괄 POST 로 닫는다(deleteSubAgents 가 분기).
+    if (targets.length > 0) deleteSubAgents(targets.map((t) => t.id));
+  }, [ctx, ctxIsPinned, ctxIsDefault, agentId, subAgents, tabPins, deleteSubAgents]);
 
   return (
     <div className="flex h-9 flex-shrink-0 items-end gap-0 border-b border-gray-700 bg-[#15192a]">
@@ -282,7 +340,7 @@ export const IDETabBar = memo(function IDETabBar({
           }`}
         >
           <span className="h-1.5 w-1.5 rounded-full bg-gray-400" />
-          <span className="max-w-[100px] truncate">{t('ide.tabbar.agentTabLabel')}</span>
+          <HoverTooltip className="max-w-[100px] truncate" label={t('ide.tabbar.agentTabLabel')} />
         </button>
       )}
 
@@ -353,8 +411,8 @@ export const IDETabBar = memo(function IDETabBar({
                 className="w-[120px] rounded border border-blue-400/60 bg-gray-900 px-1 py-0.5 text-xs text-gray-100 outline-none"
               />
             ) : (
-              // 탭 크기 고정 — 이름이 길면 ...(truncate).
-              <span className="w-[120px] truncate">{displayLabel(sub)}</span>
+              // 탭 크기 고정 — 이름이 길면 ...(truncate). HoverTooltip 으로 전체 라벨 빠르게 호버 표시.
+              <HoverTooltip className="w-[120px] truncate" label={displayLabel(sub)} />
             )}
             <button
               type="button"

@@ -8,12 +8,13 @@ import { memo, useState, useMemo, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import Markdown from 'react-markdown';
 import type { Components } from 'react-markdown';
-import type { SubAgentStreamEvent, QueuedCommand, AgentReport, AgentQuestions } from '@vibisual/shared';
+import type { SubAgentStreamEvent, QueuedCommand, AgentReport, AgentQuestions, AgentReview } from '@vibisual/shared';
 import { SystemNode, parseSystemSubtype } from './SystemNode.js';
 import { ThinkingDots, ThinkingLiveLine } from './ThinkingIndicator.js';
 import { AgentReportCard } from './AgentReportCard.js';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { AgentQuestionCard } from './AgentQuestionCard.js';
+import { AgentReviewCard } from './AgentReviewCard.js';
 
 /** SDK 가 생각 중 반복 송출하는 system 펄스 subtype — 본문에 쌓이지 않게 라이브 1줄로 대체. */
 const THINKING_PULSE_SUBTYPE = 'thinking_tokens';
@@ -31,6 +32,8 @@ interface StreamRendererProps {
   reports?: AgentReport[];
   /** §4 v2.60 — 이 세션의 질문 카드. reports 와 동일하게 턴 끝에 합류. */
   questions?: AgentQuestions[];
+  /** §4 v2.70 — 이 세션의 검수 요청 카드. reports/questions 와 동일하게 턴 끝에 합류. */
+  reviews?: AgentReview[];
 }
 
 interface StreamGroup {
@@ -96,7 +99,15 @@ interface StreamQuestion {
   timestamp: number;
 }
 
-type StreamItem = StreamText | StreamThinking | StreamGroup | StreamSystem | StreamResult | StreamThinkingLive | StreamReport | StreamQuestion;
+/** §4 v2.70 — 검수 요청 카드 (createdAt 을 timestamp 로 삼아 스트림에 시간순 합류) */
+interface StreamReview {
+  kind: 'review';
+  id: string;
+  review: AgentReview;
+  timestamp: number;
+}
+
+type StreamItem = StreamText | StreamThinking | StreamGroup | StreamSystem | StreamResult | StreamThinkingLive | StreamReport | StreamQuestion | StreamReview;
 
 // ─── 이벤트 → 아이템 변환 ───
 
@@ -114,7 +125,7 @@ interface StreamCommand {
 
 type StreamItemFull = StreamItem | StreamCommand;
 
-function buildStreamItems(events: SubAgentStreamEvent[], commands?: QueuedCommand[], reports?: AgentReport[], questions?: AgentQuestions[]): StreamItemFull[] {
+function buildStreamItems(events: SubAgentStreamEvent[], commands?: QueuedCommand[], reports?: AgentReport[], questions?: AgentQuestions[], reviews?: AgentReview[]): StreamItemFull[] {
   const items: StreamItemFull[] = [];
 
   // 사용자 프롬프트(완료/진행/큐 전부) → 각 명령마다 프롬프트 블록으로 앞부분에 삽입.
@@ -293,6 +304,10 @@ function buildStreamItems(events: SubAgentStreamEvent[], commands?: QueuedComman
   // §4 v2.60 — 질문 카드도 동일하게 턴 끝 배치.
   for (const q of questions ?? []) {
     items.push({ kind: 'question', id: `question-${q.id}`, questions: q, timestamp: turnEndSortTs(q.createdAt) });
+  }
+  // §4 v2.70 — 검수 요청 카드도 동일하게 턴 끝 배치.
+  for (const rv of reviews ?? []) {
+    items.push({ kind: 'review', id: `review-${rv.id}`, review: rv, timestamp: turnEndSortTs(rv.createdAt) });
   }
 
   // 타임스탬프 기준 안정 정렬 — 프롬프트(command)가 항상 최상단에 오도록 유지하되,
@@ -592,9 +607,9 @@ function CommandBlock({ item }: { item: StreamCommand }): React.JSX.Element {
 
 // ─── 메인 렌더러 ───
 
-export const StreamRenderer = memo(function StreamRenderer({ events, commands, reports, questions }: StreamRendererProps): React.JSX.Element {
+export const StreamRenderer = memo(function StreamRenderer({ events, commands, reports, questions, reviews }: StreamRendererProps): React.JSX.Element {
   const { t } = useTranslation();
-  const items = useMemo(() => buildStreamItems(events, commands, reports, questions), [events, commands, reports, questions]);
+  const items = useMemo(() => buildStreamItems(events, commands, reports, questions, reviews), [events, commands, reports, questions, reviews]);
 
   if (items.length === 0) {
     return (
@@ -617,6 +632,7 @@ export const StreamRenderer = memo(function StreamRenderer({ events, commands, r
           case 'thinking-live': return <ThinkingLiveLine key={item.id} label={t('ide.streamRenderer.thinking')} />;
           case 'report':   return <AgentReportCard key={item.id} report={item.report} />;
           case 'question': return <AgentQuestionCard key={item.id} questions={item.questions} />;
+          case 'review':   return <AgentReviewCard key={item.id} review={item.review} />;
         }
       })}
     </div>

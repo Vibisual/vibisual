@@ -85,6 +85,10 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay(): React.JSX.Elemen
   const [flashKey, setFlashKey] = useState<number>(0);
   const windowRef = useRef<HTMLDivElement | null>(null);
   const prevRef = useRef<{ agentId: string | null; projectId: string | null }>({ agentId: null, projectId: null });
+  // modal 백드롭(여백) 클릭으로 닫기 — 단, "누르기 시작한 지점"이 백드롭일 때만.
+  // IDE 윈도우 안에서 시작한 드래그(텍스트 선택 등)가 백드롭에서 끝나면 click 의 공통 조상이
+  // 백드롭이 되어 닫혀버리던 버그 차단. mousedown 타깃을 기록해 그때만 닫는다.
+  const pressOnBackdropRef = useRef(false);
 
   // §5.5 #17-1 (v2.17) — agentId/projectId 전이 처리:
   //   (a) null → truthy : 새로 열림 — store.dockedRight 가 true 면 docked-right 복원, 아니면 modal
@@ -257,7 +261,11 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay(): React.JSX.Elemen
 
   // + 탭 클릭 — 브라우저 새 탭 처럼 클릭 즉시 새 탭 생성 + 포커스 (서버 응답 대기 X).
   //   1) 클라이언트가 sub id 미리 생성
-  //   2) store 의 subAgents 에 optimistic 추가 + setSession(id) — 탭 클릭과 동일 경로
+  //   2) **복원 인텐트(optimisticRestoreSubAgent)로 등록** — setSession(id) 와 함께. 단순 raw push 로
+  //      subAgents 에 직접 넣으면, 등록 POST 왕복 중 도착한 full-snapshot 이 subAgents 를 통째로
+  //      덮어써 낙관적 탭이 사라진다(= "+ 눌러도 안 뜨고, 다시 누르면 2개가 동시에" 버그). 닫기/복원과
+  //      동일하게 pending 인텐트에 올려두면, loadSnapshot 이 그 sub 를 반영할 때까지 useMemo 가 다시
+  //      얹어주고, 반영되면 정리 effect 가 인텐트를 비운다.
   //   3) 같은 id 를 body 로 POST → 서버가 그 id 로 등록 (snapshot 이 도착해도 같은 sub 라 no-op)
   const handleNewSession = useCallback(() => {
     if (!agentId) return;
@@ -271,9 +279,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay(): React.JSX.Elemen
       createdAt: Date.now(),
       lastActivityAt: Date.now(),
     };
-    useGraphStore.setState((s) => ({
-      subAgents: { ...s.subAgents, [agentId]: [...(s.subAgents[agentId] ?? []), optimisticSub] },
-    }));
+    useGraphStore.getState().optimisticRestoreSubAgent(agentId, optimisticSub);
     setSession(id);
     fetch(`/api/subagents/${agentId}`, {
       method: 'POST',
@@ -282,12 +288,15 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay(): React.JSX.Elemen
     }).catch(() => {});
   }, [agentId, setSession]);
 
-  // §4 v2.63 — CMD 에이전트는 항상 ≥1 터미널 탭. IDE 가 열렸는데 세션이 0개면 자동으로 하나 연다
-  //   ("+"=새 cmd 터미널 모델과 동일 경로). 마지막 탭을 닫아도 새로 하나 생겨 빈 cmd 에이전트 방지.
+  // §4 v2.63 — 커스텀 에이전트(CMD 포함)는 항상 ≥1 세션 탭. IDE 가 열렸는데 세션이 0개면 자동으로
+  //   하나 연다 ("+"=새 세션 모델과 동일 경로). 새 커스텀 에이전트를 더블클릭해 IDE 를 처음 열면
+  //   세션이 0개라 빈 화면이던 버그(처음부터 세션 1개가 있어야 함) + 마지막 탭을 닫아도 새로 하나
+  //   생겨 빈 커스텀/cmd 에이전트가 되는 것을 함께 방지. CMD 든 일반 커스텀이든 interactive 라
+  //   세션이 0개면 할 수 있는 게 없으므로 동일 정책.
   useEffect(() => {
-    if (!isCmdAgent || !agentId) return;
+    if (!isCustom || !agentId) return;
     if (subAgents.length === 0 && activeSessionId === null) handleNewSession();
-  }, [isCmdAgent, agentId, subAgents.length, activeSessionId, handleNewSession]);
+  }, [isCustom, agentId, subAgents.length, activeSessionId, handleNewSession]);
 
   // Active session SubAgent data
   const activeSession = useMemo(() => {
@@ -334,7 +343,8 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay(): React.JSX.Elemen
   return (
     <div
       className={outerClass}
-      onClick={isModal ? closeOverlay : undefined}
+      onMouseDown={isModal ? (e) => { pressOnBackdropRef.current = e.target === e.currentTarget; } : undefined}
+      onClick={isModal ? (e) => { if (e.target === e.currentTarget && pressOnBackdropRef.current) closeOverlay(); } : undefined}
     >
       {/* §5.5 #17-1 — 드래그 중 우측 도킹 미리보기 (Windows Snap Assist 풍).
           파란 반투명 영역이 도킹될 자리를 미리 보여준다. pointer-events 없음. */}
@@ -357,6 +367,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay(): React.JSX.Elemen
           자체 타이틀바(restore/close 버튼)가 통합 타이틀바·Windows 네이티브 컨트롤에 가리지 않음. */}
       <div
         ref={windowRef}
+        data-ide-overlay=""
         className={windowClass}
         style={{ ...windowStyle, pointerEvents: 'auto' }}
         onClick={(e) => e.stopPropagation()}

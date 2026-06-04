@@ -15,6 +15,33 @@ import { attach as attachWatcher, detach as detachWatcher } from './claudeAgentV
 /** parentAgentId → 소속 ProjectInfo 해석. index.ts에서 graphManager 기반으로 주입. */
 export type AgentProjectResolver = (parentAgentId: string) => ProjectInfo | null;
 
+/** 서버 기본 라벨 패턴(`Sub #N`) — 자동 이름은 이 기본값일 때만 덮는다. */
+const DEFAULT_SUB_LABEL_RE = /^Sub #\d+$/;
+/** 자동 탭 제목 최대 길이(초과분은 … 로 컷). 탭은 CSS truncate 하지만 라벨 자체도 과하게 길지 않게 보관. */
+const AUTO_TITLE_MAX = 60;
+
+/**
+ * §5.5 #17-5 v2.68 — 첫 사용자 프롬프트에서 서브에이전트 탭 제목을 추론.
+ * VS Code 가 Claude Code 세션 이름을 주제로 정하는 동작을 무과금(요약 LLM 호출 ❌)으로 모사한다.
+ * 첫 비어있지 않은 줄을 취해 마크다운 장식·감싼 따옴표를 벗기고 ~60자로 컷.
+ * 추출 실패(빈 결과) 시 빈 문자열 반환 → 호출부가 기본 라벨(Sub #N)을 유지한다.
+ */
+function deriveTabTitle(text: string): string {
+  const firstLine = text
+    .split('\n')
+    .map((l) => l.trim())
+    .find((l) => l.length > 0) ?? '';
+  let title = firstLine
+    .replace(/^#{1,6}\s+/, '')          // 마크다운 헤더
+    .replace(/^[-*+]\s+/, '')           // 리스트 불릿
+    .replace(/^>\s+/, '')               // 인용
+    .replace(/^`+|`+$/g, '')            // 인라인 코드펜스
+    .replace(/^["'“”‘’]+|["'“”‘’]+$/g, '') // 감싼 따옴표
+    .trim();
+  if (title.length > AUTO_TITLE_MAX) title = `${title.slice(0, AUTO_TITLE_MAX).trimEnd()}…`;
+  return title;
+}
+
 /**
  * AgentConfig → claude CLI 인자 배열 변환.
  * 기본값과 같은 항목은 CLI 인자로 넘기지 않음 (불필요한 제한 방지).
@@ -179,6 +206,26 @@ export function getCmdResumeSession(termId: string): string | null {
     return typeof id === 'string' && id ? id : null;
   } catch {
     return null;
+  }
+}
+
+/**
+ * §4 v2.68 — CMD 에이전트의 모든 claude 대화 sessionId(UUID) 목록(중복 제거).
+ *
+ * `recordCmdTermSession` 이 termId(=세션 탭) 별로 `sessions.json` 에 적어둔 값(=claude 대화 UUID)을 모은다.
+ * CMD 결과 목록 소싱 전용: hook 이 session_id 를 CMD 버블 합성 세션으로 rewrite 하므로 대화 본문은
+ * 합성 세션이 아니라 이 UUID 의 JSONL 에만 쌓인다 → `buildAgentEvents` 가 이 UUID 로 `readUserMessages`
+ * 해야 CMD 대화(프롬프트/응답)가 Results 패널에 뜬다. 파일/맵이 없으면 빈 배열.
+ */
+export function getCmdSessionIds(agentId: string): string[] {
+  const file = path.join(cmdAgentDir(agentId), 'sessions.json');
+  try {
+    if (!fs.existsSync(file)) return [];
+    const map = JSON.parse(fs.readFileSync(file, 'utf-8')) as Record<string, string>;
+    const ids = Object.values(map).filter((v): v is string => typeof v === 'string' && v.length > 0);
+    return [...new Set(ids)];
+  } catch {
+    return [];
   }
 }
 
@@ -954,6 +1001,13 @@ export class SubAgentManager {
     sub.status = 'active';
     sub.lastCommand = cmd.text;
     sub.lastActivityAt = Date.now();
+    // §5.5 #17-5 v2.68 — 라벨이 아직 기본값(Sub #N)이면 첫 프롬프트로 주제명 자동 부여.
+    //   사용자가 직접 바꾼 이름은 클라(subAgentLabels)가 displayLabel 에서 항상 우선하므로
+    //   서버는 기본 라벨만 갱신하면 "직접 바꾼 게 아니라면 자동 명명"이 성립한다.
+    if (DEFAULT_SUB_LABEL_RE.test(sub.label)) {
+      const title = deriveTabTitle(cmd.text);
+      if (title) sub.label = title;
+    }
     cmd.status = 'executing';
     this.onSubStatusChange?.(sub.parentAgentId);
 
