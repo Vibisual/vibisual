@@ -860,7 +860,9 @@ export type WSMessageType =
   // §4 v2.52 — 에이전트 작업 신고(did/userActions) 수신 신호. 본체는 graph_snapshot.agentReports
   | 'agent_report'
   // §4 v2.60 — 에이전트 질문 카드 수신 신호. 본체는 graph_snapshot.agentQuestions
-  | 'agent_questions';
+  | 'agent_questions'
+  // §4 v2.70 — 에이전트 검수 요청 카드 수신 신호. 본체는 graph_snapshot.agentReviews
+  | 'agent_review';
 
 /** §5.3 #28 v1.47 — 콘티 생성/패치 완료 토스트용 페이로드. 본체는 graph_snapshot 에서 받는다. */
 export interface ContiEventPayload {
@@ -1375,6 +1377,34 @@ export interface AgentQuestions {
   createdAt: number;
 }
 
+/**
+ * §4 v2.70 — 에이전트 검수 요청 (커스텀/스폰 에이전트 전용).
+ *
+ * 작업 신고(AgentReport)·질문 카드(AgentQuestions)와 동일 골격이지만 **성격이 다르다**:
+ * 사용자가 **지시한 작업**(특히 버그 수정·기능 변경)을 AI 가 **완료**한 뒤, 사용자가 직접 해야 할 일
+ * (`AgentReport.userActions`)이 아니라 **그 결과가 맞는지 확인(검수)**할 것을 요청하는 카드.
+ * 즉 "이 버튼 오류 고쳐라" → 고침 → "무슨 동작을 이렇게 고쳤습니다, 검수해 주세요" 흐름.
+ * 에이전트가 작업 끝에 loopback `POST /api/agent-review` 로 구조화 신고(토큰 인증). `agentId` 가 1차 렌더 필터 키.
+ */
+export interface AgentReview {
+  /** 신고 고유 ID (서버가 발급). */
+  id: string;
+  /** 신고한 (부모) 에이전트 ID — Vibisual 관할 custom agent. 렌더 필터 1차 키. */
+  agentId: string;
+  /** 호출 sub 인스턴스(IDE 세션 탭) ID. 있으면 그 탭에 귀속, 없으면(undefined) 메인 탭. */
+  subAgentId?: string;
+  /** 받은 지시 한 줄 맥락 (선택) — "이 버튼 클릭 시 X 오류 고쳐라" 같은 어떤 작업이었는지. */
+  instruction?: string;
+  /** 무슨 동작을 어떻게 고쳤는지 (1~N). AI 가 완료한 변경 내역. */
+  changes: string[];
+  /** 사용자가 확인할 검수 포인트·방법 (0~N). "이렇게 눌러보면 됩니다" 류 검증 안내. */
+  checkpoints: string[];
+  /** 자유 메모 / 전체 맥락 한 줄 (선택). */
+  note?: string;
+  /** 신고 시각 (서버 stamp, Date.now()). */
+  createdAt: number;
+}
+
 export interface GraphSnapshot {
   /** hydrated 프로젝트 목록 (projectName → ProjectInfo). keys와 stubProjects keys는 겹치지 않음 */
   projects: Record<string, ProjectInfo>;
@@ -1506,6 +1536,13 @@ export interface GraphSnapshot {
    * 클라 IDE 가 agentId/subAgentId 로 필터해 질문 카드로 렌더. 미설정 시 빈 맵.
    */
   agentQuestions?: Record<string, AgentQuestions[]>;
+
+  /**
+   * §4 v2.70 — 에이전트 검수 요청 카드 (agentId → AgentReview[], 최신순 append).
+   * 커스텀/스폰 에이전트가 `POST /api/agent-review` 로 보낸 changes/checkpoints 검수 요청.
+   * 클라 IDE 가 agentId/subAgentId 로 필터해 검수 카드로 렌더. 미설정 시 빈 맵.
+   */
+  agentReviews?: Record<string, AgentReview[]>;
 }
 
 /** 폴더 내 파일/디렉토리 엔트리 (폴더 트리 표시용) */
@@ -1689,6 +1726,13 @@ export interface ProjectCheckpoint {
    * optional — 구버전 체크포인트 하위 호환. 미설정이면 빈 맵으로 복원.
    */
   agentQuestions?: Record<string, AgentQuestions[]>;
+
+  /**
+   * §4 v2.70 — 에이전트 검수 요청 카드 (agentId → AgentReview[]) 영속화.
+   * optional — 구버전 체크포인트 하위 호환. 미설정이면 빈 맵으로 복원.
+   * 검수 요청은 세션을 넘어 의미 있는 산출물 트레이스라 영속 대상.
+   */
+  agentReviews?: Record<string, AgentReview[]>;
 
   /**
    * §3.2.1-3 v2.63 — 명시적으로 삭제된 커스텀 에이전트 sessionId 묘비.

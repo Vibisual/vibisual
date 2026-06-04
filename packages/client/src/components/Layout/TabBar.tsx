@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useGraphStore } from '../../stores/graphStore.js';
 import type { IframeTab } from '../../stores/graphStore.js';
 import { TabContextMenu } from './TabContextMenu.js';
+import { HoverTooltip } from './HoverTooltip.js';
 
 type TabItem =
   | {
@@ -624,7 +625,7 @@ export function TabBar(): React.JSX.Element | null {
                   </svg>
                 </span>
               )}
-              <span className="min-w-0 flex-1 truncate">{item.name}</span>
+              <HoverTooltip className="min-w-0 flex-1 truncate" label={item.name} />
               {item.count > 0 && (() => {
                 const dotState: ProjectDotState =
                   item.activeCount > 0
@@ -704,7 +705,7 @@ export function TabBar(): React.JSX.Element | null {
             <svg className="h-3 w-3 flex-shrink-0" viewBox="0 0 24 24" fill="currentColor" fillOpacity={0.6} stroke="currentColor" strokeWidth={1.5}>
               <path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zM4 12c0-.93.16-1.82.46-2.65L8 12.83V14a2 2 0 0 0 2 2v3.73A8.01 8.01 0 0 1 4 12zm14.54 3.35A2 2 0 0 0 17 14h-1v-3a1 1 0 0 0-1-1H9V8h2a1 1 0 0 0 1-1V5.08A7.97 7.97 0 0 1 20 12c0 1.2-.27 2.34-.74 3.35z" />
             </svg>
-            <span className="min-w-0 flex-1 truncate">{item.tab.label}</span>
+            <HoverTooltip className="min-w-0 flex-1 truncate" label={item.tab.label} />
             <span className={`flex-shrink-0 rounded px-1 text-[9px] font-semibold ${item.tab.serverKind === 'frontend' ? 'bg-sky-500/20 text-sky-400' : 'bg-amber-500/20 text-amber-400'}`}>
               {item.tab.serverKind === 'frontend' ? t('common.serverKind.frontendShort') : t('common.serverKind.backendShort')}
             </span>

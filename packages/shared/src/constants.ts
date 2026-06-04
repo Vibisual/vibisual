@@ -145,6 +145,21 @@ export const BUBBLE_STYLES: Record<BubbleType, BubbleStyleConfig> = {
   },
 };
 
+/**
+ * §2.2 (v2.67, C안) — Hook 에이전트(외부 Claude Code 훅 캡처, `customCreated=false`) 전용 본체 스타일.
+ * Custom/CMD(우리가 오케스트레이션, `BUBBLE_STYLES.agent`=#3B82F6)와 **같은 파랑 계열**이되 더 어둡고 탁한
+ * 네이비로 **명도만** 구분한다. `bubbleType` 은 그대로 'agent' — `BubbleNode` 가 `!customCreated` 일 때만
+ * `baseStyle` 을 이 상수로 치환한다(새 BubbleType 추가 ❌). Auto(#1E3A8A, `bubbleType='auto'`)와는 한 톤 더
+ * 죽인 색(#1E3A6B) + 별 아이콘/`Auto:` 라벨로 구분. glow 는 활성 시 Custom 파랑(#3B82F6)으로 살아남는다.
+ */
+export const HOOK_AGENT_STYLE: BubbleStyleConfig = {
+  color: '#1E3A6B',
+  glow: '#3B82F6',
+  icon: 'agent',
+  ringIdle: 'border-blue-900',
+  ringActive: 'border-blue-700 shadow-lg shadow-blue-900/40',
+};
+
 /** 편의 접근자 — BUBBLE_STYLES[type].color */
 export const BUBBLE_COLORS: Record<BubbleType, string> = Object.fromEntries(
   Object.entries(BUBBLE_STYLES).map(([k, v]) => [k, v.color]),
@@ -1882,6 +1897,50 @@ JSON
 - **질문이 없으면(단순 완료·일상 대화) 호출하지 마라.** 질문 카드는 "사용자 답이 필요할 때만" 뜨는 게 목적이다.
 - 자연어 본문에 같은 질문·제안 답을 목록으로 다시 나열하지 마라 — 그건 이 카드가 보여준다. 본문은 짧은 맥락만.
 - 이 신고는 **표시 전용** — 실제 작업/판정 로직과 무관하다.
+- 토큰 헤더(\`x-vibisual-hook-token\`)가 없으면 401 이다. 위 예시에 이미 포함돼 있다.`;
+}
+
+/** agentId 당 보관하는 검수 요청 카드 최대 개수 (ring buffer 캡, 초과 시 오래된 것부터 제거). */
+export const AGENT_REVIEWS_MAX_PER_AGENT = 50;
+
+/**
+ * §4 v2.70 — 커스텀/스폰 에이전트에게 주입할 "검수 요청" 지시문 (시스템 프롬프트 꼬리표).
+ *
+ * 작업 신고(`buildAgentReportRules`)·질문 카드(`buildAgentQuestionRules`)와 동일 인프라(토큰 인증 loopback)이지만
+ * **성격이 다르다**: 사용자가 **지시한 작업**(특히 버그 수정·기능 변경)을 끝낸 뒤, 사용자가 직접 해야 할 일
+ * (`userActions`)이 아니라 **결과가 맞는지 확인(검수)**해 달라고 요청하는 카드. IDE 가 보라색 검수 카드로 렌더.
+ * Hook 에이전트는 spawn/rules 통제 밖이라 이 지시문이 안 들어가 호출하지 않는다.
+ */
+export function buildAgentReviewRules(args: {
+  serverBase: string;
+  serverToken: string;
+  agentId: string;
+  subAgentId?: string;
+}): string {
+  const { serverBase, serverToken, agentId, subAgentId } = args;
+  const subField = subAgentId ? `"${subAgentId}"` : 'null';
+  return `
+
+# 검수 요청 (Vibisual IDE 검수 카드)
+사용자가 **지시한 작업**(특히 "이 버튼 오류 고쳐라" 같은 버그 수정·기능 변경)을 끝내, 사용자가 **결과가 맞는지 확인(검수)**해야 의미가 있는 완료 보고에서만 아래 엔드포인트로 **검수 요청**을 함께 보낸다. Vibisual IDE 가 이를 **보라색 검수 카드**로 띄워, 사용자가 "무슨 동작을 어떻게 고쳤는지 + 무엇을 확인하면 되는지"를 한눈에 보게 한다.
+
+작업 신고(\`/api/agent-report\` 의 \`userActions\`)와 **성격이 다르다**: 작업 신고의 \`userActions\` 는 "AI 가 못 하니 **네가 직접 해**"(빌드 실행·에디터 조작·외부 승인)인 반면, 검수 요청은 **AI 가 이미 완료한 작업의 결과를 사용자가 확인**하는 것이다. 사용자가 직접 손대야 할 일이 있으면 작업 신고를, 완료한 작업의 검수만 필요하면 검수 요청을 보낸다(둘 다 해당하면 둘 다 보내도 된다).
+
+- \`instruction\`: 어떤 지시였는지 한 줄 맥락 (선택, 예: "이 버튼 클릭 시 X 오류 고쳐라").
+- \`changes\`: 무슨 동작을 어떻게 고쳤는지 (1~N). **이게 비면 검수 요청 자체를 보내지 마라.**
+- \`checkpoints\`: 사용자가 확인할 검수 포인트·방법 (0~N, 예: "그 버튼을 다시 눌러 정상 동작 확인").
+
+**단순 완료·일상 대화·질문 답변·조사 보고에서는 호출하지 마라.** 사용자가 지시→완료→검수가 필요한 흐름일 때만 보낸다. 검수 요청이 있는 완료 보고 직전에만 Bash 로 1회 호출한다(실패해도 무시하고 자연어 보고는 그대로 진행):
+\`\`\`bash
+curl -s -X POST "${serverBase}/api/agent-review" \\
+  -H 'x-vibisual-hook-token: ${serverToken}' \\
+  -H 'Content-Type: application/json' --data-binary @- <<'JSON'
+{"agentId":"${agentId}","subAgentId":${subField},"instruction":"받은 지시 한 줄","changes":["무슨 동작을 이렇게 고쳤다 1","고친 내용 2"],"checkpoints":["사용자가 확인할 검수 포인트 1"]}
+JSON
+\`\`\`
+- **\`changes\` 가 비어 있으면 검수 요청 자체를 보내지 마라** — 빈 신고는 카드만 늘려 신호를 묻는다.
+- **검수 요청으로 보낸 내용(\`instruction\`/\`changes\`/\`checkpoints\`)을 자연어 보고 본문에 목록·헤딩으로 다시 나열하지 마라.** 그 목록은 이 카드가 보여준다 — 본문에 또 풀어 쓰면 사용자가 같은 내용을 두 번 읽게 돼 취지가 무너진다. **검수 요청을 보낼 때 자연어 본문은 1~2문장 결론으로 최소화**하고, 한 일·검수 포인트의 목록 자체는 카드(changes/checkpoints)에만 담는다.
+- 이 신고는 **표시 전용** — 실제 작업/판정 로직과 무관하며, 보내든 안 보내든 결과엔 영향이 없다.
 - 토큰 헤더(\`x-vibisual-hook-token\`)가 없으면 401 이다. 위 예시에 이미 포함돼 있다.`;
 }
 

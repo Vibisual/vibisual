@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { BubbleData, ActivityEdge, BashEntry, ServerEntry, AgentEvent, FileEdit, AgentPhase, ProjectInfo, QueuedCommand, SubAgent, ServerKind, PipelineType, PipelineState, AgentConfig, SubAgentStreamEvent, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, UiLocale, ProjectMetaSnapshot, AppState, AppStatePatch, CommentBox, Conti, ActiveContiWork, ToolDurationEntry, CompactCount, RateLimitInfo, DiagnosticEntry, AutoAgentSummary, ModelRegistry, UserDefaults, AgentReport, AgentQuestions } from '@vibisual/shared';
+import type { BubbleData, ActivityEdge, BashEntry, ServerEntry, AgentEvent, FileEdit, AgentPhase, ProjectInfo, QueuedCommand, SubAgent, ServerKind, PipelineType, PipelineState, AgentConfig, SubAgentStreamEvent, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, UiLocale, ProjectMetaSnapshot, AppState, AppStatePatch, CommentBox, Conti, ActiveContiWork, ToolDurationEntry, CompactCount, RateLimitInfo, DiagnosticEntry, AutoAgentSummary, ModelRegistry, UserDefaults, AgentReport, AgentQuestions, AgentReview } from '@vibisual/shared';
 import { DEFAULT_UI_LOCALE } from '@vibisual/shared';
 import { changeUiLocale } from '../i18n/index.js';
 import { calcFileSizeRange } from '../utils/sizeCalc.js';
@@ -94,6 +94,29 @@ function saveJSON(key: string, value: unknown): void {
     if (value === null || value === undefined) localStorage.removeItem(key);
     else localStorage.setItem(key, JSON.stringify(value));
   } catch { /* noop */ }
+}
+
+// §5.3 #28 v2.69 — IDE TerminalInput 세션별 입력 텍스트 영속화.
+// 사용자가 Run 안 누른 입력 텍스트를 창을 닫았다 다시 열거나 앱을 재시작해도
+// 세션 키(agentSessionInputKey = `${agentId}|${sessionId}`)별로 유지한다.
+// 첨부(blob URL·서버 임시 경로)는 리로드 후 못 살리므로 text 만 저장. 값 = Record<key, string>.
+const SESSION_INPUT_DRAFTS_KEY = 'vibisual:sessionInputDrafts';
+
+function loadSessionInputDrafts(): Record<string, AgentSessionInputDraft> {
+  const textMap = loadJSON<Record<string, string>>(SESSION_INPUT_DRAFTS_KEY, {});
+  const out: Record<string, AgentSessionInputDraft> = {};
+  for (const [k, text] of Object.entries(textMap)) {
+    if (typeof text === 'string' && text.length > 0) out[k] = { text, attachments: [] };
+  }
+  return out;
+}
+
+function saveSessionInputDrafts(drafts: Record<string, AgentSessionInputDraft>): void {
+  const textMap: Record<string, string> = {};
+  for (const [k, v] of Object.entries(drafts)) {
+    if (v.text.length > 0) textMap[k] = v.text;
+  }
+  saveJSON(SESSION_INPUT_DRAFTS_KEY, Object.keys(textMap).length > 0 ? textMap : null);
 }
 
 /**
@@ -288,6 +311,8 @@ interface GraphState {
   agentReports: Record<string, AgentReport[]>;
   /** §4 v2.60 — 에이전트 질문 카드 (agentId → AgentQuestions[]). IDE 질문 카드. */
   agentQuestions: Record<string, AgentQuestions[]>;
+  /** §4 v2.70 — 에이전트 검수 요청 카드 (agentId → AgentReview[]). IDE 검수 카드. */
+  agentReviews: Record<string, AgentReview[]>;
   /** §4 v2.38 — 동적 모델 레지스트리 (서버 modelRegistryService 가 시드+/v1/models 머지 후 push). */
   modelRegistry: ModelRegistry | null;
   /** §4 v2.42 — 사용자 글로벌 옵션 (Options 창 SSOT). */
@@ -586,6 +611,8 @@ interface GraphState {
   applyAgentReports: (reports: Record<string, AgentReport[]> | undefined) => void;
   /** §4 v2.60 — graph_snapshot 의 에이전트 질문 카드 반영. */
   applyAgentQuestions: (questions: Record<string, AgentQuestions[]> | undefined) => void;
+  /** §4 v2.70 — graph_snapshot 의 에이전트 검수 요청 카드 반영. */
+  applyAgentReviews: (reviews: Record<string, AgentReview[]> | undefined) => void;
   /** §4 v1.98 — graph_snapshot 수신 시 진단 에러 로그 반영. */
   applyDiagnosticLog: (log: DiagnosticEntry[] | undefined) => void;
   /** §4 v2.38 — graph_snapshot 또는 model_registry_updated 수신 시 레지스트리 반영. */
@@ -853,6 +880,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   autoAgentSummaries: {},
   agentReports: {},
   agentQuestions: {},
+  agentReviews: {},
   modelRegistry: null,
   userDefaults: null,
   rateLimits: null,
@@ -874,7 +902,8 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     });
     return cur;
   },
-  agentSessionInputs: {},
+  // v2.69 — 부팅 시 localStorage 에 저장된 세션별 입력 텍스트로 hydrate(첨부는 항상 빈 배열).
+  agentSessionInputs: loadSessionInputDrafts(),
   setAgentSessionInputText: (agentId, sessionId, text) =>
     set((s) => {
       const key = agentSessionInputKey(agentId, sessionId);
@@ -884,7 +913,9 @@ export const useGraphStore = create<GraphState>((set, get) => ({
         text,
         attachments: prev?.attachments ?? [],
       };
-      return { agentSessionInputs: { ...s.agentSessionInputs, [key]: nextEntry } };
+      const agentSessionInputs = { ...s.agentSessionInputs, [key]: nextEntry };
+      saveSessionInputDrafts(agentSessionInputs); // v2.69 — 키 입력마다 텍스트 영속
+      return { agentSessionInputs };
     }),
   updateAgentSessionInputAttachments: (agentId, sessionId, updater) =>
     set((s) => {
@@ -905,6 +936,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       if (!(key in s.agentSessionInputs)) return s;
       const next = { ...s.agentSessionInputs };
       delete next[key];
+      saveSessionInputDrafts(next); // v2.69 — 제출/클리어 시 영속 텍스트도 제거
       return { agentSessionInputs: next };
     }),
   takeAgentSessionInputs: (agentId) => {
@@ -915,13 +947,22 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     const next: Record<string, AgentSessionInputDraft> = {};
     for (const [k, v] of Object.entries(all)) {
       if (k.startsWith(prefix)) {
-        removed.push(...v.attachments);
-        changed = true;
+        // v2.69 — IDE 닫힘 정리: 첨부(blob/서버 임시파일)는 반환해 cleanup 하되,
+        // 입력 텍스트는 보존한다 → 창을 닫았다 다시 열어도 세션별 텍스트가 유지된다.
+        if (v.attachments.length > 0) {
+          removed.push(...v.attachments);
+          changed = true;
+        }
+        if (v.text.length > 0) next[k] = { text: v.text, attachments: [] };
+        else changed = true; // 텍스트도 첨부도 없는 빈 항목만 제거
         continue;
       }
       next[k] = v;
     }
-    if (changed) set({ agentSessionInputs: next });
+    if (changed) {
+      set({ agentSessionInputs: next });
+      saveSessionInputDrafts(next);
+    }
     return removed;
   },
   openContiBoard: (agentId, contiId) => set({ contiBoardOpen: { agentId, contiId } }),
@@ -1733,6 +1774,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   applyAutoAgentSummaries: (summaries) => set({ autoAgentSummaries: summaries ?? {} }),
   applyAgentReports: (reports) => set({ agentReports: reports ?? {} }),
   applyAgentQuestions: (questions) => set({ agentQuestions: questions ?? {} }),
+  applyAgentReviews: (reviews) => set({ agentReviews: reviews ?? {} }),
   applyDiagnosticLog: (log) => set({ diagnosticLog: log ?? [] }),
   applyModelRegistry: (reg) => set({ modelRegistry: reg ?? null }),
   applyUserDefaults: (d) => set({ userDefaults: d ?? null }),

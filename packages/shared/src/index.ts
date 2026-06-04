@@ -26,6 +26,7 @@ export type {
   AgentReport,
   AgentQuestionItem,
   AgentQuestions,
+  AgentReview,
   GraphSnapshot,
   Result,
   CommandPayload,
@@ -144,6 +145,7 @@ export {
   RECONNECT_BASE_DELAY,
   WS_BATCH_INTERVAL,
   BUBBLE_STYLES,
+  HOOK_AGENT_STYLE,
   BUBBLE_COLORS,
   READ_TOOLS,
   EDGE_STYLE,
@@ -285,6 +287,8 @@ export {
   buildAgentReportRules,
   AGENT_QUESTIONS_MAX_PER_AGENT,
   buildAgentQuestionRules,
+  AGENT_REVIEWS_MAX_PER_AGENT,
+  buildAgentReviewRules,
 } from './constants.js';
 
 // §5.3 #28 v1.60 — STAMP_CATALOG 메타 타입 (constants.ts 에 정의됨)

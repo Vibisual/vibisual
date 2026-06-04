@@ -38,6 +38,7 @@ import { TaskEdgeDragPreview } from './TaskEdgeDragPreview.js';
 import { TaskEdgePopupPreview } from './TaskEdgePopupPreview.js';
 import { computeAngularOffsets, computeParallelOffsets } from './taskEdgeOffsets.js';
 import { useCanvasClipboard } from '../../hooks/useCanvasClipboard.js';
+import { useBookmarks } from '../../hooks/useBookmarks.js';
 import { useTranslation } from 'react-i18next';
 
 const nodeTypes: NodeTypes = { bubble: BubbleNode, commentBox: CommentBoxNode };
@@ -493,6 +494,25 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       setCanvasToast({ msg, kind });
     }, []),
     messages: clipboardMessages,
+  });
+
+  // §5.4 #30 v2.66 — 버블 북마크 / 단축키 점프 (Alt+숫자 지정, 숫자 점프).
+  const bookmarkMessages = useMemo(() => ({
+    assigned: (slot: string, label: string) =>
+      t('canvas.bookmark.assigned', { slot, label, defaultValue: 'Bookmark {{slot}} → {{label}}' }),
+    assignEmpty: t('canvas.bookmark.assignEmpty', {
+      defaultValue: 'Nothing to bookmark — select a bubble or open an agent IDE first',
+    }),
+    jumped: (label: string) => t('canvas.bookmark.jumped', { label, defaultValue: 'Jumped to {{label}}' }),
+    jumpEmpty: (slot: string) =>
+      t('canvas.bookmark.jumpEmpty', { slot, defaultValue: 'Bookmark {{slot}} is empty' }),
+    jumpMissing: t('canvas.bookmark.jumpMissing', { defaultValue: 'Bookmark target is no longer available' }),
+  }), [t]);
+  useBookmarks({
+    onToast: useCallback((msg: string, kind: 'success' | 'error') => {
+      setCanvasToast({ msg, kind });
+    }, []),
+    messages: bookmarkMessages,
   });
 
   // 폴더 내부 뷰 데이터 (currentFolderId가 null이면 빈 결과)

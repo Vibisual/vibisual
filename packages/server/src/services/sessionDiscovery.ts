@@ -520,10 +520,19 @@ function stripMarkdown(raw: string): string {
 /** JSONL 엔트리에서 텍스트 블록 추출 */
 function extractText(entry: Record<string, unknown>): string | null {
   const msg = entry['message'] as Record<string, unknown> | undefined;
-  if (!msg || !Array.isArray(msg['content'])) return null;
+  if (!msg) return null;
+
+  // §4 v2.68 — CMD(인터랙티브 REPL) 의 user 메시지는 content 가 평문 문자열이다(헤드리스/도구 경로는
+  //   블록 배열). 문자열만 처리하던 기존 분기는 이를 건너뛰어 사용자가 친 입력이 Results 에서 누락됐다.
+  const content = msg['content'];
+  if (typeof content === 'string') {
+    const cleaned = stripMarkdown(content);
+    return cleaned || null;
+  }
+  if (!Array.isArray(content)) return null;
 
   const texts: string[] = [];
-  for (const block of msg['content'] as unknown[]) {
+  for (const block of content as unknown[]) {
     if (typeof block !== 'object' || block === null) continue;
     const b = block as Record<string, unknown>;
     if (b['type'] === 'text' && typeof b['text'] === 'string') {

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-06-04
+
+### Added
+- **Review request cards.** When an agent finishes a task you asked for — especially a bug fix or behaviour change — it can file a structured "review request" that the IDE renders as a purple card: the instruction it was given, what it changed, and what you should verify. This is distinct from a work report's "what you need to do" card — a review card is for double-checking work the AI has already completed, not for handing you a manual step.
+- **Bookmarks.** Assign canvas bubbles or an open agent IDE to numbered bookmark slots and jump straight back to them later, with an on-screen confirmation when you set or jump to one (and a clear message when a slot is empty or its target no longer exists).
+- **Hover tooltips on tab labels.** When a tab name is too long to fit and gets truncated, hovering now shows the full label quickly — faster than the native browser tooltip, and rendered so it isn't clipped by the tab bar. Agent tabs can also be renamed in place.
+
+### Changed
+- **Hook agents are easier to tell apart.** Agent bubbles captured from external Claude Code hooks now use a darker navy shade, distinguishing them at a glance from the brighter blue of the custom / CMD agents you orchestrate yourself, while still keeping their blue active glow.
+
 ## [0.1.2] - 2026-06-02
 
 ### Added
@@ -48,6 +58,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - Dropped preset options from the custom agent settings.
 
-[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/Vibisual/vibisual/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/Vibisual/vibisual/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/Vibisual/vibisual/compare/v0.1.0...v0.1.1

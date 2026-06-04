@@ -789,6 +789,12 @@
       "copied": "Copied",
       "instant": "Send now",
       "instantSent": "Sent"
+    },
+    "review": {
+      "title": "Review request",
+      "instructionTitle": "Instruction given",
+      "changesTitle": "What was changed",
+      "checkpointsTitle": "Please verify"
     }
   },
   "bubbleMap": {
@@ -982,6 +988,13 @@
       "empty": "Canvas clipboard is empty",
       "failed": "Paste failed",
       "invalidVersion": "Clipboard format is incompatible with this version"
+    },
+    "bookmark": {
+      "assigned": "Bookmark {{slot}} → {{label}}",
+      "assignEmpty": "Nothing to bookmark — select a bubble or open an agent IDE first",
+      "jumped": "Jumped to {{label}}",
+      "jumpEmpty": "Bookmark {{slot}} is empty",
+      "jumpMissing": "Bookmark target is no longer available"
     }
   },
   "common": {

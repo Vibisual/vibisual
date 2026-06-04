@@ -222,6 +222,13 @@ function mergeSnapshots(a: GraphSnapshot, b: GraphSnapshot): GraphSnapshot {
       if (!av && !bv) return undefined;
       return { ...(av ?? {}), ...(bv ?? {}) };
     })(),
+    // §4 v2.70 — 에이전트 검수 요청 카드 (agentReports 와 동형).
+    agentReviews: (() => {
+      const av = a.agentReviews;
+      const bv = b.agentReviews;
+      if (!av && !bv) return undefined;
+      return { ...(av ?? {}), ...(bv ?? {}) };
+    })(),
   };
 }
 
@@ -1088,6 +1095,14 @@ export class ProjectGraphManager {
     const inst = this.findInstanceByAgentId(q.agentId) ?? this.primaryInstance();
     if (!inst) return false;
     inst.addAgentQuestions(q);
+    return true;
+  }
+
+  /** §4 v2.70 — 에이전트 검수 요청 카드 적재. review.agentId 소속 인스턴스로 라우팅(addAgentReport 와 동형). */
+  addAgentReview(review: import('@vibisual/shared').AgentReview): boolean {
+    const inst = this.findInstanceByAgentId(review.agentId) ?? this.primaryInstance();
+    if (!inst) return false;
+    inst.addAgentReview(review);
     return true;
   }
 

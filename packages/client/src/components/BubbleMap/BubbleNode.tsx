@@ -2,7 +2,7 @@ import { memo, useMemo, useCallback, useState, useRef, useEffect } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import { useTranslation } from 'react-i18next';
 import type { BubbleData, BubbleStyleConfig } from '@vibisual/shared';
-import { BUBBLE_STYLES, BUBBLE_TEXT_WIDTH_RATIO, BUBBLE_TEXT_REF_SIZE, GIT_STATUS_CONFIG } from '@vibisual/shared';
+import { BUBBLE_STYLES, HOOK_AGENT_STYLE, BUBBLE_TEXT_WIDTH_RATIO, BUBBLE_TEXT_REF_SIZE, GIT_STATUS_CONFIG } from '@vibisual/shared';
 import { calcBubbleSize } from '../../utils/sizeCalc.js';
 import { useGraphStore, selectIDEOverlay } from '../../stores/graphStore.js';
 
@@ -211,7 +211,10 @@ export const BubbleNode = memo(function BubbleNode({
   // React Flow v12: positionAbsoluteX/Y로 전달
   const xPos = (rest['positionAbsoluteX'] ?? rest['xPos']) as number | undefined;
   const yPos = (rest['positionAbsoluteY'] ?? rest['yPos']) as number | undefined;
-  const baseStyle = BUBBLE_STYLES[data.bubbleType];
+  // §2.2 v2.67 (C안) — Hook 에이전트(외부 캡처, customCreated=false)는 Custom/CMD(#3B82F6)와 같은 파랑
+  //   계열의 더 어둡고 탁한 톤(HOOK_AGENT_STYLE=#1E3A6B)으로 명도만 구분. bubbleType 은 그대로 'agent'.
+  const isHookAgent = data.bubbleType === 'agent' && !data.customCreated;
+  const baseStyle = isHookAgent ? HOOK_AGENT_STYLE : BUBBLE_STYLES[data.bubbleType];
   // 에이전트 커스텀 색상 — AgentConfig.color가 있으면 기본 스타일 오버라이드
   const customColor = useGraphStore((s) => data.bubbleType === 'agent' ? s.agentConfigs[data.id]?.color : undefined);
   // §4 v2.63 — CMD(인터랙티브 터미널) 에이전트면 라벨 옆 'CMD' 배지로 구분.
@@ -326,9 +329,6 @@ export const BubbleNode = memo(function BubbleNode({
   const effectiveContextMax = effectiveSubOverride
     ? effectiveSubOverride.contextMax
     : data.contextMax;
-  const effectiveContextSubLabel = effectiveSubOverride
-    ? effectiveSubOverride.label
-    : data.contextSourceSubLabel;
 
   const contextRatio = isAgent && effectiveContextMax ? (effectiveContextUsed ?? 0) / effectiveContextMax : 0;
   const isCreating = data.creatingStatus === 'creating';
@@ -656,12 +656,12 @@ export const BubbleNode = memo(function BubbleNode({
         </div>
 
         {/* 에이전트: 모델명 + 컨텍스트 + 토큰 합산.
-            커스텀 에이전트의 컨텍스트가 특정 서브에이전트에서 유래했으면 "opus-4-7 / Sub #7" 로 표시 */}
+            버블 본체에는 세션 라벨(서브에이전트 이름)을 표시하지 않는다 — 자동 주제명(첫 프롬프트)이
+            긴 문장이라 작은 버블에 노이즈가 된다. 어느 세션 컨텍스트인지는 IDE 탭에서 확인. */}
         {isAgent && effectiveModelName && (
           <div className="absolute z-10 flex flex-col items-center" style={{ bottom: Math.max(3, Math.round(6 * ts)) }}>
             <span className="font-semibold text-white/70" style={{ fontSize: Math.max(5, Math.round(9 * ts)) }}>
               {formatModelName(effectiveModelName)}
-              {effectiveContextSubLabel ? ` / ${effectiveContextSubLabel}` : ''}
             </span>
             {effectiveContextMax && (
               <span className="text-white/50" style={{ fontSize: Math.max(5, Math.round(8 * ts)) }}>
