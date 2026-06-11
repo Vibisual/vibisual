@@ -8,8 +8,9 @@ import {
   CONTI_AGENT_RULES,
   isOpusModel,
   resolveAliasToLatest,
+  listModelFamilies,
+  parseModelSemver,
 } from '@vibisual/shared';
-import type { ModelFamily } from '@vibisual/shared';
 import { HexColorPicker } from 'react-colorful';
 import { ScrollFade } from '../ScrollFade.js';
 import { useGraphStore } from '../../stores/graphStore.js';
@@ -18,7 +19,9 @@ const API_BASE = '';
 
 interface SelectOption { value: string; description: string; disabled?: boolean }
 
-const MODEL_VALUES = ['opus', 'sonnet', 'haiku'] as const;
+// §4 v2.77 — Model 드롭다운은 더 이상 3종 하드코딩이 아니라 레지스트리 기반 동적 목록(`listModelFamilies`).
+//   기본 alias(폴백) 만 상수로 둔다.
+const KNOWN_MODEL_FAMILIES = ['opus', 'sonnet', 'haiku'] as const;
 const PERMISSION_VALUES = ['default', 'acceptEdits', 'plan', 'bypassPermissions'] as const;
 const ISOLATION_VALUES = ['none', 'worktree'] as const;
 // §4 v1.49 — Opus 4.7 신규 등급 'xhigh' (이전 'max' 대체)
@@ -337,11 +340,27 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
   const base = config ?? { ...DEFAULT_AGENT_CONFIG, color: currentColor };
   // v1.37 — STRICT outbound 엣지 타겟 툴은 소스에서 박탈(회색 표시). 서버 dispatch strip 과 동일.
   const strictStripSet = useStrictStripSet(agentId);
+  const modelRegistry = useGraphStore((s) => s.modelRegistry);
 
-  const MODEL_OPTIONS: SelectOption[] = useMemo(
-    () => MODEL_VALUES.map((v) => ({ value: v, description: t(`panel.agentConfig.model.${v}`) })),
-    [t],
-  );
+  // §4 v2.77 — Model 드롭다운을 레지스트리 기반 동적 목록으로. 기본 alias 3종은 항상 포함,
+  //   CLI-scan/`/v1/models` 가 발견한 신규 패밀리(fable/mythos 등)도 자동 추가. known 3종은 전용 설명,
+  //   미지 패밀리는 displayName(있으면) + 공통 'unknown' 설명으로 폴백.
+  const MODEL_OPTIONS: SelectOption[] = useMemo(() => {
+    const known = new Set<string>(KNOWN_MODEL_FAMILIES);
+    return listModelFamilies(modelRegistry).map((fam) => {
+      if (known.has(fam)) return { value: fam, description: t(`panel.agentConfig.model.${fam}`) };
+      const latest = modelRegistry?.entries.find((e) => e.family === fam && e.isLatestOfFamily)
+        ?? modelRegistry?.entries.find((e) => e.family === fam);
+      const label = latest?.displayName ?? fam;
+      return {
+        value: fam,
+        description: t('panel.agentConfig.model.unknown', {
+          defaultValue: '{{name}} — newly released model. Capabilities and cost inferred from family defaults.',
+          name: label,
+        }),
+      };
+    });
+  }, [t, modelRegistry]);
   const PERMISSION_OPTIONS: SelectOption[] = useMemo(() => PERMISSION_VALUES.map((v) => ({ value: v, description: t(`panel.agentConfig.permissionMode.${v}`) })), [t]);
   const ISOLATION_OPTIONS: SelectOption[] = useMemo(() => ISOLATION_VALUES.map((v) => ({ value: v, description: t(`panel.agentConfig.isolation.${v}`) })), [t]);
   const EFFORT_OPTIONS: SelectOption[] = useMemo(() => EFFORT_VALUES.map((v) => ({ value: v, description: t(`panel.agentConfig.effort.${v}`) })), [t]);
@@ -363,7 +382,6 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
   const [model, setModel] = useState(base.model);
   // §4 v2.38 — 특정 풀ID 핀. undefined = alias=latest 모드.
   const [modelVersion, setModelVersion] = useState<string | undefined>(base.modelVersion);
-  const modelRegistry = useGraphStore((s) => s.modelRegistry);
   // v1.37 — 툴 구성은 사용자 책임 (Bash 등 자동 포함 없음).
   const [tools, setTools] = useState<string[]>([...base.tools]);
   const [permissionMode, setPermissionMode] = useState(base.permissionMode);
@@ -394,8 +412,27 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
   const [saving, setSaving] = useState(false);
   const [contextItems, setContextItems] = useState<{ name: string; type: string; summary?: string; lines?: number; path?: string }[]>([]);
   const [contextOpen, setContextOpen] = useState(false);
-  const [availableSkills, setAvailableSkills] = useState<{ name: string; description: string; source: 'project' | 'plugin'; pluginName?: string }[]>([]);
+  const [availableSkills, setAvailableSkills] = useState<{ name: string; description: string; source: 'project' | 'global' | 'plugin'; pluginName?: string }[]>([]);
   const overlayRef = useRef<HTMLDivElement>(null);
+
+  // §5.5 #17-6 v2.73 — 오버레이 위젯 창 토글(packaged Electron + customCreated 한정).
+  const overlayAgentIds = useGraphStore((s) => s.overlayAgentIds);
+  const isCustomAgent = useGraphStore(
+    (s) => (s.nodeMap[agentId] as { customCreated?: boolean } | undefined)?.customCreated ?? false,
+  );
+  const hasOverlayApi = typeof window !== 'undefined' && !!window.api?.overlay;
+  const isInOverlay = overlayAgentIds.includes(agentId);
+  const handleToggleOverlay = useCallback(() => {
+    const ov = window.api?.overlay;
+    if (!ov) return;
+    if (isInOverlay) {
+      void ov.close(agentId);
+      return;
+    }
+    const projectId = useGraphStore.getState().agentProjects[agentId];
+    if (!projectId) return;
+    void ov.open({ agentId, projectId });
+  }, [agentId, isInOverlay]);
 
   const toolPicker = usePortalDropdown();
   const skillPicker = usePortalDropdown('left');
@@ -441,16 +478,14 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
   // CLI 바이너리 raw scan 결과에서 패밀리 필터 + semver 내림차순.
   // VSCode 스타일로 **최신 + 직전 1개** 만 노출 → 총 2 + Latest(alias) + Custom = 최대 4 옵션.
   const VERSION_OPTIONS = useMemo((): SelectOption[] => {
-    const family = (model === 'opus' || model === 'sonnet' || model === 'haiku') ? model as ModelFamily : null;
+    // §4 v2.77 — opus/sonnet/haiku 화이트리스트 제거. 현재 선택된 패밀리(alias) 에 해당하는
+    //   레지스트리 entry 가 있으면 그대로 버전 목록을 구성(신규 패밀리도 동일 경로).
+    const family = model || null;
     if (!family) return [];
     const fams = (modelRegistry?.entries ?? []).filter((e) => e.family === family);
     fams.sort((a, b) => {
-      const pa = /^claude-(?:opus|sonnet|haiku)-(\d+)-(\d{1,2})$/.exec(a.id);
-      const pb = /^claude-(?:opus|sonnet|haiku)-(\d+)-(\d{1,2})$/.exec(b.id);
-      const aMaj = pa ? Number(pa[1]) : 0;
-      const aMin = pa ? Number(pa[2]) : 0;
-      const bMaj = pb ? Number(pb[1]) : 0;
-      const bMin = pb ? Number(pb[2]) : 0;
+      const [aMaj, aMin] = parseModelSemver(a.id);
+      const [bMaj, bMin] = parseModelSemver(b.id);
       if (aMaj !== bMaj) return bMaj - aMaj;
       if (aMin !== bMin) return bMin - aMin;
       return b.id.localeCompare(a.id);
@@ -962,10 +997,20 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
               <div className="flex flex-wrap gap-1.5">
                 {skills.map((s) => {
                   const info = availableSkills.find((a) => a.name === s);
+                  const chipTone = info?.source === 'project'
+                    ? 'bg-emerald-500/15 text-emerald-400'
+                    : info?.source === 'global'
+                      ? 'bg-sky-500/15 text-sky-400'
+                      : 'bg-purple-500/15 text-purple-400';
+                  const xTone = info?.source === 'project'
+                    ? 'text-emerald-400/60'
+                    : info?.source === 'global'
+                      ? 'text-sky-400/60'
+                      : 'text-purple-400/60';
                   const chip = (
-                    <span key={s} className={`flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${info?.source === 'project' ? 'bg-emerald-500/15 text-emerald-400' : 'bg-purple-500/15 text-purple-400'}`}>
+                    <span key={s} className={`flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${chipTone}`}>
                       {s}
-                      <button type="button" onClick={() => removeSkill(s)} className={`ml-0.5 ${info?.source === 'project' ? 'text-emerald-400/60' : 'text-purple-400/60'} hover:text-red-400`}>×</button>
+                      <button type="button" onClick={() => removeSkill(s)} className={`ml-0.5 ${xTone} hover:text-red-400`}>×</button>
                     </span>
                   );
                   return info?.description ? <HoverTip key={s} text={info.description} className="inline-flex">{chip}</HoverTip> : chip;
@@ -982,6 +1027,18 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                         {availableSkills.filter((s) => s.source === 'project' && !skills.includes(s.name)).map((s) => (
                           <button key={s.name} type="button" onClick={() => { addSkill(s.name); skillPicker.close(); }} className="flex w-full flex-col gap-0.5 px-3 py-1.5 text-left transition-colors hover:bg-emerald-500/10">
                             <span className="text-xs font-medium text-emerald-400">{s.name}</span>
+                            {s.description && <span className="line-clamp-2 text-[10px] leading-tight text-gray-500">{s.description}</span>}
+                          </button>
+                        ))}
+                      </>
+                    )}
+                    {/* Global Skills — 홈 ~/.claude (전 프로젝트 공통) */}
+                    {availableSkills.some((s) => s.source === 'global' && !skills.includes(s.name)) && (
+                      <>
+                        <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-sky-500/70">Global</div>
+                        {availableSkills.filter((s) => s.source === 'global' && !skills.includes(s.name)).map((s) => (
+                          <button key={s.name} type="button" onClick={() => { addSkill(s.name); skillPicker.close(); }} className="flex w-full flex-col gap-0.5 px-3 py-1.5 text-left transition-colors hover:bg-sky-500/10">
+                            <span className="text-xs font-medium text-sky-400">{s.name}</span>
                             {s.description && <span className="line-clamp-2 text-[10px] leading-tight text-gray-500">{s.description}</span>}
                           </button>
                         ))}
@@ -1026,9 +1083,34 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
         </ScrollFade>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-2 border-t border-gray-700 px-4 py-3">
-          <button type="button" onClick={onClose} className="rounded px-3 py-1.5 text-xs text-gray-400 hover:bg-gray-800 hover:text-gray-200">{t('panel.agentConfig.cancel')}</button>
-          <button type="button" onClick={handleSave} disabled={saving} className="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-50">{saving ? t('panel.agentConfig.saving') : t('panel.agentConfig.save')}</button>
+        <div className="flex items-center justify-between gap-2 border-t border-gray-700 px-4 py-3">
+          {/* §5.5 #17-6 — 오버레이 위젯 토글. packaged + customCreated 한정. */}
+          {hasOverlayApi && isCustomAgent ? (
+            <button
+              type="button"
+              onClick={handleToggleOverlay}
+              title={isInOverlay
+                ? t('overlay.removeFromOverlay', { defaultValue: 'Remove this bubble from the desktop overlay' })
+                : t('overlay.sendToOverlay', { defaultValue: 'Pop this bubble out as an always-on-top desktop widget' })}
+              className={`flex items-center gap-1.5 rounded px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                isInOverlay
+                  ? 'bg-violet-500/20 text-violet-300 hover:bg-violet-500/30'
+                  : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
+              }`}
+            >
+              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="4" width="13" height="13" rx="2" />
+                <path d="M21 8v10a2 2 0 0 1-2 2H9" />
+              </svg>
+              {isInOverlay
+                ? t('overlay.removeFromOverlayLabel', { defaultValue: 'In overlay' })
+                : t('overlay.sendToOverlayLabel', { defaultValue: 'Overlay' })}
+            </button>
+          ) : <span />}
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={onClose} className="rounded px-3 py-1.5 text-xs text-gray-400 hover:bg-gray-800 hover:text-gray-200">{t('panel.agentConfig.cancel')}</button>
+            <button type="button" onClick={handleSave} disabled={saving} className="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-50">{saving ? t('panel.agentConfig.saving') : t('panel.agentConfig.save')}</button>
+          </div>
         </div>
       </div>
 

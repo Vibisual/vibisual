@@ -526,9 +526,12 @@ export function TabBar(): React.JSX.Element | null {
   // 탭이 0개여도 wrapper 는 유지 — 빈 영역이 윈도우 드래그 영역으로 동작하도록.
   // (TabBar 가 return null 하면 부모 flex-1 도 사라져 드래그 영역 자체가 없어진다.)
 
-  // §3.7 v2.13/v2.14 — Chrome 스타일 탭. h-full 로 헤더(h-9) 꽉 채움, 고정 폭(w-40),
-  // 라벨 truncate, 활성 탭은 콘텐츠 배경(gray-950) + 상단 2px 액센트 → 헤더 하단 구분선을
-  // "씹고" 콘텐츠로 떨어지는 tab-folder 효과. 탭 간 1px 우측 구분선.
+  // §3.7 v2.13/v2.14 — Chrome 스타일 탭. 폭 w-32, 라벨 truncate, 탭 간 1px 우측 구분선.
+  // tab-folder 연결 효과(헤더 border-b 제거 후 색·높이로만 구현 — 고정 px 폭 키우기 ❌):
+  //  · 활성 = h-full 로 헤더(h-9) 꽉 채움 + 콘텐츠 배경(gray-950) + 상단 2px 액센트 + rounded-t.
+  //    헤더 밑줄이 없어 활성 탭 바닥(gray-950)이 캔버스(BubbleMap bg-gray-950)로 끊김 없이 이어짐.
+  //  · 비활성 = mt-[5px] + h-[calc(100%-5px)] 로 위가 들여진 "작고 눌리지 않은" 탭(상대적으로 활성이 큼).
+  //  (이전엔 overflow-y-hidden 컨테이너 안에서 after 세로 브리지로 밑줄을 덮으려 했으나 잘려서 안 보였음.)
   // §5.4 #14-1 — redock-hover 가 활성이면 탭바 자체에 드롭존 글로우. 별창 헤더가 메인 탭바 위로
   // 옮겨와 있을 때 사용자에게 "여기 떨어뜨리면 합쳐짐" 시각 신호.
   const tabBarRedockGlow = redockHoverKey !== null;
@@ -602,12 +605,12 @@ export function TabBar(): React.JSX.Element | null {
               onDragOver={(e) => handleDragOver(e, idx)}
               onDragEnd={handleDragEnd}
               onContextMenu={(e) => handleContextMenu(e, item, idx)}
-              className={`group app-nodrag relative flex h-full w-32 flex-shrink-0 items-center gap-1.5 border-r border-black/30 px-2.5 text-[12px] font-medium transition-colors duration-150 cursor-grab select-none ${
+              className={`group app-nodrag relative flex w-32 flex-shrink-0 items-center gap-1.5 border-r border-black/30 px-2.5 text-[12px] font-medium transition-all duration-150 cursor-grab select-none ${
                 isDragging ? 'opacity-40' : ''
               } ${
                 isActive
-                  ? 'bg-gray-950 text-white/90 before:absolute before:inset-x-0 before:top-0 before:h-[2px] before:bg-blue-400 after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-gray-950'
-                  : 'bg-black/25 text-gray-400 hover:bg-black/40 hover:text-gray-200'
+                  ? 'h-full rounded-t-md border-t-2 border-t-blue-400 bg-gray-950 text-white/90'
+                  : 'mt-[5px] h-[calc(100%-5px)] rounded-t bg-black/25 text-gray-400 hover:bg-black/40 hover:text-gray-200'
               }`}
               onClick={() => useGraphStore.getState().setActiveProject(item.name)}
             >
@@ -679,12 +682,12 @@ export function TabBar(): React.JSX.Element | null {
             onDragOver={(e) => handleDragOver(e, idx)}
             onDragEnd={handleDragEnd}
             onContextMenu={(e) => handleContextMenu(e, item, idx)}
-            className={`group app-nodrag relative flex h-full w-32 flex-shrink-0 items-center gap-1.5 border-r border-black/30 px-2.5 text-[12px] font-medium transition-colors duration-150 cursor-grab select-none ${
+            className={`group app-nodrag relative flex w-32 flex-shrink-0 items-center gap-1.5 border-r border-black/30 px-2.5 text-[12px] font-medium transition-all duration-150 cursor-grab select-none ${
               isDragging ? 'opacity-40' : ''
             } ${
               isActive
-                ? 'bg-gray-950 text-sky-300 before:absolute before:inset-x-0 before:top-0 before:h-[2px] before:bg-sky-400 after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-gray-950'
-                : 'bg-black/25 text-gray-400 hover:bg-black/40 hover:text-gray-200'
+                ? 'h-full rounded-t-md border-t-2 border-t-sky-400 bg-gray-950 text-sky-300'
+                : 'mt-[5px] h-[calc(100%-5px)] rounded-t bg-black/25 text-gray-400 hover:bg-black/40 hover:text-gray-200'
             }`}
             onClick={() => useGraphStore.getState().setActiveIframeTab(item.tab.id)}
           >

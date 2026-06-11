@@ -11,12 +11,14 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import type { AgentConfig, UserDefaults, ModelFamily, ClaudeInstallsInfo, ClaudeInstall } from '@vibisual/shared';
+import type { AgentConfig, UserDefaults, ClaudeInstallsInfo, ClaudeInstall } from '@vibisual/shared';
 import {
   AVAILABLE_AGENT_TOOLS,
   DEFAULT_AGENT_CONFIG,
   isOpusModel,
   resolveAliasToLatest,
+  listModelFamilies,
+  parseModelSemver,
 } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 
@@ -27,7 +29,7 @@ type CategoryKey = 'agent' | 'appearance' | 'notifications' | 'permissions' | 'a
 const MARKETPLACE_URL = 'https://marketplace.visualstudio.com/items?itemName=anthropic.claude-code';
 const REPO_URL = 'https://github.com/Vibisual/vibisual';
 
-const MODEL_VALUES = ['opus', 'sonnet', 'haiku'] as const;
+// §4 v2.77 — Model 목록은 레지스트리 기반 동적(`listModelFamilies`). 폴백 alias 만 상수.
 const PERMISSION_VALUES = ['default', 'acceptEdits', 'plan', 'bypassPermissions'] as const;
 const ISOLATION_VALUES = ['none', 'worktree'] as const;
 // SSOT = shared `AVAILABLE_EFFORT_LEVELS` (§4 v2.48). 'max' = Opus 4.8 최대 추론. 드리프트 주의.
@@ -145,16 +147,13 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
 
   // 버전 sub-드롭다운 옵션 — CLI scan 결과에서 패밀리 필터, semver 내림차순 top 2 + Latest + Custom
   const VERSION_OPTIONS = useMemo(() => {
-    const family = (model === 'opus' || model === 'sonnet' || model === 'haiku') ? model as ModelFamily : null;
+    // §4 v2.77 — opus/sonnet/haiku 화이트리스트 제거. 선택된 패밀리(alias)의 레지스트리 entry 로 버전 목록 구성.
+    const family = model || null;
     if (!family) return [] as { value: string; label: string }[];
     const fams = (modelRegistry?.entries ?? []).filter((e) => e.family === family);
     fams.sort((a, b) => {
-      const pa = /^claude-(?:opus|sonnet|haiku)-(\d+)-(\d{1,2})$/.exec(a.id);
-      const pb = /^claude-(?:opus|sonnet|haiku)-(\d+)-(\d{1,2})$/.exec(b.id);
-      const aMaj = pa ? Number(pa[1]) : 0;
-      const aMin = pa ? Number(pa[2]) : 0;
-      const bMaj = pb ? Number(pb[1]) : 0;
-      const bMin = pb ? Number(pb[2]) : 0;
+      const [aMaj, aMin] = parseModelSemver(a.id);
+      const [bMaj, bMin] = parseModelSemver(b.id);
       if (aMaj !== bMaj) return bMaj - aMaj;
       if (aMin !== bMin) return bMin - aMin;
       return b.id.localeCompare(a.id);
@@ -319,7 +318,7 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
                     onChange={(e) => handleModelChange(e.target.value)}
                     className="rounded border border-gray-700 bg-gray-900 px-2 py-1.5 text-xs text-gray-200 outline-none hover:border-gray-600 focus:border-blue-500"
                   >
-                    {MODEL_VALUES.map((v) => <option key={v} value={v}>{v}</option>)}
+                    {listModelFamilies(modelRegistry).map((v) => <option key={v} value={v}>{v}</option>)}
                   </select>
                   {/* Version sub */}
                   <div className="mt-0.5 flex items-center gap-1 text-[10px] text-gray-500">

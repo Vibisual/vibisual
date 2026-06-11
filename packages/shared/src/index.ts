@@ -60,6 +60,7 @@ export type {
   ExecutionMode,
   AgentPreset,
   ModelFamily,
+  KnownModelFamily,
   ModelRegistry,
   ModelRegistryEntry,
   UserDefaults,
@@ -205,8 +206,11 @@ export {
   DEFAULT_PRICING,
   calculateTokenCost,
   MODEL_FAMILY_DEFAULTS,
+  isKnownFamily,
   MODEL_SEED_ENTRIES,
   parseFamilyFromFullId,
+  parseModelSemver,
+  listModelFamilies,
   getModelPricing,
   getModelContextLimit,
   resolveAliasToLatest,
@@ -289,6 +293,8 @@ export {
   buildAgentQuestionRules,
   AGENT_REVIEWS_MAX_PER_AGENT,
   buildAgentReviewRules,
+  VIBISUAL_CARD_SENTINEL,
+  buildCmdCardProtocolRules,
 } from './constants.js';
 
 // §5.3 #28 v1.60 — STAMP_CATALOG 메타 타입 (constants.ts 에 정의됨)

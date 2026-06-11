@@ -23,6 +23,16 @@ import {
   startDetachDragByWindowId,
   endDetachDragByWindowId,
   type DetachKind,
+  openOverlay,
+  closeOverlayByAgentId,
+  closeOverlayByWindowId,
+  expandOverlayByWindowId,
+  collapseOverlayByWindowId,
+  startOverlayDragByWindowId,
+  endOverlayDragByWindowId,
+  listOverlays,
+  getOverlaysVisible,
+  setOverlaysVisible,
 } from './windowManager';
 import { checkForUpdates, quitAndInstall, getUpdateState } from './updaterManager';
 import {
@@ -169,6 +179,8 @@ export function setupIpc(expressApp: Express): IpcHub {
     // SCENARIO.md §5.4 #14-1 — 별창/메인 모두 현재 detached 목록을 즉시 알아야 한다.
     if (!event.sender.isDestroyed()) {
       event.sender.send('vibisual:detached:list', listDetached());
+      // §5.5 #17-6 — 오버레이 목록 + 전역 토글 상태도 초기 동기화.
+      event.sender.send('vibisual:overlay:list', { overlays: listOverlays(), userVisible: getOverlaysVisible() });
     }
   });
 
@@ -240,6 +252,37 @@ export function setupIpc(expressApp: Express): IpcHub {
     return endDetachDragByWindowId(event.sender.id, !!commit);
   });
 
+  // ─── §5.5 #17-6 (v2.73) 버블 오버레이 창 채널 ─────────────────────────────
+  ipcMain.handle(
+    'vibisual:overlay:open',
+    (
+      _event,
+      payload: { agentId: string; projectId: string; cursor?: { x: number; y: number } },
+    ): { windowId: number; reused: boolean } => {
+      if (!payload || typeof payload.agentId !== 'string' || payload.agentId.length === 0) {
+        throw new Error('vibisual:overlay:open — agentId required');
+      }
+      if (typeof payload.projectId !== 'string' || payload.projectId.length === 0) {
+        throw new Error('vibisual:overlay:open — projectId required');
+      }
+      return openOverlay({ agentId: payload.agentId, projectId: payload.projectId, cursor: payload.cursor });
+    },
+  );
+  ipcMain.handle('vibisual:overlay:close', (_event, agentId: string): boolean => {
+    return typeof agentId === 'string' ? closeOverlayByAgentId(agentId) : false;
+  });
+  ipcMain.handle('vibisual:overlay:close-self', (event): boolean => closeOverlayByWindowId(event.sender.id));
+  ipcMain.handle('vibisual:overlay:expand-self', (event): boolean => expandOverlayByWindowId(event.sender.id));
+  ipcMain.handle('vibisual:overlay:collapse-self', (event): boolean => collapseOverlayByWindowId(event.sender.id));
+  // §17-6 v2.81 — 버블 드래그 = OS 창 이동(메인 프로세스 커서 폴링).
+  ipcMain.handle('vibisual:overlay:drag-start', (event): boolean => startOverlayDragByWindowId(event.sender.id));
+  ipcMain.handle('vibisual:overlay:drag-end', (event): boolean => endOverlayDragByWindowId(event.sender.id));
+  ipcMain.handle('vibisual:overlay:list', () => ({ overlays: listOverlays(), userVisible: getOverlaysVisible() }));
+  ipcMain.handle('vibisual:overlay:set-visible', (_event, visible: boolean): boolean => {
+    setOverlaysVisible(!!visible);
+    return getOverlaysVisible();
+  });
+
   // ─── §4 v2.44 자동 업데이트 채널 ──────────────────────────────────────────
   // 상태 push 는 updaterManager 가 직접 webContents 로 보낸다(vibisual:update:status).
   // 여기서는 renderer→main 의 invoke 액션만 등록한다.
@@ -294,6 +337,15 @@ export function setupIpc(expressApp: Express): IpcHub {
       ipcMain.removeHandler('vibisual:window:redock-commit');
       ipcMain.removeHandler('vibisual:window:detach-drag-start');
       ipcMain.removeHandler('vibisual:window:detach-drag-end');
+      ipcMain.removeHandler('vibisual:overlay:open');
+      ipcMain.removeHandler('vibisual:overlay:close');
+      ipcMain.removeHandler('vibisual:overlay:close-self');
+      ipcMain.removeHandler('vibisual:overlay:expand-self');
+      ipcMain.removeHandler('vibisual:overlay:collapse-self');
+      ipcMain.removeHandler('vibisual:overlay:drag-start');
+      ipcMain.removeHandler('vibisual:overlay:drag-end');
+      ipcMain.removeHandler('vibisual:overlay:list');
+      ipcMain.removeHandler('vibisual:overlay:set-visible');
       ipcMain.removeHandler('vibisual:update:check');
       ipcMain.removeHandler('vibisual:update:install');
       ipcMain.removeHandler('vibisual:update:get-state');

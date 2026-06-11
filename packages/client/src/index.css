@@ -509,3 +509,23 @@ body[data-ide-dock="right"] .fixed.inset-0 {
   background: transparent;
   letter-spacing: 0;
 }
+
+/* §5.5 #17-6 v2.73 — 버블 오버레이 위젯 창. BrowserWindow 가 transparent:true 라
+ * body 의 bg-gray-950 불투명 배경을 투명으로 덮어 원형 버블만 데스크톱 위에 떠 보이게 한다.
+ * main.tsx 가 overlay 해시일 때 html 에 .overlay-window 클래스를 부여한다. */
+html.overlay-window,
+html.overlay-window body,
+html.overlay-window #root {
+  background: transparent !important;
+}
+
+/* §5.5 #17-6 v2.73 — 오버레이 창 내 클릭/드래그 영역 분리.
+ * 빈 캔버스(.react-flow__pane)를 잡으면 OS 창 이동(-webkit-app-region: drag),
+ * 버블 노드(.react-flow__node)는 no-drag 라 클릭/더블클릭/드래그(노드 물리)가 그대로 동작.
+ * app-drag 컨테이너로 감싸면 마우스 이벤트가 OS 로 가로채여 버블이 안 눌리는 문제를 이 분리로 해결. */
+html.overlay-window .react-flow__pane {
+  -webkit-app-region: drag;
+}
+html.overlay-window .react-flow__node {
+  -webkit-app-region: no-drag;
+}

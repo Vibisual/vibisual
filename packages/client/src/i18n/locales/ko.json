@@ -113,6 +113,9 @@
       "spawnedCount": "서브 에이전트 {{count}}개 생성됨",
       "entryHint": "서브 에이전트들이 작업 중입니다. 후속은 여기서 이어서 말해주세요.",
       "buildingHint": "빌더가 캔버스에 에이전트와 연결을 설계하고 있습니다. 이 버블을 열면 진행 과정을 볼 수 있습니다.",
+      "activityTitle": "빌더 동작",
+      "activityLive": "동작 중",
+      "activityWaiting": "빌더를 기동하는 중입니다…",
       "phase": {
         "idle": "대기 중 — 요청을 입력해 시작",
         "analyzing": "요청 분석 중…",
@@ -333,7 +336,8 @@
         "label": "모델",
         "opus": "가장 강력. 최고 수준의 추론과 복잡한 태스크. 비용 높음.",
         "sonnet": "성능과 비용의 균형. 대부분의 태스크에 적합.",
-        "haiku": "가장 빠르고 저렴. 간단한 읽기 전용 태스크에 최적."
+        "haiku": "가장 빠르고 저렴. 간단한 읽기 전용 태스크에 최적.",
+        "unknown": "{{name}} — 새로 출시된 모델. 가격·성능은 패밀리 기본값으로 추정."
       },
       "contextWindow": {
         "oneMillion": "1M 컨텍스트 윈도우"
@@ -715,7 +719,11 @@
       "ctxQuoteReply": "인용 답글",
       "ctxSendAsPrompt": "새 명령으로 전송",
       "ctxSelectAll": "전체 선택",
-      "ctxSelectionRequired": "텍스트를 먼저 선택하세요"
+      "ctxSelectionRequired": "텍스트를 먼저 선택하세요",
+      "inputCtxCut": "잘라내기",
+      "inputCtxCopy": "복사",
+      "inputCtxPaste": "붙여넣기",
+      "inputCtxSelectAll": "전체 선택"
     },
     "askQuestion": {
       "title": "질문",
@@ -749,6 +757,7 @@
       "hasResult": "결과 있음",
       "skills": "스킬 ({{count}})",
       "projectSkills": "프로젝트 ({{count}})",
+      "globalSkills": "글로벌 ({{count}})",
       "pluginSkills": "플러그인 ({{count}})",
       "noSkills": "설치된 스킬 없음",
       "skillsLoading": "스킬 불러오는 중…",
@@ -775,7 +784,8 @@
       "expand": "펼치기",
       "collapse": "접기",
       "copy": "복사",
-      "copied": "복사됨"
+      "copied": "복사됨",
+      "youTyped": "나"
     },
     "report": {
       "title": "작업 신고",
@@ -938,6 +948,16 @@
     "detach": "새 창으로 분리",
     "rename": "이름 변경"
   },
+  "overlay": {
+    "sendToOverlay": "이 버블을 항상 위에 뜨는 데스크톱 위젯으로 빼냅니다",
+    "removeFromOverlay": "이 버블을 데스크톱 오버레이에서 제거합니다",
+    "sendToOverlayLabel": "오버레이",
+    "removeFromOverlayLabel": "오버레이 중",
+    "openIDE": "클릭하면 IDE 열림",
+    "agentGone": "에이전트 없음",
+    "toggleShow": "데스크톱 오버레이 버블 표시",
+    "toggleHide": "데스크톱 오버레이 버블 숨김"
+  },
   "tabDetach": {
     "detachHint": "탭바 밖에 놓으면 별도 창으로 분리됩니다",
     "osDragHint": "여기를 끌어 창 위치 이동",
@@ -969,7 +989,7 @@
     "contextMenu": {
       "createCustomAgent": "커스텀 에이전트 만들기",
       "createCmdAgent": "CMD 에이전트 만들기",
-      "createCmdAgentHint": "사용자가 직접 모는 인터랙티브 터미널(구독 과금) — 하네스 배선은 Vibisual 이 시각적으로 돕지만 실행 권한은 Claude Code 안에 있습니다",
+      "createCmdAgentHint": "직접 모는 인터랙티브 터미널 (구독 과금)",
       "createAutoAgent": "오토 에이전트 만들기",
       "createAutoAgentHint": "메타 에이전트 — 자연어 한 줄로 커스텀 에이전트 군을 자동 spawn",
       "createWorktree": "Worktree 만들기",

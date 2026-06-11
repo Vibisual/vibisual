@@ -15,6 +15,7 @@ import { AgentReportCard } from './AgentReportCard.js';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { AgentQuestionCard } from './AgentQuestionCard.js';
 import { AgentReviewCard } from './AgentReviewCard.js';
+import { CollapsiblePrompt } from './CollapsiblePrompt.js';
 
 /** SDK 가 생각 중 반복 송출하는 system 펄스 subtype — 본문에 쌓이지 않게 라이브 1줄로 대체. */
 const THINKING_PULSE_SUBTYPE = 'thinking_tokens';
@@ -163,6 +164,20 @@ function buildStreamItems(events: SubAgentStreamEvent[], commands?: QueuedComman
   }
   const consumedResultIdxs = new Set<number>(resultByToolIdx.values());
 
+  // "지금 실행 중" 판정 경계 — Anthropic 턴은 (assistant text/thinking) → tool_use 배치 → tool_result 배치
+  // 순으로 흐른다. 따라서 실제로 돌고 있을 수 있는 도구는 **마지막 비-도구 이벤트(text/thinking/result/
+  // system) 이후에 나온, 짝 없는 tool_use(= 현재 배치)뿐**이다. 그 경계 앞의 미페어 tool_use 는 (서버가
+  // tool_result 에 toolUseId 를 안 실어 FIFO 페어링이 어긋났거나 결과가 유실돼) 남은 잔여물 → 비활성.
+  // 이 경계가 없으면 과거에 끝난 도구들까지 agentBusy 동안 전부 스피너가 돌고, 정지→재실행 시 한꺼번에
+  // 다시 "동작중"으로 살아난다. 펄스(thinking_tokens)는 투명 처리해 경계로 치지 않는다(스트레이 펄스가
+  // 실제로 도는 도구의 스피너를 꺼뜨리지 않도록).
+  let lastNonToolIdx = -1;
+  for (let k = 0; k < events.length; k++) {
+    const e = events[k]!;
+    if (isThinkingPulse(e)) continue;
+    if (e.eventType !== 'tool_use' && e.eventType !== 'tool_result') lastNonToolIdx = k;
+  }
+
   let i = 0;
   // 연속 text 이벤트를 하나의 블록으로 합치기 — thinking도 동일. 단 사용자 프롬프트(command)
   // 타임스탬프가 버퍼 사이에 끼어들면 거기서 끊어 별도 블록으로 분리한다(프롬프트별 응답 구분).
@@ -234,7 +249,8 @@ function buildStreamItems(events: SubAgentStreamEvent[], commands?: QueuedComman
           isActive: false,
         });
       } else {
-        // 미페어 tool_use — 에이전트가 작동 중일 때만 활성, 아니면 비활성(orphaned)으로 표시
+        // 미페어 tool_use — 에이전트 작동 중이고 **현재 배치(마지막 비-도구 이벤트 이후)** 에 속할 때만
+        // 활성. 그 앞쪽 미페어 tool_use 는 이미 끝났는데 결과가 못 짝지어진 잔여물이므로 비활성(orphaned).
         items.push({
           kind: 'tool',
           id: evt.id,
@@ -242,7 +258,7 @@ function buildStreamItems(events: SubAgentStreamEvent[], commands?: QueuedComman
           input: evt.content,
           output: '',
           timestamp: evt.timestamp,
-          isActive: agentBusy,
+          isActive: agentBusy && i > lastNonToolIdx,
         });
       }
       i++;
@@ -571,11 +587,8 @@ function CommandBlock({ item }: { item: StreamCommand }): React.JSX.Element {
     .filter((a): a is { basename: string; url: string } => !!a.url);
   return (
     <div className="px-4 py-2" data-cmd-id={item.id}>
-      {/* 프롬프트 */}
-      <div className="mb-1.5 flex items-start gap-2">
-        <span className="flex-shrink-0 text-[13px] font-bold text-blue-400">{'>'}</span>
-        <span className="text-[13px] leading-relaxed text-blue-200">{item.prompt}</span>
-      </div>
+      {/* 프롬프트 — 사용자 입력은 길이와 무관하게 항상 "내 메시지" 말풍선으로. */}
+      <CollapsiblePrompt prompt={item.prompt} />
       {/* 전송한 첨부 이미지 썸네일 (클릭 → 라이트박스) */}
       {thumbs.length > 0 && (
         <div className="mb-1.5 flex flex-wrap gap-2 pl-5">

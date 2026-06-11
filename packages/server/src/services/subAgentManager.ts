@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import type { ProjectInfo, SubAgent, SubAgentStatus, QueuedCommand, AgentConfig, SubAgentStreamEvent, StreamEventType, AgentViewJobState } from '@vibisual/shared';
-import { DEFAULT_AGENT_CONFIG, isOpusModel } from '@vibisual/shared';
+import { DEFAULT_AGENT_CONFIG, isOpusModel, buildCmdCardProtocolRules } from '@vibisual/shared';
 import { logger } from '../logger.js';
 import { readLastAssistantMessage, readSessionTokenData, getSessionJsonlPath } from './sessionDiscovery.js';
 import * as streamBufferStore from './streamBufferStore.js';
@@ -149,15 +149,22 @@ function parseTermId(termId: string): { agentId: string; sessionToken: string } 
  *   - 에이전트 단위 폴더라 그 에이전트의 모든 CMD 세션이 같은 rules 공유. 새 세션 스폰 때마다 최신 rules 로 재기록
  *     → AgentSettings 에서 rules 수정 후 "+" 새 세션을 열면 반영(이미 떠 있는 세션엔 소급 X).
  *
- * @returns rules 가 있으면 그 폴더 절대경로, 없으면 null(=`--add-dir` 생략).
+ * §4 v2.76 — 사용자 rules 유무와 무관하게 **카드 신고 프로토콜**(`buildCmdCardProtocolRules`)을 항상 덧붙인다.
+ * 그래야 인터랙티브 claude 가 작업 신고/질문/검수 카드를 터미널 한 줄 인쇄로 띄울 수 있다(IDE 가 캡처해 카드화).
+ * 따라서 이제 rules 가 비어도 폴더 경로를 반환한다(=`--add-dir` 항상 켜짐).
+ *
+ * @returns 폴더 절대경로(쓰기 실패 시에만 null = `--add-dir` 생략).
  */
 export function prepareInteractiveRulesDir(agentId: string, config: AgentConfig): string | null {
   const rules = config.rules?.trim();
-  if (!rules) return null;
   const dir = cmdAgentDir(agentId);
   try {
     fs.mkdirSync(dir, { recursive: true });
-    const body = `# Agent Rules (Vibisual CMD agent)\n\n${rules}\n`;
+    const sections = ['# Agent Rules (Vibisual CMD agent)'];
+    if (rules) sections.push(rules);
+    // 카드 신고 프로토콜(터미널 한 줄) — 항상 주입. claude 가 echo 한 줄로 IDE 카드를 띄울 수 있게.
+    sections.push(buildCmdCardProtocolRules().trim());
+    const body = `${sections.join('\n\n')}\n`;
     fs.writeFileSync(path.join(dir, 'CLAUDE.md'), body, 'utf-8');
     return dir;
   } catch (err) {

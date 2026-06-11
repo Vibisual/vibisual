@@ -183,7 +183,7 @@ function EventsView({ agentId }: { agentId: string }): React.JSX.Element {
 
 // ─── Skills view: 프로젝트 + 플러그인 스킬 목록 (§5.5 #17-4 v2.32) ───
 
-type SkillSource = 'project' | 'plugin';
+type SkillSource = 'project' | 'global' | 'plugin';
 
 /** 고정 순서(pinned) 우선 정렬: pinned 에 있는 스킬은 그 순서로, 나머지는 cmp 로 정렬 후 뒤에 append. */
 function applyPinnedOrder(
@@ -224,22 +224,27 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
   const [liveDrag, setLiveDrag] = useState<{ type: SkillSource; names: string[] } | null>(null);
   const dragNameRef = useRef<string | null>(null);
 
-  const { projectSkills, pluginSkills } = useMemo(() => {
+  const { projectSkills, globalSkills, pluginSkills } = useMemo(() => {
     const getCount = (name: string): number => projectCounts?.[name] ?? 0;
     const cmp = (a: SkillInfo, b: SkillInfo): number => {
       const d = getCount(b.name) - getCount(a.name);
       return d !== 0 ? d : a.name.localeCompare(b.name);
     };
     const project: SkillInfo[] = [];
+    const global: SkillInfo[] = [];
     const plugin: SkillInfo[] = [];
     for (const s of skills) {
       if (s.source === 'project') project.push(s);
+      else if (s.source === 'global') global.push(s);
       else plugin.push(s);
     }
+    const orderFor = (type: SkillSource): string[] =>
+      type === 'project' ? order.project : type === 'global' ? order.global : order.plugin;
     const pinnedFor = (type: SkillSource): string[] =>
-      liveDrag?.type === type ? liveDrag.names : (type === 'project' ? order.project : order.plugin);
+      liveDrag?.type === type ? liveDrag.names : orderFor(type);
     return {
       projectSkills: applyPinnedOrder(project, pinnedFor('project'), cmp),
+      globalSkills: applyPinnedOrder(global, pinnedFor('global'), cmp),
       pluginSkills: applyPinnedOrder(plugin, pinnedFor('plugin'), cmp),
     };
   }, [skills, projectCounts, order, liveDrag]);
@@ -310,7 +315,7 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
   }, []);
 
   const renderSkill = useCallback((s: SkillInfo, orderedNames: string[]) => {
-    const accentText = s.source === 'project' ? 'text-emerald-400' : 'text-purple-400';
+    const accentText = s.source === 'project' ? 'text-emerald-400' : s.source === 'global' ? 'text-sky-400' : 'text-purple-400';
     const count = projectCounts?.[s.name] ?? 0;
     const confirming = confirmDelete === s.name;
     return (
@@ -388,6 +393,7 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
   }, [insertSkill, projectCounts, confirmDelete, handleDragStart, handleDragOver, handleDragEnd, handleDelete, t]);
 
   const projectNames = useMemo(() => projectSkills.map((s) => s.name), [projectSkills]);
+  const globalNames = useMemo(() => globalSkills.map((s) => s.name), [globalSkills]);
   const pluginNames = useMemo(() => pluginSkills.map((s) => s.name), [pluginSkills]);
 
   return (
@@ -408,6 +414,14 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
                   {t('ide.sidebar.projectSkills', { count: projectSkills.length })}
                 </span>
                 <ul className="flex flex-col gap-0.5">{projectSkills.map((s) => renderSkill(s, projectNames))}</ul>
+              </div>
+            )}
+            {globalSkills.length > 0 && (
+              <div className="flex flex-col gap-1">
+                <span className="px-1 text-[9px] font-medium uppercase tracking-wider text-sky-400/60">
+                  {t('ide.sidebar.globalSkills', { count: globalSkills.length })}
+                </span>
+                <ul className="flex flex-col gap-0.5">{globalSkills.map((s) => renderSkill(s, globalNames))}</ul>
               </div>
             )}
             {pluginSkills.length > 0 && (

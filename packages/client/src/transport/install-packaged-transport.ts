@@ -69,6 +69,31 @@ export interface PackagedWindowApi {
   onDragState(cb: (payload: { dragging: boolean; hovering: boolean }) => void): () => void;
 }
 
+// §5.5 #17-6 v2.73 — 버블 오버레이 창 surface.
+export interface OverlayInfoWire {
+  windowId: number;
+  agentId: string;
+  projectId: string;
+  expanded: boolean;
+}
+export interface OverlayListWire {
+  overlays: OverlayInfoWire[];
+  userVisible: boolean;
+}
+export interface PackagedOverlayApi {
+  open(payload: { agentId: string; projectId: string; cursor?: { x: number; y: number } }): Promise<{ windowId: number; reused: boolean }>;
+  close(agentId: string): Promise<boolean>;
+  closeSelf(): Promise<boolean>;
+  expandSelf(): Promise<boolean>;
+  collapseSelf(): Promise<boolean>;
+  /** §17-6 v2.81 — 버블 드래그 = OS 창 이동(메인 프로세스 커서 폴링) 시작/종료. */
+  dragStart(): Promise<boolean>;
+  dragEnd(): Promise<boolean>;
+  list(): Promise<OverlayListWire>;
+  setVisible(visible: boolean): Promise<boolean>;
+  onList(cb: (payload: OverlayListWire) => void): () => void;
+}
+
 // §4 v2.44 자동 업데이트 surface. UpdateState 는 shared 계약.
 export interface PackagedUpdateApi {
   check(): Promise<UpdateState>;
@@ -97,6 +122,8 @@ export interface PackagedApi {
   update: PackagedUpdateApi;
   /** §4 v2.63 — 임베디드 터미널. dev/web 모드(window.api 없음)에선 부재. */
   terminal?: PackagedTerminalApi;
+  /** §5.5 #17-6 — 버블 오버레이 창. dev/web 모드에선 부재. */
+  overlay?: PackagedOverlayApi;
 }
 
 declare global {

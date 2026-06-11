@@ -1268,11 +1268,12 @@ export interface AppState {
   projectPaths?: Record<string, string>;
   /**
    * §5.5 #17-4 — SkillsView 사용자 고정 순서 (드래그 재정렬). 머신 단위 전역.
-   * type(`project`/`plugin`)별 스킬명 배열. 배열에 들어있는 스킬은 그 순서로 고정 렌더,
+   * type(`project`/`global`/`plugin`)별 스킬명 배열. 배열에 들어있는 스킬은 그 순서로 고정 렌더,
    * 없는(새로 추가된) 스킬은 기본 정렬(count desc → name asc) 후 뒤에 append.
    * 사용자가 한 번이라도 드래그하면 그 타입의 전체 가시 순서를 캡처해 여기에 저장.
+   * §5.5 #17-5 — `global` = 사용자 홈 `~/.claude/skills/`·`~/.claude/commands/` (모든 프로젝트 공통).
    */
-  skillOrder?: { project?: string[]; plugin?: string[] };
+  skillOrder?: { project?: string[]; global?: string[]; plugin?: string[] };
   /** 마지막 업데이트 타임스탬프 (epoch ms). */
   updatedAt: number;
 }
@@ -1859,8 +1860,16 @@ export interface UserDefaults {
 
 // ─── Model Registry (§4 v2.38) ───
 
-/** 모델 패밀리 alias — UI 드롭다운 + `--model` CLI alias. */
-export type ModelFamily = 'opus' | 'sonnet' | 'haiku';
+/**
+ * 모델 패밀리 alias — UI 드롭다운 + `--model` CLI alias.
+ *
+ * §4 v2.77 — `opus/sonnet/haiku` 는 디폴트 가격·컨텍스트 테이블(`MODEL_FAMILY_DEFAULTS`)을 가진
+ * **알려진 패밀리**. 신규 패밀리(fable/mythos 등)도 동적으로 수용하도록 string 으로 확장한다 —
+ * 미지 패밀리는 패밀리 디폴트가 없어 `DEFAULT_PRICING`/`DEFAULT_CONTEXT_LIMIT` 로 폴백.
+ * `(string & {})` 트릭으로 임의 string 을 받되 에디터 자동완성은 known 3종을 계속 노출.
+ */
+export type KnownModelFamily = 'opus' | 'sonnet' | 'haiku';
+export type ModelFamily = KnownModelFamily | (string & {});
 
 /**
  * 단일 모델 풀ID 의 레지스트리 항목.
@@ -1873,7 +1882,7 @@ export type ModelFamily = 'opus' | 'sonnet' | 'haiku';
 export interface ModelRegistryEntry {
   /** Anthropic 풀 모델 ID (예: `claude-opus-4-8`). */
   id: string;
-  /** 패밀리 — id prefix 로 추론(`claude-(opus|sonnet|haiku)-`). */
+  /** 패밀리 — id prefix 로 추론(`claude-<family>-`, §4 v2.77 임의 패밀리 수용). */
   family: ModelFamily;
   /** 사람이 읽는 라벨 (예: "Claude Opus 4.8"). 없으면 UI 가 id 표시. */
   displayName?: string;

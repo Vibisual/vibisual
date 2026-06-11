@@ -104,7 +104,7 @@ export function useBookmarks({ onToast, messages }: Params): void {
       const nodeId = st.selectedNodeId ?? st.selectIntentId;
       let bm: Bookmark | null = null;
 
-      const sessionBookmark = (): Bookmark | null => {
+      const sessionBookmark = (): SessionBookmark | null => {
         if (!ide.agentId || !ide.projectId) return null;
         return {
           kind: 'session',
@@ -114,7 +114,7 @@ export function useBookmarks({ onToast, messages }: Params): void {
           label: st.nodeMap[ide.agentId]?.label ?? ide.agentId,
         };
       };
-      const bubbleBookmark = (): Bookmark | null => {
+      const bubbleBookmark = (): BubbleBookmark | null => {
         if (!nodeId || !st.activeProject) return null;
         return {
           kind: 'bubble',
@@ -125,13 +125,25 @@ export function useBookmarks({ onToast, messages }: Params): void {
         };
       };
 
-      // 우선순위: (1) 포커스가 IDE 안 → 그 세션. (2) 캔버스에서 버블을 선택 중 → 그 버블
-      //   (단지 도킹돼 있는 다른 에이전트 IDE 보다 "내가 고른 버블"이 우선 — 오캡처 방지).
-      //   (3) 아무 선택 없이 IDE 만 열려 있으면 그 세션(폴백).
+      const sb = sessionBookmark();
+      const bb = bubbleBookmark();
+      // "지금 앞에 떠 있는 IDE" = 모달/플로팅(도킹 아님) 으로 캔버스를 덮고 있는 상태.
+      // 이때는 클릭(포커스)·이전 선택과 무관하게 그 IDE 를 그대로 잡는다(사용자: "지금 떠있는 상태를 지정").
+      const ideForeground = !!sb && !ide.dockedRight;
+      // 우선순위:
+      //   (1) 포커스가 IDE 안(=IDE 를 보는 중) → 그 세션.
+      //   (2) IDE 가 앞에 떠 있으면(모달/플로팅) → 그 세션. 클릭 불필요, 이전 선택 무시.
+      //   (3) IDE(도킹 포함)가 열려 있고, 그 에이전트와 "다른" 버블을 따로 고르지 않았으면 → 그 세션.
+      //   (4) 캔버스에서 IDE 의 에이전트와 다른 버블을 선택 중이면 → 그 버블(도킹된 무관 IDE 보다 우선).
+      //   (5) IDE 도 선택도 없으면 → 없음.
       if (inIDE) {
-        bm = sessionBookmark() ?? bubbleBookmark();
+        bm = sb ?? bb;
+      } else if (ideForeground) {
+        bm = sb;
+      } else if (sb && (!nodeId || nodeId === sb.agentId)) {
+        bm = sb;
       } else {
-        bm = bubbleBookmark() ?? sessionBookmark();
+        bm = bb ?? sb;
       }
 
       if (!bm) {

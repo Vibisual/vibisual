@@ -7,13 +7,15 @@ import { useEffect, useState } from 'react';
 export interface SkillInfo {
   name: string;
   description: string;
-  source: 'project' | 'plugin';
+  /** project = 프로젝트 `.claude`, global = 홈 `~/.claude`(전 프로젝트 공통), plugin = 설치 플러그인. */
+  source: 'project' | 'global' | 'plugin';
   pluginName?: string;
 }
 
-/** §5.5 #17-4 — 타입별 사용자 고정 순서 (드래그 재정렬). */
+/** §5.5 #17-4/#17-5 — 타입별 사용자 고정 순서 (드래그 재정렬). */
 export interface SkillOrder {
   project: string[];
+  global: string[];
   plugin: string[];
 }
 
@@ -22,7 +24,7 @@ interface SkillsState {
   order: SkillOrder;
 }
 
-const EMPTY_ORDER: SkillOrder = { project: [], plugin: [] };
+const EMPTY_ORDER: SkillOrder = { project: [], global: [], plugin: [] };
 
 /**
  * §5.5 #17-2/#17-4 v2.59 — 프로젝트별 조회.
@@ -59,9 +61,9 @@ function notify(key: string, s: SkillsState): void {
 }
 
 function normalizeOrder(raw: unknown): SkillOrder {
-  const r = (raw && typeof raw === 'object' ? raw : {}) as { project?: unknown; plugin?: unknown };
+  const r = (raw && typeof raw === 'object' ? raw : {}) as { project?: unknown; global?: unknown; plugin?: unknown };
   const arr = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
-  return { project: arr(r.project), plugin: arr(r.plugin) };
+  return { project: arr(r.project), global: arr(r.global), plugin: arr(r.plugin) };
 }
 
 function fetchSkills(key: string): Promise<SkillsState> {
@@ -111,7 +113,7 @@ export function refreshAvailableSkills(): Promise<void> {
 }
 
 /** 프로젝트 스킬을 디스크에서 삭제. 성공 시 목록 재조회. */
-export async function deleteSkill(name: string, source: 'project' | 'plugin'): Promise<boolean> {
+export async function deleteSkill(name: string, source: 'project' | 'global' | 'plugin'): Promise<boolean> {
   try {
     const res = await fetch('/api/skill', {
       method: 'DELETE',
@@ -130,7 +132,7 @@ export async function deleteSkill(name: string, source: 'project' | 'plugin'): P
  * 한 타입의 고정 순서를 저장. 낙관적으로 캐시를 갱신하고 서버에도 반영.
  * order 는 전역 appState 라 캐시된 모든 프로젝트 키에 동일하게 반영한다.
  */
-export async function persistSkillOrder(type: 'project' | 'plugin', order: string[]): Promise<void> {
+export async function persistSkillOrder(type: 'project' | 'global' | 'plugin', order: string[]): Promise<void> {
   // 낙관적 캐시 갱신 — 즉시 재렌더되도록. (전 키 공통)
   for (const [key, state] of caches) {
     const nextOrder: SkillOrder = { ...state.order, [type]: order };

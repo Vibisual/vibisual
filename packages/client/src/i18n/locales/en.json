@@ -43,7 +43,102 @@
     "fileMenu": {
       "file": "File",
       "openFolder": "Open Folder...",
-      "options": "Options…"
+      "options": "Options…",
+      "guide": "Guide"
+    },
+    "guide": {
+      "title": "Guide",
+      "subtitle": "A tour of what Vibisual can do — and an inventory of features built so far.",
+      "cat": {
+        "start": "Getting Started",
+        "bubbleMap": "Bubble Map",
+        "agents": "Agents",
+        "taskEdges": "Task Edges",
+        "ide": "IDE Overlay",
+        "navigation": "Navigation",
+        "history": "History & Saving",
+        "shortcuts": "Shortcuts"
+      },
+      "start": {
+        "intro": "Vibisual visualizes what your AI agents are doing, in real time, as a bubble map.",
+        "openFolderT": "Open a folder",
+        "openFolderD": "File → Open Folder to start tracking a project. Each project opens in its own tab.",
+        "watchT": "Watch agents work",
+        "watchD": "When Claude Code runs, the files and folders it touches appear as bubbles and pulse as they change.",
+        "optionsT": "Set your defaults",
+        "optionsD": "File → Options to choose the default model, tools, permission mode and Claude Code binary for new agents."
+      },
+      "bubbleMap": {
+        "intro": "The canvas draws your project as bubbles linked by hierarchy and activity.",
+        "typesT": "Bubble categories",
+        "typesD": "Files, folders, agents, Bash, edits, iframes and more — each color-coded by category.",
+        "sizeT": "Size means activity",
+        "sizeD": "Bigger bubbles were touched more often. A pulsing bubble is active right now.",
+        "contextT": "Context fill",
+        "contextD": "An agent bubble fills like water to show how much of its context window is in use.",
+        "ghostT": "Ghost nodes",
+        "ghostD": "Deleted or renamed nodes linger as faded ghosts so the trail isn't lost."
+      },
+      "agents": {
+        "intro": "Beyond passive tracking, you can create and orchestrate your own agents from the canvas.",
+        "customT": "Custom Agent",
+        "customD": "Right-click the canvas to spawn your own agent bubble and give it a command.",
+        "autoT": "Auto Agent",
+        "autoD": "Describe what you want in plain language; a builder agent designs and wires up a whole team for you.",
+        "configT": "Agent settings",
+        "configD": "Click a bubble to set its model, tools, permission mode, effort, isolation and color.",
+        "pipelineT": "Sub-agents & Pipelines",
+        "pipelineD": "Run independent sessions and chain agents together with pipeline, teams or hybrid strategies."
+      },
+      "taskEdges": {
+        "intro": "Connect two custom agents with a Task Edge to delegate work between them.",
+        "drawT": "Draw an edge",
+        "drawD": "Drag from one custom-agent bubble to another to create a delegation edge between them.",
+        "kindsT": "Edge meanings",
+        "kindsD": "Command, artifact, request or critique — the kind says what flows across the edge.",
+        "critiqueT": "Review & auto-rework",
+        "critiqueD": "A critique edge can force the target agent to rework its output until a reviewer accepts it."
+      },
+      "ide": {
+        "intro": "Double-click an agent to open the IDE overlay — its live output, sessions and reports.",
+        "streamT": "Live stream",
+        "streamD": "Follow the agent's messages, tool calls and results as they happen.",
+        "cardsT": "Did / To-do cards",
+        "cardsD": "Finished work and things you need to do yourself are split into color-coded cards.",
+        "reviewT": "Review cards",
+        "reviewD": "When an agent finishes a fix, a purple card shows what changed and what to check.",
+        "dockT": "Dock or float",
+        "dockD": "Drag the overlay's title bar to float it, or snap it to the right as a side panel."
+      },
+      "navigation": {
+        "intro": "Move around large maps quickly.",
+        "panT": "Pan & zoom",
+        "panD": "Drag the canvas to pan and scroll to zoom; the minimap shows where you are.",
+        "tabsT": "Tabs & detach",
+        "tabsD": "Each open folder is a tab; drag a tab out of the bar to pop it into its own window.",
+        "inspectorT": "Inspector",
+        "inspectorD": "Hold Alt to highlight elements and click to copy; Shift-drag to select a region.",
+        "copyT": "Copy & paste",
+        "copyD": "Select custom agents and edges, then Ctrl+C / Ctrl+V to clone them into another project."
+      },
+      "history": {
+        "intro": "Vibisual remembers your projects between runs.",
+        "saveT": "Automatic saving",
+        "saveD": "The whole graph is checkpointed to disk and restored the next time you open Vibisual.",
+        "replayT": "History replay",
+        "replayD": "Scrub a timeline to replay how the map grew over a session."
+      },
+      "shortcuts": {
+        "intro": "Keyboard shortcuts speed up navigation and editing. They pause while you type in an input or terminal.",
+        "bookmarkT": "Bubble bookmarks",
+        "bookmarkD": "Alt+1…0 pins a bubble or session to a slot; press 1…0 to jump back to it.",
+        "copyT": "Copy / paste",
+        "copyD": "Ctrl+C / Ctrl+V (Cmd on macOS) copies and pastes selected agents, edges and comment boxes.",
+        "inspectorT": "Inspector",
+        "inspectorD": "Hold Alt to inspect and click to copy an element; Shift-drag for region select.",
+        "closeT": "Close & cancel",
+        "closeD": "Esc closes menus, popups and the IDE overlay."
+      }
     },
     "options": {
       "title": "Options",
@@ -113,6 +208,9 @@
       "spawnedCount": "Spawned {{count}} sub-agent(s)",
       "entryHint": "Sub-agents now running. Talk to me here for follow-ups.",
       "buildingHint": "The builder is designing agents and connections on the canvas. Open this bubble to watch it work.",
+      "activityTitle": "Builder activity",
+      "activityLive": "Live",
+      "activityWaiting": "Starting the builder…",
       "phase": {
         "idle": "Idle — type a request to start",
         "analyzing": "Analyzing request…",
@@ -333,7 +431,8 @@
         "label": "Model",
         "opus": "Most capable. Best reasoning and complex tasks. Highest cost.",
         "sonnet": "Balanced performance and cost. Good for most tasks.",
-        "haiku": "Fastest and cheapest. Best for simple read-only tasks."
+        "haiku": "Fastest and cheapest. Best for simple read-only tasks.",
+        "unknown": "{{name}} — newly released model. Capabilities and cost inferred from family defaults."
       },
       "contextWindow": {
         "oneMillion": "1M context window"
@@ -715,7 +814,11 @@
       "ctxQuoteReply": "Quote reply",
       "ctxSendAsPrompt": "Send as new prompt",
       "ctxSelectAll": "Select all",
-      "ctxSelectionRequired": "Select text first"
+      "ctxSelectionRequired": "Select text first",
+      "inputCtxCut": "Cut",
+      "inputCtxCopy": "Copy",
+      "inputCtxPaste": "Paste",
+      "inputCtxSelectAll": "Select all"
     },
     "askQuestion": {
       "title": "Question",
@@ -749,6 +852,7 @@
       "hasResult": "has result",
       "skills": "Skills ({{count}})",
       "projectSkills": "Project ({{count}})",
+      "globalSkills": "Global ({{count}})",
       "pluginSkills": "Plugins ({{count}})",
       "noSkills": "No skills installed",
       "skillsLoading": "Loading skills…",
@@ -775,7 +879,8 @@
       "expand": "expand",
       "collapse": "collapse",
       "copy": "Copy",
-      "copied": "Copied"
+      "copied": "Copied",
+      "youTyped": "You"
     },
     "report": {
       "title": "Work report",
@@ -938,6 +1043,16 @@
     "detach": "Detach to new window",
     "rename": "Rename"
   },
+  "overlay": {
+    "sendToOverlay": "Pop this bubble out as an always-on-top desktop widget",
+    "removeFromOverlay": "Remove this bubble from the desktop overlay",
+    "sendToOverlayLabel": "Overlay",
+    "removeFromOverlayLabel": "In overlay",
+    "openIDE": "Click to open IDE",
+    "agentGone": "Agent unavailable",
+    "toggleShow": "Show desktop overlay bubbles",
+    "toggleHide": "Hide desktop overlay bubbles"
+  },
   "tabDetach": {
     "detachHint": "Drop outside the tab bar to open in a new window",
     "osDragHint": "Drag here to move the window",
@@ -969,7 +1084,7 @@
     "contextMenu": {
       "createCustomAgent": "Create Custom Agent",
       "createCmdAgent": "Create CMD Agent",
-      "createCmdAgentHint": "Interactive terminal you drive yourself (subscription billing) — Vibisual visualizes & assists harness wiring, but execution lives inside Claude Code",
+      "createCmdAgentHint": "Interactive terminal you drive (subscription billing)",
       "createAutoAgent": "Create Auto Agent",
       "createAutoAgentHint": "Meta agent — auto-spawns a custom agent team from your prompt",
       "createWorktree": "Create Worktree",

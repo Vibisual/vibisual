@@ -415,6 +415,14 @@ interface GraphState {
    */
   detachedTabKeys: Record<string, 'project' | 'iframe'>;
   applyDetachedList: (list: Array<{ tabKey: string; kind: 'project' | 'iframe' }>) => void;
+  /**
+   * SCENARIO.md §5.5 #17-6 (v2.73) — 오버레이 위젯 창으로 분리된 에이전트 id 집합 + 전역 토글 상태.
+   * desktop main 의 windowManager 가 SSOT, IPC 'vibisual:overlay:list' 푸시로 모든 윈도우 sync.
+   * 버블 본체는 그대로 유지(미러). 영속화 ❌. dev/web 모드(window.api 없음)에선 항상 빈 집합.
+   */
+  overlayAgentIds: string[];
+  overlaysVisible: boolean;
+  applyOverlayList: (payload: { overlays: Array<{ agentId: string }>; userVisible: boolean }) => void;
   /** 별창에서만 사용 — 자기 창의 단일 탭을 강제로 활성화 (서버 patchAppState 호출 ❌). */
   setActiveProjectLocal: (name: string | null) => void;
   setActiveIframeIdLocal: (id: string | null) => void;
@@ -1400,6 +1408,13 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       for (const e of list) next[e.tabKey] = e.kind;
       return { detachedTabKeys: next };
     }),
+  overlayAgentIds: [],
+  overlaysVisible: true,
+  applyOverlayList: (payload) =>
+    set(() => ({
+      overlayAgentIds: payload.overlays.map((o) => o.agentId),
+      overlaysVisible: payload.userVisible,
+    })),
   setActiveProjectLocal: (name) =>
     set((state) => ({
       activeProject: name,
