@@ -23,7 +23,14 @@ const DEFAULT_DOCK_WIDTH = 480;
 const MIN_FLOAT_W = 480;
 const MIN_FLOAT_H = 320;
 
-export const AgentIDEOverlay = memo(function AgentIDEOverlay(): React.JSX.Element | null {
+export const AgentIDEOverlay = memo(function AgentIDEOverlay({
+  // §5.5 #17-6 v2.73 — 오버레이 위젯 창에서 IDE 를 열 땐 우측 도킹(스냅) 기능을 끈다(사용자 요청).
+  disableDock = false,
+  // §5.5 #17-6 v2.80 — 오버레이 위젯 창: IDE 가 OS 창 전체를 가득 채운다(창=IDE 1:1).
+  // 백드롭·in-window floating/maximize 분기 없이, 이동은 타이틀바 app-drag(OS 창 이동),
+  // 크기 조절은 OS 창 엣지 리사이즈. 모달이 80vw/80vh 로 떠 주변이 검은 띠로 보이던 문제 제거.
+  fullWindow = false,
+}: { disableDock?: boolean; fullWindow?: boolean }): React.JSX.Element | null {
   const { t } = useTranslation();
   const agentId = useGraphStore((s) => selectIDEOverlay(s).agentId);
   const overlayProjectId = useGraphStore((s) => selectIDEOverlay(s).projectId);
@@ -70,11 +77,13 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay(): React.JSX.Elemen
   const toggleMaximized = useCallback(() => setMaximized((v) => !v), []);
 
   // 타이틀바 더블클릭 — 최대화 버튼과 동일 효과 (버튼 자손에서 시작된 더블클릭은 제외)
+  // fullWindow 에선 in-window maximize 미사용(창=IDE 1:1, OS 가 드래그 영역 더블클릭을 처리).
   const handleTitleBarDoubleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (fullWindow) return;
     const target = e.target as HTMLElement;
     if (target.closest('button')) return;
     toggleMaximized();
-  }, [toggleMaximized]);
+  }, [fullWindow, toggleMaximized]);
 
   // §5.5 #17-1 윈도우 모드 — 닫고 다시 열 때 modal 리셋 (휘발)
   const [mode, setMode] = useState<OverlayMode>('modal');
@@ -101,7 +110,8 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay(): React.JSX.Elemen
     const projectChanged = prev.projectId !== overlayProjectId;
     if (agentId && (!prev.agentId || projectChanged)) {
       // 새 열림 또는 프로젝트 전환 — 해당 프로젝트의 dockedRight 기준으로 mode 결정
-      if (storeDockedRight) {
+      // (오버레이 창에선 disableDock 이라 항상 modal 로 연다 — 우측 도킹 없음)
+      if (storeDockedRight && !disableDock) {
         setMode('docked-right');
         setDockWidth(storeDockWidth);
       } else {
@@ -141,6 +151,8 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay(): React.JSX.Elemen
 
   // 타이틀바 mousedown — 드래그 시작 / 임계치 초과 시 modal→floating 전이 + floating/docked 이동
   const handleTitleBarMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    // fullWindow(오버레이 창)에선 in-window 이동 ❌ — 타이틀바 app-drag 가 OS 창째로 옮긴다.
+    if (fullWindow) return;
     // 버튼·인터랙티브 자손에서 시작된 mousedown 은 드래그 ❌
     const target = e.target as HTMLElement;
     if (target.closest('button')) return;
@@ -201,8 +213,8 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay(): React.JSX.Elemen
       const clampedX = Math.min(Math.max(x, -nextW + 80), window.innerWidth - 80);
       const clampedY = Math.min(Math.max(y, HEADER_H), window.innerHeight - 40);
       setFloatPos({ x: clampedX, y: clampedY });
-      // 도킹 미리보기 — 마우스가 우측 가장자리 임계치 안에 있으면 표시
-      setSnapPreview(ev.clientX >= window.innerWidth - getDockSnapPx());
+      // 도킹 미리보기 — 마우스가 우측 가장자리 임계치 안에 있으면 표시 (오버레이 창은 도킹 없음).
+      setSnapPreview(!disableDock && ev.clientX >= window.innerWidth - getDockSnapPx());
     }
 
     function handleUp(ev: MouseEvent): void {
@@ -210,15 +222,15 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay(): React.JSX.Elemen
       window.removeEventListener('mouseup', handleUp);
       setSnapPreview(false);
       if (!dragging) return;
-      // 우측 가장자리 임계치 안에서 놓으면 도킹
-      if (ev.clientX >= window.innerWidth - getDockSnapPx()) {
+      // 우측 가장자리 임계치 안에서 놓으면 도킹 (오버레이 창은 disableDock 이라 도킹 안 함).
+      if (!disableDock && ev.clientX >= window.innerWidth - getDockSnapPx()) {
         setMode('docked-right');
       }
     }
 
     window.addEventListener('mousemove', handleMove);
     window.addEventListener('mouseup', handleUp);
-  }, [mode, maximized, floatSize.w, floatSize.h]);
+  }, [fullWindow, mode, maximized, floatSize.w, floatSize.h, disableDock]);
 
   // 도킹 좌측 리사이즈 핸들
   const handleDockResize = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
@@ -313,7 +325,11 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay(): React.JSX.Elemen
 
   let windowClass = 'flex flex-col overflow-hidden border-gray-700 bg-gray-900 shadow-2xl shadow-black/60';
   let windowStyle: React.CSSProperties = {};
-  if (maximized) {
+  if (fullWindow) {
+    // §17-6 v2.80 — 오버레이 창: IDE 가 투명 OS 창 전체를 가득 채운다(둥근 모서리+테두리만,
+    // 백드롭/검은 여백 ❌). 이동·리사이즈는 OS 창 몫이라 modal/floating/maximized 분기 불필요.
+    windowClass += ' fixed inset-0 rounded-xl border';
+  } else if (maximized) {
     // 모드와 무관 — 풀스크린 (Header h-9 = 36px 아래)
     windowClass += ' fixed left-0 right-0 top-9 bottom-0';
   } else if (isModal) {
@@ -336,15 +352,19 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay(): React.JSX.Elemen
     };
   }
 
-  const outerClass = isModal
-    ? 'fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm'
-    : 'fixed inset-0 z-50 pointer-events-none';
+  // fullWindow 는 백드롭 없음(창 전체가 IDE) — 백드롭 클릭 닫기도 자연 소멸(닫기=Esc/X).
+  const useBackdrop = isModal && !fullWindow;
+  const outerClass = fullWindow
+    ? 'fixed inset-0 z-50'
+    : isModal
+      ? 'fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm'
+      : 'fixed inset-0 z-50 pointer-events-none';
 
   return (
     <div
       className={outerClass}
-      onMouseDown={isModal ? (e) => { pressOnBackdropRef.current = e.target === e.currentTarget; } : undefined}
-      onClick={isModal ? (e) => { if (e.target === e.currentTarget && pressOnBackdropRef.current) closeOverlay(); } : undefined}
+      onMouseDown={useBackdrop ? (e) => { pressOnBackdropRef.current = e.target === e.currentTarget; } : undefined}
+      onClick={useBackdrop ? (e) => { if (e.target === e.currentTarget && pressOnBackdropRef.current) closeOverlay(); } : undefined}
     >
       {/* §5.5 #17-1 — 드래그 중 우측 도킹 미리보기 (Windows Snap Assist 풍).
           파란 반투명 영역이 도킹될 자리를 미리 보여준다. pointer-events 없음. */}
@@ -402,11 +422,14 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay(): React.JSX.Elemen
           />
         )}
         {/* Title bar — §3.7 v2.14 명도 ramp 중간 톤 (v2.15: 상단 액센트 라인 제거 — 사용자 요청).
-            §5.5 #17-1 — 타이틀바 드래그로 modal↔floating↔docked 전이. */}
+            §5.5 #17-1 — 타이틀바 드래그로 modal↔floating↔docked 전이.
+            §5.5 #17-6 v2.80 — fullWindow(오버레이 창)에선 app-drag 로 OS 창째 이동(버튼은 app-nodrag). */}
         <div
           onMouseDown={handleTitleBarMouseDown}
           onDoubleClick={handleTitleBarDoubleClick}
-          className="flex h-10 flex-shrink-0 items-center justify-between border-b border-gray-700 bg-[#1a2236] px-4 select-none cursor-grab active:cursor-grabbing"
+          className={`flex h-10 flex-shrink-0 items-center justify-between border-b border-gray-700 bg-[#1a2236] px-4 select-none ${
+            fullWindow ? 'app-drag cursor-default' : 'cursor-grab active:cursor-grabbing'
+          }`}
         >
           <div className="flex items-center gap-2">
             <svg className="h-4 w-4 text-blue-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -419,7 +442,9 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay(): React.JSX.Elemen
               {isCmdAgent ? t('ide.overlay.cmdLabel') : isCustom ? t('ide.overlay.customLabel') : t('ide.overlay.hookLabel')}
             </span>
           </div>
-          <div className="flex items-center gap-1">
+          <div className={`flex items-center gap-1 ${fullWindow ? 'app-nodrag' : ''}`}>
+            {/* fullWindow 는 창=IDE 1:1 — 확대축소는 OS 창 엣지 리사이즈로, in-window maximize 버튼 숨김. */}
+            {!fullWindow && (
             <button
               type="button"
               onClick={toggleMaximized}
@@ -443,6 +468,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay(): React.JSX.Elemen
                 </svg>
               )}
             </button>
+            )}
             <button
               type="button"
               onClick={closeOverlay}

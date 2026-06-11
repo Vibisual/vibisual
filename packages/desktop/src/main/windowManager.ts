@@ -460,3 +460,312 @@ export function endDetachDragByWindowId(windowId: number, commit: boolean): bool
   }
   return true;
 }
+
+// ─── §5.5 #17-6 v2.73 — 버블 오버레이 창 ──────────────────────────────────
+//
+// 커스텀/CMD 에이전트 버블을 데스크톱 상시-위 위젯으로 분리한다. 별창(detach)과 같은
+// in-process 서버/preload 를 공유하므로 graph_snapshot 을 자동 수신(setBroadcastSink 의
+// BrowserWindow 순회에 포함). 별창과의 차이:
+//   - frame:false + transparent + alwaysOnTop + skipTaskbar, 버블 크기 작은 창(엣지 미표시)
+//   - 더블클릭 시 IDE 크기로 확대(expand) ↔ 닫으면 버블 크기로 축소(collapse)
+//   - 포커스 무관 항상 위(§17-6 (E) — focus-hide 는 사용자 요청으로 제거됨)
+//   - Header 전역 토글로 사용자 show/hide. 실제 표시 = userVisible.
+
+interface OverlayEntry {
+  id: number;
+  agentId: string;
+  projectId: string;
+  window: BrowserWindow;
+  /** 버블 ↔ IDE 펼침 상태. */
+  expanded: boolean;
+  /** 펼치기 직전의 버블 창 bounds(접을 때 위치 복원용). */
+  collapsedBounds: { x: number; y: number; width: number; height: number } | null;
+}
+
+// 실제 BubbleNode 한 개(+선택 코로나/라벨)가 여유 있게 들어가고 살짝 드래그할 공간이 있는 컴팩트 창.
+const OVERLAY_BUBBLE_W = 280;
+const OVERLAY_BUBBLE_H = 320;
+// 펼친(IDE) 상태에서 사용자가 줄일 수 있는 최소 크기.
+const MIN_FLOAT_W_OVERLAY = 460;
+const MIN_FLOAT_H_OVERLAY = 340;
+// 오버레이 창을 처음 띄울 때 살짝씩 어긋나게 캐스케이드.
+let overlayCascade = 0;
+
+const overlaysByAgentId = new Map<string, OverlayEntry>();
+const overlaysByWindowId = new Map<number, OverlayEntry>();
+// 사용자 전역 토글(Header). 기본 표시.
+let overlaysUserVisible = true;
+
+export interface OverlayInfo {
+  windowId: number;
+  agentId: string;
+  projectId: string;
+  expanded: boolean;
+}
+
+export function listOverlays(): OverlayInfo[] {
+  const out: OverlayInfo[] = [];
+  for (const e of overlaysByAgentId.values()) {
+    out.push({ windowId: e.id, agentId: e.agentId, projectId: e.projectId, expanded: e.expanded });
+  }
+  return out;
+}
+
+export function getOverlaysVisible(): boolean {
+  return overlaysUserVisible;
+}
+
+export function broadcastOverlayList(): void {
+  const list = listOverlays();
+  const visible = overlaysUserVisible;
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) win.webContents.send('vibisual:overlay:list', { overlays: list, userVisible: visible });
+  }
+}
+
+// 한 오버레이가 지금 보여야 하는지 — 오버레이의 본질은 "어떤 프로그램이 선택(포커스)돼 있든 항상
+// 윈도우 위에 떠 있는 것"이므로(사용자 정의), 메인 포커스 여부와 무관하게 전역 토글만 본다.
+function overlayShouldShow(): boolean {
+  return overlaysUserVisible;
+}
+
+// §17-6 (E) v2.80 — 상시-위 재단언. Windows 에선 setResizable/setBounds/show 류 창 상태 전이가
+// topmost 를 조용히 풀어버리는 회귀가 있어, 모든 전이 직후 다시 박는다(멱등이라 비용 없음).
+function keepOverlayOnTop(win: BrowserWindow): void {
+  if (win.isDestroyed()) return;
+  try { win.setAlwaysOnTop(true, 'screen-saver'); } catch { /* noop */ }
+}
+
+function applyOverlayVisibility(entry: OverlayEntry, focusIt: boolean): void {
+  const win = entry.window;
+  if (win.isDestroyed()) return;
+  if (overlayShouldShow()) {
+    if (focusIt) win.show();
+    else if (!win.isVisible()) win.showInactive();
+    keepOverlayOnTop(win);
+  } else if (win.isVisible()) {
+    win.hide();
+  }
+}
+
+function applyAllOverlayVisibility(): void {
+  for (const e of overlaysByAgentId.values()) applyOverlayVisibility(e, false);
+}
+
+export function openOverlay(opts: {
+  agentId: string;
+  projectId: string;
+  cursor?: { x: number; y: number } | undefined;
+}): { windowId: number; reused: boolean } {
+  const existing = overlaysByAgentId.get(opts.agentId);
+  if (existing && !existing.window.isDestroyed()) {
+    if (existing.window.isMinimized()) existing.window.restore();
+    existing.window.show();
+    existing.window.focus();
+    keepOverlayOnTop(existing.window);
+    return { windowId: existing.id, reused: true };
+  }
+
+  // 위치: cursor 근처가 있으면 그 옆, 없으면 현재 디스플레이 우상단에서 캐스케이드.
+  let x: number;
+  let y: number;
+  if (opts.cursor) {
+    x = Math.round(opts.cursor.x - OVERLAY_BUBBLE_W / 2);
+    y = Math.round(opts.cursor.y - 24);
+  } else {
+    const disp = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+    const wa = disp.workArea;
+    const offset = (overlayCascade % 6) * 28;
+    x = wa.x + wa.width - OVERLAY_BUBBLE_W - 32 - offset;
+    y = wa.y + 80 + offset;
+  }
+  overlayCascade += 1;
+
+  const win = new BrowserWindow({
+    width: OVERLAY_BUBBLE_W,
+    height: OVERLAY_BUBBLE_H,
+    x,
+    y,
+    show: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    frame: false,
+    resizable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    hasShadow: false,
+    autoHideMenuBar: true,
+    title: 'Vibisual',
+    icon: join(__dirname, '..', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.cjs'),
+      sandbox: false,
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+  // 다른 앱(전체화면 제외) 위에 떠 다른 PC 작업 옆에 보이도록.
+  keepOverlayOnTop(win);
+
+  const entry: OverlayEntry = {
+    id: win.id,
+    agentId: opts.agentId,
+    projectId: opts.projectId,
+    window: win,
+    expanded: false,
+    collapsedBounds: null,
+  };
+  overlaysByAgentId.set(opts.agentId, entry);
+  overlaysByWindowId.set(win.id, entry);
+
+  // 준비되면 표시(전역 토글이 꺼져 있을 때만 숨긴 채 둔다). 포커스 숨김은 없다 — 본체가 떠 있어도,
+  // 다른 어떤 프로그램이 선택돼 있어도 항상 위에 떠 있는다(alwaysOnTop 'screen-saver').
+  win.on('ready-to-show', () => {
+    if (win.isDestroyed()) return;
+    if (overlaysUserVisible) {
+      win.showInactive();
+      keepOverlayOnTop(win);
+    }
+  });
+
+  win.on('closed', () => {
+    stopOverlayDrag(win.id);
+    overlaysByAgentId.delete(opts.agentId);
+    overlaysByWindowId.delete(win.id);
+    broadcastOverlayList();
+  });
+
+  const hash = `overlay=1&agentId=${encodeURIComponent(opts.agentId)}&projectId=${encodeURIComponent(opts.projectId)}`;
+  void win.loadFile(join(__dirname, '../renderer/index.html'), { hash });
+
+  win.webContents.once('did-finish-load', () => {
+    if (!win.isDestroyed()) {
+      win.webContents.send('vibisual:overlay:list', { overlays: listOverlays(), userVisible: overlaysUserVisible });
+    }
+  });
+
+  broadcastOverlayList();
+  return { windowId: win.id, reused: false };
+}
+
+// §17-6 v2.81 — 버블 드래그 = OS 창 이동. 렌더러의 .bubble-body mousedown 이 drag-start 를
+// 보내면, 별창 mini-ghost 드래그(§5.4 #14-1)와 동일하게 메인 프로세스가 커서를 폴링해 창째
+// 따라가게 한다(잡은 지점 오프셋 유지). 창이 통째로 움직이므로 버블이 창 경계에서 잘리지
+// 않고 모니터·앱 경계 어디든 넘는다. mouseup 시 drag-end 로 해제.
+const overlayDragTimers = new Map<number, NodeJS.Timeout>();
+
+function stopOverlayDrag(windowId: number): void {
+  const timer = overlayDragTimers.get(windowId);
+  if (timer) {
+    clearInterval(timer);
+    overlayDragTimers.delete(windowId);
+  }
+}
+
+export function startOverlayDragByWindowId(windowId: number): boolean {
+  const entry = overlaysByWindowId.get(windowId);
+  if (!entry || entry.window.isDestroyed()) return false;
+  if (overlayDragTimers.has(windowId)) return true; // 이미 드래그 중(더블클릭 2번째 mousedown 등)
+  const win = entry.window;
+  const cur = screen.getCursorScreenPoint();
+  const b = win.getBounds();
+  // 잡은 지점(커서)과 창 좌상단의 오프셋을 고정 — 커서가 안 움직이면 창도 안 움직인다(클릭 무손상).
+  const offX = cur.x - b.x;
+  const offY = cur.y - b.y;
+  const timer = setInterval(() => {
+    if (win.isDestroyed()) {
+      stopOverlayDrag(windowId);
+      return;
+    }
+    const p = screen.getCursorScreenPoint();
+    win.setPosition(p.x - offX, p.y - offY, false);
+  }, 16);
+  overlayDragTimers.set(windowId, timer);
+  return true;
+}
+
+export function endOverlayDragByWindowId(windowId: number): boolean {
+  stopOverlayDrag(windowId);
+  const entry = overlaysByWindowId.get(windowId);
+  if (entry && !entry.window.isDestroyed()) keepOverlayOnTop(entry.window);
+  return true;
+}
+
+export function closeOverlayByAgentId(agentId: string): boolean {
+  const entry = overlaysByAgentId.get(agentId);
+  if (!entry) return false;
+  if (!entry.window.isDestroyed()) entry.window.close();
+  return true;
+}
+
+export function closeOverlayByWindowId(windowId: number): boolean {
+  const entry = overlaysByWindowId.get(windowId);
+  if (!entry) return false;
+  if (!entry.window.isDestroyed()) entry.window.close();
+  return true;
+}
+
+// 버블 더블클릭 → 창을 IDE 크기로 확대. "그 버블 원 기준으로 좀 작게" — 화면을 다 덮지 않는
+// 적당히 작은 크기로, 버블이 있던 자리(중심)에 앵커해 거기서 자라난 듯 보이게 한다.
+export function expandOverlayByWindowId(windowId: number): boolean {
+  const entry = overlaysByWindowId.get(windowId);
+  if (!entry || entry.window.isDestroyed()) return false;
+  const win = entry.window;
+  const cur = win.getBounds();
+  entry.collapsedBounds = { x: cur.x, y: cur.y, width: cur.width, height: cur.height };
+  const disp = screen.getDisplayMatching(cur);
+  const wa = disp.workArea;
+  const w = Math.min(840, Math.round(wa.width * 0.6));
+  const h = Math.min(600, Math.round(wa.height * 0.66));
+  // 버블 창 중심 기준으로 확대 창을 앉히고 작업영역 안으로 클램프.
+  const cx = cur.x + cur.width / 2;
+  const cy = cur.y + cur.height / 2;
+  const nx = Math.max(wa.x, Math.min(Math.round(cx - w / 2), wa.x + wa.width - w));
+  const ny = Math.max(wa.y, Math.min(Math.round(cy - h / 2), wa.y + wa.height - h));
+  entry.expanded = true;
+  try { win.setResizable(true); } catch { /* noop */ }
+  try { win.setMinimumSize(MIN_FLOAT_W_OVERLAY, MIN_FLOAT_H_OVERLAY); } catch { /* noop */ }
+  win.setBounds({ x: nx, y: ny, width: w, height: h }, false);
+  win.show();
+  win.focus();
+  // setResizable 이 topmost 를 풀 수 있어(§17-6 (E) v2.80) 펼친 IDE 도 항상 위로 재단언.
+  keepOverlayOnTop(win);
+  broadcastOverlayList();
+  return true;
+}
+
+// IDE 닫기(Esc/백드롭/X) → 다시 버블 크기로 축소.
+export function collapseOverlayByWindowId(windowId: number): boolean {
+  const entry = overlaysByWindowId.get(windowId);
+  if (!entry || entry.window.isDestroyed()) return false;
+  const win = entry.window;
+  entry.expanded = false;
+  const b = entry.collapsedBounds;
+  try { win.setMinimumSize(OVERLAY_BUBBLE_W, OVERLAY_BUBBLE_H); } catch { /* noop */ }
+  try { win.setResizable(false); } catch { /* noop */ }
+  if (b) {
+    win.setBounds({ x: b.x, y: b.y, width: OVERLAY_BUBBLE_W, height: OVERLAY_BUBBLE_H }, false);
+  } else {
+    win.setSize(OVERLAY_BUBBLE_W, OVERLAY_BUBBLE_H);
+  }
+  // setResizable(false) 가 topmost 를 풀 수 있어(§17-6 (E) v2.80) 버블 복귀 후에도 재단언.
+  keepOverlayOnTop(win);
+  broadcastOverlayList();
+  return true;
+}
+
+// Header 전역 토글.
+export function setOverlaysVisible(visible: boolean): void {
+  overlaysUserVisible = visible;
+  applyAllOverlayVisibility();
+  broadcastOverlayList();
+}
+
+export function closeAllOverlays(): void {
+  for (const entry of [...overlaysByAgentId.values()]) {
+    stopOverlayDrag(entry.id);
+    if (!entry.window.isDestroyed()) entry.window.destroy();
+  }
+  overlaysByAgentId.clear();
+  overlaysByWindowId.clear();
+}

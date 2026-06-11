@@ -45,6 +45,18 @@ export interface DetachPayloadWire {
 export interface RectWire { x: number; y: number; width: number; height: number }
 export interface PointWire { x: number; y: number }
 
+// SCENARIO.md §5.5 #17-6 (v2.73) — 버블 오버레이 창 IPC surface.
+export interface OverlayInfoWire {
+  windowId: number;
+  agentId: string;
+  projectId: string;
+  expanded: boolean;
+}
+export interface OverlayListWire {
+  overlays: OverlayInfoWire[];
+  userVisible: boolean;
+}
+
 const api = {
   serverInfo: (): Promise<ServerInfo> => ipcRenderer.invoke('vibisual:server-info'),
   request: (path: string, init?: FetchInitWire): Promise<FetchResponseWire> =>
@@ -112,6 +124,34 @@ const api = {
       const listener = (_e: unknown, payload: { dragging: boolean; hovering: boolean }): void => cb(payload);
       ipcRenderer.on('vibisual:tab:redock-drag-state', listener);
       return () => ipcRenderer.removeListener('vibisual:tab:redock-drag-state', listener);
+    },
+  },
+  /** §5.5 #17-6 (v2.73) — 버블 오버레이 창 surface. */
+  overlay: {
+    /** 에이전트 버블을 데스크톱 상시-위 위젯 창으로 분리. 이미 있으면 그 창 focus. */
+    open: (payload: { agentId: string; projectId: string; cursor?: { x: number; y: number } }): Promise<{ windowId: number; reused: boolean }> =>
+      ipcRenderer.invoke('vibisual:overlay:open', payload),
+    /** 특정 에이전트의 오버레이 창 닫기(메인에서 토글 해제 시). */
+    close: (agentId: string): Promise<boolean> => ipcRenderer.invoke('vibisual:overlay:close', agentId),
+    /** 오버레이 창이 자기 자신을 닫기. */
+    closeSelf: (): Promise<boolean> => ipcRenderer.invoke('vibisual:overlay:close-self'),
+    /** 버블 클릭 → 자기 창을 IDE 크기로 확대. */
+    expandSelf: (): Promise<boolean> => ipcRenderer.invoke('vibisual:overlay:expand-self'),
+    /** IDE 닫기 → 자기 창을 버블 크기로 축소. */
+    collapseSelf: (): Promise<boolean> => ipcRenderer.invoke('vibisual:overlay:collapse-self'),
+    /** §17-6 v2.81 — 버블 드래그 = OS 창 이동. mousedown 시 시작(메인이 커서 폴링으로 창을 따라가게). */
+    dragStart: (): Promise<boolean> => ipcRenderer.invoke('vibisual:overlay:drag-start'),
+    /** 버블 드래그 종료(window mouseup) — 커서 폴링 해제. */
+    dragEnd: (): Promise<boolean> => ipcRenderer.invoke('vibisual:overlay:drag-end'),
+    /** 현재 오버레이 목록 + 전역 토글 상태 조회(초기 동기화용). */
+    list: (): Promise<OverlayListWire> => ipcRenderer.invoke('vibisual:overlay:list'),
+    /** Header 전역 토글 — 모든 오버레이 창 show/hide. */
+    setVisible: (visible: boolean): Promise<boolean> => ipcRenderer.invoke('vibisual:overlay:set-visible', visible),
+    /** main 이 모든 창에 푸시하는 현재 오버레이 목록 + 토글 상태. */
+    onList: (cb: (payload: OverlayListWire) => void): (() => void) => {
+      const listener = (_e: unknown, payload: OverlayListWire): void => cb(payload);
+      ipcRenderer.on('vibisual:overlay:list', listener);
+      return () => ipcRenderer.removeListener('vibisual:overlay:list', listener);
     },
   },
   /** §4 v2.44 자동 업데이트 surface — VS Code 식 업데이트 버튼. */

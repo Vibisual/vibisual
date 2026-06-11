@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-06-11
+
+### Added
+- **Guide window** (File → Guide). A built-in tour and feature inventory: eight categories — Getting Started, Bubble Map, Agents, Task Edges, IDE Overlay, Navigation, History & Saving, and Shortcuts — each laying out what Vibisual can do and how, so newcomers can find their bearings without leaving the app.
+- **Desktop overlay bubbles.** Pop an agent bubble out of the canvas into an always-on-top desktop widget that floats over your other windows — click it to jump straight back into that agent's IDE, and toggle all overlay bubbles in or out of view at once. Handy for keeping an eye on a running agent while you work elsewhere.
+- **Bubble bookmark shortcuts.** Alt+1…0 now pins the focused bubble or session to a numbered slot, and pressing 1…0 jumps straight back to it. Shortcuts pause automatically while you're typing in an input or terminal so they never swallow your keystrokes.
+- **CMD agents can raise cards too.** The embedded interactive CMD agent can now surface work-report, question, and review cards just like spawned agents — it prints a single marked line to its own terminal and the IDE captures it and rewrites it as a colour-coded card, with no port, token, or `curl` plumbing to set up.
+- **Collapsible prompts in the stream.** The text you typed now appears in the agent stream as a tidy collapsible "You" block, so long prompts no longer push the agent's actual work off the screen.
+- **Global skills.** Skills and commands installed in your home `~/.claude` (shared across every project) now show up under their own "Global" group in the Skills view, alongside Project and Plugin skills.
+- **Terminal input context menu.** Right-click the IDE terminal's input box for Cut, Copy, Paste, and Select all.
+- **Builder activity view for Auto Agent.** While the Auto Agent's builder is designing and wiring a team, its live activity is now shown inline so you can watch the work as it happens.
+
+### Changed
+- **New model families appear automatically.** Model handling no longer hard-codes the Opus / Sonnet / Haiku trio. Any `claude-<family>-<version>` the Claude CLI or `/v1/models` reports — including brand-new families like Fable — is now recognised on its own: it shows up in the model picker, is labelled correctly on bubbles, and resolves its "latest" build without a code change. Families without a known price/context table fall back to conservative defaults rather than being hidden.
+
+### Fixed
+- **Report cards survive an app restart.** The work-report, question, and review cards an agent files no longer go silent after the app is restarted or its hook port changes. Instead of baking the server port and token into the prompt once at spawn time — which left already-running sessions pointing at a dead port — the card commands now read the live port and token from a fixed identity file at the moment they run, so resumed sessions always reach the current app. If that file is missing the old baked-in values are still used, so this never makes things worse than before.
+
 ## [0.1.3] - 2026-06-04
 
 ### Added

@@ -13,6 +13,7 @@ import { AgentReviewCard } from './AgentReviewCard.js';
 import { IDETerminalView } from './IDETerminalView.js';
 import { SystemNode, parseSystemSubtype } from './SystemNode.js';
 import { ThinkingDots, ThinkingLiveLine } from './ThinkingIndicator.js';
+import { CollapsiblePrompt } from './CollapsiblePrompt.js';
 
 /** SDK 가 생각 중 반복 송출하는 system 펄스 subtype — 본문에 쌓이지 않게 라이브 1줄로 대체. */
 const THINKING_PULSE_SUBTYPE = 'thinking_tokens';
@@ -304,6 +305,15 @@ function TerminalLine({ entry }: { entry: TerminalEntry }): React.JSX.Element {
   if (entry.type === 'system') {
     const subtype = parseSystemSubtype(entry.text);
     if (subtype) return <SystemNode subtype={subtype} />;
+  }
+  // 사용자 입력(command)은 길이와 무관하게 StreamRenderer(Sub 탭)와 동일한 "내 메시지" 말풍선으로.
+  // (탭에 따라 옛 평문으로 뜨던 불일치 제거 — 두 경로가 같은 CollapsiblePrompt 사용.)
+  if (entry.type === 'command') {
+    return (
+      <div className="px-3 py-1">
+        <CollapsiblePrompt prompt={entry.text} />
+      </div>
+    );
   }
   const style = TYPE_STYLES[entry.type] ?? TYPE_STYLES['text']!;
 
@@ -837,6 +847,95 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
     if (activeSessionId) markSubAcknowledged(activeSessionId);
   }, [activeSessionId, markSubAcknowledged]);
 
+  // §5.5 #17-3 v2.79 — 입력 textarea 우클릭 컨텍스트 메뉴 (Cut/Copy/Paste/Select All).
+  //   Electron packaged 빌드엔 브라우저 기본 메뉴가 없어 우클릭 시 아무 것도 안 떴다 →
+  //   일반 IDE 입력창처럼 우클릭 메뉴를 직접 그린다. 출력 영역 메뉴(handleContextMenu)와 별개.
+  const [inputCtx, setInputCtx] = useState<
+    { x: number; y: number; start: number; end: number; hasSel: boolean } | null
+  >(null);
+  const closeInputCtx = useCallback(() => setInputCtx(null), []);
+
+  const handleInputContextMenu = useCallback((e: React.MouseEvent<HTMLTextAreaElement>) => {
+    e.preventDefault();
+    const el = e.currentTarget;
+    const start = el.selectionStart ?? 0;
+    const end = el.selectionEnd ?? 0;
+    setInputCtx({ x: e.clientX, y: e.clientY, start, end, hasSel: end > start });
+  }, []);
+
+  // 지정 범위를 insert 로 교체하고 caret/높이 복원 (Cut=빈 문자열, Paste=클립보드 텍스트).
+  const replaceInputRange = useCallback((start: number, end: number, insert: string) => {
+    const el = textareaRef.current;
+    if (!el) return;
+    const value = el.value;
+    const next = value.slice(0, start) + insert + value.slice(end);
+    setText(next);
+    const caret = start + insert.length;
+    requestAnimationFrame(() => {
+      const e2 = textareaRef.current;
+      if (!e2) return;
+      e2.focus();
+      e2.setSelectionRange(caret, caret);
+      e2.style.height = 'auto';
+      e2.style.height = `${Math.min(e2.scrollHeight, 120)}px`;
+    });
+  }, [setText]);
+
+  const inputCtxItems = useMemo<ContextMenuItem[]>(() => {
+    const ctx = inputCtx;
+    const hasSel = ctx?.hasSel ?? false;
+    const selectionRequired = t('ide.mainArea.ctxSelectionRequired');
+    const selText = (): string => {
+      if (!ctx) return '';
+      return (textareaRef.current?.value ?? '').slice(ctx.start, ctx.end);
+    };
+    return [
+      {
+        label: t('ide.mainArea.inputCtxCut'),
+        disabled: !hasSel,
+        disabledTitle: selectionRequired,
+        onClick: () => {
+          if (!ctx) return;
+          const s = selText();
+          if (s && typeof navigator !== 'undefined' && navigator.clipboard) {
+            navigator.clipboard.writeText(s).catch(() => {});
+          }
+          replaceInputRange(ctx.start, ctx.end, '');
+        },
+      },
+      {
+        label: t('ide.mainArea.inputCtxCopy'),
+        disabled: !hasSel,
+        disabledTitle: selectionRequired,
+        onClick: () => {
+          const s = selText();
+          if (s && typeof navigator !== 'undefined' && navigator.clipboard) {
+            navigator.clipboard.writeText(s).catch(() => {});
+          }
+        },
+      },
+      {
+        label: t('ide.mainArea.inputCtxPaste'),
+        onClick: () => {
+          if (!ctx || typeof navigator === 'undefined' || !navigator.clipboard?.readText) return;
+          navigator.clipboard
+            .readText()
+            .then((clip) => { if (clip) replaceInputRange(ctx.start, ctx.end, clip); })
+            .catch(() => {});
+        },
+      },
+      {
+        label: t('ide.mainArea.inputCtxSelectAll'),
+        onClick: () => {
+          const el = textareaRef.current;
+          if (!el) return;
+          el.focus();
+          el.select();
+        },
+      },
+    ];
+  }, [inputCtx, t, replaceInputRange]);
+
   return (
     <div className="relative flex flex-col gap-1.5 border-t border-gray-700 bg-gray-900/80 px-3 py-2">
       {/* §5.5 #17-2 v2.30 — 슬래시 자동완성 드롭다운 (입력행 바로 위) */}
@@ -929,6 +1028,7 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
           onKeyDown={handleKeyDown}
           onInput={handleInput}
           onPaste={handlePaste}
+          onContextMenu={handleInputContextMenu}
           rows={1}
           placeholder={activeSessionId === null ? t('ide.mainArea.inputPlaceholderNew') : t('ide.mainArea.inputPlaceholder')}
           className="scrollbar-thin min-h-[28px] flex-1 resize-none bg-transparent text-[13px] leading-7 text-gray-200 placeholder-gray-500 outline-none"
@@ -965,6 +1065,9 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
           </button>
         )}
       </div>
+      {inputCtx && (
+        <TerminalContextMenu x={inputCtx.x} y={inputCtx.y} items={inputCtxItems} onClose={closeInputCtx} />
+      )}
     </div>
   );
 }
@@ -1028,8 +1131,16 @@ function StreamStatusBar({ commands, scrollRef }: StreamStatusBarProps): React.J
         if (url) attachmentThumbs.push({ basename, url });
       }
     }
+    // 첨부 썸네일 버튼이 안에 있어 <button> 중첩이 불가 → div[role=button] 으로 점프 처리.
     return (
-      <div className="flex flex-shrink-0 items-center gap-2 border-t border-gray-800 bg-gray-900/70 px-4 py-1.5">
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={handleJump}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleJump(); } }}
+        title={t('ide.mainArea.scrollPrompt')}
+        className="group flex w-full flex-shrink-0 cursor-pointer items-center gap-2 border-t border-gray-800 bg-gray-900/70 px-4 py-1.5 text-left transition-colors hover:bg-gray-800/70"
+      >
         <span className="inline-block h-3 w-3 flex-shrink-0 animate-spin rounded-full border-[1.5px] border-blue-400 border-t-transparent" />
         <span className="flex-shrink-0 text-[12px] text-blue-300">{t('ide.mainArea.executing')}</span>
         {attachmentThumbs.length > 0 && (
@@ -1038,7 +1149,7 @@ function StreamStatusBar({ commands, scrollRef }: StreamStatusBarProps): React.J
               <button
                 key={a.basename}
                 type="button"
-                onClick={() => openImageLightbox(a.url)}
+                onClick={(e) => { e.stopPropagation(); openImageLightbox(a.url); }}
                 className="h-5 w-5 flex-shrink-0 overflow-hidden rounded border border-gray-700"
               >
                 <img src={a.url} alt="" className="h-full w-full cursor-zoom-in object-cover" />
@@ -1046,7 +1157,8 @@ function StreamStatusBar({ commands, scrollRef }: StreamStatusBarProps): React.J
             ))}
           </div>
         )}
-        <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-gray-400">{preview}</span>
+        <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-gray-400 group-hover:text-gray-200">{preview}</span>
+        <span className="flex-shrink-0 text-[10px] text-gray-600 group-hover:text-gray-300">{'↑'}</span>
       </div>
     );
   }
@@ -1392,6 +1504,23 @@ export const IDEMainArea = memo(function IDEMainArea({
     return [...matches].sort((a, b) => a.createdAt - b.createdAt);
   }, [agentReviewsForAgent, activeSessionId]);
 
+  // §4 v2.76 — CMD(인터랙티브 터미널) 카드 레일용 병합 타임라인. 터미널 분기는 본문(StreamRenderer/mainTimeline)을
+  //   안 거치므로 그쪽 카드 렌더가 닿지 않는다 → 터미널 위에 띄울 카드 목록을 따로 만든다. **최신이 위로**(descending)
+  //   오게 정렬해 레일이 짧아도 방금 뜬 카드가 항상 보이게 한다(터미널이 주, 카드는 알림 성격).
+  const cmdCardTimeline = useMemo(() => {
+    const merged: Array<
+      | { ts: number; t: 'report'; report: AgentReport }
+      | { ts: number; t: 'question'; questions: AgentQuestions }
+      | { ts: number; t: 'review'; review: AgentReview }
+    > = [
+      ...reportCards.map((r) => ({ ts: r.createdAt, t: 'report' as const, report: r })),
+      ...questionCards.map((q) => ({ ts: q.createdAt, t: 'question' as const, questions: q })),
+      ...reviewCards.map((r) => ({ ts: r.createdAt, t: 'review' as const, review: r })),
+    ];
+    merged.sort((a, b) => b.ts - a.ts);
+    return merged;
+  }, [reportCards, questionCards, reviewCards]);
+
   // §4 v2.53/v2.57 — 메인 탭: 터미널 항목 + 작업 신고 카드를 합쳐 정렬. 신고는 createdAt 그대로가 아니라
   //   **그 신고가 속한 턴의 끝**(createdAt 이후 첫 프롬프트 직전, 없으면 맨 끝)에 배치 — StreamRenderer 와 동일.
   //   작업 도중 카드가 중간에 끼는 걸 막고, 다음 턴 대화가 오면 자연스럽게 위로 밀려 올라가게 한다.
@@ -1437,6 +1566,20 @@ export const IDEMainArea = memo(function IDEMainArea({
   if (showInteractiveTerminal) {
     return (
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        {/* §4 v2.76 — CMD 카드 레일: 터미널이 stdout 으로 인쇄한 `::VIBISUAL-CARD::` 마커 줄을 IDE 가 캡처해
+            만든 작업 신고/질문/검수 카드를 **터미널 위**에 색 카드로 띄운다(터미널 분기는 본문 타임라인을 안
+            거치므로 여기 없으면 카드가 보일 자리가 없다). 비어 있으면 렌더 안 함 → 터미널이 전체 높이. */}
+        {cmdCardTimeline.length > 0 && (
+          <div className="scrollbar-thin max-h-[40%] shrink-0 overflow-y-auto border-b border-gray-800 bg-gray-950 px-1 py-1">
+            {cmdCardTimeline.map((n) =>
+              n.t === 'report'
+                ? <AgentReportCard key={n.report.id} report={n.report} />
+                : n.t === 'review'
+                  ? <AgentReviewCard key={n.review.id} review={n.review} />
+                  : <AgentQuestionCard key={n.questions.id} questions={n.questions} />,
+            )}
+          </div>
+        )}
         <IDETerminalView key={activeSessionId ?? 'main'} agentId={agentId} sessionId={activeSessionId} />
       </div>
     );

@@ -240,6 +240,9 @@ export const BubbleNode = memo(function BubbleNode({
   const isGhost = data.bubbleType === 'ghost';
   const isIframe = data.bubbleType === 'iframe';
   const isRoot = data.bubbleType === 'root';
+  // §5.5 #17-6 v2.73 — 오버레이 위젯 창 안에서 렌더되는 버블. 시각·드래그·더블클릭은 캔버스와 동일,
+  // 단 "엣지 연결"(테두리 잡고 Task Edge 드래그)만 비활성(연결할 다른 버블이 없는 단독 위젯이라).
+  const overlayMode = (data as Record<string, unknown>)['_overlayMode'] === true;
   const isBack = data.id === '__root_back__';
   // 더블클릭으로 동작이 있는 버블 — handleNodeDoubleClick(BubbleMap)과 1:1.
   // 이 버블들만 단일선택을 SELECT_DEFER_MS 만큼 늦춘다(나머지는 즉시 선택 유지).
@@ -408,7 +411,7 @@ export const BubbleNode = memo(function BubbleNode({
   useEffect(() => () => clearHoverTimer(), [clearHoverTimer]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (!isAgent) return;
+    if (!isAgent || overlayMode) return;
     if (isOnBorder(e)) {
       if (hoverTimer.current == null) {
         hoverTimer.current = setTimeout(() => {
@@ -470,7 +473,7 @@ export const BubbleNode = memo(function BubbleNode({
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
     // 커스텀 에이전트 테두리 클릭 → 연결 모드 진입 (노드 이동 차단).
     // Hook 에이전트/파이프라인/서브에이전트는 Task Edge 소스가 될 수 없다.
-    if (isAgent && data.customCreated && isOnBorder(e)) {
+    if (isAgent && data.customCreated && !overlayMode && isOnBorder(e)) {
       e.stopPropagation();
       e.preventDefault();
       startTaskEdgeDrag(data.id, e.clientX, e.clientY);

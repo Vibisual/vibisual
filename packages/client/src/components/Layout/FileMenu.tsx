@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { OptionsWindow } from '../Options/OptionsWindow.js';
+import { GuideWindow } from '../Guide/GuideWindow.js';
 
 const API_BASE = '';
 
@@ -10,6 +11,7 @@ export function FileMenu(): React.JSX.Element {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   // 외부 클릭 → 닫기
@@ -93,9 +95,22 @@ export function FileMenu(): React.JSX.Element {
             </svg>
             {t('panel.fileMenu.options', { defaultValue: 'Options…' })}
           </button>
+          {/* Guide — 기능 안내 / 만든 기능 인벤토리 */}
+          <div className="my-1 border-t border-white/[0.05]" />
+          <button
+            type="button"
+            onClick={() => { setOpen(false); setGuideOpen(true); }}
+            className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-[13px] text-gray-300 transition-colors hover:bg-white/[0.08] hover:text-white"
+          >
+            <svg className="h-4 w-4 shrink-0 text-gray-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+            </svg>
+            {t('panel.fileMenu.guide', { defaultValue: 'Guide' })}
+          </button>
         </div>
       )}
       <OptionsWindow open={optionsOpen} onClose={() => setOptionsOpen(false)} />
+      <GuideWindow open={guideOpen} onClose={() => setGuideOpen(false)} />
     </div>
   );
 }

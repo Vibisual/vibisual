@@ -6,10 +6,11 @@ import { app, shell, BrowserWindow, protocol, screen } from 'electron';
 import { electronApp, optimizer } from '@electron-toolkit/utils';
 import { inject, type DispatchFunc } from 'light-my-request';
 import type { Express } from 'express';
-import { runServer, setBroadcastSink, setHookListenerPort, setHookListenerToken, ensureClaudeHooksInstalled, recordDiagnostic, subAgentManager } from '@vibisual/server';
+import { runServer, setBroadcastSink, setHookListenerPort, setHookListenerToken, setHookListenerIdentityFile, ensureClaudeHooksInstalled, recordDiagnostic, subAgentManager } from '@vibisual/server';
 import { setupIpc, type IpcHub } from './ipc';
 import { loadSecrets } from './secrets';
-import { configureWindowManager, closeAll as closeAllDetachedWindows } from './windowManager';
+import { loadHookIdentity, saveHookIdentity, hookIdentityPath } from './hookIdentity';
+import { configureWindowManager, closeAll as closeAllDetachedWindows, closeAllOverlays } from './windowManager';
 import { initAutoUpdater, stopAutoUpdater } from './updaterManager';
 import { killAllTerminals } from './terminalManager';
 
@@ -37,7 +38,9 @@ let ipcHub: IpcHub | null = null;
 let hookListener: HttpServer | null = null;
 let primaryMainWindow: BrowserWindow | null = null;
 
-// Per-launch token for hook listener auth (item #7). Generated once at startup.
+// Hook 리스너 인증 토큰. 예전엔 매 실행 새 랜덤이었으나, 이제 userData 에 저장된 값을
+// bootBackend 에서 불러와 재사용한다(hookIdentity.ts) — 재실행해도 동일 유지. 모듈 로드 시점엔
+// app 이 아직 ready 가 아니라 userData 를 못 읽으므로, 일단 랜덤 폴백으로 두고 boot 때 덮어쓴다.
 let hookToken: string = randomBytes(24).toString('hex');
 
 export function getHookToken(): string {
@@ -150,6 +153,8 @@ function createWindow(): void {
     // §5.4 #14-1 (v2.34) — 본체가 닫히면 별창도 같이 닫힌다(사용자 의도: "본체 꺼지면 별창도 같이").
     // 그렇지 않으면 별창이 살아있는 한 window-all-closed 가 발생하지 않아 앱이 quit 하지 못함.
     closeAllDetachedWindows();
+    // §5.5 #17-6 (v2.73) — 오버레이 위젯 창도 함께 정리(같은 데드락 회피).
+    closeAllOverlays();
   });
 }
 
@@ -169,7 +174,7 @@ function createWindow(): void {
  * light-my-request 의 것으로 풀려 크래시한다. 그 경로를 원천 차단 — 실제 req 는 Express 를
  * 절대 거치지 않고, Express 는 오직 light-my-request 요청만 받는다.
  */
-async function startHookListener(expressApp: Express): Promise<number> {
+async function startHookListener(expressApp: Express, preferredPort: number): Promise<number> {
   const server = createServer((req, res) => {
     const path = (req.url ?? '').split('?')[0] ?? '';
 
@@ -248,9 +253,25 @@ async function startHookListener(expressApp: Express): Promise<number> {
     });
   });
   hookListener = server;
+  // 저장된 선호 포트를 먼저 시도하고, 점유됐으면(EADDRINUSE 등) 동적 포트(:0)로 폴백한다.
+  // 단일 인스턴스 락이 우리 자신끼리의 경쟁은 막으므로, 폴백은 외부 프로세스가 그 포트를
+  // 가로챈 드문 경우에만 발생한다. 폴백 시에도 bootBackend 가 실제 포트를 다시 저장한다.
   await new Promise<void>((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', resolve);
+    let triedFallback = false;
+    const onError = (err: NodeJS.ErrnoException): void => {
+      if (!triedFallback && preferredPort > 0) {
+        triedFallback = true;
+        console.warn(`[main] preferred hook port ${preferredPort} unavailable (${err.code ?? err.message}) — falling back to a dynamic port`);
+        server.listen(0, '127.0.0.1');
+        return;
+      }
+      reject(err);
+    };
+    server.on('error', onError);
+    server.listen(preferredPort > 0 ? preferredPort : 0, '127.0.0.1', () => {
+      server.removeListener('error', onError);
+      resolve();
+    });
   });
   return (server.address() as AddressInfo).port;
 }
@@ -340,11 +361,21 @@ async function bootBackend(): Promise<void> {
   registerIframeProxyProtocol(handle.app);
 
   // hook loopback 리스너 → §3.6 글로벌 훅 인스톨러로 그 포트를 등록.
-  const hookPort = await startHookListener(handle.app);
+  // 포트·토큰은 userData 에 저장된 값을 재사용한다(hookIdentity.ts) — 재실행해도 동일하게
+  // 유지되어, 이전 인스턴스가 스폰한 외부 에이전트의 loopback curl 이 끊기지 않는다.
+  const identity = loadHookIdentity();
+  hookToken = identity.token;
+  const hookPort = await startHookListener(handle.app, identity.preferredPort);
+  // 실제 바인드된 포트·토큰을 확정 저장 → 다음 실행이 같은 값을 선호 포트/토큰으로 재사용.
+  saveHookIdentity({ port: hookPort, token: hookToken });
   // §3.7 v2.8 — server 코어가 커스텀 위임 엣지 dispatch curl URL 을 이 포트로 조립하도록 주입.
   setHookListenerPort(hookPort);
-  // §5.3 #10-2 v2.47 — 하네스 빌더 구축 curl 인증용 per-launch 토큰을 server 코어에 주입.
+  // §5.3 #10-2 v2.47 — 하네스 빌더 구축 curl 인증용 토큰을 server 코어에 주입.
   setHookListenerToken(hookToken);
+  // §4 v2.71 — 카드 엔드포인트 curl 이 호출 시점에 live 포트·토큰을 읽을 신원 파일 경로를 주입.
+  //   forward-slash 정규화: 빌더가 이 경로를 node 의 단일따옴표 JS 문자열에 그대로 박으므로
+  //   Windows 역슬래시면 이스케이프가 깨진다. node 의 fs 는 forward-slash 를 그대로 받는다.
+  setHookListenerIdentityFile(hookIdentityPath().replace(/\\/g, '/'));
   console.log(`[main] hook listener on http://127.0.0.1:${hookPort} (loopback — hook + edge dispatch ingest)`);
 
   // Item #1 — VIBISUAL_SKIP_HOOK_INSTALL opt-out gate.
@@ -373,7 +404,25 @@ async function bootBackend(): Promise<void> {
   ipcHub = setupIpc(handle.app);
 }
 
-app.whenReady().then(async () => {
+// 단일 인스턴스 락 — 2번째 실행이 백엔드를 또 부팅해 ~/.claude/settings.json 의 hook 포트를
+// 자기 동적 포트로 덮어쓰는 사고를 원천 차단한다. 그 2번째 인스턴스가 닫히면 settings.json 이
+// 죽은 포트를 가리켜, 새로 뜨는 훅·스폰 에이전트의 loopback curl(작업 신고/질문/검수)이 전부
+// connection refused 로 "전송 실패"하던 회귀의 근본 원인. 락을 못 얻으면 즉시 종료하고, 기존
+// 인스턴스 창을 앞으로 가져온다.
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    const win = primaryMainWindow;
+    if (win && !win.isDestroyed()) {
+      if (win.isMinimized()) win.restore();
+      win.show();
+      win.focus();
+    }
+  });
+
+  app.whenReady().then(async () => {
   electronApp.setAppUserModelId('com.vibisual.app');
 
   app.on('browser-window-created', (_, window) => {
@@ -398,7 +447,8 @@ app.whenReady().then(async () => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
-});
+  });
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
@@ -414,6 +464,8 @@ app.on('before-quit', (event) => {
 
   // §5.4 #14-1 — 메인 종료 시 detached 별창 일괄 정리(서버 영속화 ❌, in-memory 라 자연 소멸).
   closeAllDetachedWindows();
+  // §5.5 #17-6 — 오버레이 위젯 창 일괄 정리.
+  closeAllOverlays();
 
   // §4 v2.44 — 업데이트 체크 타이머 해제.
   stopAutoUpdater();

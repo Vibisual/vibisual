@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useDetachedSync } from './hooks/useDetachedSync.js';
+import { useOverlaySync } from './hooks/useOverlaySync.js';
 import { Header } from './components/Layout/Header.js';
 import { BubbleMap } from './components/BubbleMap/BubbleMap.js';
 import { CanvasBreadcrumb } from './components/BubbleMap/CanvasBreadcrumb.js';
@@ -21,6 +22,8 @@ export function App(): React.JSX.Element {
   const { status } = useWebSocket(WS_URL);
   // SCENARIO.md §5.4 #14-1 (v2.29) — desktop main 의 detached BrowserWindow 목록을 store 와 sync.
   useDetachedSync();
+  // SCENARIO.md §5.5 #17-6 (v2.73) — 오버레이 위젯 창 목록 + 전역 토글 상태를 store 와 sync.
+  useOverlaySync();
   const selectedNodeId = useGraphStore((s) => s.selectedNodeId);
   const selectedTaskEdgeId = useGraphStore((s) => s.selectedTaskEdgeId);
   const selectedCommentBoxId = useGraphStore((s) => s.selectedCommentBoxId);

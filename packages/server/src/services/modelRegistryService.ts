@@ -22,9 +22,9 @@ import os from 'node:os';
 import {
   MODEL_SEED_ENTRIES,
   parseFamilyFromFullId,
+  parseModelSemver,
   type ModelRegistry,
   type ModelRegistryEntry,
-  type ModelFamily,
 } from '@vibisual/shared';
 import { logger } from '../logger.js';
 import { resolveClaudeBin } from './claudeBin.js';
@@ -34,11 +34,22 @@ const PLATFORM_BIN_NAME = IS_WIN ? 'claude.exe' : 'claude';
 
 /**
  * §4 v2.41 — Claude Code 바이너리에서 발견되는 정상 모델 ID 패턴.
- * `claude-(opus|sonnet|haiku)-X-Y` 형태만 채택. 변형(`-date`, `-v1`, `-fast`) 은 제외 — UI 노이즈.
- * X-Y 두 숫자가 패밀리 내 semver(major-minor).
+ * `claude-<family>-X[-Y]` 형태만 채택. 변형(`-date`, `-v1`, `-fast`) 은 제외 — UI 노이즈.
+ * X(-Y) 가 패밀리 내 semver(major, optional minor).
+ *
+ * §4 v2.77 — opus/sonnet/haiku 화이트리스트 제거 → 임의 패밀리(fable/mythos 등) 수용. minor 도 옵션화
+ * (`claude-fable-5` 같은 단일 숫자 패밀리 + `claude-opus-4-8` 같은 major-minor 둘 다 매칭).
+ * `[a-z]+` 다음에 숫자가 와야 하므로 `claude-code-…` 류 비모델 문자열은 자연 제외(2차 CLEAN 필터로도 차단).
  */
-const CLEAN_MODEL_RE = /^claude-(?:opus|sonnet|haiku)-\d+-\d{1,2}$/;
-const ANY_MODEL_RE = /claude-(?:opus|sonnet|haiku)-[0-9a-zA-Z\-]+/g;
+const CLEAN_MODEL_RE = /^claude-[a-z]+-\d+(?:-\d{1,2})?$/;
+const ANY_MODEL_RE = /claude-[a-z]+-\d[0-9a-zA-Z\-]*/g;
+
+/**
+ * §4 v2.77 — 패밀리 화이트리스트 해제로 잡힐 수 있는 **비모델** 토큰의 패밀리명.
+ * `claude-code` 패키지/버전 문자열(`claude-code-2-1` 등)이 가짜 'code' 패밀리로 새지 않게 거른다.
+ * (모델 패밀리는 opus/sonnet/haiku/fable/mythos … 처럼 제품 라인명. 'code' 는 CLI 패키지명.)
+ */
+const NON_MODEL_FAMILIES = new Set<string>(['code', 'cli', 'agent']);
 
 const CACHE_DIR = path.join(os.homedir(), '.vibisual');
 const CACHE_FILE = path.join(CACHE_DIR, 'model-registry.json');
@@ -140,7 +151,11 @@ class ModelRegistryService {
         const matches = text.match(ANY_MODEL_RE);
         if (!matches) continue;
         for (const m of matches) {
-          if (CLEAN_MODEL_RE.test(m)) found.add(m);
+          if (!CLEAN_MODEL_RE.test(m)) continue;
+          // §4 v2.77 — 비모델 패밀리(claude-code 버전 문자열 등) 제외.
+          const fam = parseFamilyFromFullId(m);
+          if (fam && NON_MODEL_FAMILIES.has(fam)) continue;
+          found.add(m);
         }
         if (found.size > 0) {
           logger.info(`[modelRegistry] cli-scan: ${found.size} clean model IDs from ${path.basename(candidate)}`);
@@ -162,22 +177,23 @@ class ModelRegistryService {
   }
 
   /**
-   * `claude-X-A-B` 의 (A,B) 숫자 파싱. 비교 시 큰 게 신규.
-   * 패밀리 내 latest 결정에 사용.
+   * `claude-<family>-A[-B]` 의 (A,B) 숫자 파싱. 비교 시 큰 게 신규. minor 없으면 0.
+   * 패밀리 내 latest 결정에 사용. §4 v2.77 — shared `parseModelSemver` 위임(클라와 규칙 일치).
    */
   private parseSemverPair(id: string): [number, number] {
-    const m = /^claude-(?:opus|sonnet|haiku)-(\d+)-(\d{1,2})$/.exec(id);
-    if (!m) return [0, 0];
-    return [Number(m[1]), Number(m[2])];
+    return parseModelSemver(id);
   }
 
   /**
    * 패밀리별 latest 표시.
-   * §4 v2.41 — semver(`X-A-B` 의 A,B) 비교를 1순위로. createdAt(API) 2순위. source 3순위(api > cli-scan > seed). id 4순위.
+   * §4 v2.41 — semver(`A-B`) 비교를 1순위로. createdAt(API) 2순위. source 3순위(api > cli-scan > seed). id 4순위.
    * cli-scan 으로 발견한 `claude-opus-4-8` 가 자동으로 latest 가 되도록.
+   *
+   * §4 v2.77 — 패밀리 목록을 entries 에서 동적 수집(opus/sonnet/haiku 하드코딩 제거) → 신규 패밀리(fable/mythos)도
+   * 각자 latest 가 셋됨.
    */
   private markLatestOfFamily(entries: ModelRegistryEntry[]): void {
-    const families: ModelFamily[] = ['opus', 'sonnet', 'haiku'];
+    const families = [...new Set(entries.map((e) => e.family).filter(Boolean))];
     for (const e of entries) e.isLatestOfFamily = false;
     const sourceRank: Record<ModelRegistryEntry['source'], number> = { api: 3, 'cli-scan': 2, seed: 1 };
     for (const family of families) {
@@ -323,7 +339,7 @@ class ModelRegistryService {
       const out: ModelRegistryEntry[] = [];
       for (const m of json.data ?? []) {
         const family = parseFamilyFromFullId(m.id);
-        if (!family) continue;
+        if (!family || NON_MODEL_FAMILIES.has(family)) continue;
         const createdAt = m.created_at ? Date.parse(m.created_at) : undefined;
         out.push({
           id: m.id,

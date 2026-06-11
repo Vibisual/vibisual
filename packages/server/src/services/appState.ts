@@ -178,7 +178,7 @@ function normalize(raw: Partial<AppState> | null | undefined): AppState {
 /** skillOrder 정규화 — 각 type 값을 문자열 배열로 강제, 중복 제거. 둘 다 비면 undefined. */
 function normalizeSkillOrder(raw: unknown): AppState['skillOrder'] {
   if (!raw || typeof raw !== 'object') return undefined;
-  const r = raw as { project?: unknown; plugin?: unknown };
+  const r = raw as { project?: unknown; global?: unknown; plugin?: unknown };
   const clean = (v: unknown): string[] | undefined => {
     if (!Array.isArray(v)) return undefined;
     const seen = new Set<string>();
@@ -191,10 +191,12 @@ function normalizeSkillOrder(raw: unknown): AppState['skillOrder'] {
     return out.length > 0 ? out : undefined;
   };
   const project = clean(r.project);
+  const global = clean(r.global);
   const plugin = clean(r.plugin);
-  if (!project && !plugin) return undefined;
+  if (!project && !global && !plugin) return undefined;
   return {
     ...(project ? { project } : {}),
+    ...(global ? { global } : {}),
     ...(plugin ? { plugin } : {}),
   };
 }
@@ -342,33 +344,36 @@ export function appStatePruneStaleProjectNames(exists: (p: string) => boolean): 
   return removed;
 }
 
-/** §5.5 #17-4 — SkillsView 고정 순서 조회. 항상 {project,plugin} shape 보장(빈 배열 기본). */
-export function appStateGetSkillOrder(): { project: string[]; plugin: string[] } {
+/** §5.5 #17-4/#17-5 — SkillsView 고정 순서 조회. 항상 {project,global,plugin} shape 보장(빈 배열 기본). */
+export function appStateGetSkillOrder(): { project: string[]; global: string[]; plugin: string[] } {
   const current = loadAppState();
   return {
     project: current.skillOrder?.project ?? [],
+    global: current.skillOrder?.global ?? [],
     plugin: current.skillOrder?.plugin ?? [],
   };
 }
 
-/** §5.5 #17-4 — 한 type 의 고정 순서를 치환 저장 (클라가 전체 가시 순서를 보냄). */
-export function appStateSetSkillOrder(type: 'project' | 'plugin', order: string[]): void {
+/** §5.5 #17-4/#17-5 — 한 type 의 고정 순서를 치환 저장 (클라가 전체 가시 순서를 보냄). */
+export function appStateSetSkillOrder(type: 'project' | 'global' | 'plugin', order: string[]): void {
   const current = loadAppState();
   const next = {
     project: current.skillOrder?.project ?? [],
+    global: current.skillOrder?.global ?? [],
     plugin: current.skillOrder?.plugin ?? [],
     [type]: order,
   };
   saveAppState({ ...current, skillOrder: next });
 }
 
-/** §5.5 #17-4 — 삭제된 스킬명을 고정 순서에서 제거 (project/plugin 양쪽 스캔). */
+/** §5.5 #17-4/#17-5 — 삭제된 스킬명을 고정 순서에서 제거 (project/global/plugin 모두 스캔). */
 export function appStateRemoveSkillFromOrder(name: string): void {
   const current = loadAppState();
   if (!current.skillOrder) return;
   const project = (current.skillOrder.project ?? []).filter((n) => n !== name);
+  const global = (current.skillOrder.global ?? []).filter((n) => n !== name);
   const plugin = (current.skillOrder.plugin ?? []).filter((n) => n !== name);
-  saveAppState({ ...current, skillOrder: { project, plugin } });
+  saveAppState({ ...current, skillOrder: { project, global, plugin } });
 }
 
 /** 캐시만 리셋 (테스트용). */

@@ -9,10 +9,13 @@
  * - 최종 요약 표시 (phase==='completed' 일 때만)
  */
 
-import { memo, useCallback, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { BubbleData, AutoAgentSummary, AutoAgentClarifyingQuestion } from '@vibisual/shared';
+import type { BubbleData, AutoAgentSummary, AutoAgentClarifyingQuestion, SubAgentStreamEvent, QueuedCommand } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
+import { StreamRenderer } from '../IDE/StreamRenderer.js';
+
+const EMPTY_COMMANDS: QueuedCommand[] = [];
 
 interface AutoAgentPanelProps {
   node: BubbleData;
@@ -124,6 +127,10 @@ export const AutoAgentPanel = memo(function AutoAgentPanel({ node }: AutoAgentPa
         </div>
       )}
 
+      {/* 빌더 동작 창 — 헤드리스 빌더(=auto-agent 자기 세션)의 라이브 스트림을 패널 안에 임베드.
+          building/dispatching/running/completed 동안 "어떻게 동작 중인지" 한눈에. (StreamRenderer 재사용) */}
+      <BuilderActivityWindow agentId={node.id} phase={phase} />
+
       {/* asking 단계 — 질문 폼 */}
       {phase === 'asking' && summary?.questionsAsked && (
         <ClarifyingQuestionsForm
@@ -179,6 +186,93 @@ export const AutoAgentPanel = memo(function AutoAgentPanel({ node }: AutoAgentPa
             {t('panel.autoAgent.send')}
           </button>
         </div>
+      </div>
+    </div>
+  );
+});
+
+// ─── 빌더 동작 창 ───
+
+interface BuilderActivityWindowProps {
+  /** auto-agent 버블의 agentId (= subAgentStreams/queuedCommands 의 키) */
+  agentId: string;
+  phase: AutoAgentSummary['phase'];
+}
+
+/**
+ * 헤드리스 빌더의 라이브 동작을 패널 안에 보여주는 작은 창.
+ *
+ * 빌더는 별도 인프라가 아니라 **auto-agent 버블 자기 세션**에서 도는 에이전트라(§SCENARIO 271·275),
+ * 그 활동(text/thinking/tool_use/tool_result)이 일반 에이전트와 동일하게 `subAgentStreams`
+ * (parentAgentId = 이 버블의 agentId) 로 흐른다. 그 스트림을 모아 기존 `StreamRenderer` 로 렌더한다.
+ * IDE 오버레이를 열지 않아도 "지금 빌더가 무엇을 하는지" 패널에서 바로 확인.
+ */
+const BuilderActivityWindow = memo(function BuilderActivityWindow({ agentId, phase }: BuilderActivityWindowProps): React.JSX.Element | null {
+  const { t } = useTranslation();
+  const subAgentStreams = useGraphStore((s) => s.subAgentStreams);
+  const commands = useGraphStore((s) => s.queuedCommands[agentId] ?? EMPTY_COMMANDS);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // 이 버블(=빌더 세션)에 속한 모든 스트림 이벤트를 시간순으로 병합.
+  const events = useMemo<SubAgentStreamEvent[]>(() => {
+    const out: SubAgentStreamEvent[] = [];
+    for (const evts of Object.values(subAgentStreams)) {
+      if (evts.length > 0 && evts[0]!.parentAgentId === agentId) out.push(...evts);
+    }
+    out.sort((a, b) => a.timestamp - b.timestamp);
+    return out;
+  }, [subAgentStreams, agentId]);
+
+  const isBuilding = phase === 'building';
+  // building 이면 이벤트가 아직 없어도 창을 띄워 "기동 중"을 보여준다. 이후 단계는 기록이 있을 때만.
+  const show = isBuilding
+    || ((phase === 'dispatching' || phase === 'running' || phase === 'completed') && events.length > 0);
+
+  // building 진입 시 서버에 버퍼된 스트림을 1회 로드(라이브분은 WS append 로 들어옴) — IDE 오버레이와 동일.
+  useEffect(() => {
+    if (!isBuilding) return;
+    fetch(`/api/subagent-streams/${agentId}`)
+      .then((r) => r.json())
+      .then((data: { streams?: Record<string, SubAgentStreamEvent[]> }) => {
+        if (data.streams) useGraphStore.getState().loadStreamBuffers(data.streams);
+      })
+      .catch(() => {});
+  }, [agentId, isBuilding]);
+
+  // 새 이벤트가 붙으면 맨 아래로 스크롤(라이브 추종).
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [events.length]);
+
+  if (!show) return null;
+
+  return (
+    <div className="overflow-hidden rounded-md border border-gray-700 bg-gray-950/60">
+      {/* 타이틀 바 */}
+      <div className="flex items-center gap-2 border-b border-gray-800 bg-[#1a2236] px-2.5 py-1.5">
+        <svg className="h-3.5 w-3.5 text-blue-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="4 17 10 11 4 5" />
+          <line x1="12" y1="19" x2="20" y2="19" />
+        </svg>
+        <span className="text-[11px] font-semibold text-gray-300">{t('panel.autoAgent.activityTitle')}</span>
+        {isBuilding && (
+          <span className="ml-auto flex items-center gap-1.5 text-[10px] text-blue-300">
+            <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-blue-400" />
+            {t('panel.autoAgent.activityLive')}
+          </span>
+        )}
+      </div>
+      {/* 스트림 본문 */}
+      <div ref={scrollRef} className="scrollbar-thin max-h-72 overflow-y-auto">
+        {events.length === 0 ? (
+          <div className="flex items-center gap-2 px-3 py-4 text-[11px] text-gray-500">
+            <span className="inline-block h-3 w-3 animate-spin rounded-full border-[1.5px] border-blue-400 border-t-transparent" />
+            {t('panel.autoAgent.activityWaiting')}
+          </div>
+        ) : (
+          <StreamRenderer events={events} commands={commands} />
+        )}
       </div>
     </div>
   );

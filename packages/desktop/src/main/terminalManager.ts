@@ -26,6 +26,9 @@ interface TermSession {
   wc: WebContents;
   /** scrollback 링버퍼 — reattach 시 새 xterm 에 한 번에 replay 해 이전 출력을 복원(§4 v2.63). */
   buffer: string;
+  /** 마지막으로 적용한 PTY 크기 — 동일 크기 중복 resize(=불필요한 TUI 재그리기/scrollback 누적) 방지. */
+  cols: number;
+  rows: number;
 }
 
 const sessions = new Map<string, TermSession>();
@@ -69,9 +72,16 @@ export function createTerminal(wc: WebContents, spec: CreateTerminalSpec): { ok:
     if (existing) {
       existing.wc = wc;
       if (!wc.isDestroyed() && existing.buffer) {
-        wc.send('vibisual:term:data', { termId: spec.termId, data: existing.buffer });
+        // replay 전에 xterm 을 비운다(화면 clear + scrollback clear + 커서 home). 같은 termId 가
+        // 여러 번 재부착(remount)돼도 직전 화면 위에 buffer 가 덧쌓이지 않고 항상 현재 세션 출력만
+        // 한 벌 보이게 한다("재마운트 때마다 같은 배너가 또 찍힘" 버그 차단). buffer 안의 커서/erase
+        // 시퀀스는 그대로 재생되므로 최종 화면은 claude 의 현재 상태와 동일하다.
+        wc.send('vibisual:term:data', { termId: spec.termId, data: `\x1b[2J\x1b[3J\x1b[H${existing.buffer}` });
       }
-      if (spec.cols && spec.rows && spec.cols > 0 && spec.rows > 0) {
+      if (spec.cols && spec.rows && spec.cols > 0 && spec.rows > 0 &&
+          (spec.cols !== existing.cols || spec.rows !== existing.rows)) {
+        existing.cols = spec.cols;
+        existing.rows = spec.rows;
         try { existing.pty.resize(spec.cols, spec.rows); } catch { /* gone */ }
       }
       return { ok: true };
@@ -111,7 +121,7 @@ export function createTerminal(wc: WebContents, spec: CreateTerminalSpec): { ok:
       },
     });
 
-    const session: TermSession = { pty: child, wc, buffer: '' };
+    const session: TermSession = { pty: child, wc, buffer: '', cols, rows };
     sessions.set(spec.termId, session);
 
     child.onData((data) => {
@@ -163,7 +173,10 @@ export function writeTerminal(termId: string, data: string): void {
 export function resizeTerminal(termId: string, cols: number, rows: number): void {
   const s = sessions.get(termId);
   if (!s) return;
-  if (cols > 0 && rows > 0) {
+  // 동일 크기면 skip — 같은 크기로 반복 resize 하면 claude REPL 이 화면을 다시 그려 scrollback 이 쌓인다.
+  if (cols > 0 && rows > 0 && (cols !== s.cols || rows !== s.rows)) {
+    s.cols = cols;
+    s.rows = rows;
     try { s.pty.resize(cols, rows); } catch { /* PTY already gone */ }
   }
 }

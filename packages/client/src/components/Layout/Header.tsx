@@ -7,6 +7,7 @@ import { FileMenu } from './FileMenu.js';
 import { TabBar } from './TabBar.js';
 import { LanguageSwitcher } from './LanguageSwitcher.js';
 import { UpdateButton } from './UpdateButton.js';
+import { OverlayToggleButton } from './OverlayToggleButton.js';
 import { ServerLogPopup } from '../Panel/ServerLogPopup.js';
 
 interface HeaderProps {
@@ -84,7 +85,7 @@ export function Header({
     // 윈도우 드래그 영역. 우측 `pr-36`(=144px) 가 Windows titleBarOverlay 의 윈도우 컨트롤 폭
     // (기본 138px) 자리를 비워둔다. 내부 interactive 요소는 `app-nodrag` 로 클릭 복귀.
     // v2.13 — 한 줄 통합: h-9(36px), 로고 + File + (구분선) + 프로젝트 탭 + (드래그 spacer) + 우측 컨트롤.
-    <header className="app-drag relative z-[100] flex h-9 items-stretch border-b border-white/[0.06] bg-[#334155] pr-36">
+    <header className="app-drag relative z-[100] flex h-9 items-stretch bg-[#334155] pr-36">
       {/* 좌측: 로고 + File 메뉴 + 프로젝트 탭 — 탭이 많아지면 내부에서 가로 스크롤. */}
       <div className="flex min-w-0 flex-1 items-stretch">
         {/* 로고 — 드래그 영역에 포함 (텍스트라 클릭 불필요). 가운데 정렬되도록 별도 h-full 박스. */}
@@ -115,6 +116,9 @@ export function Header({
       <div className="ml-auto flex h-full flex-shrink-0 items-center gap-2 pr-2">
         {/* §4 v2.44 — 자동 업데이트 버튼(VS Code 식). available/downloading/downloaded 일 때만 노출. */}
         <UpdateButton />
+
+        {/* §5.5 #17-6 — 데스크톱 오버레이 위젯 전역 토글. 빼낸 버블이 있을 때만 노출. */}
+        <OverlayToggleButton />
 
         {/* Agent status — 에이전트가 1개라도 있을 때만 표시. 클릭 없음(순수 인디케이터). */}
         {badgeVisible && (

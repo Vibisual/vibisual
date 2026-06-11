@@ -7,6 +7,7 @@ import { SearchAddon } from '@xterm/addon-search';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 import { useGraphStore } from '../../stores/graphStore.js';
+import { TerminalCardSniffer } from './terminalCardSniffer.js';
 
 // §4 v2.63 — 임베디드 인터랙티브 터미널 뷰. (편의성 보강 v2.65)
 //
@@ -33,6 +34,14 @@ const FONT_SIZE_MAX = 28;
 
 function clampFont(n: number): number {
   return Math.max(FONT_SIZE_MIN, Math.min(FONT_SIZE_MAX, Math.round(n)));
+}
+
+// 호스트가 실제로 화면에 측정 가능한 크기를 가질 때만 true.
+// xterm 의 fit()/resize 는 0 크기(숨겨진 탭·미배치) 상태에서 호출하면 내부 RenderService 의
+// dimensions 가 비어, 이후 write/scroll 시 Viewport.syncScrollArea 가 undefined.dimensions 로 터진다.
+// → fit 류는 반드시 이 가드를 통과할 때만 수행한다.
+function hostMeasurable(el: HTMLElement | null): el is HTMLElement {
+  return !!el && el.clientWidth > 0 && el.clientHeight > 0 && el.isConnected;
 }
 
 function readStoredFontSize(): number {
@@ -129,6 +138,8 @@ export function IDETerminalView({ agentId, sessionId }: IDETerminalViewProps): R
     const term = termRef.current;
     if (!term) return;
     term.options.fontSize = size;
+    // 호스트가 측정 가능할 때만 fit → 0 크기에서 dimensions 가 깨지는 걸 방지.
+    if (!hostMeasurable(hostRef.current)) return;
     try {
       fitRef.current?.fit();
       window.api?.terminal?.resize(termId, term.cols, term.rows);
@@ -192,8 +203,18 @@ export function IDETerminalView({ agentId, sessionId }: IDETerminalViewProps): R
     termRef.current = term;
     fitRef.current = fit;
     searchRef.current = search;
+
+    // 언마운트/탭 전환 후 뒤늦게 도착하는 콜백(write·resize·fit)이 dispose 된 터미널을 건드려
+    // xterm 내부 syncScrollArea 가 터지는 걸 막는 가드. cleanup 이 가장 먼저 true 로 세운다.
+    let disposed = false;
+    // 호스트가 측정 가능하고 dispose 전일 때만 fit. (0 크기 fit = dimensions 깨짐의 원인)
+    const safeFit = (): void => {
+      if (disposed || !hostMeasurable(host)) return;
+      try { fit.fit(); } catch { /* host not measured yet */ }
+    };
+
     term.open(host);
-    try { fit.fit(); } catch { /* host not measured yet */ }
+    safeFit();
 
     // 커스텀 키 핸들러 — 복붙/검색/폰트 단축키. return false = xterm 이 PTY stdin 으로 보내지 않음.
     term.attachCustomKeyEventHandler((e) => {
@@ -222,12 +243,20 @@ export function IDETerminalView({ agentId, sessionId }: IDETerminalViewProps): R
     const cols = term.cols;
     const rows = term.rows;
 
-    // main → renderer 출력: 이 termId 만 골라 write.
+    // §4 v2.76 — CMD 카드 스니퍼. PTY 출력 중 `::VIBISUAL-CARD::{…}` 한 줄을 잡아 기존 카드
+    //   엔드포인트로 POST(작업 신고/질문/검수). subAgentId=세션 탭 토큰(메인 탭이면 null)으로 귀속.
+    //   mount 마다 새로 만들어 reattach replay 가 과거 카드를 재신고하지 않게 한다(dedupe 보강).
+    const sniffer = new TerminalCardSniffer(agentId, sessionId);
+
+    // main → renderer 출력: 이 termId 만 골라 write + 카드 마커 스니핑(화면 데이터는 변형하지 않음).
     const offData = api.terminal.onData(({ termId: id, data }) => {
-      if (id === termId) term.write(data);
+      if (id === termId && !disposed) {
+        term.write(data);
+        sniffer.feed(data);
+      }
     });
     const offExit = api.terminal.onExit(({ termId: id, exitCode }) => {
-      if (id === termId) {
+      if (id === termId && !disposed) {
         term.write(`\r\n\x1b[90m[${t('ide.terminal.exited', { code: exitCode })}]\x1b[0m\r\n`);
       }
     });
@@ -244,12 +273,31 @@ export function IDETerminalView({ agentId, sessionId }: IDETerminalViewProps): R
       }
     });
 
-    // 리사이즈 — 컨테이너 변화 시 fit + PTY resize.
+    // 리사이즈 — xterm fit 과 PTY resize 를 **항상 함께, 리사이즈가 멎은 뒤 1회만**(트레일링 디바운스)
+    // 적용한다.
+    //   • 함께: xterm cols/rows 와 PTY cols/rows 가 어긋나면 claude REPL 의 하단 입력 박스 커서 계산이
+    //     틀려 박스가 조각나며 깨진다. 그래서 fit 으로 xterm 크기를 잡은 직후 같은 값으로 PTY 도 맞춘다.
+    //   • 1회만: 드래그 중 매 픽셀 SIGWINCH 를 쏘면 claude 가 프레임을 다시 그려 누적되므로, 멈춘 최종
+    //     크기에서만 한 번 통지한다. (재마운트 replay 덧쌓임은 main 의 clear-before-replay 가 따로 막음.)
+    //   드래그 도중에는 xterm 이 마지막으로 동기화된 크기를 유지하다가, 멈추면 새 크기로 한 번에 맞춰진다.
+    let lastCols = term.cols;
+    let lastRows = term.rows;
+    let resizeTimer: ReturnType<typeof setTimeout> | undefined;
     const ro = new ResizeObserver(() => {
-      try {
-        fit.fit();
-        void api.terminal!.resize(termId, term.cols, term.rows);
-      } catch { /* disposed */ }
+      if (disposed) return;
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        resizeTimer = undefined;
+        if (disposed) return;
+        safeFit();
+        try {
+          if (term.cols !== lastCols || term.rows !== lastRows) {
+            lastCols = term.cols;
+            lastRows = term.rows;
+            void api.terminal!.resize(termId, term.cols, term.rows);
+          }
+        } catch { /* disposed */ }
+      }, 150);
     });
     ro.observe(host);
 
@@ -259,6 +307,8 @@ export function IDETerminalView({ agentId, sessionId }: IDETerminalViewProps): R
       // §4 v2.63 — **PTY 는 kill 하지 않는다**. IDE 닫기/탭 전환은 컴포넌트만 unmount 하고
       // 메인 프로세스의 PTY 는 살려둔다 → 다시 열면 reattach + scrollback replay 로 세션 보존.
       // 진짜 종료(탭 명시 닫기)는 IDETabBar 가 api.terminal.kill 로, 앱/창 종료는 main 이 일괄 정리.
+      disposed = true; // 이후 도착하는 write/resize/fit 콜백이 dispose 된 터미널을 건드리지 않게.
+      if (resizeTimer) clearTimeout(resizeTimer);
       ro.disconnect();
       offData();
       offExit();

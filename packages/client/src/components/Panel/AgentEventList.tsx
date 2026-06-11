@@ -294,12 +294,12 @@ export const AgentEventList = memo(function AgentEventList({
             {results.map((item) => (
               <li
                 key={item.id}
-                className={`cursor-pointer rounded border px-2.5 py-1.5 transition-colors hover:border-gray-600 hover:bg-gray-700/60 ${
+                className={`min-w-0 cursor-pointer overflow-hidden rounded border px-2.5 py-1.5 transition-colors hover:border-gray-600 hover:bg-gray-700/60 ${
                   item.isError ? 'border-red-500/40 bg-red-900/20' : 'border-gray-700/50 bg-gray-800/60'
                 }`}
                 onClick={() => { setSelected({ id: item.id, message: item.message, response: item.response, timestamp: item.timestamp, source: item.source, todos: item.todos }); setSelectedSessionId(item.subAgentSessionId ?? sessionId); }}
               >
-                <p className="line-clamp-3 break-words text-xs leading-relaxed text-gray-200">
+                <p className="line-clamp-3 break-all text-xs leading-relaxed text-gray-200">
                   {item.message}
                 </p>
                 {/* Todo 요약 (있을 때만) */}
@@ -316,7 +316,7 @@ export const AgentEventList = memo(function AgentEventList({
                     </div>
                   );
                 })()}
-                <div className="mt-0.5 flex items-center gap-2">
+                <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
                   <span className="text-[10px] text-gray-500">
                     {formatTime(item.timestamp)}
                   </span>

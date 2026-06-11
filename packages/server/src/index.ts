@@ -73,6 +73,15 @@ export function setHookListenerToken(token: string): void {
   hookListenerToken = token;
 }
 
+// §4 v2.71 — hook 신원 파일(hook-listener.json)의 절대 경로(forward-slash 정규화). desktop main 이
+// 주입한다. 카드 엔드포인트(작업 신고/질문/검수) curl 이 dispatch 시점 상수가 아니라 "호출 시점"에
+// 이 파일에서 현재 포트·토큰을 읽도록 빌더에 넘긴다 → 재기동으로 포트가 바뀐 뒤 resume 으로 도는
+// 옛 세션도 live 서버로 닿아 카드를 "또 못 받는" 일이 사라진다. 미주입(서버 단독 모드) 시 상수 폴백.
+let hookListenerIdentityFile: string | null = null;
+export function setHookListenerIdentityFile(filePath: string): void {
+  hookListenerIdentityFile = filePath;
+}
+
 export interface RunServerHandle { app: import('express').Express; }
 
 export async function runServer(): Promise<RunServerHandle> {
@@ -886,6 +895,8 @@ export async function runServer(): Promise<RunServerHandle> {
           serverBase: `http://127.0.0.1:${hookListenerPort ?? port}`,
           serverToken: hookListenerToken ?? '',
           agentId: agent.id,
+          // v2.71 — 있으면 curl 이 호출 시점에 이 파일에서 live 포트·토큰을 읽는다(없으면 위 상수 폴백).
+          ...(hookListenerIdentityFile ? { identityFile: hookListenerIdentityFile } : {}),
           ...(next.subAgentId ? { subAgentId: next.subAgentId } : {}),
         };
         // §4 v2.52 작업 신고 + v2.60 질문 카드 + v2.70 검수 요청 지시문을 함께 주입(동일 loopback 인프라).
@@ -926,13 +937,21 @@ export async function runServer(): Promise<RunServerHandle> {
       graphManager.setAgentConfig(agentId, config as import('@vibisual/shared').AgentConfig);
     },
     enqueueCommand: (sessionId, text) => {
+      // 빌더는 auto-agent 버블(customCreated) 자기 세션의 sub 로 돈다. `POST /api/commands/:sessionId`
+      // 의 customCreated 분기와 동일하게, dispatch 전에 정규 sub 를 해석/생성해 cmd.subAgentId 로 박는다.
+      // 이 해석을 빠뜨리면 execute() 가 subAgentId=null 로 sub 를 못 찾아 "SubAgent not found" 후 즉시
+      // return → 빌더가 아예 스폰되지 않고 진행 표시만 영원히 'building' 으로 돈다.
+      const agentId = graphManager.findAgentIdBySession(sessionId);
+      const subAgentId = agentId
+        ? (subAgentManager.getPrimarySub(agentId) ?? subAgentManager.create(agentId)).id
+        : null;
       let queue = commandQueues.get(sessionId);
       if (!queue) { queue = []; commandQueues.set(sessionId, queue); }
       const cmd: QueuedCommand = {
         id: `cmd-${Date.now()}-${queue.length}`,
         text,
         timestamp: Date.now(),
-        subAgentId: null,
+        subAgentId,
         status: 'queued' as const,
       };
       queue.push(cmd);
@@ -1937,7 +1956,8 @@ export async function runServer(): Promise<RunServerHandle> {
   interface SkillInfo {
     name: string;
     description: string;
-    source: 'project' | 'plugin';
+    /** project = 프로젝트 `.claude`, global = 홈 `~/.claude`(모든 프로젝트 공통), plugin = 설치 플러그인. */
+    source: 'project' | 'global' | 'plugin';
     /** 플러그인 스킬일 때 소속 플러그인 이름 (예: "claude-code-harness", "frontend-design") */
     pluginName?: string;
   }
@@ -1963,7 +1983,7 @@ export async function runServer(): Promise<RunServerHandle> {
   }
 
   /** 디렉토리 내 스킬 폴더들 스캔 → SkillInfo[] */
-  function scanSkillsDir(dir: string, source: 'project' | 'plugin', pluginName?: string): SkillInfo[] {
+  function scanSkillsDir(dir: string, source: 'project' | 'global' | 'plugin', pluginName?: string): SkillInfo[] {
     const results: SkillInfo[] = [];
     try {
       if (!fs.existsSync(dir)) return results;
@@ -2008,7 +2028,7 @@ export async function runServer(): Promise<RunServerHandle> {
    * `.claude/commands/` 재귀 스캔 → SkillInfo[]. Claude Code 가 슬래시 커맨드를 읽는 디렉토리.
    * 최상위 `foo.md` → `foo`, 하위폴더 `bar/baz.md` → `bar:baz` (네임스페이스). skill 폴더와 달리 폴더가 아니라 `.md` 파일이 단위.
    */
-  function scanCommandsDir(baseDir: string, source: 'project' | 'plugin', pluginName?: string): SkillInfo[] {
+  function scanCommandsDir(baseDir: string, source: 'project' | 'global' | 'plugin', pluginName?: string): SkillInfo[] {
     const results: SkillInfo[] = [];
     const walk = (dir: string, prefix: string): void => {
       let entries: fs.Dirent[];
@@ -2070,7 +2090,19 @@ export async function runServer(): Promise<RunServerHandle> {
           if (!seen.has(s.name)) { seen.add(s.name); skills.push(s); }
         }
       }
-      logger.info(`[skills] agent="${agentParam}" project="${projectParam}" → path=${scopedPath ?? 'null'} dirs=${projectDirs.length} projectSkills=${skills.length}`);
+      const projectSkillCount = skills.length;
+
+      // 1.5) 글로벌(개인) 스킬 — 홈 `~/.claude/skills/` + `~/.claude/commands/`. 모든 프로젝트 공통.
+      //   §5.5 #17-5 — claude CLI 가 헤드리스/인터랙티브 양쪽에서 읽는 개인 스킬 경로. 프로젝트가
+      //   같은 이름을 먼저 차지하면 그게 이긴다(Claude Code: project > personal). seen 공유로 보장.
+      const homeClaudeDir = path.join(os.homedir(), '.claude');
+      for (const s of scanSkillsDir(path.join(homeClaudeDir, 'skills'), 'global')) {
+        if (!seen.has(s.name)) { seen.add(s.name); skills.push(s); }
+      }
+      for (const s of scanCommandsDir(path.join(homeClaudeDir, 'commands'), 'global')) {
+        if (!seen.has(s.name)) { seen.add(s.name); skills.push(s); }
+      }
+      logger.info(`[skills] agent="${agentParam}" project="${projectParam}" → path=${scopedPath ?? 'null'} dirs=${projectDirs.length} projectSkills=${projectSkillCount} globalSkills=${skills.length - projectSkillCount}`);
 
       // 2) 설치된 플러그인 스킬: ~/.claude/plugins/marketplaces/*/
       const pluginsBase = path.join(os.homedir(), '.claude', 'plugins', 'marketplaces');
@@ -2160,8 +2192,8 @@ export async function runServer(): Promise<RunServerHandle> {
   app.put('/api/skill-order', (req, res) => {
     try {
       const { type, order } = req.body as { type?: string; order?: unknown };
-      if (type !== 'project' && type !== 'plugin') {
-        res.status(400).json({ error: 'type must be project|plugin' });
+      if (type !== 'project' && type !== 'global' && type !== 'plugin') {
+        res.status(400).json({ error: 'type must be project|global|plugin' });
         return;
       }
       if (!Array.isArray(order) || order.some((x) => typeof x !== 'string')) {
@@ -4794,6 +4826,20 @@ export async function runServer(): Promise<RunServerHandle> {
       //   모두 보존하여 archive(완료 명령)에 attachments 경로가 남고, 클라(StreamRenderer CommandBlock)가
       //   대화 스트림에 썸네일을 인라인 표시 + 클릭 시 라이트박스 확대한다.
       //   누적 파일 정리(세션 종료/주기) 정책은 후속 과제.
+
+      // §5.3 #10-2 v2.45 — auto-agent 빌더 완료 감지. 빌더는 auto-agent 버블 자기 세션의 sub 로
+      //   돌므로, 그 명령이 끝나면(= done 에 등장) phase 를 building → completed 로 전이하고 마지막
+      //   응답을 요약으로 합성한다. 이 전이를 빠뜨리면 빌더가 끝나도 진행 표시가 영원히 'building'
+      //   으로 남아 패널 스피너가 계속 돈다(사용자 보고: "명령 후 아무 동작 없이 빙글빙글만").
+      const autoSummary = graphManager.getAutoAgentSummary(sessionId);
+      if (autoSummary && autoSummary.phase === 'building') {
+        let finalText: string | undefined;
+        for (let i = done.length - 1; i >= 0; i--) {
+          const r = done[i]!.result;
+          if (typeof r === 'string' && r.trim()) { finalText = r; break; }
+        }
+        autoAgentRuntime.handleCompletion(sessionId, finalText);
+      }
 
       let archive = completedCommandArchive.get(sessionId);
       if (!archive) { archive = []; completedCommandArchive.set(sessionId, archive); }

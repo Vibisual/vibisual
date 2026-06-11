@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useMemo, useState, memo } from 'react';
+import { createPortal } from 'react-dom';
 import {
   ReactFlow,
   Background,
@@ -919,6 +920,16 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     }
     // 에이전트 더블클릭 → IDE 오버레이 (Hook=read-only, Custom=interactive)
     if (data.bubbleType === 'agent') {
+      // §6 v2.74 — completed 에이전트는 더블클릭(IDE 열어 확인)도 "확인"이므로
+      // 싱글 클릭(BubbleNode.performSelect)과 동일하게 확인 dismiss(idle 전환 +
+      // 전유 file/folder 소멸)를 함께 발동. fire-and-forget, 실패 무시.
+      if (data.status === 'completed') {
+        fetch(`/api/dismiss-agent`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ agentId: data.id }),
+        }).catch(() => {});
+      }
       useGraphStore.getState().openIDEOverlay(data.id);
       return;
     }
@@ -1519,18 +1530,20 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       )}
       {/* 드래그 프리뷰 — 스크린 좌표계 SVG 오버레이 (화살표 포함, 마우스 커서 추적) */}
       <TaskEdgeDragPreview rfRef={rfRef} rfContainerRef={rfContainerRef} flowNodes={flowNodes} />
-      {/* §5.4 #29 v1.51 — 캔버스 클립보드 토스트 (Ctrl/Cmd+C / Ctrl/Cmd+V) */}
-      {canvasToast && (
+      {/* §5.4 #29 v1.51 — 캔버스 클립보드/북마크 토스트 (Ctrl/Cmd+C·V, Alt+숫자, 숫자).
+          IDE 오버레이(z-50) 위로 보이도록 body 포털 + fixed z-[70] (§5.4 #30 v2.73). */}
+      {canvasToast && createPortal(
         <div
-          className={`pointer-events-none absolute left-1/2 top-4 -translate-x-1/2 rounded-md border px-3 py-1.5 text-xs font-medium shadow-lg ${
+          className={`pointer-events-none fixed left-1/2 top-14 z-[70] -translate-x-1/2 rounded-md border px-3 py-1.5 text-xs font-medium shadow-lg ${
             canvasToast.kind === 'success'
-              ? 'border-emerald-700 bg-emerald-900/80 text-emerald-200'
-              : 'border-rose-700 bg-rose-900/80 text-rose-200'
+              ? 'border-emerald-700 bg-emerald-900/90 text-emerald-200'
+              : 'border-rose-700 bg-rose-900/90 text-rose-200'
           }`}
           role="status"
         >
           {canvasToast.msg}
-        </div>
+        </div>,
+        document.body,
       )}
       {taskEdgePopup && (
         <>

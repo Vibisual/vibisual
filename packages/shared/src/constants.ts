@@ -1,5 +1,5 @@
-import type { BubbleType, BubbleStyleConfig, EdgeStyleConfig, AgentRole, PipelineChildConfig, PipelineType, AgentConfig, AgentPreset, TaskEdgeTemplate, TaskEdgeKind, UiLocale, AutoAgentRole, AutoAgentTopology, AutoAgentTemplate, AutoAgentTopologyPreset, ModelPricing, ModelFamily, ModelRegistry, ModelRegistryEntry } from './types.js';
-export type { ModelPricing, ModelFamily, ModelRegistry, ModelRegistryEntry } from './types.js';
+import type { BubbleType, BubbleStyleConfig, EdgeStyleConfig, AgentRole, PipelineChildConfig, PipelineType, AgentConfig, AgentPreset, TaskEdgeTemplate, TaskEdgeKind, UiLocale, AutoAgentRole, AutoAgentTopology, AutoAgentTemplate, AutoAgentTopologyPreset, ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry } from './types.js';
+export type { ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry } from './types.js';
 
 // ─── UI 다국어 (i18n) ───
 
@@ -378,22 +378,43 @@ export const DEFAULT_PRICING: ModelPricing = { input: 15, output: 75, cacheRead:
  * §4 v2.38 — 패밀리별 디폴트(미지의 풀ID 폴백).
  * Anthropic `/v1/models` 가 신규 풀ID 만 알려주고 가격/한도는 안 주므로 패밀리 톤으로 추정.
  * 정확한 값은 시드 테이블 업데이트(또는 displayName 기반 룩업) 로 보강.
+ *
+ * §4 v2.77 — `Record<KnownModelFamily,…>` 로 좁힘. 새 패밀리(fable/mythos 등)는 이 테이블에 없으므로
+ * `getModelPricing`/`getModelContextLimit` 가 `isKnownFamily` 가드로 걸러 `DEFAULT_*` 폴백한다.
  */
-export const MODEL_FAMILY_DEFAULTS: Record<ModelFamily, { contextWindow: number; pricing: ModelPricing }> = {
+export const MODEL_FAMILY_DEFAULTS: Record<KnownModelFamily, { contextWindow: number; pricing: ModelPricing }> = {
   opus:   { contextWindow: 1_000_000, pricing: { input: 15,   output: 75, cacheRead: 1.50, cacheWrite: 18.75 } },
   sonnet: { contextWindow:   200_000, pricing: { input:  3,   output: 15, cacheRead: 0.30, cacheWrite:  3.75 } },
   haiku:  { contextWindow:   200_000, pricing: { input:  0.80, output: 4, cacheRead: 0.08, cacheWrite:  1.00 } },
 };
 
+/** §4 v2.77 — `MODEL_FAMILY_DEFAULTS` 키(=디폴트 테이블 보유 패밀리)인지 판정. */
+export function isKnownFamily(family: string | undefined | null): family is KnownModelFamily {
+  return family === 'opus' || family === 'sonnet' || family === 'haiku';
+}
+
 /**
  * §4 v2.38 — 풀ID prefix 에서 패밀리 추론.
- * 예: `claude-opus-4-8` → `'opus'`, `claude-sonnet-4-6` → `'sonnet'`.
- * 매칭 실패 시 undefined.
+ * 예: `claude-opus-4-8` → `'opus'`, `claude-sonnet-4-6` → `'sonnet'`, `claude-fable-5` → `'fable'`.
+ *
+ * §4 v2.77 — opus/sonnet/haiku 화이트리스트 제거. `claude-<family>-<digit>…` 형태의 임의 패밀리를 수용한다
+ * (family 뒤에 숫자가 와야 진짜 버전ID — `claude-code-…` 류 비모델 문자열 회피). 매칭 실패 시 undefined.
  */
 export function parseFamilyFromFullId(id: string | undefined | null): ModelFamily | undefined {
   if (!id) return undefined;
-  const m = /^claude-(opus|sonnet|haiku)-/.exec(id);
+  const m = /^claude-([a-z]+)-\d/.exec(id);
   return m?.[1] as ModelFamily | undefined;
+}
+
+/**
+ * §4 v2.77 — 풀ID 의 (major, minor) 추출. minor 가 없으면 0.
+ * `claude-opus-4-8` → [4,8], `claude-fable-5` → [5,0]. 임의 패밀리 수용.
+ * 패밀리 내 latest 선정·버전 sub-드롭다운 정렬의 공통 SSOT (클라/서버 정규식 드리프트 방지).
+ */
+export function parseModelSemver(id: string): [number, number] {
+  const m = /^claude-[a-z]+-(\d+)(?:-(\d{1,2}))?$/.exec(id);
+  if (!m) return [0, 0];
+  return [Number(m[1]), m[2] ? Number(m[2]) : 0];
 }
 
 /**
@@ -412,7 +433,8 @@ export function getModelPricing(modelId: string | undefined | null, registry?: M
   const seed = MODEL_PRICING[modelId];
   if (seed) return seed;
   const family = parseFamilyFromFullId(modelId);
-  if (family) return MODEL_FAMILY_DEFAULTS[family].pricing;
+  // §4 v2.77 — known 패밀리만 디폴트 테이블 보유. 미지 패밀리(fable/mythos 등)는 보수적 폴백.
+  if (isKnownFamily(family)) return MODEL_FAMILY_DEFAULTS[family].pricing;
   return DEFAULT_PRICING;
 }
 
@@ -426,7 +448,8 @@ export function getModelContextLimit(modelId: string | undefined | null, registr
   const seed = MODEL_CONTEXT_LIMITS[modelId];
   if (seed) return seed;
   const family = parseFamilyFromFullId(modelId);
-  if (family) return MODEL_FAMILY_DEFAULTS[family].contextWindow;
+  // §4 v2.77 — known 패밀리만 디폴트 테이블 보유. 미지 패밀리는 보수적 폴백.
+  if (isKnownFamily(family)) return MODEL_FAMILY_DEFAULTS[family].contextWindow;
   return DEFAULT_CONTEXT_LIMIT;
 }
 
@@ -440,9 +463,9 @@ export function getModelContextLimit(modelId: string | undefined | null, registr
  */
 export function resolveAliasToLatest(alias: string | undefined | null, registry?: ModelRegistry | null): string | undefined {
   if (!alias) return undefined;
-  if (alias !== 'opus' && alias !== 'sonnet' && alias !== 'haiku') return undefined;
-  const family = alias as ModelFamily;
-  return registry?.entries.find((e) => e.family === family && e.isLatestOfFamily)?.id;
+  // §4 v2.77 — opus/sonnet/haiku 가드 제거. 레지스트리에 그 패밀리(alias)의 latest entry 가 있으면 해소.
+  // 미지 패밀리도 CLI-scan/`/v1/models` 가 발견했으면 자동 동작. 없으면 undefined → UI 는 "Latest" 만 표시.
+  return registry?.entries.find((e) => e.family === alias && e.isLatestOfFamily)?.id;
 }
 
 /** 토큰 수 → 비용($) 계산 — v2.38: registry 우선 가격 조회. */
@@ -512,14 +535,29 @@ export function isOpusModel(modelId: string | undefined | null): boolean {
 
 /**
  * JSONL model ID → AgentConfig.model 패밀리 추출.
- * 예: `claude-opus-4-6` → `opus`, `claude-sonnet-4-5-20250414` → `sonnet`.
- * 알 수 없는 패밀리는 undefined.
+ * 예: `claude-opus-4-6` → `opus`, `claude-sonnet-4-5-20250414` → `sonnet`, `claude-fable-5` → `fable`.
+ *
+ * §4 v2.77 — `AVAILABLE_AGENT_MODELS`(3종) 화이트리스트 제거. `claude-<family>-<digit>…` 형태의
+ * 임의 패밀리를 그대로 반환(라이브 세션 모델명이 신규 패밀리여도 버블에 정상 표기). 매칭 실패 시 undefined.
  */
 export function parseModelFamily(modelId: string | undefined | null): string | undefined {
-  if (!modelId) return undefined;
-  const m = /^claude-([a-z]+)-/.exec(modelId);
-  const family = m?.[1];
-  return family && AVAILABLE_AGENT_MODELS.includes(family) ? family : undefined;
+  return parseFamilyFromFullId(modelId);
+}
+
+/**
+ * §4 v2.77 — UI Model 드롭다운에 노출할 패밀리 목록.
+ * 레지스트리(CLI-scan/`/v1/models`)에서 발견된 모든 패밀리 ∪ 기본 alias 3종.
+ * 정렬: 기본 3종(opus/sonnet/haiku 순) 먼저, 그 외 신규 패밀리는 알파벳순.
+ * 레지스트리가 비어도 기본 3종은 항상 포함 → 신규 모델 미발견 시에도 기존 UX 보존.
+ */
+export function listModelFamilies(registry?: ModelRegistry | null): string[] {
+  const found = new Set<string>(AVAILABLE_AGENT_MODELS);
+  for (const e of registry?.entries ?? []) {
+    if (e.family) found.add(e.family);
+  }
+  const known = AVAILABLE_AGENT_MODELS.filter((f) => found.has(f));
+  const extra = [...found].filter((f) => !AVAILABLE_AGENT_MODELS.includes(f)).sort();
+  return [...known, ...extra];
 }
 
 /** 선택 가능한 도구 목록 (추가/삭제용) */
@@ -1817,6 +1855,37 @@ ${serializeRoleCatalog()}
 export const AGENT_REPORT_MAX_PER_AGENT = 50;
 
 /**
+ * §4 v2.71 — 카드 엔드포인트(작업 신고/질문/검수) curl 의 "동적 베이스" 프렐류드.
+ *
+ * 문제: 기존엔 serverBase(`http://127.0.0.1:<포트>`)·serverToken 을 dispatch 시점에 프롬프트에
+ * **상수로 구워** 넣었다. 그래서 앱 재기동으로 hook 포트가 바뀌면(선호 포트 점유 → :0 폴백 등),
+ * 이미 떠서 resume 으로 도는 옛 세션은 굳은 옛 포트에 영영 묶여 카드 curl 이 connection refused 로
+ * 끊겼다("앱이 꺼져 있어 실패"의 정체).
+ *
+ * 해법: 포트·토큰을 굽지 말고, curl 직전에 **고정 경로의 신원 파일(hook-listener.json)** 에서 현재
+ * 값을 읽어 `$VIBI_BASE`/`$VIBI_TOKEN` 에 담는다. desktop main 이 매 부팅마다 실제 바인드 포트·토큰으로
+ * 그 파일을 갱신하므로, 재기동·포트변경 뒤(resume 세션 포함)에도 호출 시점에 항상 live 서버로 닿는다.
+ * node 부재·파일 손상 시엔 dispatch 시점 상수로 폴백 → **절대 지금보다 나빠지지 않는다.**
+ *
+ * identityFile 이 없으면(서버 단독 모드 등) 빈 문자열을 반환하고 호출부가 상수를 그대로 쓴다.
+ * 반환되는 두 bash 줄은 반드시 curl 과 **같은 한 번의 Bash 호출** 안에서 실행돼야 한다($VIBI_BASE 는
+ * Bash 호출 간에 보존되지 않으므로) — 그래서 같은 ``` 블록 안에 curl 바로 위에 둔다.
+ */
+function buildDynamicEndpointPrelude(
+  identityFile: string | undefined,
+  fallbackBase: string,
+  fallbackToken: string,
+): string {
+  if (!identityFile) return '';
+  // identityFile 은 forward-slash 정규화된 절대경로(서버가 주입). node 의 단일따옴표 JS 문자열로 읽는다.
+  // \${...} 는 bash 파라미터 확장이 되도록 TS 템플릿에서 이스케이프(여기서 치환되면 안 됨).
+  return `# ↓ 먼저 이 두 줄로 현재 포트·토큰을 읽는다(재기동/포트변경에도 안전 — 카드를 "또 못 받는" 일 방지). 아래 curl 과 한 번에 실행.
+VIBI_ID=$(node -e "try{const j=JSON.parse(require('fs').readFileSync('${identityFile}','utf8'));process.stdout.write('http://127.0.0.1:'+j.port+' '+j.token)}catch(e){process.stdout.write('${fallbackBase} ${fallbackToken}')}" 2>/dev/null || echo '${fallbackBase} ${fallbackToken}')
+VIBI_BASE="\${VIBI_ID%% *}"; VIBI_TOKEN="\${VIBI_ID##* }"
+`;
+}
+
+/**
  * §4 v2.52 — 커스텀/스폰 에이전트에게 주입할 "작업 신고" 지시문 (시스템 프롬프트 꼬리표).
  *
  * 서버 `processNextCommand` 가 커스텀 에이전트(customCreated) spawn 시점에 contextSummary 끝에
@@ -1829,9 +1898,14 @@ export function buildAgentReportRules(args: {
   serverToken: string;
   agentId: string;
   subAgentId?: string;
+  /** v2.71 — 있으면 curl 이 호출 시점에 이 파일에서 live 포트·토큰을 읽는다(없으면 serverBase/serverToken 상수). */
+  identityFile?: string;
 }): string {
-  const { serverBase, serverToken, agentId, subAgentId } = args;
+  const { serverBase, serverToken, agentId, subAgentId, identityFile } = args;
   const subField = subAgentId ? `"${subAgentId}"` : 'null';
+  const prelude = buildDynamicEndpointPrelude(identityFile, serverBase, serverToken);
+  const base = prelude ? '$VIBI_BASE' : serverBase;
+  const tokenHdr = prelude ? `-H "x-vibisual-hook-token: $VIBI_TOKEN"` : `-H 'x-vibisual-hook-token: ${serverToken}'`;
   return `
 
 # 작업 신고 (Vibisual IDE 색 구분)
@@ -1845,8 +1919,8 @@ export function buildAgentReportRules(args: {
 
 \`userActions\` 가 있는 완료 보고 직전에만 Bash 로 1회 호출한다(실패해도 무시하고 자연어 보고는 그대로 진행):
 \`\`\`bash
-curl -s -X POST "${serverBase}/api/agent-report" \\
-  -H 'x-vibisual-hook-token: ${serverToken}' \\
+${prelude}curl -s -X POST "${base}/api/agent-report" \\
+  ${tokenHdr} \\
   -H 'Content-Type: application/json' --data-binary @- <<'JSON'
 {"agentId":"${agentId}","subAgentId":${subField},"did":["완료한 일 1","완료한 일 2"],"userActions":["사용자가 직접 해야 할 일 1"],"nextSteps":["다음 단계 1"]}
 JSON
@@ -1873,9 +1947,14 @@ export function buildAgentQuestionRules(args: {
   serverToken: string;
   agentId: string;
   subAgentId?: string;
+  /** v2.71 — 있으면 curl 이 호출 시점에 이 파일에서 live 포트·토큰을 읽는다(없으면 serverBase/serverToken 상수). */
+  identityFile?: string;
 }): string {
-  const { serverBase, serverToken, agentId, subAgentId } = args;
+  const { serverBase, serverToken, agentId, subAgentId, identityFile } = args;
   const subField = subAgentId ? `"${subAgentId}"` : 'null';
+  const prelude = buildDynamicEndpointPrelude(identityFile, serverBase, serverToken);
+  const base = prelude ? '$VIBI_BASE' : serverBase;
+  const tokenHdr = prelude ? `-H "x-vibisual-hook-token: $VIBI_TOKEN"` : `-H 'x-vibisual-hook-token: ${serverToken}'`;
   return `
 
 # 사용자 질문 (Vibisual IDE 질문 카드)
@@ -1888,8 +1967,8 @@ export function buildAgentQuestionRules(args: {
 
 질문이 있는 보고 직전에만 Bash 로 1회 호출한다(실패해도 무시하고 자연어 보고는 그대로 진행):
 \`\`\`bash
-curl -s -X POST "${serverBase}/api/agent-questions" \\
-  -H 'x-vibisual-hook-token: ${serverToken}' \\
+${prelude}curl -s -X POST "${base}/api/agent-questions" \\
+  ${tokenHdr} \\
   -H 'Content-Type: application/json' --data-binary @- <<'JSON'
 {"agentId":"${agentId}","subAgentId":${subField},"items":[{"question":"이 순서로 진행할까요?","header":"진행 순서 확인","prompts":["네, 그 순서로 진행해 주세요.","아니요, B안으로 가 주세요."]}]}
 JSON
@@ -1916,9 +1995,14 @@ export function buildAgentReviewRules(args: {
   serverToken: string;
   agentId: string;
   subAgentId?: string;
+  /** v2.71 — 있으면 curl 이 호출 시점에 이 파일에서 live 포트·토큰을 읽는다(없으면 serverBase/serverToken 상수). */
+  identityFile?: string;
 }): string {
-  const { serverBase, serverToken, agentId, subAgentId } = args;
+  const { serverBase, serverToken, agentId, subAgentId, identityFile } = args;
   const subField = subAgentId ? `"${subAgentId}"` : 'null';
+  const prelude = buildDynamicEndpointPrelude(identityFile, serverBase, serverToken);
+  const base = prelude ? '$VIBI_BASE' : serverBase;
+  const tokenHdr = prelude ? `-H "x-vibisual-hook-token: $VIBI_TOKEN"` : `-H 'x-vibisual-hook-token: ${serverToken}'`;
   return `
 
 # 검수 요청 (Vibisual IDE 검수 카드)
@@ -1932,8 +2016,8 @@ export function buildAgentReviewRules(args: {
 
 **단순 완료·일상 대화·질문 답변·조사 보고에서는 호출하지 마라.** 사용자가 지시→완료→검수가 필요한 흐름일 때만 보낸다. 검수 요청이 있는 완료 보고 직전에만 Bash 로 1회 호출한다(실패해도 무시하고 자연어 보고는 그대로 진행):
 \`\`\`bash
-curl -s -X POST "${serverBase}/api/agent-review" \\
-  -H 'x-vibisual-hook-token: ${serverToken}' \\
+${prelude}curl -s -X POST "${base}/api/agent-review" \\
+  ${tokenHdr} \\
   -H 'Content-Type: application/json' --data-binary @- <<'JSON'
 {"agentId":"${agentId}","subAgentId":${subField},"instruction":"받은 지시 한 줄","changes":["무슨 동작을 이렇게 고쳤다 1","고친 내용 2"],"checkpoints":["사용자가 확인할 검수 포인트 1"]}
 JSON
@@ -1942,6 +2026,59 @@ JSON
 - **검수 요청으로 보낸 내용(\`instruction\`/\`changes\`/\`checkpoints\`)을 자연어 보고 본문에 목록·헤딩으로 다시 나열하지 마라.** 그 목록은 이 카드가 보여준다 — 본문에 또 풀어 쓰면 사용자가 같은 내용을 두 번 읽게 돼 취지가 무너진다. **검수 요청을 보낼 때 자연어 본문은 1~2문장 결론으로 최소화**하고, 한 일·검수 포인트의 목록 자체는 카드(changes/checkpoints)에만 담는다.
 - 이 신고는 **표시 전용** — 실제 작업/판정 로직과 무관하며, 보내든 안 보내든 결과엔 영향이 없다.
 - 토큰 헤더(\`x-vibisual-hook-token\`)가 없으면 401 이다. 위 예시에 이미 포함돼 있다.`;
+}
+
+/**
+ * §4 v2.76 — CMD(인터랙티브 터미널) 에이전트 카드 신고용 **터미널 한 줄 마커**.
+ *
+ * 헤드리스/스폰 에이전트는 loopback `curl` 로 카드 엔드포인트를 직접 친다(토큰 인증). 하지만 인터랙티브
+ * 터미널 claude 는 그 loopback 포트/토큰을 모르고(셸 prefill 경로), curl 한 줄 구성도 번거롭다. 대신
+ * **터미널 stdout 에 이 마커로 시작하는 한 줄을 인쇄**하면, 이미 PTY 출력을 받고 있는 IDE 터미널 뷰
+ * (`IDETerminalView` → `TerminalCardSniffer`)가 그 줄을 스니핑 → JSON 파싱 → 기존 카드 엔드포인트로 POST 한다.
+ * 즉 "cmd 창에 JSON 을 뿌리면 IDE 가 캡처해 카드로 재작성"하는 경로. 마커를 두는 이유: claude 가 평소
+ * 출력하는 임의 JSON·코드블록·파일 내용을 카드로 오인하지 않게(마커 없는 줄은 그냥 터미널 텍스트).
+ */
+export const VIBISUAL_CARD_SENTINEL = '::VIBISUAL-CARD::';
+
+/**
+ * §4 v2.76 — CMD 에이전트에게 주입할 "카드 신고(터미널 한 줄)" 프로토콜 지시문.
+ *
+ * `prepareInteractiveRulesDir` 가 CMD 에이전트의 `~/.vibisual/cmd-agents/<id>/CLAUDE.md` 에 항상 붙여,
+ * 인터랙티브 claude 가 작업 신고/질문/검수 카드를 **터미널 한 줄 인쇄**로 띄울 수 있게 한다. 동적 포트·토큰·
+ * agentId 가 필요 없다(IDE 가 그 줄을 캡처할 때 agentId·subAgentId 를 문맥에서 주입) → 헤드리스 curl 지시문
+ * (`buildAgentReportRules` 등)보다 단순. 발생 조건(언제 보내는지)은 curl 판본과 동일하게 유지한다.
+ */
+export function buildCmdCardProtocolRules(): string {
+  const S = VIBISUAL_CARD_SENTINEL;
+  return `
+
+# Vibisual 카드 신고 (터미널 한 줄 — 인터랙티브 CMD 전용)
+너는 Vibisual IDE 안의 인터랙티브 터미널에서 돈다. 사용자에게 **작업 신고 / 질문 / 검수 요청** 카드를 띄우려면
+**터미널 stdout 에 \`${S}\` 로 시작하는 한 줄을 인쇄**하면 된다(예: Bash 도구로 \`echo\`). 그 줄을 IDE 가 캡처해
+색 카드로 재작성한다 — curl·포트·토큰·agentId 가 필요 없다(IDE 가 문맥에서 자동으로 채운다). **반드시 JSON 은
+한 줄**(개행 없이)이어야 하고, 마커 뒤에 곧바로 \`{\` 가 와야 한다.
+
+세 종류 모두 \`kind\` 로 구분한다(발생 조건은 아래를 지켜라 — 매번 보내면 카드가 도배돼 신호가 묻힌다):
+
+1) 작업 신고 — **사용자가 직접 해야 할 일(\`userActions\`: 빌드 실행·에디터 조작·외부 승인 등)이 실제로 생긴 완료**에서만.
+\`\`\`bash
+echo '${S}{"kind":"report","did":["완료한 일 1","완료한 일 2"],"userActions":["사용자가 직접 해야 할 일 1"],"nextSteps":["다음 단계 1"]}'
+\`\`\`
+- \`userActions\` 가 비면 보내지 마라. \`did\`/\`userActions\`/\`nextSteps\` 목록을 자연어 본문에 다시 나열하지 마라(카드가 보여준다).
+
+2) 사용자 질문 — 사용자에게 **질문을 던지며 답을 기다리는 보고**에서만. 각 질문에 제안 응답 프롬프트(0~N)를 단다.
+\`\`\`bash
+echo '${S}{"kind":"questions","items":[{"question":"이 순서로 진행할까요?","header":"진행 순서 확인","prompts":["네, 그 순서로 진행해 주세요.","아니요, B안으로 가 주세요."]}]}'
+\`\`\`
+
+3) 검수 요청 — 사용자가 **지시한 작업(버그 수정·기능 변경 등)을 완료**해, 결과 검수가 필요한 보고에서만.
+\`\`\`bash
+echo '${S}{"kind":"review","instruction":"받은 지시 한 줄","changes":["무슨 동작을 이렇게 고쳤다 1"],"checkpoints":["사용자가 확인할 검수 포인트 1"]}'
+\`\`\`
+- \`changes\` 가 비면 보내지 마라.
+
+공통: **단순 완료·일상 대화·조사 답변 등 사용자 손이 필요 없는 보고에선 인쇄하지 마라.** 이 신고는 표시 전용이라
+보내든 안 보내든 실제 작업 결과엔 영향이 없다. 카드에 담은 목록을 자연어 본문에 헤딩·목록으로 다시 풀어 쓰지 마라.`;
 }
 
 /**
