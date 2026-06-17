@@ -862,7 +862,9 @@ export type WSMessageType =
   // §4 v2.60 — 에이전트 질문 카드 수신 신호. 본체는 graph_snapshot.agentQuestions
   | 'agent_questions'
   // §4 v2.70 — 에이전트 검수 요청 카드 수신 신호. 본체는 graph_snapshot.agentReviews
-  | 'agent_review';
+  | 'agent_review'
+  // §4 v2.84 — 에이전트 번호 목록 정렬 카드 수신 신호. 본체는 graph_snapshot.agentLists
+  | 'agent_list';
 
 /** §5.3 #28 v1.47 — 콘티 생성/패치 완료 토스트용 페이로드. 본체는 graph_snapshot 에서 받는다. */
 export interface ContiEventPayload {
@@ -1406,6 +1408,32 @@ export interface AgentReview {
   createdAt: number;
 }
 
+/**
+ * §4 v2.84 — 에이전트 번호 목록 정렬 카드 (커스텀/스폰 에이전트 전용).
+ *
+ * 에이전트가 답변에 담는 **여러 항목의 번호/순서 목록**(나열·체크리스트·단계 목록)을 본문 텍스트로
+ * 길게 나열하는 대신 구조화 배열로 보내, IDE 가 번호를 자동으로 매겨 **가지런히 정렬된 카드**로 렌더.
+ * 작업 신고(AgentReport)·질문(AgentQuestions)·검수(AgentReview)와 동일 골격 — 에이전트가
+ * loopback `POST /api/agent-list` 로 신고(토큰 인증). 번호 매김은 IDE 가 하므로 항목 텍스트만 보낸다.
+ * `agentId` 가 1차 렌더 필터 키.
+ */
+export interface AgentList {
+  /** 신고 고유 ID (서버가 발급). */
+  id: string;
+  /** 신고한 (부모) 에이전트 ID — Vibisual 관할 custom agent. 렌더 필터 1차 키. */
+  agentId: string;
+  /** 호출 sub 인스턴스(IDE 세션 탭) ID. 있으면 그 탭에 귀속, 없으면(undefined) 메인 탭. */
+  subAgentId?: string;
+  /** 목록 제목 / 머리말 (선택). */
+  title?: string;
+  /** 번호 목록 항목들 (1~N). 번호는 IDE 가 1..N 으로 자동 매김 — 에이전트는 항목 텍스트만 보낸다. */
+  items: string[];
+  /** 자유 메모 / 맥락 한 줄 (선택). */
+  note?: string;
+  /** 신고 시각 (서버 stamp, Date.now()). */
+  createdAt: number;
+}
+
 export interface GraphSnapshot {
   /** hydrated 프로젝트 목록 (projectName → ProjectInfo). keys와 stubProjects keys는 겹치지 않음 */
   projects: Record<string, ProjectInfo>;
@@ -1544,6 +1572,12 @@ export interface GraphSnapshot {
    * 클라 IDE 가 agentId/subAgentId 로 필터해 검수 카드로 렌더. 미설정 시 빈 맵.
    */
   agentReviews?: Record<string, AgentReview[]>;
+
+  /**
+   * §4 v2.84 — 에이전트 번호 목록 정렬 카드 (agentId → AgentList[], 최신순 append).
+   * 커스텀/스폰 에이전트가 `POST /api/agent-list` 로 보낸 번호 목록. 미설정 시 빈 맵.
+   */
+  agentLists?: Record<string, AgentList[]>;
 }
 
 /** 폴더 내 파일/디렉토리 엔트리 (폴더 트리 표시용) */
@@ -1734,6 +1768,12 @@ export interface ProjectCheckpoint {
    * 검수 요청은 세션을 넘어 의미 있는 산출물 트레이스라 영속 대상.
    */
   agentReviews?: Record<string, AgentReview[]>;
+
+  /**
+   * §4 v2.84 — 에이전트 번호 목록 정렬 카드 (agentId → AgentList[]) 영속화.
+   * optional — 구버전 체크포인트 하위 호환. 미설정이면 빈 맵으로 복원.
+   */
+  agentLists?: Record<string, AgentList[]>;
 
   /**
    * §3.2.1-3 v2.63 — 명시적으로 삭제된 커스텀 에이전트 sessionId 묘비.

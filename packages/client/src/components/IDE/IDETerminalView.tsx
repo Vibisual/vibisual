@@ -243,16 +243,15 @@ export function IDETerminalView({ agentId, sessionId }: IDETerminalViewProps): R
     const cols = term.cols;
     const rows = term.rows;
 
-    // §4 v2.76 — CMD 카드 스니퍼. PTY 출력 중 `::VIBISUAL-CARD::{…}` 한 줄을 잡아 기존 카드
-    //   엔드포인트로 POST(작업 신고/질문/검수). subAgentId=세션 탭 토큰(메인 탭이면 null)으로 귀속.
-    //   mount 마다 새로 만들어 reattach replay 가 과거 카드를 재신고하지 않게 한다(dedupe 보강).
-    const sniffer = new TerminalCardSniffer(agentId, sessionId);
+    // §4 v2.83 — CMD 카드 인라인 렌더러. PTY 출력 중 `::VIBISUAL-CARD::{…}` 마커 줄을 ANSI 색 박스로
+    //   **대체**해 터미널 안에 그대로 그린다(마커 없는 출력은 무변형 통과). feed 가 돌려준 문자열을 write.
+    const sniffer = new TerminalCardSniffer();
 
-    // main → renderer 출력: 이 termId 만 골라 write + 카드 마커 스니핑(화면 데이터는 변형하지 않음).
+    // main → renderer 출력: 이 termId 만 골라, 변환된 표시 문자열을 write(원본 data 직접 write ❌).
     const offData = api.terminal.onData(({ termId: id, data }) => {
       if (id === termId && !disposed) {
-        term.write(data);
-        sniffer.feed(data);
+        const outStr = sniffer.feed(data);
+        if (outStr) term.write(outStr);
       }
     });
     const offExit = api.terminal.onExit(({ termId: id, exitCode }) => {

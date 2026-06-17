@@ -45,8 +45,9 @@ import type {
   AgentReport,
   AgentQuestions,
   AgentReview,
+  AgentList,
 } from '@vibisual/shared';
-import { MAX_BASH_HISTORY, MAX_FILE_EDITS, MAX_WRITE_DIFF_BYTES, DEFAULT_MAX_SATELLITES, SATELLITE_MAX_BOUNDS, MAX_AGENTS, SATELLITE_TYPES, AGENT_FADE_DURATION, BUBBLE_TTL, GHOST_FADE_DURATION, FILE_EXISTENCE_MISS_THRESHOLD, FRONTEND_SERVER_PATTERNS, IFRAME_DEAD_GRACE_MS, parseModelFamily, DEFAULT_AGENT_CONFIG, AVAILABLE_AGENT_TOOLS, DEFAULT_UI_LOCALE, COMMENT_BOX_DEFAULTS, READ_TOOLS, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, AGENT_REPORT_MAX_PER_AGENT, AGENT_QUESTIONS_MAX_PER_AGENT, AGENT_REVIEWS_MAX_PER_AGENT, DELETED_AGENT_TOMBSTONE_MAX, CMD_AGENT_COLOR, MAX_AGENT_EVENTS } from '@vibisual/shared';
+import { MAX_BASH_HISTORY, MAX_FILE_EDITS, MAX_WRITE_DIFF_BYTES, DEFAULT_MAX_SATELLITES, SATELLITE_MAX_BOUNDS, MAX_AGENTS, SATELLITE_TYPES, AGENT_FADE_DURATION, BUBBLE_TTL, GHOST_FADE_DURATION, FILE_EXISTENCE_MISS_THRESHOLD, FRONTEND_SERVER_PATTERNS, IFRAME_DEAD_GRACE_MS, parseModelFamily, DEFAULT_AGENT_CONFIG, AVAILABLE_AGENT_TOOLS, DEFAULT_UI_LOCALE, COMMENT_BOX_DEFAULTS, READ_TOOLS, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, AGENT_REPORT_MAX_PER_AGENT, AGENT_QUESTIONS_MAX_PER_AGENT, AGENT_REVIEWS_MAX_PER_AGENT, AGENT_LISTS_MAX_PER_AGENT, DELETED_AGENT_TOMBSTONE_MAX, CMD_AGENT_COLOR, MAX_AGENT_EVENTS } from '@vibisual/shared';
 import type { ServerKind, UiLocale, ExecutionMode } from '@vibisual/shared';
 import { EdgeManager } from './edgeManager.js';
 import { extractPort, extractPortFromInlineEval, extractPortFromScriptFile, isPortAlive, isProbeCommand, isVibisualLauncherCommand } from './processChecker.js';
@@ -561,6 +562,11 @@ export class ProjectGraph {
    * 영속화 대상 (ProjectCheckpoint.agentReviews). ring buffer 캡 = AGENT_REVIEWS_MAX_PER_AGENT.
    */
   private agentReviews = new Map<string, AgentReview[]>();
+  /**
+   * §4 v2.84 — 에이전트 번호 목록 정렬 카드 (agentId → AgentList[]). 번호/순서 목록 정렬용.
+   * 영속화 대상 (ProjectCheckpoint.agentLists). ring buffer 캡 = AGENT_LISTS_MAX_PER_AGENT.
+   */
+  private agentLists = new Map<string, AgentList[]>();
   /**
    * §5.3 #12-1 v1.91 — 현재 권한 승인 팝업 대기 중인 에이전트 id 집합.
    * PreToolUse 훅이 동기 hold(최대 60s) 하는 동안 에이전트는 "블록된 활성" 상태다.
@@ -1448,6 +1454,28 @@ export class ProjectGraph {
     if (this.agentReviews.size === 0) return undefined;
     const out: Record<string, AgentReview[]> = {};
     for (const [k, v] of this.agentReviews) out[k] = [...v];
+    return out;
+  }
+
+  /**
+   * §4 v2.84 — 에이전트 번호 목록 정렬 카드 추가 (agentId → AgentList[], append + ring buffer 캡).
+   * 커스텀/스폰 에이전트가 `POST /api/agent-list` 로 보낸 번호 목록을 적재.
+   */
+  addAgentList(list: AgentList): void {
+    const arr = this.agentLists.get(list.agentId) ?? [];
+    arr.push(list);
+    if (arr.length > AGENT_LISTS_MAX_PER_AGENT) {
+      arr.splice(0, arr.length - AGENT_LISTS_MAX_PER_AGENT);
+    }
+    this.agentLists.set(list.agentId, arr);
+    this.bumpMutationVersion();
+  }
+
+  /** §4 v2.84 — 번호 목록 정렬 카드 전체 맵 (broadcast 스냅샷/체크포인트용). 빈 맵이면 undefined. */
+  getAgentListsRecord(): Record<string, AgentList[]> | undefined {
+    if (this.agentLists.size === 0) return undefined;
+    const out: Record<string, AgentList[]> = {};
+    for (const [k, v] of this.agentLists) out[k] = [...v];
     return out;
   }
 
@@ -2560,6 +2588,7 @@ export class ProjectGraph {
       agentReports: this.getAgentReportsRecord(),
       agentQuestions: this.getAgentQuestionsRecord(),
       agentReviews: this.getAgentReviewsRecord(),
+      agentLists: this.getAgentListsRecord(),
     };
 
     // (2b) 계산 결과를 캐시에 저장
@@ -2693,6 +2722,7 @@ export class ProjectGraph {
       agentReports: this.getAgentReportsRecord(),
       agentQuestions: this.getAgentQuestionsRecord(),
       agentReviews: this.getAgentReviewsRecord(),
+      agentLists: this.getAgentListsRecord(),
     };
   }
 
@@ -3088,6 +3118,14 @@ export class ProjectGraph {
         }
         return Object.keys(out).length > 0 ? out : undefined;
       })(),
+      // §4 v2.84 — 번호 목록 정렬 카드: 이 프로젝트 소속 에이전트(버블 id)분만 필터해 영속(agentReviews 와 동형).
+      agentLists: (() => {
+        const out: Record<string, AgentList[]> = {};
+        for (const [agentId, lists] of this.agentLists) {
+          if (projectBubbleIds.has(agentId) && lists.length > 0) out[agentId] = [...lists];
+        }
+        return Object.keys(out).length > 0 ? out : undefined;
+      })(),
       // §3.2.1-3 v2.63 — 명시 삭제된 커스텀 에이전트 묘비. 이미 삭제돼 세션이 없으므로
       //   프로젝트 필터를 걸 키가 없다 → 전체 묘비를 그대로 싣는다(다른 프로젝트 sessionId 가
       //   섞여도 그 프로젝트엔 해당 세션이 존재하지 않아 무해, 부활 차단에만 쓰임).
@@ -3272,6 +3310,24 @@ export class ProjectGraph {
           existing.sort((a, b) => a.createdAt - b.createdAt);
           if (existing.length > AGENT_REVIEWS_MAX_PER_AGENT) {
             existing.splice(0, existing.length - AGENT_REVIEWS_MAX_PER_AGENT);
+          }
+        }
+      }
+    }
+
+    // §4 v2.84 — 번호 목록 정렬 카드 병합 (agentReviews 와 동형).
+    if (cp.agentLists) {
+      for (const [agentId, lists] of Object.entries(cp.agentLists)) {
+        if (!Array.isArray(lists) || lists.length === 0) continue;
+        const existing = this.agentLists.get(agentId);
+        if (!existing) {
+          this.agentLists.set(agentId, [...lists]);
+        } else {
+          const seen = new Set(existing.map((l) => l.id));
+          for (const l of lists) if (!seen.has(l.id)) existing.push(l);
+          existing.sort((a, b) => a.createdAt - b.createdAt);
+          if (existing.length > AGENT_LISTS_MAX_PER_AGENT) {
+            existing.splice(0, existing.length - AGENT_LISTS_MAX_PER_AGENT);
           }
         }
       }
@@ -3645,6 +3701,16 @@ export class ProjectGraph {
       for (const [agentId, reviews] of Object.entries(cp.agentReviews)) {
         if (Array.isArray(reviews) && reviews.length > 0) {
           this.agentReviews.set(agentId, [...reviews]);
+        }
+      }
+    }
+
+    // §4 v2.84 — 에이전트 번호 목록 정렬 카드 복원
+    this.agentLists.clear();
+    if (cp.agentLists) {
+      for (const [agentId, lists] of Object.entries(cp.agentLists)) {
+        if (Array.isArray(lists) && lists.length > 0) {
+          this.agentLists.set(agentId, [...lists]);
         }
       }
     }

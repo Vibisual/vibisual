@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ReactFlow,
@@ -16,6 +16,9 @@ import { useOverlaySync } from '../../hooks/useOverlaySync.js';
 import { BubbleNode } from '../BubbleMap/BubbleNode.js';
 import { AgentIDEOverlay } from '../IDE/AgentIDEOverlay.js';
 import { PermissionPromptStack } from '../PermissionPrompt/PermissionPromptStack.js';
+
+// §17-6 v2.83 — 단일 버블 가운데 정렬 옵션(init + 창 리사이즈 재정렬에 동일 적용).
+const FIT_VIEW_OPTS = { padding: 0.3, maxZoom: 1, minZoom: 0.4, duration: 0 } as const;
 
 // SCENARIO.md §5.5 #17-6 (v2.73) — `#overlay=1&agentId=…&projectId=…` 해시로 뜬 오버레이 위젯 창의 shell.
 //
@@ -99,14 +102,53 @@ export function OverlayShell({ agentId, projectId }: OverlayShellProps): React.J
   const handleInit = useCallback((inst: ReactFlowInstance) => {
     rfRef.current = inst;
     // 단일 버블을 자연 크기로 가운데 정렬.
-    requestAnimationFrame(() => inst.fitView({ padding: 0.3, maxZoom: 1, minZoom: 0.4, duration: 0 }));
+    requestAnimationFrame(() => inst.fitView(FIT_VIEW_OPTS));
   }, []);
+
+  // §17-6 v2.83 — IDE 펼침→접힘 후 버블이 한쪽으로 잘리던 버그 수정.
+  // 종전엔 fitView 를 init 1회만 호출했다. 접힘 전이로 ReactFlow 가 재마운트되면 init 이 다시
+  // 돌지만, OS 창 축소(collapseSelf→IPC→setBounds)가 비동기라 fitView 가 "아직 큰 IDE 크기"의
+  // 뷰포트에 맞춰 버블을 중앙 배치 → 직후 창이 280×320 으로 줄면 버블이 한쪽으로 밀려 잘렸다.
+  // 컨테이너 실제 리사이즈를 관찰해 매번 재정렬하면, OS 창이 어느 시점에 정착하든 버블이 가운데로 온다.
+  const fitContainerRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (expanded) return; // 접힘(버블) 상태에서만 ReactFlow 가 마운트된다.
+    const el = fitContainerRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    let raf = 0;
+    const ro = new ResizeObserver(() => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => rfRef.current?.fitView(FIT_VIEW_OPTS));
+    });
+    ro.observe(el);
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+    };
+  }, [expanded, agent]);
 
   // 더블클릭 → IDE 펼치기(캔버스 handleNodeDoubleClick 의 agent 분기와 동일).
   const handleNodeDoubleClick = useCallback((_e: React.MouseEvent, node: Node) => {
     const d = node.data as unknown as BubbleData;
     if (d.bubbleType === 'agent') openIDEOverlay(d.id);
   }, [openIDEOverlay]);
+
+  // §17-6 (G) v2.87 — 우클릭 → 커서 위치의 독립 팝업 창으로 메뉴를 띄운다(main 이 cursor 좌표 사용).
+  // 종전엔 280×320 버블 창 안에 HTML 로 그려 ①커서 아래에 못 열리고 ②하단 항목이 창 밖으로 밀려
+  // 클릭이 안 됐다. 좌표·렌더는 OverlayMenuShell + windowManager 가 담당.
+  const handleContextMenu = useCallback((e: React.MouseEvent | MouseEvent) => {
+    e.preventDefault();
+    void window.api?.overlay?.openMenu();
+  }, []);
+
+  // 메뉴 팝업 창의 "IDE 열기" 명령 수신 → 더블클릭과 동일 경로(openIDEOverlay)로 IDE 펼침.
+  useEffect(() => {
+    const overlay = window.api?.overlay;
+    if (!overlay?.onMenuCommand) return;
+    return overlay.onMenuCommand(({ command }) => {
+      if (command === 'open-ide') openIDEOverlay(agentId);
+    });
+  }, [agentId, openIDEOverlay]);
 
   // §17-6 v2.81 — 버블 드래그 = OS 창 이동. 종전 in-window 노드 드래그는 280×320 창 경계를
   // 넘는 순간 버블이 잘렸다. .bubble-body 를 잡으면 메인 프로세스가 커서를 폴링해 창째
@@ -148,7 +190,7 @@ export function OverlayShell({ agentId, projectId }: OverlayShellProps): React.J
           // 죽는다. 대신 index.css 의 `.overlay-window` 규칙이 빈 캔버스(.react-flow__pane)만 드래그
           // 영역으로, 버블(.react-flow__node)은 no-drag(상호작용 가능)로 분리한다.
           // 버블 자체 드래그는 mousedown 캡처 → OS 창 이동(v2.81, handleBubbleMouseDown).
-          <div className="h-full w-full" onMouseDownCapture={handleBubbleMouseDown}>
+          <div ref={fitContainerRef} className="h-full w-full" onMouseDownCapture={handleBubbleMouseDown}>
             <ReactFlow
               nodes={nodes}
               edges={[]}
@@ -156,6 +198,8 @@ export function OverlayShell({ agentId, projectId }: OverlayShellProps): React.J
               onNodesChange={onNodesChange}
               onInit={handleInit}
               onNodeDoubleClick={handleNodeDoubleClick}
+              onNodeContextMenu={(e) => handleContextMenu(e)}
+              onPaneContextMenu={(e) => handleContextMenu(e)}
               nodesConnectable={false}
               elementsSelectable
               panOnDrag={false}

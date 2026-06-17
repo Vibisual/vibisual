@@ -33,6 +33,13 @@ import {
   listOverlays,
   getOverlaysVisible,
   setOverlaysVisible,
+  hideOverlaySelfByWindowId,
+  setOverlayOpacitySelfByWindowId,
+  revealOverlayInMain,
+  openOverlayMenuByWindowId,
+  resizeOverlayMenu,
+  overlayMenuAction,
+  closeOverlayMenuByWindowId,
 } from './windowManager';
 import { checkForUpdates, quitAndInstall, getUpdateState } from './updaterManager';
 import {
@@ -282,6 +289,27 @@ export function setupIpc(expressApp: Express): IpcHub {
     setOverlaysVisible(!!visible);
     return getOverlaysVisible();
   });
+  // §17-6 (G) v2.82 — 버블 우클릭 메뉴 액션.
+  ipcMain.handle('vibisual:overlay:hide-self', (event): boolean => hideOverlaySelfByWindowId(event.sender.id));
+  ipcMain.handle('vibisual:overlay:set-opacity-self', (event, opacity: number): boolean =>
+    setOverlayOpacitySelfByWindowId(event.sender.id, typeof opacity === 'number' ? opacity : 1),
+  );
+  ipcMain.handle(
+    'vibisual:overlay:reveal-in-main',
+    (_event, payload: { agentId: string; projectId: string }): boolean => {
+      if (!payload || typeof payload.agentId !== 'string' || typeof payload.projectId !== 'string') return false;
+      return revealOverlayInMain({ agentId: payload.agentId, projectId: payload.projectId });
+    },
+  );
+  // §17-6 (G) v2.87 — 우클릭 메뉴 = 커서 위치 독립 팝업 창.
+  ipcMain.handle('vibisual:overlay:open-menu', (event): boolean => openOverlayMenuByWindowId(event.sender.id));
+  ipcMain.handle('vibisual:overlay:menu-resize', (event, size: { width: number; height: number }): boolean =>
+    resizeOverlayMenu(event.sender.id, size?.width ?? 0, size?.height ?? 0),
+  );
+  ipcMain.handle('vibisual:overlay:menu-action', (event, payload: { action: string; value?: number }): boolean =>
+    overlayMenuAction(event.sender.id, payload?.action ?? '', payload?.value),
+  );
+  ipcMain.handle('vibisual:overlay:close-menu', (event): boolean => closeOverlayMenuByWindowId(event.sender.id));
 
   // ─── §4 v2.44 자동 업데이트 채널 ──────────────────────────────────────────
   // 상태 push 는 updaterManager 가 직접 webContents 로 보낸다(vibisual:update:status).
@@ -346,6 +374,13 @@ export function setupIpc(expressApp: Express): IpcHub {
       ipcMain.removeHandler('vibisual:overlay:drag-end');
       ipcMain.removeHandler('vibisual:overlay:list');
       ipcMain.removeHandler('vibisual:overlay:set-visible');
+      ipcMain.removeHandler('vibisual:overlay:hide-self');
+      ipcMain.removeHandler('vibisual:overlay:set-opacity-self');
+      ipcMain.removeHandler('vibisual:overlay:reveal-in-main');
+      ipcMain.removeHandler('vibisual:overlay:open-menu');
+      ipcMain.removeHandler('vibisual:overlay:menu-resize');
+      ipcMain.removeHandler('vibisual:overlay:menu-action');
+      ipcMain.removeHandler('vibisual:overlay:close-menu');
       ipcMain.removeHandler('vibisual:update:check');
       ipcMain.removeHandler('vibisual:update:install');
       ipcMain.removeHandler('vibisual:update:get-state');

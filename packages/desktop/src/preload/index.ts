@@ -147,6 +147,35 @@ const api = {
     list: (): Promise<OverlayListWire> => ipcRenderer.invoke('vibisual:overlay:list'),
     /** Header 전역 토글 — 모든 오버레이 창 show/hide. */
     setVisible: (visible: boolean): Promise<boolean> => ipcRenderer.invoke('vibisual:overlay:set-visible', visible),
+    /** §17-6 (G) v2.82 — 우클릭 "숨기기(이 버블만)" — 이 창만 숨김(복귀는 Header 전역 토글). */
+    hideSelf: (): Promise<boolean> => ipcRenderer.invoke('vibisual:overlay:hide-self'),
+    /** §17-6 (G) v2.82 — 우클릭 불투명도(1/0.75/0.5) — 접힘 버블에 적용. */
+    setOpacitySelf: (opacity: number): Promise<boolean> => ipcRenderer.invoke('vibisual:overlay:set-opacity-self', opacity),
+    /** §17-6 (G) v2.82 — 우클릭 "본체에서 이 버블로 점프" — 메인 창 포커스 + reveal 신호. */
+    revealInMain: (payload: { agentId: string; projectId: string }): Promise<boolean> =>
+      ipcRenderer.invoke('vibisual:overlay:reveal-in-main', payload),
+    /** §17-6 (G) v2.82 — 메인 윈도우 한정: 오버레이가 보낸 캔버스 점프 신호 구독. */
+    onReveal: (cb: (payload: { agentId: string; projectId: string }) => void): (() => void) => {
+      const listener = (_e: unknown, payload: { agentId: string; projectId: string }): void => cb(payload);
+      ipcRenderer.on('vibisual:overlay:reveal', listener);
+      return () => ipcRenderer.removeListener('vibisual:overlay:reveal', listener);
+    },
+    /** §17-6 (G) v2.87 — 버블 창: 우클릭 → 커서 위치에 메뉴 팝업 창 열기. */
+    openMenu: (): Promise<boolean> => ipcRenderer.invoke('vibisual:overlay:open-menu'),
+    /** §17-6 (G) v2.87 — 메뉴 창: 실제 메뉴 크기 신고(main 이 창을 딱 맞춰 커서 아래 배치). */
+    menuResize: (size: { width: number; height: number }): Promise<boolean> =>
+      ipcRenderer.invoke('vibisual:overlay:menu-resize', size),
+    /** §17-6 (G) v2.87 — 메뉴 창: 액션(open-ide·reveal·opacity·hide·close)을 대상 버블 창에 적용. */
+    menuAction: (payload: { action: string; value?: number }): Promise<boolean> =>
+      ipcRenderer.invoke('vibisual:overlay:menu-action', payload),
+    /** §17-6 (G) v2.87 — 메뉴 창: 자기 자신 닫기(Esc 등). */
+    closeMenu: (): Promise<boolean> => ipcRenderer.invoke('vibisual:overlay:close-menu'),
+    /** §17-6 (G) v2.87 — 버블 창: 메뉴가 보낸 명령(open-ide) 구독 → openIDEOverlay. */
+    onMenuCommand: (cb: (payload: { command: string }) => void): (() => void) => {
+      const listener = (_e: unknown, payload: { command: string }): void => cb(payload);
+      ipcRenderer.on('vibisual:overlay:menu-command', listener);
+      return () => ipcRenderer.removeListener('vibisual:overlay:menu-command', listener);
+    },
     /** main 이 모든 창에 푸시하는 현재 오버레이 목록 + 토글 상태. */
     onList: (cb: (payload: OverlayListWire) => void): (() => void) => {
       const listener = (_e: unknown, payload: OverlayListWire): void => cb(payload);

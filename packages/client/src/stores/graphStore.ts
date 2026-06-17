@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { BubbleData, ActivityEdge, BashEntry, ServerEntry, AgentEvent, FileEdit, AgentPhase, ProjectInfo, QueuedCommand, SubAgent, ServerKind, PipelineType, PipelineState, AgentConfig, SubAgentStreamEvent, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, UiLocale, ProjectMetaSnapshot, AppState, AppStatePatch, CommentBox, Conti, ActiveContiWork, ToolDurationEntry, CompactCount, RateLimitInfo, DiagnosticEntry, AutoAgentSummary, ModelRegistry, UserDefaults, AgentReport, AgentQuestions, AgentReview } from '@vibisual/shared';
+import type { BubbleData, ActivityEdge, BashEntry, ServerEntry, AgentEvent, FileEdit, AgentPhase, ProjectInfo, QueuedCommand, SubAgent, ServerKind, PipelineType, PipelineState, AgentConfig, SubAgentStreamEvent, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, UiLocale, ProjectMetaSnapshot, AppState, AppStatePatch, CommentBox, Conti, ActiveContiWork, ToolDurationEntry, CompactCount, RateLimitInfo, DiagnosticEntry, AutoAgentSummary, ModelRegistry, UserDefaults, AgentReport, AgentQuestions, AgentReview, AgentList } from '@vibisual/shared';
 import { DEFAULT_UI_LOCALE } from '@vibisual/shared';
 import { changeUiLocale } from '../i18n/index.js';
 import { calcFileSizeRange } from '../utils/sizeCalc.js';
@@ -313,6 +313,8 @@ interface GraphState {
   agentQuestions: Record<string, AgentQuestions[]>;
   /** §4 v2.70 — 에이전트 검수 요청 카드 (agentId → AgentReview[]). IDE 검수 카드. */
   agentReviews: Record<string, AgentReview[]>;
+  /** §4 v2.84 — 에이전트 번호 목록 정렬 카드 (agentId → AgentList[]). IDE 정렬 카드. */
+  agentLists: Record<string, AgentList[]>;
   /** §4 v2.38 — 동적 모델 레지스트리 (서버 modelRegistryService 가 시드+/v1/models 머지 후 push). */
   modelRegistry: ModelRegistry | null;
   /** §4 v2.42 — 사용자 글로벌 옵션 (Options 창 SSOT). */
@@ -354,6 +356,10 @@ interface GraphState {
   imageLightbox: string | null;
   openImageLightbox: (url: string) => void;
   closeImageLightbox: () => void;
+  /** 스트림 본문 링크 클릭 시 iframe 오버레이로 열 URL. null=닫힘. 전환 상태이므로 영속화 ❌. */
+  linkFrame: string | null;
+  openLinkFrame: (url: string) => void;
+  closeLinkFrame: () => void;
   /** 콘티 생성 in-flight (agentId Set) — UX 스피너용. 완료 시 자동 제거. */
   contiGenerating: Record<string, true>;
   /** 사용자가 "새 콘티 생성" 버튼 누름 — 서버 POST /api/conti/generate. */
@@ -621,6 +627,8 @@ interface GraphState {
   applyAgentQuestions: (questions: Record<string, AgentQuestions[]> | undefined) => void;
   /** §4 v2.70 — graph_snapshot 의 에이전트 검수 요청 카드 반영. */
   applyAgentReviews: (reviews: Record<string, AgentReview[]> | undefined) => void;
+  /** §4 v2.84 — graph_snapshot 의 에이전트 번호 목록 정렬 카드 반영. */
+  applyAgentLists: (lists: Record<string, AgentList[]> | undefined) => void;
   /** §4 v1.98 — graph_snapshot 수신 시 진단 에러 로그 반영. */
   applyDiagnosticLog: (log: DiagnosticEntry[] | undefined) => void;
   /** §4 v2.38 — graph_snapshot 또는 model_registry_updated 수신 시 레지스트리 반영. */
@@ -889,12 +897,14 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   agentReports: {},
   agentQuestions: {},
   agentReviews: {},
+  agentLists: {},
   modelRegistry: null,
   userDefaults: null,
   rateLimits: null,
   diagnosticLog: [],
   contiBoardOpen: null,
   imageLightbox: null,
+  linkFrame: null,
   contiGenerating: {},
   contiElementPatching: {},
   agentInputDrafts: {},
@@ -977,6 +987,8 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   closeContiBoard: () => set({ contiBoardOpen: null }),
   openImageLightbox: (url) => set({ imageLightbox: url }),
   closeImageLightbox: () => set({ imageLightbox: null }),
+  openLinkFrame: (url) => set({ linkFrame: url }),
+  closeLinkFrame: () => set({ linkFrame: null }),
   generateConti: async (agentId) => {
     set((s) => ({ contiGenerating: { ...s.contiGenerating, [agentId]: true } }));
     try {
@@ -1790,6 +1802,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   applyAgentReports: (reports) => set({ agentReports: reports ?? {} }),
   applyAgentQuestions: (questions) => set({ agentQuestions: questions ?? {} }),
   applyAgentReviews: (reviews) => set({ agentReviews: reviews ?? {} }),
+  applyAgentLists: (lists) => set({ agentLists: lists ?? {} }),
   applyDiagnosticLog: (log) => set({ diagnosticLog: log ?? [] }),
   applyModelRegistry: (reg) => set({ modelRegistry: reg ?? null }),
   applyUserDefaults: (d) => set({ userDefaults: d ?? null }),

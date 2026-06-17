@@ -20,6 +20,28 @@ export function isLongUserPrompt(prompt: string): boolean {
   return prompt.includes('\n') || prompt.length > 160;
 }
 
+/**
+ * AI 발화 표식 — assistant 텍스트를 박스로 감싸지 않고 평범한 본문으로 두되, 왼쪽에 작은 스파클 글리프만
+ * 붙여 "AI 가 말하는 것"임을 한눈에 알리는 수수한 마커. 내 입력(사람 아이콘·sky 말풍선)과 짝을 이루는
+ * 발화 주체 표식이라 이 공용 모듈에 둔다(두 렌더 경로가 동일 모양을 쓰도록).
+ */
+export function AiSpeakerGlyph(): React.JSX.Element {
+  return (
+    <span
+      className="mt-0.5 flex h-5 w-5 flex-shrink-0 select-none items-center justify-center rounded-md bg-gray-700/40 text-gray-300/80"
+      aria-hidden="true"
+    >
+      <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z" />
+        <path d="M5 3v4" />
+        <path d="M19 17v4" />
+        <path d="M3 5h4" />
+        <path d="M17 19h4" />
+      </svg>
+    </span>
+  );
+}
+
 export function CollapsiblePrompt({ prompt }: { prompt: string }): React.JSX.Element {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
