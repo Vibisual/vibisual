@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useDetachedSync } from './hooks/useDetachedSync.js';
 import { useOverlaySync } from './hooks/useOverlaySync.js';
+import { useOverlayReveal } from './hooks/useOverlayReveal.js';
 import { Header } from './components/Layout/Header.js';
 import { BubbleMap } from './components/BubbleMap/BubbleMap.js';
 import { CanvasBreadcrumb } from './components/BubbleMap/CanvasBreadcrumb.js';
@@ -24,6 +25,8 @@ export function App(): React.JSX.Element {
   useDetachedSync();
   // SCENARIO.md §5.5 #17-6 (v2.73) — 오버레이 위젯 창 목록 + 전역 토글 상태를 store 와 sync.
   useOverlaySync();
+  // SCENARIO.md §5.5 #17-6 (G) v2.82 — 오버레이 버블 우클릭 "본체로 점프" 신호 수신(메인 윈도우 한정).
+  useOverlayReveal();
   const selectedNodeId = useGraphStore((s) => s.selectedNodeId);
   const selectedTaskEdgeId = useGraphStore((s) => s.selectedTaskEdgeId);
   const selectedCommentBoxId = useGraphStore((s) => s.selectedCommentBoxId);

@@ -229,6 +229,13 @@ function mergeSnapshots(a: GraphSnapshot, b: GraphSnapshot): GraphSnapshot {
       if (!av && !bv) return undefined;
       return { ...(av ?? {}), ...(bv ?? {}) };
     })(),
+    // §4 v2.84 — 에이전트 번호 목록 정렬 카드 (agentReports 와 동형).
+    agentLists: (() => {
+      const av = a.agentLists;
+      const bv = b.agentLists;
+      if (!av && !bv) return undefined;
+      return { ...(av ?? {}), ...(bv ?? {}) };
+    })(),
   };
 }
 
@@ -1103,6 +1110,14 @@ export class ProjectGraphManager {
     const inst = this.findInstanceByAgentId(review.agentId) ?? this.primaryInstance();
     if (!inst) return false;
     inst.addAgentReview(review);
+    return true;
+  }
+
+  /** §4 v2.84 — 에이전트 번호 목록 정렬 카드 적재. list.agentId 소속 인스턴스로 라우팅(addAgentReport 와 동형). */
+  addAgentList(list: import('@vibisual/shared').AgentList): boolean {
+    const inst = this.findInstanceByAgentId(list.agentId) ?? this.primaryInstance();
+    if (!inst) return false;
+    inst.addAgentList(list);
     return true;
   }
 

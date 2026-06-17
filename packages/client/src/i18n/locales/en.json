@@ -880,7 +880,9 @@
       "collapse": "collapse",
       "copy": "Copy",
       "copied": "Copied",
-      "youTyped": "You"
+      "youTyped": "You",
+      "openInBrowser": "Open in browser",
+      "linkFrameBlockedHint": "Some sites refuse to be embedded. If it stays blank, open it in your browser."
     },
     "report": {
       "title": "Work report",
@@ -900,6 +902,9 @@
       "instructionTitle": "Instruction given",
       "changesTitle": "What was changed",
       "checkpointsTitle": "Please verify"
+    },
+    "list": {
+      "title": "List"
     }
   },
   "bubbleMap": {
@@ -1051,7 +1056,14 @@
     "openIDE": "Click to open IDE",
     "agentGone": "Agent unavailable",
     "toggleShow": "Show desktop overlay bubbles",
-    "toggleHide": "Hide desktop overlay bubbles"
+    "toggleHide": "Hide desktop overlay bubbles",
+    "menu": {
+      "openIde": "Open IDE",
+      "reveal": "Find on canvas",
+      "opacity": "Opacity",
+      "hide": "Hide this bubble",
+      "close": "Remove from overlay"
+    }
   },
   "tabDetach": {
     "detachHint": "Drop outside the tab bar to open in a new window",

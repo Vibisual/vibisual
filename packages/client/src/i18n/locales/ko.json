@@ -785,7 +785,9 @@
       "collapse": "접기",
       "copy": "복사",
       "copied": "복사됨",
-      "youTyped": "나"
+      "youTyped": "나",
+      "openInBrowser": "브라우저로 열기",
+      "linkFrameBlockedHint": "일부 사이트는 임베드를 거부합니다. 화면이 비어 있으면 브라우저로 열어 주세요."
     },
     "report": {
       "title": "작업 신고",
@@ -805,6 +807,9 @@
       "instructionTitle": "받은 지시",
       "changesTitle": "고친 내용",
       "checkpointsTitle": "검수 포인트"
+    },
+    "list": {
+      "title": "목록"
     }
   },
   "bubbleMap": {
@@ -956,7 +961,14 @@
     "openIDE": "클릭하면 IDE 열림",
     "agentGone": "에이전트 없음",
     "toggleShow": "데스크톱 오버레이 버블 표시",
-    "toggleHide": "데스크톱 오버레이 버블 숨김"
+    "toggleHide": "데스크톱 오버레이 버블 숨김",
+    "menu": {
+      "openIde": "IDE 열기",
+      "reveal": "본체에서 이 버블로 점프",
+      "opacity": "불투명도",
+      "hide": "숨기기 (이 버블만)",
+      "close": "오버레이에서 제거"
+    }
   },
   "tabDetach": {
     "detachHint": "탭바 밖에 놓으면 별도 창으로 분리됩니다",

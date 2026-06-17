@@ -27,6 +27,7 @@ export type {
   AgentQuestionItem,
   AgentQuestions,
   AgentReview,
+  AgentList,
   GraphSnapshot,
   Result,
   CommandPayload,
@@ -293,6 +294,8 @@ export {
   buildAgentQuestionRules,
   AGENT_REVIEWS_MAX_PER_AGENT,
   buildAgentReviewRules,
+  AGENT_LISTS_MAX_PER_AGENT,
+  buildAgentListRules,
   VIBISUAL_CARD_SENTINEL,
   buildCmdCardProtocolRules,
 } from './constants.js';

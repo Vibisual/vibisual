@@ -7,15 +7,17 @@
 import { memo, useState, useMemo, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import Markdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import type { Components } from 'react-markdown';
-import type { SubAgentStreamEvent, QueuedCommand, AgentReport, AgentQuestions, AgentReview } from '@vibisual/shared';
+import type { SubAgentStreamEvent, QueuedCommand, AgentReport, AgentQuestions, AgentReview, AgentList } from '@vibisual/shared';
 import { SystemNode, parseSystemSubtype } from './SystemNode.js';
 import { ThinkingDots, ThinkingLiveLine } from './ThinkingIndicator.js';
 import { AgentReportCard } from './AgentReportCard.js';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { AgentQuestionCard } from './AgentQuestionCard.js';
 import { AgentReviewCard } from './AgentReviewCard.js';
-import { CollapsiblePrompt } from './CollapsiblePrompt.js';
+import { AgentListCard } from './AgentListCard.js';
+import { CollapsiblePrompt, AiSpeakerGlyph } from './CollapsiblePrompt.js';
 
 /** SDK 가 생각 중 반복 송출하는 system 펄스 subtype — 본문에 쌓이지 않게 라이브 1줄로 대체. */
 const THINKING_PULSE_SUBTYPE = 'thinking_tokens';
@@ -35,6 +37,8 @@ interface StreamRendererProps {
   questions?: AgentQuestions[];
   /** §4 v2.70 — 이 세션의 검수 요청 카드. reports/questions 와 동일하게 턴 끝에 합류. */
   reviews?: AgentReview[];
+  /** §4 v2.84 — 이 세션의 번호 목록 정렬 카드. reports/questions/reviews 와 동일하게 턴 끝에 합류. */
+  lists?: AgentList[];
 }
 
 interface StreamGroup {
@@ -108,7 +112,15 @@ interface StreamReview {
   timestamp: number;
 }
 
-type StreamItem = StreamText | StreamThinking | StreamGroup | StreamSystem | StreamResult | StreamThinkingLive | StreamReport | StreamQuestion | StreamReview;
+/** §4 v2.84 — 번호 목록 정렬 카드 (createdAt 을 timestamp 로 삼아 스트림에 시간순 합류) */
+interface StreamList {
+  kind: 'list';
+  id: string;
+  list: AgentList;
+  timestamp: number;
+}
+
+type StreamItem = StreamText | StreamThinking | StreamGroup | StreamSystem | StreamResult | StreamThinkingLive | StreamReport | StreamQuestion | StreamReview | StreamList;
 
 // ─── 이벤트 → 아이템 변환 ───
 
@@ -126,7 +138,7 @@ interface StreamCommand {
 
 type StreamItemFull = StreamItem | StreamCommand;
 
-function buildStreamItems(events: SubAgentStreamEvent[], commands?: QueuedCommand[], reports?: AgentReport[], questions?: AgentQuestions[], reviews?: AgentReview[]): StreamItemFull[] {
+function buildStreamItems(events: SubAgentStreamEvent[], commands?: QueuedCommand[], reports?: AgentReport[], questions?: AgentQuestions[], reviews?: AgentReview[], lists?: AgentList[]): StreamItemFull[] {
   const items: StreamItemFull[] = [];
 
   // 사용자 프롬프트(완료/진행/큐 전부) → 각 명령마다 프롬프트 블록으로 앞부분에 삽입.
@@ -325,6 +337,10 @@ function buildStreamItems(events: SubAgentStreamEvent[], commands?: QueuedComman
   for (const rv of reviews ?? []) {
     items.push({ kind: 'review', id: `review-${rv.id}`, review: rv, timestamp: turnEndSortTs(rv.createdAt) });
   }
+  // §4 v2.84 — 번호 목록 정렬 카드도 동일하게 턴 끝 배치.
+  for (const ls of lists ?? []) {
+    items.push({ kind: 'list', id: `list-${ls.id}`, list: ls, timestamp: turnEndSortTs(ls.createdAt) });
+  }
 
   // 타임스탬프 기준 안정 정렬 — 프롬프트(command)가 항상 최상단에 오도록 유지하되,
   // 스트림 이벤트들끼리는 발생 순서 유지.
@@ -400,16 +416,41 @@ function CodeBlock({ children, ...rest }: React.HTMLAttributes<HTMLPreElement>):
   );
 }
 
-const mdComponents: Components = { pre: CodeBlock };
+/** 본문 링크 — 밑줄 + sky 색으로 "클릭 가능한 주소"임을 표식. 클릭 시 외부 브라우저로 새지 않고
+ *  전역 iframe 오버레이(linkFrame)로 띄운다. 드래그 선택은 그대로 가능(텍스트 선택을 막지 않음). */
+const MarkdownLink = memo(function MarkdownLink({ href, children }: React.AnchorHTMLAttributes<HTMLAnchorElement>): React.JSX.Element {
+  const openLinkFrame = useGraphStore((s) => s.openLinkFrame);
+  if (!href) return <span>{children}</span>;
+  return (
+    <a
+      href={href}
+      onClick={(e) => { e.preventDefault(); openLinkFrame(href); }}
+      className="cursor-pointer break-all text-sky-400 underline decoration-sky-400/40 underline-offset-2 transition-colors hover:text-sky-300 hover:decoration-sky-300"
+    >
+      {children}
+    </a>
+  );
+});
+
+const mdComponents: Components = { pre: CodeBlock, a: MarkdownLink };
+
+/** remark-gfm — `[text](url)` 마크다운 링크뿐 아니라 본문에 그대로 박힌 `http(s)://…` bare URL 도
+ *  자동으로 링크(autolink literal)로 만들어 MarkdownLink 가 받아 처리하게 한다. */
+const remarkPlugins = [remarkGfm];
 
 // ─── 개별 렌더러 ───
 
-/** assistant 텍스트 → 마크다운 */
+/** assistant 텍스트 → 마크다운. "AI 와 나눈 일상 대화"임을 한눈에 — 박스로 감싸면 도구/생각/결과 박스와
+ *  뒤섞여 오히려 지저분해 보이므로, **박스를 걷어내고 평범한 본문 텍스트**로 둔다. 다만 "AI 가 말하는 것"임은
+ *  왼쪽의 작은 스파클 글리프로만 표식(도구/생각=좌측 세로바 박스, 내 입력=우측 sky 말풍선과 자연히 구분). */
 const TextBlock = memo(function TextBlock({ item }: { item: StreamText }): React.JSX.Element {
   return (
-    <div className="px-4 py-2">
-      <div className="ide-md prose prose-invert prose-sm max-w-none leading-relaxed prose-p:my-1.5 prose-p:leading-relaxed prose-pre:my-2 prose-headings:text-gray-100 prose-headings:text-[15px] prose-li:my-1 prose-strong:text-gray-100">
-        <Markdown components={mdComponents}>{item.content}</Markdown>
+    <div className="px-4 py-1">
+      <div className="flex gap-2">
+        <AiSpeakerGlyph />
+        <div className="ide-md prose prose-invert prose-sm min-w-0 max-w-none flex-1 leading-relaxed prose-p:my-1.5 prose-p:leading-relaxed prose-pre:my-2 prose-headings:text-gray-100 prose-headings:text-[15px] prose-li:my-1 prose-strong:text-gray-100">
+          <Markdown remarkPlugins={remarkPlugins} components={mdComponents}>{item.content}</Markdown>
+        </div>
       </div>
     </div>
   );
@@ -565,7 +606,7 @@ function ResultBlock({ item }: { item: StreamResult }): React.JSX.Element {
   return (
     <div className="mx-2 my-1 rounded-md border border-emerald-500/20 bg-emerald-500/5 px-4 py-2.5">
       <div className="ide-md prose prose-invert prose-sm max-w-none leading-relaxed prose-p:my-1.5 prose-p:leading-relaxed prose-strong:text-gray-100">
-        <Markdown components={mdComponents}>{item.content}</Markdown>
+        <Markdown remarkPlugins={remarkPlugins} components={mdComponents}>{item.content}</Markdown>
       </div>
     </div>
   );
@@ -610,7 +651,7 @@ function CommandBlock({ item }: { item: StreamCommand }): React.JSX.Element {
           isError ? 'border-red-500/20 bg-red-500/5' : 'border-emerald-500/20 bg-emerald-500/5'
         }`}>
           <div className="ide-md prose prose-invert prose-sm max-w-none leading-relaxed prose-p:my-1.5 prose-p:leading-relaxed">
-            <Markdown components={mdComponents}>{item.result}</Markdown>
+            <Markdown remarkPlugins={remarkPlugins} components={mdComponents}>{item.result}</Markdown>
           </div>
         </div>
       )}
@@ -620,9 +661,9 @@ function CommandBlock({ item }: { item: StreamCommand }): React.JSX.Element {
 
 // ─── 메인 렌더러 ───
 
-export const StreamRenderer = memo(function StreamRenderer({ events, commands, reports, questions, reviews }: StreamRendererProps): React.JSX.Element {
+export const StreamRenderer = memo(function StreamRenderer({ events, commands, reports, questions, reviews, lists }: StreamRendererProps): React.JSX.Element {
   const { t } = useTranslation();
-  const items = useMemo(() => buildStreamItems(events, commands, reports, questions, reviews), [events, commands, reports, questions, reviews]);
+  const items = useMemo(() => buildStreamItems(events, commands, reports, questions, reviews, lists), [events, commands, reports, questions, reviews, lists]);
 
   if (items.length === 0) {
     return (
@@ -646,6 +687,7 @@ export const StreamRenderer = memo(function StreamRenderer({ events, commands, r
           case 'report':   return <AgentReportCard key={item.id} report={item.report} />;
           case 'question': return <AgentQuestionCard key={item.id} questions={item.questions} />;
           case 'review':   return <AgentReviewCard key={item.id} review={item.review} />;
+          case 'list':     return <AgentListCard key={item.id} list={item.list} />;
         }
       })}
     </div>

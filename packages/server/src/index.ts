@@ -6,8 +6,8 @@ import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { exec, execFile } from 'node:child_process';
 import multer from 'multer';
-import { DEFAULT_PORT, SESSION_SCAN_INTERVAL, FILE_EXISTENCE_CHECK_INTERVAL, SATELLITE_TYPES, IFRAME_PROXY_PATH, AGENT_IDLE_THRESHOLD_MS, AGENT_IDLE_SWEEP_INTERVAL_MS, TASK_EDGE_DISPATCH_DEFAULT_TIMEOUT_MS, TASK_EDGE_CRITIQUE_MAX_REWORK_LIMIT, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, SUPPORTED_UI_LOCALES, CONTI_AGENT_RULES, RULES_HISTORY_MAX, CANVAS_CLIPBOARD_SCHEMA_VERSION, buildAgentReportRules, buildAgentQuestionRules, buildAgentReviewRules } from '@vibisual/shared';
-import type { HookEventPayload, WSMessage, QueuedCommand, SessionTokenData, PipelineType, AgentConfig, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, SubAgentHistoryItem, UiLocale, PermissionDecision, RulesHistoryEntry, Conti, CanvasClipboardPayload, CanvasPasteResponse, AskUserQuestionDecision, AskUserQuestionAnswer, AskUserQuestionOption, AskUserQuestionItem, AskUserQuestionToolInput, AgentReport, AgentQuestions, AgentQuestionItem, AgentReview } from '@vibisual/shared';
+import { DEFAULT_PORT, SESSION_SCAN_INTERVAL, FILE_EXISTENCE_CHECK_INTERVAL, SATELLITE_TYPES, IFRAME_PROXY_PATH, AGENT_IDLE_THRESHOLD_MS, AGENT_IDLE_SWEEP_INTERVAL_MS, TASK_EDGE_DISPATCH_DEFAULT_TIMEOUT_MS, TASK_EDGE_CRITIQUE_MAX_REWORK_LIMIT, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, SUPPORTED_UI_LOCALES, CONTI_AGENT_RULES, RULES_HISTORY_MAX, CANVAS_CLIPBOARD_SCHEMA_VERSION, buildAgentReportRules, buildAgentQuestionRules, buildAgentReviewRules, buildAgentListRules } from '@vibisual/shared';
+import type { HookEventPayload, WSMessage, QueuedCommand, SessionTokenData, PipelineType, AgentConfig, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, SubAgentHistoryItem, UiLocale, PermissionDecision, RulesHistoryEntry, Conti, CanvasClipboardPayload, CanvasPasteResponse, AskUserQuestionDecision, AskUserQuestionAnswer, AskUserQuestionOption, AskUserQuestionItem, AskUserQuestionToolInput, AgentReport, AgentQuestions, AgentQuestionItem, AgentReview, AgentList } from '@vibisual/shared';
 import { permissionBroker } from './services/permissionBroker.js';
 import { askUserQuestionBroker } from './services/askUserQuestionBroker.js';
 import { AutoAgentRuntime } from './services/autoAgentRuntime.js';
@@ -899,8 +899,8 @@ export async function runServer(): Promise<RunServerHandle> {
           ...(hookListenerIdentityFile ? { identityFile: hookListenerIdentityFile } : {}),
           ...(next.subAgentId ? { subAgentId: next.subAgentId } : {}),
         };
-        // §4 v2.52 작업 신고 + v2.60 질문 카드 + v2.70 검수 요청 지시문을 함께 주입(동일 loopback 인프라).
-        dispatchContext = contextSummary + buildAgentReportRules(ruleArgs) + buildAgentQuestionRules(ruleArgs) + buildAgentReviewRules(ruleArgs);
+        // §4 v2.52 작업 신고 + v2.60 질문 카드 + v2.70 검수 요청 + v2.84 번호 목록 정렬 카드 지시문을 함께 주입(동일 loopback 인프라).
+        dispatchContext = contextSummary + buildAgentReportRules(ruleArgs) + buildAgentQuestionRules(ruleArgs) + buildAgentReviewRules(ruleArgs) + buildAgentListRules(ruleArgs);
       }
       // v1.33 — edgesBlock 을 separately 전달해 resume(--resume) 경로에서도 매 턴 prepend.
       //         엣지가 생기거나 바뀌었을 때 세션 재시작 없이도 즉시 인지하도록.
@@ -2853,6 +2853,51 @@ export async function runServer(): Promise<RunServerHandle> {
       res.json({ ok: true, id: review.id });
     } catch (err) {
       logger.error('POST /api/agent-review failed', err);
+      res.status(500).json({ ok: false, error: 'internal error' });
+    }
+  });
+
+  /**
+   * §4 v2.84 — POST /api/agent-list
+   * 커스텀/스폰 에이전트가 답변의 번호/순서 목록을 items 배열로 구조화 신고(loopback curl, 토큰 인증).
+   * 서버가 id/createdAt 을 stamp 해 ProjectGraph 에 적재하고 broadcast → IDE 가 번호를 자동으로 매겨 정렬 카드 렌더.
+   * 번호 매김은 IDE 가 하므로 항목 텍스트만 받는다. agent-report/agent-questions/agent-review 와 동형 골격.
+   */
+  app.post('/api/agent-list', (req, res) => {
+    try {
+      const body = (req.body ?? {}) as Partial<AgentList>;
+      if (typeof body.agentId !== 'string' || !body.agentId) {
+        res.status(400).json({ ok: false, error: 'agentId required' });
+        return;
+      }
+      const items = Array.isArray(body.items)
+        ? body.items.filter((s): s is string => typeof s === 'string' && s.trim().length > 0).map((s) => s.trim())
+        : [];
+      // items 가 비면 목록 카드로서 의미가 없으므로 무시 (빈 카드만 늘리지 않음).
+      if (items.length === 0) {
+        res.status(400).json({ ok: false, error: 'empty list (items required)' });
+        return;
+      }
+      const list: AgentList = {
+        id: randomUUID(),
+        agentId: body.agentId,
+        ...(typeof body.subAgentId === 'string' && body.subAgentId ? { subAgentId: body.subAgentId } : {}),
+        ...(typeof body.title === 'string' && body.title.trim() ? { title: body.title.trim() } : {}),
+        items,
+        ...(typeof body.note === 'string' && body.note.trim() ? { note: body.note.trim() } : {}),
+        createdAt: Date.now(),
+      };
+      const ok = graphManager.addAgentList(list);
+      if (!ok) {
+        res.status(404).json({ ok: false, error: 'agent not found' });
+        return;
+      }
+      broadcast({ type: 'agent_list', payload: { agentId: list.agentId, subAgentId: list.subAgentId } } as WSMessage);
+      broadcastSnapshot();
+      saveCheckpoint();
+      res.json({ ok: true, id: list.id });
+    } catch (err) {
+      logger.error('POST /api/agent-list failed', err);
       res.status(500).json({ ok: false, error: 'internal error' });
     }
   });

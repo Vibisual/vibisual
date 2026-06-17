@@ -149,7 +149,7 @@ function parseTermId(termId: string): { agentId: string; sessionToken: string } 
  *   - 에이전트 단위 폴더라 그 에이전트의 모든 CMD 세션이 같은 rules 공유. 새 세션 스폰 때마다 최신 rules 로 재기록
  *     → AgentSettings 에서 rules 수정 후 "+" 새 세션을 열면 반영(이미 떠 있는 세션엔 소급 X).
  *
- * §4 v2.76 — 사용자 rules 유무와 무관하게 **카드 신고 프로토콜**(`buildCmdCardProtocolRules`)을 항상 덧붙인다.
+ * §4 v2.83 — 사용자 rules 유무와 무관하게 **카드 신고 프로토콜**(`buildCmdCardProtocolRules`)을 항상 덧붙인다.
  * 그래야 인터랙티브 claude 가 작업 신고/질문/검수 카드를 터미널 한 줄 인쇄로 띄울 수 있다(IDE 가 캡처해 카드화).
  * 따라서 이제 rules 가 비어도 폴더 경로를 반환한다(=`--add-dir` 항상 켜짐).
  *

@@ -1,7 +1,7 @@
 import { memo, useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import type { QueuedCommand, SubAgent, SubAgentStreamEvent, AgentEvent, AgentReport, AgentQuestions, AgentReview } from '@vibisual/shared';
+import type { QueuedCommand, SubAgent, SubAgentStreamEvent, AgentEvent, AgentReport, AgentQuestions, AgentReview, AgentList } from '@vibisual/shared';
 import { useGraphStore, agentSessionInputKey, selectIDEOverlay } from '../../stores/graphStore.js';
 import type { AgentSessionInputAttachment } from '../../stores/graphStore.js';
 import { useAvailableSkills, type SkillInfo } from '../../hooks/useAvailableSkills.js';
@@ -10,10 +10,11 @@ import { AskQuestionCard } from './AskQuestionCard.js';
 import { AgentReportCard } from './AgentReportCard.js';
 import { AgentQuestionCard } from './AgentQuestionCard.js';
 import { AgentReviewCard } from './AgentReviewCard.js';
+import { AgentListCard } from './AgentListCard.js';
 import { IDETerminalView } from './IDETerminalView.js';
 import { SystemNode, parseSystemSubtype } from './SystemNode.js';
 import { ThinkingDots, ThinkingLiveLine } from './ThinkingIndicator.js';
-import { CollapsiblePrompt } from './CollapsiblePrompt.js';
+import { CollapsiblePrompt, AiSpeakerGlyph } from './CollapsiblePrompt.js';
 
 /** SDK 가 생각 중 반복 송출하는 system 펄스 subtype — 본문에 쌓이지 않게 라이브 1줄로 대체. */
 const THINKING_PULSE_SUBTYPE = 'thinking_tokens';
@@ -28,6 +29,7 @@ const EMPTY_STREAM_EVENTS: SubAgentStreamEvent[] = [];
 const EMPTY_REPORTS: import('@vibisual/shared').AgentReport[] = [];
 const EMPTY_QUESTIONS: import('@vibisual/shared').AgentQuestions[] = [];
 const EMPTY_REVIEWS: import('@vibisual/shared').AgentReview[] = [];
+const EMPTY_LISTS: import('@vibisual/shared').AgentList[] = [];
 
 interface IDEMainAreaProps {
   agentId: string;
@@ -185,7 +187,21 @@ function buildEntries(
   }
 
   entries.sort((a, b) => a.timestamp - b.timestamp);
-  return entries;
+
+  // AI 설명(text)은 같은 세션에서 연달아 오면 **한 말풍선으로 합친다**. 스트림이 한 응답을 여러 text
+  // 이벤트(델타)로 쪼개 보내도 박스 말풍선이 조각조각 나뉘지 않게 한다(StreamRenderer 의 textBuf 합치기와
+  // 동일 동작). 세션(sessionLabel)이 다르거나 사이에 비-text 항목(도구·프롬프트 등)이 끼면 거기서 끊긴다
+  // → 도구가 설명 사이에 있으면 의미상 별개 말풍선으로 자연스럽게 분리.
+  const coalesced: TerminalEntry[] = [];
+  for (const e of entries) {
+    const prev = coalesced[coalesced.length - 1];
+    if (e.type === 'text' && prev && prev.type === 'text' && prev.sessionLabel === e.sessionLabel) {
+      prev.text += e.text;
+    } else {
+      coalesced.push(e.type === 'text' ? { ...e } : e); // text 는 합치기 대상이라 사본(원본 불변)
+    }
+  }
+  return coalesced;
 }
 
 // ─── flat 항목 → 그룹화 ───
@@ -246,30 +262,9 @@ function groupEntries(flat: TerminalEntry[], agentBusy: boolean): TerminalItem[]
       continue;
     }
 
-    // 연속 text 블록 3개 이상 → 하나로 묶기
-    if (cur.type === 'text') {
-      const children: TerminalEntry[] = [cur];
-      let j = i + 1;
-      while (j < flat.length && flat[j]!.type === 'text') {
-        children.push(flat[j]!);
-        j++;
-      }
-      if (children.length >= 3) {
-        const preview = children[0]!.text.slice(0, 80);
-        items.push({
-          kind: 'group',
-          id: `grp-${cur.id}`,
-          groupType: 'text',
-          header: `${preview}${children[0]!.text.length > 80 ? '...' : ''} (+${children.length - 1} lines)`,
-          timestamp: cur.timestamp,
-          sessionLabel: cur.sessionLabel,
-          entries: children,
-          isActive: false,
-        });
-        i = j;
-        continue;
-      }
-    }
+    // AI 설명(text)은 접어서 숨기지 않는다 — buildEntries 에서 같은 세션 연속 text 는 이미 한 말풍선으로
+    // 합쳐졌으므로, 여기선 그대로 인라인 말풍선으로 펼쳐 보인다(전체 탭에서 설명이 "…(+N lines)" 뒤로
+    // 숨던 문제 제거). 도구/생각 묶음만 접을 수 있는 그룹으로 유지.
 
     items.push(cur);
     i++;
@@ -312,6 +307,25 @@ function TerminalLine({ entry }: { entry: TerminalEntry }): React.JSX.Element {
     return (
       <div className="px-3 py-1">
         <CollapsiblePrompt prompt={entry.text} />
+      </div>
+    );
+  }
+  // AI 일상 대화(assistant text)는 Sub 탭 TextBlock 과 동일하게 박스 없이 평범한 본문 + 왼쪽 스파클
+  // 글리프로만 표식한다(도구/생각=좌측 세로바 박스, 내 입력=우측 sky 말풍선과 자연히 구분).
+  if (entry.type === 'text') {
+    return (
+      <div className="px-3 py-1">
+        <div className="flex gap-2">
+          <AiSpeakerGlyph />
+          <span className="min-w-0 flex-1 whitespace-pre-wrap break-words text-[13px] leading-relaxed text-gray-200">
+            {entry.sessionLabel && (
+              <span className="mr-1.5 rounded bg-cyan-500/15 px-1 py-0.5 text-[10px] font-semibold text-cyan-400/80">
+                {entry.sessionLabel}
+              </span>
+            )}
+            {entry.text}
+          </span>
+        </div>
       </div>
     );
   }
@@ -1085,8 +1099,8 @@ function StreamStatusBar({ commands, scrollRef }: StreamStatusBarProps): React.J
   const { t } = useTranslation();
   const attachmentPreviews = useGraphStore((s) => s.attachmentPreviews);
   const openImageLightbox = useGraphStore((s) => s.openImageLightbox);
-  // 우선순위: 실행 중 > 최신 완료/에러. queued 단독은 하단 표시 대상 아님.
-  const target = useMemo(() => {
+  // 우선순위(기본): 실행 중 > 최신 완료/에러. queued 단독은 하단 표시 대상 아님.
+  const defaultTarget = useMemo(() => {
     const executing = commands.find((c) => c.status === 'executing');
     if (executing) return executing;
     let latest: QueuedCommand | null = null;
@@ -1097,6 +1111,42 @@ function StreamStatusBar({ commands, scrollRef }: StreamStatusBarProps): React.J
     }
     return latest;
   }, [commands]);
+
+  // 스크롤 추종 — 사용자가 위로 스크롤해 과거 대화를 보면, 상태바가 "지금 뷰포트 상단에 걸친
+  //   커맨드 블록"을 가리키게 한다. 그래서 버튼을 누르면 그때그때 보고 있는 프롬프트로 이동.
+  //   바닥 근처(=마지막 대화 추적)면 viewedId=null → 위 defaultTarget(실행중 스피너/최신) 유지.
+  const [viewedId, setViewedId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container) return;
+    const recompute = (): void => {
+      const atBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 40;
+      if (atBottom) { setViewedId((p) => (p === null ? p : null)); return; }
+      const containerTop = container.getBoundingClientRect().top;
+      const blocks = Array.from(container.querySelectorAll<HTMLElement>('[data-cmd-id]'));
+      let current: string | null = null;
+      for (const el of blocks) {
+        // 뷰포트 상단(여백 24px 보정)을 지난 마지막 블록 = 사용자가 보고 있는 커맨드.
+        if (el.getBoundingClientRect().top - containerTop <= 24) current = el.dataset.cmdId ?? null;
+      }
+      // 맨 위로 스크롤해 어떤 블록도 상단을 지나지 못했으면 첫 블록을 대상으로.
+      if (current === null && blocks[0]) current = blocks[0].dataset.cmdId ?? null;
+      setViewedId((p) => (p === current ? p : current));
+    };
+    recompute();
+    container.addEventListener('scroll', recompute, { passive: true });
+    return () => container.removeEventListener('scroll', recompute);
+  }, [scrollRef, commands]);
+
+  // viewedId(=data-cmd-id, `cmd-${id}`)가 가리키는 커맨드를 우선, 없으면 기본 대상.
+  const target = useMemo(() => {
+    if (viewedId !== null) {
+      const found = commands.find((c) => `cmd-${c.id}` === viewedId);
+      if (found) return found;
+    }
+    return defaultTarget;
+  }, [viewedId, commands, defaultTarget]);
 
   const handleJump = useCallback(() => {
     if (!target || !scrollRef.current) return;
@@ -1305,6 +1355,77 @@ function ImageLightboxHost(): React.JSX.Element | null {
   );
 }
 
+// ─── 스트림 본문 링크 iframe 오버레이 — 전역 transient state(linkFrame)를 body 로 portal. ───
+//      대화 스트림 안의 링크(마크다운 링크 + bare URL)를 클릭하면 외부 브라우저로 새지 않고
+//      앱 안에서 iframe 으로 띄운다. 임베드를 거부하는 사이트(X-Frame-Options 등)를 위해
+//      "브라우저로 열기" 폴백 버튼을 함께 둔다.
+function LinkFrameHost(): React.JSX.Element | null {
+  const { t } = useTranslation();
+  const url = useGraphStore((s) => s.linkFrame);
+  const close = useGraphStore((s) => s.closeLinkFrame);
+  useEffect(() => {
+    if (!url) return;
+    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') close(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [url, close]);
+  if (!url) return null;
+  return createPortal(
+    <div
+      onClick={close}
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 p-6"
+      role="dialog"
+      aria-modal="true"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="flex h-[88vh] w-[92vw] max-w-6xl flex-col overflow-hidden rounded-lg border border-gray-700 bg-gray-900 shadow-2xl"
+      >
+        {/* 헤더 — URL + 외부 열기 + 닫기 */}
+        <div className="flex flex-shrink-0 items-center gap-2 border-b border-gray-700 bg-gray-800/60 px-3 py-2">
+          <svg className="h-4 w-4 flex-shrink-0 text-sky-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+          </svg>
+          <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-gray-300" title={url}>{url}</span>
+          <button
+            type="button"
+            onClick={() => { try { window.open(url, '_blank', 'noopener,noreferrer'); } catch { /* blocked */ } }}
+            className="inline-flex flex-shrink-0 items-center gap-1 rounded border border-white/10 bg-gray-900/70 px-2 py-1 text-[11px] font-medium text-gray-300 transition-colors hover:border-white/20 hover:bg-gray-800/80 hover:text-gray-100"
+          >
+            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+              <polyline points="15 3 21 3 21 9" />
+              <line x1="10" y1="14" x2="21" y2="3" />
+            </svg>
+            {t('ide.streamRenderer.openInBrowser')}
+          </button>
+          <button
+            type="button"
+            onClick={close}
+            aria-label={t('panel.detailPanel.close')}
+            className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-gray-300 transition-colors hover:bg-black/40 hover:text-gray-100"
+          >
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+          </button>
+        </div>
+        {/* iframe 본문 */}
+        <iframe
+          src={url}
+          title={url}
+          className="min-h-0 flex-1 bg-white"
+          sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+        />
+        {/* 임베드 거부 사이트 힌트 */}
+        <div className="flex-shrink-0 border-t border-gray-700 bg-gray-800/40 px-3 py-1.5 text-[10px] text-gray-500">
+          {t('ide.streamRenderer.linkFrameBlockedHint')}
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 export const IDEMainArea = memo(function IDEMainArea({
   agentId,
   isCustom,
@@ -1504,22 +1625,14 @@ export const IDEMainArea = memo(function IDEMainArea({
     return [...matches].sort((a, b) => a.createdAt - b.createdAt);
   }, [agentReviewsForAgent, activeSessionId]);
 
-  // §4 v2.76 — CMD(인터랙티브 터미널) 카드 레일용 병합 타임라인. 터미널 분기는 본문(StreamRenderer/mainTimeline)을
-  //   안 거치므로 그쪽 카드 렌더가 닿지 않는다 → 터미널 위에 띄울 카드 목록을 따로 만든다. **최신이 위로**(descending)
-  //   오게 정렬해 레일이 짧아도 방금 뜬 카드가 항상 보이게 한다(터미널이 주, 카드는 알림 성격).
-  const cmdCardTimeline = useMemo(() => {
-    const merged: Array<
-      | { ts: number; t: 'report'; report: AgentReport }
-      | { ts: number; t: 'question'; questions: AgentQuestions }
-      | { ts: number; t: 'review'; review: AgentReview }
-    > = [
-      ...reportCards.map((r) => ({ ts: r.createdAt, t: 'report' as const, report: r })),
-      ...questionCards.map((q) => ({ ts: q.createdAt, t: 'question' as const, questions: q })),
-      ...reviewCards.map((r) => ({ ts: r.createdAt, t: 'review' as const, review: r })),
-    ];
-    merged.sort((a, b) => b.ts - a.ts);
-    return merged;
-  }, [reportCards, questionCards, reviewCards]);
+  // §4 v2.84 — 이 에이전트의 번호 목록 정렬 카드. reviewCards 와 동일 필터/정렬.
+  const agentListsForAgent = useGraphStore((s) => s.agentLists[agentId] ?? EMPTY_LISTS);
+  const listCards = useMemo(() => {
+    const matches = agentListsForAgent.filter((l) =>
+      activeSessionId !== null ? l.subAgentId === activeSessionId : true,
+    );
+    return [...matches].sort((a, b) => a.createdAt - b.createdAt);
+  }, [agentListsForAgent, activeSessionId]);
 
   // §4 v2.53/v2.57 — 메인 탭: 터미널 항목 + 작업 신고 카드를 합쳐 정렬. 신고는 createdAt 그대로가 아니라
   //   **그 신고가 속한 턴의 끝**(createdAt 이후 첫 프롬프트 직전, 없으면 맨 끝)에 배치 — StreamRenderer 와 동일.
@@ -1530,15 +1643,16 @@ export const IDEMainArea = memo(function IDEMainArea({
       for (const ts of cmdTsAsc) { if (ts > createdAt) return ts - 0.5; }
       return Number.MAX_SAFE_INTEGER;
     };
-    const merged: Array<{ ts: number; node: { t: 'item'; item: TerminalItem } | { t: 'report'; report: AgentReport } | { t: 'question'; questions: AgentQuestions } | { t: 'review'; review: AgentReview } }> = [
+    const merged: Array<{ ts: number; node: { t: 'item'; item: TerminalItem } | { t: 'report'; report: AgentReport } | { t: 'question'; questions: AgentQuestions } | { t: 'review'; review: AgentReview } | { t: 'list'; list: AgentList } }> = [
       ...items.map((item) => ({ ts: item.timestamp, node: { t: 'item' as const, item } })),
       ...reportCards.map((r) => ({ ts: turnEndSortTs(r.createdAt), node: { t: 'report' as const, report: r } })),
       ...questionCards.map((q) => ({ ts: turnEndSortTs(q.createdAt), node: { t: 'question' as const, questions: q } })),
       ...reviewCards.map((r) => ({ ts: turnEndSortTs(r.createdAt), node: { t: 'review' as const, review: r } })),
+      ...listCards.map((l) => ({ ts: turnEndSortTs(l.createdAt), node: { t: 'list' as const, list: l } })),
     ];
     merged.sort((a, b) => a.ts - b.ts);
     return merged.map((m) => m.node);
-  }, [items, reportCards, questionCards, reviewCards, commands]);
+  }, [items, reportCards, questionCards, reviewCards, listCards, commands]);
 
   // Auto-scroll — 유저가 위로 스크롤하면 비활성화, 바닥 근처면 활성화
   const handleScroll = useCallback(() => {
@@ -1558,28 +1672,16 @@ export const IDEMainArea = memo(function IDEMainArea({
     if (autoScrollRef.current && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [items.length, askCards.length, reportCards.length, questionCards.length, reviewCards.length]);
+  }, [items.length, askCards.length, reportCards.length, questionCards.length, reviewCards.length, listCards.length]);
 
   // §4 v2.63 — 인터랙티브 터미널 모드: 활성 탭(세션)을 임베디드 PTY 로 렌더.
   //   key=termId 라 탭 전환 시 그 세션 터미널로 교체(PTY 는 main 에서 보존 → reattach).
   //   모든 hook 은 위에서 이미 호출됐으므로 여기서 조기 return 해도 Rules of Hooks 안전.
   if (showInteractiveTerminal) {
+    // §4 v2.83 — CMD 카드는 외부 레일이 아니라 **터미널 안 ANSI 색 박스**로 인라인 렌더된다
+    //   (IDETerminalView 의 TerminalCardSniffer 가 마커 줄을 박스로 대체). 여기선 터미널만 렌더.
     return (
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        {/* §4 v2.76 — CMD 카드 레일: 터미널이 stdout 으로 인쇄한 `::VIBISUAL-CARD::` 마커 줄을 IDE 가 캡처해
-            만든 작업 신고/질문/검수 카드를 **터미널 위**에 색 카드로 띄운다(터미널 분기는 본문 타임라인을 안
-            거치므로 여기 없으면 카드가 보일 자리가 없다). 비어 있으면 렌더 안 함 → 터미널이 전체 높이. */}
-        {cmdCardTimeline.length > 0 && (
-          <div className="scrollbar-thin max-h-[40%] shrink-0 overflow-y-auto border-b border-gray-800 bg-gray-950 px-1 py-1">
-            {cmdCardTimeline.map((n) =>
-              n.t === 'report'
-                ? <AgentReportCard key={n.report.id} report={n.report} />
-                : n.t === 'review'
-                  ? <AgentReviewCard key={n.review.id} review={n.review} />
-                  : <AgentQuestionCard key={n.questions.id} questions={n.questions} />,
-            )}
-          </div>
-        )}
         <IDETerminalView key={activeSessionId ?? 'main'} agentId={agentId} sessionId={activeSessionId} />
       </div>
     );
@@ -1605,6 +1707,7 @@ export const IDEMainArea = memo(function IDEMainArea({
               reports={reportCards}
               questions={questionCards}
               reviews={reviewCards}
+              lists={listCards}
             />
             {askCards.length > 0 && (
               <div className="py-1">
@@ -1623,6 +1726,8 @@ export const IDEMainArea = memo(function IDEMainArea({
                 ? <AgentReportCard key={n.report.id} report={n.report} />
                 : n.t === 'review'
                   ? <AgentReviewCard key={n.review.id} review={n.review} />
+                : n.t === 'list'
+                  ? <AgentListCard key={n.list.id} list={n.list} />
                 : n.t === 'question'
                   ? <AgentQuestionCard key={n.questions.id} questions={n.questions} />
                   : n.item.kind === 'group'
@@ -1662,6 +1767,9 @@ export const IDEMainArea = memo(function IDEMainArea({
 
       {/* v2.61 — 첨부 이미지 라이트박스 (입력칩·상태바·대화 썸네일 클릭 시 전체화면 확대) */}
       <ImageLightboxHost />
+
+      {/* 스트림 본문 링크 클릭 시 iframe 오버레이로 열기 */}
+      <LinkFrameHost />
 
       {/* §5.5 #17-3 v2.31 — 우클릭 컨텍스트 메뉴 */}
       {ctxMenu && (

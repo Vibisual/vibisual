@@ -480,6 +480,8 @@ interface OverlayEntry {
   expanded: boolean;
   /** 펼치기 직전의 버블 창 bounds(접을 때 위치 복원용). */
   collapsedBounds: { x: number; y: number; width: number; height: number } | null;
+  /** §17-6 (G) v2.82 — 우클릭 메뉴 불투명도(1/0.75/0.5). 접힘 버블에만 적용, 펼침 시 1로 보고 접으면 이 값 복원. */
+  opacity: number;
 }
 
 // 실제 BubbleNode 한 개(+선택 코로나/라벨)가 여유 있게 들어가고 살짝 드래그할 공간이 있는 컴팩트 창.
@@ -614,6 +616,7 @@ export function openOverlay(opts: {
     window: win,
     expanded: false,
     collapsedBounds: null,
+    opacity: 1,
   };
   overlaysByAgentId.set(opts.agentId, entry);
   overlaysByWindowId.set(win.id, entry);
@@ -630,6 +633,8 @@ export function openOverlay(opts: {
 
   win.on('closed', () => {
     stopOverlayDrag(win.id);
+    // 이 버블의 우클릭 메뉴가 떠 있으면 함께 닫는다(고아 메뉴 방지).
+    if (overlayMenu && overlayMenu.targetWindowId === win.id) closeOverlayMenu();
     overlaysByAgentId.delete(opts.agentId);
     overlaysByWindowId.delete(win.id);
     broadcastOverlayList();
@@ -726,6 +731,8 @@ export function expandOverlayByWindowId(windowId: number): boolean {
   try { win.setResizable(true); } catch { /* noop */ }
   try { win.setMinimumSize(MIN_FLOAT_W_OVERLAY, MIN_FLOAT_H_OVERLAY); } catch { /* noop */ }
   win.setBounds({ x: nx, y: ny, width: w, height: h }, false);
+  // §17-6 (G) v2.82 — 펼친 IDE 는 가독성 위해 항상 불투명(접힘 버블의 흐림 설정은 접을 때 복원).
+  try { win.setOpacity(1); } catch { /* noop */ }
   win.show();
   win.focus();
   // setResizable 이 topmost 를 풀 수 있어(§17-6 (E) v2.80) 펼친 IDE 도 항상 위로 재단언.
@@ -748,6 +755,8 @@ export function collapseOverlayByWindowId(windowId: number): boolean {
   } else {
     win.setSize(OVERLAY_BUBBLE_W, OVERLAY_BUBBLE_H);
   }
+  // §17-6 (G) v2.82 — 버블로 복귀하면 사용자가 고른 불투명도를 복원.
+  try { win.setOpacity(entry.opacity); } catch { /* noop */ }
   // setResizable(false) 가 topmost 를 풀 수 있어(§17-6 (E) v2.80) 버블 복귀 후에도 재단언.
   keepOverlayOnTop(win);
   broadcastOverlayList();
@@ -761,7 +770,189 @@ export function setOverlaysVisible(visible: boolean): void {
   broadcastOverlayList();
 }
 
+// ─── §17-6 (G) v2.82 — 버블 우클릭 컨텍스트 메뉴 액션 ──────────────────────
+
+// "숨기기(이 버블만)" — 이 오버레이 창만 숨긴다(등록은 유지). 복귀는 Header 전역 토글(유일 스위치).
+export function hideOverlaySelfByWindowId(windowId: number): boolean {
+  const entry = overlaysByWindowId.get(windowId);
+  if (!entry || entry.window.isDestroyed()) return false;
+  if (entry.window.isVisible()) entry.window.hide();
+  return true;
+}
+
+// "불투명도 100/75/50%" — 접힘 버블에만 즉시 적용하고 값은 기억(펼침 시 1, 접으면 이 값 복원).
+export function setOverlayOpacitySelfByWindowId(windowId: number, opacity: number): boolean {
+  const entry = overlaysByWindowId.get(windowId);
+  if (!entry || entry.window.isDestroyed()) return false;
+  const clamped = Math.max(0.2, Math.min(1, Number.isFinite(opacity) ? opacity : 1));
+  entry.opacity = clamped;
+  // 펼친 IDE 는 항상 불투명 유지 — 접힘 상태에서만 즉시 반영.
+  if (!entry.expanded) {
+    try { entry.window.setOpacity(clamped); } catch { /* noop */ }
+  }
+  return true;
+}
+
+// "본체에서 이 버블로 점프" — 메인 윈도우를 앞으로 끌어올리고, 그 렌더러에 점프 신호를 보낸다.
+// 실제 캔버스 이동·선택은 메인 App 의 onReveal 핸들러가 §5.4 #30 북마크 점프 로직으로 수행.
+export function revealOverlayInMain(payload: { agentId: string; projectId: string }): boolean {
+  const main = getMainWindow();
+  if (!main || main.isDestroyed()) return false;
+  if (main.isMinimized()) main.restore();
+  main.show();
+  main.focus();
+  main.webContents.send('vibisual:overlay:reveal', {
+    agentId: payload.agentId,
+    projectId: payload.projectId,
+  });
+  return true;
+}
+
+// ─── §17-6 (G) v2.87 — 우클릭 메뉴 = 커서 위치의 독립 팝업 창 ──────────────────
+// 280×320 버블 창 안에 HTML 로 그리던 메뉴는 ①커서 아래에 못 열리고 ②창보다 큰 메뉴 하단이
+// 창 밖으로 밀려 클릭이 안 됐다. 메뉴를 전용 투명 팝업 BrowserWindow 로 분리해 화면 어디든 커서
+// 아래에 온전히 띄운다. 메뉴 창은 자기 액션의 **대상(버블) 창**을 모르므로 main 이 targetWindowId 를
+// 기억해 라우팅한다(open-ide 만 IDE 렌더가 필요해 버블 렌더러로 push).
+const OVERLAY_MENU_INIT_W = 230;
+const OVERLAY_MENU_INIT_H = 300;
+
+interface OverlayMenuState {
+  window: BrowserWindow;
+  targetWindowId: number;
+  anchor: { x: number; y: number };
+  shown: boolean;
+}
+let overlayMenu: OverlayMenuState | null = null;
+
+function closeOverlayMenu(): void {
+  const m = overlayMenu;
+  overlayMenu = null;
+  if (m && !m.window.isDestroyed()) m.window.close();
+}
+
+// 버블 창에서 우클릭 → 그 창을 대상으로 메뉴 팝업 창을 커서 위치에 띄운다.
+export function openOverlayMenuByWindowId(windowId: number): boolean {
+  const entry = overlaysByWindowId.get(windowId);
+  if (!entry || entry.window.isDestroyed()) return false;
+  closeOverlayMenu(); // 기존 메뉴는 닫고 새로(토글/재오픈).
+  const cursor = screen.getCursorScreenPoint();
+  const wa = screen.getDisplayNearestPoint(cursor).workArea;
+  // 초기 위치는 대략 클램프(실제 크기·정밀 클램프는 menu-resize 에서).
+  const x = Math.max(wa.x, Math.min(cursor.x, wa.x + wa.width - OVERLAY_MENU_INIT_W));
+  const y = Math.max(wa.y, Math.min(cursor.y, wa.y + wa.height - OVERLAY_MENU_INIT_H));
+  const win = new BrowserWindow({
+    width: OVERLAY_MENU_INIT_W,
+    height: OVERLAY_MENU_INIT_H,
+    x,
+    y,
+    show: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    frame: false,
+    resizable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    hasShadow: false,
+    autoHideMenuBar: true,
+    title: 'Vibisual',
+    icon: join(__dirname, '..', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.cjs'),
+      sandbox: false,
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+  keepOverlayOnTop(win);
+  overlayMenu = { window: win, targetWindowId: windowId, anchor: { x: cursor.x, y: cursor.y }, shown: false };
+  // 메뉴 밖(다른 창) 클릭 → blur → 닫기. 액션 클릭은 메뉴 창 내부라 blur 없음.
+  win.on('blur', () => { if (overlayMenu && overlayMenu.window === win) closeOverlayMenu(); });
+  win.on('closed', () => { if (overlayMenu && overlayMenu.window === win) overlayMenu = null; });
+  // 렌더가 크기를 신고하기 전 깜빡임 방지 — 신고가 늦어도 보이도록 안전 타이머로 표시.
+  setTimeout(() => {
+    if (overlayMenu && overlayMenu.window === win && !win.isDestroyed() && !overlayMenu.shown) {
+      overlayMenu.shown = true;
+      win.show();
+      keepOverlayOnTop(win);
+    }
+  }, 300);
+  const hash =
+    `overlaymenu=1&targetWindowId=${windowId}` +
+    `&agentId=${encodeURIComponent(entry.agentId)}` +
+    `&projectId=${encodeURIComponent(entry.projectId)}` +
+    `&opacity=${entry.opacity}`;
+  void win.loadFile(join(__dirname, '../renderer/index.html'), { hash });
+  return true;
+}
+
+// 메뉴 렌더가 실제 크기를 측정해 신고 → 창을 딱 맞추고 커서 기준 작업영역 안으로 정밀 배치.
+export function resizeOverlayMenu(senderWindowId: number, width: number, height: number): boolean {
+  const m = overlayMenu;
+  if (!m || m.window.isDestroyed() || m.window.id !== senderWindowId) return false;
+  const w = Math.max(160, Math.round(width));
+  const h = Math.max(80, Math.round(height));
+  const wa = screen.getDisplayNearestPoint(m.anchor).workArea;
+  // 커서 아래에 열되, 오른쪽/아래로 넘치면 커서 왼쪽/위로 플립 후 작업영역 안으로 클램프.
+  let x = m.anchor.x;
+  let y = m.anchor.y;
+  if (x + w > wa.x + wa.width) x = m.anchor.x - w;
+  if (y + h > wa.y + wa.height) y = m.anchor.y - h;
+  x = Math.max(wa.x, Math.min(x, wa.x + wa.width - w));
+  y = Math.max(wa.y, Math.min(y, wa.y + wa.height - h));
+  m.window.setBounds({ x, y, width: w, height: h }, false);
+  if (!m.shown) {
+    m.shown = true;
+    m.window.show();
+  }
+  keepOverlayOnTop(m.window);
+  return true;
+}
+
+// 메뉴 액션을 대상(버블) 창에 적용. opacity 만 메뉴를 유지(미세 조절), 나머지는 닫는다.
+export function overlayMenuAction(senderWindowId: number, action: string, value?: number): boolean {
+  const m = overlayMenu;
+  if (!m || m.window.id !== senderWindowId) return false;
+  const targetId = m.targetWindowId;
+  const target = overlaysByWindowId.get(targetId);
+  switch (action) {
+    case 'open-ide':
+      // IDE 펼침은 버블 창 렌더러의 openIDEOverlay 를 타야 한다(더블클릭과 동일 경로 — 창 리사이즈만으론 부족).
+      if (target && !target.window.isDestroyed()) {
+        target.window.webContents.send('vibisual:overlay:menu-command', { command: 'open-ide' });
+      }
+      closeOverlayMenu();
+      return true;
+    case 'reveal':
+      if (target) revealOverlayInMain({ agentId: target.agentId, projectId: target.projectId });
+      closeOverlayMenu();
+      return true;
+    case 'opacity':
+      setOverlayOpacitySelfByWindowId(targetId, typeof value === 'number' ? value : 1);
+      return true; // 슬라이더는 메뉴 유지.
+    case 'hide':
+      hideOverlaySelfByWindowId(targetId);
+      closeOverlayMenu();
+      return true;
+    case 'close':
+      closeOverlayByWindowId(targetId);
+      closeOverlayMenu();
+      return true;
+    default:
+      closeOverlayMenu();
+      return false;
+  }
+}
+
+// 메뉴 렌더의 Esc 등으로 자기 자신을 닫기.
+export function closeOverlayMenuByWindowId(senderWindowId: number): boolean {
+  const m = overlayMenu;
+  if (!m || m.window.id !== senderWindowId) return false;
+  closeOverlayMenu();
+  return true;
+}
+
 export function closeAllOverlays(): void {
+  closeOverlayMenu();
   for (const entry of [...overlaysByAgentId.values()]) {
     stopOverlayDrag(entry.id);
     if (!entry.window.isDestroyed()) entry.window.destroy();

@@ -91,7 +91,25 @@ export interface PackagedOverlayApi {
   dragEnd(): Promise<boolean>;
   list(): Promise<OverlayListWire>;
   setVisible(visible: boolean): Promise<boolean>;
+  /** §17-6 (G) v2.82 — 우클릭 "숨기기(이 버블만)". */
+  hideSelf(): Promise<boolean>;
+  /** §17-6 (G) v2.82 — 우클릭 불투명도(1/0.75/0.5). */
+  setOpacitySelf(opacity: number): Promise<boolean>;
+  /** §17-6 (G) v2.82 — 우클릭 "본체에서 이 버블로 점프". */
+  revealInMain(payload: { agentId: string; projectId: string }): Promise<boolean>;
+  /** §17-6 (G) v2.82 — 메인 윈도우: 오버레이 점프 신호 구독. */
+  onReveal(cb: (payload: { agentId: string; projectId: string }) => void): () => void;
   onList(cb: (payload: OverlayListWire) => void): () => void;
+  /** §17-6 (G) v2.87 — 버블 창: 우클릭 → 커서 위치에 메뉴 팝업 창 열기. */
+  openMenu(): Promise<boolean>;
+  /** §17-6 (G) v2.87 — 메뉴 창: 실제 메뉴 크기 신고. */
+  menuResize(size: { width: number; height: number }): Promise<boolean>;
+  /** §17-6 (G) v2.87 — 메뉴 창: 액션을 대상 버블 창에 적용. */
+  menuAction(payload: { action: string; value?: number }): Promise<boolean>;
+  /** §17-6 (G) v2.87 — 메뉴 창: 자기 자신 닫기. */
+  closeMenu(): Promise<boolean>;
+  /** §17-6 (G) v2.87 — 버블 창: 메뉴 명령(open-ide) 구독. */
+  onMenuCommand(cb: (payload: { command: string }) => void): () => void;
 }
 
 // §4 v2.44 자동 업데이트 surface. UpdateState 는 shared 계약.
