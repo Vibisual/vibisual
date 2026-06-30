@@ -1419,6 +1419,21 @@ export const DIAGNOSTIC_LOG_MAX = 200;
  */
 export const STREAM_EVENTS_MAX_PER_SESSION = 4000;
 
+/**
+ * 현재 IDE 에서 보고 있지 않은 비활성 세션의 클라 스트림 버퍼 상한.
+ * 비활성 세션은 화면에 렌더되지 않으므로 메모리 절약을 위해 훨씬 작게 유지한다.
+ * 세션 수가 많을 때 4000×N 으로 무한 누적되던 것을 차단한다.
+ * 사용자가 세션을 다시 열면 서버 버퍼(/api/subagent-streams/:agentId)에서 복구되므로 표시 손실 없음(서버=SSOT).
+ */
+export const STREAM_EVENTS_MAX_PER_INACTIVE_SESSION = 300;
+
+/**
+ * 클라 메모리에 비활성 스트림 버퍼를 통째로 유지할 세션 수 상한.
+ * 이 수를 넘는 비활성 세션(마지막 수신 기준 가장 오래된 것부터)은 버퍼를 통째로 삭제한다.
+ * 해당 세션을 다시 열면 서버 버퍼(/api/subagent-streams/:agentId)에서 자동 복구.
+ */
+export const STREAM_INACTIVE_SESSIONS_MAX = 20;
+
 // ─── 서버 코어 로그 뷰어 (§7.7 v1.99) ───
 
 /** 서버 serverLogService ring buffer 최대 라인 수. 초과 시 가장 오래된 것부터 제거. */
