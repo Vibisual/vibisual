@@ -13,6 +13,7 @@
     "url": "https://github.com/Vibisual/vibisual/issues"
   },
   "scripts": {
+    "test": "pnpm --filter @vibisual/client test",
     "build": "pnpm --filter=@vibisual/shared --filter=@vibisual/server --filter=@vibisual/client -r build && pnpm --filter @vibisual/desktop build",
     "build:win": "pnpm --filter=@vibisual/shared --filter=@vibisual/server --filter=@vibisual/client -r build && pnpm --filter @vibisual/desktop dist:win",
     "build:mac": "pnpm --filter=@vibisual/shared --filter=@vibisual/server --filter=@vibisual/client -r build && pnpm --filter @vibisual/desktop dist:mac",

@@ -278,9 +278,16 @@ export function parseStreamLine(
   obj: Record<string, unknown>,
   subAgentId: string,
   parentAgentId: string,
+  opts: { partialMessages?: boolean } = {},
 ): SubAgentStreamEvent[] {
   const type = obj['type'] as string | undefined;
   if (!type) return [];
+
+  // §4 v2.88 — `--include-partial-messages` 가 켜진 스폰(legacy --print)에서만 true.
+  //   true 면 토큰 델타(content_block_delta / stream_event)를 텍스트로 흘리고, 뒤따라오는
+  //   완성 `assistant` 메시지의 text/thinking 는 **억제**한다(둘 다 그리면 본문이 2번 누적).
+  //   false(persistent · Agent View JSONL)면 델타가 애초에 안 와서 기존 그대로 완성 메시지만 렌더.
+  const partial = opts.partialMessages === true;
 
   const makeBase = (): Omit<SubAgentStreamEvent, 'eventType' | 'content'> => ({
     id: makeEventId(),
@@ -299,10 +306,12 @@ export function parseStreamLine(
       if (!block || typeof block !== 'object') continue;
       const b = block as Record<string, unknown>;
       const bt = b['type'] as string | undefined;
+      // §4 v2.88 — partial 모드면 text/thinking 은 이미 델타로 흘렸으므로 완성 블록은 건너뛴다(중복 방지).
+      //   tool_use 는 델타(input_json_delta)가 부분 JSON 이라 못 쓰므로 항상 완성 블록에서 방출.
       if (bt === 'text' && typeof b['text'] === 'string' && b['text']) {
-        events.push({ ...makeBase(), eventType: 'text', content: b['text'] as string });
+        if (!partial) events.push({ ...makeBase(), eventType: 'text', content: b['text'] as string });
       } else if (bt === 'thinking' && typeof b['thinking'] === 'string' && b['thinking']) {
-        events.push({ ...makeBase(), eventType: 'thinking', content: b['thinking'] as string });
+        if (!partial) events.push({ ...makeBase(), eventType: 'thinking', content: b['thinking'] as string });
       } else if (bt === 'tool_use') {
         const name = (b['name'] ?? 'unknown') as string;
         const input = b['input'];
@@ -314,9 +323,15 @@ export function parseStreamLine(
     return events;
   }
 
-  // content_block_delta — 스트리밍 텍스트/사고 조각
-  if (type === 'content_block_delta') {
-    const delta = obj['delta'] as Record<string, unknown> | undefined;
+  // §4 v2.88 — content_block_delta 의 텍스트/사고 조각을 이벤트로.
+  //   partial 모드에서만 처리(아니면 완성 assistant 메시지와 중복). delta 는 두 형태로 올 수 있다:
+  //   ① 최상위 `{type:'content_block_delta', delta:{…}}`  ② `{type:'stream_event', event:{type:'content_block_delta', delta:{…}}}`(`--include-partial-messages` 래핑).
+  if (partial && (type === 'content_block_delta' || type === 'stream_event')) {
+    const inner = type === 'stream_event'
+      ? (obj['event'] as Record<string, unknown> | undefined)
+      : obj;
+    if (!inner || inner['type'] !== 'content_block_delta') return [];
+    const delta = inner['delta'] as Record<string, unknown> | undefined;
     if (delta?.['type'] === 'text_delta' && typeof delta['text'] === 'string') {
       return [{ ...makeBase(), eventType: 'text', content: delta['text'] as string }];
     }
@@ -325,6 +340,8 @@ export function parseStreamLine(
     }
     return [];
   }
+  // partial 이 아니면 (또는 다른 stream_event 서브타입) 토큰 델타는 무시 — 완성 메시지만 렌더.
+  if (type === 'content_block_delta' || type === 'stream_event') return [];
 
   // 도구 사용 (stream-json의 최상위 tool_use — 드물지만 호환)
   if (type === 'tool_use') {
@@ -712,6 +729,97 @@ export class SubAgentManager {
     return this.index.get(subAgentId);
   }
 
+  /**
+   * §5.5 #17-8 v2.95 — 세션 자기요약. 카드가 하나도 없는 세션을 한 줄로 요약하기 위해, 그 세션의
+   * claude 대화를 `--resume` 해 헤드리스 1턴(짧은 한국어 요약 프롬프트)을 spawn 하고 결과 텍스트를 돌려준다.
+   * "자기가 자기를 요약" — 세션 자신의 컨텍스트로 도므로 별도 transcript 주입이 불필요.
+   *
+   * sessionId 해석: 헤드리스/persistent 는 `sub.sessionId`, CMD 인터랙티브는 termId 기반
+   * `getCmdResumeSession('term:<agentId>:<subId>')`. 둘 다 없으면(대화 전무) null 텍스트.
+   * cwd 는 projectResolver(parentAgentId).path. 30s 타임아웃. 표시 전용이라 실패는 조용히 error.
+   */
+  async summarizeSession(parentAgentId: string, subId: string): Promise<{ ok: boolean; text?: string; error?: string }> {
+    const sub = this.index.get(subId);
+    const info = this.projectResolver?.(parentAgentId);
+    const cwd = info?.path;
+    if (!cwd) return { ok: false, error: 'project-not-resolved' };
+
+    // 세션의 claude 대화 sessionId 해석 — 헤드리스 sub.sessionId 우선, 없으면 CMD termId 매핑.
+    let sessionId = sub?.sessionId && sub.sessionId.length > 0 ? sub.sessionId : '';
+    if (!sessionId) {
+      const cmdSid = getCmdResumeSession(`term:${parentAgentId}:${subId}`);
+      if (cmdSid) sessionId = cmdSid;
+    }
+    if (!sessionId) return { ok: false, error: 'no-conversation' };
+
+    // JSONL 이 사라진 스테일 세션이면 --resume 이 확정 실패 — 미리 가드.
+    try {
+      const jsonlPath = getSessionJsonlPath(cwd, sessionId);
+      if (!fs.existsSync(jsonlPath)) return { ok: false, error: 'no-conversation' };
+    } catch { /* 경로 계산 실패는 spawn 에 맡김 */ }
+
+    const prompt =
+      '지금까지 이 세션에서 한 작업을 한국어로 3줄 이내로 요약해줘. ' +
+      '무엇을 했는지 한두 줄, 사용자가 확인하거나 직접 해야 할 게 남았으면 마지막 한 줄로. ' +
+      '머리말·인사·코드블록 없이 핵심만.';
+
+    return new Promise((resolve) => {
+      const args = ['--resume', sessionId, '--print', '--output-format', 'json', '--input-format', 'stream-json', '--verbose'];
+      let child: ChildProcess;
+      try {
+        child = spawn(CLAUDE_BIN, args, {
+          cwd,
+          stdio: ['pipe', 'pipe', 'pipe'],
+          shell: false,
+          env: { ...process.env, LANG: 'en_US.UTF-8', LC_ALL: 'en_US.UTF-8', PYTHONIOENCODING: 'utf-8' },
+        });
+      } catch (err) {
+        resolve({ ok: false, error: err instanceof Error ? err.message : String(err) });
+        return;
+      }
+
+      let stdout = '';
+      let settled = false;
+      const done = (r: { ok: boolean; text?: string; error?: string }): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        try { child.kill(); } catch { /* ignore */ }
+        resolve(r);
+      };
+      const timer = setTimeout(() => done({ ok: false, error: 'timeout' }), 30_000);
+
+      try {
+        const inputLine = JSON.stringify({
+          type: 'user',
+          message: { role: 'user', content: [{ type: 'text', text: prompt }] },
+        }) + '\n';
+        child.stdin?.setDefaultEncoding('utf8');
+        child.stdin?.write(inputLine, 'utf8');
+        child.stdin?.end();
+      } catch { /* stdin 실패는 close 에서 처리 */ }
+
+      child.stdout?.on('data', (chunk: Buffer) => { stdout += chunk.toString('utf8'); });
+      child.on('error', (err) => done({ ok: false, error: err.message }));
+      child.on('close', () => {
+        // `--output-format json` = 마지막에 result 객체 1개. 여러 줄일 수 있어 result 타입만 추출.
+        let text = '';
+        for (const line of stdout.split('\n')) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          try {
+            const obj = JSON.parse(trimmed) as Record<string, unknown>;
+            if (typeof obj['result'] === 'string') text = obj['result'] as string;
+            else if (obj['type'] === 'result' && typeof obj['result'] === 'string') text = obj['result'] as string;
+          } catch { /* 부분 라인 무시 */ }
+        }
+        text = text.trim();
+        if (text) done({ ok: true, text });
+        else done({ ok: false, error: 'empty' });
+      });
+    });
+  }
+
   /** 이 sub 가 지금 실제로 실행 중인가 — 살아있는 자식 프로세스(legacy) 또는 agent-view watcher 보유.
    *  idle sweep 의 확정 진실(ground truth). lastActivityAt staleness 같은 추측이 이걸 이길 수 없다:
    *  "동작 중인 sub 를 거짓 완료/idle 처리" 의 단일 차단막. */
@@ -797,6 +905,36 @@ export class SubAgentManager {
       }
     }
     return changed;
+  }
+
+  /**
+   * §4 — CMD(인터랙티브 터미널) 세션 탭의 per-sub 상태를 그 세션의 redirect 된 hook 스트림으로
+   * **연속 동기화**. termId(`term:<agentId>:<subId>`)로 그 탭의 sub 를 찾아 tool 이벤트→active,
+   * Stop→idle(완료·미확인=녹색) 로 매긴다.
+   *
+   * 배경: CMD 에이전트의 hook 은 session_id 를 부모 CMD 버블 세션으로 rewrite 하므로
+   * (`_vibisualOwnerAgentId`) 부모 버블만 active/idle 이 갱신되고 **각 세션 탭(sub)의 status 는
+   * hook 과 연결돼 있지 않았다** → 탭 도트가 생성 시 idle(녹색) 에 멈춰, 동작 중에도 파란 active 로
+   * 바뀌지 않던 버그. termId 의 끝 토큰이 곧 sub.id 라(`term:agentId:subId`) 이걸로 그 탭만 정확히
+   * 구동한다. lastActivityAt 도 매 이벤트마다 갱신 → 5분 idle sweep 의 거짓-강등도 자연히 막힌다.
+   *
+   * @returns 상태가 바뀌었으면 true (호출자 broadcast 판단용).
+   */
+  markCmdSubActivity(termId: string, isStop: boolean): boolean {
+    const parsed = parseTermId(termId);
+    if (!parsed) return false;
+    const sub = this.index.get(parsed.sessionToken);
+    if (!sub) return false; // 'main' 탭 등 sub 없는 termId → no-op
+    const prev = sub.status;
+    sub.lastActivityAt = Date.now();
+    if (isStop) {
+      // 턴 종료 — "완료, 미확인"(idle=녹색). 다음 활동 이벤트가 오면 다시 active.
+      // error 는 그대로 보존(거짓 idle 세탁 금지).
+      if (sub.status === 'active') sub.status = 'idle';
+    } else if (sub.status !== 'active') {
+      sub.status = 'active';
+    }
+    return sub.status !== prev;
   }
 
   /** 전체 subagent 목록 (agentId → SubAgent[]) — 스냅샷용 */
@@ -1058,11 +1196,20 @@ export class SubAgentManager {
     // - config 없으면 DEFAULT_AGENT_CONFIG.maxTurns(0=무제한) 사용. 사용자가 양수 지정 시에만 캡.
     // ──────────────────────────────────────────────────────────────
     const maxTurns = agentConfig?.maxTurns ?? DEFAULT_AGENT_CONFIG.maxTurns ?? 0;
+    // §4 v2.88 — API 비용 상한(달러). undefined/0 = 무제한(기존 동작). 양수면 헤드리스 --print 스폰에 --max-budget-usd 전달.
+    const maxBudgetUsd = (agentConfig?.maxBudgetUsd && agentConfig.maxBudgetUsd > 0) ? agentConfig.maxBudgetUsd : 0;
 
     // v1.77 (Direction A) — 커스텀 에이전트는 Agent View 게이트를 건너뛰고 무조건 legacy.
     // (supervisor sessionId 회전 → 증식·연속성 상실. 위 docstring 참조.)
     if (opts?.customParent) {
-      this._executeViaLegacy(cmd, sub!, parentCwd, prompt, configArgs, maxTurns);
+      this._executeViaLegacy(cmd, sub!, parentCwd, prompt, configArgs, maxTurns, maxBudgetUsd);
+      return;
+    }
+
+    // §4 v2.88 — 비용 상한이 걸린 에이전트는 Agent View(`--bg`, --print 아님)로 보내면 --max-budget-usd 가
+    //   안 먹는다 → legacy fresh `--print` 스폰으로 강제해 상한이 매 턴 실제 적용되게 한다.
+    if (maxBudgetUsd > 0) {
+      this._executeViaLegacy(cmd, sub!, parentCwd, prompt, configArgs, maxTurns, maxBudgetUsd);
       return;
     }
 
@@ -1073,11 +1220,11 @@ export class SubAgentManager {
       if (gate.enabled) {
         void this._executeViaAgentView(cmd, sub!, parentCwd, prompt, configArgs, maxTurns);
       } else {
-        this._executeViaLegacy(cmd, sub!, parentCwd, prompt, configArgs, maxTurns);
+        this._executeViaLegacy(cmd, sub!, parentCwd, prompt, configArgs, maxTurns, maxBudgetUsd);
       }
     }).catch((err) => {
       logger.warn(`SubAgent ${sub!.id} agent-view gate check failed: ${err instanceof Error ? err.message : String(err)} — falling back to legacy`);
-      this._executeViaLegacy(cmd, sub!, parentCwd, prompt, configArgs, maxTurns);
+      this._executeViaLegacy(cmd, sub!, parentCwd, prompt, configArgs, maxTurns, maxBudgetUsd);
     });
   }
 
@@ -1232,8 +1379,11 @@ export class SubAgentManager {
     prompt: string,
     configArgs: string[],
     maxTurns: number,
+    maxBudgetUsd = 0,
   ): void {
-    const usePersistent = PERSISTENT_CHILD_ENABLED && !!sub.sessionId;
+    // §4 v2.88 — 비용 상한(maxBudgetUsd>0)이 걸리면 매 턴 fresh `--print` 스폰이어야 `--max-budget-usd` 가
+    //   실제 적용된다(CLI 제약: --max-budget-usd 는 --print 전용). persistent 재사용은 --print 를 떼므로 끈다.
+    const usePersistent = PERSISTENT_CHILD_ENABLED && !!sub.sessionId && maxBudgetUsd <= 0;
 
     // ─── REUSE PATH ─────────────────────────────────────────────────────
     // 살아있는 자식 + ready=true 면 fresh spawn 없이 stdin write 만으로 다음 턴 시작.
@@ -1271,11 +1421,17 @@ export class SubAgentManager {
     //
     // persistent: --print 없음. 자식이 result 후 stdin 대기 상태로 살아있어 다음 턴 재사용 가능.
     // legacy:     기존대로 --print 포함. 자식이 result 후 자연 종료.
+    // §4 v2.88 — `--print` 전용 헤드리스 플래그(CLI: 둘 다 --print 필수).
+    //   --include-partial-messages: 토큰 단위 스트리밍(버블 본문 실시간 누적). parseStreamLine partial 가드와 짝.
+    //   --max-budget-usd <n>: API 비용 상한(양수일 때만). persistent(no --print) 경로엔 못 붙으므로 위에서 끔.
+    const printFlags = ['--include-partial-messages'];
+    if (maxBudgetUsd > 0) printFlags.push('--max-budget-usd', String(maxBudgetUsd));
+
     const args = usePersistent
       ? ['--resume', sub.sessionId, ...configArgs, '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose']
       : (sub.sessionId
-          ? ['--resume', sub.sessionId, '--print', ...configArgs, '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose']
-          : ['--print', ...configArgs, '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose']);
+          ? ['--resume', sub.sessionId, '--print', ...configArgs, ...printFlags, '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose']
+          : ['--print', ...configArgs, ...printFlags, '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose']);
 
     logger.info(`SubAgent ${sub.id} ${usePersistent ? 'persistent spawning' : 'legacy executing'}: "${cmd.text.slice(0, 50)}..."${configArgs.length > 0 ? ` [config: ${configArgs.join(' ')}]` : ''}`);
 
@@ -1373,7 +1529,8 @@ export class SubAgentManager {
               }
             }
             // 스트림 이벤트 파싱 + 클라이언트 중계 (한 라인이 여러 블록 가능)
-            const streamEvts = parseStreamLine(obj, sub!.id, sub!.parentAgentId);
+            // §4 v2.88 — legacy --print 스폰은 `--include-partial-messages` 가 붙어 토큰 델타가 온다 → partialMessages:true.
+            const streamEvts = parseStreamLine(obj, sub!.id, sub!.parentAgentId, { partialMessages: true });
             for (const evt of streamEvts) this.emitStreamEvent(evt);
           } catch { /* 불완전 JSON — 다음 라인에서 처리 */ }
         }

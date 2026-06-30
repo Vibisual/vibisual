@@ -321,6 +321,21 @@ export const CHECKPOINT_BACKUP_GENERATIONS = 3;
  */
 export const DELETED_AGENT_TOMBSTONE_MAX = 1000;
 
+/**
+ * §3.2.1-3 v3.03 — checkpoint.json 빈/급감 덮어쓰기 거부 가드.
+ * 크래시 후 재시작 시 빈 인스턴스가 멀쩡한 checkpoint 를 빈 그래프로 덮어쓰는 손실을 막는다.
+ * 판정은 `graph.agents + graph.nodes` 합계 기준.
+ *
+ * - `EMPTY_GUARD_MIN_PRIOR`: 디스크 직전 합계가 이 값 이상이면 "통째-0 저장"을 거부 대상으로 본다(1=무엇이든 있었으면).
+ * - `SHRINK_GUARD_MIN_PRIOR` / `SHRINK_GUARD_RATIO`: 급감 비율 가드(2차) — 직전 합계가 MIN_PRIOR 이상인데
+ *   새 합계가 `직전 * RATIO` 미만이고 묘비로 설명 안 되는 에이전트 소멸이 있을 때 거부. 정상 대량 만료
+ *   오탐 위험이 있어 **기본 비활성**(`CHECKPOINT_SHRINK_GUARD_ENABLED=false`); 통째-0 가드만 1차 운용.
+ */
+export const CHECKPOINT_EMPTY_GUARD_MIN_PRIOR = 1;
+export const CHECKPOINT_SHRINK_GUARD_MIN_PRIOR = 8;
+export const CHECKPOINT_SHRINK_GUARD_RATIO = 0.34;
+export const CHECKPOINT_SHRINK_GUARD_ENABLED = false;
+
 // ─── 버블 렌더링 ───
 
 /** 텍스트 라벨 최대 너비 = size * TEXT_WIDTH_RATIO */
@@ -1394,6 +1409,16 @@ export const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
 /** 서버 diagnosticService ring buffer 최대 보관 건수. 초과 시 가장 오래된 것부터 제거. */
 export const DIAGNOSTIC_LOG_MAX = 200;
 
+// ─── 클라 스트림 이벤트 누적 상한 (성능: 장시간 세션 메모리/렌더 폭증 방지) ───
+
+/**
+ * 한 서브에이전트 세션의 subAgentStreams[sessionId] 가 클라 메모리에 보관하는 최대 이벤트 수.
+ * 장시간 세션에서 토큰 단위 스트림이 무한 누적되면 메모리 + 빌드/렌더 비용이 선형으로 커진다.
+ * 초과분은 가장 오래된 이벤트(화면 최상단, 스크롤 위쪽)부터 잘라 항상 최근 N개만 유지한다.
+ * (표시 전용 버퍼 — tool_use↔tool_result 페어링은 화면 표시용이라 오래된 잔여물 손실 허용.)
+ */
+export const STREAM_EVENTS_MAX_PER_SESSION = 4000;
+
 // ─── 서버 코어 로그 뷰어 (§7.7 v1.99) ───
 
 /** 서버 serverLogService ring buffer 최대 라인 수. 초과 시 가장 오래된 것부터 제거. */
@@ -2102,7 +2127,7 @@ export function buildCmdCardProtocolRules(): string {
 # Vibisual 카드 신고 (터미널 한 줄 — 인터랙티브 CMD 전용)
 너는 Vibisual IDE 안의 인터랙티브 터미널에서 돈다. 사용자에게 **작업 신고 / 질문 / 검수 요청** 카드를 띄우려면
 **터미널 stdout 에 \`${S}\` 로 시작하는 한 줄을 인쇄**하면 된다(예: Bash 도구로 \`echo\`). 그 줄은 IDE 가 캡처해
-**터미널 안에 색 박스(카드)로 그 자리에서 다시 그린다**(원문 마커 줄은 박스로 대체) — curl·포트·토큰·agentId 가
+**카드로 보여준다**(원문 마커 줄은 터미널에서 숨긴다 — 터미널 옆 카드 패널에 색 카드로 렌더) — curl·포트·토큰·agentId 가
 필요 없다. **반드시 JSON 은 한 줄**(개행 없이)이어야 하고, 마커 뒤에 곧바로 \`{\` 가 와야 한다.
 
 네 종류 모두 \`kind\` 로 구분한다(발생 조건은 아래를 지켜라 — 매번 보내면 카드가 도배돼 신호가 묻힌다):

@@ -518,6 +518,15 @@
     "debugPanel": {
       "title": "Debug",
       "close": "Tutup",
+      "project": "Proyek",
+      "projectName": "Nama",
+      "projectPath": "Path",
+      "agents": "Agent",
+      "nodes": "Node",
+      "edges": "Edge",
+      "noProject": "Tidak ada proyek aktif",
+      "fps": "fps",
+      "fpsTip": "Frame render per detik",
       "errorLog": "Log Error",
       "noErrors": "Tidak ada error yang tercatat",
       "servers": "Server",
@@ -670,11 +679,14 @@
     },
     "mainArea": {
       "scrollPrompt": "Gulir ke prompt",
+      "dropFilesHint": "Lepaskan file untuk menambahkan jalurnya",
       "inputPlaceholderNew": "Masukkan perintah untuk memulai sesi baru...",
       "inputPlaceholder": "Masukkan perintah...",
       "run": "Jalankan",
       "stop": "Hentikan",
       "stopping": "Menghentikan…",
+      "followUp": "Tambah",
+      "followUpTitle": "Kirim pesan lanjutan tanpa menghentikan agen (Enter)",
       "executing": "Mengeksekusi…",
       "readOnly": "Hanya baca — pilih tab sesi atau buat baru",
       "attachmentError": "ERR",
@@ -684,6 +696,7 @@
       "slashEmpty": "Tidak ada skill yang cocok",
       "slashLoading": "Memuat skill…",
       "ctxCopy": "Salin",
+      "ctxBookmark": "Bookmark",
       "ctxQuoteReply": "Kutip balasan",
       "ctxSendAsPrompt": "Kirim sebagai prompt baru",
       "ctxSelectAll": "Pilih semua",
@@ -710,7 +723,17 @@
       "terminal": "Terminal",
       "files": "File",
       "results": "Hasil",
-      "skills": "Skills"
+      "skills": "Skills",
+      "bookmarks": "Bookmarks"
+    },
+    "bookmarks": {
+      "title": "Bookmarks",
+      "empty": "Belum ada bookmark. Pilih teks di output, klik kanan, lalu pilih Bookmark.",
+      "copy": "Salin",
+      "jump": "Pergi ke sumber",
+      "remove": "Hapus",
+      "close": "Tutup",
+      "sourceGone": "Sumber tidak ada lagi"
     },
     "sidebar": {
       "sessions": "Sesi",

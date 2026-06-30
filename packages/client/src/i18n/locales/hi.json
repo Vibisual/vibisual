@@ -518,6 +518,15 @@
     "debugPanel": {
       "title": "Debug",
       "close": "बंद करें",
+      "project": "प्रोजेक्ट",
+      "projectName": "नाम",
+      "projectPath": "पथ",
+      "agents": "Agents",
+      "nodes": "Nodes",
+      "edges": "Edges",
+      "noProject": "कोई सक्रिय प्रोजेक्ट नहीं",
+      "fps": "fps",
+      "fpsTip": "प्रति सेकंड रेंडर फ्रेम",
       "errorLog": "त्रुटि लॉग",
       "noErrors": "कोई त्रुटि नहीं",
       "servers": "सर्वर",
@@ -670,11 +679,14 @@
     },
     "mainArea": {
       "scrollPrompt": "प्रॉम्प्ट तक स्क्रॉल करें",
+      "dropFilesHint": "पथ जोड़ने के लिए फ़ाइलें छोड़ें",
       "inputPlaceholderNew": "नई session शुरू करने के लिए कमांड दर्ज करें...",
       "inputPlaceholder": "कमांड दर्ज करें...",
       "run": "चलाएं",
       "stop": "रोकें",
       "stopping": "रुक रहा है…",
+      "followUp": "जोड़ें",
+      "followUpTitle": "एजेंट को रोके बिना अतिरिक्त संदेश भेजें (Enter)",
       "executing": "चल रहा है…",
       "readOnly": "Read-only — कोई session टैब चुनें या नया बनाएं",
       "attachmentError": "त्रुटि",
@@ -684,6 +696,7 @@
       "slashEmpty": "कोई मिलान skill नहीं",
       "slashLoading": "Skills लोड हो रही हैं…",
       "ctxCopy": "कॉपी करें",
+      "ctxBookmark": "बुकमार्क करें",
       "ctxQuoteReply": "उद्धृत उत्तर",
       "ctxSendAsPrompt": "नए प्रॉम्प्ट के रूप में भेजें",
       "ctxSelectAll": "सभी चुनें",
@@ -710,7 +723,17 @@
       "terminal": "Terminal",
       "files": "फ़ाइलें",
       "results": "परिणाम",
-      "skills": "Skills"
+      "skills": "Skills",
+      "bookmarks": "बुकमार्क"
+    },
+    "bookmarks": {
+      "title": "बुकमार्क",
+      "empty": "अभी कोई बुकमार्क नहीं। आउटपुट में टेक्स्ट चुनें, राइट-क्लिक करें, फिर बुकमार्क करें चुनें।",
+      "copy": "कॉपी करें",
+      "jump": "स्रोत पर जाएं",
+      "remove": "हटाएं",
+      "close": "बंद करें",
+      "sourceGone": "स्रोत अब मौजूद नहीं है"
     },
     "sidebar": {
       "sessions": "Sessions",

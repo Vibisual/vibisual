@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { BubbleData, ActivityEdge, BashEntry, ServerEntry, AgentEvent, FileEdit, AgentPhase, ProjectInfo, QueuedCommand, SubAgent, ServerKind, PipelineType, PipelineState, AgentConfig, SubAgentStreamEvent, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, UiLocale, ProjectMetaSnapshot, AppState, AppStatePatch, CommentBox, Conti, ActiveContiWork, ToolDurationEntry, CompactCount, RateLimitInfo, DiagnosticEntry, AutoAgentSummary, ModelRegistry, UserDefaults, AgentReport, AgentQuestions, AgentReview, AgentList } from '@vibisual/shared';
-import { DEFAULT_UI_LOCALE } from '@vibisual/shared';
+import { DEFAULT_UI_LOCALE, STREAM_EVENTS_MAX_PER_SESSION, DIAGNOSTIC_LOG_MAX } from '@vibisual/shared';
 import { changeUiLocale } from '../i18n/index.js';
 import { calcFileSizeRange } from '../utils/sizeCalc.js';
 
@@ -49,12 +49,28 @@ const API_BASE = '';
 
 const ACTIVE_PROJECT_KEY = 'vibisual:activeProject';
 const DEFAULT_TABBAR_KEY = 'vibisual:defaultTabbar';
+// IDE 본문(스트림/대화) 텍스트 줌 배율 — Ctrl+휠로 조절, 캔버스·창 UI 와 무관한 순수 클라 표시 환경설정.
+//   localStorage 영속(앱·창 재시작 후에도 유지) + storage 이벤트로 다중 창 동기화. 캔버스 zoom 과 별개.
+const IDE_TEXT_ZOOM_KEY = 'vibisual:ideTextZoom';
+const IDE_TEXT_ZOOM_MIN = 0.6;
+const IDE_TEXT_ZOOM_MAX = 2.4;
+function clampIdeTextZoom(z: number): number {
+  if (!Number.isFinite(z)) return 1;
+  return Math.min(IDE_TEXT_ZOOM_MAX, Math.max(IDE_TEXT_ZOOM_MIN, z));
+}
 const DEFAULT_SUBAGENTS_KEY = 'vibisual:defaultSubAgents';
 const TAB_PINS_KEY = 'vibisual:tabPins';
 const SUBAGENT_LABELS_KEY = 'vibisual:subAgentLabels';
 // 서브에이전트 완료 확인(ack) 상태 — 재시작 후에도 "확인함(회색)" 이 유지되도록 localStorage 영속.
 // 없으면 부팅 시 메모리 기본값 {} 으로 시작 → idle sub 들이 전부 미확인(녹색)으로 회귀.
 const ACK_SUBAGENTS_KEY = 'vibisual:ackSubAgents';
+// IDE 북마크 — 사용자가 IDE 출력에서 선택한 텍스트를 보관(말풍선 카드). 재시작 후에도 유지되도록
+// localStorage 영속(서버 비관여 — 순수 클라 기능). 값 = IDEBookmark[].
+const IDE_BOOKMARKS_KEY = 'vibisual:ideBookmarks';
+// §5.5 #17-4 v2.93 — SkillsView "본 적 있는 스킬" 집합(키=`source:name`). 미클릭 신규 스킬을
+// 다른 색으로 표시하기 위함. localStorage 영속(순수 클라). initialized=false 면 첫 로드 시 현재
+// 보이는 전 스킬을 시드(전체 깜빡임 방지), 이후 추가분만 신규로 취급.
+const SKILLS_SEEN_KEY = 'vibisual:skillsSeenSkills';
 
 function loadSavedActiveProject(): string | null {
   try {
@@ -119,6 +135,48 @@ function saveSessionInputDrafts(drafts: Record<string, AgentSessionInputDraft>):
   saveJSON(SESSION_INPUT_DRAFTS_KEY, Object.keys(textMap).length > 0 ? textMap : null);
 }
 
+// v2.x perf — 입력 영속화 debounce.
+//   기존엔 setAgentSessionInputText 가 키 입력마다 동기 localStorage.setItem 을 호출했다.
+//   draft 텍스트가 길어질수록 JSON.stringify 비용이 키당 O(n) → 긴 명령 타이핑이 O(n²) 로
+//   점점 느려지고(IME 합성 프레임 사이를 디스크 I/O 가 막아) "버버버벅" 끊겼다.
+//   in-memory store(=controlled textarea 의 즉시 echo)는 동기로 두고, localStorage 쓰기만
+//   trailing debounce 로 미뤄 타이핑 핫패스에서 동기 I/O 를 제거한다.
+//   clear/take(제출·정리)도 같은 스케줄러를 거쳐 "마지막 맵이 이긴다" — 타이핑 debounce 가
+//   뒤늦게 발화해 이미 비운 draft 를 되살리는 race 를 막는다. 탭 숨김/종료 시 즉시 flush.
+let pendingDraftSave: Record<string, AgentSessionInputDraft> | null = null;
+let draftSaveTimer: ReturnType<typeof setTimeout> | null = null;
+
+function flushSessionInputDrafts(): void {
+  if (draftSaveTimer !== null) {
+    clearTimeout(draftSaveTimer);
+    draftSaveTimer = null;
+  }
+  if (pendingDraftSave !== null) {
+    saveSessionInputDrafts(pendingDraftSave);
+    pendingDraftSave = null;
+  }
+}
+
+function scheduleSaveSessionInputDrafts(drafts: Record<string, AgentSessionInputDraft>): void {
+  pendingDraftSave = drafts;
+  if (draftSaveTimer !== null) return;
+  draftSaveTimer = setTimeout(() => {
+    draftSaveTimer = null;
+    if (pendingDraftSave !== null) {
+      saveSessionInputDrafts(pendingDraftSave);
+      pendingDraftSave = null;
+    }
+  }, 400);
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('pagehide', flushSessionInputDrafts);
+  window.addEventListener('beforeunload', flushSessionInputDrafts);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushSessionInputDrafts();
+  });
+}
+
 /**
  * 현재 사용자가 보고 있는 프로젝트 스코프.
  * worktree 버블 드릴다운(`currentFolderId`가 worktree 노드) 중이면 해당 worktree 프로젝트명,
@@ -179,6 +237,63 @@ export function selectIDEOverlay(state: {
 }): IDEOverlayState {
   if (!state.activeProject) return DEFAULT_IDE_OVERLAY;
   return state.ideOverlays[state.activeProject] ?? DEFAULT_IDE_OVERLAY;
+}
+
+/**
+ * IDE 북마크 — IDE 출력에서 우클릭→"북마크"로 보관한 텍스트 조각.
+ * 전역 단일 목록(프로젝트/에이전트 무관)으로 localStorage 영속. "이동" 시 출처 세션으로 복귀하기 위해
+ * 출처 agentId/sessionId/projectId 를 함께 보관한다.
+ */
+export interface IDEBookmark {
+  id: string;
+  /** 보관한 본문(선택 텍스트 그대로). 매우 긴 선택은 저장 시 상한으로 잘린다. */
+  text: string;
+  /** 출처 에이전트 ID(IDE). 이동 시 openIDEOverlay 대상. */
+  agentId: string;
+  /** 출처 세션(SubAgent) ID. null = 메인 탭. */
+  sessionId: string | null;
+  /** 출처 프로젝트(표시명) — 다른 프로젝트의 북마크로 이동 시 탭 전환에 사용. */
+  projectId: string | null;
+  /** 표시용 출처 에이전트 라벨 스냅샷. */
+  agentLabel: string;
+  /** 출처 스트림/타임라인 항목 id(`data-stream-item-id`) — 이동 시 가상 리스트를 그 항목으로 직접 스크롤. */
+  anchorId?: string;
+  createdAt: number;
+}
+
+/** §5.5 #17-8 v2.95 — 세션 자기요약 캐시 항목. 카드 없는 세션의 CLI 요약 텍스트 + 닫힌 세션 잔류용 메타. */
+export interface SessionSummaryEntry {
+  /** 세션(SubAgent) ID. */
+  subId: string;
+  /** 부모 에이전트 ID. */
+  agentId: string;
+  /** 표시용 세션 라벨 스냅샷(닫혀도 보드에 이름이 남게). */
+  label: string;
+  /** CLI 자기요약 텍스트. */
+  text: string;
+  /** 생성 시각. */
+  at: number;
+  /** 세션 탭이 닫혔는지 — true 면 요약만 보드에 잔류("요약해서 건네주고 닫기"). */
+  closed?: boolean;
+}
+
+/** 세션 요약 캐시 localStorage 키 + 상한. */
+const SESSION_SUMMARIES_KEY = 'vibisual:sessionSummaries';
+const SESSION_SUMMARY_MAX = 200;
+
+/** 북마크 본문 저장 상한(localStorage 비대화 방지). 표시도 이 길이까지. */
+const BOOKMARK_TEXT_MAX = 8000;
+/** 보관 가능한 북마크 최대 개수(오래된 것부터 밀어냄). */
+const BOOKMARK_MAX = 200;
+
+/** 이동 직후 본문 위치로 스크롤하기 위한 1회성 타깃(IDEMainArea 가 소비 후 clear). */
+export interface BookmarkScrollTarget {
+  sessionId: string | null;
+  text: string;
+  /** 출처 항목 id — 가상 리스트 scrollToIndex 용. 없으면 텍스트 검색 폴백. */
+  anchorId?: string;
+  /** 소비 측이 매번 새 타깃으로 인식하도록 하는 nonce(같은 북마크를 연속 이동해도 effect 재실행). */
+  nonce: number;
 }
 
 /** agentId → sessionId (agent.path に格納) */
@@ -356,10 +471,6 @@ interface GraphState {
   imageLightbox: string | null;
   openImageLightbox: (url: string) => void;
   closeImageLightbox: () => void;
-  /** 스트림 본문 링크 클릭 시 iframe 오버레이로 열 URL. null=닫힘. 전환 상태이므로 영속화 ❌. */
-  linkFrame: string | null;
-  openLinkFrame: (url: string) => void;
-  closeLinkFrame: () => void;
   /** 콘티 생성 in-flight (agentId Set) — UX 스피너용. 완료 시 자동 제거. */
   contiGenerating: Record<string, true>;
   /** 사용자가 "새 콘티 생성" 버튼 누름 — 서버 POST /api/conti/generate. */
@@ -607,6 +718,44 @@ interface GraphState {
    *  IDE 오버레이가 닫혀도 유지 — 버블의 context 게이지/라벨 override 소스. */
   selectedSubByAgent: Record<string, string>;
   selectSubForAgent: (agentId: string, subId: string) => void;
+  /** IDE 북마크 — IDE 출력에서 보관한 텍스트 조각의 전역 목록(localStorage 영속). */
+  ideBookmarks: IDEBookmark[];
+  /** 선택 텍스트를 북마크로 추가(최신이 앞). 빈 텍스트는 무시. */
+  addBookmark: (input: { text: string; agentId: string; sessionId: string | null; projectId: string | null; agentLabel: string; anchorId?: string }) => void;
+  /** 북마크 1개 제거. */
+  removeBookmark: (id: string) => void;
+  /** 북마크 출처 세션으로 이동(필요 시 프로젝트 탭 전환 + IDE 오버레이 + 세션 선택) + 본문 스크롤 타깃 설정. */
+  jumpToBookmark: (bookmark: IDEBookmark) => void;
+  /** 이동 직후 본문 위치 스크롤용 1회성 타깃. IDEMainArea 가 소비 후 clear. */
+  bookmarkScrollTarget: BookmarkScrollTarget | null;
+  /** bookmarkScrollTarget 소비 완료 처리. */
+  clearBookmarkScrollTarget: () => void;
+  /** 북마크 패널이 열려 있는지 — 활동바 북마크 버튼이 토글. 세션창(메인 영역) 전체를 덮는 오버레이. 휘발(영속 ❌). */
+  bookmarkPanelOpen: boolean;
+  setBookmarkPanelOpen: (open: boolean) => void;
+  toggleBookmarkPanel: () => void;
+  /** §5.5 #17-8 v2.95 — 세션 요약 보드 패널이 열려 있는지(북마크 패널과 동형 휘발 토글, 세션창 전체 덮개). 영속 ❌. */
+  summaryPanelOpen: boolean;
+  setSummaryPanelOpen: (open: boolean) => void;
+  toggleSummaryPanel: () => void;
+  /** §5.5 #17-8 v2.95 — 세션 자기요약 캐시(subId → 항목). 카드 없는 세션의 CLI 요약 텍스트 보관 + 닫힌 세션도 보드에 남김. localStorage 영속. */
+  sessionSummaries: Record<string, SessionSummaryEntry>;
+  /** 자기요약 텍스트 저장(없으면 추가, 있으면 갱신). */
+  setSessionSummary: (entry: SessionSummaryEntry) => void;
+  /** 한 세션 요약 항목 제거. */
+  removeSessionSummary: (subId: string) => void;
+  /** 세션을 닫을 때 그 요약 항목을 closed=true 로 마킹(보드에 잔류, 없으면 무시). */
+  markSessionSummaryClosed: (subId: string) => void;
+  /** §5.5 #17-4 v2.93 — SkillsView 에서 사용자가 본(클릭한) 스킬 키 집합(`source:name`). 미클릭 신규 스킬 색 구분용. localStorage 영속. */
+  seenSkills: { initialized: boolean; keys: Record<string, true> };
+  /** 최초 1회 — 현재 보이는 전 스킬을 "본 것"으로 시드(첫 로드 전체 신규 깜빡임 방지). 이미 initialized 면 무시. */
+  seedSeenSkills: (keys: string[]) => void;
+  /** 스킬을 본 것으로 표시(클릭 시). 이미 본 것이면 무변경. */
+  markSkillSeen: (key: string) => void;
+  /** IDE 본문(스트림/대화) 텍스트 줌 배율(1 = 100%). Ctrl+휠로 조절. 캔버스·창 UI 와 무관. localStorage 영속. */
+  ideTextZoom: number;
+  /** IDE 본문 텍스트 줌 배율 설정(0.6~2.4 로 클램프 + 영속). */
+  setIdeTextZoom: (z: number) => void;
   /** 현재 UI 언어 (서버 SSOT — ProjectCheckpoint.uiLocale). */
   uiLocale: UiLocale;
   /** 서버 스냅샷 수신 시 호출 — 상태 갱신 + i18n 언어 전환. */
@@ -904,7 +1053,6 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   diagnosticLog: [],
   contiBoardOpen: null,
   imageLightbox: null,
-  linkFrame: null,
   contiGenerating: {},
   contiElementPatching: {},
   agentInputDrafts: {},
@@ -932,7 +1080,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
         attachments: prev?.attachments ?? [],
       };
       const agentSessionInputs = { ...s.agentSessionInputs, [key]: nextEntry };
-      saveSessionInputDrafts(agentSessionInputs); // v2.69 — 키 입력마다 텍스트 영속
+      scheduleSaveSessionInputDrafts(agentSessionInputs); // v2.x — 키 입력은 in-memory 즉시, 영속화는 debounce
       return { agentSessionInputs };
     }),
   updateAgentSessionInputAttachments: (agentId, sessionId, updater) =>
@@ -954,7 +1102,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       if (!(key in s.agentSessionInputs)) return s;
       const next = { ...s.agentSessionInputs };
       delete next[key];
-      saveSessionInputDrafts(next); // v2.69 — 제출/클리어 시 영속 텍스트도 제거
+      scheduleSaveSessionInputDrafts(next); // v2.x — 같은 스케줄러로 last-write-wins(되살아남 방지)
       return { agentSessionInputs: next };
     }),
   takeAgentSessionInputs: (agentId) => {
@@ -979,7 +1127,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     }
     if (changed) {
       set({ agentSessionInputs: next });
-      saveSessionInputDrafts(next);
+      scheduleSaveSessionInputDrafts(next);
     }
     return removed;
   },
@@ -987,8 +1135,6 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   closeContiBoard: () => set({ contiBoardOpen: null }),
   openImageLightbox: (url) => set({ imageLightbox: url }),
   closeImageLightbox: () => set({ imageLightbox: null }),
-  openLinkFrame: (url) => set({ linkFrame: url }),
-  closeLinkFrame: () => set({ linkFrame: null }),
   generateConti: async (agentId) => {
     set((s) => ({ contiGenerating: { ...s.contiGenerating, [agentId]: true } }));
     try {
@@ -1462,6 +1608,13 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     saveJSON(DEFAULT_TABBAR_KEY, key);
     return { defaultTabbarKey: key };
   }),
+  ideTextZoom: clampIdeTextZoom(loadJSON<number>(IDE_TEXT_ZOOM_KEY, 1)),
+  setIdeTextZoom: (z) => set((state) => {
+    const next = clampIdeTextZoom(z);
+    if (state.ideTextZoom === next) return state;
+    saveJSON(IDE_TEXT_ZOOM_KEY, next);
+    return { ideTextZoom: next };
+  }),
   defaultSubAgents: loadJSON<Record<string, string>>(DEFAULT_SUBAGENTS_KEY, {}),
   setDefaultSubAgent: (agentId, subAgentId) => set((state) => {
     const next = { ...state.defaultSubAgents };
@@ -1674,7 +1827,11 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   subAgentStreams: {},
   appendStreamEvent: (event) => set((s) => {
     const prev = s.subAgentStreams[event.subAgentId];
-    const next = prev ? [...prev, event] : [event];
+    const merged = prev ? [...prev, event] : [event];
+    // 성능: 세션당 상한 초과 시 가장 오래된(화면 위쪽) 이벤트부터 잘라 최근 N개만 유지.
+    const next = merged.length > STREAM_EVENTS_MAX_PER_SESSION
+      ? merged.slice(merged.length - STREAM_EVENTS_MAX_PER_SESSION)
+      : merged;
     return { subAgentStreams: { ...s.subAgentStreams, [event.subAgentId]: next } };
   }),
   appendStreamEvents: (events) => set((s) => {
@@ -1682,15 +1839,32 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     // 단건 append 와 동일 머지(prev ? [...prev, ev] : [ev])를 도착 순서대로 누적 —
     // 페어링(tool_use↔tool_result)이 의존하는 순서 보존. 객체 spread 1회 + set 1회로 묶는다.
     const nextStreams: Record<string, SubAgentStreamEvent[]> = { ...s.subAgentStreams };
+    const touched = new Set<string>();
     for (const event of events) {
       const prev = nextStreams[event.subAgentId];
       nextStreams[event.subAgentId] = prev ? [...prev, event] : [event];
+      touched.add(event.subAgentId);
+    }
+    // 성능: 이번 배치로 늘어난 세션만 상한 적용(초과 시 오래된 것부터 절단).
+    for (const sid of touched) {
+      const arr = nextStreams[sid]!;
+      if (arr.length > STREAM_EVENTS_MAX_PER_SESSION) {
+        nextStreams[sid] = arr.slice(arr.length - STREAM_EVENTS_MAX_PER_SESSION);
+      }
     }
     return { subAgentStreams: nextStreams };
   }),
-  loadStreamBuffers: (buffers) => set((s) => ({
-    subAgentStreams: { ...s.subAgentStreams, ...buffers },
-  })),
+  loadStreamBuffers: (buffers) => set((s) => {
+    // 서버 스냅샷 버퍼도 무한 누적일 수 있으니 합류 시 동일 상한 적용.
+    const capped: Record<string, SubAgentStreamEvent[]> = {};
+    for (const sid of Object.keys(buffers)) {
+      const arr = buffers[sid]!;
+      capped[sid] = arr.length > STREAM_EVENTS_MAX_PER_SESSION
+        ? arr.slice(arr.length - STREAM_EVENTS_MAX_PER_SESSION)
+        : arr;
+    }
+    return { subAgentStreams: { ...s.subAgentStreams, ...capped } };
+  }),
   ideOverlays: {},
   openIDEOverlay: (agentId) => set((state) => {
     // 우선순위: (1) 마지막 활성 서브에이전트 → (2) Default 서브에이전트 → (3) null
@@ -1709,6 +1883,8 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     const wasOpen = !!prev?.agentId;
     const keepDock = wasOpen && !!prev?.dockedRight;
     return {
+      bookmarkPanelOpen: false,
+      summaryPanelOpen: false,
       ideOverlays: {
         ...state.ideOverlays,
         [ownerProject]: {
@@ -1729,7 +1905,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     if (!proj || !state.ideOverlays[proj]) return {};
     const next = { ...state.ideOverlays };
     delete next[proj];
-    return { ideOverlays: next };
+    return { ideOverlays: next, bookmarkPanelOpen: false, summaryPanelOpen: false };
   }),
   setIDEDocked: (docked, dockWidth) => set((s) => {
     const proj = s.activeProject;
@@ -1769,6 +1945,98 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   selectSubForAgent: (agentId, subId) => set((s) => ({
     selectedSubByAgent: { ...s.selectedSubByAgent, [agentId]: subId },
   })),
+  ideBookmarks: loadJSON<IDEBookmark[]>(IDE_BOOKMARKS_KEY, []),
+  addBookmark: (input) => set((s) => {
+    const text = input.text.trim();
+    if (!text) return {};
+    const bookmark: IDEBookmark = {
+      id: `bm-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+      text: text.length > BOOKMARK_TEXT_MAX ? text.slice(0, BOOKMARK_TEXT_MAX) : text,
+      agentId: input.agentId,
+      sessionId: input.sessionId,
+      projectId: input.projectId,
+      agentLabel: input.agentLabel,
+      anchorId: input.anchorId,
+      createdAt: Date.now(),
+    };
+    const next = [bookmark, ...s.ideBookmarks].slice(0, BOOKMARK_MAX);
+    saveJSON(IDE_BOOKMARKS_KEY, next);
+    return { ideBookmarks: next };
+  }),
+  removeBookmark: (id) => set((s) => {
+    const next = s.ideBookmarks.filter((b) => b.id !== id);
+    if (next.length === s.ideBookmarks.length) return {};
+    saveJSON(IDE_BOOKMARKS_KEY, next);
+    return { ideBookmarks: next };
+  }),
+  seenSkills: loadJSON<{ initialized: boolean; keys: Record<string, true> }>(SKILLS_SEEN_KEY, { initialized: false, keys: {} }),
+  seedSeenSkills: (keys) => set((s) => {
+    if (s.seenSkills.initialized) return {};
+    const seeded: Record<string, true> = {};
+    for (const k of keys) seeded[k] = true;
+    const next = { initialized: true, keys: seeded };
+    saveJSON(SKILLS_SEEN_KEY, next);
+    return { seenSkills: next };
+  }),
+  markSkillSeen: (key) => set((s) => {
+    if (s.seenSkills.keys[key]) return {};
+    const next = { initialized: true, keys: { ...s.seenSkills.keys, [key]: true as const } };
+    saveJSON(SKILLS_SEEN_KEY, next);
+    return { seenSkills: next };
+  }),
+  jumpToBookmark: (bookmark) => {
+    const s = get();
+    // 다른 프로젝트의 북마크면 그 프로젝트 탭으로 먼저 전환(hydrated/stub 존재 시에만).
+    const proj = s.agentProjects[bookmark.agentId] ?? bookmark.projectId ?? s.activeProject;
+    if (proj && proj !== s.activeProject && (s.projects[proj] || s.stubProjects[proj])) {
+      get().setActiveProject(proj);
+    }
+    get().openIDEOverlay(bookmark.agentId);
+    get().setIDEActiveSession(bookmark.sessionId);
+    set((s) => ({
+      bookmarkScrollTarget: {
+        sessionId: bookmark.sessionId,
+        text: bookmark.text,
+        anchorId: bookmark.anchorId,
+        nonce: (s.bookmarkScrollTarget?.nonce ?? 0) + 1,
+      },
+    }));
+  },
+  bookmarkScrollTarget: null,
+  clearBookmarkScrollTarget: () => set((s) => (s.bookmarkScrollTarget ? { bookmarkScrollTarget: null } : {})),
+  bookmarkPanelOpen: false,
+  setBookmarkPanelOpen: (open) => set((s) => (s.bookmarkPanelOpen === open ? {} : { bookmarkPanelOpen: open, ...(open ? { summaryPanelOpen: false } : {}) })),
+  toggleBookmarkPanel: () => set((s) => ({ bookmarkPanelOpen: !s.bookmarkPanelOpen, ...(!s.bookmarkPanelOpen ? { summaryPanelOpen: false } : {}) })),
+  // §5.5 #17-8 v2.95 — 세션 요약 보드. 북마크 패널과 상호 배타(하나 열면 다른 하나 닫힘).
+  summaryPanelOpen: false,
+  setSummaryPanelOpen: (open) => set((s) => (s.summaryPanelOpen === open ? {} : { summaryPanelOpen: open, ...(open ? { bookmarkPanelOpen: false } : {}) })),
+  toggleSummaryPanel: () => set((s) => ({ summaryPanelOpen: !s.summaryPanelOpen, ...(!s.summaryPanelOpen ? { bookmarkPanelOpen: false } : {}) })),
+  sessionSummaries: loadJSON<Record<string, SessionSummaryEntry>>(SESSION_SUMMARIES_KEY, {}),
+  setSessionSummary: (entry) => set((s) => {
+    const next = { ...s.sessionSummaries, [entry.subId]: entry };
+    // 상한 — 가장 오래된 것부터 밀어냄(at 오름차순).
+    const keys = Object.keys(next);
+    if (keys.length > SESSION_SUMMARY_MAX) {
+      const sorted = keys.sort((a, b) => (next[a]!.at) - (next[b]!.at));
+      for (const k of sorted.slice(0, keys.length - SESSION_SUMMARY_MAX)) delete next[k];
+    }
+    saveJSON(SESSION_SUMMARIES_KEY, next);
+    return { sessionSummaries: next };
+  }),
+  removeSessionSummary: (subId) => set((s) => {
+    if (!s.sessionSummaries[subId]) return {};
+    const next = { ...s.sessionSummaries };
+    delete next[subId];
+    saveJSON(SESSION_SUMMARIES_KEY, Object.keys(next).length > 0 ? next : null);
+    return { sessionSummaries: next };
+  }),
+  markSessionSummaryClosed: (subId) => set((s) => {
+    const cur = s.sessionSummaries[subId];
+    if (!cur || cur.closed) return {};
+    const next = { ...s.sessionSummaries, [subId]: { ...cur, closed: true } };
+    saveJSON(SESSION_SUMMARIES_KEY, next);
+    return { sessionSummaries: next };
+  }),
   setIDEActiveView: (view) => set((s) => {
     const proj = s.activeProject;
     if (!proj) return {};
@@ -1803,7 +2071,11 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   applyAgentQuestions: (questions) => set({ agentQuestions: questions ?? {} }),
   applyAgentReviews: (reviews) => set({ agentReviews: reviews ?? {} }),
   applyAgentLists: (lists) => set({ agentLists: lists ?? {} }),
-  applyDiagnosticLog: (log) => set({ diagnosticLog: log ?? [] }),
+  applyDiagnosticLog: (log) => {
+    const arr = log ?? [];
+    // 서버가 이미 ring buffer 로 trim 하지만, 클라에서도 동일 상한을 방어적으로 적용.
+    set({ diagnosticLog: arr.length > DIAGNOSTIC_LOG_MAX ? arr.slice(arr.length - DIAGNOSTIC_LOG_MAX) : arr });
+  },
   applyModelRegistry: (reg) => set({ modelRegistry: reg ?? null }),
   applyUserDefaults: (d) => set({ userDefaults: d ?? null }),
   setUiLocale: async (locale) => {
@@ -1937,3 +2209,14 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     void fetch(`${API_BASE}/api/claude-version/dismiss-session`, { method: 'POST' }).catch(() => {});
   },
 }));
+
+// IDE 텍스트 줌 다중 창 동기화 — 별창/메인이 각자 렌더러(독립 store)라, 한 창에서 Ctrl+휠로 바꾼 배율을
+//   다른 창도 즉시 따라오도록 localStorage `storage` 이벤트로 반영(다른 탭/창에서의 변경만 발화).
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (e) => {
+    if (e.key !== IDE_TEXT_ZOOM_KEY) return;
+    let z = 1;
+    try { z = e.newValue ? (JSON.parse(e.newValue) as number) : 1; } catch { z = 1; }
+    useGraphStore.setState({ ideTextZoom: clampIdeTextZoom(z) });
+  });
+}

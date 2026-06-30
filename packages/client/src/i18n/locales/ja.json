@@ -518,6 +518,15 @@
     "debugPanel": {
       "title": "デバッグ",
       "close": "閉じる",
+      "project": "プロジェクト",
+      "projectName": "名前",
+      "projectPath": "パス",
+      "agents": "エージェント",
+      "nodes": "ノード",
+      "edges": "エッジ",
+      "noProject": "アクティブなプロジェクトなし",
+      "fps": "fps",
+      "fpsTip": "レンダリングフレームレート",
       "errorLog": "エラーログ",
       "noErrors": "エラーなし",
       "servers": "サーバー",
@@ -670,11 +679,14 @@
     },
     "mainArea": {
       "scrollPrompt": "プロンプトへスクロール",
+      "dropFilesHint": "ファイルをドロップしてパスを追加",
       "inputPlaceholderNew": "新しいセッションを開始するコマンドを入力...",
       "inputPlaceholder": "コマンドを入力...",
       "run": "実行",
       "stop": "停止",
       "stopping": "停止中…",
+      "followUp": "追記",
+      "followUpTitle": "実行を止めずにメッセージを追加で送信します (Enter)",
       "executing": "実行中…",
       "readOnly": "読み取り専用 — セッションタブを選択するか新規作成してください",
       "attachmentError": "ERR",
@@ -684,6 +696,7 @@
       "slashEmpty": "一致するスキルなし",
       "slashLoading": "スキルを読み込み中…",
       "ctxCopy": "コピー",
+      "ctxBookmark": "ブックマーク",
       "ctxQuoteReply": "引用返信",
       "ctxSendAsPrompt": "新しいプロンプトとして送信",
       "ctxSelectAll": "すべて選択",
@@ -710,7 +723,17 @@
       "terminal": "ターミナル",
       "files": "ファイル",
       "results": "結果",
-      "skills": "スキル"
+      "skills": "スキル",
+      "bookmarks": "ブックマーク"
+    },
+    "bookmarks": {
+      "title": "ブックマーク",
+      "empty": "ブックマークはまだありません。出力のテキストを選択して右クリックし、「ブックマーク」を選択してください。",
+      "copy": "コピー",
+      "jump": "ソースへ移動",
+      "remove": "削除",
+      "close": "閉じる",
+      "sourceGone": "ソースは存在しません"
     },
     "sidebar": {
       "sessions": "セッション",

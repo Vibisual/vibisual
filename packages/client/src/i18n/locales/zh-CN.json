@@ -518,6 +518,15 @@
     "debugPanel": {
       "title": "调试",
       "close": "关闭",
+      "project": "项目",
+      "projectName": "名称",
+      "projectPath": "路径",
+      "agents": "Agent",
+      "nodes": "节点",
+      "edges": "边",
+      "noProject": "无活动项目",
+      "fps": "fps",
+      "fpsTip": "渲染帧率",
       "errorLog": "错误日志",
       "noErrors": "无错误记录",
       "servers": "服务器",
@@ -670,11 +679,14 @@
     },
     "mainArea": {
       "scrollPrompt": "滚动到提示词",
+      "dropFilesHint": "拖放文件以添加其路径",
       "inputPlaceholderNew": "输入命令以开始新 Session...",
       "inputPlaceholder": "输入命令...",
       "run": "运行",
       "stop": "停止",
       "stopping": "停止中…",
+      "followUp": "追加",
+      "followUpTitle": "不中断执行，继续发送消息 (Enter)",
       "executing": "执行中…",
       "readOnly": "只读 — 请选择 Session 标签或新建",
       "attachmentError": "错误",
@@ -684,6 +696,7 @@
       "slashEmpty": "无匹配技能",
       "slashLoading": "加载技能中…",
       "ctxCopy": "复制",
+      "ctxBookmark": "书签",
       "ctxQuoteReply": "引用回复",
       "ctxSendAsPrompt": "作为新提示发送",
       "ctxSelectAll": "全选",
@@ -710,7 +723,17 @@
       "terminal": "终端",
       "files": "文件",
       "results": "结果",
-      "skills": "技能"
+      "skills": "技能",
+      "bookmarks": "书签"
+    },
+    "bookmarks": {
+      "title": "书签",
+      "empty": "暂无书签。在输出内容中选中文本，右键点击，然后选择书签。",
+      "copy": "复制",
+      "jump": "跳转到来源",
+      "remove": "移除",
+      "close": "关闭",
+      "sourceGone": "来源已不存在"
     },
     "sidebar": {
       "sessions": "Sessions",

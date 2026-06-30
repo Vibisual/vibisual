@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import { electronAPI } from '@electron-toolkit/preload';
 import type { UpdateState, AgentConfig } from '@vibisual/shared';
 
@@ -59,6 +59,14 @@ export interface OverlayListWire {
 
 const api = {
   serverInfo: (): Promise<ServerInfo> => ipcRenderer.invoke('vibisual:server-info'),
+  /**
+   * OS 파일 드래그앤드롭 — 드롭된 File 의 절대경로 해석(Electron 31+ webUtils).
+   * `File.path` 는 Electron 32 에서 제거 예정이라 공식 권장 경로(webUtils.getPathForFile)로 통일.
+   * 동기 반환이며 File 객체는 contextBridge 가 그대로 preload 로 전달한다.
+   */
+  getPathForFile: (file: File): string => {
+    try { return webUtils.getPathForFile(file); } catch { return ''; }
+  },
   request: (path: string, init?: FetchInitWire): Promise<FetchResponseWire> =>
     ipcRenderer.invoke('vibisual:fetch', path, init),
   send: (message: unknown): Promise<void> => ipcRenderer.invoke('vibisual:send', message),

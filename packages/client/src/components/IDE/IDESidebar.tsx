@@ -1,9 +1,9 @@
-import { memo, useMemo, useCallback, useState, useRef } from 'react';
+import { memo, useMemo, useCallback, useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { SubAgent, AgentEvent, QueuedCommand, FileEdit, ActivityEdge } from '@vibisual/shared';
 import { useGraphStore, selectIDEOverlay, agentSessionInputKey } from '../../stores/graphStore.js';
 import type { IDEViewType } from '../../stores/graphStore.js';
-import { useAvailableSkills, deleteSkill, persistSkillOrder, type SkillInfo } from '../../hooks/useAvailableSkills.js';
+import { useAvailableSkills, deleteSkill, persistSkillOrder, persistSkillFavorites, refreshAvailableSkills, type SkillInfo } from '../../hooks/useAvailableSkills.js';
 import { ScrollFade } from '../ScrollFade.js';
 
 const EMPTY_SUBS: SubAgent[] = [];
@@ -209,7 +209,11 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
   // 스킬 목록 조회는 agentId 를 권위 키로 넘긴다 — 서버가 그 에이전트의 소속 인스턴스에서
   // 프로젝트 path 를 직접 해소하므로, 활성 프로젝트 오염·표시명 어긋남에 영향받지 않는다.
   const projectName = useGraphStore((s) => s.agentProjects[agentId]);
-  const { skills, order, loaded } = useAvailableSkills(projectName, agentId);
+  const { skills, order, favorites, loaded } = useAvailableSkills(projectName, agentId);
+  // §5.5 #17-4 v2.93 — 신규(미클릭) 스킬 색 구분용 "본 것" 집합 + 시드/표시 액션.
+  const seenSkills = useGraphStore((s) => s.seenSkills);
+  const seedSeenSkills = useGraphStore((s) => s.seedSeenSkills);
+  const markSkillSeen = useGraphStore((s) => s.markSkillSeen);
   const activeSessionId = useGraphStore((s) => selectIDEOverlay(s).activeSessionId);
   const setAgentSessionInputText = useGraphStore((s) => s.setAgentSessionInputText);
   // §4 v2.63 — CMD(interactive-terminal) 에이전트는 textarea 대신 임베디드 PTY 가 렌더된다.
@@ -222,18 +226,30 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
   // 삭제 확인(인라인 2-step) 대상 스킬명. 드래그 in-flight 상태(타입 + 가시 순서).
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [liveDrag, setLiveDrag] = useState<{ type: SkillSource; names: string[] } | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const dragNameRef = useRef<string | null>(null);
 
-  const { projectSkills, globalSkills, pluginSkills } = useMemo(() => {
+  // §5.5 #17-4 v2.93 — 즐겨찾기 집합. 출처 무관 스킬명 키.
+  const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
+
+  const { favoriteSkills, projectSkills, globalSkills, pluginSkills } = useMemo(() => {
     const getCount = (name: string): number => projectCounts?.[name] ?? 0;
     const cmp = (a: SkillInfo, b: SkillInfo): number => {
       const d = getCount(b.name) - getCount(a.name);
       return d !== 0 ? d : a.name.localeCompare(b.name);
     };
+    // 즐겨찾기는 출처 그룹에서 빠져 최상단으로. favorites 배열(별 누른 순서)대로 정렬.
+    const byName = new Map(skills.map((s) => [s.name, s]));
+    const favs: SkillInfo[] = [];
+    for (const n of favorites) {
+      const s = byName.get(n);
+      if (s) favs.push(s);
+    }
     const project: SkillInfo[] = [];
     const global: SkillInfo[] = [];
     const plugin: SkillInfo[] = [];
     for (const s of skills) {
+      if (favoriteSet.has(s.name)) continue; // 즐겨찾기는 출처 그룹에서 제외(중복 표시 ❌).
       if (s.source === 'project') project.push(s);
       else if (s.source === 'global') global.push(s);
       else plugin.push(s);
@@ -243,11 +259,35 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
     const pinnedFor = (type: SkillSource): string[] =>
       liveDrag?.type === type ? liveDrag.names : orderFor(type);
     return {
+      favoriteSkills: favs,
       projectSkills: applyPinnedOrder(project, pinnedFor('project'), cmp),
       globalSkills: applyPinnedOrder(global, pinnedFor('global'), cmp),
       pluginSkills: applyPinnedOrder(plugin, pinnedFor('plugin'), cmp),
     };
-  }, [skills, projectCounts, order, liveDrag]);
+  }, [skills, projectCounts, order, liveDrag, favorites, favoriteSet]);
+
+  // §5.5 #17-4 v2.93 — 최초 1회: 현재 보이는 전 스킬을 "본 것"으로 시드(첫 로드 전체 깜빡임 방지).
+  useEffect(() => {
+    if (loaded && skills.length > 0) {
+      seedSeenSkills(skills.map((s) => `${s.source}:${s.name}`));
+    }
+  }, [loaded, skills, seedSeenSkills]);
+
+  // §5.5 #17-4 v2.93 — 즐겨찾기 토글(전체 목록 치환 저장). 별 누른 순서 유지.
+  const toggleFavorite = useCallback((s: SkillInfo) => {
+    const next = favoriteSet.has(s.name)
+      ? favorites.filter((n) => n !== s.name)
+      : [...favorites, s.name];
+    void persistSkillFavorites(next);
+  }, [favorites, favoriteSet]);
+
+  // §5.5 #17-4 v2.93 — 새로고침: 디스크에서 스킬 목록 재조회(새로 만든 스킬 즉시 반영).
+  const handleRefresh = useCallback(() => {
+    setRefreshing(true);
+    void refreshAvailableSkills().finally(() => {
+      setTimeout(() => setRefreshing(false), 400);
+    });
+  }, []);
 
   const insertSkill = useCallback((skill: SkillInfo) => {
     const insert = `/${skill.name} `;
@@ -314,22 +354,32 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
     void deleteSkill(s.name, s.source);
   }, []);
 
-  const renderSkill = useCallback((s: SkillInfo, orderedNames: string[]) => {
+  const renderSkill = useCallback((s: SkillInfo, orderedNames: string[], inFavorites = false) => {
     const accentText = s.source === 'project' ? 'text-emerald-400' : s.source === 'global' ? 'text-sky-400' : 'text-purple-400';
     const count = projectCounts?.[s.name] ?? 0;
     const confirming = confirmDelete === s.name;
+    const isFav = favoriteSet.has(s.name);
+    const isNew = !seenSkills.keys[`${s.source}:${s.name}`];
     return (
       <li
         key={`${s.source}:${s.name}`}
-        draggable
-        onDragStart={(e) => handleDragStart(e, s.source, orderedNames, s.name)}
-        onDragOver={(e) => handleDragOver(e, s.source, s.name)}
-        onDragEnd={handleDragEnd}
-        className="group relative cursor-grab rounded px-2 py-1.5 transition-colors hover:bg-gray-700/60 active:cursor-grabbing"
-        onClick={() => { if (!confirming) insertSkill(s); }}
+        draggable={!inFavorites}
+        onDragStart={inFavorites ? undefined : (e) => handleDragStart(e, s.source, orderedNames, s.name)}
+        onDragOver={inFavorites ? undefined : (e) => handleDragOver(e, s.source, s.name)}
+        onDragEnd={inFavorites ? undefined : handleDragEnd}
+        className={`group relative rounded px-2 py-1.5 transition-colors active:cursor-grabbing ${inFavorites ? 'cursor-pointer' : 'cursor-grab'} ${isNew ? 'bg-amber-500/10 hover:bg-amber-500/20' : 'hover:bg-gray-700/60'}`}
+        onClick={() => { if (!confirming) { markSkillSeen(`${s.source}:${s.name}`); insertSkill(s); } }}
         title={confirming ? undefined : s.description}
       >
         <div className="flex min-w-0 items-center gap-1.5">
+          {/* 신규(미클릭) 표시 점 — amber. */}
+          {isNew && (
+            <span
+              title={t('ide.sidebar.newSkill')}
+              aria-label={t('ide.sidebar.newSkill')}
+              className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-amber-400"
+            />
+          )}
           <span className={`min-w-0 truncate font-mono text-[11px] font-semibold ${accentText}`}>
             /{s.name}
           </span>
@@ -343,6 +393,21 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
               {count}×
             </span>
           )}
+          {/* 즐겨찾기 별 — 모든 출처. 즐겨찾기면 항상 노출(amber), 아니면 hover 시 노출. */}
+          <button
+            type="button"
+            draggable={false}
+            onClick={(e) => { e.stopPropagation(); toggleFavorite(s); }}
+            onMouseDown={(e) => e.stopPropagation()}
+            onDragStart={(e) => e.preventDefault()}
+            title={isFav ? t('ide.sidebar.favoriteRemove') : t('ide.sidebar.favoriteAdd')}
+            aria-label={isFav ? t('ide.sidebar.favoriteRemove') : t('ide.sidebar.favoriteAdd')}
+            className={`flex h-4 w-4 flex-shrink-0 items-center justify-center rounded transition-opacity hover:bg-amber-500/20 ${count > 0 ? 'ml-1' : 'ml-auto'} ${isFav ? 'text-amber-400 opacity-100' : 'text-gray-500 opacity-0 hover:text-amber-300 group-hover:opacity-100'}`}
+          >
+            <svg viewBox="0 0 24 24" fill={isFav ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3">
+              <path d="M12 2.5l2.95 5.98 6.6.96-4.77 4.65 1.13 6.57L12 17.52 6.09 20.63l1.13-6.57L2.45 9.44l6.6-.96L12 2.5z" />
+            </svg>
+          </button>
           {/* 삭제 X — 프로젝트 스킬만, hover 시 노출. */}
           {s.source === 'project' && !confirming && (
             <button
@@ -353,7 +418,7 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
               onDragStart={(e) => e.preventDefault()}
               title={t('ide.sidebar.deleteSkillTitle')}
               aria-label={t('ide.sidebar.deleteSkillTitle')}
-              className={`flex h-4 w-4 flex-shrink-0 items-center justify-center rounded text-gray-500 opacity-0 transition-opacity hover:bg-red-500/20 hover:text-red-300 group-hover:opacity-100 ${count > 0 ? 'ml-1' : 'ml-auto'}`}
+              className="ml-1 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded text-gray-500 opacity-0 transition-opacity hover:bg-red-500/20 hover:text-red-300 group-hover:opacity-100"
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3">
                 <path d="M18 6 6 18M6 6l12 12" />
@@ -390,17 +455,32 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
         )}
       </li>
     );
-  }, [insertSkill, projectCounts, confirmDelete, handleDragStart, handleDragOver, handleDragEnd, handleDelete, t]);
+  }, [insertSkill, projectCounts, confirmDelete, handleDragStart, handleDragOver, handleDragEnd, handleDelete, t, favoriteSet, seenSkills, markSkillSeen, toggleFavorite]);
 
+  const favoriteNames = useMemo(() => favoriteSkills.map((s) => s.name), [favoriteSkills]);
   const projectNames = useMemo(() => projectSkills.map((s) => s.name), [projectSkills]);
   const globalNames = useMemo(() => globalSkills.map((s) => s.name), [globalSkills]);
   const pluginNames = useMemo(() => pluginSkills.map((s) => s.name), [pluginSkills]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-1 p-2">
-      <span className="px-1 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
-        {t('ide.sidebar.skills', { count: skills.length })}
-      </span>
+      <div className="flex items-center gap-1 px-1">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+          {t('ide.sidebar.skills', { count: skills.length })}
+        </span>
+        <button
+          type="button"
+          onClick={handleRefresh}
+          title={t('ide.sidebar.refreshSkills')}
+          aria-label={t('ide.sidebar.refreshSkills')}
+          className="ml-auto flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-700/60 hover:text-gray-300"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`}>
+            <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+            <path d="M21 3v6h-6" />
+          </svg>
+        </button>
+      </div>
       <ScrollFade fill className="flex-1">
         {!loaded ? (
           <div className="px-2 py-4 text-center text-xs text-gray-600">{t('ide.sidebar.skillsLoading')}</div>
@@ -408,6 +488,14 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
           <div className="px-2 py-4 text-center text-xs text-gray-600">{t('ide.sidebar.noSkills')}</div>
         ) : (
           <div className="flex flex-col gap-2">
+            {favoriteSkills.length > 0 && (
+              <div className="flex flex-col gap-1">
+                <span className="px-1 text-[9px] font-medium uppercase tracking-wider text-amber-400/70">
+                  {t('ide.sidebar.favoriteSkills', { count: favoriteSkills.length })}
+                </span>
+                <ul className="flex flex-col gap-0.5">{favoriteSkills.map((s) => renderSkill(s, favoriteNames, true))}</ul>
+              </div>
+            )}
             {projectSkills.length > 0 && (
               <div className="flex flex-col gap-1">
                 <span className="px-1 text-[9px] font-medium uppercase tracking-wider text-emerald-400/60">

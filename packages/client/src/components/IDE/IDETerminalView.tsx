@@ -7,7 +7,8 @@ import { SearchAddon } from '@xterm/addon-search';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 import { useGraphStore } from '../../stores/graphStore.js';
-import { TerminalCardSniffer } from './terminalCardSniffer.js';
+import { TerminalCardSniffer, type TerminalCard } from './terminalCardSniffer.js';
+import { IDETerminalCardRail } from './IDETerminalCardRail.js';
 
 // §4 v2.63 — 임베디드 인터랙티브 터미널 뷰. (편의성 보강 v2.65)
 //
@@ -97,6 +98,8 @@ export function IDETerminalView({ agentId, sessionId }: IDETerminalViewProps): R
   const fontSizeRef = useRef<number>(typeof window !== 'undefined' ? readStoredFontSize() : FONT_SIZE_DEFAULT);
 
   const [fontSize, setFontSize] = useState<number>(fontSizeRef.current);
+  // §4 v2.89 — CMD 카드(작업 신고/질문/검수/목록). 마커 줄은 터미널에서 숨기고, 카드는 우측 DOM 패널이 렌더.
+  const [cards, setCards] = useState<TerminalCard[]>([]);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -124,6 +127,16 @@ export function IDETerminalView({ agentId, sessionId }: IDETerminalViewProps): R
   const selectAll = useCallback(() => {
     termRef.current?.selectAll();
   }, []);
+
+  // §4 v2.89 — CMD 질문 카드 "즉시 전송": 프롬프트를 터미널 PTY 에 prefill(newline ❌ — 사람이 Enter, ToS 인루프).
+  const sendPromptToTerminal = useCallback((prompt: string) => {
+    const api = window.api?.terminal;
+    if (!api) return;
+    void api.write(termId, prompt);
+    termRef.current?.focus();
+  }, [termId]);
+
+  const clearCards = useCallback(() => setCards([]), []);
 
   const clearTerminal = useCallback(() => {
     termRef.current?.clear();
@@ -181,6 +194,9 @@ export function IDETerminalView({ agentId, sessionId }: IDETerminalViewProps): R
     if (!host) return;
     // dev/web 모드 — PTY 없음. 안내는 JSX 폴백이 처리하므로 여기선 no-op.
     if (!api?.terminal || !config) return;
+
+    // 새 터미널/세션 부착 시 카드 패널을 비운다. reattach 면 아래 replay 가 buffer 의 마커로 재구성.
+    setCards([]);
 
     const term = new Terminal({
       fontFamily: 'Menlo, Consolas, "DejaVu Sans Mono", monospace',
@@ -243,9 +259,13 @@ export function IDETerminalView({ agentId, sessionId }: IDETerminalViewProps): R
     const cols = term.cols;
     const rows = term.rows;
 
-    // §4 v2.83 — CMD 카드 인라인 렌더러. PTY 출력 중 `::VIBISUAL-CARD::{…}` 마커 줄을 ANSI 색 박스로
-    //   **대체**해 터미널 안에 그대로 그린다(마커 없는 출력은 무변형 통과). feed 가 돌려준 문자열을 write.
-    const sniffer = new TerminalCardSniffer();
+    // §4 v2.89 — CMD 카드 스니퍼. PTY 출력 중 `::VIBISUAL-CARD::{…}` 마커 줄을 **터미널에서 숨기고**(feed 가
+    //   그 줄을 뺀 문자열을 돌려줌 → claude TUI 무간섭), 파싱한 카드는 onCard 로 받아 우측 DOM 패널이 렌더.
+    //   reattach replay 는 onReset 으로 패널을 비운 뒤 buffer 의 마커로 카드를 재구성한다.
+    const sniffer = new TerminalCardSniffer({
+      onCard: (card) => { if (!disposed) setCards((prev) => [...prev, card]); },
+      onReset: () => { if (!disposed) setCards([]); },
+    });
 
     // main → renderer 출력: 이 termId 만 골라, 변환된 표시 문자열을 write(원본 data 직접 write ❌).
     const offData = api.terminal.onData(({ termId: id, data }) => {
@@ -411,7 +431,8 @@ export function IDETerminalView({ agentId, sessionId }: IDETerminalViewProps): R
           <span className="text-[12px] text-gray-500">{t('ide.terminal.unavailable')}</span>
         </div>
       ) : (
-        <div className="relative min-h-0 flex-1">
+        <div className="relative flex min-h-0 flex-1">
+          <div className="relative min-h-0 flex-1">
           {/* 인앱 검색바 — Ctrl+F. */}
           {searchOpen && (
             <div className="absolute right-2 top-2 z-20 flex items-center gap-1 rounded-md border border-gray-700 bg-gray-900/95 px-1.5 py-1 shadow-xl backdrop-blur">
@@ -458,6 +479,16 @@ export function IDETerminalView({ agentId, sessionId }: IDETerminalViewProps): R
             </div>
           )}
           <div ref={hostRef} onContextMenu={onContextMenu} className="h-full min-h-0 w-full overflow-hidden p-1.5" />
+          </div>
+          {cards.length > 0 && (
+            <IDETerminalCardRail
+              cards={cards}
+              agentId={agentId}
+              sessionId={sessionId}
+              onSendPrompt={sendPromptToTerminal}
+              onClear={clearCards}
+            />
+          )}
         </div>
       )}
 

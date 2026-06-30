@@ -518,6 +518,15 @@
     "debugPanel": {
       "title": "Debug",
       "close": "Schließen",
+      "project": "Projekt",
+      "projectName": "Name",
+      "projectPath": "Pfad",
+      "agents": "Agenten",
+      "nodes": "Knoten",
+      "edges": "Kanten",
+      "noProject": "Kein aktives Projekt",
+      "fps": "fps",
+      "fpsTip": "Render-Frames pro Sekunde",
       "errorLog": "Fehlerprotokoll",
       "noErrors": "Keine Fehler erfasst",
       "servers": "Server",
@@ -670,11 +679,14 @@
     },
     "mainArea": {
       "scrollPrompt": "Zum Prompt scrollen",
+      "dropFilesHint": "Dateien ablegen, um ihre Pfade hinzuzufügen",
       "inputPlaceholderNew": "Befehl eingeben, um eine neue Session zu starten...",
       "inputPlaceholder": "Befehl eingeben...",
       "run": "Ausführen",
       "stop": "Stoppen",
       "stopping": "Wird gestoppt…",
+      "followUp": "Anfügen",
+      "followUpTitle": "Folgenachricht senden, ohne den Agenten zu stoppen (Enter)",
       "executing": "Wird ausgeführt…",
       "readOnly": "Nur-Lesen — Session-Tab auswählen oder neue erstellen",
       "attachmentError": "ERR",
@@ -684,6 +696,7 @@
       "slashEmpty": "Keine passenden Skills",
       "slashLoading": "Skills werden geladen…",
       "ctxCopy": "Kopieren",
+      "ctxBookmark": "Lesezeichen",
       "ctxQuoteReply": "Als Zitat antworten",
       "ctxSendAsPrompt": "Als neuen Prompt senden",
       "ctxSelectAll": "Alles auswählen",
@@ -710,7 +723,17 @@
       "terminal": "Terminal",
       "files": "Dateien",
       "results": "Ergebnisse",
-      "skills": "Skills"
+      "skills": "Skills",
+      "bookmarks": "Lesezeichen"
+    },
+    "bookmarks": {
+      "title": "Lesezeichen",
+      "empty": "Noch keine Lesezeichen. Text in der Ausgabe auswählen, Rechtsklick, dann Lesezeichen wählen.",
+      "copy": "Kopieren",
+      "jump": "Zur Quelle springen",
+      "remove": "Entfernen",
+      "close": "Schließen",
+      "sourceGone": "Quelle existiert nicht mehr"
     },
     "sidebar": {
       "sessions": "Sessions",

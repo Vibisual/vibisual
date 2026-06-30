@@ -518,6 +518,15 @@
     "debugPanel": {
       "title": "Débogage",
       "close": "Fermer",
+      "project": "Projet",
+      "projectName": "Nom",
+      "projectPath": "Chemin",
+      "agents": "Agents",
+      "nodes": "Nœuds",
+      "edges": "Arêtes",
+      "noProject": "Aucun projet actif",
+      "fps": "fps",
+      "fpsTip": "Images rendues par seconde",
       "errorLog": "Journal d'erreurs",
       "noErrors": "Aucune erreur capturée",
       "servers": "Serveurs",
@@ -670,11 +679,14 @@
     },
     "mainArea": {
       "scrollPrompt": "Défiler jusqu'à l'invite",
+      "dropFilesHint": "Déposez des fichiers pour ajouter leurs chemins",
       "inputPlaceholderNew": "Saisir une commande pour démarrer une nouvelle session...",
       "inputPlaceholder": "Saisir une commande...",
       "run": "Exécuter",
       "stop": "Arrêter",
       "stopping": "Arrêt en cours…",
+      "followUp": "Ajouter",
+      "followUpTitle": "Envoyer un message de suivi sans arrêter l'agent (Entrée)",
       "executing": "Exécution en cours…",
       "readOnly": "Lecture seule — sélectionner un onglet de session ou en créer un nouveau",
       "attachmentError": "ERR",
@@ -684,6 +696,7 @@
       "slashEmpty": "Aucune compétence correspondante",
       "slashLoading": "Chargement des compétences…",
       "ctxCopy": "Copier",
+      "ctxBookmark": "Marquer",
       "ctxQuoteReply": "Citer en réponse",
       "ctxSendAsPrompt": "Envoyer comme nouvelle invite",
       "ctxSelectAll": "Tout sélectionner",
@@ -710,7 +723,17 @@
       "terminal": "Terminal",
       "files": "Fichiers",
       "results": "Résultats",
-      "skills": "Compétences"
+      "skills": "Compétences",
+      "bookmarks": "Signets"
+    },
+    "bookmarks": {
+      "title": "Signets",
+      "empty": "Aucun signet pour l'instant. Sélectionnez du texte dans la sortie, faites un clic droit, puis choisissez Marquer.",
+      "copy": "Copier",
+      "jump": "Aller à la source",
+      "remove": "Supprimer",
+      "close": "Fermer",
+      "sourceGone": "La source n'existe plus"
     },
     "sidebar": {
       "sessions": "Sessions",

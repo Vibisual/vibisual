@@ -171,8 +171,22 @@ function normalize(raw: Partial<AppState> | null | undefined): AppState {
     pinnedProjects: pinned,
     projectNames,
     skillOrder: normalizeSkillOrder(raw.skillOrder),
+    skillFavorites: normalizeSkillFavorites(raw.skillFavorites),
     updatedAt: typeof raw.updatedAt === 'number' ? raw.updatedAt : 0,
   };
+}
+
+/** §5.5 #17-4 v2.93 — skillFavorites 정규화 — 문자열만, 중복 제거(순서 보존). 비면 undefined. */
+function normalizeSkillFavorites(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const x of raw) {
+    if (typeof x !== 'string' || !x || seen.has(x)) continue;
+    seen.add(x);
+    out.push(x);
+  }
+  return out.length > 0 ? out : undefined;
 }
 
 /** skillOrder 정규화 — 각 type 값을 문자열 배열로 강제, 중복 제거. 둘 다 비면 undefined. */
@@ -366,14 +380,40 @@ export function appStateSetSkillOrder(type: 'project' | 'global' | 'plugin', ord
   saveAppState({ ...current, skillOrder: next });
 }
 
-/** §5.5 #17-4/#17-5 — 삭제된 스킬명을 고정 순서에서 제거 (project/global/plugin 모두 스캔). */
+/** §5.5 #17-4/#17-5 — 삭제된 스킬명을 고정 순서·즐겨찾기에서 제거 (project/global/plugin 모두 스캔). */
 export function appStateRemoveSkillFromOrder(name: string): void {
   const current = loadAppState();
-  if (!current.skillOrder) return;
+  const favorites = (current.skillFavorites ?? []).filter((n) => n !== name);
+  const nextFavorites = favorites.length > 0 ? favorites : undefined;
+  if (!current.skillOrder) {
+    if ((current.skillFavorites ?? []).length !== favorites.length) {
+      saveAppState({ ...current, skillFavorites: nextFavorites });
+    }
+    return;
+  }
   const project = (current.skillOrder.project ?? []).filter((n) => n !== name);
   const global = (current.skillOrder.global ?? []).filter((n) => n !== name);
   const plugin = (current.skillOrder.plugin ?? []).filter((n) => n !== name);
-  saveAppState({ ...current, skillOrder: { project, global, plugin } });
+  saveAppState({ ...current, skillOrder: { project, global, plugin }, skillFavorites: nextFavorites });
+}
+
+/** §5.5 #17-4 v2.93 — SkillsView 즐겨찾기 목록 조회 (없으면 빈 배열). */
+export function appStateGetSkillFavorites(): string[] {
+  const current = loadAppState();
+  return current.skillFavorites ?? [];
+}
+
+/** §5.5 #17-4 v2.93 — 즐겨찾기 목록 전체 치환 저장 (클라가 별 누른 순서대로 전체를 보냄). */
+export function appStateSetSkillFavorites(favorites: string[]): void {
+  const current = loadAppState();
+  const seen = new Set<string>();
+  const clean: string[] = [];
+  for (const x of favorites) {
+    if (typeof x !== 'string' || !x || seen.has(x)) continue;
+    seen.add(x);
+    clean.push(x);
+  }
+  saveAppState({ ...current, skillFavorites: clean.length > 0 ? clean : undefined });
 }
 
 /** 캐시만 리셋 (테스트용). */

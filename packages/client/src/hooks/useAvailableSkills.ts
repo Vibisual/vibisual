@@ -22,9 +22,12 @@ export interface SkillOrder {
 interface SkillsState {
   skills: SkillInfo[];
   order: SkillOrder;
+  /** §5.5 #17-4 v2.93 — 즐겨찾기 스킬명(별 누른 순서, 출처 무관). */
+  favorites: string[];
 }
 
 const EMPTY_ORDER: SkillOrder = { project: [], global: [], plugin: [] };
+const EMPTY_STATE: SkillsState = { skills: [], order: EMPTY_ORDER, favorites: [] };
 
 /**
  * §5.5 #17-2/#17-4 v2.59 — 프로젝트별 조회.
@@ -66,19 +69,32 @@ function normalizeOrder(raw: unknown): SkillOrder {
   return { project: arr(r.project), global: arr(r.global), plugin: arr(r.plugin) };
 }
 
+function normalizeFavorites(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const x of raw) {
+    if (typeof x !== 'string' || !x || seen.has(x)) continue;
+    seen.add(x);
+    out.push(x);
+  }
+  return out;
+}
+
 function fetchSkills(key: string): Promise<SkillsState> {
   return fetch(urlForKey(key))
-    .then((r) => r.json() as Promise<{ ok: boolean; skills: SkillInfo[]; order?: unknown }>)
+    .then((r) => r.json() as Promise<{ ok: boolean; skills: SkillInfo[]; order?: unknown; favorites?: unknown }>)
     .then((d) => {
       const next: SkillsState = {
         skills: d.ok && Array.isArray(d.skills) ? d.skills : [],
         order: normalizeOrder(d.order),
+        favorites: normalizeFavorites(d.favorites),
       };
       caches.set(key, next);
       return next;
     })
     .catch(() => {
-      const next: SkillsState = { skills: [], order: EMPTY_ORDER };
+      const next: SkillsState = { ...EMPTY_STATE };
       caches.set(key, next);
       return next;
     });
@@ -152,13 +168,34 @@ export async function persistSkillOrder(type: 'project' | 'global' | 'plugin', o
 }
 
 /**
+ * §5.5 #17-4 v2.93 — 즐겨찾기 목록(전체)을 저장. 낙관적으로 캐시를 갱신하고 서버에도 반영.
+ * favorites 는 전역 appState 라 캐시된 모든 프로젝트 키에 동일하게 반영한다.
+ */
+export async function persistSkillFavorites(favorites: string[]): Promise<void> {
+  for (const [key, state] of caches) {
+    const next: SkillsState = { ...state, favorites };
+    caches.set(key, next);
+    notify(key, next);
+  }
+  try {
+    await fetch('/api/skill-favorites', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ favorites }),
+    });
+  } catch {
+    /* 네트워크 실패 시 다음 fetch 가 서버값으로 복원 */
+  }
+}
+
+/**
  * 모듈 캐시를 공유하는 훅 — `TerminalInput` 슬래시 자동완성과 `SkillsView` 사이드바가
  * 같은 프로젝트를 볼 때 같은 데이터를 본다. v2.59 부터 캐시는 projectName 키로 분리되어
  * 탭(프로젝트)마다 독립 목록을 반환한다. fetch 는 프로젝트 키별 첫 호출 시 1회.
  */
-export function useAvailableSkills(projectName?: string | null, agentId?: string | null): { skills: SkillInfo[]; order: SkillOrder; loaded: boolean } {
+export function useAvailableSkills(projectName?: string | null, agentId?: string | null): { skills: SkillInfo[]; order: SkillOrder; favorites: string[]; loaded: boolean } {
   const key = keyOf(projectName, agentId);
-  const [state, setState] = useState<SkillsState>(() => caches.get(key) ?? { skills: [], order: EMPTY_ORDER });
+  const [state, setState] = useState<SkillsState>(() => caches.get(key) ?? EMPTY_STATE);
   const [loaded, setLoaded] = useState<boolean>(caches.has(key));
 
   useEffect(() => {
@@ -168,7 +205,7 @@ export function useAvailableSkills(projectName?: string | null, agentId?: string
       setLoaded(true);
     } else {
       // 프로젝트 전환 시 이전 키 데이터가 잠깐 남지 않도록 초기화
-      setState({ skills: [], order: EMPTY_ORDER });
+      setState(EMPTY_STATE);
       setLoaded(false);
     }
     let cancelled = false;
@@ -194,5 +231,5 @@ export function useAvailableSkills(projectName?: string | null, agentId?: string
     };
   }, [key]);
 
-  return { skills: state.skills, order: state.order, loaded };
+  return { skills: state.skills, order: state.order, favorites: state.favorites, loaded };
 }
