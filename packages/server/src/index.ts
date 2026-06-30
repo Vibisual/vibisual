@@ -18,7 +18,7 @@ import { modelRegistryService } from './services/modelRegistryService.js';
 import { userDefaultsService } from './services/userDefaultsService.js';
 import { isPortAlive, killByPort, respawn } from './services/processChecker.js';
 import { discoverProjectMetas, migrateLegacy, migrateLegacySaveRootToProjectDirs, pruneOrphanWorktreeDirs, SaveScheduler, writeCheckpoint } from './services/statePersistence.js';
-import { loadAppState, saveAppState, patchAppState, appStateAddOpenProject, appStateRemoveOpenProject, appStatePruneStaleProjectNames, appStateGetSkillOrder, appStateSetSkillOrder, appStateRemoveSkillFromOrder } from './services/appState.js';
+import { loadAppState, saveAppState, patchAppState, appStateAddOpenProject, appStateRemoveOpenProject, appStatePruneStaleProjectNames, appStateGetSkillOrder, appStateSetSkillOrder, appStateRemoveSkillFromOrder, appStateGetSkillFavorites, appStateSetSkillFavorites } from './services/appState.js';
 import { ensureClaudeHooksInstalled } from './services/hookInstaller.js';
 import { isAgentViewEnabled, reconcileOnBoot as agentViewReconcileOnBoot } from './services/claudeAgentViewService.js';
 import { getClaudeVersionInfo, getClaudeInstallsInfo, installLatestClaude, getInflightInstall, invalidateLatestCache } from './services/claudeVersionService.js';
@@ -398,6 +398,13 @@ export async function runServer(): Promise<RunServerHandle> {
       //   터미널을 다시 열 때 terminalManager 가 이 값으로 `claude --resume <id>` 를 prefill 한다.
       if (body._vibisualOwnerTermId && claudeSessionId) {
         recordCmdTermSession(body._vibisualOwnerTermId, claudeSessionId);
+        // §4 — CMD 세션 탭(sub) 도트 연속 동기화: tool 이벤트→active, Stop→idle(녹색).
+        //   termId 끝 토큰이 곧 sub.id 라 그 탭만 정확히 구동한다(부모 버블은 위 markActive/markStop 담당).
+        const subChanged = subAgentManager.markCmdSubActivity(
+          body._vibisualOwnerTermId,
+          body.hook_event_name === 'Stop',
+        );
+        if (subChanged) broadcastSnapshot();
       }
 
       // Stop → 즉시 completed, 그 외 → active
@@ -1088,6 +1095,63 @@ export async function runServer(): Promise<RunServerHandle> {
     });
   });
 
+  /** GET /api/agent-attachments/:sessionId/file?rel=<subId/uuid.ext | uuid.ext> — v2.93
+   *  제출 후에도 디스크에 보존된 첨부 이미지를 서빙(영구 폴백). 클라 썸네일은 원래 제출 시점
+   *  메모리 blob URL 에만 의존해 detach 별창·새로고침·재시작·부팅복원에서 소실됐다 → 이 라우트로
+   *  파일을 직접 받아 현재 document 에서 blob 재생성. 경로 검증: 해당 세션 attachments 디렉토리
+   *  내부 파일만 허용(트래버설 차단). IPC 트랜스포트가 비텍스트 응답을 base64 로 무손실 전달. */
+  app.get('/api/agent-attachments/:sessionId/file', (req, res) => {
+    const { sessionId } = req.params;
+    const rel = typeof req.query.rel === 'string' ? req.query.rel : '';
+    if (!sessionId || sessionId.includes('..') || sessionId.includes('/') || sessionId.includes('\\')) {
+      res.status(400).json({ error: 'invalid sessionId' });
+      return;
+    }
+    if (!rel) {
+      res.status(400).json({ error: 'rel required' });
+      return;
+    }
+    const cwd = graphManager.getAgentCwd(sessionId);
+    if (!cwd) {
+      res.status(404).json({ error: 'agent not found for session' });
+      return;
+    }
+    const expectedDir = path.resolve(path.join(cwd, '.vibisual', 'attachments', sessionId));
+    const resolvedPath = path.resolve(expectedDir, rel);
+    if (!resolvedPath.startsWith(expectedDir + path.sep)) {
+      res.status(403).json({ error: 'path outside attachments dir' });
+      return;
+    }
+    let stat: fs.Stats;
+    try {
+      stat = fs.statSync(resolvedPath);
+    } catch {
+      res.status(404).json({ error: 'not found' });
+      return;
+    }
+    if (!stat.isFile()) {
+      res.status(404).json({ error: 'not a file' });
+      return;
+    }
+    const ext = path.extname(resolvedPath).toLowerCase();
+    const mime =
+      ext === '.png' ? 'image/png'
+      : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg'
+      : ext === '.gif' ? 'image/gif'
+      : ext === '.webp' ? 'image/webp'
+      : ext === '.svg' ? 'image/svg+xml'
+      : 'application/octet-stream';
+    try {
+      const buf = fs.readFileSync(resolvedPath);
+      res.setHeader('Content-Type', mime);
+      res.setHeader('Cache-Control', 'private, max-age=3600');
+      res.end(buf);
+    } catch (err) {
+      logger.warn(`attachment read failed: ${resolvedPath} — ${err instanceof Error ? err.message : String(err)}`);
+      res.status(500).json({ error: 'read failed' });
+    }
+  });
+
   /** POST /api/commands/:sessionId — 명령 추가.
    *  두 경로 수용: (1) JSON `{ text, subAgentId?, attachments? }`,
    *  (2) raw text/plain 본문 — 하네스 빌더(§5.3 #10-2 v2.45) 가 엔트리 노드를 escape-free 로 kickoff. */
@@ -1443,7 +1507,14 @@ export async function runServer(): Promise<RunServerHandle> {
         // 5) 등록 + 버블 생성
         //    부모가 이미 등록돼 있으면 manager.registerProject(wtCwd) 는 부모로 리다이렉트 후 early return 하므로,
         //    `scanAllProjects` 로 부모 인스턴스의 `discoverWorktrees` 를 강제 실행시켜 worktree 노드를 생성한다.
-        graphManager.registerProject(parentCwd); // 부모 인스턴스 확보 (idempotent)
+        try {
+          graphManager.registerProject(parentCwd); // 부모 인스턴스 확보 (idempotent)
+        } catch (err) {
+          // §3.2.1-4 (v3.03) — 부모가 read-only 격리(load-error)면 워크트리 생성 불가.
+          logger.warn(`create-worktree: parent registerProject("${parentCwd}") failed: ${err instanceof Error ? err.message : String(err)}`);
+          res.status(409).json({ error: `parent project not available (possibly read-only isolated): ${parentCwd}` });
+          return;
+        }
         graphManager.scanAllProjects();          // `.claude/worktrees/*` 재스캔 → ensureWorktreeNode
 
         // 6) 위치 부여 — ensureWorktreeNode 의 id 규칙: `worktree-${hashString(normalized)}`
@@ -1924,6 +1995,23 @@ export async function runServer(): Promise<RunServerHandle> {
     res.json({ ok: true });
   });
 
+  /** POST /api/subagents/:agentId/:subId/summary — §5.5 #17-8 v2.95 세션 자기요약.
+   *  카드가 없는 세션을 요약 보드에서 한 줄로 보여주기 위해, 그 세션의 claude 대화를 `--resume` 해
+   *  헤드리스 1턴 한국어 요약을 받아 `{ ok, text }` 로 반환. 표시 전용 — 그래프 상태/체크포인트 무관. */
+  app.post('/api/subagents/:agentId/:subId/summary', async (req, res) => {
+    const { agentId, subId } = req.params;
+    try {
+      const result = await subAgentManager.summarizeSession(agentId, subId);
+      if (!result.ok) {
+        res.status(result.error === 'no-conversation' ? 404 : 502).json(result);
+        return;
+      }
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   /** GET /api/subagent-streams/:agentId — 에이전트 전체 서브에이전트 스트림 버퍼 (IDE 열 때 초기 데이터).
    *  버퍼는 emit 시점에 디스크 append-only로 기록되므로(streamBufferStore), 서버 재시작 후에도 live와 동일한 타임라인이 복원된 상태다. */
   app.get('/api/subagent-streams/:agentId', (req, res) => {
@@ -2135,7 +2223,7 @@ export async function runServer(): Promise<RunServerHandle> {
         }
       } catch { /* ignore */ }
 
-      res.json({ ok: true, skills, order: appStateGetSkillOrder() });
+      res.json({ ok: true, skills, order: appStateGetSkillOrder(), favorites: appStateGetSkillFavorites() });
     } catch (err) {
       logger.error('GET /api/available-skills failed', err);
       res.status(500).json({ error: 'Internal server error' });
@@ -2204,6 +2292,22 @@ export async function runServer(): Promise<RunServerHandle> {
       res.json({ ok: true, order: appStateGetSkillOrder() });
     } catch (err) {
       logger.error('PUT /api/skill-order failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /** §5.5 #17-4 v2.93 — PUT /api/skill-favorites — SkillsView 즐겨찾기 목록 전체 치환(클라가 별 누른 순서대로 전송). */
+  app.put('/api/skill-favorites', (req, res) => {
+    try {
+      const { favorites } = req.body as { favorites?: unknown };
+      if (!Array.isArray(favorites) || favorites.some((x) => typeof x !== 'string')) {
+        res.status(400).json({ error: 'favorites must be string[]' });
+        return;
+      }
+      appStateSetSkillFavorites(favorites as string[]);
+      res.json({ ok: true, favorites: appStateGetSkillFavorites() });
+    } catch (err) {
+      logger.error('PUT /api/skill-favorites failed', err);
       res.status(500).json({ error: 'Internal server error' });
     }
   });
@@ -2301,6 +2405,8 @@ export async function runServer(): Promise<RunServerHandle> {
           body.executionMode === 'interactive-terminal' || body.executionMode === 'headless'
             ? body.executionMode
             : prev?.executionMode,
+        // §4 v2.88 — API 비용 상한(달러). 양수만 저장, 그 외(0/미설정)는 undefined = 무제한.
+        maxBudgetUsd: typeof body.maxBudgetUsd === 'number' && body.maxBudgetUsd > 0 ? body.maxBudgetUsd : undefined,
       };
       // §5.3 #28 v1.47 — Custom Mode 는 커스텀 에이전트(customCreated=true) 에만 켤 수 있음.
       // Hook 에이전트는 사용자가 직접 만든 게 아니라 모드 강제 부착 ❌.
@@ -4387,7 +4493,10 @@ export async function runServer(): Promise<RunServerHandle> {
     if (!fallbackProject) return;
 
     graphManager.incrementSeq();
-    const projectNames = graphManager.getProjectNames();
+    // §3.2.1-4 (v3.03) — read-only 격리 프로젝트는 자동 저장 동결(빈/손상 인스턴스가 디스크 덮어쓰기 방지).
+    // readOnly 는 stub 상태라 보통 getProjectNames(인스턴스 기반)에 안 잡히지만, 방어적으로 필터한다.
+    const projectNames = graphManager.getProjectNames().filter((n) => !graphManager.isProjectReadOnly(n));
+    if (projectNames.length === 0) return;
 
     if (projectNames.length <= 1) {
       const cp = graphManager.toProjectCheckpoint(projectNames[0] ?? fallbackProject);
@@ -4400,6 +4509,17 @@ export async function runServer(): Promise<RunServerHandle> {
     // hydrated + stub 프로젝트를 합산해 orphan prune — stub 프로젝트 worktree를 잘못 제거하지 않도록.
     const stubInfos = Object.values(graphManager.getStubProjects()).map((m) => m.project);
     pruneOrphanWorktreeDirs([...Object.values(graphManager.getProjects()), ...stubInfos]);
+
+    // 탭으로 떠 있는 top-level 프로젝트는 openProjects 에 반드시 포함되도록 보정한다.
+    // registerProject 펀넬(SessionStart/hook-event)을 놓친 경로(예: 세션 라우팅으로 이미 라우팅돼
+    // registerProject 가 재호출되지 않는 경우)로 활성 탭이 openProjects 에서 누락돼 재시작 시
+    // 탭이 사라지는 문제 방지. × 로 닫은 hidden 프로젝트는 getVisibleTopLevelProjects 가 이미 제외하므로
+    // 닫은 탭을 되살리지 않는다. appStateAddOpenProject 는 이미 있으면 no-op(디스크 미기록).
+    for (const info of graphManager.getVisibleTopLevelProjects()) {
+      if (appStateAddOpenProject(info.path, info.name)) {
+        logger.info(`AppState: openProjects += ${info.path} ("${info.name}") [reconcile]`);
+      }
+    }
   }
 
   // 참조 주입 — restoreFromCheckpoint보다 먼저 실행해야 복원된 데이터가 올바른 Map에 들어감
@@ -4475,6 +4595,12 @@ export async function runServer(): Promise<RunServerHandle> {
       const result = graphManager.hydrateProject(meta.project.path);
       if (result.ok) {
         hydratedCount += 1;
+      } else if (result.reason === 'load-error') {
+        // §3.2.1-4 (v3.03) — 로드 실패(디스크 손상/일시 실패)는 데이터가 살아있을 수 있다.
+        // stub 을 제거하지 않고 read-only 격리하여 빈 인스턴스가 디스크를 덮어쓰지 못하게 하고,
+        // openProjects 도 유지해 다음 부팅에 백업 복구를 재시도한다(과거엔 제거 → 빈 인스턴스 덮어쓰기 손실).
+        logger.warn(`Boot hydrate failed for "${meta.project.name}" @ ${meta.project.path} (load-error) — isolating read-only (data-loss guard), keeping stub + openProjects`);
+        graphManager.markStubReadOnly(meta.project.path, 'load-error');
       } else {
         logger.warn(`Boot hydrate failed for "${meta.project.name}" @ ${meta.project.path} (${result.reason}) — removing from openProjects`);
         graphManager.removeStubFromMap(meta.project.path);
@@ -5004,6 +5130,14 @@ export async function runServer(): Promise<RunServerHandle> {
         broadcastSnapshot();
         saveCheckpoint();
       }
+
+      // §7.11 — background shell(dev 서버) 발견 sweep(안전망). attachBackgroundShell 의
+      // PostToolUse 트리거가 어긋나거나(이벤트 미도달·tool_response 형식 변화) 세션 등록
+      // **이후** 떠서 startup rehydrate 가 놓친 dev 서버를, 등록된 모든 세션의 JSONL 을
+      // 다시 훑어 잡는다. rehydrate·watcher.start·createIframeSatellite 전부 멱등이라
+      // 매 주기 재호출해도 중복 위성/중복 watcher 가 생기지 않는다. 포트 탐지 시 broadcast 는
+      // watcher 콜백의 onSnapshotChange 가 담당하므로 여기선 needsBroadcast 를 세우지 않는다.
+      graphManager.rehydrateAllBackgroundShells();
 
       // SubAgent: 대기열에 queued 명령 있으면 실행 — 큐 등록된 모든 세션(커스텀 포함) 대상
       for (const sessionId of commandQueues.keys()) {

@@ -62,6 +62,8 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
   const [permissionTimeoutPolicy, setPermissionTimeoutPolicy] = useState<'allow' | 'deny'>(baseAgent.permissionTimeoutPolicy ?? 'allow');
   const [effort, setEffort] = useState(baseAgent.effort ?? 'default');
   const [maxTurns, setMaxTurns] = useState(baseAgent.maxTurns ?? 0);
+  // §4 v2.88 — 전역 기본 API 비용 상한($). 0 = 무제한.
+  const [maxBudgetUsd, setMaxBudgetUsd] = useState(baseAgent.maxBudgetUsd ?? 0);
   const [isolation, setIsolation] = useState(baseAgent.isolation ?? 'none');
   const [contextWindow, setContextWindow] = useState<'1m' | '200k' | undefined>(baseAgent.contextWindow);
   const [tools, setTools] = useState<string[]>([...baseAgent.tools]);
@@ -122,6 +124,7 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
     setPermissionTimeoutPolicy(baseAgent.permissionTimeoutPolicy ?? 'allow');
     setEffort(baseAgent.effort ?? 'default');
     setMaxTurns(baseAgent.maxTurns ?? 0);
+    setMaxBudgetUsd(baseAgent.maxBudgetUsd ?? 0);
     setIsolation(baseAgent.isolation ?? 'none');
     setContextWindow(baseAgent.contextWindow);
     setTools([...baseAgent.tools]);
@@ -212,6 +215,7 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
           permissionTimeoutPolicy: permissionTimeoutPolicy === 'deny' ? 'deny' : undefined,
           effort: (isOpus && effort !== 'default') ? effort : undefined,
           maxTurns: maxTurns > 0 ? maxTurns : undefined,
+          maxBudgetUsd: maxBudgetUsd > 0 ? maxBudgetUsd : undefined,
           isolation: isolation !== 'none' ? isolation : undefined,
           contextWindow: isOpus && contextWindow === '200k' ? '200k' : undefined,
           tools,
@@ -229,7 +233,7 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
       setDirty(false);
     } catch { /* ignore */ }
     finally { setSaving(false); }
-  }, [model, modelVersion, permissionMode, permissionTimeoutPolicy, isOpus, effort, maxTurns, isolation, contextWindow, tools, disallowedTools, rules, color, userDefaults]);
+  }, [model, modelVersion, permissionMode, permissionTimeoutPolicy, isOpus, effort, maxTurns, maxBudgetUsd, isolation, contextWindow, tools, disallowedTools, rules, color, userDefaults]);
 
   const handleCancel = useCallback(() => {
     if (dirty && !window.confirm(t('panel.options.discardConfirm', { defaultValue: 'Discard unsaved changes?' }))) return;
@@ -394,7 +398,7 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
                   </div>
                 )}
 
-                {/* Max Turns + Isolation */}
+                {/* Max Turns + Budget + Isolation */}
                 <div className="flex gap-3">
                   <div className="flex flex-1 flex-col gap-1">
                     <label className="text-xs font-medium text-gray-400">{t('panel.options.agent.maxTurns', { defaultValue: 'Max Turns (0 = unlimited)' })}</label>
@@ -403,6 +407,18 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
                       min={0}
                       value={maxTurns}
                       onChange={(e) => { setDirty(true); setMaxTurns(Math.max(0, Number(e.target.value) || 0)); }}
+                      className="rounded border border-gray-700 bg-gray-900 px-2 py-1.5 text-xs text-gray-200 outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  {/* §4 v2.88 — 전역 기본 API 비용 상한($). 0 = 무제한. */}
+                  <div className="flex flex-1 flex-col gap-1">
+                    <label className="text-xs font-medium text-gray-400">{t('panel.options.agent.maxBudgetUsd', { defaultValue: 'Budget ($, 0 = unlimited)' })}</label>
+                    <input
+                      type="number"
+                      min={0}
+                      step={1}
+                      value={maxBudgetUsd}
+                      onChange={(e) => { setDirty(true); setMaxBudgetUsd(Math.max(0, Number(e.target.value) || 0)); }}
                       className="rounded border border-gray-700 bg-gray-900 px-2 py-1.5 text-xs text-gray-200 outline-none focus:border-blue-500"
                     />
                   </div>

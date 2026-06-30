@@ -506,6 +506,15 @@ export class ProjectGraph {
    */
   private dismissedIframes = new Map<string, Set<number>>();
   /**
+   * §7.11 — 오너 에이전트 키 → {실제 워커 claude 세션 → 그 워커 cwd} 매핑.
+   * 커스텀/서브 에이전트는 agents 맵·sessionCwds 에 커스텀 키(`custom-…`)로 저장되지만,
+   * background shell(dev 서버)의 JSONL 은 **실제 claude 워커 세션 이름**으로 디스크에 있다.
+   * processHookEvent 의 redirect 가 hook session_id 를 워커→오너 키로 rewrite 할 때 이 매핑을
+   * 쌓아두면, 오너 키로만 들어온 rehydrate 가 워커 JSONL 을 찾아 shell 을 잡고 위성은 오너에
+   * 붙일 수 있다. (일반 세션은 매핑이 없어 자기 세션만 스캔 — 기존 동작 불변.)
+   */
+  private workerSessionsByOwner = new Map<string, Map<string, string>>();
+  /**
    * §7.7 v2.3 denoise — "Keeping agent X alive" 로그를 이미 찍은 세션.
    * removeAgentBySession 은 lifecycle poll 마다(2초) 호출되므로, live iframe 보존
    * 메시지를 매번 찍으면 ServerLogPopup 이 도배된다 → 상태 진입 시 1회만 로깅.
@@ -1628,6 +1637,14 @@ export class ProjectGraph {
         }
         // §5.3 #28 (L) v1.58 — 콘티 작업 트래커 cascade
         this.activeContiWork.delete(agent.id);
+        // 메모리 누수 방지 — 사용자 명시 삭제 시 per-agent Map/Set 정리(좀비 카드 누적 차단)
+        this.agentConfigs.delete(agent.id);
+        this.agentReports.delete(agent.id);
+        this.agentQuestions.delete(agent.id);
+        this.agentReviews.delete(agent.id);
+        this.agentLists.delete(agent.id);
+        this.manuallyConfigured.delete(agent.id);
+        this.observedTools.delete(sessionId);
         logger.info(`Bubble removed: agent "${agent.label}"`);
         return;
       }
@@ -1842,56 +1859,71 @@ export class ProjectGraph {
   /** 세션 JSONL을 스캔하여 살아있는 background shell을 iframe 위성으로 복원 */
   private rehydrateBackgroundShells(sessionId: string, cwd: string): void {
     try {
-      const jsonlPath = getSessionJsonlPath(cwd, sessionId);
-      const actives = scanActiveBackgroundShells(jsonlPath);
-      if (actives.length === 0) return;
+      // §7.11 — 스캔 대상 = 오너 세션 자신 + (커스텀/서브면) 매핑된 실제 워커 claude 세션들.
+      // 커스텀 에이전트는 agents 맵·sessionCwds 에 커스텀 키(`custom-…`)로 저장되는데
+      // background shell 의 JSONL 은 워커 세션 이름으로 디스크에 있어, 오너 키로만 스캔하면
+      // JSONL 을 못 찾아 영영 watcher 가 안 붙는다(= dev 서버 iframe 위성 누락). 워커 JSONL 을
+      // 함께 훑되, 위성·ServerEntry 는 오너(sessionId)에 붙여 createIframeSatellite 의
+      // `this.agents.get(sessionId)` 가 성공하게 한다. (일반 세션은 매핑이 없어 자기만 스캔.)
+      const scanTargets = new Map<string, string>(); // realSessionId → 그 세션의 cwd
+      scanTargets.set(sessionId, cwd);
+      const mapped = this.workerSessionsByOwner.get(sessionId);
+      if (mapped) for (const [ws, wcwd] of mapped) scanTargets.set(ws, wcwd || cwd);
 
       let servers = this.runningServers.get(sessionId);
       if (!servers) { servers = []; this.runningServers.set(sessionId, servers); }
 
-      for (const s of actives) {
-        // output 파일 자체가 없어졌으면 스킵
-        if (!fs.existsSync(s.outputPath)) continue;
+      let totalActives = 0;
+      for (const [scanId, scanCwd] of scanTargets) {
+        const jsonlPath = getSessionJsonlPath(scanCwd, scanId);
+        const actives = scanActiveBackgroundShells(jsonlPath);
+        if (actives.length === 0) continue;
+        totalActives += actives.length;
 
-        // §7.11 v2.20 — probe 명령(curl/wget/nc 등)은 rehydrate 도 skip.
-        // 명령어에서 추출되는 localhost:N 은 launch 가 아니라 probe 대상이라 서버로 보면 안 됨.
-        if (isProbeCommand(s.command)) continue;
+        for (const s of actives) {
+          // output 파일 자체가 없어졌으면 스킵
+          if (!fs.existsSync(s.outputPath)) continue;
 
-        // 기존 엔트리 백필 (PreToolUse에서 서버 판정되어 이미 등록된 경우)
-        const existing = servers.find(
-          (e) => e.shellId === s.shellId || e.id === s.toolUseId,
-        );
-        if (existing) {
-          if (!existing.shellId) existing.shellId = s.shellId;
-          if (!existing.outputFile) existing.outputFile = s.outputPath;
+          // §7.11 v2.20 — probe 명령(curl/wget/nc 등)은 rehydrate 도 skip.
+          // 명령어에서 추출되는 localhost:N 은 launch 가 아니라 probe 대상이라 서버로 보면 안 됨.
+          if (isProbeCommand(s.command)) continue;
+
+          // 기존 엔트리 백필 (PreToolUse에서 서버 판정되어 이미 등록된 경우)
+          const existing = servers.find(
+            (e) => e.shellId === s.shellId || e.id === s.toolUseId,
+          );
+          if (existing) {
+            if (!existing.shellId) existing.shellId = s.shellId;
+            if (!existing.outputFile) existing.outputFile = s.outputPath;
+          }
+
+          // 명령어에서 즉시 추출 시도 — 성공하면 서버 확정 → 누락됐으면 지금 등록.
+          // §7.11 v2.20/v2.24 — extractPort 가 cmd 에서 못 잡으면 inline eval(`node -e "..."`) →
+          // script file(`node server.js`) 순으로 fallback.
+          const inlinePort = extractPort(s.command)
+            ?? extractPortFromInlineEval(s.command)
+            ?? extractPortFromScriptFile(s.command, scanCwd);
+          if (inlinePort) {
+            this.createIframeSatellite(sessionId, s.command, inlinePort, s.shellId);
+            this.ensureServerEntryForShell(sessionId, s.toolUseId, s.command, s.shellId, s.outputPath, inlinePort);
+            continue;
+          }
+
+          // §7.11 v2.21 — looksLikeServerCommand placeholder 분기 폐기.
+          // strict 1:1: ServerEntry 는 watcher 가 isPortAlive 로 port 실제 확인한 시점에만
+          // createIframeSatellite + ensureServerEntryForShell 짝으로 등록한다.
+          // (이전 v2.1 의 placeholder 등록은 watcher 가 port 끝내 못 잡으면 영구 잔존 → 1:1 위반)
+          this.shellWatcher.start(s.shellId, s.outputPath, (port) => {
+            let log = '';
+            try { log = fs.readFileSync(s.outputPath, 'utf8'); } catch { /* ignore */ }
+            this.createIframeSatellite(sessionId, s.command, port, s.shellId, log);
+            this.ensureServerEntryForShell(sessionId, s.toolUseId, s.command, s.shellId, s.outputPath, port);
+            this.onSnapshotChange?.();
+          });
         }
-
-        // 명령어에서 즉시 추출 시도 — 성공하면 서버 확정 → 누락됐으면 지금 등록.
-        // §7.11 v2.20/v2.24 — extractPort 가 cmd 에서 못 잡으면 inline eval(`node -e "..."`) →
-        // script file(`node server.js`) 순으로 fallback.
-        const inlinePort = extractPort(s.command)
-          ?? extractPortFromInlineEval(s.command)
-          ?? extractPortFromScriptFile(s.command, cwd);
-        if (inlinePort) {
-          this.createIframeSatellite(sessionId, s.command, inlinePort, s.shellId);
-          this.ensureServerEntryForShell(sessionId, s.toolUseId, s.command, s.shellId, s.outputPath, inlinePort);
-          continue;
-        }
-
-        // §7.11 v2.21 — looksLikeServerCommand placeholder 분기 폐기.
-        // strict 1:1: ServerEntry 는 watcher 가 isPortAlive 로 port 실제 확인한 시점에만
-        // createIframeSatellite + ensureServerEntryForShell 짝으로 등록한다.
-        // (이전 v2.1 의 placeholder 등록은 watcher 가 port 끝내 못 잡으면 영구 잔존 → 1:1 위반)
-        this.shellWatcher.start(s.shellId, s.outputPath, (port) => {
-          let log = '';
-          try { log = fs.readFileSync(s.outputPath, 'utf8'); } catch { /* ignore */ }
-          this.createIframeSatellite(sessionId, s.command, port, s.shellId, log);
-          this.ensureServerEntryForShell(sessionId, s.toolUseId, s.command, s.shellId, s.outputPath, port);
-          this.onSnapshotChange?.();
-        });
       }
 
-      logger.info(`Rehydrated ${actives.length} background shell(s) for session=${sessionId}`);
+      if (totalActives > 0) logger.info(`Rehydrated ${totalActives} background shell(s) for owner=${sessionId} (scanned ${scanTargets.size} session(s))`);
     } catch (err) {
       logger.warn(`rehydrateBackgroundShells failed for ${sessionId}: ${String(err)}`);
     }
@@ -1980,6 +2012,15 @@ export class ProjectGraph {
             || this.isDaemonWorkerSession(workerSessionId)
             || subAgentManager.isManagedSession(workerSessionId))) {
           return null;
+        }
+
+        // §7.11 — 워커→오너 rewrite 가 성사됐으면 매핑 기록(오너 → {워커세션: 워커cwd}).
+        // background shell 의 JSONL 은 워커 세션 이름으로 디스크에 있으므로, 오너 키로만 가진
+        // attachBackgroundShell / 주기 sweep 의 rehydrate 가 이 매핑으로 워커 JSONL 을 찾는다.
+        if (payload.session_id !== workerSessionId && this.agents.has(payload.session_id) && payload.cwd) {
+          let m = this.workerSessionsByOwner.get(payload.session_id);
+          if (!m) { m = new Map(); this.workerSessionsByOwner.set(payload.session_id, m); }
+          m.set(workerSessionId, payload.cwd);
         }
       }
 
@@ -4494,6 +4535,14 @@ export class ProjectGraph {
     this.completedCommandArchiveRef.delete(sessionId);
     this.poppedCommandsRef.delete(sessionId);
     this.agentWorktreeReadCounts.delete(sessionId);
+    // 메모리 누수 방지 — 에이전트 영구 제거 시 per-agent Map/Set 정리(좀비 카드 누적 차단)
+    this.agentConfigs.delete(agent.id);
+    this.agentReports.delete(agent.id);
+    this.agentQuestions.delete(agent.id);
+    this.agentReviews.delete(agent.id);
+    this.agentLists.delete(agent.id);
+    this.manuallyConfigured.delete(agent.id);
+    this.observedTools.delete(sessionId);
   }
 
   /**
@@ -5760,9 +5809,41 @@ export class ProjectGraph {
   /** PostToolUse Bash run_in_background 응답에서 shell_id + output 경로 추출 후 감시 시작 */
   private attachBackgroundShell(payload: HookEventPayload): void {
     const responseText = extractBashOutput(payload.tool_response);
-    if (!responseText) return;
-    const parsed = parseBackgroundShellResponse(responseText);
-    if (!parsed) return;
+    const parsed = responseText ? parseBackgroundShellResponse(responseText) : null;
+    if (!parsed) {
+      // §7.11 — 현 Claude Code(SDK-CLI) 의 run_in_background Bash 는 PostToolUse hook 의
+      // tool_response 에 "Command running in background … Output is being written to: <path>"
+      // 텍스트를 주지 않고, 구조화 필드 `backgroundTaskId` + 빈 stdout/stderr 만 준다
+      // (예: {stdout:"",stderr:"",interrupted:false,backgroundTaskId:"buis02lww"}). 그래서
+      // extractBashOutput 가 빈 문자열을 돌려주고 텍스트 파싱(parseBackgroundShellResponse)이 실패한다.
+      // → 이 경로가 막히면 `npm run dev` 처럼 포트가 명령어에 없고 출력 배너에만 찍히는 dev 서버는
+      //   watcher 가 끝내 안 붙어 iframe 위성이 생기지 않는다(부팅 시 rehydrate 만 우연히 잡던 상태).
+      // shellId(=backgroundTaskId)와 output 경로는 **세션 JSONL 의 tool_result.content 문자열**에
+      // 그대로 남으므로, JSONL 을 읽는 rehydrateBackgroundShells 로 위임해 watcher 를 붙인다
+      // (§7.11 "BackgroundShellWatcher 단일 경로" + 기존 인프라 재사용). JSONL flush 레이스 대비로
+      // 즉시 + 2s 지연 1회 재시도(rehydrate·watcher.start·createIframeSatellite 모두 멱등).
+      //
+      // §7.11 — 과거엔 `tool_response.backgroundTaskId` 존재를 게이트로 두었으나, 이 구조화
+      // 필드는 Claude Code(SDK-CLI) 버전·spawn 경로(헤드리스 커스텀 에이전트 등)에 따라
+      // 이름/위치가 달라지거나 누락될 수 있어, 게이트가 어긋나면 `npm run dev` 류 dev 서버가
+      // 영영 iframe 위성을 못 얻는 회귀가 났다(실측: rehydrate 파이프라인 자체는 정상인데
+      // 호출이 안 됨). attachBackgroundShell 는 호출부(recordBashEntry)에서 이미
+      // `run_in_background === true` 일 때만 진입하므로, parse 실패 = "백그라운드 셸인데
+      // tool_response 에 텍스트가 없다"가 확정이다 → 구조화 필드 유무와 무관하게 항상
+      // JSONL(=진실원천)로 위임한다. (추가 안전망: SESSION_SCAN_INTERVAL 주기 sweep 의
+      // rehydrateAllBackgroundShells 가 이 PostToolUse 가 아예 안 닿은 경우까지 보강.)
+      const sessionId = payload.session_id;
+      const cwd = this.sessionCwds.get(sessionId) ?? payload.cwd;
+      if (cwd) {
+        this.rehydrateBackgroundShells(sessionId, cwd);
+        setTimeout(() => {
+          const cwdRetry = this.sessionCwds.get(sessionId) ?? cwd;
+          this.rehydrateBackgroundShells(sessionId, cwdRetry);
+          this.onSnapshotChange?.();
+        }, 2000);
+      }
+      return;
+    }
 
     const sessionId = payload.session_id;
     const toolUseId = payload.tool_use_id;

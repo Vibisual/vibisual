@@ -45,7 +45,7 @@ import type {
 } from '@vibisual/shared';
 import { DEFAULT_UI_LOCALE } from '@vibisual/shared';
 import { ProjectGraph, type ProcessResult } from './projectGraph.js';
-import { loadCheckpointByMeta, writeCheckpoint, projectDirForInfo } from './statePersistence.js';
+import { loadCheckpointByMeta, writeCheckpoint, projectDirForInfo, discoverProjectMetas } from './statePersistence.js';
 import { appStateAddOpenProject, loadAppState } from './appState.js';
 import { diagnosticService } from './diagnosticService.js';
 import { modelRegistryService } from './modelRegistryService.js';
@@ -58,6 +58,19 @@ import { dbg } from './debugLog.js';
 /** 경로 정규화 (대소문자 무시, 슬래시 통일, trailing slash 제거) — projectGraph.ts 49행과 동일 */
 function normalize(filePath: string): string {
   return filePath.replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '');
+}
+
+/**
+ * §3.2.1-4 (v3.03) — 로드 실패로 read-only 격리된 프로젝트(또는 디스크에 미하이드레이트 데이터가
+ * 실재하는 경로)에 대해 `registerProject` 가 빈 인스턴스 생성을 거부할 때 던지는 에러.
+ * 빈 인스턴스가 멀쩡한 디스크 checkpoint 를 빈 그래프로 덮어쓰는 손실 경로를 끊는다.
+ * 호출처는 이 에러를 잡아 해당 이벤트를 드롭한다.
+ */
+export class ReadOnlyProjectError extends Error {
+  constructor(public readonly projectPath: string) {
+    super(`Project is read-only isolated (load-error) and re-hydrate failed: ${projectPath}`);
+    this.name = 'ReadOnlyProjectError';
+  }
 }
 
 /**
@@ -721,6 +734,49 @@ export class ProjectGraphManager {
     return key ? this.stubs.delete(key) : false;
   }
 
+  /**
+   * §3.2.1-4 (v3.03) — stub 을 read-only 로 표시(부팅 hydrate load 실패 격리).
+   * 제거하지 않으므로 디스크 데이터가 보존되고, 다음 부팅/registerProject 에서 백업 복구를 재시도한다.
+   * 빈 인스턴스 생성을 막는 신호. 실제 표시 시 true.
+   */
+  markStubReadOnly(ref: string, reason: 'load-error'): boolean {
+    const key = this.stubRefToKey(ref);
+    if (!key) return false;
+    const meta = this.stubs.get(key);
+    if (!meta) return false;
+    this.stubs.set(key, { ...meta, readOnly: true, readOnlyReason: reason });
+    logger.warn(`markStubReadOnly: "${meta.project.name}" (${meta.project.path}) isolated read-only (${reason})`);
+    return true;
+  }
+
+  /** ref(path|name) 이 read-only 격리된 stub 인가. */
+  isReadOnly(ref: string): boolean {
+    const key = this.stubRefToKey(ref);
+    const meta = key ? this.stubs.get(key) : undefined;
+    return !!meta?.readOnly;
+  }
+
+  /** 프로젝트 name 이 read-only 격리 상태인가(path 해소 경유). */
+  isProjectReadOnly(name: string): boolean {
+    const resolved = this.resolveProjectRef(name);
+    return this.isReadOnly(resolved?.path ?? name);
+  }
+
+  /**
+   * §3.2.1-4 (v3.03) 2차 안전망 — rootCwd 가 아직 hydrate 안 됐는데 디스크에 영속 데이터가
+   * 실재하는가(`.vibisual/save` 의 checkpoint/identity 또는 그 `.bak1`). true 면 빈 인스턴스로
+   * 덮어쓰기 직전 상태 → registerProject 가 hydrate 재시도 후 실패 시 생성을 거부한다.
+   */
+  hasUnhydratedDiskData(rootCwd: string): boolean {
+    if (this.getInstanceByPath(rootCwd)) return false; // 이미 hydrate 됨 — 보호 불필요
+    const saveDir = path.join(rootCwd, '.vibisual', 'save');
+    const exists = (f: string): boolean => {
+      try { return fs.existsSync(path.join(saveDir, f)); } catch { return false; }
+    };
+    return exists('checkpoint.json') || exists('checkpoint.json.bak1')
+        || exists('identity.json') || exists('identity.json.bak1');
+  }
+
   /** project.path → project name 역매핑 헬퍼 (stub 조회용) */
   private resolveProjectName(projectPath: string): string | null {
     const normPath = normalize(projectPath);
@@ -791,14 +847,37 @@ export class ProjectGraphManager {
     if (!inst) {
       // v1.63: stub 조회/hydrate 는 path(rootCwd) 기준 — 이름 충돌 무관.
       if (this.isStubbed(rootCwd)) {
-        logger.info(`ProjectGraphManager: auto-hydrating stub for cwd "${rootCwd}"`);
+        const wasReadOnly = this.isReadOnly(rootCwd);
+        logger.info(`ProjectGraphManager: auto-hydrating stub for cwd "${rootCwd}"${wasReadOnly ? ' [read-only retry]' : ''}`);
         const result = this.hydrateProject(rootCwd);
         if (result.ok) {
           const hydratedInst = this.instances.get(key);
           if (hydratedInst) return hydratedInst.registerProject(rootCwd);
+        } else if (wasReadOnly || this.hasUnhydratedDiskData(rootCwd)) {
+          // §3.2.1-4 (v3.03) — 디스크에 영속 데이터가 실재하는데 hydrate 실패. 빈 인스턴스로
+          // 덮어쓰면 손실이므로 read-only 유지 + 생성 거부. 호출처가 이벤트를 드롭한다.
+          this.markStubReadOnly(rootCwd, 'load-error');
+          throw new ReadOnlyProjectError(rootCwd);
         } else {
           logger.warn(`ProjectGraphManager: auto-hydrate failed for "${rootCwd}" (${result.reason}) — creating fresh instance`);
         }
+      } else if (this.hasUnhydratedDiskData(rootCwd)) {
+        // §3.2.1-4 (v3.03) 2차 안전망 — stub 은 없는데 디스크 데이터가 실재(과거 stub 이 제거됐던
+        // 사고 경로). stub 재등록 후 hydrate 시도, 실패 시 read-only 격리 + 빈 인스턴스 거부.
+        const metas = discoverProjectMetas([rootCwd]);
+        const meta = metas.find((m) => normalize(m.project.path) === key);
+        if (meta) {
+          this.registerStub(meta);
+          const r = this.hydrateProject(rootCwd);
+          if (r.ok) {
+            const hi = this.instances.get(key);
+            if (hi) return hi.registerProject(rootCwd);
+          }
+          this.markStubReadOnly(rootCwd, 'load-error');
+          logger.warn(`registerProject: disk data present but hydrate failed for "${rootCwd}" — read-only, refusing empty instance`);
+          throw new ReadOnlyProjectError(rootCwd);
+        }
+        // meta 빌드 실패(project.json 없음 등) — 진짜 신규로 폴백.
       }
       if (!inst) {
         inst = this.createInstance(rootCwd);
@@ -830,7 +909,16 @@ export class ProjectGraphManager {
       inst = this.instances.get(key) ?? null;
       if (!inst) {
         // 새 프로젝트 자동 등록 (루트 기준)
-        this.registerProject(payload.cwd);
+        try {
+          this.registerProject(payload.cwd);
+        } catch (e) {
+          if (e instanceof ReadOnlyProjectError) {
+            // §3.2.1-4 (v3.03) — read-only 격리 프로젝트. 빈 인스턴스로 디스크를 덮어쓰지 않도록 이벤트 드롭.
+            logger.warn(`processHookEvent: dropping event for read-only isolated project (${payload.cwd})`);
+            return null;
+          }
+          throw e;
+        }
         inst = this.instances.get(key) ?? null;
       }
       this.sessionRouting.set(payload.session_id, key);
@@ -1313,6 +1401,23 @@ export class ProjectGraphManager {
       names.push(...inst.getProjectNames());
     }
     return [...new Set(names)];
+  }
+
+  /** 탭으로 노출되는(=하이드레이트 + top-level + 비hidden) 프로젝트 목록.
+   *  스냅샷 빌더의 `visibleProjects`(projectGraph: `!hiddenProjects.has` + `!parentProjectPath`)와
+   *  동일 기준 — `openProjects` 재조정에 사용. hidden 판정은 **인스턴스 SSOT**(`inst.isProjectHidden`)
+   *  로 일원화한다(Manager 의 `hiddenProjects` 는 휘발성이라 재시작 후 비어 있음). */
+  getVisibleTopLevelProjects(): ProjectInfo[] {
+    const out: ProjectInfo[] = [];
+    for (const [key, inst] of this.instances) {
+      if (this.isWorktreeInstanceKey(key)) continue;
+      for (const info of Object.values(inst.getProjects())) {
+        if (info.parentProjectPath) continue; // worktree — 부모 탭 안에서만 보임
+        if (inst.isProjectHidden(info.name)) continue; // × 로 닫은 탭 제외
+        out.push(info);
+      }
+    }
+    return out;
   }
 
   /** 첫 번째 인스턴스의 프로젝트 이름 */

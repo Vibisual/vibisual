@@ -518,6 +518,15 @@
     "debugPanel": {
       "title": "Depuración",
       "close": "Cerrar",
+      "project": "Proyecto",
+      "projectName": "Nombre",
+      "projectPath": "Ruta",
+      "agents": "Agentes",
+      "nodes": "Nodos",
+      "edges": "Edges",
+      "noProject": "Sin proyecto activo",
+      "fps": "fps",
+      "fpsTip": "Fotogramas por segundo de renderizado",
       "errorLog": "Registro de errores",
       "noErrors": "Sin errores capturados",
       "servers": "Servidores",
@@ -670,11 +679,14 @@
     },
     "mainArea": {
       "scrollPrompt": "Ir al prompt",
+      "dropFilesHint": "Suelta archivos para añadir sus rutas",
       "inputPlaceholderNew": "Ingresa un comando para iniciar una nueva sesión...",
       "inputPlaceholder": "Ingresa un comando...",
       "run": "Ejecutar",
       "stop": "Detener",
       "stopping": "Deteniendo…",
+      "followUp": "Añadir",
+      "followUpTitle": "Enviar un mensaje de seguimiento sin detener el agente (Enter)",
       "executing": "Ejecutando…",
       "readOnly": "Solo lectura — selecciona una pestaña de sesión o crea una nueva",
       "attachmentError": "ERR",
@@ -684,6 +696,7 @@
       "slashEmpty": "No hay habilidades coincidentes",
       "slashLoading": "Cargando habilidades…",
       "ctxCopy": "Copiar",
+      "ctxBookmark": "Añadir marcador",
       "ctxQuoteReply": "Citar y responder",
       "ctxSendAsPrompt": "Enviar como nuevo prompt",
       "ctxSelectAll": "Seleccionar todo",
@@ -710,7 +723,17 @@
       "terminal": "Terminal",
       "files": "Archivos",
       "results": "Resultados",
-      "skills": "Habilidades"
+      "skills": "Habilidades",
+      "bookmarks": "Marcadores"
+    },
+    "bookmarks": {
+      "title": "Marcadores",
+      "empty": "Aún no hay marcadores. Selecciona texto en la salida, haz clic derecho y elige Añadir marcador.",
+      "copy": "Copiar",
+      "jump": "Ir al origen",
+      "remove": "Eliminar",
+      "close": "Cerrar",
+      "sourceGone": "El origen ya no existe"
     },
     "sidebar": {
       "sessions": "Sesiones",

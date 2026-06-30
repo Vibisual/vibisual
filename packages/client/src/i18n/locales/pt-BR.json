@@ -518,6 +518,15 @@
     "debugPanel": {
       "title": "Debug",
       "close": "Fechar",
+      "project": "Projeto",
+      "projectName": "Nome",
+      "projectPath": "Caminho",
+      "agents": "Agentes",
+      "nodes": "Nós",
+      "edges": "Arestas",
+      "noProject": "Nenhum projeto ativo",
+      "fps": "fps",
+      "fpsTip": "Quadros renderizados por segundo",
       "errorLog": "Log de erros",
       "noErrors": "Nenhum erro capturado",
       "servers": "Servidores",
@@ -670,11 +679,14 @@
     },
     "mainArea": {
       "scrollPrompt": "Rolar até o prompt",
+      "dropFilesHint": "Solte arquivos para adicionar seus caminhos",
       "inputPlaceholderNew": "Digite um comando para iniciar uma nova sessão...",
       "inputPlaceholder": "Digite um comando...",
       "run": "Executar",
       "stop": "Parar",
       "stopping": "Parando…",
+      "followUp": "Adicionar",
+      "followUpTitle": "Enviar uma mensagem de acompanhamento sem parar o agente (Enter)",
       "executing": "Executando…",
       "readOnly": "Somente leitura — selecione uma aba de sessão ou crie uma nova",
       "attachmentError": "ERR",
@@ -684,6 +696,7 @@
       "slashEmpty": "Nenhuma habilidade correspondente",
       "slashLoading": "Carregando habilidades…",
       "ctxCopy": "Copiar",
+      "ctxBookmark": "Marcar",
       "ctxQuoteReply": "Citar resposta",
       "ctxSendAsPrompt": "Enviar como novo prompt",
       "ctxSelectAll": "Selecionar tudo",
@@ -710,7 +723,17 @@
       "terminal": "Terminal",
       "files": "Arquivos",
       "results": "Resultados",
-      "skills": "Habilidades"
+      "skills": "Habilidades",
+      "bookmarks": "Marcadores"
+    },
+    "bookmarks": {
+      "title": "Marcadores",
+      "empty": "Nenhum marcador ainda. Selecione o texto na saída, clique com o botão direito e escolha Marcar.",
+      "copy": "Copiar",
+      "jump": "Ir à origem",
+      "remove": "Remover",
+      "close": "Fechar",
+      "sourceGone": "A origem não existe mais"
     },
     "sidebar": {
       "sessions": "Sessões",

@@ -1276,6 +1276,12 @@ export interface AppState {
    * §5.5 #17-5 — `global` = 사용자 홈 `~/.claude/skills/`·`~/.claude/commands/` (모든 프로젝트 공통).
    */
   skillOrder?: { project?: string[]; global?: string[]; plugin?: string[] };
+  /**
+   * §5.5 #17-4 v2.93 — SkillsView 즐겨찾기 스킬명 목록 (머신 단위 전역, 프로젝트 무관).
+   * 출처(project/global/plugin) 무관하게 스킬명 키(병합 목록은 name 유일). 별을 누른 순서 보존 —
+   * SkillsView 가 이 순서로 최상단 "Favorites" 카테고리에 렌더하고, 해당 스킬은 출처 그룹에서 제외.
+   */
+  skillFavorites?: string[];
   /** 마지막 업데이트 타임스탬프 (epoch ms). */
   updatedAt: number;
 }
@@ -1292,6 +1298,10 @@ export interface ProjectMetaSnapshot {
   checkpointPath: string;
   /** discriminator — 항상 false. hydrated 인스턴스와 union 분기에 사용 */
   isHydrated: false;
+  /** §3.2.1-4 (v3.03) — 부팅 hydrate(load) 실패로 읽기 전용 격리된 stub. 자동 저장 동결 + 빈 인스턴스 생성 거부. */
+  readOnly?: boolean;
+  /** 격리 사유(디버그/UI 표기용). */
+  readOnlyReason?: 'load-error';
 }
 
 /** 에이전트 전체 상태 (서버에서 계산, 클라이언트는 읽기만) */
@@ -2043,6 +2053,15 @@ export interface AgentConfig {
    * 위장 우회 ❌ — 사람이 루프 안에 있는 진짜 인터랙티브 세션 전용(Anthropic ToS 합법선).
    */
   executionMode?: ExecutionMode;
+  /**
+   * §4 v2.88 — API 비용 상한(달러). 헤드리스 `claude -p` 스폰에 `--max-budget-usd <n>` 로 전달돼
+   * 해당 금액 초과 시 런이 중단된다(2026.06.15 Agent SDK 크레딧 풀 분리 대응 — 폭주 방어).
+   * undefined 또는 0 = **무제한**(기존 동작 보존). 양수일 때만 상한 적용.
+   * CLI 제약상 `--max-budget-usd` 는 `--print` 전용 → 설정 시 persistent 재사용/Agent View 를 끄고
+   * 매 턴 fresh `--print` 스폰으로 보내 상한이 실제 적용되게 한다(서버 subAgentManager).
+   * interactive-terminal(구독 과금) 경로에는 적용하지 않는다(프로그래매틱 과금이 아님).
+   */
+  maxBudgetUsd?: number;
 }
 
 /**

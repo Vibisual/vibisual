@@ -12,7 +12,13 @@ import type {
   ProjectMeta,
   ProjectMetaSnapshot,
 } from '@vibisual/shared';
-import { CHECKPOINT_BACKUP_GENERATIONS } from '@vibisual/shared';
+import {
+  CHECKPOINT_BACKUP_GENERATIONS,
+  CHECKPOINT_EMPTY_GUARD_MIN_PRIOR,
+  CHECKPOINT_SHRINK_GUARD_MIN_PRIOR,
+  CHECKPOINT_SHRINK_GUARD_RATIO,
+  CHECKPOINT_SHRINK_GUARD_ENABLED,
+} from '@vibisual/shared';
 import { logger } from '../logger.js';
 
 // v1.52: 체크포인트 = 각 프로젝트 폴더 안의 `<projectPath>/.vibisual/save/`.
@@ -246,6 +252,64 @@ function passesShrinkGuard(saveDir: string, nextIdentity: ProjectIdentity): bool
   return true;
 }
 
+/**
+ * §3.2.1-3 (v3.03) — 디스크 checkpoint(없으면 `.bak1`)에서 그래프 합계만 가볍게 읽는다.
+ * `loadCheckpointFromPath` 는 매번 info 로그를 찍어 고빈도 저장 경로에 부적합하므로 별도 조용한 reader.
+ */
+function readCheckpointTotalsFromDisk(cpPath: string): { agents: number; nodes: number } | null {
+  const tryRead = (f: string): { agents: number; nodes: number } | null => {
+    try {
+      if (!fs.existsSync(f)) return null;
+      const o = JSON.parse(fs.readFileSync(f, 'utf8')) as Record<string, unknown>;
+      if (!isValidCheckpointObj(o)) return null;
+      const g = (o['graph'] ?? {}) as { agents?: Record<string, unknown>; nodes?: Record<string, unknown> };
+      return { agents: Object.keys(g.agents ?? {}).length, nodes: Object.keys(g.nodes ?? {}).length };
+    } catch {
+      return null;
+    }
+  };
+  return tryRead(cpPath) ?? tryRead(`${cpPath}.bak1`);
+}
+
+/**
+ * §3.2.1-3 (v3.03) — checkpoint.json 빈/급감 덮어쓰기 거부 가드.
+ * 크래시 후 재시작 시 빈 인스턴스가 멀쩡한 checkpoint 를 빈 그래프로 덮어쓰는 손실을 막는다.
+ * 판정은 `graph.agents + graph.nodes` 합계 기준.
+ * - (1) 통째-0 가드(1차 활성): 디스크 합계 ≥ MIN_PRIOR 인데 새 저장본 합계 == 0 → 거부.
+ * - (2) 급감 비율 가드(기본 비활성): 정상 대량 만료 오탐 위험이 커 상수 토글로만 둔다.
+ * 정상 만료는 프로젝트 루트 노드가 남아 통째-0 이 되지 않으므로 오탐하지 않는다.
+ */
+function passesCheckpointShrinkGuard(
+  cpPath: string,
+  next: ProjectCheckpoint,
+): { ok: true } | { ok: false; reason: string } {
+  const prev = readCheckpointTotalsFromDisk(cpPath);
+  if (!prev) return { ok: true }; // 첫 저장 / 디스크에 비교 대상 없음 — 보호할 것 없음
+  const prevTotal = prev.agents + prev.nodes;
+  const nextAgents = Object.keys(next.graph?.agents ?? {}).length;
+  const nextNodes = Object.keys(next.graph?.nodes ?? {}).length;
+  const nextTotal = nextAgents + nextNodes;
+
+  // (1) 통째-0 가드.
+  if (prevTotal >= CHECKPOINT_EMPTY_GUARD_MIN_PRIOR && nextTotal === 0) {
+    return {
+      ok: false,
+      reason: `prior had ${prevTotal} bubble(s) (agents=${prev.agents}, nodes=${prev.nodes}), next is empty — likely empty-instance overwrite`,
+    };
+  }
+
+  // (2) 급감 비율 가드 — 기본 비활성. 활성화 시 묘비(deletedCustomAgentIds, =sessionId) 미설명 소멸 정밀 검증 필요.
+  if (
+    CHECKPOINT_SHRINK_GUARD_ENABLED &&
+    prevTotal >= CHECKPOINT_SHRINK_GUARD_MIN_PRIOR &&
+    nextTotal < prevTotal * CHECKPOINT_SHRINK_GUARD_RATIO
+  ) {
+    return { ok: false, reason: `steep shrink ${prevTotal}→${nextTotal} (ratio guard)` };
+  }
+
+  return { ok: true };
+}
+
 export function writeCheckpoint(checkpoint: ProjectCheckpoint): void {
   // Ghost 체크포인트 생성 방지 가드.
   // project.path 가 비었거나 name 이 placeholder("unknown") 면 저장 거부.
@@ -269,9 +333,21 @@ export function writeCheckpoint(checkpoint: ProjectCheckpoint): void {
     const dir = projectDirForInfo(checkpoint.project);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
+    const cpPath = path.join(dir, CHECKPOINT_FILENAME);
+
+    // §3.2.1-3 (v3.03) checkpoint.json 통째-0 가드 — 빈 인스턴스가 멀쩡한 디스크를 덮어쓰는 손실 차단.
+    // writeMeta(lastSavedAt 갱신)·백업 롤링보다 먼저 검사해 거부 시 디스크를 일절 건드리지 않는다.
+    const cpVerdict = passesCheckpointShrinkGuard(cpPath, checkpoint);
+    if (!cpVerdict.ok) {
+      logger.warn(
+        `writeCheckpoint: REFUSING checkpoint.json overwrite for "${checkpoint.project.name}" — ${cpVerdict.reason}; ` +
+        `preserving existing checkpoint + backups (identity.json untouched)`,
+      );
+      return;
+    }
+
     writeMeta(dir, checkpoint.project);
 
-    const cpPath = path.join(dir, CHECKPOINT_FILENAME);
     const identity = deriveIdentity(checkpoint);
 
     // §3.2.1-3 빈/급감 가드 — identity 가 비어 보이면 identity.json 은 보존(체크포인트는 저장).

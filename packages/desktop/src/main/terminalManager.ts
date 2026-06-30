@@ -115,6 +115,13 @@ export function createTerminal(wc: WebContents, spec: CreateTerminalSpec): { ok:
       //   열 뿐 rules 가 자동 적용되지 않아 "참고용"에 그친다(강제 X). rules 가 있을 때만 켠다.
       env: {
         ...(process.env as Record<string, string>),
+        // UTF-8 강제 — legacy(subAgentManager) / agent-view(claudeAgentViewService) spawn 경로와 동일.
+        //   이게 없으면 PTY 안의 claude → python Stop 훅(verify_gate.py 등)이 한글을 Windows 콘솔
+        //   기본 코드페이지(cp949)로 찍고, node-pty 가 UTF-8 로 디코딩하면서 전부 ◆(U+FFFD)로 깨진다.
+        //   PYTHONIOENCODING 이 핵심(파이썬 stdout 을 코드페이지와 무관하게 UTF-8 로 고정).
+        LANG: 'en_US.UTF-8',
+        LC_ALL: 'en_US.UTF-8',
+        PYTHONIOENCODING: 'utf-8',
         ...(agentId ? { VIBISUAL_OWNER_AGENT_ID: agentId } : {}),
         VIBISUAL_OWNER_TERM_ID: spec.termId,
         ...(rulesDir ? { CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '1' } : {}),

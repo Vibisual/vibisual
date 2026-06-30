@@ -7,6 +7,8 @@ import { IDETabBar } from './IDETabBar.js';
 import { IDESidebar } from './IDESidebar.js';
 import { IDEMainArea } from './IDEMainArea.js';
 import { IDEStatusBar } from './IDEStatusBar.js';
+import { IDEBookmarkView } from './IDEBookmarkPanel.js';
+import { IDESessionSummaryView } from './IDESessionSummaryView.js';
 
 const EMPTY_SUBS: SubAgent[] = [];
 
@@ -37,6 +39,10 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   const activeSessionId = useGraphStore((s) => selectIDEOverlay(s).activeSessionId);
   const closeOverlay = useGraphStore((s) => s.closeIDEOverlay);
   const setSession = useGraphStore((s) => s.setIDEActiveSession);
+  const bookmarkPanelOpen = useGraphStore((s) => s.bookmarkPanelOpen);
+  const setBookmarkPanelOpen = useGraphStore((s) => s.setBookmarkPanelOpen);
+  const summaryPanelOpen = useGraphStore((s) => s.summaryPanelOpen);
+  const setSummaryPanelOpen = useGraphStore((s) => s.setSummaryPanelOpen);
   const setIDEDocked = useGraphStore((s) => s.setIDEDocked);
   const storeDockedRight = useGraphStore((s) => selectIDEOverlay(s).dockedRight);
   const storeDockWidth = useGraphStore((s) => selectIDEOverlay(s).dockWidth);
@@ -149,6 +155,11 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     return () => window.removeEventListener('keydown', handleKey);
   }, [agentId, closeOverlay]);
 
+  // 누수 방지: 드래그 중(mousemove/mouseup 부착 상태)에 컴포넌트가 언마운트되면 handleUp 이 안 불려
+  //   window 리스너가 영구 부착된다. 활성 드래그의 정리 함수를 ref 에 보관해 언마운트 시 강제 해제.
+  const activeDragCleanupRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => { activeDragCleanupRef.current?.(); activeDragCleanupRef.current = null; }, []);
+
   // 타이틀바 mousedown — 드래그 시작 / 임계치 초과 시 modal→floating 전이 + floating/docked 이동
   const handleTitleBarMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     // fullWindow(오버레이 창)에선 in-window 이동 ❌ — 타이틀바 app-drag 가 OS 창째로 옮긴다.
@@ -220,6 +231,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     function handleUp(ev: MouseEvent): void {
       window.removeEventListener('mousemove', handleMove);
       window.removeEventListener('mouseup', handleUp);
+      activeDragCleanupRef.current = null;
       setSnapPreview(false);
       if (!dragging) return;
       // 우측 가장자리 임계치 안에서 놓으면 도킹 (오버레이 창은 disableDock 이라 도킹 안 함).
@@ -230,6 +242,10 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
 
     window.addEventListener('mousemove', handleMove);
     window.addEventListener('mouseup', handleUp);
+    activeDragCleanupRef.current = () => {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+    };
   }, [fullWindow, mode, maximized, floatSize.w, floatSize.h, disableDock]);
 
   // 도킹 좌측 리사이즈 핸들
@@ -248,9 +264,14 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     function handleUp(): void {
       window.removeEventListener('mousemove', handleMove);
       window.removeEventListener('mouseup', handleUp);
+      activeDragCleanupRef.current = null;
     }
     window.addEventListener('mousemove', handleMove);
     window.addEventListener('mouseup', handleUp);
+    activeDragCleanupRef.current = () => {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+    };
   }, [dockWidth]);
 
   // Custom 에이전트: 열릴 때 첫 번째 Sub 세션 자동 선택
@@ -490,11 +511,22 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
           onNewSession={handleNewSession}
         />
 
-        {/* Body: Activity bar + Sidebar + Main area */}
-        <div className="flex min-h-0 flex-1">
+        {/* Body: Activity bar + Sidebar + Main area.
+            §5.5 #17-7 — 북마크 패널은 활동바 우측(메인+사이드바) 영역 전체를 덮는 별도 "세션창"으로 뜬다. */}
+        <div className="relative flex min-h-0 flex-1">
           <IDEActivityBar />
           <IDESidebar agentId={agentId} />
           <IDEMainArea agentId={agentId} isCustom={isCustom} />
+          {bookmarkPanelOpen && (
+            <div className="absolute inset-y-0 left-12 right-0 z-20">
+              <IDEBookmarkView onClose={() => setBookmarkPanelOpen(false)} />
+            </div>
+          )}
+          {summaryPanelOpen && (
+            <div className="absolute inset-y-0 left-12 right-0 z-20">
+              <IDESessionSummaryView agentId={agentId} onClose={() => setSummaryPanelOpen(false)} />
+            </div>
+          )}
         </div>
 
         {/* Status bar */}

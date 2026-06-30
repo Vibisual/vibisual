@@ -373,6 +373,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
     rules: t('panel.agentConfig.fieldTips.rules'),
     tools: t('panel.agentConfig.fieldTips.tools'),
     maxTurns: t('panel.agentConfig.fieldTips.maxTurns'),
+    maxBudgetUsd: t('panel.agentConfig.fieldTips.maxBudgetUsd'),
     isolation: t('panel.agentConfig.fieldTips.isolation'),
     effort: t('panel.agentConfig.fieldTips.effort'),
     skills: t('panel.agentConfig.fieldTips.skills'),
@@ -394,6 +395,8 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
   const [skills, setSkills] = useState<string[]>([...base.skills]);
   const [color, setColor] = useState(base.color ?? currentColor);
   const [maxTurns, setMaxTurns] = useState(base.maxTurns ?? 3000);
+  // §4 v2.88 — API 비용 상한($). 0 = 무제한(기본). 양수면 헤드리스 스폰에 --max-budget-usd 전달.
+  const [maxBudgetUsd, setMaxBudgetUsd] = useState(base.maxBudgetUsd ?? 0);
   const [isolation, setIsolation] = useState(base.isolation ?? 'none');
   const [effort, setEffort] = useState(base.effort ?? 'default');
   // §4 v1.53 — disallowedTools UI 노출 (Tools 아래 빨간 칩 라인)
@@ -541,6 +544,8 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
   const buildPayload = useCallback((): AgentConfig => ({
     model, tools, permissionMode, skills, color,
     maxTurns: maxTurns > 0 ? maxTurns : undefined,
+    // §4 v2.88 — 0 = 무제한 → undefined 로 직렬화 최소화. 양수만 저장.
+    maxBudgetUsd: maxBudgetUsd > 0 ? maxBudgetUsd : undefined,
     isolation: isolation !== 'none' ? isolation : undefined,
     effort: (isOpus && effort !== 'default') ? effort : undefined,
     disallowedTools: disallowedTools.length > 0 ? disallowedTools : undefined,
@@ -559,7 +564,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
     // §4 v2.38 — 풀ID 핀 (undefined = alias=latest 모드)
     modelVersion,
   }), [
-    model, tools, permissionMode, permissionTimeoutPolicy, skills, color, maxTurns, isolation, effort,
+    model, tools, permissionMode, permissionTimeoutPolicy, skills, color, maxTurns, maxBudgetUsd, isolation, effort,
     isOpus, disallowedTools, rules, customMode,
     contextWindow, presetId, modelVersion,
   ]);
@@ -988,6 +993,21 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
               <div className="flex flex-col gap-1">
                 <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.effort.label')}<InfoTip text={FIELD_TIPS.effort} /></label>
                 <CustomSelect value={isOpus ? effort : 'default'} onChange={setEffort} options={EFFORT_OPTIONS} disabled={!isOpus} />
+              </div>
+              {/* §4 v2.88 — API 비용 상한($). 0 = 무제한. 양수면 헤드리스 스폰에 --max-budget-usd 전달. */}
+              <div className="flex flex-col gap-1">
+                <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.maxBudgetUsd', { defaultValue: 'Budget ($, 0=∞)' })}<InfoTip text={FIELD_TIPS.maxBudgetUsd} /></label>
+                <div className="flex items-stretch rounded border border-gray-700 bg-gray-800 focus-within:border-blue-500">
+                  <span className="flex w-7 items-center justify-center text-sm text-gray-500">$</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={maxBudgetUsd}
+                    onChange={(e) => setMaxBudgetUsd(Math.max(0, Number(e.target.value) || 0))}
+                    className="w-full min-w-0 flex-1 border-l border-gray-700 bg-transparent px-2 py-1.5 text-center text-sm text-gray-200 outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                  />
+                </div>
               </div>
             </div>
 

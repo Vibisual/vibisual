@@ -518,6 +518,15 @@
     "debugPanel": {
       "title": "Debug",
       "close": "Chiudi",
+      "project": "Progetto",
+      "projectName": "Nome",
+      "projectPath": "Percorso",
+      "agents": "Agent",
+      "nodes": "Nodi",
+      "edges": "Edge",
+      "noProject": "Nessun progetto attivo",
+      "fps": "fps",
+      "fpsTip": "Fotogrammi renderizzati al secondo",
       "errorLog": "Log errori",
       "noErrors": "Nessun errore catturato",
       "servers": "Server",
@@ -670,11 +679,14 @@
     },
     "mainArea": {
       "scrollPrompt": "Scorri al prompt",
+      "dropFilesHint": "Rilascia i file per aggiungere i loro percorsi",
       "inputPlaceholderNew": "Inserisci un comando per avviare una nuova sessione...",
       "inputPlaceholder": "Inserisci comando...",
       "run": "Esegui",
       "stop": "Interrompi",
       "stopping": "Interruzione…",
+      "followUp": "Aggiungi",
+      "followUpTitle": "Invia un messaggio di follow-up senza fermare l'agente (Invio)",
       "executing": "Esecuzione…",
       "readOnly": "Sola lettura — seleziona una scheda sessione o creane una nuova",
       "attachmentError": "ERR",
@@ -684,6 +696,7 @@
       "slashEmpty": "Nessuna skill corrispondente",
       "slashLoading": "Caricamento skill…",
       "ctxCopy": "Copia",
+      "ctxBookmark": "Segnalibro",
       "ctxQuoteReply": "Cita risposta",
       "ctxSendAsPrompt": "Invia come nuovo prompt",
       "ctxSelectAll": "Seleziona tutto",
@@ -710,7 +723,17 @@
       "terminal": "Terminale",
       "files": "File",
       "results": "Risultati",
-      "skills": "Skill"
+      "skills": "Skill",
+      "bookmarks": "Segnalibri"
+    },
+    "bookmarks": {
+      "title": "Segnalibri",
+      "empty": "Nessun segnalibro ancora. Seleziona del testo nell'output, fai clic destro e scegli Segnalibro.",
+      "copy": "Copia",
+      "jump": "Vai alla fonte",
+      "remove": "Rimuovi",
+      "close": "Chiudi",
+      "sourceGone": "L'origine non esiste più"
     },
     "sidebar": {
       "sessions": "Sessioni",

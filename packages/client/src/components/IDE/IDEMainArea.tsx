@@ -1,11 +1,15 @@
-import { memo, useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import { memo, useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo } from 'react';
+import { Virtuoso, type VirtuosoHandle, type StateSnapshot } from 'react-virtuoso';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import type { QueuedCommand, SubAgent, SubAgentStreamEvent, AgentEvent, AgentReport, AgentQuestions, AgentReview, AgentList } from '@vibisual/shared';
+import type { QueuedCommand, SubAgent, SubAgentStreamEvent, AgentEvent, AgentReport, AgentQuestions, AgentReview, AgentList, AskUserQuestionRequest } from '@vibisual/shared';
 import { useGraphStore, agentSessionInputKey, selectIDEOverlay } from '../../stores/graphStore.js';
 import type { AgentSessionInputAttachment } from '../../stores/graphStore.js';
 import { useAvailableSkills, type SkillInfo } from '../../hooks/useAvailableSkills.js';
-import { StreamRenderer } from './StreamRenderer.js';
+import { StreamRenderer, type StreamRendererHandle } from './StreamRenderer.js';
+import { useAttachmentThumbs } from './attachmentThumb.js';
+import { decideFollow } from './followDecision.js';
+import { findTextRangeInContainer, scrollRangeIntoCenter, scrollElementIntoCenter, flashElement, findItemElement, resolveAnchorIdFromSelection } from './bookmarkScroll.js';
 import { AskQuestionCard } from './AskQuestionCard.js';
 import { AgentReportCard } from './AgentReportCard.js';
 import { AgentQuestionCard } from './AgentQuestionCard.js';
@@ -31,9 +35,34 @@ const EMPTY_QUESTIONS: import('@vibisual/shared').AgentQuestions[] = [];
 const EMPTY_REVIEWS: import('@vibisual/shared').AgentReview[] = [];
 const EMPTY_LISTS: import('@vibisual/shared').AgentList[] = [];
 
+// v3.05 — 바닥 추종 의도 판정 임계(px). 스크롤 후 바닥과의 거리가 이보다 가까우면 "추종 중"으로 본다.
+//   콘텐츠 성장은 scroll 이벤트를 안 내므로 이 값은 사용자 스크롤-업/다운 제스처에만 반응한다.
+const FOLLOW_BOTTOM_THRESHOLD = 80;
+
 interface IDEMainAreaProps {
   agentId: string;
   isCustom: boolean;
+}
+
+/**
+ * OS 드래그앤드롭으로 들어온 File 의 절대경로 해석. 통합 앱(Electron)에서는 preload 가 노출한
+ * `window.api.getPathForFile`(webUtils) 로, 그 외(브라우저 dev)는 비표준 `File.path` 폴백.
+ * 둘 다 없으면 빈 문자열(브라우저 dev 에선 OS 경로가 없어 첨부 불가).
+ */
+function resolveDroppedFilePath(file: File): string {
+  const bridge = (window as unknown as { api?: { getPathForFile?: (f: File) => string } }).api;
+  try {
+    const p = bridge?.getPathForFile?.(file);
+    if (p) return p;
+  } catch { /* fall through to legacy */ }
+  return (file as unknown as { path?: string }).path ?? '';
+}
+
+/** dataTransfer 가 OS 파일을 담고 있는지(텍스트 셀렉션 드래그 등과 구분). */
+function dragHasFiles(e: React.DragEvent): boolean {
+  const types = e.dataTransfer?.types;
+  if (!types) return false;
+  return Array.from(types).includes('Files');
 }
 
 function formatTime(ts: number): string {
@@ -43,6 +72,34 @@ function formatTime(ts: number): string {
     second: '2-digit',
     hour12: false,
   });
+}
+
+/**
+ * 북마크 "이동" 의 실제 스크롤 — anchorId(출처 항목)가 있으면 그 엘리먼트로 컨테이너 중앙 스크롤 +
+ * 외곽선 플래시, 없거나 못 찾으면 보관 텍스트를 컨테이너에서 검색(공백/노드 경계 관용)해 선택+스크롤.
+ * 가상 리스트는 호출 전에 scrollToIndex 로 그 항목을 렌더시켜 둔다.
+ */
+function performBookmarkScroll(container: HTMLElement, anchorId: string | undefined, text: string): boolean {
+  if (anchorId) {
+    const el = findItemElement(container, anchorId);
+    if (el) {
+      scrollElementIntoCenter(container, el);
+      flashElement(el);
+      // 항목 안에서 정확한 텍스트도 선택해 주면 더 좋다(있으면).
+      const range = findTextRangeInContainer(el, text);
+      if (range) {
+        const sel = window.getSelection();
+        if (sel) { sel.removeAllRanges(); sel.addRange(range); }
+      }
+      return true;
+    }
+  }
+  const range = findTextRangeInContainer(container, text);
+  if (range) {
+    scrollRangeIntoCenter(container, range);
+    return true;
+  }
+  return false;
 }
 
 // ─── 통합 터미널 항목 ───
@@ -847,10 +904,11 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
     }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      if (executingForSession) return;
+      // 실행 중에도 Enter 는 "덧말"(추가 대화) 로 동작 — 중지하지 않고 후속 메시지를 큐에 넣는다.
+      // 중지는 마우스로 좌측 중지 버튼을 눌러야만 — Enter 로 실행을 끊지 않는다(사용자 보고 흐름).
       handleSubmit();
     }
-  }, [slashOpen, slashState, slashIndex, confirmSlash, setText, handleSubmit, executingForSession]);
+  }, [slashOpen, slashState, slashIndex, confirmSlash, setText, handleSubmit]);
 
   const handleInput = useCallback(() => {
     const el = textareaRef.current;
@@ -1051,22 +1109,40 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
           data-ide-input-session={activeSessionId ?? ''}
         />
         {executingForSession ? (
-          <button
-            type="button"
-            onClick={handleStop}
-            disabled={stopping}
-            className="flex h-7 flex-shrink-0 items-center gap-1 rounded bg-red-600 px-3 text-xs font-semibold text-white transition-colors hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-40"
-            aria-label={t('ide.mainArea.stop')}
-          >
-            {stopping ? (
-              <span className="inline-block h-2.5 w-2.5 animate-spin rounded-full border-[1.5px] border-white/70 border-t-transparent" />
-            ) : (
-              <svg className="h-2.5 w-2.5" viewBox="0 0 10 10" fill="currentColor">
-                <rect x="1" y="1" width="8" height="8" rx="1" />
+          // 실행 중: 좌측 [중지](마우스 클릭 전용) + 우측 [덧말](Enter=추가 대화).
+          //   중지는 실행을 끊는 파괴적 동작이라 마우스로만 — Enter 는 handleSubmit(덧말)에 배정.
+          //   덧말 = 멈추지 않고 후속 메시지를 큐에 추가(서버 busy 가드가 현재 턴 종료 후 이어서 처리).
+          <>
+            <button
+              type="button"
+              onClick={handleStop}
+              disabled={stopping}
+              className="flex h-7 flex-shrink-0 items-center gap-1 rounded bg-red-600 px-3 text-xs font-semibold text-white transition-colors hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-40"
+              aria-label={t('ide.mainArea.stop')}
+            >
+              {stopping ? (
+                <span className="inline-block h-2.5 w-2.5 animate-spin rounded-full border-[1.5px] border-white/70 border-t-transparent" />
+              ) : (
+                <svg className="h-2.5 w-2.5" viewBox="0 0 10 10" fill="currentColor">
+                  <rect x="1" y="1" width="8" height="8" rx="1" />
+                </svg>
+              )}
+              {stopping ? t('ide.mainArea.stopping') : t('ide.mainArea.stop')}
+            </button>
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={!canSubmit}
+              className="flex h-7 flex-shrink-0 items-center gap-1 rounded bg-blue-600 px-3 text-xs font-semibold text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-30"
+              title={hasPendingUploads ? t('panel.commandQueue.waitingForUpload') : t('ide.mainArea.followUpTitle')}
+            >
+              <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
               </svg>
-            )}
-            {stopping ? t('ide.mainArea.stopping') : t('ide.mainArea.stop')}
-          </button>
+              {t('ide.mainArea.followUp')}
+            </button>
+          </>
         ) : (
           <button
             type="button"
@@ -1091,13 +1167,14 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
 interface StreamStatusBarProps {
   commands: QueuedCommand[];
   scrollRef: React.RefObject<HTMLDivElement>;
+  /** Sub 탭 가상 리스트 핸들 — 점프 시 미렌더 항목을 scrollToIndex 로 먼저 렌더시키기 위함. */
+  streamRef: React.RefObject<StreamRendererHandle>;
 }
 
 const STATUS_SUMMARY_MAX = 80;
 
-function StreamStatusBar({ commands, scrollRef }: StreamStatusBarProps): React.JSX.Element | null {
+function StreamStatusBar({ commands, scrollRef, streamRef }: StreamStatusBarProps): React.JSX.Element | null {
   const { t } = useTranslation();
-  const attachmentPreviews = useGraphStore((s) => s.attachmentPreviews);
   const openImageLightbox = useGraphStore((s) => s.openImageLightbox);
   // 우선순위(기본): 실행 중 > 최신 완료/에러. queued 단독은 하단 표시 대상 아님.
   const defaultTarget = useMemo(() => {
@@ -1148,8 +1225,17 @@ function StreamStatusBar({ commands, scrollRef }: StreamStatusBarProps): React.J
     return defaultTarget;
   }, [viewedId, commands, defaultTarget]);
 
+  // v1.38 — 첨부 썸네일(basename 으로 조회). v2.93 — blob preview 우선 + server 파일 라우트 폴백.
+  //          훅은 조건부 return 위에서 호출(target 없으면 빈 배열).
+  const attachmentThumbs = useAttachmentThumbs(target?.attachments);
+
   const handleJump = useCallback(() => {
-    if (!target || !scrollRef.current) return;
+    if (!target) return;
+    // 가상 리스트는 뷰포트 밖 항목을 렌더하지 않는다 — DOM 조회만으로는 바닥에서 누를 때 타깃 프롬프트가
+    //   미렌더라 el===null → 안 올라간다. virtuoso scrollToIndex(렌더 보장)+정밀 스크롤을 한 핸들이 담당.
+    if (streamRef.current) { streamRef.current.scrollToCommand(target.id); return; }
+    // 폴백 — 핸들이 아직 없으면(드문 타이밍) 렌더된 항목 한정 DOM 스크롤.
+    if (!scrollRef.current) return;
     const container = scrollRef.current;
     const el = container.querySelector<HTMLElement>(`[data-cmd-id="cmd-${target.id}"]`);
     if (!el) return;
@@ -1159,7 +1245,7 @@ function StreamStatusBar({ commands, scrollRef }: StreamStatusBarProps): React.J
       top: container.scrollTop + (targetRect.top - containerRect.top) - 16,
       behavior: 'smooth',
     });
-  }, [target, scrollRef]);
+  }, [target, scrollRef, streamRef]);
 
   if (!target) return null;
 
@@ -1170,17 +1256,6 @@ function StreamStatusBar({ commands, scrollRef }: StreamStatusBarProps): React.J
     : target.text;
 
   if (isExecuting) {
-    // v1.38 — 실행중 커맨드의 첨부 썸네일을 스토어에서 basename 으로 조회해 인라인 표시.
-    //         커맨드 완료 시 server cleanup → next snapshot 에서 attachmentPreviews 자동 revoke.
-    const attachmentThumbs: { basename: string; url: string }[] = [];
-    if (target.attachments) {
-      for (const p of target.attachments) {
-        const parts = p.split(/[/\\]/);
-        const basename = parts[parts.length - 1] ?? '';
-        const url = attachmentPreviews[basename];
-        if (url) attachmentThumbs.push({ basename, url });
-      }
-    }
     // 첨부 썸네일 버튼이 안에 있어 <button> 중첩이 불가 → div[role=button] 으로 점프 처리.
     return (
       <div
@@ -1273,18 +1348,22 @@ function TerminalContextMenu({
   }, [x, y]);
 
   // 외부 mousedown / Esc → 닫기.
+  // 누수 방지: onClose 를 ref 로 고정해 의존성에서 빼면, 호출자가 매 렌더 새 콜백을 줘도
+  //   리스너를 재등록(중복 누적)하지 않는다 — 마운트당 1회만 등록/해제.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+      if (ref.current && !ref.current.contains(e.target as Node)) onCloseRef.current();
     };
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onCloseRef.current(); };
     window.addEventListener('mousedown', onDown, true);
     window.addEventListener('keydown', onKey);
     return () => {
       window.removeEventListener('mousedown', onDown, true);
       window.removeEventListener('keydown', onKey);
     };
-  }, [onClose]);
+  }, []);
 
   return createPortal(
     <div
@@ -1342,85 +1421,16 @@ function ImageLightboxHost(): React.JSX.Element | null {
         onClick={(e) => e.stopPropagation()}
         className="max-h-[92vh] max-w-[92vw] rounded-lg border border-gray-700 shadow-2xl"
       />
+      {/* v2.94 — top-4(16px)는 Windows 네이티브 타이틀바 오버레이(우상단 ~144×36px, OS가 웹 위에
+          그려 클릭 가로챔)와 겹쳐 닫기가 막혔다. 타이틀바 높이(36px) 아래(top-12=48px)로 내려 회피. */}
       <button
         type="button"
         onClick={close}
         aria-label={t('panel.detailPanel.close')}
-        className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-gray-200 transition-colors hover:bg-black/80"
+        className="absolute right-4 top-12 flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-gray-200 transition-colors hover:bg-black/80"
       >
         <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
       </button>
-    </div>,
-    document.body,
-  );
-}
-
-// ─── 스트림 본문 링크 iframe 오버레이 — 전역 transient state(linkFrame)를 body 로 portal. ───
-//      대화 스트림 안의 링크(마크다운 링크 + bare URL)를 클릭하면 외부 브라우저로 새지 않고
-//      앱 안에서 iframe 으로 띄운다. 임베드를 거부하는 사이트(X-Frame-Options 등)를 위해
-//      "브라우저로 열기" 폴백 버튼을 함께 둔다.
-function LinkFrameHost(): React.JSX.Element | null {
-  const { t } = useTranslation();
-  const url = useGraphStore((s) => s.linkFrame);
-  const close = useGraphStore((s) => s.closeLinkFrame);
-  useEffect(() => {
-    if (!url) return;
-    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') close(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [url, close]);
-  if (!url) return null;
-  return createPortal(
-    <div
-      onClick={close}
-      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 p-6"
-      role="dialog"
-      aria-modal="true"
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="flex h-[88vh] w-[92vw] max-w-6xl flex-col overflow-hidden rounded-lg border border-gray-700 bg-gray-900 shadow-2xl"
-      >
-        {/* 헤더 — URL + 외부 열기 + 닫기 */}
-        <div className="flex flex-shrink-0 items-center gap-2 border-b border-gray-700 bg-gray-800/60 px-3 py-2">
-          <svg className="h-4 w-4 flex-shrink-0 text-sky-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-          </svg>
-          <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-gray-300" title={url}>{url}</span>
-          <button
-            type="button"
-            onClick={() => { try { window.open(url, '_blank', 'noopener,noreferrer'); } catch { /* blocked */ } }}
-            className="inline-flex flex-shrink-0 items-center gap-1 rounded border border-white/10 bg-gray-900/70 px-2 py-1 text-[11px] font-medium text-gray-300 transition-colors hover:border-white/20 hover:bg-gray-800/80 hover:text-gray-100"
-          >
-            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-              <polyline points="15 3 21 3 21 9" />
-              <line x1="10" y1="14" x2="21" y2="3" />
-            </svg>
-            {t('ide.streamRenderer.openInBrowser')}
-          </button>
-          <button
-            type="button"
-            onClick={close}
-            aria-label={t('panel.detailPanel.close')}
-            className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-gray-300 transition-colors hover:bg-black/40 hover:text-gray-100"
-          >
-            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-          </button>
-        </div>
-        {/* iframe 본문 */}
-        <iframe
-          src={url}
-          title={url}
-          className="min-h-0 flex-1 bg-white"
-          sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-        />
-        {/* 임베드 거부 사이트 힌트 */}
-        <div className="flex-shrink-0 border-t border-gray-700 bg-gray-800/40 px-3 py-1.5 text-[10px] text-gray-500">
-          {t('ide.streamRenderer.linkFrameBlockedHint')}
-        </div>
-      </div>
     </div>,
     document.body,
   );
@@ -1452,8 +1462,72 @@ export const IDEMainArea = memo(function IDEMainArea({
       ? (s.subAgentStreams[activeSessionId] ?? EMPTY_STREAM_EVENTS)
       : EMPTY_STREAM_EVENTS,
   );
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const autoScrollRef = useRef(true);
+  // v2.99 — scrollRef/scrollEl 은 이제 virtuoso 가 단독 소유한 **내부 스크롤러 DOM**(옛 외부 overflow
+  //   컨테이너 대체). Sub 탭=StreamRenderer onScrollerRef, 메인 탭=메인 Virtuoso scrollerRef 가 이 콜백으로
+  //   같은 노드를 올린다. StreamStatusBar·북마크 이동·Select All 이 이 컨테이너 한정으로 작동한다.
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
+  const setScrollNode = useCallback((node: HTMLElement | Window | null) => {
+    const el = node instanceof HTMLElement ? (node as HTMLDivElement) : null;
+    scrollRef.current = el;
+    setScrollEl(el);
+  }, []);
+
+  // IDE 본문 텍스트 줌 — Ctrl+휠로 스트림/대화 글자 배율 조절(캔버스·창 UI 와 무관). 배율은 각 항목 래퍼에
+  //   zoom 으로 적용(StreamRenderer renderStreamItem / 아래 메인 타임라인 itemContent). 스크롤러는 그대로 둬
+  //   가상화 측정과 충돌하지 않게 한다. 본문 출력 영역에 native 비-passive wheel 리스너(capture)를 달아
+  //   preventDefault + stopPropagation 으로 가로채고(스크롤·markUpIntent 미발화), 부호로 확대/축소한다.
+  const ideTextZoom = useGraphStore((s) => s.ideTextZoom);
+  const setIdeTextZoom = useGraphStore((s) => s.setIdeTextZoom);
+  const ideBodyRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = ideBodyRef.current;
+    if (!el) return;
+    const onWheelZoom = (e: WheelEvent): void => {
+      if (!e.ctrlKey) return; // 줌 제스처만 가로챔 — 일반 스크롤은 그대로 통과.
+      e.preventDefault();
+      e.stopPropagation();
+      const cur = useGraphStore.getState().ideTextZoom;
+      setIdeTextZoom(cur * (e.deltaY < 0 ? 1.1 : 1 / 1.1));
+    };
+    el.addEventListener('wheel', onWheelZoom, { passive: false, capture: true });
+    return () => el.removeEventListener('wheel', onWheelZoom, { capture: true });
+  }, [setIdeTextZoom]);
+  // v3.05 — 바닥 추종의 SSOT 를 "스크롤 의도"(followRef)로 바꾼다. 옛 코드는 virtuoso 의
+  //   atBottomStateChange 가 주는 순간 바닥 여부(atBottomRef)로 추종을 판정했는데, 새 메시지/블록이
+  //   스트리밍돼 본문이 뷰포트 아래로 자라면 바닥과의 거리가 40px 임계를 넘겨 라이브러리가 곧장
+  //   atBottom=false 를 쏘고, 그 false 때문에 추종 effect 가 즉시 빠져나가 다시 바닥으로 붙지 못했다
+  //   → 새 답변에 포커싱은커녕 화면이 "스스로 위로 올라가" 보였다. 핵심 통찰: **콘텐츠가 자라기만 하면
+  //   scroll 이벤트는 안 난다(높이만 변하고 scrollTop 은 그대로)** → followRef 는 scroll 이벤트에서만
+  //   갱신하므로 콘텐츠 성장으로는 절대 꺼지지 않고, **사용자가 직접 위로 올릴 때만**(scroll 이벤트 +
+  //   바닥에서 멂) 꺼진다. 다시 바닥으로 내리면(scroll 이벤트 + 바닥 근접) 자동 재무장. = 사용자가 말한
+  //   3상태 그대로: ①안 건들면 자동추종 ②위로 올리면 그 자리 고정 ③다시 내리면 자동추종 재개.
+  // v2.99 — 활성 세션(탭) key. 메인 탭은 '__main__'. 세션별 스냅샷/추종상태 맵의 공통 키.
+  const sessionKey = activeSessionId ?? '__main__';
+  // 추종 의도(SSOT) — 스크롤 핸들러가 갱신. 추종 effect / 자기메시지 점프가 이 값을 본다.
+  const followRef = useRef(true);
+  // 세션별 "추종 중이었나" — 추종 세션은 복귀 시 (옛 위치가 아니라) **새 바닥**으로 가야 하므로
+  //   restoreStateFrom 대신 initialTopMostItemIndex=LAST 를 쓴다. 스크롤 핸들러가 현재 세션 키로 기록.
+  const sessionAtBottomRef = useRef<Map<string, boolean>>(new Map());
+  const handleAtBottomChange = useCallback((atBottom: boolean) => {
+    // 라이브러리가 "바닥에 닿았다"고 알릴 때만 추종을 켠다(확실히 바닥). false 는 콘텐츠가 자라며 바닥이
+    //   멀어진 일시 상태일 수 있어 추종을 끄지 않는다 — 끄는 건 사용자 스크롤-업만(아래 scroll 핸들러).
+    if (atBottom) { followRef.current = true; sessionAtBottomRef.current.set(sessionKey, true); }
+  }, [sessionKey]);
+  // 메인 Virtuoso 바닥 추종: 바닥에 있을 때만 새 출력을 따라간다(StreamRenderer 의 followOutput 과 동일 계약).
+  const mainFollowOutput = useCallback((isAtBottom: boolean): 'auto' | false => (isAtBottom ? 'auto' : false), []);
+  // v2.99 — 세션(탭)별 virtuoso 상태 스냅샷(측정된 항목 높이 + 스크롤 위치). 스크롤 중 throttled 로 갱신 저장,
+  //   복귀 때 restoreStateFrom 으로 복원 → 재측정 출렁임 없이 보던 위치로 즉시 정착(옛 rAF 정착 루프 + 덮개,
+  //   세션별 {top,atBottom} 맵, 복원 중 저장 금지 플래그를 모두 대체).
+  const sessionSnapshotsRef = useRef<Map<string, StateSnapshot>>(new Map());
+  // v2.99 — 세션 복원 스냅샷 결정: 떠날 때 바닥이었으면(또는 첫 진입) undefined → 자식이 새 바닥(LAST)에서
+  //   시작, 아니면(위로 올려둔 세션) 저장 스냅샷으로 그 위치 복원.
+  const restoreStateFor = useCallback((key: string): StateSnapshot | undefined => {
+    if (sessionAtBottomRef.current.get(key) ?? true) return undefined;
+    return sessionSnapshotsRef.current.get(key);
+  }, []);
+  // 북마크 이동 nonce — 막 전환된 세션이 북마크 점프인지 식별해 스크롤 복원을 양보(중복 스크롤 충돌 방지).
+  const handledBookmarkNonceRef = useRef<number>(-1);
 
   // Hook 메인 뷰(activeSessionId===null) = read-only, 서브에이전트 탭 = interactive
   const isReadOnly = !isCustom && activeSessionId === null;
@@ -1463,18 +1537,78 @@ export const IDEMainArea = memo(function IDEMainArea({
   const executionMode = useGraphStore((s) => s.agentConfigs[agentId]?.executionMode);
   const showInteractiveTerminal = isCustom && executionMode === 'interactive-terminal';
 
-  // §5.5 #17-3 v2.31 — 우클릭 컨텍스트 메뉴.
-  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; selection: string } | null>(null);
+  // §5.5 #17-3 v2.31 — 우클릭 컨텍스트 메뉴. anchorId = 선택 출처 항목(§17-7 북마크 이동용).
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; selection: string; anchorId?: string } | null>(null);
   const setAgentSessionInputText = useGraphStore((s) => s.setAgentSessionInputText);
   const addCommand = useGraphStore((s) => s.addCommand);
+
+  // OS 파일 드래그앤드롭 — 출력 영역/입력창 어디에 떨궈도 그 파일들의 절대경로를 활성 세션 입력에
+  //   덧붙인다(에이전트가 Read 로 읽도록). 다른 IDE 처럼 드래그 중 오버레이 힌트 표시.
+  const [dragActive, setDragActive] = useState(false);
+  const dragDepth = useRef(0);
+
+  // 입력 textarea(data-ide-input) 를 찾아 focus + caret 끝 + 자동높이 복원 (quote-reply 와 동일 셀렉터).
+  const focusInputEnd = useCallback(() => {
+    const sessionAttr = activeSessionId ?? '';
+    const ta = document.querySelector<HTMLTextAreaElement>(
+      `textarea[data-ide-input="${agentId}"][data-ide-input-session="${sessionAttr}"]`,
+    );
+    if (!ta) return;
+    ta.focus();
+    ta.setSelectionRange(ta.value.length, ta.value.length);
+    ta.style.height = 'auto';
+    ta.style.height = `${Math.min(ta.scrollHeight, 120)}px`;
+  }, [agentId, activeSessionId]);
+
+  const insertDroppedPaths = useCallback((paths: string[]) => {
+    if (paths.length === 0) return;
+    const key = agentSessionInputKey(agentId, activeSessionId);
+    const existing = useGraphStore.getState().agentSessionInputs[key]?.text ?? '';
+    // 경로에 공백이 있어도 에이전트가 인식하도록 따옴표로 감싼다(공백 없으면 원문 그대로).
+    const joined = paths.map((p) => (/\s/.test(p) ? `"${p}"` : p)).join(' ');
+    const next = existing.trim().length > 0 ? `${existing.replace(/\s*$/, '')} ${joined} ` : `${joined} `;
+    setAgentSessionInputText(agentId, activeSessionId, next);
+    requestAnimationFrame(focusInputEnd);
+  }, [agentId, activeSessionId, setAgentSessionInputText, focusInputEnd]);
+
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    if (isReadOnly || !dragHasFiles(e)) return;
+    e.preventDefault();
+    dragDepth.current += 1;
+    setDragActive(true);
+  }, [isReadOnly]);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    if (isReadOnly || !dragHasFiles(e)) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+  }, [isReadOnly]);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    if (isReadOnly || !dragHasFiles(e)) return;
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (dragDepth.current === 0) setDragActive(false);
+  }, [isReadOnly]);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    dragDepth.current = 0;
+    setDragActive(false);
+    if (isReadOnly || !dragHasFiles(e)) return;
+    e.preventDefault();
+    const files = Array.from(e.dataTransfer?.files ?? []);
+    const paths = files.map(resolveDroppedFilePath).filter((p) => p.length > 0);
+    insertDroppedPaths(paths);
+  }, [isReadOnly, insertDroppedPaths]);
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     // textarea 위 우클릭은 가로채지 ❌ (브라우저 기본 Paste/Cut/Spell-check 보존).
     const tgt = e.target as HTMLElement;
     if (tgt.closest('textarea, input, [contenteditable="true"]')) return;
     const sel = (window.getSelection()?.toString() ?? '').trim();
+    // 선택이 시작된 출처 항목 id 를 지금(선택 살아있을 때) 캡처 — 메뉴 클릭 후엔 선택이 풀릴 수 있다.
+    const anchorId = resolveAnchorIdFromSelection();
     e.preventDefault();
-    setCtxMenu({ x: e.clientX, y: e.clientY, selection: sel });
+    setCtxMenu({ x: e.clientX, y: e.clientY, selection: sel, anchorId });
   }, []);
 
   const closeCtxMenu = useCallback(() => setCtxMenu(null), []);
@@ -1492,6 +1626,18 @@ export const IDEMainArea = memo(function IDEMainArea({
           if (typeof navigator !== 'undefined' && navigator.clipboard) {
             navigator.clipboard.writeText(sel).catch(() => {});
           }
+        },
+      },
+      {
+        label: t('ide.mainArea.ctxBookmark'),
+        disabled: !hasSel,
+        disabledTitle: selectionRequired,
+        onClick: () => {
+          if (!sel) return;
+          const st = useGraphStore.getState();
+          const agentLabel = st.nodeMap[agentId]?.label ?? agentId;
+          const projectId = st.agentProjects[agentId] ?? null;
+          st.addBookmark({ text: sel, agentId, sessionId: activeSessionId, projectId, agentLabel, anchorId: ctxMenu?.anchorId });
         },
       },
       {
@@ -1584,18 +1730,16 @@ export const IDEMainArea = memo(function IDEMainArea({
   // sub 탭: 그 sub 의 질문만.
   const pendingAskQuestions = useGraphStore((s) => s.pendingAskQuestions);
   const askCards = useMemo(() => {
-    const subIdSet = new Set(subAgents.map((s) => s.id));
     const matches = Object.values(pendingAskQuestions).filter((r) => {
       if (r.agentId !== agentId) return false;
-      if (activeSessionId !== null) {
-        // sub 탭: subAgentId 가 그 탭과 일치하는 질문만
-        return r.subAgentId === activeSessionId;
-      }
-      // 메인 탭: 본 에이전트의 직접 질문(subAgentId 미상) + 이 에이전트의 sub 질문
-      return !r.subAgentId || subIdSet.has(r.subAgentId);
+      // sub 탭: 그 세션(subAgentId)의 질문만. 메인 탭: 이 에이전트의 **모든** 질문(작업 신고 카드와 동일).
+      //   메인 탭에서 subIdSet 멤버십으로 거르던 옛 로직은, 막 스폰돼 아직 subAgents 스냅샷에 안 들어온
+      //   세션의 AskUserQuestion 을 조용히 누락시켜 사용자가 못 보고 60s 타임아웃되던 버그의 직접 원인.
+      //   r.agentId === agentId 로 이미 소속이 보장되므로 메인 탭에선 무조건 노출한다(§5.3 #12-2).
+      return activeSessionId !== null ? r.subAgentId === activeSessionId : true;
     });
     return matches.sort((a, b) => a.createdAt - b.createdAt);
-  }, [pendingAskQuestions, agentId, activeSessionId, subAgents]);
+  }, [pendingAskQuestions, agentId, activeSessionId]);
 
   // §4 v2.52 — 이 에이전트의 작업 신고 카드. agentReports 는 agentId 1차 키.
   // 메인 탭(activeSessionId === null): 이 에이전트의 모든 신고. sub 탭: 그 세션(subAgentId) 신고만.
@@ -1643,36 +1787,245 @@ export const IDEMainArea = memo(function IDEMainArea({
       for (const ts of cmdTsAsc) { if (ts > createdAt) return ts - 0.5; }
       return Number.MAX_SAFE_INTEGER;
     };
-    const merged: Array<{ ts: number; node: { t: 'item'; item: TerminalItem } | { t: 'report'; report: AgentReport } | { t: 'question'; questions: AgentQuestions } | { t: 'review'; review: AgentReview } | { t: 'list'; list: AgentList } }> = [
+    const merged: Array<{ ts: number; node: { t: 'item'; item: TerminalItem } | { t: 'report'; report: AgentReport } | { t: 'question'; questions: AgentQuestions } | { t: 'review'; review: AgentReview } | { t: 'list'; list: AgentList } | { t: 'ask'; request: AskUserQuestionRequest } }> = [
       ...items.map((item) => ({ ts: item.timestamp, node: { t: 'item' as const, item } })),
       ...reportCards.map((r) => ({ ts: turnEndSortTs(r.createdAt), node: { t: 'report' as const, report: r } })),
       ...questionCards.map((q) => ({ ts: turnEndSortTs(q.createdAt), node: { t: 'question' as const, questions: q } })),
       ...reviewCards.map((r) => ({ ts: turnEndSortTs(r.createdAt), node: { t: 'review' as const, review: r } })),
       ...listCards.map((l) => ({ ts: turnEndSortTs(l.createdAt), node: { t: 'list' as const, list: l } })),
+      // §5.3 #12-2 — pending AskUserQuestion 카드도 타임라인 안으로(가상 리스트 밖 형제 렌더 → 겹침 제거).
+      ...askCards.map((req) => ({ ts: turnEndSortTs(req.createdAt), node: { t: 'ask' as const, request: req } })),
     ];
     merged.sort((a, b) => a.ts - b.ts);
     return merged.map((m) => m.node);
-  }, [items, reportCards, questionCards, reviewCards, listCards, commands]);
+  }, [items, reportCards, questionCards, reviewCards, listCards, askCards, commands]);
 
-  // Auto-scroll — 유저가 위로 스크롤하면 비활성화, 바닥 근처면 활성화
-  const handleScroll = useCallback(() => {
-    const el = scrollRef.current;
+  // v2.99 — 세션(탭) 전환 시 위치 복원: 자식(StreamRenderer / 메인 Virtuoso)을 key={sessionKey} 로 재마운트하고
+  //   restoreStateFrom 으로 그 세션의 저장 스냅샷(측정된 항목 높이 + 스크롤 위치)을 받아 **재측정 출렁임 없이**
+  //   보던 위치로 즉시 정착시킨다(옛 rAF 정착 루프 + 불투명 덮개 + 픽셀 앵커 대체).
+  //   스냅샷은 "떠날 때"가 아니라 **스크롤이 일어나는 동안 throttled 로 갱신 저장**한다 — getState 는 virtuoso 가
+  //   마운트돼 있는 동안에만 유효한데, 언마운트 cleanup 시점엔 자식 virtuoso 가 이미 해제돼 잡을 수 없기 때문.
+  //   탭을 바꾸면 그 세션에서 마지막으로 스크롤된 위치가 이미 맵에 들어 있어 복귀 시 그대로 복원된다.
+  useEffect(() => {
+    const el = scrollEl;
     if (!el) return;
-    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-    autoScrollRef.current = atBottom;
-  }, []);
+    let raf = 0;
+    const save = (): void => {
+      raf = 0;
+      const handle = activeSessionId === null ? mainVirtuosoRef.current : streamRef.current;
+      handle?.getState((snap) => { sessionSnapshotsRef.current.set(sessionKey, snap); });
+    };
+    // v3.08 — 추종 해제는 **사용자 직접 제스처**(휠 위로/터치 드래그/PageUp·Home 등)가 있었을 때만. 옛 v3.05 는
+    //   scroll 이벤트의 dist 만 보고 followRef 를 껐는데, 그 전제("콘텐츠 성장으로는 scroll 이 안 난다")가 틀렸다 —
+    //   virtuoso 는 스트리밍으로 마지막 항목이 자라면 위쪽 선렌더 버퍼(increaseViewportBy top:1600)를 재측정하며
+    //   **스스로 scrollTop 을 보정**해 scroll 이벤트를 쏜다. 그 순간 콘텐츠가 막 자라 dist≥임계라 추종이 꺼지고,
+    //   이후 pin(v3.04/ResizeObserver)이 전부 bail 해 새 단어가 바닥에 안 붙고 화면이 "위로 말려 올라가" 보였다
+    //   (사용자: "새 단어 쓰면 왜 위로 올라가냐"). → 프로그램/측정이 만든 scroll 로는 절대 끄지 않고, 사용자가
+    //   실제로 위로 올린 제스처가 최근(700ms)에 있었을 때만 끈다. 바닥에 닿으면(직접 내렸든 pin 이 붙였든) 항상 재무장.
+    let userUpIntentUntil = 0;
+    const markUpIntent = (): void => { userUpIntentUntil = performance.now() + 700; };
+    // Ctrl+휠은 본문 텍스트 줌 제스처(아래 ideTextZoom wheel 핸들러)라 스크롤-업 의도로 치지 않는다.
+    const onWheel = (e: WheelEvent): void => { if (!e.ctrlKey && e.deltaY < 0) markUpIntent(); };
+    const onKeyNav = (e: KeyboardEvent): void => {
+      if (e.key === 'ArrowUp' || e.key === 'PageUp' || e.key === 'Home') markUpIntent();
+    };
+    const onScroll = (): void => {
+      // 판정은 순수 함수(decideFollow)로 위임 — virtuoso/레이아웃 없이 Vitest 로 결정론적 검증(followDecision.test).
+      followRef.current = decideFollow({
+        dist: el.scrollHeight - el.scrollTop - el.clientHeight,
+        threshold: FOLLOW_BOTTOM_THRESHOLD,
+        prevFollow: followRef.current,
+        userUpIntent: performance.now() < userUpIntentUntil,
+      });
+      sessionAtBottomRef.current.set(sessionKey, followRef.current);
+      if (!raf) raf = requestAnimationFrame(save);
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    el.addEventListener('wheel', onWheel, { passive: true });
+    el.addEventListener('touchmove', markUpIntent, { passive: true });
+    el.addEventListener('keydown', onKeyNav);
+    return () => {
+      el.removeEventListener('scroll', onScroll);
+      el.removeEventListener('wheel', onWheel);
+      el.removeEventListener('touchmove', markUpIntent);
+      el.removeEventListener('keydown', onKeyNav);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [scrollEl, activeSessionId, sessionKey]);
 
-  // 탭 전환 시 스크롤 위치 리셋
-  useEffect(() => {
-    autoScrollRef.current = true;
-    if (scrollRef.current) scrollRef.current.scrollTop = 0;
-  }, [activeSessionId]);
+  // v3.00 — 세션(탭) 진입 시 가변 높이(마크다운/도구 블록) 측정 reflow 로 본문이 위아래로 출렁이던(통통 튀던)
+  //   증상 제거. v2.99 가 단독 스크롤러로 가면서 v2.97 의 "정착 덮개" 를 걷어냈더니, restoreStateFrom 스냅샷이
+  //   덮지 못한 화면 밖 항목(increaseViewportBy 로 선렌더되는 위/아래 버퍼)이 마운트 후 뒤늦게 측정되며
+  //   ① 통통 튀는 출렁임 ② 바닥이 살짝 위 ③ 복원 위치가 밀려 보임 — 세 증상이 한 뿌리로 재발했다. 출력 영역을
+  //   잠깐 불투명 덮개로 가린 채 scrollHeight 가 연속 프레임(=5) 안 바뀔 때(측정 정착, 상한 1200ms)까지 기다렸다
+  //   페이드아웃해 정돈된 본문을 한 번에 드러낸다(VS Code 식 "레이아웃 준비 전 미표시"). 진입 시 바닥이던 세션은
+  //   그동안 LAST 로 재고정해 "바닥이 살짝 위" 까지 해소하고, 위로 올려둔 세션은 restoreStateFrom 복원 위치를
+  //   그대로 유지한다(LAST 재고정 ❌). useLayoutEffect 라 전환 첫 프레임부터 덮여 pre-settle 깜빡임이 없다.
+  const [covering, setCovering] = useState(true);
+  useLayoutEffect(() => {
+    const el = scrollEl;
+    if (!el) { setCovering(true); return; }
+    setCovering(true);
+    const atBottomOnEntry = sessionAtBottomRef.current.get(sessionKey) ?? true;
+    // v3.06 — 진입 세션의 추종 의도로 followRef 를 즉시 정렬(layout 단계라 paint 전). 이게 없으면 위로
+    //   올려둔 세션으로 돌아왔을 때 followRef 가 직전 세션의 stale true 로 남아, 아래 ResizeObserver/스트림
+    //   추종이 restoreStateFrom 복원 위치를 무시하고 바닥으로 끌어내린다.
+    followRef.current = atBottomOnEntry;
+    let raf = 0;
+    let stable = 0;
+    let lastH = -1;
+    const start = performance.now();
+    const tick = (): void => {
+      raf = 0;
+      if (atBottomOnEntry) {
+        if (activeSessionId === null) mainVirtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'auto' });
+        else streamRef.current?.scrollToBottom();
+      }
+      const h = el.scrollHeight;
+      if (h === lastH) stable += 1; else { stable = 0; lastH = h; }
+      if (stable >= 5 || performance.now() - start > 1200) { setCovering(false); return; }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => { if (raf) cancelAnimationFrame(raf); };
+  }, [scrollEl, sessionKey, activeSessionId]);
 
+  // 사용자가 방금 엔터로 보낸 자기 프롬프트(명령) 수가 늘면 — 위로 올려둔 상태였어도 무조건 하단으로
+  //   되돌린다(자기가 보낸 메시지는 항상 보이게 하는 채팅 UX). 추종 재개 + Virtuoso 핸들로 마지막 항목까지 스크롤.
+  const userCmdCount = useMemo(
+    () => commands.filter((c) => activeSessionId === null || c.subAgentId === activeSessionId).length,
+    [commands, activeSessionId],
+  );
+  const prevUserCmdCountRef = useRef(userCmdCount);
   useEffect(() => {
-    if (autoScrollRef.current && scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    const grew = userCmdCount > prevUserCmdCountRef.current;
+    prevUserCmdCountRef.current = userCmdCount;
+    if (grew) {
+      // v3.05 — 자기 메시지 전송은 추종을 무조건 재무장(위로 올려둔 상태였어도 바닥으로 끌어내려 따라간다).
+      followRef.current = true;
+      sessionAtBottomRef.current.set(sessionKey, true);
+      // 자기가 보낸 메시지는 항상 맨 아래에 보이게(채팅 UX). 전송 직후 reflow(새 프롬프트 블록 측정 + 카드
+      //   재배치 + 첨부 썸네일 + 스트리밍 시작)에 밀려 "살짝 위"로 남지 않도록 짧은 시간창(≈400ms) 동안 매
+      //   프레임 LAST 로 재고정해 reflow 를 타고 넘는다 — 한 프레임이라도 바닥에 닿으면 followOutput 이 이후를 추종.
+      // v3.07 — 전송 직후 스크롤이 바닥이 아니라 위로 말려 올라가던 버그 수정. 원인 ① jump 가 virtuoso
+      //   scrollToIndex(LAST) **하나에만** 의존했는데, 새 프롬프트/스트리밍으로 마지막 항목이 자라는 중이면
+      //   measure 가 못 따라와 바닥에 닿지 못했다. ② 그 사이 virtuoso 가 위쪽 선렌더 버퍼를 측정하며 스크롤을
+      //   보정하면 onScroll 이 dist>임계로 읽어 followRef 를 꺼버려, 400ms 창이 끝난 뒤 v3.04/ResizeObserver
+      //   재고정마저 멈춰 "위로 올라간 채" 굳었다. → 매 프레임 (a)followRef 재무장(엔터 직후라 사용자 스크롤-업
+      //   아님) (b)scrollToIndex 로 LAST 렌더 보장 (c)스크롤러 DOM 을 직접 scrollTop=scrollHeight 로 바닥에
+      //   붙인다(직접 DOM = 측정 지연과 무관한 신뢰 경로, v3.04/ResizeObserver 와 동일).
+      let raf = 0;
+      const start = performance.now();
+      const jump = (): void => {
+        // (a) 창 동안 스트레이 스크롤 보정이 추종을 꺼도 매 프레임 되살린다.
+        followRef.current = true;
+        sessionAtBottomRef.current.set(sessionKey, true);
+        // (b) 가상 리스트가 마지막 항목을 렌더/측정하도록.
+        if (activeSessionId !== null) streamRef.current?.scrollToBottom();
+        else mainVirtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'auto' });
+        // (c) 측정 지연과 무관하게 스크롤러를 바닥에 직접 고정.
+        const el = scrollRef.current;
+        if (el) el.scrollTop = el.scrollHeight;
+        raf = performance.now() - start < 400 ? requestAnimationFrame(jump) : 0;
+      };
+      jump();
+      return () => { if (raf) cancelAnimationFrame(raf); };
     }
-  }, [items.length, askCards.length, reportCards.length, questionCards.length, reviewCards.length, listCards.length]);
+  }, [userCmdCount, activeSessionId, sessionKey]);
+
+  // v3.04/v3.05 — 에이전트가 말하는 동안(스트리밍) **바닥 자동추종**. followOutput 단독은 "새 항목 추가"에만
+  //   반응하는데 스트리밍은 buildBaseItems 가 연속 text 를 **한 블록으로 합쳐** 마지막 항목이 계속 자라는
+  //   형태라 추종을 놓쳐, 새 내용이 뷰포트 아래로 쌓이며 화면이 위로 밀려 보인다(사용자: "왜 아래가 아니라
+  //   위로 올라가냐"). → 콘텐츠가 바뀔 때 **추종 의도가 살아있을 때만**(followRef) 스크롤러를 바닥에 붙인다.
+  //   v3.05: 판정을 atBottomRef(라이브러리의 순간 바닥 여부)에서 followRef(사용자 스크롤 의도)로 교체 —
+  //   옛 atBottomRef 는 콘텐츠가 자라 바닥이 멀어지면 곧장 false 가 돼 이 추종을 스스로 꺼뜨렸다(=새 답변에
+  //   포커싱 못 하고 위로 밀려 보이던 원인). followRef 는 사용자가 위로 올릴 때만 꺼지므로, 위로 올려 읽는
+  //   중이면 안 돌아 "다른 곳 보면 그 자리에 멈춤"이 보장된다(스크롤-업이 항상 이긴다).
+  //   ⚠ 입력 지연 회귀(per-token 강제 reflow) 방지 — **rAF 로 프레임당 한 번만** 합쳐 스크롤한다(여러 토큰이 한
+  //   프레임에 와도 직전 예약을 취소하고 마지막 한 번만 → scrollHeight 읽기=프레임당 1회). useLayoutEffect/매-토큰
+  //   동기 reflow 가 아니라 rAF 합치기라 타이핑과 겹쳐도 입력이 밀리지 않는다.
+  useEffect(() => {
+    if (!followRef.current) return;
+    const raf = requestAnimationFrame(() => {
+      if (!followRef.current) return;
+      const el = scrollRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [activeStreamEvents, commands, mainTimeline, reportCards, questionCards, reviewCards, listCards, askCards]);
+
+  // v3.06 — 바닥 추종 보강(reflow 대응). 위 v3.04 effect 는 "스트림/카드 데이터가 바뀔 때"만 재고정하는데,
+  //   탭 복귀 시 가변 높이(마크다운/코드블록/이미지) 측정이 **데이터 변화 없이** 뒤늦게 일어나면(특히
+  //   이벤트가 수백 개인 무거운 세션) 그 reflow 가 본문을 위로 밀어 "바닥에서 위로 말려 올라가" 보였다
+  //   (covering 정착 창이 끝난 뒤의 늦은 측정은 데이터 effect/ followOutput 어느 쪽도 못 잡는다). ResizeObserver
+  //   로 스크롤러 내부 콘텐츠의 높이 변화 + 뷰포트 크기 변화를 직접 감지해, 추종 의도(followRef)가 살아있으면
+  //   그 즉시 바닥으로 다시 붙인다. 위로 올려둔 상태(followRef=false)면 아무것도 안 해 "그 자리 고정"이
+  //   보장된다(스크롤-업 우선). rAF 로 프레임당 1회만 합쳐 입력 지연 회귀를 피한다.
+  useEffect(() => {
+    const el = scrollEl;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    // 콘텐츠(스크롤러의 자식 = 총 높이를 갖는 리스트)는 높이가 자라고, 스크롤러 자신은 뷰포트 리사이즈를 잡는다.
+    const content = el.firstElementChild ?? el;
+    let raf = 0;
+    const pin = (): void => { raf = 0; if (followRef.current) el.scrollTop = el.scrollHeight; };
+    const ro = new ResizeObserver(() => {
+      if (!followRef.current) return;
+      if (!raf) raf = requestAnimationFrame(pin);
+    });
+    ro.observe(content);
+    if (content !== el) ro.observe(el);
+    return () => { ro.disconnect(); if (raf) cancelAnimationFrame(raf); };
+  }, [scrollEl]);
+
+  // 북마크 "이동" 소비 — 타깃 세션이 활성화되면, 출처 항목(anchorId)으로 가상 리스트를 직접 스크롤한다.
+  //   Sub 탭: StreamRenderer 가 자체 Virtuoso 로 처리. 메인 탭: 여기서 메인 Virtuoso scrollToIndex 후
+  //   컨테이너 스크롤+하이라이트. nonce 로 1회만 처리(스토어 clear 가 effect 재실행→cleanup 으로 타이머를
+  //   취소하는 회귀를 피하려 clear 대신 handledNonce 가드).
+  const bookmarkScrollTarget = useGraphStore((s) => s.bookmarkScrollTarget);
+  const streamRef = useRef<StreamRendererHandle>(null);
+  const mainVirtuosoRef = useRef<VirtuosoHandle>(null);
+  useEffect(() => {
+    const target = bookmarkScrollTarget;
+    if (!target) return;
+    if (target.nonce === handledBookmarkNonceRef.current) return;
+    if (target.sessionId !== activeSessionId) return; // 타깃 세션 활성화 전 — 대기(아직 nonce 미처리)
+    handledBookmarkNonceRef.current = target.nonce;
+    // v2.99 — 점프 동안 바닥 추종이 점프 위치를 끌어내리지 않게: followOutput 은 바닥에 있을 때만 따라가므로,
+    //   anchorId 로 위쪽 항목에 스크롤하면 자동으로 비추종이 된다(옛 autoScrollRef/followBottomRef 강제 불필요).
+    const { anchorId, text } = target;
+
+    let cancelled = false;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const later = (fn: () => void, ms: number): void => {
+      timers.push(setTimeout(() => { if (!cancelled) fn(); }, ms));
+    };
+
+    if (activeSessionId !== null) {
+      // Sub 탭 — StreamRenderer 가 index 스크롤 + 하이라이트를 담당.
+      later(() => streamRef.current?.scrollToBookmark(anchorId, text), 120);
+    } else {
+      // 메인 탭 — 메인 Virtuoso 를 anchorId 인덱스로 보낸 뒤(렌더 후) 컨테이너 스크롤+하이라이트.
+      const idx = anchorId
+        ? mainTimeline.findIndex((n) =>
+            (n.t === 'report' ? n.report.id
+              : n.t === 'review' ? n.review.id
+              : n.t === 'list' ? n.list.id
+              : n.t === 'question' ? n.questions.id
+              : n.t === 'ask' ? n.request.requestId
+              : n.item.id) === anchorId)
+        : -1;
+      // scrollToIndex 는 짧은 타이머 안에서 — 오버레이가 새로 마운트(프로젝트 전환)된 직후엔 ref 가 아직 null.
+      later(() => { if (idx >= 0) mainVirtuosoRef.current?.scrollToIndex({ index: idx, align: 'center' }); }, 60);
+      later(() => {
+        const el = scrollRef.current;
+        if (el) performBookmarkScroll(el, anchorId, text);
+      }, idx >= 0 ? 340 : 140);
+    }
+    return () => { cancelled = true; for (const tmr of timers) clearTimeout(tmr); };
+    // mainTimeline 은 의도적으로 deps 제외(스크롤은 nonce 변경 시 1회만; deps 에 넣으면 타임라인 갱신마다
+    // cleanup 이 진행 중 타이머를 취소). nonce 가드가 중복 실행을 막는다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookmarkScrollTarget, activeSessionId]);
 
   // §4 v2.63 — 인터랙티브 터미널 모드: 활성 탭(세션)을 임베디드 PTY 로 렌더.
   //   key=termId 라 탭 전환 시 그 세션 터미널로 교체(PTY 는 main 에서 보존 → reattach).
@@ -1688,61 +2041,137 @@ export const IDEMainArea = memo(function IDEMainArea({
   }
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      {/* Terminal output */}
+    <div
+      className="relative flex min-h-0 min-w-0 flex-1 flex-col"
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {/* OS 파일 드래그앤드롭 오버레이 — 드래그 중에만 출력+입력 영역 전체를 덮는 점선 힌트 */}
+      {dragActive && (
+        <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-blue-950/40 backdrop-blur-[1px]">
+          <div className="flex flex-col items-center gap-2 rounded-lg border-2 border-dashed border-blue-400/70 bg-gray-900/85 px-8 py-6 shadow-xl">
+            <svg className="h-8 w-8 text-blue-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <path d="M14 2v6h6" />
+              <path d="M12 18v-6" />
+              <path d="m9 15 3 3 3-3" />
+            </svg>
+            <span className="text-sm font-semibold text-blue-100">{t('ide.mainArea.dropFilesHint')}</span>
+          </div>
+        </div>
+      )}
+      {/* Terminal output — v2.99: virtuoso 가 자기 내부 스크롤러를 단독 소유. 이 div 는 클릭/우클릭 위임 +
+          레이아웃(flex 높이)만 담당하고 직접 스크롤하지 않는다(옛 overflow 컨테이너 + onScroll 폐기). */}
       <div
-        ref={scrollRef}
-        onScroll={handleScroll}
+        ref={ideBodyRef}
         onClick={handleAckClick}
         onContextMenu={handleContextMenu}
-        className="scrollbar-thin min-h-0 flex-1 overflow-y-auto bg-gray-950"
+        className="relative flex min-h-0 flex-1 flex-col bg-gray-950"
       >
         {activeSessionId !== null ? (
           /* ── Sub 탭: CLI 스타일 스트림 렌더러 (마크다운 + 접이식 도구) ── */
           <>
             {/* §4 v2.53 — 작업 신고 카드는 StreamRenderer 안에서 createdAt 기준 인라인 합류(하단 고정 ❌). */}
+            {/* v2.99 — StreamRenderer 의 Virtuoso 가 height:100% 로 자기 스크롤러를 단독 소유. onScrollerRef 로
+                그 스크롤러 DOM 을 받아 StreamStatusBar·북마크가 쓰고, key={sessionKey} 재마운트 + restoreState 로
+                세션 위치를 복원한다. §5.3 #12-2 — AskUserQuestion 카드는 askRequests 로 가상 리스트 안에 합류. */}
             <StreamRenderer
+              key={sessionKey}
+              ref={streamRef}
               events={activeStreamEvents}
               commands={commands.filter((c) => c.subAgentId === activeSessionId)}
               reports={reportCards}
               questions={questionCards}
               reviews={reviewCards}
               lists={listCards}
+              askRequests={askCards}
+              onScrollerRef={setScrollNode}
+              restoreState={restoreStateFor(sessionKey)}
+              onAtBottomChange={handleAtBottomChange}
             />
-            {askCards.length > 0 && (
-              <div className="py-1">
-                {askCards.map((req) => (
-                  <AskQuestionCard key={req.requestId} request={req} />
-                ))}
-              </div>
-            )}
           </>
         ) : (
           /* ── Agent 탭(메인): 기존 터미널 라인 + AskUserQuestion 카드. 비어있을 땐 그냥 빈 배경(미니멀) ── */
-          <div className="py-1">
+          <>
             {/* §4 v2.53 — 터미널 항목과 작업 신고 카드를 시간순으로 합친 mainTimeline 을 렌더(신고 하단 고정 ❌). */}
-            {mainTimeline.map((n) =>
-              n.t === 'report'
-                ? <AgentReportCard key={n.report.id} report={n.report} />
-                : n.t === 'review'
-                  ? <AgentReviewCard key={n.review.id} review={n.review} />
-                : n.t === 'list'
-                  ? <AgentListCard key={n.list.id} list={n.list} />
-                : n.t === 'question'
-                  ? <AgentQuestionCard key={n.questions.id} questions={n.questions} />
-                  : n.item.kind === 'group'
-                    ? (n.item.groupType === 'thinking'
-                        ? <ThinkingGroupLine key={n.item.id} group={n.item} />
-                        : <TerminalGroupLine key={n.item.id} group={n.item} />)
-                    : n.item.kind === 'thinking-live'
-                      ? <ThinkingLiveLine key={n.item.id} label={t('ide.streamRenderer.thinking')} />
-                      : <TerminalLine key={n.item.id} entry={n.item} />,
+            {/* v2.99 — 메인 Virtuoso 도 height:100% 로 자기 스크롤러 단독 소유. mainTimeline 이 비면 그리지 않아 미니멀 배경 유지. */}
+            {mainTimeline.length > 0 && (
+              <Virtuoso
+                key={sessionKey}
+                ref={mainVirtuosoRef}
+                className="scrollbar-thin"
+                style={{ height: '100%' }}
+                scrollerRef={setScrollNode}
+                // 바닥 추종을 라이브러리에 위임 — 바닥에 있을 때만 새 출력을 따라가고, 위로 올리면 자동 비추종.
+                followOutput={mainFollowOutput}
+                atBottomStateChange={handleAtBottomChange}
+                atBottomThreshold={40}
+                // 복원 스냅샷이 있으면(위로 올려둔 세션) 그 위치/측정값으로, 없으면(첫 진입/바닥 추종 세션)
+                //   마지막 항목(새 바닥)에서 시작 — 둘은 배타.
+                {...(restoreStateFor(sessionKey)
+                  ? { restoreStateFrom: restoreStateFor(sessionKey) }
+                  : { initialTopMostItemIndex: { index: 'LAST' as const, align: 'end' as const } })}
+                data={mainTimeline}
+                computeItemKey={(_i, n) =>
+                  n.t === 'report' ? n.report.id
+                    : n.t === 'review' ? n.review.id
+                    : n.t === 'list' ? n.list.id
+                    : n.t === 'question' ? n.questions.id
+                    : n.t === 'ask' ? n.request.requestId
+                    : n.item.id}
+                itemContent={(_i, n) => {
+                  const itemId = n.t === 'report' ? n.report.id
+                    : n.t === 'review' ? n.review.id
+                    : n.t === 'list' ? n.list.id
+                    : n.t === 'question' ? n.questions.id
+                    : n.t === 'ask' ? n.request.requestId
+                    : n.item.id;
+                  return (
+                    <div data-stream-item-id={itemId} style={ideTextZoom === 1 ? undefined : { zoom: ideTextZoom }}>
+                      {n.t === 'report'
+                        ? <AgentReportCard report={n.report} />
+                        : n.t === 'review'
+                          ? <AgentReviewCard review={n.review} />
+                        : n.t === 'list'
+                          ? <AgentListCard list={n.list} />
+                        : n.t === 'question'
+                          ? <AgentQuestionCard questions={n.questions} />
+                        : n.t === 'ask'
+                          ? <AskQuestionCard request={n.request} />
+                          : n.item.kind === 'group'
+                            ? (n.item.groupType === 'thinking'
+                                ? <ThinkingGroupLine group={n.item} />
+                                : <TerminalGroupLine group={n.item} />)
+                            : n.item.kind === 'thinking-live'
+                              ? <ThinkingLiveLine label={t('ide.streamRenderer.thinking')} />
+                              : <TerminalLine entry={n.item} />}
+                    </div>
+                  );
+                }}
+                // A: 뷰포트 밖 선렌더 버퍼 확대 — 중간 속도 스크롤에서 본문이 미리 준비돼 pop-in 이 줄어든다.
+                increaseViewportBy={{ top: 1600, bottom: 2000 }}
+                // B(제거): scrollSeek 자리표시자는 스트리밍 중/빠른 스크롤 시 추정 높이≠실제 높이 교체로 화면이
+                //   위아래로 떨리던(발발 떨림) 원인 — 항상 실제 본문을 그려 떨림 제거(StreamRenderer 와 동일 조치).
+              />
             )}
-            {askCards.map((req) => (
-              <AskQuestionCard key={req.requestId} request={req} />
-            ))}
-          </div>
+          </>
         )}
+
+        {/* v3.00 — 진입 측정 정착 덮개: 본문이 정돈될 때까지 같은 배경색(gray-950)으로 가렸다 페이드인.
+            가릴 본문이 있을 때만 불투명·클릭 차단, 정착(또는 빈 세션)이면 투명+pointer-events-none 로 무영향. */}
+        <div
+          aria-hidden
+          className={`absolute inset-0 z-10 bg-gray-950 transition-opacity duration-150 ${
+            covering &&
+            (activeSessionId === null
+              ? mainTimeline.length > 0
+              : activeStreamEvents.length > 0 || commands.some((c) => c.subAgentId === activeSessionId))
+              ? 'opacity-100'
+              : 'pointer-events-none opacity-0'
+          }`}
+        />
       </div>
 
       {/* Stream 하단 상태바 — Sub 탭(StreamRenderer 활성)에서만 */}
@@ -1750,6 +2179,7 @@ export const IDEMainArea = memo(function IDEMainArea({
         <StreamStatusBar
           commands={commands.filter((c) => c.subAgentId === activeSessionId)}
           scrollRef={scrollRef}
+          streamRef={streamRef}
         />
       )}
 
@@ -1767,9 +2197,6 @@ export const IDEMainArea = memo(function IDEMainArea({
 
       {/* v2.61 — 첨부 이미지 라이트박스 (입력칩·상태바·대화 썸네일 클릭 시 전체화면 확대) */}
       <ImageLightboxHost />
-
-      {/* 스트림 본문 링크 클릭 시 iframe 오버레이로 열기 */}
-      <LinkFrameHost />
 
       {/* §5.5 #17-3 v2.31 — 우클릭 컨텍스트 메뉴 */}
       {ctxMenu && (

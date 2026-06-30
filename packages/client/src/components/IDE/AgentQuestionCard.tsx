@@ -5,6 +5,11 @@ import { useGraphStore } from '../../stores/graphStore.js';
 
 interface AgentQuestionCardProps {
   questions: AgentQuestions;
+  /**
+   * §4 v2.89 — "즉시 전송" 동작 주입(선택). 미지정이면 기존 동작: chat 세션에 `addCommand` 로 새 명령.
+   * CMD(인터랙티브 터미널) 카드는 이 콜백으로 프롬프트를 터미널 PTY 에 prefill 한다(사람이 Enter — ToS 인루프).
+   */
+  onSendPrompt?: (prompt: string) => void;
 }
 
 function formatTime(ts: number): string {
@@ -195,13 +200,14 @@ const QuestionItem = memo(function QuestionItem({
  * 복사 박스로 감싸 복사 / 즉시 전송(그 세션에 새 명령) 버튼을 단다. 기존 AskQuestionCard(선택지+동기
  * hold)와 별개 — 이쪽은 비차단.
  */
-export const AgentQuestionCard = memo(function AgentQuestionCard({ questions }: AgentQuestionCardProps): React.JSX.Element {
+export const AgentQuestionCard = memo(function AgentQuestionCard({ questions, onSendPrompt }: AgentQuestionCardProps): React.JSX.Element {
   const { t } = useTranslation();
   const addCommand = useGraphStore((s) => s.addCommand);
 
   const sendPrompt = useCallback((prompt: string) => {
+    if (onSendPrompt) { onSendPrompt(prompt); return; }
     addCommand(questions.agentId, prompt, questions.subAgentId);
-  }, [addCommand, questions.agentId, questions.subAgentId]);
+  }, [onSendPrompt, addCommand, questions.agentId, questions.subAgentId]);
 
   const multi = questions.items.length > 1;
 

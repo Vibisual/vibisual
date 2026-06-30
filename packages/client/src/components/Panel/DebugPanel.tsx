@@ -1,4 +1,4 @@
-import { useEffect, useRef, useMemo } from 'react';
+import { useEffect, useRef, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ReactFlow,
@@ -28,6 +28,29 @@ interface DebugPanelProps {
 function formatClockTime(ts: number): string {
   const d = new Date(ts);
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
+}
+
+/** 렌더 FPS 실시간 측정 — requestAnimationFrame 프레임을 1초 창으로 집계. 표시 전용(성능에 영향 없음). */
+function useRenderFps(): number {
+  const [fps, setFps] = useState(0);
+  useEffect(() => {
+    let raf = 0;
+    let frames = 0;
+    let last = performance.now();
+    const loop = (now: number): void => {
+      frames += 1;
+      const elapsed = now - last;
+      if (elapsed >= 1000) {
+        setFps(Math.round((frames * 1000) / elapsed));
+        frames = 0;
+        last = now;
+      }
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+  return fps;
 }
 
 function buildEdge(e: ActivityEdge, allBubbles: BubbleData[]): Edge {
@@ -60,22 +83,25 @@ export function DebugPanel({ onClose }: DebugPanelProps): React.JSX.Element {
   const { t } = useTranslation();
   const rfRef = useRef<ReactFlowInstance | null>(null);
 
+  const fps = useRenderFps();
   const storeAgents = useGraphStore((s) => s.agents);
   const storeTopFolders = useGraphStore((s) => s.topFolders);
   const storeEdges = useGraphStore((s) => s.edges);
   const activeProject = useGraphStore((s) => s.activeProject);
+  const currentProject = useGraphStore((s) => s.currentProject);
   const agentProjects = useGraphStore((s) => s.agentProjects);
   const nodeProjects = useGraphStore((s) => s.nodeProjects);
   // §4 v1.98 — 진단 에러 로그 (renderer·main·server 통합). 서버가 SSOT, 여기선 표시만.
   const diagnosticLog = useGraphStore((s) => s.diagnosticLog);
 
-  const { nodes, edges } = useMemo(() => {
+  const { nodes, edges, counts } = useMemo(() => {
     const agentList = storeAgents.filter((a) => !activeProject || agentProjects[a.id] === activeProject);
     const nodeList = storeTopFolders.filter((n) => !activeProject || nodeProjects[n.id] === activeProject);
     const nodeIdSet = new Set([...agentList.map((a) => a.id), ...nodeList.map((n) => n.id)]);
     const edgeList = storeEdges.filter((e) => nodeIdSet.has(e.source) || nodeIdSet.has(e.target));
+    const counts = { agents: agentList.length, nodes: nodeList.length, edges: edgeList.length };
 
-    if (agentList.length === 0 && nodeList.length === 0) return { nodes: [] as Node[], edges: [] as Edge[] };
+    if (agentList.length === 0 && nodeList.length === 0) return { nodes: [] as Node[], edges: [] as Edge[], counts };
 
     const allBubbles = [...agentList, ...nodeList];
     const cx = 300;
@@ -110,7 +136,7 @@ export function DebugPanel({ onClose }: DebugPanelProps): React.JSX.Element {
     });
 
     const flowEdges = edgeList.map((e) => buildEdge(e, allBubbles));
-    return { nodes: [...agentNodes, ...fileNodes], edges: flowEdges };
+    return { nodes: [...agentNodes, ...fileNodes], edges: flowEdges, counts };
   }, [storeAgents, storeTopFolders, storeEdges, activeProject, agentProjects, nodeProjects]);
 
   useEffect(() => {
@@ -120,6 +146,8 @@ export function DebugPanel({ onClose }: DebugPanelProps): React.JSX.Element {
 
   // 최신이 위로 — diagnosticLog 는 append 순(오래된 것이 앞).
   const logNewestFirst = useMemo(() => [...diagnosticLog].reverse(), [diagnosticLog]);
+
+  const fpsColor = fps >= 50 ? 'text-emerald-400' : fps >= 30 ? 'text-amber-400' : fps > 0 ? 'text-red-400' : 'text-gray-500';
 
   return (
     <aside className="flex h-full w-80 flex-shrink-0 flex-col border-r border-gray-800 bg-gray-900">
@@ -135,6 +163,53 @@ export function DebugPanel({ onClose }: DebugPanelProps): React.JSX.Element {
 
       {/* Scrollable body */}
       <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto">
+
+      {/* Project & Performance frame — 현재 프로젝트 메타 + 실시간 렌더 FPS */}
+      <div className="flex flex-col gap-2 border-b border-gray-800 p-4">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-medium text-gray-400">{t('panel.debugPanel.project')}</span>
+          <span className={`flex items-center gap-1 font-mono text-[10px] ${fpsColor}`} title={t('panel.debugPanel.fpsTip')}>
+            <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+            </svg>
+            <span className="tabular-nums">{fps}</span>
+            <span className="uppercase tracking-wide text-gray-500">{t('panel.debugPanel.fps')}</span>
+          </span>
+        </div>
+
+        <div className="rounded border border-gray-800 bg-gray-950 p-3">
+          {activeProject ? (
+            <dl className="flex flex-col gap-1.5 text-[11px]">
+              <div className="flex items-center justify-between gap-2">
+                <dt className="flex-shrink-0 text-gray-500">{t('panel.debugPanel.projectName')}</dt>
+                <dd className="truncate font-mono text-gray-200">{currentProject?.name ?? activeProject}</dd>
+              </div>
+              {currentProject?.path && (
+                <div className="flex items-center justify-between gap-2">
+                  <dt className="flex-shrink-0 text-gray-500">{t('panel.debugPanel.projectPath')}</dt>
+                  <dd className="truncate font-mono text-gray-400" title={currentProject.path}>{currentProject.path}</dd>
+                </div>
+              )}
+              <div className="mt-1 grid grid-cols-3 gap-2 border-t border-gray-800/60 pt-2 text-center">
+                <div>
+                  <div className="font-mono text-sm tabular-nums text-gray-200">{counts.agents}</div>
+                  <div className="text-[9px] uppercase tracking-wide text-gray-500">{t('panel.debugPanel.agents')}</div>
+                </div>
+                <div>
+                  <div className="font-mono text-sm tabular-nums text-gray-200">{counts.nodes}</div>
+                  <div className="text-[9px] uppercase tracking-wide text-gray-500">{t('panel.debugPanel.nodes')}</div>
+                </div>
+                <div>
+                  <div className="font-mono text-sm tabular-nums text-gray-200">{counts.edges}</div>
+                  <div className="text-[9px] uppercase tracking-wide text-gray-500">{t('panel.debugPanel.edges')}</div>
+                </div>
+              </div>
+            </dl>
+          ) : (
+            <p className="py-2 text-center text-[11px] text-gray-600">{t('panel.debugPanel.noProject')}</p>
+          )}
+        </div>
+      </div>
 
       {/* §4 v1.98 — Error Log (renderer · main · server 통합) */}
       <div className="flex flex-col gap-1.5 border-b border-gray-800 p-4">
