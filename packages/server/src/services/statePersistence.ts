@@ -617,16 +617,33 @@ function buildCheckpointSkeletonFromIdentity(identity: ProjectIdentity): Project
 
 /** 체크포인트 저장 스케줄러 */
 export class SaveScheduler {
+  /**
+   * 성능: 프로젝트 경로별 마지막으로 디스크에 쓴 체크포인트의 직렬화 결과.
+   * 내용이 동일하면 디스크 쓰기(원자적 write + 백업 rotate)를 스킵한다. saveCheckpoint() 는
+   * 매 hook 이벤트마다 "모든 프로젝트"를 저장하는데, 활동은 보통 한 프로젝트에서만 일어나므로
+   * 안 바뀐 프로젝트의 반복 디스크 I/O 가 N-1 만큼 제거된다. 내용이 같을 때만 스킵하므로
+   * debounce 와 달리 영속 유실 위험이 없다(종료 시 미저장분 같은 창이 존재하지 않음).
+   */
+  private lastWritten = new Map<string, string>();
+
   /** 단일 프로젝트 체크포인트 저장 */
   forceCheckpoint(checkpoint: ProjectCheckpoint): void {
-    writeCheckpoint(checkpoint);
+    this.writeIfChanged(checkpoint);
   }
 
   /** 여러 프로젝트 체크포인트 일괄 저장 */
   forceCheckpointAll(checkpoints: ProjectCheckpoint[]): void {
     for (const cp of checkpoints) {
-      writeCheckpoint(cp);
+      this.writeIfChanged(cp);
     }
+  }
+
+  private writeIfChanged(cp: ProjectCheckpoint): void {
+    const key = cp.project?.path ?? cp.project?.name ?? '';
+    const json = JSON.stringify(cp);
+    if (key && this.lastWritten.get(key) === json) return; // 내용 불변 — 디스크 쓰기 스킵
+    writeCheckpoint(cp);
+    if (key) this.lastWritten.set(key, json);
   }
 }
 

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { BubbleData, ActivityEdge, BashEntry, ServerEntry, AgentEvent, FileEdit, AgentPhase, ProjectInfo, QueuedCommand, SubAgent, ServerKind, PipelineType, PipelineState, AgentConfig, SubAgentStreamEvent, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, UiLocale, ProjectMetaSnapshot, AppState, AppStatePatch, CommentBox, Conti, ActiveContiWork, ToolDurationEntry, CompactCount, RateLimitInfo, DiagnosticEntry, AutoAgentSummary, ModelRegistry, UserDefaults, AgentReport, AgentQuestions, AgentReview, AgentList } from '@vibisual/shared';
-import { DEFAULT_UI_LOCALE, STREAM_EVENTS_MAX_PER_SESSION, DIAGNOSTIC_LOG_MAX } from '@vibisual/shared';
+import { DEFAULT_UI_LOCALE, STREAM_EVENTS_MAX_PER_SESSION, STREAM_EVENTS_MAX_PER_INACTIVE_SESSION, STREAM_INACTIVE_SESSIONS_MAX, DIAGNOSTIC_LOG_MAX } from '@vibisual/shared';
 import { changeUiLocale } from '../i18n/index.js';
 import { calcFileSizeRange } from '../utils/sizeCalc.js';
 
@@ -237,6 +237,54 @@ export function selectIDEOverlay(state: {
 }): IDEOverlayState {
   if (!state.activeProject) return DEFAULT_IDE_OVERLAY;
   return state.ideOverlays[state.activeProject] ?? DEFAULT_IDE_OVERLAY;
+}
+
+// ─── 스트림 메모리 관리 (성능: 비활성 세션 차등 cap + 오래된 세션 pruning) ───
+
+/**
+ * 지금 IDE 로 "보고 있는" 세션 집합. 열린 IDE 오버레이(agentId≠null)의 에이전트에 속한
+ * 모든 세션을 활성으로 본다 — 사용자가 같은 IDE 안에서 세션을 전환해도 전체 버퍼가 보존되도록.
+ */
+function computeActiveSessionIds(
+  ideOverlays: Record<string, IDEOverlayState>,
+  subAgents: Record<string, SubAgent[]>,
+): Set<string> {
+  const active = new Set<string>();
+  for (const ov of Object.values(ideOverlays)) {
+    if (!ov.agentId) continue;
+    if (ov.activeSessionId) active.add(ov.activeSessionId);
+    for (const sub of subAgents[ov.agentId] ?? []) active.add(sub.id);
+  }
+  return active;
+}
+
+/**
+ * 비활성 세션 버퍼를 (1) 작은 상한으로 축소하고 (2) 비활성 세션 수가 상한을 넘으면
+ * 마지막 수신이 가장 오래된 것부터 통째로 제거한다. streams/lastActivity 를 **제자리 수정**
+ * (호출자가 항상 fresh 복사본을 넘긴다). 다시 열면 서버 버퍼에서 복구되므로 표시 손실 없음.
+ */
+function pruneInactiveStreams(
+  streams: Record<string, SubAgentStreamEvent[]>,
+  lastActivity: Record<string, number>,
+  active: Set<string>,
+): void {
+  const inactive = Object.keys(streams).filter((sid) => !active.has(sid));
+  if (inactive.length === 0) return;
+  for (const sid of inactive) {
+    const arr = streams[sid]!;
+    if (arr.length > STREAM_EVENTS_MAX_PER_INACTIVE_SESSION) {
+      streams[sid] = arr.slice(arr.length - STREAM_EVENTS_MAX_PER_INACTIVE_SESSION);
+    }
+  }
+  if (inactive.length > STREAM_INACTIVE_SESSIONS_MAX) {
+    inactive.sort((a, b) => (lastActivity[a] ?? 0) - (lastActivity[b] ?? 0));
+    const removeCount = inactive.length - STREAM_INACTIVE_SESSIONS_MAX;
+    for (let i = 0; i < removeCount; i++) {
+      const sid = inactive[i]!;
+      delete streams[sid];
+      delete lastActivity[sid];
+    }
+  }
 }
 
 /**
@@ -702,6 +750,8 @@ interface GraphState {
   closeWorktreeDelete: () => void;
   /** SubAgent 스트림 이벤트 (subAgentId → events[]) — IDE 터미널 표시용 */
   subAgentStreams: Record<string, SubAgentStreamEvent[]>;
+  /** 세션별 마지막 스트림 수신 시각 (ms) — 비활성 세션 pruning(가장 오래된 것부터 제거)에 사용. */
+  streamLastActivity: Record<string, number>;
   appendStreamEvent: (event: SubAgentStreamEvent) => void;
   /** §9 — sub_agent_stream 16ms 배치 수신. 도착 순서대로 합쳐 set 1회 (구독자 재평가 1회). */
   appendStreamEvents: (events: SubAgentStreamEvent[]) => void;
@@ -1825,45 +1875,58 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   requestWorktreeDelete: (nodeId, label) => set({ worktreeDeleteTarget: { nodeId, label } }),
   closeWorktreeDelete: () => set({ worktreeDeleteTarget: null }),
   subAgentStreams: {},
+  streamLastActivity: {},
   appendStreamEvent: (event) => set((s) => {
     const prev = s.subAgentStreams[event.subAgentId];
     const merged = prev ? [...prev, event] : [event];
-    // 성능: 세션당 상한 초과 시 가장 오래된(화면 위쪽) 이벤트부터 잘라 최근 N개만 유지.
-    const next = merged.length > STREAM_EVENTS_MAX_PER_SESSION
-      ? merged.slice(merged.length - STREAM_EVENTS_MAX_PER_SESSION)
-      : merged;
-    return { subAgentStreams: { ...s.subAgentStreams, [event.subAgentId]: next } };
+    // 성능: 보고 있는(활성) 세션은 큰 상한, 안 보는 세션은 작은 상한으로 차등 절단.
+    const active = computeActiveSessionIds(s.ideOverlays, s.subAgents);
+    const cap = active.has(event.subAgentId) ? STREAM_EVENTS_MAX_PER_SESSION : STREAM_EVENTS_MAX_PER_INACTIVE_SESSION;
+    const next = merged.length > cap ? merged.slice(merged.length - cap) : merged;
+    const streams = { ...s.subAgentStreams, [event.subAgentId]: next };
+    const lastActivity = { ...s.streamLastActivity, [event.subAgentId]: Date.now() };
+    pruneInactiveStreams(streams, lastActivity, active);
+    return { subAgentStreams: streams, streamLastActivity: lastActivity };
   }),
   appendStreamEvents: (events) => set((s) => {
     if (events.length === 0) return {};
     // 단건 append 와 동일 머지(prev ? [...prev, ev] : [ev])를 도착 순서대로 누적 —
     // 페어링(tool_use↔tool_result)이 의존하는 순서 보존. 객체 spread 1회 + set 1회로 묶는다.
     const nextStreams: Record<string, SubAgentStreamEvent[]> = { ...s.subAgentStreams };
+    const nextLast: Record<string, number> = { ...s.streamLastActivity };
     const touched = new Set<string>();
+    const now = Date.now();
     for (const event of events) {
       const prev = nextStreams[event.subAgentId];
       nextStreams[event.subAgentId] = prev ? [...prev, event] : [event];
+      nextLast[event.subAgentId] = now;
       touched.add(event.subAgentId);
     }
-    // 성능: 이번 배치로 늘어난 세션만 상한 적용(초과 시 오래된 것부터 절단).
+    // 성능: 이번 배치로 늘어난 세션만 활성/비활성 차등 상한 적용(초과 시 오래된 것부터 절단).
+    const active = computeActiveSessionIds(s.ideOverlays, s.subAgents);
     for (const sid of touched) {
+      const cap = active.has(sid) ? STREAM_EVENTS_MAX_PER_SESSION : STREAM_EVENTS_MAX_PER_INACTIVE_SESSION;
       const arr = nextStreams[sid]!;
-      if (arr.length > STREAM_EVENTS_MAX_PER_SESSION) {
-        nextStreams[sid] = arr.slice(arr.length - STREAM_EVENTS_MAX_PER_SESSION);
-      }
+      if (arr.length > cap) nextStreams[sid] = arr.slice(arr.length - cap);
     }
-    return { subAgentStreams: nextStreams };
+    pruneInactiveStreams(nextStreams, nextLast, active);
+    return { subAgentStreams: nextStreams, streamLastActivity: nextLast };
   }),
   loadStreamBuffers: (buffers) => set((s) => {
-    // 서버 스냅샷 버퍼도 무한 누적일 수 있으니 합류 시 동일 상한 적용.
-    const capped: Record<string, SubAgentStreamEvent[]> = {};
+    // 서버 스냅샷 버퍼도 무한 누적일 수 있으니 합류 시 동일 차등 상한 적용.
+    // 이제 막 불러온 세션은 lastActivity=now 라 pruning 의 "가장 오래된" 후보가 되지 않는다.
+    const streams = { ...s.subAgentStreams };
+    const lastActivity = { ...s.streamLastActivity };
+    const active = computeActiveSessionIds(s.ideOverlays, s.subAgents);
+    const now = Date.now();
     for (const sid of Object.keys(buffers)) {
       const arr = buffers[sid]!;
-      capped[sid] = arr.length > STREAM_EVENTS_MAX_PER_SESSION
-        ? arr.slice(arr.length - STREAM_EVENTS_MAX_PER_SESSION)
-        : arr;
+      const cap = active.has(sid) ? STREAM_EVENTS_MAX_PER_SESSION : STREAM_EVENTS_MAX_PER_INACTIVE_SESSION;
+      streams[sid] = arr.length > cap ? arr.slice(arr.length - cap) : arr;
+      lastActivity[sid] = now;
     }
-    return { subAgentStreams: { ...s.subAgentStreams, ...capped } };
+    pruneInactiveStreams(streams, lastActivity, active);
+    return { subAgentStreams: streams, streamLastActivity: lastActivity };
   }),
   ideOverlays: {},
   openIDEOverlay: (agentId) => set((state) => {

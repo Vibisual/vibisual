@@ -482,15 +482,30 @@ export class SubAgentManager {
 
   /** 특정 subagent의 버퍼된 스트림 이벤트 반환 (REST API용) */
   getStreamBuffer(subAgentId: string): SubAgentStreamEvent[] {
-    return this.streamBuffers.get(subAgentId) ?? [];
+    const buf = this.streamBuffers.get(subAgentId);
+    if (buf && buf.length > 0) return buf;
+    // idle 회수(sweepIdle)로 메모리에서 비워졌으면 디스크에서 복구 + 재캐시.
+    const sub = this.index.get(subAgentId);
+    const dir = sub ? this.resolveStreamDir(sub.parentAgentId) : null;
+    if (dir) {
+      const loaded = streamBufferStore.loadBuffer(dir, subAgentId, MAX_STREAM_BUFFER);
+      if (loaded.length > 0) { this.streamBuffers.set(subAgentId, loaded); return loaded; }
+    }
+    return buf ?? [];
   }
 
   /** 에이전트의 전체 subagent 스트림 버퍼 반환 */
   getStreamBuffersForAgent(agentId: string): Record<string, SubAgentStreamEvent[]> {
     const subs = this.registry.get(agentId) ?? [];
     const result: Record<string, SubAgentStreamEvent[]> = {};
+    const dir = this.resolveStreamDir(agentId);
     for (const sub of subs) {
-      const buf = this.streamBuffers.get(sub.id);
+      let buf = this.streamBuffers.get(sub.id);
+      // idle 회수로 메모리에서 비워진 sub 는 디스크에서 복구 + 재캐시(IDE 재오픈 시 빈 화면 방지).
+      if ((!buf || buf.length === 0) && dir) {
+        const loaded = streamBufferStore.loadBuffer(dir, sub.id, MAX_STREAM_BUFFER);
+        if (loaded.length > 0) { this.streamBuffers.set(sub.id, loaded); buf = loaded; }
+      }
       if (buf && buf.length > 0) result[sub.id] = buf;
     }
     return result;
@@ -516,7 +531,13 @@ export class SubAgentManager {
   /** 스트림 이벤트를 버퍼에 추가 + 디스크 append + 콜백 호출 */
   private emitStreamEvent(event: SubAgentStreamEvent): void {
     let buf = this.streamBuffers.get(event.subAgentId);
-    if (!buf) { buf = []; this.streamBuffers.set(event.subAgentId, buf); }
+    if (!buf) {
+      // idle 회수(sweepIdle)로 비워진 뒤 재개되는 경우, 디스크에서 과거를 복원해 이어붙인다 —
+      // 메모리 버퍼 완전성 보장(이게 없으면 재개 후 getStreamBuffersForAgent 가 과거 누락분만 반환).
+      const dir0 = this.resolveStreamDir(event.parentAgentId);
+      buf = dir0 ? streamBufferStore.loadBuffer(dir0, event.subAgentId, MAX_STREAM_BUFFER) : [];
+      this.streamBuffers.set(event.subAgentId, buf);
+    }
     buf.push(event);
     if (buf.length > MAX_STREAM_BUFFER) buf.splice(0, buf.length - MAX_STREAM_BUFFER);
     // 거짓-완료 방지 — 스트림 이벤트가 흐르는 동안 sub 를 "살아있음" 으로 갱신.
@@ -902,6 +923,9 @@ export class SubAgentManager {
       if (now - sub.lastActivityAt > thresholdMs) {
         sub.status = 'idle';
         changed.push(sub.id);
+        // 성능: idle 로 강등된 sub 의 스트림 버퍼 메모리 회수. 디스크(streamBufferStore)에
+        // 영속돼 있으므로 재오픈 시 getStreamBuffer(For Agent)/emitStreamEvent 가 복구한다.
+        this.streamBuffers.delete(sub.id);
       }
     }
     return changed;
