@@ -943,7 +943,10 @@
       "createAutoAgent": "Buat Auto Agent",
       "createAutoAgentHint": "Meta agent — otomatis memunculkan tim agent kustom dari prompt Anda",
       "createWorktree": "Buat Worktree",
-      "createWorktreeHint": "Ruang kerja baru dari master terbaru"
+      "createWorktreeHint": "Ruang kerja baru dari master terbaru",
+      "restoreCustomAgent": "Pulihkan Agent Kustom Sebelumnya",
+      "restoreLoading": "Memuat…",
+      "restoreEmpty": "Tidak ada yang bisa dipulihkan"
     },
     "bounds": {
       "label": "Batas Bubble",

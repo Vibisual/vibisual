@@ -822,6 +822,9 @@ export type WSMessageType =
   | 'connection_ack'
   | 'graph_snapshot'
   | 'sub_agent_stream'
+  // 성능 — 여러 sub_agent_stream 을 서버에서 짧은 창(40ms)으로 모아 배열 1건으로 전송.
+  // 멀티에이전트 스트림 폭주 시 이벤트당 1건씩 IPC/WS 밀어내던 것을 배치로 묶어 백프레셔 완화.
+  | 'sub_agent_stream_batch'
   | 'liveness_probe'
   // lazy-load: 클라→서버 요청 / 서버→클라 broadcast
   | 'hydrate-project'
@@ -1838,6 +1841,29 @@ export interface ProjectIdentity {
    * optional — 구버전 identity.json 하위호환. 미설정이면 빈 배열로 취급.
    */
   deletedSessionIds?: string[];
+}
+
+/**
+ * §3.2.2 — 소실/삭제 후 **복구 가능한 커스텀 에이전트** 항목(표시용 메타).
+ * identity.json 에 정체성은 남아 있으나 현재 캔버스에 살아있지 않은(사라졌거나 닫힌) 커스텀
+ * 에이전트를 "지난 커스텀 에이전트 복구" UI 에 나열하기 위한 것. 복구 시 `sessionId` 로 원본 정체성을
+ * 되살려 config·라벨·과거 스트림이 그대로 재연결된다. 사용자가 명시 삭제(묘비)한 것은 제외한다.
+ */
+export interface RecoverableCustomAgent {
+  /** 원본 세션 ID — 복구 키(그대로 되살려 정체성 재연결). */
+  sessionId: string;
+  /** 버블 노드 ID(agent-<hash>). */
+  agentId: string;
+  /** 표시 라벨(customLabels 우선, 없으면 버블 label). */
+  label: string;
+  /** 소속 프로젝트 표시명. */
+  projectName: string;
+  /** 버블 색(config.color 가 있으면). */
+  color?: string;
+  /** 실행 모드(CMD 에이전트 구분용). */
+  executionMode?: ExecutionMode;
+  /** identity.json 저장 시각(최신순 정렬용, epoch ms). */
+  savedAt: number;
 }
 
 // ─── Token Usage ───

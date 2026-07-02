@@ -46,6 +46,18 @@ export const MAX_RECONNECT_ATTEMPTS = 10;
 export const RECONNECT_BASE_DELAY = 1000;
 export const WS_BATCH_INTERVAL = 16;
 
+/**
+ * 스트림 이벤트(sub_agent_stream / _batch) 전용 클라 반영 주기(ms) — 스냅샷(16ms)과 분리.
+ *
+ * 성능: StreamRenderer 는 store 에 이벤트가 반영될 때마다 활성 세션 버퍼 전체(최대
+ * STREAM_EVENTS_MAX_PER_SESSION=4000)를 처음부터 다시 파싱(buildBaseItems 3패스 + 정렬 +
+ * identity 재조정 + Virtuoso 재대조)한다. 새 이벤트가 1개든 200개든 재구축 비용은 버퍼 크기에
+ * 비례하므로, 멀티에이전트 폭주로 버퍼가 4000 에 근접하면 16ms 주기 재구축이 프레임 예산을 넘겨
+ * 창 전체가 멈칫거린다. 스트림 반영을 이 주기로 묶어 무거운 재구축 빈도를 ~3배 낮춘다(추가 지연
+ * 수십 ms — 스트림 텍스트는 20Hz 로도 라이브로 보인다). 스냅샷·스크롤·가상화 로직은 불변.
+ */
+export const WS_STREAM_BATCH_INTERVAL = 50;
+
 // ─── 버블 스타일 Config 테이블 ───
 // 새 BubbleType 추가 시 여기 한 줄만 추가하면 전체 반영
 
@@ -1418,6 +1430,18 @@ export const DIAGNOSTIC_LOG_MAX = 200;
  * (표시 전용 버퍼 — tool_use↔tool_result 페어링은 화면 표시용이라 오래된 잔여물 손실 허용.)
  */
 export const STREAM_EVENTS_MAX_PER_SESSION = 4000;
+
+/**
+ * 활성 세션 버퍼를 상한(STREAM_EVENTS_MAX_PER_SESSION) 초과 시 **매번 앞을 1개씩** 미는 대신,
+ * 이 여유(slack)를 넘겼을 때만 한 번에 cap 으로 되돌린다(히스테리시스).
+ *
+ * 성능(v3.10): StreamRenderer 의 증분 파서는 "직전 소비분의 순수 꼬리-확장"일 때만 신규 이벤트만
+ * 처리한다. 상한에 도달한 뒤 append 마다 앞을 1개씩 잘라내면 배열이 매 틱 앞으로 밀려(순수 append 가
+ * 아니게 되어) 증분이 깨지고 매번 전체 재구축으로 폴백 → 긴 세션에서 다시 O(전체)가 된다. slack 만큼
+ * 여유를 두면 절단은 slack 개마다 1회(그때만 전체 재구축) → 그 사이 slack 개는 순수 append 로 증분이
+ * 살아난다. 절단 1회 비용을 slack 개 이벤트에 분산 → 평균 O(1). (여유분 만큼만 메모리 소폭 증가.)
+ */
+export const STREAM_EVENTS_TRIM_SLACK = 512;
 
 /**
  * 현재 IDE 에서 보고 있지 않은 비활성 세션의 클라 스트림 버퍼 상한.

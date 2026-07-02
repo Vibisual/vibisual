@@ -943,7 +943,10 @@
       "createAutoAgent": "Créer un agent auto",
       "createAutoAgentHint": "Méta-agent — génère automatiquement une équipe d'agents personnalisés depuis votre invite",
       "createWorktree": "Créer un Worktree",
-      "createWorktreeHint": "Nouvel espace de travail depuis le master le plus récent"
+      "createWorktreeHint": "Nouvel espace de travail depuis le master le plus récent",
+      "restoreCustomAgent": "Restaurer l'agent personnalisé précédent",
+      "restoreLoading": "Chargement…",
+      "restoreEmpty": "Rien à restaurer"
     },
     "bounds": {
       "label": "Limites des bulles",

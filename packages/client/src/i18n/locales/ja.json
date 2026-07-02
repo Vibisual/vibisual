@@ -943,7 +943,10 @@
       "createAutoAgent": "Auto Agentを作成",
       "createAutoAgentHint": "メタエージェント — プロンプトからカスタムエージェントチームを自動スポーン",
       "createWorktree": "Worktreeを作成",
-      "createWorktreeHint": "最新のmasterから新しいワークスペースを作成"
+      "createWorktreeHint": "最新のmasterから新しいワークスペースを作成",
+      "restoreCustomAgent": "前のカスタムエージェントを復元",
+      "restoreLoading": "読み込み中…",
+      "restoreEmpty": "復元できる項目がありません"
     },
     "bounds": {
       "label": "バブル境界",

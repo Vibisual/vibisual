@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useCallback } from 'react';
 import { useDetachedSync } from './hooks/useDetachedSync.js';
 import { useOverlaySync } from './hooks/useOverlaySync.js';
 import { useOverlayReveal } from './hooks/useOverlayReveal.js';
@@ -7,6 +7,7 @@ import { BubbleMap } from './components/BubbleMap/BubbleMap.js';
 import { CanvasBreadcrumb } from './components/BubbleMap/CanvasBreadcrumb.js';
 import { IframeView } from './components/Layout/IframeView.js';
 import { DetailPanel } from './components/Panel/DetailPanel.js';
+import { DebugPanel } from './components/Panel/DebugPanel.js';
 import { InspectorOverlay } from './components/Inspector/InspectorOverlay.js';
 import { WorktreeDeleteDialog } from './components/Panel/WorktreeDeleteDialog.js';
 import { StubProjectPlaceholder } from './components/Layout/StubProjectPlaceholder.js';
@@ -30,6 +31,7 @@ export function App(): React.JSX.Element {
   const selectedTaskEdgeId = useGraphStore((s) => s.selectedTaskEdgeId);
   const selectedCommentBoxId = useGraphStore((s) => s.selectedCommentBoxId);
   const agentPhase = useGraphStore((s) => s.agentPhase);
+  const debugMode = useGraphStore((s) => s.debugMode);
   const activeIframeId = useGraphStore((s) => s.activeIframeId);
   const iframeTabs = useGraphStore((s) => s.iframeTabs);
 
@@ -60,11 +62,16 @@ export function App(): React.JSX.Element {
     }
   }, [shrinkForDock, ideDockWidth]);
 
+  // DebugPanel onClose 를 안정 참조로 — 매 렌더 새 함수가 prop 으로 들어가 memo 를 깨지 않도록.
+  const closeDebug = useCallback(() => useGraphStore.getState().toggleDebug(), []);
+
   return (
     <div className="flex h-screen w-screen flex-col bg-gray-950">
       <Header connectionStatus={status} agentPhase={agentPhase} />
       <div className="relative flex flex-1 overflow-hidden">
-        {/* DebugPanel 비표시 — 잦은 리렌더로 IDE 가 흔들려(발발거림) 렌더 자체를 제거(사용자 요청). */}
+        {/* DebugPanel — 평소엔 숨김, `~`/` 키로 debugMode 토글 시에만 마운트(꺼지면 비용 0).
+            켜져 있을 때의 잦은 리렌더는 DebugPanel 내부 React.memo + 안정 onClose 로 완화. */}
+        {debugMode && <DebugPanel onClose={closeDebug} />}
         <main
           className="relative flex-1"
           style={shrinkForDock ? { marginRight: ideDockWidth } : undefined}

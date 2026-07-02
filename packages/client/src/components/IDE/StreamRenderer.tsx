@@ -3,6 +3,12 @@
  *
  * Hook 에이전트의 Agent 탭(기존 TerminalLine)과 분리.
  * assistant text → 마크다운 렌더링, tool_use/tool_result → 접이식 그룹.
+ *
+ * 파싱 로직(events → 표시 아이템)은 순수 모듈 `streamItems.ts` 로 분리됐다.
+ * v3.10 — 종전엔 스트림 갱신마다 버퍼 전체(최대 4000)를 buildBaseItems 로 재파싱(O(전체 길이)) →
+ * 길수록 느려지는 구조였다. 이제 `IncrementalStreamParser` 가 **새로 도착한 이벤트만** 처리해
+ * 갱신 비용을 O(신규)로 낮춘다(VS Code 터미널처럼 길이 무관). 출력은 buildBaseItems 와 동일함이
+ * streamItems.test.ts 로 못박혀 있어, 아래 카드 합류·정렬·identity 재조정·Virtuoso 배선은 불변.
  */
 import { memo, useState, useMemo, useRef, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { Virtuoso, type VirtuosoHandle, type StateSnapshot } from 'react-virtuoso';
@@ -22,12 +28,11 @@ import { AgentReviewCard } from './AgentReviewCard.js';
 import { AgentListCard } from './AgentListCard.js';
 import { AskQuestionCard } from './AskQuestionCard.js';
 import { CollapsiblePrompt, AiSpeakerGlyph } from './CollapsiblePrompt.js';
-
-/** SDK 가 생각 중 반복 송출하는 system 펄스 subtype — 본문에 쌓이지 않게 라이브 1줄로 대체. */
-const THINKING_PULSE_SUBTYPE = 'thinking_tokens';
-function isThinkingPulse(evt: { eventType: string; content: string }): boolean {
-  return evt.eventType === 'system' && parseSystemSubtype(evt.content) === THINKING_PULSE_SUBTYPE;
-}
+import {
+  mergeCardsIntoItems, sameStreamItem, IncrementalStreamParser,
+  type StreamText, type StreamGroup, type StreamThinking, type StreamSystem, type StreamResult,
+  type StreamCommand, type StreamItemFull,
+} from './streamItems.js';
 
 // ─── 타입 ───
 
@@ -66,6 +71,12 @@ interface StreamRendererProps {
    * 추종 의도 저장·StreamStatusBar 판정에 쓴다(옛 수동 scrollTop 비교·제스처 추적을 대체).
    */
   onAtBottomChange?: (atBottom: boolean) => void;
+  /**
+   * v3.12 — virtuoso 측정 모델의 **총 리스트 높이가 실제로 바뀐 직후** 통지(내부 `totalListHeightChanged` 위임).
+   * 부모(IDEMainArea)가 이 시점을 유일한 성장 추종 트리거로 삼아 바닥에 pin 한다(높이 변화가 없으면 발화하지
+   * 않아 자기 되먹임이 수렴, 목표가 낡지 않아 스냅 후 재보정 연쇄가 사라진다). 값 인자(높이)는 쓰지 않는다.
+   */
+  onTotalListHeightChanged?: () => void;
 }
 
 /** §5.5 #17-7 — 북마크 "이동" 시 부모(IDEMainArea)가 호출하는 명령형 핸들. */
@@ -81,424 +92,11 @@ export interface StreamRendererHandle {
   scrollToCommand: (cmdId: string) => void;
   /** 마지막 항목으로 즉시 스크롤(사용자가 방금 엔터로 보낸 메시지를 항상 보이게). */
   scrollToBottom: () => void;
+  /** 인-페이지 검색 — query 를 포함하는 항목들의 id 를 등장 순서로 반환. 네비게이션/하이라이트는
+   *  scrollToBookmark(id, query) 재사용(가상 리스트라 DOM 검색 불가 → 항목 데이터 기준 매칭). */
+  searchMatchIds: (query: string) => string[];
   /** v2.99 — 세션 떠날 때 부모가 현재 스크롤/측정 상태 스냅샷을 가져가 저장(다음 복귀 때 restoreState 로 전달). */
   getState: (cb: (snap: StateSnapshot) => void) => void;
-}
-
-interface StreamGroup {
-  kind: 'tool';
-  id: string;
-  toolName: string;
-  input: string;
-  output: string;
-  timestamp: number;
-  isActive: boolean;
-}
-
-interface StreamText {
-  kind: 'text';
-  id: string;
-  content: string;
-  timestamp: number;
-}
-
-interface StreamThinking {
-  kind: 'thinking';
-  id: string;
-  content: string;
-  timestamp: number;
-  /** 아직 생각 중(에이전트 작동 중 + 마지막 항목) → 도트 애니메이션 */
-  isActive?: boolean;
-}
-
-interface StreamSystem {
-  kind: 'system';
-  id: string;
-  content: string;
-  timestamp: number;
-}
-
-interface StreamResult {
-  kind: 'result';
-  id: string;
-  content: string;
-  timestamp: number;
-}
-
-/** 생각 중 라이브 1줄 — 실제 thinking 중일 때만 본문 하단에 1개 등장 */
-interface StreamThinkingLive {
-  kind: 'thinking-live';
-  id: string;
-  timestamp: number;
-}
-
-/** §4 v2.53 — 작업 신고 카드 (createdAt 을 timestamp 로 삼아 스트림에 시간순 합류) */
-interface StreamReport {
-  kind: 'report';
-  id: string;
-  report: AgentReport;
-  timestamp: number;
-}
-
-/** §4 v2.60 — 질문 카드 (createdAt 을 timestamp 로 삼아 스트림에 시간순 합류) */
-interface StreamQuestion {
-  kind: 'question';
-  id: string;
-  questions: AgentQuestions;
-  timestamp: number;
-}
-
-/** §4 v2.70 — 검수 요청 카드 (createdAt 을 timestamp 로 삼아 스트림에 시간순 합류) */
-interface StreamReview {
-  kind: 'review';
-  id: string;
-  review: AgentReview;
-  timestamp: number;
-}
-
-/** §4 v2.84 — 번호 목록 정렬 카드 (createdAt 을 timestamp 로 삼아 스트림에 시간순 합류) */
-interface StreamList {
-  kind: 'list';
-  id: string;
-  list: AgentList;
-  timestamp: number;
-}
-
-/** §5.3 #12-2 — pending AskUserQuestion 카드 (createdAt 을 timestamp 로 삼아 스트림 끝에 합류) */
-interface StreamAsk {
-  kind: 'ask';
-  id: string;
-  request: AskUserQuestionRequest;
-  timestamp: number;
-}
-
-type StreamItem = StreamText | StreamThinking | StreamGroup | StreamSystem | StreamResult | StreamThinkingLive | StreamReport | StreamQuestion | StreamReview | StreamList | StreamAsk;
-
-// ─── 이벤트 → 아이템 변환 ───
-
-/** 명령어 프롬프트 블록 */
-interface StreamCommand {
-  kind: 'command';
-  id: string;
-  prompt: string;
-  result: string;
-  status: string;
-  timestamp: number;
-  /** v2.61 — 전송한 paste 이미지 첨부의 절대경로(완료 후에도 보존). basename 으로 blob preview 조회. */
-  attachments?: string[];
-}
-
-type StreamItemFull = StreamItem | StreamCommand;
-
-/** 1단계 결과 — events + commands 만으로 만든 base 아이템과, events 로 결정되는 라이브 상태. */
-interface BaseItemsResult {
-  items: StreamItemFull[];
-  agentBusy: boolean;
-  thinkingLive: StreamThinkingLive | null;
-}
-
-/**
- * 1단계 — events + commands 만으로 base 아이템을 빌드(카드 제외).
- * 토큰 스트리밍으로 events 가 바뀔 때만 재계산되고, 카드(reports/questions/…)만 바뀌면 재실행되지 않는다.
- */
-function buildBaseItems(events: SubAgentStreamEvent[], commands?: QueuedCommand[]): BaseItemsResult {
-  const items: StreamItemFull[] = [];
-
-  // 사용자 프롬프트(완료/진행/큐 전부) → 각 명령마다 프롬프트 블록으로 앞부분에 삽입.
-  // 결과(result)는 스트림 이벤트로 별도 표시되므로 여기선 prompt만 보여준다.
-  // 스트림이 전혀 없는 레거시 세션(서버 restart 전 생성분)은 cmd.result를 폴백으로 보여줌.
-  const hasStream = events.length > 0;
-  if (commands && commands.length > 0) {
-    for (const cmd of commands) {
-      items.push({
-        kind: 'command',
-        id: `cmd-${cmd.id}`,
-        prompt: cmd.text,
-        result: hasStream ? '' : (cmd.result ?? ''), // 스트림이 있으면 결과는 스트림에서 렌더
-        status: cmd.status,
-        timestamp: cmd.timestamp,
-        attachments: cmd.attachments,
-      });
-    }
-  }
-
-  // 에이전트 작동 중인지 — executing/queued 명령이 하나라도 있으면 "live", 아니면 모든 미페어 tool_use를 비활성으로 표시
-  const agentBusy = !!commands && commands.some((c) => c.status === 'executing' || c.status === 'queued');
-
-  // 1차 패스: tool_use ↔ tool_result FIFO 페어링 (서버가 tool_use_id를 노출하지 않으므로 발생 순서 기반)
-  const resultByToolIdx = new Map<number, number>(); // tool_use 인덱스 → tool_result 인덱스
-  const pendingToolIdxs: number[] = [];
-  for (let k = 0; k < events.length; k++) {
-    const e = events[k]!;
-    if (e.eventType === 'tool_use') {
-      pendingToolIdxs.push(k);
-    } else if (e.eventType === 'tool_result') {
-      const toolIdx = pendingToolIdxs.shift();
-      if (toolIdx !== undefined) resultByToolIdx.set(toolIdx, k);
-    }
-  }
-  const consumedResultIdxs = new Set<number>(resultByToolIdx.values());
-
-  // "지금 실행 중" 판정 경계 — Anthropic 턴은 (assistant text/thinking) → tool_use 배치 → tool_result 배치
-  // 순으로 흐른다. 따라서 실제로 돌고 있을 수 있는 도구는 **마지막 비-도구 이벤트(text/thinking/result/
-  // system) 이후에 나온, 짝 없는 tool_use(= 현재 배치)뿐**이다. 그 경계 앞의 미페어 tool_use 는 (서버가
-  // tool_result 에 toolUseId 를 안 실어 FIFO 페어링이 어긋났거나 결과가 유실돼) 남은 잔여물 → 비활성.
-  // 이 경계가 없으면 과거에 끝난 도구들까지 agentBusy 동안 전부 스피너가 돌고, 정지→재실행 시 한꺼번에
-  // 다시 "동작중"으로 살아난다. 펄스(thinking_tokens)는 투명 처리해 경계로 치지 않는다(스트레이 펄스가
-  // 실제로 도는 도구의 스피너를 꺼뜨리지 않도록).
-  let lastNonToolIdx = -1;
-  for (let k = 0; k < events.length; k++) {
-    const e = events[k]!;
-    if (isThinkingPulse(e)) continue;
-    if (e.eventType !== 'tool_use' && e.eventType !== 'tool_result') lastNonToolIdx = k;
-  }
-
-  let i = 0;
-  // 연속 text 이벤트를 하나의 블록으로 합치기 — thinking도 동일. 단 사용자 프롬프트(command)
-  // 타임스탬프가 버퍼 사이에 끼어들면 거기서 끊어 별도 블록으로 분리한다(프롬프트별 응답 구분).
-  const sortedCmdTs = (commands ?? []).map((c) => c.timestamp).sort((a, b) => a - b);
-  function crossesCommand(prevTs: number, nextTs: number): boolean {
-    for (const t of sortedCmdTs) {
-      if (t > prevTs && t <= nextTs) return true;
-      if (t > nextTs) break;
-    }
-    return false;
-  }
-
-  let textBuf: { ids: string[]; chunks: string[]; ts: number; lastTs: number } | null = null;
-  let thinkBuf: { ids: string[]; chunks: string[]; ts: number; lastTs: number } | null = null;
-
-  function flushText(): void {
-    if (!textBuf) return;
-    items.push({ kind: 'text', id: textBuf.ids[0]!, content: textBuf.chunks.join(''), timestamp: textBuf.ts });
-    textBuf = null;
-  }
-  function flushThink(): void {
-    if (!thinkBuf) return;
-    items.push({ kind: 'thinking', id: thinkBuf.ids[0]!, content: thinkBuf.chunks.join(''), timestamp: thinkBuf.ts });
-    thinkBuf = null;
-  }
-  function flushAll(): void { flushThink(); flushText(); }
-
-  while (i < events.length) {
-    const evt = events[i]!;
-
-    // 생각 중 펄스(thinking_tokens)는 본문에 쌓지 않는다. text/thinking 버퍼도 끊지 않아
-    // 펄스를 사이에 두고도 앞뒤 텍스트가 한 블록으로 유지된다. 라이브 1줄은 아래에서 별도 처리.
-    if (isThinkingPulse(evt)) {
-      i++;
-      continue;
-    }
-
-    if (evt.eventType === 'text') {
-      flushThink();
-      if (textBuf && crossesCommand(textBuf.lastTs, evt.timestamp)) flushText();
-      if (!textBuf) textBuf = { ids: [evt.id], chunks: [evt.content], ts: evt.timestamp, lastTs: evt.timestamp };
-      else { textBuf.ids.push(evt.id); textBuf.chunks.push(evt.content); textBuf.lastTs = evt.timestamp; }
-      i++;
-      continue;
-    }
-
-    if (evt.eventType === 'thinking') {
-      flushText();
-      if (thinkBuf && crossesCommand(thinkBuf.lastTs, evt.timestamp)) flushThink();
-      if (!thinkBuf) thinkBuf = { ids: [evt.id], chunks: [evt.content], ts: evt.timestamp, lastTs: evt.timestamp };
-      else { thinkBuf.ids.push(evt.id); thinkBuf.chunks.push(evt.content); thinkBuf.lastTs = evt.timestamp; }
-      i++;
-      continue;
-    }
-
-    flushAll();
-
-    if (evt.eventType === 'tool_use') {
-      const resultIdx = resultByToolIdx.get(i);
-      if (resultIdx !== undefined) {
-        const resultEvt = events[resultIdx]!;
-        items.push({
-          kind: 'tool',
-          id: evt.id,
-          toolName: evt.toolName ?? 'Tool',
-          input: evt.content,
-          output: resultEvt.content,
-          timestamp: evt.timestamp,
-          isActive: false,
-        });
-      } else {
-        // 미페어 tool_use — 에이전트 작동 중이고 **현재 배치(마지막 비-도구 이벤트 이후)** 에 속할 때만
-        // 활성. 그 앞쪽 미페어 tool_use 는 이미 끝났는데 결과가 못 짝지어진 잔여물이므로 비활성(orphaned).
-        items.push({
-          kind: 'tool',
-          id: evt.id,
-          toolName: evt.toolName ?? 'Tool',
-          input: evt.content,
-          output: '',
-          timestamp: evt.timestamp,
-          isActive: agentBusy && i > lastNonToolIdx,
-        });
-      }
-      i++;
-      continue;
-    }
-
-    if (evt.eventType === 'tool_result') {
-      // 1차 패스에서 짝지어진 tool_result는 tool 블록 내부로 흡수됨 → 별도 표시 생략
-      if (consumedResultIdxs.has(i)) {
-        i++;
-        continue;
-      }
-      // 짝 없는 tool_result (드문 케이스)
-      items.push({
-        kind: 'system',
-        id: evt.id,
-        content: `${evt.toolName ? `[${evt.toolName}] ` : ''}${evt.content}`,
-        timestamp: evt.timestamp,
-      });
-      i++;
-      continue;
-    }
-
-    if (evt.eventType === 'result') {
-      items.push({
-        kind: 'result',
-        id: evt.id,
-        content: evt.content,
-        timestamp: evt.timestamp,
-      });
-      i++;
-      continue;
-    }
-
-    // system 등 나머지
-    items.push({
-      kind: 'system',
-      id: evt.id,
-      content: evt.content,
-      timestamp: evt.timestamp,
-    });
-    i++;
-  }
-
-  flushAll();
-
-  // 라이브 "생각 중 …" 1줄 후보 — 에이전트 작동 중이고 가장 최근 스트림 이벤트가 thinking 펄스면
-  // (= 지금 실제로 생각 중) 본문 하단에 1개만 띄운다. 출력이 시작되면(최근 이벤트가 text 등) 사라진다.
-  // 펄스가 아무리 쏟아져도 화면엔 항상 이 1줄만. events 만으로 결정되므로 base 단계에서 계산.
-  const lastRaw = events[events.length - 1];
-  const thinkingLive: StreamThinkingLive | null = (agentBusy && lastRaw && isThinkingPulse(lastRaw))
-    ? { kind: 'thinking-live', id: 'thinking-live', timestamp: lastRaw.timestamp }
-    : null;
-
-  return { items, agentBusy, thinkingLive };
-}
-
-/**
- * 2단계 — base 아이템에 카드(reports/questions/reviews/lists)를 시간순 합류 + 정렬.
- * 카드만 바뀌면 events 재파싱(buildBaseItems) 없이 이 단계만 재실행된다.
- */
-function mergeCardsIntoItems(
-  base: BaseItemsResult,
-  commands?: QueuedCommand[],
-  reports?: AgentReport[],
-  questions?: AgentQuestions[],
-  reviews?: AgentReview[],
-  lists?: AgentList[],
-  askRequests?: AskUserQuestionRequest[],
-): StreamItemFull[] {
-  // base.items 객체는 공유하되 배열은 새로 복사(원본 mutate 방지 — base 재사용 시 오염 차단).
-  const items: StreamItemFull[] = [...base.items];
-
-  // §4 v2.53/v2.57 — 작업 신고 카드 배치. createdAt 위치에 그대로 꽂으면 같은 턴의 최종 답변(신고 직후
-  //   이어 오는 text/result)보다 카드가 위에 와 "작업 중간에 갑자기 낀" 모양이 된다. 대신 **그 신고가
-  //   속한 턴의 끝**(= createdAt 이후 첫 사용자 프롬프트 직전, 없으면 현재 맨 끝)으로 민다. 다음 턴 대화가
-  //   오면 그 프롬프트 경계 덕에 카드가 이전 턴 끝에 고정돼 자연스럽게 위로 밀려 올라간다.
-  const cmdTsAsc = (commands ?? []).map((c) => c.timestamp).sort((a, b) => a - b);
-  const turnEndSortTs = (createdAt: number): number => {
-    for (const ts of cmdTsAsc) { if (ts > createdAt) return ts - 0.5; }
-    return Number.MAX_SAFE_INTEGER;
-  };
-  for (const r of reports ?? []) {
-    items.push({ kind: 'report', id: `report-${r.id}`, report: r, timestamp: turnEndSortTs(r.createdAt) });
-  }
-  // §4 v2.60 — 질문 카드도 동일하게 턴 끝 배치.
-  for (const q of questions ?? []) {
-    items.push({ kind: 'question', id: `question-${q.id}`, questions: q, timestamp: turnEndSortTs(q.createdAt) });
-  }
-  // §4 v2.70 — 검수 요청 카드도 동일하게 턴 끝 배치.
-  for (const rv of reviews ?? []) {
-    items.push({ kind: 'review', id: `review-${rv.id}`, review: rv, timestamp: turnEndSortTs(rv.createdAt) });
-  }
-  // §4 v2.84 — 번호 목록 정렬 카드도 동일하게 턴 끝 배치.
-  for (const ls of lists ?? []) {
-    items.push({ kind: 'list', id: `list-${ls.id}`, list: ls, timestamp: turnEndSortTs(ls.createdAt) });
-  }
-  // §5.3 #12-2 — pending AskUserQuestion 카드도 동일하게 턴 끝 배치(가상 리스트 밖 형제 렌더 → 겹침 제거).
-  for (const req of askRequests ?? []) {
-    items.push({ kind: 'ask', id: `ask-${req.requestId}`, request: req, timestamp: turnEndSortTs(req.createdAt) });
-  }
-
-  // 타임스탬프 기준 안정 정렬 — 프롬프트(command)가 항상 최상단에 오도록 유지하되,
-  // 스트림 이벤트들끼리는 발생 순서 유지.
-  items.sort((a, b) => a.timestamp - b.timestamp);
-
-  // 마지막 항목이 thinking 이고 에이전트가 작동 중이면 = 아직 생각 중 → 활성(도트 애니메이션).
-  // 이후 text/tool 이 따라붙으면 생각이 끝난 것이므로 정적 1줄(접힘)로 남는다.
-  // (base.items 객체 mutate 대신 교체 — base 재사용 시 isActive 오염 방지.)
-  let lastIsActiveThinking = false;
-  if (base.agentBusy) {
-    const lastIdx = items.length - 1;
-    const last = items[lastIdx];
-    if (last && last.kind === 'thinking') {
-      if (!last.isActive) items[lastIdx] = { ...last, isActive: true };
-      lastIsActiveThinking = true;
-    }
-  }
-
-  // 라이브 1줄은 정렬에 참여시키지 않고 항상 맨 끝에 붙인다.
-  // v3.07 — 단, 활성 thinking 블록이 이미 "생각 중 …"(점 애니메이션 + 생각 텍스트 보존)을 안정적으로
-  //   보여주는 동안엔 같은 의미의 standalone 1줄을 또 띄우지 않는다. 익스텐디드 띵킹 중에는 실제 thinking
-  //   토큰과 thinking_tokens 펄스가 번갈아 와서 lastRaw 가 펄스↔비펄스로 튀는데, 이 1줄은 "lastRaw 가 펄스일
-  //   때만" 붙어 매 프레임 붙었다 떨어지며 ① 생각 표시가 깜빡이고 ② 그 1줄 높이만큼 본문이 출렁여(바닥 고정과
-  //   맞물려 위아래 흔들림) 보였다. 활성 블록이 단일·안정 인디케이터를 맡으므로 중복 1줄을 끈다.
-  if (base.thinkingLive && !lastIsActiveThinking) items.push(base.thinkingLive);
-
-  return items;
-}
-
-/** v3.09 — 같은 id 의 두 항목이 렌더 결과에 영향 주는 모든 필드까지 동일한가(= 객체 참조를 재사용해도
- *  화면이 같은가). timestamp 는 렌더에 안 쓰여(정렬은 배열 순서로 이미 반영) 비교에서 제외한다. */
-function sameAttachments(a?: string[], b?: string[]): boolean {
-  if (a === b) return true;
-  if (!a || !b || a.length !== b.length) return false;
-  for (let k = 0; k < a.length; k++) { if (a[k] !== b[k]) return false; }
-  return true;
-}
-function sameStreamItem(a: StreamItemFull, b: StreamItemFull): boolean {
-  if (a.kind !== b.kind) return false;
-  switch (b.kind) {
-    case 'text':
-    case 'system':
-    case 'result':
-      return (a as StreamText | StreamSystem | StreamResult).content === b.content;
-    case 'thinking': {
-      const x = a as StreamThinking;
-      return x.content === b.content && !!x.isActive === !!b.isActive;
-    }
-    case 'tool': {
-      const x = a as StreamGroup;
-      return x.toolName === b.toolName && x.input === b.input && x.output === b.output && x.isActive === b.isActive;
-    }
-    case 'command': {
-      const x = a as StreamCommand;
-      return x.prompt === b.prompt && x.result === b.result && x.status === b.status && sameAttachments(x.attachments, b.attachments);
-    }
-    case 'thinking-live':
-      return true;
-    case 'report':   return (a as StreamReport).report === b.report;
-    case 'question': return (a as StreamQuestion).questions === b.questions;
-    case 'review':   return (a as StreamReview).review === b.review;
-    case 'list':     return (a as StreamList).list === b.list;
-    case 'ask':      return (a as StreamAsk).request === b.request;
-  }
 }
 
 // ─── 마크다운 커스텀 렌더러 ───
@@ -792,6 +390,17 @@ function CommandBlock({ item }: { item: StreamCommand }): React.JSX.Element {
 
 // ─── 메인 렌더러 ───
 
+/** 인-페이지 검색용 항목 텍스트 추출 — 대화 본문(text/thinking/tool/command/system/result)만.
+ *  카드류(report/question/…)는 별도 UI 라 v1 검색 대상에서 제외. */
+function itemSearchText(item: StreamItemFull): string {
+  switch (item.kind) {
+    case 'text': case 'system': case 'result': case 'thinking': return item.content;
+    case 'tool': return `${item.toolName} ${item.input} ${item.output}`;
+    case 'command': return `${item.prompt} ${item.result}`;
+    default: return '';
+  }
+}
+
 /** 단일 스트림 아이템 → 블록 엘리먼트. 북마크 이동 앵커용 `data-stream-item-id` 래퍼로 감싼다.
  *  zoom — IDE 본문 텍스트 줌 배율. **스크롤러(가상 리스트 뷰포트)가 아니라 각 항목 래퍼**에 걸어,
  *  Virtuoso 가 zoom 반영된 실제 항목 높이를 그대로 측정(가상화·스크롤 계산과 일관)하게 한다. */
@@ -814,23 +423,23 @@ function renderStreamItem(item: StreamItemFull, thinkingLabel: string, zoom: num
   return <div data-stream-item-id={item.id} style={zoom === 1 ? undefined : { zoom }}>{inner}</div>;
 }
 
-export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRendererProps>(function StreamRenderer({ events, commands, reports, questions, reviews, lists, askRequests, onScrollerRef, restoreState, onAtBottomChange }, ref): React.JSX.Element {
+export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRendererProps>(function StreamRenderer({ events, commands, reports, questions, reviews, lists, askRequests, onScrollerRef, restoreState, onAtBottomChange, onTotalListHeightChanged }, ref): React.JSX.Element {
   const { t } = useTranslation();
-  // 성능: 2단 빌드 — 1단계(events 기반 base)는 토큰 스트리밍 때만, 2단계(카드 합류)는 카드 변경 때만 재계산.
-  const base = useMemo(() => buildBaseItems(events, commands), [events, commands]);
+  // 성능(v3.10): 2단 빌드 — 1단계(events 기반 base)는 **증분 파서**가 새로 온 이벤트만 처리(O(신규)).
+  //   세션 전환/commands 변경/버퍼 앞쪽 절단이면 파서 내부에서 전체 재구축으로 폴백(결과는 항상 동일).
+  //   2단계(카드 합류)는 카드 변경 때만 재계산. 파서 인스턴스는 이 컴포넌트 수명 동안 유지(ref).
+  const parserRef = useRef<IncrementalStreamParser | null>(null);
+  if (parserRef.current === null) parserRef.current = new IncrementalStreamParser();
+  const base = useMemo(() => parserRef.current!.sync(events, commands), [events, commands]);
   const merged = useMemo(
     () => mergeCardsIntoItems(base, commands, reports, questions, reviews, lists, askRequests),
     [base, commands, reports, questions, reviews, lists, askRequests],
   );
 
-  // v3.09 — 항목 identity 안정화(thinking 떨림 차단). buildBaseItems 는 호출마다 **모든 항목을 새 객체**로
-  //   만들어, thinking 토큰 하나가 올 때마다 전 항목의 참조가 바뀐다 → memo 자식이 전부 깨져 뷰포트
-  //   선렌더 버퍼(increaseViewportBy top:1600/bottom:2000) 전체가 매 토큰 재렌더·재측정되고, 그 재측정이
-  //   유발하는 virtuoso scrollTop 보정 + 바닥고정 핀들과 맞물려 화면이 미세 진동(발발 떨림)했다. 특히
-  //   thinking 중엔 활성 블록이 접혀 있어 보이는 변화는 없는데 토큰만 초고빈도로 와 떨림만 도드라졌다.
-  //   → 직전 렌더에서 같은 id 의 항목과 렌더에 영향 주는 필드가 모두 같으면 **이전 객체 참조를 그대로
-  //   재사용**한다. 그러면 실제로 자란 항목(진행 중 thinking/text 한 개)만 참조가 바뀌어 그 한 항목만
-  //   재렌더되고, 나머지는 memo 가 유지돼 버퍼 전체 재측정이 사라진다(스크롤 추종 로직은 손대지 않음).
+  // v3.09 — 항목 identity 안정화(thinking 떨림 차단). 증분 파서는 자란 항목만 새 객체로 교체하지만,
+  //   카드 합류/정렬 단계가 배열을 새로 만들므로 여기서 한 번 더 참조를 고정한다: 직전 렌더에서 같은 id 의
+  //   항목과 렌더에 영향 주는 필드가 모두 같으면 **이전 객체 참조를 그대로 재사용** → memo 자식이 유지돼
+  //   뷰포트 선렌더 버퍼 전체 재측정이 사라진다(스크롤 추종 로직은 손대지 않음).
   const prevById = useRef<Map<string, StreamItemFull>>(new Map());
   const items = useMemo(() => {
     const next = new Map<string, StreamItemFull>();
@@ -910,7 +519,16 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
   const getState = useCallback((cb: (snap: StateSnapshot) => void) => {
     virtuosoRef.current?.getState(cb);
   }, []);
-  useImperativeHandle(ref, () => ({ scrollToBookmark, scrollToBottom, scrollToCommand, getState }), [scrollToBookmark, scrollToBottom, scrollToCommand, getState]);
+  const searchMatchIds = useCallback((query: string): string[] => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    const ids: string[] = [];
+    for (const it of items) {
+      if (itemSearchText(it).toLowerCase().includes(q)) ids.push(it.id);
+    }
+    return ids;
+  }, [items]);
+  useImperativeHandle(ref, () => ({ scrollToBookmark, scrollToBottom, scrollToCommand, getState, searchMatchIds }), [scrollToBookmark, scrollToBottom, scrollToCommand, getState, searchMatchIds]);
 
   // v2.99 — 바닥 추종을 라이브러리에 위임: 바닥에 있을 때만 새 출력을 따라 내려가고(사용자가 위로 올리면
   //   자동으로 비추종), 옛 수동 scrollTop=scrollHeight / 제스처 추적 / 측정 보정 구분이 전부 불필요해진다.
@@ -938,6 +556,8 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
       followOutput={followOutput}
       atBottomStateChange={onAtBottomChange}
       atBottomThreshold={40}
+      // v3.12 — 측정 모델 총높이 변화 직후에만 발화(높이 인자는 버린다). 부모가 이 시점을 유일한 성장 pin 트리거로 삼는다.
+      totalListHeightChanged={onTotalListHeightChanged}
       // 복원 스냅샷이 있으면 그 위치/측정값으로, 없으면(첫 진입) 마지막 항목(바닥)에서 시작 — 둘은 배타.
       {...(restoreState
         ? { restoreStateFrom: restoreState }

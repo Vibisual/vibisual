@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import type { WSMessage, GraphSnapshot, SubAgentStreamEvent, ProjectHydratedPayload, ProjectUnloadedPayload, IframeLogInitPayload, IframeLogAppendPayload, ServerLogInitPayload, ServerLogAppendPayload, PermissionRequest, PermissionDecision, ClaudeInstallProgress, AskUserQuestionRequest, AskUserQuestionDecision } from '@vibisual/shared';
-import { MAX_RECONNECT_ATTEMPTS, RECONNECT_BASE_DELAY, WS_BATCH_INTERVAL } from '@vibisual/shared';
+import { MAX_RECONNECT_ATTEMPTS, RECONNECT_BASE_DELAY, WS_BATCH_INTERVAL, WS_STREAM_BATCH_INTERVAL } from '@vibisual/shared';
 import { useGraphStore } from '../stores/graphStore.js';
 import { iframeLogEvents } from '../bubble-map/api/iframeLogEvents.js';
 import { serverLogEvents } from '../bubble-map/api/serverLogEvents.js';
@@ -186,10 +186,27 @@ export function useWebSocket(url: string): UseWebSocketReturn {
           case 'sub_agent_stream': {
             const event = parsed.payload as SubAgentStreamEvent;
             if (event && typeof event.subAgentId === 'string') {
-              // 16ms 배치 — 도착 순서대로 큐에 모았다가 flush 시 한 번에 합쳐 적용.
+              // 스트림 배치 — 도착 순서대로 큐에 모았다가 flush 시 한 번에 합쳐 적용.
+              // 스냅샷(16ms)과 달리 WS_STREAM_BATCH_INTERVAL(50ms)로 묶어 StreamRenderer 재구축 빈도를 낮춘다.
               streamPendingRef.current.push(event);
               if (streamTimerRef.current === null) {
-                streamTimerRef.current = setTimeout(flushStreamEvents, WS_BATCH_INTERVAL);
+                streamTimerRef.current = setTimeout(flushStreamEvents, WS_STREAM_BATCH_INTERVAL);
+              }
+            }
+            break;
+          }
+
+          case 'sub_agent_stream_batch': {
+            // 서버가 40ms 창으로 coalescing 한 배열. 클라 스트림 배치 큐(50ms)에 그대로 합류.
+            const batch = parsed.payload as SubAgentStreamEvent[];
+            if (Array.isArray(batch) && batch.length > 0) {
+              for (const event of batch) {
+                if (event && typeof event.subAgentId === 'string') {
+                  streamPendingRef.current.push(event);
+                }
+              }
+              if (streamTimerRef.current === null) {
+                streamTimerRef.current = setTimeout(flushStreamEvents, WS_STREAM_BATCH_INTERVAL);
               }
             }
             break;

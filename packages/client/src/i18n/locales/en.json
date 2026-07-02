@@ -837,6 +837,7 @@
       "ctxQuoteReply": "Quote reply",
       "ctxSendAsPrompt": "Send as new prompt",
       "ctxSelectAll": "Select all",
+      "jumpToBottom": "Scroll to bottom",
       "ctxSelectionRequired": "Select text first",
       "inputCtxCut": "Cut",
       "inputCtxCopy": "Copy",
@@ -931,6 +932,12 @@
       "tokens": "{{in}} in / {{out}} out",
       "sessionOne": "{{count}} session",
       "sessionMany": "{{count}} sessions"
+    },
+    "search": {
+      "placeholder": "Find in conversation",
+      "prev": "Previous match",
+      "next": "Next match",
+      "close": "Close"
     },
     "streamRenderer": {
       "noActivity": "No activity in this session",
@@ -1161,7 +1168,10 @@
       "createAutoAgent": "Create Auto Agent",
       "createAutoAgentHint": "Meta agent — auto-spawns a custom agent team from your prompt",
       "createWorktree": "Create Worktree",
-      "createWorktreeHint": "New workspace from latest master"
+      "createWorktreeHint": "New workspace from latest master",
+      "restoreCustomAgent": "Restore Previous Custom Agent",
+      "restoreLoading": "Loading…",
+      "restoreEmpty": "Nothing to restore"
     },
     "bounds": {
       "label": "Bubble Bounds",
