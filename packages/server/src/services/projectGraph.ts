@@ -99,7 +99,7 @@ const gitWorktreeParentCache = new Map<string, { parentPath: string; worktreeNam
  *  (예: 부모를 사용자 홈으로 오인 → 이주/attribution 실패 → 작업이 `(ext)` 고아로 표시).
  *  git 의 `--show-toplevel`(현재 워크트리 루트) ≠ `--git-common-dir`의 부모(메인 워크트리 루트)
  *  이면 linked 워크트리로 확정한다. 결과는 cwd 단위 캐시(첫 등록 시 1회만 git 호출). */
-function resolveGitWorktreeParent(
+export function resolveGitWorktreeParent(
   normalizedCwd: string,
 ): { parentPath: string; worktreeName: string } | null {
   if (gitWorktreeParentCache.has(normalizedCwd)) return gitWorktreeParentCache.get(normalizedCwd)!;
@@ -968,6 +968,12 @@ export class ProjectGraph {
     return result;
   }
 
+  /** 정규화된 경로(this.projects 키)로 등록된 ProjectInfo 조회.
+   *  Manager 가 인스턴스 루트가 worktree(parentProjectPath 보유)인지 판정하는 데 사용한다. */
+  getProjectInfoByPath(normalizedPath: string): ProjectInfo | null {
+    return this.projects.get(normalizedPath) ?? null;
+  }
+
   /** 프로젝트 숨기기 — 데이터 보존, 스냅샷에서만 제외 */
   hideProject(name: string): boolean {
     let found = false;
@@ -1264,6 +1270,61 @@ export class ProjectGraph {
       ids.push(sessionId);
     }
     return ids;
+  }
+
+  /** 현재 이 인스턴스에 살아있는 커스텀 에이전트의 sessionId 집합.
+   *  복구 목록 계산(이미 캔버스에 있는 것은 "복구 대상" 제외) + B 진단(worktree/hidden 인스턴스에
+   *  커스텀이 섞여 라이브에서 빠지는 케이스 탐지)에 공용. */
+  getCustomAgentSessionIds(): string[] {
+    const ids: string[] = [];
+    for (const [sessionId, agent] of this.agents) {
+      if (agent.customCreated) ids.push(sessionId);
+    }
+    return ids;
+  }
+
+  /**
+   * §3.2.2 (C 복구) — identity.json 에서 되살린 커스텀 에이전트 정체성을 이 인스턴스의 라이브
+   * 그래프에 재삽입한다. sessionId/agentId 를 그대로 유지해 config·과거 sub 스트림이 재연결된다.
+   * 이미 살아있으면 위치만 갱신하고 기존 버블 반환. 반환: 재삽입/갱신된 버블(실패 시 null).
+   */
+  restoreCustomAgentBubble(
+    identityAgent: BubbleData,
+    config: AgentConfig | undefined,
+    label: string | undefined,
+    cwd: string | null,
+    position?: { x: number; y: number },
+  ): BubbleData | null {
+    const sessionId = identityAgent.path;
+    if (!sessionId) return null;
+    // 이미 캔버스에 있으면 위치만 이동(중복 삽입 방지).
+    const existing = this.agents.get(sessionId);
+    if (existing) {
+      if (position) existing.position = position;
+      existing.status = existing.status === 'disappearing' ? 'idle' : existing.status;
+      this.bumpMutationVersion();
+      return existing;
+    }
+    // 사용자 명시 삭제 묘비였다면 되살리며 해제(사용자가 직접 복구를 택함).
+    this.deletedCustomAgents.delete(sessionId);
+    const agent: BubbleData = {
+      ...identityAgent,
+      status: 'idle',
+      activity: 0,
+      lastActivity: Date.now(),
+      customCreated: true,
+      ...(position ? { position } : {}),
+    };
+    this.agents.set(sessionId, agent);
+    if (label) this.customLabels.set(agent.id, label);
+    if (config) this.agentConfigs.set(agent.id, config);
+    if (cwd) {
+      this.sessionCwds.set(sessionId, cwd);
+      this.registerProject(cwd);
+    }
+    this.bumpMutationVersion();
+    logger.info(`Custom agent restored: "${agent.label}" (session ${sessionId.slice(0, 8)})`);
+    return agent;
   }
 
   /** sessionId → cwd 조회 (서브에이전트 세션 ID도 부모 cwd로 해석) */
@@ -4403,6 +4464,16 @@ export class ProjectGraph {
     this.bumpMutationVersion();
     const agent = this.agents.get(sessionId);
     if (!agent) { dbg('removeAgentBySession.miss', { sessionId }); return false; }
+    // §3.2.1 (A 가드) — 커스텀 에이전트는 lifecycle onDead 로 절대 제거하지 않는다.
+    //   getSessionIds() 가 이미 custom 을 제외하므로 정상 흐름에선 여기 도달하지 않지만,
+    //   워커 세션이 우회 등록되는 등의 경로를 이중 안전망으로 명시 차단(작업 중 소실 사고 방지 + B 진단).
+    if (agent.customCreated) {
+      logger.warn(
+        `removeAgentBySession BLOCKED (custom-agent guard): "${agent.label}" (session ${sessionId.slice(0, 8)}) — ` +
+        `custom bubbles are never auto-removed by lifecycle.`,
+      );
+      return false;
+    }
     // iframe 위성 중 실제로 포트가 살아있는 것만 보존 근거로 인정.
     // v1.2: 포트가 죽은 iframe 위성이 에이전트 제거를 막지 않도록 iframeAlive 체크.
     const hasLiveIframe = agent.persistSatellites?.some(
@@ -4513,6 +4584,17 @@ export class ProjectGraph {
     const agent = this.agents.get(sessionId);
     if (!agent) return;
     const caller = new Error().stack?.split('\n').slice(2, 6).join(' | ');
+    // §3.2.1 (A 가드) — 커스텀 에이전트(customCreated)는 사용자 명시 삭제(removeBubble → this.agents.delete)
+    //   외 어떤 자동 경로로도 제거하지 않는다. removeAgent 는 lifecycle/liveness prune 전용이라,
+    //   여기 커스텀이 도달했다는 것 자체가 "작업 중 커스텀 버블 소실" 사고의 진원이다. 지우지 않고
+    //   caller 스택과 함께 경고만 남긴다(B 진단 — 실제 발화 경로 확정용).
+    if (agent.customCreated) {
+      logger.warn(
+        `removeAgent BLOCKED (custom-agent guard): "${agent.label}" (session ${sessionId.slice(0, 8)}) — ` +
+        `auto-removal of custom bubbles is forbidden (only explicit user delete). caller: ${caller}`,
+      );
+      return;
+    }
     dbg('removeAgent', { sessionId, label: agent.label, instanceRoot: this.root, caller });
 
     // 엣지에서 이 에이전트 참조 제거

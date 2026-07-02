@@ -943,7 +943,10 @@
       "createAutoAgent": "Auto Agent बनाएं",
       "createAutoAgentHint": "Meta agent — आपके प्रॉम्प्ट से custom agent team स्वतः spawn करता है",
       "createWorktree": "Worktree बनाएं",
-      "createWorktreeHint": "नवीनतम master से नया workspace"
+      "createWorktreeHint": "नवीनतम master से नया workspace",
+      "restoreCustomAgent": "पिछला Custom Agent पुनर्स्थापित करें",
+      "restoreLoading": "लोड हो रहा है…",
+      "restoreEmpty": "पुनर्स्थापित करने के लिए कुछ नहीं"
     },
     "bounds": {
       "label": "Bubble सीमाएं",

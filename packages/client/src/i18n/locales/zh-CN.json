@@ -943,7 +943,10 @@
       "createAutoAgent": "创建 Auto Agent",
       "createAutoAgentHint": "元 Agent — 根据你的提示自动派生自定义 Agent 团队",
       "createWorktree": "创建 Worktree",
-      "createWorktreeHint": "从最新 master 创建新工作区"
+      "createWorktreeHint": "从最新 master 创建新工作区",
+      "restoreCustomAgent": "恢复上一个自定义 Agent",
+      "restoreLoading": "加载中…",
+      "restoreEmpty": "没有可恢复的项"
     },
     "bounds": {
       "label": "气泡边界",

@@ -116,6 +116,16 @@ export function extractPort(text: string): number | undefined {
   const bindMatch = text.match(/--bind[=\s][^\s]*?:(\d{2,5})/i);
   if (bindMatch?.[1]) return parseInt(bindMatch[1], 10);
 
+  // §7.11 — `python -m http.server 8777 [--bind 127.0.0.1]` / `SimpleHTTPServer 8777`:
+  //   포트가 **위치 인자**라 위 플래그/env 패턴에 안 걸린다. 게다가 http.server 의 기동 배너
+  //   ("Serving HTTP on … port 8777")는 stdout 으로 나가는데 파이프(bg .output)일 땐 블록
+  //   버퍼링돼 flush 되지 않아 output 파일엔 접근로그(포트 없음)만 남는다 → watcher 도 포트를
+  //   못 잡아 iframe 위성이 영영 안 생긴다. 명령어 문자열에서 직접 위치 포트를 뽑아 이 사각지대를
+  //   메운다. `(?<![\d.]) … (?![\d.])` 로 IP 옥텟(`127.0.0.1`)은 건너뛰고 순수 포트 토큰만 잡는다
+  //   (`--bind 127.0.0.1 8777` 처럼 포트가 flag 인자 뒤여도 안전).
+  const pyHttpMatch = text.match(/\b(?:http\.server|SimpleHTTPServer)\b[^\n]*?(?<![\d.])\b(\d{2,5})\b(?![\d.])/i);
+  if (pyHttpMatch?.[1]) return parseInt(pyHttpMatch[1], 10);
+
   // URL 형태: localhost:N, 127.0.0.1:N, 0.0.0.0:N
   const urlMatch = text.match(/(?:localhost|127\.0\.0\.1|0\.0\.0\.0):(\d{2,5})/);
   if (urlMatch?.[1]) return parseInt(urlMatch[1], 10);

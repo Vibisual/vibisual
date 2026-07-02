@@ -943,7 +943,10 @@
       "createAutoAgent": "Auto Agent erstellen",
       "createAutoAgentHint": "Meta-Agent — startet automatisch ein Team benutzerdefinierter Agenten aus Ihrem Prompt",
       "createWorktree": "Worktree erstellen",
-      "createWorktreeHint": "Neuer Arbeitsbereich vom aktuellen master"
+      "createWorktreeHint": "Neuer Arbeitsbereich vom aktuellen master",
+      "restoreCustomAgent": "Vorherigen benutzerdefinierten Agent wiederherstellen",
+      "restoreLoading": "Wird geladen…",
+      "restoreEmpty": "Nichts wiederherzustellen"
     },
     "bounds": {
       "label": "Blasenrahmen",

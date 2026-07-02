@@ -1,4 +1,4 @@
-import { useEffect, useRef, useMemo, useState } from 'react';
+import { memo, useEffect, useRef, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ReactFlow,
@@ -79,7 +79,7 @@ function buildEdge(e: ActivityEdge, allBubbles: BubbleData[]): Edge {
   };
 }
 
-export function DebugPanel({ onClose }: DebugPanelProps): React.JSX.Element {
+function DebugPanelImpl({ onClose }: DebugPanelProps): React.JSX.Element {
   const { t } = useTranslation();
   const rfRef = useRef<ReactFlowInstance | null>(null);
 
@@ -270,3 +270,9 @@ export function DebugPanel({ onClose }: DebugPanelProps): React.JSX.Element {
     </aside>
   );
 }
+
+/**
+ * onClose 는 App 에서 useCallback 으로 안정 참조를 넘기므로, memo 가 App 의 잦은 리렌더 전파를 끊는다.
+ * DebugPanel 은 자체 store 구독으로만 갱신 → 켜져 있을 때의 발발거림 완화. 꺼지면 App 이 언마운트(비용 0).
+ */
+export const DebugPanel = memo(DebugPanelImpl);

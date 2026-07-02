@@ -943,7 +943,10 @@
       "createAutoAgent": "Crear Auto Agent",
       "createAutoAgentHint": "Meta agente — lanza automáticamente un equipo de agentes personalizados a partir de tu prompt",
       "createWorktree": "Crear Worktree",
-      "createWorktreeHint": "Nuevo espacio de trabajo desde el master más reciente"
+      "createWorktreeHint": "Nuevo espacio de trabajo desde el master más reciente",
+      "restoreCustomAgent": "Restaurar agente personalizado anterior",
+      "restoreLoading": "Cargando…",
+      "restoreEmpty": "Nada que restaurar"
     },
     "bounds": {
       "label": "Límites del bubble",

@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { exec, execFile } from 'node:child_process';
 import multer from 'multer';
 import { DEFAULT_PORT, SESSION_SCAN_INTERVAL, FILE_EXISTENCE_CHECK_INTERVAL, SATELLITE_TYPES, IFRAME_PROXY_PATH, AGENT_IDLE_THRESHOLD_MS, AGENT_IDLE_SWEEP_INTERVAL_MS, TASK_EDGE_DISPATCH_DEFAULT_TIMEOUT_MS, TASK_EDGE_CRITIQUE_MAX_REWORK_LIMIT, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, SUPPORTED_UI_LOCALES, CONTI_AGENT_RULES, RULES_HISTORY_MAX, CANVAS_CLIPBOARD_SCHEMA_VERSION, buildAgentReportRules, buildAgentQuestionRules, buildAgentReviewRules, buildAgentListRules } from '@vibisual/shared';
-import type { HookEventPayload, WSMessage, QueuedCommand, SessionTokenData, PipelineType, AgentConfig, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, SubAgentHistoryItem, UiLocale, PermissionDecision, RulesHistoryEntry, Conti, CanvasClipboardPayload, CanvasPasteResponse, AskUserQuestionDecision, AskUserQuestionAnswer, AskUserQuestionOption, AskUserQuestionItem, AskUserQuestionToolInput, AgentReport, AgentQuestions, AgentQuestionItem, AgentReview, AgentList } from '@vibisual/shared';
+import type { HookEventPayload, WSMessage, SubAgentStreamEvent, QueuedCommand, SessionTokenData, PipelineType, AgentConfig, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, SubAgentHistoryItem, UiLocale, PermissionDecision, RulesHistoryEntry, Conti, CanvasClipboardPayload, CanvasPasteResponse, AskUserQuestionDecision, AskUserQuestionAnswer, AskUserQuestionOption, AskUserQuestionItem, AskUserQuestionToolInput, AgentReport, AgentQuestions, AgentQuestionItem, AgentReview, AgentList } from '@vibisual/shared';
 import { permissionBroker } from './services/permissionBroker.js';
 import { askUserQuestionBroker } from './services/askUserQuestionBroker.js';
 import { AutoAgentRuntime } from './services/autoAgentRuntime.js';
@@ -1326,6 +1326,39 @@ export async function runServer(): Promise<RunServerHandle> {
       res.json({ ok: true, agent });
     } catch (err) {
       logger.error('POST /api/create-custom-agent failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /** §3.2.2 (C 복구) — 해당 프로젝트에서 복구 가능한(사라졌거나 닫힌) 커스텀 에이전트 목록.
+   *  identity.json 정체성 중 현재 캔버스에 없고 명시 삭제(묘비)도 아닌 것. 캔버스 우클릭 "복구" UI 용. */
+  app.get('/api/custom-agents/recoverable', (req, res) => {
+    try {
+      const project = typeof req.query.project === 'string' ? req.query.project : '';
+      if (!project) { res.json({ agents: [] }); return; }
+      const agents = graphManager.listRecoverableCustomAgents(project);
+      res.json({ agents });
+    } catch (err) {
+      logger.error('GET /api/custom-agents/recoverable failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /** §3.2.2 (C 복구) — sessionId 로 커스텀 에이전트를 identity.json 에서 되살려 캔버스에 재삽입. */
+  app.post('/api/custom-agents/restore', (req, res) => {
+    try {
+      const { project, sessionId, x, y } = req.body as { project?: string; sessionId?: string; x?: number; y?: number };
+      if (typeof project !== 'string' || !project || typeof sessionId !== 'string' || !sessionId) {
+        return res.status(400).json({ error: 'project and sessionId required' });
+      }
+      const position = typeof x === 'number' && typeof y === 'number' ? { x, y } : undefined;
+      const agent = graphManager.restoreCustomAgent(project, sessionId, position);
+      if (!agent) return res.status(404).json({ error: 'recoverable custom agent not found' });
+      broadcastSnapshot();
+      saveCheckpoint();
+      res.json({ ok: true, agent });
+    } catch (err) {
+      logger.error('POST /api/custom-agents/restore failed', err);
       res.status(500).json({ error: 'Internal server error' });
     }
   });
@@ -4654,10 +4687,32 @@ export async function runServer(): Promise<RunServerHandle> {
     broadcast(msg);
   });
 
-  // subAgentManager 스트림 이벤트 → WS로 실시간 중계
+  // subAgentManager 스트림 이벤트 → WS로 실시간 중계 (성능: 40ms 창 coalescing).
+  // 과거엔 이벤트마다 즉시 broadcast → 멀티에이전트 스트림 폭주 시 초당 수백~수천 IPC/WS
+  // 메시지가 나가 클라 큐가 밀림. 짧은 창에 모아 sub_agent_stream_batch 1건으로 묶어 보낸다
+  // (도착 순서 보존). 200건 초과 시 창을 기다리지 않고 즉시 flush 해 지연 상한을 건다.
+  const STREAM_BROADCAST_INTERVAL = 40;
+  const STREAM_BATCH_MAX = 200;
+  let streamBatch: SubAgentStreamEvent[] = [];
+  let streamBatchTimer: ReturnType<typeof setTimeout> | null = null;
+  const flushStreamBatch = (): void => {
+    streamBatchTimer = null;
+    if (streamBatch.length === 0) return;
+    const batch = streamBatch;
+    streamBatch = [];
+    broadcast({ type: 'sub_agent_stream_batch', timestamp: Date.now(), payload: batch });
+  };
   subAgentManager.setOnStreamEvent((event) => {
-    const msg: WSMessage = { type: 'sub_agent_stream', timestamp: Date.now(), payload: event };
-    broadcast(msg);
+    streamBatch.push(event);
+    if (streamBatch.length >= STREAM_BATCH_MAX) {
+      if (streamBatchTimer !== null) { clearTimeout(streamBatchTimer); streamBatchTimer = null; }
+      flushStreamBatch();
+      return;
+    }
+    if (streamBatchTimer === null) {
+      streamBatchTimer = setTimeout(flushStreamBatch, STREAM_BROADCAST_INTERVAL);
+      if (typeof streamBatchTimer.unref === 'function') streamBatchTimer.unref();
+    }
   });
 
   // subAgent 영속화 경로 해석 — 부모 에이전트 소속 프로젝트를 찾아 save/<project>/(worktrees/<wt>/)sub-streams/<agentId>/ 로 라우팅

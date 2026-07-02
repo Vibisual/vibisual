@@ -742,6 +742,7 @@
       "ctxQuoteReply": "인용 답글",
       "ctxSendAsPrompt": "새 명령으로 전송",
       "ctxSelectAll": "전체 선택",
+      "jumpToBottom": "맨 아래로",
       "ctxSelectionRequired": "텍스트를 먼저 선택하세요",
       "inputCtxCut": "잘라내기",
       "inputCtxCopy": "복사",
@@ -836,6 +837,12 @@
       "tokens": "입력 {{in}} / 출력 {{out}}",
       "sessionOne": "{{count}}개 세션",
       "sessionMany": "{{count}}개 세션"
+    },
+    "search": {
+      "placeholder": "대화에서 검색",
+      "prev": "이전 결과",
+      "next": "다음 결과",
+      "close": "닫기"
     },
     "streamRenderer": {
       "noActivity": "이 세션에 활동 없음",
@@ -1066,7 +1073,10 @@
       "createAutoAgent": "오토 에이전트 만들기",
       "createAutoAgentHint": "메타 에이전트 — 자연어 한 줄로 커스텀 에이전트 군을 자동 spawn",
       "createWorktree": "Worktree 만들기",
-      "createWorktreeHint": "최신 master 기준 새 작업 공간"
+      "createWorktreeHint": "최신 master 기준 새 작업 공간",
+      "restoreCustomAgent": "지난 커스텀 에이전트 복구",
+      "restoreLoading": "불러오는 중…",
+      "restoreEmpty": "복구할 항목이 없습니다"
     },
     "bounds": {
       "label": "버블 영역",

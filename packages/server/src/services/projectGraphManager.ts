@@ -42,10 +42,11 @@ import type {
   ContiWorkSource,
   RateLimitInfo,
   ExecutionMode,
+  RecoverableCustomAgent,
 } from '@vibisual/shared';
 import { DEFAULT_UI_LOCALE } from '@vibisual/shared';
-import { ProjectGraph, type ProcessResult } from './projectGraph.js';
-import { loadCheckpointByMeta, writeCheckpoint, projectDirForInfo, discoverProjectMetas } from './statePersistence.js';
+import { ProjectGraph, resolveGitWorktreeParent, type ProcessResult } from './projectGraph.js';
+import { loadCheckpointByMeta, writeCheckpoint, projectDirForInfo, discoverProjectMetas, loadIdentityFromDir } from './statePersistence.js';
 import { appStateAddOpenProject, loadAppState } from './appState.js';
 import { diagnosticService } from './diagnosticService.js';
 import { modelRegistryService } from './modelRegistryService.js';
@@ -97,6 +98,15 @@ function resolveProjectRoot(cwd: string): string {
     // 원본 케이스 보존 (cwd는 원본, normalized는 slash 변환본)
     return cwd.slice(0, wtMatch[1]!.length);
   }
+
+  // git-linked 워크트리(임의 위치) → 부모 메인 워크트리로 라우팅.
+  // Claude Code `--isolation worktree` 는 워크트리를 `.claude/worktrees/` 밖 임의 위치에 만들 수 있어
+  // 위 경로 패턴을 벗어난다. 이 경우 부모로 승격하지 않으면 매니저가 워크트리 경로로 별도 top-level
+  // 인스턴스(name=basename=`agent-<hex>`)를 만들어, 루트 노드 1개짜리 유령 프로젝트가 저장 순회에
+  // 남아 checkpoint 덮어쓰기 가드 경고를 반복 유발한다(SSOT §5.7 #26 — 워크트리는 부모 캔버스에
+  // 흡수, 별도 탭/프로젝트 금지). resolveGitWorktreeParent 는 cwd 단위 캐시라 첫 1회만 git 호출.
+  const gitWt = resolveGitWorktreeParent(normalize(cwd));
+  if (gitWt) return gitWt.parentPath;
 
   let dir = path.resolve(cwd);
   const { root } = path.parse(dir);
@@ -345,6 +355,10 @@ function relabelSubSnapshot(snap: GraphSnapshot, from: string, to: string): Grap
 export class ProjectGraphManager {
   /** normalized cwd → ProjectGraph 인스턴스 */
   private instances = new Map<string, ProjectGraph>();
+
+  /** B 진단(§3.2.2) — getSnapshot 이 라이브에서 제외한 인스턴스(worktree/hidden)에서 발견한
+   *  커스텀 에이전트 sessionId. 같은 sessionId 를 매 스냅샷마다 재경고하지 않도록 1회만 로깅. */
+  private warnedHiddenCustomAgents = new Set<string>();
 
   /** §4 v1.50 — Claude.ai 한도 사용률 (글로벌 1건). 외부 statusline 스크립트가 푸시. */
   private globalRateLimits?: RateLimitInfo;
@@ -1397,7 +1411,7 @@ export class ProjectGraphManager {
     const names: string[] = [];
     // orphan worktree 인스턴스는 제외 (todo0417 A-3) — 같은 이름이 부모 인스턴스에 이미 있음
     for (const [key, inst] of this.instances) {
-      if (this.isWorktreeInstanceKey(key)) continue;
+      if (this.isWorktreeInstance(key, inst)) continue;
       names.push(...inst.getProjectNames());
     }
     return [...new Set(names)];
@@ -1456,6 +1470,17 @@ export class ProjectGraphManager {
     return /\/\.claude\/worktrees\/[^/]+\/?$/.test(key);
   }
 
+  /** 인스턴스가 워크트리(부모에 흡수돼야 함)인지 — orphan/유령 감지용.
+   *  (1) key 가 `.claude/worktrees/` 경로 패턴이거나(기존),
+   *  (2) 인스턴스 루트(key 경로)에 등록된 ProjectInfo 가 `parentProjectPath` 를 가진
+   *      git-linked 워크트리(임의 위치, `--isolation worktree` 산출물)면 true.
+   *  resolveProjectRoot(A-1 확장)이 신규 생성을 막지만, 확장 전 런타임에 생성된 인스턴스와
+   *  git 해석 성공분(name=`agent-<hex>`)을 저장 순회·스냅샷에서 함께 제외한다. */
+  private isWorktreeInstance(key: string, inst: ProjectGraph): boolean {
+    if (this.isWorktreeInstanceKey(key)) return true;
+    return !!inst.getProjectInfoByPath(key)?.parentProjectPath;
+  }
+
   /** 잘못된 인스턴스에 저장된 TaskEdge 를 소스 에이전트 프로젝트의 인스턴스로 이관.
    *  과거 `createTaskEdge` 가 무조건 primaryInstance 로 라우팅하던 버그로 worktree 가 primary 일
    *  때 Vibisual 엣지가 worktree 인스턴스에 쌓이거나 그 반대가 발생함 → 해당 프로젝트의 scoped
@@ -1511,6 +1536,26 @@ export class ProjectGraphManager {
         const name = inst.getPrimaryProjectName();
         return name ? !inst.isProjectHidden(name) : true;
       });
+
+    // B 진단(§3.2.2) — 라이브 스냅샷은 visibleInstances(비-worktree · 비-hidden)만 병합하므로,
+    //   커스텀 에이전트가 worktree/hidden 인스턴스에 얹혀 있으면 "작업 중 버블이 사라진" 것처럼 보인다
+    //   (사용자 보고 증상). 그런 유령 위치를 발견하면 sessionId 당 1회 경고해 실제 발화 위치를 확정한다.
+    {
+      const visibleSet = new Set(visibleInstances);
+      for (const [key, inst] of this.instances) {
+        if (visibleSet.has(inst)) continue;
+        for (const sid of inst.getCustomAgentSessionIds()) {
+          if (this.warnedHiddenCustomAgents.has(sid)) continue;
+          this.warnedHiddenCustomAgents.add(sid);
+          logger.warn(
+            `[custom-agent-visibility] custom agent session ${sid.slice(0, 12)} lives in an ` +
+            `excluded instance (key="${key}", worktree=${this.isWorktreeInstanceKey(key)}) — it will NOT ` +
+            `appear in the live canvas. This is the likely cause of a "disappearing custom bubble". ` +
+            `Recovery: canvas → context menu → restore previous custom agent.`,
+          );
+        }
+      }
+    }
 
     // v1.63: 식별=path, 이름=표시. 같은 basename 다른 경로 동시 hydrate 시 mergeSnapshots
     // 의 이름 키 충돌로 한 프로젝트가 소실되던 버그(§3.5) — 머지 전에 인스턴스별로
@@ -2301,6 +2346,74 @@ export class ProjectGraphManager {
       if (inst.removeAgentBySession(sessionId)) return true;
     }
     return false;
+  }
+
+  /** 전체 인스턴스에 살아있는 커스텀 에이전트 sessionId 집합(복구 목록 계산·진단 공용). */
+  private allLiveCustomAgentSessionIds(): Set<string> {
+    const live = new Set<string>();
+    for (const inst of this.instances.values()) {
+      for (const sid of inst.getCustomAgentSessionIds()) live.add(sid);
+    }
+    return live;
+  }
+
+  /**
+   * §3.2.2 (C 복구) — 해당 프로젝트에서 **복구 가능한 커스텀 에이전트** 목록.
+   * identity.json 에 정체성이 남아 있으나 지금 캔버스에 살아있지 않은(사라졌거나 닫힌) 것만.
+   * 사용자 명시 삭제(묘비)는 제외. 최신 저장순 정렬.
+   */
+  listRecoverableCustomAgents(projectName: string): RecoverableCustomAgent[] {
+    const inst = this.getInstanceByName(projectName) ?? this.primaryInstance();
+    const info = inst?.getProjectByName(projectName) ?? inst?.getPrimaryProject();
+    if (!info?.path) return [];
+    let identity;
+    try {
+      identity = loadIdentityFromDir(projectDirForInfo(info));
+    } catch {
+      return [];
+    }
+    if (!identity) return [];
+    const live = this.allLiveCustomAgentSessionIds();
+    const tombstones = new Set(identity.deletedSessionIds ?? []);
+    const out: RecoverableCustomAgent[] = [];
+    for (const [sessionId, agent] of Object.entries(identity.customAgents ?? {})) {
+      if (live.has(sessionId)) continue;       // 이미 캔버스에 있음
+      if (tombstones.has(sessionId)) continue; // 사용자가 명시 삭제함
+      const config = identity.agentConfigs?.[agent.id];
+      out.push({
+        sessionId,
+        agentId: agent.id,
+        label: identity.customLabels?.[agent.id] ?? agent.label,
+        projectName,
+        color: config?.color,
+        executionMode: config?.executionMode,
+        savedAt: identity.savedAt ?? 0,
+      });
+    }
+    out.sort((a, b) => b.savedAt - a.savedAt);
+    return out;
+  }
+
+  /**
+   * §3.2.2 (C 복구) — identity.json 에서 sessionId 로 커스텀 에이전트를 되살려 캔버스에 재삽입.
+   * 성공 시 재삽입된 버블 반환. 없거나 실패면 null.
+   */
+  restoreCustomAgent(
+    projectName: string,
+    sessionId: string,
+    position?: { x: number; y: number },
+  ): BubbleData | null {
+    const inst = this.getInstanceByName(projectName) ?? this.primaryInstance();
+    const info = inst?.getProjectByName(projectName) ?? inst?.getPrimaryProject();
+    if (!inst || !info?.path) return null;
+    const identity = loadIdentityFromDir(projectDirForInfo(info));
+    if (!identity) return null;
+    const identityAgent = identity.customAgents?.[sessionId];
+    if (!identityAgent) return null;
+    const config = identity.agentConfigs?.[identityAgent.id];
+    const label = identity.customLabels?.[identityAgent.id];
+    const cwd = identity.sessionCwds?.[sessionId] ?? info.path;
+    return inst.restoreCustomAgentBubble(identityAgent, config, label, cwd, position);
   }
 
   /**

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { BubbleData, ActivityEdge, BashEntry, ServerEntry, AgentEvent, FileEdit, AgentPhase, ProjectInfo, QueuedCommand, SubAgent, ServerKind, PipelineType, PipelineState, AgentConfig, SubAgentStreamEvent, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, UiLocale, ProjectMetaSnapshot, AppState, AppStatePatch, CommentBox, Conti, ActiveContiWork, ToolDurationEntry, CompactCount, RateLimitInfo, DiagnosticEntry, AutoAgentSummary, ModelRegistry, UserDefaults, AgentReport, AgentQuestions, AgentReview, AgentList } from '@vibisual/shared';
-import { DEFAULT_UI_LOCALE, STREAM_EVENTS_MAX_PER_SESSION, STREAM_EVENTS_MAX_PER_INACTIVE_SESSION, STREAM_INACTIVE_SESSIONS_MAX, DIAGNOSTIC_LOG_MAX } from '@vibisual/shared';
+import { DEFAULT_UI_LOCALE, STREAM_EVENTS_MAX_PER_SESSION, STREAM_EVENTS_TRIM_SLACK, STREAM_EVENTS_MAX_PER_INACTIVE_SESSION, STREAM_INACTIVE_SESSIONS_MAX, DIAGNOSTIC_LOG_MAX } from '@vibisual/shared';
 import { changeUiLocale } from '../i18n/index.js';
 import { calcFileSizeRange } from '../utils/sizeCalc.js';
 
@@ -725,6 +725,10 @@ interface GraphState {
   focusOnNode: (id: string) => void;
   clearFocusNode: () => void;
   createCustomAgent: (canvasX: number, canvasY: number) => void;
+  /** §3.2.2 (C 복구) — 현재 프로젝트에서 복구 가능한(사라졌거나 닫힌) 커스텀 에이전트 목록 조회. */
+  fetchRecoverableCustomAgents: () => Promise<import('@vibisual/shared').RecoverableCustomAgent[]>;
+  /** §3.2.2 (C 복구) — sessionId 로 커스텀 에이전트를 identity 에서 되살려 캔버스 좌표에 재삽입. */
+  restoreCustomAgent: (sessionId: string, canvasX: number, canvasY: number) => Promise<void>;
   /** §4 v2.63 — CMD(인터랙티브 터미널) 에이전트 생성. 커스텀 에이전트 기반 + executionMode baked. */
   createCmdAgent: (canvasX: number, canvasY: number) => void;
   /** §5.3 #10-2 v2.37 — Auto Agent 메타 버블 생성 */
@@ -1757,6 +1761,29 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       body: JSON.stringify({ label: '', x: canvasX, y: canvasY, project }),
     }).catch(() => {});
   },
+  fetchRecoverableCustomAgents: async () => {
+    const project = selectEffectiveProject(get());
+    if (!project) return [];
+    try {
+      const res = await fetch(`${API_BASE}/api/custom-agents/recoverable?project=${encodeURIComponent(project)}`);
+      if (!res.ok) return [];
+      const data = await res.json() as { agents?: import('@vibisual/shared').RecoverableCustomAgent[] };
+      return data.agents ?? [];
+    } catch {
+      return [];
+    }
+  },
+  restoreCustomAgent: async (sessionId, canvasX, canvasY) => {
+    const project = selectEffectiveProject(get());
+    if (!project) return;
+    try {
+      await fetch(`${API_BASE}/api/custom-agents/restore`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project, sessionId, x: canvasX, y: canvasY }),
+      });
+    } catch { /* noop — 실패 시 스냅샷 변화 없음 */ }
+  },
   // §4 v2.63 — CMD(인터랙티브 터미널) 에이전트. 동일 엔드포인트에 executionMode 플래그만 추가.
   createCmdAgent: (canvasX, canvasY) => {
     const project = selectEffectiveProject(get());
@@ -1880,9 +1907,12 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     const prev = s.subAgentStreams[event.subAgentId];
     const merged = prev ? [...prev, event] : [event];
     // 성능: 보고 있는(활성) 세션은 큰 상한, 안 보는 세션은 작은 상한으로 차등 절단.
+    // 활성 세션은 slack 여유를 둬 상한 도달 후에도 대부분 순수 append 를 유지(증분 파서 유효).
     const active = computeActiveSessionIds(s.ideOverlays, s.subAgents);
-    const cap = active.has(event.subAgentId) ? STREAM_EVENTS_MAX_PER_SESSION : STREAM_EVENTS_MAX_PER_INACTIVE_SESSION;
-    const next = merged.length > cap ? merged.slice(merged.length - cap) : merged;
+    const isActive = active.has(event.subAgentId);
+    const cap = isActive ? STREAM_EVENTS_MAX_PER_SESSION : STREAM_EVENTS_MAX_PER_INACTIVE_SESSION;
+    const slack = isActive ? STREAM_EVENTS_TRIM_SLACK : 0;
+    const next = merged.length > cap + slack ? merged.slice(merged.length - cap) : merged;
     const streams = { ...s.subAgentStreams, [event.subAgentId]: next };
     const lastActivity = { ...s.streamLastActivity, [event.subAgentId]: Date.now() };
     pruneInactiveStreams(streams, lastActivity, active);
@@ -1903,11 +1933,14 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       touched.add(event.subAgentId);
     }
     // 성능: 이번 배치로 늘어난 세션만 활성/비활성 차등 상한 적용(초과 시 오래된 것부터 절단).
+    // 활성 세션은 slack 여유를 둬 상한 도달 후에도 대부분 순수 append 를 유지(증분 파서 유효).
     const active = computeActiveSessionIds(s.ideOverlays, s.subAgents);
     for (const sid of touched) {
-      const cap = active.has(sid) ? STREAM_EVENTS_MAX_PER_SESSION : STREAM_EVENTS_MAX_PER_INACTIVE_SESSION;
+      const isActive = active.has(sid);
+      const cap = isActive ? STREAM_EVENTS_MAX_PER_SESSION : STREAM_EVENTS_MAX_PER_INACTIVE_SESSION;
+      const slack = isActive ? STREAM_EVENTS_TRIM_SLACK : 0;
       const arr = nextStreams[sid]!;
-      if (arr.length > cap) nextStreams[sid] = arr.slice(arr.length - cap);
+      if (arr.length > cap + slack) nextStreams[sid] = arr.slice(arr.length - cap);
     }
     pruneInactiveStreams(nextStreams, nextLast, active);
     return { subAgentStreams: nextStreams, streamLastActivity: nextLast };
@@ -1938,8 +1971,16 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     const initialSession =
       (lastActive && exists(lastActive) ? lastActive : null)
       ?? (defaultSub && exists(defaultSub) ? defaultSub : null);
-    // IDE 를 소유하는 프로젝트 = 에이전트가 속한 프로젝트(없으면 현재 활성 프로젝트로 폴백).
-    const ownerProject = state.agentProjects[agentId] ?? state.activeProject;
+    // IDE 오버레이는 "지금 보고 있는 창/탭"(activeProject) 슬롯에 산다. 다른 모든 IDE 오버레이
+    // 변경자(closeIDEOverlay/setIDEActiveSession/setIDEDocked/setIDEActiveView/toggleIDESidebar)가
+    // activeProject 를 쓰므로 open 도 반드시 일치해야 slot 이 맞물린다.
+    //   버그: 워크트리 버블로 이동(migration)한 커스텀 에이전트는 agentProjects[agentId] 가 워크트리
+    //   프로젝트명이 된다. 워크트리로 드릴다운해도 activeProject 는 부모 프로젝트 그대로이고
+    //   currentFolderId 만 바뀌므로, 종전처럼 agentProjects 기준(워크트리명) 슬롯에 쓰면
+    //   부모 탭을 읽는 selectIDEOverlay 가 그 슬롯을 못 봐 IDE 가 안 열렸다.
+    //   교차 프로젝트 열기(jumpToBookmark 등)는 openIDEOverlay 전에 이미 setActiveProject 로 탭을
+    //   전환하므로 activeProject 기준으로도 동일하게 동작한다.
+    const ownerProject = state.activeProject ?? state.agentProjects[agentId];
     if (!ownerProject) return {}; // 소속 프로젝트 미상이면 무시
     const prev = state.ideOverlays[ownerProject];
     // §5.5 #17-1 (v2.17) — 같은 프로젝트의 IDE 가 이미 우측 도킹 상태면 agentId 만 교체 + dockedRight/dockWidth 유지.

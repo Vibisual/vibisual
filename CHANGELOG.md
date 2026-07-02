@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-07-02
+
+### Added
+- **Per-agent budget cap.** Each custom agent can now be given a spending limit in US dollars (*Budget ($, 0 = unlimited)*) in its settings. When a cap is set the agent runs every turn as a fresh metered `--print` spawn so the limit is enforced across the whole run, guarding against a runaway agent draining your API credit. Interactive-terminal (CMD) agents are unaffected.
+- **Bookmarks inside the agent output.** Select any text in an agent's output, right-click, and choose *Bookmark* to pin it into a new Bookmarks panel — later jump back to where it came from, copy it, or remove it. (Separate from the Alt+1…0 bubble bookmarks.)
+- **Session summaries.** A new sidebar view that gathers each session's report cards into one readable summary — what was done, what changed, your actions, checkpoints, questions, and next steps — with summarize / re-summarize on demand. You can also tidy up by closing inactive, already-reviewed sessions in one click; they stay in History.
+- **Card rail in the terminal.** The work-report, question, and review cards an agent files are now collected into a collapsible Cards rail beside the terminal, so you can scan or clear them without scrolling back through the whole stream.
+- **Follow-up messages.** Send an agent another message with the *Add* button (Enter) without stopping its current run, instead of having to interrupt it first.
+- **Drop files to add their paths.** Drag files onto the agent input to insert their paths into your prompt.
+- **Overlay bubble menu.** Right-click a desktop overlay bubble for Open IDE, Find on canvas, an opacity control, Hide, and Remove from overlay.
+- **Skill favorites, refresh, and quick-create.** Star the skills you use most into a Favorites group, refresh the skill list without reloading, and start a new skill straight from the sidebar.
+- **Find in conversation.** Search within an agent's output, with previous / next match navigation.
+- **Restore a previous custom agent.** Canvas right-click now offers *Restore Previous Custom Agent* to bring back a custom agent from an earlier session by its saved identity.
+- **Debug panel additions.** The Debug panel now shows the active project (name / path), live node and edge counts, and a frames-per-second meter.
+- **Jump to bottom.** A quick scroll-to-bottom action in the agent output.
+
+### Changed
+- **Stays responsive over long sessions.** The agent stream no longer slows down and bloats the longer you use it. On the client, output is now parsed incrementally — only the newly arrived text is processed each tick instead of re-parsing the whole buffer — and on the server the on-disk stream buffers are capped and trimmed. Long-running or heavily-used sessions hold a steadier frame rate and a smaller memory and disk footprint.
+
+### Fixed
+- **Stream auto-scroll jitter.** Fixed the flicker where the last line would shudder, mis-align, or bounce up and down as new text arrived, and the view would stop short of the bottom or get yanked away while you were reading. Growth-following is now driven by a single pin at the moment the list's measured height actually changes, and it releases only when you deliberately scroll up (wheel, touch, or keyboard), re-arming when you return to the bottom.
+
 ## [0.1.4] - 2026-06-11
 
 ### Added
@@ -76,7 +98,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - Dropped preset options from the custom agent settings.
 
-[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/Vibisual/vibisual/compare/v0.1.4...v0.1.5
+[0.1.4]: https://github.com/Vibisual/vibisual/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/Vibisual/vibisual/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/Vibisual/vibisual/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/Vibisual/vibisual/compare/v0.1.0...v0.1.1
