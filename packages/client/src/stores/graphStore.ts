@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { BubbleData, ActivityEdge, BashEntry, ServerEntry, AgentEvent, FileEdit, AgentPhase, ProjectInfo, QueuedCommand, SubAgent, ServerKind, PipelineType, PipelineState, AgentConfig, SubAgentStreamEvent, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, UiLocale, ProjectMetaSnapshot, AppState, AppStatePatch, CommentBox, Conti, ActiveContiWork, ToolDurationEntry, CompactCount, RateLimitInfo, DiagnosticEntry, AutoAgentSummary, ModelRegistry, UserDefaults, AgentReport, AgentQuestions, AgentReview, AgentList } from '@vibisual/shared';
+import type { BubbleData, ActivityEdge, BashEntry, ServerEntry, AgentEvent, FileEdit, AgentPhase, ProjectInfo, QueuedCommand, SubAgent, ServerKind, PipelineType, PipelineState, AgentConfig, SubAgentStreamEvent, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, UiLocale, ProjectMetaSnapshot, AppState, AppStatePatch, CommentBox, Conti, ActiveContiWork, ToolDurationEntry, CompactCount, RateLimitInfo, DiagnosticEntry, AutoAgentSummary, ModelRegistry, UserDefaults, AgentReport, AgentQuestions, AgentReview, AgentList, AgentFeedback, AgentFeedbackTargetType, AgentFeedbackVerdict } from '@vibisual/shared';
 import { DEFAULT_UI_LOCALE, STREAM_EVENTS_MAX_PER_SESSION, STREAM_EVENTS_TRIM_SLACK, STREAM_EVENTS_MAX_PER_INACTIVE_SESSION, STREAM_INACTIVE_SESSIONS_MAX, DIAGNOSTIC_LOG_MAX } from '@vibisual/shared';
 import { changeUiLocale } from '../i18n/index.js';
 import { calcFileSizeRange } from '../utils/sizeCalc.js';
@@ -478,6 +478,8 @@ interface GraphState {
   agentReviews: Record<string, AgentReview[]>;
   /** §4 v2.84 — 에이전트 번호 목록 정렬 카드 (agentId → AgentList[]). IDE 정렬 카드. */
   agentLists: Record<string, AgentList[]>;
+  /** §4 v3.21 — 에이전트 피드백 (agentId → AgentFeedback[]). 좋아요/싫어요 → 규칙 되먹임. */
+  agentFeedbacks: Record<string, AgentFeedback[]>;
   /** §4 v2.38 — 동적 모델 레지스트리 (서버 modelRegistryService 가 시드+/v1/models 머지 후 push). */
   modelRegistry: ModelRegistry | null;
   /** §4 v2.42 — 사용자 글로벌 옵션 (Options 창 SSOT). */
@@ -832,6 +834,21 @@ interface GraphState {
   applyAgentReviews: (reviews: Record<string, AgentReview[]> | undefined) => void;
   /** §4 v2.84 — graph_snapshot 의 에이전트 번호 목록 정렬 카드 반영. */
   applyAgentLists: (lists: Record<string, AgentList[]> | undefined) => void;
+  /** §4 v3.21 — graph_snapshot 의 에이전트 피드백 반영. */
+  applyAgentFeedbacks: (feedbacks: Record<string, AgentFeedback[]> | undefined) => void;
+  /**
+   * §4 v3.21 — 좋아요/싫어요 평가 전송 (targetId 별 upsert, verdict null = 철회).
+   * 서버가 broadcast 로 되돌려주는 graph_snapshot 이 SSOT — 클라는 전송만.
+   */
+  setFeedback: (input: {
+    agentId: string;
+    subAgentId?: string | null;
+    targetType: AgentFeedbackTargetType;
+    targetId: string;
+    verdict: AgentFeedbackVerdict | null;
+    reason?: string;
+    summary: string[];
+  }) => void;
   /** §4 v1.98 — graph_snapshot 수신 시 진단 에러 로그 반영. */
   applyDiagnosticLog: (log: DiagnosticEntry[] | undefined) => void;
   /** §4 v2.38 — graph_snapshot 또는 model_registry_updated 수신 시 레지스트리 반영. */
@@ -1101,6 +1118,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   agentQuestions: {},
   agentReviews: {},
   agentLists: {},
+  agentFeedbacks: {},
   modelRegistry: null,
   userDefaults: null,
   rateLimits: null,
@@ -2175,6 +2193,22 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   applyAgentQuestions: (questions) => set({ agentQuestions: questions ?? {} }),
   applyAgentReviews: (reviews) => set({ agentReviews: reviews ?? {} }),
   applyAgentLists: (lists) => set({ agentLists: lists ?? {} }),
+  applyAgentFeedbacks: (feedbacks) => set({ agentFeedbacks: feedbacks ?? {} }),
+  setFeedback: (input) => {
+    fetch(`${API_BASE}/api/agent-feedback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        agentId: input.agentId,
+        ...(input.subAgentId ? { subAgentId: input.subAgentId } : {}),
+        targetType: input.targetType,
+        targetId: input.targetId,
+        verdict: input.verdict,
+        ...(input.reason?.trim() ? { reason: input.reason.trim() } : {}),
+        summary: input.summary,
+      }),
+    }).catch(() => {});
+  },
   applyDiagnosticLog: (log) => {
     const arr = log ?? [];
     // 서버가 이미 ring buffer 로 trim 하지만, 클라에서도 동일 상한을 방어적으로 적용.

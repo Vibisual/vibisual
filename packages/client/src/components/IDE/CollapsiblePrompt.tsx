@@ -76,7 +76,8 @@ export function CollapsiblePrompt({ prompt }: { prompt: string }): React.JSX.Ele
   );
 
   return (
-    <div className="mb-2 ml-auto w-full max-w-[90%]">
+    // §4 v3.24 — 폰(max-md)에선 말풍선을 화면 폭에 더 붙인다(여백 압축).
+    <div className="mb-2 ml-auto w-full max-w-[90%] max-md:max-w-[96%]">
       <div className="relative overflow-hidden rounded-2xl rounded-tr-sm border border-sky-400/40 bg-sky-500/15 shadow-sm shadow-sky-900/20">
         {collapsible ? (
           /* 여러 줄/긴 입력 — 클릭하면 펼침/접힘. 접힘 상태에선 첫 줄만 미리보기. */

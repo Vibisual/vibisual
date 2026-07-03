@@ -46,8 +46,9 @@ import type {
   AgentQuestions,
   AgentReview,
   AgentList,
+  AgentFeedback,
 } from '@vibisual/shared';
-import { MAX_BASH_HISTORY, MAX_FILE_EDITS, MAX_WRITE_DIFF_BYTES, DEFAULT_MAX_SATELLITES, SATELLITE_MAX_BOUNDS, MAX_AGENTS, SATELLITE_TYPES, AGENT_FADE_DURATION, BUBBLE_TTL, GHOST_FADE_DURATION, FILE_EXISTENCE_MISS_THRESHOLD, FRONTEND_SERVER_PATTERNS, IFRAME_DEAD_GRACE_MS, parseModelFamily, DEFAULT_AGENT_CONFIG, AVAILABLE_AGENT_TOOLS, DEFAULT_UI_LOCALE, COMMENT_BOX_DEFAULTS, READ_TOOLS, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, AGENT_REPORT_MAX_PER_AGENT, AGENT_QUESTIONS_MAX_PER_AGENT, AGENT_REVIEWS_MAX_PER_AGENT, AGENT_LISTS_MAX_PER_AGENT, DELETED_AGENT_TOMBSTONE_MAX, CMD_AGENT_COLOR, MAX_AGENT_EVENTS } from '@vibisual/shared';
+import { MAX_BASH_HISTORY, MAX_FILE_EDITS, MAX_WRITE_DIFF_BYTES, DEFAULT_MAX_SATELLITES, SATELLITE_MAX_BOUNDS, MAX_AGENTS, SATELLITE_TYPES, AGENT_FADE_DURATION, BUBBLE_TTL, GHOST_FADE_DURATION, FILE_EXISTENCE_MISS_THRESHOLD, FRONTEND_SERVER_PATTERNS, IFRAME_DEAD_GRACE_MS, parseModelFamily, DEFAULT_AGENT_CONFIG, AVAILABLE_AGENT_TOOLS, DEFAULT_UI_LOCALE, COMMENT_BOX_DEFAULTS, READ_TOOLS, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, AGENT_REPORT_MAX_PER_AGENT, AGENT_QUESTIONS_MAX_PER_AGENT, AGENT_REVIEWS_MAX_PER_AGENT, AGENT_LISTS_MAX_PER_AGENT, AGENT_FEEDBACK_MAX_PER_AGENT, DELETED_AGENT_TOMBSTONE_MAX, CMD_AGENT_COLOR, MAX_AGENT_EVENTS } from '@vibisual/shared';
 import type { ServerKind, UiLocale, ExecutionMode } from '@vibisual/shared';
 import { EdgeManager } from './edgeManager.js';
 import { extractPort, extractPortFromInlineEval, extractPortFromScriptFile, isPortAlive, isProbeCommand, isVibisualLauncherCommand } from './processChecker.js';
@@ -576,6 +577,11 @@ export class ProjectGraph {
    * 영속화 대상 (ProjectCheckpoint.agentLists). ring buffer 캡 = AGENT_LISTS_MAX_PER_AGENT.
    */
   private agentLists = new Map<string, AgentList[]>();
+  /**
+   * §4 v3.21 — 에이전트 피드백 (agentId → AgentFeedback[]). 좋아요/싫어요 → 규칙 되먹임용.
+   * 영속화 대상 (ProjectCheckpoint.agentFeedbacks). ring buffer 캡 = AGENT_FEEDBACK_MAX_PER_AGENT.
+   */
+  private agentFeedbacks = new Map<string, AgentFeedback[]>();
   /**
    * §5.3 #12-1 v1.91 — 현재 권한 승인 팝업 대기 중인 에이전트 id 집합.
    * PreToolUse 훅이 동기 hold(최대 60s) 하는 동안 에이전트는 "블록된 활성" 상태다.
@@ -1549,6 +1555,47 @@ export class ProjectGraph {
     return out;
   }
 
+  /**
+   * §4 v3.21 — 에이전트 피드백 upsert (targetId 별 1건 — 같은 대상 재평가는 verdict 교체).
+   * `verdict:null` 은 평가 철회(해당 target 피드백 제거). ring buffer 캡 = AGENT_FEEDBACK_MAX_PER_AGENT.
+   */
+  setAgentFeedback(feedback: AgentFeedback): void {
+    const arr = (this.agentFeedbacks.get(feedback.agentId) ?? []).filter(
+      (f) => !(f.targetType === feedback.targetType && f.targetId === feedback.targetId),
+    );
+    arr.push(feedback);
+    if (arr.length > AGENT_FEEDBACK_MAX_PER_AGENT) {
+      arr.splice(0, arr.length - AGENT_FEEDBACK_MAX_PER_AGENT);
+    }
+    this.agentFeedbacks.set(feedback.agentId, arr);
+    this.bumpMutationVersion();
+  }
+
+  /** §4 v3.21 — 피드백 철회 (해당 target 의 기존 평가 제거). 제거했으면 true. */
+  removeAgentFeedback(agentId: string, targetType: string, targetId: string): boolean {
+    const arr = this.agentFeedbacks.get(agentId);
+    if (!arr) return false;
+    const next = arr.filter((f) => !(f.targetType === targetType && f.targetId === targetId));
+    if (next.length === arr.length) return false;
+    if (next.length === 0) this.agentFeedbacks.delete(agentId);
+    else this.agentFeedbacks.set(agentId, next);
+    this.bumpMutationVersion();
+    return true;
+  }
+
+  /** §4 v3.21 — 피드백 전체 맵 (broadcast 스냅샷/체크포인트용). 빈 맵이면 undefined. */
+  getAgentFeedbacksRecord(): Record<string, AgentFeedback[]> | undefined {
+    if (this.agentFeedbacks.size === 0) return undefined;
+    const out: Record<string, AgentFeedback[]> = {};
+    for (const [k, v] of this.agentFeedbacks) out[k] = [...v];
+    return out;
+  }
+
+  /** §4 v3.21 — 한 에이전트의 피드백 목록 (스폰 다이제스트 주입/distill 용). */
+  getAgentFeedbacksForAgent(agentId: string): AgentFeedback[] {
+    return [...(this.agentFeedbacks.get(agentId) ?? [])];
+  }
+
   /** 캔버스에서 파이프라인 에이전트 생성 (부모 1 + 자식 4 원자적 생성) */
   createPipeline(
     type: PipelineType,
@@ -1704,6 +1751,7 @@ export class ProjectGraph {
         this.agentQuestions.delete(agent.id);
         this.agentReviews.delete(agent.id);
         this.agentLists.delete(agent.id);
+        this.agentFeedbacks.delete(agent.id);
         this.manuallyConfigured.delete(agent.id);
         this.observedTools.delete(sessionId);
         logger.info(`Bubble removed: agent "${agent.label}"`);
@@ -2691,6 +2739,7 @@ export class ProjectGraph {
       agentQuestions: this.getAgentQuestionsRecord(),
       agentReviews: this.getAgentReviewsRecord(),
       agentLists: this.getAgentListsRecord(),
+      agentFeedbacks: this.getAgentFeedbacksRecord(),
     };
 
     // (2b) 계산 결과를 캐시에 저장
@@ -2825,6 +2874,7 @@ export class ProjectGraph {
       agentQuestions: this.getAgentQuestionsRecord(),
       agentReviews: this.getAgentReviewsRecord(),
       agentLists: this.getAgentListsRecord(),
+      agentFeedbacks: this.getAgentFeedbacksRecord(),
     };
   }
 
@@ -3228,6 +3278,15 @@ export class ProjectGraph {
         }
         return Object.keys(out).length > 0 ? out : undefined;
       })(),
+      // §4 v3.21 — 에이전트 피드백: 이 프로젝트 소속 에이전트(버블 id)분만 필터해 영속(agentReports 와 동형).
+      //   (v2.55 영속화 함정 사전 반영 — 디스크 포맷인 toProjectCheckpoint 에 반드시 포함.)
+      agentFeedbacks: (() => {
+        const out: Record<string, AgentFeedback[]> = {};
+        for (const [agentId, fbs] of this.agentFeedbacks) {
+          if (projectBubbleIds.has(agentId) && fbs.length > 0) out[agentId] = [...fbs];
+        }
+        return Object.keys(out).length > 0 ? out : undefined;
+      })(),
       // §3.2.1-3 v2.63 — 명시 삭제된 커스텀 에이전트 묘비. 이미 삭제돼 세션이 없으므로
       //   프로젝트 필터를 걸 키가 없다 → 전체 묘비를 그대로 싣는다(다른 프로젝트 sessionId 가
       //   섞여도 그 프로젝트엔 해당 세션이 존재하지 않아 무해, 부활 차단에만 쓰임).
@@ -3432,6 +3491,25 @@ export class ProjectGraph {
             existing.splice(0, existing.length - AGENT_LISTS_MAX_PER_AGENT);
           }
         }
+      }
+    }
+
+    // §4 v3.21 — 에이전트 피드백 병합. id 중복 제거 후, 같은 대상(targetType+targetId)은
+    // upsert 의미론에 맞춰 최신(createdAt 큰) 1건만 남긴다.
+    if (cp.agentFeedbacks) {
+      for (const [agentId, fbs] of Object.entries(cp.agentFeedbacks)) {
+        if (!Array.isArray(fbs) || fbs.length === 0) continue;
+        const merged = [...(this.agentFeedbacks.get(agentId) ?? [])];
+        const seen = new Set(merged.map((f) => f.id));
+        for (const f of fbs) if (!seen.has(f.id)) merged.push(f);
+        merged.sort((a, b) => a.createdAt - b.createdAt);
+        const byTarget = new Map<string, AgentFeedback>();
+        for (const f of merged) byTarget.set(`${f.targetType}:${f.targetId}`, f);
+        const collapsed = [...byTarget.values()].sort((a, b) => a.createdAt - b.createdAt);
+        if (collapsed.length > AGENT_FEEDBACK_MAX_PER_AGENT) {
+          collapsed.splice(0, collapsed.length - AGENT_FEEDBACK_MAX_PER_AGENT);
+        }
+        this.agentFeedbacks.set(agentId, collapsed);
       }
     }
 
@@ -3813,6 +3891,16 @@ export class ProjectGraph {
       for (const [agentId, lists] of Object.entries(cp.agentLists)) {
         if (Array.isArray(lists) && lists.length > 0) {
           this.agentLists.set(agentId, [...lists]);
+        }
+      }
+    }
+
+    // §4 v3.21 — 에이전트 피드백 복원
+    this.agentFeedbacks.clear();
+    if (cp.agentFeedbacks) {
+      for (const [agentId, fbs] of Object.entries(cp.agentFeedbacks)) {
+        if (Array.isArray(fbs) && fbs.length > 0) {
+          this.agentFeedbacks.set(agentId, [...fbs]);
         }
       }
     }
@@ -4623,6 +4711,7 @@ export class ProjectGraph {
     this.agentQuestions.delete(agent.id);
     this.agentReviews.delete(agent.id);
     this.agentLists.delete(agent.id);
+    this.agentFeedbacks.delete(agent.id);
     this.manuallyConfigured.delete(agent.id);
     this.observedTools.delete(sessionId);
   }

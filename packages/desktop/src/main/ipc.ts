@@ -43,6 +43,14 @@ import {
 } from './windowManager';
 import { checkForUpdates, quitAndInstall, getUpdateState } from './updaterManager';
 import {
+  getMobileAccessState,
+  enableMobileAccess,
+  disableMobileAccess,
+  regenMobilePairingCode,
+  enableExternalAccess,
+  disableExternalAccess,
+} from './mobileAccess';
+import {
   createTerminal,
   writeTerminal,
   resizeTerminal,
@@ -50,7 +58,7 @@ import {
   killTerminalsForWebContents,
   type CreateTerminalSpec,
 } from './terminalManager';
-import type { UpdateState, AgentConfig } from '@vibisual/shared';
+import type { UpdateState, AgentConfig, MobileAccessState } from '@vibisual/shared';
 
 // IPC hub — SCENARIO.md §3.7 (in-process 통합).
 //
@@ -318,6 +326,15 @@ export function setupIpc(expressApp: Express): IpcHub {
   ipcMain.handle('vibisual:update:install', (): boolean => quitAndInstall());
   ipcMain.handle('vibisual:update:get-state', (): UpdateState => getUpdateState());
 
+  // ─── §4 v3.16 모바일 웹 접속 모드 채널 ────────────────────────────────────
+  // 상태 push 는 mobileAccess 매니저가 직접 webContents 로 보낸다(vibisual:mobile:status).
+  ipcMain.handle('vibisual:mobile:get-state', (): MobileAccessState => getMobileAccessState());
+  ipcMain.handle('vibisual:mobile:enable', (): Promise<MobileAccessState> => enableMobileAccess());
+  ipcMain.handle('vibisual:mobile:disable', (): Promise<MobileAccessState> => disableMobileAccess());
+  ipcMain.handle('vibisual:mobile:regen-code', (): MobileAccessState => regenMobilePairingCode());
+  ipcMain.handle('vibisual:mobile:enable-external', (): Promise<MobileAccessState> => enableExternalAccess());
+  ipcMain.handle('vibisual:mobile:disable-external', (): Promise<MobileAccessState> => disableExternalAccess());
+
   // ─── §4 v2.63 임베디드 인터랙티브 터미널 채널 ─────────────────────────────
   // data/exit push 는 terminalManager 가 직접 webContents.send('vibisual:term:data'|'vibisual:term:exit').
   // 여기서는 renderer→main 의 invoke 액션(create/write/resize/kill)만 등록한다.
@@ -384,6 +401,12 @@ export function setupIpc(expressApp: Express): IpcHub {
       ipcMain.removeHandler('vibisual:update:check');
       ipcMain.removeHandler('vibisual:update:install');
       ipcMain.removeHandler('vibisual:update:get-state');
+      ipcMain.removeHandler('vibisual:mobile:get-state');
+      ipcMain.removeHandler('vibisual:mobile:enable');
+      ipcMain.removeHandler('vibisual:mobile:disable');
+      ipcMain.removeHandler('vibisual:mobile:regen-code');
+      ipcMain.removeHandler('vibisual:mobile:enable-external');
+      ipcMain.removeHandler('vibisual:mobile:disable-external');
       ipcMain.removeHandler('vibisual:term:create');
       ipcMain.removeHandler('vibisual:term:write');
       ipcMain.removeHandler('vibisual:term:resize');

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import type { AgentPhase } from '@vibisual/shared';
 import { useTranslation } from 'react-i18next';
 import { useGraphStore } from '../../stores/graphStore.js';
+import { isPackagedDesktop } from '../../transport/index.js';
 import { FileMenu } from './FileMenu.js';
 import { TabBar } from './TabBar.js';
 import { LanguageSwitcher } from './LanguageSwitcher.js';
@@ -85,11 +86,14 @@ export function Header({
     // 윈도우 드래그 영역. 우측 `pr-36`(=144px) 가 Windows titleBarOverlay 의 윈도우 컨트롤 폭
     // (기본 138px) 자리를 비워둔다. 내부 interactive 요소는 `app-nodrag` 로 클릭 복귀.
     // v2.13 — 한 줄 통합: h-9(36px), 로고 + File + (구분선) + 프로젝트 탭 + (드래그 spacer) + 우측 컨트롤.
-    <header className="app-drag relative z-[100] flex h-9 items-stretch bg-[#334155] pr-36">
+    // §4 v3.16 — pr-36(윈도우 컨트롤 오버레이 자리)은 packaged Electron 에서만. 모바일/웹
+    // 브라우저에는 네이티브 min/max/close 가 없어 144px 이 통째로 낭비돼 탭 영역을 짓눌렀다.
+    <header className={`app-drag relative z-[100] flex h-9 items-stretch bg-[#334155] ${isPackagedDesktop() ? 'pr-36' : 'pr-1'}`}>
       {/* 좌측: 로고 + File 메뉴 + 프로젝트 탭 — 탭이 많아지면 내부에서 가로 스크롤. */}
       <div className="flex min-w-0 flex-1 items-stretch">
-        {/* 로고 — 드래그 영역에 포함 (텍스트라 클릭 불필요). 가운데 정렬되도록 별도 h-full 박스. */}
-        <div className="flex h-full items-center gap-1.5 pl-3 pr-2">
+        {/* 로고 — 드래그 영역에 포함 (텍스트라 클릭 불필요). 가운데 정렬되도록 별도 h-full 박스.
+            §4 v3.24 — 폰(max-md)에선 로고 블록 전체(dot 포함)를 숨겨 File+탭만 남긴다. */}
+        <div className="flex h-full items-center gap-1.5 pl-3 pr-2 max-md:hidden">
           <div className="h-3 w-3 rounded-full bg-gradient-to-br from-blue-400 to-violet-500" />
           <span className="text-[12px] font-semibold tracking-tight text-white/90">
             {t('header.logo.name')}
@@ -120,11 +124,12 @@ export function Header({
         {/* §5.5 #17-6 — 데스크톱 오버레이 위젯 전역 토글. 빼낸 버블이 있을 때만 노출. */}
         <OverlayToggleButton />
 
-        {/* Agent status — 에이전트가 1개라도 있을 때만 표시. 클릭 없음(순수 인디케이터). */}
+        {/* Agent status — 에이전트가 1개라도 있을 때만 표시. 클릭 없음(순수 인디케이터).
+            §4 v3.24 — 폰(max-md)에선 숨김(탭 폭 확보, 상태는 IDE/캔버스에서 확인). */}
         {badgeVisible && (
           <div
             title={phaseTooltip}
-            className={`app-nodrag flex items-center gap-1.5 px-2.5 py-1 text-[12px] font-medium tabular-nums tracking-tight ${BADGE_STYLE}`}
+            className={`app-nodrag flex items-center gap-1.5 px-2.5 py-1 text-[12px] font-medium tabular-nums tracking-tight max-md:hidden ${BADGE_STYLE}`}
           >
             <span className={`h-1.5 w-1.5 rounded-full ${DOT_STYLES[dotState]}`} />
             <span>
@@ -133,19 +138,20 @@ export function Header({
           </div>
         )}
 
-        {/* Connection indicator — 클릭 시 서버 코어 로그 팝업 (§7.7 v1.99) */}
+        {/* Connection indicator — 클릭 시 서버 코어 로그 팝업 (§7.7 v1.99).
+            §4 v3.24 — 폰(max-md)에선 인디케이터 자체를 숨긴다(연결 단절은 재접속 UX 로 드러남). */}
         <button
           type="button"
           onClick={() => setShowServerLog(true)}
           title={t('header.conn.viewLogs')}
-          className="app-nodrag flex items-center gap-1.5 rounded-md px-1.5 py-1 transition-colors duration-150 hover:bg-white/[0.08]"
+          className="app-nodrag flex items-center gap-1.5 rounded-md px-1.5 py-1 transition-colors duration-150 max-md:hidden hover:bg-white/[0.08]"
         >
           <span className={`h-1.5 w-1.5 rounded-full ${CONN_DOT[connectionStatus]}`} />
           <span className="text-[11px] text-gray-300">{connLabel[connectionStatus]}</span>
         </button>
 
-        {/* Language switcher */}
-        <div className="app-nodrag">
+        {/* Language switcher — 폰(max-md)에선 숨김(옵션창 Appearance › Language 에서 변경, §4 v3.24). */}
+        <div className="app-nodrag max-md:hidden">
           <LanguageSwitcher />
         </div>
       </div>

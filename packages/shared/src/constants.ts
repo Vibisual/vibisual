@@ -1,4 +1,4 @@
-import type { BubbleType, BubbleStyleConfig, EdgeStyleConfig, AgentRole, PipelineChildConfig, PipelineType, AgentConfig, AgentPreset, TaskEdgeTemplate, TaskEdgeKind, UiLocale, AutoAgentRole, AutoAgentTopology, AutoAgentTemplate, AutoAgentTopologyPreset, ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry } from './types.js';
+import type { BubbleType, BubbleStyleConfig, EdgeStyleConfig, AgentRole, PipelineChildConfig, PipelineType, AgentConfig, AgentPreset, TaskEdgeTemplate, TaskEdgeKind, UiLocale, AutoAgentRole, AutoAgentTopology, AutoAgentTemplate, AutoAgentTopologyPreset, ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry, AgentFeedback } from './types.js';
 export type { ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry } from './types.js';
 
 // ─── UI 다국어 (i18n) ───
@@ -2139,6 +2139,54 @@ JSON
 - 토큰 헤더(\`x-vibisual-hook-token\`)가 없으면 401 이다. 위 예시에 이미 포함돼 있다.`;
 }
 
+// ─── §4 v3.21 — 에이전트 피드백 학습 루프 (좋아요/싫어요 → 규칙 되먹임) ───
+
+/** agentId 당 보관하는 피드백 최대 개수 (ring buffer 캡, 초과 시 오래된 것부터 제거). */
+export const AGENT_FEEDBACK_MAX_PER_AGENT = 200;
+
+/** 스폰 프롬프트에 주입하는 피드백 다이제스트 최대 건수 (최근순). */
+export const AGENT_FEEDBACK_DIGEST_MAX = 12;
+
+/** distill 증류 제안에 넣는 싫어요 최대 건수 (최근순 — 프롬프트 비대 방지). */
+export const AGENT_FEEDBACK_DISTILL_MAX = 30;
+
+/** 피드백 summary 한 항목의 최대 길이 (result 본문 발췌 캡). */
+export const AGENT_FEEDBACK_SUMMARY_ITEM_MAX = 200;
+
+/**
+ * §4 v3.21 — 스폰 프롬프트 주입용 피드백 다이제스트 블록 생성.
+ *
+ * 사용자가 이 에이전트의 과거 작업에 남긴 좋아요/싫어요를 `# Past User Feedback` 블록으로
+ * 만들어 매 턴 contextSummary 에 붙인다(Agent Rules 블록과 같은 자리 — 즉효 학습 경로).
+ * 싫어요+사유가 학습 재료의 핵심이라 싫어요를 먼저, 좋아요는 "이런 방식은 좋았다" 보조로.
+ * 피드백이 없으면 빈 문자열(블록 자체를 만들지 않음).
+ */
+export function buildAgentFeedbackBlock(feedbacks: AgentFeedback[]): string {
+  if (feedbacks.length === 0) return '';
+  const recent = [...feedbacks]
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .slice(0, AGENT_FEEDBACK_DIGEST_MAX);
+  const downs = recent.filter((f) => f.verdict === 'down');
+  const ups = recent.filter((f) => f.verdict === 'up');
+  const lines: string[] = [];
+  if (downs.length > 0) {
+    lines.push('사용자가 **싫어요**를 준 과거 작업 (같은 실수를 반복하지 마라):');
+    for (const f of downs) {
+      const what = f.summary.slice(0, 3).join(' / ');
+      lines.push(`- ${what}${f.reason ? ` — 사유: ${f.reason}` : ''}`);
+    }
+  }
+  if (ups.length > 0) {
+    if (lines.length > 0) lines.push('');
+    lines.push('사용자가 **좋아요**를 준 과거 작업 (이런 방식을 유지하라):');
+    for (const f of ups) {
+      const what = f.summary.slice(0, 3).join(' / ');
+      lines.push(`- ${what}${f.reason ? ` — ${f.reason}` : ''}`);
+    }
+  }
+  return `\n\n# Past User Feedback\n이 프로젝트에서 사용자가 너(이 에이전트)의 과거 작업 결과에 남긴 평가다. 작업 방식 선택에 반영하라.\n${lines.join('\n')}`;
+}
+
 /**
  * §4 v2.83 — CMD(인터랙티브 터미널) 에이전트 카드 신고용 **터미널 한 줄 마커**.
  *
@@ -2218,3 +2266,31 @@ export const AUTO_AGENT_DEFAULT_RULES = `# Role: Auto Agent (Vibisual 메타 에
 - 서브 에이전트들이 만든 산출물을 임의로 수정하지 않습니다
 - 사용자 명시 승인 없이 서브 군을 삭제·재구성하지 않습니다
 `;
+
+// ─── §4 v3.16 모바일 웹 접속 모드 ────────────────────────────────────────────
+
+/** 페어링 코드 자릿수 — 데스크톱 모달에 표시되고 폰 브라우저 첫 접속 시 입력한다. */
+export const MOBILE_PAIR_CODE_LENGTH = 6;
+
+/** 페어링 실패 허용 횟수 — 초과 시 코드 재생성 전까지 페어링 잠금(무차별 대입 방지). */
+export const MOBILE_PAIR_MAX_ATTEMPTS = 10;
+
+/** 동시 유지되는 페어링 세션(기기) 수 상한 — 초과 시 가장 오래된 세션부터 밀어낸다. */
+export const MOBILE_SESSION_MAX = 5;
+
+/** 페어링 성공 시 폰 브라우저에 심는 HttpOnly 세션 쿠키 이름. */
+export const MOBILE_SESSION_COOKIE = 'vibisual_mobile_session';
+
+// ─── §4 v3.20 UPnP 외부 개방 + 보안 강화 ─────────────────────────────────────
+
+/**
+ * 외부(인터넷) 개방이 켜졌을 때 승격되는 페어링 코드 길이(영숫자).
+ * LAN 전용 6자리 숫자와 달리 공인망 노출이라 무차별 대입 내성이 필요 — 12자 영숫자.
+ */
+export const MOBILE_EXTERNAL_PAIR_CODE_LENGTH = 12;
+
+/** 한 IP 가 페어링 실패 한도를 넘겼을 때 차단하는 시간(ms). 소유자 lockout 없이 공격자만 격리. */
+export const MOBILE_PAIR_BAN_MS = 10 * 60 * 1000;
+
+/** UPnP 포트 매핑 임대 시간(초). 이 절반 주기로 갱신해 공유기가 매핑을 지우지 않게 한다. */
+export const MOBILE_UPNP_LEASE_S = 3600;

@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { SubAgent, SubAgentStreamEvent } from '@vibisual/shared';
 import { useGraphStore, selectIDEOverlay } from '../../stores/graphStore.js';
+import { useIsNarrowViewport } from '../../hooks/useIsMobile.js';
 import { IDEActivityBar } from './IDEActivityBar.js';
 import { IDETabBar } from './IDETabBar.js';
 import { IDESidebar } from './IDESidebar.js';
@@ -81,6 +82,27 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
 
   const [maximized, setMaximized] = useState(false);
   const toggleMaximized = useCallback(() => setMaximized((v) => !v), []);
+
+  // §4 v3.24 — 폰(max-md)에선 좌측 내비(활동바+사이드바)를 기본 숨기고, 타이틀바 토글 버튼으로만 연다
+  //   (좁은 화면에서 활동바 48px 가 본문을 상시 짓누르지 않게). 데스크톱은 isNarrow=false 라 항상 표시.
+  const isNarrow = useIsNarrowViewport();
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  // 사이드바에서 세션을 고르거나(activeSessionId 변경) 덮개 패널(북마크/세션요약)을 열면
+  //   내비를 닫아 목적지 화면이 바로 보이게 한다.
+  useEffect(() => {
+    if (isNarrow) setMobileNavOpen(false);
+  }, [isNarrow, activeSessionId, bookmarkPanelOpen, summaryPanelOpen]);
+  // §4 v3.25 — 폰에선 하단 상태바(IDEStatusBar)도 기본 숨김 — 타이틀바 우측 토글 버튼으로만 연다
+  //   (h-6 한 줄이지만 폰에선 본문 세로 공간이 더 귀하다). 데스크톱은 isNarrow=false 라 항상 표시.
+  const [mobileStatusOpen, setMobileStatusOpen] = useState(false);
+  // 열 때 사이드바가 접혀 있으면 함께 펼친다 — 활동바 48px 만 덜렁 뜨면 "버튼 눌렀는데 안 나온다"로 보인다.
+  const handleToggleMobileNav = useCallback(() => {
+    const next = !mobileNavOpen;
+    if (next && selectIDEOverlay(useGraphStore.getState()).sidebarCollapsed) {
+      useGraphStore.getState().toggleIDESidebar();
+    }
+    setMobileNavOpen(next);
+  }, [mobileNavOpen]);
 
   // 타이틀바 더블클릭 — 최대화 버튼과 동일 효과 (버튼 자손에서 시작된 더블클릭은 제외)
   // fullWindow 에선 in-window maximize 미사용(창=IDE 1:1, OS 가 드래그 영역 더블클릭을 처리).
@@ -354,7 +376,10 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     // 모드와 무관 — 풀스크린 (Header h-9 = 36px 아래)
     windowClass += ' fixed left-0 right-0 top-9 bottom-0';
   } else if (isModal) {
-    windowClass += ' h-[80vh] w-[80vw] rounded-lg border';
+    // §4 v3.16 — 좁은 화면(폰)에선 80vw/80vh 모달이 너무 작다 — 풀스크린으로 전환.
+    // 단 Header(h-9, z-[100])가 IDE(z-50)보다 위라, inset-0 풀스크린이면 IDE 타이틀바(닫기 버튼)가
+    // 헤더 밑에 깔려 터치가 안 먹는다 — maximized 분기처럼 top-9(헤더 아래)부터 시작한다.
+    windowClass += ' h-[80vh] w-[80vw] rounded-lg border max-md:fixed max-md:left-0 max-md:right-0 max-md:top-9 max-md:bottom-0 max-md:h-auto max-md:w-auto max-md:rounded-none max-md:border-0';
   } else if (isFloating) {
     windowClass += ' fixed rounded-lg border';
     windowStyle = {
@@ -453,6 +478,21 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
           }`}
         >
           <div className="flex items-center gap-2">
+            {/* §4 v3.24 — 폰 전용 좌측 내비 토글(md:hidden). 활동바+사이드바 오버레이 열기/닫기. */}
+            <button
+              type="button"
+              onClick={handleToggleMobileNav}
+              className={`app-nodrag hidden h-8 w-8 flex-shrink-0 items-center justify-center rounded transition-colors max-md:flex ${
+                mobileNavOpen ? 'bg-gray-700 text-gray-100' : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+              }`}
+              aria-label={t('ide.overlay.toggleNav', { defaultValue: 'Toggle navigation' })}
+              title={t('ide.overlay.toggleNav', { defaultValue: 'Toggle navigation' })}
+            >
+              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <path d="M9 3v18" />
+              </svg>
+            </button>
             <svg className="h-4 w-4 text-blue-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
               <path d="M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6ZM12 2v4m0 12v4M2 12h4m12 0h4" />
             </svg>
@@ -464,6 +504,21 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
             </span>
           </div>
           <div className={`flex items-center gap-1 ${fullWindow ? 'app-nodrag' : ''}`}>
+            {/* §4 v3.25 — 폰 전용 하단 상태바 토글(md:hidden). 기본 숨김인 IDEStatusBar 표시/숨김. */}
+            <button
+              type="button"
+              onClick={() => setMobileStatusOpen((v) => !v)}
+              className={`app-nodrag hidden h-8 w-8 items-center justify-center rounded transition-colors max-md:flex ${
+                mobileStatusOpen ? 'bg-gray-700 text-gray-100' : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+              }`}
+              aria-label={t('ide.overlay.toggleStatusBar', { defaultValue: 'Toggle status bar' })}
+              title={t('ide.overlay.toggleStatusBar', { defaultValue: 'Toggle status bar' })}
+            >
+              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <path d="M3 15h18" />
+              </svg>
+            </button>
             {/* fullWindow 는 창=IDE 1:1 — 확대축소는 OS 창 엣지 리사이즈로, in-window maximize 버튼 숨김. */}
             {!fullWindow && (
             <button
@@ -493,7 +548,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
             <button
               type="button"
               onClick={closeOverlay}
-              className="flex h-6 w-6 items-center justify-center rounded text-gray-400 transition-colors hover:bg-gray-700 hover:text-gray-200"
+              className="flex h-6 w-6 items-center justify-center rounded text-gray-400 transition-colors pointer-coarse:h-9 pointer-coarse:w-9 hover:bg-gray-700 hover:text-gray-200"
               aria-label={t('ide.overlay.closeLabel')}
             >
               <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -514,28 +569,43 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
         {/* Body: Activity bar + Sidebar + Main area.
             §5.5 #17-7 — 북마크 패널은 활동바 우측(메인+사이드바) 영역 전체를 덮는 별도 "세션창"으로 뜬다. */}
         <div className="relative flex min-h-0 flex-1">
-          <IDEActivityBar />
-          <IDESidebar agentId={agentId} />
+          {/* §4 v3.24 — 폰에선 좌측 내비(활동바+사이드바)를 타이틀바 토글로만 연다. 열리면 본문 위
+              오버레이(활동바 max-md:absolute + 사이드바 v3.18 오버레이)로 뜨고, backdrop 탭으로 닫는다. */}
+          {isNarrow && mobileNavOpen && (
+            <div
+              className="absolute inset-0 z-20 bg-black/40"
+              onClick={() => setMobileNavOpen(false)}
+              aria-hidden="true"
+            />
+          )}
+          {(!isNarrow || mobileNavOpen) && (
+            <>
+              <IDEActivityBar />
+              <IDESidebar agentId={agentId} />
+            </>
+          )}
           <IDEMainArea agentId={agentId} isCustom={isCustom} />
           {bookmarkPanelOpen && (
-            <div className="absolute inset-y-0 left-12 right-0 z-20">
+            <div className="absolute inset-y-0 left-12 right-0 z-20 max-md:left-0">
               <IDEBookmarkView onClose={() => setBookmarkPanelOpen(false)} />
             </div>
           )}
           {summaryPanelOpen && (
-            <div className="absolute inset-y-0 left-12 right-0 z-20">
+            <div className="absolute inset-y-0 left-12 right-0 z-20 max-md:left-0">
               <IDESessionSummaryView agentId={agentId} onClose={() => setSummaryPanelOpen(false)} />
             </div>
           )}
         </div>
 
-        {/* Status bar */}
-        <IDEStatusBar
-          agent={agent}
-          activeSession={activeSession}
-          isCustom={isCustom}
-          sessionCount={subAgents.length}
-        />
+        {/* Status bar — §4 v3.25: 폰에선 기본 숨김, 타이틀바 토글 버튼으로만 표시. */}
+        {(!isNarrow || mobileStatusOpen) && (
+          <IDEStatusBar
+            agent={agent}
+            activeSession={activeSession}
+            isCustom={isCustom}
+            sessionCount={subAgents.length}
+          />
+        )}
       </div>
     </div>
   );

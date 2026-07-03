@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { BubbleData, BashEntry, ServerEntry, AgentEvent, FileEdit, SubAgent, SessionTokenData, TurnTokenUsage, AgentConfig } from '@vibisual/shared';
 import { BUBBLE_COLORS, PANEL_DEFAULT_WIDTH, PANEL_MIN_WIDTH, PANEL_MAX_WIDTH, MAX_FILE_EDITS } from '@vibisual/shared';
 import { useGraphStore, selectIDEOverlay } from '../../stores/graphStore.js';
+import { useIsNarrowViewport } from '../../hooks/useIsMobile.js';
 import { ScrollFade } from '../ScrollFade.js';
 import { BashHistoryList } from './BashHistoryList.js';
 import { ServerList } from './ServerList.js';
@@ -116,6 +117,8 @@ export function DetailPanel({
   // selectIDEOverlay 는 activeProject 의 슬롯만 반환하므로 자동으로 현재 탭의 IDE 만 반영.
   const ideDockedRight = useGraphStore((s) => selectIDEOverlay(s).dockedRight);
   const panelOnLeft = ideDockedRight;
+  // §4 v3.16 — 폰(좁은 뷰포트)에선 사이드 패널이 캔버스를 짓누르지 않게 하단 바텀시트로 전환한다.
+  const isNarrow = useIsNarrowViewport();
 
   // 세션 토큰 팝업
   // 슬라이드 애니메이션 끝나면 클래스 제거 (transform 잔류 → fixed 팝업 깨짐 방지)
@@ -167,6 +170,13 @@ export function DetailPanel({
   useEffect(() => {
     setShowIframeLogs(false);
   }, [selectedNodeId]);
+
+  // §4 v3.16 — 4개 패널 블록(노드/태스크엣지/코멘트박스 등)이 공유하는 래퍼 class·style.
+  // 좁은 뷰포트(폰): 하단 바텀시트(전폭·80dvh·상단 라운드), 넓은 화면: 기존 사이드 패널(가변폭).
+  const panelWrapperClass = isNarrow
+    ? `absolute inset-x-0 bottom-0 z-30 flex flex-col rounded-t-2xl border-t border-gray-800 bg-gray-900 ${animating ? 'animate-slide-in-right' : ''}`
+    : `absolute ${panelOnLeft ? 'left-0 border-r' : 'right-0 border-l'} top-0 bottom-0 z-30 flex flex-col border-gray-800 bg-gray-900 ${animating ? (panelOnLeft ? 'animate-slide-in-left' : 'animate-slide-in-right') : ''}`;
+  const panelWrapperStyle: React.CSSProperties = isNarrow ? { height: '80dvh' } : { width: panelWidth };
 
   // billable tokens 가져오기 (자체 세션 비면 서브에이전트 세션 합산)
   const [tokenData, setTokenData] = useState<SessionTokenData | null>(null);
@@ -346,12 +356,12 @@ export function DetailPanel({
     if (!box) return null;
     return (
       <aside
-        className={`absolute ${panelOnLeft ? 'left-0 border-r' : 'right-0 border-l'} top-0 bottom-0 z-30 flex flex-col border-gray-800 bg-gray-900 ${animating ? (panelOnLeft ? 'animate-slide-in-left' : 'animate-slide-in-right') : ''}`}
-        style={{ width: panelWidth }}
+        className={panelWrapperClass}
+        style={panelWrapperStyle}
         onAnimationEnd={() => setAnimating(false)}
       >
         <div
-          className={`absolute ${panelOnLeft ? 'right-0' : 'left-0'} top-0 bottom-0 z-20 w-1.5 cursor-col-resize transition-colors hover:bg-blue-500/40`}
+          className={`absolute ${panelOnLeft ? 'right-0' : 'left-0'} top-0 bottom-0 z-20 w-1.5 cursor-col-resize transition-colors hover:bg-blue-500/40 ${isNarrow ? 'hidden' : ''}`}
           onMouseDown={handleResizeStart}
         />
         <div className="flex items-center justify-between border-b border-gray-800 px-4 py-3">
@@ -389,12 +399,12 @@ export function DetailPanel({
     const styleCfg = TASK_EDGE_STYLES[edge.status] ?? TASK_EDGE_STYLES['idle']!;
     return (
       <aside
-        className={`absolute ${panelOnLeft ? 'left-0 border-r' : 'right-0 border-l'} top-0 bottom-0 z-30 flex flex-col border-gray-800 bg-gray-900 ${animating ? (panelOnLeft ? 'animate-slide-in-left' : 'animate-slide-in-right') : ''}`}
-        style={{ width: panelWidth }}
+        className={panelWrapperClass}
+        style={panelWrapperStyle}
         onAnimationEnd={() => setAnimating(false)}
       >
         <div
-          className={`absolute ${panelOnLeft ? 'right-0' : 'left-0'} top-0 bottom-0 z-20 w-1.5 cursor-col-resize transition-colors hover:bg-blue-500/40`}
+          className={`absolute ${panelOnLeft ? 'right-0' : 'left-0'} top-0 bottom-0 z-20 w-1.5 cursor-col-resize transition-colors hover:bg-blue-500/40 ${isNarrow ? 'hidden' : ''}`}
           onMouseDown={handleResizeStart}
         />
         <div className="flex items-center justify-between border-b border-gray-800 px-4 py-3">
@@ -428,12 +438,12 @@ export function DetailPanel({
     const agentId = selectedNodeId.slice('conti-bubble-'.length);
     return (
       <aside
-        className={`absolute ${panelOnLeft ? 'left-0 border-r' : 'right-0 border-l'} top-0 bottom-0 z-30 flex flex-col border-gray-800 bg-gray-900 ${animating ? (panelOnLeft ? 'animate-slide-in-left' : 'animate-slide-in-right') : ''}`}
-        style={{ width: panelWidth }}
+        className={panelWrapperClass}
+        style={panelWrapperStyle}
         onAnimationEnd={() => setAnimating(false)}
       >
         <div
-          className={`absolute ${panelOnLeft ? 'right-0' : 'left-0'} top-0 bottom-0 z-20 w-1.5 cursor-col-resize transition-colors hover:bg-blue-500/40`}
+          className={`absolute ${panelOnLeft ? 'right-0' : 'left-0'} top-0 bottom-0 z-20 w-1.5 cursor-col-resize transition-colors hover:bg-blue-500/40 ${isNarrow ? 'hidden' : ''}`}
           onMouseDown={handleResizeStart}
         />
         <div className="flex items-center justify-between border-b border-gray-800 px-4 py-3">
@@ -466,13 +476,13 @@ export function DetailPanel({
 
   return (
     <aside
-      className={`absolute ${panelOnLeft ? 'left-0 border-r' : 'right-0 border-l'} top-0 bottom-0 z-30 flex flex-col border-gray-800 bg-gray-900 ${animating ? (panelOnLeft ? 'animate-slide-in-left' : 'animate-slide-in-right') : ''}`}
-      style={{ width: panelWidth }}
+      className={panelWrapperClass}
+      style={panelWrapperStyle}
       onAnimationEnd={() => setAnimating(false)}
     >
       {/* Resize handle */}
       <div
-        className={`absolute ${panelOnLeft ? 'right-0' : 'left-0'} top-0 bottom-0 z-20 w-1.5 cursor-col-resize transition-colors hover:bg-blue-500/40`}
+        className={`absolute ${panelOnLeft ? 'right-0' : 'left-0'} top-0 bottom-0 z-20 w-1.5 cursor-col-resize transition-colors hover:bg-blue-500/40 ${isNarrow ? 'hidden' : ''}`}
         onMouseDown={handleResizeStart}
       />
       {/* Header */}

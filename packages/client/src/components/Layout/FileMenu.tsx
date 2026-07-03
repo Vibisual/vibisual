@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { OptionsWindow } from '../Options/OptionsWindow.js';
 import { GuideWindow } from '../Guide/GuideWindow.js';
+import { MobileAccessWindow } from './MobileAccessWindow.js';
+import { isPackagedDesktop } from '../../transport/index.js';
 
 const API_BASE = '';
 
@@ -12,6 +14,7 @@ export function FileMenu(): React.JSX.Element {
   const [loading, setLoading] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   // 외부 클릭 → 닫기
@@ -95,6 +98,20 @@ export function FileMenu(): React.JSX.Element {
             </svg>
             {t('panel.fileMenu.options', { defaultValue: 'Options…' })}
           </button>
+          {/* §4 v3.16 — Mobile Access (packaged Electron 한정 — 모바일 브라우저에선 window.api 부재) */}
+          {isPackagedDesktop() && (
+            <button
+              type="button"
+              onClick={() => { setOpen(false); setMobileOpen(true); }}
+              className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-[13px] text-gray-300 transition-colors hover:bg-white/[0.08] hover:text-white"
+            >
+              <svg className="h-4 w-4 shrink-0 text-gray-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <rect width="14" height="20" x="5" y="2" rx="2" ry="2" />
+                <path d="M12 18h.01" />
+              </svg>
+              {t('panel.fileMenu.mobileAccess', { defaultValue: 'Mobile Access…' })}
+            </button>
+          )}
           {/* Guide — 기능 안내 / 만든 기능 인벤토리 */}
           <div className="my-1 border-t border-white/[0.05]" />
           <button
@@ -111,6 +128,7 @@ export function FileMenu(): React.JSX.Element {
       )}
       <OptionsWindow open={optionsOpen} onClose={() => setOptionsOpen(false)} />
       <GuideWindow open={guideOpen} onClose={() => setGuideOpen(false)} />
+      <MobileAccessWindow open={mobileOpen} onClose={() => setMobileOpen(false)} />
     </div>
   );
 }

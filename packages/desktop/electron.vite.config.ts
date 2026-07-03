@@ -64,8 +64,9 @@ export default defineConfig({
     // externalizeDepsPlugin 은 @vibisual/desktop 의 직접 dependencies 를 외부화한다.
     // exclude: @vibisual/* 워크스페이스 패키지는 번들에 포함(CJS main 은 ESM dist 를 require 불가).
     // include 없음: express/cors/ws/multer/chokidar 등 server 전이 의존성은 desktop/node_modules
-    //   에 없으므로 외부화 금지 → Rollup 이 번들에 포함. light-my-request 는 desktop 직접 의존성
-    //   → 외부화되어 런타임에 정상 resolve. electron 은 electron-vite 가 자동 외부화.
+    //   에 없으므로 외부화 금지 → Rollup 이 번들에 포함. light-my-request/ws/@runonflux/nat-upnp/
+    //   selfsigned(§4 v3.16/v3.20 모바일 웹 접속)는 desktop 직접 의존성 → 외부화되어 런타임에
+    //   desktop/node_modules 에서 정상 resolve. electron 은 electron-vite 가 자동 외부화.
     plugins: [
       externalizeDepsPlugin({
         exclude: ['@vibisual/server', '@vibisual/shared', '@vibisual/client'],

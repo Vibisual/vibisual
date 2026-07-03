@@ -867,7 +867,9 @@ export type WSMessageType =
   // §4 v2.70 — 에이전트 검수 요청 카드 수신 신호. 본체는 graph_snapshot.agentReviews
   | 'agent_review'
   // §4 v2.84 — 에이전트 번호 목록 정렬 카드 수신 신호. 본체는 graph_snapshot.agentLists
-  | 'agent_list';
+  | 'agent_list'
+  // §4 v3.21 — 에이전트 피드백(좋아요/싫어요) 갱신 신호. 본체는 graph_snapshot.agentFeedbacks
+  | 'agent_feedback';
 
 /** §5.3 #28 v1.47 — 콘티 생성/패치 완료 토스트용 페이로드. 본체는 graph_snapshot 에서 받는다. */
 export interface ContiEventPayload {
@@ -1447,6 +1449,46 @@ export interface AgentList {
   createdAt: number;
 }
 
+/** §4 v3.21 — 피드백 평가값. 사용자의 좋아요/싫어요. */
+export type AgentFeedbackVerdict = 'up' | 'down';
+
+/**
+ * §4 v3.21 — 피드백 대상 종류.
+ * report=작업 신고 카드, review=검수 요청 카드, result=스트림 턴 완료(result) 메시지.
+ */
+export type AgentFeedbackTargetType = 'report' | 'review' | 'result';
+
+/**
+ * §4 v3.21 — 에이전트 피드백 (사용자 → AI 작업 결과 좋아요/싫어요).
+ *
+ * 사용자가 작업 신고·검수 카드·스트림 result 에 남긴 평가. 대상(targetId) 별 upsert —
+ * 같은 대상 재평가는 verdict 교체, 철회는 제거. `summary` 는 평가 시점의 대상 내용
+ * 스냅샷(report=did, review=changes, result=본문 발췌)이라 대상 카드가 ring buffer 로
+ * 밀려나도 학습 재료는 보존된다. 되먹임 경로: ① 매 스폰 턴 `buildAgentFeedbackBlock`
+ * 다이제스트 주입(즉효), ② distill 증류 → 사용자 승인 시 `AgentConfig.rules` append(승인형).
+ * 표시·학습 보조 전용 — 실제 작업/판정 로직 무관.
+ */
+export interface AgentFeedback {
+  /** 피드백 고유 ID (서버가 발급). */
+  id: string;
+  /** 평가 대상 (부모) 에이전트 ID — Vibisual 관할 custom agent. 렌더 필터 1차 키. */
+  agentId: string;
+  /** 대상이 속한 sub 인스턴스(IDE 세션 탭) ID. 있으면 그 탭 귀속, 없으면 메인 탭. */
+  subAgentId?: string;
+  /** 피드백 대상 종류. */
+  targetType: AgentFeedbackTargetType;
+  /** 대상 식별자 — report/review 는 카드 id, result 는 스트림 아이템 id. */
+  targetId: string;
+  /** 좋아요/싫어요. */
+  verdict: AgentFeedbackVerdict;
+  /** 싫어요 사유 (선택 — 학습 재료의 핵심. 좋아요는 보통 생략). */
+  reason?: string;
+  /** 평가 시점 대상 내용 스냅샷 (report=did, review=changes, result=본문 발췌). */
+  summary: string[];
+  /** 평가 시각 (서버 stamp, Date.now()). */
+  createdAt: number;
+}
+
 export interface GraphSnapshot {
   /** hydrated 프로젝트 목록 (projectName → ProjectInfo). keys와 stubProjects keys는 겹치지 않음 */
   projects: Record<string, ProjectInfo>;
@@ -1591,6 +1633,12 @@ export interface GraphSnapshot {
    * 커스텀/스폰 에이전트가 `POST /api/agent-list` 로 보낸 번호 목록. 미설정 시 빈 맵.
    */
   agentLists?: Record<string, AgentList[]>;
+
+  /**
+   * §4 v3.21 — 에이전트 피드백 (agentId → AgentFeedback[], targetId 별 upsert).
+   * 사용자가 `POST /api/agent-feedback` 로 남긴 좋아요/싫어요 평가. 미설정 시 빈 맵.
+   */
+  agentFeedbacks?: Record<string, AgentFeedback[]>;
 }
 
 /** 폴더 내 파일/디렉토리 엔트리 (폴더 트리 표시용) */
@@ -1787,6 +1835,13 @@ export interface ProjectCheckpoint {
    * optional — 구버전 체크포인트 하위 호환. 미설정이면 빈 맵으로 복원.
    */
   agentLists?: Record<string, AgentList[]>;
+
+  /**
+   * §4 v3.21 — 에이전트 피드백 (agentId → AgentFeedback[]) 영속화.
+   * optional — 구버전 체크포인트 하위 호환. 미설정이면 빈 맵으로 복원.
+   * 사용자 평가는 세션을 넘어 학습 근거로 쓰이는 사용자 산출물이라 영속 대상.
+   */
+  agentFeedbacks?: Record<string, AgentFeedback[]>;
 
   /**
    * §3.2.1-3 v2.63 — 명시적으로 삭제된 커스텀 에이전트 sessionId 묘비.
@@ -2575,4 +2630,57 @@ export interface UpdateState {
   error?: string;
   /** 마지막 체크 완료 시각 (ms). */
   checkedAt?: number;
+}
+
+// ─── §4 v3.16 모바일 웹 접속 모드 ────────────────────────────────────────────
+// desktop shell 상태 — main 프로세스 mobileAccess 매니저가 SSOT, renderer 는 표시만.
+// UpdateState(§4 v2.63) 선례대로 GraphSnapshot/ProjectCheckpoint 미관여, 전용 IPC 로 흐른다.
+
+/**
+ * §4 v3.20 UPnP 외부 개방 상태.
+ * - `idle`        : 외부 개방 꺼짐(LAN 전용).
+ * - `mapping`     : 공유기에 포트 개방 요청 중.
+ * - `active`      : 외부 접속 가능(공인 IP + HTTPS 매핑 성공).
+ * - `unavailable` : 구조적으로 불가 — CGNAT/사설 IP 라 외부에서 닿을 수 없음(수동으로도 불가, VPN 필요).
+ * - `error`       : UPnP 미지원/꺼짐 등 — 수동 포트포워딩으로 우회 가능.
+ */
+export type MobileExternalStatus = 'idle' | 'mapping' | 'active' | 'unavailable' | 'error';
+
+/** 외부 개방 실패/불가의 원인 — UI 가 원인별 안내 문구를 고른다. */
+export type MobileExternalReason = 'cgnat' | 'upnp' | 'no-public-ip' | null;
+
+/** 모바일 웹 접속 리스너의 현재 상태 (`vibisual:mobile:*` IPC 페이로드). */
+export interface MobileAccessState {
+  /** 리스너 on/off (opt-in — 기본 false, userData 에 영속). */
+  enabled: boolean;
+  /** 실제 바인드된 LAN 포트 (꺼져 있으면 null). */
+  port: number | null;
+  /** 폰 브라우저에서 열 접속 URL 후보들 (LAN IPv4 인터페이스별 1개). */
+  urls: string[];
+  /** 현재 유효한 페어링 코드 (꺼져 있으면 null — 켤 때마다/재생성 시 새로 발급). */
+  pairingCode: string | null;
+  /** 현재 연결된 모바일 WebSocket 클라이언트 수. */
+  clientCount: number;
+  /** 페어링 실패 누적으로 잠긴 IP 가 하나라도 있는지 (코드 재생성으로 전체 해제). */
+  pairingLocked: boolean;
+
+  // ─── §4 v3.20 UPnP 외부 개방 ──────────────────────────────────────────────
+  /** 외부 접속 허용 토글 (opt-in — 기본 false, userData 영속). */
+  externalEnabled: boolean;
+  /** 외부 개방 진행/결과 상태. */
+  externalStatus: MobileExternalStatus;
+  /**
+   * 집 밖에서 열 외부 접속 URL(https). 공인 IP 를 확보했고 CGNAT 가 아니면 채워진다 —
+   * UPnP 자동 개방 성공(active)이든, 자동 실패(error, 수동 포트포워딩 대상)든 접속에 쓸
+   * 주소는 동일하므로 두 경우 모두 제공한다(수동 포워딩 사용자가 이 주소로 접속).
+   */
+  externalUrl: string | null;
+  /** 실패/불가 원인 — 상태가 unavailable/error 일 때 UI 안내 분기용. */
+  externalReason: MobileExternalReason;
+  /** 공유기가 보고한 공인 IP (진단·수동 포트포워딩 안내에 표시). */
+  publicIp: string | null;
+  /** 외부에 열린 공인 포트 (수동 포트포워딩 안내에 표시). */
+  externalPort: number | null;
+  /** 수동 포트포워딩 시 공유기에서 이 LAN IP:포트(HTTPS)로 연결하도록 안내. */
+  httpsPort: number | null;
 }

@@ -66,7 +66,9 @@ export function App(): React.JSX.Element {
   const closeDebug = useCallback(() => useGraphStore.getState().toggleDebug(), []);
 
   return (
-    <div className="flex h-screen w-screen flex-col bg-gray-950">
+    // §4 v3.16 — h-dvh: 모바일 브라우저의 동적 URL 바가 하단(입력창·상태바)을 가리지 않게
+    // dynamic viewport height 사용. 데스크톱(Electron)에선 100vh 와 동일.
+    <div className="flex h-dvh w-screen flex-col bg-gray-950">
       <Header connectionStatus={status} agentPhase={agentPhase} />
       <div className="relative flex flex-1 overflow-hidden">
         {/* DebugPanel — 평소엔 숨김, `~`/` 키로 debugMode 토글 시에만 마운트(꺼지면 비용 0).

@@ -1,6 +1,7 @@
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { AgentReport } from '@vibisual/shared';
+import { FeedbackButtons } from './FeedbackButtons.js';
 
 interface AgentReportCardProps {
   report: AgentReport;
@@ -181,6 +182,17 @@ export const AgentReportCard = memo(function AgentReportCard({ report }: AgentRe
             </ul>
           </div>
         )}
+
+        {/* §4 v3.21 — 좋아요/싫어요 (규칙 되먹임 학습 재료). summary = did 우선 스냅샷. */}
+        <div className="mt-1.5 border-t border-gray-800/60 pt-1.5">
+          <FeedbackButtons
+            agentId={report.agentId}
+            subAgentId={report.subAgentId}
+            targetType="report"
+            targetId={report.id}
+            summary={report.did.length > 0 ? report.did : report.userActions}
+          />
+        </div>
       </div>
     </div>
   );

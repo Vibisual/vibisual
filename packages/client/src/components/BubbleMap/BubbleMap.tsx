@@ -23,7 +23,7 @@ import { CurvedEdge } from './CurvedEdge.js';
 import { EdgeMask } from './EdgeMask.js';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { placeSatellitePositions } from '../../utils/satellite.js';
-import { toFlowNodes, findNonCollidingPosition, SPAWN_RADIUS, SPAWN_MIN_DIST } from '../../utils/flowBuilder.js';
+import { toFlowNodes, findNonCollidingPosition, SPAWN_RADIUS, SPAWN_MIN_DIST, shallowEqualData } from '../../utils/flowBuilder.js';
 import { calcBubbleSize } from '../../utils/sizeCalc.js';
 import { usePhysicsLayout } from '../../hooks/usePhysicsLayout.js';
 import { useBubbleLayout, useFolderLayout, usePipelineLayout } from '../../hooks/useBubbleLayout.js';
@@ -40,6 +40,7 @@ import { TaskEdgePopupPreview } from './TaskEdgePopupPreview.js';
 import { computeAngularOffsets, computeParallelOffsets } from './taskEdgeOffsets.js';
 import { useCanvasClipboard } from '../../hooks/useCanvasClipboard.js';
 import { useBookmarks } from '../../hooks/useBookmarks.js';
+import { useCoarsePointer, useIsNarrowViewport, useLongPress } from '../../hooks/useIsMobile.js';
 import { useTranslation } from 'react-i18next';
 
 const nodeTypes: NodeTypes = { bubble: BubbleNode, commentBox: CommentBoxNode };
@@ -148,6 +149,12 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
   // §5.4 #29 v1.51 — 캔버스 클립보드 훅이 selected=true 엣지/노드 정보를 즉시 읽도록 ref 미러
   const flowEdgesRef = useRef<Edge[]>([]);
   flowEdgesRef.current = edges;
+
+  // §4 v3.16 — 모바일(터치 또는 좁은 화면)에선 버블이 크게 보여 "더 작게" 축소가 필요했다.
+  // 그래서 최소 배율만 0.5 → 0.1 로 낮춰 훨씬 더 축소(작게)할 수 있게 한다. 최대 배율(줌인)은
+  // 데스크톱과 동일(2) — 확대는 손대지 않는다(그게 오히려 초기 화면을 크게 만들었음).
+  // 굵은 포인터 감지가 애매한 기기까지 잡도록 좁은 뷰포트 조건도 함께 건다.
+  const mobileZoom = useCoarsePointer() || useIsNarrowViewport();
 
   // Ctrl 키를 누른 채 줌할 때만 줌 한계를 확장 (기본은 ReactFlow 기본 0.5~2)
   const [zoomCtrlHeld, setZoomCtrlHeld] = useState(false);
@@ -421,16 +428,26 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     return [...commentBoxNodes, ...base];
   }, [flowNodes, pendingNodes, commentBoxNodes]);
 
+  // 화면 좌표에서 캔버스 생성 메뉴를 연다 — 우클릭(handlePaneContextMenu)과 터치 롱프레스가 공유.
+  const openCanvasMenuAt = useCallback((clientX: number, clientY: number, target: EventTarget | null) => {
+    const el = target as HTMLElement | null;
+    if (el?.closest?.('.react-flow__node') || el?.closest?.('.react-flow__controls')) return;
+    if (!rfRef.current) return;
+    const canvasPos = rfRef.current.screenToFlowPosition({ x: clientX, y: clientY });
+    setCtxMenu({ screenX: clientX, screenY: clientY, canvasX: canvasPos.x, canvasY: canvasPos.y });
+    useGraphStore.getState().selectNode(null);
+  }, []);
+
   const handlePaneContextMenu = useCallback((e: MouseEvent | React.MouseEvent) => {
     // Ignore right-click on nodes (bubble-body) or context menu itself
     const target = e.target as HTMLElement;
     if (target.closest('.react-flow__node') || target.closest('.react-flow__controls')) return;
     e.preventDefault();
-    if (!rfRef.current) return;
-    const canvasPos = rfRef.current.screenToFlowPosition({ x: e.clientX, y: e.clientY });
-    setCtxMenu({ screenX: e.clientX, screenY: e.clientY, canvasX: canvasPos.x, canvasY: canvasPos.y });
-    useGraphStore.getState().selectNode(null);
-  }, []);
+    openCanvasMenuAt(e.clientX, e.clientY, e.target);
+  }, [openCanvasMenuAt]);
+
+  // §4 v3.16 — 터치엔 우클릭이 없어 폰에선 이 "생성 메뉴"에 닿을 수 없었다. 롱프레스로 대체.
+  const canvasLongPress = useLongPress(openCanvasMenuAt);
 
   const handleCtxClose = useCallback(() => {
     setCtxMenu(null);
@@ -699,7 +716,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
           if (saved) {
             rfRef.current.setViewport(saved.viewport, { duration: 0 });
           } else {
-            rfRef.current.fitView({ duration: 0, padding: 0.25 });
+            rfRef.current.fitView({ duration: 0, padding: 0.25, maxZoom: mobileZoom ? 1.2 : 2 });
           }
         });
       });
@@ -795,9 +812,16 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
           const existing = prevMap.get(b.id);
           if (existing) {
             const pos = positionsRef.current.get(b.id) ?? existing.position;
-            const data = b.id.startsWith('sat-')
+            const candidate = b.id.startsWith('sat-')
               ? { ...b, position: pos }
               : { ...b };
+            // 내용이 그대로면 data 참조를 유지 → BubbleNode(memo) 가 매 프레임 리렌더되지 않는다.
+            const data = shallowEqualData(existing.data as Record<string, unknown>, candidate)
+              ? existing.data
+              : candidate;
+            const posSame = existing.position.x === pos.x && existing.position.y === pos.y;
+            // data·위치 모두 동일하면 노드 객체까지 재사용 → 상위 배열이 no-op(참조 유지) 판정 가능.
+            if (data === existing.data && posSame) return existing;
             return { ...existing, position: pos, data };
           }
           const pos = positionsRef.current.get(b.id) ?? layout.get(b.id) ?? (b as BubbleData).position ?? { x: 0, y: 0 };
@@ -817,7 +841,13 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
           }, 250);
         }
 
-        return [...nextNodes, ...despawning];
+        const combined = despawning.length > 0 ? [...nextNodes, ...despawning] : nextNodes;
+        // 아무 노드도 안 바뀌었으면(참조·순서·길이 동일) 이전 배열을 그대로 반환 → flowNodes 참조가
+        // 유지돼 flowNodes 파생 memo/effect 의 불필요한 재실행(드래그 중 재구축 루프)을 끊는다.
+        if (combined.length === prevNodes.length && combined.every((n, i) => n === prevNodes[i])) {
+          return prevNodes;
+        }
+        return combined;
       });
     }
 
@@ -857,7 +887,13 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       : [];
 
     setEdges([...viewData.flowEdges, ...taskFlowEdges]);
-  }, [viewData, currentFolderId, satellitePositions, setFlowNodes, setEdges, activeProject, pauseAndReset, storeTaskEdges, angularOffsetById, parallelOffsetById, taskEdgePreview]);
+    // angularOffsetById 는 의도적으로 deps 에서 제외한다. flowNodes(노드 위치)에 의존하므로
+    // 드래그·물리 이동 중 매 프레임 새 Map 이 되는데, 이 effect 는 노드/엣지 "구조" 를 재구축한다.
+    // deps 에 두면 드래그 매 프레임 전체 노드가 재구축돼 BubbleNode memo 가 깨지고 버블이 커서를
+    // 늦게 따라온다. 각도 오프셋의 라이브 변화는 바로 아래 별도 effect(엣지 targetAngularOffset 패치)가
+    // 담당하므로 여기서 재실행할 필요가 없다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewData, currentFolderId, satellitePositions, setFlowNodes, setEdges, activeProject, pauseAndReset, storeTaskEdges, parallelOffsetById, taskEdgePreview]);
 
   // 위치 이동(드래그/물리 엔진)으로 angular offset 이 바뀌었을 때, 메인 sync 가 재실행되지 않아도
   // 기존 Task Edge 의 data.targetAngularOffset 만 패치 — 화살촉 분산이 실시간으로 따라간다.
@@ -1321,7 +1357,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
 
   useEffect(() => {
     if (!pendingFocus || !rfRef.current) return;
-    rfRef.current.fitView({ duration: 500, padding: 0.3 });
+    rfRef.current.fitView({ duration: 500, padding: 0.3, maxZoom: mobileZoom ? 1.2 : 2 });
     useGraphStore.getState().clearFocus();
   }, [pendingFocus]);
 
@@ -1488,6 +1524,10 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       ref={rfContainerRef}
       className={`h-full w-full bg-gray-950 ${transition !== 'none' ? `scene-${transition}` : ''}`}
       onContextMenu={handlePaneContextMenu}
+      onTouchStart={canvasLongPress.onTouchStart}
+      onTouchMove={canvasLongPress.onTouchMove}
+      onTouchEnd={canvasLongPress.onTouchEnd}
+      onTouchCancel={canvasLongPress.onTouchCancel}
     >
       <ReactFlow
         nodes={displayNodes} edges={edges}
@@ -1501,8 +1541,9 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
         onPaneClick={handleCtxClose}
         onInit={(i) => { rfRef.current = i; }}
         defaultEdgeOptions={{ style: { stroke: EDGE_STYLE.inactiveColor, strokeWidth: EDGE_STYLE.inactiveWidth }, type: 'curved', focusable: false, interactionWidth: 0 }}
-        minZoom={zoomCtrlHeld ? 0.1 : 0.5}
+        minZoom={zoomCtrlHeld || mobileZoom ? 0.1 : 0.5}
         maxZoom={zoomCtrlHeld ? 4 : 2}
+        fitViewOptions={mobileZoom ? { maxZoom: 1.2 } : undefined}
         elevateNodesOnSelect={false}
         fitView proOptions={{ hideAttribution: true }}
         className="bg-gray-950"

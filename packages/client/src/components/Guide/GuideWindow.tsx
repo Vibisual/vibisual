@@ -155,7 +155,7 @@ export function GuideWindow({ open, onClose }: GuideWindowProps): React.JSX.Elem
       className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60"
       onClick={handleOverlayClick}
     >
-      <div className="flex h-[640px] w-[860px] flex-col overflow-hidden rounded-lg border border-gray-700 bg-gray-900 shadow-2xl">
+      <div className="flex h-[640px] max-h-[92dvh] w-[860px] max-w-[94vw] flex-col overflow-hidden rounded-lg border border-gray-700 bg-gray-900 shadow-2xl max-md:h-dvh max-md:max-h-dvh max-md:w-screen max-md:max-w-none max-md:rounded-none max-md:border-0">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-gray-700 px-4 py-3">
           <h3 className="flex items-center gap-2 text-sm font-bold text-gray-100">
@@ -169,8 +169,8 @@ export function GuideWindow({ open, onClose }: GuideWindowProps): React.JSX.Elem
 
         {/* Body — 좌측 사이드바 + 우측 패널 */}
         <div className="flex flex-1 overflow-hidden">
-          {/* Sidebar */}
-          <div className="w-44 shrink-0 border-r border-gray-700/50 bg-gray-900/40 py-2">
+          {/* Sidebar — 폰에선 좁혀 본문 공간 확보 */}
+          <div className="w-44 shrink-0 overflow-y-auto border-r border-gray-700/50 bg-gray-900/40 py-2 max-md:w-28">
             {categories.map((c) => (
               <button
                 key={c.key}

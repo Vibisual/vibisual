@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import { electronAPI } from '@electron-toolkit/preload';
-import type { UpdateState, AgentConfig } from '@vibisual/shared';
+import type { UpdateState, AgentConfig, MobileAccessState } from '@vibisual/shared';
 
 // Preload — SCENARIO.md §3.7 / §3.4 contextBridge surface.
 //
@@ -204,6 +204,27 @@ const api = {
       const listener = (_e: unknown, state: UpdateState): void => cb(state);
       ipcRenderer.on('vibisual:update:status', listener);
       return () => ipcRenderer.removeListener('vibisual:update:status', listener);
+    },
+  },
+  /** §4 v3.16 모바일 웹 접속 모드 surface — File 메뉴 Mobile Access 모달. */
+  mobile: {
+    /** 현재 상태 1회 조회(모달 오픈 시 초기값). */
+    getState: (): Promise<MobileAccessState> => ipcRenderer.invoke('vibisual:mobile:get-state'),
+    /** LAN 리스너 기동 + 페어링 코드 발급. 갱신된 상태를 반환. */
+    enable: (): Promise<MobileAccessState> => ipcRenderer.invoke('vibisual:mobile:enable'),
+    /** LAN 리스너 종료(연결된 모바일 클라이언트도 끊는다). */
+    disable: (): Promise<MobileAccessState> => ipcRenderer.invoke('vibisual:mobile:disable'),
+    /** 새 페어링 코드 발급 — 실패 잠금 해제 겸용. */
+    regenCode: (): Promise<MobileAccessState> => ipcRenderer.invoke('vibisual:mobile:regen-code'),
+    /** §4 v3.20 — UPnP 외부 개방 켜기(공유기 포트 자동 개방 + HTTPS). */
+    enableExternal: (): Promise<MobileAccessState> => ipcRenderer.invoke('vibisual:mobile:enable-external'),
+    /** §4 v3.20 — 외부 개방 끄기(UPnP 매핑 제거 + HTTPS 종료). */
+    disableExternal: (): Promise<MobileAccessState> => ipcRenderer.invoke('vibisual:mobile:disable-external'),
+    /** main 이 푸시하는 상태 변경 구독(페어링 성공/클라이언트 접속·해제 등). */
+    onStatus: (cb: (state: MobileAccessState) => void): (() => void) => {
+      const listener = (_e: unknown, state: MobileAccessState): void => cb(state);
+      ipcRenderer.on('vibisual:mobile:status', listener);
+      return () => ipcRenderer.removeListener('vibisual:mobile:status', listener);
     },
   },
   /** §4 v2.63 임베디드 인터랙티브 터미널 surface — IDE 창 안 PTY. */

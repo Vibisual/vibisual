@@ -53,7 +53,9 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
   }, [activeView, sidebarCollapsed, setActiveView, toggleSidebar, bookmarkPanelOpen, setBookmarkPanelOpen, summaryPanelOpen, setSummaryPanelOpen]);
 
   return (
-    <div className="flex w-12 flex-shrink-0 flex-col items-center gap-1 border-r border-gray-700 bg-gray-900/80 py-2">
+    // §4 v3.24 — 폰(max-md)에선 타이틀바 토글로 열리는 오버레이(본문을 상시 짓누르지 않게).
+    //   사이드바(v3.18 max-md 오버레이, left-12)와 나란히 뜨도록 좌측 고정 + 불투명 배경.
+    <div className="flex w-12 flex-shrink-0 flex-col items-center gap-1 border-r border-gray-700 bg-gray-900/80 py-2 max-md:absolute max-md:inset-y-0 max-md:left-0 max-md:z-30 max-md:bg-gray-900">
       {ACTIVITIES.map((item) => {
         const isActive = activeView === item.view && !sidebarCollapsed;
         return (

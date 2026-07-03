@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-07-03
+
+### Added
+- **Mobile access.** Open Vibisual from your phone's browser (File → Mobile Access…). Turn it on and it starts listening on your local network; scan or type the shown address on a phone on the same Wi-Fi, enter the one-time pairing code, and you're in — paired devices stay connected, and a failed-attempt lockout guards the code. An optional *Access from outside* mode asks your router to open a port automatically (UPnP) and serves over encrypted HTTPS so you can reach the PC over the internet, with clear guidance when your connection is behind carrier-grade NAT or UPnP is off.
+- **Rate an agent's work.** Work-report and review cards, and the agent's result blocks, now carry like / dislike buttons. A dislike can take an optional reason, and the reasons you leave for an agent can be distilled into suggested rule sentences you review and approve before they're added to that agent's settings — so recurring corrections turn into standing guidance instead of being repeated. Nothing is applied automatically.
+- **Built-in slash commands in autocomplete.** The Claude CLI's own commands — `/clear`, `/compact`, `/model`, and the rest — now appear in the `/` autocomplete in the terminal input alongside your project, global, and plugin skills, tagged *built-in*. They're discovered from the CLI itself, so updating the CLI surfaces new ones without a Vibisual update.
+- **Language setting.** Options → Appearance now has a UI language picker that applies immediately.
+
+### Fixed
+- **Long sessions no longer wind the view upward.** On heavily-used sessions where older output is trimmed from the top, the scroll position no longer drifts or jumps away from the bottom as new text arrives; growth-following stays pinned to the bottom and releases only when you scroll up yourself.
+
 ## [0.1.5] - 2026-07-02
 
 ### Added
@@ -98,7 +109,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - Dropped preset options from the custom agent settings.
 
-[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.1.5...HEAD
+[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.1.6...HEAD
+[0.1.6]: https://github.com/Vibisual/vibisual/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/Vibisual/vibisual/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/Vibisual/vibisual/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/Vibisual/vibisual/compare/v0.1.2...v0.1.3

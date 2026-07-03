@@ -57,7 +57,11 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
   }, [restoreCustomAgent, canvasX, canvasY, onClose]);
 
   useEffect(() => {
+    // §4 v3.16 — 터치 롱프레스로 열면 손을 떼는 순간 브라우저가 합성 mousedown 을 쏴서
+    // 메뉴가 즉시 닫히던 문제. 마운트 직후 400ms 동안의 mousedown 은 무시한다(그 합성 이벤트 회피).
+    const openedAt = Date.now();
     function handleDown(e: MouseEvent): void {
+      if (Date.now() - openedAt < 400) return;
       // 좌클릭(0) / 중간 휠(1) 눌리는 순간 닫기 — 우클릭(2)은 메뉴 재오픈용으로 무시
       // capture 단계로 등록하여 React Flow가 이벤트를 선점하기 전에 처리 (버블 클릭·팬 드래그 시작 포함)
       if (e.button !== 0 && e.button !== 1) return;
@@ -103,11 +107,17 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
 
   const info = hoveredType ? PIPELINE_TYPE_INFO[hoveredType] : null;
 
+  // §4 v3.16 — 화면 밖으로 넘치지 않게 위치를 뷰포트 안으로 당긴다(폰 가장자리 롱프레스 대비).
+  const vw = typeof window !== 'undefined' ? window.innerWidth : 9999;
+  const vh = typeof window !== 'undefined' ? window.innerHeight : 9999;
+  const clampedX = Math.max(8, Math.min(x, vw - 244));
+  const clampedY = Math.max(8, Math.min(y, vh - 380));
+
   return (
     <div
       ref={menuRef}
       className="fixed z-50"
-      style={{ left: x, top: y }}
+      style={{ left: clampedX, top: clampedY }}
       onMouseDown={(e) => e.stopPropagation()}
       onWheel={(e) => e.stopPropagation()}
     >
