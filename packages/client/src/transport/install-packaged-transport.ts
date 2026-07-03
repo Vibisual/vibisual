@@ -11,7 +11,7 @@
 // Rationale: "renderer fetch/WS → window.api 일괄 교체" (Stage 4) at a single
 // chokepoint instead of editing every call site. UI source stays untouched.
 
-import type { UpdateState, AgentConfig } from '@vibisual/shared';
+import type { UpdateState, AgentConfig, MobileAccessState } from '@vibisual/shared';
 
 interface FetchInitWire {
   method?: string;
@@ -120,6 +120,18 @@ export interface PackagedUpdateApi {
   onStatus(cb: (state: UpdateState) => void): () => void;
 }
 
+// §4 v3.16 모바일 웹 접속 모드 surface. MobileAccessState 는 shared 계약.
+export interface PackagedMobileApi {
+  getState(): Promise<MobileAccessState>;
+  enable(): Promise<MobileAccessState>;
+  disable(): Promise<MobileAccessState>;
+  regenCode(): Promise<MobileAccessState>;
+  /** §4 v3.20 — UPnP 외부 개방 on/off. */
+  enableExternal(): Promise<MobileAccessState>;
+  disableExternal(): Promise<MobileAccessState>;
+  onStatus(cb: (state: MobileAccessState) => void): () => void;
+}
+
 // §4 v2.63 임베디드 인터랙티브 터미널 surface — IDE 창 안 PTY.
 export interface PackagedTerminalApi {
   create(spec: { termId: string; cwd: string; config: AgentConfig; cols?: number; rows?: number }): Promise<{ ok: boolean; error?: string }>;
@@ -140,6 +152,8 @@ export interface PackagedApi {
   update: PackagedUpdateApi;
   /** §4 v2.63 — 임베디드 터미널. dev/web 모드(window.api 없음)에선 부재. */
   terminal?: PackagedTerminalApi;
+  /** §4 v3.16 — 모바일 웹 접속 모드. 모바일 브라우저(web 모드)에선 부재. */
+  mobile?: PackagedMobileApi;
   /** §5.5 #17-6 — 버블 오버레이 창. dev/web 모드에선 부재. */
   overlay?: PackagedOverlayApi;
 }

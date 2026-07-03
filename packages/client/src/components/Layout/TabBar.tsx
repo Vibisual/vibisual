@@ -660,7 +660,7 @@ export function TabBar(): React.JSX.Element | null {
                 onPointerDown={(e) => e.stopPropagation()}
                 onDragStart={(e) => e.preventDefault()}
                 onClick={(e) => handleCloseProject(e, item.path, item.name)}
-                className="ml-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded opacity-0 transition-opacity hover:bg-white/[0.1] group-hover:opacity-100"
+                className="ml-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded opacity-0 transition-opacity hover:bg-white/[0.1] group-hover:opacity-100 pointer-coarse:opacity-100"
                 title={t('header.tab.closeProject')}
               >
                 <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
@@ -719,7 +719,7 @@ export function TabBar(): React.JSX.Element | null {
               onPointerDown={(e) => e.stopPropagation()}
               onDragStart={(e) => e.preventDefault()}
               onClick={(e) => handleCloseIframe(e, item.tab.id)}
-              className="ml-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded opacity-0 transition-opacity hover:bg-white/[0.1] group-hover:opacity-100"
+              className="ml-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded opacity-0 transition-opacity hover:bg-white/[0.1] group-hover:opacity-100 pointer-coarse:opacity-100"
               title={t('header.tab.closeTab')}
             >
               <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">

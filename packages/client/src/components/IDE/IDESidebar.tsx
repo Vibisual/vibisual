@@ -544,7 +544,8 @@ export const IDESidebar = memo(function IDESidebar({ agentId }: IDESidebarProps)
   if (collapsed) return <></>;
 
   return (
-    <div className="flex w-52 min-h-0 flex-shrink-0 flex-col border-r border-gray-700 bg-gray-900/50">
+    // §4 v3.16 — 좁은 화면(폰)에선 사이드바가 본문을 짓누르지 않게 활동바 옆 오버레이로 뜬다.
+    <div className="flex w-52 min-h-0 flex-shrink-0 flex-col border-r border-gray-700 bg-gray-900/50 max-md:absolute max-md:inset-y-0 max-md:left-12 max-md:z-30 max-md:w-64 max-md:max-w-[75vw] max-md:bg-gray-900 max-md:shadow-2xl max-md:shadow-black/60">
       <View agentId={agentId} />
     </div>
   );

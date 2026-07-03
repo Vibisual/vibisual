@@ -18,19 +18,23 @@ export interface FollowDecisionInput {
   threshold: number;
   /** 직전 추종 상태(followRef.current). */
   prevFollow: boolean;
-  /** 이 scroll 직전 최근(짧은 창) 사용자가 직접 위로 올린 제스처(휠 위로/터치/PageUp 등)가 있었는가. */
+  /** 이 scroll 직전 최근(짧은 창) 사용자가 직접 위로 올린 제스처(휠 위로/터치/스크롤바 드래그/PageUp 등)가 있었는가. */
   userUpIntent: boolean;
+  /** 이 scroll 이벤트가 위로 이동(scrollTop 감소)이었는가. */
+  goingUp: boolean;
 }
 
 /**
  * 다음 추종 상태를 결정한다.
- * - 바닥에 닿음(dist < threshold) → 항상 추종 ON(직접 내렸든 pin 이 붙였든 재무장).
- * - 바닥에서 멀고 + 사용자 위로-제스처 있었음 → 추종 OFF(그 자리 고정).
- * - 그 외(프로그램/측정으로 dist 만 커진 경우) → 직전 상태 유지(끄지 않는다 — 이게 v3.08 의 핵심).
+ * - v3.15 — 위로-제스처 + 위로 이동 → **거리 무관 즉시 해제**. 옛 규칙은 dist≥임계일 때만 해제라,
+ *   바닥 임계(80px) 안쪽의 잔잔한 휠-업이 해제 없이 재무장돼 워치독이 다음 프레임 도로 붙였다
+ *   ("살짝 올리면 다시 밑에 붙고, 세게 올려야만 올라감").
+ * - 바닥 임계 안 진입은 **아래로/제자리 이동일 때만** 재무장 — 위로 이동 중 임계 안 통과나 해제 직후의
+ *   프로그램 보정이 사용자를 도로 바닥에 스냅백시키지 않게.
+ * - 그 외(프로그램/측정으로 dist 만 변한 경우) → 직전 상태 유지(끄지 않는다 — v3.08 의 핵심 불변).
  */
-export function decideFollow({ dist, threshold, prevFollow, userUpIntent }: FollowDecisionInput): boolean {
-  const atBottom = dist < threshold;
-  if (atBottom) return true;
-  if (userUpIntent) return false;
+export function decideFollow({ dist, threshold, prevFollow, userUpIntent, goingUp }: FollowDecisionInput): boolean {
+  if (userUpIntent && goingUp) return false;
+  if (dist < threshold && !goingUp) return true;
   return prevFollow;
 }

@@ -44,7 +44,32 @@
       "file": "File",
       "openFolder": "Open Folder...",
       "options": "Options…",
-      "guide": "Guide"
+      "guide": "Guide",
+      "mobileAccess": "Mobile Access…"
+    },
+    "mobileAccess": {
+      "title": "Mobile Access",
+      "subtitle": "Open Vibisual in your phone's browser over the same Wi-Fi. Turn it on, open the address below on your phone, then enter the pairing code.",
+      "statusOn": "Listening on your local network",
+      "statusOff": "Off",
+      "enable": "Turn on",
+      "disable": "Turn off",
+      "url": "Open on your phone",
+      "noNetwork": "No local network address detected — check your Wi-Fi or network adapter.",
+      "pairingCode": "Pairing code",
+      "pairingHint": "Your phone asks for this code the first time it connects. Paired devices stay connected.",
+      "regen": "New code",
+      "locked": "Too many failed attempts — pairing is locked. Generate a new code to unlock.",
+      "clients": "Connected devices: {{count}}",
+      "securityNote": "Anyone on your network with this code can control Vibisual and run agents on this PC. Keep it on trusted Wi-Fi only.",
+      "externalTitle": "Access from outside",
+      "externalSubtitle": "Reach this PC over the internet. Vibisual asks your router to open a port automatically (UPnP) and serves over encrypted HTTPS.",
+      "externalMapping": "Asking your router to open a port…",
+      "externalCgnat": "Your internet connection doesn't have a public address (carrier-grade NAT), so a port can't be opened from here. Use a VPN such as Tailscale, or ask your ISP for a public IP.",
+      "externalManual": "Couldn't open a port automatically (your router's UPnP may be off). To do it manually, forward external TCP port {{port}} to {{ip}}:{{port}} on this PC in your router settings.",
+      "externalManualUrl": "Once the port is forwarded, connect from outside at this address:",
+      "externalReachable": "Reachable — connect from outside at",
+      "externalHttpsNote": "Uses a self-signed certificate — your phone shows a security warning the first time. Tap \"Advanced → proceed\" to continue; the connection is still encrypted."
     },
     "guide": {
       "title": "Guide",
@@ -156,6 +181,11 @@
         "permissions": "Permissions",
         "advanced": "Advanced",
         "version": "Version"
+      },
+      "appearance": {
+        "intro": "Personalize how Vibisual looks.",
+        "language": "Language",
+        "languageDesc": "UI display language. Applies immediately."
       },
       "version": {
         "title": "Version & About",
@@ -773,6 +803,8 @@
   "ide": {
     "overlay": {
       "closeLabel": "Close IDE",
+      "toggleNav": "Toggle navigation",
+      "toggleStatusBar": "Toggle status bar",
       "maximizeLabel": "Maximize",
       "restoreLabel": "Restore",
       "resizeDock": "Resize dock",
@@ -830,6 +862,7 @@
       "statusError": "Error",
       "statusCompleted": "Completed",
       "slashHint": "↑↓ navigate · Tab/Enter select · Esc cancel",
+      "slashBuiltin": "built-in",
       "slashEmpty": "No matching skills",
       "slashLoading": "Loading skills…",
       "ctxCopy": "Copy",

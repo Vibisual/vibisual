@@ -1,6 +1,7 @@
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { AgentReview } from '@vibisual/shared';
+import { FeedbackButtons } from './FeedbackButtons.js';
 
 interface AgentReviewCardProps {
   review: AgentReview;
@@ -130,6 +131,17 @@ export const AgentReviewCard = memo(function AgentReviewCard({ review }: AgentRe
             </ul>
           </div>
         )}
+
+        {/* §4 v3.21 — 좋아요/싫어요 (규칙 되먹임 학습 재료). summary = changes 스냅샷. */}
+        <div className="mt-1.5 border-t border-gray-800/50 pt-1.5">
+          <FeedbackButtons
+            agentId={review.agentId}
+            subAgentId={review.subAgentId}
+            targetType="review"
+            targetId={review.id}
+            summary={review.changes}
+          />
+        </div>
       </div>
     </div>
   );

@@ -139,6 +139,24 @@ export function findNonCollidingPosition(
   return { x: anchor.x + Math.cos(fallbackAngle) * SPAWN_RADIUS, y: anchor.y + Math.sin(fallbackAngle) * SPAWN_RADIUS };
 }
 
+/**
+ * 두 노드 `data` 레코드의 얕은 동등 비교 — 키 집합과 각 값(Object.is)이 모두 같으면 true.
+ * 실시간 sync 에서 내용이 바뀌지 않은 버블의 `data` 참조를 재사용해, BubbleNode(memo) 가
+ * 매 프레임 리렌더되는 것을 막는 데 쓴다(드래그·물리 이동 시 위치만 바뀌고 내용은 그대로인 경우).
+ */
+export function shallowEqualData(
+  a: Record<string, unknown>,
+  b: Record<string, unknown>,
+): boolean {
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) return false;
+  for (const k of aKeys) {
+    if (!Object.is(a[k], b[k])) return false;
+  }
+  return true;
+}
+
 // ─── FlowNode 변환 ───
 
 export function toFlowNodes(

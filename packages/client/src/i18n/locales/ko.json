@@ -43,7 +43,32 @@
     "fileMenu": {
       "file": "파일",
       "openFolder": "폴더 열기...",
-      "options": "옵션…"
+      "options": "옵션…",
+      "mobileAccess": "모바일 접속…"
+    },
+    "mobileAccess": {
+      "title": "모바일 접속",
+      "subtitle": "같은 Wi-Fi 에서 폰 브라우저로 Vibisual 을 엽니다. 켠 뒤 아래 주소를 폰에서 열고 페어링 코드를 입력하세요.",
+      "statusOn": "내부 네트워크에서 수신 중",
+      "statusOff": "꺼짐",
+      "enable": "켜기",
+      "disable": "끄기",
+      "url": "폰에서 열 주소",
+      "noNetwork": "내부 네트워크 주소를 찾지 못했습니다 — Wi-Fi/네트워크 어댑터를 확인해 주세요.",
+      "pairingCode": "페어링 코드",
+      "pairingHint": "폰이 처음 접속할 때 이 코드를 묻습니다. 한 번 페어링한 기기는 계속 유지됩니다.",
+      "regen": "새 코드",
+      "locked": "실패가 누적되어 페어링이 잠겼습니다. 새 코드를 발급하면 풀립니다.",
+      "clients": "연결된 기기: {{count}}대",
+      "securityNote": "같은 네트워크에서 이 코드를 아는 사람은 이 PC 의 Vibisual 과 에이전트를 조작할 수 있습니다. 신뢰하는 Wi-Fi 에서만 켜 주세요.",
+      "externalTitle": "외부에서 접속",
+      "externalSubtitle": "인터넷을 통해 이 PC 에 접속합니다. 앱이 공유기에 포트 개방을 자동 요청(UPnP)하고 암호화된 HTTPS 로 제공합니다.",
+      "externalMapping": "공유기에 포트 개방을 요청하는 중…",
+      "externalCgnat": "인터넷 회선에 공인 주소가 없어(통신사 공유망·CGNAT) 여기서 포트를 열 수 없습니다. Tailscale 같은 VPN 을 쓰거나 통신사에 공인 IP 를 요청하세요.",
+      "externalManual": "포트를 자동으로 열지 못했습니다(공유기 UPnP 가 꺼져 있을 수 있습니다). 수동으로 하려면 공유기 설정에서 외부 TCP {{port}} 포트를 이 PC 의 {{ip}}:{{port}} 로 포워딩하세요.",
+      "externalManualUrl": "포트포워딩을 마치면 외부에서 이 주소로 접속하세요:",
+      "externalReachable": "접속 가능 — 외부에서 이 주소로 접속하세요",
+      "externalHttpsNote": "자체 서명 인증서를 사용합니다 — 폰에서 처음 접속 시 보안 경고가 뜹니다. \"고급 → 계속\" 을 눌러 진행하세요. 연결은 그대로 암호화됩니다."
     },
     "options": {
       "title": "옵션",
@@ -61,6 +86,11 @@
         "permissions": "권한",
         "advanced": "고급",
         "version": "버전"
+      },
+      "appearance": {
+        "intro": "Vibisual 의 화면 표시를 개인화합니다.",
+        "language": "언어",
+        "languageDesc": "UI 표시 언어입니다. 즉시 적용됩니다."
       },
       "version": {
         "title": "버전 및 정보",
@@ -678,6 +708,8 @@
   "ide": {
     "overlay": {
       "closeLabel": "IDE 닫기",
+      "toggleNav": "탐색 패널 열기/닫기",
+      "toggleStatusBar": "상태 표시줄 보기/숨기기",
       "maximizeLabel": "최대화",
       "restoreLabel": "복원",
       "resizeDock": "독 크기 조정",
@@ -735,6 +767,7 @@
       "statusError": "오류",
       "statusCompleted": "완료",
       "slashHint": "↑↓ 이동 · Tab/Enter 선택 · Esc 취소",
+      "slashBuiltin": "내장",
       "slashEmpty": "일치하는 스킬 없음",
       "slashLoading": "스킬 불러오는 중…",
       "ctxCopy": "복사",

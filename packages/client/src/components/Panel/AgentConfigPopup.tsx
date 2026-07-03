@@ -586,7 +586,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
 
   return (
     <div ref={overlayRef} className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={handleOverlayClick}>
-      <div className="flex max-h-[80vh] w-[420px] flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl">
+      <div className="flex max-h-[80vh] w-[420px] max-w-[94vw] flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl max-md:h-dvh max-md:max-h-dvh max-md:w-screen max-md:max-w-none max-md:rounded-none max-md:border-0">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-gray-700 px-4 py-3">
           <h3 className="flex items-center gap-1.5 text-sm font-bold text-gray-100">
@@ -1137,7 +1137,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
       {/* Rules Editor Overlay — §5.3 #28 (K) v1.48: 좌 본문 + 우 히스토리 패널 2-column */}
       {showRulesEditor && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70" onClick={(e) => { if (e.target === e.currentTarget) setShowRulesEditor(false); }}>
-          <div className="flex h-[82vh] w-[960px] flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl">
+          <div className="flex h-[82vh] max-h-[92dvh] w-[960px] max-w-[94vw] flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl max-md:h-dvh max-md:max-h-dvh max-md:w-screen max-md:max-w-none max-md:rounded-none max-md:border-0">
             <div className="flex items-center justify-between border-b border-gray-700 px-4 py-3">
               <h3 className="text-sm font-bold text-gray-100">{t('panel.agentConfig.agentRules')}</h3>
               <button type="button" onClick={() => setShowRulesEditor(false)} className="flex h-6 w-6 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200">
@@ -1160,8 +1160,8 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                   <AutoEdgeSection agentId={agentId} />
                 </div>
               </div>
-              {/* Right — Rules History 패널 */}
-              <div className="flex w-[320px] flex-col border-l border-gray-700 bg-gray-950/40">
+              {/* Right — Rules History 패널 (폰에선 숨김 — 좁은 화면에서 본문 편집 우선) */}
+              <div className="flex w-[320px] flex-col border-l border-gray-700 bg-gray-950/40 max-md:hidden">
                 <div className="flex items-center justify-between border-b border-gray-800 px-3 py-2">
                   <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
                     {t('panel.agentConfig.rulesHistory.title', { defaultValue: 'History' })}

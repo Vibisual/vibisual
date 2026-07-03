@@ -259,6 +259,13 @@ function mergeSnapshots(a: GraphSnapshot, b: GraphSnapshot): GraphSnapshot {
       if (!av && !bv) return undefined;
       return { ...(av ?? {}), ...(bv ?? {}) };
     })(),
+    // §4 v3.21 — 에이전트 피드백 (agentReports 와 동형).
+    agentFeedbacks: (() => {
+      const av = a.agentFeedbacks;
+      const bv = b.agentFeedbacks;
+      if (!av && !bv) return undefined;
+      return { ...(av ?? {}), ...(bv ?? {}) };
+    })(),
   };
 }
 
@@ -1223,6 +1230,27 @@ export class ProjectGraphManager {
     return true;
   }
 
+  /** §4 v3.21 — 에이전트 피드백 upsert. feedback.agentId 소속 인스턴스로 라우팅(addAgentReport 와 동형). */
+  setAgentFeedback(feedback: import('@vibisual/shared').AgentFeedback): boolean {
+    const inst = this.findInstanceByAgentId(feedback.agentId) ?? this.primaryInstance();
+    if (!inst) return false;
+    inst.setAgentFeedback(feedback);
+    return true;
+  }
+
+  /** §4 v3.21 — 에이전트 피드백 철회 (해당 target 의 기존 평가 제거). */
+  removeAgentFeedback(agentId: string, targetType: string, targetId: string): boolean {
+    const inst = this.findInstanceByAgentId(agentId) ?? this.primaryInstance();
+    if (!inst) return false;
+    return inst.removeAgentFeedback(agentId, targetType, targetId);
+  }
+
+  /** §4 v3.21 — 한 에이전트의 피드백 목록 (스폰 다이제스트 주입/distill 용). */
+  getAgentFeedbacksForAgent(agentId: string): import('@vibisual/shared').AgentFeedback[] {
+    const inst = this.findInstanceByAgentId(agentId);
+    return inst ? inst.getAgentFeedbacksForAgent(agentId) : [];
+  }
+
   setAgentConfig(agentId: string, config: AgentConfig): void {
     const inst = this.findInstanceByAgentId(agentId);
     if (inst) { inst.setAgentConfig(agentId, config); return; }
@@ -1424,7 +1452,7 @@ export class ProjectGraphManager {
   getVisibleTopLevelProjects(): ProjectInfo[] {
     const out: ProjectInfo[] = [];
     for (const [key, inst] of this.instances) {
-      if (this.isWorktreeInstanceKey(key)) continue;
+      if (this.isWorktreeInstance(key, inst)) continue;
       for (const info of Object.values(inst.getProjects())) {
         if (info.parentProjectPath) continue; // worktree — 부모 탭 안에서만 보임
         if (inst.isProjectHidden(info.name)) continue; // × 로 닫은 탭 제외
@@ -1511,8 +1539,8 @@ export class ProjectGraphManager {
   cleanupOrphanWorktreeInstances(): number {
     let removed = 0;
     const removedKeys = new Set<string>();
-    for (const key of [...this.instances.keys()]) {
-      if (this.isWorktreeInstanceKey(key)) {
+    for (const [key, inst] of [...this.instances.entries()]) {
+      if (this.isWorktreeInstance(key, inst)) {
         this.instances.delete(key);
         removedKeys.add(key);
         removed += 1;
@@ -1530,7 +1558,7 @@ export class ProjectGraphManager {
     // v1.34: hidden 판정은 ProjectGraph 인스턴스 SSOT 기준 (체크포인트에 저장되는 쪽).
     // Manager 의 hiddenProjects 는 휘발성이라 서버 재시작 후 빈 채로 복원됨 → 인스턴스 조회로 일원화.
     const visibleInstances = [...this.instances.entries()]
-      .filter(([key]) => !this.isWorktreeInstanceKey(key))
+      .filter(([key, inst]) => !this.isWorktreeInstance(key, inst))
       .map(([, inst]) => inst)
       .filter((inst) => {
         const name = inst.getPrimaryProjectName();

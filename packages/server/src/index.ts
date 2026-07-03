@@ -6,8 +6,8 @@ import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { exec, execFile } from 'node:child_process';
 import multer from 'multer';
-import { DEFAULT_PORT, SESSION_SCAN_INTERVAL, FILE_EXISTENCE_CHECK_INTERVAL, SATELLITE_TYPES, IFRAME_PROXY_PATH, AGENT_IDLE_THRESHOLD_MS, AGENT_IDLE_SWEEP_INTERVAL_MS, TASK_EDGE_DISPATCH_DEFAULT_TIMEOUT_MS, TASK_EDGE_CRITIQUE_MAX_REWORK_LIMIT, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, SUPPORTED_UI_LOCALES, CONTI_AGENT_RULES, RULES_HISTORY_MAX, CANVAS_CLIPBOARD_SCHEMA_VERSION, buildAgentReportRules, buildAgentQuestionRules, buildAgentReviewRules, buildAgentListRules } from '@vibisual/shared';
-import type { HookEventPayload, WSMessage, SubAgentStreamEvent, QueuedCommand, SessionTokenData, PipelineType, AgentConfig, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, SubAgentHistoryItem, UiLocale, PermissionDecision, RulesHistoryEntry, Conti, CanvasClipboardPayload, CanvasPasteResponse, AskUserQuestionDecision, AskUserQuestionAnswer, AskUserQuestionOption, AskUserQuestionItem, AskUserQuestionToolInput, AgentReport, AgentQuestions, AgentQuestionItem, AgentReview, AgentList } from '@vibisual/shared';
+import { DEFAULT_PORT, SESSION_SCAN_INTERVAL, FILE_EXISTENCE_CHECK_INTERVAL, SATELLITE_TYPES, IFRAME_PROXY_PATH, AGENT_IDLE_THRESHOLD_MS, AGENT_IDLE_SWEEP_INTERVAL_MS, TASK_EDGE_DISPATCH_DEFAULT_TIMEOUT_MS, TASK_EDGE_CRITIQUE_MAX_REWORK_LIMIT, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, SUPPORTED_UI_LOCALES, CONTI_AGENT_RULES, RULES_HISTORY_MAX, CANVAS_CLIPBOARD_SCHEMA_VERSION, buildAgentReportRules, buildAgentQuestionRules, buildAgentReviewRules, buildAgentListRules, buildAgentFeedbackBlock, AGENT_FEEDBACK_SUMMARY_ITEM_MAX } from '@vibisual/shared';
+import type { HookEventPayload, WSMessage, SubAgentStreamEvent, QueuedCommand, SessionTokenData, PipelineType, AgentConfig, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, SubAgentHistoryItem, UiLocale, PermissionDecision, RulesHistoryEntry, Conti, CanvasClipboardPayload, CanvasPasteResponse, AskUserQuestionDecision, AskUserQuestionAnswer, AskUserQuestionOption, AskUserQuestionItem, AskUserQuestionToolInput, AgentReport, AgentQuestions, AgentQuestionItem, AgentReview, AgentList, AgentFeedback, AgentFeedbackTargetType, AgentFeedbackVerdict } from '@vibisual/shared';
 import { permissionBroker } from './services/permissionBroker.js';
 import { askUserQuestionBroker } from './services/askUserQuestionBroker.js';
 import { AutoAgentRuntime } from './services/autoAgentRuntime.js';
@@ -15,7 +15,9 @@ import { BUBBLE_COLORS, READ_TOOLS, WS_BATCH_INTERVAL } from '@vibisual/shared';
 import { broadcast } from './broadcastBus.js';
 import { graphManager } from './services/projectGraphManager.js';
 import { modelRegistryService } from './services/modelRegistryService.js';
+import { builtinCommandsService } from './services/builtinCommandsService.js';
 import { userDefaultsService } from './services/userDefaultsService.js';
+import { distillFeedbackToRules } from './services/feedbackDistillService.js';
 import { isPortAlive, killByPort, respawn } from './services/processChecker.js';
 import { discoverProjectMetas, migrateLegacy, migrateLegacySaveRootToProjectDirs, pruneOrphanWorktreeDirs, SaveScheduler, writeCheckpoint } from './services/statePersistence.js';
 import { loadAppState, saveAppState, patchAppState, appStateAddOpenProject, appStateRemoveOpenProject, appStatePruneStaleProjectNames, appStateGetSkillOrder, appStateSetSkillOrder, appStateRemoveSkillFromOrder, appStateGetSkillFavorites, appStateSetSkillFavorites } from './services/appState.js';
@@ -181,6 +183,10 @@ export async function runServer(): Promise<RunServerHandle> {
     // 시드 → api-merged 전환 시 snapshot 의 modelRegistry 도 갱신해야 하므로 그래프 한 번 푸시.
     broadcastSnapshot();
   });
+
+  // §5.5 #17-2 v3.19 — CLI 내장 슬래시 명령 부팅 시 비동기 스캔(캐시 hit 면 즉시).
+  // 결과는 /api/available-skills 응답의 builtins 로만 소비 — push 불필요.
+  void builtinCommandsService.refreshIfStale();
 
   // §4 v2.42 — 사용자 옵션 갱신 broadcast (다른 창/탭 즉시 반영)
   userDefaultsService.subscribe((d) => {
@@ -868,7 +874,10 @@ export async function runServer(): Promise<RunServerHandle> {
       : '';
     // v1.33 — outbound 엣지 자동 섹션.
     const edgesBlock = buildOutboundEdgesRulesSection(agent.id);
-    const rulesBlock = userRulesBlock + edgesBlock;
+    // §4 v3.21 — 사용자 피드백 다이제스트(# Past User Feedback) — 좋아요/싫어요 즉효 되먹임.
+    //   매 턴 재계산이라 새 평가가 다음 턴에 바로 반영되고, 평가 철회 시 자동 소거.
+    const feedbackBlock = buildAgentFeedbackBlock(graphManager.getAgentFeedbacksForAgent(agent.id));
+    const rulesBlock = userRulesBlock + edgesBlock + feedbackBlock;
     const skillsPrefix = (agentConfig?.skills && agentConfig.skills.length > 0)
       ? agentConfig.skills.map((s) => `/${s}`).join('\n') + '\n\n'
       : '';
@@ -2178,8 +2187,11 @@ export async function runServer(): Promise<RunServerHandle> {
    * 미지정 시 전 프로젝트 병합(하위 호환 fallback).
    * plugin 스킬은 `~/.claude/plugins` 전역이라 project 와 무관하게 항상 동일.
    */
-  app.get('/api/available-skills', (req, res) => {
+  app.get('/api/available-skills', async (req, res) => {
     try {
+      // §5.5 #17-2 v3.19 — 부팅 직후 첫 조회가 콜드 스캔과 경합해 builtins 가 비지 않도록 대기.
+      // 캐시 hit 부팅에선 즉시 resolve. 클라 훅은 키별 1회 fetch 후 캐시라 여기서 기다려야 한다.
+      await builtinCommandsService.whenReady();
       const skills: SkillInfo[] = [];
       const seen = new Set<string>();
 
@@ -2256,7 +2268,15 @@ export async function runServer(): Promise<RunServerHandle> {
         }
       } catch { /* ignore */ }
 
-      res.json({ ok: true, skills, order: appStateGetSkillOrder(), favorites: appStateGetSkillFavorites() });
+      // §5.5 #17-2 v3.19 — CLI 내장 슬래시 명령은 별도 배열로. skills 에 섞지 않아
+      // Skills 사이드바(#17-4)는 불변, `/` 자동완성 드롭다운만 병행 표시한다.
+      res.json({
+        ok: true,
+        skills,
+        builtins: builtinCommandsService.getCommands(),
+        order: appStateGetSkillOrder(),
+        favorites: appStateGetSkillFavorites(),
+      });
     } catch (err) {
       logger.error('GET /api/available-skills failed', err);
       res.status(500).json({ error: 'Internal server error' });
@@ -3037,6 +3057,99 @@ export async function runServer(): Promise<RunServerHandle> {
       res.json({ ok: true, id: list.id });
     } catch (err) {
       logger.error('POST /api/agent-list failed', err);
+      res.status(500).json({ ok: false, error: 'internal error' });
+    }
+  });
+
+  /**
+   * §4 v3.21 — POST /api/agent-feedback
+   * 사용자가 IDE 에서 AI 작업 결과(작업 신고/검수 카드/스트림 result)에 남기는 좋아요/싫어요.
+   * targetId 별 upsert — 같은 대상 재평가는 verdict 교체, `verdict:null` 은 평가 철회(제거).
+   * 클라 UI 발신(렌더러 in-process fetch)이라 loopback 토큰 화이트리스트 불필요.
+   * 표시·학습 보조 전용 — 실제 작업/판정 로직 무관.
+   */
+  app.post('/api/agent-feedback', (req, res) => {
+    try {
+      const body = (req.body ?? {}) as Partial<AgentFeedback> & { verdict?: AgentFeedbackVerdict | null };
+      if (typeof body.agentId !== 'string' || !body.agentId) {
+        res.status(400).json({ ok: false, error: 'agentId required' });
+        return;
+      }
+      const targetTypes: AgentFeedbackTargetType[] = ['report', 'review', 'result'];
+      const targetType = targetTypes.find((t) => t === body.targetType);
+      if (!targetType || typeof body.targetId !== 'string' || !body.targetId) {
+        res.status(400).json({ ok: false, error: 'targetType/targetId required' });
+        return;
+      }
+      // verdict:null = 평가 철회 (해당 target 의 기존 피드백 제거)
+      if (body.verdict == null) {
+        const removed = graphManager.removeAgentFeedback(body.agentId, targetType, body.targetId);
+        if (removed) {
+          broadcast({ type: 'agent_feedback', payload: { agentId: body.agentId } } as WSMessage);
+          broadcastSnapshot();
+          saveCheckpoint();
+        }
+        res.json({ ok: true, removed });
+        return;
+      }
+      if (body.verdict !== 'up' && body.verdict !== 'down') {
+        res.status(400).json({ ok: false, error: 'verdict must be up/down/null' });
+        return;
+      }
+      const summary = Array.isArray(body.summary)
+        ? body.summary
+            .filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
+            .map((s) => s.trim().slice(0, AGENT_FEEDBACK_SUMMARY_ITEM_MAX))
+            .slice(0, 5)
+        : [];
+      const feedback: AgentFeedback = {
+        id: randomUUID(),
+        agentId: body.agentId,
+        ...(typeof body.subAgentId === 'string' && body.subAgentId ? { subAgentId: body.subAgentId } : {}),
+        targetType,
+        targetId: body.targetId,
+        verdict: body.verdict,
+        ...(typeof body.reason === 'string' && body.reason.trim() ? { reason: body.reason.trim() } : {}),
+        summary,
+        createdAt: Date.now(),
+      };
+      const ok = graphManager.setAgentFeedback(feedback);
+      if (!ok) {
+        res.status(404).json({ ok: false, error: 'agent not found' });
+        return;
+      }
+      broadcast({ type: 'agent_feedback', payload: { agentId: feedback.agentId, subAgentId: feedback.subAgentId } } as WSMessage);
+      broadcastSnapshot();
+      saveCheckpoint();
+      res.json({ ok: true, id: feedback.id });
+    } catch (err) {
+      logger.error('POST /api/agent-feedback failed', err);
+      res.status(500).json({ ok: false, error: 'internal error' });
+    }
+  });
+
+  /**
+   * §4 v3.21 — POST /api/agent-feedback/:agentId/distill
+   * 이 에이전트의 싫어요 피드백을 one-shot claude CLI(haiku)로 규칙 문장으로 증류해 **제안만 반환**.
+   * 적용은 사용자가 클라 확인 모달에서 승인 후 기존 `PUT /api/agent-config/:agentId` rules append 로
+   * (rulesHistory 롤백 가능). 자동 append 금지 — 일회성 싫어요의 영구 규칙화 방지.
+   */
+  app.post('/api/agent-feedback/:agentId/distill', async (req, res) => {
+    try {
+      const agentId = req.params.agentId;
+      const feedbacks = graphManager.getAgentFeedbacksForAgent(agentId);
+      if (!feedbacks.some((f) => f.verdict === 'down')) {
+        res.status(422).json({ ok: false, error: 'no down feedback to distill' });
+        return;
+      }
+      const proposal = await distillFeedbackToRules(feedbacks);
+      if (!proposal) {
+        res.status(502).json({ ok: false, error: 'distill failed' });
+        return;
+      }
+      res.json({ ok: true, proposal });
+    } catch (err) {
+      logger.error('POST /api/agent-feedback/:agentId/distill failed', err);
       res.status(500).json({ ok: false, error: 'internal error' });
     }
   });

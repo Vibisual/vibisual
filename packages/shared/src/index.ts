@@ -28,6 +28,9 @@ export type {
   AgentQuestions,
   AgentReview,
   AgentList,
+  AgentFeedbackVerdict,
+  AgentFeedbackTargetType,
+  AgentFeedback,
   GraphSnapshot,
   Result,
   CommandPayload,
@@ -137,6 +140,9 @@ export type {
   AutoAgentSpawnedNode,
   UpdatePhase,
   UpdateState,
+  MobileAccessState,
+  MobileExternalStatus,
+  MobileExternalReason,
 } from './types.js';
 
 export type { ModelPricing } from './constants.js';
@@ -306,8 +312,20 @@ export {
   buildAgentReviewRules,
   AGENT_LISTS_MAX_PER_AGENT,
   buildAgentListRules,
+  AGENT_FEEDBACK_MAX_PER_AGENT,
+  AGENT_FEEDBACK_DIGEST_MAX,
+  AGENT_FEEDBACK_DISTILL_MAX,
+  AGENT_FEEDBACK_SUMMARY_ITEM_MAX,
+  buildAgentFeedbackBlock,
   VIBISUAL_CARD_SENTINEL,
   buildCmdCardProtocolRules,
+  MOBILE_PAIR_CODE_LENGTH,
+  MOBILE_PAIR_MAX_ATTEMPTS,
+  MOBILE_SESSION_MAX,
+  MOBILE_SESSION_COOKIE,
+  MOBILE_EXTERNAL_PAIR_CODE_LENGTH,
+  MOBILE_PAIR_BAN_MS,
+  MOBILE_UPNP_LEASE_S,
 } from './constants.js';
 
 // §5.3 #28 v1.60 — STAMP_CATALOG 메타 타입 (constants.ts 에 정의됨)

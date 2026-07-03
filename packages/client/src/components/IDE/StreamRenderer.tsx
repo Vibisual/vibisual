@@ -22,6 +22,7 @@ import { SystemNode, parseSystemSubtype } from './SystemNode.js';
 import { useAttachmentThumbs } from './attachmentThumb.js';
 import { ThinkingDots, ThinkingLiveLine } from './ThinkingIndicator.js';
 import { AgentReportCard } from './AgentReportCard.js';
+import { FeedbackButtons } from './FeedbackButtons.js';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { AgentQuestionCard } from './AgentQuestionCard.js';
 import { AgentReviewCard } from './AgentReviewCard.js';
@@ -33,6 +34,7 @@ import {
   type StreamText, type StreamGroup, type StreamThinking, type StreamSystem, type StreamResult,
   type StreamCommand, type StreamItemFull,
 } from './streamItems.js';
+import { useVirtuosoFrontShift } from './frontShift.js';
 
 // ─── 타입 ───
 
@@ -40,6 +42,10 @@ interface StreamRendererProps {
   events: SubAgentStreamEvent[];
   /** 완료된 명령 (스트림 없을 때 폴백 표시용) */
   commands?: QueuedCommand[];
+  /** §4 v3.21 — 피드백 컨텍스트: 이 스트림의 소유 에이전트. 있으면 result 블록에 좋아요/싫어요 노출. */
+  agentId?: string;
+  /** §4 v3.21 — 피드백 컨텍스트: 이 스트림의 세션(탭) ID. */
+  subAgentId?: string;
   /** §4 v2.53 — 이 세션의 작업 신고. createdAt 기준으로 스트림에 인라인 합류(맨 아래 고정 ❌). */
   reports?: AgentReport[];
   /** §4 v2.60 — 이 세션의 질문 카드. reports 와 동일하게 턴 끝에 합류. */
@@ -71,12 +77,6 @@ interface StreamRendererProps {
    * 추종 의도 저장·StreamStatusBar 판정에 쓴다(옛 수동 scrollTop 비교·제스처 추적을 대체).
    */
   onAtBottomChange?: (atBottom: boolean) => void;
-  /**
-   * v3.12 — virtuoso 측정 모델의 **총 리스트 높이가 실제로 바뀐 직후** 통지(내부 `totalListHeightChanged` 위임).
-   * 부모(IDEMainArea)가 이 시점을 유일한 성장 추종 트리거로 삼아 바닥에 pin 한다(높이 변화가 없으면 발화하지
-   * 않아 자기 되먹임이 수렴, 목표가 낡지 않아 스냅 후 재보정 연쇄가 사라진다). 값 인자(높이)는 쓰지 않는다.
-   */
-  onTotalListHeightChanged?: () => void;
 }
 
 /** §5.5 #17-7 — 북마크 "이동" 시 부모(IDEMainArea)가 호출하는 명령형 핸들. */
@@ -90,8 +90,6 @@ export interface StreamRendererHandle {
    * 실패(바닥에서 눌러도 안 올라가던 버그)하므로 인덱스 스크롤이 필수.
    */
   scrollToCommand: (cmdId: string) => void;
-  /** 마지막 항목으로 즉시 스크롤(사용자가 방금 엔터로 보낸 메시지를 항상 보이게). */
-  scrollToBottom: () => void;
   /** 인-페이지 검색 — query 를 포함하는 항목들의 id 를 등장 순서로 반환. 네비게이션/하이라이트는
    *  scrollToBookmark(id, query) 재사용(가상 리스트라 DOM 검색 불가 → 항목 데이터 기준 매칭). */
   searchMatchIds: (query: string) => string[];
@@ -169,6 +167,17 @@ const MarkdownLink = memo(function MarkdownLink({ href, children }: React.Anchor
 
 const mdComponents: Components = { pre: CodeBlock, a: MarkdownLink };
 
+/** v3.13 — 앞쪽 절단 shift 카운트용 안정 id 추출자(렌더 간 동일 참조 필요 → 모듈 상수). */
+const streamItemId = (item: StreamItemFull): string => item.id;
+
+/** v3.17 — 리스트 끝 여백(px): 마지막 줄이 하단 입력부 경계에 딱 붙어 걸려 보이지 않게.
+ *  virtuoso Footer 로 렌더해 리스트(scrollHeight)의 일부가 되므로 DOM 워치독 바닥 접착과 자연히 호환
+ *  (스크롤러 padding 은 virtuoso 측정과 어긋나므로 금지). Sub 탭·메인 탭 공용. */
+export const STREAM_END_GAP_PX = 28;
+export function StreamEndGap(): React.JSX.Element {
+  return <div style={{ height: STREAM_END_GAP_PX }} aria-hidden />;
+}
+
 /** remark-gfm — `[text](url)` 마크다운 링크뿐 아니라 본문에 그대로 박힌 `http(s)://…` bare URL 도
  *  자동으로 링크(autolink literal)로 만들어 MarkdownLink 가 받아 처리하게 한다. */
 const remarkPlugins = [remarkGfm];
@@ -180,7 +189,8 @@ const remarkPlugins = [remarkGfm];
  *  왼쪽의 작은 스파클 글리프로만 표식(도구/생각=좌측 세로바 박스, 내 입력=우측 sky 말풍선과 자연히 구분). */
 const TextBlock = memo(function TextBlock({ item }: { item: StreamText }): React.JSX.Element {
   return (
-    <div className="px-4 py-1">
+    // §4 v3.24 — 폰(max-md)에선 좌우 여백 압축(카톡/텔레그램 밀도) — 데스크톱 px-4 유지.
+    <div className="px-4 py-1 max-md:px-1.5">
       <div className="flex gap-2">
         <AiSpeakerGlyph />
         <div className="ide-md prose prose-invert prose-sm min-w-0 max-w-none flex-1 leading-relaxed prose-p:my-1.5 prose-p:leading-relaxed prose-pre:my-2 prose-headings:text-gray-100 prose-headings:text-[15px] prose-li:my-1 prose-strong:text-gray-100">
@@ -212,7 +222,7 @@ const ToolBlock = memo(function ToolBlock({ item }: { item: StreamGroup }): Reac
   }, [item.input]);
 
   return (
-    <div className={`mx-2 my-1 overflow-hidden rounded-md border-l-2 ${accentColor} transition-colors`}>
+    <div className={`mx-2 my-1 overflow-hidden rounded-md border-l-2 max-md:mx-1 ${accentColor} transition-colors`}>
       {/* 헤더 */}
       <button
         type="button"
@@ -292,7 +302,7 @@ const ThinkingBlock = memo(function ThinkingBlock({ item }: { item: StreamThinki
   // 성능: thinking 본문이 토큰마다 자라도 미리보기는 content 가 바뀔 때만 재계산.
   const preview = useMemo(() => item.content.replace(/\s+/g, ' ').trim().slice(0, 100), [item.content]);
   return (
-    <div className="mx-2 my-1 overflow-hidden rounded-md border-l-2 border-violet-500/40">
+    <div className="mx-2 my-1 overflow-hidden rounded-md border-l-2 border-violet-500/40 max-md:mx-1">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -331,19 +341,37 @@ function SystemLine({ item }: { item: StreamSystem }): React.JSX.Element {
   const subtype = parseSystemSubtype(item.content);
   if (subtype) return <SystemNode subtype={subtype} />;
   return (
-    <div className="px-4 py-1">
+    <div className="px-4 py-1 max-md:px-1.5">
       <span className="font-mono text-[12px] text-gray-400">{item.content}</span>
     </div>
   );
 }
 
+/** §4 v3.21 — result 블록 피드백 컨텍스트 (스트림 소유 에이전트/세션). 없으면 버튼 미노출. */
+export interface StreamFeedbackCtx {
+  agentId: string;
+  subAgentId?: string;
+}
+
 /** 최종 결과 */
-function ResultBlock({ item }: { item: StreamResult }): React.JSX.Element {
+function ResultBlock({ item, feedbackCtx }: { item: StreamResult; feedbackCtx?: StreamFeedbackCtx }): React.JSX.Element {
   return (
-    <div className="mx-2 my-1 rounded-md border border-emerald-500/20 bg-emerald-500/5 px-4 py-2.5">
+    <div className="mx-2 my-1 rounded-md border border-emerald-500/20 bg-emerald-500/5 px-4 py-2.5 max-md:mx-1 max-md:px-2.5">
       <div className="ide-md prose prose-invert prose-sm max-w-none leading-relaxed prose-p:my-1.5 prose-p:leading-relaxed prose-strong:text-gray-100">
         <Markdown remarkPlugins={remarkPlugins} components={mdComponents}>{item.content}</Markdown>
       </div>
+      {/* §4 v3.21 — 턴 완료 메시지에 좋아요/싫어요 (규칙 되먹임 학습 재료). summary = 본문 앞부분 발췌. */}
+      {feedbackCtx && (
+        <div className="mt-1.5 border-t border-emerald-500/10 pt-1.5">
+          <FeedbackButtons
+            agentId={feedbackCtx.agentId}
+            subAgentId={feedbackCtx.subAgentId}
+            targetType="result"
+            targetId={item.id}
+            summary={[item.content.slice(0, 200)]}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -356,7 +384,7 @@ function CommandBlock({ item }: { item: StreamCommand }): React.JSX.Element {
   const openImageLightbox = useGraphStore((s) => s.openImageLightbox);
   const thumbs = useAttachmentThumbs(item.attachments);
   return (
-    <div className="px-4 py-2" data-cmd-id={item.id}>
+    <div className="px-4 py-2 max-md:px-1.5" data-cmd-id={item.id}>
       {/* 프롬프트 — 사용자 입력은 길이와 무관하게 항상 "내 메시지" 말풍선으로. */}
       <CollapsiblePrompt prompt={item.prompt} />
       {/* 전송한 첨부 이미지 썸네일 (클릭 → 라이트박스) */}
@@ -404,13 +432,13 @@ function itemSearchText(item: StreamItemFull): string {
 /** 단일 스트림 아이템 → 블록 엘리먼트. 북마크 이동 앵커용 `data-stream-item-id` 래퍼로 감싼다.
  *  zoom — IDE 본문 텍스트 줌 배율. **스크롤러(가상 리스트 뷰포트)가 아니라 각 항목 래퍼**에 걸어,
  *  Virtuoso 가 zoom 반영된 실제 항목 높이를 그대로 측정(가상화·스크롤 계산과 일관)하게 한다. */
-function renderStreamItem(item: StreamItemFull, thinkingLabel: string, zoom: number): React.JSX.Element {
+function renderStreamItem(item: StreamItemFull, thinkingLabel: string, zoom: number, feedbackCtx?: StreamFeedbackCtx): React.JSX.Element {
   let inner: React.JSX.Element;
   switch (item.kind) {
     case 'text':     inner = <TextBlock item={item} />; break;
     case 'thinking': inner = <ThinkingBlock item={item} />; break;
     case 'tool':     inner = <ToolBlock item={item} />; break;
-    case 'result':   inner = <ResultBlock item={item} />; break;
+    case 'result':   inner = <ResultBlock item={item} feedbackCtx={feedbackCtx} />; break;
     case 'system':   inner = <SystemLine item={item} />; break;
     case 'command':  inner = <CommandBlock item={item} />; break;
     case 'thinking-live': inner = <ThinkingLiveLine label={thinkingLabel} />; break;
@@ -423,7 +451,7 @@ function renderStreamItem(item: StreamItemFull, thinkingLabel: string, zoom: num
   return <div data-stream-item-id={item.id} style={zoom === 1 ? undefined : { zoom }}>{inner}</div>;
 }
 
-export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRendererProps>(function StreamRenderer({ events, commands, reports, questions, reviews, lists, askRequests, onScrollerRef, restoreState, onAtBottomChange, onTotalListHeightChanged }, ref): React.JSX.Element {
+export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRendererProps>(function StreamRenderer({ events, commands, agentId, subAgentId, reports, questions, reviews, lists, askRequests, onScrollerRef, restoreState, onAtBottomChange }, ref): React.JSX.Element {
   const { t } = useTranslation();
   // 성능(v3.10): 2단 빌드 — 1단계(events 기반 base)는 **증분 파서**가 새로 온 이벤트만 처리(O(신규)).
   //   세션 전환/commands 변경/버퍼 앞쪽 절단이면 파서 내부에서 전체 재구축으로 폴백(결과는 항상 동일).
@@ -453,13 +481,19 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
     return reconciled;
   }, [merged]);
 
+  // v3.13 — 버퍼 앞쪽 절단(상한 초과 시 오래된 이벤트 일괄 제거)을 virtuoso 에 shift 로 신고. 이게 없으면
+  //   인덱스 기반 sizeTree/offsetTree 가 절단마다 통째로 밀려 측정 모델이 붕괴 → pin/followOutput/restoreState
+  //   가 전부 틀린 좌표로 계산돼 긴 세션에서 화면이 "위로 말려 올라갔다"(새 이벤트 유입 = 절단 시점).
+  const firstItemIndex = useVirtuosoFrontShift(items, streamItemId);
+
   const thinkingLabel = t('ide.streamRenderer.thinking');
   // IDE 본문 텍스트 줌 — 각 항목 래퍼에 zoom 적용(아래 renderStreamItem). 변경 시 itemContent 정체성이
   //   바뀌어 Virtuoso 가 전 항목을 재측정 → 새 배율로 정착(줌 조작은 드물어 비용 무관).
   const ideTextZoom = useGraphStore((s) => s.ideTextZoom);
   const itemContent = useCallback(
-    (_index: number, item: StreamItemFull) => renderStreamItem(item, thinkingLabel, ideTextZoom),
-    [thinkingLabel, ideTextZoom],
+    (_index: number, item: StreamItemFull) =>
+      renderStreamItem(item, thinkingLabel, ideTextZoom, agentId ? { agentId, ...(subAgentId ? { subAgentId } : {}) } : undefined),
+    [thinkingLabel, ideTextZoom, agentId, subAgentId],
   );
 
   // v2.99 — virtuoso 가 단독 소유한 내부 스크롤러 DOM. 북마크 이동의 "컨테이너 한정 스크롤" 이 이걸 쓴다
@@ -497,9 +531,6 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
       if (range) scrollRangeIntoCenter(cont, range);
     }, idx >= 0 ? 280 : 60);
   }, [items]);
-  const scrollToBottom = useCallback(() => {
-    virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'auto' });
-  }, []);
   // 하단 상태바 점프: 명령 항목(cmd-${id})을 인덱스로 먼저 렌더(virtuoso)시킨 뒤, 다음 프레임에 컨테이너
   //   한정으로 상단(-16px) 정렬. 인덱스 스크롤을 빼면 미렌더 항목에서 querySelector 가 null → 안 올라간다.
   const scrollToCommand = useCallback((cmdId: string) => {
@@ -528,11 +559,7 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
     }
     return ids;
   }, [items]);
-  useImperativeHandle(ref, () => ({ scrollToBookmark, scrollToBottom, scrollToCommand, getState, searchMatchIds }), [scrollToBookmark, scrollToBottom, scrollToCommand, getState, searchMatchIds]);
-
-  // v2.99 — 바닥 추종을 라이브러리에 위임: 바닥에 있을 때만 새 출력을 따라 내려가고(사용자가 위로 올리면
-  //   자동으로 비추종), 옛 수동 scrollTop=scrollHeight / 제스처 추적 / 측정 보정 구분이 전부 불필요해진다.
-  const followOutput = useCallback((isAtBottom: boolean): 'auto' | false => (isAtBottom ? 'auto' : false), []);
+  useImperativeHandle(ref, () => ({ scrollToBookmark, scrollToCommand, getState, searchMatchIds }), [scrollToBookmark, scrollToCommand, getState, searchMatchIds]);
 
   if (items.length === 0) {
     return (
@@ -543,7 +570,8 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
   }
 
   // v2.99 — Virtuoso 가 height:100% 로 자기 스크롤러를 단독 소유(외부 customScrollParent 공유 폐기).
-  //   followOutput 으로 바닥 추종, atBottomStateChange 로 추종 의도 통지, restoreStateFrom 으로 세션 복원.
+  //   v3.14 — 바닥 추종 집행은 부모(IDEMainArea)의 DOM 워치독 단일 권한(followOutput 위임 제거 —
+  //   모델 좌표 역주행 차단). atBottomStateChange 로 추종 의도 통지, restoreStateFrom 으로 세션 복원.
   return (
     <Virtuoso
       ref={virtuosoRef}
@@ -551,13 +579,14 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
       style={{ height: '100%' }}
       scrollerRef={handleScrollerRef}
       data={items}
+      // v3.13 — 앞쪽 절단 누적 수. virtuoso 가 공식 shift 경로로 sizeTree 키 재정렬 + scrollTop 보정.
+      firstItemIndex={firstItemIndex}
       computeItemKey={(_i, item) => item.id}
       itemContent={itemContent}
-      followOutput={followOutput}
+      // v3.17 — 마지막 줄과 하단 입력부 사이 여백(리스트 일부라 바닥 접착에 포함).
+      components={{ Footer: StreamEndGap }}
       atBottomStateChange={onAtBottomChange}
       atBottomThreshold={40}
-      // v3.12 — 측정 모델 총높이 변화 직후에만 발화(높이 인자는 버린다). 부모가 이 시점을 유일한 성장 pin 트리거로 삼는다.
-      totalListHeightChanged={onTotalListHeightChanged}
       // 복원 스냅샷이 있으면 그 위치/측정값으로, 없으면(첫 진입) 마지막 항목(바닥)에서 시작 — 둘은 배타.
       {...(restoreState
         ? { restoreStateFrom: restoreState }

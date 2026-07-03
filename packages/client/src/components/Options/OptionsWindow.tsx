@@ -11,7 +11,7 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import type { AgentConfig, UserDefaults, ClaudeInstallsInfo, ClaudeInstall } from '@vibisual/shared';
+import type { AgentConfig, UserDefaults, ClaudeInstallsInfo, ClaudeInstall, UiLocale } from '@vibisual/shared';
 import {
   AVAILABLE_AGENT_TOOLS,
   DEFAULT_AGENT_CONFIG,
@@ -19,6 +19,8 @@ import {
   resolveAliasToLatest,
   listModelFamilies,
   parseModelSemver,
+  SUPPORTED_UI_LOCALES,
+  LOCALE_META,
 } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 
@@ -44,6 +46,10 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
   const { t } = useTranslation();
   const userDefaults = useGraphStore((s) => s.userDefaults);
   const modelRegistry = useGraphStore((s) => s.modelRegistry);
+  // §4 v3.24 — Appearance › Language. 폰(max-md)에선 헤더 LanguageSwitcher 가 숨겨져 여기가 유일한 변경 경로.
+  //   Apply/Cancel dirty 흐름과 독립 — 선택 즉시 적용(헤더 스위처와 동일 setUiLocale 경로).
+  const uiLocale = useGraphStore((s) => s.uiLocale);
+  const setUiLocale = useGraphStore((s) => s.setUiLocale);
   const overlayRef = useRef<HTMLDivElement>(null);
 
   const [category, setCategory] = useState<CategoryKey>('agent');
@@ -269,7 +275,7 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
       className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60"
       onClick={handleOverlayClick}
     >
-      <div className="flex h-[640px] w-[860px] flex-col overflow-hidden rounded-lg border border-gray-700 bg-gray-900 shadow-2xl">
+      <div className="flex h-[640px] max-h-[92dvh] w-[860px] max-w-[94vw] flex-col overflow-hidden rounded-lg border border-gray-700 bg-gray-900 shadow-2xl max-md:h-dvh max-md:max-h-dvh max-md:w-screen max-md:max-w-none max-md:rounded-none max-md:border-0">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-gray-700 px-4 py-3">
           <h3 className="flex items-center gap-2 text-sm font-bold text-gray-100">
@@ -284,8 +290,8 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
 
         {/* Body — 좌측 사이드바 + 우측 패널 */}
         <div className="flex flex-1 overflow-hidden">
-          {/* Sidebar */}
-          <div className="w-44 shrink-0 border-r border-gray-700/50 bg-gray-900/40 py-2">
+          {/* Sidebar — 폰에선 좁혀 본문 공간 확보 */}
+          <div className="w-44 shrink-0 overflow-y-auto border-r border-gray-700/50 bg-gray-900/40 py-2 max-md:w-28">
             {categories.map((c) => (
               <button
                 key={c.key}
@@ -507,6 +513,35 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
               </div>
             )}
 
+            {/* §4 v3.24 — Appearance: 언어 선택(즉시 적용). v2.42 에서 1차 예정이던 uiLocale 실구현. */}
+            {category === 'appearance' && (
+              <div className="flex flex-col gap-4">
+                <div className="border-b border-gray-700/50 pb-2">
+                  <h4 className="text-sm font-semibold text-gray-200">{t('panel.options.categories.appearance', { defaultValue: 'Appearance' })}</h4>
+                  <p className="mt-1 text-[11px] text-gray-500">
+                    {t('panel.options.appearance.intro', { defaultValue: 'Personalize how Vibisual looks.' })}
+                  </p>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-medium text-gray-400">
+                    {t('panel.options.appearance.language', { defaultValue: 'Language' })}
+                  </label>
+                  <select
+                    value={uiLocale}
+                    onChange={(e) => { void setUiLocale(e.target.value as UiLocale); }}
+                    className="rounded border border-gray-700 bg-gray-900 px-2 py-1.5 text-xs text-gray-200 outline-none hover:border-gray-600 focus:border-blue-500"
+                  >
+                    {SUPPORTED_UI_LOCALES.map((loc: UiLocale) => (
+                      <option key={loc} value={loc}>{LOCALE_META[loc].nativeName}</option>
+                    ))}
+                  </select>
+                  <p className="text-[10px] text-gray-600">
+                    {t('panel.options.appearance.languageDesc', { defaultValue: 'UI display language. Applies immediately.' })}
+                  </p>
+                </div>
+              </div>
+            )}
+
             {category === 'version' && (
               <VersionTab
                 info={installs}
@@ -519,7 +554,7 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
               />
             )}
 
-            {category !== 'agent' && category !== 'version' && (
+            {category !== 'agent' && category !== 'version' && category !== 'appearance' && (
               <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
                 <svg className="h-10 w-10 text-gray-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>

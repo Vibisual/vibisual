@@ -1,6 +1,6 @@
 {
   "name": "@vibisual/desktop",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "private": true,
   "type": "module",
   "description": "Vibisual Electron desktop shell — main process runs the server in-process (§3.7)",
@@ -24,12 +24,15 @@
     "publish:linux": "electron-vite build && electron-builder --linux --publish always"
   },
   "dependencies": {
+    "@runonflux/nat-upnp": "^1.0.2",
     "@vibisual/client": "workspace:*",
     "@vibisual/server": "workspace:*",
     "@vibisual/shared": "workspace:*",
     "electron-updater": "^6.3.9",
     "light-my-request": "^6.6.0",
-    "node-pty": "^1.0.0"
+    "node-pty": "^1.0.0",
+    "selfsigned": "^5.5.0",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "@electron-toolkit/preload": "^3.0.1",
@@ -38,6 +41,7 @@
     "@tailwindcss/vite": "^4.1.0",
     "@types/express": "^5.0.6",
     "@types/node": "^20.19.39",
+    "@types/ws": "^8.5.13",
     "@vitejs/plugin-react": "^4.3.0",
     "electron": "^31.7.7",
     "electron-builder": "^24.13.3",

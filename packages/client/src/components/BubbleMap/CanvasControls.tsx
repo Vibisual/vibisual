@@ -12,7 +12,7 @@ function Glyph({ children }: { children: React.ReactNode }): React.JSX.Element {
       strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="h-3.5 w-3.5"
+      className="h-3.5 w-3.5 pointer-coarse:h-5 pointer-coarse:w-5"
       aria-hidden="true"
     >
       {children}
@@ -58,7 +58,7 @@ function CtrlButton({ label, onClick, active, children }: CtrlButtonProps): Reac
       onClick={onClick}
       title={label}
       aria-label={label}
-      className={`flex h-7 w-7 items-center justify-center transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-blue-400 ${
+      className={`flex h-7 w-7 items-center justify-center transition-colors pointer-coarse:h-11 pointer-coarse:w-11 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-blue-400 ${
         active
           ? 'bg-blue-500/25 text-blue-300'
           : 'text-gray-100 hover:bg-blue-500/20 hover:text-blue-300 active:bg-blue-500/30'

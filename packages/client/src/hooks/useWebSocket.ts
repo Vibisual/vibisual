@@ -106,6 +106,7 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     store.applyAgentQuestions(snap.agentQuestions);
     store.applyAgentReviews(snap.agentReviews);
     store.applyAgentLists(snap.agentLists);
+    store.applyAgentFeedbacks(snap.agentFeedbacks);
     store.applyDiagnosticLog(snap.diagnosticLog);
     store.applyModelRegistry(snap.modelRegistry);
     store.applyUserDefaults(snap.userDefaults);

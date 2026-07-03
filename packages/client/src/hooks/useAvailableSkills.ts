@@ -19,15 +19,29 @@ export interface SkillOrder {
   plugin: string[];
 }
 
+/**
+ * §5.5 #17-2 v3.19 — CLI 내장(built-in) 슬래시 명령. 서버가 Claude Code CLI 바이너리를
+ * raw scan 해 추출(builtinCommandsService). `/` 자동완성 전용 — Skills 사이드바엔 안 나온다.
+ */
+export interface BuiltinCommandInfo {
+  name: string;
+  description: string;
+  aliases: string[];
+  /** CLI 가 헤드리스(비인터랙티브) 모드에서도 처리하는 명령인지. */
+  supportsNonInteractive: boolean;
+}
+
 interface SkillsState {
   skills: SkillInfo[];
+  /** §5.5 #17-2 v3.19 — CLI 내장 슬래시 명령(자동완성 전용). */
+  builtins: BuiltinCommandInfo[];
   order: SkillOrder;
   /** §5.5 #17-4 v2.93 — 즐겨찾기 스킬명(별 누른 순서, 출처 무관). */
   favorites: string[];
 }
 
 const EMPTY_ORDER: SkillOrder = { project: [], global: [], plugin: [] };
-const EMPTY_STATE: SkillsState = { skills: [], order: EMPTY_ORDER, favorites: [] };
+const EMPTY_STATE: SkillsState = { skills: [], builtins: [], order: EMPTY_ORDER, favorites: [] };
 
 /**
  * §5.5 #17-2/#17-4 v2.59 — 프로젝트별 조회.
@@ -81,12 +95,29 @@ function normalizeFavorites(raw: unknown): string[] {
   return out;
 }
 
+function normalizeBuiltins(raw: unknown): BuiltinCommandInfo[] {
+  if (!Array.isArray(raw)) return [];
+  const out: BuiltinCommandInfo[] = [];
+  for (const x of raw) {
+    const r = x as { name?: unknown; description?: unknown; aliases?: unknown; supportsNonInteractive?: unknown };
+    if (typeof r?.name !== 'string' || !r.name) continue;
+    out.push({
+      name: r.name,
+      description: typeof r.description === 'string' ? r.description : '',
+      aliases: Array.isArray(r.aliases) ? r.aliases.filter((a): a is string => typeof a === 'string') : [],
+      supportsNonInteractive: r.supportsNonInteractive === true,
+    });
+  }
+  return out;
+}
+
 function fetchSkills(key: string): Promise<SkillsState> {
   return fetch(urlForKey(key))
-    .then((r) => r.json() as Promise<{ ok: boolean; skills: SkillInfo[]; order?: unknown; favorites?: unknown }>)
+    .then((r) => r.json() as Promise<{ ok: boolean; skills: SkillInfo[]; builtins?: unknown; order?: unknown; favorites?: unknown }>)
     .then((d) => {
       const next: SkillsState = {
         skills: d.ok && Array.isArray(d.skills) ? d.skills : [],
+        builtins: d.ok ? normalizeBuiltins(d.builtins) : [],
         order: normalizeOrder(d.order),
         favorites: normalizeFavorites(d.favorites),
       };
@@ -193,7 +224,7 @@ export async function persistSkillFavorites(favorites: string[]): Promise<void> 
  * 같은 프로젝트를 볼 때 같은 데이터를 본다. v2.59 부터 캐시는 projectName 키로 분리되어
  * 탭(프로젝트)마다 독립 목록을 반환한다. fetch 는 프로젝트 키별 첫 호출 시 1회.
  */
-export function useAvailableSkills(projectName?: string | null, agentId?: string | null): { skills: SkillInfo[]; order: SkillOrder; favorites: string[]; loaded: boolean } {
+export function useAvailableSkills(projectName?: string | null, agentId?: string | null): { skills: SkillInfo[]; builtins: BuiltinCommandInfo[]; order: SkillOrder; favorites: string[]; loaded: boolean } {
   const key = keyOf(projectName, agentId);
   const [state, setState] = useState<SkillsState>(() => caches.get(key) ?? EMPTY_STATE);
   const [loaded, setLoaded] = useState<boolean>(caches.has(key));
@@ -231,5 +262,5 @@ export function useAvailableSkills(projectName?: string | null, agentId?: string
     };
   }, [key]);
 
-  return { skills: state.skills, order: state.order, favorites: state.favorites, loaded };
+  return { skills: state.skills, builtins: state.builtins, order: state.order, favorites: state.favorites, loaded };
 }

@@ -11,6 +11,7 @@ import { setupIpc, type IpcHub } from './ipc';
 import { loadSecrets } from './secrets';
 import { loadHookIdentity, saveHookIdentity, hookIdentityPath } from './hookIdentity';
 import { configureWindowManager, closeAll as closeAllDetachedWindows, closeAllOverlays } from './windowManager';
+import { initMobileAccess, mobileBroadcast, stopMobileAccess } from './mobileAccess';
 import { initAutoUpdater, stopAutoUpdater } from './updaterManager';
 import { killAllTerminals } from './terminalManager';
 
@@ -354,6 +355,8 @@ async function bootBackend(): Promise<void> {
     for (const win of BrowserWindow.getAllWindows()) {
       if (!win.isDestroyed()) win.webContents.send('vibisual:ws', msg);
     }
+    // §4 v3.16 — 모바일 웹 접속 모드가 켜져 있으면 LAN WebSocket 클라이언트에도 팬아웃.
+    mobileBroadcast(msg);
   });
 
   // server 코어를 in-process 구동 — HTTP listen / ws 없이 Express app 만 받는다.
@@ -404,6 +407,10 @@ async function bootBackend(): Promise<void> {
   }
 
   ipcHub = setupIpc(handle.app);
+
+  // §4 v3.16 — 모바일 웹 접속 모드(opt-in). 꺼져 있으면 소켓을 열지 않는다.
+  // 이전 실행에서 켜져 있었으면(userData mobile-access.json) 자동 재기동.
+  initMobileAccess(handle.app);
 }
 
 // 단일 인스턴스 락 — 2번째 실행이 백엔드를 또 부팅해 ~/.claude/settings.json 의 hook 포트를
@@ -483,6 +490,11 @@ app.on('before-quit', (event) => {
     : Promise.resolve();
   hookListener = null;
 
+  // §4 v3.16 — 모바일 웹 접속 리스너 정리(켜져 있던 경우만 실 소켓 close).
+  const mobileClose = stopMobileAccess().catch((err: unknown) => {
+    console.warn('[main] stopMobileAccess failed:', err);
+  });
+
   // Persistent SubAgent children — VS Code Claude Code 확장과 같은 long-lived 모델에서
   // 살아있는 claude 자식들을 깨끗이 종료. 마킹 → stdin.end → SIGTERM → 2s 후 SIGKILL.
   // 마킹 없이 죽이면 close 핸들러가 crash 경로로 분기해 다음 부팅 시 잔여 sessionId 로 오탐.
@@ -490,5 +502,5 @@ app.on('before-quit', (event) => {
     console.warn('[main] shutdownAllPersistentChildren failed:', err);
   });
 
-  Promise.all([listenerClose, subShutdown]).finally(() => app.exit(0));
+  Promise.all([listenerClose, mobileClose, subShutdown]).finally(() => app.exit(0));
 });
