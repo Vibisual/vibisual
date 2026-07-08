@@ -320,6 +320,18 @@ function detectServerKind(command: string, logText?: string): ServerKind {
   return 'backend';
 }
 
+/** §7.11 v2.29 — iframe 위성 dedup 용 정규화 키 = 포트 문자열. host alias(localhost/127.0.0.1)·경로·쿼리를
+ *  무시하고 포트만 남긴다(한 프로젝트 안에서 포트는 서버를 유일하게 가리킴). 파싱 실패면 null. */
+function iframePortKey(url: string | undefined): string | null {
+  if (!url) return null;
+  try {
+    const u = new URL(url);
+    return u.port || (u.protocol === 'https:' ? '443' : '80');
+  } catch {
+    return null;
+  }
+}
+
 /** `<root>/.vibisual/dev-server.json` 를 cwd 기준으로 위로 탐색하여 읽는다. */
 function readDevServerMarker(
   startCwd: string | undefined,
@@ -5845,6 +5857,43 @@ export class ProjectGraph {
   }
 
   /**
+   * §7.11 v2.29 — 에이전트가 `POST /api/agent-iframe` 로 신고한 서버 URL 로 iframe 위성을 직접 생성한다.
+   * 명령어·로그 정규식 추측 없이 결정론적(신고 = 주 경로). "진짜 서버만" 원칙: isPortAlive 로 listen 이
+   * 확인된 뒤에만 위성을 만들고(살아있는 서버만), 신고가 accept 보다 살짝 빠른 boot race 는 몇 차례 재시도로
+   * 흡수한다. "중첩 금지": createIframeSatellite 의 (세션,포트) 키 + dedupeIframeSatellitesByUrl 포트 정규화가
+   * 같은 서버 재신고·감지 폴백을 하나로 합류시킨다.
+   * @returns agentId→세션 해석 + URL 파싱이 성립하면 true(위성 자체는 probe 통과 후 async 생성).
+   */
+  reportIframeFromAgent(agentId: string, rawUrl: string): boolean {
+    const sessionId = this.findSessionByAgentId(agentId);
+    if (!sessionId) return false;
+    let parsed: URL;
+    try { parsed = new URL(rawUrl); } catch { return false; }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
+    const port = parsed.port
+      ? parseInt(parsed.port, 10)
+      : (parsed.protocol === 'https:' ? 443 : 80);
+    if (!Number.isInteger(port) || port <= 0 || port > 65535) return false;
+
+    const tryCreate = (retriesLeft: number): void => {
+      void isPortAlive(port).then((alive) => {
+        // await 중 세션이 사라졌을 수 있어 재확인
+        if (!this.agents.has(sessionId)) return;
+        if (alive) {
+          this.createIframeSatellite(sessionId, rawUrl, port, undefined, undefined, true, rawUrl);
+          this.onSnapshotChange?.();
+        } else if (retriesLeft > 0) {
+          setTimeout(() => tryCreate(retriesLeft - 1), 1500);
+        } else {
+          logger.info(`agent-iframe: port ${port} not alive — 위성 생성 보류 (${rawUrl.slice(0, 80)})`);
+        }
+      }).catch(() => { /* probe 실패 — 조용히 무시 */ });
+    };
+    tryCreate(3);
+    return true;
+  }
+
+  /**
    * 에이전트 위성으로 iframe 버블 생성 — agent.persistSatellites에 직접 저장.
    * @param fromNewBash true면 dismissed 집합을 해제하고 재생성 허용 (사용자가 Bash로
    *   서버를 새로 시작한 경우). false면 dismissed에 포함된 포트는 skip
@@ -5857,6 +5906,9 @@ export class ProjectGraph {
     shellId?: string,
     logText?: string,
     fromNewBash = false,
+    /** §7.11 v2.29 — 에이전트가 신고한 정확한 URL(경로·쿼리 포함). 있으면 기본 `http://localhost:{port}`
+     *  대신 이 값을 위성 url 로 쓴다(사용자가 원하던 바로 그 페이지가 프리뷰로 열리게). */
+    displayUrl?: string,
   ): void {
     const iframeKey = `__special__iframe__${sessionId}__${port}`;
 
@@ -5889,13 +5941,17 @@ export class ProjectGraph {
       if (logText && existing.serverKind !== 'frontend') {
         existing.serverKind = detectServerKind(command, logText);
       }
+      // §7.11 v2.29 — 에이전트가 명시 URL(경로 포함)을 신고했으면 표시 URL 을 그걸로 갱신한다.
+      //   감지 폴백이 먼저 `http://localhost:{port}`(경로 없음)로 만들었어도, 신고가 오면
+      //   사용자가 원하던 바로 그 페이지(예: /mirror-engine-autoplay.html)로 덮어써 프리뷰가 맞게 열린다.
+      if (displayUrl) existing.url = displayUrl;
       // 같은 URL을 가진 다른 에이전트의 오래된 iframe은 제거 (이 에이전트로 이동)
       if (existing.url) this.dedupeIframeSatellitesByUrl(existing.url, sessionId);
       return;
     }
 
     const kind = detectServerKind(command, logText);
-    const url = `http://localhost:${port}`;
+    const url = displayUrl ?? `http://localhost:${port}`;
 
     agent.persistSatellites.push({
       id: `special-${hashString(iframeKey)}`,
@@ -5922,12 +5978,18 @@ export class ProjectGraph {
    * 최근인 것만 유지.
    */
   private dedupeIframeSatellitesByUrl(url: string, keepSessionId?: string): void {
+    // §7.11 v2.29 — 매칭을 **포트 정규화**로 한다(문자열 정확일치 ❌). 신고 경로는 `http://127.0.0.1:8777/page.html`,
+    //   감지 폴백은 `http://localhost:8777`(경로 없음)처럼 같은 서버를 다른 문자열로 만든다 — exact 비교면
+    //   둘이 안 합쳐져 **중첩 버블**이 생긴다. 한 ProjectGraph(=한 프로젝트) 안에서 포트는 서버 1개를 유일하게
+    //   가리키므로 포트로 접으면 host alias·경로차와 무관하게 하나로 합류한다.
+    const wantedPort = iframePortKey(url);
+    if (wantedPort === null) return;
     // 대상 수집 — (sessionId, index, lastActivity)
     const candidates: { sessionId: string; index: number; lastActivity: number }[] = [];
     for (const [sid, agent] of this.agents) {
       if (!agent.persistSatellites) continue;
       agent.persistSatellites.forEach((sat, idx) => {
-        if (sat.bubbleType === 'iframe' && sat.url === url) {
+        if (sat.bubbleType === 'iframe' && iframePortKey(sat.url) === wantedPort) {
           candidates.push({ sessionId: sid, index: idx, lastActivity: sat.lastActivity ?? 0 });
         }
       });

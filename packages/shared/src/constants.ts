@@ -2147,6 +2147,51 @@ JSON
 - 토큰 헤더(\`x-vibisual-hook-token\`)가 없으면 401 이다. 위 예시에 이미 포함돼 있다.`;
 }
 
+/**
+ * §7.11 v2.29 — 커스텀/스폰 에이전트에게 주입할 "서버 iframe 신고" 지시문 (시스템 프롬프트 꼬리표).
+ *
+ * 작업 신고·질문·검수·목록 카드와 동일 인프라(토큰 인증 loopback)이지만 **표시 대상이 다르다**:
+ * 에이전트가 사용자가 열어볼 서버(dev/정적/게임 프리뷰 등)를 띄웠을 때 그 URL 을 `POST /api/agent-iframe`
+ * 로 신고하면, Vibisual 이 그 세션에 **iframe 위성 버블을 정확한 URL 로 직접 생성**한다(캔버스에서 클릭 →
+ * 앱 안 프리뷰). 종전엔 서버를 명령어·로그에서 정규식으로 "추측"해 잡았는데, 위치 인자 포트·버퍼링된 배너 등
+ * 새 기동 방식마다 놓쳤다(§7.11 v2.28). 신고는 URL 이 그대로 오므로 추측이 사라진다 — 이게 **주 경로**,
+ * 정규식 감지는 외부(우리가 spawn 안 한 vscode 등) 세션용 폴백으로 남는다. Hook 에이전트는 spawn/rules
+ * 통제 밖이라 이 지시문이 안 들어간다(하이브리드 경계).
+ */
+export function buildAgentIframeRules(args: {
+  serverBase: string;
+  serverToken: string;
+  agentId: string;
+  subAgentId?: string;
+  /** v2.71 — 있으면 curl 이 호출 시점에 이 파일에서 live 포트·토큰을 읽는다(없으면 serverBase/serverToken 상수). */
+  identityFile?: string;
+}): string {
+  const { serverBase, serverToken, agentId, subAgentId, identityFile } = args;
+  const subField = subAgentId ? `"${subAgentId}"` : 'null';
+  const prelude = buildDynamicEndpointPrelude(identityFile, serverBase, serverToken);
+  const base = prelude ? '$VIBI_BASE' : serverBase;
+  const tokenHdr = prelude ? `-H "x-vibisual-hook-token: $VIBI_TOKEN"` : `-H 'x-vibisual-hook-token: ${serverToken}'`;
+  return `
+
+# 서버 iframe 신고 (Vibisual IDE 프리뷰 버블)
+사용자가 **브라우저로 열어볼 만한 로컬 서버**(dev 서버, 정적 파일 서버, 게임/데모 프리뷰 등)를 띄웠을 때는, 그 URL 을 아래 엔드포인트로 **1회 신고**한다. Vibisual 이 그 URL 로 **iframe 프리뷰 버블**을 캔버스에 직접 띄워 사용자가 링크를 복사해 열 필요 없이 앱 안에서 바로 본다.
+
+- \`url\`: 사용자가 열 **정확한 URL**(포트 + 경로 포함). 특정 페이지를 보여주려면 그 경로까지 넣어라(예: \`http://127.0.0.1:8777/index.html\`).
+
+**서버가 실제로 응답하는 걸 확인한 뒤**(예: curl 로 200 확인) 신고하라 — 살아있는 서버만 버블이 뜬다. 같은 URL 을 다시 신고해도 **중복 버블은 안 생긴다**(같은 포트는 하나로 합쳐짐) — 안심하고 보내도 된다.
+\`\`\`bash
+${prelude}curl -s -X POST "${base}/api/agent-iframe" \\
+  ${tokenHdr} \\
+  -H 'Content-Type: application/json' --data-binary @- <<'JSON'
+{"agentId":"${agentId}","subAgentId":${subField},"url":"http://127.0.0.1:8777/index.html"}
+JSON
+\`\`\`
+- **일회성 명령·probe(curl/wget)·빌드처럼 사용자가 열어볼 서버가 아니면 보내지 마라.** 프리뷰할 실제 서버가 있을 때만.
+- 신고 후 자연어 본문에서 "링크를 브라우저에서 여세요" 식 안내를 길게 반복하지 마라 — 버블이 그 역할을 한다. 짧은 맥락 한 줄이면 충분.
+- 이 신고는 **표시 전용** — 실제 작업/판정 로직과 무관하며, 보내든 안 보내든 결과엔 영향이 없다.
+- 토큰 헤더(\`x-vibisual-hook-token\`)가 없으면 401 이다. 위 예시에 이미 포함돼 있다.`;
+}
+
 // ─── §4 v3.21 — 에이전트 피드백 학습 루프 (좋아요/싫어요 → 규칙 되먹임) ───
 
 /** agentId 당 보관하는 피드백 최대 개수 (ring buffer 캡, 초과 시 오래된 것부터 제거). */
@@ -2249,6 +2294,12 @@ echo '${S}{"kind":"review","instruction":"받은 지시 한 줄","changes":["무
 echo '${S}{"kind":"list","title":"플레이어에게 표시할 것","items":["크로스헤어","인벤토리 바","현장 위험도"]}'
 \`\`\`
 - \`items\` 가 비거나 1개면 보내지 마라.
+
+5) 서버 iframe — 사용자가 **브라우저로 열어볼 로컬 서버**(dev/정적/게임 프리뷰 등)를 띄웠을 때만. \`url\` 은 포트+경로 포함 정확한 주소. IDE 가 그 URL 로 프리뷰 버블을 띄운다.
+\`\`\`bash
+echo '${S}{"kind":"iframe","url":"http://127.0.0.1:8777/index.html"}'
+\`\`\`
+- 서버가 실제로 응답하는 걸 확인한 뒤 보내라(살아있는 서버만 버블이 뜬다). 같은 URL 재신고해도 중복 버블은 안 생긴다.
 
 공통: **단순 완료·일상 대화·조사 답변 등 사용자 손이 필요 없는 보고에선 인쇄하지 마라.** 이 신고는 표시 전용이라
 보내든 안 보내든 실제 작업 결과엔 영향이 없다. 카드에 담은 목록을 자연어 본문에 헤딩·목록으로 다시 풀어 쓰지 마라.`;

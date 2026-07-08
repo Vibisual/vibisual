@@ -230,6 +230,8 @@ async function startHookListener(expressApp: Express, preferredPort: number): Pr
       path !== '/api/agent-review' &&
       // §4 v2.84 — 커스텀/스폰 에이전트의 번호 목록 정렬 카드(items). 토큰 인증 필수.
       path !== '/api/agent-list' &&
+      // §7.11 v2.29 — 커스텀/스폰 에이전트의 서버 iframe 신고(url). 토큰 인증 필수.
+      path !== '/api/agent-iframe' &&
       !isBuilderPath
     ) {
       res.statusCode = 404;
