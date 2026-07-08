@@ -95,6 +95,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   // §4 v3.25 — 폰에선 하단 상태바(IDEStatusBar)도 기본 숨김 — 타이틀바 우측 토글 버튼으로만 연다
   //   (h-6 한 줄이지만 폰에선 본문 세로 공간이 더 귀하다). 데스크톱은 isNarrow=false 라 항상 표시.
   const [mobileStatusOpen, setMobileStatusOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   // 열 때 사이드바가 접혀 있으면 함께 펼친다 — 활동바 48px 만 덜렁 뜨면 "버튼 눌렀는데 안 나온다"로 보인다.
   const handleToggleMobileNav = useCallback(() => {
     const next = !mobileNavOpen;
@@ -303,16 +304,26 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     if (first) setSession(first.id);
   }, [isCustom, agentId, activeSessionId, subAgents, setSession]);
 
-  // IDE 열릴 때 서버에서 버퍼된 스트림 이벤트 로드
-  useEffect(() => {
+  // 서버(디스크)에서 버퍼된 스트림 이벤트를 다시 불러온다. IDE 열릴 때 자동 + 새로고침 버튼 수동.
+  // 크래시/미hydrate 로 화면엔 "No activity" 인데 sub-streams/*.jsonl 은 디스크에 온전한 경우,
+  // 앱 재시작 없이 이 재요청으로 되살린다(loadStreamBuffers 가 세션 스트림을 디스크 버퍼로 재적재).
+  const refreshStreams = useCallback(() => {
     if (!agentId) return;
+    setRefreshing(true);
+    // 캔버스 버블/에이전트 상태도 함께 최신화 — 소속 프로젝트 스냅샷 재요청.
+    const proj = useGraphStore.getState().activeProject;
+    if (proj) useGraphStore.getState().hydrateProject(proj);
     fetch(`/api/subagent-streams/${agentId}`)
       .then((r) => r.json())
       .then((data: { streams?: Record<string, SubAgentStreamEvent[]> }) => {
         if (data.streams) useGraphStore.getState().loadStreamBuffers(data.streams);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setRefreshing(false));
   }, [agentId]);
+
+  // IDE 열릴 때(agentId 변경 시) 자동 로드.
+  useEffect(() => { refreshStreams(); }, [refreshStreams]);
 
   // + 탭 클릭 — 브라우저 새 탭 처럼 클릭 즉시 새 탭 생성 + 포커스 (서버 응답 대기 X).
   //   1) 클라이언트가 sub id 미리 생성
@@ -517,6 +528,23 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
               <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
                 <rect x="3" y="3" width="18" height="18" rx="2" />
                 <path d="M3 15h18" />
+              </svg>
+            </button>
+            {/* 새로고침 — 디스크의 세션 스트림(sub-streams/*.jsonl) + 캔버스 스냅샷을 재요청.
+                크래시/미hydrate 로 "No activity" 인데 데이터는 살아있는 경우 앱 재시작 없이 복구. */}
+            <button
+              type="button"
+              onClick={refreshStreams}
+              disabled={refreshing}
+              className="app-nodrag flex h-6 w-6 items-center justify-center rounded text-gray-400 transition-colors pointer-coarse:h-9 pointer-coarse:w-9 hover:bg-gray-700 hover:text-gray-200 disabled:opacity-50"
+              aria-label={t('ide.overlay.refreshLabel', { defaultValue: 'Reload session' })}
+              title={t('ide.overlay.refreshLabel', { defaultValue: 'Reload session' })}
+            >
+              <svg className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+                <path d="M21 3v5h-5" />
+                <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+                <path d="M3 21v-5h5" />
               </svg>
             </button>
             {/* fullWindow 는 창=IDE 1:1 — 확대축소는 OS 창 엣지 리사이즈로, in-window maximize 버튼 숨김. */}
