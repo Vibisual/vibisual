@@ -28,6 +28,7 @@ import { agentTracker } from './services/agentTracker.js';
 import { discoverSessions, findPidBySession, isProcessAlive, readSessionTokenData, setLivenessProbeListener } from './services/sessionDiscovery.js';
 import { SessionLifecycleManager } from './services/sessionLifecycle.js';
 import { subAgentManager, recordCmdTermSession } from './services/subAgentManager.js';
+import { reapOrphanedPidsFromPreviousRun } from './services/processTree.js';
 import { validatePathWithinRoot } from './services/pathValidator.js';
 import { openFile, openFileAtSearch, openFolder } from './services/editorLauncher.js';
 import { iframeProxyHandler } from './services/iframeProxy.js';
@@ -54,6 +55,8 @@ export { recordDiagnostic, diagnosticService } from './services/diagnosticServic
 // Persistent SubAgent child — desktop main 의 before-quit 핸들러가
 // `subAgentManager.shutdownAllPersistentChildren()` 으로 long-lived claude 자식들을 깨끗이 종료.
 export { subAgentManager, buildInteractiveClaudeArgs, prepareInteractiveRulesDir, recordCmdTermSession, getCmdResumeSession } from './services/subAgentManager.js';
+// § 프로세스 트리 누수 — desktop 의 PTY(cmd.exe→claude) 종료 시 Windows 트리 전체를 회수하는 데 재사용.
+export { killTree } from './services/processTree.js';
 // §4 v2.63 — desktop main 의 임베디드 터미널 매니저가 인터랙티브 claude 를 스폰할 때
 // 같은 바이너리(버전 체크/헤드리스 스폰과 동일 SSOT)를 쓰도록 경로 resolver 를 노출.
 export { resolveClaudeBin } from './services/claudeBin.js';
@@ -87,6 +90,9 @@ export function setHookListenerIdentityFile(filePath: string): void {
 export interface RunServerHandle { app: import('express').Express; }
 
 export async function runServer(): Promise<RunServerHandle> {
+  // 크래시(before-quit 미발동)로 지난 런의 claude 트리가 고아로 남았으면 부팅 시 회수(§ 프로세스 트리 누수).
+  void reapOrphanedPidsFromPreviousRun();
+
   /** cwd에서 위로 올라가며 pnpm-workspace.yaml 있는 디렉토리 = 프로젝트 루트 */
   function findProjectRoot(start: string): string {
     let dir = path.resolve(start);

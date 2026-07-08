@@ -11,6 +11,7 @@ import * as streamBufferStore from './streamBufferStore.js';
 import { resolveClaudeBin } from './claudeBin.js';
 import { isAgentViewEnabled, spawnBackground, stopSession, rmSession } from './claudeAgentViewService.js';
 import { attach as attachWatcher, detach as detachWatcher } from './claudeAgentViewWatcher.js';
+import { killTree, terminateChildTree, registerSpawnedPid, unregisterSpawnedPid } from './processTree.js';
 
 /** parentAgentId → 소속 ProjectInfo 해석. index.ts에서 graphManager 기반으로 주입. */
 export type AgentProjectResolver = (parentAgentId: string) => ProjectInfo | null;
@@ -798,6 +799,8 @@ export class SubAgentManager {
         resolve({ ok: false, error: err instanceof Error ? err.message : String(err) });
         return;
       }
+      registerSpawnedPid(child.pid);
+      child.once('exit', () => unregisterSpawnedPid(child.pid));
 
       let stdout = '';
       let settled = false;
@@ -805,7 +808,9 @@ export class SubAgentManager {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        try { child.kill(); } catch { /* ignore */ }
+        // 결과는 이미 캡처됨 — 직접 자식만 죽이면 claude 손자(node worker/MCP)가 고아로 남는다. 트리째 회수.
+        killTree(child.pid);
+        unregisterSpawnedPid(child.pid);
         resolve(r);
       };
       const timer = setTimeout(() => done({ ok: false, error: 'timeout' }), 30_000);
@@ -1008,7 +1013,8 @@ export class SubAgentManager {
     const child = this.runningChildren.get(subAgentId);
     if (child) {
       this.intentionalKill.add(subAgentId);
-      try { child.kill('SIGTERM'); } catch { /* already dead */ }
+      // SIGTERM 은 직접 자식만 종료 → 남은 claude 손자 트리는 terminateChildTree 가 grace 후 회수.
+      terminateChildTree(child);
       this.runningChildren.delete(subAgentId);
     }
     // persistent maps cleanup — remove 시 sub 자체가 archive 되므로 turn-in-flight 추적도 폐기.
@@ -1070,8 +1076,8 @@ export class SubAgentManager {
     if (!child) return false;
     this.stoppedByUser.add(subAgentId);
     this.intentionalKill.add(subAgentId);
-    try { child.stdin?.end(); } catch { /* ignore */ }
-    try { child.kill('SIGTERM'); } catch { /* already dead */ }
+    // SIGTERM(직접 자식) → grace 후 트리 강제 종료로 손자(node worker/MCP) 고아 방지.
+    terminateChildTree(child);
     logger.info(`SubAgent stop requested by user: ${subAgentId}`);
     return true;
   }
@@ -1476,6 +1482,8 @@ export class SubAgentManager {
         },
       });
       this.runningChildren.set(sub.id, child);
+      registerSpawnedPid(child.pid);
+      child.once('exit', () => unregisterSpawnedPid(child.pid));
 
       if (usePersistent) {
         this.persistentChildReady.set(sub.id, false);
@@ -1548,7 +1556,7 @@ export class SubAgentManager {
               if (maxTurns > 0 && turnCount >= maxTurns && !killed) {
                 killed = true;
                 this.intentionalKill.add(sub!.id);
-                child.kill('SIGTERM');
+                terminateChildTree(child);
                 logger.warn(`SubAgent ${sub!.id} killed: max turns reached (${turnCount}/${maxTurns})`);
               }
             }
@@ -1647,7 +1655,7 @@ export class SubAgentManager {
       if (inFlight.maxTurns > 0 && inFlight.turnCount >= inFlight.maxTurns) {
         inFlight.killed = true;
         this.intentionalKill.add(sub.id);
-        try { child.kill('SIGTERM'); } catch { /* already dead */ }
+        terminateChildTree(child);
         logger.warn(`SubAgent ${sub.id} killed: max turns reached (${inFlight.turnCount}/${inFlight.maxTurns})`);
       }
     }
@@ -1778,14 +1786,17 @@ export class SubAgentManager {
     const promises: Promise<void>[] = [];
     for (const [subId, child] of this.runningChildren) {
       this.intentionalKill.add(subId);
+      const pid = child.pid;
       try { child.stdin?.end(); } catch { /* ignore */ }
       try { child.kill('SIGTERM'); } catch { /* already dead */ }
       promises.push(new Promise<void>((resolve) => {
         const timer = setTimeout(() => {
-          try { child.kill('SIGKILL'); } catch { /* */ }
+          // SIGKILL 은 직접 자식만 죽여 손자 트리가 고아로 남는다 → 트리째 강제 종료.
+          killTree(pid);
+          unregisterSpawnedPid(pid);
           resolve();
         }, 2000);
-        child.once('exit', () => { clearTimeout(timer); resolve(); });
+        child.once('exit', () => { clearTimeout(timer); unregisterSpawnedPid(pid); resolve(); });
       }));
     }
     await Promise.all(promises);
