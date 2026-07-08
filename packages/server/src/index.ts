@@ -620,6 +620,29 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
+  /**
+   * 열기 계열 엔드포인트 공용 경계 검사 — resolved 절대경로가 등록된 프로젝트 루트(또는
+   * extraRoots 로 명시 허용한 디렉토리) 내부인지 확인한다. 로컬 IPC(renderer)는 신뢰되지만,
+   * opt-in 모바일 리스너로 페어링된 기기도 이 라우트에 도달하므로 임의 절대경로가 에디터·
+   * 탐색기로 열리는 것을 막기 위한 방어선이다(§ open-in-editor 의 기존 가드를 형제 라우트에 통일).
+   * Windows 는 대소문자 무시 비교.
+   */
+  function isWithinOpenableRoots(resolved: string, extraRoots: string[] = []): boolean {
+    const roots: string[] = [];
+    for (const r of extraRoots) roots.push(path.resolve(r));
+    const primaryRoot = graphManager.getRoot();
+    if (primaryRoot) roots.push(path.resolve(primaryRoot));
+    for (const proj of Object.values(graphManager.getProjects())) {
+      roots.push(path.resolve(proj.path));
+    }
+    const isWin = process.platform === 'win32';
+    const rLower = isWin ? resolved.toLowerCase() : resolved;
+    return roots.some((r) => {
+      const rootLower = isWin ? r.toLowerCase() : r;
+      return rLower === rootLower || rLower.startsWith(rootLower + path.sep);
+    });
+  }
+
   /** POST /api/open-in-editor — 절대 경로 + searchText로 에디터에서 열기 */
   app.post('/api/open-in-editor', (req, res) => {
     try {
@@ -631,19 +654,7 @@ export async function runServer(): Promise<RunServerHandle> {
 
       // 절대경로 정규화 후 프로젝트 루트 내부인지 확인 (Windows 대소문자 무시)
       const resolved = path.resolve(filePath);
-      const roots: string[] = [];
-      const primaryRoot = graphManager.getRoot();
-      if (primaryRoot) roots.push(path.resolve(primaryRoot));
-      for (const proj of Object.values(graphManager.getProjects())) {
-        roots.push(path.resolve(proj.path));
-      }
-      const isWin = process.platform === 'win32';
-      const rLower = isWin ? resolved.toLowerCase() : resolved;
-      const isWithinProject = roots.some((r) => {
-        const rootLower = isWin ? r.toLowerCase() : r;
-        return rLower === rootLower || rLower.startsWith(rootLower + path.sep);
-      });
-      if (!isWithinProject) {
+      if (!isWithinOpenableRoots(resolved)) {
         logger.warn(`Path traversal blocked: filePath="${filePath}"`);
         res.status(403).json({ error: 'Path outside project root' });
         return;
@@ -675,7 +686,15 @@ export async function runServer(): Promise<RunServerHandle> {
         return;
       }
 
-      openFile(absPath);
+      // client 가 준 absolutePath 는 프로젝트 루트 내부인 것만 허용(임의 파일 열기 차단).
+      const resolved = path.resolve(absPath);
+      if (!isWithinOpenableRoots(resolved)) {
+        logger.warn(`open-node-file blocked (outside project root): "${absPath}"`);
+        res.status(403).json({ error: 'Path outside project root' });
+        return;
+      }
+
+      openFile(resolved);
       res.json({ ok: true });
     } catch (err) {
       logger.error('POST /api/open-node-file failed', err);
@@ -700,7 +719,15 @@ export async function runServer(): Promise<RunServerHandle> {
         return;
       }
 
-      openFolder(absPath);
+      // client 가 준 absolutePath 는 프로젝트 루트 내부인 것만 허용(임의 폴더 열기 차단).
+      const resolved = path.resolve(absPath);
+      if (!isWithinOpenableRoots(resolved)) {
+        logger.warn(`open-node-folder blocked (outside project root): "${absPath}"`);
+        res.status(403).json({ error: 'Path outside project root' });
+        return;
+      }
+
+      openFolder(resolved);
       res.json({ ok: true });
     } catch (err) {
       logger.error('POST /api/open-node-folder failed', err);
@@ -3305,12 +3332,20 @@ export async function runServer(): Promise<RunServerHandle> {
     try {
       const { filePath, mode } = req.body as { filePath?: string; mode?: string };
       if (typeof filePath !== 'string') { res.status(400).json({ error: 'filePath required' }); return; }
-      if (!fs.existsSync(filePath)) { res.status(404).json({ error: 'Path not found' }); return; }
+      // 컨텍스트 파일은 프로젝트 루트 또는 홈 `~/.claude`(CLAUDE.md·settings·memory 등) 내부만 허용.
+      // project-context 가 노출하는 경로 집합과 일치 — 임의 절대경로 열기 차단(모바일 페어링 기기 포함).
+      const resolved = path.resolve(filePath);
+      if (!isWithinOpenableRoots(resolved, [path.join(os.homedir(), '.claude')])) {
+        logger.warn(`open-context-path blocked (outside allowed roots): "${filePath}"`);
+        res.status(403).json({ error: 'Path outside allowed roots' });
+        return;
+      }
+      if (!fs.existsSync(resolved)) { res.status(404).json({ error: 'Path not found' }); return; }
       if (mode === 'folder') {
-        const dir = fs.statSync(filePath).isDirectory() ? filePath : path.dirname(filePath);
+        const dir = fs.statSync(resolved).isDirectory() ? resolved : path.dirname(resolved);
         openFolder(dir);
       } else {
-        openFile(filePath);
+        openFile(resolved);
       }
       res.json({ ok: true });
     } catch (err) {
