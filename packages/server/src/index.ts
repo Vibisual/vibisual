@@ -968,10 +968,29 @@ export async function runServer(): Promise<RunServerHandle> {
   // 인라인 직송 broadcast({type:'graph_snapshot'...}) 13곳은 즉시 송신이지만, trailing 이
   // 그 뒤에 떠도 최신 상태를 다시 읽어 보내므로 stale 덮어쓰기 없음.
   let snapshotBroadcastTimer: ReturnType<typeof setTimeout> | null = null;
+  // [perf-snapshot] 계측 — VIBISUAL_PERF=1 일 때만. 서버는 Electron 메인 프로세스에서 돌므로
+  // getSnapshot()+직렬화 비용이 그대로 창 입력 스레드를 잡는다. 전수조사 다중 세션에서 이 값이
+  // 프레임 예산(16ms)을 잡아먹는지 확인하기 위한 임시 계측(델타/utilityProcess 착수 전 범인 확정용).
+  const PERF_SNAPSHOT = process.env.VIBISUAL_PERF === '1';
   function broadcastSnapshot(): void {
     if (snapshotBroadcastTimer !== null) return; // 이미 예약됨 — trailing flush 가 최신 스냅샷을 읽는다
     snapshotBroadcastTimer = setTimeout(() => {
       snapshotBroadcastTimer = null;
+      if (PERF_SNAPSHOT) {
+        const t0 = performance.now();
+        const snap = graphManager.getSnapshot();
+        const t1 = performance.now();
+        const bytes = JSON.stringify(snap).length; // 직렬화 비용 계측용(broadcast 가 다시 직렬화하지만 PERF 시에만)
+        const t2 = performance.now();
+        const agents = Array.isArray(snap.agents) ? snap.agents.length : Object.keys(snap.agents ?? {}).length;
+        const subs = Object.keys(snap.subAgents ?? {}).length;
+        logger.warn(
+          `[perf-snapshot] getSnapshot=${(t1 - t0).toFixed(1)}ms stringify=${(t2 - t1).toFixed(1)}ms ` +
+          `bytes=${bytes} agents=${agents} subAgents=${subs}`,
+        );
+        broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: snap });
+        return;
+      }
       broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getSnapshot() });
     }, WS_BATCH_INTERVAL);
   }

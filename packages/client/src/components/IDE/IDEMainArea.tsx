@@ -1900,9 +1900,22 @@ export const IDEMainArea = memo(function IDEMainArea({
   }, [activeSessionId, activeStreamEvents, subAgents]);
 
   const items = useMemo(() => {
+    // [perf-snapshot] 계측 — 콘솔에서 `__VIBI_PERF__ = true`. 메인 탭(activeSessionId===null)은 증분 파서가
+    // 없어 매 스냅샷마다 전 세션 이벤트를 재파싱·정렬한다. 이 비용이 스냅샷 비용과 겹치는지 확인.
+    const _PERF = !!(globalThis as unknown as { __VIBI_PERF__?: boolean }).__VIBI_PERF__;
+    const _t0 = _PERF ? performance.now() : 0;
     const flat = buildEntries(commands, subAgents, streams, activeSessionId, agentEvents);
     const agentBusy = commands.some((c) => c.status === 'executing' || c.status === 'queued');
     const grouped = groupEntries(flat, agentBusy);
+    if (_PERF && activeSessionId === null) {
+      const _t1 = performance.now();
+      let _n = 0;
+      for (const _a of Object.values(streams)) _n += _a.length;
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[perf-snapshot] mainTab buildEntries+group=${(_t1 - _t0).toFixed(1)}ms events=${_n} subs=${subAgents.length}`,
+      );
+    }
 
     // 라이브 "생각 중 …" 1줄 — 에이전트 작동 중이고 가장 최근 스트림 이벤트가 thinking 펄스면
     // (= 지금 실제로 생각 중) 본문 하단에 1개만 띄운다. 출력이 시작되면 사라진다.
