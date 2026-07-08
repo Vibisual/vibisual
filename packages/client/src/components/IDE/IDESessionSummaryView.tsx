@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { SubAgent } from '@vibisual/shared';
 import { useGraphStore, selectIDEOverlay } from '../../stores/graphStore.js';
 import type { SessionSummaryEntry } from '../../stores/graphStore.js';
+import { ThumbsUpIcon, ThumbsDownIcon } from './FeedbackButtons.js';
 
 // §5.5 #17-8 v2.95 — 세션 요약 보드.
 //
@@ -57,6 +58,9 @@ interface CardData {
   checkpoints: string[];
   questions: string[];
   listItems: string[];
+  /** §4 v3.21 — 이 세션에서 사용자가 남긴 좋아요/싫어요 수. */
+  feedUp: number;
+  feedDown: number;
 }
 
 /**
@@ -80,6 +84,7 @@ export const IDESessionSummaryView = memo(function IDESessionSummaryView({
   const agentReviews = useGraphStore((s) => s.agentReviews[agentId]);
   const agentQuestions = useGraphStore((s) => s.agentQuestions[agentId]);
   const agentLists = useGraphStore((s) => s.agentLists[agentId]);
+  const agentFeedbacks = useGraphStore((s) => s.agentFeedbacks[agentId]);
   const sessionSummaries = useGraphStore((s) => s.sessionSummaries);
   const setSession = useGraphStore((s) => s.setIDEActiveSession);
 
@@ -102,7 +107,7 @@ export const IDESessionSummaryView = memo(function IDESessionSummaryView({
     const map = new Map<string, CardData>();
     const ensure = (id: string): CardData => {
       let d = map.get(id);
-      if (!d) { d = { did: [], userActions: [], nextSteps: [], changes: [], checkpoints: [], questions: [], listItems: [] }; map.set(id, d); }
+      if (!d) { d = { did: [], userActions: [], nextSteps: [], changes: [], checkpoints: [], questions: [], listItems: [], feedUp: 0, feedDown: 0 }; map.set(id, d); }
       return d;
     };
     for (const r of agentReports ?? []) {
@@ -129,8 +134,15 @@ export const IDESessionSummaryView = memo(function IDESessionSummaryView({
       const prefix = l.title ? `${l.title}: ` : '';
       d.listItems.push(...l.items.map((x, i) => (i === 0 ? prefix + x : x)));
     }
+    // §4 v3.21 — 좋아요/싫어요 집계 (세션 귀속분만 — 메인 탭 피드백은 subAgentId 없음).
+    for (const f of agentFeedbacks ?? []) {
+      if (!f.subAgentId) continue;
+      const d = ensure(f.subAgentId);
+      if (f.verdict === 'up') d.feedUp++;
+      else d.feedDown++;
+    }
     return map;
-  }, [agentReports, agentReviews, agentQuestions, agentLists]);
+  }, [agentReports, agentReviews, agentQuestions, agentLists, agentFeedbacks]);
 
   const hasCards = useCallback((subId: string): boolean => {
     const d = cardsBySub.get(subId);
@@ -285,6 +297,17 @@ export const IDESessionSummaryView = memo(function IDESessionSummaryView({
                 <div className="mb-2.5 flex items-center gap-2">
                   <span className={`h-2.5 w-2.5 flex-shrink-0 rounded-full ${statusDot(sub, acked)}`} />
                   <span className="min-w-0 flex-1 truncate text-[14px] font-bold text-white">{labelOf(sub)}</span>
+                  {/* §4 v3.21 — 이 세션 좋아요/싫어요 집계 칩 */}
+                  {d && (d.feedUp > 0 || d.feedDown > 0) && (
+                    <span className="flex flex-shrink-0 items-center gap-1.5 text-[10.5px] font-medium" title={t('ide.feedback.statsTitle')}>
+                      {d.feedUp > 0 && (
+                        <span className="flex items-center gap-0.5 text-emerald-400"><ThumbsUpIcon className="h-3 w-3" />{d.feedUp}</span>
+                      )}
+                      {d.feedDown > 0 && (
+                        <span className="flex items-center gap-0.5 text-rose-400"><ThumbsDownIcon className="h-3 w-3" />{d.feedDown}</span>
+                      )}
+                    </span>
+                  )}
                   <span className="flex-shrink-0 text-[11px] font-medium text-gray-400">{formatStamp(sub.lastActivityAt)}</span>
                   <button
                     type="button"

@@ -21,6 +21,7 @@ import { TaskEdgeDetail } from './TaskEdgeDetail.js';
 import { CommentBoxDetail } from './CommentBoxDetail.js';
 import { AutoAgentPanel } from './AutoAgentPanel.js';
 import { GitStatusCard } from './GitStatusCard.js';
+import { AgentFeedbackSection } from './AgentFeedbackSection.js';
 import { ContiHistoryDetail } from './ContiHistoryDetail.js';
 import { TASK_EDGE_STYLES } from '@vibisual/shared';
 
@@ -847,6 +848,9 @@ export function DetailPanel({
               </div>
             );
           })()}
+
+          {/* §4 v3.21 — 에이전트: 좋아요/싫어요 집계 + "규칙으로 승격" (피드백 없으면 미렌더) */}
+          {node.bubbleType === 'agent' && <AgentFeedbackSection agentId={node.id} />}
 
           {/* Agent: SubAgent 목록 */}
           {node.bubbleType === 'agent' && (subAgents[node.id] ?? []).length > 0 && (

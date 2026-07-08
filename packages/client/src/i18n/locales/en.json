@@ -266,6 +266,17 @@
         "custom": "Custom (builder-designed)"
       }
     },
+    "feedback": {
+      "title": "User feedback",
+      "promote": "Promote to rules",
+      "distilling": "Distilling…",
+      "distillFailed": "Could not distill — try again",
+      "proposalTitle": "Proposed rules from your dislikes",
+      "proposalHint": "Review and edit the rules below. They are appended to this agent's Agent Rules only when you apply (undo via Rules history).",
+      "apply": "Add to rules",
+      "applying": "Adding…",
+      "cancel": "Cancel"
+    },
     "detailPanel": {
       "close": "Close",
       "closePanel": "Close panel",
@@ -1012,6 +1023,15 @@
     },
     "list": {
       "title": "List"
+    },
+    "feedback": {
+      "upTitle": "Good work — feeds back into this agent's learning",
+      "downTitle": "Not good — add a reason to help it learn",
+      "reasonPlaceholder": "What went wrong? (optional, used for learning)",
+      "reasonSave": "Save",
+      "addReason": "Add reason",
+      "editReason": "Edit reason",
+      "statsTitle": "Your feedback on this session"
     }
   },
   "bubbleMap": {
