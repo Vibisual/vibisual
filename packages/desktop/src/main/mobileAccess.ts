@@ -4,6 +4,7 @@ import { readFileSync, writeFileSync, existsSync, statSync } from 'node:fs';
 import { join, resolve, extname } from 'node:path';
 import { networkInterfaces } from 'node:os';
 import { randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
+import { gzipSync } from 'node:zlib';
 import type { Socket, AddressInfo } from 'node:net';
 import { app, BrowserWindow } from 'electron';
 import { inject, type DispatchFunc } from 'light-my-request';
@@ -433,7 +434,24 @@ function rendererRoot(): string {
   return resolve(join(__dirname, '../renderer'));
 }
 
-function serveStatic(pathname: string, res: ServerResponse): void {
+// §4 v3.28 — 정적 번들 gzip. 텍스트 계열만 압축(이미지·woff2 는 이미 압축돼 gzip 이 역효과).
+const GZIP_EXT = new Set(['.html', '.js', '.mjs', '.css', '.svg', '.json', '.txt', '.map', '.wasm', '.ttf']);
+
+// 압축본을 (filePath → {mtime, gzip}) 로 메모리 캐시 — 파일당 1회만 압축하고 이후 재사용해
+// 매 요청 압축 CPU 를 없앤다(assets 는 immutable 캐시라 요청 자체도 드묾). mtime 이 바뀌면
+// (앱 업데이트) 재압축. 전송 바이트가 줄어 오히려 서빙이 빨라진다.
+interface GzipCacheEntry { mtimeMs: number; gzip: Buffer }
+const gzipCache = new Map<string, GzipCacheEntry>();
+
+function gzipForFile(filePath: string, raw: Buffer, mtimeMs: number): Buffer {
+  const cached = gzipCache.get(filePath);
+  if (cached && cached.mtimeMs === mtimeMs) return cached.gzip;
+  const gz = gzipSync(raw, { level: 6 });
+  gzipCache.set(filePath, { mtimeMs, gzip: gz });
+  return gz;
+}
+
+function serveStatic(pathname: string, res: ServerResponse, acceptsGzip: boolean): void {
   const root = rendererRoot();
   const rel = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
   let filePath = resolve(join(root, rel));
@@ -450,7 +468,14 @@ function serveStatic(pathname: string, res: ServerResponse): void {
     res.statusCode = 200;
     res.setHeader('content-type', MIME_BY_EXT[ext] ?? 'application/octet-stream');
     res.setHeader('cache-control', pathname.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'no-cache');
-    res.end(body);
+    res.setHeader('vary', 'Accept-Encoding');
+    if (acceptsGzip && GZIP_EXT.has(ext) && body.length >= 1024) {
+      const gz = gzipForFile(filePath, body, statSync(filePath).mtimeMs);
+      res.setHeader('content-encoding', 'gzip');
+      res.end(gz);
+    } else {
+      res.end(body);
+    }
   } catch (err) {
     res.statusCode = 500;
     res.end(`static serve failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -513,11 +538,37 @@ function handleRequest(req: IncomingMessage, res: ServerResponse): void {
     dispatchToExpress(req, res);
     return;
   }
-  serveStatic(pathname, res);
+  const acceptEncoding = req.headers['accept-encoding'];
+  const acceptsGzip = typeof acceptEncoding === 'string' && /\bgzip\b/.test(acceptEncoding);
+  serveStatic(pathname, res, acceptsGzip);
   req.resume();
 }
 
 // ─── WebSocket 브리지 ────────────────────────────────────────────────────────
+
+/**
+ * §4 v3.28 — 모바일 전용 WebSocket 서버. `perMessageDeflate` 로 실시간 이벤트 JSON
+ * (에이전트 스트림·터미널 출력·graph_snapshot)을 압축 전송해 셀룰러 데이터를 절약한다
+ * (텍스트라 통상 5~10배). 브라우저 native WebSocket 이 핸드셰이크에서 자동 협상하므로
+ * 클라이언트 무수정. 데스크톱 렌더러는 IPC 경로라 이 소켓을 안 타 성능 무영향.
+ * 성능·메모리를 무시할 수준으로 묶기 위해:
+ *   - threshold 1024 — 작고 잦은 프레임은 압축을 건너뛴다(압축 CPU 낭비 방지).
+ *   - {server,client}NoContextTakeover — 메시지 간 슬라이딩 윈도우를 안 남겨 연결당
+ *     메모리를 상한(ws 가 기본 off 였던 이유가 메모리 — 그 리스크를 제거).
+ *   - concurrencyLimit — 동시 deflate 작업 상한.
+ */
+function createWss(): WebSocketServer {
+  return new WebSocketServer({
+    noServer: true,
+    perMessageDeflate: {
+      threshold: 1024,
+      serverNoContextTakeover: true,
+      clientNoContextTakeover: true,
+      concurrencyLimit: 10,
+      zlibDeflateOptions: { level: 6 },
+    },
+  });
+}
 
 function bindUpgrade(server: HttpServer | HttpsServer): void {
   server.on('upgrade', (req: IncomingMessage, socket: Socket, head: Buffer) => {
@@ -563,7 +614,7 @@ async function startHttpListener(): Promise<void> {
   starting = true;
   try {
     const server = createServer(handleRequest);
-    if (!wss) wss = new WebSocketServer({ noServer: true });
+    if (!wss) wss = createWss();
     bindUpgrade(server);
     await listenWithFallback(server, persisted.port, '0.0.0.0');
     httpServer = server;
