@@ -627,6 +627,20 @@ function ThinkingGroupLine({ group }: { group: TerminalGroup }): React.JSX.Eleme
 
 // ─── 명령 입력 영역 ───
 
+// 입력 textarea 자동 높이를 CSS `field-sizing: content` 로 위임 (Chromium 123+ — Electron 31=Chromium 126).
+//   기존 JS autogrow(height='auto' 플립 → scrollHeight 읽기)는 키 입력마다 강제 동기 레이아웃을
+//   핸들러+effect 2회 유발했고, 높이 변경이 flex 조상(스트림 영역)까지 더럽혀 세션이 길어질수록
+//   타이핑 에코가 늦어졌다. 지원 브라우저에선 JS 높이 조작을 전부 끄고 브라우저 레이아웃 패스에
+//   맡긴다(입력 시 캐럿 가시성도 네이티브가 유지). 미지원 환경만 아래 JS 폴백.
+const INPUT_FIELD_SIZING =
+  typeof CSS !== 'undefined' && typeof CSS.supports === 'function' && CSS.supports('field-sizing', 'content');
+
+function autosizeInput(el: HTMLTextAreaElement): void {
+  if (INPUT_FIELD_SIZING) return;
+  el.style.height = 'auto';
+  el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+}
+
 interface TerminalInputProps {
   agentId: string;
   activeSessionId: string | null;
@@ -694,16 +708,19 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
   const slashProjectName = useGraphStore((s) => s.agentProjects[agentId]);
   const { skills: availableSkills, builtins: builtinCommands, loaded: skillsLoaded } = useAvailableSkills(slashProjectName, agentId);
   const [slashIndex, setSlashIndex] = useState(0);
+  const slashListRef = useRef<HTMLDivElement>(null);
+  // 방향키 이동일 때만 활성 항목 스크롤 추종 — hover 로 인한 setSlashIndex 까지 추종하면
+  // 스크롤이 항목을 커서 밑으로 밀어 mouseEnter 가 재발화하는 되먹임이 생긴다.
+  const slashKeyboardNavRef = useRef(false);
 
   useEffect(() => { sidRef.current = sid; }, [sid]);
   useEffect(() => { agentIdRef.current = agentId; }, [agentId]);
 
-  // 세션 전환 시 textarea height 를 새 텍스트 길이에 맞춰 재조정.
+  // 세션 전환/외부 텍스트 변경 시 textarea height 재조정 — JS 폴백 전용(field-sizing 지원 시 no-op).
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+    autosizeInput(el);
   }, [activeSessionId, text]);
 
   // §5.3 #28 v1.47 — draft hydrate. 외부 트리거가 setAgentInputDraft 로 넣은 시드를
@@ -719,8 +736,7 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
         const el = textareaRef.current;
         if (!el) return;
         el.focus();
-        el.style.height = 'auto';
-        el.style.height = `${el.scrollHeight}px`;
+        autosizeInput(el);
         el.setSelectionRange(el.value.length, el.value.length);
       });
     }
@@ -861,7 +877,7 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
       setText('');
       setAttachments(() => remaining);
     }
-    if (textareaRef.current) {
+    if (textareaRef.current && !INPUT_FIELD_SIZING) {
       textareaRef.current.style.height = 'auto';
     }
     // 전송하면 히스토리 탐색 상태 초기화.
@@ -916,8 +932,7 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
       if (!el) return;
       el.focus();
       el.setSelectionRange(el.value.length, el.value.length);
-      el.style.height = 'auto';
-      el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+      autosizeInput(el);
     });
   }, [agentId, activeSessionId, setAgentSessionInputText]);
 
@@ -943,8 +958,7 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
       if (!el) return;
       el.focus();
       el.setSelectionRange(value.length, value.length);
-      el.style.height = 'auto';
-      el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+      autosizeInput(el);
     });
   }, [setText]);
 
@@ -1013,8 +1027,9 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
   const handleInput = useCallback(() => {
     const el = textareaRef.current;
     if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+    // ⚠ 타이핑 핫패스 — field-sizing 지원 시 autosizeInput 은 no-op(강제 reflow 0회).
+    //   여기에 per-keystroke 레이아웃 읽기(scrollHeight 등)를 다시 넣으면 입력 지연 회귀.
+    autosizeInput(el);
     // 사용자가 직접 타이핑하면 히스토리 탐색 종료(다음 ↑ 는 현재 편집분을 draft 로 다시 시작).
     historyIdxRef.current = -1;
     // 타이핑 = 완료 알림 확인 — 도트 녹색→회색.
@@ -1050,8 +1065,7 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
       if (!e2) return;
       e2.focus();
       e2.setSelectionRange(caret, caret);
-      e2.style.height = 'auto';
-      e2.style.height = `${Math.min(e2.scrollHeight, 120)}px`;
+      autosizeInput(e2);
     });
   }, [setText]);
 
@@ -1222,7 +1236,11 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
           rows={1}
           placeholder={activeSessionId === null ? t('ide.mainArea.inputPlaceholderNew') : t('ide.mainArea.inputPlaceholder')}
           className="scrollbar-thin min-h-[28px] flex-1 resize-none bg-transparent text-[13px] leading-7 text-gray-200 placeholder-gray-500 outline-none"
-          style={{ maxHeight: 120 }}
+          style={
+            INPUT_FIELD_SIZING
+              ? ({ maxHeight: 120, fieldSizing: 'content' } as React.CSSProperties)
+              : { maxHeight: 120 }
+          }
           data-ide-input={agentId}
           data-ide-input-session={activeSessionId ?? ''}
         />
@@ -1807,8 +1825,7 @@ export const IDEMainArea = memo(function IDEMainArea({
     if (!ta) return;
     ta.focus();
     ta.setSelectionRange(ta.value.length, ta.value.length);
-    ta.style.height = 'auto';
-    ta.style.height = `${Math.min(ta.scrollHeight, 120)}px`;
+    autosizeInput(ta);
   }, [agentId, activeSessionId]);
 
   const insertDroppedPaths = useCallback((paths: string[]) => {
@@ -1910,8 +1927,7 @@ export const IDEMainArea = memo(function IDEMainArea({
             if (!ta) return;
             ta.focus();
             ta.setSelectionRange(ta.value.length, ta.value.length);
-            ta.style.height = 'auto';
-            ta.style.height = `${Math.min(ta.scrollHeight, 120)}px`;
+            autosizeInput(ta);
           });
         },
       },
