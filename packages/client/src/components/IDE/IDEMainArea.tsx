@@ -1533,7 +1533,7 @@ function ImageLightboxHost(): React.JSX.Element | null {
   return createPortal(
     <div
       onClick={close}
-      className="fixed inset-0 z-[9999] flex cursor-zoom-out items-center justify-center bg-black/80 p-6"
+      className="vibi-image-lightbox fixed inset-0 z-[9999] flex cursor-zoom-out items-center justify-center bg-black/80 p-6"
       role="dialog"
       aria-modal="true"
     >
