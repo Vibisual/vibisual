@@ -662,6 +662,7 @@
   "ide": {
     "overlay": {
       "closeLabel": "IDE बंद करें",
+      "refreshLabel": "सत्र फिर से लोड करें",
       "maximizeLabel": "अधिकतम करें",
       "restoreLabel": "पुनर्स्थापित करें",
       "resizeDock": "Dock का आकार बदलें",
@@ -759,6 +760,9 @@
       "tokens": "{{in}} in / {{out}} out",
       "sessionOne": "{{count}} session",
       "sessionMany": "{{count}} sessions"
+    },
+    "zoom": {
+      "reset": "रीसेट करें"
     },
     "streamRenderer": {
       "noActivity": "इस session में कोई गतिविधि नहीं",
@@ -935,8 +939,11 @@
       "zoomIn": "ज़ूम इन",
       "zoomOut": "ज़ूम आउट",
       "fitView": "फ़िट व्यू",
+      "refresh": "प्रोजेक्ट फिर से लोड करें",
       "lock": "Canvas लॉक करें",
-      "unlock": "Canvas अनलॉक करें"
+      "unlock": "Canvas अनलॉक करें",
+      "fullscreen": "पूर्ण स्क्रीन",
+      "exitFullscreen": "पूर्ण स्क्रीन से बाहर निकलें"
     },
     "contextMenu": {
       "createCustomAgent": "Custom Agent बनाएं",

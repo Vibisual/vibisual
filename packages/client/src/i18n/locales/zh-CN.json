@@ -662,6 +662,7 @@
   "ide": {
     "overlay": {
       "closeLabel": "关闭 IDE",
+      "refreshLabel": "重新加载会话",
       "maximizeLabel": "最大化",
       "restoreLabel": "还原",
       "resizeDock": "调整停靠大小",
@@ -759,6 +760,9 @@
       "tokens": "{{in}} 输入 / {{out}} 输出",
       "sessionOne": "{{count}} 个 Session",
       "sessionMany": "{{count}} 个 Session"
+    },
+    "zoom": {
+      "reset": "重置"
     },
     "streamRenderer": {
       "noActivity": "此 Session 暂无活动",
@@ -935,8 +939,11 @@
       "zoomIn": "放大",
       "zoomOut": "缩小",
       "fitView": "适应视图",
+      "refresh": "重新加载项目",
       "lock": "锁定画布",
-      "unlock": "解锁画布"
+      "unlock": "解锁画布",
+      "fullscreen": "全屏",
+      "exitFullscreen": "退出全屏"
     },
     "contextMenu": {
       "createCustomAgent": "创建自定义 Agent",

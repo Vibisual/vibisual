@@ -662,6 +662,7 @@
   "ide": {
     "overlay": {
       "closeLabel": "Chiudi IDE",
+      "refreshLabel": "Ricarica sessione",
       "maximizeLabel": "Ingrandisci",
       "restoreLabel": "Ripristina",
       "resizeDock": "Ridimensiona dock",
@@ -759,6 +760,9 @@
       "tokens": "{{in}} in / {{out}} out",
       "sessionOne": "{{count}} sessione",
       "sessionMany": "{{count}} sessioni"
+    },
+    "zoom": {
+      "reset": "Reimposta"
     },
     "streamRenderer": {
       "noActivity": "Nessuna attività in questa sessione",
@@ -935,8 +939,11 @@
       "zoomIn": "Zoom avanti",
       "zoomOut": "Zoom indietro",
       "fitView": "Adatta vista",
+      "refresh": "Ricarica progetto",
       "lock": "Blocca tela",
-      "unlock": "Sblocca tela"
+      "unlock": "Sblocca tela",
+      "fullscreen": "Schermo intero",
+      "exitFullscreen": "Esci da schermo intero"
     },
     "contextMenu": {
       "createCustomAgent": "Crea Agent personalizzato",

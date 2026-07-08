@@ -662,6 +662,7 @@
   "ide": {
     "overlay": {
       "closeLabel": "Tutup IDE",
+      "refreshLabel": "Muat ulang sesi",
       "maximizeLabel": "Maksimalkan",
       "restoreLabel": "Pulihkan",
       "resizeDock": "Ubah ukuran dock",
@@ -759,6 +760,9 @@
       "tokens": "{{in}} masuk / {{out}} keluar",
       "sessionOne": "{{count}} sesi",
       "sessionMany": "{{count}} sesi"
+    },
+    "zoom": {
+      "reset": "Setel ulang"
     },
     "streamRenderer": {
       "noActivity": "Tidak ada aktivitas di sesi ini",
@@ -935,8 +939,11 @@
       "zoomIn": "Perbesar",
       "zoomOut": "Perkecil",
       "fitView": "Sesuaikan tampilan",
+      "refresh": "Muat ulang proyek",
       "lock": "Kunci canvas",
-      "unlock": "Buka kunci canvas"
+      "unlock": "Buka kunci canvas",
+      "fullscreen": "Layar penuh",
+      "exitFullscreen": "Keluar layar penuh"
     },
     "contextMenu": {
       "createCustomAgent": "Buat Agent Kustom",

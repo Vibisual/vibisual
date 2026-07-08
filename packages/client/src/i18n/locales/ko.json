@@ -171,6 +171,17 @@
         "custom": "커스텀 (빌더 설계)"
       }
     },
+    "feedback": {
+      "title": "사용자 피드백",
+      "promote": "규칙으로 승격",
+      "distilling": "요약 중…",
+      "distillFailed": "요약에 실패했습니다 — 다시 시도해 주세요",
+      "proposalTitle": "싫어요에서 뽑은 규칙 제안",
+      "proposalHint": "아래 규칙을 검토·수정하세요. 적용을 눌러야 이 에이전트의 Agent Rules 에 추가됩니다(Rules 히스토리로 되돌리기 가능).",
+      "apply": "규칙에 추가",
+      "applying": "추가 중…",
+      "cancel": "취소"
+    },
     "detailPanel": {
       "close": "닫기",
       "closePanel": "패널 닫기",
@@ -573,6 +584,20 @@
       "noProject": "활성 프로젝트 없음",
       "fps": "fps",
       "fpsTip": "초당 렌더 프레임 수",
+      "profiling": {
+        "title": "프로파일링",
+        "startNow": "지금 수집",
+        "collecting": "수집 중…",
+        "manual": "수동",
+        "auto": "자동 (< {{fps}} fps)",
+        "copy": "복사",
+        "copied": "복사됨",
+        "fpsRange": "FPS",
+        "longFrames": "긴 프레임",
+        "topScripts": "프레임을 오래 잡은 스크립트",
+        "noScripts": "스크립트 attribution 없음 ({{type}})",
+        "idleHint": "대기 중. FPS 가 {{fps}} 아래로 떨어지면 1분간 자동으로 원인을 수집합니다(1시간 쿨다운). 리포트를 복사해 전달하면 원인을 분석해 드립니다."
+      },
       "errorLog": "오류 로그",
       "noErrors": "캡처된 오류 없음",
       "servers": "서버",
@@ -710,6 +735,7 @@
       "closeLabel": "IDE 닫기",
       "toggleNav": "탐색 패널 열기/닫기",
       "toggleStatusBar": "상태 표시줄 보기/숨기기",
+      "refreshLabel": "세션 새로고침",
       "maximizeLabel": "최대화",
       "restoreLabel": "복원",
       "resizeDock": "독 크기 조정",
@@ -877,6 +903,9 @@
       "next": "다음 결과",
       "close": "닫기"
     },
+    "zoom": {
+      "reset": "재설정"
+    },
     "streamRenderer": {
       "noActivity": "이 세션에 활동 없음",
       "thinking": "생각 중",
@@ -911,6 +940,15 @@
     },
     "list": {
       "title": "목록"
+    },
+    "feedback": {
+      "upTitle": "좋아요 — 이 에이전트의 학습에 반영됩니다",
+      "downTitle": "싫어요 — 사유를 남기면 학습에 더 도움됩니다",
+      "reasonPlaceholder": "무엇이 아쉬웠나요? (선택, 학습 재료로 사용)",
+      "reasonSave": "저장",
+      "addReason": "사유 추가",
+      "editReason": "사유 수정",
+      "statsTitle": "이 세션에 남긴 피드백"
     }
   },
   "bubbleMap": {
@@ -1096,8 +1134,11 @@
       "zoomIn": "확대",
       "zoomOut": "축소",
       "fitView": "화면에 맞추기",
+      "refresh": "프로젝트 새로고침",
       "lock": "캔버스 잠금",
-      "unlock": "캔버스 잠금 해제"
+      "unlock": "캔버스 잠금 해제",
+      "fullscreen": "전체 화면",
+      "exitFullscreen": "전체 화면 종료"
     },
     "contextMenu": {
       "createCustomAgent": "커스텀 에이전트 만들기",
