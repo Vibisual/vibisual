@@ -29,6 +29,8 @@ import { AgentReviewCard } from './AgentReviewCard.js';
 import { AgentListCard } from './AgentListCard.js';
 import { AskQuestionCard } from './AskQuestionCard.js';
 import { CollapsiblePrompt, AiSpeakerGlyph } from './CollapsiblePrompt.js';
+import { DiffView } from './DiffView.js';
+import { parseEditToolInput } from './diffTool.js';
 import {
   mergeCardsIntoItems, sameStreamItem, IncrementalStreamParser,
   type StreamText, type StreamGroup, type StreamThinking, type StreamSystem, type StreamResult,
@@ -204,10 +206,22 @@ const TextBlock = memo(function TextBlock({ item }: { item: StreamText }): React
 /** tool_use + tool_result 접이식 그룹 */
 const ToolBlock = memo(function ToolBlock({ item }: { item: StreamGroup }): React.JSX.Element {
   const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
+  // Edit 계열이면 "이전 vs 이후" diff 로 렌더 — 파싱 성공 시 기본 펼침(비교가 곧 결과라 접혀 있으면 답답).
+  const parsedEdit = useMemo(() => parseEditToolInput(item.toolName, item.input), [item.toolName, item.input]);
+  const [open, setOpen] = useState(parsedEdit !== null);
 
   const accentColor = item.isActive ? 'border-blue-500/70' : 'border-amber-500/40';
   const headerBg = item.isActive ? 'bg-blue-500/5 hover:bg-blue-500/10' : 'bg-gray-800/30 hover:bg-gray-800/60';
+
+  // diff 헤더용 파일명(경로 마지막 조각) + 생성/수정 라벨.
+  const fileName = useMemo(() => {
+    if (!parsedEdit) return '';
+    const parts = parsedEdit.filePath.split(/[/\\]/);
+    return parts[parts.length - 1] || parsedEdit.filePath;
+  }, [parsedEdit]);
+  const modeLabel = parsedEdit?.mode === 'create'
+    ? t('ide.streamRenderer.diff.created')
+    : t('ide.streamRenderer.diff.modified');
 
   // input 미리보기
   const preview = useMemo(() => {
@@ -245,12 +259,19 @@ const ToolBlock = memo(function ToolBlock({ item }: { item: StreamGroup }): Reac
           {item.toolName}
         </span>
 
-        {/* 미리보기 */}
-        {!open && preview && (
+        {/* 미리보기 — Edit 계열은 펼침 여부와 무관하게 파일명 + 생성/수정 라벨을 항상 표시. */}
+        {parsedEdit ? (
+          <span className="flex min-w-0 flex-1 items-center gap-1.5">
+            <span className="min-w-0 truncate font-mono text-[12px] text-gray-300">{fileName}</span>
+            <span className={`flex-shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold ${
+              parsedEdit.mode === 'create' ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-300'
+            }`}>{modeLabel}</span>
+          </span>
+        ) : (!open && preview && (
           <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-gray-400">
             {preview}
           </span>
-        )}
+        ))}
 
         {/* 스피너 or hover 힌트 */}
         <div className="flex flex-shrink-0 items-center gap-1.5">
@@ -263,8 +284,13 @@ const ToolBlock = memo(function ToolBlock({ item }: { item: StreamGroup }): Reac
         </div>
       </button>
 
-      {/* 펼친 내용 */}
-      {open && (
+      {/* 펼친 내용 — Edit 계열은 side-by-side diff, 그 외는 raw input/output. */}
+      {open && parsedEdit && (
+        <div className="border-t border-gray-800/60 bg-gray-950/50 px-2 py-2">
+          <DiffView parsed={parsedEdit} />
+        </div>
+      )}
+      {open && !parsedEdit && (
         <div className="border-t border-gray-800/60 bg-gray-950/50 px-3 py-2">
           {item.input && (
             <div className="mb-1.5">
