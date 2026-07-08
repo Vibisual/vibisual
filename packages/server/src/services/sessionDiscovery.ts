@@ -696,6 +696,82 @@ export function readLastAssistantMessage(cwd: string, sessionId: string): string
   }
 }
 
+/**
+ * 세션 JSONL 의 끝부분(maxBytes)만 읽어 완전한 줄 배열로 반환.
+ * 대용량 세션 파일 전체를 매번 readFileSync 하는 부담 없이 "마지막 엔트리"만 확인하는 핫패스용.
+ * 파일 앞을 잘랐다면 첫 줄은 불완전할 수 있어 버린다.
+ */
+function readTailLines(jsonlPath: string, maxBytes = 128 * 1024): string[] {
+  let fd: number | null = null;
+  try {
+    const size = fs.statSync(jsonlPath).size;
+    const start = size > maxBytes ? size - maxBytes : 0;
+    const length = size - start;
+    if (length <= 0) return [];
+    const buf = Buffer.alloc(length);
+    fd = fs.openSync(jsonlPath, 'r');
+    fs.readSync(fd, buf, 0, length, start);
+    const lines = buf.toString('utf8').split('\n');
+    if (start > 0 && lines.length > 1) lines.shift();
+    return lines;
+  } catch {
+    return [];
+  } finally {
+    if (fd !== null) {
+      try { fs.closeSync(fd); } catch { /* ignore */ }
+    }
+  }
+}
+
+/**
+ * Claude Code 가 사용자 인터럽트(Esc/Ctrl+C)·도구 거부 시 트랜스크립트에 남기는 sentinel.
+ * Stop 훅은 사용자 인터럽트에서 발사되지 않으므로(공식 명세), 이 sentinel 이 마지막 대화
+ * 엔트리(user)로 남으면 "턴이 인터럽트로 끝났다"로 판정한다.
+ */
+const INTERRUPT_SENTINELS = [
+  "The user doesn't want to proceed with this tool use",
+  '[Request interrupted by user',
+  'Tool interrupted by user',
+];
+
+/**
+ * 세션 JSONL 의 마지막 user/assistant 엔트리가 "사용자 인터럽트/도구 거부로 끝난 턴"인지 판정.
+ * - 마지막 대화 엔트리가 `user` 타입이고 인터럽트 sentinel 을 포함하면 true.
+ * - 사용자가 인터럽트 후 작업을 이어가면 마지막 엔트리가 assistant 가 되어 false(오해소 방지).
+ * - 인터럽트로 끝난 게 아닌 정상/진행 중 세션은 false → 실행 중 긴 도구 호출을 조기 종료시키지 않음.
+ * Stop 훅이 안 오는 인터럽트 케이스에서 stuck-active 버블을 해소하기 위한 신호.
+ */
+export function isSessionInterrupted(cwd: string, sessionId: string): boolean {
+  try {
+    const jsonlPath = resolveSessionJsonlPath(cwd, sessionId);
+    if (!jsonlPath) return false;
+    const lines = readTailLines(jsonlPath);
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i];
+      if (!line) continue;
+      let entry: unknown;
+      try { entry = JSON.parse(line); } catch { continue; }
+      if (typeof entry !== 'object' || entry === null) continue;
+      const d = entry as Record<string, unknown>;
+      // 서브에이전트(Task) 의 sidechain 엔트리는 같은 세션 JSONL 에 섞여 쌓인다. 이를
+      // 본 에이전트의 "마지막 대화 엔트리"로 오인하면, 조사 서브에이전트가 도는 동안
+      // 부모 Hook 버블이 인터럽트로 오판(markStop → completed)돼 "종료된 것처럼" 보인다.
+      // 인터럽트 판정은 본 에이전트 자신의 턴에만 적용 — sidechain 은 건너뛴다.
+      if (d['isSidechain'] === true) continue;
+      const type = d['type'];
+      if (type !== 'user' && type !== 'assistant') continue;
+      // 마지막 대화 엔트리가 assistant 면 인터럽트로 끝난 턴이 아니다.
+      if (type === 'assistant') return false;
+      // user 엔트리 — message 직렬화 문자열에서 sentinel 포함 여부로 판정.
+      const serialized = JSON.stringify(d['message'] ?? d);
+      return INTERRUPT_SENTINELS.some((s) => serialized.includes(s));
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 /** 에이전트 컨텍스트 정보 (JSONL 마지막 assistant 엔트리에서 추출) */
 export interface AgentContextInfo {
   modelName: string;

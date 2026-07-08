@@ -5397,6 +5397,20 @@ export async function runServer(): Promise<RunServerHandle> {
       }
     }, AGENT_IDLE_SWEEP_INTERVAL_MS);
 
+    // §5.3 — 사용자 인터럽트(Esc/Ctrl+C)·도구 거부 시 Claude Code 는 Stop 훅을 발사하지 않아
+    // Hook 에이전트 버블이 active(파란 링)로 stuck 된다. 세션 JSONL 마지막 엔트리가 인터럽트
+    // sentinel 이면 누락된 Stop 훅을 대신 시뮬레이트(markStop → completed → 60초 fade → idle).
+    // markStop 이 내부에서 스냅샷을 broadcast 하므로 별도 broadcast 불필요.
+    setInterval(() => {
+      const interrupted = graphManager.findInterruptedActiveSessions();
+      if (interrupted.length === 0) return;
+      for (const sessionId of interrupted) {
+        agentTracker.markStop(sessionId);
+        logger.info(`Interrupt reconcile: missing Stop hook → completed (session: ${sessionId.slice(0, 8)})`);
+      }
+      saveCheckpoint();
+    }, INTERRUPT_RECONCILE_INTERVAL_MS);
+
     // iframe 생사 확인 (포트 TCP 핑) — 5초 간격
     setInterval(() => {
       void graphManager.checkIframesAlive().then((changed) => {
