@@ -4754,11 +4754,27 @@ export async function runServer(): Promise<RunServerHandle> {
       }
     }
     // meta 가 없는데 openProjects 에만 남은 경로도 청소 (정규화 경로 매칭).
+    // §3.2.1-4 손실방지 (v3.29): 메타(project.json)를 못 읽었어도 경로가 디스크에 실재하면
+    // 크래시로 project.json 이 truncate/일시 손상됐을 수 있으므로 openProjects 에서 지우지 않고
+    // 다음 부팅에 재시도한다. 경로 자체가 사라진 것만 영구 청소한다(과거엔 무조건 제거 →
+    // 크래시 후 재시작 시 멀쩡한 프로젝트가 목록에서 영영 빠지던 손실 경로).
     const metaKeys = new Set(metas.map((m) => np(m.project.path)));
     const unknownInOpen = appState.openProjects.filter((p) => !metaKeys.has(np(p)));
     if (unknownInOpen.length > 0) {
-      logger.warn(`AppState: ${unknownInOpen.length} stale openProjects entry(ies) with no metadata: ${unknownInOpen.join(', ')}`);
-      stalePaths.push(...unknownInOpen);
+      const goneUnknown: string[] = [];
+      const keptUnknown: string[] = [];
+      for (const p of unknownInOpen) {
+        let onDisk = false;
+        try { onDisk = !!p && fs.existsSync(p); } catch { onDisk = false; }
+        if (onDisk) keptUnknown.push(p); else goneUnknown.push(p);
+      }
+      if (goneUnknown.length > 0) {
+        logger.warn(`AppState: ${goneUnknown.length} stale openProjects entry(ies) removed (path gone from disk): ${goneUnknown.join(', ')}`);
+        stalePaths.push(...goneUnknown);
+      }
+      if (keptUnknown.length > 0) {
+        logger.warn(`AppState: ${keptUnknown.length} openProjects entry(ies) kept for retry (path present but metadata unreadable — possible transient crash corruption): ${keptUnknown.join(', ')}`);
+      }
     }
     for (const p of stalePaths) if (p) appStateRemoveOpenProject(p);
     // #3: projectNames 캐시도 디스크-부재 경로 prune (무한 누적 차단, 재오픈 라벨은 보존).

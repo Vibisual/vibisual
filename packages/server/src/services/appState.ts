@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { AppState, AppStatePatch } from '@vibisual/shared';
+import { APP_STATE_BACKUP_GENERATIONS } from '@vibisual/shared';
+import { atomicWriteFileSync, rotateBackups, loadFromBackups } from './statePersistence.js';
 import { logger } from '../logger.js';
 
 // v1.52: AppState = Vibisual 인스턴스 자체 상태 (어떤 프로젝트의 데이터도 아님 → 머신 단위 글로벌).
@@ -217,8 +219,30 @@ function normalizeSkillOrder(raw: unknown): AppState['skillOrder'] {
 
 let cached: AppState | null = null;
 
-/** 디스크에서 AppState 로드 (없거나 손상 시 빈 상태). 내부 캐시 사용.
- *  v1.52: 신규 위치 비었고 구 위치 있으면 1회 이전. v1.63: normalize 가 name→path 변환. */
+/** loadFromBackups 검증 — AppState 꼴(openProjects 배열 또는 projectNames 객체 보유)인지 최소 판정.
+ *  구/신 포맷 모두 통과시키고(정규화는 normalize 가 담당), 완전 손상 JSON 만 걸러낸다. */
+function looksLikeAppState(o: Record<string, unknown>): boolean {
+  return (
+    Array.isArray((o as { openProjects?: unknown }).openProjects) ||
+    Array.isArray((o as { projectPaths?: unknown }).projectPaths) ||
+    (typeof (o as { projectNames?: unknown }).projectNames === 'object' &&
+      (o as { projectNames?: unknown }).projectNames !== null)
+  );
+}
+
+/** 본 파일이 없거나 손상됐을 때 `.bak1~N` 에서 마지막으로 유효했던 AppState 를 복구.
+ *  §3.2.1-4 "로드가 의심스러우면 백업으로" 를 app-state.json 에도 적용(과거엔 즉시 빈 목록 →
+ *  다음 저장이 손상을 영구 확정하는 손실 경로였다). 복구 실패 시 null. */
+function recoverAppStateFromBackups(): AppState | null {
+  const rec = loadFromBackups<Partial<AppState>>(APP_STATE_FILE, looksLikeAppState, APP_STATE_BACKUP_GENERATIONS);
+  if (!rec) return null;
+  logger.warn(`AppState recovered from ${APP_STATE_FILE}.bak${rec.bakIndex} (primary missing/corrupt) — data-loss guard.`);
+  return normalize(rec.data);
+}
+
+/** 디스크에서 AppState 로드 (없거나 손상 시 백업 복구 → 그래도 없으면 빈 상태). 내부 캐시 사용.
+ *  v1.52: 신규 위치 비었고 구 위치 있으면 1회 이전. v1.63: normalize 가 name→path 변환.
+ *  v3.29: §3.2.1 손실방지 — 파싱 실패/파일 부재 시 `.bak1~N` 복구를 먼저 시도. */
 export function loadAppState(): AppState {
   if (cached) return cached;
   try {
@@ -235,7 +259,8 @@ export function loadAppState(): AppState {
       }
     }
     if (!fs.existsSync(APP_STATE_FILE)) {
-      cached = emptyState();
+      // 본 파일이 사라졌어도(크래시로 rename 미완/삭제) 백업이 있으면 목록을 살린다.
+      cached = recoverAppStateFromBackups() ?? emptyState();
       return cached;
     }
     const raw = fs.readFileSync(APP_STATE_FILE, 'utf-8');
@@ -243,21 +268,22 @@ export function loadAppState(): AppState {
     cached = normalize(parsed);
     return cached;
   } catch (err) {
-    logger.warn(`AppState load failed (${err instanceof Error ? err.message : String(err)}) — falling back to empty state`);
-    cached = emptyState();
+    logger.warn(`AppState load failed (${err instanceof Error ? err.message : String(err)}) — trying backups before empty state`);
+    cached = recoverAppStateFromBackups() ?? emptyState();
     return cached;
   }
 }
 
-/** AppState 를 디스크에 저장 (atomic write + 캐시 갱신). projectPaths(구) 는 더는 쓰지 않음. */
+/** AppState 를 디스크에 저장. §3.2.1 v3.29 — checkpoint 와 동일한 손실방지 인프라 적용:
+ *  다세대 백업 롤링 → 원자적 쓰기(tmp+fsync+rename)+디렉토리 fsync. projectPaths(구) 는 더는 쓰지 않음. */
 export function saveAppState(state: AppState): void {
   try {
     if (!fs.existsSync(APP_HOME_DIR)) fs.mkdirSync(APP_HOME_DIR, { recursive: true });
     const normalized = normalize(state);
     const withTimestamp: AppState = { ...normalized, updatedAt: Date.now() };
-    const tmp = `${APP_STATE_FILE}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(withTimestamp, null, 2), 'utf-8');
-    fs.renameSync(tmp, APP_STATE_FILE);
+    // 저장 직전 기존 파일을 .bak1~N 으로 회전 보관(빈/손상 목록으로 덮이기 전 세대를 남긴다).
+    rotateBackups(APP_STATE_FILE, APP_STATE_BACKUP_GENERATIONS);
+    atomicWriteFileSync(APP_STATE_FILE, JSON.stringify(withTimestamp, null, 2));
     cached = withTimestamp;
   } catch (err) {
     logger.error(`AppState save failed: ${err instanceof Error ? err.message : String(err)}`);

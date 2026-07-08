@@ -37,7 +37,7 @@ const CHECKPOINT_FILENAME = 'checkpoint.json';
  * 쓰는 도중 프로세스 종료·전원 손실에도 기존 파일이 반파되지 않는다(§3.2.1-1).
  * rename 은 같은 디렉토리 내에서 원자적. 디렉토리 fsync 까지 시도(가능한 플랫폼).
  */
-function atomicWriteFileSync(filePath: string, data: string): void {
+export function atomicWriteFileSync(filePath: string, data: string): void {
   const dir = path.dirname(filePath);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   const tmp = `${filePath}.tmp`;
@@ -62,7 +62,7 @@ function atomicWriteFileSync(filePath: string, data: string): void {
  * 가장 오래된 세대(.bakN)는 폐기, 현재 파일을 .bak1 로 복사(원자 쓰기가 곧 덮어쓸 것이므로
  * 복사 후 보존). 논리적 실수(빈/급감 저장)·사용자 실수의 수동 복구 안전망(§3.2.1-2).
  */
-function rotateBackups(filePath: string, generations: number = CHECKPOINT_BACKUP_GENERATIONS): void {
+export function rotateBackups(filePath: string, generations: number = CHECKPOINT_BACKUP_GENERATIONS): void {
   if (generations < 1) return;
   if (!fs.existsSync(filePath)) return;
   try {
@@ -82,7 +82,7 @@ function rotateBackups(filePath: string, generations: number = CHECKPOINT_BACKUP
 }
 
 /** 백업 세대(.bak1~N)에서 유효 JSON 을 찾아 파싱 반환. 손상 시 다음 세대 시도(§3.2.1-4). */
-function loadFromBackups<T>(
+export function loadFromBackups<T>(
   filePath: string,
   validate: (obj: Record<string, unknown>) => boolean,
   generations: number = CHECKPOINT_BACKUP_GENERATIONS,
@@ -157,7 +157,9 @@ function writeMeta(dir: string, project: ProjectInfo): void {
     } catch { /* 파싱 실패 시 새로 생성 */ }
   }
 
-  fs.writeFileSync(mp, JSON.stringify(meta, null, 2), 'utf8');
+  // §3.2.1-1 (v3.29): project.json 도 원자적 쓰기. 과거엔 plain writeFileSync 라 크래시가
+  // 쓰기 도중이면 파일이 truncate → discoverProjectMetas 파싱 실패 → 부팅 시 프로젝트 소실로 이어졌다.
+  atomicWriteFileSync(mp, JSON.stringify(meta, null, 2));
 }
 
 // ─── 체크포인트 ───
@@ -427,32 +429,60 @@ export function pruneOrphanWorktreeDirs(_liveProjects: ProjectInfo[]): number {
 export function discoverProjectMetas(projectPaths: string[]): ProjectMetaSnapshot[] {
   const byPath = new Map<string, ProjectMetaSnapshot>();
 
+  /** §3.2.1-4 (v3.29) project.json 이 없거나 손상됐을 때 checkpoint/identity(+백업)에서
+   *  `project`(ProjectInfo) 를 복구한다. 작은 메타 파일 하나가 truncate 됐다고 프로젝트를
+   *  잃지 않도록 하는 자가 치유 경로. path 가 비면 무효로 본다. */
+  function recoverProjectInfo(saveDir: string): ProjectInfo | null {
+    const cpPath = path.join(saveDir, 'checkpoint.json');
+    const idPath = path.join(saveDir, IDENTITY_FILENAME);
+    const candidates = [
+      cpPath, `${cpPath}.bak1`, `${cpPath}.bak2`, `${cpPath}.bak3`,
+      idPath, `${idPath}.bak1`, `${idPath}.bak2`, `${idPath}.bak3`,
+    ];
+    for (const f of candidates) {
+      if (!fs.existsSync(f)) continue;
+      try {
+        const obj = JSON.parse(fs.readFileSync(f, 'utf8')) as { project?: ProjectInfo };
+        if (obj?.project?.path) return obj.project;
+      } catch { /* 이 후보 손상 — 다음 후보로 */ }
+    }
+    return null;
+  }
+
   function buildSnap(saveDir: string): ProjectMetaSnapshot | null {
     const mp = path.join(saveDir, 'project.json');
     const cpPath = path.join(saveDir, 'checkpoint.json');
     // v2.62 — checkpoint.json 이 사라졌어도 identity.json(또는 그 백업)이 있으면 발견 대상.
-    // loadCheckpointByMeta 가 identity 골격으로 부활시킨다(§3.2.2). project.json 은 필수.
+    // loadCheckpointByMeta 가 identity 골격으로 부활시킨다(§3.2.2).
     const cpAlive = fs.existsSync(cpPath) || fs.existsSync(`${cpPath}.bak1`);
     const idAlive = fs.existsSync(path.join(saveDir, IDENTITY_FILENAME))
       || fs.existsSync(path.join(saveDir, `${IDENTITY_FILENAME}.bak1`));
-    if (!fs.existsSync(mp) || (!cpAlive && !idAlive)) return null;
-    try {
-      const meta = JSON.parse(fs.readFileSync(mp, 'utf8')) as ProjectMeta;
-      let lastSavedAt = meta.lastSavedAt ?? 0;
-      if (!lastSavedAt) {
-        try { lastSavedAt = fs.statSync(fs.existsSync(cpPath) ? cpPath : mp).mtimeMs; } catch { /* keep 0 */ }
+    // 데이터 실체(checkpoint/identity)가 하나도 없으면 발견 대상 아님.
+    if (!cpAlive && !idAlive) return null;
+
+    // 1) 정상 경로 — project.json 파싱.
+    if (fs.existsSync(mp)) {
+      try {
+        const meta = JSON.parse(fs.readFileSync(mp, 'utf8')) as ProjectMeta;
+        if (meta?.project?.path) {
+          let lastSavedAt = meta.lastSavedAt ?? 0;
+          if (!lastSavedAt) {
+            try { lastSavedAt = fs.statSync(fs.existsSync(cpPath) ? cpPath : mp).mtimeMs; } catch { /* keep 0 */ }
+          }
+          return { project: meta.project, lastSavedAt, createdAt: meta.createdAt, checkpointPath: cpPath, isHydrated: false };
+        }
+      } catch (err) {
+        logger.warn(`discoverProjectMetas: failed to parse ${mp}: ${err instanceof Error ? err.message : String(err)} — recovering project from checkpoint/identity`);
       }
-      return {
-        project: meta.project,
-        lastSavedAt,
-        createdAt: meta.createdAt,
-        checkpointPath: cpPath,
-        isHydrated: false,
-      };
-    } catch (err) {
-      logger.warn(`discoverProjectMetas: failed to parse ${mp}: ${err instanceof Error ? err.message : String(err)}`);
-      return null;
     }
+
+    // 2) §3.2.1-4 자가 치유 — project.json 부재/손상. checkpoint/identity 에서 project 복구.
+    const recovered = recoverProjectInfo(saveDir);
+    if (!recovered) return null;
+    let lastSavedAt = 0;
+    try { lastSavedAt = fs.statSync(fs.existsSync(cpPath) ? cpPath : `${cpPath}.bak1`).mtimeMs; } catch { /* keep 0 */ }
+    logger.warn(`discoverProjectMetas: recovered "${recovered.name}" @ ${recovered.path} from checkpoint/identity (project.json missing/corrupt) — data-loss guard.`);
+    return { project: recovered, lastSavedAt, createdAt: lastSavedAt, checkpointPath: cpPath, isHydrated: false };
   }
 
   function upsert(snap: ProjectMetaSnapshot): void {
