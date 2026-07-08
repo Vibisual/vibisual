@@ -448,6 +448,11 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
         className={windowClass}
         style={{ ...windowStyle, pointerEvents: 'auto' }}
         onClick={(e) => e.stopPropagation()}
+        // IDE 오버레이는 BubbleMap 의 rfContainer(우클릭=캔버스 생성메뉴) 안에 렌더된다.
+        // IDE 내부 우클릭 이벤트가 그 컨테이너까지 버블링되면 캔버스 메뉴(Create Worktree 등)가
+        // IDE 메뉴 뒤에 함께 뜬다("뒤에 있는 우클릭도 같이 먹는" 버그) → 여기서 전파를 끊는다.
+        // (preventDefault 는 하지 않아 textarea 네이티브 메뉴 등 자식 동작은 그대로 유지)
+        onContextMenu={(e) => e.stopPropagation()}
       >
         {/* §5.5 #17-1 (v2.21) 에이전트 전환 sheen — iOS 풍 유리 표면 라이트 패스.
             wrapper 는 overflow-hidden 으로 윈도우 경계 밖 그라데이션 띠를 잘라낸다.
