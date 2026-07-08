@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import * as pty from 'node-pty';
 import type { WebContents } from 'electron';
-import { resolveClaudeBin, buildInteractiveClaudeArgs, prepareInteractiveRulesDir, getCmdResumeSession, recordDiagnostic } from '@vibisual/server';
+import { resolveClaudeBin, buildInteractiveClaudeArgs, prepareInteractiveRulesDir, getCmdResumeSession, recordDiagnostic, killTree } from '@vibisual/server';
 import type { AgentConfig } from '@vibisual/shared';
 
 // 임베디드 인터랙티브 터미널 매니저 — SCENARIO.md §4 v2.63.
@@ -193,7 +193,11 @@ export function killTerminal(termId: string): void {
   const s = sessions.get(termId);
   if (!s) return;
   sessions.delete(termId);
+  const pid = s.pty.pid;
   try { s.pty.kill(); } catch { /* already exited */ }
+  // pty.kill() 은 셸(cmd.exe)만 종료 → 그 아래 claude·node worker 트리는 고아로 남는다(Windows).
+  // taskkill /T /F 로 PTY 프로세스 트리 전체를 회수한다.
+  killTree(pid);
 }
 
 /** 특정 webContents 에 속한 모든 터미널 종료 — 창이 파괴될 때(앱/별창 닫힘). */
