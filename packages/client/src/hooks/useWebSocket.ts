@@ -64,6 +64,10 @@ export function useWebSocket(url: string): UseWebSocketReturn {
   const streamTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const applyGraphSnapshot = useCallback((snap: GraphSnapshot) => {
+    // [perf-snapshot] 계측 — 콘솔에서 `__VIBI_PERF__ = true` 로 켠다(기본 off, 프로덕션 비용 0).
+    // loadSnapshot(그래프 전체 재구축) vs 이후 apply*(~22개 슬라이스 set) 중 어디가 무거운지 분리 측정.
+    const PERF = !!(globalThis as unknown as { __VIBI_PERF__?: boolean }).__VIBI_PERF__;
+    const _t0 = PERF ? performance.now() : 0;
     const store = useGraphStore.getState();
     store.loadSnapshot(
       snap.projects ?? {},
@@ -95,6 +99,7 @@ export function useWebSocket(url: string): UseWebSocketReturn {
       snap.contis ?? {},
       snap.activeContiWork ?? {},
     );
+    const _tLoad = PERF ? performance.now() : 0;
     store.applyStubProjects(snap.stubProjects ?? {});
     store.applyAppState(snap.appState);
     if (snap.uiLocale) store.applyUiLocale(snap.uiLocale);
@@ -110,6 +115,15 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     store.applyDiagnosticLog(snap.diagnosticLog);
     store.applyModelRegistry(snap.modelRegistry);
     store.applyUserDefaults(snap.userDefaults);
+    if (PERF) {
+      const _t1 = performance.now();
+      const subs = snap.subAgents ? Object.keys(snap.subAgents).length : 0;
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[perf-snapshot] applyGraphSnapshot total=${(_t1 - _t0).toFixed(1)}ms ` +
+        `loadSnapshot=${(_tLoad - _t0).toFixed(1)}ms apply*=${(_t1 - _tLoad).toFixed(1)}ms subAgents=${subs}`,
+      );
+    }
   }, []);
 
   const flushSnapshot = useCallback(() => {
