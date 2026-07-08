@@ -983,7 +983,13 @@
       "collapse": "collapse",
       "copy": "Copy",
       "copied": "Copied",
-      "youTyped": "You"
+      "youTyped": "You",
+      "diff": {
+        "created": "Created",
+        "modified": "Modified",
+        "change": "Change {{index}}",
+        "moreLines": "… {{count}} more lines"
+      }
     },
     "report": {
       "title": "Work report",
