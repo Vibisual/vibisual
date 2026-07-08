@@ -662,6 +662,7 @@
   "ide": {
     "overlay": {
       "closeLabel": "IDEを閉じる",
+      "refreshLabel": "セッションを再読み込み",
       "maximizeLabel": "最大化",
       "restoreLabel": "元に戻す",
       "resizeDock": "ドックをリサイズ",
@@ -759,6 +760,9 @@
       "tokens": "{{in}}入力 / {{out}}出力",
       "sessionOne": "{{count}}セッション",
       "sessionMany": "{{count}}セッション"
+    },
+    "zoom": {
+      "reset": "リセット"
     },
     "streamRenderer": {
       "noActivity": "このセッションにアクティビティがありません",
@@ -935,8 +939,11 @@
       "zoomIn": "ズームイン",
       "zoomOut": "ズームアウト",
       "fitView": "全体表示",
+      "refresh": "プロジェクトを再読み込み",
       "lock": "キャンバスをロック",
-      "unlock": "キャンバスのロックを解除"
+      "unlock": "キャンバスのロックを解除",
+      "fullscreen": "フルスクリーン",
+      "exitFullscreen": "フルスクリーン終了"
     },
     "contextMenu": {
       "createCustomAgent": "カスタムエージェントを作成",
