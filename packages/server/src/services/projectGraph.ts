@@ -58,7 +58,7 @@ import { sanitizeContiOnLoad } from './contiManager.js';
 import { isShortAlive as isAgentViewShortAlive, isShortWorking as isAgentViewShortWorking, readRoster as readAgentViewRoster } from './claudeAgentViewService.js';
 import { pipelineManager } from './pipelineManager.js';
 import type { LocalSession, AgentContextInfo } from './sessionDiscovery.js';
-import { resolveSessionTitle, readUserMessages, readLastAssistantMessage, readContextInfo, discoverSessions, findPidBySession, isSessionInUse, getSessionJsonlPath, listJsonlSessionIds, findEntrypointBySession } from './sessionDiscovery.js';
+import { resolveSessionTitle, readUserMessages, readLastAssistantMessage, readContextInfo, discoverSessions, findPidBySession, isSessionInUse, getSessionJsonlPath, listJsonlSessionIds, findEntrypointBySession, isSessionInterrupted } from './sessionDiscovery.js';
 import { logger } from '../logger.js';
 import { dbg } from './debugLog.js';
 import { userDefaultsService } from './userDefaultsService.js';
@@ -4445,6 +4445,25 @@ export class ProjectGraph {
         agent.summary = readLastAssistantMessage(cwd, sessionId) ?? undefined;
       }
     }
+  }
+
+  /**
+   * §5.3 — 사용자 인터럽트로 Stop 훅이 발사되지 않는 Claude Code 한계 보완.
+   * active 상태인 Hook 에이전트(커스텀/서브 제외) 중, 세션 JSONL 의 마지막 대화 엔트리가
+   * 사용자 인터럽트/도구 거부 sentinel 로 끝난 세션 ID 목록을 반환한다.
+   * 호출부(index.ts)가 이들에 markStop 을 걸어 "누락된 Stop 훅"을 대신 시뮬레이트한다.
+   * (커스텀/서브 에이전트는 recomputeAllCustomAgentStatuses 축이 별도라 여기서 제외.)
+   */
+  findInterruptedActiveSessions(): string[] {
+    const out: string[] = [];
+    for (const [sessionId, agent] of this.agents) {
+      if (agent.status !== 'active') continue;
+      if (agent.customCreated) continue;
+      const cwd = this.sessionCwds.get(sessionId);
+      if (!cwd) continue;
+      if (isSessionInterrupted(cwd, sessionId)) out.push(sessionId);
+    }
+    return out;
   }
 
   /** completed 상태인데 summary가 없는 에이전트 → JSONL 재시도 */

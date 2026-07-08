@@ -264,6 +264,15 @@ export const AGENT_IDLE_THRESHOLD_MS = 5 * 60 * 1000;
 export const AGENT_IDLE_SWEEP_INTERVAL_MS = 30_000;
 
 /**
+ * 사용자 인터럽트 해소 판정 주기 (ms).
+ * Claude Code 는 사용자 인터럽트(Esc/Ctrl+C)·도구 거부 시 Stop 훅을 발사하지 않는다(공식 명세).
+ * 그 결과 Hook 에이전트 버블이 active(파란 링)로 stuck 되어 5분 idle sweep 전까지 안 풀린다.
+ * 이 주기로 세션 JSONL 의 마지막 엔트리가 인터럽트 sentinel 인지 확인해, 누락된 Stop 훅을 대신
+ * 시뮬레이트(→ completed)한다. idle sweep(30초)보다 촘촘히 돌려 인터럽트 직후 빠르게 해소.
+ */
+export const INTERRUPT_RECONCILE_INTERVAL_MS = 5_000;
+
+/**
  * 세션이 "활성"으로 간주되는 JSONL mtime 임계값 (ms).
  * JSONL 파일이 이 시간 내에 쓰여졌으면 사용 중으로 판정.
  * Windows에서 파일 락 테스트가 불가능하므로 mtime이 최선의 활성 신호.

@@ -2358,6 +2358,14 @@ export class ProjectGraphManager {
     return result;
   }
 
+  findInterruptedActiveSessions(): string[] {
+    const result: string[] = [];
+    for (const inst of this.instances.values()) {
+      result.push(...inst.findInterruptedActiveSessions());
+    }
+    return result;
+  }
+
   async checkAgentLiveness(): Promise<string[]> {
     const result: string[] = [];
     for (const inst of this.instances.values()) {
