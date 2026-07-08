@@ -1230,6 +1230,13 @@ export class ProjectGraphManager {
     return true;
   }
 
+  /** §7.11 v2.29 — 에이전트 서버 iframe 신고. agentId 소속 인스턴스로 라우팅 후 해당 세션에 위성 생성. */
+  reportAgentIframe(agentId: string, url: string): boolean {
+    const inst = this.findInstanceByAgentId(agentId);
+    if (!inst) return false;
+    return inst.reportIframeFromAgent(agentId, url);
+  }
+
   /** §4 v3.21 — 에이전트 피드백 upsert. feedback.agentId 소속 인스턴스로 라우팅(addAgentReport 와 동형). */
   setAgentFeedback(feedback: import('@vibisual/shared').AgentFeedback): boolean {
     const inst = this.findInstanceByAgentId(feedback.agentId) ?? this.primaryInstance();

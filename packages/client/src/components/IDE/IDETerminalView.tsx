@@ -264,6 +264,16 @@ export function IDETerminalView({ agentId, sessionId }: IDETerminalViewProps): R
     //   reattach replay 는 onReset 으로 패널을 비운 뒤 buffer 의 마커로 카드를 재구성한다.
     const sniffer = new TerminalCardSniffer({
       onCard: (card) => { if (!disposed) setCards((prev) => [...prev, card]); },
+      // §7.11 v2.29 — iframe 신고: 표시 카드가 아니라 서버 프리뷰 버블 트리거. 서버가 agentId 로 세션을 찾아
+      //   그 URL 로 iframe 위성을 만든다(정규식 추측 대체). 실패해도 조용히 무시(표시 전용).
+      onIframe: (url) => {
+        if (disposed) return;
+        void fetch('/api/agent-iframe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ agentId, url }),
+        }).catch(() => { /* 표시 전용 — 무시 */ });
+      },
       onReset: () => { if (!disposed) setCards([]); },
     });
 

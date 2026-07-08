@@ -313,6 +313,7 @@ export {
   buildAgentReviewRules,
   AGENT_LISTS_MAX_PER_AGENT,
   buildAgentListRules,
+  buildAgentIframeRules,
   AGENT_FEEDBACK_MAX_PER_AGENT,
   AGENT_FEEDBACK_DIGEST_MAX,
   AGENT_FEEDBACK_DISTILL_MAX,

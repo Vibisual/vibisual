@@ -35,6 +35,9 @@ export type TerminalCard =
 export interface TerminalCardSnifferCallbacks {
   /** 마커 줄을 감지·파싱했을 때 1건씩 호출(표시용 카드). */
   onCard: (card: TerminalCard) => void;
+  /** §7.11 v2.29 — `kind:"iframe"` 마커 — 표시 카드가 아니라 서버 프리뷰 버블 트리거. url 을 올린다
+   *  (뷰가 `POST /api/agent-iframe` 로 위임). 카드 레일엔 안 들어간다. */
+  onIframe?: (url: string) => void;
   /** reattach replay(화면 리셋) 감지 시 호출 — 패널을 비우고 buffer 의 마커로 카드를 재구성하게 한다. */
   onReset?: () => void;
 }
@@ -130,10 +133,12 @@ export class TerminalCardSniffer {
   private pending = '';
   private recent: { key: string; ts: number }[] = [];
   private readonly onCard: (card: TerminalCard) => void;
+  private readonly onIframe?: (url: string) => void;
   private readonly onReset?: () => void;
 
   constructor(cb: TerminalCardSnifferCallbacks) {
     this.onCard = cb.onCard;
+    this.onIframe = cb.onIframe;
     this.onReset = cb.onReset;
   }
 
@@ -194,7 +199,23 @@ export class TerminalCardSniffer {
       return false; // 마커는 있으나 JSON 깨짐 — 원문 통과.
     }
     if (!obj || typeof obj !== 'object') return false;
-    const kind = (obj as Record<string, unknown>)['kind'];
+    const rec = obj as Record<string, unknown>;
+    const kind = rec['kind'];
+
+    // §7.11 v2.29 — iframe 신고: 표시 카드가 아니라 서버 프리뷰 버블 트리거 → 별도 콜백으로 위임(카드 레일 미경유).
+    if (kind === 'iframe') {
+      const url = rec['url'];
+      if (typeof url === 'string' && url.trim()) {
+        const t = Date.now();
+        this.recent = this.recent.filter((r) => t - r.ts < DEDUPE_MS);
+        if (!this.recent.some((r) => r.key === jsonStr)) {
+          this.recent.push({ key: jsonStr, ts: t });
+          this.onIframe?.(url.trim());
+        }
+      }
+      return true; // 마커 줄 숨김
+    }
+
     if (!isCardKind(kind)) return false;
 
     // 마커 줄 자체는 숨긴다(아래에서 true 반환). 중복이면 카드 방출만 생략.
@@ -203,7 +224,7 @@ export class TerminalCardSniffer {
     if (this.recent.some((r) => r.key === jsonStr)) return true; // 중복 — 숨기되 카드는 1번만.
     this.recent.push({ key: jsonStr, ts: now });
 
-    this.onCard(buildCard(kind, obj as Record<string, unknown>));
+    this.onCard(buildCard(kind, rec));
     return true;
   }
 }
