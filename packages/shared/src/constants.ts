@@ -326,6 +326,14 @@ export const POSITION_SAVE_INTERVAL = 30_000;
 export const CHECKPOINT_BACKUP_GENERATIONS = 3;
 
 /**
+ * §3.2.1 v3.29 — `~/.vibisual/app-state.json`(머신 단위 "열린 프로젝트 목록" SSOT) 다세대 백업 수.
+ * app-state 는 "어떤 프로젝트 탭이 뜨는가"의 유일한 SSOT 인데도 과거엔 checkpoint 와 달리
+ * fsync·백업·백업복구가 전무했다. 크래시로 이 파일이 truncate 되면 부팅 시 빈 목록 → 탭 0개 →
+ * 이후 저장이 손상 파일을 영구 확정하는 손실 경로가 있었다. 같은 손실방지 인프라를 적용한다.
+ */
+export const APP_STATE_BACKUP_GENERATIONS = 3;
+
+/**
  * §3.2.1-3 v2.63 — 명시 삭제 커스텀 에이전트 묘비(deletedCustomAgents) 최대 보관 수.
  * 묘비는 "이미 삭제된 sessionId 의 부활 차단" 신호. sessionId 가 전역 유니크(시간+카운터)라
  * 절대 재생성되지 않아 안전하게 prune 할 길이 없으므로, 단조 증가를 막는 상한만 둔다.
