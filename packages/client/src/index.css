@@ -24,6 +24,12 @@
 body[data-ide-dock="right"] .fixed.inset-0 {
   right: var(--ide-dock-width, 0);
 }
+/* 예외 — 이미지 라이트박스(v2.61)는 IDE 도크 위(z-9999)에 뜨는 전체화면 이미지 뷰어라
+   도크 오프셋을 받으면 배경이 좌측으로 밀리고 폭이 줄어(→ 큰 이미지가 배경 밖으로 넘쳐 배경/닫기
+   영역을 가림) 도킹 상태에서 닫히지 않는다. 뷰어는 도크를 덮어도 무방하므로 전체 뷰포트를 덮게 되돌린다. */
+body[data-ide-dock="right"] .vibi-image-lightbox.fixed.inset-0 {
+  right: 0;
+}
 
 @keyframes pulse-ring {
   0% {
