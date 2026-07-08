@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-07-08
+
+### Added
+- **Side-by-side diffs in the agent stream.** When an agent edits a file, the change now renders as a before/after diff — red for the old lines, green for the new — with the changed words within a line highlighted, right in the output. Brand-new files show as a *Created* card, and multi-edit changes stack each hunk in order.
+- **Turn your feedback into an agent's rules, from its panel.** The agent section of the detail panel now tallies the like / dislike feedback you've left for that agent, and when there are dislikes it offers *Promote to rules*: a distilled set of proposed rule sentences you review and edit in a confirmation dialog before they're appended to that agent's Agent Rules. Nothing is applied automatically, and you can undo via Rules history. Per-session feedback counts are shown alongside the stream.
+- **Performance profiler in the Debug panel.** *Profile now* collects a one-minute frame profile, and one is also captured automatically when the frame rate drops below the threshold (with a cooldown), attributing which scripts held frames the longest. The result is a copyable report you can share to diagnose a slowdown.
+- **Reload without restarting.** New *Reload session* and *Reload project* actions refresh the current IDE session and the canvas project in place.
+- **Fullscreen canvas and zoom reset.** The canvas controls gain a fullscreen toggle and a one-click zoom *Reset*.
+- **Phone back button acts as Escape.** When you're viewing Vibisual from a phone, the browser's back gesture now closes the current overlay instead of leaving the app.
+
+### Fixed
+- **Projects and tasks survive a crash.** The project index (`app-state.json`) and each project's metadata (`project.json`) are now written atomically with rotating backups, and project metadata self-heals from the checkpoint or identity file (and their backups) when it's missing or truncated — the same protection the stream files already had. A crash mid-write no longer empties the canvas or drops projects on the next launch.
+- **Crash causes are now saved to disk.** Fatal errors — uncaught exceptions, unhandled rejections, and renderer / GPU process deaths — are appended to a rotating crash log, and native crashes are captured as local minidumps under the app's data folder, so a crash in an installed build can be diagnosed after the fact instead of vanishing with the process. Nothing is uploaded.
+- **No more orphaned processes on Windows.** When an agent stops, its whole process tree — including the node workers and MCP servers the CLI spawns — is now terminated together, instead of leaving grandchild "Claude Code" processes piling up in Task Manager across a long session.
+
 ## [0.1.6] - 2026-07-03
 
 ### Added
