@@ -816,6 +816,7 @@
       "closeLabel": "Close IDE",
       "toggleNav": "Toggle navigation",
       "toggleStatusBar": "Toggle status bar",
+      "refreshLabel": "Reload session",
       "maximizeLabel": "Maximize",
       "restoreLabel": "Restore",
       "resizeDock": "Resize dock",
