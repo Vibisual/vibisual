@@ -923,7 +923,18 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
 
   const slashOpen = slashState !== null;
   const slashKey = slashState?.filter ?? '';
-  useEffect(() => { setSlashIndex(0); }, [slashKey]);
+  useEffect(() => {
+    setSlashIndex(0);
+    slashListRef.current?.scrollTo({ top: 0 });
+  }, [slashKey]);
+  // 방향키로 활성 항목이 max-h 스크롤 영역 밖으로 나가면 최소 이동으로 따라간다.
+  useEffect(() => {
+    if (!slashKeyboardNavRef.current) return;
+    slashKeyboardNavRef.current = false;
+    slashListRef.current
+      ?.querySelector<HTMLElement>('[data-slash-active="true"]')
+      ?.scrollIntoView({ block: 'nearest' });
+  }, [slashIndex]);
 
   const confirmSlash = useCallback((item: SlashItem) => {
     setAgentSessionInputText(agentId, activeSessionId, `/${item.name} `);
@@ -967,12 +978,18 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
       const matched = slashState.matched;
       if (e.key === 'ArrowDown') {
         e.preventDefault();
-        if (matched.length > 0) setSlashIndex((i) => Math.min(matched.length - 1, i + 1));
+        if (matched.length > 0) {
+          slashKeyboardNavRef.current = true;
+          setSlashIndex((i) => Math.min(matched.length - 1, i + 1));
+        }
         return;
       }
       if (e.key === 'ArrowUp') {
         e.preventDefault();
-        if (matched.length > 0) setSlashIndex((i) => Math.max(0, i - 1));
+        if (matched.length > 0) {
+          slashKeyboardNavRef.current = true;
+          setSlashIndex((i) => Math.max(0, i - 1));
+        }
         return;
       }
       if ((e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) && matched.length > 0) {
@@ -1128,7 +1145,7 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
     <div className="relative flex flex-col gap-1.5 border-t border-gray-700 bg-gray-900/80 px-3 py-2">
       {/* §5.5 #17-2 v2.30 — 슬래시 자동완성 드롭다운 (입력행 바로 위) */}
       {slashOpen && slashState && (
-        <div className="absolute bottom-full left-0 right-0 mb-1 max-h-72 overflow-y-auto rounded-t border border-b-0 border-gray-700 bg-gray-900 shadow-lg scrollbar-thin">
+        <div ref={slashListRef} className="absolute bottom-full left-0 right-0 mb-1 max-h-72 overflow-y-auto rounded-t border border-b-0 border-gray-700 bg-gray-900 shadow-lg scrollbar-thin">
           {slashState.matched.length === 0 ? (
             <div className="px-3 py-2 text-[11px] text-gray-500">
               {skillsLoaded ? t('ide.mainArea.slashEmpty') : t('ide.mainArea.slashLoading')}
@@ -1148,6 +1165,7 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
                 <button
                   key={`${item.kind}:${item.name}`}
                   type="button"
+                  data-slash-active={isActive ? 'true' : undefined}
                   onMouseDown={(ev) => { ev.preventDefault(); confirmSlash(item); }}
                   onMouseEnter={() => setSlashIndex(idx)}
                   className={`flex w-full flex-col gap-0.5 px-3 py-1.5 text-left transition-colors ${isActive ? accentBg : 'hover:bg-gray-800/60'}`}
