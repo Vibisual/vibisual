@@ -1218,8 +1218,11 @@
       "zoomIn": "Zoom in",
       "zoomOut": "Zoom out",
       "fitView": "Fit view",
+      "refresh": "Reload project",
       "lock": "Lock canvas",
-      "unlock": "Unlock canvas"
+      "unlock": "Unlock canvas",
+      "fullscreen": "Fullscreen",
+      "exitFullscreen": "Exit fullscreen"
     },
     "contextMenu": {
       "createCustomAgent": "Create Custom Agent",
