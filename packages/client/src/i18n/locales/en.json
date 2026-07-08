@@ -984,6 +984,9 @@
       "next": "Next match",
       "close": "Close"
     },
+    "zoom": {
+      "reset": "Reset"
+    },
     "streamRenderer": {
       "noActivity": "No activity in this session",
       "thinking": "thinking",
