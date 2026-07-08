@@ -1558,6 +1558,31 @@ function ImageLightboxHost(): React.JSX.Element | null {
   );
 }
 
+// IDE 본문 텍스트 줌 배율 사다리 — 크롬 페이지 줌처럼 정해진 단(段)만 밟아, 어디서 확대/축소해도 항상
+//   60·67·75·80·90·100·110·125·150·175·200·240% 같은 깔끔한 값에 떨어진다(옛 ×1.1 곱셈 누적은
+//   102%·112% 같은 어중간한 값을 만들었다). 범위는 store 클램프(0.6~2.4)와 동일.
+const IDE_TEXT_ZOOM_LADDER = [0.6, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.4];
+/** 현재 배율에서 사다리 한 단 위/아래 값. 사다리 밖 값(구버전 영속·핀치 잔여)도 다음 단부터 깔끔하게 복귀.
+ *  끝단에서 더 가면 현재값 유지(store no-op). */
+function stepIdeTextZoomLadder(cur: number, dir: 1 | -1): number {
+  if (dir > 0) return IDE_TEXT_ZOOM_LADDER.find((v) => v > cur + 0.001) ?? cur;
+  for (let i = IDE_TEXT_ZOOM_LADDER.length - 1; i >= 0; i--) {
+    const v = IDE_TEXT_ZOOM_LADDER[i];
+    if (v !== undefined && v < cur - 0.001) return v;
+  }
+  return cur;
+}
+/** 사다리에서 가장 가까운 단 — 핀치(연속값) 종료 시 스냅용. */
+function nearestIdeTextZoomLadder(cur: number): number {
+  let best = 1;
+  let bestDist = Math.abs(1 - cur);
+  for (const v of IDE_TEXT_ZOOM_LADDER) {
+    const d = Math.abs(v - cur);
+    if (d < bestDist) { best = v; bestDist = d; }
+  }
+  return best;
+}
+
 export const IDEMainArea = memo(function IDEMainArea({
   agentId,
   isCustom,
@@ -1602,6 +1627,33 @@ export const IDEMainArea = memo(function IDEMainArea({
   const ideTextZoom = useGraphStore((s) => s.ideTextZoom);
   const setIdeTextZoom = useGraphStore((s) => s.setIdeTextZoom);
   const ideBodyRef = useRef<HTMLDivElement | null>(null);
+  // 배율 배지 표시 상태 — 배율이 "바뀐 직후"에만 잠깐 떠 있다가 스르륵 사라진다(계속 떠 있으면 잡음).
+  //   prevZoomRef 를 현재값으로 초기화해 localStorage 영속 배율로 부팅해도 첫 렌더엔 배지가 안 뜬다.
+  //   연속 줌(휠 연타/핀치) 중엔 타이머가 계속 리셋돼 떠 있고, 손을 떼면 1.5s 뒤 페이드아웃.
+  const [zoomBadgeVisible, setZoomBadgeVisible] = useState(false);
+  const zoomBadgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevZoomRef = useRef(ideTextZoom);
+  useEffect(() => {
+    if (prevZoomRef.current === ideTextZoom) return;
+    prevZoomRef.current = ideTextZoom;
+    setZoomBadgeVisible(true);
+    if (zoomBadgeTimerRef.current) clearTimeout(zoomBadgeTimerRef.current);
+    zoomBadgeTimerRef.current = setTimeout(() => setZoomBadgeVisible(false), 1500);
+  }, [ideTextZoom]);
+  useEffect(() => () => {
+    if (zoomBadgeTimerRef.current) clearTimeout(zoomBadgeTimerRef.current);
+  }, []);
+  // 배지에 마우스를 올리면 페이드아웃 보류(초기화 버튼을 누르러 가는 도중 사라지지 않게), 떠나면 재개.
+  const holdZoomBadge = useCallback((): void => {
+    if (zoomBadgeTimerRef.current) {
+      clearTimeout(zoomBadgeTimerRef.current);
+      zoomBadgeTimerRef.current = null;
+    }
+  }, []);
+  const releaseZoomBadge = useCallback((): void => {
+    if (zoomBadgeTimerRef.current) clearTimeout(zoomBadgeTimerRef.current);
+    zoomBadgeTimerRef.current = setTimeout(() => setZoomBadgeVisible(false), 1500);
+  }, []);
   useEffect(() => {
     const el = ideBodyRef.current;
     if (!el) return;
@@ -1610,7 +1662,7 @@ export const IDEMainArea = memo(function IDEMainArea({
       e.preventDefault();
       e.stopPropagation();
       const cur = useGraphStore.getState().ideTextZoom;
-      setIdeTextZoom(cur * (e.deltaY < 0 ? 1.1 : 1 / 1.1));
+      setIdeTextZoom(stepIdeTextZoomLadder(cur, e.deltaY < 0 ? 1 : -1));
     };
     el.addEventListener('wheel', onWheelZoom, { passive: false, capture: true });
     return () => el.removeEventListener('wheel', onWheelZoom, { capture: true });
@@ -1649,7 +1701,11 @@ export const IDEMainArea = memo(function IDEMainArea({
       setIdeTextZoom(next);
     };
     const onTouchEnd = (e: TouchEvent): void => {
-      if (e.touches.length < 2) pinching = false;
+      if (e.touches.length < 2 && pinching) {
+        pinching = false;
+        // 제스처 중엔 연속값이지만 손을 떼면 크롬 줌처럼 가장 가까운 사다리 단으로 스냅해 %를 깔끔하게.
+        setIdeTextZoom(nearestIdeTextZoomLadder(useGraphStore.getState().ideTextZoom));
+      }
     };
     el.addEventListener('touchstart', onTouchStart, { passive: true, capture: true });
     el.addEventListener('touchmove', onTouchMove, { passive: false, capture: true });
@@ -1672,8 +1728,8 @@ export const IDEMainArea = memo(function IDEMainArea({
       if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
       const k = e.key;
       const cur = useGraphStore.getState().ideTextZoom;
-      if (k === '=' || k === '+' || e.code === 'NumpadAdd') { e.preventDefault(); setIdeTextZoom(cur * 1.1); }
-      else if (k === '-' || k === '_' || e.code === 'NumpadSubtract') { e.preventDefault(); setIdeTextZoom(cur / 1.1); }
+      if (k === '=' || k === '+' || e.code === 'NumpadAdd') { e.preventDefault(); setIdeTextZoom(stepIdeTextZoomLadder(cur, 1)); }
+      else if (k === '-' || k === '_' || e.code === 'NumpadSubtract') { e.preventDefault(); setIdeTextZoom(stepIdeTextZoomLadder(cur, -1)); }
       else if (k === '0' || e.code === 'Numpad0') { e.preventDefault(); setIdeTextZoom(1); }
     };
     window.addEventListener('keydown', onKeyZoom);
@@ -2366,12 +2422,28 @@ export const IDEMainArea = memo(function IDEMainArea({
         onContextMenu={handleContextMenu}
         className="relative flex min-h-0 flex-1 flex-col bg-gray-950"
       >
-        {/* 본문 텍스트 줌 배율 표시 — Ctrl+휠/Ctrl±로 바뀐 현재 배율을 우측 상단에 희미하게. 기본(100%)엔 숨겨
-            잡음이 되지 않게 하고, 확대/축소했을 때만 떠 "지금 몇 배인지" 기준을 잡아준다. 검색바(같은 코너)와
+        {/* 본문 텍스트 줌 배율 표시 — Ctrl+휠/Ctrl±/핀치로 배율이 바뀐 직후에만 우측 상단에 떠 "지금 몇 배인지"
+            기준을 잡아주고, 손을 떼면 잠시 뒤 스르륵 사라진다(zoomBadgeVisible). 페이드 전환을 위해 항상
+            마운트해 두고 opacity 만 굴린다(조건부 마운트면 나타날 때 전환이 없음). 검색바(같은 코너)와
             겹치지 않게 searchOpen 이면 양보. pointer-events-none 으로 본문 클릭/스크롤을 가리지 않는다. */}
-        {ideTextZoom !== 1 && !searchOpen && (
-          <div className="pointer-events-none absolute right-3 top-2 z-20 select-none rounded-md bg-gray-900/60 px-2 py-0.5 text-[11px] font-medium tabular-nums text-gray-500 shadow-sm backdrop-blur-sm">
-            {Math.round(ideTextZoom * 100)}%
+        {!searchOpen && (
+          <div
+            className={`absolute right-3 top-2 z-20 flex select-none items-center gap-1 rounded-md bg-gray-900/60 py-0.5 pl-2 pr-1 shadow-sm backdrop-blur-sm transition-opacity duration-500 ${zoomBadgeVisible ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'}`}
+            aria-hidden={!zoomBadgeVisible}
+            onMouseEnter={holdZoomBadge}
+            onMouseLeave={releaseZoomBadge}
+          >
+            <span className="text-[11px] font-medium tabular-nums text-gray-500">{Math.round(ideTextZoom * 100)}%</span>
+            {/* 크롬 줌 버블의 "재설정" 짝 — 100% 가 아닐 때만 활성화. 배지가 떠 있는 동안에만 클릭 가능
+                (pointer-events 는 컨테이너에서 일괄 제어)라 본문 클릭/스크롤을 가리지 않는다. */}
+            <button
+              type="button"
+              onClick={() => setIdeTextZoom(1)}
+              disabled={ideTextZoom === 1}
+              className="rounded px-1.5 py-0.5 text-[11px] font-medium text-gray-300 transition-colors hover:bg-gray-700/70 hover:text-gray-100 disabled:cursor-default disabled:text-gray-600 disabled:hover:bg-transparent"
+            >
+              {t('ide.zoom.reset')}
+            </button>
           </div>
         )}
         {/* §5.5 대화 인-페이지 검색바 — Ctrl+F. 본문(항목별 zoom) 위 chrome 이라 zoom 영향 없음(z-20 > 덮개 z-10). */}
