@@ -1,6 +1,6 @@
 {
   "name": "vibisual",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "private": true,
   "description": "AI agent activity visualizer with bubble maps",
   "license": "Apache-2.0",
