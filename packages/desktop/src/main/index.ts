@@ -14,6 +14,7 @@ import { configureWindowManager, closeAll as closeAllDetachedWindows, closeAllOv
 import { initMobileAccess, mobileBroadcast, stopMobileAccess } from './mobileAccess';
 import { initAutoUpdater, stopAutoUpdater } from './updaterManager';
 import { killAllTerminals } from './terminalManager';
+import { appendCrashLine, logAppStart, logCleanExit, startCrashReporter } from './crashLog';
 
 // Vibisual desktop main — SCENARIO.md §3.7 (in-process 통합, 단일 프로세스).
 //
@@ -48,16 +49,25 @@ export function getHookToken(): string {
   return hookToken;
 }
 
+// crashLog(§4 v1.98 확장) — 네이티브 크래시 minidump 수집을 app ready·창 생성 전에 켜고,
+// 이번 실행의 부팅 배너를 crash.log 에 남긴다(다음에 로그를 볼 때 "clean exit 마커 없이
+// 다음 배너로 넘어갔으면 그 사이에 팅긴 것" 판별용).
+startCrashReporter();
+logAppStart();
+
 // §4 v1.98 — main 프로세스 에러를 진단 로그(diagnosticService)에 적재 → DebugPanel 에 표시.
 // record-and-continue: 비치명 uncaught 에러를 크래시 다이얼로그 대신 앱 안 패널로.
+// (v3.x) 메모리 뷰어(diagnosticService)는 유지하되, 팅기면 사라지므로 crash.log 에도 영속.
 process.on('uncaughtException', (err) => {
   console.error('[main] uncaughtException:', err);
   recordDiagnostic('main', 'error', `uncaughtException: ${err.message}`, err.stack);
+  appendCrashLine('main', 'error', `uncaughtException: ${err.message}`, err.stack);
 });
 process.on('unhandledRejection', (reason) => {
   const err = reason instanceof Error ? reason : new Error(String(reason));
   console.error('[main] unhandledRejection:', err);
   recordDiagnostic('main', 'error', `unhandledRejection: ${err.message}`, err.stack);
+  appendCrashLine('main', 'error', `unhandledRejection: ${err.message}`, err.stack);
 });
 
 function createWindow(): void {
@@ -123,12 +133,20 @@ function createWindow(): void {
   // renderer 치명 오류만 main stdout 으로 — preload 실패 / 페이지 로드 실패 / renderer 크래시.
   mainWindow.webContents.on('preload-error', (_e, preloadPath, error) => {
     console.error(`[main] preload-error ${preloadPath}:`, error);
+    appendCrashLine('renderer', 'error', `preload-error ${preloadPath}: ${String(error)}`);
   });
   mainWindow.webContents.on('did-fail-load', (_e, code, desc, url) => {
     console.error(`[main] renderer did-fail-load code=${code} "${desc}" url=${url}`);
+    appendCrashLine('renderer', 'error', `did-fail-load code=${code} "${desc}" url=${url}`);
   });
   mainWindow.webContents.on('render-process-gone', (_e, details) => {
     console.error(`[main] renderer process gone: ${details.reason}`);
+    // reason: 'crashed' | 'oom' | 'killed' | 'launch-failed' | ... — 팅김 원인 직접 단서.
+    appendCrashLine(
+      'renderer',
+      'fatal',
+      `render-process-gone reason=${details.reason} exitCode=${details.exitCode}`,
+    );
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -459,6 +477,17 @@ if (!gotSingleInstanceLock) {
   });
 }
 
+// GPU·유틸리티 등 자식 프로세스 사망 — 네이티브 크래시의 흔한 원인(GPU 드라이버 등).
+// webContents 의 render-process-gone 과 별개 축이라 앱 레벨에서 별도로 잡아 crash.log 에 남긴다.
+app.on('child-process-gone', (_e, details) => {
+  console.error(`[main] child-process-gone type=${details.type} reason=${details.reason}`);
+  appendCrashLine(
+    'child',
+    'fatal',
+    `child-process-gone type=${details.type} reason=${details.reason} exitCode=${details.exitCode}${details.name ? ` name=${details.name}` : ''}`,
+  );
+});
+
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
@@ -470,6 +499,10 @@ app.on('before-quit', (event) => {
   if (quitting) return;
   quitting = true;
   event.preventDefault();
+
+  // crashLog — 정상 종료 마커. 다음 부팅 배너 이전에 이 줄이 있으면 지난 실행은 정상 종료,
+  // 없으면 그 사이 팅긴 것으로 판별된다.
+  logCleanExit();
 
   // §5.4 #14-1 — 메인 종료 시 detached 별창 일괄 정리(서버 영속화 ❌, in-memory 라 자연 소멸).
   closeAllDetachedWindows();
