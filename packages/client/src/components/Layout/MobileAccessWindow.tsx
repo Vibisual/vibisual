@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { MOBILE_QR_TICKET_TTL_MS, type MobileAccessState } from '@vibisual/shared';
 import { drawQrToCanvas, downloadCanvasPng } from '../../utils/qrCanvas';
+import { setCanvasCover } from '../../stores/canvasVisibility.js';
 
 // 모바일 웹 접속 모드 모달 — SCENARIO.md §4 v3.16.
 //
@@ -39,6 +40,12 @@ export function MobileAccessWindow({ open, onClose }: MobileAccessWindowProps): 
   const [qrTargetIndex, setQrTargetIndex] = useState(0);
   const [now, setNow] = useState(() => Date.now());
   const qrCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // §4 v3.71 가시성 LOD — 열려 있는 동안 캔버스를 전면으로 덮으므로 덮개로 등록한다.
+  useEffect(() => {
+    setCanvasCover('mobile-access', open);
+    return () => setCanvasCover('mobile-access', false);
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;

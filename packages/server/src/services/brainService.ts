@@ -254,7 +254,14 @@ export class BrainService {
 
   private writeCard(card: BrainCard): void {
     const filePath = this.cardFilePath(card);
-    atomicWriteFileSync(filePath, serializeCard(card));
+    try {
+      atomicWriteFileSync(filePath, serializeCard(card));
+    } catch (err) {
+      // v3.71: 죽은 워크트리(`.git` 없음) 루트면 atomicWriteFileSync 가 거부한다 — 폴더를
+      // 되살리지 않기 위함. 인덱스도 갱신하지 않아 "저장됐다"고 착각하지 않는다.
+      logger.warn(`brain: card write skipped (${card.id}): ${err instanceof Error ? err.message : String(err)}`);
+      return;
+    }
     let mtimeMs = Date.now();
     try { mtimeMs = fs.statSync(filePath).mtimeMs; } catch { /* best effort */ }
     this.index.set(card.id, { card, filePath, mtimeMs });

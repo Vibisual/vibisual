@@ -16,6 +16,7 @@ import path from 'node:path';
 import type { ProjectInfo, SubAgentStreamEvent } from '@vibisual/shared';
 import { logger } from '../logger.js';
 import { projectDirForInfo } from './statePersistence.js';
+import { isUnderDeadWorktree, shouldReportDeadWorktree } from './worktreeLiveness.js';
 
 function sanitize(segment: string): string {
   // 경로 주입 방지 — 안전 문자만 허용
@@ -59,6 +60,14 @@ function flushFile(fp: string): void {
   const arr = pending.get(fp);
   pending.delete(fp);
   if (!arr || arr.length === 0) return;
+  // v3.71: 죽은 워크트리(`.git` 없음)에는 기록하지 않는다 — ensureDir 이 폴더를 새로 만들어
+  // 사용자가 지운 워크트리 디렉토리를 되살리는 경로였다(writeCheckpoint 가드와 같은 판정).
+  if (isUnderDeadWorktree(fp)) {
+    if (shouldReportDeadWorktree(`stream:${path.dirname(fp)}`)) {
+      logger.warn(`streamBufferStore: dropping ${arr.length} event(s) — target is a dead worktree: ${fp}`);
+    }
+    return;
+  }
   try {
     ensureDir(path.dirname(fp));
     fs.appendFileSync(fp, arr.join('\n') + '\n', 'utf8');

@@ -16,6 +16,7 @@ import { useTranslation } from 'react-i18next';
 import type { BrainCard, BrainCardType, BrainFeed, BrainFeedSectionKey } from '@vibisual/shared';
 import { BUBBLE_STYLES } from '@vibisual/shared';
 import { useGraphStore, selectEffectiveProject } from '../../stores/graphStore.js';
+import { setCanvasCover } from '../../stores/canvasVisibility.js';
 import { BRAIN_TYPE_COLORS } from '../../hooks/useBubbleLayout.js';
 import { BrainCardDetail } from './BrainCardDetail.js';
 import { ScrollFade } from '../ScrollFade.js';
@@ -245,6 +246,12 @@ export function BrainFeedOverlay(): React.JSX.Element | null {
     for (const { key } of SECTION_ORDER) out.push(...filterByType(feed.sections[key] ?? []));
     return out;
   }, [searchResults, feed, filterByType]);
+
+  // §4 v3.71 가시성 LOD — 열려 있는 동안 캔버스를 전면으로 덮으므로 덮개로 등록한다.
+  useEffect(() => {
+    setCanvasCover('brain-feed', open);
+    return () => setCanvasCover('brain-feed', false);
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;

@@ -368,7 +368,10 @@
       "mergeFailedLine": "git merge {{branch}} — 실패",
       "copy": "복사",
       "copied": "복사됨",
-      "close": "닫기"
+      "close": "닫기",
+      "partialTitle": "폴더가 일부만 삭제되었습니다",
+      "partialDesc": "폴더가 완전히 지워지지 않았습니다 — {{path}} 에 {{files}}개가 남아 있습니다. 해당 파일을 잡고 있는 프로그램(에디터, 터미널, 개발 서버)을 닫고 다시 시도해 주세요.",
+      "retryDelete": "다시 삭제"
     },
     "agentConfig": {
       "autoEdge": {
@@ -400,16 +403,6 @@
       },
       "contextWindow": {
         "oneMillion": "1M 컨텍스트 윈도우"
-      },
-      "preset": {
-        "label": "프리셋",
-        "tip": "빠른 시작: 도구 / 권한 모드 / 사고 깊이 / 규칙을 한 번에 채웁니다. 이후 자유롭게 편집 가능합니다 (메타데이터 전용).",
-        "custom": "(커스텀 — 프리셋 없음)",
-        "applied": "프리셋 적용됨 — 이후 자유롭게 편집 가능",
-        "explore": "탐색: 읽기 전용 탐색 (Read/Grep/Glob/Bash).",
-        "plan": "계획: 설계 + 전략 (읽기 전용, plan 모드).",
-        "code-reviewer": "코드 리뷰어: 보안/성능/품질, 읽기 전용, 고도 사고.",
-        "general-purpose": "범용: 모든 도구, 기본 모드."
       },
       "permissionMode": {
         "label": "권한 모드",
@@ -602,6 +595,7 @@
       "noProject": "활성 프로젝트 없음",
       "fps": "fps",
       "fpsTip": "초당 렌더 프레임 수",
+      "visibility": "가시성",
       "profiling": {
         "title": "프로파일링",
         "startNow": "지금 수집",
@@ -627,20 +621,6 @@
       "restartServer": "서버 재시작",
       "restartTimeout": "타임아웃 — 서버가 15초 내에 재시작되지 않았습니다. tsx watch 프로세스를 확인하세요.",
       "restartNoServerInfo": "서버 정보를 읽을 수 없음 — /api/server-info가 응답하지 않습니다"
-    },
-    "agentEvent": {
-      "prompt": "프롬프트",
-      "queue": "큐",
-      "tokenUsage": "토큰 사용량",
-      "waited": "{{time}} 대기",
-      "closePopup": "팝업 닫기",
-      "result": "결과",
-      "todos": "할 일 ({{done}}/{{total}})",
-      "todosShort": "할 일 {{done}}/{{total}}",
-      "resultsHeading": "결과 ({{count}})",
-      "direct": "직접",
-      "error": "오류",
-      "tokensInOut": "입력 {{in}} / 출력 {{out}}"
     },
     "bashHistory": {
       "bashCommand": "Bash 명령",
@@ -1339,11 +1319,6 @@
       "agentCompleted": "에이전트 완료 — 클릭하여 결과 보기"
     },
     "bubble": {
-      "empty": {
-        "start": "Claude Code에서 작업을 시작하면",
-        "appearing": "버블이 여기에 나타납니다",
-        "hookInstall": "훅 설치: npx tsx hooks/install.ts"
-      },
       "awaitingPermission": "권한 승인 대기 중",
       "awaitingInput": "입력 대기 중",
       "idle": "대기",

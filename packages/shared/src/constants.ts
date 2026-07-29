@@ -1,4 +1,4 @@
-import type { BubbleType, BubbleStyleConfig, EdgeStyleConfig, AgentRole, PipelineChildConfig, PipelineType, AgentConfig, AgentPreset, TaskEdgeTemplate, TaskEdgeKind, UiLocale, AutoAgentRole, AutoAgentTopology, AutoAgentTemplate, AutoAgentTopologyPreset, ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry, AgentFeedback } from './types.js';
+import type { BubbleType, BubbleStyleConfig, EdgeStyleConfig, AgentRole, PipelineChildConfig, PipelineType, AgentConfig, TaskEdgeTemplate, TaskEdgeKind, UiLocale, AutoAgentRole, AutoAgentTemplate, ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry, AgentFeedback } from './types.js';
 export type { ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry } from './types.js';
 
 // ─── UI 다국어 (i18n) ───
@@ -267,8 +267,7 @@ export const NODE_MAX_SIZE = 180;
 /** 파일(위성) 버블 최소/최대 크기 */
 export const FILE_MIN_SIZE = 40;
 export const FILE_MAX_SIZE = 90;
-/** iframe 버블 크기 (네모, 고정) */
-export const IFRAME_BUBBLE_WIDTH = 140;
+/** iframe 버블 높이 (네모, 고정) — 너비는 클라 쪽 레이아웃이 직접 산출한다. */
 export const IFRAME_BUBBLE_HEIGHT = 90;
 
 // ─── 모델 컨텍스트 한도 (토큰) ───
@@ -291,8 +290,6 @@ export const DEFAULT_CONTEXT_LIMIT = 200_000;
 
 export const MAX_AGENTS = 10;
 export const MAX_AGENT_EVENTS = 30;
-/** 에이전트 완료 요약 최대 길이 (자) */
-export const MAX_SUMMARY_LENGTH = 500;
 /** 초기 로딩 시 띄울 최근 세션 수 */
 export const INITIAL_AGENT_COUNT = 3;
 
@@ -331,13 +328,6 @@ export const USAGE_LIMIT_DANGER_PCT = 90;
  * 시뮬레이트(→ completed)한다. idle sweep(30초)보다 촘촘히 돌려 인터럽트 직후 빠르게 해소.
  */
 export const INTERRUPT_RECONCILE_INTERVAL_MS = 5_000;
-
-/**
- * 세션이 "활성"으로 간주되는 JSONL mtime 임계값 (ms).
- * JSONL 파일이 이 시간 내에 쓰여졌으면 사용 중으로 판정.
- * Windows에서 파일 락 테스트가 불가능하므로 mtime이 최선의 활성 신호.
- */
-export const SESSION_ACTIVE_WINDOW_MS = 30 * 60 * 1000;
 
 /** 파일 존재 확인 주기 (ms) — 삭제된 파일 버블 자동 제거 */
 export const FILE_EXISTENCE_CHECK_INTERVAL = 30_000;
@@ -382,8 +372,6 @@ export const PANEL_MAX_WIDTH = 720;
 
 // ─── 상태 저장 ───
 
-/** 체크포인트 갱신 주기 (액션 수) */
-export const CHECKPOINT_INTERVAL = 500;
 /** 물리 엔진 위치 자동 저장 주기 (ms) */
 export const POSITION_SAVE_INTERVAL = 30_000;
 
@@ -429,8 +417,6 @@ export const CHECKPOINT_SHRINK_GUARD_ENABLED = false;
 
 /** 텍스트 라벨 최대 너비 = size * TEXT_WIDTH_RATIO */
 export const BUBBLE_TEXT_WIDTH_RATIO = 0.7;
-/** 아이콘/라벨 간 gap이 0이 되는 작은 버블 크기 기준 (px) */
-export const BUBBLE_SMALL_THRESHOLD = 60;
 /** 텍스트 스케일 기준 버블 크기 — 이 크기에서 기본 폰트 비율 1.0 */
 export const BUBBLE_TEXT_REF_SIZE = 150;
 
@@ -734,11 +720,6 @@ export function listEffortLevels(registry?: ModelRegistry | null): string[] {
   return out;
 }
 
-/** 선택 가능한 메모리 모드 */
-export const AVAILABLE_MEMORY_MODES: readonly string[] = [
-  'none', 'project', 'user',
-];
-
 /** §5.3 #28 v1.47 — Vibisual Custom Mode 옵션. 'conti' 만 본 라운드에서 동작, 나머지는 placeholder. */
 export const AVAILABLE_CUSTOM_MODES = [
   { value: 'conti', enabled: true },
@@ -1025,9 +1006,6 @@ export const STAMP_CATALOG = {
   'badge-pill':       { category: 'indicator', defaultW: 60,  defaultH: 18,  variants: [],                         summary: '작은 pill 라벨' },
 } as const satisfies Readonly<Record<string, StampSpec>>;
 
-/** §5.3 #28 v1.60 — 카탈로그 키 union type. 코드에서 stamp 이름 비교 시 사용. */
-export type StampName = keyof typeof STAMP_CATALOG;
-
 /** §5.3 #28 (K) v1.48 — `AgentConfig.rulesHistory` 가 보관하는 최대 항목 수. 초과 시 가장 오래된 항목 FIFO drop. */
 export const RULES_HISTORY_MAX = 20;
 
@@ -1069,69 +1047,6 @@ export const DEFAULT_AGENT_CONFIG: AgentConfig = {
   skills: [],
   maxTurns: 0,
 };
-
-/**
- * §4 v1.53 — 에이전트 프리셋 카탈로그.
- * Claude Code 본체의 `subagent_type`(Explore/Plan/code-reviewer/general-purpose) 를 미러링.
- * AgentConfigPopup 상단 드롭다운에서 선택 시 폼에 즉시 적용되고, 사용자가 이후 자유 편집 가능.
- *
- * 적용된 결과는 평범한 `AgentConfig` — 별도 런타임 분기 ❌. `presetId` 는 트레이스용 메타만.
- * `tools` 에 `'Bash'` 포함 여부는 v1.36 LOCKED_AGENT_TOOLS 규칙(서버 PUT 가 자동 보존)으로 강제.
- */
-export const AGENT_PRESETS: readonly AgentPreset[] = [
-  {
-    id: 'explore',
-    config: {
-      model: 'sonnet',
-      tools: ['Read', 'Grep', 'Glob', 'Bash'],
-      permissionMode: 'default',
-      effort: 'default',
-      rules:
-        '# Role: Explore\n\n' +
-        '- 빠르게 코드를 탐색해서 위치·구조·관련 파일을 찾는 read-only 에이전트.\n' +
-        '- 파일을 수정하지 마라(Write/Edit 도구 없음). Bash 는 검색·라우팅 보조용으로만.\n' +
-        '- 결과는 파일 경로 + 라인 번호 + 1-2 문장 요약으로.',
-    },
-  },
-  {
-    id: 'plan',
-    config: {
-      model: 'sonnet',
-      tools: ['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch', 'Bash'],
-      permissionMode: 'plan',
-      effort: 'default',
-      rules:
-        '# Role: Plan\n\n' +
-        '- 구현 전략·트레이드오프·중요 파일을 정리하는 설계 에이전트.\n' +
-        '- 코드를 수정하지 말고 단계별 계획만 산출. plan 모드라 ExitPlanMode 까지 가는 흐름.\n' +
-        '- 산출물 = "변경 대상 파일 / 변경 요지 / 위험 / 검증 방법" 4 섹션.',
-    },
-  },
-  {
-    id: 'code-reviewer',
-    config: {
-      model: 'sonnet',
-      tools: ['Read', 'Grep', 'Glob', 'Bash'],
-      permissionMode: 'default',
-      effort: 'high',
-      rules:
-        '# Role: Code Reviewer\n\n' +
-        '- 보안·성능·코드 품질을 다각도로 리뷰하는 read-only 에이전트.\n' +
-        '- 파일을 수정하지 마라. 발견한 이슈는 file:line 형식 + 1-2 문장 근거 + 권장 수정.\n' +
-        '- "이건 잘했다"도 같이 적어라 — 회고용.',
-    },
-  },
-  {
-    id: 'general-purpose',
-    config: {
-      model: 'sonnet',
-      tools: [...AVAILABLE_AGENT_TOOLS],
-      permissionMode: 'default',
-      effort: 'default',
-      rules: undefined,
-    },
-  },
-];
 
 // ─── 파이프라인 에이전트 ───
 
@@ -1482,6 +1397,33 @@ export const COMMENT_BOX_LOD = {
 } as const;
 
 /**
+ * §4 v3.71 가시성 LOD — "안 보이면 안 그린다".
+ * COMMENT_BOX_LOD 와 같은 계열(줌에 따라 렌더 모드 전환)의 캔버스 전역판.
+ * 임계치는 여기서만 — 컴포넌트 하드코딩 ❌(§3.3).
+ */
+export const CANVAS_LOD = {
+  /** 이 zoom 미만이면 '움직이는 장식'(펄스 링·ping·글로우·sweep)을 그리지 않는다. */
+  MOTION_BELOW: 0.7,
+  /** 이 zoom 미만이면 보조 정보(배지·칩·모델/토큰 줄)까지 생략하고 아이콘+라벨만 남긴다. */
+  MINIMAL_BELOW: 0.35,
+  /** 뷰포트 밖 노드·엣지를 아예 렌더하지 않는다(React Flow onlyRenderVisibleElements). */
+  CULL_OFFSCREEN: true,
+} as const;
+
+/** 가시성 LOD 티어 — 렌더 디테일 단계. */
+export type CanvasLodTier = 'full' | 'reduced' | 'minimal';
+
+/**
+ * zoom → LOD 티어. 티어는 값이 바뀔 때만 리렌더를 유발하도록 **구독 단위**로 쓴다
+ * (매 팬/줌 프레임마다 zoom 원값을 구독하면 노드 전체가 재렌더된다).
+ */
+export function canvasLodTier(zoom: number): CanvasLodTier {
+  if (zoom < CANVAS_LOD.MINIMAL_BELOW) return 'minimal';
+  if (zoom < CANVAS_LOD.MOTION_BELOW) return 'reduced';
+  return 'full';
+}
+
+/**
  * §5.9 화면/프로그램 캡처 버블 기본값. CommentBox 처럼 캔버스 독립 요소이므로 절대좌표 배치.
  * 16:9 비율의 네모난 라이브 영상 본체가 기본.
  *
@@ -1810,82 +1752,6 @@ export const AUTO_AGENT_TEMPLATES: readonly AutoAgentTemplate[] = [
   { role: 'librarian', label: 'Librarian', description: 'Searches internal/external docs and references.', config: AUTO_AGENT_ROLE_POLICY.librarian },
   { role: 'explore', label: 'Explore', description: 'Fast read-only codebase exploration — reports locations.', config: AUTO_AGENT_ROLE_POLICY.explore },
 ];
-
-/**
- * 토폴로지 프리셋 카탈로그 — 어떤 role 들을 어떻게 엣지로 연결할지.
- * 새 토폴로지 추가 시 여기 한 항목 + `AutoAgentTopology` 유니온 한 줄 + `selectTopology` 분기 한 줄.
- *
- * `offsetAngleDeg`: auto-agent 버블 기준 각도(도, 0=오른쪽, 시계 반대 — 표준 수학 각도).
- *   원형 배치를 위해 노드 수에 따라 균등 분포.
- * `entry`: 정확히 1개의 노드만 true. 사용자 메시지 forward 대상.
- */
-export const AUTO_AGENT_TOPOLOGY_PRESETS: Record<Exclude<AutoAgentTopology, 'custom'>, AutoAgentTopologyPreset> = {
-  pipeline: {
-    topology: 'pipeline',
-    label: 'Pipeline',
-    description: 'Linear chain: planner → coder → reviewer. Each stage passes artifact to next.',
-    nodes: [
-      { role: 'planner', offsetAngleDeg: 150, entry: true },
-      { role: 'coder', offsetAngleDeg: 30 },
-      { role: 'reviewer', offsetAngleDeg: 270 },
-    ],
-    edges: [
-      { from: 'planner', to: 'coder', kind: 'artifact', returnFormat: 'artifact' },
-      { from: 'coder', to: 'reviewer', kind: 'artifact', returnFormat: 'summary' },
-    ],
-  },
-  team: {
-    topology: 'team',
-    label: 'Team (PM hub + workers)',
-    description: 'PM routes user request to architect/coder/tester, collects via reviewer, summarizes back.',
-    nodes: [
-      { role: 'pm', offsetAngleDeg: 90, entry: true },
-      { role: 'architect', offsetAngleDeg: 180 },
-      { role: 'coder', offsetAngleDeg: 30 },
-      { role: 'tester', offsetAngleDeg: 330 },
-      { role: 'reviewer', offsetAngleDeg: 270 },
-    ],
-    edges: [
-      { from: 'pm', to: 'architect', kind: 'command', commandMode: 'shared', returnFormat: 'summary' },
-      { from: 'pm', to: 'coder', kind: 'command', commandMode: 'shared', returnFormat: 'both' },
-      { from: 'pm', to: 'tester', kind: 'command', commandMode: 'shared', returnFormat: 'summary' },
-      { from: 'coder', to: 'reviewer', kind: 'artifact', returnFormat: 'summary' },
-      { from: 'tester', to: 'reviewer', kind: 'artifact', returnFormat: 'summary' },
-      { from: 'reviewer', to: 'pm', kind: 'artifact', returnFormat: 'summary' },
-    ],
-  },
-  ralph: {
-    topology: 'ralph',
-    label: 'Ralph (Team + critique loop)',
-    description: 'Team topology + reviewer can reject (force-rework) coder via critique edge. Up to 5 cycles.',
-    nodes: [
-      { role: 'pm', offsetAngleDeg: 90, entry: true },
-      { role: 'architect', offsetAngleDeg: 180 },
-      { role: 'coder', offsetAngleDeg: 30 },
-      { role: 'tester', offsetAngleDeg: 330 },
-      { role: 'reviewer', offsetAngleDeg: 270 },
-    ],
-    edges: [
-      { from: 'pm', to: 'architect', kind: 'command', commandMode: 'shared', returnFormat: 'summary' },
-      { from: 'pm', to: 'coder', kind: 'command', commandMode: 'shared', returnFormat: 'both' },
-      { from: 'pm', to: 'tester', kind: 'command', commandMode: 'shared', returnFormat: 'summary' },
-      { from: 'coder', to: 'reviewer', kind: 'artifact', returnFormat: 'summary' },
-      { from: 'tester', to: 'reviewer', kind: 'artifact', returnFormat: 'summary' },
-      { from: 'reviewer', to: 'pm', kind: 'artifact', returnFormat: 'summary' },
-      // critique primary — 서버가 force-rework 면 자매 auto-rework command 엣지 자동 생성
-      { from: 'reviewer', to: 'coder', kind: 'critique', critiqueAuthority: 'force-rework' },
-    ],
-  },
-  autopilot: {
-    topology: 'autopilot',
-    label: 'Autopilot (single super agent)',
-    description: 'A single general-purpose agent that handles everything end-to-end.',
-    nodes: [
-      { role: 'coder', offsetAngleDeg: 0, entry: true },
-    ],
-    edges: [],
-  },
-};
 
 // ─── §5.3 #10-2 v2.45 — 하네스 빌더 에이전트 ───
 

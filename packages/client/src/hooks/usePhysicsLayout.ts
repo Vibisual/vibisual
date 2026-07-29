@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback } from 'react';
 import type { Node } from '@xyflow/react';
 import { LAYOUT_CENTER_X, LAYOUT_CENTER_Y } from '@vibisual/shared';
 import { useGraphStore } from '../stores/graphStore.js';
+import { isCanvasCovered, subscribeCanvasCovered } from '../stores/canvasVisibility.js';
 
 interface PhysicsBody {
   id: string;
@@ -15,6 +16,8 @@ interface PhysicsBody {
   offsetY: number;
   /** 유저가 드래그 중인지 */
   dragging: boolean;
+  /** React Flow 가 DOM 실측을 마쳤는지(§4 v3.71 — 화면 밖 컬링 노드는 실측 전이라 반경이 기본값). */
+  measured: boolean;
 }
 
 const MAGNET_GAP = 12;
@@ -34,6 +37,15 @@ const SLEEP_FRAMES = 15;
  * 중심은 LAYOUT_CENTER_X/Y. 위성은 부모 스프링이 끌어당기므로 직접 클램프하지 않는다.
  */
 const BOUNDS_BOUNCE = 0.4;
+
+/**
+ * §4 v3.71 가시성 LOD — "덮임"(IDE 최대화·모달 등 전면 오버레이)을 `document.hidden` 과 **동급**으로
+ * 취급한다. 종전엔 같은 창 안에서 캔버스가 완전히 가려져도 `document.hidden` 은 false 라 물리가 계속
+ * 돌았다 — 보이지도 않는 버블을 30fps 로 밀고 `setNodes` 로 리렌더까지 시켰다.
+ */
+function isCanvasUnseen(): boolean {
+  return (typeof document !== 'undefined' && document.hidden) || isCanvasCovered();
+}
 
 export interface PhysicsHandlers {
   onSatelliteDrag: (id: string, x: number, y: number) => void;
@@ -72,10 +84,10 @@ export function usePhysicsLayout(
   // 슬립 시 조기 return 이라 안 움직였다) — CPU/발열만 준다. 데스크톱도 idle 시 이득.
   const ensureRunning = useCallback((): void => {
     if (rafRef.current != null) return;
-    if (typeof document !== 'undefined' && document.hidden) return;
+    if (isCanvasUnseen()) return;
     const loop = (ts: number): void => {
-      if (sleepingRef.current || (typeof document !== 'undefined' && document.hidden)) {
-        rafRef.current = null; // 다음 wake/visibilitychange 에서 ensureRunning 이 재점화
+      if (sleepingRef.current || isCanvasUnseen()) {
+        rafRef.current = null; // 다음 wake/visibilitychange/덮임해제 에서 ensureRunning 이 재점화
         return;
       }
       if (ts - lastFrameRef.current >= FRAME_MS) {
@@ -114,11 +126,18 @@ export function usePhysicsLayout(
   useEffect(() => {
     const existing = bodiesRef.current;
     const newBodies = new Map<string, PhysicsBody>();
+    // §4 v3.71 — 뷰포트 밖 노드 컬링(onlyRenderVisibleElements)을 켠 뒤로는, 화면 밖 버블이 DOM 에
+    //   마운트된 적이 없어 measured 가 비어 있다(반경이 기본값 35 로 남는다). 그 버블이 화면에 들어와
+    //   처음 실측되는 순간 반경이 실제 크기로 점프하므로, 잠들어 있던 엔진을 깨워 겹침을 정리한다.
+    //   깨우는 조건은 "미실측 → 실측" 전이뿐 — 활동에 따른 크기 전이(매 프레임 폭 변화)로는 깨지 않아
+    //   상시 rAF 로 되돌아가지 않는다.
+    let measuredArrived = false;
 
     for (const node of nodes) {
       const isSat = node.id.startsWith('sat-');
       const pid = parentMap.current.get(node.id) ?? null;
-      const w = (node.measured?.width ?? node.width ?? 70);
+      const measuredW = node.measured?.width;
+      const w = (measuredW ?? node.width ?? 70);
       const r = w / 2;
       const cx = node.position.x + r;
       const cy = node.position.y + r;
@@ -126,6 +145,8 @@ export function usePhysicsLayout(
       const old = existing.get(node.id);
       const isPaused = Date.now() < pausedUntilRef.current;
       if (old) {
+        if (!old.measured && measuredW != null) measuredArrived = true;
+        old.measured = measuredW != null;
         old.radius = r;
         old.parentId = pid;
         // 비위성은 항상 동기화, 위성은 pause 중일 때만 동기화 (캐시 복원 반영)
@@ -169,11 +190,17 @@ export function usePhysicsLayout(
           parentId: pid,
           offsetX, offsetY,
           dragging: false,
+          measured: measuredW != null,
         });
       }
     }
     bodiesRef.current = newBodies;
-  }, [nodes]);
+    if (measuredArrived) {
+      sleepingRef.current = false;
+      quietFramesRef.current = 0;
+      ensureRunning();
+    }
+  }, [nodes, ensureRunning]);
 
   /** 드래그 중 — 마우스에 고정, 물리 엔진이 안 건드림 */
   const onSatelliteDrag = useCallback((id: string, x: number, y: number) => {
@@ -415,8 +442,12 @@ export function usePhysicsLayout(
     // 백그라운드로 갔다가(폰 화면 꺼짐·탭 전환·앱 최소화) 돌아오면 루프 재점화.
     const onVisibility = (): void => { if (!document.hidden) ensureRunning(); };
     document.addEventListener('visibilitychange', onVisibility);
+    // §4 v3.71 — 덮개가 걷히면(IDE 닫힘·축소) 즉시 재점화. 이 구독이 없으면 멈춘 루프를 깨울 사건이
+    //   드래그 같은 사용자 조작뿐이라, 덮여 있는 동안 쌓인 배치가 화면에 반영되지 않는다.
+    const unsubCover = subscribeCanvasCovered((nowCovered) => { if (!nowCovered) ensureRunning(); });
     return () => {
       document.removeEventListener('visibilitychange', onVisibility);
+      unsubCover();
       if (rafRef.current != null) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
     };
   }, [ensureRunning]);

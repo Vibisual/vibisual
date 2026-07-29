@@ -13,16 +13,6 @@ export type UiLocale =
   | 'it'
   | 'pt-BR';
 
-/** Claude Code Hook 이벤트 타입 */
-export type HookEventType =
-  | 'PreToolUse'
-  | 'PostToolUse'
-  | 'Notification'
-  | 'Stop'
-  /** 서브에이전트(Task/Agent 도구) 종료. Claude Code 는 서브 컨텍스트의 Stop 을 이 이벤트로 변환한다. */
-  | 'SubagentStop'
-  /** §4 v1.50 — Anthropic SDK 2026-05 신규. 컨텍스트 컴팩션 직전 발화. */
-  | 'PreCompact';
 
 /** Claude Code가 훅으로 보내는 원시 페이로드 (stdin / HTTP POST body) */
 export interface HookEventPayload {
@@ -995,11 +985,6 @@ export interface QueuedCommand {
   restartResumed?: boolean;
 }
 
-/** 명령 페이로드 — DetailPanel 액션 버튼용 */
-export interface CommandPayload {
-  action: 'inspect' | 'send_agent' | 'what_remains';
-  nodeId: string;
-}
 
 /** 에이전트 상태 — 시스템 레벨 (전체 에이전트 활동 여부) */
 export interface AgentStatus {
@@ -1050,12 +1035,8 @@ export interface CommentBox {
 
 /** WebSocket 메시지 타입 */
 export type WSMessageType =
-  | 'hook_event'
-  | 'node_update'
   | 'agent_status'
-  | 'edge_update'
   | 'command'
-  | 'command_pop'
   | 'connection_ack'
   | 'graph_snapshot'
   | 'sub_agent_stream'
@@ -2556,30 +2537,6 @@ export interface AgentConfig {
  */
 export type ExecutionMode = 'headless' | 'interactive-terminal';
 
-// ─── Agent Preset (§4 v1.53) ───
-
-/**
- * §4 v1.53 — 새 커스텀 에이전트 생성 시 빠르게 시작점 제공하는 프리셋.
- * 사용자가 AgentConfigPopup 상단 드롭다운에서 선택하면 폼이 즉시 채워진다(저장 전까지 dirty).
- * UI 만 — 서버에는 적용된 결과(AgentConfig) 만 저장되며, 트레이스용으로 `AgentConfig.presetId?` 메타만 남는다.
- */
-export interface AgentPreset {
-  /** 프리셋 식별자 (예: 'explore', 'plan', 'code-reviewer', 'general-purpose'). i18n 키로도 사용. */
-  id: string;
-  /** 프리셋 적용 시 채워지는 AgentConfig 일부 (사용자가 이후 자유 편집). */
-  config: Partial<Pick<
-    AgentConfig,
-    | 'model'
-    | 'tools'
-    | 'permissionMode'
-    | 'effort'
-    | 'rules'
-    | 'maxTurns'
-    | 'isolation'
-    | 'disallowedTools'
-  >>;
-}
-
 // ─── Conti Mode (§5.3 #28 v1.47) ───
 
 /** 커스텀 에이전트의 Vibisual Custom Mode 값. undefined=비활성. 'conti' 만 본 라운드에서 동작. */
@@ -2902,38 +2859,6 @@ export interface AutoAgentTemplate {
 }
 
 /**
- * 토폴로지 프리셋 — 어떤 role 들을 어떤 엣지로 연결할지.
- * `nodes.entry === true` 인 노드가 사용자 메시지 forward 대상(=엔트리).
- * 정확히 1개의 entry 필수.
- */
-export interface AutoAgentTopologyPreset {
-  topology: AutoAgentTopology;
-  /** 사용자 라벨 (예: "Team — PM hub + workers") */
-  label: string;
-  /** 짧은 설명 */
-  description: string;
-  /** 이 토폴로지로 spawn 할 노드 정의 */
-  nodes: {
-    role: AutoAgentRole;
-    /** auto-agent 버블 기준 각도(도, 0=오른쪽, 시계 반대) — 원형 자동 배치용 */
-    offsetAngleDeg: number;
-    /** 정확히 1개의 노드만 entry=true */
-    entry?: boolean;
-  }[];
-  /** 노드 간 엣지 정의 (role 기준 — auto-agent 가 실제 spawn 후 id 로 치환) */
-  edges: {
-    from: AutoAgentRole;
-    to: AutoAgentRole;
-    kind: TaskEdgeKind;
-    returnFormat?: TaskEdgeReturnFormat;
-    /** kind='critique' 일 때만 의미 — force-rework=자매 auto-rework 엣지 자동 동반 */
-    critiqueAuthority?: TaskEdgeCritiqueAuthority;
-    /** kind='command' 일 때만 의미 — shared/tool-delegation/mode-delegation */
-    commandMode?: TaskEdgeCommandMode;
-  }[];
-}
-
-/**
  * Auto Agent 가 사용자에게 띄우는 명확화 질문 1개.
  * IDE 인라인 카드(§5.3 #12-2 AskUserQuestion 패턴 재사용) 또는 간이 panel 둘 다 호환.
  */
@@ -2979,17 +2904,6 @@ export interface AutoAgentSummary {
   completedAt?: number;
   /** 명확화 질문 토글 — true 면 high 복잡도에서 질문 발사. 기본 true. */
   askQuestionsEnabled: boolean;
-}
-
-/**
- * Auto Agent 가 spawn 한 노드 1개의 결과 (런타임 처리용 내부 타입).
- * 영속화 ❌ — `autoAgentSummaries.spawnedAgentIds` 만 영속.
- */
-export interface AutoAgentSpawnedNode {
-  role: AutoAgentRole;
-  agentId: string;
-  sessionId: string;
-  position: { x: number; y: number };
 }
 
 // ─── §4 v2.44 — 자동 업데이트 (electron-updater + GitHub Releases) ─────────

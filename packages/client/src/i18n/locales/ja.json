@@ -303,7 +303,10 @@
       "mergeFailedLine": "git merge {{branch}} — 失敗",
       "copy": "コピー",
       "copied": "コピー済み",
-      "close": "閉じる"
+      "close": "閉じる",
+      "partialTitle": "フォルダが一部しか削除されていません",
+      "partialDesc": "フォルダを完全に削除できませんでした — {{path}} に {{files}} 件が残っています。ファイルを使用しているプログラム（エディタ、ターミナル、開発サーバー）を閉じてから再試行してください。",
+      "retryDelete": "再試行"
     },
     "agentConfig": {
       "autoEdge": {
@@ -334,16 +337,6 @@
       },
       "contextWindow": {
         "oneMillion": "コンテキストウィンドウ 1M"
-      },
-      "preset": {
-        "label": "プリセット",
-        "tip": "クイックスタート: ワンクリックでツール/権限モード/思考深度/ルールを一括設定。適用後は自由に編集可能（メタデータのみ）。",
-        "custom": "（カスタム — プリセットなし）",
-        "applied": "プリセット適用済み — フォームは自由に編集できます",
-        "explore": "Explore: 読み取り専用ナビゲーション (Read/Grep/Glob/Bash)。",
-        "plan": "Plan: 設計＋戦略（読み取り専用、planモード）。",
-        "code-reviewer": "Code Reviewer: セキュリティ/パフォーマンス/品質、読み取り専用、高思考深度。",
-        "general-purpose": "General-purpose: 全ツール、デフォルトモード。"
       },
       "permissionMode": {
         "label": "権限モード",
@@ -544,20 +537,6 @@
       "restartServer": "サーバーを再起動",
       "restartTimeout": "タイムアウト — サーバーが15秒以内に再起動しませんでした。tsx watchプロセスを確認してください。",
       "restartNoServerInfo": "サーバー情報を取得できませんでした — /api/server-infoが応答していません"
-    },
-    "agentEvent": {
-      "prompt": "プロンプト",
-      "queue": "キュー",
-      "tokenUsage": "トークン使用量",
-      "waited": "{{time}}待機",
-      "closePopup": "ポップアップを閉じる",
-      "result": "結果",
-      "todos": "Todo ({{done}}/{{total}})",
-      "todosShort": "Todo {{done}}/{{total}}",
-      "resultsHeading": "結果 ({{count}})",
-      "direct": "ダイレクト",
-      "error": "エラー",
-      "tokensInOut": "{{in}}入力 / {{out}}出力"
     },
     "bashHistory": {
       "bashCommand": "Bashコマンド",
@@ -1073,11 +1052,6 @@
       "agentCompleted": "エージェント完了 — クリックして結果を表示"
     },
     "bubble": {
-      "empty": {
-        "start": "Claude Codeで作業を開始すると",
-        "appearing": "バブルがここに表示されます",
-        "hookInstall": "フックのインストール: npx tsx hooks/install.ts"
-      },
       "awaitingPermission": "権限の確認待ち",
       "awaitingInput": "入力を待機中",
       "idle": "待機中",

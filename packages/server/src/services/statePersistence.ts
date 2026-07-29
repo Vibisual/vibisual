@@ -20,6 +20,7 @@ import {
   CHECKPOINT_SHRINK_GUARD_ENABLED,
 } from '@vibisual/shared';
 import { logger } from '../logger.js';
+import { isDeadWorktreeProject, isLiveWorktreeDir, isUnderDeadWorktree, shouldReportDeadWorktree } from './worktreeLiveness.js';
 
 // v1.52: 체크포인트 = 각 프로젝트 폴더 안의 `<projectPath>/.vibisual/save/`.
 // SCENARIO §3.2 / §3.5 — Vibisual 레포 안에는 다른 프로젝트의 데이터를 두지 않는다.
@@ -39,7 +40,15 @@ const CHECKPOINT_FILENAME = 'checkpoint.json';
  */
 export function atomicWriteFileSync(filePath: string, data: string): void {
   const dir = path.dirname(filePath);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  if (!fs.existsSync(dir)) {
+    // v3.71 최종 방어선: 죽은 워크트리(`.git` 없음) 안에는 디렉토리를 새로 만들지 않는다.
+    // 이 mkdir 이 "사용자가 지운 워크트리 폴더가 되살아나는" 경로의 실행 지점이었다.
+    // 호출부별 가드(writeCheckpoint 등)를 뚫고 들어온 배경 쓰기(brain 카드 등)까지 여기서 막는다.
+    if (isUnderDeadWorktree(filePath)) {
+      throw new Error(`refusing to create a directory inside a worktree that git no longer tracks: ${dir}`);
+    }
+    fs.mkdirSync(dir, { recursive: true });
+  }
   const tmp = `${filePath}.tmp`;
   const fd = fs.openSync(tmp, 'w');
   try {
@@ -386,6 +395,19 @@ export function writeCheckpoint(checkpoint: ProjectCheckpoint): void {
     logger.warn(`writeCheckpoint: project path missing on disk: ${proj.path} — skipping write`);
     return;
   }
+  // v3.71: 워크트리 인스턴스는 "폴더가 있는가" 가 아니라 "아직 살아있는 git 워크트리인가" 로 판정한다.
+  // 저장 경로가 디렉토리를 mkdir 로 만들기 때문에, 이 가드가 없으면 죽은 워크트리 폴더를 사용자가
+  // 지워도 다음 오토세이브가 `.vibisual/save/*` 와 함께 폴더째 되살린다(외부 Claude Code 가 만든
+  // 워크트리, Windows 잠금 파일로 반만 지워진 좀비 폴더가 여기 해당). 일반 프로젝트는 영향 없음.
+  if (isDeadWorktreeProject(proj)) {
+    if (shouldReportDeadWorktree(`write:${proj.path}`)) {
+      logger.warn(
+        `writeCheckpoint: "${proj.name}" is a worktree that is no longer registered with git ` +
+        `(no .git at ${proj.path}) — skipping write so the folder is not recreated`,
+      );
+    }
+    return;
+  }
   try {
     const dir = projectDirForInfo(checkpoint.project);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -473,11 +495,77 @@ function loadCheckpointFromPath(filePath: string): ProjectCheckpoint | null {
   return null;
 }
 
-/** v1.52: 분산 저장에선 워크트리 체크포인트가 워크트리 폴더 자체에 살므로
- *  `git worktree remove` 시 함께 사라진다 → orphan prune 자체가 필요 없다.
- *  하위호환을 위해 noop 함수로 유지(호출부 단계적 정리). */
-export function pruneOrphanWorktreeDirs(_liveProjects: ProjectInfo[]): number {
-  return 0;
+/**
+ * 죽은 워크트리에 남은 Vibisual 저장 데이터 정리 (v3.71 — v1.52 noop 에서 부활).
+ *
+ * v1.52 의 noop 전제는 "워크트리 체크포인트는 워크트리 폴더에 사니 `git worktree remove` 때
+ * 함께 사라진다" 였는데, 외부(Claude Code `--isolation worktree`)가 만들고 정리하는 워크트리에서는
+ * 성립하지 않는다 — 우리 `.vibisual/` 이 untracked 로 남아 폴더가 살아남는다.
+ *
+ * 정리 조건(모두 만족해야 지운다):
+ *  1. `.claude/worktrees/<wt>` 이 **살아있는 워크트리가 아니다**(`.git` 없음).
+ *  2. 그 상태를 **처음 본 뒤 PRUNE_GRACE_MS 가 지났다** — `git worktree add` 진행 중처럼
+ *     디렉토리는 생겼는데 `.git` 이 아직 없는 찰나를 오판하지 않기 위한 유예.
+ *  3. 그 폴더 안에 우리 `.vibisual` 이 실제로 있다.
+ * 지우는 것은 **우리 `.vibisual` 서브트리뿐**이고, 그 결과 폴더가 비면 빈 디렉토리만 rmdir 한다
+ * (non-recursive — 사용자/외부 파일이 하나라도 남아 있으면 실패하고 폴더는 그대로 둔다).
+ */
+const PRUNE_MIN_INTERVAL_MS = 60_000;
+/** 죽은 것으로 처음 관측된 뒤 실제 삭제까지의 유예. */
+const PRUNE_GRACE_MS = 5 * 60_000;
+let lastPruneAt = 0;
+const deadWorktreeFirstSeen = new Map<string, number>();
+
+export function pruneOrphanWorktreeDirs(liveProjects: ProjectInfo[]): number {
+  const now = Date.now();
+  if (now - lastPruneAt < PRUNE_MIN_INTERVAL_MS) return 0;
+  lastPruneAt = now;
+
+  // 후보 워크트리 디렉토리 수집: (a) 살아있는 부모의 `.claude/worktrees/*` 디스크 스캔,
+  // (b) 등록된 워크트리 인스턴스 경로(임의 위치 워크트리 포함).
+  const candidates = new Set<string>();
+  for (const p of liveProjects) {
+    if (!p?.path) continue;
+    if (p.parentProjectPath) {
+      candidates.add(p.path.replace(/\//g, path.sep));
+      continue;
+    }
+    const wtRoot = path.join(p.path.replace(/\//g, path.sep), '.claude', 'worktrees');
+    try {
+      if (!fs.existsSync(wtRoot)) continue;
+      for (const entry of fs.readdirSync(wtRoot, { withFileTypes: true })) {
+        if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+        candidates.add(path.join(wtRoot, entry.name));
+      }
+    } catch { /* 접근 불가 — 이 부모는 건너뛴다 */ }
+  }
+
+  let removed = 0;
+  for (const wtDir of candidates) {
+    const key = wtDir.replace(/\\/g, '/').toLowerCase();
+    if (isLiveWorktreeDir(wtDir)) { deadWorktreeFirstSeen.delete(key); continue; }
+    const firstSeen = deadWorktreeFirstSeen.get(key);
+    if (firstSeen === undefined) { deadWorktreeFirstSeen.set(key, now); continue; }
+    if (now - firstSeen < PRUNE_GRACE_MS) continue;
+
+    const vibiDir = path.join(wtDir, '.vibisual');
+    try {
+      if (!fs.existsSync(wtDir)) { deadWorktreeFirstSeen.delete(key); continue; }
+      if (!fs.existsSync(vibiDir)) continue;
+      fs.rmSync(vibiDir, { recursive: true, force: true });
+      removed += 1;
+      logger.info(`pruneOrphanWorktreeDirs: removed Vibisual save data from dead worktree ${wtDir}`);
+      // 우리 데이터만 남아 있던 폴더면 여기서 빈다 — 빈 경우에만 폴더도 정리(non-recursive).
+      try {
+        fs.rmdirSync(wtDir);
+        logger.info(`pruneOrphanWorktreeDirs: removed now-empty worktree folder ${wtDir}`);
+        deadWorktreeFirstSeen.delete(key);
+      } catch { /* 다른 파일이 남아 있음 — 폴더는 사용자 소관으로 둔다 */ }
+    } catch (err) {
+      logger.warn(`pruneOrphanWorktreeDirs: cleanup failed for ${wtDir}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  return removed;
 }
 
 // ─── Lazy API ───
@@ -574,6 +662,10 @@ export function discoverProjectMetas(projectPaths: string[]): ProjectMetaSnapsho
       try {
         for (const wt of fs.readdirSync(wtRoot, { withFileTypes: true })) {
           if (!wt.isDirectory()) continue;
+          // v3.71: 이미 죽은 워크트리(`.git` 없음)의 잔여 저장 데이터는 프로젝트로 되살리지 않는다.
+          // 부팅 때 좀비 폴더가 stub 프로젝트로 다시 등록되던 경로(pruneOrphanWorktreeDirs 가
+          // 유예 후 그 `.vibisual` 을 정리한다).
+          if (!isLiveWorktreeDir(path.join(wtRoot, wt.name))) continue;
           const wtSaveDir = path.join(wtRoot, wt.name, SAVE_SUBDIR);
           const wtSnap = buildSnap(wtSaveDir);
           if (wtSnap) upsert(wtSnap);

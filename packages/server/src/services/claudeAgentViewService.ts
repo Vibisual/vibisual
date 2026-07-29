@@ -4,7 +4,7 @@
  * 책임:
  * - Agent View 활성화 게이트 (`isAgentViewEnabled`) — 버전 v2.1.139+ && !disableAgentView 점검.
  * - `claude --bg` 백그라운드 디스패치 (`spawnBackground`) — short id 캡처 + roster 에서 sessionId 회수.
- * - 라이프사이클 명령 (`stopSession` / `respawnSession` / `rmSession` / `respawnAllSessions`) — 짧은 subprocess.
+ * - 라이프사이클 명령 (`stopSession` / `rmSession`) — 짧은 subprocess.
  * - 디스크 상태 읽기 (`readRoster` / `readJobState`) — supervisor 가 쓰는 평범한 JSON 파일.
  * - 부팅 시 reconcile 진입점 (`reconcileOnBoot`) — 살아있는 worker 매칭 + 사라진 worker 의 최종 상태 회수.
  *
@@ -327,21 +327,9 @@ export function stopSession(short: string): Promise<void> {
   });
 }
 
-export function respawnSession(short: string): Promise<void> {
-  return fireSubcommand(['respawn', short]).then((r) => {
-    if (r.exitCode !== 0) logger.warn(`claude respawn ${short} exit=${r.exitCode} stderr="${r.stderr.slice(0, 120)}"`);
-  });
-}
-
 export function rmSession(short: string): Promise<void> {
   return fireSubcommand(['rm', short]).then((r) => {
     if (r.exitCode !== 0) logger.warn(`claude rm ${short} exit=${r.exitCode} stderr="${r.stderr.slice(0, 120)}"`);
-  });
-}
-
-export function respawnAllSessions(): Promise<void> {
-  return fireSubcommand(['respawn', '--all']).then((r) => {
-    logger.info(`claude respawn --all exit=${r.exitCode} stdout="${r.stdout.slice(0, 200)}"`);
   });
 }
 

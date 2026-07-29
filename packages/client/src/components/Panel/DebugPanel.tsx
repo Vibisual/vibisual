@@ -12,11 +12,12 @@ import {
 } from '@xyflow/react';
 import type { EdgeTypes } from '@xyflow/react';
 import type { BubbleData, ActivityEdge } from '@vibisual/shared';
-import { BUBBLE_COLORS, EDGE_STYLE } from '@vibisual/shared';
+import { BUBBLE_COLORS, EDGE_STYLE, CANVAS_LOD } from '@vibisual/shared';
 import { BubbleNode } from '../BubbleMap/BubbleNode.js';
 import { CurvedEdge } from '../BubbleMap/CurvedEdge.js';
 import { calcBubbleSize } from '../../utils/sizeCalc.js';
 import { useGraphStore, selectIDEOverlay } from '../../stores/graphStore.js';
+import { useCanvasCovered, useCanvasVisibilityStore } from '../../stores/canvasVisibility.js';
 import {
   perfProfiler,
   PERF_SESSION_MS,
@@ -103,6 +104,9 @@ function DebugPanelImpl({ onClose }: DebugPanelProps): React.JSX.Element {
   const rfRef = useRef<ReactFlowInstance | null>(null);
 
   const fps = useRenderFps();
+  // §4 v3.71 가시성 LOD 계측 — 덮임 비트와 메인 캔버스 줌 티어(CanvasLodReporter 가 올려준다).
+  const canvasCovered = useCanvasCovered();
+  const canvasLod = useCanvasVisibilityStore((s) => s.lodTier);
   const storeAgents = useGraphStore((s) => s.agents);
   const storeTopFolders = useGraphStore((s) => s.topFolders);
   const storeEdges = useGraphStore((s) => s.edges);
@@ -251,6 +255,23 @@ function DebugPanelImpl({ onClose }: DebugPanelProps): React.JSX.Element {
             </svg>
             <span className="tabular-nums">{fps}</span>
             <span className="uppercase tracking-wide text-gray-500">{t('panel.debugPanel.fps')}</span>
+          </span>
+        </div>
+
+        {/* §4 v3.71 가시성 LOD 계측 — 덮임 여부 / 현재 줌 티어 / 뷰포트 밖 컬링.
+            FPS 를 볼 때 "지금 캔버스가 그려지고 있는지"를 같은 줄에서 확인하려는 용도. */}
+        <div className="flex items-center justify-between gap-2 font-mono text-[10px]">
+          <span className="text-gray-500">{t('panel.debugPanel.visibility', { defaultValue: 'Visibility' })}</span>
+          <span className="flex items-center gap-2">
+            <span className={canvasCovered ? 'text-amber-400' : 'text-emerald-400'}>
+              {canvasCovered ? 'covered' : 'visible'}
+            </span>
+            <span className="text-gray-600">·</span>
+            <span className={canvasLod === 'full' ? 'text-gray-300' : 'text-sky-400'}>lod:{canvasLod}</span>
+            <span className="text-gray-600">·</span>
+            <span className={CANVAS_LOD.CULL_OFFSCREEN ? 'text-gray-300' : 'text-gray-600'}>
+              cull:{CANVAS_LOD.CULL_OFFSCREEN ? 'on' : 'off'}
+            </span>
           </span>
         </div>
 

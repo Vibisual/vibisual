@@ -303,7 +303,10 @@
       "mergeFailedLine": "git merge {{branch}} — विफल",
       "copy": "कॉपी करें",
       "copied": "कॉपी हो गया",
-      "close": "बंद करें"
+      "close": "बंद करें",
+      "partialTitle": "फ़ोल्डर केवल आंशिक रूप से हटाया गया",
+      "partialDesc": "फ़ोल्डर पूरी तरह नहीं हटा — {{path}} में {{files}} आइटम बचे हैं। उन्हें उपयोग कर रहे प्रोग्राम (एडिटर, टर्मिनल, डेव सर्वर) को बंद करें और फिर से कोशिश करें।",
+      "retryDelete": "फिर से हटाएँ"
     },
     "agentConfig": {
       "autoEdge": {
@@ -334,16 +337,6 @@
       },
       "contextWindow": {
         "oneMillion": "1M context window"
-      },
-      "preset": {
-        "label": "Preset",
-        "tip": "Quick-start: एक क्लिक में tools / permissionMode / effort / rules भरता है। बाद में पूरी तरह संपादन योग्य (केवल metadata)।",
-        "custom": "(custom — कोई preset नहीं)",
-        "applied": "Preset लागू — फॉर्म स्वतंत्र रूप से संपादन योग्य है",
-        "explore": "Explore: read-only नेविगेशन (Read/Grep/Glob/Bash)।",
-        "plan": "Plan: डिज़ाइन + रणनीति (read-only, plan mode)।",
-        "code-reviewer": "Code Reviewer: सुरक्षा/प्रदर्शन/गुणवत्ता, read-only, उच्च effort।",
-        "general-purpose": "General-purpose: सभी tools, डिफ़ॉल्ट mode।"
       },
       "permissionMode": {
         "label": "अनुमति मोड",
@@ -544,20 +537,6 @@
       "restartServer": "सर्वर पुनः शुरू करें",
       "restartTimeout": "Timeout — सर्वर 15 सेकंड के भीतर पुनः शुरू नहीं हुआ। tsx watch प्रक्रिया जाँचें।",
       "restartNoServerInfo": "सर्वर जानकारी नहीं पढ़ सका — /api/server-info प्रतिक्रिया नहीं दे रहा"
-    },
-    "agentEvent": {
-      "prompt": "प्रॉम्प्ट",
-      "queue": "queue",
-      "tokenUsage": "टोकन उपयोग",
-      "waited": "{{time}} प्रतीक्षा की",
-      "closePopup": "पॉपअप बंद करें",
-      "result": "परिणाम",
-      "todos": "Todos ({{done}}/{{total}})",
-      "todosShort": "Todos {{done}}/{{total}}",
-      "resultsHeading": "परिणाम ({{count}})",
-      "direct": "direct",
-      "error": "त्रुटि",
-      "tokensInOut": "{{in}} in / {{out}} out"
     },
     "bashHistory": {
       "bashCommand": "Bash कमांड",
@@ -1073,11 +1052,6 @@
       "agentCompleted": "Agent पूर्ण — परिणाम देखने के लिए क्लिक करें"
     },
     "bubble": {
-      "empty": {
-        "start": "Claude Code में काम शुरू करें",
-        "appearing": "और बुलबुले यहाँ दिखेंगे",
-        "hookInstall": "hooks इंस्टॉल करें: npx tsx hooks/install.ts"
-      },
       "awaitingPermission": "आपकी अनुमति की प्रतीक्षा",
       "awaitingInput": "आपके इनपुट की प्रतीक्षा",
       "idle": "निष्क्रिय",
