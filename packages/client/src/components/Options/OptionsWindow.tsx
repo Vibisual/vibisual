@@ -24,6 +24,7 @@ import {
   LOCALE_META,
 } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
+import { setCanvasCover } from '../../stores/canvasVisibility.js';
 
 const API_BASE = '';
 
@@ -139,6 +140,12 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
     setRules(baseAgent.rules ?? '');
     setColor(baseAgent.color ?? '');
   }, [baseAgent, dirty]);
+
+  // §4 v3.71 가시성 LOD — 열려 있는 동안 캔버스를 전면으로 덮으므로 덮개로 등록한다.
+  useEffect(() => {
+    setCanvasCover('options-window', open);
+    return () => setCanvasCover('options-window', false);
+  }, [open]);
 
   // ESC 닫기
   useEffect(() => {

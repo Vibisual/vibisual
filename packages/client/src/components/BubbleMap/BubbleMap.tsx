@@ -12,16 +12,18 @@ import {
   useEdgesState,
   BackgroundVariant,
   useUpdateNodeInternals,
+  useStore,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import type { EdgeTypes } from '@xyflow/react';
 import type { BubbleData, BubbleType, CommentBox, CaptureBubble, CaptureSourceInfo } from '@vibisual/shared';
-import { EDGE_STYLE, POSITION_SAVE_INTERVAL, TASK_EDGE_STYLES, COMMENT_BOX_DEFAULTS, CAPTURE_BUBBLE_DEFAULTS, CAPTURE_SNAP, LAYOUT_CENTER_X, LAYOUT_CENTER_Y, SATELLITE_TYPES } from '@vibisual/shared';
+import { EDGE_STYLE, POSITION_SAVE_INTERVAL, TASK_EDGE_STYLES, COMMENT_BOX_DEFAULTS, CAPTURE_BUBBLE_DEFAULTS, CAPTURE_SNAP, CANVAS_LOD, canvasLodTier, LAYOUT_CENTER_X, LAYOUT_CENTER_Y, SATELLITE_TYPES } from '@vibisual/shared';
 import { BubbleNode } from './BubbleNode.js';
 import { CommentBoxNode } from './CommentBoxNode.js';
 import { CaptureNode, CAPTURE_REPICK_EVENT } from './CaptureNode.js';
 import { useCapturePrefsStore } from '../../stores/captureBubblePrefs.js';
 import { useCaptureSnapGuideStore } from '../../stores/captureSnapGuides.js';
+import { useCanvasCovered, useCanvasVisibilityStore } from '../../stores/canvasVisibility.js';
 import { computeCaptureDragSnap, type SnapRect } from './captureSnap.js';
 import { CaptureSnapGuides } from './CaptureSnapGuides.js';
 import { CaptureSourcePicker } from './CaptureSourcePicker.js';
@@ -52,9 +54,15 @@ import { useTranslation } from 'react-i18next';
 const nodeTypes: NodeTypes = { bubble: BubbleNode, commentBox: CommentBoxNode, captureNode: CaptureNode };
 const edgeTypes: EdgeTypes = { curved: CurvedEdge, taskEdge: TaskEdgeComponent };
 
+/** §4 v3.71 — 덮였을 때 캔버스에 씌우는 스타일(참조 고정 — 매 렌더 새 객체 ❌). */
+const HIDDEN_CANVAS_STYLE: React.CSSProperties = { visibility: 'hidden' };
+
 // ─── 컴포넌트 ───
 
 export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
+  // §4 v3.71 가시성 LOD — 전면 오버레이(IDE 최대화·모달, 기억 피드, 옵션창 등)에 덮여 있으면
+  //   캔버스는 한 픽셀도 안 보인다 → 페인트·애니메이션·물리·주기 flush 를 통째로 멈춘다.
+  const covered = useCanvasCovered();
   const allAgents = useGraphStore((s) => s.agents);
   const agentProjects = useGraphStore((s) => s.agentProjects);
   const activeProject = useGraphStore((s) => s.activeProject);
@@ -1748,13 +1756,23 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     const handleUnload = (): void => { flushPositionsBeacon(); };
     document.addEventListener('visibilitychange', handleVisChange);
     window.addEventListener('beforeunload', handleUnload);
+    // §4 v3.71 — 덮여 있는 동안엔 주기 flush 를 걸지 않는다. 캔버스가 안 보이면 드래그·리사이즈 같은
+    //   사용자 조작도, 물리 이동도 일어나지 않아 보낼 변경분 자체가 없다. 대신 덮이는 그 순간 1회
+    //   flush 해서 직전까지의 좌표는 남긴다(해제되면 아래 setInterval 이 다시 걸린다).
+    if (covered) {
+      flushPositionsFetch();
+      return () => {
+        document.removeEventListener('visibilitychange', handleVisChange);
+        window.removeEventListener('beforeunload', handleUnload);
+      };
+    }
     const timer = setInterval(flushPositionsFetch, POSITION_SAVE_INTERVAL);
     return () => {
       document.removeEventListener('visibilitychange', handleVisChange);
       window.removeEventListener('beforeunload', handleUnload);
       clearInterval(timer);
     };
-  }, [flushPositionsFetch, flushPositionsBeacon]);
+  }, [flushPositionsFetch, flushPositionsBeacon, covered]);
 
   return (
     <div
@@ -1783,7 +1801,12 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
         fitViewOptions={mobileZoom ? { maxZoom: 1.2 } : undefined}
         elevateNodesOnSelect={false}
         fitView proOptions={{ hideAttribution: true }}
-        className="bg-gray-950"
+        // §4 v3.71 — 뷰포트 밖 노드·엣지는 아예 렌더하지 않는다(React Flow 표준 컬링).
+        onlyRenderVisibleElements={CANVAS_LOD.CULL_OFFSCREEN}
+        // 덮여 있으면 페인트만 끈다. display:none·언마운트 ❌ — 레이아웃이 살아 있어야
+        // 노드 실측(measured)·handleBounds 가 유지되어 다시 보일 때 엣지가 엉뚱한 데서 출발하지 않는다.
+        style={covered ? HIDDEN_CANVAS_STYLE : undefined}
+        className={`bg-gray-950 ${covered ? 'vibisual-canvas-idle' : ''}`}
       >
         <EdgeMask />
         <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#1e293b" />
@@ -1792,6 +1815,9 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
         <CaptureSnapGuides />
         <CanvasControls />
         {debugMode && <DebugOverlay flowNodes={flowNodes} />}
+        {/* §4 v3.71 — 현재 줌 LOD 티어를 DebugPanel 이 읽을 수 있게 스토어로 올린다.
+            디버그 모드에서만 마운트되므로 평소엔 구독 비용 0. */}
+        {debugMode && <CanvasLodReporter />}
         <DebugResizeRefresher flowNodes={flowNodes} debugMode={debugMode} />
       </ReactFlow>
       {ctxMenu && (
@@ -1868,6 +1894,18 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     </div>
   );
 });
+
+/**
+ * §4 v3.71 가시성 LOD 계측 — 메인 캔버스의 줌 티어를 canvasVisibility 스토어로 올린다.
+ * React Flow 내부 transform 은 provider 안에서만 읽히므로 ReactFlow 의 자식으로 마운트한다.
+ * DebugPanel 표시 전용이라 디버그 모드에서만 붙는다(렌더 결과 없음).
+ */
+function CanvasLodReporter(): null {
+  const tier = useStore((s) => canvasLodTier(s.transform[2]));
+  const setLodTier = useCanvasVisibilityStore((s) => s.setLodTier);
+  useEffect(() => { setLodTier(tier); }, [tier, setLodTier]);
+  return null;
+}
 
 /**
  * 디버그 모드 토글 / 메인 캔버스 컨테이너 리사이즈 시 React Flow 내부 노드 측정치

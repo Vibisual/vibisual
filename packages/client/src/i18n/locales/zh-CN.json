@@ -303,7 +303,10 @@
       "mergeFailedLine": "git merge {{branch}} — 失败",
       "copy": "复制",
       "copied": "已复制",
-      "close": "关闭"
+      "close": "关闭",
+      "partialTitle": "文件夹仅被部分删除",
+      "partialDesc": "文件夹未被完全删除 — {{path}} 中仍有 {{files}} 项。请关闭正在占用这些文件的程序（编辑器、终端、开发服务器）后重试。",
+      "retryDelete": "重试删除"
     },
     "agentConfig": {
       "autoEdge": {
@@ -334,16 +337,6 @@
       },
       "contextWindow": {
         "oneMillion": "1M 上下文窗口"
-      },
-      "preset": {
-        "label": "预设",
-        "tip": "快速启动：一键填充工具 / 权限模式 / 思考深度 / 规则。之后可自由编辑（仅元数据）。",
-        "custom": "（自定义 — 无预设）",
-        "applied": "预设已应用 — 表单可自由编辑",
-        "explore": "探索：只读导航（Read/Grep/Glob/Bash）。",
-        "plan": "规划：设计 + 策略（只读，计划模式）。",
-        "code-reviewer": "代码审查：安全/性能/质量，只读，高思考深度。",
-        "general-purpose": "通用：全部工具，默认模式。"
       },
       "permissionMode": {
         "label": "权限模式",
@@ -544,20 +537,6 @@
       "restartServer": "重启服务器",
       "restartTimeout": "超时 — 服务器未在 15 秒内重启。请检查 tsx watch 进程。",
       "restartNoServerInfo": "无法读取服务器信息 — /api/server-info 未响应"
-    },
-    "agentEvent": {
-      "prompt": "提示词",
-      "queue": "队列",
-      "tokenUsage": "Token 用量",
-      "waited": "等待 {{time}}",
-      "closePopup": "关闭弹窗",
-      "result": "结果",
-      "todos": "待办（{{done}}/{{total}}）",
-      "todosShort": "待办 {{done}}/{{total}}",
-      "resultsHeading": "结果（{{count}}）",
-      "direct": "直接",
-      "error": "错误",
-      "tokensInOut": "{{in}} 输入 / {{out}} 输出"
     },
     "bashHistory": {
       "bashCommand": "Bash 命令",
@@ -1073,11 +1052,6 @@
       "agentCompleted": "Agent 已完成 — 点击查看结果"
     },
     "bubble": {
-      "empty": {
-        "start": "在 Claude Code 中开始工作",
-        "appearing": "气泡将在此显示",
-        "hookInstall": "安装 hooks：npx tsx hooks/install.ts"
-      },
       "awaitingPermission": "等待您的授权",
       "awaitingInput": "等待您的输入",
       "idle": "空闲",

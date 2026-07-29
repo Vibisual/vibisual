@@ -3,6 +3,7 @@ import { NodeResizer, useStore, useStoreApi, type NodeProps } from '@xyflow/reac
 import { CAPTURE_BUBBLE_DEFAULTS, CAPTURE_SNAP, type CaptureSourceKind } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { useCaptureSnapGuideStore } from '../../stores/captureSnapGuides.js';
+import { useCanvasCovered } from '../../stores/canvasVisibility.js';
 import { computeCaptureResizeSnap, type SnapRect } from './captureSnap.js';
 import { useCaptureStream, type CaptureQuality } from '../../hooks/useCaptureStream.js';
 import { useCaptureRemoteControl } from '../../hooks/useCaptureRemoteControl.js';
@@ -115,7 +116,11 @@ export const CaptureNode = memo(function CaptureNode({
   const quality: CaptureQuality = idle && prefs.stillSaver
     ? { maxWidth: basePreset.maxWidth, maxHeight: basePreset.maxHeight, maxFrameRate: Math.min(2, basePreset.maxFrameRate) }
     : basePreset;
-  const streamEnabled = !frozen && onScreen;
+  // §4 v3.71 가시성 LOD — IntersectionObserver(onScreen)는 "뷰포트 밖"만 보고 "다른 UI 에 덮임"은
+  //   못 본다. IDE 를 최대화한 채 라이브 화면을 계속 디코딩하던 낭비를 끊는다. 단 크게보기 창은
+  //   캔버스 밖(body portal)에 떠 있어 덮임과 무관하게 보이고, 원격 조작 중이면 끊으면 안 된다.
+  const canvasCovered = useCanvasCovered();
+  const streamEnabled = !frozen && onScreen && (!canvasCovered || expanded || controlMode !== 'off');
 
   const { stream, error, loading } = useCaptureStream(d.sourceId, streamEnabled, quality);
   const videoRef = useRef<HTMLVideoElement>(null);

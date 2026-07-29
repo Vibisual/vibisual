@@ -59,6 +59,22 @@ body[data-ide-dock="right"] .vibi-image-lightbox.fixed.inset-0 {
   -webkit-backdrop-filter: blur(3px) !important;
 }
 
+/* §4 v3.71 가시성 LOD — 캔버스가 전면 오버레이에 덮여 있을 때. React Flow 루트에
+ * `visibility:hidden` 과 함께 이 클래스가 붙는다. 페인트가 멈춰도 애니메이션은 계속 tick 하며
+ * 스타일 재계산·컴포지터 작업을 만들므로, 하위의 모든 keyframe 애니메이션·전이를 끊는다.
+ * 선택자 특이도(0,2,0)가 Tailwind 단일 클래스(0,1,0)보다 높아 `!important` 없이 이긴다(§9).
+ * 인라인 style 의 animationDuration/Delay 는 남지만 `animation-name` 이 없어져 동작하지 않는다.
+ * 덮개가 걷히면 클래스가 사라져 즉시 원래 연출로 복귀한다(상태 없음). */
+.vibisual-canvas-idle [class*="animate-"],
+.vibisual-canvas-idle .react-flow__edge path,
+.vibisual-canvas-idle .bubble-spawn,
+.vibisual-canvas-idle .bubble-despawn {
+  animation: none;
+}
+.vibisual-canvas-idle * {
+  transition: none;
+}
+
 @keyframes pulse-ring {
   0% {
     transform: scale(1);

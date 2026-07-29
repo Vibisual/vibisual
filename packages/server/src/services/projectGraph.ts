@@ -64,6 +64,7 @@ import { getBrainService } from './brainService.js';
 import type { LocalSession, AgentContextInfo } from './sessionDiscovery.js';
 import { resolveSessionTitle, readUserMessages, readLastAssistantMessage, readContextInfo, discoverSessions, findPidBySession, isSessionInUse, getSessionJsonlPath, listJsonlSessionIds, findEntrypointBySession, isSessionInterrupted } from './sessionDiscovery.js';
 import { logger } from '../logger.js';
+import { isLiveWorktreeDir } from './worktreeLiveness.js';
 import { dbg } from './debugLog.js';
 import { userDefaultsService } from './userDefaultsService.js';
 
@@ -834,6 +835,10 @@ export class ProjectGraph {
       if (!entry.isDirectory()) continue;
       if (entry.name.startsWith('.')) continue;
       const wtCwd = path.join(wtRoot, entry.name);
+      // v3.71: 폴더만 남은 좀비(= `git worktree remove`/외부 정리 후 잠금 파일·untracked 잔여물만
+      // 남은 디렉토리)는 워크트리로 등록하지 않는다. 등록하면 그 인스턴스의 오토세이브가
+      // 사용자가 지운 폴더를 다시 만들어내는 고리가 된다.
+      if (!isLiveWorktreeDir(wtCwd)) continue;
       const normalizedWt = normalize(wtCwd);
       // 사용자가 명시적으로 삭제한 worktree 버블이 `ghost` 로 남아있다면 부활시키지 않는다.
       const existingNode = this.nodes.get(normalizedWt);
@@ -923,6 +928,9 @@ export class ProjectGraph {
         info.parentProjectPath = parentInfo.path;
         info.worktreeName = wt.worktreeName;
       }
+      // v3.71: 이미 죽은 워크트리(`.git` 없음)는 버블을 (재)생성하지 않는다 — ghost 가 fade 로 사라진
+      // 뒤 이 스윕이 인메모리 프로젝트 엔트리만 보고 버블을 되살리던 경로였다.
+      if (!isLiveWorktreeDir(info.path)) continue;
       this.ensureWorktreeNode(parentInfo.name, wt.worktreeName, normalizedKey);
       // top-level 노드를 worktree 버블 자식으로 이관 (이미 이관된 경우 no-op)
       this.reparentWorktreeArtifacts(info.name, parentInfo.name, normalizedKey);
@@ -5201,7 +5209,13 @@ export class ProjectGraph {
       if (!absPath) continue;
 
       try {
-        if (!fs.existsSync(absPath)) {
+        // v3.71: worktree 버블은 "폴더가 있는가" 가 아니라 "아직 살아있는 git 워크트리인가" 로 본다.
+        // `git worktree remove` 후 잠금 파일·잔여물로 폴더만 남은 좀비를 살아있는 것으로 오인하면
+        // 버블이 캔버스에 영구 잔존한다(사용자는 지웠는데 화면엔 남는 상태).
+        const missing = node.bubbleType === 'worktree'
+          ? !isLiveWorktreeDir(absPath)
+          : !fs.existsSync(absPath);
+        if (missing) {
           // 디바운스: 연속 miss가 임계에 도달해야 진짜 삭제로 판정.
           // 에디터 atomic-save(temp+rename)·git·빌드툴이 파일을 찰나 치우는 동안의
           // 단발 miss로 실재 파일이 ghost→소멸되던 버그 방지.

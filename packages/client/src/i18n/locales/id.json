@@ -303,7 +303,10 @@
       "mergeFailedLine": "git merge {{branch}} — gagal",
       "copy": "Salin",
       "copied": "Tersalin",
-      "close": "Tutup"
+      "close": "Tutup",
+      "partialTitle": "Folder hanya terhapus sebagian",
+      "partialDesc": "Folder tidak terhapus sepenuhnya — {{files}} item masih tersisa di {{path}}. Tutup program yang sedang memakainya (editor, terminal, server dev) lalu coba lagi.",
+      "retryDelete": "Coba Hapus Lagi"
     },
     "agentConfig": {
       "autoEdge": {
@@ -334,16 +337,6 @@
       },
       "contextWindow": {
         "oneMillion": "Context window 1 juta"
-      },
-      "preset": {
-        "label": "Preset",
-        "tip": "Quick-start: mengisi tools / permissionMode / effort / rules dalam satu klik. Dapat diedit sepenuhnya sesudahnya (hanya metadata).",
-        "custom": "(kustom — tanpa preset)",
-        "applied": "Preset diterapkan — formulir dapat diedit bebas",
-        "explore": "Explore: navigasi hanya baca (Read/Grep/Glob/Bash).",
-        "plan": "Plan: desain + strategi (hanya baca, mode plan).",
-        "code-reviewer": "Code Reviewer: keamanan/performa/kualitas, hanya baca, effort tinggi.",
-        "general-purpose": "General-purpose: semua tools, mode default."
       },
       "permissionMode": {
         "label": "Mode Izin",
@@ -544,20 +537,6 @@
       "restartServer": "Mulai Ulang Server",
       "restartTimeout": "Timeout — server tidak restart dalam 15 detik. Periksa proses tsx watch.",
       "restartNoServerInfo": "Tidak dapat membaca info server — /api/server-info tidak merespons"
-    },
-    "agentEvent": {
-      "prompt": "Prompt",
-      "queue": "antrian",
-      "tokenUsage": "Penggunaan Token",
-      "waited": "menunggu {{time}}",
-      "closePopup": "Tutup popup",
-      "result": "Hasil",
-      "todos": "Todos ({{done}}/{{total}})",
-      "todosShort": "Todos {{done}}/{{total}}",
-      "resultsHeading": "Hasil ({{count}})",
-      "direct": "langsung",
-      "error": "error",
-      "tokensInOut": "{{in}} masuk / {{out}} keluar"
     },
     "bashHistory": {
       "bashCommand": "Perintah Bash",
@@ -1073,11 +1052,6 @@
       "agentCompleted": "Agent selesai — klik untuk lihat hasil"
     },
     "bubble": {
-      "empty": {
-        "start": "Mulai bekerja di Claude Code",
-        "appearing": "dan bubble akan muncul di sini",
-        "hookInstall": "Instal hooks dengan: npx tsx hooks/install.ts"
-      },
       "awaitingPermission": "Menunggu izin Anda",
       "awaitingInput": "Menunggu input Anda",
       "idle": "Idle",

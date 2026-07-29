@@ -23,6 +23,7 @@ import { getBrainService, sweepAllBrainStaleCards } from './services/brainServic
 import { scheduleBrainReflection } from './services/brainReflectionService.js';
 import { isPortAlive, killByPort, respawn } from './services/processChecker.js';
 import { discoverProjectMetas, hasProjectSaveData, migrateLegacy, migrateLegacySaveRootToProjectDirs, pruneOrphanWorktreeDirs, SaveScheduler, writeCheckpoint } from './services/statePersistence.js';
+import { invalidateWorktreeLiveness } from './services/worktreeLiveness.js';
 import { loadAppState, saveAppState, patchAppState, appStateAddOpenProject, appStateRemoveOpenProject, appStatePruneStaleProjectNames, appStateGetSkillOrder, appStateSetSkillOrder, appStateRemoveSkillFromOrder, appStateGetSkillFavorites, appStateSetSkillFavorites } from './services/appState.js';
 import { ensureClaudeHooksInstalled } from './services/hookInstaller.js';
 import {
@@ -249,23 +250,6 @@ export async function runServer(): Promise<RunServerHandle> {
     res.json({ status: 'ok', timestamp: Date.now() });
   });
 
-  /** GET /api/server-info — Debug 패널용 런타임 서버 신원.
-   *  startedAt 이 증가했으면 재시작이 실제로 일어난 것. supportedLocales 는 메모리 상수 스냅샷. */
-  app.get('/api/server-info', (_req, res) => {
-    res.json({
-      pid: process.pid,
-      startedAt: SERVER_STARTED_AT,
-      uptimeMs: Date.now() - SERVER_STARTED_AT,
-      supportedLocales: [...SUPPORTED_UI_LOCALES],
-      nodeVersion: process.version,
-    });
-  });
-
-  // §4 v2.38 — 동적 모델 레지스트리 (시드 + /v1/models 머지 결과)
-  app.get('/api/models', (_req, res) => {
-    res.json(modelRegistryService.getRegistry());
-  });
-
   // §4 v2.42 — 사용자 글로벌 옵션 (Options 창 SSOT)
   app.get('/api/user-defaults', (_req, res) => {
     res.json(userDefaultsService.get());
@@ -296,74 +280,6 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
 
-  // DEBUG: background shell 수동 rehydrate + 진단
-  app.post('/api/debug/rehydrate-shells', (_req, res) => {
-    const diag = graphManager.diagnoseBackgroundShells();
-    graphManager.rehydrateAllBackgroundShells();
-    broadcastSnapshot();
-    saveCheckpoint();
-    res.json(diag);
-  });
-
-  // DEBUG: 커스텀 에이전트 sub 의 contextUsed/contextMax 가 스냅샷에 실리는지 확인용
-  app.get('/api/debug/subs', (_req, res) => {
-    const snap = graphManager.getSnapshot();
-    const out: Record<string, Array<{ id: string; label: string; status: string; sessionId: string; modelName?: string; contextUsed?: number; contextMax?: number; totalInputTokens?: number }>> = {};
-    for (const [agentId, subs] of Object.entries(snap.subAgents)) {
-      out[agentId] = subs.map((s) => ({
-        id: s.id,
-        label: s.label,
-        status: s.status,
-        sessionId: s.sessionId,
-        modelName: s.modelName,
-        contextUsed: s.contextUsed,
-        contextMax: s.contextMax,
-        totalInputTokens: s.totalInputTokens,
-      }));
-    }
-    const customAgents = snap.agents
-      .filter((a) => a.customCreated)
-      .map((a) => ({
-        id: a.id,
-        label: a.label,
-        status: a.status,
-        modelName: a.modelName,
-        contextUsed: a.contextUsed,
-        contextMax: a.contextMax,
-        contextSourceSubLabel: a.contextSourceSubLabel,
-      }));
-    res.json({ customAgents, subAgents: out });
-  });
-
-  // DEBUG: 스냅샷 조회 (디버깅용)
-  app.get('/api/debug/snapshot', (_req, res) => {
-    const snap = graphManager.getSnapshot();
-    const satelliteKeys = Object.keys(snap.satellites);
-    const satelliteSummary: Record<string, { count: number; types: string[] }> = {};
-    for (const [k, v] of Object.entries(snap.satellites)) {
-      satelliteSummary[k] = { count: v.length, types: v.map((b) => b.bubbleType) };
-    }
-    // iframe 노드를 직접 찾기 (디버깅)
-    const iframeNodes: Record<string, unknown>[] = [];
-    for (const [, v] of Object.entries(snap.satellites)) {
-      for (const b of v) {
-        if (b.bubbleType === 'iframe') iframeNodes.push({ id: b.id, label: b.label, url: b.url, serverKind: b.serverKind });
-      }
-    }
-
-    res.json({
-      agentCount: snap.agents.length,
-      activeAgents: snap.agents.filter((a) => a.status === 'active').map((a) => ({
-        id: a.id, label: a.label, status: a.status,
-        project: snap.agentProjects[a.id],
-        hasSatellites: !!satelliteSummary[a.id],
-      })),
-      satelliteKeys,
-      satelliteSummary,
-      iframeNodes,
-      satelliteTypesHasIframe: SATELLITE_TYPES.has('iframe'),
-    });
-  });
 
   app.post('/api/session-start', (req, res) => {
     try {
@@ -885,22 +801,6 @@ export async function runServer(): Promise<RunServerHandle> {
   interface PoppedCommand { text: string; queuedAt: number; poppedAt: number }
   const poppedCommands = new Map<string, PoppedCommand[]>();
 
-  /** DEBUG: heartbeat 상태 확인 */
-  app.get('/api/debug/heartbeat', (_req, res) => {
-    const sessions = graphManager.getSessionIds();
-    const result = sessions.map((sid) => {
-      const agent = graphManager.getAgentBySession(sid);
-      const queue = commandQueues.get(sid) ?? [];
-      return {
-        sessionId: sid,
-        agentId: agent?.id,
-        status: agent?.status,
-        queueSize: queue.length,
-        queueItems: queue.map((c) => c.text),
-      };
-    });
-    res.json({ sessions: result, totalQueues: [...commandQueues.keys()] });
-  });
 
   // ─── SubAgent 명령 실행 ───
 
@@ -1673,19 +1573,6 @@ export async function runServer(): Promise<RunServerHandle> {
 
   // ─── §5.10 Project Brain — 기억 카드 REST (CommentBox 관례 + 프로젝트 스코프) ───
 
-  /** GET /api/brain/summary — Brain 버블 요약(카드 수/미확인/최근 카드/에이전트별). */
-  app.get('/api/brain/summary', (req, res) => {
-    try {
-      const project = typeof req.query.project === 'string' ? req.query.project : undefined;
-      const root = graphManager.resolveBrainRoot(project);
-      if (!root) return res.json({ summary: null });
-      res.json({ summary: getBrainService(root).getSummary() });
-    } catch (err) {
-      logger.error('GET /api/brain/summary failed', err);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  });
-
   /**
    * GET /api/brain/feed?project=&scope=&agentId=&q= — v3.49 유튜브식 피드(우더블클릭 오버레이).
    * ctx.text = q; agentId 가 있으면 그 에이전트가 최근 참조한 파일들을 ctx.files 로 실어 related 랭킹을 보정한다
@@ -2121,6 +2008,9 @@ export async function runServer(): Promise<RunServerHandle> {
           return;
         }
 
+        // v3.71: 방금 만든 워크트리가 "죽은 폴더" 판정 캐시에 걸려 발견에서 밀리지 않도록 즉시 무효화.
+        invalidateWorktreeLiveness(targetDir);
+
         // 5) 등록 + 버블 생성
         //    부모가 이미 등록돼 있으면 manager.registerProject(wtCwd) 는 부모로 리다이렉트 후 early return 하므로,
         //    `scanAllProjects` 로 부모 인스턴스의 `discoverWorktrees` 를 강제 실행시켜 worktree 노드를 생성한다.
@@ -2201,6 +2091,37 @@ export async function runServer(): Promise<RunServerHandle> {
     return { parentAbs, wtAbs, wtNormalized };
   }
 
+  /** 삭제 후에도 남아 있는 파일 경로(디렉토리 기준 상대경로)를 최대 `max`개 수집.
+   *  v3.71 — 잠금 파일로 인한 부분 삭제를 사용자에게 그대로 보여주기 위한 진단용. */
+  function listRemainingFiles(dir: string, max: number): string[] {
+    const out: string[] = [];
+    const walk = (cur: string): void => {
+      if (out.length >= max) return;
+      let entries: fs.Dirent[];
+      try {
+        entries = fs.readdirSync(cur, { withFileTypes: true });
+      } catch {
+        out.push(path.relative(dir, cur) || path.basename(cur));
+        return;
+      }
+      if (entries.length === 0 && cur !== dir) {
+        out.push(`${path.relative(dir, cur)}${path.sep}`);
+        return;
+      }
+      for (const e of entries) {
+        if (out.length >= max) return;
+        const full = path.join(cur, e.name);
+        if (e.isDirectory()) walk(full);
+        else out.push(path.relative(dir, full));
+      }
+    };
+    try {
+      if (!fs.existsSync(dir)) return out;
+      walk(dir);
+    } catch { /* 접근 실패 — 수집된 것까지만 보고 */ }
+    return out;
+  }
+
   /** GET /api/worktree/:nodeId/status — 브랜치명 + master/main 병합 여부 조회 */
   app.get('/api/worktree/:nodeId/status', (req, res) => {
     void (async () => {
@@ -2264,20 +2185,71 @@ export async function runServer(): Promise<RunServerHandle> {
 
         // 4) 버블 제거 + 디스크 폴더가 남아 있으면 정리 (worktree remove 가 실패한 경우)
         graphManager.removeBubble(nodeId);
+        let cleanupError = '';
         try {
           if (fs.existsSync(info.wtAbs)) fs.rmSync(info.wtAbs, { recursive: true, force: true });
         } catch (err) {
-          logger.warn(`worktree folder cleanup failed: ${err instanceof Error ? err.message : String(err)}`);
+          cleanupError = err instanceof Error ? err.message : String(err);
+          logger.warn(`worktree folder cleanup failed: ${cleanupError}`);
         }
+        invalidateWorktreeLiveness(info.wtAbs);
+
+        // v3.71: Windows 에서는 잠긴 파일(에디터·dev 서버·node_modules 바이너리) 하나 때문에
+        // 폴더가 반만 지워지고 좀비로 남는다. 이 경우를 조용한 성공으로 처리하면 사용자는
+        // "지웠는데 폴더가 남아 있다"는 사실을 모른 채 지나간다 — 남은 파일을 그대로 보고한다.
+        const stillExists = ((): boolean => { try { return fs.existsSync(info.wtAbs); } catch { return false; } })();
+        const remaining = stillExists ? listRemainingFiles(info.wtAbs, 30) : [];
 
         broadcastSnapshot();
         saveCheckpoint();
-        res.json({ ok: true, branch });
+        res.json({
+          ok: true,
+          branch,
+          partial: stillExists,
+          remainingPath: stillExists ? info.wtAbs : undefined,
+          remaining,
+          cleanupError: cleanupError || undefined,
+        });
       } catch (err) {
         logger.error('DELETE /api/worktree/:id failed', err);
         res.status(500).json({ error: err instanceof Error ? err.message : 'Internal server error' });
       }
     })();
+  });
+
+  /**
+   * POST /api/worktree/cleanup-folder — 잠금 파일로 반만 지워진 워크트리 폴더 재삭제 (v3.71).
+   * 버블은 이미 사라진 뒤라 nodeId 로는 다시 찾을 수 없으므로 경로를 직접 받는다.
+   * 안전을 위해 `.claude/worktrees/<name>` 패턴 경로만 허용한다.
+   */
+  app.post('/api/worktree/cleanup-folder', (req, res) => {
+    try {
+      const raw = (req.body as { path?: unknown })?.path;
+      if (typeof raw !== 'string' || !raw.trim()) { res.status(400).json({ error: 'path required' }); return; }
+      const target = raw.trim();
+      if (!/[\\/]\.claude[\\/]worktrees[\\/][^\\/]+[\\/]?$/i.test(target)) {
+        res.status(400).json({ error: 'not a worktree folder path' });
+        return;
+      }
+      let cleanupError = '';
+      try {
+        if (fs.existsSync(target)) fs.rmSync(target, { recursive: true, force: true });
+      } catch (err) {
+        cleanupError = err instanceof Error ? err.message : String(err);
+      }
+      invalidateWorktreeLiveness(target);
+      const stillExists = ((): boolean => { try { return fs.existsSync(target); } catch { return false; } })();
+      res.json({
+        ok: true,
+        partial: stillExists,
+        remainingPath: stillExists ? target : undefined,
+        remaining: stillExists ? listRemainingFiles(target, 30) : [],
+        cleanupError: cleanupError || undefined,
+      });
+    } catch (err) {
+      logger.error('POST /api/worktree/cleanup-folder failed', err);
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Internal server error' });
+    }
   });
 
   /**
@@ -4372,16 +4344,6 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  /** GET /api/state — 현재 스냅샷 데이터 (디버그 버블맵용, 메인 뷰와 동일) */
-  app.get('/api/state', (_req, res) => {
-    const snap = graphManager.getSnapshot();
-    res.json({
-      agentList: snap.agents,
-      nodeList: snap.topFolders,
-      edgeList: snap.edges,
-    });
-  });
-
   /** GET /api/app-state — 현재 서버의 탭 라이프사이클 상태 반환 */
   app.get('/api/app-state', (_req, res) => {
     try {
@@ -5333,37 +5295,6 @@ export async function runServer(): Promise<RunServerHandle> {
     edgeId: string;
   }
   const pendingDispatches = new Map<string, PendingDispatch>();
-
-  /** v1.32 — 소스 커스텀 에이전트가 outbound Task Edge 목록을 조회.
-   *  시스템 프롬프트/훅 주입 또는 소스 세션의 curl 호출 용도. agentId 기반. */
-  app.get('/api/task-edges/outbound-by-agent/:agentId', (req, res) => {
-    const agentId = req.params['agentId']!;
-    const allAgents = graphManager.getSnapshot().agents;
-    const outbound = graphManager.getOutboundTaskEdges(agentId);
-    const result = outbound.map((edge) => {
-      const target = allAgents.find((a) => a.id === edge.targetAgentId);
-      const cfg = graphManager.getAgentConfig(edge.targetAgentId);
-      const artifact = graphManager.getBundleArtifact(edge.id);
-      return {
-        edgeId: edge.id,
-        command: edge.command,
-        kind: edge.kind ?? 'command',
-        returnFormat: edge.returnFormat ?? 'summary',
-        bundleId: edge.bundleId,
-        hasArtifactReturn: Boolean(artifact),
-        target: target
-          ? {
-              agentId: target.id,
-              label: target.label,
-              model: cfg?.model ?? null,
-              tools: cfg?.tools ?? null,
-              rules: cfg?.rules ?? null,
-            }
-          : null,
-      };
-    });
-    res.json({ ok: true, agentId, edges: result });
-  });
 
   /** v1.32 — POST /api/task-edges/dispatch — 소스 세션이 직접 호출해 엣지 위임 실행.
    *  body: { edgeId, instruction }

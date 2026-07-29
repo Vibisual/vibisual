@@ -6,8 +6,8 @@
  * 스폰 경로가 빌더를 띄운다. 빌더(스폰된 Claude)는 loopback REST API 를 curl 로 호출해 커스텀 에이전트
  * 군 + Task Edge 하네스를 자율 구축하고 엔트리 노드에 사용자 요청을 forward.
  *
- * v2.37 의 휴리스틱 프리셋 spawn(analyzeComplexity → selectTopology → AUTO_AGENT_TOPOLOGY_PRESETS) 은 폐기.
- * 복잡도/토폴로지/질문 휴리스틱 함수는 빌더 프롬프트 참고·요약 배지용으로만 잔존(아래 export).
+ * v2.37 의 휴리스틱 프리셋 spawn 은 폐기됐고, v3.72 에서 그 잔재(토폴로지 선택·명확화 질문 생성)도 제거했다.
+ * 남은 휴리스틱은 `analyzeComplexity` 하나 — `AutoAgentSummary.complexity` 배지(정보 표시)에만 쓰인다.
  */
 
 import { logger } from '../logger.js';
@@ -57,67 +57,6 @@ export function analyzeComplexity(message: string): AutoAgentComplexity {
   if (hasConcreteVerb && length < 300) return 'medium';
   if (domainHitCount >= 2) return 'high';
   return 'medium';
-}
-
-/**
- * 복잡도 + 메시지 키워드 → 토폴로지 권고값.
- * v2.45: spawn 분기 폐기. 빌더 프롬프트가 참고할 수 있는 권고 신호로만 잔존(현재 호출처 없음).
- */
-export function selectTopology(complexity: AutoAgentComplexity, message: string): AutoAgentTopology {
-  const lower = message.toLowerCase();
-  if (lower.includes('알아서') || lower.includes('단일') || lower.includes('autopilot') || lower.includes('하나로')) {
-    return 'autopilot';
-  }
-  if (complexity === 'low') return 'pipeline';
-  if (complexity === 'medium') return 'team';
-  return 'ralph';
-}
-
-/**
- * high 복잡도일 때 띄울 명확화 질문 2~3개 (휴리스틱).
- * v2.45: 빌더가 AskUserQuestion 도구로 직접 인터뷰하므로 spawn 분기에는 미사용. 참고용 잔존.
- */
-export function generateClarifyingQuestions(message: string): { question: string; options: { label: string; description?: string }[]; multiSelect: boolean }[] {
-  const lower = message.toLowerCase();
-  const questions: { question: string; options: { label: string; description?: string }[]; multiSelect: boolean }[] = [];
-
-  questions.push({
-    question: '원하는 산출물의 형태는?',
-    multiSelect: false,
-    options: [
-      { label: '실제 코드 변경(파일 작성/수정)', description: 'Coder/Tester 가 직접 코드 작성' },
-      { label: '설계·계획 문서만 (코드 ❌)', description: 'Planner/Architect 중심, 변경 ❌' },
-      { label: '탐색·조사 보고서', description: 'Researcher/Reviewer 중심, 출력은 분석 보고' },
-    ],
-  });
-
-  questions.push({
-    question: '품질 vs 속도, 어느 쪽이 우선?',
-    multiSelect: false,
-    options: [
-      { label: '품질 우선 (Reviewer rework 루프)', description: 'Ralph 토폴로지로 reviewer 가 reject 시 재작업 자동' },
-      { label: '속도 우선 (단발 처리)', description: 'PM 1회 분배 후 결과 즉시 보고' },
-      { label: '균형', description: 'Team 토폴로지 기본' },
-    ],
-  });
-
-  const hasAuth = lower.includes('auth') || lower.includes('인증');
-  const hasDb = lower.includes('db') || lower.includes('데이터');
-  const hasUi = lower.includes('ui') || lower.includes('프론트');
-  if ([hasAuth, hasDb, hasUi].filter(Boolean).length >= 2) {
-    questions.push({
-      question: '이번 작업의 주력 도메인은? (여러 선택 가능)',
-      multiSelect: true,
-      options: [
-        { label: 'Auth / 인증' },
-        { label: 'Database / 데이터 모델' },
-        { label: 'UI / 프론트' },
-        { label: 'Backend / API' },
-      ],
-    });
-  }
-
-  return questions.slice(0, 3);
 }
 
 // ─── 런타임 본체 ───

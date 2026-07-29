@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { SubAgent, SubAgentStreamEvent } from '@vibisual/shared';
 import { useGraphStore, selectIDEOverlay } from '../../stores/graphStore.js';
+import { setCanvasCover } from '../../stores/canvasVisibility.js';
 import { useIsNarrowViewport } from '../../hooks/useIsMobile.js';
 import { IDEActivityBar } from './IDEActivityBar.js';
 import { IDETabBar } from './IDETabBar.js';
@@ -22,6 +23,8 @@ function getDockSnapPx(): number {
   return Math.max(DOCK_SNAP_MIN_PX, Math.round(window.innerWidth * DOCK_SNAP_RATIO));
 }
 const DRAG_THRESHOLD = 6;
+/** §4 v3.71 — 캔버스 덮개 등록 키(canvasVisibility). */
+const CANVAS_COVER_KEY = 'ide-overlay';
 const MIN_DOCK_WIDTH = 320;
 const DEFAULT_DOCK_WIDTH = 480;
 const MIN_FLOAT_W = 480;
@@ -438,6 +441,16 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     return subAgents.find((s) => s.id === activeSessionId) ?? null;
   }, [activeSessionId, subAgents]);
 
+  // §4 v3.71 가시성 LOD — 이 IDE 가 캔버스를 완전히 덮는 모드일 때만 덮개로 등록한다.
+  //   fullWindow(오버레이 창=IDE 1:1) / maximized(풀스크린) / modal(전면 백드롭) 3종만 해당.
+  //   floating 은 일부만 가리고, docked-right 는 캔버스가 옆으로 줄어들 뿐이라 계속 보인다.
+  //   등록되면 BubbleMap 이 React Flow 페인트·물리 루프·주기 flush 를 통째로 멈춘다.
+  const coversCanvas = !!agentId && !!agent && (fullWindow || maximized || mode === 'modal');
+  useEffect(() => {
+    setCanvasCover(CANVAS_COVER_KEY, coversCanvas);
+    return () => setCanvasCover(CANVAS_COVER_KEY, false);
+  }, [coversCanvas]);
+
   if (!agentId || !agent) return null;
 
   // §5.5 #17-1 윈도우 모드 — mode 에 따라 컨테이너/윈도우 스타일 분기
@@ -482,7 +495,10 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   const outerClass = fullWindow
     ? 'fixed inset-0 z-50'
     : isModal
-      ? 'fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm'
+      // §4 v3.71 — backdrop-blur 제거. modal 은 캔버스를 완전히 덮는 모드라 아래 React Flow 가
+      //   visibility:hidden 으로 이미 안 그려진다 → 블러할 대상이 없는데 전면 재합성 비용(매 프레임
+      //   최고 비용 항목)만 남는다. 대신 거의 불투명한 스크림으로 종전의 시각 무게를 유지한다.
+      ? 'fixed inset-0 z-50 flex items-center justify-center bg-gray-950/95'
       : 'fixed inset-0 z-50 pointer-events-none';
 
   return (

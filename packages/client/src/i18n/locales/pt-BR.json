@@ -303,7 +303,10 @@
       "mergeFailedLine": "git merge {{branch}} — falhou",
       "copy": "Copiar",
       "copied": "Copiado",
-      "close": "Fechar"
+      "close": "Fechar",
+      "partialTitle": "A pasta foi apagada apenas parcialmente",
+      "partialDesc": "A pasta não foi removida por completo — {{files}} item(ns) permanecem em {{path}}. Feche o programa que está usando os arquivos (editor, terminal, servidor de desenvolvimento) e tente novamente.",
+      "retryDelete": "Tentar excluir novamente"
     },
     "agentConfig": {
       "autoEdge": {
@@ -334,16 +337,6 @@
       },
       "contextWindow": {
         "oneMillion": "Janela de contexto de 1M"
-      },
-      "preset": {
-        "label": "Preset",
-        "tip": "Início rápido: preenche ferramentas / permissionMode / esforço / regras com um clique. Totalmente editável depois (somente metadados).",
-        "custom": "(personalizado — sem preset)",
-        "applied": "Preset aplicado — formulário é livremente editável",
-        "explore": "Explorar: navegação somente leitura (Read/Grep/Glob/Bash).",
-        "plan": "Planejar: design + estratégia (somente leitura, modo plan).",
-        "code-reviewer": "Revisor de código: segurança/performance/qualidade, somente leitura, esforço alto.",
-        "general-purpose": "Uso geral: todas as ferramentas, modo padrão."
       },
       "permissionMode": {
         "label": "Modo de permissão",
@@ -544,20 +537,6 @@
       "restartServer": "Reiniciar servidor",
       "restartTimeout": "Timeout — o servidor não reiniciou em 15s. Verifique o processo tsx watch.",
       "restartNoServerInfo": "Não foi possível ler as informações do servidor — /api/server-info não está respondendo"
-    },
-    "agentEvent": {
-      "prompt": "Prompt",
-      "queue": "fila",
-      "tokenUsage": "Uso de tokens",
-      "waited": "aguardou {{time}}",
-      "closePopup": "Fechar popup",
-      "result": "Resultado",
-      "todos": "Todos ({{done}}/{{total}})",
-      "todosShort": "Todos {{done}}/{{total}}",
-      "resultsHeading": "Resultados ({{count}})",
-      "direct": "direto",
-      "error": "erro",
-      "tokensInOut": "{{in}} entrada / {{out}} saída"
     },
     "bashHistory": {
       "bashCommand": "Comando Bash",
@@ -1073,11 +1052,6 @@
       "agentCompleted": "Agente concluído — clique para ver os resultados"
     },
     "bubble": {
-      "empty": {
-        "start": "Comece a trabalhar no Claude Code",
-        "appearing": "e os bubbles aparecerão aqui",
-        "hookInstall": "Instale os hooks com: npx tsx hooks/install.ts"
-      },
       "awaitingPermission": "Aguardando sua permissão",
       "awaitingInput": "Aguardando sua entrada",
       "idle": "Ocioso",

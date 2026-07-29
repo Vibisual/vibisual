@@ -1,8 +1,8 @@
 import { memo, useMemo, useCallback, useState, useRef, useEffect } from 'react';
-import { Handle, Position } from '@xyflow/react';
+import { Handle, Position, useStore } from '@xyflow/react';
 import { useTranslation } from 'react-i18next';
 import type { BubbleData, BubbleStyleConfig } from '@vibisual/shared';
-import { BUBBLE_STYLES, HOOK_AGENT_STYLE, BUBBLE_TEXT_WIDTH_RATIO, BUBBLE_TEXT_REF_SIZE, GIT_STATUS_CONFIG } from '@vibisual/shared';
+import { BUBBLE_STYLES, HOOK_AGENT_STYLE, BUBBLE_TEXT_WIDTH_RATIO, BUBBLE_TEXT_REF_SIZE, GIT_STATUS_CONFIG, canvasLodTier } from '@vibisual/shared';
 import { calcBubbleSize } from '../../utils/sizeCalc.js';
 import { useGraphStore, selectIDEOverlay, selectActiveBrainSummary } from '../../stores/graphStore.js';
 
@@ -239,6 +239,12 @@ export const BubbleNode = memo(function BubbleNode({
   ...rest
 }: BubbleNodeComponentProps): React.JSX.Element {
   const { t } = useTranslation();
+  // §4 v3.71 가시성 LOD — 줌 티어만 구독한다. zoom 원값을 구독(useViewport)하면 팬/줌 매 프레임마다
+  //   모든 버블이 리렌더되므로, 티어(full/reduced/minimal)로 접어서 **경계를 넘을 때만** 리렌더한다.
+  //   reduced = 움직이는 장식 정지, minimal = 보조 정보까지 생략(아이콘+라벨만).
+  const lod = useStore((s) => canvasLodTier(s.transform[2]));
+  const lodMotion = lod === 'full';
+  const lodMinimal = lod === 'minimal';
   // React Flow v12: positionAbsoluteX/Y로 전달
   const xPos = (rest['positionAbsoluteX'] ?? rest['xPos']) as number | undefined;
   const yPos = (rest['positionAbsoluteY'] ?? rest['yPos']) as number | undefined;
@@ -679,7 +685,7 @@ export const BubbleNode = memo(function BubbleNode({
       <Handle type="target" id="tgt" position={Position.Top} style={HANDLE_STYLE} />
 
       {/* §5.10 — 실수/교훈 카드 연결 파일 마커(우상단, amber 경고 삼각형) */}
-      {hasBrainMark && (
+      {hasBrainMark && !lodMinimal && (
         <span
           className="pointer-events-none absolute z-20 flex items-center justify-center rounded-full bg-amber-500 text-gray-900 ring-2 ring-gray-900"
           style={{ top: -2, right: -2, width: Math.max(12, Math.round(16 * ts)), height: Math.max(12, Math.round(16 * ts)) }}
@@ -692,12 +698,12 @@ export const BubbleNode = memo(function BubbleNode({
       )}
 
       {/* §5.10 — 주입 발생 시 Brain 버블 일시 펄스(핑크 ping, 4s time-limited) */}
-      {isBrainBubble && injectionPulse && (
+      {isBrainBubble && injectionPulse && lodMotion && (
         <span className="pointer-events-none absolute inset-0 animate-ping rounded-full bg-pink-400/25" />
       )}
 
       {/* §5.10 — Brain 미확인 카드 점 배지(우상단, 핑크) */}
-      {isBrainBubble && brainUnseen > 0 && (
+      {isBrainBubble && brainUnseen > 0 && !lodMinimal && (
         <span
           className="pointer-events-none absolute z-20 flex items-center justify-center rounded-full bg-pink-400 font-bold text-white ring-2 ring-gray-900"
           style={{ top: -2, right: -2, minWidth: Math.max(14, Math.round(18 * ts)), height: Math.max(14, Math.round(18 * ts)), fontSize: Math.max(7, Math.round(10 * ts)), padding: '0 3px' }}
@@ -760,7 +766,7 @@ export const BubbleNode = memo(function BubbleNode({
           >
             {data.label}
           </span>
-          {agentBadge && (
+          {agentBadge && !lodMinimal && (
             <span
               className={`rounded px-1 font-bold uppercase tracking-wide ${agentBadge.cls}`}
               style={{ fontSize: Math.max(5, Math.round(8 * ts)) }}
@@ -768,7 +774,7 @@ export const BubbleNode = memo(function BubbleNode({
               {agentBadge.text}
             </span>
           )}
-          {data.lastTool && isActive && size >= 55 && (
+          {data.lastTool && isActive && size >= 55 && !lodMinimal && (
             <span
               style={{ fontSize: Math.max(6, Math.round(11 * ts)), maxWidth: size * BUBBLE_TEXT_WIDTH_RATIO }}
               className="block truncate text-center font-medium text-white/70"
@@ -778,7 +784,7 @@ export const BubbleNode = memo(function BubbleNode({
             </span>
           )}
           {/* §5.10 — Brain 상주 버블: 카드 수 + 최근 카드 1줄 */}
-          {isBrainBubble && (
+          {isBrainBubble && !lodMinimal && (
             <>
               <span className="font-semibold text-white/80" style={{ fontSize: Math.max(6, Math.round(9 * ts)) }}>
                 {t('brain.cardCountShort', { defaultValue: '{{n}}장', n: brainSummary?.cardCount ?? 0 })}
@@ -795,7 +801,7 @@ export const BubbleNode = memo(function BubbleNode({
             </>
           )}
           {/* §5.10 — 휴지통 버블: 버려진 에이전트 수 */}
-          {isTrashBubble && trashedCount > 0 && (
+          {isTrashBubble && trashedCount > 0 && !lodMinimal && (
             <span className="font-semibold text-white/80" style={{ fontSize: Math.max(6, Math.round(9 * ts)) }}>
               {t('brain.trashCountShort', { defaultValue: '{{n}}개', n: trashedCount })}
             </span>
@@ -805,7 +811,7 @@ export const BubbleNode = memo(function BubbleNode({
         {/* 에이전트: 모델명 + 컨텍스트 + 토큰 합산.
             버블 본체에는 세션 라벨(서브에이전트 이름)을 표시하지 않는다 — 자동 주제명(첫 프롬프트)이
             긴 문장이라 작은 버블에 노이즈가 된다. 어느 세션 컨텍스트인지는 IDE 탭에서 확인. */}
-        {isAgent && effectiveModelName && (
+        {isAgent && effectiveModelName && !lodMinimal && (
           <div className="absolute z-10 flex flex-col items-center" style={{ bottom: Math.max(3, Math.round(6 * ts)) }}>
             <span className="font-semibold text-white/70" style={{ fontSize: Math.max(5, Math.round(9 * ts)) }}>
               {formatModelName(effectiveModelName)}
@@ -827,7 +833,7 @@ export const BubbleNode = memo(function BubbleNode({
         {/* §2.4 v1.67/v1.69 — 라이브 세션 전 에이전트 idle empty-state (커스텀+훅 공통).
             effectiveModelName(라이브)이 잡히거나 contextRatio>0(물결)·active 면 위/펄스 경로로 자연 전환.
             configModel(AgentConfig)이 있으면(커스텀) 모델명도 표시, 없으면(훅) idle 칩만. */}
-        {isAgent && !effectiveModelName && !isActive && contextRatio === 0 && !isCreating && !isCreatingError && (
+        {isAgent && !effectiveModelName && !isActive && contextRatio === 0 && !isCreating && !isCreatingError && !lodMinimal && (
           <div className="absolute z-10 flex flex-col items-center" style={{ bottom: Math.max(3, Math.round(6 * ts)) }}>
             {/* §2.4 v1.70 — 라이브 모델/컨텍스트 블록과 동일 타이포 시스템.
                 1줄: 모델명(font-semibold text-white/70, 9·ts), 2줄: 상태(text-white/50, 8·ts).
@@ -843,7 +849,7 @@ export const BubbleNode = memo(function BubbleNode({
           </div>
         )}
 
-        {isFolder && (
+        {isFolder && !lodMinimal && (
           <div className="absolute text-white/60" style={{ bottom: Math.max(4, Math.round(8 * ts)), fontSize: Math.max(6, Math.round(10 * ts)) }}>
             {/* §2.1 v1.55 — 외부 폴더는 평탄화로 satellite 만 가지므로 satelliteFileCount 우선.
                 내부 폴더는 기존 childCount(직속 하위 폴더 수) 우선. */}
@@ -853,7 +859,7 @@ export const BubbleNode = memo(function BubbleNode({
           </div>
         )}
 
-        {isIframe && (
+        {isIframe && !lodMinimal && (
           <div className="absolute z-10 flex items-center gap-1" style={{ bottom: Math.max(3, Math.round(6 * ts)) }}>
             <span className={`rounded px-1 py-0.5 font-semibold ${data.serverKind === 'frontend' ? 'bg-sky-500/30 text-sky-300' : 'bg-amber-500/30 text-amber-300'}`} style={{ fontSize: Math.max(5, Math.round(9 * ts)) }}>
               {data.serverKind === 'frontend' ? 'FE' : 'BE'}
@@ -863,8 +869,8 @@ export const BubbleNode = memo(function BubbleNode({
 
       </div>
 
-      {/* 펄스 링 — active 상태일 때만 표시 */}
-      {isActive && (
+      {/* 펄스 링 — active 상태일 때만 표시 (§4 v3.71 — 저줌에선 링이 서로 겹쳐 뭉개지기만 하므로 생략) */}
+      {isActive && lodMotion && (
         <>
           <div className="pointer-events-none absolute inset-0 animate-pulse-ring rounded-full border-2" style={{ borderColor: style.glow }} />
           <div className="pointer-events-none absolute inset-0 animate-pulse-ring rounded-full border-2" style={{ borderColor: style.glow, animationDelay: '0.75s' }} />
@@ -872,7 +878,7 @@ export const BubbleNode = memo(function BubbleNode({
       )}
 
       {/* §7.6 root 버블: git 상태 보조 이펙트 (refresh sweep + dirty dot) */}
-      {isRoot && gitRefreshing && (
+      {isRoot && gitRefreshing && lodMotion && (
         <div
           className="pointer-events-none absolute -inset-1 animate-git-sweep rounded-full opacity-70"
           style={{
@@ -901,12 +907,17 @@ export const BubbleNode = memo(function BubbleNode({
       {isCompleted && (
         <>
           <div className="pointer-events-none absolute -inset-1 rounded-full border-[3px] border-cyan-400" />
-          <div className="pointer-events-none absolute -inset-2 animate-pulse rounded-full opacity-50" style={{ boxShadow: '0 0 20px 8px #22D3EE', animationDuration: '3s' }} />
+          {/* §4 v3.71 — 완료 글로우의 '숨쉬는' 애니메이션은 저줌에서 생략(정적 링만으로 완료는 읽힌다). */}
+          {lodMotion && (
+            <div className="pointer-events-none absolute -inset-2 animate-pulse rounded-full opacity-50" style={{ boxShadow: '0 0 20px 8px #22D3EE', animationDuration: '3s' }} />
+          )}
         </>
       )}
 
-      {/* 선택 하이라이트 — 태양 코로나(외곽선이 일렁이는 플레어). 등장/퇴장 모두 페이드. */}
-      {selectRender && (
+      {/* 선택 하이라이트 — 태양 코로나(외곽선이 일렁이는 플레어). 등장/퇴장 모두 페이드.
+          §4 v3.71 — feTurbulence+feDisplacementMap+blur 필터 위 회전이라 노드당 비용이 가장 크다.
+          minimal 티어(멀리서 전체 조망)에선 선택 표시가 어차피 몇 픽셀이므로 생략. */}
+      {selectRender && !lodMinimal && (
         <svg
             className="animate-sun-spin pointer-events-none absolute z-[14]"
             style={{
@@ -956,8 +967,9 @@ export const BubbleNode = memo(function BubbleNode({
           v1.73 — awaiting_input(모래시계) 전면 제거. 입력 대기는 더 이상 버블에 표시하지 않는다
           (데몬 단일-세션은 --resume 으로 항상 이어지므로 "대기" 신호가 연속성 끊김으로 보였음). */}
       {isAwaitingPermission && (
+        // §4 v3.71 — 권한 대기는 놓치면 안 되는 신호라 배지 자체는 저줌에서도 남기고, 깜빡임만 끈다.
         <div
-          className="pointer-events-none absolute z-20 flex items-center justify-center rounded-full border border-amber-300 bg-amber-500/90 text-amber-50 animate-pulse"
+          className={`pointer-events-none absolute z-20 flex items-center justify-center rounded-full border border-amber-300 bg-amber-500/90 text-amber-50 ${lodMotion ? 'animate-pulse' : ''}`}
           style={{
             width: Math.max(14, Math.round(20 * ts)),
             height: Math.max(14, Math.round(20 * ts)),

@@ -3,7 +3,7 @@
  *
  * Layer 1 (SessionStart hook):  POST /api/session-start   → registerFromHook()
  * Layer 2 (JSONL watcher):      chokidar                   → JsonlWatcher
- * Layer 3 (process polling):    tasklist/pgrep             → processDetector
+ * Layer 3 (liveness scan):      sessionDiscovery           → readAliveSessionIds()
  *
  * 통합 규칙:
  *   - Layer 1이 가장 권위 있음 (PID, sessionId, cwd 동시 제공)

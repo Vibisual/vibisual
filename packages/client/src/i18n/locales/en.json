@@ -463,7 +463,10 @@
       "mergeFailedLine": "git merge {{branch}} — failed",
       "copy": "Copy",
       "copied": "Copied",
-      "close": "Close"
+      "close": "Close",
+      "partialTitle": "Folder only partially deleted",
+      "partialDesc": "The folder was not fully removed — {{files}} item(s) remain at {{path}}. Close whatever is holding them (editor, terminal, dev server) and retry.",
+      "retryDelete": "Retry Delete"
     },
     "agentConfig": {
       "autoEdge": {
@@ -495,16 +498,6 @@
       },
       "contextWindow": {
         "oneMillion": "1M context window"
-      },
-      "preset": {
-        "label": "Preset",
-        "tip": "Quick-start: fills tools / permissionMode / effort / rules in one click. Fully editable afterwards (metadata only).",
-        "custom": "(custom — no preset)",
-        "applied": "Preset applied — form is freely editable",
-        "explore": "Explore: read-only navigation (Read/Grep/Glob/Bash).",
-        "plan": "Plan: design + strategy (read-only, plan mode).",
-        "code-reviewer": "Code Reviewer: security/perf/quality, read-only, high effort.",
-        "general-purpose": "General-purpose: all tools, default mode."
       },
       "permissionMode": {
         "label": "Permission Mode",
@@ -697,6 +690,7 @@
       "noProject": "No active project",
       "fps": "fps",
       "fpsTip": "Render frames per second",
+      "visibility": "Visibility",
       "profiling": {
         "title": "Profiling",
         "startNow": "Profile now",
@@ -722,20 +716,6 @@
       "restartServer": "Restart Server",
       "restartTimeout": "Timeout — server did not restart within 15s. Check the tsx watch process.",
       "restartNoServerInfo": "Could not read server info — /api/server-info is not responding"
-    },
-    "agentEvent": {
-      "prompt": "Prompt",
-      "queue": "queue",
-      "tokenUsage": "Token Usage",
-      "waited": "waited {{time}}",
-      "closePopup": "Close popup",
-      "result": "Result",
-      "todos": "Todos ({{done}}/{{total}})",
-      "todosShort": "Todos {{done}}/{{total}}",
-      "resultsHeading": "Results ({{count}})",
-      "direct": "direct",
-      "error": "error",
-      "tokensInOut": "{{in}} in / {{out}} out"
     },
     "bashHistory": {
       "bashCommand": "Bash Command",
@@ -1447,11 +1427,6 @@
       "agentCompleted": "Agent completed — click to view results"
     },
     "bubble": {
-      "empty": {
-        "start": "Start working in Claude Code",
-        "appearing": "and bubbles will appear here",
-        "hookInstall": "Install hooks with: npx tsx hooks/install.ts"
-      },
       "awaitingPermission": "Awaiting your permission",
       "awaitingInput": "Waiting for your input",
       "idle": "Idle",
