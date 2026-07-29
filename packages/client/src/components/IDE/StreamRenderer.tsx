@@ -17,7 +17,8 @@ import { findTextRangeInContainer, scrollRangeIntoCenter, scrollElementIntoCente
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Components } from 'react-markdown';
-import type { SubAgentStreamEvent, QueuedCommand, AgentReport, AgentQuestions, AgentReview, AgentList, AskUserQuestionRequest } from '@vibisual/shared';
+import type { SubAgentStreamEvent, QueuedCommand, AgentReport, AgentQuestions, AgentReview, AgentList, AskUserQuestionRequest, BrainInjectionEvent } from '@vibisual/shared';
+import { MemoryInjectionChip } from './MemoryInjectionChip.js';
 import { SystemNode, parseSystemSubtype } from './SystemNode.js';
 import { useAttachmentThumbs } from './attachmentThumb.js';
 import { ThinkingDots, ThinkingLiveLine } from './ThinkingIndicator.js';
@@ -63,6 +64,8 @@ interface StreamRendererProps {
    * 이 카드가 그 위에 겹쳐 그려졌다. 다른 카드들처럼 **가상 리스트 안으로** 합류시켜 정확한 높이를 예약 → 겹침 제거.
    */
   askRequests?: AskUserQuestionRequest[];
+  /** §5.10 — 이 에이전트에 발생한 기억 주입 이벤트. "기억 N장 참조" 칩으로 시간순 합류. */
+  injections?: BrainInjectionEvent[];
   /**
    * v2.99 — Virtuoso 가 자기 내부 스크롤러를 **단독 소유**하고, 그 스크롤러 DOM 을 이 콜백으로 부모에
    * 올린다. 부모(IDEMainArea)는 이걸 받아 StreamStatusBar·북마크 이동·Select All 을 그 컨테이너 한정으로
@@ -473,11 +476,21 @@ function renderStreamItem(item: StreamItemFull, thinkingLabel: string, zoom: num
     case 'review':   inner = <AgentReviewCard review={item.review} />; break;
     case 'list':     inner = <AgentListCard list={item.list} />; break;
     case 'ask':      inner = <AskQuestionCard request={item.request} />; break;
+    case 'memoryInjection': inner = <MemoryInjectionChip event={item.event} />; break;
   }
-  return <div data-stream-item-id={item.id} style={zoom === 1 ? undefined : { zoom }}>{inner}</div>;
+  // §5.5 — 놓친 카드 pill 이 관측할 앵커. 카드류(신고/질문/검수/목록)에만 표식.
+  //   ⚠ data-card-id 는 stream item.id(`question-${q.id}` 등 접두어 포함)가 아니라 **raw 카드 id** 여야 한다.
+  //   pill 의 cards 프롭(unseenCandidateCards)과 메인 탭 앵커가 모두 raw id 라, 접두어 id 로 두면 seen 추적·클릭
+  //   점프가 어긋난다(교차 관측 id 불일치 → 봐도 pill 이 안 사라지고, scrollToBookmark(raw) findIndex 가 -1).
+  const cardId =
+    item.kind === 'report' ? item.report.id :
+    item.kind === 'question' ? item.questions.id :
+    item.kind === 'review' ? item.review.id :
+    item.kind === 'list' ? item.list.id : null;
+  return <div data-stream-item-id={item.id} {...(cardId ? { 'data-card-id': cardId } : {})} style={zoom === 1 ? undefined : { zoom }}>{inner}</div>;
 }
 
-export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRendererProps>(function StreamRenderer({ events, commands, agentId, subAgentId, reports, questions, reviews, lists, askRequests, onScrollerRef, restoreState, onAtBottomChange }, ref): React.JSX.Element {
+export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRendererProps>(function StreamRenderer({ events, commands, agentId, subAgentId, reports, questions, reviews, lists, askRequests, injections, onScrollerRef, restoreState, onAtBottomChange }, ref): React.JSX.Element {
   const { t } = useTranslation();
   // 성능(v3.10): 2단 빌드 — 1단계(events 기반 base)는 **증분 파서**가 새로 온 이벤트만 처리(O(신규)).
   //   세션 전환/commands 변경/버퍼 앞쪽 절단이면 파서 내부에서 전체 재구축으로 폴백(결과는 항상 동일).
@@ -486,8 +499,8 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
   if (parserRef.current === null) parserRef.current = new IncrementalStreamParser();
   const base = useMemo(() => parserRef.current!.sync(events, commands), [events, commands]);
   const merged = useMemo(
-    () => mergeCardsIntoItems(base, commands, reports, questions, reviews, lists, askRequests),
-    [base, commands, reports, questions, reviews, lists, askRequests],
+    () => mergeCardsIntoItems(base, commands, reports, questions, reviews, lists, askRequests, injections),
+    [base, commands, reports, questions, reviews, lists, askRequests, injections],
   );
 
   // v3.09 — 항목 identity 안정화(thinking 떨림 차단). 증분 파서는 자란 항목만 새 객체로 교체하지만,

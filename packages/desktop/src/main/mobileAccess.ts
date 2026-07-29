@@ -12,6 +12,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { Client as NatUpnpClient } from '@runonflux/nat-upnp';
 import { generate as generateSelfSigned } from 'selfsigned';
 import { handleClientMessage, buildConnectionMessages, type ClientConnection } from '@vibisual/server';
+import { createTerminal, writeTerminal, resizeTerminal, killTerminal, type TermSink } from './terminalManager';
 import {
   WS_PATH,
   MOBILE_PAIR_CODE_LENGTH,
@@ -21,10 +22,20 @@ import {
   MOBILE_EXTERNAL_PAIR_CODE_LENGTH,
   MOBILE_PAIR_BAN_MS,
   MOBILE_UPNP_LEASE_S,
+  MOBILE_QR_TICKET_TTL_MS,
+  MOBILE_QR_TOKEN_BYTES,
+  MOBILE_QR_PATH,
+  MOBILE_QR_PARAM,
   type MobileAccessState,
+  type MobileQrTicket,
   type MobileExternalStatus,
   type MobileExternalReason,
   type WSMessage,
+  type AgentConfig,
+  type TermCreateFrame,
+  type TermWriteFrame,
+  type TermResizeFrame,
+  type TermKillFrame,
 } from '@vibisual/shared';
 
 // 모바일 웹 접속 모드 — SCENARIO.md §4 v3.16 + v3.20(UPnP 외부 개방).
@@ -48,6 +59,12 @@ import {
 //   - Host 헤더 IP-리터럴 가드 — DNS rebinding 차단.
 //   - 세션 쿠키는 SameSite=Strict — 교차 출처 스크립트가 API 를 못 친다. (LAN http 와 외부
 //     https 를 한 쿠키로 공유하므로 Secure 는 붙이지 않는다 — 페어링이 실질 게이트.)
+//
+// v3.66 — QR 페어링. 주소 타이핑 + 코드 입력을 폰 카메라 스캔 한 번으로 대체한다. 인증 모델은
+// 그대로고 **입력 수단만 추가**: 3분짜리 티켓 토큰을 딥링크(MOBILE_QR_PATH?t=…)에 실어 QR 로
+// 그리고, 스캔이 그 URL 을 열면 토큰을 상수시간 비교해 **코드 입력과 똑같은 세션 쿠키**를
+// 발급한 뒤 `/` 로 302 한다. 티켓은 메모리 전용(미영속)이라 앱을 끄면 사라지고, 실패는 코드
+// 입력과 같은 per-IP 밴 카운터를 공유한다.
 
 const PERSIST_FILENAME = 'mobile-access.json';
 const TLS_FILENAME = 'mobile-tls.json';
@@ -75,6 +92,13 @@ interface IpAttempt {
   bannedUntil: number;
 }
 
+/** §4 v3.66 — QR 페어링 티켓(메모리 전용). 토큰은 딥링크 URL 로만 밖에 나간다. */
+interface QrTicket {
+  token: string;
+  expiresAt: number;
+  usedCount: number;
+}
+
 let httpServer: HttpServer | null = null;
 let httpsServer: HttpsServer | null = null;
 let wss: WebSocketServer | null = null;
@@ -84,6 +108,10 @@ let persisted: PersistedMobileAccess = defaultPersisted();
 let pairingCode: string | null = null;
 const pairAttempts = new Map<string, IpAttempt>();
 let starting = false;
+
+// §4 v3.66 QR 페어링 티켓 — 영속하지 않는다(앱 종료 = 소멸).
+let qrTicket: QrTicket | null = null;
+let qrExpiryTimer: ReturnType<typeof setTimeout> | null = null;
 
 // UPnP 외부 개방 상태.
 let upnpClient: NatUpnpClient | null = null;
@@ -220,6 +248,40 @@ function computeExternalUrl(): string | null {
   return null;
 }
 
+// ─── §4 v3.66 QR 페어링 티켓 ─────────────────────────────────────────────────
+
+function clearQrTicket(): void {
+  if (qrExpiryTimer) {
+    clearTimeout(qrExpiryTimer);
+    qrExpiryTimer = null;
+  }
+  qrTicket = null;
+}
+
+/** 만료분 지연 정리 — 타이머보다 조회가 먼저 와도 죽은 티켓이 보이지 않게. */
+function liveQrTicket(): QrTicket | null {
+  if (qrTicket !== null && qrTicket.expiresAt <= Date.now()) clearQrTicket();
+  return qrTicket;
+}
+
+/**
+ * 티켓 딥링크 — 지금 접속 가능한 모든 주소(LAN 인터페이스별 + 외부 https)에 토큰을 붙인다.
+ * 주소는 그때그때 계산하므로 외부를 켜거나 끄면 QR 대상 목록도 따라 바뀐다.
+ */
+function qrTicketUrls(token: string): string[] {
+  const bases = lanUrls(httpPortNow());
+  const ext = computeExternalUrl();
+  if (ext !== null) bases.push(ext);
+  const query = `${MOBILE_QR_PATH}?${MOBILE_QR_PARAM}=${token}`;
+  return bases.map((base) => `${base}${query}`);
+}
+
+function qrTicketView(): MobileQrTicket | null {
+  const ticket = liveQrTicket();
+  if (ticket === null) return null;
+  return { urls: qrTicketUrls(ticket.token), expiresAt: ticket.expiresAt, usedCount: ticket.usedCount };
+}
+
 export function getMobileAccessState(): MobileAccessState {
   const port = httpPortNow();
   return {
@@ -236,6 +298,7 @@ export function getMobileAccessState(): MobileAccessState {
     publicIp,
     externalPort,
     httpsPort: httpsPortNow(),
+    qrTicket: httpServer !== null ? qrTicketView() : null,
   };
 }
 
@@ -273,6 +336,24 @@ function clientIp(req: IncomingMessage): string {
   return req.socket.remoteAddress ?? 'unknown';
 }
 
+/** IPv4-mapped IPv6(`::ffff:a.b.c.d`) 접두를 벗겨 순수 주소로. */
+function normalizeIp(ip: string): string {
+  return ip.startsWith('::ffff:') ? ip.slice(7) : ip;
+}
+
+/**
+ * §4 v3.33 — 이 접속이 **자기 LAN/로컬**에서 온 것인가(= 임베디드 셸 허용 대상).
+ * 공인 IP(인터넷·UPnP 경유)면 false → 셸 프레임 거부. loopback·사설 IPv4·IPv6 ULA/link-local 은 LAN.
+ */
+function isLanClient(ip: string): boolean {
+  const a = normalizeIp(ip).toLowerCase();
+  if (a === '::1' || a === 'localhost') return true;
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(a)) return !isPubliclyRoutable(a); // 사설/loopback IPv4 = LAN
+  if (a.startsWith('fe80:')) return true; // link-local
+  if (a.startsWith('fc') || a.startsWith('fd')) return true; // ULA (fc00::/7)
+  return false;
+}
+
 /** Host 헤더 가드 — DNS rebinding 차단(정상 접속은 항상 IP-리터럴 또는 localhost). */
 function isAllowedHost(host: string | undefined): boolean {
   if (!host) return false;
@@ -283,12 +364,38 @@ function isAllowedHost(host: string | undefined): boolean {
   return false;
 }
 
+/**
+ * §4 v3.33 — WS Origin 검사(ttyd `--check-origin` 등가, 심층 방어). 브라우저 WS 핸드셰이크의
+ * Origin 이 접속 Host 와 동일 출처인지 확인해 교차 출처 페이지의 소켓 탈취를 막는다(SameSite=Strict
+ * 쿠키 위 이중 방어). 비브라우저(Origin 부재)는 통과 — 쿠키·Host 가드가 여전히 게이트.
+ */
+function isSameOriginWs(req: IncomingMessage): boolean {
+  const origin = req.headers.origin;
+  if (!origin) return true;
+  try {
+    const host = (req.headers.host ?? '').toLowerCase();
+    return new URL(origin).host.toLowerCase() === host;
+  } catch {
+    return false;
+  }
+}
+
 // ─── 페어링 페이지 ───────────────────────────────────────────────────────────
 
-function pairingPageHtml(locked: boolean, codeLen: number): string {
+/**
+ * 페어링 페이지. `qrNote` 는 §4 v3.66 QR 딥링크가 실패했을 때(만료·잘못된 토큰·차단 중)
+ * 왜 자동 접속이 안 됐는지 알리고 수기 코드 입력으로 폴백시키는 안내다.
+ */
+function pairingPageHtml(locked: boolean, codeLen: number, qrNote: string | null): string {
   const lockedNote = locked
     ? '<p class="err">Too many failed attempts from your device — try again later or regenerate the code on the desktop. / 실패가 누적되어 잠시 차단되었습니다. 잠시 후 다시 시도하거나 데스크톱에서 새 코드를 발급하세요.</p>'
     : '';
+  const qrNoteHtml =
+    qrNote === 'expired'
+      ? '<p class="note">This QR code has expired — issue a new one on the desktop, or enter the pairing code below. / QR 코드가 만료되었습니다. 데스크톱에서 새로 발급하거나 아래에 페어링 코드를 입력해 주세요.</p>'
+      : qrNote === 'locked'
+        ? '<p class="note">QR pairing is temporarily blocked from this device. / 이 기기에서의 QR 페어링이 잠시 차단되었습니다.</p>'
+        : '';
   return `<!doctype html>
 <html lang="ko">
 <head>
@@ -309,11 +416,14 @@ function pairingPageHtml(locked: boolean, codeLen: number): string {
   button { width: 100%; margin-top: 14px; padding: 12px; font-size: 15px; font-weight: 600;
            color: #030712; background: #38bdf8; border: 0; border-radius: 10px; cursor: pointer; }
   .err { color: #f87171; min-height: 18px; margin: 10px 0 0; }
+  .note { margin: 0 0 14px; padding: 10px 12px; border-radius: 10px; font-size: 12px; line-height: 1.5;
+          color: #fcd34d; background: rgba(245,158,11,.08); border: 1px solid rgba(245,158,11,.24); }
 </style>
 </head>
 <body>
 <div class="card">
   <h1>Vibisual</h1>
+  ${qrNoteHtml}
   <p>Enter the pairing code shown in the desktop app (File &gt; Mobile Access).<br/>
      데스크톱 앱(File &gt; Mobile Access)에 표시된 페어링 코드를 입력해 주세요.</p>
   <form id="f">
@@ -348,6 +458,79 @@ document.getElementById('f').addEventListener('submit', async (e) => {
 </html>`;
 }
 
+/**
+ * 페어링 성공 처리 — 세션 토큰을 발급해 영속 목록에 넣고 HttpOnly 쿠키로 심는다.
+ * 코드 입력(handlePairRequest)과 QR 딥링크(handleQrRedeem)가 **같은 경로**를 쓴다.
+ */
+function grantSession(res: ServerResponse): void {
+  const session = randomBytes(24).toString('hex');
+  persisted.sessions = [session, ...persisted.sessions].slice(0, MOBILE_SESSION_MAX);
+  savePersisted();
+  res.setHeader(
+    'set-cookie',
+    `${MOBILE_SESSION_COOKIE}=${session}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${SESSION_COOKIE_MAX_AGE_S}`,
+  );
+}
+
+/** 실패 1회 기록 — 한도를 넘으면 그 IP 만 일정 시간 차단(코드 입력·QR 공용 카운터). */
+function recordPairFailure(ip: string, now: number): IpAttempt {
+  const next: IpAttempt = pairAttempts.get(ip) ?? { count: 0, bannedUntil: 0 };
+  next.count += 1;
+  if (next.count >= MOBILE_PAIR_MAX_ATTEMPTS) {
+    next.bannedUntil = now + MOBILE_PAIR_BAN_MS;
+    next.count = 0;
+    console.warn(`[mobile-access] pairing temporarily banned for ${ip} (repeated failures)`);
+  }
+  pairAttempts.set(ip, next);
+  return next;
+}
+
+function redirectTo(res: ServerResponse, location: string): void {
+  res.statusCode = 302;
+  res.setHeader('location', location);
+  res.setHeader('cache-control', 'no-store');
+  res.end();
+}
+
+/**
+ * §4 v3.66 — QR 딥링크(`/mobile/qr?t=…`) 소비. 토큰이 유효하면 코드 입력과 동일한 세션 쿠키를
+ * 심고 앱(`/`)으로 302 한다. 실패는 페어링 페이지로 되돌려 수기 입력 폴백을 남긴다.
+ */
+function handleQrRedeem(req: IncomingMessage, res: ServerResponse): void {
+  req.resume();
+  // 이미 페어링된 기기가 예전 QR 을 다시 열었을 뿐이면 티켓을 건드리지 않고 앱으로 보낸다.
+  if (isAuthedRequest(req)) {
+    redirectTo(res, '/');
+    return;
+  }
+  const ip = clientIp(req);
+  const now = Date.now();
+  const attempt = pairAttempts.get(ip);
+  if (attempt && attempt.bannedUntil > now) {
+    redirectTo(res, '/?qr=locked');
+    return;
+  }
+  const query = (req.url ?? '').split('?')[1] ?? '';
+  const token = new URLSearchParams(query).get(MOBILE_QR_PARAM) ?? '';
+  const ticket = liveQrTicket();
+  const ok =
+    ticket !== null &&
+    token.length === ticket.token.length &&
+    timingSafeEqual(Buffer.from(token), Buffer.from(ticket.token));
+  if (!ok || ticket === null) {
+    recordPairFailure(ip, now);
+    redirectTo(res, '/?qr=expired');
+    pushState();
+    return;
+  }
+  pairAttempts.delete(ip);
+  ticket.usedCount += 1;
+  grantSession(res);
+  redirectTo(res, '/');
+  console.log(`[mobile-access] device paired via QR from ${ip}`);
+  pushState();
+}
+
 function handlePairRequest(req: IncomingMessage, res: ServerResponse): void {
   const ip = clientIp(req);
   const chunks: Buffer[] = [];
@@ -380,27 +563,14 @@ function handlePairRequest(req: IncomingMessage, res: ServerResponse): void {
       timingSafeEqual(Buffer.from(code), Buffer.from(pairingCode));
     if (ok) {
       pairAttempts.delete(ip);
-      const session = randomBytes(24).toString('hex');
-      persisted.sessions = [session, ...persisted.sessions].slice(0, MOBILE_SESSION_MAX);
-      savePersisted();
-      res.setHeader(
-        'set-cookie',
-        `${MOBILE_SESSION_COOKIE}=${session}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${SESSION_COOKIE_MAX_AGE_S}`,
-      );
+      grantSession(res);
       res.statusCode = 200;
       res.end(JSON.stringify({ ok: true }));
       console.log(`[mobile-access] device paired from ${ip}`);
       pushState();
       return;
     }
-    const next: IpAttempt = attempt ?? { count: 0, bannedUntil: 0 };
-    next.count += 1;
-    if (next.count >= MOBILE_PAIR_MAX_ATTEMPTS) {
-      next.bannedUntil = now + MOBILE_PAIR_BAN_MS;
-      next.count = 0;
-      console.warn(`[mobile-access] pairing temporarily banned for ${ip} (repeated failures)`);
-    }
-    pairAttempts.set(ip, next);
+    const next = recordPairFailure(ip, now);
     res.statusCode = 401;
     res.end(JSON.stringify({ ok: false, locked: next.bannedUntil > now }));
     pushState();
@@ -522,12 +692,18 @@ function handleRequest(req: IncomingMessage, res: ServerResponse): void {
   }
   const pathname = (req.url ?? '').split('?')[0] ?? '';
   if (req.method === 'POST' && pathname === '/mobile/pair') { handlePairRequest(req, res); return; }
+  // §4 v3.66 — QR 딥링크. 인증 전에 처리해야 스캔 즉시 세션을 받는다.
+  if ((req.method === 'GET' || req.method === 'HEAD') && pathname === MOBILE_QR_PATH) {
+    handleQrRedeem(req, res);
+    return;
+  }
   if (!isAuthedRequest(req)) {
     if (req.method === 'GET' || req.method === 'HEAD') {
+      const qrNote = new URLSearchParams((req.url ?? '').split('?')[1] ?? '').get('qr');
       res.statusCode = 200;
       res.setHeader('content-type', 'text/html; charset=utf-8');
       res.setHeader('cache-control', 'no-store');
-      res.end(pairingPageHtml(anyBanned(), pairCodeLength()));
+      res.end(pairingPageHtml(anyBanned(), pairCodeLength(), qrNote));
     } else {
       res.statusCode = 401; res.end();
     }
@@ -573,10 +749,13 @@ function createWss(): WebSocketServer {
 function bindUpgrade(server: HttpServer | HttpsServer): void {
   server.on('upgrade', (req: IncomingMessage, socket: Socket, head: Buffer) => {
     const pathname = (req.url ?? '').split('?')[0] ?? '';
-    if (pathname !== WS_PATH || !isAllowedHost(req.headers.host) || !isAuthedRequest(req)) {
+    // §4 v3.33 — Host·인증에 더해 Origin 검사 추가(교차 출처 소켓 탈취 차단).
+    if (pathname !== WS_PATH || !isAllowedHost(req.headers.host) || !isSameOriginWs(req) || !isAuthedRequest(req)) {
       socket.destroy();
       return;
     }
+    // §4 v3.33 — 이 접속이 LAN(사설/로컬)인지. 임베디드 셸(term_*)은 LAN 접속에서만 허용한다.
+    const terminalAllowed = isLanClient(clientIp(req));
     wss?.handleUpgrade(req, socket, head, (ws) => {
       wsClients.add(ws);
       const conn: ClientConnection = {
@@ -588,7 +767,10 @@ function bindUpgrade(server: HttpServer | HttpsServer): void {
       ws.on('message', (raw) => {
         try {
           const msg = JSON.parse(String(raw)) as { type?: string; payload?: unknown };
-          if (msg && typeof msg === 'object') handleClientMessage(msg, conn);
+          if (!msg || typeof msg !== 'object' || typeof msg.type !== 'string') return;
+          // §4 v3.33 — 터미널 제어 프레임은 out-of-band 분기(그래프 메시지 핸들러 미오염).
+          if (msg.type.startsWith('term_')) { handleTerminalFrame(ws, terminalAllowed, msg.type, msg.payload); return; }
+          handleClientMessage(msg, conn);
         } catch { /* 비 JSON 프레임 무시 */ }
       });
       ws.on('close', () => { wsClients.delete(ws); pushState(); });
@@ -598,10 +780,75 @@ function bindUpgrade(server: HttpServer | HttpsServer): void {
   });
 }
 
-/** broadcast sink 팬아웃 — index.ts 의 setBroadcastSink 콜백이 renderer 푸시와 함께 호출한다. */
-export function mobileBroadcast(msg: WSMessage): void {
+// ─── §4 v3.33 모바일 임베디드 터미널 (/ws 다중화) ────────────────────────────
+//
+// 데스크톱은 IPC(`vibisual:term:*`)로 PTY 에 붙지만, 모바일 브라우저는 `window.api` 가 없어
+// 그 IPC 가 없다. 그래서 이 `/ws` 소켓에 터미널 프레임을 얹어 나른다(새 소켓/레이어 ❌).
+// 셸은 실제 로컬 프로세스이므로 **LAN 접속(isLanClient)에서만** 생성하고, 외부(공인 IP·UPnP)
+// 접속의 create 는 거부해 `term_unavailable(external)` 로 회신한다(§4 v3.33 보안 게이트).
+
+let wsSinkSeq = 0;
+const wsSinkIds = new WeakMap<WebSocket, string>();
+
+function wsSinkId(ws: WebSocket): string {
+  let id = wsSinkIds.get(ws);
+  if (!id) { id = `ws:${++wsSinkSeq}`; wsSinkIds.set(ws, id); }
+  return id;
+}
+
+function sendTermFrame(ws: WebSocket, type: string, payload: unknown): void {
+  if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type, payload, timestamp: Date.now() }));
+}
+
+/** 이 ws 를 출력 대상으로 하는 TermSink — PTY 바이트를 term_data/term_exit 프레임으로 흘린다. */
+function wsTermSink(ws: WebSocket): TermSink {
+  return {
+    id: wsSinkId(ws),
+    sendData: (termId, data) => sendTermFrame(ws, 'term_data', { termId, data }),
+    sendExit: (termId, exitCode) => sendTermFrame(ws, 'term_exit', { termId, exitCode }),
+    isAlive: () => ws.readyState === WebSocket.OPEN,
+  };
+}
+
+function handleTerminalFrame(ws: WebSocket, terminalAllowed: boolean, type: string, payload: unknown): void {
+  const p = (payload ?? {}) as Partial<TermCreateFrame & TermWriteFrame & TermResizeFrame & TermKillFrame>;
+  if (typeof p.termId !== 'string' || !p.termId) return;
+  switch (type) {
+    case 'term_create': {
+      if (!terminalAllowed) {
+        // 외부(인터넷) 접속 — 셸을 열지 않고 안내만. 클라는 ack 대신 이 프레임으로 unavailable 처리.
+        sendTermFrame(ws, 'term_unavailable', { termId: p.termId, reason: 'external' });
+        return;
+      }
+      const r = createTerminal(wsTermSink(ws), {
+        termId: p.termId,
+        cwd: typeof p.cwd === 'string' ? p.cwd : '',
+        config: p.config as AgentConfig,
+        cols: p.cols,
+        rows: p.rows,
+      });
+      sendTermFrame(ws, 'term_ack', { termId: p.termId, ok: r.ok, error: r.error });
+      return;
+    }
+    case 'term_write':
+      if (terminalAllowed && typeof p.data === 'string') writeTerminal(p.termId, p.data);
+      return;
+    case 'term_resize':
+      if (terminalAllowed && typeof p.cols === 'number' && typeof p.rows === 'number') {
+        resizeTerminal(p.termId, p.cols, p.rows);
+      }
+      return;
+    case 'term_kill':
+      killTerminal(p.termId);
+      return;
+  }
+}
+
+/** broadcast sink 팬아웃 — index.ts 의 setBroadcastSink 콜백이 renderer 푸시와 함께 호출한다.
+ *  §9 v3.40 — sink 가 다중 창 팬아웃용으로 이미 직렬화한 문자열이 있으면 재사용(재직렬화 방지). */
+export function mobileBroadcast(msg: WSMessage, preSerialized?: string): void {
   if (wsClients.size === 0) return;
-  const data = JSON.stringify(msg);
+  const data = preSerialized ?? JSON.stringify(msg);
   for (const ws of wsClients) if (ws.readyState === WebSocket.OPEN) ws.send(data);
 }
 
@@ -857,6 +1104,7 @@ export async function disableMobileAccess(): Promise<MobileAccessState> {
   await disableExternalInternal();
   await stopHttpListener();
   pairingCode = null;
+  clearQrTicket();
   pairAttempts.clear();
   persisted.enabled = false;
   savePersisted();
@@ -909,6 +1157,39 @@ export async function disableExternalAccess(): Promise<MobileAccessState> {
   return getMobileAccessState();
 }
 
+/**
+ * §4 v3.66 — QR 페어링 티켓 발급. 리스너가 켜져 있을 때만 유효하며, 이미 티켓이 있으면
+ * 폐기하고 새로 만든다(화면에 살아 있는 QR 은 항상 한 장). 수명은 MOBILE_QR_TICKET_TTL_MS.
+ */
+export function issueMobileQrTicket(): MobileAccessState {
+  if (httpServer) {
+    clearQrTicket();
+    qrTicket = {
+      token: randomBytes(MOBILE_QR_TOKEN_BYTES).toString('hex'),
+      expiresAt: Date.now() + MOBILE_QR_TICKET_TTL_MS,
+      usedCount: 0,
+    };
+    qrExpiryTimer = setTimeout(() => {
+      clearQrTicket();
+      console.log('[mobile-access] QR pairing ticket expired');
+      pushState();
+    }, MOBILE_QR_TICKET_TTL_MS);
+    console.log(`[mobile-access] QR pairing ticket issued (valid ${Math.round(MOBILE_QR_TICKET_TTL_MS / 1000)}s)`);
+    pushState();
+  }
+  return getMobileAccessState();
+}
+
+/** §4 v3.66 — QR 티켓 즉시 폐기(3분을 못 기다릴 때). 이미 페어링된 기기는 그대로 유지된다. */
+export function revokeMobileQrTicket(): MobileAccessState {
+  if (qrTicket !== null) {
+    clearQrTicket();
+    console.log('[mobile-access] QR pairing ticket revoked');
+    pushState();
+  }
+  return getMobileAccessState();
+}
+
 /** 새 페어링 코드 발급 — IP 차단 해제 겸용. 기존 세션(이미 페어링된 폰)은 유지된다. */
 export function regenMobilePairingCode(): MobileAccessState {
   if (httpServer) {
@@ -921,6 +1202,7 @@ export function regenMobilePairingCode(): MobileAccessState {
 
 /** before-quit — 소켓·UPnP 매핑 정리(hook 리스너 close 와 병렬). */
 export async function stopMobileAccess(): Promise<void> {
+  clearQrTicket();
   await disableExternalInternal();
   await stopHttpListener();
 }

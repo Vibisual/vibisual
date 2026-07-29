@@ -36,6 +36,15 @@ function HandIcon(): React.JSX.Element {
   );
 }
 
+/** §5.10 — 배운 것(learned) — 전구/불꽃 글리프 */
+function LearnedIcon(): React.JSX.Element {
+  return (
+    <svg className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M9 18h6M10 21h4M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.1V17h6v-.2c0-.8.4-1.6 1-2.1A7 7 0 0 0 12 2Z" />
+    </svg>
+  );
+}
+
 /** 다음 단계 (화살표) */
 function NextIcon(): React.JSX.Element {
   return (
@@ -176,6 +185,23 @@ export const AgentReportCard = memo(function AgentReportCard({ report }: AgentRe
               {report.nextSteps.map((item, i) => (
                 <li key={i} className="flex items-start gap-1.5 text-[12px] leading-relaxed text-gray-400">
                   <span className="text-slate-400/70"><NextIcon /></span>
+                  <span className="min-w-0 flex-1 break-words">{item}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* §5.10 — 배운 것(learned) — violet/fuchsia 액센트. 두뇌 기억으로 저장되는 재료. */}
+        {report.learned && report.learned.length > 0 && (
+          <div className="mb-2 rounded border border-fuchsia-500/30 bg-fuchsia-500/10 px-2.5 py-1.5">
+            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-fuchsia-300/90">
+              {t('ide.report.learnedTitle', { defaultValue: '배운 것' })}
+            </div>
+            <ul className="space-y-0.5">
+              {report.learned.map((item, i) => (
+                <li key={i} className="flex items-start gap-1.5 text-[12.5px] leading-relaxed text-fuchsia-100/90">
+                  <span className="text-fuchsia-400/90"><LearnedIcon /></span>
                   <span className="min-w-0 flex-1 break-words">{item}</span>
                 </li>
               ))}

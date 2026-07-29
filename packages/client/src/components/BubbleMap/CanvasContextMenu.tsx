@@ -1,8 +1,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { PipelineType, RecoverableCustomAgent } from '@vibisual/shared';
+import type { PipelineType } from '@vibisual/shared';
 import { PIPELINE_TYPE_INFO } from '@vibisual/shared';
-import { useGraphStore } from '../../stores/graphStore';
 
 interface CanvasContextMenuProps {
   x: number;
@@ -16,6 +15,8 @@ interface CanvasContextMenuProps {
   onCreateAutoAgent: (canvasX: number, canvasY: number) => void;
   onCreatePipeline: (type: PipelineType, canvasX: number, canvasY: number) => void;
   onCreateWorktree: (canvasX: number, canvasY: number) => void;
+  /** §5.9 — 화면/프로그램 캡처 버블 생성(소스 picker 를 연다). */
+  onCreateCapture: (canvasX: number, canvasY: number) => void;
   onClose: () => void;
 }
 
@@ -31,30 +32,12 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
   onCreateAutoAgent,
   onCreatePipeline,
   onCreateWorktree,
+  onCreateCapture,
   onClose,
 }: CanvasContextMenuProps): React.JSX.Element {
   const { t } = useTranslation();
   const menuRef = useRef<HTMLDivElement>(null);
   const [hoveredType, setHoveredType] = useState<PipelineType | null>(null);
-
-  // §3.2.2 (C 복구) — 사라졌거나 닫힌 커스텀 에이전트 복구 플라이아웃.
-  const fetchRecoverable = useGraphStore((s) => s.fetchRecoverableCustomAgents);
-  const restoreCustomAgent = useGraphStore((s) => s.restoreCustomAgent);
-  const [recoverables, setRecoverables] = useState<RecoverableCustomAgent[] | null>(null);
-  const [showRecover, setShowRecover] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    void fetchRecoverable().then((list) => {
-      if (!cancelled) setRecoverables(list);
-    });
-    return () => { cancelled = true; };
-  }, [fetchRecoverable]);
-
-  const handleRestore = useCallback((sessionId: string) => {
-    void restoreCustomAgent(sessionId, canvasX, canvasY);
-    onClose();
-  }, [restoreCustomAgent, canvasX, canvasY, onClose]);
 
   useEffect(() => {
     // §4 v3.16 — 터치 롱프레스로 열면 손을 떼는 순간 브라우저가 합성 mousedown 을 쏴서
@@ -99,6 +82,11 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
     onCreateWorktree(canvasX, canvasY);
     onClose();
   }, [onCreateWorktree, onClose, canvasX, canvasY]);
+
+  const handleCreateCapture = useCallback(() => {
+    onCreateCapture(canvasX, canvasY);
+    onClose();
+  }, [onCreateCapture, onClose, canvasX, canvasY]);
 
   const handleCreatePipeline = useCallback((type: PipelineType) => {
     onCreatePipeline(type, canvasX, canvasY);
@@ -192,58 +180,22 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
           </div>
         </button>
 
-        {/* §3.2.2 (C 복구) — 지난(사라졌거나 닫힌) 커스텀 에이전트 복구. hover 로 플라이아웃 목록 노출. */}
-        <div className="mx-2 my-1 border-t border-gray-700" />
-        <div
-          className="relative"
-          onMouseEnter={() => setShowRecover(true)}
-          onMouseLeave={() => setShowRecover(false)}
+        {/* §5.9 — 화면/프로그램 캡처 버블 (라이브 스트림, rose 톤). */}
+        <button
+          type="button"
+          className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-800 transition-colors"
+          onClick={handleCreateCapture}
         >
-          <button
-            type="button"
-            className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-800 transition-colors"
-          >
-            <svg className="h-4 w-4 shrink-0 text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
-              <path d="M3 3v5h5" />
-            </svg>
-            <span className="flex-1">{t('canvas.contextMenu.restoreCustomAgent')}</span>
-            {recoverables && recoverables.length > 0 && (
-              <span className="rounded-full bg-amber-500/20 px-1.5 text-xs text-amber-300">{recoverables.length}</span>
-            )}
-            <svg className="h-3.5 w-3.5 shrink-0 text-gray-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M9 6l6 6-6 6" />
-            </svg>
-          </button>
+          <svg className="h-4 w-4 shrink-0 text-rose-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect width="20" height="14" x="2" y="3" rx="2" /><path d="M8 21h8" /><path d="M12 17v4" />
+          </svg>
+          <div className="flex flex-col">
+            <span>{t('canvas.contextMenu.createCapture', { defaultValue: '화면·프로그램 캡처 버블' })}</span>
+            <span className="text-xs text-gray-500">{t('canvas.contextMenu.createCaptureHint', { defaultValue: '화면이나 프로그램 창을 라이브로 버블에 띄우기' })}</span>
+          </div>
+        </button>
 
-          {showRecover && (
-            <div className="absolute left-full top-0 ml-0.5 max-h-72 w-64 overflow-y-auto rounded-lg border border-gray-700 bg-gray-900 py-1 shadow-xl shadow-black/40">
-              {recoverables === null ? (
-                <div className="px-3 py-2 text-xs text-gray-500">{t('canvas.contextMenu.restoreLoading')}</div>
-              ) : recoverables.length === 0 ? (
-                <div className="px-3 py-2 text-xs text-gray-500">{t('canvas.contextMenu.restoreEmpty')}</div>
-              ) : (
-                recoverables.map((r) => (
-                  <button
-                    key={r.sessionId}
-                    type="button"
-                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-800 transition-colors"
-                    onClick={() => handleRestore(r.sessionId)}
-                  >
-                    <span
-                      className="h-2.5 w-2.5 shrink-0 rounded-full"
-                      style={{ backgroundColor: r.color ?? '#3B82F6' }}
-                    />
-                    <span className="truncate">{r.label}</span>
-                    {r.executionMode === 'interactive-terminal' && (
-                      <span className="ml-auto shrink-0 text-xs text-teal-400">CMD</span>
-                    )}
-                  </button>
-                ))
-              )}
-            </div>
-          )}
-        </div>
+        {/* §5.10 — "지난 커스텀 에이전트 복구" 메뉴 제거됨(휴지통 버블이 그 경로의 후신). */}
 
         {/* 파이프라인 옵션 3개 — 나중에 다시 쓸 예정이라 주석으로 비활성화 (구분선·버튼·호버 툴팁 한 묶음) */}
         {/*

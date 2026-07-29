@@ -6,7 +6,7 @@ import { app, shell, BrowserWindow, protocol, screen } from 'electron';
 import { electronApp, optimizer } from '@electron-toolkit/utils';
 import { inject, type DispatchFunc } from 'light-my-request';
 import type { Express } from 'express';
-import { runServer, setBroadcastSink, setHookListenerPort, setHookListenerToken, setHookListenerIdentityFile, ensureClaudeHooksInstalled, recordDiagnostic, subAgentManager } from '@vibisual/server';
+import { runServer, setBroadcastSink, setHookListenerPort, setHookListenerToken, setHookListenerIdentityFile, setHookHandlerPath, ensureClaudeHooksInstalled, refreshStatusLineIfInstalled, recordDiagnostic, subAgentManager } from '@vibisual/server';
 import { setupIpc, type IpcHub } from './ipc';
 import { loadSecrets } from './secrets';
 import { loadHookIdentity, saveHookIdentity, hookIdentityPath } from './hookIdentity';
@@ -232,6 +232,14 @@ async function startHookListener(expressApp: Express, preferredPort: number): Pr
       path !== '/api/agent-list' &&
       // §7.11 v2.29 — 커스텀/스폰 에이전트의 서버 iframe 신고(url). 토큰 인증 필수.
       path !== '/api/agent-iframe' &&
+      // §5.10 — Project Brain 능동 검색(에이전트가 과거 기억을 직접 조회). 토큰 인증 필수.
+      path !== '/api/brain/search' &&
+      // §5.10 — Project Brain 파일 접근 경고(hook PostToolUse Edit/Write). 토큰 인증 필수.
+      path !== '/api/brain/file-notes' &&
+      // §4 v3.60 — 사용량 수집기(statusLine)가 미는 Claude.ai 한도 사용률. Claude Code 가
+      //   statusLine 스크립트를 외부 프로세스로 돌리므로 이 loopback 이 유일한 도달 경로다.
+      //   토큰 인증 필수(아래 분기).
+      path !== '/api/rate-limits' &&
       !isBuilderPath
     ) {
       res.statusCode = 404;
@@ -372,11 +380,19 @@ async function bootBackend(): Promise<void> {
   // broadcast sink — server 코어의 push 단일 창구를 모든 renderer 로 IPC 전송.
   // runServer 이전에 등록해야 부팅 중 push 가 유실되지 않는다.
   setBroadcastSink((msg) => {
-    for (const win of BrowserWindow.getAllWindows()) {
-      if (!win.isDestroyed()) win.webContents.send('vibisual:ws', msg);
+    // §9 v3.40 — 창이 2개 이상(별창/오버레이)이면 1회만 JSON 직렬화해 문자열로 팬아웃.
+    // webContents.send 는 호출 시점에 메인 스레드에서 동기 구조화 클론을 수행하므로,
+    // 대형 graph_snapshot 객체를 창 수만큼 깊은 클론하면 전수조사급 부하에서 입력 스레드가
+    // 막힌다. 문자열 클론은 사실상 memcpy. 단일 창이면 객체 그대로(renderer 가 파싱 생략).
+    // useWebSocket 은 문자열·객체 양쪽을 수용한다.
+    const wins = BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed());
+    const wire: unknown = wins.length >= 2 ? JSON.stringify(msg) : msg;
+    for (const win of wins) {
+      if (!win.isDestroyed()) win.webContents.send('vibisual:ws', wire);
     }
     // §4 v3.16 — 모바일 웹 접속 모드가 켜져 있으면 LAN WebSocket 클라이언트에도 팬아웃.
-    mobileBroadcast(msg);
+    // 위에서 이미 직렬화했으면 그 문자열을 재사용(스냅샷 재직렬화 방지).
+    mobileBroadcast(msg, typeof wire === 'string' ? wire : undefined);
   });
 
   // server 코어를 in-process 구동 — HTTP listen / ws 없이 Express app 만 받는다.
@@ -414,6 +430,9 @@ async function bootBackend(): Promise<void> {
     // electron-vite 가 빌드 시 <repo>/hooks/handler.mjs 를 out/hooks/handler.mjs 로 복사하므로
     // out/main/index.cjs 기준 ../hooks/handler.mjs 가 dev·packaged 양쪽에서 같은 위치.
     const handlerPath = join(__dirname, '..', 'hooks', 'handler.mjs');
+    // §4 v3.60 — 사용량 수집기(statusLine)도 같은 핸들러를 쓴다. 사용자가 팝업에서 켤 때
+    //   server 가 이 경로로 명령을 조립하도록 주입.
+    setHookHandlerPath(handlerPath);
     const r = ensureClaudeHooksInstalled(hookPort, handlerPath, hookToken);
     if (r.error) {
       console.warn(`[main] hook installer failed: ${r.error.message} — 훅 이벤트가 0건일 수 있음`);
@@ -423,6 +442,15 @@ async function bootBackend(): Promise<void> {
       );
     } else if (r.alreadyPresent) {
       console.log(`[main] hooks already up-to-date in ${r.settingsPath}`);
+    }
+
+    // §4 v3.60 — 사용량 수집기는 **자동 설치하지 않는다**(opt-in). 사용자가 이미 켜둔
+    //   경우에만 이번 런의 포트·토큰으로 명령을 갱신해 "재기동 후 값이 안 들어오는" 것을 막는다.
+    const sl = refreshStatusLineIfInstalled(hookPort, handlerPath, hookToken);
+    if (sl.installed && !sl.error) {
+      console.log('[main] usage collector (statusLine) refreshed for this launch');
+    } else if (sl.error) {
+      console.warn(`[main] usage collector refresh skipped: ${sl.error}`);
     }
   }
 

@@ -19,6 +19,7 @@ import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { spawn } from 'node:child_process';
 import {
   MODEL_SEED_ENTRIES,
   parseFamilyFromFullId,
@@ -57,6 +58,15 @@ const CACHE_TTL_MS = 12 * 60 * 60 * 1000; // 12h
 const API_URL = 'https://api.anthropic.com/v1/models';
 const API_VERSION = '2023-06-01';
 const FETCH_TIMEOUT_MS = 8_000;
+/** §4 — `claude --help` 실행 타임아웃(정상 응답 수백 ms). effort 등급 파싱용. */
+const HELP_PROBE_TIMEOUT_MS = 4_000;
+/**
+ * §4 — `claude --help` 에서 `--effort <level>` 의 허용 등급을 뽑는 정규식.
+ * 출력 예(줄바꿈됨):
+ *   `--effort <level>   Effort level for the current session (low, medium, high, xhigh, max)`
+ * `--effort` 뒤 가장 가까운 괄호 그룹을 non-greedy 로 캡처.
+ */
+const EFFORT_HELP_RE = /--effort\b[\s\S]{0,240}?\(([^)]+)\)/i;
 
 interface ApiModelEntry {
   id: string;
@@ -77,6 +87,11 @@ interface CachedRegistry {
 class ModelRegistryService {
   private registry: ModelRegistry;
   private listeners = new Set<(reg: ModelRegistry) => void>();
+  /**
+   * §4 — 설치된 `claude --help` 에서 파싱한 `--effort` 등급(예: ['low','medium','high','xhigh','max']).
+   * refreshIfStale 초입에서 1회 채워지고, 이후 모든 buildMerged 결과에 실린다. undefined = 파싱 실패(클라 폴백).
+   */
+  private cliEffortLevels: string[] | undefined;
 
   constructor() {
     this.registry = this.buildFromSeed();
@@ -177,6 +192,54 @@ class ModelRegistryService {
   }
 
   /**
+   * §4 — 설치된 `claude --help` 를 실행해 `--effort` 가 받아들이는 등급 목록을 파싱.
+   *
+   * 모델 raw-scan 과 같은 "0 하드코딩 · CLI 진실" 철학. CLI 가 새 등급을 추가/제거하면 코드 수정 없이 반영된다.
+   * 실패(미발견/타임아웃/파싱불가) 시 undefined → 클라 `listEffortLevels` 가 `AVAILABLE_EFFORT_LEVELS` 로 폴백.
+   */
+  private async scanEffortLevelsFromCli(): Promise<string[] | undefined> {
+    let binPath: string | undefined;
+    try {
+      binPath = resolveClaudeBin()?.binPath;
+    } catch { /* PATH 미발견 */ }
+    if (!binPath) return undefined;
+
+    const help = await new Promise<string>((resolve) => {
+      let done = false;
+      let out = '';
+      const finish = (text: string): void => { if (!done) { done = true; resolve(text); } };
+      let child: ReturnType<typeof spawn>;
+      try {
+        child = spawn(binPath, ['--help'], {
+          shell: process.platform === 'win32',
+          windowsHide: true,
+          stdio: ['ignore', 'pipe', 'pipe'],
+        });
+      } catch {
+        return finish('');
+      }
+      const timer = setTimeout(() => { try { child.kill(); } catch { /* ignore */ } finish(out); }, HELP_PROBE_TIMEOUT_MS);
+      child.stdout?.on('data', (c) => { out += c.toString(); });
+      child.stderr?.on('data', (c) => { out += c.toString(); });
+      child.on('error', () => { clearTimeout(timer); finish(''); });
+      child.on('close', () => { clearTimeout(timer); finish(out); });
+    });
+
+    if (!help) return undefined;
+    const m = EFFORT_HELP_RE.exec(help);
+    if (!m?.[1]) return undefined;
+    const levels = m[1]
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .filter((s) => /^[a-z][a-z0-9-]*$/.test(s) && s !== 'default');
+    // 중복 제거, 최소 1개 이상일 때만 채택.
+    const uniq = [...new Set(levels)];
+    if (uniq.length === 0) return undefined;
+    logger.info(`[modelRegistry] cli --help effort levels: ${uniq.join(', ')}`);
+    return uniq;
+  }
+
+  /**
    * `claude-<family>-A[-B]` 의 (A,B) 숫자 파싱. 비교 시 큰 게 신규. minor 없으면 0.
    * 패밀리 내 latest 결정에 사용. §4 v2.77 — shared `parseModelSemver` 위임(클라와 규칙 일치).
    */
@@ -241,6 +304,14 @@ class ModelRegistryService {
     // §4 v2.41 — 모든 부팅에서 CLI 바이너리 raw scan 실행 (빠르고 결정적, 캐시 무관).
     // CLI 업데이트가 즉시 반영되도록 캐시 의존 ❌. API 결과만 캐시.
     const cliEntries = this.scanClaudeBinaryForModels();
+
+    // §4 — effort 등급도 CLI(`claude --help`)에서 동적 파싱(하드코딩 폐기). 실패 시 undefined→클라 폴백.
+    try {
+      this.cliEffortLevels = await this.scanEffortLevelsFromCli();
+    } catch (err) {
+      logger.warn(`[modelRegistry] effort --help scan failed: ${err instanceof Error ? err.message : String(err)}`);
+      this.cliEffortLevels = undefined;
+    }
 
     // 캐시에서 API 결과만 추출 (시드/cli-scan entry 는 매 부팅 재생성)
     let cachedApiEntries: ModelRegistryEntry[] = [];
@@ -316,6 +387,8 @@ class ModelRegistryService {
       entries: [...byId.values()],
       updatedAt: Date.now(),
       sourceMix,
+      // §4 — CLI --help 에서 파싱한 effort 등급을 registry 에 실어 같은 WS/REST 경로로 전파.
+      effortLevels: this.cliEffortLevels,
     };
   }
 

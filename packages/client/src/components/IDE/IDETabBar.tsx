@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import type { SubAgent, SubAgentHistoryItem } from '@vibisual/shared';
 import { useGraphStore, selectIDEOverlay } from '../../stores/graphStore.js';
@@ -188,10 +189,48 @@ export const IDETabBar = memo(function IDETabBar({
     }).catch(() => { /* snapshot이 권위 — 인텐트가 정리될 때까지 유지 */ });
   }, [agentId, reassignActiveIfClosing, purgeSubLocal, deleteSubAgent]);
 
+  // --- 동작 중 세션 닫기 확인 ---
+  // 닫으려는 세션 중 status==='active'(동작 중)인 게 하나라도 있으면 즉시 닫지 않고 확인 팝업을 띄운다.
+  // pendingClose = 확인 대기 중인 닫기 대상 세션 id 목록. "닫기" 확정 시 그대로 진행, "취소"/Esc 시 폐기.
+  const [pendingClose, setPendingClose] = useState<string[] | null>(null);
+
+  // 닫기 요청 공용 진입점(X 버튼·컨텍스트 메뉴). active 세션이 대상에 없으면 바로 닫고, 있으면 확인 팝업으로.
+  const requestClose = useCallback((ids: string[]) => {
+    if (ids.length === 0) return;
+    const hasActive = ids.some((id) => subAgents.find((s) => s.id === id)?.status === 'active');
+    if (hasActive) { setPendingClose(ids); return; }
+    deleteSubAgents(ids);
+  }, [subAgents, deleteSubAgents]);
+
+  const confirmClose = useCallback(() => {
+    if (pendingClose) deleteSubAgents(pendingClose);
+    setPendingClose(null);
+  }, [pendingClose, deleteSubAgents]);
+
+  const cancelClose = useCallback(() => setPendingClose(null), []);
+
+  // 확인 팝업이 목록으로 보여줄, 닫힘 대상 중 실제 동작 중인 세션들.
+  const pendingActiveSubs = useMemo(() => {
+    if (!pendingClose) return [];
+    return pendingClose
+      .map((id) => subAgents.find((s) => s.id === id))
+      .filter((s): s is SubAgent => !!s && s.status === 'active');
+  }, [pendingClose, subAgents]);
+
+  // 확인 팝업 열림 동안 Esc 로 취소.
+  useEffect(() => {
+    if (!pendingClose) return;
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') { e.preventDefault(); setPendingClose(null); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [pendingClose]);
+
   const handleClose = useCallback((e: React.MouseEvent, subId: string) => {
     e.stopPropagation();
-    deleteSubAgent(subId);
-  }, [deleteSubAgent]);
+    requestClose([subId]);
+  }, [requestClose]);
 
   // --- 가로 스크롤 (탭이 많아지면 좌/우 페이드 + wheel 가로 스크롤 + 오버레이 썸) ---
   // 네이티브 스크롤바는 레이아웃 점유로 탭을 줄이기 때문에 hide 하고, 오버레이 썸을 별도 DOM 으로 그린다(VS Code 식).
@@ -291,12 +330,16 @@ export const IDETabBar = memo(function IDETabBar({
     if (!ctx) return false;
     return subAgents.some((s, i) => i !== ctx.index && !tabPins[`subagent:${s.id}`]);
   }, [ctx, subAgents, tabPins]);
+  const ctxHasLeft = useMemo(() => {
+    if (!ctx) return false;
+    return subAgents.some((s, i) => i < ctx.index && !tabPins[`subagent:${s.id}`]);
+  }, [ctx, subAgents, tabPins]);
   const ctxHasRight = useMemo(() => {
     if (!ctx) return false;
     return subAgents.some((s, i) => i > ctx.index && !tabPins[`subagent:${s.id}`]);
   }, [ctx, subAgents, tabPins]);
 
-  const handleCtxAction = useCallback((action: 'close' | 'closeOthers' | 'closeRight' | 'closeAll' | 'togglePin' | 'toggleDefault') => {
+  const handleCtxAction = useCallback((action: 'close' | 'closeOthers' | 'closeLeft' | 'closeRight' | 'closeAll' | 'togglePin' | 'toggleDefault') => {
     if (!ctx) return;
     const store = useGraphStore.getState();
 
@@ -316,6 +359,8 @@ export const IDETabBar = memo(function IDETabBar({
       if (target) targets = [target];
     } else if (action === 'closeOthers') {
       targets = subAgents.filter((s, i) => i !== ctx.index && !tabPins[`subagent:${s.id}`]);
+    } else if (action === 'closeLeft') {
+      targets = subAgents.filter((_, i) => i < ctx.index).filter((s) => !tabPins[`subagent:${s.id}`]);
     } else if (action === 'closeRight') {
       targets = subAgents.filter((_, i) => i > ctx.index).filter((s) => !tabPins[`subagent:${s.id}`]);
     } else if (action === 'closeAll') {
@@ -323,8 +368,9 @@ export const IDETabBar = memo(function IDETabBar({
     }
 
     // 단일은 단일 DELETE, 다중은 1회 일괄 POST 로 닫는다(deleteSubAgents 가 분기).
-    if (targets.length > 0) deleteSubAgents(targets.map((t) => t.id));
-  }, [ctx, ctxIsPinned, ctxIsDefault, agentId, subAgents, tabPins, deleteSubAgents]);
+    // 단, 대상에 동작 중(active) 세션이 있으면 requestClose 가 확인 팝업을 먼저 띄운다.
+    if (targets.length > 0) requestClose(targets.map((t) => t.id));
+  }, [ctx, ctxIsPinned, ctxIsDefault, agentId, subAgents, tabPins, requestClose]);
 
   return (
     <div className="flex h-9 flex-shrink-0 items-end gap-0 border-b border-gray-700 bg-[#15192a]">
@@ -478,6 +524,7 @@ export const IDETabBar = memo(function IDETabBar({
           isPinned={ctxIsPinned}
           isDefault={ctxIsDefault}
           hasOthers={ctxHasOthers}
+          hasLeft={ctxHasLeft}
           hasRight={ctxHasRight}
           showDetach={false}
           showRename
@@ -490,6 +537,51 @@ export const IDETabBar = memo(function IDETabBar({
           }}
           onClose={() => setCtx(null)}
         />
+      )}
+
+      {/* 동작 중 세션 닫기 확인 팝업 — 대상에 active 세션이 있을 때만. IDE 모달 위(z-[70])로 body 포털. */}
+      {pendingClose && createPortal(
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60"
+          onClick={(e) => { if (e.target === e.currentTarget) cancelClose(); }}
+        >
+          <div className="mx-4 w-[clamp(20rem,34vw,28rem)] rounded-lg border border-gray-700 bg-gray-900 shadow-xl shadow-black/40">
+            <div className="border-b border-gray-800 px-5 py-3 text-sm font-semibold text-gray-100">
+              {t('ide.tabbar.confirmCloseTitle')}
+            </div>
+            <div className="px-5 py-4">
+              <p className="text-sm text-gray-300">{t('ide.tabbar.confirmCloseMessage')}</p>
+              {pendingActiveSubs.length > 0 && (
+                <ul className="scrollbar-thin mt-3 flex max-h-40 flex-col gap-1 overflow-y-auto">
+                  {pendingActiveSubs.map((sub) => (
+                    <li key={sub.id} className="flex items-center gap-2 text-xs text-gray-300">
+                      <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-blue-400" />
+                      <span className="truncate">{displayLabel(sub)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="mt-4 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={cancelClose}
+                  className="rounded border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-gray-200 transition-colors hover:bg-gray-700"
+                >
+                  {t('ide.tabbar.confirmCloseCancel')}
+                </button>
+                <button
+                  type="button"
+                  autoFocus
+                  onClick={confirmClose}
+                  className="rounded border border-red-700 bg-red-800 px-3 py-1.5 text-sm text-white transition-colors hover:bg-red-700"
+                >
+                  {t('ide.tabbar.confirmCloseConfirm')}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

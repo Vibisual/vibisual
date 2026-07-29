@@ -33,6 +33,11 @@
       "closeTab": "टैब बंद करें",
       "unloadedProject": "लोड नहीं हुआ",
       "clickToLoad": "प्रोजेक्ट लोड करने के लिए क्लिक करें"
+    },
+    "usage": {
+      "tooltip": "वर्तमान सत्र: 5-घंटे की सीमा का {{percent}}% उपयोग — विवरण के लिए क्लिक करें",
+      "tooltipNoData": "उपयोग डेटा अभी एकत्र नहीं हो रहा — चालू करने के लिए क्लिक करें",
+      "noData": "--%"
     }
   },
   "panel": {
@@ -392,7 +397,8 @@
         "low": "न्यूनतम सोच। तेज़ लेकिन कम गहरा।",
         "medium": "संतुलित सोच गहराई।",
         "high": "गहरा तर्क। धीमा लेकिन गहन।",
-        "xhigh": "अतिरिक्त-उच्च तर्क (Opus 4.7+)। अधिकांश कोडिंग कार्यों के लिए अनुशंसित।"
+        "xhigh": "अतिरिक्त-उच्च तर्क (Opus 4.7+)। अधिकांश कोडिंग कार्यों के लिए अनुशंसित।",
+        "unknown": "{{name}} — इंस्टॉल किए गए CLI द्वारा समर्थित तर्क प्रयास स्तर।"
       },
       "tools": {
         "label": "टूल्स",
@@ -657,6 +663,35 @@
       "delete": "हटाएं",
       "deleteBundleTooltip": "पूरा bundle हटाएं (primary + auto sibling)",
       "deleteEdgeTooltip": "Edge हटाएं"
+    },
+    "usage": {
+      "title": "Claude उपयोग",
+      "close": "उपयोग बंद करें",
+      "session5h": "वर्तमान सत्र (5 घंटे)",
+      "weekly7d": "साप्ताहिक सीमा (7 दिन)",
+      "resetsIn": "{{span}} में रीसेट",
+      "resetUnknown": "रीसेट समय अज्ञात",
+      "resettingNow": "अभी रीसेट हो रहा है",
+      "spanDh": "{{d}} दिन {{h}} घंटे",
+      "spanHm": "{{h}} घंटे {{m}} मिनट",
+      "spanM": "{{m}} मिनट",
+      "lastUpdated": "अंतिम अपडेट {{time}}",
+      "neverUpdated": "अभी तक कोई उपयोग डेटा नहीं मिला",
+      "collectorTitle": "उपयोग कलेक्टर",
+      "collectorOnHint": "Claude Code आपकी सीमाएं Vibisual को भेज रहा है",
+      "collectorOffHint": "Claude Code से अपने प्लान की सीमाएं पढ़ने के लिए चालू करें",
+      "collectorEnable": "चालू करें",
+      "collectorDisable": "बंद करें",
+      "collectorPassthrough": "आपकी मौजूदा स्टेटस लाइन सुरक्षित रखी गई — Vibisual उसे चलाकर वही आउटपुट दिखाता है।",
+      "collectorForeign": "आपके पास पहले से अपनी स्टेटस लाइन है। चालू करने पर वह मिटती नहीं — Vibisual उसे लपेटकर उसका आउटपुट दिखाता रहता है।",
+      "collectorFailed": "उपयोग कलेक्टर सेटिंग्स तक नहीं पहुंच सके।",
+      "collectorRestartHint": "मान तब आते हैं जब कोई इंटरैक्टिव Claude Code सत्र अपनी स्टेटस लाइन बनाता है। पहले से चल रहे सत्रों को दोबारा शुरू करना होगा।",
+      "localTitle": "Vibisual में यह प्रोजेक्ट",
+      "localAgents": "एजेंट",
+      "localInput": "इनपुट टोकन",
+      "localOutput": "आउटपुट टोकन",
+      "localHint": "सक्रिय प्रोजेक्ट टैब के एजेंट से गिना गया। ऊपर की प्लान सीमाएं पूरे खाते की हैं और Vibisual के बाहर किए काम को भी शामिल करती हैं।",
+      "noValue": "--"
     }
   },
   "ide": {
@@ -667,7 +702,9 @@
       "restoreLabel": "पुनर्स्थापित करें",
       "resizeDock": "Dock का आकार बदलें",
       "customLabel": "Custom",
-      "hookLabel": "Hook"
+      "hookLabel": "Hook",
+      "renameHint": "नाम बदलने के लिए डबल-क्लिक करें (F2)",
+      "renameInputLabel": "Agent का नाम"
     },
     "tabbar": {
       "newSession": "नई Session",
@@ -701,7 +738,8 @@
       "ctxQuoteReply": "उद्धृत उत्तर",
       "ctxSendAsPrompt": "नए प्रॉम्प्ट के रूप में भेजें",
       "ctxSelectAll": "सभी चुनें",
-      "ctxSelectionRequired": "पहले टेक्स्ट चुनें"
+      "ctxSelectionRequired": "पहले टेक्स्ट चुनें",
+      "ctxSaveToBrain": "Brain में सहेजें"
     },
     "askQuestion": {
       "title": "प्रश्न",
@@ -775,9 +813,59 @@
       "collapse": "संकुचित करें",
       "copy": "कॉपी करें",
       "copied": "कॉपी हो गया"
+    },
+    "report": {
+      "learnedTitle": "सीखा गया"
+    },
+    "memoryChip": {
+      "label": "{{n}} memories का संदर्भ लिया गया"
     }
   },
   "bubbleMap": {
+    "capture": {
+      "pickerTitle": "स्क्रीन / प्रोग्राम कैप्चर",
+      "pickerSubtitle": "Bubble के अंदर लाइव दिखाने के लिए स्क्रीन या प्रोग्राम विंडो चुनें।",
+      "screens": "स्क्रीन्स",
+      "windows": "प्रोग्राम्स · विंडोज़",
+      "refresh": "रिफ्रेश",
+      "loading": "स्रोत लोड हो रहे हैं…",
+      "empty": "कोई capturable स्रोत नहीं मिला।",
+      "unavailable": "यहाँ स्क्रीन कैप्चर उपलब्ध नहीं है (केवल packaged app में)।",
+      "repick": "अलग स्रोत चुनें",
+      "connecting": "कनेक्ट हो रहा है…",
+      "sourceLost": "स्रोत नहीं मिला · फिर से चुनें",
+      "pickPrompt": "स्रोत चुनने के लिए क्लिक करें",
+      "controlToggle": "रिमोट कंट्रोल (कैप्चर किए गए टारगेट में क्लिक और टाइपिंग भेजें)",
+      "controlOn": "नियंत्रण जारी",
+      "controlOff": "रिमोट कंट्रोल",
+      "expandHint": "एक विंडो में खोलने के लिए डबल-क्लिक करें",
+      "collapse": "मूल आकार बहाल करें (Esc)",
+      "maximize": "अधिकतम करें",
+      "restore": "पुनर्स्थापित करें",
+      "windowClose": "बंद करें (Esc)",
+      "source": "कैप्चर स्रोत",
+      "kindScreen": "स्क्रीन",
+      "kindWindow": "विंडो",
+      "expand": "विंडो में खोलें",
+      "playback": "प्लेबैक",
+      "snapshotShort": "स्नैपशॉट",
+      "quality": "क्वालिटी / डेटा",
+      "view": "व्यू",
+      "stillSaverHint": "कुछ न हिलने पर फ़्रेम दर घटाता है — CPU और डेटा बचाता है",
+      "remoteControl": "रिमोट कंट्रोल",
+      "readOnlyHint": "कंट्रोल मोड लॉक कर देता है (केवल देखें)",
+      "controlInWindow": "इस विंडो में रिमोट कंट्रोल — डिफ़ॉल्ट रूप से बंद (माउस इंजेक्ट नहीं होता)",
+      "delete": "कैप्चर बबल हटाएँ",
+      "live": "लाइव",
+      "keysToggle": "विशेष कुंजियाँ · पेस्ट",
+      "controlTargetMissing": "कंट्रोल लक्ष्य नहीं मिला · स्रोत फिर से चुनें",
+      "controlEngineMissing": "कंट्रोल इंजन लोड नहीं हुआ · ऐप फिर से चालू करें",
+      "controlInjectFailed": "इनपुट भेजना विफल रहा",
+      "backgroundClick": "मेरा कर्सर न हिलाएँ (प्रयोगात्मक)",
+      "backgroundClickHint": "क्लिक सीधे लक्ष्य विंडो को भेजता है, आपका माउस नहीं हिलता। गेम और सुरक्षित विंडो इसे अनदेखा करती हैं और सामान्य तरीके पर लौट आता है।",
+      "backgroundClickBlocked": "यह विंडो बैकग्राउंड क्लिक अनदेखा करती है · कर्सर कुछ पल इस्तेमाल हुआ",
+      "backgroundClickUnavailable": "बैकग्राउंड क्लिक उपलब्ध नहीं · कर्सर कुछ पल इस्तेमाल हुआ"
+    },
     "taskEdge": {
       "iconHint": "क्लिक: विवरण · डबल-क्लिक: संपादन",
       "pulse": {
@@ -907,6 +995,7 @@
   "tabMenu": {
     "close": "बंद करें",
     "closeOthers": "अन्य बंद करें",
+    "closeLeft": "बाईं ओर के बंद करें",
     "closeRight": "दाईं ओर के बंद करें",
     "closeAll": "सभी बंद करें",
     "pin": "पिन करें",
@@ -951,9 +1040,8 @@
       "createAutoAgentHint": "Meta agent — आपके प्रॉम्प्ट से custom agent team स्वतः spawn करता है",
       "createWorktree": "Worktree बनाएं",
       "createWorktreeHint": "नवीनतम master से नया workspace",
-      "restoreCustomAgent": "पिछला Custom Agent पुनर्स्थापित करें",
-      "restoreLoading": "लोड हो रहा है…",
-      "restoreEmpty": "पुनर्स्थापित करने के लिए कुछ नहीं"
+      "createCapture": "स्क्रीन / प्रोग्राम कैप्चर Bubble",
+      "createCaptureHint": "स्क्रीन या प्रोग्राम विंडो को bubble के अंदर लाइव दिखाता है"
     },
     "bounds": {
       "label": "Bubble सीमाएं",
@@ -1000,6 +1088,77 @@
         "goBack": "वापस जाने के लिए डबल-क्लिक करें",
         "expand": "विस्तार के लिए डबल-क्लिक करें"
       }
+    }
+  },
+  "brain": {
+    "bubbleLabel": "Brain",
+    "trashBubbleLabel": "Trash",
+    "cardCountShort": "{{n}} कार्ड",
+    "trashCountShort": "{{n}}",
+    "unseenBadge": "{{n}} अनदेखा",
+    "type": {
+      "decision": "निर्णय",
+      "mistake": "गलती",
+      "lesson": "सीख",
+      "rule": "नियम",
+      "fact": "तथ्य"
+    },
+    "scopeProject": "Project Brain",
+    "scopeAgent": "Agent Memory",
+    "statusGhost": "समीक्षा आवश्यक",
+    "supersededNote": "पिछली सामग्री",
+    "linkedFiles": "जुड़ी फ़ाइलें",
+    "refCount": "संदर्भ",
+    "lastReferenced": "अंतिम संदर्भ",
+    "createdAt": "बनाया गया",
+    "sourceSession": "स्रोत Session",
+    "promote": "Project Brain में भेजें",
+    "pin": "पिन करें",
+    "unpin": "अनपिन करें",
+    "edit": "संपादित करें",
+    "save": "सहेजें",
+    "cancel": "रद्द करें",
+    "delete": "हटाएं",
+    "deleteConfirm": "हटाएं?",
+    "deleteYes": "हटाएं",
+    "loading": "लोड हो रहा है…",
+    "cardDetailTitle": "Memory Card",
+    "summaryCards": "Memory कार्ड",
+    "summaryUnseen": "अनदेखा",
+    "summaryRecent": "हाल ही में सहेजा गया",
+    "openInterior": "अंदर खोलें",
+    "trashedAt": "Trash में डाला गया",
+    "trashedMemories": "Agent Memories",
+    "cardCountUnit": " कार्ड",
+    "restore": "पुनर्स्थापित करें",
+    "purge": "स्थायी रूप से हटाएं",
+    "purgeConfirm": "इसमें {{n}} agent memory कार्ड सहित सब कुछ हट जाएगा।",
+    "purgeYes": "स्थायी रूप से हटाएं",
+    "fileMark": "इस फ़ाइल में गलती/सीख की memory है",
+    "cardCountUnitSuffix": "",
+    "feed": {
+      "title": "Project Brain",
+      "agentTitle": "इस Agent की Memory",
+      "searchPlaceholder": "Memories खोजें…",
+      "sectionRelated": "मौजूदा काम से संबंधित",
+      "sectionRecent": "हाल ही में सीखा गया",
+      "sectionFrequent": "बार-बार इस्तेमाल किया गया",
+      "sectionResurface": "फिर से देखने लायक",
+      "sectionAgentOwn": "इस Agent ने क्या सीखा",
+      "sectionProjectRef": "Project से साझा (संदर्भ)",
+      "helpful": "मददगार",
+      "refShort": "संदर्भ",
+      "helpfulShort": "मददगार",
+      "scopeTagProject": "Project",
+      "scopeTagAgent": "यह Agent",
+      "empty": "दिखाने के लिए कोई Memories नहीं।",
+      "loading": "लोड हो रहा है…",
+      "total": "{{n}} कार्ड",
+      "agoNow": "अभी",
+      "agoMin": "{{n}} मिनट पहले",
+      "agoHour": "{{n}} घंटे पहले",
+      "agoDay": "{{n}} दिन पहले",
+      "agoMonth": "{{n}} महीने पहले"
     }
   }
 }

@@ -35,6 +35,7 @@ import type {
   ActivityEdge,
   UiLocale,
   CommentBox,
+  CaptureBubble,
   Conti,
   ContiFrame,
   ContiElement,
@@ -42,11 +43,10 @@ import type {
   ContiWorkSource,
   RateLimitInfo,
   ExecutionMode,
-  RecoverableCustomAgent,
 } from '@vibisual/shared';
 import { DEFAULT_UI_LOCALE } from '@vibisual/shared';
 import { ProjectGraph, resolveGitWorktreeParent, type ProcessResult } from './projectGraph.js';
-import { loadCheckpointByMeta, writeCheckpoint, projectDirForInfo, discoverProjectMetas, loadIdentityFromDir } from './statePersistence.js';
+import { loadCheckpointByMeta, writeCheckpoint, projectDirForInfo, discoverProjectMetas } from './statePersistence.js';
 import { appStateAddOpenProject, loadAppState } from './appState.js';
 import { diagnosticService } from './diagnosticService.js';
 import { modelRegistryService } from './modelRegistryService.js';
@@ -154,6 +154,7 @@ function emptySnapshot(): GraphSnapshot {
     worktreeProjects: {},
     stubProjects: {},
     commentBoxes: [],
+    captureBubbles: [],
     contis: {},
   };
 }
@@ -186,6 +187,14 @@ function mergeSnapshots(a: GraphSnapshot, b: GraphSnapshot): GraphSnapshot {
     commandQueues: { ...a.commandQueues, ...b.commandQueues },
     completedCommands: { ...a.completedCommands, ...b.completedCommands },
     subAgents: { ...a.subAgents, ...b.subAgents },
+    // §5.5 #17-9 v3.51 — subAgentManager 가 싱글턴이라 양쪽이 같은 값을 들고 온다. agentId 1차 키
+    //   단순 spread 로 충분(b 우선). 양쪽 다 없으면 필드 자체를 생략 → 클라에서 아이콘 자동 소멸.
+    runningSubagentTasks: (() => {
+      const av = a.runningSubagentTasks;
+      const bv = b.runningSubagentTasks;
+      if (!av && !bv) return undefined;
+      return { ...(av ?? {}), ...(bv ?? {}) };
+    })(),
     agentPhase,
     activeAgentCount: activeCount,
     satellitePositions: { ...a.satellitePositions, ...b.satellitePositions },
@@ -206,6 +215,13 @@ function mergeSnapshots(a: GraphSnapshot, b: GraphSnapshot): GraphSnapshot {
       const map = new Map<string, CommentBox>();
       for (const c of a.commentBoxes ?? []) map.set(c.id, c);
       for (const c of b.commentBoxes ?? []) map.set(c.id, c);
+      return Array.from(map.values());
+    })(),
+    // §5.9 — 캡처 버블 합치기 (id 기준 dedup, 같은 id 면 b 우선)
+    captureBubbles: (() => {
+      const map = new Map<string, CaptureBubble>();
+      for (const c of a.captureBubbles ?? []) map.set(c.id, c);
+      for (const c of b.captureBubbles ?? []) map.set(c.id, c);
       return Array.from(map.values());
     })(),
     // 루트 캔버스 바운딩 박스 — projectName 키로 머지 (b 우선)
@@ -263,6 +279,23 @@ function mergeSnapshots(a: GraphSnapshot, b: GraphSnapshot): GraphSnapshot {
     agentFeedbacks: (() => {
       const av = a.agentFeedbacks;
       const bv = b.agentFeedbacks;
+      if (!av && !bv) return undefined;
+      return { ...(av ?? {}), ...(bv ?? {}) };
+    })(),
+    // §5.10 v3.70 — Brain 요약은 projectName 1차 키(skillUsageCounts 와 동형) → 단순 spread 안전.
+    //   각 ProjectGraph 가 primary 하나뿐이라 키 충돌 ❌. **이 두 필드가 빠져 있어서** 프로젝트를
+    //   2개 이상 열면 병합 순간 요약/주입 신호가 통째로 사라지고 Brain 버블이 "0장"으로 보였다
+    //   (카드는 디스크에 그대로 있는 표시 전용 결함) — 새 스냅샷 필드 추가 시 여기 병합도 함께.
+    brain: (() => {
+      const av = a.brain;
+      const bv = b.brain;
+      if (!av && !bv) return undefined;
+      return { ...(av ?? {}), ...(bv ?? {}) };
+    })(),
+    // §5.10 v3.70 — 주입 이벤트는 agentId 1차 키(agentReports 와 동형, b 우선).
+    brainInjections: (() => {
+      const av = a.brainInjections;
+      const bv = b.brainInjections;
       if (!av && !bv) return undefined;
       return { ...(av ?? {}), ...(bv ?? {}) };
     })(),
@@ -352,8 +385,12 @@ function relabelSubSnapshot(snap: GraphSnapshot, from: string, to: string): Grap
     gitDirty: renameKey(snap.gitDirty),
     layoutBoundsByProject: renameKey(snap.layoutBoundsByProject),
     commentBoxes: snap.commentBoxes?.map((c) => (c.projectName === from ? { ...c, projectName: to } : c)),
+    captureBubbles: snap.captureBubbles?.map((c) => (c.projectName === from ? { ...c, projectName: to } : c)),
     // §5.5 #17-4 v2.36 — projectName 1차 키 relabel.
     skillUsageCounts: renameKey(snap.skillUsageCounts),
+    // §5.10 v3.70 — Brain 요약도 projectName 1차 키라 전역 유일 표시명으로 함께 relabel해야
+    //   클라(activeProject 키 조회)가 같은 이름으로 찾을 수 있다.
+    brain: renameKey(snap.brain),
   };
 }
 
@@ -1206,6 +1243,14 @@ export class ProjectGraphManager {
     return true;
   }
 
+  /** §5.10 — Brain 주입 이벤트 적재. ev.agentId 소속 인스턴스로 라우팅(addAgentReport 와 동형). */
+  addBrainInjection(ev: import('@vibisual/shared').BrainInjectionEvent): boolean {
+    const inst = this.findInstanceByAgentId(ev.agentId) ?? this.primaryInstance();
+    if (!inst) return false;
+    inst.addBrainInjection(ev);
+    return true;
+  }
+
   /** §4 v2.60 — 에이전트 질문 카드 적재. report.agentId 소속 인스턴스로 라우팅(addAgentReport 와 동형). */
   addAgentQuestions(q: import('@vibisual/shared').AgentQuestions): boolean {
     const inst = this.findInstanceByAgentId(q.agentId) ?? this.primaryInstance();
@@ -1322,6 +1367,61 @@ export class ProjectGraphManager {
       }
     }
     logger.warn(`ProjectGraphManager.removeBubble: node not found id="${nodeId}"`);
+  }
+
+  // ─── §5.10 Project Brain — 커스텀 에이전트 휴지통 위임 ───
+
+  /**
+   * 버블 id(에이전트 id) 가 커스텀 에이전트면 즉시 삭제 대신 휴지통으로 이동시킨다.
+   * 성공하면 true(호출부는 removeBubble 대신 이걸 쓴다). 커스텀 에이전트가 아니면 false.
+   */
+  tryTrashCustomAgentByBubbleId(nodeId: string): boolean {
+    const normalized = nodeId.startsWith('sat-') ? nodeId.slice(4) : nodeId;
+    for (const inst of this.instances.values()) {
+      if (inst.trashCustomAgentByBubbleId(normalized)) return true;
+    }
+    return false;
+  }
+
+  /** 휴지통 복구 — 세션 키(`custom-…`) 또는 버블 id(`agent-…`) 로. 성공 시 true. */
+  restoreTrashedAgent(sessionIdOrBubbleId: string): boolean {
+    for (const inst of this.instances.values()) {
+      if (inst.restoreTrashedAgent(sessionIdOrBubbleId)) return true;
+    }
+    return false;
+  }
+
+  /** 휴지통 에이전트 영구 삭제 — 세션 키 또는 버블 id 로. 개별 기억 파일 삭제 + 묘비 기록. 성공 시 true. */
+  permanentlyDeleteTrashedAgent(sessionIdOrBubbleId: string): boolean {
+    for (const inst of this.instances.values()) {
+      if (inst.permanentlyDeleteTrashedAgent(sessionIdOrBubbleId)) return true;
+    }
+    return false;
+  }
+
+  // ─── §5.10 Project Brain — 카드 서비스 라우팅 ───
+
+  /** 프로젝트명(옵션)의 브레인 루트 경로를 해소. 없으면 primary 루트. */
+  resolveBrainRoot(projectName?: string): string | null {
+    const inst = projectName
+      ? (this.getInstanceByName(projectName) ?? this.primaryInstance())
+      : this.primaryInstance();
+    if (!inst) return this.getRoot();
+    const info = (projectName ? inst.getProjectByName(projectName) : null) ?? inst.getPrimaryProject();
+    return info?.path ?? inst.getRoot() ?? this.getRoot();
+  }
+
+  /** 브레인 카드가 REST 로 바뀌었을 때 해당 인스턴스의 스냅샷 캐시 무효화(요약 재계산 유도). */
+  notifyBrainChanged(projectName?: string): void {
+    const inst = projectName
+      ? (this.getInstanceByName(projectName) ?? this.primaryInstance())
+      : this.primaryInstance();
+    inst?.notifyBrainChanged();
+  }
+
+  /** 모든 인스턴스의 스냅샷 캐시 무효화(주기 stale sweep 등 프로젝트 특정이 없을 때). */
+  notifyBrainChangedAll(): void {
+    for (const inst of this.instances.values()) inst.notifyBrainChanged();
   }
 
   toggleDisappearPause(nodeId: string, durationSec: number): boolean | null {
@@ -2141,6 +2241,63 @@ export class ProjectGraphManager {
     return out;
   }
 
+  // ─── §5.9 화면/프로그램 캡처 버블 — 프로젝트별 인스턴스에 저장 ───
+
+  /** 지정 projectName 소속 인스턴스에 캡처 버블 생성. 인스턴스 없으면 primary 폴백. */
+  createCaptureBubble(input: {
+    projectName: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    sourceId: string;
+    sourceName: string;
+    sourceKind: CaptureBubble['sourceKind'];
+  }): CaptureBubble | null {
+    const inst = this.getInstanceByName(input.projectName) ?? this.primaryInstance();
+    if (!inst) return null;
+    return inst.createCaptureBubble(input);
+  }
+
+  /** 캡처 버블 업데이트 — 모든 인스턴스 순회해 매칭되는 id 찾음. */
+  updateCaptureBubble(
+    id: string,
+    updates: Partial<Omit<CaptureBubble, 'id' | 'projectName' | 'createdAt' | 'updatedAt'>>,
+  ): CaptureBubble | null {
+    for (const inst of this.instances.values()) {
+      if (inst.getCaptureBubble(id)) {
+        return inst.updateCaptureBubble(id, updates);
+      }
+    }
+    return null;
+  }
+
+  /** 캡처 버블 삭제 */
+  deleteCaptureBubble(id: string): boolean {
+    for (const inst of this.instances.values()) {
+      if (inst.getCaptureBubble(id)) {
+        return inst.deleteCaptureBubble(id);
+      }
+    }
+    return false;
+  }
+
+  /** 캡처 버블 단일 조회 */
+  getCaptureBubble(id: string): CaptureBubble | undefined {
+    for (const inst of this.instances.values()) {
+      const b = inst.getCaptureBubble(id);
+      if (b) return b;
+    }
+    return undefined;
+  }
+
+  /** 전체 캡처 버블 배열 (모든 인스턴스 합) */
+  getAllCaptureBubbles(): CaptureBubble[] {
+    const out: CaptureBubble[] = [];
+    for (const inst of this.instances.values()) out.push(...inst.getCaptureBubbles());
+    return out;
+  }
+
   // ─── §5.3 #28 v1.47 — 콘티 위임 ───
 
   /** agentId 기준으로 인스턴스 찾기. 헬퍼: agent 가 어느 ProjectGraph 에 속하는지. */
@@ -2312,6 +2469,15 @@ export class ProjectGraphManager {
     return null;
   }
 
+  /** §5.10 v3.49 — 에이전트가 최근 참조한 파일 경로(피드 related 랭킹 ctx.files, best-effort). 없으면 빈 배열. */
+  getAgentRecentFiles(agentId: string): string[] {
+    for (const inst of this.instances.values()) {
+      const files = inst.getFileRefsForAgent(agentId);
+      if (files.length > 0) return files;
+    }
+    return [];
+  }
+
   getPrimaryProject(): ProjectInfo | null {
     return this.primaryInstance()?.getPrimaryProject() ?? null;
   }
@@ -2391,73 +2557,8 @@ export class ProjectGraphManager {
     return false;
   }
 
-  /** 전체 인스턴스에 살아있는 커스텀 에이전트 sessionId 집합(복구 목록 계산·진단 공용). */
-  private allLiveCustomAgentSessionIds(): Set<string> {
-    const live = new Set<string>();
-    for (const inst of this.instances.values()) {
-      for (const sid of inst.getCustomAgentSessionIds()) live.add(sid);
-    }
-    return live;
-  }
-
-  /**
-   * §3.2.2 (C 복구) — 해당 프로젝트에서 **복구 가능한 커스텀 에이전트** 목록.
-   * identity.json 에 정체성이 남아 있으나 지금 캔버스에 살아있지 않은(사라졌거나 닫힌) 것만.
-   * 사용자 명시 삭제(묘비)는 제외. 최신 저장순 정렬.
-   */
-  listRecoverableCustomAgents(projectName: string): RecoverableCustomAgent[] {
-    const inst = this.getInstanceByName(projectName) ?? this.primaryInstance();
-    const info = inst?.getProjectByName(projectName) ?? inst?.getPrimaryProject();
-    if (!info?.path) return [];
-    let identity;
-    try {
-      identity = loadIdentityFromDir(projectDirForInfo(info));
-    } catch {
-      return [];
-    }
-    if (!identity) return [];
-    const live = this.allLiveCustomAgentSessionIds();
-    const tombstones = new Set(identity.deletedSessionIds ?? []);
-    const out: RecoverableCustomAgent[] = [];
-    for (const [sessionId, agent] of Object.entries(identity.customAgents ?? {})) {
-      if (live.has(sessionId)) continue;       // 이미 캔버스에 있음
-      if (tombstones.has(sessionId)) continue; // 사용자가 명시 삭제함
-      const config = identity.agentConfigs?.[agent.id];
-      out.push({
-        sessionId,
-        agentId: agent.id,
-        label: identity.customLabels?.[agent.id] ?? agent.label,
-        projectName,
-        color: config?.color,
-        executionMode: config?.executionMode,
-        savedAt: identity.savedAt ?? 0,
-      });
-    }
-    out.sort((a, b) => b.savedAt - a.savedAt);
-    return out;
-  }
-
-  /**
-   * §3.2.2 (C 복구) — identity.json 에서 sessionId 로 커스텀 에이전트를 되살려 캔버스에 재삽입.
-   * 성공 시 재삽입된 버블 반환. 없거나 실패면 null.
-   */
-  restoreCustomAgent(
-    projectName: string,
-    sessionId: string,
-    position?: { x: number; y: number },
-  ): BubbleData | null {
-    const inst = this.getInstanceByName(projectName) ?? this.primaryInstance();
-    const info = inst?.getProjectByName(projectName) ?? inst?.getPrimaryProject();
-    if (!inst || !info?.path) return null;
-    const identity = loadIdentityFromDir(projectDirForInfo(info));
-    if (!identity) return null;
-    const identityAgent = identity.customAgents?.[sessionId];
-    if (!identityAgent) return null;
-    const config = identity.agentConfigs?.[identityAgent.id];
-    const label = identity.customLabels?.[identityAgent.id];
-    const cwd = identity.sessionCwds?.[sessionId] ?? info.path;
-    return inst.restoreCustomAgentBubble(identityAgent, config, label, cwd, position);
-  }
+  // §5.10 — 구 "지난 커스텀 에이전트 복구"(listRecoverableCustomAgents/restoreCustomAgent)는
+  //   휴지통(trash) 이 후신이 되어 제거됨. 크래시 소실 복원은 §3.2.2 mergeIdentityIntoCheckpoint 가 부팅 시 담당.
 
   /**
    * v1.6 SCENARIO §5.7 #24: SessionStart 훅 시점에 cwd 일치하는 dormant 에이전트를 모두 복원.

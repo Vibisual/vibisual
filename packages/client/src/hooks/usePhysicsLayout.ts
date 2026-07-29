@@ -62,6 +62,31 @@ export function usePhysicsLayout(
   /** 슬립 상태 — 속도 수렴 시 true, 드래그 시 false */
   const sleepingRef = useRef(false);
 
+  /** 최신 tick 참조 — rAF 루프가 tick 정체성 변화에 재시작 없이 항상 최신 로직을 부르게 한다. */
+  const tickRef = useRef<() => void>(() => {});
+
+  // rAF 루프를 "필요할 때만" 돌린다(모바일 발열 억제 — §4 v3.39). 종전엔 루프가 항상 30fps 로
+  // 돌며 tick 이 슬립 판정만 했는데, 상시 rAF 가 폰 GPU/컴포지터를 재우지 못해 발열의 주원인이었다.
+  // 이제 슬립 수렴 또는 백그라운드(document.hidden = 앱 최소화·탭 전환·폰 화면 꺼짐)면 루프 자체를
+  // 멈추고, wake()·가시성 복귀에서 ensureRunning 이 재점화한다. 시각 동작은 불변(tick 은 원래도
+  // 슬립 시 조기 return 이라 안 움직였다) — CPU/발열만 준다. 데스크톱도 idle 시 이득.
+  const ensureRunning = useCallback((): void => {
+    if (rafRef.current != null) return;
+    if (typeof document !== 'undefined' && document.hidden) return;
+    const loop = (ts: number): void => {
+      if (sleepingRef.current || (typeof document !== 'undefined' && document.hidden)) {
+        rafRef.current = null; // 다음 wake/visibilitychange 에서 ensureRunning 이 재점화
+        return;
+      }
+      if (ts - lastFrameRef.current >= FRAME_MS) {
+        lastFrameRef.current = ts;
+        tickRef.current();
+      }
+      rafRef.current = requestAnimationFrame(loop);
+    };
+    rafRef.current = requestAnimationFrame(loop);
+  }, []);
+
   // 활성 프로젝트의 사각 바운딩 박스(half-size). 미설정이면 기본값. RAF 루프가
   // 항상 최신값을 보도록 ref 로 옮긴다.
   const activeBounds = useGraphStore((s) => {
@@ -76,7 +101,8 @@ export function usePhysicsLayout(
     // 박스가 줄어 버블이 박스 밖에 갇혀있을 수 있으니 슬립 깨움
     sleepingRef.current = false;
     quietFramesRef.current = 0;
-  }, [hwInit, hhInit]);
+    ensureRunning();
+  }, [hwInit, hhInit, ensureRunning]);
 
   useEffect(() => {
     parentMap.current.clear();
@@ -153,6 +179,7 @@ export function usePhysicsLayout(
   const onSatelliteDrag = useCallback((id: string, x: number, y: number) => {
     sleepingRef.current = false;
     quietFramesRef.current = 0;
+    ensureRunning();
     const body = bodiesRef.current.get(id);
     if (!body) return;
     body.x = x + body.radius;
@@ -160,7 +187,7 @@ export function usePhysicsLayout(
     body.vx = 0;
     body.vy = 0;
     body.dragging = true;
-  }, []);
+  }, [ensureRunning]);
 
   /** 드래그 끝 — 놓은 방향 유지, 거리는 원래 궤도로 복귀 */
   const onSatelliteDragStop = useCallback((id: string) => {
@@ -380,31 +407,33 @@ export function usePhysicsLayout(
     }
   }, [setNodes, onSleep, forceRun]);
 
+  // 최신 tick 을 ref 에 보관 — ensureRunning 의 루프가 재시작 없이 이 참조를 통해 최신 tick 을 부른다.
+  useEffect(() => { tickRef.current = tick; }, [tick]);
+
   useEffect(() => {
-    let running = true;
-    const loop = (ts: number): void => {
-      if (!running) return;
-      if (ts - lastFrameRef.current >= FRAME_MS) {
-        lastFrameRef.current = ts;
-        tick();
-      }
-      rafRef.current = requestAnimationFrame(loop);
+    ensureRunning();
+    // 백그라운드로 갔다가(폰 화면 꺼짐·탭 전환·앱 최소화) 돌아오면 루프 재점화.
+    const onVisibility = (): void => { if (!document.hidden) ensureRunning(); };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      if (rafRef.current != null) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
     };
-    rafRef.current = requestAnimationFrame(loop);
-    return () => { running = false; if (rafRef.current) cancelAnimationFrame(rafRef.current); };
-  }, [tick]);
+  }, [ensureRunning]);
 
   const pauseAndReset = useCallback(() => {
     // 바디 유지, tick만 정지 → 재개 후 캐시된 노드 위치 기준으로 자연스럽게 시작
     pausedUntilRef.current = Date.now() + 400;
     quietFramesRef.current = 0;
     sleepingRef.current = false;
-  }, []);
+    ensureRunning();
+  }, [ensureRunning]);
 
   const wake = useCallback(() => {
     sleepingRef.current = false;
     quietFramesRef.current = 0;
-  }, []);
+    ensureRunning();
+  }, [ensureRunning]);
 
   return { onSatelliteDrag, onSatelliteDragStop, pauseAndReset, wake };
 }

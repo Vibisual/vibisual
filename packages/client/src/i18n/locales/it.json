@@ -33,6 +33,11 @@
       "closeTab": "Chiudi scheda",
       "unloadedProject": "Non caricato",
       "clickToLoad": "Clicca per caricare il progetto"
+    },
+    "usage": {
+      "tooltip": "Sessione corrente: {{percent}}% del limite di 5 ore usato — clicca per i dettagli",
+      "tooltipNoData": "I dati di utilizzo non vengono ancora raccolti — clicca per attivare",
+      "noData": "--%"
     }
   },
   "panel": {
@@ -392,7 +397,8 @@
         "low": "Ragionamento minimo. Più veloce ma meno approfondito.",
         "medium": "Profondità di ragionamento bilanciata.",
         "high": "Ragionamento profondo. Più lento ma approfondito.",
-        "xhigh": "Ragionamento extra-elevato (Opus 4.7+). Consigliato per la maggior parte del lavoro di coding."
+        "xhigh": "Ragionamento extra-elevato (Opus 4.7+). Consigliato per la maggior parte del lavoro di coding.",
+        "unknown": "{{name}} — livello di sforzo di ragionamento supportato dalla CLI installata."
       },
       "tools": {
         "label": "Strumenti",
@@ -657,6 +663,35 @@
       "delete": "Elimina",
       "deleteBundleTooltip": "Elimina l'intero bundle (primario + gemello automatico)",
       "deleteEdgeTooltip": "Elimina l'edge"
+    },
+    "usage": {
+      "title": "Utilizzo di Claude",
+      "close": "Chiudi utilizzo",
+      "session5h": "Sessione corrente (5 ore)",
+      "weekly7d": "Limite settimanale (7 giorni)",
+      "resetsIn": "Si azzera tra {{span}}",
+      "resetUnknown": "Orario di azzeramento sconosciuto",
+      "resettingNow": "Azzeramento in corso",
+      "spanDh": "{{d}} g {{h}} h",
+      "spanHm": "{{h}} h {{m}} min",
+      "spanM": "{{m}} min",
+      "lastUpdated": "Ultimo aggiornamento {{time}}",
+      "neverUpdated": "Nessun dato di utilizzo ricevuto finora",
+      "collectorTitle": "Raccoglitore di utilizzo",
+      "collectorOnHint": "Claude Code sta comunicando i tuoi limiti a Vibisual",
+      "collectorOffHint": "Attiva per leggere i limiti del tuo piano da Claude Code",
+      "collectorEnable": "Attiva",
+      "collectorDisable": "Disattiva",
+      "collectorPassthrough": "La tua barra di stato esistente è stata mantenuta: Vibisual la esegue e ne mostra l’output invariato.",
+      "collectorForeign": "Hai già una barra di stato personalizzata. Attivarlo non la elimina: Vibisual la avvolge e continua a mostrarne l’output.",
+      "collectorFailed": "Impossibile raggiungere le impostazioni del raccoglitore di utilizzo.",
+      "collectorRestartHint": "I valori arrivano quando una sessione interattiva di Claude Code disegna la sua barra di stato. Le sessioni già aperte vanno riavviate.",
+      "localTitle": "Questo progetto in Vibisual",
+      "localAgents": "Agenti",
+      "localInput": "Token in ingresso",
+      "localOutput": "Token in uscita",
+      "localHint": "Conteggiato dagli agenti della scheda progetto attiva. I limiti del piano sopra valgono per tutto l’account e includono il lavoro svolto fuori da Vibisual.",
+      "noValue": "--"
     }
   },
   "ide": {
@@ -667,7 +702,9 @@
       "restoreLabel": "Ripristina",
       "resizeDock": "Ridimensiona dock",
       "customLabel": "Personalizzato",
-      "hookLabel": "Hook"
+      "hookLabel": "Hook",
+      "renameHint": "Doppio clic per rinominare (F2)",
+      "renameInputLabel": "Nome Agent"
     },
     "tabbar": {
       "newSession": "Nuova sessione",
@@ -701,7 +738,8 @@
       "ctxQuoteReply": "Cita risposta",
       "ctxSendAsPrompt": "Invia come nuovo prompt",
       "ctxSelectAll": "Seleziona tutto",
-      "ctxSelectionRequired": "Seleziona prima del testo"
+      "ctxSelectionRequired": "Seleziona prima del testo",
+      "ctxSaveToBrain": "Salva nel Brain"
     },
     "askQuestion": {
       "title": "Domanda",
@@ -775,9 +813,59 @@
       "collapse": "comprimi",
       "copy": "Copia",
       "copied": "Copiato"
+    },
+    "report": {
+      "learnedTitle": "Appreso"
+    },
+    "memoryChip": {
+      "label": "{{n}} memorie referenziate"
     }
   },
   "bubbleMap": {
+    "capture": {
+      "pickerTitle": "Cattura schermo / programma",
+      "pickerSubtitle": "Scegli uno schermo o una finestra di programma da mostrare dal vivo dentro una bolla.",
+      "screens": "Schermi",
+      "windows": "Programmi · Finestre",
+      "refresh": "Aggiorna",
+      "loading": "Caricamento sorgenti…",
+      "empty": "Nessuna sorgente catturabile trovata.",
+      "unavailable": "La cattura schermo non è disponibile qui (solo nell'app pacchettizzata).",
+      "repick": "Scegli un'altra sorgente",
+      "connecting": "Connessione…",
+      "sourceLost": "Sorgente non trovata · scegli di nuovo",
+      "pickPrompt": "Clicca per scegliere una sorgente",
+      "controlToggle": "Controllo remoto (inietta clic e digitazione nel target catturato)",
+      "controlOn": "Controllo attivo",
+      "controlOff": "Controllo remoto",
+      "expandHint": "Doppio clic per aprire in una finestra",
+      "collapse": "Ripristina dimensione (Esc)",
+      "maximize": "Ingrandisci",
+      "restore": "Ripristina",
+      "windowClose": "Chiudi (Esc)",
+      "source": "Sorgente di cattura",
+      "kindScreen": "Schermo",
+      "kindWindow": "Finestra",
+      "expand": "Apri in finestra",
+      "playback": "Riproduzione",
+      "snapshotShort": "Istantanea",
+      "quality": "Qualità / dati",
+      "view": "Vista",
+      "stillSaverHint": "Riduce il frame rate quando nulla si muove — risparmia CPU e dati",
+      "remoteControl": "Controllo remoto",
+      "readOnlyHint": "Blocca le modalità di controllo (sola visualizzazione)",
+      "controlInWindow": "Controllo remoto in questa finestra — disattivato per impostazione predefinita (mouse non inviato)",
+      "delete": "Elimina bolla di cattura",
+      "live": "LIVE",
+      "keysToggle": "Tasti speciali · incolla",
+      "controlTargetMissing": "Destinazione del controllo non trovata · riseleziona la sorgente",
+      "controlEngineMissing": "Motore di controllo non caricato · riavvia l'app",
+      "controlInjectFailed": "Invio dell'input non riuscito",
+      "backgroundClick": "Non muovere il cursore (sperimentale)",
+      "backgroundClickHint": "Invia il clic direttamente alla finestra di destinazione: il mouse non si muove. Giochi e finestre protette lo ignorano e si torna al metodo normale.",
+      "backgroundClickBlocked": "Questa finestra ignora i clic in background · cursore preso in prestito un istante",
+      "backgroundClickUnavailable": "Clic in background non disponibile · cursore preso in prestito un istante"
+    },
     "taskEdge": {
       "iconHint": "Clic: dettagli · Doppio clic: modifica",
       "pulse": {
@@ -907,6 +995,7 @@
   "tabMenu": {
     "close": "Chiudi",
     "closeOthers": "Chiudi le altre",
+    "closeLeft": "Chiudi a sinistra",
     "closeRight": "Chiudi a destra",
     "closeAll": "Chiudi tutte",
     "pin": "Blocca",
@@ -951,9 +1040,8 @@
       "createAutoAgentHint": "Meta agent — lancia automaticamente un team di agent personalizzati dal tuo prompt",
       "createWorktree": "Crea Worktree",
       "createWorktreeHint": "Nuovo workspace dal master più recente",
-      "restoreCustomAgent": "Ripristina Agent personalizzato precedente",
-      "restoreLoading": "Caricamento…",
-      "restoreEmpty": "Niente da ripristinare"
+      "createCapture": "Bolla di cattura schermo/programma",
+      "createCaptureHint": "Mostra uno schermo o una finestra di programma dal vivo dentro una bolla"
     },
     "bounds": {
       "label": "Bubble Bounds",
@@ -1000,6 +1088,77 @@
         "goBack": "Doppio clic per tornare",
         "expand": "Doppio clic per espandere"
       }
+    }
+  },
+  "brain": {
+    "bubbleLabel": "Brain",
+    "trashBubbleLabel": "Cestino",
+    "cardCountShort": "{{n}} schede",
+    "trashCountShort": "{{n}}",
+    "unseenBadge": "{{n}} non viste",
+    "type": {
+      "decision": "Decisione",
+      "mistake": "Errore",
+      "lesson": "Lezione",
+      "rule": "Regola",
+      "fact": "Fatto"
+    },
+    "scopeProject": "Brain di progetto",
+    "scopeAgent": "Memoria Agent",
+    "statusGhost": "Da rivedere",
+    "supersededNote": "Contenuto precedente",
+    "linkedFiles": "File collegati",
+    "refCount": "Riferimenti",
+    "lastReferenced": "Ultimo riferimento",
+    "createdAt": "Creato",
+    "sourceSession": "Sessione di origine",
+    "promote": "Promuovi a Brain di progetto",
+    "pin": "Blocca",
+    "unpin": "Sblocca",
+    "edit": "Modifica",
+    "save": "Salva",
+    "cancel": "Annulla",
+    "delete": "Elimina",
+    "deleteConfirm": "Eliminare?",
+    "deleteYes": "Elimina",
+    "loading": "Caricamento…",
+    "cardDetailTitle": "Scheda memoria",
+    "summaryCards": "Schede memoria",
+    "summaryUnseen": "Non viste",
+    "summaryRecent": "Salvate di recente",
+    "openInterior": "Apri interno",
+    "trashedAt": "Cestinato",
+    "trashedMemories": "Memorie Agent",
+    "cardCountUnit": " schede",
+    "restore": "Ripristina",
+    "purge": "Elimina definitivamente",
+    "purgeConfirm": "Questo eliminerà tutto, incluse {{n}} schede di memoria dell'agent.",
+    "purgeYes": "Elimina definitivamente",
+    "fileMark": "Questo file ha memorie di errori/lezioni",
+    "cardCountUnitSuffix": "",
+    "feed": {
+      "title": "Brain di progetto",
+      "agentTitle": "Memoria di questo Agent",
+      "searchPlaceholder": "Cerca memorie…",
+      "sectionRelated": "Correlato al lavoro attuale",
+      "sectionRecent": "Appreso di recente",
+      "sectionFrequent": "Usato di frequente",
+      "sectionResurface": "Da riscoprire",
+      "sectionAgentOwn": "Ciò che questo Agent ha imparato",
+      "sectionProjectRef": "Condiviso dal progetto (riferimento)",
+      "helpful": "Utile",
+      "refShort": "rif.",
+      "helpfulShort": "utile",
+      "scopeTagProject": "Progetto",
+      "scopeTagAgent": "Questo Agent",
+      "empty": "Nessuna memoria da mostrare.",
+      "loading": "Caricamento…",
+      "total": "{{n}} schede",
+      "agoNow": "poco fa",
+      "agoMin": "{{n}} min fa",
+      "agoHour": "{{n}} ore fa",
+      "agoDay": "{{n}} giorni fa",
+      "agoMonth": "{{n}} mesi fa"
     }
   }
 }

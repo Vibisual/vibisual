@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import type { BubbleData, ActivityEdge, PipelineState } from '@vibisual/shared';
+import type { BubbleData, ActivityEdge, PipelineState, BrainCardType } from '@vibisual/shared';
 import { BUBBLE_COLORS, LAYOUT_CENTER_X, LAYOUT_CENTER_Y, PIPELINE_PARENT_BUBBLE_ID } from '@vibisual/shared';
 import { collectSatellites } from '../utils/satellite.js';
 import {
@@ -20,6 +20,8 @@ interface UseBubbleLayoutProps {
   edges: ActivityEdge[];
   satellites: Record<string, BubbleData[]>;
   satellitePositions?: Record<string, { x: number; y: number }>;
+  /** §5.10 — 최상위 캔버스 상주 버블(__brain__/__trash__). 폴더 내부에는 표시 ❌. */
+  residentBubbles?: BubbleData[];
 }
 
 /**
@@ -34,14 +36,17 @@ export function useBubbleLayout({
   edges,
   satellites,
   satellitePositions,
+  residentBubbles = [],
 }: UseBubbleLayoutProps): ViewData {
   return useMemo(() => {
-    if (agents.length === 0 && folders.length === 0) return EMPTY_VIEW_DATA;
+    if (agents.length === 0 && folders.length === 0 && residentBubbles.length === 0) return EMPTY_VIEW_DATA;
 
     const cx = LAYOUT_CENTER_X;
     const cy = LAYOUT_CENTER_Y;
-    const allBubbles = [...agents, ...folders];
-    const layout = radialLayout(agents, folders, cx, cy);
+    // §5.10 — 상주 버블(brain/trash)은 폴더처럼 홈 주변을 공전(items)하되 물리 standalone.
+    const foldersWithResident = [...folders, ...residentBubbles];
+    const allBubbles = [...agents, ...foldersWithResident];
+    const layout = radialLayout(agents, foldersWithResident, cx, cy);
 
     const flowEdges = edges.map((e) => {
       const folder = folders.find((f) => f.id === e.target)
@@ -67,7 +72,61 @@ export function useBubbleLayout({
       flowEdges: [...flowEdges, ...satFlowEdges],
       satInfos,
     };
-  }, [agents, folders, edges, satellites, satellitePositions]);
+  }, [agents, folders, edges, satellites, satellitePositions, residentBubbles]);
+}
+
+// ─── §5.10 기억/휴지통 내부 뷰 데이터 Hook ───
+
+/** 기억 카드 5종 → 타입 액센트 색. v3.49 피드 행(BrainFeedOverlay)의 액센트 바·아이콘 색으로 사용. */
+export const BRAIN_TYPE_COLORS: Record<BrainCardType, string> = {
+  decision: '#38BDF8', // sky
+  mistake: '#F87171',  // red
+  lesson: '#FBBF24',   // amber
+  rule: '#A78BFA',     // violet
+  fact: '#34D399',     // emerald
+};
+
+interface UseInteriorLayoutProps {
+  /** 내부 뷰 종류 — v3.49 에선 trash(버려진 에이전트 나열)만. 기억은 피드 오버레이가 담당. */
+  view: { kind: 'trash' } | null;
+  /** trash: 버려진(trashed) 커스텀 에이전트 버블. */
+  trashedAgents: BubbleData[];
+}
+
+/**
+ * §5.10 휴지통 내부 뷰 — `← Back` 노드 + 버려진 에이전트 버블을 방사형 배치.
+ * currentFolderId 계층과 독립(interiorView 축). 기억(brain/agentMemory)은 v3.49 에서
+ * 버블 산개 폐기 → BrainFeedOverlay 로 대체.
+ */
+export function useInteriorLayout({ view, trashedAgents }: UseInteriorLayoutProps): ViewData {
+  return useMemo(() => {
+    if (!view) return EMPTY_VIEW_DATA;
+    const cx = LAYOUT_CENTER_X;
+    const cy = LAYOUT_CENTER_Y;
+
+    const backBubble: BubbleData = {
+      id: '__interior_back__',
+      label: '← Back',
+      bubbleType: 'back',
+      path: '',
+      status: 'idle',
+      activity: 1,
+    };
+
+    // 버려진 에이전트 버블 — ghost 톤은 BubbleNode 가 trashed 로 판단(여기선 원형 유지).
+    const contentBubbles: BubbleData[] = trashedAgents.map((a) => ({ ...a, _interior: true } as BubbleData));
+
+    const navBubbles = [backBubble];
+    const allBubbles = [...navBubbles, ...contentBubbles];
+    const layout = radialLayout(navBubbles, contentBubbles, cx, cy, { offsetX: -300, offsetY: -150 });
+
+    return {
+      bubbles: allBubbles,
+      layout,
+      flowEdges: [],
+      satInfos: [],
+    };
+  }, [view, trashedAgents]);
 }
 
 // ─── 폴더 내부 뷰 데이터 Hook ───

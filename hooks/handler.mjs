@@ -10,6 +10,9 @@
  */
 
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 // §3.6 v2.9 — installer writes --server <url> into ~/.claude/settings.json so the packaged
 // handler never needs to discover the port itself. Inline fallback: if --server is absent,
@@ -30,6 +33,12 @@ const SERVER_URL = `${BASE}/api/hook-event`;
 const COMMANDS_URL = `${BASE}/api/commands`;
 const PERMISSION_CHECK_URL = `${BASE}/api/permission-check`;
 const ASK_USER_QUESTION_URL = `${BASE}/api/ask-user-question`;
+// §5.10 Project Brain — 파일 접근 경고. PostToolUse Edit/Write 시 짧게(300ms) 물어보고,
+//   매칭되는 실수/교훈 카드가 있으면 additionalContext 로 모델에 주입(같은 실수 반복 차단).
+const BRAIN_FILE_NOTES_URL = `${BASE}/api/brain/file-notes`;
+// §4 v3.60 — 사용량 수집기(statusLine). Claude Code 가 플랜 한도 사용률을 외부에 주는 유일한
+//   공식 경로가 statusLine stdin JSON 이라, `--statusline` 으로 불리면 그 값만 뽑아 푸시한다.
+const RATE_LIMITS_URL = `${BASE}/api/rate-limits`;
 
 // Per-launch auth token written by the installer into the hook command (--token <hex>).
 // If absent (stale settings.json from before this change), TOKEN is null and the header
@@ -165,6 +174,33 @@ async function checkAskUserQuestion(payload) {
   }
 }
 
+/**
+ * §5.10 — PostToolUse Edit/Write 파일 접근 경고. 서버가 그 파일에 연결된 un-warned 실수/교훈
+ * 카드를 O(1) 조회해 있으면 {warning} 을, 없으면 204 를 준다. 300ms 안에 못 받으면 조용히 통과
+ * (fail-open — 편집 흐름을 절대 막지 않는다). 반환=경고 문자열 또는 null.
+ */
+async function checkBrainFileNotes(payload) {
+  try {
+    const ti = payload && payload.tool_input;
+    const filePath = ti && typeof ti.file_path === 'string' ? ti.file_path : '';
+    if (!filePath || !payload.session_id) return null;
+    const controller = new AbortController();
+    const tid = setTimeout(() => controller.abort(), 300);
+    const res = await fetch(BRAIN_FILE_NOTES_URL, {
+      method: 'POST',
+      headers: hookHeaders({}),
+      body: JSON.stringify({ session_id: payload.session_id, file_path: filePath }),
+      signal: controller.signal,
+    }).finally(() => clearTimeout(tid));
+    if (!res || res.status === 204 || !res.ok) return null;
+    const data = await res.json().catch(() => null);
+    if (data && typeof data.warning === 'string' && data.warning) return data.warning;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 async function checkPermission(payload) {
   try {
     const controller = new AbortController();
@@ -222,8 +258,146 @@ async function checkPermission(payload) {
   }
 }
 
+/**
+ * §4 v3.60 — statusLine 모드.
+ *
+ * Claude Code 는 `statusLine.command` 를 렌더마다(최대 300ms 주기) 실행하며 세션 JSON 을
+ * stdin 으로 준다. 그 JSON 의 `rate_limits` 가 플랜 한도 사용률을 외부에 노출하는 **유일한
+ * 공식 경로**다(JSONL 트랜스크립트·CLI 서브커맨드 어디에도 없음).
+ *
+ * 두 가지 일을 한다:
+ *   1. 한도 값을 `/api/rate-limits` 로 푸시 (값이 바뀌었거나 최소 간격이 지났을 때만).
+ *   2. stdout 으로 상태줄 한 줄을 출력 — 사용자가 원래 쓰던 statusLine 명령이 보관돼 있으면
+ *      그 명령에 같은 stdin 을 먹여 출력을 그대로 흘린다(passthrough). 없으면 우리 기본 줄.
+ *
+ * 어떤 실패도 Claude Code 를 막지 않는다 — 항상 뭔가 한 줄 출력하고 끝낸다.
+ */
+const STATUSLINE_STATE_FILE = path.join(os.homedir(), '.vibisual', 'statusline-state.json');
+const STATUSLINE_MIN_POST_INTERVAL_MS = 20_000;
+
+/** 마지막 전송 값·시각. 초당 3회 POST → 전체 스냅샷 브로드캐스트 폭주를 막는 스로틀. */
+function readStatusLineState() {
+  try {
+    return JSON.parse(fs.readFileSync(STATUSLINE_STATE_FILE, 'utf-8'));
+  } catch {
+    return null;
+  }
+}
+
+function writeStatusLineState(state) {
+  try {
+    fs.mkdirSync(path.dirname(STATUSLINE_STATE_FILE), { recursive: true });
+    fs.writeFileSync(STATUSLINE_STATE_FILE, JSON.stringify(state), 'utf-8');
+  } catch {
+    // 상태 파일은 최적화용 — 못 써도 동작엔 지장 없다(매번 전송될 뿐).
+  }
+}
+
+/** `~/.claude/settings.json` 에 보관된 사용자 원래 statusLine 명령 (설치 시 인스톨러가 저장). */
+function readPassthroughCommand() {
+  try {
+    const p = path.join(os.homedir(), '.claude', 'settings.json');
+    const parsed = JSON.parse(fs.readFileSync(p, 'utf-8'));
+    const prev = parsed?.statusLine?._vibisualPrevStatusLine;
+    return typeof prev?.command === 'string' && prev.command ? prev.command : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 보관된 사용자 명령을 같은 stdin 으로 실행하고 stdout 을 그대로 돌려준다. */
+function runPassthrough(command, input) {
+  return new Promise((resolve) => {
+    try {
+      const child = spawn(command, { shell: true, stdio: ['pipe', 'pipe', 'ignore'] });
+      let out = '';
+      const done = (v) => resolve(v);
+      const timer = setTimeout(() => { try { child.kill(); } catch { /* already gone */ } done(null); }, 2000);
+      child.stdout.on('data', (c) => { out += c.toString('utf-8'); });
+      child.on('error', () => { clearTimeout(timer); done(null); });
+      child.on('close', () => { clearTimeout(timer); done(out.replace(/\n+$/, '')); });
+      child.stdin.on('error', () => { /* 자식이 stdin 을 안 읽고 끝낼 수 있다 */ });
+      child.stdin.end(input);
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+/** passthrough 가 없을 때 쓰는 기본 상태줄. 이모지 ❌ — 터미널 폭·폰트 흔들림 방지. */
+function buildDefaultStatusLine(payload, five, seven) {
+  const parts = [];
+  const model = payload?.model?.display_name;
+  if (typeof model === 'string' && model) parts.push(model);
+  const dir = payload?.workspace?.current_dir;
+  if (typeof dir === 'string' && dir) parts.push(path.basename(dir));
+  const ctx = payload?.context_window?.used_percentage;
+  if (typeof ctx === 'number') parts.push(`ctx ${Math.round(ctx)}%`);
+  if (typeof five === 'number') parts.push(`5h ${Math.round(five)}%`);
+  if (typeof seven === 'number') parts.push(`7d ${Math.round(seven)}%`);
+  return parts.join('  ·  ');
+}
+
+async function runStatusLine(input) {
+  let payload = null;
+  try {
+    payload = JSON.parse(input);
+  } catch {
+    payload = null;
+  }
+
+  const rl = payload?.rate_limits ?? null;
+  const five = typeof rl?.five_hour?.used_percentage === 'number' ? rl.five_hour.used_percentage : undefined;
+  const seven = typeof rl?.seven_day?.used_percentage === 'number' ? rl.seven_day.used_percentage : undefined;
+  // resets_at 은 epoch **초** — Vibisual 의 RateLimitInfo.resetAt* 는 epoch ms 라 여기서 환산.
+  const fiveReset = typeof rl?.five_hour?.resets_at === 'number' ? rl.five_hour.resets_at * 1000 : undefined;
+  const sevenReset = typeof rl?.seven_day?.resets_at === 'number' ? rl.seven_day.resets_at * 1000 : undefined;
+
+  // 먼저 화면부터 채운다 — 서버가 죽어 있어도 상태줄은 정상 동작해야 한다.
+  const passthrough = readPassthroughCommand();
+  const line = passthrough
+    ? (await runPassthrough(passthrough, input)) ?? buildDefaultStatusLine(payload, five, seven)
+    : buildDefaultStatusLine(payload, five, seven);
+  process.stdout.write(line + '\n');
+
+  if (five === undefined && seven === undefined) return; // Pro/Max 구독이 아니거나 첫 응답 전
+
+  const prev = readStatusLineState();
+  const changed = !prev || prev.five !== five || prev.seven !== seven;
+  const stale = !prev || Date.now() - (prev.at ?? 0) >= STATUSLINE_MIN_POST_INTERVAL_MS;
+  if (!changed && !stale) return;
+
+  const body = {};
+  if (five !== undefined) body.used5h = five;
+  if (seven !== undefined) body.used7d = seven;
+  if (fiveReset !== undefined) body.resetAt5h = fiveReset;
+  if (sevenReset !== undefined) body.resetAt7d = sevenReset;
+
+  try {
+    const controller = new AbortController();
+    const tid = setTimeout(() => controller.abort(), 500);
+    const res = await fetch(RATE_LIMITS_URL, {
+      method: 'POST',
+      headers: hookHeaders({}),
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    }).catch(() => null).finally(() => clearTimeout(tid));
+    // 실제로 도달했을 때만 스로틀 상태를 기록한다. 앱이 꺼져 있던 동안의 실패를
+    // "보냈다" 로 남기면 앱을 켠 뒤 최대 20초간 값이 비어 보인다.
+    if (res && res.ok) writeStatusLineState({ five, seven, at: Date.now() });
+  } catch {
+    // 앱이 꺼져 있으면 조용히 통과 — 다음 렌더에서 다시 시도한다.
+  }
+}
+
 async function main() {
   const input = await readStdin();
+
+  // §4 v3.60 — statusLine 모드는 훅 이벤트가 아니라 세션 JSON 을 받는다. 완전히 별도 경로.
+  if (process.argv.includes('--statusline')) {
+    await runStatusLine(input);
+    return;
+  }
 
   // stdin 비면 기본 continue
   if (input.length === 0) {
@@ -241,6 +415,7 @@ async function main() {
 
   const isPreToolUse = payload.hook_event_name === 'PreToolUse';
   const isStop = payload.hook_event_name === 'Stop';
+  const isPostToolUse = payload.hook_event_name === 'PostToolUse';
 
   // §4 v2.64 — CMD(인터랙티브 터미널) 에이전트 소유자 태그. Vibisual 이 띄운 CMD 터미널의
   //   claude 는 env VIBISUAL_OWNER_AGENT_ID(=그 CMD 버블 agentId)를 물려받는다. 트래킹 본문에
@@ -268,6 +443,12 @@ async function main() {
       // 동기 홀드 — 서버가 Vibisual 관할 + ask 모드면 사용자 승인까지 대기.
       response = await checkPermission(payload);
     }
+  } else if (isPostToolUse && (payload.tool_name === 'Edit' || payload.tool_name === 'Write')) {
+    // §5.10 — 편집 직후 그 파일의 실수/교훈 카드를 짧게 조회해 있으면 모델에 경고 주입.
+    const warning = await checkBrainFileNotes(payload);
+    response = warning
+      ? { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: warning } }
+      : { continue: true };
   } else {
     // 기존 fire-and-forget 경로 — 즉시 continue 응답.
     response = { continue: true };

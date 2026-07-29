@@ -2,6 +2,7 @@ import { memo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useGraphStore, selectIDEOverlay } from '../../stores/graphStore.js';
 import type { IDEViewType } from '../../stores/graphStore.js';
+import { useRunningSubagentTasks } from './IDERunningSubagentsView.js';
 
 interface ActivityItem {
   view: IDEViewType;
@@ -40,17 +41,26 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
     return subs.filter((su) => su.status === 'idle' && !s.acknowledgedSubAgents[su.id]).length;
   });
 
+  // §5.5 #17-9 v3.51 — 백그라운드 서브에이전트: 도는 게 하나라도 있을 때만 항목이 나타난다.
+  //   배지 = 현재 탭 기준 개수(세션 탭 선택 시 그 탭 것, 메인 탭이면 전부) — 패널과 같은 산식.
+  const runningTasks = useRunningSubagentTasks(agentId);
+  const runningTotal = useGraphStore((s) => (agentId ? s.runningSubagentTasks[agentId]?.length ?? 0 : 0));
+  const subagentPanelOpen = useGraphStore((s) => s.subagentPanelOpen);
+  const toggleSubagentPanel = useGraphStore((s) => s.toggleSubagentPanel);
+  const setSubagentPanelOpen = useGraphStore((s) => s.setSubagentPanelOpen);
+
   const handleClick = useCallback((view: IDEViewType) => {
-    // 사이드바 뷰를 열면 덮개 패널(북마크·세션 요약)은 닫는다 — 동시에 겹치지 않게.
+    // 사이드바 뷰를 열면 덮개 패널(북마크·세션 요약·실행 중 서브에이전트)은 닫는다 — 동시에 겹치지 않게.
     if (bookmarkPanelOpen) setBookmarkPanelOpen(false);
     if (summaryPanelOpen) setSummaryPanelOpen(false);
+    if (subagentPanelOpen) setSubagentPanelOpen(false);
     if (activeView === view && !sidebarCollapsed) {
       toggleSidebar();
     } else {
       setActiveView(view);
       if (sidebarCollapsed) toggleSidebar();
     }
-  }, [activeView, sidebarCollapsed, setActiveView, toggleSidebar, bookmarkPanelOpen, setBookmarkPanelOpen, summaryPanelOpen, setSummaryPanelOpen]);
+  }, [activeView, sidebarCollapsed, setActiveView, toggleSidebar, bookmarkPanelOpen, setBookmarkPanelOpen, summaryPanelOpen, setSummaryPanelOpen, subagentPanelOpen, setSubagentPanelOpen]);
 
   return (
     // §4 v3.24 — 폰(max-md)에선 타이틀바 토글로 열리는 오버레이(본문을 상시 짓누르지 않게).
@@ -122,6 +132,35 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
           </span>
         )}
       </button>
+
+      {/* §5.5 #17-9 v3.51 — 실행 중 서브에이전트. 이 에이전트가 백단에 자식을 하나라도 띄운 동안에만
+          나타나고, 마지막 자식이 끝나면 아이콘·배지가 통째로 사라진다(항상 자리를 차지하지 않게).
+          배지는 현재 탭 기준 개수 — 그 탭이 띄운 게 없으면 0 을 숨겨 "다른 탭에서 돈다"를 표현. */}
+      {runningTotal > 0 && (
+        <button
+          type="button"
+          onClick={toggleSubagentPanel}
+          className={`relative flex h-10 w-10 items-center justify-center rounded transition-colors ${
+            subagentPanelOpen
+              ? 'border-l-2 border-sky-400 bg-gray-800 text-white'
+              : 'text-sky-400/80 hover:bg-gray-800 hover:text-sky-300'
+          }`}
+          title={t('ide.activityBar.runningSubagents', { count: runningTasks.length })}
+          aria-label={t('ide.activityBar.runningSubagents', { count: runningTasks.length })}
+        >
+          <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+            <line x1="6" y1="3" x2="6" y2="15" />
+            <circle cx="18" cy="6" r="3" />
+            <circle cx="6" cy="18" r="3" />
+            <path d="M18 9a9 9 0 0 1-9 9" />
+          </svg>
+          {runningTasks.length > 0 && (
+            <span className="absolute right-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-sky-500 px-1 text-[9px] font-bold text-white">
+              {runningTasks.length > 99 ? '99+' : runningTasks.length}
+            </span>
+          )}
+        </button>
+      )}
     </div>
   );
 });

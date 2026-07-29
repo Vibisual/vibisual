@@ -1,7 +1,6 @@
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import * as pty from 'node-pty';
-import type { WebContents } from 'electron';
 import { resolveClaudeBin, buildInteractiveClaudeArgs, prepareInteractiveRulesDir, getCmdResumeSession, recordDiagnostic, killTree } from '@vibisual/server';
 import type { AgentConfig } from '@vibisual/shared';
 
@@ -19,11 +18,26 @@ import type { AgentConfig } from '@vibisual/shared';
 //
 // 터미널 I/O 는 GraphSnapshot/WS 가 아니라 §5.4 #14-1 별창·§4 v2.44 업데이트 선례대로 shell-state
 // 전용 IPC 채널(`vibisual:term:*`)로 흐른다(고빈도 바이트 스트림이 graph broadcast 를 부풀리지 않게).
+//
+// §4 v3.33 — 출력 대상을 `WebContents` 고정에서 `TermSink` 로 추상화. 데스크톱은 IPC 싱크
+// (`vibisual:term:*`, ipc.ts), 모바일 웹 접속(§4 v3.16)은 `/ws` 싱크(mobileAccess.ts)로 같은
+// PTY 바이트를 흘린다. 부착은 termId 당 1개(마지막 부착자 승) — 재부착 시 buffer replay.
+
+/**
+ * 터미널 출력을 받는 쪽 추상화(§4 v3.33). id 는 부착자 식별(창 파괴/연결 종료 시 일괄 정리용),
+ * isAlive 는 이미 사라진 대상에 send 하지 않기 위한 가드.
+ */
+export interface TermSink {
+  id: string;
+  sendData(termId: string, data: string): void;
+  sendExit(termId: string, exitCode: number): void;
+  isAlive(): boolean;
+}
 
 interface TermSession {
   pty: pty.IPty;
-  /** 현재 붙어있는 renderer. IDE 를 닫았다 다시 열면(=컴포넌트 remount) 같은 termId 로 reattach 하며 갱신. */
-  wc: WebContents;
+  /** 현재 붙어있는 출력 대상. IDE 를 닫았다 열거나 다른 뷰어가 붙으면 같은 termId 로 reattach 하며 갱신. */
+  sink: TermSink;
   /** scrollback 링버퍼 — reattach 시 새 xterm 에 한 번에 replay 해 이전 출력을 복원(§4 v2.63). */
   buffer: string;
   /** 마지막으로 적용한 PTY 크기 — 동일 크기 중복 resize(=불필요한 TUI 재그리기/scrollback 누적) 방지. */
@@ -65,18 +79,18 @@ function pickShell(): { shell: string; shellArgs: string[] } {
  * 그 PTY 에 다시 붙어 scrollback 버퍼를 replay 한다 → 진행 중이던 claude 세션이 그대로 보존된다(§4 v2.63).
  * 없을 때만 셸을 cwd 에서 새로 띄우고 claude 실행 명령을 prefill 한다.
  */
-export function createTerminal(wc: WebContents, spec: CreateTerminalSpec): { ok: boolean; error?: string } {
+export function createTerminal(sink: TermSink, spec: CreateTerminalSpec): { ok: boolean; error?: string } {
   try {
-    // 재부착 — 살아있는 PTY 가 있으면 wc 만 갱신하고 그동안의 출력을 한 번에 replay.
+    // 재부착 — 살아있는 PTY 가 있으면 sink 만 갱신하고 그동안의 출력을 한 번에 replay.
     const existing = sessions.get(spec.termId);
     if (existing) {
-      existing.wc = wc;
-      if (!wc.isDestroyed() && existing.buffer) {
+      existing.sink = sink;
+      if (sink.isAlive() && existing.buffer) {
         // replay 전에 xterm 을 비운다(화면 clear + scrollback clear + 커서 home). 같은 termId 가
         // 여러 번 재부착(remount)돼도 직전 화면 위에 buffer 가 덧쌓이지 않고 항상 현재 세션 출력만
         // 한 벌 보이게 한다("재마운트 때마다 같은 배너가 또 찍힘" 버그 차단). buffer 안의 커서/erase
         // 시퀀스는 그대로 재생되므로 최종 화면은 claude 의 현재 상태와 동일하다.
-        wc.send('vibisual:term:data', { termId: spec.termId, data: `\x1b[2J\x1b[3J\x1b[H${existing.buffer}` });
+        sink.sendData(spec.termId, `\x1b[2J\x1b[3J\x1b[H${existing.buffer}`);
       }
       if (spec.cols && spec.rows && spec.cols > 0 && spec.rows > 0 &&
           (spec.cols !== existing.cols || spec.rows !== existing.rows)) {
@@ -128,7 +142,7 @@ export function createTerminal(wc: WebContents, spec: CreateTerminalSpec): { ok:
       },
     });
 
-    const session: TermSession = { pty: child, wc, buffer: '', cols, rows };
+    const session: TermSession = { pty: child, sink, buffer: '', cols, rows };
     sessions.set(spec.termId, session);
 
     child.onData((data) => {
@@ -136,10 +150,10 @@ export function createTerminal(wc: WebContents, spec: CreateTerminalSpec): { ok:
       if (session.buffer.length > TERM_BUFFER_MAX) {
         session.buffer = session.buffer.slice(-TERM_BUFFER_MAX);
       }
-      if (!session.wc.isDestroyed()) session.wc.send('vibisual:term:data', { termId: spec.termId, data });
+      if (session.sink.isAlive()) session.sink.sendData(spec.termId, data);
     });
     child.onExit(({ exitCode }) => {
-      if (!session.wc.isDestroyed()) session.wc.send('vibisual:term:exit', { termId: spec.termId, exitCode });
+      if (session.sink.isAlive()) session.sink.sendExit(spec.termId, exitCode);
       sessions.delete(spec.termId);
     });
 
@@ -200,10 +214,10 @@ export function killTerminal(termId: string): void {
   killTree(pid);
 }
 
-/** 특정 webContents 에 속한 모든 터미널 종료 — 창이 파괴될 때(앱/별창 닫힘). */
-export function killTerminalsForWebContents(wcId: number): void {
+/** 특정 부착자(sink)에 속한 모든 터미널 종료 — 창이 파괴될 때(앱/별창 닫힘). */
+export function killTerminalsForSink(sinkId: string): void {
   for (const [termId, s] of sessions) {
-    if (s.wc.id === wcId) killTerminal(termId);
+    if (s.sink.id === sinkId) killTerminal(termId);
   }
 }
 

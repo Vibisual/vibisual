@@ -7,24 +7,32 @@ import { randomUUID } from 'node:crypto';
 import { exec, execFile } from 'node:child_process';
 import multer from 'multer';
 import { DEFAULT_PORT, SESSION_SCAN_INTERVAL, FILE_EXISTENCE_CHECK_INTERVAL, SATELLITE_TYPES, IFRAME_PROXY_PATH, AGENT_IDLE_THRESHOLD_MS, AGENT_IDLE_SWEEP_INTERVAL_MS, INTERRUPT_RECONCILE_INTERVAL_MS, TASK_EDGE_DISPATCH_DEFAULT_TIMEOUT_MS, TASK_EDGE_CRITIQUE_MAX_REWORK_LIMIT, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, SUPPORTED_UI_LOCALES, CONTI_AGENT_RULES, RULES_HISTORY_MAX, CANVAS_CLIPBOARD_SCHEMA_VERSION, buildAgentReportRules, buildAgentQuestionRules, buildAgentReviewRules, buildAgentListRules, buildAgentIframeRules, buildAgentFeedbackBlock, AGENT_FEEDBACK_SUMMARY_ITEM_MAX } from '@vibisual/shared';
-import type { HookEventPayload, WSMessage, SubAgentStreamEvent, QueuedCommand, SessionTokenData, PipelineType, AgentConfig, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, SubAgentHistoryItem, UiLocale, PermissionDecision, RulesHistoryEntry, Conti, CanvasClipboardPayload, CanvasPasteResponse, AskUserQuestionDecision, AskUserQuestionAnswer, AskUserQuestionOption, AskUserQuestionItem, AskUserQuestionToolInput, AgentReport, AgentQuestions, AgentQuestionItem, AgentReview, AgentList, AgentFeedback, AgentFeedbackTargetType, AgentFeedbackVerdict } from '@vibisual/shared';
+import type { HookEventPayload, WSMessage, SubAgentStreamEvent, QueuedCommand, SessionTokenData, PipelineType, AgentConfig, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, SubAgentHistoryItem, UiLocale, PermissionDecision, RulesHistoryEntry, Conti, CanvasClipboardPayload, CanvasPasteResponse, AskUserQuestionDecision, AskUserQuestionAnswer, AskUserQuestionOption, AskUserQuestionItem, AskUserQuestionToolInput, AgentReport, AgentQuestions, AgentQuestionItem, AgentReview, AgentList, AgentFeedback, AgentFeedbackTargetType, AgentFeedbackVerdict, BrainCard, BrainCardInput, BrainCardType, BrainCardScope, BrainInjectionEvent } from '@vibisual/shared';
+import { BRAIN_INJECTION_TOP_K, BRAIN_RULE_CARD_MAX, BRAIN_INJECTION_TOKEN_BUDGET, BRAIN_FILE_WARN_ONCE_PER_SESSION, buildBrainRulesSection } from '@vibisual/shared';
 import { permissionBroker } from './services/permissionBroker.js';
 import { askUserQuestionBroker } from './services/askUserQuestionBroker.js';
 import { AutoAgentRuntime } from './services/autoAgentRuntime.js';
-import { BUBBLE_COLORS, READ_TOOLS, WS_BATCH_INTERVAL } from '@vibisual/shared';
+import { BUBBLE_COLORS, READ_TOOLS, WS_BATCH_INTERVAL, WS_BATCH_INTERVAL_MAX, WS_BATCH_BACKOFF_FACTOR, CHECKPOINT_BATCH_INTERVAL, CHECKPOINT_BATCH_INTERVAL_MAX } from '@vibisual/shared';
 import { broadcast } from './broadcastBus.js';
 import { graphManager } from './services/projectGraphManager.js';
 import { modelRegistryService } from './services/modelRegistryService.js';
 import { builtinCommandsService } from './services/builtinCommandsService.js';
 import { userDefaultsService } from './services/userDefaultsService.js';
 import { distillFeedbackToRules } from './services/feedbackDistillService.js';
+import { getBrainService, sweepAllBrainStaleCards } from './services/brainService.js';
+import { scheduleBrainReflection } from './services/brainReflectionService.js';
 import { isPortAlive, killByPort, respawn } from './services/processChecker.js';
-import { discoverProjectMetas, migrateLegacy, migrateLegacySaveRootToProjectDirs, pruneOrphanWorktreeDirs, SaveScheduler, writeCheckpoint } from './services/statePersistence.js';
+import { discoverProjectMetas, hasProjectSaveData, migrateLegacy, migrateLegacySaveRootToProjectDirs, pruneOrphanWorktreeDirs, SaveScheduler, writeCheckpoint } from './services/statePersistence.js';
 import { loadAppState, saveAppState, patchAppState, appStateAddOpenProject, appStateRemoveOpenProject, appStatePruneStaleProjectNames, appStateGetSkillOrder, appStateSetSkillOrder, appStateRemoveSkillFromOrder, appStateGetSkillFavorites, appStateSetSkillFavorites } from './services/appState.js';
 import { ensureClaudeHooksInstalled } from './services/hookInstaller.js';
+import {
+  readUsageCollectorStatus,
+  installStatusLine,
+  uninstallStatusLine,
+} from './services/statusLineInstaller.js';
 import { isAgentViewEnabled, reconcileOnBoot as agentViewReconcileOnBoot } from './services/claudeAgentViewService.js';
 import { getClaudeVersionInfo, getClaudeInstallsInfo, installLatestClaude, getInflightInstall, invalidateLatestCache } from './services/claudeVersionService.js';
-import { agentTracker } from './services/agentTracker.js';
+import { agentTracker, setSnapshotScheduler as setAgentTrackerSnapshotScheduler } from './services/agentTracker.js';
 import { discoverSessions, findPidBySession, isProcessAlive, readSessionTokenData, setLivenessProbeListener } from './services/sessionDiscovery.js';
 import { SessionLifecycleManager } from './services/sessionLifecycle.js';
 import { subAgentManager, recordCmdTermSession } from './services/subAgentManager.js';
@@ -36,6 +44,13 @@ import { gitStatusService, type WorktreeResolveInfo } from './services/gitStatus
 import { generateContiFrames, patchContiElement, createEmptyConti, contiId, parseContiResponse, type ContiContextInput } from './services/contiManager.js';
 import { logger } from './logger.js';
 import { diagnosticService } from './services/diagnosticService.js';
+
+// §5.10 Project Brain — 파일 접근 경고를 세션+파일 조합당 1회만 내기 위한 인메모리 집합.
+//   런타임 전용(영속 X). O(1) 조회 — LLM/스캔 없이 hook 동기 경로에서 즉답.
+const brainFileWarned = new Set<string>();
+function normPathForWarn(p: string): string {
+  return p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+}
 
 
 // §3.7 — desktop in-process 진입점이 server 코어를 라이브러리로 쓰기 위한 re-export.
@@ -50,6 +65,8 @@ export {
 } from './websocket.js';
 // desktop in-process 모드는 hook 전용 loopback 리스너 포트로 직접 훅을 설치한다.
 export { ensureClaudeHooksInstalled } from './services/hookInstaller.js';
+// §4 v3.60 — 사용량 수집기(statusLine). desktop main 이 부팅 시 "이미 설치된 경우에만" 포트·토큰을 갱신한다.
+export { refreshStatusLineIfInstalled } from './services/statusLineInstaller.js';
 // §4 v1.98 — 진단 에러 로그: desktop main 이 자기 프로세스 에러를 recordDiagnostic 으로 적재.
 export { recordDiagnostic, diagnosticService } from './services/diagnosticService.js';
 // Persistent SubAgent child — desktop main 의 before-quit 핸들러가
@@ -85,6 +102,14 @@ export function setHookListenerToken(token: string): void {
 let hookListenerIdentityFile: string | null = null;
 export function setHookListenerIdentityFile(filePath: string): void {
   hookListenerIdentityFile = filePath;
+}
+
+// §4 v3.60 — hooks/handler.mjs 절대 경로. desktop main 이 훅 설치와 같은 값을 주입한다.
+// 사용량 수집기(statusLine)는 사용자가 팝업에서 켤 때 REST 로 설치되므로, 그 시점에
+// 명령 문자열(`node <handlerPath> --statusline …`)을 조립할 핸들러 경로가 필요하다.
+let hookHandlerPath: string | null = null;
+export function setHookHandlerPath(filePath: string): void {
+  hookHandlerPath = filePath;
 }
 
 export interface RunServerHandle { app: import('express').Express; }
@@ -178,6 +203,8 @@ export async function runServer(): Promise<RunServerHandle> {
   graphManager.setGitDirtyProvider(() => gitStatusService.getDirtyMap());
   graphManager.setOnMutated(() => broadcastSnapshot());
   gitStatusService.setChangeListener(() => broadcastSnapshot());
+  // §9 v3.45 — agentTracker 의 Stop/dismiss 스냅샷 송신도 디바운스 경로로 위임.
+  setAgentTrackerSnapshotScheduler(() => broadcastSnapshot());
 
   // §4 v2.38 — 모델 레지스트리 부팅 시 비동기 refresh (시드는 이미 적재됨).
   // 완료/실패 무관, listener 가 WS 푸시 담당.
@@ -405,6 +432,61 @@ export async function runServer(): Promise<RunServerHandle> {
         if (ownerSession) body.session_id = ownerSession;
       }
 
+      // 서브에이전트(Task/Agent 도구)가 끝날 때 오는 Stop 은 부모(감독관) 세션의 "자기 턴 종료"가
+      // 아니다. Claude Code 는 서브 컨텍스트의 Stop 을 `SubagentStop` 으로 변환하며(또는 구버전은
+      // `agent_id`/`parent_tool_use_id` 를 단 Stop 으로), 이 이벤트가 부모 CMD 버블 세션으로 귀속
+      // (_vibisualOwnerAgentId rewrite)되면 아래 markStop / CMD 서브-도트가 부모를 서브 종료 시점에
+      // 완료로 튕긴다(= 헤드리스 감독관 버블 조기 완료의 근본 원인). 서브 마커가 있으면 "부모 자기 종료"로
+      // 취급하지 않는다.
+      const isSubagentStop =
+        body.hook_event_name === 'SubagentStop' ||
+        typeof body.agent_id === 'string' ||
+        typeof body.parent_tool_use_id === 'string';
+      // 부모(감독관) 세션의 자기 턴이 실제로 끝났는가 — 서브에이전트 종료는 제외.
+      const isOwnStop = body.hook_event_name === 'Stop' && !isSubagentStop;
+
+      // §5.3 #12-1 v3.43 — 헤드리스 감독관 배경 서브에이전트 대차대조.
+      // 부모 턴이 끝나(sub idle) 자식 Task/Agent 서브에이전트만 백단에서 도는 동안, 부모 버블이
+      // completed 로 강등되지 않게 pending 을 센다: PreToolUse(Task|Agent) ↑ / SubagentStop ↓ /
+      // 그 외 이벤트는 quiet-window 신호 갱신. Vibisual 이 스폰한(managed) 세션·CMD 소유 세션만
+      // 해석되므로 일반 훅 세션엔 소규모 역조회 스캔 외 비용이 없다.
+      // 세션 탭(sub) 도트도 이 대차대조를 따라가야 한다 — 이 훅을 낸 세션의 sub 를 함께 해석해
+      // 넘긴다(부모 버블만 active 이고 탭 도트는 녹색으로 어긋나던 버그).
+      const bgOwnerSub = subAgentManager.findSubBySessionId(claudeSessionId);
+      const bgOwnerAgentId = body._vibisualOwnerAgentId ?? bgOwnerSub?.parentAgentId;
+      if (bgOwnerAgentId) {
+        const isSubagentSpawn = body.hook_event_name === 'PreToolUse'
+          && (body.tool_name === 'Task' || body.tool_name === 'Agent');
+        const isSubagentEnd = body.hook_event_name === 'SubagentStop'
+          || (body.hook_event_name === 'Stop' && isSubagentStop);
+        if (isSubagentSpawn) {
+          // §5.5 #17-9 v3.51 — "무슨 내용인지"를 IDE 에 띄우려면 대차대조 항목에 tool_input 메타를
+          //   같이 실어야 한다. 판정 로직엔 관여하지 않는 표시 전용 필드.
+          const ti = body.tool_input;
+          const pickStr = (k: string): string | undefined => {
+            const v = ti?.[k];
+            return typeof v === 'string' && v.trim() ? v.trim() : undefined;
+          };
+          const meta = {
+            description: pickStr('description'),
+            subagentType: pickStr('subagent_type'),
+            prompt: pickStr('prompt')?.slice(0, 200),
+          };
+          // 대차대조 크기는 그대로여도(이미 active) 표시용 목록은 늘었으므로 항상 broadcast.
+          subAgentManager.noteSubagentTaskStart(bgOwnerAgentId, body.tool_use_id, bgOwnerSub?.id, meta);
+          broadcastSnapshot();
+        } else if (isSubagentEnd) {
+          const { drained } = subAgentManager.noteSubagentTaskStop(bgOwnerAgentId, body.parent_tool_use_id);
+          // 마지막 자식 종료 — 부모가 재호출되지 않으면 이 시점이 진짜 완료. 즉시 재계산해 반영.
+          if (drained) graphManager.recomputeCustomAgentStatus(bgOwnerAgentId);
+          // §5.5 #17-9 v3.51 — 상태 변화가 없어도 실행 중 목록이 한 건 줄었으므로 항상 broadcast
+          //   (마지막 항목이 끝나면 클라 활동바 아이콘·배지·패널이 이 스냅샷으로 사라진다).
+          broadcastSnapshot();
+        } else {
+          subAgentManager.noteSubagentSignal(bgOwnerAgentId);
+        }
+      }
+
       // §4 v2.64 — CMD 터미널 연속성: 이 인터랙티브 claude 대화의 sessionId(rewrite 전 원본)를
       //   termId 별로 기록해 둔다. 앱을 완전히 종료하면 PTY 는 죽지만, 재시작 후 같은 termId 로
       //   터미널을 다시 열 때 terminalManager 가 이 값으로 `claude --resume <id>` 를 prefill 한다.
@@ -412,17 +494,22 @@ export async function runServer(): Promise<RunServerHandle> {
         recordCmdTermSession(body._vibisualOwnerTermId, claudeSessionId);
         // §4 — CMD 세션 탭(sub) 도트 연속 동기화: tool 이벤트→active, Stop→idle(녹색).
         //   termId 끝 토큰이 곧 sub.id 라 그 탭만 정확히 구동한다(부모 버블은 위 markActive/markStop 담당).
+        //   서브에이전트 Stop 은 이 터미널의 자기 턴 종료가 아니므로 idle 로 매기지 않는다.
         const subChanged = subAgentManager.markCmdSubActivity(
           body._vibisualOwnerTermId,
-          body.hook_event_name === 'Stop',
+          isOwnStop,
         );
         if (subChanged) broadcastSnapshot();
       }
 
-      // Stop → 즉시 completed, 그 외 → active
-      if (body.hook_event_name === 'Stop') {
+      // Stop → 즉시 completed, 그 외 → active. 단 서브에이전트 종료는 부모 라이프사이클을 건드리지 않는다 —
+      // 부모의 실제 턴 종료 Stop(서브 마커 없음)만 markStop 한다. 서브 재개 후 부모가 내는 tool 이벤트/
+      // 자기 Stop 이 이어서 상태를 올바로 매긴다.
+      if (isOwnStop) {
         agentTracker.markStop(body.session_id);
-      } else {
+        // §5.10 — 세션 종료 시 리플렉션 예약(디바운스, 실패해도 무시). managed/CMD/hook 세션 공통.
+        triggerBrainReflection(body.session_id, body.cwd);
+      } else if (body.hook_event_name !== 'Stop' && body.hook_event_name !== 'SubagentStop') {
         agentTracker.markActive(body.session_id);
       }
 
@@ -463,23 +550,27 @@ export async function runServer(): Promise<RunServerHandle> {
       if (isToolEvent(body)) {
         const result = graphManager.processHookEvent(body);
 
-        // PostToolUse Bash 후 파일 존재 확인 (삭제/rename 즉시 감지)
-        if (body.hook_event_name === 'PostToolUse' && body.tool_name === 'Bash') {
-          const ghosted = graphManager.checkFileExistence();
-          const pruned = graphManager.pruneDisappearing();
-          if (ghosted > 0 || pruned > 0 || result) {
-            broadcastSnapshot();
-            saveCheckpoint();
-          } else if (result) {
-            broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getSnapshot() });
-            saveCheckpoint();
-          }
-        } else if (result) {
-          broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getSnapshot() });
-          saveCheckpoint();
-        } else {
-          saveCheckpoint();
+        // PostToolUse Bash 후 파일 존재 확인 (삭제/rename 감지).
+        // §9 v3.45 — Bash 폭주(전수조사) 시 전 노드 existsSync 스윕이 이벤트마다 돌지
+        // 않도록 최소 간격 스로틀. miss 임계(FILE_EXISTENCE_MISS_THRESHOLD) 의미 불변.
+        let ghosted = 0;
+        let pruned = 0;
+        if (
+          body.hook_event_name === 'PostToolUse' && body.tool_name === 'Bash'
+          && Date.now() - lastExistenceSweepAt >= EXISTENCE_SWEEP_MIN_INTERVAL_MS
+        ) {
+          lastExistenceSweepAt = Date.now();
+          ghosted = graphManager.checkFileExistence();
+          pruned = graphManager.pruneDisappearing();
         }
+
+        // §9 v3.45 — 이 경로는 모델 도구 사용 빈도로 도착하는 유일한 폭주 경로.
+        // 인라인 즉시 broadcast(getSnapshot()) 로 §9 디바운스를 우회하던 것을 디바운스
+        // 경로로 통일하고, 체크포인트도 코얼레스 저장으로 묶는다(그 외 지점은 즉시 저장 유지).
+        if (ghosted > 0 || pruned > 0 || result) {
+          broadcastSnapshot();
+        }
+        scheduleCheckpoint();
       }
       res.json({ continue: true });
     } catch (err) {
@@ -513,11 +604,58 @@ export async function runServer(): Promise<RunServerHandle> {
         res.status(400).json({ error: 'No valid fields' });
         return;
       }
+      // §4 v3.60 — statusLine 은 렌더마다(최대 300ms 주기) 돌 수 있다. 값이 실제로 바뀐
+      // 경우에만 브로드캐스트해 전체 스냅샷이 초당 여러 번 나가는 것을 막는다(핸들러 측
+      // 전송 스로틀과 2중 방어). updatedAt 만 갱신되는 경우는 조용히 흡수.
+      const before = graphManager.getRateLimits();
+      const changed = (['used5h', 'resetAt5h', 'used7d', 'resetAt7d'] as const).some(
+        (k) => payload[k] !== undefined && payload[k] !== before?.[k],
+      );
       graphManager.setRateLimits(payload);
-      broadcastSnapshot();
-      res.json({ ok: true });
+      if (changed) broadcastSnapshot();
+      res.json({ ok: true, changed });
     } catch (err) {
       logger.error('POST /api/rate-limits failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * §4 v3.60 — 사용량 수집기(statusLine) 상태 조회 / opt-in 토글.
+   *
+   * 한도 사용률은 Claude Code 의 statusLine stdin JSON 으로만 나오므로, 위 `/api/rate-limits`
+   * 를 채우려면 `~/.claude/settings.json` 의 `statusLine` 에 우리 핸들러가 걸려 있어야 한다.
+   * 훅(§3.6)과 달리 **자동 설치하지 않는다** — 사용량 팝업의 스위치로만 켜고 끈다.
+   *
+   * GET  → UsageCollectorStatus
+   * POST { enable: boolean } → 설치/해제 후 UsageCollectorStatus
+   */
+  app.get('/api/usage-collector', (_req, res) => {
+    try {
+      res.json(readUsageCollectorStatus());
+    } catch (err) {
+      logger.error('GET /api/usage-collector failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  app.post('/api/usage-collector', (req, res) => {
+    try {
+      const body = req.body as { enable?: unknown } | null;
+      const enable = body?.enable === true;
+      if (!enable) {
+        res.json(uninstallStatusLine());
+        return;
+      }
+      if (hookListenerPort === null || hookListenerToken === null || hookHandlerPath === null) {
+        res.status(503).json({
+          error: 'Hook listener is not ready yet — statusLine cannot be installed',
+        });
+        return;
+      }
+      res.json(installStatusLine(hookListenerPort, hookHandlerPath, hookListenerToken));
+    } catch (err) {
+      logger.error('POST /api/usage-collector failed', err);
       res.status(500).json({ error: 'Internal server error' });
     }
   });
@@ -888,6 +1026,72 @@ export async function runServer(): Promise<RunServerHandle> {
     return strip;
   }
 
+  /**
+   * §5.10 스폰 브리핑용 기억 블록 조립 — 프로젝트 규칙 카드 전부(BRAIN_RULE_CARD_MAX) + 태스크
+   * 관련 top-K 검색 + 그 에이전트 자신의 카드를, 토큰 예산(BRAIN_INJECTION_TOKEN_BUDGET, chars≈tok*4
+   * 휴리스틱) 내에서 담는다. 반환 = 요약 블록 + 실제 담긴 카드(주입 이벤트/참조 갱신용).
+   */
+  function buildBrainBriefing(agentId: string, root: string, taskText: string): { block: string; cards: BrainCard[] } {
+    const svc = getBrainService(root);
+    const picked: BrainCard[] = [];
+    const seen = new Set<string>();
+    const add = (c: BrainCard): void => { if (!seen.has(c.id) && c.status !== 'archived') { seen.add(c.id); picked.push(c); } };
+    // 1) 프로젝트 규칙 카드 전부(참조/최근순, 상한).
+    svc.listCards({ scope: 'project' })
+      .filter((c) => c.type === 'rule')
+      .sort((a, b) => (b.refCount - a.refCount) || (b.updatedAt - a.updatedAt))
+      .slice(0, BRAIN_RULE_CARD_MAX)
+      .forEach(add);
+    // 2) 태스크 관련 top-K — v3.49 랭킹 함수(관련도 우세 + 도움률/신선도)로 두 층 합산 상위.
+    if (taskText.trim()) {
+      const pool = [...svc.listCards({ scope: 'project' }), ...svc.listCards({ scope: 'agent', agentId })];
+      svc.rankCards(pool, { text: taskText })
+        .slice(0, BRAIN_INJECTION_TOP_K)
+        .forEach((r) => add(r.card));
+    }
+    // 3) 그 에이전트 자신의 개별 기억.
+    svc.listCards({ scope: 'agent', agentId }).forEach(add);
+
+    const budgetChars = BRAIN_INJECTION_TOKEN_BUDGET * 4;
+    const lines: string[] = [];
+    const cards: BrainCard[] = [];
+    let used = 0;
+    for (const c of picked) {
+      const layer = c.scope === 'project' ? '프로젝트' : '개별';
+      const firstLine = c.body ? c.body.split('\n').find((l) => l.trim()) ?? '' : '';
+      // v3.49 — 카드 id 를 [id] 로 실어 에이전트가 helpfulMemoryIds 로 도움됨을 신고할 수 있게 한다.
+      const line = `- [${c.id}] (${c.type}/${layer}) ${c.title}${firstLine ? `: ${firstLine.trim()}` : ''}`;
+      if (used + line.length > budgetChars && cards.length > 0) break;
+      lines.push(line);
+      used += line.length;
+      cards.push(c);
+    }
+    return { block: lines.join('\n'), cards };
+  }
+
+  /**
+   * §5.10 — 세션 리플렉션 예약 헬퍼. 세션 소속 에이전트를 보고 저장 층(project/agent)·루트를 정한다.
+   * 실패해도 조용히 무시(호출 경로 보호).
+   */
+  function triggerBrainReflection(sessionId: string, cwd?: string): void {
+    try {
+      if (!sessionId) return;
+      const agent = graphManager.getAgentBySession(sessionId);
+      const scope: BrainCardScope = agent?.customCreated ? 'agent' : 'project';
+      const agentId = agent?.customCreated ? agent.id : undefined;
+      const root = (agentId ? graphManager.getProjectPathForAgent(agentId) : null)
+        ?? graphManager.getAgentCwd(sessionId)
+        ?? cwd
+        ?? graphManager.getRoot()
+        ?? undefined;
+      const effCwd = graphManager.getAgentCwd(sessionId) ?? cwd ?? root;
+      if (!root || !effCwd) return;
+      scheduleBrainReflection({ sessionId, cwd: effCwd, root, scope, agentId });
+    } catch (e) {
+      logger.warn('[brain] reflection trigger failed', e as Error);
+    }
+  }
+
   /** 큐에서 dispatch 가능한 명령을 전부 실행.
    *  동일 subAgentId는 직렬(한 세션당 한 명령), 서로 다른 subAgentId끼리는 병렬로 시작.
    *  null subAgentId는 하나의 슬롯으로 묶어 기존 직렬 동작 유지. */
@@ -950,6 +1154,30 @@ export async function runServer(): Promise<RunServerHandle> {
         };
         // §4 v2.52 작업 신고 + v2.60 질문 카드 + v2.70 검수 요청 + v2.84 번호 목록 + §7.11 v2.29 서버 iframe 신고 지시문을 함께 주입(동일 loopback 인프라).
         dispatchContext = contextSummary + buildAgentReportRules(ruleArgs) + buildAgentQuestionRules(ruleArgs) + buildAgentReviewRules(ruleArgs) + buildAgentListRules(ruleArgs) + buildAgentIframeRules(ruleArgs);
+        // §5.10 스폰 브리핑 — 기억 카드(규칙 전부 + 태스크 top-K + 자기 카드) + 능동 검색 안내 주입.
+        try {
+          const brainRoot = graphManager.getProjectPathForAgent(agent.id) ?? cwd;
+          const brief = buildBrainBriefing(agent.id, brainRoot, next.text ?? '');
+          dispatchContext += buildBrainRulesSection({
+            serverBase: ruleArgs.serverBase,
+            serverToken: ruleArgs.serverToken,
+            cardsBlock: brief.block,
+            ...(hookListenerIdentityFile ? { identityFile: hookListenerIdentityFile } : {}),
+          });
+          if (brief.cards.length > 0) {
+            getBrainService(brainRoot).touchReferences(brief.cards.map((c) => c.id));
+            graphManager.addBrainInjection({
+              id: randomUUID(),
+              agentId: agent.id,
+              at: Date.now(),
+              cardIds: brief.cards.map((c) => c.id),
+              cardTitles: brief.cards.map((c) => c.title),
+              trigger: 'spawn',
+            });
+          }
+        } catch (e) {
+          logger.warn('[brain] spawn briefing failed', e as Error);
+        }
       }
       // v1.33 — edgesBlock 을 separately 전달해 resume(--resume) 경로에서도 매 턴 prepend.
       //         엣지가 생기거나 바뀌었을 때 세션 재시작 없이도 즉시 인지하도록.
@@ -968,6 +1196,10 @@ export async function runServer(): Promise<RunServerHandle> {
   // 인라인 직송 broadcast({type:'graph_snapshot'...}) 13곳은 즉시 송신이지만, trailing 이
   // 그 뒤에 떠도 최신 상태를 다시 읽어 보내므로 stale 덮어쓰기 없음.
   let snapshotBroadcastTimer: ReturnType<typeof setTimeout> | null = null;
+  // §9 v3.40 — 부하 적응형 배치 창. getSnapshot()+IPC 직렬화는 Electron 메인 스레드에서 돌므로,
+  // 전수조사급 다중 세션에서 flush 비용이 16ms 를 넘기면 다음 창을 비용 비례로 늘려(상한 250ms)
+  // 스냅샷 파이프라인이 입력 스레드를 독점하지 못하게 한다. 경부하에선 항상 16ms 로 복귀.
+  let snapshotBroadcastDelay = WS_BATCH_INTERVAL;
   // [perf-snapshot] 계측 — VIBISUAL_PERF=1 일 때만. 서버는 Electron 메인 프로세스에서 돌므로
   // getSnapshot()+직렬화 비용이 그대로 창 입력 스레드를 잡는다. 전수조사 다중 세션에서 이 값이
   // 프레임 예산(16ms)을 잡아먹는지 확인하기 위한 임시 계측(델타/utilityProcess 착수 전 범인 확정용).
@@ -976,6 +1208,7 @@ export async function runServer(): Promise<RunServerHandle> {
     if (snapshotBroadcastTimer !== null) return; // 이미 예약됨 — trailing flush 가 최신 스냅샷을 읽는다
     snapshotBroadcastTimer = setTimeout(() => {
       snapshotBroadcastTimer = null;
+      const tFlush0 = performance.now();
       if (PERF_SNAPSHOT) {
         const t0 = performance.now();
         const snap = graphManager.getSnapshot();
@@ -986,13 +1219,20 @@ export async function runServer(): Promise<RunServerHandle> {
         const subs = Object.keys(snap.subAgents ?? {}).length;
         logger.warn(
           `[perf-snapshot] getSnapshot=${(t1 - t0).toFixed(1)}ms stringify=${(t2 - t1).toFixed(1)}ms ` +
-          `bytes=${bytes} agents=${agents} subAgents=${subs}`,
+          `bytes=${bytes} agents=${agents} subAgents=${subs} nextDelay=${snapshotBroadcastDelay.toFixed(0)}ms`,
         );
         broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: snap });
-        return;
+      } else {
+        broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getSnapshot() });
       }
-      broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getSnapshot() });
-    }, WS_BATCH_INTERVAL);
+      // 직전 flush 실측 비용(getSnapshot + sink 직렬화/팬아웃 — webContents.send 는 동기 직렬화)으로
+      // 다음 창을 적응. 스케줄 시점이 아니라 flush 시점에 갱신하므로 폭주가 끝나면 즉시 16ms 복귀.
+      const cost = performance.now() - tFlush0;
+      snapshotBroadcastDelay = Math.min(
+        Math.max(WS_BATCH_INTERVAL, cost * WS_BATCH_BACKOFF_FACTOR),
+        WS_BATCH_INTERVAL_MAX,
+      );
+    }, snapshotBroadcastDelay);
   }
 
   // §5.3 #10-2 v2.37 — Auto Agent 런타임. 사용자 메시지 → 서브 군 자동 생성·dispatch.
@@ -1391,36 +1631,319 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  /** §3.2.2 (C 복구) — 해당 프로젝트에서 복구 가능한(사라졌거나 닫힌) 커스텀 에이전트 목록.
-   *  identity.json 정체성 중 현재 캔버스에 없고 명시 삭제(묘비)도 아닌 것. 캔버스 우클릭 "복구" UI 용. */
-  app.get('/api/custom-agents/recoverable', (req, res) => {
+  // §5.10 — 구 "지난 커스텀 에이전트 복구"(/api/custom-agents/recoverable·restore)는 휴지통이 후신이 되어 제거됨.
+
+  // ─── §5.10 Project Brain — 커스텀 에이전트 휴지통 REST ───
+
+  /** POST /api/trash/restore — 휴지통에서 커스텀 에이전트 복구(identity·설정·개별 기억 보존).
+   *  `sessionId` 는 세션 키(`custom-…`)·버블 id(`agent-…`) 둘 다 받는다(클라는 버블 id 만 안다). */
+  app.post('/api/trash/restore', (req, res) => {
     try {
-      const project = typeof req.query.project === 'string' ? req.query.project : '';
-      if (!project) { res.json({ agents: [] }); return; }
-      const agents = graphManager.listRecoverableCustomAgents(project);
-      res.json({ agents });
+      const { sessionId } = req.body as { sessionId?: string };
+      if (typeof sessionId !== 'string' || !sessionId) {
+        return res.status(400).json({ error: 'sessionId required' });
+      }
+      const ok = graphManager.restoreTrashedAgent(sessionId);
+      if (!ok) return res.status(404).json({ error: 'trashed agent not found' });
+      broadcastSnapshot();
+      saveCheckpoint();
+      res.json({ ok: true });
     } catch (err) {
-      logger.error('GET /api/custom-agents/recoverable failed', err);
+      logger.error('POST /api/trash/restore failed', err);
       res.status(500).json({ error: 'Internal server error' });
     }
   });
 
-  /** §3.2.2 (C 복구) — sessionId 로 커스텀 에이전트를 identity.json 에서 되살려 캔버스에 재삽입. */
-  app.post('/api/custom-agents/restore', (req, res) => {
+  /** DELETE /api/trash/agent/:sessionId — 휴지통 에이전트 영구 삭제(identity 제거 + 묘비 + 개별 기억 파일 삭제).
+   *  `:sessionId` 는 세션 키·버블 id 둘 다 허용(복구와 동일). */
+  app.delete('/api/trash/agent/:sessionId', (req, res) => {
     try {
-      const { project, sessionId, x, y } = req.body as { project?: string; sessionId?: string; x?: number; y?: number };
-      if (typeof project !== 'string' || !project || typeof sessionId !== 'string' || !sessionId) {
-        return res.status(400).json({ error: 'project and sessionId required' });
-      }
-      const position = typeof x === 'number' && typeof y === 'number' ? { x, y } : undefined;
-      const agent = graphManager.restoreCustomAgent(project, sessionId, position);
-      if (!agent) return res.status(404).json({ error: 'recoverable custom agent not found' });
+      const { sessionId } = req.params;
+      if (!sessionId) return res.status(400).json({ error: 'sessionId required' });
+      const ok = graphManager.permanentlyDeleteTrashedAgent(sessionId);
+      if (!ok) return res.status(404).json({ error: 'trashed agent not found' });
       broadcastSnapshot();
       saveCheckpoint();
-      res.json({ ok: true, agent });
+      res.json({ ok: true });
     } catch (err) {
-      logger.error('POST /api/custom-agents/restore failed', err);
+      logger.error('DELETE /api/trash/agent failed', err);
       res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  // ─── §5.10 Project Brain — 기억 카드 REST (CommentBox 관례 + 프로젝트 스코프) ───
+
+  /** GET /api/brain/summary — Brain 버블 요약(카드 수/미확인/최근 카드/에이전트별). */
+  app.get('/api/brain/summary', (req, res) => {
+    try {
+      const project = typeof req.query.project === 'string' ? req.query.project : undefined;
+      const root = graphManager.resolveBrainRoot(project);
+      if (!root) return res.json({ summary: null });
+      res.json({ summary: getBrainService(root).getSummary() });
+    } catch (err) {
+      logger.error('GET /api/brain/summary failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * GET /api/brain/feed?project=&scope=&agentId=&q= — v3.49 유튜브식 피드(우더블클릭 오버레이).
+   * ctx.text = q; agentId 가 있으면 그 에이전트가 최근 참조한 파일들을 ctx.files 로 실어 related 랭킹을 보정한다
+   * (graphManager.getAgentRecentFiles — best-effort, 없으면 파일 컨텍스트 생략). 읽기 전용(broadcast 없음).
+   */
+  app.get('/api/brain/feed', (req, res) => {
+    try {
+      const project = typeof req.query.project === 'string' ? req.query.project : undefined;
+      const scope: BrainCardScope = req.query.scope === 'agent' ? 'agent' : 'project';
+      const agentId = typeof req.query.agentId === 'string' ? req.query.agentId : undefined;
+      const q = typeof req.query.q === 'string' ? req.query.q : undefined;
+      const root = graphManager.resolveBrainRoot(project);
+      if (!root) return res.json({ feed: { sections: { related: [], recent: [], frequent: [], resurface: [] }, totalCount: 0 } });
+      const files = scope === 'agent' && agentId ? graphManager.getAgentRecentFiles(agentId) : [];
+      const ctx = (q && q.trim()) || files.length > 0
+        ? { text: q && q.trim() ? q : undefined, files: files.length > 0 ? files : undefined }
+        : undefined;
+      const feed = getBrainService(root).getFeed({ scope, agentId, ctx });
+      res.json({ feed });
+    } catch (err) {
+      logger.error('GET /api/brain/feed failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /** GET /api/brain/cards?scope=&agentId=&project= — 카드 목록(본문 포함, lazy fetch). */
+  app.get('/api/brain/cards', (req, res) => {
+    try {
+      const project = typeof req.query.project === 'string' ? req.query.project : undefined;
+      const scope = req.query.scope === 'project' || req.query.scope === 'agent'
+        ? (req.query.scope as BrainCardScope) : undefined;
+      const agentId = typeof req.query.agentId === 'string' ? req.query.agentId : undefined;
+      const root = graphManager.resolveBrainRoot(project);
+      if (!root) return res.json({ cards: [] });
+      res.json({ cards: getBrainService(root).listCards({ scope, agentId }) });
+    } catch (err) {
+      logger.error('GET /api/brain/cards failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /** POST /api/brain/cards — 수동 저장("두뇌에 기억"). 중복 검사 창구 경유. */
+  app.post('/api/brain/cards', (req, res) => {
+    try {
+      const body = (req.body ?? {}) as Partial<BrainCardInput> & { project?: string };
+      const type = body.type as BrainCardType;
+      const scope = body.scope as BrainCardScope;
+      if (!type || (scope !== 'project' && scope !== 'agent') || typeof body.title !== 'string' || !body.title.trim()) {
+        return res.status(400).json({ error: 'type/scope/title required' });
+      }
+      const root = graphManager.resolveBrainRoot(body.project);
+      if (!root) return res.status(404).json({ error: 'no project root' });
+      const card = getBrainService(root).saveCard({
+        type,
+        scope,
+        agentId: scope === 'agent' ? body.agentId : undefined,
+        title: body.title,
+        body: typeof body.body === 'string' ? body.body : '',
+        files: Array.isArray(body.files) ? body.files.filter((f): f is string => typeof f === 'string') : [],
+        sourceSessionId: typeof body.sourceSessionId === 'string' ? body.sourceSessionId : undefined,
+        pinned: body.pinned === true,
+        seen: true, // 사용자가 직접 만든 카드는 이미 "본" 것.
+      });
+      graphManager.notifyBrainChanged(body.project);
+      broadcastSnapshot();
+      saveCheckpoint();
+      res.json({ ok: true, card });
+    } catch (err) {
+      logger.error('POST /api/brain/cards failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /** PATCH /api/brain/cards/:id — 부분 편집(undefined 필드는 유지 — PUT-wipe 회피). */
+  app.patch('/api/brain/cards/:id', (req, res) => {
+    try {
+      const { id } = req.params;
+      const body = (req.body ?? {}) as Partial<BrainCard> & { project?: string };
+      const root = graphManager.resolveBrainRoot(body.project);
+      if (!root) return res.status(404).json({ error: 'no project root' });
+      const card = getBrainService(root).updateCard(id, {
+        type: body.type,
+        title: body.title,
+        body: body.body,
+        files: body.files,
+        sourceSessionId: body.sourceSessionId,
+        pinned: body.pinned,
+        status: body.status,
+        seen: body.seen,
+      });
+      if (!card) return res.status(404).json({ error: 'card not found' });
+      graphManager.notifyBrainChanged(body.project);
+      broadcastSnapshot();
+      saveCheckpoint();
+      res.json({ ok: true, card });
+    } catch (err) {
+      logger.error('PATCH /api/brain/cards failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /** DELETE /api/brain/cards/:id — 카드 삭제(파괴적 — 클라에서 확인 후). */
+  app.delete('/api/brain/cards/:id', (req, res) => {
+    try {
+      const { id } = req.params;
+      const project = typeof req.query.project === 'string' ? req.query.project : undefined;
+      const root = graphManager.resolveBrainRoot(project);
+      if (!root) return res.status(404).json({ error: 'no project root' });
+      const ok = getBrainService(root).deleteCard(id);
+      if (!ok) return res.status(404).json({ error: 'card not found' });
+      graphManager.notifyBrainChanged(project);
+      broadcastSnapshot();
+      saveCheckpoint();
+      res.json({ ok: true });
+    } catch (err) {
+      logger.error('DELETE /api/brain/cards failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /** POST /api/brain/cards/:id/promote — 개별(agent) 카드를 프로젝트 두뇌로 승격(이동). */
+  app.post('/api/brain/cards/:id/promote', (req, res) => {
+    try {
+      const { id } = req.params;
+      const project = typeof req.body?.project === 'string' ? req.body.project : undefined;
+      const root = graphManager.resolveBrainRoot(project);
+      if (!root) return res.status(404).json({ error: 'no project root' });
+      const card = getBrainService(root).promoteCard(id);
+      if (!card) return res.status(404).json({ error: 'card not found' });
+      graphManager.notifyBrainChanged(project);
+      broadcastSnapshot();
+      saveCheckpoint();
+      res.json({ ok: true, card });
+    } catch (err) {
+      logger.error('POST /api/brain/cards/:id/promote failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /** POST /api/brain/cards/:id/seen — "최근 저장" 검토함 확인(배지 카운트 감소). */
+  app.post('/api/brain/cards/:id/seen', (req, res) => {
+    try {
+      const { id } = req.params;
+      const project = typeof req.body?.project === 'string' ? req.body.project : undefined;
+      const root = graphManager.resolveBrainRoot(project);
+      if (!root) return res.status(404).json({ error: 'no project root' });
+      const card = getBrainService(root).markSeen(id);
+      if (!card) return res.status(404).json({ error: 'card not found' });
+      graphManager.notifyBrainChanged(project);
+      broadcastSnapshot();
+      saveCheckpoint();
+      res.json({ ok: true, card });
+    } catch (err) {
+      logger.error('POST /api/brain/cards/:id/seen failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * POST /api/brain/cards/:id/helpful — v3.49 사용자 👍 "도움됨"(helpfulCount++). 파일은 디바운스 flush 로 영속.
+   * **broadcast/saveCheckpoint 없음**(helpfulCount 는 스냅샷 요약에 없어 재계산 불요 — 비용 절감). 캐시만 무효화.
+   */
+  app.post('/api/brain/cards/:id/helpful', (req, res) => {
+    try {
+      const { id } = req.params;
+      const project = typeof req.body?.project === 'string' ? req.body.project : undefined;
+      const root = graphManager.resolveBrainRoot(project);
+      if (!root) return res.status(404).json({ error: 'no project root' });
+      const card = getBrainService(root).markHelpful(id);
+      if (!card) return res.status(404).json({ error: 'card not found' });
+      graphManager.notifyBrainChanged(project);
+      res.json({ ok: true, card });
+    } catch (err) {
+      logger.error('POST /api/brain/cards/:id/helpful failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * GET /api/brain/search?q=&scope=&agentId=&project= — 능동 검색(두 층 합산, 경량 텍스트).
+   * loopback 화이트리스트에 포함(에이전트가 토큰 인증으로 직접 호출). 참조 카운트 갱신.
+   */
+  app.get('/api/brain/search', (req, res) => {
+    try {
+      const q = typeof req.query.q === 'string' ? req.query.q : '';
+      if (!q.trim()) return res.json({ results: [] });
+      const project = typeof req.query.project === 'string' ? req.query.project : undefined;
+      const scope = req.query.scope === 'project' || req.query.scope === 'agent'
+        ? (req.query.scope as BrainCardScope) : undefined;
+      const agentId = typeof req.query.agentId === 'string' ? req.query.agentId : undefined;
+      const root = graphManager.resolveBrainRoot(project);
+      if (!root) return res.json({ results: [] });
+      const svc = getBrainService(root);
+      const results = svc.search(q, { scope, agentId });
+      if (results.length > 0) {
+        svc.touchReferences(results.map((c) => c.id));
+        // 능동 검색 주입 신호(스냅샷 칩 연출). agentId 있을 때만 귀속.
+        if (agentId) {
+          const ev: BrainInjectionEvent = {
+            id: randomUUID(),
+            agentId,
+            at: Date.now(),
+            cardIds: results.map((c) => c.id),
+            cardTitles: results.map((c) => c.title),
+            trigger: 'search',
+          };
+          graphManager.addBrainInjection(ev);
+        }
+        graphManager.notifyBrainChanged(project);
+      }
+      // 결과에 출처 층 표시(scope 필드가 이미 층 정보). 본문 포함.
+      res.json({ results });
+    } catch (err) {
+      logger.error('GET /api/brain/search failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * POST /api/brain/file-notes — 파일 접근 경고(hook PostToolUse Edit/Write). loopback 화이트리스트.
+   * un-warned 실수/교훈 카드가 그 파일에 매칭되면 {warning} 반환(세션+파일당 1회), 아니면 204.
+   * **broadcast 금지**(§9 perf — per-tool-event). O(map lookup) — LLM/스캔 없음.
+   */
+  app.post('/api/brain/file-notes', (req, res) => {
+    try {
+      const body = (req.body ?? {}) as { session_id?: string; file_path?: string };
+      const sessionId = typeof body.session_id === 'string' ? body.session_id : '';
+      const filePath = typeof body.file_path === 'string' ? body.file_path : '';
+      if (!sessionId || !filePath) return res.status(204).end();
+      const warnKey = `${sessionId}::${normPathForWarn(filePath)}`;
+      if (BRAIN_FILE_WARN_ONCE_PER_SESSION && brainFileWarned.has(warnKey)) return res.status(204).end();
+      const root = graphManager.getAgentCwd(sessionId) ?? graphManager.getRoot();
+      if (!root) return res.status(204).end();
+      const svc = getBrainService(root);
+      const cards = svc.getCardsForFiles([filePath]);
+      if (cards.length === 0) return res.status(204).end();
+      brainFileWarned.add(warnKey);
+      svc.touchReferences(cards.map((c) => c.id));
+      const agentId = graphManager.findAgentIdBySession(sessionId);
+      if (agentId) {
+        graphManager.addBrainInjection({
+          id: randomUUID(),
+          agentId,
+          at: Date.now(),
+          cardIds: cards.map((c) => c.id),
+          cardTitles: cards.map((c) => c.title),
+          trigger: 'file',
+        });
+        graphManager.notifyBrainChanged();
+      }
+      const warning = [
+        `[Project Brain] 이 파일에 연결된 과거 실수/교훈 ${cards.length}건이 있습니다 — 같은 실수를 반복하지 마세요:`,
+        ...cards.map((c) => `- (${c.type}) ${c.title}${c.body ? `: ${c.body.split('\n')[0]}` : ''}`),
+      ].join('\n');
+      res.json({ warning });
+    } catch (err) {
+      logger.error('POST /api/brain/file-notes failed', err);
+      res.status(204).end();
     }
   });
 
@@ -1948,6 +2471,8 @@ export async function runServer(): Promise<RunServerHandle> {
       const sessionId = graphManager.findSessionByAgentId(agentId);
       if (sessionId) {
         agentTracker.dismiss(sessionId);
+        // §5.10 — dismiss 도 세션 종료 신호 → 리플렉션 예약(실패 무시).
+        triggerBrainReflection(sessionId);
         // markAgentIdle 이 파일/폴더 엣지를 삭제 → 클라에 즉시 반영해야
         // 완료 에이전트 dismiss 시 폴더 버블이 화면에서 사라진다(고정 제외).
         // 형제 변이 엔드포인트와 동일하게 broadcast + saveCheckpoint 쌍으로 마감.
@@ -1992,6 +2517,130 @@ export async function runServer(): Promise<RunServerHandle> {
       return;
     }
     res.json({ ok: true });
+  });
+
+  /**
+   * §5.5 #17-10 v3.53 — POST /api/subagents/:agentId/:subId/stop-session — **세션 스코프 전체 중지**.
+   *
+   * v3.51 의 `stop-all` 은 [중지] 를 에이전트 단위로 올려, 지금 보고 있지도 않은 **다른 세션 탭까지**
+   * 함께 끊었다("이 세션만 멈추라는 건데 왜 다른 세션까지 죽냐"). 이 라우트는 stop-all 의 3단을
+   * **열려 있는 그 세션 하나에만** 적용한다:
+   *   1) `subAgentManager.stop(subId)` — 그 탭의 자식 프로세스 트리 / agent-view worker 만 종료
+   *      + 그 세션이 띄운 백그라운드 서브에이전트 대차대조만 해제(§5.5 #17-10 ②).
+   *   2) 이 세션의 `queued` 명령만 폐기 — 중지 직후 **이 세션의** 다음 명령이 자동 dispatch 되지 않게.
+   *      다른 세션의 큐는 그대로 둔다(그 탭은 계속 돌아야 한다).
+   *   3) 살아있는 자식 없이 `executing` 에 굳어 있던 **이 세션의** 명령만 `[Stopped by user]` 봉합.
+   * 실행 중인 게 없어도 200 (멱등) — 사용자가 두 번 눌러도 에러 카드가 뜨지 않게.
+   */
+  app.post('/api/subagents/:agentId/:subId/stop-session', (req, res) => {
+    const { agentId, subId } = req.params;
+    const stopped = subAgentManager.stop(subId);
+
+    let cancelledQueued = 0;
+    let sealedExecuting = 0;
+    const sessionId = graphManager.findSessionByAgentId(agentId);
+    const queue = sessionId ? commandQueues.get(sessionId) : undefined;
+    if (queue && sessionId) {
+      const remaining: QueuedCommand[] = [];
+      // 봉합한 명령은 stop-all 과 동일하게 Results 아카이브로 넘긴다 — 평소 완료 경로와 같은 자리에
+      // `[Stopped by user]` 로 남아야 사용자가 "왜 사라졌지"를 겪지 않는다.
+      const sealed: QueuedCommand[] = [];
+      for (const c of queue) {
+        // 다른 세션 소유 명령은 손대지 않는다 — 이 라우트의 존재 이유.
+        if (c.subAgentId !== subId) { remaining.push(c); continue; }
+        if (c.status === 'queued') { cancelledQueued++; continue; }
+        if (c.status === 'executing' && !subAgentManager.isSubRunning(subId)) {
+          c.status = 'completed';
+          c.result = '[Stopped by user]';
+          sealedExecuting++;
+          sealed.push(c);
+          const sealedSub = subAgentManager.getSub(subId);
+          if (sealedSub && sealedSub.status === 'active') {
+            sealedSub.status = 'idle';
+            sealedSub.lastActivityAt = Date.now();
+          }
+          continue;
+        }
+        remaining.push(c);
+      }
+      commandQueues.set(sessionId, remaining);
+      if (sealed.length > 0) {
+        let archive = completedCommandArchive.get(sessionId);
+        if (!archive) { archive = []; completedCommandArchive.set(sessionId, archive); }
+        archive.push(...sealed);
+      }
+    }
+
+    logger.info(
+      `[stop-session] agent=${agentId} sub=${subId} stopped=${stopped} cancelledQueued=${cancelledQueued} sealedExecuting=${sealedExecuting}`,
+    );
+    graphManager.recomputeCustomAgentStatus(agentId);
+    broadcastSnapshot();
+    saveCheckpoint();
+    res.json({ ok: true, stopped, cancelledQueued, sealedExecuting });
+  });
+
+  /**
+   * §5.5 #17-9 v3.51 — POST /api/subagents/:agentId/stop-all — **에이전트 전체 중지**.
+   *
+   * 세션 1개만 끊던 위 `/stop` 으로는 (a) 다른 탭의 실행, (b) 감독관이 백단에 띄운 Task 서브에이전트,
+   * (c) 큐에 남아 곧바로 dispatch 될 `queued` 명령이 계속 살아 "Stop 을 눌러도 안 멈추는" 것처럼 보였다.
+   * 이 라우트는 셋을 한 번에 끊는다:
+   *   1) `subAgentManager.stopAll` — 모든 탭의 자식 프로세스 트리 / agent-view worker 종료
+   *      + 백그라운드 서브에이전트 대차대조(§5.3 #12-1 v3.43) 해제.
+   *   2) 이 에이전트 세션 큐의 `queued` 전량 폐기 — 중지 직후 다음 명령이 자동으로 튀어나오지 않게.
+   *   3) 살아있는 자식 없이 `executing` 에 걸려 있던 명령은 `[Stopped by user]` 로 봉합 + sub idle 복귀
+   *      (자식이 있는 건은 건드리지 않는다 — close 핸들러가 정상 경로로 마무리).
+   * 실행 중인 게 없어도 200 (멱등) — 사용자가 두 번 눌러도 에러 카드가 뜨지 않게.
+   *
+   * §5.5 #17-10 v3.53 — 이제 이 라우트는 **스코프를 좁힐 세션이 없는 메인 탭 전용**이다.
+   * 세션 탭이 열려 있을 때의 [중지] 는 위 `/:subId/stop-session` 으로 간다(다른 탭 보호).
+   */
+  app.post('/api/subagents/:agentId/stop-all', (req, res) => {
+    const { agentId } = req.params;
+    const stopped = subAgentManager.stopAll(agentId);
+
+    let cancelledQueued = 0;
+    let sealedExecuting = 0;
+    const sessionId = graphManager.findSessionByAgentId(agentId);
+    const queue = sessionId ? commandQueues.get(sessionId) : undefined;
+    if (queue && sessionId) {
+      const remaining: QueuedCommand[] = [];
+      // 봉합한 명령은 그냥 버리지 않고 Results 아카이브로 넘긴다 — 평소 완료 경로와 같은 자리에
+      // `[Stopped by user]` 로 남아야 사용자가 "왜 사라졌지"를 겪지 않는다.
+      const sealed: QueuedCommand[] = [];
+      for (const c of queue) {
+        if (c.status === 'queued') { cancelledQueued++; continue; }
+        if (c.status === 'executing' && !(c.subAgentId && subAgentManager.isSubRunning(c.subAgentId))) {
+          // 자식은 이미 없는데 executing 으로 굳어 있던 건 — 여기서 봉합해야 UI 가 Run 으로 돌아온다.
+          c.status = 'completed';
+          c.result = '[Stopped by user]';
+          sealedExecuting++;
+          sealed.push(c);
+          const sealedSub = c.subAgentId ? subAgentManager.getSub(c.subAgentId) : undefined;
+          if (sealedSub && sealedSub.status === 'active') {
+            sealedSub.status = 'idle';
+            sealedSub.lastActivityAt = Date.now();
+          }
+          continue;
+        }
+        remaining.push(c);
+      }
+      commandQueues.set(sessionId, remaining);
+      if (sealed.length > 0) {
+        let archive = completedCommandArchive.get(sessionId);
+        if (!archive) { archive = []; completedCommandArchive.set(sessionId, archive); }
+        archive.push(...sealed);
+      }
+    }
+
+    logger.info(
+      `[stop-all] agent=${agentId} stoppedSubs=${stopped.length} cancelledQueued=${cancelledQueued} sealedExecuting=${sealedExecuting}`,
+    );
+    graphManager.recomputeCustomAgentStatus(agentId);
+    broadcastSnapshot();
+    saveCheckpoint();
+    res.json({ ok: true, stopped: stopped.length, cancelledQueued, sealedExecuting });
   });
 
   /** DELETE /api/subagents/:agentId/:subId — 서브에이전트 탭 닫기(세션 종료+삭제) */
@@ -2935,8 +3584,12 @@ export async function runServer(): Promise<RunServerHandle> {
       const did = toStrArray(body.did);
       const userActions = toStrArray(body.userActions);
       const nextSteps = toStrArray(body.nextSteps);
+      // §5.10 — 에이전트가 신고에 담아 보낸 "배운 것"(교훈). Brain 개별 기억 카드로 저장(중복 검사 경유).
+      const learned = toStrArray(body.learned).slice(0, 3).map((s) => s.trim());
+      // §5.10 v3.49 — 브리핑/주입으로 받은 카드 중 실제 도움된 id. 랭킹 "도움됨" 신호(markHelpful).
+      const helpfulMemoryIds = toStrArray(body.helpfulMemoryIds).map((s) => s.trim());
       // 내용이 전혀 없으면 무시 (빈 신고로 카드만 늘리지 않음)
-      if (did.length === 0 && userActions.length === 0 && nextSteps.length === 0) {
+      if (did.length === 0 && userActions.length === 0 && nextSteps.length === 0 && learned.length === 0) {
         res.status(400).json({ ok: false, error: 'empty report' });
         return;
       }
@@ -2948,12 +3601,48 @@ export async function runServer(): Promise<RunServerHandle> {
         userActions,
         ...(nextSteps.length > 0 ? { nextSteps } : {}),
         ...(typeof body.note === 'string' && body.note.trim() ? { note: body.note.trim() } : {}),
+        ...(learned.length > 0 ? { learned } : {}),
+        ...(helpfulMemoryIds.length > 0 ? { helpfulMemoryIds } : {}),
         createdAt: Date.now(),
       };
       const ok = graphManager.addAgentReport(report);
       if (!ok) {
         res.status(404).json({ ok: false, error: 'agent not found' });
         return;
+      }
+      // §5.10 — learned → 개별(agent) 기억 카드. 실패해도 신고 자체는 성공 처리.
+      if (learned.length > 0) {
+        try {
+          const root = graphManager.getProjectPathForAgent(body.agentId) ?? graphManager.getRoot();
+          if (root) {
+            const svc = getBrainService(root);
+            for (const line of learned) {
+              svc.saveCard({
+                type: 'lesson',
+                scope: 'agent',
+                agentId: body.agentId,
+                title: line.slice(0, 60),
+                body: line,
+                seen: false,
+              });
+            }
+            graphManager.notifyBrainChanged();
+          }
+        } catch (e) {
+          logger.warn('[brain] learned card save failed', e as Error);
+        }
+      }
+      // §5.10 v3.49 — helpfulMemoryIds → markHelpful(랭킹 도움됨 신호). best-effort, 미지 id 는 무시.
+      if (helpfulMemoryIds.length > 0) {
+        try {
+          const root = graphManager.getProjectPathForAgent(body.agentId) ?? graphManager.getRoot();
+          if (root) {
+            const svc = getBrainService(root);
+            for (const cid of helpfulMemoryIds) svc.markHelpful(cid);
+          }
+        } catch (e) {
+          logger.warn('[brain] markHelpful failed', e as Error);
+        }
       }
       broadcast({ type: 'agent_report', payload: { agentId: report.agentId, subAgentId: report.subAgentId } } as WSMessage);
       broadcastSnapshot();
@@ -3428,6 +4117,14 @@ export async function runServer(): Promise<RunServerHandle> {
         res.status(409).json({ error: 'bubble preserved', reason: 'preserve-pinned' });
         return;
       }
+      // §5.10 — 커스텀 에이전트 삭제는 즉시 소멸 대신 휴지통 이동(identity 보존, 묘비 ❌).
+      //   휴지통 이동에 성공하면 removeBubble 로 내려가지 않는다(영구 삭제는 /api/trash/agent).
+      if (graphManager.tryTrashCustomAgentByBubbleId(nodeId)) {
+        broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getSnapshot() });
+        saveCheckpoint();
+        res.json({ ok: true, trashed: true });
+        return;
+      }
       // v1.85 — 사용자 명시 버블 삭제: 에이전트면 그 Task Edge 까지 cascade 제거(고아 방지).
       graphManager.removeBubble(nodeId, { purgeTaskEdges: true });
       broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getSnapshot() });
@@ -3454,6 +4151,11 @@ export async function runServer(): Promise<RunServerHandle> {
         // preserve-pin 가드 (§2.4 v1.28) — 차단된 건 건너뛰고 나머지는 계속 삭제
         if (graphManager.isPreservePinned(nodeId)) {
           blocked.push(nodeId);
+          continue;
+        }
+        // §5.10 — 커스텀 에이전트는 즉시 소멸 대신 휴지통 이동.
+        if (graphManager.tryTrashCustomAgentByBubbleId(nodeId)) {
+          deleted.push(nodeId);
           continue;
         }
         // v1.85 — 사용자 명시 일괄 삭제: 에이전트면 Task Edge 까지 cascade 제거.
@@ -4370,6 +5072,88 @@ export async function runServer(): Promise<RunServerHandle> {
     res.json({ ok: true });
   });
 
+  // ─── §5.9 화면/프로그램 캡처 버블 — 사용자 생성 독립 캔버스 요소 (CommentBox 패턴) ───
+
+  /** GET /api/capture-bubbles — 모든 캡처 버블 조회(디버그용). 일반적으로 snapshot 으로 받음. */
+  app.get('/api/capture-bubbles', (_req, res) => {
+    res.json({ ok: true, data: graphManager.getAllCaptureBubbles() });
+  });
+
+  /** POST /api/capture-bubbles — 새 캡처 버블 생성. */
+  app.post('/api/capture-bubbles', (req, res) => {
+    const body = req.body as {
+      projectName?: string;
+      x?: number;
+      y?: number;
+      width?: number;
+      height?: number;
+      sourceId?: string;
+      sourceName?: string;
+      sourceKind?: string;
+    };
+    if (
+      typeof body.projectName !== 'string' ||
+      typeof body.x !== 'number' ||
+      typeof body.y !== 'number' ||
+      typeof body.width !== 'number' ||
+      typeof body.height !== 'number' ||
+      typeof body.sourceId !== 'string' ||
+      typeof body.sourceName !== 'string' ||
+      (body.sourceKind !== 'screen' && body.sourceKind !== 'window')
+    ) {
+      res.status(400).json({ ok: false, error: 'projectName, x, y, width, height, sourceId, sourceName, sourceKind required' });
+      return;
+    }
+    const bubble = graphManager.createCaptureBubble({
+      projectName: body.projectName,
+      x: body.x,
+      y: body.y,
+      width: body.width,
+      height: body.height,
+      sourceId: body.sourceId,
+      sourceName: body.sourceName,
+      sourceKind: body.sourceKind,
+    });
+    if (!bubble) {
+      res.status(500).json({ ok: false, error: 'no project instance registered' });
+      return;
+    }
+    broadcastSnapshot();
+    saveCheckpoint();
+    res.json({ ok: true, data: bubble });
+  });
+
+  /** PATCH /api/capture-bubbles/:id — 위치/크기/소스 부분 업데이트. */
+  app.patch('/api/capture-bubbles/:id', (req, res) => {
+    const id = req.params['id']!;
+    const body = req.body as {
+      x?: number;
+      y?: number;
+      width?: number;
+      height?: number;
+      sourceId?: string;
+      sourceName?: string;
+      sourceKind?: 'screen' | 'window';
+    };
+    const updated = graphManager.updateCaptureBubble(id, body);
+    if (!updated) {
+      res.status(404).json({ ok: false, error: 'not found' });
+      return;
+    }
+    broadcastSnapshot();
+    saveCheckpoint();
+    res.json({ ok: true, data: updated });
+  });
+
+  /** DELETE /api/capture-bubbles/:id */
+  app.delete('/api/capture-bubbles/:id', (req, res) => {
+    const deleted = graphManager.deleteCaptureBubble(req.params['id']!);
+    if (!deleted) { res.status(404).json({ ok: false, error: 'not found' }); return; }
+    broadcastSnapshot();
+    saveCheckpoint();
+    res.json({ ok: true });
+  });
+
   /**
    * §5.4 #29 v1.51 — Canvas 복사·붙여넣기.
    * 클라가 localStorage 에 저장한 CanvasClipboardPayload + 대상 projectName + anchor(캔버스 좌표)
@@ -4759,6 +5543,42 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   }
 
+  // §9 v3.45 — hook-event 도구 이벤트 경로 전용 체크포인트 코얼레스(부하 적응형,
+  // broadcastSnapshot 동형). saveCheckpoint() 는 체크포인트 build + 전체 stringify +
+  // fsync 원자쓰기를 메인 스레드에서 동기 수행하므로, 도구 이벤트가 초당 수~수십 건
+  // 도착하는 전수조사에선 이벤트당 저장이 스레드를 포화시켜 앱 전체가 동결됐다.
+  // #4 원칙(이벤트 동기 즉시 저장)은 사용자 조작·설정·정체성 변경 등 나머지 모든 호출
+  // 지점에서 그대로 — 여기서 묶는 것은 hook-event 도구 이벤트뿐이다. 비정상 종료로 잃을
+  // 수 있는 건 최대 창 하나(≤5s) 분량의 휘발성 그래프 상태이고, 정상 종료는 아래
+  // 'exit' 동기 flush 가 보장한다(과거 디바운스 설정-유실 결함의 재발 경로 없음).
+  let checkpointTimer: ReturnType<typeof setTimeout> | null = null;
+  let checkpointDelay = CHECKPOINT_BATCH_INTERVAL;
+  function scheduleCheckpoint(): void {
+    if (checkpointTimer !== null) return; // 이미 예약됨 — trailing flush 가 최신 상태를 저장
+    checkpointTimer = setTimeout(() => {
+      checkpointTimer = null;
+      const t0 = performance.now();
+      saveCheckpoint();
+      const cost = performance.now() - t0;
+      checkpointDelay = Math.min(
+        Math.max(CHECKPOINT_BATCH_INTERVAL, cost * WS_BATCH_BACKOFF_FACTOR),
+        CHECKPOINT_BATCH_INTERVAL_MAX,
+      );
+    }, checkpointDelay);
+  }
+  process.on('exit', () => {
+    // 'exit' 핸들러는 동기 작업만 허용 — saveCheckpoint 는 전 구간 동기라 안전.
+    if (checkpointTimer !== null) {
+      clearTimeout(checkpointTimer);
+      checkpointTimer = null;
+      try { saveCheckpoint(); } catch { /* 종료 중 저장 실패는 다음 부팅 백업 복구에 위임 */ }
+    }
+  });
+
+  // §9 v3.45 — PostToolUse Bash 전 노드 existsSync 스윕 최소 간격.
+  const EXISTENCE_SWEEP_MIN_INTERVAL_MS = 2000;
+  let lastExistenceSweepAt = 0;
+
   // 참조 주입 — restoreFromCheckpoint보다 먼저 실행해야 복원된 데이터가 올바른 Map에 들어감
   graphManager.setPoppedCommandsRef(poppedCommands);
   graphManager.setCommandQueuesRef(commandQueues);
@@ -4854,14 +5674,24 @@ export async function runServer(): Promise<RunServerHandle> {
     if (unknownInOpen.length > 0) {
       const goneUnknown: string[] = [];
       const keptUnknown: string[] = [];
+      const neverProject: string[] = [];
       for (const p of unknownInOpen) {
         let onDisk = false;
         try { onDisk = !!p && fs.existsSync(p); } catch { onDisk = false; }
-        if (onDisk) keptUnknown.push(p); else goneUnknown.push(p);
+        if (!onDisk) { goneUnknown.push(p); continue; }
+        // v3.63: 경로는 있는데 메타를 못 읽는 두 경우를 가른다.
+        //  - save 디렉토리에 파일이 있다 → 크래시로 project.json 만 반파됐을 수 있다 → 재시도 보존.
+        //  - save 디렉토리 자체가 없다 → 저장된 적 없는 경로(훅 세션 cwd 로 한 번 등록된 흔적 등).
+        //    잃을 데이터가 없으므로 제거해도 §3.2.1 손실 방지에 저촉되지 않는다(하이드레이트는 영원히 실패).
+        if (hasProjectSaveData(p)) keptUnknown.push(p); else neverProject.push(p);
       }
       if (goneUnknown.length > 0) {
         logger.warn(`AppState: ${goneUnknown.length} stale openProjects entry(ies) removed (path gone from disk): ${goneUnknown.join(', ')}`);
         stalePaths.push(...goneUnknown);
+      }
+      if (neverProject.length > 0) {
+        logger.warn(`AppState: ${neverProject.length} openProjects entry(ies) removed (path present but no Vibisual save data — never a project): ${neverProject.join(', ')}`);
+        stalePaths.push(...neverProject);
       }
       if (keptUnknown.length > 0) {
         logger.warn(`AppState: ${keptUnknown.length} openProjects entry(ies) kept for retry (path present but metadata unreadable — possible transient crash corruption): ${keptUnknown.join(', ')}`);
@@ -5445,7 +6275,11 @@ export async function runServer(): Promise<RunServerHandle> {
       // v1.60: completed → idle 자동 페이드 (AGENT_FADE_DURATION=60s 경과 분).
       // 사용자 클릭 dismiss 없어도 시안 글로우가 자연 소멸 → 다음 작업이 깨끗한 상태에서 시작.
       const expiredCompleted = graphManager.expireCompletedAgents();
-      if (expiredParents.length > 0 || expiredSubs.length > 0 || expiredCompleted.length > 0) {
+      // §5.10 — 카드 연결 파일 소실 → ghost(재검토) 신선도 sweep(주기, per-event ❌). 변화 시 요약 갱신.
+      let brainChanged = false;
+      try { brainChanged = sweepAllBrainStaleCards(); } catch { /* best effort */ }
+      if (brainChanged) graphManager.notifyBrainChangedAll();
+      if (expiredParents.length > 0 || expiredSubs.length > 0 || expiredCompleted.length > 0 || brainChanged) {
         broadcastSnapshot();
         saveCheckpoint();
       }

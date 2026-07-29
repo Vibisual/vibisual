@@ -33,6 +33,11 @@
       "closeTab": "Fermer l'onglet",
       "unloadedProject": "Non chargé",
       "clickToLoad": "Cliquer pour charger le projet"
+    },
+    "usage": {
+      "tooltip": "Session en cours : {{percent}} % de la limite de 5 heures utilisée — cliquez pour les détails",
+      "tooltipNoData": "Les données d’usage ne sont pas encore collectées — cliquez pour activer",
+      "noData": "--%"
     }
   },
   "panel": {
@@ -392,7 +397,8 @@
         "low": "Réflexion minimale. Plus rapide mais moins approfondie.",
         "medium": "Profondeur de réflexion équilibrée.",
         "high": "Raisonnement approfondi. Plus lent mais minutieux.",
-        "xhigh": "Raisonnement très élevé (Opus 4.7+). Recommandé pour la plupart des tâches de codage."
+        "xhigh": "Raisonnement très élevé (Opus 4.7+). Recommandé pour la plupart des tâches de codage.",
+        "unknown": "{{name}} — niveau d'effort de raisonnement pris en charge par la CLI installée."
       },
       "tools": {
         "label": "Outils",
@@ -657,6 +663,35 @@
       "delete": "Supprimer",
       "deleteBundleTooltip": "Supprimer l'ensemble du bundle (principal + arête sœur automatique)",
       "deleteEdgeTooltip": "Supprimer l'arête"
+    },
+    "usage": {
+      "title": "Usage de Claude",
+      "close": "Fermer l’usage",
+      "session5h": "Session en cours (5 heures)",
+      "weekly7d": "Limite hebdomadaire (7 jours)",
+      "resetsIn": "Réinitialisation dans {{span}}",
+      "resetUnknown": "Heure de réinitialisation inconnue",
+      "resettingNow": "Réinitialisation en cours",
+      "spanDh": "{{d}} j {{h}} h",
+      "spanHm": "{{h}} h {{m}} min",
+      "spanM": "{{m}} min",
+      "lastUpdated": "Dernière mise à jour {{time}}",
+      "neverUpdated": "Aucune donnée d’usage reçue pour l’instant",
+      "collectorTitle": "Collecteur d’usage",
+      "collectorOnHint": "Claude Code transmet vos limites à Vibisual",
+      "collectorOffHint": "Activez pour lire les limites de votre offre depuis Claude Code",
+      "collectorEnable": "Activer",
+      "collectorDisable": "Désactiver",
+      "collectorPassthrough": "Votre barre d’état existante a été conservée — Vibisual l’exécute et affiche sa sortie telle quelle.",
+      "collectorForeign": "Vous avez déjà une barre d’état personnalisée. L’activation ne la supprime pas : Vibisual l’enveloppe et affiche toujours sa sortie.",
+      "collectorFailed": "Impossible d’accéder aux réglages du collecteur d’usage.",
+      "collectorRestartHint": "Les valeurs arrivent lorsqu’une session interactive de Claude Code affiche sa barre d’état. Les sessions déjà ouvertes doivent être relancées.",
+      "localTitle": "Ce projet dans Vibisual",
+      "localAgents": "Agents",
+      "localInput": "Tokens d’entrée",
+      "localOutput": "Tokens de sortie",
+      "localHint": "Compté à partir des agents de l’onglet de projet actif. Les limites d’offre ci-dessus concernent tout le compte et incluent le travail fait hors de Vibisual.",
+      "noValue": "--"
     }
   },
   "ide": {
@@ -667,7 +702,9 @@
       "restoreLabel": "Restaurer",
       "resizeDock": "Redimensionner le dock",
       "customLabel": "Personnalisé",
-      "hookLabel": "Hook"
+      "hookLabel": "Hook",
+      "renameHint": "Double-cliquer pour renommer (F2)",
+      "renameInputLabel": "Nom de l'agent"
     },
     "tabbar": {
       "newSession": "Nouvelle session",
@@ -701,7 +738,8 @@
       "ctxQuoteReply": "Citer en réponse",
       "ctxSendAsPrompt": "Envoyer comme nouvelle invite",
       "ctxSelectAll": "Tout sélectionner",
-      "ctxSelectionRequired": "Sélectionnez du texte d'abord"
+      "ctxSelectionRequired": "Sélectionnez du texte d'abord",
+      "ctxSaveToBrain": "Enregistrer dans la mémoire"
     },
     "askQuestion": {
       "title": "Question",
@@ -775,9 +813,59 @@
       "collapse": "réduire",
       "copy": "Copier",
       "copied": "Copié"
+    },
+    "report": {
+      "learnedTitle": "Appris"
+    },
+    "memoryChip": {
+      "label": "{{n}} mémoires référencées"
     }
   },
   "bubbleMap": {
+    "capture": {
+      "pickerTitle": "Capture d'écran / de programme",
+      "pickerSubtitle": "Choisissez un écran ou une fenêtre de programme à afficher en direct dans une bulle.",
+      "screens": "Écrans",
+      "windows": "Programmes · Fenêtres",
+      "refresh": "Actualiser",
+      "loading": "Chargement des sources…",
+      "empty": "Aucune source capturable trouvée.",
+      "unavailable": "La capture d'écran n'est pas disponible ici (application empaquetée uniquement).",
+      "repick": "Choisir une autre source",
+      "connecting": "Connexion…",
+      "sourceLost": "Source introuvable · choisissez à nouveau",
+      "pickPrompt": "Cliquer pour choisir une source",
+      "controlToggle": "Contrôle à distance (injecte clics et saisie dans la cible capturée)",
+      "controlOn": "Contrôle actif",
+      "controlOff": "Contrôle à distance",
+      "expandHint": "Double-clic pour ouvrir dans une fenêtre",
+      "collapse": "Rétablir la taille (Esc)",
+      "maximize": "Agrandir",
+      "restore": "Restaurer",
+      "windowClose": "Fermer (Esc)",
+      "source": "Source de capture",
+      "kindScreen": "Écran",
+      "kindWindow": "Fenêtre",
+      "expand": "Ouvrir dans une fenêtre",
+      "playback": "Lecture",
+      "snapshotShort": "Capture",
+      "quality": "Qualité / données",
+      "view": "Affichage",
+      "stillSaverHint": "Réduit la fréquence d'images quand rien ne bouge — économise CPU et données",
+      "remoteControl": "Contrôle à distance",
+      "readOnlyHint": "Verrouille les modes de contrôle (lecture seule)",
+      "controlInWindow": "Contrôle à distance dans cette fenêtre — désactivé par défaut (souris non injectée)",
+      "delete": "Supprimer la bulle de capture",
+      "live": "EN DIRECT",
+      "keysToggle": "Touches spéciales · coller",
+      "controlTargetMissing": "Cible de contrôle introuvable · choisissez à nouveau la source",
+      "controlEngineMissing": "Moteur de contrôle non chargé · redémarrez l'app",
+      "controlInjectFailed": "Échec de l'envoi de l'entrée",
+      "backgroundClick": "Ne pas bouger mon curseur (expérimental)",
+      "backgroundClickHint": "Envoie le clic directement à la fenêtre cible, votre souris ne bouge pas. Les jeux et fenêtres protégées l'ignorent et on revient à la méthode normale.",
+      "backgroundClickBlocked": "Cette fenêtre ignore les clics en arrière-plan · le curseur a été emprunté brièvement",
+      "backgroundClickUnavailable": "Clic en arrière-plan indisponible · le curseur a été emprunté brièvement"
+    },
     "taskEdge": {
       "iconHint": "Clic : détails · Double-clic : modifier",
       "pulse": {
@@ -907,6 +995,7 @@
   "tabMenu": {
     "close": "Fermer",
     "closeOthers": "Fermer les autres",
+    "closeLeft": "Fermer à gauche",
     "closeRight": "Fermer à droite",
     "closeAll": "Fermer tout",
     "pin": "Épingler",
@@ -951,9 +1040,8 @@
       "createAutoAgentHint": "Méta-agent — génère automatiquement une équipe d'agents personnalisés depuis votre invite",
       "createWorktree": "Créer un Worktree",
       "createWorktreeHint": "Nouvel espace de travail depuis le master le plus récent",
-      "restoreCustomAgent": "Restaurer l'agent personnalisé précédent",
-      "restoreLoading": "Chargement…",
-      "restoreEmpty": "Rien à restaurer"
+      "createCapture": "Bulle de capture d'écran/programme",
+      "createCaptureHint": "Affiche un écran ou une fenêtre de programme en direct dans une bulle"
     },
     "bounds": {
       "label": "Limites des bulles",
@@ -1000,6 +1088,77 @@
         "goBack": "Double-cliquer pour revenir",
         "expand": "Double-cliquer pour développer"
       }
+    }
+  },
+  "brain": {
+    "bubbleLabel": "Mémoire",
+    "trashBubbleLabel": "Corbeille",
+    "cardCountShort": "{{n}} cartes",
+    "trashCountShort": "{{n}}",
+    "unseenBadge": "{{n}} non lues",
+    "type": {
+      "decision": "Décision",
+      "mistake": "Erreur",
+      "lesson": "Leçon",
+      "rule": "Règle",
+      "fact": "Fait"
+    },
+    "scopeProject": "Mémoire du projet",
+    "scopeAgent": "Mémoire de l'agent",
+    "statusGhost": "À revoir",
+    "supersededNote": "Contenu précédent",
+    "linkedFiles": "Fichiers liés",
+    "refCount": "Références",
+    "lastReferenced": "Dernière référence",
+    "createdAt": "Créé",
+    "sourceSession": "Session source",
+    "promote": "Promouvoir vers la mémoire du projet",
+    "pin": "Épingler",
+    "unpin": "Désépingler",
+    "edit": "Modifier",
+    "save": "Enregistrer",
+    "cancel": "Annuler",
+    "delete": "Supprimer",
+    "deleteConfirm": "Supprimer ?",
+    "deleteYes": "Supprimer",
+    "loading": "Chargement…",
+    "cardDetailTitle": "Carte mémoire",
+    "summaryCards": "Cartes mémoire",
+    "summaryUnseen": "Non lues",
+    "summaryRecent": "Enregistré récemment",
+    "openInterior": "Ouvrir l'intérieur",
+    "trashedAt": "Mis à la corbeille",
+    "trashedMemories": "Mémoires de l'agent",
+    "cardCountUnit": " cartes",
+    "restore": "Restaurer",
+    "purge": "Supprimer définitivement",
+    "purgeConfirm": "Cette action supprime tout, y compris {{n}} cartes de mémoire d'agent.",
+    "purgeYes": "Supprimer définitivement",
+    "fileMark": "Ce fichier contient une mémoire d'erreur/leçon",
+    "cardCountUnitSuffix": "",
+    "feed": {
+      "title": "Mémoire du projet",
+      "agentTitle": "Mémoire de cet agent",
+      "searchPlaceholder": "Rechercher dans les mémoires…",
+      "sectionRelated": "Lié au travail en cours",
+      "sectionRecent": "Récemment appris",
+      "sectionFrequent": "Fréquemment utilisé",
+      "sectionResurface": "À revoir",
+      "sectionAgentOwn": "Ce que cet agent a appris",
+      "sectionProjectRef": "Partagé par le projet (référence)",
+      "helpful": "Utile",
+      "refShort": "réf.",
+      "helpfulShort": "utile",
+      "scopeTagProject": "Projet",
+      "scopeTagAgent": "Cet agent",
+      "empty": "Aucune mémoire à afficher.",
+      "loading": "Chargement…",
+      "total": "{{n}} cartes",
+      "agoNow": "à l'instant",
+      "agoMin": "il y a {{n}}min",
+      "agoHour": "il y a {{n}}h",
+      "agoDay": "il y a {{n}}j",
+      "agoMonth": "il y a {{n}} mois"
     }
   }
 }

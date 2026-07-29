@@ -3,9 +3,10 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import type { ProjectInfo, SubAgent, SubAgentStatus, QueuedCommand, AgentConfig, SubAgentStreamEvent, StreamEventType, AgentViewJobState } from '@vibisual/shared';
-import { DEFAULT_AGENT_CONFIG, isOpusModel, buildCmdCardProtocolRules } from '@vibisual/shared';
+import type { ProjectInfo, SubAgent, SubAgentStatus, QueuedCommand, AgentConfig, SubAgentStreamEvent, StreamEventType, AgentViewJobState, RunningSubagentTask } from '@vibisual/shared';
+import { DEFAULT_AGENT_CONFIG, isOpusModel, resolveAliasToLatest, buildCmdCardProtocolRules } from '@vibisual/shared';
 import { logger } from '../logger.js';
+import { modelRegistryService } from './modelRegistryService.js';
 import { readLastAssistantMessage, readSessionTokenData, getSessionJsonlPath } from './sessionDiscovery.js';
 import * as streamBufferStore from './streamBufferStore.js';
 import { resolveClaudeBin } from './claudeBin.js';
@@ -44,6 +45,14 @@ function deriveTabTitle(text: string): string {
 }
 
 /**
+ * §4 — CLI `--model` 이 **bare alias 로** 인식·해소하는 패밀리.
+ * 이 셋은 `--model opus` 처럼 짧은 이름만 줘도 CLI 가 현재 latest 로 알아서 해소한다.
+ * 이 목록 밖의 패밀리(fable/mythos 등)는 CLI 가 bare alias 를 모르므로 그대로 넘기면
+ * 기본 모델(opus)로 조용히 폴백된다 → 반드시 레지스트리 latest 풀ID 로 치환해서 넘겨야 한다.
+ */
+const CLI_NATIVE_ALIASES = new Set<string>(['opus', 'sonnet', 'haiku']);
+
+/**
  * AgentConfig → claude CLI 인자 배열 변환.
  * 기본값과 같은 항목은 CLI 인자로 넘기지 않음 (불필요한 제한 방지).
  */
@@ -57,7 +66,16 @@ function buildConfigArgs(config: AgentConfig): string[] {
   //   - 정적 가드(`AVAILABLE_AGENT_MODEL_IDS.includes(...)`) 제거 — 신규 모델 출시 시 코드 수정 불필요.
   //     CLI 가 모델명 검증 담당. 잘못된 값이면 spawn 시점에 에러.
   if (config.model) {
-    const base = config.modelVersion?.trim() || config.model;
+    const pinned = config.modelVersion?.trim();
+    let base = pinned || config.model;
+    // §4 — 신규 패밀리(fable/mythos 등) bare alias 는 CLI 가 못 알아들어 기본 모델(opus)로 폴백된다.
+    //   modelVersion 풀ID 핀이 없고 CLI-native alias(opus/sonnet/haiku)도 아니면, 레지스트리에서
+    //   그 패밀리 latest 풀ID(예: fable → claude-fable-5)로 치환해 실제로 그 모델이 뜨게 한다.
+    //   레지스트리에 해당 패밀리가 없으면 bare 그대로 둔다(CLI 가 검증·에러 노출).
+    if (!pinned && !CLI_NATIVE_ALIASES.has(base)) {
+      const resolved = resolveAliasToLatest(base, modelRegistryService.getRegistry());
+      if (resolved) base = resolved;
+    }
     let modelArg = base;
     if (config.contextWindow !== '200k' && isOpusModel(base) && !modelArg.endsWith('[1m]')) {
       modelArg = `${modelArg}[1m]`;
@@ -271,6 +289,24 @@ function makeEventId(): string {
   return `se-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 }
 
+/** Edit 계열 도구 — 클라 DiffView(parseEditToolInput)가 input JSON 전체를 JSON.parse 해야
+ *  side-by-side diff 를 그린다. 여기서 자르면 JSON 이 깨져 파싱 실패 → diff 미표시(한 줄만/누락). */
+const DIFF_INPUT_TOOLS = new Set(['Edit', 'MultiEdit', 'Write', 'NotebookEdit']);
+/** 비-Edit 도구 input 미리보기 상한(문자). Edit 계열은 자르지 않는다(위 참조). */
+const TOOL_INPUT_PREVIEW_LIMIT = 300;
+
+/**
+ * tool_use input(JSON) → 스트림 이벤트 content 문자열.
+ * Edit 계열은 diff 렌더에 전체 JSON 이 필요하므로 절대 자르지 않는다(잘리면 JSON.parse 실패).
+ * 그 외 도구는 미리보기라 상한까지만.
+ */
+function summarizeToolInput(name: string, input: unknown): string {
+  if (input === undefined) return '';
+  const json = JSON.stringify(input);
+  if (DIFF_INPUT_TOOLS.has(name)) return json;
+  return json.length > TOOL_INPUT_PREVIEW_LIMIT ? json.slice(0, TOOL_INPUT_PREVIEW_LIMIT) : json;
+}
+
 /** stream-json 라인 → SubAgentStreamEvent 배열 변환.
  *  하나의 assistant 메시지는 thinking + text + tool_use 블록을 동시에 담을 수 있어 배열로 반환.
  *  §5.7 #23-2 v1.60 — Agent View JSONL tail 경로(`claudeAgentViewWatcher`)에서도 동일 함수 재사용
@@ -316,7 +352,7 @@ export function parseStreamLine(
       } else if (bt === 'tool_use') {
         const name = (b['name'] ?? 'unknown') as string;
         const input = b['input'];
-        const summary = input !== undefined ? JSON.stringify(input).slice(0, 300) : '';
+        const summary = summarizeToolInput(name, input);
         const toolUseId = typeof b['id'] === 'string' ? (b['id'] as string) : undefined;
         events.push({ ...makeBase(), eventType: 'tool_use', content: summary, toolName: name, toolUseId });
       }
@@ -349,7 +385,7 @@ export function parseStreamLine(
     const tool = obj['tool'] as Record<string, unknown> | undefined;
     const name = (tool?.['name'] ?? obj['name'] ?? 'unknown') as string;
     const input = tool?.['input'] ?? obj['input'];
-    const summary = input !== undefined ? JSON.stringify(input).slice(0, 300) : '';
+    const summary = summarizeToolInput(name, input);
     return [{ ...makeBase(), eventType: 'tool_use', content: summary, toolName: name }];
   }
 
@@ -403,6 +439,15 @@ export function parseStreamLine(
   return [];
 }
 
+/** §5.3 #12-1 v3.43 — 백그라운드 서브에이전트 대차대조의 누수 안전장치(quiet window).
+ *  그 에이전트 세션에서 훅 신호(도구 시작/종료·SubagentStop 등)가 이 시간 동안 전무하면
+ *  자식이 죽어 SubagentStop 이 유실된 것으로 보고 pending 전량 해제. 긴 단일 도구 호출도
+ *  시작 시점의 PreToolUse 가 신호를 남기므로 정상 작업 중에는 발동하지 않는다. */
+const PENDING_SUBAGENT_QUIET_MS = 30 * 60 * 1000;
+/** §5.3 #12-1 v3.43 — pending 항목별 절대 상한. 신호 여부와 무관하게 이걸 넘긴 항목은 파기
+ *  (거짓 영구-활성 고착 방지의 마지막 방벽). */
+const PENDING_SUBAGENT_MAX_AGE_MS = 4 * 60 * 60 * 1000;
+
 export class SubAgentManager {
   /** agentId → SubAgent[] */
   private registry = new Map<string, SubAgent[]>();
@@ -432,6 +477,29 @@ export class SubAgentManager {
   /** 사용자가 stop() 호출로 명시 중지한 subagentId — close 핸들러에서 '유저 중지' vs '에러' 를 구분해
    *  cmd.result 를 `[Stopped by user]` 로 채우고 sub.status 를 idle 로 복귀시키기 위함. */
   private stoppedByUser = new Set<string>();
+  /** §5.3 #12-1 v3.43 — 헤드리스 감독관의 "백그라운드 서브에이전트" 대차대조.
+   *  parentAgentId → (부모 Task/Agent tool_use_id → 시작 시각). PreToolUse(Task|Agent) ↑ /
+   *  SubagentStop(서브의 parent_tool_use_id 로 매칭) ↓. size>0 인 동안 recompute/sweep/expire 가
+   *  부모 버블을 completed/idle 로 강등하지 않는다 — 부모 턴이 끝나 sub 가 idle 이어도 자식들이
+   *  백단에서 도는 중 = "대기 중인 활성". 런타임 전용(영속화 ❌ — 재시작 시 리셋, 살아있는
+   *  워커는 reattach 경로가 별도 복구).
+   *  §5.5 #17-9 v3.51 — 항목에 `tool_input` 메타(description/subagentType/prompt)를 함께 싣는다.
+   *  대차대조 판정에는 쓰이지 않고 오직 IDE 표시(`getRunningSubagentTasks`)용이다. */
+  private pendingSubagentTasks = new Map<string, Map<string, {
+    ts: number;
+    subId?: string;
+    description?: string;
+    subagentType?: string;
+    prompt?: string;
+  }>>();
+  /** parentAgentId → 마지막 훅 신호 시각 — 위 대차대조의 quiet-window 누수 안전장치 기준. */
+  private pendingSubagentLastSignal = new Map<string, number>();
+  /** §5.3 #12-1 — 위 대차대조 때문에 `active` 로 올려둔 sub 들(= 자기 턴은 끝났지만 자식이 백단에서
+   *  도는 세션 탭). pending 이 비면 여기 있는 것만 idle 로 되돌린다 — 진짜 명령을 처리 중이라
+   *  active 인 sub 를 잘못 강등하지 않기 위한 소유권 표식. */
+  private bgPromotedSubs = new Set<string>();
+  /** tool_use_id 미상 페이로드용 합성 키 시퀀스. */
+  private pendingSubagentAnonSeq = 0;
   /** Persistent child — 자식이 turn 사이 idle(다음 stdin write 대기) 인가. true 면 reuse 가능.
    *  result 라인 도착 시 true, 새 stdin write 직전 false. */
   private persistentChildReady = new Map<string, boolean>();
@@ -853,6 +921,238 @@ export class SubAgentManager {
     return this.runningChildren.has(subId) || this.runningAgentViewWatchers.has(subId);
   }
 
+  /** 이 sub 가 **지금 한 턴(명령)을 실제로 처리 중**인가 — `isSubRunning` 보다 좁다.
+   *  `isSubRunning` 은 idle 로 대기하는 persistent 자식(명령 사이 살아만 있는)도 true 라
+   *  완료 판정 가드로 쓰면 부모가 영영 completed 로 못 간다. 이 술어는 "처리 중"만 잡는다:
+   *   - persistent: in-flight 명령 보유(`persistentInFlightCmd`).
+   *   - legacy: 자식 생존 && persistent-ready 가 아님(legacy 자식은 명령 동안만 존재).
+   *   - agent-view: watcher 보유.
+   *  용도 — `recomputeCustomAgentStatus` 가 sub.status 가 순간 비활성으로 읽혀도(예: result 직후
+   *  finalize→idle 과 다음 명령 dispatch 사이) 자식이 아직 턴을 돌리는 중이면 부모를 완료로
+   *  강등하지 않게 한다(= 헤드리스 감독관 조기 완료 차단). idle 대기 자식은 여기서 제외되므로
+   *  진짜 끝났을 때는 정상적으로 완료된다. */
+  isSubProcessingCommand(subId: string): boolean {
+    if (this.persistentInFlightCmd.has(subId)) return true;
+    if (this.runningAgentViewWatchers.has(subId)) return true;
+    if (this.runningChildren.has(subId) && this.persistentChildReady.get(subId) !== true) return true;
+    return false;
+  }
+
+  /** §5.3 #12-1 v3.43 — sessionId 로 managed sub 역조회 (훅 이벤트의 소유 에이전트 해석용).
+   *  isManagedSession 과 동일 스캔 — index 는 수십 건 규모라 훅 이벤트당 비용 무시 가능. */
+  findSubBySessionId(sessionId: string): SubAgent | undefined {
+    if (!sessionId) return undefined;
+    for (const s of this.index.values()) {
+      if (s.sessionId === sessionId || s.agentViewSessionId === sessionId) return s;
+    }
+    return undefined;
+  }
+
+  /** §5.3 #12-1 v3.43 — 부모의 Task/Agent PreToolUse: 백그라운드 서브에이전트 대차대조 ↑.
+   *  `ownerSubId` 는 이 Task 를 띄운 세션 탭(sub) — 그 탭 도트를 대차대조와 함께 구동한다.
+   *  @returns sub 도트 상태가 바뀌었으면 true (호출자 broadcast 판단용). */
+  noteSubagentTaskStart(
+    parentAgentId: string,
+    toolUseId?: string,
+    ownerSubId?: string,
+    meta?: { description?: string; subagentType?: string; prompt?: string },
+  ): boolean {
+    let m = this.pendingSubagentTasks.get(parentAgentId);
+    if (!m) {
+      m = new Map();
+      this.pendingSubagentTasks.set(parentAgentId, m);
+    }
+    const key = toolUseId ?? `anon-${++this.pendingSubagentAnonSeq}`;
+    m.set(key, {
+      ts: Date.now(),
+      subId: ownerSubId,
+      description: meta?.description,
+      subagentType: meta?.subagentType,
+      prompt: meta?.prompt,
+    });
+    this.pendingSubagentLastSignal.set(parentAgentId, Date.now());
+    logger.info(`[bg-subagent] start parent=${parentAgentId} key=${key} sub=${ownerSubId ?? '-'} pending=${m.size}`);
+    return this.syncBgSubStatus(parentAgentId);
+  }
+
+  /**
+   * §5.3 #12-1 — 백그라운드 대차대조를 **세션 탭(sub) 도트에도** 반영.
+   *
+   * 배경: v3.43 대차대조는 부모 **버블**만 active 로 유지했다. 부모(감독관) 턴이 끝나면
+   * `_finalizeLegacyCommand` 가 sub.status 를 idle 로 내리므로, 자식이 백단에서 도는 동안
+   * 버블은 동작 이펙트인데 **탭 도트만 녹색(idle=완료·미확인)** 으로 어긋났다. v2.64 의
+   * `markCmdSubActivity`(CMD 탭 도트 연속 동기화)와 같은 부류의 누락 — 여기서 메운다.
+   *
+   * pending 이 걸린 sub 는 active 로 올리고(그 사실을 `bgPromotedSubs` 에 표식), pending 이
+   * 비면 **표식이 있는 sub 만** idle 로 되돌린다. 실제 명령을 처리 중인 sub 는
+   * `isSubProcessingCommand` 로 보호 — 진행 중인 턴을 거짓 idle 로 세탁하지 않는다.
+   *
+   * @returns 하나라도 바뀌었으면 true (호출자 broadcast 판단용).
+   */
+  private syncBgSubStatus(parentAgentId: string): boolean {
+    const m = this.pendingSubagentTasks.get(parentAgentId);
+    const pendingSubIds = new Set<string>();
+    if (m) {
+      for (const e of m.values()) {
+        if (e.subId) pendingSubIds.add(e.subId);
+      }
+    }
+    let changed = false;
+    for (const sub of this.registry.get(parentAgentId) ?? []) {
+      if (pendingSubIds.has(sub.id)) {
+        this.bgPromotedSubs.add(sub.id);
+        // error 는 보존 — 자식이 돈다고 실패한 턴을 active 로 세탁하지 않는다.
+        if (sub.status === 'idle' || sub.status === 'completed') {
+          sub.status = 'active';
+          sub.lastActivityAt = Date.now();
+          changed = true;
+        }
+      } else if (this.bgPromotedSubs.delete(sub.id)) {
+        if (sub.status === 'active' && !this.isSubProcessingCommand(sub.id)) {
+          // 자식이 다 끝났고 이 탭도 처리 중이 아니다 → "완료, 미확인"(녹색).
+          sub.status = 'idle';
+          sub.lastActivityAt = Date.now();
+          changed = true;
+        }
+      }
+    }
+    return changed;
+  }
+
+  /** §5.3 #12-1 v3.43 — SubagentStop: 대차대조 ↓. 서브의 parent_tool_use_id 가 부모 Task 의
+   *  tool_use_id 와 같아 그걸로 매칭, id 미상(구버전 페이로드)이면 최고령 항목 회수.
+   *  @returns drained = 이 감소로 pending 이 0 이 됐다(호출자가 즉시 recompute 해 진짜 완료를 반영),
+   *           subChanged = 세션 탭 도트가 바뀌었다(호출자 broadcast 판단용). */
+  noteSubagentTaskStop(
+    parentAgentId: string,
+    toolUseId?: string,
+  ): { drained: boolean; subChanged: boolean } {
+    this.pendingSubagentLastSignal.set(parentAgentId, Date.now());
+    const m = this.pendingSubagentTasks.get(parentAgentId);
+    if (!m || m.size === 0) return { drained: false, subChanged: false };
+    if (!toolUseId || !m.delete(toolUseId)) {
+      let oldestKey: string | null = null;
+      let oldestTs = Infinity;
+      for (const [k, e] of m) {
+        if (e.ts < oldestTs) { oldestTs = e.ts; oldestKey = k; }
+      }
+      if (oldestKey !== null) m.delete(oldestKey);
+    }
+    logger.info(`[bg-subagent] stop parent=${parentAgentId} key=${toolUseId ?? '(oldest)'} pending=${m.size}`);
+    const drained = m.size === 0;
+    if (drained) this.pendingSubagentTasks.delete(parentAgentId);
+    // 탭 도트 동기화는 pending 이 남아 있어도(다른 자식이 계속 도는 중) 매번 재평가한다.
+    const subChanged = this.syncBgSubStatus(parentAgentId);
+    return { drained, subChanged };
+  }
+
+  /** §5.3 #12-1 v3.43 — 그 외 훅 이벤트 = 살아있다는 신호. quiet-window 기준 시각만 갱신(pending 없으면 no-op). */
+  noteSubagentSignal(parentAgentId: string): void {
+    if (this.pendingSubagentTasks.has(parentAgentId)) {
+      this.pendingSubagentLastSignal.set(parentAgentId, Date.now());
+    }
+  }
+
+  /** §5.3 #12-1 v3.43 — 완료 강등 차단 술어: 이 에이전트가 스스로 띄운 서브에이전트가 아직 도는가.
+   *  호출 시점에 lazy prune — 절대 상한 초과 항목 파기, quiet-window 초과 시 전량 해제(누수 안전장치).
+   *  타이머/폴링 없음: 기존 훅 수신부·기존 sweep 호출 안에서만 O(pending) 로 돈다. */
+  hasPendingSubagentTasks(parentAgentId: string): boolean {
+    const m = this.pendingSubagentTasks.get(parentAgentId);
+    if (!m || m.size === 0) return false;
+    const now = Date.now();
+    for (const [key, e] of m) {
+      if (now - e.ts > PENDING_SUBAGENT_MAX_AGE_MS) {
+        m.delete(key);
+        logger.warn(`[bg-subagent] max-age expired parent=${parentAgentId} key=${key}`);
+      }
+    }
+    const lastSignal = this.pendingSubagentLastSignal.get(parentAgentId) ?? 0;
+    if (m.size > 0 && now - lastSignal > PENDING_SUBAGENT_QUIET_MS) {
+      logger.warn(`[bg-subagent] quiet-window expired parent=${parentAgentId} — clearing ${m.size} pending (SubagentStop 유실 추정)`);
+      m.clear();
+    }
+    if (m.size === 0) {
+      this.pendingSubagentTasks.delete(parentAgentId);
+      // 누수 안전장치로 pending 이 풀렸으면 승격해 둔 탭 도트도 함께 원위치(파란 점 고착 방지).
+      this.syncBgSubStatus(parentAgentId);
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * §5.5 #17-9 v3.51 — 대차대조(pendingSubagentTasks)를 IDE 표시용 스냅샷으로 투영.
+   * 실행 중인 항목이 하나도 없으면 `undefined` 를 돌려 스냅샷 필드 자체를 생략한다
+   * (클라 활동바 항목/배지가 자동으로 사라지는 근거). 런타임 전용 — 체크포인트에 담지 않는다.
+   */
+  getRunningSubagentTasks(): Record<string, RunningSubagentTask[]> | undefined {
+    if (this.pendingSubagentTasks.size === 0) return undefined;
+    const out: Record<string, RunningSubagentTask[]> = {};
+    for (const [parentAgentId, m] of this.pendingSubagentTasks) {
+      if (m.size === 0) continue;
+      const list: RunningSubagentTask[] = [];
+      for (const [id, e] of m) {
+        list.push({
+          id,
+          parentAgentId,
+          ...(e.subId ? { subAgentId: e.subId } : {}),
+          ...(e.description ? { description: e.description } : {}),
+          ...(e.subagentType ? { subagentType: e.subagentType } : {}),
+          ...(e.prompt ? { prompt: e.prompt } : {}),
+          startedAt: e.ts,
+        });
+      }
+      // 오래 돈 것이 위로 — 사용자가 "제일 오래 붙잡고 있는 자식"을 먼저 본다.
+      list.sort((a, b) => a.startedAt - b.startedAt);
+      out[parentAgentId] = list;
+    }
+    return Object.keys(out).length > 0 ? out : undefined;
+  }
+
+  /** §5.3 #12-1 v3.43 — 사용자 중지/에이전트 정리 시 대차대조 즉시 해제(잔존 활성 고착 방지). */
+  clearPendingSubagentTasks(parentAgentId: string): void {
+    if (this.pendingSubagentTasks.delete(parentAgentId)) {
+      logger.info(`[bg-subagent] cleared pending parent=${parentAgentId}`);
+    }
+    this.pendingSubagentLastSignal.delete(parentAgentId);
+    // 승격해 둔 탭 도트도 함께 원위치 — 중지/정리 후 파란 점이 남지 않게.
+    this.syncBgSubStatus(parentAgentId);
+  }
+
+  /**
+   * §5.5 #17-10 v3.53 — **세션 스코프** 대차대조 해제. 그 세션 탭(`subId`)이 띄운 항목만 지운다.
+   *
+   * 종전 세션 1개 중지가 `clearPendingSubagentTasks(parentAgentId)` 로 **부모 전체** 대차대조를 지워,
+   * 한 탭을 멈추면 다른 탭이 띄운 백그라운드 서브에이전트 표시·활성 판정까지 함께 사라졌다.
+   * 소유 세션이 미상(`subId` 없음)인 항목은 어느 탭 것인지 알 수 없으므로 **건드리지 않는다**
+   * (다른 탭 것을 오삭제하느니 quiet-window 안전장치에 맡긴다).
+   *
+   * @returns 실제로 지운 항목 수.
+   */
+  clearPendingSubagentTasksForSession(parentAgentId: string, subId: string): number {
+    const m = this.pendingSubagentTasks.get(parentAgentId);
+    if (!m || m.size === 0) return 0;
+    let removed = 0;
+    for (const [key, e] of m) {
+      if (e.subId === subId) {
+        m.delete(key);
+        removed++;
+      }
+    }
+    if (removed > 0) {
+      logger.info(`[bg-subagent] cleared pending parent=${parentAgentId} sub=${subId} removed=${removed} left=${m.size}`);
+    }
+    // 남은 게 없을 때만 부모 엔트리·quiet-window 기준 시각을 정리한다 — 다른 탭 항목이 남아 있으면
+    // 그 항목들의 생존 판정(lastSignal)을 여기서 없애면 안 된다.
+    if (m.size === 0) {
+      this.pendingSubagentTasks.delete(parentAgentId);
+      this.pendingSubagentLastSignal.delete(parentAgentId);
+    }
+    // 승격해 둔 탭 도트 재평가 — 이 세션 것만 빠졌으니 다른 탭 도트는 그대로 유지된다.
+    this.syncBgSubStatus(parentAgentId);
+    return removed;
+  }
+
   /** v1.77 (Direction A) — sessionId 가 Vibisual 이 스폰한 sub 의 세션이면 true.
    *  모든 훅 캡처 입구(session-start / liveness / processHookEvent)에서 이 술어로
    *  "managed 세션은 새 훅 버블 금지, 부모 커스텀 버블에 귀속" 을 강제 → 증식 차단.
@@ -1061,6 +1361,12 @@ export class SubAgentManager {
     const sub = this.index.get(subAgentId);
     if (!sub) return false;
 
+    // §5.3 #12-1 v3.43 — 사용자 명시 중지: 백그라운드 서브에이전트 대차대조도 즉시 해제.
+    // 남겨두면 pending 가드가 중지된 에이전트를 quiet-window(30분)까지 활성으로 붙잡는다.
+    // §5.5 #17-10 v3.53 — 단, **이 세션이 띄운 항목만**. 종전엔 부모 전체를 지워 한 탭을 멈추면
+    // 다른 탭이 띄운 백그라운드 서브에이전트 표시까지 함께 사라졌다.
+    this.clearPendingSubagentTasksForSession(sub.parentAgentId, subAgentId);
+
     // §5.7 #23-2 v1.60 — agent-view 경로: supervisor 에 stop 요청. finishTerminal 에서 후처리.
     const av = this.runningAgentViewWatchers.get(subAgentId);
     if (av) {
@@ -1080,6 +1386,44 @@ export class SubAgentManager {
     terminateChildTree(child);
     logger.info(`SubAgent stop requested by user: ${subAgentId}`);
     return true;
+  }
+
+  /**
+   * §5.5 #17-9 v3.51 — **에이전트 전체 중지**. 한 부모(감독관) 아래 **모든 세션 탭**의 실행을 끊는다.
+   *
+   * 배경: 종전 [중지] 는 `stop(subId)` 로 그 탭 하나의 자식만 끊어, 다른 탭이 돌고 있거나 감독관이
+   * 백단에 Task 서브에이전트를 여러 개 띄워 둔 상태에선 "눌러도 안 멈추는" 것처럼 보였다.
+   *
+   * 대차대조(§5.3 #12-1 v3.43)는 여기서 한 번만 해제한다 — `stop()` 을 세션마다 부르면 같은
+   * `clearPendingSubagentTasks` 가 N번 돌아 낭비되므로, 자식 종료는 세션별로 직접 수행한다.
+   *
+   * @returns 실제로 종료 신호를 보낸 세션 id 목록.
+   */
+  stopAll(parentAgentId: string): string[] {
+    // 백그라운드 서브에이전트 대차대조 즉시 해제 — 남겨두면 pending 가드가 중지된 에이전트를
+    // quiet-window(30분)까지 활성으로 붙잡는다(= 중지했는데 계속 도는 것처럼 보임).
+    this.clearPendingSubagentTasks(parentAgentId);
+
+    const stopped: string[] = [];
+    for (const sub of this.registry.get(parentAgentId) ?? []) {
+      // agent-view 경로: supervisor 에 stop 요청. finishTerminal 에서 후처리.
+      const av = this.runningAgentViewWatchers.get(sub.id);
+      if (av) {
+        this.stoppedByUser.add(sub.id);
+        void stopSession(av.short);
+        stopped.push(sub.id);
+        continue;
+      }
+      // legacy/persistent 경로: SIGTERM → grace 후 트리 강제 종료(손자 node worker/MCP 고아 방지).
+      const child = this.runningChildren.get(sub.id);
+      if (!child) continue;
+      this.stoppedByUser.add(sub.id);
+      this.intentionalKill.add(sub.id);
+      terminateChildTree(child);
+      stopped.push(sub.id);
+    }
+    logger.info(`SubAgent stop-all requested by user: parent=${parentAgentId} stopped=${stopped.length}`);
+    return stopped;
   }
 
   /** 부모 에이전트의 archive 목록 — 폴더 팝업 소스. 최근 활동 순 정렬. */
@@ -1771,6 +2115,9 @@ export class SubAgentManager {
 
     logger.info(`SubAgent ${sub.id} finished (code=${code === null ? 'persistent' : code}, killed=${killed}, userStopped=${userStopped}, turns=${turnCount}, result=${resultText ? 'yes' : 'no'})`);
     if (deleteRunningChild) this.runningChildren.delete(sub.id);
+    // §5.3 #12-1 — 자기 턴은 끝났지만 이 탭이 띄운 백그라운드 서브에이전트가 아직 돌면 도트를 다시
+    //   active 로 올린다(부모 버블의 대차대조와 탭 도트가 어긋나 "버블은 동작, 점은 녹색"이던 버그).
+    this.syncBgSubStatus(sub.parentAgentId);
     this.onSubStatusChange?.(sub.parentAgentId);
     this.onComplete?.();
   }

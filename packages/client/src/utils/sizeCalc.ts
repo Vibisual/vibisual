@@ -25,6 +25,11 @@ export function calcBubbleSize(
     return calcFileBubbleSize(bubble, fileSizeRange);
   }
 
+  // §5.10 — Brain/휴지통 버블: 고정 중간 크기(홈 위성 상주).
+  if (bubble.bubbleType === 'brain' || bubble.bubbleType === 'trash') {
+    return Math.round(NODE_MIN_SIZE + (NODE_MAX_SIZE - NODE_MIN_SIZE) * 0.42);
+  }
+
   // ghost: 원래 타입이 file이었으면 파일 크기, 아니면 기본 최소 크기
   if (bubble.bubbleType === 'ghost') {
     if (bubble.ghostInfo?.originalBubbleType === 'file') {

@@ -34,6 +34,7 @@ import type {
   TaskEdgeCommandMode,
   SubAgent,
   CommentBox,
+  CaptureBubble,
   Conti,
   ContiFrame,
   ContiElement,
@@ -47,16 +48,19 @@ import type {
   AgentReview,
   AgentList,
   AgentFeedback,
+  BrainInjectionEvent,
+  BrainSummary,
 } from '@vibisual/shared';
-import { MAX_BASH_HISTORY, MAX_FILE_EDITS, MAX_WRITE_DIFF_BYTES, DEFAULT_MAX_SATELLITES, SATELLITE_MAX_BOUNDS, MAX_AGENTS, SATELLITE_TYPES, AGENT_FADE_DURATION, BUBBLE_TTL, GHOST_FADE_DURATION, FILE_EXISTENCE_MISS_THRESHOLD, FRONTEND_SERVER_PATTERNS, IFRAME_DEAD_GRACE_MS, parseModelFamily, DEFAULT_AGENT_CONFIG, AVAILABLE_AGENT_TOOLS, DEFAULT_UI_LOCALE, COMMENT_BOX_DEFAULTS, READ_TOOLS, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, AGENT_REPORT_MAX_PER_AGENT, AGENT_QUESTIONS_MAX_PER_AGENT, AGENT_REVIEWS_MAX_PER_AGENT, AGENT_LISTS_MAX_PER_AGENT, AGENT_FEEDBACK_MAX_PER_AGENT, DELETED_AGENT_TOMBSTONE_MAX, CMD_AGENT_COLOR, MAX_AGENT_EVENTS } from '@vibisual/shared';
+import { MAX_BASH_HISTORY, MAX_FILE_EDITS, MAX_WRITE_DIFF_BYTES, DEFAULT_MAX_SATELLITES, SATELLITE_MAX_BOUNDS, MAX_AGENTS, SATELLITE_TYPES, AGENT_FADE_DURATION, BUBBLE_TTL, GHOST_FADE_DURATION, FILE_EXISTENCE_MISS_THRESHOLD, FRONTEND_SERVER_PATTERNS, IFRAME_DEAD_GRACE_MS, parseModelFamily, DEFAULT_AGENT_CONFIG, AVAILABLE_AGENT_TOOLS, DEFAULT_UI_LOCALE, COMMENT_BOX_DEFAULTS, READ_TOOLS, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, AGENT_REPORT_MAX_PER_AGENT, AGENT_QUESTIONS_MAX_PER_AGENT, AGENT_REVIEWS_MAX_PER_AGENT, AGENT_LISTS_MAX_PER_AGENT, AGENT_FEEDBACK_MAX_PER_AGENT, DELETED_AGENT_TOMBSTONE_MAX, CMD_AGENT_COLOR, MAX_AGENT_EVENTS, BRAIN_INJECTIONS_MAX_PER_AGENT } from '@vibisual/shared';
 import type { ServerKind, UiLocale, ExecutionMode } from '@vibisual/shared';
 import { EdgeManager } from './edgeManager.js';
-import { extractPort, extractPortFromInlineEval, extractPortFromScriptFile, isPortAlive, isProbeCommand, isVibisualLauncherCommand } from './processChecker.js';
+import { extractPort, extractPortFromInlineEval, extractPortFromScriptFile, isPortAlive, isUrlServing, isProbeCommand, isVibisualLauncherCommand } from './processChecker.js';
 import { BackgroundShellWatcher, parseBackgroundShellResponse, scanActiveBackgroundShells } from './backgroundShellWatcher.js';
 import { subAgentManager, getCmdSessionIds } from './subAgentManager.js';
 import { sanitizeContiOnLoad } from './contiManager.js';
 import { isShortAlive as isAgentViewShortAlive, isShortWorking as isAgentViewShortWorking, readRoster as readAgentViewRoster } from './claudeAgentViewService.js';
 import { pipelineManager } from './pipelineManager.js';
+import { getBrainService } from './brainService.js';
 import type { LocalSession, AgentContextInfo } from './sessionDiscovery.js';
 import { resolveSessionTitle, readUserMessages, readLastAssistantMessage, readContextInfo, discoverSessions, findPidBySession, isSessionInUse, getSessionJsonlPath, listJsonlSessionIds, findEntrypointBySession, isSessionInterrupted } from './sessionDiscovery.js';
 import { logger } from '../logger.js';
@@ -575,6 +579,12 @@ export class ProjectGraph {
    */
   private agentReports = new Map<string, AgentReport[]>();
   /**
+   * §5.10 Project Brain — 주입 이벤트 (agentId → BrainInjectionEvent[]). "기억 N장 참조" 칩 +
+   * Brain→에이전트 일시 엣지 연출용 신호(카드 id/title 만). **런타임 전용 — 체크포인트 미영속**
+   * (재시작 시 자연 비움; 주입 이력은 카드 refCount 로 남는다). ring buffer 캡 = BRAIN_INJECTIONS_MAX_PER_AGENT.
+   */
+  private brainInjections = new Map<string, BrainInjectionEvent[]>();
+  /**
    * §4 v2.60 — 에이전트 질문 카드 (agentId → AgentQuestions[]). 질문 + 제안 프롬프트.
    * 영속화 대상 (ProjectCheckpoint.agentQuestions). ring buffer 캡 = AGENT_QUESTIONS_MAX_PER_AGENT.
    */
@@ -620,6 +630,8 @@ export class ProjectGraph {
   }
   /** 언리얼 블프 스타일 Comment Box (id → CommentBox). 메인 캔버스 배경 주석. v1.45 */
   private commentBoxes = new Map<string, CommentBox>();
+  /** §5.9 화면/프로그램 캡처 버블 (id → CaptureBubble). 사용자 생성 독립 캔버스 요소. */
+  private captureBubbles = new Map<string, CaptureBubble>();
   /** §5.3 #28 v1.47 — 콘티 (contiId → Conti). 에이전트 cascade 삭제. */
   private contis = new Map<string, Conti>();
 
@@ -1218,6 +1230,8 @@ export class ProjectGraph {
     // 에이전트에서 찾기
     for (const agent of this.agents.values()) {
       if (agent.id === nodeId) {
+        // §5.10 — 휴지통 에이전트는 원래 캔버스 좌표 보존(복구 시 제자리 복귀). 갱신 무시.
+        if (agent.trashed) return true;
         agent.position = { x, y };
         return true;
       }
@@ -1245,7 +1259,11 @@ export class ProjectGraph {
         this.satellitePositions.set(id, { x, y });
       } else {
         const bubble = idMap.get(id);
-        if (bubble) bubble.position = { x, y };
+        if (!bubble) continue;
+        // §5.10 — 휴지통 에이전트의 위치는 "버려지기 전 캔버스 좌표"다. 휴지통 내부 뷰의 임시 배치가
+        //   여기로 흘러들면 복구해도 제자리로 못 돌아가므로 trashed 동안엔 위치 갱신을 받지 않는다.
+        if (bubble.trashed) continue;
+        bubble.position = { x, y };
       }
     }
   }
@@ -1301,49 +1319,7 @@ export class ProjectGraph {
     return ids;
   }
 
-  /**
-   * §3.2.2 (C 복구) — identity.json 에서 되살린 커스텀 에이전트 정체성을 이 인스턴스의 라이브
-   * 그래프에 재삽입한다. sessionId/agentId 를 그대로 유지해 config·과거 sub 스트림이 재연결된다.
-   * 이미 살아있으면 위치만 갱신하고 기존 버블 반환. 반환: 재삽입/갱신된 버블(실패 시 null).
-   */
-  restoreCustomAgentBubble(
-    identityAgent: BubbleData,
-    config: AgentConfig | undefined,
-    label: string | undefined,
-    cwd: string | null,
-    position?: { x: number; y: number },
-  ): BubbleData | null {
-    const sessionId = identityAgent.path;
-    if (!sessionId) return null;
-    // 이미 캔버스에 있으면 위치만 이동(중복 삽입 방지).
-    const existing = this.agents.get(sessionId);
-    if (existing) {
-      if (position) existing.position = position;
-      existing.status = existing.status === 'disappearing' ? 'idle' : existing.status;
-      this.bumpMutationVersion();
-      return existing;
-    }
-    // 사용자 명시 삭제 묘비였다면 되살리며 해제(사용자가 직접 복구를 택함).
-    this.deletedCustomAgents.delete(sessionId);
-    const agent: BubbleData = {
-      ...identityAgent,
-      status: 'idle',
-      activity: 0,
-      lastActivity: Date.now(),
-      customCreated: true,
-      ...(position ? { position } : {}),
-    };
-    this.agents.set(sessionId, agent);
-    if (label) this.customLabels.set(agent.id, label);
-    if (config) this.agentConfigs.set(agent.id, config);
-    if (cwd) {
-      this.sessionCwds.set(sessionId, cwd);
-      this.registerProject(cwd);
-    }
-    this.bumpMutationVersion();
-    logger.info(`Custom agent restored: "${agent.label}" (session ${sessionId.slice(0, 8)})`);
-    return agent;
-  }
+  // §5.10 — 구 restoreCustomAgentBubble(C 복구)은 휴지통(restoreTrashedAgent)이 후신이 되어 제거됨.
 
   /** sessionId → cwd 조회 (서브에이전트 세션 ID도 부모 cwd로 해석) */
   getAgentCwd(sessionId: string): string | null {
@@ -1499,6 +1475,51 @@ export class ProjectGraph {
     const out: Record<string, AgentReport[]> = {};
     for (const [k, v] of this.agentReports) out[k] = [...v];
     return out;
+  }
+
+  /**
+   * §5.10 Project Brain — 주입 이벤트 추가 (agentId → BrainInjectionEvent[], append + ring buffer 캡).
+   * 스폰 브리핑/파일 경고/능동 검색이 카드를 주입한 순간에 호출. 런타임 전용(체크포인트 미영속).
+   */
+  addBrainInjection(ev: BrainInjectionEvent): void {
+    const list = this.brainInjections.get(ev.agentId) ?? [];
+    list.push(ev);
+    if (list.length > BRAIN_INJECTIONS_MAX_PER_AGENT) {
+      list.splice(0, list.length - BRAIN_INJECTIONS_MAX_PER_AGENT);
+    }
+    this.brainInjections.set(ev.agentId, list);
+    this.bumpMutationVersion();
+  }
+
+  /** §5.10 — 주입 이벤트 전체 맵 (broadcast 스냅샷용). 빈 맵이면 undefined. */
+  getBrainInjectionsRecord(): Record<string, BrainInjectionEvent[]> | undefined {
+    if (this.brainInjections.size === 0) return undefined;
+    const out: Record<string, BrainInjectionEvent[]> = {};
+    for (const [k, v] of this.brainInjections) out[k] = [...v];
+    return out;
+  }
+
+  /**
+   * §5.10 — Brain 카드가 REST 로 변경됐을 때 호출(스냅샷 캐시 무효화 → 다음 getSnapshot 이
+   * getBrainService 요약을 재계산). brainService 는 projectGraph 밖이라 mutationVersion 을
+   * 자동으로 못 올리므로 이 창구가 필요.
+   */
+  notifyBrainChanged(): void {
+    this.bumpMutationVersion();
+  }
+
+  /**
+   * §5.10 — 이 그래프 프로젝트 루트의 Brain 요약(스냅샷 탑재분). 루트/이름/카드 없으면 undefined.
+   * v3.70 — projectName 1차 키로 싣는다. 카드 저장이 프로젝트별로 갈라져 있으므로 요약도 갈라져야
+   * 여러 프로젝트가 열렸을 때 Manager 병합에서 서로 덮어쓰거나 합산되지 않는다.
+   */
+  getBrainSummary(): Record<string, BrainSummary> | undefined {
+    if (!this.root) return undefined;
+    const name = this.getPrimaryProjectName();
+    if (!name) return undefined;
+    const svc = getBrainService(this.root);
+    if (!svc.hasAnyCards()) return undefined;
+    return { [name]: svc.getSummary() };
   }
 
   /**
@@ -1660,6 +1681,95 @@ export class ProjectGraph {
       if (oldest === undefined) break;
       this.deletedCustomAgents.delete(oldest);
     }
+  }
+
+  // ─── §5.10 Project Brain — 커스텀 에이전트 휴지통 ───
+
+  /**
+   * 커스텀 에이전트를 휴지통으로 이동(즉시 소멸/묘비 기록 ❌). identity 보존을 위해 Map·묘비를
+   * 건드리지 않고 `trashed`/`trashedAt` 플래그만 세운다(§3.2.1 급감 가드 관계 유지 — 묘비는
+   * 영구 삭제 시에만 찍는다). 활성 상태는 idle 로 내려 활성 집계에서 빠진다. 반환=성공 여부.
+   */
+  trashCustomAgent(sessionId: string): boolean {
+    const agent = this.agents.get(sessionId);
+    if (!agent || !agent.customCreated) return false;
+    if (agent.trashed) return true;
+    agent.trashed = true;
+    agent.trashedAt = Date.now();
+    agent.status = 'idle';
+    agent.fadeStartedAt = undefined;
+    // 활성 참조·엣지 정리(휴지통 버블은 그래프 활동에서 빠진다).
+    const activeIds = this.getActiveAgentIds(agent.id);
+    this.removeAgentRefs(agent.id, activeIds);
+    this.mainEdges.removeAgentRefs(agent.id, activeIds);
+    this.innerEdges.removeAgentRefs(agent.id, activeIds);
+    this.bumpMutationVersion();
+    logger.info(`Custom agent trashed: "${agent.label}" (${sessionId.slice(0, 8)})`);
+    return true;
+  }
+
+  /** 버블 id(에이전트 id) 로 휴지통 이동 — 매칭되는 커스텀 에이전트 세션을 찾아 trashCustomAgent 위임. */
+  trashCustomAgentByBubbleId(bubbleId: string): boolean {
+    for (const [sid, agent] of this.agents) {
+      if (agent.id === bubbleId && agent.customCreated) return this.trashCustomAgent(sid);
+    }
+    return false;
+  }
+
+  /**
+   * 세션 키(`custom-…`) 또는 버블 id(`agent-…`) 로 커스텀 에이전트의 세션 키를 해소.
+   * 클라(DetailPanel)는 선택된 **버블 id** 만 들고 있어서 세션 키를 모른다 — 두 형태를 모두 받는다.
+   */
+  resolveCustomAgentSessionId(idOrSessionId: string): string | null {
+    const direct = this.agents.get(idOrSessionId);
+    if (direct?.customCreated) return idOrSessionId;
+    const normalized = idOrSessionId.startsWith('sat-') ? idOrSessionId.slice(4) : idOrSessionId;
+    for (const [sid, agent] of this.agents) {
+      if (agent.customCreated && agent.id === normalized) return sid;
+    }
+    return null;
+  }
+
+  /** 휴지통에서 복구 — trashed 플래그 해제(identity·설정·개별 기억 그대로). 반환=성공 여부. */
+  restoreTrashedAgent(sessionIdOrBubbleId: string): boolean {
+    const sessionId = this.resolveCustomAgentSessionId(sessionIdOrBubbleId);
+    if (!sessionId) return false;
+    const agent = this.agents.get(sessionId);
+    if (!agent || !agent.customCreated) return false;
+    if (!agent.trashed) return false;
+    agent.trashed = undefined;
+    agent.trashedAt = undefined;
+    this.bumpMutationVersion();
+    logger.info(`Custom agent restored from trash: "${agent.label}" (${sessionId.slice(0, 8)})`);
+    return true;
+  }
+
+  /**
+   * 휴지통 에이전트 영구 삭제 — 기존 removeBubble 커스텀 분기(묘비 기록)에 위임 + 개별 기억
+   * 카드 디렉토리 삭제. 확인 팝업 승인 후 REST 에서만 호출. 반환=성공 여부.
+   */
+  permanentlyDeleteTrashedAgent(sessionIdOrBubbleId: string): boolean {
+    const sessionId = this.resolveCustomAgentSessionId(sessionIdOrBubbleId);
+    if (!sessionId) return false;
+    const agent = this.agents.get(sessionId);
+    if (!agent || !agent.customCreated) return false;
+    const agentId = agent.id;
+    // 개별 기억 카드 파일 삭제(있으면).
+    if (this.root) {
+      try { getBrainService(this.root).deleteAgentCards(agentId); } catch { /* best effort */ }
+    }
+    // removeBubble 커스텀 분기 = agents.delete + addTombstone + 엣지/콘티 cascade.
+    this.removeBubble(agentId, { force: true, purgeTaskEdges: true });
+    return true;
+  }
+
+  /** 이 그래프가 소유한 휴지통(trashed) 커스텀 에이전트 목록(내부 뷰용). */
+  getTrashedCustomAgents(): BubbleData[] {
+    const out: BubbleData[] = [];
+    for (const agent of this.agents.values()) {
+      if (agent.customCreated && agent.trashed) out.push(agent);
+    }
+    return out;
   }
 
   /** 버블 삭제 (노드 ID 기준). 에이전트가 다시 사용하면 재생성됨. 루트 버블은 삭제 불가.
@@ -2597,7 +2707,8 @@ export class ProjectGraph {
         }
         return a;
       });
-    const activeCount = aliveAgents.filter((a) => a.status === 'active').length;
+    // §5.10 — 휴지통 에이전트는 여전히 스냅샷에 실리지만(플래그 노출) 활성 수 집계에선 제외.
+    const activeCount = aliveAgents.filter((a) => a.status === 'active' && !a.trashed).length;
     // const agentPhase: AgentPhase = activeCount > 0 ? 'working'
     //   : aliveAgents.length > 0 ? 'completed'
     //   : 'waiting';
@@ -2693,6 +2804,10 @@ export class ProjectGraph {
       fileEdits: this.buildFileEditsRecord(),
       commandQueues: this.buildCommandQueuesRecord(),
       completedCommands: this.buildCompletedCommandsRecord(),
+      // §5.5 #17-9 v3.51 — 지금 백단에서 도는 Task 서브에이전트(런타임 전용, 영속화 ❌ — 체크포인트
+      //   직렬화(toCheckpoint/toProjectCheckpoint)에는 절대 넣지 않는다). 하나도 없으면 undefined →
+      //   클라 활동바 항목/배지/패널이 자동으로 사라진다.
+      runningSubagentTasks: subAgentManager.getRunningSubagentTasks(),
       // subAgents 스냅샷에 contextUsed/contextMax 주입 — 클라이언트가 IDE에서 선택한 sub로
       // 커스텀 에이전트 버블 게이지를 전환할 때 필요. (서버는 부모 cwd + sub.sessionId 만 알면 JSONL 읽기 가능.)
       subAgents: (() => {
@@ -2738,6 +2853,7 @@ export class ProjectGraph {
       worktreeProjects: this.buildWorktreeProjectsRecord(),
       uiLocale: this.uiLocale,
       commentBoxes: this.getCommentBoxes(),
+      captureBubbles: this.getCaptureBubbles(),
       layoutBoundsByProject: this.layoutBoundsByProject.size > 0
         ? Object.fromEntries(this.layoutBoundsByProject)
         : undefined,
@@ -2752,6 +2868,8 @@ export class ProjectGraph {
       agentReviews: this.getAgentReviewsRecord(),
       agentLists: this.getAgentListsRecord(),
       agentFeedbacks: this.getAgentFeedbacksRecord(),
+      brain: this.getBrainSummary(),
+      brainInjections: this.getBrainInjectionsRecord(),
     };
 
     // (2b) 계산 결과를 캐시에 저장
@@ -2876,6 +2994,7 @@ export class ProjectGraph {
         : undefined,
       uiLocale: this.uiLocale,
       commentBoxes: this.commentBoxes.size > 0 ? [...this.commentBoxes.values()] : undefined,
+      captureBubbles: this.captureBubbles.size > 0 ? [...this.captureBubbles.values()] : undefined,
       layoutBoundsHalfWidth: this.layoutBoundsByProject.get(project.name)?.hw,
       layoutBoundsHalfHeight: this.layoutBoundsByProject.get(project.name)?.hh,
       contis: this.contis.size > 0 ? this.getContisRecord() : undefined,
@@ -3243,6 +3362,11 @@ export class ProjectGraph {
       commentBoxes: (() => {
         const boxes = [...this.commentBoxes.values()].filter((b) => b.projectName === project.name);
         return boxes.length > 0 ? boxes : undefined;
+      })(),
+      // §5.9 — 캡처 버블 필터: 이 프로젝트 소속만
+      captureBubbles: (() => {
+        const bubbles = [...this.captureBubbles.values()].filter((b) => b.projectName === project.name);
+        return bubbles.length > 0 ? bubbles : undefined;
       })(),
       layoutBoundsHalfWidth: this.layoutBoundsByProject.get(project.name)?.hw,
       layoutBoundsHalfHeight: this.layoutBoundsByProject.get(project.name)?.hh,
@@ -3624,6 +3748,14 @@ export class ProjectGraph {
       }
     }
 
+    // §5.9 — 캡처 버블 병합 (중복 ID 는 기존 유지)
+    if (cp.captureBubbles) {
+      for (const bubble of cp.captureBubbles) {
+        if (this.captureBubbles.has(bubble.id)) continue;
+        this.captureBubbles.set(bubble.id, { ...bubble });
+      }
+    }
+
     // §5.3 #28 v1.47 — 콘티 병합 (v1.59 hotfix — toProjectCheckpoint 누락 픽스와 짝).
     // workId/updatedAt 누락 시 폴백 (restoreFromCheckpoint 와 같은 정책).
     if (cp.contis) {
@@ -3817,6 +3949,14 @@ export class ProjectGraph {
     if (cp.commentBoxes) {
       for (const box of cp.commentBoxes) {
         this.commentBoxes.set(box.id, { ...box });
+      }
+    }
+
+    // §5.9 — 캡처 버블 복원
+    this.captureBubbles = new Map();
+    if (cp.captureBubbles) {
+      for (const bubble of cp.captureBubbles) {
+        this.captureBubbles.set(bubble.id, { ...bubble });
       }
     }
 
@@ -4303,6 +4443,9 @@ export class ProjectGraph {
     }
     if (!found || !foundSessionId) return false;
 
+    // §5.10 — 휴지통에 들어간 커스텀 에이전트는 활성 집계 대상에서 제외(active/completed 로 튀지 않음).
+    if (found.trashed) return false;
+
     // §5.3 #12-1 v1.91 — 권한 승인 대기 중이면 훅이 동기 hold 중인 "블록된 활성" 상태.
     // sub 집계가 비활성으로 보여도 completed 로 강등 ❌ — 결정/타임아웃까지 active 유지.
     if (this.permissionWaitingAgents.has(parentAgentId)) {
@@ -4315,8 +4458,30 @@ export class ProjectGraph {
       return false;
     }
 
+    // §5.3 #12-1 v3.43 — 백그라운드 서브에이전트 대차대조: 부모(감독관) 턴이 끝나 sub 가 idle
+    // 이어도, 이 에이전트가 스스로 띄운 Task/Agent 서브에이전트의 SubagentStop 이 아직 안 왔으면
+    // "대기 중인 활성"이다. permissionWaitingAgents(v1.91)와 동형의 completed 강등 차단 —
+    // 별도 상태·비주얼 없이 기존 active 그대로 유지(자식이 일하는 중 = 사용자에겐 "활동 중").
+    if (subAgentManager.hasPendingSubagentTasks(parentAgentId)) {
+      if (found.status !== 'active') {
+        found.status = 'active';
+        found.fadeStartedAt = undefined;
+        found.lastActivity = Date.now();
+        return true;
+      }
+      found.lastActivity = Date.now();
+      return false;
+    }
+
     const subs = subAgentManager.getAllSubs(parentAgentId);
-    const anyActive = subs.some((s) => s.status === 'active');
+    // liveness 가드 — sub.status 가 순간 비활성으로 읽혀도 자식이 아직 한 턴을 처리 중이면 active 로 본다.
+    //   persistent result 직후 finalize→idle 과 다음 명령 dispatch 사이의 창, 또는 in-process
+    //   Task/위임 워커가 아직 도는 창에서 부모(감독관) 버블이 조기 completed 로 튀는 것을 막는다.
+    //   sweepIdle(§ isSubRunning) 이 살아있는 자식을 지키는 것과 동형. idle 대기 자식은 제외되므로
+    //   진짜 끝났을 때는 정상 완료된다.
+    const anyActive = subs.some(
+      (s) => s.status === 'active' || subAgentManager.isSubProcessingCommand(s.id),
+    );
     const prevStatus = found.status;
 
     if (anyActive) {
@@ -4759,6 +4924,8 @@ export class ProjectGraph {
       if (agent.status !== 'active' && agent.status !== 'completed') continue;
       // §5.3 #12-1 v1.91 — 권한 승인 대기 중인 에이전트는 idle sweep 제외(블록된 활성).
       if (this.permissionWaitingAgents.has(agent.id)) continue;
+      // §5.3 #12-1 v3.43 — 백그라운드 서브에이전트가 아직 도는 에이전트도 제외(대기 중인 활성).
+      if (subAgentManager.hasPendingSubagentTasks(agent.id)) continue;
       let last = agent.lastActivity ?? 0;
       const subs = subAgentManager.getAllSubs(agent.id);
       let hasRunningSub = false;
@@ -4803,6 +4970,8 @@ export class ProjectGraph {
       if (agent.status !== 'completed') continue;
       // §5.3 #12-1 v1.91 — 권한 대기 중이면 fade/expire 보류.
       if (this.permissionWaitingAgents.has(agent.id)) continue;
+      // §5.3 #12-1 v3.43 — 백그라운드 서브에이전트가 아직 도는 동안도 fade/expire 보류.
+      if (subAgentManager.hasPendingSubagentTasks(agent.id)) continue;
       if (!agent.fadeStartedAt) continue;
       if (now - agent.fadeStartedAt >= AGENT_FADE_DURATION) {
         expired.push(sessionId);
@@ -5726,6 +5895,24 @@ export class ProjectGraph {
     return null;
   }
 
+  /**
+   * §5.10 v3.49 — 이 에이전트가 참조한 "파일처럼 보이는" 노드 경로들(피드 related 랭킹 ctx.files 용, best-effort).
+   * nodeAgentRefs(노드→에이전트) 역방향에서 이 에이전트가 있는 키를 모아, worktree prefix 를 벗기고
+   * 확장자가 있는(=파일) 것만 반환한다. 폴더/합성 키는 제외. read-only — 스냅샷/체크포인트 무관.
+   */
+  getFileRefsForAgent(agentId: string, limit = 12): string[] {
+    const out: string[] = [];
+    for (const [nodePath, refs] of this.nodeAgentRefs) {
+      if (!refs.has(agentId)) continue;
+      const stripped = nodePath.replace(/^wt[0-9a-z]+__/, '');
+      // 확장자가 있는 것만 파일로 간주(폴더/root 합성 키 배제).
+      if (!/\.[a-z0-9]+$/i.test(stripped)) continue;
+      out.push(stripped);
+      if (out.length >= limit) break;
+    }
+    return out;
+  }
+
   /** node ID → project basename 매핑 (topFolders 프로젝트 필터용) */
   private buildNodeProjects(): Record<string, string> {
     const result: Record<string, string> = {};
@@ -5895,16 +6082,22 @@ export class ProjectGraph {
     if (!Number.isInteger(port) || port <= 0 || port > 65535) return false;
 
     const tryCreate = (retriesLeft: number): void => {
-      void isPortAlive(port).then((alive) => {
+      void isPortAlive(port).then(async (alive) => {
         // await 중 세션이 사라졌을 수 있어 재확인
         if (!this.agents.has(sessionId)) return;
-        if (alive) {
+        // 포트 listen 만으론 부족 — 신고된 정확한 URL 이 실제로 비-에러 응답(2xx/3xx)을
+        // 주는지까지 확인한다. `python -m http.server` 처럼 포트는 살아있어도 그 경로가
+        // 404 면 위성을 만들지 않는다(사용자 보고: "iframe 접속도 안 되는데 왜 켜지냐").
+        const serving = alive && await isUrlServing(rawUrl);
+        if (!this.agents.has(sessionId)) return; // HTTP probe await 사이 재확인
+        if (serving) {
           this.createIframeSatellite(sessionId, rawUrl, port, undefined, undefined, true, rawUrl);
           this.onSnapshotChange?.();
         } else if (retriesLeft > 0) {
           setTimeout(() => tryCreate(retriesLeft - 1), 1500);
         } else {
-          logger.info(`agent-iframe: port ${port} not alive — 위성 생성 보류 (${rawUrl.slice(0, 80)})`);
+          const why = alive ? `url 404/에러 응답` : `port ${port} not alive`;
+          logger.info(`agent-iframe: ${why} — 위성 생성 보류 (${rawUrl.slice(0, 80)})`);
         }
       }).catch(() => { /* probe 실패 — 조용히 무시 */ });
     };
@@ -6202,6 +6395,9 @@ export class ProjectGraph {
    * v1.48: 단순 TCP probe 만으로는 §3.5 프로젝트 격리 위반 — 다른 ProjectGraph 가 같은
    * 포트(예: Expo 8081) 를 띄우면 stale 위성이 부활. owning shellId 검증 추가:
    * 자기 ProjectGraph 의 active background shell 집합에 포함될 때만 alive=true 인정.
+   *
+   * v3.69: 그 집합을 sessionCwds **+ 워커 세션**(workerSessionsByOwner) 에서 빌드한다 —
+   * 커스텀 에이전트의 셸 JSONL 은 워커 세션 이름으로만 존재하기 때문. 아래 상세 주석 참조.
    */
   async checkIframesAlive(): Promise<boolean> {
     const targets: { agentSessionId: string; port: number; index: number; shellId?: string }[] = [];
@@ -6224,9 +6420,25 @@ export class ProjectGraph {
     if (targets.length === 0) return false;
 
     // v1.48: 자기 ProjectGraph 의 active shellId 집합 빌드 (sweep 당 1회).
-    // sessionCwds 만 순회하므로 다른 프로젝트 세션의 셸은 절대 들어오지 않음(§3.5).
-    const activeShellIds = new Set<string>();
+    // 훑는 대상이 자기 소유 세션으로 한정되므로 다른 프로젝트 세션의 셸은 절대 들어오지 않음(§3.5).
+    //
+    // §7.11 v3.69 — 스캔 대상 = sessionCwds + workerSessionsByOwner 의 워커 세션.
+    //   커스텀 에이전트는 sessionCwds 에 커스텀 키(`custom-…`)로 저장되는데 background shell 의
+    //   JSONL 은 **워커 세션 이름**으로 디스크에 있다. 워커를 빼고 sessionCwds 만 훑으면
+    //   `getSessionJsonlPath(cwd, 'custom-…')` 파일이 아예 없어 매번 skip → 집합이 **항상 빈 채**로
+    //   남고 shellOk 가 영원히 false → 포트가 살아 있어도 dim 후 60초 grace 로 자동 제거된다
+    //   (= 커스텀 에이전트가 띄운 dev server 는 예외 없이 꺼짐).
+    //   위성 **생성** 경로인 rehydrateBackgroundShells 는 이미 워커 세션을 훑고 있었다 —
+    //   생성과 생사확인의 스캔 대상은 반드시 같이 움직여야 한다(한쪽만 바꾸면 이 버그가 재발).
+    const scanTargets = new Map<string, string>(); // 세션id → 그 세션의 cwd
     for (const [sid, cwd] of this.sessionCwds) {
+      scanTargets.set(sid, cwd);
+      const mapped = this.workerSessionsByOwner.get(sid);
+      if (mapped) for (const [ws, wcwd] of mapped) scanTargets.set(ws, wcwd || cwd);
+    }
+
+    const activeShellIds = new Set<string>();
+    for (const [sid, cwd] of scanTargets) {
       try {
         const jsonlPath = getSessionJsonlPath(cwd, sid);
         if (!fs.existsSync(jsonlPath)) continue;
@@ -6537,6 +6749,8 @@ export class ProjectGraph {
   private getActiveAgentIds(excludeId: string): Set<string> {
     const ids = new Set<string>();
     for (const [, agent] of this.agents) {
+      // §5.10 — 휴지통 에이전트는 활성 참조로 치지 않는다.
+      if (agent.trashed) continue;
       if (agent.id !== excludeId && agent.status === 'active') {
         ids.add(agent.id);
       }
@@ -7501,6 +7715,78 @@ export class ProjectGraph {
   acceptCommentBox(box: CommentBox): boolean {
     if (this.commentBoxes.has(box.id)) return false;
     this.commentBoxes.set(box.id, box);
+    return true;
+  }
+
+  // ─── §5.9 화면/프로그램 캡처 버블 — 사용자 생성 독립 캔버스 요소 (CommentBox 패턴) ───
+
+  /** 캡처 버블 생성. 서버에서 ID 발급. */
+  createCaptureBubble(input: {
+    projectName: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    sourceId: string;
+    sourceName: string;
+    sourceKind: CaptureBubble['sourceKind'];
+  }): CaptureBubble {
+    const id = `capture-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    const now = Date.now();
+    const bubble: CaptureBubble = {
+      id,
+      projectName: input.projectName,
+      x: input.x,
+      y: input.y,
+      width: input.width,
+      height: input.height,
+      sourceId: input.sourceId,
+      sourceName: input.sourceName,
+      sourceKind: input.sourceKind,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.captureBubbles.set(id, bubble);
+    return bubble;
+  }
+
+  /** 캡처 버블 업데이트. 위치/크기/소스 등 부분 갱신. */
+  updateCaptureBubble(
+    id: string,
+    updates: Partial<Omit<CaptureBubble, 'id' | 'projectName' | 'createdAt' | 'updatedAt'>>,
+  ): CaptureBubble | null {
+    const bubble = this.captureBubbles.get(id);
+    if (!bubble) return null;
+    if (updates.x !== undefined) bubble.x = updates.x;
+    if (updates.y !== undefined) bubble.y = updates.y;
+    if (updates.width !== undefined) bubble.width = updates.width;
+    if (updates.height !== undefined) bubble.height = updates.height;
+    if (updates.sourceId !== undefined) bubble.sourceId = updates.sourceId;
+    if (updates.sourceName !== undefined) bubble.sourceName = updates.sourceName;
+    if (updates.sourceKind !== undefined) bubble.sourceKind = updates.sourceKind;
+    bubble.updatedAt = Date.now();
+    return bubble;
+  }
+
+  /** 캡처 버블 삭제. */
+  deleteCaptureBubble(id: string): boolean {
+    return this.captureBubbles.delete(id);
+  }
+
+  /** 캡처 버블 단일 조회. */
+  getCaptureBubble(id: string): CaptureBubble | undefined {
+    return this.captureBubbles.get(id);
+  }
+
+  /** 이 인스턴스가 소유한 모든 캡처 버블 (스냅샷/체크포인트 공통). */
+  getCaptureBubbles(): CaptureBubble[] {
+    return [...this.captureBubbles.values()];
+  }
+
+  /** 기존 ID 그대로 수용 (체크포인트 복원/머지용). */
+  acceptCaptureBubble(bubble: CaptureBubble): boolean {
+    if (this.captureBubbles.has(bubble.id)) return false;
+    this.captureBubbles.set(bubble.id, bubble);
     return true;
   }
 

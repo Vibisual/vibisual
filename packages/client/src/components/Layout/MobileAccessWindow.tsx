@@ -1,13 +1,30 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import type { MobileAccessState } from '@vibisual/shared';
+import { MOBILE_QR_TICKET_TTL_MS, type MobileAccessState } from '@vibisual/shared';
+import { drawQrToCanvas, downloadCanvasPng } from '../../utils/qrCanvas';
 
 // 모바일 웹 접속 모드 모달 — SCENARIO.md §4 v3.16.
 //
 // File 메뉴 > Mobile Access. main 의 mobileAccess 매니저가 SSOT 인 shell 상태
 // (MobileAccessState) 를 window.api.mobile 로 조회/구독하고, 여기서는 표시 + 액션만 한다.
 // packaged Electron 한정 — FileMenu 가 isPackagedDesktop() 으로 항목 노출을 막는다.
+//
+// §4 v3.66 — QR 페어링 블록 추가. 티켓(3분)의 SSOT 도 main 이며 여기서는 발급/폐기 요청 +
+// 딥링크를 QR 로 그리기 + 남은 시간 카운트다운 + PNG 저장만 한다.
+
+/** 남은 시간을 mm:ss 로. 만료됐으면 0:00. */
+function formatRemaining(ms: number): string {
+  const total = Math.max(0, Math.ceil(ms / 1000));
+  const min = Math.floor(total / 60);
+  const sec = total % 60;
+  return `${min}:${String(sec).padStart(2, '0')}`;
+}
+
+/** 외부(인터넷) 딥링크인지 — LAN http 와 배지를 구분해 어느 주소를 찍는지 알려준다. */
+function isExternalUrl(url: string): boolean {
+  return url.startsWith('https://');
+}
 
 interface MobileAccessWindowProps {
   open: boolean;
@@ -18,6 +35,10 @@ export function MobileAccessWindow({ open, onClose }: MobileAccessWindowProps): 
   const { t } = useTranslation();
   const [state, setState] = useState<MobileAccessState | null>(null);
   const [busy, setBusy] = useState(false);
+  // §4 v3.66 QR — 대상 주소 인덱스 + 1초 카운트다운용 현재 시각.
+  const [qrTargetIndex, setQrTargetIndex] = useState(0);
+  const [now, setNow] = useState(() => Date.now());
+  const qrCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -76,9 +97,68 @@ export function MobileAccessWindow({ open, onClose }: MobileAccessWindowProps): 
     }
   }, [state, busy]);
 
+  // ─── §4 v3.66 QR 페어링 ──────────────────────────────────────────────────
+
+  const qrUrls = useMemo(() => state?.qrTicket?.urls ?? [], [state]);
+  const qrUrl = qrUrls[Math.min(qrTargetIndex, qrUrls.length - 1)] ?? null;
+  const qrRemainingMs = state?.qrTicket ? state.qrTicket.expiresAt - now : 0;
+
+  const handleIssueQr = useCallback(async () => {
+    const mobile = window.api?.mobile;
+    if (!mobile || busy) return;
+    setBusy(true);
+    try {
+      setState(await mobile.issueQr());
+      setQrTargetIndex(0);
+    } catch {
+      // status push 폴백.
+    } finally {
+      setBusy(false);
+    }
+  }, [busy]);
+
+  const handleRevokeQr = useCallback(async () => {
+    const mobile = window.api?.mobile;
+    if (!mobile || busy) return;
+    setBusy(true);
+    try {
+      setState(await mobile.revokeQr());
+    } catch {
+      // status push 폴백.
+    } finally {
+      setBusy(false);
+    }
+  }, [busy]);
+
+  const handleDownloadQr = useCallback(() => {
+    const canvas = qrCanvasRef.current;
+    if (!canvas) return;
+    downloadCanvasPng(canvas, `vibisual-qr-${Date.now()}.png`);
+  }, []);
+
+  // 남은 시간 카운트다운 — 티켓이 있을 때만 1초 타이머를 돈다(만료는 main 이 push 로 알린다).
+  useEffect(() => {
+    if (!open || !state?.qrTicket) return;
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [open, state?.qrTicket]);
+
+  // 선택된 딥링크를 QR 로 그린다. 대상 주소를 바꾸면 같은 토큰으로 다시 그릴 뿐 재발급은 없다.
+  useEffect(() => {
+    const canvas = qrCanvasRef.current;
+    if (!canvas || !qrUrl) return;
+    void drawQrToCanvas(canvas, qrUrl).catch(() => {
+      // 인코딩 실패(모듈 로드 실패 등) — 아래 주소 텍스트가 폴백으로 남는다.
+    });
+  }, [qrUrl]);
+
   if (!open) return null;
 
   const enabled = state?.enabled === true;
+  const qrTtlMinutes = Math.round(MOBILE_QR_TICKET_TTL_MS / 60000);
+  // 담을 주소가 하나라도 있어야 발급 의미가 있다 — LAN 이 없어도 외부 주소만 있으면 가능.
+  const qrIssuable = (state?.urls.length ?? 0) > 0 || (state?.externalUrl ?? null) !== null;
 
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm" onMouseDown={onClose}>
@@ -173,6 +253,108 @@ export function MobileAccessWindow({ open, onClose }: MobileAccessWindowProps): 
                 <p className="mt-1.5 text-[12px] text-red-400">{t('panel.mobileAccess.locked')}</p>
               ) : (
                 <p className="mt-1.5 text-[12px] text-gray-500">{t('panel.mobileAccess.pairingHint')}</p>
+              )}
+            </div>
+
+            {/* §4 v3.66 — QR 페어링(3분 티켓) */}
+            <div className="mb-3 rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
+              <div className="mb-1 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <svg className="h-4 w-4 text-sky-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <rect width="7" height="7" x="3" y="3" rx="1" />
+                    <rect width="7" height="7" x="14" y="3" rx="1" />
+                    <rect width="7" height="7" x="3" y="14" rx="1" />
+                    <path d="M14 14h3v3h-3z" /><path d="M20 14v.01" /><path d="M14 20v.01" /><path d="M20 20v.01" />
+                  </svg>
+                  <span className="text-[13px] font-medium text-gray-200">{t('panel.mobileAccess.qrTitle')}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void handleIssueQr()}
+                  disabled={busy || !qrIssuable}
+                  className={`rounded-md px-3 py-1.5 text-[12px] font-medium transition-colors ${
+                    state.qrTicket
+                      ? 'bg-white/[0.08] text-gray-200 hover:bg-white/[0.14]'
+                      : 'bg-sky-500 text-gray-950 hover:bg-sky-400'
+                  } ${busy || !qrIssuable ? 'opacity-50' : ''}`}
+                >
+                  {state.qrTicket ? t('panel.mobileAccess.qrReissue') : t('panel.mobileAccess.qrIssue')}
+                </button>
+              </div>
+              <p className="text-[11px] leading-relaxed text-gray-500">
+                {t('panel.mobileAccess.qrSubtitle', { minutes: qrTtlMinutes })}
+              </p>
+
+              {state.qrTicket && qrUrl && (
+                <div className="mt-3">
+                  {/* 대상 주소 선택 — 주소가 둘 이상일 때만(LAN 인터페이스 다중 / 외부 병행). */}
+                  {qrUrls.length > 1 && (
+                    <>
+                      <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-gray-500">
+                        {t('panel.mobileAccess.qrTarget')}
+                      </div>
+                      <div className="mb-2 flex flex-wrap gap-1">
+                        {qrUrls.map((u, i) => (
+                          <button
+                            key={u}
+                            type="button"
+                            onClick={() => setQrTargetIndex(i)}
+                            className={`rounded-md border px-2 py-1 text-[11px] font-mono transition-colors ${
+                              u === qrUrl
+                                ? 'border-sky-400/40 bg-sky-500/15 text-sky-200'
+                                : 'border-white/[0.06] bg-black/20 text-gray-400 hover:bg-white/[0.06]'
+                            }`}
+                          >
+                            <span className="mr-1 font-sans text-[10px] uppercase tracking-wide opacity-70">
+                              {isExternalUrl(u)
+                                ? t('panel.mobileAccess.qrTargetExternal')
+                                : t('panel.mobileAccess.qrTargetLan')}
+                            </span>
+                            {u.replace(/^https?:\/\//, '').replace(/\/mobile\/qr.*$/, '')}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+
+                  <div className="flex flex-col items-center gap-2">
+                    {/* 캔버스 실제 크기는 drawQrToCanvas 가 DPR 에 맞춰 잡는다 — 여기선 자리만. */}
+                    <div className="flex min-h-[212px] min-w-[212px] items-center justify-center rounded-lg bg-white p-2">
+                      <canvas ref={qrCanvasRef} className="block" />
+                    </div>
+                    <div className={`text-[12px] font-medium ${qrRemainingMs > 30000 ? 'text-emerald-300' : 'text-amber-300'}`}>
+                      {qrRemainingMs > 0
+                        ? t('panel.mobileAccess.qrExpiresIn', { time: formatRemaining(qrRemainingMs) })
+                        : t('panel.mobileAccess.qrExpired')}
+                    </div>
+                    {state.qrTicket.usedCount > 0 && (
+                      <div className="text-[11px] text-gray-500">
+                        {t('panel.mobileAccess.qrPairedCount', { count: state.qrTicket.usedCount })}
+                      </div>
+                    )}
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={handleDownloadQr}
+                        className="flex items-center gap-1.5 rounded-md bg-white/[0.08] px-3 py-1.5 text-[12px] text-gray-200 transition-colors hover:bg-white/[0.14]"
+                      >
+                        <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                          <path d="M7 10l5 5 5-5" /><path d="M12 15V3" />
+                        </svg>
+                        {t('panel.mobileAccess.qrDownload')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleRevokeQr()}
+                        disabled={busy}
+                        className={`rounded-md px-3 py-1.5 text-[12px] text-gray-400 transition-colors hover:bg-white/[0.08] hover:text-gray-200 ${busy ? 'opacity-50' : ''}`}
+                      >
+                        {t('panel.mobileAccess.qrRevoke')}
+                      </button>
+                    </div>
+                  </div>
+                </div>
               )}
             </div>
 

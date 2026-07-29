@@ -3,11 +3,13 @@ import { useDetachedSync } from './hooks/useDetachedSync.js';
 import { useOverlaySync } from './hooks/useOverlaySync.js';
 import { useOverlayReveal } from './hooks/useOverlayReveal.js';
 import { useMobileBackAsEscape } from './hooks/useMobileBackAsEscape.js';
+import { useLowPowerMode } from './hooks/useIsMobile.js';
 import { Header } from './components/Layout/Header.js';
 import { BubbleMap } from './components/BubbleMap/BubbleMap.js';
 import { CanvasBreadcrumb } from './components/BubbleMap/CanvasBreadcrumb.js';
 import { IframeView } from './components/Layout/IframeView.js';
 import { DetailPanel } from './components/Panel/DetailPanel.js';
+import { BrainFeedOverlay } from './components/Panel/BrainFeedOverlay.js';
 import { DebugPanel } from './components/Panel/DebugPanel.js';
 import { InspectorOverlay } from './components/Inspector/InspectorOverlay.js';
 import { WorktreeDeleteDialog } from './components/Panel/WorktreeDeleteDialog.js';
@@ -30,9 +32,21 @@ export function App(): React.JSX.Element {
   useOverlayReveal();
   // §4 v3.16 — 모바일 웹 브라우저의 back 버튼을 ESC(오버레이·팝업 닫기)처럼 동작시켜 앱 이탈 방지.
   useMobileBackAsEscape();
+  // §4 v3.39 — 모바일/터치·'동작 줄이기'면 저전력 클래스를 root 에 걸어 상시 GPU 부하(애니메이션
+  // 엣지·pulse/ping·backdrop-blur)를 index.css 에서 끈다(폰 발열 억제). 데스크톱엔 미적용.
+  const lowPower = useLowPowerMode();
+  useEffect(() => {
+    const cls = 'vibisual-low-power';
+    document.documentElement.classList.toggle(cls, lowPower);
+    return () => document.documentElement.classList.remove(cls);
+  }, [lowPower]);
   const selectedNodeId = useGraphStore((s) => s.selectedNodeId);
   const selectedTaskEdgeId = useGraphStore((s) => s.selectedTaskEdgeId);
   const selectedCommentBoxId = useGraphStore((s) => s.selectedCommentBoxId);
+  const selectedCaptureBubbleId = useGraphStore((s) => s.selectedCaptureBubbleId);
+  const selectedBrainCardId = useGraphStore((s) => s.selectedBrainCardId);
+  // §5.10 v3.49 — 기억 피드 오버레이가 열려 있으면 카드 상세는 오버레이 우측 pane 이 담당(App DetailPanel 은 억제).
+  const brainFeedOpen = useGraphStore((s) => s.brainFeed !== null);
   const agentPhase = useGraphStore((s) => s.agentPhase);
   const debugMode = useGraphStore((s) => s.debugMode);
   const activeIframeId = useGraphStore((s) => s.activeIframeId);
@@ -96,17 +110,20 @@ export function App(): React.JSX.Element {
             </>
           )}
         </main>
-        {(selectedNodeId !== null || selectedTaskEdgeId !== null || selectedCommentBoxId !== null) && !activeIframeTab && (
+        {(selectedNodeId !== null || selectedTaskEdgeId !== null || selectedCommentBoxId !== null || selectedCaptureBubbleId !== null || (selectedBrainCardId !== null && !brainFeedOpen)) && !activeIframeTab && (
           <DetailPanel
             onClose={() => {
               const s = useGraphStore.getState();
               s.selectNode(null);
               s.selectTaskEdge(null);
               s.selectCommentBox(null);
+              s.selectCaptureBubble(null);
+              s.selectBrainCard(null);
             }}
           />
         )}
       </div>
+      <BrainFeedOverlay />
       <InspectorOverlay />
       <WorktreeDeleteDialog />
       <PermissionPromptStack />

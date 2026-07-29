@@ -123,16 +123,18 @@ function DetailPanelHost({ children }: { children: React.ReactNode }): React.JSX
   const selectedNodeId = useGraphStore((s) => s.selectedNodeId);
   const selectedTaskEdgeId = useGraphStore((s) => s.selectedTaskEdgeId);
   const selectedCommentBoxId = useGraphStore((s) => s.selectedCommentBoxId);
+  const selectedCaptureBubbleId = useGraphStore((s) => s.selectedCaptureBubbleId);
   return (
     <div className="relative flex flex-1 overflow-hidden">
       {children}
-      {(selectedNodeId !== null || selectedTaskEdgeId !== null || selectedCommentBoxId !== null) && (
+      {(selectedNodeId !== null || selectedTaskEdgeId !== null || selectedCommentBoxId !== null || selectedCaptureBubbleId !== null) && (
         <DetailPanel
           onClose={() => {
             const s = useGraphStore.getState();
             s.selectNode(null);
             s.selectTaskEdge(null);
             s.selectCommentBox(null);
+            s.selectCaptureBubble(null);
           }}
         />
       )}

@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import { electronAPI } from '@electron-toolkit/preload';
-import type { UpdateState, AgentConfig, MobileAccessState } from '@vibisual/shared';
+import type { UpdateState, AgentConfig, MobileAccessState, CaptureSourceInfo, CaptureInputEvent, CaptureSourceKind, CaptureTargetRect, CaptureInjectResult } from '@vibisual/shared';
 
 // Preload — SCENARIO.md §3.7 / §3.4 contextBridge surface.
 //
@@ -220,6 +220,10 @@ const api = {
     enableExternal: (): Promise<MobileAccessState> => ipcRenderer.invoke('vibisual:mobile:enable-external'),
     /** §4 v3.20 — 외부 개방 끄기(UPnP 매핑 제거 + HTTPS 종료). */
     disableExternal: (): Promise<MobileAccessState> => ipcRenderer.invoke('vibisual:mobile:disable-external'),
+    /** §4 v3.66 — QR 페어링 티켓 발급(3분). 기존 티켓이 있으면 폐기하고 새로 만든다. */
+    issueQr: (): Promise<MobileAccessState> => ipcRenderer.invoke('vibisual:mobile:issue-qr'),
+    /** §4 v3.66 — QR 페어링 티켓 즉시 폐기(이미 페어링된 기기는 유지). */
+    revokeQr: (): Promise<MobileAccessState> => ipcRenderer.invoke('vibisual:mobile:revoke-qr'),
     /** main 이 푸시하는 상태 변경 구독(페어링 성공/클라이언트 접속·해제 등). */
     onStatus: (cb: (state: MobileAccessState) => void): (() => void) => {
       const listener = (_e: unknown, state: MobileAccessState): void => cb(state);
@@ -252,6 +256,16 @@ const api = {
       ipcRenderer.on('vibisual:term:exit', listener);
       return () => ipcRenderer.removeListener('vibisual:term:exit', listener);
     },
+  },
+  /** §5.9 화면/프로그램 캡처 버블 surface — desktopCapturer 소스 열거 + 원격 조작 입력 주입. */
+  capture: {
+    /** 캡처 가능한 화면·창 목록(썸네일 data URL 포함). picker 그리드 렌더용. */
+    listSources: (): Promise<CaptureSourceInfo[]> => ipcRenderer.invoke('vibisual:capture:list-sources'),
+    /** §5.9 Phase B — 캡처 본체 위 제스처를 OS 입력으로 주입(원격 조작). */
+    sendInput: (event: CaptureInputEvent): Promise<CaptureInjectResult> => ipcRenderer.invoke('vibisual:capture:input', event),
+    /** §5.9 v3.57 — 대상 화면/창의 사각형(DIP+물리). 드래그 중 손 움직임만 뽑아내는 데 쓴다. */
+    targetRect: (spec: { sourceId: string; sourceKind: CaptureSourceKind; sourceName: string }): Promise<CaptureTargetRect> =>
+      ipcRenderer.invoke('vibisual:capture:target-rect', spec),
   },
 };
 

@@ -37,6 +37,11 @@
       "closeTab": "Close tab",
       "unloadedProject": "Not loaded",
       "clickToLoad": "Click to load project"
+    },
+    "usage": {
+      "tooltip": "Current session: {{percent}}% of your 5-hour limit used — click for details",
+      "tooltipNoData": "Usage data is not being collected yet — click to turn it on",
+      "noData": "--%"
     }
   },
   "panel": {
@@ -69,7 +74,19 @@
       "externalManual": "Couldn't open a port automatically (your router's UPnP may be off). To do it manually, forward external TCP port {{port}} to {{ip}}:{{port}} on this PC in your router settings.",
       "externalManualUrl": "Once the port is forwarded, connect from outside at this address:",
       "externalReachable": "Reachable — connect from outside at",
-      "externalHttpsNote": "Uses a self-signed certificate — your phone shows a security warning the first time. Tap \"Advanced → proceed\" to continue; the connection is still encrypted."
+      "externalHttpsNote": "Uses a self-signed certificate — your phone shows a security warning the first time. Tap \"Advanced → proceed\" to continue; the connection is still encrypted.",
+      "qrTitle": "QR pairing",
+      "qrSubtitle": "Scan with your phone's camera — Vibisual opens and pairs itself, no address or code to type. Each QR works for {{minutes}} minutes.",
+      "qrIssue": "Issue QR",
+      "qrReissue": "Issue new QR",
+      "qrRevoke": "Revoke now",
+      "qrDownload": "Save image",
+      "qrTarget": "Address to encode",
+      "qrTargetLan": "Wi-Fi",
+      "qrTargetExternal": "Internet",
+      "qrExpiresIn": "Valid for {{time}}",
+      "qrExpired": "Expired — issue a new QR.",
+      "qrPairedCount": "Paired with this QR: {{count}}"
     },
     "guide": {
       "title": "Guide",
@@ -542,7 +559,8 @@
         "medium": "Balanced thinking depth.",
         "high": "Deep reasoning. Slower but thorough.",
         "xhigh": "Extra-high reasoning (Opus 4.7+). Recommended for most coding work.",
-        "max": "Maximum reasoning, no token limit (Opus 4.8). For the hardest judgment calls; may overthink simple tasks."
+        "max": "Maximum reasoning, no token limit (Opus 4.8). For the hardest judgment calls; may overthink simple tasks.",
+        "unknown": "{{name}} — reasoning effort level supported by the installed CLI."
       },
       "tools": {
         "label": "Tools",
@@ -823,6 +841,35 @@
       "delete": "Delete",
       "deleteBundleTooltip": "Delete the entire bundle (primary + auto sibling)",
       "deleteEdgeTooltip": "Delete the edge"
+    },
+    "usage": {
+      "title": "Claude usage",
+      "close": "Close usage",
+      "session5h": "Current session (5 hours)",
+      "weekly7d": "Weekly limit (7 days)",
+      "noValue": "--",
+      "resetsIn": "Resets in {{span}}",
+      "resetUnknown": "Reset time unknown",
+      "resettingNow": "Resetting now",
+      "spanDh": "{{d}}d {{h}}h",
+      "spanHm": "{{h}}h {{m}}m",
+      "spanM": "{{m}}m",
+      "lastUpdated": "Last updated {{time}}",
+      "neverUpdated": "No usage data received yet",
+      "collectorTitle": "Usage collector",
+      "collectorOnHint": "Claude Code is reporting your limits to Vibisual",
+      "collectorOffHint": "Turn on to read your plan limits from Claude Code",
+      "collectorEnable": "Turn on",
+      "collectorDisable": "Turn off",
+      "collectorPassthrough": "Your existing status line was kept — Vibisual runs it and shows its output unchanged.",
+      "collectorForeign": "You already have a custom status line. Turning this on keeps it: Vibisual wraps it and still shows its output.",
+      "collectorFailed": "Could not reach the usage collector settings.",
+      "collectorRestartHint": "Values arrive once an interactive Claude Code session renders its status line. Sessions already running need a restart.",
+      "localTitle": "This project in Vibisual",
+      "localAgents": "Agents",
+      "localInput": "Input tokens",
+      "localOutput": "Output tokens",
+      "localHint": "Counted from agents on the active project tab. Plan limits above are account-wide and include work done outside Vibisual."
     }
   },
   "ide": {
@@ -836,7 +883,9 @@
       "resizeDock": "Resize dock",
       "customLabel": "Custom",
       "cmdLabel": "CMD",
-      "hookLabel": "Hook"
+      "hookLabel": "Hook",
+      "renameHint": "Double-click to rename (F2)",
+      "renameInputLabel": "Agent name"
     },
     "tabbar": {
       "newSession": "New Session",
@@ -845,10 +894,15 @@
       "pastSessionsClose": "Close",
       "loading": "Loading...",
       "noClosedSessions": "No closed sessions to restore.",
-      "agentTabLabel": "Agent"
+      "agentTabLabel": "Agent",
+      "confirmCloseTitle": "Close running session?",
+      "confirmCloseMessage": "A session is still running. Closing it will stop its work. Close anyway?",
+      "confirmCloseConfirm": "Close",
+      "confirmCloseCancel": "Cancel"
     },
     "terminal": {
       "unavailable": "The embedded terminal is available only in the Vibisual desktop app.",
+      "unavailableExternal": "For security, the embedded terminal is disabled over external (internet) access — use it on your local network.",
       "exited": "claude exited (code {{code}})",
       "createFailed": "Failed to open terminal: {{error}}",
       "harnessNote": "Interactive session you drive — Vibisual visualizes & assists harness wiring, but execution authority lives inside Claude Code.",
@@ -901,7 +955,11 @@
       "inputCtxCut": "Cut",
       "inputCtxCopy": "Copy",
       "inputCtxPaste": "Paste",
-      "inputCtxSelectAll": "Select all"
+      "inputCtxSelectAll": "Select all",
+      "ctxSaveToBrain": "Save to Brain",
+      "stopAll": "Stop all",
+      "stopAllTitle": "Stop everything this agent is running (other tabs + background subagents)",
+      "stopSessionTitle": "Stop this session and the subagents it started (other session tabs keep running)"
     },
     "askQuestion": {
       "title": "Question",
@@ -926,7 +984,8 @@
       "results": "Results",
       "skills": "Skills",
       "bookmarks": "Bookmarks",
-      "sessionSummary": "Session summaries"
+      "sessionSummary": "Session summaries",
+      "runningSubagents": "Running subagents ({{count}})"
     },
     "bookmarks": {
       "title": "Bookmarks",
@@ -1024,14 +1083,20 @@
       "title": "Work report",
       "didTitle": "What the AI did",
       "userActionsTitle": "What you need to do",
-      "nextStepsTitle": "Next steps"
+      "nextStepsTitle": "Next steps",
+      "learnedTitle": "Learned"
     },
     "question": {
       "title": "Question",
       "copy": "Copy",
       "copied": "Copied",
       "instant": "Send now",
-      "instantSent": "Sent"
+      "instantSent": "Sent",
+      "copyCard": "Copy card",
+      "copyQuestions": "Copy questions",
+      "selectAnswer": "Select this answer",
+      "selectNone": "Clear",
+      "sendSelected": "Send {{n}} selected"
     },
     "review": {
       "title": "Review request",
@@ -1050,9 +1115,101 @@
       "addReason": "Add reason",
       "editReason": "Edit reason",
       "statsTitle": "Your feedback on this session"
+    },
+    "unseenCards": {
+      "hint": "Missed cards — click to jump",
+      "jump": "Jump to this card",
+      "dismiss": "Dismiss"
+    },
+    "memoryChip": {
+      "label": "Referenced {{n}} memories"
+    },
+    "runningSubagents": {
+      "title": "Running subagents",
+      "close": "Close",
+      "empty": "No subagents are running right now.",
+      "untitled": "Subagent",
+      "scopeAll": "Showing every subagent this agent is running.",
+      "scopeSession": "Showing subagents started by \"{{label}}\"."
     }
   },
   "bubbleMap": {
+    "capture": {
+      "pickerTitle": "Screen / Program Capture",
+      "pickerSubtitle": "Pick a screen or program window to show live inside a bubble.",
+      "screens": "Screens",
+      "windows": "Programs · Windows",
+      "refresh": "Refresh",
+      "loading": "Loading sources…",
+      "empty": "No capturable sources found.",
+      "unavailable": "Screen capture isn't available here (packaged app only).",
+      "repick": "Pick a different source",
+      "connecting": "Connecting…",
+      "sourceLost": "Source not found · pick again",
+      "pickPrompt": "Click to pick a source",
+      "controlToggle": "Remote control (inject clicks & typing into the captured target)",
+      "controlOn": "Controlling",
+      "controlOff": "Remote Control",
+      "controlModeOff": "Off",
+      "pointerModeSwitch": "Pointer mode — Touch: click where you point · Mouse: drag to move the pointer, then tap to click (click to switch)",
+      "pointerModeTouch": "Touch",
+      "pointerModeMouse": "Mouse",
+      "qualityHint": "Quality / data — lower means smaller resolution & FPS (click to switch)",
+      "quality_full": "Full",
+      "quality_saver": "Saver",
+      "quality_min": "Min",
+      "quality_auto": "AUTO",
+      "snapshot": "Save current frame (PNG)",
+      "pause": "Pause (save data)",
+      "resume": "Resume",
+      "pausedTapResume": "Paused · tap to resume",
+      "paste": "Paste clipboard (phone → PC)",
+      "pasteShort": "Paste",
+      "settings": "Capture bubble settings",
+      "opacity": "Opacity",
+      "controlTimeout": "Auto-release control",
+      "timeoutOff": "Off",
+      "pin": "Always on top (pin)",
+      "stillSaver": "Still-frame saver",
+      "readOnly": "Read-only (lock control)",
+      "readOnlyOn": "Read-only — remote control is locked (unlock in settings)",
+      "readOnlyShort": "View-only",
+      "badge": "fps · resolution badge",
+      "badgeIdle": "Still · idle",
+      "expandHint": "Double-click to open in a window",
+      "collapse": "Restore size (Esc)",
+      "maximize": "Maximize",
+      "restore": "Restore",
+      "windowClose": "Close (Esc)",
+      "source": "Capture source",
+      "kindScreen": "Screen",
+      "kindWindow": "Window",
+      "expand": "Open in window",
+      "playback": "Playback",
+      "snapshotShort": "Snapshot",
+      "quality": "Quality / data",
+      "view": "View",
+      "stillSaverHint": "Drops the frame rate when nothing moves — saves CPU and data",
+      "remoteControl": "Remote control",
+      "readOnlyHint": "Locks the control modes (view only)",
+      "controlInWindow": "Remote control in this window — off by default (mouse not injected)",
+      "delete": "Delete capture bubble",
+      "live": "LIVE",
+      "keysToggle": "Special keys · paste",
+      "controlTargetMissing": "Control target not found · pick the source again",
+      "controlEngineMissing": "Control engine didn't load · restart the app",
+      "controlInjectFailed": "Input injection failed",
+      "backgroundClick": "Don't move my cursor (experimental)",
+      "backgroundClickHint": "Sends the click straight to the target window so your own mouse never moves. Games and protected windows ignore this and fall back automatically.",
+      "backgroundClickBlocked": "This window ignores background clicks · cursor was borrowed briefly",
+      "backgroundClickUnavailable": "Background click unavailable · cursor was borrowed briefly",
+      "join": "Join bubbles",
+      "snapHint": "Drag a capture bubble next to another one and their edges snap together. Hold Alt while dragging to turn the magnet off.",
+      "fitAspect": "Match source ratio",
+      "fitAspectHint": "Resets the bubble height to the source aspect ratio so the black bars disappear — joined bubbles then look continuous.",
+      "seamless": "Hide seams",
+      "seamlessHint": "Hides the border and header so joined bubbles look like one screen (the header reappears on hover)"
+    },
     "taskEdge": {
       "iconHint": "Click: details · Double-click: edit",
       "pulse": {
@@ -1182,6 +1339,7 @@
   "tabMenu": {
     "close": "Close",
     "closeOthers": "Close Others",
+    "closeLeft": "Close to the Left",
     "closeRight": "Close to the Right",
     "closeAll": "Close All",
     "pin": "Pin",
@@ -1249,9 +1407,8 @@
       "createAutoAgentHint": "Meta agent — auto-spawns a custom agent team from your prompt",
       "createWorktree": "Create Worktree",
       "createWorktreeHint": "New workspace from latest master",
-      "restoreCustomAgent": "Restore Previous Custom Agent",
-      "restoreLoading": "Loading…",
-      "restoreEmpty": "Nothing to restore"
+      "createCapture": "Screen / Program Capture Bubble",
+      "createCaptureHint": "Show a screen or program window live inside a bubble"
     },
     "bounds": {
       "label": "Bubble Bounds",
@@ -1305,6 +1462,77 @@
         "goBack": "Double-click to go back",
         "expand": "Double-click to expand"
       }
+    }
+  },
+  "brain": {
+    "bubbleLabel": "Brain",
+    "trashBubbleLabel": "Trash",
+    "cardCountShort": "{{n}} cards",
+    "trashCountShort": "{{n}}",
+    "unseenBadge": "{{n}} unseen",
+    "type": {
+      "decision": "Decision",
+      "mistake": "Mistake",
+      "lesson": "Lesson",
+      "rule": "Rule",
+      "fact": "Fact"
+    },
+    "scopeProject": "Project Brain",
+    "scopeAgent": "Agent Memory",
+    "statusGhost": "Needs review",
+    "supersededNote": "Previous content",
+    "linkedFiles": "Linked files",
+    "refCount": "References",
+    "lastReferenced": "Last referenced",
+    "createdAt": "Created",
+    "sourceSession": "Source session",
+    "promote": "Promote to Project Brain",
+    "pin": "Pin",
+    "unpin": "Unpin",
+    "edit": "Edit",
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "deleteConfirm": "Delete?",
+    "deleteYes": "Delete",
+    "loading": "Loading…",
+    "cardDetailTitle": "Memory Card",
+    "summaryCards": "Memory cards",
+    "summaryUnseen": "Unseen",
+    "summaryRecent": "Recently saved",
+    "openInterior": "Open interior",
+    "trashedAt": "Trashed",
+    "trashedMemories": "Agent memories",
+    "cardCountUnit": " cards",
+    "restore": "Restore",
+    "purge": "Delete permanently",
+    "purgeConfirm": "This deletes everything including {{n}} agent memory cards.",
+    "purgeYes": "Delete permanently",
+    "fileMark": "This file has mistake/lesson memory",
+    "cardCountUnitSuffix": "",
+    "feed": {
+      "title": "Project Brain",
+      "agentTitle": "This Agent's Memory",
+      "searchPlaceholder": "Search memories…",
+      "sectionRelated": "Related to current work",
+      "sectionRecent": "Recently learned",
+      "sectionFrequent": "Frequently used",
+      "sectionResurface": "Worth revisiting",
+      "sectionAgentOwn": "What this agent learned",
+      "sectionProjectRef": "Project shared (reference)",
+      "helpful": "Helpful",
+      "refShort": "refs",
+      "helpfulShort": "helpful",
+      "scopeTagProject": "Project",
+      "scopeTagAgent": "This agent",
+      "empty": "No memories to show.",
+      "loading": "Loading…",
+      "total": "{{n}} cards",
+      "agoNow": "just now",
+      "agoMin": "{{n}}m ago",
+      "agoHour": "{{n}}h ago",
+      "agoDay": "{{n}}d ago",
+      "agoMonth": "{{n}}mo ago"
     }
   }
 }

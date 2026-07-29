@@ -49,16 +49,21 @@ import {
   regenMobilePairingCode,
   enableExternalAccess,
   disableExternalAccess,
+  issueMobileQrTicket,
+  revokeMobileQrTicket,
 } from './mobileAccess';
 import {
   createTerminal,
   writeTerminal,
   resizeTerminal,
   killTerminal,
-  killTerminalsForWebContents,
+  killTerminalsForSink,
   type CreateTerminalSpec,
+  type TermSink,
 } from './terminalManager';
-import type { UpdateState, AgentConfig, MobileAccessState } from '@vibisual/shared';
+import { listCaptureSources } from './captureManager';
+import { injectCaptureInput, resolveCaptureTargetRect } from './captureInputManager';
+import type { UpdateState, AgentConfig, MobileAccessState, CaptureSourceInfo, CaptureInputEvent, CaptureSourceKind, CaptureTargetRect, CaptureInjectResult } from '@vibisual/shared';
 
 // IPC hub — SCENARIO.md §3.7 (in-process 통합).
 //
@@ -69,6 +74,16 @@ import type { UpdateState, AgentConfig, MobileAccessState } from '@vibisual/shar
 //   - vibisual:send         → renderer→server WS 메시지(hydrate/unload/iframe-log) 직접 처리.
 //   - vibisual:ws-connect   → renderer 의 IpcWebSocket 생성 시 초기 ack+snapshot 푸시.
 //   - vibisual:ws (push)    → server broadcast sink(main/index.ts)가 renderer 로 푸시.
+
+// §4 v3.33 — 데스크톱 IPC 용 TermSink. PTY 출력을 이 webContents 의 renderer 로 push.
+function webContentsSink(wc: WebContents): TermSink {
+  return {
+    id: `wc:${wc.id}`,
+    sendData: (termId, data) => { if (!wc.isDestroyed()) wc.send('vibisual:term:data', { termId, data }); },
+    sendExit: (termId, exitCode) => { if (!wc.isDestroyed()) wc.send('vibisual:term:exit', { termId, exitCode }); },
+    isAlive: () => !wc.isDestroyed(),
+  };
+}
 
 interface FetchInitWire {
   method?: string;
@@ -334,19 +349,24 @@ export function setupIpc(expressApp: Express): IpcHub {
   ipcMain.handle('vibisual:mobile:regen-code', (): MobileAccessState => regenMobilePairingCode());
   ipcMain.handle('vibisual:mobile:enable-external', (): Promise<MobileAccessState> => enableExternalAccess());
   ipcMain.handle('vibisual:mobile:disable-external', (): Promise<MobileAccessState> => disableExternalAccess());
+  // §4 v3.66 — QR 페어링 티켓(3분) 발급/폐기.
+  ipcMain.handle('vibisual:mobile:issue-qr', (): MobileAccessState => issueMobileQrTicket());
+  ipcMain.handle('vibisual:mobile:revoke-qr', (): MobileAccessState => revokeMobileQrTicket());
 
   // ─── §4 v2.63 임베디드 인터랙티브 터미널 채널 ─────────────────────────────
-  // data/exit push 는 terminalManager 가 직접 webContents.send('vibisual:term:data'|'vibisual:term:exit').
-  // 여기서는 renderer→main 의 invoke 액션(create/write/resize/kill)만 등록한다.
+  // §4 v3.33 — 출력 대상은 TermSink 추상화. 데스크톱 IPC 는 아래 webContents 싱크로
+  //   `vibisual:term:data`|`vibisual:term:exit` 를 push 한다(모바일 /ws 싱크는 mobileAccess.ts).
+  //   여기서는 renderer→main 의 invoke 액션(create/write/resize/kill)만 등록한다.
   ipcMain.handle(
     'vibisual:term:create',
     (event, spec: { termId: string; cwd: string; config: AgentConfig; cols?: number; rows?: number }): { ok: boolean; error?: string } => {
       if (!spec || typeof spec.termId !== 'string' || !spec.termId) {
         return { ok: false, error: 'termId required' };
       }
+      const wcId = event.sender.id;
       // 창이 닫히면 그 webContents 의 PTY 들을 정리(좀비 셸 방지). once 가 여러 번 붙어도 무해.
-      event.sender.once('destroyed', () => killTerminalsForWebContents(event.sender.id));
-      return createTerminal(event.sender, spec as CreateTerminalSpec);
+      event.sender.once('destroyed', () => killTerminalsForSink(`wc:${wcId}`));
+      return createTerminal(webContentsSink(event.sender), spec as CreateTerminalSpec);
     },
   );
   ipcMain.handle('vibisual:term:write', (_event, payload: { termId: string; data: string }): void => {
@@ -362,6 +382,22 @@ export function setupIpc(expressApp: Express): IpcHub {
   ipcMain.handle('vibisual:term:kill', (_event, termId: string): void => {
     if (typeof termId === 'string') killTerminal(termId);
   });
+
+  // ─── §5.9 화면/프로그램 캡처 버블 채널 ──────────────────────────────────────
+  // desktopCapturer.getSources 는 main 전용 — 렌더러는 이 목록에서 고른 소스 id 로
+  // getUserMedia(desktop) 라이브 스트림을 붙인다(렌더러 전용, 서버 무관).
+  ipcMain.handle('vibisual:capture:list-sources', (): Promise<CaptureSourceInfo[]> => listCaptureSources());
+  // §5.9 Phase B — 캡처 본체 위 제스처를 OS 입력으로 주입(원격 조작). fire-and-forget.
+  ipcMain.handle(
+    'vibisual:capture:input',
+    (_event, ev: CaptureInputEvent): Promise<CaptureInjectResult> => injectCaptureInput(ev),
+  );
+  // §5.9 v3.57 — 드래그 좌표를 렌더러가 닫힌 루프로 계산하려면 대상 사각형(DIP+물리)이 필요하다.
+  ipcMain.handle(
+    'vibisual:capture:target-rect',
+    (_event, spec: { sourceId: string; sourceKind: CaptureSourceKind; sourceName: string }): Promise<CaptureTargetRect> =>
+      resolveCaptureTargetRect(spec),
+  );
 
   return {
     stop(): void {
@@ -407,10 +443,15 @@ export function setupIpc(expressApp: Express): IpcHub {
       ipcMain.removeHandler('vibisual:mobile:regen-code');
       ipcMain.removeHandler('vibisual:mobile:enable-external');
       ipcMain.removeHandler('vibisual:mobile:disable-external');
+      ipcMain.removeHandler('vibisual:mobile:issue-qr');
+      ipcMain.removeHandler('vibisual:mobile:revoke-qr');
       ipcMain.removeHandler('vibisual:term:create');
       ipcMain.removeHandler('vibisual:term:write');
       ipcMain.removeHandler('vibisual:term:resize');
       ipcMain.removeHandler('vibisual:term:kill');
+      ipcMain.removeHandler('vibisual:capture:list-sources');
+      ipcMain.removeHandler('vibisual:capture:input');
+      ipcMain.removeHandler('vibisual:capture:target-rect');
       shutdownIframeLogStreamer();
       shutdownServerLogService();
       connections.clear();

@@ -12,6 +12,8 @@ const HOOK_EVENTS = [
   'PostToolUse',
   'PreCompact',
   'Stop',
+  // 서브에이전트 종료. 설치해 두어야 서버가 부모 Stop 과 서브 Stop 을 구분해 부모 버블 조기 완료를 막는다.
+  'SubagentStop',
 ] as const;
 
 type HookEvent = (typeof HOOK_EVENTS)[number];

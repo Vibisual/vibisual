@@ -1,10 +1,13 @@
 import net from 'node:net';
+import http from 'node:http';
+import https from 'node:https';
 import fs from 'node:fs';
 import path from 'node:path';
 import { exec, spawn } from 'node:child_process';
 import { logger } from '../logger.js';
 
 const TCP_TIMEOUT = 1000;
+const HTTP_PROBE_TIMEOUT = 2500;
 
 /** 단일 호스트에 TCP connect 시도 */
 function probeHost(port: number, host: string): Promise<boolean> {
@@ -29,6 +32,39 @@ function probeHost(port: number, host: string): Promise<boolean> {
 export function isPortAlive(port: number): Promise<boolean> {
   return Promise.all([probeHost(port, '127.0.0.1'), probeHost(port, '::1')])
     .then(([v4, v6]) => v4 || v6);
+}
+
+/**
+ * 신고된 **정확한 URL**(경로·쿼리 포함)에 실제 HTTP GET 을 보내 에러 아닌 응답(2xx/3xx)을
+ * 주는지 확인한다. `isPortAlive` 는 TCP listen 만 보므로 `python -m http.server` 처럼
+ * 포트는 살아있어도 그 경로가 404 인 경우(사용자 보고: "접속도 안 되는데 왜 켜지냐")를
+ * 걸러내지 못한다 — iframe 신고 위성 생성 게이트에서 이 함수로 URL 응답을 추가 검증한다.
+ * status < 400 이면 serving, 4xx/5xx·연결 실패·타임아웃은 not serving. 본문은 안 읽고 즉시 파기.
+ */
+export function isUrlServing(rawUrl: string, timeoutMs = HTTP_PROBE_TIMEOUT): Promise<boolean> {
+  return new Promise((resolve) => {
+    let parsed: URL;
+    try { parsed = new URL(rawUrl); } catch { resolve(false); return; }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') { resolve(false); return; }
+    const lib = parsed.protocol === 'https:' ? https : http;
+    let settled = false;
+    const done = (ok: boolean): void => {
+      if (settled) return;
+      settled = true;
+      resolve(ok);
+    };
+    try {
+      // localhost self-signed 대비 rejectUnauthorized:false — 표시용 probe 라 인증서 무관.
+      const req = lib.request(rawUrl, { method: 'GET', timeout: timeoutMs, rejectUnauthorized: false }, (res) => {
+        const status = res.statusCode ?? 0;
+        res.destroy(); // 상태코드만 필요 — 본문은 버린다
+        done(status >= 200 && status < 400);
+      });
+      req.once('timeout', () => { req.destroy(); done(false); });
+      req.once('error', () => done(false));
+      req.end();
+    } catch { done(false); }
+  });
 }
 
 const IS_WIN = process.platform === 'win32';

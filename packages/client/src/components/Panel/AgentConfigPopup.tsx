@@ -9,6 +9,7 @@ import {
   isOpusModel,
   resolveAliasToLatest,
   listModelFamilies,
+  listEffortLevels,
   parseModelSemver,
 } from '@vibisual/shared';
 import { HexColorPicker } from 'react-colorful';
@@ -24,9 +25,9 @@ interface SelectOption { value: string; description: string; disabled?: boolean 
 const KNOWN_MODEL_FAMILIES = ['opus', 'sonnet', 'haiku'] as const;
 const PERMISSION_VALUES = ['default', 'acceptEdits', 'plan', 'bypassPermissions'] as const;
 const ISOLATION_VALUES = ['none', 'worktree'] as const;
-// §4 v1.49 — Opus 4.7 신규 등급 'xhigh' (이전 'max' 대체)
-// SSOT = shared `AVAILABLE_EFFORT_LEVELS` (§4 v2.48). 'max' = Opus 4.8 최대 추론. 드리프트 주의.
-const EFFORT_VALUES = ['default', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
+// §4 — Effort 등급은 더 이상 하드코딩하지 않는다. 설치된 `claude --help` 에서 서버가 파싱해
+//   `modelRegistry.effortLevels` 로 전달 → `listEffortLevels(registry)` 로 동적 구성(Model 드롭다운과 대칭).
+//   CLI 미발견/파싱 실패 시에만 shared `AVAILABLE_EFFORT_LEVELS` 로 폴백.
 
 // ─── Portal Tooltip ───
 
@@ -363,7 +364,17 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
   }, [t, modelRegistry]);
   const PERMISSION_OPTIONS: SelectOption[] = useMemo(() => PERMISSION_VALUES.map((v) => ({ value: v, description: t(`panel.agentConfig.permissionMode.${v}`) })), [t]);
   const ISOLATION_OPTIONS: SelectOption[] = useMemo(() => ISOLATION_VALUES.map((v) => ({ value: v, description: t(`panel.agentConfig.isolation.${v}`) })), [t]);
-  const EFFORT_OPTIONS: SelectOption[] = useMemo(() => EFFORT_VALUES.map((v) => ({ value: v, description: t(`panel.agentConfig.effort.${v}`) })), [t]);
+  // §4 — 설치된 CLI 가 실제로 받는 effort 등급(`modelRegistry.effortLevels`) 기반 동적 목록.
+  //   known 등급은 전용 설명, CLI 가 새로 노출한 미지 등급은 공통 'unknown' 설명으로 폴백.
+  const EFFORT_OPTIONS: SelectOption[] = useMemo(() => listEffortLevels(modelRegistry).map((v) => ({
+    value: v,
+    description: t(`panel.agentConfig.effort.${v}`, {
+      defaultValue: t('panel.agentConfig.effort.unknown', {
+        defaultValue: '{{name}} — reasoning effort level supported by the installed CLI.',
+        name: v,
+      }),
+    }),
+  })), [t, modelRegistry]);
   const TOOL_DESCRIPTIONS: Record<string, string> = useMemo(() => Object.fromEntries(
     ['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob', 'Agent', 'WebSearch', 'WebFetch', 'NotebookEdit'].map((tool) => [tool, t(`panel.agentConfig.tools.${tool}`)]),
   ), [t]);

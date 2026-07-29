@@ -1,7 +1,7 @@
 import { memo, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 
-export type TabContextAction = 'close' | 'closeOthers' | 'closeRight' | 'closeAll' | 'togglePin' | 'toggleDefault' | 'detach' | 'rename';
+export type TabContextAction = 'close' | 'closeOthers' | 'closeLeft' | 'closeRight' | 'closeAll' | 'togglePin' | 'toggleDefault' | 'detach' | 'rename';
 
 interface TabContextMenuProps {
   x: number;
@@ -9,6 +9,7 @@ interface TabContextMenuProps {
   isPinned: boolean;
   isDefault: boolean;
   hasOthers: boolean;
+  hasLeft: boolean;
   hasRight: boolean;
   /** §5.4 #14-1 — 별창 분리 메뉴 노출 여부. 기본 true. IDE 서브에이전트 탭 등에선 false. */
   showDetach?: boolean;
@@ -24,6 +25,7 @@ export const TabContextMenu = memo(function TabContextMenu({
   isPinned,
   isDefault,
   hasOthers,
+  hasLeft,
   hasRight,
   showDetach = true,
   showRename = false,
@@ -69,6 +71,7 @@ export const TabContextMenu = memo(function TabContextMenu({
       : []),
     { key: 'close', label: t('tabMenu.close'), separatorAbove: showRename },
     { key: 'closeOthers', label: t('tabMenu.closeOthers'), disabled: !hasOthers },
+    { key: 'closeLeft', label: t('tabMenu.closeLeft'), disabled: !hasLeft },
     { key: 'closeRight', label: t('tabMenu.closeRight'), disabled: !hasRight },
     { key: 'closeAll', label: t('tabMenu.closeAll') },
     {
@@ -104,7 +107,7 @@ export const TabContextMenu = memo(function TabContextMenu({
   const vw = typeof window !== 'undefined' ? window.innerWidth : 1024;
   const vh = typeof window !== 'undefined' ? window.innerHeight : 768;
   const menuWidth = 208;
-  const menuHeight = 260;
+  const menuHeight = 288;
   const left = Math.min(x, vw - menuWidth - 4);
   const top = Math.min(y, vh - menuHeight - 4);
 

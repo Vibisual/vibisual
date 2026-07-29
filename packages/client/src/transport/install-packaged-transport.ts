@@ -11,7 +11,7 @@
 // Rationale: "renderer fetch/WS → window.api 일괄 교체" (Stage 4) at a single
 // chokepoint instead of editing every call site. UI source stays untouched.
 
-import type { UpdateState, AgentConfig, MobileAccessState } from '@vibisual/shared';
+import type { UpdateState, AgentConfig, MobileAccessState, CaptureSourceInfo, CaptureInputEvent, CaptureSourceKind, CaptureTargetRect, CaptureInjectResult } from '@vibisual/shared';
 
 interface FetchInitWire {
   method?: string;
@@ -129,6 +129,9 @@ export interface PackagedMobileApi {
   /** §4 v3.20 — UPnP 외부 개방 on/off. */
   enableExternal(): Promise<MobileAccessState>;
   disableExternal(): Promise<MobileAccessState>;
+  /** §4 v3.66 — QR 페어링 티켓(3분) 발급/폐기. */
+  issueQr(): Promise<MobileAccessState>;
+  revokeQr(): Promise<MobileAccessState>;
   onStatus(cb: (state: MobileAccessState) => void): () => void;
 }
 
@@ -140,6 +143,15 @@ export interface PackagedTerminalApi {
   kill(termId: string): Promise<void>;
   onData(cb: (payload: { termId: string; data: string }) => void): () => void;
   onExit(cb: (payload: { termId: string; exitCode: number }) => void): () => void;
+}
+
+// §5.9 화면/프로그램 캡처 버블 surface — desktopCapturer 소스 열거 + 원격 조작 입력 주입.
+export interface PackagedCaptureApi {
+  listSources(): Promise<CaptureSourceInfo[]>;
+  /** 주입 결과 — 구버전 preload 는 undefined 를 준다(그땐 성패를 알 수 없어 무시). */
+  sendInput(event: CaptureInputEvent): Promise<CaptureInjectResult | void>;
+  /** §5.9 v3.57 — 대상 화면/창 사각형(DIP+물리). 드래그 좌표 계산용. 구버전 preload 엔 없을 수 있다. */
+  targetRect?(spec: { sourceId: string; sourceKind: CaptureSourceKind; sourceName: string }): Promise<CaptureTargetRect>;
 }
 
 export interface PackagedApi {
@@ -156,6 +168,8 @@ export interface PackagedApi {
   mobile?: PackagedMobileApi;
   /** §5.5 #17-6 — 버블 오버레이 창. dev/web 모드에선 부재. */
   overlay?: PackagedOverlayApi;
+  /** §5.9 화면/프로그램 캡처 버블. dev/web 모드(window.api 없음)에선 부재. */
+  capture?: PackagedCaptureApi;
 }
 
 declare global {
@@ -337,8 +351,11 @@ class IpcWebSocket extends EventTarget implements WebSocket {
 
   private _deliver(payload: unknown): void {
     if (this.readyState !== this.OPEN) return;
-    const data = typeof payload === 'string' ? payload : JSON.stringify(payload);
-    const ev = new MessageEvent('message', { data });
+    // §9 v3.40 — IPC 로 받은 객체는 재직렬화 없이 그대로 싣는다. 종전엔 여기서
+    // JSON.stringify 하고 useWebSocket 이 곧바로 JSON.parse 해, 대형 graph_snapshot 이
+    // renderer 메인 스레드에서 왕복 직렬화되며 전수조사급 부하에서 프레임드랍의 주범이었다.
+    // 유일 소비자인 useWebSocket 이 문자열(진짜 ws)·객체(IPC) 양쪽을 수용한다.
+    const ev = new MessageEvent('message', { data: payload });
     this.onmessage?.call(this as unknown as WebSocket, ev);
     this.dispatchEvent(ev);
   }
