@@ -5,7 +5,7 @@
  * 두 열을 그린다. 변경 라인은 단어 단위로 바뀐 토큰만 진하게 강조. MultiEdit 는 여러 hunk 를 순서대로 쌓는다.
  * 순수 diff 계산은 diffTool.ts, 여기선 표시만.
  */
-import { memo, useMemo } from 'react';
+import { memo, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ScrollFade } from '../ScrollFade.js';
 import { computeLineDiff, type ParsedEdit, type DiffRow, type WordSpan } from './diffTool.js';
@@ -14,6 +14,26 @@ import { computeLineDiff, type ParsedEdit, type DiffRow, type WordSpan } from '.
 const MAX_VISIBLE_ROWS = 600;
 /** 스크롤 영역 최대 높이(px) — 초과 diff 는 ScrollFade 안에서 스크롤. */
 const DIFF_MAX_HEIGHT = 440;
+
+/** 서버 API로 에디터 열기 — 편집 위치로 이동 (FileEditList 와 동일 경로). */
+function openInEditor(filePath: string | undefined, searchText?: string): void {
+  if (!filePath) return;
+  fetch(`/api/open-in-editor`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filePath, searchText }),
+  }).catch(() => {});
+}
+
+/** 연필 아이콘 — FileEditList 와 동일 톤. */
+function PencilIcon(): React.JSX.Element {
+  return (
+    <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+      <path d="m15 5 4 4" />
+    </svg>
+  );
+}
 
 /** 한 셀의 텍스트 — 단어 강조 조각이 있으면 바뀐 토큰만 배경 강조, 없으면 평문. 빈 라인은 폭 유지용 nbsp. */
 function CellText({ spans, text, changedClass }: { spans: WordSpan[] | undefined; text: string; changedClass: string }): React.JSX.Element {
@@ -75,9 +95,26 @@ export const DiffView = memo(function DiffView({ parsed }: DiffViewProps): React
   );
   const multi = hunks.length > 1;
 
+  // 편집 위치로 열기 — 마지막 hunk 의 이후 텍스트를 검색어로(가장 최근 변경 지점).
+  const handleOpen = useCallback(() => {
+    const searchText = parsed.hunks[parsed.hunks.length - 1]?.newText;
+    openInEditor(parsed.filePath, searchText);
+  }, [parsed.filePath, parsed.hunks]);
+
   return (
-    <ScrollFade maxHeight={DIFF_MAX_HEIGHT}>
-      <div className="overflow-hidden rounded border border-gray-800/70 font-mono text-[12px] leading-relaxed">
+    <div className="relative">
+      {/* 우측 상단 편집 버튼 — 등록된 에디터로 파일을 열고 편집 위치로 이동. */}
+      <button
+        type="button"
+        onClick={handleOpen}
+        className="absolute right-1.5 top-1.5 z-10 flex h-6 w-6 items-center justify-center rounded border border-gray-700/70 bg-gray-900/80 text-violet-400 shadow-sm backdrop-blur-sm transition-colors hover:bg-violet-500/20 hover:text-violet-300"
+        aria-label={t('panel.fileEdit.openInEditor')}
+        title={t('panel.fileEdit.openInVSCode')}
+      >
+        <PencilIcon />
+      </button>
+      <ScrollFade maxHeight={DIFF_MAX_HEIGHT}>
+        <div className="overflow-hidden rounded border border-gray-800/70 font-mono text-[12px] leading-relaxed">
         {hunks.map((rows, hi) => {
           const shown = rows.slice(0, MAX_VISIBLE_ROWS);
           const hidden = rows.length - shown.length;
@@ -97,7 +134,8 @@ export const DiffView = memo(function DiffView({ parsed }: DiffViewProps): React
             </div>
           );
         })}
-      </div>
-    </ScrollFade>
+        </div>
+      </ScrollFade>
+    </div>
   );
 });

@@ -356,12 +356,17 @@ export function TabBar(): React.JSX.Element | null {
     return orderedTabs.some((it, i) => i !== ctx.index && !isItemPinned(it));
   }, [ctx, orderedTabs, isItemPinned]);
 
+  const ctxHasLeft = useMemo(() => {
+    if (!ctx) return false;
+    return orderedTabs.some((it, i) => i < ctx.index && !isItemPinned(it));
+  }, [ctx, orderedTabs, isItemPinned]);
+
   const ctxHasRight = useMemo(() => {
     if (!ctx) return false;
     return orderedTabs.some((it, i) => i > ctx.index && !isItemPinned(it));
   }, [ctx, orderedTabs, isItemPinned]);
 
-  const handleCtxAction = useCallback((action: 'close' | 'closeOthers' | 'closeRight' | 'closeAll' | 'togglePin' | 'toggleDefault' | 'detach' | 'rename') => {
+  const handleCtxAction = useCallback((action: 'close' | 'closeOthers' | 'closeLeft' | 'closeRight' | 'closeAll' | 'togglePin' | 'toggleDefault' | 'detach' | 'rename') => {
     if (!ctx || !ctxItem) return;
     const store = useGraphStore.getState();
 
@@ -422,6 +427,8 @@ export function TabBar(): React.JSX.Element | null {
       targets = [ctxItem];
     } else if (action === 'closeOthers') {
       targets = orderedTabs.filter((it, i) => i !== ctx.index && !isItemPinned(it));
+    } else if (action === 'closeLeft') {
+      targets = orderedTabs.filter((it, i) => i < ctx.index && !isItemPinned(it));
     } else if (action === 'closeRight') {
       targets = orderedTabs.filter((it, i) => i > ctx.index && !isItemPinned(it));
     } else if (action === 'closeAll') {
@@ -747,6 +754,7 @@ export function TabBar(): React.JSX.Element | null {
           isPinned={ctxIsPinned}
           isDefault={ctxIsDefault}
           hasOthers={ctxHasOthers}
+          hasLeft={ctxHasLeft}
           hasRight={ctxHasRight}
           onAction={handleCtxAction}
           onClose={() => setCtx(null)}

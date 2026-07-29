@@ -16,10 +16,13 @@ import { AgentReportCard } from './AgentReportCard.js';
 import { AgentQuestionCard } from './AgentQuestionCard.js';
 import { AgentReviewCard } from './AgentReviewCard.js';
 import { AgentListCard } from './AgentListCard.js';
+import { MemoryInjectionChip } from './MemoryInjectionChip.js';
+import { UnseenCardPills, type UnseenCardMeta } from './UnseenCardPills.js';
 import { IDETerminalView } from './IDETerminalView.js';
 import { SystemNode, parseSystemSubtype } from './SystemNode.js';
 import { ThinkingDots, ThinkingLiveLine } from './ThinkingIndicator.js';
 import { CollapsiblePrompt, AiSpeakerGlyph } from './CollapsiblePrompt.js';
+import { INPUT_FIELD_SIZING, INPUT_MAX_HEIGHT, autosizeInput } from './inputAutosize.js';
 
 /** SDK 가 생각 중 반복 송출하는 system 펄스 subtype — 본문에 쌓이지 않게 라이브 1줄로 대체. */
 const THINKING_PULSE_SUBTYPE = 'thinking_tokens';
@@ -40,6 +43,7 @@ const EMPTY_REPORTS: import('@vibisual/shared').AgentReport[] = [];
 const EMPTY_QUESTIONS: import('@vibisual/shared').AgentQuestions[] = [];
 const EMPTY_REVIEWS: import('@vibisual/shared').AgentReview[] = [];
 const EMPTY_LISTS: import('@vibisual/shared').AgentList[] = [];
+const EMPTY_INJECTIONS: import('@vibisual/shared').BrainInjectionEvent[] = [];
 
 // v3.05 — 바닥 추종 의도 판정 임계(px). 스크롤 후 바닥과의 거리가 이보다 가까우면 "추종 중"으로 본다.
 //   콘텐츠 성장은 scroll 이벤트를 안 내므로 이 값은 사용자 스크롤-업/다운 제스처에만 반응한다.
@@ -149,7 +153,8 @@ type MainTimelineNode =
   | { t: 'question'; questions: AgentQuestions }
   | { t: 'review'; review: AgentReview }
   | { t: 'list'; list: AgentList }
-  | { t: 'ask'; request: AskUserQuestionRequest };
+  | { t: 'ask'; request: AskUserQuestionRequest }
+  | { t: 'memoryInjection'; event: import('@vibisual/shared').BrainInjectionEvent };
 
 /** 타임라인 노드의 안정 id — Virtuoso key·앞쪽 절단 shift 카운트가 공용(중복 분기 제거). */
 function mainTimelineNodeId(n: MainTimelineNode): string {
@@ -159,6 +164,7 @@ function mainTimelineNodeId(n: MainTimelineNode): string {
     case 'list': return n.list.id;
     case 'question': return n.questions.id;
     case 'ask': return n.request.requestId;
+    case 'memoryInjection': return `mem-${n.event.id}`;
     case 'item': return n.item.id;
   }
 }
@@ -627,19 +633,8 @@ function ThinkingGroupLine({ group }: { group: TerminalGroup }): React.JSX.Eleme
 
 // ─── 명령 입력 영역 ───
 
-// 입력 textarea 자동 높이를 CSS `field-sizing: content` 로 위임 (Chromium 123+ — Electron 31=Chromium 126).
-//   기존 JS autogrow(height='auto' 플립 → scrollHeight 읽기)는 키 입력마다 강제 동기 레이아웃을
-//   핸들러+effect 2회 유발했고, 높이 변경이 flex 조상(스트림 영역)까지 더럽혀 세션이 길어질수록
-//   타이핑 에코가 늦어졌다. 지원 브라우저에선 JS 높이 조작을 전부 끄고 브라우저 레이아웃 패스에
-//   맡긴다(입력 시 캐럿 가시성도 네이티브가 유지). 미지원 환경만 아래 JS 폴백.
-const INPUT_FIELD_SIZING =
-  typeof CSS !== 'undefined' && typeof CSS.supports === 'function' && CSS.supports('field-sizing', 'content');
-
-function autosizeInput(el: HTMLTextAreaElement): void {
-  if (INPUT_FIELD_SIZING) return;
-  el.style.height = 'auto';
-  el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
-}
+// 입력 textarea 자동 높이 — inputAutosize.ts 로 추출 (IDESidebar.insertSkill 과 공유).
+//   field-sizing: content 위임 + 인라인 height 자가 치유. 상세 주석은 그 파일 참조.
 
 interface TerminalInputProps {
   agentId: string;
@@ -696,6 +691,21 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
     const q = s.queuedCommands[agentId];
     if (!q) return false;
     return q.some((c) => c.subAgentId === activeSessionId && c.status === 'executing');
+  });
+  // §5.5 #17-10 v3.53 — 컴팩트 [중지] 노출 조건. **버튼이 실제로 멈출 수 있는 게 있을 때만** 뜬다.
+  //   세션 탭: 이 탭은 executing 이 아니지만 **이 세션이 띄운** 백그라운드 Task 서브에이전트가 살아있는
+  //     동안(누르면 그것만 멈춘다). 다른 탭이 바쁘다는 이유로 뜨면 눌러도 아무것도 안 멈추는 거짓 버튼이 된다.
+  //   메인 탭(activeSessionId===null): 스코프를 좁힐 세션이 없으므로 종전 전역 조건 그대로
+  //     — (a) 어느 세션 탭이든 executing, (b) 백그라운드 Task 서브에이전트가 하나라도 살아있음 → stop-all.
+  const agentBusyElsewhere = useGraphStore((s) => {
+    const tasks = s.runningSubagentTasks[agentId];
+    if (activeSessionId !== null) {
+      return (tasks ?? []).some((task) => task.subAgentId === activeSessionId);
+    }
+    if ((tasks?.length ?? 0) > 0) return true;
+    const q = s.queuedCommands[agentId];
+    if (!q) return false;
+    return q.some((c) => c.status === 'executing');
   });
   const sid = useMemo(() => agents.find((a) => a.id === agentId)?.path ?? null, [agents, agentId]);
   const sidRef = useRef<string | null>(sid);
@@ -884,11 +894,19 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
     historyIdxRef.current = -1;
   }, [text, agentId, activeSessionId, addCommand, attachments, hasPendingUploads, registerAttachmentPreview, clearAgentSessionInput, setText, setAttachments]);
 
+  // §5.5 #17-10 v3.53 — [중지] = **열려 있는 세션 하나 + 그 세션이 띄운 서브에이전트** 중지.
+  //   v3.51 은 이걸 에이전트 전체(stop-all)로 올려 다른 세션 탭까지 함께 끊었다 — 중지의 기본 단위는
+  //   사용자가 보고 있는 세션이다. 세션 탭이면 stop-session(그 탭의 자식 + 그 세션 대차대조 + 그 세션
+  //   큐만), 스코프를 좁힐 세션이 없는 메인 탭에서만 종전 stop-all.
+  //   둘 다 실행 중인 게 없어도 멱등(200)이라 에러 처리 분기가 필요 없다.
   const handleStop = useCallback(async () => {
-    if (!activeSessionId || stopping) return;
+    if (stopping) return;
     setStopping(true);
+    const url = activeSessionId
+      ? `${API_BASE}/api/subagents/${agentId}/${activeSessionId}/stop-session`
+      : `${API_BASE}/api/subagents/${agentId}/stop-all`;
     try {
-      await fetch(`${API_BASE}/api/subagents/${agentId}/${activeSessionId}/stop`, { method: 'POST' });
+      await fetch(url, { method: 'POST' });
     } catch { /* no-op — 실패해도 다음 close 이벤트에서 UI 복구 */ }
     // 서버 close 핸들러가 status 업데이트하면 스냅샷 브로드캐스트로 버튼이 Run 으로 돌아온다.
     // 안전장치로 짧은 타임아웃 후 로컬 stopping 해제.
@@ -1038,6 +1056,24 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
       // 실행 중에도 Enter 는 "덧말"(추가 대화) 로 동작 — 중지하지 않고 후속 메시지를 큐에 넣는다.
       // 중지는 마우스로 좌측 중지 버튼을 눌러야만 — Enter 로 실행을 끊지 않는다(사용자 보고 흐름).
       handleSubmit();
+      return;
+    }
+    // Shift+Enter = 줄 추가(브라우저가 줄바꿈 삽입 — preventDefault ❌). field-sizing 이 간헐적으로
+    //   새 줄만큼 높이 재계산을 즉시 못 해 방금 친 줄이 아래로 가려지는 문제 안전판.
+    //   커밋 후(rAF) caret 이 값의 끝이면 바닥으로 스크롤해 새 줄이 항상 보이게 한다.
+    //   ⚠ 타이핑 핫패스가 아니라 **엔터 1회**에만 도는 레이아웃 읽기라 입력 지연 회귀 없음.
+    if (e.key === 'Enter' && e.shiftKey) {
+      const el = textareaRef.current;
+      if (el) {
+        const atEnd =
+          el.selectionStart === el.selectionEnd && (el.selectionStart ?? 0) >= el.value.length;
+        requestAnimationFrame(() => {
+          const e2 = textareaRef.current;
+          if (!e2) return;
+          autosizeInput(e2); // JS 폴백 환경에서 즉시 재측정(field-sizing 지원 시 no-op)
+          if (atEnd) e2.scrollTop = e2.scrollHeight; // 새 줄/caret 을 뷰에 유지
+        });
+      }
     }
   }, [slashOpen, slashState, slashIndex, confirmSlash, setText, handleSubmit, commandHistory, applyHistoryText]);
 
@@ -1243,25 +1279,31 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
       )}
       <div className="flex items-center gap-2">
         <span className="text-[13px] font-bold text-blue-400">{'>'}</span>
-        <textarea
-          ref={textareaRef}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={handleKeyDown}
-          onInput={handleInput}
-          onPaste={handlePaste}
-          onContextMenu={handleInputContextMenu}
-          rows={1}
-          placeholder={activeSessionId === null ? t('ide.mainArea.inputPlaceholderNew') : t('ide.mainArea.inputPlaceholder')}
-          className="scrollbar-thin min-h-[28px] flex-1 resize-none bg-transparent text-[13px] leading-7 text-gray-200 placeholder-gray-500 outline-none"
-          style={
-            INPUT_FIELD_SIZING
-              ? ({ maxHeight: 120, fieldSizing: 'content' } as React.CSSProperties)
-              : { maxHeight: 120 }
-          }
-          data-ide-input={agentId}
-          data-ide-input-session={activeSessionId ?? ''}
-        />
+        {/* v3.31 — flex 축소(min-w-0)를 wrapper 로 옮기고 textarea 는 w-full(definite width)로 고정.
+            field-sizing:content 가 textarea 를 flex 항목으로 두면 내용 폭까지 넓혀 긴 붙여넣기/삽입이
+            줄바꿈되지 않아 1줄로 잘리고 세로로 안 늘어났다. 폭을 wrapper 로 확정하면 field-sizing 은
+            높이만 계산 → 내용이 줄바꿈되며 세로로 자동 확장. */}
+        <div className="min-w-0 flex-1">
+          <textarea
+            ref={textareaRef}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onInput={handleInput}
+            onPaste={handlePaste}
+            onContextMenu={handleInputContextMenu}
+            rows={1}
+            placeholder={activeSessionId === null ? t('ide.mainArea.inputPlaceholderNew') : t('ide.mainArea.inputPlaceholder')}
+            className="scrollbar-thin block min-h-[28px] w-full resize-none bg-transparent text-[13px] leading-7 text-gray-200 placeholder-gray-500 outline-none"
+            style={
+              INPUT_FIELD_SIZING
+                ? ({ maxHeight: INPUT_MAX_HEIGHT, fieldSizing: 'content' } as React.CSSProperties)
+                : { maxHeight: INPUT_MAX_HEIGHT }
+            }
+            data-ide-input={agentId}
+            data-ide-input-session={activeSessionId ?? ''}
+          />
+        </div>
         {executingForSession ? (
           // 실행 중: 좌측 [중지](마우스 클릭 전용) + 우측 [덧말](Enter=추가 대화).
           //   중지는 실행을 끊는 파괴적 동작이라 마우스로만 — Enter 는 handleSubmit(덧말)에 배정.
@@ -1272,6 +1314,8 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
               onClick={handleStop}
               disabled={stopping}
               className="flex h-7 flex-shrink-0 items-center gap-1 rounded bg-red-600 px-3 text-xs font-semibold text-white transition-colors hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-40"
+              // §5.5 #17-10 v3.53 — 이 버튼은 이 세션 탭이 실행 중일 때만 뜬다 = 항상 세션 스코프.
+              title={t('ide.mainArea.stopSessionTitle')}
               aria-label={t('ide.mainArea.stop')}
             >
               {stopping ? (
@@ -1298,15 +1342,37 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
             </button>
           </>
         ) : (
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={!canSubmit}
-            className="flex h-7 flex-shrink-0 items-center rounded bg-blue-600 px-3 text-xs font-semibold text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-30"
-            title={hasPendingUploads ? t('panel.commandQueue.waitingForUpload') : undefined}
-          >
-            {t('ide.mainArea.run')}
-          </button>
+          <>
+            {/* §5.5 #17-10 v3.53 — 이 탭 입력은 노는데 멈출 게 남아 있으면 전송 옆에 컴팩트 [중지].
+                세션 탭 = 이 세션이 띄운 백그라운드 서브에이전트만, 메인 탭 = 에이전트 전체. 다 끝나면 사라진다. */}
+            {agentBusyElsewhere && (
+              <button
+                type="button"
+                onClick={handleStop}
+                disabled={stopping}
+                className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded border border-red-500/50 text-red-400 transition-colors hover:bg-red-500/15 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-40"
+                title={activeSessionId ? t('ide.mainArea.stopSessionTitle') : t('ide.mainArea.stopAllTitle')}
+                aria-label={activeSessionId ? t('ide.mainArea.stop') : t('ide.mainArea.stopAll')}
+              >
+                {stopping ? (
+                  <span className="inline-block h-2.5 w-2.5 animate-spin rounded-full border-[1.5px] border-red-300/70 border-t-transparent" />
+                ) : (
+                  <svg className="h-2.5 w-2.5" viewBox="0 0 10 10" fill="currentColor">
+                    <rect x="1" y="1" width="8" height="8" rx="1" />
+                  </svg>
+                )}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={!canSubmit}
+              className="flex h-7 flex-shrink-0 items-center rounded bg-blue-600 px-3 text-xs font-semibold text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-30"
+              title={hasPendingUploads ? t('panel.commandQueue.waitingForUpload') : undefined}
+            >
+              {t('ide.mainArea.run')}
+            </button>
+          </>
         )}
       </div>
       {inputCtx && (
@@ -1927,6 +1993,15 @@ export const IDEMainArea = memo(function IDEMainArea({
         },
       },
       {
+        label: t('ide.mainArea.ctxSaveToBrain', { defaultValue: '두뇌에 기억' }),
+        disabled: !hasSel,
+        disabledTitle: selectionRequired,
+        onClick: () => {
+          if (!sel) return;
+          void useGraphStore.getState().saveBrainCardFromText(sel, agentId, activeSessionId);
+        },
+      },
+      {
         label: t('ide.mainArea.ctxQuoteReply'),
         disabled: !hasSel || isReadOnly,
         disabledTitle: !hasSel ? selectionRequired : undefined,
@@ -2039,6 +2114,9 @@ export const IDEMainArea = memo(function IDEMainArea({
     return matches.sort((a, b) => a.createdAt - b.createdAt);
   }, [pendingAskQuestions, agentId, activeSessionId]);
 
+  // §5.10 — 이 에이전트의 기억 주입 이벤트(칩). agentId 단위(세션 구분 없음) — 메인/서브 탭 공통 표시.
+  const agentInjections = useGraphStore((s) => s.brainInjections[agentId] ?? EMPTY_INJECTIONS);
+
   // §4 v2.52 — 이 에이전트의 작업 신고 카드. agentReports 는 agentId 1차 키.
   // 메인 탭(activeSessionId === null): 이 에이전트의 모든 신고. sub 탭: 그 세션(subAgentId) 신고만.
   const agentReportsForAgent = useGraphStore((s) => s.agentReports[agentId] ?? EMPTY_REPORTS);
@@ -2076,6 +2154,18 @@ export const IDEMainArea = memo(function IDEMainArea({
     return [...matches].sort((a, b) => a.createdAt - b.createdAt);
   }, [agentListsForAgent, activeSessionId]);
 
+  // §5.5 — "놓친 카드" pill 후보(신고/질문/검수/목록). createdAt 오름차순. 새 카드 생성·소멸 때만 정체성 변경.
+  //   AskUserQuestion(ask)은 이미 강조 카드(60초 동기 hold)라 제외.
+  const unseenCandidateCards = useMemo<UnseenCardMeta[]>(() => {
+    const all: UnseenCardMeta[] = [
+      ...reportCards.map((r) => ({ id: r.id, kind: 'report' as const, createdAt: r.createdAt })),
+      ...questionCards.map((q) => ({ id: q.id, kind: 'question' as const, createdAt: q.createdAt })),
+      ...reviewCards.map((r) => ({ id: r.id, kind: 'review' as const, createdAt: r.createdAt })),
+      ...listCards.map((l) => ({ id: l.id, kind: 'list' as const, createdAt: l.createdAt })),
+    ];
+    return all.sort((a, b) => a.createdAt - b.createdAt);
+  }, [reportCards, questionCards, reviewCards, listCards]);
+
   // §4 v2.53/v2.57 — 메인 탭: 터미널 항목 + 작업 신고 카드를 합쳐 정렬. 신고는 createdAt 그대로가 아니라
   //   **그 신고가 속한 턴의 끝**(createdAt 이후 첫 프롬프트 직전, 없으면 맨 끝)에 배치 — StreamRenderer 와 동일.
   //   작업 도중 카드가 중간에 끼는 걸 막고, 다음 턴 대화가 오면 자연스럽게 위로 밀려 올라가게 한다.
@@ -2093,10 +2183,12 @@ export const IDEMainArea = memo(function IDEMainArea({
       ...listCards.map((l) => ({ ts: turnEndSortTs(l.createdAt), node: { t: 'list' as const, list: l } })),
       // §5.3 #12-2 — pending AskUserQuestion 카드도 타임라인 안으로(가상 리스트 밖 형제 렌더 → 겹침 제거).
       ...askCards.map((req) => ({ ts: turnEndSortTs(req.createdAt), node: { t: 'ask' as const, request: req } })),
+      // §5.10 — 기억 주입 칩(발생 시각 그대로).
+      ...agentInjections.map((ev) => ({ ts: ev.at, node: { t: 'memoryInjection' as const, event: ev } })),
     ];
     merged.sort((a, b) => a.ts - b.ts);
     return merged.map((m) => m.node);
-  }, [items, reportCards, questionCards, reviewCards, listCards, askCards, commands]);
+  }, [items, reportCards, questionCards, reviewCards, listCards, askCards, agentInjections, commands]);
 
   // v3.13 — 스트림 버퍼 앞쪽 절단(상한 초과 시 오래된 이벤트 일괄 제거)을 메인 Virtuoso 에도 shift 로 신고.
   //   인덱스 기반 sizeTree 가 절단마다 밀려 측정 모델이 붕괴 → 긴 세션에서 스크롤이 "위로 말려 올라가던" 원인.
@@ -2413,6 +2505,27 @@ export const IDEMainArea = memo(function IDEMainArea({
     setShowJumpBottom(false);
   }, [sessionKey, glueToBottomDom]);
 
+  // §5.5 — 놓친 카드 pill 클릭: 그 카드 위치로 이동(+중앙 정렬·플래시). 위로 갈 수 있으니 추종을 명시 해제해
+  //   워치독이 바닥으로 되끌지 않게 한다(바닥 근처 도착이면 atBottomStateChange 가 자동 재무장). 검색·북마크 점프와 동형.
+  const scrollToCard = useCallback((card: UnseenCardMeta) => {
+    followRef.current = false;
+    sessionAtBottomRef.current.set(sessionKey, false);
+    if (activeSessionId !== null) {
+      // Sub 탭 StreamRenderer 는 카드 stream item.id 를 `${kind}-${rawId}` 로 접두어 붙여 관리한다
+      //   (mergeCardsIntoItems). scrollToBookmark 는 item.id 기준으로 인덱스를 찾으므로 접두어를 붙여 넘긴다.
+      streamRef.current?.scrollToBookmark(`${card.kind}-${card.id}`, '');
+      return;
+    }
+    const idx = mainTimeline.findIndex((n) => mainTimelineNodeId(n) === card.id);
+    if (idx >= 0) mainVirtuosoRef.current?.scrollToIndex({ index: idx, align: 'center' });
+    window.setTimeout(() => {
+      const el = scrollRef.current;
+      if (!el) return;
+      const found = findItemElement(el, card.id);
+      if (found) { scrollElementIntoCenter(el, found); flashElement(found); }
+    }, idx >= 0 ? 260 : 40);
+  }, [activeSessionId, mainTimeline, sessionKey]);
+
   // §4 v2.63 — 인터랙티브 터미널 모드: 활성 탭(세션)을 임베디드 PTY 로 렌더.
   //   key=termId 라 탭 전환 시 그 세션 터미널로 교체(PTY 는 main 에서 보존 → reattach).
   //   모든 hook 은 위에서 이미 호출됐으므로 여기서 조기 return 해도 Rules of Hooks 안전.
@@ -2552,6 +2665,7 @@ export const IDEMainArea = memo(function IDEMainArea({
               reviews={reviewCards}
               lists={listCards}
               askRequests={askCards}
+              injections={agentInjections}
               onScrollerRef={setScrollNode}
               restoreState={restoreStateFor(sessionKey)}
               onAtBottomChange={handleAtBottomChange}
@@ -2585,8 +2699,10 @@ export const IDEMainArea = memo(function IDEMainArea({
                 computeItemKey={(_i, n) => mainTimelineNodeId(n)}
                 itemContent={(_i, n) => {
                   const itemId = mainTimelineNodeId(n);
+                  // §5.5 — 놓친 카드 pill 이 관측할 앵커. 카드류(신고/질문/검수/목록)에만 표식.
+                  const isCard = n.t === 'report' || n.t === 'question' || n.t === 'review' || n.t === 'list';
                   return (
-                    <div data-stream-item-id={itemId} style={ideTextZoom === 1 ? undefined : { zoom: ideTextZoom }}>
+                    <div data-stream-item-id={itemId} {...(isCard ? { 'data-card-id': itemId } : {})} style={ideTextZoom === 1 ? undefined : { zoom: ideTextZoom }}>
                       {n.t === 'report'
                         ? <AgentReportCard report={n.report} />
                         : n.t === 'review'
@@ -2597,6 +2713,8 @@ export const IDEMainArea = memo(function IDEMainArea({
                           ? <AgentQuestionCard questions={n.questions} />
                         : n.t === 'ask'
                           ? <AskQuestionCard request={n.request} />
+                        : n.t === 'memoryInjection'
+                          ? <MemoryInjectionChip event={n.event} />
                           : n.item.kind === 'group'
                             ? (n.item.groupType === 'thinking'
                                 ? <ThinkingGroupLine group={n.item} />
@@ -2629,6 +2747,10 @@ export const IDEMainArea = memo(function IDEMainArea({
               : 'pointer-events-none opacity-0'
           }`}
         />
+
+        {/* §5.5 놓친 카드 pill 스택 — 좌하단. 뷰포트에 머물지 못하고 스쳐 지나간/못 본 카드만 쌓인다.
+            클릭하면 그 카드 위치로 이동하고 pill 은 사라진다(입력창 위, 우하단 "맨 아래로" 버튼과 안 겹침). */}
+        <UnseenCardPills scrollEl={scrollEl} cards={unseenCandidateCards} onJump={scrollToCard} />
 
         {/* §5.5 "맨 아래로" 점프 버튼 — 위로 스크롤해 바닥에서 멀어졌을 때만(showJumpBottom) 우하단에 뜬다.
             클릭 시 추종 재무장 + 바닥으로. 덮개(z-10)·검색바(z-20) 위(z-20). */}

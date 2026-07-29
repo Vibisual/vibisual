@@ -15,18 +15,24 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import type { EdgeTypes } from '@xyflow/react';
-import type { BubbleData, BubbleType, CommentBox } from '@vibisual/shared';
-import { EDGE_STYLE, POSITION_SAVE_INTERVAL, TASK_EDGE_STYLES, COMMENT_BOX_DEFAULTS, LAYOUT_CENTER_X, LAYOUT_CENTER_Y, SATELLITE_TYPES } from '@vibisual/shared';
+import type { BubbleData, BubbleType, CommentBox, CaptureBubble, CaptureSourceInfo } from '@vibisual/shared';
+import { EDGE_STYLE, POSITION_SAVE_INTERVAL, TASK_EDGE_STYLES, COMMENT_BOX_DEFAULTS, CAPTURE_BUBBLE_DEFAULTS, CAPTURE_SNAP, LAYOUT_CENTER_X, LAYOUT_CENTER_Y, SATELLITE_TYPES } from '@vibisual/shared';
 import { BubbleNode } from './BubbleNode.js';
 import { CommentBoxNode } from './CommentBoxNode.js';
+import { CaptureNode, CAPTURE_REPICK_EVENT } from './CaptureNode.js';
+import { useCapturePrefsStore } from '../../stores/captureBubblePrefs.js';
+import { useCaptureSnapGuideStore } from '../../stores/captureSnapGuides.js';
+import { computeCaptureDragSnap, type SnapRect } from './captureSnap.js';
+import { CaptureSnapGuides } from './CaptureSnapGuides.js';
+import { CaptureSourcePicker } from './CaptureSourcePicker.js';
 import { CurvedEdge } from './CurvedEdge.js';
 import { EdgeMask } from './EdgeMask.js';
-import { useGraphStore } from '../../stores/graphStore.js';
+import { useGraphStore, selectActiveBrainSummary } from '../../stores/graphStore.js';
 import { placeSatellitePositions } from '../../utils/satellite.js';
 import { toFlowNodes, findNonCollidingPosition, SPAWN_RADIUS, SPAWN_MIN_DIST, shallowEqualData } from '../../utils/flowBuilder.js';
 import { calcBubbleSize } from '../../utils/sizeCalc.js';
 import { usePhysicsLayout } from '../../hooks/usePhysicsLayout.js';
-import { useBubbleLayout, useFolderLayout, usePipelineLayout } from '../../hooks/useBubbleLayout.js';
+import { useBubbleLayout, useFolderLayout, usePipelineLayout, useInteriorLayout } from '../../hooks/useBubbleLayout.js';
 import { CanvasContextMenu } from './CanvasContextMenu.js';
 import { DebugOverlay } from './DebugOverlay.js';
 import { LayoutBoundsBox } from './LayoutBoundsBox.js';
@@ -43,7 +49,7 @@ import { useBookmarks } from '../../hooks/useBookmarks.js';
 import { useCoarsePointer, useIsNarrowViewport, useLongPress } from '../../hooks/useIsMobile.js';
 import { useTranslation } from 'react-i18next';
 
-const nodeTypes: NodeTypes = { bubble: BubbleNode, commentBox: CommentBoxNode };
+const nodeTypes: NodeTypes = { bubble: BubbleNode, commentBox: CommentBoxNode, captureNode: CaptureNode };
 const edgeTypes: EdgeTypes = { curved: CurvedEdge, taskEdge: TaskEdgeComponent };
 
 // ─── 컴포넌트 ───
@@ -61,6 +67,9 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
   const storeSatellites = useGraphStore((s) => s.satellites);
   const satellitePositions = useGraphStore((s) => s.satellitePositions);
   const currentFolderId = useGraphStore((s) => s.currentFolderId);
+  // §5.10 — 휴지통 내부 뷰 상태(currentFolderId 와 독립 축). 기억은 v3.49 피드 오버레이가 담당.
+  const interiorView = useGraphStore((s) => s.interiorView);
+  const brainSummary = useGraphStore(selectActiveBrainSummary);
   const pendingFocus = useGraphStore((s) => s.pendingFocus);
   const focusNodeId = useGraphStore((s) => s.focusNodeId);
   const debugMode = useGraphStore((s) => s.debugMode);
@@ -74,7 +83,15 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     return activeProject;
   }, [currentFolderId, worktreeProjects, activeProject]);
   const agents = useMemo(() => {
-    return !effectiveAgentProject ? allAgents : allAgents.filter((a) => agentProjects[a.id] === effectiveAgentProject);
+    const inProject = !effectiveAgentProject ? allAgents : allAgents.filter((a) => agentProjects[a.id] === effectiveAgentProject);
+    // §5.10 — trashed 커스텀 에이전트는 캔버스에서 숨긴다(휴지통 내부에서만 렌더).
+    return inProject.filter((a) => !a.trashed);
+  }, [allAgents, agentProjects, effectiveAgentProject]);
+
+  // §5.10 — 현재 프로젝트의 버려진(trashed) 커스텀 에이전트 — 휴지통 내부 뷰 콘텐츠.
+  const trashedAgents = useMemo(() => {
+    const inProject = !effectiveAgentProject ? allAgents : allAgents.filter((a) => agentProjects[a.id] === effectiveAgentProject);
+    return inProject.filter((a) => a.trashed);
   }, [allAgents, agentProjects, effectiveAgentProject]);
 
   // 필터된 에이전트 ID Set (엣지 필터용)
@@ -179,10 +196,11 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
 
   // 장면 전환
   const [transition, setTransition] = useState<'none' | 'zoom-in' | 'zoom-out'>('none');
-  const prevFolderRef = useRef<string | null>(null);
+  /** 직전 뷰 키 — 메인=`__main__`, 폴더=folderId, §5.10 내부 뷰=`__interior_*__`. */
+  const prevViewKeyRef = useRef<string>('__main__');
   const prevProjectRef = useRef(activeProject);
 
-  /** 뷰 상태 캐시: folderId(null=메인) → { viewport, positions } */
+  /** 뷰 상태 캐시: 뷰 키 → { viewport, positions } */
   const viewCacheRef = useRef(new Map<string, {
     viewport: { x: number; y: number; zoom: number };
     positions: Map<string, XYPosition>;
@@ -376,10 +394,10 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
   const allCommentBoxes = useGraphStore((s) => s.commentBoxes);
   const selectedCommentBoxId = useGraphStore((s) => s.selectedCommentBoxId);
   const scopedCommentBoxes = useMemo<CommentBox[]>(() => {
-    if (currentFolderId !== null) return [];
+    if (currentFolderId !== null || interiorView !== null) return [];
     if (!activeProject) return allCommentBoxes;
     return allCommentBoxes.filter((b) => b.projectName === activeProject);
-  }, [allCommentBoxes, activeProject, currentFolderId]);
+  }, [allCommentBoxes, activeProject, currentFolderId, interiorView]);
 
   const commentBoxNodes = useMemo<Node[]>(() => {
     return scopedCommentBoxes.map((b) => ({
@@ -421,12 +439,107 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     } as Node));
   }, [scopedCommentBoxes, selectedCommentBoxId]);
 
+  // ── §5.9 캡처 버블 — 메인 뷰에서만 렌더, 현재 프로젝트만 필터 ──
+  const allCaptureBubbles = useGraphStore((s) => s.captureBubbles);
+  const selectedCaptureBubbleId = useGraphStore((s) => s.selectedCaptureBubbleId);
+  const scopedCaptureBubbles = useMemo<CaptureBubble[]>(() => {
+    if (currentFolderId !== null || interiorView !== null) return [];
+    if (!activeProject) return allCaptureBubbles;
+    return allCaptureBubbles.filter((b) => b.projectName === activeProject);
+  }, [allCaptureBubbles, activeProject, currentFolderId, interiorView]);
+
+  // §5.9 핀 고정("항상 위") — prefs.pinned 인 캡처 버블만 높은 zIndex 로 다른 버블 위에 올린다.
+  const capturePrefsMap = useCapturePrefsStore((s) => s.prefs);
+  const captureBubbleNodes = useMemo<Node[]>(() => {
+    return scopedCaptureBubbles.map((b) => ({
+      id: b.id,
+      type: 'captureNode' as const,
+      position: { x: b.x, y: b.y },
+      width: b.width,
+      height: b.height,
+      zIndex: capturePrefsMap[b.id]?.pinned ? 1000 : undefined,
+      data: {
+        captureBubbleId: b.id,
+        sourceId: b.sourceId,
+        sourceName: b.sourceName,
+        sourceKind: b.sourceKind,
+        width: b.width,
+        height: b.height,
+      },
+      selected: selectedCaptureBubbleId === b.id,
+      draggable: true,
+      selectable: false,
+      deletable: false,
+      // 드래그는 헤더 strip 에서만 — 본체(영상) mousedown 은 캔버스 pane 으로 흘려보낸다.
+      dragHandle: '.capture-bubble-header',
+      style: { pointerEvents: 'none' },
+    } as Node));
+  }, [scopedCaptureBubbles, selectedCaptureBubbleId, capturePrefsMap]);
+
   const displayNodes = useMemo<Node[]>(() => {
     const base = pendingNodes.length === 0 ? flowNodes : [...flowNodes, ...pendingNodes];
-    if (commentBoxNodes.length === 0) return base;
-    // CommentBox 먼저(뒤로), 그 다음 일반 버블/pending (앞으로)
-    return [...commentBoxNodes, ...base];
-  }, [flowNodes, pendingNodes, commentBoxNodes]);
+    if (commentBoxNodes.length === 0 && captureBubbleNodes.length === 0) return base;
+    // CommentBox·Capture 먼저(뒤로), 그 다음 일반 버블/pending (앞으로)
+    return [...commentBoxNodes, ...captureBubbleNodes, ...base];
+  }, [flowNodes, pendingNodes, commentBoxNodes, captureBubbleNodes]);
+
+  // §5.9 캡처 소스 picker — 생성(canvas 좌표) 또는 다시 선택(repickId) 두 모드.
+  const [capturePicker, setCapturePicker] = useState<{ canvasX: number; canvasY: number; repickId?: string } | null>(null);
+
+  /**
+   * §5.9 이어 붙이기 — 드래그 중 자석으로 **보정된** 최종 좌표. React Flow 가 주는 node.position 은
+   * 손이 있던 생좌표라, dragStop 에서 그걸 그대로 저장하면 붙여 놓은 위치가 다시 어긋난다.
+   */
+  const captureSnapRef = useRef<{ id: string; x: number; y: number } | null>(null);
+
+  /** 드래그 중인 캡처 버블의 이웃 후보(같은 프로젝트) — 자기 자신은 제외. */
+  const captureSnapNeighbors = useCallback((id: string, projectName: string | undefined): SnapRect[] => {
+    return useGraphStore.getState().captureBubbles
+      .filter((b) => b.id !== id && (!projectName || b.projectName === projectName))
+      .map((b) => ({ id: b.id, x: b.x, y: b.y, width: b.width, height: b.height }));
+  }, []);
+
+  const handleCreateCapture = useCallback((canvasX: number, canvasY: number) => {
+    setCapturePicker({ canvasX, canvasY });
+  }, []);
+
+  // CaptureNode 의 "다시 선택" 요청 → 같은 picker 를 repick 모드로 연다.
+  useEffect(() => {
+    function onRepick(e: Event): void {
+      const id = (e as CustomEvent<{ id?: string }>).detail?.id;
+      if (id) setCapturePicker({ canvasX: 0, canvasY: 0, repickId: id });
+    }
+    window.addEventListener(CAPTURE_REPICK_EVENT, onRepick);
+    return () => window.removeEventListener(CAPTURE_REPICK_EVENT, onRepick);
+  }, []);
+
+  const handleCapturePick = useCallback((source: CaptureSourceInfo) => {
+    const picker = capturePicker;
+    setCapturePicker(null);
+    if (!picker) return;
+    const store = useGraphStore.getState();
+    if (picker.repickId) {
+      void store.updateCaptureBubble(picker.repickId, {
+        sourceId: source.id,
+        sourceName: source.name,
+        sourceKind: source.kind,
+      });
+      return;
+    }
+    const project = store.activeProject;
+    if (!project) return;
+    void store.createCaptureBubble({
+      projectName: project,
+      // picker 는 버블 중심을 클릭 지점에 맞추도록 half-size 만큼 당겨 배치.
+      x: picker.canvasX - CAPTURE_BUBBLE_DEFAULTS.DEFAULT_WIDTH / 2,
+      y: picker.canvasY - CAPTURE_BUBBLE_DEFAULTS.DEFAULT_HEIGHT / 2,
+      width: CAPTURE_BUBBLE_DEFAULTS.DEFAULT_WIDTH,
+      height: CAPTURE_BUBBLE_DEFAULTS.DEFAULT_HEIGHT,
+      sourceId: source.id,
+      sourceName: source.name,
+      sourceKind: source.kind,
+    });
+  }, [capturePicker]);
 
   // 화면 좌표에서 캔버스 생성 메뉴를 연다 — 우클릭(handlePaneContextMenu)과 터치 롱프레스가 공유.
   const openCanvasMenuAt = useCallback((clientX: number, clientY: number, target: EventTarget | null) => {
@@ -455,7 +568,15 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
   }, []);
 
   // ─── 전체 위치 저장 (드래그 종료 / 물리 슬립 / 주기적 / 탭 전환) ───
+  // §5.10 — 내부 뷰(휴지통) 진입 여부를 flush 시점에 최신값으로 보려면 ref 가 필요하다.
+  //   interiorView 를 콜백 deps 로 넣으면 물리 엔진 onSleep 콜백 신원까지 흔들려서 ref 로 읽는다.
+  const interiorViewRef = useRef(interiorView);
+  useEffect(() => { interiorViewRef.current = interiorView; }, [interiorView]);
+
   const buildPositionPayload = useCallback((): string | null => {
+    // 휴지통 내부 뷰의 좌표는 임시 나열 배치다. 이걸 저장하면 버려진 에이전트의 원래 캔버스
+    // 좌표가 덮여 복구해도 제자리로 못 돌아온다(내부 뷰에서는 위치를 서버에 쓰지 않는다).
+    if (interiorViewRef.current !== null) return null;
     const nodes = flowNodesRef.current;
     if (nodes.length === 0) return null;
     const positions = nodes
@@ -594,6 +715,36 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     return out;
   }, [storeSatellites, contiSatellites]);
 
+  // §5.10 — 실수/교훈 카드 연결 파일 경로 캐시 갱신. brain.cardCount 변동(또는 프로젝트 전환) 시 debounce 재조회.
+  const brainCardCount = brainSummary?.cardCount ?? 0;
+  useEffect(() => {
+    if (!activeProject) return undefined;
+    const timer = setTimeout(() => { void useGraphStore.getState().refreshBrainFileMarks(); }, 600);
+    return () => clearTimeout(timer);
+  }, [activeProject, brainCardCount]);
+
+  // §5.10 — 최상위 캔버스 상주 버블: Brain(항상) + 휴지통(항상, 비면 dimmed).
+  const residentBubbles = useMemo<BubbleData[]>(() => {
+    if (!activeProject) return [];
+    const brain: BubbleData = {
+      id: '__brain__',
+      label: t('brain.bubbleLabel', { defaultValue: '두뇌' }),
+      bubbleType: 'brain',
+      path: '',
+      status: 'idle',
+      activity: brainSummary?.cardCount ?? 0,
+    };
+    const trash: BubbleData = {
+      id: '__trash__',
+      label: t('brain.trashBubbleLabel', { defaultValue: '휴지통' }),
+      bubbleType: 'trash',
+      path: '',
+      status: 'idle',
+      activity: 0,
+    };
+    return [brain, trash];
+  }, [activeProject, brainSummary?.cardCount, t]);
+
   // 메인 뷰 데이터
   const mainViewData = useBubbleLayout({
     agents,
@@ -601,6 +752,13 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     edges: filteredEdges,
     satellites: mergedSatellites,
     satellitePositions,
+    residentBubbles,
+  });
+
+  // §5.10 — 휴지통 내부 뷰 데이터(버려진 에이전트 나열).
+  const interiorViewData = useInteriorLayout({
+    view: interiorView,
+    trashedAgents,
   });
 
   // 파이프라인 내부 뷰 데이터
@@ -613,10 +771,12 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     pipelineChildren: isPipelineView ? (storePipelineChildren[currentFolderId!] ?? []) : [],
   });
 
-  /** 뷰 데이터 선택 — 파이프라인 내부 vs 폴더 내부 vs 메인 */
-  const viewData = currentFolderId !== null
-    ? (isPipelineView ? pipelineViewData : folderViewData)
-    : mainViewData;
+  /** 뷰 데이터 선택 — §5.10 기억/휴지통 내부(최우선) vs 파이프라인 내부 vs 폴더 내부 vs 메인 */
+  const viewData = interiorView !== null
+    ? interiorViewData
+    : currentFolderId !== null
+      ? (isPipelineView ? pipelineViewData : folderViewData)
+      : mainViewData;
 
   /**
    * 같은 두 에이전트 사이 평행 엣지(양방향·다중)가 겹치지 않도록 parallelOffset 할당.
@@ -678,10 +838,12 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       positionsRef.current.clear();
     }
 
-    const prev = prevFolderRef.current;
-    const next = currentFolderId;
+    // §5.10 — 휴지통 내부 뷰는 currentFolderId 축과 독립이라 폴더 id 만으론 진입/이탈을 못 잡는다.
+    //   뷰 키에 interiorView 를 합쳐 내부 뷰 왕복도 "뷰 전환"(캐시 저장·복원 + fitView)으로 처리한다.
+    const prev = prevViewKeyRef.current;
+    const next = interiorView !== null ? `__interior_${interiorView.kind}__` : (currentFolderId ?? '__main__');
     const viewChanged = prev !== next || projectChanged;
-    prevFolderRef.current = next;
+    prevViewKeyRef.current = next;
 
     const cache = viewCacheRef.current;
 
@@ -695,14 +857,14 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
         for (const node of flowNodes) {
           livePositions.set(node.id, node.position);
         }
-        cache.set(prev ?? '__main__', {
+        cache.set(prev, {
           viewport: rfRef.current.getViewport(),
           positions: livePositions,
         });
       }
 
       // 2) 다음 뷰 캐시 복원
-      const saved = cache.get(next ?? '__main__');
+      const saved = cache.get(next);
       if (saved) {
         positionsRef.current = new Map(saved.positions);
       } else {
@@ -723,7 +885,8 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
 
       // 4) 장면 전환 애니메이션 (프로젝트 전환은 새로고침처럼 즉시 전환)
       if (!projectChanged) {
-        const direction = next !== null && (prev === null || next !== prev) ? 'zoom-in' : 'zoom-out';
+        // 메인 밖(폴더/내부 뷰)으로 들어가면 zoom-in, 메인으로 돌아오면 zoom-out.
+        const direction = next !== '__main__' ? 'zoom-in' : 'zoom-out';
         setTransition(direction);
         setTimeout(() => setTransition('none'), 250);
       }
@@ -753,7 +916,11 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       const saved = (b as BubbleData).position;
       const validSaved = saved && (saved.x !== 0 || saved.y !== 0) ? saved : undefined;
       let pos: XYPosition | undefined;
-      if (validSaved) {
+      if (interiorView !== null) {
+        // §5.10 — 휴지통 내부는 임시 나열 화면. 서버 위치(= 원래 캔버스 좌표)를 쓰지 않고 항상
+        //   방사형 레이아웃에 놓는다. 원래 좌표는 복구 시 제자리로 돌아가는 데 필요하므로 보존.
+        pos = layout.get(b.id);
+      } else if (validSaved) {
         pos = validSaved;
       } else if ((b as BubbleData).pinned) {
         const root = viewData.bubbles.find((r) => (r as BubbleData).bubbleType === 'root');
@@ -857,7 +1024,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     for (const b of viewData.bubbles) {
       if (b.bubbleType === 'agent') agentRadiusById.set(b.id, calcBubbleSize(b) / 2);
     }
-    const taskFlowEdges: Edge[] = currentFolderId === null
+    const taskFlowEdges: Edge[] = (currentFolderId === null && interiorView === null)
       ? Object.values(storeTaskEdges).map((te) => {
         // 편집 프리뷰 합성 — 팝업에서 바꾸는 중인 필드가 있으면 캔버스 엣지에도 즉시 반영.
         const preview = taskEdgePreview && taskEdgePreview.edgeId === te.id ? taskEdgePreview.overrides : null;
@@ -893,7 +1060,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     // 늦게 따라온다. 각도 오프셋의 라이브 변화는 바로 아래 별도 effect(엣지 targetAngularOffset 패치)가
     // 담당하므로 여기서 재실행할 필요가 없다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewData, currentFolderId, satellitePositions, setFlowNodes, setEdges, activeProject, pauseAndReset, storeTaskEdges, parallelOffsetById, taskEdgePreview]);
+  }, [viewData, currentFolderId, interiorView, satellitePositions, setFlowNodes, setEdges, activeProject, pauseAndReset, storeTaskEdges, parallelOffsetById, taskEdgePreview]);
 
   // 위치 이동(드래그/물리 엔진)으로 angular offset 이 바뀌었을 때, 메인 sync 가 재실행되지 않아도
   // 기존 Task Edge 의 data.targetAngularOffset 만 패치 — 화살촉 분산이 실시간으로 따라간다.
@@ -921,6 +1088,14 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
   const handleNodeDoubleClick = useCallback((_: React.MouseEvent, node: Node) => {
     const data = node.data as unknown as BubbleData;
     const store = useGraphStore.getState();
+    // §5.10 — 휴지통 내부 back → 내부 종료(캔버스 복귀).
+    if (data.id === '__interior_back__') { store.exitInterior(); return; }
+    // §5.10 v3.49 — Brain 상주 버블 좌더블클릭 → 기억 피드 오버레이(우더블클릭과 동일, 발견성).
+    if (data.id === '__brain__') { store.openBrainFeed({ scope: 'project' }); return; }
+    // 휴지통은 기존 버블 진입 방식 유지(소수라 피드 불요).
+    if (data.id === '__trash__') { store.enterInterior({ kind: 'trash' }); return; }
+    // §5.10 — trashed 커스텀 에이전트는 IDE 사용 불가(휴지통 내부). 좌더블클릭 무시.
+    if (data.bubbleType === 'agent' && data.trashed) { return; }
     if (data.id === '__root_back__') { store.goBack(); return; }
     if (data.id === '__root_home__') {
       store.goToMain();
@@ -1191,6 +1366,13 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
 
   const handleNodeDragStart = useCallback((_: React.MouseEvent, node: Node) => {
     setCtxMenu(null);
+    // §5.9 캡처 버블 드래그 시작 — geometry 락(WS snapshot 회귀 방지). 동반 이동 없음.
+    if (node.type === 'captureNode') {
+      useGraphStore.getState().setCaptureBubbleDragLock(node.id, true);
+      captureSnapRef.current = null;
+      useCaptureSnapGuideStore.getState().setGuides([]);
+      return;
+    }
     // Comment Box 드래그 시작 — 자식 노드 초기 위치 스냅샷 (동반 이동 계산용)
     if (node.type === 'commentBox') {
       const store = useGraphStore.getState();
@@ -1237,9 +1419,33 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     }
   }, [onSatelliteDrag]);
 
-  const handleNodeDrag = useCallback((_: React.MouseEvent, node: Node) => {
+  const handleNodeDrag = useCallback((event: React.MouseEvent, node: Node) => {
     positionsRef.current.set(node.id, node.position);
     onSatelliteDrag(node.id, node.position.x, node.position.y);
+
+    // §5.9 캡처 버블 드래그 중 — 이어 붙이기 자석으로 좌표를 보정한 뒤 로컬 낙관 반영(단독 이동).
+    // 화면 버블 2~3개를 듀얼 모니터처럼 쓰려면 손으로 대충 놓아도 변이 딱 붙어야 한다. 보정된
+    // 위치를 store 에 넣으면 노드 position prop 이 그 값으로 흘러가 렌더도 붙은 자리에서 따라온다
+    // (React Flow 는 매 프레임 포인터 기준으로 다시 계산하므로 누적 드리프트는 생기지 않는다).
+    // Alt 를 누르고 있으면 자석을 끈다 — 1px 미세 조정용 탈출구(도구 관행).
+    if (node.type === 'captureNode') {
+      const store = useGraphStore.getState();
+      const self = store.captureBubbles.find((b) => b.id === node.id);
+      const rect: SnapRect = {
+        id: node.id,
+        x: node.position.x,
+        y: node.position.y,
+        width: node.width ?? self?.width ?? CAPTURE_BUBBLE_DEFAULTS.DEFAULT_WIDTH,
+        height: node.height ?? self?.height ?? CAPTURE_BUBBLE_DEFAULTS.DEFAULT_HEIGHT,
+      };
+      const zoom = rfRef.current?.getZoom() ?? 1;
+      const neighbors = event.altKey ? [] : captureSnapNeighbors(node.id, self?.projectName);
+      const snap = computeCaptureDragSnap(rect, neighbors, CAPTURE_SNAP.THRESHOLD_PX / Math.max(zoom, 0.05));
+      captureSnapRef.current = { id: node.id, x: snap.x, y: snap.y };
+      useCaptureSnapGuideStore.getState().setGuides(snap.guides);
+      store.patchCaptureBubbleLocal(node.id, { x: snap.x, y: snap.y });
+      return;
+    }
 
     // Comment Box 드래그 중 — 자식 버블 동반 이동 (offset-only, parent/child 아님)
     if (node.type === 'commentBox' && commentDragStartRef.current?.boxId === node.id) {
@@ -1263,10 +1469,27 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
         return { ...n, position: nextPos };
       }));
     }
-  }, [onSatelliteDrag, setFlowNodes]);
+  }, [onSatelliteDrag, setFlowNodes, captureSnapNeighbors]);
 
   const handleNodeDragStop = useCallback((_: React.MouseEvent, node: Node) => {
     onSatelliteDragStop(node.id);
+
+    // §5.9 캡처 버블 드래그 종료 — **자석으로 보정된** 최종 위치 PATCH + 락 해제(버퍼 300ms).
+    // node.position(생좌표)을 저장하면 붙여 놓은 이음선이 손 뗀 순간 다시 벌어진다.
+    if (node.type === 'captureNode') {
+      const store = useGraphStore.getState();
+      const snapped = captureSnapRef.current?.id === node.id
+        ? { x: captureSnapRef.current.x, y: captureSnapRef.current.y }
+        : { x: node.position.x, y: node.position.y };
+      captureSnapRef.current = null;
+      useCaptureSnapGuideStore.getState().setGuides([]);
+      store.patchCaptureBubbleLocal(node.id, snapped);
+      void (async () => {
+        await store.updateCaptureBubble(node.id, snapped);
+        setTimeout(() => store.setCaptureBubbleDragLock(node.id, false), 300);
+      })();
+      return;
+    }
 
     if (node.type === 'commentBox') {
       const store = useGraphStore.getState();
@@ -1379,6 +1602,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       if (e.key !== 'Delete' && e.key !== 'Backspace') return;
       const target = e.target as HTMLElement;
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+      if (target.closest?.('[data-capture-control="on"]')) return; // §5.9 제어 중 캡처 버블은 전역 단축키 제외
       const state = useGraphStore.getState();
 
       // React Flow native 다중 선택 — flowNodes/flowEdges 의 selected:true 를 진실의 원천으로
@@ -1400,6 +1624,12 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
           const boxId = (n.data as { commentBoxId?: string } | undefined)?.commentBoxId ?? n.id;
           void state.deleteCommentBox(boxId);
         }
+        // 2-1) 캡처 버블 일괄 삭제
+        for (const n of selectedFlowNodes) {
+          if (n.type !== 'captureNode') continue;
+          const capId = (n.data as { captureBubbleId?: string } | undefined)?.captureBubbleId ?? n.id;
+          void state.deleteCaptureBubble(capId);
+        }
         // 3) 버블 일괄 삭제 — root 는 보호, worktree 는 가드 다이얼로그가 있어 단건 처리만 가능하므로 스킵.
         //     개별 DELETE 를 N 번 쏘면 서버가 스냅샷을 N 번 브로드캐스트해 버블이 여러 번 나눠 사라진다.
         //     ID 를 모아 단일 batch 엔드포인트로 보내 한 번의 스냅샷으로 동시 제거한다.
@@ -1420,11 +1650,16 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
         // 단일 선택 store 도 정리 — 패널 잔존 방지
         state.selectNode(null);
         if (state.selectedCommentBoxId) state.selectCommentBox(null);
+        if (state.selectedCaptureBubbleId) state.selectCaptureBubble(null);
         if (state.selectedTaskEdgeId) state.selectTaskEdge(null);
         return;
       }
 
       // 단일 선택 경로 (기존 동작 유지)
+      if (state.selectedCaptureBubbleId) {
+        void state.deleteCaptureBubble(state.selectedCaptureBubbleId);
+        return;
+      }
       if (state.selectedCommentBoxId) {
         void state.deleteCommentBox(state.selectedCommentBoxId);
         return;
@@ -1459,6 +1694,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       if (e.code !== COMMENT_BOX_DEFAULTS.CREATE_HOTKEY) return;
       const target = e.target as HTMLElement;
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+      if (target.closest?.('[data-capture-control="on"]')) return; // §5.9 제어 중 캡처 버블은 전역 단축키 제외
       // 단독 C 만 받음 — 모디파이어 조합(Ctrl+C 복사 등) 회피
       if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
       e.preventDefault();
@@ -1473,6 +1709,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     function handleKey(e: KeyboardEvent): void {
       const target = e.target as HTMLElement;
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+      if (target.closest?.('[data-capture-control="on"]')) return; // §5.9 제어 중 캡처 버블은 전역 단축키 제외
       if (e.key === '`' || e.key === '~') {
         useGraphStore.getState().toggleDebug();
       }
@@ -1550,7 +1787,9 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       >
         <EdgeMask />
         <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#1e293b" />
-        {currentFolderId === null && <LayoutBoundsBox />}
+        {currentFolderId === null && interiorView === null && <LayoutBoundsBox />}
+        {/* §5.9 캡처 버블 이어 붙이기 — 드래그·리사이즈 중 자석이 걸린 축을 보여 주는 가이드선. */}
+        <CaptureSnapGuides />
         <CanvasControls />
         {debugMode && <DebugOverlay flowNodes={flowNodes} />}
         <DebugResizeRefresher flowNodes={flowNodes} debugMode={debugMode} />
@@ -1566,9 +1805,16 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
           onCreateAutoAgent={createAutoAgent}
           onCreatePipeline={createPipeline}
           onCreateWorktree={createWorktree}
+          onCreateCapture={handleCreateCapture}
           onClose={handleCtxClose}
         />
       )}
+      {/* §5.9 화면/프로그램 캡처 소스 선택 팝업 (생성/다시 선택 공용). */}
+      <CaptureSourcePicker
+        open={capturePicker !== null}
+        onClose={() => setCapturePicker(null)}
+        onPick={handleCapturePick}
+      />
       {/* 드래그 프리뷰 — 스크린 좌표계 SVG 오버레이 (화살표 포함, 마우스 커서 추적) */}
       <TaskEdgeDragPreview rfRef={rfRef} rfContainerRef={rfContainerRef} flowNodes={flowNodes} />
       {/* §5.4 #29 v1.51 — 캔버스 클립보드/북마크 토스트 (Ctrl/Cmd+C·V, Alt+숫자, 숫자).

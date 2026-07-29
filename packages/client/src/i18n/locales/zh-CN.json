@@ -33,6 +33,11 @@
       "closeTab": "关闭标签",
       "unloadedProject": "未加载",
       "clickToLoad": "点击加载项目"
+    },
+    "usage": {
+      "tooltip": "当前会话：已用 5 小时额度的 {{percent}}% — 点击查看详情",
+      "tooltipNoData": "尚未收集用量数据 — 点击开启",
+      "noData": "--%"
     }
   },
   "panel": {
@@ -392,7 +397,8 @@
         "low": "最低思考量。更快但不够深入。",
         "medium": "均衡思考深度。",
         "high": "深度推理。较慢但更彻底。",
-        "xhigh": "超高推理深度（Opus 4.7+）。推荐用于大多数编码工作。"
+        "xhigh": "超高推理深度（Opus 4.7+）。推荐用于大多数编码工作。",
+        "unknown": "{{name}} — 已安装 CLI 支持的思考深度等级。"
       },
       "tools": {
         "label": "工具",
@@ -657,6 +663,35 @@
       "delete": "删除",
       "deleteBundleTooltip": "删除整个 bundle（主边 + 自动生成的兄弟边）",
       "deleteEdgeTooltip": "删除此边"
+    },
+    "usage": {
+      "title": "Claude 用量",
+      "close": "关闭用量",
+      "session5h": "当前会话（5 小时）",
+      "weekly7d": "每周额度（7 天）",
+      "resetsIn": "{{span}}后重置",
+      "resetUnknown": "重置时间未知",
+      "resettingNow": "正在重置",
+      "spanDh": "{{d}} 天 {{h}} 小时",
+      "spanHm": "{{h}} 小时 {{m}} 分",
+      "spanM": "{{m}} 分",
+      "lastUpdated": "最后更新 {{time}}",
+      "neverUpdated": "尚未收到用量数据",
+      "collectorTitle": "用量收集器",
+      "collectorOnHint": "Claude Code 正在向 Vibisual 上报额度",
+      "collectorOffHint": "开启后可从 Claude Code 读取套餐额度",
+      "collectorEnable": "开启",
+      "collectorDisable": "关闭",
+      "collectorPassthrough": "你原有的状态栏已保留 — Vibisual 会代为运行并原样显示其输出。",
+      "collectorForeign": "你已经有自定义状态栏。开启不会删除它 — Vibisual 会包装它并原样显示输出。",
+      "collectorFailed": "无法连接用量收集器设置。",
+      "collectorRestartHint": "交互式 Claude Code 会话渲染状态栏后数值才会到达。已在运行的会话需要重启。",
+      "localTitle": "Vibisual 中的此项目",
+      "localAgents": "智能体",
+      "localInput": "输入 token",
+      "localOutput": "输出 token",
+      "localHint": "按当前项目标签页的智能体统计。上方套餐额度为账户级，包含在 Vibisual 之外的用量。",
+      "noValue": "--"
     }
   },
   "ide": {
@@ -667,7 +702,9 @@
       "restoreLabel": "还原",
       "resizeDock": "调整停靠大小",
       "customLabel": "自定义",
-      "hookLabel": "Hook"
+      "hookLabel": "Hook",
+      "renameHint": "双击重命名 (F2)",
+      "renameInputLabel": "Agent 名称"
     },
     "tabbar": {
       "newSession": "新建 Session",
@@ -701,7 +738,8 @@
       "ctxQuoteReply": "引用回复",
       "ctxSendAsPrompt": "作为新提示发送",
       "ctxSelectAll": "全选",
-      "ctxSelectionRequired": "请先选择文本"
+      "ctxSelectionRequired": "请先选择文本",
+      "ctxSaveToBrain": "保存到大脑"
     },
     "askQuestion": {
       "title": "问题",
@@ -775,9 +813,59 @@
       "collapse": "折叠",
       "copy": "复制",
       "copied": "已复制"
+    },
+    "report": {
+      "learnedTitle": "经验总结"
+    },
+    "memoryChip": {
+      "label": "已引用 {{n}} 条记忆"
     }
   },
   "bubbleMap": {
+    "capture": {
+      "pickerTitle": "屏幕/程序捕获",
+      "pickerSubtitle": "选择要在气泡中实时显示的屏幕或程序窗口。",
+      "screens": "屏幕",
+      "windows": "程序 · 窗口",
+      "refresh": "刷新",
+      "loading": "正在加载来源…",
+      "empty": "未找到可捕获的来源。",
+      "unavailable": "此处无法使用屏幕捕获（仅打包应用支持）。",
+      "repick": "选择其他来源",
+      "connecting": "连接中…",
+      "sourceLost": "未找到来源 · 请重新选择",
+      "pickPrompt": "点击选择来源",
+      "controlToggle": "远程操作（向被捕获目标注入点击和输入）",
+      "controlOn": "操作中",
+      "controlOff": "远程操作",
+      "expandHint": "双击在窗口中打开",
+      "collapse": "恢复大小 (Esc)",
+      "maximize": "最大化",
+      "restore": "还原",
+      "windowClose": "关闭 (Esc)",
+      "source": "捕获源",
+      "kindScreen": "屏幕",
+      "kindWindow": "窗口",
+      "expand": "在窗口中打开",
+      "playback": "播放",
+      "snapshotShort": "快照",
+      "quality": "画质 / 流量",
+      "view": "显示",
+      "stillSaverHint": "画面静止时降低帧率，节省 CPU 与流量",
+      "remoteControl": "远程控制",
+      "readOnlyHint": "锁定控制模式（仅查看）",
+      "controlInWindow": "此窗口中的远程控制 — 默认关闭（不注入鼠标）",
+      "delete": "删除捕获气泡",
+      "live": "直播",
+      "keysToggle": "特殊键 · 粘贴",
+      "controlTargetMissing": "找不到控制目标 · 请重新选择来源",
+      "controlEngineMissing": "控制引擎未加载 · 请重启应用",
+      "controlInjectFailed": "输入注入失败",
+      "backgroundClick": "不移动我的光标（实验性）",
+      "backgroundClickHint": "把点击直接发送到目标窗口，你的鼠标不会移动。游戏和受保护窗口会忽略此方式并自动回退。",
+      "backgroundClickBlocked": "该窗口忽略后台点击 · 已短暂借用光标",
+      "backgroundClickUnavailable": "无法使用后台点击 · 已短暂借用光标"
+    },
     "taskEdge": {
       "iconHint": "单击：详情 · 双击：编辑",
       "pulse": {
@@ -907,6 +995,7 @@
   "tabMenu": {
     "close": "关闭",
     "closeOthers": "关闭其他",
+    "closeLeft": "关闭左侧",
     "closeRight": "关闭右侧",
     "closeAll": "关闭全部",
     "pin": "固定",
@@ -951,9 +1040,8 @@
       "createAutoAgentHint": "元 Agent — 根据你的提示自动派生自定义 Agent 团队",
       "createWorktree": "创建 Worktree",
       "createWorktreeHint": "从最新 master 创建新工作区",
-      "restoreCustomAgent": "恢复上一个自定义 Agent",
-      "restoreLoading": "加载中…",
-      "restoreEmpty": "没有可恢复的项"
+      "createCapture": "屏幕/程序捕获气泡",
+      "createCaptureHint": "在气泡中实时显示屏幕或程序窗口"
     },
     "bounds": {
       "label": "气泡边界",
@@ -1000,6 +1088,77 @@
         "goBack": "双击返回",
         "expand": "双击展开"
       }
+    }
+  },
+  "brain": {
+    "bubbleLabel": "大脑",
+    "trashBubbleLabel": "回收站",
+    "cardCountShort": "{{n}} 张卡片",
+    "trashCountShort": "{{n}}",
+    "unseenBadge": "{{n}} 条未读",
+    "type": {
+      "decision": "决策",
+      "mistake": "错误",
+      "lesson": "教训",
+      "rule": "规则",
+      "fact": "事实"
+    },
+    "scopeProject": "项目大脑",
+    "scopeAgent": "Agent 记忆",
+    "statusGhost": "待审核",
+    "supersededNote": "先前内容",
+    "linkedFiles": "关联文件",
+    "refCount": "引用次数",
+    "lastReferenced": "最近引用",
+    "createdAt": "创建时间",
+    "sourceSession": "来源 Session",
+    "promote": "提升为项目大脑",
+    "pin": "固定",
+    "unpin": "取消固定",
+    "edit": "编辑",
+    "save": "保存",
+    "cancel": "取消",
+    "delete": "删除",
+    "deleteConfirm": "删除？",
+    "deleteYes": "删除",
+    "loading": "加载中…",
+    "cardDetailTitle": "记忆卡片",
+    "summaryCards": "记忆卡片",
+    "summaryUnseen": "未读",
+    "summaryRecent": "最近保存",
+    "openInterior": "打开内部",
+    "trashedAt": "删除时间",
+    "trashedMemories": "Agent 记忆",
+    "cardCountUnit": " 张卡片",
+    "restore": "恢复",
+    "purge": "永久删除",
+    "purgeConfirm": "这将永久删除所有内容，包括 {{n}} 张 Agent 记忆卡片。",
+    "purgeYes": "永久删除",
+    "fileMark": "此文件存在错误/教训记忆",
+    "cardCountUnitSuffix": "",
+    "feed": {
+      "title": "项目大脑",
+      "agentTitle": "此 Agent 的记忆",
+      "searchPlaceholder": "搜索记忆…",
+      "sectionRelated": "与当前工作相关",
+      "sectionRecent": "最近习得",
+      "sectionFrequent": "常用",
+      "sectionResurface": "值得回顾",
+      "sectionAgentOwn": "此 Agent 习得的内容",
+      "sectionProjectRef": "项目共享（参考）",
+      "helpful": "有帮助",
+      "refShort": "引用",
+      "helpfulShort": "有帮助",
+      "scopeTagProject": "项目",
+      "scopeTagAgent": "此 Agent",
+      "empty": "暂无记忆可显示。",
+      "loading": "加载中…",
+      "total": "{{n}} 张卡片",
+      "agoNow": "刚刚",
+      "agoMin": "{{n}}分钟前",
+      "agoHour": "{{n}}小时前",
+      "agoDay": "{{n}}天前",
+      "agoMonth": "{{n}}个月前"
     }
   }
 }

@@ -16,7 +16,8 @@
   },
   "scripts": {
     "build": "tsc",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@vibisual/shared": "workspace:*",
@@ -33,6 +34,7 @@
     "@types/node": "^20.19.39",
     "@types/ws": "^8.5.13",
     "tsx": "^4.19.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.9"
   }
 }

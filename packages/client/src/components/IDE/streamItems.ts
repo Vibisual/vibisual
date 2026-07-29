@@ -22,6 +22,7 @@ import type {
   AgentReview,
   AgentList,
   AskUserQuestionRequest,
+  BrainInjectionEvent,
 } from '@vibisual/shared';
 import { parseSystemSubtype } from './SystemNode.js';
 
@@ -128,6 +129,14 @@ export interface StreamAsk {
   timestamp: number;
 }
 
+/** §5.10 — 기억 주입 칩 (BrainInjectionEvent.at 을 timestamp 로 삼아 스트림에 시간순 합류) */
+export interface StreamMemoryInjection {
+  kind: 'memoryInjection';
+  id: string;
+  event: BrainInjectionEvent;
+  timestamp: number;
+}
+
 /** 명령어 프롬프트 블록 */
 export interface StreamCommand {
   kind: 'command';
@@ -142,7 +151,8 @@ export interface StreamCommand {
 
 export type StreamItem =
   | StreamText | StreamThinking | StreamGroup | StreamSystem | StreamResult
-  | StreamThinkingLive | StreamReport | StreamQuestion | StreamReview | StreamList | StreamAsk;
+  | StreamThinkingLive | StreamReport | StreamQuestion | StreamReview | StreamList | StreamAsk
+  | StreamMemoryInjection;
 
 export type StreamItemFull = StreamItem | StreamCommand;
 
@@ -319,6 +329,7 @@ export function mergeCardsIntoItems(
   reviews?: AgentReview[],
   lists?: AgentList[],
   askRequests?: AskUserQuestionRequest[],
+  injections?: BrainInjectionEvent[],
 ): StreamItemFull[] {
   const items: StreamItemFull[] = [...base.items];
 
@@ -332,6 +343,8 @@ export function mergeCardsIntoItems(
   for (const rv of reviews ?? []) items.push({ kind: 'review', id: `review-${rv.id}`, review: rv, timestamp: turnEndSortTs(rv.createdAt) });
   for (const ls of lists ?? []) items.push({ kind: 'list', id: `list-${ls.id}`, list: ls, timestamp: turnEndSortTs(ls.createdAt) });
   for (const req of askRequests ?? []) items.push({ kind: 'ask', id: `ask-${req.requestId}`, request: req, timestamp: turnEndSortTs(req.createdAt) });
+  // §5.10 — 주입 칩은 발생 시각(at) 그대로 시간순 합류(턴 머리에 근접). 카드류와 동일한 additive 배열.
+  for (const ev of injections ?? []) items.push({ kind: 'memoryInjection', id: `mem-${ev.id}`, event: ev, timestamp: ev.at });
 
   items.sort((a, b) => a.timestamp - b.timestamp);
 
@@ -388,6 +401,7 @@ export function sameStreamItem(a: StreamItemFull, b: StreamItemFull): boolean {
     case 'review':   return (a as StreamReview).review === b.review;
     case 'list':     return (a as StreamList).list === b.list;
     case 'ask':      return (a as StreamAsk).request === b.request;
+    case 'memoryInjection': return (a as StreamMemoryInjection).event === b.event;
   }
 }
 

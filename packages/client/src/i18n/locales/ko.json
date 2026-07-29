@@ -37,6 +37,11 @@
       "closeTab": "탭 닫기",
       "unloadedProject": "로드되지 않음",
       "clickToLoad": "클릭하여 프로젝트 로드"
+    },
+    "usage": {
+      "tooltip": "현재 세션: 5시간 한도의 {{percent}}% 사용 — 클릭하면 상세",
+      "tooltipNoData": "사용량을 아직 수집하지 않고 있습니다 — 클릭해서 켜기",
+      "noData": "--%"
     }
   },
   "panel": {
@@ -68,7 +73,19 @@
       "externalManual": "포트를 자동으로 열지 못했습니다(공유기 UPnP 가 꺼져 있을 수 있습니다). 수동으로 하려면 공유기 설정에서 외부 TCP {{port}} 포트를 이 PC 의 {{ip}}:{{port}} 로 포워딩하세요.",
       "externalManualUrl": "포트포워딩을 마치면 외부에서 이 주소로 접속하세요:",
       "externalReachable": "접속 가능 — 외부에서 이 주소로 접속하세요",
-      "externalHttpsNote": "자체 서명 인증서를 사용합니다 — 폰에서 처음 접속 시 보안 경고가 뜹니다. \"고급 → 계속\" 을 눌러 진행하세요. 연결은 그대로 암호화됩니다."
+      "externalHttpsNote": "자체 서명 인증서를 사용합니다 — 폰에서 처음 접속 시 보안 경고가 뜹니다. \"고급 → 계속\" 을 눌러 진행하세요. 연결은 그대로 암호화됩니다.",
+      "qrTitle": "QR 페어링",
+      "qrSubtitle": "폰 카메라로 찍기만 하면 Vibisual 이 바로 열리고 페어링까지 됩니다 — 주소도 코드도 입력할 필요가 없습니다. QR 한 장은 {{minutes}}분 동안 유효합니다.",
+      "qrIssue": "QR 발급",
+      "qrReissue": "QR 새로 발급",
+      "qrRevoke": "지금 폐기",
+      "qrDownload": "이미지 저장",
+      "qrTarget": "QR 에 담을 주소",
+      "qrTargetLan": "Wi-Fi",
+      "qrTargetExternal": "인터넷",
+      "qrExpiresIn": "{{time}} 남음",
+      "qrExpired": "만료됨 — QR 을 새로 발급해 주세요.",
+      "qrPairedCount": "이 QR 로 페어링된 기기: {{count}}대"
     },
     "options": {
       "title": "옵션",
@@ -447,7 +464,8 @@
         "medium": "균형 잡힌 사고 깊이.",
         "high": "깊은 추론. 느리지만 철저함.",
         "xhigh": "초고도 추론 (Opus 4.7+). 대부분의 코딩 작업에 권장.",
-        "max": "토큰 제약 없는 최대 추론 (Opus 4.8). 가장 어려운 판단용 — 단순 작업엔 과사고할 수 있음."
+        "max": "토큰 제약 없는 최대 추론 (Opus 4.8). 가장 어려운 판단용 — 단순 작업엔 과사고할 수 있음.",
+        "unknown": "{{name}} — 설치된 CLI 가 지원하는 사고 깊이 등급."
       },
       "tools": {
         "label": "도구",
@@ -728,6 +746,35 @@
       "delete": "삭제",
       "deleteBundleTooltip": "번들 전체 삭제 (주 엣지 + 자동 생성 형제 엣지)",
       "deleteEdgeTooltip": "엣지 삭제"
+    },
+    "usage": {
+      "title": "Claude 사용량",
+      "close": "사용량 닫기",
+      "session5h": "현재 세션 (5시간)",
+      "weekly7d": "주간 한도 (7일)",
+      "resetsIn": "{{span}} 후 재설정",
+      "resetUnknown": "재설정 시각 미확인",
+      "resettingNow": "재설정 중",
+      "spanDh": "{{d}}일 {{h}}시간",
+      "spanHm": "{{h}}시간 {{m}}분",
+      "spanM": "{{m}}분",
+      "lastUpdated": "마지막 업데이트 {{time}}",
+      "neverUpdated": "아직 받은 사용량 데이터가 없습니다",
+      "collectorTitle": "사용량 수집기",
+      "collectorOnHint": "Claude Code 가 한도를 Vibisual 로 보고하고 있습니다",
+      "collectorOffHint": "켜면 Claude Code 에서 플랜 한도를 읽어옵니다",
+      "collectorEnable": "켜기",
+      "collectorDisable": "끄기",
+      "collectorPassthrough": "쓰시던 상태줄은 그대로 보존했습니다 — Vibisual 이 대신 실행해 같은 출력을 보여줍니다.",
+      "collectorForeign": "이미 직접 만든 상태줄이 있습니다. 켜도 지워지지 않습니다 — Vibisual 이 감싸서 그 출력을 그대로 보여줍니다.",
+      "collectorFailed": "사용량 수집기 설정에 연결하지 못했습니다.",
+      "collectorRestartHint": "값은 인터랙티브 Claude Code 세션이 상태줄을 그릴 때 들어옵니다. 이미 실행 중인 세션은 다시 시작해야 합니다.",
+      "localTitle": "Vibisual 의 이 프로젝트",
+      "localAgents": "에이전트",
+      "localInput": "입력 토큰",
+      "localOutput": "출력 토큰",
+      "localHint": "활성 프로젝트 탭의 에이전트 기준입니다. 위 플랜 한도는 계정 전체라 Vibisual 밖에서 쓴 몫도 포함합니다.",
+      "noValue": "--"
     }
   },
   "ide": {
@@ -741,7 +788,9 @@
       "resizeDock": "독 크기 조정",
       "customLabel": "커스텀",
       "cmdLabel": "CMD",
-      "hookLabel": "Hook"
+      "hookLabel": "Hook",
+      "renameHint": "더블클릭하여 이름 변경 (F2)",
+      "renameInputLabel": "에이전트 이름"
     },
     "tabbar": {
       "newSession": "새 세션",
@@ -750,10 +799,15 @@
       "pastSessionsClose": "닫기",
       "loading": "불러오는 중...",
       "noClosedSessions": "복원할 닫힌 세션이 없습니다.",
-      "agentTabLabel": "Agent"
+      "agentTabLabel": "Agent",
+      "confirmCloseTitle": "동작 중인 세션을 닫으시겠습니까?",
+      "confirmCloseMessage": "아직 동작 중인 세션이 있습니다. 닫으면 작업이 중단됩니다. 그래도 닫으시겠습니까?",
+      "confirmCloseConfirm": "닫기",
+      "confirmCloseCancel": "취소"
     },
     "terminal": {
       "unavailable": "임베디드 터미널은 Vibisual 데스크톱 앱에서만 사용할 수 있습니다.",
+      "unavailableExternal": "보안상 외부(인터넷) 접속에서는 임베디드 터미널을 사용할 수 없습니다 — 같은 LAN(집/사무실 와이파이)에서 사용해 주세요.",
       "exited": "claude 종료됨 (코드 {{code}})",
       "createFailed": "터미널을 열지 못했습니다: {{error}}",
       "harnessNote": "사용자가 직접 모는 인터랙티브 세션 — 하네스 배선은 Vibisual 이 시각적으로 돕지만, 실행 권한은 Claude Code 안에 있습니다.",
@@ -806,7 +860,10 @@
       "inputCtxCut": "잘라내기",
       "inputCtxCopy": "복사",
       "inputCtxPaste": "붙여넣기",
-      "inputCtxSelectAll": "전체 선택"
+      "inputCtxSelectAll": "전체 선택",
+      "ctxSaveToBrain": "두뇌에 기억",
+      "stopAll": "전체 중지",
+      "stopAllTitle": "이 에이전트가 돌리는 것 전부 중지(다른 탭 + 백그라운드 서브에이전트)"
     },
     "askQuestion": {
       "title": "질문",
@@ -831,7 +888,8 @@
       "results": "결과",
       "skills": "스킬",
       "bookmarks": "북마크",
-      "sessionSummary": "세션 요약"
+      "sessionSummary": "세션 요약",
+      "runningSubagents": "실행 중 서브에이전트 ({{count}})"
     },
     "bookmarks": {
       "title": "북마크",
@@ -923,14 +981,20 @@
       "title": "작업 신고",
       "didTitle": "AI가 한 일",
       "userActionsTitle": "사용자가 할 일",
-      "nextStepsTitle": "다음 단계"
+      "nextStepsTitle": "다음 단계",
+      "learnedTitle": "배운 것"
     },
     "question": {
       "title": "질문",
       "copy": "복사",
       "copied": "복사됨",
       "instant": "즉시 전송",
-      "instantSent": "전송됨"
+      "instantSent": "전송됨",
+      "copyCard": "카드 전체 복사",
+      "copyQuestions": "질문만 복사",
+      "selectAnswer": "이 답 선택",
+      "selectNone": "선택 해제",
+      "sendSelected": "선택한 {{n}}개 전송"
     },
     "review": {
       "title": "검수 요청",
@@ -949,9 +1013,95 @@
       "addReason": "사유 추가",
       "editReason": "사유 수정",
       "statsTitle": "이 세션에 남긴 피드백"
+    },
+    "unseenCards": {
+      "hint": "놓친 카드 — 눌러서 이동",
+      "jump": "이 카드 위치로 이동",
+      "dismiss": "닫기"
+    },
+    "memoryChip": {
+      "label": "기억 {{n}}장 참조"
+    },
+    "runningSubagents": {
+      "title": "실행 중 서브에이전트",
+      "close": "닫기",
+      "empty": "지금 도는 서브에이전트가 없습니다.",
+      "untitled": "서브에이전트",
+      "scopeAll": "이 에이전트가 돌리는 서브에이전트 전부를 보고 있습니다.",
+      "scopeSession": "\"{{label}}\" 세션이 띄운 서브에이전트만 보고 있습니다."
     }
   },
   "bubbleMap": {
+    "capture": {
+      "pickerTitle": "화면·프로그램 캡처",
+      "pickerSubtitle": "버블에 라이브로 띄울 화면이나 프로그램 창을 고르세요.",
+      "screens": "화면",
+      "windows": "프로그램 · 창",
+      "refresh": "새로고침",
+      "loading": "소스 불러오는 중…",
+      "empty": "캡처할 수 있는 소스가 없습니다.",
+      "unavailable": "이 환경에서는 화면 캡처를 쓸 수 없습니다 (패키지 앱에서만 지원).",
+      "repick": "다른 소스 선택",
+      "connecting": "연결 중…",
+      "sourceLost": "소스를 찾을 수 없습니다 · 다시 선택",
+      "pickPrompt": "클릭해서 소스 선택",
+      "controlToggle": "원격 조작 (클릭·타이핑을 캡처 대상에 주입)",
+      "controlOn": "조작 중",
+      "controlOff": "원격 조작",
+      "controlModeOff": "끄기",
+      "pointerModeSwitch": "포인터 모드 — 터치: 가리킨 곳을 바로 클릭 · 마우스: 밀어서 커서 이동 후 탭 클릭 (눌러서 전환)",
+      "pointerModeTouch": "터치",
+      "pointerModeMouse": "마우스",
+      "qualityHint": "화질/데이터 — 낮출수록 해상도·FPS↓ (눌러서 전환)",
+      "quality_full": "원본",
+      "quality_saver": "절약",
+      "quality_min": "최소",
+      "quality_auto": "AUTO",
+      "snapshot": "현재 프레임 저장 (PNG)",
+      "pause": "일시정지 (데이터 절감)",
+      "resume": "다시 재생",
+      "pausedTapResume": "일시정지됨 · 눌러서 재생",
+      "paste": "클립보드 붙여넣기 (폰→PC)",
+      "pasteShort": "붙여넣기",
+      "settings": "캡처 버블 설정",
+      "opacity": "불투명도",
+      "controlTimeout": "조작 자동해제",
+      "timeoutOff": "끄기",
+      "pin": "항상 위(핀 고정)",
+      "stillSaver": "정지화면 절전",
+      "readOnly": "읽기 전용(조작 잠금)",
+      "readOnlyOn": "읽기 전용 — 원격 조작이 잠겨 있습니다(설정에서 해제)",
+      "readOnlyShort": "보기 전용",
+      "badge": "fps·해상도 배지",
+      "badgeIdle": "정지 · 절전",
+      "expandHint": "더블클릭하면 창으로 엽니다",
+      "collapse": "원래 크기로 (Esc)",
+      "maximize": "최대화",
+      "restore": "복원",
+      "windowClose": "닫기 (Esc)",
+      "source": "캡처 소스",
+      "kindScreen": "화면",
+      "kindWindow": "창",
+      "expand": "크게 보기",
+      "playback": "재생",
+      "snapshotShort": "스냅샷",
+      "quality": "화질 / 데이터",
+      "view": "보기",
+      "stillSaverHint": "움직임이 없으면 프레임을 낮춰 CPU·데이터를 아낍니다",
+      "remoteControl": "원격 조작",
+      "readOnlyHint": "켜면 조작 모드를 고를 수 없습니다(보기 전용)",
+      "controlInWindow": "이 창에서의 원격 조작 — 기본은 끄기(마우스 미반영)",
+      "delete": "캡처 버블 삭제",
+      "live": "LIVE",
+      "keysToggle": "특수키 · 붙여넣기",
+      "controlTargetMissing": "조작 대상을 찾을 수 없습니다 · 소스를 다시 선택하세요",
+      "controlEngineMissing": "조작 엔진을 불러오지 못했습니다 · 앱을 다시 실행해 주세요",
+      "controlInjectFailed": "조작 주입에 실패했습니다",
+      "backgroundClick": "커서 안 움직이기 (실험적)",
+      "backgroundClickHint": "대상 창에 클릭을 직접 넣어 내 마우스를 건드리지 않습니다. 게임·보호된 창은 이 방식을 무시해 자동으로 원래 방식으로 돌아갑니다",
+      "backgroundClickBlocked": "이 창은 배경 클릭을 무시해 커서를 잠깐 사용했습니다",
+      "backgroundClickUnavailable": "배경 클릭을 쓸 수 없어 커서를 잠깐 사용했습니다"
+    },
     "taskEdge": {
       "iconHint": "클릭: 상세 · 더블클릭: 편집",
       "pulse": {
@@ -1081,6 +1231,7 @@
   "tabMenu": {
     "close": "닫기",
     "closeOthers": "다른 탭 닫기",
+    "closeLeft": "왼쪽 탭 닫기",
     "closeRight": "오른쪽 탭 닫기",
     "closeAll": "모두 닫기",
     "pin": "고정",
@@ -1148,9 +1299,8 @@
       "createAutoAgentHint": "메타 에이전트 — 자연어 한 줄로 커스텀 에이전트 군을 자동 spawn",
       "createWorktree": "Worktree 만들기",
       "createWorktreeHint": "최신 master 기준 새 작업 공간",
-      "restoreCustomAgent": "지난 커스텀 에이전트 복구",
-      "restoreLoading": "불러오는 중…",
-      "restoreEmpty": "복구할 항목이 없습니다"
+      "createCapture": "화면·프로그램 캡처 버블",
+      "createCaptureHint": "화면이나 프로그램 창을 라이브로 버블에 띄우기"
     },
     "bounds": {
       "label": "버블 영역",
@@ -1204,6 +1354,77 @@
         "goBack": "더블클릭하여 뒤로",
         "expand": "더블클릭하여 펼치기"
       }
+    }
+  },
+  "brain": {
+    "bubbleLabel": "두뇌",
+    "trashBubbleLabel": "휴지통",
+    "cardCountShort": "{{n}}장",
+    "trashCountShort": "{{n}}개",
+    "unseenBadge": "미확인 {{n}}장",
+    "type": {
+      "decision": "결정",
+      "mistake": "실수",
+      "lesson": "교훈",
+      "rule": "규칙",
+      "fact": "사실"
+    },
+    "scopeProject": "프로젝트 두뇌",
+    "scopeAgent": "개별 기억",
+    "statusGhost": "재검토 필요",
+    "supersededNote": "이전 내용 이력",
+    "linkedFiles": "연결 파일",
+    "refCount": "참조",
+    "lastReferenced": "마지막 참조",
+    "createdAt": "생성",
+    "sourceSession": "출처 세션",
+    "promote": "프로젝트 두뇌로 승격",
+    "pin": "고정",
+    "unpin": "고정 해제",
+    "edit": "편집",
+    "save": "저장",
+    "cancel": "취소",
+    "delete": "삭제",
+    "deleteConfirm": "삭제할까요?",
+    "deleteYes": "삭제",
+    "loading": "불러오는 중…",
+    "cardDetailTitle": "기억 카드",
+    "summaryCards": "기억 카드",
+    "summaryUnseen": "미확인",
+    "summaryRecent": "최근 저장",
+    "openInterior": "내부 열기",
+    "trashedAt": "휴지통 이동",
+    "trashedMemories": "개별 기억",
+    "cardCountUnit": "장",
+    "restore": "복구",
+    "purge": "영구 삭제",
+    "purgeConfirm": "개별 기억 {{n}}장 포함 전부 삭제됩니다.",
+    "purgeYes": "영구 삭제",
+    "fileMark": "이 파일의 실수/교훈 기억 있음",
+    "cardCountUnitSuffix": "",
+    "feed": {
+      "title": "프로젝트 두뇌",
+      "agentTitle": "이 에이전트의 기억",
+      "searchPlaceholder": "기억 검색…",
+      "sectionRelated": "지금 작업과 관련",
+      "sectionRecent": "최근 배운 것",
+      "sectionFrequent": "자주 쓰는 기억",
+      "sectionResurface": "오랜만에 다시 볼 기억",
+      "sectionAgentOwn": "이 에이전트가 배운 것",
+      "sectionProjectRef": "프로젝트 공용(참고)",
+      "helpful": "도움됨",
+      "refShort": "참조",
+      "helpfulShort": "도움",
+      "scopeTagProject": "프로젝트",
+      "scopeTagAgent": "이 에이전트",
+      "empty": "표시할 기억이 없습니다.",
+      "loading": "불러오는 중…",
+      "total": "{{n}}장",
+      "agoNow": "방금",
+      "agoMin": "{{n}}분 전",
+      "agoHour": "{{n}}시간 전",
+      "agoDay": "{{n}}일 전",
+      "agoMonth": "{{n}}개월 전"
     }
   }
 }

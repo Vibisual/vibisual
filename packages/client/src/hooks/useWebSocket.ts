@@ -1,10 +1,11 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import type { WSMessage, GraphSnapshot, SubAgentStreamEvent, ProjectHydratedPayload, ProjectUnloadedPayload, IframeLogInitPayload, IframeLogAppendPayload, ServerLogInitPayload, ServerLogAppendPayload, PermissionRequest, PermissionDecision, ClaudeInstallProgress, AskUserQuestionRequest, AskUserQuestionDecision } from '@vibisual/shared';
-import { MAX_RECONNECT_ATTEMPTS, RECONNECT_BASE_DELAY, WS_BATCH_INTERVAL, WS_STREAM_BATCH_INTERVAL } from '@vibisual/shared';
+import { MAX_RECONNECT_ATTEMPTS, RECONNECT_BASE_DELAY, WS_BATCH_INTERVAL, WS_STREAM_BATCH_INTERVAL, WS_BATCH_INTERVAL_MAX, WS_BATCH_BACKOFF_FACTOR } from '@vibisual/shared';
 import { useGraphStore } from '../stores/graphStore.js';
 import { iframeLogEvents } from '../bubble-map/api/iframeLogEvents.js';
 import { serverLogEvents } from '../bubble-map/api/serverLogEvents.js';
 import { setDiagnosticsSender } from '../utils/diagnostics.js';
+import { registerTerminalWsSender, dispatchTerminalFrame } from '../transport/mobileTerminalBridge.js';
 import i18n from '../i18n/index.js';
 import {
   playCompletionChime,
@@ -58,10 +59,17 @@ export function useWebSocket(url: string): UseWebSocketReturn {
   // graph_snapshot 코얼레스 — 버스트 시 마지막 스냅샷만 적용 (16ms 트레일링).
   const snapshotPendingRef = useRef<GraphSnapshot | null>(null);
   const snapshotTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // §9 v3.40 — 부하 적응형 배치 창. loadSnapshot 풀 재구축이 16ms 예산을 넘기면
+  // 다음 flush 창을 직전 실측 비용 × 배수로 늘려(상한 250ms) 렌더/입력이 굶지 않게 한다.
+  // 비용이 낮아지면 즉시 기본 주기 복귀 — 경부하 체감 불변.
+  const snapshotDelayRef = useRef(WS_BATCH_INTERVAL);
   // §9 — sub_agent_stream 배치 — 도착분을 16ms 창에 모았다가 store action 1회로 합쳐 적용.
   // 커스텀 에이전트 다중 실행 시 매 스트림 라인마다 구독자 전원 재평가하던 것을 16ms당 1회로.
   const streamPendingRef = useRef<SubAgentStreamEvent[]>([]);
   const streamTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // §9 v3.40 — 스트림 반영도 동일 적응(기본 50ms, 상한 250ms). 배수는 3 — 스트림 텍스트는
+  // 지연에 더 민감해 스냅샷(×4)보다 완만하게 늘린다.
+  const streamDelayRef = useRef(WS_STREAM_BATCH_INTERVAL);
 
   const applyGraphSnapshot = useCallback((snap: GraphSnapshot) => {
     // [perf-snapshot] 계측 — 콘솔에서 `__VIBI_PERF__ = true` 로 켠다(기본 off, 프로덕션 비용 0).
@@ -96,8 +104,11 @@ export function useWebSocket(url: string): UseWebSocketReturn {
       snap.worktreeProjects ?? {},
       snap.gitDirty ?? {},
       snap.commentBoxes ?? [],
+      snap.captureBubbles ?? [],
       snap.contis ?? {},
       snap.activeContiWork ?? {},
+      snap.brain ?? {},
+      snap.brainInjections ?? {},
     );
     const _tLoad = PERF ? performance.now() : 0;
     store.applyStubProjects(snap.stubProjects ?? {});
@@ -107,6 +118,7 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     store.applyV150Metrics(snap.recentToolDurations, snap.compactCounts, snap.rateLimits);
     store.applySkillUsageCounts(snap.skillUsageCounts);
     store.applyAutoAgentSummaries(snap.autoAgentSummaries);
+    store.applyRunningSubagentTasks(snap.runningSubagentTasks);
     store.applyAgentReports(snap.agentReports);
     store.applyAgentQuestions(snap.agentQuestions);
     store.applyAgentReviews(snap.agentReviews);
@@ -130,14 +142,28 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     snapshotTimerRef.current = null;
     const snap = snapshotPendingRef.current;
     snapshotPendingRef.current = null;
-    if (snap) applyGraphSnapshot(snap);
+    if (!snap) return;
+    const t0 = performance.now();
+    applyGraphSnapshot(snap);
+    const cost = performance.now() - t0;
+    snapshotDelayRef.current = Math.min(
+      Math.max(WS_BATCH_INTERVAL, cost * WS_BATCH_BACKOFF_FACTOR),
+      WS_BATCH_INTERVAL_MAX,
+    );
   }, [applyGraphSnapshot]);
 
   const flushStreamEvents = useCallback(() => {
     streamTimerRef.current = null;
     const buffered = streamPendingRef.current;
     streamPendingRef.current = [];
-    if (buffered.length > 0) useGraphStore.getState().appendStreamEvents(buffered);
+    if (buffered.length === 0) return;
+    const t0 = performance.now();
+    useGraphStore.getState().appendStreamEvents(buffered);
+    const cost = performance.now() - t0;
+    streamDelayRef.current = Math.min(
+      Math.max(WS_STREAM_BATCH_INTERVAL, cost * 3),
+      WS_BATCH_INTERVAL_MAX,
+    );
   }, []);
 
   const connect = useCallback(() => {
@@ -161,11 +187,27 @@ export function useWebSocket(url: string): UseWebSocketReturn {
       setDiagnosticsSender((msg) => {
         if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
       });
+      // §4 v3.33 — 모바일 임베디드 터미널 프레임 sender 등록(데스크톱은 window.api.terminal 이라 미사용).
+      registerTerminalWsSender((frame) => {
+        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(frame));
+      });
     };
 
     ws.onmessage = (event: MessageEvent) => {
       try {
-        const parsed: unknown = JSON.parse(String(event.data));
+        // §9 v3.40 — 통합 앱은 IPC 브리지(IpcWebSocket)가 구조화 클론된 객체를 그대로 실어
+        // 보낸다(대형 스냅샷의 stringify→parse 왕복 제거). dev/web/모바일 ws 는 종전대로 문자열.
+        const raw: unknown = event.data;
+        const parsed: unknown = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        // §4 v3.33 — 터미널 다중화 프레임(term_*)은 WSMessageType 유니온 밖 — 브리지로 먼저 라우팅.
+        if (
+          parsed && typeof parsed === 'object' &&
+          typeof (parsed as { type?: unknown }).type === 'string' &&
+          (parsed as { type: string }).type.startsWith('term_')
+        ) {
+          dispatchTerminalFrame(parsed as { type: string; payload?: unknown });
+          return;
+        }
         if (!isWSMessage(parsed)) return;
 
         const store = useGraphStore.getState();
@@ -177,7 +219,7 @@ export function useWebSocket(url: string): UseWebSocketReturn {
               // 전체 스냅샷 재구축/풀 재동기화하던 것을 최신 1건으로 합침 (60fps 예산 보호).
               snapshotPendingRef.current = parsed.payload;
               if (snapshotTimerRef.current === null) {
-                snapshotTimerRef.current = setTimeout(flushSnapshot, WS_BATCH_INTERVAL);
+                snapshotTimerRef.current = setTimeout(flushSnapshot, snapshotDelayRef.current);
               }
             }
             break;
@@ -205,7 +247,7 @@ export function useWebSocket(url: string): UseWebSocketReturn {
               // 스냅샷(16ms)과 달리 WS_STREAM_BATCH_INTERVAL(50ms)로 묶어 StreamRenderer 재구축 빈도를 낮춘다.
               streamPendingRef.current.push(event);
               if (streamTimerRef.current === null) {
-                streamTimerRef.current = setTimeout(flushStreamEvents, WS_STREAM_BATCH_INTERVAL);
+                streamTimerRef.current = setTimeout(flushStreamEvents, streamDelayRef.current);
               }
             }
             break;
@@ -221,7 +263,7 @@ export function useWebSocket(url: string): UseWebSocketReturn {
                 }
               }
               if (streamTimerRef.current === null) {
-                streamTimerRef.current = setTimeout(flushStreamEvents, WS_STREAM_BATCH_INTERVAL);
+                streamTimerRef.current = setTimeout(flushStreamEvents, streamDelayRef.current);
               }
             }
             break;
@@ -363,6 +405,7 @@ export function useWebSocket(url: string): UseWebSocketReturn {
       setStatus('disconnected');
       wsRef.current = null;
       setDiagnosticsSender(null); // §4 v1.98 — 끊긴 동안 발생한 에러는 큐잉됐다 재연결 시 flush.
+      registerTerminalWsSender(null); // §4 v3.33 — 끊기면 터미널 프레임 전송 중단(재연결 시 재등록).
 
       if (attemptRef.current < MAX_RECONNECT_ATTEMPTS) {
         const delay = RECONNECT_BASE_DELAY * Math.pow(2, attemptRef.current);

@@ -30,6 +30,20 @@ export function useIsNarrowViewport(): boolean {
   return useMediaQuery('(max-width: 767px)');
 }
 
+/**
+ * 저전력(발열 억제) 모드 — 굵은 포인터(모바일·터치)면 true. 켜지면 App 이 `document.documentElement`
+ * 에 `vibisual-low-power` 클래스를 걸어 index.css 가 캔버스의 흐르는 엣지·장식용 무한 애니메이션·
+ * backdrop-blur 등 폰 GPU 부하를 끈다(§4 v3.39 모바일 발열 대응).
+ *
+ * §4 v3.41 정정: 발열 대상이 아닌 **데스크톱은 여기 포함하지 않는다**. 종전엔 `prefers-reduced-motion`
+ * 도 트리거로 삼아, Windows '동작 줄이기(애니메이션 효과 끄기)'를 켠 PC 까지 저전력에 걸려 active
+ * 버블의 활동 펄스 링이 통째로 꺼졌다. 이제 `(pointer: coarse)`(진짜 터치 기기)만 판정 →
+ * 데스크톱은 모션 설정과 무관하게 기존 연출 그대로.
+ */
+export function useLowPowerMode(): boolean {
+  return useMediaQuery('(pointer: coarse)');
+}
+
 export interface LongPressHandlers {
   onTouchStart: (e: React.TouchEvent) => void;
   onTouchMove: (e: React.TouchEvent) => void;

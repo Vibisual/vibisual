@@ -33,6 +33,11 @@
       "closeTab": "Fechar aba",
       "unloadedProject": "Não carregado",
       "clickToLoad": "Clique para carregar o projeto"
+    },
+    "usage": {
+      "tooltip": "Sessão atual: {{percent}}% do limite de 5 horas usado — clique para detalhes",
+      "tooltipNoData": "Os dados de uso ainda não estão sendo coletados — clique para ativar",
+      "noData": "--%"
     }
   },
   "panel": {
@@ -392,7 +397,8 @@
         "low": "Raciocínio mínimo. Mais rápido, porém menos detalhado.",
         "medium": "Profundidade de raciocínio equilibrada.",
         "high": "Raciocínio profundo. Mais lento, porém detalhado.",
-        "xhigh": "Raciocínio extra-alto (Opus 4.7+). Recomendado para a maioria das tarefas de código."
+        "xhigh": "Raciocínio extra-alto (Opus 4.7+). Recomendado para a maioria das tarefas de código.",
+        "unknown": "{{name}} — nível de esforço de raciocínio suportado pela CLI instalada."
       },
       "tools": {
         "label": "Ferramentas",
@@ -657,6 +663,35 @@
       "delete": "Excluir",
       "deleteBundleTooltip": "Excluir o bundle inteiro (principal + irmã automática)",
       "deleteEdgeTooltip": "Excluir a edge"
+    },
+    "usage": {
+      "title": "Uso do Claude",
+      "close": "Fechar uso",
+      "session5h": "Sessão atual (5 horas)",
+      "weekly7d": "Limite semanal (7 dias)",
+      "resetsIn": "Reinicia em {{span}}",
+      "resetUnknown": "Horário de reinício desconhecido",
+      "resettingNow": "Reiniciando agora",
+      "spanDh": "{{d}} d {{h}} h",
+      "spanHm": "{{h}} h {{m}} min",
+      "spanM": "{{m}} min",
+      "lastUpdated": "Última atualização {{time}}",
+      "neverUpdated": "Nenhum dado de uso recebido ainda",
+      "collectorTitle": "Coletor de uso",
+      "collectorOnHint": "O Claude Code está informando seus limites ao Vibisual",
+      "collectorOffHint": "Ative para ler os limites do seu plano no Claude Code",
+      "collectorEnable": "Ativar",
+      "collectorDisable": "Desativar",
+      "collectorPassthrough": "Sua barra de status existente foi preservada — o Vibisual a executa e mostra a saída sem alterações.",
+      "collectorForeign": "Você já tem uma barra de status personalizada. Ativar não a apaga: o Vibisual a envolve e continua mostrando a saída dela.",
+      "collectorFailed": "Não foi possível acessar as configurações do coletor de uso.",
+      "collectorRestartHint": "Os valores chegam quando uma sessão interativa do Claude Code desenha a barra de status. Sessões já abertas precisam ser reiniciadas.",
+      "localTitle": "Este projeto no Vibisual",
+      "localAgents": "Agentes",
+      "localInput": "Tokens de entrada",
+      "localOutput": "Tokens de saída",
+      "localHint": "Contado a partir dos agentes da aba de projeto ativa. Os limites do plano acima valem para toda a conta e incluem trabalho feito fora do Vibisual.",
+      "noValue": "--"
     }
   },
   "ide": {
@@ -667,7 +702,9 @@
       "restoreLabel": "Restaurar",
       "resizeDock": "Redimensionar painel",
       "customLabel": "Personalizado",
-      "hookLabel": "Hook"
+      "hookLabel": "Hook",
+      "renameHint": "Clique duas vezes para renomear (F2)",
+      "renameInputLabel": "Nome do agente"
     },
     "tabbar": {
       "newSession": "Nova sessão",
@@ -701,7 +738,8 @@
       "ctxQuoteReply": "Citar resposta",
       "ctxSendAsPrompt": "Enviar como novo prompt",
       "ctxSelectAll": "Selecionar tudo",
-      "ctxSelectionRequired": "Selecione o texto primeiro"
+      "ctxSelectionRequired": "Selecione o texto primeiro",
+      "ctxSaveToBrain": "Salvar no Cérebro"
     },
     "askQuestion": {
       "title": "Pergunta",
@@ -775,9 +813,59 @@
       "collapse": "recolher",
       "copy": "Copiar",
       "copied": "Copiado"
+    },
+    "report": {
+      "learnedTitle": "Aprendizados"
+    },
+    "memoryChip": {
+      "label": "Referenciou {{n}} memórias"
     }
   },
   "bubbleMap": {
+    "capture": {
+      "pickerTitle": "Captura de tela / programa",
+      "pickerSubtitle": "Escolha uma tela ou janela de programa para exibir ao vivo dentro de um bubble.",
+      "screens": "Telas",
+      "windows": "Programas · Janelas",
+      "refresh": "Atualizar",
+      "loading": "Carregando fontes…",
+      "empty": "Nenhuma fonte capturável encontrada.",
+      "unavailable": "A captura de tela não está disponível aqui (somente no app empacotado).",
+      "repick": "Escolher outra fonte",
+      "connecting": "Conectando…",
+      "sourceLost": "Fonte não encontrada · escolha novamente",
+      "pickPrompt": "Clique para escolher uma fonte",
+      "controlToggle": "Controle remoto (injeta cliques e digitação no alvo capturado)",
+      "controlOn": "Controlando",
+      "controlOff": "Controle remoto",
+      "expandHint": "Clique duas vezes para abrir em uma janela",
+      "collapse": "Restaurar tamanho (Esc)",
+      "maximize": "Maximizar",
+      "restore": "Restaurar",
+      "windowClose": "Fechar (Esc)",
+      "source": "Fonte de captura",
+      "kindScreen": "Tela",
+      "kindWindow": "Janela",
+      "expand": "Abrir em janela",
+      "playback": "Reprodução",
+      "snapshotShort": "Instantâneo",
+      "quality": "Qualidade / dados",
+      "view": "Exibição",
+      "stillSaverHint": "Reduz a taxa de quadros quando nada se move — economiza CPU e dados",
+      "remoteControl": "Controle remoto",
+      "readOnlyHint": "Bloqueia os modos de controle (somente visualização)",
+      "controlInWindow": "Controle remoto nesta janela — desativado por padrão (mouse não é injetado)",
+      "delete": "Excluir bolha de captura",
+      "live": "AO VIVO",
+      "keysToggle": "Teclas especiais · colar",
+      "controlTargetMissing": "Destino de controle não encontrado · selecione a fonte novamente",
+      "controlEngineMissing": "Motor de controle não carregou · reinicie o app",
+      "controlInjectFailed": "Falha ao enviar a entrada",
+      "backgroundClick": "Não mover meu cursor (experimental)",
+      "backgroundClickHint": "Envia o clique direto para a janela alvo, seu mouse não se move. Jogos e janelas protegidas ignoram isso e voltamos ao método normal.",
+      "backgroundClickBlocked": "Esta janela ignora cliques em segundo plano · o cursor foi usado por um instante",
+      "backgroundClickUnavailable": "Clique em segundo plano indisponível · o cursor foi usado por um instante"
+    },
     "taskEdge": {
       "iconHint": "Clique: detalhes · Clique duplo: editar",
       "pulse": {
@@ -907,6 +995,7 @@
   "tabMenu": {
     "close": "Fechar",
     "closeOthers": "Fechar outras",
+    "closeLeft": "Fechar à esquerda",
     "closeRight": "Fechar à direita",
     "closeAll": "Fechar tudo",
     "pin": "Fixar",
@@ -951,9 +1040,8 @@
       "createAutoAgentHint": "Meta agente — cria automaticamente uma equipe de agentes personalizados a partir do seu prompt",
       "createWorktree": "Criar Worktree",
       "createWorktreeHint": "Novo workspace a partir do master mais recente",
-      "restoreCustomAgent": "Restaurar agente personalizado anterior",
-      "restoreLoading": "Carregando…",
-      "restoreEmpty": "Nada para restaurar"
+      "createCapture": "Bubble de captura de tela/programa",
+      "createCaptureHint": "Exibe uma tela ou janela de programa ao vivo dentro de um bubble"
     },
     "bounds": {
       "label": "Limites do bubble",
@@ -1000,6 +1088,77 @@
         "goBack": "Clique duplo para voltar",
         "expand": "Clique duplo para expandir"
       }
+    }
+  },
+  "brain": {
+    "bubbleLabel": "Cérebro",
+    "trashBubbleLabel": "Lixeira",
+    "cardCountShort": "{{n}} cartões",
+    "trashCountShort": "{{n}}",
+    "unseenBadge": "{{n}} não vistos",
+    "type": {
+      "decision": "Decisão",
+      "mistake": "Erro",
+      "lesson": "Lição",
+      "rule": "Regra",
+      "fact": "Fato"
+    },
+    "scopeProject": "Cérebro do Projeto",
+    "scopeAgent": "Memória do Agente",
+    "statusGhost": "Precisa de revisão",
+    "supersededNote": "Conteúdo anterior",
+    "linkedFiles": "Arquivos vinculados",
+    "refCount": "Referências",
+    "lastReferenced": "Última referência",
+    "createdAt": "Criado",
+    "sourceSession": "Sessão de origem",
+    "promote": "Promover para o Cérebro do Projeto",
+    "pin": "Fixar",
+    "unpin": "Desafixar",
+    "edit": "Editar",
+    "save": "Salvar",
+    "cancel": "Cancelar",
+    "delete": "Excluir",
+    "deleteConfirm": "Excluir?",
+    "deleteYes": "Excluir",
+    "loading": "Carregando…",
+    "cardDetailTitle": "Cartão de memória",
+    "summaryCards": "Cartões de memória",
+    "summaryUnseen": "Não vistos",
+    "summaryRecent": "Salvos recentemente",
+    "openInterior": "Abrir interior",
+    "trashedAt": "Descartado",
+    "trashedMemories": "Memórias do agente",
+    "cardCountUnit": " cartões",
+    "restore": "Restaurar",
+    "purge": "Excluir permanentemente",
+    "purgeConfirm": "Isso exclui tudo, incluindo {{n}} cartões de memória do agente.",
+    "purgeYes": "Excluir permanentemente",
+    "fileMark": "Este arquivo tem memória de erro/lição",
+    "cardCountUnitSuffix": "",
+    "feed": {
+      "title": "Cérebro do Projeto",
+      "agentTitle": "Memória deste Agente",
+      "searchPlaceholder": "Buscar memórias…",
+      "sectionRelated": "Relacionado ao trabalho atual",
+      "sectionRecent": "Aprendido recentemente",
+      "sectionFrequent": "Usado com frequência",
+      "sectionResurface": "Vale a pena revisitar",
+      "sectionAgentOwn": "O que este agente aprendeu",
+      "sectionProjectRef": "Compartilhado pelo projeto (referência)",
+      "helpful": "Útil",
+      "refShort": "refs",
+      "helpfulShort": "útil",
+      "scopeTagProject": "Projeto",
+      "scopeTagAgent": "Este agente",
+      "empty": "Nenhuma memória para mostrar.",
+      "loading": "Carregando…",
+      "total": "{{n}} cartões",
+      "agoNow": "agora mesmo",
+      "agoMin": "há {{n}} min",
+      "agoHour": "há {{n}} h",
+      "agoDay": "há {{n}} dias",
+      "agoMonth": "há {{n}} meses"
     }
   }
 }

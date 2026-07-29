@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { BubbleData, ActivityEdge, BashEntry, ServerEntry, AgentEvent, FileEdit, AgentPhase, ProjectInfo, QueuedCommand, SubAgent, ServerKind, PipelineType, PipelineState, AgentConfig, SubAgentStreamEvent, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, UiLocale, ProjectMetaSnapshot, AppState, AppStatePatch, CommentBox, Conti, ActiveContiWork, ToolDurationEntry, CompactCount, RateLimitInfo, DiagnosticEntry, AutoAgentSummary, ModelRegistry, UserDefaults, AgentReport, AgentQuestions, AgentReview, AgentList, AgentFeedback, AgentFeedbackTargetType, AgentFeedbackVerdict } from '@vibisual/shared';
+import type { BubbleData, ActivityEdge, BashEntry, ServerEntry, AgentEvent, FileEdit, AgentPhase, ProjectInfo, QueuedCommand, SubAgent, RunningSubagentTask, ServerKind, PipelineType, PipelineState, AgentConfig, SubAgentStreamEvent, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, UiLocale, ProjectMetaSnapshot, AppState, AppStatePatch, CommentBox, CaptureBubble, Conti, ActiveContiWork, ToolDurationEntry, CompactCount, RateLimitInfo, DiagnosticEntry, AutoAgentSummary, ModelRegistry, UserDefaults, AgentReport, AgentQuestions, AgentReview, AgentList, AgentFeedback, AgentFeedbackTargetType, AgentFeedbackVerdict, BrainSummary, BrainInjectionEvent, BrainCard, BrainCardType, BrainCardScope, BrainCardStatus } from '@vibisual/shared';
 import { DEFAULT_UI_LOCALE, STREAM_EVENTS_MAX_PER_SESSION, STREAM_EVENTS_TRIM_SLACK, STREAM_EVENTS_MAX_PER_INACTIVE_SESSION, STREAM_INACTIVE_SESSIONS_MAX, DIAGNOSTIC_LOG_MAX } from '@vibisual/shared';
 import { changeUiLocale } from '../i18n/index.js';
 import { calcFileSizeRange } from '../utils/sizeCalc.js';
@@ -188,6 +188,16 @@ export function selectEffectiveProject(state: { currentFolderId: string | null; 
   const { currentFolderId, worktreeProjects, activeProject } = state;
   if (currentFolderId && worktreeProjects[currentFolderId]) return worktreeProjects[currentFolderId];
   return activeProject;
+}
+
+/**
+ * §5.10 v3.70 — 활성 프로젝트의 두뇌 요약(없으면 null).
+ * 카드는 `<projectPath>/.vibisual/brain/` 로 프로젝트별로 갈라져 저장되고 Brain 버블은 최상위 캔버스에
+ * 활성 프로젝트 것 1개만 상주하므로(폴더 내부 표시 ❌), 요약도 activeProject 키로만 읽는다.
+ * 다른 프로젝트 카드까지 합산해 보여주면 프로젝트를 전환해도 숫자가 안 변하는 오표시가 된다.
+ */
+export function selectActiveBrainSummary(state: { brain: Record<string, BrainSummary>; activeProject: string | null }): BrainSummary | null {
+  return (state.activeProject ? state.brain[state.activeProject] : null) ?? null;
 }
 
 /** iframe 탭 정보 */
@@ -470,6 +480,9 @@ interface GraphState {
   skillUsageCounts: Record<string, Record<string, number>>;
   /** §5.3 #10-2 v2.37 — Auto Agent 가 spawn 한 군의 요약 메타 (autoAgentSessionId → summary). */
   autoAgentSummaries: Record<string, AutoAgentSummary>;
+  /** §5.5 #17-9 v3.51 — 지금 백단에서 도는 서브에이전트 (agentId → RunningSubagentTask[]).
+   *  서버 런타임 전용 값이라 클라도 영속화 ❌ — 스냅샷마다 통째 교체(끝나면 자동으로 빈다). */
+  runningSubagentTasks: Record<string, RunningSubagentTask[]>;
   /** §4 v2.52 — 에이전트 작업 신고 (agentId → AgentReport[]). IDE 색 구분 카드. */
   agentReports: Record<string, AgentReport[]>;
   /** §4 v2.60 — 에이전트 질문 카드 (agentId → AgentQuestions[]). IDE 질문 카드. */
@@ -562,6 +575,31 @@ interface GraphState {
   updateCommentBox: (id: string, updates: Partial<Omit<CommentBox, 'id' | 'projectName' | 'createdAt' | 'updatedAt'>>) => Promise<void>;
   /** 서버 Comment Box 삭제. */
   deleteCommentBox: (id: string) => Promise<void>;
+  /** §5.9 선택된 캡처 버블 ID — 삭제/이동 대상. 노드/Task Edge/Comment Box 선택과 배타. */
+  selectedCaptureBubbleId: string | null;
+  selectCaptureBubble: (id: string | null) => void;
+  /** §5.9 캡처 버블 목록 (서버 스냅샷). 현재 프로젝트 필터로 렌더. */
+  captureBubbles: CaptureBubble[];
+  /** 드래그/리사이즈 중인 캡처 버블 ID 집합 — loadSnapshot 이 이 버블들의 geometry 를 로컬 값으로 보호. */
+  draggingCaptureBubbleIds: string[];
+  setCaptureBubbleDragLock: (id: string, on: boolean) => void;
+  /** 낙관적 업데이트 (드래그 중 위치 실시간 반영). */
+  patchCaptureBubbleLocal: (id: string, updates: Partial<CaptureBubble>) => void;
+  /** 서버 캡처 버블 생성. */
+  createCaptureBubble: (input: {
+    projectName: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    sourceId: string;
+    sourceName: string;
+    sourceKind: CaptureBubble['sourceKind'];
+  }) => Promise<CaptureBubble | null>;
+  /** 서버 캡처 버블 업데이트 (PATCH). */
+  updateCaptureBubble: (id: string, updates: Partial<Omit<CaptureBubble, 'id' | 'projectName' | 'createdAt' | 'updatedAt'>>) => Promise<void>;
+  /** 서버 캡처 버블 삭제. */
+  deleteCaptureBubble: (id: string) => Promise<void>;
   agentPhase: AgentPhase;
   activeAgentCount: number;
   pendingFocus: boolean;
@@ -666,6 +704,61 @@ interface GraphState {
   setTaskEdgePreview: (edgeId: string, overrides: Partial<TaskEdge>) => void;
   clearTaskEdgePreview: () => void;
 
+  // ─── §5.10 Project Brain — 2단 기억 + 커스텀 에이전트 휴지통 ───
+  /**
+   * projectName → 두뇌 요약(스냅샷 탑재). Brain 버블 본체/배지 렌더용.
+   * v3.70 — 카드가 프로젝트별로 갈라져 저장되므로 요약도 프로젝트 키. 조회는 `selectActiveBrainSummary`.
+   */
+  brain: Record<string, BrainSummary>;
+  /** agentId → 최근 주입 이벤트 목록(스냅샷 런타임 신호, 영속 X). IDE "기억 N장 참조" 칩 + Brain 엣지 연출. */
+  brainInjections: Record<string, BrainInjectionEvent[]>;
+  /**
+   * §5.10 v3.49 — 휴지통 내부 진입 상태 — currentFolderId/navStack 과 독립. null=일반 캔버스.
+   * 기억(brain/agentMemory)은 v3.49 에서 버블 산개 폐기 → `brainFeed` 오버레이가 담당.
+   * 휴지통(버려진 에이전트 나열)만 기존 버블 진입 방식을 유지한다.
+   */
+  interiorView: { kind: 'trash' } | null;
+  /**
+   * §5.10 v3.49 — 우더블클릭(또는 __brain__ 좌더블클릭) 시 뜨는 유튜브식 기억 피드 오버레이 상태.
+   * null=닫힘. scope='project' → Brain 전체, scope='agent' → 그 커스텀 에이전트 개별 기억.
+   * 피드 데이터(sections/검색/로딩)는 오버레이 컴포넌트가 자체 fetch(BrainFeed) 로 보유 — 스토어엔 여는 스코프만.
+   */
+  brainFeed: { scope: BrainCardScope; agentId?: string } | null;
+  /** DetailPanel 에서 선택된 기억 카드 id(다른 선택과 배타). */
+  selectedBrainCardId: string | null;
+  /** 선택된 기억 카드 본문(REST 로 fetch — 본문은 스냅샷에 없음). */
+  selectedBrainCard: BrainCard | null;
+  /** 실수/교훈 카드가 연결된 파일 경로 집합(파일 버블 마커용). brain.cardCount 변동 시 debounce refetch. */
+  brainFileMarks: string[];
+  /** 휴지통 내부 진입 — 선택 초기화(카드 fetch 없음). */
+  enterInterior: (view: { kind: 'trash' }) => void;
+  /** 내부 뷰 종료(캔버스 복귀). */
+  exitInterior: () => void;
+  /** §5.10 v3.49 — 기억 피드 오버레이 열기(scope 지정). 내부뷰/선택 초기화. */
+  openBrainFeed: (view: { scope: BrainCardScope; agentId?: string }) => void;
+  /** §5.10 v3.49 — 기억 피드 오버레이 닫기(선택 카드 해제). */
+  closeBrainFeed: () => void;
+  /** 기억 카드 선택(본문 fetch). id=null 이면 선택 해제. */
+  selectBrainCard: (id: string | null, opts?: { agentId?: string }) => void;
+  /** 개별 카드 → 프로젝트 두뇌 승격(이동). */
+  promoteBrainCard: (id: string) => Promise<void>;
+  /** 카드 pin 토글. */
+  setBrainCardPinned: (id: string, pinned: boolean) => Promise<void>;
+  /** 카드 제목/본문/타입 편집. */
+  updateBrainCard: (id: string, patch: { title?: string; body?: string; type?: BrainCardType; status?: BrainCardStatus }) => Promise<void>;
+  /** 카드 삭제. */
+  deleteBrainCard: (id: string) => Promise<void>;
+  /** 카드 확인(seen) 신고. */
+  markBrainCardSeen: (id: string) => void;
+  /** IDE 스트림 우클릭 "두뇌에 기억" — 선택 텍스트를 fact 카드로 저장. */
+  saveBrainCardFromText: (text: string, agentId: string, sourceSessionId?: string | null) => Promise<void>;
+  /** 휴지통 커스텀 에이전트 복구. */
+  restoreTrashedAgent: (sessionId: string) => Promise<void>;
+  /** 휴지통 커스텀 에이전트 영구 삭제(기억 카드 포함). */
+  purgeTrashedAgent: (sessionId: string) => Promise<void>;
+  /** 실수/교훈 카드 연결 파일 경로 재조회(파일 버블 마커). */
+  refreshBrainFileMarks: () => Promise<void>;
+
   loadSnapshot: (
     projects: Record<string, ProjectInfo>,
     agents: BubbleData[],
@@ -693,8 +786,11 @@ interface GraphState {
     worktreeProjects: Record<string, string>,
     gitDirty: Record<string, boolean>,
     commentBoxes: CommentBox[],
+    captureBubbles: CaptureBubble[],
     contis: Record<string, Conti>,
     activeContiWork: Record<string, ActiveContiWork>,
+    brain: Record<string, BrainSummary>,
+    brainInjections: Record<string, BrainInjectionEvent[]>,
   ) => void;
   setActiveProject: (name: string) => void;
   /** v1.63: projectId(경로) 로 닫기. name 은 로컬 활성탭 전환용 표시명(생략 시 역추론). */
@@ -727,10 +823,6 @@ interface GraphState {
   focusOnNode: (id: string) => void;
   clearFocusNode: () => void;
   createCustomAgent: (canvasX: number, canvasY: number) => void;
-  /** §3.2.2 (C 복구) — 현재 프로젝트에서 복구 가능한(사라졌거나 닫힌) 커스텀 에이전트 목록 조회. */
-  fetchRecoverableCustomAgents: () => Promise<import('@vibisual/shared').RecoverableCustomAgent[]>;
-  /** §3.2.2 (C 복구) — sessionId 로 커스텀 에이전트를 identity 에서 되살려 캔버스 좌표에 재삽입. */
-  restoreCustomAgent: (sessionId: string, canvasX: number, canvasY: number) => Promise<void>;
   /** §4 v2.63 — CMD(인터랙티브 터미널) 에이전트 생성. 커스텀 에이전트 기반 + executionMode baked. */
   createCmdAgent: (canvasX: number, canvasY: number) => void;
   /** §5.3 #10-2 v2.37 — Auto Agent 메타 버블 생성 */
@@ -794,6 +886,11 @@ interface GraphState {
   summaryPanelOpen: boolean;
   setSummaryPanelOpen: (open: boolean) => void;
   toggleSummaryPanel: () => void;
+  /** §5.5 #17-9 v3.51 — "실행 중 서브에이전트" 패널이 열려 있는지(북마크·세션요약과 동형 휘발 토글,
+   *  셋은 상호 배타). 실행 항목이 0 이 되면 패널 쪽에서 자동으로 닫는다. 영속 ❌. */
+  subagentPanelOpen: boolean;
+  setSubagentPanelOpen: (open: boolean) => void;
+  toggleSubagentPanel: () => void;
   /** §5.5 #17-8 v2.95 — 세션 자기요약 캐시(subId → 항목). 카드 없는 세션의 CLI 요약 텍스트 보관 + 닫힌 세션도 보드에 남김. localStorage 영속. */
   sessionSummaries: Record<string, SessionSummaryEntry>;
   /** 자기요약 텍스트 저장(없으면 추가, 있으면 갱신). */
@@ -826,6 +923,8 @@ interface GraphState {
   applySkillUsageCounts: (counts: Record<string, Record<string, number>> | undefined) => void;
   /** §5.3 #10-2 v2.37 — graph_snapshot 의 Auto Agent 요약 메타 반영. */
   applyAutoAgentSummaries: (summaries: Record<string, AutoAgentSummary> | undefined) => void;
+  /** §5.5 #17-9 v3.51 — graph_snapshot 의 "실행 중 서브에이전트" 반영. */
+  applyRunningSubagentTasks: (tasks: Record<string, RunningSubagentTask[]> | undefined) => void;
   /** §4 v2.52 — graph_snapshot 의 에이전트 작업 신고 반영. */
   applyAgentReports: (reports: Record<string, AgentReport[]> | undefined) => void;
   /** §4 v2.60 — graph_snapshot 의 에이전트 질문 카드 반영. */
@@ -1099,6 +1198,58 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       await fetch(`${API_BASE}/api/comment-boxes/${id}`, { method: 'DELETE' });
     } catch { /* 재연결 후 다음 snapshot 에서 동기화 */ }
   },
+  // ─── §5.9 캡처 버블 (CommentBox 패턴) ───
+  patchCaptureBubbleLocal: (id, updates) => set((s) => ({
+    captureBubbles: s.captureBubbles.map((b) => (b.id === id ? { ...b, ...updates } : b)),
+  })),
+  draggingCaptureBubbleIds: [],
+  setCaptureBubbleDragLock: (id, on) => set((s) => {
+    const has = s.draggingCaptureBubbleIds.includes(id);
+    if (on && !has) return { draggingCaptureBubbleIds: [...s.draggingCaptureBubbleIds, id] };
+    if (!on && has) return { draggingCaptureBubbleIds: s.draggingCaptureBubbleIds.filter((x) => x !== id) };
+    return s;
+  }),
+  createCaptureBubble: async (input) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/capture-bubbles`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+      if (!res.ok) return null;
+      const data = await res.json() as { ok: boolean; data?: CaptureBubble };
+      const bubble = data.data ?? null;
+      if (bubble) {
+        set((s) => (s.captureBubbles.some((b) => b.id === bubble.id)
+          ? s
+          : { captureBubbles: [...s.captureBubbles, bubble] }));
+      }
+      return bubble;
+    } catch {
+      return null;
+    }
+  },
+  updateCaptureBubble: async (id, updates) => {
+    set((s) => ({
+      captureBubbles: s.captureBubbles.map((b) => (b.id === id ? { ...b, ...updates } : b)),
+    }));
+    try {
+      await fetch(`${API_BASE}/api/capture-bubbles/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      });
+    } catch { /* 서버 스냅샷이 다음 턴에 덮어씀 */ }
+  },
+  deleteCaptureBubble: async (id) => {
+    set((s) => ({
+      captureBubbles: s.captureBubbles.filter((b) => b.id !== id),
+      selectedCaptureBubbleId: s.selectedCaptureBubbleId === id ? null : s.selectedCaptureBubbleId,
+    }));
+    try {
+      await fetch(`${API_BASE}/api/capture-bubbles/${id}`, { method: 'DELETE' });
+    } catch { /* 재연결 후 다음 snapshot 에서 동기화 */ }
+  },
   activeProject: null,
   currentProject: null,
   currentFolderId: null,
@@ -1108,12 +1259,23 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   selectedTaskEdgeId: null,
   selectedCommentBoxId: null,
   commentBoxes: [],
+  selectedCaptureBubbleId: null,
+  captureBubbles: [],
   contis: {},
   activeContiWork: {},
+  // §5.10 Project Brain
+  brain: {},
+  brainInjections: {},
+  interiorView: null,
+  brainFeed: null,
+  selectedBrainCardId: null,
+  selectedBrainCard: null,
+  brainFileMarks: [],
   recentToolDurations: {},
   compactCounts: {},
   skillUsageCounts: {},
   autoAgentSummaries: {},
+  runningSubagentTasks: {},
   agentReports: {},
   agentQuestions: {},
   agentReviews: {},
@@ -1290,7 +1452,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   pendingFocus: false,
   focusNodeId: null,
 
-  loadSnapshot: (projects, agents, topFolders, children, edges, innerEdges, satellites, bashHistory, runningServers, agentEvents, agentProjects, nodeProjects, fileEdits, commandQueues, completedCommands, subAgents, agentPhase, activeAgentCount, satellitePositions, pipelineChildren, pipelines, agentConfigs, taskEdges, worktreeProjects, gitDirty, commentBoxes, contis, activeContiWork) => {
+  loadSnapshot: (projects, agents, topFolders, children, edges, innerEdges, satellites, bashHistory, runningServers, agentEvents, agentProjects, nodeProjects, fileEdits, commandQueues, completedCommands, subAgents, agentPhase, activeAgentCount, satellitePositions, pipelineChildren, pipelines, agentConfigs, taskEdges, worktreeProjects, gitDirty, commentBoxes, captureBubbles, contis, activeContiWork, brain, brainInjections) => {
     // O(1) 조회용 nodeMap 빌드
     const nodeMap: Record<string, BubbleData> = {};
     for (const a of agents) nodeMap[a.id] = a;
@@ -1413,6 +1575,23 @@ export const useGraphStore = create<GraphState>((set, get) => ({
         }
       }
 
+      // §5.9 — 캡처 버블 드래그/리사이즈 중 geometry 보호 (CommentBox 와 동일).
+      let mergedCaptureBubbles = captureBubbles;
+      if (state.draggingCaptureBubbleIds.length > 0) {
+        const lockedById = new Map<string, CaptureBubble>();
+        for (const id of state.draggingCaptureBubbleIds) {
+          const local = state.captureBubbles.find((b) => b.id === id);
+          if (local) lockedById.set(id, local);
+        }
+        if (lockedById.size > 0) {
+          mergedCaptureBubbles = captureBubbles.map((b) => {
+            const local = lockedById.get(b.id);
+            if (!local) return b;
+            return { ...b, x: local.x, y: local.y, width: local.width, height: local.height };
+          });
+        }
+      }
+
       return {
         projects,
         agents,
@@ -1446,8 +1625,15 @@ export const useGraphStore = create<GraphState>((set, get) => ({
         gitDirty,
         attachmentPreviews: nextPreviews,
         commentBoxes: mergedCommentBoxes,
+        captureBubbles: mergedCaptureBubbles,
         contis,
         activeContiWork,
+        // §5.10 — brain 요약/주입 신호는 서버 권위(런타임, localStorage 미영속)라 매 스냅샷 교체.
+        //   cleanup-trap 대상 아님(부팅 hydrate 로 복원할 클라 상태가 아니다).
+        //   v3.70 — 프로젝트 키 맵이라 서버가 매번 전체를 싣는다. 빈 맵도 정상값(카드 전부 삭제)이므로
+        //   그대로 교체해야 지운 카드가 숫자에 남지 않는다.
+        brain,
+        brainInjections,
       };
     });
   },
@@ -1537,6 +1723,12 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       selectedNodeId: null,
       selectIntentId: null,
       activeIframeId: null,
+      // §5.10 — 프로젝트 전환 시 내부(휴지통) 뷰·기억 피드·선택 카드는 리셋(전역 전이 상태, 영속 X).
+      interiorView: null,
+      brainFeed: null,
+      selectedBrainCardId: null,
+      selectedBrainCard: null,
+      brainFileMarks: [],
     }));
   },
   closeProject: async (projectId, name) => {
@@ -1620,10 +1812,11 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     });
   },
   setRunningServers: (servers: Record<string, ServerEntry[]>) => set({ runningServers: servers }),
-  selectNode: (id) => set({ selectedNodeId: id, selectIntentId: id, selectedTaskEdgeId: null, selectedCommentBoxId: null }),
+  selectNode: (id) => set({ selectedNodeId: id, selectIntentId: id, selectedTaskEdgeId: null, selectedCommentBoxId: null, selectedCaptureBubbleId: null, selectedBrainCardId: null, selectedBrainCard: null }),
   setSelectIntent: (id) => set({ selectIntentId: id }),
-  selectTaskEdge: (id) => set({ selectedTaskEdgeId: id, selectedNodeId: null, selectIntentId: null, selectedCommentBoxId: null }),
-  selectCommentBox: (id) => set({ selectedCommentBoxId: id, selectedNodeId: null, selectIntentId: null, selectedTaskEdgeId: null }),
+  selectTaskEdge: (id) => set({ selectedTaskEdgeId: id, selectedNodeId: null, selectIntentId: null, selectedCommentBoxId: null, selectedCaptureBubbleId: null }),
+  selectCommentBox: (id) => set({ selectedCommentBoxId: id, selectedNodeId: null, selectIntentId: null, selectedTaskEdgeId: null, selectedCaptureBubbleId: null }),
+  selectCaptureBubble: (id) => set({ selectedCaptureBubbleId: id, selectedNodeId: null, selectIntentId: null, selectedTaskEdgeId: null, selectedCommentBoxId: null }),
   setAgentPhase: (phase) => set({ agentPhase: phase }),
 
   // 상태는 서버 스냅샷이 관리 — 클라이언트에서 덮어쓰지 않음
@@ -1779,28 +1972,148 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       body: JSON.stringify({ label: '', x: canvasX, y: canvasY, project }),
     }).catch(() => {});
   },
-  fetchRecoverableCustomAgents: async () => {
-    const project = selectEffectiveProject(get());
-    if (!project) return [];
-    try {
-      const res = await fetch(`${API_BASE}/api/custom-agents/recoverable?project=${encodeURIComponent(project)}`);
-      if (!res.ok) return [];
-      const data = await res.json() as { agents?: import('@vibisual/shared').RecoverableCustomAgent[] };
-      return data.agents ?? [];
-    } catch {
-      return [];
-    }
+  // ─── §5.10 Project Brain 액션 ───
+  enterInterior: (view) => {
+    // v3.49 — 휴지통 전용(기억은 brainFeed 오버레이). 카드 fetch 없음.
+    set({ interiorView: view, brainFeed: null, selectedNodeId: null, selectIntentId: null, selectedBrainCardId: null, selectedBrainCard: null });
   },
-  restoreCustomAgent: async (sessionId, canvasX, canvasY) => {
+  exitInterior: () => set({ interiorView: null, selectedBrainCardId: null, selectedBrainCard: null, selectedNodeId: null, selectIntentId: null }),
+  openBrainFeed: (view) => {
+    // v3.49 — 기억 피드 오버레이. 내부(휴지통) 뷰·다른 선택과 배타.
+    set({ brainFeed: view, interiorView: null, selectedBrainCardId: null, selectedBrainCard: null, selectedNodeId: null, selectIntentId: null });
+  },
+  closeBrainFeed: () => set({ brainFeed: null, selectedBrainCardId: null, selectedBrainCard: null }),
+  selectBrainCard: (id, opts) => {
+    if (!id) { set({ selectedBrainCardId: null, selectedBrainCard: null }); return; }
+    // 노드/코멘트박스/캡처/태스크엣지 선택과 배타.
+    set({ selectedBrainCardId: id, selectedNodeId: null, selectIntentId: null, selectedTaskEdgeId: null, selectedCommentBoxId: null, selectedCaptureBubbleId: null });
+    // v3.49 — 카드 본문은 REST 로 조회(memory 버블 interiorCards 캐시 폐기).
+    set({ selectedBrainCard: null });
     const project = selectEffectiveProject(get());
     if (!project) return;
+    void (async () => {
+      try {
+        // project 층 + (agentId 있으면) 그 에이전트 층을 합쳐 id 로 찾는다.
+        const found: BrainCard[] = [];
+        const scopes: Array<{ scope: string; agentId?: string }> = [{ scope: 'project' }];
+        if (opts?.agentId) scopes.push({ scope: 'agent', agentId: opts.agentId });
+        for (const s of scopes) {
+          const p = new URLSearchParams({ scope: s.scope, project });
+          if (s.agentId) p.set('agentId', s.agentId);
+          const res = await fetch(`${API_BASE}/api/brain/cards?${p.toString()}`);
+          if (!res.ok) continue;
+          const data = await res.json() as { cards?: BrainCard[] };
+          for (const c of data.cards ?? []) found.push(c);
+        }
+        const card = found.find((c) => c.id === id);
+        if (card && get().selectedBrainCardId === id) set({ selectedBrainCard: card });
+        // 확인(seen) 신고.
+        if (card && card.seen === false) void fetch(`${API_BASE}/api/brain/cards/${id}/seen`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ project }),
+        }).catch(() => {});
+      } catch { /* noop */ }
+    })();
+  },
+  promoteBrainCard: async (id) => {
+    const project = selectEffectiveProject(get());
     try {
-      await fetch(`${API_BASE}/api/custom-agents/restore`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project, sessionId, x: canvasX, y: canvasY }),
+      await fetch(`${API_BASE}/api/brain/cards/${id}/promote`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project }),
       });
-    } catch { /* noop — 실패 시 스냅샷 변화 없음 */ }
+    } catch { /* noop */ }
+    // v3.49 — 승격 후 선택 해제(피드 오버레이가 selectedBrainCardId→null 을 감지해 자체 재조회).
+    get().selectBrainCard(null);
+  },
+  setBrainCardPinned: async (id, pinned) => {
+    const project = selectEffectiveProject(get());
+    try {
+      await fetch(`${API_BASE}/api/brain/cards/${id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pinned, project }),
+      });
+    } catch { /* noop */ }
+    set((s) => ({
+      selectedBrainCard: s.selectedBrainCard?.id === id ? { ...s.selectedBrainCard, pinned } : s.selectedBrainCard,
+    }));
+  },
+  updateBrainCard: async (id, patch) => {
+    const project = selectEffectiveProject(get());
+    try {
+      await fetch(`${API_BASE}/api/brain/cards/${id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...patch, project }),
+      });
+    } catch { /* noop */ }
+    set((s) => ({
+      selectedBrainCard: s.selectedBrainCard?.id === id ? { ...s.selectedBrainCard, ...patch } : s.selectedBrainCard,
+    }));
+  },
+  deleteBrainCard: async (id) => {
+    const project = selectEffectiveProject(get());
+    const q = project ? `?project=${encodeURIComponent(project)}` : '';
+    try {
+      await fetch(`${API_BASE}/api/brain/cards/${id}${q}`, { method: 'DELETE' });
+    } catch { /* noop */ }
+    get().selectBrainCard(null);
+  },
+  markBrainCardSeen: (id) => {
+    const project = selectEffectiveProject(get());
+    void fetch(`${API_BASE}/api/brain/cards/${id}/seen`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project }),
+    }).catch(() => {});
+  },
+  saveBrainCardFromText: async (text, agentId, sourceSessionId) => {
+    const project = selectEffectiveProject(get());
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    const title = trimmed.length > 60 ? `${trimmed.slice(0, 60)}…` : trimmed;
+    try {
+      await fetch(`${API_BASE}/api/brain/cards`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'fact', scope: 'agent', agentId, title, body: trimmed, files: [],
+          sourceSessionId: sourceSessionId ?? undefined, project,
+        }),
+      });
+    } catch { /* noop */ }
+  },
+  // §5.10 — 인자는 세션 키(`custom-…`)·버블 id(`agent-…`) 둘 다 허용(서버가 해소). 실패(404 등)면
+  //   선택을 유지해 패널이 닫히지 않게 한다 — "눌렀는데 아무 일도 없다"를 조용히 성공처럼 보이지 않도록.
+  restoreTrashedAgent: async (sessionId) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/trash/restore`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId }),
+      });
+      if (!res.ok) { console.warn('[trash] restore failed', res.status, sessionId); return; }
+    } catch { return; }
+    set({ selectedNodeId: null, selectIntentId: null });
+  },
+  purgeTrashedAgent: async (sessionId) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/trash/agent/${encodeURIComponent(sessionId)}`, { method: 'DELETE' });
+      if (!res.ok) { console.warn('[trash] purge failed', res.status, sessionId); return; }
+    } catch { return; }
+    set({ selectedNodeId: null, selectIntentId: null });
+  },
+  refreshBrainFileMarks: async () => {
+    const project = selectEffectiveProject(get());
+    if (!project) { set({ brainFileMarks: [] }); return; }
+    try {
+      const res = await fetch(`${API_BASE}/api/brain/cards?scope=project&project=${encodeURIComponent(project)}`);
+      if (!res.ok) return;
+      const data = await res.json() as { cards?: BrainCard[] };
+      const marks = new Set<string>();
+      for (const c of data.cards ?? []) {
+        if (c.type === 'mistake' || c.type === 'lesson') {
+          for (const f of c.files ?? []) marks.add(f);
+        }
+      }
+      set({ brainFileMarks: [...marks] });
+    } catch { /* noop */ }
   },
   // §4 v2.63 — CMD(인터랙티브 터미널) 에이전트. 동일 엔드포인트에 executionMode 플래그만 추가.
   createCmdAgent: (canvasX, canvasY) => {
@@ -2007,6 +2320,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     return {
       bookmarkPanelOpen: false,
       summaryPanelOpen: false,
+      subagentPanelOpen: false,
       ideOverlays: {
         ...state.ideOverlays,
         [ownerProject]: {
@@ -2027,7 +2341,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     if (!proj || !state.ideOverlays[proj]) return {};
     const next = { ...state.ideOverlays };
     delete next[proj];
-    return { ideOverlays: next, bookmarkPanelOpen: false, summaryPanelOpen: false };
+    return { ideOverlays: next, bookmarkPanelOpen: false, summaryPanelOpen: false, subagentPanelOpen: false };
   }),
   setIDEDocked: (docked, dockWidth) => set((s) => {
     const proj = s.activeProject;
@@ -2127,12 +2441,16 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   bookmarkScrollTarget: null,
   clearBookmarkScrollTarget: () => set((s) => (s.bookmarkScrollTarget ? { bookmarkScrollTarget: null } : {})),
   bookmarkPanelOpen: false,
-  setBookmarkPanelOpen: (open) => set((s) => (s.bookmarkPanelOpen === open ? {} : { bookmarkPanelOpen: open, ...(open ? { summaryPanelOpen: false } : {}) })),
-  toggleBookmarkPanel: () => set((s) => ({ bookmarkPanelOpen: !s.bookmarkPanelOpen, ...(!s.bookmarkPanelOpen ? { summaryPanelOpen: false } : {}) })),
+  setBookmarkPanelOpen: (open) => set((s) => (s.bookmarkPanelOpen === open ? {} : { bookmarkPanelOpen: open, ...(open ? { summaryPanelOpen: false, subagentPanelOpen: false } : {}) })),
+  toggleBookmarkPanel: () => set((s) => ({ bookmarkPanelOpen: !s.bookmarkPanelOpen, ...(!s.bookmarkPanelOpen ? { summaryPanelOpen: false, subagentPanelOpen: false } : {}) })),
   // §5.5 #17-8 v2.95 — 세션 요약 보드. 북마크 패널과 상호 배타(하나 열면 다른 하나 닫힘).
   summaryPanelOpen: false,
-  setSummaryPanelOpen: (open) => set((s) => (s.summaryPanelOpen === open ? {} : { summaryPanelOpen: open, ...(open ? { bookmarkPanelOpen: false } : {}) })),
-  toggleSummaryPanel: () => set((s) => ({ summaryPanelOpen: !s.summaryPanelOpen, ...(!s.summaryPanelOpen ? { bookmarkPanelOpen: false } : {}) })),
+  setSummaryPanelOpen: (open) => set((s) => (s.summaryPanelOpen === open ? {} : { summaryPanelOpen: open, ...(open ? { bookmarkPanelOpen: false, subagentPanelOpen: false } : {}) })),
+  toggleSummaryPanel: () => set((s) => ({ summaryPanelOpen: !s.summaryPanelOpen, ...(!s.summaryPanelOpen ? { bookmarkPanelOpen: false, subagentPanelOpen: false } : {}) })),
+  // §5.5 #17-9 v3.51 — 실행 중 서브에이전트 패널. 위 둘과 상호 배타(덮개 하나만 뜨게).
+  subagentPanelOpen: false,
+  setSubagentPanelOpen: (open) => set((s) => (s.subagentPanelOpen === open ? {} : { subagentPanelOpen: open, ...(open ? { bookmarkPanelOpen: false, summaryPanelOpen: false } : {}) })),
+  toggleSubagentPanel: () => set((s) => ({ subagentPanelOpen: !s.subagentPanelOpen, ...(!s.subagentPanelOpen ? { bookmarkPanelOpen: false, summaryPanelOpen: false } : {}) })),
   sessionSummaries: loadJSON<Record<string, SessionSummaryEntry>>(SESSION_SUMMARIES_KEY, {}),
   setSessionSummary: (entry) => set((s) => {
     const next = { ...s.sessionSummaries, [entry.subId]: entry };
@@ -2189,6 +2507,14 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   }),
   applySkillUsageCounts: (counts) => set({ skillUsageCounts: counts ?? {} }),
   applyAutoAgentSummaries: (summaries) => set({ autoAgentSummaries: summaries ?? {} }),
+  // §5.5 #17-9 v3.51 — 서버가 매 스냅샷에 전량을 싣는다. 비면(=다 끝남) 빈 맵으로 교체 →
+  //   활동바 아이콘/배지가 사라지고, 열려 있던 패널은 컴포넌트 쪽 가드가 닫는다.
+  applyRunningSubagentTasks: (tasks) => set((s) => {
+    const next = tasks ?? {};
+    const prevKeys = Object.keys(s.runningSubagentTasks);
+    if (prevKeys.length === 0 && Object.keys(next).length === 0) return {};
+    return { runningSubagentTasks: next };
+  }),
   applyAgentReports: (reports) => set({ agentReports: reports ?? {} }),
   applyAgentQuestions: (questions) => set({ agentQuestions: questions ?? {} }),
   applyAgentReviews: (reviews) => set({ agentReviews: reviews ?? {} }),

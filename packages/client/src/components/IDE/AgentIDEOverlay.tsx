@@ -10,6 +10,7 @@ import { IDEMainArea } from './IDEMainArea.js';
 import { IDEStatusBar } from './IDEStatusBar.js';
 import { IDEBookmarkView } from './IDEBookmarkPanel.js';
 import { IDESessionSummaryView } from './IDESessionSummaryView.js';
+import { IDERunningSubagentsView } from './IDERunningSubagentsView.js';
 
 const EMPTY_SUBS: SubAgent[] = [];
 
@@ -44,6 +45,9 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   const setBookmarkPanelOpen = useGraphStore((s) => s.setBookmarkPanelOpen);
   const summaryPanelOpen = useGraphStore((s) => s.summaryPanelOpen);
   const setSummaryPanelOpen = useGraphStore((s) => s.setSummaryPanelOpen);
+  // §5.5 #17-9 v3.51 — 실행 중 서브에이전트 덮개 패널(북마크/세션요약과 상호 배타).
+  const subagentPanelOpen = useGraphStore((s) => s.subagentPanelOpen);
+  const setSubagentPanelOpen = useGraphStore((s) => s.setSubagentPanelOpen);
   const setIDEDocked = useGraphStore((s) => s.setIDEDocked);
   const storeDockedRight = useGraphStore((s) => selectIDEOverlay(s).dockedRight);
   const storeDockWidth = useGraphStore((s) => selectIDEOverlay(s).dockWidth);
@@ -91,7 +95,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   //   내비를 닫아 목적지 화면이 바로 보이게 한다.
   useEffect(() => {
     if (isNarrow) setMobileNavOpen(false);
-  }, [isNarrow, activeSessionId, bookmarkPanelOpen, summaryPanelOpen]);
+  }, [isNarrow, activeSessionId, bookmarkPanelOpen, summaryPanelOpen, subagentPanelOpen]);
   // §4 v3.25 — 폰에선 하단 상태바(IDEStatusBar)도 기본 숨김 — 타이틀바 우측 토글 버튼으로만 연다
   //   (h-6 한 줄이지만 폰에선 본문 세로 공간이 더 귀하다). 데스크톱은 isNarrow=false 라 항상 표시.
   const [mobileStatusOpen, setMobileStatusOpen] = useState(false);
@@ -105,14 +109,78 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     setMobileNavOpen(next);
   }, [mobileNavOpen]);
 
+  // §5.5 v3.39 — 타이틀바 에이전트 이름 인라인 편집. DetailPanel 의 클릭 리네임과 같은 경로
+  //   (PATCH /api/bubble/:id/label) 를 써서 캔버스 버블 이름이 함께 바뀐다. 진입은 이름 더블클릭
+  //   또는 **마우스 포인터가 타이틀바 위에 있을 때** F2 — 포인터 위치로 단축키 대상을 가른다
+  //   (포인터가 탭바 등 다른 곳이면 IDETabBar 의 세션 탭 리네임이 그대로 F2 를 가져간다).
+  const [editingName, setEditingName] = useState(false);
+  const [nameValue, setNameValue] = useState('');
+  const nameInputRef = useRef<HTMLInputElement>(null);
+  // 포인터가 타이틀바 위인지 — F2 라우팅 판정에만 쓴다(리렌더 불필요하므로 ref).
+  const titleBarHoveredRef = useRef(false);
+
+  const startNameEdit = useCallback(() => {
+    const label = agentId ? useGraphStore.getState().nodeMap[agentId]?.label : undefined;
+    if (label === undefined) return;
+    setNameValue(label);
+    setEditingName(true);
+  }, [agentId]);
+
+  useEffect(() => {
+    if (editingName) nameInputRef.current?.select();
+  }, [editingName]);
+
+  // 에이전트가 바뀌면(같은 IDE 창에서 다른 버블로 전환) 편집 중이던 입력은 버린다 — 옛 이름을
+  //   새 에이전트에 저장해버리는 사고 방지.
+  useEffect(() => { setEditingName(false); }, [agentId]);
+
+  // F2 — 포인터가 타이틀바 위면 에이전트(버블) 이름 편집. **capture 단계**로 잡아 stopPropagation
+  //   해야 window bubble 단계에 붙은 IDETabBar 의 F2(세션 탭 리네임)가 같은 키에 함께 반응하지 않는다.
+  //   포인터가 타이틀바 밖이면 여기선 아무것도 안 해 탭 리네임이 예전대로 동작한다.
+  useEffect(() => {
+    if (!agentId) return;
+    function onKeyDownCapture(e: KeyboardEvent): void {
+      if (e.key !== 'F2') return;
+      if (!titleBarHoveredRef.current) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (editingName) return;
+      startNameEdit();
+    }
+    window.addEventListener('keydown', onKeyDownCapture, true);
+    return () => window.removeEventListener('keydown', onKeyDownCapture, true);
+  }, [agentId, editingName, startNameEdit]);
+
+  const commitNameEdit = useCallback(() => {
+    setEditingName(false);
+    const trimmed = nameValue.trim();
+    if (!agentId || !trimmed) return;
+    const current = useGraphStore.getState().nodeMap[agentId]?.label;
+    if (trimmed === current) return;
+    fetch(`/api/bubble/${agentId}/label`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ label: trimmed }),
+    }).catch(() => {});
+  }, [agentId, nameValue]);
+
+  const handleNameKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    // Esc 가 window 리스너까지 올라가면 IDE 자체가 닫힌다 — 편집 취소로만 소비.
+    e.stopPropagation();
+    if (e.key === 'Enter') commitNameEdit();
+    else if (e.key === 'Escape') setEditingName(false);
+  }, [commitNameEdit]);
+
   // 타이틀바 더블클릭 — 최대화 버튼과 동일 효과 (버튼 자손에서 시작된 더블클릭은 제외)
   // fullWindow 에선 in-window maximize 미사용(창=IDE 1:1, OS 가 드래그 영역 더블클릭을 처리).
   const handleTitleBarDoubleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (fullWindow) return;
     const target = e.target as HTMLElement;
+    // 이름 더블클릭은 리네임 진입 — 최대화 토글과 겹치지 않게 여기서 가로챈다(fullWindow 에서도 동작).
+    if (target.closest('[data-ide-agent-name]')) { startNameEdit(); return; }
+    if (fullWindow) return;
     if (target.closest('button')) return;
     toggleMaximized();
-  }, [fullWindow, toggleMaximized]);
+  }, [fullWindow, toggleMaximized, startNameEdit]);
 
   // §5.5 #17-1 윈도우 모드 — 닫고 다시 열 때 modal 리셋 (휘발)
   const [mode, setMode] = useState<OverlayMode>('modal');
@@ -187,9 +255,9 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   const handleTitleBarMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     // fullWindow(오버레이 창)에선 in-window 이동 ❌ — 타이틀바 app-drag 가 OS 창째로 옮긴다.
     if (fullWindow) return;
-    // 버튼·인터랙티브 자손에서 시작된 mousedown 은 드래그 ❌
+    // 버튼·인터랙티브 자손(이름 리네임 포함)에서 시작된 mousedown 은 드래그 ❌
     const target = e.target as HTMLElement;
-    if (target.closest('button')) return;
+    if (target.closest('button') || target.closest('[data-ide-agent-name]')) return;
     if (e.button !== 0) return;
 
     const startX = e.clientX;
@@ -422,6 +490,15 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
       className={outerClass}
       onMouseDown={useBackdrop ? (e) => { pressOnBackdropRef.current = e.target === e.currentTarget; } : undefined}
       onClick={useBackdrop ? (e) => { if (e.target === e.currentTarget && pressOnBackdropRef.current) closeOverlay(); } : undefined}
+      // modal(백드롭 블러) 모드에선 뒤쪽 캔버스가 가려진 상태다 — 백드롭 우클릭이 rfContainer 까지
+      // 올라가 캔버스 생성 메뉴가 블러 뒤에서 열리던 것을 차단한다(보이지도 않는 메뉴가 뜨는 문제).
+      // floating/docked 는 백드롭이 없고(outer 가 pointer-events-none) 캔버스가 그대로 살아 있어야
+      // 하므로 여기서만 막는다.
+      onContextMenu={useBackdrop ? (e) => {
+        if (e.target !== e.currentTarget) return;
+        e.preventDefault();
+        e.stopPropagation();
+      } : undefined}
     >
       {/* §5.5 #17-1 — 드래그 중 우측 도킹 미리보기 (Windows Snap Assist 풍).
           파란 반투명 영역이 도킹될 자리를 미리 보여준다. pointer-events 없음. */}
@@ -489,6 +566,8 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
         <div
           onMouseDown={handleTitleBarMouseDown}
           onDoubleClick={handleTitleBarDoubleClick}
+          onMouseEnter={() => { titleBarHoveredRef.current = true; }}
+          onMouseLeave={() => { titleBarHoveredRef.current = false; }}
           className={`flex h-10 flex-shrink-0 items-center justify-between border-b border-gray-700 bg-[#1a2236] px-4 select-none ${
             fullWindow ? 'app-drag cursor-default' : 'cursor-grab active:cursor-grabbing'
           }`}
@@ -512,7 +591,37 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
             <svg className="h-4 w-4 text-blue-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
               <path d="M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6ZM12 2v4m0 12v4M2 12h4m12 0h4" />
             </svg>
-            <span className="text-sm font-semibold text-gray-200">{agent.label}</span>
+            {editingName ? (
+              <input
+                ref={nameInputRef}
+                data-ide-agent-name=""
+                value={nameValue}
+                onChange={(e) => setNameValue(e.target.value)}
+                onBlur={commitNameEdit}
+                onKeyDown={handleNameKeyDown}
+                onMouseDown={(e) => e.stopPropagation()}
+                aria-label={t('ide.overlay.renameInputLabel')}
+                className="app-nodrag w-40 min-w-0 rounded border border-blue-500 bg-gray-800 px-1.5 py-0.5 text-sm font-semibold text-gray-100 outline-none"
+              />
+            ) : (
+              <span
+                data-ide-agent-name=""
+                tabIndex={0}
+                role="button"
+                onKeyDown={(e) => {
+                  // 키보드 접근성 — 이름에 포커스를 두고 Enter. F2 는 포인터 위치로 갈리므로(위 capture
+                  //   리스너) 여기서 다루지 않는다.
+                  if (e.key !== 'Enter') return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  startNameEdit();
+                }}
+                title={t('ide.overlay.renameHint')}
+                className="app-nodrag cursor-pointer rounded text-sm font-semibold text-gray-200 outline-none hover:text-blue-400 focus-visible:ring-1 focus-visible:ring-blue-500"
+              >
+                {agent.label}
+              </span>
+            )}
             <span className={`rounded px-1.5 py-0.5 text-[9px] font-semibold ${
               isCmdAgent ? 'bg-teal-500/15 text-teal-300' : isCustom ? 'bg-blue-500/15 text-blue-400' : 'bg-gray-600/30 text-gray-500'
             }`}>
@@ -626,6 +735,11 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
           {summaryPanelOpen && (
             <div className="absolute inset-y-0 left-12 right-0 z-20 max-md:left-0">
               <IDESessionSummaryView agentId={agentId} onClose={() => setSummaryPanelOpen(false)} />
+            </div>
+          )}
+          {subagentPanelOpen && (
+            <div className="absolute inset-y-0 left-12 right-0 z-20 max-md:left-0">
+              <IDERunningSubagentsView agentId={agentId} onClose={() => setSubagentPanelOpen(false)} />
             </div>
           )}
         </div>

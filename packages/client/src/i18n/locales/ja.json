@@ -33,6 +33,11 @@
       "closeTab": "タブを閉じる",
       "unloadedProject": "未読み込み",
       "clickToLoad": "クリックしてプロジェクトを読み込む"
+    },
+    "usage": {
+      "tooltip": "現在のセッション: 5時間の上限の{{percent}}%を使用 — クリックで詳細",
+      "tooltipNoData": "使用量はまだ収集されていません — クリックしてオンに",
+      "noData": "--%"
     }
   },
   "panel": {
@@ -392,7 +397,8 @@
         "low": "最小限の思考。速いが網羅性は低め。",
         "medium": "バランスのとれた思考深度。",
         "high": "深い推論。遅いが網羅的。",
-        "xhigh": "超高度な推論（Opus 4.7+）。ほとんどのコーディング作業に推奨。"
+        "xhigh": "超高度な推論（Opus 4.7+）。ほとんどのコーディング作業に推奨。",
+        "unknown": "{{name}} — インストール済みCLIがサポートする思考深度レベル。"
       },
       "tools": {
         "label": "ツール",
@@ -657,6 +663,35 @@
       "delete": "削除",
       "deleteBundleTooltip": "バンドル全体を削除（プライマリ + 自動生成の兄弟エッジ）",
       "deleteEdgeTooltip": "エッジを削除"
+    },
+    "usage": {
+      "title": "Claude の使用量",
+      "close": "使用量を閉じる",
+      "session5h": "現在のセッション（5時間）",
+      "weekly7d": "週間上限（7日）",
+      "resetsIn": "{{span}}後にリセット",
+      "resetUnknown": "リセット時刻は不明",
+      "resettingNow": "リセット中",
+      "spanDh": "{{d}}日 {{h}}時間",
+      "spanHm": "{{h}}時間 {{m}}分",
+      "spanM": "{{m}}分",
+      "lastUpdated": "最終更新 {{time}}",
+      "neverUpdated": "使用量データはまだ届いていません",
+      "collectorTitle": "使用量コレクター",
+      "collectorOnHint": "Claude Code が上限を Vibisual に報告しています",
+      "collectorOffHint": "オンにすると Claude Code からプランの上限を読み取ります",
+      "collectorEnable": "オンにする",
+      "collectorDisable": "オフにする",
+      "collectorPassthrough": "既存のステータスラインはそのまま保持されます — Vibisual が代わりに実行し、同じ出力を表示します。",
+      "collectorForeign": "独自のステータスラインが既にあります。オンにしても消えません — Vibisual がラップして同じ出力を表示します。",
+      "collectorFailed": "使用量コレクターの設定に接続できませんでした。",
+      "collectorRestartHint": "値は対話型の Claude Code セッションがステータスラインを描画したときに届きます。実行中のセッションは再起動が必要です。",
+      "localTitle": "Vibisual のこのプロジェクト",
+      "localAgents": "エージェント",
+      "localInput": "入力トークン",
+      "localOutput": "出力トークン",
+      "localHint": "アクティブなプロジェクトタブのエージェントを集計しています。上のプラン上限はアカウント全体で、Vibisual 外の使用も含みます。",
+      "noValue": "--"
     }
   },
   "ide": {
@@ -667,7 +702,9 @@
       "restoreLabel": "元に戻す",
       "resizeDock": "ドックをリサイズ",
       "customLabel": "カスタム",
-      "hookLabel": "Hook"
+      "hookLabel": "Hook",
+      "renameHint": "ダブルクリックで名前を変更 (F2)",
+      "renameInputLabel": "エージェント名"
     },
     "tabbar": {
       "newSession": "新しいセッション",
@@ -701,7 +738,8 @@
       "ctxQuoteReply": "引用返信",
       "ctxSendAsPrompt": "新しいプロンプトとして送信",
       "ctxSelectAll": "すべて選択",
-      "ctxSelectionRequired": "先にテキストを選択してください"
+      "ctxSelectionRequired": "先にテキストを選択してください",
+      "ctxSaveToBrain": "ブレインに保存"
     },
     "askQuestion": {
       "title": "質問",
@@ -775,9 +813,59 @@
       "collapse": "折りたたむ",
       "copy": "コピー",
       "copied": "コピー済み"
+    },
+    "report": {
+      "learnedTitle": "学んだこと"
+    },
+    "memoryChip": {
+      "label": "{{n}}件のメモリーを参照"
     }
   },
   "bubbleMap": {
+    "capture": {
+      "pickerTitle": "画面／プログラムキャプチャ",
+      "pickerSubtitle": "バブル内にライブ表示する画面またはプログラムウィンドウを選択してください。",
+      "screens": "画面",
+      "windows": "プログラム・ウィンドウ",
+      "refresh": "更新",
+      "loading": "ソースを読み込み中…",
+      "empty": "キャプチャ可能なソースが見つかりません。",
+      "unavailable": "ここでは画面キャプチャを利用できません（パッケージ版アプリのみ対応）。",
+      "repick": "別のソースを選択",
+      "connecting": "接続中…",
+      "sourceLost": "ソースが見つかりません · 再選択してください",
+      "pickPrompt": "クリックしてソースを選択",
+      "controlToggle": "リモート操作（キャプチャ対象へのクリック・入力送信）",
+      "controlOn": "操作中",
+      "controlOff": "リモート操作",
+      "expandHint": "ダブルクリックでウィンドウとして開く",
+      "collapse": "サイズを元に戻す (Esc)",
+      "maximize": "最大化",
+      "restore": "元に戻す",
+      "windowClose": "閉じる (Esc)",
+      "source": "キャプチャソース",
+      "kindScreen": "画面",
+      "kindWindow": "ウィンドウ",
+      "expand": "ウィンドウで開く",
+      "playback": "再生",
+      "snapshotShort": "スナップショット",
+      "quality": "画質 / データ",
+      "view": "表示",
+      "stillSaverHint": "動きがないときはフレームレートを下げて CPU とデータを節約します",
+      "remoteControl": "リモート操作",
+      "readOnlyHint": "操作モードをロックします（表示のみ）",
+      "controlInWindow": "このウィンドウでのリモート操作 — 既定はオフ（マウスは送られません）",
+      "delete": "キャプチャバブルを削除",
+      "live": "ライブ",
+      "keysToggle": "特殊キー · 貼り付け",
+      "controlTargetMissing": "操作対象が見つかりません · ソースを選び直してください",
+      "controlEngineMissing": "操作エンジンを読み込めません · アプリを再起動してください",
+      "controlInjectFailed": "入力の送信に失敗しました",
+      "backgroundClick": "カーソルを動かさない（実験的）",
+      "backgroundClickHint": "クリックを対象ウィンドウへ直接送るので自分のマウスは動きません。ゲームや保護されたウィンドウは無視するため自動的に通常方式に戻ります。",
+      "backgroundClickBlocked": "このウィンドウはバックグラウンドクリックを無視します · カーソルを一瞬借りました",
+      "backgroundClickUnavailable": "バックグラウンドクリックを使えません · カーソルを一瞬借りました"
+    },
     "taskEdge": {
       "iconHint": "クリック: 詳細 · ダブルクリック: 編集",
       "pulse": {
@@ -907,6 +995,7 @@
   "tabMenu": {
     "close": "閉じる",
     "closeOthers": "他を閉じる",
+    "closeLeft": "左側を閉じる",
     "closeRight": "右側を閉じる",
     "closeAll": "すべて閉じる",
     "pin": "固定",
@@ -951,9 +1040,8 @@
       "createAutoAgentHint": "メタエージェント — プロンプトからカスタムエージェントチームを自動スポーン",
       "createWorktree": "Worktreeを作成",
       "createWorktreeHint": "最新のmasterから新しいワークスペースを作成",
-      "restoreCustomAgent": "前のカスタムエージェントを復元",
-      "restoreLoading": "読み込み中…",
-      "restoreEmpty": "復元できる項目がありません"
+      "createCapture": "画面／プログラムキャプチャバブル",
+      "createCaptureHint": "画面またはプログラムウィンドウをバブル内にライブ表示"
     },
     "bounds": {
       "label": "バブル境界",
@@ -1000,6 +1088,77 @@
         "goBack": "ダブルクリックで戻る",
         "expand": "ダブルクリックで展開"
       }
+    }
+  },
+  "brain": {
+    "bubbleLabel": "ブレイン",
+    "trashBubbleLabel": "ゴミ箱",
+    "cardCountShort": "{{n}}件のカード",
+    "trashCountShort": "{{n}}",
+    "unseenBadge": "未読{{n}}件",
+    "type": {
+      "decision": "決定",
+      "mistake": "失敗",
+      "lesson": "教訓",
+      "rule": "ルール",
+      "fact": "事実"
+    },
+    "scopeProject": "プロジェクトブレイン",
+    "scopeAgent": "エージェントメモリー",
+    "statusGhost": "要確認",
+    "supersededNote": "以前の内容",
+    "linkedFiles": "関連ファイル",
+    "refCount": "参照回数",
+    "lastReferenced": "最終参照",
+    "createdAt": "作成日時",
+    "sourceSession": "元セッション",
+    "promote": "プロジェクトブレインへ昇格",
+    "pin": "固定",
+    "unpin": "固定解除",
+    "edit": "編集",
+    "save": "保存",
+    "cancel": "キャンセル",
+    "delete": "削除",
+    "deleteConfirm": "削除しますか?",
+    "deleteYes": "削除",
+    "loading": "読み込み中…",
+    "cardDetailTitle": "メモリーカード",
+    "summaryCards": "メモリーカード",
+    "summaryUnseen": "未読",
+    "summaryRecent": "最近保存",
+    "openInterior": "内部を開く",
+    "trashedAt": "破棄日時",
+    "trashedMemories": "エージェントメモリー",
+    "cardCountUnit": "枚",
+    "restore": "復元",
+    "purge": "完全に削除",
+    "purgeConfirm": "エージェントメモリーカード{{n}}件を含め、すべて削除されます。",
+    "purgeYes": "完全に削除",
+    "fileMark": "このファイルには失敗/教訓のメモリーがあります",
+    "cardCountUnitSuffix": "",
+    "feed": {
+      "title": "プロジェクトブレイン",
+      "agentTitle": "このエージェントのメモリー",
+      "searchPlaceholder": "メモリーを検索…",
+      "sectionRelated": "現在の作業に関連",
+      "sectionRecent": "最近学んだこと",
+      "sectionFrequent": "よく使われる",
+      "sectionResurface": "見直す価値あり",
+      "sectionAgentOwn": "このエージェントが学んだこと",
+      "sectionProjectRef": "プロジェクト共有（参照）",
+      "helpful": "役に立った",
+      "refShort": "参照",
+      "helpfulShort": "役立つ",
+      "scopeTagProject": "プロジェクト",
+      "scopeTagAgent": "このエージェント",
+      "empty": "表示するメモリーはありません。",
+      "loading": "読み込み中…",
+      "total": "{{n}}件のカード",
+      "agoNow": "たった今",
+      "agoMin": "{{n}}分前",
+      "agoHour": "{{n}}時間前",
+      "agoDay": "{{n}}日前",
+      "agoMonth": "{{n}}ヶ月前"
     }
   }
 }

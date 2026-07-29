@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { BubbleData, BashEntry, ServerEntry, AgentEvent, FileEdit, SubAgent, SessionTokenData, TurnTokenUsage, AgentConfig } from '@vibisual/shared';
 import { BUBBLE_COLORS, PANEL_DEFAULT_WIDTH, PANEL_MIN_WIDTH, PANEL_MAX_WIDTH, MAX_FILE_EDITS } from '@vibisual/shared';
-import { useGraphStore, selectIDEOverlay } from '../../stores/graphStore.js';
+import { useGraphStore, selectIDEOverlay, selectActiveBrainSummary } from '../../stores/graphStore.js';
 import { useIsNarrowViewport } from '../../hooks/useIsMobile.js';
 import { ScrollFade } from '../ScrollFade.js';
 import { BashHistoryList } from './BashHistoryList.js';
@@ -19,6 +19,9 @@ import { FolderFileTree } from './FolderFileTree.js';
 import { RootFileList } from './RootFileList.js';
 import { TaskEdgeDetail } from './TaskEdgeDetail.js';
 import { CommentBoxDetail } from './CommentBoxDetail.js';
+import { CaptureBubbleDetail } from './CaptureBubbleDetail.js';
+import { BrainCardDetail } from './BrainCardDetail.js';
+import { CAPTURE_BUBBLE_DEFAULTS } from '@vibisual/shared';
 import { AutoAgentPanel } from './AutoAgentPanel.js';
 import { GitStatusCard } from './GitStatusCard.js';
 import { AgentFeedbackSection } from './AgentFeedbackSection.js';
@@ -124,6 +127,9 @@ export function DetailPanel({
   // 세션 토큰 팝업
   // 슬라이드 애니메이션 끝나면 클래스 제거 (transform 잔류 → fixed 팝업 깨짐 방지)
   const [animating, setAnimating] = useState(true);
+  // §5.10 — 휴지통 영구 삭제 확인 팝업.
+  const [purgeConfirm, setPurgeConfirm] = useState(false);
+  useEffect(() => { setPurgeConfirm(false); }, [selectedNodeId]);
 
   // 좌/우 위치 전환 시 슬라이드 애니메이션 재실행
   useEffect(() => {
@@ -329,6 +335,16 @@ export function DetailPanel({
   const taskEdges = useGraphStore((s) => s.taskEdges);
   const selectedCommentBoxId = useGraphStore((s) => s.selectedCommentBoxId);
   const commentBoxes = useGraphStore((s) => s.commentBoxes);
+  const selectedCaptureBubbleId = useGraphStore((s) => s.selectedCaptureBubbleId);
+  const captureBubbles = useGraphStore((s) => s.captureBubbles);
+  // §5.10 — 기억 카드/두뇌/휴지통 선택.
+  const selectedBrainCardId = useGraphStore((s) => s.selectedBrainCardId);
+  const selectedBrainCard = useGraphStore((s) => s.selectedBrainCard);
+  const brainSummary = useGraphStore(selectActiveBrainSummary);
+  const openBrainFeed = useGraphStore((s) => s.openBrainFeed);
+  const restoreTrashedAgent = useGraphStore((s) => s.restoreTrashedAgent);
+  const purgeTrashedAgent = useGraphStore((s) => s.purgeTrashedAgent);
+  const agentBrainCardCount = useGraphStore((s) => selectedNodeId ? (selectActiveBrainSummary(s)?.agentCardCounts[selectedNodeId] ?? 0) : 0);
 
   // v1.37 — STRICT outbound 엣지 타겟 툴 합집합(현재 노드가 소스인 경우). 서버 computeStrictStripSet 과 동일 규칙.
   //         툴 구성은 사용자 책임 — 특수 예외 없음.
@@ -387,6 +403,49 @@ export function DetailPanel({
         <ScrollFade fill className="flex-1">
           <div className="p-4">
             <CommentBoxDetail box={box} />
+          </div>
+        </ScrollFade>
+      </aside>
+    );
+  }
+
+  // §5.9 v3.36 — 캡처 버블 선택 시 전용 패널 렌더 (다른 선택과 배타). 헤더에 몰려 있던 설정을
+  // 다른 버블처럼 "선택 → 우측 디테일창"으로 옮긴다.
+  if (selectedCaptureBubbleId) {
+    const bubble = captureBubbles.find((b) => b.id === selectedCaptureBubbleId);
+    if (!bubble) return null;
+    return (
+      <aside
+        className={panelWrapperClass}
+        style={panelWrapperStyle}
+        onAnimationEnd={() => setAnimating(false)}
+      >
+        <div
+          className={`absolute ${panelOnLeft ? 'right-0' : 'left-0'} top-0 bottom-0 z-20 w-1.5 cursor-col-resize transition-colors hover:bg-blue-500/40 ${isNarrow ? 'hidden' : ''}`}
+          onMouseDown={handleResizeStart}
+        />
+        <div className="flex items-center justify-between border-b border-gray-800 px-4 py-3">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <div
+              className="h-3 w-3 flex-shrink-0 rounded-sm"
+              style={{ backgroundColor: CAPTURE_BUBBLE_DEFAULTS.ACCENT_COLOR, boxShadow: `0 0 6px ${CAPTURE_BUBBLE_DEFAULTS.ACCENT_COLOR}` }}
+            />
+            <span className="truncate text-sm font-bold text-gray-100" title={bubble.sourceName}>
+              {bubble.sourceName}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded p-1 text-gray-400 hover:bg-gray-800 hover:text-white"
+            aria-label={t('panel.detailPanel.close')}
+          >
+            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+          </button>
+        </div>
+        <ScrollFade fill className="flex-1">
+          <div className="p-4">
+            <CaptureBubbleDetail bubble={bubble} />
           </div>
         </ScrollFade>
       </aside>
@@ -465,6 +524,134 @@ export function DetailPanel({
         </div>
         <ScrollFade fill className="flex-1">
           <ContiHistoryDetail agentId={agentId} />
+        </ScrollFade>
+      </aside>
+    );
+  }
+
+  // §5.10 — 기억 카드 선택 시 전용 패널(다른 선택과 배타).
+  if (selectedBrainCardId) {
+    return (
+      <aside className={panelWrapperClass} style={panelWrapperStyle} onAnimationEnd={() => setAnimating(false)}>
+        <div className={`absolute ${panelOnLeft ? 'right-0' : 'left-0'} top-0 bottom-0 z-20 w-1.5 cursor-col-resize transition-colors hover:bg-blue-500/40 ${isNarrow ? 'hidden' : ''}`} onMouseDown={handleResizeStart} />
+        <div className="flex items-center justify-between border-b border-gray-800 px-4 py-3">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <div className="h-3 w-3 flex-shrink-0 rounded-full" style={{ backgroundColor: '#D946EF' }} />
+            <span className="truncate text-sm font-bold text-gray-100">{t('brain.cardDetailTitle', { defaultValue: '기억 카드' })}</span>
+          </div>
+          <button type="button" onClick={onClose} className="rounded p-1 text-gray-400 hover:bg-gray-800 hover:text-white" aria-label={t('panel.detailPanel.close')}>
+            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+          </button>
+        </div>
+        <ScrollFade fill className="flex-1">
+          {selectedBrainCard ? (
+            <BrainCardDetail card={selectedBrainCard} />
+          ) : (
+            <div className="p-4 text-sm text-gray-500">{t('brain.loading', { defaultValue: '불러오는 중…' })}</div>
+          )}
+        </ScrollFade>
+      </aside>
+    );
+  }
+
+  // §5.10 — Brain 상주 버블 선택 시 두뇌 요약 패널.
+  if (selectedNodeId === '__brain__') {
+    return (
+      <aside className={panelWrapperClass} style={panelWrapperStyle} onAnimationEnd={() => setAnimating(false)}>
+        <div className={`absolute ${panelOnLeft ? 'right-0' : 'left-0'} top-0 bottom-0 z-20 w-1.5 cursor-col-resize transition-colors hover:bg-blue-500/40 ${isNarrow ? 'hidden' : ''}`} onMouseDown={handleResizeStart} />
+        <div className="flex items-center justify-between border-b border-gray-800 px-4 py-3">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <div className="h-3 w-3 flex-shrink-0 rounded-full" style={{ backgroundColor: '#EC4899' }} />
+            <span className="truncate text-sm font-bold text-gray-100">{t('brain.bubbleLabel', { defaultValue: '두뇌' })}</span>
+          </div>
+          <button type="button" onClick={onClose} className="rounded p-1 text-gray-400 hover:bg-gray-800 hover:text-white" aria-label={t('panel.detailPanel.close')}>
+            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+          </button>
+        </div>
+        <ScrollFade fill className="flex-1">
+          <div className="space-y-4 p-4">
+            <div className="grid grid-cols-2 gap-2">
+              <div className="rounded border border-gray-800 bg-gray-800/40 p-3">
+                <div className="text-2xl font-bold text-gray-100">{brainSummary?.cardCount ?? 0}</div>
+                <div className="text-xs text-gray-500">{t('brain.summaryCards', { defaultValue: '기억 카드' })}</div>
+              </div>
+              <div className="rounded border border-gray-800 bg-gray-800/40 p-3">
+                <div className="text-2xl font-bold text-pink-400">{brainSummary?.unseenCount ?? 0}</div>
+                <div className="text-xs text-gray-500">{t('brain.summaryUnseen', { defaultValue: '미확인' })}</div>
+              </div>
+            </div>
+            {brainSummary?.recentCardTitle && (
+              <div className="rounded border border-gray-800 bg-gray-800/40 p-3">
+                <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">{t('brain.summaryRecent', { defaultValue: '최근 저장' })}</div>
+                <div className="truncate text-sm text-gray-200" title={brainSummary.recentCardTitle}>{brainSummary.recentCardTitle}</div>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => openBrainFeed({ scope: 'project' })}
+              className="w-full rounded bg-pink-600 px-3 py-2 text-sm font-semibold text-white hover:bg-pink-500"
+            >
+              {t('brain.openInterior', { defaultValue: '내부 열기' })}
+            </button>
+          </div>
+        </ScrollFade>
+      </aside>
+    );
+  }
+
+  // §5.10 — 휴지통 내부의 버려진 커스텀 에이전트 선택 시 전용 패널.
+  if (node?.trashed) {
+    return (
+      <aside className={panelWrapperClass} style={panelWrapperStyle} onAnimationEnd={() => setAnimating(false)}>
+        <div className={`absolute ${panelOnLeft ? 'right-0' : 'left-0'} top-0 bottom-0 z-20 w-1.5 cursor-col-resize transition-colors hover:bg-blue-500/40 ${isNarrow ? 'hidden' : ''}`} onMouseDown={handleResizeStart} />
+        <div className="flex items-center justify-between border-b border-gray-800 px-4 py-3">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <div className="h-3 w-3 flex-shrink-0 rounded-full" style={{ backgroundColor: '#57534E' }} />
+            <span className="truncate text-sm font-bold text-gray-100" title={node.label}>{node.label}</span>
+          </div>
+          <button type="button" onClick={onClose} className="rounded p-1 text-gray-400 hover:bg-gray-800 hover:text-white" aria-label={t('panel.detailPanel.close')}>
+            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+          </button>
+        </div>
+        <ScrollFade fill className="flex-1">
+          <div className="space-y-4 p-4">
+            <div className="rounded border border-gray-800 bg-gray-800/40 p-3 text-xs text-gray-400">
+              <div>{t('brain.trashedAt', { defaultValue: '휴지통 이동' })}: {node.trashedAt ? new Date(node.trashedAt).toLocaleString('en-US', { hour12: false }) : '—'}</div>
+              <div>{t('brain.trashedMemories', { defaultValue: '개별 기억' })}: {agentBrainCardCount}{t('brain.cardCountUnit', { defaultValue: '장' })}</div>
+            </div>
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => void restoreTrashedAgent(node.id)}
+                className="w-full rounded bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-500"
+              >
+                {t('brain.restore', { defaultValue: '복구' })}
+              </button>
+              {purgeConfirm ? (
+                <div className="rounded border border-red-800 bg-red-950/40 p-3 text-sm">
+                  <div className="mb-2 text-red-300">
+                    {t('brain.purgeConfirm', { defaultValue: '개별 기억 {{n}}장 포함 전부 삭제됩니다.', n: agentBrainCardCount })}
+                  </div>
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => void purgeTrashedAgent(node.id)} className="rounded bg-red-600 px-3 py-1 text-xs font-semibold text-white hover:bg-red-500">
+                      {t('brain.purgeYes', { defaultValue: '영구 삭제' })}
+                    </button>
+                    <button type="button" onClick={() => setPurgeConfirm(false)} className="rounded bg-gray-700 px-3 py-1 text-xs text-gray-200 hover:bg-gray-600">
+                      {t('brain.cancel', { defaultValue: '취소' })}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setPurgeConfirm(true)}
+                  className="w-full rounded bg-red-900/40 px-3 py-2 text-sm text-red-300 hover:bg-red-900/60"
+                >
+                  {t('brain.purge', { defaultValue: '영구 삭제' })}
+                </button>
+              )}
+            </div>
+          </div>
         </ScrollFade>
       </aside>
     );

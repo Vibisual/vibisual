@@ -9,6 +9,7 @@ import '@xterm/xterm/css/xterm.css';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { TerminalCardSniffer, type TerminalCard } from './terminalCardSniffer.js';
 import { IDETerminalCardRail } from './IDETerminalCardRail.js';
+import { getTerminalTransport } from '../../transport/terminalTransport.js';
 
 // §4 v2.63 — 임베디드 인터랙티브 터미널 뷰. (편의성 보강 v2.65)
 //
@@ -16,8 +17,9 @@ import { IDETerminalCardRail } from './IDETerminalCardRail.js';
 // 기존 채팅 스트림 대신 이 xterm.js 터미널이 렌더된다(IDEMainArea 분기). 더블클릭 → 셸+claude
 // prefill PTY(desktop main terminalManager)에 붙어 사용자가 직접 모는 인터랙티브 세션.
 //
-// 터미널 I/O 는 graphStore/WS 가 아니라 shell-state 전용 IPC(`window.api.terminal.*`)로 흐른다.
-// dev/web 모드(window.api 부재)에선 안내만 표시 — 임베디드 PTY 는 패키지/preview Electron 한정.
+// 터미널 I/O 는 graphStore/WS 가 아니라 transport(§4 v3.33)로 흐른다: 데스크톱 = shell-state 전용
+// IPC(`window.api.terminal.*`), 모바일 웹 접속(§4 v3.16) = `/ws` 브리지(LAN 한정, 외부 접속은 차단).
+// 둘 다 없는 환경에서만 안내 폴백을 표시한다.
 //
 // v2.65 편의성: ① 프로젝트 톤 완전 ANSI 팔레트 테마, ② 복사/붙여넣기(우클릭 메뉴 + Ctrl+C/V·
 // Ctrl+Shift+C/V), ③ Ctrl+F 인앱 검색, ④ 출력 속 URL 클릭, ⑤ Ctrl +/-/0 폰트 확대·축소(localStorage 보존).
@@ -91,6 +93,9 @@ export function IDETerminalView({ agentId, sessionId }: IDETerminalViewProps): R
   // 세션(탭)마다 독립 termId. IDE 를 닫았다 열거나 탭을 다시 그려도 같은 termId 로 reattach → 보존.
   const termId = useMemo(() => `term:${agentId}:${sessionId ?? 'main'}`, [agentId, sessionId]);
 
+  // §4 v3.33 — 데스크톱(window.api.terminal IPC) / 모바일(/ws 브리지) 공통 transport. 모듈 참조라 stable.
+  const transport = useMemo(() => getTerminalTransport(), []);
+
   // xterm 인스턴스/애드온 — effect 밖(메뉴·검색바·폰트 버튼 핸들러)에서 조작하려고 ref 로 보관.
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -106,7 +111,7 @@ export function IDETerminalView({ agentId, sessionId }: IDETerminalViewProps): R
   const searchInputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  const hasTerminalApi = typeof window !== 'undefined' && !!window.api?.terminal;
+  const hasTerminalApi = !!transport;
 
   // ── 편의 동작들 (메뉴 버튼 + 키보드 핸들러 공용) ──────────────────────────
   const copySelection = useCallback(() => {
@@ -117,12 +122,11 @@ export function IDETerminalView({ agentId, sessionId }: IDETerminalViewProps): R
   }, []);
 
   const paste = useCallback(() => {
-    const api = window.api?.terminal;
-    if (!api) return;
+    if (!transport) return;
     void navigator.clipboard?.readText().then((text) => {
-      if (text) void api.write(termId, text);
+      if (text) void transport.write(termId, text);
     }).catch(() => {});
-  }, [termId]);
+  }, [transport, termId]);
 
   const selectAll = useCallback(() => {
     termRef.current?.selectAll();
@@ -130,11 +134,10 @@ export function IDETerminalView({ agentId, sessionId }: IDETerminalViewProps): R
 
   // §4 v2.89 — CMD 질문 카드 "즉시 전송": 프롬프트를 터미널 PTY 에 prefill(newline ❌ — 사람이 Enter, ToS 인루프).
   const sendPromptToTerminal = useCallback((prompt: string) => {
-    const api = window.api?.terminal;
-    if (!api) return;
-    void api.write(termId, prompt);
+    if (!transport) return;
+    void transport.write(termId, prompt);
     termRef.current?.focus();
-  }, [termId]);
+  }, [transport, termId]);
 
   const clearCards = useCallback(() => setCards([]), []);
 
@@ -155,9 +158,9 @@ export function IDETerminalView({ agentId, sessionId }: IDETerminalViewProps): R
     if (!hostMeasurable(hostRef.current)) return;
     try {
       fitRef.current?.fit();
-      window.api?.terminal?.resize(termId, term.cols, term.rows);
+      void transport?.resize(termId, term.cols, term.rows);
     } catch { /* host not measured */ }
-  }, [termId]);
+  }, [transport, termId]);
 
   const openSearch = useCallback(() => {
     setSearchOpen(true);
@@ -189,11 +192,10 @@ export function IDETerminalView({ agentId, sessionId }: IDETerminalViewProps): R
 
   // ── xterm 생성/재부착 ────────────────────────────────────────────────────
   useEffect(() => {
-    const api = typeof window !== 'undefined' ? window.api : undefined;
     const host = hostRef.current;
     if (!host) return;
-    // dev/web 모드 — PTY 없음. 안내는 JSX 폴백이 처리하므로 여기선 no-op.
-    if (!api?.terminal || !config) return;
+    // transport 부재(터미널 불가 환경) — 안내는 JSX 폴백이 처리하므로 여기선 no-op.
+    if (!transport || !config) return;
 
     // 새 터미널/세션 부착 시 카드 패널을 비운다. reattach 면 아래 replay 가 buffer 의 마커로 재구성.
     setCards([]);
@@ -278,13 +280,13 @@ export function IDETerminalView({ agentId, sessionId }: IDETerminalViewProps): R
     });
 
     // main → renderer 출력: 이 termId 만 골라, 변환된 표시 문자열을 write(원본 data 직접 write ❌).
-    const offData = api.terminal.onData(({ termId: id, data }) => {
+    const offData = transport.onData(({ termId: id, data }) => {
       if (id === termId && !disposed) {
         const outStr = sniffer.feed(data);
         if (outStr) term.write(outStr);
       }
     });
-    const offExit = api.terminal.onExit(({ termId: id, exitCode }) => {
+    const offExit = transport.onExit(({ termId: id, exitCode }) => {
       if (id === termId && !disposed) {
         term.write(`\r\n\x1b[90m[${t('ide.terminal.exited', { code: exitCode })}]\x1b[0m\r\n`);
       }
@@ -292,14 +294,16 @@ export function IDETerminalView({ agentId, sessionId }: IDETerminalViewProps): R
 
     // renderer → main 입력.
     const onDataDisposable = term.onData((data) => {
-      void api.terminal!.write(termId, data);
+      void transport.write(termId, data);
     });
 
-    // 셸+claude prefill PTY 생성.
-    void api.terminal.create({ termId, cwd: cwd ?? '', config, cols, rows }).then((r) => {
-      if (!r.ok) {
-        term.write(`\r\n\x1b[31m[${t('ide.terminal.createFailed', { error: r.error ?? '' })}]\x1b[0m\r\n`);
-      }
+    // 셸+claude prefill PTY 생성. §4 v3.33 — 외부(인터넷) 접속은 서버가 셸을 막고 external-blocked 회신.
+    void transport.create({ termId, cwd: cwd ?? '', config, cols, rows }).then((r) => {
+      if (r.ok || disposed) return;
+      const msg = r.error === 'external-blocked'
+        ? t('ide.terminal.unavailableExternal')
+        : t('ide.terminal.createFailed', { error: r.error ?? '' });
+      term.write(`\r\n\x1b[31m[${msg}]\x1b[0m\r\n`);
     });
 
     // 리사이즈 — xterm fit 과 PTY resize 를 **항상 함께, 리사이즈가 멎은 뒤 1회만**(트레일링 디바운스)
@@ -323,7 +327,7 @@ export function IDETerminalView({ agentId, sessionId }: IDETerminalViewProps): R
           if (term.cols !== lastCols || term.rows !== lastRows) {
             lastCols = term.cols;
             lastRows = term.rows;
-            void api.terminal!.resize(termId, term.cols, term.rows);
+            void transport.resize(termId, term.cols, term.rows);
           }
         } catch { /* disposed */ }
       }, 150);

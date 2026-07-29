@@ -62,9 +62,20 @@ export function atomicWriteFileSync(filePath: string, data: string): void {
  * 가장 오래된 세대(.bakN)는 폐기, 현재 파일을 .bak1 로 복사(원자 쓰기가 곧 덮어쓸 것이므로
  * 복사 후 보존). 논리적 실수(빈/급감 저장)·사용자 실수의 수동 복구 안전망(§3.2.1-2).
  */
+/**
+ * §9 v3.45 — 파일당 최소 회전 간격. 고빈도 저장(전수조사 hook 폭주) 시 저장마다 3세대
+ * rename + 전체 복사가 돌면 직전 이벤트와 사실상 동일한 판본 3벌만 남고 I/O 만 태운다.
+ * 간격을 두면 .bak1 이 "≤30초 전 판본"이 되어 손상 복구용 시간 다양성은 오히려 향상.
+ */
+const ROTATE_MIN_INTERVAL_MS = 30_000;
+const lastRotatedAt = new Map<string, number>();
+
 export function rotateBackups(filePath: string, generations: number = CHECKPOINT_BACKUP_GENERATIONS): void {
   if (generations < 1) return;
   if (!fs.existsSync(filePath)) return;
+  const now = Date.now();
+  if (now - (lastRotatedAt.get(filePath) ?? 0) < ROTATE_MIN_INTERVAL_MS) return;
+  lastRotatedAt.set(filePath, now);
   try {
     // 가장 오래된 것부터 한 칸씩 밀어낸다: .bak(N-1) → .bakN, ..., .bak1 → .bak2
     for (let i = generations - 1; i >= 1; i -= 1) {
@@ -115,6 +126,22 @@ export function projectDirForInfo(info: ProjectInfo): string {
   return path.join(info.path, SAVE_SUBDIR);
 }
 
+/** §3.2.1-4 (v3.63) — 그 경로에 **Vibisual 저장 데이터가 하나라도 있는가**.
+ *  `<projectPath>/.vibisual/save/` 에 파일이 1개 이상이면 true(project.json 이 반파돼도
+ *  checkpoint/identity/`.bak*` 중 하나만 남아 있으면 복구 대상이므로 파일명은 따지지 않는다).
+ *  부팅 청소가 "메타 손상 → 재시도 보존" 과 "애초에 프로젝트가 아니었음 → 제거" 를 가르는 기준.
+ *  접근 실패(권한 등)는 **보수적으로 true** — 판단이 서지 않으면 지우지 않는다. */
+export function hasProjectSaveData(projectPath: string): boolean {
+  if (!projectPath) return false;
+  const saveDir = path.join(projectPath, SAVE_SUBDIR);
+  try {
+    if (!fs.existsSync(saveDir)) return false;
+    return fs.readdirSync(saveDir).length > 0;
+  } catch {
+    return true;
+  }
+}
+
 // ─── 레거시 SavedState (v1, 마이그레이션용) ───
 
 export interface LegacySavedState {
@@ -139,8 +166,23 @@ export interface LegacySavedState {
 
 // ─── 프로젝트 메타 ───
 
+/** §9 v3.45 — project 내용이 같으면 lastSavedAt 만을 위해 이 간격보다 자주 재기록하지 않는다.
+ *  lastSavedAt 은 마이그레이션의 "더 새로운 쪽 보존" 비교용이라 초 단위 정밀도가 필요 없다. */
+const META_REWRITE_MIN_INTERVAL_MS = 30_000;
+const lastMetaWrite = new Map<string, { projectJson: string; writtenAt: number }>();
+
 function writeMeta(dir: string, project: ProjectInfo): void {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+  const mp = path.join(dir, 'project.json');
+
+  // §9 v3.45 — 고빈도 저장 경로에서 매번 read+parse+fsync 쓰기가 돌지 않도록,
+  // project 내용 불변 + 최근 기록이면 스킵(내용이 바뀌면 즉시 기록).
+  const projectJson = JSON.stringify(project);
+  const recent = lastMetaWrite.get(mp);
+  if (recent && recent.projectJson === projectJson && Date.now() - recent.writtenAt < META_REWRITE_MIN_INTERVAL_MS) {
+    return;
+  }
 
   const meta: ProjectMeta = {
     project,
@@ -149,7 +191,6 @@ function writeMeta(dir: string, project: ProjectInfo): void {
   };
 
   // 기존 메타가 있으면 createdAt 유지
-  const mp = path.join(dir, 'project.json');
   if (fs.existsSync(mp)) {
     try {
       const existing = JSON.parse(fs.readFileSync(mp, 'utf8')) as ProjectMeta;
@@ -160,6 +201,7 @@ function writeMeta(dir: string, project: ProjectInfo): void {
   // §3.2.1-1 (v3.29): project.json 도 원자적 쓰기. 과거엔 plain writeFileSync 라 크래시가
   // 쓰기 도중이면 파일이 truncate → discoverProjectMetas 파싱 실패 → 부팅 시 프로젝트 소실로 이어졌다.
   atomicWriteFileSync(mp, JSON.stringify(meta, null, 2));
+  lastMetaWrite.set(mp, { projectJson, writtenAt: Date.now() });
 }
 
 // ─── 체크포인트 ───
@@ -167,7 +209,7 @@ function writeMeta(dir: string, project: ProjectInfo): void {
 /**
  * §3.2.2 v2.62 — 체크포인트에서 정체성(identity) 데이터를 파생한다.
  * 잃으면 안 되는 것만 추린다: customCreated 에이전트 정체성 + agentConfigs + customLabels
- * + sessionCwds + taskEdges + commentBoxes + contis. 휘발성 런타임 상태는 제외.
+ * + sessionCwds + taskEdges + commentBoxes + captureBubbles + contis. 휘발성 런타임 상태는 제외.
  */
 function deriveIdentity(cp: ProjectCheckpoint): ProjectIdentity {
   const customAgents: Record<string, BubbleData> = {};
@@ -185,6 +227,7 @@ function deriveIdentity(cp: ProjectCheckpoint): ProjectIdentity {
     sessionCwds: cp.graph.refs.sessionCwds ?? {},
     taskEdges: cp.taskEdges ?? {},
     commentBoxes: cp.commentBoxes ?? [],
+    captureBubbles: cp.captureBubbles ?? [],
     contis: cp.contis ?? {},
     deletedSessionIds: cp.deletedCustomAgentIds ?? [],
   };
@@ -229,8 +272,12 @@ export function loadIdentityFromDir(saveDir: string): ProjectIdentity | null {
  * 이로써 "정상 삭제는 그대로 반영(유령 부활 ❌), 복원 실패는 디스크 보존(원본 파괴 ❌)"이
  * 깔끔히 갈린다. nextIdentity.deletedSessionIds 는 메모리 묘비의 직렬화본. true=저장 진행.
  */
+/** §9 v3.45 — 세션 내 마지막 기록 identity 캐시(checkpoint 합계 캐시와 동일 취지).
+ *  guarded-skip(저장 보류) 시엔 갱신하지 않으므로 디스크 판본이 비교 기준으로 유지된다. */
+const lastWrittenIdentityByDir = new Map<string, ProjectIdentity>();
+
 function passesShrinkGuard(saveDir: string, nextIdentity: ProjectIdentity): boolean {
-  const prev = loadIdentityFromDir(saveDir);
+  const prev = lastWrittenIdentityByDir.get(saveDir) ?? loadIdentityFromDir(saveDir);
   if (!prev) return true; // 비교 대상 없음 — 첫 저장
 
   const prevIds = Object.keys(prev.customAgents ?? {});
@@ -281,11 +328,19 @@ function readCheckpointTotalsFromDisk(cpPath: string): { agents: number; nodes: 
  * - (2) 급감 비율 가드(기본 비활성): 정상 대량 만료 오탐 위험이 커 상수 토글로만 둔다.
  * 정상 만료는 프로젝트 루트 노드가 남아 통째-0 이 되지 않으므로 오탐하지 않는다.
  */
+/**
+ * §9 v3.45 — 세션 내 마지막 기록 합계 캐시. 종전엔 매 저장마다 디스크의 checkpoint.json
+ * (수 MB)을 통째로 읽어 파싱했는데, 고빈도 저장 경로에서 이 재읽기가 메인 스레드 포화의
+ * 한 축이었다. 파일은 이 프로세스만 쓰므로 첫 저장 때 1회 디스크 판독 후 캐시로 대체해도
+ * 가드 의미(빈 인스턴스의 덮어쓰기 차단)는 동일하다.
+ */
+const lastWrittenCheckpointTotals = new Map<string, { agents: number; nodes: number }>();
+
 function passesCheckpointShrinkGuard(
   cpPath: string,
   next: ProjectCheckpoint,
 ): { ok: true } | { ok: false; reason: string } {
-  const prev = readCheckpointTotalsFromDisk(cpPath);
+  const prev = lastWrittenCheckpointTotals.get(cpPath) ?? readCheckpointTotalsFromDisk(cpPath);
   if (!prev) return { ok: true }; // 첫 저장 / 디스크에 비교 대상 없음 — 보호할 것 없음
   const prevTotal = prev.agents + prev.nodes;
   const nextAgents = Object.keys(next.graph?.agents ?? {}).length;
@@ -360,11 +415,17 @@ export function writeCheckpoint(checkpoint: ProjectCheckpoint): void {
     // §3.2.1-2 백업 롤링 후 §3.2.1-1 원자적 쓰기.
     rotateBackups(cpPath);
     atomicWriteFileSync(cpPath, JSON.stringify(checkpoint));
+    // §9 v3.45 — 다음 저장의 shrink guard 는 디스크 재읽기 대신 이 캐시로 비교한다.
+    lastWrittenCheckpointTotals.set(cpPath, {
+      agents: Object.keys(checkpoint.graph?.agents ?? {}).length,
+      nodes: Object.keys(checkpoint.graph?.nodes ?? {}).length,
+    });
 
     if (identityOk) {
       const idPath = path.join(dir, IDENTITY_FILENAME);
       rotateBackups(idPath);
       atomicWriteFileSync(idPath, JSON.stringify(identity));
+      lastWrittenIdentityByDir.set(dir, identity);
     }
 
     const worktreeTag = checkpoint.project.parentProjectPath ? ' [worktree]' : '';
@@ -579,6 +640,12 @@ function mergeIdentityIntoCheckpoint(cp: ProjectCheckpoint, identity: ProjectIde
     const seen = new Set(existing.map((b) => b.id));
     cp.commentBoxes = [...existing, ...identity.commentBoxes.filter((b) => !seen.has(b.id))];
   }
+  // §5.5 captureBubbles 보충 — id 기준 합집합.
+  if (identity.captureBubbles && identity.captureBubbles.length > 0) {
+    const existing = cp.captureBubbles ?? [];
+    const seen = new Set(existing.map((b) => b.id));
+    cp.captureBubbles = [...existing, ...identity.captureBubbles.filter((b) => !seen.has(b.id))];
+  }
   // contis 보충.
   if (identity.contis && Object.keys(identity.contis).length > 0) {
     cp.contis = cp.contis ?? {};
@@ -638,6 +705,7 @@ function buildCheckpointSkeletonFromIdentity(identity: ProjectIdentity): Project
     customLabels: { ...identity.customLabels },
     taskEdges: { ...identity.taskEdges },
     commentBoxes: [...identity.commentBoxes],
+    captureBubbles: [...identity.captureBubbles],
     contis: { ...identity.contis },
     deletedCustomAgentIds: identity.deletedSessionIds ?? [],
   };

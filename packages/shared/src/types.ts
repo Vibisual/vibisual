@@ -19,6 +19,8 @@ export type HookEventType =
   | 'PostToolUse'
   | 'Notification'
   | 'Stop'
+  /** 서브에이전트(Task/Agent 도구) 종료. Claude Code 는 서브 컨텍스트의 Stop 을 이 이벤트로 변환한다. */
+  | 'SubagentStop'
   /** §4 v1.50 — Anthropic SDK 2026-05 신규. 컨텍스트 컴팩션 직전 발화. */
   | 'PreCompact';
 
@@ -48,6 +50,16 @@ export interface HookEventPayload {
   duration_ms?: number;
   /** Stop 이벤트의 중단 사유 */
   stop_reason?: string;
+  /**
+   * 서브에이전트(Task/Agent 도구) 식별자. **서브에이전트 컨텍스트에서 발화한 이벤트에만** 존재한다.
+   * 메인 세션의 Stop 에는 없다 — 이 필드(또는 `parent_tool_use_id`)가 있으면 "서브에이전트의 종료"이지
+   * 부모(감독관) 세션의 자기 턴 종료가 아니다. 서버는 이걸로 부모 버블 조기 완료(markStop)를 막는다.
+   */
+  agent_id?: string;
+  /** 서브에이전트 이름(예: `Explore`, `general-purpose`, 커스텀 에이전트명). 서브 컨텍스트에만 존재. */
+  agent_type?: string;
+  /** 이 이벤트가 부모의 어느 Task/Agent tool_use 아래에서 났는지. 서브에이전트 컨텍스트 이벤트에 존재. */
+  parent_tool_use_id?: string;
   /** UserPromptSubmit 이벤트의 프롬프트 본문 */
   prompt?: string;
   /**
@@ -118,6 +130,30 @@ export interface RateLimitInfo {
 }
 
 /**
+ * §4 v3.60 — 사용량 수집기(statusLine) 설치 상태.
+ *
+ * Claude Code 는 한도 사용률을 **statusLine 스크립트의 stdin JSON**(`rate_limits.five_hour…`)
+ * 으로만 노출한다 — JSONL 트랜스크립트에도, CLI 서브커맨드에도 없다. 따라서 §4 v1.50 의
+ * `POST /api/rate-limits` 를 채우려면 `~/.claude/settings.json` 의 `statusLine` 에 Vibisual
+ * 핸들러를 걸어야 하고, 그건 훅과 달리 **사용자 opt-in**(§4 v1.50 원문)이다.
+ *
+ * `foreign` = 사용자가 이미 자기 statusLine 을 쓰고 있는 상태. 이 경우 설치는 그 명령을
+ * `_vibisualPrevStatusLine` 으로 보존하고 핸들러가 **passthrough 실행**하므로 화면 출력은
+ * 그대로 유지된다(해제 시 원복).
+ */
+export interface UsageCollectorStatus {
+  /** Vibisual 관리 statusLine 이 걸려 있는가 */
+  installed: boolean;
+  /** 사용자(비-Vibisual) statusLine 이 존재하는가 — 설치 시 passthrough 로 감싼다 */
+  foreign: boolean;
+  /** passthrough 로 보존 중인 원래 명령 (installed && 원래 statusLine 이 있었을 때만) */
+  passthroughCommand?: string;
+  settingsPath: string;
+  /** 설치/조회 실패 사유 (settings.json 손상 등) */
+  error?: string;
+}
+
+/**
  * 노드 상태:
  *   idle(대기) → active(작업중) → completed(에이전트만) → disappearing(소멸 중)
  *
@@ -137,7 +173,176 @@ export type NodeStatus =
   | 'awaiting_permission';
 
 /** 버블 타입 — 시각 카테고리 */
-export type BubbleType = 'agent' | 'internal_folder' | 'external_folder' | 'file' | 'bash' | 'root' | 'back' | 'ghost' | 'iframe' | 'pipeline' | 'worktree' | 'conti' | 'auto';
+export type BubbleType = 'agent' | 'internal_folder' | 'external_folder' | 'file' | 'bash' | 'root' | 'back' | 'ghost' | 'iframe' | 'pipeline' | 'worktree' | 'conti' | 'auto' | 'brain' | 'trash';
+
+// ─── 화면/프로그램 캡처 (§5.9 capture 버블) ───
+//
+// capture 버블은 그래프 노드(에이전트/폴더/파일)나 위성이 아니라, CommentBox 처럼 사용자가
+// 캔버스에 직접 만드는 **독립 요소**다(전용 React Flow 노드 타입 'captureNode'). 라이브 영상은
+// 렌더러가 getUserMedia(desktop)로 붙이며(useCaptureStream), 여기 타입은 위치/크기/소스 식별만 나른다.
+
+/** 캡처 대상 종류 — 전체 화면 vs 개별 창/프로그램(OBS/디스코드식 소스 선택). */
+export type CaptureSourceKind = 'screen' | 'window';
+
+/**
+ * Electron `desktopCapturer.getSources()` 한 항목을 렌더러 소스 선택 UI 로 나르는 계약.
+ * main(desktopCapturer) → preload(window.api.capture) → 클라이언트 picker. 썸네일은
+ * NativeImage 를 data URL(PNG)로 직렬화해 IPC 텍스트 와이어로 무손실 전달한다.
+ */
+export interface CaptureSourceInfo {
+  /** desktopCapturer 소스 id (getUserMedia chromeMediaSourceId 로 그대로 사용). */
+  id: string;
+  /** 사람이 읽는 이름(화면 번호 / 창 제목). */
+  name: string;
+  /** 전체 화면인지 개별 창인지. */
+  kind: CaptureSourceKind;
+  /** 미리보기 썸네일(data:image/png;base64,…). 없으면 빈 문자열. */
+  thumbnailDataUrl: string;
+  /** 창 소스의 앱 아이콘(data URL) — 있을 때만. picker 목록 글리프용. */
+  appIconDataUrl?: string;
+}
+
+// ─── 캡처 원격 조작(§5.9 Phase B) — 렌더러→main 입력 주입 계약 ───
+//
+// 캡처 버블 본체 위 사용자 제스처를 정규화 좌표(u,v ∈ [0,1])로 담아 main 으로 보내면,
+// main 이 소스(화면/창)의 실제 화면 좌표로 매핑해 nut.js 로 OS 레벨 마우스/키보드를 주입한다.
+
+/**
+ * 캡처 버블 마우스 주입 — u,v 는 캡처 콘텐츠 기준 정규화 좌표.
+ *
+ * **v3.58 — 모든 주입은 "사용자가 물리 버튼을 뗀 뒤"에 원자적으로 일어난다.** Windows 는 사용자가
+ * 우리 창에서 버튼을 누르는 순간 그 창으로 **마우스 캡처(SetCapture)** 를 걸어 버려, 버튼이 눌려 있는
+ * 동안 SendInput 으로 주입한 마우스 이벤트까지 **전부 우리 창으로 되돌아온다**(대상 앱에 닿지 않음).
+ * v3.57 이 `mousedown → down 주입 / mousemove → 손이 직접 / mouseup → up 주입` 으로 설계를 옮긴 순간
+ * 클릭·우클릭·드래그가 전부 먹통이 된 근본 원인이 이것이다. 그래서 제스처는 렌더러가 **끝까지 지켜본
+ * 뒤**(release) 한 방에 재생한다 — 그 시점엔 캡처가 풀려 있어 주입이 대상에 그대로 닿는다.
+ */
+export interface CaptureMouseInput {
+  type: 'mouse';
+  sourceId: string;
+  sourceKind: CaptureSourceKind;
+  sourceName: string;
+  /**
+   * `click`/`dblclick`/`drag`/`wheel` 이 실사용 경로다(전부 원자적·커서 반납 포함).
+   * `move`/`down`/`up` 은 v3.57 사슬 모델의 잔여 계약으로 남겨 두지만 렌더러는 더 이상 쓰지 않는다.
+   */
+  action: 'move' | 'down' | 'up' | 'click' | 'dblclick' | 'drag' | 'wheel';
+  u: number;
+  v: number;
+  /** `drag` 의 도착 지점(정규화). 없으면 u,v 와 같은 자리에서 누르고 뗀다. */
+  u2?: number;
+  v2?: number;
+  button?: 'left' | 'right' | 'middle';
+  /** wheel 델타(양수=아래로 스크롤). */
+  deltaY?: number;
+  /**
+   * 주입 후 사용자의 실제 커서를 원래 자리로 되돌릴지(v3.55). 이 PC 의 OS 커서는 하나뿐이라
+   * 주입 지점에 그냥 두면 사용자의 마우스가 캡처 대상 화면으로 끌려가 갇힌다. **v3.58 부터는 모든
+   * 원자적 동작(click/dblclick/drag/wheel)이 예외 없이 반납한다** — 사용자의 마우스는 버블 위에서
+   * 잠시 깜빡였다가 늘 제자리로 돌아온다(갇히지 않음).
+   */
+  restoreCursor?: boolean;
+  /**
+   * u,v 로 커서를 옮기지 말고 **지금 커서가 있는 자리에서** 버튼만 처리한다(v3.57 사슬 모델 잔여).
+   * v3.58 원자 주입 경로에서는 쓰지 않는다.
+   */
+  inPlace?: boolean;
+  /**
+   * "커서 안 움직이기"(v3.62) — 켜면 main 이 **대상 창에 마우스 메시지를 직접 넣어** 사용자의 커서를
+   * 전혀 건드리지 않는다. 일반 Win32 앱엔 잘 먹지만 게임·보호된 창은 무시하므로, 그런 창이면 자동으로
+   * 기본(커서를 잠깐 빌리는) 경로로 되돌아가고 결과의 `fallback` 으로 이유를 알린다.
+   */
+  preferBackgroundClick?: boolean;
+}
+
+/**
+ * 캡처 대상(화면/창)의 실제 사각형 — 렌더러가 **드래그 중 손 움직임만 뽑아내기 위해** 쓴다(v3.57).
+ *
+ * 드래그를 하려면 OS 커서를 대상 위로 옮겨 둔 채로 손 움직임을 계속 읽어야 하는데, 커서가 이미
+ * 대상으로 가 있으므로 브라우저가 주는 좌표는 "버블 안"이 아니라 "대상 화면 위"의 좌표다. 렌더러는
+ * 자기가 방금 커서를 어디에 놓았는지(=기대 좌표)를 알아야 그 차이만큼만 손이 움직였다고 계산할 수
+ * 있다(닫힌 루프 → 우리가 주입한 이동이 되먹임되어 커서가 폭주하는 것을 원천 차단).
+ *
+ * - `dip`: Electron DIP 좌표계 사각형. 브라우저 `MouseEvent.screenX/screenY` 와 같은 공간이라 이걸로 계산한다.
+ * - `physical`: nut.js 주입에 쓰는 물리 픽셀 사각형(진단·표시용).
+ */
+/**
+ * 주입 결과(v3.61) — 종전엔 실패해도 조용히 아무 일도 안 일어나 "클릭이 안 먹는다"로만 보였다.
+ * 렌더러가 이 값을 받아 **왜 안 됐는지**를 오버레이 칩으로 알린다.
+ */
+export interface CaptureInjectResult {
+  ok: boolean;
+  /** 'nut-unavailable'=주입 엔진 로드 실패, 'target-not-found'=대상 화면/창 못 찾음, 'error'=주입 중 예외. */
+  reason?: 'nut-unavailable' | 'target-not-found' | 'error';
+  /**
+   * 어떤 경로로 넣었는지(v3.62) — 'background'=커서를 안 건드리고 대상 창에 메시지 직접 전달,
+   * 'cursor'=커서를 잠깐 빌려 쓰는 기본 경로.
+   */
+  method?: 'cursor' | 'background';
+  /**
+   * "커서 안 움직이기"를 켰는데 배경 클릭이 불가능해 커서 경로로 되돌아갔을 때의 사유.
+   * 'message-deaf-app'=게임/보호된 창처럼 합성 메시지를 무시하는 앱, 'no-window'=그 지점에 창이 없음,
+   * 'ffi-unavailable'=배경 클릭 경로 자체를 못 씀.
+   */
+  fallback?: 'ffi-unavailable' | 'no-window' | 'message-deaf-app';
+}
+
+export interface CaptureTargetRect {
+  /** 대상을 찾았는지 — 창 제목이 바뀌어 못 찾으면 false(조작 불가 안내). */
+  ok: boolean;
+  dip: { x: number; y: number; width: number; height: number };
+  physical: { x: number; y: number; width: number; height: number };
+}
+
+/** 캡처 버블 키보드 주입 — 대상 창을 포커스한 뒤 타이핑/특수키 전송. */
+export interface CaptureKeyInput {
+  type: 'key';
+  sourceId: string;
+  sourceKind: CaptureSourceKind;
+  sourceName: string;
+  /** 'type' = 출력 가능한 문자 그대로, 'press' = 정규화 키 이름(Enter/Backspace/ArrowLeft 등). */
+  action: 'type' | 'press';
+  /** action='type' 일 때 실제 입력 문자열. */
+  text?: string;
+  /** action='press' 일 때 정규화 키 이름. */
+  key?: string;
+  ctrl?: boolean;
+  shift?: boolean;
+  alt?: boolean;
+  meta?: boolean;
+}
+
+export type CaptureInputEvent = CaptureMouseInput | CaptureKeyInput;
+
+/**
+ * 사용자가 캔버스에 만든 화면/프로그램 캡처 버블(§5.9). CommentBox 와 같은 독립 캔버스 요소로,
+ * React Flow parent/child 없이 절대좌표(x/y)로 배치된다. 렌더러가 `sourceId` 로 라이브 MediaStream 을
+ * 붙여 네모난 본체에 <video> 로 표시한다. 서버는 위치/크기/소스 식별만 SSOT 로 들고 영속한다.
+ */
+export interface CaptureBubble {
+  /** 고유 id (예: "capture-lp3x9-a1b2"). */
+  id: string;
+  /** 소속 프로젝트 이름(basename) — 렌더 시 활성 프로젝트로 필터. */
+  projectName: string;
+  /** 캔버스 절대 x. */
+  x: number;
+  /** 캔버스 절대 y. */
+  y: number;
+  /** 본체 너비(px). */
+  width: number;
+  /** 본체 높이(px). */
+  height: number;
+  /** desktopCapturer 소스 id — getUserMedia chromeMediaSourceId. 재시작마다 창 핸들이 바뀔 수 있다. */
+  sourceId: string;
+  /** 캡처 대상의 사람이 읽는 이름(복원 재매칭·라벨용). */
+  sourceName: string;
+  /** 전체 화면 vs 개별 창. */
+  sourceKind: CaptureSourceKind;
+  /** 생성 시각(epoch ms). */
+  createdAt: number;
+  /** 마지막 수정 시각(epoch ms). */
+  updatedAt: number;
+}
 
 // ─── Git Status (§7.6 GitStatusCard) ───
 
@@ -410,7 +615,7 @@ export interface GhostInfo {
 export interface BubbleStyleConfig {
   color: string;
   glow: string;
-  icon: 'agent' | 'folder' | 'file' | 'terminal' | 'root' | 'back' | 'ghost' | 'iframe' | 'pipeline' | 'conti' | 'auto';
+  icon: 'agent' | 'folder' | 'file' | 'terminal' | 'root' | 'back' | 'ghost' | 'iframe' | 'pipeline' | 'conti' | 'auto' | 'brain' | 'trash';
   ringIdle: string;
   ringActive: string;
 }
@@ -555,6 +760,15 @@ export interface BubbleData {
     inUse: boolean;
     durationMs: number;
   };
+  /**
+   * §5.10 Project Brain — 커스텀 에이전트 휴지통. 커스텀 에이전트를 삭제하면 즉시 소멸/묘비
+   * 기록 대신 이 플래그로 "휴지통 이동"(identity 보존). 묘비(`deletedCustomAgents`)는
+   * 영구 삭제 시에만 찍는다(§3.2.1 급감 가드 관계 유지). BubbleData 는 그래프 직렬화로
+   * ProjectCheckpoint·identity 에 자동 영속되므로 이 플래그도 재시작 시 함께 복원된다.
+   */
+  trashed?: boolean;
+  /** §5.10 — 휴지통 이동 시각(epoch ms). trashed=true 일 때만 의미. */
+  trashedAt?: number;
 }
 
 /** TodoWrite 도구의 개별 항목 */
@@ -657,6 +871,29 @@ export interface SubAgent {
   /** §5.7 #23-2 v1.60 — Agent View 가 할당한 풀 sessionId (UUID) — `sessionId` 와 일치하지만
    *  발급 주체 구분 위해 별도 필드. legacy `-p` 경로에선 undefined. */
   agentViewSessionId?: string;
+}
+
+/**
+ * §5.5 #17-9 v3.51 — 지금 백그라운드에서 도는 서브에이전트 1건.
+ * 감독관(커스텀 에이전트)이 `Task`/`Agent` 도구로 띄운 자식 하나에 대응하며, PreToolUse 훅의
+ * `tool_use_id` + `tool_input` 에서 그대로 뽑는다(새 수집 경로 신설 ❌ — §5.3 #12-1 v3.43 대차대조 재사용).
+ * 런타임 전용 — 영속화 대상이 아니다.
+ */
+export interface RunningSubagentTask {
+  /** 부모 Task 도구의 `tool_use_id`. 미상 페이로드면 서버가 만든 합성 키(`anon-N`). */
+  id: string;
+  /** 이 Task 를 띄운 부모(감독관) 에이전트 ID. */
+  parentAgentId: string;
+  /** 이 Task 를 띄운 세션 탭(sub.id). 훅에서 역조회 실패 시 undefined(= 메인 탭에서만 보임). */
+  subAgentId?: string;
+  /** `tool_input.description` — "무슨 내용인지" 한 줄. */
+  description?: string;
+  /** `tool_input.subagent_type` — 어떤 에이전트 타입으로 띄웠는지. */
+  subagentType?: string;
+  /** `tool_input.prompt` 앞부분 발췌(최대 200자). 설명이 없을 때의 대체 표시용. */
+  prompt?: string;
+  /** 시작 시각(ms epoch) — 경과 시간 표시용. */
+  startedAt: number;
 }
 
 /**
@@ -1353,8 +1590,150 @@ export interface AgentReport {
   nextSteps?: string[];
   /** 자유 메모 / 헤드라인 (선택). */
   note?: string;
+  /**
+   * §5.10 Project Brain — 이 작업에서 배운 것(교훈/결정/함정). 각 문장은 서버가
+   * `brainService.saveCard({type:'lesson', scope:'agent'})` 로 개별 기억 카드에 저장한다
+   * (중복 검사 창구 경유). 다음에 같은 실수를 반복하지 않기 위한 확실한 것만, 최대 3개.
+   */
+  learned?: string[];
+  /**
+   * §5.10 v3.49 랭킹 "도움됨" 신호 — 브리핑/주입으로 받은 기억 카드 id 중 실제 작업에 도움된 것.
+   * 브리핑 블록에 `[card-xxxx]` 로 표기된 id 를 그대로 신고한다. 서버가 각 id 에
+   * `brainService.markHelpful(id)` 를 호출(helpfulCount++, lastHelpfulAt 갱신) → 랭킹 부스트.
+   */
+  helpfulMemoryIds?: string[];
   /** 신고 시각 (서버 stamp, Date.now()). */
   createdAt: number;
+}
+
+// ─── §5.10 Project Brain — 2단 기억(프로젝트/에이전트) ───
+//
+// 카드 1장 = 마크다운 파일 1개(frontmatter + 본문). 파일이 원본(SSOT 예외 — §3.2 identity·AppState 동격).
+// 서버 brainService 가 디스크를 스캔해 in-memory 인덱스로 들고, REST 로만 본문을 내려준다.
+// 스냅샷에는 요약(BrainSummary)/주입 신호(BrainInjectionEvent)만 실리고 본문은 절대 타지 않는다(§9 perf).
+
+/** 기억 카드 5종 — 결정/실수/교훈/규칙/사실. */
+export type BrainCardType = 'decision' | 'mistake' | 'lesson' | 'rule' | 'fact';
+
+/** 기억 층 — 프로젝트 전체 공유 vs 특정 커스텀 에이전트 개별 기억. */
+export type BrainCardScope = 'project' | 'agent';
+
+/** 카드 상태 — active(정상)/ghost(연결 파일 소실 → 재검토)/archived(보관). */
+export type BrainCardStatus = 'active' | 'ghost' | 'archived';
+
+/**
+ * §5.10 기억 카드 1장. 디스크의 `.vibisual/brain/{project|agents/<agentId>}/<id>.md` 와 1:1.
+ * frontmatter 에 메타, 본문(body)은 마크다운. `files` = 이 카드가 연결된 파일 절대/상대 경로들
+ * (파일 접근 경고·ghost 판정의 근거). 사용자가 직접 열어 읽고 고칠 수 있는 파일이 원본.
+ */
+export interface BrainCard {
+  /** 카드 고유 ID (`card-<Date.now(36)>-<rand>`, 파일명과 동일). */
+  id: string;
+  type: BrainCardType;
+  scope: BrainCardScope;
+  /** scope==='agent' 일 때 소속 커스텀 에이전트 ID. project 카드는 undefined. */
+  agentId?: string;
+  /** 한 줄 제목(카드 헤드라인). */
+  title: string;
+  /** 마크다운 본문. **스냅샷에는 싣지 않는다** — REST getCard 로만 조회. */
+  body: string;
+  /** 연결 파일 경로들(파일 접근 경고·ghost 판정 근거). */
+  files: string[];
+  /** 출처 세션 ID(리플렉션/신고 유래). 세션 점프용. 수동 저장은 undefined. */
+  sourceSessionId?: string;
+  createdAt: number;
+  updatedAt: number;
+  /** 마지막으로 주입/검색에 참조된 시각(신선도·묻힘 방지). */
+  lastReferencedAt?: number;
+  /**
+   * 누적 **임프레션** 횟수 — 주입(스폰 브리핑/파일 경고)·검색으로 카드가 에이전트에 노출된 횟수.
+   * v3.49 랭킹에서 "노출"의 의미로 명확화(유튜브 임프레션). 실제 도움 여부는 `helpfulCount` 로 별도 집계.
+   * 많이 노출됐는데 helpfulCount 0 이면 랭킹 강등(낡은 기억 자동 침전).
+   */
+  refCount: number;
+  /**
+   * §5.10 v3.49 — 카드가 실제로 **도움됐다**고 신고된 누적 횟수(유튜브 시청시간 대응).
+   * 채널 2종: (a) 에이전트 작업 신고 `helpfulMemoryIds`, (b) 사용자 👍 버튼. optional(하위호환 — 없으면 0).
+   */
+  helpfulCount?: number;
+  /** §5.10 v3.49 — 마지막으로 "도움됨" 신고된 시각(신선도 계산에 updatedAt 과 함께 max 로 반영). */
+  lastHelpfulAt?: number;
+  /** 사용자가 소멸/흐림 금지로 고정. */
+  pinned?: boolean;
+  status: BrainCardStatus;
+  /** 대체(supersede) 시 이전 카드 요지 이력(자가 수정 금지 — 이력 보존). */
+  supersededNote?: string;
+  /** 대시보드 "최근 저장" 검토 확인 여부(false=미확인 → 배지 카운트). */
+  seen?: boolean;
+}
+
+/**
+ * §5.10 두뇌 요약 — Brain 버블 배지/본체 렌더용 경량 집계. 스냅샷 탑재분(본문 없음).
+ */
+export interface BrainSummary {
+  /** 전체 활성 카드 수(archived 제외). */
+  cardCount: number;
+  /** 미확인(seen=false) 카드 수 — Brain 버블 점 배지. */
+  unseenCount: number;
+  /** 최근 저장 카드 제목 1줄(본체 미리보기). */
+  recentCardTitle?: string;
+  /** 에이전트별 개별 기억 카드 수 (agentId → count). */
+  agentCardCounts: Record<string, number>;
+}
+
+/**
+ * §5.10 주입 이벤트 — 스폰 브리핑/파일 경고/검색으로 카드가 에이전트에 주입된 순간의 신호.
+ * IDE "기억 N장 참조" 칩 + Brain→에이전트 일시 엣지 연출용. 카드 id/title 만 나른다(본문 X).
+ * 런타임 전용(영속 X).
+ */
+export interface BrainInjectionEvent {
+  /** 이벤트 고유 ID. */
+  id: string;
+  /** 주입 대상 에이전트 ID. */
+  agentId: string;
+  /** 주입 시각(epoch ms). */
+  at: number;
+  /** 주입된 카드 ID 목록. */
+  cardIds: string[];
+  /** 주입된 카드 제목 목록(칩 펼침 표시용). */
+  cardTitles: string[];
+  /** 주입 계기 — 스폰 브리핑/파일 접근 경고/능동 검색. */
+  trigger: 'spawn' | 'file' | 'search';
+}
+
+/**
+ * §5.10 v3.49 — 기억 피드 섹션 키(유튜브 홈 방식). related=지금 작업과 관련(컨텍스트 랭킹) /
+ * recent=최근 배운 것(생성 최신) / frequent=자주 쓰는 기억(도움됨 상위) /
+ * resurface=오랜만에 다시 볼 기억(재노출 슬롯 — 필터버블 방지, 장기 미참조 우선).
+ */
+export type BrainFeedSectionKey = 'related' | 'recent' | 'frequent' | 'resurface';
+
+/**
+ * §5.10 v3.49 — 우더블클릭 피드 오버레이 응답. 섹션별 랭킹된 소수 카드(각 BRAIN_FEED_SECTION_SIZE 상한)
+ * + 전체 풀 크기. 섹션 간 중복은 related>recent>frequent>resurface 우선순위로 제거된다.
+ * 카드에는 본문(body)이 포함된다(REST fetch — 스냅샷 아님).
+ */
+export interface BrainFeed {
+  /** 섹션 키 → 그 섹션의 카드 목록(랭킹/정렬 완료, 상한 적용). */
+  sections: Record<BrainFeedSectionKey, BrainCard[]>;
+  /** 이 스코프 풀의 전체 카드 수(archived/ghost 제외 — "N장 중 상위만 표시" 안내용). */
+  totalCount: number;
+}
+
+/**
+ * §5.10 brainService.saveCard 입력. id/시각/refCount 등은 서버가 채운다.
+ * 중복 검사 단일 창구를 통과 — 유사 기존 카드가 있으면 새로 만들지 않고 갱신한다.
+ */
+export interface BrainCardInput {
+  type: BrainCardType;
+  scope: BrainCardScope;
+  agentId?: string;
+  title: string;
+  body: string;
+  files?: string[];
+  sourceSessionId?: string;
+  pinned?: boolean;
+  seen?: boolean;
 }
 
 /**
@@ -1521,6 +1900,13 @@ export interface GraphSnapshot {
   completedCommands: Record<string, QueuedCommand[]>;
   /** 에이전트별 subagent 목록 (agent ID → SubAgent[]) */
   subAgents: Record<string, SubAgent[]>;
+  /**
+   * §5.5 #17-9 v3.51 — 지금 백그라운드에서 도는 서브에이전트(Task/Agent 도구) 목록.
+   * 키 = 부모(감독관) agentId. §5.3 #12-1 v3.43 대차대조(pendingSubagentTasks)의 스냅샷 투영이라
+   * **런타임 전용 — 영속화 ❌**(ProjectCheckpoint 무변경, 서버 재시작 시 리셋).
+   * 비어 있으면 필드 자체가 생략된다 → 클라 활동바 항목/배지가 자동으로 사라진다.
+   */
+  runningSubagentTasks?: Record<string, RunningSubagentTask[]>;
   /** 에이전트 전체 페이즈 (서버 계산) */
   agentPhase: AgentPhase;
   /** 현재 활성 에이전트 수 (서버 계산) */
@@ -1551,6 +1937,11 @@ export interface GraphSnapshot {
    * 클라이언트는 `projectName === activeProject` 로 걸러 렌더.
    */
   commentBoxes?: CommentBox[];
+  /**
+   * §5.9 화면/프로그램 캡처 버블 목록(전체 프로젝트). CommentBox 처럼 Manager 레벨 필드로,
+   * 클라이언트는 `projectName === activeProject` 로 걸러 렌더한다.
+   */
+  captureBubbles?: CaptureBubble[];
   /**
    * 프로젝트별 루트 캔버스 바운딩 박스 반쪽 폭/높이 (LAYOUT_CENTER_X/Y 중심).
    * 키 = projectName. 미설정 항목은 클라이언트 기본값 사용.
@@ -1639,6 +2030,26 @@ export interface GraphSnapshot {
    * 사용자가 `POST /api/agent-feedback` 로 남긴 좋아요/싫어요 평가. 미설정 시 빈 맵.
    */
   agentFeedbacks?: Record<string, AgentFeedback[]>;
+
+  /**
+   * §5.10 Project Brain — 두뇌 요약(카드 수/미확인 수/최근 카드 1줄/에이전트별 카드 수).
+   * Brain 버블 배지·본체 렌더용 **경량 요약만** 스냅샷에 실린다. 카드 본문은 절대 스냅샷을
+   * 타지 않는다(§9 perf v3.40/v3.45 — 큰 텍스트는 REST lazy fetch). 미설정 시 클라 폴백.
+   *
+   * v3.70 — **projectName 1차 키**. 카드는 `<projectPath>/.vibisual/brain/` 로 프로젝트별로
+   * 갈라져 저장되므로 요약도 프로젝트별이어야 한다(Brain 버블은 활성 프로젝트의 두뇌를 보여준다).
+   * 단일 객체이던 구조에서는 프로젝트 2개 이상이 열렸을 때 `mergeSnapshots` 가 필드를 통째로
+   * 떨궈 카드가 있어도 "0장"으로 보였다 — `skillUsageCounts` 와 동형 키로 맞춰 병합-안전하게 만든다.
+   */
+  brain?: Record<string, BrainSummary>;
+
+  /**
+   * §5.10 Project Brain — 주입 발생 이벤트 (agentId → BrainInjectionEvent[], 최신순 append,
+   * 에이전트당 BRAIN_INJECTIONS_MAX_PER_AGENT 캡). IDE "기억 N장 참조" 칩 + Brain→에이전트
+   * 일시 엣지 연출용 신호(카드 id/title 만). **런타임 전용 — ProjectCheckpoint 에 영속하지
+   * 않는다**(agentReports 와 달리 재시작 시 자연 비움; 주입 이력은 카드의 refCount 로 남음).
+   */
+  brainInjections?: Record<string, BrainInjectionEvent[]>;
 }
 
 /** 폴더 내 파일/디렉토리 엔트리 (폴더 트리 표시용) */
@@ -1784,6 +2195,11 @@ export interface ProjectCheckpoint {
    */
   commentBoxes?: CommentBox[];
   /**
+   * §5.9 화면/프로그램 캡처 버블 목록 (이 프로젝트 스코프).
+   * optional — 구버전 체크포인트 하위호환. 미설정이면 빈 배열로 복원.
+   */
+  captureBubbles?: CaptureBubble[];
+  /**
    * 루트 캔버스에서 부모 버블이 못 빠져나가는 사각 바운딩 박스의 반쪽 폭/높이.
    * LAYOUT_CENTER_X/Y 중심 기준. 사용자가 캔버스에서 핸들로 조절. optional — 미설정 시
    * 클라이언트 기본값(1500/1100) 사용. §3.2 예외 없이 ProjectCheckpoint 만 통한 영속화.
@@ -1887,6 +2303,8 @@ export interface ProjectIdentity {
   taskEdges: Record<string, TaskEdge>;
   /** Comment Box 목록 (이 프로젝트 스코프). */
   commentBoxes: CommentBox[];
+  /** §5.9 화면/프로그램 캡처 버블 목록 (이 프로젝트 스코프, 정체성 데이터). */
+  captureBubbles: CaptureBubble[];
   /** 콘티 데이터 (contiId → Conti). */
   contis: Record<string, Conti>;
   /**
@@ -1898,28 +2316,7 @@ export interface ProjectIdentity {
   deletedSessionIds?: string[];
 }
 
-/**
- * §3.2.2 — 소실/삭제 후 **복구 가능한 커스텀 에이전트** 항목(표시용 메타).
- * identity.json 에 정체성은 남아 있으나 현재 캔버스에 살아있지 않은(사라졌거나 닫힌) 커스텀
- * 에이전트를 "지난 커스텀 에이전트 복구" UI 에 나열하기 위한 것. 복구 시 `sessionId` 로 원본 정체성을
- * 되살려 config·라벨·과거 스트림이 그대로 재연결된다. 사용자가 명시 삭제(묘비)한 것은 제외한다.
- */
-export interface RecoverableCustomAgent {
-  /** 원본 세션 ID — 복구 키(그대로 되살려 정체성 재연결). */
-  sessionId: string;
-  /** 버블 노드 ID(agent-<hash>). */
-  agentId: string;
-  /** 표시 라벨(customLabels 우선, 없으면 버블 label). */
-  label: string;
-  /** 소속 프로젝트 표시명. */
-  projectName: string;
-  /** 버블 색(config.color 가 있으면). */
-  color?: string;
-  /** 실행 모드(CMD 에이전트 구분용). */
-  executionMode?: ExecutionMode;
-  /** identity.json 저장 시각(최신순 정렬용, epoch ms). */
-  savedAt: number;
-}
+// §5.10 — 구 RecoverableCustomAgent("지난 커스텀 에이전트 복구" 메타)는 휴지통(trashed BubbleData)이 후신이 되어 제거됨.
 
 // ─── Token Usage ───
 
@@ -2058,6 +2455,14 @@ export interface ModelRegistry {
   entries: ModelRegistryEntry[];
   updatedAt: number;
   sourceMix: 'seed-only' | 'cli-scan' | 'cli-scan+api' | 'api-merged';
+  /**
+   * §4 — 설치된 `claude` CLI 가 실제로 받아들이는 `--effort` 값 목록(예: `['low','medium','high','xhigh','max']`).
+   * 서버 `modelRegistryService` 가 부팅 시 `claude --help` 출력의 `--effort <level> (...)` 를 파싱해 채운다(0 하드코딩).
+   * 'default'(=오버라이드 없음)는 포함하지 않는다 — UI 가 맨 앞에 별도로 붙인다.
+   * 파싱 실패/CLI 미발견 시 undefined → 클라 `listEffortLevels` 가 `AVAILABLE_EFFORT_LEVELS` 폴백.
+   * WS `model_registry_updated` 로 entries 와 함께 전파(별도 메시지·store 필드 없이 재사용).
+   */
+  effortLevels?: string[];
 }
 
 /** 에이전트 설정 — 디테일 패널에서 편집, ProjectCheckpoint에 저장 */
@@ -2683,4 +3088,80 @@ export interface MobileAccessState {
   externalPort: number | null;
   /** 수동 포트포워딩 시 공유기에서 이 LAN IP:포트(HTTPS)로 연결하도록 안내. */
   httpsPort: number | null;
+
+  // ─── §4 v3.66 QR 페어링 ───────────────────────────────────────────────────
+  /**
+   * 현재 살아 있는 QR 페어링 티켓(없거나 만료됐으면 null).
+   * 발급 즉시 3분(`MOBILE_QR_TICKET_TTL_MS`) 동안만 유효하며 메모리에만 존재한다.
+   */
+  qrTicket: MobileQrTicket | null;
+}
+
+/**
+ * §4 v3.66 — QR 페어링 티켓. 폰 카메라로 스캔하면 코드 입력 없이 세션 쿠키를 받는
+ * 시한부 딥링크 묶음. 토큰 자체는 URL 안에만 실려 나가고 별도 필드로는 노출하지 않는다.
+ */
+export interface MobileQrTicket {
+  /** 이 티켓으로 접속되는 딥링크 URL 들(LAN 인터페이스별 + 외부 https). QR 로 그릴 원문. */
+  urls: string[];
+  /** 만료 시각(epoch ms) — 남은 시간 카운트다운에 사용. */
+  expiresAt: number;
+  /** 이 티켓으로 페어링을 마친 기기 수(표시용). */
+  usedCount: number;
+}
+
+// ─── §4 v3.33 모바일 임베디드 터미널 — /ws 다중화 프레임 ───────────────────────
+//
+// §4 v2.63 임베디드 인터랙티브 터미널의 I/O 는 데스크톱에선 전용 IPC(`vibisual:term:*`)로
+// 흐르지만, 모바일 웹 접속(§4 v3.16, `window.api` 부재)에선 그 IPC 가 없으므로 **기존 모바일
+// `/ws` 브리지에 터미널 프레임을 다중화**해 나른다(새 소켓/레이어 발명 ❌). 클라 →(제어) /
+// 서버 →(출력) 두 방향의 프레임 payload 계약. WSMessageType 유니온에는 넣지 않고 양끝
+// (`mobileAccess.ts`·`useWebSocket`)에서 `type` prefix `term_` 로 out-of-band 분기한다.
+//
+// 보안(§4 v3.33): 셸 프레임은 **LAN 접속에서만** 처리하고, 외부(공인 IP·UPnP) 접속의
+// `term_create` 는 거부 → `term_unavailable(reason:'external')` 회신한다.
+
+/** 클라 → 서버: 셸+claude prefill PTY 생성/재부착 요청. */
+export interface TermCreateFrame {
+  termId: string;
+  cwd: string;
+  config: AgentConfig;
+  cols?: number;
+  rows?: number;
+}
+/** 클라 → 서버: xterm 키 입력 → PTY stdin. */
+export interface TermWriteFrame {
+  termId: string;
+  data: string;
+}
+/** 클라 → 서버: xterm 리사이즈 → PTY. */
+export interface TermResizeFrame {
+  termId: string;
+  cols: number;
+  rows: number;
+}
+/** 클라 → 서버: PTY 종료(탭 명시 닫기). */
+export interface TermKillFrame {
+  termId: string;
+}
+/** 서버 → 클라: PTY 출력 바이트. */
+export interface TermDataFrame {
+  termId: string;
+  data: string;
+}
+/** 서버 → 클라: PTY 종료 통지. */
+export interface TermExitFrame {
+  termId: string;
+  exitCode: number;
+}
+/** 서버 → 클라: `term_create` 결과(재부착 포함). */
+export interface TermAckFrame {
+  termId: string;
+  ok: boolean;
+  error?: string;
+}
+/** 서버 → 클라: 셸을 열 수 없는 접속(외부/인터넷). reason='external' = LAN 아닌 원격. */
+export interface TermUnavailableFrame {
+  termId: string;
+  reason: 'external';
 }

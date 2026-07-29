@@ -31,6 +31,34 @@ body[data-ide-dock="right"] .vibi-image-lightbox.fixed.inset-0 {
   right: 0;
 }
 
+/* §4 v3.44 — 저전력(발열 억제)을 '끄기'가 아니라 '최적화'로 전환(사용자 지시: "다 끄지 말고
+ * 최적화해서 보여줘"). 모바일/터치에서도 애니메이션은 **하나도 끄지 않고 계속 보여주되**, 폰
+ * GPU/컴포지터 비용이 큰 부분만 깎는다. 데스크톱(fine 포인터)엔 `.vibisual-low-power` 미부착 →
+ * 기존 연출 그대로.
+ *
+ *  (1) 흐르는 활성 엣지(dashdraw): SVG `stroke-dashoffset` 은 매 프레임 path 를 raster 스레드에서
+ *      재도색해 활성 엣지가 많을수록 최대 지속 발열원이다. 끄지 않고 timing 을 `steps()` 로 이산화
+ *      + 주기를 늘려 초당 재도색을 ~60fps→~8fps 로 낮춘다. "대시가 흐른다"는 신호는 그대로 보인다.
+ *  (2) 코로나(sun-spin): 정적·캐시된 SVG 필터 위 32s 회전. transform 회전이라 자기 레이어로 승격하면
+ *      필터 결과를 캐시한 채 GPU 합성만으로 돈다 → `will-change: transform` 로 main-thread 리페인트 제거.
+ *      pulse·pulse-ring·ping·spin·git-sweep·thinking 은 이미 transform·opacity(컴포지터 친화)라 그대로 둔다.
+ *  (3) backdrop-blur: 매 프레임 재합성 최고 비용 → 완전 제거 대신 반경을 3px 로 캡(가벼운 블러)해
+ *      유리질 느낌은 남기고 비용만 낮춘다.
+ * 일회성 진입 애니메이션(bubble-spawn·scene-zoom 등)은 발열원이 아니라 그대로 둔다. `animate-float`
+ * 는 실제 사용처가 없어 별도 처리 불필요. */
+.vibisual-low-power .react-flow__edge.animated path,
+.vibisual-low-power .react-flow__edge-animated path {
+  animation-duration: 1.2s !important;
+  animation-timing-function: steps(8, end) !important;
+}
+.vibisual-low-power .animate-sun-spin {
+  will-change: transform;
+}
+.vibisual-low-power [class*="backdrop-blur"] {
+  backdrop-filter: blur(3px) !important;
+  -webkit-backdrop-filter: blur(3px) !important;
+}
+
 @keyframes pulse-ring {
   0% {
     transform: scale(1);

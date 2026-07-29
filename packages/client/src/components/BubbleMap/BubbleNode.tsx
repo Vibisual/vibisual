@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import type { BubbleData, BubbleStyleConfig } from '@vibisual/shared';
 import { BUBBLE_STYLES, HOOK_AGENT_STYLE, BUBBLE_TEXT_WIDTH_RATIO, BUBBLE_TEXT_REF_SIZE, GIT_STATUS_CONFIG } from '@vibisual/shared';
 import { calcBubbleSize } from '../../utils/sizeCalc.js';
-import { useGraphStore, selectIDEOverlay } from '../../stores/graphStore.js';
+import { useGraphStore, selectIDEOverlay, selectActiveBrainSummary } from '../../stores/graphStore.js';
 
 type BubbleNodeData = BubbleData & Record<string, unknown>;
 
@@ -72,6 +72,18 @@ const ICON_PATHS: Record<BubbleStyleConfig['icon'], { viewBox: string; d: string
   auto: {
     viewBox: '0 0 24 24',
     d: 'M12 2l1.5 4.5L18 8l-4.5 1.5L12 14l-1.5-4.5L6 8l4.5-1.5L12 2z M19 16l.7 1.8L21.5 19l-1.8.7L19 22l-.7-1.8L16.5 19l1.8-.7L19 16z',
+    fill: false,
+  },
+  // §5.10 — Project Brain 버블(두뇌 lobes)
+  brain: {
+    viewBox: '0 0 24 24',
+    d: 'M12 5a3 3 0 0 0-5.6-1.5A2.5 2.5 0 0 0 4 6a2.5 2.5 0 0 0 0 5 2.5 2.5 0 0 0 2 4 3 3 0 0 0 6 .5 3 3 0 0 0 6-.5 2.5 2.5 0 0 0 2-4 2.5 2.5 0 0 0 0-5 2.5 2.5 0 0 0-2.4-2.5A3 3 0 0 0 12 5Z M12 5v14',
+    fill: false,
+  },
+  // §5.10 — 커스텀 에이전트 휴지통 버블(trash-2)
+  trash: {
+    viewBox: '0 0 24 24',
+    d: 'M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m5 5v6m4-6v6',
     fill: false,
   },
 };
@@ -200,6 +212,25 @@ const SELECT_FADE_MS = 240;
 /** 등장 페이드는 ~30% 빠르게 (반응성) */
 const SELECT_FADE_IN_MS = 170;
 
+/** §5.10 — 우측 더블클릭(기억 내부 진입) 판정 창(ms). 우클릭 컨텍스트 메뉴와 겹치지 않게. */
+const RIGHT_DBLCLICK_MS = 350;
+
+/**
+ * §5.10 v3.49 — 이 버블의 우측 더블클릭 대상. null 이면 기억 대상 아님.
+ *  Brain 상주 버블·커스텀 에이전트(휴지통 내부의 trashed 포함) → 기억 피드 오버레이,
+ *  휴지통 상주 버블 → 기존 버블 내부 진입.
+ */
+type RightDblTarget =
+  | { kind: 'brainFeed'; scope: 'project' }
+  | { kind: 'agentFeed'; agentId: string }
+  | { kind: 'trash' };
+function interiorTargetFor(data: BubbleData): RightDblTarget | null {
+  if (data.id === '__brain__') return { kind: 'brainFeed', scope: 'project' };
+  if (data.id === '__trash__') return { kind: 'trash' };
+  if (data.bubbleType === 'agent' && data.customCreated) return { kind: 'agentFeed', agentId: data.id };
+  return null;
+}
+
 // ─── 컴포넌트 ───
 
 export const BubbleNode = memo(function BubbleNode({
@@ -221,6 +252,40 @@ export const BubbleNode = memo(function BubbleNode({
   const isCmdAgent = useGraphStore((s) => data.bubbleType === 'agent' && s.agentConfigs[data.id]?.executionMode === 'interactive-terminal');
   // §2.4 v1.67 — 갓 스폰된 커스텀 에이전트 idle empty-state: 라이브 세션 전 빈 하단을 설정 모델명으로 메움
   const configModel = useGraphStore((s) => data.bubbleType === 'agent' ? s.agentConfigs[data.id]?.model : undefined);
+  // §5.10 — Brain 상주 버블: 두뇌 요약(카드 수/미확인/최근 제목). brain 타입 버블에서만 의미.
+  const brainSummary = useGraphStore((s) => data.bubbleType === 'brain' ? selectActiveBrainSummary(s) : null);
+  // §5.10 — 주입 발생 시 Brain 버블에 일시 펄스(4s time-limited). 최근 주입 시각(모든 에이전트 통틀어) max.
+  const latestInjectionAt = useGraphStore((s) => {
+    if (data.bubbleType !== 'brain') return 0;
+    let m = 0;
+    for (const list of Object.values(s.brainInjections)) {
+      for (const ev of list) if (ev.at > m) m = ev.at;
+    }
+    return m;
+  });
+  // §5.10 — 휴지통 배지: 현재 스냅샷의 trashed 에이전트 수. trash 타입 버블에서만 계산.
+  const trashedCount = useGraphStore((s) => data.bubbleType === 'trash' ? s.agents.reduce((n, a) => a.trashed ? n + 1 : n, 0) : 0);
+  const isBrainBubble = data.bubbleType === 'brain';
+  const isTrashBubble = data.bubbleType === 'trash';
+  // §5.10 — 실수/교훈 카드가 연결된 파일 버블엔 소형 마커. 경로 매칭은 관대하게(절대/상대 혼재 대비).
+  const hasBrainMark = useGraphStore((s) => {
+    if (data.bubbleType !== 'file' || !data.path) return false;
+    const p = data.path;
+    return s.brainFileMarks.some((m) => m === p || (m.length > 3 && (m.endsWith(p) || p.endsWith(m))));
+  });
+  // 미확인 카드 있으면 Brain 버블에 점 배지.
+  const brainUnseen = isBrainBubble ? (brainSummary?.unseenCount ?? 0) : 0;
+
+  // §5.10 — 주입 펄스: 최근 주입이 4s 이내면 켜고, 남은 시간 뒤 자동 해제(무한 애니메이션 방지).
+  const [injectionPulse, setInjectionPulse] = useState(false);
+  useEffect(() => {
+    if (!isBrainBubble || latestInjectionAt <= 0) { setInjectionPulse(false); return; }
+    const remain = latestInjectionAt + 4000 - Date.now();
+    if (remain <= 0) { setInjectionPulse(false); return; }
+    setInjectionPulse(true);
+    const timer = setTimeout(() => setInjectionPulse(false), remain);
+    return () => clearTimeout(timer);
+  }, [isBrainBubble, latestInjectionAt]);
   const style = useMemo<BubbleStyleConfig>(() => {
     if (!customColor) return baseStyle;
     return { ...baseStyle, color: customColor, glow: customColor };
@@ -251,6 +316,8 @@ export const BubbleNode = memo(function BubbleNode({
     data.bubbleType === 'worktree' ||
     data.bubbleType === 'pipeline' ||
     data.bubbleType === 'conti' ||
+    data.bubbleType === 'brain' ||
+    data.bubbleType === 'trash' ||
     data.id.startsWith('sat-') ||
     data.id === '__root_home__' ||
     data.id === '__pipeline_parent__';
@@ -481,8 +548,8 @@ export const BubbleNode = memo(function BubbleNode({
       return;
     }
 
-    // Back 버블은 네비게이션 전용 — 선택 불가
-    if (data.id === '__root_back__') { pressRef.current = null; return; }
+    // Back 버블은 네비게이션 전용 — 선택 불가 (폴더 back + §5.10 기억 내부 back)
+    if (data.id === '__root_back__' || data.id === '__interior_back__') { pressRef.current = null; return; }
 
     // 더블클릭 가능 버블에서 보류 중 단일선택이 있는데 다시 눌렀다 = 더블클릭 의도.
     // 보류 취소 + 이번 press 는 선택으로 잇지 않도록 moved 로 마킹.
@@ -531,6 +598,30 @@ export const BubbleNode = memo(function BubbleNode({
   const handlePointerCancel = useCallback(() => {
     pressRef.current = null;
   }, []);
+
+  // §5.10 — 우측 더블클릭 = 기억(머릿속) 내부 진입. 우클릭 1회는 브라우저 메뉴만 억제하고 통과,
+  //   350ms 내 2번째 우클릭이면 내부 진입. 좌클릭 SELECT_DEFER_MS 상태기계는 건드리지 않는다.
+  const lastRightClickRef = useRef(0);
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    // 노드 위 우클릭은 브라우저 기본 메뉴를 항상 억제(캔버스 생성 메뉴는 pane 우클릭 전용).
+    e.preventDefault();
+    const target = interiorTargetFor(data);
+    if (!target) return;
+    const now = Date.now();
+    if (now - lastRightClickRef.current <= RIGHT_DBLCLICK_MS) {
+      lastRightClickRef.current = 0;
+      e.stopPropagation();
+      cancelPendingSelect();
+      const store = useGraphStore.getState();
+      store.setSelectIntent(null);
+      // §5.10 v3.49 — 좌더블클릭=IDE(작업) / 우더블클릭=기억(머릿속) 대칭.
+      if (target.kind === 'trash') store.enterInterior({ kind: 'trash' });
+      else if (target.kind === 'brainFeed') store.openBrainFeed({ scope: 'project' });
+      else store.openBrainFeed({ scope: 'agent', agentId: target.agentId });
+      return;
+    }
+    lastRightClickRef.current = now;
+  }, [data, cancelPendingSelect]);
 
   // 모든 버블은 원형 (size = 지름)
   const bubbleWidth = size;
@@ -587,14 +678,44 @@ export const BubbleNode = memo(function BubbleNode({
       <Handle type="source" id="src" position={Position.Top} style={HANDLE_STYLE} />
       <Handle type="target" id="tgt" position={Position.Top} style={HANDLE_STYLE} />
 
+      {/* §5.10 — 실수/교훈 카드 연결 파일 마커(우상단, amber 경고 삼각형) */}
+      {hasBrainMark && (
+        <span
+          className="pointer-events-none absolute z-20 flex items-center justify-center rounded-full bg-amber-500 text-gray-900 ring-2 ring-gray-900"
+          style={{ top: -2, right: -2, width: Math.max(12, Math.round(16 * ts)), height: Math.max(12, Math.round(16 * ts)) }}
+          title={t('brain.fileMark', { defaultValue: '이 파일의 실수/교훈 기억 있음' })}
+        >
+          <svg viewBox="0 0 24 24" width="70%" height="70%" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
+          </svg>
+        </span>
+      )}
+
+      {/* §5.10 — 주입 발생 시 Brain 버블 일시 펄스(핑크 ping, 4s time-limited) */}
+      {isBrainBubble && injectionPulse && (
+        <span className="pointer-events-none absolute inset-0 animate-ping rounded-full bg-pink-400/25" />
+      )}
+
+      {/* §5.10 — Brain 미확인 카드 점 배지(우상단, 핑크) */}
+      {isBrainBubble && brainUnseen > 0 && (
+        <span
+          className="pointer-events-none absolute z-20 flex items-center justify-center rounded-full bg-pink-400 font-bold text-white ring-2 ring-gray-900"
+          style={{ top: -2, right: -2, minWidth: Math.max(14, Math.round(18 * ts)), height: Math.max(14, Math.round(18 * ts)), fontSize: Math.max(7, Math.round(10 * ts)), padding: '0 3px' }}
+          title={t('brain.unseenBadge', { defaultValue: '미확인 {{n}}장', n: brainUnseen })}
+        >
+          {brainUnseen}
+        </span>
+      )}
+
       {/* 바디 — 드래그 핸들 (원/네모 영역만 잡아끌기 가능) */}
       <div
-        className={`bubble-body bubble-press absolute inset-0 flex flex-col items-center justify-center overflow-hidden rounded-full ${borderHighlight || ringClass} ${isDisappearing ? 'bubble-ghost' : ''}`}
+        className={`bubble-body bubble-press absolute inset-0 flex flex-col items-center justify-center overflow-hidden rounded-full ${borderHighlight || ringClass} ${isDisappearing ? 'bubble-ghost' : ''} ${isTrashBubble && trashedCount === 0 ? 'opacity-50' : ''}`}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerCancel}
         onDoubleClick={handleDoubleClick}
+        onContextMenu={handleContextMenu}
         style={{
           borderWidth,
           borderStyle: 'solid',
@@ -654,6 +775,29 @@ export const BubbleNode = memo(function BubbleNode({
               title={data.lastTool}
             >
               {data.lastTool}
+            </span>
+          )}
+          {/* §5.10 — Brain 상주 버블: 카드 수 + 최근 카드 1줄 */}
+          {isBrainBubble && (
+            <>
+              <span className="font-semibold text-white/80" style={{ fontSize: Math.max(6, Math.round(9 * ts)) }}>
+                {t('brain.cardCountShort', { defaultValue: '{{n}}장', n: brainSummary?.cardCount ?? 0 })}
+              </span>
+              {brainSummary?.recentCardTitle && size >= 50 && (
+                <span
+                  className="block truncate text-center text-white/60"
+                  style={{ fontSize: Math.max(5, Math.round(8 * ts)), maxWidth: size * BUBBLE_TEXT_WIDTH_RATIO }}
+                  title={brainSummary.recentCardTitle}
+                >
+                  {brainSummary.recentCardTitle}
+                </span>
+              )}
+            </>
+          )}
+          {/* §5.10 — 휴지통 버블: 버려진 에이전트 수 */}
+          {isTrashBubble && trashedCount > 0 && (
+            <span className="font-semibold text-white/80" style={{ fontSize: Math.max(6, Math.round(9 * ts)) }}>
+              {t('brain.trashCountShort', { defaultValue: '{{n}}개', n: trashedCount })}
             </span>
           )}
         </div>

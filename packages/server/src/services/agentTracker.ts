@@ -3,7 +3,20 @@ import { broadcast } from '../broadcastBus.js';
 import { graphManager } from './projectGraphManager.js';
 import { logger } from '../logger.js';
 
+/** §9 v3.45 — index.ts 의 디바운스 broadcastSnapshot 주입 지점. 미주입 시 즉시 송신 폴백. */
+let snapshotScheduler: (() => void) | null = null;
+
+export function setSnapshotScheduler(fn: () => void): void {
+  snapshotScheduler = fn;
+}
+
 function broadcastSnapshot(): void {
+  // §9 v3.45 — Stop/dismiss 가 몰리는 서브에이전트 군 운용 시 즉시 풀 getSnapshot()+
+  // broadcast 가 메인 스레드를 잡지 않도록 디바운스 경로로 위임한다.
+  if (snapshotScheduler) {
+    snapshotScheduler();
+    return;
+  }
   broadcast({
     type: 'graph_snapshot',
     timestamp: Date.now(),

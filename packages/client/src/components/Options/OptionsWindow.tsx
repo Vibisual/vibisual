@@ -18,6 +18,7 @@ import {
   isOpusModel,
   resolveAliasToLatest,
   listModelFamilies,
+  listEffortLevels,
   parseModelSemver,
   SUPPORTED_UI_LOCALES,
   LOCALE_META,
@@ -34,8 +35,8 @@ const REPO_URL = 'https://github.com/Vibisual/vibisual';
 // §4 v2.77 — Model 목록은 레지스트리 기반 동적(`listModelFamilies`). 폴백 alias 만 상수.
 const PERMISSION_VALUES = ['default', 'acceptEdits', 'plan', 'bypassPermissions'] as const;
 const ISOLATION_VALUES = ['none', 'worktree'] as const;
-// SSOT = shared `AVAILABLE_EFFORT_LEVELS` (§4 v2.48). 'max' = Opus 4.8 최대 추론. 드리프트 주의.
-const EFFORT_VALUES = ['default', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
+// §4 — Effort 등급은 하드코딩 폐기. `listEffortLevels(modelRegistry)` 로 설치된 `claude --help` 파싱값 사용
+//   (CLI 미발견/파싱 실패 시 shared `AVAILABLE_EFFORT_LEVELS` 폴백). Model 드롭다운 동적화와 대칭.
 
 interface OptionsWindowProps {
   open: boolean;
@@ -399,7 +400,7 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
                       onChange={(e) => { setDirty(true); setEffort(e.target.value); }}
                       className="rounded border border-gray-700 bg-gray-900 px-2 py-1.5 text-xs text-gray-200 outline-none hover:border-gray-600 focus:border-blue-500"
                     >
-                      {EFFORT_VALUES.map((v) => <option key={v} value={v}>{v}</option>)}
+                      {listEffortLevels(modelRegistry).map((v) => <option key={v} value={v}>{v}</option>)}
                     </select>
                   </div>
                 )}

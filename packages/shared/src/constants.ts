@@ -58,6 +58,43 @@ export const WS_BATCH_INTERVAL = 16;
  */
 export const WS_STREAM_BATCH_INTERVAL = 50;
 
+/**
+ * 부하 적응형 배치 창 상한(ms) — §9 v3.40.
+ *
+ * 전수조사급 다중 세션에서는 graph_snapshot 의 생성(서버=Electron 메인 스레드의
+ * getSnapshot+IPC 직렬화)과 반영(클라 loadSnapshot 풀 재구축) 비용이 각각 고정 16ms
+ * 배치 창을 넘겨, 스레드가 스냅샷 처리만 하느라 입력·렌더가 굶는다(프레임드랍).
+ * 서버·클라 양쪽 flush 는 직전 실측 비용 × WS_BATCH_BACKOFF_FACTOR 로 다음 창을
+ * 늘리되 이 값을 상한으로 한다 — 폭주 중에도 최소 4Hz 갱신은 보장.
+ * 유휴·경부하에선 비용이 작아 항상 기본 주기(16/50ms)로 즉시 복귀한다.
+ */
+export const WS_BATCH_INTERVAL_MAX = 250;
+
+/**
+ * 적응 배수 — 다음 배치 창 = clamp(기본주기, 직전 flush 비용 × 이 값, 상한).
+ * 4 ⇒ 스냅샷 경로가 해당 스레드 시간의 ~1/5 이상을 점유하지 못한다.
+ */
+export const WS_BATCH_BACKOFF_FACTOR = 4;
+
+/**
+ * hook-event 도구 이벤트 경로 전용 체크포인트 저장 배치 창(ms) — §9 v3.45.
+ *
+ * saveCheckpoint() 는 체크포인트 build + 전체 stringify + fsync 원자쓰기(+백업 rotate,
+ * identity 한 벌 더)를 Electron 메인 스레드에서 동기로 수행한다. 빠른 모델 전수조사처럼
+ * 도구 이벤트가 초당 수~수십 건 도착하면 이벤트당 저장이 스레드를 포화시켜 앱 전체가
+ * 동결되므로, 이 경로만 trailing 창으로 코얼레스한다. 사용자 조작·설정·정체성 변경 등
+ * 나머지 저장 지점은 종전대로 동기 즉시 저장(#4 내구성 원칙 유지), 정상 종료 시 pending
+ * 창은 process 'exit' 동기 flush 로 보장.
+ */
+export const CHECKPOINT_BATCH_INTERVAL = 500;
+
+/**
+ * 체크포인트 배치 창 상한(ms) — 다음 창 = clamp(기본, 직전 실측 저장 비용 ×
+ * WS_BATCH_BACKOFF_FACTOR, 이 값). 폭주 중에도 최소 0.2Hz 저장은 보장하고,
+ * 비정상 종료 시 잃을 수 있는 휘발성 그래프 상태를 최대 5초 분량으로 묶는다.
+ */
+export const CHECKPOINT_BATCH_INTERVAL_MAX = 5000;
+
 // ─── 버블 스타일 Config 테이블 ───
 // 새 BubbleType 추가 시 여기 한 줄만 추가하면 전체 반영
 
@@ -154,6 +191,22 @@ export const BUBBLE_STYLES: Record<BubbleType, BubbleStyleConfig> = {
     icon: 'auto',
     ringIdle: 'border-blue-900',
     ringActive: 'border-blue-700 shadow-lg shadow-blue-900/40',
+  },
+  // §5.10 v3.46 — Project Brain 버블 (홈 버블 위성으로 상주). 핑크.
+  brain: {
+    color: '#EC4899',
+    glow: '#F9A8D4',
+    icon: 'brain',
+    ringIdle: 'border-pink-300',
+    ringActive: 'border-pink-500 shadow-lg shadow-pink-500/30',
+  },
+  // §5.10 v3.46 — 커스텀 에이전트 휴지통 버블 (홈 버블 위성). 스톤 그레이.
+  trash: {
+    color: '#57534E',
+    glow: '#A8A29E',
+    icon: 'trash',
+    ringIdle: 'border-stone-400',
+    ringActive: 'border-stone-300 shadow-lg shadow-stone-400/30',
   },
 };
 
@@ -262,6 +315,13 @@ export const AGENT_IDLE_THRESHOLD_MS = 5 * 60 * 1000;
 
 /** 자동 idle 전환 판정 주기 (ms) */
 export const AGENT_IDLE_SWEEP_INTERVAL_MS = 30_000;
+
+/**
+ * §4 v1.50/v3.60 — Claude.ai 한도 사용률 경고 임계(%).
+ * DetailPanel 게이지·헤더 사용량 필·팝업이 모두 이 값을 공유한다(색 기준 단일화).
+ */
+export const USAGE_LIMIT_WARN_PCT = 70;
+export const USAGE_LIMIT_DANGER_PCT = 90;
 
 /**
  * 사용자 인터럽트 해소 판정 주기 (ms).
@@ -637,17 +697,42 @@ export const AVAILABLE_ISOLATION_MODES: readonly string[] = [
 ];
 
 /**
- * 선택 가능한 사고 깊이 (effort) — Opus 4.8+ (2026-05~)
+ * 선택 가능한 사고 깊이 (effort) — **폴백 전용**.
  *
  * §4 v1.49 — Opus 4.7 신규 등급 `xhigh` 추가.
  * §4 v2.48 — Opus 4.8 은 low/medium/high/xhigh/max 5등급을 모두 별개로 지원(공식 문서 2026-05).
  *   v1.49 에서 빠졌던 `'max'`(토큰 제약 없는 최대 추론, per-spawn 세션 단위)를 최상단으로 재도입.
  * 서버는 string 패스스루이므로 SDK/CLI 가 인식하는 신규 값을 즉시 사용 가능.
- * ⚠️ 클라 하드코딩 `EFFORT_VALUES`(AgentConfigPopup / OptionsWindow)와 값이 일치해야 한다 — 드리프트 주의.
+ *
+ * §4 — 더 이상 UI 의 1차 소스가 아니다. AgentConfigPopup / OptionsWindow 는 `listEffortLevels(registry)`
+ * (=설치된 `claude --help` 에서 파싱한 실제 `--effort` 값)를 우선 쓰고, 그게 비었을 때만 이 상수로 폴백한다.
+ * CLI 가 새 등급을 추가하면 코드 수정 없이 자동 노출 — Model 드롭다운의 registry 기반 동적화와 동일 철학.
  */
 export const AVAILABLE_EFFORT_LEVELS: readonly string[] = [
   'default', 'low', 'medium', 'high', 'xhigh', 'max',
 ];
+
+/**
+ * §4 — Effort(사고 깊이) 드롭다운의 **동적** 옵션 목록.
+ *
+ * 우선순위:
+ *  (1) `registry.effortLevels` (서버가 `claude --help` 의 `--effort <level> (...)` 에서 파싱) — 설치된 CLI 진실.
+ *  (2) 비었으면 `AVAILABLE_EFFORT_LEVELS` (하드코딩 폴백).
+ * 어느 경우든 맨 앞에 `'default'`(오버라이드 없음)를 항상 붙인다(중복 제거).
+ *
+ * Model 드롭다운의 `listModelFamilies` 와 대칭 — 클라 하드코딩 `EFFORT_VALUES` 를 대체한다.
+ */
+export function listEffortLevels(registry?: ModelRegistry | null): string[] {
+  const fromCli = registry?.effortLevels?.filter((v) => typeof v === 'string' && v.trim().length > 0);
+  const base = (fromCli && fromCli.length > 0)
+    ? fromCli
+    : AVAILABLE_EFFORT_LEVELS.filter((v) => v !== 'default');
+  const out: string[] = ['default'];
+  for (const v of base) {
+    if (v !== 'default' && !out.includes(v)) out.push(v);
+  }
+  return out;
+}
 
 /** 선택 가능한 메모리 모드 */
 export const AVAILABLE_MEMORY_MODES: readonly string[] = [
@@ -1397,6 +1482,65 @@ export const COMMENT_BOX_LOD = {
 } as const;
 
 /**
+ * §5.9 화면/프로그램 캡처 버블 기본값. CommentBox 처럼 캔버스 독립 요소이므로 절대좌표 배치.
+ * 16:9 비율의 네모난 라이브 영상 본체가 기본.
+ *
+ * v3.56 색 개편 — 종전엔 rose-500(#F43F5E) 한 색이 "캡처 정체성"이라며 **테두리 2px + 헤더 전체 +
+ * 창 타이틀바**를 통째로 칠했다. 라이브 영상 위에 채도 높은 분홍 색면이 얹혀 화면과 색이 싸우고
+ * 값싸 보이던 원인. 이제 크롬(테두리·헤더·타이틀바)은 **무채색 그래파이트 글라스**로 물러나 영상이
+ * 주인공이 되고, 색은 **의미 있는 최소 단위에만** 쓴다 — 라이브 도트(붉은 녹화등) / 선택 링(스카이) /
+ * 조작 중 링(에메랄드, 기존 규칙 유지).
+ */
+export const CAPTURE_BUBBLE_DEFAULTS = {
+  /** 새 캡처 버블 초기 크기 (px, 16:9). */
+  DEFAULT_WIDTH: 320,
+  DEFAULT_HEIGHT: 180,
+  /** 리사이즈 최소 크기. */
+  MIN_WIDTH: 160,
+  MIN_HEIGHT: 90,
+  /** 라벨 헤더 높이(px). */
+  HEADER_HEIGHT: 26,
+  /** 정체성/선택 액센트 — sky-400. 링·아이콘 등 얇은 선에만 쓴다(색면 ❌). */
+  ACCENT_COLOR: '#38BDF8',
+  /** 라이브(녹화등) 도트 — 옛 rose 는 여기 6px 점으로만 남는다. */
+  LIVE_COLOR: '#FB7185',
+  /** 조작 중 링 — 기존 emerald 규칙 유지. */
+  CONTROL_COLOR: '#10B981',
+  /** 크롬(헤더·타이틀바) 유리면. */
+  CHROME_BG: 'rgba(14,17,23,0.88)',
+  /** 크롬 테두리 헤어라인. */
+  CHROME_BORDER: 'rgba(255,255,255,0.10)',
+  /** 영상 배경(레터박스). */
+  STAGE_BG: '#07090D',
+} as const;
+
+/**
+ * §5.9 캡처 버블 **이어 붙이기(자석 스냅)** — 화면 버블 2~3개를 듀얼/트리플 모니터처럼
+ * 나란히 붙여 쓰기 위한 값들. 임계값은 **화면 픽셀** 기준이라 실제 판정 때 줌으로 나눠
+ * 캔버스 단위로 바꾼다(줌을 당겨도 손끝 감각이 같게).
+ */
+export const CAPTURE_SNAP = {
+  /** 이 거리(화면 px) 안으로 들어오면 변을 붙인다. */
+  THRESHOLD_PX: 12,
+  /**
+   * 맞대기(변끼리 이어 붙이기) 후보에 주는 우선 가중치(화면 px). 같은 거리에서 "정렬"과
+   * "붙이기"가 경합하면 붙이기가 이긴다 — 사용자가 원하는 건 대개 이어 붙이기다.
+   */
+  BUTT_BONUS_PX: 5,
+  /**
+   * 맞대기로 인정할 최소 겹침(캔버스 px). 옆을 스치듯 지나가는 먼 버블에 변이 빨려가는
+   * 착시를 막는다(세로로 거의 안 겹치는데 좌우 변이 붙는 현상).
+   */
+  MIN_OVERLAP: 24,
+  /** 스냅이 걸린 축을 보여 주는 가이드선 색 — 맞대기(이어 붙임). */
+  GUIDE_BUTT_COLOR: '#38BDF8',
+  /** 가이드선 색 — 정렬(변 맞춤, 붙지는 않음). */
+  GUIDE_ALIGN_COLOR: '#A78BFA',
+  /** 가이드선 두께(화면 px) — 렌더 시 줌으로 나눠 캔버스 단위로 환산. */
+  GUIDE_WIDTH_PX: 1.5,
+} as const;
+
+/**
  * UE 블프 풍 팔레트 — CommentBoxDetail 색 버튼 소스.
  * hex 는 태그 구분 색(Amber/Rose/Emerald/Blue/Violet/Pink/Teal/Slate) 으로 시각 다양성 확보.
  */
@@ -1997,13 +2141,15 @@ export function buildAgentReportRules(args: {
 - \`did\`: 네가(=AI) 실제로 끝낸 일(사용자 액션의 맥락으로 함께 첨부).
 - \`userActions\`: 네가 대신 할 수 없어 **사용자가 직접 해야 하는 일**(빌드 실행, 에디터 조작, 외부 승인 등). **이게 비면 신고 자체를 보내지 마라.**
 - \`nextSteps\`: 다음 차례 작업(선택).
+- \`learned\`: 이 작업에서 배운 것 — 다음에 같은 실수를 반복하지 않기 위한 교훈/결정/함정(§5.10 Project Brain 기억 카드로 저장됨). 확실한 것만, 최대 3개. 없으면 생략.
+- \`helpfulMemoryIds\`: 브리핑/주입으로 받은 기억 카드 중 실제로 작업에 도움이 된 카드의 id 목록(브리핑에 \`[card-xxxx]\` 로 표기됨). 도움된 것만, 없으면 생략.
 
 \`userActions\` 가 있는 완료 보고 직전에만 Bash 로 1회 호출한다(실패해도 무시하고 자연어 보고는 그대로 진행):
 \`\`\`bash
 ${prelude}curl -s -X POST "${base}/api/agent-report" \\
   ${tokenHdr} \\
   -H 'Content-Type: application/json' --data-binary @- <<'JSON'
-{"agentId":"${agentId}","subAgentId":${subField},"did":["완료한 일 1","완료한 일 2"],"userActions":["사용자가 직접 해야 할 일 1"],"nextSteps":["다음 단계 1"]}
+{"agentId":"${agentId}","subAgentId":${subField},"did":["완료한 일 1","완료한 일 2"],"userActions":["사용자가 직접 해야 할 일 1"],"nextSteps":["다음 단계 1"],"learned":["이번에 배운 교훈 1"],"helpfulMemoryIds":["card-도움된-id"]}
 JSON
 \`\`\`
 - **\`userActions\` 가 비어 있으면 신고 자체를 보내지 마라** — 빈 신고는 카드만 늘려 신호를 묻는다.
@@ -2183,7 +2329,7 @@ export function buildAgentIframeRules(args: {
   return `
 
 # 서버 iframe 신고 (Vibisual IDE 프리뷰 버블)
-사용자가 **브라우저로 열어볼 만한 로컬 서버**(dev 서버, 정적 파일 서버, 게임/데모 프리뷰 등)를 띄웠을 때는, 그 URL 을 아래 엔드포인트로 **1회 신고**한다. Vibisual 이 그 URL 로 **iframe 프리뷰 버블**을 캔버스에 직접 띄워 사용자가 링크를 복사해 열 필요 없이 앱 안에서 바로 본다.
+**전제 — 사용자가 직접 "서버를 띄워라 / 프리뷰를 보여줘" 라고 요청했을 때만 이 신고를 한다.** 미리보기를 보여주려고 **네 판단으로 서버를 새로 기동하지 마라** — 사용자가 시키지도 않았는데 dev/정적 서버를 자발적으로 띄우는 것은 금지다(사용자가 "왜 안 시켰는데 서버가 켜졌냐"고 문제 삼은 바로 그 지점). 사용자가 **명시적으로 요청해서 띄운**(또는 작업상 반드시 실행해야 해서 이미 돌고 있는) **브라우저로 열어볼 로컬 서버**만, 그 URL 을 아래 엔드포인트로 **1회 신고**한다. Vibisual 이 그 URL 로 **iframe 프리뷰 버블**을 캔버스에 직접 띄워 사용자가 링크를 복사해 열 필요 없이 앱 안에서 바로 본다.
 
 - \`url\`: 사용자가 열 **정확한 URL**(포트 + 경로 포함). 특정 페이지를 보여주려면 그 경로까지 넣어라(예: \`http://127.0.0.1:8777/index.html\`).
 
@@ -2195,7 +2341,7 @@ ${prelude}curl -s -X POST "${base}/api/agent-iframe" \\
 {"agentId":"${agentId}","subAgentId":${subField},"url":"http://127.0.0.1:8777/index.html"}
 JSON
 \`\`\`
-- **일회성 명령·probe(curl/wget)·빌드처럼 사용자가 열어볼 서버가 아니면 보내지 마라.** 프리뷰할 실제 서버가 있을 때만.
+- **사용자가 서버·프리뷰를 요청하지 않았으면 보내지 마라.** 일회성 명령·probe(curl/wget)·빌드, 그리고 요청 없이 네가 임의로 띄운 서버는 신고 대상이 아니다 — 사용자가 명시적으로 원한 실제 서버가 있을 때만.
 - 신고 후 자연어 본문에서 "링크를 브라우저에서 여세요" 식 안내를 길게 반복하지 마라 — 버블이 그 역할을 한다. 짧은 맥락 한 줄이면 충분.
 - 이 신고는 **표시 전용** — 실제 작업/판정 로직과 무관하며, 보내든 안 보내든 결과엔 영향이 없다.
 - 토큰 헤더(\`x-vibisual-hook-token\`)가 없으면 401 이다. 위 예시에 이미 포함돼 있다.`;
@@ -2362,3 +2508,229 @@ export const MOBILE_PAIR_BAN_MS = 10 * 60 * 1000;
 
 /** UPnP 포트 매핑 임대 시간(초). 이 절반 주기로 갱신해 공유기가 매핑을 지우지 않게 한다. */
 export const MOBILE_UPNP_LEASE_S = 3600;
+
+// ─── §4 v3.66 QR 페어링 티켓 ─────────────────────────────────────────────────
+
+/**
+ * QR 페어링 티켓 수명(ms). 발급 후 이 시간이 지나면 스캔해도 무효 —
+ * 화면에 잠깐 띄우는 용도라 짧게 잡는다(사진에 찍혀 남아도 곧 죽는다).
+ */
+export const MOBILE_QR_TICKET_TTL_MS = 3 * 60 * 1000;
+
+/** QR 티켓 토큰 바이트 수(hex 인코딩 전) — 3분 안에 맞힐 수 없는 수준. */
+export const MOBILE_QR_TOKEN_BYTES = 24;
+
+/** QR 에 담기는 딥링크 경로. `?t=<token>` 을 붙여 스캔 즉시 세션 쿠키를 받는다. */
+export const MOBILE_QR_PATH = '/mobile/qr';
+
+/** QR 딥링크의 토큰 쿼리 파라미터 이름. */
+export const MOBILE_QR_PARAM = 't';
+
+// ─── §5.10 Project Brain — 상수(§3.3 매직넘버 금지) ──────────────────────────
+
+/** 세션 1건 리플렉션이 저장할 수 있는 카드 후보 상한(적게 저장 원칙). */
+export const BRAIN_SESSION_CANDIDATE_MAX = 4;
+
+/** 스폰 브리핑에서 태스크 텍스트와 검색해 주입할 상위 카드 수(top-K). */
+export const BRAIN_INJECTION_TOP_K = 5;
+
+/** 스폰 브리핑에 전부 실을 수 있는 규칙(rule) 카드 상한. 초과분은 최근/참조순으로 절단. */
+export const BRAIN_RULE_CARD_MAX = 20;
+
+/** 카드가 "묻힘 방지" 흐림 대상이 되는 미참조 기간(ms) — 60일. */
+export const BRAIN_STALE_THRESHOLD_MS = 60 * 24 * 60 * 60 * 1000;
+
+/** 카드 수가 이 문턱을 넘으면 "두뇌 정리"(중복 병합·보관 제안)를 제안한다. */
+export const BRAIN_CLEANUP_CARD_COUNT_THRESHOLD = 200;
+
+/**
+ * 스폰 브리핑 주입 토큰 예산(대략치). 문자열 길이를 `chars/4 ≈ tokens` 휴리스틱으로 환산해
+ * 이 값을 넘지 않도록 카드를 담는다(정확한 토크나이저 없이 근사 — 소량 코퍼스 전제).
+ */
+export const BRAIN_INJECTION_TOKEN_BUDGET = 2000;
+
+/** agentId 당 보관하는 주입 이벤트(BrainInjectionEvent) 최대 개수(런타임 ring buffer 캡). */
+export const BRAIN_INJECTIONS_MAX_PER_AGENT = 20;
+
+/** 리플렉션을 돌릴 최소 세션 이벤트 수 — 이보다 적으면 건너뛴다(잡음 방지). */
+export const BRAIN_REFLECTION_MIN_EVENTS = 8;
+
+/**
+ * 세션당 리플렉션 디바운스(ms) — 활동이 있을 때마다 리셋되므로 실질적으로 "세션 idle 판정 창"이다.
+ *
+ * §5.10 원문은 "**세션 종료/idle 전환 시**" 1회인데 트리거가 Stop 훅에 걸려 있고 Stop 은 세션 종료가
+ * 아니라 **매 턴 종료**마다 온다. v3.54 실측(24h 7,254 스폰 / 피크 1,858회·시)에서 30초 창은 턴 간격보다
+ * 길지 못해 사실상 무제한 발화였다 — idle 로 굳었다고 볼 수 있는 5분으로 올려 SSOT 의미를 회복한다.
+ */
+export const BRAIN_REFLECTION_DEBOUNCE_MS = 300_000;
+
+/**
+ * 리플렉션 **전역** 시간당 상한(슬라이딩 1시간 윈도우). 디바운스는 세션당이라 짧은 세션이 계속
+ * 새로 생기는 자동 루프에서는 아무 제약이 못 된다(v3.54 실측: 세션 10,665개 중 10,537개가 2~3요청짜리).
+ * 세션 수와 무관하게 전체 발화량을 묶는 마지막 방어선.
+ */
+export const BRAIN_REFLECTION_MAX_PER_HOUR = 12;
+
+/** 동시에 떠 있을 수 있는 리플렉션 자식 프로세스 수. 초과분은 큐가 아니라 폐기(밀린 발화는 어차피 중복). */
+export const BRAIN_REFLECTION_MAX_CONCURRENT = 1;
+
+/**
+ * 같은 세션을 다시 리플렉션하려면 직전 리플렉션 이후 이만큼의 새 JSONL 라인이 쌓여야 한다.
+ * 없으면 매번 겹치는 tail 을 다시 태워 같은 입력에 같은 답을 반복한다.
+ */
+export const BRAIN_REFLECTION_MIN_NEW_LINES = 40;
+
+/** 연속으로 카드 0장을 반환한 횟수가 이 값에 닿으면 그 프로젝트 루트에 지수 백오프를 건다. */
+export const BRAIN_REFLECTION_EMPTY_STREAK_THRESHOLD = 3;
+
+/** 수확 0 백오프 상한(ms). 연속 빈 결과가 계속돼도 이 이상은 안 늘어난다. */
+export const BRAIN_REFLECTION_BACKOFF_MAX_MS = 4 * 60 * 60 * 1000;
+
+/** 다이제스트에 담을 메시지 1건당 본문 최대 문자 수(assistant/user 텍스트). */
+export const BRAIN_REFLECTION_TEXT_MAX_CHARS = 1_200;
+
+/** 다이제스트에 담을 도구 결과 1건당 최대 문자 수. 정상 결과는 더 짧게, 에러는 이 값까지 남긴다. */
+export const BRAIN_REFLECTION_TOOL_RESULT_MAX_CHARS = 240;
+
+/**
+ * 리플렉션 스폰이 쓸 **대체 시스템 프롬프트**(`--system-prompt`). 기본 Claude Code 시스템 프롬프트 +
+ * 도구 정의는 v3.54 실측에서 스폰당 약 25.7k 토큰을 차지했는데, 리플렉션은 텍스트만 읽고 JSON 을
+ * 뱉는 작업이라 그 전부가 낭비다. 도구는 `--disallowed-tools '*'` 로 함께 걷어낸다.
+ */
+export const BRAIN_REFLECTION_SYSTEM_PROMPT =
+  '너는 텍스트 분석기다. 주어진 지시와 입력만 보고 요청된 형식으로만 답한다. '
+  + '인사·설명·사과·마크다운 코드펜스를 붙이지 않고, 어떤 도구도 사용하지 않는다.';
+
+/**
+ * 리플렉션 스폰에서 걷어낼 도구 목록(공백 구분 — CLI `--disallowed-tools <tools...>`).
+ *
+ * **글로브 `'*'` 는 쓰지 않는다.** v3.54 실측에서 `'*'` 는 도구 정의를 컨텍스트에서 빼주지 못했고
+ * (총 입력 22,894 토큰), 아래처럼 이름을 전부 나열했을 때만 실제로 빠졌다(총 입력 **8,209 토큰**).
+ * 새 내장 도구가 추가되면 여기에도 더해야 절감이 유지된다.
+ */
+export const BRAIN_REFLECTION_DISALLOWED_TOOLS = [
+  'Task', 'Agent', 'Bash', 'BashOutput', 'KillShell',
+  'Glob', 'Grep', 'Read', 'Edit', 'Write', 'NotebookEdit',
+  'WebFetch', 'WebSearch', 'TodoWrite', 'SlashCommand',
+  'ExitPlanMode', 'AskUserQuestion', 'Skill',
+  'ListMcpResources', 'ReadMcpResource',
+].join(' ');
+
+/** 참조 카운트(refCount/lastReferencedAt) 디스크 flush 디바운스(ms). 주입 폭주 시 파일 쓰기 완화. */
+export const BRAIN_REF_FLUSH_MS = 5_000;
+
+/** 파일 접근 경고를 세션+파일 조합당 1회만 낼지 여부(도배 방지). */
+export const BRAIN_FILE_WARN_ONCE_PER_SESSION = true;
+
+/** 능동 검색(`/api/brain/search`) 이 돌려주는 최대 결과 수. */
+export const BRAIN_SEARCH_MAX_RESULTS = 8;
+
+/**
+ * 리플렉션 입력으로 넣을 세션 **다이제스트** tail 최대 문자 수(과금·지연 방어).
+ *
+ * v3.54 에서 의미가 바뀌었다 — 예전엔 원시 JSONL 24,000자였고 그 대부분이 base64 signature·도구
+ * 페이로드라 실제 대화는 얼마 안 됐다. 지금은 `buildDigest` 가 대화만 추린 뒤라 같은 문자 수가
+ * 훨씬 조밀하다(= 토큰도 그만큼 더 나간다). 정보량은 유지하면서 비용을 낮추려면 상한을 함께
+ * 내려야 해서 8,000자로 잡는다 — 세션 끝 수십 턴이면 카드 0~4장 추출엔 충분하다.
+ */
+export const BRAIN_REFLECTION_INPUT_MAX_CHARS = 8_000;
+
+/** 저장 전 중복 검사 Jaccard 토큰 겹침 문턱 — 이 이상이면 새 카드 대신 기존 카드 갱신. */
+export const BRAIN_DEDUP_JACCARD_THRESHOLD = 0.55;
+
+// ─── §5.10 v3.49 유튜브식 랭킹/피드 상수 ──────────────────────────
+
+/** 피드 오버레이 각 섹션(related/recent/frequent/resurface)이 표시하는 카드 상한. */
+export const BRAIN_FEED_SECTION_SIZE = 8;
+
+/**
+ * 랭킹 가중치 4종(합 = 1.0). score = W_RELEVANCE·관련도 + W_HELPFUL·도움률 + W_FRESHNESS·신선도 + W_PINNED·pinned.
+ * 컨텍스트 관련도(현재 태스크·파일 매칭)를 주신호로, 도움률·신선도로 보정, pinned 는 소폭 부스트.
+ */
+export const BRAIN_RANK_W_RELEVANCE = 0.45;
+export const BRAIN_RANK_W_HELPFUL = 0.3;
+export const BRAIN_RANK_W_FRESHNESS = 0.2;
+export const BRAIN_RANK_W_PINNED = 0.05;
+
+/**
+ * 도움률 Laplace 스무딩 계수 — helpfulRate = (helpfulCount + α) / (refCount + β).
+ * 노출 적은 카드가 우연히 100% 도움률로 튀는 것을 막고, 미노출 카드는 α/β 의 낮은 사전확률에서 출발.
+ */
+export const BRAIN_HELPFUL_SMOOTH_ALPHA = 1;
+export const BRAIN_HELPFUL_SMOOTH_BETA = 4;
+
+/** 신선도 반감기(ms) — 14일. freshness = 2^(-(now - max(updatedAt, lastHelpfulAt))/HALF_LIFE). */
+export const BRAIN_FRESHNESS_HALF_LIFE_MS = 14 * 24 * 60 * 60 * 1000;
+
+/** 노출 임계 — 이 이상 노출(refCount)됐는데 helpfulCount 가 0 이면 강등 계수를 곱한다(stale 침전). */
+export const BRAIN_DEMOTE_IMPRESSION_MIN = 8;
+
+/** 위 임계 초과 + helpful 0 카드에 곱하는 강등 계수(0~1). */
+export const BRAIN_DEMOTE_FACTOR = 0.5;
+
+/** 재노출("오랜만에 다시 볼 기억") 후보 최소 미참조 기간(ms) — 21일. 이보다 오래 미참조면 후보. */
+export const BRAIN_RESURFACE_MIN_AGE_MS = 21 * 24 * 60 * 60 * 1000;
+
+/**
+ * §5.10 주입(읽기) — 커스텀/스폰 에이전트에게 주입할 "능동 검색" 지시문 + 브리핑 기억 블록.
+ *
+ * `cardsBlock` = 서버가 조립한 프로젝트 규칙 카드 + 태스크 top-K + 자기 카드 요약(본문 없이 title·요지).
+ * 에이전트는 필요 시 loopback `GET /api/brain/search?q=...` 로 두 층 합산 검색을 직접 할 수 있다
+ * (토큰 인증 — 작업 신고와 동일 인프라). Hook 에이전트는 spawn 통제 밖이라 이 블록이 안 들어간다.
+ */
+export function buildBrainRulesSection(args: {
+  serverBase: string;
+  serverToken: string;
+  cardsBlock: string;
+  identityFile?: string;
+}): string {
+  const { serverBase, serverToken, cardsBlock, identityFile } = args;
+  const prelude = buildDynamicEndpointPrelude(identityFile, serverBase, serverToken);
+  const base = prelude ? '$VIBI_BASE' : serverBase;
+  const tokenHdr = prelude
+    ? `-H "x-vibisual-hook-token: $VIBI_TOKEN"`
+    : `-H 'x-vibisual-hook-token: ${serverToken}'`;
+  const memory = cardsBlock.trim()
+    ? `
+
+## 이 프로젝트의 기억(Project Brain)
+아래는 이 프로젝트/너 자신이 쌓아온 결정·실수·교훈·규칙·사실이다. **같은 실수를 반복하지 말고**, 규칙은 지켜라.
+
+${cardsBlock.trim()}`
+    : '';
+  return `
+
+# Project Brain (§5.10 장기 기억)${memory}
+
+## 능동 검색
+작업 중 과거 결정·함정·규칙이 궁금하면 아래로 프로젝트 기억을 직접 검색할 수 있다(프로젝트+너 자신의 두 층 합산, 결과에 출처 층 표시). 실패해도 무시하고 작업은 계속한다.
+\`\`\`bash
+${prelude}curl -s ${tokenHdr} "${base}/api/brain/search?q=검색어"
+\`\`\`
+- 이 검색은 표시/참고 전용이며, 호출 여부는 작업 결과에 영향을 주지 않는다.
+- 토큰 헤더(\`x-vibisual-hook-token\`)가 없으면 401 이다(위 예시에 포함).`;
+}
+
+/**
+ * §5.10 리플렉션 프롬프트 — 세션 종료/idle 시 CLI(haiku) 로 그 세션 기록에서 기억 카드 후보를 추출.
+ * **추출 트리거 4조건에 걸리는 것만** 후보로 삼고, 없으면 빈 배열. 파괴적 자가 수정 없음(저장은 서버가 중복 검사 경유).
+ */
+export const BRAIN_REFLECTION_PROMPT = `너는 아래 AI 코딩 세션 기록에서 **다음 세션에 도움이 될 장기 기억 카드**를 추출하는 분석기다.
+
+다음 4가지 트리거에 **명확히 걸리는 것만** 카드로 뽑아라(억지로 만들지 마라 — 없으면 빈 배열):
+1. 같은 실수를 반복한 흔적 (mistake)
+2. 무언가를 시도했다가 되돌린 것 (lesson)
+3. 사용자가 같은 교정을 다시 입력한 것 (lesson/rule)
+4. 다음 세션에도 필요한 결정 (decision/fact)
+
+규칙:
+- 확실한 것만. 애매하거나 그 세션 한정인 것은 버려라.
+- 각 카드: type(decision|mistake|lesson|rule|fact), title(한 줄 요지), body(왜/무엇을/어떻게, 2~5문장), files(관련 파일 경로 배열, 없으면 []).
+- 최대 ${BRAIN_SESSION_CANDIDATE_MAX}개.
+- 출력은 **순수 JSON 배열만**(설명·마크다운·코드펜스 금지). 없으면 \`[]\`.
+
+출력 형식 예:
+[{"type":"lesson","title":"X 는 Y 로 처리해야 함","body":"...","files":["packages/server/src/foo.ts"]}]
+
+세션 기록:
+`;

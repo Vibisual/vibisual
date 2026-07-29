@@ -5,6 +5,7 @@ import { useGraphStore, selectIDEOverlay, agentSessionInputKey } from '../../sto
 import type { IDEViewType } from '../../stores/graphStore.js';
 import { useAvailableSkills, deleteSkill, persistSkillOrder, persistSkillFavorites, refreshAvailableSkills, type SkillInfo } from '../../hooks/useAvailableSkills.js';
 import { ScrollFade } from '../ScrollFade.js';
+import { autosizeInput } from './inputAutosize.js';
 
 const EMPTY_SUBS: SubAgent[] = [];
 const EMPTY_EVENTS: AgentEvent[] = [];
@@ -311,8 +312,9 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
       if (!ta) return;
       ta.focus();
       ta.setSelectionRange(ta.value.length, ta.value.length);
-      ta.style.height = 'auto';
-      ta.style.height = `${Math.min(ta.scrollHeight, 120)}px`;
+      // ⚠ 인라인 height 직접 조작 금지 — field-sizing 지원 환경에서 명시 height 를 남기면
+      //   자동 확장이 리마운트 전까지 죽는다. 반드시 공용 autosizeInput 경유.
+      autosizeInput(ta);
     });
   }, [agentId, activeSessionId, setAgentSessionInputText, executionMode]);
 

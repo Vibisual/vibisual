@@ -33,6 +33,11 @@
       "closeTab": "Tutup tab",
       "unloadedProject": "Belum dimuat",
       "clickToLoad": "Klik untuk muat proyek"
+    },
+    "usage": {
+      "tooltip": "Sesi saat ini: {{percent}}% dari batas 5 jam terpakai — klik untuk detail",
+      "tooltipNoData": "Data penggunaan belum dikumpulkan — klik untuk mengaktifkan",
+      "noData": "--%"
     }
   },
   "panel": {
@@ -392,7 +397,8 @@
         "low": "Berpikir minimal. Lebih cepat tapi kurang menyeluruh.",
         "medium": "Kedalaman berpikir seimbang.",
         "high": "Penalaran mendalam. Lebih lambat tapi menyeluruh.",
-        "xhigh": "Penalaran ekstra tinggi (Opus 4.7+). Direkomendasikan untuk sebagian besar pekerjaan coding."
+        "xhigh": "Penalaran ekstra tinggi (Opus 4.7+). Direkomendasikan untuk sebagian besar pekerjaan coding.",
+        "unknown": "{{name}} — tingkat upaya penalaran yang didukung oleh CLI yang terinstal."
       },
       "tools": {
         "label": "Tools",
@@ -657,6 +663,35 @@
       "delete": "Hapus",
       "deleteBundleTooltip": "Hapus seluruh bundle (utama + sibling otomatis)",
       "deleteEdgeTooltip": "Hapus edge"
+    },
+    "usage": {
+      "title": "Penggunaan Claude",
+      "close": "Tutup penggunaan",
+      "session5h": "Sesi saat ini (5 jam)",
+      "weekly7d": "Batas mingguan (7 hari)",
+      "resetsIn": "Disetel ulang dalam {{span}}",
+      "resetUnknown": "Waktu setel ulang tidak diketahui",
+      "resettingNow": "Sedang disetel ulang",
+      "spanDh": "{{d}} h {{h}} j",
+      "spanHm": "{{h}} j {{m}} mnt",
+      "spanM": "{{m}} mnt",
+      "lastUpdated": "Terakhir diperbarui {{time}}",
+      "neverUpdated": "Belum ada data penggunaan yang diterima",
+      "collectorTitle": "Pengumpul penggunaan",
+      "collectorOnHint": "Claude Code sedang melaporkan batas Anda ke Vibisual",
+      "collectorOffHint": "Aktifkan untuk membaca batas paket Anda dari Claude Code",
+      "collectorEnable": "Aktifkan",
+      "collectorDisable": "Nonaktifkan",
+      "collectorPassthrough": "Status line Anda yang sudah ada tetap dipertahankan — Vibisual menjalankannya dan menampilkan keluarannya apa adanya.",
+      "collectorForeign": "Anda sudah punya status line sendiri. Mengaktifkan ini tidak menghapusnya: Vibisual membungkusnya dan tetap menampilkan keluarannya.",
+      "collectorFailed": "Tidak dapat menjangkau pengaturan pengumpul penggunaan.",
+      "collectorRestartHint": "Nilai masuk saat sesi Claude Code interaktif menggambar status line-nya. Sesi yang sudah berjalan perlu dimulai ulang.",
+      "localTitle": "Proyek ini di Vibisual",
+      "localAgents": "Agen",
+      "localInput": "Token masukan",
+      "localOutput": "Token keluaran",
+      "localHint": "Dihitung dari agen pada tab proyek aktif. Batas paket di atas berlaku untuk seluruh akun dan mencakup pekerjaan di luar Vibisual.",
+      "noValue": "--"
     }
   },
   "ide": {
@@ -667,7 +702,9 @@
       "restoreLabel": "Pulihkan",
       "resizeDock": "Ubah ukuran dock",
       "customLabel": "Kustom",
-      "hookLabel": "Hook"
+      "hookLabel": "Hook",
+      "renameHint": "Klik dua kali untuk ganti nama (F2)",
+      "renameInputLabel": "Nama agent"
     },
     "tabbar": {
       "newSession": "Sesi Baru",
@@ -701,7 +738,8 @@
       "ctxQuoteReply": "Kutip balasan",
       "ctxSendAsPrompt": "Kirim sebagai prompt baru",
       "ctxSelectAll": "Pilih semua",
-      "ctxSelectionRequired": "Pilih teks terlebih dahulu"
+      "ctxSelectionRequired": "Pilih teks terlebih dahulu",
+      "ctxSaveToBrain": "Simpan ke Brain"
     },
     "askQuestion": {
       "title": "Pertanyaan",
@@ -775,9 +813,59 @@
       "collapse": "ciutkan",
       "copy": "Salin",
       "copied": "Tersalin"
+    },
+    "report": {
+      "learnedTitle": "Dipelajari"
+    },
+    "memoryChip": {
+      "label": "Merujuk {{n}} memori"
     }
   },
   "bubbleMap": {
+    "capture": {
+      "pickerTitle": "Tangkap Layar / Program",
+      "pickerSubtitle": "Pilih layar atau jendela program untuk ditampilkan secara langsung di dalam bubble.",
+      "screens": "Layar",
+      "windows": "Program · Jendela",
+      "refresh": "Segarkan",
+      "loading": "Memuat sumber…",
+      "empty": "Tidak ada sumber yang dapat ditangkap.",
+      "unavailable": "Tangkap layar tidak tersedia di sini (hanya di aplikasi yang sudah dikemas).",
+      "repick": "Pilih sumber lain",
+      "connecting": "Menghubungkan…",
+      "sourceLost": "Sumber tidak ditemukan · pilih lagi",
+      "pickPrompt": "Klik untuk memilih sumber",
+      "controlToggle": "Kontrol jarak jauh (kirim klik & ketikan ke target yang ditangkap)",
+      "controlOn": "Mengontrol",
+      "controlOff": "Kontrol Jarak Jauh",
+      "expandHint": "Klik dua kali untuk membuka di jendela",
+      "collapse": "Kembalikan ukuran (Esc)",
+      "maximize": "Maksimalkan",
+      "restore": "Pulihkan",
+      "windowClose": "Tutup (Esc)",
+      "source": "Sumber tangkapan",
+      "kindScreen": "Layar",
+      "kindWindow": "Jendela",
+      "expand": "Buka di jendela",
+      "playback": "Pemutaran",
+      "snapshotShort": "Snapshot",
+      "quality": "Kualitas / data",
+      "view": "Tampilan",
+      "stillSaverHint": "Menurunkan frame rate saat tidak ada gerakan — hemat CPU dan data",
+      "remoteControl": "Kontrol jarak jauh",
+      "readOnlyHint": "Mengunci mode kontrol (hanya lihat)",
+      "controlInWindow": "Kontrol jarak jauh di jendela ini — mati secara bawaan (mouse tidak diteruskan)",
+      "delete": "Hapus bubble tangkapan",
+      "live": "LIVE",
+      "keysToggle": "Tombol khusus · tempel",
+      "controlTargetMissing": "Target kontrol tidak ditemukan · pilih sumber lagi",
+      "controlEngineMissing": "Mesin kontrol gagal dimuat · mulai ulang aplikasi",
+      "controlInjectFailed": "Gagal mengirim input",
+      "backgroundClick": "Jangan gerakkan kursor saya (eksperimental)",
+      "backgroundClickHint": "Mengirim klik langsung ke jendela target sehingga mouse Anda tidak bergerak. Game dan jendela terproteksi mengabaikannya dan otomatis kembali ke cara biasa.",
+      "backgroundClickBlocked": "Jendela ini mengabaikan klik latar · kursor dipinjam sebentar",
+      "backgroundClickUnavailable": "Klik latar tidak tersedia · kursor dipinjam sebentar"
+    },
     "taskEdge": {
       "iconHint": "Klik: detail · Klik dua kali: edit",
       "pulse": {
@@ -907,6 +995,7 @@
   "tabMenu": {
     "close": "Tutup",
     "closeOthers": "Tutup Lainnya",
+    "closeLeft": "Tutup ke Kiri",
     "closeRight": "Tutup ke Kanan",
     "closeAll": "Tutup Semua",
     "pin": "Pin",
@@ -951,9 +1040,8 @@
       "createAutoAgentHint": "Meta agent — otomatis memunculkan tim agent kustom dari prompt Anda",
       "createWorktree": "Buat Worktree",
       "createWorktreeHint": "Ruang kerja baru dari master terbaru",
-      "restoreCustomAgent": "Pulihkan Agent Kustom Sebelumnya",
-      "restoreLoading": "Memuat…",
-      "restoreEmpty": "Tidak ada yang bisa dipulihkan"
+      "createCapture": "Bubble Tangkap Layar/Program",
+      "createCaptureHint": "Menampilkan layar atau jendela program secara langsung di dalam bubble"
     },
     "bounds": {
       "label": "Batas Bubble",
@@ -1000,6 +1088,77 @@
         "goBack": "Klik dua kali untuk kembali",
         "expand": "Klik dua kali untuk perluas"
       }
+    }
+  },
+  "brain": {
+    "bubbleLabel": "Brain",
+    "trashBubbleLabel": "Sampah",
+    "cardCountShort": "{{n}} kartu",
+    "trashCountShort": "{{n}}",
+    "unseenBadge": "{{n}} belum dilihat",
+    "type": {
+      "decision": "Keputusan",
+      "mistake": "Kesalahan",
+      "lesson": "Pelajaran",
+      "rule": "Aturan",
+      "fact": "Fakta"
+    },
+    "scopeProject": "Brain Proyek",
+    "scopeAgent": "Memori Agent",
+    "statusGhost": "Perlu ditinjau",
+    "supersededNote": "Konten sebelumnya",
+    "linkedFiles": "File terkait",
+    "refCount": "Referensi",
+    "lastReferenced": "Terakhir direferensikan",
+    "createdAt": "Dibuat",
+    "sourceSession": "Sesi sumber",
+    "promote": "Promosikan ke Brain Proyek",
+    "pin": "Pin",
+    "unpin": "Unpin",
+    "edit": "Edit",
+    "save": "Simpan",
+    "cancel": "Batal",
+    "delete": "Hapus",
+    "deleteConfirm": "Hapus?",
+    "deleteYes": "Hapus",
+    "loading": "Memuat…",
+    "cardDetailTitle": "Kartu Memori",
+    "summaryCards": "Kartu memori",
+    "summaryUnseen": "Belum dilihat",
+    "summaryRecent": "Baru disimpan",
+    "openInterior": "Buka interior",
+    "trashedAt": "Dibuang",
+    "trashedMemories": "Memori agent",
+    "cardCountUnit": " kartu",
+    "restore": "Pulihkan",
+    "purge": "Hapus permanen",
+    "purgeConfirm": "Ini akan menghapus semuanya termasuk {{n}} kartu memori agent.",
+    "purgeYes": "Hapus permanen",
+    "fileMark": "File ini memiliki memori kesalahan/pelajaran",
+    "cardCountUnitSuffix": "",
+    "feed": {
+      "title": "Brain Proyek",
+      "agentTitle": "Memori Agent Ini",
+      "searchPlaceholder": "Cari memori…",
+      "sectionRelated": "Terkait pekerjaan saat ini",
+      "sectionRecent": "Baru dipelajari",
+      "sectionFrequent": "Sering digunakan",
+      "sectionResurface": "Layak ditinjau ulang",
+      "sectionAgentOwn": "Yang dipelajari agent ini",
+      "sectionProjectRef": "Dibagikan dari proyek (referensi)",
+      "helpful": "Membantu",
+      "refShort": "ref.",
+      "helpfulShort": "membantu",
+      "scopeTagProject": "Proyek",
+      "scopeTagAgent": "Agent ini",
+      "empty": "Tidak ada memori untuk ditampilkan.",
+      "loading": "Memuat…",
+      "total": "{{n}} kartu",
+      "agoNow": "baru saja",
+      "agoMin": "{{n}} menit lalu",
+      "agoHour": "{{n}} jam lalu",
+      "agoDay": "{{n}} hari lalu",
+      "agoMonth": "{{n}} bulan lalu"
     }
   }
 }
