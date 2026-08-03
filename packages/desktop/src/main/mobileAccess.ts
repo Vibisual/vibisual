@@ -57,8 +57,9 @@ import {
 //   - IP 별 실패 차단: 한 IP 가 MOBILE_PAIR_MAX_ATTEMPTS 회 실패하면 MOBILE_PAIR_BAN_MS 동안
 //     그 IP 만 차단(전역 잠금이 아니라 per-IP — 소유자 lockout·공격자 DoS 동시 방지).
 //   - Host 헤더 IP-리터럴 가드 — DNS rebinding 차단.
-//   - 세션 쿠키는 SameSite=Strict — 교차 출처 스크립트가 API 를 못 친다. (LAN http 와 외부
-//     https 를 한 쿠키로 공유하므로 Secure 는 붙이지 않는다 — 페어링이 실질 게이트.)
+//   - 세션 쿠키는 SameSite=Lax — 교차 출처 POST·서브리소스·스크립트가 API 를 못 친다.
+//     (Strict 가 아닌 이유는 grantSession 주석 참고: QR 스캔 진입이 구조적으로 막힌다.
+//     LAN http 와 외부 https 를 한 쿠키로 공유하므로 Secure 는 붙이지 않는다 — 페어링이 실질 게이트.)
 //
 // v3.66 — QR 페어링. 주소 타이핑 + 코드 입력을 폰 카메라 스캔 한 번으로 대체한다. 인증 모델은
 // 그대로고 **입력 수단만 추가**: 3분짜리 티켓 토큰을 딥링크(MOBILE_QR_PATH?t=…)에 실어 QR 로
@@ -366,7 +367,7 @@ function isAllowedHost(host: string | undefined): boolean {
 
 /**
  * §4 v3.33 — WS Origin 검사(ttyd `--check-origin` 등가, 심층 방어). 브라우저 WS 핸드셰이크의
- * Origin 이 접속 Host 와 동일 출처인지 확인해 교차 출처 페이지의 소켓 탈취를 막는다(SameSite=Strict
+ * Origin 이 접속 Host 와 동일 출처인지 확인해 교차 출처 페이지의 소켓 탈취를 막는다(SameSite=Lax
  * 쿠키 위 이중 방어). 비브라우저(Origin 부재)는 통과 — 쿠키·Host 가드가 여전히 게이트.
  */
 function isSameOriginWs(req: IncomingMessage): boolean {
@@ -395,7 +396,9 @@ function pairingPageHtml(locked: boolean, codeLen: number, qrNote: string | null
       ? '<p class="note">This QR code has expired — issue a new one on the desktop, or enter the pairing code below. / QR 코드가 만료되었습니다. 데스크톱에서 새로 발급하거나 아래에 페어링 코드를 입력해 주세요.</p>'
       : qrNote === 'locked'
         ? '<p class="note">QR pairing is temporarily blocked from this device. / 이 기기에서의 QR 페어링이 잠시 차단되었습니다.</p>'
-        : '';
+        : qrNote === 'cookie'
+          ? '<p class="note">QR pairing succeeded, but this browser did not keep the session cookie — open the link in your default browser (Safari/Chrome) instead of an in-app browser, and turn off private mode. / QR 페어링 자체는 성공했지만 이 브라우저가 세션 쿠키를 저장하지 않았습니다. 카카오톡·인스타그램 같은 앱 내장 브라우저 대신 기본 브라우저(Safari·Chrome)로 열고, 시크릿 모드를 꺼 주세요.</p>'
+          : '';
   return `<!doctype html>
 <html lang="ko">
 <head>
@@ -461,6 +464,17 @@ document.getElementById('f').addEventListener('submit', async (e) => {
 /**
  * 페어링 성공 처리 — 세션 토큰을 발급해 영속 목록에 넣고 HttpOnly 쿠키로 심는다.
  * 코드 입력(handlePairRequest)과 QR 딥링크(handleQrRedeem)가 **같은 경로**를 쓴다.
+ *
+ * §4 v3.87 — `SameSite` 는 반드시 **Lax**. Strict 로 두면 QR 페어링이 구조적으로 깨진다:
+ * 쿠키 발급 자체는 되지만, QR 스캔은 **외부 앱(카메라·스캐너·인앱 브라우저)이 시작한 최상위
+ * 내비게이션**이라 이어지는 `/` 요청에 브라우저가 Strict 쿠키를 싣지 않는다 → 미인증으로
+ * 도착 → 페어링 코드 화면. (코드 입력은 페어링 페이지가 자기 출처에서 fetch 로 받고
+ * `location.replace('/')` 로 같은 사이트 안에서 이동해 Strict 조건을 만족했기에 멀쩡했다 —
+ * 즉 발급이 아니라 **되돌아오는 길**만 막혔던 것.)
+ * Lax 는 최상위 GET 내비게이션에만 쿠키를 허용하고 교차 출처 POST·서브리소스·스크립트
+ * 요청은 그대로 막으므로, 실질 방어선(페어링 게이트 · Host IP-리터럴 가드 · WS Origin 검사 ·
+ * `/api` 가 전부 POST/WS)은 약해지지 않는다.
+ * (LAN http 와 외부 https 를 한 쿠키로 공유하므로 Secure 는 붙이지 않는다.)
  */
 function grantSession(res: ServerResponse): void {
   const session = randomBytes(24).toString('hex');
@@ -468,7 +482,7 @@ function grantSession(res: ServerResponse): void {
   savePersisted();
   res.setHeader(
     'set-cookie',
-    `${MOBILE_SESSION_COOKIE}=${session}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${SESSION_COOKIE_MAX_AGE_S}`,
+    `${MOBILE_SESSION_COOKIE}=${session}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_COOKIE_MAX_AGE_S}`,
   );
 }
 
@@ -526,7 +540,11 @@ function handleQrRedeem(req: IncomingMessage, res: ServerResponse): void {
   pairAttempts.delete(ip);
   ticket.usedCount += 1;
   grantSession(res);
-  redirectTo(res, '/');
+  // §4 v3.87 — `?paired=1` 표식을 달아 보낸다. 정상이면 다음 요청이 쿠키를 물고 와 인증되고
+  // handleRequest 가 파라미터를 떼어 `/` 로 한 번 더 보낸다. 그런데도 미인증으로 돌아오면
+  // "브라우저가 쿠키를 저장하지 않았다"가 확정되므로(인앱 브라우저·시크릿 모드) 그 사유를
+  // 페어링 페이지에 띄운다 — 종전엔 설명 없는 코드 화면이라 원인을 알 길이 없었다.
+  redirectTo(res, '/?paired=1');
   console.log(`[mobile-access] device paired via QR from ${ip}`);
   pushState();
 }
@@ -691,15 +709,19 @@ function handleRequest(req: IncomingMessage, res: ServerResponse): void {
     res.statusCode = 403; res.end('forbidden host'); req.resume(); return;
   }
   const pathname = (req.url ?? '').split('?')[0] ?? '';
+  const query = new URLSearchParams((req.url ?? '').split('?')[1] ?? '');
   if (req.method === 'POST' && pathname === '/mobile/pair') { handlePairRequest(req, res); return; }
   // §4 v3.66 — QR 딥링크. 인증 전에 처리해야 스캔 즉시 세션을 받는다.
-  if ((req.method === 'GET' || req.method === 'HEAD') && pathname === MOBILE_QR_PATH) {
+  // §4 v3.87 — 끝 슬래시도 받는다. URL 을 정규화하는 스캐너가 `/mobile/qr/` 로 열면 종전엔
+  // 완전일치에서 탈락해 아무 설명 없이 페어링 코드 화면으로 새어 나갔다.
+  if ((req.method === 'GET' || req.method === 'HEAD') && (pathname === MOBILE_QR_PATH || pathname === `${MOBILE_QR_PATH}/`)) {
     handleQrRedeem(req, res);
     return;
   }
   if (!isAuthedRequest(req)) {
     if (req.method === 'GET' || req.method === 'HEAD') {
-      const qrNote = new URLSearchParams((req.url ?? '').split('?')[1] ?? '').get('qr');
+      // §4 v3.87 — QR 로 세션을 발급받고도 미인증으로 돌아왔다면 쿠키가 저장되지 않은 것이다.
+      const qrNote = query.get('paired') === '1' ? 'cookie' : query.get('qr');
       res.statusCode = 200;
       res.setHeader('content-type', 'text/html; charset=utf-8');
       res.setHeader('cache-control', 'no-store');
@@ -707,6 +729,12 @@ function handleRequest(req: IncomingMessage, res: ServerResponse): void {
     } else {
       res.statusCode = 401; res.end();
     }
+    req.resume();
+    return;
+  }
+  // §4 v3.87 — 인증된 채로 `?paired=1` 이 남아 있으면 표식을 떼고 깨끗한 `/` 로 보낸다.
+  if ((req.method === 'GET' || req.method === 'HEAD') && pathname === '/' && query.get('paired') === '1') {
+    redirectTo(res, '/');
     req.resume();
     return;
   }

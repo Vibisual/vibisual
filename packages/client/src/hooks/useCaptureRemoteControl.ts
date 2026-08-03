@@ -19,10 +19,12 @@ import type { CaptureControlMode } from '../stores/captureBubbleRuntime.js';
 // 풀려 있어 주입이 대상에 그대로 닿는다:
 //   · 터치(절대) — 누른 지점과 뗀 지점이 같으면 `click`, 멀어졌으면 그 구간을 `drag` 로 재생.
 //     연타는 `dblclick`. 버튼은 좌/우/가운데 그대로.
-//   · 마우스(상대) — **모바일용 트랙패드**(v3.60 정정). 모드를 켜면 가상 마우스가 화면 **한가운데**에
-//     생기고, **눌러서 끈 만큼만** 그 포인터가 움직인다(끌기=포인터 옮기기, 대상엔 아무것도 주입 안 함).
-//     탭하면 가상 마우스가 있는 자리를 `click`. **내 실제 PC 마우스를 따라다니지 않는다** — hover 로
-//     따라오게 했던 v3.57~59 는 트랙패드가 아니라 '커서 미러'였고, 애초에 폰엔 hover 가 없다.
+//   · 마우스(상대) — **확정 사양(v3.69)**: 화면 안에 가상 마우스가 하나 있고, 사용자는 **그것을 드래그
+//     앤 드롭으로 옮긴다**. ① 모드를 켜면 가상 마우스가 화면 **한가운데**에 생긴다. ② 누른 채 끌면 손이
+//     움직인 만큼 따라오고, 놓으면 그 자리에 남는다(옮기는 동안 대상엔 아무것도 주입하지 않는다).
+//     ③ **짧게 톡 누르면(탭) 가상 마우스가 있는 그 지점을 정확히 클릭**한다 — 손이 조금 흔들려도
+//     클릭으로 본다(300ms·10px 이내). ④ **내 실제 PC 마우스를 따라다니지 않는다** — hover 로 따라오게
+//     했던 v3.57~59 는 트랙패드가 아니라 '커서 미러'였고, 애초에 폰엔 hover 가 없다.
 //
 // **사용자의 로컬 커서는 숨기지 않는다**(v3.57 의 `cursor:none` 철회) — 자기 마우스가 사라지면 어디를
 // 조작하는지 오히려 헷갈린다. 실제 커서는 늘 보이고, 대상에 찍히는 지점은 오버레이 가상 커서가 따로
@@ -34,6 +36,13 @@ const ECHO_WINDOW_MS = 200;
 const ECHO_JUMP_PX = 24;
 /** 이 거리(px) 안에서 뗐으면 '탭'(클릭), 넘겼으면 '드래그'. */
 const TAP_SLOP_PX = 6;
+/**
+ * 마우스(트랙패드) 모드의 탭 판정(v3.69) — 이 모드에서 손이 조금 움직이는 건 **클릭하다 흔들린 것**이지
+ * 포인터를 옮기려는 게 아니다. 종전엔 6px 만 넘어도 '옮기기'로 분류해 **클릭이 통째로 사라졌다**
+ * (사용자 체감: "가상 마우스는 움직이는데 클릭이 안 된다"). 짧게 톡 누르면 흔들려도 클릭으로 본다.
+ */
+const MOUSE_TAP_MAX_MS = 300;
+const MOUSE_TAP_SLOP_PX = 10;
 /** 연속 두 탭이 이 시간(ms)·거리 안이면 더블클릭으로 재생. */
 const DBLCLICK_MS = 320;
 const DBLCLICK_SLOP_PX = 12;
@@ -149,7 +158,7 @@ export function useCaptureRemoteControl({
   // 진행 중인 누름 — 시작 정규화 좌표 + 시작 화면좌표(탭/드래그 판정) + 버튼 + 포인터 id(멀티터치 구분).
   // `button`·`twoFinger` 는 두 번째 손가락이 닿는 순간 갱신된다(한 손가락=좌클릭, 두 손가락=우클릭).
   const pressRef = useRef<
-    { button: number; pointerId: number; u: number; v: number; clientX: number; clientY: number; twoFinger?: boolean } | null
+    { button: number; pointerId: number; u: number; v: number; clientX: number; clientY: number; at: number; twoFinger?: boolean } | null
   >(null);
   // 직전 포인터 위치(마우스 모드 상대 이동용).
   const lastPointerRef = useRef({ x: 0, y: 0 });
@@ -369,8 +378,14 @@ export function useCaptureRemoteControl({
     // 두 손가락 제스처는 언제나 "우클릭 탭"이다 — 두 손가락이 조금 흔들렸다고 드래그로 보지 않는다.
     const twoFinger = press.twoFinger === true;
 
-    // 마우스(상대) 모드에서 밀어 옮긴 것은 "포인터 이동"이지 대상 드래그가 아니다 — 주입 없음.
-    if (!twoFinger && mode === 'mouse' && movedPx > TAP_SLOP_PX) return;
+    // 마우스(상대) 모드 = 화면 안 가상 마우스를 **드래그 앤 드롭으로 옮기고, 탭하면 그 자리를 클릭**.
+    //   · 끌어서 옮긴 것(길게/멀리) → 포인터 이동일 뿐, 대상에는 아무것도 주입하지 않는다.
+    //   · 짧게 톡 누른 것 → 조금 흔들렸더라도 **가상 마우스가 있는 그 지점을 클릭**한다.
+    if (!twoFinger && mode === 'mouse') {
+      const heldMs = performance.now() - press.at;
+      const isTap = movedPx <= TAP_SLOP_PX || (heldMs <= MOUSE_TAP_MAX_MS && movedPx <= MOUSE_TAP_SLOP_PX);
+      if (!isTap) return;
+    }
 
     // 터치(절대) 모드에서 손이 충분히 움직였으면 그 구간을 진짜 드래그로 재생.
     if (!twoFinger && mode === 'touch' && movedPx > TAP_SLOP_PX) {
@@ -435,6 +450,7 @@ export function useCaptureRemoteControl({
       v: vvRef.current,
       clientX: e.clientX,
       clientY: e.clientY,
+      at: performance.now(),
     };
     pressRef.current = press;
     setPressing(true);

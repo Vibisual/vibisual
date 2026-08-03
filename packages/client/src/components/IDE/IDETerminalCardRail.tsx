@@ -36,9 +36,33 @@ function CardsIcon(): React.JSX.Element {
   );
 }
 
-/** 단일 TerminalCard → 알맞은 기존 카드 컴포넌트로 렌더. */
-function TerminalCardItem({ card, agentId, sessionId, onSendPrompt }: {
+/**
+ * §5.5 #17-12 — 한 턴에 카드는 한 장. 신고 바로 뒤에 붙어 온 검수는 별도 카드로 쌓지 않고
+ * 그 신고 카드 안쪽 구획으로 합친다(같은 보고에서 연달아 방출되므로 인접이 곧 같은 턴이다).
+ */
+export interface PairedTerminalCard {
   card: TerminalCard;
+  review?: TerminalCard;
+}
+export function pairTerminalCards(cards: TerminalCard[]): PairedTerminalCard[] {
+  const out: PairedTerminalCard[] = [];
+  for (let i = 0; i < cards.length; i++) {
+    const cur = cards[i]!;
+    const next = cards[i + 1];
+    if (cur.kind === 'report' && next && next.kind === 'review') {
+      out.push({ card: cur, review: next });
+      i++;
+      continue;
+    }
+    out.push({ card: cur });
+  }
+  return out;
+}
+
+/** 단일 TerminalCard → 알맞은 기존 카드 컴포넌트로 렌더. */
+function TerminalCardItem({ card, review, agentId, sessionId, onSendPrompt }: {
+  card: TerminalCard;
+  review?: TerminalCard;
   agentId: string;
   sessionId: string | null;
   onSendPrompt: (prompt: string) => void;
@@ -50,7 +74,14 @@ function TerminalCardItem({ card, agentId, sessionId, onSendPrompt }: {
       did: card.did, userActions: card.userActions, nextSteps: card.nextSteps,
       note: card.note, createdAt: card.createdAt,
     };
-    return <AgentReportCard report={report} />;
+    const mergedReview: AgentReview | undefined = review && review.kind === 'review'
+      ? {
+          id: review.id, agentId, subAgentId,
+          instruction: review.instruction, changes: review.changes, checkpoints: review.checkpoints,
+          note: review.note, createdAt: review.createdAt,
+        }
+      : undefined;
+    return <AgentReportCard report={report} review={mergedReview} />;
   }
   if (card.kind === 'questions') {
     const questions: AgentQuestions = {
@@ -113,7 +144,7 @@ export const IDETerminalCardRail = memo(function IDETerminalCardRail({
           {t('ide.terminal.cards.title')}
         </span>
         <span className="rounded bg-violet-500/20 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-violet-300">
-          {cards.length}
+          {pairTerminalCards(cards).length}
         </span>
         <button
           type="button"
@@ -150,10 +181,11 @@ export const IDETerminalCardRail = memo(function IDETerminalCardRail({
             <span className="text-[11px] text-gray-600">{t('ide.terminal.cards.empty')}</span>
           </div>
         ) : (
-          cards.map((card) => (
+          pairTerminalCards(cards).map(({ card, review }) => (
             <TerminalCardItem
               key={card.id}
               card={card}
+              review={review}
               agentId={agentId}
               sessionId={sessionId}
               onSendPrompt={onSendPrompt}

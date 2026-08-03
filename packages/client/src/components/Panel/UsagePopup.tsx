@@ -1,22 +1,20 @@
-import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { UsageCollectorStatus } from '@vibisual/shared';
+import type { ClaudeUsageLimit, UsageCollectorStatus } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import {
-  normalizeUsagePct,
+  clampUsagePct,
   usageBarToneClass,
   usageTextToneClass,
 } from '../../utils/usageLimits.js';
 import { ScrollFade } from '../ScrollFade.js';
 
-// SCENARIO.md §4 v1.50 / v3.60 — 사용량 팝업.
+// SCENARIO.md §4 v1.50 / v3.60 / v3.62 — 사용량 팝업.
 //
-// 헤더 사용량 필(§4 v3.60)을 클릭하면 열린다. Claude.ai 플랜 한도(5시간 세션 창 / 7일 주간)를
-// 게이지 + 리셋 카운트다운으로 보여주고, 값을 채우는 수집기(statusLine) 스위치를 함께 둔다.
-// DetailPanel 루트 게이지(§4 v1.50)는 그대로 유지 — 이 팝업은 그 위에 얹는 확장이다.
-//
-// 표시 못 하는 것: 플랜명(Max 20x)·모델별 주간 한도·사용 크레딧. Claude Code 가 statusLine 으로
-// 내보내지 않는 값이라(오직 `/usage` 화면 내부에만 존재) 정직하게 빼둔다.
+// 헤더 사용량 필을 클릭하면 열린다. v3.62 부터 **Claude 앱 `/usage` 와 같은 원천**(서버가
+// `GET /api/oauth/usage` 를 로컬 OAuth 토큰으로 직접 조회)을 1차로 그린다 — 인터랙티브 세션
+// 없이 즉시 뜨고, 플랜명·모델별 주간 한도·사용 크레딧까지 전부 들어온다.
+// statusLine 수집기(§4 v3.60)는 그 경로가 막혔을 때(로그인 정보 없음 등)만 폴백으로 노출한다.
 
 const API_BASE = '';
 
@@ -48,74 +46,70 @@ function LimitGauge({
   used,
   resetAt,
   now,
+  subdued,
 }: {
   label: string;
   used: number | undefined;
   resetAt: number | undefined;
   now: number;
+  /** 모델별 한도처럼 부차적인 줄은 한 단계 작게 그린다. */
+  subdued?: boolean;
 }): React.JSX.Element {
   const { t } = useTranslation();
   const countdown = useCountdownLabel(resetAt, now);
-  const pct = typeof used === 'number' ? normalizeUsagePct(used) : null;
+  const pct = typeof used === 'number' ? clampUsagePct(used) : null;
 
   return (
     <div className="flex flex-col gap-1.5">
-      <div className="flex items-baseline justify-between">
-        <span className="text-xs font-semibold text-gray-200">{label}</span>
-        <span className={`font-mono text-lg font-bold tabular-nums ${pct === null ? 'text-gray-600' : usageTextToneClass(pct)}`}>
+      <div className="flex items-baseline justify-between gap-2">
+        <span className={`min-w-0 truncate font-semibold ${subdued ? 'text-[11px] text-gray-400' : 'text-xs text-gray-200'}`}>
+          {label}
+        </span>
+        <span className={`font-mono font-bold tabular-nums ${subdued ? 'text-sm' : 'text-lg'} ${
+          pct === null ? 'text-gray-600' : usageTextToneClass(pct)
+        }`}>
           {pct === null ? t('panel.usage.noValue') : `${pct.toFixed(0)}%`}
         </span>
       </div>
-      <div className="h-2 overflow-hidden rounded-full bg-gray-700/70">
+      <div className={`overflow-hidden rounded-full bg-gray-700/70 ${subdued ? 'h-1.5' : 'h-2'}`}>
         {pct !== null && (
           <div className={`h-full transition-all duration-500 ${usageBarToneClass(pct)}`} style={{ width: `${pct}%` }} />
         )}
       </div>
-      <div className="text-[10px] text-gray-500">
-        {countdown ?? t('panel.usage.resetUnknown')}
-      </div>
+      {countdown && <div className="text-[10px] text-gray-500">{countdown}</div>}
     </div>
   );
 }
 
-/** 수집기 스위치 — statusLine opt-in. 꺼져 있으면 왜 값이 비는지 여기서만 설명한다. */
-function CollectorSection(): React.JSX.Element {
+/** 직접 조회가 막혔을 때만 뜨는 안내 + statusLine 폴백 스위치 자리. */
+function ErrorNotice({ error }: { error: string }): React.JSX.Element {
   const { t } = useTranslation();
-  const [status, setStatus] = useState<UsageCollectorStatus | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const msg =
+    error === 'no-credentials' ? t('panel.usage.errNoCredentials')
+      : error === 'unauthorized' ? t('panel.usage.errUnauthorized')
+        : t('panel.usage.errNetwork');
+  return (
+    <div className="flex gap-2 rounded border border-amber-500/40 bg-amber-500/10 px-2.5 py-2 text-[11px] leading-relaxed text-amber-200">
+      <svg className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="10" />
+        <path d="M12 16v-4" />
+        <path d="M12 8h.01" />
+      </svg>
+      <span>{msg}</span>
+    </div>
+  );
+}
 
-  const load = useCallback(async (): Promise<void> => {
-    try {
-      const res = await fetch(`${API_BASE}/api/usage-collector`);
-      if (!res.ok) { setFailed(true); return; }
-      setStatus(await res.json() as UsageCollectorStatus);
-      setFailed(false);
-    } catch {
-      setFailed(true);
-    }
-  }, []);
+interface CollectorSectionProps {
+  status: UsageCollectorStatus | null;
+  failed: boolean;
+  busy: boolean;
+  onToggle: (enable: boolean) => void;
+}
 
-  useEffect(() => { void load(); }, [load]);
-
-  const toggle = useCallback(async (enable: boolean): Promise<void> => {
-    setBusy(true);
-    try {
-      const res = await fetch(`${API_BASE}/api/usage-collector`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enable }),
-      });
-      if (!res.ok) { setFailed(true); return; }
-      setStatus(await res.json() as UsageCollectorStatus);
-      setFailed(false);
-    } catch {
-      setFailed(true);
-    } finally {
-      setBusy(false);
-    }
-  }, []);
-
+/** statusLine 폴백 스위치 — 직접 조회가 안 될 때만 노출한다(§4 v3.62 이후 부차 경로). */
+function CollectorSection({ status, failed, busy, onToggle }: CollectorSectionProps): React.JSX.Element {
+  const { t } = useTranslation();
   const installed = status?.installed === true;
 
   return (
@@ -130,7 +124,7 @@ function CollectorSection(): React.JSX.Element {
         <button
           type="button"
           disabled={busy}
-          onClick={() => void toggle(!installed)}
+          onClick={() => onToggle(!installed)}
           className={`flex-shrink-0 rounded px-3 py-1.5 text-[11px] font-semibold transition-colors duration-150 disabled:opacity-50 ${
             installed
               ? 'border border-gray-700 text-gray-300 hover:bg-gray-800'
@@ -141,7 +135,6 @@ function CollectorSection(): React.JSX.Element {
         </button>
       </div>
 
-      {/* 사용자가 이미 쓰던 statusLine 은 지우지 않고 감싼다 — 그 사실을 명시한다. */}
       {installed && status?.passthroughCommand && (
         <div className="rounded border border-gray-700 bg-gray-800/40 px-2.5 py-1.5 text-[10px] leading-relaxed text-gray-400">
           {t('panel.usage.collectorPassthrough')}
@@ -168,6 +161,7 @@ function CollectorSection(): React.JSX.Element {
 
 export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps): React.JSX.Element {
   const { t } = useTranslation();
+  const claudeUsage = useGraphStore((s) => s.claudeUsage);
   const rateLimits = useGraphStore((s) => s.rateLimits);
   const agents = useGraphStore((s) => s.agents);
   const agentProjects = useGraphStore((s) => s.agentProjects);
@@ -188,6 +182,109 @@ export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps)
     return () => window.removeEventListener('keydown', handleKey);
   }, [onClose]);
 
+  // 열 때 한 번 최신값을 받아온다(스냅샷으로도 오지만, 팝업을 연 순간이 가장 보고 싶은 시점).
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshFailed, setRefreshFailed] = useState(false);
+  const refresh = useCallback((): void => {
+    setRefreshing(true);
+    void (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/claude-usage/refresh`, { method: 'POST' });
+        setRefreshFailed(!res.ok);
+      } catch {
+        // 스냅샷에 남아 있는 직전 값으로 계속 보여주되, 실패 사실은 숨기지 않는다.
+        setRefreshFailed(true);
+      } finally {
+        setRefreshing(false);
+      }
+    })();
+  }, []);
+  useEffect(() => { refresh(); }, [refresh]);
+
+  const limits = claudeUsage?.limits ?? [];
+  const sessionLimit = useMemo(
+    () => limits.find((l) => l.kind === 'session' || l.group === 'session'),
+    [limits],
+  );
+  const weeklyAll = useMemo(
+    () => limits.find((l) => l.kind === 'weekly_all') ?? limits.find((l) => l.group === 'weekly' && !l.scopeLabel),
+    [limits],
+  );
+  const scopedWeekly = useMemo(
+    () => limits.filter((l): l is ClaudeUsageLimit & { scopeLabel: string } => Boolean(l.scopeLabel)),
+    [limits],
+  );
+
+  // 직접 조회가 비어 있으면 statusLine 이 밀어준 §4 v1.50 값으로 대체한다.
+  const usingFallback = limits.length === 0;
+  const sessionPct = usingFallback ? rateLimits?.used5h : sessionLimit?.percent;
+  const sessionReset = usingFallback ? rateLimits?.resetAt5h : sessionLimit?.resetsAt;
+  const weeklyPct = usingFallback ? rateLimits?.used7d : weeklyAll?.percent;
+  const weeklyReset = usingFallback ? rateLimits?.resetAt7d : weeklyAll?.resetsAt;
+
+  const updatedAt = claudeUsage?.fetchedAt ?? rateLimits?.updatedAt;
+  const showCollector = usingFallback || Boolean(claudeUsage?.error);
+
+  /**
+   * §4 v3.63 — 카운트다운이 0 을 지나면 그 자리에서 한 번 다시 받아온다.
+   *
+   * 리셋 직후에도 화면이 100% 로 남아 있던 문제(사용자 보고)의 클라 쪽 안전망이다. 서버도
+   * 리셋 시각에 일회성 갱신을 걸지만, 그 타이머가 어떤 이유로 못 돌아도 팝업을 보고 있으면
+   * 스스로 복구된다. 같은 리셋 시각에 두 번 요청하지 않도록 반응한 시각을 기억한다.
+   */
+  const reactedResets = useRef<Set<number>>(new Set());
+  useEffect(() => {
+    for (const target of [sessionReset, weeklyReset]) {
+      if (typeof target !== 'number') continue;
+      if (now <= target + 2_000) continue;
+      if (reactedResets.current.has(target)) continue;
+      reactedResets.current.add(target);
+      refresh();
+    }
+  }, [now, sessionReset, weeklyReset, refresh]);
+
+  // statusLine 폴백 스위치 상태 — 직접 조회가 막혔을 때만 쓰인다.
+  const [collector, setCollector] = useState<UsageCollectorStatus | null>(null);
+  const [collectorBusy, setCollectorBusy] = useState(false);
+  const [collectorFailed, setCollectorFailed] = useState(false);
+
+  useEffect(() => {
+    if (!showCollector) return;
+    let alive = true;
+    void (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/usage-collector`);
+        if (!alive) return;
+        if (!res.ok) { setCollectorFailed(true); return; }
+        setCollector(await res.json() as UsageCollectorStatus);
+        setCollectorFailed(false);
+      } catch {
+        if (alive) setCollectorFailed(true);
+      }
+    })();
+    return () => { alive = false; };
+  }, [showCollector]);
+
+  const handleToggle = useCallback((enable: boolean): void => {
+    setCollectorBusy(true);
+    void (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/usage-collector`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enable }),
+        });
+        if (!res.ok) { setCollectorFailed(true); return; }
+        setCollector(await res.json() as UsageCollectorStatus);
+        setCollectorFailed(false);
+      } catch {
+        setCollectorFailed(true);
+      } finally {
+        setCollectorBusy(false);
+      }
+    })();
+  }, []);
+
   // Vibisual 자신이 굴린 몫 — 활성 탭 스코프(헤더 배지와 같은 집계 기준).
   const local = useMemo(() => {
     const inProject = activeProject
@@ -202,9 +299,7 @@ export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps)
     return { count: inProject.length, input, output };
   }, [agents, agentProjects, activeProject]);
 
-  const updatedLabel = rateLimits
-    ? new Date(rateLimits.updatedAt).toLocaleTimeString()
-    : null;
+  const credits = claudeUsage?.extraCredits;
 
   return (
     <div
@@ -215,16 +310,33 @@ export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps)
         className="mx-4 flex max-h-[80vh] w-full max-w-md flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl shadow-black/50"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-gray-700 px-4 py-3">
-          <div className="flex items-center gap-2">
-            <svg className="h-4 w-4 text-blue-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 20v-6" />
-              <path d="M6 20V10" />
-              <path d="M18 20V4" />
+        {/* Header — 제목 + 플랜 배지 + 새로고침 + 닫기 */}
+        <div className="flex items-center gap-2 border-b border-gray-700 px-4 py-3">
+          <svg className="h-4 w-4 flex-shrink-0 text-blue-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 20v-6" />
+            <path d="M6 20V10" />
+            <path d="M18 20V4" />
+          </svg>
+          <span className="text-sm font-semibold text-gray-100">{t('panel.usage.title')}</span>
+          {claudeUsage?.plan && (
+            <span className="rounded bg-violet-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-violet-300">
+              {claudeUsage.plan}
+            </span>
+          )}
+          <div className="flex-1" />
+          <button
+            type="button"
+            onClick={refresh}
+            disabled={refreshing}
+            title={t('panel.usage.refresh')}
+            aria-label={t('panel.usage.refresh')}
+            className="flex h-6 w-6 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200 disabled:opacity-40"
+          >
+            <svg className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+              <polyline points="21 3 21 9 15 9" />
             </svg>
-            <span className="text-sm font-semibold text-gray-100">{t('panel.usage.title')}</span>
-          </div>
+          </button>
           <button
             type="button"
             onClick={onClose}
@@ -239,29 +351,72 @@ export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps)
         </div>
 
         <ScrollFade fill className="min-h-0 flex-1">
-          {/* 플랜 한도 */}
           <div className="flex flex-col gap-4 px-4 py-4">
+            {claudeUsage?.error && <ErrorNotice error={claudeUsage.error} />}
+
             <LimitGauge
               label={t('panel.usage.session5h')}
-              used={rateLimits?.used5h}
-              resetAt={rateLimits?.resetAt5h}
+              used={sessionPct}
+              resetAt={sessionReset}
               now={now}
             />
             <LimitGauge
               label={t('panel.usage.weekly7d')}
-              used={rateLimits?.used7d}
-              resetAt={rateLimits?.resetAt7d}
+              used={weeklyPct}
+              resetAt={weeklyReset}
               now={now}
             />
-            <div className="text-[10px] text-gray-600">
-              {updatedLabel
-                ? t('panel.usage.lastUpdated', { time: updatedLabel })
-                : t('panel.usage.neverUpdated')}
+
+            {/* 모델별 주간 한도 — Claude 앱 /usage 의 모델 행과 같은 자리 */}
+            {scopedWeekly.map((l) => (
+              <LimitGauge
+                key={`${l.kind}-${l.scopeLabel}`}
+                label={t('panel.usage.weeklyScoped', { model: l.scopeLabel })}
+                used={l.percent}
+                resetAt={l.resetsAt}
+                now={now}
+                subdued
+              />
+            ))}
+
+            <div className="flex items-center gap-2 text-[10px]">
+              <span className="text-gray-600">
+                {updatedAt
+                  ? t('panel.usage.lastUpdated', { time: new Date(updatedAt).toLocaleTimeString() })
+                  : t('panel.usage.neverUpdated')}
+              </span>
+              {refreshFailed && <span className="text-red-400">{t('panel.usage.refreshFailed')}</span>}
             </div>
           </div>
 
-          {/* 수집기 스위치 */}
-          <CollectorSection />
+          {/* 사용 크레딧 */}
+          {credits && (
+            <div className="flex flex-col gap-1.5 border-t border-gray-700 px-4 py-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-gray-200">{t('panel.usage.creditsTitle')}</span>
+                <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                  credits.enabled ? 'bg-emerald-500/20 text-emerald-300' : 'bg-gray-600/30 text-gray-400'
+                }`}>
+                  {credits.enabled ? t('panel.usage.creditsOn') : t('panel.usage.creditsOff')}
+                </span>
+              </div>
+              <span className="text-[10px] leading-relaxed text-gray-500">
+                {credits.enabled && typeof credits.utilization === 'number'
+                  ? t('panel.usage.creditsUsed', { percent: Math.round(credits.utilization) })
+                  : t('panel.usage.creditsHint')}
+              </span>
+            </div>
+          )}
+
+          {/* statusLine 폴백 — 직접 조회가 막혔을 때만 */}
+          {showCollector && (
+            <CollectorSection
+              status={collector}
+              failed={collectorFailed}
+              busy={collectorBusy}
+              onToggle={handleToggle}
+            />
+          )}
 
           {/* Vibisual 자신이 굴린 몫 */}
           <div className="flex flex-col gap-1.5 border-t border-gray-700 px-4 py-3">

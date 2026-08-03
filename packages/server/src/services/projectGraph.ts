@@ -50,6 +50,7 @@ import type {
   AgentFeedback,
   BrainInjectionEvent,
   BrainSummary,
+  SessionLoop,
 } from '@vibisual/shared';
 import { MAX_BASH_HISTORY, MAX_FILE_EDITS, MAX_WRITE_DIFF_BYTES, DEFAULT_MAX_SATELLITES, SATELLITE_MAX_BOUNDS, MAX_AGENTS, SATELLITE_TYPES, AGENT_FADE_DURATION, BUBBLE_TTL, GHOST_FADE_DURATION, FILE_EXISTENCE_MISS_THRESHOLD, FRONTEND_SERVER_PATTERNS, IFRAME_DEAD_GRACE_MS, parseModelFamily, DEFAULT_AGENT_CONFIG, AVAILABLE_AGENT_TOOLS, DEFAULT_UI_LOCALE, COMMENT_BOX_DEFAULTS, READ_TOOLS, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, AGENT_REPORT_MAX_PER_AGENT, AGENT_QUESTIONS_MAX_PER_AGENT, AGENT_REVIEWS_MAX_PER_AGENT, AGENT_LISTS_MAX_PER_AGENT, AGENT_FEEDBACK_MAX_PER_AGENT, DELETED_AGENT_TOMBSTONE_MAX, CMD_AGENT_COLOR, MAX_AGENT_EVENTS, BRAIN_INJECTIONS_MAX_PER_AGENT } from '@vibisual/shared';
 import type { ServerKind, UiLocale, ExecutionMode } from '@vibisual/shared';
@@ -605,6 +606,13 @@ export class ProjectGraph {
    * 영속화 대상 (ProjectCheckpoint.agentFeedbacks). ring buffer 캡 = AGENT_FEEDBACK_MAX_PER_AGENT.
    */
   private agentFeedbacks = new Map<string, AgentFeedback[]>();
+  /**
+   * §5.5 #17-11 v3.79 — 세션 반복 실행(루프) 설정 (subAgentId → SessionLoop).
+   * 키가 **세션 탭 ID** 인 것이 핵심 — 탭마다 다른 반복 명령을 갖는다.
+   * 영속화 대상 (ProjectCheckpoint.sessionLoops) — 사용자가 짜 넣은 설정 + 진행 카운트라
+   * 재시작 후에도 이어져야 한다(회차 발사·정지 판단은 index.ts 런타임이 담당).
+   */
+  private sessionLoops = new Map<string, SessionLoop>();
   /**
    * §5.3 #12-1 v1.91 — 현재 권한 승인 팝업 대기 중인 에이전트 id 집합.
    * PreToolUse 훅이 동기 hold(최대 60s) 하는 동안 에이전트는 "블록된 활성" 상태다.
@@ -1488,12 +1496,29 @@ export class ProjectGraph {
   /**
    * §5.10 Project Brain — 주입 이벤트 추가 (agentId → BrainInjectionEvent[], append + ring buffer 캡).
    * 스폰 브리핑/파일 경고/능동 검색이 카드를 주입한 순간에 호출. 런타임 전용(체크포인트 미영속).
+   *
+   * ## v3.78 — **같은 카드 묶음은 칩을 새로 만들지 않는다(도배 차단)**
+   *
+   * 스폰 브리핑은 **명령을 dispatch 할 때마다** 돌고, 상시 규칙+top-K 는 대개 그대로라 카드 묶음이
+   * 매번 똑같다. 종전에는 그때마다 이벤트를 append 해서 IDE 스트림에 `기억 3장 참조` 칩이 턴 수만큼
+   * 쌓였다(실측 스크린샷 7개 연속). 같은 계기(trigger)로 **같은 카드 집합**이 다시 들어오면 새 칩을
+   * 만들지 않고 기존 칩의 `repeatCount`·`lastAt` 만 올린다.
+   *
+   * `at`(최초 주입 시각)은 **일부러 그대로 둔다** — 스트림은 ts 로 정렬되므로 여기서 시각을 갱신하면
+   * 칩이 매 턴 아래로 뛰어다니며 재정렬을 유발한다(§5.5 스크롤 안정성).
    */
   addBrainInjection(ev: BrainInjectionEvent): void {
     const list = this.brainInjections.get(ev.agentId) ?? [];
-    list.push(ev);
-    if (list.length > BRAIN_INJECTIONS_MAX_PER_AGENT) {
-      list.splice(0, list.length - BRAIN_INJECTIONS_MAX_PER_AGENT);
+    const sig = `${ev.trigger}::${[...ev.cardIds].sort().join(',')}`;
+    const dup = list.find((e) => `${e.trigger}::${[...e.cardIds].sort().join(',')}` === sig);
+    if (dup) {
+      dup.repeatCount = (dup.repeatCount ?? 1) + 1;
+      dup.lastAt = ev.at;
+    } else {
+      list.push(ev);
+      if (list.length > BRAIN_INJECTIONS_MAX_PER_AGENT) {
+        list.splice(0, list.length - BRAIN_INJECTIONS_MAX_PER_AGENT);
+      }
     }
     this.brainInjections.set(ev.agentId, list);
     this.bumpMutationVersion();
@@ -1635,6 +1660,64 @@ export class ProjectGraph {
   /** §4 v3.21 — 한 에이전트의 피드백 목록 (스폰 다이제스트 주입/distill 용). */
   getAgentFeedbacksForAgent(agentId: string): AgentFeedback[] {
     return [...(this.agentFeedbacks.get(agentId) ?? [])];
+  }
+
+  // ─── §5.5 #17-11 v3.79 — 세션 반복 실행(루프) ───
+
+  /** 한 세션 탭의 루프 설정 (없으면 undefined). */
+  getSessionLoop(subAgentId: string): SessionLoop | undefined {
+    return this.sessionLoops.get(subAgentId);
+  }
+
+  /** 루프 설정 저장(생성/전체 교체). 호출자가 이미 정규화한 값을 넣는다. */
+  setSessionLoop(loop: SessionLoop): void {
+    this.sessionLoops.set(loop.subAgentId, loop);
+    this.bumpMutationVersion();
+  }
+
+  /** 루프 부분 갱신 (진행 카운트·상태·타이머 필드). 대상이 없으면 undefined. */
+  updateSessionLoop(subAgentId: string, patch: Partial<SessionLoop>): SessionLoop | undefined {
+    const cur = this.sessionLoops.get(subAgentId);
+    if (!cur) return undefined;
+    const next: SessionLoop = { ...cur, ...patch, updatedAt: Date.now() };
+    this.sessionLoops.set(subAgentId, next);
+    this.bumpMutationVersion();
+    return next;
+  }
+
+  /** 루프 설정 삭제 (세션 탭 닫힘/사용자 삭제). 지웠으면 true. */
+  deleteSessionLoop(subAgentId: string): boolean {
+    if (!this.sessionLoops.delete(subAgentId)) return false;
+    this.bumpMutationVersion();
+    return true;
+  }
+
+  /** 한 에이전트에 속한 루프 전부 (전체 중지·에이전트 제거 시 순회용). */
+  getSessionLoopsForAgent(agentId: string): SessionLoop[] {
+    const out: SessionLoop[] = [];
+    for (const loop of this.sessionLoops.values()) {
+      if (loop.agentId === agentId) out.push(loop);
+    }
+    return out;
+  }
+
+  /** 한 에이전트의 루프 전부 삭제 (에이전트 영구 제거). 지운 subAgentId 목록. */
+  deleteSessionLoopsForAgent(agentId: string): string[] {
+    const removed: string[] = [];
+    for (const [subId, loop] of this.sessionLoops) {
+      if (loop.agentId === agentId) removed.push(subId);
+    }
+    for (const subId of removed) this.sessionLoops.delete(subId);
+    if (removed.length > 0) this.bumpMutationVersion();
+    return removed;
+  }
+
+  /** 루프 전체 맵 (broadcast 스냅샷/체크포인트용). 빈 맵이면 undefined. */
+  getSessionLoopsRecord(): Record<string, SessionLoop> | undefined {
+    if (this.sessionLoops.size === 0) return undefined;
+    const out: Record<string, SessionLoop> = {};
+    for (const [k, v] of this.sessionLoops) out[k] = { ...v };
+    return out;
   }
 
   /** 캔버스에서 파이프라인 에이전트 생성 (부모 1 + 자식 4 원자적 생성) */
@@ -1882,6 +1965,7 @@ export class ProjectGraph {
         this.agentReviews.delete(agent.id);
         this.agentLists.delete(agent.id);
         this.agentFeedbacks.delete(agent.id);
+        this.deleteSessionLoopsForAgent(agent.id);
         this.manuallyConfigured.delete(agent.id);
         this.observedTools.delete(sessionId);
         logger.info(`Bubble removed: agent "${agent.label}"`);
@@ -2876,6 +2960,7 @@ export class ProjectGraph {
       agentReviews: this.getAgentReviewsRecord(),
       agentLists: this.getAgentListsRecord(),
       agentFeedbacks: this.getAgentFeedbacksRecord(),
+      sessionLoops: this.getSessionLoopsRecord(),
       brain: this.getBrainSummary(),
       brainInjections: this.getBrainInjectionsRecord(),
     };
@@ -3014,6 +3099,7 @@ export class ProjectGraph {
       agentReviews: this.getAgentReviewsRecord(),
       agentLists: this.getAgentListsRecord(),
       agentFeedbacks: this.getAgentFeedbacksRecord(),
+      sessionLoops: this.getSessionLoopsRecord(),
     };
   }
 
@@ -3431,6 +3517,15 @@ export class ProjectGraph {
         }
         return Object.keys(out).length > 0 ? out : undefined;
       })(),
+      // §5.5 #17-11 v3.79 — 세션 루프: 키는 세션 탭이지만 소속 판정은 loop.agentId 로 한다
+      //   (agentReports 와 동형 — 디스크 포맷이라 여기 빠뜨리면 껐다 켜면 루프가 사라진다).
+      sessionLoops: (() => {
+        const out: Record<string, SessionLoop> = {};
+        for (const [subId, loop] of this.sessionLoops) {
+          if (projectBubbleIds.has(loop.agentId)) out[subId] = { ...loop };
+        }
+        return Object.keys(out).length > 0 ? out : undefined;
+      })(),
       // §3.2.1-3 v2.63 — 명시 삭제된 커스텀 에이전트 묘비. 이미 삭제돼 세션이 없으므로
       //   프로젝트 필터를 걸 키가 없다 → 전체 묘비를 그대로 싣는다(다른 프로젝트 sessionId 가
       //   섞여도 그 프로젝트엔 해당 세션이 존재하지 않아 무해, 부활 차단에만 쓰임).
@@ -3654,6 +3749,15 @@ export class ProjectGraph {
           collapsed.splice(0, collapsed.length - AGENT_FEEDBACK_MAX_PER_AGENT);
         }
         this.agentFeedbacks.set(agentId, collapsed);
+      }
+    }
+
+    // §5.5 #17-11 v3.79 — 세션 루프 병합. 키(subAgentId)가 세션 단위로 유일하므로,
+    // 이미 메모리에 있는 쪽(현재 도는 설정)을 이기지 않게 **없는 것만** 채운다.
+    if (cp.sessionLoops) {
+      for (const [subId, loop] of Object.entries(cp.sessionLoops)) {
+        if (!loop || typeof loop !== 'object') continue;
+        if (!this.sessionLoops.has(subId)) this.sessionLoops.set(subId, { ...loop });
       }
     }
 
@@ -4065,6 +4169,24 @@ export class ProjectGraph {
       }
     }
 
+    // §5.5 #17-11 v3.79 — 세션 루프 복원. 서버가 죽는 동안 걸려 있던 회차는 이어받을 수 없으므로
+    //   `running` 은 `waiting` 으로 되돌리고 대조용 `pendingCommandId` 를 비운다 —
+    //   그래야 부팅 후 스윕이 "실행 중인 회차 없음"으로 보고 다음 회차를 정상 발사한다
+    //   (이걸 안 하면 죽은 명령 id 를 영원히 기다려 루프가 멈춘 채로 살아 있는 것처럼 보인다).
+    this.sessionLoops.clear();
+    if (cp.sessionLoops) {
+      for (const [subId, loop] of Object.entries(cp.sessionLoops)) {
+        if (!loop || typeof loop !== 'object') continue;
+        const restored: SessionLoop = { ...loop };
+        if (restored.status === 'running') {
+          restored.status = restored.enabled ? 'waiting' : 'stopped';
+          restored.pendingCommandId = undefined;
+          restored.nextRunAt = Date.now();
+        }
+        this.sessionLoops.set(subId, restored);
+      }
+    }
+
     // 루트 캔버스 바운딩 박스 복원 (이 프로젝트 한정)
     if (cp.layoutBoundsHalfWidth != null && cp.layoutBoundsHalfHeight != null) {
       this.layoutBoundsByProject.set(cp.project.name, {
@@ -4349,11 +4471,24 @@ export class ProjectGraph {
   }
 
   /** 에이전트별 bash history → bash bubble ID 기준 Record */
+  /** §9 v3.89 — bash 히스토리 사본 메모(파일편집과 동형: 앞에 추가 + 뒤 잘라내기만 일어난다). */
+  private bashHistoryViewCache = new WeakMap<
+    BashEntry[],
+    { len: number; head: BashEntry | undefined; out: BashEntry[] }
+  >();
+
   private buildBashHistoryRecord(): Record<string, BashEntry[]> {
     const result: Record<string, BashEntry[]> = {};
     for (const [sessionId, entries] of this.bashHistory) {
       const bubbleId = this.bashBubbleId(sessionId);
-      result[bubbleId] = [...entries];
+      const memo = this.bashHistoryViewCache.get(entries);
+      if (memo !== undefined && memo.len === entries.length && memo.head === entries[0]) {
+        result[bubbleId] = memo.out;
+        continue;
+      }
+      const out = [...entries];
+      this.bashHistoryViewCache.set(entries, { len: entries.length, head: entries[0], out });
+      result[bubbleId] = out;
     }
     return result;
   }
@@ -4458,6 +4593,7 @@ export class ProjectGraph {
     // sub 집계가 비활성으로 보여도 completed 로 강등 ❌ — 결정/타임아웃까지 active 유지.
     if (this.permissionWaitingAgents.has(parentAgentId)) {
       if (found.status !== 'active') {
+        this.bumpMutationVersion();
         found.status = 'active';
         found.fadeStartedAt = undefined;
         found.lastActivity = Date.now();
@@ -4472,6 +4608,7 @@ export class ProjectGraph {
     // 별도 상태·비주얼 없이 기존 active 그대로 유지(자식이 일하는 중 = 사용자에겐 "활동 중").
     if (subAgentManager.hasPendingSubagentTasks(parentAgentId)) {
       if (found.status !== 'active') {
+        this.bumpMutationVersion();
         found.status = 'active';
         found.fadeStartedAt = undefined;
         found.lastActivity = Date.now();
@@ -4494,6 +4631,7 @@ export class ProjectGraph {
 
     if (anyActive) {
       if (prevStatus !== 'active') {
+        this.bumpMutationVersion();
         found.status = 'active';
         found.fadeStartedAt = undefined;
         found.lastActivity = Date.now();
@@ -4505,8 +4643,22 @@ export class ProjectGraph {
       return false;
     }
 
+    // §5.5 #17-11 v3.92 — "지금 도는 게 없다" ≠ "일이 끝났다".
+    // 한 턴이 끝나면 sub 는 다음 명령이 dispatch 되기 전까지 잠깐 idle 이 된다. 그 찰나에 이 함수가
+    // 불리면 큐에 다음 명령이 줄 서 있어도(사용자가 여러 개 보냈거나 루프가 다음 회차를 예약했어도)
+    // 부모 버블이 completed 로 튀고 — 엣지가 뜯기고 완료음까지 울린 뒤 다음 명령에 다시 active 로
+    // 돌아온다 = "아직 안 끝났는데 계속 완료 처리". 완료 판정의 기준을 "지금 도는 것"에서
+    // **"이 에이전트에 낼 일이 남았는가"** 로 넓힌다.
+    if (this.hasPendingAgentWork(parentAgentId)) {
+      found.lastActivity = Date.now();
+      return false;
+    }
+
     // active 아님 — 직전이 active 였으면 completed 로 (기존 에이전트 completed 경로와 동일 처리)
     if (prevStatus === 'active') {
+      // 상태가 실제로 바뀌었으니 스냅샷 캐시(mutationVersion + 200ms TTL)를 무효화한다 —
+      // 안 하면 직후 broadcast 가 낡은 캐시를 그대로 실어 보내 전이가 한 박자 늦게(또는 안) 보인다.
+      this.bumpMutationVersion();
       found.status = 'completed';
       found.fadeStartedAt = Date.now();
       found.lastActivity = Date.now();
@@ -4522,6 +4674,29 @@ export class ProjectGraph {
     // 이 블록은 dismiss 후나 재기동 직후의 idle 을 sweep 한 번에 다시 completed 로 끌어올려
     // 시안 글로우 무한 부활의 원흉이었다. error 는 sub 자체 배지로 보이게 두고,
     // active → completed 한 갈래(위 블록)만 트리거로 사용한다.
+    return false;
+  }
+
+  /**
+   * §5.5 #17-11 v3.92 — 이 커스텀 에이전트에 **아직 낼 일**이 남았는가(= 완료로 볼 수 없는가).
+   *
+   * - ① 큐에 대기 중인 명령(`queued`) — 사용자가 여러 개 보냈거나 루프가 다음 회차를 넣어 둔 경우.
+   *   명령 사이의 빈틈은 "완료"가 아니라 "다음 것을 기다리는 중"이다.
+   * - ② 진행 중 세션 루프(`enabled && running|waiting`) — 회차 사이 대기(`intervalMs`)도 도는 중이다.
+   *   루프가 `done`/`error`/`stopped` 로 꺼지면 여기서 빠져 정상적으로 completed 로 간다.
+   *
+   * `executing` 명령은 일부러 세지 않는다 — 그건 sub liveness(`anyActive`)가 판정하는 몫이고,
+   * 자식이 죽었는데 `executing` 으로 굳은 명령까지 활성으로 치면 버블이 영영 안 끝난다.
+   */
+  private hasPendingAgentWork(parentAgentId: string): boolean {
+    for (const loop of this.sessionLoops.values()) {
+      if (loop.agentId !== parentAgentId) continue;
+      if (loop.enabled && (loop.status === 'running' || loop.status === 'waiting')) return true;
+    }
+    for (const [sessionId, cmds] of this.commandQueuesRef) {
+      if (!cmds.some((c) => c.status === 'queued')) continue;
+      if (this.resolveCommandOwnerAgentId(sessionId) === parentAgentId) return true;
+    }
     return false;
   }
 
@@ -4916,6 +5091,7 @@ export class ProjectGraph {
     this.agentReviews.delete(agent.id);
     this.agentLists.delete(agent.id);
     this.agentFeedbacks.delete(agent.id);
+    this.deleteSessionLoopsForAgent(agent.id);
     this.manuallyConfigured.delete(agent.id);
     this.observedTools.delete(sessionId);
   }
@@ -6049,6 +6225,11 @@ export class ProjectGraph {
     let servers = this.runningServers.get(sessionId);
     if (!servers) { servers = []; this.runningServers.set(sessionId, servers); }
 
+    // §7.11 v3.85 — 같은 포트의 "신고 전용"(명령 미상) entry 가 있으면 진짜 명령으로 승격한다.
+    // 신고가 먼저 오고 watcher 가 나중에 그 서버를 잡는 순서에서 포트당 entry 가 2개로 갈라지는 것을 막는다.
+    const promoted = this.promoteReportedServerEntry(command, port, shellId, outputFile);
+    if (promoted) return false;
+
     const baseId = toolUseId ?? (shellId ? `bg-${shellId}` : `cmd-${hashString(command)}`);
     const idFor = (p: number): string => `${baseId}__p${p}`;
 
@@ -6074,6 +6255,55 @@ export class ProjectGraph {
     });
     logger.info(`Server registered (port ${port}): "${command.slice(0, 80)}"`);
     return true;
+  }
+
+  /**
+   * §7.11 v3.85 — 에이전트 신고로 만들어진 iframe 위성에 짝이 되는 ServerEntry 를 보장한다.
+   * 이미 그 포트의 entry 가 있으면(감지 경로가 먼저 잡은 진짜 entry) 아무것도 하지 않는다 —
+   * 포트당 1행(§7.11 v2.1) 을 지켜야 ServerList 에 같은 서버가 두 번 뜨지 않는다.
+   * 기동 명령은 알 수 없으므로 `reportedOnly` 로 표시하고 `command` 에는 표시용 URL 을 넣는다.
+   */
+  private ensureReportedServerEntry(sessionId: string, url: string, port: number): void {
+    for (const entries of this.runningServers.values()) {
+      if (entries.some((e) => e.port === port)) return;
+    }
+    let servers = this.runningServers.get(sessionId);
+    if (!servers) { servers = []; this.runningServers.set(sessionId, servers); }
+    servers.push({
+      id: `report-${hashString(`${sessionId}#${port}`)}__p${port}`,
+      command: url,
+      port,
+      startedAt: Date.now(),
+      alive: true,
+      reportedOnly: true,
+    });
+    this.bumpMutationVersion();
+    logger.info(`Server registered from agent report (port ${port}): ${url.slice(0, 80)}`);
+  }
+
+  /**
+   * §7.11 v3.85 — 같은 포트의 `reportedOnly` entry 를 실제 감지된 명령으로 승격한다.
+   * @returns 승격했으면 true(= 호출자는 새 entry 를 만들지 않는다).
+   */
+  private promoteReportedServerEntry(
+    command: string,
+    port: number,
+    shellId: string | undefined,
+    outputFile: string | undefined,
+  ): boolean {
+    for (const entries of this.runningServers.values()) {
+      const reported = entries.find((e) => e.port === port && e.reportedOnly === true);
+      if (!reported) continue;
+      reported.command = command;
+      if (shellId) reported.shellId = shellId;
+      if (outputFile) reported.outputFile = outputFile;
+      reported.alive = true;
+      reported.reportedOnly = undefined;
+      this.bumpMutationVersion();
+      logger.info(`Server entry promoted (port ${port}): "${command.slice(0, 80)}"`);
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -6106,6 +6336,9 @@ export class ProjectGraph {
         if (!this.agents.has(sessionId)) return; // HTTP probe await 사이 재확인
         if (serving) {
           this.createIframeSatellite(sessionId, rawUrl, port, undefined, undefined, true, rawUrl);
+          // §7.11 v3.85 — 위성만 만들고 끝내면 매칭 ServerEntry 가 없어 IframeServerCard 의
+          // Restart/Stop 이 통째로 disabled 된다(v2.21 strict 1:1 의 반대 방향 orphan).
+          this.ensureReportedServerEntry(sessionId, rawUrl, port);
           this.onSnapshotChange?.();
         } else if (retriesLeft > 0) {
           setTimeout(() => tryCreate(retriesLeft - 1), 1500);
@@ -6704,6 +6937,20 @@ export class ProjectGraph {
     logger.debug(`Recorded file ${tool.toLowerCase()}: ${key} (${list.length} total)`);
   }
 
+  /**
+   * §9 v3.89 — 파일별 보정 결과 메모. 키는 원본 배열 자체(WeakMap → 파일이 사라지면 함께 수거).
+   *
+   * 종전엔 스냅샷 재구축마다 **모든 파일의 모든 edit 을 새 객체로 다시 만들었다**. 실측 저장소
+   * 기준 1,194건·2.2MB 를 매번 다시 할당·복사한 셈이고, 이건 편집한 파일이 쌓일수록 무거워진다.
+   * edit 엔트리는 만들어진 뒤 바뀌지 않고, 리스트는 **앞에 추가(unshift) + 뒤 잘라내기**만 하므로
+   * (길이, 첫 원소) 가 그대로면 내용도 그대로다 — 그때는 지난 배열을 그대로 재사용한다.
+   * 참조가 유지되므로 스냅샷 소비자(클라 structuralShare)도 "안 바뀐 파일"을 알아본다.
+   */
+  private fileEditsViewCache = new WeakMap<
+    FileEdit[],
+    { len: number; head: FileEdit | undefined; absPath: string; out: FileEdit[] }
+  >();
+
   /** 파일별 edit history → file node ID 기준 Record */
   private buildFileEditsRecord(): Record<string, FileEdit[]> {
     const result: Record<string, FileEdit[]> = {};
@@ -6712,10 +6959,22 @@ export class ProjectGraph {
       if (!node) continue;
       // filePath 누락된 기존 엔트리 보정 (root + 상대경로)
       const absPath = this.root ? `${this.root}/${relPath}` : relPath;
-      result[node.id] = edits.map((e) => ({
+      const memo = this.fileEditsViewCache.get(edits);
+      if (
+        memo !== undefined &&
+        memo.len === edits.length &&
+        memo.head === edits[0] &&
+        memo.absPath === absPath
+      ) {
+        result[node.id] = memo.out;
+        continue;
+      }
+      const out = edits.map((e) => ({
         ...e,
         filePath: e.filePath || absPath,
       }));
+      this.fileEditsViewCache.set(edits, { len: edits.length, head: edits[0], absPath, out });
+      result[node.id] = out;
     }
     return result;
   }

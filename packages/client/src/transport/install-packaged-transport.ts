@@ -112,6 +112,16 @@ export interface PackagedOverlayApi {
   onMenuCommand(cb: (payload: { command: string }) => void): () => void;
 }
 
+// §5.12 v4.43 — 지휘통제실 창 surface. 프로젝트별 1창.
+export interface PackagedCommandCenterApi {
+  open(payload: { projectId: string; cursor?: { x: number; y: number } }): Promise<{ windowId: number; reused: boolean }>;
+  close(projectId: string): Promise<boolean>;
+  /** 카드 [이동] — 메인 창 focus + 그 세션으로 점프. */
+  revealInMain(payload: { projectId: string; agentId: string; subAgentId?: string | null }): Promise<boolean>;
+  /** 메인 윈도우: 지휘통제실 점프 신호 구독. */
+  onReveal(cb: (payload: { projectId: string; agentId: string; subAgentId: string | null }) => void): () => void;
+}
+
 // §4 v2.44 자동 업데이트 surface. UpdateState 는 shared 계약.
 export interface PackagedUpdateApi {
   check(): Promise<UpdateState>;
@@ -168,6 +178,8 @@ export interface PackagedApi {
   mobile?: PackagedMobileApi;
   /** §5.5 #17-6 — 버블 오버레이 창. dev/web 모드에선 부재. */
   overlay?: PackagedOverlayApi;
+  /** §5.12 — 지휘통제실 창. dev/web 모드(window.api 없음)·구버전 preload 에선 부재. */
+  command?: PackagedCommandCenterApi;
   /** §5.9 화면/프로그램 캡처 버블. dev/web 모드(window.api 없음)에선 부재. */
   capture?: PackagedCaptureApi;
 }

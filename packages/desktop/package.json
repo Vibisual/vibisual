@@ -34,7 +34,8 @@
     "light-my-request": "^6.6.0",
     "node-pty": "^1.0.0",
     "selfsigned": "^5.5.0",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "@vibisual/plugins": "workspace:*"
   },
   "devDependencies": {
     "@electron-toolkit/preload": "^3.0.1",

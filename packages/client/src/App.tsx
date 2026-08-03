@@ -2,6 +2,7 @@ import { useEffect, useCallback } from 'react';
 import { useDetachedSync } from './hooks/useDetachedSync.js';
 import { useOverlaySync } from './hooks/useOverlaySync.js';
 import { useOverlayReveal } from './hooks/useOverlayReveal.js';
+import { useCommandCenterReveal } from './hooks/useCommandCenterReveal.js';
 import { useMobileBackAsEscape } from './hooks/useMobileBackAsEscape.js';
 import { useLowPowerMode } from './hooks/useIsMobile.js';
 import { Header } from './components/Layout/Header.js';
@@ -9,7 +10,7 @@ import { BubbleMap } from './components/BubbleMap/BubbleMap.js';
 import { CanvasBreadcrumb } from './components/BubbleMap/CanvasBreadcrumb.js';
 import { IframeView } from './components/Layout/IframeView.js';
 import { DetailPanel } from './components/Panel/DetailPanel.js';
-import { BrainFeedOverlay } from './components/Panel/BrainFeedOverlay.js';
+import { BrainLibraryOverlay } from './components/Panel/BrainLibraryOverlay.js';
 import { DebugPanel } from './components/Panel/DebugPanel.js';
 import { InspectorOverlay } from './components/Inspector/InspectorOverlay.js';
 import { WorktreeDeleteDialog } from './components/Panel/WorktreeDeleteDialog.js';
@@ -30,6 +31,8 @@ export function App(): React.JSX.Element {
   useOverlaySync();
   // SCENARIO.md §5.5 #17-6 (G) v2.82 — 오버레이 버블 우클릭 "본체로 점프" 신호 수신(메인 윈도우 한정).
   useOverlayReveal();
+  // SCENARIO.md §5.12 (D) v4.43 — 지휘통제실 카드 [이동] 신호 수신(메인 윈도우 한정).
+  useCommandCenterReveal();
   // §4 v3.16 — 모바일 웹 브라우저의 back 버튼을 ESC(오버레이·팝업 닫기)처럼 동작시켜 앱 이탈 방지.
   useMobileBackAsEscape();
   // §4 v3.39 — 모바일/터치·'동작 줄이기'면 저전력 클래스를 root 에 걸어 상시 GPU 부하(애니메이션
@@ -123,7 +126,7 @@ export function App(): React.JSX.Element {
           />
         )}
       </div>
-      <BrainFeedOverlay />
+      <BrainLibraryOverlay />
       <InspectorOverlay />
       <WorktreeDeleteDialog />
       <PermissionPromptStack />

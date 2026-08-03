@@ -12,18 +12,17 @@ import {
   useEdgesState,
   BackgroundVariant,
   useUpdateNodeInternals,
-  useStore,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import type { EdgeTypes } from '@xyflow/react';
 import type { BubbleData, BubbleType, CommentBox, CaptureBubble, CaptureSourceInfo } from '@vibisual/shared';
-import { EDGE_STYLE, POSITION_SAVE_INTERVAL, TASK_EDGE_STYLES, COMMENT_BOX_DEFAULTS, CAPTURE_BUBBLE_DEFAULTS, CAPTURE_SNAP, CANVAS_LOD, canvasLodTier, LAYOUT_CENTER_X, LAYOUT_CENTER_Y, SATELLITE_TYPES } from '@vibisual/shared';
+import { EDGE_STYLE, POSITION_SAVE_INTERVAL, TASK_EDGE_STYLES, COMMENT_BOX_DEFAULTS, CAPTURE_BUBBLE_DEFAULTS, CAPTURE_SNAP, CANVAS_LOD, LAYOUT_CENTER_X, LAYOUT_CENTER_Y, SATELLITE_TYPES } from '@vibisual/shared';
 import { BubbleNode } from './BubbleNode.js';
 import { CommentBoxNode } from './CommentBoxNode.js';
 import { CaptureNode, CAPTURE_REPICK_EVENT } from './CaptureNode.js';
 import { useCapturePrefsStore } from '../../stores/captureBubblePrefs.js';
 import { useCaptureSnapGuideStore } from '../../stores/captureSnapGuides.js';
-import { useCanvasCovered, useCanvasVisibilityStore } from '../../stores/canvasVisibility.js';
+import { useCanvasCovered } from '../../stores/canvasVisibility.js';
 import { computeCaptureDragSnap, type SnapRect } from './captureSnap.js';
 import { CaptureSnapGuides } from './CaptureSnapGuides.js';
 import { CaptureSourcePicker } from './CaptureSourcePicker.js';
@@ -723,14 +722,6 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     return out;
   }, [storeSatellites, contiSatellites]);
 
-  // §5.10 — 실수/교훈 카드 연결 파일 경로 캐시 갱신. brain.cardCount 변동(또는 프로젝트 전환) 시 debounce 재조회.
-  const brainCardCount = brainSummary?.cardCount ?? 0;
-  useEffect(() => {
-    if (!activeProject) return undefined;
-    const timer = setTimeout(() => { void useGraphStore.getState().refreshBrainFileMarks(); }, 600);
-    return () => clearTimeout(timer);
-  }, [activeProject, brainCardCount]);
-
   // §5.10 — 최상위 캔버스 상주 버블: Brain(항상) + 휴지통(항상, 비면 dimmed).
   const residentBubbles = useMemo<BubbleData[]>(() => {
     if (!activeProject) return [];
@@ -748,10 +739,12 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       bubbleType: 'trash',
       path: '',
       status: 'idle',
-      activity: 0,
+      // §5.10 — 배지 개수는 "현재 프로젝트의" 버려진 에이전트 수. 내부 뷰 콘텐츠(trashedAgents)와
+      //   같은 배열에서 뽑아, 뚜껑(개수)과 속(목록)이 절대 어긋나지 않게 한다.
+      activity: trashedAgents.length,
     };
     return [brain, trash];
-  }, [activeProject, brainSummary?.cardCount, t]);
+  }, [activeProject, brainSummary?.cardCount, trashedAgents.length, t]);
 
   // 메인 뷰 데이터
   const mainViewData = useBubbleLayout({
@@ -1110,6 +1103,14 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       return;
     }
     if (data.id === '__pipeline_parent__') { store.goBack(); return; }
+    // §5.12 (A) v4.43 — 프로젝트 root(home) 버블 더블클릭 → 지휘통제실 창(프로젝트별 1창).
+    // 같은 프로젝트를 다시 더블클릭하면 main 이 기존 창을 focus 한다(중복 창 ❌).
+    if (data.bubbleType === 'root') {
+      const projectId = store.nodeProjects[data.id] ?? store.activeProject;
+      if (!projectId) return;
+      void window.api?.command?.open({ projectId });
+      return;
+    }
     if (data.bubbleType === 'internal_folder' || data.bubbleType === 'external_folder' || data.bubbleType === 'worktree') {
       store.enterFolder(data.id);
       return;
@@ -1815,9 +1816,6 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
         <CaptureSnapGuides />
         <CanvasControls />
         {debugMode && <DebugOverlay flowNodes={flowNodes} />}
-        {/* §4 v3.71 — 현재 줌 LOD 티어를 DebugPanel 이 읽을 수 있게 스토어로 올린다.
-            디버그 모드에서만 마운트되므로 평소엔 구독 비용 0. */}
-        {debugMode && <CanvasLodReporter />}
         <DebugResizeRefresher flowNodes={flowNodes} debugMode={debugMode} />
       </ReactFlow>
       {ctxMenu && (
@@ -1894,18 +1892,6 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     </div>
   );
 });
-
-/**
- * §4 v3.71 가시성 LOD 계측 — 메인 캔버스의 줌 티어를 canvasVisibility 스토어로 올린다.
- * React Flow 내부 transform 은 provider 안에서만 읽히므로 ReactFlow 의 자식으로 마운트한다.
- * DebugPanel 표시 전용이라 디버그 모드에서만 붙는다(렌더 결과 없음).
- */
-function CanvasLodReporter(): null {
-  const tier = useStore((s) => canvasLodTier(s.transform[2]));
-  const setLodTier = useCanvasVisibilityStore((s) => s.setLodTier);
-  useEffect(() => { setLodTier(tier); }, [tier, setLodTier]);
-  return null;
-}
 
 /**
  * 디버그 모드 토글 / 메인 캔버스 컨테이너 리사이즈 시 React Flow 내부 노드 측정치

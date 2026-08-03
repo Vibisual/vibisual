@@ -25,8 +25,10 @@ import { CAPTURE_BUBBLE_DEFAULTS } from '@vibisual/shared';
 import { AutoAgentPanel } from './AutoAgentPanel.js';
 import { GitStatusCard } from './GitStatusCard.js';
 import { AgentFeedbackSection } from './AgentFeedbackSection.js';
+import { PluginPanelSectionSlot } from '../../plugins/host.js';
 import { ContiHistoryDetail } from './ContiHistoryDetail.js';
 import { TASK_EDGE_STYLES } from '@vibisual/shared';
+import { clampUsagePct, usageBarToneClass } from '../../utils/usageLimits.js';
 
 interface DetailPanelProps {
   onClose: () => void;
@@ -60,7 +62,13 @@ function formatRelativeTime(ts: number, t: (k: string, opts?: Record<string, unk
   return t('panel.detailPanel.daysAgo', { n: Math.floor(diff / 86_400_000) });
 }
 
-/** §4 v1.50 — 한도 사용률 가로 게이지. used 가 0~1 또는 0~100 둘 다 허용. */
+/**
+ * §4 v1.50 / v3.64 — 한도 사용률 가로 게이지. `used` 단위는 **퍼센트(0~100)** 고정.
+ *
+ * v3.64 전에는 "0~1 이면 비율" 로 추측해 `used * 100` 을 했는데, 그 추측이 `1`(=1%)을
+ * 100% 로 잘못 키웠다(헤더 필·팝업과 동일 사고). 값 `1` 은 추측으로 풀 수 없으므로 규약을
+ * 퍼센트로 고정하고 정규화는 shared 헬퍼(`clampUsagePct`)로 단일화했다.
+ */
 function RateLimitBar({
   label,
   used,
@@ -72,10 +80,8 @@ function RateLimitBar({
   resetAt: number | undefined;
   t: (k: string, opts?: Record<string, unknown>) => string;
 }): React.JSX.Element {
-  const pct = used > 1 ? Math.min(100, used) : Math.min(100, used * 100);
-  const danger = pct >= 90;
-  const warn = !danger && pct >= 70;
-  const barColor = danger ? 'bg-red-500' : warn ? 'bg-amber-500' : 'bg-emerald-500';
+  const pct = clampUsagePct(used);
+  const barColor = usageBarToneClass(pct);
   return (
     <div className="flex flex-col gap-0.5">
       <div className="flex items-center justify-between text-[10px]">
@@ -91,6 +97,9 @@ function RateLimitBar({
     </div>
   );
 }
+
+/** §9 — 같은 에이전트 버블을 보는 동안 `/api/tokens` 재조회 최소 간격. */
+const TOKEN_REFETCH_MIN_MS = 5_000;
 
 export function DetailPanel({
   onClose,
@@ -195,12 +204,27 @@ export function DetailPanel({
     () => (agentSubIdsKey ? agentSubIdsKey.split(',') : []),
     [agentSubIdsKey],
   );
+  // §9 — 토큰 조회 트레일링 스로틀. `node.activity` 는 도구 이벤트마다 오르는데, 예전엔 그때마다
+  //   `/api/tokens` 를 때려 서버가 세션 JSONL 전체를 읽었다(자체 턴이 비면 서브에이전트 세션까지 연쇄).
+  //   에이전트가 도는 동안 초당 수 건씩 나가 Electron 메인 스레드가 파일 읽기로 막혔다.
+  //   숫자 패널은 실시간성이 이 정도면 충분하므로, 같은 버블을 보는 동안에는 최소 간격을 둔다.
+  const tokenFetchAtRef = useRef(0);
+  const tokenNodeRef = useRef<string | null>(null);
   useEffect(() => {
     if (!node || node.bubbleType !== 'agent') { setTokenData(null); return; }
+    // 다른 버블로 옮기면 즉시 조회(스로틀 창 초기화). `lastTokenActivity` 도 함께 비운다 —
+    // 옮겨간 버블의 activity 가 직전 버블의 값과 우연히 같으면 아래 가드에 걸려
+    // 새 버블 토큰을 영영 안 불러오기 때문.
+    if (tokenNodeRef.current !== node.id) {
+      tokenNodeRef.current = node.id;
+      tokenFetchAtRef.current = 0;
+      lastTokenActivity.current = -1;
+    }
     if (node.activity === lastTokenActivity.current) return;
     const sessionId = node.path;
     let cancelled = false;
-    (async () => {
+    const run = async (): Promise<void> => {
+      tokenFetchAtRef.current = Date.now();
       try {
         const res = await fetch(`/api/tokens/${sessionId}`);
         if (!res.ok || cancelled) return;
@@ -228,8 +252,17 @@ export function DetailPanel({
           lastTokenActivity.current = node.activity;
         }
       } catch { /* ignore */ }
-    })();
-    return () => { cancelled = true; };
+    };
+
+    // 최소 간격이 안 찼으면 남은 시간만큼 미뤄서 1회만 쏜다. activity 가 계속 올라 이 이펙트가
+    // 재실행되면 아래 cleanup 이 예약을 걷어내고 다시 잡으므로, 폭주해도 창당 요청은 1건이다.
+    const wait = Math.max(0, TOKEN_REFETCH_MIN_MS - (Date.now() - tokenFetchAtRef.current));
+    if (wait === 0) {
+      void run();
+      return () => { cancelled = true; };
+    }
+    const timer = window.setTimeout(() => { void run(); }, wait);
+    return () => { cancelled = true; window.clearTimeout(timer); };
   }, [node?.id, node?.bubbleType, node?.path, node?.activity, agentSubIds.length]);
 
   const billableTokens = useMemo(() => {
@@ -561,7 +594,7 @@ export function DetailPanel({
         <div className={`absolute ${panelOnLeft ? 'right-0' : 'left-0'} top-0 bottom-0 z-20 w-1.5 cursor-col-resize transition-colors hover:bg-blue-500/40 ${isNarrow ? 'hidden' : ''}`} onMouseDown={handleResizeStart} />
         <div className="flex items-center justify-between border-b border-gray-800 px-4 py-3">
           <div className="flex min-w-0 flex-1 items-center gap-2">
-            <div className="h-3 w-3 flex-shrink-0 rounded-full" style={{ backgroundColor: '#EC4899' }} />
+            <div className="h-3 w-3 flex-shrink-0 rounded-full" style={{ backgroundColor: '#6366F1' }} />
             <span className="truncate text-sm font-bold text-gray-100">{t('brain.bubbleLabel', { defaultValue: '두뇌' })}</span>
           </div>
           <button type="button" onClick={onClose} className="rounded p-1 text-gray-400 hover:bg-gray-800 hover:text-white" aria-label={t('panel.detailPanel.close')}>
@@ -570,13 +603,29 @@ export function DetailPanel({
         </div>
         <ScrollFade fill className="flex-1">
           <div className="space-y-4 p-4">
+            {/* §5.10 v3.82 — 버블 배지와 같은 축으로 4칸. v3.81 이후 "저장 장수"와 "현재 진실"은
+                다른 수이고, 사람이 손대야 하는 것은 검토 대기라서 그 둘을 윗줄에 둔다. */}
             <div className="grid grid-cols-2 gap-2">
+              <div className="rounded border border-indigo-500/25 bg-indigo-500/10 p-3">
+                <div className="text-2xl font-bold tabular-nums text-indigo-300">{brainSummary?.currentCount ?? 0}</div>
+                <div className="text-xs text-gray-400" title={t('brain.summaryCurrentTip', { defaultValue: '검증돼 AI 에게 전달되는 지식' })}>
+                  {t('brain.summaryCurrent', { defaultValue: '현재 진실' })}
+                </div>
+              </div>
+              <div className={`rounded border p-3 ${(brainSummary?.reviewCount ?? 0) > 0 ? 'border-amber-500/30 bg-amber-500/10' : 'border-gray-800 bg-gray-800/40'}`}>
+                <div className={`text-2xl font-bold tabular-nums ${(brainSummary?.reviewCount ?? 0) > 0 ? 'text-amber-300' : 'text-gray-500'}`}>
+                  {brainSummary?.reviewCount ?? 0}
+                </div>
+                <div className="text-xs text-gray-400" title={t('brain.summaryReviewTip', { defaultValue: '확인해야 AI 에게 전달되는 후보' })}>
+                  {t('brain.summaryReview', { defaultValue: '검토 대기' })}
+                </div>
+              </div>
               <div className="rounded border border-gray-800 bg-gray-800/40 p-3">
-                <div className="text-2xl font-bold text-gray-100">{brainSummary?.cardCount ?? 0}</div>
+                <div className="text-lg font-bold tabular-nums text-gray-200">{brainSummary?.cardCount ?? 0}</div>
                 <div className="text-xs text-gray-500">{t('brain.summaryCards', { defaultValue: '기억 카드' })}</div>
               </div>
               <div className="rounded border border-gray-800 bg-gray-800/40 p-3">
-                <div className="text-2xl font-bold text-pink-400">{brainSummary?.unseenCount ?? 0}</div>
+                <div className="text-lg font-bold tabular-nums text-gray-200">{brainSummary?.unseenCount ?? 0}</div>
                 <div className="text-xs text-gray-500">{t('brain.summaryUnseen', { defaultValue: '미확인' })}</div>
               </div>
             </div>
@@ -586,12 +635,17 @@ export function DetailPanel({
                 <div className="truncate text-sm text-gray-200" title={brainSummary.recentCardTitle}>{brainSummary.recentCardTitle}</div>
               </div>
             )}
+            {/* §5.10 v3.82 — 구 라벨 "내부 열기"는 버블 산개(v3.49 이전) 시절 표현이라, 실제로 열리는
+                기억 라이브러리(v3.75~v3.77 창)를 가리키게 고쳤다. */}
             <button
               type="button"
               onClick={() => openBrainFeed({ scope: 'project' })}
-              className="w-full rounded bg-pink-600 px-3 py-2 text-sm font-semibold text-white hover:bg-pink-500"
+              className="flex w-full items-center justify-center gap-2 rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-indigo-500"
             >
-              {t('brain.openInterior', { defaultValue: '내부 열기' })}
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z" />
+              </svg>
+              {t('brain.openLibrary', { defaultValue: '기억 라이브러리 열기' })}
             </button>
           </div>
         </ScrollFade>
@@ -1038,6 +1092,15 @@ export function DetailPanel({
 
           {/* §4 v3.21 — 에이전트: 좋아요/싫어요 집계 + "규칙으로 승격" (피드백 없으면 미렌더) */}
           {node.bubbleType === 'agent' && <AgentFeedbackSection agentId={node.id} />}
+
+          {/* §5.11 v3.88 — 플러그인 패널 섹션 슬롯. 활성 기여가 없으면 호스트가 null → DOM 없음. */}
+          <PluginPanelSectionSlot
+            bubbleId={node.id}
+            bubbleType={node.bubbleType}
+            label={node.label}
+            customCreated={node.customCreated ?? false}
+            agentConfig={agentConfig ?? undefined}
+          />
 
           {/* Agent: SubAgent 목록 */}
           {node.bubbleType === 'agent' && (subAgents[node.id] ?? []).length > 0 && (

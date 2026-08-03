@@ -8,7 +8,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import type { QueuedCommand, SubAgentStreamEvent } from '@vibisual/shared';
-import { buildBaseItems, IncrementalStreamParser, type StreamItemFull, type BaseItemsResult } from './streamItems.js';
+import { buildBaseItems, IncrementalStreamParser, mergeCardsIntoItems, type StreamItemFull, type BaseItemsResult } from './streamItems.js';
 
 // ─── 시드 PRNG (mulberry32) — 재현 가능한 랜덤 ───
 function mulberry32(seed: number): () => number {
@@ -23,7 +23,18 @@ function mulberry32(seed: number): () => number {
 
 type EvtType = 'text' | 'thinking' | 'tool_use' | 'tool_result' | 'result' | 'system' | 'pulse' | 'hidden';
 const EVT_TYPES: EvtType[] = ['text', 'thinking', 'tool_use', 'tool_result', 'result', 'system', 'pulse', 'hidden'];
-const TOOLS = ['Grep', 'Read', 'Glob', 'Bash'];
+const TOOLS = ['Grep', 'Read', 'Glob', 'Bash', 'TodoWrite'];
+
+/** §5.5 #17-12 — TodoWrite 는 계획 블록으로 승격된다. 유효 JSON(승격)과 깨진 입력(도구 상자 폴백) 둘 다 흘린다. */
+function todoInput(rnd: () => number, i: number): string {
+  if (rnd() < 0.25) return `not-json-${i}`;
+  const statuses = ['pending', 'in_progress', 'completed'];
+  const todos = Array.from({ length: 1 + Math.floor(rnd() * 3) }, (_, k) => ({
+    content: `step${i}_${k}`,
+    status: statuses[Math.floor(rnd() * statuses.length)]!,
+  }));
+  return JSON.stringify({ todos });
+}
 
 function genEvents(rnd: () => number, n: number): SubAgentStreamEvent[] {
   const out: SubAgentStreamEvent[] = [];
@@ -36,7 +47,12 @@ function genEvents(rnd: () => number, n: number): SubAgentStreamEvent[] {
     switch (kind) {
       case 'text': out.push({ ...base, eventType: 'text', content: `t${i}_${Math.floor(rnd() * 100)}` }); break;
       case 'thinking': out.push({ ...base, eventType: 'thinking', content: `k${i}_${Math.floor(rnd() * 100)}` }); break;
-      case 'tool_use': out.push({ ...base, eventType: 'tool_use', toolName: TOOLS[Math.floor(rnd() * TOOLS.length)]!, content: `in${i}` }); break;
+      case 'tool_use': {
+        const toolName = TOOLS[Math.floor(rnd() * TOOLS.length)]!;
+        const content = toolName === 'TodoWrite' ? todoInput(rnd, i) : `in${i}`;
+        out.push({ ...base, eventType: 'tool_use', toolName, content });
+        break;
+      }
       case 'tool_result': out.push({ ...base, eventType: 'tool_result', toolName: TOOLS[Math.floor(rnd() * TOOLS.length)]!, content: `out${i}` }); break;
       case 'result': out.push({ ...base, eventType: 'result', content: `r${i}` }); break;
       case 'system': out.push({ ...base, eventType: 'system', content: rnd() < 0.5 ? `[task_started]` : `plain${i}` }); break;
@@ -71,10 +87,10 @@ function genCommands(rnd: () => number, events: SubAgentStreamEvent[]): QueuedCo
 function normItem(it: StreamItemFull): unknown {
   switch (it.kind) {
     case 'text': case 'system': case 'result': return { k: it.kind, id: it.id, c: it.content, ts: it.timestamp };
-    case 'thinking': return { k: 'thinking', id: it.id, c: it.content, a: !!it.isActive, ts: it.timestamp };
     case 'tool': return { k: 'tool', id: it.id, n: it.toolName, in: it.input, out: it.output, a: it.isActive, ts: it.timestamp };
     case 'command': return { k: 'command', id: it.id, p: it.prompt, r: it.result, s: it.status, ts: it.timestamp };
     case 'thinking-live': return { k: 'thinking-live', id: it.id, ts: it.timestamp };
+    case 'plan': return { k: 'plan', id: it.id, todos: it.todos, sup: !!it.superseded, ts: it.timestamp };
     default: return { k: it.kind, id: it.id, ts: it.timestamp };
   }
 }
@@ -137,6 +153,75 @@ describe('IncrementalStreamParser === buildBaseItems', () => {
       const inc2 = parser.sync(next, commands);
       expect(normBase(inc2), `seed=${seed} append-after-trim`).toEqual(normBase(buildBaseItems(next, commands)));
     }
+  });
+
+  it('TodoWrite → 계획 아이템으로 승격되고 짝 tool_result 는 별도 줄이 되지 않는다', () => {
+    const events: SubAgentStreamEvent[] = [
+      { id: 'p1', subAgentId: 'S', parentAgentId: 'P', timestamp: 100, eventType: 'tool_use', toolName: 'TodoWrite', content: JSON.stringify({ todos: [{ content: '첫 단계', status: 'in_progress' }, { content: '둘째', status: 'pending' }] }) },
+      { id: 'p2', subAgentId: 'S', parentAgentId: 'P', timestamp: 101, eventType: 'tool_result', toolName: 'TodoWrite', content: 'Todos have been modified' },
+    ];
+    const full = buildBaseItems(events, []);
+    expect(full.items.map((i) => i.kind)).toEqual(['plan']);
+    const planItem = full.items[0]!;
+    expect(planItem.kind === 'plan' && planItem.todos).toHaveLength(2);
+    const parser = new IncrementalStreamParser();
+    expect(normBase(parser.sync(events, []))).toEqual(normBase(full));
+  });
+
+  it('TodoWrite 입력이 계획 형식이 아니면 일반 도구 상자로 폴백한다', () => {
+    const events: SubAgentStreamEvent[] = [
+      { id: 'p1', subAgentId: 'S', parentAgentId: 'P', timestamp: 100, eventType: 'tool_use', toolName: 'TodoWrite', content: '{"unexpected":1}' },
+      { id: 'p2', subAgentId: 'S', parentAgentId: 'P', timestamp: 101, eventType: 'tool_result', toolName: 'TodoWrite', content: 'ok' },
+    ];
+    const full = buildBaseItems(events, []);
+    expect(full.items.map((i) => i.kind)).toEqual(['tool']);
+    const parser = new IncrementalStreamParser();
+    expect(normBase(parser.sync(events, []))).toEqual(normBase(full));
+  });
+
+  it('§5.5 #17-15 — thinking 이벤트는 아이템을 만들지 않는다(어느 밀도에도 사고 블록이 없다)', () => {
+    const events: SubAgentStreamEvent[] = [
+      { id: 'a', subAgentId: 'S', parentAgentId: 'P', timestamp: 100, eventType: 'text', content: '앞' },
+      { id: 'b', subAgentId: 'S', parentAgentId: 'P', timestamp: 101, eventType: 'thinking', content: '한참 생각한 내용' },
+      { id: 'c', subAgentId: 'S', parentAgentId: 'P', timestamp: 102, eventType: 'text', content: '뒤' },
+    ];
+    const full = buildBaseItems(events, []);
+    // 사고는 아이템이 되지 않고, 본문 어디에도 사고 원문이 남지 않는다.
+    expect(full.items.map((i) => i.kind)).toEqual(['text', 'text']);
+    expect(JSON.stringify(full.items)).not.toContain('한참 생각한 내용');
+    // 다만 텍스트 런의 경계로는 남는다 — 앞뒤 설명이 한 말풍선으로 합쳐지지 않는다.
+    expect(full.items.map((i) => (i.kind === 'text' ? i.content : ''))).toEqual(['앞', '뒤']);
+    expect(normBase(new IncrementalStreamParser().sync(events, []))).toEqual(normBase(full));
+  });
+
+  it('§5.5 #17-15 — 사고를 스트리밍하는 동안 라이브 1줄이 켜지고, 출력이 시작되면 사라진다', () => {
+    const busy = [{ id: 'c1', text: 'go', status: 'executing', timestamp: 1 }] as unknown as QueuedCommand[];
+    const thinkingNow: SubAgentStreamEvent[] = [
+      { id: 'a', subAgentId: 'S', parentAgentId: 'P', timestamp: 100, eventType: 'text', content: '앞' },
+      { id: 'b', subAgentId: 'S', parentAgentId: 'P', timestamp: 101, eventType: 'thinking', content: '생각 중…' },
+    ];
+    const live = buildBaseItems(thinkingNow, busy);
+    expect(live.thinkingLive).not.toBeNull();
+    const merged = mergeCardsIntoItems(live, busy);
+    expect(merged[merged.length - 1]!.kind).toBe('thinking-live');
+
+    // 사고 뒤에 출력이 오면 = 생각이 끝난 것 → 라이브 1줄도 사라진다(나왔다가 사라지는 이펙트).
+    const done = buildBaseItems([...thinkingNow, { id: 'c', subAgentId: 'S', parentAgentId: 'P', timestamp: 102, eventType: 'text', content: '답' }], busy);
+    expect(done.thinkingLive).toBeNull();
+    expect(mergeCardsIntoItems(done, busy).some((i) => i.kind === 'thinking-live')).toBe(false);
+  });
+
+  it('§5.5 #17-15 — 에이전트가 멈춰 있으면 사고 이벤트가 마지막이어도 라이브 1줄은 안 뜬다', () => {
+    const events: SubAgentStreamEvent[] = [
+      { id: 'a', subAgentId: 'S', parentAgentId: 'P', timestamp: 100, eventType: 'thinking', content: '생각' },
+    ];
+    expect(buildBaseItems(events, []).thinkingLive).toBeNull();
+    // SDK 펄스(thinking_tokens)는 종전대로 작동 중일 때 라이브 1줄을 켠다.
+    const busy = [{ id: 'c1', text: 'go', status: 'executing', timestamp: 1 }] as unknown as QueuedCommand[];
+    const pulse: SubAgentStreamEvent[] = [
+      { id: 'p', subAgentId: 'S', parentAgentId: 'P', timestamp: 100, eventType: 'system', content: '[thinking_tokens]' },
+    ];
+    expect(buildBaseItems(pulse, busy).thinkingLive).not.toBeNull();
   });
 
   it('폴백: 세션 교체(완전히 다른 배열) 후에도 == 전체', () => {

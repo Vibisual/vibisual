@@ -30,6 +30,20 @@ export interface ParsedEdit {
   hunks: EditHunk[];
 }
 
+/**
+ * §5.5 #17-12 — 이 편집이 몇 줄짜리인지(자동 펼침 판정용 어림값).
+ * 조각마다 이전/이후 중 큰 쪽 줄 수를 더한다 — LCS 를 돌리지 않고도 "긴 diff 인가"를 가릴 수 있다.
+ */
+export function editSizeLines(parsed: ParsedEdit): number {
+  let total = 0;
+  for (const h of parsed.hunks) {
+    const oldLines = h.oldText === '' ? 0 : h.oldText.split('\n').length;
+    const newLines = h.newText === '' ? 0 : h.newText.split('\n').length;
+    total += Math.max(oldLines, newLines);
+  }
+  return total;
+}
+
 export interface DiffLine {
   /** 파일 내 라인 번호(1-base). filler 쪽은 null. */
   no: number | null;

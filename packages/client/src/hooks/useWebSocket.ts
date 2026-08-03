@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
-import type { WSMessage, GraphSnapshot, SubAgentStreamEvent, ProjectHydratedPayload, ProjectUnloadedPayload, IframeLogInitPayload, IframeLogAppendPayload, ServerLogInitPayload, ServerLogAppendPayload, PermissionRequest, PermissionDecision, ClaudeInstallProgress, AskUserQuestionRequest, AskUserQuestionDecision } from '@vibisual/shared';
-import { MAX_RECONNECT_ATTEMPTS, RECONNECT_BASE_DELAY, WS_BATCH_INTERVAL, WS_STREAM_BATCH_INTERVAL, WS_BATCH_INTERVAL_MAX, WS_BATCH_BACKOFF_FACTOR } from '@vibisual/shared';
+import type { WSMessage, GraphSnapshot, GraphSnapshotWire, SubAgentStreamEvent, ProjectHydratedPayload, ProjectUnloadedPayload, IframeLogInitPayload, IframeLogAppendPayload, ServerLogInitPayload, ServerLogAppendPayload, PermissionRequest, PermissionDecision, ClaudeInstallProgress, AskUserQuestionRequest, AskUserQuestionDecision } from '@vibisual/shared';
+import { applyKeyedSliceDelta, MAX_RECONNECT_ATTEMPTS, RECONNECT_BASE_DELAY, WS_BATCH_INTERVAL, WS_STREAM_BATCH_INTERVAL, WS_BATCH_INTERVAL_MAX, WS_BATCH_BACKOFF_FACTOR } from '@vibisual/shared';
 import { useGraphStore } from '../stores/graphStore.js';
 import { iframeLogEvents } from '../bubble-map/api/iframeLogEvents.js';
 import { serverLogEvents } from '../bubble-map/api/serverLogEvents.js';
@@ -11,7 +11,9 @@ import {
   playCompletionChime,
   showBrowserNotification,
   requestNotificationPermission,
+  claimCompletionChime,
 } from '../utils/notification.js';
+import { detectCustomAgentCompletions } from '../utils/completionChime.js';
 
 type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
 
@@ -29,7 +31,7 @@ function isWSMessage(data: unknown): data is WSMessage {
   );
 }
 
-function isGraphSnapshot(data: unknown): data is GraphSnapshot {
+function isGraphSnapshot(data: unknown): data is GraphSnapshotWire {
   return (
     typeof data === 'object' &&
     data !== null &&
@@ -40,24 +42,13 @@ function isGraphSnapshot(data: unknown): data is GraphSnapshot {
   );
 }
 
-function isAgentStatusPayload(
-  data: unknown,
-): data is { sessionId: string; isActive: boolean } {
-  return (
-    typeof data === 'object' &&
-    data !== null &&
-    'isActive' in data &&
-    typeof (data as Record<string, unknown>)['isActive'] === 'boolean'
-  );
-}
-
 export function useWebSocket(url: string): UseWebSocketReturn {
   const [status, setStatus] = useState<ConnectionStatus>('connecting');
   const wsRef = useRef<WebSocket | null>(null);
   const attemptRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // graph_snapshot 코얼레스 — 버스트 시 마지막 스냅샷만 적용 (16ms 트레일링).
-  const snapshotPendingRef = useRef<GraphSnapshot | null>(null);
+  const snapshotPendingRef = useRef<GraphSnapshotWire | null>(null);
   const snapshotTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // §9 v3.40 — 부하 적응형 배치 창. loadSnapshot 풀 재구축이 16ms 예산을 넘기면
   // 다음 flush 창을 직전 실측 비용 × 배수로 늘려(상한 250ms) 렌더/입력이 굶지 않게 한다.
@@ -71,7 +62,38 @@ export function useWebSocket(url: string): UseWebSocketReturn {
   // 지연에 더 민감해 스냅샷(×4)보다 완만하게 늘린다.
   const streamDelayRef = useRef(WS_STREAM_BATCH_INTERVAL);
 
-  const applyGraphSnapshot = useCallback((snap: GraphSnapshot) => {
+  /**
+   * §9 v3.89 — 증분으로 온 키맵 슬라이스를 복원하기 위한 **최신 전체 맵**(수신 시점 기준).
+   *
+   * `fileEdits`·`bashHistory` 는 diff/명령 출력 원문이라 스냅샷 부피의 78% 를 차지하면서도 대부분
+   * 그대로다. 서버는 바뀐 키만 실어 보내고, 여기서 이전 값 위에 얹어 종전과 **똑같은 전체 맵**으로
+   * 되돌린다(스토어·컴포넌트는 이 최적화를 모른다).
+   *
+   * ⚠ **합치는 시점이 중요하다** — 아래 스냅샷 코얼레스는 창 안에서 마지막 1건만 적용하고 나머지를
+   * 버린다. 증분은 누적이라 버려진 메시지의 변경분은 영영 사라진다. 그래서 합성은 flush 가 아니라
+   * **메시지가 도착할 때마다** 한다(비용은 얕은 복사 1회).
+   */
+  const keyedShadowRef = useRef<{
+    fileEdits: NonNullable<GraphSnapshotWire['fileEdits']>;
+    bashHistory: NonNullable<GraphSnapshotWire['bashHistory']>;
+  }>({ fileEdits: {}, bashHistory: {} });
+
+  /** 전선에서 온 스냅샷 → 증분을 푼 완전한 스냅샷(이후 경로는 종전과 동일). */
+  const materializeSnapshot = useCallback((wire: GraphSnapshotWire): GraphSnapshotWire => {
+    const shadow = keyedShadowRef.current;
+    shadow.fileEdits = wire.deltas?.fileEdits
+      ? applyKeyedSliceDelta(shadow.fileEdits, wire.deltas.fileEdits)
+      : (wire.fileEdits ?? {});
+    shadow.bashHistory = wire.deltas?.bashHistory
+      ? applyKeyedSliceDelta(shadow.bashHistory, wire.deltas.bashHistory)
+      : (wire.bashHistory ?? {});
+    if (!wire.deltas) return wire;
+    const full: GraphSnapshotWire = { ...wire, fileEdits: shadow.fileEdits, bashHistory: shadow.bashHistory };
+    delete full.deltas;
+    return full;
+  }, []);
+
+  const applyGraphSnapshot = useCallback((snap: GraphSnapshotWire) => {
     // [perf-snapshot] 계측 — 콘솔에서 `__VIBI_PERF__ = true` 로 켠다(기본 off, 프로덕션 비용 0).
     // loadSnapshot(그래프 전체 재구축) vs 이후 apply*(~22개 슬라이스 set) 중 어디가 무거운지 분리 측정.
     const PERF = !!(globalThis as unknown as { __VIBI_PERF__?: boolean }).__VIBI_PERF__;
@@ -115,7 +137,7 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     store.applyAppState(snap.appState);
     if (snap.uiLocale) store.applyUiLocale(snap.uiLocale);
     store.applyLayoutBoundsByProject(snap.layoutBoundsByProject);
-    store.applyV150Metrics(snap.recentToolDurations, snap.compactCounts, snap.rateLimits);
+    store.applyV150Metrics(snap.recentToolDurations, snap.compactCounts, snap.rateLimits, snap.claudeUsage);
     store.applySkillUsageCounts(snap.skillUsageCounts);
     store.applyAutoAgentSummaries(snap.autoAgentSummaries);
     store.applyRunningSubagentTasks(snap.runningSubagentTasks);
@@ -124,6 +146,7 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     store.applyAgentReviews(snap.agentReviews);
     store.applyAgentLists(snap.agentLists);
     store.applyAgentFeedbacks(snap.agentFeedbacks);
+    store.applySessionLoops(snap.sessionLoops);
     store.applyDiagnosticLog(snap.diagnosticLog);
     store.applyModelRegistry(snap.modelRegistry);
     store.applyUserDefaults(snap.userDefaults);
@@ -145,6 +168,25 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     if (!snap) return;
     const t0 = performance.now();
     applyGraphSnapshot(snap);
+    // v3.76 — 완료음·완료 알림의 유일한 발화 지점. 사용자가 만든 커스텀 에이전트가 이번 스냅샷에서
+    // completed 로 넘어온 건만 울린다(서버가 서브에이전트 대차대조까지 반영해 매긴 상태라, 배경
+    // 서브가 남아 있는 동안에는 넘어오지 않는다).
+    // §5.5 #17-11 ⑦ v3.84 — 세션 루프가 도는 동안에는 회차마다 오는 완료 전이를 침묵시키고
+    // 루프 묶음이 끝날 때 한 번만 울리므로, 판정에 스냅샷의 `sessionLoops` 를 함께 넘긴다.
+    for (const finished of detectCustomAgentCompletions(snap.agents, snap.sessionLoops)) {
+      if (!claimCompletionChime()) break;
+      playCompletionChime();
+      const body = i18n.t(
+        finished.reason === 'loop'
+          ? 'common.notifications.loopCompleted'
+          : 'common.notifications.agentCompleted',
+      );
+      showBrowserNotification(
+        'Vibisual',
+        finished.agent.label ? `${finished.agent.label} — ${body}` : body,
+        () => useGraphStore.getState().requestFocus(),
+      );
+    }
     const cost = performance.now() - t0;
     snapshotDelayRef.current = Math.min(
       Math.max(WS_BATCH_INTERVAL, cost * WS_BATCH_BACKOFF_FACTOR),
@@ -217,7 +259,8 @@ export function useWebSocket(url: string): UseWebSocketReturn {
             if (isGraphSnapshot(parsed.payload)) {
               // 16ms 트레일링 코얼레스 — 액티브 에이전트 버스트 시 매 메시지마다
               // 전체 스냅샷 재구축/풀 재동기화하던 것을 최신 1건으로 합침 (60fps 예산 보호).
-              snapshotPendingRef.current = parsed.payload;
+              // §9 v3.89 — 증분(deltas)은 누적이라 **버려지는 메시지 것도 여기서 먼저** 반영한다.
+              snapshotPendingRef.current = materializeSnapshot(parsed.payload);
               if (snapshotTimerRef.current === null) {
                 snapshotTimerRef.current = setTimeout(flushSnapshot, snapshotDelayRef.current);
               }
@@ -289,15 +332,10 @@ export function useWebSocket(url: string): UseWebSocketReturn {
           }
 
           case 'agent_status':
-            // phase는 서버 스냅샷이 관리 — 여기선 알림만
-            if (isAgentStatusPayload(parsed.payload) && !parsed.payload.isActive) {
-              playCompletionChime();
-              showBrowserNotification(
-                'Vibisual',
-                i18n.t('common.notifications.agentCompleted'),
-                () => store.requestFocus(),
-              );
-            }
+            // v3.76 — **여기서 완료음을 울리지 않는다.** 이 신호는 "시스템 전체 활성 세션 0" 전이일
+            // 뿐이라 두뇌 리플렉션 자식·외부 폴더의 claude 세션·훅 세션의 매 턴 종료까지 전부 완료로
+            // 잡혀, 사용자가 아무 명령도 안 내린 유휴 상태에서 소리가 났다. 완료음은 flushSnapshot 의
+            // 커스텀 에이전트 completed 전이가 발화한다. phase 는 서버 스냅샷이 관리.
             break;
 
           // §5.3 #12-1 v1.43 — 권한 승인 요청 스택
@@ -425,7 +463,7 @@ export function useWebSocket(url: string): UseWebSocketReturn {
       console.warn(`[Vibisual] Cannot connect to server (${url}). Check if the server is running.`);
       ws.close();
     };
-  }, [url, flushSnapshot, flushStreamEvents]);
+  }, [url, flushSnapshot, flushStreamEvents, materializeSnapshot]);
 
   useEffect(() => {
     connect();

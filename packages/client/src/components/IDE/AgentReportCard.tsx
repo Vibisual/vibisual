@@ -1,10 +1,14 @@
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { AgentReport } from '@vibisual/shared';
+import type { AgentReport, AgentReview } from '@vibisual/shared';
 import { FeedbackButtons } from './FeedbackButtons.js';
+import { CardSection, CardDetails, CardHoverControls } from './AgentCardParts.js';
+import { ReviewIcon, InstructionIcon, ChangeIcon, VerifyIcon } from './AgentReviewCard.js';
 
 interface AgentReportCardProps {
   report: AgentReport;
+  /** §5.5 #17-12 — 같은 턴에 온 검수 요청(있으면 이 카드 안쪽 구획으로 합쳐 한 장으로 보여준다). */
+  review?: AgentReview;
 }
 
 function formatTime(ts: number): string {
@@ -119,12 +123,17 @@ function NoteBody({ note }: { note: string }): React.JSX.Element {
  * - nextSteps : 보조(슬레이트) — 다음 단계.
  * 표시 전용 — 사용자가 긴 보고를 다 안 읽어도 "내가 할 일"을 한눈에 파악하게 한다.
  */
-export const AgentReportCard = memo(function AgentReportCard({ report }: AgentReportCardProps): React.JSX.Element {
+export const AgentReportCard = memo(function AgentReportCard({ report, review }: AgentReportCardProps): React.JSX.Element {
   const { t } = useTranslation();
   const hasUserActions = report.userActions.length > 0;
+  // §5.5 #17-12 — 기본 노출은 "행동 구획"(사용자가 할 일 / 검수 포인트)뿐. 맥락(한 일·다음 단계·배운 것,
+  //   흡수한 검수의 받은 지시·고친 내용)은 [자세히] 안으로 — 카드가 길어 무엇이 중요한지 묻히던 문제를 고친다.
+  const detailCount =
+    report.did.length + (report.nextSteps?.length ?? 0) + (report.learned?.length ?? 0)
+    + (review ? review.changes.length + (review.instruction ? 1 : 0) : 0);
 
   return (
-    <div className="mx-2 my-1.5 overflow-hidden rounded-md border border-gray-700/60 bg-gray-900/40">
+    <div className="group/card mx-2 my-1.5 overflow-hidden rounded-md border border-gray-700/60 bg-gray-900/40">
       {/* 헤더 */}
       <div className="flex items-center gap-2 border-b border-gray-800/60 bg-gray-800/30 px-3 py-1.5">
         <svg className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -135,82 +144,99 @@ export const AgentReportCard = memo(function AgentReportCard({ report }: AgentRe
         <span className="flex-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
           {t('ide.report.title')}
         </span>
+        {/* 검수를 흡수했으면 그 사실을 헤더 칩으로 알린다(카드 두 장이 한 장으로 합쳐졌음). */}
+        {/* data-card-id 는 놓친 카드 pill 앵커 — 검수 포인트가 비어 있어도 이 칩은 항상 그려지므로
+            병합된 검수 카드의 "봤다" 관측·점프가 끊기지 않는다(빈 구획에 앵커를 달면 높이 0 이라 관측 불가). */}
+        {review && (
+          <span data-card-id={review.id} className="flex flex-shrink-0 items-center gap-1 rounded bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-violet-300">
+            <ReviewIcon />
+            {t('ide.review.title')}
+          </span>
+        )}
         <span className="select-none text-[10px] text-gray-500">{formatTime(report.createdAt)}</span>
       </div>
 
       <div className="px-3 py-2">
         {report.note && <NoteBody note={report.note} />}
 
-        {/* AI 가 한 일 */}
-        {report.did.length > 0 && (
-          <div className="mb-2">
-            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-400/80">
-              {t('ide.report.didTitle')}
-            </div>
-            <ul className="space-y-0.5">
-              {report.did.map((item, i) => (
-                <li key={i} className="flex items-start gap-1.5 text-[12.5px] leading-relaxed text-gray-300">
-                  <span className="text-emerald-400/80"><CheckIcon /></span>
-                  <span className="min-w-0 flex-1 break-words">{item}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {/* 사용자가 할 일 — amber 강조 패널 */}
+        {/* 사용자가 할 일 — amber 강조 패널 (행동 구획: 항상 노출) */}
         {hasUserActions && (
-          <div className="mb-2 rounded border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5">
-            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-amber-300/90">
-              {t('ide.report.userActionsTitle')}
-            </div>
-            <ul className="space-y-0.5">
-              {report.userActions.map((item, i) => (
-                <li key={i} className="flex items-start gap-1.5 text-[12.5px] font-medium leading-relaxed text-amber-100/90">
-                  <span className="text-amber-400/90"><HandIcon /></span>
-                  <span className="min-w-0 flex-1 break-words">{item}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
+          <CardSection
+            title={t('ide.report.userActionsTitle')}
+            icon={<HandIcon />}
+            items={report.userActions}
+            titleClass="text-amber-300/90"
+            textClass="text-amber-100/90 font-medium"
+            glyphClass="text-amber-400/90"
+            panelClass="border-amber-500/30 bg-amber-500/10"
+          />
         )}
 
-        {/* 다음 단계 */}
-        {report.nextSteps && report.nextSteps.length > 0 && (
-          <div>
-            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400/80">
-              {t('ide.report.nextStepsTitle')}
-            </div>
-            <ul className="space-y-0.5">
-              {report.nextSteps.map((item, i) => (
-                <li key={i} className="flex items-start gap-1.5 text-[12px] leading-relaxed text-gray-400">
-                  <span className="text-slate-400/70"><NextIcon /></span>
-                  <span className="min-w-0 flex-1 break-words">{item}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
+        {/* 흡수한 검수의 확인 포인트 — violet 강조 패널 (행동 구획: 항상 노출) */}
+        {review && (
+          <CardSection
+            title={t('ide.review.checkpointsTitle')}
+            icon={<VerifyIcon />}
+            items={review.checkpoints}
+            titleClass="text-violet-200"
+            textClass="text-violet-100/90 font-medium"
+            glyphClass="text-violet-300/90"
+            panelClass="border-violet-500/30 bg-violet-500/10"
+          />
         )}
 
-        {/* §5.10 — 배운 것(learned) — violet/fuchsia 액센트. 두뇌 기억으로 저장되는 재료. */}
-        {report.learned && report.learned.length > 0 && (
-          <div className="mb-2 rounded border border-fuchsia-500/30 bg-fuchsia-500/10 px-2.5 py-1.5">
-            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-fuchsia-300/90">
-              {t('ide.report.learnedTitle', { defaultValue: '배운 것' })}
-            </div>
-            <ul className="space-y-0.5">
-              {report.learned.map((item, i) => (
-                <li key={i} className="flex items-start gap-1.5 text-[12.5px] leading-relaxed text-fuchsia-100/90">
-                  <span className="text-fuchsia-400/90"><LearnedIcon /></span>
-                  <span className="min-w-0 flex-1 break-words">{item}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
+        {/* 맥락 구획 — 기본 접힘 */}
+        <CardDetails count={detailCount}>
+          <CardSection
+            title={t('ide.report.didTitle')}
+            icon={<CheckIcon />}
+            items={report.did}
+            titleClass="text-emerald-400/80"
+            textClass="text-gray-300"
+            glyphClass="text-emerald-400/80"
+          />
+          {review?.instruction && (
+            <CardSection
+              title={t('ide.review.instructionTitle')}
+              icon={<InstructionIcon />}
+              items={[review.instruction]}
+              titleClass="text-violet-300/60"
+              textClass="text-gray-500 italic"
+              glyphClass="text-gray-600"
+            />
+          )}
+          {review && (
+            <CardSection
+              title={t('ide.review.changesTitle')}
+              icon={<ChangeIcon />}
+              items={review.changes}
+              titleClass="text-violet-300/80"
+              textClass="text-gray-400"
+              glyphClass="text-violet-400/50"
+            />
+          )}
+          <CardSection
+            title={t('ide.report.nextStepsTitle')}
+            icon={<NextIcon />}
+            items={report.nextSteps ?? []}
+            titleClass="text-slate-400/80"
+            textClass="text-gray-400"
+            glyphClass="text-slate-400/70"
+          />
+          {/* §5.10 — 배운 것(learned). 두뇌 기억으로 저장되는 재료. */}
+          <CardSection
+            title={t('ide.report.learnedTitle')}
+            icon={<LearnedIcon />}
+            items={report.learned ?? []}
+            titleClass="text-indigo-300/90"
+            textClass="text-indigo-100/90"
+            glyphClass="text-indigo-400/90"
+            panelClass="border-indigo-500/30 bg-indigo-500/10"
+          />
+        </CardDetails>
 
-        {/* §4 v3.21 — 좋아요/싫어요 (규칙 되먹임 학습 재료). summary = did 우선 스냅샷. */}
-        <div className="mt-1.5 border-t border-gray-800/60 pt-1.5">
+        {/* §4 v3.21 — 좋아요/싫어요 (규칙 되먹임 학습 재료). §5.5 #17-12 — 호버 때만 노출(상시 잡음 제거). */}
+        <CardHoverControls>
           <FeedbackButtons
             agentId={report.agentId}
             subAgentId={report.subAgentId}
@@ -218,7 +244,7 @@ export const AgentReportCard = memo(function AgentReportCard({ report }: AgentRe
             targetId={report.id}
             summary={report.did.length > 0 ? report.did : report.userActions}
           />
-        </div>
+        </CardHoverControls>
       </div>
     </div>
   );

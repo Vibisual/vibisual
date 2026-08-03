@@ -49,18 +49,31 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
   const toggleSubagentPanel = useGraphStore((s) => s.toggleSubagentPanel);
   const setSubagentPanelOpen = useGraphStore((s) => s.setSubagentPanelOpen);
 
+  // §5.5 #17-11 v3.79 — 세션 반복 실행(루프). 설정 단위가 **지금 열려 있는 세션 탭**이라
+  //   배지도 그 탭의 루프만 읽는다(메인 탭이면 배지 없음 — 설정 대상이 없다는 뜻).
+  const activeSessionId = useGraphStore((s) => selectIDEOverlay(s).activeSessionId);
+  const activeLoop = useGraphStore((s) => (activeSessionId ? s.sessionLoops[activeSessionId] : undefined));
+  const loopPanelOpen = useGraphStore((s) => s.loopPanelOpen);
+  const toggleLoopPanel = useGraphStore((s) => s.toggleLoopPanel);
+  const setLoopPanelOpen = useGraphStore((s) => s.setLoopPanelOpen);
+  const loopRunning = !!activeLoop?.enabled;
+  const loopBadge = activeLoop
+    ? (activeLoop.mode === 'count' ? `${activeLoop.completed}/${activeLoop.total ?? 0}` : `${activeLoop.completed}`)
+    : null;
+
   const handleClick = useCallback((view: IDEViewType) => {
-    // 사이드바 뷰를 열면 덮개 패널(북마크·세션 요약·실행 중 서브에이전트)은 닫는다 — 동시에 겹치지 않게.
+    // 사이드바 뷰를 열면 덮개 패널(북마크·세션 요약·실행 중 서브에이전트·루프)은 닫는다 — 동시에 겹치지 않게.
     if (bookmarkPanelOpen) setBookmarkPanelOpen(false);
     if (summaryPanelOpen) setSummaryPanelOpen(false);
     if (subagentPanelOpen) setSubagentPanelOpen(false);
+    if (loopPanelOpen) setLoopPanelOpen(false);
     if (activeView === view && !sidebarCollapsed) {
       toggleSidebar();
     } else {
       setActiveView(view);
       if (sidebarCollapsed) toggleSidebar();
     }
-  }, [activeView, sidebarCollapsed, setActiveView, toggleSidebar, bookmarkPanelOpen, setBookmarkPanelOpen, summaryPanelOpen, setSummaryPanelOpen, subagentPanelOpen, setSubagentPanelOpen]);
+  }, [activeView, sidebarCollapsed, setActiveView, toggleSidebar, bookmarkPanelOpen, setBookmarkPanelOpen, summaryPanelOpen, setSummaryPanelOpen, subagentPanelOpen, setSubagentPanelOpen, loopPanelOpen, setLoopPanelOpen]);
 
   return (
     // §4 v3.24 — 폰(max-md)에선 타이틀바 토글로 열리는 오버레이(본문을 상시 짓누르지 않게).
@@ -129,6 +142,39 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
         {unreviewedCount > 0 && (
           <span className="absolute right-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500 px-1 text-[9px] font-bold text-white">
             {unreviewedCount > 99 ? '99+' : unreviewedCount}
+          </span>
+        )}
+      </button>
+
+      {/* §5.5 #17-11 v3.79 — 세션 반복 실행(루프). 항목은 항상 있고(설정하러 들어오는 입구),
+          배지는 지금 열린 세션 탭의 루프 진행(완료/목표 — 무한이면 완료 횟수)만 보여준다.
+          도는 동안에는 아이콘이 amber 로 켜져 "이 탭은 지금 반복 중"이 한눈에 보인다. */}
+      <button
+        type="button"
+        onClick={toggleLoopPanel}
+        className={`relative flex h-10 w-10 items-center justify-center rounded transition-colors ${
+          loopPanelOpen
+            ? 'border-l-2 border-amber-400 bg-gray-800 text-white'
+            : loopRunning
+              ? 'text-amber-400 hover:bg-gray-800 hover:text-amber-300'
+              : 'text-gray-500 hover:bg-gray-800 hover:text-gray-300'
+        }`}
+        title={t('ide.activityBar.loop')}
+        aria-label={t('ide.activityBar.loop')}
+      >
+        <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+          <path d="M17 2l4 4-4 4" />
+          <path d="M3 11v-1a4 4 0 0 1 4-4h14" />
+          <path d="M7 22l-4-4 4-4" />
+          <path d="M21 13v1a4 4 0 0 1-4 4H3" />
+        </svg>
+        {loopBadge !== null && (
+          <span
+            className={`absolute right-0 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[9px] font-bold tabular-nums text-white ${
+              loopRunning ? 'bg-amber-500' : 'bg-gray-600'
+            }`}
+          >
+            {loopBadge}
           </span>
         )}
       </button>

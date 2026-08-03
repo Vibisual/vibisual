@@ -57,6 +57,9 @@ class UserDefaultsService {
   /**
    * 부분 머지 저장 — top-level 카테고리(agentConfig/appearance/...) 마다 합치되,
    * 카테고리 안 필드는 patch 가 명시한 것만 덮어쓴다. `undefined` 로 지운다는 의도면 클라가 명시 send 해야 함.
+   *
+   * §5.11 v3.88 — `enabledPlugins` 는 **배열 통째 교체**가 의도된 동작이다(스프레드가 그대로 처리).
+   * 켜고 끈 결과 전체를 보내는 값이라, 머지하면 "껐다"가 반영되지 않는다.
    */
   async update(patch: Partial<UserDefaults>): Promise<UserDefaults> {
     const prev = this.defaults;

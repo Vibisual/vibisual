@@ -3,24 +3,30 @@ import { Virtuoso, type VirtuosoHandle, type StateSnapshot } from 'react-virtuos
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import type { QueuedCommand, SubAgent, SubAgentStreamEvent, AgentEvent, AgentReport, AgentQuestions, AgentReview, AgentList, AskUserQuestionRequest } from '@vibisual/shared';
+import { STREAM_DENSITIES, type StreamDensity } from '@vibisual/shared';
+import type { TodoItem } from '@vibisual/shared';
+import { latestPlanProgress, parsePlanTodos, isSystemSubtypeChip, PLAN_TOOL_NAME } from './streamItems.js';
+import { PlanBlock } from './PlanBlock.js';
+import { toolPreview } from './toolPreview.js';
 import { useGraphStore, agentSessionInputKey, selectIDEOverlay } from '../../stores/graphStore.js';
 import type { AgentSessionInputAttachment } from '../../stores/graphStore.js';
 import { useAvailableSkills, type SkillInfo, type BuiltinCommandInfo } from '../../hooks/useAvailableSkills.js';
+import { useSessionStop } from '../../hooks/useSessionStop.js';
 import { StreamRenderer, StreamEndGap, type StreamRendererHandle } from './StreamRenderer.js';
 import { useAttachmentThumbs } from './attachmentThumb.js';
 import { decideFollow } from './followDecision.js';
 import { useVirtuosoFrontShift } from './frontShift.js';
+import { useStreamToggle, streamToggleProps, STREAM_TOGGLE_ATTR } from './streamToggle.js';
 import { findTextRangeInContainer, scrollRangeIntoCenter, scrollElementIntoCenter, flashElement, findItemElement, resolveAnchorIdFromSelection } from './bookmarkScroll.js';
 import { AskQuestionCard } from './AskQuestionCard.js';
 import { AgentReportCard } from './AgentReportCard.js';
 import { AgentQuestionCard } from './AgentQuestionCard.js';
 import { AgentReviewCard } from './AgentReviewCard.js';
 import { AgentListCard } from './AgentListCard.js';
-import { MemoryInjectionChip } from './MemoryInjectionChip.js';
 import { UnseenCardPills, type UnseenCardMeta } from './UnseenCardPills.js';
 import { IDETerminalView } from './IDETerminalView.js';
 import { SystemNode, parseSystemSubtype } from './SystemNode.js';
-import { ThinkingDots, ThinkingLiveLine } from './ThinkingIndicator.js';
+import { ThinkingLiveLine } from './ThinkingIndicator.js';
 import { CollapsiblePrompt, AiSpeakerGlyph } from './CollapsiblePrompt.js';
 import { INPUT_FIELD_SIZING, INPUT_MAX_HEIGHT, autosizeInput } from './inputAutosize.js';
 
@@ -28,6 +34,12 @@ import { INPUT_FIELD_SIZING, INPUT_MAX_HEIGHT, autosizeInput } from './inputAuto
 const THINKING_PULSE_SUBTYPE = 'thinking_tokens';
 function isThinkingPulse(evt: { eventType: string; content: string }): boolean {
   return evt.eventType === 'system' && parseSystemSubtype(evt.content) === THINKING_PULSE_SUBTYPE;
+}
+
+/** §5.5 #17-15 — "지금 생각하고 있다"를 뜻하는 이벤트(SDK 펄스 + 실제 thinking 델타).
+ *  사고 원문은 본문에 쌓지 않고, 진행 중 라이브 1줄만이 유일한 표면이다(Sub 탭 streamItems 와 같은 규칙). */
+function isThinkingActivity(evt: { eventType: string; content: string }): boolean {
+  return evt.eventType === 'thinking' || isThinkingPulse(evt);
 }
 
 /** §5.5 #17-2 v3.19 — 슬래시 드롭다운 항목: 디스크 스킬/커맨드 또는 CLI 내장(built-in) 명령. */
@@ -43,7 +55,6 @@ const EMPTY_REPORTS: import('@vibisual/shared').AgentReport[] = [];
 const EMPTY_QUESTIONS: import('@vibisual/shared').AgentQuestions[] = [];
 const EMPTY_REVIEWS: import('@vibisual/shared').AgentReview[] = [];
 const EMPTY_LISTS: import('@vibisual/shared').AgentList[] = [];
-const EMPTY_INJECTIONS: import('@vibisual/shared').BrainInjectionEvent[] = [];
 
 // v3.05 — 바닥 추종 의도 판정 임계(px). 스크롤 후 바닥과의 거리가 이보다 가까우면 "추종 중"으로 본다.
 //   콘텐츠 성장은 scroll 이벤트를 안 내므로 이 값은 사용자 스크롤-업/다운 제스처에만 반응한다.
@@ -127,7 +138,7 @@ interface TerminalEntry {
 interface TerminalGroup {
   kind: 'group';
   id: string;
-  groupType: 'tool' | 'text' | 'thinking';
+  groupType: 'tool' | 'text';
   header: string;
   toolName?: string;
   timestamp: number;
@@ -135,6 +146,10 @@ interface TerminalGroup {
   entries: TerminalEntry[];
   /** tool이 아직 실행 중 (result 없음) */
   isActive: boolean;
+  /** §5.5 #17-12 — 연속 도구를 합친 묶음이면 합쳐진 호출 수(2 이상). 없으면 단일 호출. */
+  runCount?: number;
+  /** §5.5 #17-13 — 묶음에 등장한 도구 이름(중복 제거, 등장 순서). 헤더 칩 표시용. */
+  toolNames?: string[];
 }
 
 /** 생각 중 라이브 1줄 — 실제 thinking 중일 때만 본문 하단에 1개 등장 */
@@ -144,17 +159,26 @@ interface TerminalThinkingLive {
   timestamp: number;
 }
 
-type TerminalItem = (TerminalEntry & { kind?: undefined }) | TerminalGroup | TerminalThinkingLive;
+/** §5.5 #17-12 — 메인 탭에서도 TodoWrite 는 계획 블록으로(Sub 탭 StreamPlan 과 같은 모양 → PlanBlock 재사용). */
+interface TerminalPlan {
+  kind: 'plan';
+  id: string;
+  todos: TodoItem[];
+  timestamp: number;
+  superseded?: boolean;
+}
+
+type TerminalItem = (TerminalEntry & { kind?: undefined }) | TerminalGroup | TerminalThinkingLive | TerminalPlan;
 
 /** 메인 탭 타임라인 노드 — 터미널 항목 + 카드류(작업 신고/질문/검수/목록/AskUserQuestion)의 합집합. */
 type MainTimelineNode =
   | { t: 'item'; item: TerminalItem }
-  | { t: 'report'; report: AgentReport }
+  // §5.5 #17-12 — 같은 턴의 검수 요청은 별도 노드가 아니라 이 신고 카드 안쪽 구획으로 흡수된다.
+  | { t: 'report'; report: AgentReport; review?: AgentReview }
   | { t: 'question'; questions: AgentQuestions }
   | { t: 'review'; review: AgentReview }
   | { t: 'list'; list: AgentList }
-  | { t: 'ask'; request: AskUserQuestionRequest }
-  | { t: 'memoryInjection'; event: import('@vibisual/shared').BrainInjectionEvent };
+  | { t: 'ask'; request: AskUserQuestionRequest };
 
 /** 타임라인 노드의 안정 id — Virtuoso key·앞쪽 절단 shift 카운트가 공용(중복 분기 제거). */
 function mainTimelineNodeId(n: MainTimelineNode): string {
@@ -164,7 +188,6 @@ function mainTimelineNodeId(n: MainTimelineNode): string {
     case 'list': return n.list.id;
     case 'question': return n.questions.id;
     case 'ask': return n.request.requestId;
-    case 'memoryInjection': return `mem-${n.event.id}`;
     case 'item': return n.item.id;
   }
 }
@@ -227,7 +250,7 @@ function buildEntries(
       if (!subLabelMap.has(subId) && subAgents.length > 0) continue;
       const label = subLabelMap.get(subId);
       for (const evt of events) {
-        if (isThinkingPulse(evt)) continue; // 생각 중 펄스는 본문에 쌓지 않음 (라이브 1줄로 대체)
+        if (isThinkingActivity(evt)) continue; // §5.5 #17-15 — 사고(펄스·델타)는 본문에 쌓지 않음 (라이브 1줄로 대체)
         entries.push({
           id: evt.id,
           type: evt.eventType,
@@ -243,7 +266,7 @@ function buildEntries(
     const events = streams[activeSessionId];
     if (events) {
       for (const evt of events) {
-        if (isThinkingPulse(evt)) continue; // 생각 중 펄스는 본문에 쌓지 않음 (라이브 1줄로 대체)
+        if (isThinkingActivity(evt)) continue; // §5.5 #17-15 — 사고(펄스·델타)는 본문에 쌓지 않음 (라이브 1줄로 대체)
         entries.push({
           id: evt.id,
           type: evt.eventType,
@@ -297,35 +320,102 @@ function buildEntries(
 // ─── flat 항목 → 그룹화 ───
 
 /** tool_use+tool_result 쌍을 접을 수 있는 그룹으로, 연속 text를 하나로 묶기.
- *  thinking 블록은 항상 하나로 합쳐 VS Code 처럼 "생각 중 …" 1줄로 표시한다.
- *  agentBusy 이고 thinking 이 마지막 항목이면 = 아직 생각 중 → 도트 애니메이션. */
-function groupEntries(flat: TerminalEntry[], agentBusy: boolean): TerminalItem[] {
+ *  §5.5 #17-15 — 사고는 buildEntries 단계에서 이미 빠졌다(묶을 대상이 없다). */
+/**
+ * §5.5 #17-12 — 메인 탭 밀도 적용(Sub 탭 streamDensity 와 같은 규칙, 자료형만 다르다).
+ *  - 연속 동종 도구 묶음(진행 중 제외)을 `도구 ×N` 한 줄로 합친다.
+ *  - 같은 턴(명령 경계)의 옛 계획은 접는다.
+ * `raw` 밀도에서는 아무것도 하지 않는다.
+ */
+function applyMainDensity(items: TerminalItem[], density: StreamDensity): TerminalItem[] {
+  if (density === 'raw') return items;
+
+  // §5.5 #17-13 ⑤ — SDK 상태 칩(`[task_started]` 레일 점)은 간결/표준에서 그리지 않는다(내용 없는 한 줄).
+  //   내용이 있는 system 본문(권한 결정 등)은 subtype 단독 패턴이 아니므로 그대로 남는다.
+  // §5.5 #17-15 — 사고는 밀도 축에서 빠졌다(항목 조립 시점에 이미 없다 — 여기서 거를 것이 없다).
+  const shown = items.filter((it) => (
+    !(it.kind === undefined && it.type === 'system' && isSystemSubtypeChip(it.text))
+  ));
+
+  // (1) 옛 계획 접기 — 뒤에서부터 훑으며 같은 턴에서 더 새로운 계획을 본 적 있으면 superseded.
+  const marked = shown.slice();
+  let seenNewerPlan = false;
+  for (let k = shown.length - 1; k >= 0; k--) {
+    const it = shown[k]!;
+    if (it.kind === undefined && it.type === 'command') { seenNewerPlan = false; continue; }
+    if (it.kind !== 'plan') continue;
+    if (seenNewerPlan) { if (!it.superseded) marked[k] = { ...it, superseded: true }; }
+    else { seenNewerPlan = true; if (it.superseded) marked[k] = { ...it, superseded: false }; }
+  }
+
+  // (2) 도구 실행 묶기 — §5.5 #17-13: 도구 이름을 가리지 않고, 사이에 낀 잡음(빈 줄·system)도 넘어간다.
+  //   §5.5 #17-16: **진행 중 도구도 묶고**(밖에 두면 끝나는 순간 흡수되며 화면이 출렁인다), 문턱 없이
+  //   1개짜리 런부터 감싼다. 지금 하는 일은 접힌 묶음이 그리는 "최근 도구 한 줄"이 계속 보여준다.
+  const groupableTool = (it: TerminalItem): it is TerminalGroup =>
+    it.kind === 'group' && it.groupType === 'tool';
+  const filler = (it: TerminalItem): boolean => {
+    if (it.kind !== undefined) return false;
+    if (it.type === 'system') return true;
+    return it.type === 'text' && it.text.trim() === '';
+  };
+  const out: TerminalItem[] = [];
+  let i = 0;
+  while (i < marked.length) {
+    const cur = marked[i]!;
+    if (groupableTool(cur)) {
+      let j = i + 1;
+      let lastToolEnd = i + 1; // 꼬리 잡음은 묶지 않는다(다음 대화의 머리).
+      let runCount = 1;
+      while (j < marked.length) {
+        const next = marked[j]!;
+        if (groupableTool(next)) { runCount++; j++; lastToolEnd = j; continue; }
+        if (filler(next)) { j++; continue; }
+        break;
+      }
+      const entries: TerminalEntry[] = [];
+      const toolNames: string[] = [];
+      let runActive = false;
+      for (let k = i; k < lastToolEnd; k++) {
+        const it = marked[k]!;
+        if (it.kind === 'group') {
+          entries.push(...it.entries);
+          const name = it.toolName ?? it.header;
+          if (name && !toolNames.includes(name)) toolNames.push(name);
+          runActive = it.isActive; // 활성은 런의 마지막 도구에만 — 뒤 도구가 오면 자동으로 덮인다.
+        } else if (it.kind === undefined) {
+          entries.push(it);
+        }
+      }
+      // id 는 첫 묶음 id 고정 — 묶음이 자라도 펼침 상태가 유지된다(Sub 탭 toolgroup 과 동일 규칙).
+      out.push({ ...cur, entries, runCount, toolNames, isActive: runActive });
+      i = lastToolEnd;
+      continue;
+    }
+    out.push(cur);
+    i++;
+  }
+  return out;
+}
+
+function groupEntries(flat: TerminalEntry[]): TerminalItem[] {
   const items: TerminalItem[] = [];
   let i = 0;
 
   while (i < flat.length) {
     const cur = flat[i]!;
 
-    // thinking → 연속 thinking 을 항상 1개 그룹으로 합치기 (단독 thinking 포함)
-    if (cur.type === 'thinking') {
-      const children: TerminalEntry[] = [cur];
-      let j = i + 1;
-      while (j < flat.length && flat[j]!.type === 'thinking') {
-        children.push(flat[j]!);
-        j++;
+    // §5.5 #17-15 — 사고는 buildEntries 에서 이미 걸러졌다(그룹으로 묶을 대상 자체가 없다).
+
+    // §5.5 #17-12 — TodoWrite 는 계획 블록으로 승격(짝 tool_result 는 계획에 흡수돼 별도 줄이 되지 않는다).
+    if (cur.type === 'tool_use' && cur.toolName === PLAN_TOOL_NAME) {
+      const todos = parsePlanTodos(cur.text);
+      if (todos) {
+        let j = i + 1;
+        while (j < flat.length && flat[j]!.type === 'tool_result') j++;
+        items.push({ kind: 'plan', id: `plan-${cur.id}`, todos, timestamp: cur.timestamp });
+        i = j;
+        continue;
       }
-      items.push({
-        kind: 'group',
-        id: `grp-${cur.id}`,
-        groupType: 'thinking',
-        header: '',
-        timestamp: cur.timestamp,
-        sessionLabel: cur.sessionLabel,
-        entries: children,
-        isActive: false,
-      });
-      i = j;
-      continue;
     }
 
     // tool_use → 뒤따르는 tool_result(들)까지 그룹 (단독 tool_use도 감쌈 → 활성 표시)
@@ -360,15 +450,6 @@ function groupEntries(flat: TerminalEntry[], agentBusy: boolean): TerminalItem[]
     i++;
   }
 
-  // 마지막 항목이 thinking 그룹이고 에이전트가 작동 중이면 = 아직 생각 중 → 활성(도트 애니메이션).
-  // 이후 text/tool 이 따라붙으면 생각이 끝난 것이므로 정적 1줄(접힘)로 남는다.
-  if (agentBusy) {
-    const last = items[items.length - 1];
-    if (last && last.kind === 'group' && last.groupType === 'thinking') {
-      last.isActive = true;
-    }
-  }
-
   return items;
 }
 
@@ -377,7 +458,6 @@ function groupEntries(flat: TerminalEntry[], agentBusy: boolean): TerminalItem[]
 const TYPE_STYLES: Record<string, { color: string; prefix: string }> = {
   command:     { color: 'text-blue-300',       prefix: '>' },
   text:        { color: 'text-gray-200',       prefix: ' ' },
-  thinking:    { color: 'text-violet-300/70',  prefix: '\u2026' },
   tool_use:    { color: 'text-amber-300/90',   prefix: '\u2192' },
   tool_result: { color: 'text-gray-400',       prefix: '\u2190' },
   result:      { color: 'text-emerald-300/90', prefix: '\u2713' },
@@ -454,17 +534,42 @@ function Spinner(): React.JSX.Element {
   );
 }
 
-/** tool_use 입력의 요약 (첫 80자) */
+/** tool_use 입력의 한 줄 요약 — §5.5 #17-13 로 Sub 탭과 **같은 순수 함수**를 쓴다(원본 JSON 노출 제거). */
 function toolInputPreview(entry: TerminalEntry): string {
-  const raw = entry.text;
-  if (!raw) return '';
-  const trimmed = raw.slice(0, 100);
-  return trimmed.length < raw.length ? `${trimmed}...` : trimmed;
+  return toolPreview(entry.text);
+}
+
+/** §5.5 #17-13 — 묶음 헤더에 보여줄 도구 이름 칩 개수(초과분은 `+N`). */
+const TOOL_GROUP_NAME_CHIPS = 3;
+
+/** §5.5 #17-16 — 접힌 묶음이 그리는 최근 도구 한 줄(Sub 탭 ToolGroupLatestLine 과 같은 규칙·같은 높이). */
+function TerminalRunLatestLine({ entry, active }: { entry: TerminalEntry; active: boolean }): React.JSX.Element {
+  return (
+    <div className="flex items-center gap-2 border-t border-gray-800/40 px-2.5 py-1">
+      <span className="flex h-3 w-3 flex-shrink-0 items-center justify-center">
+        {active ? <Spinner /> : (
+          <svg className="h-3 w-3 text-gray-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+        )}
+      </span>
+      <span className={`flex-shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold ${active ? 'bg-blue-500/15 text-blue-300' : 'bg-amber-500/10 text-amber-400/70'}`}>
+        {entry.toolName ?? 'Tool'}
+      </span>
+      <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-gray-500">{toolInputPreview(entry)}</span>
+    </div>
+  );
 }
 
 function TerminalGroupLine({ group }: { group: TerminalGroup }): React.JSX.Element {
-  const [open, setOpen] = useState(false);
+  const { t } = useTranslation();
+  // §5.5 #17-16 ④ — 펼침은 모듈 저장소에 보관(가상 리스트 언마운트에도 유지).
+  const [open, toggleOpen] = useStreamToggle(group.id, false);
   const isTool = group.groupType === 'tool';
+  // §5.5 #17-16 ① — 도구 묶음은 1개짜리부터 존재하므로 개수와 무관하게 "명령 실행됨 ×N" 머리를 쓴다.
+  const isRun = group.runCount !== undefined;
+  // 접혀 있을 때 보여줄 가장 최근 도구 호출(진행 중이면 그게 지금 하는 일).
+  const latestUse = isRun ? [...group.entries].reverse().find((e) => e.type === 'tool_use') : undefined;
 
   // 활성 상태 색상
   const accentColor = group.isActive
@@ -485,7 +590,8 @@ function TerminalGroupLine({ group }: { group: TerminalGroup }): React.JSX.Eleme
       {/* 헤더 — 클릭으로 토글 */}
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={toggleOpen}
+        {...streamToggleProps(open)}
         className={`group/hdr flex w-full items-center gap-2 px-2.5 py-1 text-left transition-colors ${headerBg}`}
         title={open ? 'Click to collapse' : 'Click to expand'}
       >
@@ -512,16 +618,36 @@ function TerminalGroupLine({ group }: { group: TerminalGroup }): React.JSX.Eleme
               {group.sessionLabel}
             </span>
           )}
-          {isTool && group.toolName && (
-            <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-bold text-amber-400/90">
-              {group.toolName}
-            </span>
-          )}
-          {/* 미리보기 텍스트 (접힌 상태) */}
-          {!open && preview && (
-            <span className="truncate font-mono text-[12px] text-gray-400">
-              {preview}
-            </span>
+          {/* §5.5 #17-13 — 묶음이면 도구 이름 대신 "명령 실행됨 ×N" + 이름 칩 몇 개. 단일 호출이면 종전대로. */}
+          {isRun ? (
+            <>
+              <span className="flex-shrink-0 text-[12px] text-gray-400">{t('ide.streamRenderer.activity')}</span>
+              <span className="flex-shrink-0 tabular-nums text-[12px] text-gray-500">
+                {t('ide.streamRenderer.toolRun', { count: group.runCount })}
+              </span>
+              {(group.toolNames ?? []).slice(0, TOOL_GROUP_NAME_CHIPS).map((name) => (
+                <span key={name} className="flex-shrink-0 rounded bg-gray-700/40 px-1 py-0.5 text-[10px] font-medium text-gray-500">
+                  {name}
+                </span>
+              ))}
+              {(group.toolNames?.length ?? 0) > TOOL_GROUP_NAME_CHIPS && (
+                <span className="flex-shrink-0 text-[10px] text-gray-600">+{(group.toolNames?.length ?? 0) - TOOL_GROUP_NAME_CHIPS}</span>
+              )}
+            </>
+          ) : (
+            <>
+              {isTool && group.toolName && (
+                <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-bold text-amber-400/90">
+                  {group.toolName}
+                </span>
+              )}
+              {/* 미리보기 텍스트 (접힌 상태) */}
+              {!open && preview && (
+                <span className="truncate font-mono text-[12px] text-gray-400">
+                  {preview}
+                </span>
+              )}
+            </>
           )}
           {!isTool && (
             <span className="truncate text-[12px] text-gray-300">
@@ -532,8 +658,8 @@ function TerminalGroupLine({ group }: { group: TerminalGroup }): React.JSX.Eleme
 
         {/* 오른쪽: 스피너 or 아이템 카운트 */}
         <div className="flex flex-shrink-0 items-center gap-1.5">
-          {group.isActive && <Spinner />}
-          {!group.isActive && isTool && group.entries.length > 1 && (
+          {group.isActive && !isRun && <Spinner />}
+          {!group.isActive && isTool && !isRun && group.entries.length > 1 && (
             <span className="rounded bg-gray-700/50 px-1.5 py-0.5 text-[10px] text-gray-400">
               {group.entries.length - 1} result{group.entries.length > 2 ? 's' : ''}
             </span>
@@ -545,6 +671,9 @@ function TerminalGroupLine({ group }: { group: TerminalGroup }): React.JSX.Eleme
         </div>
       </button>
 
+      {/* 접혀 있어도 최근 도구 한 줄은 항상(활성/완료 같은 높이 → 스트리밍 중 리스트가 안 움직인다). */}
+      {!open && latestUse && <TerminalRunLatestLine entry={latestUse} active={group.isActive} />}
+
       {/* 펼친 내용 */}
       {open && (
         <div className="border-t border-gray-800/60 bg-gray-950/50">
@@ -554,77 +683,12 @@ function TerminalGroupLine({ group }: { group: TerminalGroup }): React.JSX.Eleme
         </div>
       )}
 
-      {/* 활성 상태 하단 프로그레스 바 */}
-      {group.isActive && (
+      {/* 활성 상태 하단 프로그레스 바 — 묶음은 최근 도구 줄의 스피너가 대신한다(2px 출렁임 방지). */}
+      {group.isActive && !isRun && (
         <div className="h-[2px] w-full overflow-hidden bg-gray-800/30">
           <div className="h-full w-1/3 animate-pulse rounded-full bg-blue-500/60"
             style={{ animation: 'slide 1.5s ease-in-out infinite' }}
           />
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── 사고 중(thinking) — VS Code 스타일 1줄 "생각 중 …" + 접이식 전체 보기 ───
-
-function ThinkingGroupLine({ group }: { group: TerminalGroup }): React.JSX.Element {
-  const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
-  const fullText = group.entries.map((e) => e.text).join('');
-  const preview = fullText.replace(/\s+/g, ' ').trim().slice(0, 100);
-
-  return (
-    <div className="mx-1.5 my-0.5 overflow-hidden rounded border-l-2 border-violet-500/40">
-      {/* 헤더 — 클릭으로 전체 사고 과정 토글 */}
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="group/hdr flex w-full items-center gap-2 px-2.5 py-1 text-left transition-colors hover:bg-violet-500/10"
-        title={open ? 'Click to collapse' : 'Click to expand'}
-      >
-        {/* 시간 */}
-        <span className="flex-shrink-0 select-none text-[10px] text-gray-500">
-          {formatTime(group.timestamp)}
-        </span>
-
-        {/* 셰브론 */}
-        <span className="flex h-4 w-4 flex-shrink-0 items-center justify-center">
-          <svg
-            className={`h-2.5 w-2.5 text-violet-400/70 transition-transform group-hover/hdr:text-violet-300 ${open ? 'rotate-90' : ''}`}
-            viewBox="0 0 24 24"
-            fill="currentColor"
-          >
-            <path d="M8 5v14l11-7z" />
-          </svg>
-        </span>
-
-        {group.sessionLabel && (
-          <span className="flex-shrink-0 rounded bg-cyan-500/15 px-1 py-0.5 text-[10px] font-semibold text-cyan-400/80">
-            {group.sessionLabel}
-          </span>
-        )}
-
-        {/* "생각 중" 라벨 — 진행 중이면 도트 애니메이션 */}
-        <span className="flex flex-shrink-0 items-center gap-0.5 text-[12px] italic text-violet-300/85">
-          {t('ide.streamRenderer.thinking')}
-          {group.isActive && <ThinkingDots />}
-        </span>
-
-        {/* 완료 후 접힘 상태일 때만 첫 문장 미리보기 */}
-        {!open && !group.isActive && preview && (
-          <span className="min-w-0 flex-1 truncate text-[12px] italic text-violet-300/50">
-            {preview}
-          </span>
-        )}
-      </button>
-
-      {/* 펼친 전체 사고 과정 */}
-      {open && (
-        <div className="border-t border-violet-500/20 bg-gray-950/50 px-4 py-2.5">
-          <div className="whitespace-pre-wrap break-words text-[13px] italic leading-relaxed text-violet-200/90">
-            {fullText}
-          </div>
         </div>
       )}
     </div>
@@ -654,7 +718,8 @@ type PastedAttachment = AgentSessionInputAttachment;
 
 function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.JSX.Element {
   const { t } = useTranslation();
-  const [stopping, setStopping] = useState(false);
+  // §5.5 #17-12 — 중지 동작은 공용 훅(useSessionStop)이 단일 창구. 하단 상태바의 [중지]와 같은 경로를 쓴다.
+  const { stopping, stop: handleStop } = useSessionStop(agentId, activeSessionId);
   const addCommand = useGraphStore((s) => s.addCommand);
   const agents = useGraphStore((s) => s.agents);
   const registerAttachmentPreview = useGraphStore((s) => s.registerAttachmentPreview);
@@ -899,19 +964,6 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
   //   사용자가 보고 있는 세션이다. 세션 탭이면 stop-session(그 탭의 자식 + 그 세션 대차대조 + 그 세션
   //   큐만), 스코프를 좁힐 세션이 없는 메인 탭에서만 종전 stop-all.
   //   둘 다 실행 중인 게 없어도 멱등(200)이라 에러 처리 분기가 필요 없다.
-  const handleStop = useCallback(async () => {
-    if (stopping) return;
-    setStopping(true);
-    const url = activeSessionId
-      ? `${API_BASE}/api/subagents/${agentId}/${activeSessionId}/stop-session`
-      : `${API_BASE}/api/subagents/${agentId}/stop-all`;
-    try {
-      await fetch(url, { method: 'POST' });
-    } catch { /* no-op — 실패해도 다음 close 이벤트에서 UI 복구 */ }
-    // 서버 close 핸들러가 status 업데이트하면 스냅샷 브로드캐스트로 버튼이 Run 으로 돌아온다.
-    // 안전장치로 짧은 타임아웃 후 로컬 stopping 해제.
-    setTimeout(() => setStopping(false), 1500);
-  }, [agentId, activeSessionId, stopping]);
 
   // §5.5 #17-2 v2.30 — text 가 `/` 로 시작하고 첫 토큰을 아직 타이핑 중이면 드롭다운 활성.
   // 매칭 0개여도 드롭다운은 열려 "No matching skills" hint 표기.
@@ -1391,11 +1443,41 @@ interface StreamStatusBarProps {
   streamRef: React.RefObject<StreamRendererHandle>;
   /** v3.14 — 점프 직전 호출: 부모가 바닥 추종을 해제해 워치독이 점프 위치를 되끌지 않게 한다. */
   onJump?: () => void;
+  /** §5.5 #17-12 — 이 세션의 스트림 이벤트(마지막 TodoWrite 로 "지금 무엇을" 판정). */
+  events: SubAgentStreamEvent[];
+  /** §5.5 #17-12 — 실행 중일 때 이 줄 오른쪽에 [중지]. 무엇을 멈추는지와 버튼이 같은 줄에 있어야 판단이 선다. */
+  onStop: () => void;
+  stopping: boolean;
+  /** 우리가 띄운 세션이 아닌 읽기 전용 화면(Hook 에이전트 메인 뷰)에서는 [중지]를 숨긴다. */
+  canStop: boolean;
 }
 
 const STATUS_SUMMARY_MAX = 80;
 
-function StreamStatusBar({ commands, scrollRef, streamRef, onJump }: StreamStatusBarProps): React.JSX.Element | null {
+/** §5.5 #17-12 — 표시 밀도 3단 토글(간결/표준/원문). 상태바 우측에 상주 — 스트림이 길어지는 자리에서 바로 조절. */
+function StreamDensityToggle(): React.JSX.Element {
+  const { t } = useTranslation();
+  const density = useGraphStore((s) => s.ideStreamDensity);
+  const setDensity = useGraphStore((s) => s.setIdeStreamDensity);
+  return (
+    <div className="flex flex-shrink-0 items-center gap-0.5 rounded border border-gray-700/60 p-0.5" title={t('ide.density.label')}>
+      {STREAM_DENSITIES.map((d) => (
+        <button
+          key={d}
+          type="button"
+          onClick={(e) => { e.stopPropagation(); setDensity(d); }}
+          className={`rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
+            density === d ? 'bg-gray-700 text-gray-100' : 'text-gray-500 hover:bg-gray-800 hover:text-gray-300'
+          }`}
+        >
+          {t(`ide.density.${d}`)}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, onStop, stopping, canStop }: StreamStatusBarProps): React.JSX.Element | null {
   const { t } = useTranslation();
   const openImageLightbox = useGraphStore((s) => s.openImageLightbox);
   // 우선순위(기본): 실행 중 > 최신 완료/에러. queued 단독은 하단 표시 대상 아님.
@@ -1451,6 +1533,9 @@ function StreamStatusBar({ commands, scrollRef, streamRef, onJump }: StreamStatu
   //          훅은 조건부 return 위에서 호출(target 없으면 빈 배열).
   const attachmentThumbs = useAttachmentThumbs(target?.attachments);
 
+  // §5.5 #17-12 — 마지막 TodoWrite 기준 "지금 무엇을 하는 중" + 완료/전체. 이벤트가 바뀔 때만 재계산.
+  const planProgress = useMemo(() => latestPlanProgress(events), [events]);
+
   const handleJump = useCallback(() => {
     if (!target) return;
     // v3.14 — 점프 전 부모 추종 해제(워치독이 점프 위치를 바닥으로 되끌지 않게).
@@ -1471,13 +1556,24 @@ function StreamStatusBar({ commands, scrollRef, streamRef, onJump }: StreamStatu
     });
   }, [target, scrollRef, streamRef, onJump]);
 
-  if (!target) return null;
+  // §5.5 #17-12 — 보여줄 명령이 없어도 **밀도 토글만 있는 얇은 줄**은 남긴다 — 어느 화면에서든 밀도를 바꿀 수 있어야 한다.
+  if (!target) {
+    return (
+      <div className="flex w-full flex-shrink-0 items-center justify-end gap-2 border-t border-gray-800 bg-gray-900/70 px-4 py-1">
+        <StreamDensityToggle />
+      </div>
+    );
+  }
 
   const isExecuting = target.status === 'executing';
   const isError = target.status === 'error';
-  const preview = target.text.length > STATUS_SUMMARY_MAX
-    ? `${target.text.slice(0, STATUS_SUMMARY_MAX)}…`
-    : target.text;
+  // §5.5 #17-12 — 실행 중에는 "내가 친 프롬프트" 대신 **에이전트가 지금 하는 단계**를 보여준다(계획이 있을 때).
+  //   계획이 없으면 종전대로 프롬프트 앞부분 — 어떤 경우에도 빈 줄이 되지 않게.
+  const plan = isExecuting ? planProgress : null;
+  const rawSummary = plan ? plan.current : target.text;
+  const preview = rawSummary.length > STATUS_SUMMARY_MAX
+    ? `${rawSummary.slice(0, STATUS_SUMMARY_MAX)}…`
+    : rawSummary;
 
   if (isExecuting) {
     // 첨부 썸네일 버튼이 안에 있어 <button> 중첩이 불가 → div[role=button] 으로 점프 처리.
@@ -1506,17 +1602,43 @@ function StreamStatusBar({ commands, scrollRef, streamRef, onJump }: StreamStatu
             ))}
           </div>
         )}
-        <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-gray-400 group-hover:text-gray-200">{preview}</span>
+        <span className={`min-w-0 flex-1 truncate text-[12px] ${plan ? 'text-gray-200' : 'font-mono text-gray-400 group-hover:text-gray-200'}`}>{preview}</span>
+        {/* 계획이 있으면 완료/전체 — "얼마나 남았나"가 중지 판단의 재료가 된다. */}
+        {plan && (
+          <span className="flex-shrink-0 tabular-nums text-[11px] text-gray-500">
+            {t('ide.plan.progress', { done: plan.done, total: plan.total })}
+          </span>
+        )}
+        <StreamDensityToggle />
+        {/* §5.5 #17-12 — [중지]가 "무엇을 하는 중"과 같은 줄에 있어야 멈출지 판단할 수 있다.
+            중지 범위·동작은 #17-10 그대로(마우스 클릭 전용). 점프(부모 div) 로 전파되지 않게 stopPropagation. */}
+        {canStop && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onStop(); }}
+          disabled={stopping}
+          title={t('ide.mainArea.stopSessionTitle')}
+          className="flex flex-shrink-0 items-center gap-1 rounded border border-red-500/40 px-1.5 py-0.5 text-[11px] font-medium text-red-300 transition-colors hover:border-red-400 hover:bg-red-500/15 hover:text-red-200 disabled:opacity-50"
+        >
+          <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect x="6" y="6" width="12" height="12" rx="1.5" />
+          </svg>
+          {stopping ? t('ide.mainArea.stopping') : t('ide.mainArea.stop')}
+        </button>
+        )}
         <span className="flex-shrink-0 text-[10px] text-gray-600 group-hover:text-gray-300">{'↑'}</span>
       </div>
     );
   }
 
+  // 밀도 토글(버튼)이 안에 들어가므로 바깥은 button 중첩이 불가 → div[role=button] 으로 점프 처리(실행 중 줄과 동형).
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       onClick={handleJump}
-      className="group flex w-full flex-shrink-0 items-center gap-2 border-t border-gray-800 bg-gray-900/70 px-4 py-1.5 text-left transition-colors hover:bg-gray-800/70"
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleJump(); } }}
+      className="group flex w-full flex-shrink-0 cursor-pointer items-center gap-2 border-t border-gray-800 bg-gray-900/70 px-4 py-1.5 text-left transition-colors hover:bg-gray-800/70"
       title={t('ide.mainArea.scrollPrompt')}
     >
       <span className={`flex flex-shrink-0 items-center ${isError ? 'text-red-400' : 'text-emerald-400'}`}>
@@ -1532,10 +1654,11 @@ function StreamStatusBar({ commands, scrollRef, streamRef, onJump }: StreamStatu
       <span className="min-w-0 flex-1 truncate text-[12px] text-gray-300 group-hover:text-gray-100">
         {preview}
       </span>
+      <StreamDensityToggle />
       <span className="flex-shrink-0 text-[10px] text-gray-600 group-hover:text-gray-300">
         {'↑'}
       </span>
-    </button>
+    </div>
   );
 }
 
@@ -1691,6 +1814,8 @@ export const IDEMainArea = memo(function IDEMainArea({
 }: IDEMainAreaProps): React.JSX.Element {
   const { t } = useTranslation();
   const activeSessionId = useGraphStore((s) => selectIDEOverlay(s).activeSessionId);
+  // §5.5 #17-12 — 하단 상태바 [중지]. 입력창의 [중지]와 같은 훅(=같은 범위 규칙)을 쓴다.
+  const { stopping, stop: handleStop } = useSessionStop(agentId, activeSessionId);
   const markSubAcknowledged = useGraphStore((s) => s.markSubAcknowledged);
   // 사용자가 메인 영역(스크롤 영역) 안을 클릭하면 현재 sub 의 완료 알림을 확인 처리(녹색→회색).
   const handleAckClick = useCallback(() => {
@@ -1711,6 +1836,19 @@ export const IDEMainArea = memo(function IDEMainArea({
       ? (s.subAgentStreams[activeSessionId] ?? EMPTY_STREAM_EVENTS)
       : EMPTY_STREAM_EVENTS,
   );
+  // §5.5 v3.72 — 메인 탭(activeSessionId===null) 전용 스트림 갱신 신호.
+  //   종전엔 메인 탭이 스트림을 **직접 구독하지 않고** `subAgents` 배열의 참조가 매 스냅샷마다
+  //   새로 만들어지는 것에 얹혀 갱신됐다. loadSnapshot 에 구조적 공유가 들어가 그 참조가 안정되면
+  //   그 우연한 신호가 끊겨 메인 탭에 출력이 안 흐른다 → 실제 데이터 의존성을 명시한다.
+  //   이벤트 **개수 합**(원시 number)이라 내용이 안 늘면 리렌더를 유발하지 않는다.
+  const mainStreamVersion = useGraphStore((s) => {
+    if (activeSessionId !== null) return 0;
+    let total = 0;
+    for (const sub of s.subAgents[agentId] ?? EMPTY_SUBS) {
+      total += s.subAgentStreams[sub.id]?.length ?? 0;
+    }
+    return total;
+  });
   // v2.99 — scrollRef/scrollEl 은 이제 virtuoso 가 단독 소유한 **내부 스크롤러 DOM**(옛 외부 overflow
   //   컨테이너 대체). Sub 탭=StreamRenderer onScrollerRef, 메인 탭=메인 Virtuoso scrollerRef 가 이 콜백으로
   //   같은 노드를 올린다. StreamStatusBar·북마크 이동·Select All 이 이 컨테이너 한정으로 작동한다.
@@ -1727,6 +1865,8 @@ export const IDEMainArea = memo(function IDEMainArea({
   //   가상화 측정과 충돌하지 않게 한다. 본문 출력 영역에 native 비-passive wheel 리스너(capture)를 달아
   //   preventDefault + stopPropagation 으로 가로채고(스크롤·markUpIntent 미발화), 부호로 확대/축소한다.
   const ideTextZoom = useGraphStore((s) => s.ideTextZoom);
+  // §5.5 #17-12 — 메인 탭도 같은 표시 밀도를 따른다(계획 접기·동종 도구 합치기).
+  const density = useGraphStore((s) => s.ideStreamDensity);
   const setIdeTextZoom = useGraphStore((s) => s.setIdeTextZoom);
   const ideBodyRef = useRef<HTMLDivElement | null>(null);
   // 배율 배지 표시 상태 — 배율이 "바뀐 직후"에만 잠깐 떠 있다가 스르륵 사라진다(계속 떠 있으면 잡음).
@@ -1853,9 +1993,13 @@ export const IDEMainArea = memo(function IDEMainArea({
   // 세션별 "추종 중이었나" — 추종 세션은 복귀 시 (옛 위치가 아니라) **새 바닥**으로 가야 하므로
   //   restoreStateFrom 대신 initialTopMostItemIndex=LAST 를 쓴다. 스크롤 핸들러가 현재 세션 키로 기록.
   const sessionAtBottomRef = useRef<Map<string, boolean>>(new Map());
+  // §5.5 #17-16 ③ — 펼침 클릭 직후의 앵커 유지 구간(ms 시각). 이 동안은 라이브러리가 "바닥"이라고 알려도
+  //   추종을 재무장하지 않는다 — 재무장하면 워치독이 매 프레임 바닥으로 끌어 앵커와 싸운다.
+  const expandHoldUntilRef = useRef(0);
   const handleAtBottomChange = useCallback((atBottom: boolean) => {
     // 라이브러리가 "바닥에 닿았다"고 알릴 때만 추종을 켠다(확실히 바닥). false 는 콘텐츠가 자라며 바닥이
     //   멀어진 일시 상태일 수 있어 추종을 끄지 않는다 — 끄는 건 사용자 스크롤-업만(아래 scroll 핸들러).
+    if (performance.now() < expandHoldUntilRef.current) return;
     if (atBottom) { followRef.current = true; sessionAtBottomRef.current.set(sessionKey, true); setShowJumpBottom(false); }
   }, [sessionKey]);
   // v3.14 — 바닥 붙이기의 **유일한 집행 프리미티브**: virtuoso 측정 모델 좌표(scrollToIndex LAST)가 아니라
@@ -2062,7 +2206,9 @@ export const IDEMainArea = memo(function IDEMainArea({
       if (arr && arr.length > 0) result[sub.id] = arr;
     }
     return result;
-  }, [activeSessionId, activeStreamEvents, subAgents]);
+    // mainStreamVersion — 메인 탭에서 스트림이 실제로 늘었을 때만 재조립(위 주석 참조).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSessionId, activeStreamEvents, subAgents, mainStreamVersion]);
 
   const items = useMemo(() => {
     // [perf-snapshot] 계측 — 콘솔에서 `__VIBI_PERF__ = true`. 메인 탭(activeSessionId===null)은 증분 파서가
@@ -2071,7 +2217,7 @@ export const IDEMainArea = memo(function IDEMainArea({
     const _t0 = _PERF ? performance.now() : 0;
     const flat = buildEntries(commands, subAgents, streams, activeSessionId, agentEvents);
     const agentBusy = commands.some((c) => c.status === 'executing' || c.status === 'queued');
-    const grouped = groupEntries(flat, agentBusy);
+    const grouped = applyMainDensity(groupEntries(flat), density);
     if (_PERF && activeSessionId === null) {
       const _t1 = performance.now();
       let _n = 0;
@@ -2082,21 +2228,23 @@ export const IDEMainArea = memo(function IDEMainArea({
       );
     }
 
-    // 라이브 "생각 중 …" 1줄 — 에이전트 작동 중이고 가장 최근 스트림 이벤트가 thinking 펄스면
-    // (= 지금 실제로 생각 중) 본문 하단에 1개만 띄운다. 출력이 시작되면 사라진다.
+    // 라이브 "생각 중 …" 1줄 — 에이전트 작동 중이고 가장 최근 스트림 이벤트가 사고 이벤트(펄스 또는
+    // thinking 델타)면 (= 지금 실제로 생각 중) 본문 하단에 1개만 띄운다. 출력이 시작되면 사라진다.
     if (agentBusy) {
+      // v3.72 — 종전엔 "가장 최근 이벤트" 를 찾으려고 **전 세션 이벤트를 매번 완주**했다(O(전체)).
+      //   스트림 배열은 도착 순서대로 append 되므로 각 배열의 **마지막 원소**만 보면 된다(O(세션 수)).
+      //   세션이 길어질수록 커지던 비용이 사라진다.
       let latest: SubAgentStreamEvent | null = null;
       for (const evts of Object.values(streams)) {
-        for (const e of evts) {
-          if (!latest || e.timestamp > latest.timestamp) latest = e;
-        }
+        const tail = evts[evts.length - 1];
+        if (tail && (!latest || tail.timestamp > latest.timestamp)) latest = tail;
       }
-      if (latest && isThinkingPulse(latest)) {
+      if (latest && isThinkingActivity(latest)) {
         grouped.push({ kind: 'thinking-live', id: 'thinking-live', timestamp: latest.timestamp });
       }
     }
     return grouped;
-  }, [commands, subAgents, streams, activeSessionId, agentEvents]);
+  }, [commands, subAgents, streams, activeSessionId, agentEvents, density]);
 
   // §5.3 #12-2 v2.26 — 이 에이전트 (+ 활성 세션) 의 AskUserQuestion 카드 목록.
   // 메인 탭(activeSessionId === null): 이 에이전트의 모든 sub 질문을 시간순.
@@ -2113,9 +2261,6 @@ export const IDEMainArea = memo(function IDEMainArea({
     });
     return matches.sort((a, b) => a.createdAt - b.createdAt);
   }, [pendingAskQuestions, agentId, activeSessionId]);
-
-  // §5.10 — 이 에이전트의 기억 주입 이벤트(칩). agentId 단위(세션 구분 없음) — 메인/서브 탭 공통 표시.
-  const agentInjections = useGraphStore((s) => s.brainInjections[agentId] ?? EMPTY_INJECTIONS);
 
   // §4 v2.52 — 이 에이전트의 작업 신고 카드. agentReports 는 agentId 1차 키.
   // 메인 탭(activeSessionId === null): 이 에이전트의 모든 신고. sub 탭: 그 세션(subAgentId) 신고만.
@@ -2175,24 +2320,41 @@ export const IDEMainArea = memo(function IDEMainArea({
       for (const ts of cmdTsAsc) { if (ts > createdAt) return ts - 0.5; }
       return Number.MAX_SAFE_INTEGER;
     };
+    // §5.5 #17-12 — 같은 턴(=같은 turnEndSortTs 버킷)의 검수는 그 턴 신고 카드로 흡수해 한 장으로 보여준다.
+    //   짝 없는 검수만 독립 카드로 남는다(StreamRenderer 의 mergeCardsIntoItems 와 동일 규칙).
+    const reportNodes = reportCards.map((r) => ({
+      ts: turnEndSortTs(r.createdAt),
+      node: { t: 'report' as const, report: r } as MainTimelineNode,
+    }));
+    const reportNodeByTurn = new Map<number, { node: MainTimelineNode }>();
+    for (const entry of reportNodes) reportNodeByTurn.set(entry.ts, entry);
+    const reviewNodes: Array<{ ts: number; node: MainTimelineNode }> = [];
+    for (const rv of reviewCards) {
+      const ts = turnEndSortTs(rv.createdAt);
+      const host = reportNodeByTurn.get(ts);
+      if (host && host.node.t === 'report' && !host.node.review) {
+        host.node = { ...host.node, review: rv };
+        continue;
+      }
+      reviewNodes.push({ ts, node: { t: 'review' as const, review: rv } });
+    }
     const merged: Array<{ ts: number; node: MainTimelineNode }> = [
       ...items.map((item) => ({ ts: item.timestamp, node: { t: 'item' as const, item } })),
-      ...reportCards.map((r) => ({ ts: turnEndSortTs(r.createdAt), node: { t: 'report' as const, report: r } })),
+      ...reportNodes,
       ...questionCards.map((q) => ({ ts: turnEndSortTs(q.createdAt), node: { t: 'question' as const, questions: q } })),
-      ...reviewCards.map((r) => ({ ts: turnEndSortTs(r.createdAt), node: { t: 'review' as const, review: r } })),
+      ...reviewNodes,
       ...listCards.map((l) => ({ ts: turnEndSortTs(l.createdAt), node: { t: 'list' as const, list: l } })),
       // §5.3 #12-2 — pending AskUserQuestion 카드도 타임라인 안으로(가상 리스트 밖 형제 렌더 → 겹침 제거).
       ...askCards.map((req) => ({ ts: turnEndSortTs(req.createdAt), node: { t: 'ask' as const, request: req } })),
-      // §5.10 — 기억 주입 칩(발생 시각 그대로).
-      ...agentInjections.map((ev) => ({ ts: ev.at, node: { t: 'memoryInjection' as const, event: ev } })),
     ];
     merged.sort((a, b) => a.ts - b.ts);
     return merged.map((m) => m.node);
-  }, [items, reportCards, questionCards, reviewCards, listCards, askCards, agentInjections, commands]);
+  }, [items, reportCards, questionCards, reviewCards, listCards, askCards, commands]);
 
   // v3.13 — 스트림 버퍼 앞쪽 절단(상한 초과 시 오래된 이벤트 일괄 제거)을 메인 Virtuoso 에도 shift 로 신고.
   //   인덱스 기반 sizeTree 가 절단마다 밀려 측정 모델이 붕괴 → 긴 세션에서 스크롤이 "위로 말려 올라가던" 원인.
-  const mainFirstItemIndex = useVirtuosoFrontShift(mainTimeline, mainTimelineNodeId);
+  //   §5.5 #17-12 — 밀도를 리셋 키로 함께(전환 시 항목 id 가 통째로 갈리는 걸 절단으로 오인 방지).
+  const mainFirstItemIndex = useVirtuosoFrontShift(mainTimeline, mainTimelineNodeId, density);
 
   // v2.99 — 세션(탭) 전환 시 위치 복원: 자식(StreamRenderer / 메인 Virtuoso)을 key={sessionKey} 로 재마운트하고
   //   restoreStateFrom 으로 그 세션의 저장 스냅샷(측정된 항목 높이 + 스크롤 위치)을 받아 **재측정 출렁임 없이**
@@ -2218,18 +2380,58 @@ export const IDEMainArea = memo(function IDEMainArea({
     //   실제로 위로 올린 제스처가 최근(700ms)에 있었을 때만 끈다. 바닥에 닿으면(직접 내렸든 pin 이 붙였든) 항상 재무장.
     let userUpIntentUntil = 0;
     const markUpIntent = (): void => { userUpIntentUntil = performance.now() + 700; };
+    // §5.5 #17-16 ③ — 접이식 블록을 **펼치는 클릭**은 "이걸 읽겠다"는 사용자 의도다. 종전엔 펼침으로
+    //   높이가 늘어난 만큼 바닥 추종 워치독(v3.14)이 매 프레임 스크롤을 바닥에 붙여, 펼친 내용이 한순간
+    //   보였다가 곧장 위로 밀려났다(사용자: "쫙 보였다가 바로 사라져"). 펼침 클릭이면 ① 추종을 **먼저**
+    //   끄고 ② 클릭한 헤더의 뷰포트 오프셋을 짧게(400ms) 유지해 그 자리를 잡아 둔다. 접는 클릭은 손대지
+    //   않는다(높이가 줄 뿐이라 추종이 그대로 옳다). 사용자가 직접 스크롤하면 즉시 앵커를 놓는다.
+    let holdRaf = 0;
+    let holdEl: HTMLElement | null = null;
+    let holdOffset = 0;
+    let holdUntil = 0;
+    const cancelHold = (): void => {
+      holdEl = null;
+      expandHoldUntilRef.current = 0;
+      if (holdRaf) { cancelAnimationFrame(holdRaf); holdRaf = 0; }
+    };
+    const holdTick = (): void => {
+      holdRaf = 0;
+      const target = holdEl;
+      if (!target || !target.isConnected || performance.now() > holdUntil) { holdEl = null; return; }
+      const delta = (target.getBoundingClientRect().top - el.getBoundingClientRect().top) - holdOffset;
+      if (Math.abs(delta) > 1) el.scrollTop += delta;
+      holdRaf = requestAnimationFrame(holdTick);
+    };
+    const onToggleClick = (e: MouseEvent): void => {
+      const btn = (e.target as Element | null)?.closest?.(`[${STREAM_TOGGLE_ATTR}]`);
+      if (!(btn instanceof HTMLElement)) return;
+      // React onClick 은 루트 컨테이너에서 뒤에 처리되므로, 여기서 읽는 aria-expanded 는 **클릭 이전** 상태다.
+      if (btn.getAttribute('aria-expanded') !== 'false') return; // 접는 클릭 — 그대로 둔다.
+      followRef.current = false;
+      sessionAtBottomRef.current.set(sessionKey, false);
+      holdEl = btn;
+      holdOffset = btn.getBoundingClientRect().top - el.getBoundingClientRect().top;
+      holdUntil = performance.now() + 400;
+      expandHoldUntilRef.current = holdUntil; // 이 구간엔 atBottom 통지로 추종이 재무장되지 않는다.
+      if (!holdRaf) holdRaf = requestAnimationFrame(holdTick);
+    };
     // Ctrl+휠은 본문 텍스트 줌 제스처(아래 ideTextZoom wheel 핸들러)라 스크롤-업 의도로 치지 않는다.
-    const onWheel = (e: WheelEvent): void => { if (!e.ctrlKey && e.deltaY < 0) markUpIntent(); };
+    const onWheel = (e: WheelEvent): void => {
+      if (!e.ctrlKey && e.deltaY < 0) markUpIntent();
+      if (!e.ctrlKey) cancelHold(); // 사용자가 직접 굴리면 아래 펼침 앵커는 즉시 손을 뗀다.
+    };
     const onKeyNav = (e: KeyboardEvent): void => {
       if (e.key === 'ArrowUp' || e.key === 'PageUp' || e.key === 'Home') markUpIntent();
+      cancelHold();
     };
     // v3.14 — 스크롤바 드래그는 wheel/touch/key 어디에도 안 잡히던 제스처 구멍: 포인터를 누른 채
     //   scrollTop 이 감소하면(=바를 위로 끎) 위로-제스처로 편입한다. 안 하면 추종이 살아있는 동안
     //   워치독이 매 프레임 바닥으로 되끌어 사용자가 스크롤바로는 위로 못 올라간다.
     let pointerDown = false;
     let prevScrollTop = el.scrollTop;
-    const onPointerDown = (): void => { pointerDown = true; };
+    const onPointerDown = (): void => { pointerDown = true; cancelHold(); };
     const onPointerUp = (): void => { pointerDown = false; };
+    const onTouchMove = (): void => { markUpIntent(); cancelHold(); };
     const onScroll = (): void => {
       const goingUp = el.scrollTop < prevScrollTop;
       prevScrollTop = el.scrollTop;
@@ -2250,19 +2452,22 @@ export const IDEMainArea = memo(function IDEMainArea({
     };
     el.addEventListener('scroll', onScroll, { passive: true });
     el.addEventListener('wheel', onWheel, { passive: true });
-    el.addEventListener('touchmove', markUpIntent, { passive: true });
+    el.addEventListener('touchmove', onTouchMove, { passive: true });
     el.addEventListener('keydown', onKeyNav);
+    el.addEventListener('click', onToggleClick);
     el.addEventListener('pointerdown', onPointerDown, { passive: true });
     window.addEventListener('pointerup', onPointerUp, { passive: true });
     window.addEventListener('pointercancel', onPointerUp, { passive: true });
     return () => {
       el.removeEventListener('scroll', onScroll);
       el.removeEventListener('wheel', onWheel);
-      el.removeEventListener('touchmove', markUpIntent);
+      el.removeEventListener('touchmove', onTouchMove);
       el.removeEventListener('keydown', onKeyNav);
+      el.removeEventListener('click', onToggleClick);
       el.removeEventListener('pointerdown', onPointerDown);
       window.removeEventListener('pointerup', onPointerUp);
       window.removeEventListener('pointercancel', onPointerUp);
+      cancelHold();
       if (raf) cancelAnimationFrame(raf);
     };
   }, [scrollEl, activeSessionId, sessionKey]);
@@ -2426,6 +2631,7 @@ export const IDEMainArea = memo(function IDEMainArea({
   const mainItemSearchText = useCallback((item: TerminalItem): string => {
     if ('kind' in item && item.kind === 'group') return `${item.header} ${item.entries.map((en) => en.text).join(' ')}`;
     if ('kind' in item && item.kind === 'thinking-live') return '';
+    if ('kind' in item && item.kind === 'plan') return item.todos.map((td) => td.content).join(' ');
     return (item as TerminalEntry).text ?? '';
   }, []);
 
@@ -2516,7 +2722,9 @@ export const IDEMainArea = memo(function IDEMainArea({
       streamRef.current?.scrollToBookmark(`${card.kind}-${card.id}`, '');
       return;
     }
-    const idx = mainTimeline.findIndex((n) => mainTimelineNodeId(n) === card.id);
+    // §5.5 #17-12 — 신고 카드로 흡수된 검수는 독립 노드가 아니므로 흡수한 신고 노드를 찾아준다.
+    const idx = mainTimeline.findIndex((n) =>
+      mainTimelineNodeId(n) === card.id || (n.t === 'report' && n.review?.id === card.id));
     if (idx >= 0) mainVirtuosoRef.current?.scrollToIndex({ index: idx, align: 'center' });
     window.setTimeout(() => {
       const el = scrollRef.current;
@@ -2665,7 +2873,6 @@ export const IDEMainArea = memo(function IDEMainArea({
               reviews={reviewCards}
               lists={listCards}
               askRequests={askCards}
-              injections={agentInjections}
               onScrollerRef={setScrollNode}
               restoreState={restoreStateFor(sessionKey)}
               onAtBottomChange={handleAtBottomChange}
@@ -2704,7 +2911,7 @@ export const IDEMainArea = memo(function IDEMainArea({
                   return (
                     <div data-stream-item-id={itemId} {...(isCard ? { 'data-card-id': itemId } : {})} style={ideTextZoom === 1 ? undefined : { zoom: ideTextZoom }}>
                       {n.t === 'report'
-                        ? <AgentReportCard report={n.report} />
+                        ? <AgentReportCard report={n.report} review={n.review} />
                         : n.t === 'review'
                           ? <AgentReviewCard review={n.review} />
                         : n.t === 'list'
@@ -2713,12 +2920,10 @@ export const IDEMainArea = memo(function IDEMainArea({
                           ? <AgentQuestionCard questions={n.questions} />
                         : n.t === 'ask'
                           ? <AskQuestionCard request={n.request} />
-                        : n.t === 'memoryInjection'
-                          ? <MemoryInjectionChip event={n.event} />
+                          : n.item.kind === 'plan'
+                            ? <PlanBlock item={n.item} />
                           : n.item.kind === 'group'
-                            ? (n.item.groupType === 'thinking'
-                                ? <ThinkingGroupLine group={n.item} />
-                                : <TerminalGroupLine group={n.item} />)
+                            ? <TerminalGroupLine group={n.item} />
                             : n.item.kind === 'thinking-live'
                               ? <ThinkingLiveLine label={t('ide.streamRenderer.thinking')} />
                               : <TerminalLine entry={n.item} />}
@@ -2769,15 +2974,20 @@ export const IDEMainArea = memo(function IDEMainArea({
         )}
       </div>
 
-      {/* Stream 하단 상태바 — Sub 탭(StreamRenderer 활성)에서만 */}
-      {activeSessionId !== null && (
-        <StreamStatusBar
-          commands={commands.filter((c) => c.subAgentId === activeSessionId)}
-          scrollRef={scrollRef}
-          streamRef={streamRef}
-          onJump={releaseFollowForJump}
-        />
-      )}
+      {/* Stream 하단 상태바 — §5.5 #17-12 로 메인 탭에도 상주(밀도 토글·[중지]가 어느 탭에서도 닿게).
+          메인 탭은 스코프를 좁힐 세션이 없어 명령 전체를 보고, [중지]도 #17-10 규칙대로 stop-all 이 된다. */}
+      <StreamStatusBar
+        commands={activeSessionId !== null ? commands.filter((c) => c.subAgentId === activeSessionId) : commands}
+        scrollRef={scrollRef}
+        streamRef={streamRef}
+        onJump={releaseFollowForJump}
+        // §5.5 #17-12 — "지금 무엇을"(마지막 계획 단계) + 같은 줄 [중지](범위는 #17-10 규칙 그대로).
+        //   메인 탭은 단일 스트림이 아니므로 계획 줄 없이 프롬프트 미리보기를 유지한다.
+        events={activeSessionId !== null ? activeStreamEvents : EMPTY_STREAM_EVENTS}
+        onStop={handleStop}
+        stopping={stopping}
+        canStop={!isReadOnly}
+      />
 
       {/* Command input — 서브에이전트 탭이거나 커스텀이면 입력 가능 */}
       {!isReadOnly && (

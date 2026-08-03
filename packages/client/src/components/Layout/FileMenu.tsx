@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { OptionsWindow } from '../Options/OptionsWindow.js';
+import { PluginsWindow } from '../Plugins/PluginsWindow.js';
 import { GuideWindow } from '../Guide/GuideWindow.js';
 import { MobileAccessWindow } from './MobileAccessWindow.js';
 import { isPackagedDesktop } from '../../transport/index.js';
@@ -13,6 +14,7 @@ export function FileMenu(): React.JSX.Element {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
+  const [pluginsOpen, setPluginsOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -98,6 +100,17 @@ export function FileMenu(): React.JSX.Element {
             </svg>
             {t('panel.fileMenu.options', { defaultValue: 'Options…' })}
           </button>
+          {/* §5.11 v3.88 — Plugins (개별 기능 활성화). Options 와 같은 묶음에 둔다 — 둘 다 "앱을 어떻게 쓸지"의 설정. */}
+          <button
+            type="button"
+            onClick={() => { setOpen(false); setPluginsOpen(true); }}
+            className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-[13px] text-gray-300 transition-colors hover:bg-white/[0.08] hover:text-white"
+          >
+            <svg className="h-4 w-4 shrink-0 text-gray-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M6 3h4v3a2 2 0 1 0 4 0V3h4a1 1 0 0 1 1 1v4h-3a2 2 0 1 0 0 4h3v4a1 1 0 0 1-1 1h-4v-3a2 2 0 1 0-4 0v3H6a1 1 0 0 1-1-1v-4H2a2 2 0 1 0 0-4h3V4a1 1 0 0 1 1-1z" />
+            </svg>
+            {t('panel.fileMenu.plugins')}
+          </button>
           {/* §4 v3.16 — Mobile Access (packaged Electron 한정 — 모바일 브라우저에선 window.api 부재) */}
           {isPackagedDesktop() && (
             <button
@@ -127,6 +140,7 @@ export function FileMenu(): React.JSX.Element {
         </div>
       )}
       <OptionsWindow open={optionsOpen} onClose={() => setOptionsOpen(false)} />
+      <PluginsWindow open={pluginsOpen} onClose={() => setPluginsOpen(false)} />
       <GuideWindow open={guideOpen} onClose={() => setGuideOpen(false)} />
       <MobileAccessWindow open={mobileOpen} onClose={() => setMobileOpen(false)} />
     </div>

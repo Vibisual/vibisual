@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import type { CanvasLodTier } from '@vibisual/shared';
 
 // §4 v3.71 가시성 LOD — "지금 캔버스가 다른 UI 에 덮여 있는가" 한 비트(비영속, 표시/게이팅 전용).
 //
@@ -17,16 +16,11 @@ interface CanvasVisibilityState {
   /** covers.length > 0 (구독 편의를 위한 파생 비트). */
   covered: boolean;
   setCover: (key: string, covered: boolean) => void;
-  /** 메인 캔버스의 현재 줌 LOD 티어 — DebugPanel 계측 표시용(디버그 모드에서만 갱신된다). */
-  lodTier: CanvasLodTier;
-  setLodTier: (tier: CanvasLodTier) => void;
 }
 
 export const useCanvasVisibilityStore = create<CanvasVisibilityState>((set) => ({
   covers: [],
   covered: false,
-  lodTier: 'full',
-  setLodTier: (tier): void => set((s) => (s.lodTier === tier ? s : { lodTier: tier })),
   setCover: (key, covered): void => {
     set((s) => {
       const has = s.covers.includes(key);

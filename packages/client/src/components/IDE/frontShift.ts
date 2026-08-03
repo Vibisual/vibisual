@@ -38,14 +38,33 @@ export function countRemovedFromFront(prevIds: readonly string[], nextIds: reado
 /**
  * items 가 바뀔 때마다 앞쪽 제거 수를 누적해 virtuoso 에 넘길 `firstItemIndex` 를 돌려준다.
  * getId 는 렌더 간 안정된 참조여야 한다(모듈 상수 또는 useCallback).
+ *
+ * §5.5 #17-12 — `resetKey` 는 "리스트를 다르게 접는 방식으로 바꿨다"는 신호(표시 밀도 전환 등)다.
+ * 밀도가 바뀌면 앞쪽 항목의 id 가 통째로 갈리는데(`e1` ↔ `toolgroup-e1`), 그걸 절단으로 오인하면
+ * virtuoso 가 있지도 않은 제거분만큼 스크롤을 보정해 화면이 튄다. 키가 바뀐 렌더에서는 **세지 않고
+ * 기준선만 새 목록으로 교체**한다(다음 렌더부터 다시 정상 감지).
  */
-export function useVirtuosoFrontShift<T>(items: readonly T[], getId: (item: T) => string): number {
-  const prevIdsRef = useRef<readonly string[]>([]);
-  const baseRef = useRef(0);
+export function useVirtuosoFrontShift<T>(items: readonly T[], getId: (item: T) => string, resetKey?: string): number {
+  const stateRef = useRef<FrontShiftState>({ base: 0, prevIds: [], prevKey: resetKey });
   return useMemo(() => {
-    const nextIds = items.map(getId);
-    baseRef.current += countRemovedFromFront(prevIdsRef.current, nextIds);
-    prevIdsRef.current = nextIds;
-    return baseRef.current;
-  }, [items, getId]);
+    stateRef.current = advanceFrontShift(stateRef.current, items.map(getId), resetKey);
+    return stateRef.current.base;
+  }, [items, getId, resetKey]);
+}
+
+/** 훅이 렌더 간 들고 가는 상태(누적 shift + 직전 id 목록 + 직전 리셋 키). 순수 함수로 검증하기 위해 분리. */
+export interface FrontShiftState {
+  base: number;
+  prevIds: readonly string[];
+  prevKey?: string | undefined;
+}
+
+/**
+ * 한 렌더분 상태 전이(순수). `key` 가 직전과 다르면 **세지 않고 기준선만 교체**한다 — 밀도 전환처럼
+ * 접는 방식이 통째로 바뀐 렌더를 절단으로 오인하지 않기 위함.
+ */
+export function advanceFrontShift(state: FrontShiftState, nextIds: readonly string[], key?: string): FrontShiftState {
+  const reset = state.prevKey !== key;
+  const base = reset ? state.base : state.base + countRemovedFromFront(state.prevIds, nextIds);
+  return { base, prevIds: nextIds, prevKey: key };
 }

@@ -12,6 +12,7 @@ import { IDEStatusBar } from './IDEStatusBar.js';
 import { IDEBookmarkView } from './IDEBookmarkPanel.js';
 import { IDESessionSummaryView } from './IDESessionSummaryView.js';
 import { IDERunningSubagentsView } from './IDERunningSubagentsView.js';
+import { IDELoopPanel } from './IDELoopPanel.js';
 
 const EMPTY_SUBS: SubAgent[] = [];
 
@@ -51,6 +52,9 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   // §5.5 #17-9 v3.51 — 실행 중 서브에이전트 덮개 패널(북마크/세션요약과 상호 배타).
   const subagentPanelOpen = useGraphStore((s) => s.subagentPanelOpen);
   const setSubagentPanelOpen = useGraphStore((s) => s.setSubagentPanelOpen);
+  // §5.5 #17-11 v3.79 — 세션 루프 설정 덮개 패널(위 셋과 상호 배타).
+  const loopPanelOpen = useGraphStore((s) => s.loopPanelOpen);
+  const setLoopPanelOpen = useGraphStore((s) => s.setLoopPanelOpen);
   const setIDEDocked = useGraphStore((s) => s.setIDEDocked);
   const storeDockedRight = useGraphStore((s) => selectIDEOverlay(s).dockedRight);
   const storeDockWidth = useGraphStore((s) => selectIDEOverlay(s).dockWidth);
@@ -98,7 +102,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   //   내비를 닫아 목적지 화면이 바로 보이게 한다.
   useEffect(() => {
     if (isNarrow) setMobileNavOpen(false);
-  }, [isNarrow, activeSessionId, bookmarkPanelOpen, summaryPanelOpen, subagentPanelOpen]);
+  }, [isNarrow, activeSessionId, bookmarkPanelOpen, summaryPanelOpen, subagentPanelOpen, loopPanelOpen]);
   // §4 v3.25 — 폰에선 하단 상태바(IDEStatusBar)도 기본 숨김 — 타이틀바 우측 토글 버튼으로만 연다
   //   (h-6 한 줄이지만 폰에선 본문 세로 공간이 더 귀하다). 데스크톱은 isNarrow=false 라 항상 표시.
   const [mobileStatusOpen, setMobileStatusOpen] = useState(false);
@@ -756,6 +760,11 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
           {subagentPanelOpen && (
             <div className="absolute inset-y-0 left-12 right-0 z-20 max-md:left-0">
               <IDERunningSubagentsView agentId={agentId} onClose={() => setSubagentPanelOpen(false)} />
+            </div>
+          )}
+          {loopPanelOpen && (
+            <div className="absolute inset-y-0 left-12 right-0 z-20 max-md:left-0">
+              <IDELoopPanel agentId={agentId} onClose={() => setLoopPanelOpen(false)} />
             </div>
           )}
         </div>

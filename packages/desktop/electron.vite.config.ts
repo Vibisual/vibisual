@@ -69,7 +69,7 @@ export default defineConfig({
     //   desktop/node_modules 에서 정상 resolve. electron 은 electron-vite 가 자동 외부화.
     plugins: [
       externalizeDepsPlugin({
-        exclude: ['@vibisual/server', '@vibisual/shared', '@vibisual/client'],
+        exclude: ['@vibisual/server', '@vibisual/shared', '@vibisual/client', '@vibisual/plugins'],
       }),
       copyHookHandlerPlugin(),
     ],

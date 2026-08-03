@@ -17,11 +17,12 @@ import { BubbleNode } from '../BubbleMap/BubbleNode.js';
 import { CurvedEdge } from '../BubbleMap/CurvedEdge.js';
 import { calcBubbleSize } from '../../utils/sizeCalc.js';
 import { useGraphStore, selectIDEOverlay } from '../../stores/graphStore.js';
-import { useCanvasCovered, useCanvasVisibilityStore } from '../../stores/canvasVisibility.js';
+import { useCanvasCovered } from '../../stores/canvasVisibility.js';
 import {
   perfProfiler,
   PERF_SESSION_MS,
   PERF_TRIGGER_FPS,
+  PERF_SLOW_INTERACTION_MS,
   type PerfContext,
   type PerfReport,
 } from '../../utils/perfProfiler.js';
@@ -61,16 +62,20 @@ function useRenderFps(): number {
   return fps;
 }
 
-/** perfProfiler 싱글턴 상태를 구독 — state/report 가 바뀌면 리렌더. */
-function usePerfProfiler(): { state: 'idle' | 'profiling'; report: PerfReport | null } {
+/** perfProfiler 싱글턴 상태를 구독 — state/report/입력지연 이 바뀌면 리렌더. */
+function usePerfProfiler(): { state: 'idle' | 'profiling'; report: PerfReport | null; lastSlowMs: number } {
   const subscribe = useCallback((cb: () => void) => perfProfiler.subscribe(cb), []);
-  // getSnapshot 은 원시값이어야 useSyncExternalStore 가 안정 — state+리포트 endedAt 조합 문자열.
+  // getSnapshot 은 원시값이어야 useSyncExternalStore 가 안정 — state+리포트 endedAt+입력지연 조합 문자열.
   const snap = useSyncExternalStore(
     subscribe,
-    () => `${perfProfiler.getState()}:${perfProfiler.getReport()?.endedAt ?? 0}`,
+    () => `${perfProfiler.getState()}:${perfProfiler.getReport()?.endedAt ?? 0}:${perfProfiler.getLastSlowInteractionMs()}`,
   );
   void snap;
-  return { state: perfProfiler.getState(), report: perfProfiler.getReport() };
+  return {
+    state: perfProfiler.getState(),
+    report: perfProfiler.getReport(),
+    lastSlowMs: perfProfiler.getLastSlowInteractionMs(),
+  };
 }
 
 function buildEdge(e: ActivityEdge, allBubbles: BubbleData[]): Edge {
@@ -104,9 +109,8 @@ function DebugPanelImpl({ onClose }: DebugPanelProps): React.JSX.Element {
   const rfRef = useRef<ReactFlowInstance | null>(null);
 
   const fps = useRenderFps();
-  // §4 v3.71 가시성 LOD 계측 — 덮임 비트와 메인 캔버스 줌 티어(CanvasLodReporter 가 올려준다).
+  // §4 v3.71 가시성 LOD 계측 — 캔버스가 지금 그려지고 있는지(덮임 비트).
   const canvasCovered = useCanvasCovered();
-  const canvasLod = useCanvasVisibilityStore((s) => s.lodTier);
   const storeAgents = useGraphStore((s) => s.agents);
   const storeTopFolders = useGraphStore((s) => s.topFolders);
   const storeEdges = useGraphStore((s) => s.edges);
@@ -118,7 +122,7 @@ function DebugPanelImpl({ onClose }: DebugPanelProps): React.JSX.Element {
   const diagnosticLog = useGraphStore((s) => s.diagnosticLog);
 
   // 성능 프로파일러 — 40 FPS 하락 자동 트리거 + 리포트 표시.
-  const { state: perfState, report: perfReport } = usePerfProfiler();
+  const { state: perfState, report: perfReport, lastSlowMs } = usePerfProfiler();
 
   // 프로파일러가 시작/완료 시 읽는 현재 컨텍스트 스냅. 호출 시점의 live store 값을 읽는다.
   const perfContext = useCallback((): PerfContext => {
@@ -148,6 +152,14 @@ function DebugPanelImpl({ onClose }: DebugPanelProps): React.JSX.Element {
     perfProfiler.recordFps(fps);
     perfProfiler.maybeTrigger(fps, perfContext);
   }, [fps, perfContext]);
+
+  // v3.72 — 느린 인터랙션 감시. FPS 는 "타자가 밀린다" 를 못 잡으므로(합성기 프레임 간격과
+  //   입력→표시 지연은 다른 축이다) 입력 지연이 임계를 넘는 순간에도 수집이 열려야 한다.
+  //   패널이 열려 있는 동안에만 무장 → 닫히면 종전대로 상시 비용 0.
+  useEffect(() => {
+    perfProfiler.armSentinel(perfContext);
+    return () => perfProfiler.disarmSentinel();
+  }, [perfContext]);
 
   const { nodes, edges, counts } = useMemo(() => {
     const agentList = storeAgents.filter((a) => !activeProject || agentProjects[a.id] === activeProject);
@@ -267,11 +279,18 @@ function DebugPanelImpl({ onClose }: DebugPanelProps): React.JSX.Element {
               {canvasCovered ? 'covered' : 'visible'}
             </span>
             <span className="text-gray-600">·</span>
-            <span className={canvasLod === 'full' ? 'text-gray-300' : 'text-sky-400'}>lod:{canvasLod}</span>
-            <span className="text-gray-600">·</span>
             <span className={CANVAS_LOD.CULL_OFFSCREEN ? 'text-gray-300' : 'text-gray-600'}>
               cull:{CANVAS_LOD.CULL_OFFSCREEN ? 'on' : 'off'}
             </span>
+          </span>
+        </div>
+
+        {/* v3.72 입력 지연 — FPS 옆에 나란히. "타자가 밀린다" 는 FPS 가 아니라 이 값이 말해준다.
+            감시 무장 후 임계(200ms) 초과 인터랙션이 관측되면 그 값이 찍힌다. */}
+        <div className="flex items-center justify-between gap-2 font-mono text-[10px]">
+          <span className="text-gray-500">Input lag</span>
+          <span className={lastSlowMs > 0 ? 'text-red-400' : 'text-gray-600'}>
+            {lastSlowMs > 0 ? `${lastSlowMs}ms` : `< ${PERF_SLOW_INTERACTION_MS}ms`}
           </span>
         </div>
 

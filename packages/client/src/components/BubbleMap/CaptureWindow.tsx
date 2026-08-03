@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { CAPTURE_BUBBLE_DEFAULTS, type CaptureSourceKind } from '@vibisual/shared';
 import { useCaptureRemoteControl } from '../../hooks/useCaptureRemoteControl.js';
+import { useFloatingWindow } from '../../hooks/useFloatingWindow.js';
 import { useCapturePrefs } from '../../stores/captureBubblePrefs.js';
 import { useCaptureRuntime, type CaptureControlMode } from '../../stores/captureBubbleRuntime.js';
 import { CaptureControlOverlay } from './CaptureControlOverlay.js';
@@ -16,19 +17,10 @@ import { registerCaptureWindow, type CaptureWindowHandle } from './captureWindow
 //   · 타이틀바 **드래그로 이동**, 우하단 핸들로 **리사이즈**, 타이틀바 버튼/더블클릭으로 **최대화↔복원**.
 //   · 여러 버블의 창을 동시에 열면 계단식으로 뜨는 **멀티 윈도우** — 클릭한 창이 맨 앞으로(z-order).
 // createPortal 로 캔버스 변환 밖(document.body)에 그려 캔버스 팬/줌·노드 좌표와 무관하게 화면 기준으로 뜬다.
-
-/** 앱 통합 타이틀바 높이(px) — 최대화 시 그 아래부터 시작(IDE 오버레이와 동일 톤). */
-const APP_HEADER_H = 36;
-/** 리사이즈 최소 크기. */
-const CW_MIN_W = 320;
-const CW_MIN_H = 200;
-/** 드래그로 인식하는 이동 임계(px). */
-const CW_DRAG_THRESHOLD = 4;
-/** 초기(floating) 크기 — 뷰포트 비율 × 상한. */
-const CW_DEFAULT_W_RATIO = 0.6;
-const CW_DEFAULT_H_RATIO = 0.62;
-const CW_MAX_DEFAULT_W = 960;
-const CW_MAX_DEFAULT_H = 640;
+//
+// §5.10 v3.77 — 위 창 거동(가운데 팝업·드래그 이동·리사이즈·최대화)의 좌표 계산은 기억 라이브러리와
+// 공유하는 `useFloatingWindow` 훅으로 옮겼다(coding.md DRY). 여기 남는 것은 캡처 고유의 관심사
+// (멀티 윈도우 z-order·Escape·라이브 영상·원격 조작)뿐이다. 크기 기본값은 훅의 기본값과 동일.
 
 /** 원격 조작 주입 API(sendInput)가 있는 환경(데스크톱 렌더러)에서만 조작 UI 를 노출. */
 const canControl = typeof window !== 'undefined' && !!window.api?.capture?.sendInput;
@@ -64,28 +56,6 @@ export interface CaptureWindowProps {
   onClose: () => void;
 }
 
-interface Geom {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
-
-/** floating 기본 크기 — 뷰포트 비율에 상/하한을 적용. */
-function defaultFloatSize(): { w: number; h: number } {
-  const w = Math.min(CW_MAX_DEFAULT_W, Math.max(CW_MIN_W, Math.round(window.innerWidth * CW_DEFAULT_W_RATIO)));
-  const h = Math.min(CW_MAX_DEFAULT_H, Math.max(CW_MIN_H, Math.round(window.innerHeight * CW_DEFAULT_H_RATIO)));
-  return { w, h };
-}
-
-/** 초기 위치 — 화면 가운데 + 계단식 오프셋(멀티 윈도우 겹침 방지). */
-function initialGeom(cascade: number): Geom {
-  const { w, h } = defaultFloatSize();
-  const x = Math.max(8, Math.round((window.innerWidth - w) / 2) + cascade);
-  const y = Math.max(APP_HEADER_H, Math.round((window.innerHeight - h) / 2) + cascade);
-  return { x, y, w, h };
-}
-
 export const CaptureWindow = memo(function CaptureWindow({
   captureBubbleId,
   title,
@@ -109,11 +79,14 @@ export const CaptureWindow = memo(function CaptureWindow({
   if (!handleRef.current) handleRef.current = registerCaptureWindow(() => onCloseRef.current());
   const handle = handleRef.current;
 
-  const [geom, setGeom] = useState<Geom>(() => initialGeom(handle.cascadeOffset));
-  const [maximized, setMaximized] = useState(false);
   const [z, setZ] = useState<number>(handle.initialZ);
+  const bringToFront = useCallback(() => { setZ(handle.bringToFront()); }, [handle]);
 
-  const windowRef = useRef<HTMLDivElement | null>(null);
+  // 창 좌표·3상태(가운데 팝업 → 드래그 이동 → 리사이즈 → 최대화)는 공용 훅이 담당(v3.77).
+  // 최소화(셰이드)는 캡처 창에선 쓰지 않는다 — 라이브 영상을 접어 둘 이유가 없다.
+  const fw = useFloatingWindow({ cascade: handle.cascadeOffset, onInteractStart: bringToFront });
+  const maximized = fw.maximized;
+
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const surfaceRef = useRef<HTMLDivElement | null>(null);
 
@@ -136,15 +109,8 @@ export const CaptureWindow = memo(function CaptureWindow({
     backgroundClick: prefs.backgroundClick,
     onDisengage: useCallback(() => setRuntime({ controlMode: 'off' }), [setRuntime]),
   });
-  // 진행 중 드래그/리사이즈의 window 리스너 정리 함수 — 언마운트 시 강제 해제(누수 방지).
-  const activeDragCleanupRef = useRef<(() => void) | null>(null);
-
-  // 언마운트 — 매니저 등록 해제 + 진행 중 드래그 리스너 정리.
-  useEffect(() => () => {
-    activeDragCleanupRef.current?.();
-    activeDragCleanupRef.current = null;
-    handle.release();
-  }, [handle]);
+  // 언마운트 — 매니저 등록 해제(진행 중 드래그 리스너 정리는 공용 훅이 담당).
+  useEffect(() => () => { handle.release(); }, [handle]);
 
   // 라이브 스트림을 <video> 에 연결.
   useEffect(() => {
@@ -154,103 +120,11 @@ export const CaptureWindow = memo(function CaptureWindow({
     if (stream) v.play().catch(() => { /* muted 라 autoplay 차단 없음 */ });
   }, [stream]);
 
-  const bringToFront = useCallback(() => { setZ(handle.bringToFront()); }, [handle]);
-  const toggleMaximized = useCallback(() => setMaximized((v) => !v), []);
-
-  // 타이틀바 드래그 — 창 이동. 최대화 상태에서 끌면 먼저 복원 후 커서 기준으로 이동(IDE 톤).
-  const handleTitleMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return;
-    const target = e.target as HTMLElement;
-    if (target.closest('button')) return; // 버튼에서 시작한 클릭은 드래그 ❌
-
-    const startX = e.clientX;
-    const startY = e.clientY;
-    const win = windowRef.current;
-    if (!win) return;
-    const rect = win.getBoundingClientRect();
-    // 클릭 지점이 창 좌상단에서 떨어진 비율 — 복원/이동 후에도 유지.
-    const grabRatioX = (startX - rect.left) / rect.width;
-    const grabRatioY = (startY - rect.top) / rect.height;
-
-    let dragging = false;
-    let curMax = maximized;
-    let nextW = rect.width;
-    let nextH = rect.height;
-
-    function handleMove(ev: MouseEvent): void {
-      const dx = ev.clientX - startX;
-      const dy = ev.clientY - startY;
-      if (!dragging) {
-        if (Math.abs(dx) < CW_DRAG_THRESHOLD && Math.abs(dy) < CW_DRAG_THRESHOLD) return;
-        dragging = true;
-        if (curMax) {
-          // 최대화 상태에서 끌면 복원 → floating 기본 크기로.
-          const size = defaultFloatSize();
-          nextW = size.w;
-          nextH = size.h;
-          setMaximized(false);
-          curMax = false;
-        }
-      }
-      const x = ev.clientX - grabRatioX * nextW;
-      const y = ev.clientY - grabRatioY * nextH;
-      const clampedX = Math.min(Math.max(x, -nextW + 80), window.innerWidth - 80);
-      const clampedY = Math.min(Math.max(y, 0), window.innerHeight - 40);
-      setGeom({ x: clampedX, y: clampedY, w: nextW, h: nextH });
-    }
-    function handleUp(): void {
-      window.removeEventListener('mousemove', handleMove);
-      window.removeEventListener('mouseup', handleUp);
-      activeDragCleanupRef.current = null;
-    }
-    window.addEventListener('mousemove', handleMove);
-    window.addEventListener('mouseup', handleUp);
-    activeDragCleanupRef.current = () => {
-      window.removeEventListener('mousemove', handleMove);
-      window.removeEventListener('mouseup', handleUp);
-    };
-  }, [maximized]);
-
-  // 우하단 리사이즈 핸들.
-  const handleResizeMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    bringToFront();
-    const startX = e.clientX;
-    const startY = e.clientY;
-    const startW = geom.w;
-    const startH = geom.h;
-    function handleMove(ev: MouseEvent): void {
-      const w = Math.max(CW_MIN_W, startW + (ev.clientX - startX));
-      const h = Math.max(CW_MIN_H, startH + (ev.clientY - startY));
-      setGeom((g) => ({ ...g, w, h }));
-    }
-    function handleUp(): void {
-      window.removeEventListener('mousemove', handleMove);
-      window.removeEventListener('mouseup', handleUp);
-      activeDragCleanupRef.current = null;
-    }
-    window.addEventListener('mousemove', handleMove);
-    window.addEventListener('mouseup', handleUp);
-    activeDragCleanupRef.current = () => {
-      window.removeEventListener('mousemove', handleMove);
-      window.removeEventListener('mouseup', handleUp);
-    };
-  }, [bringToFront, geom.w, geom.h]);
-
-  // 타이틀바 더블클릭 — 최대화 토글(버튼 자손에서 시작된 더블클릭은 제외).
-  const handleTitleDoubleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    const target = e.target as HTMLElement;
-    if (target.closest('button')) return;
-    toggleMaximized();
-  }, [toggleMaximized]);
-
-  const geomStyle: React.CSSProperties = maximized
-    ? { left: 0, top: APP_HEADER_H, right: 0, bottom: 0, zIndex: z }
-    : { left: geom.x, top: geom.y, width: geom.w, height: geom.h, zIndex: z };
+  const geomStyle: React.CSSProperties = { ...fw.style, zIndex: z };
 
   return createPortal(
     <div
-      ref={windowRef}
+      ref={fw.windowRef}
       data-capture-window=""
       className="fixed flex flex-col overflow-hidden rounded-xl shadow-2xl shadow-black/70"
       style={{
@@ -275,8 +149,7 @@ export const CaptureWindow = memo(function CaptureWindow({
     >
       {/* Title bar — 그래파이트 유리면(v3.56, 종전 rose 색면 대체). 드래그 이동 + 더블클릭 최대화. */}
       <div
-        onMouseDown={handleTitleMouseDown}
-        onDoubleClick={handleTitleDoubleClick}
+        {...fw.titleBarProps}
         className="flex h-10 flex-shrink-0 select-none items-center gap-2 px-3 text-slate-200 cursor-grab active:cursor-grabbing"
         style={{
           background: CAPTURE_BUBBLE_DEFAULTS.CHROME_BG,
@@ -341,7 +214,7 @@ export const CaptureWindow = memo(function CaptureWindow({
 
         <button
           type="button"
-          onClick={toggleMaximized}
+          onClick={fw.toggleMaximized}
           className="flex h-6 w-6 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-white/10 hover:text-slate-100"
           title={maximized ? t('bubbleMap.capture.restore', { defaultValue: '원래 크기로' }) : t('bubbleMap.capture.maximize', { defaultValue: '최대화' })}
           aria-label={maximized ? t('bubbleMap.capture.restore', { defaultValue: '원래 크기로' }) : t('bubbleMap.capture.maximize', { defaultValue: '최대화' })}
@@ -436,7 +309,7 @@ export const CaptureWindow = memo(function CaptureWindow({
         {/* 우하단 리사이즈 핸들 — 최대화 중엔 숨김. */}
         {!maximized && (
           <div
-            onMouseDown={handleResizeMouseDown}
+            {...fw.resizeProps}
             className="absolute bottom-0 right-0 flex h-5 w-5 cursor-nwse-resize items-end justify-end p-1 text-slate-600 transition-colors hover:text-slate-300"
             aria-hidden="true"
           >
