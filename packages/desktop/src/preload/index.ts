@@ -191,6 +191,23 @@ const api = {
       return () => ipcRenderer.removeListener('vibisual:overlay:list', listener);
     },
   },
+  /** §5.12 (v4.43) — 지휘통제실 창 surface. 프로젝트별 1창. */
+  command: {
+    /** 프로젝트 root 버블 더블클릭 → 지휘통제실 창. 이미 있으면 그 창 focus. */
+    open: (payload: { projectId: string; cursor?: { x: number; y: number } }): Promise<{ windowId: number; reused: boolean }> =>
+      ipcRenderer.invoke('vibisual:command:open', payload),
+    /** 특정 프로젝트의 지휘통제실 창 닫기. */
+    close: (projectId: string): Promise<boolean> => ipcRenderer.invoke('vibisual:command:close', projectId),
+    /** 카드 [이동] — 메인 창 focus + 그 세션으로 점프 신호. */
+    revealInMain: (payload: { projectId: string; agentId: string; subAgentId?: string | null }): Promise<boolean> =>
+      ipcRenderer.invoke('vibisual:command:reveal-in-main', payload),
+    /** 메인 윈도우 한정 — 지휘통제실이 보낸 세션 점프 신호 구독. */
+    onReveal: (cb: (payload: { projectId: string; agentId: string; subAgentId: string | null }) => void): (() => void) => {
+      const listener = (_e: unknown, payload: { projectId: string; agentId: string; subAgentId: string | null }): void => cb(payload);
+      ipcRenderer.on('vibisual:command:reveal', listener);
+      return () => ipcRenderer.removeListener('vibisual:command:reveal', listener);
+    },
+  },
   /** §4 v2.44 자동 업데이트 surface — VS Code 식 업데이트 버튼. */
   update: {
     /** 수동 체크 트리거(부팅 직후·주기 체크는 main 이 자동). 갱신된 상태를 반환. */

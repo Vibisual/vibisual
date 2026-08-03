@@ -1,15 +1,20 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { BrainCard, BrainCardType } from '@vibisual/shared';
-import { useGraphStore } from '../../stores/graphStore.js';
+import { BRAIN_TOPICS, BRAIN_TOPIC_MISC_TITLE } from '@vibisual/shared';
+import { useGraphStore, selectEffectiveProject } from '../../stores/graphStore.js';
+import { BRAIN_TYPE_COLORS } from '../../hooks/useBubbleLayout.js';
 
-/** §5.10 — 기억 카드 5종 타입별 액센트 색 + 라벨 키. */
+/**
+ * §5.10 — 기억 카드 5종 타입별 라벨 키. 색은 v3.75 뮤트 팔레트(BRAIN_TYPE_COLORS) 단일 출처를 쓴다
+ * — 여기에 색을 또 적어두면 팔레트를 바꿀 때 한쪽만 바뀌어 화면이 갈린다.
+ */
 const TYPE_META: Record<BrainCardType, { color: string; labelKey: string; fallback: string }> = {
-  decision: { color: '#38BDF8', labelKey: 'brain.type.decision', fallback: '결정' },
-  mistake: { color: '#F87171', labelKey: 'brain.type.mistake', fallback: '실수' },
-  lesson: { color: '#FBBF24', labelKey: 'brain.type.lesson', fallback: '교훈' },
-  rule: { color: '#A78BFA', labelKey: 'brain.type.rule', fallback: '규칙' },
-  fact: { color: '#34D399', labelKey: 'brain.type.fact', fallback: '사실' },
+  decision: { color: BRAIN_TYPE_COLORS.decision, labelKey: 'brain.type.decision', fallback: '결정' },
+  mistake: { color: BRAIN_TYPE_COLORS.mistake, labelKey: 'brain.type.mistake', fallback: '실수' },
+  lesson: { color: BRAIN_TYPE_COLORS.lesson, labelKey: 'brain.type.lesson', fallback: '교훈' },
+  rule: { color: BRAIN_TYPE_COLORS.rule, labelKey: 'brain.type.rule', fallback: '규칙' },
+  fact: { color: BRAIN_TYPE_COLORS.fact, labelKey: 'brain.type.fact', fallback: '사실' },
 };
 
 function formatTime(ts: number): string {
@@ -23,15 +28,19 @@ interface BrainCardDetailProps {
 /** §5.10 — 기억 카드 상세(DetailPanel 조기 return). CaptureBubbleDetail 구조 계승. */
 export function BrainCardDetail({ card }: BrainCardDetailProps): React.JSX.Element {
   const { t } = useTranslation();
+  const project = useGraphStore(selectEffectiveProject);
   const promoteBrainCard = useGraphStore((s) => s.promoteBrainCard);
   const setBrainCardPinned = useGraphStore((s) => s.setBrainCardPinned);
   const updateBrainCard = useGraphStore((s) => s.updateBrainCard);
   const deleteBrainCard = useGraphStore((s) => s.deleteBrainCard);
+  const selectBrainCard = useGraphStore((s) => s.selectBrainCard);
 
   const [editing, setEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(card.title);
   const [editBody, setEditBody] = useState(card.body);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  /** §5.10 v3.78 — 대체 이력 체인(이 카드가 닫은 옛 카드 / 이 카드를 닫은 새 카드). */
+  const [chain, setChain] = useState<{ older: BrainCard[]; newer: BrainCard[] } | null>(null);
 
   useEffect(() => {
     setEditing(false);
@@ -40,7 +49,32 @@ export function BrainCardDetail({ card }: BrainCardDetailProps): React.JSX.Eleme
     setConfirmDelete(false);
   }, [card.id]);
 
+  // 체인은 대체 관계가 실제로 있을 때만 조회한다(관계 없는 카드에 헛 요청 ❌).
+  useEffect(() => {
+    const has = (card.supersedes && card.supersedes.length > 0) || !!card.supersededBy;
+    if (!has) { setChain(null); return undefined; }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const q = project ? `?project=${encodeURIComponent(project)}` : '';
+        const res = await fetch(`/api/brain/cards/${card.id}/chain${q}`);
+        if (!res.ok) return;
+        const data = await res.json() as { older?: BrainCard[]; newer?: BrainCard[] };
+        if (!cancelled) setChain({ older: data.older ?? [], newer: data.newer ?? [] });
+      } catch { /* noop */ }
+    })();
+    return () => { cancelled = true; };
+  }, [card.id, card.supersededBy, card.supersedes, project]);
+
   const meta = TYPE_META[card.type];
+  // §5.10 v3.74 — 주제 표시명(상수에 없는 slug 는 미분류로 폴백). 번역 키가 있으면 그것을 우선.
+  const topicTitle = card.topic
+    ? t(`brain.topic.${card.topic}`, {
+        defaultValue: BRAIN_TOPICS.find((x) => x.slug === card.topic)?.title ?? BRAIN_TOPIC_MISC_TITLE,
+      })
+    : '';
+  // §5.10 v3.74 — 상시 규칙 토글은 프로젝트 층 규칙 카드에서만 의미가 있다.
+  const canToggleAlways = card.scope === 'project' && card.type === 'rule';
 
   const handleSaveEdit = useCallback(() => {
     void updateBrainCard(card.id, { title: editTitle.trim() || card.title, body: editBody });
@@ -80,6 +114,27 @@ export function BrainCardDetail({ card }: BrainCardDetailProps): React.JSX.Eleme
             {t('brain.statusGhost', { defaultValue: '재검토 필요' })}
           </span>
         )}
+        {/* §5.10 v3.78 — 승격 시 원 소유 에이전트 링크가 남는다(그 에이전트가 지식을 잃지 않게). */}
+        {card.promotedFrom && (
+          <span
+            className="rounded bg-gray-800 px-2 py-0.5 text-xs text-gray-400"
+            title={t('brain.promotedFromTip', { defaultValue: '이 기억을 키운 커스텀 에이전트' })}
+          >
+            {t('brain.promotedFrom', { defaultValue: '{{agent}} 에서 승격', agent: card.promotedFrom })}
+          </span>
+        )}
+        {/* §5.10 v3.74 — 주제 배지(프로젝트 층 전용). 이 카드가 어느 주제 문서에 실리는지 보여준다. */}
+        {card.scope === 'project' && card.topic && (
+          <span className="rounded bg-indigo-500/15 px-2 py-0.5 text-xs text-indigo-300" title={t('brain.topicTip', { defaultValue: '이 카드가 실리는 주제 문서' })}>
+            {topicTitle}
+          </span>
+        )}
+        {/* §5.10 v3.74 — 상시 규칙 표시. 켜진 카드만 모든 스폰 브리핑에 실린다. */}
+        {card.always && (
+          <span className="rounded bg-amber-500/15 px-2 py-0.5 text-xs text-amber-300">
+            {t('brain.alwaysBadge', { defaultValue: '상시' })}
+          </span>
+        )}
       </div>
 
       {/* 제목/본문 (편집 모드 토글) */}
@@ -116,6 +171,49 @@ export function BrainCardDetail({ card }: BrainCardDetailProps): React.JSX.Eleme
         <div className="rounded border border-gray-700 bg-gray-800/50 p-2 text-xs text-gray-400">
           <div className="mb-1 font-semibold text-gray-300">{t('brain.supersededNote', { defaultValue: '이전 내용 이력' })}</div>
           {card.supersededNote}
+        </div>
+      )}
+
+      {/* §5.10 v3.78 — 대체 이력 체인. "왜 바뀌었는지"를 삭제하지 않고 추적할 수 있게 한다. */}
+      {chain && (chain.older.length > 0 || chain.newer.length > 0) && (
+        <div className="space-y-2 rounded border border-gray-700 bg-gray-800/40 p-2">
+          <div className="text-xs font-semibold text-gray-300">{t('brain.chainTitle', { defaultValue: '대체 이력' })}</div>
+          {chain.older.length > 0 && (
+            <div className="space-y-1">
+              <div className="text-[10.5px] uppercase tracking-wide text-gray-500">
+                {t('brain.chainOlder', { defaultValue: '이 카드가 대체한 기억' })}
+              </div>
+              {chain.older.map((o) => (
+                <button
+                  key={o.id}
+                  type="button"
+                  onClick={() => selectBrainCard(o.id)}
+                  className="block w-full truncate rounded px-1.5 py-1 text-left text-xs text-gray-400 line-through decoration-gray-600 hover:bg-gray-800 hover:text-gray-200"
+                  title={o.title}
+                >
+                  {o.title}
+                </button>
+              ))}
+            </div>
+          )}
+          {chain.newer.length > 0 && (
+            <div className="space-y-1">
+              <div className="text-[10.5px] uppercase tracking-wide text-gray-500">
+                {t('brain.chainNewer', { defaultValue: '이 카드를 대체한 기억(현재)' })}
+              </div>
+              {chain.newer.map((n) => (
+                <button
+                  key={n.id}
+                  type="button"
+                  onClick={() => selectBrainCard(n.id)}
+                  className="block w-full truncate rounded px-1.5 py-1 text-left text-xs text-indigo-300 hover:bg-gray-800"
+                  title={n.title}
+                >
+                  {n.title}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -160,7 +258,7 @@ export function BrainCardDetail({ card }: BrainCardDetailProps): React.JSX.Eleme
           <button
             type="button"
             onClick={() => void promoteBrainCard(card.id)}
-            className="rounded bg-fuchsia-600/80 px-3 py-1 text-xs font-semibold text-white hover:bg-fuchsia-500"
+            className="rounded bg-indigo-600/80 px-3 py-1 text-xs font-semibold text-white hover:bg-indigo-500"
           >
             {t('brain.promote', { defaultValue: '프로젝트 두뇌로 승격' })}
           </button>
@@ -172,6 +270,25 @@ export function BrainCardDetail({ card }: BrainCardDetailProps): React.JSX.Eleme
         >
           {card.pinned ? t('brain.unpin', { defaultValue: '고정 해제' }) : t('brain.pin', { defaultValue: '고정' })}
         </button>
+        {/* §5.10 v3.74 — 상시 규칙 토글. 켜면 주제와 무관하게 모든 스폰 브리핑에 실린다(소수만 권장). */}
+        {canToggleAlways && (
+          <button
+            type="button"
+            onClick={() => void updateBrainCard(card.id, { always: !card.always })}
+            title={t('brain.alwaysTip', { defaultValue: '켜면 어떤 작업의 브리핑에도 이 규칙이 실립니다. 정말 항상 지켜야 하는 소수만 켜세요.' })}
+            className={card.always
+              ? 'flex items-center gap-1 rounded bg-amber-600/80 px-3 py-1 text-xs font-semibold text-white hover:bg-amber-500'
+              : 'flex items-center gap-1 rounded bg-gray-700 px-3 py-1 text-xs text-gray-100 hover:bg-gray-600'}
+          >
+            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="9" />
+              <path d="M12 7v5l3 2" />
+            </svg>
+            {card.always
+              ? t('brain.alwaysOff', { defaultValue: '상시 해제' })
+              : t('brain.alwaysOn', { defaultValue: '상시 규칙으로' })}
+          </button>
+        )}
         {!editing && (
           <button
             type="button"

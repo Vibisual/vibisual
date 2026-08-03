@@ -26,7 +26,12 @@ export function calcBubbleSize(
   }
 
   // §5.10 — Brain/휴지통 버블: 고정 중간 크기(홈 위성 상주).
-  if (bubble.bubbleType === 'brain' || bubble.bubbleType === 'trash') {
+  //   v3.82 — Brain 만 0.42 → 0.52. 상주 지식 허브라는 위계를 크기로 주고, 본체 3행이
+  //   ts(=size/BUBBLE_TEXT_REF_SIZE) 축소를 거쳐도 전부 10px 이상으로 읽히게 하는 하한이다.
+  if (bubble.bubbleType === 'brain') {
+    return Math.round(NODE_MIN_SIZE + (NODE_MAX_SIZE - NODE_MIN_SIZE) * 0.52);
+  }
+  if (bubble.bubbleType === 'trash') {
     return Math.round(NODE_MIN_SIZE + (NODE_MAX_SIZE - NODE_MIN_SIZE) * 0.42);
   }
 

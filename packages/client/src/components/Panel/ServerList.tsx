@@ -125,13 +125,13 @@ export const ServerList = memo(function ServerList({
               </div>
             </div>
 
-            {/* Restart button */}
+            {/* Restart button — §7.11 v3.85 신고 전용 entry 는 기동 명령 미상이라 respawn 불가 */}
             <button
               type="button"
               onClick={(e) => handleRestart(s.id, e)}
-              disabled={stopping === s.id}
+              disabled={stopping === s.id || s.reportedOnly === true}
               className="ml-1.5 flex h-5 w-5 shrink-0 items-center justify-center rounded text-gray-500 transition-colors hover:bg-blue-500/20 hover:text-blue-400 disabled:opacity-40"
-              title={t('panel.serverList.restart')}
+              title={s.reportedOnly === true ? t('panel.serverList.noCommand') : t('panel.serverList.restart')}
             >
               <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
                 <path d="M21 12a9 9 0 1 1-2.63-6.36M21 3v6h-6" />

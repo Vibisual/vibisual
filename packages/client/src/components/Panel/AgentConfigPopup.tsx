@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import type { AgentConfig } from '@vibisual/shared';
@@ -76,27 +76,87 @@ function InfoTip({ text }: { text: string }): React.JSX.Element {
 
 // ─── Portal Dropdown Hook ───
 
+/** 드롭다운 패널이 뷰포트 가장자리(창 하단 = 작업표시줄 쪽)에 잘리지 않도록 두는 여백. */
+const DD_VIEWPORT_MARGIN = 8;
+/** 버튼과 패널 사이 간격. */
+const DD_GAP = 4;
+/** 패널 기본 높이 상한(= Tailwind max-h-72/max-h-80 과 동급). 실측 전 1차 추정에 사용. */
+const DD_MAX_HEIGHT = 288;
+/** 위/아래 어느 쪽도 넉넉하지 않을 때 그래도 확보하는 최소 높이(내부 스크롤로 소화). */
+const DD_MIN_HEIGHT = 120;
+
+/** 버튼 위치·패널 실측 크기·뷰포트 경계를 보고 위/아래(또는 좌측 배치의 세로 위치)를 결정한다.
+ *  - 'below': 아래 공간이 모자라고 위가 더 넓으면 **위로 뒤집어** 버튼 상단에 붙인다.
+ *  - 'left' : 가로는 버튼 왼쪽 고정, 세로만 뷰포트 안으로 클램프.
+ *  패널 실측(scrollHeight)은 maxHeight 클램프와 무관한 콘텐츠 높이라 재측정해도 값이 안정적이다(무한 루프 없음). */
+function computeDropdownPos(
+  btn: HTMLElement,
+  panel: HTMLElement | null,
+  placement: 'below' | 'left',
+): React.CSSProperties {
+  const r = btn.getBoundingClientRect();
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  // 실측 전(패널 미마운트)에는 상한값으로 가정 — 마운트 직후 layout effect 가 실측으로 보정한다.
+  const contentH = Math.min(panel?.scrollHeight ?? DD_MAX_HEIGHT, DD_MAX_HEIGHT);
+
+  if (placement === 'left') {
+    const availH = vh - DD_VIEWPORT_MARGIN * 2;
+    const h = Math.min(contentH, availH);
+    // 기본은 버튼 하단에 맞춰 위로 자라되, 뷰포트 위/아래를 넘으면 안으로 밀어 넣는다.
+    const top = Math.min(Math.max(r.bottom - h, DD_VIEWPORT_MARGIN), vh - DD_VIEWPORT_MARGIN - h);
+    return { top, right: Math.max(DD_VIEWPORT_MARGIN, vw - r.left + 6), maxHeight: h };
+  }
+
+  const spaceBelow = vh - r.bottom - DD_GAP - DD_VIEWPORT_MARGIN;
+  const spaceAbove = r.top - DD_GAP - DD_VIEWPORT_MARGIN;
+  const flipUp = contentH > spaceBelow && spaceAbove > spaceBelow;
+
+  const panelW = panel?.offsetWidth ?? r.width;
+  const left = Math.min(Math.max(r.left, DD_VIEWPORT_MARGIN), Math.max(DD_VIEWPORT_MARGIN, vw - DD_VIEWPORT_MARGIN - panelW));
+
+  if (flipUp) {
+    return {
+      bottom: vh - r.top + DD_GAP,
+      left,
+      minWidth: r.width,
+      maxHeight: Math.max(DD_MIN_HEIGHT, Math.min(contentH, spaceAbove)),
+    };
+  }
+  return {
+    top: r.bottom + DD_GAP,
+    left,
+    minWidth: r.width,
+    maxHeight: Math.max(DD_MIN_HEIGHT, Math.min(contentH, spaceBelow)),
+  };
+}
+
 function usePortalDropdown(placement: 'below' | 'left' = 'below') {
   const btnRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<React.CSSProperties>({});
 
-  const toggle = useCallback(() => {
-    setOpen((prev) => {
-      if (!prev && btnRef.current) {
-        const r = btnRef.current.getBoundingClientRect();
-        if (placement === 'left') {
-          setPos({ bottom: window.innerHeight - r.bottom, right: window.innerWidth - r.left + 6 });
-        } else {
-          setPos({ top: r.bottom + 4, left: r.left, minWidth: r.width });
-        }
-      }
-      return !prev;
-    });
+  const reposition = useCallback(() => {
+    if (!btnRef.current) return;
+    setPos(computeDropdownPos(btnRef.current, panelRef.current, placement));
   }, [placement]);
 
+  const toggle = useCallback(() => {
+    setOpen((prev) => {
+      // 1차 추정(패널 실측 전). 마운트 후 layout effect 가 실제 콘텐츠 높이로 보정한다.
+      if (!prev) reposition();
+      return !prev;
+    });
+  }, [reposition]);
+
   const close = useCallback(() => setOpen(false), []);
+
+  // 패널이 실제로 그려진 뒤 실측 높이/너비로 위·아래 배치를 확정(첫 페인트 전에 보정).
+  useLayoutEffect(() => {
+    if (!open) return;
+    reposition();
+  }, [open, reposition]);
 
   useEffect(() => {
     if (!open) return;
@@ -110,13 +170,17 @@ function usePortalDropdown(placement: 'below' | 'left' = 'below') {
       if (panelRef.current?.contains(e.target as Node)) return;
       setOpen(false);
     };
+    // 창 크기가 바뀌면 남은 공간도 바뀐다 — 닫지 않고 재배치.
+    const handleResize = (): void => reposition();
     document.addEventListener('mousedown', handleClick);
     window.addEventListener('scroll', handleScroll, true);
+    window.addEventListener('resize', handleResize);
     return () => {
       document.removeEventListener('mousedown', handleClick);
       window.removeEventListener('scroll', handleScroll, true);
+      window.removeEventListener('resize', handleResize);
     };
-  }, [open]);
+  }, [open, reposition]);
 
   return { btnRef, panelRef, open, pos, toggle, close };
 }

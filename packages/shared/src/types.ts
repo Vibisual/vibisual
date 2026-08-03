@@ -112,6 +112,7 @@ export interface CompactCount {
  * 한도는 사용자 단위라 GraphSnapshot 1건 글로벌. 영속화 ❌(런타임 캐시).
  */
 export interface RateLimitInfo {
+  /** 사용률 **퍼센트(0~100)**. v3.64 — 0~1 비율 표기는 폐기(값 1 의 중의성으로 오표시 사고). */
   used5h?: number;
   resetAt5h?: number;
   used7d?: number;
@@ -131,6 +132,59 @@ export interface RateLimitInfo {
  * `_vibisualPrevStatusLine` 으로 보존하고 핸들러가 **passthrough 실행**하므로 화면 출력은
  * 그대로 유지된다(해제 시 원복).
  */
+/**
+ * §4 v3.62 — Claude 앱 `/usage` 화면과 **동일한 원천**에서 받아온 사용량.
+ *
+ * Claude Code 의 `/usage` 는 `GET https://api.anthropic.com/api/oauth/usage` 를 로컬 OAuth
+ * 토큰(`~/.claude/.credentials.json`)으로 호출한다(CLI 바이너리의 `fetchUtilization` 확인).
+ * statusLine(§4 v3.60)과 달리 **인터랙티브 세션이 없어도 즉시** 값이 오고, 플랜명·모델별 주간
+ * 한도·사용 크레딧까지 전부 들어 있다. 그래서 이쪽이 1차 소스, statusLine 은 폴백이다.
+ *
+ * 읽기 전용 — Vibisual 은 토큰을 갱신하거나 자격증명 파일에 쓰지 않는다(만료 시 Claude Code
+ * 자신이 갱신해 파일을 다시 쓰므로 다음 폴링에서 자연히 회복된다).
+ */
+export interface ClaudeUsageLimit {
+  /** session / weekly_all / weekly_scoped / seven_day_opus … (서버 원문 그대로) */
+  kind: string;
+  /** session | weekly — 화면 묶음 단위 */
+  group: string;
+  /** 0~100 */
+  percent: number;
+  /** normal | warning | critical … (서버 원문) */
+  severity: string;
+  /** 한도 리셋 epoch ms (없을 수 있음) */
+  resetsAt?: number;
+  /** 모델별 한도의 표시명 (예: Fable) */
+  scopeLabel?: string;
+  isActive: boolean;
+}
+
+/** 사용 크레딧(플랜 한도 초과분 과금) 상태. */
+export interface ClaudeUsageExtraCredits {
+  enabled: boolean;
+  /** 0~100 */
+  utilization?: number;
+  usedCredits?: number;
+  monthlyLimit?: number;
+  currency?: string;
+}
+
+export type ClaudeUsageSource = 'oauth' | 'statusline';
+
+/** no-credentials = 로그인 정보 없음(mac 키체인 포함), unauthorized = 토큰 만료/거부 */
+export type ClaudeUsageError = 'no-credentials' | 'unauthorized' | 'network';
+
+export interface ClaudeUsageInfo {
+  /** 예: "Max (20x)" — 자격증명의 subscriptionType + rateLimitTier 로 조립 */
+  plan?: string;
+  limits: ClaudeUsageLimit[];
+  extraCredits?: ClaudeUsageExtraCredits;
+  source: ClaudeUsageSource;
+  fetchedAt: number;
+  /** 마지막 조회가 실패했을 때의 사유. limits 는 직전 성공값이 남아 있을 수 있다. */
+  error?: ClaudeUsageError;
+}
+
 export interface UsageCollectorStatus {
   /** Vibisual 관리 statusLine 이 걸려 있는가 */
   installed: boolean;
@@ -761,6 +815,13 @@ export interface BubbleData {
   trashedAt?: number;
 }
 
+/**
+ * §5.5 #17-12 — IDE 스트림 표시 밀도. **표시 계층 전용**(서버 미전달, 클라 localStorage 영속)이지만
+ * 의존성 방향(stores → shared)상 store 와 컴포넌트가 함께 쓰려면 여기 있어야 한다.
+ * `compact`=가장 많이 접음 / `standard`=기본 / `raw`=아무것도 접지 않음.
+ */
+export type StreamDensity = 'compact' | 'standard' | 'raw';
+
 /** TodoWrite 도구의 개별 항목 */
 export interface TodoItem {
   content: string;
@@ -824,6 +885,12 @@ export interface ServerEntry {
   shellId?: string;
   /** run_in_background 출력 파일 절대 경로 (포트 탐지용) */
   outputFile?: string;
+  /**
+   * §7.11 v3.85 — 에이전트 신고(`POST /api/agent-iframe`)로만 알게 된 서버.
+   * 기동 명령을 모르므로 `command` 는 신고 URL(표시용)이고 respawn(Restart/Start)은 불가하다.
+   * Stop 은 `killByPort` 라 정상 동작. watcher 가 나중에 진짜 명령을 잡으면 승격되며 이 플래그는 사라진다.
+   */
+  reportedOnly?: boolean;
 }
 
 /** SubAgent 상태 */
@@ -983,6 +1050,67 @@ export interface QueuedCommand {
    * one-shot 가드 — 재개 후에도 또 끊기면 그때는 `[orphaned]` 에러로 마감한다.
    */
   restartResumed?: boolean;
+}
+
+/**
+ * §5.5 #17-11 v3.79 — 세션 반복 실행(루프) 방식.
+ * - `count`: `total` 회 채우면 자연 종료.
+ * - `infinite`: 사용자가 멈추기 전까지 계속.
+ */
+export type SessionLoopMode = 'count' | 'infinite';
+
+/**
+ * §5.5 #17-11 v3.79 — 루프 진행 상태 (서버가 판정, 클라는 표시만).
+ * - `idle`: 설정만 있고 꺼져 있음.
+ * - `running`: 지금 한 회차가 세션에서 실행 중.
+ * - `waiting`: 회차 사이 대기(`nextRunAt` 까지).
+ * - `done`: `count` 목표 도달로 정상 종료.
+ * - `stopped`: 사용자 중지(세션 중지/전체 중지/정지 버튼)로 멈춤.
+ * - `error`: 회차가 실패했고 `stopOnError` 라서 멈춤.
+ */
+export type SessionLoopStatus = 'idle' | 'running' | 'waiting' | 'done' | 'stopped' | 'error';
+
+/**
+ * §5.5 #17-11 v3.79 — IDE 내부 세션(탭) 하나에 붙는 반복 명령 설정.
+ *
+ * 소유 단위가 **에이전트가 아니라 세션 탭(subAgentId)** 인 것이 이 기능의 핵심 —
+ * 탭마다 다른 명령·다른 횟수를 갖고, 탭을 바꾸면 그 탭의 루프가 보인다.
+ * 한 회차는 기존 명령 큐(`QueuedCommand`)에 그대로 얹히므로 dispatch·스트림·중지·아카이브
+ * 경로가 사용자가 직접 보낸 명령과 완전히 동일하다(새 실행 레일 없음).
+ */
+export interface SessionLoop {
+  /** 소유 (부모) 에이전트 버블 ID — 프로젝트 필터·영속 분류 키. */
+  agentId: string;
+  /** 이 루프가 붙은 IDE 내부 세션(탭) ID. 맵의 키와 동일. */
+  subAgentId: string;
+  /** 매 회차 세션에 넣을 명령 본문. */
+  command: string;
+  /** 반복 방식. */
+  mode: SessionLoopMode;
+  /** `mode==='count'` 일 때 목표 횟수 (1 ~ SESSION_LOOP_MAX_ITERATIONS). */
+  total?: number;
+  /** 지금까지 완료한 회차 수. */
+  completed: number;
+  /** 켜져 있는가 = 다음 회차를 계속 낼 것인가. */
+  enabled: boolean;
+  /** 회차 사이 대기(ms). 0 이면 직전 회차 완료 즉시 다음. */
+  intervalMs: number;
+  /** 회차가 error 로 끝나면 자동 정지할지. */
+  stopOnError: boolean;
+  /** 진행 상태 (서버 판정). */
+  status: SessionLoopStatus;
+  /** 지금 도는 회차의 `QueuedCommand.id` — 완료 대조용(이 id 가 끝나야 다음 회차). */
+  pendingCommandId?: string;
+  /** `waiting` 중일 때 다음 회차 예정 시각 (epoch ms). */
+  nextRunAt?: number;
+  /** 마지막 회차 시작 시각 (epoch ms). */
+  lastRunAt?: number;
+  /** 마지막 회차의 오류 요약 (표시용, 성공 시 비움). */
+  lastError?: string;
+  /** 생성 시각. */
+  createdAt: number;
+  /** 마지막 변경 시각. */
+  updatedAt: number;
 }
 
 
@@ -1583,6 +1711,13 @@ export interface AgentReport {
    * `brainService.markHelpful(id)` 를 호출(helpfulCount++, lastHelpfulAt 갱신) → 랭킹 부스트.
    */
   helpfulMemoryIds?: string[];
+  /**
+   * §5.10 v3.78 — `helpfulMemoryIds` 의 **대칭 채널**(재검증 1비트 회수). 브리핑으로 받은 카드 중
+   * **지금 코드와 어긋나 낡았다**고 판단한 것의 id. 서버가 `brainService.markStale(id)` 를 호출해
+   * `verifyState: 'needs-check'` + 대체 후보로 적립하고, 누적이 문턱을 넘으면 자동 보관(삭제 ❌).
+   * 반대로 확인 필요 카드가 `helpfulMemoryIds` 로 오면 앵커를 현재 해시로 갱신하고 `ok` 로 복귀한다.
+   */
+  staleMemoryIds?: string[];
   /** 신고 시각 (서버 stamp, Date.now()). */
   createdAt: number;
 }
@@ -1601,6 +1736,94 @@ export type BrainCardScope = 'project' | 'agent';
 
 /** 카드 상태 — active(정상)/ghost(연결 파일 소실 → 재검토)/archived(보관). */
 export type BrainCardStatus = 'active' | 'ghost' | 'archived';
+
+/**
+ * §5.10 v3.78 — 카드 내용이 **지금도 코드와 맞는가**. `status`(파일 존재 여부)와 직교한다.
+ *
+ * - `ok`: 앵커를 박은 뒤 연결 파일이 바뀌지 않았거나, 바뀐 뒤 사람/에이전트가 "지금도 맞음"으로 재검증했다.
+ * - `needs-check`: 연결 파일이 **수정**됐거나 낡음 신고가 들어와 내용이 새 코드와 어긋날 수 있다.
+ *   **주입에서 빼지 않는다** — 빼면 아직 유효한 규칙까지 사라진다. 대신 "이 파일이 그 뒤 N회 수정됨"
+ *   경고를 카드와 함께 실어 보내 모델이 스스로 대조하게 한다.
+ */
+export type BrainVerifyState = 'candidate' | 'verified' | 'needs-check' | 'contested' | 'rejected';
+
+/**
+ * §5.10 v3.81-D — **권위**. 이 지식이 어디서 왔는가. `BRAIN_AUTHORITY_RANK` 로 서열이 매겨지며
+ * **랭크 ≤1(`session-summary`·`ai-inference`)은 `verified` 로 가는 코드 경로 자체가 없다**
+ * (출처 없는 AI 추론의 자동 승격 ❌ — 이 프로젝트가 낡은 기억에 속아 온 정확한 지점).
+ */
+export type BrainAuthority =
+  | 'user-explicit'      // 사용자가 명시적으로 승인/교정 (결정·정책·선호의 유일한 승격 경로)
+  | 'repository-source'  // 현재 코드/설정과 대조 성공 (앵커 해시 일치)
+  | 'tool-result'        // 테스트·빌드·CLI 의 실제 실행 결과
+  | 'approved-doc'       // 승인된 프로젝트 문서(SCENARIO 등)
+  | 'session-summary'    // 세션 요약 — candidate 상한
+  | 'ai-inference';      // AI 추론 — candidate 상한
+
+/**
+ * §5.10 v3.81-F — **관찰 1건**. 같은 키+범위에 **같은 값**이 다시 발견되면 카드를 늘리지 않고
+ * 여기에 적립한다(요건: "같은 사실이 여러 세션에서 발견되면 카드가 늘지 않고 evidence 만 보강").
+ */
+export interface BrainObservation {
+  /** 관찰 시각. */
+  at: number;
+  /** 관찰된 세션 id(없으면 수동·시스템). */
+  sessionId?: string;
+  /** 그 관찰의 권위 — 더 높은 권위가 오면 카드의 authority 가 승격된다. */
+  authority: BrainAuthority;
+}
+
+/**
+ * §5.10 v3.81-E — **적용 범위**. 지식이 어느 조건에서 참인가. 축은 필요한 것만 쓰고 생략 = 전체(`*`).
+ * 직렬화는 정렬된 한 줄(`project=vibisual;branch=main`) — 기존 YAML-lite 파서를 건드리지 않기 위함.
+ */
+export interface BrainAppliesTo {
+  project?: string;
+  component?: string;
+  environment?: string;
+  branch?: string;
+  platform?: string;
+  version?: string;
+  agent?: string;
+}
+
+/**
+ * §5.10 v3.81-B — current 인덱스 1행(REST `GET /api/brain/current` 응답 원소).
+ * **파일이 아니라 카드에서 계산된다** — 레지스트리 파일을 따로 두면 카드와 서로 다른 진실을
+ * 말하는 이중 구조가 되기 때문(설계 근거는 §5.10 v3.81-B).
+ */
+export interface BrainCurrentEntry {
+  canonicalKey: string;
+  /** 정규화된 범위 문자열(빈 문자열 = 전역). */
+  scopeKey: string;
+  /** 현재 진실 카드 id. 충돌로 정해지지 않았으면 null. */
+  cardId: string | null;
+  /** 이 슬롯을 다투는 카드들(충돌일 때만 2 이상). */
+  contenders: string[];
+  /** 슬롯 상태 — `current`(하나로 정해짐) / `contested`(둘 이상이 verified) / `none`(verified 없음). */
+  state: 'current' | 'contested' | 'none';
+}
+
+/**
+ * §5.10 v3.78 — **코드 앵커**. 카드를 저장한 시점의 연결 파일 상태를 못 박아 두는 지문.
+ *
+ * 시중 메모리 레이어는 코드 변경을 못 보지만 우리는 Edit/Write 훅을 전수로 받는다(§7.4). 편집된
+ * 파일에 걸린 카드는 그 자리에서 `editedSince` 가 오르고 해시가 어긋나면 `needs-check` 로 전이한다.
+ */
+export interface BrainAnchor {
+  /** 연결 파일 경로 — 카드 `files` 원소와 같은 문자열(상대/절대 그대로 보존). */
+  path: string;
+  /** 저장 시점 파일 내용 sha256 앞 `BRAIN_ANCHOR_SHA_LEN` 자. 파일이 없었으면 undefined. */
+  sha?: string;
+  /** 저장 시점 git HEAD 짧은 해시. git 저장소가 아니면 undefined. */
+  commit?: string;
+  /** 앵커를 박은(또는 재검증으로 갱신한) 시각. */
+  at: number;
+  /** 앵커 이후 그 파일이 Edit/Write 된 횟수 — 주입 경고에 그대로 실린다. */
+  editedSince?: number;
+  /** 마지막으로 편집이 감지된 시각. */
+  lastEditedAt?: number;
+}
 
 /**
  * §5.10 기억 카드 1장. 디스크의 `.vibisual/brain/{project|agents/<agentId>}/<id>.md` 와 1:1.
@@ -1644,8 +1867,101 @@ export interface BrainCard {
   status: BrainCardStatus;
   /** 대체(supersede) 시 이전 카드 요지 이력(자가 수정 금지 — 이력 보존). */
   supersededNote?: string;
+  /**
+   * §5.10 v3.78 — **유효기간의 닫는 축.** 이 카드가 더 이상 현재 사실이 아니게 된 시각
+   * (= 이 카드를 대체한 새 카드의 `createdAt`). 여는 축은 `createdAt` 이다.
+   *
+   * 값이 있으면 **닫힌 카드** — 주입·주제 문서·색인·검색·요약·피드 어디에도 나오지 않고
+   * 이력 조회(대체 체인 뷰)에서만 보인다. **삭제가 아니라 닫는 것**이라 과거는 남는다.
+   */
+  validUntil?: number;
+  /** §5.10 v3.78 — 이 카드를 닫은(대체한) 새 카드 id. `validUntil` 과 항상 짝. */
+  supersededBy?: string;
+  /** §5.10 v3.78 — 이 카드가 닫은 옛 카드 id 목록(대체 체인 역방향). */
+  supersedes?: string[];
+  /**
+   * §5.10 v3.78 — 저장 시점 연결 파일들의 코드 앵커. 프로젝트 층은 사실상 필수(코드에 매인 지식),
+   * 에이전트 층은 불필요(사람·역할에 매인 지식). optional — 구버전 카드는 없다.
+   */
+  anchors?: BrainAnchor[];
+  /**
+   * §5.10 v3.81-D — 검증 상태. **없으면 `candidate` 로 본다**(구버전 카드 = 아직 검증 안 된 것 —
+   * 사용자 결정 2026-07-31 "엄격안": 기존 카드는 전부 candidate 로 시작하고 검증된 것만 올린다).
+   * 보관축(`status`)과 섞지 않는다.
+   */
+  verifyState?: BrainVerifyState;
+  /**
+   * §5.10 v3.81-E — **안정적인 진실 주소**(`<area>.<subject>[.<aspect>]`). 이 값이 있는 카드만
+   * SSOT(Canonical Knowledge) 후보다. 없으면 저장고(Evidence)에만 존재한다 — 검색·주제 문서·이력으로
+   * 읽히되 기본 주입 대상이 아니다. `topic`·태그가 바뀌어도 이 값은 불변(진실의 동일성을 여기서 지킨다).
+   */
+  canonicalKey?: string;
+  /** §5.10 v3.81-E — 적용 범위. 없으면 전역(`*`). 서로 다른 범위의 값은 충돌이 아니라 조건부 공존. */
+  appliesTo?: BrainAppliesTo;
+  /** §5.10 v3.81-D — 이 지식의 권위. 없으면 `ai-inference` 로 본다(가장 낮은 랭크). */
+  authority?: BrainAuthority;
+  /** §5.10 v3.81 — 정규화된 값(enum 성 사실에만. 예 `pnpm`). 없으면 `title` 이 곧 진술문이다. */
+  value?: string;
+  /** §5.10 v3.81 — 마지막으로 **검증**된 시각(`updatedAt` 과 분리 — 편집과 검증은 다른 사건이다). */
+  verifiedAt?: number;
+  /** §5.10 v3.81 — 이 시각이 지나면 자동으로 재검토 대상(없으면 무기한). */
+  reviewAfter?: number;
+  /** §5.10 v3.81-F — 같은 값이 다시 관찰된 이력(최근 `BRAIN_OBSERVATION_KEEP` 건만 보관). */
+  observations?: BrainObservation[];
+  /** §5.10 v3.81-F — 누적 관찰 횟수(잘린 `observations` 와 달리 전체를 센다). */
+  observedCount?: number;
+  /** §5.10 v3.78 — 에이전트가 `staleMemoryIds` 로 "낡음"을 신고한 누적 횟수(대체 후보 적립). */
+  staleReports?: number;
+  /**
+   * §5.10 v3.78 — 승격(에이전트 → 프로젝트) 시 **원 소유 에이전트 id 를 남긴다.**
+   * 종전 승격은 순수 이동이라 원 에이전트가 자기 지식을 통째로 잃었다 — 링크를 남겨
+   * 그 에이전트 스코프에서도 "내가 올린 기억"으로 되짚을 수 있게 한다.
+   */
+  promotedFrom?: string;
   /** 대시보드 "최근 저장" 검토 확인 여부(false=미확인 → 배지 카운트). */
   seen?: boolean;
+  /**
+   * §5.10 v3.74 — **프로젝트 층 주제 slug**(`BRAIN_TOPICS` 의 slug 또는 `BRAIN_TOPIC_MISC`).
+   * 저장 시 AI 가 지정하고, 없으면 서버가 제목·본문·파일을 패턴 매칭해 자동 분류한다.
+   * 스폰 브리핑은 이 축으로 만든 **색인**만 싣고 카드 본문은 밀어넣지 않는다(무관한 주입 차단).
+   * **에이전트 층은 미사용** — 커스텀 에이전트 버블 자체가 이미 주제 단위이기 때문.
+   */
+  topic?: string;
+  /**
+   * §5.10 v3.74 — 주제와 무관하게 **어떤 작업에서도** 지켜야 하는 상시 규칙인가(rule 전용, 소수).
+   * true 인 카드만 스폰 브리핑에 상시 실린다 — 주제성 규칙은 해당 주제 문서로 내려간다.
+   * 종전의 "규칙 카드 전량 주입"(상한 20)을 대체하는 플래그. optional(하위호환 — 없으면 false).
+   */
+  always?: boolean;
+}
+
+/**
+ * §5.10 v3.74 — 프로젝트 층 주제 정의(`BRAIN_TOPICS` 원소).
+ * 카드를 "무엇에 관한 기억이냐"로 가르는 축. 스폰 브리핑 색인의 한 줄이 이 정의에서 나온다.
+ */
+export interface BrainTopicDef {
+  /** 주제 slug — 카드 `topic` 값 + 주제 문서 파일명(`topics/<slug>.md`). */
+  slug: string;
+  /** 사람이 읽는 주제명. */
+  title: string;
+  /** 색인에 싣는 "언제 이 문서를 읽나" 한 줄 — 에이전트가 자기 작업과 대조하는 기준. */
+  whenToRead: string;
+  /** 자동 분류용 정규식 소스('i' 플래그로 컴파일). 제목·본문·연결 파일 경로에 매칭. */
+  match: string;
+}
+
+/**
+ * §5.10 v3.74 — 스폰 브리핑 색인 한 줄 + 주제 문서 목록 응답 항목.
+ * 카드 본문은 담지 않는다(색인은 "어디를 읽을지"만 알려주는 것이 목적).
+ */
+export interface BrainTopicIndexEntry {
+  slug: string;
+  title: string;
+  whenToRead: string;
+  /** 그 주제에 속한 활성 카드 수(archived 제외). 0 인 주제는 색인에서 빠진다. */
+  cardCount: number;
+  /** 주제 문서 절대 경로 — 에이전트가 Read 로 바로 열 수 있게 색인에 함께 싣는다. */
+  docPath: string;
 }
 
 /**
@@ -1660,6 +1976,19 @@ export interface BrainSummary {
   recentCardTitle?: string;
   /** 에이전트별 개별 기억 카드 수 (agentId → count). */
   agentCardCounts: Record<string, number>;
+  /**
+   * §5.10 v3.78 — 연결 파일이 수정돼 **확인 필요**(`verifyState: 'needs-check'`)가 된 열린 카드 수.
+   * 기억 화면 주제 레일의 "확인 필요" 특수 항목 배지. optional(하위호환 — 없으면 0).
+   */
+  needsCheckCount?: number;
+  /** §5.10 v3.78 — 예산제로 보관(`archived`)된 카드 수 — "정리됨" 되돌림 목록 배지. */
+  archivedCount?: number;
+  /** §5.10 v3.81 — **현재 진실**로 확정된 슬롯 수(verified + 유일). 저장 장수가 아니라 SSOT 크기. */
+  currentCount?: number;
+  /** §5.10 v3.81 — 값이 갈려 current 를 잃은 슬롯 수(검토 큐 배지). */
+  contestedCount?: number;
+  /** §5.10 v3.81 — 사람의 판단을 기다리는 카드 수(후보·충돌·확인 필요). */
+  reviewCount?: number;
 }
 
 /**
@@ -1680,6 +2009,15 @@ export interface BrainInjectionEvent {
   cardTitles: string[];
   /** 주입 계기 — 스폰 브리핑/파일 접근 경고/능동 검색. */
   trigger: 'spawn' | 'file' | 'search';
+  /**
+   * §5.10 v3.78 — 같은 계기로 **같은 카드 묶음**이 다시 주입된 누적 횟수(최초 1). 없으면 1로 본다.
+   *
+   * 스폰 브리핑은 명령 dispatch 마다 돌고 카드 묶음은 대개 그대로라, 종전에는 IDE 스트림에
+   * `기억 N장 참조` 칩이 턴 수만큼 쌓였다. 이제 칩은 하나로 두고 이 횟수만 올린다.
+   */
+  repeatCount?: number;
+  /** §5.10 v3.78 — 마지막으로 같은 묶음이 다시 주입된 시각. 정렬 기준인 `at` 은 최초 시각 그대로 둔다. */
+  lastAt?: number;
 }
 
 /**
@@ -1715,6 +2053,168 @@ export interface BrainCardInput {
   sourceSessionId?: string;
   pinned?: boolean;
   seen?: boolean;
+  /** §5.10 v3.74 — 프로젝트 층 주제 slug. 미지정이면 서버가 패턴으로 자동 분류(`misc` 폴백). */
+  topic?: string;
+  /** §5.10 v3.74 — 주제 무관 상시 규칙(rule 전용, 소수). 미지정이면 false. */
+  always?: boolean;
+  /**
+   * §5.10 v3.78 — **이 지식이 뒤집는 기존 카드 id**(리플렉션 프롬프트가 기존 제목 목록을 보고 지목).
+   * 주어지면 유사도 계산을 건너뛰고 그 카드를 곧바로 닫는다(모순 판정의 명시 경로).
+   */
+  contradicts?: string;
+  /** §5.10 v3.78 — 승격 원 소유 에이전트 id(승격 경로에서만 채운다). */
+  promotedFrom?: string;
+  /**
+   * §5.10 v3.81 — **진실 주소.** 주면 슬롯 규칙(같은 키+범위엔 현재 진실 하나)이 적용되고,
+   * 없으면 종전 유사도 경로로 저장된다(증거 카드). AI 는 리플렉션 출력 스키마로 이 값을 제안한다.
+   */
+  canonicalKey?: string;
+  /** §5.10 v3.81 — 적용 범위. 생략 = 전역. */
+  appliesTo?: BrainAppliesTo;
+  /** §5.10 v3.81 — 이 지식의 권위. 생략 = `ai-inference`(자동 승격 불가). */
+  authority?: BrainAuthority;
+  /** §5.10 v3.81 — 정규화된 값(enum 성 사실). 같은 슬롯 안에서 "같은 값인가"를 이걸로 먼저 본다. */
+  value?: string;
+}
+
+/**
+ * §5.10 v3.78 — `saveCard` 가 기존 카드와의 관계를 어떻게 판정했는가(테스트·로그·REST 응답용).
+ * `same` = 새 카드를 만들지 않고 기존 카드의 참조 시각만 갱신 / `superseded` = 새 카드가 옛 카드를 닫음 /
+ * `new` = 보완(관계 없음 또는 겹침이 약함) → 그냥 새 카드.
+ */
+export type BrainSaveOutcome = 'same' | 'superseded' | 'new';
+
+/** §5.10 v3.78 — `saveCard` 반환. 카드 + 판정 결과 + 닫힌 옛 카드 id 들. */
+export interface BrainSaveResult {
+  card: BrainCard;
+  outcome: BrainSaveOutcome;
+  /** outcome==='superseded' 일 때 이 저장으로 닫힌 옛 카드 id 목록. */
+  closedIds: string[];
+}
+
+// ─── §5.10 v3.81 — 저장고↔SSOT 이원화 이행을 위한 **읽기 전용** dry-run 감사 ───
+//
+// 보고서에는 **시각·난수가 들어가지 않는다** — 같은 카드 집합이면 몇 번을 돌려도 같은 결과가 나와야
+// 하기 때문(재실행 멱등). 이 단계는 파일을 한 바이트도 쓰지 않으며, 실제 이행은 사용자 승인 후
+// frontmatter 필드 **추가만** 수행한다(기존 값 삭제·본문 재작성 ❌).
+
+/** §5.10 v3.81 — dry-run 감사에서 카드 1장에 붙는 지적 사항. */
+export interface BrainMigrationNote {
+  id: string;
+  title: string;
+  scope: BrainCardScope;
+  agentId?: string;
+  /** 기계 판독용 사유 코드(예: `no-source`, `anchor-mismatch`, `experience-layer`). */
+  reason: string;
+  /** 사람이 읽는 부연(파일명·수치 등). */
+  detail?: string;
+}
+
+/**
+ * §5.10 v3.81 — `canonicalKey` **접두 제안**(자동 확정 ❌ — 사람이 확인해야 SSOT 에 편입된다).
+ * `<area>.<subject>` 까지만 기계가 만들 수 있다. area 는 파일의 패키지, subject 는 소스 모듈명에서
+ * 나오며, **한국어 제목에서는 어떤 마디도 만들지 않는다**(로마자 변환은 결정적일 수 없다).
+ */
+export interface BrainMigrationKeySuggestion {
+  id: string;
+  title: string;
+  /** `<area>.<subject>` 형태의 제안 접두. */
+  suggestedKey: string;
+  /**
+   * 같은 접두를 여러 카드가 제안받았는가 — **한 파일에 서로 다른 진실이 여럿**이라는 뜻이다.
+   * true 면 이 접두는 그대로 키가 될 수 없고 `<area>.<subject>.<aspect>` 로 갈라야 한다(사람 판단).
+   */
+  needsAspect: boolean;
+  /** 제안 신뢰도 — high=단일 파일+분류된 주제, medium=다중 파일, low=접두 충돌·근거 약함. */
+  confidence: 'high' | 'medium' | 'low';
+  /** 무엇을 근거로 제안했는지(예: `file=brainService.ts · topic=brain-memory`). */
+  basis: string;
+}
+
+/** §5.10 v3.81 — 같은 진실일 가능성이 높은 카드 묶음(제목 문자 bigram 기준 — 판정 ❌, 보고 ⭕). */
+export interface BrainMigrationDuplicateGroup {
+  /** 층 식별자 — `project` 또는 `agent:<agentId>`. 층이 다르면 중복으로 묶지 않는다. */
+  layer: string;
+  /** 묶음 내 최대 유사도(0~1). */
+  similarity: number;
+  cards: Array<{ id: string; title: string }>;
+}
+
+/** §5.10 v3.81 — 서로 뒤집는 것으로 보이는 카드 쌍(부정 극성 반전). */
+export interface BrainMigrationConflictPair {
+  layer: string;
+  similarity: number;
+  reason: 'negation-flip';
+  a: { id: string; title: string };
+  b: { id: string; title: string };
+}
+
+/** §5.10 v3.81 — 감사 집계(목록이 상한에 잘려도 전체 수는 여기로 알 수 있다). */
+export interface BrainMigrationCounts {
+  total: number;
+  /** 열려 있고 보관되지 않은 카드. */
+  live: number;
+  /** 대체돼 닫힌 카드(`validUntil` 보유). */
+  closed: number;
+  archived: number;
+  project: number;
+  agent: number;
+  byType: Record<string, number>;
+  /** 종류별 — 정본 후보(fact/rule/decision) vs 경험 계층(mistake/lesson). live 기준. */
+  canonicalCandidates: number;
+  experienceLayer: number;
+  /** 현재 `needs-check` 인 live 카드 수. */
+  needsCheck: number;
+}
+
+/**
+ * §5.10 v3.81 — dry-run 감사 보고서 전문. `GET /api/brain/migrate/dry-run` 응답.
+ * 목록은 각각 `BRAIN_MIGRATION_LIST_MAX` 로 잘리며, 잘린 뒤에도 `counts` 는 전체를 센다.
+ */
+export interface BrainMigrationReport {
+  /** 감사한 프로젝트 루트(forward-slash 정규화). */
+  root: string;
+  counts: BrainMigrationCounts;
+  /** ① 키를 비교적 안전하게 추론할 수 있는 카드. */
+  keySuggestions: BrainMigrationKeySuggestion[];
+  /**
+   * ①-b **같은 접두를 제안받은 카드 묶음** — 한 파일에 서로 다른 진실이 여럿 걸려 있다는 신호다.
+   * 그대로 확정하면 서로 다른 진실이 한 슬롯으로 뭉개지므로, 사람이 `aspect` 마디를 붙여 갈라야 한다.
+   * 제목이 안 닮아도 잡힌다는 점에서 `duplicateGroups`(제목 유사도)와 상호 보완이다.
+   */
+  keyCollisions: Array<{ key: string; cards: Array<{ id: string; title: string }> }>;
+  /** ② 중복 후보 묶음. */
+  duplicateGroups: BrainMigrationDuplicateGroup[];
+  /** ③ 충돌 후보 쌍. */
+  conflictPairs: BrainMigrationConflictPair[];
+  /** ④ 출처(연결 파일)가 아예 없는 카드 — 무효화 신호가 영구 0 인 불멸 카드. */
+  noSource: BrainMigrationNote[];
+  /** ⑤ 출처가 깨진 카드 — 파일이 사라졌거나 앵커 해시가 어긋남. */
+  brokenSource: BrainMigrationNote[];
+  /** ⑥ 적용 범위(branch/env/platform) 분리가 필요해 보이는 카드. */
+  needsScopeSplit: BrainMigrationNote[];
+  /** ⑦ 출처가 온전해 사람이 확인하면 바로 verified 로 올릴 수 있는 카드. */
+  reVerifiable: BrainMigrationNote[];
+  /** ⑧ 사람의 판단이 필요한 카드(결정·정책·선호, 키 추론 불가). */
+  needsHuman: BrainMigrationNote[];
+  /** ⑨ 분류되지 않은 주제·area. */
+  unclassified: {
+    /** 주제가 `misc` 인 카드. */
+    misc: BrainMigrationNote[];
+    /** `BRAIN_TOPICS` 에 없는 주제 slug(수기 편집·구버전). */
+    unknownTopics: string[];
+  };
+  /** ⑩ AI 기본 컨텍스트에서 **즉시** 빼야 할 카드(사유 포함). */
+  excludeNow: BrainMigrationNote[];
+  /** 실제 이행 시 무엇을 하고 무엇을 안 하는지 — 변경 전 사용자에게 보여줄 예정 내역. */
+  plan: {
+    /** 추가될 frontmatter 필드. */
+    willAddFields: string[];
+    /** 절대 건드리지 않는 것. */
+    willNotTouch: string[];
+    /** 이행 직후 모든 기존 카드가 갖게 될 검증 상태(엄격안 — 사용자 결정 2026-07-31). */
+    initialVerifyState: 'candidate';
+  };
 }
 
 /**
@@ -1948,6 +2448,11 @@ export interface GraphSnapshot {
   compactCounts?: Record<string, CompactCount>;
   /** §4 v1.50 — Claude.ai 한도 사용률 (글로벌 1건, 외부 statusline 스크립트가 푸시). */
   rateLimits?: RateLimitInfo;
+  /**
+   * §4 v3.62 — Claude 앱 `/usage` 와 같은 원천(OAuth `/api/oauth/usage`)의 사용량.
+   * 글로벌 1건(한도는 사용자 단위). 영속화 ❌ — 런타임 캐시.
+   */
+  claudeUsage?: ClaudeUsageInfo;
 
   /** §4 v1.98 — 진단 에러 로그 (글로벌 ring buffer, 최신순). 영속화 ❌ — 런타임 캐시. */
   diagnosticLog?: DiagnosticEntry[];
@@ -2007,6 +2512,12 @@ export interface GraphSnapshot {
   agentLists?: Record<string, AgentList[]>;
 
   /**
+   * §5.5 #17-11 v3.79 — 세션 반복 실행(루프) 설정 (subAgentId → SessionLoop).
+   * 키가 세션 탭 ID 라 IDE 가 활성 탭 하나만 바로 집어 쓴다. 미설정 시 빈 맵.
+   */
+  sessionLoops?: Record<string, SessionLoop>;
+
+  /**
    * §4 v3.21 — 에이전트 피드백 (agentId → AgentFeedback[], targetId 별 upsert).
    * 사용자가 `POST /api/agent-feedback` 로 남긴 좋아요/싫어요 평가. 미설정 시 빈 맵.
    */
@@ -2032,6 +2543,47 @@ export interface GraphSnapshot {
    */
   brainInjections?: Record<string, BrainInjectionEvent[]>;
 }
+
+// ─── §9 v3.89 — graph_snapshot 무거운 키맵 슬라이스 증분 전송 ────────────────────
+
+/**
+ * 키맵 슬라이스(`Record<id, T>`)의 증분 — **바뀐 키만** 싣고 나머지는 수신 측이 이전 값을 유지한다.
+ *
+ * 왜: `graph_snapshot` 은 전체 그래프를 16~250ms 마다 통째로 실어 보낸다. 그 중 `fileEdits`
+ * (edit 마다 oldString/newString 원문)와 `bashHistory`(명령 + 출력 원문)는 **작업할수록 계속 쌓이는
+ * 큰 텍스트**여서, 실측 저장소에서 스냅샷 3.2MB 중 2.5MB(78%)를 차지했다. 안 바뀐 파일의 diff 원문이
+ * 초당 수 회씩 직렬화·클론·파싱된 셈이고, 이건 "쓸수록 느려진다" 로 직결된다. 이미 SSOT 가 §5.10
+ * Brain 카드 본문에 대해 세운 원칙("큰 텍스트는 스냅샷에 태우지 않는다")을 전송 계층에서 일반화한 것.
+ *
+ * 기능·표시는 그대로다 — 수신 측이 이전 값 위에 증분을 얹어 **같은 전체 맵**을 복원한 뒤 기존 경로로
+ * 넘긴다(느린 로딩·별도 요청 없음).
+ */
+export interface KeyedSliceDelta<T> {
+  /** 이번에 값이 바뀐 키들(추가 포함). */
+  changed: Record<string, T>;
+  /** 이번에 사라진 키들. */
+  removed: string[];
+}
+
+/** graph_snapshot 에 함께 실리는 증분 묶음. 해당 슬라이스는 본문에서 생략된다. */
+export interface GraphSnapshotDeltas {
+  fileEdits?: KeyedSliceDelta<FileEdit[]>;
+  bashHistory?: KeyedSliceDelta<BashEntry[]>;
+}
+
+/**
+ * 실제로 전선을 타는 스냅샷 형태 — 증분으로 대체된 슬라이스는 `undefined` 로 빠진다.
+ *
+ * ⚠ 새로 접속한 클라이언트에는 **항상 전체 스냅샷**(`deltas` 없음)이 먼저 간다
+ * (`buildConnectionMessages`). 증분은 그 뒤의 브로드캐스트에만 실린다.
+ */
+export type GraphSnapshotWire =
+  Omit<GraphSnapshot, 'fileEdits' | 'bashHistory'>
+  & {
+    fileEdits?: Record<string, FileEdit[]>;
+    bashHistory?: Record<string, BashEntry[]>;
+    deltas?: GraphSnapshotDeltas;
+  };
 
 /** 폴더 내 파일/디렉토리 엔트리 (폴더 트리 표시용) */
 export interface FolderFileEntry {
@@ -2241,6 +2793,13 @@ export interface ProjectCheckpoint {
   agentFeedbacks?: Record<string, AgentFeedback[]>;
 
   /**
+   * §5.5 #17-11 v3.79 — 세션 반복 실행(루프) 설정 (subAgentId → SessionLoop) 영속화.
+   * optional — 구버전 체크포인트 하위 호환. 미설정이면 빈 맵으로 복원.
+   * 사용자가 직접 짜 넣은 설정 + 진행 카운트라 재시작 후에도 이어져야 한다.
+   */
+  sessionLoops?: Record<string, SessionLoop>;
+
+  /**
    * §3.2.1-3 v2.63 — 명시적으로 삭제된 커스텀 에이전트 sessionId 묘비.
    * identity.json 의 `deletedSessionIds` 와 같은 의미·소스. checkpoint 에도 실어
    * deriveIdentity 가 단일 소스에서 파생할 수 있게 한다(필터·왕복 일관성).
@@ -2363,8 +2922,66 @@ export interface UserDefaults {
    * 최우선 반환(파일 존재 검증 후). `subAgentManager` 가 모듈 로드 시 1회 캡처하므로 변경은 다음 실행에 적용.
    */
   claudeBinPath?: string;
+  /**
+   * §5.11 v3.88 — 활성화된 플러그인 id 목록 (전역. 프로젝트별 오버라이드 ❌ — 필요해질 때 얹는다).
+   *
+   * - `undefined` = 사용자가 Plugins 창을 한 번도 안 건드림 → 각 매니페스트의 `enabledByDefault` 적용.
+   * - 배열이면 **그 배열이 진실** — 목록에 없는 id 는 전부 비활성(기본값 무시).
+   * - 비활성은 "기여 미등록"일 뿐, **그 플러그인의 데이터를 지우지 않는다**(§5.11 끄면 숨김).
+   */
+  enabledPlugins?: string[];
   /** §4 v2.42 — 마지막 갱신 시각 (ms). PUT 응답·broadcast 디버그용. */
   updatedAt: number;
+}
+
+// ─── 플러그인 커널 (§5.11 v3.88) ───
+
+/**
+ * 플러그인이 선언할 수 있는 기여 종류 — §4 확장 포인트 표를 그대로 옮긴 것.
+ *
+ * **v1 개통은 3종뿐**(`bubbleBadge` / `panelSection` / `settingsSection`). 나머지는 이름만 예약이며
+ * 호스트가 아직 슬롯을 열지 않았다 — 선언하면 PluginsWindow 가 "이 버전에서 미지원"으로 표시한다.
+ * 슬롯은 한 번 열면 되돌리기 어려우므로 실제 수요가 생긴 것만 연다(점진적 공개).
+ */
+export type PluginContributionKind =
+  | 'bubbleBadge'
+  | 'panelSection'
+  | 'settingsSection'
+  | 'ideView'
+  | 'headerItem'
+  | 'contextMenuItem'
+  | 'hookSubscriber'
+  | 'restRoute'
+  | 'wsMessage'
+  | 'agentConfigField'
+  | 'brainCardKind'
+  | 'bubbleType'
+  | 'edgeKind';
+
+/** 플러그인 분류 — PluginsWindow 좌측 그룹 라벨. */
+export type PluginCategory = 'security' | 'observability' | 'workflow' | 'experimental';
+
+/**
+ * 플러그인 선언(매니페스트) — **순수 데이터**. React·node 에 의존하지 않는다.
+ *
+ * 매니페스트와 구현 모듈을 나누는 이유: PluginsWindow 가 **비활성 플러그인의 코드를 건드리지 않고도**
+ * 목록·설명·기여 종류를 보여줄 수 있어야 하기 때문.
+ */
+export interface PluginManifest {
+  /** kebab-case. 네임스페이스 키 — REST `/api/plugins/<id>/*`, WS `plugin:<id>:*`, 버블 `plugin:<id>:<name>`. */
+  id: string;
+  /** 표시명(브랜드성 고유명. i18n 대상 아님 — 설명문만 번역한다). */
+  name: string;
+  version: string;
+  category: PluginCategory;
+  /** 설명 i18n 키. 로케일 파일의 기존 6 네임스페이스 안에 둔다(§ i18n 규칙 — `plugin.*` 신규 네임스페이스 ❌). */
+  descriptionKey: string;
+  /** 사용자가 한 번도 손대지 않았을 때의 기본 활성 여부. */
+  enabledByDefault: boolean;
+  /** 선언한 기여 종류 — 호스트는 여기 없는 기여를 받아주지 않는다. */
+  contributes: PluginContributionKind[];
+  /** true = 서버 기여 없음(라우트·훅 구독 0). */
+  clientOnly: boolean;
 }
 
 // ─── Model Registry (§4 v2.38) ───

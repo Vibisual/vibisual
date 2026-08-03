@@ -13,19 +13,24 @@
     "url": "https://github.com/Vibisual/vibisual/issues"
   },
   "scripts": {
-    "test": "pnpm --filter @vibisual/client test",
-    "build": "pnpm --filter=@vibisual/shared --filter=@vibisual/server --filter=@vibisual/client -r build && pnpm --filter @vibisual/desktop build",
-    "build:win": "pnpm --filter=@vibisual/shared --filter=@vibisual/server --filter=@vibisual/client -r build && pnpm --filter @vibisual/desktop dist:win",
-    "build:mac": "pnpm --filter=@vibisual/shared --filter=@vibisual/server --filter=@vibisual/client -r build && pnpm --filter @vibisual/desktop dist:mac",
-    "build:linux": "pnpm --filter=@vibisual/shared --filter=@vibisual/server --filter=@vibisual/client -r build && pnpm --filter @vibisual/desktop dist:linux",
-    "release:win": "pnpm --filter=@vibisual/shared --filter=@vibisual/server --filter=@vibisual/client -r build && pnpm --filter @vibisual/desktop publish:win",
-    "release:mac": "pnpm --filter=@vibisual/shared --filter=@vibisual/server --filter=@vibisual/client -r build && pnpm --filter @vibisual/desktop publish:mac",
-    "release:linux": "pnpm --filter=@vibisual/shared --filter=@vibisual/server --filter=@vibisual/client -r build && pnpm --filter @vibisual/desktop publish:linux"
+    "test": "pnpm -r --if-present test",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "build": "pnpm --filter=@vibisual/shared --filter=@vibisual/plugins --filter=@vibisual/server --filter=@vibisual/client -r build && pnpm --filter @vibisual/desktop build",
+    "build:win": "pnpm --filter=@vibisual/shared --filter=@vibisual/plugins --filter=@vibisual/server --filter=@vibisual/client -r build && pnpm --filter @vibisual/desktop dist:win",
+    "build:mac": "pnpm --filter=@vibisual/shared --filter=@vibisual/plugins --filter=@vibisual/server --filter=@vibisual/client -r build && pnpm --filter @vibisual/desktop dist:mac",
+    "build:linux": "pnpm --filter=@vibisual/shared --filter=@vibisual/plugins --filter=@vibisual/server --filter=@vibisual/client -r build && pnpm --filter @vibisual/desktop dist:linux",
+    "release:win": "pnpm --filter=@vibisual/shared --filter=@vibisual/plugins --filter=@vibisual/server --filter=@vibisual/client -r build && pnpm --filter @vibisual/desktop publish:win",
+    "release:mac": "pnpm --filter=@vibisual/shared --filter=@vibisual/plugins --filter=@vibisual/server --filter=@vibisual/client -r build && pnpm --filter @vibisual/desktop publish:mac",
+    "release:linux": "pnpm --filter=@vibisual/shared --filter=@vibisual/plugins --filter=@vibisual/server --filter=@vibisual/client -r build && pnpm --filter @vibisual/desktop publish:linux"
   },
   "engines": {
     "node": ">=20.0.0"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["esbuild", "electron", "node-pty"]
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "electron",
+      "node-pty"
+    ]
   }
 }

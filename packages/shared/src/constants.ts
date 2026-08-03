@@ -1,4 +1,4 @@
-import type { BubbleType, BubbleStyleConfig, EdgeStyleConfig, AgentRole, PipelineChildConfig, PipelineType, AgentConfig, TaskEdgeTemplate, TaskEdgeKind, UiLocale, AutoAgentRole, AutoAgentTemplate, ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry, AgentFeedback } from './types.js';
+import type { BubbleType, BubbleStyleConfig, EdgeStyleConfig, AgentRole, PipelineChildConfig, PipelineType, AgentConfig, TaskEdgeTemplate, TaskEdgeKind, UiLocale, AutoAgentRole, AutoAgentTemplate, ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry, AgentFeedback, BrainTopicDef, BrainTopicIndexEntry, BrainCardType, BrainAuthority, StreamDensity, PluginContributionKind } from './types.js';
 export type { ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry } from './types.js';
 
 // ─── UI 다국어 (i18n) ───
@@ -192,13 +192,15 @@ export const BUBBLE_STYLES: Record<BubbleType, BubbleStyleConfig> = {
     ringIdle: 'border-blue-900',
     ringActive: 'border-blue-700 shadow-lg shadow-blue-900/40',
   },
-  // §5.10 v3.46 — Project Brain 버블 (홈 버블 위성으로 상주). 핑크.
+  // §5.10 v3.75 — Project Brain 버블 (홈 버블 위성으로 상주). 인디고.
+  //   구 핑크(#EC4899)는 채도가 높아 "고급"과 반대 인상을 줬고(사용자 지적) 팔레트에서도 겉돌았다.
+  //   indigo-500 은 blue(agent)·purple(pipeline) 사이의 빈 자리라 식별이 서면서 절제돼 있다.
   brain: {
-    color: '#EC4899',
-    glow: '#F9A8D4',
+    color: '#6366F1',
+    glow: '#A5B4FC',
     icon: 'brain',
-    ringIdle: 'border-pink-300',
-    ringActive: 'border-pink-500 shadow-lg shadow-pink-500/30',
+    ringIdle: 'border-indigo-300',
+    ringActive: 'border-indigo-500 shadow-lg shadow-indigo-500/30',
   },
   // §5.10 v3.46 — 커스텀 에이전트 휴지통 버블 (홈 버블 위성). 스톤 그레이.
   trash: {
@@ -319,6 +321,15 @@ export const AGENT_IDLE_SWEEP_INTERVAL_MS = 30_000;
  */
 export const USAGE_LIMIT_WARN_PCT = 70;
 export const USAGE_LIMIT_DANGER_PCT = 90;
+
+/**
+ * §4 v3.62 — Claude 사용량 직접 조회(`/api/oauth/usage`) 설정.
+ * Claude Code 자신도 5초 타임아웃으로 부른다. 폴링 간격은 한도 표시용이라 넉넉히 잡는다
+ * (사용자가 팝업을 열거나 새로고침을 누르면 그 자리에서 즉시 다시 받는다).
+ */
+export const CLAUDE_USAGE_API_URL = 'https://api.anthropic.com/api/oauth/usage';
+export const CLAUDE_USAGE_FETCH_TIMEOUT_MS = 5_000;
+export const CLAUDE_USAGE_POLL_INTERVAL_MS = 5 * 60 * 1000;
 
 /**
  * 사용자 인터럽트 해소 판정 주기 (ms).
@@ -1398,30 +1409,15 @@ export const COMMENT_BOX_LOD = {
 
 /**
  * §4 v3.71 가시성 LOD — "안 보이면 안 그린다".
- * COMMENT_BOX_LOD 와 같은 계열(줌에 따라 렌더 모드 전환)의 캔버스 전역판.
- * 임계치는 여기서만 — 컴포넌트 하드코딩 ❌(§3.3).
+ *
+ * 여기서 말하는 '안 보임'은 **화면 밖(뷰포트 이탈)과 전면 오버레이에 가려짐** 두 가지뿐이다.
+ * 줌아웃은 '안 보이는' 게 아니라 '멀리서 보는' 것이므로 이펙트·정보를 빼지 않는다
+ * (줌 티어로 장식을 생략하던 초안은 사용자 정정으로 철회 — 줌아웃해도 보이던 건 그대로 보여야 한다).
  */
 export const CANVAS_LOD = {
-  /** 이 zoom 미만이면 '움직이는 장식'(펄스 링·ping·글로우·sweep)을 그리지 않는다. */
-  MOTION_BELOW: 0.7,
-  /** 이 zoom 미만이면 보조 정보(배지·칩·모델/토큰 줄)까지 생략하고 아이콘+라벨만 남긴다. */
-  MINIMAL_BELOW: 0.35,
   /** 뷰포트 밖 노드·엣지를 아예 렌더하지 않는다(React Flow onlyRenderVisibleElements). */
   CULL_OFFSCREEN: true,
 } as const;
-
-/** 가시성 LOD 티어 — 렌더 디테일 단계. */
-export type CanvasLodTier = 'full' | 'reduced' | 'minimal';
-
-/**
- * zoom → LOD 티어. 티어는 값이 바뀔 때만 리렌더를 유발하도록 **구독 단위**로 쓴다
- * (매 팬/줌 프레임마다 zoom 원값을 구독하면 노드 전체가 재렌더된다).
- */
-export function canvasLodTier(zoom: number): CanvasLodTier {
-  if (zoom < CANVAS_LOD.MINIMAL_BELOW) return 'minimal';
-  if (zoom < CANVAS_LOD.MOTION_BELOW) return 'reduced';
-  return 'full';
-}
 
 /**
  * §5.9 화면/프로그램 캡처 버블 기본값. CommentBox 처럼 캔버스 독립 요소이므로 절대좌표 배치.
@@ -1977,6 +1973,25 @@ VIBI_BASE="\${VIBI_ID%% *}"; VIBI_TOKEN="\${VIBI_ID##* }"
 }
 
 /**
+ * §5.5 #17-12 (v3.83) — "의도 먼저" 지시문 (시스템 프롬프트 꼬리표, 동적 값 없음).
+ *
+ * 배경: 실행 초반에 에이전트가 **무엇을 하려는지** 화면에 없어 사용자가 중지 여부를 판단할 수 없었다
+ * (하단 상태바가 보여주던 건 "실행 중 + 사용자가 친 프롬프트" 뿐). 2026 추세(실행 전 계획 표시)에 맞춰
+ * 도구를 쓰기 전에 의도·계획을 말하게 한다. 새 엔드포인트 없이 자연어 + 기존 `TodoWrite` 재사용 —
+ * 화면에 뜨는 계획이 곧 에이전트가 실제로 들고 도는 계획이어야 "겉치레 미리보기"가 되지 않는다.
+ */
+export const AGENT_INTENT_FIRST_RULES = `
+
+# 의도 먼저 말하기 (Vibisual IDE — 사용자가 중지할 수 있게)
+**도구를 쓰기 전에, 그 턴에서 처음 내는 말로 "내가 이해한 사용자 의도 + 지금부터 할 일"을 1~2문장으로 먼저 말하라.**
+사용자는 네가 파일을 읽기 시작한 뒤에야 화면을 보는 경우가 많다 — 그때 "무엇을 하려는지"가 없으면 잘못 가고 있어도 멈추게 할 수가 없다.
+
+- 형식은 자유롭되 **의도 해석 + 첫 행동**이 들어가야 한다. 예: "요청은 이 버튼의 오류 수정으로 이해했습니다. 먼저 해당 핸들러와 그 호출부를 읽겠습니다."
+- **단계가 여럿인 작업이면 \`TodoWrite\` 로 계획을 세워라.** Vibisual IDE 는 그 계획을 전용 **계획 블록**으로 띄우고, 실행 중에는 진행 단계를 하단 상태바에 [중지] 버튼과 나란히 보여준다 — 사용자가 계획을 보고 멈출지 말지 정한다.
+- 계획이 바뀌면 \`TodoWrite\` 를 갱신하라(옛 계획은 화면에서 자동으로 한 줄로 접힌다). **말한 계획과 실제로 하는 일이 달라지면 안 된다.**
+- 한 줄 답변이면 되는 단순 질문·일상 대화에서는 이 선언을 생략해도 된다(도구를 쓰지 않으니 멈출 일도 없다).`;
+
+/**
  * §4 v2.52 — 커스텀/스폰 에이전트에게 주입할 "작업 신고" 지시문 (시스템 프롬프트 꼬리표).
  *
  * 서버 `processNextCommand` 가 커스텀 에이전트(customCreated) spawn 시점에 contextSummary 끝에
@@ -2003,19 +2018,21 @@ export function buildAgentReportRules(args: {
 **사용자가 직접 해야 할 일(\`userActions\`)이 실제로 생긴 완료 보고에서만** 아래 엔드포인트로 **구조화 신고**를 함께 보낸다 — "이건 직접 해주세요"(빌드 실행, 에디터 조작, 외부 승인 등) 류 안내가 보고에 섞였을 때가 그 경우다. Vibisual IDE 가 이 신고를 받아 "AI 가 한 일" 과 "사용자가 할 일" 을 **색으로 구분**해 보여준다(사용자가 긴 글을 다 안 읽어도 한눈에 파악).
 
 **단순 완료·일상 대화·질문 답변·사용자 손이 필요 없는 보고에서는 호출하지 마라.** 매번 보내면 카드가 도배돼 오히려 신호가 묻힌다 — 신고는 "사용자가 할 일이 있을 때만" 자연스럽게 뜨는 게 목적이다.
+**한 턴에 카드는 하나** — 이 작업 신고를 보냈으면 검수 요청(\`/api/agent-review\`)은 보내지 마라(고친 내용은 \`did\` 에 담으면 된다).
 
 - \`did\`: 네가(=AI) 실제로 끝낸 일(사용자 액션의 맥락으로 함께 첨부).
 - \`userActions\`: 네가 대신 할 수 없어 **사용자가 직접 해야 하는 일**(빌드 실행, 에디터 조작, 외부 승인 등). **이게 비면 신고 자체를 보내지 마라.**
 - \`nextSteps\`: 다음 차례 작업(선택).
 - \`learned\`: 이 작업에서 배운 것 — 다음에 같은 실수를 반복하지 않기 위한 교훈/결정/함정(§5.10 Project Brain 기억 카드로 저장됨). 확실한 것만, 최대 3개. 없으면 생략.
-- \`helpfulMemoryIds\`: 브리핑/주입으로 받은 기억 카드 중 실제로 작업에 도움이 된 카드의 id 목록(브리핑에 \`[card-xxxx]\` 로 표기됨). 도움된 것만, 없으면 생략.
+- \`helpfulMemoryIds\`: 브리핑/주입으로 받은 기억 카드 중 실제로 작업에 도움이 된 카드의 id 목록(브리핑에 \`[card-xxxx]\` 로 표기됨). 도움된 것만, 없으면 생략. **"확인 필요"로 표시돼 온 카드가 지금 코드에도 맞았다면 여기에 넣어라** — 시스템이 그 카드를 다시 유효로 되돌린다.
+- \`staleMemoryIds\`: 브리핑으로 받은 카드 중 **지금 코드와 어긋나 낡은 것**의 id 목록. 확실히 틀린 것만(애매하면 넣지 마라). 시스템이 그 카드를 "확인 필요"로 표시하고 반복 신고되면 자동 보관한다 — 삭제되지 않으니 안심하고 신고해도 된다. 없으면 생략.
 
 \`userActions\` 가 있는 완료 보고 직전에만 Bash 로 1회 호출한다(실패해도 무시하고 자연어 보고는 그대로 진행):
 \`\`\`bash
 ${prelude}curl -s -X POST "${base}/api/agent-report" \\
   ${tokenHdr} \\
   -H 'Content-Type: application/json' --data-binary @- <<'JSON'
-{"agentId":"${agentId}","subAgentId":${subField},"did":["완료한 일 1","완료한 일 2"],"userActions":["사용자가 직접 해야 할 일 1"],"nextSteps":["다음 단계 1"],"learned":["이번에 배운 교훈 1"],"helpfulMemoryIds":["card-도움된-id"]}
+{"agentId":"${agentId}","subAgentId":${subField},"did":["완료한 일 1","완료한 일 2"],"userActions":["사용자가 직접 해야 할 일 1"],"nextSteps":["다음 단계 1"],"learned":["이번에 배운 교훈 1"],"helpfulMemoryIds":["card-도움된-id"],"staleMemoryIds":["card-낡은-id"]}
 JSON
 \`\`\`
 - **\`userActions\` 가 비어 있으면 신고 자체를 보내지 마라** — 빈 신고는 카드만 늘려 신호를 묻는다.
@@ -2075,6 +2092,17 @@ JSON
 /** agentId 당 보관하는 검수 요청 카드 최대 개수 (ring buffer 캡, 초과 시 오래된 것부터 제거). */
 export const AGENT_REVIEWS_MAX_PER_AGENT = 50;
 
+// ─── §5.5 #17-12 IDE 스트림 표시 밀도 (표시 계층 전용 설정) ───
+
+/** 밀도 토글 순환 순서 = UI 표시 순서. */
+export const STREAM_DENSITIES: readonly StreamDensity[] = ['compact', 'standard', 'raw'] as const;
+
+// §5.5 #17-16 — 묶음 최소 개수 문턱(STREAM_TOOL_GROUP_MIN_RUN)은 폐지됐다. 도구는 1개짜리도 처음부터
+//   묶음 안에서 태어난다(문턱이 있으면 "홑 상자 → 묶음 흡수" 로 리스트 높이가 출렁였다).
+
+/** Edit 계열 diff 를 자동으로 펼쳐 두는 변경 줄 수 상한(초과하면 접힌 채 "+N줄"). */
+export const STREAM_DIFF_AUTO_EXPAND_MAX_LINES = 20;
+
 /**
  * §4 v2.70 — 커스텀/스폰 에이전트에게 주입할 "검수 요청" 지시문 (시스템 프롬프트 꼬리표).
  *
@@ -2101,7 +2129,9 @@ export function buildAgentReviewRules(args: {
 # 검수 요청 (Vibisual IDE 검수 카드)
 사용자가 **지시한 작업**(특히 "이 버튼 오류 고쳐라" 같은 버그 수정·기능 변경)을 끝내, 사용자가 **결과가 맞는지 확인(검수)**해야 의미가 있는 완료 보고에서만 아래 엔드포인트로 **검수 요청**을 함께 보낸다. Vibisual IDE 가 이를 **보라색 검수 카드**로 띄워, 사용자가 "무슨 동작을 어떻게 고쳤는지 + 무엇을 확인하면 되는지"를 한눈에 보게 한다.
 
-작업 신고(\`/api/agent-report\` 의 \`userActions\`)와 **성격이 다르다**: 작업 신고의 \`userActions\` 는 "AI 가 못 하니 **네가 직접 해**"(빌드 실행·에디터 조작·외부 승인)인 반면, 검수 요청은 **AI 가 이미 완료한 작업의 결과를 사용자가 확인**하는 것이다. 사용자가 직접 손대야 할 일이 있으면 작업 신고를, 완료한 작업의 검수만 필요하면 검수 요청을 보낸다(둘 다 해당하면 둘 다 보내도 된다).
+작업 신고(\`/api/agent-report\` 의 \`userActions\`)와 **성격이 다르다**: 작업 신고의 \`userActions\` 는 "AI 가 못 하니 **네가 직접 해**"(빌드 실행·에디터 조작·외부 승인)인 반면, 검수 요청은 **AI 가 이미 완료한 작업의 결과를 사용자가 확인**하는 것이다.
+
+**한 턴에 카드는 하나 — 작업 신고와 검수 요청 중 하나만 보내라(둘 다 ❌).** 사용자가 직접 손대야 할 일이 있으면 **작업 신고**(그 안에 고친 내용도 \`did\` 로 담는다), 직접 할 일 없이 결과 확인만 필요하면 **검수 요청**. 두 장이 함께 뜨면 사용자가 읽을 게 두 배로 늘고 무엇이 중요한지 묻힌다.
 
 - \`instruction\`: 어떤 지시였는지 한 줄 맥락 (선택, 예: "이 버튼 클릭 시 X 오류 고쳐라").
 - \`changes\`: 무슨 동작을 어떻게 고쳤는지 (1~N). **이게 비면 검수 요청 자체를 보내지 마라.**
@@ -2226,6 +2256,23 @@ export const AGENT_FEEDBACK_DISTILL_MAX = 30;
 
 /** 피드백 summary 한 항목의 최대 길이 (result 본문 발췌 캡). */
 export const AGENT_FEEDBACK_SUMMARY_ITEM_MAX = 200;
+
+// ─── §5.5 #17-11 v3.79 — 세션 반복 실행(루프) ───
+
+/** `mode='count'` 루프의 목표 횟수 상한 (실수로 수만 회를 걸어 세션이 폭주하는 것 차단). */
+export const SESSION_LOOP_MAX_ITERATIONS = 999;
+
+/** 루프 폼의 기본 반복 횟수. */
+export const SESSION_LOOP_DEFAULT_TOTAL = 5;
+
+/** 회차 사이 기본 대기(ms). 0 = 직전 회차가 끝나는 즉시 다음 회차. */
+export const SESSION_LOOP_DEFAULT_INTERVAL_MS = 0;
+
+/** 회차 사이 대기 상한(ms) — 1시간. 이보다 긴 주기는 루프가 아니라 스케줄러의 영역. */
+export const SESSION_LOOP_MAX_INTERVAL_MS = 60 * 60 * 1000;
+
+/** 반복 명령 본문 최대 길이 (체크포인트 비대 방지). */
+export const SESSION_LOOP_COMMAND_MAX = 8000;
 
 /**
  * §4 v3.21 — 스폰 프롬프트 주입용 피드백 다이제스트 블록 생성.
@@ -2397,17 +2444,119 @@ export const MOBILE_QR_PARAM = 't';
 /** 세션 1건 리플렉션이 저장할 수 있는 카드 후보 상한(적게 저장 원칙). */
 export const BRAIN_SESSION_CANDIDATE_MAX = 4;
 
-/** 스폰 브리핑에서 태스크 텍스트와 검색해 주입할 상위 카드 수(top-K). */
-export const BRAIN_INJECTION_TOP_K = 5;
+/**
+ * 스폰 브리핑에서 태스크 텍스트와 검색해 주입할 상위 카드 수(top-K).
+ * v3.74 — 5 → 3 축소. 주 경로가 "주제 색인 + 필요할 때 읽기"로 바뀌었으므로 top-K 는
+ * "색인을 보기도 전에 눈에 띄어야 할 만큼 태스크와 딱 맞는 것" 소수만 남기는 보조 수단이다.
+ */
+export const BRAIN_INJECTION_TOP_K = 3;
 
-/** 스폰 브리핑에 전부 실을 수 있는 규칙(rule) 카드 상한. 초과분은 최근/참조순으로 절단. */
-export const BRAIN_RULE_CARD_MAX = 20;
+/**
+ * 스폰 브리핑에 상시 싣는 **상시 규칙**(`always: true` rule) 상한. 초과분은 최근/참조순으로 절단.
+ *
+ * v3.74 — 종전 `BRAIN_RULE_CARD_MAX`(=20, **모든** rule 을 관련도 심사 없이 전량 주입)를 대체한다.
+ * 규칙이 쌓일수록 무관한 카드가 선형으로 늘어 브리핑이 소음이 됐기 때문(실측: 사용량 작업 브리핑
+ * 13장 중 상위 6장이 무관한 rule 전량). 주제성 규칙은 주제 문서로 내려가고, 여기 남는 것은
+ * "Renderer HMR 없음"처럼 **어떤 작업에서도 해당하는** 소수뿐이라 상한도 작게 잡는다.
+ */
+export const BRAIN_ALWAYS_RULE_MAX = 6;
+
+/**
+ * §5.10 v3.74 — 프로젝트 층 주제 축. 카드를 "무엇에 관한 기억이냐"로 가른다.
+ *
+ * 스폰 브리핑은 이 목록으로 만든 **색인**(주제명 + whenToRead + 문서 경로)만 싣고, 에이전트는
+ * 자기 작업에 해당하는 주제 문서만 그 시점에 읽는다 — CLAUDE.md 의 "작업 유형별 참조 파일" 표와
+ * 같은 문법. `match` 는 카드 제목·본문·연결 파일 경로에 대해 'i' 플래그로 컴파일해 자동 분류에 쓴다.
+ * 어디에도 안 걸리면 `BRAIN_TOPIC_MISC`.
+ *
+ * 주제 구성은 실측 분포(프로젝트 층 82장)에 맞춰 잡았다 — 캡처·원격조작 28 / UI 7 / 워크트리 6 /
+ * statusLine 5 / Stop 5 / 실행·빌드 5 / 죽은코드 4 / 영속화 3 / 브레인 3 …
+ *
+ * **배열 순서 = 분류 우선순위**이므로 고유 토큰이 강한 주제(`statusline`·`worktree`·`checkpoint`)를
+ * 앞에, 일반어가 섞인 주제(`build`·`ui`)를 뒤에 둔다. 일반어를 앞에 두면 다른 주제의 카드를
+ * 가로챈다 — 실제로 초안에서 "statusLine 은 **렌더**마다 실행된다"가 UI 로, `packages/...` 로
+ * 시작하는 **모든** 파일 경로가 `package` 패턴에 걸려 실행·빌드로 빨려 들어갔다(테스트가 잡음).
+ */
+export const BRAIN_TOPICS: readonly BrainTopicDef[] = [
+  {
+    slug: 'capture-remote',
+    title: '화면 캡처 · 원격 조작',
+    whenToRead: '화면 캡처 버블, 원격 마우스·키보드 주입, 커서 처리, DPI·모니터 좌표 변환, 터치/마우스 모드 작업',
+    match: '캡처|capture|커서|cursor|주입|inject|dpi|모니터|monitor|터치|touch|드래그|drag|안티치트|크로미움|chromium|게임 창|배경 클릭|합성 입력|반향|loopback|스냅|snap|nut\\.js|koffi|setcapture|sendinput|마우스 모드|controlmode',
+  },
+  {
+    slug: 'worktree-isolation',
+    title: '워크트리 · 격리 인스턴스 · 병행 세션',
+    whenToRead: 'git 워크트리 생성·병합, 서브에이전트 격리 실행, 여러 세션이 같은 파일을 동시에 만질 때',
+    match: '워크트리|worktree|격리|isolat|병행 세션|동시 세션|인스턴스 충돌|eol|merge-file|브랜치|branch',
+  },
+  {
+    slug: 'stop-subagent',
+    title: 'Stop · 서브에이전트 · 명령 대기열',
+    whenToRead: '에이전트 중지·재개, 서브에이전트 스폰·추적, 명령 큐 dispatch 작업',
+    match: '\\bstop\\b|중지|대기열|queue|dispatch|subagent|서브에이전트|pendingsubagent|스폰|spawn|task 도구',
+  },
+  {
+    slug: 'usage-statusline',
+    title: '사용량 · statusLine · 비용',
+    whenToRead: 'Claude 플랜 한도·사용량 표시, statusLine 수집기, 토큰·비용 계산 작업',
+    match: 'statusline|rate.?limit|사용량|usage|플랜 한도|토큰 비용|비용 계산|단가|과금',
+  },
+  {
+    slug: 'persistence-checkpoint',
+    title: '영속화 · 체크포인트 · 앱 상태',
+    whenToRead: '체크포인트 저장·복원, identity.json, app-state·project.json, 원자적 쓰기·손실 방지 작업',
+    match: '체크포인트|checkpoint|영속|persist|identity\\.json|app-state|project\\.json|원자적|atomic|복원|restore|openprojects|손실 방지',
+  },
+  {
+    slug: 'brain-memory',
+    title: '기억 시스템(Project Brain) 자체',
+    whenToRead: '기억 카드 저장·주입·랭킹, 리플렉션, 주제 색인, 두뇌 피드 UI 를 손볼 때',
+    match: '기억 카드|브레인|brain|리플렉션|reflection|주제 색인|두뇌|memory card|helpfulcount|refcount',
+  },
+  {
+    slug: 'dead-code-wiring',
+    title: '죽은 코드 · 미배선 점검',
+    whenToRead: '미사용 export 정리, 배선 안 된 엔드포인트·컴포넌트 점검, 코드 제거 판단',
+    match: '죽은 코드|dead code|미배선|미사용|unused|export.*미사용|참조 0|배선 검증',
+  },
+  {
+    slug: 'tooling-pitfalls',
+    title: '도구 · 문법 함정',
+    whenToRead: '정규식·셸 이스케이프·CLI 플래그·대용량 파일 읽기처럼 도구 자체의 함정을 만났을 때',
+    match: '정규식|regex|이스케이프|escape|백슬래시|curl|json 페이로드|--disallowed-tools|offset/limit|cli 플래그|grep',
+  },
+  // ↓ 일반어가 섞인 주제는 뒤에 — 위 주제의 카드를 가로채지 않도록.
+  //   `package` 는 `packages/...` 경로 전부를 삼켜서 뺐다(패키징은 `package.json`·`패키징`으로만 잡는다).
+  {
+    slug: 'runapp-build',
+    title: '실행 · 빌드 · 데스크톱 번들',
+    whenToRead: '/runapp 실행, pnpm build, electron 번들·패키징, dist 산출물, 개발 서버 유무가 걸린 작업',
+    match: 'runapp|hmr|\\bdist\\b|빌드|\\bbuild\\b|renderer|electron|번들|bundle|패키징|packaging|package\\.json|electron-vite',
+  },
+  // `렌더` 단독은 statusLine·스트림 등 다른 주제 문장에도 흔해서 UI 고유 표현으로 좁힌다.
+  {
+    slug: 'ui-client',
+    title: 'UI · 클라이언트 렌더링',
+    whenToRead: '클라이언트 컴포넌트, React Flow 캔버스·좌표, 버튼 노출 조건, 빈 상태·오류 표시, 스토어 배선 작업',
+    match: 'react flow|reactflow|리렌더|렌더링|rerender|버튼|button|ui 레이어|ui층|컴포넌트|component|좌표|배선|노출 조건|빈 상태|오버레이|overlay|배지|badge|캔버스|canvas|tailwind|zustand',
+  },
+] as const;
+
+/** §5.10 v3.74 — 어느 주제 패턴에도 안 걸린 카드의 주제 slug. */
+export const BRAIN_TOPIC_MISC = 'misc';
+
+/** §5.10 v3.74 — `BRAIN_TOPIC_MISC` 주제의 표시명/안내(색인에도 나타난다). */
+export const BRAIN_TOPIC_MISC_TITLE = '기타(미분류)';
+export const BRAIN_TOPIC_MISC_WHEN_TO_READ = '위 주제 어디에도 속하지 않는 기록 — 찾는 게 없으면 여기와 능동 검색을 함께 보라';
 
 /** 카드가 "묻힘 방지" 흐림 대상이 되는 미참조 기간(ms) — 60일. */
 export const BRAIN_STALE_THRESHOLD_MS = 60 * 24 * 60 * 60 * 1000;
 
-/** 카드 수가 이 문턱을 넘으면 "두뇌 정리"(중복 병합·보관 제안)를 제안한다. */
-export const BRAIN_CLEANUP_CARD_COUNT_THRESHOLD = 200;
+// v3.78 — `BRAIN_CLEANUP_CARD_COUNT_THRESHOLD`(=200, "이 수를 넘으면 두뇌 정리를 제안") 삭제.
+//   선언만 있고 **소비처가 0**이라 정리 장치가 사실상 없었고 삭제가 100% 수동이었다. 지금은
+//   아래 예산제(`BRAIN_TOPIC_CARD_BUDGET`·`BRAIN_PROJECT_CARD_BUDGET`·`BRAIN_AGENT_CARD_BUDGET`)가
+//   제안 대신 **자동 보관**으로 총량을 묶는다(삭제 ❌ — "정리됨"에서 되돌릴 수 있다).
 
 /**
  * 스폰 브리핑 주입 토큰 예산(대략치). 문자열 길이를 `chars/4 ≈ tokens` 휴리스틱으로 환산해
@@ -2439,6 +2588,23 @@ export const BRAIN_REFLECTION_MAX_PER_HOUR = 12;
 
 /** 동시에 떠 있을 수 있는 리플렉션 자식 프로세스 수. 초과분은 큐가 아니라 폐기(밀린 발화는 어차피 중복). */
 export const BRAIN_REFLECTION_MAX_CONCURRENT = 1;
+
+/**
+ * 완료음 창 간 중복 재생 차단 창(ms).
+ *
+ * 완료음은 WS 를 듣는 창마다 재생되는데(메인·별창·오버레이 셸이 각각 구독) 같은 완료 하나에
+ * 소리가 겹쳐 두세 번 울리는 것처럼 들린다. 먼저 울린 창이 localStorage 에 시각을 남겨 이 창
+ * 안의 다른 창은 건너뛴다(저장소 접근이 막히면 종전대로 재생 — fail-open).
+ */
+export const COMPLETION_CHIME_DEDUPE_MS = 1_500;
+
+/**
+ * 리플렉션 자식(`claude -p`) 전용 cwd 의 폴더명(`os.tmpdir()` 하위).
+ *
+ * 폴더명이 곧 **"이 훅 이벤트는 우리가 띄운 자식이 낸 것"** 이라는 판정 근거이므로 상수로 고정한다
+ * (v3.76 — 서버가 자기 자식의 훅을 자기 입력으로 되먹던 자가 증식 차단, `isBrainReflectionCwd`).
+ */
+export const BRAIN_REFLECTION_CWD_DIRNAME = 'vibisual-reflect';
 
 /**
  * 같은 세션을 다시 리플렉션하려면 직전 리플렉션 이후 이만큼의 새 JSONL 라인이 쌓여야 한다.
@@ -2501,8 +2667,157 @@ export const BRAIN_SEARCH_MAX_RESULTS = 8;
  */
 export const BRAIN_REFLECTION_INPUT_MAX_CHARS = 8_000;
 
-/** 저장 전 중복 검사 Jaccard 토큰 겹침 문턱 — 이 이상이면 새 카드 대신 기존 카드 갱신. */
+/**
+ * 저장 전 **동일** 판정 Jaccard 토큰 겹침 문턱 — 이 이상이면 새 카드를 만들지 않는다.
+ *
+ * v3.78 에서 의미가 바뀌었다. 종전에는 "기존 카드 본문에 `— 갱신(날짜):` 를 append" 였는데, 그
+ * append 가 본문을 불려 Jaccard 분모를 키우는 바람에 **다음번엔 같은 지식이 문턱을 못 넘고 새
+ * 카드로 분기**했다(자주 배우는 주제일수록 중복이 늘어나는 자기모순). 지금은 append 없이
+ * **참조 시각만 갱신**하고 끝낸다 — 카드는 한 번 쓰이면 불변이다.
+ */
 export const BRAIN_DEDUP_JACCARD_THRESHOLD = 0.55;
+
+// ─── §5.10 v3.78 수명주기 재설계 — 유효기간·앵커·예산 상수 ──────────────────────────
+
+/**
+ * **모순** 판정의 토큰 겹침 하한. 이 이상 겹치면서 부정 극성이 뒤집혔으면 "같은 대상에 대한 반대
+ * 지시"로 보고 옛 카드를 닫는다. 동일 문턱(0.55)보다 낮게 잡는 이유 — "A 를 써라"와 "A 를 쓰지
+ * 마라"는 부정어 몇 개만큼 토큰이 어긋나 동일 문턱에는 못 미치면서도 분명한 모순이다.
+ */
+export const BRAIN_CONTRADICT_JACCARD_MIN = 0.32;
+
+/** 저장 시 동일/보완/모순 3분류를 돌릴 상위 후보 수(같은 층·에이전트 안에서 겹침 상위). */
+export const BRAIN_SUPERSEDE_CANDIDATE_MAX = 3;
+
+/**
+ * **부정 극성** 감지 패턴. 두 카드 중 한쪽에만 걸리면 "극성이 뒤집혔다"로 본다.
+ * 자연어 부정(한/영) + 우리 문서 관례의 금지 기호(`❌`)까지 포함한다. 'i' 플래그로 컴파일.
+ *
+ * 한국어 금지형은 어간이 매번 달라(붙이**지 마**라 / 하**지 마**라 / 쓰**지 마**라) 어간마다 적을 수
+ * 없으므로 `…지 마…` 를 일반형으로 잡되, **뒤에 한글이 더 붙으면 제외**한다(`(?![가-힣])`) —
+ * 그러지 않으면 "이미**지 마**스크" 같은 평범한 명사가 부정으로 잡힌다.
+ */
+export const BRAIN_NEGATION_PATTERN =
+  '(❌|금지|지\\s*(?:마라|말\\s*것|마세요|마십시오|말라|마)(?![가-힣])|하지\\s*않|안\\s*된다|안된다|없다|불가|폐기|제거|삭제|중단|대신|아니라|아님|deprecat|forbid|never|don\'t|do not|must not|no longer|instead of|avoid|remove)';
+
+/** 앵커에 저장하는 파일 내용 해시 길이(sha256 hex 앞 N 자). 충돌 위험 없이 frontmatter 를 짧게 유지. */
+export const BRAIN_ANCHOR_SHA_LEN = 16;
+
+/** 앵커를 박기 위해 읽는 파일의 최대 크기(byte). 이보다 크면 해시를 생략한다(핫패스 보호). */
+export const BRAIN_ANCHOR_MAX_FILE_BYTES = 2 * 1024 * 1024;
+
+/** `staleMemoryIds` 낡음 신고가 이 횟수 누적되면 카드를 자동 **보관**(파일 삭제 ❌). */
+export const BRAIN_STALE_REPORT_ARCHIVE_MIN = 2;
+
+/** 주제 1개(층별)가 보유할 수 있는 열린 카드 정원. 넘치면 하위부터 보관으로 강등. */
+export const BRAIN_TOPIC_CARD_BUDGET = 24;
+
+/** 프로젝트 층 전체 열린 카드 총량 상한. */
+export const BRAIN_PROJECT_CARD_BUDGET = 300;
+
+/** 커스텀 에이전트 1개의 열린 카드 총량 상한. */
+export const BRAIN_AGENT_CARD_BUDGET = 60;
+
+/** 주제 문서에 **펼쳐서** 싣는 핵심 카드 수. 나머지는 `<details>` 로 접는다(문서가 40장씩 붓지 않게). */
+export const BRAIN_TOPIC_DOC_CORE_N = 12;
+
+/** 보관 카드가 이동하는 하위 디렉터리명(`.vibisual/brain/archive/…`). 파일은 지우지 않는다. */
+export const BRAIN_ARCHIVE_DIRNAME = 'archive';
+
+/** "정리됨" 되돌림 목록이 한 번에 돌려주는 최대 카드 수(최근 보관순). */
+export const BRAIN_ARCHIVE_LIST_MAX = 100;
+
+/** 리플렉션 프롬프트에 실어 보내는 **기존 카드 제목** 최대 개수(제목만이라 토큰이 싸다). */
+export const BRAIN_REFLECTION_KNOWN_TITLE_MAX = 24;
+
+/** 예산 강등 후보를 고를 때 "장기 미참조"로 보는 기간(ms) — 30일. */
+export const BRAIN_DEMOTE_UNREFERENCED_MS = 30 * 24 * 60 * 60 * 1000;
+
+// ─── §5.10 v3.81 저장고↔SSOT 이원화 — 지식 종류 · 진실 주소 · dry-run 감사 ───
+
+/**
+ * §5.10 v3.81-D — **권위 서열.** 값이 클수록 강하다. `BRAIN_AUTHORITY_VERIFIABLE_MIN` 미만은
+ * `verified` 로 승격하는 경로 자체가 없다(요건 9 — 출처 없는 AI 추론은 자동으로 진실이 되지 않는다).
+ */
+export const BRAIN_AUTHORITY_RANK: Readonly<Record<BrainAuthority, number>> = {
+  'user-explicit': 5,
+  'repository-source': 4,
+  'tool-result': 3,
+  'approved-doc': 2,
+  'session-summary': 1,
+  'ai-inference': 0,
+};
+
+/** §5.10 v3.81-D — 이 랭크 이상이어야 `verified` 가 될 수 있다(= `approved-doc` 이상). */
+export const BRAIN_AUTHORITY_VERIFIABLE_MIN = 2;
+
+/**
+ * §5.10 v3.81-D — **사용자 명시 승인으로만 verified 가 되는 카드 종류.**
+ * 결정·규칙은 코드와 대조해서 참·거짓을 가릴 수 있는 물건이 아니라 **정책**이므로, 출처가 온전해도
+ * 자동 승격 대상이 아니다(§1.6 "결정과 정책: 사용자의 명시적 승인").
+ */
+export const BRAIN_POLICY_TYPES: readonly BrainCardType[] = ['decision', 'rule'] as const;
+
+/** §5.10 v3.81-F — 카드에 남기는 최근 관찰 건수(전체 횟수는 `observedCount` 가 따로 센다). */
+export const BRAIN_OBSERVATION_KEEP = 10;
+
+/** §5.10 v3.81-E — `appliesTo` 에서 쓰는 축 이름(정렬 기준이자 허용 목록). */
+export const BRAIN_SCOPE_AXES: readonly string[] = [
+  'agent', 'branch', 'component', 'environment', 'platform', 'project', 'version',
+] as const;
+
+/**
+ * §5.10 v3.81-H — **Canonical Knowledge 후보가 될 수 있는 카드 종류.**
+ * 나머지(`mistake`·`lesson`)는 경험/증거 계층이라 그 자체로 현재 진실이 아니며 기본 브리핑에서 빠진다
+ * (주제 문서·파일 접근 경고·검색으로는 그대로 읽힌다). 현재 규칙으로 쓰려면 `rule` 로 승격해야 한다.
+ */
+export const BRAIN_CANONICAL_TYPES: readonly BrainCardType[] = ['fact', 'rule', 'decision'] as const;
+
+/** §5.10 v3.81-H — 경험/증거 계층(그 자체로 현재 진실 ❌). `BRAIN_CANONICAL_TYPES` 의 여집합. */
+export const BRAIN_EXPERIENCE_TYPES: readonly BrainCardType[] = ['mistake', 'lesson'] as const;
+
+/**
+ * §5.10 v3.81-E — **`canonicalKey` 의 허용 area(첫 마디) 관리 목록.**
+ * 목록 밖 area 는 거부가 아니라 `needs-taxonomy` 로 검토 큐에 올린다 — AI 가 임의 분류를 무한 증식하는
+ * 것만 막고 저장 자체를 막지는 않는다(§3.3 하드코딩 금지 — 목록은 여기 한 곳에서만 산다).
+ */
+export const BRAIN_CANONICAL_AREAS: readonly string[] = [
+  'project', 'build', 'architecture', 'client', 'server', 'shared', 'desktop',
+  'ops', 'testing', 'security', 'workflow', 'user-preference',
+] as const;
+
+/**
+ * §5.10 v3.81 — **`canonicalKey` 의 subject 마디를 뽑아도 되는 파일**(패키지 소스 모듈만).
+ *
+ * 실측에서 드러난 함정: 첫 연결 파일을 무조건 subject 로 쓰면 `docs/SCENARIO.md` → `scenario`,
+ * `scripts/reinstall.mjs` → `reinstall` 처럼 **카드 내용과 무관한 키**가 나온다(그 파일은 지식의
+ * *주제*가 아니라 *증거*이거나 그냥 함께 언급된 문서일 뿐이다). 게다가 같은 `scenario` 가 area 만
+ * 달리해 `client.scenario`·`server.scenario`·`workflow.scenario` 로 갈라져 슬롯을 오염시켰다.
+ * 그래서 **패키지 소스 모듈**로 좁힌다 — 문서·스크립트·설정에서는 주제를 유추하지 않는다.
+ */
+export const BRAIN_KEY_SUBJECT_FILE_PATTERN = '(^|/)packages/[^/]+/src/.*\\.(ts|tsx)$';
+
+/**
+ * §5.10 v3.81-E — 본문에 **적용 범위 축**(branch/environment/platform/version)이 언급된 카드를 찾는 패턴.
+ * 걸리면 "이 지식은 전역이 아니라 조건부일 수 있다" → dry-run 이 `needsScopeSplit` 으로 보고한다.
+ */
+export const BRAIN_SCOPE_SPLIT_PATTERN =
+  '워크트리|worktree|브랜치|branch|windows|win32|macos|리눅스|linux|프로덕션|production|개발 서버|dev 서버|\\bci\\b|설치본|패키징된|v[0-9]+\\.[0-9]+';
+
+/**
+ * §5.10 v3.81 — dry-run 감사 보고서의 목록당 상한(카드가 수천 장이 돼도 응답이 폭발하지 않게).
+ * 잘린 경우 보고서의 `counts` 가 전체 수를 그대로 알려주므로 정보는 잃지 않는다.
+ */
+export const BRAIN_MIGRATION_LIST_MAX = 200;
+
+/**
+ * §5.10 v3.81 — **중복 후보 판정에 쓰는 제목 문자 bigram 문턱.**
+ * 실측(184장 전수): 현행 "동일" 판정 문턱인 본문 토큰 Jaccard 0.55 는 한국어 카드에서 전 쌍 미달이라
+ * 중복을 하나도 못 잡았다. 제목 bigram 으로 바꿔 문턱을 재면 **0.40·0.45 는 결과가 같고(쌍 3개 =
+ * 실제 중복 2묶음), 0.50 은 같은 진실 3장 중 한 장을 놓친다**(`/runapp …` 계열의 1↔2 가 0.474).
+ * 오탐은 사람이 한 번 훑으면 끝이지만 미탐은 중복을 영구화하므로 **0.45** 로 잡는다.
+ */
+export const BRAIN_MIGRATION_DUP_TITLE_MIN = 0.45;
 
 // ─── §5.10 v3.49 유튜브식 랭킹/피드 상수 ──────────────────────────
 
@@ -2538,9 +2853,41 @@ export const BRAIN_DEMOTE_FACTOR = 0.5;
 export const BRAIN_RESURFACE_MIN_AGE_MS = 21 * 24 * 60 * 60 * 1000;
 
 /**
+ * §5.10 v3.74 — 주제 색인 블록 조립. 스폰 브리핑에서 **카드를 밀어넣는 대신** 이 색인을 싣는다.
+ *
+ * 각 줄 = `주제명 — 언제 읽나 (N장) · 경로`. 에이전트는 자기 작업과 whenToRead 를 대조해
+ * **해당 주제 문서만 그 시점에 Read** 한다 — CLAUDE.md 의 "작업 유형별 참조 파일" 표와 같은 문법.
+ * 카드가 하나도 없는 주제는 호출부에서 걸러 넣는다(빈 문서로 안내하면 헛읽기가 된다).
+ */
+export function buildBrainTopicIndexSection(args: {
+  project: BrainTopicIndexEntry[];
+  /** v3.75 — 그 에이전트 자신의 주제 색인(자기 카드도 전량 주입 ❌). */
+  agent?: BrainTopicIndexEntry[];
+}): string {
+  const line = (e: BrainTopicIndexEntry): string =>
+    `- **${e.title}** (${e.cardCount}장) — ${e.whenToRead}\n  경로: \`${e.docPath}\``;
+  const blocks: string[] = [];
+  if (args.project.length > 0) {
+    blocks.push(`### 프로젝트 기억\n${args.project.map(line).join('\n')}`);
+  }
+  if (args.agent && args.agent.length > 0) {
+    blocks.push(`### 너 자신이 쌓은 기억\n${args.agent.map(line).join('\n')}`);
+  }
+  if (blocks.length === 0) return '';
+  return `
+## 주제별 기억 색인 — 필요한 것만 읽어라
+기억은 **주제 문서**로 모여 있다. 아래에서 **지금 하는 작업에 해당하는 주제만** 골라 그 경로의 파일을
+Read 해라(해당 없으면 아무것도 읽지 마라 — 무관한 기억을 읽는 것은 방해가 된다). 파일이 원본이므로
+Read 로 바로 열면 되고, 특정 단어로 찾고 싶으면 아래 능동 검색을 쓰면 된다.
+
+${blocks.join('\n\n')}`;
+}
+
+/**
  * §5.10 주입(읽기) — 커스텀/스폰 에이전트에게 주입할 "능동 검색" 지시문 + 브리핑 기억 블록.
  *
- * `cardsBlock` = 서버가 조립한 프로젝트 규칙 카드 + 태스크 top-K + 자기 카드 요약(본문 없이 title·요지).
+ * `cardsBlock` = 서버가 조립한 **상시 규칙 + 태스크 top-K + 자기 카드** 요약(본문 없이 title·요지).
+ * `topicIndexBlock`(v3.74) = 프로젝트 층 주제 색인 — 프로젝트 카드를 전량 밀어넣던 자리를 대신한다.
  * 에이전트는 필요 시 loopback `GET /api/brain/search?q=...` 로 두 층 합산 검색을 직접 할 수 있다
  * (토큰 인증 — 작업 신고와 동일 인프라). Hook 에이전트는 spawn 통제 밖이라 이 블록이 안 들어간다.
  */
@@ -2548,9 +2895,10 @@ export function buildBrainRulesSection(args: {
   serverBase: string;
   serverToken: string;
   cardsBlock: string;
+  topicIndexBlock?: string;
   identityFile?: string;
 }): string {
-  const { serverBase, serverToken, cardsBlock, identityFile } = args;
+  const { serverBase, serverToken, cardsBlock, topicIndexBlock, identityFile } = args;
   const prelude = buildDynamicEndpointPrelude(identityFile, serverBase, serverToken);
   const base = prelude ? '$VIBI_BASE' : serverBase;
   const tokenHdr = prelude
@@ -2560,13 +2908,20 @@ export function buildBrainRulesSection(args: {
     ? `
 
 ## 이 프로젝트의 기억(Project Brain)
-아래는 이 프로젝트/너 자신이 쌓아온 결정·실수·교훈·규칙·사실이다. **같은 실수를 반복하지 말고**, 규칙은 지켜라.
+아래는 **어떤 작업에서도 지켜야 하는 상시 규칙 + 이번 작업과 직접 관련된 것 + 너 자신이 쌓은 경험**이다.
+**같은 실수를 반복하지 말고**, 규칙은 지켜라. (프로젝트의 나머지 기억은 아래 주제 색인으로 찾아 읽어라.)
+
+⚠ 뒤에 \`[확인 필요 — <파일> 이 그 뒤 N회 수정됨]\` 이 붙은 카드는 **기록된 뒤 그 파일이 실제로 바뀌었다**.
+버리지 말고 **지금 코드와 대조**한 다음, 여전히 맞으면 작업 신고의 \`helpfulMemoryIds\` 에, 틀렸으면
+\`staleMemoryIds\` 에 그 id 를 넣어라 — 그 1비트가 다음 사람이 낡은 기억에 속지 않게 한다.
 
 ${cardsBlock.trim()}`
     : '';
+  const topics = topicIndexBlock?.trim() ? `\n${topicIndexBlock.trim()}\n` : '';
   return `
 
 # Project Brain (§5.10 장기 기억)${memory}
+${topics}
 
 ## 능동 검색
 작업 중 과거 결정·함정·규칙이 궁금하면 아래로 프로젝트 기억을 직접 검색할 수 있다(프로젝트+너 자신의 두 층 합산, 결과에 출처 층 표시). 실패해도 무시하고 작업은 계속한다.
@@ -2600,3 +2955,85 @@ export const BRAIN_REFLECTION_PROMPT = `너는 아래 AI 코딩 세션 기록에
 
 세션 기록:
 `;
+
+/**
+ * §5.10 v3.78 — **관문을 추출 시점으로 옮긴 리플렉션 프롬프트 빌더.**
+ *
+ * 종전에는 세션 다이제스트만 줘서 모델이 "이건 이미 아는 것"을 판단할 수단이 아예 없었고, 그래서
+ * 중복 방어가 **사후 Jaccard 하나**에 몰려 있었다(그리고 그 Jaccard 는 append 로 스스로 무력해졌다).
+ * 여기서는 그 층의 **기존 카드 제목 목록을 id 와 함께** 실어 보낸다 — 제목만이라 토큰이 싸고,
+ * 모델은 ① 이미 아는 것은 아예 안 뽑고 ② 뒤집는 지식이면 `contradicts` 로 대상 카드를 지목한다.
+ *
+ * `knownTitles` 가 비면 그 블록을 통째로 생략한다(빈 목록을 보여주면 잡음만 된다).
+ */
+export function buildBrainReflectionPrompt(args: {
+  /** 기존 카드 `[id] 제목` 목록(상한은 호출부에서 `BRAIN_REFLECTION_KNOWN_TITLE_MAX` 로 자른다). */
+  knownTitles: string[];
+  /** 이 층에서 고를 수 있는 주제 slug 목록(프로젝트/에이전트 공통 — 두 층 모두 주제 축을 쓴다). */
+  topicSlugs: readonly string[];
+  /** §5.10 v3.81 — `canonicalKey` 의 허용 area 목록(없으면 프롬프트에 예시만 나간다). */
+  areas?: readonly string[];
+}): string {
+  const known = args.knownTitles.length > 0
+    ? `
+
+## 이미 저장된 기억(제목만) — 여기 있는 것은 다시 뽑지 마라
+${args.knownTitles.map((t) => `- ${t}`).join('\n')}
+
+- 위 목록과 **같은 이야기**면 카드를 만들지 마라(중복이 기억을 망친다).
+- 위 목록 중 어떤 것을 **뒤집는**(이제는 반대로 해야 하는) 지식이라면, 새 카드를 하나 만들고
+  \`contradicts\` 에 그 카드의 id(\`card-…\`)를 정확히 적어라 — 옛 카드는 시스템이 닫는다.
+- 뒤집는 게 아니라 **덧붙이는** 지식이면 \`contradicts\` 를 비워 둬라.`
+    : '';
+  const topics = args.topicSlugs.length > 0
+    ? `\n- topic: 다음 중 하나를 골라 넣어라(모르겠으면 생략) — ${args.topicSlugs.join(', ')}`
+    : '';
+  return `너는 아래 AI 코딩 세션 기록에서 **다음 세션에 도움이 될 장기 기억 카드**를 추출하는 분석기다.
+
+다음 4가지 트리거에 **명확히 걸리는 것만** 카드로 뽑아라(억지로 만들지 마라 — 없으면 빈 배열):
+1. 같은 실수를 반복한 흔적 (mistake)
+2. 무언가를 시도했다가 되돌린 것 (lesson)
+3. 사용자가 같은 교정을 다시 입력한 것 (lesson/rule)
+4. 다음 세션에도 필요한 결정 (decision/fact)
+${known}
+
+규칙:
+- 확실한 것만. 애매하거나 그 세션 한정인 것은 버려라.
+- 각 카드: type(decision|mistake|lesson|rule|fact), title(한 줄 요지), body(왜/무엇을/어떻게, 2~5문장), files(관련 파일 경로 배열, 없으면 []), contradicts(뒤집는 기존 카드 id, 없으면 생략).${topics}
+- **canonicalKey(선택)**: 그 카드가 \`fact\`·\`rule\`·\`decision\` 이고 **"이 프로젝트에서 지금 참인 하나의 값"** 을 말한다면, 안정적인 주소를 \`<area>.<subject>[.<aspect>]\` 형식으로 붙여라(area 는 ${(args.areas ?? []).join(' / ') || 'client / server / build / workflow'} 중 하나, 예 \`build.package-manager\`). 같은 주소에는 현재 진실이 하나만 존재하므로, **같은 주소의 값이 바뀐 것이라면 value 를 새 값으로 적어라**(옛 카드는 시스템이 처리한다).
+- **value(선택)**: canonicalKey 가 있고 값이 짧은 단어·경로·이름이면 그 값만 적어라(예 \`pnpm\`).
+- 경험담(mistake/lesson)에는 canonicalKey 를 붙이지 마라 — 그건 증거이지 현재 규칙이 아니다.
+- **files 를 최대한 채워라** — 그 지식이 매인 파일 경로가 있어야 코드가 바뀔 때 시스템이 이 카드를 "확인 필요"로 띄울 수 있다. 파일과 무관한 습관·취향이면 비워도 된다.
+- 최대 ${BRAIN_SESSION_CANDIDATE_MAX}개.
+- 출력은 **순수 JSON 배열만**(설명·마크다운·코드펜스 금지). 없으면 \`[]\`.
+
+출력 형식 예:
+[{"type":"lesson","title":"X 는 Y 로 처리해야 함","body":"...","files":["packages/server/src/foo.ts"],"topic":"misc","contradicts":"card-abc-1234"},
+ {"type":"fact","title":"이 프로젝트의 패키지 매니저는 pnpm 이다","body":"...","files":["package.json"],"canonicalKey":"build.package-manager","value":"pnpm"}]
+
+세션 기록:
+`;
+}
+
+// ─── 플러그인 커널 (§5.11 v3.88) ───
+
+/**
+ * v1 에서 호스트가 실제로 슬롯을 연 기여 종류.
+ *
+ * 매니페스트가 이 목록 밖의 기여를 선언하면 **거부가 아니라 "미지원" 표시**다 — 플러그인은 등록되고
+ * 지원되는 기여만 렌더된다. 슬롯을 새로 열 때 이 배열에 한 줄 추가하는 것이 개통 절차.
+ */
+export const PLUGIN_SUPPORTED_CONTRIBUTIONS: readonly PluginContributionKind[] = [
+  'bubbleBadge',
+  'panelSection',
+  'settingsSection',
+  // v4.01 — 헤더 기여 개통. 버블·패널과 달리 **동작**을 가질 수 있는 유일한 슬롯이며,
+  // 그 동작도 호스트가 이름 붙여 연 것(`PluginActions`)만 쓸 수 있다.
+  'headerItem',
+];
+
+/** 플러그인 id 규약 — kebab-case. 네임스페이스 4종(REST·WS·버블타입·설정키)의 공통 키. */
+export const PLUGIN_ID_PATTERN = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
+
+/** 플러그인 REST 기여의 유일한 마운트 지점 — `/api/plugins/<id>/*` 밖으로 나갈 수 없다. */
+export const PLUGIN_API_PREFIX = '/api/plugins';

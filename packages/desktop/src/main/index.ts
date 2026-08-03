@@ -10,7 +10,7 @@ import { runServer, setBroadcastSink, setHookListenerPort, setHookListenerToken,
 import { setupIpc, type IpcHub } from './ipc';
 import { loadSecrets } from './secrets';
 import { loadHookIdentity, saveHookIdentity, hookIdentityPath } from './hookIdentity';
-import { configureWindowManager, closeAll as closeAllDetachedWindows, closeAllOverlays } from './windowManager';
+import { configureWindowManager, closeAll as closeAllDetachedWindows, closeAllOverlays, closeAllCommandCenters } from './windowManager';
 import { initMobileAccess, mobileBroadcast, stopMobileAccess } from './mobileAccess';
 import { initAutoUpdater, stopAutoUpdater } from './updaterManager';
 import { killAllTerminals } from './terminalManager';
@@ -174,6 +174,8 @@ function createWindow(): void {
     closeAllDetachedWindows();
     // §5.5 #17-6 (v2.73) — 오버레이 위젯 창도 함께 정리(같은 데드락 회피).
     closeAllOverlays();
+    // §5.12 (v4.43) — 지휘통제실 창도 함께 정리(같은 데드락 회피).
+    closeAllCommandCenters();
   });
 }
 
@@ -236,6 +238,11 @@ async function startHookListener(expressApp: Express, preferredPort: number): Pr
       path !== '/api/brain/search' &&
       // §5.10 — Project Brain 파일 접근 경고(hook PostToolUse Edit/Write). 토큰 인증 필수.
       path !== '/api/brain/file-notes' &&
+      // §5.10 v3.74 — 주제 색인/주제 문서 열람. 스폰 브리핑이 카드 전량 주입 대신 색인만 싣게
+      //   바뀌었으므로, 에이전트가 "필요한 주제만 그 시점에 읽는" 경로가 반드시 열려 있어야 한다
+      //   (파일 Read 가 막힌 cwd·원격에서도 닿게). 읽기 전용 + 토큰 인증 필수.
+      path !== '/api/brain/topics' &&
+      !path.startsWith('/api/brain/topics/') &&
       // §4 v3.60 — 사용량 수집기(statusLine)가 미는 Claude.ai 한도 사용률. Claude Code 가
       //   statusLine 스크립트를 외부 프로세스로 돌리므로 이 loopback 이 유일한 도달 경로다.
       //   토큰 인증 필수(아래 분기).
@@ -538,6 +545,8 @@ app.on('before-quit', (event) => {
   closeAllDetachedWindows();
   // §5.5 #17-6 — 오버레이 위젯 창 일괄 정리.
   closeAllOverlays();
+  // §5.12 — 지휘통제실 창 일괄 정리(영속화 ❌ — 재시작 시 복원하지 않는다).
+  closeAllCommandCenters();
 
   // §4 v2.44 — 업데이트 체크 타이머 해제.
   stopAutoUpdater();

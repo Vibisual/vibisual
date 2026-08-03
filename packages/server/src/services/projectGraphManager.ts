@@ -42,6 +42,7 @@ import type {
   ActiveContiWork,
   ContiWorkSource,
   RateLimitInfo,
+  ClaudeUsageInfo,
   ExecutionMode,
 } from '@vibisual/shared';
 import { DEFAULT_UI_LOCALE } from '@vibisual/shared';
@@ -232,6 +233,7 @@ function mergeSnapshots(a: GraphSnapshot, b: GraphSnapshot): GraphSnapshot {
     recentToolDurations: { ...(a.recentToolDurations ?? {}), ...(b.recentToolDurations ?? {}) },
     compactCounts: { ...(a.compactCounts ?? {}), ...(b.compactCounts ?? {}) },
     rateLimits: b.rateLimits ?? a.rateLimits,
+    claudeUsage: b.claudeUsage ?? a.claudeUsage,
     // §5.5 #17-4 v2.36 — 스킬 사용 카운트는 projectName 1차 키 → 단순 spread 안전.
     // 같은 projectName 이 양쪽에 들어올 가능성 ❌ (각 ProjectGraph 가 primary 하나).
     skillUsageCounts: (() => {
@@ -279,6 +281,14 @@ function mergeSnapshots(a: GraphSnapshot, b: GraphSnapshot): GraphSnapshot {
     agentFeedbacks: (() => {
       const av = a.agentFeedbacks;
       const bv = b.agentFeedbacks;
+      if (!av && !bv) return undefined;
+      return { ...(av ?? {}), ...(bv ?? {}) };
+    })(),
+    // §5.5 #17-11 v3.79 — 세션 루프는 subAgentId 1차 키(세션 단위로 유일) → 단순 spread 안전, b 우선.
+    //   여기 빠지면 프로젝트를 2개 이상 열었을 때 병합 순간 루프 설정이 통째로 사라진다.
+    sessionLoops: (() => {
+      const av = a.sessionLoops;
+      const bv = b.sessionLoops;
       if (!av && !bv) return undefined;
       return { ...(av ?? {}), ...(bv ?? {}) };
     })(),
@@ -406,6 +416,9 @@ export class ProjectGraphManager {
 
   /** §4 v1.50 — Claude.ai 한도 사용률 (글로벌 1건). 외부 statusline 스크립트가 푸시. */
   private globalRateLimits?: RateLimitInfo;
+
+  /** §4 v3.62 — Claude 앱 `/usage` 와 같은 원천(OAuth)의 사용량 (글로벌 1건). */
+  private globalClaudeUsage?: ClaudeUsageInfo;
 
   /** project name → stub 메타 (hydrated 인스턴스가 없는 프로젝트) */
   private stubs = new Map<string, ProjectMetaSnapshot>();
@@ -1086,6 +1099,15 @@ export class ProjectGraphManager {
     return this.globalRateLimits;
   }
 
+  /** §4 v3.62 — Claude 사용량(OAuth 직접 조회) 갱신. 서비스가 정규화한 값을 그대로 보관. */
+  setClaudeUsage(info: ClaudeUsageInfo): void {
+    this.globalClaudeUsage = info;
+  }
+
+  getClaudeUsage(): ClaudeUsageInfo | undefined {
+    return this.globalClaudeUsage;
+  }
+
   /** 커스텀 에이전트 상태를 소속 서브에이전트 집계로 재계산. 한 번이라도 바뀐 인스턴스가 있으면 true. */
   recomputeCustomAgentStatus(parentAgentId: string): boolean {
     let changed = false;
@@ -1301,6 +1323,64 @@ export class ProjectGraphManager {
   getAgentFeedbacksForAgent(agentId: string): import('@vibisual/shared').AgentFeedback[] {
     const inst = this.findInstanceByAgentId(agentId);
     return inst ? inst.getAgentFeedbacksForAgent(agentId) : [];
+  }
+
+  // ─── §5.5 #17-11 v3.79 — 세션 반복 실행(루프) ───
+  //
+  // 키가 subAgentId(세션 탭)라 agentId 로 인스턴스를 찾을 수 없는 조회(getSessionLoop 등)는
+  // 인스턴스를 순회한다 — 루프 수는 열린 탭 수 수준이라 순회 비용이 무의미하다.
+
+  /** 세션 탭 하나의 루프 설정. */
+  getSessionLoop(subAgentId: string): import('@vibisual/shared').SessionLoop | undefined {
+    for (const inst of this.instances.values()) {
+      const loop = inst.getSessionLoop(subAgentId);
+      if (loop) return loop;
+    }
+    return undefined;
+  }
+
+  /** 루프 설정 저장(생성/전체 교체). loop.agentId 소속 인스턴스로 라우팅, 없으면 primary 폴백. */
+  setSessionLoop(loop: import('@vibisual/shared').SessionLoop): boolean {
+    const inst = this.findInstanceByAgentId(loop.agentId) ?? this.primaryInstance();
+    if (!inst) return false;
+    inst.setSessionLoop(loop);
+    return true;
+  }
+
+  /** 루프 부분 갱신 (진행 카운트·상태). 대상이 없으면 undefined. */
+  updateSessionLoop(
+    subAgentId: string,
+    patch: Partial<import('@vibisual/shared').SessionLoop>,
+  ): import('@vibisual/shared').SessionLoop | undefined {
+    for (const inst of this.instances.values()) {
+      if (!inst.getSessionLoop(subAgentId)) continue;
+      return inst.updateSessionLoop(subAgentId, patch);
+    }
+    return undefined;
+  }
+
+  /** 루프 설정 삭제. */
+  deleteSessionLoop(subAgentId: string): boolean {
+    for (const inst of this.instances.values()) {
+      if (inst.deleteSessionLoop(subAgentId)) return true;
+    }
+    return false;
+  }
+
+  /** 한 에이전트에 속한 루프 전부. */
+  getSessionLoopsForAgent(agentId: string): import('@vibisual/shared').SessionLoop[] {
+    const inst = this.findInstanceByAgentId(agentId);
+    return inst ? inst.getSessionLoopsForAgent(agentId) : [];
+  }
+
+  /** 전 프로젝트의 루프 전부 (주기 스윕용). */
+  listSessionLoops(): import('@vibisual/shared').SessionLoop[] {
+    const out: import('@vibisual/shared').SessionLoop[] = [];
+    for (const inst of this.instances.values()) {
+      const rec = inst.getSessionLoopsRecord();
+      if (rec) out.push(...Object.values(rec));
+    }
+    return out;
   }
 
   setAgentConfig(agentId: string, config: AgentConfig): void {
@@ -1771,6 +1851,11 @@ export class ProjectGraphManager {
     // §4 v1.50 — 글로벌 rateLimits 주입 (사용자 단위, 프로젝트 무관)
     if (this.globalRateLimits) {
       snapshot = { ...snapshot, rateLimits: this.globalRateLimits };
+    }
+
+    // §4 v3.62 — 글로벌 Claude 사용량(OAuth 직접 조회) 주입. 한도는 사용자 단위라 프로젝트 무관.
+    if (this.globalClaudeUsage) {
+      snapshot = { ...snapshot, claudeUsage: this.globalClaudeUsage };
     }
 
     // §4 v1.98 — 글로벌 진단 에러 로그 주입 (프로젝트 무관, 런타임 캐시)

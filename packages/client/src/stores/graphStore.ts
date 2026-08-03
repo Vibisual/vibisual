@@ -1,8 +1,11 @@
 import { create } from 'zustand';
-import type { BubbleData, ActivityEdge, BashEntry, ServerEntry, AgentEvent, FileEdit, AgentPhase, ProjectInfo, QueuedCommand, SubAgent, RunningSubagentTask, ServerKind, PipelineType, PipelineState, AgentConfig, SubAgentStreamEvent, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, UiLocale, ProjectMetaSnapshot, AppState, AppStatePatch, CommentBox, CaptureBubble, Conti, ActiveContiWork, ToolDurationEntry, CompactCount, RateLimitInfo, DiagnosticEntry, AutoAgentSummary, ModelRegistry, UserDefaults, AgentReport, AgentQuestions, AgentReview, AgentList, AgentFeedback, AgentFeedbackTargetType, AgentFeedbackVerdict, BrainSummary, BrainInjectionEvent, BrainCard, BrainCardType, BrainCardScope, BrainCardStatus } from '@vibisual/shared';
-import { DEFAULT_UI_LOCALE, STREAM_EVENTS_MAX_PER_SESSION, STREAM_EVENTS_TRIM_SLACK, STREAM_EVENTS_MAX_PER_INACTIVE_SESSION, STREAM_INACTIVE_SESSIONS_MAX, DIAGNOSTIC_LOG_MAX } from '@vibisual/shared';
+import type { BubbleData, ActivityEdge, BashEntry, ServerEntry, AgentEvent, FileEdit, AgentPhase, ProjectInfo, QueuedCommand, SubAgent, RunningSubagentTask, ServerKind, PipelineType, PipelineState, AgentConfig, SubAgentStreamEvent, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, UiLocale, ProjectMetaSnapshot, AppState, AppStatePatch, CommentBox, CaptureBubble, Conti, ActiveContiWork, ToolDurationEntry, CompactCount, RateLimitInfo,
+  ClaudeUsageInfo, DiagnosticEntry, AutoAgentSummary, ModelRegistry, UserDefaults, AgentReport, AgentQuestions, AgentReview, AgentList, AgentFeedback, AgentFeedbackTargetType, AgentFeedbackVerdict, BrainSummary, BrainInjectionEvent, BrainCard, BrainCardType, BrainCardScope, BrainCardStatus, SessionLoop, SessionLoopMode } from '@vibisual/shared';
+import type { StreamDensity } from '@vibisual/shared';
+import { DEFAULT_UI_LOCALE, STREAM_EVENTS_MAX_PER_SESSION, STREAM_EVENTS_TRIM_SLACK, STREAM_EVENTS_MAX_PER_INACTIVE_SESSION, STREAM_INACTIVE_SESSIONS_MAX, DIAGNOSTIC_LOG_MAX, STREAM_DENSITIES } from '@vibisual/shared';
 import { changeUiLocale } from '../i18n/index.js';
 import { calcFileSizeRange } from '../utils/sizeCalc.js';
+import { structuralShare } from './structuralShare.js';
 
 /**
  * §5.3 #28 v1.48 — IDE TerminalInput 세션 스코프 draft.
@@ -57,6 +60,11 @@ const IDE_TEXT_ZOOM_MAX = 2.4;
 function clampIdeTextZoom(z: number): number {
   if (!Number.isFinite(z)) return 1;
   return Math.min(IDE_TEXT_ZOOM_MAX, Math.max(IDE_TEXT_ZOOM_MIN, z));
+}
+// §5.5 #17-12 — IDE 스트림 표시 밀도(간결/표준/원문). 줌과 동형인 순수 클라 표시 환경설정(서버 미전달).
+const IDE_STREAM_DENSITY_KEY = 'vibisual:ideStreamDensity';
+function normalizeStreamDensity(value: string | null | undefined): StreamDensity {
+  return STREAM_DENSITIES.includes(value as StreamDensity) ? (value as StreamDensity) : 'standard';
 }
 const DEFAULT_SUBAGENTS_KEY = 'vibisual:defaultSubAgents';
 const TAB_PINS_KEY = 'vibisual:tabPins';
@@ -493,12 +501,16 @@ interface GraphState {
   agentLists: Record<string, AgentList[]>;
   /** §4 v3.21 — 에이전트 피드백 (agentId → AgentFeedback[]). 좋아요/싫어요 → 규칙 되먹임. */
   agentFeedbacks: Record<string, AgentFeedback[]>;
+  /** §5.5 #17-11 v3.79 — 세션 반복 실행(루프) 설정 (subAgentId → SessionLoop). 서버 SSOT, 클라는 표시·전송만. */
+  sessionLoops: Record<string, SessionLoop>;
   /** §4 v2.38 — 동적 모델 레지스트리 (서버 modelRegistryService 가 시드+/v1/models 머지 후 push). */
   modelRegistry: ModelRegistry | null;
   /** §4 v2.42 — 사용자 글로벌 옵션 (Options 창 SSOT). */
   userDefaults: UserDefaults | null;
   /** §4 v1.50 — Claude.ai 한도 사용률 (글로벌, 외부 statusline 푸시). */
   rateLimits: RateLimitInfo | null;
+  /** §4 v3.62 — Claude 앱 /usage 와 같은 원천(OAuth)의 사용량. 글로벌, 비영속. */
+  claudeUsage: ClaudeUsageInfo | null;
   /** §4 v1.98 — 진단 에러 로그 (글로벌 ring buffer, append 순). DebugPanel 에러 뷰어용. */
   diagnosticLog: DiagnosticEntry[];
   /**
@@ -728,8 +740,6 @@ interface GraphState {
   selectedBrainCardId: string | null;
   /** 선택된 기억 카드 본문(REST 로 fetch — 본문은 스냅샷에 없음). */
   selectedBrainCard: BrainCard | null;
-  /** 실수/교훈 카드가 연결된 파일 경로 집합(파일 버블 마커용). brain.cardCount 변동 시 debounce refetch. */
-  brainFileMarks: string[];
   /** 휴지통 내부 진입 — 선택 초기화(카드 fetch 없음). */
   enterInterior: (view: { kind: 'trash' }) => void;
   /** 내부 뷰 종료(캔버스 복귀). */
@@ -745,19 +755,27 @@ interface GraphState {
   /** 카드 pin 토글. */
   setBrainCardPinned: (id: string, pinned: boolean) => Promise<void>;
   /** 카드 제목/본문/타입 편집. */
-  updateBrainCard: (id: string, patch: { title?: string; body?: string; type?: BrainCardType; status?: BrainCardStatus }) => Promise<void>;
+  updateBrainCard: (id: string, patch: { title?: string; body?: string; type?: BrainCardType; status?: BrainCardStatus; topic?: string; always?: boolean }) => Promise<void>;
   /** 카드 삭제. */
   deleteBrainCard: (id: string) => Promise<void>;
   /** 카드 확인(seen) 신고. */
   markBrainCardSeen: (id: string) => void;
+  /** §5.10 v3.78 — "지금도 맞음": 앵커를 현재 코드 기준으로 다시 박고 확인 필요를 해제. */
+  verifyBrainCard: (id: string) => Promise<void>;
+  /** §5.10 v3.78 — "낡음": 대체 후보로 적립(누적되면 자동 보관 — 삭제 ❌). */
+  markBrainCardStale: (id: string) => Promise<void>;
+  /** §5.10 v3.78 — "정리됨" 되돌리기: 보관 카드를 원래 자리로 복구. */
+  restoreBrainCard: (id: string) => Promise<void>;
+  /** §5.10 v3.81 — "현재 진실로 확인": 후보를 SSOT 로 승격(같은 슬롯의 옛 진실은 서버가 닫는다). */
+  confirmBrainCard: (id: string) => Promise<void>;
+  /** §5.10 v3.81 — "아니오": 사용자 거부(파일은 남고 주입·검색에서만 빠진다). */
+  rejectBrainCard: (id: string) => Promise<void>;
   /** IDE 스트림 우클릭 "두뇌에 기억" — 선택 텍스트를 fact 카드로 저장. */
   saveBrainCardFromText: (text: string, agentId: string, sourceSessionId?: string | null) => Promise<void>;
   /** 휴지통 커스텀 에이전트 복구. */
   restoreTrashedAgent: (sessionId: string) => Promise<void>;
   /** 휴지통 커스텀 에이전트 영구 삭제(기억 카드 포함). */
   purgeTrashedAgent: (sessionId: string) => Promise<void>;
-  /** 실수/교훈 카드 연결 파일 경로 재조회(파일 버블 마커). */
-  refreshBrainFileMarks: () => Promise<void>;
 
   loadSnapshot: (
     projects: Record<string, ProjectInfo>,
@@ -891,6 +909,10 @@ interface GraphState {
   subagentPanelOpen: boolean;
   setSubagentPanelOpen: (open: boolean) => void;
   toggleSubagentPanel: () => void;
+  /** §5.5 #17-11 v3.79 — 세션 루프 설정 패널이 열려 있는지(위 셋과 동형 휘발 토글, 넷은 상호 배타). 영속 ❌. */
+  loopPanelOpen: boolean;
+  setLoopPanelOpen: (open: boolean) => void;
+  toggleLoopPanel: () => void;
   /** §5.5 #17-8 v2.95 — 세션 자기요약 캐시(subId → 항목). 카드 없는 세션의 CLI 요약 텍스트 보관 + 닫힌 세션도 보드에 남김. localStorage 영속. */
   sessionSummaries: Record<string, SessionSummaryEntry>;
   /** 자기요약 텍스트 저장(없으면 추가, 있으면 갱신). */
@@ -909,6 +931,10 @@ interface GraphState {
   ideTextZoom: number;
   /** IDE 본문 텍스트 줌 배율 설정(0.6~2.4 로 클램프 + 영속). */
   setIdeTextZoom: (z: number) => void;
+  /** §5.5 #17-12 — IDE 스트림 표시 밀도(간결/표준/원문). 하단 상태바 토글로 전환. localStorage 영속. */
+  ideStreamDensity: StreamDensity;
+  /** 표시 밀도 설정(+영속). */
+  setIdeStreamDensity: (d: StreamDensity) => void;
   /** 현재 UI 언어 (서버 SSOT — ProjectCheckpoint.uiLocale). */
   uiLocale: UiLocale;
   /** 서버 스냅샷 수신 시 호출 — 상태 갱신 + i18n 언어 전환. */
@@ -918,6 +944,7 @@ interface GraphState {
     recentToolDurations: Record<string, ToolDurationEntry[]> | undefined,
     compactCounts: Record<string, CompactCount> | undefined,
     rateLimits: RateLimitInfo | undefined,
+    claudeUsage: ClaudeUsageInfo | undefined,
   ) => void;
   /** §5.5 #17-4 v2.36 — graph_snapshot 의 스킬 사용 카운트 반영. */
   applySkillUsageCounts: (counts: Record<string, Record<string, number>> | undefined) => void;
@@ -948,6 +975,24 @@ interface GraphState {
     reason?: string;
     summary: string[];
   }) => void;
+  /** §5.5 #17-11 v3.79 — graph_snapshot 의 세션 루프 설정 반영. */
+  applySessionLoops: (loops: Record<string, SessionLoop> | undefined) => void;
+  /**
+   * §5.5 #17-11 v3.79 — 세션 루프 저장 (PUT). `enabled:true` 면 서버가 즉시 1회차를 발사한다.
+   * 결과는 서버 broadcast(graph_snapshot)가 SSOT — 클라는 낙관적 갱신 ❌.
+   */
+  saveSessionLoop: (input: {
+    agentId: string;
+    subAgentId: string;
+    command: string;
+    mode: SessionLoopMode;
+    total?: number;
+    intervalMs: number;
+    stopOnError: boolean;
+    enabled: boolean;
+  }) => Promise<void>;
+  /** §5.5 #17-11 v3.79 — 루프 정지(설정 유지) 또는 삭제. */
+  endSessionLoop: (agentId: string, subAgentId: string, mode: 'stop' | 'delete') => Promise<void>;
   /** §4 v1.98 — graph_snapshot 수신 시 진단 에러 로그 반영. */
   applyDiagnosticLog: (log: DiagnosticEntry[] | undefined) => void;
   /** §4 v2.38 — graph_snapshot 또는 model_registry_updated 수신 시 레지스트리 반영. */
@@ -1270,7 +1315,6 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   brainFeed: null,
   selectedBrainCardId: null,
   selectedBrainCard: null,
-  brainFileMarks: [],
   recentToolDurations: {},
   compactCounts: {},
   skillUsageCounts: {},
@@ -1281,9 +1325,11 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   agentReviews: {},
   agentLists: {},
   agentFeedbacks: {},
+  sessionLoops: {},
   modelRegistry: null,
   userDefaults: null,
   rateLimits: null,
+  claudeUsage: null,
   diagnosticLog: [],
   contiBoardOpen: null,
   imageLightbox: null,
@@ -1592,48 +1638,57 @@ export const useGraphStore = create<GraphState>((set, get) => ({
         }
       }
 
+      // §4 v3.72 — 구조적 공유. 서버는 **전체 그래프**를 매 스냅샷 실어 보내므로 내용이 그대로여도
+      //   참조는 항상 새것이었다 → 400+ 스토어 구독이 전부 깨어나 앱 전체가 스냅샷 주기(16ms 코얼레스)
+      //   로 리렌더됐고, IDE 는 그때마다 세션 전체를 재구축했다. 같은 메인스레드를 쓰는 타이핑이
+      //   밀린 근본 원인. 값이 같은 가지는 이전 참조를 그대로 돌려 구독자를 조용히 있게 한다.
+      //   ⚠ 아래는 전부 서버 권위 순수 데이터여야 한다(자세한 조건은 structuralShare.ts 주석).
+      const share = <T,>(prevValue: unknown, nextValue: T): T => structuralShare(prevValue, nextValue);
+
       return {
-        projects,
-        agents,
-        topFolders,
-        children,
-        edges,
-        innerEdges,
-        satellites,
-        satellitePositions,
-        nodeMap,
-        bashHistory,
-        runningServers,
-        agentProjects,
-        nodeProjects,
-        fileEdits,
+        projects: share(state.projects, projects),
+        agents: share(state.agents, agents),
+        topFolders: share(state.topFolders, topFolders),
+        children: share(state.children, children),
+        edges: share(state.edges, edges),
+        innerEdges: share(state.innerEdges, innerEdges),
+        satellites: share(state.satellites, satellites),
+        satellitePositions: share(state.satellitePositions, satellitePositions),
+        nodeMap: share(state.nodeMap, nodeMap),
+        bashHistory: share(state.bashHistory, bashHistory),
+        runningServers: share(state.runningServers, runningServers),
+        agentProjects: share(state.agentProjects, agentProjects),
+        nodeProjects: share(state.nodeProjects, nodeProjects),
+        fileEdits: share(state.fileEdits, fileEdits),
         activeProject: resolvedProject,
         currentProject: resolvedProject ? (projects[resolvedProject] ?? null) : null,
-        agentEvents,
-        queuedCommands: commandQueues,
-        completedCommands,
-        subAgents,
+        agentEvents: share(state.agentEvents, agentEvents),
+        queuedCommands: share(state.queuedCommands, commandQueues),
+        completedCommands: share(state.completedCommands, completedCommands),
+        subAgents: share(state.subAgents, subAgents),
         ...(ackChanged ? { acknowledgedSubAgents: nextAck } : {}),
-        fileSizeRange,
-        agentPhase,
+        fileSizeRange: share(state.fileSizeRange, fileSizeRange),
+        agentPhase: share(state.agentPhase, agentPhase),
         activeAgentCount,
-        pipelineChildren,
-        pipelines,
-        agentConfigs,
-        taskEdges,
-        worktreeProjects,
-        gitDirty,
+        pipelineChildren: share(state.pipelineChildren, pipelineChildren),
+        pipelines: share(state.pipelines, pipelines),
+        agentConfigs: share(state.agentConfigs, agentConfigs),
+        taskEdges: share(state.taskEdges, taskEdges),
+        worktreeProjects: share(state.worktreeProjects, worktreeProjects),
+        gitDirty: share(state.gitDirty, gitDirty),
         attachmentPreviews: nextPreviews,
-        commentBoxes: mergedCommentBoxes,
-        captureBubbles: mergedCaptureBubbles,
-        contis,
-        activeContiWork,
+        commentBoxes: share(state.commentBoxes, mergedCommentBoxes),
+        captureBubbles: share(state.captureBubbles, mergedCaptureBubbles),
+        contis: share(state.contis, contis),
+        activeContiWork: share(state.activeContiWork, activeContiWork),
         // §5.10 — brain 요약/주입 신호는 서버 권위(런타임, localStorage 미영속)라 매 스냅샷 교체.
         //   cleanup-trap 대상 아님(부팅 hydrate 로 복원할 클라 상태가 아니다).
         //   v3.70 — 프로젝트 키 맵이라 서버가 매번 전체를 싣는다. 빈 맵도 정상값(카드 전부 삭제)이므로
         //   그대로 교체해야 지운 카드가 숫자에 남지 않는다.
-        brain,
-        brainInjections,
+        //   v3.72 — 구조적 공유를 적용해도 이 규칙은 지켜진다: 빈 맵은 키 개수가 달라 "다름" 으로
+        //   판정돼 그대로 교체된다(structuralShare.test 의 "빈 맵으로 교체" 케이스).
+        brain: share(state.brain, brain),
+        brainInjections: share(state.brainInjections, brainInjections),
       };
     });
   },
@@ -1649,7 +1704,9 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       return { canvasVisibleNodeIds: next };
     }),
 
-  goToMain: () => set({ currentFolderId: null, navStack: [], selectedNodeId: null, selectIntentId: null }),
+  // §5.10 v3.73 — "메인 캔버스로" 는 내부 뷰(휴지통)에서도 빠져나오는 뜻이다.
+  //   interiorView 를 안 지우면 홈으로 갔는데 휴지통 안이 그대로 그려진다.
+  goToMain: () => set({ currentFolderId: null, navStack: [], interiorView: null, selectedNodeId: null, selectIntentId: null }),
 
   enterFolder: (folderId) =>
     set((state) => ({
@@ -1728,7 +1785,6 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       brainFeed: null,
       selectedBrainCardId: null,
       selectedBrainCard: null,
-      brainFileMarks: [],
     }));
   },
   closeProject: async (projectId, name) => {
@@ -1879,6 +1935,12 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     if (state.ideTextZoom === next) return state;
     saveJSON(IDE_TEXT_ZOOM_KEY, next);
     return { ideTextZoom: next };
+  }),
+  ideStreamDensity: normalizeStreamDensity(loadJSON<string>(IDE_STREAM_DENSITY_KEY, 'standard')),
+  setIdeStreamDensity: (d) => set((state) => {
+    if (state.ideStreamDensity === d) return state;
+    saveJSON(IDE_STREAM_DENSITY_KEY, d);
+    return { ideStreamDensity: d };
   }),
   defaultSubAgents: loadJSON<Record<string, string>>(DEFAULT_SUBAGENTS_KEY, {}),
   setDefaultSubAgent: (agentId, subAgentId) => set((state) => {
@@ -2065,6 +2127,54 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       body: JSON.stringify({ project }),
     }).catch(() => {});
   },
+  // §5.10 v3.78 — 재검증 1비트(사용자 채널). 셋 다 서버가 SSOT — 클라는 신고만 하고 재조회에 맡긴다.
+  verifyBrainCard: async (id) => {
+    const project = selectEffectiveProject(get());
+    try {
+      await fetch(`${API_BASE}/api/brain/cards/${id}/verify`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project }),
+      });
+    } catch { /* noop */ }
+  },
+  markBrainCardStale: async (id) => {
+    const project = selectEffectiveProject(get());
+    try {
+      await fetch(`${API_BASE}/api/brain/cards/${id}/stale`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project }),
+      });
+    } catch { /* noop */ }
+  },
+  restoreBrainCard: async (id) => {
+    const project = selectEffectiveProject(get());
+    try {
+      await fetch(`${API_BASE}/api/brain/cards/${id}/restore`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project }),
+      });
+    } catch { /* noop */ }
+  },
+  // §5.10 v3.81 — 사용자 명시 승인/거부. 후보를 현재 진실로 올리는 **유일한 수동 경로**이며,
+  //   같은 슬롯의 옛 진실은 서버가 닫는다(클라는 상태를 계산하지 않는다 — §3.1).
+  confirmBrainCard: async (id) => {
+    const project = selectEffectiveProject(get());
+    try {
+      await fetch(`${API_BASE}/api/brain/cards/${id}/confirm`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project }),
+      });
+    } catch { /* noop */ }
+  },
+  rejectBrainCard: async (id) => {
+    const project = selectEffectiveProject(get());
+    try {
+      await fetch(`${API_BASE}/api/brain/cards/${id}/reject`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project }),
+      });
+    } catch { /* noop */ }
+  },
   saveBrainCardFromText: async (text, agentId, sourceSessionId) => {
     const project = selectEffectiveProject(get());
     const trimmed = text.trim();
@@ -2098,22 +2208,6 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       if (!res.ok) { console.warn('[trash] purge failed', res.status, sessionId); return; }
     } catch { return; }
     set({ selectedNodeId: null, selectIntentId: null });
-  },
-  refreshBrainFileMarks: async () => {
-    const project = selectEffectiveProject(get());
-    if (!project) { set({ brainFileMarks: [] }); return; }
-    try {
-      const res = await fetch(`${API_BASE}/api/brain/cards?scope=project&project=${encodeURIComponent(project)}`);
-      if (!res.ok) return;
-      const data = await res.json() as { cards?: BrainCard[] };
-      const marks = new Set<string>();
-      for (const c of data.cards ?? []) {
-        if (c.type === 'mistake' || c.type === 'lesson') {
-          for (const f of c.files ?? []) marks.add(f);
-        }
-      }
-      set({ brainFileMarks: [...marks] });
-    } catch { /* noop */ }
   },
   // §4 v2.63 — CMD(인터랙티브 터미널) 에이전트. 동일 엔드포인트에 executionMode 플래그만 추가.
   createCmdAgent: (canvasX, canvasY) => {
@@ -2321,6 +2415,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       bookmarkPanelOpen: false,
       summaryPanelOpen: false,
       subagentPanelOpen: false,
+      loopPanelOpen: false,
       ideOverlays: {
         ...state.ideOverlays,
         [ownerProject]: {
@@ -2341,7 +2436,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     if (!proj || !state.ideOverlays[proj]) return {};
     const next = { ...state.ideOverlays };
     delete next[proj];
-    return { ideOverlays: next, bookmarkPanelOpen: false, summaryPanelOpen: false, subagentPanelOpen: false };
+    return { ideOverlays: next, bookmarkPanelOpen: false, summaryPanelOpen: false, subagentPanelOpen: false, loopPanelOpen: false };
   }),
   setIDEDocked: (docked, dockWidth) => set((s) => {
     const proj = s.activeProject;
@@ -2441,16 +2536,20 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   bookmarkScrollTarget: null,
   clearBookmarkScrollTarget: () => set((s) => (s.bookmarkScrollTarget ? { bookmarkScrollTarget: null } : {})),
   bookmarkPanelOpen: false,
-  setBookmarkPanelOpen: (open) => set((s) => (s.bookmarkPanelOpen === open ? {} : { bookmarkPanelOpen: open, ...(open ? { summaryPanelOpen: false, subagentPanelOpen: false } : {}) })),
-  toggleBookmarkPanel: () => set((s) => ({ bookmarkPanelOpen: !s.bookmarkPanelOpen, ...(!s.bookmarkPanelOpen ? { summaryPanelOpen: false, subagentPanelOpen: false } : {}) })),
+  setBookmarkPanelOpen: (open) => set((s) => (s.bookmarkPanelOpen === open ? {} : { bookmarkPanelOpen: open, ...(open ? { summaryPanelOpen: false, subagentPanelOpen: false, loopPanelOpen: false } : {}) })),
+  toggleBookmarkPanel: () => set((s) => ({ bookmarkPanelOpen: !s.bookmarkPanelOpen, ...(!s.bookmarkPanelOpen ? { summaryPanelOpen: false, subagentPanelOpen: false, loopPanelOpen: false } : {}) })),
   // §5.5 #17-8 v2.95 — 세션 요약 보드. 북마크 패널과 상호 배타(하나 열면 다른 하나 닫힘).
   summaryPanelOpen: false,
-  setSummaryPanelOpen: (open) => set((s) => (s.summaryPanelOpen === open ? {} : { summaryPanelOpen: open, ...(open ? { bookmarkPanelOpen: false, subagentPanelOpen: false } : {}) })),
-  toggleSummaryPanel: () => set((s) => ({ summaryPanelOpen: !s.summaryPanelOpen, ...(!s.summaryPanelOpen ? { bookmarkPanelOpen: false, subagentPanelOpen: false } : {}) })),
+  setSummaryPanelOpen: (open) => set((s) => (s.summaryPanelOpen === open ? {} : { summaryPanelOpen: open, ...(open ? { bookmarkPanelOpen: false, subagentPanelOpen: false, loopPanelOpen: false } : {}) })),
+  toggleSummaryPanel: () => set((s) => ({ summaryPanelOpen: !s.summaryPanelOpen, ...(!s.summaryPanelOpen ? { bookmarkPanelOpen: false, subagentPanelOpen: false, loopPanelOpen: false } : {}) })),
   // §5.5 #17-9 v3.51 — 실행 중 서브에이전트 패널. 위 둘과 상호 배타(덮개 하나만 뜨게).
   subagentPanelOpen: false,
-  setSubagentPanelOpen: (open) => set((s) => (s.subagentPanelOpen === open ? {} : { subagentPanelOpen: open, ...(open ? { bookmarkPanelOpen: false, summaryPanelOpen: false } : {}) })),
-  toggleSubagentPanel: () => set((s) => ({ subagentPanelOpen: !s.subagentPanelOpen, ...(!s.subagentPanelOpen ? { bookmarkPanelOpen: false, summaryPanelOpen: false } : {}) })),
+  setSubagentPanelOpen: (open) => set((s) => (s.subagentPanelOpen === open ? {} : { subagentPanelOpen: open, ...(open ? { bookmarkPanelOpen: false, summaryPanelOpen: false, loopPanelOpen: false } : {}) })),
+  toggleSubagentPanel: () => set((s) => ({ subagentPanelOpen: !s.subagentPanelOpen, ...(!s.subagentPanelOpen ? { bookmarkPanelOpen: false, summaryPanelOpen: false, loopPanelOpen: false } : {}) })),
+  // §5.5 #17-11 v3.79 — 세션 루프 설정 패널. 위 셋과 상호 배타(덮개 하나만 뜨게).
+  loopPanelOpen: false,
+  setLoopPanelOpen: (open) => set((s) => (s.loopPanelOpen === open ? {} : { loopPanelOpen: open, ...(open ? { bookmarkPanelOpen: false, summaryPanelOpen: false, subagentPanelOpen: false } : {}) })),
+  toggleLoopPanel: () => set((s) => ({ loopPanelOpen: !s.loopPanelOpen, ...(!s.loopPanelOpen ? { bookmarkPanelOpen: false, summaryPanelOpen: false, subagentPanelOpen: false } : {}) })),
   sessionSummaries: loadJSON<Record<string, SessionSummaryEntry>>(SESSION_SUMMARIES_KEY, {}),
   setSessionSummary: (entry) => set((s) => {
     const next = { ...s.sessionSummaries, [entry.subId]: entry };
@@ -2500,10 +2599,11 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     set({ uiLocale: locale });
     changeUiLocale(locale);
   },
-  applyV150Metrics: (recentToolDurations, compactCounts, rateLimits) => set({
+  applyV150Metrics: (recentToolDurations, compactCounts, rateLimits, claudeUsage) => set({
     recentToolDurations: recentToolDurations ?? {},
     compactCounts: compactCounts ?? {},
     rateLimits: rateLimits ?? null,
+    claudeUsage: claudeUsage ?? null,
   }),
   applySkillUsageCounts: (counts) => set({ skillUsageCounts: counts ?? {} }),
   applyAutoAgentSummaries: (summaries) => set({ autoAgentSummaries: summaries ?? {} }),
@@ -2520,6 +2620,29 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   applyAgentReviews: (reviews) => set({ agentReviews: reviews ?? {} }),
   applyAgentLists: (lists) => set({ agentLists: lists ?? {} }),
   applyAgentFeedbacks: (feedbacks) => set({ agentFeedbacks: feedbacks ?? {} }),
+  // §5.5 #17-11 v3.79 — 서버가 매 스냅샷에 전량을 싣는다(삭제도 곧 사라짐으로 반영).
+  applySessionLoops: (loops) => set({ sessionLoops: loops ?? {} }),
+  saveSessionLoop: async (input) => {
+    await fetch(`${API_BASE}/api/session-loop/${encodeURIComponent(input.agentId)}/${encodeURIComponent(input.subAgentId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        command: input.command,
+        mode: input.mode,
+        ...(input.mode === 'count' ? { total: input.total } : {}),
+        intervalMs: input.intervalMs,
+        stopOnError: input.stopOnError,
+        enabled: input.enabled,
+      }),
+    }).catch(() => {});
+  },
+  endSessionLoop: async (agentId, subAgentId, mode) => {
+    await fetch(`${API_BASE}/api/session-loop/${encodeURIComponent(agentId)}/${encodeURIComponent(subAgentId)}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stopOnly: mode === 'stop' }),
+    }).catch(() => {});
+  },
   setFeedback: (input) => {
     fetch(`${API_BASE}/api/agent-feedback`, {
       method: 'POST',

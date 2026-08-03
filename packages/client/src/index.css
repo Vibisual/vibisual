@@ -1,6 +1,13 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
 
+/* §5.11 v3.88 — 플러그인 패키지(`packages/plugins`)의 클래스도 스캔 대상에 넣는다.
+   Tailwind v4 는 node_modules 를 훑지 않는데 플러그인은 워크스페이스 심링크(`@vibisual/plugins`)로 들어오므로,
+   이 한 줄이 없으면 플러그인 UI 의 클래스가 빌드에서 조용히 빠진다 — 빌드는 성공하고 화면만 무너지는 유형이다.
+   (실측: 이 줄을 빼면 클래스가 CSS 에서 사라지고 번들이 205.28 → 203.56 kB 로 줄어든다.)
+   경로는 이 CSS 파일 기준 상대경로이며, 새 플러그인은 전부 이 경로 아래로 들어오므로 추가 등록이 필요 없다. */
+@source "../../plugins/src/**/*.{ts,tsx}";
+
 @theme {
   --font-sans: 'Pretendard', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'D2Coding', ui-monospace, monospace;
@@ -221,6 +228,35 @@ body[data-ide-dock="right"] .vibi-image-lightbox.fixed.inset-0 {
   animation: sun-spin 32s linear infinite;
   transform-origin: center;
   will-change: transform;
+}
+
+/* ─── §5.10 v3.82 Brain 버블 주입 연출 ───
+ * 기억이 에이전트로 흘러 들어간 순간을 알리는 1회 연출. 종전 Tailwind 기본 `animate-ping`
+ * (디스크가 2배로 부풀었다 사라짐)은 알림 뱃지 톤이라 폐기했다.
+ * ① sweep — 림을 도는 짧은 아크 2개. SVG circle 에 `pathLength=100` 을 줘 대시 길이를
+ *    원 둘레와 무관한 백분율로 고정했으므로 버블 크기가 변해도 아크 비율이 같다.
+ * ② bloom — 안쪽에서 한 번 번지는 빛. 둘 다 infinite ❌(§4 v3.71 LOD) · `animate-` 접두
+ *    클래스라 캔버스가 덮이면 상단 규칙이 자동으로 멈춘다. */
+
+@keyframes brain-inject-sweep {
+  0%   { stroke-dashoffset: 0;    opacity: 0; }
+  14%  { opacity: 1; }
+  72%  { opacity: 1; }
+  100% { stroke-dashoffset: -100; opacity: 0; }
+}
+
+@utility animate-brain-inject-sweep {
+  animation: brain-inject-sweep 1.15s cubic-bezier(0.32, 0, 0.2, 1) both;
+}
+
+@keyframes brain-inject-bloom {
+  0%   { opacity: 0;    transform: scale(0.9); }
+  22%  { opacity: 0.55; }
+  100% { opacity: 0;    transform: scale(1.08); }
+}
+
+@utility animate-brain-inject-bloom {
+  animation: brain-inject-bloom 1.35s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 /* ─── 말풍선 페이드인 ─── */

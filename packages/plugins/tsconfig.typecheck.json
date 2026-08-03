@@ -1,0 +1,21 @@
+/*
+ * §5.11 v4.41 — 타입체크 전용 설정.
+ *
+ * 빌드 설정(`tsconfig.json`)은 `src/testkit` 을 **제외**한다 — 픽스처가 dist 에 실리면 안 되기 때문이다.
+ * 그런데 그 제외가 타입체크에도 그대로 걸려서, 픽스처는 오랫동안 **아무도 안 보는 코드**였다. 그 사이
+ * shared 타입이 움직여 `AgentReport.at`(실제로는 `createdAt`) · `TaskEdgeKind 'handoff'`(없는 값) ·
+ * `CaptureBubble.label`(없는 필드) 같은 것이 픽스처에 남았고, 카드는 **테스트에서만 빈 값을 보면서**
+ * 초록으로 통과했다. 실제 화면에서만 다른 값이 나오는, 가장 늦게 발견되는 종류의 어긋남이다.
+ *
+ * 그래서 타입체크는 픽스처까지 본다(테스트 파일은 node 타입이 필요해 그대로 제외). 산출물 설정은
+ * 건드리지 않으므로 dist 는 지금과 같다.
+ */
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": false
+  },
+  "include": ["src"],
+  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx"]
+}

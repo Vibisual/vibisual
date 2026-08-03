@@ -8,6 +8,7 @@ import { FileMenu } from './FileMenu.js';
 import { TabBar } from './TabBar.js';
 import { LanguageSwitcher } from './LanguageSwitcher.js';
 import { UpdateButton } from './UpdateButton.js';
+import { PluginHeaderSlot } from '../../plugins/host.js';
 import { OverlayToggleButton } from './OverlayToggleButton.js';
 import { UsagePill } from './UsagePill.js';
 import { ServerLogPopup } from '../Panel/ServerLogPopup.js';
@@ -121,6 +122,9 @@ export function Header({
       <div className="ml-auto flex h-full flex-shrink-0 items-center gap-2 pr-2">
         {/* §4 v2.44 — 자동 업데이트 버튼(VS Code 식). available/downloading/downloaded 일 때만 노출. */}
         <UpdateButton />
+
+        {/* §5.11 v4.01 — 플러그인 헤더 슬롯. 활성 기여가 없으면 호스트가 null 을 돌려 DOM 이 안 생긴다. */}
+        <PluginHeaderSlot />
 
         {/* §5.5 #17-6 — 데스크톱 오버레이 위젯 전역 토글. 빼낸 버블이 있을 때만 노출. */}
         <OverlayToggleButton />

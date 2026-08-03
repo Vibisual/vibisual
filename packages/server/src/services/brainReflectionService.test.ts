@@ -2,14 +2,25 @@
  * §5.10 v3.54 — brainReflectionService 폭주 차단 단위 테스트.
  * 다이제스트 정제(thinking/base64/system-reminder/도구 페이로드 제거)와 수확 0 지수 백오프.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import os from 'node:os';
+import path from 'node:path';
 import {
   BRAIN_REFLECTION_DEBOUNCE_MS,
   BRAIN_REFLECTION_EMPTY_STREAK_THRESHOLD,
   BRAIN_REFLECTION_BACKOFF_MAX_MS,
   BRAIN_REFLECTION_INPUT_MAX_CHARS,
+  BRAIN_REFLECTION_CWD_DIRNAME,
+  buildBrainReflectionPrompt,
 } from '@vibisual/shared';
-import { buildDigest, backoffMsForStreak } from './brainReflectionService.js';
+import {
+  buildDigest,
+  backoffMsForStreak,
+  isBrainReflectionCwd,
+  scheduleBrainReflection,
+  parseCandidates,
+  __resetBrainReflectionStateForTest,
+} from './brainReflectionService.js';
 
 /** JSONL 한 줄 만들기 헬퍼. */
 const line = (o: unknown): string => JSON.stringify(o);
@@ -145,5 +156,123 @@ describe('backoffMsForStreak — 수확 0 지수 백오프', () => {
 
   it('상한을 넘지 않는다', () => {
     expect(backoffMsForStreak(100)).toBe(BRAIN_REFLECTION_BACKOFF_MAX_MS);
+  });
+});
+
+/**
+ * v3.76 — 리플렉션 자식이 낸 훅으로 자기 자신을 다시 리플렉션하던 자가 증식(5분 40초 주기 무한 체인)
+ * 차단. 판정은 전적으로 cwd 이므로 경로 표기 흔들림(구분자·대소문자·끝 슬래시)까지 함께 고정한다.
+ */
+describe('isBrainReflectionCwd — 자가 증식 차단 판정', () => {
+  const reflectCwd = path.join(os.tmpdir(), BRAIN_REFLECTION_CWD_DIRNAME);
+
+  it('리플렉션 전용 cwd 를 잡아낸다', () => {
+    expect(isBrainReflectionCwd(reflectCwd)).toBe(true);
+  });
+
+  it('구분자·대소문자·끝 슬래시가 달라도 같은 폴더로 본다', () => {
+    expect(isBrainReflectionCwd(reflectCwd.replace(/\\/g, '/'))).toBe(true);
+    expect(isBrainReflectionCwd(reflectCwd.toUpperCase())).toBe(true);
+    expect(isBrainReflectionCwd(`${reflectCwd}\\`)).toBe(true);
+  });
+
+  it('tmpdir 표기가 달라도 마지막 구간으로 잡는다(8.3 단축 경로 대비)', () => {
+    expect(isBrainReflectionCwd(`C:\\DOCUME~1\\OWNER\\LOCALS~1\\Temp\\${BRAIN_REFLECTION_CWD_DIRNAME}`)).toBe(true);
+  });
+
+  it('일반 프로젝트 cwd 는 통과시킨다', () => {
+    expect(isBrainReflectionCwd('C:\\work\\projects\\app')).toBe(false);
+    expect(isBrainReflectionCwd('/srv/projects/app')).toBe(false);
+  });
+
+  it('빈 값·null·undefined 에 던지지 않는다', () => {
+    expect(isBrainReflectionCwd('')).toBe(false);
+    expect(isBrainReflectionCwd(null)).toBe(false);
+    expect(isBrainReflectionCwd(undefined)).toBe(false);
+  });
+
+  it('폴더명이 부분 일치하는 다른 폴더는 잡지 않는다', () => {
+    expect(isBrainReflectionCwd(`C:\\tmp\\${BRAIN_REFLECTION_CWD_DIRNAME}-old`)).toBe(false);
+    expect(isBrainReflectionCwd(`C:\\tmp\\my-${BRAIN_REFLECTION_CWD_DIRNAME}x`)).toBe(false);
+  });
+});
+
+describe('scheduleBrainReflection — 자식 세션은 예약 자체를 안 한다', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    __resetBrainReflectionStateForTest();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const reflectCwd = path.join(os.tmpdir(), BRAIN_REFLECTION_CWD_DIRNAME);
+
+  it('리플렉션 자식 cwd 의 Stop 은 타이머를 걸지 않는다(체인 절단)', () => {
+    scheduleBrainReflection({
+      sessionId: 'child-session',
+      cwd: reflectCwd,
+      root: reflectCwd,
+      scope: 'project',
+    });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('일반 세션의 Stop 은 종전대로 디바운스 타이머를 건다', () => {
+    scheduleBrainReflection({
+      sessionId: 'real-session',
+      cwd: 'C:\\work\\projects\\app',
+      root: 'C:\\work\\projects\\app',
+      scope: 'project',
+    });
+    expect(vi.getTimerCount()).toBe(1);
+  });
+});
+
+// ─── §5.10 v3.78 F — 관문을 추출 시점으로 ─────────────────────────────────────
+
+describe('v3.78 F — 리플렉션 출력 스키마(topic · contradicts)', () => {
+  it('contradicts 로 지목한 카드 id 를 파싱한다', () => {
+    const out = parseCandidates(JSON.stringify([{
+      type: 'rule', title: '이제는 훅 푸시를 쓴다', body: '폴링은 폐기',
+      files: ['packages/server/src/index.ts'], topic: 'usage-statusline', contradicts: 'card-abc1-2xy',
+    }]));
+    expect(out).toHaveLength(1);
+    expect(out[0]?.contradicts).toBe('card-abc1-2xy');
+    expect(out[0]?.topic).toBe('usage-statusline');
+  });
+
+  it('형식이 어긋난 contradicts·모르는 topic 은 버리되 카드는 살린다', () => {
+    const out = parseCandidates(JSON.stringify([{
+      type: 'lesson', title: '뭔가 배움', body: 'b', files: [],
+      topic: '존재하지-않는-주제', contradicts: '그냥 문장',
+    }]));
+    expect(out).toHaveLength(1);
+    expect(out[0]?.contradicts).toBeUndefined();
+    expect(out[0]?.topic).toBeUndefined();
+  });
+
+  it('코드펜스·설명이 섞여 있어도 JSON 배열만 뽑아낸다', () => {
+    const out = parseCandidates('설명입니다\n```json\n[{"type":"fact","title":"제목","body":"본문","files":[]}]\n```');
+    expect(out.map((c) => c.title)).toEqual(['제목']);
+  });
+});
+
+describe('v3.78 F — 프롬프트에 기존 카드 제목 목록을 싣는다', () => {
+  it('제목 목록이 있으면 "다시 뽑지 마라" 블록과 contradicts 지시가 들어간다', () => {
+    const p = buildBrainReflectionPrompt({
+      knownTitles: ['[card-a] 기존 규칙 하나', '[card-b] 기존 결정 둘'],
+      topicSlugs: ['misc', 'ui-client'],
+    });
+    expect(p).toContain('[card-a] 기존 규칙 하나');
+    expect(p).toContain('다시 뽑지 마라');
+    expect(p).toContain('contradicts');
+    expect(p).toContain('misc, ui-client');
+  });
+
+  it('제목 목록이 비면 그 블록을 통째로 생략한다(빈 목록은 잡음)', () => {
+    const p = buildBrainReflectionPrompt({ knownTitles: [], topicSlugs: [] });
+    expect(p).not.toContain('이미 저장된 기억');
+    expect(p).toContain('세션 기록:');
   });
 });

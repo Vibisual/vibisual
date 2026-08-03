@@ -17,11 +17,10 @@ import { findTextRangeInContainer, scrollRangeIntoCenter, scrollElementIntoCente
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Components } from 'react-markdown';
-import type { SubAgentStreamEvent, QueuedCommand, AgentReport, AgentQuestions, AgentReview, AgentList, AskUserQuestionRequest, BrainInjectionEvent } from '@vibisual/shared';
-import { MemoryInjectionChip } from './MemoryInjectionChip.js';
+import type { SubAgentStreamEvent, QueuedCommand, AgentReport, AgentQuestions, AgentReview, AgentList, AskUserQuestionRequest } from '@vibisual/shared';
 import { SystemNode, parseSystemSubtype } from './SystemNode.js';
 import { useAttachmentThumbs } from './attachmentThumb.js';
-import { ThinkingDots, ThinkingLiveLine } from './ThinkingIndicator.js';
+import { ThinkingLiveLine } from './ThinkingIndicator.js';
 import { AgentReportCard } from './AgentReportCard.js';
 import { FeedbackButtons } from './FeedbackButtons.js';
 import { useGraphStore } from '../../stores/graphStore.js';
@@ -31,12 +30,20 @@ import { AgentListCard } from './AgentListCard.js';
 import { AskQuestionCard } from './AskQuestionCard.js';
 import { CollapsiblePrompt, AiSpeakerGlyph } from './CollapsiblePrompt.js';
 import { DiffView } from './DiffView.js';
-import { parseEditToolInput } from './diffTool.js';
+import { PlanBlock } from './PlanBlock.js';
+import { parseEditToolInput, editSizeLines } from './diffTool.js';
+import { toolPreview } from './toolPreview.js';
 import {
-  mergeCardsIntoItems, sameStreamItem, IncrementalStreamParser,
-  type StreamText, type StreamGroup, type StreamThinking, type StreamSystem, type StreamResult,
+  mergeCardsIntoItems, IncrementalStreamParser,
+  type StreamText, type StreamGroup, type StreamSystem, type StreamResult,
   type StreamCommand, type StreamItemFull,
 } from './streamItems.js';
+import {
+  applyStreamDensity, sameDisplayItem, displayItemId,
+  type StreamDisplayItem, type StreamToolGroup,
+} from './streamDensity.js';
+import { useStreamToggle, streamToggleProps } from './streamToggle.js';
+import { STREAM_DIFF_AUTO_EXPAND_MAX_LINES, type StreamDensity } from '@vibisual/shared';
 import { useVirtuosoFrontShift } from './frontShift.js';
 
 // ─── 타입 ───
@@ -64,8 +71,6 @@ interface StreamRendererProps {
    * 이 카드가 그 위에 겹쳐 그려졌다. 다른 카드들처럼 **가상 리스트 안으로** 합류시켜 정확한 높이를 예약 → 겹침 제거.
    */
   askRequests?: AskUserQuestionRequest[];
-  /** §5.10 — 이 에이전트에 발생한 기억 주입 이벤트. "기억 N장 참조" 칩으로 시간순 합류. */
-  injections?: BrainInjectionEvent[];
   /**
    * v2.99 — Virtuoso 가 자기 내부 스크롤러를 **단독 소유**하고, 그 스크롤러 DOM 을 이 콜백으로 부모에
    * 올린다. 부모(IDEMainArea)는 이걸 받아 StreamStatusBar·북마크 이동·Select All 을 그 컨테이너 한정으로
@@ -172,12 +177,16 @@ const MarkdownLink = memo(function MarkdownLink({ href, children }: React.Anchor
 
 const mdComponents: Components = { pre: CodeBlock, a: MarkdownLink };
 
-/** v3.13 — 앞쪽 절단 shift 카운트용 안정 id 추출자(렌더 간 동일 참조 필요 → 모듈 상수). */
-const streamItemId = (item: StreamItemFull): string => item.id;
+/** v3.13 — 앞쪽 절단 shift 카운트용 안정 id 추출자(렌더 간 동일 참조 필요 → 모듈 상수).
+ *  §5.5 #17-12 — 밀도 변환 뒤의 표시 아이템(묶음 포함)을 받는다. */
+const streamItemId = displayItemId;
 
 /** v3.17 — 리스트 끝 여백(px): 마지막 줄이 하단 입력부 경계에 딱 붙어 걸려 보이지 않게.
  *  virtuoso Footer 로 렌더해 리스트(scrollHeight)의 일부가 되므로 DOM 워치독 바닥 접착과 자연히 호환
  *  (스크롤러 padding 은 virtuoso 측정과 어긋나므로 금지). Sub 탭·메인 탭 공용. */
+/** §5.5 #17-13 — 묶음 헤더에 보여줄 도구 이름 칩 개수(초과분은 `+N`). */
+const TOOL_GROUP_NAME_CHIPS = 3;
+
 export const STREAM_END_GAP_PX = 28;
 export function StreamEndGap(): React.JSX.Element {
   return <div style={{ height: STREAM_END_GAP_PX }} aria-hidden />;
@@ -207,11 +216,16 @@ const TextBlock = memo(function TextBlock({ item }: { item: StreamText }): React
 });
 
 /** tool_use + tool_result 접이식 그룹 */
-const ToolBlock = memo(function ToolBlock({ item }: { item: StreamGroup }): React.JSX.Element {
+const ToolBlock = memo(function ToolBlock({ item, density }: { item: StreamGroup; density: StreamDensity }): React.JSX.Element {
   const { t } = useTranslation();
-  // Edit 계열이면 "이전 vs 이후" diff 로 렌더 — 파싱 성공 시 기본 펼침(비교가 곧 결과라 접혀 있으면 답답).
+  // Edit 계열이면 "이전 vs 이후" diff 로 렌더.
   const parsedEdit = useMemo(() => parseEditToolInput(item.toolName, item.input), [item.toolName, item.input]);
-  const [open, setOpen] = useState(parsedEdit !== null);
+  // §5.5 #17-12 — 종전엔 Edit 이면 무조건 기본 펼침이라 긴 diff 가 화면을 통째로 먹었다. 이제 **짧은 편집만**
+  //   자동으로 펼치고(비교가 곧 결과), 임계를 넘으면 접힌 채 줄 수만 알린다. 간결 밀도에서는 항상 접힘.
+  const editLines = useMemo(() => (parsedEdit ? editSizeLines(parsedEdit) : 0), [parsedEdit]);
+  const autoOpen = parsedEdit !== null && density !== 'compact' && editLines <= STREAM_DIFF_AUTO_EXPAND_MAX_LINES;
+  // §5.5 #17-16 ④ — 펼침은 컴포넌트 밖(모듈 저장소)에 산다: 가상 리스트가 언마운트해도 펼쳐 둔 채 돌아온다.
+  const [open, toggleOpen] = useStreamToggle(item.id, autoOpen);
 
   const accentColor = item.isActive ? 'border-blue-500/70' : 'border-amber-500/40';
   const headerBg = item.isActive ? 'bg-blue-500/5 hover:bg-blue-500/10' : 'bg-gray-800/30 hover:bg-gray-800/60';
@@ -226,24 +240,16 @@ const ToolBlock = memo(function ToolBlock({ item }: { item: StreamGroup }): Reac
     ? t('ide.streamRenderer.diff.created')
     : t('ide.streamRenderer.diff.modified');
 
-  // input 미리보기
-  const preview = useMemo(() => {
-    if (!item.input) return '';
-    try {
-      const obj = JSON.parse(item.input) as Record<string, unknown>;
-      // 주요 필드만 추출
-      const file = obj['file_path'] ?? obj['path'] ?? obj['pattern'] ?? obj['command'];
-      if (typeof file === 'string') return file.length > 80 ? `${file.slice(0, 80)}...` : file;
-    } catch { /* not JSON */ }
-    return item.input.length > 80 ? `${item.input.slice(0, 80)}...` : item.input;
-  }, [item.input]);
+  // §5.5 #17-13 — input 미리보기는 공용 순수 함수로(원본 JSON·`cd <절대경로> &&` 노출 제거).
+  const preview = useMemo(() => toolPreview(item.input), [item.input]);
 
   return (
     <div className={`mx-2 my-1 overflow-hidden rounded-md border-l-2 max-md:mx-1 ${accentColor} transition-colors`}>
       {/* 헤더 */}
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={toggleOpen}
+        {...streamToggleProps(open)}
         className={`group/hdr flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition-colors ${headerBg}`}
         title={open ? t('ide.streamRenderer.clickToCollapse') : t('ide.streamRenderer.clickToExpand')}
       >
@@ -269,6 +275,12 @@ const ToolBlock = memo(function ToolBlock({ item }: { item: StreamGroup }): Reac
             <span className={`flex-shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold ${
               parsedEdit.mode === 'create' ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-300'
             }`}>{modeLabel}</span>
+            {/* 접혀 있을 땐 "몇 줄짜리 편집인지"만 알린다(펼침 여부를 사용자가 판단할 재료). */}
+            {!open && editLines > 0 && (
+              <span className="flex-shrink-0 tabular-nums text-[10px] text-gray-500">
+                {t('ide.streamRenderer.diffLines', { count: editLines })}
+              </span>
+            )}
           </span>
         ) : (!open && preview && (
           <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-gray-400">
@@ -324,41 +336,95 @@ const ToolBlock = memo(function ToolBlock({ item }: { item: StreamGroup }): Reac
   );
 });
 
-/** assistant thinking — VS Code 스타일 1줄 "생각 중 …" + 접이식 전체 보기 (연보라·이탤릭) */
-const ThinkingBlock = memo(function ThinkingBlock({ item }: { item: StreamThinking }): React.JSX.Element {
-  const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
-  // 성능: thinking 본문이 토큰마다 자라도 미리보기는 content 가 바뀔 때만 재계산.
-  const preview = useMemo(() => item.content.replace(/\s+/g, ' ').trim().slice(0, 100), [item.content]);
+/**
+ * §5.5 #17-16 — 접힌 묶음이 그리는 **최근 도구 한 줄**. 활성/완료가 **같은 높이**라 도구가 끝나고
+ * 다음 도구가 시작돼도 글자만 바뀐다(높이 변화 = 0 → 스크롤이 들쭉날쭉하지 않는다).
+ * 진행 중이면 스피너, 아니면 같은 크기의 체크 글리프.
+ */
+function ToolGroupLatestLine({ item }: { item: StreamGroup }): React.JSX.Element {
+  const preview = toolPreview(item.input);
   return (
-    <div className="mx-2 my-1 overflow-hidden rounded-md border-l-2 border-violet-500/40 max-md:mx-1">
+    <div className="flex items-center gap-2 border-t border-gray-800/40 px-2.5 py-1">
+      <span className="flex h-3 w-3 flex-shrink-0 items-center justify-center">
+        {item.isActive ? (
+          <span className="inline-block h-3 w-3 animate-spin rounded-full border-[1.5px] border-blue-400 border-t-transparent" />
+        ) : (
+          <svg className="h-3 w-3 text-gray-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+        )}
+      </span>
+      <span className={`flex-shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold ${item.isActive ? 'bg-blue-500/15 text-blue-300' : 'bg-amber-500/10 text-amber-400/70'}`}>
+        {item.toolName}
+      </span>
+      <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-gray-500">{preview}</span>
+    </div>
+  );
+}
+
+/**
+ * §5.5 #17-12/#17-16 — 도구 실행 묶음. 헤더는 `명령 실행됨 ×N` 한 줄이고, 접힌 상태에서도 **최근 도구
+ * 한 줄**을 함께 그려 "지금 뭘 하는지"가 절대 가려지지 않는다. 펼치면 개별 도구 상자가 그대로 나온다.
+ * 도구가 1개일 때부터 이 묶음이 존재하므로(streamDensity), 도구가 늘어도 상자가 교체되지 않는다.
+ */
+const ToolGroupBlock = memo(function ToolGroupBlock({ item, density }: { item: StreamToolGroup; density: StreamDensity }): React.JSX.Element {
+  const { t } = useTranslation();
+  const [open, toggleOpen] = useStreamToggle(item.id, false);
+  const shownNames = item.toolNames.slice(0, TOOL_GROUP_NAME_CHIPS);
+  const restNames = item.toolNames.length - shownNames.length;
+  // 접혀 있을 때 보여줄 "가장 최근 도구" — 진행 중이면 그게 곧 지금 하는 일이다.
+  const latest = useMemo(() => {
+    for (let k = item.children.length - 1; k >= 0; k--) {
+      const c = item.children[k]!;
+      if (c.kind === 'tool') return c;
+    }
+    return null;
+  }, [item.children]);
+  return (
+    <div className={`mx-2 my-1 overflow-hidden rounded-md border-l-2 max-md:mx-1 ${item.active ? 'border-blue-500/70' : 'border-gray-700'}`}>
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="group/hdr flex w-full items-center gap-2 px-2.5 py-1 text-left transition-colors hover:bg-violet-500/10"
+        onClick={toggleOpen}
+        {...streamToggleProps(open)}
+        title={open ? t('ide.streamRenderer.clickToCollapse') : t('ide.streamRenderer.clickToExpand')}
+        className="group/hdr flex w-full items-center gap-2 bg-gray-800/20 px-2.5 py-1 text-left transition-colors hover:bg-gray-800/50"
       >
         <span className="flex h-4 w-4 flex-shrink-0 items-center justify-center">
-          <svg className={`h-2.5 w-2.5 text-violet-400/70 transition-transform group-hover/hdr:text-violet-300 ${open ? 'rotate-90' : ''}`} viewBox="0 0 24 24" fill="currentColor">
+          <svg className={`h-2.5 w-2.5 text-gray-600 transition-transform group-hover/hdr:text-gray-400 ${open ? 'rotate-90' : ''}`} viewBox="0 0 24 24" fill="currentColor">
             <path d="M8 5v14l11-7z" />
           </svg>
         </span>
-        {/* "생각 중" 라벨 — 진행 중이면 도트 애니메이션 */}
-        <span className="flex flex-shrink-0 items-center gap-0.5 text-[12px] italic text-violet-300/85">
-          {t('ide.streamRenderer.thinking')}
-          {item.isActive && <ThinkingDots />}
+        {/* 터미널 글리프 + "명령 실행됨 ×N" — 사용자는 도구 이름·인자를 몰라도 된다. 볼 사람만 펼친다. */}
+        <span className="flex-shrink-0 text-gray-500">
+          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect x="3" y="4" width="18" height="16" rx="2" />
+            <path d="m7 9 3 3-3 3M13 15h4" />
+          </svg>
         </span>
-        {/* 완료 후 접힘 상태일 때만 첫 문장 미리보기 */}
-        {!open && !item.isActive && preview && (
-          <span className="min-w-0 flex-1 truncate text-[12px] italic text-violet-300/50">
-            {preview}
-          </span>
-        )}
+        <span className="flex-shrink-0 text-[12px] text-gray-400">{t('ide.streamRenderer.activity')}</span>
+        <span className="flex-shrink-0 tabular-nums text-[12px] text-gray-500">
+          {t('ide.streamRenderer.toolRun', { count: item.toolCount })}
+        </span>
+        <span className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
+          {shownNames.map((name) => (
+            <span key={name} className="flex-shrink-0 rounded bg-gray-700/40 px-1 py-0.5 text-[10px] font-medium text-gray-500">
+              {name}
+            </span>
+          ))}
+          {restNames > 0 && <span className="flex-shrink-0 text-[10px] text-gray-600">+{restNames}</span>}
+        </span>
       </button>
+      {/* 접혀 있어도 최근 도구 한 줄은 항상 — 활성이든 완료든 같은 높이라 스트리밍 중 화면이 안 움직인다. */}
+      {!open && latest && <ToolGroupLatestLine item={latest} />}
       {open && (
-        <div className="border-t border-violet-500/20 bg-gray-950/50 px-4 py-2.5">
-          <div className="whitespace-pre-wrap break-words text-[13px] italic leading-relaxed text-violet-200/90">
-            {item.content}
-          </div>
+        <div className="border-t border-gray-800/60 bg-gray-950/30 py-0.5">
+          {item.children.map((child) => (
+            child.kind === 'tool'
+              ? <ToolBlock key={child.id} item={child} density={density} />
+              : child.kind === 'system'
+                ? <SystemLine key={child.id} item={child} />
+                : <div key={child.id} />
+          ))}
         </div>
       )}
     </div>
@@ -447,12 +513,14 @@ function CommandBlock({ item }: { item: StreamCommand }): React.JSX.Element {
 
 // ─── 메인 렌더러 ───
 
-/** 인-페이지 검색용 항목 텍스트 추출 — 대화 본문(text/thinking/tool/command/system/result)만.
+/** 인-페이지 검색용 항목 텍스트 추출 — 대화 본문(text/tool/command/system/result)만.
  *  카드류(report/question/…)는 별도 UI 라 v1 검색 대상에서 제외. */
-function itemSearchText(item: StreamItemFull): string {
+function itemSearchText(item: StreamDisplayItem): string {
   switch (item.kind) {
-    case 'text': case 'system': case 'result': case 'thinking': return item.content;
+    case 'text': case 'system': case 'result': return item.content;
     case 'tool': return `${item.toolName} ${item.input} ${item.output}`;
+    case 'toolgroup': return item.children.map((c) => (c.kind === 'tool' ? `${c.toolName} ${c.input} ${c.output}` : c.kind === 'system' ? c.content : '')).join(' ');
+    case 'plan': return item.todos.map((td) => td.content).join(' ');
     case 'command': return `${item.prompt} ${item.result}`;
     default: return '';
   }
@@ -461,27 +529,28 @@ function itemSearchText(item: StreamItemFull): string {
 /** 단일 스트림 아이템 → 블록 엘리먼트. 북마크 이동 앵커용 `data-stream-item-id` 래퍼로 감싼다.
  *  zoom — IDE 본문 텍스트 줌 배율. **스크롤러(가상 리스트 뷰포트)가 아니라 각 항목 래퍼**에 걸어,
  *  Virtuoso 가 zoom 반영된 실제 항목 높이를 그대로 측정(가상화·스크롤 계산과 일관)하게 한다. */
-function renderStreamItem(item: StreamItemFull, thinkingLabel: string, zoom: number, feedbackCtx?: StreamFeedbackCtx): React.JSX.Element {
+function renderStreamItem(item: StreamDisplayItem, thinkingLabel: string, zoom: number, density: StreamDensity, feedbackCtx?: StreamFeedbackCtx): React.JSX.Element {
   let inner: React.JSX.Element;
   switch (item.kind) {
     case 'text':     inner = <TextBlock item={item} />; break;
-    case 'thinking': inner = <ThinkingBlock item={item} />; break;
-    case 'tool':     inner = <ToolBlock item={item} />; break;
+    case 'tool':     inner = <ToolBlock item={item} density={density} />; break;
+    case 'toolgroup': inner = <ToolGroupBlock item={item} density={density} />; break;
+    case 'plan':     inner = <PlanBlock item={item} />; break;
     case 'result':   inner = <ResultBlock item={item} feedbackCtx={feedbackCtx} />; break;
     case 'system':   inner = <SystemLine item={item} />; break;
     case 'command':  inner = <CommandBlock item={item} />; break;
     case 'thinking-live': inner = <ThinkingLiveLine label={thinkingLabel} />; break;
-    case 'report':   inner = <AgentReportCard report={item.report} />; break;
+    case 'report':   inner = <AgentReportCard report={item.report} review={item.review} />; break;
     case 'question': inner = <AgentQuestionCard questions={item.questions} />; break;
     case 'review':   inner = <AgentReviewCard review={item.review} />; break;
     case 'list':     inner = <AgentListCard list={item.list} />; break;
     case 'ask':      inner = <AskQuestionCard request={item.request} />; break;
-    case 'memoryInjection': inner = <MemoryInjectionChip event={item.event} />; break;
   }
   // §5.5 — 놓친 카드 pill 이 관측할 앵커. 카드류(신고/질문/검수/목록)에만 표식.
   //   ⚠ data-card-id 는 stream item.id(`question-${q.id}` 등 접두어 포함)가 아니라 **raw 카드 id** 여야 한다.
   //   pill 의 cards 프롭(unseenCandidateCards)과 메인 탭 앵커가 모두 raw id 라, 접두어 id 로 두면 seen 추적·클릭
   //   점프가 어긋난다(교차 관측 id 불일치 → 봐도 pill 이 안 사라지고, scrollToBookmark(raw) findIndex 가 -1).
+  //   §5.5 #17-12 — 신고 카드에 흡수된 검수(item.review)의 앵커는 AgentReportCard 안쪽 구획이 직접 단다.
   const cardId =
     item.kind === 'report' ? item.report.id :
     item.kind === 'question' ? item.questions.id :
@@ -490,7 +559,7 @@ function renderStreamItem(item: StreamItemFull, thinkingLabel: string, zoom: num
   return <div data-stream-item-id={item.id} {...(cardId ? { 'data-card-id': cardId } : {})} style={zoom === 1 ? undefined : { zoom }}>{inner}</div>;
 }
 
-export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRendererProps>(function StreamRenderer({ events, commands, agentId, subAgentId, reports, questions, reviews, lists, askRequests, injections, onScrollerRef, restoreState, onAtBottomChange }, ref): React.JSX.Element {
+export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRendererProps>(function StreamRenderer({ events, commands, agentId, subAgentId, reports, questions, reviews, lists, askRequests, onScrollerRef, restoreState, onAtBottomChange }, ref): React.JSX.Element {
   const { t } = useTranslation();
   // 성능(v3.10): 2단 빌드 — 1단계(events 기반 base)는 **증분 파서**가 새로 온 이벤트만 처리(O(신규)).
   //   세션 전환/commands 변경/버퍼 앞쪽 절단이면 파서 내부에서 전체 재구축으로 폴백(결과는 항상 동일).
@@ -499,40 +568,47 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
   if (parserRef.current === null) parserRef.current = new IncrementalStreamParser();
   const base = useMemo(() => parserRef.current!.sync(events, commands), [events, commands]);
   const merged = useMemo(
-    () => mergeCardsIntoItems(base, commands, reports, questions, reviews, lists, askRequests, injections),
-    [base, commands, reports, questions, reviews, lists, askRequests, injections],
+    () => mergeCardsIntoItems(base, commands, reports, questions, reviews, lists, askRequests),
+    [base, commands, reports, questions, reviews, lists, askRequests],
   );
+
+  // §5.5 #17-12 — 3단계: 표시 밀도 변환(연속 동종 도구 묶기 + 옛 계획 접기). identity 안정화 **앞**에 두어
+  //   묶음 객체도 참조가 고정되게 한다(뒤에 두면 매 틱 새 묶음 객체 → memo 무효화·전 항목 재측정).
+  const density = useGraphStore((s) => s.ideStreamDensity);
+  const dense = useMemo(() => applyStreamDensity(merged, density), [merged, density]);
 
   // v3.09 — 항목 identity 안정화(thinking 떨림 차단). 증분 파서는 자란 항목만 새 객체로 교체하지만,
   //   카드 합류/정렬 단계가 배열을 새로 만들므로 여기서 한 번 더 참조를 고정한다: 직전 렌더에서 같은 id 의
   //   항목과 렌더에 영향 주는 필드가 모두 같으면 **이전 객체 참조를 그대로 재사용** → memo 자식이 유지돼
   //   뷰포트 선렌더 버퍼 전체 재측정이 사라진다(스크롤 추종 로직은 손대지 않음).
-  const prevById = useRef<Map<string, StreamItemFull>>(new Map());
+  const prevById = useRef<Map<string, StreamDisplayItem>>(new Map());
   const items = useMemo(() => {
-    const next = new Map<string, StreamItemFull>();
-    const reconciled = merged.map((it) => {
+    const next = new Map<string, StreamDisplayItem>();
+    const reconciled = dense.map((it) => {
       const old = prevById.current.get(it.id);
-      const keep = old && sameStreamItem(old, it) ? old : it;
+      const keep = old && sameDisplayItem(old, it) ? old : it;
       next.set(it.id, keep);
       return keep;
     });
     prevById.current = next;
     return reconciled;
-  }, [merged]);
+  }, [dense]);
 
   // v3.13 — 버퍼 앞쪽 절단(상한 초과 시 오래된 이벤트 일괄 제거)을 virtuoso 에 shift 로 신고. 이게 없으면
   //   인덱스 기반 sizeTree/offsetTree 가 절단마다 통째로 밀려 측정 모델이 붕괴 → pin/followOutput/restoreState
   //   가 전부 틀린 좌표로 계산돼 긴 세션에서 화면이 "위로 말려 올라갔다"(새 이벤트 유입 = 절단 시점).
-  const firstItemIndex = useVirtuosoFrontShift(items, streamItemId);
+  //   §5.5 #17-12 — 밀도를 리셋 키로 함께 넘긴다: 밀도 전환은 선두 id 를 통째로 갈아치우므로 절단으로
+  //   오인하면 있지도 않은 제거분만큼 스크롤이 보정돼 화면이 튄다.
+  const firstItemIndex = useVirtuosoFrontShift(items, streamItemId, density);
 
   const thinkingLabel = t('ide.streamRenderer.thinking');
   // IDE 본문 텍스트 줌 — 각 항목 래퍼에 zoom 적용(아래 renderStreamItem). 변경 시 itemContent 정체성이
   //   바뀌어 Virtuoso 가 전 항목을 재측정 → 새 배율로 정착(줌 조작은 드물어 비용 무관).
   const ideTextZoom = useGraphStore((s) => s.ideTextZoom);
   const itemContent = useCallback(
-    (_index: number, item: StreamItemFull) =>
-      renderStreamItem(item, thinkingLabel, ideTextZoom, agentId ? { agentId, ...(subAgentId ? { subAgentId } : {}) } : undefined),
-    [thinkingLabel, ideTextZoom, agentId, subAgentId],
+    (_index: number, item: StreamDisplayItem) =>
+      renderStreamItem(item, thinkingLabel, ideTextZoom, density, agentId ? { agentId, ...(subAgentId ? { subAgentId } : {}) } : undefined),
+    [thinkingLabel, ideTextZoom, density, agentId, subAgentId],
   );
 
   // v2.99 — virtuoso 가 단독 소유한 내부 스크롤러 DOM. 북마크 이동의 "컨테이너 한정 스크롤" 이 이걸 쓴다
@@ -548,7 +624,10 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
   // §5.5 #17-7 — 북마크 이동: anchorId 인덱스로 가상 리스트를 스크롤(렌더 보장)한 뒤, 다음 프레임에
   //   컨테이너 한정 스크롤 + 항목 외곽선 플래시 + 텍스트 선택. anchorId 없거나 못 찾으면 텍스트 검색 폴백.
   const scrollToBookmark = useCallback((anchorId: string | undefined, text: string) => {
-    const idx = anchorId ? items.findIndex((it) => it.id === anchorId) : -1;
+    // §5.5 #17-12 — 신고 카드에 흡수된 검수(`review-…`)는 독립 항목이 아니므로 흡수한 신고 항목을 찾아준다.
+    const idx = anchorId
+      ? items.findIndex((it) => it.id === anchorId || (it.kind === 'report' && it.review !== undefined && `review-${it.review.id}` === anchorId))
+      : -1;
     if (idx >= 0) virtuosoRef.current?.scrollToIndex({ index: idx, align: 'center' });
     window.setTimeout(() => {
       const cont = scrollerElRef.current;

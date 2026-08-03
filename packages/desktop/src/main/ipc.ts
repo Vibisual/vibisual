@@ -40,6 +40,9 @@ import {
   resizeOverlayMenu,
   overlayMenuAction,
   closeOverlayMenuByWindowId,
+  openCommandCenter,
+  closeCommandCenter,
+  revealSessionInMain,
 } from './windowManager';
 import { checkForUpdates, quitAndInstall, getUpdateState } from './updaterManager';
 import {
@@ -334,6 +337,36 @@ export function setupIpc(expressApp: Express): IpcHub {
   );
   ipcMain.handle('vibisual:overlay:close-menu', (event): boolean => closeOverlayMenuByWindowId(event.sender.id));
 
+  // ─── §5.12 (v4.43) Command Center — 지휘통제실 창 채널 ────────────────────
+  // 창 자체의 최소화/최대화/닫기는 별창의 `vibisual:window:*-self` 를 공유한다
+  // (windowManager.selfWindowById 가 두 맵을 함께 조회).
+  ipcMain.handle(
+    'vibisual:command:open',
+    (
+      _event,
+      payload: { projectId: string; cursor?: { x: number; y: number } },
+    ): { windowId: number; reused: boolean } => {
+      if (!payload || typeof payload.projectId !== 'string' || payload.projectId.length === 0) {
+        throw new Error('vibisual:command:open — projectId required');
+      }
+      return openCommandCenter({ projectId: payload.projectId, cursor: payload.cursor });
+    },
+  );
+  ipcMain.handle('vibisual:command:close', (_event, projectId: string): boolean => {
+    return typeof projectId === 'string' ? closeCommandCenter(projectId) : false;
+  });
+  ipcMain.handle(
+    'vibisual:command:reveal-in-main',
+    (_event, payload: { projectId: string; agentId: string; subAgentId?: string | null }): boolean => {
+      if (!payload || typeof payload.projectId !== 'string' || typeof payload.agentId !== 'string') return false;
+      return revealSessionInMain({
+        projectId: payload.projectId,
+        agentId: payload.agentId,
+        subAgentId: typeof payload.subAgentId === 'string' ? payload.subAgentId : undefined,
+      });
+    },
+  );
+
   // ─── §4 v2.44 자동 업데이트 채널 ──────────────────────────────────────────
   // 상태 push 는 updaterManager 가 직접 webContents 로 보낸다(vibisual:update:status).
   // 여기서는 renderer→main 의 invoke 액션만 등록한다.
@@ -434,6 +467,9 @@ export function setupIpc(expressApp: Express): IpcHub {
       ipcMain.removeHandler('vibisual:overlay:menu-resize');
       ipcMain.removeHandler('vibisual:overlay:menu-action');
       ipcMain.removeHandler('vibisual:overlay:close-menu');
+      ipcMain.removeHandler('vibisual:command:open');
+      ipcMain.removeHandler('vibisual:command:close');
+      ipcMain.removeHandler('vibisual:command:reveal-in-main');
       ipcMain.removeHandler('vibisual:update:check');
       ipcMain.removeHandler('vibisual:update:install');
       ipcMain.removeHandler('vibisual:update:get-state');

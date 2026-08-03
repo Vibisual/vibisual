@@ -192,27 +192,36 @@ export function closeByTabKey(tabKey: string): boolean {
   return true;
 }
 
+// 별창 + §5.12 Command Center 창을 함께 조회 — 두 창 모두 같은 `vibisual:window:*-self`
+// 채널로 자기 창의 최소화/최대화/닫기를 요청하기 때문(Command Center 는 redock 만 없다).
+function selfWindowById(windowId: number): BrowserWindow | null {
+  const detachedEntry = byWindowId.get(windowId);
+  if (detachedEntry) return detachedEntry.window;
+  const ccEntry = commandCentersByWindowId.get(windowId);
+  if (ccEntry) return ccEntry.window;
+  return null;
+}
+
 export function closeByWindowId(windowId: number): boolean {
-  const entry = byWindowId.get(windowId);
-  if (!entry) return false;
-  if (!entry.window.isDestroyed()) entry.window.close();
+  const win = selfWindowById(windowId);
+  if (!win) return false;
+  if (!win.isDestroyed()) win.close();
   return true;
 }
 
 // §5.4 #14-1 — 별창 미니 타이틀바의 최소화 버튼. event.sender.id 로 자기 창 식별.
 export function minimizeByWindowId(windowId: number): boolean {
-  const entry = byWindowId.get(windowId);
-  if (!entry || entry.window.isDestroyed()) return false;
-  entry.window.minimize();
+  const win = selfWindowById(windowId);
+  if (!win || win.isDestroyed()) return false;
+  win.minimize();
   return true;
 }
 
 // §5.4 #14-1 — 별창 미니 타이틀바의 최대화/복원 토글. 상태 변화는 maximize/unmaximize
 // 이벤트 핸들러(openDetached)가 renderer 로 푸시하므로 여기선 토글만 한다.
 export function toggleMaximizeByWindowId(windowId: number): boolean {
-  const entry = byWindowId.get(windowId);
-  if (!entry || entry.window.isDestroyed()) return false;
-  const win = entry.window;
+  const win = selfWindowById(windowId);
+  if (!win || win.isDestroyed()) return false;
   if (win.isMaximized()) win.unmaximize();
   else win.maximize();
   return true;
@@ -959,4 +968,133 @@ export function closeAllOverlays(): void {
   }
   overlaysByAgentId.clear();
   overlaysByWindowId.clear();
+}
+
+// ─── §5.12 (v4.43) Command Center — 지휘통제실 창 ──────────────────────────
+//
+// 프로젝트 root 버블 더블클릭으로 뜨는 전용 OS 창. **projectId 1:1** — 같은 프로젝트를 다시
+// 더블클릭하면 새로 만들지 않고 기존 창을 focus 한다(openDetached 의 tabKey 가드와 동형).
+// 별창과 달리 redock 이 없다(탭이 아니라 도구 창). 최소화/최대화/닫기는 별창의 기존
+// `vibisual:window:*-self` 채널을 그대로 쓰므로, 아래 맵을 byWindowId 조회에 함께 물린다.
+
+const CC_DEFAULT_W = 1180;
+const CC_DEFAULT_H = 760;
+const CC_MIN_W = 760;
+const CC_MIN_H = 460;
+
+interface CommandCenterEntry {
+  id: number;
+  projectId: string;
+  window: BrowserWindow;
+}
+
+const commandCentersByProject = new Map<string, CommandCenterEntry>();
+const commandCentersByWindowId = new Map<number, CommandCenterEntry>();
+
+export function openCommandCenter(opts: {
+  projectId: string;
+  cursor?: { x: number; y: number } | undefined;
+}): { windowId: number; reused: boolean } {
+  const existing = commandCentersByProject.get(opts.projectId);
+  if (existing && !existing.window.isDestroyed()) {
+    if (existing.window.isMinimized()) existing.window.restore();
+    existing.window.focus();
+    return { windowId: existing.id, reused: true };
+  }
+
+  let x: number | undefined;
+  let y: number | undefined;
+  if (opts.cursor) {
+    const wa = screen.getDisplayNearestPoint(opts.cursor).workArea;
+    x = Math.round(Math.min(Math.max(opts.cursor.x - CC_DEFAULT_W / 2, wa.x), wa.x + wa.width - CC_DEFAULT_W));
+    y = Math.round(Math.min(Math.max(opts.cursor.y - 40, wa.y), wa.y + wa.height - CC_DEFAULT_H));
+  }
+
+  const win = new BrowserWindow({
+    width: CC_DEFAULT_W,
+    height: CC_DEFAULT_H,
+    minWidth: CC_MIN_W,
+    minHeight: CC_MIN_H,
+    ...(x !== undefined && y !== undefined ? { x, y } : {}),
+    show: false,
+    backgroundColor: '#030712',
+    autoHideMenuBar: true,
+    title: 'Vibisual — Command Center',
+    // 별창과 동일하게 OS 타이틀바를 우리 미니 타이틀바가 대신한다.
+    frame: false,
+    icon: join(__dirname, '..', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.cjs'),
+      sandbox: false,
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+
+  win.on('ready-to-show', () => {
+    if (!win.isDestroyed()) win.show();
+  });
+
+  const entry: CommandCenterEntry = { id: win.id, projectId: opts.projectId, window: win };
+  commandCentersByProject.set(opts.projectId, entry);
+  commandCentersByWindowId.set(win.id, entry);
+
+  const pushMaximizeState = (): void => {
+    if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
+      win.webContents.send('vibisual:window:maximize-state', { maximized: win.isMaximized() });
+    }
+  };
+  win.on('maximize', pushMaximizeState);
+  win.on('unmaximize', pushMaximizeState);
+
+  win.on('closed', () => {
+    commandCentersByProject.delete(opts.projectId);
+    commandCentersByWindowId.delete(win.id);
+  });
+
+  const hash = `command=1&projectId=${encodeURIComponent(opts.projectId)}`;
+  void win.loadFile(join(__dirname, '../renderer/index.html'), { hash });
+
+  win.webContents.once('did-finish-load', () => {
+    if (!win.isDestroyed()) {
+      win.webContents.send('vibisual:window:maximize-state', { maximized: win.isMaximized() });
+    }
+  });
+
+  return { windowId: win.id, reused: false };
+}
+
+export function closeCommandCenter(projectId: string): boolean {
+  const entry = commandCentersByProject.get(projectId);
+  if (!entry) return false;
+  if (!entry.window.isDestroyed()) entry.window.close();
+  return true;
+}
+
+// "지휘통제실에서 이 세션으로 점프" — 메인 윈도우를 앞으로 끌어올리고 점프 신호를 보낸다.
+// 실제 이동은 메인 App 의 useCommandCenterReveal 이 §5.4 #30 세션 북마크 점프 순서로 수행.
+export function revealSessionInMain(payload: {
+  projectId: string;
+  agentId: string;
+  subAgentId?: string | undefined;
+}): boolean {
+  const main = getMainWindow();
+  if (!main || main.isDestroyed()) return false;
+  if (main.isMinimized()) main.restore();
+  main.show();
+  main.focus();
+  main.webContents.send('vibisual:command:reveal', {
+    projectId: payload.projectId,
+    agentId: payload.agentId,
+    subAgentId: payload.subAgentId ?? null,
+  });
+  return true;
+}
+
+export function closeAllCommandCenters(): void {
+  for (const entry of [...commandCentersByProject.values()]) {
+    if (!entry.window.isDestroyed()) entry.window.destroy();
+  }
+  commandCentersByProject.clear();
+  commandCentersByWindowId.clear();
 }

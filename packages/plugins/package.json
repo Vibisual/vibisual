@@ -1,0 +1,45 @@
+{
+  "name": "@vibisual/plugins",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Vibisual 플러그인 커널 (§5.11) — 플러그인 하나 = 하위 폴더 하나",
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "default": "./dist/client.js"
+    },
+    "./server": {
+      "types": "./dist/server.d.ts",
+      "default": "./dist/server.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc -p tsconfig.typecheck.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@vibisual/shared": "workspace:*"
+  },
+  "peerDependencies": {
+    "react": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "react": "^18.3.1",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.9",
+    "react-dom": "^18.3.1",
+    "@types/react-dom": "^18.3.1"
+  }
+}

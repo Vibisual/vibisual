@@ -77,13 +77,21 @@ export function useBubbleLayout({
 
 // ─── §5.10 기억/휴지통 내부 뷰 데이터 Hook ───
 
-/** 기억 카드 5종 → 타입 액센트 색. v3.49 피드 행(BrainFeedOverlay)의 액센트 바·아이콘 색으로 사용. */
+
+/**
+ * §5.10 v3.75 — 카드 타입 액센트(뮤트 팔레트).
+ *
+ * 구 팔레트는 tailwind 400 계열 고채도 원색 5개(sky/red/amber/violet/emerald)가 나란히 서서
+ * 목록이 무지개처럼 보였다("고급지게" 지적). 채도를 낮춰 뉴트럴 배경(zinc-900)에 얹히게 하되
+ * 명도는 유지해 가독성은 떨어지지 않게 한다. 이 색은 **액센트 바·글리프에만** 쓰고 본체색·배경엔
+ * 쓰지 않는다(위계는 타이포와 여백으로).
+ */
 export const BRAIN_TYPE_COLORS: Record<BrainCardType, string> = {
-  decision: '#38BDF8', // sky
-  mistake: '#F87171',  // red
-  lesson: '#FBBF24',   // amber
-  rule: '#A78BFA',     // violet
-  fact: '#34D399',     // emerald
+  decision: '#7BA3D0', // muted blue — 정한 것
+  mistake: '#C98285',  // muted rose — 틀린 것
+  lesson: '#C4A265',   // muted gold — 배운 것
+  rule: '#9590C9',     // muted violet — 지킬 것
+  fact: '#74A894',     // muted sage — 아는 것
 };
 
 interface UseInteriorLayoutProps {
@@ -96,7 +104,7 @@ interface UseInteriorLayoutProps {
 /**
  * §5.10 휴지통 내부 뷰 — `← Back` 노드 + 버려진 에이전트 버블을 방사형 배치.
  * currentFolderId 계층과 독립(interiorView 축). 기억(brain/agentMemory)은 v3.49 에서
- * 버블 산개 폐기 → BrainFeedOverlay 로 대체.
+ * 버블 산개 폐기 → v3.75 기억 라이브러리(BrainLibraryOverlay) 로 대체.
  */
 export function useInteriorLayout({ view, trashedAgents }: UseInteriorLayoutProps): ViewData {
   return useMemo(() => {

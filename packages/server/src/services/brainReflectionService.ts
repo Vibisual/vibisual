@@ -33,6 +33,7 @@ import {
   BRAIN_REFLECTION_INPUT_MAX_CHARS,
   BRAIN_REFLECTION_MAX_PER_HOUR,
   BRAIN_REFLECTION_MAX_CONCURRENT,
+  BRAIN_REFLECTION_CWD_DIRNAME,
   BRAIN_REFLECTION_MIN_NEW_LINES,
   BRAIN_REFLECTION_EMPTY_STREAK_THRESHOLD,
   BRAIN_REFLECTION_BACKOFF_MAX_MS,
@@ -41,7 +42,12 @@ import {
   BRAIN_REFLECTION_SYSTEM_PROMPT,
   BRAIN_REFLECTION_DISALLOWED_TOOLS,
   BRAIN_SESSION_CANDIDATE_MAX,
-  BRAIN_REFLECTION_PROMPT,
+  BRAIN_REFLECTION_KNOWN_TITLE_MAX,
+  BRAIN_TOPICS,
+  BRAIN_TOPIC_MISC,
+  BRAIN_CANONICAL_AREAS,
+  BRAIN_CANONICAL_TYPES,
+  buildBrainReflectionPrompt,
   type BrainCardScope,
   type BrainCardType,
 } from '@vibisual/shared';
@@ -65,7 +71,32 @@ const VALID_TYPES: ReadonlySet<string> = new Set(['decision', 'mistake', 'lesson
  * 그 폴더의 파일·git 상태가 프리픽스에 섞인다. 빈 폴더로 고정하면 모든 리플렉션이 같은 프리픽스를
  * 공유해 캐시가 최대로 재사용된다.
  */
-const REFLECT_CWD = path.join(os.tmpdir(), 'vibisual-reflect');
+const REFLECT_CWD = path.join(os.tmpdir(), BRAIN_REFLECTION_CWD_DIRNAME);
+
+/** 경로 비교용 정규화 — 구분자 통일 + 끝 슬래시 제거 + 소문자(Windows 대소문자 무시). */
+function normPath(p: string): string {
+  return p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+}
+
+const REFLECT_CWD_NORM = normPath(REFLECT_CWD);
+
+/**
+ * 이 cwd 가 리플렉션 자식(`claude -p`) 전용 폴더인가 — **자가 증식 차단의 판정 기준**.
+ *
+ * v3.76. 자식은 전역 `~/.claude/settings.json` 의 Vibisual 훅을 그대로 실행한다(자식 트랜스크립트에
+ * `attachment.type=hook_success` 로 `SessionStart:startup`·`Stop` 이 찍히는 것으로 실측 확인). CLI 의
+ * `--settings` 는 계층 **병합**이라 그 훅을 지우지 못하므로, "이 폴더에서 온 훅 이벤트는 우리 자신이
+ * 낸 것" 이라는 판정을 서버가 직접 쥔다.
+ *
+ * tmpdir 표기가 8.3 단축 경로·대소문자로 흔들릴 수 있어 전체 경로 일치뿐 아니라 **마지막 구간 일치**도
+ * 인정한다(사용자 프로젝트 폴더명이 하필 `vibisual-reflect` 인 경우까지 리플렉션을 건너뛰지만, 그건
+ * 기억 카드가 한 프로젝트에서 안 쌓이는 정도의 손해라 무한 스폰 재발 위험보다 가볍다).
+ */
+export function isBrainReflectionCwd(cwd: string | null | undefined): boolean {
+  if (!cwd) return false;
+  const norm = normPath(cwd);
+  return norm === REFLECT_CWD_NORM || norm.endsWith(`/${BRAIN_REFLECTION_CWD_DIRNAME}`);
+}
 
 /** 세션당 디바운스 타이머(연속 Stop/idle 이 짧게 겹쳐도 1회만). */
 const debounceTimers = new Map<string, NodeJS.Timeout>();
@@ -309,8 +340,37 @@ function gate(input: BrainReflectionInput, digest: SessionDigest): ReflectionSki
   return null;
 }
 
+/** §5.10 v3.78 — 리플렉션이 뽑아 낸 카드 후보 1건(모델 출력 스키마). */
+export interface ReflectionCandidate {
+  type: BrainCardType;
+  title: string;
+  body: string;
+  files: string[];
+  /** 모델이 고른 주제 slug(없거나 모르는 값이면 서버가 자동 분류). */
+  topic?: string;
+  /** 이 지식이 뒤집는 기존 카드 id — saveCard 가 그 카드를 닫는다(유효기간 2축). */
+  contradicts?: string;
+  /** §5.10 v3.81 — 진실 주소(`<area>.<subject>[.<aspect>]`). 있으면 슬롯 규칙을 탄다. */
+  canonicalKey?: string;
+  /** §5.10 v3.81 — 정규화된 값(짧은 단어·경로·이름일 때만). */
+  value?: string;
+}
+
+/** §5.10 v3.81 — `canonicalKey` 형식 검증. area 는 관리 목록 안에 있어야 하고 2~4 마디. */
+function validCanonicalKey(raw: string, type: BrainCardType): string | undefined {
+  const key = raw.trim().toLowerCase();
+  if (!/^[a-z][a-z0-9-]*(\.[a-z0-9][a-z0-9-]*){1,3}$/.test(key)) return undefined;
+  // 경험 계층에는 주소를 붙이지 않는다(증거는 현재 규칙이 아니다 — §H).
+  if (!BRAIN_CANONICAL_TYPES.includes(type)) return undefined;
+  const area = key.split('.')[0] ?? '';
+  return BRAIN_CANONICAL_AREAS.includes(area) ? key : undefined;
+}
+
+/** 알려진 주제 slug 집합 — 모델이 아무 문자열이나 뱉어도 여기 없으면 버린다(자동 분류로 폴백). */
+const VALID_TOPICS: ReadonlySet<string> = new Set([...BRAIN_TOPICS.map((t) => t.slug), BRAIN_TOPIC_MISC]);
+
 /** 모델 출력에서 JSON 배열을 방어적으로 파싱. 실패 시 빈 배열. */
-function parseCandidates(out: string): { type: BrainCardType; title: string; body: string; files: string[] }[] {
+export function parseCandidates(out: string): ReflectionCandidate[] {
   const text = out.trim();
   if (!text) return [];
   // 코드펜스/설명이 섞였을 수 있으니 첫 '[' ~ 마지막 ']' 만 시도.
@@ -320,7 +380,7 @@ function parseCandidates(out: string): { type: BrainCardType; title: string; bod
   let arr: unknown;
   try { arr = JSON.parse(text.slice(start, end + 1)); } catch { return []; }
   if (!Array.isArray(arr)) return [];
-  const out2: { type: BrainCardType; title: string; body: string; files: string[] }[] = [];
+  const out2: ReflectionCandidate[] = [];
   for (const it of arr) {
     if (!it || typeof it !== 'object') continue;
     const o = it as Record<string, unknown>;
@@ -329,10 +389,47 @@ function parseCandidates(out: string): { type: BrainCardType; title: string; bod
     if (!title) continue;
     const body = typeof o.body === 'string' ? o.body.trim() : '';
     const files = Array.isArray(o.files) ? o.files.filter((f): f is string => typeof f === 'string') : [];
-    out2.push({ type, title, body, files });
+    // v3.78 — 주제/모순 지목. 형식이 어긋나면 조용히 버린다(카드 자체는 살린다).
+    const topic = typeof o.topic === 'string' && VALID_TOPICS.has(o.topic.trim()) ? o.topic.trim() : undefined;
+    const rawContra = typeof o.contradicts === 'string' ? o.contradicts.trim() : '';
+    const contradicts = /^card-[A-Za-z0-9-]+$/.test(rawContra) ? rawContra : undefined;
+    // v3.81 — 진실 주소·값. 형식이 어긋나거나 경험 계층이면 조용히 버린다(카드 자체는 살린다).
+    const canonicalKey = typeof o.canonicalKey === 'string' ? validCanonicalKey(o.canonicalKey, type) : undefined;
+    const value = canonicalKey && typeof o.value === 'string' && o.value.trim().length <= 80
+      ? o.value.trim() : undefined;
+    out2.push({
+      type, title, body, files,
+      ...(topic ? { topic } : {}),
+      ...(contradicts ? { contradicts } : {}),
+      ...(canonicalKey ? { canonicalKey } : {}),
+      ...(value ? { value } : {}),
+    });
     if (out2.length >= BRAIN_SESSION_CANDIDATE_MAX) break;
   }
   return out2;
+}
+
+/**
+ * §5.10 v3.78 F — **관문을 추출 시점으로.** 그 층의 기존 카드 제목을 `[id] 제목` 목록으로 만든다.
+ *
+ * 종전에는 세션 다이제스트만 줘서 모델이 "이건 이미 안다"를 판단할 수단이 아예 없었고, 그래서 중복
+ * 방어가 사후 Jaccard 하나에 몰려 있었다. 제목만이라 토큰이 싸고(카드 1장당 ~20토큰), 모델은 이걸
+ * 보고 ① 중복이면 안 뽑고 ② 뒤집는 지식이면 `contradicts` 로 대상을 지목한다.
+ *
+ * 랭킹 상위부터 담는다 — 상한에 걸려 잘리더라도 "자주 쓰이는 기억"이 먼저 보이게.
+ */
+function knownTitlesFor(root: string, scope: BrainCardScope, agentId?: string): string[] {
+  try {
+    const svc = getBrainService(root);
+    const pool = scope === 'agent' && agentId
+      ? svc.listCards({ scope: 'agent', agentId })
+      : svc.listCards({ scope: 'project' });
+    return svc.rankCards(pool, {})
+      .slice(0, BRAIN_REFLECTION_KNOWN_TITLE_MAX)
+      .map((r) => `[${r.card.id}] ${r.card.title}`);
+  } catch {
+    return [];
+  }
 }
 
 function runReflection(input: BrainReflectionInput): void {
@@ -350,7 +447,12 @@ function runReflection(input: BrainReflectionInput): void {
   recentSpawnsAt.push(Date.now());
   inFlight++;
 
-  const prompt = BRAIN_REFLECTION_PROMPT + digest.text;
+  // v3.78 — 기존 카드 제목 목록을 함께 실어 "이미 아는 것"과 "뒤집는 것"을 모델이 추출 시점에 가른다.
+  const prompt = buildBrainReflectionPrompt({
+    knownTitles: knownTitlesFor(root, scope, agentId),
+    topicSlugs: [...BRAIN_TOPICS.map((t) => t.slug), BRAIN_TOPIC_MISC],
+    areas: BRAIN_CANONICAL_AREAS,
+  }) + digest.text;
   const t0 = Date.now();
   const saved = Math.max(0, digest.rawChars - digest.text.length);
   logger.info(
@@ -402,8 +504,12 @@ function runReflection(input: BrainReflectionInput): void {
         const candidates = parseCandidates(outBuf);
         if (candidates.length > 0) {
           const svc = getBrainService(root);
+          // v3.78 — 저장 결과를 집계한다. `same`(이미 아는 것)은 카드가 안 늘어난 것이므로 수확으로
+          //   세지 않는다 — 그래야 "중복만 뽑는 세션"에 백오프가 제대로 걸린다.
+          let fresh = 0;
+          let superseded = 0;
           for (const c of candidates) {
-            svc.saveCard({
+            const r = svc.saveCardDetailed({
               type: c.type,
               scope,
               agentId: scope === 'agent' ? agentId : undefined,
@@ -412,12 +518,26 @@ function runReflection(input: BrainReflectionInput): void {
               files: c.files,
               sourceSessionId: sessionId,
               seen: false,
+              ...(c.topic ? { topic: c.topic } : {}),
+              ...(c.contradicts ? { contradicts: c.contradicts } : {}),
+              // v3.81 — 리플렉션 산출물의 권위는 언제나 `session-summary`(랭크 1)다.
+              //   즉 **자동으로 verified 가 될 수 없다** — 사용자 확인이나 출처 대조를 거쳐야 한다(요건 9).
+              authority: 'session-summary',
+              ...(c.canonicalKey ? { canonicalKey: c.canonicalKey } : {}),
+              ...(c.value ? { value: c.value } : {}),
             });
+            if (r.outcome !== 'same') fresh++;
+            if (r.outcome === 'superseded') superseded += r.closedIds.length;
           }
-          logger.info(`[brain-reflect] saved ${candidates.length} card(s) session=${sessionId.slice(0, 8)}`);
+          logger.info(
+            `[brain-reflect] saved ${fresh}/${candidates.length} card(s)`
+            + `${superseded > 0 ? ` (옛 카드 ${superseded}장 닫음)` : ''} session=${sessionId.slice(0, 8)}`,
+          );
+          // 수확 0 이 이어지면 그 프로젝트는 당분간 쉰다(④).
+          noteOutcome(root, fresh);
+        } else {
+          noteOutcome(root, 0);
         }
-        // 수확 0 이 이어지면 그 프로젝트는 당분간 쉰다(④).
-        noteOutcome(root, candidates.length);
       }
     } catch (e) {
       logger.warn('[brain-reflect] save failed', e as Error);
@@ -434,6 +554,11 @@ function runReflection(input: BrainReflectionInput): void {
 export function scheduleBrainReflection(input: BrainReflectionInput): void {
   try {
     if (!input.sessionId || !input.cwd || !input.root) return;
+    // v3.76 — 리플렉션 자식이 낸 Stop 으로 자기 자신을 다시 리플렉션하던 자가 증식 차단.
+    // 자식 JSONL 은 12줄이라 MIN_EVENTS(8) 를 넘고, 스폰마다 sessionId 가 새로 생겨
+    // lastReflectedLines(새 라인 40줄) 게이트도 무력이었다 → 디바운스 300초 + 실행 ~40초 =
+    // **5분 40초 주기의 무한 체인**. 시간당 상한은 이 순환을 끊지 못하고 주기만 정해줬다.
+    if (isBrainReflectionCwd(input.cwd) || isBrainReflectionCwd(input.root)) return;
     const existing = debounceTimers.get(input.sessionId);
     if (existing) clearTimeout(existing);
     const timer = setTimeout(() => {

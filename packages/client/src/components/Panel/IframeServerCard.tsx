@@ -30,30 +30,36 @@ export const IframeServerCard = memo(function IframeServerCard({
 
   // §7.11 v2.1 — ServerEntry 가 포트 단위라 한 shellId 에 여러 entry 가 붙는다.
   // URL 에서 뽑은 port 를 우선 키로 써서 정확한 포트의 entry 를 고른다.
-  const serverId = useMemo<string | null>(() => {
+  const entry = useMemo<ServerEntry | null>(() => {
     const wantedShell = node.shellId;
     const wantedPort = extractPortFromUrl(node.url);
-    let portMatch: string | null = null;
-    let shellMatch: string | null = null;
+    let portMatch: ServerEntry | null = null;
+    let shellMatch: ServerEntry | null = null;
     for (const entries of Object.values(runningServers)) {
       for (const e of entries) {
         if (wantedShell && e.shellId === wantedShell && wantedPort != null && e.port === wantedPort) {
-          return e.id; // (shellId AND port) 정확 일치 — 최우선
+          return e; // (shellId AND port) 정확 일치 — 최우선
         }
-        if (wantedPort != null && e.port === wantedPort && portMatch == null) portMatch = e.id;
-        if (wantedShell && e.shellId === wantedShell && shellMatch == null) shellMatch = e.id;
+        if (wantedPort != null && e.port === wantedPort && portMatch == null) portMatch = e;
+        if (wantedShell && e.shellId === wantedShell && shellMatch == null) shellMatch = e;
       }
     }
     return portMatch ?? shellMatch;
   }, [runningServers, node.shellId, node.url]);
 
+  const serverId = entry?.id ?? null;
+  // §7.11 v3.85 — 에이전트 신고로만 알게 된 서버는 기동 명령을 몰라 respawn 이 불가능하다.
+  // Stop(killByPort)은 포트만 알면 되므로 그대로 활성 — 이 구분이 없으면 신고 iframe 은
+  // 서버가 running 인데도 Stop 이 회색으로 잠겨 사용자가 서버를 끌 수 없었다.
+  const canRespawn = entry !== null && entry.reportedOnly !== true;
+
   const handleRestart = useCallback(async () => {
-    if (!serverId || busy) return;
+    if (!serverId || !canRespawn || busy) return;
     setBusy('restart');
     try { await callApi('/api/restart-server', serverId); }
     catch { /* ignore — 서버가 graph_snapshot 브로드캐스트 */ }
     finally { setBusy(null); }
-  }, [serverId, busy]);
+  }, [serverId, canRespawn, busy]);
 
   const handleStop = useCallback(async () => {
     if (!serverId || busy) return;
@@ -64,13 +70,13 @@ export const IframeServerCard = memo(function IframeServerCard({
   }, [serverId, busy]);
 
   const handleStart = useCallback(async () => {
-    if (!serverId || busy) return;
+    if (!serverId || !canRespawn || busy) return;
     setBusy('start');
     // /api/restart-server 는 alive 면 kill+respawn, 아니면 그냥 spawn — Start 와 동일 동작
     try { await callApi('/api/restart-server', serverId); }
     catch { /* ignore */ }
     finally { setBusy(null); }
-  }, [serverId, busy]);
+  }, [serverId, canRespawn, busy]);
 
   const alive = node.iframeAlive === true;
   const kindLabel = node.serverKind === 'frontend' ? 'FE' : node.serverKind === 'backend' ? 'BE' : '?';
@@ -112,8 +118,14 @@ export const IframeServerCard = memo(function IframeServerCard({
         <button
           type="button"
           onClick={handleRestart}
-          disabled={!serverId || busy !== null}
-          title={serverId ? t('panel.serverList.restart') : t('panel.serverList.noEntry')}
+          disabled={!canRespawn || busy !== null}
+          title={
+            !serverId
+              ? t('panel.serverList.noEntry')
+              : canRespawn
+                ? t('panel.serverList.restart')
+                : t('panel.serverList.noCommand')
+          }
           className="flex flex-1 items-center justify-center gap-1.5 rounded border border-sky-700/60 bg-sky-900/40 px-2 py-1 text-xs text-sky-200 transition-colors hover:bg-sky-800/60 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
         >
           <svg
@@ -145,8 +157,14 @@ export const IframeServerCard = memo(function IframeServerCard({
           <button
             type="button"
             onClick={handleStart}
-            disabled={!serverId || busy !== null}
-            title={serverId ? t('panel.serverList.start') : t('panel.serverList.noEntry')}
+            disabled={!canRespawn || busy !== null}
+            title={
+              !serverId
+                ? t('panel.serverList.noEntry')
+                : canRespawn
+                  ? t('panel.serverList.start')
+                  : t('panel.serverList.noCommand')
+            }
             className="flex flex-1 items-center justify-center gap-1.5 rounded border border-emerald-700/60 bg-emerald-900/40 px-2 py-1 text-xs text-emerald-200 transition-colors hover:bg-emerald-800/60 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
           >
             <svg

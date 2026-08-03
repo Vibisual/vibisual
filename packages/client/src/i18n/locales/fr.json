@@ -36,15 +36,15 @@
     },
     "usage": {
       "tooltip": "Session en cours : {{percent}} % de la limite de 5 heures utilisée — cliquez pour les détails",
-      "tooltipNoData": "Les données d’usage ne sont pas encore collectées — cliquez pour activer",
-      "noData": "--%"
+      "tooltipNoData": "Les données d’usage ne sont pas encore collectées — cliquez pour activer"
     }
   },
   "panel": {
     "fileMenu": {
       "file": "Fichier",
       "openFolder": "Ouvrir un dossier...",
-      "options": "Options…"
+      "options": "Options…",
+      "plugins": "Extensions…"
     },
     "options": {
       "title": "Options",
@@ -584,7 +584,8 @@
       "restart": "Redémarrer le serveur",
       "stop": "Arrêter le serveur",
       "start": "Démarrer le serveur",
-      "noEntry": "Aucune entrée de serveur correspondante"
+      "noEntry": "Aucune entrée de serveur correspondante",
+      "noCommand": "Redémarrage indisponible — commande de démarrage inconnue (serveur signalé par l’agent)"
     },
     "subAgent": {
       "heading": "SubAgents ({{count}})",
@@ -670,7 +671,1836 @@
       "localInput": "Tokens d’entrée",
       "localOutput": "Tokens de sortie",
       "localHint": "Compté à partir des agents de l’onglet de projet actif. Les limites d’offre ci-dessus concernent tout le compte et incluent le travail fait hors de Vibisual.",
-      "noValue": "--"
+      "noValue": "--",
+      "emptyOff": "Pas encore de données d’usage — le collecteur est désactivé. Activez-le ci-dessous, puis ouvrez une fois une session interactive de Claude Code.",
+      "emptyWaiting": "Le collecteur est actif et attend la première lecture. Les valeurs arrivent lorsqu’une session interactive de Claude Code affiche sa barre d’état — une bulle de terminal sur le canevas, ou Claude Code dans votre éditeur. Les agents que Vibisual exécute sans interface n’ont pas de barre d’état et ne remontent rien.",
+      "refresh": "Actualiser",
+      "weeklyScoped": "Limite hebdomadaire — {{model}}",
+      "creditsTitle": "Crédits d'usage",
+      "creditsOn": "Activé",
+      "creditsOff": "Désactivé",
+      "creditsUsed": "{{percent}} % de votre budget de crédits utilisé",
+      "creditsHint": "Les crédits permettent de continuer une fois la limite de l'offre atteinte. Gérez-les dans l'app Claude.",
+      "errNoCredentials": "Aucune connexion Claude Code sur cette machine : impossible de lire l'usage directement. Connectez-vous avec Claude Code ou utilisez le collecteur de barre d'état ci-dessous.",
+      "errUnauthorized": "La connexion Claude enregistrée a expiré. Lancez Claude Code une fois, elle se renouvelle seule et les chiffres reviennent.",
+      "errNetwork": "Impossible de joindre Claude pour l'instant. Affichage des dernières valeurs reçues.",
+      "refreshFailed": "Échec de l’actualisation"
+    },
+    "plugins": {
+      "title": "Extensions",
+      "close": "Fermer",
+      "saving": "enregistrement…",
+      "empty": "Aucune extension enregistrée.",
+      "enabled": "Activée",
+      "disabled": "Désactivée",
+      "contributes": "Apporte",
+      "unsupported": "Pas encore pris en charge dans cette version.",
+      "offNote": "Désactiver une extension masque seulement ses apports : rien de ce qu’elle a créé n’est supprimé et tout revient si vous la réactivez.",
+      "category": {
+        "security": "Sécurité",
+        "observability": "Observabilité",
+        "workflow": "Flux de travail",
+        "experimental": "Expérimental"
+      },
+      "contribution": {
+        "bubbleBadge": "Badge de bulle",
+        "panelSection": "Section du panneau",
+        "settingsSection": "Section de réglages",
+        "ideView": "Vue IDE",
+        "headerItem": "Élément d’en-tête",
+        "contextMenuItem": "Menu contextuel",
+        "hookSubscriber": "Abonné aux hooks",
+        "restRoute": "Route REST",
+        "wsMessage": "Message WS",
+        "agentConfigField": "Réglage d’agent",
+        "brainCardKind": "Type de carte",
+        "bubbleType": "Type de bulle",
+        "edgeKind": "Type de lien"
+      },
+      "lethalTrifecta": {
+        "heading": "Trio fatal",
+        "level": {
+          "safe": "Chemin rompu",
+          "caution": "Bloqué par approbation",
+          "critical": "Les trois ouvertes"
+        },
+        "leg": {
+          "data": "Accès aux données sensibles",
+          "untrusted": "Contenu non fiable",
+          "egress": "Communication sortante"
+        },
+        "state": {
+          "closed": "coupée",
+          "gated": "approbation",
+          "open": "ouverte"
+        },
+        "noTool": "Aucun outil ne l’active",
+        "prescription": "La communication sortante est la condition la moins coûteuse à couper : ajoutez WebFetch (et Bash si cet agent peut s’en passer) aux outils interdits dans Agent Settings.",
+        "alreadyCut": "Une condition est déjà coupée : une injection ne peut donc pas devenir une fuite sur cet agent.",
+        "isolatedNote": "Travaille dans un worktree isolé — cela réduit les dégâts, mais ne coupe aucune condition.",
+        "displayOnly": "Affichage seul — cette section ne modifie jamais les permissions.",
+        "title": {
+          "critical": "Trio fatal : les trois conditions ouvertes, sans approbation"
+        },
+        "isolated": "S’exécute dans un worktree isolé",
+        "desc": "Affiche sur chaque bulle d’agent combien des trois conditions nécessaires à une fuite — accès aux données sensibles, contenu non fiable, communication sortante — cet agent réunit. Couper une seule condition brise le chemin. Affichage seul : les permissions ne sont jamais modifiées."
+      },
+      "leastPrivilege": {
+        "desc": "Sépare les outils accordés à l’agent selon leur nature : changements irréversibles, portée vers l’extérieur, lecture seule — pour rendre visible l’excès de droits. Jugé sur la seule liste d’outils.",
+        "heading": "Moindre privilège",
+        "level": {
+          "tight": "Restreint",
+          "broad": "Large",
+          "wide": "Très large"
+        },
+        "badge": {
+          "broad": "{{count}} outils puissants accordés",
+          "wide": "{{count}} outils puissants — envisagez d’en retirer"
+        },
+        "class": {
+          "mutating": "Changement irréversible",
+          "reach": "Portée extérieure",
+          "read": "Lecture seule"
+        },
+        "denied": "Bloqués explicitement",
+        "lockedNote": "{{tools}} ne peut pas être retiré depuis l’interface : le chemin de délégation en dépend. Ajoutez-le aux outils interdits si cet agent ne doit pas l’avoir.",
+        "none": "aucun",
+        "displayOnly": "Affichage seul — cette section ne modifie jamais les réglages."
+      },
+      "blastRadius": {
+        "desc": "Énumère ce que cet agent pourrait atteindre, modifier et envoyer s’il était entièrement compromis — cette liste est le rayon d’explosion. Un worktree isolé le réduit d’un cran.",
+        "heading": "Rayon d’explosion",
+        "level": {
+          "small": "Petit",
+          "medium": "Moyen",
+          "large": "Grand"
+        },
+        "row": {
+          "read": "Peut lire les fichiers",
+          "write": "Peut modifier les fichiers",
+          "execute": "Peut exécuter des commandes",
+          "send": "Peut envoyer des données"
+        },
+        "isolatedNote": "Worktree isolé : les dégâts restent dans la copie, le rayon compte donc un cran de moins.",
+        "narrowHint": "Lecture seule par défaut, écriture sur des chemins désignés, réseau limité à une liste — c’est ainsi qu’un rayon rétrécit.",
+        "yes": "Oui",
+        "no": "Non"
+      },
+      "autonomyLevel": {
+        "desc": "Indique à quel échelon se trouve cet agent : proposer seulement, exécuter après approbation, ou exécuter seul et rendre compte. Laisser l’autonomie en tout ou rien est l’échec de conception le plus courant.",
+        "heading": "Niveau d’autonomie",
+        "level": {
+          "suggest": "Proposer seulement",
+          "approve": "Exécute après approbation",
+          "autonomous": "Exécute seul"
+        },
+        "badge": {
+          "autonomous": "Autonomie : exécute sans demander"
+        },
+        "row": {
+          "mode": "Mode de permission",
+          "timeout": "Si vous ne répondez pas",
+          "maxTurns": "Plafond de tours",
+          "isolation": "Isolation"
+        },
+        "timeout": {
+          "allow": "autorisation auto",
+          "deny": "blocage auto"
+        },
+        "timeoutHint": "Si vous vous absentez, l’approbation devient un consentement automatique — l’échelon monte de fait.",
+        "ladderNote": "L’autonomie se relève à mesure que la confiance s’installe ; elle ne se donne pas d’emblée.",
+        "isolated": "worktree",
+        "notIsolated": "même dossier",
+        "unlimited": "illimité",
+        "levelDesc": {
+          "suggest": "Mode plan — rien n’est exécuté.",
+          "approve": "Les outils mutables déclenchent une demande d’approbation.",
+          "autonomous": "Aucune demande d’approbation n’apparaît."
+        }
+      },
+      "longHorizon": {
+        "desc": "Suit la durée de la session — tours, temps écoulé et dernière progression des tâches. Les tâches longues échouent surtout par contexte épuisé et erreurs cumulées, pas par manque de capacité.",
+        "heading": "Tâche de long horizon",
+        "level": {
+          "short": "Courte",
+          "long": "S’allonge",
+          "verylong": "Très longue"
+        },
+        "badge": "{{turns}} tours sur {{elapsed}}",
+        "row": {
+          "turns": "Tours",
+          "elapsed": "Écoulé",
+          "todos": "Progression des tâches"
+        },
+        "shortNote": "Encore courte — rien à surveiller.",
+        "longNote": "Notez les décisions et chemins de fichiers avant la compaction — les résumés abandonnent d’abord le concret."
+      },
+      "rogueAgent": {
+        "desc": "Montre depuis combien de temps un agent est silencieux alors que ses sessions tournent encore. La plupart des incidents commencent par « je ne savais pas que ça tournait encore », pas par malveillance.",
+        "heading": "Inactif et hors contrôle",
+        "level": {
+          "active": "Actif",
+          "idle": "Inactif",
+          "forgotten": "Peut-être oublié"
+        },
+        "badge": {
+          "idle": "Silencieux depuis {{elapsed}} avec des sessions actives",
+          "forgotten": "Silencieux depuis {{elapsed}} — probablement oublié"
+        },
+        "row": {
+          "idle": "Silencieux depuis",
+          "live": "Sessions actives",
+          "total": "Sessions au total"
+        },
+        "activeNote": "Actif récemment — rien d’oublié ici.",
+        "idleNote": "Concevez le moment où l’on éteint un agent, pas seulement celui où on le crée."
+      },
+      "showMore": "Afficher {{count}} de plus",
+      "showLess": "Réduire",
+      "guardrails": {
+        "check": {
+          "mode": "Mode de permission",
+          "timeout": "Si vous ne répondez pas",
+          "denied": "Outils bloqués",
+          "tools": "Outils effectifs"
+        },
+        "timeout": {
+          "allow": "autorisation auto",
+          "deny": "blocage auto"
+        },
+        "heading": "Garde-fous",
+        "level": {
+          "gated": "Bloqué avant l’appel d’outil",
+          "none": "Aucune porte",
+          "blocked": "Rien ne s’exécute"
+        },
+        "desc": "Indique si quelque chose arrête réellement un appel d’outil. Un garde-fou placé **juste avant l’appel** intercepte au dernier moment ; placé seulement devant le modèle, il intervient trop tard.",
+        "notePlacement": "La demande d’approbation se trouve juste avant l’appel d’outil — la position qui intercepte le plus tard et au moindre coût.",
+        "noteNone": "Aucune demande d’approbation n’apparaît, donc rien n’intercepte un appel d’outil avant son exécution."
+      },
+      "humanInTheLoop": {
+        "yes": "oui",
+        "no": "non",
+        "heading": "Intervention humaine",
+        "check": {
+          "irreversible": "Outils irréversibles",
+          "prompt": "Demande d’approbation",
+          "reversible": "Travail réversible"
+        },
+        "level": {
+          "present": "Confirmation présente",
+          "absent": "Aucune confirmation",
+          "notNeeded": "Pas nécessaire ici"
+        },
+        "desc": "Vérifie qu’une confirmation humaine se trouve devant les actions irréversibles. Tout approuver rend l’approbation vide de sens ; ne rien approuver provoque des incidents — le critère est la réversibilité.",
+        "note": "Mieux que d’ajouter des approbations : rendre les actions annulables — corbeille au lieu de suppression, versions au lieu d’écrasement, brouillon au lieu d’envoi."
+      },
+      "allowlist": {
+        "level": {
+          "partial": "Partiel",
+          "narrow": "Étroit",
+          "all": "Tout accordé"
+        },
+        "check": {
+          "denied": "Bloqués explicitement",
+          "granted": "Accordés",
+          "missing": "Non accordés"
+        },
+        "heading": "Liste d’autorisation",
+        "desc": "Montre à quel point cet agent se rapproche de « seuls ceux-ci sont autorisés ». Une liste de blocage laisse passer ce qu’on a oublié ; une liste d’autorisation échoue du côté sûr avec le temps.",
+        "note": "L’endroit où une liste d’autorisation rapporte le plus, ce sont les destinations réseau — cela seul rétrécit la dernière étape d’une fuite."
+      },
+      "sandboxing": {
+        "level": {
+          "shared": "Arbre partagé",
+          "isolated": "Worktree isolé"
+        },
+        "heading": "Bac à sable",
+        "check": {
+          "filesystem": "Système de fichiers",
+          "network": "Réseau",
+          "execution": "Mode d’exécution"
+        },
+        "worktree": "worktree séparé",
+        "sameTree": "même arbre de travail",
+        "noNetworkIsolation": "non isolé",
+        "desc": "Indique si l’agent tourne sur une copie isolée. L’isolation du système de fichiers ne suffit pas — sans isolation réseau, la dernière étape d’une fuite reste ouverte.",
+        "note": "Vibisual isole le système de fichiers via git worktree. Le réseau n’est pas isolé : les chemins vers l’extérieur restent ouverts même dans un worktree."
+      },
+      "nonHumanIdentity": {
+        "check": {
+          "owner": "Propriétaire",
+          "sessions": "Sessions",
+          "id": "Identité"
+        },
+        "ours": "Vibisual (agent personnalisé)",
+        "claudeCode": "Claude Code (session par hook)",
+        "heading": "Identité non humaine",
+        "level": {
+          "owned": "Nous pouvons l’arrêter",
+          "external": "Appartient à Claude Code"
+        },
+        "desc": "Pose la question pratique : pouvez-vous couper **cet agent-là seulement**, maintenant ? Si la réponse est « il faudrait tout arrêter », il n’y a pas de conception d’identité.",
+        "noteOwned": "Nous avons créé cet agent : il porte ses propres réglages et peut être arrêté seul.",
+        "noteExternal": "Cette session a été enregistrée via des hooks et appartient à Claude Code — nous n’avons aucune poignée pour l’arrêter seule."
+      },
+      "containment": {
+        "check": {
+          "leak": "Chemin de fuite",
+          "radius": "Rayon d’explosion",
+          "isolation": "Isolation"
+        },
+        "isolated": "worktree",
+        "heading": "Confinement",
+        "level": {
+          "contained": "Confiné",
+          "partial": "Partiellement confiné",
+          "open": "Non confiné"
+        },
+        "possible": "possible",
+        "broken": "rompu",
+        "shared": "arbre partagé",
+        "desc": "Suppose que l’attaque réussit et demande ce qui reste possible. La sécurité ne vient pas du filtre le plus agressif, mais d’un rayon structurellement limité une fois la brèche ouverte.",
+        "note": "Demandez « qu’est-ce qui est possible une fois passé », et non « comment bloquer ». Si vous ne savez pas répondre à la première, la conception n’est pas terminée."
+      },
+      "auditTrail": {
+        "level": {
+          "partial": "Partiel",
+          "traceable": "Traçable",
+          "empty": "Pas encore de trace"
+        },
+        "check": {
+          "turns": "Tours enregistrés",
+          "sessions": "ID de session",
+          "last": "Dernière activité"
+        },
+        "heading": "Piste d’audit",
+        "desc": "Compte ce qu’il reste de la trace de cet agent — tours enregistrés et identifiants de session conservés — pour que « qui a fait cela » reste répondable après coup.",
+        "note": "Conserver le journal d’exécution d’origine, estampiller les décisions avec leur session source et marquer les commits avec l’agent comme co-auteur : voilà le minimum."
+      },
+      "contextRot": {
+        "level": {
+          "low": "Il reste de la marge",
+          "unknown": "Inconnu",
+          "high": "Presque plein",
+          "half": "Au-delà de la moitié"
+        },
+        "check": {
+          "sessions": "Sessions",
+          "fill": "Rempli",
+          "tokens": "Jetons"
+        },
+        "heading": "Dégradation du contexte",
+        "desc": "Montre à quel point la fenêtre de contexte est remplie. Sa taille est un plafond, pas un objectif — la qualité chute souvent nettement dès la moitié, et des informations parasites qui se ressemblent nuisent plus que la seule longueur.",
+        "noteLow": "Il reste de la marge. Mesurez votre fenêtre utile avec du travail réel plutôt que de vous fier à la taille annoncée.",
+        "noteHigh": "Écrivez décisions et chemins de fichiers dans un fichier avant que la compaction ne s’exécute — les résumés abandonnent d’abord le concret."
+      },
+      "costPerTask": {
+        "level": {
+          "moderate": "Modéré",
+          "light": "Faible",
+          "heavy": "Élevé",
+          "idle": "Rien de dépensé"
+        },
+        "check": {
+          "turns": "Tours",
+          "tokens": "Entrée / sortie",
+          "perTurn": "Jetons par tour",
+          "usd": "Coût estimé"
+        },
+        "heading": "Coût par tâche",
+        "desc": "Regarde le coût par **tâche accomplie** plutôt que par jeton, et affiche les jetons par tour — un travail de fond au rendement faible peut absorber discrètement l’essentiel de la facture.",
+        "note": "L’estimation ne compte que l’entrée et la sortie ; les jetons de cache ne sont pas cumulés par session, le montant réel est donc un peu plus élevé."
+      },
+      "modelRouting": {
+        "check": {
+          "model": "Modèle",
+          "effort": "Effort",
+          "turns": "Tours jusqu’ici"
+        },
+        "heading": "Routage de modèles",
+        "level": {
+          "fit": "Adapté au travail",
+          "upgrade": "Envisager de promouvoir",
+          "downgrade": "Envisager de rétrograder"
+        },
+        "desc": "Place le modèle actuel à côté de l’ampleur du travail pour faire de la promotion ou de la rétrogradation une décision visible. Il ne change jamais de modèle à votre place — cela reste votre choix.",
+        "advice": {
+          "fit": "Le modèle et la charge semblent accordés. Les cascades paient lorsque le modèle bon marché traite la majorité facile.",
+          "upgrade": "C’est devenu une tâche longue sur un petit modèle. Promouvoir coûte généralement moins que multiplier les reprises.",
+          "downgrade": "Une tâche courte sur le plus gros modèle. Un modèle moins cher aurait très probablement abouti au même résultat."
+        }
+      },
+      "reasoningEffort": {
+        "level": {
+          "normal": "Normal",
+          "deep": "Réflexion profonde",
+          "overthinking": "Possible sur-réflexion"
+        },
+        "check": {
+          "effort": "Effort",
+          "turns": "Tours jusqu’ici",
+          "model": "Modèle"
+        },
+        "heading": "Effort de raisonnement",
+        "desc": "Affiche l’effort de raisonnement à côté de l’ampleur du travail. Réfléchir plus n’est pas toujours mieux — il existe une plage mesurée où la délibération supplémentaire abaisse la justesse sur des tâches simples et factuelles.",
+        "noteMeasure": "Augmentez puis mesurez, plutôt que de laisser le maximum activé — monter le curseur coûte des jetons à chaque tour.",
+        "noteOverthinking": "Réflexion maximale sur une tâche très courte. C’est précisément la plage où le coût monte et où la justesse peut baisser."
+      },
+      "toolUse": {
+        "level": {
+          "lean": "Restreint",
+          "moderate": "Modéré",
+          "all": "Tout chargé"
+        },
+        "check": {
+          "count": "Outils",
+          "tokens": "Jetons de schéma",
+          "share": "Part de la fenêtre"
+        },
+        "heading": "Usage des outils",
+        "desc": "Montre quelle part de la fenêtre de contexte les seules définitions d’outils occupent. Au-delà de quelques dizaines d’outils, les définitions coûtent des dizaines de milliers de jetons et la justesse de sélection baisse avec elles.",
+        "note": "Retirer les outils que cet agent n’utilise jamais améliore à la fois le coût et la justesse de sélection."
+      },
+      "tokenBudget": {
+        "check": {
+          "share": "Part de la fenêtre",
+          "window": "Fenêtre",
+          "fixed": "Sections fixes",
+          "rules": "Règles d’agent (jetons approx.)"
+        },
+        "heading": "Budget de jetons",
+        "level": {
+          "ok": "Coût fixe faible",
+          "heavy": "Coût fixe élevé"
+        },
+        "desc": "Découpe d’abord la fenêtre de contexte en sections fixes. Sans budget par section, une section pousse discrètement les autres dehors — c’est ainsi que les instructions se retrouvent tronquées un jour chargé.",
+        "note": "Le nombre de caractères divisé par quatre approxime les jetons. Fixez les plafonds comme constantes et précisez ce qui est coupé en cas de dépassement."
+      },
+      "systemPrompt": {
+        "level": {
+          "long": "Long",
+          "none": "Aucune règle propre",
+          "sized": "Taille raisonnable"
+        },
+        "check": {
+          "rules": "Caractères de règles",
+          "skills": "Compétences",
+          "rulesTokens": "Jetons de règles",
+          "base": "Prompt de base"
+        },
+        "heading": "Prompt système",
+        "desc": "Montre la taille de la couche d’instructions toujours active. Un prompt système doit être à la bonne altitude — trop précis il devient fragile, trop abstrait il est ignoré.",
+        "note": "Le travail de fond comme résumer ou classer a rarement besoin d’un prompt généraliste — un prompt court et dédié, sans outils, est souvent la bonne réponse.",
+        "noteLong": "Ces règles voyagent à chaque tour. Longues, elles coûtent des jetons en continu et se diluent en premier quand la session s’allonge."
+      },
+      "subagent": {
+        "check": {
+          "sessions": "Sessions",
+          "running": "Tâches en cours",
+          "kinds": "Types"
+        },
+        "heading": "Isolation des sous-agents",
+        "level": {
+          "isolated": "Sessions isolées",
+          "delegating": "Délègue actuellement",
+          "single": "Fil unique"
+        },
+        "desc": "Indique si l’isolation du contexte a réellement lieu. L’intérêt d’un sous-agent n’est pas la vitesse mais de tenir les notes d’exploration et les sorties d’outils verbeuses hors du fil principal.",
+        "note": "L’isolation achète un contexte propre et crée un nouveau goulot — la qualité de passation. Le fil principal doit voir des résultats, pas la recherche."
+      },
+      "fanOut": {
+        "heading": "Éventail",
+        "check": {
+          "branches": "Branches",
+          "oldest": "Branche la plus ancienne"
+        },
+        "level": {
+          "none": "Aucune branche",
+          "parallel": "Exécution en parallèle",
+          "wide": "Éventail large"
+        },
+        "desc": "Compte combien de branches tournent simultanément. Le parallélisme ne paie que si les sous-tâches sont réellement indépendantes ; sinon il produit du travail en double et des conclusions contradictoires.",
+        "note": "Décidez de la façon de fusionner avant de découper. Sans règle de fusion, l’intégration devient le goulot.",
+        "noteWide": "Beaucoup de branches à la fois. Vérifiez qu’elles sont vraiment indépendantes — si elles ont besoin l’une de l’autre, le séquentiel revient moins cher."
+      },
+      "orchestrator": {
+        "level": {
+          "mixed": "Mixte",
+          "worker": "Fait le travail",
+          "supervisor": "Supervise"
+        },
+        "check": {
+          "running": "En cours",
+          "delegated": "Sessions déléguées",
+          "turns": "Tours propres"
+        },
+        "heading": "Orchestrateur",
+        "desc": "Indique si cet agent joue le rôle de superviseur ou fait le travail lui-même. Rassembler des agents sans superviseur est un anti-modèle connu — l’échelle grandit, la fiabilité baisse.",
+        "note": "La forme recommandée est un superviseur qui juge, l’exécution réelle des outils se situant en dessous."
+      },
+      "planAndExecute": {
+        "check": {
+          "turns": "Tours",
+          "steps": "Étapes",
+          "progress": "Progression"
+        },
+        "heading": "Planifier puis exécuter",
+        "level": {
+          "noPlan": "Aucun plan enregistré",
+          "running": "En cours",
+          "done": "Plan terminé"
+        },
+        "desc": "Indique s’il existe un plan et jusqu’où il a avancé. Écrit dans un fichier, le plan survit à la compaction — c’est la principale raison d’en tenir un.",
+        "note": "Un plan que l’utilisateur peut approuver et modifier vaut mieux qu’un démarrage plus rapide.",
+        "noteNoPlan": "Aucun plan enregistré pour l’instant. Pour un travail à nombreuses étapes ordonnées, un plan écrit est ce qui empêche le fil de se perdre."
+      },
+      "reactPattern": {
+        "check": {
+          "turns": "Tours",
+          "plan": "Plan enregistré"
+        },
+        "yes": "oui",
+        "no": "non",
+        "heading": "ReAct",
+        "level": {
+          "healthy": "Sain",
+          "drifting": "Peut dériver",
+          "idle": "Pas démarré"
+        },
+        "desc": "Alterner raisonnement et action est la forme par défaut, pas une option parmi d’autres. Cette carte guette le signal que cela ne suffit plus — une longue série sans rien de consigné.",
+        "note": "Les signaux que ReAct seul ne suffit pas : tourner autour du même outil, perdre l’objectif, passer à la suite sans vérifier.",
+        "noteDrifting": "Une longue série sans plan enregistré. C’est là qu’un plan écrit ou une étape de vérification s’amortit généralement."
+      },
+      "scopeCreep": {
+        "heading": "Portée",
+        "check": {
+          "first": "Premier enregistrement",
+          "peak": "Pic",
+          "last": "Dernier"
+        },
+        "level": {
+          "unknown": "Aucun plan à comparer",
+          "grew": "A augmenté",
+          "stable": "Stable",
+          "shrank": "A diminué"
+        },
+        "desc": "Surveille la liste de tâches, sa croissance comme son rétrécissement silencieux. En collaboration avec une IA, le sens décroissant compte tout autant — on croit que tout est fait et on s’en aperçoit tard.",
+        "note": "Le périmètre relève de la décision de celui qui donne les instructions, pas de la latitude du modèle.",
+        "noteGrew": "La liste a nettement dépassé son point de départ. Il vaut la peine de vérifier si cette croissance a été convenue.",
+        "noteShrank": "La liste a rétréci par rapport à son maximum. Confirmez que ces éléments ont été terminés et non abandonnés."
+      },
+      "reviewGate": {
+        "check": {
+          "reviews": "Demandes de revue",
+          "checkpoints": "Points de contrôle"
+        },
+        "heading": "Porte de revue",
+        "level": {
+          "none": "Aucune revue demandée",
+          "noPoints": "Aucun point de contrôle",
+          "present": "Vérifiable"
+        },
+        "desc": "Compte si l’achèvement a été transmis sous une forme vérifiable. Les longs rapports en prose ne sont pas lus ; une liste de changements plus des points de contrôle, si.",
+        "note": "Ce qui rend la revue peu coûteuse, c’est de séparer « ce qui a changé » de « ce qu’il faut vérifier »."
+      },
+      "structuredOutput": {
+        "level": {
+          "structured": "Structuré",
+          "prose": "Texte seulement"
+        },
+        "check": {
+          "reports": "Rapports de travail",
+          "reviews": "Demandes de revue",
+          "userActions": "Actions qui vous reviennent"
+        },
+        "heading": "Sortie structurée",
+        "desc": "Indique si cet agent rend compte via un schéma plutôt qu’en prose. Dès que la sortie d’un agent devient l’entrée d’un autre, un échec d’analyse arrête la chaîne.",
+        "note": "Paquets de passation, résultats de notation et arguments d’outils se reçoivent mieux en schémas qu’en phrases."
+      },
+      "instructionDrift": {
+        "level": {
+          "noRules": "Aucune règle permanente",
+          "rising": "En dilution",
+          "high": "Probablement dilué",
+          "fresh": "Encore frais"
+        },
+        "check": {
+          "rules": "Règles permanentes",
+          "turns": "Tours",
+          "skills": "Compétences"
+        },
+        "yes": "oui",
+        "no": "non",
+        "heading": "Dérive des instructions",
+        "desc": "Les instructions initiales perdent leur prise à mesure que la session s’allonge, et la compaction les dilue plus vite. « Je l’ai dit une fois » ne tient pas.",
+        "note": "Les contraintes importantes doivent être réinjectées à chaque tour, ou marquées comme section préservée à travers la compaction.",
+        "noteLong": "La session est assez longue pour que les instructions initiales se soient probablement estompées. Redites les contraintes qui comptent encore."
+      },
+      "semanticMemory": {
+        "level": {
+          "none": "Pas encore de mémoire",
+          "contested": "Emplacements contestés",
+          "settled": "Stabilisé"
+        },
+        "check": {
+          "cards": "Cartes stockées",
+          "current": "Vérités actuelles",
+          "contested": "Contesté"
+        },
+        "heading": "Mémoire sémantique",
+        "desc": "Compte combien de faits sont réellement établis. Ce qui compte n’est pas le nombre de cartes stockées mais le nombre d’emplacements portant **une seule vérité actuelle** ; ceux dont la valeur s’est scindée attendent un humain.",
+        "note": "L’échelle décide du stockage : quelques centaines d’entrées vont dans des fichiers, des centaines de milliers dans un magasin vectoriel. Choisir l’infrastructure avant de mesurer l’échelle est la sur-conception classique."
+      },
+      "memoryInvalidation": {
+        "level": {
+          "none": "Pas encore de mémoire",
+          "clean": "Rien de signalé",
+          "pending": "À vérifier"
+        },
+        "check": {
+          "needsCheck": "Marquées obsolètes",
+          "review": "En attente de décision",
+          "cards": "Cartes stockées"
+        },
+        "heading": "Invalidation de mémoire",
+        "desc": "Une mémoire absente fait dire au modèle qu’il ne sait pas ; une mémoire périmée produit des erreurs affirmées avec assurance. Marquer plutôt que supprimer laisse juger la personne suivante.",
+        "note": "Dans le code, une modification du fichier lié est le signal d’obsolescence le plus précis — la correspondance de chemin ne laisse presque aucun faux positif.",
+        "notePending": "Certaines cartes ont été signalées parce que leurs fichiers liés ont changé. Comparez-les au code actuel puis confirmez-les ou retirez-les."
+      },
+      "forgettingPolicy": {
+        "level": {
+          "none": "Pas encore de mémoire",
+          "full": "Proche du budget",
+          "room": "Dans le budget"
+        },
+        "check": {
+          "archived": "Archivées",
+          "used": "Utilisation du budget",
+          "share": "Part"
+        },
+        "heading": "Politique d’oubli",
+        "desc": "Une politique de stockage est plus simple qu’une politique d’oubli. Une mémoire qui ne fait que croître perd en précision de recherche jusqu’à valoir moins que pas de mémoire du tout.",
+        "note": "La forme sûre est un budget global dont le débordement **part à l’archive au lieu d’être supprimé** — une suppression définitive automatique ne laisse aucun retour possible."
+      },
+      "supersede": {
+        "level": {
+          "none": "Pas encore de mémoire",
+          "flat": "Pas encore d’historique",
+          "history": "Historique conservé"
+        },
+        "heading": "Remplacement",
+        "check": {
+          "stored": "Stockées",
+          "current": "Actuelles",
+          "closed": "Fermées"
+        },
+        "desc": "Quand un savoir nouveau contredit l’ancien, clore vaut mieux que supprimer. Deux horodatages — ouvert et clos — donnent à la fois un enregistrement immuable et un présent propre.",
+        "note": "La contradiction ne se réduit pas à la similarité — la négation compte, pour que « utiliser A » et « ne jamais utiliser A » soient reconnus comme le même sujet."
+      },
+      "memoryDrift": {
+        "level": {
+          "none": "Pas encore de mémoire",
+          "immutable": "Entrées immuables",
+          "queued": "En attente de jugement"
+        },
+        "check": {
+          "review": "En attente de décision",
+          "rewrite": "Voie de réécriture",
+          "unseen": "Non vues"
+        },
+        "heading": "Dérive de mémoire",
+        "noRewritePath": "inexistant par conception",
+        "desc": "Réécrire sans cesse une mémoire la polit jusqu’à l’éloigner de l’original, et des détails inventés finissent par durcir en faits. La défense est de garder les entrées immuables.",
+        "note": "Mettre à jour, c’est ajouter une entrée et clore l’ancienne. Il n’existe aucun chemin où le modèle réécrit un texte existant."
+      },
+      "memoryConsolidation": {
+        "level": {
+          "none": "Pas encore de mémoire",
+          "pending": "Nouvelles cartes non vues",
+          "settled": "Revu"
+        },
+        "check": {
+          "recent": "Le plus récent",
+          "archived": "Archivées",
+          "unseen": "Cartes non vues"
+        },
+        "heading": "Consolidation de mémoire",
+        "desc": "Distiller des épisodes en faits n’est pas gratuit — c’est une opération avec perte. Gardez l’original et ajoutez la distillation au lieu de la remplacer.",
+        "note": "Deux pièges : un résumé naïf perd des faits encodés, et une déduplication faible laisse de nouveaux enregistrements écraser d’anciens encore valides."
+      },
+      "episodicMemory": {
+        "level": {
+          "empty": "Rien d’enregistré",
+          "partial": "Tours seulement",
+          "kept": "Sessions conservées"
+        },
+        "check": {
+          "turns": "Tours enregistrés",
+          "sessions": "Journaux de session"
+        },
+        "heading": "Mémoire épisodique",
+        "desc": "L’expérience brute est une preuve de premier ordre. Ne garder que des résumés, c’est perdre toute base pour les vérifier ou annuler leurs erreurs.",
+        "note": "Le savoir extrait devrait porter sa session source et son horodatage, afin de pouvoir remonter à l’original."
+      },
+      "proceduralMemory": {
+        "check": {
+          "skills": "Compétences",
+          "rules": "Règles permanentes"
+        },
+        "yes": "oui",
+        "no": "non",
+        "heading": "Mémoire procédurale",
+        "level": {
+          "filed": "Consigné en fichiers",
+          "none": "Rien de consigné"
+        },
+        "desc": "Des trois couches de mémoire, c’est celle où les fichiers sont clairement la bonne réponse — une procédure n’a pas besoin d’être retrouvée, elle est nécessaire d’un bloc au moment de la tâche.",
+        "note": "Les fichiers de compétences et les définitions d’agents sont la forme physique de la mémoire procédurale, et la gestion de versions est leur avantage décisif sur un magasin vectoriel."
+      },
+      "workingMemory": {
+        "level": {
+          "live": "Chargé",
+          "empty": "Rien de chargé"
+        },
+        "check": {
+          "context": "Contexte utilisé",
+          "events": "Événements d’injection",
+          "injected": "Cartes injectées"
+        },
+        "heading": "Mémoire de travail",
+        "desc": "Rapide, et disparue à la fin de la session. Elle seule ne fera jamais un système qui s’améliore à l’usage — mais vouloir tout promouvoir en mémoire longue échoue tout autant.",
+        "note": "L’essentiel d’une conversation doit être consommé puis jeté. Décider de ce qui est promu est la première étape de la conception mémoire."
+      },
+      "memoryTool": {
+        "level": {
+          "pushed": "Poussé seulement",
+          "active": "Recherche active",
+          "unused": "Non utilisé"
+        },
+        "heading": "Outil de mémoire",
+        "check": {
+          "spawn": "Au démarrage",
+          "file": "À l’accès fichier",
+          "search": "Recherchées"
+        },
+        "desc": "Sépare la mémoire poussée au démarrage de celle que l’agent est allé chercher. Les notes en fichiers survivent à la compaction, ce qui en fait la forme la plus légère de mémoire durable.",
+        "note": "Essayez les notes en fichiers avant de monter une infrastructure vectorielle dédiée — le surcoût est quasi nul."
+      },
+      "progressiveDisclosure": {
+        "level": {
+          "none": "Aucune injection",
+          "lean": "Restreint",
+          "repeating": "Se répète"
+        },
+        "check": {
+          "events": "Événements d’injection",
+          "repeats": "Répété",
+          "cards": "Total de cartes"
+        },
+        "heading": "Divulgation progressive",
+        "desc": "Plutôt que tout charger d’emblée, on remet un index et on laisse chercher le contenu quand il compte. Cette carte surveille si, à la place, le même paquet est réinjecté sans cesse.",
+        "note": "Coller des documents entiers, c’est fabriquer sciemment de la dégradation de contexte. « Si la tâche est X, lis le fichier Y » fait la même chose pour une fraction du coût."
+      },
+      "contextPollution": {
+        "check": {
+          "sessions": "Sessions",
+          "turns": "Tours",
+          "perSession": "Tours par session"
+        },
+        "heading": "Pollution du contexte",
+        "level": {
+          "clean": "Propre",
+          "ok": "Acceptable",
+          "mixed": "Très mélangé"
+        },
+        "desc": "La dégradation est une affaire de longueur, la pollution une affaire de mélange. Journaux d’essais ratés et approches abandonnées s’attardent — et une conclusion intermédiaire fausse continue d’être tenue pour un fait.",
+        "note": "C’est la vraie raison d’utiliser des sous-agents — non la vitesse, mais permettre à chaque sous-tâche de partir d’un contexte propre.",
+        "noteMixed": "Beaucoup de tours s’accumulent dans peu de sessions. Isoler la prochaine sous-tâche dans sa propre session empêche les mauvais milieux de suivre."
+      },
+      "agentHarness": {
+        "check": {
+          "model": "Modèle",
+          "tools": "Outils",
+          "skills": "Compétences",
+          "isolation": "Isolation",
+          "permission": "Permission"
+        },
+        "heading": "Harnais d’agent",
+        "level": {
+          "bare": "Presque nu",
+          "basic": "Basique",
+          "rich": "Bien équipé"
+        },
+        "desc": "Rassemble tout ce qui entoure le modèle — outils, permission, isolation, compétences, règles. Le même modèle donne des résultats très différents selon cette couche, et c’est là que la concurrence s’est déplacée.",
+        "note": "Les scores de benchmark charrient une inflation liée au scaffold — le même modèle obtient d’autres chiffres sous un autre harnais, donc comparez les harnais, pas seulement les modèles."
+      },
+      "scaffold": {
+        "level": {
+          "partial": "Partiel",
+          "none": "Aucun échafaudage",
+          "full": "Règles et compétences"
+        },
+        "check": {
+          "rules": "Caractères de règles",
+          "skills": "Compétences",
+          "maxTurns": "Plafond de tours"
+        },
+        "heading": "Échafaudage",
+        "desc": "Montre la quantité de colle écrite autour du modèle — règles, compétences, plafonds de tours. Les gains des agents longue durée viennent bien plus d’un meilleur échafaudage que d’un modèle plus intelligent.",
+        "note": "Les articles disent « échafaudage », les produits disent « harnais ». La même chose avec une nuance différente — structure de code d’un côté, exploitation de l’autre."
+      },
+      "agentLoop": {
+        "check": {
+          "turns": "Tours",
+          "cap": "Plafond de tours",
+          "avg": "Écart moyen"
+        },
+        "none": "aucun",
+        "heading": "Boucle d’agent",
+        "level": {
+          "capped": "Plafonné",
+          "idle": "Pas en cours",
+          "uncapped": "Sans plafond de tours"
+        },
+        "desc": "Montre le rythme de la boucle et si elle possède une condition d’arrêt. Une boucle incapable de s’arrêter elle-même transforme plafond de tours et arrêt d’urgence en dispositifs de sécurité, non en commodités.",
+        "note": "Mesurer le coût et le temps d’un tour de boucle est le point de départ de l’exploitation d’un agent.",
+        "noteUncapped": "Aucun plafond de tours n’est défini. Sans plafond, la seule chose qui arrête la boucle, c’est que vous le remarquiez."
+      },
+      "handoffPacket": {
+        "level": {
+          "structured": "Structuré",
+          "none": "Aucune passation",
+          "free": "Format libre"
+        },
+        "check": {
+          "edges": "Liens de tâche",
+          "outgoing": "Sortants",
+          "templated": "Depuis un modèle"
+        },
+        "heading": "Passation",
+        "desc": "Compte la façon dont le travail est transmis. Le vrai goulot des systèmes multi-agents est la qualité de passation, pas la puissance du modèle — transmis en prose libre, quelque chose fuit à chaque fois.",
+        "note": "Fixez la forme du paquet — objectif, ce qui a été tenté, contraintes, où se trouve le résultat et ce qui n’a pas pu être confirmé."
+      },
+      "verifierCritic": {
+        "check": {
+          "critiques": "Liens de critique",
+          "incoming": "Critique reçue"
+        },
+        "heading": "Vérificateur et critique",
+        "level": {
+          "selfReview": "Auto-revue seulement",
+          "separated": "Séparé"
+        },
+        "desc": "Vérifie que celui qui écrit et celui qui contrôle sont séparés. Un critique partageant les angles morts de l’auteur se contente de tamponner de mauvaises réponses.",
+        "note": "La vérification exécutable — tests, lint, typage — est moins chère et plus juste qu’un critique ; placez-la avant.",
+        "noteSelf": "Aucun lien de critique. Relire son propre résultat finit généralement en validation formelle ; ce qui attrape vraiment, c’est un critique distinct ou une vérification exécutable."
+      },
+      "hookLifecycle": {
+        "level": {
+          "normal": "Normal",
+          "busy": "Se déclenche souvent",
+          "quiet": "Calme"
+        },
+        "heading": "Cycle de vie des hooks",
+        "check": {
+          "events": "Événements enregistrés",
+          "rate": "Par minute"
+        },
+        "desc": "Les hooks arrivent plus souvent qu’on ne le croit — penser qu’un hook « fin de session » se déclenche une fois alors qu’il se déclenche à chaque tour est une cause classique d’emballement.",
+        "note": "Une E/S synchrone dans un hook fige l’agent exactement d’autant. Mettez plutôt en file d’attente et regroupez."
+      },
+      "contextWindow": {
+        "heading": "Fenêtre de contexte",
+        "check": {
+          "configured": "Configuré",
+          "peak": "Usage maximal",
+          "headroom": "Marge"
+        },
+        "level": {
+          "deep": "Fortement rempli",
+          "unused": "Non mesuré",
+          "shallow": "Faible"
+        },
+        "desc": "La fenêtre est un plafond, pas un objectif. « Ce modèle a 200k, donc 150k passent » ne suit pas — mesurez votre fenêtre utile avec du travail réel.",
+        "note": "Ne vous fiez pas aux scores type aiguille dans une botte de foin — ils mesurent une recherche lexicale, pas la difficulté d’un vrai travail à long contexte."
+      },
+      "testTimeCompute": {
+        "check": {
+          "effort": "Effort",
+          "turns": "Tours",
+          "model": "Modèle"
+        },
+        "heading": "Calcul à l’inférence",
+        "level": {
+          "baseline": "Référence",
+          "unmeasured": "Augmenté, non mesuré",
+          "invested": "Augmenté et utilisé"
+        },
+        "desc": "Acheter du temps de réflexion plutôt qu’un modèle plus gros est rentable sur une large plage. En pratique, qualité, latence et coût sont devenus un cadran que l’on tourne par tâche.",
+        "note": "Monter le cadran sur un travail facile est du pur gaspillage. Ajustez la quantité de réflexion à la difficulté."
+      },
+      "extendedThinking": {
+        "check": {
+          "effort": "Effort",
+          "context": "Contexte utilisé"
+        },
+        "heading": "Réflexion étendue",
+        "level": {
+          "off": "Désactivé",
+          "on": "Activé",
+          "onLoaded": "Activé, fenêtre se remplit"
+        },
+        "desc": "Délibérer longuement avant de répondre aide pour la planification, le débogage et le raisonnement en plusieurs étapes — mais les jetons de réflexion occupent aussi la fenêtre et sont facturés.",
+        "note": "Montrer ou non la réflexion à l’utilisateur est une décision produit — cela inspire confiance, mais les suppositions intermédiaires fausses se lisent comme des conclusions arrêtées.",
+        "noteOn": "La réflexion profonde est active et la fenêtre se remplit. Sur les longues sessions, purger les anciens blocs de réflexion devient nécessaire et non optionnel."
+      },
+      "reflexion": {
+        "check": {
+          "reports": "Rapports de travail",
+          "learned": "Leçons consignées"
+        },
+        "heading": "Autocritique (Reflexion)",
+        "level": {
+          "none": "Aucun rapport",
+          "noLessons": "Aucune leçon consignée",
+          "accruing": "Leçons en accumulation"
+        },
+        "desc": "L’autocritique fonctionne quand elle repose sur un signal exécutable, comme un test qui échoue. Une réflexion sans preuve n’est qu’un bruit plausible.",
+        "note": "Ce motif fonctionne surtout en programmation, où les tests jouent le juge objectif. Là où un tel juge manque, sa valeur chute fortement."
+      },
+      "contextEngineering": {
+        "heading": "Ingénierie du contexte",
+        "check": {
+          "applied": "Motifs appliqués",
+          "tools": "Outils chargés",
+          "memory": "Injections de mémoire"
+        },
+        "level": {
+          "default": "Valeurs par défaut seulement",
+          "designed": "Délibéré",
+          "partial": "Partiellement appliqué"
+        },
+        "desc": "Compte combien de motifs de contexte cet agent utilise réellement — index plutôt qu’injection, élagage des outils, recherche active, contrôle de la réflexion.",
+        "note": "La question est passée de « comment formuler le prompt » à « que lui montrer »."
+      },
+      "agentSkills": {
+        "level": {
+          "loaded": "Compétences attachées",
+          "none": "Aucune compétence"
+        },
+        "check": {
+          "count": "Compétences",
+          "idleCost": "Coût permanent (jetons approx.)"
+        },
+        "heading": "Compétences d’agent",
+        "desc": "Les compétences fournissent un savoir procédural sous forme de fichiers plutôt que de texte de prompt. Noms et descriptions se chargent au démarrage, le corps seulement s’il est pertinent — des dizaines de compétences n’augmentent donc presque pas le coût permanent.",
+        "note": "Les procédures réutilisables — étapes de déploiement, listes de revue, usage d’API internes — appartiennent à des fichiers versionnés, pas à un prompt."
+      },
+      "trajectoryEval": {
+        "check": {
+          "turns": "Tours",
+          "sessions": "Sessions",
+          "density": "Tours par session",
+          "edges": "Liens de tâche"
+        },
+        "heading": "Évaluation de trajectoire",
+        "level": {
+          "short": "Trajet direct",
+          "long": "Trajet long",
+          "none": "Rien à noter"
+        },
+        "desc": "Note la manière dont la réponse a été atteinte, pas la réponse elle-même. Le même résultat après 3 et après 40 appels d’outils sont deux systèmes différents, et une évaluation du seul résultat ne voit pas cet écart.",
+        "note": "Observer l’ordre des appels d’outils attrape les schémas coûteux ou risqués avant qu’ils n’atteignent la production."
+      },
+      "eval": {
+        "check": {
+          "repeated": "Répété",
+          "unique": "Instructions distinctes"
+        },
+        "heading": "Évaluation",
+        "level": {
+          "none": "Pas encore d’instructions",
+          "single": "Exécutions uniques",
+          "repeated": "Exécutions répétées"
+        },
+        "desc": "Les agents ne sont pas déterministes : un seul passage ne fait pas preuve — la même entrée doit être vue comme une distribution. On compte ici combien de fois une instruction a réellement été répétée.",
+        "note": "Tout ce qui se vérifie de façon déterministe — format, schéma, champs requis, mots interdits — coûte moins cher et est plus juste en code qu’avec un modèle juge."
+      },
+      "goldenSet": {
+        "level": {
+          "empty": "Rien d’accumulé",
+          "accruing": "En accumulation",
+          "partial": "Cartes seulement"
+        },
+        "check": {
+          "lessons": "Leçons consignées",
+          "cards": "Cartes mémoire"
+        },
+        "heading": "Jeu de référence",
+        "desc": "La représentativité compte plus que la taille, et de vrais échecs passés doivent y figurer. Un jeu bâti uniquement sur des réussites donne toujours la note maximale.",
+        "note": "Ajouter un échec au jeu dès qu’il est trouvé est l’infrastructure qualité la moins chère qui soit — un incident devient un test de régression permanent."
+      },
+      "regressionSuite": {
+        "level": {
+          "none": "Rien d’accumulé",
+          "accruing": "En accumulation"
+        },
+        "check": {
+          "lessons": "Leçons consignées",
+          "checkpoints": "Points de contrôle"
+        },
+        "heading": "Suite de régression",
+        "desc": "Les agents défont souvent une correction antérieure parce que la raison n’est pas dans leur contexte. Un test de régression tient lieu de cette mémoire.",
+        "note": "Plus la correction est subtile, plus elle a besoin d’un test. « Change ceci et cela casse » survit bien mieux en test qu’en commentaire."
+      },
+      "traceSpan": {
+        "check": {
+          "sessions": "Sessions",
+          "spans": "Spans",
+          "costed": "Sessions avec jetons"
+        },
+        "heading": "Trace et span",
+        "level": {
+          "empty": "Aucun span",
+          "shapeOnly": "Forme seulement",
+          "costed": "Avec coût"
+        },
+        "desc": "Une trace est le chemin complet d’une requête, les spans en sont les segments. Appels de modèle, exécutions d’outils et jugements deviennent tous des spans.",
+        "note": "Portez jetons et coût sur les spans, et l’observabilité devient du même coup une analyse de coût."
+      },
+      "observability": {
+        "heading": "Observabilité",
+        "level": {
+          "partial": "Partiel",
+          "blind": "Aucun signal",
+          "full": "Journaux, sessions, rapports"
+        },
+        "check": {
+          "turns": "Tours",
+          "sessions": "Sessions",
+          "reports": "Rapports"
+        },
+        "desc": "Pouvoir reconstruire après coup « pourquoi il a fait cela » est ce qui rend réparable un système non déterministe. Un bug non reproductible ne se corrige pas sans enregistrements.",
+        "note": "L’observation peut tuer l’application — une écriture disque synchrone à chaque événement d’outil devient elle-même le goulot. Échantillonnage, anti-rebond et lots sont les dispositifs de base."
+      },
+      "llmAsJudge": {
+        "check": {
+          "critique": "Liens de critique",
+          "human": "Revues humaines"
+        },
+        "heading": "LLM comme juge",
+        "level": {
+          "none": "Aucune notation",
+          "model": "Critique par modèle",
+          "human": "Revue humaine"
+        },
+        "desc": "Faire noter la sortie par un modèle puissant est un compromis pratique là où aucune chaîne correcte n’existe. Il a des biais connus — il préfère les réponses longues, favorise sa propre famille et se laisse influencer par l’ordre de présentation.",
+        "note": "Sans confronter la notation du juge à une notation humaine, rien ne permet de savoir que le juge lui-même se trompe."
+      },
+      "evalDrivenDevelopment": {
+        "check": {
+          "reviews": "Demandes de revue",
+          "withPoints": "Avec points de contrôle"
+        },
+        "heading": "Développement piloté par l’évaluation",
+        "level": {
+          "none": "Aucune revue",
+          "partial": "Certaines sans points",
+          "defined": "Points définis"
+        },
+        "desc": "Construire d’abord l’évaluation puis corriger vers son score. L’étape décisive a été de relier évaluation et garde-fous — le juge hors ligne est promu en barrière d’exécution.",
+        "note": "Changer un prompt sans évaluation derrière, c’est la conduite sans permis de ce domaine."
+      },
+      "hallucinationGuard": {
+        "check": {
+          "read": "Peut lire la source",
+          "execute": "Peut exécuter des vérifications"
+        },
+        "yes": "oui",
+        "no": "non",
+        "heading": "Garde anti-hallucination",
+        "level": {
+          "blind": "Ne peut pas vérifier",
+          "readOnly": "Peut seulement lire",
+          "verifiable": "Peut exécuter"
+        },
+        "desc": "Chez les agents, la forme habituelle est d’inventer une API, un fichier ou une fonction qui n’existe pas. Typage, lint et tests attrapent immédiatement les API inventées — bien plus sûrement que de demander au modèle de revérifier.",
+        "note": "Des documents périmés produisent des erreurs affirmées que la recherche ne corrige pas — elle ira chercher fidèlement la mauvaise chose."
+      },
+      "worktreeIsolation": {
+        "level": {
+          "shared": "Arbre partagé",
+          "isolated": "Isolé"
+        },
+        "check": {
+          "mode": "Isolation",
+          "merge": "Étape de fusion"
+        },
+        "heading": "Isolation par worktree",
+        "pending": "encore à venir",
+        "notNeeded": "sans objet",
+        "desc": "Dès que plusieurs agents tournent en même temps, cela devient une infrastructure nécessaire — les branches seules ne se récupèrent pas deux fois, et deux agents dans un même dossier s’écrasent mutuellement.",
+        "note": "Isoler est la moitié facile. Les dépendances doivent être installées par arbre, les conflits s’accumulent au moment de la fusion, et la conception de l’intégration est la partie la plus dure.",
+        "noteIsolated": "Le travail se fait sur un arbre séparé : une fusion reste donc à venir. C’est là que les conflits arrivent d’un coup."
+      },
+      "vibeCoding": {
+        "check": {
+          "reviews": "Revues",
+          "rules": "Caractères de règles",
+          "supervision": "Signaux de supervision"
+        },
+        "heading": "Vibe coding",
+        "level": {
+          "vibe": "Peu de supervision",
+          "mixed": "Un peu de supervision",
+          "supervised": "Supervisé"
+        },
+        "desc": "Son trait distinctif est d’accepter la sortie sans lire chaque ligne. Il n’a pas disparu — son domaine s’est rétréci aux prototypes, à l’exploration et aux outils jetables.",
+        "note": "Le critère est simplement la durée de vie exigée de ce code — un jour, c’est du vibe ; trois ans, c’est une spécification."
+      },
+      "agenticEngineering": {
+        "level": {
+          "partial": "Partiel",
+          "raw": "Aucune supervision",
+          "engineered": "Supervisé et vérifié"
+        },
+        "check": {
+          "pillars": "Signaux présents",
+          "reviews": "Revues",
+          "critique": "Liens de critique"
+        },
+        "heading": "Ingénierie agentique",
+        "desc": "La différence entre « coder avec l’IA » et « exploiter des agents » se situe ici. Programmer via des agents est devenu le défaut des experts — mais avec davantage de supervision et de relecture.",
+        "note": "Documents de règles, jeux d’évaluation, prévention des pertes et barrières de commit sont autant de dépenses anticipées — une fraction de ce que coûte un sauvetage ultérieur."
+      },
+      "rag": {
+        "check": {
+          "recent": "Le plus récent",
+          "cards": "Cartes récupérées",
+          "events": "Récupérations"
+        },
+        "heading": "RAG",
+        "level": {
+          "none": "Aucune preuve récupérée",
+          "grounded": "Preuves récupérées"
+        },
+        "desc": "Montre quelles preuves ont réellement été apportées à cet agent. Dans Vibisual ce canal est Project Brain, la carte compte donc les cartes arrivées plutôt que de deviner la qualité de la recherche.",
+        "note": "Une source fausse mais assurée ne se corrige pas par la recherche — celle-ci ira chercher fidèlement la mauvaise chose."
+      },
+      "agenticRag": {
+        "level": {
+          "static": "Poussé seulement",
+          "none": "Aucune récupération",
+          "agentic": "Recherche activement"
+        },
+        "check": {
+          "searched": "Recherches de l’agent",
+          "pushed": "Poussées au démarrage"
+        },
+        "heading": "RAG agentique",
+        "desc": "Sépare la mémoire poussée au démarrage de celle que l’agent est allé chercher. Le tout-poussé signifie que le même paquet voyage à chaque fois ; la recherche active signifie qu’il arrive au moment utile.",
+        "note": "Un pipeline figé cherche une fois ; un agent décide quand il lui en faut davantage et y retourne."
+      },
+      "grounding": {
+        "level": {
+          "partial": "Partiel",
+          "ungrounded": "Rien sur quoi s’ancrer",
+          "both": "Source et preuves"
+        },
+        "check": {
+          "source": "Peut lire la source",
+          "memory": "Cartes de preuve"
+        },
+        "yes": "oui",
+        "no": "non",
+        "heading": "Ancrage factuel",
+        "desc": "Vérifie que les affirmations sont rattachées à quelque chose de vérifiable — la capacité de lire la source, et des preuves réellement arrivées.",
+        "note": "Lire le fichier vaut mieux que s’en faire raconter le contenu. L’ancrage transforme une affirmation plausible en affirmation vérifiable."
+      },
+      "agenticFileSearch": {
+        "level": {
+          "partial": "Partiel",
+          "none": "Aucun outil de recherche",
+          "full": "Grep et Glob"
+        },
+        "yes": "oui",
+        "no": "non",
+        "heading": "Recherche de fichiers par l’agent",
+        "check": {
+          "tools": "Outils de recherche",
+          "read": "Peut lire les correspondances"
+        },
+        "desc": "Dans une base de code, parcourir le système de fichiers vaut généralement mieux que construire un index — les index vieillissent, grep voit toujours l’état actuel.",
+        "note": "Laisser l’agent explorer — estimer la complexité par la taille des fichiers, l’objet par les noms — relève de la même idée que la divulgation progressive."
+      },
+      "vectorDb": {
+        "level": {
+          "none": "Pas encore de mémoire",
+          "fits": "Les fichiers suffisent",
+          "outgrown": "Dépasse les fichiers"
+        },
+        "check": {
+          "cards": "Cartes stockées",
+          "storage": "Stockage",
+          "limit": "Limite pour fichiers"
+        },
+        "heading": "Base vectorielle",
+        "files": "fichiers markdown",
+        "desc": "L’échelle décide du stockage. Quelques centaines d’entrées vont dans des fichiers avec recherche texte ; des centaines de milliers justifient un magasin vectoriel. Choisir l’infrastructure avant de mesurer est la sur-conception classique.",
+        "note": "Vibisual garde sa mémoire dans des fichiers, délibérément. Cette carte existe pour remarquer le jour où ce choix cesse d’être rentable."
+      },
+      "gracefulDegradation": {
+        "check": {
+          "mode": "Mode de permission",
+          "policy": "Sans réponse"
+        },
+        "heading": "Dégradation maîtrisée",
+        "level": {
+          "noGate": "Aucune porte à faire échouer",
+          "failSafe": "Échoue en sécurité",
+          "failOpen": "Échoue en ouvrant"
+        },
+        "open": "autoriser (fail-open)",
+        "safe": "bloquer (fail-safe)",
+        "desc": "Un garde-fou doit échouer du côté sûr — si le jugement échoue, la réponse est bloquer, pas laisser passer. Ici la bifurcation est ce qui se produit quand une demande d’approbation reste sans réponse.",
+        "note": "Le fail-open est un choix légitime quand le travail ne doit pas s’arrêter — mais il doit être un choix, pas un défaut que personne n’a remarqué.",
+        "noteOpen": "Si vous vous absentez, les demandes sans réponse deviennent des approbations. Passez au blocage automatique pour les travaux où cela compte."
+      },
+      "idempotency": {
+        "check": {
+          "cap": "Plafond de tours",
+          "risky": "Outils risqués en cas de réessai"
+        },
+        "none": "aucun",
+        "heading": "Idempotence",
+        "level": {
+          "safe": "Outils sûrs au réessai",
+          "capped": "Risqué mais plafonné",
+          "unbounded": "Risqué et sans plafond"
+        },
+        "desc": "Les agents masquent les échecs par des reprises. Un outil non idempotent double les données à la première reprise, d’où son statut d’exigence de base plutôt que de bonne pratique.",
+        "note": "Pour les outils irréversibles, une clé d’idempotence dans le schéma est ce qui rend une reprise sûre."
+      },
+      "separationOfConcerns": {
+        "level": {
+          "mixed": "Mixte",
+          "focused": "Ciblé",
+          "broad": "Large et indivis"
+        },
+        "check": {
+          "sessions": "Sessions",
+          "breadth": "Étendue des outils"
+        },
+        "heading": "Séparation des responsabilités",
+        "desc": "Quand un agent modifie un endroit, le rayon des effets de bord donne la taille de l’incident. Bien séparé, un mauvais changement s’arrête à l’intérieur de sa frontière.",
+        "note": "La version agent de ce principe est la décomposition centrée sur le contexte — l’agent qui possède une fonctionnalité possède aussi ses tests."
+      },
+      "eventDriven": {
+        "heading": "Piloté par événements",
+        "check": {
+          "total": "Total d’événements",
+          "queued": "Depuis la file",
+          "direct": "Directes"
+        },
+        "level": {
+          "silent": "Aucun événement",
+          "flowing": "Événements en flux"
+        },
+        "desc": "Vibisual lui-même tourne sur des événements de hook ; cette carte montre donc combien de signal a réellement traversé cet agent et d’où il venait.",
+        "note": "Couplage lâche et pannes indépendantes sont le but — mais cela signifie aussi que rien ne vous prévient qu’un événement a été perdu."
+      },
+      "backpressure": {
+        "level": {
+          "idle": "Inactif",
+          "flowing": "En flux",
+          "saturated": "Saturé"
+        },
+        "check": {
+          "running": "En cours",
+          "queued": "Instructions en file"
+        },
+        "heading": "Contre-pression",
+        "desc": "Quand l’arrivée dépasse le traitement, la file grandit ; laissée à elle-même, la surcharge est soit silencieusement jetée, soit elle arrête tout.",
+        "note": "Beaucoup de branches à la fois ne font pas du débit si elles se disputent le même contexte et la même attention de revue."
+      },
+      "durableExecution": {
+        "check": {
+          "turns": "Tours",
+          "sessions": "Sessions",
+          "guarantee": "Garantie"
+        },
+        "heading": "Exécution durable",
+        "level": {
+          "checkpointed": "Avec points de reprise",
+          "fresh": "Rien à reprendre"
+        },
+        "core": "points de reprise du noyau",
+        "desc": "Les tâches longues échouent plus souvent sur un plantage en cours de route que par manque de capacité. Sauvegarder l’état régulièrement, c’est ne pas repartir de zéro.",
+        "note": "Vibisual garantit cette couche dans le cœur : un agent n’a donc jamais à construire son propre chemin de reprise."
+      },
+      "atomicWrite": {
+        "yes": "oui",
+        "no": "non",
+        "heading": "Écriture atomique",
+        "check": {
+          "agent": "L’agent écrit",
+          "core": "État du noyau"
+        },
+        "level": {
+          "readOnly": "L’agent n’écrit pas",
+          "agentWrites": "L’agent écrit"
+        },
+        "guaranteed": "atomique + sauvegardes",
+        "desc": "Mourir en pleine écriture laisse un fichier à moitié écrit, et la corruption silencieuse commence dès que le démarrage suivant le lit comme valide. Écrire dans un fichier temporaire puis permuter atomiquement est le standard.",
+        "note": "Le cœur écrit ses points de reprise et ses réglages de façon atomique avec des générations de sauvegarde. Les fichiers que l’agent écrit lui-même ne sont pas couverts par cette garantie."
+      },
+      "promptInjection": {
+        "yes": "oui",
+        "no": "non",
+        "heading": "Injection de prompt",
+        "check": {
+          "paths": "Voies d’entrée",
+          "web": "Atteint le web"
+        },
+        "level": {
+          "sealed": "Aucune voie d’entrée",
+          "narrow": "Entrée étroite",
+          "wide": "Entrée large"
+        },
+        "desc": "Compte les chemins par lesquels du texte extérieur atteint cet agent. La cause est structurelle — un modèle reçoit instructions et données sur le même flux de jetons et ne peut, par principe, les distinguer.",
+        "note": "Tout texte externe qu’un agent lit est un chemin potentiel — résultats de recherche, fichiers ouverts, README de dépendances, jusqu’à ce qu’un outil a renvoyé."
+      },
+      "owaspAsi": {
+        "level": {
+          "clear": "Rien de signalé",
+          "some": "Quelques signaux",
+          "many": "Plusieurs signaux"
+        },
+        "check": {
+          "trifecta": "Chemin de fuite",
+          "radius": "Rayon d’explosion",
+          "flags": "Signaux levés"
+        },
+        "heading": "OWASP ASI Top 10",
+        "desc": "Regroupe les jugements précédents selon les axes de risque propres aux agents. Ce qui frappe, c’est que plus de la moitié de ces risques se situent dans le harnais et non dans le modèle — d’où la possibilité de s’auto-évaluer.",
+        "note": "Détournement d’objectif, mésusage des outils, identité, empoisonnement de mémoire et agents hors contrôle sont les points les plus fréquents en pratique."
+      },
+      "goalHijack": {
+        "check": {
+          "rules": "Règles permanentes",
+          "plan": "Plan écrit"
+        },
+        "yes": "oui",
+        "no": "non",
+        "heading": "Détournement d’objectif",
+        "level": {
+          "loose": "Objectif non figé",
+          "partial": "Partiellement figé",
+          "anchored": "Figé"
+        },
+        "desc": "Une fois l’objectif lui-même échangé, chaque étape suivante aide l’attaquant de façon autonome — et comme le comportement reste extérieurement cohérent, on s’en aperçoit rarement.",
+        "note": "Gardez l’objectif à un endroit non réinscriptible — ne placez pas les instructions utilisateur et les résultats d’outils sur la même couche."
+      },
+      "memoryPoisoning": {
+        "level": {
+          "none": "Pas encore de mémoire",
+          "clean": "Rien en attente",
+          "review": "En attente de décision"
+        },
+        "check": {
+          "contested": "Contesté",
+          "needsCheck": "Marquées obsolètes",
+          "cards": "Cartes stockées"
+        },
+        "heading": "Empoisonnement de mémoire",
+        "desc": "Une injection ordinaire meurt avec la session ; une mémoire empoisonnée reste et contamine les suivantes. Pire, on lui fait davantage confiance parce qu’elle ressemble à quelque chose que le système a appris.",
+        "note": "La promotion en mémoire exige une provenance — un fait issu de l’utilisateur et une ligne lue dans un document externe ne doivent pas être stockés au même niveau de confiance."
+      },
+      "agenticSupplyChain": {
+        "level": {
+          "builtin": "Intégrés seulement",
+          "skills": "Compétences attachées",
+          "external": "Outils externes"
+        },
+        "check": {
+          "external": "Outils externes",
+          "skills": "Compétences",
+          "builtin": "Outils intégrés"
+        },
+        "heading": "Chaîne d’approvisionnement agentique",
+        "desc": "La compromission arrive par ce dont l’agent dépend — outils malveillants, serveurs non fiables, fichiers de compétences altérés. La description d’un outil est elle-même un prompt : un outil hostile peut y cacher des instructions.",
+        "note": "Traitez un serveur d’outils externe comme une délégation d’autorité, pas comme une dépendance — figez la source et la version, et réexaminez à chaque changement."
+      },
+      "cascadingFailure": {
+        "heading": "Défaillance en cascade",
+        "check": {
+          "chain": "Longueur de chaîne",
+          "gated": "Passations contrôlées"
+        },
+        "level": {
+          "single": "Aucune chaîne",
+          "chained": "Enchaîné",
+          "unchecked": "Long et sans contrôle"
+        },
+        "desc": "Une sortie fausse devient l’entrée suivante et se raffine à chaque étape en quelque chose de plus assuré. Là où une équipe humaine demanderait « est-ce correct ? », un agent le prend pour prémisse.",
+        "note": "Faites circuler l’incertitude à chaque frontière et gardez un champ « n’a pas pu être confirmé » dans la passation. L’auto-alimentation — un agent consommant son propre signal — en est la forme extrême."
+      },
+      "agentCard": {
+        "level": {
+          "partial": "Partiel",
+          "thin": "Maigre",
+          "complete": "Bien spécifié"
+        },
+        "heading": "Fiche d’agent",
+        "check": {
+          "filled": "Champs remplis",
+          "purpose": "Objectif",
+          "limits": "Limites"
+        },
+        "stated": "indiqué",
+        "unstated": "non indiqué",
+        "set": "défini",
+        "unset": "non défini",
+        "desc": "Un énoncé lisible par la machine de ce qu’un agent sait faire. Il ne devient exploitable pour une sélection automatique qu’une fois coût, latence et modes de défaillance également consignés.",
+        "note": "Tous les agents n’ont pas besoin d’une pile de découverte complète — pour des montages simples, un court fichier d’instructions suffit."
+      },
+      "toolSearch": {
+        "level": {
+          "lean": "Restreint",
+          "all": "Tout chargé",
+          "most": "Presque tout chargé"
+        },
+        "check": {
+          "loaded": "Chargé",
+          "cost": "Jetons de schéma"
+        },
+        "heading": "Recherche d’outils",
+        "desc": "Plutôt que charger chaque définition d’outil, chercher et ne charger que celle qu’il faut. Appeler un outil cent fois empile cent résultats intermédiaires dans la fenêtre ; l’exécuter comme du code ne renvoie que le résultat final.",
+        "note": "L’évolution de « donner moins d’outils » est « laisser chercher les outils ». Plus le catalogue est grand, plus le gain l’est."
+      },
+      "compactionWatch": {
+        "level": {
+          "unknown": "Inconnu",
+          "far": "Il reste de la marge",
+          "near": "Compaction proche"
+        },
+        "check": {
+          "fill": "Fenêtre remplie",
+          "sessions": "Sessions"
+        },
+        "heading": "Surveillance de la compaction",
+        "desc": "Replier les tours passés en résumé est le dispositif standard des travaux longs. Le savoir-faire consiste à savoir où se produit la perte — les résumés abandonnent d’abord les identifiants concrets.",
+        "note": "Chemins de fichiers, noms de fonctions, codes d’erreur et raisons des décisions sont exactement ce qu’un résumé jette et ce dont vous aurez besoin ensuite.",
+        "noteNear": "La fenêtre se remplit. Écrivez décisions et chemins dans un fichier avant que la compaction automatique ne s’exécute."
+      },
+      "contextEditing": {
+        "check": {
+          "turns": "Tours",
+          "fill": "Fenêtre remplie"
+        },
+        "heading": "Édition du contexte",
+        "level": {
+          "ok": "Correct pour l’instant",
+          "fresh": "Rien à élaguer",
+          "due": "Mérite d’être élagué"
+        },
+        "desc": "Au lieu de résumer, retirer par règle uniquement les anciens appels d’outils, résultats et blocs de réflexion. C’est la forme de compression la plus sûre et la moins destructrice — le texte d’un résultat d’outil déjà traité n’a que rarement besoin d’être revu.",
+        "note": "Essayez cela avant la compaction — c’est moins cher et moins risqué, et les implémentations côté serveur ne cassent plus le préfixe de cache du prompt."
+      },
+      "specDriven": {
+        "level": {
+          "partial": "Partiel",
+          "prompt": "Piloté par prompts",
+          "spec": "Piloté par spécification"
+        },
+        "check": {
+          "signals": "Signaux présents",
+          "rules": "Règles permanentes",
+          "plan": "Plan écrit"
+        },
+        "yes": "oui",
+        "no": "non",
+        "heading": "Développement piloté par la spécification",
+        "desc": "Une spécification versionnée devient la source de vérité, dont dérivent implémentation, tests et documentation. Une fois l’ambiguïté levée, l’agent travaille en dactylographe rapide plutôt qu’en décideur.",
+        "note": "Cela ne remplace pas le TDD — le TDD fige le comportement, la SDD fige exigences et contraintes. Les deux s’utilisent ensemble."
+      },
+      "preCommitGate": {
+        "yes": "oui",
+        "no": "non",
+        "heading": "Porte avant commit",
+        "check": {
+          "canCommit": "Peut exécuter git",
+          "gate": "Porte du dépôt"
+        },
+        "level": {
+          "cannot": "Ne peut pas committer",
+          "gated": "Peut committer, avec porte"
+        },
+        "repoHook": "hook de commit actif",
+        "desc": "Les agents committent facilement et souvent, et bloquer en amont coûte bien moins que relire après coup. La fuite de secrets est la seule catégorie sans réponse a posteriori — une fois poussé, c’est exposé.",
+        "note": "Une barrière que l’agent peut contourner n’est pas une barrière. Le minimum : analyse des secrets, lint et typage, chemins interdits."
+      },
+      "ssotDrift": {
+        "check": {
+          "rules": "Règles permanentes",
+          "memory": "Vérités actuelles",
+          "sources": "Sources"
+        },
+        "yes": "oui",
+        "no": "non",
+        "heading": "Dérive du SSOT",
+        "level": {
+          "single": "Source unique",
+          "two": "Deux sources",
+          "many": "Plusieurs sources"
+        },
+        "desc": "Compte de combien d’endroits cet agent reçoit ses consignes. Quand un même fait vit à deux endroits, ils divergent, et un modèle citera les deux comme si chacun était à jour.",
+        "note": "Un humain survole une ligne périmée en se disant « c’est vieux ». Un modèle la cite avec assurance."
+      },
+      "adrPresence": {
+        "level": {
+          "none": "Rien d’enregistré",
+          "recorded": "Enregistré"
+        },
+        "heading": "Registres de décisions",
+        "check": {
+          "decided": "Décisions arrêtées",
+          "lessons": "Leçons"
+        },
+        "desc": "Sans trace de ce qui a été rejeté et pourquoi, un agent reproposera de bonne foi une conception déjà écartée. Un registre de décisions est l’endroit où « ne fais pas cela » vit avec sa raison.",
+        "note": "Garder les décisions près du code et y renvoyer depuis le fichier d’instructions est la disposition habituelle."
+      },
+      "schemaEvolution": {
+        "check": {
+          "sessions": "Sessions",
+          "policy": "Politique des champs"
+        },
+        "heading": "Évolution du schéma",
+        "level": {
+          "fresh": "Rien d’enregistré",
+          "persisted": "Persisté"
+        },
+        "optional": "optionnel + valeurs par défaut",
+        "desc": "Ajoutez des champs facultatifs avec valeurs par défaut et l’état sauvegardé plus ancien reste lisible par du code plus récent. Vibisual tient ses points de reprise sur cette règle.",
+        "note": "Casser la compatibilité ascendante signifie que d’anciens points de reprise ne se chargent plus — précisément le moment où un plantage se transforme en travail perdu."
+      },
+      "mcpClientInventory": {
+        "level": {
+          "none": "Intégrés seulement",
+          "attached": "Externes attachés"
+        },
+        "check": {
+          "servers": "Outils externes",
+          "builtin": "Outils intégrés"
+        },
+        "heading": "Inventaire MCP",
+        "desc": "Compte les serveurs d’outils externes rattachés à cet agent. Une ligne d’installation peut faire entrer du code arbitraire et des définitions d’outils : la liste elle-même mérite un examen.",
+        "note": "Un serveur non fiable est un risque de chaîne d’approvisionnement, pas une commodité. Figez source et version, et réexaminez à chaque changement."
+      },
+      "a2a": {
+        "check": {
+          "edges": "Liens de tâche",
+          "sessions": "Sessions",
+          "crossOrg": "Inter-organisations"
+        },
+        "none": "aucun",
+        "heading": "A2A",
+        "level": {
+          "internal": "Délègue en interne",
+          "solo": "Travaille seul"
+        },
+        "desc": "MCP relie un agent au monde extérieur ; A2A est la façon dont les agents travaillent entre eux. Ce sont deux couches différentes, donc « lequel choisir » est la mauvaise question.",
+        "note": "Pour des sous-agents au sein d’un même processus, ce protocole est surdimensionné — son usage est la collaboration au-delà des frontières organisationnelles."
+      },
+      "acpAnp": {
+        "check": {
+          "authority": "Autorité",
+          "audit": "Piste d’audit"
+        },
+        "heading": "ACP et ANP",
+        "level": {
+          "none": "Aucun des deux",
+          "governed": "Autorité et audit",
+          "partial": "Partiellement défini"
+        },
+        "desc": "La limite commune des protocoles d’interopérabilité est la gouvernance : ils normalisent ce qui peut se connecter à quoi, pas qui a le droit de faire quoi.",
+        "note": "Adopter un protocole ne vous donne ni conception des permissions ni audit — cela reste à construire séparément."
+      },
+      "agentsMd": {
+        "level": {
+          "none": "Aucune règle permanente",
+          "long": "Long",
+          "short": "Bien dimensionné"
+        },
+        "check": {
+          "chars": "Caractères de règles",
+          "threshold": "Seuil"
+        },
+        "heading": "Instructions d’agent",
+        "desc": "Un fichier d’instructions unique à la racine du dépôt s’est imposé de fait, mais plus long ne veut pas dire meilleur — au-delà d’environ 150 lignes le rendement chute nettement tandis que le coût d’inférence continue de monter.",
+        "note": "Des instructions courtes avec des liens vers le détail : voilà la bonne forme. Coller des documents entiers fabrique de la dégradation de contexte.",
+        "noteLong": "Ces règles sont assez longues pour coûter à chaque tour, tandis que les parties finales se diluent en premier. Sortez le détail et reliez-le."
+      },
+      "computerUse": {
+        "heading": "Utilisation de l’ordinateur",
+        "check": {
+          "captures": "Bulles de capture",
+          "screens": "Captures plein écran"
+        },
+        "level": {
+          "none": "Aucune capture",
+          "watching": "Observe une fenêtre",
+          "controlling": "Écran entier capturé"
+        },
+        "desc": "Piloter un logiciel en regardant l’écran atteint tout ce qui n’a pas d’API, mais chaque étape dépend d’un repérage visuel, ce qui rend le procédé lent et fragile.",
+        "note": "Ce qui peut passer par CLI ou API ne devrait pas passer par l’interface graphique. Les clics irréversibles se placent derrière une confirmation humaine."
+      },
+      "chunking": {
+        "level": {
+          "none": "Pas encore de mémoire",
+          "perCard": "Une carte par bloc"
+        },
+        "check": {
+          "cards": "Cartes",
+          "unit": "Unité de découpage"
+        },
+        "heading": "Découpage",
+        "card": "une carte mémoire",
+        "desc": "Trop finement découpé, le contexte se rompt ; des blocs trop grands entraînent du hors-sujet. Dans Vibisual une carte mémoire est un bloc : la taille de la carte est donc le curseur de qualité.",
+        "note": "Comme les thèmes regroupent les cartes, les frontières de blocs n’ont pas besoin d’un réglage à part — écrire une idée par carte y suffit."
+      },
+      "reranking": {
+        "level": {
+          "none": "Aucune injection",
+          "loose": "Au-dessus du plafond",
+          "tight": "Sous le plafond"
+        },
+        "heading": "Reclassement",
+        "check": {
+          "perEvent": "Cartes par injection",
+          "topK": "Plafond"
+        },
+        "desc": "La première passe ratisse large ; le reclassement remonte ce qui est réellement pertinent. Vibisual n’injecte que les quelques premières cartes : ce plafond est le résultat du reclassement.",
+        "note": "Un plafond serré empêche la recherche de devenir elle-même une nouvelle source de dégradation du contexte."
+      },
+      "hybridSearch": {
+        "level": {
+          "none": "Pas encore de mémoire",
+          "keyword": "Axe par mots-clés"
+        },
+        "check": {
+          "cards": "Cartes",
+          "axis": "Axe de recherche"
+        },
+        "heading": "Recherche hybride",
+        "keywordOnly": "mots-clés seulement",
+        "desc": "La recherche par mots-clés excelle sur les noms et chemins exacts ; la recherche sémantique excelle quand la formulation diffère. Vibisual n’interroge la mémoire que sur l’axe des mots-clés — un choix délibéré à cette échelle.",
+        "note": "À quelques centaines d’entrées, le second axe coûte plus qu’il ne rapporte. Cette carte existe pour repérer quand cela cesse d’être vrai."
+      },
+      "multiHop": {
+        "level": {
+          "none": "Aucune recherche",
+          "multi": "Plusieurs sauts",
+          "single": "Un seul saut"
+        },
+        "check": {
+          "hops": "Recherches de l’agent",
+          "total": "Toutes les injections"
+        },
+        "heading": "Recherche multi-étapes",
+        "desc": "Les questions auxquelles une seule recherche ne répond pas exigent une deuxième requête bâtie sur ce que la première a trouvé. On compte ici combien de fois l’agent y est retourné.",
+        "note": "Y retourner signale que l’agent a remarqué que ses preuves étaient incomplètes — d’ordinaire bon signe, non une étape perdue."
+      },
+      "queryRewriting": {
+        "level": {
+          "none": "Aucune recherche",
+          "empty": "Recherches sans résultat",
+          "effective": "Recherches fructueuses"
+        },
+        "heading": "Réécriture de requêtes",
+        "check": {
+          "searches": "Recherches",
+          "hits": "Cartes trouvées"
+        },
+        "desc": "Les mots d’une personne et ceux stockés dans le savoir coïncident rarement : la requête doit être remodelée. Ici l’agent écrit lui-même ses termes de recherche, la réécriture se fait donc de son côté.",
+        "note": "Des recherches qui reviennent toujours vides signifient d’ordinaire que la formulation stockée et la formulation posée ne se recoupent jamais."
+      },
+      "benchmarkHygiene": {
+        "heading": "Hygiène des benchmarks",
+        "check": {
+          "own": "Critères propres"
+        },
+        "level": {
+          "none": "Aucun critère propre",
+          "own": "Critères propres en accumulation"
+        },
+        "desc": "Les scores publics se tassent en haut, les données de test fuient dans l’entraînement, et le même modèle obtient d’autres chiffres sous un autre harnais. Seul un jeu bâti sur votre propre domaine est un signal fiable.",
+        "note": "Les leçons et points de contrôle consignés ici sont précisément la matière d’un jeu d’évaluation maison."
+      },
+      "hybridWorkflow": {
+        "check": {
+          "spec": "Règles permanentes",
+          "plan": "Plan écrit"
+        },
+        "yes": "oui",
+        "no": "non",
+        "heading": "Flux de travail hybride",
+        "level": {
+          "free": "Improvisé",
+          "leaning": "Penché d’un côté",
+          "balanced": "Spécification et liberté"
+        },
+        "desc": "La spécification pure est lente et l’improvisation pure s’effondre : savoir où tracer la ligne fait la compétence. Interfaces, modèles de données et frontières de permission appellent une spécification ; l’implémentation intérieure peut rester libre.",
+        "note": "On peut basculer de l’un à l’autre au sein d’un même projet selon la phase — c’est tout l’intérêt de l’hybride."
+      },
+      "rescueEngineering": {
+        "check": {
+          "turns": "Tours",
+          "prepaid": "Garde-fous anticipés"
+        },
+        "heading": "Ingénierie de sauvetage",
+        "level": {
+          "accruing": "Dette en accumulation",
+          "fresh": "Rien pour l’instant",
+          "prepaid": "Payé d’avance"
+        },
+        "desc": "Remettre en état du code bâti à la hâte est devenu un marché en soi. Le coût de la vitesse n’a pas disparu ; il a été différé et revient avec des intérêts.",
+        "note": "Documents de règles, jeux d’évaluation, prévention des pertes et barrières de commit sont autant de dépenses en amont — une fraction de ce que coûte le sauvetage plus tard."
+      },
+      "promptCaching": {
+        "check": {
+          "sessions": "Sessions",
+          "prefix": "Préfixe stable",
+          "tools": "Définitions d’outils"
+        },
+        "none": "aucun",
+        "heading": "Cache de prompts",
+        "level": {
+          "single": "Session unique",
+          "thin": "Pas de préfixe stable",
+          "reusable": "Préfixe réutilisable"
+        },
+        "stable": "règles permanentes",
+        "desc": "Réutiliser le même préfixe à chaque requête réduit fortement coût et latence, mais le préfixe doit correspondre octet pour octet — placez un horodatage ou un identifiant aléatoire en tête et tout le cache tombe.",
+        "note": "Le taux de succès réside dans la réponse du fournisseur : cette carte ne le devine donc pas — elle vérifie seulement si le préfixe est assez stable pour qu’un cache soit possible. La règle : ce qui change à la fin, ce qui ne change pas au début."
+      },
+      "toolMisuse": {
+        "level": {
+          "noCommands": "Rien d’exécuté",
+          "clean": "Rien de signalé",
+          "found": "Commandes signalées"
+        },
+        "check": {
+          "commands": "Commandes exécutées",
+          "last": "Le plus récent",
+          "hits": "Signalées"
+        },
+        "heading": "Mésusage des outils",
+        "kind": {
+          "destructive": "suppression irréversible",
+          "forcePush": "push forcé",
+          "remoteExec": "code distant exécuté",
+          "permission": "permissions ouvertes",
+          "historyRewrite": "historique réécrit"
+        },
+        "desc": "Parcourt les commandes réellement exécutées par cet agent à la recherche de formes irréversibles. Le mésusage n’exige aucune intrusion — l’autorité est déjà accordée, et c’est pourquoi l’octroi lui-même fait partie de la surface d’attaque.",
+        "note": "Donner un outil shell et donner cinq commandes nommées sont deux classes de risque totalement différentes. Les arguments aussi demandent une validation, pas seulement la liste d’outils.",
+        "noteFound": "Celles-ci ont déjà tourné — cette carte signale, elle ne bloque pas. Ce qui bloque, c’est la demande d’approbation devant l’appel d’outil."
+      },
+      "dataExfiltration": {
+        "level": {
+          "noCommands": "Rien d’exécuté",
+          "none": "Aucune sortie utilisée",
+          "used": "Voies de sortie utilisées"
+        },
+        "check": {
+          "commands": "Commandes exécutées",
+          "last": "Le plus récent",
+          "egress": "Sortant"
+        },
+        "heading": "Exfiltration de données",
+        "kind": {
+          "push": "git push",
+          "upload": "envoi avec corps",
+          "webhook": "webhook",
+          "copy": "copie distante",
+          "secretsRead": "lecture de fichier secret"
+        },
+        "desc": "Recherche les commandes qui envoient des données vers l’extérieur. Elle n’inspecte pas le contenu — l’enjeu est de savoir si une voie de sortie a réellement servi, car ce qui est parti ne se rappelle pas.",
+        "note": "Ce qui compte comme « envoyer dehors » est désormais large — commits, pushes, appels d’API, requêtes d’URL d’image et webhooks en font tous partie.",
+        "noteUsed": "Une fois un contenu sorti, le supprimer plus tard ne l’ôte pas des caches et des index. Vérifiez ce que ces commandes ont emporté."
+      },
+      "mcpServer": {
+        "check": {
+          "scope": "Portée",
+          "exposed": "Exposé vers l’extérieur",
+          "client": "Côté qui se connecte"
+        },
+        "no": "non",
+        "heading": "Serveur MCP",
+        "level": {
+          "notExposed": "Non exposé"
+        },
+        "outOfScope": "hors périmètre",
+        "clientCard": "voir l’inventaire MCP",
+        "desc": "Indique si Vibisual lui-même est exposé comme un outil auquel des clients extérieurs peuvent se rattacher. Il ne l’est pas — cette exposition figure hors périmètre, et cette carte existe pour que la décision reste visible.",
+        "note": "Le côté où nous nous rattachons à des serveurs extérieurs est une autre question et une autre carte. Celle-ci ne rapporte que notre propre exposition et ne l’active jamais."
+      },
+      "killSwitch": {
+        "label": "Tout arrêter",
+        "confirm": "Appuyez encore",
+        "title": "Arrête toutes les sessions en cours et annule les boucles planifiées ({{count}} agents)",
+        "desc": "Ajoute une commande unique qui arrête tout ce qui tourne. Elle annule d’abord les boucles planifiées puis arrête les sessions actives — ne tuer que l’exécution en cours laisse l’ordonnanceur lancer la suivante."
+      },
+      "agentRegistry": {
+        "check": {
+          "owner": "Propriétaire",
+          "authority": "Autorité",
+          "sessions": "Sessions",
+          "lastSeen": "Vu pour la dernière fois"
+        },
+        "ours": "Vibisual (agent personnalisé)",
+        "external": "Claude Code (session par hook)",
+        "heading": "Registre des agents",
+        "level": {
+          "unregistered": "Absent du registre",
+          "partial": "Partiellement connu",
+          "registered": "Enregistré"
+        },
+        "desc": "Répond à la question pratique qui justifie un registre — qui a créé cet agent, quelle autorité il détient et quand il a bougé pour la dernière fois. Sans réponse, des agents non enregistrés tournent simplement sans être vus.",
+        "note": "Concevez le moment où l’on retire un agent, pas seulement celui où on le crée — enregistrement obligatoire, identifiants expirants et arrêt en cas d’inactivité relèvent de la discipline d’exploitation, pas de la technique de sécurité.",
+        "noteExternal": "Cette session a été enregistrée via des hooks : son cycle de vie appartient donc à Claude Code. Nous la voyons, mais nous ne la promouvons ni ne la retirons."
+      },
+      "searchPlaceholder": "Rechercher des plugins",
+      "clearSearch": "Effacer la recherche",
+      "onlyEnabled": "Activés seulement",
+      "noMatch": "Rien ne correspond. Essayez un mot décrivant ce que vous voulez obtenir.",
+      "enabledCount": "{{on}} sur {{total}} activés",
+      "usage": {
+        "show": "Ce que vous obtenez",
+        "hide": "Replier",
+        "where": "Apparaît dans",
+        "reads": "Lit",
+        "shows": "Affiche",
+        "howTo": "Utilisation",
+        "badgeOnlyWhenNotable": "Le badge n'apparaît que si quelque chose mérite un coup d'œil.",
+        "readsConfigOnly": "Rien — il juge les réglages seuls.",
+        "howToOff": "Activez-le ici. Effet immédiat, sans redémarrage.",
+        "howToOn": "Déjà actif. Ouvrez une bulle pour voir la carte."
+      },
+      "need": {
+        "agentEvents": "tours",
+        "subAgents": "sessions",
+        "runningTasks": "tâches en cours",
+        "agentReports": "comptes rendus",
+        "agentReviews": "revues",
+        "brain": "mémoire",
+        "brainInjections": "mémoire injectée",
+        "taskEdges": "transmissions",
+        "captureBubbles": "captures",
+        "bashCommands": "commandes exécutées"
+      }
     }
   },
   "ide": {
@@ -791,13 +2621,28 @@
       "expand": "développer",
       "collapse": "réduire",
       "copy": "Copier",
-      "copied": "Copié"
+      "copied": "Copié",
+      "toolRun": "×{{count}}",
+      "diffLines": "{{count}} lignes",
+      "activity": "Commandes exécutées"
     },
     "report": {
       "learnedTitle": "Appris"
     },
-    "memoryChip": {
-      "label": "{{n}} mémoires référencées"
+    "plan": {
+      "title": "Plan",
+      "progress": "{{done}}/{{total}}",
+      "superseded": "Plan mis à jour"
+    },
+    "density": {
+      "label": "Densité d'affichage",
+      "compact": "Compact",
+      "standard": "Standard",
+      "raw": "Brut"
+    },
+    "card": {
+      "showDetails": "Détails ({{count}})",
+      "hideDetails": "Masquer les détails"
     }
   },
   "bubbleMap": {
@@ -1049,7 +2894,8 @@
       "backendShort": "BE"
     },
     "notifications": {
-      "agentCompleted": "Agent terminé — cliquer pour voir les résultats"
+      "agentCompleted": "Agent terminé — cliquer pour voir les résultats",
+      "loopCompleted": "Boucle terminée — cliquer pour voir les résultats"
     },
     "bubble": {
       "awaitingPermission": "En attente de votre permission",
@@ -1067,9 +2913,14 @@
   "brain": {
     "bubbleLabel": "Mémoire",
     "trashBubbleLabel": "Corbeille",
-    "cardCountShort": "{{n}} cartes",
     "trashCountShort": "{{n}}",
     "unseenBadge": "{{n}} non lues",
+    "reviewBadge": "{{n}} en attente de revue",
+    "tipCards": "{{n}} cartes mémoire",
+    "tipReview": "{{n}} en attente de votre revue",
+    "tipUnseen": "{{n}} nouvelles",
+    "tipRecent": "Dernière : {{title}}",
+    "tipOpen": "Double-clic droit — ouvrir la bibliothèque de mémoire",
     "type": {
       "decision": "Décision",
       "mistake": "Erreur",
@@ -1081,6 +2932,19 @@
     "scopeAgent": "Mémoire de l'agent",
     "statusGhost": "À revoir",
     "supersededNote": "Contenu précédent",
+    "needsCheckBadge": "À vérifier",
+    "archivedBadge": "Rangée",
+    "needsCheckEdited": "{{files}} a été modifié {{n}} fois depuis l’écriture de cette mémoire — vérifiez qu’elle correspond toujours au code.",
+    "needsCheckReported": "Cette mémoire a été signalée comme obsolète — vérifiez qu’elle correspond toujours au code.",
+    "stillValid": "Toujours valable",
+    "markStale": "Obsolète",
+    "markStaleTip": "Après plusieurs signalements, la carte est rangée automatiquement. Elle n’est pas supprimée et peut être restaurée.",
+    "restoreCard": "Restaurer",
+    "chainTitle": "Historique des remplacements",
+    "chainOlder": "Mémoires remplacées par cette carte",
+    "chainNewer": "Mémoire qui a remplacé cette carte (actuelle)",
+    "promotedFrom": "Promue depuis {{agent}}",
+    "promotedFromTip": "L’agent personnalisé qui a nourri cette mémoire",
     "linkedFiles": "Fichiers liés",
     "refCount": "Références",
     "lastReferenced": "Dernière référence",
@@ -1099,8 +2963,12 @@
     "cardDetailTitle": "Carte mémoire",
     "summaryCards": "Cartes mémoire",
     "summaryUnseen": "Non lues",
+    "summaryCurrent": "Vérités actuelles",
+    "summaryCurrentTip": "Connaissances vérifiées transmises à l’IA",
+    "summaryReview": "En attente de revue",
+    "summaryReviewTip": "Candidats transmis à l’IA seulement après votre confirmation",
     "summaryRecent": "Enregistré récemment",
-    "openInterior": "Ouvrir l'intérieur",
+    "openLibrary": "Ouvrir la bibliothèque de mémoire",
     "trashedAt": "Mis à la corbeille",
     "trashedMemories": "Mémoires de l'agent",
     "cardCountUnit": " cartes",
@@ -1108,7 +2976,6 @@
     "purge": "Supprimer définitivement",
     "purgeConfirm": "Cette action supprime tout, y compris {{n}} cartes de mémoire d'agent.",
     "purgeYes": "Supprimer définitivement",
-    "fileMark": "Ce fichier contient une mémoire d'erreur/leçon",
     "cardCountUnitSuffix": "",
     "feed": {
       "title": "Mémoire du projet",
@@ -1132,7 +2999,122 @@
       "agoMin": "il y a {{n}}min",
       "agoHour": "il y a {{n}}h",
       "agoDay": "il y a {{n}}j",
-      "agoMonth": "il y a {{n}} mois"
-    }
+      "agoMonth": "il y a {{n}} mois",
+      "unseen": "Nouveau",
+      "helpfulCount": "{{n}} utile(s)"
+    },
+    "alwaysBadge": "Toujours",
+    "alwaysOn": "Rendre permanente",
+    "alwaysOff": "Désactiver le mode permanent",
+    "alwaysTip": "Une fois activée, cette règle figure dans chaque briefing de lancement, quel que soit le thème. N’activez que les rares règles réellement universelles.",
+    "topicTip": "Document thématique auquel appartient cette carte",
+    "topic": {
+      "capture-remote": "Capture d’écran & contrôle à distance",
+      "ui-client": "UI & rendu client",
+      "worktree-isolation": "Worktrees, isolation & sessions parallèles",
+      "stop-subagent": "Stop, sous-agents & file de commandes",
+      "runapp-build": "Exécution, build & bundle desktop",
+      "usage-statusline": "Utilisation, statusLine & coût",
+      "persistence-checkpoint": "Persistance, points de contrôle & état de l’app",
+      "brain-memory": "Le système de mémoire lui-même",
+      "dead-code-wiring": "Code mort & audit de câblage",
+      "tooling-pitfalls": "Pièges d’outillage & de syntaxe",
+      "misc": "Divers (non classé)"
+    },
+    "library": {
+      "title": "Mémoire",
+      "topics": "Thèmes",
+      "searchPlaceholder": "Rechercher dans la mémoire",
+      "close": "Fermer",
+      "loading": "Lecture…",
+      "searchTitle": "Résultats de recherche",
+      "searchHint": "Trouvé à travers les thèmes · {{n}} cartes",
+      "noResults": "Aucune mémoire correspondante",
+      "emptyTopic": "Aucune mémoire dans ce thème pour l’instant",
+      "emptyTopics": "Aucune mémoire n’a encore été collectée",
+      "openDetail": "Modifier · promouvoir · supprimer",
+      "closeDetail": "Fermer",
+      "minimize": "Réduire",
+      "expand": "Déplier",
+      "maximize": "Agrandir",
+      "restore": "Taille d’origine",
+      "needsCheck": "À vérifier",
+      "needsCheckHint": "Mémoires dont les fichiers liés ont changé depuis — elles peuvent ne plus correspondre au code",
+      "archived": "Rangées",
+      "archivedHint": "Mémoires archivées au-delà du quota — non supprimées, restaurables à tout moment",
+      "review": "En attente de revue",
+      "reviewHint": "Candidats qui ne sont pas encore la vérité actuelle — confirmez-les pour les transmettre à l’IA"
+    },
+    "currentBadge": "Vérité actuelle",
+    "contestedBadge": "En conflit",
+    "candidateBadge": "En attente de revue",
+    "rejectedBadge": "Rejeté",
+    "canonicalKeyTip": "Adresse stable de cette connaissance — une seule vérité actuelle par adresse.",
+    "confirmPrompt": "Un candidat — pas encore transmis à l’IA.",
+    "confirmPromptContested": "Les valeurs divergent à cette adresse — choisissez la bonne pour la transmettre à l’IA.",
+    "confirmCurrent": "Confirmer comme actuel",
+    "reject": "Non",
+    "rejectTip": "Rien n’est supprimé — conservé comme trace, simplement exclu de l’injection."
+  },
+  "commandCenter": {
+    "windowTitle": "Centre de commande — {{name}}",
+    "missingTitle": "Projet non chargé",
+    "missingBody": "Le projet « {{name}} » n'est pas ouvert dans cette instance Vibisual.",
+    "lane": {
+      "needs-answer": "Attend votre réponse",
+      "needs-review": "En attente de relecture",
+      "needs-action": "À vous de jouer",
+      "working": "En cours",
+      "done": "Terminé / au repos"
+    },
+    "time": {
+      "now": "à l'instant",
+      "min": "{{count}} min",
+      "hour": "{{count}} h",
+      "day": "{{count}} j"
+    },
+    "mainSession": "principale",
+    "waitingFor": "attend depuis {{time}}",
+    "queued": "{{count}} en file",
+    "running": "{{count}} en cours",
+    "jumpHint": "Ouvrir cette session dans la fenêtre principale",
+    "commandHint": "Envoyer un message sans quitter cette fenêtre",
+    "moreHint": "Plus d'actions",
+    "actionDismiss": "Marquer comme vérifié",
+    "actionStop": "Arrêter cette session",
+    "actionSummarize": "Résumer en une ligne",
+    "actionCloseTab": "Fermer cet onglet de session",
+    "summarizing": "Résumé en cours…",
+    "summaryFailed": "Impossible de résumer cette session.",
+    "commandPlaceholder": "Message à cette session… (Entrée pour envoyer)",
+    "send": "Envoyer",
+    "searchPlaceholder": "Rechercher des sessions —  is:working  needs:review  agent:…  tool:…",
+    "clearSearch": "Effacer",
+    "resultCount": "{{count}} résultats",
+    "sessionCount": "{{count}} sessions",
+    "attentionCount": "{{count}} vous attendent",
+    "archivedCount": "{{count}} rangées",
+    "archived": "Rangées",
+    "emptyTitle": "Aucun agent dans ce projet pour l'instant",
+    "emptyBody": "Créez un agent sur le canevas et il apparaîtra ici.",
+    "noMatchTitle": "Aucun résultat",
+    "noMatchBody": "Essayez un autre mot ou effacez la recherche.",
+    "sort": {
+      "recent": "Activité récente",
+      "waiting": "Attente la plus longue",
+      "context": "Contexte restant"
+    },
+    "sortHint": "Ordre de tri",
+    "tidy": "Ranger",
+    "tidyHint": "Options de rangement",
+    "groupByAgent": "Grouper par agent",
+    "autoTidy": "Ranger automatiquement les sessions au repos",
+    "autoTidyNote": "Désactivé par défaut. Les replie seulement — n'arrête ni ne supprime jamais une session.",
+    "minutes": "{{count}} min",
+    "bulkCloseDone": "Fermer tous les onglets de sessions terminées",
+    "bulkStopAll": "Arrêter tout ce qui tourne",
+    "resetSettings": "Réinitialiser ces options",
+    "confirmCloseDone": "Fermer {{count}} onglets de sessions terminées ?",
+    "confirmStopAll": "Arrêter toutes les sessions en cours de {{count}} agents ?"
   }
 }

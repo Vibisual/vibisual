@@ -16,6 +16,9 @@ importers:
       '@types/d3-force':
         specifier: ^3.0.10
         version: 3.0.10
+      '@vibisual/plugins':
+        specifier: workspace:*
+        version: link:../plugins
       '@vibisual/shared':
         specifier: workspace:*
         version: link:../shared
@@ -116,6 +119,9 @@ importers:
       '@vibisual/client':
         specifier: workspace:*
         version: link:../client
+      '@vibisual/plugins':
+        specifier: workspace:*
+        version: link:../plugins
       '@vibisual/server':
         specifier: workspace:*
         version: link:../server
@@ -187,8 +193,36 @@ importers:
         specifier: ^6.3.0
         version: 6.4.1(@types/node@20.19.39)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)
 
+  packages/plugins:
+    dependencies:
+      '@vibisual/shared':
+        specifier: workspace:*
+        version: link:../shared
+    devDependencies:
+      '@types/react':
+        specifier: ^18.3.12
+        version: 18.3.28
+      '@types/react-dom':
+        specifier: ^18.3.1
+        version: 18.3.7(@types/react@18.3.28)
+      react:
+        specifier: ^18.3.1
+        version: 18.3.1
+      react-dom:
+        specifier: ^18.3.1
+        version: 18.3.1(react@18.3.1)
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.9
+        version: 4.1.9(@types/node@25.5.2)(vite@6.4.1(@types/node@25.5.2)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0))
+
   packages/server:
     dependencies:
+      '@vibisual/plugins':
+        specifier: workspace:*
+        version: link:../plugins
       '@vibisual/shared':
         specifier: workspace:*
         version: link:../shared
