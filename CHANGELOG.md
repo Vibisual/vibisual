@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-08-03
+
+### Added
+- **Plugins — 111 inspector cards you switch on one at a time.** A new plugin kernel (File → *Plugins…*) turns the 2026 agent-engineering vocabulary — context engineering, retrieval, memory, evaluation, security, orchestration — into small inspector cards that read what your agents are actually doing and show whether that principle is holding. Everything is **off by default**: each entry tells you what you'd see before you enable it, categories fold, and the enabled / total count is shown per category. Cards only observe — they never take over what the core already does — and one misbehaving card is isolated so it can't take the app down with it. All of them are fully translated into the 12 supported languages.
+- **Command Center.** Double-click a project's root bubble to open a dedicated window that sorts every session by what it wants from you — *Needs your answer*, *Waiting for review*, *Your turn*, *Working*, *Finished / idle*. From a card you can jump to the session, send it a command without opening the IDE, ask for a summary, stop it, or close its tab; a search box filters across every session at once.
+- **Screen and program capture bubbles — with remote control.** Put a live screen or application window on the canvas as its own bubble (canvas right-click → *Screen / Program Capture Bubble*). Open it large in an in-app window, magnet-snap two or three capture bubbles together into a multi-monitor wall, and — with remote control on — click, drag, right-click and type into the captured machine straight from the bubble, in either *touch* mode (acts where you point) or *mouse* mode (a trackpad for phones). It works from a phone over Mobile Access too, and your own pointer no longer gets yanked around: a look-alike cursor is drawn under your finger while the real one stays where you left it.
+- **A memory library you can read.** Project Brain moved out of a ranked feed into an in-app window organised by **topic**: memories are filed under subjects like capture, worktrees, usage, or UI, so an agent (and you) can open only the topic at hand instead of being handed a pile of cards. Cards carry their own lifecycle — a card whose source file changed since it was written is flagged *needs checking*, agents report back whether it still holds, and repeatedly-stale cards are archived rather than deleted. Trashed custom agents keep their memories in a Trash bubble you can restore from.
+- **Usage at a glance.** A usage pill in the header shows how much of your Claude plan is left, with a popup that breaks the window down; the figures now come from the same source as the Claude app's own `/usage`, so they match what you see there.
+- **QR pairing for Mobile Access.** Instead of typing an address and then a pairing code on your phone, scan a QR code shown on the PC — a three-minute ticket that pairs the device in one step. You can reissue or revoke it at any time.
+- **Repeat a session on a loop.** Run the same session a set number of times in a row; the completion chime holds until the whole loop is finished instead of firing on every pass.
+- **Stream density — Compact / Standard / Raw.** Choose how much of an agent's output you want to see. Consecutive tool calls collapse into a single *commands run* box with the tool names on it, finished thinking blocks are dropped entirely (thinking shows as one live line while it's happening), and every agent turn now leads with what it understood and intends to do, so you can stop it before it goes the wrong way.
+- **Jump pills for cards you missed.** When a work-report, question, or review card scrolls past while you're reading elsewhere, a stack of pills appears to jump you back to it.
+- **Low-power mode.** Suspends the always-on physics loop and the endless animations and blur effects to keep the machine cool during long sessions. It's a phone-side optimisation only — the desktop canvas is untouched, and activity signals keep flowing either way.
+- **Confirmation before closing a busy tab.** Closing an IDE session tab while that session is still working now asks first.
+
+### Changed
+- **Stop means stop.** *Stop* now ends the open session **and** the subagents it spawned, and the IDE shows which background subagents are still running rather than leaving them invisible.
+- **A trashed project stands on its own.** Projects in the Trash no longer depend on the original entry, and entering one shows the path it came from.
+- **Question cards handle several questions at once.** Multi-question reports lay each question out separately with its own suggested replies.
+
+### Fixed
+- **It no longer gets slower the more you use it.** A full pass over the slowdown found two culprits and removed both: session transcripts were being re-read from disk in full on every snapshot, and `/api/tokens` kept one last whole-file reader alive on the Electron main process — which is also the server core, so the reads froze the UI. Frame drops with many parallel sessions were traced to double serialisation in the snapshot pipeline and fixed with a load-adaptive batch window, and off-screen bubbles are no longer drawn at all.
+- **Deleting a worktree folder no longer resurrects it.** Autosave treated "the folder exists" as "this is a worktree" and kept recreating folders you had just removed; it now checks for a live git worktree instead.
+- **Usage no longer freezes at an old number** after the window resets, and a 1 % figure is no longer drawn as 100 %.
+- **Scanning the QR no longer drops you back at the pairing-code screen** (the session cookie's `SameSite` policy was too strict for a scanned link).
+- **Custom agents stop claiming they're done.** A custom agent bubble flipped to *completed* at every turn boundary — edges cleaned up, chime played — while work was still queued. Completion is now decided by whether anything remains to be produced.
+- **The Brain bubble no longer reads "0 cards"** when memories exist, and its summary is kept per project.
+- **Reflection no longer spawns itself.** A background reflection run triggered the global hooks, which scheduled another reflection — an idle machine was starting a new session every five and a half minutes, chiming each time and littering the canvas with ghost projects. Both the entry point and the scheduler now refuse to run for a reflection's own working directory.
+- **Preview satellites from a custom agent's server** no longer stay dark, and a reported preview URL is now paired with its server entry.
+- **Broken projects are told apart from missing ones at boot** — a project whose metadata is damaged is retried, while an entry that was never a project is dropped, instead of both silently emptying the canvas.
+- Right-clicking inside the IDE no longer also opens the canvas menu, and the image lightbox closes properly while the IDE is docked.
+
 ## [0.1.7] - 2026-07-08
 
 ### Added
@@ -124,7 +156,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - Dropped preset options from the custom agent settings.
 
-[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.1.6...HEAD
+[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.1.8...HEAD
+[0.1.8]: https://github.com/Vibisual/vibisual/compare/v0.1.7...v0.1.8
+[0.1.7]: https://github.com/Vibisual/vibisual/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/Vibisual/vibisual/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/Vibisual/vibisual/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/Vibisual/vibisual/compare/v0.1.3...v0.1.4
