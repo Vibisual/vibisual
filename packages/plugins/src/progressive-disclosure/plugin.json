@@ -1,0 +1,17 @@
+{
+  "id": "progressive-disclosure",
+  "name": "Progressive Disclosure",
+  "version": "1.0.0",
+  "category": "observability",
+  "descriptionKey": "panel.plugins.progressiveDisclosure.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "brainInjections"
+  ],
+  "hostApi": 1
+}

@@ -1,0 +1,15 @@
+{
+  "id": "agent-card",
+  "name": "Agent Card",
+  "version": "1.0.0",
+  "category": "observability",
+  "descriptionKey": "panel.plugins.agentCard.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [],
+  "hostApi": 1
+}

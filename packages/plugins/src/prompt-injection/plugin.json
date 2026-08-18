@@ -1,0 +1,16 @@
+{
+  "id": "prompt-injection",
+  "name": "Prompt Injection",
+  "version": "1.0.0",
+  "category": "security",
+  "descriptionKey": "panel.plugins.promptInjection.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "bubbleBadge",
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [],
+  "hostApi": 1
+}

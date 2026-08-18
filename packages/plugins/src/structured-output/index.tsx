@@ -5,8 +5,8 @@
  * 작업 신고·질문·검수·목록을 구조화된 형식으로 받으므로, 여기서는 이 에이전트가 그 통로를
  * 실제로 쓰고 있는지를 센다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 function reports(ctx: PluginBubbleContext): number {
   return (ctx.data.agentReports ?? []).length;

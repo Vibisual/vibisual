@@ -186,6 +186,20 @@ function pollState(opts: AgentViewAttachOptions): void {
   }
 }
 
+/**
+ * 잠정 종료가 취소됐을 때(= turn 이 이어졌을 때) 종료 감지를 되살린다.
+ *
+ * `turn_duration` / terminal state 를 한 번 보면 `terminated` 가 서서 다시는 안 떨어지는데,
+ * 백그라운드 작업 통지가 turn 경계에서 세션을 다시 돌리면 **그 다음 종료를 놓치게 된다**
+ * (호출자 `turnSeal` 정책 참조). 되돌린 적이 있으면 `true`.
+ */
+export function resumeWatch(short: string): boolean {
+  const h = HANDLES.get(short);
+  if (!h || !h.terminated) return false;
+  h.terminated = false;
+  return true;
+}
+
 /** watcher 정리. 호출 안 하면 chokidar/timer 가 누수됨. */
 export async function detach(short: string): Promise<void> {
   const h = HANDLES.get(short);

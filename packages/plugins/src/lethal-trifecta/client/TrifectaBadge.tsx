@@ -6,8 +6,8 @@
  *
  * 격리(worktree)는 판정에 섞지 않고 방패 글리프로 따로 보여준다(사용자 결정 v3.88).
  */
-import type { PluginBubbleContext } from '../../types.js';
-import { judgeTrifecta, type TrifectaLegState, type TrifectaLevel } from '../trifecta.js';
+import type { PluginBubbleContext } from '../../sdk/index.js';
+import { judgeTrifecta, type TrifectaLegState, type TrifectaLevel } from '../../sdk/index.js';
 
 const SEGMENT_CLASS: Record<TrifectaLegState, Record<TrifectaLevel, string>> = {
   closed: { safe: 'bg-white/15', caution: 'bg-white/15', critical: 'bg-white/15' },

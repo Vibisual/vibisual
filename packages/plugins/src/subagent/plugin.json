@@ -1,0 +1,18 @@
+{
+  "id": "subagent",
+  "name": "Subagent Isolation",
+  "version": "1.0.0",
+  "category": "observability",
+  "descriptionKey": "panel.plugins.subagent.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "subAgents",
+    "runningTasks"
+  ],
+  "hostApi": 1
+}

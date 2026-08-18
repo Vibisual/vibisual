@@ -1,0 +1,17 @@
+{
+  "id": "query-rewriting",
+  "name": "Query Rewriting",
+  "version": "1.0.0",
+  "category": "observability",
+  "descriptionKey": "panel.plugins.queryRewriting.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "brainInjections"
+  ],
+  "hostApi": 1
+}

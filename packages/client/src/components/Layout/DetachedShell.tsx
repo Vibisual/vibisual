@@ -2,9 +2,11 @@ import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { BubbleMap } from '../BubbleMap/BubbleMap.js';
 import { CanvasBreadcrumb } from '../BubbleMap/CanvasBreadcrumb.js';
+import { TrashToolbar } from '../BubbleMap/TrashToolbar.js';
 import { IframeView } from './IframeView.js';
+import { WindowControls } from './WindowControls.js';
 import { DetailPanel } from '../Panel/DetailPanel.js';
-import { InspectorOverlay } from '../Inspector/InspectorOverlay.js';
+import { TrashPurgeDialog } from '../Panel/TrashPurgeDialog.js';
 import { PermissionPromptStack } from '../PermissionPrompt/PermissionPromptStack.js';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { useWebSocket } from '../../hooks/useWebSocket.js';
@@ -88,13 +90,16 @@ export function DetachedShell({ kind, tabKey }: DetachedShellProps): React.JSX.E
             <>
               <BubbleMap />
               <CanvasBreadcrumb />
+              {/* §5.10 v4.84 — 별창 캔버스에서도 휴지통 조작은 같아야 한다(본 창에만 넣으면 창마다 동작이 갈린다). */}
+              <TrashToolbar />
             </>
           ) : (
             <DetachedMissingPlaceholder kind={kind} targetName={targetName} />
           )}
         </main>
       </DetailPanelHost>
-      <InspectorOverlay />
+      {/* InspectorOverlay 는 main.tsx 에서 전역 1회 마운트(창 종류 무관) — 여기 중복 마운트 ❌ */}
+      <TrashPurgeDialog />
       <PermissionPromptStack />
     </div>
   );
@@ -124,10 +129,12 @@ function DetailPanelHost({ children }: { children: React.ReactNode }): React.JSX
   const selectedTaskEdgeId = useGraphStore((s) => s.selectedTaskEdgeId);
   const selectedCommentBoxId = useGraphStore((s) => s.selectedCommentBoxId);
   const selectedCaptureBubbleId = useGraphStore((s) => s.selectedCaptureBubbleId);
+  // §5.13 (M) v4.68 — 별창에서도 앱 버블 옵션 패널이 떠야 한다(본 창에만 넣으면 창마다 동작이 갈린다).
+  const selectedAppBubbleId = useGraphStore((s) => s.selectedAppBubbleId);
   return (
     <div className="relative flex flex-1 overflow-hidden">
       {children}
-      {(selectedNodeId !== null || selectedTaskEdgeId !== null || selectedCommentBoxId !== null || selectedCaptureBubbleId !== null) && (
+      {(selectedNodeId !== null || selectedTaskEdgeId !== null || selectedCommentBoxId !== null || selectedCaptureBubbleId !== null || selectedAppBubbleId !== null) && (
         <DetailPanel
           onClose={() => {
             const s = useGraphStore.getState();
@@ -135,6 +142,7 @@ function DetailPanelHost({ children }: { children: React.ReactNode }): React.JSX
             s.selectTaskEdge(null);
             s.selectCommentBox(null);
             s.selectCaptureBubble(null);
+            s.selectAppBubble(null);
           }}
         />
       )}
@@ -158,7 +166,6 @@ function DetachedTitleBar({ kind, tabKey, title }: DetachedTitleBarProps): React
   const { t } = useTranslation();
   const [dragging, setDragging] = useState(false);
   const [hovering, setHovering] = useState(false);
-  const [maximized, setMaximized] = useState(false);
   // pointerdown 으로 redock 드래그를 시작했는지. 종료(뗌) 판정은 window 레벨 mouseup 으로 한다 —
   // 최대화 창을 unmaximize 하면 그 창의 pointer 가 pointercancel 로 취소될 수 있어, 엘리먼트의
   // onPointerUp/onPointerCancel 에 의존하면 드래그가 도중에 끊겨 "기본 창으로 복원하고 끝"나 버린다.
@@ -179,21 +186,7 @@ function DetachedTitleBar({ kind, tabKey, title }: DetachedTitleBarProps): React
     return () => { off(); };
   }, []);
 
-  // main 이 maximize/unmaximize(OS 더블클릭 포함) 시 푸시하는 상태로 최대화/복원 아이콘 토글.
-  useEffect(() => {
-    const api = window.api;
-    if (!api?.window?.onMaximizeState) return;
-    const off = api.window.onMaximizeState((s) => setMaximized(s.maximized));
-    return () => { off(); };
-  }, []);
-
-  const handleMinimize = useCallback((): void => {
-    void window.api?.window?.minimizeSelf();
-  }, []);
-
-  const handleToggleMaximize = useCallback((): void => {
-    void window.api?.window?.toggleMaximizeSelf();
-  }, []);
+  // 최소화 · 최대화/복원 · 닫기 버튼과 그 상태 추종은 WindowControls 가 맡는다.
 
   // 드래그 종료 — window mouseup 으로 호출(엘리먼트 pointer 이벤트가 unmaximize 로 cancel 돼도 안전).
   const endDrag = useCallback((): void => {
@@ -218,10 +211,6 @@ function DetachedTitleBar({ kind, tabKey, title }: DetachedTitleBarProps): React
 
   // 언마운트(별창 닫힘) 시 잔여 리스너 정리.
   useEffect(() => () => { window.removeEventListener('mouseup', endDrag); }, [endDrag]);
-
-  const handleClose = useCallback((): void => {
-    void window.api?.window?.closeSelf();
-  }, []);
 
   // 미니 모드면 박스 전체를 mini ghost 모양으로 재구성 (200×44 안에 라벨 + 메시지).
   if (dragging) {
@@ -304,53 +293,9 @@ function DetachedTitleBar({ kind, tabKey, title }: DetachedTitleBarProps): React
         title={t('tabDetach.osDragHint', { defaultValue: 'Drag here to move the window' })}
       />
 
-      {/* (c) 최소화 · 최대화/복원 · 닫기 버튼 — app-nodrag 라 OS 드래그 영향 받지 않음. */}
-      <div className="flex flex-shrink-0 items-center gap-1 pr-2 app-nodrag">
-        <button
-          type="button"
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={handleMinimize}
-          className="flex h-6 w-6 items-center justify-center rounded text-gray-400 transition-colors hover:bg-white/[0.08] hover:text-gray-100"
-          title={t('tabDetach.minimizeWindow', { defaultValue: 'Minimize' })}
-        >
-          <svg className="h-3.5 w-3.5" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-            <path d="M2.5 6h7" />
-          </svg>
-        </button>
-        <button
-          type="button"
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={handleToggleMaximize}
-          className="flex h-6 w-6 items-center justify-center rounded text-gray-400 transition-colors hover:bg-white/[0.08] hover:text-gray-100"
-          title={
-            maximized
-              ? t('tabDetach.restoreWindow', { defaultValue: 'Restore' })
-              : t('tabDetach.maximizeWindow', { defaultValue: 'Maximize' })
-          }
-        >
-          {maximized ? (
-            <svg className="h-3.5 w-3.5" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3.5" y="3.5" width="6" height="6" rx="0.5" />
-              <path d="M2.5 8V2.5H8" />
-            </svg>
-          ) : (
-            <svg className="h-3.5 w-3.5" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="2.5" y="2.5" width="7" height="7" rx="0.5" />
-            </svg>
-          )}
-        </button>
-        <button
-          type="button"
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={handleClose}
-          className="flex h-6 w-6 items-center justify-center rounded text-gray-400 transition-colors hover:bg-red-500/80 hover:text-white"
-          title={t('tabDetach.closeWindow', { defaultValue: 'Close window' })}
-        >
-          <svg className="h-3.5 w-3.5" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-            <path d="M3 3l6 6M9 3l-6 6" />
-          </svg>
-        </button>
-      </div>
+      {/* (c) 최소화 · 최대화/복원 · 닫기 버튼 — app-nodrag 라 OS 드래그 영향 받지 않음.
+          pointerdown 은 여기서 멈춘다(위 redock 드래그 시작 핸들러로 새면 버튼이 드래그가 된다). */}
+      <WindowControls stopPointerDown />
     </div>
   );
 }

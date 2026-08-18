@@ -1,0 +1,20 @@
+{
+  "id": "golden-set",
+  "name": "Golden Set",
+  "version": "1.0.0",
+  "category": "observability",
+  "descriptionKey": "panel.plugins.goldenSet.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "agentReports",
+    "brain",
+    "agentEvents",
+    "subAgents"
+  ],
+  "hostApi": 1
+}

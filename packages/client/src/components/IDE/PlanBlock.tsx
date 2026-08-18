@@ -2,6 +2,7 @@ import { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TodoItem } from '@vibisual/shared';
 import type { StreamPlan } from './streamItems.js';
+import { useCompactCards } from './AgentCardParts.js';
 
 interface PlanBlockProps {
   item: StreamPlan;
@@ -64,7 +65,10 @@ export const PlanBlock = memo(function PlanBlock({ item }: PlanBlockProps): Reac
   // 기본 펼침 여부는 "지금 유효한 계획인가"로 정해진다 — 더 새 계획이 오면(superseded) 사용자가 따로 건드리지
   //   않은 한 자동으로 접힌다. 사용자가 직접 토글하면 그 선택(override)이 이긴다.
   const [override, setOverride] = useState<boolean | null>(null);
-  const open = override ?? !item.superseded;
+  // §5.5 #17-21 ③ — 간결에서는 계획도 접힌 채로 시작한다(제목 + 완료/전체 한 줄). 진행 중 단계는
+  //   하단 상태바(#17-12 ③)가 계속 보여주므로 가려지지 않는다. 사용자가 직접 펼치면 그 선택이 이긴다.
+  const compact = useCompactCards();
+  const open = override ?? (compact ? false : !item.superseded);
   const setOpen = (): void => setOverride(!open);
   const done = item.todos.filter((td) => td.status === 'completed').length;
   const total = item.todos.length;

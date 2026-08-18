@@ -1,0 +1,15 @@
+{
+  "id": "mcp-client-inventory",
+  "name": "MCP Inventory",
+  "version": "1.0.0",
+  "category": "security",
+  "descriptionKey": "panel.plugins.mcpClientInventory.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [],
+  "hostApi": 1
+}

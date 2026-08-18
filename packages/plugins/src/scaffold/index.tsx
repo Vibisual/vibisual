@@ -4,8 +4,8 @@
  * 하네스가 운영·인프라 뉘앙스라면 스캐폴드는 프롬프트·제어 흐름·기억 접착제 쪽이다. 장기 실행 에이전트의
  * 성능 향상분은 더 똑똑한 모델이 아니라 **더 나은 스캐폴딩**에서 나온다는 것이 공통 결론이다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const rulesLen = (ctx: PluginBubbleContext): number => (ctx.agentConfig?.rules ?? '').trim().length;
 const skills = (ctx: PluginBubbleContext): number => (ctx.agentConfig?.skills ?? []).length;

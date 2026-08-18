@@ -8,7 +8,7 @@
  * 어느 날 열렸을 때 이 카드가 먼저 색을 바꾼다. 우리가 **무는 쪽**(클라이언트)은 MCP 인벤토리 카드가 맡는다.
  * 표시 전용이며, 이 카드는 노출을 켜지 않는다.
  */
-import { defineInspector } from '../framework/inspector.js';
+import { defineInspector } from '../sdk/index.js';
 
 const inspector = defineInspector({
   id: 'mcp-server',

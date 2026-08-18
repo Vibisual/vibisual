@@ -5,8 +5,8 @@
  * 의존해 느리고 깨지기 쉽다. 결론은 분명하다 — **CLI·API 로 할 수 있으면 GUI 로 하지 마라.**
  * 되돌릴 수 없는 클릭이 섞이므로 사람 확인 지점을 두는 것이 표준이다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const captures = (ctx: PluginBubbleContext): number => (ctx.data.captureBubbles ?? []).length;
 /** 화면 전체를 잡는 캡처는 창 하나만 잡는 것보다 범위가 넓다 — 되돌릴 수 없는 클릭이 섞일 여지도 그만큼 크다.

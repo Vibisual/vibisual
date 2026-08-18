@@ -6,8 +6,8 @@
  * 예산 대비 적재량과 보관된 장수를 함께 본다. 표시 전용.
  */
 import { BRAIN_PROJECT_CARD_BUDGET } from '@vibisual/shared';
-import { defineInspector } from '../framework/inspector.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const used = (ctx: PluginBubbleContext): number => ctx.data.brain?.cardCount ?? 0;
 const ratio = (ctx: PluginBubbleContext): number => (BRAIN_PROJECT_CARD_BUDGET > 0 ? used(ctx) / BRAIN_PROJECT_CARD_BUDGET : 0);

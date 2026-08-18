@@ -7,7 +7,7 @@
  * Vibisual 에서는 우리가 만든 커스텀 에이전트만 우리 소유의 신원(버블 id + 자기 설정)을 갖는다.
  * 훅으로 등록된 외부 세션은 Claude Code 본체 소유라 우리가 끊을 수 있는 손잡이가 없다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
+import { defineInspector } from '../sdk/index.js';
 
 const K = 'panel.plugins.nonHumanIdentity';
 

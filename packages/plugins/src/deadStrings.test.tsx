@@ -15,21 +15,18 @@ import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import fs from 'node:fs';
 import path from 'node:path';
+import { pluginLocaleResources } from './locales.js';
 import { PLUGIN_CLIENT_MODULES } from './client.js';
 import type { PluginHeaderContext } from './types.js';
 import { pluginTestContexts, recorder } from './testkit/contexts.js';
 
-const EN = JSON.parse(
-  fs.readFileSync(path.resolve(__dirname, '../../client/src/i18n/locales/en.json'), 'utf8'),
-) as { panel: { plugins: Record<string, unknown> } };
-
-/** PluginsWindow 가 직접 그리는 문자열 — 카드가 부르지 않는 것이 정상이다. */
-const HOST_CHROME = new Set(['contribution', 'category', 'title', 'close', 'saving', 'empty',
-  'enabled', 'disabled', 'contributes', 'unsupported', 'offNote', 'showMore', 'showLess',
-  // 찾기·거르기 (v4.24) — 111종을 고르는 화면의 뼈대다.
-  'searchPlaceholder', 'clearSearch', 'onlyEnabled', 'noMatch', 'enabledCount',
-  // 사용법 패널·데이터 축 이름 (v4.39) — 창이 그리는 것이지 카드가 부르는 키가 아니다.
-  'usage', 'need']);
+/**
+ * v4.58 — 카드 문자열은 이제 **각 플러그인 폴더의 `strings.ts`** 가 정본이다(자립 규약).
+ *
+ * 그래서 호스트 창 뼈대(`contribution`·`category`·검색 …)를 걸러 낼 필요가 없어졌다 — 그것들은
+ * 애초에 이 표에 들어오지 않는다. 여기 있는 것은 **전부 카드가 부르라고 만든 문자열**이다.
+ */
+const EN = { panel: { plugins: pluginLocaleResources('en') } };
 
 function flat(node: unknown, prefix: string, out: string[]): string[] {
   if (!node || typeof node !== 'object') return out;
@@ -66,22 +63,27 @@ function requestedKeys(): Set<string> {
  * 이력: 266 → 198(경고·중간·위험명령 분기) → 89(도달 불가 `displayOnly` 109장 제거)
  * → 70(미사용 보일러플레이트 19종 제거) → 23(조용함·가운데·전면허용·읽기전용 분기)
  * → 2(위임·연쇄·빈검색·기본값 분기 + 문턱 보정) → 배지 조건을 좁히며 8종 제거, 다시 2.
+ * → 4(v4.67 설정 두 줄) → **3**(`tokenBudget.level.heavy` 가 도달 가능해져 픽스처 ⑳ 으로 밟음).
  *
- * **남은 2개는 이 검사에서 원리상 도달할 수 없는 것들이다.** 0 이 목표가 아니다.
- *  ① `tokenBudget.level.heavy` — 고정 소비(9,800토큰) ÷ 모델 창 ≥ 0.1 이어야 하는데, 알려진 계열은
- *     전부 20만 이상이라 0.049 를 넘지 못한다. 창이 작은 모델이 레지스트리에 실려야 나온다.
- *  ② `killSwitch.confirm` — **두 번째 누름** 상태의 문구다. 정적 렌더에는 첫 상태만 있다.
+ * `tokenBudget.level.heavy` 가 여기 있었다. 고정 구획(9,800토큰)만 나눠 보던 시절에는 알려진 계열의 창이
+ * 전부 20만 이상이라 몫이 0.049 를 못 넘어 **원리상 도달 불가**였다 — 카드가 등급을 낼 수 없다는 뜻이므로
+ * 그것은 "지울 수 없는 문구"가 아니라 **판정이 죽어 있다는 신호**였다. 판정이 에이전트 규칙까지 세도록
+ * 고친 뒤 도달 가능해졌고, 픽스처 ⑳(규칙 5만 자)이 그 분기를 밟는다.
  *
- * 이 둘을 지우면 안 된다. 실제 상황에서는 그려지는 문구이고, 지우는 순간 그때 키 누락이 된다.
+ * **남은 3개는 이 검사에서 원리상 도달할 수 없는 것들이다.** 0 이 목표가 아니다.
+ *  ① `killSwitch.confirm` — **두 번째 누름** 상태의 문구다. 정적 렌더에는 첫 상태만 있다.
+ *  ②③ `ssotDrift.settings.saved` · `.failed` (v4.67) — 설정 화면이 **저장을 시도한 뒤**에만 그리는 두 줄.
+ *     정적 렌더에는 버튼을 누른 뒤 상태가 없고, 그 상태를 만들려면 이 검사가 서버 응답까지 흉내 내야 한다
+ *     (그러면 죽은 문자열 검사가 아니라 통신 검사가 된다).
+ *
+ * 이 셋을 지우면 안 된다. 실제 상황에서는 그려지는 문구이고, 지우는 순간 그때 키 누락이 된다.
  */
-const CEILING = 2;
+const CEILING = 3;
 
 describe('죽은 플러그인 문자열', () => {
   it(`아무도 부르지 않는 카드 문자열이 ${CEILING}개를 넘지 않는다`, () => {
     const seen = requestedKeys();
-    const unused = flat(EN.panel.plugins, 'panel.plugins', [])
-      .filter((k) => !HOST_CHROME.has(k.split('.')[2] ?? ''))
-      .filter((k) => !seen.has(k));
+    const unused = flat(EN.panel.plugins, 'panel.plugins', []).filter((k) => !seen.has(k));
     // 상한을 내리려면 무엇이 남았는지 봐야 한다. 그때마다 임시 스크립트를 다시 만들지 않도록
     // 검사 자체가 목록을 내놓게 해 둔다: `DUMP_UNUSED=1 vitest run src/deadStrings.test.tsx`
     // (vitest 가 콘솔 출력을 삼키므로 파일로 쓴다. 산출물은 git 무시 대상이다.)
@@ -93,8 +95,7 @@ describe('죽은 플러그인 문자열', () => {
 
   it('카드 문자열은 반드시 등록된 플러그인 이름 아래에 있다 — 오타로 만든 고아 묶음을 잡는다', () => {
     const known = new Set(PLUGIN_CLIENT_MODULES.map((m) => m.manifest.id.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase())));
-    const orphans = Object.keys(EN.panel.plugins)
-      .filter((group) => !HOST_CHROME.has(group) && !known.has(group));
+    const orphans = Object.keys(EN.panel.plugins).filter((group) => !known.has(group));
     expect(orphans).toEqual([]);
   });
 });

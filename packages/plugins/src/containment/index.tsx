@@ -7,10 +7,10 @@
  *
  * 표시 전용이며, 다른 플러그인이 꺼져 있어도 자기 판정만으로 동작한다(플러그인 간 의존 ❌ — 순수 함수 재사용).
  */
-import { defineInspector, ICONS } from '../framework/inspector.js';
-import { judgeTrifecta } from '../lethal-trifecta/trifecta.js';
-import { judgeBlastRadius } from '../blast-radius/index.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector, ICONS } from '../sdk/index.js';
+import { judgeTrifecta } from '../sdk/index.js';
+import { judgeBlastRadius } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 function summary(ctx: PluginBubbleContext): { leak: boolean; radius: number; isolated: boolean } {
   const trifecta = judgeTrifecta(ctx.agentConfig);

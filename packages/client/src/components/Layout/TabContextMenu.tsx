@@ -1,5 +1,6 @@
 import { memo, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 
 export type TabContextAction = 'close' | 'closeOthers' | 'closeLeft' | 'closeRight' | 'closeAll' | 'togglePin' | 'toggleDefault' | 'detach' | 'rename';
 
@@ -35,22 +36,19 @@ export const TabContextMenu = memo(function TabContextMenu({
   const { t } = useTranslation();
   const menuRef = useRef<HTMLDivElement>(null);
 
+  // 바깥 press 로 닫기(공통 규약). 우클릭(2)은 메뉴 재오픈용이라 닫기 사유가 아니다.
+  useOutsidePressDismiss({
+    onDismiss: onClose,
+    refs: [menuRef],
+    shouldConsider: (e) => e.button === 0 || e.button === 1,
+  });
+
   useEffect(() => {
-    function handleDown(e: MouseEvent): void {
-      if (e.button !== 0 && e.button !== 1) return;
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        onClose();
-      }
-    }
     function handleKey(e: KeyboardEvent): void {
       if (e.key === 'Escape') onClose();
     }
-    document.addEventListener('mousedown', handleDown, true);
     document.addEventListener('keydown', handleKey);
-    return () => {
-      document.removeEventListener('mousedown', handleDown, true);
-      document.removeEventListener('keydown', handleKey);
-    };
+    return () => document.removeEventListener('keydown', handleKey);
   }, [onClose]);
 
   const actions: Array<{

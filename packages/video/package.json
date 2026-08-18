@@ -1,0 +1,51 @@
+{
+  "name": "@vibisual/video",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Vibistudio (§5.13) — 프로그래머블 영상 제작 내부 앱의 코어. 타임라인 문서 스키마 + 순수 해소기.",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./render": {
+      "types": "./dist/render/index.d.ts",
+      "default": "./dist/render/index.js"
+    },
+    "./server": {
+      "types": "./dist/server/routes.d.ts",
+      "default": "./dist/server/routes.js"
+    },
+    "./main": {
+      "types": "./dist/main/index.d.ts",
+      "default": "./dist/main/index.js"
+    },
+    "./host": {
+      "types": "./dist/host.d.ts",
+      "default": "./dist/host.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc -p tsconfig.typecheck.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@vibisual/shared": "workspace:*",
+    "mediabunny": "^1.52.2"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.9",
+    "@types/express": "^5.0.6",
+    "express": "^4.21.0",
+    "electron": "^33.0.0"
+  }
+}

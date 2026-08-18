@@ -1,0 +1,18 @@
+{
+  "id": "long-horizon",
+  "name": "Long-Horizon Task",
+  "version": "1.0.0",
+  "category": "observability",
+  "descriptionKey": "panel.plugins.longHorizon.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "bubbleBadge",
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "agentEvents"
+  ],
+  "hostApi": 1
+}

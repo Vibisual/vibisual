@@ -1,0 +1,15 @@
+{
+  "id": "tool-search",
+  "name": "Tool Search",
+  "version": "1.0.0",
+  "category": "observability",
+  "descriptionKey": "panel.plugins.toolSearch.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [],
+  "hostApi": 1
+}

@@ -1,0 +1,17 @@
+{
+  "id": "memory-poisoning",
+  "name": "Memory Poisoning",
+  "version": "1.0.0",
+  "category": "security",
+  "descriptionKey": "panel.plugins.memoryPoisoning.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "brain"
+  ],
+  "hostApi": 1
+}

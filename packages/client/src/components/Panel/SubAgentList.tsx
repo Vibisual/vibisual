@@ -1,20 +1,15 @@
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { SubAgent } from '@vibisual/shared';
 import { ScrollFade } from '../ScrollFade.js';
+import { useGraphStore } from '../../stores/graphStore.js';
+import { SESSION_STATUS_DOT, SESSION_STATUS_LABEL_KEY, sessionRunStateOf, serializeBusySubIds, parseBusySubIds } from '../../utils/sessionStatus.js';
 
 interface SubAgentListProps {
   subAgents: SubAgent[];
 }
 
-type StatusKey = 'idle' | 'running' | 'done' | 'error';
-
-const STATUS_STYLES: Record<string, { dot: string; labelKey: StatusKey }> = {
-  idle: { dot: 'bg-emerald-400', labelKey: 'idle' },
-  active: { dot: 'bg-blue-400 animate-pulse', labelKey: 'running' },
-  completed: { dot: 'bg-gray-400', labelKey: 'done' },
-  error: { dot: 'bg-red-400', labelKey: 'error' },
-};
+// 색·라벨 규약은 `utils/sessionStatus` 공용(종전 사본은 확인 여부를 안 봐서 IDE 탭바와 어긋났다).
 
 function formatTime(ts: number): string {
   const d = new Date(ts);
@@ -31,6 +26,12 @@ export const SubAgentList = memo(function SubAgentList({
   subAgents,
 }: SubAgentListProps): React.JSX.Element | null {
   const { t } = useTranslation();
+  // IDE 탭바와 같은 규약 — 확인한 세션은 조용한 색으로 내려간다.
+  const acknowledged = useGraphStore((s) => s.acknowledgedSubAgents);
+  // 백단 작업을 가진 세션은 IDE 탭바와 같이 도트가 켜진다(부모 id 는 목록의 sub 에서 얻는다).
+  const parentAgentId = subAgents[0]?.parentAgentId;
+  const busySubKey = useGraphStore((s) => serializeBusySubIds(parentAgentId ? s.runningSubagentTasks[parentAgentId] : undefined));
+  const busySubIds = useMemo(() => parseBusySubIds(busySubKey), [busySubKey]);
   if (subAgents.length === 0) return null;
 
   return (
@@ -40,13 +41,13 @@ export const SubAgentList = memo(function SubAgentList({
       </span>
       <ScrollFade maxHeight={256}><ul className="flex flex-col gap-1.5">
         {subAgents.map((sub) => {
-          const st = STATUS_STYLES[sub.status] ?? STATUS_STYLES['idle']!;
+          const runState = sessionRunStateOf(sub, !!acknowledged[sub.id], busySubIds.has(sub.id));
           return (
             <li
               key={sub.id}
               className="flex items-center gap-2 rounded border border-gray-700/50 bg-gray-800/60 px-2.5 py-1.5"
             >
-              <span className={`h-2 w-2 flex-shrink-0 rounded-full ${st.dot}`} />
+              <span className={`h-2 w-2 flex-shrink-0 rounded-full ${SESSION_STATUS_DOT[runState]}`} />
               <div className="min-w-0 flex-1">
                 <span className="block text-xs font-medium text-gray-200">
                   {sub.label}
@@ -58,8 +59,8 @@ export const SubAgentList = memo(function SubAgentList({
                 )}
               </div>
               <div className="flex flex-col items-end gap-0.5">
-                <span className={`text-[9px] ${sub.status === 'error' ? 'text-red-400' : 'text-gray-500'}`}>
-                  {t(`panel.subAgent.status.${st.labelKey}`)}
+                <span className={`text-[9px] ${runState === 'error' ? 'text-red-400' : 'text-gray-500'}`}>
+                  {t(SESSION_STATUS_LABEL_KEY[runState])}
                 </span>
                 {(sub.totalInputTokens ?? 0) > 0 && (
                   <span className="text-[9px] text-violet-400/70">

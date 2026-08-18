@@ -4,9 +4,9 @@
  * 1차 검색은 넓게 건지고, 재순위화가 그중 실제로 관련 있는 것을 위로 올린다. Vibisual 은 주입 시점에
  * **상위 몇 장만** 실어 보내므로 그 상한이 곧 재순위의 결과다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
+import { defineInspector } from '../sdk/index.js';
 import { BRAIN_INJECTION_TOP_K } from '@vibisual/shared';
-import type { PluginBubbleContext } from '../types.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const perEvent = (ctx: PluginBubbleContext): number => {
   const events = ctx.data.brainInjections ?? [];

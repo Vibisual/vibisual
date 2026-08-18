@@ -37,13 +37,14 @@ function isLoopRunning(loop: SessionLoop): boolean {
 }
 
 /**
- * 알릴 가치가 있는 종료인가 — 목표 도달(`done`)·오류 정지(`error`) 만.
+ * 알릴 가치가 있는 종료인가 — 목표 도달(`done`)·오류 정지(`error`)·예산 소진(`budget`) 만.
  *
  * `stopped` 는 사용자가 방금 [정지]를 누른 결과라 소리가 정보를 주지 못하고("왜 지금 울려?"),
  * 설정이 삭제돼 루프 자체가 사라진 경우도 마찬가지다 — 둘 다 침묵.
+ * §5.5 #17-11 ⑫(a) `budget` 은 반대로 **사용자가 모르는 사이 자동으로** 끝난 것이라 알려야 한다.
  */
 function isLoopFinished(loop: SessionLoop): boolean {
-  return loop.status === 'done' || loop.status === 'error';
+  return loop.status === 'done' || loop.status === 'error' || loop.status === 'budget';
 }
 
 /**

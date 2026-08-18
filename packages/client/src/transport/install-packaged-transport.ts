@@ -112,10 +112,15 @@ export interface PackagedOverlayApi {
   onMenuCommand(cb: (payload: { command: string }) => void): () => void;
 }
 
-// §5.12 v4.43 — 지휘통제실 창 surface. 프로젝트별 1창.
+// §5.12 v4.44 — 지휘통제실 창 surface. **앱 전체에 1창**이며 메인의 활성 프로젝트를 따라간다.
 export interface PackagedCommandCenterApi {
   open(payload: { projectId: string; cursor?: { x: number; y: number } }): Promise<{ windowId: number; reused: boolean }>;
-  close(projectId: string): Promise<boolean>;
+  close(): Promise<boolean>;
+  /**
+   * 지휘통제실 창: "이 프로젝트를 보여라" 신호 구독(v4.44).
+   * 구버전 preload 에는 없을 수 있어 선택 속성이다 — 없으면 따라가기만으로 동작한다.
+   */
+  onShowProject?(cb: (payload: { projectId: string }) => void): () => void;
   /** 카드 [이동] — 메인 창 focus + 그 세션으로 점프. */
   revealInMain(payload: { projectId: string; agentId: string; subAgentId?: string | null }): Promise<boolean>;
   /** 메인 윈도우: 지휘통제실 점프 신호 구독. */
@@ -147,7 +152,17 @@ export interface PackagedMobileApi {
 
 // §4 v2.63 임베디드 인터랙티브 터미널 surface — IDE 창 안 PTY.
 export interface PackagedTerminalApi {
-  create(spec: { termId: string; cwd: string; config: AgentConfig; cols?: number; rows?: number }): Promise<{ ok: boolean; error?: string }>;
+  create(spec: {
+    termId: string;
+    cwd: string;
+    config: AgentConfig;
+    cols?: number;
+    rows?: number;
+    /** §5.5 #17-20 ④ v4.74 — 있으면 claude 대신 이 명령을 띄운다(실행 런처). */
+    command?: string;
+    autoRun?: boolean;
+    env?: Record<string, string>;
+  }): Promise<{ ok: boolean; error?: string }>;
   write(termId: string, data: string): Promise<void>;
   resize(termId: string, cols: number, rows: number): Promise<void>;
   kill(termId: string): Promise<void>;
@@ -182,6 +197,22 @@ export interface PackagedApi {
   command?: PackagedCommandCenterApi;
   /** §5.9 화면/프로그램 캡처 버블. dev/web 모드(window.api 없음)에선 부재. */
   capture?: PackagedCaptureApi;
+  /** §5.13 (O) — 내부 앱 창. dev/web 모드·구버전 preload 에선 부재. */
+  app?: PackagedAppApi;
+}
+
+/**
+ * §5.13 (O) v4.48 — 내부 앱 surface (앱 무관).
+ *
+ * 앱마다 surface 를 만들지 않는다. `appId` 만 다르고 통로는 셋으로 고정이라, 앱이
+ * 늘어도 이 타입은 그대로다.
+ */
+export interface PackagedAppApi {
+  open: (appId: string, params?: Record<string, string>) => Promise<{ windowId: number; reused: boolean }>;
+  close: (appId: string) => Promise<boolean>;
+  /** 그 앱만 아는 기능. 코어는 뜻을 모르고 그대로 넘긴다. */
+  invoke: (appId: string, action: string, payload?: unknown) => Promise<unknown>;
+  onShowTarget: (cb: (payload: { appId: string; hash: string }) => void) => () => void;
 }
 
 declare global {

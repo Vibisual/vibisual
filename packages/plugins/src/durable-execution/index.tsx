@@ -5,8 +5,8 @@
  * 하지 않아도 된다. Vibisual 은 체크포인트로 이 층을 코어에서 보장하므로, 이 카드는 그 보장이 이 에이전트에
  * 어떻게 적용되는지를 보여준다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const sessions = (ctx: PluginBubbleContext): number => (ctx.data.subAgents ?? []).length;
 const turns = (ctx: PluginBubbleContext): number => (ctx.data.agentEvents ?? []).length;

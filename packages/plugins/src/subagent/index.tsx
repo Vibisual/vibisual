@@ -4,8 +4,8 @@
  * 서브에이전트의 핵심은 성능이 아니라 **컨텍스트 격리**다 — 탐색 메모·헛발질·장황한 도구 출력이
  * 본 작업과 주의를 다투지 않게 한다. 대신 인계 품질이라는 새 병목이 생긴다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 function sessions(ctx: PluginBubbleContext): number {
   return (ctx.data.subAgents ?? []).length;

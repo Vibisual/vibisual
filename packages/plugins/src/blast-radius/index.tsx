@@ -7,10 +7,9 @@
  * 치명적 3요소와 달리 여기서는 **격리(worktree)를 감쇄로 반영한다** — 반경은 "피해 범위"의 척도이고
  * 격리는 그 범위를 실제로 좁히기 때문. 3요소 판정에서 격리를 분리한 규칙과 모순이 아니라 역할이 다르다.
  */
-import type { AgentConfig } from '@vibisual/shared';
-import type { PluginClientModule, PluginBubbleContext, PluginManifest, PluginSeverity } from '../types.js';
-import { effectiveTools } from '../lethal-trifecta/trifecta.js';
-import { PluginSection, PluginRow, type PluginTone } from '../ui/kit.js';
+import type { PluginClientModule, PluginBubbleContext, PluginManifest, PluginSeverity } from '../sdk/index.js';
+import { judgeBlastRadius, type BlastRadiusVerdict } from '../sdk/index.js';
+import { PluginSection, PluginRow, type PluginTone } from '../sdk/index.js';
 
 export const blastRadiusManifest: PluginManifest = {
   id: 'blast-radius',
@@ -19,8 +18,8 @@ export const blastRadiusManifest: PluginManifest = {
   category: 'security',
   descriptionKey: 'panel.plugins.blastRadius.desc',
   enabledByDefault: false,
-  contributes: ['panelSection'],
-  clientOnly: true,
+  contributes: ['panelSection', 'agentPrompt'],
+  clientOnly: false,
 };
 
 const K = 'panel.plugins.blastRadius';
@@ -32,31 +31,11 @@ const K = 'panel.plugins.blastRadius';
  * 버블을 구분해 주지 못한다. 값은 패널 카드에서 그대로 보여 준다.
  */
 
-export interface BlastRadiusVerdict {
-  canRead: boolean;
-  canWrite: boolean;
-  canExecute: boolean;
-  canSend: boolean;
-  isolated: boolean;
-  /** 0~4. 격리면 1 깎는다(0 미만으로는 안 내려간다). */
-  score: number;
-  level: 'small' | 'medium' | 'large';
-}
-
-export function judgeBlastRadius(config: AgentConfig | undefined): BlastRadiusVerdict {
-  const tools = effectiveTools(config);
-  const canRead = ['Read', 'Grep', 'Glob'].some((t) => tools.has(t));
-  const canWrite = ['Write', 'Edit', 'NotebookEdit'].some((t) => tools.has(t));
-  const canExecute = tools.has('Bash');
-  const canSend = ['WebFetch', 'Bash'].some((t) => tools.has(t));
-  const isolated = config?.isolation === 'worktree';
-
-  const raw = [canRead, canWrite, canExecute, canSend].filter(Boolean).length;
-  const score = Math.max(0, raw - (isolated ? 1 : 0));
-  const level: BlastRadiusVerdict['level'] = score <= 1 ? 'small' : score <= 2 ? 'medium' : 'large';
-
-  return { canRead, canWrite, canExecute, canSend, isolated, score, level };
-}
+/*
+ * 판정(`judgeBlastRadius`)은 v4.58 에서 **SDK 로 올라갔다.** `containment`·`owasp-asi` 가 이 폴더를
+ * 직접 import 하고 있었는데, 폴더 하나를 복사하면 남의 폴더가 딸려 오는 형태라 자립 규약에 어긋난다.
+ * 여러 카드가 함께 쓰는 판정은 어느 한 카드의 소유가 아니다.
+ */
 
 const TONE: Record<BlastRadiusVerdict['level'], PluginTone> = { small: 'good', medium: 'warn', large: 'bad' };
 

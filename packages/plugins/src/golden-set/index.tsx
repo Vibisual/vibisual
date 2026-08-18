@@ -4,9 +4,9 @@
  * 크기보다 **대표성**이 중요하고, 특히 실제로 실패했던 사례가 들어 있어야 한다. 잘 되는 경우만 모은
  * 골든 셋은 항상 만점을 준다. 운영 중 발견된 실패를 즉시 적립하는 습관이 가장 값싼 품질 인프라다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import { toneIfActive } from '../framework/activity.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import { toneIfActive } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const lessons = (ctx: PluginBubbleContext): number =>
   (ctx.data.agentReports ?? []).reduce((n, r) => n + (r.learned ?? []).length, 0);

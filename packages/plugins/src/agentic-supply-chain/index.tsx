@@ -5,9 +5,9 @@
  * 특히 **도구 설명문 자체가 프롬프트**라는 점이 위험하다. 악의적 도구는 설명란에 지시를 숨겨 에이전트를 조종할 수 있다.
  * 그래서 외부 도구는 의존성이 아니라 **권한 위임**으로 취급해야 한다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import { effectiveTools } from '../lethal-trifecta/trifecta.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import { effectiveTools } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const skills = (ctx: PluginBubbleContext): string[] => ctx.agentConfig?.skills ?? [];
 /** Vibisual 이 직접 아는 내장 도구가 아닌 것 = 바깥에서 온 것으로 본다. */

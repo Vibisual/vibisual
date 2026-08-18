@@ -1,0 +1,18 @@
+{
+  "id": "tool-misuse",
+  "name": "Tool Misuse",
+  "version": "1.0.0",
+  "category": "security",
+  "descriptionKey": "panel.plugins.toolMisuse.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "bubbleBadge",
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "bashCommands"
+  ],
+  "hostApi": 1
+}

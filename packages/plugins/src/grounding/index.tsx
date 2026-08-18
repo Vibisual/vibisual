@@ -4,9 +4,9 @@
  * 근거 없이 그럴듯한 문장을 만드는 것과, 읽은 파일·검색한 카드에 매인 문장을 만드는 것은 다르다.
  * 여기서는 이 에이전트가 **원본을 직접 읽을 수 있는지**와 **근거가 실제로 주입됐는지**를 함께 본다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import { effectiveTools } from '../lethal-trifecta/trifecta.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import { effectiveTools } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const canRead = (ctx: PluginBubbleContext): boolean => ['Read', 'Grep', 'Glob'].some((t) => effectiveTools(ctx.agentConfig).has(t));
 const cards = (ctx: PluginBubbleContext): number => (ctx.data.brainInjections ?? []).reduce((n, e) => n + e.cardIds.length, 0);

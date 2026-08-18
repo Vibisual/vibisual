@@ -1,0 +1,19 @@
+{
+  "id": "audit-trail",
+  "name": "Audit Trail",
+  "version": "1.0.0",
+  "category": "observability",
+  "descriptionKey": "panel.plugins.auditTrail.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "bubbleBadge",
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "agentEvents",
+    "subAgents"
+  ],
+  "hostApi": 1
+}

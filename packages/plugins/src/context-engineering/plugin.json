@@ -1,0 +1,17 @@
+{
+  "id": "context-engineering",
+  "name": "Context Engineering",
+  "version": "1.0.0",
+  "category": "observability",
+  "descriptionKey": "panel.plugins.contextEngineering.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "brainInjections"
+  ],
+  "hostApi": 1
+}

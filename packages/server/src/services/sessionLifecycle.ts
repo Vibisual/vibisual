@@ -18,7 +18,7 @@ import type { SessionEntrypoint } from './sessionDiscovery.js';
 import { findEntrypointBySession, readAliveSessionIds } from './sessionDiscovery.js';
 import { JsonlWatcher } from './jsonlWatcher.js';
 import { logger } from '../logger.js';
-import { dbg } from './debugLog.js';
+import { dbg, dbgOnChange } from './debugLog.js';
 
 const POLL_INTERVAL_MS = 2_000;
 
@@ -232,14 +232,24 @@ export class SessionLifecycleManager {
         if (!aliveIds.has(sessionId)) dead.push(sessionId);
       }
 
-      dbg('pollOnce', {
-        aliveCount: aliveIds.size,
-        alive: [...aliveIds],
-        bubbleCount: bubbleIds.length,
-        bubbles: bubbleIds,
-        deadCount: dead.length,
-        dead,
-      });
+      // v4.67 — 2초마다 도는 폴링이라 매 주기 기록하면 로그가 무한히 자란다(실측 전체의 87%).
+      // `readAliveSessionIds.diff` 선례대로 **직전과 달라졌을 때만** 남긴다 — 변화 지점만
+      // 있으면 타임라인은 그대로 재구성되고, dead 가 생긴 주기는 signature 가 반드시 바뀌므로
+      // 제거 사고 진단에 필요한 기록은 하나도 잃지 않는다.
+      const alive = [...aliveIds];
+      dbgOnChange(
+        'pollOnce',
+        JSON.stringify([alive, bubbleIds, dead]),
+        'pollOnce',
+        {
+          aliveCount: aliveIds.size,
+          alive,
+          bubbleCount: bubbleIds.length,
+          bubbles: bubbleIds,
+          deadCount: dead.length,
+          dead,
+        },
+      );
 
       for (const sessionId of dead) {
         // SCENARIO §5.7 #24 v1.9: 조건 탈락 시 즉시 제거. Dormant 스냅샷이 복구를 담당.

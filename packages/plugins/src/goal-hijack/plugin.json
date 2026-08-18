@@ -1,0 +1,17 @@
+{
+  "id": "goal-hijack",
+  "name": "Goal Hijack",
+  "version": "1.0.0",
+  "category": "security",
+  "descriptionKey": "panel.plugins.goalHijack.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "agentEvents"
+  ],
+  "hostApi": 1
+}

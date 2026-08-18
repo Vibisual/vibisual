@@ -8,9 +8,9 @@
  * 캐시 적중률은 우리가 관측하지 못한다(공급자 응답에만 있다). 그래서 이 카드는 적중률을 지어내지 않고,
  * **프리픽스가 안정적인 구성인지**만 본다 — 고정 규칙이 있고 도구 목록이 흔들리지 않으면 캐시가 살 조건이다.
  */
-import { defineInspector } from '../framework/inspector.js';
-import { effectiveTools } from '../lethal-trifecta/trifecta.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import { effectiveTools } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const stableRules = (ctx: PluginBubbleContext): boolean => (ctx.agentConfig?.rules ?? '').trim().length > 0;
 const tools = (ctx: PluginBubbleContext): number => effectiveTools(ctx.agentConfig).size;

@@ -1,0 +1,15 @@
+{
+  "id": "pre-commit-gate",
+  "name": "Pre-commit Gate",
+  "version": "1.0.0",
+  "category": "workflow",
+  "descriptionKey": "panel.plugins.preCommitGate.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [],
+  "hostApi": 1
+}

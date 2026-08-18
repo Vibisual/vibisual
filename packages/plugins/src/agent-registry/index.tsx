@@ -8,9 +8,9 @@
  * Vibisual 에서는 우리가 만든 커스텀 에이전트만 우리 대장에 오른다. 훅으로 등록된 외부 세션은
  * Claude Code 본체 소유라 우리가 생애주기를 쥐고 있지 않으며, 그 사실을 감추지 않고 그대로 표시한다.
  */
-import { defineInspector } from '../framework/inspector.js';
-import { formatElapsed } from '../ui/kit.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import { formatElapsed } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const K = 'panel.plugins.agentRegistry';
 

@@ -2,6 +2,9 @@ import { memo, useCallback, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { AgentQuestions } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
+import { CardLiveBadge } from './AgentCardParts.js';
+import { selectionTextWithin, useSelectionWithin } from './cardSelection.js';
+import { buildQuestionCardText, buildQuestionsOnlyText, buildSingleQuestionText } from './questionCardText.js';
 
 interface AgentQuestionCardProps {
   questions: AgentQuestions;
@@ -10,6 +13,8 @@ interface AgentQuestionCardProps {
    * CMD(인터랙티브 터미널) 카드는 이 콜백으로 프롬프트를 터미널 PTY 에 prefill 한다(사람이 Enter — ToS 인루프).
    */
   onSendPrompt?: (prompt: string) => void;
+  /** §5.5 #17-18 ⑦-2 — 이 카드가 속한 턴이 아직 도는 중(헤더에 `작업 중` 배지). */
+  live?: boolean;
 }
 
 /** 안정 참조용 빈 Set — 선택 없는 질문에 새 Set 을 매번 만들어 리렌더 유발하지 않게. */
@@ -61,25 +66,28 @@ function QuestionsIcon(): React.JSX.Element {
   );
 }
 
+/** 선택 복사 (드래그 선택 표식 — 모서리 마키 + 글줄) */
+function SelectionIcon(): React.JSX.Element {
+  return (
+    <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 7V5a1 1 0 0 1 1-1h2" />
+      <path d="M17 4h2a1 1 0 0 1 1 1v2" />
+      <path d="M20 17v2a1 1 0 0 1-1 1h-2" />
+      <path d="M7 20H5a1 1 0 0 1-1-1v-2" />
+      <path d="M8 9.5h8" />
+      <path d="M8 14h5" />
+    </svg>
+  );
+}
+
 /**
- * §4 v3.42 — 카드 상단 복사 버튼(카드 전체 / 질문만). 클릭 시 `getText()` 로 만든 문자열을
- * 클립보드에 넣고, 1.4s 동안 체크 아이콘으로 피드백. 헤더 톤(작은 sky 글리프)을 유지한다.
+ * 복사 동작 한 벌(클립보드 쓰기 + 1.4s 체크 피드백). 카드 안 복사 버튼이 셋(헤더 / 질문 하나 /
+ * 답지)이라 각자 타이머·상태를 따로 들면 피드백 시간이 제각각이 된다 — 한 곳에 둔다.
+ * `getText()` 가 빈 문자열이면 아무 일도 하지 않는다(복사할 게 없을 때 헛된 체크 표시 ❌).
  */
-const HeaderCopyButton = memo(function HeaderCopyButton({
-  label,
-  title,
-  icon,
-  getText,
-}: {
-  label: string;
-  title: string;
-  icon: React.JSX.Element;
-  getText: () => string;
-}): React.JSX.Element {
-  const { t } = useTranslation();
+function useCopyAction(getText: () => string): { copied: boolean; onCopy: () => void } {
   const [copied, setCopied] = useState(false);
   const copyTimer = useRef<number | null>(null);
-
   const onCopy = useCallback(() => {
     const text = getText();
     if (!text) return;
@@ -89,21 +97,80 @@ const HeaderCopyButton = memo(function HeaderCopyButton({
       copyTimer.current = window.setTimeout(() => setCopied(false), 1400);
     }).catch(() => { /* clipboard 권한 거부 — 조용히 무시 */ });
   }, [getText]);
+  return { copied, onCopy };
+}
+
+/**
+ * §4 v3.42 — 카드 상단 복사 버튼(카드 전체 / 질문만 / 선택 복사). 클릭 시 `getText()` 로 만든 문자열을
+ * 클립보드에 넣고, 1.4s 동안 체크 아이콘으로 피드백. 헤더 톤(작은 sky 글리프)을 유지한다.
+ *
+ * ⚠ `onMouseDown` 에서 기본 동작을 막는다 — mousedown 은 **사용자가 방금 드래그한 선택을 풀어 버린다**.
+ *   선택 복사 버튼은 그 선택이 살아 있어야 일할 수 있고, 나머지 버튼도 누를 때 포커스를 뺏지 않는 편이
+ *   낫다(입력창에 쓰던 자리를 지키기 위해).
+ */
+const HeaderCopyButton = memo(function HeaderCopyButton({
+  label,
+  title,
+  icon,
+  getText,
+  disabled,
+}: {
+  label: string;
+  title: string;
+  icon: React.JSX.Element;
+  getText: () => string;
+  /** 지금은 복사할 것이 없음(선택 복사 — 고른 부분이 없을 때). 버튼은 남고 회색으로 잠긴다. */
+  disabled?: boolean;
+}): React.JSX.Element {
+  const { t } = useTranslation();
+  const { copied, onCopy } = useCopyAction(getText);
 
   return (
     <button
       type="button"
+      onMouseDown={(e) => e.preventDefault()}
       onClick={onCopy}
+      disabled={disabled === true}
       title={copied ? t('ide.question.copied') : title}
       aria-label={copied ? t('ide.question.copied') : title}
       className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
-        copied
-          ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300'
-          : 'border-sky-500/30 bg-sky-500/10 text-sky-200 hover:border-sky-400/50 hover:bg-sky-500/20 hover:text-sky-100'
+        disabled === true
+          ? 'cursor-not-allowed border-white/5 bg-gray-900/40 text-gray-600'
+          : copied
+            ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300'
+            : 'border-sky-500/30 bg-sky-500/10 text-sky-200 hover:border-sky-400/50 hover:bg-sky-500/20 hover:text-sky-100'
       }`}
     >
       {copied ? <CheckIcon /> : icon}
       <span>{copied ? t('ide.question.copied') : label}</span>
+    </button>
+  );
+});
+
+/**
+ * 질문 한 줄만 복사 — 질문 행에 호버(또는 키보드 포커스)했을 때만 드러나는 작은 글리프.
+ *
+ * 헤더의 통짜 복사(전체/질문 전부)와 드래그 선택 복사 사이의 빈칸을 메운다. 질문이 여럿인 카드에서
+ * "이 질문 + 그 답지"만 인용하고 싶은 것이 가장 흔한데, 그걸 매번 정확히 드래그하게 두는 건 손이 많이
+ * 간다. 상시 노출하면 카드가 시끄러워지므로 `CardHoverControls` 와 같은 감각으로 호버 때만 보인다.
+ */
+const QuestionCopyButton = memo(function QuestionCopyButton({ getText }: { getText: () => string }): React.JSX.Element {
+  const { t } = useTranslation();
+  const { copied, onCopy } = useCopyAction(getText);
+  return (
+    <button
+      type="button"
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={onCopy}
+      title={copied ? t('ide.question.copied') : t('ide.question.copyOne')}
+      aria-label={copied ? t('ide.question.copied') : t('ide.question.copyOne')}
+      className={`mt-0.5 inline-flex flex-shrink-0 items-center rounded border p-1 transition-all focus-visible:opacity-100 group-hover/q:opacity-100 ${
+        copied
+          ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300 opacity-100'
+          : 'border-white/10 bg-gray-900/60 text-gray-400 opacity-0 hover:border-white/20 hover:bg-gray-800/80 hover:text-gray-100'
+      }`}
+    >
+      {copied ? <CheckIcon /> : <CopyIcon />}
     </button>
   );
 });
@@ -170,22 +237,14 @@ const PromptBox = memo(function PromptBox({
   onToggle: () => void;
 }): React.JSX.Element {
   const { t } = useTranslation();
-  const [copied, setCopied] = useState(false);
-  const copyTimer = useRef<number | null>(null);
 
   // 답이 확정된 질문에서는 더 이상 상호작용 ❌ (선택된 박스든 흐려진 박스든 모두 잠금).
   const inert = disabled || wasSent;
   // 선택되지 않은 다른 후보 → 흐리게.
   const dimmed = disabled && !wasSent;
 
-  const onCopy = useCallback(() => {
-    if (inert) return;
-    void navigator.clipboard.writeText(prompt).then(() => {
-      setCopied(true);
-      if (copyTimer.current !== null) window.clearTimeout(copyTimer.current);
-      copyTimer.current = window.setTimeout(() => setCopied(false), 1400);
-    }).catch(() => { /* clipboard 권한 거부 — 조용히 무시 */ });
-  }, [prompt, inert]);
+  const getPromptText = useCallback(() => (inert ? '' : prompt), [prompt, inert]);
+  const { copied, onCopy } = useCopyAction(getPromptText);
 
   return (
     <div className="group/prompt mt-1.5 flex items-start gap-2">
@@ -273,8 +332,9 @@ const QuestionItem = memo(function QuestionItem({
   onInstant: (promptIdx: number, prompt: string) => void;
   onToggle: (promptIdx: number) => void;
 }): React.JSX.Element {
+  const getOwnText = useCallback(() => buildSingleQuestionText(item, index, multi), [item, index, multi]);
   return (
-    <li className="flex flex-col">
+    <li className="group/q flex flex-col">
       {/* 질문 */}
       <div className="flex items-start gap-1.5">
         {multi && (
@@ -290,6 +350,7 @@ const QuestionItem = memo(function QuestionItem({
             {item.question}
           </p>
         </div>
+        <QuestionCopyButton getText={getOwnText} />
       </div>
 
       {/* 제안 프롬프트들 */}
@@ -324,7 +385,7 @@ const QuestionItem = memo(function QuestionItem({
  * §4 v3.42 — 다중 질문 편의 기능: 헤더에 "카드 전체 복사"·"질문만 복사" 버튼, 질문이 2개 이상이면
  * 각 답지에 체크박스 + 하단 "선택 항목 전송"(고른 답들을 한 번에 새 명령으로 전송)을 단다.
  */
-export const AgentQuestionCard = memo(function AgentQuestionCard({ questions, onSendPrompt }: AgentQuestionCardProps): React.JSX.Element {
+export const AgentQuestionCard = memo(function AgentQuestionCard({ questions, onSendPrompt, live }: AgentQuestionCardProps): React.JSX.Element {
   const { t } = useTranslation();
   const addCommand = useGraphStore((s) => s.addCommand);
 
@@ -385,33 +446,19 @@ export const AgentQuestionCard = memo(function AgentQuestionCard({ questions, on
 
   const clearSelection = useCallback(() => setSelected({}), []);
 
-  // 카드 전체 복사: note + 각 질문(헤더/본문) + 제안 답들.
-  const buildCardText = useCallback((): string => {
-    const lines: string[] = [];
-    if (questions.note) { lines.push(questions.note, ''); }
-    questions.items.forEach((item, i) => {
-      const prefix = multi ? `${i + 1}. ` : '';
-      const header = item.header ? `[${item.header}] ` : '';
-      lines.push(`${prefix}${header}${item.question}`);
-      item.prompts.forEach((p) => lines.push(`  - ${p}`));
-      if (i < questions.items.length - 1) lines.push('');
-    });
-    return lines.join('\n').trim();
-  }, [questions.note, questions.items, multi]);
+  // 카드 전체 복사: note + 각 질문(헤더/본문) + 제안 답들. 형식은 questionCardText 한 곳에만 둔다.
+  const buildCardText = useCallback((): string => buildQuestionCardText(questions), [questions]);
 
   // 질문만 복사: 제안 답 없이 질문 텍스트(헤더 포함)만.
-  const buildQuestionsText = useCallback((): string => {
-    return questions.items
-      .map((item, i) => {
-        const prefix = multi ? `${i + 1}. ` : '';
-        const header = item.header ? `[${item.header}] ` : '';
-        return `${prefix}${header}${item.question}`;
-      })
-      .join('\n');
-  }, [questions.items, multi]);
+  const buildQuestionsText = useCallback((): string => buildQuestionsOnlyText(questions), [questions]);
+
+  // 선택 복사: 사용자가 이 카드 안에서 드래그로 고른 부분만(카드 경계에서 자름, 줄바꿈 보존).
+  const rootRef = useRef<HTMLDivElement>(null);
+  const hasSelection = useSelectionWithin(rootRef);
+  const buildSelectionText = useCallback((): string => selectionTextWithin(rootRef.current), []);
 
   return (
-    <div className="mx-2 my-1.5 overflow-hidden rounded-md border border-sky-500/40 bg-sky-500/5">
+    <div ref={rootRef} className="mx-2 my-1.5 overflow-hidden rounded-md border border-sky-500/40 bg-sky-500/5">
       {/* 헤더 */}
       <div className="flex items-center gap-2 border-b border-sky-500/20 bg-sky-500/10 px-3 py-1.5">
         <svg className="h-3.5 w-3.5 flex-shrink-0 text-sky-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -422,7 +469,7 @@ export const AgentQuestionCard = memo(function AgentQuestionCard({ questions, on
         <span className="flex-1 text-[11px] font-semibold uppercase tracking-wide text-sky-300">
           {t('ide.question.title')}
         </span>
-        <div className="flex items-center gap-1">
+        <div className="flex flex-wrap items-center justify-end gap-1">
           <HeaderCopyButton
             label={t('ide.question.copyCard')}
             title={t('ide.question.copyCard')}
@@ -435,7 +482,16 @@ export const AgentQuestionCard = memo(function AgentQuestionCard({ questions, on
             icon={<QuestionsIcon />}
             getText={buildQuestionsText}
           />
+          {/* 선택 복사 — 고른 부분이 없으면 회색으로 남겨 "드래그하면 이걸 쓸 수 있다"를 알린다(숨기면 못 찾는다). */}
+          <HeaderCopyButton
+            label={t('ide.question.copySelection')}
+            title={hasSelection ? t('ide.question.copySelection') : t('ide.question.copySelectionHint')}
+            icon={<SelectionIcon />}
+            getText={buildSelectionText}
+            disabled={!hasSelection}
+          />
         </div>
+        {live && <CardLiveBadge />}
         <span className="select-none text-[10px] text-gray-500">{formatTime(questions.createdAt)}</span>
       </div>
 

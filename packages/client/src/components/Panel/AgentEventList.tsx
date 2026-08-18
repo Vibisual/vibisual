@@ -2,6 +2,7 @@ import { memo, useState, useCallback, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { AgentEvent, TodoItem, SubAgent, QueuedCommand } from '@vibisual/shared';
 import { ScrollFade } from '../ScrollFade.js';
+import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 import { TokenUsagePopup } from './TokenUsagePopup.js';
 
 interface AgentEventListProps {
@@ -68,10 +69,12 @@ function PromptDetailPopup({ event, sessionId, onClose }: PromptDetailPopupProps
     return () => window.removeEventListener('keydown', handleKey);
   }, [onClose, showTokens]);
 
+  const backdrop = useBackdropDismiss(onClose);
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-      onClick={onClose}
+      {...backdrop}
     >
       <div
         className="mx-4 flex max-h-[80vh] w-full max-w-2xl flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl shadow-black/50"

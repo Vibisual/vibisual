@@ -3,7 +3,9 @@
  * 주기적으로 tail하여 listen 포트를 탐지한다. 포트 발견 시 콜백 호출 후 자동 중지.
  */
 import fs from 'node:fs';
+import { capMapSize, SESSION_KEYED_MAP_MAX } from '@vibisual/shared';
 import { logger } from '../logger.js';
+import { scanFileLines } from './jsonlChunkReader.js';
 import { isPortAlive, isVibisualLauncherCommand } from './processChecker.js';
 
 const PORT_REGEX = /(?:localhost|127\.0\.0\.1|0\.0\.0\.0):(\d{2,5})/;
@@ -202,34 +204,87 @@ export interface ActiveBackgroundShell {
   startedAt: number;
 }
 
+/**
+ * §9 — 세션 트랜스크립트 스캔의 **증분 상태**.
+ *
+ * **왜**: 이 스캔은 `SESSION_SCAN_INTERVAL`(10초) sweep 이 **등록된 모든 세션**에 대해 돌린다.
+ * 종전 구현은 그때마다 트랜스크립트를 `readFileSync` 로 통째로 읽고 전 줄을 `JSON.parse` 했다.
+ * 트랜스크립트는 세션당 8~26MB 까지 자라므로, 이 한 경로가 메인 프로세스 누적 읽기 537GB
+ * (디스크 총량 2.3GB 의 약 230배) · CPU 상시 130~160% 의 주범이었다(실측 2026-08-15).
+ *
+ * 트랜스크립트는 **append-only** 라, 새로 붙은 줄만 같은 순서로 먹이면 결과가 전량 재스캔과
+ * 같다. 그래서 파싱 중간 상태(`pending`·`shells`·`killed`)를 그대로 들고 다닌다.
+ * 파일이 그대로면(크기·mtime 동일) 디스크를 아예 건드리지 않는다.
+ *
+ * ⚠ 파일이 **줄어들면** 이어 읽기가 어긋난다(교체·잘림) — 그때는 상태를 버리고 처음부터 다시 읽는다.
+ */
+interface ShellScanState {
+  /** 마지막으로 **줄까지 완결해** 먹인 바이트 오프셋. */
+  offset: number;
+  /** 그때의 파일 크기·mtime. 둘 다 같으면 새 줄이 없다는 뜻이다. */
+  size: number;
+  mtimeMs: number;
+  /** bg Bash invocation: assistant tool_use → { toolUseId, command, timestamp } */
+  pending: Map<string, { command: string; startedAt: number }>;
+  /** tool_result(user entry) 에서 shellId/outputPath 까지 짝지어진 셸들 */
+  shells: ActiveBackgroundShell[];
+  /** KillShell 이 호출된 shell_id 집합 */
+  killed: Set<string>;
+}
+
+const scanStates = new Map<string, ShellScanState>();
+
+function freshScanState(): ShellScanState {
+  return { offset: 0, size: 0, mtimeMs: 0, pending: new Map(), shells: [], killed: new Set() };
+}
+
+/** 누적 상태에서 지금 살아있는 셸 목록을 뽑는다(종전 함수 말미의 필터와 동일). */
+function activeShellsOf(state: ShellScanState): ActiveBackgroundShell[] {
+  // §7.11 v2.4 — Vibisual 자체 런처 셸(node scripts/runapp.mjs 등)은 제외한다.
+  // 그 output 파일은 실행된 Vibisual 앱 자신의 로그라, 감지가 자기 로그를 되읽어
+  // 모든 포트를 서버로 오등록하는 self-ingestion 루프를 만든다.
+  return state.shells.filter(
+    (s) => !state.killed.has(s.shellId) && !isVibisualLauncherCommand(s.command),
+  );
+}
+
+/** 테스트·재기동용 — 증분 캐시를 비운다. */
+export function resetBackgroundShellScanCache(): void {
+  scanStates.clear();
+}
+
 export function scanActiveBackgroundShells(jsonlPath: string): ActiveBackgroundShell[] {
-  if (!fs.existsSync(jsonlPath)) return [];
-
-  // 1) bg Bash invocation: assistant tool_use → { toolUseId, command, timestamp }
-  const pending = new Map<string, { command: string; startedAt: number }>();
-  // 2) tool_result (user entry) → toolUseId와 매칭되는 shellId/outputPath
-  const shells: ActiveBackgroundShell[] = [];
-  // 3) KillShell이 호출된 shell_id 집합
-  const killed = new Set<string>();
-
-  let content: string;
+  let st: fs.Stats;
   try {
-    content = fs.readFileSync(jsonlPath, 'utf8');
+    st = fs.statSync(jsonlPath);
   } catch {
+    scanStates.delete(jsonlPath); // 파일이 사라짐 — 이어 읽을 상태도 의미가 없다
     return [];
   }
+  if (!st.isFile()) return [];
 
-  for (const line of content.split('\n')) {
-    if (!line) continue;
+  let state = scanStates.get(jsonlPath);
+  if (!state || st.size < state.size) {
+    // 처음 보는 파일이거나 줄어들었다(교체·잘림) — 이어 읽기를 포기하고 처음부터.
+    state = freshScanState();
+    scanStates.set(jsonlPath, state);
+    // §3.2.4 F축 — 경로가 키라 켜 둘수록 는다. 버려도 다음 호출에서 다시 쌓인다.
+    capMapSize(scanStates, SESSION_KEYED_MAP_MAX);
+  } else if (st.size === state.size && st.mtimeMs === state.mtimeMs) {
+    return activeShellsOf(state); // 새 줄 없음 — 디스크를 건드리지 않는다
+  }
+
+  const consumeLine = (line: string): void => {
+    const { pending, shells, killed } = state!;
     let entry: Record<string, unknown>;
     try {
       const parsed: unknown = JSON.parse(line);
-      if (typeof parsed !== 'object' || parsed === null) continue;
+      if (typeof parsed !== 'object' || parsed === null) return;
       entry = parsed as Record<string, unknown>;
-    } catch { continue; }
+    } catch { return; }
 
     const msg = entry['message'] as Record<string, unknown> | undefined;
-    if (!msg || !Array.isArray(msg['content'])) continue;
+    if (!msg || !Array.isArray(msg['content'])) return;
     const ts = typeof entry['timestamp'] === 'string' ? Date.parse(entry['timestamp']) : Date.now();
 
     for (const block of msg['content'] as unknown[]) {
@@ -281,12 +336,14 @@ export function scanActiveBackgroundShells(jsonlPath: string): ActiveBackgroundS
         pending.delete(forUid);
       }
     }
-  }
+  };
 
-  // §7.11 v2.4 — Vibisual 자체 런처 셸(node scripts/runapp.mjs 등)은 제외한다.
-  // 그 output 파일은 실행된 Vibisual 앱 자신의 로그라, 감지가 자기 로그를 되읽어
-  // 모든 포트를 서버로 오등록하는 self-ingestion 루프를 만든다.
-  return shells.filter(
-    (s) => !killed.has(s.shellId) && !isVibisualLauncherCommand(s.command),
-  );
+  // 새로 붙은 구간만 훑는다. `scanFileLines` 는 **완결된 줄만** 먹이고, 반쪽으로 끝난 꼬리는
+  // 커밋하지 않으므로(nextOffset 이 그 앞) 다음 호출에서 온전한 줄로 다시 읽힌다.
+  const { nextOffset } = scanFileLines(jsonlPath, state.offset, st.size, consumeLine);
+  state.offset = nextOffset;
+  state.size = st.size;
+  state.mtimeMs = st.mtimeMs;
+
+  return activeShellsOf(state);
 }

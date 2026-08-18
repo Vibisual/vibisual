@@ -6,9 +6,9 @@
  * "도구를 검색하게 하라"**이며, 카탈로그가 커질수록 이득이 커진다. 표시 전용.
  */
 import { AVAILABLE_AGENT_TOOLS, TOOL_SCHEMA_ESTIMATE } from '@vibisual/shared';
-import { defineInspector } from '../framework/inspector.js';
-import { effectiveTools } from '../lethal-trifecta/trifecta.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import { effectiveTools } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const loaded = (ctx: PluginBubbleContext): number => effectiveTools(ctx.agentConfig).size;
 const share = (ctx: PluginBubbleContext): number => loaded(ctx) / AVAILABLE_AGENT_TOOLS.length;

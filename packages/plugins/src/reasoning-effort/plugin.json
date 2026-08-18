@@ -1,0 +1,18 @@
+{
+  "id": "reasoning-effort",
+  "name": "Reasoning Effort",
+  "version": "1.0.0",
+  "category": "workflow",
+  "descriptionKey": "panel.plugins.reasoningEffort.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "bubbleBadge",
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "agentEvents"
+  ],
+  "hostApi": 1
+}

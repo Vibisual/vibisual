@@ -4,8 +4,8 @@
  * 필드를 더할 때는 **선택적으로** 더하고 기본값을 두어야, 이전 버전이 남긴 저장본을 새 코드가 그대로 읽는다.
  * Vibisual 의 체크포인트가 그 규약 위에 있으므로, 이 카드는 그 보장과 이 에이전트의 저장 상태를 보여준다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const sessions = (ctx: PluginBubbleContext): number => (ctx.data.subAgents ?? []).length;
 

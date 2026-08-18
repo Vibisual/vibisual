@@ -18,7 +18,11 @@
       "availableTooltip": "版本 {{version}} 可用，正在后台下载",
       "downloading": "更新中 {{percent}}%",
       "restart": "重启以应用更新",
-      "restartTooltip": "版本 {{version}} 已就绪 — 重启以应用"
+      "restartTooltip": "版本 {{version}} 已就绪 — 重启以应用",
+      "confirmTitle": "要重启以更新吗？",
+      "confirmBody": "更新将关闭并重新安装应用。进行中的 Agent 工作或未保存的更改可能会丢失。",
+      "confirmHint": "如果有重要的自定义 Agent 工作，请先完成后再更新。",
+      "confirmCancel": "取消"
     },
     "agentStatus": {
       "waiting": "等待 Agent",
@@ -44,7 +48,139 @@
       "file": "文件",
       "openFolder": "打开文件夹...",
       "options": "选项…",
+      "guide": "指南",
+      "mobileAccess": "移动访问…",
       "plugins": "插件…"
+    },
+    "mobileAccess": {
+      "title": "移动访问",
+      "subtitle": "在同一 Wi-Fi 下，用手机浏览器打开 Vibisual。开启后，在手机上打开下方地址，然后输入配对码。",
+      "statusOn": "正在本地网络上监听",
+      "statusOff": "关闭",
+      "enable": "开启",
+      "disable": "关闭",
+      "url": "在手机上打开",
+      "noNetwork": "未检测到本地网络地址 — 请检查 Wi-Fi 或网络适配器。",
+      "pairingCode": "配对码",
+      "pairingHint": "手机首次连接时会要求输入此配对码。已配对的设备将保持连接。",
+      "regen": "新配对码",
+      "locked": "失败次数过多 — 配对已锁定。生成新配对码即可解锁。",
+      "clients": "已连接设备：{{count}}",
+      "securityNote": "网络中任何持有此配对码的人都能控制 Vibisual 并在此电脑上运行 Agent。请仅在可信的 Wi-Fi 下使用。",
+      "externalTitle": "外部访问",
+      "externalSubtitle": "通过互联网访问此电脑。Vibisual 会请求路由器自动开放端口（UPnP），并通过加密的 HTTPS 提供服务。",
+      "externalMapping": "正在请求路由器开放端口…",
+      "externalCgnat": "您的网络连接没有公网地址（运营商级 NAT），因此无法在此开放端口。请使用 Tailscale 等 VPN，或向运营商申请公网 IP。",
+      "externalManual": "无法自动开放端口（路由器的 UPnP 可能已关闭）。如需手动设置，请在路由器设置中将外部 TCP 端口 {{port}} 转发到此电脑的 {{ip}}:{{port}}。",
+      "externalManualUrl": "端口转发完成后，可通过以下地址从外部连接：",
+      "externalReachable": "可访问 — 从外部连接地址：",
+      "externalHttpsNote": "使用自签名证书 — 手机首次访问时会显示安全警告。点击“高级 → 继续”即可继续，连接依然是加密的。",
+      "qrTitle": "二维码配对",
+      "qrSubtitle": "用手机摄像头扫描 — Vibisual 会自动打开并完成配对，无需输入地址或配对码。每个二维码有效期为 {{minutes}} 分钟。",
+      "qrIssue": "生成二维码",
+      "qrReissue": "生成新二维码",
+      "qrRevoke": "立即撤销",
+      "qrDownload": "保存图片",
+      "qrTarget": "编码地址",
+      "qrTargetLan": "Wi-Fi",
+      "qrTargetExternal": "互联网",
+      "qrExpiresIn": "有效期 {{time}}",
+      "qrExpired": "已过期 — 请生成新二维码。",
+      "qrPairedCount": "已通过此二维码配对：{{count}}"
+    },
+    "guide": {
+      "title": "指南",
+      "subtitle": "带您了解 Vibisual 的功能 — 以及目前已实现的功能一览。",
+      "cat": {
+        "start": "快速开始",
+        "bubbleMap": "气泡图",
+        "agents": "Agent",
+        "taskEdges": "任务边",
+        "ide": "IDE 面板",
+        "navigation": "导航",
+        "history": "历史与保存",
+        "shortcuts": "快捷键"
+      },
+      "start": {
+        "intro": "Vibisual 会将 AI Agent 的实时活动可视化为气泡图。",
+        "openFolderT": "打开文件夹",
+        "openFolderD": "文件 → 打开文件夹即可开始跟踪项目。每个项目都会在独立的标签页中打开。",
+        "watchT": "查看 Agent 工作",
+        "watchD": "Claude Code 运行时，它接触到的文件和文件夹会以气泡形式出现，并在发生变化时产生脉动效果。",
+        "optionsT": "设置默认值",
+        "optionsD": "文件 → 选项，为新 Agent 设置默认模型、工具、权限模式和 Claude Code 可执行文件。"
+      },
+      "bubbleMap": {
+        "intro": "画布会将您的项目按层级和活动关系绘制为相互连接的气泡。",
+        "typesT": "气泡类型",
+        "typesD": "文件、文件夹、Agent、Bash、编辑、iframe 等 — 各类别以不同颜色区分。",
+        "sizeT": "大小代表活动量",
+        "sizeD": "气泡越大，被触及的次数越多。正在脉动的气泡表示当前处于活动状态。",
+        "contextT": "上下文填充",
+        "contextD": "Agent 气泡会像水位一样填充，以显示其上下文窗口的使用程度。",
+        "ghostT": "幽灵节点",
+        "ghostD": "已删除或重命名的节点会以淡化的幽灵形式保留，避免留下的轨迹丢失。"
+      },
+      "agents": {
+        "intro": "除了被动跟踪之外，您还可以在画布上创建并编排自己的 Agent。",
+        "customT": "自定义 Agent",
+        "customD": "在画布上右键点击即可派生您自己的 Agent 气泡并向其下达命令。",
+        "autoT": "自动 Agent",
+        "autoD": "用自然语言描述您的需求，构建者 Agent 会为您设计并搭建整个团队。",
+        "configT": "Agent 设置",
+        "configD": "点击气泡即可设置其模型、工具、权限模式、思考深度、隔离和颜色。",
+        "pipelineT": "子 Agent 与流水线",
+        "pipelineD": "通过流水线、团队或混合策略运行独立 Session 并将多个 Agent 串联起来。"
+      },
+      "taskEdges": {
+        "intro": "使用任务边连接两个自定义 Agent，以在它们之间委派工作。",
+        "drawT": "绘制边",
+        "drawD": "从一个自定义 Agent 气泡拖动到另一个，即可在它们之间创建委派边。",
+        "kindsT": "边的类型",
+        "kindsD": "命令、产物、请求或评审 — 类型决定了边上流动的内容。",
+        "critiqueT": "评审与自动返工",
+        "critiqueD": "评审边可以强制目标 Agent 返工其输出，直到评审者认可为止。"
+      },
+      "ide": {
+        "intro": "双击 Agent 即可打开 IDE 面板 — 查看其实时输出、Session 和报告。",
+        "streamT": "实时流",
+        "streamD": "实时跟踪 Agent 的消息、工具调用和结果。",
+        "cardsT": "已完成 / 待办卡片",
+        "cardsD": "已完成的工作和您需要自行处理的事项会分别以不同颜色的卡片显示。",
+        "reviewT": "评审卡片",
+        "reviewD": "当 Agent 完成修复后，紫色卡片会显示变更内容和需要核实的事项。",
+        "dockT": "停靠或悬浮",
+        "dockD": "拖动面板的标题栏可使其悬浮，或将其吸附到右侧作为侧边面板。"
+      },
+      "navigation": {
+        "intro": "快速在大型地图中移动。",
+        "panT": "平移与缩放",
+        "panD": "拖动画布可平移，滚动可缩放；小地图会显示您当前的位置。",
+        "tabsT": "标签页与分离",
+        "tabsD": "每个打开的文件夹都是一个标签页；将标签页拖出标签栏即可弹出为独立窗口。",
+        "inspectorT": "检查器",
+        "inspectorD": "按住 Alt 可高亮元素，点击即可复制；按住 Shift 拖动可选择区域。",
+        "copyT": "复制与粘贴",
+        "copyD": "选中自定义 Agent 和边，然后按 Ctrl+C / Ctrl+V 即可将它们复制到另一个项目中。"
+      },
+      "history": {
+        "intro": "Vibisual 会在多次运行之间记住您的项目。",
+        "saveT": "自动保存",
+        "saveD": "整个图会被检查点保存到磁盘，并在下次打开 Vibisual 时恢复。",
+        "replayT": "历史回放",
+        "replayD": "拖动时间轴即可回放地图在一次 Session 中的演变过程。"
+      },
+      "shortcuts": {
+        "intro": "键盘快捷键可加快导航和编辑速度。在输入框或终端中输入时快捷键会暂停生效。",
+        "bookmarkT": "气泡书签",
+        "bookmarkD": "Alt+1…0 可将气泡或 Session 固定到对应槽位；按 1…0 即可跳转回该槽位。",
+        "copyT": "复制 / 粘贴",
+        "copyD": "Ctrl+C / Ctrl+V（macOS 上为 Cmd）可复制和粘贴所选的 Agent、边和批注框。",
+        "inspectorT": "检查器",
+        "inspectorD": "按住 Alt 可检查元素，点击即可复制；按住 Shift 拖动可进行区域选择。",
+        "closeT": "关闭与取消",
+        "closeD": "Esc 可关闭菜单、弹窗和 IDE 面板。"
+      }
     },
     "options": {
       "title": "选项",
@@ -61,7 +197,13 @@
         "notifications": "通知",
         "permissions": "权限",
         "advanced": "高级",
-        "version": "版本"
+        "version": "版本",
+        "account": "账户"
+      },
+      "appearance": {
+        "intro": "个性化 Vibisual 的外观。",
+        "language": "语言",
+        "languageDesc": "界面显示语言。设置后立即生效。"
       },
       "version": {
         "title": "版本与关于",
@@ -90,32 +232,59 @@
         "permissionMode": "权限模式",
         "effort": "思考深度",
         "maxTurns": "最大轮次（0 = 不限）",
+        "maxBudgetUsd": "预算（$，0 = 不限）",
         "isolation": "隔离",
         "tools": "工具（允许列表）",
         "disallowedTools": "禁用工具（拒绝列表）",
         "rules": "默认规则（Markdown）",
         "rulesPlaceholder": "# 可选的默认规则，注入到每个新 Agent\n- ...",
         "color": "默认气泡颜色（hex，可选）"
+      },
+      "account": {
+        "intro": "Vibisual 运行智能体所用的 Claude Code 账户。在这里退出会让 Claude Code 本身退出登录。",
+        "signedIn": "已登录",
+        "signedOut": "未登录",
+        "unknown": "无法检查登录状态",
+        "unknownDesc": "claude 可执行文件没有响应。请在 Version 选项卡确认已安装 Claude Code。",
+        "email": "邮箱",
+        "org": "组织",
+        "method": "方式",
+        "provider": "提供方",
+        "logout": "退出登录",
+        "logoutConfirm": "要退出 Claude Code 登录吗？",
+        "logoutYes": "退出登录",
+        "logoutNo": "保持登录",
+        "loggingOut": "正在退出…",
+        "login": "登录",
+        "recheck": "重新检查",
+        "checking": "检查中…",
+        "actionFailed": "操作未成功。请重试。"
       }
     },
     "autoAgent": {
       "title": "Auto Agent",
-      "placeholder": "描述你想要的内容 — 例如「在仪表盘添加 OAuth 登录」",
-      "send": "发送",
-      "shortcutHint": "Ctrl/Cmd + Enter 发送",
-      "toggleQuestionsTip": "开启后，对高复杂度请求在派生前询问澄清问题。",
-      "questionsOn": "复杂时询问",
+      "description": "Agent 编排构建器。描述您的目标，构建者 Agent 会为您设计多 Agent 编排方案 — 选择 Agent、模型、工具和权限，并连接好任务边 — 然后自动启动。您无需手动布置气泡或边。",
+      "placeholder": "描述你的目标 — 例如「为仪表盘添加 OAuth 登录并编写测试」。我会挑选合适的 Agent、模型和工具并完成连接。",
+      "send": "构建 Agent 编排",
+      "shortcutHint": "Ctrl/Cmd + Enter 构建",
+      "toggleQuestionsTip": "开启后，构建器在搭建 Agent 编排前可能会先询问几个澄清问题。",
+      "questionsOn": "不确定时询问",
       "questionsOff": "跳过询问",
-      "clarifying": "派生团队前需要几点说明",
+      "clarifying": "在构建 Agent 编排前，需要您确认几点",
       "notePlaceholder": "添加备注（可选）",
       "submitAnswers": "提交答案",
       "summary": "摘要",
       "spawnedCount": "已派生 {{count}} 个子 Agent",
       "entryHint": "子 Agent 正在运行。在此与我对话以进行后续操作。",
+      "buildingHint": "构建者正在画布上设计 Agent 和连接。打开此气泡即可查看其工作过程。",
+      "activityTitle": "构建者活动",
+      "activityLive": "实时",
+      "activityWaiting": "正在启动构建者…",
       "phase": {
         "idle": "空闲 — 输入请求以开始",
         "analyzing": "分析请求中…",
         "asking": "等待您的说明",
+        "building": "正在构建 Agent 编排…",
         "spawning": "派生 Agent 中…",
         "dispatching": "调度到入口 Agent 中…",
         "running": "子 Agent 工作中",
@@ -131,8 +300,56 @@
         "pipeline": "Pipeline",
         "team": "Team",
         "ralph": "Ralph（团队 + 评审循环）",
-        "autopilot": "Autopilot（单 Agent）"
+        "autopilot": "Autopilot（单 Agent）",
+        "custom": "自定义（构建者设计）"
+      },
+      "run": {
+        "title": "已验证的运行",
+        "selfTest": "测试 Gate",
+        "selfTestRunning": "测试中…",
+        "selfTestTip": "运行两项故意失败的检查。Gate 只能通过它拦截了什么来证明，而不是它通过了什么。",
+        "selfTestPass": "Gate 有效 — {{count}} 项检查按预期被拦截",
+        "selfTestFail": "{{count}} 项检查未能拦截 — 此 Gate 尚不可信",
+        "selfTestBadge": "自检",
+        "metricHandsOff": "无需干预",
+        "metricHandsOffHint": "{{total}} 次运行中有 {{verified}} 次未呼叫您即完成",
+        "metricEscalated": "已呼叫您",
+        "metricEvidence": "证据",
+        "metricEvidenceHint": "通过的检查 / 实际执行的全部检查",
+        "empty": "尚无运行记录。在上方发送请求后，其完成证据会显示在此处。",
+        "noEvidence": "未记录任何证据 — 此次运行实际上未执行任何检查。",
+        "evidenceCount": "{{passed}}/{{total}} 通过",
+        "reworkCount": "返工 {{used}}/{{budget}}",
+        "lastVerdict": "结论：{{verdict}}",
+        "status": {
+          "running": "运行中",
+          "verified": "已验证",
+          "escalated": "需要您",
+          "abandoned": "已放弃"
+        },
+        "verdict": {
+          "approve": "通过",
+          "reject": "拒绝",
+          "held": "保留（无证据）"
+        },
+        "escalation": {
+          "budget-exhausted": "返工预算已用尽仍未通过。",
+          "verification-failed": "验证持续失败。",
+          "irreversible-action": "不可逆操作 — 需要您的批准。",
+          "no-evidence": "报告为通过，但实际未运行任何内容。"
+        }
       }
+    },
+    "feedback": {
+      "title": "用户反馈",
+      "promote": "提升为规则",
+      "distilling": "提炼中…",
+      "distillFailed": "提炼失败 — 请重试",
+      "proposalTitle": "根据您的负面反馈生成的规则建议",
+      "proposalHint": "请查看并编辑以下规则。仅在您点击应用后才会追加到该 Agent 的 Agent 规则中（可通过规则历史撤销）。",
+      "apply": "添加到规则",
+      "applying": "添加中…",
+      "cancel": "取消"
     },
     "detailPanel": {
       "close": "关闭",
@@ -333,17 +550,20 @@
         "label": "模型",
         "opus": "能力最强。推理与复杂任务最佳。成本最高。",
         "sonnet": "性能与成本均衡。适合大多数任务。",
-        "haiku": "最快最便宜。最适合简单只读任务。"
+        "haiku": "最快最便宜。最适合简单只读任务。",
+        "unknown": "{{name}} — 新发布的模型。能力和费用根据同系列默认值推断。"
       },
       "contextWindow": {
         "oneMillion": "1M 上下文窗口"
       },
       "permissionMode": {
         "label": "权限模式",
-        "default": "危险操作（写入、Shell）需确认。",
+        "default": "Manual — 执行有风险的操作（写入、Shell）时请求确认。",
         "acceptEdits": "自动批准文件编辑（Write、Edit）。Bash 仍需确认。",
         "plan": "只读。不能修改文件或运行命令。",
-        "bypassPermissions": "无需确认。Agent 不受任何限制直接运行。"
+        "bypassPermissions": "无需确认。Agent 不受任何限制直接运行。",
+        "auto": "由 CLI 分类器逐次判断放行或拒绝，Vibisual 不再弹窗。",
+        "dontAsk": "从不询问。未预先批准的一律拒绝 — 适合无人值守运行。"
       },
       "permissionTimeoutPolicy": {
         "label": "无响应时（60 秒）",
@@ -391,6 +611,7 @@
         "medium": "均衡思考深度。",
         "high": "深度推理。较慢但更彻底。",
         "xhigh": "超高推理深度（Opus 4.7+）。推荐用于大多数编码工作。",
+        "max": "最大推理强度，无 Token 限制（Opus 4.8）。适用于最复杂的判断场景；可能会对简单任务过度思考。",
         "unknown": "{{name}} — 已安装 CLI 支持的思考深度等级。"
       },
       "tools": {
@@ -406,9 +627,22 @@
         "WebSearch": "在网络上搜索信息。",
         "WebFetch": "获取并读取 URL 内容。",
         "NotebookEdit": "编辑 Jupyter Notebook 的单元格。",
-        "lockedHint": "委托调度必需（Bash curl）— 不可移除。"
+        "lockedHint": "委托调度必需（Bash curl）— 不可移除。",
+        "AskUserQuestion": "以 IDE 内嵌卡片向用户提出选择题。",
+        "TodoWrite": "编写计划／清单。没有它就无法显示计划块。",
+        "ExitPlanMode": "退出 plan 模式。权限模式为 plan 时必需。",
+        "Skill": "调用已安装的技能（/skill-name）。",
+        "Monitor": "等待后台 Shell 或某个条件结束。",
+        "BashOutput": "读取后台 Shell 的输出。",
+        "KillShell": "停止后台 Shell。",
+        "TaskOutput": "读取后台任务或子代理的输出。",
+        "TaskStop": "停止后台任务或子代理。",
+        "MultiEdit": "一次对同一文件应用多处编辑。",
+        "SendMessage": "向运行中的子代理发送后续消息。",
+        "Artifact": "创建文档、应用等制品。"
       },
       "maxTurns": "最大轮次",
+      "maxBudgetUsd": "预算（$，0=∞）",
       "defaultSkills": "默认技能",
       "addSkill": "+ 添加技能",
       "color": "颜色",
@@ -418,12 +652,68 @@
         "rules": "每次运行时注入 Agent 提示词的自定义指令（Markdown）。",
         "tools": "此 Agent 允许使用的工具。",
         "maxTurns": "Agent 停止前的最大对话轮次。防止无限循环。",
+        "maxBudgetUsd": "此 Agent 无头运行时的 API 花费上限（美元）。0 = 不限。设置后，该 Agent 会始终使用全新的 --print 方式派生，以确保每一轮都强制执行该上限（Agent SDK 额度池防护）。不适用于交互式终端 Agent。",
         "isolation": "是否在隔离的 git Worktree 中运行。",
         "effort": "思考深度（Opus 4.7+）。",
         "skills": "启动时自动加载的技能。Vibisual 扩展 — 非标准 Claude Code。",
         "color": "可视化中的自定义气泡颜色。",
         "projectContext": "只读。此 Agent 运行时自动注入到每个提示中的文件与规则。打开时刷新。",
-        "agentSettingsNote": "这些设置仅在从 Vibisual 运行命令时生效（子 Agent 执行）。不会更改 Agent 自身的 Claude Code 会话。"
+        "agentSettingsNote": "这些设置仅在从 Vibisual 运行命令时生效（子 Agent 执行）。不会更改 Agent 自身的 Claude Code 会话。",
+        "memory": "该智能体跨会话记住的内容，以及这些笔记存放的位置。",
+        "subagentDepth": "该智能体最多可以在自己之下创建几层子智能体。0 保持 CLI 默认（3 层）；1 表示关闭嵌套。"
+      },
+      "memory": {
+        "label": "记忆",
+        "default": "使用仓库共用的记忆（默认）。",
+        "off": "该智能体在会话之间不记住任何内容。",
+        "user": "自己的记忆文件夹，在所有项目间共用。",
+        "project": "本项目专属的记忆文件夹，可通过版本控制共享。",
+        "local": "本项目专属的记忆文件夹，不纳入版本控制。"
+      },
+      "subagentDepth": {
+        "label": "子智能体层数"
+      },
+      "cliOptions": {
+        "label": "CLI 选项",
+        "tip": "已安装的 claude CLI 支持的额外参数。默认全部未设置，未设置即完全不传该参数。"
+      },
+      "fallbackModel": {
+        "label": "回退模型",
+        "tip": "主模型过载或不可用时改用的模型。用逗号分隔可按顺序尝试。仅用于无头运行。",
+        "placeholder": "例如 sonnet"
+      },
+      "autoCompact": {
+        "label": "自动压缩",
+        "tip": "CLI 自动压缩对话的上下文大小。",
+        "unset": "未设置 — 交给 CLI 判断（默认）。",
+        "unsetLabel": "未设置",
+        "auto": "auto — 由 CLI 选择窗口。",
+        "tokens": "约 {{tokens}} 个 token 时压缩。"
+      },
+      "settingSources": {
+        "label": "设置来源",
+        "tip": "该代理加载哪些设置层。一个都不选则全部加载（CLI 默认）。",
+        "all": "全部（默认）"
+      },
+      "excludeDynamicSections": {
+        "label": "把因机器而异的提示段移到首条消息",
+        "hint": "提升提示缓存复用率"
+      },
+      "safeMode": {
+        "label": "安全模式（关闭全部自定义）",
+        "warn": "钩子已关 — 该代理的活动不会出现在图上"
+      },
+      "betas": {
+        "label": "Beta 头",
+        "tip": "随 API 请求发送的 beta 头。仅 API Key 用户有效 — 订阅认证会忽略。",
+        "placeholder": "用逗号分隔"
+      },
+      "bashTimeout": {
+        "label": "Bash 超时",
+        "tip": "Bash 工具的时间限制。保持为 0 时使用 CLI 默认值 — 未显式指定超时的命令在 {{defaultSec}} 秒后停止，任何命令都不能运行超过 {{maxSec}} 秒。当长时间构建或测试被中途截断时，可提高 Max limit。以 BASH_DEFAULT_TIMEOUT_MS / BASH_MAX_TIMEOUT_MS 传递给 Agent。",
+        "defaultLabel": "默认值（秒，0 = CLI 默认）",
+        "maxLabel": "最大限制（秒，0 = CLI 默认）",
+        "hint": "0 表示使用 CLI 默认值 — 默认 {{defaultSec}} 秒，最大 {{maxSec}} 秒。"
       }
     },
     "permissionPrompt": {
@@ -526,6 +816,21 @@
       "noProject": "无活动项目",
       "fps": "fps",
       "fpsTip": "渲染帧率",
+      "visibility": "可见性",
+      "profiling": {
+        "title": "性能分析",
+        "startNow": "立即分析",
+        "collecting": "采集中…",
+        "manual": "手动",
+        "auto": "自动（< {{fps}} fps）",
+        "copy": "复制",
+        "copied": "已复制",
+        "fpsRange": "FPS",
+        "longFrames": "长帧",
+        "topScripts": "占用帧时间最长的脚本",
+        "noScripts": "无法归因到具体脚本（{{type}}）",
+        "idleHint": "空闲中。当 FPS 低于 {{fps}} 时，会自动采集 1 分钟的性能数据（1 小时冷却时间）。请复制报告并分享以便诊断原因。"
+      },
       "errorLog": "错误日志",
       "noErrors": "无错误记录",
       "servers": "服务器",
@@ -649,6 +954,7 @@
       "close": "关闭用量",
       "session5h": "当前会话（5 小时）",
       "weekly7d": "每周额度（7 天）",
+      "noValue": "--",
       "resetsIn": "{{span}}后重置",
       "resetUnknown": "重置时间未知",
       "resettingNow": "正在重置",
@@ -671,7 +977,6 @@
       "localInput": "输入 token",
       "localOutput": "输出 token",
       "localHint": "按当前项目标签页的智能体统计。上方套餐额度为账户级，包含在 Vibisual 之外的用量。",
-      "noValue": "--",
       "emptyOff": "尚无用量数据 — 收集器已关闭。请在下方开启，然后打开一次交互式 Claude Code 会话。",
       "emptyWaiting": "收集器已开启，正在等待首个数值。交互式 Claude Code 会话渲染状态栏时数值才会到达（画布上的终端气泡，或编辑器中的 Claude Code）。Vibisual 以无头方式运行的智能体没有状态栏，因此不会上报。",
       "refresh": "刷新",
@@ -688,6 +993,8 @@
     },
     "plugins": {
       "title": "插件",
+      "scopeProject": "仅适用于此项目",
+      "scopeNone": "请先打开一个项目 — 插件按项目分别启用。",
       "close": "关闭",
       "saving": "保存中…",
       "empty": "尚未注册任何插件。",
@@ -708,6 +1015,7 @@
         "settingsSection": "设置区块",
         "ideView": "IDE 视图",
         "headerItem": "标题栏项",
+        "agentPrompt": "智能体强制",
         "contextMenuItem": "右键菜单",
         "hookSubscriber": "钩子订阅",
         "restRoute": "REST 路由",
@@ -717,1761 +1025,8 @@
         "bubbleType": "气泡类型",
         "edgeKind": "连线类型"
       },
-      "lethalTrifecta": {
-        "heading": "致命三要素",
-        "level": {
-          "safe": "路径已断",
-          "caution": "由审批拦截",
-          "critical": "三个全开"
-        },
-        "leg": {
-          "data": "敏感数据访问",
-          "untrusted": "不可信内容",
-          "egress": "对外通信"
-        },
-        "state": {
-          "closed": "已断",
-          "gated": "需审批",
-          "open": "开放"
-        },
-        "noTool": "没有工具会开启此项",
-        "prescription": "对外通信是最容易切断的一环 — 在 Agent Settings 的禁用工具中加入 WebFetch，若该智能体用不到 Bash 也一并加入。",
-        "alreadyCut": "已有一环被切断，因此该智能体上的注入不会变成数据外泄。",
-        "isolatedNote": "正在隔离的 worktree 中工作 — 这会缩小影响范围，但并未切断任何一环。",
-        "displayOnly": "仅用于显示 — 此区块不会更改权限。",
-        "title": {
-          "critical": "致命三要素：三个全开，且无需审批"
-        },
-        "isolated": "在隔离的 worktree 中运行",
-        "desc": "在每个智能体气泡上显示：让攻击真正变成数据外泄所需的三个条件 — 敏感数据访问、不可信内容、对外通信 — 该智能体当前占了几个。切断其中一个，攻击路径就断了。仅用于显示，不会更改权限。"
-      },
-      "leastPrivilege": {
-        "desc": "把授予智能体的工具按性质拆开显示 — 不可逆更改 / 触达外部 / 只读，从而让过度授权一目了然。判定只看工具列表。",
-        "heading": "最小权限",
-        "level": {
-          "tight": "较窄",
-          "broad": "较宽",
-          "wide": "很宽"
-        },
-        "badge": {
-          "broad": "已授予 {{count}} 个强力工具",
-          "wide": "{{count}} 个强力工具 — 建议收回部分权限"
-        },
-        "class": {
-          "mutating": "不可逆更改",
-          "reach": "触达外部",
-          "read": "只读"
-        },
-        "denied": "已明确禁用",
-        "lockedNote": "{{tools}} 无法从界面移除 — 委派路径依赖它。若确实不需要，请加入禁用工具。",
-        "none": "无",
-        "displayOnly": "仅用于显示 — 此区块不会更改设置。"
-      },
-      "blastRadius": {
-        "desc": "列出该智能体若被完全接管，能触及什么、改动什么、发送到哪里 — 这份清单就是爆炸半径。隔离的 worktree 会将半径收窄一级。",
-        "heading": "爆炸半径",
-        "level": {
-          "small": "较小",
-          "medium": "中等",
-          "large": "较大"
-        },
-        "row": {
-          "read": "读取项目文件",
-          "write": "修改文件",
-          "execute": "执行命令",
-          "send": "向外发送数据"
-        },
-        "isolatedNote": "隔离的 worktree，损害留在副本内 — 半径按低一级计算。",
-        "narrowHint": "默认只读、写入仅限指定路径、网络仅限允许列表 — 半径就是这样收窄的。",
-        "yes": "是",
-        "no": "否"
-      },
-      "autonomyLevel": {
-        "desc": "显示该智能体处于哪一档 — 仅建议 / 批准后执行 / 自主执行并汇报。把自主权设成全有或全无是最常见的设计失误。",
-        "heading": "自主等级",
-        "level": {
-          "suggest": "仅建议",
-          "approve": "批准后执行",
-          "autonomous": "自主执行"
-        },
-        "badge": {
-          "autonomous": "自主等级：不询问直接执行"
-        },
-        "row": {
-          "mode": "权限模式",
-          "timeout": "若你未回应",
-          "maxTurns": "轮次上限",
-          "isolation": "隔离"
-        },
-        "timeout": {
-          "allow": "自动允许",
-          "deny": "自动阻止"
-        },
-        "timeoutHint": "一旦离开，审批就变成自动同意，等级实际上升一档。",
-        "ladderNote": "自主权应在信任积累后再提升，而不是一开始就给足。",
-        "isolated": "worktree",
-        "notIsolated": "同一目录",
-        "unlimited": "不限",
-        "levelDesc": {
-          "suggest": "计划模式 — 不会执行任何操作。",
-          "approve": "可变工具会弹出审批提示。",
-          "autonomous": "完全不会弹出审批提示。"
-        }
-      },
-      "longHorizon": {
-        "desc": "追踪会话已经持续多久 — 轮次、耗时以及最近的待办进度。长任务的失败通常源于上下文耗尽和误差累积，而非能力不足。",
-        "heading": "长跨度任务",
-        "level": {
-          "short": "较短",
-          "long": "正在变长",
-          "verylong": "非常长"
-        },
-        "badge": "{{elapsed}} 内 {{turns}} 轮",
-        "row": {
-          "turns": "轮次",
-          "elapsed": "耗时",
-          "todos": "待办进度"
-        },
-        "shortNote": "仍然较短 — 暂无需关注。",
-        "longNote": "在压缩发生前，把决定与文件路径写下来 — 摘要最先丢弃的就是具体信息。"
-      },
-      "rogueAgent": {
-        "desc": "显示会话仍存活时，智能体已经沉默了多久。多数事故并非源于恶意，而是“不知道它还在跑”。",
-        "heading": "闲置与失控",
-        "level": {
-          "active": "活跃",
-          "idle": "闲置",
-          "forgotten": "可能被遗忘"
-        },
-        "badge": {
-          "idle": "会话仍存活，已沉默 {{elapsed}}",
-          "forgotten": "已沉默 {{elapsed}} — 可能被遗忘了"
-        },
-        "row": {
-          "idle": "沉默时长",
-          "live": "存活会话",
-          "total": "会话总数"
-        },
-        "activeNote": "近期仍在活动 — 没有被遗忘的东西。",
-        "idleNote": "要设计的是关闭智能体的时刻，而不只是创建的时刻。"
-      },
       "showMore": "再显示 {{count}} 项",
       "showLess": "收起",
-      "guardrails": {
-        "check": {
-          "mode": "权限模式",
-          "timeout": "若你未回应",
-          "denied": "禁用工具",
-          "tools": "生效工具"
-        },
-        "timeout": {
-          "allow": "自动允许",
-          "deny": "自动阻止"
-        },
-        "heading": "护栏",
-        "level": {
-          "gated": "在工具调用前拦截",
-          "none": "无关口",
-          "blocked": "不会执行"
-        },
-        "desc": "显示是否真的有东西能拦住一次工具调用。护栏要放在**工具调用之前**才能在损害发生前抓住；只放在模型前面就太晚了。",
-        "notePlacement": "审批提示就在工具调用之前 — 这是最迟也最省成本的拦截位置。",
-        "noteNone": "不会弹出审批提示，因此工具执行前没有任何东西拦截。"
-      },
-      "humanInTheLoop": {
-        "yes": "是",
-        "no": "否",
-        "heading": "人工介入点",
-        "check": {
-          "irreversible": "不可逆工具",
-          "prompt": "审批提示",
-          "reversible": "工作可撤销"
-        },
-        "level": {
-          "present": "有确认环节",
-          "absent": "无确认",
-          "notNeeded": "此处不需要"
-        },
-        "desc": "检查不可逆操作之前是否有人工确认。全部都要审批会让审批失去意义，全都不审批则会出事故 — 判断标准是「能否撤销」。",
-        "note": "比增加审批更有效的是让操作可撤销 — 用回收站代替删除，用版本代替覆盖，用草稿代替发送。"
-      },
-      "allowlist": {
-        "level": {
-          "partial": "部分",
-          "narrow": "较窄",
-          "all": "全部授予"
-        },
-        "check": {
-          "denied": "已明确禁用",
-          "granted": "已授予",
-          "missing": "未授予"
-        },
-        "heading": "允许列表",
-        "desc": "显示该智能体的工具策略离「只允许这些」有多近。禁用清单漏掉的就是缺口，而允许清单随时间推移会朝安全一侧失败。",
-        "note": "允许清单最有价值的落点是网络目的地 — 仅此一项就能收窄泄露的最后一环。"
-      },
-      "sandboxing": {
-        "level": {
-          "shared": "同一工作树",
-          "isolated": "隔离的 worktree"
-        },
-        "heading": "沙箱隔离",
-        "check": {
-          "filesystem": "文件系统",
-          "network": "网络",
-          "execution": "执行模式"
-        },
-        "worktree": "独立 worktree",
-        "sameTree": "同一工作树",
-        "noNetworkIsolation": "未隔离",
-        "desc": "显示智能体是否运行在隔离副本上。仅有文件系统隔离还不够 — 没有网络隔离，泄露的最后一环依然敞开。",
-        "note": "Vibisual 的隔离止于 git worktree（文件系统）。网络并未隔离，因此即使在 worktree 中，对外通路仍然开着。"
-      },
-      "nonHumanIdentity": {
-        "check": {
-          "owner": "归属",
-          "sessions": "会话数",
-          "id": "身份"
-        },
-        "ours": "Vibisual（自定义智能体）",
-        "claudeCode": "Claude Code（钩子会话）",
-        "heading": "非人类身份",
-        "level": {
-          "owned": "我方可停止",
-          "external": "归属 Claude Code"
-        },
-        "desc": "提出一个实务问题 — 现在能否**只切断这一个智能体**？如果答案是「只能全部停掉」，那就说明没有身份设计。",
-        "noteOwned": "这是我们创建的智能体，带有自己的设置，可以单独停止。",
-        "noteExternal": "该会话通过钩子注册，归属 Claude Code — 我们没有单独停止它的把手。"
-      },
-      "containment": {
-        "check": {
-          "leak": "泄露路径",
-          "radius": "爆炸半径",
-          "isolation": "隔离"
-        },
-        "isolated": "worktree",
-        "heading": "围堵",
-        "level": {
-          "contained": "已围堵",
-          "partial": "部分围堵",
-          "open": "未围堵"
-        },
-        "possible": "可能成立",
-        "broken": "已断开",
-        "shared": "共享工作树",
-        "desc": "假设攻击已经成功，再问「那还能做什么」。安全的一方不是拥有最激进过滤器的一方，而是被突破后影响范围在结构上受限的一方。",
-        "note": "先问「被突破后还能做什么」，而不是「怎么防住」。如果答不上前者，设计就还没做完。"
-      },
-      "auditTrail": {
-        "level": {
-          "partial": "部分",
-          "traceable": "可追溯",
-          "empty": "尚无痕迹"
-        },
-        "check": {
-          "turns": "已记录轮次",
-          "sessions": "会话 ID",
-          "last": "最后活动"
-        },
-        "heading": "审计轨迹",
-        "desc": "统计这个智能体留下了多少痕迹（已记录的轮次与保留的会话 ID），以便事后仍能回答「这是谁做的」。",
-        "note": "保留原始运行日志、给决策打上来源会话 ID、在提交中标注智能体为共同作者，这三项是最小组合。"
-      },
-      "contextRot": {
-        "level": {
-          "low": "仍有余量",
-          "unknown": "未知",
-          "high": "接近占满",
-          "half": "过半"
-        },
-        "check": {
-          "sessions": "会话数",
-          "fill": "占用",
-          "tokens": "令牌"
-        },
-        "heading": "上下文腐化",
-        "desc": "显示上下文窗口被填了多少。窗口大小是上限而非目标 — 常常在过半时质量就明显下降，而且「相似的干扰信息混入」比单纯的长度更有害。",
-        "noteLow": "还有余量。与其相信标称的窗口大小，不如用真实任务测出自己的有效窗口。",
-        "noteHigh": "在压缩发生前，把决策和文件路径写到文件里 — 摘要最先丢弃的正是具体信息。"
-      },
-      "costPerTask": {
-        "level": {
-          "moderate": "中等",
-          "light": "较轻",
-          "heavy": "偏重",
-          "idle": "尚未消耗"
-        },
-        "check": {
-          "turns": "轮次",
-          "tokens": "输入 / 输出",
-          "perTurn": "每轮令牌",
-          "usd": "预估成本"
-        },
-        "heading": "每任务成本",
-        "desc": "按**完成的任务**而不是按令牌看成本，并给出每轮令牌数 — 产出很少的后台处理悄悄吃掉大部分花费，这种情况其实很常见。",
-        "note": "估算只统计输入与输出。缓存令牌没有按会话累计，因此实际费用会比这个数略高。"
-      },
-      "modelRouting": {
-        "check": {
-          "model": "模型",
-          "effort": "思考强度",
-          "turns": "目前轮次"
-        },
-        "heading": "模型路由",
-        "level": {
-          "fit": "与任务匹配",
-          "upgrade": "建议升级",
-          "downgrade": "建议降级"
-        },
-        "desc": "把当前模型与任务规模并排放，让升级或降级成为可见的判断。它不会替你切换模型 — 那是你的决定。",
-        "advice": {
-          "fit": "模型与工作量看起来匹配。阶梯式的收益来自让廉价模型处理容易的大多数。",
-          "upgrade": "小模型上的任务已经拉长。升级通常比反复重试更省。",
-          "downgrade": "用最大的模型做了很短的任务。更便宜的模型多半也能得到相同结果。"
-        }
-      },
-      "reasoningEffort": {
-        "level": {
-          "normal": "正常",
-          "deep": "深度思考",
-          "overthinking": "可能过度思考"
-        },
-        "check": {
-          "effort": "思考强度",
-          "turns": "目前轮次",
-          "model": "模型"
-        },
-        "heading": "思考强度",
-        "desc": "把思考强度与任务规模并排显示。想得更久不一定更好 — 在简单的查询型任务上，实测存在「深思反而降低准确率」的区间。",
-        "noteMeasure": "不要默认开到最大，而要调高后再测量 — 思考强度每一轮都在消耗令牌。",
-        "noteOverthinking": "很短的任务上开着最大思考。这正是成本上升而准确率可能下降的区间。"
-      },
-      "toolUse": {
-        "level": {
-          "lean": "精简",
-          "moderate": "中等",
-          "all": "全部载入"
-        },
-        "check": {
-          "count": "工具",
-          "tokens": "模式令牌",
-          "share": "占窗口比例"
-        },
-        "heading": "工具使用",
-        "desc": "显示仅工具定义就占了多少上下文窗口。工具超过数十个后，光定义就是数万令牌，模型的工具选择准确率也会随之下降。",
-        "note": "仅仅移除这个智能体用不到的工具，就能同时改善成本与选择准确率。"
-      },
-      "tokenBudget": {
-        "check": {
-          "share": "占窗口比例",
-          "window": "窗口",
-          "fixed": "固定区块",
-          "rules": "智能体规则（约合令牌）"
-        },
-        "heading": "令牌预算",
-        "level": {
-          "ok": "固定成本较低",
-          "heavy": "固定成本偏重"
-        },
-        "desc": "先把上下文窗口按固定区块切开显示。没有分区上限时，一个区块会悄悄挤掉其他 — 检索结果多的那天指令被截断，就是这么发生的。",
-        "note": "用「字符数÷4」近似令牌数。把分区上限固定为常量，并明确超出时先切掉什么，这才是标准做法。"
-      },
-      "systemPrompt": {
-        "level": {
-          "long": "较长",
-          "none": "无自定义规则",
-          "sized": "长度适中"
-        },
-        "check": {
-          "rules": "规则字数",
-          "skills": "技能",
-          "rulesTokens": "规则令牌",
-          "base": "基础提示词"
-        },
-        "heading": "系统提示词",
-        "desc": "显示常驻指令层的大小。系统提示词要写在「合适的高度」 — 太具体就脆弱，太抽象就没人遵守。",
-        "note": "摘要、分类这类后台处理通常并不需要通用提示词 — 一段简短的专用提示词加上不给工具，往往才是正解。",
-        "noteLong": "这些规则每一轮都会一起载入。越长就持续消耗令牌，而且会话变长时最先被稀释。"
-      },
-      "subagent": {
-        "check": {
-          "sessions": "会话数",
-          "running": "运行中任务",
-          "kinds": "类型"
-        },
-        "heading": "子智能体隔离",
-        "level": {
-          "isolated": "隔离的会话",
-          "delegating": "正在委派",
-          "single": "单线程"
-        },
-        "desc": "显示上下文隔离是否真的发生了。子智能体的要点不是速度，而是把探索笔记和冗长的工具输出挡在主线程之外。",
-        "note": "隔离带来干净的上下文，同时制造了新的瓶颈 — 交接质量。主线程应该只看结果，而不是看探索过程。"
-      },
-      "fanOut": {
-        "heading": "扇出并行",
-        "check": {
-          "branches": "分支数",
-          "oldest": "最早分支"
-        },
-        "level": {
-          "none": "无分支",
-          "parallel": "并行运行",
-          "wide": "扇出较宽"
-        },
-        "desc": "统计同时有多少条分支在跑。并行只有在子任务真正独立时才划算，否则只会产生重复劳动与互相矛盾的结论。",
-        "note": "拆分之前先定好如何合并。没有合并规则，整合环节就会变成瓶颈。",
-        "noteWide": "分支很多。请确认它们是否真的彼此独立 — 如果彼此需要对方的结果，顺序执行反而更省。"
-      },
-      "orchestrator": {
-        "level": {
-          "mixed": "混合",
-          "worker": "亲自干活",
-          "supervisor": "进行监督"
-        },
-        "check": {
-          "running": "正在运行",
-          "delegated": "委派会话",
-          "turns": "自身轮次"
-        },
-        "heading": "编排者",
-        "desc": "显示这个智能体是在做监督还是自己干活。没有监督者却把智能体堆在一起，规模变大而可靠性下降。",
-        "note": "推荐的形态是：监督者只做判断，实际的工具执行放在下层。"
-      },
-      "planAndExecute": {
-        "check": {
-          "turns": "轮次",
-          "steps": "步骤数",
-          "progress": "进度"
-        },
-        "heading": "先计划后执行",
-        "level": {
-          "noPlan": "未记录计划",
-          "running": "进行中",
-          "done": "计划已完成"
-        },
-        "desc": "显示是否存在计划以及推进到哪一步。把计划写进文件意味着它能在上下文压缩后存活，这正是保留计划的主要理由。",
-        "note": "一份用户能审批和修改的计划，比更快开工更有价值。",
-        "noteNoPlan": "尚未记录计划。对步骤多且顺序重要的工作来说，写下的计划才是不迷路的依靠。"
-      },
-      "reactPattern": {
-        "check": {
-          "turns": "轮次",
-          "plan": "已记录计划"
-        },
-        "yes": "是",
-        "no": "否",
-        "heading": "ReAct",
-        "level": {
-          "healthy": "健康",
-          "drifting": "可能已偏离",
-          "idle": "未开始"
-        },
-        "desc": "思考与行动交替是默认形态，而不是众多选项之一。这张卡片盯的是「它已经不够用」的信号 — 什么都没写下却越拖越长。",
-        "note": "仅靠 ReAct 不够的信号：围着同一个工具打转、丢失目标、不验证就进入下一步。",
-        "noteDrifting": "没有计划却已经拖得很长。在这个区间，写下的计划或一个验证环节通常都能回本。"
-      },
-      "scopeCreep": {
-        "heading": "范围",
-        "check": {
-          "first": "首次记录",
-          "peak": "峰值",
-          "last": "最新"
-        },
-        "level": {
-          "unknown": "无计划可比",
-          "grew": "有增长",
-          "stable": "稳定",
-          "shrank": "有缩减"
-        },
-        "desc": "观察待办清单是变多了还是悄悄变少了。在与 AI 协作中，缩小的方向同样是问题 — 用户以为全都做完了，因此发现得很晚。",
-        "note": "范围调整是下达指令一方的决定权，而不是模型的自由裁量。",
-        "noteGrew": "清单比最初增加了不少。值得确认这种扩张是否经过同意。",
-        "noteShrank": "清单从峰值缩减了。请确认那些条目是完成了，还是被丢掉了。"
-      },
-      "reviewGate": {
-        "check": {
-          "reviews": "检查请求",
-          "checkpoints": "检查要点"
-        },
-        "heading": "检查关口",
-        "level": {
-          "none": "未请求检查",
-          "noPoints": "无检查要点",
-          "present": "可供检查"
-        },
-        "desc": "统计完成是否以可检查的形式交付。长篇叙述的报告没人读，而「变更清单 + 检查要点」会被读。",
-        "note": "让检查变便宜的，是把「改了什么」和「要确认什么」分开呈现。"
-      },
-      "structuredOutput": {
-        "level": {
-          "structured": "已结构化",
-          "prose": "仅有叙述"
-        },
-        "check": {
-          "reports": "工作汇报",
-          "reviews": "检查请求",
-          "userActions": "需你处理的事项"
-        },
-        "heading": "结构化输出",
-        "desc": "显示这个智能体是用结构化模式而不是叙述来汇报。一旦某个智能体的输出成为下一个的输入，解析失败就等于流水线停摆。",
-        "note": "交接包、评分结果、工具参数，用结构化模式接收都比用句子更可靠。"
-      },
-      "instructionDrift": {
-        "level": {
-          "noRules": "无常驻规则",
-          "rising": "正在稀释",
-          "high": "可能已稀释",
-          "fresh": "仍然清晰"
-        },
-        "check": {
-          "rules": "常驻规则",
-          "turns": "轮次",
-          "skills": "技能"
-        },
-        "yes": "是",
-        "no": "否",
-        "heading": "指令漂移",
-        "desc": "会话越长，早期指令的约束力越弱，压缩一旦发生还会稀释得更快。「说过一次就会一直遵守」并不成立。",
-        "note": "重要约束需要每轮重新注入，或者在压缩时指定为保留区块，这是标准做法。",
-        "noteLong": "会话已经长到早期指令很可能被稀释了。如果还有仍需生效的约束，请再说一次。"
-      },
-      "semanticMemory": {
-        "level": {
-          "none": "尚无记忆",
-          "contested": "存在分歧的槽",
-          "settled": "已确定"
-        },
-        "check": {
-          "cards": "已存卡片",
-          "current": "当前事实",
-          "contested": "存在分歧"
-        },
-        "heading": "语义记忆",
-        "desc": "统计究竟有多少事实已经确定。重要的不是存了多少张卡片，而是**当前真相唯一确定的槽位**有多少；值出现分歧的槽位在等人判断。",
-        "note": "规模决定存储方式 — 数百条用文件，数十万条用向量数据库。在测量规模之前就先选基础设施，是最常见的过度设计。"
-      },
-      "memoryInvalidation": {
-        "level": {
-          "none": "尚无记忆",
-          "clean": "无标记",
-          "pending": "需要确认"
-        },
-        "check": {
-          "needsCheck": "标记为过时",
-          "review": "等待判断",
-          "cards": "已存卡片"
-        },
-        "heading": "记忆失效",
-        "desc": "没有的记忆会让模型说「不知道」，而过时的记忆会造出自信的错误答案。不立即删除而是打上标记，下一个人才能判定。",
-        "note": "在代码领域，关联文件的变更是最准确的过时信号 — 基于路径匹配，几乎没有误报。",
-        "notePending": "有卡片因关联文件发生变更而被标为「需确认」。请与当前代码比对，确定其有效或作废。"
-      },
-      "forgettingPolicy": {
-        "level": {
-          "none": "尚无记忆",
-          "full": "接近预算",
-          "room": "预算内"
-        },
-        "check": {
-          "archived": "已归档",
-          "used": "预算占用",
-          "share": "占比"
-        },
-        "heading": "遗忘策略",
-        "desc": "相比保存策略，遗忘策略更难。只增不减的记忆会拉低检索精度，最终变成还不如没有记忆。",
-        "note": "安全的形态是总量预算 + 溢出时**移入归档**而非删除 — 自动永久删除在出事时没有任何回退手段。"
-      },
-      "supersede": {
-        "level": {
-          "none": "尚无记忆",
-          "flat": "尚无历史",
-          "history": "保留了历史"
-        },
-        "heading": "取代",
-        "check": {
-          "stored": "已存",
-          "current": "当前",
-          "closed": "已关闭"
-        },
-        "desc": "当新知识与旧知识冲突时，「关闭」比删除更好。开启时刻与关闭时刻这两个轴，同时给出不可变的记录和干净的当前状态。",
-        "note": "矛盾判定不能只看相似度 — 还要看否定极性，才能把「使用 A」和「不要使用 A」识别为同一主题的替代关系。"
-      },
-      "memoryDrift": {
-        "level": {
-          "none": "尚无记忆",
-          "immutable": "不可变条目",
-          "queued": "等待判断"
-        },
-        "check": {
-          "review": "等待判断",
-          "rewrite": "重写路径",
-          "unseen": "未查看"
-        },
-        "heading": "记忆漂移",
-        "noRewritePath": "设计上不存在",
-        "desc": "反复重写记忆会让它每次被打磨得离原文更远，最终把原本不存在的内容固化成事实。最可靠的防御是让条目保持不可变。",
-        "note": "更新的方式是新增条目 + 关闭旧条目。我们根本没有让模型重写既有正文的路径。"
-      },
-      "memoryConsolidation": {
-        "level": {
-          "none": "尚无记忆",
-          "pending": "有未查看的新卡片",
-          "settled": "已查看"
-        },
-        "check": {
-          "recent": "最近一次",
-          "archived": "已归档",
-          "unseen": "未查看卡片"
-        },
-        "heading": "记忆整合",
-        "desc": "把事件蒸馏为事实并不免费，这是一个有损运算。不要删掉原文只留摘要，而应保留原文并追加蒸馏结果。",
-        "note": "有两个陷阱 — 简单摘要会丢失已编码的事实；去重不到位，新记录会覆盖仍然有效的旧记录。"
-      },
-      "episodicMemory": {
-        "level": {
-          "empty": "无记录",
-          "partial": "仅有轮次",
-          "kept": "会话已保留"
-        },
-        "check": {
-          "turns": "已记录轮次",
-          "sessions": "会话日志"
-        },
-        "heading": "情景记忆",
-        "desc": "原始经历是一级证据。只留摘要的话，就没有依据去验证「当时真的是这样吗」，也无法回退摘要中的错误。",
-        "note": "抽取出的知识应带上来源会话与时间，以便能回到原文，这是标准做法。"
-      },
-      "proceduralMemory": {
-        "check": {
-          "skills": "技能",
-          "rules": "常驻规则"
-        },
-        "yes": "是",
-        "no": "否",
-        "heading": "程序性记忆",
-        "level": {
-          "filed": "已归档为文件",
-          "none": "无归档"
-        },
-        "desc": "记忆三层中，这是唯一「放进文件」明确正确的一层 — 流程不需要被检索，而是在该任务出现时整段被需要。",
-        "note": "技能文件与智能体定义就是程序性记忆的物理形态，而附带版本管理正是相对向量存储的决定性优势。"
-      },
-      "workingMemory": {
-        "level": {
-          "live": "已载入",
-          "empty": "未载入"
-        },
-        "check": {
-          "context": "使用中的上下文",
-          "events": "注入事件",
-          "injected": "注入的卡片"
-        },
-        "heading": "工作记忆",
-        "desc": "快，但会话结束就消失。仅靠它无法形成「越用越聪明」的系统；反过来，试图把一切都变成长期记忆同样会失败。",
-        "note": "对话的大部分本应就地消耗并丢弃。决定什么被提升为长期记忆，是记忆设计的第一步。"
-      },
-      "memoryTool": {
-        "level": {
-          "pushed": "仅推送",
-          "active": "主动检索",
-          "unused": "未使用"
-        },
-        "heading": "记忆工具",
-        "check": {
-          "spawn": "启动时",
-          "file": "访问文件时",
-          "search": "主动检索"
-        },
-        "desc": "把启动时推送进来的记忆，与智能体自己去查找的记忆区分开。写在文件里的笔记能在压缩后存活，这正是该方式的决定性性质。",
-        "note": "在搭建独立的向量基础设施之前，先试试基于文件的笔记 — 额外开销几乎为零。"
-      },
-      "progressiveDisclosure": {
-        "level": {
-          "none": "无注入",
-          "lean": "精简",
-          "repeating": "重复中"
-        },
-        "check": {
-          "events": "注入事件",
-          "repeats": "重复",
-          "cards": "卡片总数"
-        },
-        "heading": "渐进式披露",
-        "desc": "与其一开始就全部载入，不如先给出目录，等真正需要时再取正文。这张卡片盯的是同一批内容是否被反复重新注入。",
-        "note": "把整份文档粘贴进去，等于自己制造上下文腐化。「如果是这类任务就读那个文件」这样的索引，用低得多的代价做同一件事。"
-      },
-      "contextPollution": {
-        "check": {
-          "sessions": "会话数",
-          "turns": "轮次",
-          "perSession": "每会话轮次"
-        },
-        "heading": "上下文污染",
-        "level": {
-          "clean": "干净",
-          "ok": "可接受",
-          "mixed": "混杂较重"
-        },
-        "desc": "腐化是长度问题，污染是混入问题。失败尝试的日志、被放弃的思路会滞留下来 — 尤其错误的中间结论一旦留下，模型会持续把它当作事实。",
-        "note": "这才是使用子智能体的真正理由 — 不是为了速度，而是让每个子任务从干净的上下文开始。",
-        "noteMixed": "轮次集中堆在少数会话里。把下一个子任务拆到独立会话，错误的中间结论就不会一路跟着走。"
-      },
-      "agentHarness": {
-        "check": {
-          "model": "模型",
-          "tools": "工具",
-          "skills": "技能",
-          "isolation": "隔离",
-          "permission": "权限"
-        },
-        "heading": "智能体框架",
-        "level": {
-          "bare": "几乎裸奔",
-          "basic": "基本",
-          "rich": "装备齐全"
-        },
-        "desc": "把包裹模型的一切（工具、权限、隔离、技能、规则）汇总成一张卡片。同样的模型在这一层的差别下结果大不相同，竞争的轴心也已经移到这里。",
-        "note": "基准分数里掺着脚手架带来的虚高 — 同一个模型换个框架分数就会变，所以要比较的不只是模型，还有框架。"
-      },
-      "scaffold": {
-        "level": {
-          "partial": "部分",
-          "none": "无脚手架",
-          "full": "规则与技能"
-        },
-        "check": {
-          "rules": "规则字数",
-          "skills": "技能",
-          "maxTurns": "轮次上限"
-        },
-        "heading": "脚手架",
-        "desc": "显示模型周围写了多少粘合层（规则、技能、轮次上限）。长时间运行的智能体，其提升更多来自更好的脚手架，而非更聪明的模型。",
-        "note": "论文说「脚手架」，产品说「框架」。同一件事被两个名字讨论，一边偏代码结构，一边偏运维。"
-      },
-      "agentLoop": {
-        "check": {
-          "turns": "轮次",
-          "cap": "轮次上限",
-          "avg": "平均间隔"
-        },
-        "none": "无",
-        "heading": "智能体循环",
-        "level": {
-          "capped": "有上限",
-          "idle": "未运行",
-          "uncapped": "无轮次上限"
-        },
-        "desc": "显示循环的节奏以及是否有终止条件。无法自行停止的循环，会让轮次上限和紧急停止从便利功能变成安全装置。",
-        "note": "计量循环一轮的成本与时间，是运营智能体的起点。",
-        "noteUncapped": "没有设置轮次上限。没有上限时，能停下循环的只有你自己察觉的那一刻。"
-      },
-      "handoffPacket": {
-        "level": {
-          "structured": "已结构化",
-          "none": "无交接",
-          "free": "自由格式"
-        },
-        "check": {
-          "edges": "任务连线",
-          "outgoing": "发出",
-          "templated": "来自模板"
-        },
-        "heading": "交接",
-        "desc": "统计工作是如何交接的。多智能体的真正瓶颈是交接质量而非模型性能 — 用自由叙述交接，必定会漏。",
-        "note": "把交接包的格式固定下来 — 目标、已经尝试过什么、约束、产物位置、未能确认的事项。"
-      },
-      "verifierCritic": {
-        "check": {
-          "critiques": "批评连线",
-          "incoming": "收到的批评"
-        },
-        "heading": "验证者与批评者",
-        "level": {
-          "selfReview": "仅自我检查",
-          "separated": "已分离"
-        },
-        "desc": "检查写的一方和查的一方是否分开。与作者共享同样盲点的批评者，只会给糟糕的答案盖上通过章。",
-        "note": "测试、lint、类型检查这类可执行的验证比批评者更便宜也更准确，应该放在前面。",
-        "noteSelf": "没有批评连线。自己检查自己的结果通常只会形式性通过；真正抓住问题的是独立的批评者或可执行的检查。"
-      },
-      "hookLifecycle": {
-        "level": {
-          "normal": "正常",
-          "busy": "触发频繁",
-          "quiet": "安静"
-        },
-        "heading": "钩子生命周期",
-        "check": {
-          "events": "已记录事件",
-          "rate": "每分钟"
-        },
-        "desc": "钩子来的比人们以为的更频繁 — 以为「会话结束」钩子只触发一次，实际上每轮都触发，这是失控事故的经典原因。",
-        "note": "在钩子里做同步 I/O，智能体就会停滞同样长的时间。应该改为排队与合并处理。"
-      },
-      "contextWindow": {
-        "heading": "上下文窗口",
-        "check": {
-          "configured": "已配置",
-          "peak": "峰值使用",
-          "headroom": "余量"
-        },
-        "level": {
-          "deep": "占用较深",
-          "unused": "未测量",
-          "shallow": "较浅"
-        },
-        "desc": "窗口是上限而不是目标。「这个模型有 200k，所以放 150k 没问题」并不成立 — 要用真实任务测出自己的有效窗口。",
-        "note": "不要相信大海捞针式的分数 — 它测的是词汇匹配这种狭窄能力，会低估真实长文任务的难度。"
-      },
-      "testTimeCompute": {
-        "check": {
-          "effort": "思考强度",
-          "turns": "轮次",
-          "model": "模型"
-        },
-        "heading": "推理时算力",
-        "level": {
-          "baseline": "基准",
-          "unmeasured": "已提升但未测量",
-          "invested": "已提升且用上"
-        },
-        "desc": "与其把模型做大，不如买思考时间，其性价比更优的区间相当宽。实务上这意味着质量、延迟和成本变成了可以按任务旋转的旋钮。",
-        "note": "在容易的任务上把旋钮调高纯属浪费。思考量应与任务难度匹配。"
-      },
-      "extendedThinking": {
-        "check": {
-          "effort": "思考强度",
-          "context": "使用中的上下文"
-        },
-        "heading": "扩展思考",
-        "level": {
-          "off": "关闭",
-          "on": "开启",
-          "onLoaded": "开启·窗口渐满"
-        },
-        "desc": "回答前长时间深思，在规划、调试和多步推理上效果显著 — 但思考令牌同样占用窗口并计费。",
-        "note": "是否把思考过程展示给用户是产品决策 — 它能提升信任，但中间的错误猜测会被读成已定结论。",
-        "noteOn": "深度思考开着，窗口正在被填满。长会话中，清理旧的思考块会从可选变成必须。"
-      },
-      "reflexion": {
-        "check": {
-          "reports": "工作汇报",
-          "learned": "已记录的教训"
-        },
-        "heading": "自我反思",
-        "level": {
-          "none": "无汇报",
-          "noLessons": "未记录教训",
-          "accruing": "教训在积累"
-        },
-        "desc": "自我批评只有建立在可执行信号（例如测试失败）之上才有效。没有依据的反省是似是而非的噪声。",
-        "note": "这一模式在有测试作为客观裁判的编码领域最有效；在没有这类裁判的领域，其价值会急剧下降。"
-      },
-      "contextEngineering": {
-        "heading": "上下文工程",
-        "check": {
-          "applied": "已应用模式",
-          "tools": "已载入工具",
-          "memory": "记忆注入"
-        },
-        "level": {
-          "default": "仅默认值",
-          "designed": "有意设计",
-          "partial": "部分应用"
-        },
-        "desc": "统计这个智能体实际用了几种上下文手法 — 用索引代替推送、精简工具、主动检索、调节思考量。",
-        "note": "问题已经从「提示词怎么写」变成了「给它看什么」。"
-      },
-      "agentSkills": {
-        "level": {
-          "loaded": "已附加技能",
-          "none": "无技能"
-        },
-        "check": {
-          "count": "技能",
-          "idleCost": "常驻成本（约合令牌）"
-        },
-        "heading": "智能体技能",
-        "desc": "技能以文件而非提示词文本的形式提供流程性知识。启动时只载入名称与描述，正文只在相关时才读 — 因此挂上数十个技能，常驻成本也几乎不增加。",
-        "note": "部署步骤、评审清单、内部 API 用法这类可复用流程，应该放进受版本管理的文件，而不是提示词里。"
-      },
-      "trajectoryEval": {
-        "check": {
-          "turns": "轮次",
-          "sessions": "会话数",
-          "density": "每会话轮次",
-          "edges": "任务连线"
-        },
-        "heading": "轨迹评估",
-        "level": {
-          "short": "路径直接",
-          "long": "路径较长",
-          "none": "无可评分内容"
-        },
-        "desc": "评分的是「怎么到达答案」而不是答案本身。调用工具 3 次和 40 次得到相同结果，是完全不同的系统，只看结果的评估看不到这个差别。",
-        "note": "观察工具调用的顺序，能在真正出事之前抓住浪费或危险的行为模式。"
-      },
-      "eval": {
-        "check": {
-          "repeated": "重复",
-          "unique": "不同指令"
-        },
-        "heading": "评估",
-        "level": {
-          "none": "尚无指令",
-          "single": "仅单次运行",
-          "repeated": "有重复运行"
-        },
-        "desc": "智能体是非确定性的，跑一次的结果不构成证据 — 需要把同一输入的多次运行当作分布来看。这里统计同一条指令实际被重复了多少次。",
-        "note": "格式、模式、必填字段、禁用词这类能确定性检查的东西，用代码检查比用裁判模型更便宜也更准确。"
-      },
-      "goldenSet": {
-        "level": {
-          "empty": "尚无积累",
-          "accruing": "正在积累",
-          "partial": "仅有卡片"
-        },
-        "check": {
-          "lessons": "已记录的教训",
-          "cards": "记忆卡片"
-        },
-        "heading": "黄金集",
-        "desc": "代表性比数量更重要，而且必须包含真正失败过的案例。只收集成功案例的基准集，永远只会给满分。",
-        "note": "发现失败就立刻加进集合，是成本最低的质量基础设施 — 一次事故变成一条永久的回归测试。"
-      },
-      "regressionSuite": {
-        "level": {
-          "none": "尚无积累",
-          "accruing": "正在积累"
-        },
-        "check": {
-          "lessons": "已记录的教训",
-          "checkpoints": "检查要点"
-        },
-        "heading": "回归测试集",
-        "desc": "智能体常常把先前修好的东西改回去 — 因为「当初为什么这么改」不在它的上下文里。回归测试代替了那份记忆。",
-        "note": "越是微妙的修改越要留测试。「这么改那边就会坏」这种知识，写成测试远比写成注释活得久。"
-      },
-      "traceSpan": {
-        "check": {
-          "sessions": "会话数",
-          "spans": "跨度数",
-          "costed": "含令牌的会话"
-        },
-        "heading": "追踪与跨度",
-        "level": {
-          "empty": "无跨度",
-          "shapeOnly": "仅有结构",
-          "costed": "含成本"
-        },
-        "desc": "一次请求的完整路径是追踪，其中的各个区段是跨度。模型调用、工具执行、判定都会成为跨度。",
-        "note": "在跨度上带上令牌与成本，可观测性就顺便成了成本分析。"
-      },
-      "observability": {
-        "heading": "可观测性",
-        "level": {
-          "partial": "部分",
-          "blind": "无信号",
-          "full": "日志·会话·汇报"
-        },
-        "check": {
-          "turns": "轮次",
-          "sessions": "会话数",
-          "reports": "汇报"
-        },
-        "desc": "能在事后重建「它当时为什么那么做」，才让非确定性的系统变得可修。无法复现的问题，没有记录就修不了。",
-        "note": "观测可能拖垮应用 — 每个工具事件都同步写盘，那本身就成了瓶颈。采样、去抖和批处理是基本手段。"
-      },
-      "llmAsJudge": {
-        "check": {
-          "critique": "批评连线",
-          "human": "人工检查"
-        },
-        "heading": "模型评审",
-        "level": {
-          "none": "无评审",
-          "model": "模型批评",
-          "human": "人工检查"
-        },
-        "desc": "在没有标准答案字符串的自然语言输出上，让强模型打分是现实的折中。但它有已知偏差 — 偏好更长的回答、对同门模型更宽松、受呈现顺序影响。",
-        "note": "不把裁判的打分与人工打分做对照，就无从得知裁判本身是不是错的。"
-      },
-      "evalDrivenDevelopment": {
-        "check": {
-          "reviews": "检查请求",
-          "withPoints": "含检查要点"
-        },
-        "heading": "评估驱动开发",
-        "level": {
-          "none": "无检查",
-          "partial": "部分缺检查要点",
-          "defined": "已定义检查要点"
-        },
-        "desc": "先做评估，再朝着提高分数的方向修改。决定性的一步是评估与护栏被接到了一起 — 离线的判定器直接升格为运行时的关口。",
-        "note": "没有评估就改提示词，是这个领域的无照驾驶。"
-      },
-      "hallucinationGuard": {
-        "check": {
-          "read": "可读取源码",
-          "execute": "可运行检查"
-        },
-        "yes": "是",
-        "no": "否",
-        "heading": "幻觉防护",
-        "level": {
-          "blind": "无法验证",
-          "readOnly": "仅可读取",
-          "verifiable": "可执行"
-        },
-        "desc": "在智能体上最常见的形态是编造并不存在的 API、文件或函数。类型检查、lint 和测试能立刻抓住编造的 API，比让模型自己复核可靠得多。",
-        "note": "来自过时文档的、自信的错误答案，靠检索是挡不住的 — 检索会忠实地把错的东西找回来。"
-      },
-      "worktreeIsolation": {
-        "level": {
-          "shared": "同一工作树",
-          "isolated": "已隔离"
-        },
-        "check": {
-          "mode": "隔离",
-          "merge": "合并环节"
-        },
-        "heading": "工作树隔离",
-        "pending": "尚未进行",
-        "notNeeded": "不适用",
-        "desc": "一旦多个智能体同时运行，这就成了必需的基础设施 — 仅靠分支无法同时检出，两个智能体在同一目录里改动会互相覆盖。",
-        "note": "隔离是容易的那一半。依赖要按每棵树安装，冲突会在合并时集中爆发，整合设计才是更难的部分。",
-        "noteIsolated": "正在独立的树上工作，因此合并还在后面。冲突集中到来的地方就是那里。"
-      },
-      "vibeCoding": {
-        "check": {
-          "reviews": "检查",
-          "rules": "规则字数",
-          "supervision": "监督信号"
-        },
-        "heading": "氛围式编码",
-        "level": {
-          "vibe": "几乎无监督",
-          "mixed": "有一定监督",
-          "supervised": "有监督"
-        },
-        "desc": "它的定义性特征是不逐行阅读就接受输出。它并没有消失 — 适用范围收窄到了原型、探索和一次性工具。",
-        "note": "判断标准只有一个 — 这段代码要活多久。一天就用氛围式，三年就写规格。"
-      },
-      "agenticEngineering": {
-        "level": {
-          "partial": "部分",
-          "raw": "无监督",
-          "engineered": "有监督且已验证"
-        },
-        "check": {
-          "pillars": "具备的信号",
-          "reviews": "检查",
-          "critique": "批评连线"
-        },
-        "heading": "智能体工程",
-        "desc": "「用 AI 写代码」和「运营智能体」的差别就在这里。通过智能体编程成了专家的默认方式 — 但附带一个前提：要加上更多的监督与复核。",
-        "note": "规则文档、评估集、防丢失基础设施、提交关口，全都是预先支出，只是事后救火成本的几十分之一。"
-      },
-      "rag": {
-        "check": {
-          "recent": "最近一次",
-          "cards": "拉取的卡片",
-          "events": "检索次数"
-        },
-        "heading": "RAG",
-        "level": {
-          "none": "未拉取证据",
-          "grounded": "已拉取证据"
-        },
-        "desc": "显示这个智能体实际拉进来了哪些依据。在 Vibisual 中这条通路是 Project Brain，所以卡片统计的是到达的卡片数，而不是去猜检索质量。",
-        "note": "自信却错误的来源，靠检索修不好 — 检索只会忠实地把错的东西找回来。"
-      },
-      "agenticRag": {
-        "level": {
-          "static": "仅推送",
-          "none": "无检索",
-          "agentic": "主动检索"
-        },
-        "check": {
-          "searched": "智能体检索",
-          "pushed": "启动时推送"
-        },
-        "heading": "智能体式 RAG",
-        "desc": "区分启动时被推送进来的记忆，和智能体自己去找回来的记忆。只有推送时同一批内容每次都会跟着载入；有主动检索时，它会在需要的那一刻才进来。",
-        "note": "固定流水线只检索一次；智能体则会在判断依据不足时再回头去找。"
-      },
-      "grounding": {
-        "level": {
-          "partial": "部分",
-          "ungrounded": "无可锚定的依据",
-          "both": "源码与证据"
-        },
-        "check": {
-          "source": "可读取源码",
-          "memory": "证据卡片"
-        },
-        "yes": "是",
-        "no": "否",
-        "heading": "事实锚定",
-        "desc": "检查主张是否绑定在可核实的东西上 — 是否能读到原文，以及依据是否真的送达。",
-        "note": "读文件比听人转述文件更可靠。锚定把一个主张从「听起来有道理」变成「可以核实」。"
-      },
-      "agenticFileSearch": {
-        "level": {
-          "partial": "部分",
-          "none": "无检索工具",
-          "full": "Grep 与 Glob"
-        },
-        "yes": "是",
-        "no": "否",
-        "heading": "智能体文件检索",
-        "check": {
-          "tools": "检索工具",
-          "read": "可读取匹配"
-        },
-        "desc": "在代码库中，直接走文件系统通常胜过建索引 — 索引会过时，而 grep 永远看到当前状态。",
-        "note": "让智能体自己探索（从文件大小估复杂度、从名字猜用途）与渐进式披露是同一路数。"
-      },
-      "vectorDb": {
-        "level": {
-          "none": "尚无记忆",
-          "fits": "文件仍够用",
-          "outgrown": "超出文件规模"
-        },
-        "check": {
-          "cards": "已存卡片",
-          "storage": "存储方式",
-          "limit": "文件规模上限"
-        },
-        "heading": "向量数据库",
-        "files": "Markdown 文件",
-        "desc": "规模决定存储方式。数百条适合文件加文本检索，数十万条才值得上向量存储。在测量规模之前就先选基础设施，是最常见的过度设计。",
-        "note": "Vibisual 有意把记忆放在文件里。这张卡片的存在，是为了在这个选择不再划算的那天能察觉到。"
-      },
-      "gracefulDegradation": {
-        "check": {
-          "mode": "权限模式",
-          "policy": "未回应时"
-        },
-        "heading": "优雅降级",
-        "level": {
-          "noGate": "无关口可失效",
-          "failSafe": "失效即阻断",
-          "failOpen": "失效即放行"
-        },
-        "open": "放行（fail-open）",
-        "safe": "阻断（fail-safe）",
-        "desc": "护栏必须是 fail-safe 的 — 判定失败时的答案是阻断而不是放行。这里的分岔点是：审批提示无人回应时会怎样。",
-        "note": "在不能让工作停摆的场合，fail-open 也是正当选择 — 但它应该是一个选择，而不是没人注意到的默认值。",
-        "noteOpen": "一旦你离开，无人回应的提示就变成了放行。若这会造成问题，请切换为自动阻断。"
-      },
-      "idempotency": {
-        "check": {
-          "cap": "轮次上限",
-          "risky": "重试不安全的工具"
-        },
-        "none": "无",
-        "heading": "幂等性",
-        "level": {
-          "safe": "重试安全的工具",
-          "capped": "有风险但有上限",
-          "unbounded": "有风险且无上限"
-        },
-        "desc": "智能体用重试来抹平失败。非幂等的工具重试一次就会让数据翻倍，所以这被当作基本要求而不是最佳实践。",
-        "note": "对无法撤销的工具，在模式里放一个幂等键，才是让重试变安全的办法。"
-      },
-      "separationOfConcerns": {
-        "level": {
-          "mixed": "混合",
-          "focused": "聚焦",
-          "broad": "宽泛未拆分"
-        },
-        "check": {
-          "sessions": "会话数",
-          "breadth": "工具广度"
-        },
-        "heading": "关注点分离",
-        "desc": "智能体改动一处时，副作用波及的范围就是事故的规模。彼此分开的话，改错了也只在那个边界内结束。",
-        "note": "这一原则的智能体版本是以上下文为中心的分解 — 负责某个功能的智能体同时负责它的测试。"
-      },
-      "eventDriven": {
-        "heading": "事件驱动",
-        "check": {
-          "total": "事件总数",
-          "queued": "来自队列",
-          "direct": "直接输入"
-        },
-        "level": {
-          "silent": "无事件",
-          "flowing": "事件在流动"
-        },
-        "desc": "Vibisual 本身就靠钩子事件运转，所以这张卡片显示这个智能体上实际流过多少信号、来自哪里。",
-        "note": "松耦合与独立故障是优点，但这也意味着事件被丢掉时没人会告诉你。"
-      },
-      "backpressure": {
-        "level": {
-          "idle": "闲置",
-          "flowing": "流动中",
-          "saturated": "饱和"
-        },
-        "check": {
-          "running": "正在运行",
-          "queued": "排队指令"
-        },
-        "heading": "背压",
-        "desc": "当流入超过处理速度，队列就会增长；放任不管，溢出的部分要么被悄悄丢弃，要么让整体停摆。",
-        "note": "如果多条分支争夺同一份上下文和同一份检查注意力，同时开很多条并不等于吞吐量。"
-      },
-      "durableExecution": {
-        "check": {
-          "turns": "轮次",
-          "sessions": "会话数",
-          "guarantee": "保障"
-        },
-        "heading": "持久执行",
-        "level": {
-          "checkpointed": "已有检查点",
-          "fresh": "无可恢复内容"
-        },
-        "core": "内核检查点",
-        "desc": "长任务失败于中途崩溃的情况，比失败于能力不足更常见。定期保存状态，就不必从头再来。",
-        "note": "Vibisual 在内核层面保证了这一层，因此智能体不必自建恢复路径。"
-      },
-      "atomicWrite": {
-        "yes": "是",
-        "no": "否",
-        "heading": "原子写入",
-        "check": {
-          "agent": "智能体写入",
-          "core": "内核状态"
-        },
-        "level": {
-          "readOnly": "智能体不写入",
-          "agentWrites": "智能体写入文件"
-        },
-        "guaranteed": "原子写入 + 备份",
-        "desc": "写到一半挂掉会留下半成品文件，而下一次启动把它当成正常内容读取的那一刻，静默损坏就开始了。写入临时文件再原子替换是标准做法。",
-        "note": "内核会原子地写入检查点与设置，并保留备份世代。智能体自己写的文件不在这个保证范围内。"
-      },
-      "promptInjection": {
-        "yes": "是",
-        "no": "否",
-        "heading": "提示词注入",
-        "check": {
-          "paths": "流入路径",
-          "web": "可触达网络"
-        },
-        "level": {
-          "sealed": "无流入路径",
-          "narrow": "流入较窄",
-          "wide": "流入较宽"
-        },
-        "desc": "统计外部文本进入这个智能体的通路有几条。原因是结构性的 — 模型在同一条令牌流上接收指令与数据，原理上无法区分。",
-        "note": "智能体读到的每一段外部文本都是潜在通路 — 搜索结果、打开的文件、依赖的 README，乃至工具返回的响应。"
-      },
-      "owaspAsi": {
-        "level": {
-          "clear": "无标记",
-          "some": "部分触发",
-          "many": "多项触发"
-        },
-        "check": {
-          "trifecta": "泄露路径",
-          "radius": "爆炸半径",
-          "flags": "触发的项"
-        },
-        "heading": "OWASP ASI Top 10",
-        "desc": "把前面的判定按智能体特有的风险轴重新归类。值得注意的是，其中超过一半的风险出在框架而不是模型上 — 正因如此才能自查。",
-        "note": "目标劫持、工具滥用、身份、记忆投毒、失控智能体，是实务中最常遇到的几项。"
-      },
-      "goalHijack": {
-        "check": {
-          "rules": "常驻规则",
-          "plan": "已写下的计划"
-        },
-        "yes": "是",
-        "no": "否",
-        "heading": "目标劫持",
-        "level": {
-          "loose": "目标未固定",
-          "partial": "部分固定",
-          "anchored": "已固定"
-        },
-        "desc": "一旦目标本身被掉包，之后的每一步都会自主地帮助攻击者 — 而且行为在外表上保持一致，人很难察觉。",
-        "note": "把目标放在无法被改写的位置 — 不要把用户指令和工具结果放在同一层，这是关键。"
-      },
-      "memoryPoisoning": {
-        "level": {
-          "none": "尚无记忆",
-          "clean": "无待办",
-          "review": "待判断"
-        },
-        "check": {
-          "contested": "存在分歧",
-          "needsCheck": "标记为过时",
-          "cards": "已存卡片"
-        },
-        "heading": "记忆投毒",
-        "desc": "普通注入随会话结束而消失，被投毒的记忆却会留下并感染未来的会话。更糟的是，它看起来像「系统学到的东西」，因而更受信任。",
-        "note": "升格为记忆的通路需要来源验证 — 来自用户发言的事实和从外部文档读到的内容，不能以同等信任度保存。"
-      },
-      "agenticSupplyChain": {
-        "level": {
-          "builtin": "仅内置",
-          "skills": "已附加技能",
-          "external": "外部工具"
-        },
-        "check": {
-          "external": "外部工具",
-          "skills": "技能",
-          "builtin": "内置工具"
-        },
-        "heading": "智能体供应链",
-        "desc": "入侵通过智能体所依赖的东西进来 — 恶意工具、不可信服务端、被篡改的技能文件。工具说明本身就是提示词，因此恶意工具能把指令藏在说明栏里。",
-        "note": "把外部工具服务端当作权限委托而不是依赖项 — 固定来源与版本，变更时重新审查。"
-      },
-      "cascadingFailure": {
-        "heading": "级联失败",
-        "check": {
-          "chain": "链路长度",
-          "gated": "带关卡的交接"
-        },
-        "level": {
-          "single": "无链路",
-          "chained": "存在链路",
-          "unchecked": "长且无关卡"
-        },
-        "desc": "错误的输出成为下一个输入，并在每一步被打磨得更加自信。人类团队会问「这对吗」的地方，智能体却直接把它当成前提继续。",
-        "note": "在每个边界一并传递不确定性，并在交接中保留「未能确认」一栏。把自己的信号当成自己的输入的自增殖，是这一类的极端形态。"
-      },
-      "agentCard": {
-        "level": {
-          "partial": "部分",
-          "thin": "内容单薄",
-          "complete": "描述完整"
-        },
-        "heading": "智能体名片",
-        "check": {
-          "filled": "已填字段",
-          "purpose": "用途",
-          "limits": "上限"
-        },
-        "stated": "已说明",
-        "unstated": "未说明",
-        "set": "已设置",
-        "unset": "未设置",
-        "desc": "以机器可读的方式说明一个智能体能做什么。只有把成本、延迟和失败模式也写进去，它才真正可用于自动选择。",
-        "note": "并非每个智能体都需要完整的发现栈 — 简单的配置下，一份简短的指令文件就够了。"
-      },
-      "toolSearch": {
-        "level": {
-          "lean": "精简",
-          "all": "全部载入",
-          "most": "载入大部分"
-        },
-        "check": {
-          "loaded": "已载入",
-          "cost": "模式令牌"
-        },
-        "heading": "工具检索",
-        "desc": "与其载入全部工具定义，不如在需要时检索并只加载那一个。调用工具一百次会把一百个中间结果堆进窗口；用代码跑则只返回最终结果。",
-        "note": "「少给工具」的进化形态是「让它去检索工具」。目录越大，收益越大。"
-      },
-      "compactionWatch": {
-        "level": {
-          "unknown": "未知",
-          "far": "仍有余量",
-          "near": "压缩临近"
-        },
-        "check": {
-          "fill": "窗口占用",
-          "sessions": "会话数"
-        },
-        "heading": "压缩监视",
-        "desc": "把过去的轮次折叠成摘要，是长任务的标准装置。功力体现在知道损失出在哪里 — 摘要最先丢弃的是具体标识符。",
-        "note": "文件路径、函数名、错误码、决策背后的理由，正是摘要最先丢掉、而你之后恰恰需要的东西。",
-        "noteNear": "窗口正在填满。在自动压缩发生前，把决策与路径写到文件里。"
-      },
-      "contextEditing": {
-        "check": {
-          "turns": "轮次",
-          "fill": "窗口占用"
-        },
-        "heading": "上下文编辑",
-        "level": {
-          "ok": "暂时没问题",
-          "fresh": "无可精简",
-          "due": "值得精简"
-        },
-        "desc": "不做摘要，而是按规则只剥离旧的工具调用、结果和思考块。这是最安全、损失最小的压缩形式 — 已经处理完的工具结果原文，通常没有再看的理由。",
-        "note": "先试这个再考虑压缩 — 更便宜也更少风险，而且服务端实现不会破坏提示词缓存前缀。"
-      },
-      "specDriven": {
-        "level": {
-          "partial": "部分",
-          "prompt": "提示词驱动",
-          "spec": "规格驱动"
-        },
-        "check": {
-          "signals": "具备的信号",
-          "rules": "常驻规则",
-          "plan": "已写下的计划"
-        },
-        "yes": "是",
-        "no": "否",
-        "heading": "规格驱动开发",
-        "desc": "受版本管理的规格成为真实来源，实现、测试与文档都由它派生。规格一旦消除歧义，智能体就从决策者变成高速打字员。",
-        "note": "这并不取代 TDD — TDD 固定行为，SDD 固定需求与约束。两者是一起用的。"
-      },
-      "preCommitGate": {
-        "yes": "是",
-        "no": "否",
-        "heading": "提交前关口",
-        "check": {
-          "canCommit": "可运行 git",
-          "gate": "仓库关口"
-        },
-        "level": {
-          "cannot": "无法提交",
-          "gated": "可提交·有关口"
-        },
-        "repoHook": "提交钩子已启用",
-        "desc": "智能体提交得又轻松又频繁，事前阻断比事后复核便宜得多。而机密泄露是唯一没有事后补救的类别 — 一旦推送就已经暴露。",
-        "note": "智能体能绕过的关口不是关口。最小组合是机密扫描、lint 与类型检查、禁止路径拦截。"
-      },
-      "ssotDrift": {
-        "check": {
-          "rules": "常驻规则",
-          "memory": "当前事实",
-          "sources": "来源数"
-        },
-        "yes": "是",
-        "no": "否",
-        "heading": "SSOT 偏移",
-        "level": {
-          "single": "单一来源",
-          "two": "两个来源",
-          "many": "多个来源"
-        },
-        "desc": "统计这个智能体从几个地方接受指示。同一事实存在两处必然会走样，而模型会把两边都当作现行内容引用。",
-        "note": "人看到过时的一行会想「这是老的」而略过，模型却会自信地引用它。"
-      },
-      "adrPresence": {
-        "level": {
-          "none": "无记录",
-          "recorded": "已记录"
-        },
-        "heading": "决策记录",
-        "check": {
-          "decided": "已确定的决策",
-          "lessons": "教训"
-        },
-        "desc": "没有「否决了什么、为什么否决」的记录，智能体就会善意地重新提出早已被丢弃的设计。决策记录是把「别这么做」连同理由一起留下的地方。",
-        "note": "把决策放在代码旁边，并从指令文件中引用，是标准的布局。"
-      },
-      "schemaEvolution": {
-        "check": {
-          "sessions": "会话数",
-          "policy": "字段策略"
-        },
-        "heading": "模式演进",
-        "level": {
-          "fresh": "尚未保存",
-          "persisted": "已持久化"
-        },
-        "optional": "可选 + 默认值",
-        "desc": "以可选字段加默认值的方式扩展，旧的存档就能被新代码继续读取。Vibisual 的检查点建立在这个约定之上。",
-        "note": "破坏向后兼容意味着旧检查点打不开 — 而那一刻，正是崩溃变成工作丢失的时刻。"
-      },
-      "mcpClientInventory": {
-        "level": {
-          "none": "仅内置",
-          "attached": "已接外部"
-        },
-        "check": {
-          "servers": "外部工具",
-          "builtin": "内置工具"
-        },
-        "heading": "MCP 清单",
-        "desc": "统计挂在这个智能体上的外部工具服务端。一行安装就能引入任意代码与工具定义，所以这份清单本身就值得检查。",
-        "note": "不受信任的服务端不是便利而是供应链风险。固定来源与版本，变更时重新审查。"
-      },
-      "a2a": {
-        "check": {
-          "edges": "任务连线",
-          "sessions": "会话数",
-          "crossOrg": "跨组织"
-        },
-        "none": "无",
-        "heading": "A2A",
-        "level": {
-          "internal": "内部委派",
-          "solo": "独立工作"
-        },
-        "desc": "MCP 把智能体接到外部世界，而 A2A 是智能体之间协作的方式。它们处于不同层，所以「用哪个」是个错误的问题。",
-        "note": "对同一进程内的子智能体来说，这套规约是过度设计 — 它的用途是跨组织边界的协作。"
-      },
-      "acpAnp": {
-        "check": {
-          "authority": "权限",
-          "audit": "审计轨迹"
-        },
-        "heading": "ACP 与 ANP",
-        "level": {
-          "none": "两者皆无",
-          "governed": "权限与审计",
-          "partial": "部分设置"
-        },
-        "desc": "互操作规约的共同局限在于治理：它们标准化了「什么能连到什么」，却表达不了「谁被允许做什么」。",
-        "note": "采用了规约并不等于有了权限与审计设计 — 那些仍然要单独构建。"
-      },
-      "agentsMd": {
-        "level": {
-          "none": "无常驻规则",
-          "long": "较长",
-          "short": "长度合适"
-        },
-        "check": {
-          "chars": "规则字数",
-          "threshold": "阈值"
-        },
-        "heading": "智能体指令文件",
-        "desc": "仓库根目录下的单一指令文件已成事实标准，但并非越长越好 — 超过大约 150 行后收益急剧下降，而推理成本仍在上升。",
-        "note": "简短指令加上指向细节的链接，才是正确形态。把整份文档粘进去，等于自己制造上下文腐化。",
-        "noteLong": "它长到每轮都要付出成本，而靠后的部分会最先被稀释。把细节移出去，用链接连接。"
-      },
-      "computerUse": {
-        "heading": "计算机操作",
-        "check": {
-          "captures": "截屏气泡",
-          "screens": "全屏截取"
-        },
-        "level": {
-          "none": "无截屏",
-          "watching": "仅观察某窗口",
-          "controlling": "截取整个屏幕"
-        },
-        "desc": "靠看屏幕来操作软件，能触达所有没有 API 的地方，但每一步都依赖视觉定位，因而缓慢且脆弱。",
-        "note": "能用 CLI 或 API 做到的就不要用 GUI 做。不可逆的点击应该放在人工确认之后。"
-      },
-      "chunking": {
-        "level": {
-          "none": "尚无记忆",
-          "perCard": "一卡即一块"
-        },
-        "check": {
-          "cards": "卡片数",
-          "unit": "分块单位"
-        },
-        "heading": "分块",
-        "card": "一张记忆卡片",
-        "desc": "切得太碎会断掉上下文，块太大又会把无关内容一起带上。在 Vibisual 中一张记忆卡片就是一个块，所以卡片大小就是质量旋钮。",
-        "note": "主题会把卡片归拢，所以这里不需要单独调整块边界 — 一张卡片只写一件事就完成了这项工作。"
-      },
-      "reranking": {
-        "level": {
-          "none": "无注入",
-          "loose": "超出上限",
-          "tight": "上限内"
-        },
-        "heading": "重排序",
-        "check": {
-          "perEvent": "每次注入卡片",
-          "topK": "上限"
-        },
-        "desc": "一次检索广撒网，重排序把真正相关的提上来。Vibisual 只注入排名靠前的几张卡片，那个上限就是重排序的结果。",
-        "note": "把上限收窄，才能避免检索本身变成另一个上下文腐化源。"
-      },
-      "hybridSearch": {
-        "level": {
-          "none": "尚无记忆",
-          "keyword": "关键词维度"
-        },
-        "check": {
-          "cards": "卡片数",
-          "axis": "检索维度"
-        },
-        "heading": "混合检索",
-        "keywordOnly": "仅关键词",
-        "desc": "关键词检索擅长精确的名称与路径，语义检索擅长措辞不同的情况。Vibisual 的记忆检索只用关键词这一维，在当前规模下是有意的选择。",
-        "note": "在数百条的规模上，第二个维度运行的成本高于它带来的收益。这张卡片的存在，是为了察觉这句话何时不再成立。"
-      },
-      "multiHop": {
-        "level": {
-          "none": "无检索",
-          "multi": "多跳",
-          "single": "仅一跳"
-        },
-        "check": {
-          "hops": "智能体检索",
-          "total": "全部注入"
-        },
-        "heading": "多跳检索",
-        "desc": "一次检索答不上来的问题，需要以第一次找到的内容为依据再问一次。这里统计智能体回头再找了多少次。",
-        "note": "回头再找说明智能体自己意识到依据不足 — 这通常是好迹象，而不是浪费的一步。"
-      },
-      "queryRewriting": {
-        "level": {
-          "none": "无检索",
-          "empty": "检索无命中",
-          "effective": "检索有命中"
-        },
-        "heading": "查询改写",
-        "check": {
-          "searches": "检索次数",
-          "hits": "找到的卡片"
-        },
-        "desc": "人使用的措辞与知识库中存储的措辞很少一致，所以查询需要重塑。这里由智能体自己写检索词，因此改写发生在它那一侧。",
-        "note": "检索持续空手而归，通常意味着存储时的措辞与提问时的措辞根本没有交集。"
-      },
-      "benchmarkHygiene": {
-        "heading": "基准测试卫生",
-        "check": {
-          "own": "自有标准"
-        },
-        "level": {
-          "none": "无自有标准",
-          "own": "自有标准在积累"
-        },
-        "desc": "公开分数扎堆在高位，题目与答案渗入训练数据，而且同一模型换个框架分数就会变。唯一可信的信号，是用自己领域构建的评估集。",
-        "note": "这里积累的教训与检查要点，正是构建内部评估集的原料。"
-      },
-      "hybridWorkflow": {
-        "check": {
-          "spec": "常驻规则",
-          "plan": "已写下的计划"
-        },
-        "yes": "是",
-        "no": "否",
-        "heading": "混合工作流",
-        "level": {
-          "free": "即兴",
-          "leaning": "偏向一侧",
-          "balanced": "规格与自由并存"
-        },
-        "desc": "纯规格慢，纯即兴会垮，所以在哪里划线才是功力。接口、数据模型和权限边界需要规格，其内部的实现可以自由。",
-        "note": "在同一个项目里也能随阶段在两者之间切换，这正是混合方式的要点。"
-      },
-      "rescueEngineering": {
-        "check": {
-          "turns": "轮次",
-          "prepaid": "预先投入的防护"
-        },
-        "heading": "救援式工程",
-        "level": {
-          "accruing": "债务累积中",
-          "fresh": "尚无内容",
-          "prepaid": "已预先投入"
-        },
-        "desc": "收拾仓促写成的代码，已经成了一个独立的市场。求快的成本并没有消失，只是被推迟，并带着利息回来。",
-        "note": "规则文档、评估集、防丢失措施、提交关口全都是预付，只是日后救火成本的几十分之一。"
-      },
-      "promptCaching": {
-        "check": {
-          "sessions": "会话数",
-          "prefix": "稳定前缀",
-          "tools": "工具定义"
-        },
-        "none": "无",
-        "heading": "提示词缓存",
-        "level": {
-          "single": "单一会话",
-          "thin": "无稳定前缀",
-          "reusable": "前缀可复用"
-        },
-        "stable": "常驻规则",
-        "desc": "每次请求复用相同前缀能大幅降低成本与延迟，但前缀必须逐字节一致 — 把时间戳或随机 ID 放在开头，整个缓存就废了。",
-        "note": "命中率只存在于提供方的响应里，所以这张卡片不去猜它 — 只看前缀是否稳定到足以让缓存生效。规则只有一条：会变的放后面，不变的放前面。"
-      },
-      "toolMisuse": {
-        "level": {
-          "noCommands": "尚未执行",
-          "clean": "无标记",
-          "found": "存在可疑命令"
-        },
-        "check": {
-          "commands": "已执行命令",
-          "last": "最近一次",
-          "hits": "已标记"
-        },
-        "heading": "工具滥用",
-        "kind": {
-          "destructive": "不可逆删除",
-          "forcePush": "强制推送",
-          "remoteExec": "执行了远程代码",
-          "permission": "权限被放开",
-          "historyRewrite": "重写历史"
-        },
-        "desc": "扫描这个智能体实际执行过的命令，找出不可逆的形态。滥用并不需要入侵 — 权限本来就已经给了，所以授权本身就是攻击面的一部分。",
-        "note": "给一个「shell 执行」和给「指定的五条命令」，是完全不同的风险等级。不只是工具清单，参数同样需要校验。",
-        "noteFound": "这些已经执行过了 — 这张卡片只是告知，并不拦截。拦截的地方是工具调用之前的审批提示。"
-      },
-      "dataExfiltration": {
-        "level": {
-          "noCommands": "尚未执行",
-          "none": "未对外发送",
-          "used": "已使用外发路径"
-        },
-        "check": {
-          "commands": "已执行命令",
-          "last": "最近一次",
-          "egress": "对外发送"
-        },
-        "heading": "数据外泄",
-        "kind": {
-          "push": "git push",
-          "upload": "带正文的上传",
-          "webhook": "Webhook",
-          "copy": "远程复制",
-          "secretsRead": "读取了机密文件"
-        },
-        "desc": "寻找把数据往外发送的命令。它不检查内容 — 要点在于对外通路是否真的被用过，因为一旦出去就再也收不回来。",
-        "note": "「往外发送」的范围已经变宽 — 提交、推送、API 调用、图片 URL 请求和 webhook 全都算。",
-        "noteUsed": "内容一旦出去，事后删除也无法从缓存和索引中清除。请确认这些命令带走了什么。"
-      },
-      "mcpServer": {
-        "check": {
-          "scope": "范围",
-          "exposed": "对外暴露",
-          "client": "连接侧"
-        },
-        "no": "否",
-        "heading": "MCP 服务端",
-        "level": {
-          "notExposed": "未对外暴露"
-        },
-        "outOfScope": "范围之外",
-        "clientCard": "见 MCP 清单",
-        "desc": "显示 Vibisual 自身是否作为可被外部客户端接入的工具对外暴露。并没有 — 那种暴露属于范围之外的清单，这张卡片的存在是为了让这个决定持续可见。",
-        "note": "我们去接入外部服务端是另一个问题，也是另一张卡片。这一张只报告我们自身的暴露状态，并且从不开启它。"
-      },
-      "killSwitch": {
-        "label": "全部停止",
-        "confirm": "再按一次",
-        "title": "停止所有运行中的会话并取消已排期的循环（{{count}} 个智能体）",
-        "desc": "在标题栏放一个能停下所有运行内容的单一控件。它先取消已排期的循环，再停止存活的会话 — 只杀掉当前运行，调度器还会把下一轮拉起来。"
-      },
-      "agentRegistry": {
-        "check": {
-          "owner": "归属",
-          "authority": "权限",
-          "sessions": "会话数",
-          "lastSeen": "最后出现"
-        },
-        "ours": "Vibisual（自定义智能体）",
-        "external": "Claude Code（钩子会话）",
-        "heading": "智能体登记册",
-        "level": {
-          "unregistered": "不在登记册中",
-          "partial": "仅部分掌握",
-          "registered": "已登记"
-        },
-        "desc": "回答登记册之所以存在的那个实务问题 — 谁创建了这个智能体、它拥有什么权限、最后一次活动是什么时候。若答不上来，未登记的智能体就只是在无人看见处运行着。",
-        "note": "要设计的是关停智能体的时刻，而不只是创建的时刻 — 强制登记、凭证到期、闲置自动停止，都是运营纪律而非安全技术。",
-        "noteExternal": "该会话通过钩子注册，因此生命周期归 Claude Code 管。我们看得到它，但不会去晋升或废弃它。"
-      },
       "searchPlaceholder": "搜索插件",
       "clearSearch": "清除搜索",
       "onlyEnabled": "仅已开启",
@@ -2499,18 +1054,82 @@
         "brainInjections": "注入的记忆",
         "taskEdges": "任务交接",
         "captureBubbles": "屏幕捕获",
-        "bashCommands": "执行过的命令"
+        "bashCommands": "执行过的命令",
+        "pluginFacts": "强制执行实测"
       }
+    },
+    "login": {
+      "title": "登录 Claude",
+      "intro": "Vibisual 使用你的 Claude Code 账户运行智能体。无需另开终端，在这里登录即可。",
+      "modeSubscription": "Claude 订阅",
+      "modeSubscriptionDesc": "Pro / Max 套餐 — 用量从你的套餐额度中扣除。",
+      "modeConsole": "Anthropic Console",
+      "modeConsoleDesc": "API 账户 — 按 token 计费。",
+      "emailLabel": "邮箱（可选 — 用于预填登录页面）",
+      "starting": "正在开始登录…",
+      "openBrowser": "请在浏览器中确认登录，然后回到这里。",
+      "openBrowserBtn": "在浏览器中打开",
+      "copyUrl": "复制链接",
+      "copied": "已复制",
+      "codePrompt": "粘贴浏览器中显示的代码。",
+      "codePlaceholder": "授权代码",
+      "sendCode": "发送",
+      "failed": "登录未完成。请查看下方终端后重试。",
+      "noTerminal": "此窗口无法运行终端。请在桌面应用中登录。",
+      "startFailed": "无法启动登录流程。",
+      "showTerminal": "终端",
+      "success": "已登录。正在关闭…",
+      "recheck": "重新检查",
+      "later": "稍后",
+      "stop": "停止",
+      "start": "登录"
     }
   },
   "ide": {
+    "imageAnnotate": {
+      "tool": {
+        "view": "查看",
+        "rect": "矩形",
+        "ellipse": "椭圆",
+        "arrow": "箭头",
+        "pen": "画笔",
+        "highlight": "荧光笔",
+        "mask": "打码",
+        "text": "文字",
+        "number": "编号标记"
+      },
+      "color": "颜色",
+      "width": {
+        "thin": "细",
+        "medium": "中",
+        "thick": "粗"
+      },
+      "undo": "撤销（Ctrl+Z）",
+      "redo": "重做（Ctrl+Shift+Z）",
+      "clear": "清除所有标记",
+      "download": "下载 PNG",
+      "saveReplace": "保存",
+      "saveAttach": "附加标记副本",
+      "textPlaceholder": "输入后按 Enter",
+      "hintPick": "选择工具标记此图片，然后将其保存为附件。",
+      "hintDraw": "在图片上拖动即可标记。Ctrl+Z 可撤销上一次标记。",
+      "discardTitle": "放弃标记并关闭？",
+      "discardCancel": "继续编辑",
+      "discardConfirm": "放弃并关闭",
+      "renderFailed": "无法渲染标记后的图片。",
+      "noSession": "没有可附加此图片的 Session。",
+      "saveFailed": "无法保存标记后的图片。"
+    },
     "overlay": {
       "closeLabel": "关闭 IDE",
+      "toggleNav": "切换导航",
+      "toggleStatusBar": "切换状态栏",
       "refreshLabel": "重新加载会话",
       "maximizeLabel": "最大化",
       "restoreLabel": "还原",
       "resizeDock": "调整停靠大小",
       "customLabel": "自定义",
+      "cmdLabel": "CMD",
       "hookLabel": "Hook",
       "renameHint": "双击重命名 (F2)",
       "renameInputLabel": "Agent 名称"
@@ -2522,7 +1141,38 @@
       "pastSessionsClose": "关闭",
       "loading": "加载中...",
       "noClosedSessions": "没有可恢复的已关闭 Session。",
-      "agentTabLabel": "Agent"
+      "agentTabLabel": "Agent",
+      "confirmCloseTitle": "关闭正在运行的 Session？",
+      "confirmCloseMessage": "该 Session 仍在运行中。关闭将停止其工作。仍要关闭吗？",
+      "confirmCloseConfirm": "关闭",
+      "confirmCloseCancel": "取消",
+      "hiddenRunning": "该方向有 {{count}} 个运行中的标签页 — 点击跳转"
+    },
+    "terminal": {
+      "unavailable": "内嵌终端仅在 Vibisual 桌面应用中可用。",
+      "unavailableExternal": "出于安全考虑，通过外部（互联网）访问时内嵌终端已禁用 — 请在本地网络中使用。",
+      "exited": "claude 已退出（代码 {{code}}）",
+      "createFailed": "打开终端失败：{{error}}",
+      "harnessNote": "由您操作的交互式 Session — Vibisual 负责可视化并辅助搭建 Agent 编排，但执行权始终在 Claude Code 内部。",
+      "copy": "复制",
+      "paste": "粘贴",
+      "selectAll": "全选",
+      "clear": "清除",
+      "find": "查找",
+      "findPlaceholder": "在终端中查找",
+      "findNext": "下一个匹配项",
+      "findPrev": "上一个匹配项",
+      "findClose": "关闭搜索",
+      "fontIncrease": "增大字号",
+      "fontDecrease": "减小字号",
+      "fontReset": "重置字号",
+      "cards": {
+        "title": "卡片",
+        "empty": "暂无卡片",
+        "clear": "清除卡片",
+        "collapse": "折叠卡片",
+        "expand": "显示卡片"
+      }
     },
     "mainArea": {
       "scrollPrompt": "滚动到提示词",
@@ -2534,12 +1184,29 @@
       "stopping": "停止中…",
       "followUp": "追加",
       "followUpTitle": "不中断执行，继续发送消息 (Enter)",
+      "queuedTitle": "{{count}} 个等待中",
+      "queuedHint": "“合并”会将后续消息在同一轮中一起发送。“等待”让消息单独占用一轮；“立即”会中断当前轮次。",
+      "queuedRemove": "从队列中移除",
+      "mergedNotice": "已与 {{count}} 条后续消息一起发送",
+      "dispatchMode": {
+        "wait": "等待",
+        "merge": "合并",
+        "immediate": "立即"
+      },
+      "dispatchModeTitle": {
+        "wait": "等待 — 在当前轮次结束后，将此消息单独作为一轮运行",
+        "merge": "合并 — 将此消息与后续合并消息一起在同一轮中发送",
+        "immediate": "立即 — 停止当前轮次，改用此消息继续（对话内容保留）"
+      },
       "executing": "执行中…",
-      "readOnly": "只读 — 请选择 Session 标签或新建",
+      "readOnly": "只读 — Hook 气泡仅镜像外部会话。请从自定义 Agent 发送命令。",
       "attachmentError": "错误",
       "statusError": "错误",
       "statusCompleted": "已完成",
       "slashHint": "↑↓ 导航 · Tab/Enter 选择 · Esc 取消",
+      "historyHintPrev": "再按一次调出最近的命令",
+      "historyHintNext": "再按一次调出最早的命令",
+      "slashBuiltin": "内置",
       "slashEmpty": "无匹配技能",
       "slashLoading": "加载技能中…",
       "ctxCopy": "复制",
@@ -2547,8 +1214,16 @@
       "ctxQuoteReply": "引用回复",
       "ctxSendAsPrompt": "作为新提示发送",
       "ctxSelectAll": "全选",
+      "jumpToBottom": "滚动到底部",
       "ctxSelectionRequired": "请先选择文本",
-      "ctxSaveToBrain": "保存到大脑"
+      "inputCtxCut": "剪切",
+      "inputCtxCopy": "复制",
+      "inputCtxPaste": "粘贴",
+      "inputCtxSelectAll": "全选",
+      "ctxSaveToBrain": "保存到大脑",
+      "stopAll": "全部停止",
+      "stopAllTitle": "停止此 Agent 正在运行的所有内容（其他标签页 + 后台子 Agent）",
+      "stopSessionTitle": "停止此 Session 及其启动的子 Agent（其他 Session 标签页继续运行）"
     },
     "askQuestion": {
       "title": "问题",
@@ -2571,8 +1246,150 @@
       "terminal": "终端",
       "files": "文件",
       "results": "结果",
+      "context": "上下文来源",
       "skills": "技能",
-      "bookmarks": "书签"
+      "bookmarks": "书签",
+      "sessionSummary": "Session 摘要",
+      "runningSubagents": "运行中的子 Agent（{{count}}）",
+      "loop": "重复循环",
+      "goal": "目标",
+      "debug": "运行与调试"
+    },
+    "debug": {
+      "title": "运行与调试",
+      "refresh": "重新扫描配置",
+      "noProject": "打开项目以查看其运行配置。",
+      "debugMode": "调试模式",
+      "debugModeHint": "在同一命令中添加调试器参数，以便调试器可以附加。",
+      "configs": "运行配置",
+      "noConfigs": "未找到运行配置。请在 .vscode/launch.json、package.json 的 scripts 或 .vibisual/run.json 中添加一个。Unreal 项目（.uproject）会被自动检测。",
+      "scanned": "已扫描：{{files}}",
+      "run": "运行",
+      "stop": "停止",
+      "restart": "再次运行",
+      "output": "输出",
+      "running": "运行中",
+      "exitCode": "退出代码 {{code}}",
+      "attachOnly": "仅附加型配置 — Vibisual 不会启动此进程。",
+      "notApplied": "无法为此命令添加调试器参数，已按原样运行。",
+      "sendToAgent": "将失败信息发送给 Agent",
+      "sentToAgent": "已发送给 Agent",
+      "attachDebugger": "附加调试器",
+      "attachOk": "已请求附加 — Visual Studio 接管后编辑器将恢复运行。",
+      "attachError": {
+        "editor-not-running": "编辑器尚未运行。请先以调试模式启动它。",
+        "jit-debugger-not-found": "未找到 Visual Studio 的即时调试器（vsjitdebugger.exe）。请安装带有 C++ 工作负载的 Visual Studio。",
+        "not-unreal-project": "此项目中未找到 .uproject 文件。",
+        "unknown": "无法附加调试器。"
+      },
+      "failurePrompt": "运行配置“{{name}}”执行失败，退出代码为 {{code}}。以下是命令及其输出末尾内容 — 请找出原因并修复。",
+      "copy": "复制",
+      "copied": "已复制",
+      "close": "关闭",
+      "noOutput": "暂无输出。",
+      "source": {
+        "launchJson": ".vscode/launch.json",
+        "tasksJson": ".vscode/tasks.json",
+        "packageJson": "package.json",
+        "vibisual": ".vibisual/run.json",
+        "unreal": ".uproject",
+        "detected": "已检测"
+      },
+      "note": {
+        "node": "Node.js 调试器会监听上方端口（可用任意 DAP 客户端附加）。",
+        "python": "需要在项目环境中安装 debugpy（pip install debugpy）。",
+        "go": "需要在 PATH 中提供 Delve（dlv）。",
+        "rust": "Rust 需要先构建出二进制文件 — 请使用下方的外部调试器。",
+        "dotnet": ".NET 调试由下方的外部调试器处理。",
+        "java": "JDWP 会监听上方端口。",
+        "unreal": "编辑器会带 -WaitForDebugger 参数启动，并暂停直到有调试器附加 — 请点击“附加调试器”，然后在 Visual Studio 中使用断点。其日志会实时输出到“输出”中。",
+        "unsupported": "此命令没有已知的调试器参数。"
+      },
+      "mcpTitle": "Agent 调试工具",
+      "mcpHint": "Vibisual 本身不内置调试器。以下是已接入此 Agent 的现有 MCP 服务器，使其能够自行设置断点并检查状态。",
+      "mcpApplyHint": "仅对更改后新启动的 Session 生效（已在运行的 Session 会保留原有工具）。",
+      "docs": "文档",
+      "mcp": {
+        "debugger": "单步调试器（支持 7 种语言）",
+        "chromeDevtools": "浏览器（控制台 · 网络 · 性能）",
+        "chromeDevtoolsRequires": "请先使用 --remote-debugging-port=9222 参数启动 Chrome。",
+        "unreal": "Unreal Engine",
+        "unrealRequires": "请在编辑器中启用 Remote Control API 插件（端口 30010）。",
+        "lldb": "原生（LLDB）",
+        "lldbRequires": "需要 PATH 中提供支持 MCP 的 LLDB 构建版本。"
+      },
+      "externalTitle": "外部调试器",
+      "externalHint": "原生调试（Unreal C++、.NET）由这些工具负责 — Vibisual 无法内置它们的调试引擎。",
+      "open": "打开",
+      "notInstalled": "未安装",
+      "toggleBreakpoint": "点击可在此行切换断点",
+      "waitingForDebugger": "正在等待调试器",
+      "connectDebugger": "附加调试器",
+      "releaseWait": "直接继续",
+      "releaseWaitHint": "让进程继续运行而不附加调试器（当前正暂停等待调试器）。",
+      "detach": "分离",
+      "continue": "继续",
+      "pause": "暂停",
+      "stepOver": "单步跳过",
+      "stepIn": "单步进入",
+      "stepOut": "单步跳出",
+      "callStack": "调用栈",
+      "variables": "变量",
+      "watchPlaceholder": "输入要求值的表达式",
+      "evaluate": "求值",
+      "status": {
+        "connecting": "连接中",
+        "running": "已附加",
+        "paused": "已暂停",
+        "ended": "已结束",
+        "error": "失败"
+      },
+      "stoppedReason": {
+        "breakpoint": "断点",
+        "step": "单步",
+        "exception": "异常",
+        "pause": "由您暂停",
+        "entry": "入口点",
+        "other": "已停止"
+      },
+      "sessionError": {
+        "no-adapter-for-runtime": "目前尚不支持附加到此运行时。",
+        "delegated-runtime": "此运行时由下方的外部调试器处理。",
+        "adapter-not-configured": "此运行时未配置调试适配器。",
+        "port-required": "没有调试端口 — 请开启调试模式后重新运行。",
+        "pid-required": "找不到要附加的进程。",
+        "inspector-not-listening": "调试端口尚无监听。",
+        "adapter-not-listening": "调试适配器未开始监听。",
+        "adapter-exited": "调试适配器已退出。",
+        "adapter-not-started": "无法启动调试适配器。",
+        "no-free-port": "没有可用的空闲调试端口。",
+        "debuggee-terminated": "被调试进程已结束。",
+        "no-session": "该调试 Session 已不存在。"
+      },
+      "adapterTitle": "调试适配器",
+      "adapterHint": "断点、单步执行和变量查看均通过这些适配器实现。列出的每一项均可免费商用 — 仅微软自家引擎在下方以委托方式处理。",
+      "adapterReady": "就绪",
+      "adapterMissing": "未安装",
+      "adapterDelegated": "委托处理",
+      "runtime": {
+        "node": "Node.js · JavaScript · TypeScript",
+        "python": "Python",
+        "go": "Go",
+        "rust": "Rust · 原生",
+        "dotnet": ".NET · C#",
+        "java": "Java",
+        "unreal": "Unreal C++",
+        "other": "其他"
+      },
+      "adapter": {
+        "node": "已内置于 Node.js — 无需安装。",
+        "python": "在项目环境中安装 debugpy（pip install debugpy）。",
+        "go": "安装 Delve（go install github.com/go-delve/delve/cmd/dlv@latest）。",
+        "rust": "安装 CodeLLDB 并将 codelldb 加入 PATH。",
+        "dotnet": "安装 netcoredbg 并加入 PATH — 微软的 vsdbg 仅授权用于其自家 IDE。",
+        "java": "需要 PATH 中提供支持 DAP 协议的 Java 调试适配器。",
+        "unreal": "原生单步调试交由下方的 Visual Studio 处理 — 该调试引擎无法再分发。"
+      }
     },
     "bookmarks": {
       "title": "书签",
@@ -2583,6 +1400,30 @@
       "close": "关闭",
       "sourceGone": "来源已不存在"
     },
+    "sessionSummary": {
+      "title": "Session 摘要",
+      "close": "关闭",
+      "empty": "暂无可摘要的 Session。",
+      "jump": "打开此 Session",
+      "closeSession": "关闭 Session",
+      "closeBlocked": "只能关闭已停止且已评审的 Session",
+      "closeTidied": "关闭已整理（{{count}}）",
+      "closeTidiedHint": "关闭所有已停止且已评审的 Session（仍保留在历史记录中）",
+      "getSummary": "生成摘要",
+      "summarizing": "生成摘要中…",
+      "resummarize": "重新摘要",
+      "noCards": "此 Session 中没有报告卡片。",
+      "summaryError": "无法为此 Session 生成摘要。",
+      "closedBadge": "已关闭",
+      "dismiss": "忽略",
+      "secDid": "完成",
+      "secChanges": "变更",
+      "secUserActions": "待办",
+      "secCheckpoints": "核实",
+      "secQuestions": "问题",
+      "secList": "列表",
+      "secNext": "后续"
+    },
     "sidebar": {
       "sessions": "Sessions",
       "files": "文件（{{count}}）",
@@ -2592,13 +1433,102 @@
       "hasResult": "有结果",
       "skills": "技能（{{count}}）",
       "projectSkills": "项目（{{count}}）",
+      "globalSkills": "全局（{{count}}）",
       "pluginSkills": "插件（{{count}}）",
+      "favoriteSkills": "收藏（{{count}}）",
+      "favoriteAdd": "添加到收藏",
+      "favoriteRemove": "从收藏中移除",
+      "refreshSkills": "刷新技能",
+      "newSkill": "新建技能",
       "noSkills": "未安装技能",
       "skillsLoading": "加载技能中…",
       "deleteSkillTitle": "删除技能",
       "deleteSkillConfirm": "删除此技能？",
       "deleteSkillYes": "删除",
-      "deleteSkillNo": "取消"
+      "deleteSkillNo": "取消",
+      "copySkillTitle": "复制到其他项目",
+      "copySkillHeader": "复制到",
+      "copySkillGlobal": "全局（所有项目）",
+      "copySkillNoTargets": "没有可复制的其他项目",
+      "copySkillAll": "全选",
+      "copySkillDo": "复制",
+      "copySkillBusy": "复制中…",
+      "copySkillCancel": "取消",
+      "copySkillClose": "关闭",
+      "copySkillOverwrite": "覆盖",
+      "copySkillDone": "已复制到 {{count}} 处",
+      "copySkillExists": "{{count}} 处已存在",
+      "copySkillSame": "{{count}} 处即来源",
+      "copySkillFailed": "{{count}} 处失败"
+    },
+    "explorer": {
+      "title": "资源管理器",
+      "refresh": "刷新",
+      "collapseAll": "折叠文件夹",
+      "edited": "已编辑文件（{{count}}）",
+      "noEdited": "暂无文件编辑",
+      "loading": "加载中…",
+      "empty": "空文件夹",
+      "error": "无法读取此文件夹",
+      "noProject": "未打开项目",
+      "openFile": "在编辑器中打开",
+      "copyPath": "复制路径",
+      "copied": "已复制",
+      "truncated": "仅显示前 {{count}} 项"
+    },
+    "editor": {
+      "resize": "调整编辑器面板大小",
+      "save": "保存（Ctrl+S）",
+      "reload": "从磁盘重新加载",
+      "closeTab": "关闭标签页",
+      "closePane": "关闭编辑器面板",
+      "closeDirtyConfirm": "此文件有未保存的更改。仍要关闭吗？",
+      "conflict": "此文件在您打开后已在磁盘上发生更改。",
+      "conflictReload": "重新加载",
+      "conflictOverwrite": "仍要保存",
+      "binary": "二进制文件 — 只读。",
+      "truncated": "此文件过大，仅显示开头部分 — 只读。",
+      "readError": "无法读取此文件",
+      "plainLanguage": "纯文本",
+      "openInPane": "在编辑器面板中打开 — {{path}}",
+      "openFolder": "打开此文件所在的文件夹 — {{path}}",
+      "readOnlyLocked": "此文件在磁盘上被锁定为只读（Perforce 签出、文件属性）。",
+      "readOnlyUnlock": "解除只读并保存",
+      "readOnlyUnlockHint": "先清除只读属性再保存。不会恢复锁定，也不会执行任何版本控制命令（p4 edit 等）。",
+      "saveError": {
+        "tooLarge": "文件过大，无法保存",
+        "missing": "此文件在磁盘上已不存在",
+        "forbidden": "此文件位于项目根目录之外",
+        "readonly": "此文件被锁定为只读（Perforce 签出、文件属性）",
+        "failed": "无法保存此文件"
+      },
+      "closeDirtyConfirmMany": "其中 {{count}} 个文件有未保存的更改。仍要关闭吗？",
+      "ctx": {
+        "cut": "剪切",
+        "copy": "复制",
+        "paste": "粘贴",
+        "selectAll": "全选",
+        "undo": "撤销",
+        "redo": "重做",
+        "save": "保存",
+        "reload": "从磁盘重新加载",
+        "copyPath": "复制路径",
+        "copyLine": "复制该行",
+        "copyLineRef": "复制带行号的路径",
+        "openExternal": "在外部编辑器中打开",
+        "closeTab": "关闭",
+        "closeOthers": "关闭其他标签页",
+        "closeAll": "关闭所有标签页",
+        "addBreakpoint": "在第 {{line}} 行添加断点",
+        "removeBreakpoint": "移除断点",
+        "clearFileBreakpoints": "移除此文件中的所有断点",
+        "needSelection": "请先选择一些文本",
+        "readOnlyFile": "此文件为只读",
+        "nothingToSave": "没有未保存的更改",
+        "noBreakpoints": "此文件中没有断点",
+        "noBreakpointTarget": "没有打开的项目可供调试",
+        "noOtherTabs": "没有其他打开的标签页"
+      }
     },
     "statusBar": {
       "custom": "自定义",
@@ -2608,12 +1538,43 @@
       "sessionOne": "{{count}} 个 Session",
       "sessionMany": "{{count}} 个 Session"
     },
+    "search": {
+      "placeholder": "在对话中查找",
+      "prev": "上一个匹配项",
+      "next": "下一个匹配项",
+      "close": "关闭"
+    },
     "zoom": {
       "reset": "重置"
+    },
+    "systemNode": {
+      "taskFailed": "任务失败",
+      "taskStopped": "任务已停止",
+      "durationMs": "{{value}}ms",
+      "durationSec": "{{value}}秒",
+      "durationMin": "{{value}}分",
+      "taskStarted": "任务已开始",
+      "taskCompleted": "任务已完成",
+      "taskUpdated": "任务已更新",
+      "taskNotification": "任务通知",
+      "notification": "通知",
+      "taskProgress": "工作中",
+      "taskSummary": "任务摘要",
+      "thinkingTokens": "思考中",
+      "compactBoundary": "上下文已压缩",
+      "status": "状态",
+      "backgroundTasksChanged": "后台任务已更新",
+      "commandsChanged": "命令已更新",
+      "apiRetry": "正在重试请求",
+      "apiError": "API 错误",
+      "modelFallback": "模型回退",
+      "interrupt": "已中断",
+      "permissionDenied": "权限被拒绝"
     },
     "streamRenderer": {
       "noActivity": "此 Session 暂无活动",
       "thinking": "思考中",
+      "working": "工作中",
       "input": "输入",
       "output": "输出",
       "clickToExpand": "点击展开",
@@ -2622,17 +1583,168 @@
       "collapse": "折叠",
       "copy": "复制",
       "copied": "已复制",
+      "youTyped": "我",
+      "diff": {
+        "created": "已创建",
+        "modified": "已修改",
+        "change": "变更 {{index}}",
+        "moreLines": "… 还有 {{count}} 行"
+      },
       "toolRun": "×{{count}}",
       "diffLines": "{{count}} 行",
-      "activity": "已执行命令"
+      "activity": "已执行命令",
+      "showMoreLines": "显示另外 {{count}} 行",
+      "showLess": "收起",
+      "pathLink": {
+        "openFile": "在编辑器中打开 — {{path}}",
+        "openFolder": "打开文件夹 — {{path}}"
+      },
+      "restartResumed": "应用关闭导致中断，已在保存的会话上继续。"
     },
     "report": {
+      "title": "工作报告",
+      "didTitle": "AI 完成的工作",
+      "userActionsTitle": "您需要做的事",
+      "nextStepsTitle": "后续步骤",
       "learnedTitle": "经验总结"
+    },
+    "question": {
+      "title": "问题",
+      "copy": "复制",
+      "copied": "已复制",
+      "instant": "立即发送",
+      "instantSent": "已发送",
+      "copyCard": "复制卡片",
+      "copyQuestions": "复制问题",
+      "copySelection": "复制所选内容",
+      "copySelectionHint": "先拖动选择需要的部分，再点击复制",
+      "copyOne": "仅复制此问题",
+      "selectAnswer": "选择此答案",
+      "selectNone": "清除",
+      "sendSelected": "发送已选的 {{n}} 项"
+    },
+    "review": {
+      "title": "评审请求",
+      "instructionTitle": "已下达的指令",
+      "changesTitle": "变更内容",
+      "checkpointsTitle": "请核实"
+    },
+    "list": {
+      "title": "列表",
+      "moreItems": "还有 {{count}} 项"
+    },
+    "feedback": {
+      "upTitle": "做得好 — 会反馈到该 Agent 的学习中",
+      "downTitle": "不满意 — 请添加原因以帮助它学习",
+      "reasonPlaceholder": "哪里出了问题？（可选，用于学习）",
+      "reasonSave": "保存",
+      "addReason": "添加原因",
+      "editReason": "编辑原因",
+      "statsTitle": "您对此 Session 的反馈"
+    },
+    "unseenCards": {
+      "hint": "有未查看的卡片 — 点击跳转",
+      "jump": "跳转到此卡片",
+      "dismiss": "忽略"
+    },
+    "runningSubagents": {
+      "title": "运行中的子 Agent",
+      "close": "关闭",
+      "empty": "当前没有正在运行的子 Agent。",
+      "untitled": "子 Agent",
+      "scopeAll": "显示此 Agent 正在运行的所有子 Agent。",
+      "scopeSession": "显示由“{{label}}”启动的子 Agent。",
+      "endedAt": "结束于 {{time}}",
+      "finishedTitle": "刚刚完成",
+      "noResult": "未收到结果。",
+      "toggleResult": "展开或收起完整结果",
+      "toolUses": "工具调用 {{count}} 次",
+      "nowUsing": "当前正在使用的工具",
+      "duration": "耗时 {{value}}",
+      "emptySession": "此会话没有启动中的子代理。",
+      "hint": "这里只列出此会话在后台启动的子代理 — 当前的对话本身不计入。运行期间左侧图标会亮起，并在下方显示数量。",
+      "othersRunning": "其他地方还有 {{count}} 个在运行",
+      "startedAt": "开始于 {{time}}",
+      "noResponse": "{{value}} 无响应",
+      "dismiss": "不再等待",
+      "dismissTip": "从此列表中移除。不会终止进程 — 子任务由启动它的代理用 TaskStop 停止。"
+    },
+    "loop": {
+      "title": "重复循环",
+      "close": "关闭",
+      "scopeSession": "“{{label}}” Session 的循环。",
+      "scopeNone": "未选择 Session 标签页。",
+      "pickSession": "重复循环归属于单个 Session 标签页。请先打开一个 Session 标签页，然后在此设置其循环。",
+      "commandLabel": "要重复的命令",
+      "commandPlaceholder": "例如：运行测试并修复失败项。",
+      "commandHint": "每一轮都会将此文本原样发送给 Session，如同您亲自输入一样。",
+      "commandFileLabel": "从文件读取命令",
+      "commandFilePlaceholder": "例如 PROMPT.md",
+      "commandFileHint": "每轮都会重新读取——循环运行时修改文件，从下一轮起生效。读取失败时使用上面的正文继续。",
+      "modeLabel": "重复方式",
+      "modeCount": "次数",
+      "modeInfinite": "直到我停止",
+      "intervalLabel": "轮次间隔",
+      "intervalUnit": "秒",
+      "intervalHint": "设为 0 表示上一轮结束后立即开始下一轮。",
+      "stopOnError": "某轮失败时停止循环",
+      "contextModeCompactHint": "在两轮之间发送 /compact，避免长循环在某轮中途耗尽上下文。压缩不计入轮次。",
+      "contextModeLabel": "两轮之间",
+      "contextModeNone": "保留上下文",
+      "contextModeCompact": "压缩（保留摘要）",
+      "contextModeClear": "清空（重新开始）",
+      "contextModeClearHint": "在两轮之间发送 /clear，让每轮都从空白上下文开始。什么都不会保留，请与进度文件搭配使用。",
+      "budgetLabel": "用到这里就停止",
+      "budgetCostUnit": "美元（估算）",
+      "budgetTokenUnit": "千 token",
+      "budgetTimeUnit": "分钟",
+      "budgetHint": "留空表示不限。只在轮次边界判定，正在跑的一轮不会被中途切断。费用为偏高的估算值。",
+      "progressFileLabel": "进度文件",
+      "progressFilePlaceholder": "例如 .vibisual/loop-progress.md",
+      "progressFileHint": "每轮先读取、结束时更新——即使上下文被压缩或清空也能继续推进。",
+      "oneTask": "每轮只做一件事",
+      "oneTaskHint": "把这条规则同时放在提示词开头和规则区——避免一轮把多处改动挤进同一个提交。",
+      "commitEachRound": "在轮次结束时提交",
+      "commitEachRoundHint": "让智能体自己提交，并在信息中写上轮次号和验证方式。Vibisual 不会替你执行 git。",
+      "compacting": "正在压缩上下文，然后开始下一轮…",
+      "clearing": "正在清空上下文，然后开始下一轮…",
+      "spent": "已用 {{cost}} · token {{tokens}} · {{elapsed}}",
+      "start": "开始",
+      "restart": "重启",
+      "stop": "停止",
+      "delete": "删除",
+      "progressCount": "已完成 {{done}} / {{total}} 轮",
+      "progressInfinite": "已完成 {{done}} 轮",
+      "nextIn": "下一轮将在 {{time}} 后开始。",
+      "lastError": "上次错误：{{message}}",
+      "note": "停止 Session（或整个 Agent）也会停止此循环。关闭标签页会将其删除。",
+      "status": {
+        "idle": "关闭",
+        "running": "运行中",
+        "waiting": "等待中",
+        "done": "已完成",
+        "stopped": "已停止",
+        "error": "失败",
+        "budget": "已达预算"
+      }
     },
     "plan": {
       "title": "计划",
       "progress": "{{done}}/{{total}}",
       "superseded": "计划已更新"
+    },
+    "cmdError": {
+      "spawn": "Claude CLI 无法启动",
+      "stdin": "无法将提示词发送到正在运行的 Session",
+      "exit": "Claude CLI 已退出，代码 {{code}}",
+      "exitUnknown": "Claude CLI 意外退出",
+      "crash": "Session 进程意外终止（代码 {{code}}）",
+      "crashUnknown": "Session 进程意外终止",
+      "cli": "Claude CLI 报告了一个失败",
+      "maxTurns": "已达到最大轮次限制并停止",
+      "agentView": "Agent 运行以失败告终",
+      "orphaned": "应用重启时被中断",
+      "unknown": "因未知原因失败"
     },
     "density": {
       "label": "显示密度",
@@ -2640,9 +1752,377 @@
       "standard": "标准",
       "raw": "原始"
     },
+    "follow": {
+      "label": "跟随",
+      "labelOn": "跟随中",
+      "tipOn": "正在跟随此会话的编辑 — 编辑器会打开它修改的文件并跳转到改动行。点击可停止。",
+      "tipOff": "跟随此会话的编辑 — 编辑器会打开它修改的文件并跳转到改动行。每个会话单独开关。",
+      "lineShort": "第{{line}}行",
+      "stop": "停止",
+      "bannerIdle": "此会话修改文件时，编辑器会跳到这里。",
+      "bannerOpened": "已打开 {{name}}",
+      "bannerChanged": "{{name}} 第 {{from}}–{{to}} 行已改动",
+      "bannerChangedReloaded": "{{name}} 第 {{from}}–{{to}} 行已改动 — 已从磁盘重新读取",
+      "skipOutsideRoot": "{{name}} 在此项目之外，因此未打开",
+      "skipEditorClosed": "{{name}} 已改动 — 打开编辑器即可跟随",
+      "skipDirty": "{{name}} 在磁盘上已改动 — 为保留你未保存的编辑，未重新读取",
+      "skipNoLine": "已打开 {{name}} — 未能定位改动行，因此视图没有移动",
+      "lineRange": "第{{from}}–{{to}}行",
+      "skipShortOutsideRoot": "项目之外",
+      "skipShortEditorClosed": "编辑器未开",
+      "skipShortDirty": "保留草稿",
+      "skipShortNoLine": "仅打开"
+    },
+    "reading": {
+      "title": "阅读设置",
+      "buttonLabel": "阅读设置",
+      "reset": "重置",
+      "resetField": "将此设置重置为默认值",
+      "resetFieldAtDefault": "已是默认值",
+      "measureTitle": "阅读宽度",
+      "measurePreset": {
+        "comprehension": "理解优先",
+        "balanced": "均衡",
+        "speed": "速度优先",
+        "full": "完整"
+      },
+      "measureNote": "Dyson 与 Haselgrove 的研究测得三种最优值：每行 95 字符阅读速度最快，35 字符理解效果最佳，55 字符则是两者的平衡点。",
+      "chatAlign": "对话对齐方式",
+      "chatAlignOn": "我的消息靠右，AI 消息靠左",
+      "chatAlignNote": "就像即时通讯应用一样：您的提示词会贴靠右边缘并按文本内容收缩，AI 回复则保持在左侧。无需阅读内容，仅凭位置即可分辨是谁在说话。代码、表格和工具框仍保持完整宽度。",
+      "contentWidth": "内容宽度",
+      "contentWidthFull": "完整",
+      "contentWidthNote": "缩窄整个内容区域 — 卡片、工具框、代码和表格也都会包含在内。上方的“阅读宽度”只会缩窄正文栏，而这个选项会缩窄所有内容。100% 即窗口的完整宽度，每往下调一点就会立即变窄（最小 10%）。具体向哪个方向收缩由上方的“对话对齐方式”决定：关闭时内容会向中间聚拢；开启时 AI 回复固定在左边缘、您的提示词固定在右边缘，因此只有对侧会让出空间。窄窗口下会自动解除限制。",
+      "charsPerLine": "≈ 每行 {{cjk}} 个中日韩字符 / {{latin}} 个拉丁字符",
+      "charsUnlimited": "行长度取决于窗口宽度",
+      "verdict": {
+        "ok": "符合 WCAG 中日韩文字限制（{{limit}}）",
+        "warn": "超出 WCAG 中日韩文字限制（{{limit}}）",
+        "over": "未应用限制"
+      },
+      "fontSize": "文字大小",
+      "fontSizeNote": "Rello 等人（CHI 2016）在一项针对 104 名读者的眼动追踪研究中发现，可读性和理解度会随字号增大持续提升，直到 18pt（{{px}}px）。",
+      "lineHeight": "行高",
+      "lineHeightNote": "中日韩排版建议值为 {{cjk}}。WCAG 1.4.12 要求至少为 {{wcag}} 才能保持可用性。",
+      "letterSpacing": "字符间距",
+      "letterSpacingNote": "WCAG 1.4.12 要求最大可达 {{max}}em 才能保持可用性。",
+      "wordSpacing": "单词间距",
+      "wordSpacingNote": "WCAG 1.4.12 要求最大可达 {{max}}em 才能保持可用性。",
+      "paragraphSpacing": "段落间距",
+      "paragraphSpacingNote": "WCAG 1.4.12 要求段落间距最大可达字号的两倍才能保持可用性。",
+      "font": "字体",
+      "fontNote": "以下所有字体均随应用内置，因此在任何设备上显示效果一致 — 无需安装。所有字体均可免费商用（SIL Open Font License 1.1）；带圆点标记的字体来自可读性研究。",
+      "fontMissing": "此系统未安装",
+      "fontResearch": "可读性研究",
+      "fontSource": {
+        "preset": "内置字体",
+        "custom": "自定义字体"
+      },
+      "fontSourceNote": {
+        "preset": "随应用内置的字体，因此在任何设备上显示效果一致 — 无需安装。所有字体均可免费商用（SIL Open Font License 1.1）。",
+        "custom": "使用此电脑上已安装的字体。仅会保存字体名称 — 不会复制或分享字体文件，因此不涉及任何再分发。"
+      },
+      "customFont": "字体名称",
+      "customFontPlaceholder": "如：Segoe UI",
+      "customFontBrowse": "列出字体",
+      "customFontBrowseHint": "加载此电脑上已安装的字体系列作为建议。可能会先请求您的授权。",
+      "customFontBrowseUnavailable": "此处字体列表不可用，请直接输入名称",
+      "customFontEmpty": "请输入字体名称，或点击 \"列出字体\" 从列表中选择。",
+      "customFontFound": "\"{{name}}\" 已在此电脑上找到 — 现已启用。",
+      "customFontNotFound": "\"{{name}}\" 未在此电脑上找到，因此显示默认字体。",
+      "customFontUnknown": "无法检查 \"{{name}}\" 是否已安装。",
+      "autoMobile": "窄窗口",
+      "autoMobileOn": "自动适配",
+      "autoMobileNote": "窄于 768px 时会解除宽度限制（否则只会挤占边距），并略微增加行高。",
+      "mobileActive": "窄窗口 — 已自动解除宽度限制。",
+      "rationale": "让读者自行调整排版设置而非固定单一数值，平均可将阅读速度提升每分钟 25 个单词以上（The Readability Consortium）。"
+    },
     "card": {
       "showDetails": "详情 ({{count}})",
       "hideDetails": "收起"
+    },
+    "context": {
+      "title": "上下文来源",
+      "tokensLabel": "本次提示中的 token 数",
+      "refresh": "立即重新测量",
+      "reset": "将此层重置为默认值",
+      "searchPlaceholder": "搜索来源、文件、路径…",
+      "loading": "测量中…",
+      "empty": "没有匹配项。",
+      "turnOn": "开启 — 纳入下一条提示",
+      "turnOff": "关闭 — 从下一条提示中排除",
+      "locked": "此项无法在此处关闭",
+      "sort": {
+        "category": "分组",
+        "tokens": "Token",
+        "updated": "日期",
+        "name": "名称"
+      },
+      "scope": {
+        "project": "项目",
+        "session": "本次 Session"
+      },
+      "control": {
+        "session": "提示词",
+        "spawn": "派生参数",
+        "external": "其他位置",
+        "none": "已锁定"
+      },
+      "cat": {
+        "vibisual": "Vibisual 提示词",
+        "plugins": "强制执行插件",
+        "memory": "记忆",
+        "instructions": "指令文件",
+        "skills": "技能与命令",
+        "tools": "工具",
+        "system": "Claude Code"
+      },
+      "src": {
+        "skillsPrefix": "技能前缀",
+        "agentRules": "Agent 规则",
+        "edges": "出站边规则",
+        "feedback": "过往用户反馈",
+        "intentFirst": "先说明意图",
+        "cardReport": "工作报告卡片协议",
+        "cardQuestion": "问题卡片协议",
+        "cardReview": "评审卡片协议",
+        "cardList": "编号列表卡片协议",
+        "cardIframe": "服务器预览协议",
+        "goal": "Session 目标",
+        "brainCards": "项目大脑简报",
+        "brainTopics": "大脑主题索引",
+        "brainRules": "大脑规则框架",
+        "hookEnforcement": "Hook Session 注入",
+        "plugins": "全部强制执行插件",
+        "claudeMd": "CLAUDE.md 文件",
+        "autoMemory": "自动记忆索引",
+        "skills": "技能与斜杠命令",
+        "bundledSkills": "内置技能",
+        "subagentDefs": "子 Agent 定义",
+        "workflows": "工作流",
+        "gitInstructions": "Git 指引",
+        "toolSchemas": "工具定义",
+        "mcp": "MCP 服务器",
+        "hooks": "Hooks",
+        "systemPrompt": "Claude Code 系统提示词"
+      },
+      "hint": {
+        "tools": "在 Agent Settings 中选择工具列表",
+        "mcp": "在 Agent Settings 中挂载 MCP 服务器",
+        "hooks": "Hooks 安装在 settings.json 中"
+      },
+      "warn": {
+        "slashCommands": "关闭后将禁用此 Session 的所有技能和斜杠命令。",
+        "hooks": "没有 Hooks，Vibisual 将无法再看到此 Session。"
+      },
+      "rowHint": "点击查看这是什么、实际会发送什么内容",
+      "detail": {
+        "whatLabel": "这是什么",
+        "moreLabel": "来源",
+        "offLabel": "关闭后会怎样",
+        "bodyLabel": "实际发送的内容",
+        "filesLabel": "文件（{{count}}）",
+        "stateOn": "已开启 — 会进入下一条提示",
+        "stateOff": "已关闭 — 不会进入下一条提示",
+        "overrideBy": "您在 {{scope}} 层级更改了此项",
+        "sizeLine": "{{chars}} 字符 · 约 {{tokens}} token",
+        "loading": "读取中…",
+        "error": "无法读取此来源。",
+        "emptyBody": "此项在本轮不会增加任何内容 — 已开启，但目前没有对应内容。",
+        "unreadable": "此项存在于 Claude Code 内部，没有可打开的文件。旁边的数字是估算值，而非实测值。",
+        "truncated": "仅显示前 {{count}} 个字符。",
+        "openInEditor": "在内置编辑器中打开",
+        "openOutside": "在应用外部打开",
+        "copy": "复制",
+        "copied": "已复制"
+      },
+      "about": {
+        "control": {
+          "session": "Vibisual 在组装提示词时会将其排除，因此关闭后从您的下一条消息起立即生效。",
+          "spawn": "通过命令行参数在下一次运行时关闭。每一轮都会启动新进程，因此这同样从您的下一条消息起生效。",
+          "external": "此项由另一个设置界面管理 — 这里的开关有意被锁定。",
+          "none": "此项无法关闭。之所以在此测量，是为了让总量数字真实可信。"
+        },
+        "src": {
+          "skillsPrefix": {
+            "what": "Vibisual 在您的消息前插入的斜杠命令，使 Session 一开始就加载这些技能。",
+            "more": "来自 Agent Settings 中的 Skills 字段。每个技能会作为一行 /名称 添加在您的提示词之前。",
+            "off": "您的消息将单独发送，不会调用这些技能。"
+          },
+          "agentRules": {
+            "what": "您为此 Agent 气泡设定的常驻指令。",
+            "more": "来自 Agent Settings 中的 Agent Rules 框，添加在“# Agent Rules”标题之下。",
+            "off": "该 Agent 将不再收到这些常驻指令。"
+          },
+          "edges": {
+            "what": "由您从此气泡绘制到其他气泡的箭头所携带的指令。",
+            "more": "根据此气泡的出站任务边构建 — 如何交接工作、需要返回什么内容。",
+            "off": "该 Agent 将不再知道其出站箭头对它的期望。"
+          },
+          "feedback": {
+            "what": "您对此 Agent 以往回答的点赞 / 点踩记录。",
+            "more": "从早前回答下方的反馈按钮收集，让 Agent 重复有效的做法。",
+            "off": "过往反馈将不再回放给该 Agent。"
+          },
+          "intentFirst": {
+            "what": "这条规则会让 Agent 在触碰任何文件前先说明它即将做什么。",
+            "more": "固定的 Vibisual 内置指令，目的是让您能在 Agent 走偏时及早叫停。",
+            "off": "该 Agent 可能在未先宣布计划的情况下就开始编辑文件。"
+          },
+          "cardReport": {
+            "what": "彩色“我做了什么 / 您需要做什么”卡片的生成规则。",
+            "more": "告知 Agent 通过 Vibisual 的 API 上报结果，以便按颜色拆分这两份清单。",
+            "off": "结果只会以纯文本形式到达 — 没有彩色卡片。"
+          },
+          "cardQuestion": {
+            "what": "带有现成回复按钮的问题卡片生成规则。",
+            "more": "当 Agent 向您提问时，会同时以数据形式发送问题和建议答案。",
+            "off": "问题将只出现在文本中，没有复制或发送按钮。"
+          },
+          "cardReview": {
+            "what": "修复完成后显示的紫色“请核实”卡片的生成规则。",
+            "more": "告知 Agent 列出它改了什么，以及您应点击核实哪些内容。",
+            "off": "您将只收到一段文字摘要，而非核对清单。"
+          },
+          "cardList": {
+            "what": "自动编号列表卡片的生成规则。",
+            "more": "较长的枚举会以数据形式发送，由 Vibisual 为您编号并排版。",
+            "off": "列表将以普通文本形式内联输出。"
+          },
+          "cardIframe": {
+            "what": "把本地服务器地址转为实时预览气泡的生成规则。",
+            "more": "当您要求启动服务器时，Agent 会上报其地址，Vibisual 会在画布上打开它。",
+            "off": "服务器地址将只以文字形式提及，需要您自行打开。"
+          },
+          "goal": {
+            "what": "此 Session 的目标及其步骤列表，与目标窗口中显示的一致。",
+            "more": "来自目标卡片，使 Agent 知道自己在计划中的位置。",
+            "off": "该 Agent 将不再看到目标及其进度列表。目标窗口本身仍会保留。"
+          },
+          "brainCards": {
+            "what": "与您刚提出的问题匹配的项目大脑记忆卡片。",
+            "more": "按您的消息排序，并加上标记为常驻的规则。存储在此项目的 .vibisual/brain 中。",
+            "off": "该 Agent 将不再具备此项目已经积累的经验。"
+          },
+          "brainTopics": {
+            "what": "这些记忆的目录 — 仅主题名称，不含内容本身。",
+            "more": "使 Agent 只打开它需要的主题文件，而不必加载全部卡片。",
+            "off": "该 Agent 将无法再按主题查阅过往记忆。"
+          },
+          "brainRules": {
+            "what": "说明这些记忆卡片是什么、应如何处理它们的简短说明。",
+            "more": "没有它，Agent 会收到卡片，但不知道该如何处理它们。",
+            "off": "记忆卡片将不再附带任何说明。"
+          },
+          "hookEnforcement": {
+            "what": "Vibisual 注入到通过 Claude Code Hooks 自行接入的 Session 中的内容块。",
+            "more": "这些 Session 并非由 Vibisual 启动，因此它们的指令每轮都通过 Hook 通道搭载传入。",
+            "off": "通过 Hook 接入的 Session 将不再收到 Vibisual 的指令。"
+          },
+          "plugins": {
+            "what": "此项目中所有已启用强制执行插件的总开关。",
+            "more": "每个已启用的插件在下方也各有一行，因此您可以保留部分、关闭其他。",
+            "off": "无论启用了哪些插件，都不会再添加任何插件指令。"
+          },
+          "plugin": {
+            "what": "某个强制执行插件的指令：{{name}}。",
+            "more": "您在 Plugins 窗口中启用了此插件；它会把自己的规则写入此项目的每条提示词。",
+            "off": "只有此插件停止生效 — 其余插件保持不变。"
+          },
+          "claudeMd": {
+            "what": "Claude Code 自行加载的项目指令文件 — CLAUDE.md、CLAUDE.local.md、AGENTS.md。",
+            "more": "位于您的项目目录、其上层文件夹以及您主目录下的 .claude 文件夹中。点击文件即可在此阅读。",
+            "off": "Session 将不再加载您项目的规约（CLAUDE_CODE_DISABLE_CLAUDE_MDS）。"
+          },
+          "autoMemory": {
+            "what": "Claude Code 自身针对此文件夹的记忆索引（MEMORY.md）。",
+            "more": "每轮只加载索引本身；具体的记忆文件会在需要时才被读取。",
+            "off": "Claude Code 将不再携带之前 Session 留下的笔记（CLAUDE_CODE_DISABLE_AUTO_MEMORY）。"
+          },
+          "skills": {
+            "what": "此处可用的每个技能和斜杠命令的一行简介。",
+            "more": "每轮只加载各文件 front matter 中的名称与描述；完整正文会在技能被实际调用时才读取。",
+            "off": "此 Session 的全部技能和斜杠命令都会被禁用（--disable-slash-commands）。"
+          },
+          "bundledSkills": {
+            "what": "Claude Code 自身内置的技能。",
+            "more": "它们存在于可执行文件内部，因此其大小无法在此测量。",
+            "off": "Claude Code 将不再使用其内置技能运行（CLAUDE_CODE_DISABLE_BUNDLED_SKILLS）。"
+          },
+          "workflows": {
+            "what": "Claude Code 内置的工作流指令。",
+            "more": "属于 Claude Code 本身，而非此项目，因此没有文件可显示。",
+            "off": "这些工作流将不再提供给 Agent（CLAUDE_CODE_DISABLE_WORKFLOWS）。"
+          },
+          "gitInstructions": {
+            "what": "Claude Code 自动添加的 Git 指引及仓库状态摘要。",
+            "more": "这就是为什么 Agent 一开始就已经知道您的分支和哪些文件被修改。",
+            "off": "该 Agent 将不再收到 Git 指引或状态摘要（CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS）。"
+          },
+          "subagentDefs": {
+            "what": "此项目在 .claude/agents 中定义的子 Agent 类型。",
+            "more": "它们的描述内嵌在 Agent 工具自身的描述中，因此没有单独的开关。",
+            "off": "此项在这里无法关闭 — 仅用于测量。"
+          },
+          "systemPrompt": {
+            "what": "Claude Code 自身的系统提示词 — 使其成为 Claude Code 的那部分指令。",
+            "more": "存在于可执行文件内部，因此这里的数字是估算值而非实测值。",
+            "off": "此项无法关闭，列出它是为了让总量数字真实可信。"
+          },
+          "toolSchemas": {
+            "what": "此 Agent 可调用工具的定义 — Read、Edit、Bash 等。",
+            "more": "工具列表由 Agent Settings 管理；在那里缩短列表会使这个数字变小。",
+            "off": "请改到 Agent Settings 中修改工具列表 — 这里的开关已锁定。"
+          },
+          "mcp": {
+            "what": "通过 MCP 服务器挂载的额外工具。",
+            "more": "每个挂载的服务器都会把自己的工具定义添加到每条提示词中。",
+            "off": "请改到 Agent Settings 中卸载该服务器 — 这里的开关已锁定。"
+          },
+          "hooks": {
+            "what": "使 Vibisual 得以看到此 Session 的 Claude Code Hooks。",
+            "more": "注册在 settings.json 中。它们几乎不消耗 token，但每个事件都要经过它们。",
+            "off": "Hooks 需要在 settings.json 中移除，而非在此处。没有它们，Vibisual 将无法再看到此 Session。"
+          }
+        },
+        "cat": {
+          "vibisual": {
+            "what": "Vibisual 自己写入提示词的一个内容块。",
+            "more": "每一轮都会根据您画布上的内容和设置重新组装。",
+            "off": "它只会从下一条提示词中被排除。"
+          },
+          "plugins": {
+            "what": "强制执行插件为此项目每条提示词添加的规则。",
+            "more": "来自 Plugins 窗口 — 只有您启用的插件会出现在此。",
+            "off": "该插件的规则将不再发送。"
+          },
+          "memory": {
+            "what": "Agent 从早前 Session 中记住的内容。",
+            "more": "读取自此项目或此文件夹的记忆文件。",
+            "off": "该 Agent 将只依据本次对话本身工作。"
+          },
+          "instructions": {
+            "what": "Claude Code 在您输入任何内容之前就自行加载的指令文件。",
+            "more": "每次 Session 启动时都会从磁盘读取。点击文件即可在此阅读。",
+            "off": "Session 将不再加载这些指令。"
+          },
+          "skills": {
+            "what": "Agent 可调用的技能和命令的描述。",
+            "more": "只加载简短说明；完整正文会在实际使用时读取。",
+            "off": "该 Agent 将不再知道这些技能可用。"
+          },
+          "tools": {
+            "what": "Agent 可调用工具的定义。",
+            "more": "该列表由 Agent Settings 管理。",
+            "off": "请到 Agent Settings 中修改 — 这里无法关闭。"
+          },
+          "system": {
+            "what": "Claude Code 在此项目之外自行添加的内容。",
+            "more": "存在于 Claude Code 内部，因此这个数字是估算值。",
+            "off": "这不是我们能关闭的部分；之所以测量它，是为了让总量数字真实可信。"
+          }
+        }
+      }
     }
   },
   "bubbleMap": {
@@ -2662,6 +2142,32 @@
       "controlToggle": "远程操作（向被捕获目标注入点击和输入）",
       "controlOn": "操作中",
       "controlOff": "远程操作",
+      "controlModeOff": "关闭",
+      "pointerModeSwitch": "指针模式 — 触摸：点哪里就点击哪里 · 鼠标：拖动移动指针，再轻点以点击（点击可切换）",
+      "pointerModeTouch": "触摸",
+      "pointerModeMouse": "鼠标",
+      "qualityHint": "画质 / 流量 — 数值越低分辨率和帧率越低（点击可切换）",
+      "quality_full": "最高",
+      "quality_saver": "省流",
+      "quality_min": "最低",
+      "quality_auto": "自动",
+      "snapshot": "保存当前帧（PNG）",
+      "pause": "暂停（节省流量）",
+      "resume": "继续",
+      "pausedTapResume": "已暂停 · 点击继续",
+      "paste": "粘贴剪贴板（手机 → 电脑）",
+      "pasteShort": "粘贴",
+      "settings": "捕获气泡设置",
+      "opacity": "不透明度",
+      "controlTimeout": "自动释放控制权",
+      "timeoutOff": "关闭",
+      "pin": "始终置顶（固定）",
+      "stillSaver": "静帧省流",
+      "readOnly": "只读（锁定控制）",
+      "readOnlyOn": "只读 — 远程控制已锁定（可在设置中解锁）",
+      "readOnlyShort": "仅查看",
+      "badge": "帧率 · 分辨率标签",
+      "badgeIdle": "静止 · 空闲",
       "expandHint": "双击在窗口中打开",
       "collapse": "恢复大小 (Esc)",
       "maximize": "最大化",
@@ -2688,7 +2194,13 @@
       "backgroundClick": "不移动我的光标（实验性）",
       "backgroundClickHint": "把点击直接发送到目标窗口，你的鼠标不会移动。游戏和受保护窗口会忽略此方式并自动回退。",
       "backgroundClickBlocked": "该窗口忽略后台点击 · 已短暂借用光标",
-      "backgroundClickUnavailable": "无法使用后台点击 · 已短暂借用光标"
+      "backgroundClickUnavailable": "无法使用后台点击 · 已短暂借用光标",
+      "join": "拼接气泡",
+      "snapHint": "将捕获气泡拖到另一个气泡旁边，边缘会自动吸附对齐。拖动时按住 Alt 可关闭吸附。",
+      "fitAspect": "匹配源画面比例",
+      "fitAspectHint": "将气泡高度重置为源画面的宽高比，以消除黑边 — 拼接后的气泡看起来会连成一体。",
+      "seamless": "隐藏接缝",
+      "seamlessHint": "隐藏边框和标题栏，使拼接后的气泡看起来像同一块屏幕（悬停时标题栏会重新显示）"
     },
     "taskEdge": {
       "iconHint": "单击：详情 · 双击：编辑",
@@ -2828,7 +2340,25 @@
     "setDefault": "设为默认",
     "unsetDefault": "取消默认",
     "defaultTooltip": "无上次活跃标签时，默认标签将自动打开。",
-    "detach": "分离到新窗口"
+    "detach": "分离到新窗口",
+    "rename": "重命名"
+  },
+  "overlay": {
+    "sendToOverlay": "将此气泡弹出为始终置顶的桌面浮窗",
+    "removeFromOverlay": "将此气泡从桌面浮窗中移除",
+    "sendToOverlayLabel": "浮窗",
+    "removeFromOverlayLabel": "浮窗中",
+    "openIDE": "点击打开 IDE",
+    "agentGone": "Agent 不可用",
+    "toggleShow": "显示桌面浮窗气泡",
+    "toggleHide": "隐藏桌面浮窗气泡",
+    "menu": {
+      "openIde": "打开 IDE",
+      "reveal": "在画布中定位",
+      "opacity": "不透明度",
+      "hide": "隐藏此气泡",
+      "close": "从浮窗中移除"
+    }
   },
   "tabDetach": {
     "detachHint": "拖到标签栏外以在新窗口中打开",
@@ -2841,6 +2371,9 @@
     "redockCardTitle": "拖到主标签栏以重新停靠",
     "redockCardSubtitle": "或在其他位置松开保持分离状态",
     "detachedBadge": "已分离",
+    "minimizeWindow": "最小化",
+    "maximizeWindow": "最大化",
+    "restoreWindow": "还原",
     "closeWindow": "关闭窗口",
     "missingTitle": "标签已不可用",
     "missingProject": "项目「{{name}}」未在此 Vibisual 实例中加载。",
@@ -2860,6 +2393,8 @@
     },
     "contextMenu": {
       "createCustomAgent": "创建自定义 Agent",
+      "createCmdAgent": "创建 CMD Agent",
+      "createCmdAgentHint": "由您操作的交互式终端（订阅计费）",
       "createAutoAgent": "创建 Auto Agent",
       "createAutoAgentHint": "元 Agent — 根据你的提示自动派生自定义 Agent 团队",
       "createWorktree": "创建 Worktree",
@@ -2880,6 +2415,13 @@
       "empty": "画布剪贴板为空",
       "failed": "粘贴失败",
       "invalidVersion": "剪贴板格式与当前版本不兼容"
+    },
+    "bookmark": {
+      "assigned": "书签 {{slot}} → {{label}}",
+      "assignEmpty": "没有可添加书签的对象 — 请先选择气泡或打开 Agent 的 IDE",
+      "jumped": "已跳转到 {{label}}",
+      "jumpEmpty": "书签 {{slot}} 为空",
+      "jumpMissing": "书签目标已不可用"
     }
   },
   "common": {
@@ -2976,6 +2518,12 @@
     "purge": "永久删除",
     "purgeConfirm": "这将永久删除所有内容，包括 {{n}} 张 Agent 记忆卡片。",
     "purgeYes": "永久删除",
+    "purgeAll": "全部删除",
+    "trashCountLabel": "回收站中的智能体 {{n}} 个",
+    "trashDeleteHint": "选中后按 Delete · 按 Shift 多选",
+    "purgeConfirmMany": "将删除 {{count}} 个智能体及其 {{n}} 条独立记忆。",
+    "purgeIrreversible": "此操作无法撤销。",
+    "trashItemsMore": "另有 {{n}} 个",
     "cardCountUnitSuffix": "",
     "feed": {
       "title": "项目大脑",

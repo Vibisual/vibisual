@@ -4,9 +4,9 @@
  * 같은 모델이라도 하네스에 따라 결과가 크게 갈린다 — 경쟁 축이 모델에서 그 주변 장치로 옮겨갔다.
  * 이 카드는 이 에이전트를 감싸고 있는 것들(모델·도구·권한·격리·스킬·규칙)을 한 장으로 모아 보여준다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import { effectiveTools } from '../lethal-trifecta/trifecta.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import { effectiveTools } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const parts = (ctx: PluginBubbleContext): number =>
   [

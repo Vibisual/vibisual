@@ -10,6 +10,7 @@ import { useGraphStore } from '../../stores/graphStore.js';
 import { TerminalCardSniffer, type TerminalCard } from './terminalCardSniffer.js';
 import { IDETerminalCardRail } from './IDETerminalCardRail.js';
 import { getTerminalTransport } from '../../transport/terminalTransport.js';
+import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 
 // §4 v2.63 — 임베디드 인터랙티브 터미널 뷰. (편의성 보강 v2.65)
 //
@@ -361,19 +362,19 @@ export function IDETerminalView({ agentId, sessionId }: IDETerminalViewProps): R
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchQuery, searchOpen]);
 
-  // 컨텍스트 메뉴 닫힘 트리거(외부 mousedown / Esc).
+  // 컨텍스트 메뉴 닫힘 트리거 — 외부 press(공통 규약) / Esc.
+  useOutsidePressDismiss({
+    enabled: menu !== null,
+    onDismiss: () => setMenu(null),
+    refs: [menuRef],
+    capture: false,
+  });
+
   useEffect(() => {
     if (!menu) return;
-    const onDown = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenu(null);
-    };
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setMenu(null); };
-    window.addEventListener('mousedown', onDown);
     window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('mousedown', onDown);
-      window.removeEventListener('keydown', onKey);
-    };
+    return () => window.removeEventListener('keydown', onKey);
   }, [menu]);
 
   const onContextMenu = useCallback((e: React.MouseEvent) => {

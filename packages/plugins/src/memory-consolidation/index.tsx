@@ -5,7 +5,7 @@
  * 중복 제거를 소홀히 하면 새 기록이 여전히 유효한 옛 기록을 덮어쓴다. 그래서 원본을 보존한 채 증류본을
  * **추가**하는 형태로 돌려야 한다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
+import { defineInspector } from '../sdk/index.js';
 
 const inspector = defineInspector({
   id: 'memory-consolidation', i18nKey: 'memoryConsolidation', name: 'Memory Consolidation', category: 'observability',

@@ -1,0 +1,18 @@
+{
+  "id": "rogue-agent",
+  "name": "Idle & Rogue Agents",
+  "version": "1.0.0",
+  "category": "security",
+  "descriptionKey": "panel.plugins.rogueAgent.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "bubbleBadge",
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "subAgents"
+  ],
+  "hostApi": 1
+}

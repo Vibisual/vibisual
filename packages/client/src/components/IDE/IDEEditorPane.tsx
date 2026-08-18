@@ -1,0 +1,611 @@
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useGraphStore, selectIDEOverlay } from '../../stores/graphStore.js';
+import { CodeEditor, type FollowRange } from './CodeEditor.js';
+import { languageFromPath } from './codeLanguages.js';
+import { FOLLOW_SKIP_KEYS, findEditedLineRange, followSessionKey } from './editorFollow.js';
+import { isDirty, splitPathTail, tabLabels } from './editorModel.js';
+import { splitRelPath } from './explorerModel.js';
+import { useEditorDocs } from './useEditorDocs.js';
+import { useIDEProjectRoot } from './useIDEProjectRoot.js';
+import { openFileByPath, openFolderByPath } from './useWorkspaceExplorer.js';
+import { IDEEditorTabs } from './IDEEditorTabs.js';
+import { IDEContextMenu, type ContextMenuItem } from './IDEContextMenu.js';
+import { buildBodyMenuItems, buildGutterMenuItems, buildTabMenuItems } from './editorContextMenu.js';
+import type { CodeEditorBodyMenuContext } from './CodeEditor.js';
+import { useDebugSessions } from '../../stores/debugSessions.js';
+import { sameWorkspaceFile } from './debugPaths.js';
+
+/**
+ * IDEEditorPane.tsx — §5.5 #17-27 v4.87 메인 영역 **오른쪽에 붙는 편집창**.
+ *
+ * 덮개가 아니라 형제다(§5.5 #17-27 ①) — 사용자는 에이전트가 말하는 것을 보면서 그 파일을 읽는다.
+ * 이 컴포넌트가 하는 일은 셋: 탭 줄(열어 둔 파일) · 손잡이 줄(저장·다시 읽기·밖에서 열기·닫기) ·
+ * 본문(`CodeEditor`). 읽기·저장은 `useEditorDocs` 가, 색 구분은 `codeHighlight` 가 맡는다.
+ */
+
+/** 폭 조절 손잡이의 두께(px) — IDE 도킹 손잡이(#17-1)와 같은 결. */
+const RESIZE_HANDLE_CLASS = 'absolute inset-y-0 left-0 z-10 w-1 cursor-col-resize hover:bg-blue-400/60';
+
+/** §5.5 #17-27 ⑪ — 강조가 머무는 시간(ms). `index.css` 의 `edit-follow-flash` 길이와 맞춘다. */
+const FOLLOW_FLASH_MS = 1800;
+
+interface IDEEditorPaneProps {
+  /** 폰 폭 — 나란히 둘 자리가 없어 대화 위를 덮는 오버레이로 뜬다. */
+  narrow: boolean;
+}
+
+export const IDEEditorPane = memo(function IDEEditorPane({ narrow }: IDEEditorPaneProps): React.JSX.Element | null {
+  const { t } = useTranslation();
+  const rootPath = useIDEProjectRoot();
+  const files = useGraphStore((s) => selectIDEOverlay(s).editorFiles);
+  const activePath = useGraphStore((s) => selectIDEOverlay(s).activeEditorPath);
+  const width = useGraphStore((s) => s.ideEditorWidth);
+  const setWidth = useGraphStore((s) => s.setIdeEditorWidth);
+  const setActive = useGraphStore((s) => s.setActiveIDEEditorFile);
+  const closeFile = useGraphStore((s) => s.closeIDEEditorFile);
+  const setDirty = useGraphStore((s) => s.setIDEEditorFileDirty);
+  const clearBreakpointsInFile = useGraphStore((s) => s.clearBreakpointsInFile);
+
+  const { docs, ensureLoaded, reload, setDraft, save, drop } = useEditorDocs(rootPath);
+
+  const active = useMemo(() => files.find((f) => f.relPath === activePath) ?? null, [files, activePath]);
+  const doc = activePath ? docs[activePath] : undefined;
+  const labels = useMemo(() => tabLabels(files), [files]);
+  const language = useMemo(() => (active ? languageFromPath(active.relPath) : 'plain'), [active]);
+
+  // ─── §5.5 #17-20 ⑩ v4.94 — 줄 번호 칸이 곧 중단점 gutter ─────────────────
+  const projectName = useGraphStore((s) => selectIDEOverlay(s).projectId ?? s.activeProject);
+  const breakpoints = useGraphStore((s) => (projectName ? s.debugBreakpoints[projectName] : undefined));
+  const toggleBreakpoint = useGraphStore((s) => s.toggleBreakpoint);
+  const debugSessions = useDebugSessions((s) => s.sessions);
+  const selectedFrame = useDebugSessions((s) => s.selectedFrame);
+
+  /** 지금 열린 파일에 찍힌 줄들(다른 파일 것은 보지 않는다). */
+  const breakpointLines = useMemo(() => {
+    const set = new Set<number>();
+    if (!activePath || !breakpoints) return set;
+    for (const bp of breakpoints) if (bp.file === activePath && bp.enabled) set.add(bp.line);
+    return set;
+  }, [breakpoints, activePath]);
+
+  /**
+   * 지금 멈춰 서 있는 줄 — **이 파일일 때만**. 여러 세션이 떠 있으면 먼저 멈춘 것을 따르고,
+   * 프레임은 사용자가 콜스택에서 고른 것을 존중한다(안 골랐으면 맨 위 프레임).
+   */
+  const stoppedLine = useMemo(() => {
+    if (!activePath || !rootPath) return null;
+    for (const session of Object.values(debugSessions)) {
+      if (session.status !== 'paused' || !session.frames || session.frames.length === 0) continue;
+      const wanted = selectedFrame[session.sessionId];
+      const frame = session.frames.find((f) => f.id === wanted) ?? session.frames[0];
+      if (!frame?.file) continue;
+      if (sameWorkspaceFile(frame.file, rootPath, activePath)) return frame.line;
+    }
+    return null;
+  }, [debugSessions, selectedFrame, activePath, rootPath]);
+
+  const handleToggleBreakpoint = useCallback(
+    (line: number) => {
+      if (!projectName || !activePath) return;
+      toggleBreakpoint(projectName, activePath, line);
+    },
+    [projectName, activePath, toggleBreakpoint],
+  );
+
+  // 탭이 활성화되면 그때 읽는다(열어만 두고 안 본 탭은 디스크를 건드리지 않는다).
+  useEffect(() => {
+    if (activePath) ensureLoaded(activePath);
+  }, [activePath, ensureLoaded]);
+
+  // 저장할 것이 있는지를 탭 줄이 알아야 한다(점 표시 + 밀어내기 예외) → store 로 신고.
+  useEffect(() => {
+    if (!activePath || !doc) return;
+    setDirty(activePath, doc.status === 'ready' && doc.draft !== doc.diskText);
+  }, [activePath, doc, setDirty]);
+
+  // ─── §5.5 #17-27 ⑪ [추종] — 편집 신호를 받아 다시 읽고 · 그 줄로 스크롤하고 · 잠깐 강조한다 ───
+  const agentId = useGraphStore((s) => selectIDEOverlay(s).agentId);
+  const activeSessionId = useGraphStore((s) => selectIDEOverlay(s).activeSessionId);
+  const sessionKey = followSessionKey(agentId ?? '', activeSessionId);
+  const followOn = useGraphStore((s) => s.ideEditorFollow[sessionKey] === true);
+  const setFollowOn = useGraphStore((s) => s.setIdeEditorFollow);
+  const followSignal = useGraphStore((s) => s.ideEditorFollowSignal);
+  const clearFollowSignal = useGraphStore((s) => s.clearIdeEditorFollowSignal);
+  const setFollowLast = useGraphStore((s) => s.setIdeEditorFollowLast);
+  const followMark = useGraphStore((s) => s.ideEditorFollowLast);
+  /** 지금 강조 중인 줄 범위(그 파일에 한정) — 잠깐 뒤 스스로 사라진다. */
+  const [follow, setFollow] = useState<{ relPath: string; range: FollowRange; token: number } | null>(null);
+  /** (h) ④ 잔상 — 강조가 꺼진 뒤에도 **다음 편집까지** 남는 "여기가 방금 바뀐 자리" 표시. */
+  const [recent, setRecent] = useState<{ relPath: string; range: FollowRange } | null>(null);
+  /** 이미 접수한 신호의 시각 — 같은 신호를 두 번 처리하지 않는다. */
+  const followSeenRef = useRef(0);
+  /**
+   * 접수했지만 아직 **다시 읽기가 끝나지 않은** 신호.
+   * `awaitReload` 는 "reload 를 불렀으니 문서가 `loading` 으로 바뀌는 것을 먼저 보고 가라" 는 뜻이다 —
+   * 이 한 걸음이 없으면 아래 효과가 **다시 읽기 전의 옛 본문**에서 줄을 찾아 엉뚱한 곳으로 스크롤한다.
+   */
+  const followPendingRef = useRef<
+    { relPath: string; absPath: string; newString: string; token: number; awaitReload: boolean; reloaded: boolean } | null
+  >(null);
+
+  useEffect(() => {
+    if (!followSignal || followSignal.at === followSeenRef.current) return;
+    // (g) — 다른 세션이 낸 신호는 따르지 않는다. 세션을 옮긴 뒤 남은 신호이므로 그 자리에서 버린다.
+    if (followSignal.sessionKey !== sessionKey) {
+      clearFollowSignal();
+      return;
+    }
+    // 탭 전환이 아직 반영되지 않았으면 다음 렌더에서 다시 본다(여는 쪽이 이미 활성 탭을 바꿔 놨다).
+    if (followSignal.relPath !== activePath) return;
+    followSeenRef.current = followSignal.at;
+
+    const target = docs[followSignal.relPath];
+    // #17-27 ⑪ (d) — 고치던 초안이 있으면 자동 다시 읽기를 건너뛴다(사용자가 친 글자를 절대 덮지 않는다).
+    if (target && target.status === 'ready' && isDirty(target.diskText, target.draft)) {
+      // (h) — 건너뛴 사실을 자국에 남긴다. 아무 말 없이 넘어가면 "왜 안 따라가지" 가 되고,
+      //   그 답(초안을 지키려고)은 화면에 없으면 알 길이 없다.
+      setFollowLast({
+        sessionKey,
+        relPath: followSignal.relPath,
+        absPath: followSignal.absPath,
+        name: splitRelPath(followSignal.relPath).name,
+        startLine: null,
+        endLine: null,
+        reloaded: false,
+        at: followSignal.at,
+        skip: 'dirty',
+      });
+      clearFollowSignal();
+      return;
+    }
+    // 이미 읽어 둔 탭만 다시 읽는다 — 방금 연 탭은 최초 읽기가 곧 최신 본문이다.
+    const willReload = !!rootPath && !!target && target.status === 'ready';
+    if (willReload) reload(followSignal.relPath);
+    followPendingRef.current = {
+      relPath: followSignal.relPath,
+      absPath: followSignal.absPath,
+      newString: followSignal.newString,
+      token: followSignal.at,
+      awaitReload: willReload,
+      reloaded: willReload,
+    };
+  }, [followSignal, sessionKey, activePath, docs, reload, rootPath, clearFollowSignal, setFollowLast]);
+
+  useEffect(() => {
+    const pending = followPendingRef.current;
+    if (!pending || pending.relPath !== activePath) return;
+    const target = docs[pending.relPath];
+    if (!target) return;
+    if (pending.awaitReload) {
+      // 다시 읽기가 시작된 것을 확인하고 물러선다 — 본문이 도착하면 이 효과가 한 번 더 돈다.
+      if (target.status === 'loading') followPendingRef.current = { ...pending, awaitReload: false };
+      return;
+    }
+    if (target.status === 'loading') return;
+    followPendingRef.current = null;
+    clearFollowSignal();
+    if (target.status !== 'ready') return;
+    // 새 글자를 본문에서 못 찾으면 열기만 하고 움직이지 않는다(엉뚱한 줄로 끌고 가지 않는다).
+    const range = findEditedLineRange(target.diskText, pending.newString);
+    if (range) {
+      setFollow({ relPath: pending.relPath, range, token: pending.token });
+      setRecent({ relPath: pending.relPath, range });
+    }
+    // (h) — 줄을 못 찾았어도 "무엇을 따라갔는지" 는 남긴다(파일만 열렸다는 사실도 정보다).
+    setFollowLast({
+      sessionKey,
+      relPath: pending.relPath,
+      absPath: pending.absPath,
+      name: splitRelPath(pending.relPath).name,
+      startLine: range?.start ?? null,
+      endLine: range?.end ?? null,
+      reloaded: pending.reloaded,
+      at: pending.token,
+      // 줄을 못 찾았으면 **열기만 했다**는 뜻 — 띠가 그렇게 말해야 사용자가 스크롤을 기다리지 않는다.
+      skip: range ? null : 'no-line',
+    });
+  }, [docs, activePath, sessionKey, clearFollowSignal, setFollowLast]);
+
+  // 강조는 한 번 보여 주고 걷는다 — 남겨 두면 다음에 그 파일을 열 때까지 파란 띠가 붙어 있다.
+  //   (잔상 `recent` 는 남는다 — 그건 "방금 바뀐 자리" 를 알려 주는 옅은 표시라 시야를 가리지 않는다.)
+  useEffect(() => {
+    if (!follow) return;
+    const timer = window.setTimeout(() => setFollow(null), FOLLOW_FLASH_MS);
+    return () => window.clearTimeout(timer);
+  }, [follow]);
+
+  const followRange = follow && follow.relPath === activePath ? follow.range : null;
+  const recentRange = recent && recent.relPath === activePath ? recent.range : null;
+  /** 추종 띠에 적을 자국 — 이 세션의 것만(옆 세션이 따라간 것을 여기 적으면 세션 격리가 무너져 보인다). */
+  const bannerMark = followMark && followMark.sessionKey === sessionKey ? followMark : null;
+  /** (h) — 끝까지 못 간 사유. 있으면 띠가 파란색이 아니라 호박색으로, 한 일 대신 **왜 안 했는지**를 말한다. */
+  const bannerSkip = bannerMark?.skip ?? null;
+
+  const readOnly = !doc || doc.status !== 'ready' || doc.truncated || doc.binary;
+  const dirty = !!doc && doc.status === 'ready' && doc.draft !== doc.diskText;
+
+  const handleChange = useCallback((next: string): void => {
+    if (activePath) setDraft(activePath, next);
+  }, [activePath, setDraft]);
+
+  const handleSave = useCallback((force = false): void => {
+    if (activePath) save(activePath, { force });
+  }, [activePath, save]);
+
+  /**
+   * §5.5 #17-27 ⑫ — 디스크의 읽기 전용 잠금을 풀고 저장한다(Perforce 체크아웃 전 파일 등).
+   * 충돌 대조는 그대로 지난다 — 잠겼다는 이유로 남의 편집을 덮지 않는다.
+   */
+  const handleUnlockSave = useCallback((): void => {
+    if (activePath) save(activePath, { clearReadOnly: true });
+  }, [activePath, save]);
+
+  /**
+   * 탭 닫기 공통 — 저장할 것이 남은 탭이 있으면 **한 번만** 되묻는다(③ 규칙).
+   * 여러 탭을 한꺼번에 닫는 우클릭 항목도 같은 문을 지나므로, 확인 없이 사라지는 편집분은 없다.
+   */
+  const closeTabs = useCallback((relPaths: string[]): void => {
+    if (relPaths.length === 0) return;
+    const unsaved = relPaths.filter((p) => {
+      const d = docs[p];
+      return !!d && d.status === 'ready' && d.draft !== d.diskText;
+    });
+    if (unsaved.length > 0) {
+      const message = unsaved.length === 1
+        ? t('ide.editor.closeDirtyConfirm')
+        : t('ide.editor.closeDirtyConfirmMany', { count: unsaved.length });
+      if (!window.confirm(message)) return;
+    }
+    for (const p of relPaths) {
+      drop(p);
+      closeFile(p);
+    }
+  }, [docs, drop, closeFile, t]);
+
+  const handleCloseTab = useCallback((relPath: string): void => {
+    closeTabs([relPath]);
+  }, [closeTabs]);
+
+  const handleCloseAll = useCallback((): void => {
+    closeTabs(files.map((f) => f.relPath));
+  }, [closeTabs, files]);
+
+  const handleOpenExternal = useCallback((): void => {
+    if (active) openFileByPath(active.absPath, active.relPath);
+  }, [active]);
+
+  /**
+   * 손잡이 줄의 경로 — 상대 경로가 아니라 **파일이 실제로 있는 전체 경로**를 적는다.
+   * 툴팁에만 있던 것을 꺼낸 이유는 그 다음 줄과 한 쌍이다: 이 줄이 곧 폴더를 여는 손잡이다.
+   */
+  const fullPath = active?.absPath ?? activePath ?? '';
+  const pathParts = useMemo(() => splitPathTail(fullPath), [fullPath]);
+
+  /** §5.5 #17-27 ⑩ — 경로를 누르면 그 파일이 든 폴더가 시스템 탐색기에서 열린다(기존 열기 경로 재사용). */
+  const handleOpenFolder = useCallback((): void => {
+    if (active) openFolderByPath(active.absPath, active.relPath);
+  }, [active]);
+
+  // ─── §5.5 #17-27 ⑨ v4.97 우클릭 메뉴 3종 ───────────────────────────────────
+  const [tabMenu, setTabMenu] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(null);
+
+  const copyText = useCallback((text: string): void => {
+    void navigator.clipboard?.writeText(text).catch(() => { /* 클립보드 거부는 조용히 무시 */ });
+  }, []);
+
+  /** (a) 본문 — 편집 조작은 `CodeEditor` 가 넘겨 준 것을 그대로 쓰고, 저장·경로 같은 것만 여기서 얹는다. */
+  const buildBodyMenu = useCallback((ctx: CodeEditorBodyMenuContext): ContextMenuItem[] => (
+    buildBodyMenuItems(
+      { hasSelection: ctx.hasSelection, readOnly, dirty },
+      {
+        ...ctx.actions,
+        save: () => handleSave(),
+        reload: () => { if (activePath) reload(activePath); },
+        copyPath: () => { if (active) copyText(active.absPath); },
+        copyLineRef: () => { if (activePath) copyText(`${activePath}:${ctx.line}`); },
+        openExternal: handleOpenExternal,
+      },
+      t,
+    )
+  ), [readOnly, dirty, handleSave, reload, activePath, active, copyText, handleOpenExternal, t]);
+
+  /** (b) 줄 번호 칸 — 왼쪽 클릭이 하던 중단점 토글에 이름을 붙이고, 줄을 집어 가는 두 가지를 더한다. */
+  const buildGutterMenu = useCallback((line: number, lineText: string): ContextMenuItem[] => (
+    buildGutterMenuItems(
+      {
+        line,
+        hasBreakpoint: breakpointLines.has(line),
+        hasAnyBreakpoint: breakpointLines.size > 0,
+        canBreakpoint: !!projectName && !!activePath,
+      },
+      {
+        toggleBreakpoint: () => handleToggleBreakpoint(line),
+        clearFileBreakpoints: () => {
+          if (projectName && activePath) clearBreakpointsInFile(projectName, activePath);
+        },
+        copyLine: () => copyText(lineText),
+        copyLineRef: () => { if (activePath) copyText(`${activePath}:${line}`); },
+      },
+      t,
+    )
+  ), [breakpointLines, projectName, activePath, handleToggleBreakpoint, clearBreakpointsInFile, copyText, t]);
+
+  /** (c) 탭 — 누른 그 탭이 대상이다(활성 탭이 아닐 수도 있다). */
+  const handleTabContextMenu = useCallback((e: React.MouseEvent, relPath: string): void => {
+    e.preventDefault();
+    e.stopPropagation();
+    const target = files.find((f) => f.relPath === relPath);
+    if (!target) return;
+    setTabMenu({
+      x: e.clientX,
+      y: e.clientY,
+      items: buildTabMenuItems(
+        { hasOthers: files.length > 1 },
+        {
+          close: () => handleCloseTab(relPath),
+          closeOthers: () => closeTabs(files.filter((f) => f.relPath !== relPath).map((f) => f.relPath)),
+          closeAll: handleCloseAll,
+          copyPath: () => copyText(target.absPath),
+          openExternal: () => openFileByPath(target.absPath, target.relPath),
+        },
+        t,
+      ),
+    });
+  }, [files, handleCloseTab, closeTabs, handleCloseAll, copyText, t]);
+
+  // 좌측 손잡이 드래그 — 왼쪽으로 끌면 넓어진다(패널이 오른쪽에 붙어 있으므로).
+  const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const handleResizeDown = useCallback((e: React.MouseEvent): void => {
+    e.preventDefault();
+    dragRef.current = { startX: e.clientX, startWidth: width };
+    const onMove = (ev: MouseEvent): void => {
+      const drag = dragRef.current;
+      if (!drag) return;
+      setWidth(drag.startWidth + (drag.startX - ev.clientX));
+    };
+    const onUp = (): void => {
+      dragRef.current = null;
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, [width, setWidth]);
+
+  if (files.length === 0 || !activePath) return null;
+
+  const shellClass = narrow
+    ? 'absolute inset-0 z-20 flex flex-col border-l border-gray-700 bg-gray-950'
+    : 'relative flex flex-shrink-0 flex-col border-l border-gray-700 bg-gray-950';
+
+  return (
+    <div className={shellClass} style={narrow ? undefined : { width }}>
+      {!narrow && (
+        <div
+          onMouseDown={handleResizeDown}
+          className={RESIZE_HANDLE_CLASS}
+          role="separator"
+          aria-label={t('ide.editor.resize')}
+        />
+      )}
+
+      <IDEEditorTabs
+        files={files}
+        labels={labels}
+        activePath={activePath}
+        onSelect={setActive}
+        onClose={handleCloseTab}
+        onCloseAll={handleCloseAll}
+        onTabContextMenu={handleTabContextMenu}
+      />
+
+      {/* §5.5 #17-27 ⑪ (h) ③ — 추종 띠. 켜져 있는 동안만 서고, 방금 무엇을 했는지(자동으로 다시 읽었다는
+          사실까지) 이 한 줄이 말한다 — 사용자가 "내가 안 건드렸는데 내용이 바뀌었다" 고 놀라지 않도록. */}
+      {followOn && (
+        <div className={`flex items-center gap-1.5 border-b px-2 py-1 text-[10.5px] ${
+          bannerSkip
+            ? 'border-amber-500/40 bg-amber-500/10 text-amber-200/90'
+            : 'border-blue-500/30 bg-blue-500/10 text-blue-200/90'
+        }`}
+        >
+          {bannerSkip ? (
+            <svg
+              className="h-3 w-3 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden
+            >
+              <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
+              <line x1="12" y1="9" x2="12" y2="13" />
+              <line x1="12" y1="17" x2="12.01" y2="17" />
+            </svg>
+          ) : (
+            <span className="relative flex h-2 w-2 flex-shrink-0" aria-hidden>
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400/70" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-blue-400" />
+            </span>
+          )}
+          <span className="flex-shrink-0 font-medium">{t('ide.follow.labelOn')}</span>
+          <span className={`min-w-0 flex-1 truncate ${bannerSkip ? 'text-amber-200/80' : 'text-blue-200/70'}`}>
+            {/* 못 따라간 경우가 먼저다 — 사용자가 알아야 할 것은 "무엇을 했다" 가 아니라 "왜 안 했다" 이다. */}
+            {bannerSkip
+              ? t(FOLLOW_SKIP_KEYS[bannerSkip], { name: bannerMark?.name ?? '' })
+              : (bannerMark
+                ? (bannerMark.startLine !== null
+                  ? t(bannerMark.reloaded ? 'ide.follow.bannerChangedReloaded' : 'ide.follow.bannerChanged', {
+                    name: bannerMark.name,
+                    from: bannerMark.startLine,
+                    to: bannerMark.endLine ?? bannerMark.startLine,
+                  })
+                  : t('ide.follow.bannerOpened', { name: bannerMark.name }))
+                : t('ide.follow.bannerIdle'))}
+          </span>
+          <button
+            type="button"
+            onClick={() => setFollowOn(sessionKey, false)}
+            className={`flex-shrink-0 rounded border px-1.5 py-0.5 text-[10px] transition-colors ${
+              bannerSkip
+                ? 'border-amber-400/40 hover:bg-amber-500/20'
+                : 'border-blue-400/40 hover:bg-blue-500/20'
+            }`}
+          >
+            {t('ide.follow.stop')}
+          </button>
+        </div>
+      )}
+
+      {/* 손잡이 줄 — 전체 경로(누르면 그 폴더가 열린다) + 저장·다시 읽기·밖에서 열기 */}
+      <div className="flex items-center gap-1 border-b border-gray-800 bg-gray-900/60 px-1.5 py-1">
+        <button
+          type="button"
+          onClick={handleOpenFolder}
+          title={t('ide.editor.openFolder', { path: fullPath })}
+          aria-label={t('ide.editor.openFolder', { path: fullPath })}
+          className="flex min-w-0 flex-1 items-center overflow-hidden text-left text-[10px] text-gray-500 transition-colors hover:text-blue-300 hover:underline"
+        >
+          <span className="truncate">{pathParts.head}</span>
+          <span className="flex-shrink-0">{pathParts.tail}</span>
+        </button>
+        {doc?.status === 'ready' && (
+          <span className="flex-shrink-0 text-[9.5px] uppercase tracking-wide text-gray-600">
+            {language === 'plain' ? t('ide.editor.plainLanguage') : language} · {doc.eol.toUpperCase()}
+          </span>
+        )}
+        <button
+          type="button"
+          onClick={() => handleSave()}
+          disabled={!dirty || doc?.saving}
+          title={t('ide.editor.save')}
+          aria-label={t('ide.editor.save')}
+          className={`rounded p-0.5 transition-colors hover:bg-gray-800 disabled:opacity-30 ${dirty ? 'text-emerald-400' : 'text-gray-500'}`}
+        >
+          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+            <polyline points="17 21 17 13 7 13 7 21" />
+            <polyline points="7 3 7 8 15 8" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          onClick={() => activePath && reload(activePath)}
+          title={t('ide.editor.reload')}
+          aria-label={t('ide.editor.reload')}
+          className="rounded p-0.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-200"
+        >
+          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 12a9 9 0 1 1-2.6-6.4" />
+            <polyline points="21 3 21 9 15 9" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          onClick={handleOpenExternal}
+          title={t('ide.explorer.openFile')}
+          aria-label={t('ide.explorer.openFile')}
+          className="rounded p-0.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-blue-300"
+        >
+          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+            <polyline points="15 3 21 3 21 9" />
+            <line x1="10" y1="14" x2="21" y2="3" />
+          </svg>
+        </button>
+      </div>
+
+      {/* 알림 줄 — 충돌 / 읽기 전용 / 저장 실패는 본문 위에 그대로 적는다(조용히 삼키지 않는다). */}
+      {doc?.conflict && (
+        <div className="flex items-center gap-2 border-b border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-200">
+          <span className="min-w-0 flex-1">{t('ide.editor.conflict')}</span>
+          <button
+            type="button"
+            onClick={() => activePath && reload(activePath)}
+            className="flex-shrink-0 rounded border border-amber-400/40 px-1.5 py-0.5 text-[10px] transition-colors hover:bg-amber-500/20"
+          >
+            {t('ide.editor.conflictReload')}
+          </button>
+          <button
+            type="button"
+            onClick={() => handleSave(true)}
+            className="flex-shrink-0 rounded border border-amber-400/40 px-1.5 py-0.5 text-[10px] transition-colors hover:bg-amber-500/20"
+          >
+            {t('ide.editor.conflictOverwrite')}
+          </button>
+        </div>
+      )}
+      {doc?.saveError && (
+        <div className="flex items-center gap-2 border-b border-red-500/40 bg-red-500/10 px-2 py-1 text-[11px] text-red-200">
+          <span className="min-w-0 flex-1">{t(`ide.editor.saveError.${doc.saveError}`)}</span>
+          {/* ⑫ 잠긴 파일 — 실패를 알리는 그 자리에서 바로 풀 수 있게 한다(다른 창으로 나가지 않는다). */}
+          {doc.saveError === 'readonly' && (
+            <button
+              type="button"
+              onClick={handleUnlockSave}
+              disabled={doc.saving}
+              title={t('ide.editor.readOnlyUnlockHint')}
+              className="flex flex-shrink-0 items-center gap-1 rounded border border-red-400/40 px-1.5 py-0.5 text-[10px] transition-colors hover:bg-red-500/20 disabled:opacity-40"
+            >
+              <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="11" width="18" height="11" rx="2" />
+                <path d="M7 11V7a5 5 0 0 1 9.9-1" />
+              </svg>
+              {t('ide.editor.readOnlyUnlock')}
+            </button>
+          )}
+        </div>
+      )}
+      {/* ⑫ 잠금 띠 — 열자마자 "이 파일은 디스크가 잠갔다"를 말한다(타이핑은 막지 않는다). */}
+      {doc?.status === 'ready' && doc.readOnly && !doc.binary && !doc.truncated && !doc.saveError && (
+        <div className="flex items-center gap-2 border-b border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-200">
+          <svg className="h-3.5 w-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="11" width="18" height="11" rx="2" />
+            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+          </svg>
+          <span className="min-w-0 flex-1">{t('ide.editor.readOnlyLocked')}</span>
+          <button
+            type="button"
+            onClick={handleUnlockSave}
+            disabled={doc.saving}
+            title={t('ide.editor.readOnlyUnlockHint')}
+            className="flex-shrink-0 rounded border border-amber-400/40 px-1.5 py-0.5 text-[10px] transition-colors hover:bg-amber-500/20 disabled:opacity-40"
+          >
+            {t('ide.editor.readOnlyUnlock')}
+          </button>
+        </div>
+      )}
+      {doc?.status === 'ready' && (doc.truncated || doc.binary) && (
+        <div className="border-b border-gray-700 bg-gray-800/60 px-2 py-1 text-[11px] text-gray-400">
+          {doc.binary ? t('ide.editor.binary') : t('ide.editor.truncated')}
+        </div>
+      )}
+
+      {/* 본문 */}
+      {!doc || doc.status === 'loading' ? (
+        <p className="px-3 py-4 text-center text-[11px] text-gray-600">{t('ide.explorer.loading')}</p>
+      ) : doc.status === 'error' ? (
+        <p className="px-3 py-4 text-center text-[11px] text-gray-600">{t('ide.editor.readError')}</p>
+      ) : (
+        <CodeEditor
+          key={activePath}
+          text={doc.draft}
+          language={language}
+          readOnly={readOnly}
+          onChange={handleChange}
+          onSave={() => handleSave()}
+          breakpointLines={breakpointLines}
+          onToggleBreakpoint={projectName ? handleToggleBreakpoint : undefined}
+          stoppedLine={stoppedLine}
+          toggleBreakpointTitle={t('ide.debug.toggleBreakpoint')}
+          buildBodyMenu={buildBodyMenu}
+          buildGutterMenu={buildGutterMenu}
+          followRange={followRange}
+          followToken={follow?.token ?? 0}
+          recentRange={recentRange}
+        />
+      )}
+
+      {/* §5.5 #17-27 ⑨ — 탭 우클릭 메뉴(본문·줄 번호 메뉴는 `CodeEditor` 가 자기 자리에서 띄운다). */}
+      {tabMenu && (
+        <IDEContextMenu x={tabMenu.x} y={tabMenu.y} items={tabMenu.items} onClose={() => setTabMenu(null)} />
+      )}
+    </div>
+  );
+});

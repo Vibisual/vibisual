@@ -1,8 +1,11 @@
 /**
  * §4 v2.42 — 사용자 글로벌 옵션 (Options 창의 SSOT).
  *
- * `~/.vibisual/user-defaults.json` 단일 파일에 영속화. 프로젝트 무관 — 여러 프로젝트가 같은 디폴트 공유.
- * ProjectCheckpoint 미관여(별도 글로벌 파일).
+ * `~/.vibisual/user-defaults.json` 단일 파일에 영속화. ProjectCheckpoint 미관여(별도 글로벌 파일).
+ *
+ * 대부분의 값은 프로젝트 무관(여러 프로젝트가 같은 디폴트 공유)이지만, **§5.11 v4.54 플러그인 켬/끔은
+ * 프로젝트별**(`enabledPluginsByProject`: 프로젝트 절대경로 → id 목록)이다. 저장 파일을 쪼개지 않고
+ * 키 한 겹으로만 가른다 — 새 저장소·새 WS·체크포인트 4지점을 만들지 않기 위해서다.
  *
  * 콜사이트:
  * - `ProjectGraph.createCustomAgent` — 신규 에이전트의 `agentConfigs[agentId]` 초기값 머지
@@ -60,12 +63,19 @@ class UserDefaultsService {
    *
    * §5.11 v3.88 — `enabledPlugins` 는 **배열 통째 교체**가 의도된 동작이다(스프레드가 그대로 처리).
    * 켜고 끈 결과 전체를 보내는 값이라, 머지하면 "껐다"가 반영되지 않는다.
+   *
+   * §5.11 v4.54 — `enabledPluginsByProject` 는 **프로젝트 키 단위로 머지**한다. 안쪽 배열은 위와 같은
+   * 이유로 통째 교체지만, 맵 자체를 통째 교체하면 **클라가 보낸 한 프로젝트만 남고 나머지 프로젝트의
+   * 설정이 전부 사라진다**(창 두 개를 띄워 두면 곧바로 재현된다).
    */
   async update(patch: Partial<UserDefaults>): Promise<UserDefaults> {
     const prev = this.defaults;
     const next: UserDefaults = {
       ...prev,
       ...patch,
+      enabledPluginsByProject: patch.enabledPluginsByProject !== undefined
+        ? { ...(prev.enabledPluginsByProject ?? {}), ...patch.enabledPluginsByProject }
+        : prev.enabledPluginsByProject,
       agentConfig: patch.agentConfig !== undefined ? { ...(prev.agentConfig ?? {}), ...patch.agentConfig } : prev.agentConfig,
       appearance:  patch.appearance  !== undefined ? { ...(prev.appearance  ?? {}), ...patch.appearance  } : prev.appearance,
       notifications: patch.notifications !== undefined ? { ...(prev.notifications ?? {}), ...patch.notifications } : prev.notifications,

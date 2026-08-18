@@ -24,6 +24,7 @@ import type { ServerLogEntry, ServerLogLevel, ServerLogCategory, WSMessage } fro
 import { SERVER_LOG_CLIENT_BUFFER_MAX, SERVER_LOG_RECENT_VIEW_LIMIT } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { serverLogEvents } from '../../bubble-map/api/serverLogEvents.js';
+import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 
 type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
 
@@ -275,10 +276,12 @@ export const ServerLogPopup = memo(function ServerLogPopup({
     });
   }, []);
 
+  const backdrop = useBackdropDismiss(onClose);
+
   return (
     <div
       className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm"
-      onClick={onClose}
+      {...backdrop}
     >
       <div
         className="mx-4 flex max-h-[85vh] w-full max-w-4xl flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl shadow-black/50"

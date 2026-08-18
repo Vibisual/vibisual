@@ -1,0 +1,18 @@
+{
+  "id": "data-exfiltration",
+  "name": "Data Exfiltration",
+  "version": "1.0.0",
+  "category": "security",
+  "descriptionKey": "panel.plugins.dataExfiltration.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "bubbleBadge",
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "bashCommands"
+  ],
+  "hostApi": 1
+}

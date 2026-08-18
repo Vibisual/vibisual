@@ -854,6 +854,9 @@ function handleTerminalFrame(ws: WebSocket, terminalAllowed: boolean, type: stri
         config: p.config as AgentConfig,
         cols: p.cols,
         rows: p.rows,
+        // §5.5 #17-20 ④ v4.74 — 실행 런처도 모바일에서 같은 PTY 경로를 탄다.
+        ...(typeof p.command === 'string' ? { command: p.command } : {}),
+        ...(typeof p.autoRun === 'boolean' ? { autoRun: p.autoRun } : {}),
       });
       sendTermFrame(ws, 'term_ack', { termId: p.termId, ok: r.ok, error: r.error });
       return;

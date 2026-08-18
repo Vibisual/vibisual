@@ -1,0 +1,15 @@
+{
+  "id": "system-prompt",
+  "name": "System Prompt",
+  "version": "1.0.0",
+  "category": "observability",
+  "descriptionKey": "panel.plugins.systemPrompt.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [],
+  "hostApi": 1
+}

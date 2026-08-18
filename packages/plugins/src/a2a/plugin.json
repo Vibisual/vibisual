@@ -1,0 +1,18 @@
+{
+  "id": "a2a",
+  "name": "A2A",
+  "version": "1.0.0",
+  "category": "workflow",
+  "descriptionKey": "panel.plugins.a2a.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "taskEdges",
+    "subAgents"
+  ],
+  "hostApi": 1
+}

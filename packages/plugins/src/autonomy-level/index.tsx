@@ -8,8 +8,8 @@
  * (등급을 흔들지 않는다 — 흔들면 왜 그 등급인지 추적이 안 된다).
  */
 import type { AgentConfig } from '@vibisual/shared';
-import type { PluginClientModule, PluginBubbleContext, PluginManifest, PluginSeverity } from '../types.js';
-import { PluginSection, PluginRow, PluginBadgePill, type PluginTone } from '../ui/kit.js';
+import type { PluginClientModule, PluginBubbleContext, PluginManifest, PluginSeverity } from '../sdk/index.js';
+import { PluginSection, PluginRow, PluginBadgePill, type PluginTone } from '../sdk/index.js';
 
 export const autonomyLevelManifest: PluginManifest = {
   id: 'autonomy-level',
@@ -18,8 +18,8 @@ export const autonomyLevelManifest: PluginManifest = {
   category: 'workflow',
   descriptionKey: 'panel.plugins.autonomyLevel.desc',
   enabledByDefault: false,
-  contributes: ['bubbleBadge', 'panelSection'],
-  clientOnly: true,
+  contributes: ['bubbleBadge', 'panelSection', 'agentPrompt'],
+  clientOnly: false,
 };
 
 const K = 'panel.plugins.autonomyLevel';

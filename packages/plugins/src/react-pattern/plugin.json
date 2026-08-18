@@ -1,0 +1,17 @@
+{
+  "id": "react-pattern",
+  "name": "ReAct",
+  "version": "1.0.0",
+  "category": "workflow",
+  "descriptionKey": "panel.plugins.reactPattern.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "agentEvents"
+  ],
+  "hostApi": 1
+}

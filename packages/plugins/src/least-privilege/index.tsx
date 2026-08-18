@@ -1,6 +1,6 @@
 /** §5.11 v3.88 — 최소 권한 플러그인 (배지 + 패널 섹션). 표시 전용. */
-import type { PluginClientModule, PluginBubbleContext, PluginManifest, PluginSeverity } from '../types.js';
-import { PluginSection, PluginRow, PluginBadgePill, type PluginTone } from '../ui/kit.js';
+import type { PluginClientModule, PluginBubbleContext, PluginManifest, PluginSeverity } from '../sdk/index.js';
+import { PluginSection, PluginRow, PluginBadgePill, type PluginTone } from '../sdk/index.js';
 import { judgeLeastPrivilege } from './leastPrivilege.js';
 
 export const leastPrivilegeManifest: PluginManifest = {
@@ -10,8 +10,8 @@ export const leastPrivilegeManifest: PluginManifest = {
   category: 'security',
   descriptionKey: 'panel.plugins.leastPrivilege.desc',
   enabledByDefault: false,
-  contributes: ['bubbleBadge', 'panelSection'],
-  clientOnly: true,
+  contributes: ['bubbleBadge', 'panelSection', 'agentPrompt'],
+  clientOnly: false,
 };
 
 const K = 'panel.plugins.leastPrivilege';

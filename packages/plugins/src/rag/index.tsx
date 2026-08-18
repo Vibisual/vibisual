@@ -4,8 +4,8 @@
  * 모델이 아는 것에만 기대지 않고 외부 지식을 끌어와 답의 근거로 삼는 방식이다. Vibisual 에서 그 통로는
  * Project Brain 이므로, 여기서는 이 에이전트에 **어떤 근거가 실제로 들어왔는지**를 센다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const events = (ctx: PluginBubbleContext) => ctx.data.brainInjections ?? [];
 const cards = (ctx: PluginBubbleContext): number => events(ctx).reduce((n, e) => n + e.cardIds.length, 0);

@@ -18,7 +18,11 @@
       "availableTooltip": "Version {{version}} ist verfügbar und wird im Hintergrund heruntergeladen",
       "downloading": "Aktualisierung {{percent}}%",
       "restart": "Neu starten zum Aktualisieren",
-      "restartTooltip": "Version {{version}} ist bereit — Neustart zum Anwenden"
+      "restartTooltip": "Version {{version}} ist bereit — Neustart zum Anwenden",
+      "confirmTitle": "Neu starten zum Aktualisieren?",
+      "confirmBody": "Die Aktualisierung schließt die App und installiert sie neu. Laufende Agent-Arbeiten oder ungespeicherte Änderungen können verloren gehen.",
+      "confirmHint": "Falls wichtige Arbeiten benutzerdefinierter Agenten laufen, diese zuerst abschließen und dann aktualisieren.",
+      "confirmCancel": "Abbrechen"
     },
     "agentStatus": {
       "waiting": "Warte auf Agent",
@@ -44,7 +48,139 @@
       "file": "Datei",
       "openFolder": "Ordner öffnen...",
       "options": "Optionen…",
+      "guide": "Anleitung",
+      "mobileAccess": "Mobiler Zugriff…",
       "plugins": "Plugins…"
+    },
+    "mobileAccess": {
+      "title": "Mobiler Zugriff",
+      "subtitle": "Öffnen Sie Vibisual im Browser Ihres Telefons über dasselbe WLAN. Aktivieren Sie die Funktion, öffnen Sie die untenstehende Adresse auf Ihrem Telefon und geben Sie den Kopplungscode ein.",
+      "statusOn": "Aktiv im lokalen Netzwerk",
+      "statusOff": "Aus",
+      "enable": "Einschalten",
+      "disable": "Ausschalten",
+      "url": "Auf dem Telefon öffnen",
+      "noNetwork": "Keine lokale Netzwerkadresse erkannt — WLAN oder Netzwerkadapter prüfen.",
+      "pairingCode": "Kopplungscode",
+      "pairingHint": "Ihr Telefon fragt diesen Code beim ersten Verbinden ab. Gekoppelte Geräte bleiben verbunden.",
+      "regen": "Neuer Code",
+      "locked": "Zu viele fehlgeschlagene Versuche — Kopplung gesperrt. Neuen Code erzeugen, um zu entsperren.",
+      "clients": "Verbundene Geräte: {{count}}",
+      "securityNote": "Jeder im Netzwerk mit diesem Code kann Vibisual steuern und Agenten auf diesem PC ausführen. Nur in vertrauenswürdigen WLANs verwenden.",
+      "externalTitle": "Zugriff von außen",
+      "externalSubtitle": "Diesen PC über das Internet erreichen. Vibisual bittet Ihren Router, automatisch einen Port zu öffnen (UPnP), und liefert über verschlüsseltes HTTPS aus.",
+      "externalMapping": "Router wird gebeten, einen Port zu öffnen…",
+      "externalCgnat": "Ihre Internetverbindung hat keine öffentliche Adresse (Carrier-Grade NAT), daher kann von hier aus kein Port geöffnet werden. Verwenden Sie ein VPN wie Tailscale oder fragen Sie Ihren Internetanbieter nach einer öffentlichen IP.",
+      "externalManual": "Port konnte nicht automatisch geöffnet werden (UPnP am Router evtl. deaktiviert). Für die manuelle Einrichtung leiten Sie den externen TCP-Port {{port}} in den Router-Einstellungen an {{ip}}:{{port}} auf diesem PC weiter.",
+      "externalManualUrl": "Sobald der Port weitergeleitet ist, von außen unter dieser Adresse verbinden:",
+      "externalReachable": "Erreichbar — Verbindung von außen unter",
+      "externalHttpsNote": "Verwendet ein selbstsigniertes Zertifikat — Ihr Telefon zeigt beim ersten Mal eine Sicherheitswarnung. Auf \"Erweitert → Fortfahren\" tippen; die Verbindung bleibt verschlüsselt.",
+      "qrTitle": "QR-Kopplung",
+      "qrSubtitle": "Mit der Kamera Ihres Telefons scannen — Vibisual öffnet sich und koppelt sich selbst, keine Adresse oder Code nötig. Jeder QR-Code ist {{minutes}} Minuten gültig.",
+      "qrIssue": "QR-Code erzeugen",
+      "qrReissue": "Neuen QR-Code erzeugen",
+      "qrRevoke": "Jetzt widerrufen",
+      "qrDownload": "Bild speichern",
+      "qrTarget": "Zu kodierende Adresse",
+      "qrTargetLan": "WLAN",
+      "qrTargetExternal": "Internet",
+      "qrExpiresIn": "Gültig für {{time}}",
+      "qrExpired": "Abgelaufen — neuen QR-Code erzeugen.",
+      "qrPairedCount": "Mit diesem QR-Code gekoppelt: {{count}}"
+    },
+    "guide": {
+      "title": "Anleitung",
+      "subtitle": "Ein Rundgang durch die Möglichkeiten von Vibisual — und eine Übersicht der bisher gebauten Funktionen.",
+      "cat": {
+        "start": "Erste Schritte",
+        "bubbleMap": "Bubble Map",
+        "agents": "Agenten",
+        "taskEdges": "Task Edges",
+        "ide": "IDE-Overlay",
+        "navigation": "Navigation",
+        "history": "Verlauf & Speichern",
+        "shortcuts": "Tastenkürzel"
+      },
+      "start": {
+        "intro": "Vibisual visualisiert in Echtzeit, was Ihre KI-Agenten tun — als Bubble Map.",
+        "openFolderT": "Ordner öffnen",
+        "openFolderD": "Datei → Ordner öffnen, um ein Projekt zu verfolgen. Jedes Projekt öffnet sich in einem eigenen Tab.",
+        "watchT": "Agenten bei der Arbeit beobachten",
+        "watchD": "Wenn Claude Code läuft, erscheinen die berührten Dateien und Ordner als Bubbles und pulsieren bei Änderungen.",
+        "optionsT": "Standardwerte festlegen",
+        "optionsD": "Datei → Optionen, um Standardmodell, Tools, Berechtigungsmodus und Claude-Code-Binärdatei für neue Agenten festzulegen."
+      },
+      "bubbleMap": {
+        "intro": "Die Arbeitsfläche zeichnet Ihr Projekt als Bubbles, verknüpft nach Hierarchie und Aktivität.",
+        "typesT": "Bubble-Kategorien",
+        "typesD": "Dateien, Ordner, Agenten, Bash, Bearbeitungen, iframes und mehr — jede Kategorie farblich gekennzeichnet.",
+        "sizeT": "Größe zeigt Aktivität",
+        "sizeD": "Größere Bubbles wurden häufiger berührt. Eine pulsierende Bubble ist gerade aktiv.",
+        "contextT": "Kontextfüllstand",
+        "contextD": "Eine Agent-Bubble füllt sich wie mit Wasser und zeigt so, wie viel vom Kontextfenster genutzt wird.",
+        "ghostT": "Geister-Knoten",
+        "ghostD": "Gelöschte oder umbenannte Knoten bleiben als verblasste Geister sichtbar, damit die Spur nicht verloren geht."
+      },
+      "agents": {
+        "intro": "Über passives Verfolgen hinaus können Sie eigene Agenten direkt auf der Arbeitsfläche erstellen und orchestrieren.",
+        "customT": "Benutzerdefinierter Agent",
+        "customD": "Rechtsklick auf die Arbeitsfläche, um eine eigene Agent-Bubble zu starten und ihr einen Befehl zu geben.",
+        "autoT": "Auto-Agent",
+        "autoD": "Beschreiben Sie in normaler Sprache, was Sie möchten — ein Builder-Agent entwirft und verdrahtet ein ganzes Team für Sie.",
+        "configT": "Agent-Einstellungen",
+        "configD": "Klicken Sie auf eine Bubble, um Model, Tools, Berechtigungsmodus, Aufwand, Isolation und Farbe festzulegen.",
+        "pipelineT": "Unteragenten & Pipelines",
+        "pipelineD": "Unabhängige Sessions ausführen und Agenten mit Pipeline-, Team- oder Hybrid-Strategien verketten."
+      },
+      "taskEdges": {
+        "intro": "Verbinden Sie zwei benutzerdefinierte Agenten mit einer Task Edge, um Arbeit zwischen ihnen zu delegieren.",
+        "drawT": "Kante ziehen",
+        "drawD": "Von einer benutzerdefinierten Agent-Bubble zu einer anderen ziehen, um eine Delegations-Kante zwischen ihnen zu erstellen.",
+        "kindsT": "Kanten-Bedeutungen",
+        "kindsD": "Command, Artifact, Request oder Critique — die Art bestimmt, was über die Kante fließt.",
+        "critiqueT": "Review & Auto-Überarbeitung",
+        "critiqueD": "Eine Critique-Kante kann den Ziel-Agenten zwingen, seine Ausgabe zu überarbeiten, bis ein Reviewer sie akzeptiert."
+      },
+      "ide": {
+        "intro": "Doppelklick auf einen Agenten öffnet das IDE-Overlay — mit Live-Ausgabe, Sessions und Berichten.",
+        "streamT": "Live-Stream",
+        "streamD": "Verfolgen Sie die Nachrichten, Tool-Aufrufe und Ergebnisse des Agenten in Echtzeit.",
+        "cardsT": "Erledigt-/To-do-Karten",
+        "cardsD": "Erledigte Arbeit und Dinge, die Sie selbst tun müssen, werden in farblich gekennzeichnete Karten aufgeteilt.",
+        "reviewT": "Review-Karten",
+        "reviewD": "Wenn ein Agent eine Korrektur abschließt, zeigt eine violette Karte, was sich geändert hat und was zu prüfen ist.",
+        "dockT": "Andocken oder frei schweben",
+        "dockD": "Ziehen Sie die Titelleiste des Overlays, um es freizusetzen, oder docken Sie es rechts als Seitenpanel an."
+      },
+      "navigation": {
+        "intro": "Schnell durch große Maps navigieren.",
+        "panT": "Verschieben & Zoomen",
+        "panD": "Ziehen Sie die Arbeitsfläche zum Verschieben und scrollen Sie zum Zoomen; die Minimap zeigt Ihre Position.",
+        "tabsT": "Tabs & Abdocken",
+        "tabsD": "Jeder geöffnete Ordner ist ein Tab; einen Tab aus der Leiste ziehen, um ihn in einem eigenen Fenster zu öffnen.",
+        "inspectorT": "Inspector",
+        "inspectorD": "Alt gedrückt halten, um Elemente hervorzuheben, und klicken zum Kopieren; Shift-Ziehen zum Auswählen eines Bereichs.",
+        "copyT": "Kopieren & Einfügen",
+        "copyD": "Benutzerdefinierte Agenten und Kanten auswählen, dann mit Strg+C / Strg+V in ein anderes Projekt klonen."
+      },
+      "history": {
+        "intro": "Vibisual merkt sich Ihre Projekte über mehrere Sitzungen hinweg.",
+        "saveT": "Automatisches Speichern",
+        "saveD": "Der gesamte Graph wird als Checkpoint auf der Festplatte gesichert und beim nächsten Öffnen von Vibisual wiederhergestellt.",
+        "replayT": "Verlaufs-Wiedergabe",
+        "replayD": "Zeitleiste durchsuchen, um abzuspielen, wie die Map über eine Session gewachsen ist."
+      },
+      "shortcuts": {
+        "intro": "Tastenkürzel beschleunigen Navigation und Bearbeitung. Sie pausieren, während Sie in einem Eingabefeld oder Terminal tippen.",
+        "bookmarkT": "Bubble-Lesezeichen",
+        "bookmarkD": "Alt+1…0 heftet eine Bubble oder Session an einen Slot; 1…0 drücken, um dorthin zurückzuspringen.",
+        "copyT": "Kopieren / Einfügen",
+        "copyD": "Strg+C / Strg+V (Cmd unter macOS) kopiert und fügt ausgewählte Agenten, Kanten und Kommentarfelder ein.",
+        "inspectorT": "Inspector",
+        "inspectorD": "Alt gedrückt halten zum Untersuchen und klicken, um ein Element zu kopieren; Shift-Ziehen für Bereichsauswahl.",
+        "closeT": "Schließen & Abbrechen",
+        "closeD": "Esc schließt Menüs, Popups und das IDE-Overlay."
+      }
     },
     "options": {
       "title": "Optionen",
@@ -61,7 +197,13 @@
         "notifications": "Benachrichtigungen",
         "permissions": "Berechtigungen",
         "advanced": "Erweitert",
-        "version": "Version"
+        "version": "Version",
+        "account": "Konto"
+      },
+      "appearance": {
+        "intro": "Passen Sie das Erscheinungsbild von Vibisual an.",
+        "language": "Sprache",
+        "languageDesc": "Anzeigesprache der Oberfläche. Wird sofort übernommen."
       },
       "version": {
         "title": "Version & Info",
@@ -90,32 +232,59 @@
         "permissionMode": "Berechtigungsmodus",
         "effort": "Aufwand",
         "maxTurns": "Max. Durchläufe (0 = unbegrenzt)",
+        "maxBudgetUsd": "Budget ($, 0 = unbegrenzt)",
         "isolation": "Isolation",
         "tools": "Tools (Erlaubnisliste)",
         "disallowedTools": "Gesperrte Tools (Sperrliste)",
         "rules": "Standardregeln (Markdown)",
         "rulesPlaceholder": "# Optionale Standardregeln, die in jeden neuen Agent eingefügt werden\n- ...",
         "color": "Standard-Blasenfarbe (Hex, optional)"
+      },
+      "account": {
+        "intro": "Das Claude-Code-Konto, mit dem Vibisual Agenten ausführt. Eine Abmeldung hier meldet auch Claude Code ab.",
+        "signedIn": "Angemeldet",
+        "signedOut": "Nicht angemeldet",
+        "unknown": "Anmeldestatus konnte nicht geprüft werden",
+        "unknownDesc": "Die claude-Binärdatei hat nicht geantwortet. Prüfe im Tab „Version“, ob Claude Code installiert ist.",
+        "email": "E-Mail",
+        "org": "Organisation",
+        "method": "Methode",
+        "provider": "Anbieter",
+        "logout": "Abmelden",
+        "logoutConfirm": "Von Claude Code abmelden?",
+        "logoutYes": "Abmelden",
+        "logoutNo": "Angemeldet bleiben",
+        "loggingOut": "Wird abgemeldet…",
+        "login": "Anmelden",
+        "recheck": "Erneut prüfen",
+        "checking": "Wird geprüft…",
+        "actionFailed": "Das hat nicht geklappt. Versuche es erneut."
       }
     },
     "autoAgent": {
       "title": "Auto Agent",
-      "placeholder": "Beschreiben Sie, was Sie möchten — z. B. \"OAuth-Login zum Dashboard hinzufügen\"",
-      "send": "Senden",
-      "shortcutHint": "Strg/Cmd + Enter zum Senden",
-      "toggleQuestionsTip": "Wenn EIN: stellt bei komplexen Anfragen Rückfragen, bevor Agenten gestartet werden.",
+      "description": "Harness-Builder. Beschreiben Sie Ihr Ziel — ein Builder-Agent entwirft das Multi-Agent-Harness für Sie: wählt Agenten, deren Model, Tools und Berechtigungen und verdrahtet die Task-Verbindungen — und startet es dann. Sie legen Bubbles und Kanten nicht selbst an.",
+      "placeholder": "Beschreiben Sie das Ziel — z. B. \"OAuth-Login zum Dashboard hinzufügen und Tests schreiben\". Ich wähle die Agenten, Models und Tools aus und verdrahte sie.",
+      "send": "Harness bauen",
+      "shortcutHint": "Strg/Cmd + Enter zum Bauen",
+      "toggleQuestionsTip": "Wenn EIN, stellt der Builder vor dem Bau des Harness eventuell einige Rückfragen.",
       "questionsOn": "Bei Bedarf fragen",
       "questionsOff": "Fragen überspringen",
-      "clarifying": "Ich benötige einige Klärungen, bevor ein Team gestartet wird",
+      "clarifying": "Ein paar Klärungen, bevor ich das Harness baue",
       "notePlaceholder": "Notiz hinzufügen (optional)",
       "submitAnswers": "Antworten absenden",
       "summary": "Zusammenfassung",
       "spawnedCount": "{{count}} Unteragent(en) gestartet",
-      "entryHint": "Unteragenten laufen. Hier für Folgeanfragen schreiben.",
+      "entryHint": "Unteragenten laufen jetzt. Für Folgeanfragen hier mit mir sprechen.",
+      "buildingHint": "Der Builder entwirft gerade Agenten und Verbindungen auf der Arbeitsfläche. Öffnen Sie diese Bubble, um live zuzusehen.",
+      "activityTitle": "Builder-Aktivität",
+      "activityLive": "Live",
+      "activityWaiting": "Builder wird gestartet…",
       "phase": {
         "idle": "Bereit — Anfrage eingeben",
         "analyzing": "Anfrage wird analysiert…",
         "asking": "Warte auf Ihre Klärungen",
+        "building": "Harness wird gebaut…",
         "spawning": "Agenten werden gestartet…",
         "dispatching": "Wird an Entry-Agent übergeben…",
         "running": "Unteragenten arbeiten",
@@ -131,8 +300,56 @@
         "pipeline": "Pipeline",
         "team": "Team",
         "ralph": "Ralph (Team + Kritikschleife)",
-        "autopilot": "Autopilot (einzelner Agent)"
+        "autopilot": "Autopilot (einzelner Agent)",
+        "custom": "Benutzerdefiniert (vom Builder entworfen)"
+      },
+      "run": {
+        "title": "Verifizierte Läufe",
+        "selfTest": "Gate testen",
+        "selfTestRunning": "Wird getestet…",
+        "selfTestTip": "Führt zwei absichtlich fehlschlagende Prüfungen aus. Ein Gate lässt sich nur daran beweisen, was es blockiert — nicht daran, was es durchlässt.",
+        "selfTestPass": "Gate hält — {{count}} Prüfungen haben blockiert, wie erwartet",
+        "selfTestFail": "{{count}} Prüfung(en) haben NICHT blockiert — dem Gate ist noch nicht zu trauen",
+        "selfTestBadge": "Selbsttest",
+        "metricHandsOff": "Ohne Eingriff",
+        "metricHandsOffHint": "{{verified}} von {{total}} Läufen liefen ab, ohne Sie zu benötigen",
+        "metricEscalated": "Sie kontaktiert",
+        "metricEvidence": "Nachweis",
+        "metricEvidenceHint": "Bestandene Prüfungen / alle tatsächlich ausgeführten Prüfungen",
+        "empty": "Noch keine Läufe. Senden Sie oben eine Anfrage — der Nachweis für ihren Abschluss erscheint dann hier.",
+        "noEvidence": "Kein Nachweis erfasst — für diesen Lauf wurde tatsächlich nichts ausgeführt.",
+        "evidenceCount": "{{passed}}/{{total}} bestanden",
+        "reworkCount": "Überarbeitung {{used}}/{{budget}}",
+        "lastVerdict": "Urteil: {{verdict}}",
+        "status": {
+          "running": "Läuft",
+          "verified": "Verifiziert",
+          "escalated": "Braucht Sie",
+          "abandoned": "Abgebrochen"
+        },
+        "verdict": {
+          "approve": "genehmigt",
+          "reject": "abgelehnt",
+          "held": "zurückgehalten (kein Nachweis)"
+        },
+        "escalation": {
+          "budget-exhausted": "Überarbeitungsbudget aufgebraucht, ohne zu bestehen.",
+          "verification-failed": "Verifizierung blieb fehlgeschlagen.",
+          "irreversible-action": "Unumkehrbare Aktion — Ihre Genehmigung ist erforderlich.",
+          "no-evidence": "Als bestanden gemeldet, aber tatsächlich wurde nichts ausgeführt."
+        }
       }
+    },
+    "feedback": {
+      "title": "Nutzer-Feedback",
+      "promote": "Zu Regeln hinzufügen",
+      "distilling": "Wird verdichtet…",
+      "distillFailed": "Verdichtung fehlgeschlagen — erneut versuchen",
+      "proposalTitle": "Vorgeschlagene Regeln aus Ihren Kritikpunkten",
+      "proposalHint": "Regeln unten prüfen und bearbeiten. Sie werden erst beim Anwenden zu den Agent-Regeln dieses Agenten hinzugefügt (rückgängig über den Regeln-Verlauf).",
+      "apply": "Zu Regeln hinzufügen",
+      "applying": "Wird hinzugefügt…",
+      "cancel": "Abbrechen"
     },
     "detailPanel": {
       "close": "Schließen",
@@ -333,17 +550,20 @@
         "label": "Model",
         "opus": "Leistungsstärkstes Modell. Bestes Denkvermögen und komplexe Aufgaben. Höchste Kosten.",
         "sonnet": "Ausgewogene Leistung und Kosten. Gut für die meisten Aufgaben.",
-        "haiku": "Schnellstes und günstigstes Modell. Am besten für einfache Nur-Lesen-Aufgaben."
+        "haiku": "Schnellstes und günstigstes Modell. Am besten für einfache Nur-Lesen-Aufgaben.",
+        "unknown": "{{name}} — neu veröffentlichtes Model. Fähigkeiten und Kosten aus Familien-Standardwerten abgeleitet."
       },
       "contextWindow": {
         "oneMillion": "1M Kontextfenster"
       },
       "permissionMode": {
         "label": "Berechtigungsmodus",
-        "default": "Fragt bei riskanten Aktionen nach (Schreiben, Shell).",
+        "default": "Manual — fragt bei riskanten Aktionen (Schreiben, Shell) nach.",
         "acceptEdits": "Genehmigt Dateibearbeitungen automatisch (Write, Edit). Bash erfordert weiterhin Bestätigung.",
         "plan": "Nur-Lesen. Kann keine Dateien ändern oder Befehle ausführen.",
-        "bypassPermissions": "Keine Rückfragen. Agent läuft ohne jegliche Bestätigung."
+        "bypassPermissions": "Keine Rückfragen. Agent läuft ohne jegliche Bestätigung.",
+        "auto": "Der CLI-Klassifizierer entscheidet pro Aufruf. Vibisual zeigt kein eigenes Pop-up.",
+        "dontAsk": "Fragt nie. Alles ohne Vorabgenehmigung wird abgelehnt — für unbeaufsichtigte Läufe."
       },
       "permissionTimeoutPolicy": {
         "label": "Keine Antwort (60 s)",
@@ -391,6 +611,7 @@
         "medium": "Ausgewogene Denktiefe.",
         "high": "Tiefes Denken. Langsamer, aber gründlich.",
         "xhigh": "Besonders tiefes Denken (Opus 4.7+). Empfohlen für die meisten Coding-Aufgaben.",
+        "max": "Maximales Reasoning, kein Token-Limit (Opus 4.8). Für die schwierigsten Entscheidungen; kann bei einfachen Aufgaben überdenken.",
         "unknown": "{{name}} — von der installierten CLI unterstützte Denktiefe-Stufe."
       },
       "tools": {
@@ -406,9 +627,22 @@
         "WebSearch": "Das Web nach Informationen durchsuchen.",
         "WebFetch": "Inhalte von URLs abrufen und lesen.",
         "NotebookEdit": "Zellen in Jupyter-Notebooks bearbeiten.",
-        "lockedHint": "Für Delegations-Dispatch (Bash curl) erforderlich — kann nicht entfernt werden."
+        "lockedHint": "Für Delegations-Dispatch (Bash curl) erforderlich — kann nicht entfernt werden.",
+        "AskUserQuestion": "Stellt der Person eine Auswahlfrage als Inline-Karte in der IDE.",
+        "TodoWrite": "Schreibt Plan/Checkliste. Ohne dieses Werkzeug gibt es keinen Planblock.",
+        "ExitPlanMode": "Verlässt den Plan-Modus. Nötig, wenn der Berechtigungsmodus „plan“ ist.",
+        "Skill": "Ruft installierte Skills auf (/skill-name).",
+        "Monitor": "Wartet auf eine Hintergrund-Shell oder eine Bedingung.",
+        "BashOutput": "Liest die Ausgabe einer Hintergrund-Shell.",
+        "KillShell": "Beendet eine Hintergrund-Shell.",
+        "TaskOutput": "Liest die Ausgabe einer Hintergrundaufgabe oder eines Subagenten.",
+        "TaskStop": "Beendet eine Hintergrundaufgabe oder einen Subagenten.",
+        "MultiEdit": "Wendet mehrere Änderungen auf eine Datei gleichzeitig an.",
+        "SendMessage": "Sendet eine Folgenachricht an einen laufenden Subagenten.",
+        "Artifact": "Erstellt Artefakte (Dokumente, Apps)."
       },
       "maxTurns": "Max. Durchläufe",
+      "maxBudgetUsd": "Budget ($, 0=∞)",
       "defaultSkills": "Standard-Skills",
       "addSkill": "+ Skill hinzufügen",
       "color": "Farbe",
@@ -418,12 +652,68 @@
         "rules": "Benutzerdefinierte Anweisungen, die bei jedem Start in den Agent-Prompt eingefügt werden (Markdown).",
         "tools": "Tools, die dieser Agent verwenden darf.",
         "maxTurns": "Maximale Gesprächsdurchläufe, bevor der Agent stoppt. Verhindert Endlosschleifen.",
+        "maxBudgetUsd": "API-Ausgabenlimit in USD für die Headless-Läufe dieses Agenten. 0 = unbegrenzt. Bei Angabe verwendet der Agent immer frische --print-Spawns, damit das Limit bei jedem Durchlauf greift (Agent-SDK-Credit-Pool-Schutz). Gilt nicht für Interactive-Terminal-Agenten.",
         "isolation": "Ob der Agent in einem isolierten git Worktree läuft.",
         "effort": "Denktiefe (Opus 4.7+).",
         "skills": "Skills, die beim Start automatisch geladen werden. Vibisual-Erweiterung — kein Standard-Claude Code.",
         "color": "Benutzerdefinierte Blasenfarbe in der Visualisierung.",
         "projectContext": "Nur-Lesen. Dateien und Regeln, die bei jedem Lauf dieses Agenten automatisch in den Prompt eingefügt werden. Wird beim Öffnen aktualisiert.",
-        "agentSettingsNote": "Diese Einstellungen gelten nur beim Ausführen von Befehlen aus Vibisual (Unteragenten-Ausführung). Sie ändern nicht die eigene Claude Code-Session des Agenten."
+        "agentSettingsNote": "Diese Einstellungen gelten nur beim Ausführen von Befehlen aus Vibisual (Unteragenten-Ausführung). Sie ändern nicht die eigene Claude Code-Session des Agenten.",
+        "memory": "Was sich dieser Agent über Sitzungen hinweg merkt und wo diese Notizen liegen.",
+        "subagentDepth": "Wie viele Subagenten-Ebenen dieser Agent unter sich starten darf. 0 behält den CLI-Standard (3 Ebenen), 1 schaltet Verschachtelung ab."
+      },
+      "memory": {
+        "label": "Speicher",
+        "default": "Nutzt den gemeinsamen Repository-Speicher (Standard).",
+        "off": "Dieser Agent merkt sich zwischen Sitzungen nichts.",
+        "user": "Eigener Speicherordner, geteilt über alle Projekte.",
+        "project": "Eigener Speicherordner für dieses Projekt, per Versionskontrolle teilbar.",
+        "local": "Eigener Speicherordner für dieses Projekt, außerhalb der Versionskontrolle."
+      },
+      "subagentDepth": {
+        "label": "Subagenten-Tiefe"
+      },
+      "cliOptions": {
+        "label": "CLI-Optionen",
+        "tip": "Zusätzliche Flags, die die installierte claude-CLI akzeptiert. Standardmäßig alles unbelegt — unbelegt heißt, das Flag wird gar nicht übergeben."
+      },
+      "fallbackModel": {
+        "label": "Ausweichmodell",
+        "tip": "Modell für den Fall, dass das Hauptmodell überlastet oder nicht verfügbar ist. Eine kommagetrennte Liste wird der Reihe nach versucht. Nur bei Headless-Läufen.",
+        "placeholder": "z. B. sonnet"
+      },
+      "autoCompact": {
+        "label": "Auto-Verdichtung",
+        "tip": "Kontextgröße, ab der die CLI das Gespräch selbst verdichtet.",
+        "unset": "Nicht gesetzt — die CLI entscheidet (Standard).",
+        "unsetLabel": "nicht gesetzt",
+        "auto": "auto — die CLI wählt das Fenster.",
+        "tokens": "Verdichtet bei etwa {{tokens}} Token."
+      },
+      "settingSources": {
+        "label": "Einstellungsquellen",
+        "tip": "Welche Einstellungsebenen dieser Agent lädt. Nichts auswählen lädt alle (CLI-Standard).",
+        "all": "alle (Standard)"
+      },
+      "excludeDynamicSections": {
+        "label": "Maschinenspezifische Prompt-Abschnitte in die erste Nachricht verschieben",
+        "hint": "verbessert die Wiederverwendung des Prompt-Caches"
+      },
+      "safeMode": {
+        "label": "Sicherer Modus (alle Anpassungen aus)",
+        "warn": "Hooks aus — die Aktivität erscheint nicht auf der Karte"
+      },
+      "betas": {
+        "label": "Beta-Header",
+        "tip": "Beta-Header für API-Anfragen. Nur für API-Key-Nutzung — bei Abo-Anmeldung ignoriert.",
+        "placeholder": "kommagetrennt"
+      },
+      "bashTimeout": {
+        "label": "Bash-Timeout",
+        "tip": "Zeitlimits für das Bash-Tool. Bei 0 gelten die CLI-Standardwerte — Befehle ohne expliziten Timeout stoppen nach {{defaultSec}}s, und kein Befehl darf länger als {{maxSec}}s laufen. Max. Limit erhöhen, wenn lange Builds oder Testläufe abgebrochen werden. Wird dem Agenten als BASH_DEFAULT_TIMEOUT_MS / BASH_MAX_TIMEOUT_MS übergeben.",
+        "defaultLabel": "Standard (s, 0 = CLI-Standard)",
+        "maxLabel": "Max. Limit (s, 0 = CLI-Standard)",
+        "hint": "0 behält die CLI-Standardwerte — {{defaultSec}}s Standard, {{maxSec}}s max."
       }
     },
     "permissionPrompt": {
@@ -526,6 +816,21 @@
       "noProject": "Kein aktives Projekt",
       "fps": "fps",
       "fpsTip": "Render-Frames pro Sekunde",
+      "visibility": "Sichtbarkeit",
+      "profiling": {
+        "title": "Profiling",
+        "startNow": "Jetzt profilen",
+        "collecting": "Wird erfasst…",
+        "manual": "manuell",
+        "auto": "auto (< {{fps}} fps)",
+        "copy": "Kopieren",
+        "copied": "Kopiert",
+        "fpsRange": "FPS",
+        "longFrames": "Lange Frames",
+        "topScripts": "Skripte mit längster Frame-Blockierung",
+        "noScripts": "Keine Skript-Zuordnung ({{type}})",
+        "idleHint": "Inaktiv. Fällt die FPS unter {{fps}}, wird automatisch ein 1-minütiges Profil erfasst (1 Stunde Abklingzeit). Bericht kopieren und teilen, um die Ursache zu diagnostizieren."
+      },
       "errorLog": "Fehlerprotokoll",
       "noErrors": "Keine Fehler erfasst",
       "servers": "Server",
@@ -649,6 +954,7 @@
       "close": "Nutzung schließen",
       "session5h": "Aktuelle Sitzung (5 Stunden)",
       "weekly7d": "Wochenlimit (7 Tage)",
+      "noValue": "--",
       "resetsIn": "Zurücksetzung in {{span}}",
       "resetUnknown": "Zeitpunkt der Zurücksetzung unbekannt",
       "resettingNow": "Wird gerade zurückgesetzt",
@@ -671,7 +977,6 @@
       "localInput": "Eingabe-Tokens",
       "localOutput": "Ausgabe-Tokens",
       "localHint": "Gezählt über die Agenten im aktiven Projekt-Tab. Die Tariflimits oben gelten kontoweit und enthalten auch Arbeit außerhalb von Vibisual.",
-      "noValue": "--",
       "emptyOff": "Noch keine Nutzungsdaten — der Collector ist aus. Schalte ihn unten ein und öffne dann einmal eine interaktive Claude-Code-Sitzung.",
       "emptyWaiting": "Der Collector ist an und wartet auf den ersten Wert. Werte kommen an, wenn eine interaktive Claude-Code-Sitzung ihre Statuszeile rendert — eine Terminal-Blase auf der Leinwand oder Claude Code in deinem Editor. Agenten, die Vibisual headless ausführt, haben keine Statuszeile und melden daher nichts.",
       "refresh": "Aktualisieren",
@@ -688,6 +993,8 @@
     },
     "plugins": {
       "title": "Plugins",
+      "scopeProject": "gilt nur für dieses Projekt",
+      "scopeNone": "Öffnen Sie zuerst ein Projekt — Plugins werden pro Projekt aktiviert.",
       "close": "Schließen",
       "saving": "speichern…",
       "empty": "Keine Plugins registriert.",
@@ -698,7 +1005,7 @@
       "offNote": "Ein deaktiviertes Plugin blendet nur seine Beiträge aus — nichts davon wird gelöscht, und beim Einschalten ist alles wieder da.",
       "category": {
         "security": "Sicherheit",
-        "observability": "Observability",
+        "observability": "Beobachtbarkeit",
         "workflow": "Workflow",
         "experimental": "Experimentell"
       },
@@ -708,6 +1015,7 @@
         "settingsSection": "Einstellungsabschnitt",
         "ideView": "IDE-Ansicht",
         "headerItem": "Kopfzeilen-Element",
+        "agentPrompt": "Agenten-Durchsetzung",
         "contextMenuItem": "Kontextmenü",
         "hookSubscriber": "Hook-Abonnent",
         "restRoute": "REST-Route",
@@ -717,1761 +1025,8 @@
         "bubbleType": "Blasentyp",
         "edgeKind": "Kantentyp"
       },
-      "lethalTrifecta": {
-        "heading": "Tödliche Dreierkette",
-        "level": {
-          "safe": "Pfad gebrochen",
-          "caution": "Durch Freigabe gebremst",
-          "critical": "Alle drei offen"
-        },
-        "leg": {
-          "data": "Zugriff auf sensible Daten",
-          "untrusted": "Nicht vertrauenswürdige Inhalte",
-          "egress": "Ausgehende Kommunikation"
-        },
-        "state": {
-          "closed": "gekappt",
-          "gated": "Freigabe",
-          "open": "offen"
-        },
-        "noTool": "Kein Werkzeug schaltet das frei",
-        "prescription": "Ausgehende Kommunikation lässt sich am günstigsten kappen — tragen Sie WebFetch (und Bash, falls dieser Agent ohne auskommt) in Agent Settings unter den verbotenen Werkzeugen ein.",
-        "alreadyCut": "Eine Bedingung ist bereits gekappt, daher kann eine Injection bei diesem Agenten nicht zum Abfluss werden.",
-        "isolatedNote": "Arbeitet in einem isolierten Worktree — das verkleinert den Schaden, kappt aber keine Bedingung.",
-        "displayOnly": "Nur Anzeige — dieser Abschnitt ändert keine Berechtigungen.",
-        "title": {
-          "critical": "Tödliche Dreierkette: alle drei offen, ohne Freigabe"
-        },
-        "isolated": "Läuft in einem isolierten Worktree",
-        "desc": "Zeigt an jeder Agent-Blase, wie viele der drei Bedingungen für einen echten Datenabfluss — Zugriff auf sensible Daten, nicht vertrauenswürdige Inhalte, ausgehende Kommunikation — dieser Agent gerade erfüllt. Eine gekappte Bedingung bricht den Pfad. Nur Anzeige: Berechtigungen werden nie verändert."
-      },
-      "leastPrivilege": {
-        "desc": "Teilt die einem Agenten gewährten Werkzeuge nach ihrer Wirkung auf — unumkehrbare Änderungen, Reichweite nach außen, nur Lesen — damit Überberechtigung sichtbar wird. Beurteilt allein anhand der Werkzeugliste.",
-        "heading": "Minimale Rechte",
-        "level": {
-          "tight": "Eng",
-          "broad": "Breit",
-          "wide": "Sehr breit"
-        },
-        "badge": {
-          "broad": "{{count}} mächtige Werkzeuge gewährt",
-          "wide": "{{count}} mächtige Werkzeuge — erwägen Sie, welche zurückzunehmen"
-        },
-        "class": {
-          "mutating": "Unumkehrbare Änderung",
-          "reach": "Reichweite nach außen",
-          "read": "Nur Lesen"
-        },
-        "denied": "Ausdrücklich gesperrt",
-        "lockedNote": "{{tools}} lässt sich nicht über die Oberfläche entfernen — der Delegationspfad hängt davon ab. Nutzen Sie stattdessen die verbotenen Werkzeuge.",
-        "none": "keine",
-        "displayOnly": "Nur Anzeige — dieser Abschnitt ändert keine Einstellungen."
-      },
-      "blastRadius": {
-        "desc": "Listet auf, worauf dieser Agent zugreifen, was er ändern und wohin er senden könnte, wenn er vollständig übernommen wäre — diese Liste ist der Explosionsradius. Ein isolierter Worktree verkleinert ihn um eine Stufe.",
-        "heading": "Explosionsradius",
-        "level": {
-          "small": "Klein",
-          "medium": "Mittel",
-          "large": "Groß"
-        },
-        "row": {
-          "read": "Kann Dateien lesen",
-          "write": "Kann Dateien ändern",
-          "execute": "Kann Befehle ausführen",
-          "send": "Kann Daten senden"
-        },
-        "isolatedNote": "Isolierter Worktree — der Schaden bleibt in der Kopie, daher zählt der Radius eine Stufe kleiner.",
-        "narrowHint": "Standardmäßig nur Lesen, Schreiben nur auf benannte Pfade, Netzwerk nur auf eine Erlaubnisliste — so schrumpft ein Radius.",
-        "yes": "Ja",
-        "no": "Nein"
-      },
-      "autonomyLevel": {
-        "desc": "Zeigt, auf welcher Stufe dieser Agent steht — nur vorschlagen, nach Freigabe ausführen oder selbstständig ausführen und berichten. Autonomie als Alles-oder-nichts zu belassen ist der häufigste Entwurfsfehler.",
-        "heading": "Autonomiestufe",
-        "level": {
-          "suggest": "Nur vorschlagen",
-          "approve": "Führt nach Freigabe aus",
-          "autonomous": "Führt selbstständig aus"
-        },
-        "badge": {
-          "autonomous": "Autonomie: führt ohne Rückfrage aus"
-        },
-        "row": {
-          "mode": "Berechtigungsmodus",
-          "timeout": "Wenn Sie nicht antworten",
-          "maxTurns": "Zugbegrenzung",
-          "isolation": "Isolierung"
-        },
-        "timeout": {
-          "allow": "automatisch erlauben",
-          "deny": "automatisch blockieren"
-        },
-        "timeoutHint": "Wenn Sie weggehen, wird die Freigabe zur automatischen Zustimmung — die Stufe steigt faktisch.",
-        "ladderNote": "Autonomie erhöht man, wenn Vertrauen gewachsen ist — man gibt sie nicht von Anfang an.",
-        "isolated": "Worktree",
-        "notIsolated": "gleicher Ordner",
-        "unlimited": "unbegrenzt",
-        "levelDesc": {
-          "suggest": "Planmodus — nichts wird ausgeführt.",
-          "approve": "Verändernde Werkzeuge lösen eine Freigabe aus.",
-          "autonomous": "Es erscheint überhaupt keine Freigabeabfrage."
-        }
-      },
-      "longHorizon": {
-        "desc": "Verfolgt, wie lange eine Sitzung schon läuft — Züge, verstrichene Zeit und letzter Aufgabenfortschritt. Lange Aufgaben scheitern meist an erschöpftem Kontext und aufsummierten Fehlern, nicht am Können.",
-        "heading": "Langhorizont-Aufgabe",
-        "level": {
-          "short": "Kurz",
-          "long": "Wird lang",
-          "verylong": "Sehr lang"
-        },
-        "badge": "{{turns}} Züge über {{elapsed}}",
-        "row": {
-          "turns": "Züge",
-          "elapsed": "Verstrichen",
-          "todos": "Aufgabenfortschritt"
-        },
-        "shortNote": "Noch kurz — nichts zu beobachten.",
-        "longNote": "Halten Sie Entscheidungen und Dateipfade fest, bevor die Kompaktierung läuft — Zusammenfassungen verwerfen zuerst das Konkrete."
-      },
-      "rogueAgent": {
-        "desc": "Zeigt, wie lange ein Agent still ist, während seine Sitzungen noch laufen. Die meisten Vorfälle beginnen mit „Ich wusste nicht, dass das noch läuft“, nicht mit Absicht.",
-        "heading": "Untätig & außer Kontrolle",
-        "level": {
-          "active": "Aktiv",
-          "idle": "Untätig",
-          "forgotten": "Möglicherweise vergessen"
-        },
-        "badge": {
-          "idle": "Seit {{elapsed}} still, Sitzungen laufen noch",
-          "forgotten": "Seit {{elapsed}} still — vermutlich vergessen"
-        },
-        "row": {
-          "idle": "Still seit",
-          "live": "Aktive Sitzungen",
-          "total": "Sitzungen gesamt"
-        },
-        "activeNote": "Kürzlich aktiv — hier ist nichts vergessen.",
-        "idleNote": "Gestalten Sie den Moment des Abschaltens, nicht nur den des Erstellens."
-      },
       "showMore": "{{count}} weitere anzeigen",
       "showLess": "Weniger anzeigen",
-      "guardrails": {
-        "check": {
-          "mode": "Berechtigungsmodus",
-          "timeout": "Wenn Sie nicht antworten",
-          "denied": "Gesperrte Werkzeuge",
-          "tools": "Wirksame Werkzeuge"
-        },
-        "timeout": {
-          "allow": "automatisch erlauben",
-          "deny": "automatisch blockieren"
-        },
-        "heading": "Leitplanken",
-        "level": {
-          "gated": "Vor Werkzeugaufruf gestoppt",
-          "none": "Kein Gate",
-          "blocked": "Nichts wird ausgeführt"
-        },
-        "desc": "Zeigt, ob überhaupt etwas einen Werkzeugaufruf stoppt. Eine Leitplanke direkt **vor dem Werkzeugaufruf** greift im letzten Moment; nur vor dem Modell platziert greift sie zu spät.",
-        "notePlacement": "Die Freigabeabfrage sitzt unmittelbar vor dem Werkzeugaufruf — die Stelle, die den Schaden am spätesten und am günstigsten abfängt.",
-        "noteNone": "Es erscheint keine Freigabeabfrage, also fängt nichts einen Werkzeugaufruf ab, bevor er läuft."
-      },
-      "humanInTheLoop": {
-        "yes": "ja",
-        "no": "nein",
-        "heading": "Mensch im Ablauf",
-        "check": {
-          "irreversible": "Unumkehrbare Werkzeuge",
-          "prompt": "Freigabeabfrage",
-          "reversible": "Arbeit umkehrbar"
-        },
-        "level": {
-          "present": "Bestätigung vorhanden",
-          "absent": "Keine Bestätigung",
-          "notNeeded": "Hier nicht nötig"
-        },
-        "desc": "Prüft, ob vor unumkehrbaren Aktionen eine menschliche Bestätigung steht. Alles freizugeben macht Freigaben bedeutungslos, nichts freizugeben führt zu Vorfällen — der Maßstab ist Umkehrbarkeit.",
-        "note": "Besser als mehr Freigaben ist, Aktionen rückgängig machbar zu gestalten — Papierkorb statt Löschen, Versionen statt Überschreiben, Entwurf statt Senden."
-      },
-      "allowlist": {
-        "level": {
-          "partial": "Teilweise",
-          "narrow": "Eng",
-          "all": "Alles gewährt"
-        },
-        "check": {
-          "denied": "Ausdrücklich gesperrt",
-          "granted": "Gewährt",
-          "missing": "Nicht gewährt"
-        },
-        "heading": "Zulassungsliste",
-        "desc": "Zeigt, wie nah dieser Agent an „nur das ist erlaubt“ liegt. Eine Sperrliste hat genau dort ein Loch, wo etwas vergessen wurde; eine Zulassungsliste fällt mit der Zeit zur sicheren Seite aus.",
-        "note": "Am meisten bringt eine Zulassungsliste bei Netzwerkzielen — allein das verengt die letzte Etappe eines Abflusses."
-      },
-      "sandboxing": {
-        "level": {
-          "shared": "Gemeinsamer Baum",
-          "isolated": "Isolierter Worktree"
-        },
-        "heading": "Sandboxing",
-        "check": {
-          "filesystem": "Dateisystem",
-          "network": "Netzwerk",
-          "execution": "Ausführungsmodus"
-        },
-        "worktree": "separater Worktree",
-        "sameTree": "gleicher Arbeitsbaum",
-        "noNetworkIsolation": "nicht isoliert",
-        "desc": "Zeigt, ob der Agent auf einer isolierten Kopie läuft. Dateisystem-Isolierung allein genügt nicht — ohne Netzwerk-Isolierung bleibt die letzte Etappe eines Abflusses offen.",
-        "note": "Vibisual isoliert das Dateisystem über git worktree. Das Netzwerk ist nicht isoliert, also bleiben Wege nach außen auch im Worktree offen."
-      },
-      "nonHumanIdentity": {
-        "check": {
-          "owner": "Eigentümer",
-          "sessions": "Sitzungen",
-          "id": "Identität"
-        },
-        "ours": "Vibisual (eigener Agent)",
-        "claudeCode": "Claude Code (Hook-Sitzung)",
-        "heading": "Nicht-menschliche Identität",
-        "level": {
-          "owned": "Von uns stoppbar",
-          "external": "Gehört Claude Code"
-        },
-        "desc": "Stellt die praktische Frage: Können Sie genau **diesen einen Agenten** jetzt abschalten? Lautet die Antwort „ich müsste alles stoppen“, gibt es kein Identitätsdesign.",
-        "noteOwned": "Wir haben diesen Agenten erstellt, er trägt seine eigenen Einstellungen und lässt sich einzeln stoppen.",
-        "noteExternal": "Diese Sitzung wurde über Hooks registriert und gehört Claude Code — wir haben keinen Griff, der sie allein stoppt."
-      },
-      "containment": {
-        "check": {
-          "leak": "Abflusspfad",
-          "radius": "Explosionsradius",
-          "isolation": "Isolierung"
-        },
-        "isolated": "Worktree",
-        "heading": "Eindämmung",
-        "level": {
-          "contained": "Eingedämmt",
-          "partial": "Teilweise eingedämmt",
-          "open": "Nicht eingedämmt"
-        },
-        "possible": "möglich",
-        "broken": "unterbrochen",
-        "shared": "gemeinsamer Baum",
-        "desc": "Nimmt an, dass der Angriff gelingt, und fragt, was dann noch möglich ist. Sicher ist nicht, wer den aggressivsten Filter hat, sondern wo der Radius nach einem Durchbruch strukturell begrenzt bleibt.",
-        "note": "Fragen Sie „was ist möglich, wenn es durch ist“, nicht „wie blocke ich es“. Wer das Erste nicht beantworten kann, hat den Entwurf nicht fertig."
-      },
-      "auditTrail": {
-        "level": {
-          "partial": "Teilweise",
-          "traceable": "Nachvollziehbar",
-          "empty": "Noch keine Spur"
-        },
-        "check": {
-          "turns": "Erfasste Züge",
-          "sessions": "Sitzungs-IDs",
-          "last": "Letzte Aktivität"
-        },
-        "heading": "Prüfpfad",
-        "desc": "Zählt, was von der Spur dieses Agenten übrig ist — erfasste Züge und erhaltene Sitzungs-IDs — damit „wer hat das getan“ auch später beantwortbar bleibt.",
-        "note": "Originales Ausführungsprotokoll behalten, Entscheidungen mit ihrer Quellsitzung stempeln und Commits mit dem Agenten als Mitautor kennzeichnen — das ist die Mindestausstattung."
-      },
-      "contextRot": {
-        "level": {
-          "low": "Noch Spielraum",
-          "unknown": "Unbekannt",
-          "high": "Fast voll",
-          "half": "Über die Hälfte"
-        },
-        "check": {
-          "sessions": "Sitzungen",
-          "fill": "Gefüllt",
-          "tokens": "Tokens"
-        },
-        "heading": "Kontextverfall",
-        "desc": "Zeigt, wie voll das Kontextfenster ist. Die Fenstergröße ist eine Obergrenze, kein Ziel — die Qualität fällt oft schon nahe der Hälfte spürbar ab, und ähnlich aussehende Störinformationen schaden mehr als bloße Länge.",
-        "noteLow": "Noch reichlich Platz. Messen Sie Ihr eigenes wirksames Fenster mit echter Arbeit, statt der angegebenen Größe zu vertrauen.",
-        "noteHigh": "Schreiben Sie Entscheidungen und Dateipfade in eine Datei, bevor die Kompaktierung läuft — Zusammenfassungen verwerfen zuerst das Konkrete."
-      },
-      "costPerTask": {
-        "level": {
-          "moderate": "Mittel",
-          "light": "Gering",
-          "heavy": "Hoch",
-          "idle": "Noch nichts verbraucht"
-        },
-        "check": {
-          "turns": "Züge",
-          "tokens": "Eingabe / Ausgabe",
-          "perTurn": "Tokens pro Zug",
-          "usd": "Geschätzte Kosten"
-        },
-        "heading": "Kosten pro Aufgabe",
-        "desc": "Betrachtet Kosten pro **abgeschlossener Aufgabe** statt pro Token und zeigt Tokens pro Zug — Hintergrundarbeit mit wenig Ertrag frisst still den größten Teil der Rechnung, und zwar häufiger als man denkt.",
-        "note": "Die Schätzung zählt nur Ein- und Ausgabe; Cache-Tokens werden nicht pro Sitzung summiert, der reale Betrag liegt also etwas höher."
-      },
-      "modelRouting": {
-        "check": {
-          "model": "Modell",
-          "effort": "Denkaufwand",
-          "turns": "Züge bisher"
-        },
-        "heading": "Modell-Routing",
-        "level": {
-          "fit": "Passt zur Aufgabe",
-          "upgrade": "Höherstufung erwägen",
-          "downgrade": "Herabstufung erwägen"
-        },
-        "desc": "Stellt das aktuelle Modell neben den Umfang der Arbeit, damit Höher- oder Herabstufung eine sichtbare Entscheidung wird. Es wechselt nie selbst das Modell — das bleibt Ihre Entscheidung.",
-        "advice": {
-          "fit": "Modell und Arbeitslast wirken passend. Kaskaden zahlen sich aus, wenn das günstige Modell die einfache Mehrheit erledigt.",
-          "upgrade": "Auf einem kleinen Modell ist daraus eine lange Aufgabe geworden. Höherstufen kostet meist weniger als wiederholte Versuche.",
-          "downgrade": "Eine kurze Aufgabe auf dem größten Modell. Ein günstigeres Modell hätte das sehr wahrscheinlich genauso erledigt."
-        }
-      },
-      "reasoningEffort": {
-        "level": {
-          "normal": "Normal",
-          "deep": "Tiefes Denken",
-          "overthinking": "Möglicherweise Überdenken"
-        },
-        "check": {
-          "effort": "Denkaufwand",
-          "turns": "Züge bisher",
-          "model": "Modell"
-        },
-        "heading": "Denkaufwand",
-        "desc": "Zeigt den Denkaufwand neben dem Umfang der Arbeit. Mehr Nachdenken ist nicht immer besser — es gibt einen gemessenen Bereich, in dem zusätzliches Grübeln die Genauigkeit bei einfachen Abfragen senkt.",
-        "noteMeasure": "Erhöhen und messen, statt das Maximum dauerhaft anzulassen — ein höherer Aufwand kostet in jedem Zug Tokens.",
-        "noteOverthinking": "Maximales Nachdenken bei einer sehr kurzen Aufgabe. Genau hier steigen die Kosten, während die Genauigkeit fallen kann."
-      },
-      "toolUse": {
-        "level": {
-          "lean": "Schlank",
-          "moderate": "Mittel",
-          "all": "Alles geladen"
-        },
-        "check": {
-          "count": "Werkzeuge",
-          "tokens": "Schema-Tokens",
-          "share": "Anteil am Fenster"
-        },
-        "heading": "Werkzeugnutzung",
-        "desc": "Zeigt, wie viel vom Kontextfenster allein die Werkzeugdefinitionen belegen. Jenseits einiger Dutzend Werkzeuge kosten die Definitionen Zehntausende Tokens, und die Auswahlgenauigkeit sinkt mit.",
-        "note": "Schon das Entfernen nie genutzter Werkzeuge verbessert Kosten und Auswahlgenauigkeit zugleich."
-      },
-      "tokenBudget": {
-        "check": {
-          "share": "Anteil am Fenster",
-          "window": "Fenster",
-          "fixed": "Feste Abschnitte",
-          "rules": "Agentregeln (ca. Tokens)"
-        },
-        "heading": "Token-Budget",
-        "level": {
-          "ok": "Fixkosten gering",
-          "heavy": "Fixkosten hoch"
-        },
-        "desc": "Teilt das Kontextfenster zuerst in feste Abschnitte auf. Ohne Budget je Abschnitt drängt ein Abschnitt die anderen still hinaus — so werden Anweisungen an einem Tag mit vielen Suchtreffern abgeschnitten.",
-        "note": "Zeichen geteilt durch vier nähert Tokens an. Legen Sie die Obergrenzen als Konstanten fest und bestimmen Sie, was bei Überlauf zuerst gekürzt wird."
-      },
-      "systemPrompt": {
-        "level": {
-          "long": "Lang",
-          "none": "Keine eigenen Regeln",
-          "sized": "Angemessene Größe"
-        },
-        "check": {
-          "rules": "Regelzeichen",
-          "skills": "Skills",
-          "rulesTokens": "Regel-Tokens",
-          "base": "Basis-Prompt"
-        },
-        "heading": "System-Prompt",
-        "desc": "Zeigt die Größe der dauerhaft mitlaufenden Anweisungsschicht. Ein System-Prompt muss auf der richtigen Flughöhe stehen — zu konkret ist brüchig, zu abstrakt wird ignoriert.",
-        "note": "Hintergrundarbeit wie Zusammenfassen oder Klassifizieren braucht selten einen Allzweck-Prompt — ein kurzer, dedizierter ohne Werkzeuge ist meist die richtige Antwort.",
-        "noteLong": "Diese Regeln fahren in jedem einzelnen Zug mit. Lange Regeln kosten fortlaufend Tokens und verwässern als Erstes, wenn die Sitzung wächst."
-      },
-      "subagent": {
-        "check": {
-          "sessions": "Sitzungen",
-          "running": "Laufende Aufgaben",
-          "kinds": "Typen"
-        },
-        "heading": "Subagenten-Isolierung",
-        "level": {
-          "isolated": "Isolierte Sitzungen",
-          "delegating": "Delegiert gerade",
-          "single": "Einzelner Strang"
-        },
-        "desc": "Zeigt, ob Kontext-Isolierung tatsächlich stattfindet. Der Sinn eines Subagenten ist nicht Tempo, sondern Suchnotizen und ausufernde Werkzeugausgaben aus dem Hauptstrang herauszuhalten.",
-        "note": "Isolierung erkauft einen sauberen Kontext und schafft einen neuen Engpass — die Übergabequalität. Der Hauptstrang sollte Ergebnisse sehen, nicht die Suche."
-      },
-      "fanOut": {
-        "heading": "Fan-out",
-        "check": {
-          "branches": "Zweige",
-          "oldest": "Ältester Zweig"
-        },
-        "level": {
-          "none": "Keine Zweige",
-          "parallel": "Läuft parallel",
-          "wide": "Breiter Fan-out"
-        },
-        "desc": "Zählt, wie viele Zweige gleichzeitig laufen. Parallelität lohnt nur, wenn die Teilaufgaben wirklich unabhängig sind; sonst entstehen doppelte Arbeit und widersprüchliche Schlüsse.",
-        "note": "Legen Sie vor dem Aufteilen fest, wie zusammengeführt wird. Ohne Merge-Regel wird die Integration zum Engpass.",
-        "noteWide": "Viele Zweige auf einmal. Prüfen Sie, ob sie wirklich unabhängig sind — brauchen sie einander, ist Nacheinander günstiger."
-      },
-      "orchestrator": {
-        "level": {
-          "mixed": "Gemischt",
-          "worker": "Erledigt selbst",
-          "supervisor": "Beaufsichtigt"
-        },
-        "check": {
-          "running": "Läuft gerade",
-          "delegated": "Delegierte Sitzungen",
-          "turns": "Eigene Züge"
-        },
-        "heading": "Orchestrator",
-        "desc": "Zeigt, ob dieser Agent als Aufseher handelt oder die Arbeit selbst erledigt. Agenten ohne Aufseher zu versammeln ist ein bekanntes Anti-Muster — der Umfang wächst, die Verlässlichkeit sinkt.",
-        "note": "Die empfohlene Form ist ein Aufseher, der nur urteilt, während die eigentliche Werkzeugausführung darunter liegt."
-      },
-      "planAndExecute": {
-        "check": {
-          "turns": "Züge",
-          "steps": "Schritte",
-          "progress": "Fortschritt"
-        },
-        "heading": "Planen und ausführen",
-        "level": {
-          "noPlan": "Kein Plan erfasst",
-          "running": "Läuft",
-          "done": "Plan abgeschlossen"
-        },
-        "desc": "Zeigt, ob ein Plan existiert und wie weit er gediehen ist. In eine Datei geschrieben überlebt der Plan die Kompaktierung — das ist der Hauptgrund, einen zu führen.",
-        "note": "Ein Plan, den man freigeben und ändern kann, ist mehr wert als ein schnellerer Start.",
-        "noteNoPlan": "Noch kein Plan erfasst. Bei Arbeit mit vielen geordneten Schritten hält ein aufgeschriebener Plan den Faden davon ab, sich zu verlieren."
-      },
-      "reactPattern": {
-        "check": {
-          "turns": "Züge",
-          "plan": "Plan erfasst"
-        },
-        "yes": "ja",
-        "no": "nein",
-        "heading": "ReAct",
-        "level": {
-          "healthy": "Gesund",
-          "drifting": "Könnte abdriften",
-          "idle": "Nicht gestartet"
-        },
-        "desc": "Denken und Handeln im Wechsel ist die Grundform, nicht eine Option unter vielen. Diese Karte achtet auf das Signal, dass es nicht mehr reicht — ein langer Lauf, in dem nichts festgehalten wurde.",
-        "note": "Signale, dass ReAct allein nicht genügt: um dasselbe Werkzeug kreisen, das Ziel verlieren, ohne Prüfung weitergehen.",
-        "noteDrifting": "Ein langer Lauf ohne erfassten Plan. Genau hier zahlt sich ein aufgeschriebener Plan oder ein Prüfschritt meist aus."
-      },
-      "scopeCreep": {
-        "heading": "Umfang",
-        "check": {
-          "first": "Erste Erfassung",
-          "peak": "Höchstwert",
-          "last": "Zuletzt"
-        },
-        "level": {
-          "unknown": "Kein Plan zum Vergleich",
-          "grew": "Gewachsen",
-          "stable": "Stabil",
-          "shrank": "Geschrumpft"
-        },
-        "desc": "Beobachtet die Aufgabenliste auf Wachstum und auf stilles Schrumpfen. In der Zusammenarbeit mit KI zählt die Schrumpfrichtung genauso — man glaubt, alles sei erledigt, und merkt es spät.",
-        "note": "Der Umfang ist die Entscheidung der anweisenden Seite, nicht das Ermessen des Modells.",
-        "noteGrew": "Die Liste ist weit über den Ausgangspunkt hinaus gewachsen. Es lohnt zu prüfen, ob dieses Wachstum vereinbart war.",
-        "noteShrank": "Die Liste ist vom Höchststand geschrumpft. Prüfen Sie, ob diese Punkte erledigt wurden oder weggefallen sind."
-      },
-      "reviewGate": {
-        "check": {
-          "reviews": "Prüfanfragen",
-          "checkpoints": "Prüfpunkte"
-        },
-        "heading": "Prüf-Gate",
-        "level": {
-          "none": "Keine Prüfung angefragt",
-          "noPoints": "Keine Prüfpunkte",
-          "present": "Prüfbar"
-        },
-        "desc": "Zählt, ob der Abschluss in prüfbarer Form übergeben wurde. Lange Fließtextberichte werden nicht gelesen; eine Änderungsliste plus Prüfpunkte schon.",
-        "note": "Prüfen wird dadurch billig, dass „was wurde geändert“ und „was ist zu prüfen“ getrennt dargeboten werden."
-      },
-      "structuredOutput": {
-        "level": {
-          "structured": "Strukturiert",
-          "prose": "Nur Fließtext"
-        },
-        "check": {
-          "reports": "Arbeitsberichte",
-          "reviews": "Prüfanfragen",
-          "userActions": "Für Sie verbleibend"
-        },
-        "heading": "Strukturierte Ausgabe",
-        "desc": "Zeigt, ob dieser Agent über ein Schema statt über Fließtext berichtet. Sobald die Ausgabe eines Agenten zur Eingabe des nächsten wird, ist ein Parse-Fehler ein Stillstand der Kette.",
-        "note": "Übergabepakete, Bewertungsergebnisse und Werkzeugargumente nimmt man besser als Schema entgegen als in Sätzen."
-      },
-      "instructionDrift": {
-        "level": {
-          "noRules": "Keine Dauerregeln",
-          "rising": "Verwässert",
-          "high": "Vermutlich verwässert",
-          "fresh": "Noch frisch"
-        },
-        "check": {
-          "rules": "Dauerregeln",
-          "turns": "Züge",
-          "skills": "Skills"
-        },
-        "yes": "ja",
-        "no": "nein",
-        "heading": "Anweisungsdrift",
-        "desc": "Frühe Anweisungen verlieren mit wachsender Sitzung an Griff, und die Kompaktierung verwässert sie schneller. „Ich habe es einmal gesagt“ trägt nicht.",
-        "note": "Wichtige Einschränkungen müssen in jedem Zug erneut eingespeist oder als erhaltener Abschnitt durch die Kompaktierung markiert werden.",
-        "noteLong": "Die Sitzung ist lang genug, dass frühe Anweisungen wahrscheinlich verblasst sind. Wiederholen Sie die Einschränkungen, die weiter gelten sollen."
-      },
-      "semanticMemory": {
-        "level": {
-          "none": "Noch kein Gedächtnis",
-          "contested": "Strittige Slots",
-          "settled": "Gefestigt"
-        },
-        "check": {
-          "cards": "Gespeicherte Karten",
-          "current": "Aktuelle Wahrheiten",
-          "contested": "Strittig"
-        },
-        "heading": "Semantisches Gedächtnis",
-        "desc": "Zählt, wie viele Fakten tatsächlich feststehen. Entscheidend ist nicht, wie viele Karten gespeichert wurden, sondern wie viele Slots **eine einzige aktuelle Wahrheit** halten; Slots mit geteiltem Wert warten auf einen Menschen.",
-        "note": "Die Größenordnung bestimmt die Speicherung: einige hundert Einträge gehören in Dateien, Hunderttausende in einen Vektorspeicher. Die Infrastruktur vor der Messung zu wählen ist die übliche Überkonstruktion."
-      },
-      "memoryInvalidation": {
-        "level": {
-          "none": "Noch kein Gedächtnis",
-          "clean": "Nichts markiert",
-          "pending": "Prüfung nötig"
-        },
-        "check": {
-          "needsCheck": "Als veraltet markiert",
-          "review": "Wartet auf Beurteilung",
-          "cards": "Gespeicherte Karten"
-        },
-        "heading": "Gedächtnis-Invalidierung",
-        "desc": "Fehlendes Gedächtnis lässt ein Modell „weiß ich nicht“ sagen; veraltetes Gedächtnis erzeugt selbstsichere Falschaussagen. Markieren statt löschen lässt den Nächsten urteilen.",
-        "note": "Im Code ist eine Änderung der verknüpften Datei das genaueste Veraltungssignal — durch Pfadabgleich gibt es praktisch keine Fehlalarme.",
-        "notePending": "Einige Karten wurden markiert, weil sich ihre verknüpften Dateien geändert haben. Gleichen Sie sie mit dem aktuellen Code ab und bestätigen oder verwerfen Sie sie."
-      },
-      "forgettingPolicy": {
-        "level": {
-          "none": "Noch kein Gedächtnis",
-          "full": "Nahe am Budget",
-          "room": "Im Budget"
-        },
-        "check": {
-          "archived": "Archiviert",
-          "used": "Budgetnutzung",
-          "share": "Anteil"
-        },
-        "heading": "Vergessensrichtlinie",
-        "desc": "Eine Speicherrichtlinie ist leichter als eine Vergessensrichtlinie. Gedächtnis, das nur wächst, verliert an Trefferpräzision, bis es schlechter ist als gar keines.",
-        "note": "Die sichere Form ist ein Gesamtbudget, dessen Überlauf **ins Archiv wandert statt gelöscht zu werden** — automatisches endgültiges Löschen lässt keinen Rückweg."
-      },
-      "supersede": {
-        "level": {
-          "none": "Noch kein Gedächtnis",
-          "flat": "Noch kein Verlauf",
-          "history": "Verlauf erhalten"
-        },
-        "heading": "Ablösung",
-        "check": {
-          "stored": "Gespeichert",
-          "current": "Aktuell",
-          "closed": "Geschlossen"
-        },
-        "desc": "Wenn neues Wissen dem alten widerspricht, ist Schließen besser als Löschen. Zwei Zeitpunkte — geöffnet und geschlossen — geben zugleich ein unveränderliches Protokoll und eine saubere Gegenwart.",
-        "note": "Widerspruch ist nicht bloß Ähnlichkeit — es zählt die Verneinung, damit „A verwenden“ und „A niemals verwenden“ als dasselbe Thema erkannt werden."
-      },
-      "memoryDrift": {
-        "level": {
-          "none": "Noch kein Gedächtnis",
-          "immutable": "Unveränderliche Einträge",
-          "queued": "Wartet auf Urteil"
-        },
-        "check": {
-          "review": "Wartet auf Beurteilung",
-          "rewrite": "Umschreibpfad",
-          "unseen": "Ungesehen"
-        },
-        "heading": "Gedächtnisdrift",
-        "noRewritePath": "bewusst nicht vorhanden",
-        "desc": "Wiederholtes Umschreiben poliert eine Erinnerung vom Original weg, bis erfundene Details zu Fakten erstarren. Die Verteidigung ist, Einträge unveränderlich zu halten.",
-        "note": "Aktualisieren heißt: neuer Eintrag plus Schließen des alten. Es gibt keinen Pfad, auf dem das Modell einen bestehenden Text umschreibt."
-      },
-      "memoryConsolidation": {
-        "level": {
-          "none": "Noch kein Gedächtnis",
-          "pending": "Neue Karten ungesehen",
-          "settled": "Geprüft"
-        },
-        "check": {
-          "recent": "Zuletzt",
-          "archived": "Archiviert",
-          "unseen": "Ungesehene Karten"
-        },
-        "heading": "Gedächtniskonsolidierung",
-        "desc": "Episoden zu Fakten zu destillieren ist nicht umsonst — es ist eine verlustbehaftete Operation. Behalten Sie das Original und fügen Sie die Destillation hinzu, statt sie zu ersetzen.",
-        "note": "Zwei Fallen: naives Zusammenfassen verliert kodierte Fakten, und schwache Deduplizierung lässt neue Einträge alte überschreiben, die noch galten."
-      },
-      "episodicMemory": {
-        "level": {
-          "empty": "Nichts erfasst",
-          "partial": "Nur Züge",
-          "kept": "Sitzungen erhalten"
-        },
-        "check": {
-          "turns": "Erfasste Züge",
-          "sessions": "Sitzungsprotokolle"
-        },
-        "heading": "Episodisches Gedächtnis",
-        "desc": "Die rohe Erfahrung ist ein erstklassiger Beleg. Bleiben nur Zusammenfassungen, gibt es keine Grundlage mehr, sie zu prüfen oder ihre Fehler zurückzunehmen.",
-        "note": "Extrahiertes Wissen sollte Quellsitzung und Zeitstempel tragen, damit man zum Original zurückgehen kann."
-      },
-      "proceduralMemory": {
-        "check": {
-          "skills": "Skills",
-          "rules": "Dauerregeln"
-        },
-        "yes": "ja",
-        "no": "nein",
-        "heading": "Prozedurales Gedächtnis",
-        "level": {
-          "filed": "In Dateien abgelegt",
-          "none": "Nichts abgelegt"
-        },
-        "desc": "Von den drei Gedächtnisschichten ist dies die eine, in der Dateien klar die richtige Antwort sind — ein Ablauf wird nicht gesucht, sondern bei der Aufgabe als Ganzes gebraucht.",
-        "note": "Skill-Dateien und Agentendefinitionen sind die physische Form prozeduralen Gedächtnisses, und die Versionsverwaltung ist ihr entscheidender Vorteil gegenüber einem Vektorspeicher."
-      },
-      "workingMemory": {
-        "level": {
-          "live": "Geladen",
-          "empty": "Nichts geladen"
-        },
-        "check": {
-          "context": "Genutzter Kontext",
-          "events": "Injektionsereignisse",
-          "injected": "Eingespeiste Karten"
-        },
-        "heading": "Arbeitsgedächtnis",
-        "desc": "Schnell — und mit dem Sitzungsende verschwunden. Allein daraus wird nie ein System, das mit dem Gebrauch klüger wird; umgekehrt scheitert auch der Versuch, alles ins Langzeitgedächtnis zu heben.",
-        "note": "Der größte Teil eines Gesprächs soll verbraucht und verworfen werden. Zu entscheiden, was aufsteigt, ist der erste Schritt des Gedächtnisdesigns."
-      },
-      "memoryTool": {
-        "level": {
-          "pushed": "Nur eingeschoben",
-          "active": "Aktiv gesucht",
-          "unused": "Nicht genutzt"
-        },
-        "heading": "Gedächtnis-Werkzeug",
-        "check": {
-          "spawn": "Beim Start",
-          "file": "Bei Dateizugriff",
-          "search": "Gesucht"
-        },
-        "desc": "Trennt Gedächtnis, das beim Start eingeschoben wurde, von Gedächtnis, das der Agent selbst gesucht hat. Notizen in Dateien überleben die Kompaktierung — das macht dies zur leichtesten Form dauerhaften Gedächtnisses.",
-        "note": "Probieren Sie dateibasierte Notizen, bevor Sie eigene Vektor-Infrastruktur aufbauen — der Zusatzaufwand ist nahezu null."
-      },
-      "progressiveDisclosure": {
-        "level": {
-          "none": "Keine Injektionen",
-          "lean": "Schlank",
-          "repeating": "Wiederholt sich"
-        },
-        "check": {
-          "events": "Injektionsereignisse",
-          "repeats": "Wiederholt",
-          "cards": "Karten gesamt"
-        },
-        "heading": "Schrittweise Offenlegung",
-        "desc": "Statt alles vorab zu laden, reicht man ein Verzeichnis und lässt den Inhalt holen, wenn er zählt. Diese Karte achtet darauf, ob stattdessen dasselbe Bündel immer wieder neu eingespeist wird.",
-        "note": "Ganze Dokumente einzufügen erzeugt Kontextverfall mit Ansage. „Wenn die Aufgabe X ist, lies Datei Y“ leistet dasselbe zu einem Bruchteil der Kosten."
-      },
-      "contextPollution": {
-        "check": {
-          "sessions": "Sitzungen",
-          "turns": "Züge",
-          "perSession": "Züge pro Sitzung"
-        },
-        "heading": "Kontextverschmutzung",
-        "level": {
-          "clean": "Sauber",
-          "ok": "Vertretbar",
-          "mixed": "Stark vermischt"
-        },
-        "desc": "Verfall ist eine Frage der Länge, Verschmutzung eine der Vermischung. Protokolle gescheiterter Versuche und verworfene Ansätze bleiben liegen — und ein falscher Zwischenschluss wird weiter als Tatsache behandelt.",
-        "note": "Das ist der eigentliche Grund für Subagenten — nicht Tempo, sondern dass jede Teilaufgabe aus einem sauberen Kontext startet.",
-        "noteMixed": "Viele Züge häufen sich in wenigen Sitzungen. Die nächste Teilaufgabe in eine eigene Sitzung zu trennen hält falsche Zwischenstände davon ab, mitzureisen."
-      },
-      "agentHarness": {
-        "check": {
-          "model": "Modell",
-          "tools": "Werkzeuge",
-          "skills": "Skills",
-          "isolation": "Isolierung",
-          "permission": "Berechtigung"
-        },
-        "heading": "Agent-Harness",
-        "level": {
-          "bare": "Kaum ausgestattet",
-          "basic": "Basis",
-          "rich": "Gut ausgestattet"
-        },
-        "desc": "Sammelt alles, was das Modell umgibt — Werkzeuge, Berechtigung, Isolierung, Skills, Regeln. Dasselbe Modell liefert je nach dieser Schicht sehr unterschiedliche Ergebnisse; dorthin hat sich der Wettbewerb verlagert.",
-        "note": "Benchmark-Zahlen tragen eine Scaffold-Inflation in sich — dasselbe Modell schneidet unter einer anderen Harness anders ab. Vergleichen Sie also nicht nur Modelle, sondern Harnesses."
-      },
-      "scaffold": {
-        "level": {
-          "partial": "Teilweise",
-          "none": "Kein Gerüst",
-          "full": "Regeln und Skills"
-        },
-        "check": {
-          "rules": "Regelzeichen",
-          "skills": "Skills",
-          "maxTurns": "Zugbegrenzung"
-        },
-        "heading": "Gerüst",
-        "desc": "Zeigt, wie viel Klebstoff um das Modell herum geschrieben ist — Regeln, Skills, Zugbegrenzungen. Die Fortschritte langlaufender Agenten kommen weit mehr aus besserem Scaffolding als aus einem klügeren Modell.",
-        "note": "Papers sagen „Scaffold“, Produkte sagen „Harness“. Dasselbe mit anderem Beiklang — einmal Codestruktur, einmal Betrieb."
-      },
-      "agentLoop": {
-        "check": {
-          "turns": "Züge",
-          "cap": "Zugbegrenzung",
-          "avg": "Mittlerer Abstand"
-        },
-        "none": "keine",
-        "heading": "Agentenschleife",
-        "level": {
-          "capped": "Begrenzt",
-          "idle": "Läuft nicht",
-          "uncapped": "Keine Zugbegrenzung"
-        },
-        "desc": "Zeigt den Rhythmus der Schleife und ob sie eine Abbruchbedingung hat. Eine Schleife, die sich nicht selbst stoppen kann, macht Zugbegrenzung und Not-Aus zu Sicherheitseinrichtungen statt zu Komfort.",
-        "note": "Kosten und Zeit einer Schleifenrunde zu messen ist der Ausgangspunkt des Agentenbetriebs.",
-        "noteUncapped": "Es ist keine Zugbegrenzung gesetzt. Ohne sie stoppt die Schleife nur, wenn Sie es bemerken."
-      },
-      "handoffPacket": {
-        "level": {
-          "structured": "Strukturiert",
-          "none": "Keine Übergaben",
-          "free": "Freitext"
-        },
-        "check": {
-          "edges": "Task-Kanten",
-          "outgoing": "Ausgehend",
-          "templated": "Aus Vorlage"
-        },
-        "heading": "Übergabe",
-        "desc": "Zählt, wie Arbeit übergeben wird. Der echte Engpass in Multi-Agenten-Systemen ist die Übergabequalität, nicht die Modellstärke — als freier Text übergeben, geht jedes Mal etwas verloren.",
-        "note": "Legen Sie die Form des Pakets fest — Ziel, was versucht wurde, Einschränkungen, wo das Ergebnis liegt und was nicht bestätigt werden konnte."
-      },
-      "verifierCritic": {
-        "check": {
-          "critiques": "Kritik-Kanten",
-          "incoming": "Eingehende Kritik"
-        },
-        "heading": "Prüfer und Kritiker",
-        "level": {
-          "selfReview": "Nur Selbstprüfung",
-          "separated": "Getrennt"
-        },
-        "desc": "Prüft, ob schreibende und prüfende Seite getrennt sind. Ein Kritiker mit denselben blinden Flecken wie der Autor stempelt schlechte Antworten einfach ab.",
-        "note": "Ausführbare Prüfung — Tests, Lint, Typecheck — ist günstiger und genauer als ein Kritiker und gehört daher davor.",
-        "noteSelf": "Keine Kritik-Kante vorhanden. Das eigene Ergebnis selbst zu prüfen endet meist in formalem Durchwinken; es fängt entweder ein eigener Kritiker oder eine ausführbare Prüfung."
-      },
-      "hookLifecycle": {
-        "level": {
-          "normal": "Normal",
-          "busy": "Feuert oft",
-          "quiet": "Ruhig"
-        },
-        "heading": "Hook-Lebenszyklus",
-        "check": {
-          "events": "Erfasste Ereignisse",
-          "rate": "Pro Minute"
-        },
-        "desc": "Hooks kommen häufiger als erwartet — zu glauben, ein „Sitzungsende“-Hook feuere einmal, während er in jedem Zug feuert, ist ein Klassiker unter den Ursachen für außer Kontrolle geratenes Verhalten.",
-        "note": "Synchrones I/O in einem Hook hält den Agenten genau so lange an. Stattdessen einreihen und zusammenfassen."
-      },
-      "contextWindow": {
-        "heading": "Kontextfenster",
-        "check": {
-          "configured": "Konfiguriert",
-          "peak": "Spitzennutzung",
-          "headroom": "Spielraum"
-        },
-        "level": {
-          "deep": "Stark gefüllt",
-          "unused": "Nicht gemessen",
-          "shallow": "Gering gefüllt"
-        },
-        "desc": "Das Fenster ist eine Obergrenze, kein Ziel. „Dieses Modell hat 200k, also sind 150k in Ordnung“ folgt nicht — messen Sie Ihr wirksames Fenster mit echter Arbeit.",
-        "note": "Trauen Sie Needle-in-a-Haystack-Werten nicht — sie messen lexikalisches Nachschlagen, nicht die Schwierigkeit echter Langkontext-Arbeit."
-      },
-      "testTimeCompute": {
-        "check": {
-          "effort": "Denkaufwand",
-          "turns": "Züge",
-          "model": "Modell"
-        },
-        "heading": "Rechenaufwand zur Laufzeit",
-        "level": {
-          "baseline": "Grundwert",
-          "unmeasured": "Erhöht, ungemessen",
-          "invested": "Erhöht und genutzt"
-        },
-        "desc": "Denkzeit zu kaufen statt eines größeren Modells zahlt sich über einen breiten Bereich aus. Praktisch heißt das: Qualität, Latenz und Kosten wurden zu einem Regler, den man pro Aufgabe dreht.",
-        "note": "Den Regler bei leichter Arbeit aufzudrehen ist reine Verschwendung. Passen Sie die Denkmenge an die Schwierigkeit an."
-      },
-      "extendedThinking": {
-        "check": {
-          "effort": "Denkaufwand",
-          "context": "Genutzter Kontext"
-        },
-        "heading": "Erweitertes Denken",
-        "level": {
-          "off": "Aus",
-          "on": "An",
-          "onLoaded": "An, Fenster füllt sich"
-        },
-        "desc": "Langes Abwägen vor der Antwort hilft bei Planung, Fehlersuche und mehrstufigem Schließen — aber Denk-Tokens belegen ebenfalls das Fenster und werden abgerechnet.",
-        "note": "Ob man das Denken zeigt, ist eine Produktentscheidung — es schafft Vertrauen, doch falsche Zwischenvermutungen lesen sich wie feststehende Schlüsse.",
-        "noteOn": "Tiefes Denken ist an und das Fenster füllt sich. In langen Sitzungen wird das Entfernen alter Denkblöcke von der Option zur Notwendigkeit."
-      },
-      "reflexion": {
-        "check": {
-          "reports": "Arbeitsberichte",
-          "learned": "Erfasste Lehren"
-        },
-        "heading": "Selbstkritik (Reflexion)",
-        "level": {
-          "none": "Keine Berichte",
-          "noLessons": "Keine Lehren erfasst",
-          "accruing": "Lehren sammeln sich"
-        },
-        "desc": "Selbstkritik wirkt, wenn sie auf einem ausführbaren Signal wie einem fehlgeschlagenen Test ruht. Reflexion ohne Beleg ist plausibles Rauschen.",
-        "note": "Dieses Muster wirkt am besten beim Programmieren, wo Tests als objektiver Richter dienen. Fehlt ein solcher Richter, fällt sein Wert stark ab."
-      },
-      "contextEngineering": {
-        "heading": "Kontext-Engineering",
-        "check": {
-          "applied": "Angewandte Muster",
-          "tools": "Geladene Werkzeuge",
-          "memory": "Gedächtnis-Injektionen"
-        },
-        "level": {
-          "default": "Nur Standardwerte",
-          "designed": "Bewusst gestaltet",
-          "partial": "Teilweise angewandt"
-        },
-        "desc": "Zählt, wie viele der Kontextmuster dieser Agent tatsächlich nutzt — Index statt Einspeisung, Werkzeuge ausdünnen, aktives Suchen, Denkmenge steuern.",
-        "note": "Die Frage hat sich von „wie formuliere ich den Prompt“ zu „was zeige ich ihm“ verschoben."
-      },
-      "agentSkills": {
-        "level": {
-          "loaded": "Skills angehängt",
-          "none": "Keine Skills"
-        },
-        "check": {
-          "count": "Skills",
-          "idleCost": "Dauerkosten (ca. Tokens)"
-        },
-        "heading": "Agent-Skills",
-        "desc": "Skills liefern prozedurales Wissen als Dateien statt als Prompt-Text. Namen und Beschreibungen laden beim Start, Inhalte nur bei Relevanz — dutzende Skills erhöhen die Dauerkosten daher kaum.",
-        "note": "Wiederverwendbare Abläufe — Deployment-Schritte, Review-Checklisten, interne API-Nutzung — gehören in versionierte Dateien, nicht in einen Prompt."
-      },
-      "trajectoryEval": {
-        "check": {
-          "turns": "Züge",
-          "sessions": "Sitzungen",
-          "density": "Züge pro Sitzung",
-          "edges": "Task-Kanten"
-        },
-        "heading": "Trajektorien-Bewertung",
-        "level": {
-          "short": "Direkter Weg",
-          "long": "Langer Weg",
-          "none": "Nichts zu bewerten"
-        },
-        "desc": "Bewertet, wie die Antwort zustande kam, nicht die Antwort selbst. Dasselbe Ergebnis nach 3 und nach 40 Werkzeugaufrufen sind völlig verschiedene Systeme, und eine reine Ergebnisbewertung sieht diesen Unterschied nicht.",
-        "note": "Die Reihenfolge der Werkzeugaufrufe zeigt verschwenderische oder riskante Muster, bevor sie in den Produktivbetrieb gelangen."
-      },
-      "eval": {
-        "check": {
-          "repeated": "Wiederholt",
-          "unique": "Verschiedene Anweisungen"
-        },
-        "heading": "Bewertung",
-        "level": {
-          "none": "Noch keine Anweisungen",
-          "single": "Nur Einzelläufe",
-          "repeated": "Wiederholte Läufe"
-        },
-        "desc": "Agenten sind nicht deterministisch, ein einzelner Lauf ist also kein Beleg — dieselbe Eingabe muss als Verteilung betrachtet werden. Hier wird gezählt, wie oft eine Anweisung tatsächlich wiederholt wurde.",
-        "note": "Was deterministisch prüfbar ist — Format, Schema, Pflichtfelder, verbotene Wörter — ist im Code günstiger und genauer als über ein Richtermodell."
-      },
-      "goldenSet": {
-        "level": {
-          "empty": "Nichts angesammelt",
-          "accruing": "Sammelt sich",
-          "partial": "Nur Karten"
-        },
-        "check": {
-          "lessons": "Erfasste Lehren",
-          "cards": "Gedächtniskarten"
-        },
-        "heading": "Golden Set",
-        "desc": "Repräsentativität zählt mehr als Größe, und echte frühere Fehlschläge müssen enthalten sein. Ein nur aus Erfolgen gebautes Set vergibt immer die volle Punktzahl.",
-        "note": "Einen Fehlschlag sofort ins Set aufzunehmen ist die billigste Qualitätsinfrastruktur überhaupt — ein Vorfall wird zu einem dauerhaften Regressionstest."
-      },
-      "regressionSuite": {
-        "level": {
-          "none": "Nichts angesammelt",
-          "accruing": "Sammelt sich"
-        },
-        "check": {
-          "lessons": "Erfasste Lehren",
-          "checkpoints": "Prüfpunkte"
-        },
-        "heading": "Regressionssuite",
-        "desc": "Agenten machen frühere Korrekturen oft rückgängig, weil der Grund dafür nicht in ihrem Kontext steht. Ein Regressionstest übernimmt diese Erinnerung.",
-        "note": "Je feiner die Korrektur, desto eher braucht sie einen Test. „Änderst du das, bricht jenes“ überlebt als Test weit besser denn als Kommentar."
-      },
-      "traceSpan": {
-        "check": {
-          "sessions": "Sitzungen",
-          "spans": "Spans",
-          "costed": "Sitzungen mit Tokens"
-        },
-        "heading": "Trace und Span",
-        "level": {
-          "empty": "Keine Spans",
-          "shapeOnly": "Nur die Form",
-          "costed": "Mit Kosten"
-        },
-        "desc": "Ein Trace ist der gesamte Weg einer Anfrage, Spans sind seine Abschnitte. Modellaufrufe, Werkzeugläufe und Bewertungen werden allesamt zu Spans.",
-        "note": "Tragen Sie Tokens und Kosten auf den Spans mit, dann ist Observability zugleich Kostenanalyse."
-      },
-      "observability": {
-        "heading": "Observability",
-        "level": {
-          "partial": "Teilweise",
-          "blind": "Keine Signale",
-          "full": "Logs, Sitzungen, Berichte"
-        },
-        "check": {
-          "turns": "Züge",
-          "sessions": "Sitzungen",
-          "reports": "Berichte"
-        },
-        "desc": "Nachträglich rekonstruieren zu können, „warum es das getan hat“, macht ein nicht deterministisches System reparierbar. Einen nicht reproduzierbaren Fehler kann man ohne Aufzeichnungen nicht beheben.",
-        "note": "Beobachtung kann die App umbringen — ein synchroner Schreibvorgang bei jedem Werkzeugereignis wird selbst zum Engpass. Sampling, Entprellen und Bündeln sind die Grundmittel."
-      },
-      "llmAsJudge": {
-        "check": {
-          "critique": "Kritik-Kanten",
-          "human": "Menschliche Prüfungen"
-        },
-        "heading": "LLM als Richter",
-        "level": {
-          "none": "Keine Bewertung",
-          "model": "Modell-Kritik",
-          "human": "Menschliche Prüfung"
-        },
-        "desc": "Ein starkes Modell als Bewerter ist ein praktischer Kompromiss, wo es keine korrekte Zeichenfolge gibt. Es hat bekannte Verzerrungen — es bevorzugt längere Antworten, ist gegenüber der eigenen Familie milde und lässt sich von der Reihenfolge beeinflussen.",
-        "note": "Ohne Abgleich der Bewertung mit menschlicher Bewertung gibt es keine Möglichkeit zu erkennen, dass der Richter selbst falsch liegt."
-      },
-      "evalDrivenDevelopment": {
-        "check": {
-          "reviews": "Prüfanfragen",
-          "withPoints": "Mit Prüfpunkten"
-        },
-        "heading": "Evaluationsgetriebene Entwicklung",
-        "level": {
-          "none": "Keine Prüfungen",
-          "partial": "Einige ohne Punkte",
-          "defined": "Punkte definiert"
-        },
-        "desc": "Erst die Bewertung bauen und dann auf deren Punktzahl hin verbessern. Der entscheidende Schritt war die Verbindung von Bewertung und Leitplanken — der Offline-Richter wird zum Laufzeit-Gate befördert.",
-        "note": "Einen Prompt ohne Bewertung dahinter zu ändern ist das Fahren ohne Führerschein dieses Fachs."
-      },
-      "hallucinationGuard": {
-        "check": {
-          "read": "Kann Quelle lesen",
-          "execute": "Kann Prüfungen ausführen"
-        },
-        "yes": "ja",
-        "no": "nein",
-        "heading": "Halluzinationsschutz",
-        "level": {
-          "blind": "Kann nicht prüfen",
-          "readOnly": "Kann nur lesen",
-          "verifiable": "Kann ausführen"
-        },
-        "desc": "Bei Agenten ist die übliche Form, eine API, Datei oder Funktion zu erfinden, die es nicht gibt. Typecheck, Lint und Tests fangen erfundene APIs sofort ab — weit verlässlicher, als das Modell selbst nachprüfen zu lassen.",
-        "note": "Veraltete Dokumente erzeugen selbstsichere Falschaussagen, die sich nicht durch Suche beheben lassen — die Suche holt das Falsche gewissenhaft herbei."
-      },
-      "worktreeIsolation": {
-        "level": {
-          "shared": "Gemeinsamer Baum",
-          "isolated": "Isoliert"
-        },
-        "check": {
-          "mode": "Isolierung",
-          "merge": "Merge-Schritt"
-        },
-        "heading": "Worktree-Isolierung",
-        "pending": "steht noch aus",
-        "notNeeded": "nicht zutreffend",
-        "desc": "Sobald mehrere Agenten gleichzeitig laufen, wird das zur notwendigen Infrastruktur — Branches allein lassen sich nicht doppelt auschecken, und zwei Agenten in einem Verzeichnis überschreiben einander.",
-        "note": "Isolieren ist die leichte Hälfte. Abhängigkeiten müssen je Baum installiert werden, Konflikte häufen sich beim Merge, und der schwierigere Teil ist der Integrationsentwurf.",
-        "noteIsolated": "Die Arbeit läuft auf einem eigenen Baum, ein Merge steht also noch bevor. Dort treffen die Konflikte alle auf einmal ein."
-      },
-      "vibeCoding": {
-        "check": {
-          "reviews": "Prüfungen",
-          "rules": "Regelzeichen",
-          "supervision": "Aufsichtssignale"
-        },
-        "heading": "Vibe Coding",
-        "level": {
-          "vibe": "Kaum Aufsicht",
-          "mixed": "Etwas Aufsicht",
-          "supervised": "Beaufsichtigt"
-        },
-        "desc": "Sein bestimmendes Merkmal ist, Ausgaben anzunehmen, ohne jede Zeile zu lesen. Es ist nicht verschwunden — sein Bereich verengte sich auf Prototypen, Erkundung und Wegwerfwerkzeuge.",
-        "note": "Der Maßstab ist schlicht, wie lange dieser Code leben muss — ein Tag heißt Vibe, drei Jahre heißen Spezifikation."
-      },
-      "agenticEngineering": {
-        "level": {
-          "partial": "Teilweise",
-          "raw": "Keine Aufsicht",
-          "engineered": "Beaufsichtigt und geprüft"
-        },
-        "check": {
-          "pillars": "Vorhandene Signale",
-          "reviews": "Prüfungen",
-          "critique": "Kritik-Kanten"
-        },
-        "heading": "Agentische Entwicklung",
-        "desc": "Hier liegt der Unterschied zwischen „mit KI programmieren“ und „Agenten betreiben“. Programmieren über Agenten wurde zum Standard von Fachleuten — allerdings mit mehr Aufsicht und Nachprüfung.",
-        "note": "Regeldokumente, Bewertungssets, Verlustschutz und Commit-Gates sind alles Vorabausgaben — ein Bruchteil dessen, was eine spätere Sanierung kostet."
-      },
-      "rag": {
-        "check": {
-          "recent": "Zuletzt",
-          "cards": "Abgerufene Karten",
-          "events": "Abrufe"
-        },
-        "heading": "RAG",
-        "level": {
-          "none": "Keine Belege abgerufen",
-          "grounded": "Belege abgerufen"
-        },
-        "desc": "Zeigt, welche Belege tatsächlich für diesen Agenten herangezogen wurden. In Vibisual ist dieser Kanal das Project Brain, deshalb zählt die Karte die angekommenen Karten, statt die Suchqualität zu erraten.",
-        "note": "Eine selbstsicher falsche Quelle lässt sich nicht durch Suche beheben — die Suche holt das Falsche gewissenhaft herbei."
-      },
-      "agenticRag": {
-        "level": {
-          "static": "Nur eingeschoben",
-          "none": "Kein Abruf",
-          "agentic": "Sucht aktiv"
-        },
-        "check": {
-          "searched": "Agentensuchen",
-          "pushed": "Beim Start eingeschoben"
-        },
-        "heading": "Agentisches RAG",
-        "desc": "Trennt Gedächtnis, das beim Start eingeschoben wurde, von Gedächtnis, das der Agent selbst gesucht hat. Nur Einschieben heißt, dasselbe Bündel fährt jedes Mal mit; aktives Suchen heißt, es kommt an, wenn es gebraucht wird.",
-        "note": "Eine feste Pipeline sucht einmal; ein Agent entscheidet, wann er mehr braucht, und geht zurück."
-      },
-      "grounding": {
-        "level": {
-          "partial": "Teilweise",
-          "ungrounded": "Nichts zum Fundieren",
-          "both": "Quelle und Belege"
-        },
-        "check": {
-          "source": "Kann Quelle lesen",
-          "memory": "Belegkarten"
-        },
-        "yes": "ja",
-        "no": "nein",
-        "heading": "Fundierung",
-        "desc": "Prüft, ob Aussagen an etwas Überprüfbares gebunden sind — die Fähigkeit, die Quelle zu lesen, und Belege, die tatsächlich ankamen.",
-        "note": "Die Datei zu lesen schlägt es, über die Datei erzählt zu bekommen. Fundierung macht aus einer Aussage etwas Prüfbares statt bloß Plausibles."
-      },
-      "agenticFileSearch": {
-        "level": {
-          "partial": "Teilweise",
-          "none": "Keine Suchwerkzeuge",
-          "full": "Grep und Glob"
-        },
-        "yes": "ja",
-        "no": "nein",
-        "heading": "Agentengesteuerte Dateisuche",
-        "check": {
-          "tools": "Suchwerkzeuge",
-          "read": "Kann Treffer lesen"
-        },
-        "desc": "In einer Codebasis schlägt das Durchgehen des Dateisystems meist den Aufbau eines Index — Indizes veralten, grep sieht immer den aktuellen Stand.",
-        "note": "Den Agenten erkunden zu lassen — Komplexität aus der Dateigröße, Zweck aus Namen zu schätzen — ist dieselbe Idee wie schrittweise Offenlegung."
-      },
-      "vectorDb": {
-        "level": {
-          "none": "Noch kein Gedächtnis",
-          "fits": "Dateien reichen noch",
-          "outgrown": "Dateien werden zu klein"
-        },
-        "check": {
-          "cards": "Gespeicherte Karten",
-          "storage": "Speicherung",
-          "limit": "Grenze für Dateien"
-        },
-        "heading": "Vektor-DB",
-        "files": "Markdown-Dateien",
-        "desc": "Die Größenordnung bestimmt die Speicherung. Einige hundert Einträge gehören in Dateien mit Textsuche; Hunderttausende rechtfertigen einen Vektorspeicher. Die Infrastruktur vor der Messung zu wählen ist die übliche Überkonstruktion.",
-        "note": "Vibisual hält das Gedächtnis bewusst in Dateien. Diese Karte existiert, um den Tag zu bemerken, an dem sich diese Wahl nicht mehr auszahlt."
-      },
-      "gracefulDegradation": {
-        "check": {
-          "mode": "Berechtigungsmodus",
-          "policy": "Ohne Antwort"
-        },
-        "heading": "Kontrollierter Funktionsabbau",
-        "level": {
-          "noGate": "Kein Gate zum Ausfallen",
-          "failSafe": "Fällt sicher aus",
-          "failOpen": "Fällt offen aus"
-        },
-        "open": "erlauben (fail-open)",
-        "safe": "blockieren (fail-safe)",
-        "desc": "Eine Leitplanke muss sicher ausfallen — scheitert die Beurteilung, lautet die Antwort blockieren, nicht durchlassen. Die Weggabelung ist hier, was bei unbeantworteter Freigabeabfrage geschieht.",
-        "note": "Fail-open ist eine legitime Wahl, wenn die Arbeit nicht stocken darf — es sollte aber eine Wahl sein und kein Standard, den niemand bemerkt hat.",
-        "noteOpen": "Wenn Sie weggehen, werden unbeantwortete Abfragen zu Freigaben. Für Arbeiten, bei denen das zählt, auf automatisches Blockieren umstellen."
-      },
-      "idempotency": {
-        "check": {
-          "cap": "Zugbegrenzung",
-          "risky": "Bei Wiederholung unsichere Werkzeuge"
-        },
-        "none": "keine",
-        "heading": "Idempotenz",
-        "level": {
-          "safe": "Bei Wiederholung sichere Werkzeuge",
-          "capped": "Riskant, aber begrenzt",
-          "unbounded": "Riskant und unbegrenzt"
-        },
-        "desc": "Agenten übertünchen Fehler mit Wiederholungen. Ein nicht idempotentes Werkzeug verdoppelt bei einem Neuversuch die Daten — deshalb gilt das als Grundanforderung und nicht als bewährte Praxis.",
-        "note": "Für nicht rückgängig machbare Werkzeuge macht ein Idempotenzschlüssel im Schema einen Neuversuch erst sicher."
-      },
-      "separationOfConcerns": {
-        "level": {
-          "mixed": "Gemischt",
-          "focused": "Fokussiert",
-          "broad": "Breit und ungeteilt"
-        },
-        "check": {
-          "sessions": "Sitzungen",
-          "breadth": "Werkzeugbreite"
-        },
-        "heading": "Trennung der Zuständigkeiten",
-        "desc": "Wenn ein Agent an einer Stelle ändert, ist der Radius der Nebenwirkungen die Größe des Vorfalls. Getrennt gehalten, endet eine falsche Änderung innerhalb ihrer Grenze.",
-        "note": "Die Agentenfassung dieses Prinzips ist kontextzentrierte Zerlegung — der Agent, dem ein Feature gehört, besitzt auch dessen Tests."
-      },
-      "eventDriven": {
-        "heading": "Ereignisgesteuert",
-        "check": {
-          "total": "Ereignisse gesamt",
-          "queued": "Aus der Warteschlange",
-          "direct": "Direkt"
-        },
-        "level": {
-          "silent": "Keine Ereignisse",
-          "flowing": "Ereignisse fließen"
-        },
-        "desc": "Vibisual selbst läuft auf Hook-Ereignissen, deshalb zeigt diese Karte, wie viel Signal tatsächlich durch diesen Agenten floss und woher es kam.",
-        "note": "Lose Kopplung und unabhängiges Scheitern sind der Sinn — sie bedeuten aber auch, dass niemand meldet, wenn ein Ereignis verloren ging."
-      },
-      "backpressure": {
-        "level": {
-          "idle": "Untätig",
-          "flowing": "Im Fluss",
-          "saturated": "Gesättigt"
-        },
-        "check": {
-          "running": "Läuft gerade",
-          "queued": "Anweisungen in Warteschlange"
-        },
-        "heading": "Gegendruck",
-        "desc": "Wenn der Zustrom die Verarbeitung überholt, wächst die Warteschlange; bleibt sie sich selbst überlassen, wird der Überlauf entweder still verworfen oder bringt alles zum Stehen.",
-        "note": "Viele Zweige gleichzeitig sind kein Durchsatz, wenn sie um denselben Kontext und dieselbe Prüfaufmerksamkeit konkurrieren."
-      },
-      "durableExecution": {
-        "check": {
-          "turns": "Züge",
-          "sessions": "Sitzungen",
-          "guarantee": "Garantie"
-        },
-        "heading": "Dauerhafte Ausführung",
-        "level": {
-          "checkpointed": "Mit Checkpoints",
-          "fresh": "Nichts fortzusetzen"
-        },
-        "core": "Kern-Checkpoints",
-        "desc": "Lange Aufgaben scheitern häufiger an Abstürzen mitten drin als an fehlendem Können. Den Zustand regelmäßig zu sichern heißt, nicht von vorn beginnen zu müssen.",
-        "note": "Vibisual garantiert diese Schicht im Kern, ein Agent muss sich also nie einen eigenen Wiederaufnahmepfad bauen."
-      },
-      "atomicWrite": {
-        "yes": "ja",
-        "no": "nein",
-        "heading": "Atomares Schreiben",
-        "check": {
-          "agent": "Agent schreibt",
-          "core": "Kern-Zustand"
-        },
-        "level": {
-          "readOnly": "Agent schreibt nicht",
-          "agentWrites": "Agent schreibt Dateien"
-        },
-        "guaranteed": "atomar + Backups",
-        "desc": "Mitten im Schreiben zu sterben hinterlässt eine halb geschriebene Datei, und die stille Beschädigung beginnt in dem Moment, in dem der nächste Start sie als gültig liest. In eine temporäre Datei schreiben und atomar tauschen ist der Standard.",
-        "note": "Der Kern schreibt seine Checkpoints und Einstellungen atomar mit Backup-Generationen. Dateien, die der Agent selbst schreibt, fallen nicht unter diese Garantie."
-      },
-      "promptInjection": {
-        "yes": "ja",
-        "no": "nein",
-        "heading": "Prompt-Injection",
-        "check": {
-          "paths": "Eingangswege",
-          "web": "Erreicht das Web"
-        },
-        "level": {
-          "sealed": "Keine Eingangswege",
-          "narrow": "Enger Eingang",
-          "wide": "Weiter Eingang"
-        },
-        "desc": "Zählt die Wege, über die fremder Text zu diesem Agenten gelangt. Die Ursache ist strukturell — ein Modell empfängt Anweisungen und Daten im selben Token-Strom und kann sie prinzipiell nicht unterscheiden.",
-        "note": "Jeder externe Text, den ein Agent liest, ist ein möglicher Weg — Suchergebnisse, geöffnete Dateien, READMEs von Abhängigkeiten, selbst das, was ein Werkzeug zurückgab."
-      },
-      "owaspAsi": {
-        "level": {
-          "clear": "Nichts markiert",
-          "some": "Einige Hinweise",
-          "many": "Mehrere Hinweise"
-        },
-        "check": {
-          "trifecta": "Abflusspfad",
-          "radius": "Explosionsradius",
-          "flags": "Ausgelöste Hinweise"
-        },
-        "heading": "OWASP ASI Top 10",
-        "desc": "Gruppiert die früheren Beurteilungen entlang agentenspezifischer Risikoachsen neu. Auffällig ist, dass mehr als die Hälfte dieser Risiken in der Harness und nicht im Modell liegt — deshalb lässt sich das selbst prüfen.",
-        "note": "Zielentführung, Werkzeugmissbrauch, Identität, Gedächtnisvergiftung und außer Kontrolle geratene Agenten sind die Punkte, die in der Praxis am häufigsten auftreten."
-      },
-      "goalHijack": {
-        "check": {
-          "rules": "Dauerregeln",
-          "plan": "Schriftlicher Plan"
-        },
-        "yes": "ja",
-        "no": "nein",
-        "heading": "Zielentführung",
-        "level": {
-          "loose": "Ziel nicht fixiert",
-          "partial": "Teilweise fixiert",
-          "anchored": "Fixiert"
-        },
-        "desc": "Ist das Ziel selbst ausgetauscht, hilft jeder weitere Schritt eigenständig dem Angreifer — und weil das Verhalten nach außen stimmig bleibt, merkt es kaum jemand.",
-        "note": "Halten Sie das Ziel an einer Stelle, an der es nicht umgeschrieben werden kann — legen Sie Nutzeranweisungen und Werkzeugergebnisse nicht auf dieselbe Ebene."
-      },
-      "memoryPoisoning": {
-        "level": {
-          "none": "Noch kein Gedächtnis",
-          "clean": "Nichts offen",
-          "review": "Beurteilung ausstehend"
-        },
-        "check": {
-          "contested": "Strittig",
-          "needsCheck": "Als veraltet markiert",
-          "cards": "Gespeicherte Karten"
-        },
-        "heading": "Gedächtnisvergiftung",
-        "desc": "Gewöhnliche Injection endet mit der Sitzung; vergiftetes Gedächtnis bleibt und infiziert künftige. Schlimmer noch: Es genießt mehr Vertrauen, weil es aussieht wie etwas, das das System gelernt hat.",
-        "note": "Der Weg ins Gedächtnis braucht Herkunftsprüfung — eine Tatsache aus Nutzeraussagen und eine aus einem externen Dokument gelesene Zeile dürfen nicht mit gleicher Vertrauensstufe gespeichert werden."
-      },
-      "agenticSupplyChain": {
-        "level": {
-          "builtin": "Nur eingebaut",
-          "skills": "Skills angehängt",
-          "external": "Externe Werkzeuge"
-        },
-        "check": {
-          "external": "Externe Werkzeuge",
-          "skills": "Skills",
-          "builtin": "Eingebaute Werkzeuge"
-        },
-        "heading": "Agentische Lieferkette",
-        "desc": "Kompromittierung kommt über das, wovon der Agent abhängt — bösartige Werkzeuge, nicht vertrauenswürdige Server, manipulierte Skill-Dateien. Eine Werkzeugbeschreibung ist selbst ein Prompt, also kann ein feindliches Werkzeug Anweisungen darin verstecken.",
-        "note": "Behandeln Sie einen externen Werkzeugserver als Übertragung von Befugnis, nicht als Abhängigkeit — Quelle und Version festnageln und bei Änderungen erneut prüfen."
-      },
-      "cascadingFailure": {
-        "heading": "Kaskadenausfall",
-        "check": {
-          "chain": "Kettenlänge",
-          "gated": "Kontrollierte Übergaben"
-        },
-        "level": {
-          "single": "Keine Kette",
-          "chained": "Verkettet",
-          "unchecked": "Lang und ungeprüft"
-        },
-        "desc": "Eine falsche Ausgabe wird zur nächsten Eingabe und wird bei jedem Schritt zu etwas Selbstsichererem verfeinert. Wo ein menschliches Team fragen würde „stimmt das?“, nimmt ein Agent es als Prämisse.",
-        "note": "Reichen Sie Unsicherheit über jede Grenze mit und halten Sie in der Übergabe ein Feld „konnte nicht bestätigt werden“. Selbstzufuhr — ein Agent, der sein eigenes Signal konsumiert — ist die extreme Form davon."
-      },
-      "agentCard": {
-        "level": {
-          "partial": "Teilweise",
-          "thin": "Dünn",
-          "complete": "Gut spezifiziert"
-        },
-        "heading": "Agent-Karte",
-        "check": {
-          "filled": "Ausgefüllte Felder",
-          "purpose": "Zweck",
-          "limits": "Grenzen"
-        },
-        "stated": "angegeben",
-        "unstated": "nicht angegeben",
-        "set": "gesetzt",
-        "unset": "nicht gesetzt",
-        "desc": "Eine maschinenlesbare Angabe dessen, was ein Agent kann. Erst wenn Kosten, Latenz und Fehlermodi ebenfalls festgehalten sind, taugt sie zur automatischen Auswahl.",
-        "note": "Nicht jeder Agent braucht einen vollen Discovery-Stack — für einfache Aufbauten genügt eine kurze Anweisungsdatei."
-      },
-      "toolSearch": {
-        "level": {
-          "lean": "Schlank",
-          "all": "Alles geladen",
-          "most": "Fast alles geladen"
-        },
-        "check": {
-          "loaded": "Geladen",
-          "cost": "Schema-Tokens"
-        },
-        "heading": "Werkzeugsuche",
-        "desc": "Statt jede Werkzeugdefinition zu laden, suchen und nur die benötigte laden. Ein Werkzeug hundertmal aufzurufen häuft hundert Zwischenergebnisse im Fenster; als Code ausgeführt kommt nur das Endergebnis zurück.",
-        "note": "Die Weiterentwicklung von „weniger Werkzeuge geben“ ist „nach Werkzeugen suchen lassen“. Je größer der Katalog, desto größer der Gewinn."
-      },
-      "compactionWatch": {
-        "level": {
-          "unknown": "Unbekannt",
-          "far": "Noch Spielraum",
-          "near": "Kompaktierung nah"
-        },
-        "check": {
-          "fill": "Fenster gefüllt",
-          "sessions": "Sitzungen"
-        },
-        "heading": "Kompaktierungs-Überwachung",
-        "desc": "Vergangene Züge in eine Zusammenfassung zu falten ist das Standardmittel für lange Arbeit. Das Können liegt darin zu wissen, wo der Verlust entsteht — Zusammenfassungen verwerfen zuerst konkrete Bezeichner.",
-        "note": "Dateipfade, Funktionsnamen, Fehlercodes und die Gründe hinter Entscheidungen sind genau das, was eine Zusammenfassung verwirft und was Sie später brauchen.",
-        "noteNear": "Das Fenster füllt sich. Schreiben Sie Entscheidungen und Pfade in eine Datei, bevor die automatische Kompaktierung läuft."
-      },
-      "contextEditing": {
-        "check": {
-          "turns": "Züge",
-          "fill": "Fenster gefüllt"
-        },
-        "heading": "Kontextbearbeitung",
-        "level": {
-          "ok": "Vorerst in Ordnung",
-          "fresh": "Nichts zu kürzen",
-          "due": "Kürzen lohnt sich"
-        },
-        "desc": "Statt zusammenzufassen nur alte Werkzeugaufrufe, Ergebnisse und Denkblöcke nach Regeln entfernen. Es ist die sicherste, verlustärmste Form der Verdichtung — den Originaltext eines erledigten Werkzeugergebnisses muss man selten wiedersehen.",
-        "note": "Probieren Sie das vor der Kompaktierung — es ist günstiger und weniger riskant, und serverseitige Umsetzungen brechen den Prompt-Cache-Präfix nicht mehr."
-      },
-      "specDriven": {
-        "level": {
-          "partial": "Teilweise",
-          "prompt": "Prompt-getrieben",
-          "spec": "Spezifikationsgetrieben"
-        },
-        "check": {
-          "signals": "Vorhandene Signale",
-          "rules": "Dauerregeln",
-          "plan": "Schriftlicher Plan"
-        },
-        "yes": "ja",
-        "no": "nein",
-        "heading": "Spezifikationsgetriebene Entwicklung",
-        "desc": "Eine versionierte Spezifikation wird zur Quelle der Wahrheit, aus der sich Implementierung, Tests und Dokumentation ableiten. Nimmt die Spezifikation die Mehrdeutigkeit, arbeitet der Agent als schneller Schreibkraft statt als Entscheider.",
-        "note": "Das ersetzt TDD nicht — TDD legt Verhalten fest, SDD legt Anforderungen und Einschränkungen fest. Beide werden zusammen genutzt."
-      },
-      "preCommitGate": {
-        "yes": "ja",
-        "no": "nein",
-        "heading": "Pre-Commit-Gate",
-        "check": {
-          "canCommit": "Kann git ausführen",
-          "gate": "Repository-Gate"
-        },
-        "level": {
-          "cannot": "Kein Commit möglich",
-          "gated": "Commit möglich, mit Gate"
-        },
-        "repoHook": "Commit-Hook aktiv",
-        "desc": "Agenten committen leicht und häufig, und vorher zu blockieren ist weit günstiger als hinterher zu prüfen. Geheimnisabfluss ist die eine Kategorie, in der es keine nachträgliche Reaktion gibt — einmal gepusht, ist es offengelegt.",
-        "note": "Ein Gate, das der Agent umgehen kann, ist kein Gate. Die Mindestausstattung sind Secret-Scan, Lint und Typecheck sowie gesperrte Pfade."
-      },
-      "ssotDrift": {
-        "check": {
-          "rules": "Dauerregeln",
-          "memory": "Aktuelle Wahrheiten",
-          "sources": "Quellen"
-        },
-        "yes": "ja",
-        "no": "nein",
-        "heading": "SSOT-Drift",
-        "level": {
-          "single": "Einzige Quelle",
-          "two": "Zwei Quellen",
-          "many": "Mehrere Quellen"
-        },
-        "desc": "Zählt, aus wie vielen Stellen dieser Agent seine Vorgaben bezieht. Steht dieselbe Tatsache an zwei Orten, driften sie auseinander, und ein Modell zitiert beide, als wäre jede aktuell.",
-        "note": "Menschen überfliegen eine veraltete Zeile mit dem Gedanken „das ist alt“. Modelle zitieren sie mit Überzeugung."
-      },
-      "adrPresence": {
-        "level": {
-          "none": "Nichts erfasst",
-          "recorded": "Erfasst"
-        },
-        "heading": "Entscheidungsprotokolle",
-        "check": {
-          "decided": "Festgelegte Entscheidungen",
-          "lessons": "Lehren"
-        },
-        "desc": "Ohne Aufzeichnung dessen, was verworfen wurde und warum, schlägt ein Agent guten Glaubens einen längst verworfenen Entwurf erneut vor. Ein Entscheidungsprotokoll ist der Ort, an dem „tu das nicht“ mitsamt Begründung steht.",
-        "note": "Entscheidungen neben dem Code zu halten und aus der Anweisungsdatei darauf zu verweisen ist die übliche Anordnung."
-      },
-      "schemaEvolution": {
-        "check": {
-          "sessions": "Sitzungen",
-          "policy": "Feldrichtlinie"
-        },
-        "heading": "Schema-Evolution",
-        "level": {
-          "fresh": "Noch nichts gespeichert",
-          "persisted": "Persistiert"
-        },
-        "optional": "optional + Standardwerte",
-        "desc": "Felder optional mit Standardwerten hinzufügen, dann bleibt älterer gespeicherter Zustand für neueren Code lesbar. Vibisual hält seine Checkpoints an dieser Regel.",
-        "note": "Rückwärtskompatibilität zu brechen bedeutet, dass alte Checkpoints nicht mehr laden — genau dann wird aus einem Absturz verlorene Arbeit."
-      },
-      "mcpClientInventory": {
-        "level": {
-          "none": "Nur eingebaut",
-          "attached": "Externe angebunden"
-        },
-        "check": {
-          "servers": "Externe Werkzeuge",
-          "builtin": "Eingebaute Werkzeuge"
-        },
-        "heading": "MCP-Inventar",
-        "desc": "Zählt externe Werkzeugserver, die an diesem Agenten hängen. Eine Installationszeile kann beliebigen Code und Werkzeugdefinitionen hereinholen, deshalb lohnt schon die Liste selbst eine Prüfung.",
-        "note": "Ein nicht vertrauenswürdiger Server ist ein Lieferkettenrisiko, keine Bequemlichkeit. Quelle und Version festnageln und bei Änderungen erneut prüfen."
-      },
-      "a2a": {
-        "check": {
-          "edges": "Task-Kanten",
-          "sessions": "Sitzungen",
-          "crossOrg": "Organisationsübergreifend"
-        },
-        "none": "keine",
-        "heading": "A2A",
-        "level": {
-          "internal": "Delegiert intern",
-          "solo": "Arbeitet allein"
-        },
-        "desc": "MCP verbindet einen Agenten mit der Außenwelt; A2A ist, wie Agenten miteinander arbeiten. Es sind verschiedene Ebenen, „welches von beiden“ ist also die falsche Frage.",
-        "note": "Für Subagenten innerhalb eines Prozesses ist dieses Protokoll überdimensioniert — sein Zweck ist Zusammenarbeit über Organisationsgrenzen hinweg."
-      },
-      "acpAnp": {
-        "check": {
-          "authority": "Befugnis",
-          "audit": "Prüfpfad"
-        },
-        "heading": "ACP und ANP",
-        "level": {
-          "none": "Beides fehlt",
-          "governed": "Befugnis und Audit",
-          "partial": "Teilweise gesetzt"
-        },
-        "desc": "Die gemeinsame Grenze von Interoperabilitätsprotokollen ist Governance: Sie standardisieren, was sich womit verbinden kann, nicht wer was tun darf.",
-        "note": "Ein Protokoll zu übernehmen liefert kein Berechtigungs- oder Auditdesign — das muss weiterhin separat gebaut werden."
-      },
-      "agentsMd": {
-        "level": {
-          "none": "Keine Dauerregeln",
-          "long": "Lang",
-          "short": "Gut bemessen"
-        },
-        "check": {
-          "chars": "Regelzeichen",
-          "threshold": "Schwelle"
-        },
-        "heading": "Agent-Anweisungen",
-        "desc": "Eine einzelne Anweisungsdatei im Repository-Wurzelverzeichnis wurde zum De-facto-Standard, aber länger ist nicht besser — jenseits von etwa 150 Zeilen fällt der Ertrag stark, während die Inferenzkosten weiter steigen.",
-        "note": "Kurze Anweisungen mit Links zu Details sind die richtige Form. Ganze Dokumente einzufügen erzeugt Kontextverfall.",
-        "noteLong": "Diese Regeln sind lang genug, um in jedem Zug zu kosten, während die späteren Teile zuerst verwässern. Verlagern Sie Details nach außen und verlinken Sie sie."
-      },
-      "computerUse": {
-        "heading": "Computernutzung",
-        "check": {
-          "captures": "Capture-Blasen",
-          "screens": "Vollbild-Aufnahmen"
-        },
-        "level": {
-          "none": "Keine Aufnahmen",
-          "watching": "Beobachtet ein Fenster",
-          "controlling": "Ganzer Bildschirm erfasst"
-        },
-        "desc": "Software über den Bildschirm zu bedienen erreicht alles, was keine API hat, aber jeder Schritt hängt an visueller Verortung, was es langsam und brüchig macht.",
-        "note": "Was über CLI oder API geht, sollte nicht über die GUI laufen. Unumkehrbare Klicks gehören hinter eine menschliche Bestätigung."
-      },
-      "chunking": {
-        "level": {
-          "none": "Noch kein Gedächtnis",
-          "perCard": "Eine Karte pro Chunk"
-        },
-        "check": {
-          "cards": "Karten",
-          "unit": "Chunk-Einheit"
-        },
-        "heading": "Chunking",
-        "card": "eine Gedächtniskarte",
-        "desc": "Zu fein geteilt bricht der Zusammenhang; zu große Blöcke schleppen Unbeteiligtes mit. In Vibisual ist eine Gedächtniskarte ein Block, die Kartengröße ist also der Qualitätsregler.",
-        "note": "Weil Themen die Karten gruppieren, müssen Blockgrenzen hier nicht eigens abgestimmt werden — eine Idee pro Karte zu schreiben erledigt das."
-      },
-      "reranking": {
-        "level": {
-          "none": "Keine Injektionen",
-          "loose": "Über der Grenze",
-          "tight": "Innerhalb der Grenze"
-        },
-        "heading": "Neu-Rangfolge",
-        "check": {
-          "perEvent": "Karten pro Injektion",
-          "topK": "Obergrenze"
-        },
-        "desc": "Der erste Suchdurchgang wirft weit aus; die Neu-Rangfolge hebt das tatsächlich Passende nach oben. Vibisual speist nur die obersten Karten ein, diese Obergrenze ist also das Ergebnis der Neu-Rangfolge.",
-        "note": "Eine enge Obergrenze verhindert, dass die Suche selbst zu einer weiteren Quelle des Kontextverfalls wird."
-      },
-      "hybridSearch": {
-        "level": {
-          "none": "Noch kein Gedächtnis",
-          "keyword": "Stichwort-Achse"
-        },
-        "check": {
-          "cards": "Karten",
-          "axis": "Suchachse"
-        },
-        "heading": "Hybride Suche",
-        "keywordOnly": "nur Stichwörter",
-        "desc": "Stichwortsuche ist stark bei exakten Namen und Pfaden; semantische Suche ist stark bei abweichender Formulierung. Vibisual durchsucht das Gedächtnis nur auf der Stichwortachse — in dieser Größenordnung eine bewusste Wahl.",
-        "note": "Bei einigen hundert Einträgen kostet die zweite Achse mehr, als sie einbringt. Diese Karte existiert, um zu bemerken, wann das nicht mehr gilt."
-      },
-      "multiHop": {
-        "level": {
-          "none": "Keine Suchen",
-          "multi": "Mehrere Sprünge",
-          "single": "Ein Sprung"
-        },
-        "check": {
-          "hops": "Agentensuchen",
-          "total": "Alle Injektionen"
-        },
-        "heading": "Mehrstufige Suche",
-        "desc": "Fragen, die eine Suche nicht beantwortet, brauchen eine zweite Anfrage, die auf dem Gefundenen aufbaut. Hier wird gezählt, wie oft der Agent zurückgegangen ist.",
-        "note": "Zurückzugehen ist ein Zeichen, dass der Agent bemerkt hat, dass seine Belege unvollständig waren — meist ein gutes Zeichen, kein verschwendeter Schritt."
-      },
-      "queryRewriting": {
-        "level": {
-          "none": "Keine Suchen",
-          "empty": "Suchen ohne Treffer",
-          "effective": "Suchen fanden Treffer"
-        },
-        "heading": "Anfrage-Umschreibung",
-        "check": {
-          "searches": "Suchen",
-          "hits": "Gefundene Karten"
-        },
-        "desc": "Die Worte eines Menschen und die im Wissen gespeicherten Worte decken sich selten, die Anfrage muss also umgeformt werden. Hier schreibt der Agent seine eigenen Suchbegriffe, das Umschreiben passiert also auf seiner Seite.",
-        "note": "Suchen, die immer leer zurückkommen, bedeuten meist, dass gespeicherte und gefragte Formulierung sich nie überschneiden."
-      },
-      "benchmarkHygiene": {
-        "heading": "Benchmark-Hygiene",
-        "check": {
-          "own": "Eigene Kriterien"
-        },
-        "level": {
-          "none": "Keine eigenen Kriterien",
-          "own": "Eigene Kriterien wachsen"
-        },
-        "desc": "Öffentliche Werte drängen sich oben, Testdaten sickern ins Training, und dasselbe Modell schneidet unter einer anderen Harness anders ab. Nur ein aus der eigenen Domäne gebautes Set ist ein vertrauenswürdiges Signal.",
-        "note": "Die hier festgehaltenen Lehren und Prüfpunkte sind genau das Material, aus dem ein hauseigenes Bewertungsset entsteht."
-      },
-      "hybridWorkflow": {
-        "check": {
-          "spec": "Dauerregeln",
-          "plan": "Schriftlicher Plan"
-        },
-        "yes": "ja",
-        "no": "nein",
-        "heading": "Hybrider Arbeitsablauf",
-        "level": {
-          "free": "Improvisiert",
-          "leaning": "Einseitig geneigt",
-          "balanced": "Spezifikation plus Freiheit"
-        },
-        "desc": "Reine Spezifikation ist langsam, reine Improvisation bricht zusammen — wo Sie die Linie ziehen, ist das Können. Schnittstellen, Datenmodelle und Berechtigungsgrenzen verlangen eine Spezifikation; die Implementierung darin darf frei bleiben.",
-        "note": "Man kann innerhalb eines Projekts je nach Phase zwischen beiden wechseln — das ist der Sinn des Hybriden."
-      },
-      "rescueEngineering": {
-        "check": {
-          "turns": "Züge",
-          "prepaid": "Vorab-Absicherungen"
-        },
-        "heading": "Sanierungs-Engineering",
-        "level": {
-          "accruing": "Schulden wachsen",
-          "fresh": "Noch nichts",
-          "prepaid": "Vorab bezahlt"
-        },
-        "desc": "Schnell gebauten Code aufzuräumen wurde zu einem eigenen Markt. Die Kosten der Geschwindigkeit sind nicht verschwunden; sie wurden aufgeschoben und kommen mit Zinsen zurück.",
-        "note": "Regeldokumente, Bewertungssets, Verlustschutz und Commit-Gates sind alles Vorabausgaben — ein Bruchteil dessen, was die Sanierung später kostet."
-      },
-      "promptCaching": {
-        "check": {
-          "sessions": "Sitzungen",
-          "prefix": "Stabiler Präfix",
-          "tools": "Werkzeugdefinitionen"
-        },
-        "none": "keine",
-        "heading": "Prompt-Caching",
-        "level": {
-          "single": "Einzelne Sitzung",
-          "thin": "Kein stabiler Präfix",
-          "reusable": "Präfix wiederverwendbar"
-        },
-        "stable": "Dauerregeln",
-        "desc": "Denselben Präfix bei jeder Anfrage wiederzuverwenden senkt Kosten und Latenz deutlich, aber der Präfix muss Byte für Byte übereinstimmen — ein Zeitstempel oder eine Zufalls-ID vorn, und der ganze Cache bricht.",
-        "note": "Die Trefferquote steckt in der Antwort des Anbieters, diese Karte rät sie also nicht — sie prüft nur, ob der Präfix stabil genug für Caching ist. Die Regel lautet: Veränderliches nach hinten, Unveränderliches nach vorn."
-      },
-      "toolMisuse": {
-        "level": {
-          "noCommands": "Noch nichts ausgeführt",
-          "clean": "Nichts markiert",
-          "found": "Markierte Befehle"
-        },
-        "check": {
-          "commands": "Ausgeführte Befehle",
-          "last": "Zuletzt",
-          "hits": "Markiert"
-        },
-        "heading": "Werkzeug-Missbrauch",
-        "kind": {
-          "destructive": "unumkehrbares Löschen",
-          "forcePush": "Force-Push",
-          "remoteExec": "Fremdcode ausgeführt",
-          "permission": "Berechtigungen geöffnet",
-          "historyRewrite": "Verlauf umgeschrieben"
-        },
-        "desc": "Durchsucht die tatsächlich ausgeführten Befehle dieses Agenten nach unumkehrbaren Formen. Für Missbrauch braucht es keinen Einbruch — die Befugnis ist bereits erteilt, weshalb das Erteilen selbst Teil der Angriffsfläche ist.",
-        "note": "Ein Shell-Werkzeug zu geben und fünf benannte Befehle zu geben sind völlig verschiedene Risikoklassen. Auch Argumente brauchen Prüfung, nicht nur die Werkzeugliste.",
-        "noteFound": "Diese liefen bereits — diese Karte meldet, sie blockiert nicht. Blockiert wird an der Freigabeabfrage vor dem Werkzeugaufruf."
-      },
-      "dataExfiltration": {
-        "level": {
-          "noCommands": "Noch nichts ausgeführt",
-          "none": "Kein Ausgang genutzt",
-          "used": "Ausgangswege genutzt"
-        },
-        "check": {
-          "commands": "Ausgeführte Befehle",
-          "last": "Zuletzt",
-          "egress": "Ausgehend"
-        },
-        "heading": "Datenabfluss",
-        "kind": {
-          "push": "git push",
-          "upload": "Upload mit Inhalt",
-          "webhook": "Webhook",
-          "copy": "Fernkopie",
-          "secretsRead": "Geheimdatei gelesen"
-        },
-        "desc": "Sucht nach Befehlen, die Daten nach außen senden. Sie prüft keine Inhalte — es geht darum, ob ein Ausgangsweg tatsächlich genutzt wurde, denn was hinaus ist, lässt sich nicht zurückholen.",
-        "note": "Was als „nach außen senden“ zählt, ist heute weit gefasst — Commits, Pushes, API-Aufrufe, Bild-URL-Anfragen und Webhooks gehören alle dazu.",
-        "noteUsed": "Ist ein Inhalt einmal draußen, entfernt späteres Löschen ihn nicht aus Caches und Indizes. Prüfen Sie, was diese Befehle mitgenommen haben."
-      },
-      "mcpServer": {
-        "check": {
-          "scope": "Umfang",
-          "exposed": "Nach außen offen",
-          "client": "Anbindende Seite"
-        },
-        "no": "nein",
-        "heading": "MCP-Server",
-        "level": {
-          "notExposed": "Nicht offengelegt"
-        },
-        "outOfScope": "außerhalb des Umfangs",
-        "clientCard": "siehe MCP-Inventar",
-        "desc": "Zeigt, ob Vibisual selbst als Werkzeug offengelegt ist, an das sich externe Clients anhängen können. Ist es nicht — diese Offenlegung steht auf der Liste außerhalb des Umfangs, und diese Karte existiert, damit die Entscheidung sichtbar bleibt.",
-        "note": "Die Seite, auf der wir uns an externe Server anhängen, ist eine andere Frage und eine andere Karte. Diese meldet nur unsere eigene Offenlegung und schaltet sie nie ein."
-      },
-      "killSwitch": {
-        "label": "Alles stoppen",
-        "confirm": "Nochmal drücken",
-        "title": "Stoppt alle laufenden Sitzungen und bricht geplante Schleifen ab ({{count}} Agenten)",
-        "desc": "Fügt ein einzelnes Bedienelement hinzu, das alles Laufende stoppt. Es bricht zuerst geplante Schleifen ab und stoppt dann aktive Sitzungen — nur den aktuellen Lauf zu beenden überlässt es dem Scheduler, den nächsten zu starten."
-      },
-      "agentRegistry": {
-        "check": {
-          "owner": "Eigentümer",
-          "authority": "Befugnis",
-          "sessions": "Sitzungen",
-          "lastSeen": "Zuletzt gesehen"
-        },
-        "ours": "Vibisual (eigener Agent)",
-        "external": "Claude Code (Hook-Sitzung)",
-        "heading": "Agenten-Register",
-        "level": {
-          "unregistered": "Nicht im Register",
-          "partial": "Teilweise bekannt",
-          "registered": "Registriert"
-        },
-        "desc": "Beantwortet die praktische Frage, für die ein Register existiert — wer diesen Agenten erstellt hat, welche Befugnis er hält und wann er sich zuletzt bewegt hat. Lässt sich das nicht beantworten, laufen nicht registrierte Agenten schlicht unbemerkt.",
-        "note": "Gestalten Sie den Moment, in dem ein Agent abgeschaltet wird, nicht nur den seiner Erstellung — erzwungene Registrierung, ablaufende Zugangsdaten und Abschalten im Leerlauf sind Betriebsdisziplin, keine Sicherheitstechnik.",
-        "noteExternal": "Diese Sitzung wurde über Hooks registriert, ihr Lebenszyklus gehört also Claude Code. Wir sehen sie, aber wir stufen sie weder hoch noch außer Dienst."
-      },
       "searchPlaceholder": "Plug-ins durchsuchen",
       "clearSearch": "Suche löschen",
       "onlyEnabled": "Nur aktive",
@@ -2499,18 +1054,82 @@
         "brainInjections": "eingespeistes Wissen",
         "taskEdges": "Übergaben",
         "captureBubbles": "Aufnahmen",
-        "bashCommands": "Shell-Befehle"
+        "bashCommands": "Shell-Befehle",
+        "pluginFacts": "Durchsetzungsmesswerte"
       }
+    },
+    "login": {
+      "title": "Bei Claude anmelden",
+      "intro": "Vibisual führt Agenten mit deinem Claude-Code-Konto aus. Melde dich hier an — kein separates Terminal nötig.",
+      "modeSubscription": "Claude-Abo",
+      "modeSubscriptionDesc": "Pro-/Max-Tarif — die Nutzung wird auf deinen Tarif angerechnet.",
+      "modeConsole": "Anthropic Console",
+      "modeConsoleDesc": "API-Konto — Abrechnung pro Token.",
+      "emailLabel": "E-Mail (optional — füllt die Anmeldeseite vor)",
+      "starting": "Anmeldung wird gestartet…",
+      "openBrowser": "Bestätige die Anmeldung im Browser und komm dann hierher zurück.",
+      "openBrowserBtn": "Im Browser öffnen",
+      "copyUrl": "Link kopieren",
+      "copied": "Kopiert",
+      "codePrompt": "Füge den im Browser angezeigten Code ein.",
+      "codePlaceholder": "Autorisierungscode",
+      "sendCode": "Senden",
+      "failed": "Die Anmeldung wurde nicht abgeschlossen. Prüfe das Terminal unten und versuche es erneut.",
+      "noTerminal": "In diesem Fenster lässt sich kein Terminal starten. Melde dich in der Desktop-App an.",
+      "startFailed": "Der Anmeldevorgang konnte nicht gestartet werden.",
+      "showTerminal": "Terminal",
+      "success": "Angemeldet. Wird geschlossen…",
+      "recheck": "Erneut prüfen",
+      "later": "Später",
+      "stop": "Stoppen",
+      "start": "Anmelden"
     }
   },
   "ide": {
+    "imageAnnotate": {
+      "tool": {
+        "view": "Ansicht",
+        "rect": "Rechteck",
+        "ellipse": "Ellipse",
+        "arrow": "Pfeil",
+        "pen": "Stift",
+        "highlight": "Textmarker",
+        "mask": "Schwärzen",
+        "text": "Text",
+        "number": "Nummern-Marker"
+      },
+      "color": "Farbe",
+      "width": {
+        "thin": "Dünn",
+        "medium": "Mittel",
+        "thick": "Dick"
+      },
+      "undo": "Rückgängig (Strg+Z)",
+      "redo": "Wiederholen (Strg+Umschalt+Z)",
+      "clear": "Alle Markierungen löschen",
+      "download": "PNG herunterladen",
+      "saveReplace": "Speichern",
+      "saveAttach": "Markierte Kopie anhängen",
+      "textPlaceholder": "Eingeben und Enter drücken",
+      "hintPick": "Ein Tool wählen, um dieses Bild zu markieren, und dann als Anhang speichern.",
+      "hintDraw": "Auf dem Bild ziehen, um es zu markieren. Strg+Z macht die letzte Markierung rückgängig.",
+      "discardTitle": "Markierungen verwerfen und schließen?",
+      "discardCancel": "Weiter bearbeiten",
+      "discardConfirm": "Verwerfen und schließen",
+      "renderFailed": "Markiertes Bild konnte nicht gerendert werden.",
+      "noSession": "Keine Session vorhanden, um dieses Bild anzuhängen.",
+      "saveFailed": "Markiertes Bild konnte nicht gespeichert werden."
+    },
     "overlay": {
       "closeLabel": "IDE schließen",
+      "toggleNav": "Navigation ein-/ausblenden",
+      "toggleStatusBar": "Statusleiste ein-/ausblenden",
       "refreshLabel": "Sitzung neu laden",
       "maximizeLabel": "Maximieren",
       "restoreLabel": "Wiederherstellen",
       "resizeDock": "Dock anpassen",
       "customLabel": "Benutzerdefiniert",
+      "cmdLabel": "CMD",
       "hookLabel": "Hook",
       "renameHint": "Doppelklick zum Umbenennen (F2)",
       "renameInputLabel": "Agent-Name"
@@ -2522,7 +1141,38 @@
       "pastSessionsClose": "Schließen",
       "loading": "Laden...",
       "noClosedSessions": "Keine geschlossenen Sessions zum Wiederherstellen.",
-      "agentTabLabel": "Agent"
+      "agentTabLabel": "Agent",
+      "confirmCloseTitle": "Laufende Session schließen?",
+      "confirmCloseMessage": "Eine Session läuft noch. Schließen stoppt ihre Arbeit. Trotzdem schließen?",
+      "confirmCloseConfirm": "Schließen",
+      "confirmCloseCancel": "Abbrechen",
+      "hiddenRunning": "{{count}} laufende Tab(s) außer Sicht — zum Springen klicken"
+    },
+    "terminal": {
+      "unavailable": "Das eingebettete Terminal ist nur in der Vibisual-Desktop-App verfügbar.",
+      "unavailableExternal": "Aus Sicherheitsgründen ist das eingebettete Terminal bei externem (Internet-)Zugriff deaktiviert — im lokalen Netzwerk verwenden.",
+      "exited": "claude beendet (Code {{code}})",
+      "createFailed": "Terminal konnte nicht geöffnet werden: {{error}}",
+      "harnessNote": "Interaktive Session, die Sie steuern — Vibisual visualisiert und unterstützt die Harness-Verdrahtung, die Ausführungshoheit liegt jedoch bei Claude Code.",
+      "copy": "Kopieren",
+      "paste": "Einfügen",
+      "selectAll": "Alles auswählen",
+      "clear": "Löschen",
+      "find": "Suchen",
+      "findPlaceholder": "Im Terminal suchen",
+      "findNext": "Nächster Treffer",
+      "findPrev": "Vorheriger Treffer",
+      "findClose": "Suche schließen",
+      "fontIncrease": "Schriftgröße erhöhen",
+      "fontDecrease": "Schriftgröße verringern",
+      "fontReset": "Schriftgröße zurücksetzen",
+      "cards": {
+        "title": "Karten",
+        "empty": "Noch keine Karten",
+        "clear": "Karten leeren",
+        "collapse": "Karten einklappen",
+        "expand": "Karten anzeigen"
+      }
     },
     "mainArea": {
       "scrollPrompt": "Zum Prompt scrollen",
@@ -2534,12 +1184,29 @@
       "stopping": "Wird gestoppt…",
       "followUp": "Anfügen",
       "followUpTitle": "Folgenachricht senden, ohne den Agenten zu stoppen (Enter)",
+      "queuedTitle": "{{count}} wartend",
+      "queuedHint": "Merge sendet Folgenachrichten gemeinsam in einem Durchlauf. Warten gibt einer Nachricht einen eigenen Durchlauf; Jetzt unterbricht den laufenden Durchlauf.",
+      "queuedRemove": "Aus Warteschlange entfernen",
+      "mergedNotice": "Zusammen mit {{count}} Folgenachricht(en) gesendet",
+      "dispatchMode": {
+        "wait": "Warten",
+        "merge": "Merge",
+        "immediate": "Jetzt"
+      },
+      "dispatchModeTitle": {
+        "wait": "Warten — diese Nachricht nach Ende des aktuellen Durchlaufs in einem eigenen Durchlauf ausführen",
+        "merge": "Merge — diese Nachricht zusammen mit den folgenden Merge-Nachrichten in einem einzigen Durchlauf senden",
+        "immediate": "Jetzt — aktuellen Durchlauf stoppen und mit dieser Nachricht fortsetzen (der Verlauf bleibt erhalten)"
+      },
       "executing": "Wird ausgeführt…",
-      "readOnly": "Nur-Lesen — Session-Tab auswählen oder neue erstellen",
+      "readOnly": "Nur-Lesen — Hook-Bubbles spiegeln eine externe Session. Befehle über einen Custom-Agent senden.",
       "attachmentError": "ERR",
       "statusError": "Fehler",
       "statusCompleted": "Abgeschlossen",
       "slashHint": "↑↓ navigieren · Tab/Enter auswählen · Esc abbrechen",
+      "historyHintPrev": "Nochmal drücken für den letzten Befehl",
+      "historyHintNext": "Nochmal drücken für den ältesten Befehl",
+      "slashBuiltin": "integriert",
       "slashEmpty": "Keine passenden Skills",
       "slashLoading": "Skills werden geladen…",
       "ctxCopy": "Kopieren",
@@ -2547,8 +1214,16 @@
       "ctxQuoteReply": "Als Zitat antworten",
       "ctxSendAsPrompt": "Als neuen Prompt senden",
       "ctxSelectAll": "Alles auswählen",
+      "jumpToBottom": "Zum Ende scrollen",
       "ctxSelectionRequired": "Zuerst Text auswählen",
-      "ctxSaveToBrain": "Im Gehirn speichern"
+      "inputCtxCut": "Ausschneiden",
+      "inputCtxCopy": "Kopieren",
+      "inputCtxPaste": "Einfügen",
+      "inputCtxSelectAll": "Alles auswählen",
+      "ctxSaveToBrain": "Im Gehirn speichern",
+      "stopAll": "Alles stoppen",
+      "stopAllTitle": "Alles stoppen, was dieser Agent ausführt (andere Tabs + Hintergrund-Unteragenten)",
+      "stopSessionTitle": "Diese Session und die von ihr gestarteten Unteragenten stoppen (andere Session-Tabs laufen weiter)"
     },
     "askQuestion": {
       "title": "Frage",
@@ -2570,9 +1245,151 @@
     "activityBar": {
       "terminal": "Terminal",
       "files": "Dateien",
+      "context": "Kontextquellen",
       "results": "Ergebnisse",
       "skills": "Skills",
-      "bookmarks": "Lesezeichen"
+      "bookmarks": "Lesezeichen",
+      "sessionSummary": "Session-Zusammenfassungen",
+      "runningSubagents": "Laufende Unteragenten ({{count}})",
+      "loop": "Wiederholungsschleife",
+      "goal": "Ziel",
+      "debug": "Ausführen und Debuggen"
+    },
+    "debug": {
+      "title": "Ausführen und Debuggen",
+      "refresh": "Konfigurationen erneut suchen",
+      "noProject": "Ein Projekt öffnen, um dessen Run-Konfigurationen zu sehen.",
+      "debugMode": "Debug-Modus",
+      "debugModeHint": "Fügt demselben Befehl Debugger-Flags hinzu, damit ein Debugger andocken kann.",
+      "configs": "Run-Konfigurationen",
+      "noConfigs": "Keine Run-Konfigurationen gefunden. Eine hinzufügen in .vscode/launch.json, package.json-Skripte oder .vibisual/run.json. Unreal-Projekte (.uproject) werden automatisch erkannt.",
+      "scanned": "Durchsucht: {{files}}",
+      "run": "Ausführen",
+      "stop": "Stoppen",
+      "restart": "Erneut ausführen",
+      "output": "Ausgabe",
+      "running": "Läuft",
+      "exitCode": "Exit {{code}}",
+      "attachOnly": "Nur-Attach-Konfiguration — Vibisual startet diesen Prozess nicht.",
+      "notApplied": "Debugger-Flags konnten diesem Befehl nicht hinzugefügt werden. Er lief unverändert.",
+      "sendToAgent": "Fehler an Agent senden",
+      "sentToAgent": "An Agent gesendet",
+      "attachDebugger": "Debugger andocken",
+      "attachOk": "Andocken angefordert — der Editor läuft weiter, sobald Visual Studio übernimmt.",
+      "attachError": {
+        "editor-not-running": "Der Editor läuft noch nicht. Zuerst im Debug-Modus starten.",
+        "jit-debugger-not-found": "Der Just-in-Time-Debugger von Visual Studio (vsjitdebugger.exe) wurde nicht gefunden. Visual Studio mit der C++-Workload installieren.",
+        "not-unreal-project": "In diesem Projekt wurde keine .uproject gefunden.",
+        "unknown": "Debugger konnte nicht angedockt werden."
+      },
+      "failurePrompt": "Die Run-Konfiguration \"{{name}}\" ist mit Exit-Code {{code}} fehlgeschlagen. Hier sind der Befehl und das Ende der Ausgabe — bitte Ursache finden und beheben.",
+      "copy": "Kopieren",
+      "copied": "Kopiert",
+      "close": "Schließen",
+      "noOutput": "Noch keine Ausgabe.",
+      "source": {
+        "launchJson": ".vscode/launch.json",
+        "tasksJson": ".vscode/tasks.json",
+        "packageJson": "package.json",
+        "vibisual": ".vibisual/run.json",
+        "unreal": ".uproject",
+        "detected": "erkannt"
+      },
+      "note": {
+        "node": "Der Node.js-Debugger lauscht auf dem obigen Port (mit jedem DAP-Client andockbar).",
+        "python": "Erfordert debugpy in der Projektumgebung (pip install debugpy).",
+        "go": "Erfordert Delve (dlv) im PATH.",
+        "rust": "Rust benötigt zuerst eine gebaute Binärdatei — einen externen Debugger unten verwenden.",
+        "dotnet": ".NET-Debugging wird von einem externen Debugger unten übernommen.",
+        "java": "JDWP lauscht auf dem obigen Port.",
+        "unreal": "Der Editor startet mit -WaitForDebugger und pausiert, bis ein Debugger andockt — auf Debugger andocken klicken, dann Breakpoints in Visual Studio verwenden. Sein Log läuft in die Ausgabe.",
+        "unsupported": "Für diesen Befehl sind keine Debugger-Flags bekannt."
+      },
+      "mcpTitle": "Agent-Debug-Tools",
+      "mcpHint": "Vibisual liefert keinen eigenen Debugger. Dies sind vorhandene MCP-Server, die in diesen Agenten eingebunden sind, damit er selbst Breakpoints setzen und den Zustand prüfen kann.",
+      "mcpApplyHint": "Gilt für Sessions, die nach der Änderung gestartet werden (bereits laufende Sessions behalten ihre Tools).",
+      "docs": "Docs",
+      "mcp": {
+        "debugger": "Step-Debugger (7 Sprachen)",
+        "chromeDevtools": "Browser (Konsole · Netzwerk · Performance)",
+        "chromeDevtoolsRequires": "Chrome zuerst mit --remote-debugging-port=9222 starten.",
+        "unreal": "Unreal Engine",
+        "unrealRequires": "Das Remote Control API-Plugin (Port 30010) im Editor aktivieren.",
+        "lldb": "Nativ (LLDB)",
+        "lldbRequires": "Erfordert einen LLDB-Build mit MCP-Unterstützung im PATH."
+      },
+      "externalTitle": "Externe Debugger",
+      "externalHint": "Natives Debugging (Unreal C++, .NET) gehört zu diesen Tools — Vibisual kann deren Debug-Engines nicht mitliefern.",
+      "open": "Öffnen",
+      "notInstalled": "Nicht installiert",
+      "toggleBreakpoint": "Zum Umschalten eines Breakpoints in dieser Zeile klicken",
+      "waitingForDebugger": "Wartet auf einen Debugger",
+      "connectDebugger": "Debugger andocken",
+      "releaseWait": "Einfach fortfahren",
+      "releaseWaitHint": "Den Prozess laufen lassen, ohne einen Debugger anzudocken (er wartet pausiert auf einen).",
+      "detach": "Trennen",
+      "continue": "Fortsetzen",
+      "pause": "Pausieren",
+      "stepOver": "Step over",
+      "stepIn": "Step into",
+      "stepOut": "Step out",
+      "callStack": "Aufrufstapel",
+      "variables": "Variablen",
+      "watchPlaceholder": "Ausdruck auswerten",
+      "evaluate": "Auswerten",
+      "status": {
+        "connecting": "Verbinden",
+        "running": "Angedockt",
+        "paused": "Pausiert",
+        "ended": "Beendet",
+        "error": "Fehlgeschlagen"
+      },
+      "stoppedReason": {
+        "breakpoint": "Breakpoint",
+        "step": "Step",
+        "exception": "Ausnahme",
+        "pause": "von Ihnen pausiert",
+        "entry": "Einstiegspunkt",
+        "other": "gestoppt"
+      },
+      "sessionError": {
+        "no-adapter-for-runtime": "Für diese Laufzeitumgebung wissen wir noch nicht, wie angedockt wird.",
+        "delegated-runtime": "Diese Laufzeitumgebung wird von einem externen Debugger unten übernommen.",
+        "adapter-not-configured": "Für diese Laufzeitumgebung ist kein Debug-Adapter konfiguriert.",
+        "port-required": "Kein Debug-Port — erneut mit aktiviertem Debug-Modus ausführen.",
+        "pid-required": "Der anzudockende Prozess konnte nicht gefunden werden.",
+        "inspector-not-listening": "Am Inspector-Port lauscht noch nichts.",
+        "adapter-not-listening": "Der Debug-Adapter hat nicht mit dem Lauschen begonnen.",
+        "adapter-exited": "Der Debug-Adapter wurde beendet.",
+        "adapter-not-started": "Der Debug-Adapter konnte nicht gestartet werden.",
+        "no-free-port": "Kein freier Debug-Port verfügbar.",
+        "debuggee-terminated": "Der gedebuggte Prozess wurde beendet.",
+        "no-session": "Diese Debug-Session ist nicht mehr vorhanden."
+      },
+      "adapterTitle": "Debug-Adapter",
+      "adapterHint": "Breakpoints, Stepping und Variablen laufen über diese. Jeder gelistete ist frei für kommerzielle Nutzung — nur Microsofts Engines werden unten delegiert.",
+      "adapterReady": "Bereit",
+      "adapterMissing": "Nicht installiert",
+      "adapterDelegated": "Delegiert",
+      "runtime": {
+        "node": "Node.js · JavaScript · TypeScript",
+        "python": "Python",
+        "go": "Go",
+        "rust": "Rust · nativ",
+        "dotnet": ".NET · C#",
+        "java": "Java",
+        "unreal": "Unreal C++",
+        "other": "Andere"
+      },
+      "adapter": {
+        "node": "In Node.js integriert — nichts zu installieren.",
+        "python": "debugpy in der Projektumgebung installieren (pip install debugpy).",
+        "go": "Delve installieren (go install github.com/go-delve/delve/cmd/dlv@latest).",
+        "rust": "CodeLLDB installieren und codelldb im PATH ablegen.",
+        "dotnet": "netcoredbg installieren und im PATH ablegen — Microsofts vsdbg ist nur für deren eigene IDEs lizenziert.",
+        "java": "Erfordert einen DAP-fähigen Java-Debug-Adapter im PATH.",
+        "unreal": "Natives Stepping läuft über Visual Studio unten — diese Debug-Engine kann nicht mitverteilt werden."
+      }
     },
     "bookmarks": {
       "title": "Lesezeichen",
@@ -2583,6 +1400,30 @@
       "close": "Schließen",
       "sourceGone": "Quelle existiert nicht mehr"
     },
+    "sessionSummary": {
+      "title": "Session-Zusammenfassungen",
+      "close": "Schließen",
+      "empty": "Noch keine Sessions zum Zusammenfassen.",
+      "jump": "Diese Session öffnen",
+      "closeSession": "Session schließen",
+      "closeBlocked": "Nur inaktive, geprüfte Sessions können geschlossen werden",
+      "closeTidied": "Aufgeräumte schließen ({{count}})",
+      "closeTidiedHint": "Alle inaktiven, geprüften Sessions schließen (bleiben im Verlauf)",
+      "getSummary": "Zusammenfassen",
+      "summarizing": "Wird zusammengefasst…",
+      "resummarize": "Erneut zusammenfassen",
+      "noCards": "Keine Report-Karten in dieser Session.",
+      "summaryError": "Diese Session konnte nicht zusammengefasst werden.",
+      "closedBadge": "Geschlossen",
+      "dismiss": "Verwerfen",
+      "secDid": "Erledigt",
+      "secChanges": "Änderungen",
+      "secUserActions": "Ihre Aktionen",
+      "secCheckpoints": "Prüfen",
+      "secQuestions": "Fragen",
+      "secList": "Liste",
+      "secNext": "Weiter"
+    },
     "sidebar": {
       "sessions": "Sessions",
       "files": "Dateien ({{count}})",
@@ -2592,13 +1433,102 @@
       "hasResult": "hat Ergebnis",
       "skills": "Skills ({{count}})",
       "projectSkills": "Projekt ({{count}})",
+      "globalSkills": "Global ({{count}})",
       "pluginSkills": "Plugins ({{count}})",
+      "favoriteSkills": "Favoriten ({{count}})",
+      "favoriteAdd": "Zu Favoriten hinzufügen",
+      "favoriteRemove": "Aus Favoriten entfernen",
+      "refreshSkills": "Skills aktualisieren",
+      "newSkill": "Neuer Skill",
       "noSkills": "Keine Skills installiert",
       "skillsLoading": "Skills werden geladen…",
       "deleteSkillTitle": "Skill löschen",
       "deleteSkillConfirm": "Diesen Skill löschen?",
       "deleteSkillYes": "Löschen",
-      "deleteSkillNo": "Abbrechen"
+      "deleteSkillNo": "Abbrechen",
+      "copySkillTitle": "In anderes Projekt kopieren",
+      "copySkillHeader": "Kopieren nach",
+      "copySkillGlobal": "Global (alle Projekte)",
+      "copySkillNoTargets": "Keine anderen Projekte zum Kopieren",
+      "copySkillAll": "Alle",
+      "copySkillDo": "Kopieren",
+      "copySkillBusy": "Wird kopiert…",
+      "copySkillCancel": "Abbrechen",
+      "copySkillClose": "Schließen",
+      "copySkillOverwrite": "Überschreiben",
+      "copySkillDone": "In {{count}} kopiert",
+      "copySkillExists": "{{count}} haben es bereits",
+      "copySkillSame": "{{count}} ist die Quelle",
+      "copySkillFailed": "{{count}} fehlgeschlagen"
+    },
+    "explorer": {
+      "title": "Explorer",
+      "refresh": "Aktualisieren",
+      "collapseAll": "Ordner einklappen",
+      "edited": "Bearbeitete Dateien ({{count}})",
+      "noEdited": "Noch keine Dateibearbeitungen",
+      "loading": "Wird geladen…",
+      "empty": "Leerer Ordner",
+      "error": "Dieser Ordner kann nicht gelesen werden",
+      "noProject": "Kein Projekt geöffnet",
+      "openFile": "Im Editor öffnen",
+      "copyPath": "Pfad kopieren",
+      "copied": "Kopiert",
+      "truncated": "Nur die ersten {{count}} Einträge"
+    },
+    "editor": {
+      "resize": "Editor-Bereich anpassen",
+      "save": "Speichern (Strg+S)",
+      "reload": "Von der Festplatte neu laden",
+      "closeTab": "Tab schließen",
+      "closePane": "Editor-Bereich schließen",
+      "closeDirtyConfirm": "Diese Datei hat ungespeicherte Änderungen. Trotzdem schließen?",
+      "conflict": "Diese Datei wurde auf der Festplatte geändert, nachdem Sie sie geöffnet haben.",
+      "conflictReload": "Neu laden",
+      "conflictOverwrite": "Trotzdem speichern",
+      "binary": "Binärdatei — schreibgeschützt.",
+      "truncated": "Nur der Anfang dieser großen Datei wird angezeigt — schreibgeschützt.",
+      "readError": "Diese Datei kann nicht gelesen werden",
+      "plainLanguage": "Text",
+      "openInPane": "Im Editor-Bereich öffnen — {{path}}",
+      "openFolder": "Den Ordner öffnen, der diese Datei enthält — {{path}}",
+      "readOnlyLocked": "Diese Datei ist auf der Festplatte schreibgeschützt gesperrt (Perforce-Checkout, Dateiattribut).",
+      "readOnlyUnlock": "Schreibschutz aufheben und speichern",
+      "readOnlyUnlockHint": "Hebt das Schreibschutz-Attribut auf und speichert dann. Die Sperre wird nicht wiederhergestellt, und es wird kein Versionsverwaltungsbefehl (p4 edit, …) ausgeführt.",
+      "saveError": {
+        "tooLarge": "Zu groß zum Speichern",
+        "missing": "Diese Datei existiert nicht mehr auf der Festplatte",
+        "forbidden": "Diese Datei liegt außerhalb des Projektstammverzeichnisses",
+        "readonly": "Diese Datei ist schreibgeschützt gesperrt (Perforce-Checkout, Dateiattribut)",
+        "failed": "Diese Datei konnte nicht gespeichert werden"
+      },
+      "closeDirtyConfirmMany": "{{count}} dieser Dateien haben ungespeicherte Änderungen. Trotzdem schließen?",
+      "ctx": {
+        "cut": "Ausschneiden",
+        "copy": "Kopieren",
+        "paste": "Einfügen",
+        "selectAll": "Alles auswählen",
+        "undo": "Rückgängig",
+        "redo": "Wiederholen",
+        "save": "Speichern",
+        "reload": "Von der Festplatte neu laden",
+        "copyPath": "Pfad kopieren",
+        "copyLine": "Zeile kopieren",
+        "copyLineRef": "Pfad mit Zeilennummer kopieren",
+        "openExternal": "Im externen Editor öffnen",
+        "closeTab": "Schließen",
+        "closeOthers": "Andere Tabs schließen",
+        "closeAll": "Alle Tabs schließen",
+        "addBreakpoint": "Breakpoint in Zeile {{line}} hinzufügen",
+        "removeBreakpoint": "Breakpoint entfernen",
+        "clearFileBreakpoints": "Alle Breakpoints in dieser Datei entfernen",
+        "needSelection": "Zuerst Text auswählen",
+        "readOnlyFile": "Diese Datei ist schreibgeschützt",
+        "nothingToSave": "Keine ungespeicherten Änderungen",
+        "noBreakpoints": "Keine Breakpoints in dieser Datei",
+        "noBreakpointTarget": "Kein Projekt für Debugging geöffnet",
+        "noOtherTabs": "Keine anderen Tabs geöffnet"
+      }
     },
     "statusBar": {
       "custom": "Benutzerdefiniert",
@@ -2608,12 +1538,43 @@
       "sessionOne": "{{count}} Session",
       "sessionMany": "{{count}} Sessions"
     },
+    "search": {
+      "placeholder": "Im Gespräch suchen",
+      "prev": "Vorheriger Treffer",
+      "next": "Nächster Treffer",
+      "close": "Schließen"
+    },
     "zoom": {
       "reset": "Zurücksetzen"
+    },
+    "systemNode": {
+      "taskFailed": "Aufgabe fehlgeschlagen",
+      "taskStopped": "Aufgabe gestoppt",
+      "durationMs": "{{value}} ms",
+      "durationSec": "{{value}} s",
+      "durationMin": "{{value}} min",
+      "taskStarted": "Aufgabe gestartet",
+      "taskCompleted": "Aufgabe abgeschlossen",
+      "taskUpdated": "Aufgabe aktualisiert",
+      "taskNotification": "Aufgabenbenachrichtigung",
+      "notification": "Benachrichtigung",
+      "taskProgress": "Arbeitet",
+      "taskSummary": "Aufgabenzusammenfassung",
+      "thinkingTokens": "Denkt nach",
+      "compactBoundary": "Kontext komprimiert",
+      "status": "Status",
+      "backgroundTasksChanged": "Hintergrundaufgaben aktualisiert",
+      "commandsChanged": "Befehle aktualisiert",
+      "apiRetry": "Anfrage wird wiederholt",
+      "apiError": "API-Fehler",
+      "modelFallback": "Modell-Fallback",
+      "interrupt": "Unterbrochen",
+      "permissionDenied": "Zugriff verweigert"
     },
     "streamRenderer": {
       "noActivity": "Keine Aktivität in dieser Session",
       "thinking": "denkt nach",
+      "working": "arbeitet",
       "input": "Eingabe",
       "output": "Ausgabe",
       "clickToExpand": "Zum Aufklappen klicken",
@@ -2622,17 +1583,168 @@
       "collapse": "zuklappen",
       "copy": "Kopieren",
       "copied": "Kopiert",
+      "youTyped": "Sie",
+      "diff": {
+        "created": "Erstellt",
+        "modified": "Geändert",
+        "change": "Änderung {{index}}",
+        "moreLines": "… {{count}} weitere Zeilen"
+      },
       "toolRun": "×{{count}}",
       "diffLines": "{{count}} Zeilen",
-      "activity": "Befehle ausgeführt"
+      "activity": "Befehle ausgeführt",
+      "showMoreLines": "{{count}} weitere Zeilen anzeigen",
+      "showLess": "Weniger anzeigen",
+      "pathLink": {
+        "openFile": "Im Editor öffnen — {{path}}",
+        "openFolder": "Ordner öffnen — {{path}}"
+      },
+      "restartResumed": "Beim Beenden der App unterbrochen — in der gespeicherten Sitzung fortgesetzt."
     },
     "report": {
+      "title": "Arbeitsbericht",
+      "didTitle": "Was die KI getan hat",
+      "userActionsTitle": "Was Sie noch tun müssen",
+      "nextStepsTitle": "Nächste Schritte",
       "learnedTitle": "Gelernt"
+    },
+    "question": {
+      "title": "Frage",
+      "copy": "Kopieren",
+      "copied": "Kopiert",
+      "instant": "Jetzt senden",
+      "instantSent": "Gesendet",
+      "copyCard": "Karte kopieren",
+      "copyQuestions": "Fragen kopieren",
+      "copySelection": "Auswahl kopieren",
+      "copySelectionHint": "Den gewünschten Teil mit der Maus markieren, dann kopieren",
+      "copyOne": "Diese Frage kopieren",
+      "selectAnswer": "Diese Antwort auswählen",
+      "selectNone": "Leeren",
+      "sendSelected": "{{n}} Ausgewählte senden"
+    },
+    "review": {
+      "title": "Review-Anfrage",
+      "instructionTitle": "Erteilte Anweisung",
+      "changesTitle": "Was geändert wurde",
+      "checkpointsTitle": "Bitte prüfen"
+    },
+    "list": {
+      "title": "Liste",
+      "moreItems": "{{count}} weitere"
+    },
+    "feedback": {
+      "upTitle": "Gute Arbeit — fließt in das Lernen dieses Agenten ein",
+      "downTitle": "Nicht gut — Grund hinzufügen, damit er daraus lernt",
+      "reasonPlaceholder": "Was ist schiefgelaufen? (optional, wird zum Lernen verwendet)",
+      "reasonSave": "Speichern",
+      "addReason": "Grund hinzufügen",
+      "editReason": "Grund bearbeiten",
+      "statsTitle": "Ihr Feedback zu dieser Session"
+    },
+    "unseenCards": {
+      "hint": "Verpasste Karten — zum Springen klicken",
+      "jump": "Zu dieser Karte springen",
+      "dismiss": "Verwerfen"
+    },
+    "runningSubagents": {
+      "title": "Laufende Unteragenten",
+      "close": "Schließen",
+      "empty": "Gerade laufen keine Unteragenten.",
+      "untitled": "Unteragent",
+      "scopeAll": "Zeigt alle Unteragenten, die dieser Agent gerade ausführt.",
+      "scopeSession": "Zeigt die von \"{{label}}\" gestarteten Unteragenten.",
+      "endedAt": "Beendet um {{time}}",
+      "finishedTitle": "Gerade beendet",
+      "noResult": "Es kam kein Ergebnis an.",
+      "toggleResult": "Vollständiges Ergebnis ein- oder ausblenden",
+      "toolUses": "{{count}} Werkzeugaufrufe",
+      "nowUsing": "Werkzeug, das gerade verwendet wird",
+      "duration": "Dauerte {{value}}",
+      "emptySession": "In dieser Sitzung läuft kein Subagent.",
+      "hint": "Hier stehen nur die Subagenten, die diese Sitzung im Hintergrund gestartet hat — das laufende Gespräch selbst zählt nicht mit. Während sie laufen, leuchtet das Symbol links auf und zeigt darunter die Anzahl.",
+      "othersRunning": "{{count}} weitere laufen anderswo",
+      "startedAt": "Gestartet um {{time}}",
+      "noResponse": "Keine Antwort seit {{value}}",
+      "dismiss": "Nicht mehr warten",
+      "dismissTip": "Entfernt aus dieser Liste. Beendet den Prozess nicht — der Agent stoppt sein eigenes Kind mit TaskStop."
+    },
+    "loop": {
+      "title": "Wiederholungsschleife",
+      "close": "Schließen",
+      "scopeSession": "Schleife für Session \"{{label}}\".",
+      "scopeNone": "Kein Session-Tab ausgewählt.",
+      "pickSession": "Eine Wiederholungsschleife gehört zu einem Session-Tab. Zuerst einen Session-Tab öffnen, dann hier die zugehörige Schleife festlegen.",
+      "commandLabel": "Zu wiederholender Befehl",
+      "commandPlaceholder": "z. B. Tests ausführen und Fehler beheben.",
+      "commandHint": "Jede Runde sendet exakt diesen Text an die Session, genau wie beim eigenen Eintippen.",
+      "commandFileLabel": "Befehl aus einer Datei lesen",
+      "commandFilePlaceholder": "z. B. PROMPT.md",
+      "commandFileHint": "Wird in jeder Runde neu gelesen — Änderungen an der Datei greifen ab der nächsten Runde. Ist sie nicht lesbar, gilt der Text oben.",
+      "modeLabel": "Wiederholen",
+      "modeCount": "Mal",
+      "modeInfinite": "Bis ich sie stoppe",
+      "intervalLabel": "Wartezeit zwischen Runden",
+      "intervalUnit": "Sekunden",
+      "intervalHint": "0 startet die nächste Runde, sobald die vorherige beendet ist.",
+      "stopOnError": "Schleife stoppen, wenn eine Runde fehlschlägt",
+      "contextModeCompactHint": "Sendet /compact zwischen den Runden, damit einer langen Schleife nicht mitten in einer Runde der Kontext ausgeht. Die Komprimierung zählt nicht als Runde.",
+      "contextModeLabel": "Zwischen den Runden",
+      "contextModeNone": "Kontext behalten",
+      "contextModeCompact": "Komprimieren (Zusammenfassung bleibt)",
+      "contextModeClear": "Leeren (neu beginnen)",
+      "contextModeClearHint": "Sendet /clear zwischen den Runden, damit jede Runde mit leerem Kontext startet. Es bleibt nichts übrig — nutze es zusammen mit einer Fortschrittsdatei.",
+      "budgetLabel": "Stoppen nach",
+      "budgetCostUnit": "US$ (Schätzung)",
+      "budgetTokenUnit": "Tausend Tokens",
+      "budgetTimeUnit": "Minuten",
+      "budgetHint": "Leeres Feld = kein Limit. Wird nur zwischen Runden geprüft, eine laufende Runde wird nie abgeschnitten. Die Kosten sind großzügig geschätzt.",
+      "progressFileLabel": "Fortschrittsdatei",
+      "progressFilePlaceholder": "z. B. .vibisual/loop-progress.md",
+      "progressFileHint": "Jede Runde liest sie zuerst und aktualisiert sie am Ende — so geht die Arbeit auch nach Komprimieren oder Leeren des Kontexts weiter.",
+      "oneTask": "Eine Aufgabe pro Runde",
+      "oneTaskHint": "Wiederholt die Regel oben im Prompt und im Regelblock, damit eine Runde nicht mehrere Änderungen in einen Commit packt.",
+      "commitEachRound": "Am Ende der Runde committen",
+      "commitEachRoundHint": "Bittet den Agenten, selbst zu committen — mit Rundennummer und dem, was geprüft wurde. Vibisual führt niemals git für dich aus.",
+      "compacting": "Kontext wird vor der nächsten Runde komprimiert…",
+      "clearing": "Kontext wird vor der nächsten Runde geleert…",
+      "spent": "Verbraucht {{cost}} · {{tokens}} Tokens · {{elapsed}}",
+      "start": "Starten",
+      "restart": "Neu starten",
+      "stop": "Stoppen",
+      "delete": "Löschen",
+      "progressCount": "{{done}} von {{total}} Runden erledigt",
+      "progressInfinite": "{{done}} Runden erledigt",
+      "nextIn": "Nächste Runde in {{time}}.",
+      "lastError": "Letzter Fehler: {{message}}",
+      "note": "Stoppen der Session (oder des ganzen Agenten) beendet auch diese Schleife. Schließen des Tabs löscht sie.",
+      "status": {
+        "idle": "Aus",
+        "running": "Läuft",
+        "waiting": "Wartet",
+        "done": "Fertig",
+        "stopped": "Gestoppt",
+        "error": "Fehlgeschlagen",
+        "budget": "Budget erreicht"
+      }
     },
     "plan": {
       "title": "Plan",
       "progress": "{{done}}/{{total}}",
       "superseded": "Plan aktualisiert"
+    },
+    "cmdError": {
+      "spawn": "Claude CLI konnte nicht gestartet werden",
+      "stdin": "Prompt konnte nicht an die laufende Session übermittelt werden",
+      "exit": "Claude CLI mit Code {{code}} beendet",
+      "exitUnknown": "Claude CLI unerwartet beendet",
+      "crash": "Der Session-Prozess ist unerwartet abgestürzt (Code {{code}})",
+      "crashUnknown": "Der Session-Prozess ist unerwartet abgestürzt",
+      "cli": "Claude CLI meldete einen Fehler",
+      "maxTurns": "Beim Max.-Durchläufe-Limit gestoppt",
+      "agentView": "Der Agent-Lauf endete mit einem Fehler",
+      "orphaned": "Unterbrochen beim Neustart der App",
+      "unknown": "Aus unbekanntem Grund fehlgeschlagen"
     },
     "density": {
       "label": "Anzeigedichte",
@@ -2640,9 +1752,377 @@
       "standard": "Standard",
       "raw": "Roh"
     },
+    "follow": {
+      "label": "Folgen",
+      "labelOn": "Folgt",
+      "tipOn": "Folgt den Änderungen dieser Sitzung — der Editor öffnet die bearbeitete Datei und springt zu den geänderten Zeilen. Zum Beenden klicken.",
+      "tipOff": "Den Änderungen dieser Sitzung folgen — der Editor öffnet die bearbeitete Datei und springt zu den geänderten Zeilen. Jede Sitzung hat ihren eigenen Schalter.",
+      "lineShort": "Z{{line}}",
+      "stop": "Beenden",
+      "bannerIdle": "Der Editor springt hierher, sobald diese Sitzung eine Datei ändert.",
+      "bannerOpened": "{{name}} geöffnet",
+      "bannerChanged": "{{name}}: Zeilen {{from}}–{{to}} geändert",
+      "bannerChangedReloaded": "{{name}}: Zeilen {{from}}–{{to}} geändert — von der Festplatte neu geladen",
+      "skipOutsideRoot": "{{name}} liegt außerhalb dieses Projekts und wurde daher nicht geöffnet",
+      "skipEditorClosed": "{{name}} wurde geändert — öffne den Editor, um zu folgen",
+      "skipDirty": "{{name}} wurde auf der Festplatte geändert — deine ungespeicherten Änderungen blieben erhalten, daher wurde nicht neu geladen",
+      "skipNoLine": "{{name}} geöffnet — die geänderten Zeilen konnten nicht gefunden werden, daher wurde die Ansicht nicht bewegt",
+      "lineRange": "Z{{from}}–{{to}}",
+      "skipShortOutsideRoot": "außerhalb",
+      "skipShortEditorClosed": "Editor zu",
+      "skipShortDirty": "Entwurf behalten",
+      "skipShortNoLine": "nur geöffnet"
+    },
+    "reading": {
+      "title": "Leseeinstellungen",
+      "buttonLabel": "Leseeinstellungen",
+      "reset": "Zurücksetzen",
+      "resetField": "Diese Einstellung auf Standard zurücksetzen",
+      "resetFieldAtDefault": "Bereits auf Standard",
+      "measureTitle": "Lesebreite",
+      "measurePreset": {
+        "comprehension": "Verständnis",
+        "balanced": "Ausgewogen",
+        "speed": "Geschwindigkeit",
+        "full": "Voll"
+      },
+      "measureNote": "Dyson & Haselgrove maßen drei verschiedene Optima: 95 Zeichen pro Zeile lasen sich am schnellsten, 35 ergaben das beste Verständnis, und 55 ist der Ausgleichspunkt.",
+      "chatAlign": "Gesprächsausrichtung",
+      "chatAlignOn": "Meine Nachrichten rechts ausrichten, KI links",
+      "chatAlignNote": "Wie eine Messenger-App: Ihre Prompts liegen am rechten Rand an und schrumpfen auf ihre Textbreite, KI-Antworten bleiben links. Wer was gesagt hat, ist allein an der Position erkennbar, bevor Sie ein Wort lesen. Code, Tabellen und Tool-Boxen behalten ihre volle Breite.",
+      "contentWidth": "Inhaltsbreite",
+      "contentWidthFull": "Voll",
+      "contentWidthNote": "Verengt den gesamten Inhaltsbereich — Karten, Tool-Boxen, Code und Tabellen liegen ebenfalls darin. Die Lesebreite oben verengt nur die Fließtextspalte; dies verengt alles. 100 % ist die volle Fensterbreite, und jeder Schritt nach unten verengt sofort weiter (Minimum 10 %). Die Richtung der Verengung bestimmt die Gesprächsausrichtung oben: ist sie aus, sammelt sich der Inhalt in der Mitte; ist sie an, bleiben KI-Antworten am linken und Ihre Prompts am rechten Rand fixiert, sodass nur die jeweils andere Seite nachgibt. Schmale Fenster heben die Begrenzung automatisch auf.",
+      "charsPerLine": "≈ {{cjk}} CJK- / {{latin}} lateinische Zeichen pro Zeile",
+      "charsUnlimited": "Die Zeilenlänge hängt von der Fensterbreite ab",
+      "verdict": {
+        "ok": "innerhalb des WCAG-CJK-Limits von {{limit}}",
+        "warn": "über dem WCAG-CJK-Limit von {{limit}}",
+        "over": "es gilt kein Limit"
+      },
+      "fontSize": "Textgröße",
+      "fontSizeNote": "Rello et al. (CHI 2016) stellten in einer Eyetracking-Studie mit 104 Lesern fest, dass sich Lesbarkeit und Verständnis bis 18 pt ({{px}} px) stetig verbesserten.",
+      "lineHeight": "Zeilenhöhe",
+      "lineHeightNote": "CJK-Satz empfiehlt {{cjk}}. WCAG 1.4.12 verlangt {{wcag}} für nutzbare Darstellung.",
+      "letterSpacing": "Buchstabenabstand",
+      "letterSpacingNote": "WCAG 1.4.12 verlangt bis zu {{max}}em für nutzbare Darstellung.",
+      "wordSpacing": "Wortabstand",
+      "wordSpacingNote": "WCAG 1.4.12 verlangt bis zu {{max}}em für nutzbare Darstellung.",
+      "paragraphSpacing": "Absatzabstand",
+      "paragraphSpacingNote": "WCAG 1.4.12 verlangt einen Absatzabstand von bis zum Zweifachen der Schriftgröße für nutzbare Darstellung.",
+      "font": "Schriftart",
+      "fontNote": "Alle aufgeführten Schriftarten sind in der App enthalten und werden daher auf jedem Rechner gleich dargestellt — keine Installation nötig. Alle sind kostenlos für kommerzielle Nutzung (SIL Open Font License 1.1); mit einem Punkt markierte Schriftarten stammen aus der Lesbarkeitsforschung.",
+      "fontMissing": "auf diesem System nicht installiert",
+      "fontResearch": "Lesbarkeitsforschung",
+      "fontSource": {
+        "preset": "Mitgelieferte Schriftarten",
+        "custom": "Eigene Schriftart"
+      },
+      "fontSourceNote": {
+        "preset": "Schriftarten, die in der App enthalten sind und daher auf jedem Rechner gleich dargestellt werden — keine Installation nötig. Alle sind kostenlos für kommerzielle Nutzung (SIL Open Font License 1.1).",
+        "custom": "Verwenden Sie eine Schriftart, die bereits auf diesem Rechner installiert ist. Es wird nur der Name gespeichert — keine Schriftdatei wird kopiert oder weitergegeben, es wird also nichts weiterverbreitet."
+      },
+      "customFont": "Schriftartname",
+      "customFontPlaceholder": "z. B. Segoe UI",
+      "customFontBrowse": "Schriftarten auflisten",
+      "customFontBrowseHint": "Lädt die auf diesem Rechner installierten Schriftarten als Vorschläge. Möglicherweise werden Sie zuerst um Erlaubnis gebeten.",
+      "customFontBrowseUnavailable": "die Schriftartenliste ist hier nicht verfügbar — den Namen bitte manuell eingeben",
+      "customFontEmpty": "Geben Sie einen Schriftartnamen ein oder klicken Sie auf \"Schriftarten auflisten\", um eine auszuwählen.",
+      "customFontFound": "\"{{name}}\" wurde auf diesem Rechner gefunden — wird jetzt verwendet.",
+      "customFontNotFound": "\"{{name}}\" wurde auf diesem Rechner nicht gefunden, daher wird die Standardschriftart angezeigt.",
+      "customFontUnknown": "Konnte nicht geprüft werden, ob \"{{name}}\" installiert ist.",
+      "autoMobile": "Schmale Fenster",
+      "autoMobileOn": "Automatisch anpassen",
+      "autoMobileNote": "Unter 768 px wird die Breitenbegrenzung aufgehoben (sie würde nur Rand fressen) und die Zeilenhöhe leicht erhöht.",
+      "mobileActive": "Schmales Fenster — die Breitenbegrenzung wird automatisch aufgehoben.",
+      "rationale": "Lesern die Anpassung der Schrift statt eines festen Werts zu erlauben, erhöht die Lesegeschwindigkeit im Schnitt um mehr als 25 Wörter pro Minute (The Readability Consortium)."
+    },
     "card": {
       "showDetails": "Details ({{count}})",
       "hideDetails": "Details ausblenden"
+    },
+    "context": {
+      "title": "Kontextquellen",
+      "tokensLabel": "Tokens in diesem Prompt",
+      "refresh": "Jetzt neu messen",
+      "reset": "Diese Ebene auf Standard zurücksetzen",
+      "searchPlaceholder": "Quellen, Dateien, Pfade durchsuchen…",
+      "loading": "Wird gemessen…",
+      "empty": "Nichts passt.",
+      "turnOn": "Einschalten — im nächsten Prompt enthalten",
+      "turnOff": "Ausschalten — im nächsten Prompt weglassen",
+      "locked": "Kann hier nicht ausgeschaltet werden",
+      "sort": {
+        "category": "Gruppe",
+        "tokens": "Tokens",
+        "updated": "Datum",
+        "name": "Name"
+      },
+      "scope": {
+        "project": "Projekt",
+        "session": "Diese Session"
+      },
+      "control": {
+        "session": "Prompt",
+        "spawn": "Spawn",
+        "external": "anderswo",
+        "none": "gesperrt"
+      },
+      "cat": {
+        "vibisual": "Vibisual-Prompt",
+        "plugins": "Durchsetzungs-Plugins",
+        "memory": "Speicher",
+        "instructions": "Anweisungsdateien",
+        "skills": "Skills & Befehle",
+        "tools": "Tools",
+        "system": "Claude Code"
+      },
+      "src": {
+        "skillsPrefix": "Skill-Präfix",
+        "agentRules": "Agent-Regeln",
+        "edges": "Ausgehende Kantenregeln",
+        "feedback": "Bisheriges Nutzer-Feedback",
+        "intentFirst": "Absicht zuerst nennen",
+        "cardReport": "Protokoll für Arbeitsbericht-Karte",
+        "cardQuestion": "Protokoll für Fragekarte",
+        "cardReview": "Protokoll für Review-Karte",
+        "cardList": "Protokoll für nummerierte Listenkarte",
+        "cardIframe": "Protokoll für Server-Vorschau",
+        "goal": "Session-Ziel",
+        "brainCards": "Project-Brain-Briefing",
+        "brainTopics": "Brain-Themenindex",
+        "brainRules": "Brain-Regelrahmen",
+        "hookEnforcement": "Hook-Session-Injektion",
+        "plugins": "Alle Durchsetzungs-Plugins",
+        "claudeMd": "CLAUDE.md-Dateien",
+        "autoMemory": "Automatischer Speicherindex",
+        "skills": "Skills & Slash-Befehle",
+        "bundledSkills": "Mitgelieferte Skills",
+        "subagentDefs": "Unteragenten-Definitionen",
+        "workflows": "Workflows",
+        "gitInstructions": "Git-Anweisungen",
+        "toolSchemas": "Tool-Definitionen",
+        "mcp": "MCP-Server",
+        "hooks": "Hooks",
+        "systemPrompt": "Claude Code System-Prompt"
+      },
+      "hint": {
+        "tools": "Tool-Liste in den Agent-Einstellungen wählen",
+        "mcp": "MCP-Server in den Agent-Einstellungen anhängen",
+        "hooks": "Hooks werden in settings.json installiert"
+      },
+      "warn": {
+        "slashCommands": "Das Ausschalten deaktiviert jeden Skill und Slash-Befehl für die Session.",
+        "hooks": "Ohne Hooks sieht Vibisual diese Session nicht mehr."
+      },
+      "rowHint": "Klicken, um zu sehen, was das ist und was tatsächlich gesendet wird",
+      "detail": {
+        "whatLabel": "Was das ist",
+        "moreLabel": "Woher es kommt",
+        "offLabel": "Wenn Sie es ausschalten",
+        "bodyLabel": "Was tatsächlich gesendet wird",
+        "filesLabel": "Dateien ({{count}})",
+        "stateOn": "An — geht in den nächsten Prompt ein",
+        "stateOff": "Aus — im nächsten Prompt weggelassen",
+        "overrideBy": "Sie haben dies auf Ebene „{{scope}}“ geändert",
+        "sizeLine": "{{chars}} Zeichen · ~{{tokens}} Tokens",
+        "loading": "Wird gelesen…",
+        "error": "Diese Quelle konnte nicht gelesen werden.",
+        "emptyBody": "Das trägt in diesem Durchlauf nichts bei — es ist an, aber es gibt gerade keinen Inhalt dafür.",
+        "unreadable": "Das steckt in Claude Code selbst, es gibt also keine Datei zum Öffnen. Die Zahl daneben ist eine Schätzung, keine Messung.",
+        "truncated": "Zeigt die ersten {{count}} Zeichen.",
+        "openInEditor": "Im integrierten Editor öffnen",
+        "openOutside": "Außerhalb der App öffnen",
+        "copy": "Kopieren",
+        "copied": "Kopiert"
+      },
+      "about": {
+        "control": {
+          "session": "Vibisual lässt es beim Zusammenstellen des Prompts weg — das Ausschalten wirkt also schon ab Ihrer nächsten Nachricht.",
+          "spawn": "Wird beim nächsten Lauf über einen Kommandozeilen-Schalter ausgeschaltet. Jeder Durchlauf startet einen neuen Prozess, daher wirkt das ebenfalls schon ab Ihrer nächsten Nachricht.",
+          "external": "Ein anderer Einstellungsbildschirm ist hierfür zuständig — der Schalter hier ist absichtlich gesperrt.",
+          "none": "Das lässt sich nicht ausschalten. Es wird hier gemessen, damit die Gesamtsumme stimmt."
+        },
+        "src": {
+          "skillsPrefix": {
+            "what": "Slash-Befehle, die Vibisual vor Ihre Nachricht setzt, damit die Session mit diesen Skills geladen startet.",
+            "more": "Kommt aus dem Skills-Feld in den Agent-Einstellungen. Jeder Skill wird als /name-Zeile über Ihrem Prompt gesendet.",
+            "off": "Ihre Nachricht wird allein gesendet, und diese Skills werden nicht aufgerufen."
+          },
+          "agentRules": {
+            "what": "Ihre eigenen dauerhaften Anweisungen für diese Agent-Bubble.",
+            "more": "Kommt aus dem Agent-Regeln-Feld in den Agent-Einstellungen, eingefügt unter der Überschrift „# Agent Rules“.",
+            "off": "Der Agent erhält diese dauerhaften Anweisungen nicht mehr."
+          },
+          "edges": {
+            "what": "Anweisungen, die von den Pfeilen transportiert werden, die Sie von dieser Bubble zu anderen gezogen haben.",
+            "more": "Wird aus den ausgehenden Task Edges dieser Bubble gebildet — wie Arbeit übergeben wird und was zurückgesendet werden soll.",
+            "off": "Der Agent weiß nicht mehr, was seine ausgehenden Pfeile von ihm erwarten."
+          },
+          "feedback": {
+            "what": "Ihre bisherigen Daumen-hoch-/Daumen-runter-Anmerkungen zu den Antworten dieses Agenten.",
+            "more": "Gesammelt aus den Feedback-Schaltflächen unter früheren Antworten, damit der Agent wiederholt, was funktioniert hat.",
+            "off": "Bisheriges Feedback wird dem Agenten nicht mehr erneut mitgeteilt."
+          },
+          "intentFirst": {
+            "what": "Die Regel, die den Agenten dazu bringt, vor jedem Dateizugriff zu sagen, was er als Nächstes tut.",
+            "more": "Eine feste Vibisual-Anweisung. Sie existiert, damit Sie den Agenten frühzeitig stoppen können, wenn er in die falsche Richtung geht.",
+            "off": "Der Agent kann Dateien bearbeiten, ohne vorher seinen Plan anzukündigen."
+          },
+          "cardReport": {
+            "what": "Das Rezept für die farbige Karte „was ich getan habe / was Sie tun müssen“.",
+            "more": "Weist den Agenten an, sein Ergebnis über die API von Vibisual zu melden, damit die beiden Listen farblich getrennt werden können.",
+            "off": "Ergebnisse kommen nur als reiner Text an — keine farbige Karte."
+          },
+          "cardQuestion": {
+            "what": "Das Rezept für Fragekarten mit vorgefertigten Antwort-Schaltflächen.",
+            "more": "Wenn der Agent Sie etwas fragt, sendet er die Frage und vorgeschlagene Antworten zusätzlich als Daten.",
+            "off": "Fragen bleiben im Text versteckt, ohne Kopier- oder Senden-Schaltflächen."
+          },
+          "cardReview": {
+            "what": "Das Rezept für die violette „bitte prüfen“-Karte, die nach einer Korrektur angezeigt wird.",
+            "more": "Weist den Agenten an, aufzulisten, was er geändert hat und was Sie zur Überprüfung anklicken sollten.",
+            "off": "Sie erhalten eine Textzusammenfassung statt einer Review-Checkliste."
+          },
+          "cardList": {
+            "what": "Das Rezept für automatisch nummerierte Listenkarten.",
+            "more": "Lange Aufzählungen werden als Daten gesendet, damit Vibisual sie für Sie nummeriert und ausrichtet.",
+            "off": "Listen werden als gewöhnlicher Text inline ausgegeben."
+          },
+          "cardIframe": {
+            "what": "Das Rezept, das eine lokale Server-URL in eine Live-Vorschau-Bubble verwandelt.",
+            "more": "Wenn Sie einen Server angefragt haben, meldet der Agent dessen Adresse, und Vibisual öffnet sie auf der Arbeitsfläche.",
+            "off": "Server-Adressen werden nur als Text erwähnt; Sie öffnen sie selbst."
+          },
+          "goal": {
+            "what": "Das Ziel dieser Session und seine Schrittliste, wie im Zielfenster angezeigt.",
+            "more": "Kommt aus der Zielkarte, damit der Agent weiß, wo er im Plan steht.",
+            "off": "Der Agent sieht das Ziel und seine Fortschrittsliste nicht mehr. Das Zielfenster selbst bleibt bestehen."
+          },
+          "brainCards": {
+            "what": "Erinnerungskarten aus dem Project Brain, die zu Ihrer aktuellen Frage passen.",
+            "more": "Nach Relevanz zu Ihrer Nachricht sortiert, plus die als Dauerregel markierten Regeln. Gespeichert unter .vibisual/brain in diesem Projekt.",
+            "off": "Der Agent startet ohne die Lektionen, die dieses Projekt bereits gelernt hat."
+          },
+          "brainTopics": {
+            "what": "Das Inhaltsverzeichnis dieser Erinnerungen — nur Themennamen, nicht deren Inhalte.",
+            "more": "Erlaubt dem Agenten, nur die benötigte Themendatei zu öffnen, statt jede Karte zu laden.",
+            "off": "Der Agent kann frühere Erinnerungen nicht mehr nach Thema nachschlagen."
+          },
+          "brainRules": {
+            "what": "Die kurze Notiz, die erklärt, was diese Erinnerungskarten sind und wie damit umzugehen ist.",
+            "more": "Ohne sie erhält der Agent Karten, aber keine Anweisung, was er damit tun soll.",
+            "off": "Erinnerungskarten kommen ohne beigefügte Erklärung an."
+          },
+          "hookEnforcement": {
+            "what": "Der Block, den Vibisual in Sessions einfügt, die sich über Claude-Code-Hooks selbst angehängt haben.",
+            "more": "Vibisual hat diese Sessions nicht gestartet, daher gelangen ihre Anweisungen bei jedem Durchlauf über den Hook-Kanal hinein.",
+            "off": "Über Hooks angehängte Sessions erhalten Vibisuals Anweisungen nicht mehr."
+          },
+          "plugins": {
+            "what": "Der Hauptschalter für jedes in diesem Projekt aktivierte Durchsetzungs-Plugin.",
+            "more": "Jedes aktivierte Plugin bekommt zusätzlich eine eigene Zeile weiter unten, sodass Sie einzelne behalten und andere weglassen können.",
+            "off": "Es werden überhaupt keine Plugin-Anweisungen hinzugefügt, unabhängig davon, welche Plugins aktiviert sind."
+          },
+          "plugin": {
+            "what": "Die Anweisungen eines einzelnen Durchsetzungs-Plugins: {{name}}.",
+            "more": "Sie haben dieses Plugin im Plugins-Fenster aktiviert; es schreibt seine Regeln in jeden Prompt dieses Projekts.",
+            "off": "Nur dieses Plugin wird nicht mehr durchgesetzt — die anderen bleiben unverändert."
+          },
+          "claudeMd": {
+            "what": "Projekt-Anweisungsdateien, die Claude Code selbst lädt — CLAUDE.md, CLAUDE.local.md, AGENTS.md.",
+            "more": "Gefunden neben Ihrem Projekt, in den übergeordneten Ordnern und in Ihrem Home-.claude-Ordner. Datei anklicken, um sie hier zu lesen.",
+            "off": "Die Session startet ohne die Hausregeln Ihres Projekts (CLAUDE_CODE_DISABLE_CLAUDE_MDS)."
+          },
+          "autoMemory": {
+            "what": "Claude Codes eigener Speicherindex (MEMORY.md) für diesen Ordner.",
+            "more": "Bei jedem Durchlauf wird nur der Index geladen; die einzelnen Speicherdateien werden bei Bedarf gelesen.",
+            "off": "Claude Code startet ohne seine Notizen aus früheren Sessions (CLAUDE_CODE_DISABLE_AUTO_MEMORY)."
+          },
+          "skills": {
+            "what": "Die Einzeiler-Kurzbeschreibungen aller hier verfügbaren Skills und Slash-Befehle.",
+            "more": "Es werden nur Name und Beschreibung aus dem Front Matter jeder Datei geladen — vollständige Inhalte werden erst gelesen, wenn ein Skill tatsächlich verwendet wird.",
+            "off": "Jeder Skill und Slash-Befehl ist für die Session deaktiviert (--disable-slash-commands)."
+          },
+          "bundledSkills": {
+            "what": "Skills, die in Claude Code selbst enthalten sind.",
+            "more": "Sie stecken in der ausführbaren Datei, ihre Größe kann von hier aus nicht gemessen werden.",
+            "off": "Claude Code läuft ohne seine eingebauten Skills (CLAUDE_CODE_DISABLE_BUNDLED_SKILLS)."
+          },
+          "workflows": {
+            "what": "Claude Codes eingebaute Workflow-Anweisungen.",
+            "more": "Teil von Claude Code, nicht dieses Projekts — daher gibt es keine Datei zum Anzeigen.",
+            "off": "Diese Workflows werden dem Agenten nicht angeboten (CLAUDE_CODE_DISABLE_WORKFLOWS)."
+          },
+          "gitInstructions": {
+            "what": "Git-Hinweise und die Repository-Statuszusammenfassung, die Claude Code selbst hinzufügt.",
+            "more": "Deshalb kennt der Agent bereits Ihren Branch und welche Dateien geändert wurden.",
+            "off": "Der Agent startet ohne Git-Hinweise oder Statuszusammenfassung (CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS)."
+          },
+          "subagentDefs": {
+            "what": "Die Unteragenten-Typen, die dieses Projekt in .claude/agents definiert.",
+            "more": "Ihre Beschreibungen sind Teil der eigenen Beschreibung des Agent-Tools, deshalb gibt es dafür keinen Schalter.",
+            "off": "Das lässt sich hier nicht ausschalten — es wird nur gemessen."
+          },
+          "systemPrompt": {
+            "what": "Claude Codes eigener System-Prompt — die Anweisungen, die es zu Claude Code machen.",
+            "more": "Er steckt in der ausführbaren Datei, daher ist die Zahl hier eine Schätzung statt einer Messung.",
+            "off": "Das lässt sich nicht ausschalten. Es wird aufgeführt, damit die Gesamtsumme stimmt."
+          },
+          "toolSchemas": {
+            "what": "Die Definitionen der Tools, die dieser Agent aufrufen darf — Read, Edit, Bash und die übrigen.",
+            "more": "Die Tool-Liste wird über die Agent-Einstellungen verwaltet; wird sie dort verkürzt, sinkt auch diese Zahl.",
+            "off": "Ändern Sie stattdessen die Tool-Liste in den Agent-Einstellungen — der Schalter hier ist gesperrt."
+          },
+          "mcp": {
+            "what": "Zusätzliche Tools, die über MCP-Server angebunden sind.",
+            "more": "Jeder angebundene Server fügt jedem Prompt seine eigenen Tool-Definitionen hinzu.",
+            "off": "Trennen Sie den Server stattdessen in den Agent-Einstellungen — der Schalter hier ist gesperrt."
+          },
+          "hooks": {
+            "what": "Die Claude-Code-Hooks, die Vibisual diese Session überhaupt sehen lassen.",
+            "more": "In settings.json registriert. Sie fügen fast keine Tokens hinzu, aber jedes Ereignis läuft durch sie.",
+            "off": "Hooks werden in settings.json entfernt, nicht hier. Ohne sie sieht Vibisual diese Session nicht mehr."
+          }
+        },
+        "cat": {
+          "vibisual": {
+            "what": "Ein Block, den Vibisual selbst in den Prompt schreibt.",
+            "more": "Wird bei jedem Durchlauf neu aus dem zusammengesetzt, was auf Ihrer Arbeitsfläche und in Ihren Einstellungen steht.",
+            "off": "Es wird im nächsten Prompt einfach weggelassen."
+          },
+          "plugins": {
+            "what": "Regeln, die ein Durchsetzungs-Plugin jedem Prompt in diesem Projekt hinzufügt.",
+            "more": "Kommt aus dem Plugins-Fenster — nur die von Ihnen aktivierten Plugins stehen hier.",
+            "off": "Die Regeln dieses Plugins werden nicht mehr gesendet."
+          },
+          "memory": {
+            "what": "Etwas, an das sich der Agent aus früheren Sessions erinnert.",
+            "more": "Aus den Speicherdateien dieses Projekts oder Ordners gelesen.",
+            "off": "Der Agent arbeitet nur mit diesem Gespräch."
+          },
+          "instructions": {
+            "what": "Eine Anweisungsdatei, die Claude Code von selbst lädt, bevor Sie irgendetwas eingeben.",
+            "more": "Wird bei jedem Sessionstart von der Festplatte gelesen. Datei anklicken, um sie hier zu lesen.",
+            "off": "Die Session startet ohne diese Anweisungen."
+          },
+          "skills": {
+            "what": "Beschreibungen der Skills und Befehle, die der Agent aufrufen könnte.",
+            "more": "Es werden nur die Kurzbeschreibungen geladen; der volle Text wird erst bei tatsächlicher Nutzung gelesen.",
+            "off": "Der Agent weiß nicht mehr, dass diese verfügbar sind."
+          },
+          "tools": {
+            "what": "Definitionen der Tools, die der Agent aufrufen darf.",
+            "more": "Die Liste wird über die Agent-Einstellungen verwaltet.",
+            "off": "In den Agent-Einstellungen ändern — hier lässt es sich nicht ausschalten."
+          },
+          "system": {
+            "what": "Etwas, das Claude Code von sich aus hinzufügt, außerhalb dieses Projekts.",
+            "more": "Es steckt in Claude Code, daher ist die Zahl eine Schätzung.",
+            "off": "Das ist nicht unseres, um es auszuschalten; es wird gemessen, damit die Gesamtsumme stimmt."
+          }
+        }
+      }
     }
   },
   "bubbleMap": {
@@ -2662,6 +2142,32 @@
       "controlToggle": "Fernsteuerung (sendet Klicks & Eingaben an das erfasste Ziel)",
       "controlOn": "Steuerung aktiv",
       "controlOff": "Fernsteuerung",
+      "controlModeOff": "Aus",
+      "pointerModeSwitch": "Zeigemodus — Touch: an der Zeigeposition klicken · Maus: ziehen, um den Zeiger zu bewegen, dann tippen zum Klicken (klicken zum Wechseln)",
+      "pointerModeTouch": "Touch",
+      "pointerModeMouse": "Maus",
+      "qualityHint": "Qualität / Daten — niedriger bedeutet geringere Auflösung & FPS (klicken zum Wechseln)",
+      "quality_full": "Voll",
+      "quality_saver": "Sparen",
+      "quality_min": "Min",
+      "quality_auto": "AUTO",
+      "snapshot": "Aktuelles Bild speichern (PNG)",
+      "pause": "Pause (Daten sparen)",
+      "resume": "Fortsetzen",
+      "pausedTapResume": "Pausiert · zum Fortsetzen tippen",
+      "paste": "Zwischenablage einfügen (Telefon → PC)",
+      "pasteShort": "Einfügen",
+      "settings": "Aufnahme-Bubble-Einstellungen",
+      "opacity": "Deckkraft",
+      "controlTimeout": "Steuerung automatisch freigeben",
+      "timeoutOff": "Aus",
+      "pin": "Immer im Vordergrund (angeheftet)",
+      "stillSaver": "Standbild-Sparmodus",
+      "readOnly": "Schreibgeschützt (Steuerung sperren)",
+      "readOnlyOn": "Schreibgeschützt — Fernsteuerung ist gesperrt (in den Einstellungen entsperren)",
+      "readOnlyShort": "Nur ansehen",
+      "badge": "FPS-/Auflösungsanzeige",
+      "badgeIdle": "Standbild · inaktiv",
       "expandHint": "Doppelklick zum Öffnen in einem Fenster",
       "collapse": "Größe wiederherstellen (Esc)",
       "maximize": "Maximieren",
@@ -2688,7 +2194,13 @@
       "backgroundClick": "Cursor nicht bewegen (experimentell)",
       "backgroundClickHint": "Sendet den Klick direkt an das Zielfenster, deine Maus bleibt stehen. Spiele und geschützte Fenster ignorieren das und fallen automatisch zurück.",
       "backgroundClickBlocked": "Dieses Fenster ignoriert Hintergrundklicks · Cursor kurz ausgeliehen",
-      "backgroundClickUnavailable": "Hintergrundklick nicht verfügbar · Cursor kurz ausgeliehen"
+      "backgroundClickUnavailable": "Hintergrundklick nicht verfügbar · Cursor kurz ausgeliehen",
+      "join": "Bubbles verbinden",
+      "snapHint": "Eine Aufnahme-Bubble neben eine andere ziehen, damit ihre Kanten einrasten. Alt beim Ziehen gedrückt halten, um den Magneten auszuschalten.",
+      "fitAspect": "Seitenverhältnis der Quelle übernehmen",
+      "fitAspectHint": "Setzt die Bubble-Höhe auf das Seitenverhältnis der Quelle zurück, damit die schwarzen Balken verschwinden — verbundene Bubbles wirken dann nahtlos.",
+      "seamless": "Nähte verbergen",
+      "seamlessHint": "Blendet Rahmen und Kopfzeile aus, damit verbundene Bubbles wie ein Bildschirm wirken (die Kopfzeile erscheint beim Hover wieder)"
     },
     "taskEdge": {
       "iconHint": "Klicken: Details · Doppelklick: Bearbeiten",
@@ -2828,7 +2340,25 @@
     "setDefault": "Als Standard festlegen",
     "unsetDefault": "Standard aufheben",
     "defaultTooltip": "Der Standard-Tab öffnet automatisch, wenn kein zuletzt aktiver Tab wiederhergestellt werden kann.",
-    "detach": "In neuem Fenster lösen"
+    "detach": "In neuem Fenster lösen",
+    "rename": "Umbenennen"
+  },
+  "overlay": {
+    "sendToOverlay": "Diese Bubble als Desktop-Widget (immer im Vordergrund) herauslösen",
+    "removeFromOverlay": "Diese Bubble aus dem Desktop-Overlay entfernen",
+    "sendToOverlayLabel": "Overlay",
+    "removeFromOverlayLabel": "Im Overlay",
+    "openIDE": "Klicken, um IDE zu öffnen",
+    "agentGone": "Agent nicht verfügbar",
+    "toggleShow": "Desktop-Overlay-Bubbles anzeigen",
+    "toggleHide": "Desktop-Overlay-Bubbles ausblenden",
+    "menu": {
+      "openIde": "IDE öffnen",
+      "reveal": "Auf der Arbeitsfläche finden",
+      "opacity": "Deckkraft",
+      "hide": "Diese Bubble ausblenden",
+      "close": "Aus Overlay entfernen"
+    }
   },
   "tabDetach": {
     "detachHint": "Außerhalb der Tab-Leiste ablegen, um in neuem Fenster zu öffnen",
@@ -2841,6 +2371,9 @@
     "redockCardTitle": "Auf der Haupt-Tab-Leiste ablegen zum Andocken",
     "redockCardSubtitle": "Oder anderswo loslassen, um abgelöst zu bleiben",
     "detachedBadge": "abgelöst",
+    "minimizeWindow": "Minimieren",
+    "maximizeWindow": "Maximieren",
+    "restoreWindow": "Wiederherstellen",
     "closeWindow": "Fenster schließen",
     "missingTitle": "Tab nicht mehr verfügbar",
     "missingProject": "Das Projekt \"{{name}}\" ist in dieser Vibisual-Instanz nicht geladen.",
@@ -2860,6 +2393,8 @@
     },
     "contextMenu": {
       "createCustomAgent": "Benutzerdefinierten Agent erstellen",
+      "createCmdAgent": "CMD-Agent erstellen",
+      "createCmdAgentHint": "Interaktives Terminal, das Sie steuern (Abo-Abrechnung)",
       "createAutoAgent": "Auto Agent erstellen",
       "createAutoAgentHint": "Meta-Agent — startet automatisch ein Team benutzerdefinierter Agenten aus Ihrem Prompt",
       "createWorktree": "Worktree erstellen",
@@ -2880,6 +2415,13 @@
       "empty": "Canvas-Zwischenablage ist leer",
       "failed": "Einfügen fehlgeschlagen",
       "invalidVersion": "Zwischenablage-Format ist mit dieser Version nicht kompatibel"
+    },
+    "bookmark": {
+      "assigned": "Lesezeichen {{slot}} → {{label}}",
+      "assignEmpty": "Kein Ziel für ein Lesezeichen — zuerst eine Bubble auswählen oder eine Agent-IDE öffnen",
+      "jumped": "Zu {{label}} gesprungen",
+      "jumpEmpty": "Lesezeichen {{slot}} ist leer",
+      "jumpMissing": "Lesezeichen-Ziel ist nicht mehr verfügbar"
     }
   },
   "common": {
@@ -2976,6 +2518,12 @@
     "purge": "Endgültig löschen",
     "purgeConfirm": "Dies löscht alles, einschließlich {{n}} Agenten-Erinnerungskarten.",
     "purgeYes": "Endgültig löschen",
+    "purgeAll": "Alle löschen",
+    "trashCountLabel": "{{n}} Agenten im Papierkorb",
+    "trashDeleteHint": "Auswählen und Entf drücken · Umschalt für mehrere",
+    "purgeConfirmMany": "Damit werden {{count}} Agenten und alle {{n}} Erinnerungskarten gelöscht.",
+    "purgeIrreversible": "Das kann nicht rückgängig gemacht werden.",
+    "trashItemsMore": "+{{n}} weitere",
     "cardCountUnitSuffix": "",
     "feed": {
       "title": "Projekt-Gehirn",

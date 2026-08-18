@@ -6,8 +6,8 @@
  * 여기서는 이 에이전트의 규칙문이 얼마나 긴지, 매 턴 얼마를 싣고 있는지를 보여준다. 표시 전용.
  */
 import { SYSTEM_PROMPT_ESTIMATE } from '@vibisual/shared';
-import { defineInspector } from '../framework/inspector.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 function rulesChars(ctx: PluginBubbleContext): number {
   return (ctx.agentConfig?.rules ?? '').length;

@@ -5,8 +5,8 @@
  * 이자가 붙어 돌아온다는 증거다. 규칙 문서·평가 셋·손실 방지·커밋 관문은 전부 **사전 지출**이며,
  * 사후 구조 비용의 몇 십 분의 일이다. 이 카드는 지금 부채가 쌓이는 쪽인지 본다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const turns = (ctx: PluginBubbleContext): number => (ctx.data.agentEvents ?? []).length;
 /** 사전 지출로 볼 수 있는 것들 — 규칙 · 검수 · 턴 상한. */

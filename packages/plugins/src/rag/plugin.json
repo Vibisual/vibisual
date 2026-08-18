@@ -1,0 +1,17 @@
+{
+  "id": "rag",
+  "name": "RAG",
+  "version": "1.0.0",
+  "category": "observability",
+  "descriptionKey": "panel.plugins.rag.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "brainInjections"
+  ],
+  "hostApi": 1
+}

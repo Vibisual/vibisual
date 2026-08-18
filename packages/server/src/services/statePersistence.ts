@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import type {
   BubbleData,
   BashEntry,
@@ -30,6 +31,11 @@ const SAVE_SUBDIR = '.vibisual/save';
 /** §3.2.2 v2.62 — 정체성 데이터 물리 분리 파일명. checkpoint.json 과 같은 save 디렉토리. */
 const IDENTITY_FILENAME = 'identity.json';
 const CHECKPOINT_FILENAME = 'checkpoint.json';
+/**
+ * §3.2.2 — 활동 이력 전용 파일(§3.2 "별도 JSON 저장 금지"의 네 번째 명시적 예외).
+ * `identity.json`(저빈도·고신뢰) / `checkpoint.json`(고빈도·그래프 골격) / `activity.json`(고빈도·이력) 3층.
+ */
+const ACTIVITY_FILENAME = 'activity.json';
 
 // ─── §3.2.1 v2.62 손실 방지 인프라: 원자적 쓰기 + 다세대 백업 + 복구 ───
 
@@ -74,9 +80,14 @@ export function atomicWriteFileSync(filePath: string, data: string): void {
 /**
  * §9 v3.45 — 파일당 최소 회전 간격. 고빈도 저장(전수조사 hook 폭주) 시 저장마다 3세대
  * rename + 전체 복사가 돌면 직전 이벤트와 사실상 동일한 판본 3벌만 남고 I/O 만 태운다.
- * 간격을 두면 .bak1 이 "≤30초 전 판본"이 되어 손상 복구용 시간 다양성은 오히려 향상.
+ * 간격을 두면 .bak1 이 "그 간격만큼 전의 판본"이 되어 손상 복구용 시간 다양성은 오히려 향상.
+ *
+ * v4.67 — 30초 → 5분. 30초 간격에서는 3세대가 90초 안에 전부 몰려(실측 mtime 이 본체·bak1 동시,
+ * bak2·bak3 이 1분 전) "세대"라는 말이 무색했다. 5분이면 .bak1~3 이 각각 5·10·15분 전 판본이 되어
+ * 시간 다양성이 실제로 생기고, 8MB 급 체크포인트의 전체 복사 I/O 는 1/10 로 줄어든다.
+ * 세대 수(§3.2.1-2)·복구 경로·파일명은 그대로다.
  */
-const ROTATE_MIN_INTERVAL_MS = 30_000;
+const ROTATE_MIN_INTERVAL_MS = 5 * 60_000;
 const lastRotatedAt = new Map<string, number>();
 
 export function rotateBackups(filePath: string, generations: number = CHECKPOINT_BACKUP_GENERATIONS): void {
@@ -237,7 +248,12 @@ function deriveIdentity(cp: ProjectCheckpoint): ProjectIdentity {
     taskEdges: cp.taskEdges ?? {},
     commentBoxes: cp.commentBoxes ?? [],
     captureBubbles: cp.captureBubbles ?? [],
+    appBubbles: cp.appBubbles ?? [],
+    // §5.14 v4.62 — 플레이 버블은 사용자가 놓은 버튼 + 확정한 실행 레시피라 정체성이다.
+    playBubbles: cp.playBubbles ?? [],
     contis: cp.contis ?? {},
+    // §5.5 #17-17 v4.46 — 세션 목표는 사용자가 직접 쓴 문장이라 잃으면 복구할 길이 없다(정체성).
+    sessionGoals: cp.sessionGoals ?? {},
     deletedSessionIds: cp.deletedCustomAgentIds ?? [],
   };
 }
@@ -376,7 +392,21 @@ function passesCheckpointShrinkGuard(
   return { ok: true };
 }
 
-export function writeCheckpoint(checkpoint: ProjectCheckpoint): void {
+/**
+ * @param preSerialized 호출자가 이미 만들어 둔 **core**(=`splitCheckpointForDisk(cp).core`) 직렬화 결과.
+ *   v4.67 — `SaveScheduler.writeIfChanged` 는 "내용 불변" 비교를 위해 한 번 직렬화하는데,
+ *   여기서 또 직렬화하면 매 저장마다 같은 문자열을 두 번 만들게 된다(메인 프로세스 = 서버
+ *   코어라 그 CPU 가 곧 UI 멈칫). 이미 만든 것을 넘겨받으면 그대로 재사용한다.
+ *   생략하면 종전대로 여기서 직렬화하므로 다른 호출부는 손댈 필요가 없다.
+ *   ⚠ §3.2.2 activity 분리 이후로는 **전체가 아니라 core** 의 직렬화 결과다.
+ * @param opts.skipCore 이력만 바뀌었을 때 `checkpoint.json` 재작성을 건너뛴다(백업 회전까지 아낀다).
+ * @param opts.activityJson 호출자가 이미 만들어 둔 `activity.json` 직렬화 결과.
+ */
+export function writeCheckpoint(
+  checkpoint: ProjectCheckpoint,
+  preSerialized?: string,
+  opts?: { skipCore?: boolean; activityJson?: string },
+): void {
   // Ghost 체크포인트 생성 방지 가드.
   // project.path 가 비었거나 name 이 placeholder("unknown") 면 저장 거부.
   // 과거 연쇄 데이터 손실(ghost 메타가 Vibisual 인스턴스 키 선점 → 빈 상태로 덮어쓰기)의 진원지였음.
@@ -434,14 +464,21 @@ export function writeCheckpoint(checkpoint: ProjectCheckpoint): void {
     // 권위 있는 정체성 파일(identity.json)만 빈 상태로 덮어쓰지 않는다.
     const identityOk = passesShrinkGuard(dir, identity);
 
+    // §3.2.2 — 이력(activity·completedCommands)은 `activity.json` 으로 갈라 담는다.
+    // 골격과 이력은 바뀌는 시점이 달라서, 나눠 두면 바뀐 쪽만 다시 쓰면 된다.
+    const { core, activity } = splitCheckpointForDisk(checkpoint);
+
     // §3.2.1-2 백업 롤링 후 §3.2.1-1 원자적 쓰기.
-    rotateBackups(cpPath);
-    atomicWriteFileSync(cpPath, JSON.stringify(checkpoint));
-    // §9 v3.45 — 다음 저장의 shrink guard 는 디스크 재읽기 대신 이 캐시로 비교한다.
-    lastWrittenCheckpointTotals.set(cpPath, {
-      agents: Object.keys(checkpoint.graph?.agents ?? {}).length,
-      nodes: Object.keys(checkpoint.graph?.nodes ?? {}).length,
-    });
+    if (!opts?.skipCore) {
+      rotateBackups(cpPath);
+      atomicWriteFileSync(cpPath, preSerialized ?? JSON.stringify(core));
+      // §9 v3.45 — 다음 저장의 shrink guard 는 디스크 재읽기 대신 이 캐시로 비교한다.
+      lastWrittenCheckpointTotals.set(cpPath, {
+        agents: Object.keys(checkpoint.graph?.agents ?? {}).length,
+        nodes: Object.keys(checkpoint.graph?.nodes ?? {}).length,
+      });
+    }
+    writeActivityFile(dir, activity, opts?.activityJson);
 
     if (identityOk) {
       const idPath = path.join(dir, IDENTITY_FILENAME);
@@ -462,6 +499,101 @@ export function writeCheckpoint(checkpoint: ProjectCheckpoint): void {
   }
 }
 
+// ─── activity.json 분해·병합 (§3.2.2) ───
+//
+// 실측(2026-08-13): `activity` 6.87MB 가 `checkpoint.json` 11.1MB 의 62%. `SaveScheduler` 가
+// 매 저장마다 그 전량을 다시 직렬화·비교하고, 바뀌면 백업 3세대까지 복사했다. 이력과 골격은
+// 바뀌는 시점이 달라서, 나눠 두면 **바뀐 쪽만** 다시 쓰면 된다.
+
+/** `activity.json` 디스크 포맷. ⚠ 저장 시각 같은 "매번 달라지는 값"을 넣으면 변경 감지가 무력해진다. */
+interface ActivityFileData {
+  version: number;
+  projectName: string;
+  activity: ProjectCheckpoint['activity'];
+  completedCommands?: ProjectCheckpoint['completedCommands'];
+}
+
+const EMPTY_ACTIVITY: ProjectCheckpoint['activity'] = { bashHistory: {}, runningServers: {}, fileEdits: {} };
+
+/** 체크포인트를 디스크 2파일로 분해. `core.activity` 는 **빈 객체**로 남는다(타입은 필수 필드 유지). */
+export function splitCheckpointForDisk(cp: ProjectCheckpoint): { core: ProjectCheckpoint; activity: ActivityFileData } {
+  const core: ProjectCheckpoint = { ...cp, activity: EMPTY_ACTIVITY };
+  delete (core as Partial<ProjectCheckpoint>).completedCommands;
+  const data: ActivityFileData = {
+    version: 1,
+    projectName: cp.project?.name ?? '',
+    activity: cp.activity ?? EMPTY_ACTIVITY,
+  };
+  if (cp.completedCommands) data.completedCommands = cp.completedCommands;
+  return { core, activity: data };
+}
+
+function isValidActivityObj(obj: Record<string, unknown>): boolean {
+  const v = obj['version'];
+  return typeof v === 'number' && v >= 1 && typeof obj['activity'] === 'object' && obj['activity'] !== null;
+}
+
+/**
+ * `activity.json` 을 읽어 체크포인트에 되붙인다.
+ *
+ * **하위 호환**: 파일이 없으면(구버전이 저장한 트리) 체크포인트 안의 `activity` 를 그대로 둔다 —
+ * 그래야 이번 판올림 전에 저장된 이력이 그대로 보인다. 있으면 그쪽이 권위다(저장은 항상 이쪽으로 하므로).
+ */
+function attachActivityFromDisk(cp: ProjectCheckpoint, dir: string): ProjectCheckpoint {
+  const fp = path.join(dir, ACTIVITY_FILENAME);
+  let data: ActivityFileData | null = null;
+  try {
+    if (fs.existsSync(fp)) {
+      const parsed: unknown = JSON.parse(fs.readFileSync(fp, 'utf8'));
+      if (typeof parsed === 'object' && parsed !== null && isValidActivityObj(parsed as Record<string, unknown>)) {
+        data = parsed as ActivityFileData;
+      } else {
+        logger.warn(`Activity invalid: ${fp} — trying backups`);
+      }
+    }
+  } catch (err) {
+    logger.warn(`Activity load failed (${fp}): ${err instanceof Error ? err.message : String(err)} — trying backups`);
+  }
+  if (!data) {
+    const recovered = loadFromBackups<ActivityFileData>(fp, isValidActivityObj);
+    if (recovered) {
+      data = recovered.data;
+      logger.warn(`Activity recovered from ${ACTIVITY_FILENAME}.bak${recovered.bakIndex}`);
+    }
+  }
+  if (!data) return cp; // 구버전 트리 — checkpoint 안의 activity 를 그대로 쓴다
+  const next: ProjectCheckpoint = { ...cp, activity: data.activity ?? EMPTY_ACTIVITY };
+  if (data.completedCommands) next.completedCommands = data.completedCommands;
+  return next;
+}
+
+/**
+ * 프로젝트 디렉토리별 마지막으로 디스크에 쓴 activity 의 **지문** — 안 바뀌었으면 다시 쓰지 않는다.
+ *
+ * §3.2.4 — 종전엔 직렬화 문자열 **전체**를 들고 있었다(실측 activity 6MB, UTF-16 이라 점유 12MB,
+ * 프로젝트마다 한 벌). `SaveScheduler` 쪽과 같은 실수가 이 아래 층에도 한 벌 더 있었다.
+ */
+const lastWrittenActivityJson = new Map<string, string>();
+
+/**
+ * `activity.json` 저장. **통째-0 가드(§3.2.1-3)는 걸지 않는다** — 이력은 보존 정책(§3.2.3)에 따라
+ * 정상적으로 0 이 될 수 있어 가드가 오탐한다. 원자적 쓰기 + 백업 회전은 동급 적용.
+ */
+function writeActivityFile(dir: string, data: ActivityFileData, preSerialized?: string | null): void {
+  try {
+    const json = preSerialized ?? JSON.stringify(data);
+    const stamp = contentFingerprint(json);
+    if (lastWrittenActivityJson.get(dir) === stamp) return;
+    const target = path.join(dir, ACTIVITY_FILENAME);
+    rotateBackups(target);
+    atomicWriteFileSync(target, json);
+    lastWrittenActivityJson.set(dir, stamp);
+  } catch (err) {
+    // 이력 저장 실패는 비치명 — 그래프·정체성은 이미 제 파일에 있다.
+    logger.warn(`Activity write failed (${dir}): ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 function isValidCheckpointObj(obj: Record<string, unknown>): boolean {
   // 전방 호환(§3.2.1-5): version >= 1 이면 수용(미래 버전도 버리지 않음) + graph 존재.
   const v = obj['version'];
@@ -479,7 +611,8 @@ function loadCheckpointFromPath(filePath: string): ProjectCheckpoint | null {
         const cp = data as ProjectCheckpoint;
         const tag = cp.project.parentProjectPath ? ' [worktree]' : '';
         logger.info(`Checkpoint loaded: ${cp.project.name}${tag} (seq=${cp.seq})`);
-        return cp;
+        // §3.2.2 — 이력은 별도 파일. 없으면(구버전 트리) checkpoint 안의 것을 그대로 쓴다.
+        return attachActivityFromDisk(cp, path.dirname(filePath));
       }
       logger.warn(`Checkpoint invalid (not version>=1 / no graph): ${filePath} — trying backups`);
     }
@@ -490,7 +623,7 @@ function loadCheckpointFromPath(filePath: string): ProjectCheckpoint | null {
   const recovered = loadFromBackups<ProjectCheckpoint>(filePath, isValidCheckpointObj);
   if (recovered) {
     logger.warn(`Checkpoint recovered from ${CHECKPOINT_FILENAME}.bak${recovered.bakIndex}: ${recovered.data.project?.name}`);
-    return recovered.data;
+    return attachActivityFromDisk(recovered.data, path.dirname(filePath));
   }
   return null;
 }
@@ -738,11 +871,31 @@ function mergeIdentityIntoCheckpoint(cp: ProjectCheckpoint, identity: ProjectIde
     const seen = new Set(existing.map((b) => b.id));
     cp.captureBubbles = [...existing, ...identity.captureBubbles.filter((b) => !seen.has(b.id))];
   }
+  // §5.13 v4.45 appBubbles 보충 — 같은 규칙(id 기준 합집합).
+  if (identity.appBubbles && identity.appBubbles.length > 0) {
+    const existing = cp.appBubbles ?? [];
+    const seen = new Set(existing.map((b) => b.id));
+    cp.appBubbles = [...existing, ...identity.appBubbles.filter((b) => !seen.has(b.id))];
+  }
+  // §5.14 v4.62 playBubbles 보충 — 같은 규칙(id 기준 합집합).
+  if (identity.playBubbles && identity.playBubbles.length > 0) {
+    const existing = cp.playBubbles ?? [];
+    const seen = new Set(existing.map((b) => b.id));
+    cp.playBubbles = [...existing, ...identity.playBubbles.filter((b) => !seen.has(b.id))];
+  }
   // contis 보충.
   if (identity.contis && Object.keys(identity.contis).length > 0) {
     cp.contis = cp.contis ?? {};
     for (const [id, conti] of Object.entries(identity.contis)) {
       if (!(id in cp.contis)) cp.contis[id] = conti;
+    }
+  }
+  // §5.5 #17-17 v4.46 세션 목표 보충 — checkpoint 에 없는 세션 탭의 목표만 되살린다
+  //   (진행 중인 목표를 디스크 판본이 덮어 되감지 않게 "없는 것만" 규칙 유지).
+  if (identity.sessionGoals && Object.keys(identity.sessionGoals).length > 0) {
+    cp.sessionGoals = cp.sessionGoals ?? {};
+    for (const [subId, goal] of Object.entries(identity.sessionGoals)) {
+      if (!(subId in cp.sessionGoals)) cp.sessionGoals[subId] = goal;
     }
   }
   // agentCounter 는 최대값 유지(라벨 번호 역행 방지).
@@ -798,6 +951,8 @@ function buildCheckpointSkeletonFromIdentity(identity: ProjectIdentity): Project
     taskEdges: { ...identity.taskEdges },
     commentBoxes: [...identity.commentBoxes],
     captureBubbles: [...identity.captureBubbles],
+    appBubbles: [...(identity.appBubbles ?? [])],
+    playBubbles: [...(identity.playBubbles ?? [])],
     contis: { ...identity.contis },
     deletedCustomAgentIds: identity.deletedSessionIds ?? [],
   };
@@ -805,14 +960,29 @@ function buildCheckpointSkeletonFromIdentity(identity: ProjectIdentity): Project
 
 // ─── 스케줄러 ───
 
+/**
+ * §3.2.4 — "지난번과 같은 내용인가"를 재는 지문.
+ *
+ * 종전엔 비교를 위해 **직렬화 문자열 전체**를 프로젝트마다 들고 있었다(checkpoint 2.2MB +
+ * activity 6MB, JS 문자열은 UTF-16 이라 실제 점유는 그 두 배). 비교에 필요한 것은 동일성뿐이라
+ * 길이 + SHA-1 로 충분하다 — **프로젝트당 수십 MB 가 64바이트가 된다.**
+ *
+ * 길이를 앞에 붙이는 이유: 해시가 충돌하더라도 길이가 다르면 확실히 걸러진다.
+ * (보안 용도가 아니라 변경 감지용이므로 SHA-1 로 충분하고, 네이티브라 직렬화보다 훨씬 싸다.)
+ */
+function contentFingerprint(json: string): string {
+  return `${json.length}:${crypto.createHash('sha1').update(json).digest('hex')}`;
+}
+
 /** 체크포인트 저장 스케줄러 */
 export class SaveScheduler {
   /**
-   * 성능: 프로젝트 경로별 마지막으로 디스크에 쓴 체크포인트의 직렬화 결과.
-   * 내용이 동일하면 디스크 쓰기(원자적 write + 백업 rotate)를 스킵한다. saveCheckpoint() 는
-   * 매 hook 이벤트마다 "모든 프로젝트"를 저장하는데, 활동은 보통 한 프로젝트에서만 일어나므로
-   * 안 바뀐 프로젝트의 반복 디스크 I/O 가 N-1 만큼 제거된다. 내용이 같을 때만 스킵하므로
-   * debounce 와 달리 영속 유실 위험이 없다(종료 시 미저장분 같은 창이 존재하지 않음).
+   * 성능: 프로젝트 경로별 마지막으로 디스크에 쓴 체크포인트의 **지문**(§3.2.4 — 종전엔 직렬화
+   * 문자열 전체였다). 내용이 동일하면 디스크 쓰기(원자적 write + 백업 rotate)를 스킵한다.
+   * saveCheckpoint() 는 매 hook 이벤트마다 "모든 프로젝트"를 저장하는데, 활동은 보통 한
+   * 프로젝트에서만 일어나므로 안 바뀐 프로젝트의 반복 디스크 I/O 가 N-1 만큼 제거된다.
+   * 내용이 같을 때만 스킵하므로 debounce 와 달리 영속 유실 위험이 없다(종료 시 미저장분 같은
+   * 창이 존재하지 않음).
    */
   private lastWritten = new Map<string, string>();
 
@@ -828,12 +998,28 @@ export class SaveScheduler {
     }
   }
 
+  /** 프로젝트 경로별 마지막으로 디스크에 쓴 `activity.json` 의 **지문**(§3.2.2 · §3.2.4). */
+  private lastWrittenActivity = new Map<string, string>();
+
   private writeIfChanged(cp: ProjectCheckpoint): void {
     const key = cp.project?.path ?? cp.project?.name ?? '';
-    const json = JSON.stringify(cp);
-    if (key && this.lastWritten.get(key) === json) return; // 내용 불변 — 디스크 쓰기 스킵
-    writeCheckpoint(cp);
-    if (key) this.lastWritten.set(key, json);
+    // §3.2.2 — 골격과 이력을 나눠 **각자** 변경 감지한다. 둘은 바뀌는 시점이 달라서,
+    // 한쪽만 바뀐 저장에서 다른 쪽의 백업 회전 + 원자적 쓰기를 통째로 아낀다.
+    const { core, activity } = splitCheckpointForDisk(cp);
+    const coreJson = JSON.stringify(core);
+    const activityJson = JSON.stringify(activity);
+    // §3.2.4 — 비교는 지문으로. 직렬화 결과 자체를 들고 있으면 프로젝트마다 수십 MB 가 상주한다.
+    const coreFp = contentFingerprint(coreJson);
+    const activityFp = contentFingerprint(activityJson);
+    const coreChanged = !key || this.lastWritten.get(key) !== coreFp;
+    const activityChanged = !key || this.lastWrittenActivity.get(key) !== activityFp;
+    if (!coreChanged && !activityChanged) return; // 양쪽 다 불변 — 디스크 쓰기 스킵
+    // v4.67 — 방금 만든 직렬화 결과를 그대로 넘겨 writeCheckpoint 안의 2차 직렬화를 없앤다.
+    writeCheckpoint(cp, coreJson, { skipCore: !coreChanged, activityJson });
+    if (key) {
+      if (coreChanged) this.lastWritten.set(key, coreFp);
+      this.lastWrittenActivity.set(key, activityFp);
+    }
   }
 }
 

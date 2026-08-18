@@ -1,0 +1,17 @@
+{
+  "id": "compaction-watch",
+  "name": "Compaction Watch",
+  "version": "1.0.0",
+  "category": "observability",
+  "descriptionKey": "panel.plugins.compactionWatch.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "subAgents"
+  ],
+  "hostApi": 1
+}

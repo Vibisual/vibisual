@@ -1,0 +1,17 @@
+{
+  "id": "hook-lifecycle",
+  "name": "Hook Lifecycle",
+  "version": "1.0.0",
+  "category": "observability",
+  "descriptionKey": "panel.plugins.hookLifecycle.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "agentEvents"
+  ],
+  "hostApi": 1
+}

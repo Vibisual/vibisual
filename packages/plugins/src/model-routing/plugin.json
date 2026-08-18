@@ -1,0 +1,18 @@
+{
+  "id": "model-routing",
+  "name": "Model Routing",
+  "version": "1.0.0",
+  "category": "workflow",
+  "descriptionKey": "panel.plugins.modelRouting.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "bubbleBadge",
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "agentEvents"
+  ],
+  "hostApi": 1
+}

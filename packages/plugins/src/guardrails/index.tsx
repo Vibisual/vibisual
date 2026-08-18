@@ -5,8 +5,8 @@
  * 모델 앞이 아니라 **도구 호출 직전**에 있어야 실제 피해 직전에 잡는다. Vibisual 의 승인 팝업이
  * 정확히 그 자리에 있으므로, 여기서는 그 관문이 지금 켜져 있는지를 보여준다. 표시 전용.
  */
-import { defineInspector, ICONS } from '../framework/inspector.js';
-import { effectiveTools } from '../lethal-trifecta/trifecta.js';
+import { defineInspector, ICONS } from '../sdk/index.js';
+import { effectiveTools } from '../sdk/index.js';
 
 const K = 'panel.plugins.guardrails';
 

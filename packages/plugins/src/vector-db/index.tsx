@@ -5,8 +5,8 @@
  * **규모를 재기 전에 인프라부터 고르는 것**이 가장 흔한 과잉 설계다. Vibisual 의 기억은 파일 기반이므로,
  * 여기서는 지금 규모가 그 선택을 여전히 정당화하는지 본다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 /** 이 선을 크게 넘어서면 파일 + 텍스트 검색의 이점이 사라지기 시작한다. */
 const FILE_SCALE_LIMIT = 2000;

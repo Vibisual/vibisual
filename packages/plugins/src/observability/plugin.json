@@ -1,0 +1,19 @@
+{
+  "id": "observability",
+  "name": "Observability",
+  "version": "1.0.0",
+  "category": "observability",
+  "descriptionKey": "panel.plugins.observability.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "agentEvents",
+    "subAgents",
+    "agentReports"
+  ],
+  "hostApi": 1
+}

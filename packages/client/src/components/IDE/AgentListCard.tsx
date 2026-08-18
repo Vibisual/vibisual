@@ -1,9 +1,13 @@
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { AgentList } from '@vibisual/shared';
+import { STREAM_COMPACT_LIST_PREVIEW, type AgentList } from '@vibisual/shared';
+import { CardLiveBadge, useCompactCards } from './AgentCardParts.js';
+import { useStreamToggle } from './streamToggle.js';
 
 interface AgentListCardProps {
   list: AgentList;
+  /** §5.5 #17-18 ⑦-2 — 이 카드가 속한 턴이 아직 도는 중(헤더에 `작업 중` 배지 — 끝난 줄 착각 방지). */
+  live?: boolean;
 }
 
 function formatTime(ts: number): string {
@@ -36,8 +40,14 @@ function ListOrderedIcon(): React.JSX.Element {
  * 자동으로 매겨 **가지런히 정렬**해 보여준다(번호 열 고정폭 + 행잉 인덴트). teal 액센트로 구분.
  * 작업 신고(emerald)·질문(sky)·검수(violet)와 동일 골격.
  */
-export const AgentListCard = memo(function AgentListCard({ list }: AgentListCardProps): React.JSX.Element {
+export const AgentListCard = memo(function AgentListCard({ list, live }: AgentListCardProps): React.JSX.Element {
   const { t } = useTranslation();
+  // §5.5 #17-21 ④ — 간결에서는 상위 N개만 보이고 나머지는 `+N` 한 줄(클릭하면 전부 펼친다).
+  //   목록은 "무엇이 있는지"가 핵심이라 카드를 통째로 접지는 않는다.
+  const compact = useCompactCards();
+  const [expanded, toggleExpanded] = useStreamToggle(`card-${list.id}`, false);
+  const clipped = compact && !expanded && list.items.length > STREAM_COMPACT_LIST_PREVIEW;
+  const shownItems = clipped ? list.items.slice(0, STREAM_COMPACT_LIST_PREVIEW) : list.items;
 
   return (
     <div className="mx-2 my-1.5 overflow-hidden rounded-md border border-gray-700/40 bg-gray-900/25">
@@ -47,11 +57,12 @@ export const AgentListCard = memo(function AgentListCard({ list }: AgentListCard
         <span className="flex-1 text-[11px] font-semibold uppercase tracking-wide text-teal-300">
           {t('ide.list.title')}
         </span>
+        {live && <CardLiveBadge />}
         <span className="select-none text-[10px] text-gray-500">{formatTime(list.createdAt)}</span>
       </div>
 
       <div className="px-3 py-2">
-        {list.note && (
+        {(!compact || expanded) && list.note && (
           <p className="mb-2 text-[12.5px] leading-relaxed text-gray-300">{list.note}</p>
         )}
 
@@ -62,7 +73,7 @@ export const AgentListCard = memo(function AgentListCard({ list }: AgentListCard
 
         {/* 번호 목록 — 번호 열 고정폭(우측정렬·tabular-nums) + 본문 행잉 인덴트. */}
         <ol className="space-y-0.5">
-          {list.items.map((item, i) => (
+          {shownItems.map((item, i) => (
             <li key={i} className="flex items-start gap-2 text-[12.5px] leading-relaxed text-gray-300">
               <span className="min-w-[1.5rem] flex-shrink-0 select-none text-right font-medium tabular-nums text-teal-300/70">
                 {i + 1}.
@@ -71,6 +82,20 @@ export const AgentListCard = memo(function AgentListCard({ list }: AgentListCard
             </li>
           ))}
         </ol>
+
+        {/* 간결에서 잘린 나머지 — 클릭하면 전체 목록이 그대로 펼쳐진다. */}
+        {clipped && (
+          <button
+            type="button"
+            onClick={toggleExpanded}
+            className="mt-1 flex items-center gap-1 text-[11px] text-gray-500 transition-colors hover:text-gray-300"
+          >
+            <svg className="h-3 w-3" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M8 5v14l11-7z" />
+            </svg>
+            {t('ide.list.moreItems', { count: list.items.length - STREAM_COMPACT_LIST_PREVIEW })}
+          </button>
+        )}
       </div>
     </div>
   );

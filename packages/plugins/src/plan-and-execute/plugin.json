@@ -1,0 +1,17 @@
+{
+  "id": "plan-and-execute",
+  "name": "Plan and Execute",
+  "version": "1.0.0",
+  "category": "workflow",
+  "descriptionKey": "panel.plugins.planAndExecute.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "agentEvents"
+  ],
+  "hostApi": 1
+}

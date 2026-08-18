@@ -33,6 +33,11 @@ function makeLoop(agentId: string, subAgentId: string, over: Partial<SessionLoop
     enabled: true,
     intervalMs: 0,
     stopOnError: true,
+    contextMode: 'none',
+    spentCostUsd: 0,
+    spentTokens: 0,
+    oneTaskPerRound: false,
+    commitEachRound: false,
     status: 'waiting',
     createdAt: now,
     updatedAt: now,
@@ -119,6 +124,92 @@ describe('ProjectGraph — 세션 반복 실행(루프)', () => {
 
     expect(live.getSessionLoop('sub-a')?.command).toBe('live one'); // 덮이지 않음
     expect(live.getSessionLoop('sub-c')?.command).toBe('only live');
+  });
+
+  it('§5.5 #17-11 ⑪·⑫ — 컨텍스트 처리·예산·규약 설정이 디스크를 왕복해도 살아남는다', () => {
+    const { graph, projectName } = seededGraph();
+    const agent = graph.createCustomAgent('Looper', undefined, projectName);
+    graph.setSessionLoop(makeLoop(agent.id, 'sub-a', {
+      contextMode: 'clear',
+      maxCostUsd: 5, maxTokens: 200_000, maxDurationMs: 3_600_000,
+      spentCostUsd: 1.25, spentTokens: 42_000, cycleStartedAt: 1_700_000_000_000,
+      progressFile: 'PROGRESS.md', oneTaskPerRound: true, commitEachRound: true, commandFile: 'PROMPT.md',
+    }));
+
+    const cp = graph.toProjectCheckpoint(projectName);
+    expect(cp.sessionLoops?.['sub-a']?.contextMode).toBe('clear');
+    expect(cp.sessionLoops?.['sub-a']?.maxCostUsd).toBe(5);
+
+    const revived = new ProjectGraph();
+    revived.restoreFromCheckpoint(cp);
+    const loop = revived.getSessionLoop('sub-a');
+    expect(loop?.contextMode).toBe('clear');
+    expect(loop?.maxTokens).toBe(200_000);
+    expect(loop?.maxDurationMs).toBe(3_600_000);
+    // 누적도 이어진다 — 재시작했다고 예산이 리셋되면 상한이 의미를 잃는다.
+    expect(loop?.spentCostUsd).toBe(1.25);
+    expect(loop?.spentTokens).toBe(42_000);
+    expect(loop?.cycleStartedAt).toBe(1_700_000_000_000);
+    expect(loop?.progressFile).toBe('PROGRESS.md');
+    expect(loop?.commandFile).toBe('PROMPT.md');
+    expect(loop?.oneTaskPerRound).toBe(true);
+    expect(loop?.commitEachRound).toBe(true);
+  });
+
+  it('§5.5 #17-11 ⑪ — 정리 대조 id 는 복원 시 비운다(죽은 압축을 영원히 기다리지 않는다)', () => {
+    const { graph, projectName } = seededGraph();
+    const agent = graph.createCustomAgent('Looper', undefined, projectName);
+    graph.setSessionLoop(makeLoop(agent.id, 'sub-a', {
+      contextMode: 'compact', status: 'running', pendingCompactCommandId: 'cmd-dead-compact', completed: 2,
+    }));
+
+    const revived = new ProjectGraph();
+    revived.restoreFromCheckpoint(graph.toProjectCheckpoint(projectName));
+    const loop = revived.getSessionLoop('sub-a');
+    expect(loop?.completed).toBe(2);
+    expect(loop?.status).toBe('waiting');
+    expect(loop?.pendingCompactCommandId).toBeUndefined();
+  });
+
+  it('§5.5 #17-11 ⑫ — 새 필드가 없는 구버전 체크포인트는 전부 꺼짐으로 복원된다', () => {
+    const { graph, projectName } = seededGraph();
+    const agent = graph.createCustomAgent('Looper', undefined, projectName);
+    graph.setSessionLoop(makeLoop(agent.id, 'sub-a'));
+    const cp = graph.toProjectCheckpoint(projectName);
+    // 구버전 디스크 포맷 재현 — 필드 자체가 없다.
+    const raw = cp.sessionLoops!['sub-a'] as Partial<SessionLoop>;
+    delete raw.contextMode;
+    delete raw.spentCostUsd;
+    delete raw.spentTokens;
+    delete raw.oneTaskPerRound;
+    delete raw.commitEachRound;
+
+    const revived = new ProjectGraph();
+    revived.restoreFromCheckpoint(cp);
+    const loop = revived.getSessionLoop('sub-a');
+    expect(loop?.contextMode).toBe('none');
+    expect(loop?.spentCostUsd).toBe(0);
+    expect(loop?.spentTokens).toBe(0);
+    expect(loop?.oneTaskPerRound).toBe(false);
+    expect(loop?.commitEachRound).toBe(false);
+  });
+
+  it('§5.5 #17-11 ⑫(b) — 잠깐 쓰였던 `autoCompact:true` 는 `contextMode:"compact"` 로 승계된다', () => {
+    const { graph, projectName } = seededGraph();
+    const agent = graph.createCustomAgent('Looper', undefined, projectName);
+    graph.setSessionLoop(makeLoop(agent.id, 'sub-a'));
+    const cp = graph.toProjectCheckpoint(projectName);
+    // 직전 형태 재현 — contextMode 는 없고 autoCompact 만 있다.
+    const raw = cp.sessionLoops!['sub-a'] as Partial<SessionLoop> & { autoCompact?: boolean };
+    delete raw.contextMode;
+    raw.autoCompact = true;
+
+    const revived = new ProjectGraph();
+    revived.restoreFromCheckpoint(cp);
+    const loop = revived.getSessionLoop('sub-a') as (SessionLoop & { autoCompact?: boolean }) | undefined;
+    expect(loop?.contextMode).toBe('compact');
+    // 낡은 필드는 남기지 않는다 — 두 개가 공존하면 다음 사람이 어느 쪽을 믿을지 모른다.
+    expect(loop?.autoCompact).toBeUndefined();
   });
 
   it('에이전트를 지우면 그 에이전트의 루프도 함께 사라진다(좀비 루프 차단)', () => {

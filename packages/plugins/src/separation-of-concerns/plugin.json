@@ -1,0 +1,17 @@
+{
+  "id": "separation-of-concerns",
+  "name": "Separation of Concerns",
+  "version": "1.0.0",
+  "category": "workflow",
+  "descriptionKey": "panel.plugins.separationOfConcerns.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "subAgents"
+  ],
+  "hostApi": 1
+}

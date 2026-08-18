@@ -1,0 +1,15 @@
+{
+  "id": "blast-radius",
+  "name": "Blast Radius",
+  "version": "1.0.0",
+  "category": "security",
+  "descriptionKey": "panel.plugins.blastRadius.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [],
+  "hostApi": 1
+}

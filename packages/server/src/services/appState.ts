@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { AppState, AppStatePatch } from '@vibisual/shared';
-import { APP_STATE_BACKUP_GENERATIONS } from '@vibisual/shared';
+import type { AppState, AppStatePatch, RetentionSettings } from '@vibisual/shared';
+import { APP_STATE_BACKUP_GENERATIONS, normalizeRetentionSettings } from '@vibisual/shared';
 import { atomicWriteFileSync, rotateBackups, loadFromBackups } from './statePersistence.js';
 import { logger } from '../logger.js';
 
@@ -174,6 +174,9 @@ function normalize(raw: Partial<AppState> | null | undefined): AppState {
     projectNames,
     skillOrder: normalizeSkillOrder(raw.skillOrder),
     skillFavorites: normalizeSkillFavorites(raw.skillFavorites),
+    // §3.2.3 — 저장돼 있을 때만 실는다. 없으면 undefined 로 두어 `appStateGetRetention()` 이
+    // 기본값을 내주게 한다(구버전 AppState 하위호환 + 기본값이 나중에 바뀌면 자동 추종).
+    retention: raw.retention ? normalizeRetentionSettings(raw.retention) : undefined,
     updatedAt: typeof raw.updatedAt === 'number' ? raw.updatedAt : 0,
   };
 }
@@ -285,6 +288,7 @@ export function saveAppState(state: AppState): void {
     rotateBackups(APP_STATE_FILE, APP_STATE_BACKUP_GENERATIONS);
     atomicWriteFileSync(APP_STATE_FILE, JSON.stringify(withTimestamp, null, 2));
     cached = withTimestamp;
+    retentionMemo = null; // 다른 경로가 상태를 통째로 갈아끼웠을 수 있다 — 다음 조회 때 다시 만든다.
   } catch (err) {
     logger.error(`AppState save failed: ${err instanceof Error ? err.message : String(err)}`);
   }
@@ -305,6 +309,32 @@ export function patchAppState(patch: AppStatePatch): AppState {
   };
   saveAppState(merged);
   return cached ?? merged;
+}
+
+// ─── 보존 정책 (§3.2.3) ───
+//
+// 판정은 **여기 하나**를 통과한다. `recordFileEdit` 처럼 뜨거운 경로에서도 불리므로
+// 정규화 결과를 메모해 둔다(`loadAppState` 자체는 이미 in-memory 캐시라 싸다).
+
+let retentionMemo: RetentionSettings | null = null;
+
+/**
+ * 현재 보존 설정. 저장된 값이 없으면 `DEFAULT_RETENTION_SETTINGS`.
+ * ⚠ 값 `0` 은 "그 축은 정리하지 않음"이라 호출부에서 그대로 존중해야 한다(`isExpiredByDays` 참고).
+ */
+export function appStateGetRetention(): RetentionSettings {
+  if (retentionMemo) return retentionMemo;
+  retentionMemo = normalizeRetentionSettings(loadAppState().retention);
+  return retentionMemo;
+}
+
+/** 보존 설정 부분 갱신 → 정규화 후 저장. 반환은 저장된 최종본. */
+export function appStateSetRetention(patch: Partial<RetentionSettings>): RetentionSettings {
+  const merged = normalizeRetentionSettings({ ...appStateGetRetention(), ...patch });
+  const current = loadAppState();
+  saveAppState({ ...current, retention: merged });
+  retentionMemo = merged; // saveAppState 가 방금 비운 메모를 확정값으로 다시 채운다.
+  return merged;
 }
 
 /** openProjects에 프로젝트 추가 (정규화 경로 기준 중복 체크). 새로 추가/이름변경 시 true.

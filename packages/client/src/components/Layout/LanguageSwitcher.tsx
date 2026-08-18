@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { SUPPORTED_UI_LOCALES, LOCALE_META } from '@vibisual/shared';
 import type { UiLocale } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
+import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 
 export function LanguageSwitcher(): React.JSX.Element {
   const { t } = useTranslation();
@@ -11,12 +12,16 @@ export function LanguageSwitcher(): React.JSX.Element {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
+  // 바깥 press → 닫기(공통 규약). iframe 위 클릭은 mousedown 이 안 오는 경우가 있어 pointerdown 도 함께 듣는다.
+  useOutsidePressDismiss({
+    enabled: open,
+    onDismiss: () => setOpen(false),
+    refs: [ref],
+    events: ['mousedown', 'pointerdown'],
+  });
+
   useEffect(() => {
     if (!open) return;
-    function onDown(e: Event): void {
-      const target = e.target as Node | null;
-      if (ref.current && target && !ref.current.contains(target)) setOpen(false);
-    }
     function onBlur(): void {
       // iframe 이 포커스를 가져가면 window blur 가 발생 → 드롭다운 닫기.
       setOpen(false);
@@ -24,13 +29,9 @@ export function LanguageSwitcher(): React.JSX.Element {
     function onKey(e: KeyboardEvent): void {
       if (e.key === 'Escape') setOpen(false);
     }
-    document.addEventListener('mousedown', onDown, true);
-    document.addEventListener('pointerdown', onDown, true);
     window.addEventListener('blur', onBlur);
     document.addEventListener('keydown', onKey);
     return () => {
-      document.removeEventListener('mousedown', onDown, true);
-      document.removeEventListener('pointerdown', onDown, true);
       window.removeEventListener('blur', onBlur);
       document.removeEventListener('keydown', onKey);
     };

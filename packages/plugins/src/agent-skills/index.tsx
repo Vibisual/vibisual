@@ -4,8 +4,8 @@
  * 점진적 공개의 교과서적 구현이라 중요하다 — 세션 시작 시엔 이름·설명만 읽고, 관련 있다고 판단될 때만
  * 본문을 로드하며, 스크립트는 실행 시점에만 읽는다. 그래서 스킬 수십 개를 붙여도 **상시 비용은 거의 늘지 않는다**. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 /** 스킬 하나의 상시 비용은 이름·설명 수준(중앙값 80 토큰 안팎)으로 잡는다. */
 const IDLE_COST_PER_SKILL = 80;

@@ -1,0 +1,17 @@
+{
+  "id": "review-gate",
+  "name": "Review Gate",
+  "version": "1.0.0",
+  "category": "workflow",
+  "descriptionKey": "panel.plugins.reviewGate.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "agentReviews"
+  ],
+  "hostApi": 1
+}

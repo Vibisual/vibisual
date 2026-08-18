@@ -2,6 +2,7 @@ import { memo, useState, useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { BashEntry } from '@vibisual/shared';
 import { ScrollFade } from '../ScrollFade.js';
+import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 
 interface BashHistoryListProps {
   entries: BashEntry[];
@@ -35,10 +36,12 @@ function BashDetailPopup({ entry, onClose }: BashDetailPopupProps): React.JSX.El
     return () => window.removeEventListener('keydown', handleKey);
   }, [onClose]);
 
+  const backdrop = useBackdropDismiss(onClose);
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-      onClick={onClose}
+      {...backdrop}
     >
       <div
         className="mx-4 flex max-h-[80vh] w-full max-w-2xl flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl shadow-black/50"

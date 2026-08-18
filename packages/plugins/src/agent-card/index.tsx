@@ -4,9 +4,9 @@
  * 자기 능력·입출력·인증 방식을 기계가 읽을 수 있게 공개하는 명세다. 다만 **비용·지연·실패 모드까지 적어야**
  * 실제로 자동 선택이 가능해진다. 이 카드는 지금 이 에이전트가 그 명세로서 얼마나 채워져 있는지 보여준다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import { effectiveTools } from '../lethal-trifecta/trifecta.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import { effectiveTools } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 function filled(ctx: PluginBubbleContext): number {
   return [

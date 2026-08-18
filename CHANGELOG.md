@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-08-18
+
+### Added
+- **A real editor, inside the IDE.** File names were showing in three places — the explorer tree, the *edited files* section, and the `Edit` tool header in the stream — and none of them opened anything. All three now open the same built-in editor, docked to the right of the conversation rather than covering it, so you read the file while the agent keeps talking. Tabs with dirty dots and a close prompt, `Tab` / `Shift+Tab` indent, `Ctrl+S` save, original line endings preserved, and a modification check that refuses to overwrite a file the agent changed underneath you. There's a right-click menu, read-only files can be unlocked and saved, and a **Follow** toggle walks the editor to whatever the agent is editing right now — telling you when it chose not to follow, and why.
+- **The Files view is now a workspace explorer.** Instead of the bare filenames the agent happened to touch, you get the real directory tree from the project root — lazy-loaded, hidden entries included, original casing — with the full path shown in the tooltip, the footer, and as `parent/file`. The old edited-files list is kept as a collapsible section rather than replaced.
+- **Run and Debug.** A new activity-bar section finds your run configurations wherever they already live — `.vscode/launch.json`, `tasks.json`, `package.json` scripts, `.vibisual/run.json` — and runs them with output in the panel. Debug mode now actually attaches: a common debug layer speaks both CDP and DAP, so a breakpoint stops instead of the process sitting there waiting for a debugger that never came. **Unreal projects are first-class** — open any `.uproject` and the configurations appear, without writing a per-project file first.
+- **Play bubbles — a button on the canvas that starts your project.** Drop one on the canvas and press it instead of asking an agent to "start the server"; a live preview appears beside it, and closing the preview leaves the button. How to start a given app is worked out in four steps (static serving → auto-detection → learning by watching → asking an agent), and once it's settled the recipe is saved to the bubble, so it's one click from then on.
+- **Internal apps — and the first one, Vibistudio.** Things too heavy to be a plugin now install as separate apps from **File → Apps**, appear as their own bubbles on the canvas, and cost nothing when you don't use them (an app that isn't installed is never even loaded). The first is **Vibistudio**, a programmable video studio: code-driven motion graphics and real footage on one timeline, a timeline an agent can edit directly, and rendering that happens entirely on your machine.
+- **Session goals.** Give an open session a goal sentence and the activity bar carries its progress as a percentage at all times. The goal is re-injected every turn, so editing it mid-run changes the next turn instead of requiring a restart, and progress comes from three sources — the agent's own report, your manual correction, and the plan checklist — with the agent's explicit report winning. A goal is a final objective plus a todo checklist.
+- **Sign in to Claude inside the app.** Logging in used to mean a black console window outside the app, and logging out or switching accounts had no path at all. There's now a login popup when you aren't signed in, and an **Account** tab in Options to check the account or sign out.
+- **See — and switch off — everything being fed to the agent.** A new *Context* view lays out every source that gets prepended to your prompt: card instructions, the intent declaration, the session goal, the Brain briefing, enforcement plugins, edges, feedback, Agent Rules, plus Claude Code's own `CLAUDE.md`, memory index, skill and command descriptions, subagent definitions, tool schemas and system prompt. Each row shows its estimated size and can be turned off per session or per project, with a one-line explanation on hover and a detail dialog on click.
+- **Reading settings.** Line length, text size, line height, letter and word spacing, and paragraph spacing are yours to set, with width presets, a slider, and a badge measuring the line against the accessibility guideline for CJK text — because there is no single correct width, only the one that suits you.
+- **Draw on a screenshot instead of describing it.** The attachment lightbox gains annotation: rectangle, ellipse, arrow, pen, highlighter, redaction, text, and auto-numbering badges, in six colours and three weights. What gets attached is the annotated PNG, so you can write "area 2" instead of a paragraph locating a button. The default tool is *View*, so viewing an image behaves exactly as before.
+- **Command history, per session.** Walk back through what you've already sent, without leaving the session you're in.
+- **Verified runs.** "Done" used to be a word the model produced. Completion for autonomous runs is now decided by the server, an unreadable review verdict is no longer treated as approval, and exceeding the rework limit calls you instead of quietly lowering its own standards.
+- **Copy a skill into another project**, straight from the sidebar.
+- **Loops got a budget and a memory.** The loop screen moved from an overlay into the sidebar, context is compacted automatically at the end of each round, and each round runs against an explicit budget.
+- **Running subagents, in detail.** The view moved from a count to what each background child is doing and what it produced, with per-item expiry, an unresponsive marker, and the ability to take one down on its own.
+- **Emptying the Trash.** Three deletion actions inside the Trash bubble, plus a Storage tab in Options.
+- **Tabs move out of the way.** Dragging a tab now pushes its neighbours aside with real motion instead of snapping into place or drawing an insertion line.
+- **Bash tool timeout is a setting**, and IDE bookmarks are kept per project.
+
+### Changed
+- **Plugins stopped only watching.** All 111 inspector cards gained an enforcement side: switch one on and that principle is loaded into the agent's prompt every turn — for that project only, since plugin scope moved from global to per-project. Each plugin is also now a self-contained folder that runs if you copy it elsewhere, with its own descriptor and its own translations.
+- **Slash commands reach the CLI again.** Everything we prepend to a turn was standing in front of them, so `/context` and friends were handed to the model as plain text instead of being run.
+- **Less noise in the stream.** Finished thinking blocks are gone entirely (thinking is one live line while it happens), repeated `working` heartbeats for a task already on screen are no longer drawn at any density, and housekeeping notifications are hidden.
+- **Cards stay where they were reported.** Work reports, questions, and reviews are pinned at the point in the conversation where they arrived, instead of riding along at the bottom of the screen.
+- **Hook bubbles are read-only** — an externally-started session is something you watch, not something you type into.
+- **A turn ending is provisional.** A finished result no longer seals a turn as complete while background work it started is still running.
+- **App bubbles are graphite and a third of the size**, and canvas physics runs always rather than only when satellites are present.
+
+### Fixed
+- **It no longer gets heavier the longer it runs.** Eleven hours in, the main process — which is also the server core — held 3 GB, while everything on disk came to 73 MB. The I/O counters told the real story: a single tool event was reading 832 MB. Caches are now bounded by bytes rather than item count, whole-file reads became chunked reads, and conversation-event and summary extraction became incremental, so an event reads what changed instead of everything.
+- **The middle of a conversation no longer vanishes**, leaving only your bubbles and the cards. The restore budget was being spent on events that are never drawn on screen.
+- **An `[immediate]` follow-up could end the session.** Sending one while a turn was held open by lingering background work wrote to a closed pipe and took the whole process down.
+- **Background work survives the turn that started it.** Two places were terminating the session process — and therefore every background task it had spawned — the moment a turn finished.
+- **"Running" tells the truth.** The running indicator is now cross-checked against the actual process: a session that had already died showed as running for up to five minutes, now five seconds, and the paths that produced that state were closed.
+- **Hook blocks no longer pile up.** An installer that could only find its own marked block left every older one behind — one measured `settings.json` had 58 blocks, meaning eight `node` processes spawned on every single tool call. Old blocks are now collected, and backups rotate instead of accumulating (88 of them had gathered in one folder).
+- **External files and folders open again**, and custom agent settings match what the installed CLI actually accepts.
+
 ## [0.1.8] - 2026-08-03
 
 ### Added
@@ -156,7 +196,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - Dropped preset options from the custom agent settings.
 
-[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.1.8...HEAD
+[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.1.9...HEAD
+[0.1.9]: https://github.com/Vibisual/vibisual/compare/v0.1.8...v0.1.9
 [0.1.8]: https://github.com/Vibisual/vibisual/compare/v0.1.7...v0.1.8
 [0.1.7]: https://github.com/Vibisual/vibisual/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/Vibisual/vibisual/compare/v0.1.5...v0.1.6

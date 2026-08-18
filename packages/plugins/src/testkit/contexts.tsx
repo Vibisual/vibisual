@@ -87,12 +87,17 @@ export function pluginTestContexts(t: PluginTranslate): PluginBubbleContext[] {
     { ...base, customCreated: false, agentConfig: undefined, data: {} },
     // ② 갓 만들어진 커스텀 에이전트 — 설정만 있고 활동 이력 없음.
     { ...base, customCreated: true, agentConfig: cfg(), data: {} },
-    // ③ 권한이 열려 있고 도구가 전부 붙은 상태.
+    // ③ 권한이 열려 있고 도구가 **과반이되 전부는 아닌** 상태.
+    //    이 픽스처가 밟는 것은 여러 카드의 **중간 등급**(도구검색 `most` · 허용목록 `partial` ·
+    //    관심사분리 `mixed`)이라, 도구 이름을 손으로 적으면 `AVAILABLE_AGENT_TOOLS` 가 늘어날 때마다
+    //    비율이 조용히 내려가 그 등급들이 도달 불가가 된다(실제로 목록이 12→20 이 되며 세 등급이 한꺼번에
+    //    죽은 문자열로 잡혔다). 목록 길이를 따라가는 비율(약 70%)로 잡아 그 회귀를 원천 차단한다.
+    //    — 0.5 초과라 `focused`/`narrow`/`lean` 이 아니고, 0.9 미만이라 `broad`/`all` 도 아니다.
     {
       ...base,
       customCreated: true,
       agentConfig: cfg({
-        tools: ['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob', 'Agent', 'WebSearch', 'WebFetch', 'NotebookEdit'],
+        tools: AVAILABLE_AGENT_TOOLS.slice(0, Math.ceil(AVAILABLE_AGENT_TOOLS.length * 0.7)),
         permissionMode: 'bypassPermissions',
         effort: 'high',
         rules: 'x'.repeat(12_000),
@@ -128,6 +133,16 @@ export function pluginTestContexts(t: PluginTranslate): PluginBubbleContext[] {
           { id: 'b1', command: 'rm -rf build/', timestamp: 1 },
           { id: 'b2', command: 'git push --force', timestamp: 2 },
         ],
+        // §5.11 v4.65 — 집행 실측이 **있는** 상태(지시가 여러 곳 = 경고 등급). 실측을 안 주면 실측 기반
+        //   카드는 "아직 측정 전" 분기만 밟고 나머지 문구가 통째로 미검증으로 남는다.
+        //   v4.67 — 종속을 명시해 **정렬된** 문서와 **뒤처짐 실측**(문턱 안)도 함께 담는다.
+        pluginFacts: {
+          'ssot-drift': {
+            doc: 'docs/SCENARIO.md', docState: 'ok', bodyChars: 900_000, headings: 400,
+            hasChangeLog: true, rivals: ['CLAUDE.md', 'CONTRIBUTING.md'], alignedRivals: ['docs/rules/README.md'],
+            sources: 3, driftDays: 2, stale: false,
+          },
+        },
       },
     },
     // ④ 도구를 전부 막은 상태 — 긍정 분기만 밟고 끝나면 음성 쪽 문구의 키 누락이 숨는다.
@@ -141,7 +156,11 @@ export function pluginTestContexts(t: PluginTranslate): PluginBubbleContext[] {
         permissionMode: 'plan',
         permissionTimeoutPolicy: 'deny',
       }),
-      data: { agentEvents: [], subAgents: [], brainInjections: [], taskEdges: [], bashCommands: [] },
+      data: {
+        agentEvents: [], subAgents: [], brainInjections: [], taskEdges: [], bashCommands: [],
+        // 실측은 했는데 **SSOT 문서를 못 찾은** 상태 — "없음"과 "아직 안 재봤음"은 다른 화면이다.
+        pluginFacts: { 'ssot-drift': { doc: '', hasChangeLog: false, rivals: [], sources: 0 } },
+      },
     },
     // ⑤ 에이전트가 아닌 버블 — match 가 걸러야 정상이지만, 걸러지지 않아도 던지면 안 된다.
     { ...base, bubbleType: 'file' as const, customCreated: false, agentConfig: undefined, data: {} },
@@ -189,6 +208,8 @@ export function pluginTestContexts(t: PluginTranslate): PluginBubbleContext[] {
         brainInjections: [],
         taskEdges: [],
         bashCommands: [],
+        // 지시가 **두 곳**인 가운데 등급 + `Change Log` 절이 아직 없는 문서.
+        pluginFacts: { 'ssot-drift': { doc: 'docs/SSOT.md', hasChangeLog: false, rivals: ['CLAUDE.md'], sources: 2 } },
       },
     },
     // ⑧ **위험 명령 전종** — 탐지기의 종류별 문구는 그 종류가 실제로 걸려야만 그려진다.
@@ -248,6 +269,8 @@ export function pluginTestContexts(t: PluginTranslate): PluginBubbleContext[] {
         captureBubbles: [],
         // 위험하지 않은 명령만 — tool-misuse / data-exfiltration 의 "깨끗함" 등급.
         bashCommands: [{ id: 'ok1', command: 'git status', timestamp: 1 }, { id: 'ok2', command: 'ls -al', timestamp: 2 }],
+        // 지시가 **한 곳**뿐인 가장 건강한 상태 — 경쟁 문서가 없을 때의 문구를 밟는다.
+        pluginFacts: { 'ssot-drift': { doc: 'docs/SCENARIO.md', hasChangeLog: true, rivals: [], sources: 1 } },
       },
     },
     // ⑩ **가운데 지점** — 좋음도 나쁨도 아닌 중간 등급. 양 끝만 밟으면 가운데 문구가 미검증으로 남는다.
@@ -405,6 +428,80 @@ export function pluginTestContexts(t: PluginTranslate): PluginBubbleContext[] {
         brainInjections: [],
         taskEdges: [],
         bashCommands: [],
+      },
+    },
+    /*
+     * ⑰~⑲ §5.11 v4.67 — **SSOT 실측의 나쁜 쪽 세 가지.**
+     *
+     * ③④⑦⑨ 는 "문서가 있다/없다"만 담고 있어서, v4.67 이 나눈 상태(빈 문서 · 지정한 경로에 파일 없음 ·
+     * 문서가 코드보다 뒤처짐)는 한 번도 안 그려졌다. 그리고 안 그려진 문구는 **번역만 12개 늘어난 채**
+     * 아무도 못 보는 자리에 남는다(`deadStrings` 가 그것을 잡는다). 데이터는 이 카드가 읽는 실측만 담는다.
+     */
+    // ⑰ 문서는 있는데 **거의 비어 있다** — 제목 한 줄짜리 파일이 초록으로 통과하던 자리.
+    {
+      ...base,
+      now: NOW,
+      customCreated: true,
+      agentConfig: cfg(),
+      data: {
+        agentEvents: [], subAgents: [], brainInjections: [], taskEdges: [], bashCommands: [],
+        pluginFacts: {
+          'ssot-drift': {
+            doc: 'docs/GDD.md', docState: 'thin', bodyChars: 42, headings: 1,
+            hasChangeLog: false, rivals: [], alignedRivals: [], sources: 1,
+          },
+        },
+      },
+    },
+    // ⑱ 프로젝트가 경로를 **지정했는데 그 자리에 파일이 없다** — "못 찾음"과 전혀 다른 화면이다.
+    {
+      ...base,
+      now: NOW,
+      customCreated: true,
+      agentConfig: cfg(),
+      data: {
+        agentEvents: [], subAgents: [], brainInjections: [], taskEdges: [], bashCommands: [],
+        pluginFacts: {
+          'ssot-drift': {
+            doc: '', configured: 'docs/GDD.md', docState: 'configMissing', bodyChars: 0, headings: 0,
+            hasChangeLog: false, rivals: ['CLAUDE.md'], alignedRivals: [], sources: 1,
+          },
+        },
+      },
+    },
+    // ⑲ 문서는 멀쩡한데 **저장소보다 한참 뒤처졌다** — 이 카드 이름(Drift)이 원래 재야 했던 상태.
+    {
+      ...base,
+      now: NOW,
+      customCreated: true,
+      agentConfig: cfg(),
+      data: {
+        agentEvents: [], subAgents: [], brainInjections: [], taskEdges: [], bashCommands: [],
+        pluginFacts: {
+          'ssot-drift': {
+            doc: 'docs/SPEC.md', docState: 'ok', bodyChars: 8_000, headings: 20,
+            hasChangeLog: true, rivals: [], alignedRivals: [], sources: 1,
+            driftDays: 37, changeLogAgeDays: 51, stale: true,
+          },
+        },
+      },
+    },
+    /*
+     * ⑳ **규칙만 비대한 에이전트** — 도구도 데이터도 평범한데 규칙 문서 하나가 창을 크게 먹는 상태.
+     *
+     * 여기까지의 픽스처는 규칙이 길어야 2만 자였다. 그래서 `token-budget` 의 "고정 비용이 큼" 등급은
+     * 어떤 상황에서도 안 밟혔고, 그 문구는 번역만 12개 늘어난 채 아무도 못 보는 자리에 있었다
+     * (`deadStrings` 가 그것을 "원리상 도달 불가"로 적어 두고 있었다). 판정이 규칙까지 세게 된 뒤로는
+     * 도달할 수 있는 상태이므로, 그 분기를 밟는 자리를 여기서 만든다 — 사용자가 실제로 만들 수 있는
+     * 상태만 담는다(규칙 5만 자 ≈ 1.25만 토큰, 20만 창의 11%).
+     */
+    {
+      ...base,
+      now: NOW,
+      customCreated: true,
+      agentConfig: cfg({ rules: '규'.repeat(50_000) }),
+      data: {
+        agentEvents: [], subAgents: [], runningTasks: [], brainInjections: [], taskEdges: [], bashCommands: [],
       },
     },
   ];

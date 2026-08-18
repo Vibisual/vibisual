@@ -33,6 +33,11 @@ function makeLoop(agentId: string, subAgentId: string, over: Partial<SessionLoop
     enabled: true,
     intervalMs: 0,
     stopOnError: true,
+    contextMode: 'none',
+    spentCostUsd: 0,
+    spentTokens: 0,
+    oneTaskPerRound: false,
+    commitEachRound: false,
     status: 'waiting',
     createdAt: now,
     updatedAt: now,
@@ -142,6 +147,48 @@ describe('커스텀 에이전트 완료 판정 — 낼 일이 남았으면 완�
 
     expect(graph.recomputeCustomAgentStatus(agentId)).toBe(true);
     expect(statusOf(graph, agentId)).toBe('completed');
+  });
+
+  it('실패로 끝난 세션은 완료가 아니라 error 로 올라간다 — 캔버스에서 실패가 완료로 세탁되면 안 된다', () => {
+    const { graph, agentId, subId } = activeAgent('Failed');
+    const sub = subAgentManager.getSub(subId);
+    expect(sub).toBeDefined();
+    sub!.status = 'error';
+
+    expect(graph.recomputeCustomAgentStatus(agentId)).toBe(true);
+    expect(statusOf(graph, agentId)).toBe('error');
+  });
+
+  it('실패 버블은 같은 판정을 다시 받아도 흔들리지 않는다(중복 broadcast 방지)', () => {
+    const { graph, agentId, subId } = activeAgent('FailedStable');
+    subAgentManager.getSub(subId)!.status = 'error';
+    expect(graph.recomputeCustomAgentStatus(agentId)).toBe(true);
+
+    expect(graph.recomputeCustomAgentStatus(agentId)).toBe(false);
+    expect(statusOf(graph, agentId)).toBe('error');
+  });
+
+  it('실패한 세션이 새 명령으로 다시 돌면 active 로 복귀한다 — error 에 갇히지 않는다', () => {
+    const { graph, agentId, subId } = activeAgent('FailedThenRerun');
+    const sub = subAgentManager.getSub(subId)!;
+    sub.status = 'error';
+    graph.recomputeCustomAgentStatus(agentId);
+    expect(statusOf(graph, agentId)).toBe('error');
+
+    // dispatch 가 sub 를 active 로 되돌리는 그 지점.
+    sub.status = 'active';
+    expect(graph.recomputeCustomAgentStatus(agentId)).toBe(true);
+    expect(statusOf(graph, agentId)).toBe('active');
+  });
+
+  it('도는 세션이 하나라도 있으면 실패한 형제가 있어도 active 가 이긴다', () => {
+    const { graph, agentId, subId } = activeAgent('MixedSiblings');
+    subAgentManager.getSub(subId)!.status = 'error';
+    const running = subAgentManager.create(agentId);
+    running.status = 'active';
+
+    expect(graph.recomputeCustomAgentStatus(agentId)).toBe(false);
+    expect(statusOf(graph, agentId)).toBe('active');
   });
 
   it('완료가 보류되는 동안 활동 시각이 갱신돼 idle sweep 에 걸리지 않는다', () => {

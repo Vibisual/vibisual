@@ -5,6 +5,15 @@ import type { SubAgent, SubAgentHistoryItem } from '@vibisual/shared';
 import { useGraphStore, selectIDEOverlay } from '../../stores/graphStore.js';
 import { TabContextMenu } from '../Layout/TabContextMenu.js';
 import { HoverTooltip } from '../Layout/HoverTooltip.js';
+import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
+import { useTabPushAnimation } from '../../hooks/useTabPushAnimation.js';
+import { applyLocalOrder, resolveTabReorder, sameMembers, sameOrder } from '../../hooks/tabPushGeom.js';
+import { SESSION_STATUS_DOT, sessionRunStateOf, serializeBusySubIds, parseBusySubIds } from '../../utils/sessionStatus.js';
+import { serializeRunningLoops, parseRunningLoops } from './sessionLoopIndicator.js';
+import {
+  findHiddenRunningTabs, sameHiddenRunningTabs, noHiddenRunningTabs,
+  type HiddenRunningTabs, type TabBox,
+} from './hiddenRunningTabs.js';
 
 interface IDETabBarProps {
   subAgents: SubAgent[];
@@ -12,14 +21,26 @@ interface IDETabBarProps {
   onNewSession: () => void;
 }
 
-const STATUS_DOT: Record<string, string> = {
-  // idle = "완료, 미확인" → 녹색. 사용자가 확인(탭 클릭/메인영역 클릭/타이핑)하면 회색으로 전환.
-  idle: 'bg-emerald-400',
-  active: 'bg-blue-400 animate-pulse',
-  completed: 'bg-gray-400',
-  error: 'bg-red-400',
-};
-const ACK_DOT = 'bg-gray-500';
+// 도트 색표는 `utils/sessionStatus` 한 곳에 산다 — 종전에는 같은 표가 여기·사이드바·패널 세 벌로
+// 복사돼 있었고 확인(ack) 반영 여부까지 갈려, 같은 세션이 화면마다 다른 색으로 보였다.
+
+/**
+ * §5.5 #17-9 ④(b) v5.03 — 가려진 실행 알림 한 쪽을 갱신.
+ * 스크롤·리사이즈마다 도는 자리라 React 상태가 아니라 DOM 만 직접 만진다(페이드·썸과 같은 경로).
+ */
+function applyHiddenIndicator(
+  btn: HTMLElement | null,
+  countEl: HTMLElement | null,
+  count: number,
+  label: string,
+): void {
+  if (!btn) return;
+  btn.style.display = count > 0 ? 'flex' : 'none';
+  if (count === 0) return;
+  if (countEl) countEl.textContent = String(count);
+  btn.setAttribute('title', label);
+  btn.setAttribute('aria-label', label);
+}
 
 export const IDETabBar = memo(function IDETabBar({
   subAgents,
@@ -32,10 +53,22 @@ export const IDETabBar = memo(function IDETabBar({
   const setSession = useGraphStore((s) => s.setIDEActiveSession);
   const tabPins = useGraphStore((s) => s.tabPins);
   const acknowledgedSubAgents = useGraphStore((s) => s.acknowledgedSubAgents);
+  // §5.5 #17-27 ⑪ (h) ⑤ — 추종 켜짐은 탭에 표시하지 않는다(토글과 추종 띠가 말한다).
   const defaultSubAgents = useGraphStore((s) => s.defaultSubAgents);
   const defaultSubId = agentId ? defaultSubAgents[agentId] ?? null : null;
   const subAgentLabels = useGraphStore((s) => s.subAgentLabels);
   const setSubAgentLabel = useGraphStore((s) => s.setSubAgentLabel);
+
+  // §5.5 #17-11 ⑩ v5.02 — 지금 반복 루프가 도는 탭. 활동바는 열어 둔 탭 하나만 비추므로
+  //   탭 자신이 "나는 지금 반복 중"이라고 말한다(점등 근거는 활동바와 같은 `enabled`).
+  //   `sessionLoops` 는 스냅샷마다 새 객체라 그대로 구독하면 탭바가 매번 다시 그려진다 —
+  //   켜진 루프만 문자열로 뽑아(순수 모듈) 값이 바뀔 때만 리렌더한다.
+  const runningLoopKey = useGraphStore((s) => serializeRunningLoops(s.sessionLoops));
+  const runningLoops = useMemo(() => parseRunningLoops(runningLoopKey), [runningLoopKey]);
+  // 백단 서브에이전트를 가진 탭 — 그 탭의 status 가 idle 이어도 도트는 켜져 있어야 한다.
+  //   루프와 같은 수법으로 문자열 하나만 구독해 켜짐이 바뀔 때만 다시 그린다.
+  const busySubKey = useGraphStore((s) => serializeBusySubIds(agentId ? s.runningSubagentTasks[agentId] : undefined));
+  const busySubIds = useMemo(() => parseBusySubIds(busySubKey), [busySubKey]);
 
   // 탭 이름 인라인 편집 — 편집 중인 탭 id와 입력값.
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -80,9 +113,24 @@ export const IDETabBar = memo(function IDETabBar({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [editingId, activeSessionId, subAgents, startRename]);
 
-  // 드래그 재정렬 — 드래그 중인 탭 id와 커서가 올라가 있는 대상 id
+  // 드래그 재정렬 — 끌고 있는 탭 id + 커밋 왕복 동안 화면을 붙들어 두는 로컬 순서.
+  // §5.4 #14 밀어내기: 손이 지나가는 즉시 옆 탭이 비켜서야 하므로(드롭까지 기다린 뒤 서버 왕복 ❌)
+  //   순서는 여기서 먼저 바뀌고, 손을 뗄 때 그 순서를 그대로 서버에 커밋한다.
   const [draggingId, setDraggingId] = useState<string | null>(null);
-  const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [localOrder, setLocalOrder] = useState<string[] | null>(null);
+
+  // 화면에 그릴 순서 = 서버 목록 + (있으면) 로컬 순서 덧씌움.
+  const orderedSubs = useMemo(
+    () => (localOrder ? applyLocalOrder(subAgents, localOrder, (s) => s.id) : subAgents),
+    [subAgents, localOrder],
+  );
+
+  // 서버가 같은 순서를 돌려줬거나(커밋 반영) 식구가 달라지면(탭 추가·삭제) 로컬 순서는 소임을 다한다.
+  useEffect(() => {
+    if (!localOrder) return;
+    const ids = subAgents.map((s) => s.id);
+    if (sameOrder(ids, localOrder) || !sameMembers(ids, localOrder)) setLocalOrder(null);
+  }, [subAgents, localOrder]);
 
   const handleDragStart = useCallback((e: React.DragEvent, subId: string) => {
     // 닫기 버튼/이름 편집 입력 위에서 시작된 드래그는 무시. 탭 div 가 draggable 이라 X 위에서 살짝만
@@ -98,57 +146,66 @@ export const IDETabBar = memo(function IDETabBar({
     e.dataTransfer.setData('text/plain', subId);
   }, []);
 
+  // 자리를 내주는 순간 = 커서가 **그 탭의 중앙선을 넘었을 때**(순수 판정은 `tabPushGeom`).
+  // 넘기 전에 바꾸면 자리가 바뀌자마자 커서가 다시 반대편 탭 위에 놓여 두 탭이 매 프레임 맞바꿔진다.
   const handleDragOver = useCallback((e: React.DragEvent, subId: string) => {
-    if (!draggingId || draggingId === subId) return;
+    if (!draggingId) return;
+    // 탭바 어디서 손을 떼도 유효한 드롭이 되게 — 무효 위치면 네이티브 고스트가 되돌아가는 연출이 뜬다.
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
-    setDragOverId(subId);
-  }, [draggingId]);
+    if (draggingId === subId) return;
+    // rect/좌표는 핸들러가 살아 있는 지금 읽는다(updater 안에서는 currentTarget 이 이미 비어 있다).
+    const rect = e.currentTarget.getBoundingClientRect();
+    const pointerX = e.clientX;
+    setLocalOrder((prev) => resolveTabReorder({
+      order: prev ?? subAgents.map((s) => s.id),
+      movedKey: draggingId,
+      targetKey: subId,
+      pointerX,
+      targetLeft: rect.left,
+      targetWidth: rect.width,
+    }) ?? prev);
+  }, [draggingId, subAgents]);
 
-  const handleDrop = useCallback((e: React.DragEvent, targetId: string) => {
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    // 순서는 이미 dragOver 에서 바뀌었다 — 여기서는 네이티브 되돌리기 연출만 막는다(커밋은 dragEnd).
     e.preventDefault();
-    const sourceId = draggingId;
+  }, []);
+
+  // 손을 떼는 순간(드롭·취소·바깥 릴리스 모두 여기로 온다) 화면에 보이는 순서를 그대로 커밋한다.
+  const handleDragEnd = useCallback(() => {
     setDraggingId(null);
-    setDragOverId(null);
-    if (!sourceId || !agentId || sourceId === targetId) return;
-
-    const ids = subAgents.map((s) => s.id);
-    const from = ids.indexOf(sourceId);
-    const to = ids.indexOf(targetId);
-    if (from < 0 || to < 0) return;
-    ids.splice(from, 1);
-    ids.splice(to, 0, sourceId);
-
+    if (!agentId || !localOrder) return;
+    if (sameOrder(subAgents.map((s) => s.id), localOrder)) { setLocalOrder(null); return; }
     fetch(`/api/subagents/${agentId}/order`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ order: ids }),
-    }).catch(() => { /* snapshot이 권위 — 실패 시 원복됨 */ });
-  }, [draggingId, agentId, subAgents]);
-
-  const handleDragEnd = useCallback(() => {
-    setDraggingId(null);
-    setDragOverId(null);
-  }, []);
+      body: JSON.stringify({ order: localOrder }),
+    })
+      // snapshot 이 권위 — 커밋이 거절되면 로컬 순서를 놓아 서버 순서로 되돌아간다.
+      .then((r) => { if (!r.ok) setLocalOrder(null); })
+      .catch(() => setLocalOrder(null));
+  }, [agentId, localOrder, subAgents]);
 
   // 활성 탭이 닫히는 집합에 포함되면 인접한 생존 탭(앞→뒤 순)으로 이동, 없으면 null.
   // 단일/일괄 닫기 공용 — 일괄 닫기에서 active 가 대상에 있어도 한 번에 올바른 생존 탭을 고른다.
+  // "인접"은 **화면에 보이는** 이웃이어야 하므로 orderedSubs 기준으로 고른다.
   const reassignActiveIfClosing = useCallback((closing: Set<string>) => {
     if (!activeSessionId || !closing.has(activeSessionId)) return;
-    const idx = subAgents.findIndex((s) => s.id === activeSessionId);
+    const idx = orderedSubs.findIndex((s) => s.id === activeSessionId);
     let survivor: SubAgent | undefined;
-    for (let i = idx + 1; i < subAgents.length; i++) {
-      const s = subAgents[i];
+    for (let i = idx + 1; i < orderedSubs.length; i++) {
+      const s = orderedSubs[i];
       if (s && !closing.has(s.id)) { survivor = s; break; }
     }
     if (!survivor) {
       for (let i = idx - 1; i >= 0; i--) {
-        const s = subAgents[i];
+        const s = orderedSubs[i];
         if (s && !closing.has(s.id)) { survivor = s; break; }
       }
     }
     setSession(survivor ? survivor.id : null);
-  }, [activeSessionId, subAgents, setSession]);
+  }, [activeSessionId, orderedSubs, setSession]);
 
   // 탭 1개의 로컬 정리(서버 요청 제외) — PTY 종료 + 낙관적 제거 + 핀/Default 해제.
   // 단일·일괄 닫기가 공유한다. 서버 요청은 호출부가 단일 DELETE 또는 일괄 POST 로 1회만 보낸다.
@@ -208,6 +265,7 @@ export const IDETabBar = memo(function IDETabBar({
   }, [pendingClose, deleteSubAgents]);
 
   const cancelClose = useCallback(() => setPendingClose(null), []);
+  const confirmBackdrop = useBackdropDismiss(cancelClose);
 
   // 확인 팝업이 목록으로 보여줄, 닫힘 대상 중 실제 동작 중인 세션들.
   const pendingActiveSubs = useMemo(() => {
@@ -240,6 +298,40 @@ export const IDETabBar = memo(function IDETabBar({
   const fadeRightRef = useRef<HTMLDivElement>(null);
   const thumbRef = useRef<HTMLDivElement>(null);
 
+  // §5.5 #17-9 ④(b) v5.03 — 스크롤 밖으로 밀린 실행 중 탭 알림.
+  //   탭이 많으면 도는 탭이 화면 밖으로 나가는데 그 사실을 말하는 자리가 없어, 아무것도 안 도는
+  //   화면과 구별되지 않았다. 판정은 순수 모듈이 하고 여기서는 결과만 DOM 에 반영한다.
+  const hiddenLeftRef = useRef<HTMLButtonElement>(null);
+  const hiddenRightRef = useRef<HTMLButtonElement>(null);
+  const hiddenLeftCountRef = useRef<HTMLSpanElement>(null);
+  const hiddenRightCountRef = useRef<HTMLSpanElement>(null);
+  const runningIdsRef = useRef<ReadonlySet<string>>(new Set<string>());
+  const hiddenRef = useRef<HiddenRunningTabs>(noHiddenRunningTabs());
+
+  const syncHiddenRunning = useCallback((el: HTMLDivElement) => {
+    const boxes: TabBox[] = [];
+    for (const child of Array.from(el.children)) {
+      // 탭이 아닌 자식(마지막 인라인 New 버튼)은 `data-tab-id` 가 없어 자연히 걸러진다.
+      if (!(child instanceof HTMLElement)) continue;
+      const id = child.dataset.tabId;
+      if (!id) continue;
+      boxes.push({ id, left: child.offsetLeft, right: child.offsetLeft + child.offsetWidth });
+    }
+    const hidden = findHiddenRunningTabs(boxes, runningIdsRef.current, el.scrollLeft, el.clientWidth);
+    if (sameHiddenRunningTabs(hidden, hiddenRef.current)) return;
+    hiddenRef.current = hidden;
+    applyHiddenIndicator(hiddenLeftRef.current, hiddenLeftCountRef.current, hidden.left.length,
+      t('ide.tabbar.hiddenRunning', { count: hidden.left.length }));
+    applyHiddenIndicator(hiddenRightRef.current, hiddenRightCountRef.current, hidden.right.length,
+      t('ide.tabbar.hiddenRunning', { count: hidden.right.length }));
+  }, [t]);
+
+  /** 그 방향으로 처음 만나는 실행 탭으로 이동 — 선택하면 아래 "활성 탭 자동 가시화"가 스크롤까지 맡는다. */
+  const jumpToHidden = useCallback((dir: 'left' | 'right') => {
+    const id = hiddenRef.current[dir][0];
+    if (id) setSession(id);
+  }, [setSession]);
+
   const updateScrollState = useCallback(() => {
     const el = scrollRef.current;
     const fL = fadeLeftRef.current;
@@ -249,6 +341,8 @@ export const IDETabBar = memo(function IDETabBar({
     const overflow = el.scrollWidth - el.clientWidth;
     fL.classList.toggle('visible', el.scrollLeft > 4);
     fR.classList.toggle('visible', overflow - el.scrollLeft > 4);
+    // 넘치지 않는 경우(아래 early return)에도 알림은 꺼져야 하므로 여기서 먼저 맞춘다.
+    syncHiddenRunning(el);
     if (overflow <= 0 || el.clientWidth <= 0) {
       th.style.opacity = '0';
       th.style.width = '0px';
@@ -260,7 +354,7 @@ export const IDETabBar = memo(function IDETabBar({
     th.style.opacity = '1';
     th.style.width = `${width}px`;
     th.style.transform = `translateX(${left}px)`;
-  }, []);
+  }, [syncHiddenRunning]);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -285,8 +379,21 @@ export const IDETabBar = memo(function IDETabBar({
     };
   }, [updateScrollState]);
 
-  // 탭 수/이름/핀 변동 시 재계산.
-  useEffect(() => { updateScrollState(); }, [subAgents, tabPins, updateScrollState]);
+  // 탭 수/이름/핀 변동 시 재계산. 도는 탭 집합도 여기서 갱신한다 — 실행이 시작·종료되면
+  // 가려진 알림의 수도 함께 바뀌어야 한다(§5.5 #17-9 ④(b) v5.03).
+  useEffect(() => {
+    runningIdsRef.current = new Set(subAgents.filter((s) => s.status === 'active').map((s) => s.id));
+    updateScrollState();
+  }, [subAgents, tabPins, updateScrollState]);
+
+  // §5.4 #14 — 순서가 바뀌면 옆 세션 탭이 **밀려나며** 제자리에 앉는다(FLIP). 끌고 있는 탭은 손을 바로
+  // 따라오고 이웃은 살짝 넘겼다 돌아온다. 탭을 닫아 옆이 메워질 때도 같은 재생이 돈다.
+  useTabPushAnimation({
+    container: scrollRef,
+    keyAttribute: 'data-tab-id',
+    order: orderedSubs.map((s) => s.id),
+    leadKey: draggingId,
+  });
 
   // 휠은 기본적으로 세로지만 가로 스크롤 영역에서는 가로로 변환 — VS Code 동일 동작.
   // shiftKey 휠이나 trackpad 가로 휠(deltaX)도 자연스럽게 처리.
@@ -326,18 +433,19 @@ export const IDETabBar = memo(function IDETabBar({
 
   const ctxIsPinned = ctx ? !!tabPins[`subagent:${ctx.subId}`] : false;
   const ctxIsDefault = ctx ? defaultSubId === ctx.subId : false;
+  // ctx.index 는 **화면에 보이는** 자리다 — 좌/우 판정도 같은 순서(orderedSubs)로 봐야 어긋나지 않는다.
   const ctxHasOthers = useMemo(() => {
     if (!ctx) return false;
-    return subAgents.some((s, i) => i !== ctx.index && !tabPins[`subagent:${s.id}`]);
-  }, [ctx, subAgents, tabPins]);
+    return orderedSubs.some((s, i) => i !== ctx.index && !tabPins[`subagent:${s.id}`]);
+  }, [ctx, orderedSubs, tabPins]);
   const ctxHasLeft = useMemo(() => {
     if (!ctx) return false;
-    return subAgents.some((s, i) => i < ctx.index && !tabPins[`subagent:${s.id}`]);
-  }, [ctx, subAgents, tabPins]);
+    return orderedSubs.some((s, i) => i < ctx.index && !tabPins[`subagent:${s.id}`]);
+  }, [ctx, orderedSubs, tabPins]);
   const ctxHasRight = useMemo(() => {
     if (!ctx) return false;
-    return subAgents.some((s, i) => i > ctx.index && !tabPins[`subagent:${s.id}`]);
-  }, [ctx, subAgents, tabPins]);
+    return orderedSubs.some((s, i) => i > ctx.index && !tabPins[`subagent:${s.id}`]);
+  }, [ctx, orderedSubs, tabPins]);
 
   const handleCtxAction = useCallback((action: 'close' | 'closeOthers' | 'closeLeft' | 'closeRight' | 'closeAll' | 'togglePin' | 'toggleDefault') => {
     if (!ctx) return;
@@ -355,22 +463,22 @@ export const IDETabBar = memo(function IDETabBar({
 
     let targets: SubAgent[] = [];
     if (action === 'close') {
-      const target = subAgents[ctx.index];
+      const target = orderedSubs[ctx.index];
       if (target) targets = [target];
     } else if (action === 'closeOthers') {
-      targets = subAgents.filter((s, i) => i !== ctx.index && !tabPins[`subagent:${s.id}`]);
+      targets = orderedSubs.filter((s, i) => i !== ctx.index && !tabPins[`subagent:${s.id}`]);
     } else if (action === 'closeLeft') {
-      targets = subAgents.filter((_, i) => i < ctx.index).filter((s) => !tabPins[`subagent:${s.id}`]);
+      targets = orderedSubs.filter((_, i) => i < ctx.index).filter((s) => !tabPins[`subagent:${s.id}`]);
     } else if (action === 'closeRight') {
-      targets = subAgents.filter((_, i) => i > ctx.index).filter((s) => !tabPins[`subagent:${s.id}`]);
+      targets = orderedSubs.filter((_, i) => i > ctx.index).filter((s) => !tabPins[`subagent:${s.id}`]);
     } else if (action === 'closeAll') {
-      targets = subAgents.filter((s) => !tabPins[`subagent:${s.id}`]);
+      targets = orderedSubs.filter((s) => !tabPins[`subagent:${s.id}`]);
     }
 
     // 단일은 단일 DELETE, 다중은 1회 일괄 POST 로 닫는다(deleteSubAgents 가 분기).
     // 단, 대상에 동작 중(active) 세션이 있으면 requestClose 가 확인 팝업을 먼저 띄운다.
     if (targets.length > 0) requestClose(targets.map((t) => t.id));
-  }, [ctx, ctxIsPinned, ctxIsDefault, agentId, subAgents, tabPins, requestClose]);
+  }, [ctx, ctxIsPinned, ctxIsDefault, agentId, orderedSubs, tabPins, requestClose]);
 
   return (
     <div className="flex h-9 flex-shrink-0 items-end gap-0 border-b border-gray-700 bg-[#15192a]">
@@ -397,18 +505,22 @@ export const IDETabBar = memo(function IDETabBar({
           onWheel={handleWheel}
           className="scrollbar-overlay flex h-9 min-w-0 flex-1 items-end overflow-x-auto overflow-y-hidden"
         >
-          {subAgents.map((sub, index) => {
+          {orderedSubs.map((sub, index) => {
         const isActive = activeSessionId === sub.id;
-        // 도트 색 우선순위: error/active 는 status 그대로,
-        // idle 은 ack 여부로 분기 (미확인=녹색, 확인=회색).
+        // 도트 색 = 공유 판정(실행/실패/완료·미확인/완료·확인) → 공유 색표. 규약은 한 곳에만 있다.
         const isAcked = !!acknowledgedSubAgents[sub.id];
-        const dot = sub.status === 'idle' && isAcked
-          ? ACK_DOT
-          : STATUS_DOT[sub.status] ?? STATUS_DOT['idle'];
+        const dot = SESSION_STATUS_DOT[sessionRunStateOf(sub, isAcked, busySubIds.has(sub.id))];
         const isDragging = draggingId === sub.id;
-        const isDragOver = dragOverId === sub.id && draggingId !== sub.id;
         const isPinned = !!tabPins[`subagent:${sub.id}`];
         const isDefault = defaultSubId === sub.id;
+        // 이 탭의 루프가 켜져 있는 동안에만 값이 있다 — [정지]·삭제·중지로 꺼지면 아이콘도 사라진다.
+        // 툴팁은 활동바 배지와 같은 표기를 기존 i18n 키 조합으로 말한다(신규 키 ❌).
+        const loopRun = runningLoops.get(sub.id);
+        const loopTitle = loopRun
+          ? `${t('ide.activityBar.loop')} — ${loopRun.total !== null
+            ? t('ide.loop.progressCount', { done: loopRun.completed, total: loopRun.total })
+            : t('ide.loop.progressInfinite', { done: loopRun.completed })}`
+          : '';
         return (
           <div
             key={sub.id}
@@ -416,7 +528,7 @@ export const IDETabBar = memo(function IDETabBar({
             draggable
             onDragStart={(e) => handleDragStart(e, sub.id)}
             onDragOver={(e) => handleDragOver(e, sub.id)}
-            onDrop={(e) => handleDrop(e, sub.id)}
+            onDrop={handleDrop}
             onDragEnd={handleDragEnd}
             onClick={() => setSession(sub.id)}
             onContextMenu={(e) => handleContextMenu(e, sub.id, index)}
@@ -424,7 +536,7 @@ export const IDETabBar = memo(function IDETabBar({
               isActive
                 ? 'border-b-2 border-b-blue-400 bg-gray-800 text-white'
                 : 'bg-gray-900/40 text-gray-400 hover:bg-gray-800/60 hover:text-gray-300'
-            } ${isDragging ? 'opacity-40' : ''} ${isDragOver ? 'border-l-2 border-l-blue-400' : ''}`}
+            } ${isDragging ? 'opacity-40' : ''}`}
           >
             {isPinned && (
               <span className="flex-shrink-0 cursor-help" title={t('tabMenu.pinTooltip')}>
@@ -437,6 +549,16 @@ export const IDETabBar = memo(function IDETabBar({
               <span className="flex-shrink-0 cursor-help" title={t('tabMenu.defaultTooltip')}>
                 <svg className="h-2.5 w-2.5 text-emerald-400" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M12 2l2.39 7.36H22l-6.19 4.5L18.2 21 12 16.5 5.8 21l2.39-7.14L2 9.36h7.61z" />
+                </svg>
+              </span>
+            )}
+            {loopRun && (
+              <span className="flex-shrink-0 cursor-help text-amber-400" title={loopTitle}>
+                <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M17 2l4 4-4 4" />
+                  <path d="M3 11v-1a4 4 0 0 1 4-4h14" />
+                  <path d="M7 22l-4-4 4-4" />
+                  <path d="M21 13v1a4 4 0 0 1-4 4H3" />
                 </svg>
               </span>
             )}
@@ -475,7 +597,9 @@ export const IDETabBar = memo(function IDETabBar({
           </div>
         );
           })}
-          {/* 세션 탭 바로 옆 인라인 New 버튼 — 우측 끝 + 버튼이 멀어서, 마지막 탭 옆에 바로 붙는다(크롬식). */}
+          {/* 세션 탭 바로 옆 인라인 New 버튼 — 우측 끝 + 버튼이 멀어서, 마지막 탭 옆에 바로 붙는다(크롬식).
+              §5.5 #17-29 — 훅 버블은 읽기 전용이라 세션을 새로 붙일 손잡이 자체를 두지 않는다. */}
+          {isCustom && (
           <button
             type="button"
             onClick={onNewSession}
@@ -487,10 +611,39 @@ export const IDETabBar = memo(function IDETabBar({
               <line x1="5" y1="12" x2="19" y2="12" />
             </svg>
           </button>
+          )}
         </div>
         {/* 좌/우 에지 페이드 — 가려진 방향에만 표시 (imperative class toggle) */}
         <div ref={fadeLeftRef} className="scroll-fade-left" />
         <div ref={fadeRightRef} className="scroll-fade-right" />
+        {/* §5.5 #17-9 ④(b) v5.03 — 그쪽에 가려진 **실행 중** 탭 알림. 표시·숫자는 ref 로 갱신하고
+            누르면 그 방향으로 처음 만나는 실행 탭으로 이동한다. 가려진 실행이 없으면 뜨지 않는다. */}
+        <button
+          ref={hiddenLeftRef}
+          type="button"
+          onClick={() => jumpToHidden('left')}
+          style={{ display: 'none' }}
+          className="absolute bottom-1 left-0 z-20 items-center gap-1 rounded-r border border-l-0 border-blue-400/40 bg-gray-900/95 py-0.5 pl-0.5 pr-1.5 text-blue-200 transition-colors hover:bg-gray-800"
+        >
+          <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+            <path d="M15 18l-6-6 6-6" />
+          </svg>
+          <span className="h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full bg-blue-400" />
+          <span ref={hiddenLeftCountRef} className="text-[9px] font-semibold tabular-nums">0</span>
+        </button>
+        <button
+          ref={hiddenRightRef}
+          type="button"
+          onClick={() => jumpToHidden('right')}
+          style={{ display: 'none' }}
+          className="absolute bottom-1 right-0 z-20 items-center gap-1 rounded-l border border-r-0 border-blue-400/40 bg-gray-900/95 py-0.5 pl-1.5 pr-0.5 text-blue-200 transition-colors hover:bg-gray-800"
+        >
+          <span className="h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full bg-blue-400" />
+          <span ref={hiddenRightCountRef} className="text-[9px] font-semibold tabular-nums">0</span>
+          <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+            <path d="M9 18l6-6-6-6" />
+          </svg>
+        </button>
         {/* 오버레이 스크롤바 썸 — 탭 위로 떠서 hover 시 표시. 레이아웃 점유 X. style 은 ref 로 직접 갱신. */}
         <div
           ref={thumbRef}
@@ -499,8 +652,8 @@ export const IDETabBar = memo(function IDETabBar({
         />
       </div>
 
-      {/* New tab button — Hook/Custom 모두 서브에이전트 생성 가능 */}
-      {(
+      {/* New tab button — 커스텀 에이전트만(§5.5 #17 / #17-29 훅 버블 = 읽기 전용) */}
+      {isCustom && (
         <button
           type="button"
           onClick={onNewSession}
@@ -514,8 +667,9 @@ export const IDETabBar = memo(function IDETabBar({
         </button>
       )}
 
-      {/* History(폴더) button — 이 cwd에서 쓰였던 과거 세션을 다시 열기 */}
-      <HistoryButton />
+      {/* History(폴더) button — 이 cwd에서 쓰였던 과거 세션을 다시 열기.
+          §5.5 #17-29 — 되살리기도 세션 추가라 훅 버블에는 두지 않는다. */}
+      {isCustom && <HistoryButton />}
 
       {ctx && (
         <TabContextMenu
@@ -543,7 +697,7 @@ export const IDETabBar = memo(function IDETabBar({
       {pendingClose && createPortal(
         <div
           className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60"
-          onClick={(e) => { if (e.target === e.currentTarget) cancelClose(); }}
+          {...confirmBackdrop}
         >
           <div className="mx-4 w-[clamp(20rem,34vw,28rem)] rounded-lg border border-gray-700 bg-gray-900 shadow-xl shadow-black/40">
             <div className="border-b border-gray-800 px-5 py-3 text-sm font-semibold text-gray-100">
@@ -642,6 +796,8 @@ function HistoryButton(): React.JSX.Element | null {
     }).catch(() => {});
   }, [agentId, setSession]);
 
+  const backdrop = useBackdropDismiss(() => setOpen(false));
+
   if (!agentId) return null;
 
   return (
@@ -660,7 +816,7 @@ function HistoryButton(): React.JSX.Element | null {
       {open && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-          onClick={() => setOpen(false)}
+          {...backdrop}
         >
           <div
             className="mx-4 flex max-h-[70vh] w-full max-w-xl flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl shadow-black/50"

@@ -5,9 +5,9 @@
  * 2026년에는 모범 사례가 아니라 **기본 요건**으로 취급된다. 이 카드는 재시도 위험이 있는 도구를 쥐고 있는지와
  * 반복 상한이 있는지를 함께 본다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import { effectiveTools } from '../lethal-trifecta/trifecta.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import { effectiveTools } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 /** 같은 호출을 두 번 하면 결과가 달라질 수 있는 도구들. */
 const NON_IDEMPOTENT = ['Bash', 'Write', 'WebFetch'];

@@ -5,8 +5,8 @@
  * 실무적으로는 품질과 지연·비용을 다이얼로 조절할 수 있게 됐다는 뜻이고, 쉬운 작업에 최대 사고를 켜는 것은
  * 순수한 낭비다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const effort = (ctx: PluginBubbleContext): string => ctx.agentConfig?.effort ?? 'default';
 const turns = (ctx: PluginBubbleContext): number => (ctx.data.agentEvents ?? []).length;

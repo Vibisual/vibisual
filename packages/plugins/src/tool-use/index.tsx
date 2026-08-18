@@ -6,9 +6,9 @@
  * 그게 창의 몇 퍼센트인지**를 보여준다. 표시 전용.
  */
 import { TOOL_SCHEMA_ESTIMATE, AVAILABLE_AGENT_TOOLS, getModelContextLimit } from '@vibisual/shared';
-import { defineInspector } from '../framework/inspector.js';
-import { effectiveTools } from '../lethal-trifecta/trifecta.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import { effectiveTools } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 /** 도구 하나당 스키마 토큰 근사 — shared 의 전체 추정치를 도구 수로 나눠 쓴다. */
 const PER_TOOL = Math.round(TOOL_SCHEMA_ESTIMATE / AVAILABLE_AGENT_TOOLS.length);

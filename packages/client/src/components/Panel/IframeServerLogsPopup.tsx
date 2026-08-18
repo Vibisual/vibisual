@@ -19,6 +19,7 @@ import type {
 import { IFRAME_LOG_CLIENT_BUFFER_MAX } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { iframeLogEvents } from '../../bubble-map/api/iframeLogEvents.js';
+import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 
 interface IframeServerLogsPopupProps {
   port: number;
@@ -138,10 +139,12 @@ export const IframeServerLogsPopup = memo(function IframeServerLogsPopup({
     [lines],
   );
 
+  const backdrop = useBackdropDismiss(onClose);
+
   return (
     <div
       className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm"
-      onClick={onClose}
+      {...backdrop}
     >
       <div
         className="mx-4 flex max-h-[85vh] w-full max-w-4xl flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl shadow-black/50"

@@ -1,0 +1,17 @@
+{
+  "id": "acp-anp",
+  "name": "ACP and ANP",
+  "version": "1.0.0",
+  "category": "security",
+  "descriptionKey": "panel.plugins.acpAnp.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "agentReviews"
+  ],
+  "hostApi": 1
+}

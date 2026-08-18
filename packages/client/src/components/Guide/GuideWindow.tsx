@@ -6,9 +6,10 @@
  * 눈높이로 설명한다. 새 기능을 추가할 때 이 파일의 SECTIONS 에 한 항목을 더하면
  * Guide 와 "만든 것 정리"가 함께 갱신된다.
  */
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
+import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 
 type CategoryKey =
   | 'start'
@@ -32,7 +33,6 @@ interface GuideWindowProps {
 
 export function GuideWindow({ open, onClose }: GuideWindowProps): React.JSX.Element | null {
   const { t } = useTranslation();
-  const overlayRef = useRef<HTMLDivElement>(null);
   const [category, setCategory] = useState<CategoryKey>('start');
 
   // ESC 닫기
@@ -43,9 +43,7 @@ export function GuideWindow({ open, onClose }: GuideWindowProps): React.JSX.Elem
     return () => window.removeEventListener('keydown', handleKey);
   }, [open, onClose]);
 
-  const handleOverlayClick = useCallback((e: React.MouseEvent) => {
-    if (e.target === overlayRef.current) onClose();
-  }, [onClose]);
+  const backdrop = useBackdropDismiss(onClose);
 
   const categories = useMemo<{ key: CategoryKey; label: string; icon: React.JSX.Element }[]>(() => [
     { key: 'start', label: t('panel.guide.cat.start', { defaultValue: 'Getting Started' }), icon: (
@@ -151,9 +149,8 @@ export function GuideWindow({ open, onClose }: GuideWindowProps): React.JSX.Elem
 
   return createPortal(
     <div
-      ref={overlayRef}
       className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60"
-      onClick={handleOverlayClick}
+      {...backdrop}
     >
       <div className="flex h-[640px] max-h-[92dvh] w-[860px] max-w-[94vw] flex-col overflow-hidden rounded-lg border border-gray-700 bg-gray-900 shadow-2xl max-md:h-dvh max-md:max-h-dvh max-md:w-screen max-md:max-w-none max-md:rounded-none max-md:border-0">
         {/* Header */}

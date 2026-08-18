@@ -1,0 +1,17 @@
+{
+  "id": "prompt-caching",
+  "name": "Prompt Caching",
+  "version": "1.0.0",
+  "category": "observability",
+  "descriptionKey": "panel.plugins.promptCaching.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "subAgents"
+  ],
+  "hostApi": 1
+}

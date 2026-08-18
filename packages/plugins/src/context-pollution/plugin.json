@@ -1,0 +1,18 @@
+{
+  "id": "context-pollution",
+  "name": "Context Pollution",
+  "version": "1.0.0",
+  "category": "observability",
+  "descriptionKey": "panel.plugins.contextPollution.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "subAgents",
+    "agentEvents"
+  ],
+  "hostApi": 1
+}

@@ -8,8 +8,8 @@
  */
 import type { SubAgent } from '@vibisual/shared';
 import { calculateTokenCost } from '@vibisual/shared';
-import { defineInspector, ICONS } from '../framework/inspector.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector, ICONS } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 interface CostStats {
   input: number;

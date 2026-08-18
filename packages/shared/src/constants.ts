@@ -1,4 +1,4 @@
-import type { BubbleType, BubbleStyleConfig, EdgeStyleConfig, AgentRole, PipelineChildConfig, PipelineType, AgentConfig, TaskEdgeTemplate, TaskEdgeKind, UiLocale, AutoAgentRole, AutoAgentTemplate, ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry, AgentFeedback, BrainTopicDef, BrainTopicIndexEntry, BrainCardType, BrainAuthority, StreamDensity, PluginContributionKind } from './types.js';
+import type { BubbleType, BubbleStyleConfig, EdgeStyleConfig, AgentRole, PipelineChildConfig, PipelineType, AgentConfig, TaskEdgeTemplate, TaskEdgeKind, UiLocale, AutoAgentRole, AutoAgentTemplate, ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry, AgentFeedback, BrainTopicDef, BrainTopicIndexEntry, BrainCardType, BrainAuthority, StreamDensity, PluginContributionKind, SessionGoalStepStatus, CommandDispatchMode, RunRuntime, RunConfig, McpServerPreset, AgentMemoryScope, DebugAdapterSpec, ProblemMatch, ProblemSeverity, RetentionSettings } from './types.js';
 export type { ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry } from './types.js';
 
 // ─── UI 다국어 (i18n) ───
@@ -210,6 +210,18 @@ export const BUBBLE_STYLES: Record<BubbleType, BubbleStyleConfig> = {
     ringIdle: 'border-stone-400',
     ringActive: 'border-stone-300 shadow-lg shadow-stone-400/30',
   },
+  // §5.13 v4.66 — Vibistudio 영상 버블. 필름 스톡 그레이파이트 + 실버 엣지.
+  //   구 푸시아(#D946EF)는 채도가 높아 팔레트에서 겉돌았다(사용자 지적 — Brain 버블의
+  //   핑크 #EC4899 → 인디고 와 같은 이유). 앱 버블(`apps/registry.tsx` 의 Vibistudio)과
+  //   **같은 색 한 벌**이라, 영상 도구가 어디에 뜨든 같은 정체로 읽힌다.
+  //   bash(#1E293B) 도 어두운 무채색이지만 아이콘·모양이 달라 섞이지 않는다.
+  video: {
+    color: '#2C3446',
+    glow: '#A8B4CC',
+    icon: 'video',
+    ringIdle: 'border-slate-400',
+    ringActive: 'border-slate-200 shadow-lg shadow-slate-300/30',
+  },
 };
 
 /**
@@ -254,6 +266,214 @@ export const MAX_BASH_HISTORY = 50;
 export const MAX_FILE_EDITS = 20;
 /** Write diff 합성 시 old/new 본문 한 쪽당 최대 보관 길이(문자). 초과분은 잘라 표식 추가 — 스냅샷/메모리 폭증 방지 */
 export const MAX_WRITE_DIFF_BYTES = 100_000;
+
+// ─── 보존 정책 (§3.2.3) ───
+//
+// 실측(2026-08-13)에서 드러난 것 한 줄: **캡이 "키 하나당 값의 길이"에만 있고 "키 개수"엔 없다.**
+// `MAX_FILE_EDITS`(20) · `MAX_WRITE_DIFF_BYTES`(100KB) 는 파일 하나를 지켰지만 경로 키가 597개까지
+// 늘어 `activity.fileEdits` 만 5.77MB 였다. 아래 상수들이 그 빠진 축(A 시간 · D 병합창 · E 키 개수)이다.
+//
+// ⚠ 전부 **0 이면 그 축은 정리하지 않는다**(무제한) — 사용자가 설정에서 끌 수 있어야 한다는 §3.2.3 요구.
+//   여기 값은 `DEFAULT_RETENTION_SETTINGS` 의 기본값이고, 실제 판정은 항상 사용자 설정을 통과한 값으로 한다.
+
+/**
+ * 파일 편집 이력 보존 기간(일). 이보다 오래된 `FileEdit` 은 버린다.
+ * 30 = Claude Code `cleanupPeriodDays` 기본값과 같은 값(업계 관행 정렬).
+ */
+export const FILE_EDIT_RETENTION_DAYS = 30;
+
+/**
+ * 편집 이력을 들고 있는 **파일 경로 키 개수** 상한(LRU — 마지막 편집이 가장 오래된 경로부터 버림).
+ *
+ * 우리에게 없던 바로 그 축이다. VS Code Local History 가 `maxFileEntries`(50)로 **파일당 항목 수**를
+ * 자르는 것과 짝이 되는, **파일 개수** 쪽 상한.
+ */
+export const MAX_FILE_EDIT_PATHS = 300;
+
+/**
+ * 같은 파일의 연속 편집을 마지막 항목에 합치는 창(ms).
+ * VS Code `workbench.localHistory.mergeWindow`(10초)와 같은 개념 — 에이전트는 한 파일을 연달아
+ * 고치는 일이 잦아, 이게 없으면 `MAX_FILE_EDITS`(20)가 한 턴 만에 차서 그 파일의 이력이 통째로 밀린다.
+ */
+export const FILE_EDIT_MERGE_WINDOW_MS = 10_000;
+
+/**
+ * 세션 하나가 보관하는 완료 명령(사용자 말풍선) 상한.
+ *
+ * 종전엔 `archive.push(...)` 에 상한 검사가 **아예 없었다**. IDE 스트림 복원이 2,000 이벤트인데
+ * 말풍선만 무제한이라 짝이 맞지 않았다 — 200 이면 그 창보다 촘촘해 화면에서 줄어 보이지 않는다.
+ */
+export const COMPLETED_COMMAND_MAX_PER_SESSION = 200;
+
+/**
+ * `sub-streams/<agentId>/<subId>.jsonl` 보존 기간(일). 부팅 시 1회 정리.
+ * ⚠ **살아있는 서브에이전트의 파일은 나이와 무관하게 보존**한다(§3.2.3 — 화면에 떠 있는 대화를 지우지 않는다).
+ */
+export const SUB_STREAM_RETENTION_DAYS = 30;
+
+/** `.vibisual/attachments/<sessionId>/` 첨부 보존 기간(일). 부팅 시 1회 정리. */
+export const ATTACHMENT_RETENTION_DAYS = 30;
+
+/** 하루를 ms 로. 보존 기간 계산 공용. */
+export const RETENTION_DAY_MS = 24 * 60 * 60 * 1000;
+
+/** 보존 설정 기본값 — `AppState.retention` 이 없을 때(구버전) 이 값으로 판정한다. */
+export const DEFAULT_RETENTION_SETTINGS: RetentionSettings = {
+  fileEditRetentionDays: FILE_EDIT_RETENTION_DAYS,
+  maxFileEditPaths: MAX_FILE_EDIT_PATHS,
+  fileEditMergeWindowMs: FILE_EDIT_MERGE_WINDOW_MS,
+  completedCommandMaxPerSession: COMPLETED_COMMAND_MAX_PER_SESSION,
+  subStreamRetentionDays: SUB_STREAM_RETENTION_DAYS,
+  attachmentRetentionDays: ATTACHMENT_RETENTION_DAYS,
+};
+
+/**
+ * 설정 UI 가 쓰는 입력 한계 — 사용자가 아무 값이나 넣어 저장을 망가뜨리지 않게.
+ * `min: 0` 은 전부 "무제한"의 의미라 허용한다(§3.2.3).
+ */
+export const RETENTION_LIMITS: Record<keyof RetentionSettings, { min: number; max: number; step: number }> = {
+  fileEditRetentionDays: { min: 0, max: 3650, step: 1 },
+  maxFileEditPaths: { min: 0, max: 100_000, step: 10 },
+  fileEditMergeWindowMs: { min: 0, max: 600_000, step: 1_000 },
+  completedCommandMaxPerSession: { min: 0, max: 100_000, step: 10 },
+  subStreamRetentionDays: { min: 0, max: 3650, step: 1 },
+  attachmentRetentionDays: { min: 0, max: 3650, step: 1 },
+};
+
+/**
+ * 들어온 보존 설정을 안전한 값으로 정규화한다(서버·클라 공용 — 판정이 두 벌이 되면 어긋난다).
+ * 숫자가 아니거나 범위를 벗어나면 기본값/경계로 되돌린다.
+ */
+export function normalizeRetentionSettings(input?: Partial<RetentionSettings> | null): RetentionSettings {
+  const out = { ...DEFAULT_RETENTION_SETTINGS };
+  if (!input || typeof input !== 'object') return out;
+  for (const key of Object.keys(DEFAULT_RETENTION_SETTINGS) as (keyof RetentionSettings)[]) {
+    const raw = input[key];
+    if (typeof raw !== 'number' || !Number.isFinite(raw)) continue;
+    const { min, max } = RETENTION_LIMITS[key];
+    out[key] = Math.min(max, Math.max(min, Math.floor(raw)));
+  }
+  return out;
+}
+
+/**
+ * 보존 기간 판정 한 곳 — `0`(무제한)을 여기서만 해석한다.
+ * 여러 곳에서 `days > 0 && age > days*DAY` 를 각자 쓰면 한 곳이 빠졌을 때 조용히 무제한이 된다.
+ */
+export function isExpiredByDays(timestampMs: number, days: number, now: number = Date.now()): boolean {
+  if (!Number.isFinite(days) || days <= 0) return false; // 0 = 무제한
+  if (!Number.isFinite(timestampMs) || timestampMs <= 0) return false; // 시각 미상은 건드리지 않는다
+  return now - timestampMs > days * RETENTION_DAY_MS;
+}
+
+// ─── 런타임 메모리 자정작용 (§3.2.4) ───
+//
+// 실측(2026-08-14): 가동 10.9시간 앱의 **메인 프로세스 3,050MB**. 디스크 영속분은 73MB 뿐인데
+// 누적 읽기는 15,949MB(읽을 대상 전체는 2,173MB) — 같은 파일을 일곱 번 넘게 다시 읽었다.
+// 원인은 세션 캐시가 **"파일 몇 개"** 로만 묶여 있던 것(64개). 26MB 와 4KB 가 같은 한 칸을
+// 차지하니 트랜스크립트가 수천 개인 기계에서 캐시가 끊임없이 교체되고 그때마다 전량 재파싱이 돈다.
+//
+// ⚠ 여기 값들도 §3.2.3 과 같은 규약 — **0 이면 그 축은 끈다**(무제한).
+
+/**
+ * 세션 JSONL 파생 캐시(제목·마지막 응답·사용자 메시지·컨텍스트 스캔·토큰 스캔)가 **다 함께**
+ * 쓰는 총 바이트 예산.
+ *
+ * 개수가 아니라 바이트인 이유는 `byteBudgetCache.ts` 머리말 참조.
+ *
+ * ⚠ 예산의 기준은 "가장 큰 파일 하나"가 아니라 **작업 집합**(스냅샷 한 바퀴가 만지는 세션 전체)이다.
+ * 종전 48MB 는 앞의 기준으로 잡혀 있었는데, 그러면 세션이 늘어난 기계에서 한 바퀴를 도는 동안에도
+ * 방금 채운 항목이 다시 밀려나 적중률이 0 으로 수렴한다(LRU 스래싱). 실측 2026-08-16: 체크포인트가
+ * 참조하는 세션 178개 · 트랜스크립트 합 228MB 인 기계에서 도구 이벤트 1회마다 832MB 를 재파싱하고
+ * 코어 하나를 5초씩 잡았다 — 읽은 총량이 대상 총량의 3.6배였다.
+ *
+ * 캐시가 담는 것은 파일이 아니라 **파생 상태**(턴 배열·이벤트 텍스트·누적 숫자)라 트랜스크립트
+ * 총량보다 훨씬 작다. 반대로 한 번 밀려났을 때 치르는 재파싱 피크는 파일 크기의 4~5배(§3.2.4 G축)라,
+ * 예산을 작업 집합 위로 올리는 것이 오히려 최대 점유를 낮춘다. 상한 자체는 I축(압력 축출)이 지킨다.
+ */
+export const SESSION_CACHE_BYTE_BUDGET = 256 * 1024 * 1024;
+
+/**
+ * 같은 캐시의 **항목 개수** 보조 상한. 바이트 예산과 둘 다 적용되고 먼저 걸리는 쪽이 이긴다.
+ * 작은 파일 수천 개가 들어와 엔트리 오버헤드만으로 부푸는 경우를 막는 자리(값이 작아 바이트
+ * 예산에는 안 걸리는 구간).
+ *
+ * ⚠ 이 값은 **몫으로 쪼개져** 캐시마다 나뉘므로(가장 작은 몫이 8%), 작업 집합보다 넉넉해야 한다.
+ * 512 일 때 실제 상한은 userMessages 153 · contextScan 61 · lastAssistant 51 · paths 40 이었고,
+ * 세션 178개인 기계에서는 넷 다 작업 집합보다 작아 바이트 예산과 무관하게 개수만으로 스래싱했다.
+ */
+export const SESSION_CACHE_MAX_ENTRIES = 4096;
+
+/**
+ * JSONL 을 훑을 때 **한 번에 메모리로 올리는 최대 바이트**(§3.2.4 G축).
+ *
+ * 종전엔 `Buffer.allocUnsafe(구간 전체)` 라 26MB 파일이면 버퍼 26MB + `toString()` 문자열
+ * (UTF-16 이라 최대 52MB) + `split('\n')` 조각 배열이 한꺼번에 잡혀 피크가 파일 크기의 4~5배였다.
+ * 청크로 끊어 읽으면 같은 줄을 같은 순서로 한 번씩 먹이므로 **결과는 동일**하고 피크만 상수가 된다.
+ */
+export const JSONL_SCAN_CHUNK_BYTES = 1024 * 1024;
+
+/**
+ * 세션·에이전트 id 를 키로 쓰는 **파생 Map** 의 키 개수 상한(§3.2.4 F축 경량판).
+ *
+ * 값이 작아 바이트 예산까지는 필요 없지만, 키가 세션 수만큼 늘어나면 오래 켜 둔 앱에서 계속 자란다
+ * (`brainInjections`·`recentToolDurations` 처럼 값에는 링버퍼 캡이 있는데 **키에는 없던** 자리들).
+ * 1,000 은 한 프로젝트에서 동시에 의미 있게 다룰 세션 수보다 훨씬 크다 — 화면에 영향이 없는 선.
+ */
+export const SESSION_KEYED_MAP_MAX = 1_000;
+
+/** 힙 표본 주기(ms) — §3.2.4 H축. 너무 잦으면 그 자체가 부하라 30초. */
+export const MEMORY_SAMPLE_INTERVAL_MS = 30_000;
+
+/** 진단 화면이 추이를 그릴 수 있게 보관하는 표본 개수(30초 × 120 = 1시간). */
+export const MEMORY_SAMPLE_HISTORY = 120;
+
+/**
+ * 힙 사용률(`heapUsed / heap_size_limit`)이 이 값을 넘으면 캐시를 **절반** 버린다(§3.2.4 I축).
+ * 0.75 = V8 이 노후 공간을 크게 늘리기 시작하는 지점보다 앞 — 늘어난 뒤에 버리면 이미 늦다.
+ */
+export const MEMORY_PRESSURE_HIGH_RATIO = 0.75;
+
+/** 이 값을 넘으면 등록된 캐시를 **전부** 버린다. OOM 직전의 마지막 자정작용. */
+export const MEMORY_PRESSURE_CRITICAL_RATIO = 0.88;
+
+/** 고압(HIGH) 상태에서 한 번에 버리는 비율. */
+export const MEMORY_PRESSURE_EVICT_FRACTION = 0.5;
+
+/**
+ * 압력 대응을 다시 실행하기까지의 최소 간격(ms).
+ *
+ * 축출 직후에는 GC 가 아직 안 돌아 `heapUsed` 가 그대로라, 이 간격이 없으면 매 표본마다
+ * 캐시를 비워 "캐시가 영영 비어 있는" 상태가 된다 — 그러면 재파싱이 오히려 늘어난다.
+ */
+export const MEMORY_PRESSURE_COOLDOWN_MS = 120_000;
+
+// ─── IDE 워크스페이스 탐색기 (§5.5 #17-19 v4.71) ───
+
+/**
+ * 디렉터리 한 겹에서 클라이언트로 넘기는 엔트리 최대 개수.
+ * `node_modules` 처럼 수천 개가 든 폴더를 펼쳤을 때 사이드바 한 칸이 통째로 얼어붙는 것을 막는다
+ * (넘치면 앞에서 자르고 `truncated` 로 알린다 — 가상화 ❌, 탐색기는 곁눈 자리다).
+ */
+export const WORKSPACE_DIR_ENTRY_MAX = 500;
+
+// ─── IDE 내장 편집창 (§5.5 #17-27 v4.87) ───
+
+/**
+ * 편집창이 통째로 읽어 들이는 파일 크기 상한(bytes).
+ * 넘으면 앞부분만 담아 **읽기 전용**으로 열고 잘렸다는 사실을 그 자리에 적는다 —
+ * 잘린 본문을 저장하면 원본 뒷부분이 사라지기 때문이다.
+ */
+export const WORKSPACE_FILE_MAX_BYTES = 2_000_000;
+
+/**
+ * 편집창에 동시에 열어 두는 탭 상한.
+ * 넘으면 **저장할 것이 없는(= 안 고친) 가장 오래된 탭**부터 밀어낸다(고치던 파일은 밀리지 않는다).
+ */
+export const IDE_EDITOR_MAX_TABS = 12;
+
+/** 편집창 폭(px) — 기본값과 드래그 허용 범위. */
+export const IDE_EDITOR_WIDTH = { DEFAULT: 520, MIN: 280, MAX: 1400 } as const;
 
 // ─── 위성(satellite) 상한 ───
 
@@ -330,6 +550,28 @@ export const USAGE_LIMIT_DANGER_PCT = 90;
 export const CLAUDE_USAGE_API_URL = 'https://api.anthropic.com/api/oauth/usage';
 export const CLAUDE_USAGE_FETCH_TIMEOUT_MS = 5_000;
 export const CLAUDE_USAGE_POLL_INTERVAL_MS = 5 * 60 * 1000;
+
+/**
+ * §4 v4.82 — 앱 안 Claude 로그인 설정.
+ *
+ * 상태 판정은 `claude auth status --json` 한 번 spawn(정상 응답 수백 ms). 폴링은 "밖에서
+ * 로그아웃했는데 앱만 모르는" 구간을 없애기 위한 것이라 넉넉히 잡고, 로그인 팝업이 떠 있는
+ * 동안에는 클라가 `LOGIN_POLL` 간격으로 직접 재조회한다(성공 판정의 1차 근거 — CLI 출력
+ * 문구 파싱은 보조).
+ */
+export const CLAUDE_AUTH_PROBE_TIMEOUT_MS = 8_000;
+/** `claude auth logout` 은 네트워크 왕복이 있어 조금 더 길게. */
+export const CLAUDE_AUTH_LOGOUT_TIMEOUT_MS = 20_000;
+export const CLAUDE_AUTH_POLL_INTERVAL_MS = 10 * 60 * 1000;
+/** 로그인 진행 중 상태 재조회 주기(클라). */
+export const CLAUDE_AUTH_LOGIN_POLL_INTERVAL_MS = 3_000;
+/**
+ * 로그인 PTY 의 termId. 에이전트에 속하지 않는 유일한 터미널이라 고정 id 를 쓴다
+ * (`term:<agentId>:<session>` 규약의 agentId 자리에 예약어 `auth`).
+ */
+export const CLAUDE_AUTH_LOGIN_TERM_ID = 'term:auth:login';
+/** OAuth URL 을 이 시간 안에 못 찾으면 로그인 팝업이 터미널을 자동으로 펼친다(폴백). */
+export const CLAUDE_AUTH_TERMINAL_REVEAL_MS = 6_000;
 
 /**
  * 사용자 인터럽트 해소 판정 주기 (ms).
@@ -667,6 +909,48 @@ export const AVAILABLE_AGENT_TOOLS: readonly string[] = [
   'Agent', 'WebSearch', 'WebFetch', 'NotebookEdit',
   // §5.3 #12-2 v2.26 — IDE 인라인 옵션 카드로 사용자에게 질문
   'AskUserQuestion',
+  // §5.5 #17-17 ⑨ v4.59 — 계획 도구. 이게 목록에 없으면 `--tools` 에서도 빠져 모델이 계획을 세울
+  //   수단 자체가 없다 — 매 턴 "TodoWrite 로 계획을 세워라"라고 지시하면서 도구를 주지 않아
+  //   목표창(#17-17)·계획 블록(#17-12 ②)이 실측 279 세션 중 1 세션에서만 뜨던 원인.
+  'TodoWrite',
+  // §4 (CLI 사양 추종) — 설치본 실측으로 존재를 확인한 내장 도구들. `buildConfigArgs` 가 `--tools` 를
+  //   **항상 명시**하므로 이 목록에 없는 도구는 그 에이전트에게 아예 존재하지 않는다. 아래는 없어서
+  //   실제로 기능이 막히던 것들:
+  //   - ExitPlanMode : permissionMode='plan' 로 들어간 에이전트가 계획을 끝내고 나올 수단.
+  //   - Skill        : `AgentConfig.skills` 를 설정해 두고 정작 호출 도구를 안 주던 모순.
+  //   - Monitor / BashOutput / KillShell : 백그라운드 Bash 의 결과 회수·종료.
+  //   - TaskOutput / TaskStop : 백그라운드 **Task/Agent 자식**의 진행 회수·중지. 위 셋이 백그라운드
+  //     *Bash* 를 다루는 손잡이라면 이 둘은 *자식 에이전트* 를 다루는 손잡이인데, 짝이 빠져 있었다.
+  //     그래서 자식이 응답 없이 멈추면 **에이전트 자신도 확인하거나 끊을 수단이 없어** 그냥 기다렸고
+  //     (실측 18분), 호스트인 우리도 밖에서 장부만 들고 있어 개별 항목을 건드릴 수 없었다.
+  //     대화형 CLI 가 이 지경까지 가지 않는 이유가 이 둘(+ 사용자용 `/tasks`)이다.
+  //     실행본 2.1.228 바이너리에서 두 이름 모두 확인.
+  'ExitPlanMode',
+  'Skill',
+  'Monitor',
+  'BashOutput',
+  'KillShell',
+  'TaskOutput',
+  'TaskStop',
+  'MultiEdit',
+  'SendMessage',
+  'Artifact',
+];
+
+/**
+ * §5.5 #17-17 ⑨ v4.59 — 옛 설정에 없던 도구 중 "사용자가 끈 것이 아니라 화면에 존재한 적이
+ * 없어서" 빠진 항목. 체크포인트 복원 시 1회 백필해 판올림 전에 만든 에이전트도 계획을 세울 수
+ * 있게 한다. 복원 경로에서만 채우므로 사용자가 이후 직접 해제한 선택은 되살아나지 않는다.
+ */
+export const BACKFILL_AGENT_TOOLS: readonly string[] = [
+  'TodoWrite',
+  // §4 (CLI 사양 추종) — 위 목록에 새로 들어온 내장 도구들도 같은 이유로 백필한다.
+  //   사용자가 끈 적이 없고 화면에 뜬 적도 없던 항목이라, 안 넣으면 판올림 전에 만든 에이전트만
+  //   영구히 plan 모드를 못 빠져나오고 스킬도 못 부른다.
+  'ExitPlanMode', 'Skill', 'Monitor', 'BashOutput', 'KillShell', 'MultiEdit', 'SendMessage', 'Artifact',
+  // 백그라운드 자식이 멈췄을 때 에이전트가 스스로 확인·중지할 유일한 수단 — 안 넣으면 판올림 전에
+  //   만든 에이전트만 영영 자기 자식에게 손을 못 댄다(그 자식이 걸리면 세션 전체를 끊는 수밖에 없다).
+  'TaskOutput', 'TaskStop',
 ];
 
 /** §5.3 #12-2 v2.26 — AskUserQuestion 요청 타임아웃 (60s, permissionBroker 와 동일 윈도우) */
@@ -683,14 +967,44 @@ export const CLAUDE_INSTALL_SCAN_MAX = 24;
  *  서버 PUT /api/agent-config/:id 가 payload.tools 에서 빠져 있으면 자동 포함, UI 는 × 잠금. */
 export const LOCKED_AGENT_TOOLS: readonly string[] = ['Bash'];
 
-/** 선택 가능한 퍼미션 모드 */
+/**
+ * 선택 가능한 퍼미션 모드 — 설치된 CLI 내부 enum 과 같은 6종(§4 CLI 사양 추종).
+ *
+ * `'default'` 는 CLI 안에서도 여전히 정식 값이고 표시명만 **Manual** 이다(그래서 저장값을
+ * 바꾸지 않는다 — 마이그레이션 ❌). `'auto'`/`'dontAsk'` 는 CLI 2.1.223 에서 열린 값이며
+ * 판정 의미는 CLI 실측 기준으로 `auto → classify`(모델 분류기) · `dontAsk → deny`(사전 승인 없으면 거부).
+ * 서버 승인 게이트(`/api/permission-check`)의 매핑은 §5.3 #12-1 참조.
+ */
 export const AVAILABLE_PERMISSION_MODES: readonly string[] = [
-  'default', 'acceptEdits', 'plan', 'bypassPermissions',
+  'default', 'acceptEdits', 'auto', 'dontAsk', 'plan', 'bypassPermissions',
+];
+
+/**
+ * §5.3 #12-1 — 승인 팝업이 원천적으로 안 뜨는 모드. 이 모드에서는 "60초 무응답 정책"
+ * (`permissionTimeoutPolicy`) 이 무의미하므로 UI 가 그 토글을 숨긴다.
+ * `dontAsk` 는 팝업 대신 즉시 거부라 여기에 함께 들어간다.
+ */
+export const PERMISSION_MODES_WITHOUT_PROMPT: readonly string[] = [
+  'bypassPermissions', 'plan', 'auto', 'dontAsk',
 ];
 
 /** 선택 가능한 격리 모드 */
 export const AVAILABLE_ISOLATION_MODES: readonly string[] = [
   'none', 'worktree',
+];
+
+/**
+ * §4 (CLI 사양 추종) — `--setting-sources` 가 받는 설정 계층. 부분집합을 골라 전달한다.
+ * 빈 목록 = 플래그 미전달 = CLI 기본(전부 로드).
+ */
+export const AVAILABLE_SETTING_SOURCES: readonly string[] = ['user', 'project', 'local'];
+
+/**
+ * §4 (CLI 사양 추종) — `--autocompact` 드롭다운이 그리는 값.
+ * 맨 앞 `''` 는 "미설정"(플래그 없음), `'auto'` 는 CLI 판단, 나머지는 토큰 수(CLI 허용 100k~1M).
+ */
+export const AVAILABLE_AUTOCOMPACT_VALUES: readonly string[] = [
+  '', 'auto', '100000', '200000', '500000', '1000000',
 ];
 
 /**
@@ -1059,6 +1373,96 @@ export const DEFAULT_AGENT_CONFIG: AgentConfig = {
   maxTurns: 0,
 };
 
+// ─── §5.3 v4.89 자기 기억 범위 · 중첩 깊이 ───
+
+/** 드롭다운이 그리는 순서. 맨 앞이 "지정 안 함"(= 레포 공용 기억). */
+export const AGENT_MEMORY_SCOPES: readonly AgentMemoryScope[] = ['off', 'user', 'project', 'local'] as const;
+
+/** 알 수 없는 값은 undefined(기본)로 떨어뜨린다 — REST body 검증 공용. */
+export function normalizeAgentMemoryScope(value: unknown): AgentMemoryScope | undefined {
+  return AGENT_MEMORY_SCOPES.includes(value as AgentMemoryScope) ? (value as AgentMemoryScope) : undefined;
+}
+
+/** 중첩 깊이 하한 — 1 이면 "이 에이전트는 서브에이전트를 못 만든다". */
+export const SUBAGENT_DEPTH_MIN = 1;
+
+/** 중첩 깊이 상한. CLI 기본은 3층이며, 그보다 깊게 파는 것은 사고에 가깝다. */
+export const SUBAGENT_DEPTH_MAX = 5;
+
+/**
+ * 범위를 벗어나거나 정수가 아니면 undefined(= CLI 기본 3층 유지).
+ * 0 을 "중첩 없음"으로 오해해 넣는 경우가 있어 하한을 1 로 잡고 그 아래는 버린다.
+ */
+export function normalizeSubagentDepth(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isInteger(value)) return undefined;
+  if (value < SUBAGENT_DEPTH_MIN || value > SUBAGENT_DEPTH_MAX) return undefined;
+  return value;
+}
+
+// ─── §4 (CLI 사양 추종) Bash 도구 타임아웃 ───
+
+/** Bash 타임아웃 하한(ms). 1초 미만은 오타로 본다. */
+export const BASH_TIMEOUT_MS_MIN = 1_000;
+
+/** Bash 타임아웃 상한(ms) = 24시간. 이보다 길면 사실상 무제한이라 값으로서 의미가 없다. */
+export const BASH_TIMEOUT_MS_MAX = 86_400_000;
+
+/** CLI 가 `timeout` 미지정 명령에 쓰는 기본 제한(ms). 우리 UI 의 "미설정" 안내용. */
+export const BASH_DEFAULT_TIMEOUT_MS_CLI_DEFAULT = 120_000;
+
+/** CLI 가 허용하는 `timeout` 상한(ms). "600초에서 걸린다"의 정체 — 이 값을 넘기려면 설정이 필요하다. */
+export const BASH_MAX_TIMEOUT_MS_CLI_DEFAULT = 600_000;
+
+/**
+ * 범위를 벗어나거나 정수가 아니면 undefined(= 미설정 = CLI 기본 유지).
+ * 0/음수를 "무제한"으로 오해해 넣는 경우가 있어 하한 아래는 저장하지 않는다.
+ */
+export function normalizeBashTimeoutMs(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
+  const ms = Math.round(value);
+  if (ms < BASH_TIMEOUT_MS_MIN || ms > BASH_TIMEOUT_MS_MAX) return undefined;
+  return ms;
+}
+
+// ─── §5.5 #17-18 v4.68 덧말 처리 방식 ───
+
+/** 큐 항목 UI 가 그리는 순서(대기 → 합치기 → 즉시). */
+export const COMMAND_DISPATCH_MODES: readonly CommandDispatchMode[] = ['wait', 'merge', 'immediate'] as const;
+
+/** 방식을 지정하지 않고 넣은 명령의 기본값.
+ *  합치기 — 연달아 넣은 덧말은 대개 "하나의 생각을 나눠 적은 것"이라 한 턴에 함께 가야 한다
+ *  (쪼개면 앞 지시가 뒤 지시에 뒤집히고 완료 보고 카드만 늘어난다). */
+export const DEFAULT_COMMAND_DISPATCH_MODE: CommandDispatchMode = 'merge';
+
+/** 합치기로 한 프롬프트에 이어 붙일 때 쓰는 구분자. */
+export const COMMAND_MERGE_SEPARATOR = '\n\n';
+
+/** 알 수 없는 값이 들어와도 기본값으로 떨어뜨리는 좁힘 함수(REST body 검증 공용). */
+export function normalizeCommandDispatchMode(value: unknown): CommandDispatchMode {
+  return COMMAND_DISPATCH_MODES.includes(value as CommandDispatchMode)
+    ? (value as CommandDispatchMode)
+    : DEFAULT_COMMAND_DISPATCH_MODE;
+}
+
+// ─── 훅 버블 읽기 전용 경계 (§5.5 #17 / #17-29) ───
+
+/**
+ * 훅으로 태어난 에이전트 버블인가 = **읽기 전용인가.**
+ *
+ * 훅 버블은 사용자가 외부(VS Code 등)에서 직접 연 Claude Code 세션의 **시각화**다. 우리가 spawn 하지
+ * 않았으므로 스폰 시 실리는 것(컨텍스트 요약·카드 지시문·목표·집행 플러그인)이 하나도 없고, 완료 신고
+ * 경로도 없다. 거기에 명령을 넣으면 그 자식은 아무것도 주입받지 못한 채 매달린다 — 그래서 관측만 한다.
+ *
+ * 버블을 못 찾은 경우(`null`/`undefined`)도 훅으로 본다 — 모르면 쓰지 않는다.
+ * 서버 REST 가드와 클라 UI 가 **같은 함수**를 쓰기 때문에 "화면에선 막혔는데 서버는 받는" 어긋남이 없다.
+ */
+export function isReadOnlyHookAgent(agent: { customCreated?: boolean } | null | undefined): boolean {
+  return !agent?.customCreated;
+}
+
+/** 훅 버블에 쓰기를 시도했을 때 서버가 돌려주는 사유 코드(REST 403 공용). */
+export const READ_ONLY_HOOK_AGENT_ERROR = 'read-only-hook-agent';
+
 // ─── 파이프라인 에이전트 ───
 
 /** 파이프라인 자식 에이전트 역할별 설정 */
@@ -1221,6 +1625,44 @@ export const TASK_EDGE_DEFAULTS = {
 /** v1.41 — Critique 재작업 횟수 입력 UI 상한. 무한 루프 방지 목적이므로 관용 상한 10. */
 export const TASK_EDGE_CRITIQUE_MAX_REWORK_LIMIT = 10;
 
+/**
+ * §5.3 #10-3 v4.98 — 검증 런 보관 상한 (autoAgentId 당, ring buffer).
+ * 넘으면 가장 오래된 런부터 밀려난다.
+ */
+export const AUTO_AGENT_RUN_MAX_PER_AGENT = 50;
+
+/**
+ * §5.3 #10-3 v4.98 — 런 하나가 쓸 수 있는 재작업 예산(기본값).
+ * 종전에는 엣지마다 따로 셌기 때문에 reviewer·tester 가 각각 3번씩 = 실제 6번이 됐다.
+ * 이제 런 전체 합산이며, 소진 시 조용한 강등이 아니라 에스컬레이션이다.
+ */
+export const AUTO_AGENT_RUN_DEFAULT_REWORK_BUDGET = 3;
+
+/**
+ * §5.3 #10-3 v4.98 — 검수자에게 요구하는 **구조화 판정 형식**.
+ *
+ * 종전에는 자유 텍스트를 정규식으로 긁어 판정했고, 해석에 실패하면 `unknown` 이 되어
+ * 승인과 같은 길로 흘렀다(fail-open). 이제 이 형식을 요구하고, 어긋나면 `held`(보류)다.
+ * 증거 없는 approve 도 `held` 로 떨어진다 — "봤더니 괜찮다"는 증거가 아니다.
+ */
+export const VERIFICATION_VERDICT_SCHEMA_GUIDE = `
+=== Verdict format (structured — required) ===
+Reply with a fenced JSON block exactly like this:
+\`\`\`json
+{
+  "verdict": "approve" | "reject",
+  "reason": "one line",
+  "attempts": [
+    { "kind": "build|typecheck|test|run|custom", "command": "pnpm typecheck", "exitCode": 0, "revision": "<git sha, optional>", "detail": "<optional>" }
+  ]
+}
+\`\`\`
+Rules:
+- "approve" REQUIRES at least one attempt you actually ran, with its real exitCode. Do not invent numbers.
+- If you could not run anything, use "reject" or omit the verdict — an approve without evidence is held, not accepted.
+- exitCode is the real process exit code. The server decides pass/fail from it; your own opinion of "it looks fine" is not evidence.
+`.trim();
+
 /** v1.54 — `bundleRole='auto-rework'` 자동 엣지의 표준 command 라벨.
  *  critique force-rework 가 발사하는 rework 지시 채널의 자동 본문. 사용자 편집 불가. */
 export const TASK_EDGE_AUTO_REWORK_COMMAND_LABEL = 'Rework on critique reject';
@@ -1333,6 +1775,18 @@ export const IMAGE_SAVE_DIR = 'images';
 
 /** 혼합 텍스트 (한글+영어) 바이트당 토큰 추정 비율 */
 export const TOKEN_BYTES_RATIO = 0.35;
+
+/**
+ * §3.2.4 ② — 서브에이전트 토큰 조회를 **동시에 몇 개까지** 겹칠지.
+ *
+ * 자체 턴이 비는 에이전트(커스텀이 그렇다)는 `/api/tokens` 가 서브 세션을 모두 뒤져 합산하는데,
+ * 종전엔 그 조회가 순차라 서브가 20개면 갱신 한 번에 왕복이 20번 줄줄이 일어났다. 결과는 그대로
+ * 두고 왕복만 겹친다(`mapWithConcurrency` 가 입력 순서를 보존한다).
+ *
+ * 무제한으로 풀지 않는 이유는 서버가 로컬 단일 프로세스라, 한꺼번에 쏟으면 오히려 메인 스레드가
+ * 통째로 막히기 때문이다.
+ */
+export const TOKEN_SUBAGENT_FETCH_CONCURRENCY = 4;
 /** 시스템 프롬프트 추정 토큰 (도구 사용법, 코딩 규칙 등 내장 지침) */
 export const SYSTEM_PROMPT_ESTIMATE = 5_000;
 /** 도구 스키마 추정 토큰 (Bash, Read, Edit, Grep 등) */
@@ -1345,6 +1799,127 @@ export const TOKEN_FIXED_CATEGORIES: { key: string; label: string; estimate: num
   { key: 'tool_schemas', label: 'Tool Schemas', estimate: TOOL_SCHEMA_ESTIMATE },
   { key: 'git_status', label: 'Git Status', estimate: GIT_STATUS_ESTIMATE },
 ];
+
+/**
+ * §5.5 #17-28 — 텍스트 한 덩이의 추정 토큰. 서버(주입원 계측)와 클라(합계 표시)가 **같은 산식**을
+ * 써야 화면과 프롬프트가 다른 숫자를 말하지 않는다.
+ *
+ * 바이트 기준인 것은 한글이 UTF-8 3바이트라 문자 수보다 바이트가 실제 토큰에 가깝기 때문이며,
+ * 비율은 이미 쓰던 `TOKEN_BYTES_RATIO` 를 그대로 쓴다(새 산식을 들이면 화면마다 숫자가 갈린다).
+ * 정확한 토크나이저가 아니라 **어림값**이다 — 화면은 `~` 를 붙여 그렇게 말한다.
+ */
+export function estimateTokens(text: string | null | undefined): number {
+  if (!text) return 0;
+  // TextEncoder 는 Node 18+/브라우저 공통. 없으면 문자 수 기반으로 물러난다(테스트 환경 보호).
+  const bytes = typeof TextEncoder !== 'undefined'
+    ? new TextEncoder().encode(text).length
+    : text.length;
+  return Math.round(bytes * TOKEN_BYTES_RATIO);
+}
+
+// ─── §5.5 #17-28 컨텍스트 주입원 통제 ───
+
+/**
+ * 주입원 안정 키. **저장되는 값**이므로 한 번 정하면 바꾸지 않는다(바꾸면 사용자가 꺼 둔 것이 되살아난다).
+ * 목록 자체는 하드코딩이지만 **각 줄이 실제로 실리는지·얼마나 되는지는 매번 읽어서** 정한다 —
+ * 고정된 것은 "무엇을 끌 수 있는가"의 어휘뿐이다.
+ */
+export const CONTEXT_SOURCE_IDS = {
+  // ① Vibisual 이 프롬프트에 직접 조립하는 블록 — 그 자리에서 뺄 수 있다(control: 'session').
+  skillsPrefix: 'vibisual.skills-prefix',
+  agentRules: 'vibisual.agent-rules',
+  edges: 'vibisual.edges',
+  feedback: 'vibisual.feedback',
+  intentFirst: 'vibisual.intent-first',
+  cardReport: 'vibisual.card.report',
+  cardQuestion: 'vibisual.card.question',
+  cardReview: 'vibisual.card.review',
+  cardList: 'vibisual.card.list',
+  cardIframe: 'vibisual.card.iframe',
+  goal: 'vibisual.goal',
+  brainCards: 'vibisual.brain.cards',
+  brainTopics: 'vibisual.brain.topics',
+  brainRules: 'vibisual.brain.rules',
+  /** 훅으로 붙은 외부 세션에 매 턴 실리는 집행 블록(§5.11 v4.67). */
+  hookEnforcement: 'vibisual.hook-enforcement',
+  /** §5.11 집행 플러그인 전체 — 개별 플러그인은 `plugin:<id>` 로 따로 선다. */
+  plugins: 'plugins.all',
+
+  // ② Claude Code 쪽 — CLI 인자·환경변수로만 끌 수 있다(control: 'spawn').
+  claudeMd: 'cc.claude-md',
+  autoMemory: 'cc.auto-memory',
+  slashCommands: 'cc.slash-commands',
+  bundledSkills: 'cc.bundled-skills',
+  workflows: 'cc.workflows',
+  gitInstructions: 'cc.git-instructions',
+
+  // ③ 계측만 — 여기서 끌 수 없다(control: 'external' | 'none').
+  subagentDefs: 'cc.subagent-defs',
+  systemPrompt: 'cc.system-prompt',
+  toolSchemas: 'cc.tool-schemas',
+  mcp: 'cc.mcp',
+  hooks: 'cc.hooks',
+} as const;
+
+/** 개별 플러그인 줄의 id 접두어 — `plugin:ssot-drift` 처럼 선다. */
+export const CONTEXT_PLUGIN_ID_PREFIX = 'plugin:';
+
+/**
+ * §5.5 #17-28 ⑦ — 상세창이 한 번에 받는 본문의 상한(글자).
+ *
+ * 지시 파일은 수십 KB 가 예사라 전문을 그대로 실어 보내면 창이 멎는다. 잘린 것은 화면이 말해 주고
+ * (`truncated`), 글자·토큰 숫자는 **자르기 전 전체 기준**으로 준다 — 표의 합계와 어긋나지 않게.
+ */
+export const CONTEXT_PREVIEW_MAX_CHARS = 60_000;
+
+/** 위 상수의 값 목록(검증·테스트용). */
+export const CONTEXT_SOURCE_ID_LIST: string[] = Object.values(CONTEXT_SOURCE_IDS);
+
+/**
+ * `control: 'spawn'` 인 줄을 실제로 끄는 수단.
+ *
+ * 헤드리스 경로는 **매 턴 새 프로세스**를 띄우므로(`--resume` 도 새 spawn 이다) 여기 적힌 인자·환경변수는
+ * 다음 프롬프트부터 곧바로 먹는다 — "끄면 다음 프롬프트에 안 실린다"가 성립하는 근거다.
+ *
+ * 값은 Claude Code CLI 가 실제로 읽는 이름이다(`claude --help` + 배포 바이너리 확인, 2.1.223 기준).
+ * 판본이 바뀌어 이름이 사라져도 **모르는 환경변수는 무시**되므로 스폰이 깨지지 않는다.
+ */
+export const CONTEXT_SPAWN_SWITCHES: Record<string, { env?: string; flag?: string }> = {
+  [CONTEXT_SOURCE_IDS.claudeMd]: { env: 'CLAUDE_CODE_DISABLE_CLAUDE_MDS' },
+  [CONTEXT_SOURCE_IDS.autoMemory]: { env: 'CLAUDE_CODE_DISABLE_AUTO_MEMORY' },
+  [CONTEXT_SOURCE_IDS.slashCommands]: { flag: '--disable-slash-commands' },
+  [CONTEXT_SOURCE_IDS.bundledSkills]: { env: 'CLAUDE_CODE_DISABLE_BUNDLED_SKILLS' },
+  [CONTEXT_SOURCE_IDS.workflows]: { env: 'CLAUDE_CODE_DISABLE_WORKFLOWS' },
+  [CONTEXT_SOURCE_IDS.gitInstructions]: { env: 'CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS' },
+};
+
+/**
+ * **최종 판정 한 곳** — 세션 오버라이드 > 프로젝트 오버라이드 > 기본값.
+ *
+ * 서버(주입 게이트)와 클라(화면 표시)가 이 함수를 함께 쓴다. 판정이 두 벌이 되면
+ * "화면엔 꺼져 있는데 프롬프트엔 실리는" 상태가 생기고, 그것이 이 기능의 유일한 실패 방식이다.
+ */
+export function resolveContextEnabled(
+  overrides: {
+    projects?: Record<string, Record<string, boolean>>;
+    sessions?: Record<string, Record<string, boolean>>;
+  } | null | undefined,
+  scopeKeys: { projectKey?: string | null; subAgentId?: string | null },
+  sourceId: string,
+  defaultEnabled: boolean,
+): { enabled: boolean; scope?: 'project' | 'session' } {
+  if (overrides) {
+    if (scopeKeys.subAgentId) {
+      const v = overrides.sessions?.[scopeKeys.subAgentId]?.[sourceId];
+      if (typeof v === 'boolean') return { enabled: v, scope: 'session' };
+    }
+    if (scopeKeys.projectKey) {
+      const v = overrides.projects?.[scopeKeys.projectKey]?.[sourceId];
+      if (typeof v === 'boolean') return { enabled: v, scope: 'project' };
+    }
+  }
+  return { enabled: defaultEnabled };
+}
 
 
 // ─── Git Status (§7.6 GitStatusCard) ───
@@ -1973,6 +2548,26 @@ VIBI_BASE="\${VIBI_ID%% *}"; VIBI_TOKEN="\${VIBI_ID##* }"
 }
 
 /**
+ * §5.5 #17-18 ⑦-4 — 카드 4종(작업 신고·질문·검수·목록)이 **공유하는 발행 순서 문장**.
+ *
+ * ⑦-1 이 카드를 신고 시각(`createdAt`)의 자리에 못 박은 뒤로, "완료 보고 **직전**에 호출" 이라는 옛 문구는
+ * 카드를 결론 본문보다 **위**에 앉히고 그 카드를 설명하는 내용을 아래로 밀어냈다("카드가 위에 나오고 내용이
+ * 아래에 나와 버린다"). 읽는 순서는 늘 **맥락 → 카드**이므로 설명을 먼저 쓰고 그 보고의 **마지막 동작**으로
+ * 카드를 발행한다. 네 판본에 복제하지 않고 여기 한 곳에 두는 이유 — 판본마다 다르게 적히면 화면에 뜨는
+ * 순서가 에이전트 종류에 따라 갈린다(CMD 터미널 마커 판본 `buildCmdCardProtocolRules` 의 공통 절도 같은 규칙).
+ *
+ * 각 블록은 "언제 보낼 자격이 되는가"(그 일을 다 끝낸 뒤 / 목록이 확정된 뒤 …)를 자기 문장으로 적고,
+ * 그 뒤에 이 상수를 이어 붙여 "그 1회를 어디에 놓는가"를 말한다. 끝의 콜론은 바로 아래 bash 블록으로 이어진다.
+ *
+ * §5.5 #17-18 ⑦-5 — "발행한 뒤 본문을 더 붙이지 마라"만으로는 부족했다. 카드 curl 이 그 턴의 **마지막 도구**라
+ * 그 결과를 받은 에이전트는 무언가 말해야 턴이 닫히고, 그때 가장 무해해 보이는 말이 곧 **발송 사실 보고**다
+ * ("검수 카드로 확인 지점을 정리해 보냈습니다"). 이미 화면에 뜬 카드를 다시 말할 뿐이라 정보량이 0 인데
+ * 카드마다 반복돼 마지막 본문 자리(#17-21 ②)를 잡아먹었다 — 그래서 그 한 줄을 **이름 대어** 금지한다.
+ * (지시문만으로는 확률적이라 렌더 층에서도 같은 줄을 표시에서 뺀다 — 클라 `isCardEchoText`.)
+ */
+const CARD_PUBLISH_ORDER_RULE = `**자연어 설명(짧은 결론·근거)을 먼저 쓴 다음**, 그 보고의 **맨 마지막 동작**으로 Bash 로 1회 호출한다 — 카드는 **신고된 그 시각의 자리**에 앉으므로 설명보다 먼저 보내면 **카드가 위, 그 카드를 설명하는 내용이 아래**로 뒤집힌다(읽는 순서는 늘 맥락 → 카드). 호출한 뒤에는 본문을 더 붙이지 마라 — 붙이면 카드가 다시 중간에 낀다. **특히 "검수 카드로 보냈습니다" · "작업 신고 카드로 정리해 보냈습니다" 같은 발송 사실 보고를 쓰지 마라** — 카드는 이미 화면에 떠 있어 그 한 줄은 아무것도 더 알려주지 않으면서 카드마다 똑같이 반복된다. 덧붙일 맥락이 없으면 **아무 말도 하지 말고 그대로 끝내라.** 작업 도중에 미리 보내면 사용자는 카드를 보고 **끝난 줄 안다**(실패해도 무시하고 자연어 보고는 그대로 진행):`;
+
+/**
  * §5.5 #17-12 (v3.83) — "의도 먼저" 지시문 (시스템 프롬프트 꼬리표, 동적 값 없음).
  *
  * 배경: 실행 초반에 에이전트가 **무엇을 하려는지** 화면에 없어 사용자가 중지 여부를 판단할 수 없었다
@@ -2027,7 +2622,7 @@ export function buildAgentReportRules(args: {
 - \`helpfulMemoryIds\`: 브리핑/주입으로 받은 기억 카드 중 실제로 작업에 도움이 된 카드의 id 목록(브리핑에 \`[card-xxxx]\` 로 표기됨). 도움된 것만, 없으면 생략. **"확인 필요"로 표시돼 온 카드가 지금 코드에도 맞았다면 여기에 넣어라** — 시스템이 그 카드를 다시 유효로 되돌린다.
 - \`staleMemoryIds\`: 브리핑으로 받은 카드 중 **지금 코드와 어긋나 낡은 것**의 id 목록. 확실히 틀린 것만(애매하면 넣지 마라). 시스템이 그 카드를 "확인 필요"로 표시하고 반복 신고되면 자동 보관한다 — 삭제되지 않으니 안심하고 신고해도 된다. 없으면 생략.
 
-\`userActions\` 가 있는 완료 보고 직전에만 Bash 로 1회 호출한다(실패해도 무시하고 자연어 보고는 그대로 진행):
+**그 일을 다 끝낸 뒤**, \`userActions\` 가 있는 완료 보고에서만 — ${CARD_PUBLISH_ORDER_RULE}
 \`\`\`bash
 ${prelude}curl -s -X POST "${base}/api/agent-report" \\
   ${tokenHdr} \\
@@ -2075,7 +2670,7 @@ export function buildAgentQuestionRules(args: {
   - \`header\`: 질문 요지 한 줄(선택).
   - \`prompts\`: 사용자가 그대로 보내면 되는 **제안 응답 프롬프트** 목록(0~N). 사용자가 고를 만한 답을 그가 1인칭으로 말하듯 적어라(예: "네, A1 계측 → 1차(A1+B1) → 측정 후 판단 순으로 0차부터 착수해 주세요."). 선택지가 갈리면 여러 개 넣어라.
 
-질문이 있는 보고 직전에만 Bash 로 1회 호출한다(실패해도 무시하고 자연어 보고는 그대로 진행):
+**지금 할 수 있는 일을 끝낸 뒤**, 질문이 있는 보고에서만 — ${CARD_PUBLISH_ORDER_RULE}
 \`\`\`bash
 ${prelude}curl -s -X POST "${base}/api/agent-questions" \\
   ${tokenHdr} \\
@@ -2102,6 +2697,24 @@ export const STREAM_DENSITIES: readonly StreamDensity[] = ['compact', 'standard'
 
 /** Edit 계열 diff 를 자동으로 펼쳐 두는 변경 줄 수 상한(초과하면 접힌 채 "+N줄"). */
 export const STREAM_DIFF_AUTO_EXPAND_MAX_LINES = 20;
+
+// ─── §5.5 #17-28 "간결" 밀도 = 핵심만 남기는 밀도 (v4.75) ───
+// 종전 간결은 표준과 같은 분기를 타서 사실상 차이가 없었다. 아래 상수들이 "얼마나 남길지"를 정한다.
+
+/** 간결에서 AI 본문(text)을 자르는 줄 수 — 초과분은 [더 보기]. 화면의 마지막 본문은 예외(자르지 않음). */
+export const STREAM_COMPACT_TEXT_CLAMP_LINES = 4;
+
+/**
+ * 간결에서 AI 본문을 자르는 글자 수 — 줄 수와 **둘 다** 본다.
+ * 마크다운 문단은 줄바꿈 없이 한 줄로 길게 오는 일이 잦아, 줄 수만 보면 클램프가 통째로 헛돈다.
+ */
+export const STREAM_COMPACT_TEXT_CLAMP_CHARS = 420;
+
+/** 간결에서 번호 목록 카드가 보여주는 항목 수 — 나머지는 `+N` 한 줄. */
+export const STREAM_COMPACT_LIST_PREVIEW = 3;
+
+/** 간결에서 접힌 카드/본문 요약 한 줄의 최대 글자 수(넘으면 말줄임). */
+export const STREAM_COMPACT_SUMMARY_CHARS = 90;
 
 /**
  * §4 v2.70 — 커스텀/스폰 에이전트에게 주입할 "검수 요청" 지시문 (시스템 프롬프트 꼬리표).
@@ -2137,7 +2750,7 @@ export function buildAgentReviewRules(args: {
 - \`changes\`: 무슨 동작을 어떻게 고쳤는지 (1~N). **이게 비면 검수 요청 자체를 보내지 마라.**
 - \`checkpoints\`: 사용자가 확인할 검수 포인트·방법 (0~N, 예: "그 버튼을 다시 눌러 정상 동작 확인").
 
-**단순 완료·일상 대화·질문 답변·조사 보고에서는 호출하지 마라.** 사용자가 지시→완료→검수가 필요한 흐름일 때만 보낸다. 검수 요청이 있는 완료 보고 직전에만 Bash 로 1회 호출한다(실패해도 무시하고 자연어 보고는 그대로 진행):
+**단순 완료·일상 대화·질문 답변·조사 보고에서는 호출하지 마라.** 사용자가 지시→완료→검수가 필요한 흐름일 때만 보낸다. **고칠 것을 다 고친 뒤**, 검수 요청이 있는 완료 보고에서만 — ${CARD_PUBLISH_ORDER_RULE}
 \`\`\`bash
 ${prelude}curl -s -X POST "${base}/api/agent-review" \\
   ${tokenHdr} \\
@@ -2184,7 +2797,7 @@ export function buildAgentListRules(args: {
 - \`items\`: 목록 항목들 (2개 이상). **번호는 IDE 가 매기니 항목 텍스트만** 넣어라("1." 같은 번호를 직접 붙이지 마라). **비거나 1개면 보내지 마라.**
 - \`note\`: 맥락 한 줄 (선택).
 
-번호 목록이 있는 보고 직전에만 Bash 로 1회 호출한다(실패해도 무시하고 자연어 보고는 그대로 진행):
+**그 목록이 확정된 뒤**(= 더 조사·수정할 게 남지 않았을 때), 번호 목록이 있는 보고에서만 — ${CARD_PUBLISH_ORDER_RULE}
 \`\`\`bash
 ${prelude}curl -s -X POST "${base}/api/agent-list" \\
   ${tokenHdr} \\
@@ -2243,6 +2856,79 @@ JSON
 - 토큰 헤더(\`x-vibisual-hook-token\`)가 없으면 401 이다. 위 예시에 이미 포함돼 있다.`;
 }
 
+// ─── §5.14 v4.62 — 플레이 버블 (이 프로젝트를 켜는 버튼) ───
+
+/** 플레이 버튼 버블 기본 크기. 캔버스에서 한 손에 잡히는 작은 판. */
+export const PLAY_BUBBLE_DEFAULT_WIDTH = 156;
+export const PLAY_BUBBLE_DEFAULT_HEIGHT = 100;
+
+/** 프리뷰(iframe) 버블 기본 크기. */
+export const PLAY_PREVIEW_DEFAULT_WIDTH = 520;
+export const PLAY_PREVIEW_DEFAULT_HEIGHT = 340;
+
+/** 프리뷰가 처음 뜰 때 버튼과 벌리는 간격(px) — "버튼 주변에" 뜬다는 규칙의 수치. */
+export const PLAY_PREVIEW_GAP = 32;
+
+/** start 후 서버가 응답하기를 기다리는 최대 시간. 넘기면 `failed` + 사유 표시. */
+export const PLAY_START_TIMEOUT_MS = 40_000;
+
+/** 기동 대기 중 포트/URL 을 확인하는 간격. */
+export const PLAY_PROBE_INTERVAL_MS = 500;
+
+/** running 버블의 생사를 확인하는 스윕 간격(§7.11 checkIframesAlive 와 같은 주기). */
+export const PLAY_ALIVE_SWEEP_MS = 5_000;
+
+/** 정적 서빙(kind='static') 후보로 볼 index 파일 이름. 앞에서부터 먼저 찾는다. */
+export const PLAY_STATIC_INDEX_FILES: readonly string[] = ['index.html', 'index.htm'];
+
+/** 정적 서빙 루트 후보 폴더(프로젝트 루트 기준). 빈 문자열 = 루트 자신. */
+export const PLAY_STATIC_ROOT_DIRS: readonly string[] = ['', 'public', 'dist', 'build', 'docs', 'src', 'web', 'www'];
+
+/**
+ * §5.14 4단 계단 ④ — 실행법을 끝내 못 찾았을 때 에이전트에게 보내는 명령.
+ *
+ * **새 통신 레이어를 만들지 않는다** — 기존 명령 큐로 보내고, 답은 `/api/agent-iframe` 과 같은
+ * loopback + 토큰 경로(`POST /api/play-recipe`)로 받는다. 핵심 제약은 하나다: **서버를 띄우지 마라.**
+ * 켜는 것은 사용자가 버튼을 누를 때의 일이고, 에이전트가 할 일은 "어떻게 켜는가"를 알아내 등록하는 것뿐이다.
+ */
+export function buildPlayRecipeAskPrompt(args: {
+  serverBase: string;
+  serverToken: string;
+  bubbleId: string;
+  projectPath: string;
+  identityFile?: string;
+}): string {
+  const { serverBase, serverToken, bubbleId, projectPath, identityFile } = args;
+  const prelude = buildDynamicEndpointPrelude(identityFile, serverBase, serverToken);
+  const base = prelude ? '$VIBI_BASE' : serverBase;
+  const tokenHdr = prelude ? `-H "x-vibisual-hook-token: $VIBI_TOKEN"` : `-H 'x-vibisual-hook-token: ${serverToken}'`;
+  return `이 프로젝트(\`${projectPath}\`)를 **어떻게 실행하는지**만 알아내서 아래 엔드포인트로 등록해 주세요.
+
+**서버를 띄우지 마세요.** 실행은 사용자가 캔버스의 플레이 버튼을 누를 때 Vibisual 이 합니다. 당신이 할 일은 조사와 등록뿐입니다.
+
+1. \`package.json\` 의 scripts, vite/next/astro 설정, python(app.py·main.py·manage.py), go/cargo, 또는 그냥 열면 되는 \`index.html\` 이 있는지 확인하세요.
+2. 사용자가 "플레이"를 눌렀을 때 열려야 할 **한 가지**를 고르세요(여러 개면 사용자가 눈으로 볼 화면 쪽).
+3. 아래 curl 을 **1회** 실행해 등록하세요.
+
+- \`kind\`: 명령 없이 정적 파일만 열면 되면 \`"static"\`, 셸 명령이 필요하면 \`"command"\`.
+- \`command\`: (\`kind="command"\`) 실제 기동 명령. 포트를 인자로 받으면 \`{port}\` 토큰을 써도 됩니다.
+- \`cwd\`: 명령을 실행할 절대 경로(대개 프로젝트 루트).
+- \`root\`: (\`kind="static"\`) 서빙할 폴더의 절대 경로.
+- \`port\`: 알고 있으면 숫자로. 모르면 생략.
+- \`openPath\`: 열 경로(예: \`/index.html\`). 루트면 생략.
+- \`label\`: 사람이 읽을 한 줄(예: \`pnpm dev (vite)\`).
+
+\`\`\`bash
+${prelude}curl -s -X POST "${base}/api/play-recipe" \\
+  ${tokenHdr} \\
+  -H 'Content-Type: application/json' --data-binary @- <<'JSON'
+{"bubbleId":"${bubbleId}","kind":"command","command":"pnpm dev","cwd":"${projectPath.replace(/\\/g, '/')}","port":5173,"openPath":"/","label":"pnpm dev"}
+JSON
+\`\`\`
+
+등록이 끝나면 한 줄로만 알려 주세요("실행법을 등록했습니다: <label>"). 서버 기동·빌드·설치는 하지 마세요.`;
+}
+
 // ─── §4 v3.21 — 에이전트 피드백 학습 루프 (좋아요/싫어요 → 규칙 되먹임) ───
 
 /** agentId 당 보관하는 피드백 최대 개수 (ring buffer 캡, 초과 시 오래된 것부터 제거). */
@@ -2273,6 +2959,116 @@ export const SESSION_LOOP_MAX_INTERVAL_MS = 60 * 60 * 1000;
 
 /** 반복 명령 본문 최대 길이 (체크포인트 비대 방지). */
 export const SESSION_LOOP_COMMAND_MAX = 8000;
+
+/**
+ * §5.5 #17-11 ⑪ — `contextMode='compact'` 루프가 회차 사이에 보내는 압축 명령 본문.
+ * CLI 내장 슬래시 명령(§5.5 #17-2)이라 사용자가 입력창에 직접 치는 것과 같은 길을 탄다.
+ */
+export const SESSION_LOOP_COMPACT_COMMAND = '/compact';
+
+/** §5.5 #17-11 ⑫(b) — `contextMode='clear'` 루프가 회차 사이에 보내는 초기화 명령 본문. */
+export const SESSION_LOOP_CLEAR_COMMAND = '/clear';
+
+/** §5.5 #17-11 ⑫(c)(f) — 진행 파일·명령 파일 경로 입력 길이 상한(경로 한 줄). */
+export const SESSION_LOOP_PATH_MAX = 260;
+
+/** §5.5 #17-11 ⑫(a) — 누적 비용 상한(USD)의 상한. 이보다 큰 값은 사실상 무제한과 같다. */
+export const SESSION_LOOP_MAX_COST_USD_LIMIT = 10_000;
+
+/** §5.5 #17-11 ⑫(a) — 벽시계 상한의 상한(ms) — 7일. */
+export const SESSION_LOOP_MAX_DURATION_LIMIT_MS = 7 * 24 * 60 * 60 * 1000;
+
+// ─── §5.5 #17-17 v4.46 — 세션 목표(Goal) ───
+
+/** 목표 본문 최대 길이 (체크포인트·프롬프트 비대 방지). */
+export const SESSION_GOAL_TEXT_MAX = 2000;
+
+/** 진행 신고 한 줄 근거의 최대 길이. */
+export const SESSION_GOAL_NOTE_MAX = 200;
+
+/** 진행 이력 ring buffer 크기 — 넘치면 오래된 것부터 버린다. */
+export const SESSION_GOAL_HISTORY_MAX = 40;
+
+/** §5.5 #17-17 v4.47 — 목표 단계(체크리스트) 최대 개수. 넘는 항목은 잘린다. */
+export const SESSION_GOAL_STEPS_MAX = 30;
+
+/** 단계 본문 최대 길이 — 사이드바 한 줄에 들어갈 정도로 짧게 쓰게 한다. */
+export const SESSION_GOAL_STEP_TEXT_MAX = 200;
+
+/**
+ * §5.5 #17-17 v4.46 — 목표를 향해 달리게 하는 주입 블록 + 진행률 신고 지시문.
+ *
+ * `processNextCommand` 가 **매 턴** 다시 조립하므로, 사용자가 작업 도중 목표를 고쳐도
+ * 다음 턴부터 새 문장이 들어간다(재스폰·재시작 불필요 = "수시로 바꿔도 상관없다").
+ * 커스텀/스폰 에이전트에만 주입된다(훅 에이전트는 우리가 spawn 하지 않아 경로 자체가 없다).
+ * 목표가 없거나 `status !== 'active'` 면 호출자가 아예 붙이지 않는다.
+ */
+export function buildSessionGoalRules(args: {
+  serverBase: string;
+  serverToken: string;
+  agentId: string;
+  subAgentId: string;
+  /** 최종 목표 한 문장. */
+  goalText: string;
+  /** 지금까지의 진행률 (0~100). 단계가 있으면 `done/전체` 파생값이다. */
+  percent: number;
+  /** §5.5 #17-17 v4.47 — 단계 체크리스트(있으면 그대로 보여주고, 이걸 갱신하게 시킨다). */
+  steps?: { text: string; status: SessionGoalStepStatus }[];
+  /** §5.5 #17-17 v4.50 — 목표 문장의 주인. `user` 면 에이전트가 문장을 건드리지 않게 못 박는다. */
+  authoredBy?: 'session' | 'user';
+  /** 마지막 진행 신고의 한 줄 근거 (있으면 "직전에 어디까지 왔는지"를 모델이 이어받는다). */
+  note?: string;
+  /** 목표 문장이 바뀐 횟수 — 바뀌었다는 사실 자체가 모델에게 신호다. */
+  revision: number;
+  /** v2.71 — 있으면 curl 이 호출 시점에 이 파일에서 live 포트·토큰을 읽는다. */
+  identityFile?: string;
+}): string {
+  const { serverBase, serverToken, agentId, subAgentId, goalText, percent, steps, authoredBy, note, revision, identityFile } = args;
+  const prelude = buildDynamicEndpointPrelude(identityFile, serverBase, serverToken);
+  const base = prelude ? '$VIBI_BASE' : serverBase;
+  const tokenHdr = prelude ? `-H "x-vibisual-hook-token: $VIBI_TOKEN"` : `-H 'x-vibisual-hook-token: ${serverToken}'`;
+  const revLine = revision > 0
+    ? `\n(이 목표는 지금까지 ${revision}번 수정됐다 — **위에 적힌 지금 문장만이 유효**하다. 예전 판본은 잊어라.)`
+    : '';
+  const noteLine = note ? `\n직전 진행 메모: ${note}` : '';
+  const mark: Record<SessionGoalStepStatus, string> = { done: '[x]', in_progress: '[~]', pending: '[ ]' };
+  const stepsBlock = steps && steps.length > 0
+    ? `\n\n**지금 목록** (퍼센트는 여기서 나온다 — 끝낸 것만 \`done\`):\n${steps.map((s) => `- ${mark[s.status]} ${s.text}`).join('\n')}`
+    : `\n\n**아직 목록이 없다 — 이 턴에 목록부터 세워라.** \`TodoWrite\` 가 도구 목록에 있으면 그것으로 계획을 세우면 되고(그게 곧 이 목록이 된다, 따로 신고 ❌), **없으면 아래 신고의 \`steps\` 로 직접 세워라.** 목록이 비어 있는 동안 사용자는 네가 무엇을 하려는지 화면에서 볼 수 없다.`;
+  const authorLine = authoredBy === 'user'
+    ? '\n(이 목표 문장은 **사용자가 직접 고친 것**이다 — 바꾸지 말고 그대로 따르라.)'
+    : '';
+  return `
+
+# 이 세션의 목표 (Vibisual IDE 목표 창 — 네가 쓰는 진행 목록)
+**목표**: ${goalText}${authorLine}${revLine}
+**현재 진행률**: ${percent}%${noteLine}${stepsBlock}
+
+이 목표 창은 **네가 지금 무엇을 향해 가는지**를 사용자에게 보여주는 자리다. 사용자가 채워 주는 칸이 아니라 **네가 쓰는 칸**이다 — 사용자는 이걸 보고 "이 세션이 이 일을 하고 있고, 여기까지 왔고, 다 되면 끝나는구나"를 파악한다.
+
+**규칙은 두 줄이다: ① 지금 할 일을 이 목록에 넣는다. ② 하나 끝낼 때마다 그 항목을 \`done\` 으로 옮긴다**(화면에서 그 줄에 취소선이 그어지고 퍼센트가 오른다). 목록이 비어 있으면 사용자 화면에는 아무것도 안 뜬다 — 그건 이 세션이 무엇을 하는지 말하지 않는 것과 같다.
+
+- **목록을 채우고 갱신하는 것은 네 일이다 — 비워 두지 마라.** \`TodoWrite\` 로 계획을 세우거나 갱신하면 그것이 그대로 이 체크리스트가 되고, 끝낸 항목을 \`completed\` 로 옮기는 순간 퍼센트가 오른다(별도 신고 ❌). **그 도구가 네 도구 목록에 없으면 아래 신고의 \`steps\` 로 같은 일을 하라** — 수단이 무엇이든 화면의 목록은 항상 지금 상태여야 한다.
+- **사용자가 방금 보낸 명령이 목표보다 우선이다.** 목표는 방향이고 명령은 지금 할 일이다 — 둘이 어긋나면 명령을 따르고, 목표 쪽을 아래 신고로 고쳐 맞춰라.
+- 위 목표 문장이 지금 하는 일과 다르면 **네가 고쳐라**(아래 \`goal\`). 사용자가 직접 고친 문장이라고 표시돼 있으면 건드리지 마라.
+
+${steps && steps.length > 0
+    ? `**목표·진행 신고** — 단계를 하나 끝냈거나(→ \`done\`), 목록 자체가 바뀌었거나, 목표 문장을 다듬을 때 Bash 로 1회 호출한다(실패해도 무시하고 보고는 그대로 진행):`
+    : `**목표·진행 신고 — 이번 턴에 목록부터 세워라.** \`TodoWrite\` 를 쓸 수 있으면 그것으로 충분하고(자동 반영), 없으면 아래 호출의 \`steps\` 로 지금 할 일을 넣어라. 이후 하나 끝낼 때마다 같은 호출로 그 항목을 \`done\` 으로 옮긴다:`}
+\`\`\`bash
+${prelude}curl -s -X POST "${base}/api/session-goal/${agentId}/${subAgentId}/progress" \\
+  ${tokenHdr} \\
+  -H 'Content-Type: application/json' --data-binary @- <<'JSON'
+{"goal":"로그인 화면을 테스트까지 붙여 끝낸다","steps":[{"text":"스키마 정의","status":"done"},{"text":"서버 배선","status":"in_progress"}],"note":"스키마 끝, 서버 배선 중"}
+JSON
+\`\`\`
+- \`goal\`: 이 세션이 향하는 목표 한 문장(네가 정한다). 안 보내면 그대로 유지된다.
+- \`steps\`: **목록 전체**를 통째로. 본문이 같은 단계는 화면에서 같은 항목으로 이어지니 본문은 되도록 그대로 두고 \`status\` 만 옮겨라. \`done\` 개수가 곧 퍼센트다 — **실제로 끝난 것만** \`done\` 으로.
+- \`note\`: 지금 상황 한 줄. \`percent\`: 단계로 표현할 수 없을 때만 쓰는 대안(0~100, \`steps\` 를 보내면 무시).
+- **바뀐 게 없으면 보내지 마라.** 마지막 단계까지 끝나면 100% 가 되고, 목표를 닫는 것은 사용자가 한다.
+- 이 신고는 **표시 전용** — 실제 작업/판정 로직과 무관하다.
+- 토큰 헤더(\`x-vibisual-hook-token\`)가 없으면 401 이다. 위 예시에 이미 포함돼 있다.`;
+}
 
 /**
  * §4 v3.21 — 스폰 프롬프트 주입용 피드백 다이제스트 블록 생성.
@@ -2370,7 +3166,13 @@ echo '${S}{"kind":"iframe","url":"http://127.0.0.1:8777/index.html"}'
 - 서버가 실제로 응답하는 걸 확인한 뒤 보내라(살아있는 서버만 버블이 뜬다). 같은 URL 재신고해도 중복 버블은 안 생긴다.
 
 공통: **단순 완료·일상 대화·조사 답변 등 사용자 손이 필요 없는 보고에선 인쇄하지 마라.** 이 신고는 표시 전용이라
-보내든 안 보내든 실제 작업 결과엔 영향이 없다. 카드에 담은 목록을 자연어 본문에 헤딩·목록으로 다시 풀어 쓰지 마라.`;
+보내든 안 보내든 실제 작업 결과엔 영향이 없다. 카드에 담은 목록을 자연어 본문에 헤딩·목록으로 다시 풀어 쓰지 마라.
+**인쇄 순서 — 자연어 설명(짧은 결론·근거)을 먼저 쓴 다음**, 그 보고의 **맨 마지막 동작**으로 1회 인쇄한다. 카드는
+**신고된 그 시각의 자리**에 앉으므로 설명보다 먼저 인쇄하면 **카드가 위, 그 카드를 설명하는 내용이 아래**로 뒤집힌다
+(읽는 순서는 늘 맥락 → 카드). 인쇄한 뒤에는 본문을 더 붙이지 마라 — 붙이면 카드가 다시 중간에 낀다.
+**특히 "검수 카드로 보냈습니다" · "작업 신고 카드로 정리해 보냈습니다" 같은 발송 사실 보고를 쓰지 마라**(§5.5 #17-18 ⑦-5) —
+카드는 이미 화면에 떠 있어 그 한 줄은 아무것도 더 알려주지 않으면서 카드마다 똑같이 반복된다. 덧붙일 맥락이 없으면
+**아무 말도 하지 말고 그대로 끝내라.**`;
 }
 
 /**
@@ -3030,6 +3832,9 @@ export const PLUGIN_SUPPORTED_CONTRIBUTIONS: readonly PluginContributionKind[] =
   // v4.01 — 헤더 기여 개통. 버블·패널과 달리 **동작**을 가질 수 있는 유일한 슬롯이며,
   // 그 동작도 호스트가 이름 붙여 연 것(`PluginActions`)만 쓸 수 있다.
   'headerItem',
+  // v4.57 — 집행 슬롯 개통. 위 4종이 "보여 주는" 자리라면 이것은 **에이전트가 실제로 그렇게 일하게 하는**
+  // 자리다(매 턴 프롬프트 블록). 사용자 지시 — "켜면 화면 한 칸 느는 게 전부면 만든 게 아니다".
+  'agentPrompt',
 ];
 
 /** 플러그인 id 규약 — kebab-case. 네임스페이스 4종(REST·WS·버블타입·설정키)의 공통 키. */
@@ -3037,3 +3842,476 @@ export const PLUGIN_ID_PATTERN = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
 
 /** 플러그인 REST 기여의 유일한 마운트 지점 — `/api/plugins/<id>/*` 밖으로 나갈 수 없다. */
 export const PLUGIN_API_PREFIX = '/api/plugins';
+
+/**
+ * §5.13 (P) v4.49 — 내부 앱 REST 네임스페이스.
+ *
+ * 앱의 모든 경로는 `/api/app/<앱id>/…` 아래로 들어간다(플러그인의 `/api/plugins/<id>/…`
+ * 와 같은 규약). 그래야 코어가 앱 이름을 모른 채로도 "앱 경로인가"를 한 줄로 판정할 수
+ * 있다 — loopback 화이트리스트에 앱 이름이 박히던 것이 이 규칙이 없어서 생긴 일이다.
+ */
+export const APP_API_PREFIX = '/api/app';
+
+// ─── §5.5 #17-20 v4.74 디버그·실행 런처 ────────────────────────────────────
+
+/** 한 프로젝트에서 목록에 올릴 실행 구성 상한(스캔 폭주 가드). */
+export const RUN_CONFIG_MAX = 60;
+
+/** 실패한 실행을 에이전트에게 넘길 때 함께 보낼 스크롤백 꼬리 줄 수. */
+export const RUN_FAILURE_TAIL_LINES = 80;
+
+/** 출력 패널이 보여 줄 수 있는 최대 줄 수(이보다 오래된 줄은 앞에서 버린다). */
+export const RUN_OUTPUT_BUFFER_LINES = 2000;
+
+/** 출력이 쏟아질 때 화면 갱신 간격(ms) — 바이트마다 리렌더하지 않기 위한 목. */
+export const RUN_OUTPUT_FLUSH_MS = 150;
+
+/** 디버거가 붙을 포트를 고르기 시작하는 자리. 쓰는 중이면 하나씩 올린다. */
+export const DEBUG_PORT_BASE = 9229;
+
+/** `DEBUG_PORT_BASE` 부터 이 개수까지만 훑는다(무한 탐색 방지). */
+export const DEBUG_PORT_SCAN_MAX = 40;
+
+/**
+ * §5.5 #17-20 ③ — 런타임별 "평범한 실행 → 디버거가 붙을 수 있는 실행" 변환 규칙.
+ *
+ * `match` 로 명령을 알아보고 `apply` 가 같은 명령에 디버그 인자를 얹는다. 하드코딩된 분기 대신
+ * 표로 두는 이유는 §3.3(설정과 로직 분리) — 런타임을 하나 더 지원하려면 여기 한 줄이면 된다.
+ */
+export interface DebugLaunchRecipe {
+  runtime: RunRuntime;
+  /** 명령 문자열을 보고 이 런타임인지 판정. */
+  match: (command: string) => boolean;
+  /**
+   * 디버그로 켜는 방법. 얹을 수 없으면 null(그대로 실행하고 화면에 그 사실을 적는다).
+   *
+   * 셸 문법(`set X=… &&` 대 `X=… cmd`)으로 갈리지 않도록 **환경변수는 `env` 로 돌려준다** —
+   * 이 값은 PTY spawn 의 env 에 실리므로 Windows·POSIX 어느 쪽에서도 같은 코드가 통한다.
+   * (shared 는 브라우저에서도 로드되므로 `process.platform` 을 읽어서는 안 된다.)
+   */
+  apply: (command: string, port: number) => { command?: string; env?: Record<string, string> } | null;
+  /** 화면에 뜨는 설명 i18n 키. */
+  noteKey: string;
+}
+
+/** 첫 토큰(실행 파일) 바로 뒤에 인자를 끼워 넣는다 — `node app.js` → `node --inspect app.js`. */
+function insertAfterFirstToken(command: string, injected: string): string {
+  const trimmed = command.trimStart();
+  const lead = command.slice(0, command.length - trimmed.length);
+  const spaceAt = trimmed.search(/\s/);
+  if (spaceAt < 0) return `${lead}${trimmed} ${injected}`;
+  return `${lead}${trimmed.slice(0, spaceAt)} ${injected}${trimmed.slice(spaceAt)}`;
+}
+
+export const DEBUG_LAUNCH_RECIPES: readonly DebugLaunchRecipe[] = [
+  {
+    runtime: 'node',
+    // `node x.js` 는 물론 npm/pnpm/yarn 스크립트도 포함 — 후자는 NODE_OPTIONS 로 자식까지 닿는다.
+    match: (c) => /\b(node|npm|pnpm|yarn|bun|npx|tsx|vite|next|nest)\b/i.test(c),
+    apply: (c, port) => {
+      if (/^\s*node\b/i.test(c)) return { command: insertAfterFirstToken(c, `--inspect-brk=${port}`) };
+      // 패키지 매니저 경유는 실행 파일이 우리 손에 없으므로 환경변수로 자식 node 에 건다.
+      return { env: { NODE_OPTIONS: `--inspect-brk=${port}` } };
+    },
+    noteKey: 'ide.debug.note.node',
+  },
+  {
+    runtime: 'python',
+    match: (c) => /\b(python|python3|py|uvicorn|flask|manage\.py)\b/i.test(c),
+    apply: (c, port) => {
+      if (!/^\s*(python3?|py)\b/i.test(c)) return null;
+      return { command: insertAfterFirstToken(c, `-m debugpy --listen ${port} --wait-for-client`) };
+    },
+    noteKey: 'ide.debug.note.python',
+  },
+  {
+    runtime: 'go',
+    match: (c) => /\bgo\s+(run|test|build)\b/i.test(c),
+    apply: (c, port) => {
+      const target = c.replace(/^\s*go\s+(run|test|build)\s*/i, '').trim();
+      return { command: `dlv debug --headless --listen=:${port} --api-version=2 ${target}`.trim() };
+    },
+    noteKey: 'ide.debug.note.go',
+  },
+  {
+    runtime: 'rust',
+    match: (c) => /\bcargo\s+(run|test)\b/i.test(c),
+    // rust 는 실행 파일을 먼저 만들어야 디버거가 붙는다 — 명령 변환으로는 못 하므로 위임한다.
+    apply: () => null,
+    noteKey: 'ide.debug.note.rust',
+  },
+  {
+    runtime: 'dotnet',
+    match: (c) => /\bdotnet\b/i.test(c),
+    apply: () => null,
+    noteKey: 'ide.debug.note.dotnet',
+  },
+  {
+    runtime: 'java',
+    match: (c) => /\b(java|gradlew?|mvn)\b/i.test(c),
+    apply: (c, port) => {
+      if (!/^\s*java\b/i.test(c)) return null;
+      return { command: insertAfterFirstToken(c, `-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=${port}`) };
+    },
+    noteKey: 'ide.debug.note.java',
+  },
+  {
+    runtime: 'unreal',
+    match: (c) => /(UnrealEditor|UE4Editor|\.uproject|UnrealBuildTool|Build\.bat|RunUAT)/i.test(c),
+    /**
+     * 언리얼 C++ 를 멈춰 세우는 `cppvsdbg` 는 재배포할 수 없다(⑦). 그래서 우리가 하는 일은
+     * **에디터를 디버거가 붙을 수 있는 상태로 띄우는 것**까지다:
+     *
+     *   - `-WaitForDebugger` — 디버거가 붙을 때까지 엔진이 초기화 직전에 멈춰 선다. 이것이
+     *     있어야 "붙이기" 를 누를 시간이 생기고, 시작 코드에 건 중단점도 놓치지 않는다.
+     *   - `-stdout -FullStdOutLogOutput` — 로그가 별창이 아니라 **우리 출력 패널**로 흐른다.
+     *
+     * 붙이는 일 자체는 서버가 실행 중인 에디터 pid 를 찾아 JIT 디버거에 넘긴다.
+     * (포트를 쓰지 않는 유일한 런타임이라 `port` 를 받지 않는다 — 네이티브는 pid 로 붙는다.)
+     */
+    apply: (c) => {
+      const flags = ['-WaitForDebugger', '-stdout', '-FullStdOutLogOutput', '-log'];
+      const missing = flags.filter((f) => !new RegExp(`\\s${f}\\b`, 'i').test(c));
+      return { command: missing.length > 0 ? `${c} ${missing.join(' ')}` : c };
+    },
+    noteKey: 'ide.debug.note.unreal',
+  },
+];
+
+/** 명령을 보고 런타임을 고른다. 표에 없으면 'other'. */
+export function detectRunRuntime(command: string): RunRuntime {
+  for (const recipe of DEBUG_LAUNCH_RECIPES) {
+    if (recipe.match(command)) return recipe.runtime;
+  }
+  return 'other';
+}
+
+/**
+ * §5.5 #17-20 ③ — 실행 구성 + 포트 → 디버그 명령.
+ *
+ * `config.debugCommand` 가 있으면 그것이 최우선(사용자·launch.json 이 직접 쓴 것). 변환할 수
+ * 없으면 `{ command: 원본, note: 'unsupported' }` 를 돌려주고 **화면이 그 사실을 그대로 적는다** —
+ * 조용히 평범하게 실행해 놓고 디버그인 척하지 않는다.
+ */
+export function buildDebugCommand(
+  config: Pick<RunConfig, 'command' | 'debugCommand' | 'runtime'>,
+  port: number,
+): { command: string; env?: Record<string, string>; noteKey: string | null; applied: boolean } {
+  const explicit = config.debugCommand?.trim();
+  if (explicit) return { command: explicit, noteKey: null, applied: true };
+  const recipe = DEBUG_LAUNCH_RECIPES.find((r) => r.runtime === config.runtime);
+  if (!recipe) return { command: config.command, noteKey: 'ide.debug.note.unsupported', applied: false };
+  const applied = recipe.apply(config.command, port);
+  if (!applied) return { command: config.command, noteKey: recipe.noteKey, applied: false };
+  return {
+    command: applied.command ?? config.command,
+    ...(applied.env ? { env: applied.env } : {}),
+    noteKey: recipe.noteKey,
+    applied: true,
+  };
+}
+
+// ─── §5.5 #17-20 ⑩ v4.94 — 공통 디버그 층: 런타임 → 실제로 붙는 법 ─────────────
+//
+// `DEBUG_LAUNCH_RECIPES`(③)가 "붙을 수 있게 띄우는" 표라면 이 표는 "붙는" 표다. 둘을 갈라 둔
+// 이유는 축이 다르기 때문이다 — 띄우는 것은 셸 명령이고, 붙는 것은 프로토콜이다.
+// **여기 한 줄을 더하면 그 런타임이 같은 화면(중단점·스텝·콜스택·변수)을 얻는다.**
+
+/** DAP 어댑터 인자의 자리 표시자 — 매니저가 실제로 고른 포트로 바꿔 넣는다. */
+export const DEBUG_ADAPTER_PORT_TOKEN = '{{adapterPort}}';
+
+/** TCP 어댑터를 띄울 때 포트를 고르기 시작하는 자리(디버기 포트대와 겹치지 않게 위쪽). */
+export const DEBUG_ADAPTER_PORT_BASE = 9430;
+
+/** 어댑터가 응답할 때까지 기다리는 한계(ms). 넘으면 "어댑터가 뜨지 않았다"고 그대로 적는다. */
+export const DEBUG_ADAPTER_READY_TIMEOUT_MS = 8_000;
+
+/** 요청 한 건(DAP/CDP 공통)의 응답 대기 한계(ms). */
+export const DEBUG_REQUEST_TIMEOUT_MS = 10_000;
+
+/**
+ * §5.5 #17-20 ⑩ — 런타임별 연결법.
+ *
+ * **상업적 사용이 가능한 것만 올린다.** Microsoft `vsdbg`·`cppvsdbg` 는 자사 IDE 전용이라
+ * 이 표에 들어오지 못하고 `delegated`(⑦ 외부 디버거로 넘김)로 남는다. 그 한 줄을 빼면
+ * 주요 런타임의 디버그 어댑터는 전부 permissive 라 우리 앱이 그대로 쓸 수 있다.
+ */
+export const DEBUG_ADAPTERS: readonly DebugAdapterSpec[] = [
+  {
+    // Node 는 런타임 자체가 인스펙터를 갖고 있다 — 설치할 것이 없고 라이선스 위험이 0.
+    runtime: 'node',
+    backend: 'cdp',
+    attach: 'port',
+    licence: 'Node.js (MIT)',
+    installKey: 'ide.debug.adapter.node',
+    docsUrl: 'https://nodejs.org/api/debugger.html',
+  },
+  {
+    runtime: 'python',
+    backend: 'dap',
+    adapter: { command: 'python', args: ['-m', 'debugpy.adapter'], transport: 'stdio' },
+    attach: 'port',
+    licence: 'debugpy (MIT)',
+    installKey: 'ide.debug.adapter.python',
+    docsUrl: 'https://github.com/microsoft/debugpy',
+  },
+  {
+    runtime: 'go',
+    backend: 'dap',
+    adapter: { command: 'dlv', args: ['dap', `--listen=127.0.0.1:${DEBUG_ADAPTER_PORT_TOKEN}`], transport: 'tcp' },
+    attach: 'port',
+    licence: 'Delve (MIT)',
+    installKey: 'ide.debug.adapter.go',
+    docsUrl: 'https://github.com/go-delve/delve',
+  },
+  {
+    // .NET 은 Microsoft `vsdbg` 가 막힌 것이지 .NET 디버깅이 막힌 게 아니다 — netcoredbg 는 MIT.
+    runtime: 'dotnet',
+    backend: 'dap',
+    adapter: { command: 'netcoredbg', args: ['--interpreter=vscode'], transport: 'stdio' },
+    attach: 'pid',
+    licence: 'netcoredbg (MIT)',
+    installKey: 'ide.debug.adapter.dotnet',
+    docsUrl: 'https://github.com/Samsung/netcoredbg',
+  },
+  {
+    runtime: 'rust',
+    backend: 'dap',
+    adapter: { command: 'codelldb', args: ['--port', DEBUG_ADAPTER_PORT_TOKEN], transport: 'tcp' },
+    attach: 'pid',
+    licence: 'CodeLLDB (MIT)',
+    installKey: 'ide.debug.adapter.rust',
+    docsUrl: 'https://github.com/vadimcn/codelldb',
+  },
+  {
+    // JDWP 로 멈춰 세우는 것까지는 ③ 이 하고, 그 포트에 붙는 어댑터는 사용자 것을 쓴다.
+    runtime: 'java',
+    backend: 'dap',
+    attach: 'port',
+    licence: 'java-debug (EPL-1.0)',
+    installKey: 'ide.debug.adapter.java',
+    docsUrl: 'https://github.com/microsoft/java-debug',
+  },
+  {
+    // 유일하게 라이선스로 막힌 자리 — 흉내 내지 않고 ⑦ 로 넘긴다.
+    runtime: 'unreal',
+    backend: 'delegated',
+    attach: 'pid',
+    licence: 'cppvsdbg (재배포 불가)',
+    installKey: 'ide.debug.adapter.unreal',
+    docsUrl: 'https://dev.epicgames.com/documentation/en-us/unreal-engine/debugging-unreal-engine',
+  },
+];
+
+/** 이 런타임을 어떻게 붙이는지. 표에 없으면 null(화면이 "붙는 법을 모른다"고 적는다). */
+export function findDebugAdapter(runtime: RunRuntime): DebugAdapterSpec | null {
+  return DEBUG_ADAPTERS.find((a) => a.runtime === runtime) ?? null;
+}
+
+// ─── §5.5 #17-20 ⑪ v4.94 — 출력 한 줄에서 문제를 뽑는 공통 매처 ────────────────
+//
+// 언리얼을 위한 표가 아니다. 같은 표에 node·tsc·eslint·python·go·rust·MSVC·gcc/clang·java 가
+// **각각 한 줄**로 들어 있고 언리얼도 그중 한 줄일 뿐이다. 어느 줄에도 안 걸리면 `null` 이고
+// 그 출력은 평문 그대로 남는다 — 모르는 것을 아는 척 칠하지 않는다.
+
+/** 매처 한 개. 캡처 그룹 번호로 무엇을 뽑을지 지정한다(정규식마다 그룹 순서가 다르므로). */
+export interface ProblemMatcher {
+  id: string;
+  pattern: RegExp;
+  /** 고정 심각도. `null` 이면 `groups.severity` 가 가리키는 캡처에서 읽는다. */
+  severity: ProblemSeverity | null;
+  groups: {
+    file?: number;
+    line?: number;
+    column?: number;
+    message?: number;
+    severity?: number;
+  };
+}
+
+/** 캡처한 단어 → 심각도. 모르는 말이면 error 로 올리지 않고 info 로 둔다. */
+function toSeverity(word: string | undefined): ProblemSeverity {
+  const w = (word ?? '').toLowerCase();
+  if (w.startsWith('fatal') || w.startsWith('error') || w.startsWith('err')) return 'error';
+  if (w.startsWith('warn')) return 'warning';
+  return 'info';
+}
+
+/**
+ * 위에서부터 첫 일치가 이긴다 — **구체적인 것을 먼저** 둔다.
+ * (예: `a.ts(3,5): error TS2304:` 는 tsc 와 MSVC 모양이 같으므로 tsc 가 위에 있어야 한다.)
+ */
+export const PROBLEM_MATCHERS: readonly ProblemMatcher[] = [
+  {
+    // TypeScript — `src/a.ts(3,5): error TS2304: Cannot find name 'x'.`
+    id: 'tsc',
+    pattern: /^\s*(.+?)\((\d+),(\d+)\):\s*(error|warning)\s+TS\d+:\s*(.+)$/,
+    severity: null,
+    groups: { file: 1, line: 2, column: 3, severity: 4, message: 5 },
+  },
+  {
+    // MSVC(언리얼 C++ 빌드 포함) — `Foo.cpp(12): error C2065: ...`
+    id: 'msvc',
+    pattern: /^\s*(.+?)\((\d+)(?:,\d+)?\)\s*:\s*(fatal error|error|warning)\s+([A-Z]+\d+\s*:\s*.+)$/,
+    severity: null,
+    groups: { file: 1, line: 2, severity: 3, message: 4 },
+  },
+  {
+    // gcc/clang — `src/a.c:12:5: error: expected ';'`
+    id: 'gcc-clang',
+    pattern: /^\s*(.+?):(\d+):(\d+):\s*(fatal error|error|warning|note):\s*(.+)$/,
+    severity: null,
+    groups: { file: 1, line: 2, column: 3, severity: 4, message: 5 },
+  },
+  {
+    // Go — `./main.go:10:2: undefined: foo` (심각도 단어가 없다)
+    id: 'go',
+    pattern: /^\s*(\S+\.go):(\d+):(\d+):\s*(.+)$/,
+    severity: 'error',
+    groups: { file: 1, line: 2, column: 3, message: 4 },
+  },
+  {
+    // Rust 진단 머리 — `error[E0425]: cannot find value` / `warning: unused variable`
+    id: 'rust-head',
+    pattern: /^(error|warning)(?:\[[A-Z]\d+\])?:\s*(.+)$/,
+    severity: null,
+    groups: { severity: 1, message: 2 },
+  },
+  {
+    // Rust 위치 줄 — `  --> src/main.rs:5:9`
+    id: 'rust-loc',
+    pattern: /^\s*-->\s+(.+?):(\d+):(\d+)\s*$/,
+    severity: 'info',
+    groups: { file: 1, line: 2, column: 3, message: 1 },
+  },
+  {
+    // ESLint stylish 본문 — `  3:5  error  'x' is not defined  no-undef` (파일은 위 줄에 있다)
+    id: 'eslint',
+    pattern: /^\s+(\d+):(\d+)\s+(error|warning)\s{2,}(.+?)\s{2,}\S+\s*$/,
+    severity: null,
+    groups: { line: 1, column: 2, severity: 3, message: 4 },
+  },
+  {
+    // Node 스택 프레임 — `    at foo (C:/p/a.js:12:5)` / `    at C:/p/a.js:12:5`
+    id: 'node-stack',
+    pattern: /^\s*at\s+(?:.*?\()?(.+?):(\d+):(\d+)\)?\s*$/,
+    severity: 'info',
+    groups: { file: 1, line: 2, column: 3, message: 1 },
+  },
+  {
+    // Python 트레이스백 프레임 — `  File "app.py", line 12, in <module>`
+    id: 'python-frame',
+    pattern: /^\s*File\s+"(.+?)",\s*line\s+(\d+)/,
+    severity: 'info',
+    groups: { file: 1, line: 2, message: 1 },
+  },
+  {
+    // Java 스택 프레임 — `\tat com.foo.Bar.run(Bar.java:42)`
+    id: 'java-frame',
+    pattern: /^\s*at\s+[\w.$]+\((\w+\.java):(\d+)\)\s*$/,
+    severity: 'info',
+    groups: { file: 1, line: 2, message: 1 },
+  },
+  {
+    // 언리얼 로그 — `[2026.08.06-12.00.00:000][ 0]LogTemp: Error: 메시지` / `LogTemp: Warning: 메시지`
+    id: 'unreal-log',
+    pattern: /^(?:\[[^\]]*\])*\s*([A-Za-z]\w*):\s*(Error|Warning|Fatal):\s*(.+)$/,
+    severity: null,
+    groups: { severity: 2, message: 3 },
+  },
+  {
+    // 예외 이름으로 끝나는 마지막 줄 — `TypeError: x is not a function`
+    id: 'exception',
+    pattern: /^\s*([A-Z]\w*(?:Error|Exception))(?::\s*(.+))?\s*$/,
+    severity: 'error',
+    groups: { message: 2 },
+  },
+  {
+    // 마지막 그물 — 어느 형식도 아니지만 심각도 단어가 분명한 줄.
+    id: 'bare-severity',
+    pattern: /(?:^|[\s[(])(FATAL|ERROR|WARN(?:ING)?)(?:[\s\]):]|$)/,
+    severity: null,
+    groups: { severity: 1 },
+  },
+];
+
+/**
+ * 출력 한 줄 → 문제 하나(없으면 null). **순수 함수** 라 클라·서버·테스트가 같은 답을 본다.
+ * 빈 줄과 아주 긴 줄은 보지 않는다(로그 폭주 시 정규식 비용이 곱해지는 것을 막는다).
+ */
+export function matchProblemLine(line: string): ProblemMatch | null {
+  if (!line || line.length > 2000) return null;
+  for (const matcher of PROBLEM_MATCHERS) {
+    const m = matcher.pattern.exec(line);
+    if (!m) continue;
+    const pick = (idx: number | undefined): string | undefined =>
+      idx === undefined ? undefined : m[idx];
+    const severity = matcher.severity ?? toSeverity(pick(matcher.groups.severity));
+    const lineNo = Number(pick(matcher.groups.line));
+    const colNo = Number(pick(matcher.groups.column));
+    const message = pick(matcher.groups.message)?.trim() ?? line.trim();
+    const file = pick(matcher.groups.file)?.trim();
+    return {
+      severity,
+      ...(file ? { file } : {}),
+      ...(Number.isFinite(lineNo) && lineNo > 0 ? { line: lineNo } : {}),
+      ...(Number.isFinite(colNo) && colNo > 0 ? { column: colNo } : {}),
+      message,
+      matcher: matcher.id,
+    };
+  }
+  return null;
+}
+
+/**
+ * §5.5 #17-20 ⑥ — 에이전트에 꽂아 줄 MCP 서버 프리셋.
+ *
+ * 전부 **남이 만든 것**이고 우리는 실행법만 안다. 여기 한 줄을 더하면 그 서버가 화면의
+ * 체크박스로 나타나고, 켜는 순간 `--mcp-config` 파일에 실려 스폰되는 세션이 그 도구를 갖는다.
+ */
+export const MCP_SERVER_PRESETS: readonly McpServerPreset[] = [
+  {
+    id: 'debugger',
+    labelKey: 'ide.debug.mcp.debugger',
+    name: '@debugmcp/mcp-debugger',
+    command: 'npx',
+    args: ['-y', '@debugmcp/mcp-debugger'],
+    category: 'debug',
+    docsUrl: 'https://github.com/debugmcp/mcp-debugger',
+  },
+  {
+    id: 'chrome-devtools',
+    labelKey: 'ide.debug.mcp.chromeDevtools',
+    name: 'chrome-devtools-mcp',
+    command: 'npx',
+    args: ['-y', 'chrome-devtools-mcp@latest'],
+    category: 'browser',
+    docsUrl: 'https://github.com/ChromeDevTools/chrome-devtools-mcp',
+    requiresKey: 'ide.debug.mcp.chromeDevtoolsRequires',
+  },
+  {
+    id: 'unreal',
+    labelKey: 'ide.debug.mcp.unreal',
+    name: 'mcp-unreal',
+    command: 'npx',
+    args: ['-y', 'mcp-unreal'],
+    category: 'engine',
+    docsUrl: 'https://github.com/remiphilippe/mcp-unreal',
+    requiresKey: 'ide.debug.mcp.unrealRequires',
+  },
+  {
+    id: 'lldb',
+    labelKey: 'ide.debug.mcp.lldb',
+    name: 'lldb (MCP)',
+    command: 'lldb',
+    args: ['--mcp'],
+    category: 'native',
+    docsUrl: 'https://lldb.llvm.org/use/mcp.html',
+    requiresKey: 'ide.debug.mcp.lldbRequires',
+  },
+];
+
+/** id → 프리셋. 알 수 없는 id 는 무시(설정에 남은 옛 id 가 스폰을 깨뜨리지 않게). */
+export function findMcpPreset(id: string): McpServerPreset | undefined {
+  return MCP_SERVER_PRESETS.find((p) => p.id === id);
+}

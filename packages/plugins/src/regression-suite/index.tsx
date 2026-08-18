@@ -4,9 +4,9 @@
  * 에이전트가 코드를 고치면 예전에 고쳤던 것을 되돌리는 일이 잦다 — 왜 그렇게 됐는지의 맥락이 컨텍스트에
  * 없기 때문이다. **회귀 테스트가 기억을 대신한다.** 문서는 안 읽힐 수 있지만 실패하는 테스트는 무시할 수 없다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import { toneIfActive } from '../framework/activity.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import { toneIfActive } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const lessons = (ctx: PluginBubbleContext): number =>
   (ctx.data.agentReports ?? []).reduce((n, r) => n + (r.learned ?? []).length, 0);

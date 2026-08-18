@@ -36,6 +36,7 @@ interface StatusLineEntry {
 
 interface ClaudeSettings {
   statusLine?: StatusLineEntry;
+  subagentStatusLine?: StatusLineEntry;
   [k: string]: unknown;
 }
 
@@ -51,6 +52,62 @@ function buildStatusLineCommand(port: number, handlerPath: string, token: string
 
 function isManaged(entry: unknown): entry is StatusLineEntry {
   return !!entry && typeof entry === 'object' && (entry as StatusLineEntry)[MARKER] === true;
+}
+
+/**
+ * §4 v4.89 — 서브에이전트 행 수집기(`subagentStatusLine`).
+ *
+ * 이 설정은 새로고침 틱마다 **보이는 모든 서브에이전트 행**을 stdin JSON(`tasks[]`)으로 준다 —
+ * 행마다 `status`·`model`·`effort`·`tokenCount`·`contextWindowSize`·`cwd` 가 들어 있다. 우리에겐
+ * 서브에이전트 토큰 사용량이 들어오는 **유일한 실시간 경로**다(JSONL 은 턴이 끝나야 채워진다).
+ *
+ * **화면은 건드리지 않는다.** stdout 으로 `{"id":…,"content":…}` 를 내면 그 행을 우리가 덮어쓰게
+ * 되는데, Claude Code 의 기본 렌더가 이미 충분하고 우리가 바꿀 이유가 없다. 아무것도 출력하지
+ * 않으면 전 행이 기본 렌더로 남는다 — 즉 이 배선은 **순수 계측 ingress** 다.
+ */
+function buildSubagentStatusLineCommand(port: number, handlerPath: string, token: string): string {
+  const fwd = handlerPath.replace(/\\/g, '/');
+  return `node "${fwd}" --subagent-statusline --server "http://127.0.0.1:${port}" --token "${token}"`;
+}
+
+/**
+ * `subagentStatusLine` 을 statusLine 과 **같은 opt-in 에 묶어** 설치·해제한다.
+ * 사용자 설정 보존 규칙도 동일(`_vibisualPrevStatusLine` 에 원본 보관 → 해제 시 복원).
+ * @returns 실제로 바뀌었으면 true.
+ */
+function applySubagentStatusLine(
+  settings: ClaudeSettings,
+  port: number,
+  handlerPath: string,
+  token: string,
+): boolean {
+  const current = settings.subagentStatusLine;
+  const preserved = isManaged(current) ? current[PREV_KEY] : current;
+
+  const next: StatusLineEntry = {
+    type: 'command',
+    command: buildSubagentStatusLineCommand(port, handlerPath, token),
+    [MARKER]: true,
+    ...(preserved ? { [PREV_KEY]: preserved } : {}),
+  };
+
+  if (JSON.stringify(current ?? null) === JSON.stringify(next)) return false;
+  settings.subagentStatusLine = next;
+  return true;
+}
+
+/** 해제 — 보관해둔 사용자 값이 있으면 되돌리고, 없으면 키를 지운다. @returns 바뀌었으면 true. */
+function removeSubagentStatusLine(settings: ClaudeSettings): boolean {
+  const current = settings.subagentStatusLine;
+  if (!isManaged(current)) return false;
+
+  const preserved = current[PREV_KEY];
+  if (preserved && typeof preserved === 'object') {
+    settings.subagentStatusLine = preserved as StatusLineEntry;
+  } else {
+    delete settings.subagentStatusLine;
+  }
+  return true;
 }
 
 interface ReadResult {
@@ -136,11 +193,14 @@ export function installStatusLine(port: number, handlerPath: string, token: stri
       ...(preserved ? { [PREV_KEY]: preserved } : {}),
     };
 
-    if (JSON.stringify(current ?? null) === JSON.stringify(next)) {
-      return toStatus(settings);
-    }
+    const mainChanged = JSON.stringify(current ?? null) !== JSON.stringify(next);
+    if (mainChanged) settings.statusLine = next;
 
-    settings.statusLine = next;
+    // §4 v4.89 — 서브에이전트 행 수집기도 같은 opt-in 에 묶어 함께 건다.
+    const subChanged = applySubagentStatusLine(settings, port, handlerPath, token);
+
+    if (!mainChanged && !subChanged) return toStatus(settings);
+
     writeSettings(settings, raw);
     return toStatus(settings);
   } catch (err) {
@@ -155,7 +215,13 @@ export function uninstallStatusLine(): UsageCollectorStatus {
 
   try {
     const current = settings.statusLine;
-    if (!isManaged(current)) return toStatus(settings);
+    // 서브에이전트 쪽만 남아 있는 경우(옛 판본에서 넘어옴)도 함께 걷어내야 하므로 먼저 시도한다.
+    const subChanged = removeSubagentStatusLine(settings);
+
+    if (!isManaged(current)) {
+      if (subChanged) writeSettings(settings, raw);
+      return toStatus(settings);
+    }
 
     const preserved = current[PREV_KEY];
     if (preserved && typeof preserved === 'object') {

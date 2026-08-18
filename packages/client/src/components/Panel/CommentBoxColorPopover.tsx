@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
+import { POPUP_DISMISS } from '../../hooks/popupDismiss.js';
 
 interface Props {
   /** 현재 선택된 hex (#RRGGBB) */
@@ -96,23 +98,23 @@ export function CommentBoxColorPopover({ value, onLive, onCommit, onClose, ancho
     setHexInput(value);
   }, [value]);
 
-  // 외부 클릭 / Esc 닫기
+  // 외부 press 로 닫기(공통 규약) — 색상 패드·슬라이더를 잡고 창 밖까지 끌어도 닫히지 않는다.
+  // 그레이스: 팝오버를 연 그 클릭의 잔여 이벤트가 곧바로 닫아 버리지 않게 잠깐 무시한다.
+  useOutsidePressDismiss({
+    onDismiss: onClose,
+    refs: [popRef],
+    events: ['pointerdown'],
+    capture: false,
+    graceMs: POPUP_DISMISS.openGraceMs,
+  });
+
+  // Esc 닫기
   useEffect(() => {
-    const onPointer = (e: PointerEvent): void => {
-      if (popRef.current && !popRef.current.contains(e.target as Node)) onClose();
-    };
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') onClose();
     };
-    const tid = setTimeout(() => {
-      window.addEventListener('pointerdown', onPointer);
-      window.addEventListener('keydown', onKey);
-    }, 0);
-    return () => {
-      clearTimeout(tid);
-      window.removeEventListener('pointerdown', onPointer);
-      window.removeEventListener('keydown', onKey);
-    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
   // ─── Sat/Val 2D 패드 드래그 ───

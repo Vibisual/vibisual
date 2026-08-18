@@ -4,8 +4,8 @@
  * 에이전트는 비결정적이라 같은 입력을 여러 번 돌린 **분포**로 봐야 한다. 여기서는 같은 지시가 몇 번
  * 반복됐는지를 세어, 재현을 시도한 흔적이 있는지 보여준다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 function repeats(ctx: PluginBubbleContext): { unique: number; repeated: number } {
   const seen = new Map<string, number>();

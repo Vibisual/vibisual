@@ -5,8 +5,8 @@
  * "둘 중 뭘 쓰나"는 잘못된 질문이다. 다만 **한 프로세스 안의 서브에이전트에는 과잉**이라, 여기서는
  * 지금 위임이 내부에서 일어나는지를 보여준다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const internal = (ctx: PluginBubbleContext): number => (ctx.data.taskEdges ?? []).length + (ctx.data.subAgents ?? []).length;
 

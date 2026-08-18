@@ -21,6 +21,14 @@
     "./server": {
       "types": "./dist/server.d.ts",
       "default": "./dist/server.js"
+    },
+    "./prompt": {
+      "types": "./dist/prompt.d.ts",
+      "default": "./dist/prompt.js"
+    },
+    "./locales": {
+      "types": "./dist/locales.d.ts",
+      "default": "./dist/locales.js"
     }
   },
   "scripts": {

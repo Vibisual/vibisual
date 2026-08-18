@@ -19,6 +19,14 @@ export type {
   PluginSeverity,
   PluginClientModule,
   PluginServerModule,
+  PluginPromptContext,
+  PluginPromptModule,
+  PluginFactMap,
+  // §5.11 자립 규약 ⑥ — 카드 폴더 안에 사는 REST 창구의 계약(호스트가 구현한다).
+  PluginRoute,
+  PluginRouteRequest,
+  PluginRouteResponse,
+  PluginServerHost,
 } from './types.js';
 
 export {
@@ -27,29 +35,53 @@ export {
   getPluginManifest,
   resolveEnabledPlugins,
   isPluginEnabled,
+  selectProjectEnabledList,
+  resolveEnabledPluginsFor,
+  isPluginEnabledFor,
+  withProjectEnabled,
+  resolveProjectKey,
   unsupportedContributions,
   validateRegistry,
 } from './registry.js';
+export type { PluginEnablementSource } from './registry.js';
+
+// §5.11 v4.57 — SSOT 집행 판정. 순수 함수라 fs 없이 단독 검증된다(`ssot.test.ts`).
+export {
+  surveySsot,
+  surveySsotFacts,
+  buildSsotPromptBlock,
+  readSsotConfig,
+  resolveCandidates,
+  hasSubstance,
+  SSOT_DOC_CANDIDATES,
+  RIVAL_DIRECTION_SOURCES,
+  // v4.67 — 프로젝트가 자기 SSOT 를 지정하는 파일. 호스트가 그 파일을 **써 주는** 창구를 열려면
+  //   경로 정본이 하나여야 한다(호스트가 자기 문자열로 따로 적으면 그 순간 둘이 갈린다).
+  SSOT_CONFIG_PATH,
+  SSOT_MIN_BODY_CHARS,
+  SSOT_STALE_DAYS,
+} from './ssot-drift/ssot.js';
+export type { SsotSurvey, SsotConfig, SsotDocState } from './ssot-drift/ssot.js';
 
 export { LETHAL_TRIFECTA_ID, lethalTrifectaManifest } from './lethal-trifecta/manifest.js';
 export {
   judgeTrifecta,
   effectiveTools,
   TRIFECTA_LEG_TOOLS,
-} from './lethal-trifecta/trifecta.js';
+} from './sdk/judgments/trifecta.js';
 export type {
   TrifectaLeg,
   TrifectaLegState,
   TrifectaLegResult,
   TrifectaLevel,
   TrifectaVerdict,
-} from './lethal-trifecta/trifecta.js';
+} from './sdk/judgments/trifecta.js';
 
 // ─── 2차 배치 (v3.88) — 판정 로직은 순수 함수라 UI 없이 단독 검증된다 ───
 export { judgeLeastPrivilege } from './least-privilege/leastPrivilege.js';
 export type { LeastPrivilegeVerdict, ToolClass } from './least-privilege/leastPrivilege.js';
-export { judgeBlastRadius } from './blast-radius/index.js';
-export type { BlastRadiusVerdict } from './blast-radius/index.js';
+export { judgeBlastRadius } from './sdk/judgments/blastRadius.js';
+export type { BlastRadiusVerdict } from './sdk/judgments/blastRadius.js';
 export { judgeAutonomy } from './autonomy-level/index.js';
 export type { AutonomyLevel } from './autonomy-level/index.js';
 export { computeLongHorizon } from './long-horizon/index.js';

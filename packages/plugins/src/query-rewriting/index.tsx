@@ -4,8 +4,8 @@
  * 사람이 쓴 문장과 저장된 지식의 표현은 다르므로, 질의를 다듬어야 걸린다. Vibisual 에서는 에이전트가
  * 자기 말로 검색어를 만들어 부르므로 재작성이 에이전트 쪽에서 일어난다 — 그 흔적이 능동 검색 횟수다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const searches = (ctx: PluginBubbleContext): number => (ctx.data.brainInjections ?? []).filter((e) => e.trigger === 'search').length;
 const hits = (ctx: PluginBubbleContext): number =>

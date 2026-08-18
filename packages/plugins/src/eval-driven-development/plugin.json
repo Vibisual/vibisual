@@ -1,0 +1,17 @@
+{
+  "id": "eval-driven-development",
+  "name": "Eval-Driven Development",
+  "version": "1.0.0",
+  "category": "workflow",
+  "descriptionKey": "panel.plugins.evalDrivenDevelopment.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "agentReviews"
+  ],
+  "hostApi": 1
+}

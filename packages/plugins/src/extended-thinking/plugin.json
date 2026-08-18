@@ -1,0 +1,17 @@
+{
+  "id": "extended-thinking",
+  "name": "Extended Thinking",
+  "version": "1.0.0",
+  "category": "observability",
+  "descriptionKey": "panel.plugins.extendedThinking.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "subAgents"
+  ],
+  "hostApi": 1
+}

@@ -8,15 +8,17 @@ import { useLowPowerMode } from './hooks/useIsMobile.js';
 import { Header } from './components/Layout/Header.js';
 import { BubbleMap } from './components/BubbleMap/BubbleMap.js';
 import { CanvasBreadcrumb } from './components/BubbleMap/CanvasBreadcrumb.js';
+import { TrashToolbar } from './components/BubbleMap/TrashToolbar.js';
 import { IframeView } from './components/Layout/IframeView.js';
 import { DetailPanel } from './components/Panel/DetailPanel.js';
 import { BrainLibraryOverlay } from './components/Panel/BrainLibraryOverlay.js';
 import { DebugPanel } from './components/Panel/DebugPanel.js';
-import { InspectorOverlay } from './components/Inspector/InspectorOverlay.js';
 import { WorktreeDeleteDialog } from './components/Panel/WorktreeDeleteDialog.js';
+import { TrashPurgeDialog } from './components/Panel/TrashPurgeDialog.js';
 import { StubProjectPlaceholder } from './components/Layout/StubProjectPlaceholder.js';
 import { PermissionPromptStack } from './components/PermissionPrompt/PermissionPromptStack.js';
 import { ClaudeVersionGate } from './components/Panel/ClaudeVersionGate.js';
+import { LoginWindow } from './components/Auth/LoginWindow.js';
 import { useWebSocket } from './hooks/useWebSocket.js';
 import { useGraphStore, selectIDEOverlay } from './stores/graphStore.js';
 import { WS_PATH } from '@vibisual/shared';
@@ -47,6 +49,8 @@ export function App(): React.JSX.Element {
   const selectedTaskEdgeId = useGraphStore((s) => s.selectedTaskEdgeId);
   const selectedCommentBoxId = useGraphStore((s) => s.selectedCommentBoxId);
   const selectedCaptureBubbleId = useGraphStore((s) => s.selectedCaptureBubbleId);
+  // §5.13 (M) v4.68 — 앱 버블도 선택하면 우측 옵션 패널이 뜬다(캡처 버블과 같은 자리).
+  const selectedAppBubbleId = useGraphStore((s) => s.selectedAppBubbleId);
   const selectedBrainCardId = useGraphStore((s) => s.selectedBrainCardId);
   // §5.10 v3.49 — 기억 피드 오버레이가 열려 있으면 카드 상세는 오버레이 우측 pane 이 담당(App DetailPanel 은 억제).
   const brainFeedOpen = useGraphStore((s) => s.brainFeed !== null);
@@ -110,10 +114,12 @@ export function App(): React.JSX.Element {
             <>
               <BubbleMap />
               <CanvasBreadcrumb />
+              {/* §5.10 v4.84 — 휴지통 내부에서만 뜨는 [모두 삭제] 툴바(경로 표시 바로 아래). */}
+              <TrashToolbar />
             </>
           )}
         </main>
-        {(selectedNodeId !== null || selectedTaskEdgeId !== null || selectedCommentBoxId !== null || selectedCaptureBubbleId !== null || (selectedBrainCardId !== null && !brainFeedOpen)) && !activeIframeTab && (
+        {(selectedNodeId !== null || selectedTaskEdgeId !== null || selectedCommentBoxId !== null || selectedCaptureBubbleId !== null || selectedAppBubbleId !== null || (selectedBrainCardId !== null && !brainFeedOpen)) && !activeIframeTab && (
           <DetailPanel
             onClose={() => {
               const s = useGraphStore.getState();
@@ -121,16 +127,23 @@ export function App(): React.JSX.Element {
               s.selectTaskEdge(null);
               s.selectCommentBox(null);
               s.selectCaptureBubble(null);
+              s.selectAppBubble(null);
               s.selectBrainCard(null);
             }}
           />
         )}
       </div>
       <BrainLibraryOverlay />
-      <InspectorOverlay />
+      {/* InspectorOverlay 는 main.tsx 에서 전역 1회 마운트 — 여기서 또 그리면 복사가 두 번 일어난다. */}
       <WorktreeDeleteDialog />
+      {/* §5.10 v4.84 — 휴지통 영구 삭제 확인. 트리거(툴바·Delete 키)와 같은 창의 스토어를 보므로
+          캔버스가 있는 셸(App·DetachedShell)에 각각 마운트한다. */}
+      <TrashPurgeDialog />
       <PermissionPromptStack />
       <ClaudeVersionGate />
+      {/* §4 v4.82 — 로그인 게이트. main.tsx(공통 부팅 지점)가 아니라 여기 — 별창마다 같은 모달이
+          겹쳐 뜨면 안 되고, 로그인은 메인 창에서 한 번만 물으면 되는 일이다. */}
+      <LoginWindow />
     </div>
   );
 }

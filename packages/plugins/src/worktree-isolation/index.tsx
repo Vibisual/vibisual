@@ -5,8 +5,8 @@
  * 디렉터리에서 둘이 파일을 고치면 서로의 변경을 덮어쓴다. 함정도 많다 — 의존성 설치가 트리마다 필요하고,
  * **격리보다 통합 설계가 더 어렵다.** 표시 전용.
  */
-import { defineInspector, ICONS } from '../framework/inspector.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector, ICONS } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const isolated = (ctx: PluginBubbleContext): boolean => ctx.agentConfig?.isolation === 'worktree';
 

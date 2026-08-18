@@ -1,0 +1,17 @@
+{
+  "id": "reflexion",
+  "name": "Reflexion",
+  "version": "1.0.0",
+  "category": "workflow",
+  "descriptionKey": "panel.plugins.reflexion.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "agentReports"
+  ],
+  "hostApi": 1
+}

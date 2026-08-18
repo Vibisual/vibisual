@@ -4,9 +4,9 @@
  * 내용을 검사하지는 않는다 — 무엇이 나갔는지가 아니라 **나갈 수 있는 통로가 실제로 쓰였는지**를 보여준다.
  * 외부로 나간 것은 지워도 캐시·색인에 남아 되돌릴 수 없으므로, 사후에라도 통로가 눈에 보여야 한다. 표시 전용.
  */
-import { defineInspector, ICONS } from '../framework/inspector.js';
+import { defineInspector, ICONS } from '../sdk/index.js';
 import { findEgress } from './dataExfiltration.js';
-import type { PluginBubbleContext } from '../types.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const hits = (ctx: PluginBubbleContext) => findEgress(ctx.data.bashCommands);
 const kinds = (ctx: PluginBubbleContext): string[] => [...new Set(hits(ctx).map((h) => h.kind))];

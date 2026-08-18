@@ -6,8 +6,8 @@
  * **채움 비율**을 보여준다. 표시 전용.
  */
 import type { SubAgent } from '@vibisual/shared';
-import { defineInspector, ICONS } from '../framework/inspector.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector, ICONS } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 /** 세션 여럿이면 가장 많이 찬 것이 병목이다. */
 function worstSession(subAgents: readonly SubAgent[] | undefined): { used: number; max: number; ratio: number } {

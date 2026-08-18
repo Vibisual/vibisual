@@ -5,8 +5,8 @@
  * 단순·조회형 작업에서는 강도를 올릴수록 비용도 늘고 품질도 떨어질 수 있다. 그래서 강도를 그냥
  * 보여주는 대신 **작업 크기와 함께** 보여주고, 짧은 작업에 최대 사고가 켜져 있으면 알린다. 표시 전용.
  */
-import { defineInspector, ICONS } from '../framework/inspector.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector, ICONS } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 /** 강도 이름은 공급자·버전마다 바뀌므로 하드코딩하지 않고 "높은 축인가"만 느슨하게 본다. */
 const HIGH = ['high', 'xhigh', 'max'];

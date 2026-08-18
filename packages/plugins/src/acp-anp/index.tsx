@@ -5,8 +5,8 @@
  * "누가 무엇을 **해도 되는가**"(권한·책임·감사)는 표현하지 못한다. 그래서 규약을 채택해도 권한과 감사는
  * 따로 설계해야 한다. 이 카드는 이 에이전트의 그 두 축이 채워졌는지 본다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const governed = (ctx: PluginBubbleContext): number =>
   [

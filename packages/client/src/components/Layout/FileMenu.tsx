@@ -6,6 +6,7 @@ import { PluginsWindow } from '../Plugins/PluginsWindow.js';
 import { GuideWindow } from '../Guide/GuideWindow.js';
 import { MobileAccessWindow } from './MobileAccessWindow.js';
 import { isPackagedDesktop } from '../../transport/index.js';
+import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 
 const API_BASE = '';
 
@@ -19,19 +20,10 @@ export function FileMenu(): React.JSX.Element {
   const [mobileOpen, setMobileOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // 외부 클릭 → 닫기
-  useEffect(() => {
-    if (!open) return;
-    function handleClick(e: MouseEvent): void {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    }
-    // 캡처 단계: React Flow pane 이 mousedown 에 stopPropagation 을 걸어
-    // 버블 단계에선 document 까지 안 올라온다(캔버스 클릭 시 메뉴가 안 닫히는 원인).
-    document.addEventListener('mousedown', handleClick, true);
-    return () => document.removeEventListener('mousedown', handleClick, true);
-  }, [open]);
+  // 외부 press → 닫기(공통 규약 — 메뉴 안에서 시작한 드래그로는 안 닫힌다).
+  // 캡처 단계: React Flow pane 이 mousedown 에 stopPropagation 을 걸어
+  // 버블 단계에선 document 까지 안 올라온다(캔버스 클릭 시 메뉴가 안 닫히는 원인).
+  useOutsidePressDismiss({ enabled: open, onDismiss: () => setOpen(false), refs: [menuRef] });
 
   // ESC → 닫기
   useEffect(() => {

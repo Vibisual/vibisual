@@ -1,0 +1,18 @@
+{
+  "id": "structured-output",
+  "name": "Structured Output",
+  "version": "1.0.0",
+  "category": "observability",
+  "descriptionKey": "panel.plugins.structuredOutput.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "agentReports",
+    "agentReviews"
+  ],
+  "hostApi": 1
+}

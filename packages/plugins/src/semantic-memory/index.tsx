@@ -4,8 +4,8 @@
  * 사건이 아니라 **추출된 사실**의 층이다. 저장 장수가 아니라 "현재 진실로 확정된 슬롯 수"가 실제 크기이고,
  * 값이 갈려 확정을 잃은 슬롯은 사람의 판단을 기다리는 몫이다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const b = (ctx: PluginBubbleContext) => ctx.data.brain ?? null;
 

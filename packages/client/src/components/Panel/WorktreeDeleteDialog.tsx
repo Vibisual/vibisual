@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useGraphStore } from '../../stores/graphStore.js';
+import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 
 const API_BASE = '';
 
@@ -119,12 +120,14 @@ export const WorktreeDeleteDialog = memo(function WorktreeDeleteDialog(): React.
     return () => window.removeEventListener('keydown', onKey);
   }, [target, close]);
 
+  const backdrop = useBackdropDismiss(close);
+
   if (!target) return null;
 
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-      onClick={(e) => { if (e.target === e.currentTarget) close(); }}
+      {...backdrop}
     >
       <div className="w-[clamp(22rem,40vw,32rem)] rounded-lg border border-gray-700 bg-gray-900 shadow-xl shadow-black/40">
         <div className="border-b border-gray-800 px-5 py-3">

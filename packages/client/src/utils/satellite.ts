@@ -1,5 +1,5 @@
 import type { XYPosition } from '@xyflow/react';
-import type { BubbleData } from '@vibisual/shared';
+import type { BubbleData, BubbleType } from '@vibisual/shared';
 import { BUBBLE_COLORS, READ_TOOLS, SATELLITE_ORBIT_GAP } from '@vibisual/shared';
 import { calcBubbleSize, calcFileSizeRange } from './sizeCalc.js';
 
@@ -31,6 +31,16 @@ export interface SatelliteInfo {
 // ─── 위성 데이터 수집 ───
 
 /**
+ * §2.4 v4.48 — 캔버스에 그리지 않는 위성 타입.
+ *
+ * **표시 계층 한정**이다. 서버는 그대로 이 위성을 만들고 스냅샷에 실어 보내며
+ * (`agent.persistSatellites`), bash 히스토리·running server 기록·bash 훅발
+ * iframe 위성 생성·체크포인트 영속은 전부 불변이다. 여기서는 버블과 위성 엣지를
+ * 만들지 않을 뿐이라, 다시 보이게 하려면 이 Set 에서 한 줄만 빼면 된다.
+ */
+const HIDDEN_SATELLITE_TYPES: ReadonlySet<BubbleType> = new Set<BubbleType>(['bash']);
+
+/**
  * 부모 버블(폴더/에이전트)별 위성 데이터를 추출한다.
  * 위치는 별도로 `placeSatellitePositions`에서 계산.
  *
@@ -52,8 +62,11 @@ export function collectSatellites(
 
     const parentSize = calcBubbleSize(parent);
 
-    // 서버가 TTL 필터링 완료 — null 체크 + 중복 제거
-    const aliveFiles = files.filter((f): f is BubbleData => f != null && !seenFileIds.has(f.id));
+    // 서버가 TTL 필터링 완료 — null 체크 + 중복 제거 + 숨김 타입(§2.4 v4.48) 제외
+    const aliveFiles = files.filter(
+      (f): f is BubbleData =>
+        f != null && !seenFileIds.has(f.id) && !HIDDEN_SATELLITE_TYPES.has(f.bubbleType),
+    );
     if (aliveFiles.length === 0) continue;
 
     // 같은 부모 위성들끼리 파일 크기 범위 계산

@@ -5,8 +5,8 @@
  * 됐다고 믿고 넘어가므로 발견이 늦다. 범위 조정은 지시하는 쪽의 결정권이지 모델의 재량이 아니다.
  * 여기서는 할일 목록이 도중에 늘었는지 줄었는지를 본다. 표시 전용.
  */
-import { defineInspector, ICONS } from '../framework/inspector.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector, ICONS } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 /** 이벤트에 기록된 할일 총수의 처음/최대/마지막. */
 function trend(ctx: PluginBubbleContext): { first: number; peak: number; last: number } {

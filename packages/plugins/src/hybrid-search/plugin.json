@@ -1,0 +1,17 @@
+{
+  "id": "hybrid-search",
+  "name": "Hybrid Search",
+  "version": "1.0.0",
+  "category": "observability",
+  "descriptionKey": "panel.plugins.hybridSearch.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "brain"
+  ],
+  "hostApi": 1
+}

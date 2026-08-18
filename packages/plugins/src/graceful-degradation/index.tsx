@@ -5,8 +5,8 @@
  * **승인 팝업에 응답이 없을 때의 정책**이다. 자동 허용은 자리를 비운 사이 열리는 쪽(fail-open),
  * 자동 차단은 안전 쪽(fail-safe)이다. 표시 전용.
  */
-import { defineInspector, ICONS } from '../framework/inspector.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector, ICONS } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const failOpen = (ctx: PluginBubbleContext): boolean => (ctx.agentConfig?.permissionTimeoutPolicy ?? 'allow') === 'allow';
 const gated = (ctx: PluginBubbleContext): boolean =>

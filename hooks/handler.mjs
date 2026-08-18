@@ -227,6 +227,10 @@ async function checkPermission(payload) {
     if (data.decision === 'deny') {
       const reason = data.reason === 'timeout'
         ? 'USER PERMISSION DECISION: DENY (auto). No response within 60s in the Vibisual approval popup, so it was auto-denied (safe default). This tool was blocked and NOT executed. Tell the user verbatim that their permission decision was recorded as "DENY (timed out, no response)", then stop and ask how they want to proceed.'
+        // §4 (CLI 사양 추종) — permissionMode='dontAsk' 정책 거부. 팝업은 뜨지도 않았으므로
+        //   "사용자가 Deny 를 눌렀다"고 말하면 거짓이 된다 — 정책 때문임을 그대로 알린다.
+        : data.reason === 'dont-ask'
+        ? 'PERMISSION POLICY: DENY. This agent runs in permission mode "dontAsk" (do not prompt; deny anything not pre-approved), so the tool was blocked WITHOUT asking the user. No one pressed anything. Tell the user which tool was blocked and that the agent\'s permission mode must be changed (or the command pre-approved) to run it. Do not retry the same tool.'
         : `USER PERMISSION DECISION: DENY. The user pressed "Deny" in the Vibisual approval popup. This tool was blocked and NOT executed.${data.reason ? ` User note: ${data.reason}.` : ''} In your reply, state this explicitly to the user — e.g. 'You selected: Deny — the command was not run.' Do not retry the tool unless the user explicitly asks.`;
       return {
         hookSpecificOutput: {
@@ -390,12 +394,53 @@ async function runStatusLine(input) {
   }
 }
 
+/**
+ * §4 v4.89 — `subagentStatusLine` 수집기.
+ *
+ * 새로고침 틱마다 보이는 서브에이전트 행 전체가 `tasks[]` 로 들어온다(행마다 status·model·
+ * effort·tokenCount·contextWindowSize·cwd). 서브에이전트의 토큰 사용량이 **실시간으로** 들어오는
+ * 유일한 경로라 그대로 서버에 넘긴다.
+ *
+ * **stdout 으로 아무것도 쓰지 않는다** — 행을 하나라도 출력하면 그 행의 렌더를 우리가 가져가게
+ * 되는데, 기본 렌더를 바꿀 이유가 없다. 즉 화면은 그대로 두고 값만 걷는 순수 계측 경로다.
+ */
+async function runSubagentStatusLine(input) {
+  if (!input) return;
+  let payload;
+  try {
+    payload = JSON.parse(input);
+  } catch {
+    return;
+  }
+  const tasks = Array.isArray(payload?.tasks) ? payload.tasks : null;
+  if (!tasks || tasks.length === 0) return;
+
+  try {
+    const controller = new AbortController();
+    const tid = setTimeout(() => controller.abort(), 2000);
+    await fetch(`${SERVER_URL}/api/subagent-statusline`, {
+      method: 'POST',
+      headers: hookHeaders({}),
+      body: JSON.stringify({ sessionId: payload.session_id, cwd: payload.cwd, tasks }),
+      signal: controller.signal,
+    }).catch(() => null).finally(() => clearTimeout(tid));
+  } catch {
+    // 앱이 꺼져 있으면 조용히 통과 — 다음 틱에서 다시 시도한다.
+  }
+}
+
 async function main() {
   const input = await readStdin();
 
   // §4 v3.60 — statusLine 모드는 훅 이벤트가 아니라 세션 JSON 을 받는다. 완전히 별도 경로.
   if (process.argv.includes('--statusline')) {
     await runStatusLine(input);
+    return;
+  }
+
+  // §4 v4.89 — 서브에이전트 행 수집기. 같은 이유로 별도 경로이며 stdout 을 쓰지 않는다.
+  if (process.argv.includes('--subagent-statusline')) {
+    await runSubagentStatusLine(input);
     return;
   }
 
@@ -416,6 +461,9 @@ async function main() {
   const isPreToolUse = payload.hook_event_name === 'PreToolUse';
   const isStop = payload.hook_event_name === 'Stop';
   const isPostToolUse = payload.hook_event_name === 'PostToolUse';
+  // §5.11 v4.67 — 켠 플러그인의 집행(SSOT 규율 등)을 이 세션에도 싣는 유일한 통로.
+  //   서버가 같은 `/api/hook-event` 응답에 additionalContext 를 실어 주므로 새 경로가 필요 없다.
+  const isUserPromptSubmit = payload.hook_event_name === 'UserPromptSubmit';
 
   // §4 v2.64 — CMD(인터랙티브 터미널) 에이전트 소유자 태그. Vibisual 이 띄운 CMD 터미널의
   //   claude 는 env VIBISUAL_OWNER_AGENT_ID(=그 CMD 버블 agentId)를 물려받는다. 트래킹 본문에
@@ -443,6 +491,38 @@ async function main() {
       // 동기 홀드 — 서버가 Vibisual 관할 + ask 모드면 사용자 승인까지 대기.
       response = await checkPermission(payload);
     }
+  } else if (isUserPromptSubmit) {
+    /*
+     * §5.11 v4.67 — 프롬프트가 올라가기 전에 서버에 한 번 물어, 이 프로젝트에서 **켜 둔 플러그인의
+     * 집행 블록**을 그 턴의 맥락에 얹는다. 그전까지 집행은 우리가 띄운 세션에만 실렸고, 사용자가
+     * 자기 에디터에서 직접 돌리는 세션에는 한 글자도 안 갔다.
+     *
+     * 이 한 번만 stdout 을 **응답 뒤에** 쓴다(다른 이벤트는 먼저 쓰고 보낸다). 대신 짧게 끊고
+     * (1초) 어떤 실패도 그냥 통과시킨다 — 서버가 꺼져 있어도 사용자의 프롬프트는 그대로 나가야 한다.
+     */
+    response = { continue: true };
+    try {
+      const controller = new AbortController();
+      const tid = setTimeout(() => controller.abort(), 1000);
+      const res = await fetch(SERVER_URL, {
+        method: 'POST',
+        headers: hookHeaders({}),
+        body: trackingBody,
+        signal: controller.signal,
+      }).catch(() => null).finally(() => clearTimeout(tid));
+      const data = res && res.ok ? await res.json().catch(() => null) : null;
+      const extra = data && data.hookSpecificOutput && data.hookSpecificOutput.additionalContext;
+      if (typeof extra === 'string' && extra.trim() !== '') {
+        response = {
+          continue: true,
+          hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: extra },
+        };
+      }
+    } catch {
+      // 서버 불통 — 종전과 똑같이 통과.
+    }
+    process.stdout.write(JSON.stringify(response) + '\n');
+    return; // 트래킹 전송을 이미 마쳤다(위 fetch 가 그 역할을 겸한다).
   } else if (isPostToolUse && (payload.tool_name === 'Edit' || payload.tool_name === 'Write')) {
     // §5.10 — 편집 직후 그 파일의 실수/교훈 카드를 짧게 조회해 있으면 모델에 경고 주입.
     const warning = await checkBrainFileNotes(payload);

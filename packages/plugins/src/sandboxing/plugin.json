@@ -1,0 +1,16 @@
+{
+  "id": "sandboxing",
+  "name": "Sandboxing",
+  "version": "1.0.0",
+  "category": "security",
+  "descriptionKey": "panel.plugins.sandboxing.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "bubbleBadge",
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [],
+  "hostApi": 1
+}

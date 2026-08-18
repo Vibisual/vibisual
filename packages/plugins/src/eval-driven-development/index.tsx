@@ -5,8 +5,8 @@
  * 이어진 것 — 오프라인 평가로 만든 판정기를 그대로 런타임 가드레일로 승격시킨다. "평가 없이 프롬프트를
  * 고치는 것"이 무면허 운전에 해당한다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const withPoints = (ctx: PluginBubbleContext): number =>
   (ctx.data.agentReviews ?? []).filter((r) => (r.checkpoints ?? []).length > 0).length;

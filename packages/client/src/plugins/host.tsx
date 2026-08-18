@@ -4,7 +4,7 @@
  * 코어는 이 파일의 **슬롯 컴포넌트만** 알면 된다. 어떤 플러그인이 무엇을 그리는지는 코어가 몰라야
  * 플러그인이 늘어도 코어 파일이 자라지 않는다(§5.11 을 만든 이유 자체).
  *
- * - 활성 판정 SSOT = `UserDefaults.enabledPlugins`(전역, 서버 저장, WS `user_defaults_updated` 로 즉시 반영).
+ * - 활성 판정 SSOT = `UserDefaults.enabledPluginsByProject`(**프로젝트별**, 서버 저장, WS `user_defaults_updated` 로 즉시 반영).
  * - 비활성 = 기여 미등록일 뿐 **데이터 삭제 아님**. 다시 켜면 그대로 돌아온다.
  * - 기여가 하나도 없으면 **DOM 을 아예 만들지 않는다**(빈 래퍼조차 남기지 않아 캔버스 렌더 비용 0).
  *
@@ -25,9 +25,9 @@ import type {
   PluginSeverity,
   PluginTranslate,
 } from '@vibisual/plugins';
-import { resolveEnabledPlugins } from '@vibisual/plugins';
+import { resolveEnabledPluginsFor } from '@vibisual/plugins';
 import { PLUGIN_CLIENT_MODULES } from '@vibisual/plugins/client';
-import { useGraphStore, selectActiveBrainSummary } from '../stores/graphStore.js';
+import { useGraphStore, selectActiveBrainSummary, selectActivePluginFacts, selectActivePluginProjectPath } from '../stores/graphStore.js';
 import { orderPanelSections } from './panelOrder.js';
 import { PluginErrorBoundary } from './PluginErrorBoundary.js';
 import { tryBuild } from './isolate.js';
@@ -51,13 +51,26 @@ export function usePluginTranslate(): PluginTranslate {
   );
 }
 
-/** 지금 활성인 클라이언트 기여 모듈들. */
+/**
+ * 지금 활성인 클라이언트 기여 모듈들.
+ *
+ * v4.54 부터 켬/끔은 **프로젝트별**이라, 어느 프로젝트를 보고 있느냐가 판정에 들어간다. 프로젝트를
+ * 옮기면 배지·패널이 그 프로젝트에서 켠 것으로 즉시 갈아탄다(창을 다시 열 필요 없음).
+ *
+ * 구독은 필요한 두 조각만 잡는다 — `userDefaults` 통짜를 구독하면 다른 옵션 한 글자에도 모든 버블의
+ * 기여 맵이 다시 계산된다.
+ */
 export function useActivePluginModules(): PluginClientModule[] {
-  const enabled = useGraphStore((s) => s.userDefaults?.enabledPlugins);
+  const byProject = useGraphStore((s) => s.userDefaults?.enabledPluginsByProject);
+  const legacyGlobal = useGraphStore((s) => s.userDefaults?.enabledPlugins);
+  const projectPath = useGraphStore(selectActivePluginProjectPath);
   return useMemo(() => {
-    const active = resolveEnabledPlugins(enabled);
+    const active = resolveEnabledPluginsFor(
+      { enabledPluginsByProject: byProject, enabledPlugins: legacyGlobal },
+      projectPath,
+    );
     return PLUGIN_CLIENT_MODULES.filter((m) => active.has(m.manifest.id));
-  }, [enabled]);
+  }, [byProject, legacyGlobal, projectPath]);
 }
 
 interface BubbleSlotProps {
@@ -83,6 +96,8 @@ function usePluginData(modules: PluginClientModule[], bubbleId: string): PluginA
   const agentReports = useGraphStore((s) => (needs.has('agentReports') ? s.agentReports[bubbleId] : undefined));
   const agentReviews = useGraphStore((s) => (needs.has('agentReviews') ? s.agentReviews[bubbleId] : undefined));
   const brain = useGraphStore((s) => (needs.has('brain') ? selectActiveBrainSummary(s) : undefined));
+  // §5.11 v4.65 — 집행이 실제로 무엇을 보고 판단했는지. 프로젝트 단위라 버블과 무관하게 같은 값이 온다.
+  const pluginFacts = useGraphStore((s) => (needs.has('pluginFacts') ? selectActivePluginFacts(s) : undefined));
   const brainInjections = useGraphStore((s) => (needs.has('brainInjections') ? s.brainInjections[bubbleId] : undefined));
   const captureBubbles = useGraphStore((s) => (needs.has('captureBubbles') ? s.captureBubbles : undefined));
   // bash 는 세션 id 로 저장돼 있고 에이전트는 자기 세션 목록을 갖고 있다 — 여기서 그 둘을 잇는다.
@@ -109,8 +124,8 @@ function usePluginData(modules: PluginClientModule[], bubbleId: string): PluginA
   ));
 
   return useMemo(
-    () => ({ agentEvents, subAgents, runningTasks, agentReports, agentReviews, brain, brainInjections, taskEdges, captureBubbles, bashCommands }),
-    [agentEvents, subAgents, runningTasks, agentReports, agentReviews, brain, brainInjections, taskEdges, captureBubbles, bashCommands],
+    () => ({ agentEvents, subAgents, runningTasks, agentReports, agentReviews, brain, brainInjections, taskEdges, captureBubbles, bashCommands, pluginFacts }),
+    [agentEvents, subAgents, runningTasks, agentReports, agentReviews, brain, brainInjections, taskEdges, captureBubbles, bashCommands, pluginFacts],
   );
 }
 

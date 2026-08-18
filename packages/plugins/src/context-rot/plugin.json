@@ -1,0 +1,18 @@
+{
+  "id": "context-rot",
+  "name": "Context Rot",
+  "version": "1.0.0",
+  "category": "observability",
+  "descriptionKey": "panel.plugins.contextRot.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "bubbleBadge",
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "subAgents"
+  ],
+  "hostApi": 1
+}

@@ -1,0 +1,15 @@
+{
+  "id": "atomic-write",
+  "name": "Atomic Write",
+  "version": "1.0.0",
+  "category": "observability",
+  "descriptionKey": "panel.plugins.atomicWrite.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [],
+  "hostApi": 1
+}

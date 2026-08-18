@@ -25,10 +25,32 @@ const walk = (p: string): string[] =>
     .flatMap((e) => (e.isDirectory() ? walk(path.join(p, e.name)) : [path.join(p, e.name)]));
 
 /**
+ * SDK 가 내보내는 심볼 → 그 본문이 있는 파일 (§5.11 v4.58).
+ *
+ * v4.58 부터 플러그인은 **`../sdk/index.js` 하나만** 물기 때문에, import 경로만 보고는 그 카드가 어떤
+ * 공용 헬퍼를 쓰는지 알 수 없다. 그렇다고 SDK 를 물었다는 이유로 공용 층 전체를 끼워 넣으면
+ * `toneIfActive` 가 읽는 `agentEvents`·`subAgents` 두 축은 **모든 카드가 읽는 것으로 보여** 과대 선언
+ * 검사가 그 두 축에 대해 눈을 감는다. 그래서 **실제로 이름을 적어 가져간 심볼만** 되짚는다.
+ */
+const SDK_SYMBOL_SOURCE: Record<string, string> = {
+  hasActivity: 'framework/activity.ts',
+  toneIfActive: 'framework/activity.ts',
+  defineInspector: 'framework/inspector.tsx',
+  ICONS: 'framework/inspector.tsx',
+  PluginSection: 'ui/kit.tsx',
+  PluginRow: 'ui/kit.tsx',
+  PluginBadgePill: 'ui/kit.tsx',
+  formatElapsed: 'ui/kit.tsx',
+  judgeTrifecta: 'sdk/judgments/trifecta.ts',
+  effectiveTools: 'sdk/judgments/trifecta.ts',
+  judgeBlastRadius: 'sdk/judgments/blastRadius.ts',
+};
+
+/**
  * 플러그인 하나의 구현 소스 전체(테스트 제외). 폴더명 = 플러그인 id 규약에 기댄다.
  *
- * **가져다 쓰는 공용 모듈까지 포함한다.** 축을 직접 읽지 않고 `framework/activity.ts` 의 `toneIfActive`
- * 같은 헬퍼를 거쳐 읽는 카드가 있는데, 카드 폴더만 보면 그 축이 "선언만 하고 안 읽는다"로 잘못 잡힌다.
+ * **가져다 쓰는 공용 헬퍼의 본문까지 포함한다.** 축을 직접 읽지 않고 `toneIfActive` 같은 헬퍼를 거쳐
+ * 읽는 카드가 있는데, 카드 폴더만 보면 그 축이 "선언만 하고 안 읽는다"로 잘못 잡힌다.
  */
 function sourceOf(id: string): string {
   const dir = path.join(SRC, id);
@@ -37,17 +59,18 @@ function sourceOf(id: string): string {
     .filter((f) => /\.(ts|tsx)$/.test(f) && !f.includes('.test.'))
     .map((f) => fs.readFileSync(f, 'utf8'));
 
-  // `../framework/x.js` · `../ui/x.js` 처럼 카드 밖에서 끌어다 쓰는 모듈의 본문도 함께 본다.
   const shared = new Set<string>();
   for (const text of own) {
-    for (const m of text.matchAll(/from '\.\.\/((?:framework|ui)\/[\w.-]+)\.js'/g)) {
-      const p = path.join(SRC, `${m[1]}.ts`);
-      const px = path.join(SRC, `${m[1]}.tsx`);
-      if (fs.existsSync(p)) shared.add(p);
-      else if (fs.existsSync(px)) shared.add(px);
+    // `import { a, b, type C } from '../sdk/index.js'` 에서 실제로 적힌 이름만 뽑는다.
+    for (const m of text.matchAll(/import\s+(?:type\s+)?\{([^}]*)\}\s*from\s*'(?:\.\.\/)+sdk\/index\.js'/g)) {
+      for (const raw of (m[1] ?? '').split(',')) {
+        const name = raw.replace(/\btype\b/g, '').split(' as ')[0]?.trim() ?? '';
+        const file = SDK_SYMBOL_SOURCE[name];
+        if (file) shared.add(path.join(SRC, file));
+      }
     }
   }
-  return [...own, ...[...shared].map((f) => fs.readFileSync(f, 'utf8'))].join('\n');
+  return [...own, ...[...shared].filter((f) => fs.existsSync(f)).map((f) => fs.readFileSync(f, 'utf8'))].join('\n');
 }
 
 /** `ctx.data.axis` 와 `const { axis } = ctx.data` 두 형태를 모두 잡는다. */
@@ -83,5 +106,38 @@ describe('데이터 축 선언 대조', () => {
       }
     }
     expect(bad).toEqual([]);
+  });
+});
+
+/**
+ * **세 번째 다리 — 호스트가 그 축을 실제로 채우는가.**
+ *
+ * 위 두 검사는 카드 쪽만 본다(선언 ↔ 사용). 그런데 옵트인 구독은 **양쪽이 맞아야** 성립한다 —
+ * 카드가 제대로 선언해도 호스트(`usePluginData`)가 그 축을 안 읽으면 값은 `undefined` 로 오고,
+ * 카드는 던지지 않고 "0건 / 없음"을 멀쩡히 그린다. 위 두 검사도, 렌더 검사도 이 경우를 못 잡는다
+ * (렌더 검사는 컨텍스트를 직접 만들어 넣으니 호스트를 거치지 않는다).
+ *
+ * 축 목록은 손으로 유지되는 자리라 실제로 드리프트가 난다 — v4.65 에 새로 뚫린 `pluginFacts` 는
+ * 호스트에는 배선됐지만 창의 라벨은 12로케일 어디에도 없었다(그 사고는 `contributionLabels` 가 잡는다).
+ * 같은 종류의 누락이 데이터 쪽에서 나면 화면이 조용히 0 이 되므로, 여기서 못 박는다.
+ */
+describe('데이터 축 — 호스트 배선', () => {
+  const HOST = path.resolve(__dirname, '../../client/src/plugins/host.tsx');
+  const hostSource = fs.existsSync(HOST) ? fs.readFileSync(HOST, 'utf8') : '';
+
+  it('호스트 소스를 실제로 찾았다 — 경로가 어긋나면 아래 검사가 공짜로 통과한다', () => {
+    expect(hostSource).toContain('function usePluginData');
+  });
+
+  it('선언 가능한 축을 호스트가 하나도 빠짐없이 구독한다', () => {
+    const missing = PLUGIN_DATA_NEEDS.filter((axis) => !hostSource.includes(`needs.has('${axis}')`));
+    expect(missing, `호스트가 안 읽는 축: ${missing.join(', ')}`).toEqual([]);
+  });
+
+  it('구독한 축을 카드에게 넘기는 객체에도 싣는다 — 읽어 놓고 안 넘기면 같은 증상이다', () => {
+    // `return useMemo(() => ({ ... }), [...])` 로 넘기는 그 객체.
+    const returned = hostSource.slice(hostSource.indexOf('return useMemo'));
+    const missing = PLUGIN_DATA_NEEDS.filter((axis) => !new RegExp(`\\b${axis}\\b`).test(returned));
+    expect(missing, `조립 객체에 없는 축: ${missing.join(', ')}`).toEqual([]);
   });
 });
