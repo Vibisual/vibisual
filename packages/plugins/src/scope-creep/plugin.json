@@ -1,0 +1,18 @@
+{
+  "id": "scope-creep",
+  "name": "Scope Creep",
+  "version": "1.0.0",
+  "category": "workflow",
+  "descriptionKey": "panel.plugins.scopeCreep.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "bubbleBadge",
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "agentEvents"
+  ],
+  "hostApi": 1
+}

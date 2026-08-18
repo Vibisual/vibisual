@@ -10,15 +10,15 @@
  * 갱신 비용을 O(신규)로 낮춘다(VS Code 터미널처럼 길이 무관). 출력은 buildBaseItems 와 동일함이
  * streamItems.test.ts 로 못박혀 있어, 아래 카드 합류·정렬·identity 재조정·Virtuoso 배선은 불변.
  */
-import { memo, useState, useMemo, useRef, useCallback, forwardRef, useImperativeHandle } from 'react';
+import { memo, useState, useMemo, useRef, useCallback, useContext, createContext, forwardRef, useImperativeHandle } from 'react';
 import { Virtuoso, type VirtuosoHandle, type StateSnapshot } from 'react-virtuoso';
 import { useTranslation } from 'react-i18next';
 import { findTextRangeInContainer, scrollRangeIntoCenter, scrollElementIntoCenter, flashElement, findItemElement } from './bookmarkScroll.js';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Components } from 'react-markdown';
-import type { SubAgentStreamEvent, QueuedCommand, AgentReport, AgentQuestions, AgentReview, AgentList, AskUserQuestionRequest } from '@vibisual/shared';
-import { SystemNode, parseSystemSubtype } from './SystemNode.js';
+import type { SubAgentStreamEvent, QueuedCommand, CommandError, AgentReport, AgentQuestions, AgentReview, AgentList, AskUserQuestionRequest } from '@vibisual/shared';
+import { SystemNode, parseSystemSubtype, parseSystemTaskInfo } from './SystemNode.js';
 import { useAttachmentThumbs } from './attachmentThumb.js';
 import { ThinkingLiveLine } from './ThinkingIndicator.js';
 import { AgentReportCard } from './AgentReportCard.js';
@@ -28,23 +28,34 @@ import { AgentQuestionCard } from './AgentQuestionCard.js';
 import { AgentReviewCard } from './AgentReviewCard.js';
 import { AgentListCard } from './AgentListCard.js';
 import { AskQuestionCard } from './AskQuestionCard.js';
-import { CollapsiblePrompt, AiSpeakerGlyph } from './CollapsiblePrompt.js';
+import { CollapsiblePrompt, AiSpeakerGlyph, type PromptCommandState } from './CollapsiblePrompt.js';
 import { DiffView } from './DiffView.js';
 import { PlanBlock } from './PlanBlock.js';
 import { parseEditToolInput, editSizeLines } from './diffTool.js';
+import { editorFileFromAbsPath } from './editorModel.js';
+import { useIDEProjectRoot } from './useIDEProjectRoot.js';
+import { parseStreamPathCandidate } from './streamPathLinks.js';
+import { useWorkspacePathKind } from './useWorkspacePathKind.js';
+import { openFolderByPath } from './useWorkspaceExplorer.js';
 import { toolPreview } from './toolPreview.js';
 import {
   mergeCardsIntoItems, IncrementalStreamParser,
-  type StreamText, type StreamGroup, type StreamSystem, type StreamResult,
+  type StreamText, type StreamGroup, type StreamSystem, type StreamResult, type StreamError,
   type StreamCommand, type StreamItemFull,
 } from './streamItems.js';
+import { describeCommandError, parseStreamErrorContent } from './commandError.js';
 import {
-  applyStreamDensity, sameDisplayItem, displayItemId,
+  applyStreamDensity, sameDisplayItem, displayItemId, clampStreamText,
   type StreamDisplayItem, type StreamToolGroup,
 } from './streamDensity.js';
 import { useStreamToggle, streamToggleProps } from './streamToggle.js';
-import { STREAM_DIFF_AUTO_EXPAND_MAX_LINES, type StreamDensity } from '@vibisual/shared';
+import {
+  STREAM_DIFF_AUTO_EXPAND_MAX_LINES,
+  STREAM_COMPACT_TEXT_CLAMP_LINES, STREAM_COMPACT_TEXT_CLAMP_CHARS,
+  type StreamDensity,
+} from '@vibisual/shared';
 import { useVirtuosoFrontShift } from './frontShift.js';
+import { readingItemAttrs } from './reading/readingModel.js';
 
 // ─── 타입 ───
 
@@ -109,6 +120,16 @@ export interface StreamRendererHandle {
 
 // ─── 마크다운 커스텀 렌더러 ───
 
+/**
+ * §5.5 #17-27 ⑬ — "지금 그리는 `<code>` 가 코드 블록 안인가".
+ *
+ * 손잡이가 되는 것은 본문에 박힌 **인라인 코드**뿐이고, 코드 블록 안의 `<code>` 는 손대지 않는다 —
+ * 거기 있는 것은 읽으라고 적은 코드이지 열라고 적은 위치가 아니며, 그 자리의 주인은 복사 버튼이다.
+ * react-markdown 은 인라인/블록을 같은 `code` 슬롯으로 넘기고 v9 부터 `inline` 플래그를 주지 않으므로,
+ * 블록을 그리는 `CodeBlock` 이 자기 안쪽임을 이 컨텍스트로 알린다(`className` 유무 추정은 인덴트 블록에서 틀린다).
+ */
+const InCodeBlock = createContext(false);
+
 /** 펜스드/인덴트 코드 블록 — 우상단 호버 시 복사 버튼.
  *  react-markdown 의 `pre` 슬롯 교체. 내부 `<code>` 는 그대로 children 으로 받는다.
  *  텍스트 추출은 ref 의 `textContent` 로 — 중첩 syntax 토큰까지 한 번에 잡힌다. */
@@ -129,8 +150,12 @@ function CodeBlock({ children, ...rest }: React.HTMLAttributes<HTMLPreElement>):
   }, []);
 
   return (
-    <div className="group/code relative">
-      <pre ref={preRef} {...rest}>{children}</pre>
+    // §5.5 읽기 설정 — 이 래퍼가 `.ide-md` 그리드의 직접 자식이므로(안쪽 <pre> 가 아니라) 탈출 표식도
+    //   여기 붙는다. C·D 안에서 코드 블록만 읽기 칼럼 밖으로 나가는 지점.
+    <div className="ide-breakout group/code relative">
+      <InCodeBlock.Provider value={true}>
+        <pre ref={preRef} {...rest}>{children}</pre>
+      </InCodeBlock.Provider>
       <button
         type="button"
         onClick={onCopy}
@@ -175,7 +200,76 @@ const MarkdownLink = memo(function MarkdownLink({ href, children }: React.Anchor
   );
 });
 
-const mdComponents: Components = { pre: CodeBlock, a: MarkdownLink };
+/** 인라인 코드의 children 에서 **글자 하나**를 꺼낸다. 강조·링크가 섞인 조각은 경로가 아니므로 null. */
+function inlineCodeText(children: React.ReactNode): string | null {
+  if (typeof children === 'string') return children;
+  if (Array.isArray(children) && children.length === 1 && typeof children[0] === 'string') return children[0];
+  return null;
+}
+
+/**
+ * §5.5 #17-27 ⑬ — 본문에 적힌 경로 = 네 번째 여는 손잡이.
+ *
+ * 에이전트가 "여기에 있습니다" 하며 적어 준 위치(`assets/test/gpt-image/` · `packages/client/src/App.tsx`)를
+ * 눌러서 연다 — **파일이면 내장 편집창(②), 폴더면 시스템 탐색기(⑩ 과 같은 레일)**. 새 열기 레일은 만들지 않는다.
+ *
+ * 링크가 되는 조건은 **디스크에 실제로 있을 것** 하나다(⑬ (b)). 글자 모양만 보고 칠하면 본문의 명령·타입 조각까지
+ * 파란 밑줄을 얻어 누를 수 없는 가짜 손잡이가 되므로, 1차 체(`parseStreamPathCandidate`)를 통과한 후보만
+ * 서버에 묻고(경로당 한 번, 모듈 캐시) 답이 오기 전·없다는 답이 온 뒤에는 **종전과 똑같은 인라인 코드**로 그린다.
+ */
+const MarkdownCode = memo(function MarkdownCode({ children, ...rest }: React.HTMLAttributes<HTMLElement>): React.JSX.Element {
+  const { t } = useTranslation();
+  const inBlock = useContext(InCodeBlock);
+  const rootPath = useIDEProjectRoot();
+  const openInEditor = useGraphStore((s) => s.openIDEEditorFile);
+
+  const raw = inlineCodeText(children);
+  const candidate = useMemo(
+    () => (inBlock || raw === null ? null : parseStreamPathCandidate(raw, rootPath)),
+    [inBlock, raw, rootPath],
+  );
+  const resolved = useWorkspacePathKind(rootPath, candidate?.relPath ?? null);
+
+  const linked = resolved !== null && resolved.kind !== 'missing' ? resolved : null;
+  const onOpen = useCallback((e: React.MouseEvent): void => {
+    if (!linked) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (linked.kind === 'file') openInEditor(editorFileFromAbsPath(linked.absPath, rootPath));
+    else openFolderByPath(linked.absPath, candidate?.relPath ?? linked.absPath);
+  }, [linked, rootPath, openInEditor, candidate]);
+
+  if (!linked) return <code {...rest}>{children}</code>;
+
+  const isFile = linked.kind === 'file';
+  const title = t(isFile ? 'ide.streamRenderer.pathLink.openFile' : 'ide.streamRenderer.pathLink.openFolder', {
+    path: linked.absPath,
+  });
+
+  return (
+    // 칩(배경·모노폰트)은 `<code>` 가 그대로 유지하고, 그 안의 버튼만 링크 색·밑줄을 얻는다 —
+    // "코드처럼 보이던 그 조각이 이제 눌린다" 가 한눈에 읽히게(⑬ (f)).
+    <code {...rest}>
+      <button type="button" onClick={onOpen} title={title} aria-label={title} className="ide-path-link">
+        {isFile ? (
+          // file — 모서리 접힌 문서
+          <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+            <path d="M14 3v5h5" />
+          </svg>
+        ) : (
+          // folder
+          <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+          </svg>
+        )}
+        {children}
+      </button>
+    </code>
+  );
+});
+
+const mdComponents: Components = { pre: CodeBlock, a: MarkdownLink, code: MarkdownCode };
 
 /** v3.13 — 앞쪽 절단 shift 카운트용 안정 id 추출자(렌더 간 동일 참조 필요 → 모듈 상수).
  *  §5.5 #17-12 — 밀도 변환 뒤의 표시 아이템(묶음 포함)을 받는다. */
@@ -201,14 +295,40 @@ const remarkPlugins = [remarkGfm];
 /** assistant 텍스트 → 마크다운. "AI 와 나눈 일상 대화"임을 한눈에 — 박스로 감싸면 도구/생각/결과 박스와
  *  뒤섞여 오히려 지저분해 보이므로, **박스를 걷어내고 평범한 본문 텍스트**로 둔다. 다만 "AI 가 말하는 것"임은
  *  왼쪽의 작은 스파클 글리프로만 표식(도구/생각=좌측 세로바 박스, 내 입력=우측 sky 말풍선과 자연히 구분). */
-const TextBlock = memo(function TextBlock({ item }: { item: StreamText }): React.JSX.Element {
+const TextBlock = memo(function TextBlock({ item, density, exempt }: { item: StreamText; density: StreamDensity; exempt: boolean }): React.JSX.Element {
+  const { t } = useTranslation();
+  // §5.5 #17-21 ② — 간결에서는 앞 N줄(또는 N자)만 남기고 [더 보기]로 접는다.
+  //   `exempt`(화면의 마지막 본문)는 지금 하는 말이자 그 턴의 결론이라 자르지 않는다.
+  const clamped = useMemo(
+    () => (density === 'compact' && !exempt
+      ? clampStreamText(item.content, STREAM_COMPACT_TEXT_CLAMP_LINES, STREAM_COMPACT_TEXT_CLAMP_CHARS)
+      : null),
+    [density, exempt, item.content],
+  );
+  // 펼침은 #17-16 ④ 모듈 저장소 — 가상 리스트가 언마운트해도 펼쳐 둔 채로 돌아온다.
+  const [open, toggleOpen] = useStreamToggle(`text-more-${item.id}`, false);
+  const body = clamped && !open ? clamped.text : item.content;
   return (
     // §4 v3.24 — 폰(max-md)에선 좌우 여백 압축(카톡/텔레그램 밀도) — 데스크톱 px-4 유지.
     <div className="px-4 py-1 max-md:px-1.5">
       <div className="flex gap-2">
         <AiSpeakerGlyph />
-        <div className="ide-md prose prose-invert prose-sm min-w-0 max-w-none flex-1 leading-relaxed prose-p:my-1.5 prose-p:leading-relaxed prose-pre:my-2 prose-headings:text-gray-100 prose-headings:text-[15px] prose-li:my-1 prose-strong:text-gray-100">
-          <Markdown remarkPlugins={remarkPlugins} components={mdComponents}>{item.content}</Markdown>
+        <div className="min-w-0 flex-1">
+          <div className="ide-md prose prose-invert prose-sm max-w-none leading-relaxed prose-p:my-1.5 prose-p:leading-relaxed prose-pre:my-2 prose-headings:text-gray-100 prose-headings:text-[15px] prose-li:my-1 prose-strong:text-gray-100">
+            <Markdown remarkPlugins={remarkPlugins} components={mdComponents}>{body}</Markdown>
+          </div>
+          {clamped && (
+            <button
+              type="button"
+              onClick={toggleOpen}
+              className="mt-0.5 flex items-center gap-1 text-[11px] text-gray-500 transition-colors hover:text-gray-300"
+            >
+              <svg className={`h-3 w-3 transition-transform ${open ? 'rotate-90' : ''}`} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M8 5v14l11-7z" />
+              </svg>
+              {open ? t('ide.streamRenderer.showLess') : t('ide.streamRenderer.showMoreLines', { count: clamped.hiddenLines })}
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -218,6 +338,9 @@ const TextBlock = memo(function TextBlock({ item }: { item: StreamText }): React
 /** tool_use + tool_result 접이식 그룹 */
 const ToolBlock = memo(function ToolBlock({ item, density }: { item: StreamGroup; density: StreamDensity }): React.JSX.Element {
   const { t } = useTranslation();
+  // §5.5 #17-27 — 헤더에 적힌 파일명이 곧 여는 손잡이다(앱 안 편집창 — 밖 편집기는 diff 우측 연필 그대로).
+  const rootPath = useIDEProjectRoot();
+  const openInEditor = useGraphStore((s) => s.openIDEEditorFile);
   // Edit 계열이면 "이전 vs 이후" diff 로 렌더.
   const parsedEdit = useMemo(() => parseEditToolInput(item.toolName, item.input), [item.toolName, item.input]);
   // §5.5 #17-12 — 종전엔 Edit 이면 무조건 기본 펼침이라 긴 diff 가 화면을 통째로 먹었다. 이제 **짧은 편집만**
@@ -243,14 +366,24 @@ const ToolBlock = memo(function ToolBlock({ item, density }: { item: StreamGroup
   // §5.5 #17-13 — input 미리보기는 공용 순수 함수로(원본 JSON·`cd <절대경로> &&` 노출 제거).
   const preview = useMemo(() => toolPreview(item.input), [item.input]);
 
+  const handleOpenFile = useCallback((e: React.MouseEvent): void => {
+    // 헤더 전체는 펼치기/접기라, 파일명 클릭만 따로 떼어 낸다.
+    e.stopPropagation();
+    if (parsedEdit?.filePath) openInEditor(editorFileFromAbsPath(parsedEdit.filePath, rootPath));
+  }, [parsedEdit, rootPath, openInEditor]);
+
   return (
     <div className={`mx-2 my-1 overflow-hidden rounded-md border-l-2 max-md:mx-1 ${accentColor} transition-colors`}>
-      {/* 헤더 */}
-      <button
-        type="button"
+      {/* 헤더 — 파일명이 자체 버튼이라 이 줄은 button 이 아니라 role=button 이다(버튼 중첩 ❌). */}
+      <div
+        role="button"
+        tabIndex={0}
         onClick={toggleOpen}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleOpen(); }
+        }}
         {...streamToggleProps(open)}
-        className={`group/hdr flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition-colors ${headerBg}`}
+        className={`group/hdr flex w-full cursor-pointer items-center gap-2 px-2.5 py-1.5 text-left transition-colors ${headerBg}`}
         title={open ? t('ide.streamRenderer.clickToCollapse') : t('ide.streamRenderer.clickToExpand')}
       >
         {/* 셰브론 */}
@@ -271,7 +404,14 @@ const ToolBlock = memo(function ToolBlock({ item, density }: { item: StreamGroup
         {/* 미리보기 — Edit 계열은 펼침 여부와 무관하게 파일명 + 생성/수정 라벨을 항상 표시. */}
         {parsedEdit ? (
           <span className="flex min-w-0 flex-1 items-center gap-1.5">
-            <span className="min-w-0 truncate font-mono text-[12px] text-gray-300">{fileName}</span>
+            <button
+              type="button"
+              onClick={handleOpenFile}
+              title={t('ide.editor.openInPane', { path: parsedEdit.filePath })}
+              className="min-w-0 truncate font-mono text-[12px] text-gray-300 underline-offset-2 transition-colors hover:text-blue-300 hover:underline"
+            >
+              {fileName}
+            </button>
             <span className={`flex-shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold ${
               parsedEdit.mode === 'create' ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-300'
             }`}>{modeLabel}</span>
@@ -297,7 +437,7 @@ const ToolBlock = memo(function ToolBlock({ item, density }: { item: StreamGroup
             {open ? t('ide.streamRenderer.collapse') : t('ide.streamRenderer.expand')}
           </span>
         </div>
-      </button>
+      </div>
 
       {/* 펼친 내용 — Edit 계열은 side-by-side diff, 그 외는 raw input/output. */}
       {open && parsedEdit && (
@@ -344,6 +484,7 @@ const ToolBlock = memo(function ToolBlock({ item, density }: { item: StreamGroup
 function ToolGroupLatestLine({ item }: { item: StreamGroup }): React.JSX.Element {
   const preview = toolPreview(item.input);
   return (
+    // 이 줄은 항상 헤더 아래에 붙는다(§5.5 #17-24 ① 로 헤더 없는 `bare` 자리는 사라졌다).
     <div className="flex items-center gap-2 border-t border-gray-800/40 px-2.5 py-1">
       <span className="flex h-3 w-3 flex-shrink-0 items-center justify-center">
         {item.isActive ? (
@@ -380,6 +521,10 @@ const ToolGroupBlock = memo(function ToolGroupBlock({ item, density }: { item: S
     }
     return null;
   }, [item.children]);
+
+  // §5.5 #17-24 ① — 간결에는 도구 묶음이 **아예 도달하지 않는다**(진행 중이든 완료든 streamDensity 가
+  //   배열에서 뺐다). 종전의 "진행 중 한 줄" 분기는 그 줄이 생겼다 사라지며 화면을 깜빡이게 해 없앴다.
+
   return (
     <div className={`mx-2 my-1 overflow-hidden rounded-md border-l-2 max-md:mx-1 ${item.active ? 'border-blue-500/70' : 'border-gray-700'}`}>
       <button
@@ -432,12 +577,38 @@ const ToolGroupBlock = memo(function ToolGroupBlock({ item, density }: { item: S
 });
 
 /** system 메시지 — SDK subtype([task_started] 등)은 깔끔한 칩, 그 외 임의 본문은 텍스트 폴백 */
-function SystemLine({ item }: { item: StreamSystem }): React.JSX.Element {
+function SystemLine({ item, density }: { item: StreamSystem; density?: StreamDensity }): React.JSX.Element {
   const subtype = parseSystemSubtype(item.content);
-  if (subtype) return <SystemNode subtype={subtype} />;
+  // §5.5 #17-13 ⑤-3 — 작업 칩이면 payload(이름·결과·소요 시간)를 함께 넘긴다(없으면 종전 모양).
+  if (subtype) return <SystemNode subtype={subtype} task={parseSystemTaskInfo(item.content)} />;
   return (
     <div className="px-4 py-1 max-md:px-1.5">
-      <span className="font-mono text-[12px] text-gray-400">{item.content}</span>
+      {/* §5.5 #17-21 ⑤ — 내용 있는 system 본문은 간결에서 한 줄로 자른다(내용을 지우진 않는다). */}
+      <span className={`font-mono text-[12px] text-gray-400 ${density === 'compact' ? 'block truncate' : ''}`}>{item.content}</span>
+    </div>
+  );
+}
+
+/**
+ * §5.5 #17-12 ③ — 실패 사유 한 장. **왜 끝났는지**를 한 문장으로 말하고, 원문(stderr 꼬리·CLI 본문)은
+ * 그 아래 코드 폰트로 그대로 보여준다(번역 대상 아님 — 손대면 검색·대조가 안 된다).
+ */
+function ErrorLine({ item }: { item: StreamError }): React.JSX.Element {
+  const { t } = useTranslation();
+  const desc = describeCommandError(parseStreamErrorContent(item.content));
+  return (
+    <div className="mx-2 my-1 rounded-md border border-red-500/30 bg-red-500/5 px-4 py-2.5 max-md:mx-1 max-md:px-2.5">
+      <div className="flex items-start gap-2">
+        <svg viewBox="0 0 24 24" className="mt-0.5 h-4 w-4 flex-shrink-0 text-red-400" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+        </svg>
+        <div className="min-w-0 flex-1">
+          <div className="text-[12px] font-medium text-red-300">{t(desc.labelKey, desc.labelParams)}</div>
+          {desc.detail && (
+            <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-gray-400">{desc.detail}</pre>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -471,9 +642,32 @@ function ResultBlock({ item, feedbackCtx }: { item: StreamResult; feedbackCtx?: 
   );
 }
 
+/** §5.5 #17-12 ③ — 명령 말풍선에 붙는 실패 사유(스트림 폴백 경로). 문장 조립 규칙은 `ErrorLine` 과 같다. */
+function CommandErrorNotice({ error }: { error: CommandError }): React.JSX.Element {
+  const { t } = useTranslation();
+  const desc = describeCommandError(error);
+  return (
+    <div className="mb-1.5 rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2">
+      <div className="text-[12px] font-medium text-red-300">{t(desc.labelKey, desc.labelParams)}</div>
+      {desc.detail && (
+        <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-gray-400">{desc.detail}</pre>
+      )}
+    </div>
+  );
+}
+
 /** 명령 폴백 (스트림 없을 때). 실행 중 인디케이터는 하단 StreamStatusBar 가 담당 — 여기선 프롬프트/결과만. */
-function CommandBlock({ item }: { item: StreamCommand }): React.JSX.Element {
+function CommandBlock({ item, agentId }: { item: StreamCommand; agentId?: string }): React.JSX.Element {
+  const { t } = useTranslation();
   const isError = item.status === 'error';
+  // §5.5 #17-18 ⑤ v4.77 — 이 프롬프트의 상태(실행 중/대기 중 + 방식)를 말풍선이 직접 색으로 말하고,
+  //   대기 중이면 [대기|합치기|즉시]·삭제 컨트롤까지 말풍선 안에 붙는다(옛 입력창 위 대기 줄 대체).
+  const commandState = useMemo<PromptCommandState>(() => ({
+    status: (item.status === 'queued' || item.status === 'executing' || item.status === 'error' ? item.status : 'completed'),
+    ...(item.dispatchMode ? { dispatchMode: item.dispatchMode } : {}),
+    ...(agentId ? { agentId } : {}),
+    ...(item.commandId ? { commandId: item.commandId } : {}),
+  }), [item.status, item.dispatchMode, item.commandId, agentId]);
   // v2.61 — 전송한 첨부 이미지를 사용자 프롬프트 아래 썸네일로 표시. 클릭 시 전역 라이트박스로 확대.
   // v2.93 — blob preview(메모리) 우선, 없으면 server 파일 라우트로 폴백(별창/새로고침/재시작에서도 표시).
   const openImageLightbox = useGraphStore((s) => s.openImageLightbox);
@@ -481,7 +675,23 @@ function CommandBlock({ item }: { item: StreamCommand }): React.JSX.Element {
   return (
     <div className="px-4 py-2 max-md:px-1.5" data-cmd-id={item.id}>
       {/* 프롬프트 — 사용자 입력은 길이와 무관하게 항상 "내 메시지" 말풍선으로. */}
-      <CollapsiblePrompt prompt={item.prompt} />
+      <CollapsiblePrompt prompt={item.prompt} command={commandState} />
+      {/* 앱이 내려가 끊겼다가 보존된 세션으로 다시 이어 돌린 명령 — 그 사실을 말하지 않으면
+          사용자에겐 "왜 처음부터 다시 하지?" 또는 "왜 멈춰 있지?" 로 보인다. */}
+      {item.restartResumed && (
+        <p className="mt-1 text-[10.5px] text-amber-300/90">{t('ide.streamRenderer.restartResumed')}</p>
+      )}
+      {/* §5.5 #17-18 v4.68 — 합치기로 덧말이 함께 실렸으면 그 사실을 말한다(따로 보낸 말이
+          한 프롬프트로 보이는 이유를 화면이 설명해야 한다). */}
+      {(item.mergedCount ?? 0) > 0 && (
+        <div className="mb-1.5 flex items-center gap-1 pl-5 text-[10px] text-gray-500">
+          <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M7 4v6a5 5 0 0 0 5 5h5" />
+            <polyline points="14 12 17 15 14 18" />
+          </svg>
+          {t('ide.mainArea.mergedNotice', { count: item.mergedCount ?? 0 })}
+        </div>
+      )}
       {/* 전송한 첨부 이미지 썸네일 (클릭 → 라이트박스) */}
       {thumbs.length > 0 && (
         <div className="mb-1.5 flex flex-wrap gap-2 pl-5">
@@ -497,6 +707,9 @@ function CommandBlock({ item }: { item: StreamCommand }): React.JSX.Element {
           ))}
         </div>
       )}
+      {/* §5.5 #17-12 ③ — 스트림이 없어(또는 유실돼) 실패 사유를 실어 줄 오류 항목이 없을 때의 표면.
+          `error` 를 실어 보내는 쪽(buildCommandItems)이 스트림 유무로 이미 걸러 두었다. */}
+      {item.error && <CommandErrorNotice error={item.error} />}
       {/* 결과 */}
       {item.result && (
         <div className={`rounded-md border px-3 py-2 ${
@@ -517,7 +730,7 @@ function CommandBlock({ item }: { item: StreamCommand }): React.JSX.Element {
  *  카드류(report/question/…)는 별도 UI 라 v1 검색 대상에서 제외. */
 function itemSearchText(item: StreamDisplayItem): string {
   switch (item.kind) {
-    case 'text': case 'system': case 'result': return item.content;
+    case 'text': case 'system': case 'result': case 'error': return item.content;
     case 'tool': return `${item.toolName} ${item.input} ${item.output}`;
     case 'toolgroup': return item.children.map((c) => (c.kind === 'tool' ? `${c.toolName} ${c.input} ${c.output}` : c.kind === 'system' ? c.content : '')).join(' ');
     case 'plan': return item.todos.map((td) => td.content).join(' ');
@@ -526,24 +739,32 @@ function itemSearchText(item: StreamDisplayItem): string {
   }
 }
 
+/** §5.5 #17-24 ② — 라이브 1줄의 두 라벨(모드로 고른다). */
+interface LiveLabels { thinking: string; working: string }
+
 /** 단일 스트림 아이템 → 블록 엘리먼트. 북마크 이동 앵커용 `data-stream-item-id` 래퍼로 감싼다.
  *  zoom — IDE 본문 텍스트 줌 배율. **스크롤러(가상 리스트 뷰포트)가 아니라 각 항목 래퍼**에 걸어,
  *  Virtuoso 가 zoom 반영된 실제 항목 높이를 그대로 측정(가상화·스크롤 계산과 일관)하게 한다. */
-function renderStreamItem(item: StreamDisplayItem, thinkingLabel: string, zoom: number, density: StreamDensity, feedbackCtx?: StreamFeedbackCtx): React.JSX.Element {
+function renderStreamItem(item: StreamDisplayItem, liveLabels: LiveLabels, zoom: number, density: StreamDensity, lastTextId: string | null, feedbackCtx?: StreamFeedbackCtx): React.JSX.Element {
   let inner: React.JSX.Element;
   switch (item.kind) {
-    case 'text':     inner = <TextBlock item={item} />; break;
+    // §5.5 #17-21 ② — 마지막 본문(lastTextId)만 간결에서도 통째로 보인다(지금 하는 말 = 결론).
+    case 'text':     inner = <TextBlock item={item} density={density} exempt={item.id === lastTextId} />; break;
     case 'tool':     inner = <ToolBlock item={item} density={density} />; break;
     case 'toolgroup': inner = <ToolGroupBlock item={item} density={density} />; break;
     case 'plan':     inner = <PlanBlock item={item} />; break;
     case 'result':   inner = <ResultBlock item={item} feedbackCtx={feedbackCtx} />; break;
-    case 'system':   inner = <SystemLine item={item} />; break;
-    case 'command':  inner = <CommandBlock item={item} />; break;
-    case 'thinking-live': inner = <ThinkingLiveLine label={thinkingLabel} />; break;
-    case 'report':   inner = <AgentReportCard report={item.report} review={item.review} />; break;
-    case 'question': inner = <AgentQuestionCard questions={item.questions} />; break;
-    case 'review':   inner = <AgentReviewCard review={item.review} />; break;
-    case 'list':     inner = <AgentListCard list={item.list} />; break;
+    // §5.5 #17-12 ③ — 실패 사유는 어느 밀도에서도 접거나 묶지 않는다(읽어야 할 유일한 원인).
+    case 'error':    inner = <ErrorLine item={item} />; break;
+    case 'system':   inner = <SystemLine item={item} density={density} />; break;
+    case 'command':  inner = <CommandBlock item={item} agentId={feedbackCtx?.agentId} />; break;
+    // §5.5 #17-24 ② — 항목은 그대로 두고 라벨·색만 바꾼다(생각 중 ↔ 작업 중).
+    case 'thinking-live': inner = <ThinkingLiveLine label={liveLabels[item.mode]} mode={item.mode} />; break;
+    // §5.5 #17-18 ⑦-2 — `live` = 이 카드가 속한 턴이 아직 도는 중(헤더 `작업 중` 배지).
+    case 'report':   inner = <AgentReportCard report={item.report} review={item.review} live={item.live} />; break;
+    case 'question': inner = <AgentQuestionCard questions={item.questions} live={item.live} />; break;
+    case 'review':   inner = <AgentReviewCard review={item.review} live={item.live} />; break;
+    case 'list':     inner = <AgentListCard list={item.list} live={item.live} />; break;
     case 'ask':      inner = <AskQuestionCard request={item.request} />; break;
   }
   // §5.5 — 놓친 카드 pill 이 관측할 앵커. 카드류(신고/질문/검수/목록)에만 표식.
@@ -556,7 +777,19 @@ function renderStreamItem(item: StreamDisplayItem, thinkingLabel: string, zoom: 
     item.kind === 'question' ? item.questions.id :
     item.kind === 'review' ? item.review.id :
     item.kind === 'list' ? item.list.id : null;
-  return <div data-stream-item-id={item.id} {...(cardId ? { 'data-card-id': cardId } : {})} style={zoom === 1 ? undefined : { zoom }}>{inner}</div>;
+  // §5.5 읽기 설정 — 항목 래퍼가 폭 그리드(`.ide-stream`)를 겸한다. 어떤 항목이 칼럼 밖으로 나가는지는
+  //   `readingItemAttrs` 가 kind 로 결정하고, 실제 폭 계산은 전부 index.css 가 한다.
+  return (
+    <div
+      data-stream-item-id={item.id}
+      className="ide-stream"
+      {...readingItemAttrs(item.kind)}
+      {...(cardId ? { 'data-card-id': cardId } : {})}
+      style={zoom === 1 ? undefined : { zoom }}
+    >
+      {inner}
+    </div>
+  );
 }
 
 export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRendererProps>(function StreamRenderer({ events, commands, agentId, subAgentId, reports, questions, reviews, lists, askRequests, onScrollerRef, restoreState, onAtBottomChange }, ref): React.JSX.Element {
@@ -601,14 +834,26 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
   //   오인하면 있지도 않은 제거분만큼 스크롤이 보정돼 화면이 튄다.
   const firstItemIndex = useVirtuosoFrontShift(items, streamItemId, density);
 
-  const thinkingLabel = t('ide.streamRenderer.thinking');
+  const liveLabels = useMemo<LiveLabels>(
+    () => ({ thinking: t('ide.streamRenderer.thinking'), working: t('ide.streamRenderer.working') }),
+    [t],
+  );
   // IDE 본문 텍스트 줌 — 각 항목 래퍼에 zoom 적용(아래 renderStreamItem). 변경 시 itemContent 정체성이
   //   바뀌어 Virtuoso 가 전 항목을 재측정 → 새 배율로 정착(줌 조작은 드물어 비용 무관).
   const ideTextZoom = useGraphStore((s) => s.ideTextZoom);
+  // §5.5 #17-21 ② — 간결에서 유일하게 자르지 않는 본문 = 화면의 **마지막 text**(지금 하는 말이자 결론).
+  //   본문이 하나 더 도착하면 직전 것이 자동으로 접히므로 화면 아래쪽만 열려 있는 모양이 유지된다.
+  const lastTextId = useMemo(() => {
+    for (let k = items.length - 1; k >= 0; k--) {
+      const it = items[k]!;
+      if (it.kind === 'text') return it.id;
+    }
+    return null;
+  }, [items]);
   const itemContent = useCallback(
     (_index: number, item: StreamDisplayItem) =>
-      renderStreamItem(item, thinkingLabel, ideTextZoom, density, agentId ? { agentId, ...(subAgentId ? { subAgentId } : {}) } : undefined),
-    [thinkingLabel, ideTextZoom, density, agentId, subAgentId],
+      renderStreamItem(item, liveLabels, ideTextZoom, density, lastTextId, agentId ? { agentId, ...(subAgentId ? { subAgentId } : {}) } : undefined),
+    [liveLabels, ideTextZoom, density, lastTextId, agentId, subAgentId],
   );
 
   // v2.99 — virtuoso 가 단독 소유한 내부 스크롤러 DOM. 북마크 이동의 "컨테이너 한정 스크롤" 이 이걸 쓴다

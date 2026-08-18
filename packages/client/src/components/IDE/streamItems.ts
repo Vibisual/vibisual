@@ -23,7 +23,10 @@ import type {
   AgentList,
   AskUserQuestionRequest,
   TodoItem,
+  CommandDispatchMode,
+  CommandError,
 } from '@vibisual/shared';
+import { THINKING_PULSE_SUBTYPE, HIDDEN_SYSTEM_SUBTYPES, isHiddenSystemSubtype } from '@vibisual/shared';
 import { parseSystemSubtype } from './SystemNode.js';
 
 // ─── 계획(TodoWrite) 인식 (§5.5 #17-12) ───
@@ -89,8 +92,11 @@ export function latestPlanProgress(events: SubAgentStreamEvent[]): PlanProgress 
 
 // ─── system subtype 필터 (펄스/숨김) ───
 
-/** SDK 가 생각 중 반복 송출하는 system 펄스 subtype — 본문에 쌓이지 않게 라이브 1줄로 대체. */
-export const THINKING_PULSE_SUBTYPE = 'thinking_tokens';
+// §5.5 v4.92 — 이 두 목록(펄스·숨김)은 **서버가 복원 예산에서 뺄 대상을 고르는 근거**이기도 하다.
+//   두 벌로 두면 한쪽만 늘어난 순간 "안 그리는데 저장은 하는" 또는 그 반대가 된다 — shared 가 원본.
+//   기존 호출부가 이 모듈에서 그대로 가져가도록 여기서 다시 내보낸다.
+export { THINKING_PULSE_SUBTYPE, HIDDEN_SYSTEM_SUBTYPES, isHiddenSystemSubtype };
+
 export function isThinkingPulse(evt: { eventType: string; content: string }): boolean {
   return evt.eventType === 'system' && parseSystemSubtype(evt.content) === THINKING_PULSE_SUBTYPE;
 }
@@ -112,10 +118,14 @@ export function isSystemSubtypeChip(content: string): boolean {
   return parseSystemSubtype(content) !== null;
 }
 
-/** IDE 에서 아예 숨길 system subtype(노드 점도 라벨도 그리지 않음). 현재 'status' 노드를 가린다. */
-export const HIDDEN_SYSTEM_SUBTYPES = new Set(['status']);
+/**
+ * IDE 에서 아예 숨길 system subtype(노드 점도 라벨도 그리지 않음). 판정은 shared 가 들고 있다 —
+ * §5.5 #17-13 ⑤-4 부터 이름표(`status`)뿐 아니라 살림성 통지(`*_changed`)도 여기에 걸린다.
+ */
 export function isHiddenSystem(evt: { eventType: string; content: string }): boolean {
-  return evt.eventType === 'system' && HIDDEN_SYSTEM_SUBTYPES.has(parseSystemSubtype(evt.content) ?? '');
+  if (evt.eventType !== 'system') return false;
+  const subtype = parseSystemSubtype(evt.content);
+  return subtype !== null && isHiddenSystemSubtype(subtype);
 }
 
 // ─── 타입 ───
@@ -163,10 +173,29 @@ export interface StreamResult {
   timestamp: number;
 }
 
-/** 생각 중 라이브 1줄 — 실제 thinking 중일 때만 본문 하단에 1개 등장(§5.5 #17-15 — 사고의 유일한 표면) */
+/**
+ * §5.5 #17-12 ③ — 턴이 **실패로 끝난 자리**에 서는 오류 줄. 서버가 `error` 스트림 이벤트로 보낸
+ * `[code:exit] 원문` 을 그대로 담고, 문장은 렌더가 로케일로 만든다(`describeCommandError`).
+ * 시스템 줄로 흘리지 않는 이유는 하나다 — 사용자가 읽어야 할 유일한 실패 원인이 회색 잡음에 섞이면
+ * "오류라고만 나온다"는 그 문제가 자리만 바꿔 남는다.
+ */
+export interface StreamError {
+  kind: 'error';
+  id: string;
+  /** 서버 원문(`[code:exit] detail`). 파싱은 표시 시점에 한다(저장 형태는 서버가 준 그대로). */
+  content: string;
+  timestamp: number;
+}
+
+/**
+ * 라이브 1줄 — 에이전트가 작동하는 **내내** 본문 하단에 1개 떠 있다(§5.5 #17-15 사고의 유일한 표면,
+ * #17-24 ② 상시 표시). 마지막 이벤트 종류는 켜고 끄는 스위치가 아니라 **라벨을 고르는 값**이다.
+ */
 export interface StreamThinkingLive {
   kind: 'thinking-live';
   id: string;
+  /** `thinking` = 사고 중, `working` = 도구·본문 등 그 외 작업 중. 라벨·색만 가른다(항목은 그대로). */
+  mode: 'thinking' | 'working';
   timestamp: number;
 }
 
@@ -180,6 +209,8 @@ export interface StreamReport {
   report: AgentReport;
   review?: AgentReview;
   timestamp: number;
+  /** §5.5 #17-18 ⑦-2 — 이 카드가 속한 턴이 **아직 도는 중**(헤더에 `작업 중` 배지). 턴이 끝나면 사라진다. */
+  live?: boolean;
 }
 
 /** §4 v2.60 — 질문 카드 (createdAt 을 timestamp 로 삼아 스트림에 시간순 합류) */
@@ -188,6 +219,8 @@ export interface StreamQuestion {
   id: string;
   questions: AgentQuestions;
   timestamp: number;
+  /** §5.5 #17-18 ⑦-2 — 이 카드가 속한 턴이 아직 도는 중. */
+  live?: boolean;
 }
 
 /** §4 v2.70 — 검수 요청 카드 (createdAt 을 timestamp 로 삼아 스트림에 시간순 합류) */
@@ -196,6 +229,8 @@ export interface StreamReview {
   id: string;
   review: AgentReview;
   timestamp: number;
+  /** §5.5 #17-18 ⑦-2 — 이 카드가 속한 턴이 아직 도는 중. */
+  live?: boolean;
 }
 
 /** §4 v2.84 — 번호 목록 정렬 카드 (createdAt 을 timestamp 로 삼아 스트림에 시간순 합류) */
@@ -204,6 +239,8 @@ export interface StreamList {
   id: string;
   list: AgentList;
   timestamp: number;
+  /** §5.5 #17-18 ⑦-2 — 이 카드가 속한 턴이 아직 도는 중. */
+  live?: boolean;
 }
 
 /** §5.3 #12-2 — pending AskUserQuestion 카드 (createdAt 을 timestamp 로 삼아 스트림 끝에 합류) */
@@ -224,10 +261,30 @@ export interface StreamCommand {
   timestamp: number;
   /** v2.61 — 전송한 paste 이미지 첨부의 절대경로(완료 후에도 보존). basename 으로 blob preview 조회. */
   attachments?: string[];
+  /** §5.5 #17-18 v4.68 — 이 프롬프트에 함께 실려 나간 덧말 수(합치기). 0/undefined = 단독. */
+  mergedCount?: number;
+  /**
+   * 앱/서버가 내려가 이 명령의 실행이 끊겼고, 보존된 세션으로 **다시 이어 돌린** 건인가.
+   * 서버는 이미 그렇게 재개하고 있었지만 화면에 한 글자도 안 떠서, 사용자에겐 그냥 "멈춰 있다"로
+   * 보였다(사용자 보고 — "멈춰있길래 물어보니 끊겼다더라"). 끊겼다는 사실은 말해 줘야 한다.
+   */
+  restartResumed?: boolean;
+  /**
+   * §5.5 #17-18 ⑤ v4.77 — 큐의 원본 명령 id(`cmd-` 접두어 없는 raw). 말풍선 안의 [대기|합치기|즉시]·
+   * 삭제가 이 id 로 큐를 직접 손댄다(옛 대기 줄이 하던 일).
+   */
+  commandId?: string;
+  /** §5.5 #17-18 ⑤ v4.77 — 대기 중인 덧말의 dispatch 방식(말풍선 색·칩 활성 표시). */
+  dispatchMode?: CommandDispatchMode;
+  /**
+   * §5.5 #17-12 ③ — 오류로 끝난 이유. `result` 와 같은 규약으로 **스트림이 없을 때만** 싣는다 —
+   * 스트림이 있으면 실패한 그 자리에 `error` 항목이 이미 서 있어 두 번 읽게 된다.
+   */
+  error?: CommandError;
 }
 
 export type StreamItem =
-  | StreamText | StreamGroup | StreamSystem | StreamResult | StreamPlan
+  | StreamText | StreamGroup | StreamSystem | StreamResult | StreamError | StreamPlan
   | StreamThinkingLive | StreamReport | StreamQuestion | StreamReview | StreamList | StreamAsk;
 
 export type StreamItemFull = StreamItem | StreamCommand;
@@ -241,6 +298,36 @@ export interface BaseItemsResult {
 
 // ─── 공통 헬퍼(전체·증분이 공유) ───
 
+/**
+ * §5.5 #17-18 ⑥ — 아직 안 나간 말풍선의 정렬 키. 어떤 실제 시각보다도 크므로 **항상 꼬리**에 선다
+ * (실제 꼬리 배치는 `mergeCardsIntoItems` 가 정렬 밖으로 빼서 확정한다 — 이 값은 그 전 단계의 정렬용).
+ */
+export const PENDING_COMMAND_TS = Number.MAX_SAFE_INTEGER;
+
+/**
+ * §5.5 #17-18 ⑥ — 이 명령의 말풍선이 설 자리.
+ *  - `queued`: 아직 안 나갔다 → 꼬리(출력이 자라는 동안 계속 아래로 밀린다).
+ *  - 그 외: **나간 시각**(`startedAt`). 그 뒤 도착한 스트림이 전부 아래에 쌓여 턴 경계선이 된다.
+ *  - `startedAt` 이 없는 옛 명령은 종전대로 큐 투입 시각(`timestamp`).
+ */
+export function commandAnchorTs(cmd: QueuedCommand): number {
+  if (cmd.status === 'queued') return PENDING_COMMAND_TS;
+  return cmd.startedAt ?? cmd.timestamp;
+}
+
+/**
+ * §5.5 #17-18 ⑥ — 턴 경계로 쓰이는 시각들(오름차순). **이미 나간 명령만** 경계가 된다 —
+ * 대기 중 덧말은 아직 아무것도 끊지 않았으므로 본문 런도 카드 자리도 가르지 않는다.
+ */
+function dispatchedAnchorsAsc(commands: QueuedCommand[] | undefined): number[] {
+  const out: number[] = [];
+  for (const c of commands ?? []) {
+    if (c.status === 'queued') continue;
+    out.push(commandAnchorTs(c));
+  }
+  return out.sort((a, b) => a - b);
+}
+
 /** commands → 사용자 프롬프트 블록. 결과는 스트림이 있으면 스트림에서 렌더하므로 비운다. */
 function buildCommandItems(commands: QueuedCommand[] | undefined, hasStream: boolean): StreamCommand[] {
   const items: StreamCommand[] = [];
@@ -252,8 +339,14 @@ function buildCommandItems(commands: QueuedCommand[] | undefined, hasStream: boo
         prompt: cmd.text,
         result: hasStream ? '' : (cmd.result ?? ''),
         status: cmd.status,
-        timestamp: cmd.timestamp,
+        // §5.5 #17-18 ⑥ — 큐에 넣은 시각이 아니라 **나간 시각**(대기 중이면 꼬리).
+        timestamp: commandAnchorTs(cmd),
         attachments: cmd.attachments,
+        mergedCount: cmd.mergedCount,
+        restartResumed: cmd.restartResumed,
+        commandId: cmd.id,
+        dispatchMode: cmd.dispatchMode,
+        error: hasStream ? undefined : cmd.error,
       });
     }
   }
@@ -265,17 +358,19 @@ function computeAgentBusy(commands: QueuedCommand[] | undefined): boolean {
 }
 
 /**
- * 라이브 "생각 중 …" 1줄 후보 — 마지막 raw 이벤트가 사고 이벤트이고 에이전트 작동 중일 때만.
+ * 라이브 "생각 중 …/작업 중 …" 1줄 — **에이전트가 작동하는 동안 항상** 켠다.
  *
- * §5.5 #17-15 — 종전엔 **system 펄스**일 때만 켰다(실제 thinking 델타 중에는 활성 사고 블록이
- * 인디케이터를 겸했으므로). 그 블록을 없앴으니 `thinking` 델타도 여기서 받아야 한다 —
- * 안 그러면 사고를 스트리밍하는 동안 화면에 아무 표시도 남지 않는다.
+ * §5.5 #17-24 ② — 종전엔 `agentBusy && 마지막 이벤트가 사고` 였다. 그래서 사고 → 도구 → 본문으로
+ * 이벤트 종류가 바뀔 때마다 이 줄이 사라졌다 다시 나타나 화면이 깜빡였다. 이제 발화 조건은 `agentBusy`
+ * 하나이고, 마지막 이벤트 종류는 **라벨(mode)** 만 고른다 — 항목 id 가 고정이라 라벨만 바뀌고 항목은
+ * 생멸하지 않는다(가상 리스트 remount ❌).
  */
 function computeThinkingLive(events: SubAgentStreamEvent[], agentBusy: boolean): StreamThinkingLive | null {
+  if (!agentBusy) return null;
   const lastRaw = events[events.length - 1];
-  return (agentBusy && lastRaw && isThinkingActivity(lastRaw))
-    ? { kind: 'thinking-live', id: 'thinking-live', timestamp: lastRaw.timestamp }
-    : null;
+  const mode = lastRaw && isThinkingActivity(lastRaw) ? 'thinking' : 'working';
+  // 정렬에 참여하지 않고 항상 맨 끝이라 timestamp 는 표시 순서에 영향을 주지 않는다(없으면 0).
+  return { kind: 'thinking-live', id: 'thinking-live', mode, timestamp: lastRaw?.timestamp ?? 0 };
 }
 
 // ─── 1단계: 전체 재구축(참조 구현) ───
@@ -311,7 +406,7 @@ export function buildBaseItems(events: SubAgentStreamEvent[], commands?: QueuedC
     if (e.eventType !== 'tool_use' && e.eventType !== 'tool_result') lastNonToolIdx = k;
   }
 
-  const sortedCmdTs = (commands ?? []).map((c) => c.timestamp).sort((a, b) => a - b);
+  const sortedCmdTs = dispatchedAnchorsAsc(commands);
   function crossesCommand(prevTs: number, nextTs: number): boolean {
     for (const t of sortedCmdTs) {
       if (t > prevTs && t <= nextTs) return true;
@@ -381,6 +476,13 @@ export function buildBaseItems(events: SubAgentStreamEvent[], commands?: QueuedC
       continue;
     }
 
+    // §5.5 #17-12 ③ — 실패 사유는 시스템 잡음으로 섞지 않고 전용 항목으로(증분 파서와 같은 규약).
+    if (evt.eventType === 'error') {
+      items.push({ kind: 'error', id: evt.id, content: evt.content, timestamp: evt.timestamp });
+      i++;
+      continue;
+    }
+
     items.push({ kind: 'system', id: evt.id, content: evt.content, timestamp: evt.timestamp });
     i++;
   }
@@ -392,6 +494,75 @@ export function buildBaseItems(events: SubAgentStreamEvent[], commands?: QueuedC
 }
 
 // ─── 2단계: 카드 합류 + 정렬 (증분과 무관 — base 위에서만 동작) ───
+
+/**
+ * §5.5 #17-18 ⑦-5 — 카드를 발행한 **직후**에 붙는 "보냈습니다" 한 줄인가.
+ *
+ * ⑦-4 가 "발행한 뒤에는 본문을 더 붙이지 마라"를 지시문에 못 박았는데도 카드 바로 아래에는
+ * **"검수 카드로 확인 지점을 정리해 보냈습니다"** 같은 줄이 매번 따라붙었다. 지시를 어긴 게 아니라
+ * **턴의 모양**이 그렇다 — 카드 curl 이 그 턴의 마지막 도구라, 결과를 받은 에이전트는 무언가 말해야
+ * 턴이 닫힌다. 이미 화면에 뜬 카드를 다시 말할 뿐이라 정보량은 0 인데, 카드마다 반복돼 #17-21 ② 가
+ * 유일하게 펼쳐 두는 자리(마지막 본문 = 결론)를 잡아먹는다.
+ *
+ * 판정은 **좁게** — 실제 결론 문장을 지우는 쪽이 훨씬 나쁘기 때문이다:
+ *  ① 줄바꿈 없는 한 줄, ② 짧다(`CARD_ECHO_MAX_LEN`), ③ 문장 하나(중간에 종결부호가 또 있으면 뒤에
+ *  정보가 붙은 것이므로 건드리지 않는다), ④ 카드를 가리키는 낱말 + 발행·전송 동사가 **둘 다** 있다.
+ * 여기에 호출측이 "바로 앞이 카드"라는 자리 조건을 더한다(`dropCardEchoTexts`).
+ */
+const CARD_ECHO_MAX_LEN = 200;
+/** "무엇을" — 카드를 가리키는 낱말. 이게 없으면 발송 보고가 아니다. */
+const CARD_ECHO_NOUN_RE = /카드|card/i;
+/** "어떻게 했다" — 발행·전송 동사(한국어 종결 변형 + 영어). */
+const CARD_ECHO_VERB_RE = /보냈|보냅니다|보내 ?[드두]|올렸|올립니다|올려 ?[드두]|띄웠|띄웁니다|띄워 ?[드두]|발행|신고했|신고합니다|전송했|전송합니다|남겼|담아 ?[드두]|정리해 ?[드보]|sent|posted|filed|submitted|published/i;
+/** 목록·인용·헤딩·코드로 시작하는 줄은 본문 구조물이므로 대상에서 뺀다. */
+const CARD_ECHO_STRUCTURAL_RE = /^[-*#>|`\d]/;
+
+export function isCardEchoText(content: string): boolean {
+  const s = content.trim();
+  if (s.length === 0 || s.length > CARD_ECHO_MAX_LEN) return false;
+  if (s.includes('\n')) return false;
+  if (CARD_ECHO_STRUCTURAL_RE.test(s)) return false;
+  // 끝의 종결부호는 떼고 본다 — 남은 몸통에 또 있으면 문장이 둘 이상(= 정보가 더 담겼다).
+  const body = s.replace(/[.!?。！？]+\s*$/, '');
+  if (/[.!?。！？]/.test(body)) return false;
+  return CARD_ECHO_NOUN_RE.test(s) && CARD_ECHO_VERB_RE.test(s);
+}
+
+/** 뒤로 훑을 때 건너뛰는 항목 — 그 자체로는 에이전트가 "한 말"이 아니다(도구 줄·회색 잡음·라이브 1줄). */
+const CARD_ECHO_SKIP_KINDS: ReadonlySet<StreamItemFull['kind']> = new Set(['tool', 'system', 'thinking-live']);
+/** 이 항목 바로 뒤에 붙은 한 줄이라야 발송 보고로 본다. */
+const CARD_ECHO_HOST_KINDS: ReadonlySet<StreamItemFull['kind']> = new Set(['report', 'question', 'review', 'list']);
+
+/** `sofar[0..end)` 의 마지막 "말" 이 카드인가(도구·시스템 줄은 건너뛴다). */
+function precededByCard(sofar: readonly StreamItemFull[], end: number): boolean {
+  for (let k = end - 1; k >= 0; k--) {
+    const kind = sofar[k]!.kind;
+    if (CARD_ECHO_SKIP_KINDS.has(kind)) continue;
+    return CARD_ECHO_HOST_KINDS.has(kind);
+  }
+  return false;
+}
+
+/**
+ * §5.5 #17-18 ⑦-5 — 카드 바로 뒤의 발송 보고 한 줄을 표시에서 뺀다.
+ * 지울 게 하나도 없으면 **입력 배열을 그대로 돌려준다**(항목 참조 안정 = 재측정 없음).
+ */
+export function dropCardEchoTexts(items: StreamItemFull[]): StreamItemFull[] {
+  let out: StreamItemFull[] | null = null;
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i]!;
+    if (
+      it.kind === 'text'
+      && isCardEchoText(it.content)
+      && precededByCard(out ?? items, out ? out.length : i)
+    ) {
+      if (!out) out = items.slice(0, i);
+      continue;
+    }
+    if (out) out.push(it);
+  }
+  return out ?? items;
+}
 
 /**
  * base 아이템에 카드(reports/questions/reviews/lists/ask)를 시간순 합류 + 정렬.
@@ -406,46 +577,84 @@ export function mergeCardsIntoItems(
   lists?: AgentList[],
   askRequests?: AskUserQuestionRequest[],
 ): StreamItemFull[] {
-  const items: StreamItemFull[] = [...base.items];
+  // §5.5 #17-18 ⑥ — 대기 중(`queued`) 말풍선은 정렬에 참여시키지 않고 **맨 끝**에 붙인다.
+  //   아직 안 나간 글이라 시간축 위에 자리가 없다 — 출력이 자라는 동안 계속 아래로 밀리며
+  //   "다음에 나갈 것"으로 남아 있다가, dispatch 되는 순간 그 시각으로 정렬에 합류(=자리 고정)한다.
+  const items: StreamItemFull[] = [];
+  const pendingCommands: StreamCommand[] = [];
+  for (const it of base.items) {
+    if (it.kind === 'command' && it.status === 'queued') pendingCommands.push(it);
+    else items.push(it);
+  }
 
-  const cmdTsAsc = (commands ?? []).map((c) => c.timestamp).sort((a, b) => a - b);
-  const turnEndSortTs = (createdAt: number): number => {
+  const cmdTsAsc = dispatchedAnchorsAsc(commands);
+  // §5.5 #17-18 ⑦-1 — 카드가 설 자리는 **신고된 그 시각**(`createdAt`)이다. 옛 `turnEndSortTs`(그 턴 끝으로
+  //   미루기)는 지금 도는 턴에 뒤에 올 명령이 없어 MAX_SAFE_INTEGER 로 떨어졌고, 그 결과 카드가 화면 바닥에
+  //   붙박여 **이후 출력이 전부 카드 위로** 들어갔다 — 사용자에겐 "안 끝났는데 카드부터 나와 끝난 줄 착각",
+  //   "중간 카드와 완료 카드가 바닥에서 뒤섞여 언제 뭐가 끝난지 모름"으로 보였다. 이제 카드는 그 자리에
+  //   못 박히고 그 뒤 출력은 카드 **아래**로 쌓인다(자리 자체가 시점을 말한다).
+  // §5.5 #17-18 ⑦-3 — 턴 식별은 정렬과 분리한다: dispatch 경계를 **몇 개 지났는가**가 곧 턴 번호다.
+  const turnIndexOf = (createdAt: number): number => {
+    let n = 0;
+    for (const ts of cmdTsAsc) { if (ts <= createdAt) n += 1; else break; }
+    return n;
+  };
+  // §5.5 #17-18 ⑦-2 — 이 카드가 속한 턴이 아직 도는 중인가(= 뒤에 나간 명령이 없고 지금 실행 중).
+  //   대기(`queued`)만 있는 상태는 앞 턴이 이미 끝난 것이므로 도는 중이 아니다(agentBusy 와 기준이 다르다).
+  const lastAnchor = cmdTsAsc[cmdTsAsc.length - 1];
+  const turnRunning = (commands ?? []).some((c) => c.status === 'executing');
+  const isLive = (createdAt: number): boolean =>
+    turnRunning && !(lastAnchor !== undefined && lastAnchor > createdAt);
+  // §5.3 #12-2 — 답을 기다리는 AskUserQuestion 만은 종전대로 **그 턴 끝**(없으면 꼬리)에 둔다. 카드와 달리
+  //   이건 지나간 보고가 아니라 60초 안에 답해야 하는 요청이라, 눈앞에서 밀려 올라가면 안 된다.
+  const pendingAskSortTs = (createdAt: number): number => {
     for (const ts of cmdTsAsc) { if (ts > createdAt) return ts - 0.5; }
     return Number.MAX_SAFE_INTEGER;
   };
   // §5.5 #17-12 — 같은 턴에 작업 신고와 검수 요청이 함께 오면 카드 두 장이 겹쳐 무엇이 중요한지 묻힌다.
   //   검수는 그 턴의 신고 카드 **안쪽 구획**으로 흡수하고, 짝이 없는 검수만 독립 카드로 남긴다.
-  //   (턴 = turnEndSortTs 버킷 — 신고·검수 모두 "그 턴 끝"으로 정렬되므로 값이 같으면 같은 턴이다.)
   const reportIdxByTurn = new Map<number, number>();
   for (const r of reports ?? []) {
-    const ts = turnEndSortTs(r.createdAt);
-    reportIdxByTurn.set(ts, items.length);
-    items.push({ kind: 'report', id: `report-${r.id}`, report: r, timestamp: ts });
+    reportIdxByTurn.set(turnIndexOf(r.createdAt), items.length);
+    items.push({ kind: 'report', id: `report-${r.id}`, report: r, timestamp: r.createdAt, live: isLive(r.createdAt) });
   }
-  for (const q of questions ?? []) items.push({ kind: 'question', id: `question-${q.id}`, questions: q, timestamp: turnEndSortTs(q.createdAt) });
+  for (const q of questions ?? []) items.push({ kind: 'question', id: `question-${q.id}`, questions: q, timestamp: q.createdAt, live: isLive(q.createdAt) });
   for (const rv of reviews ?? []) {
-    const ts = turnEndSortTs(rv.createdAt);
-    const hostIdx = reportIdxByTurn.get(ts);
+    const hostIdx = reportIdxByTurn.get(turnIndexOf(rv.createdAt));
     const host = hostIdx === undefined ? undefined : items[hostIdx];
     if (host && host.kind === 'report' && !host.review) {
       items[hostIdx!] = { ...host, review: rv };
       continue;
     }
-    items.push({ kind: 'review', id: `review-${rv.id}`, review: rv, timestamp: ts });
+    items.push({ kind: 'review', id: `review-${rv.id}`, review: rv, timestamp: rv.createdAt, live: isLive(rv.createdAt) });
   }
-  for (const ls of lists ?? []) items.push({ kind: 'list', id: `list-${ls.id}`, list: ls, timestamp: turnEndSortTs(ls.createdAt) });
-  for (const req of askRequests ?? []) items.push({ kind: 'ask', id: `ask-${req.requestId}`, request: req, timestamp: turnEndSortTs(req.createdAt) });
+  for (const ls of lists ?? []) items.push({ kind: 'list', id: `list-${ls.id}`, list: ls, timestamp: ls.createdAt, live: isLive(ls.createdAt) });
+  for (const req of askRequests ?? []) items.push({ kind: 'ask', id: `ask-${req.requestId}`, request: req, timestamp: pendingAskSortTs(req.createdAt) });
 
   items.sort((a, b) => a.timestamp - b.timestamp);
 
+  // §5.5 #17-18 ⑦-5 — 카드 바로 뒤에 붙는 "~카드로 보냈습니다" 한 줄은 화면에서 뺀다(카드가 이미 하는 말).
+  //   정렬 **뒤**에 걷는 이유: "바로 앞이 카드"라는 자리 조건은 시간순으로 놓인 뒤에야 성립한다.
+  const visible = dropCardEchoTexts(items);
+
   // 라이브 1줄 — 정렬에 참여시키지 않고 항상 맨 끝.
   // §5.5 #17-15 — 활성 thinking 블록이 인디케이터를 겸하던 중복 회피는 사라졌다(블록 자체가 없다).
-  if (base.thinkingLive) items.push(base.thinkingLive);
+  if (base.thinkingLive) visible.push(base.thinkingLive);
 
-  return items;
+  // §5.5 #17-18 ⑥-1 — 대기 중 말풍선은 라이브 1줄보다도 아래, 화면 맨 끝(= 다음에 나갈 것).
+  for (const pending of pendingCommands) visible.push(pending);
+
+  return visible;
 }
 
 // ─── identity 안정화 비교(v3.09) ───
+
+/** §5.5 #17-12 ③ — 사유가 붙거나 바뀌면 말풍선을 다시 그려야 한다(렌더에 영향 주는 필드). */
+function sameCommandError(a?: CommandError, b?: CommandError): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return a.code === b.code && a.exitCode === b.exitCode && a.detail === b.detail;
+}
 
 function sameAttachments(a?: string[], b?: string[]): boolean {
   if (a === b) return true;
@@ -461,14 +670,18 @@ export function sameStreamItem(a: StreamItemFull, b: StreamItemFull): boolean {
     case 'text':
     case 'system':
     case 'result':
-      return (a as StreamText | StreamSystem | StreamResult).content === b.content;
+    case 'error':
+      return (a as StreamText | StreamSystem | StreamResult | StreamError).content === b.content;
     case 'tool': {
       const x = a as StreamGroup;
       return x.toolName === b.toolName && x.input === b.input && x.output === b.output && x.isActive === b.isActive;
     }
     case 'command': {
       const x = a as StreamCommand;
-      return x.prompt === b.prompt && x.result === b.result && x.status === b.status && sameAttachments(x.attachments, b.attachments);
+      // §5.5 #17-18 ⑤ v4.77 — dispatchMode 도 렌더(말풍선 색·활성 칩)에 영향 → 비교에 포함.
+      return x.prompt === b.prompt && x.result === b.result && x.status === b.status
+        && x.dispatchMode === b.dispatchMode && sameCommandError(x.error, b.error)
+        && sameAttachments(x.attachments, b.attachments);
     }
     case 'plan': {
       const x = a as StreamPlan;
@@ -480,22 +693,34 @@ export function sameStreamItem(a: StreamItemFull, b: StreamItemFull): boolean {
       }
       return true;
     }
+    // §5.5 #17-24 ② — 라벨(mode)이 바뀌면 다시 그려야 한다(생각 중 ↔ 작업 중).
     case 'thinking-live':
-      return true;
-    case 'report':   return (a as StreamReport).report === b.report && (a as StreamReport).review === b.review;
-    case 'question': return (a as StreamQuestion).questions === b.questions;
-    case 'review':   return (a as StreamReview).review === b.review;
-    case 'list':     return (a as StreamList).list === b.list;
+      return (a as StreamThinkingLive).mode === b.mode;
+    // §5.5 #17-18 ⑦-2 — `live`(작업 중 배지)는 렌더에 영향 → 비교에 포함. 빼면 턴이 끝나도
+    //   identity 안정화가 옛 객체를 그대로 재사용해 배지가 영영 안 사라진다.
+    case 'report':   return (a as StreamReport).report === b.report && (a as StreamReport).review === b.review && !!(a as StreamReport).live === !!b.live;
+    case 'question': return (a as StreamQuestion).questions === b.questions && !!(a as StreamQuestion).live === !!b.live;
+    case 'review':   return (a as StreamReview).review === b.review && !!(a as StreamReview).live === !!b.live;
+    case 'list':     return (a as StreamList).list === b.list && !!(a as StreamList).live === !!b.live;
     case 'ask':      return (a as StreamAsk).request === b.request;
   }
 }
 
 // ─── 증분 파서 ───
 
-/** commands 로 파생되는, 증분 유효성에 영향 주는 컨텍스트(정렬된 명령 타임스탬프 + agentBusy). */
-function cmdTsKey(commands: QueuedCommand[] | undefined): string {
-  const ts = (commands ?? []).map((c) => c.timestamp).sort((a, b) => a - b);
-  return ts.join(',');
+/**
+ * commands 로 파생되는, 증분 유효성에 영향 주는 컨텍스트(정렬된 턴 경계 + agentBusy).
+ *
+ * §5.5 #17-18 ⑥ — 경계는 **나간 시각**이므로 대기 중 덧말이 dispatch 되면(=경계가 하나 늘면)
+ * 이 키가 바뀌어 전체 재구축으로 안전하게 떨어진다(그 자리에서 본문 런이 끊겨야 하기 때문).
+ *
+ * ⚠ `agentBusy` 를 **반드시 키에 넣는다** — 파서는 tool_use 를 만드는 순간의 `this.agentBusy` 로
+ * `isActive` 를 정하는데, 그 값은 리셋될 때만 갱신된다. 경계 목록이 그대로인 채 상태만 바뀌는 경우
+ * (대기 덧말 추가 → busy, 실행 끝 → idle)에 키가 같으면 파서가 **낡은 busy** 로 계속 판정해
+ * 전체 재구축과 결과가 갈린다(등가성 테스트가 잡아낸 구멍).
+ */
+function cmdTsKey(commands: QueuedCommand[] | undefined, agentBusy: boolean): string {
+  return `${agentBusy ? '1' : '0'}|${dispatchedAnchorsAsc(commands).join(',')}`;
 }
 
 /** 열린 text 블록의 증분 상태 — items[idx] 를 제자리 교체하며 자란다. */
@@ -624,21 +849,27 @@ export class IncrementalStreamParser {
       return;
     }
 
+    // §5.5 #17-12 ③ — buildBaseItems 와 동일 규약(등가성 테스트가 이 대칭을 못박는다).
+    if (type === 'error') {
+      this.items.push({ kind: 'error', id: evt.id, content: evt.content, timestamp: evt.timestamp });
+      return;
+    }
+
     // system 등 나머지
     this.items.push({ kind: 'system', id: evt.id, content: evt.content, timestamp: evt.timestamp });
   }
 
   /** 매 틱 호출 — 이벤트 파생 base 를 반환(BaseItemsResult 형태). */
   sync(events: SubAgentStreamEvent[], commands?: QueuedCommand[]): BaseItemsResult {
-    const cmdKey = cmdTsKey(commands);
     const agentBusy = computeAgentBusy(commands);
+    const cmdKey = cmdTsKey(commands, agentBusy);
 
     if (!this.canAppend(events, cmdKey)) {
       // 전체 재구축 — commands 컨텍스트 갱신 후 처음부터.
       this.resetState();
       this.cmdKey = cmdKey;
       this.agentBusy = agentBusy;
-      this.sortedCmdTs = (commands ?? []).map((c) => c.timestamp).sort((a, b) => a - b);
+      this.sortedCmdTs = dispatchedAnchorsAsc(commands);
     }
     // (canAppend 이면 cmdKey/agentBusy/sortedCmdTs 는 이미 이전과 동일 — 그대로 둔다)
 

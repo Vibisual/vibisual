@@ -127,6 +127,10 @@ export class AutoAgentRuntime {
     };
     this.deps.setAgentConfig(autoBubble.id, builderConfig);
 
+    // §5.3 #10-3 v4.98 — 요청 1건 = 검증 런 1개. Summary 는 autoAgentId 키라 새 요청이
+    //   이전 기록을 덮으므로, 증거·예산은 런에 두고 Summary 에는 포인터만 남긴다.
+    const run = inst.createAutoAgentRun({ autoAgentId: autoAgentSessionId, userRequest: message });
+
     const summary: AutoAgentSummary = {
       autoAgentId: autoAgentSessionId,
       complexity,
@@ -137,6 +141,7 @@ export class AutoAgentRuntime {
       phase: 'building',
       startedAt: Date.now(),
       askQuestionsEnabled,
+      currentRunId: run.runId,
       ...(existing?.questionsAsked ? { questionsAsked: existing.questionsAsked } : {}),
     };
     inst.setAutoAgentSummary(autoAgentSessionId, summary);
@@ -203,10 +208,40 @@ export class AutoAgentRuntime {
     const inst = this.deps.graphManager.findInstanceByAutoAgentSession(autoAgentSessionId);
     if (!inst) return null;
     const truncated = finalText ? finalText.slice(0, 200).trim() : undefined;
+
+    // §5.3 #10-3 v4.98 — **빌더 완료 ≠ 작업 완료.**
+    //   종전에는 여기서 곧바로 `completed` 로 갔다. 그 초록 배지는 "빌더가 하네스를 다 짰다"는
+    //   뜻인데 화면에는 "완료"로 보였고, 워커가 시작도 하기 전에 완료가 뜨는 원인이었다.
+    //   이제 열려 있는 검증 런이 있으면 `running` 까지만 간다 — `completed` 는 그 런이
+    //   증거와 함께 닫힐 때(`handleRunClosed`)만.
+    const activeRun = inst.getActiveAutoAgentRun(autoAgentSessionId);
     const updated = inst.updateAutoAgentSummary(autoAgentSessionId, {
-      phase: 'completed',
-      completedAt: Date.now(),
+      phase: activeRun ? 'running' : 'completed',
+      ...(activeRun ? {} : { completedAt: Date.now() }),
       ...(truncated !== undefined && { finalSummary: truncated }),
+    });
+    if (updated) {
+      this.notify(autoAgentSessionId, updated);
+      this.deps.broadcastSnapshot();
+    }
+    return updated;
+  }
+
+  /**
+   * §5.3 #10-3 v4.98 — 검증 런이 닫혔을 때 auto-agent 표시 상태를 맞춘다.
+   *
+   * `verified`(통과 증거 있음) → `completed`(초록).
+   * `escalated`(예산 소진·증거 없음 등) → `error`(빨강) + 사유 표시. 자율 루프가 스스로 끝내지
+   * 못했다는 뜻이므로 초록으로 칠하지 않는다 — 그게 종전 화면의 거짓말이었다.
+   */
+  handleRunClosed(autoAgentSessionId: string, status: string, escalation?: string): AutoAgentSummary | null {
+    const inst = this.deps.graphManager.findInstanceByAutoAgentSession(autoAgentSessionId);
+    if (!inst) return null;
+    const verified = status === 'verified';
+    const updated = inst.updateAutoAgentSummary(autoAgentSessionId, {
+      phase: verified ? 'completed' : 'error',
+      completedAt: Date.now(),
+      ...(verified ? {} : { errorMessage: `run ${status}${escalation ? ` — ${escalation}` : ''}` }),
     });
     if (updated) {
       this.notify(autoAgentSessionId, updated);

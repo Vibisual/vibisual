@@ -1,6 +1,10 @@
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { BubbleData, SubAgent } from '@vibisual/shared';
+import { useGraphStore } from '../../stores/graphStore.js';
+import {
+  NODE_STATUS_RUN_STATE, SESSION_STATUS_DOT, SESSION_STATUS_LABEL_KEY, sessionRunStateOf,
+} from '../../utils/sessionStatus.js';
 
 interface IDEStatusBarProps {
   agent: BubbleData;
@@ -27,7 +31,15 @@ export const IDEStatusBar = memo(function IDEStatusBar({
 }: IDEStatusBarProps): React.JSX.Element {
   const { t } = useTranslation();
   const model = activeSession?.modelName ?? agent.modelName;
-  const status = activeSession?.status ?? agent.status;
+  const acknowledged = useGraphStore((s) => (activeSession ? !!s.acknowledgedSubAgents[activeSession.id] : false));
+  // 종전에는 여기서 `activeSession?.status ?? agent.status` 로 **값 집합이 다른 두 축**(SubAgentStatus /
+  //   NodeStatus)을 한 칸에 섞어 그리고, 그 enum 원문을 번역 없이 출력했다(`awaiting_permission` 이
+  //   날 문자열로 보였다). 게다가 색 규약이 나머지 화면과 **정반대**였다 — 다른 넷은 완료·미확인을
+  //   초록으로 강조하고 completed 를 회색으로 죽이는데, 이 바만 그 둘을 뒤집어 칠했다.
+  //   이제 두 축을 같은 표시 어휘로 접어(`sessionRunStateOf` / `NODE_STATUS_RUN_STATE`) 색·낱말을 공유한다.
+  const runState = activeSession
+    ? sessionRunStateOf(activeSession, acknowledged)
+    : NODE_STATUS_RUN_STATE[agent.status];
   const inputTokens = activeSession?.totalInputTokens ?? agent.totalInputTokens ?? 0;
   const outputTokens = activeSession?.totalOutputTokens ?? agent.totalOutputTokens ?? 0;
 
@@ -42,12 +54,10 @@ export const IDEStatusBar = memo(function IDEStatusBar({
 
       {/* Status */}
       <span className="flex items-center gap-1">
-        <span className={`h-1.5 w-1.5 rounded-full ${
-          status === 'active' ? 'bg-blue-400 animate-pulse'
-            : status === 'completed' ? 'bg-cyan-400'
-              : 'bg-gray-500'
-        }`} />
-        <span className="text-gray-400">{status}</span>
+        <span className={`h-1.5 w-1.5 rounded-full ${SESSION_STATUS_DOT[runState]}`} />
+        <span className={runState === 'error' ? 'text-red-400' : 'text-gray-400'}>
+          {t(SESSION_STATUS_LABEL_KEY[runState])}
+        </span>
       </span>
 
       {/* Model */}

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { useAppUpdate } from '../../hooks/useAppUpdate.js';
+import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 
 // SCENARIO.md §4 v2.44 / v2.63 — 자동 업데이트 버튼(VS Code 우상단 파란 업데이트 버튼 톤).
 //
@@ -92,12 +93,13 @@ function UpdateConfirmModal({
   onConfirm: () => void;
 }): React.JSX.Element {
   const { t } = useTranslation();
+  const backdrop = useBackdropDismiss(onCancel);
   return createPortal(
     <>
       <div
         className="fixed inset-0 bg-black/60 backdrop-blur-[1px]"
         style={{ zIndex: CONFIRM_Z - 1 }}
-        onClick={onCancel}
+        {...backdrop}
       />
       <div
         className="pointer-events-none fixed inset-0 flex items-center justify-center"

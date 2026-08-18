@@ -1,0 +1,15 @@
+{
+  "id": "agentic-file-search",
+  "name": "Agentic File Search",
+  "version": "1.0.0",
+  "category": "observability",
+  "descriptionKey": "panel.plugins.agenticFileSearch.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [],
+  "hostApi": 1
+}

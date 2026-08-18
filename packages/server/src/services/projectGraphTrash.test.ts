@@ -52,4 +52,35 @@ describe('ProjectGraph — 커스텀 에이전트 휴지통', () => {
     expect(graph.restoreTrashedAgent('agent-nope')).toBe(false);
     expect(graph.permanentlyDeleteTrashedAgent('agent-nope')).toBe(false);
   });
+
+  /**
+   * v4.84 — [모두 삭제] · Delete 키 다중 선택이 타는 배치 경로(`POST /api/trash/purge`)의 알맹이.
+   * 라우트는 이 메서드를 목록만큼 돌린 뒤 스냅샷을 **한 번** 보내므로, 여기서 확인할 것은
+   * ⓐ 여러 건이 한 번에 다 지워지는지 ⓑ 중간에 없는 id 가 섞여도 나머지가 계속 지워지는지다.
+   */
+  it('여러 건을 이어서 영구 삭제해도 전부 지워진다(배치 경로)', () => {
+    const graph = new ProjectGraph();
+    const agents = ['A', 'B', 'C'].map((label) => graph.createCustomAgent(label));
+    for (const a of agents) expect(graph.trashCustomAgentByBubbleId(a.id)).toBe(true);
+    expect(graph.getTrashedCustomAgents()).toHaveLength(3);
+
+    // 라우트가 도는 루프 그대로 — 없는 id 는 missing 으로 빠지고 나머지는 계속 지운다.
+    const results = [agents[0]!.id, 'agent-nope', agents[1]!.id, agents[2]!.id]
+      .map((id) => graph.permanentlyDeleteTrashedAgent(id));
+    expect(results).toEqual([true, false, true, true]);
+    expect(graph.getTrashedCustomAgents()).toHaveLength(0);
+
+    // 같은 id 를 다시 보내도(더블 클릭·경합) 예외 없이 false.
+    expect(graph.permanentlyDeleteTrashedAgent(agents[0]!.id)).toBe(false);
+  });
+
+  it('휴지통에 없는(살아 있는) 커스텀 에이전트는 영구 삭제되지 않는다', () => {
+    const graph = new ProjectGraph();
+    const alive = graph.createCustomAgent('Still Working');
+
+    // 일괄 삭제로 넘어온 id 가 사실은 살아 있는 버블이었던 경우 — 묘비까지 남기며 사라지면 안 된다.
+    expect(graph.permanentlyDeleteTrashedAgent(alive.id)).toBe(false);
+    expect(graph.getTrashedCustomAgents()).toHaveLength(0);
+    expect(alive.trashed).toBeUndefined();
+  });
 });

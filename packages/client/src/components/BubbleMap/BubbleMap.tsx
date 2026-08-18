@@ -16,10 +16,14 @@ import {
 import '@xyflow/react/dist/style.css';
 import type { EdgeTypes } from '@xyflow/react';
 import type { BubbleData, BubbleType, CommentBox, CaptureBubble, CaptureSourceInfo } from '@vibisual/shared';
-import { EDGE_STYLE, POSITION_SAVE_INTERVAL, TASK_EDGE_STYLES, COMMENT_BOX_DEFAULTS, CAPTURE_BUBBLE_DEFAULTS, CAPTURE_SNAP, CANVAS_LOD, LAYOUT_CENTER_X, LAYOUT_CENTER_Y, SATELLITE_TYPES } from '@vibisual/shared';
+import { EDGE_STYLE, POSITION_SAVE_INTERVAL, TASK_EDGE_STYLES, COMMENT_BOX_DEFAULTS, CAPTURE_BUBBLE_DEFAULTS, CAPTURE_SNAP, CANVAS_LOD, LAYOUT_CENTER_X, LAYOUT_CENTER_Y, SATELLITE_TYPES, PLAY_BUBBLE_DEFAULT_HEIGHT, PLAY_BUBBLE_DEFAULT_WIDTH, PLAY_PREVIEW_DEFAULT_HEIGHT, PLAY_PREVIEW_DEFAULT_WIDTH, PLAY_PREVIEW_GAP } from '@vibisual/shared';
 import { BubbleNode } from './BubbleNode.js';
 import { CommentBoxNode } from './CommentBoxNode.js';
 import { CaptureNode, CAPTURE_REPICK_EVENT } from './CaptureNode.js';
+import { AppBubbleNode } from './AppBubbleNode.js';
+import { PlayNode } from './PlayNode.js';
+import { PlayPreviewNode } from './PlayPreviewNode.js';
+import { getInternalApp } from '../../apps/registry.js';
 import { useCapturePrefsStore } from '../../stores/captureBubblePrefs.js';
 import { useCaptureSnapGuideStore } from '../../stores/captureSnapGuides.js';
 import { useCanvasCovered } from '../../stores/canvasVisibility.js';
@@ -32,8 +36,9 @@ import { useGraphStore, selectActiveBrainSummary } from '../../stores/graphStore
 import { placeSatellitePositions } from '../../utils/satellite.js';
 import { toFlowNodes, findNonCollidingPosition, SPAWN_RADIUS, SPAWN_MIN_DIST, shallowEqualData } from '../../utils/flowBuilder.js';
 import { calcBubbleSize } from '../../utils/sizeCalc.js';
-import { usePhysicsLayout } from '../../hooks/usePhysicsLayout.js';
+import { usePhysicsLayout, type ExternalPhysicsNode, type PhysicsGroup, type PhysicsMove } from '../../hooks/usePhysicsLayout.js';
 import { useBubbleLayout, useFolderLayout, usePipelineLayout, useInteriorLayout } from '../../hooks/useBubbleLayout.js';
+import { useTrashedAgents } from '../../hooks/useTrashedAgents.js';
 import { CanvasContextMenu } from './CanvasContextMenu.js';
 import { DebugOverlay } from './DebugOverlay.js';
 import { LayoutBoundsBox } from './LayoutBoundsBox.js';
@@ -50,11 +55,27 @@ import { useBookmarks } from '../../hooks/useBookmarks.js';
 import { useCoarsePointer, useIsNarrowViewport, useLongPress } from '../../hooks/useIsMobile.js';
 import { useTranslation } from 'react-i18next';
 
-const nodeTypes: NodeTypes = { bubble: BubbleNode, commentBox: CommentBoxNode, captureNode: CaptureNode };
+const nodeTypes: NodeTypes = { bubble: BubbleNode, commentBox: CommentBoxNode, captureNode: CaptureNode, appNode: AppBubbleNode, playNode: PlayNode, playPreviewNode: PlayPreviewNode };
+
+/**
+ * §5.14 v4.62 — 프리뷰 노드 id(`<recordId>__preview`) → 레코드 id.
+ *
+ * 플레이 버블은 레코드 하나가 캔버스 노드 둘(버튼·프리뷰)로 그려진다. 드래그·락·PATCH 는
+ * 언제나 **레코드 id** 를 키로 써야 프리뷰를 끌었을 때 엉뚱한 곳에 저장되지 않는다.
+ */
+function playRecordId(nodeId: string): string {
+  return nodeId.endsWith('__preview') ? nodeId.slice(0, -'__preview'.length) : nodeId;
+}
 const edgeTypes: EdgeTypes = { curved: CurvedEdge, taskEdge: TaskEdgeComponent };
+
+/** 물리로 움직인 store 기반 요소의 종류 — 이동 반영/영속화 경로가 종류마다 다르다. */
+type PhysicsExternalKind = 'comment' | 'capture' | 'app' | 'play' | 'playPreview';
 
 /** §4 v3.71 — 덮였을 때 캔버스에 씌우는 스타일(참조 고정 — 매 렌더 새 객체 ❌). */
 const HIDDEN_CANVAS_STYLE: React.CSSProperties = { visibility: 'hidden' };
+
+/** v4.84 — 누적 선택 키(Shift 추가). 모듈 상수 = 매 렌더 새 배열이면 키 리스너가 다시 걸린다. */
+const MULTI_SELECT_KEYS = ['Shift', 'Control', 'Meta'];
 
 // ─── 컴포넌트 ───
 
@@ -96,10 +117,8 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
   }, [allAgents, agentProjects, effectiveAgentProject]);
 
   // §5.10 — 현재 프로젝트의 버려진(trashed) 커스텀 에이전트 — 휴지통 내부 뷰 콘텐츠.
-  const trashedAgents = useMemo(() => {
-    const inProject = !effectiveAgentProject ? allAgents : allAgents.filter((a) => agentProjects[a.id] === effectiveAgentProject);
-    return inProject.filter((a) => a.trashed);
-  }, [allAgents, agentProjects, effectiveAgentProject]);
+  //   v4.84 — 툴바([모두 삭제])와 같은 배열을 봐야 뚜껑·속·삭제 대상이 어긋나지 않아 훅으로 모았다.
+  const trashedAgents = useTrashedAgents();
 
   // 필터된 에이전트 ID Set (엣지 필터용)
   const agentIds = useMemo(
@@ -457,6 +476,48 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
 
   // §5.9 핀 고정("항상 위") — prefs.pinned 인 캡처 버블만 높은 zIndex 로 다른 버블 위에 올린다.
   const capturePrefsMap = useCapturePrefsStore((s) => s.prefs);
+  // ── §5.13 v4.45 내부 앱 버블 — 메인 뷰에서만, 현재 프로젝트만 ──
+  const allAppBubbles = useGraphStore((s) => s.appBubbles);
+  const selectedAppBubbleId = useGraphStore((s) => s.selectedAppBubbleId);
+  const appBubbleNodes = useMemo<Node[]>(() => {
+    if (currentFolderId !== null || interiorView !== null) return [];
+    const scoped = activeProject
+      ? allAppBubbles.filter((b) => b.projectName === activeProject)
+      : allAppBubbles;
+    return scoped.map((b) => {
+      // §5.13 (M) v4.60 — 크기는 앱 선언(defaultSize)을 따른다. 모양이 앱마다 다르므로
+      //   비율도 앱이 정해야 하고(영상 앱은 가로 프레임), **앱 버블에는 아직 리사이즈 UI 가
+      //   없어** 저장된 값은 언제나 생성 시점의 선언값이다 — v4.60 이전에 만든 버블만
+      //   옛 정사각(200×200)으로 남아 새 모양과 어긋난다. ⚠ 리사이즈를 넣는 날에는
+      //   이 줄이 사용자가 조절한 크기를 조용히 덮으므로 반드시 저장값 우선으로 되돌릴 것.
+      const size = getInternalApp(b.appId)?.defaultSize ?? { width: b.width, height: b.height };
+      return {
+        id: b.id,
+        type: 'appNode' as const,
+        position: { x: b.x, y: b.y },
+        width: size.width,
+        height: size.height,
+        data: {
+          appBubbleId: b.id,
+          appId: b.appId,
+          title: b.title,
+          refKey: b.ref,
+          projectName: b.projectName,
+          preservePinned: b.preservePinned,
+          width: size.width,
+          height: size.height,
+        },
+        // 선택은 store(selectedAppBubbleId) 한 채널로만 한다 — CommentBox·CaptureBubble 과 같은 규칙.
+        //   앱 버블은 flowNodes 밖에 있어 React Flow 의 자동 선택(select change)도 onNodesChange 에서
+        //   버려지므로, selectable:true 로 두면 "클릭해도 선택 안 됨"이 된다(v4.61 에서 고친 증상).
+        selected: selectedAppBubbleId === b.id,
+        draggable: true,
+        selectable: false,
+        deletable: false,
+      };
+    });
+  }, [allAppBubbles, selectedAppBubbleId, activeProject, currentFolderId, interiorView]);
+
   const captureBubbleNodes = useMemo<Node[]>(() => {
     return scopedCaptureBubbles.map((b) => ({
       id: b.id,
@@ -483,12 +544,74 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     } as Node));
   }, [scopedCaptureBubbles, selectedCaptureBubbleId, capturePrefsMap]);
 
+  // ── §5.14 v4.62 플레이 버블 — 버튼 + (켜져 있으면) 그 옆 프리뷰. 메인 뷰·현재 프로젝트만 ──
+  const allPlayBubbles = useGraphStore((s) => s.playBubbles);
+  const selectedPlayBubbleId = useGraphStore((s) => s.selectedPlayBubbleId);
+  const playNodes = useMemo<Node[]>(() => {
+    if (currentFolderId !== null || interiorView !== null) return [];
+    const scoped = activeProject ? allPlayBubbles.filter((b) => b.projectName === activeProject) : allPlayBubbles;
+    const out: Node[] = [];
+    for (const b of scoped) {
+      out.push({
+        id: b.id,
+        type: 'playNode' as const,
+        position: { x: b.x, y: b.y },
+        width: b.width,
+        height: b.height,
+        data: {
+          playBubbleId: b.id,
+          projectName: b.projectName,
+          width: b.width,
+          height: b.height,
+          title: b.title,
+          recipe: b.recipe,
+          status: b.status,
+          url: b.url,
+          error: b.error,
+          previewOpen: b.previewOpen,
+          preservePinned: b.preservePinned,
+        },
+        // 선택은 store 한 채널로만(앱 버블·캡처 버블과 같은 규칙 — flowNodes 밖이라 select change 가 버려진다).
+        selected: selectedPlayBubbleId === b.id,
+        draggable: true,
+        selectable: false,
+        deletable: false,
+      } as Node);
+      // 프리뷰는 켜져 있고 URL 이 있을 때만. 버튼과 **독립 노드**라 따로 끌고 따로 지운다.
+      if (b.previewOpen !== true || !b.url) continue;
+      out.push({
+        id: `${b.id}__preview`,
+        type: 'playPreviewNode' as const,
+        position: {
+          x: b.previewX ?? b.x + b.width + PLAY_PREVIEW_GAP,
+          y: b.previewY ?? b.y,
+        },
+        width: b.previewWidth ?? PLAY_PREVIEW_DEFAULT_WIDTH,
+        height: b.previewHeight ?? PLAY_PREVIEW_DEFAULT_HEIGHT,
+        data: {
+          playBubbleId: b.id,
+          url: b.url,
+          title: b.title,
+          width: b.previewWidth ?? PLAY_PREVIEW_DEFAULT_WIDTH,
+          height: b.previewHeight ?? PLAY_PREVIEW_DEFAULT_HEIGHT,
+        },
+        selected: selectedPlayBubbleId === b.id,
+        draggable: true,
+        selectable: false,
+        deletable: false,
+        // 드래그는 헤더에서만 — 본체는 iframe 이라 마우스가 그 안의 페이지로 가야 한다.
+        dragHandle: '.drag-handle',
+      } as Node);
+    }
+    return out;
+  }, [allPlayBubbles, selectedPlayBubbleId, activeProject, currentFolderId, interiorView]);
+
   const displayNodes = useMemo<Node[]>(() => {
     const base = pendingNodes.length === 0 ? flowNodes : [...flowNodes, ...pendingNodes];
-    if (commentBoxNodes.length === 0 && captureBubbleNodes.length === 0) return base;
+    if (commentBoxNodes.length === 0 && captureBubbleNodes.length === 0 && appBubbleNodes.length === 0 && playNodes.length === 0) return base;
     // CommentBox·Capture 먼저(뒤로), 그 다음 일반 버블/pending (앞으로)
-    return [...commentBoxNodes, ...captureBubbleNodes, ...base];
-  }, [flowNodes, pendingNodes, commentBoxNodes, captureBubbleNodes]);
+    return [...commentBoxNodes, ...captureBubbleNodes, ...appBubbleNodes, ...playNodes, ...base];
+  }, [flowNodes, pendingNodes, commentBoxNodes, captureBubbleNodes, appBubbleNodes, playNodes]);
 
   // §5.9 캡처 소스 picker — 생성(canvas 좌표) 또는 다시 선택(repickId) 두 모드.
   const [capturePicker, setCapturePicker] = useState<{ canvasX: number; canvasY: number; repickId?: string } | null>(null);
@@ -506,8 +629,66 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       .map((b) => ({ id: b.id, x: b.x, y: b.y, width: b.width, height: b.height }));
   }, []);
 
+  // §5.13 v4.45 — 내부 앱 버블 생성. 어떤 앱인지는 레지스트리 id 로만 알고,
+
+  //   기본 크기도 그 선언에서 가져온다 — 앱이 늘어도 이 함수는 그대로다.
+
+  const handleCreateAppBubble = useCallback((appId: string, cx: number, cy: number) => {
+
+    const project = useGraphStore.getState().activeProject;
+
+    if (!project) return;
+
+    const app = getInternalApp(appId);
+
+    const size = app?.defaultSize ?? { width: 200, height: 200 };
+
+    void fetch('/api/app-bubbles', {
+
+      method: 'POST',
+
+      headers: { 'Content-Type': 'application/json' },
+
+      body: JSON.stringify({
+
+        projectName: project,
+
+        appId,
+
+        x: cx - size.width / 2,
+
+        y: cy - size.height / 2,
+
+        width: size.width,
+
+        height: size.height,
+
+      }),
+
+    }).catch(() => undefined);
+
+  }, []);
+
+
   const handleCreateCapture = useCallback((canvasX: number, canvasY: number) => {
     setCapturePicker({ canvasX, canvasY });
+  }, []);
+
+  /**
+   * §5.14 v4.62 — 플레이 버블 생성.
+   *
+   * 서버가 만드는 즉시 실행법을 탐지해 붙여 준다(4단 계단 1~3단) — 놓자마자 누를 수 있는 것이
+   * 이 기능의 요점이라, 사용자에게 먼저 무엇을 실행할지 묻지 않는다. 못 찾으면 버튼이
+   * "실행법 모름"으로 뜨고, 그때 누르면 탐지 → 에이전트 위임으로 이어진다.
+   */
+  const handleCreatePlay = useCallback((canvasX: number, canvasY: number) => {
+    const project = useGraphStore.getState().activeProject;
+    if (!project) return;
+    void useGraphStore.getState().createPlayBubble({
+      projectName: project,
+      x: canvasX - PLAY_BUBBLE_DEFAULT_WIDTH / 2,
+      y: canvasY - PLAY_BUBBLE_DEFAULT_HEIGHT / 2,
+    });
   }, []);
 
   // CaptureNode 의 "다시 선택" 요청 → 같은 picker 를 repick 모드로 연다.
@@ -603,6 +784,151 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     }).catch(() => {});
   }, [buildPositionPayload]);
 
+  // ── 물리 대상 확장 — 캔버스에 보이는 사각 요소(메모·캡처·앱·플레이)도 물리 바디로 태운다 ──
+  // 이들은 flowNodes(useNodesState) 밖의 store 기반 노드라 좌표를 setFlowNodes 로 되돌릴 수 없다.
+  // 그래서 이동 결과를 applyPhysicsMoves 콜백으로 받아 각 store 에 낙관 반영하고, 물리가 정착
+  // (슬립)하는 시점에 요소당 한 번만 PATCH 로 영속화한다(매 프레임 저장 폭주 방지).
+  const physicsKindById = useMemo(() => {
+    const map = new Map<string, PhysicsExternalKind>();
+    for (const n of commentBoxNodes) map.set(n.id, 'comment');
+    for (const n of captureBubbleNodes) map.set(n.id, 'capture');
+    for (const n of appBubbleNodes) map.set(n.id, 'app');
+    for (const n of playNodes) map.set(n.id, n.type === 'playPreviewNode' ? 'playPreview' : 'play');
+    return map;
+  }, [commentBoxNodes, captureBubbleNodes, appBubbleNodes, playNodes]);
+
+  const physicsExternals = useMemo<ExternalPhysicsNode[]>(() => {
+    const out: ExternalPhysicsNode[] = [];
+    // 코멘트 박스는 밀릴 때 담고 있던 버블을 데리고 가야 그룹이 안 깨진다.
+    const carryByBoxId = new Map<string, string[]>();
+    for (const b of scopedCommentBoxes) carryByBoxId.set(b.id, b.childNodeIds);
+
+    const pushRects = (list: Node[], group: PhysicsGroup): void => {
+      for (const n of list) {
+        const w = typeof n.width === 'number' ? n.width : 0;
+        const h = typeof n.height === 'number' ? n.height : 0;
+        if (w <= 0 || h <= 0) continue;
+        out.push({
+          id: n.id,
+          x: n.position.x,
+          y: n.position.y,
+          width: w,
+          height: h,
+          shape: 'rect',
+          group,
+          movable: true,
+          carryIds: group === 'commentBox' ? carryByBoxId.get(n.id) : undefined,
+        });
+      }
+    };
+    pushRects(commentBoxNodes, 'commentBox');
+    // 핀 고정("항상 위")한 캡처 버블은 물리에서 뺀다 — 다른 것 위에 겹쳐 두려고 켜는 기능이라
+    // 물리가 밀어내면 그 의도를 정면으로 거스른다.
+    pushRects(captureBubbleNodes.filter((n) => !capturePrefsMap[n.id]?.pinned), 'panel');
+    pushRects(appBubbleNodes, 'panel');
+    pushRects(playNodes, 'panel');
+
+    // 워크트리 생성 대기 버블 — 좌표를 되돌려 줄 store 가 없으므로 "밀리지 않는 장애물"로만 참여.
+    for (const n of pendingNodes) {
+      const size = calcBubbleSize(n.data as unknown as BubbleData);
+      out.push({
+        id: n.id,
+        x: n.position.x,
+        y: n.position.y,
+        width: size,
+        height: size,
+        shape: 'circle',
+        group: 'bubble',
+        movable: false,
+      });
+    }
+    return out;
+  }, [commentBoxNodes, captureBubbleNodes, appBubbleNodes, playNodes, pendingNodes, scopedCommentBoxes, capturePrefsMap]);
+
+  /** 물리로 움직인 store 요소 — 정착 시점에 한 번씩 PATCH 하고 락을 푼다. */
+  const physicsMovedRef = useRef<Map<string, PhysicsExternalKind>>(new Map());
+  /** 멤버십 재계산 함수는 아래에서 선언되므로 ref 로 건너 받는다(선언 순서 회피). */
+  const recomputeAllBoxesRef = useRef<() => void>(() => {});
+
+  const applyPhysicsMoves = useCallback((moves: PhysicsMove[]) => {
+    const store = useGraphStore.getState();
+    for (const mv of moves) {
+      const kind = physicsKindById.get(mv.id);
+      if (!kind) continue;
+      if (!physicsMovedRef.current.has(mv.id)) {
+        physicsMovedRef.current.set(mv.id, kind);
+        // 이동 중 도착한 서버 스냅샷이 옛 좌표로 되돌리지 못하게 락 — 정착 후 PATCH 하고 푼다.
+        if (kind === 'comment') store.setCommentBoxDragLock(mv.id, true);
+        else if (kind === 'capture') store.setCaptureBubbleDragLock(mv.id, true);
+        else if (kind === 'app') store.setAppBubbleDragLock(mv.id, true);
+        else store.setPlayBubbleDragLock(playRecordId(mv.id), true);
+      }
+      if (kind === 'comment') store.patchCommentBoxLocal(mv.id, { x: mv.x, y: mv.y });
+      else if (kind === 'capture') store.patchCaptureBubbleLocal(mv.id, { x: mv.x, y: mv.y });
+      else if (kind === 'app') store.patchAppBubbleLocal(mv.id, { x: mv.x, y: mv.y });
+      else if (kind === 'play') store.patchPlayBubbleLocal(mv.id, { x: mv.x, y: mv.y });
+      else store.patchPlayBubbleLocal(playRecordId(mv.id), { previewX: mv.x, previewY: mv.y });
+    }
+  }, [physicsKindById]);
+
+  /**
+   * 물리로 옮겨진 사각 요소를 서버에 반영하고 락을 푼다. 물리가 정착(슬립)했을 때가 기본이지만,
+   * 캔버스가 덮여 rAF 가 멈추면 슬립 콜백이 오지 않으므로 주기 flush·덮임 시점에서도 부른다
+   * (안 그러면 드래그 락이 켜진 채로 남아 서버 스냅샷이 영영 반영되지 않는다).
+   */
+  const flushPhysicsExternals = useCallback(() => {
+    const moved = Array.from(physicsMovedRef.current.entries());
+    physicsMovedRef.current.clear();
+    if (moved.length === 0) return;
+
+    void (async () => {
+      for (const [id, kind] of moved) {
+        const store = useGraphStore.getState();
+        try {
+          if (kind === 'comment') {
+            const rec = store.commentBoxes.find((b) => b.id === id);
+            if (rec) await store.updateCommentBox(id, { x: rec.x, y: rec.y });
+            setTimeout(() => useGraphStore.getState().setCommentBoxDragLock(id, false), 300);
+          } else if (kind === 'capture') {
+            const rec = store.captureBubbles.find((b) => b.id === id);
+            if (rec) await store.updateCaptureBubble(id, { x: rec.x, y: rec.y });
+            setTimeout(() => useGraphStore.getState().setCaptureBubbleDragLock(id, false), 300);
+          } else if (kind === 'app') {
+            const rec = store.appBubbles.find((b) => b.id === id);
+            if (rec) {
+              await fetch(`/api/app-bubbles/${id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ x: rec.x, y: rec.y }),
+              });
+            }
+            setTimeout(() => useGraphStore.getState().setAppBubbleDragLock(id, false), 300);
+          } else {
+            const recordId = playRecordId(id);
+            const rec = store.playBubbles.find((b) => b.id === recordId);
+            if (rec) {
+              await store.updatePlayBubble(
+                recordId,
+                kind === 'play'
+                  ? { x: rec.x, y: rec.y }
+                  : { previewX: rec.previewX, previewY: rec.previewY },
+              );
+            }
+            setTimeout(() => useGraphStore.getState().setPlayBubbleDragLock(recordId, false), 300);
+          }
+        } catch { /* 다음 스냅샷이 서버 권위 값으로 정리 */ }
+      }
+      // 물리로 박스·버블이 옮겨졌으니 어떤 버블이 어느 박스에 속하는지 다시 판정.
+      recomputeAllBoxesRef.current();
+    })();
+  }, []);
+
+  /** 물리가 정착(슬립)했을 때 — 버블 위치 flush + 사각 요소 PATCH + 코멘트 멤버십 재계산. */
+  const handlePhysicsSettle = useCallback(() => {
+    flushPositionsFetch();
+    flushPhysicsExternals();
+  }, [flushPositionsFetch, flushPhysicsExternals]);
+
   // 위성 부모-자식 매핑 — usePhysicsLayout보다 앞에 선언 (deps 순서)
   const satInfosRef = useRef<{ parentId: string; bubble: BubbleData }[]>([]);
 
@@ -611,7 +937,12 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     satInfosRef.current.map((s) => ({ source: s.parentId, target: s.bubble.id })),
   [flowNodes]); // flowNodes 변경 시 갱신 (satInfosRef.current는 viewData effect에서 업데이트)
 
-  const { onSatelliteDrag, onSatelliteDragStop, pauseAndReset, wake } = usePhysicsLayout(flowNodes, setFlowNodes, satelliteLinks, flushPositionsFetch, false);
+  // forceRun=true — 캔버스 버블은 **항상** 물리 대상이다. 종전엔 false 라, 파일 위성이 하나도 없으면
+  // (= 에이전트가 조용한 평소 상태) 물리 틱이 통째로 건너뛰어 버블끼리 겹쳐도 밀려나지 않고 사각
+  // 바운딩 박스 클램프도 멈췄다. 슬립 수렴은 그대로라 유휴 시 rAF 비용은 종전과 같다.
+  const { onSatelliteDrag, onSatelliteDragStop, pauseAndReset, wake } = usePhysicsLayout(
+    flowNodes, setFlowNodes, satelliteLinks, handlePhysicsSettle, true, physicsExternals, applyPhysicsMoves,
+  );
 
   // §5.4 #29 v1.51 — 캔버스 클립보드 (Ctrl/Cmd+C / Ctrl/Cmd+V)
   const { t } = useTranslation();
@@ -1111,7 +1442,18 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       void window.api?.command?.open({ projectId });
       return;
     }
-    if (data.bubbleType === 'internal_folder' || data.bubbleType === 'external_folder' || data.bubbleType === 'worktree') {
+    // §2.1 #5 v1.55 — 외부 폴더 버블은 "에이전트가 프로젝트 밖에서 실제로 만진 위치" 를 가리킨다.
+    // 안으로 들어가 봐야 그 위성 파일은 이미 이 캔버스에 함께 떠 있으므로, 더블클릭은 SSOT 대로
+    // **OS 탐색기에서 그 절대경로** 를 연다(§7.10 폴더 열기 인프라 재사용 — 새 레일 ❌).
+    if (data.bubbleType === 'external_folder') {
+      fetch(`/api/open-node-folder`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nodePath: data.path, absolutePath: data.absolutePath ?? null }),
+      }).catch(() => {});
+      return;
+    }
+    if (data.bubbleType === 'internal_folder' || data.bubbleType === 'worktree') {
       store.enterFolder(data.id);
       return;
     }
@@ -1319,6 +1661,11 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     }
   }, [activeProject, recomputeBoxMembership]);
 
+  // 물리 정착 콜백(위에서 선언)이 최신 재계산 함수를 부를 수 있게 ref 로 건네준다.
+  useEffect(() => {
+    recomputeAllBoxesRef.current = recomputeAllBoxesInActiveProject;
+  }, [recomputeAllBoxesInActiveProject]);
+
   /**
    * 현재 다중 선택(React Flow native)된 버블들의 bounding box 로 Comment Box 생성.
    * 선택이 없거나 메인 뷰가 아니면 무시.
@@ -1375,6 +1722,16 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
 
   const handleNodeDragStart = useCallback((_: React.MouseEvent, node: Node) => {
     setCtxMenu(null);
+    // §5.13 앱 버블 드래그 시작 — geometry 락(WS snapshot 회귀 방지). 동반 이동 없음.
+    if (node.type === 'appNode') {
+      useGraphStore.getState().setAppBubbleDragLock(node.id, true);
+      return;
+    }
+    // §5.14 플레이 버블(버튼·프리뷰) 드래그 시작 — 락 키는 **레코드 id**(프리뷰 노드 id 가 아니다).
+    if (node.type === 'playNode' || node.type === 'playPreviewNode') {
+      useGraphStore.getState().setPlayBubbleDragLock(playRecordId(node.id), true);
+      return;
+    }
     // §5.9 캡처 버블 드래그 시작 — geometry 락(WS snapshot 회귀 방지). 동반 이동 없음.
     if (node.type === 'captureNode') {
       useGraphStore.getState().setCaptureBubbleDragLock(node.id, true);
@@ -1432,6 +1789,31 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     positionsRef.current.set(node.id, node.position);
     onSatelliteDrag(node.id, node.position.x, node.position.y);
 
+    // §5.13 앱 버블 드래그 중 — 매 프레임 store 에 낙관 반영해야 손을 따라온다.
+    // 앱 버블은 flowNodes(useNodesState) 가 아니라 store(appBubbles) 에서 position 을 받는 노드라,
+    // React Flow 가 controlled 모드에서 흘려보내는 position change 는 onNodesChange(=flowNodes 전용)
+    // 에서 그냥 버려진다. 여기서 좌표를 넣어 주지 않으면 드래그 내내 제자리에 있다가 손을 뗄 때
+    // (dragStop) 한 번에 순간이동해 "둔하다"고 느껴진다. CommentBox·CaptureBubble 과 같은 규칙.
+    if (node.type === 'appNode') {
+      useGraphStore.getState().patchAppBubbleLocal(node.id, { x: node.position.x, y: node.position.y });
+      return;
+    }
+
+    // §5.14 플레이 버블 드래그 중 — store 기반 노드라 매 프레임 낙관 반영해야 손을 따라온다
+    //   (v4.60 앱 버블에서 겪은 "둔한 드래그"와 같은 원인 — controlled React Flow 는
+    //    flowNodes 밖 노드의 position change 를 조용히 버린다).
+    if (node.type === 'playNode') {
+      useGraphStore.getState().patchPlayBubbleLocal(node.id, { x: node.position.x, y: node.position.y });
+      return;
+    }
+    if (node.type === 'playPreviewNode') {
+      useGraphStore.getState().patchPlayBubbleLocal(playRecordId(node.id), {
+        previewX: node.position.x,
+        previewY: node.position.y,
+      });
+      return;
+    }
+
     // §5.9 캡처 버블 드래그 중 — 이어 붙이기 자석으로 좌표를 보정한 뒤 로컬 낙관 반영(단독 이동).
     // 화면 버블 2~3개를 듀얼 모니터처럼 쓰려면 손으로 대충 놓아도 변이 딱 붙어야 한다. 보정된
     // 위치를 store 에 넣으면 노드 position prop 이 그 값으로 흘러가 렌더도 붙은 자리에서 따라온다
@@ -1482,6 +1864,41 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
 
   const handleNodeDragStop = useCallback((_: React.MouseEvent, node: Node) => {
     onSatelliteDragStop(node.id);
+
+    // §5.13 v4.45 — 앱 버블 드래그 종료. 화면을 먼저 옮기고 서버에 알린다(왕복을 기다리지 않게).
+    if (node.type === 'appNode') {
+      const store = useGraphStore.getState();
+      const pos = { x: node.position.x, y: node.position.y };
+      store.patchAppBubbleLocal(node.id, pos);
+      void (async () => {
+        try {
+          await fetch(`/api/app-bubbles/${node.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(pos),
+          });
+        } catch { /* 다음 스냅샷이 서버 권위 값으로 정리 */ }
+        // PATCH 가 끝난 뒤에도 버퍼를 두고 락을 푼다 — 먼저 출발한 스냅샷이 늦게 도착해
+        // 방금 놓은 자리를 옛 좌표로 되돌리는 것을 막는다(캡처 버블과 동일한 300ms).
+        setTimeout(() => store.setAppBubbleDragLock(node.id, false), 300);
+      })();
+      return;
+    }
+
+    // §5.14 플레이 버블 드래그 종료 — 버튼은 x/y 로, 프리뷰는 previewX/Y 로 저장한다.
+    if (node.type === 'playNode' || node.type === 'playPreviewNode') {
+      const store = useGraphStore.getState();
+      const recordId = playRecordId(node.id);
+      const geometry = node.type === 'playNode'
+        ? { x: node.position.x, y: node.position.y }
+        : { previewX: node.position.x, previewY: node.position.y };
+      store.patchPlayBubbleLocal(recordId, geometry);
+      void (async () => {
+        await store.updatePlayBubble(recordId, geometry);
+        setTimeout(() => store.setPlayBubbleDragLock(recordId, false), 300);
+      })();
+      return;
+    }
 
     // §5.9 캡처 버블 드래그 종료 — **자석으로 보정된** 최종 위치 PATCH + 락 해제(버퍼 300ms).
     // node.position(생좌표)을 저장하면 붙여 놓은 이음선이 손 뗀 순간 다시 벌어진다.
@@ -1618,6 +2035,23 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       const selectedFlowNodes = flowNodesRef.current.filter((n) => n.selected);
       const selectedFlowEdges = flowEdgesRef.current.filter((ed) => ed.selected);
 
+      // §5.10 v4.84 — 휴지통 내부의 Delete = 영구 삭제(확인 팝업 경유, 단일·Shift 다중 공용).
+      //   아래 일반 경로로 내려가면 이미 버려진 에이전트를 다시 "휴지통 이동" 시키려다 실패해
+      //   버블만 화면에서 사라지고 identity·기억 카드·스트림 파일은 디스크에 남는다.
+      if (state.interiorView?.kind === 'trash') {
+        const ids: string[] = [];
+        for (const n of selectedFlowNodes) {
+          if (n.type !== 'bubble') continue;
+          if (state.nodeMap[n.id]?.trashed) ids.push(n.id);
+        }
+        // React Flow 선택이 비어 있어도 store 단일 선택(패널에서 고른 경우)은 살아 있을 수 있다.
+        if (ids.length === 0 && state.selectedNodeId && state.nodeMap[state.selectedNodeId]?.trashed) {
+          ids.push(state.selectedNodeId);
+        }
+        if (ids.length > 0) state.requestTrashPurge(ids);
+        return;
+      }
+
       // 다중(2개 이상) 선택이 있으면 일괄 삭제 경로
       if (selectedFlowNodes.length + selectedFlowEdges.length > 1) {
         // 1) Task 엣지 일괄 삭제
@@ -1660,6 +2094,8 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
         state.selectNode(null);
         if (state.selectedCommentBoxId) state.selectCommentBox(null);
         if (state.selectedCaptureBubbleId) state.selectCaptureBubble(null);
+        if (state.selectedAppBubbleId) state.selectAppBubble(null);
+        if (state.selectedPlayBubbleId) state.selectPlayBubble(null);
         if (state.selectedTaskEdgeId) state.selectTaskEdge(null);
         return;
       }
@@ -1667,6 +2103,16 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       // 단일 선택 경로 (기존 동작 유지)
       if (state.selectedCaptureBubbleId) {
         void state.deleteCaptureBubble(state.selectedCaptureBubbleId);
+        return;
+      }
+      // §5.14 플레이 버블 — 앱 버블과 같은 자리, 같은 규칙(핀이면 서버가 409 로 거절).
+      if (state.selectedPlayBubbleId) {
+        void state.deletePlayBubble(state.selectedPlayBubbleId);
+        return;
+      }
+      // §5.13 앱 버블 — 캡처 버블과 같은 자리, 같은 규칙. 핀이 걸려 있으면 서버가 거절한다(§2.4).
+      if (state.selectedAppBubbleId) {
+        void state.deleteAppBubble(state.selectedAppBubbleId);
         return;
       }
       if (state.selectedCommentBoxId) {
@@ -1762,18 +2208,22 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     //   flush 해서 직전까지의 좌표는 남긴다(해제되면 아래 setInterval 이 다시 걸린다).
     if (covered) {
       flushPositionsFetch();
+      flushPhysicsExternals();
       return () => {
         document.removeEventListener('visibilitychange', handleVisChange);
         window.removeEventListener('beforeunload', handleUnload);
       };
     }
-    const timer = setInterval(flushPositionsFetch, POSITION_SAVE_INTERVAL);
+    const timer = setInterval(() => {
+      flushPositionsFetch();
+      flushPhysicsExternals();
+    }, POSITION_SAVE_INTERVAL);
     return () => {
       document.removeEventListener('visibilitychange', handleVisChange);
       window.removeEventListener('beforeunload', handleUnload);
       clearInterval(timer);
     };
-  }, [flushPositionsFetch, flushPositionsBeacon, covered]);
+  }, [flushPositionsFetch, flushPositionsBeacon, flushPhysicsExternals, covered]);
 
   return (
     <div
@@ -1801,6 +2251,9 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
         maxZoom={zoomCtrlHeld ? 4 : 2}
         fitViewOptions={mobileZoom ? { maxZoom: 1.2 } : undefined}
         elevateNodesOnSelect={false}
+        // v4.84 — 누적(다중) 선택 키에 Shift 를 더한다. React Flow 기본은 Ctrl/Meta 뿐이라
+        //   "Shift 로 여러 개 골라 Delete" 가 안 됐다(Shift+드래그 박스 선택은 종전대로 유지).
+        multiSelectionKeyCode={MULTI_SELECT_KEYS}
         fitView proOptions={{ hideAttribution: true }}
         // §4 v3.71 — 뷰포트 밖 노드·엣지는 아예 렌더하지 않는다(React Flow 표준 컬링).
         onlyRenderVisibleElements={CANVAS_LOD.CULL_OFFSCREEN}
@@ -1830,6 +2283,8 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
           onCreatePipeline={createPipeline}
           onCreateWorktree={createWorktree}
           onCreateCapture={handleCreateCapture}
+          onCreateAppBubble={handleCreateAppBubble}
+          onCreatePlay={handleCreatePlay}
           onClose={handleCtxClose}
         />
       )}

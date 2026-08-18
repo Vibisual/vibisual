@@ -16,12 +16,27 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import fs from 'node:fs';
 import path from 'node:path';
 import { PLUGIN_CLIENT_MODULES } from './client.js';
+import { pluginLocaleResources } from './locales.js';
 import type { PluginHeaderContext, PluginTranslate } from './types.js';
 import { pluginTestContexts, recorder } from './testkit/contexts.js';
 
-const EN = JSON.parse(
+/**
+ * 화면이 실제로 보는 것과 같은 트리 — 로케일 파일(호스트 창 뼈대) + **플러그인 폴더 안 문자열**(v4.58).
+ *
+ * v4.58 에서 카드 문자열이 각 플러그인 폴더의 `strings.ts` 로 옮겨 갔다(자립 규약). 한쪽만 보면
+ * 카드가 부르는 키가 통째로 "없는 키"가 되므로, 호스트가 합치는 것과 **같은 함수**로 합쳐서 본다.
+ */
+const BASE = JSON.parse(
   fs.readFileSync(path.resolve(__dirname, '../../client/src/i18n/locales/en.json'), 'utf8'),
 ) as Record<string, unknown>;
+const BASE_PANEL = (BASE.panel ?? {}) as Record<string, unknown>;
+const EN: Record<string, unknown> = {
+  ...BASE,
+  panel: {
+    ...BASE_PANEL,
+    plugins: { ...(BASE_PANEL.plugins as Record<string, unknown>), ...pluginLocaleResources('en') },
+  },
+};
 
 function lookup(key: string): unknown {
   return key.split('.').reduce<unknown>((node, seg) => {

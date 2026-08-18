@@ -1,0 +1,15 @@
+{
+  "id": "mcp-server",
+  "name": "MCP Server",
+  "version": "1.0.0",
+  "category": "security",
+  "descriptionKey": "panel.plugins.mcpServer.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [],
+  "hostApi": 1
+}

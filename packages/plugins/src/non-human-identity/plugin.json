@@ -1,0 +1,17 @@
+{
+  "id": "non-human-identity",
+  "name": "Non-Human Identity",
+  "version": "1.0.0",
+  "category": "security",
+  "descriptionKey": "panel.plugins.nonHumanIdentity.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "subAgents"
+  ],
+  "hostApi": 1
+}

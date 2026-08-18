@@ -3,6 +3,42 @@ import type { Node } from '@xyflow/react';
 import { LAYOUT_CENTER_X, LAYOUT_CENTER_Y } from '@vibisual/shared';
 import { useGraphStore } from '../stores/graphStore.js';
 import { isCanvasCovered, subscribeCanvasCovered } from '../stores/canvasVisibility.js';
+import {
+  MAGNET_GAP,
+  collidable,
+  extentOf,
+  gapBetween,
+  massOf,
+  separation,
+  type PhysicsGroup,
+} from './physicsGeometry.js';
+
+export type { PhysicsGroup } from './physicsGeometry.js';
+
+/**
+ * flowNodes(useNodesState) 밖에 있는 store 기반 요소를 물리에 태우기 위한 입력.
+ * 좌표는 화면과 같은 **좌상단** 기준(폭·높이 포함), 이동 결과는 `onExternalMove` 로 되돌려 준다.
+ */
+export interface ExternalPhysicsNode {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  shape: 'circle' | 'rect';
+  group: PhysicsGroup;
+  /** false 면 밀리지 않는 고정 장애물(위치를 되돌려 줄 곳이 없는 요소). */
+  movable: boolean;
+  /** 이 요소가 움직일 때 같은 변위로 데려갈 바디들(코멘트 박스 멤버). */
+  carryIds?: string[];
+}
+
+export interface PhysicsMove {
+  id: string;
+  /** 좌상단 좌표(화면/스토어와 같은 기준). */
+  x: number;
+  y: number;
+}
 
 interface PhysicsBody {
   id: string;
@@ -10,7 +46,12 @@ interface PhysicsBody {
   y: number;
   vx: number;
   vy: number;
+  /** 원형 바디의 반경. 사각 바디에서는 halfW/halfH 를 쓴다. */
   radius: number;
+  halfW: number;
+  halfH: number;
+  shape: 'circle' | 'rect';
+  group: PhysicsGroup;
   parentId: string | null;
   offsetX: number;
   offsetY: number;
@@ -18,9 +59,14 @@ interface PhysicsBody {
   dragging: boolean;
   /** React Flow 가 DOM 실측을 마쳤는지(§4 v3.71 — 화면 밖 컬링 노드는 실측 전이라 반경이 기본값). */
   measured: boolean;
+  /** flowNodes 밖(store 기반) 요소인지 — 이동을 콜백으로 내보낸다. */
+  external: boolean;
+  /** 물리로 밀 수 있는지(고정 장애물은 false). */
+  movable: boolean;
+  /** 함께 끌고 갈 바디 id(코멘트 박스 멤버). */
+  carryIds: string[] | null;
 }
 
-const MAGNET_GAP = 12;
 const REPULSION_STRENGTH = 800;
 const REPULSION_RANGE = 120;
 const DAMPING = 0.88;
@@ -37,6 +83,8 @@ const SLEEP_FRAMES = 15;
  * 중심은 LAYOUT_CENTER_X/Y. 위성은 부모 스프링이 끌어당기므로 직접 클램프하지 않는다.
  */
 const BOUNDS_BOUNCE = 0.4;
+/** 좌표를 화면(노드/스토어)에 반영하는 최소 변위 — 서브픽셀 떨림으로 리렌더하지 않기 위함. */
+const MIN_DISPLACEMENT = 0.5;
 
 /**
  * §4 v3.71 가시성 LOD — "덮임"(IDE 최대화·모달 등 전면 오버레이)을 `document.hidden` 과 **동급**으로
@@ -61,8 +109,15 @@ export function usePhysicsLayout(
   setNodes: React.Dispatch<React.SetStateAction<Node[]>>,
   satelliteEdges: Array<{ source: string; target: string }>,
   onSleep?: () => void,
-  /** true면 위성 없이도 물리 틱이 돌면서 일반 버블끼리 반발력이 적용된다. */
+  /**
+   * true면 위성 없이도 물리 틱이 돌면서 일반 버블끼리 반발력·경계 클램프가 적용된다.
+   * 캔버스(`BubbleMap`)는 항상 true 를 넘긴다 — 위성 유무는 버블 물리의 조건이 아니다.
+   */
   forceRun: boolean = false,
+  /** flowNodes 밖(store 기반)의 사각 요소들 — 캡처·앱·플레이·코멘트 박스. */
+  externalNodes: ExternalPhysicsNode[] = [],
+  /** 위 요소들이 물리로 움직였을 때 좌상단 좌표를 되돌려 주는 콜백(한 틱에 1회, 배열). */
+  onExternalMove?: (moves: PhysicsMove[]) => void,
 ): PhysicsHandlers {
   const bodiesRef = useRef<Map<string, PhysicsBody>>(new Map());
   const rafRef = useRef<number | null>(null);
@@ -73,6 +128,14 @@ export function usePhysicsLayout(
   const quietFramesRef = useRef(0);
   /** 슬립 상태 — 속도 수렴 시 true, 드래그 시 false */
   const sleepingRef = useRef(false);
+  /**
+   * 외부(store) 요소에 우리가 마지막으로 내보낸 중심 좌표. 스토어 → 노드 → 이 훅으로 되돌아오는
+   * 값이 우리가 쓴 값과 같으면 바디 위치를 다시 덮지 않는다(왕복 지연 때문에 속도가 매 프레임
+   * 초기화되어 밀림이 끊기는 것을 막는다). 다른 주체(드래그·서버 스냅샷)가 옮겼을 때만 받아들인다.
+   */
+  const lastEmittedRef = useRef<Map<string, { x: number; y: number }>>(new Map());
+  const onExternalMoveRef = useRef(onExternalMove);
+  useEffect(() => { onExternalMoveRef.current = onExternalMove; }, [onExternalMove]);
 
   /** 최신 tick 참조 — rAF 루프가 tick 정체성 변화에 재시작 없이 항상 최신 로직을 부르게 한다. */
   const tickRef = useRef<() => void>(() => {});
@@ -132,6 +195,9 @@ export function usePhysicsLayout(
     //   깨우는 조건은 "미실측 → 실측" 전이뿐 — 활동에 따른 크기 전이(매 프레임 폭 변화)로는 깨지 않아
     //   상시 rAF 로 되돌아가지 않는다.
     let measuredArrived = false;
+    // 활동으로 반경이 커진 바디들. 크기 전이 **자체**로는 깨우지 않고(상시 rAF 회귀 방지 — §4 v3.71),
+    // 커진 결과 실제로 이웃과 겹쳐 버린 경우에만 아래에서 1회 깨운다.
+    const grown: PhysicsBody[] = [];
 
     for (const node of nodes) {
       const isSat = node.id.startsWith('sat-');
@@ -147,7 +213,11 @@ export function usePhysicsLayout(
       if (old) {
         if (!old.measured && measuredW != null) measuredArrived = true;
         old.measured = measuredW != null;
+        const prevRadius = old.radius;
         old.radius = r;
+        old.halfW = r;
+        old.halfH = r;
+        if (r > prevRadius + 0.5) grown.push(old);
         old.parentId = pid;
         // 비위성은 항상 동기화, 위성은 pause 중일 때만 동기화 (캐시 복원 반영)
         if (!isSat || isPaused) {
@@ -187,20 +257,97 @@ export function usePhysicsLayout(
           x: cx, y: cy,
           vx: 0, vy: 0,
           radius: r,
+          halfW: r, halfH: r,
+          shape: 'circle',
+          group: 'bubble',
           parentId: pid,
           offsetX, offsetY,
           dragging: false,
           measured: measuredW != null,
+          external: false,
+          movable: true,
+          carryIds: null,
         });
       }
     }
+
+    // store 기반 사각 요소(캡처·앱·플레이·코멘트 박스) — 좌상단+크기로 들어와 중심 기준 바디가 된다.
+    for (const ext of externalNodes) {
+      if (!(ext.width > 0) || !(ext.height > 0)) continue;
+      const halfW = ext.width / 2;
+      const halfH = ext.height / 2;
+      const cx = ext.x + halfW;
+      const cy = ext.y + halfH;
+      const old = existing.get(ext.id);
+      if (old) {
+        const prevExtent = extentOf(old);
+        old.halfW = halfW;
+        old.halfH = halfH;
+        old.radius = ext.shape === 'circle' ? halfW : Math.max(halfW, halfH);
+        old.shape = ext.shape;
+        old.group = ext.group;
+        old.movable = ext.movable;
+        old.carryIds = ext.carryIds ?? null;
+        old.measured = true;
+        old.external = true;
+        old.parentId = null;
+        if (extentOf(old) > prevExtent + 0.5) grown.push(old);
+        // 우리가 방금 내보낸 좌표가 되돌아온 것이면 무시 — 그 외(드래그·서버 스냅샷)만 받아들인다.
+        const emitted = lastEmittedRef.current.get(ext.id);
+        const isEcho = emitted != null && Math.abs(emitted.x - cx) < 1.5 && Math.abs(emitted.y - cy) < 1.5;
+        const posMoved = Math.abs(old.x - cx) > 0.5 || Math.abs(old.y - cy) > 0.5;
+        if (posMoved && !isEcho) {
+          old.x = cx;
+          old.y = cy;
+          old.vx = 0;
+          old.vy = 0;
+          lastEmittedRef.current.delete(ext.id);
+        }
+        newBodies.set(ext.id, old);
+      } else {
+        newBodies.set(ext.id, {
+          id: ext.id,
+          x: cx, y: cy,
+          vx: 0, vy: 0,
+          radius: ext.shape === 'circle' ? halfW : Math.max(halfW, halfH),
+          halfW, halfH,
+          shape: ext.shape,
+          group: ext.group,
+          parentId: null,
+          offsetX: 0, offsetY: 0,
+          dragging: false,
+          measured: true,
+          external: true,
+          movable: ext.movable,
+          carryIds: ext.carryIds ?? null,
+        });
+      }
+    }
+
+    // 사라진 요소의 잔여 기록 정리
+    for (const id of Array.from(lastEmittedRef.current.keys())) {
+      if (!newBodies.has(id)) lastEmittedRef.current.delete(id);
+    }
+
     bodiesRef.current = newBodies;
-    if (measuredArrived) {
+    // 커진 바디가 이웃을 파고들었는지 1회 검사 — 겹쳤을 때만 깨운다(겹침이 없으면 잠든 채로 둔다).
+    let grownIntoOverlap = false;
+    if (grown.length > 0) {
+      const allBodies = Array.from(newBodies.values());
+      for (const g of grown) {
+        for (const other of allBodies) {
+          if (other === g || !collidable(g, other)) continue;
+          if (separation(g, other, gapBetween(g, other))) { grownIntoOverlap = true; break; }
+        }
+        if (grownIntoOverlap) break;
+      }
+    }
+    if (measuredArrived || grownIntoOverlap) {
       sleepingRef.current = false;
       quietFramesRef.current = 0;
       ensureRunning();
     }
-  }, [nodes, ensureRunning]);
+  }, [nodes, externalNodes, ensureRunning]);
 
   /** 드래그 중 — 마우스에 고정, 물리 엔진이 안 건드림 */
   const onSatelliteDrag = useCallback((id: string, x: number, y: number) => {
@@ -209,11 +356,12 @@ export function usePhysicsLayout(
     ensureRunning();
     const body = bodiesRef.current.get(id);
     if (!body) return;
-    body.x = x + body.radius;
-    body.y = y + body.radius;
+    body.x = x + body.halfW;
+    body.y = y + body.halfH;
     body.vx = 0;
     body.vy = 0;
     body.dragging = true;
+    lastEmittedRef.current.delete(id);
   }, [ensureRunning]);
 
   /** 드래그 끝 — 놓은 방향 유지, 거리는 원래 궤도로 복귀 */
@@ -251,6 +399,10 @@ export function usePhysicsLayout(
     if (satellites.length === 0 && !forceRun) return;
     if (satellites.length === 0 && all.length < 2) return;
 
+    // 코멘트 박스는 멤버를 데리고 움직인다 — 이번 틱의 시작 위치를 기억해 두고 마지막에 변위를 전달.
+    const carriers = all.filter((b) => b.carryIds != null && b.carryIds.length > 0 && b.movable && !b.dragging);
+    const carrierStart = carriers.map((b) => ({ body: b, x: b.x, y: b.y }));
+
     // 부모로의 복귀 경로가 막힌 위성 검출 — 이 위성들은 이번 프레임 완전 정지.
     // 조건: 다른 버블 B가 (1) 부모와 이미 최소거리로 붙어 있고(=더 밀 공간 없음)
     // (2) sat과 parent 사이에 끼어 있고 (3) sat과 충돌권 내에 있음.
@@ -269,13 +421,13 @@ export function usePhysicsLayout(
         const bpx = b.x - parent.x;
         const bpy = b.y - parent.y;
         const bpDist = Math.sqrt(bpx * bpx + bpy * bpy) || 0.1;
-        const bpMin = parent.radius + b.radius + MAGNET_GAP;
+        const bpMin = parent.radius + extentOf(b) + MAGNET_GAP;
         if (bpDist > bpMin + 1) continue;
         if (bpDist >= satToParent) continue;
         const sbx = b.x - sat.x;
         const sby = b.y - sat.y;
         const sbDist = Math.sqrt(sbx * sbx + sby * sby) || 0.1;
-        const sbMin = sat.radius + b.radius + MAGNET_GAP;
+        const sbMin = sat.radius + extentOf(b) + MAGNET_GAP;
         if (sbDist <= sbMin + 6) { frozenSatIds.add(sat.id); break; }
       }
     }
@@ -308,12 +460,15 @@ export function usePhysicsLayout(
     // 자석 반발 — 균일 공간 해시 그리드로 O(N²) → O(N) 최적화.
     // 셀 크기는 두 바디가 상호작용할 수 있는 최대 거리 이상이어야 인접 3×3 셀만
     // 확인해도 누락 0 보장. 상호작용 최대 거리 = max(REPULSION_RANGE,
-    // 최대반경*2 + MAGNET_GAP). 버블 크기가 가변(NODE_MAX_SIZE까지)이므로
-    // 하드코딩 대신 이번 tick 의 실제 최대 반경으로 동적 산출 — 큰 버블 쌍
-    // 겹침 보정 누락(겹쳐도 안 밀려남) 방지.
-    let maxRadius = 0;
-    for (const body of all) if (body.radius > maxRadius) maxRadius = body.radius;
-    const CELL_SIZE = Math.max(REPULSION_RANGE, maxRadius * 2 + MAGNET_GAP);
+    // 최대치수*2 + MAGNET_GAP). 버블 크기가 가변(NODE_MAX_SIZE까지)이고 사각 창은
+    // 그보다 훨씬 크므로 하드코딩 대신 이번 tick 의 실제 최대 치수로 동적 산출 —
+    // 큰 요소 쌍 겹침 보정 누락(겹쳐도 안 밀려남) 방지.
+    let maxExtent = 0;
+    for (const body of all) {
+      const ext = extentOf(body);
+      if (ext > maxExtent) maxExtent = ext;
+    }
+    const CELL_SIZE = Math.max(REPULSION_RANGE, maxExtent * 2 + MAGNET_GAP);
     const grid = new Map<string, PhysicsBody[]>();
     for (const body of all) {
       const cx = Math.floor(body.x / CELL_SIZE);
@@ -336,43 +491,52 @@ export function usePhysicsLayout(
           for (const b of bucket) {
             // 쌍 중복 방지: 사전순 소→대 방향으로만 처리
             if (a.id >= b.id) continue;
+            if (!collidable(a, b)) continue;
 
             // 부모는 자기 위성한테 안 밀림 (단, 유저가 위성 잡고 밀면 밀림)
             const aIsParentOfB = b.parentId === a.id && !b.dragging;
             const bIsParentOfA = a.parentId === b.id && !a.dragging;
 
-            const dx = a.x - b.x;
-            const dy = a.y - b.y;
-            const dist = Math.sqrt(dx * dx + dy * dy) || 0.1;
-            const minDist = a.radius + b.radius + MAGNET_GAP;
-            const nx = dx / dist;
-            const ny = dy / dist;
-
             const aFrozen = frozenSatIds.has(a.id);
             const bFrozen = frozenSatIds.has(b.id);
+            const aMovable = !a.dragging && !aIsParentOfB && !aFrozen && a.movable;
+            const bMovable = !b.dragging && !bIsParentOfA && !bFrozen && b.movable;
+            if (!aMovable && !bMovable) continue;
 
-            if (dist < minDist) {
-              const correction = (minDist - dist) / 2;
-              const bounce = Math.max(minDist - dist, 1) * 0.3;
-              if (!a.dragging && !aIsParentOfB && !aFrozen) { a.x += nx * correction; a.y += ny * correction; a.vx += nx * bounce; a.vy += ny * bounce; }
-              if (!b.dragging && !bIsParentOfA && !bFrozen) { b.x -= nx * correction; b.y -= ny * correction; b.vx -= nx * bounce; b.vy -= ny * bounce; }
-            } else if (dist < REPULSION_RANGE) {
-              const force = REPULSION_STRENGTH / (dist * dist);
-              if (!a.dragging && !aIsParentOfB && !aFrozen) { a.vx += nx * force; a.vy += ny * force; }
-              if (!b.dragging && !bIsParentOfA && !bFrozen) { b.vx -= nx * force * 0.5; b.vy -= ny * force * 0.5; }
+            // 사각 요소가 낀 쌍은 간격 0 — 캡처 버블 이어 붙이기(§5.9 자석 스냅)로 딱 붙여 놓은
+            // 변이 물리로 다시 벌어지면 안 된다. 원형 버블끼리만 MAGNET_GAP 만큼 띄운다.
+            const sep = separation(a, b, gapBetween(a, b));
+
+            if (sep) {
+              const correction = sep.depth / 2;
+              const bounce = Math.max(sep.depth, 1) * 0.3;
+              if (aMovable) { a.x += sep.nx * correction; a.y += sep.ny * correction; a.vx += sep.nx * bounce; a.vy += sep.ny * bounce; }
+              if (bMovable) { b.x -= sep.nx * correction; b.y -= sep.ny * correction; b.vx -= sep.nx * bounce; b.vy -= sep.ny * bounce; }
+            } else if (a.shape === 'circle' && b.shape === 'circle') {
+              // 근거리 반발은 원형 버블 사이에서만 — 사각 창까지 서로 밀어내면 사용자가 붙여 둔
+              // 배치가 이유 없이 흩어진다(겹칠 때만 정리).
+              const dx = a.x - b.x;
+              const dy = a.y - b.y;
+              const dist = Math.sqrt(dx * dx + dy * dy) || 0.1;
+              if (dist < REPULSION_RANGE) {
+                const nx = dx / dist;
+                const ny = dy / dist;
+                const force = REPULSION_STRENGTH / (dist * dist);
+                if (aMovable) { a.vx += nx * force; a.vy += ny * force; }
+                if (bMovable) { b.vx -= nx * force * 0.5; b.vy -= ny * force * 0.5; }
+              }
             }
           }
         }
       }
     }
 
-    // 속도 적용 — 위성은 가볍고, 폴더/에이전트는 무겁지만 밀리긴 함
+    // 속도 적용 — 위성은 가볍고, 버블/사각 창은 무겁지만 밀리긴 함
     let changed = false;
     let totalEnergy = 0;
     for (const body of all) {
-      if (body.dragging) continue;
-      // 위성=1, 폴더/에이전트=3 (너무 무거우면 반응 없음)
-      const mass = body.parentId ? 1 : 3;
+      if (body.dragging || !body.movable) continue;
+      const mass = massOf(body);
       body.vx /= mass;
       body.vy /= mass;
       body.vx *= DAMPING;
@@ -389,18 +553,38 @@ export function usePhysicsLayout(
         changed = true;
       }
 
-      // 사각 바운딩 가드 — 부모 버블이 박스 밖으로 나가려 하면 경계에서 클램프 + 안쪽으로 약한 반발.
+      // 사각 바운딩 가드 — 버블·사각 창이 박스 밖으로 나가려 하면 경계에서 클램프 + 안쪽으로 약한 반발.
       // 위성은 부모 스프링이 끌어당기므로 직접 클램프 ❌.
       if (body.parentId == null) {
         const { hw, hh } = boundsRef.current;
-        const minX = LAYOUT_CENTER_X - hw + body.radius;
-        const maxX = LAYOUT_CENTER_X + hw - body.radius;
-        const minY = LAYOUT_CENTER_Y - hh + body.radius;
-        const maxY = LAYOUT_CENTER_Y + hh - body.radius;
-        if (body.x < minX) { body.x = minX; if (body.vx < 0) body.vx = -body.vx * BOUNDS_BOUNCE; changed = true; }
-        else if (body.x > maxX) { body.x = maxX; if (body.vx > 0) body.vx = -body.vx * BOUNDS_BOUNCE; changed = true; }
-        if (body.y < minY) { body.y = minY; if (body.vy < 0) body.vy = -body.vy * BOUNDS_BOUNCE; changed = true; }
-        else if (body.y > maxY) { body.y = maxY; if (body.vy > 0) body.vy = -body.vy * BOUNDS_BOUNCE; changed = true; }
+        const minX = LAYOUT_CENTER_X - hw + body.halfW;
+        const maxX = LAYOUT_CENTER_X + hw - body.halfW;
+        const minY = LAYOUT_CENTER_Y - hh + body.halfH;
+        const maxY = LAYOUT_CENTER_Y + hh - body.halfH;
+        // 박스보다 큰 요소(대형 iframe 등)는 클램프가 서로 상충하므로 건너뛴다.
+        if (minX <= maxX) {
+          if (body.x < minX) { body.x = minX; if (body.vx < 0) body.vx = -body.vx * BOUNDS_BOUNCE; changed = true; }
+          else if (body.x > maxX) { body.x = maxX; if (body.vx > 0) body.vx = -body.vx * BOUNDS_BOUNCE; changed = true; }
+        }
+        if (minY <= maxY) {
+          if (body.y < minY) { body.y = minY; if (body.vy < 0) body.vy = -body.vy * BOUNDS_BOUNCE; changed = true; }
+          else if (body.y > maxY) { body.y = maxY; if (body.vy > 0) body.vy = -body.vy * BOUNDS_BOUNCE; changed = true; }
+        }
+      }
+    }
+
+    // 코멘트 박스가 움직인 만큼 멤버 버블도 같은 변위로 데려간다 — 안 그러면 그룹이 어긋나고
+    // 다음 멤버십 재계산에서 자식이 통째로 빠져 버린다.
+    for (const start of carrierStart) {
+      const dx = start.body.x - start.x;
+      const dy = start.body.y - start.y;
+      if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) continue;
+      for (const childId of start.body.carryIds ?? []) {
+        const child = bodies.get(childId);
+        if (!child || child.dragging || !child.movable) continue;
+        child.x += dx;
+        child.y += dy;
+        changed = true;
       }
     }
 
@@ -417,20 +601,35 @@ export function usePhysicsLayout(
 
     if (changed) {
       // setNodes 내부에서 실제 변화 있는 노드만 교체 (서브픽셀 떨림 → setNodes 호출 자체 최소화)
-      const MIN_DISPLACEMENT = 0.5;
       setNodes((prev) => {
         let anyMoved = false;
         const next = prev.map((node) => {
           const body = bodies.get(node.id);
-          if (!body || body.dragging) return node;
-          const nx = body.x - body.radius;
-          const ny = body.y - body.radius;
+          if (!body || body.dragging || body.external) return node;
+          const nx = body.x - body.halfW;
+          const ny = body.y - body.halfH;
           if (Math.abs(node.position.x - nx) < MIN_DISPLACEMENT && Math.abs(node.position.y - ny) < MIN_DISPLACEMENT) return node;
           anyMoved = true;
           return { ...node, position: { x: nx, y: ny } };
         });
         return anyMoved ? next : prev;
       });
+
+      // store 기반 요소는 노드 배열이 아니라 콜백으로 좌표를 되돌려 준다(한 틱에 한 번).
+      const emit = onExternalMoveRef.current;
+      if (emit) {
+        const moves: PhysicsMove[] = [];
+        for (const body of all) {
+          if (!body.external || body.dragging || !body.movable) continue;
+          const nx = body.x - body.halfW;
+          const ny = body.y - body.halfH;
+          const prev = lastEmittedRef.current.get(body.id);
+          if (prev && Math.abs(prev.x - body.x) < MIN_DISPLACEMENT && Math.abs(prev.y - body.y) < MIN_DISPLACEMENT) continue;
+          lastEmittedRef.current.set(body.id, { x: body.x, y: body.y });
+          moves.push({ id: body.id, x: nx, y: ny });
+        }
+        if (moves.length > 0) emit(moves);
+      }
     }
   }, [setNodes, onSleep, forceRun]);
 
@@ -457,6 +656,7 @@ export function usePhysicsLayout(
     pausedUntilRef.current = Date.now() + 400;
     quietFramesRef.current = 0;
     sleepingRef.current = false;
+    lastEmittedRef.current.clear();
     ensureRunning();
   }, [ensureRunning]);
 

@@ -12,8 +12,8 @@
  * - 문자열은 전부 `panel.plugins.<camelId>.*` 한 지붕 아래(§5.11 키 규약).
  */
 import type { ReactNode } from 'react';
-import type { PluginCategory } from '@vibisual/shared';
-import type { PluginBubbleContext, PluginClientModule, PluginDataNeed, PluginManifest } from '../types.js';
+import type { PluginCategory, PluginContributionKind } from '@vibisual/shared';
+import type { PluginBubbleContext, PluginClientModule, PluginDataNeed, PluginManifest, PluginSettingsContext } from '../types.js';
 import { PluginSection, PluginRow, PluginBadgePill, type PluginTone } from '../ui/kit.js';
 
 export interface InspectorCheck {
@@ -33,6 +33,13 @@ export interface InspectorSpec {
   name: string;
   category: PluginCategory;
   needs?: PluginDataNeed[];
+  /**
+   * 이 카드가 표시 말고 **집행**도 하는 경우 그 기여 종류(§5.11 v4.57, 예: `agentPrompt`).
+   *
+   * 하나라도 있으면 `clientOnly: false` 가 된다 — 서버가 이 플러그인의 모듈을 조립한다는 뜻이고,
+   * PluginsWindow 도 "표시 전용"이 아니라고 읽는다. 골격이 만드는 카드의 기본값은 여전히 표시 전용이다.
+   */
+  contributesAlso?: PluginContributionKind[];
   /** 이 버블에 붙을지. 기본값 = 에이전트 버블이며 설정이 있는 것. */
   match?: (ctx: PluginBubbleContext) => boolean;
   /** 등급 — i18n: `.level.<key>` */
@@ -46,6 +53,14 @@ export interface InspectorSpec {
     text: (ctx: PluginBubbleContext) => string;
     icon: ReactNode;
   };
+  /**
+   * §5.11 v4.67 — Plugins 창에서 이 카드가 그리는 **자기 설정**(선택).
+   *
+   * 카드 본체(패널·배지)는 표시 전용 규율 그대로다. 설정 슬롯만은 원래부터 사용자가 값을 고르는
+   * 자리이고(v1 개통 3종 중 하나), 값 저장은 플러그인이 직접 하지 않고 **호스트가 연 창구**
+   * (`ctx.call`)로만 한다 — 플러그인이 파일이나 스토어를 직접 만지는 길은 끝까지 열지 않는다.
+   */
+  settings?: (ctx: PluginSettingsContext) => ReactNode;
 }
 
 function defaultMatch(ctx: PluginBubbleContext): boolean {
@@ -64,8 +79,22 @@ export function defineInspector(spec: InspectorSpec): { manifest: PluginManifest
     category: spec.category,
     descriptionKey: `${K}.desc`,
     enabledByDefault: false,
-    contributes: spec.badge ? ['bubbleBadge', 'panelSection'] : ['panelSection'],
-    clientOnly: true,
+    /*
+     * v4.59 — **집행(`agentPrompt`)은 이제 모든 카드의 기본값이다.**
+     *
+     * v4.57 까지는 집행이 예외(옵트인)였고, 그래서 111종 중 실제로 집행하는 것은 하나뿐이었다.
+     * 켜도 아무 일이 안 일어나는 스위치는 기능이 아니므로 기본값을 뒤집는다 — 카드는 자기 폴더의
+     * `enforce.ts` 로 무엇을 강제할지 반드시 말해야 하고, `enforcement.test.ts` 가 그것을 확인한다.
+     */
+    contributes: [
+      ...(spec.badge ? (['bubbleBadge', 'panelSection'] as PluginContributionKind[]) : (['panelSection'] as PluginContributionKind[])),
+      // v4.67 — 자기 설정을 그리는 카드는 그 사실을 매니페스트에도 적는다. 창의 "기여" 목록이
+      //   화면과 어긋나면(설정칸이 떠 있는데 목록엔 없으면) 사용자는 무엇이 켜졌는지 못 읽는다.
+      ...(spec.settings ? (['settingsSection'] as PluginContributionKind[]) : []),
+      'agentPrompt' as PluginContributionKind,
+      ...(spec.contributesAlso ?? []),
+    ],
+    clientOnly: false,
   };
 
   function Section({ ctx }: { ctx: PluginBubbleContext }): React.JSX.Element {
@@ -130,6 +159,7 @@ export function defineInspector(spec: InspectorSpec): { manifest: PluginManifest
         render: (ctx) => <Section ctx={ctx} />,
       },
     ],
+    ...(spec.settings ? { settingsSection: spec.settings } : {}),
   };
 
   return { manifest, client };

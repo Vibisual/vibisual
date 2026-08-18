@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { GitStatus, GitCommit, GitWorktreeStatus } from '@vibisual/shared';
 import { BUBBLE_COLORS, GIT_STATUS_CONFIG } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
+import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 
 interface GitError {
   title: string;
@@ -582,10 +583,12 @@ function GitErrorModal({
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  const backdrop = useBackdropDismiss(onClose);
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      {...backdrop}
     >
       <div className="w-[clamp(22rem,40vw,32rem)] rounded-lg border border-gray-700 bg-gray-900 shadow-xl shadow-black/40">
         <div className="border-b border-gray-800 px-5 py-3">

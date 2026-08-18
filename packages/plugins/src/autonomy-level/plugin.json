@@ -1,0 +1,16 @@
+{
+  "id": "autonomy-level",
+  "name": "Autonomy Level",
+  "version": "1.0.0",
+  "category": "workflow",
+  "descriptionKey": "panel.plugins.autonomyLevel.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "bubbleBadge",
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [],
+  "hostApi": 1
+}

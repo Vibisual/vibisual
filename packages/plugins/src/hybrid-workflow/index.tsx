@@ -5,9 +5,9 @@
  * 인터페이스·데이터 모델·권한 경계가 바뀌면 명세, 그 안쪽 구현은 자유. 이 카드는 이 에이전트가 그 선의
  * 어느 쪽에 서 있는지 보여준다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import { toneIfActive } from '../framework/activity.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import { toneIfActive } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const spec = (ctx: PluginBubbleContext): boolean => (ctx.agentConfig?.rules ?? '').trim().length > 0;
 const planned = (ctx: PluginBubbleContext): boolean => (ctx.data.agentEvents ?? []).some((e) => (e.todos ?? []).length > 0);

@@ -1,0 +1,17 @@
+{
+  "id": "eval",
+  "name": "Eval",
+  "version": "1.0.0",
+  "category": "observability",
+  "descriptionKey": "panel.plugins.eval.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "agentEvents"
+  ],
+  "hostApi": 1
+}

@@ -1,0 +1,19 @@
+{
+  "id": "vibe-coding",
+  "name": "Vibe Coding",
+  "version": "1.0.0",
+  "category": "workflow",
+  "descriptionKey": "panel.plugins.vibeCoding.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "agentReviews",
+    "agentEvents",
+    "subAgents"
+  ],
+  "hostApi": 1
+}

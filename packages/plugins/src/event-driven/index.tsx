@@ -4,8 +4,8 @@
  * 서비스가 서로를 직접 호출하지 않고 이벤트를 내보내고 반응하는 구조다. Vibisual 자체가 훅 이벤트로 도는
  * 시스템이므로, 여기서는 이 에이전트에서 실제로 흐른 신호의 양과 종류를 보여준다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const turns = (ctx: PluginBubbleContext): number => (ctx.data.agentEvents ?? []).length;
 const queued = (ctx: PluginBubbleContext): number => (ctx.data.agentEvents ?? []).filter((e) => e.source === 'queue').length;

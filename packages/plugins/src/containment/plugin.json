@@ -1,0 +1,16 @@
+{
+  "id": "containment",
+  "name": "Containment",
+  "version": "1.0.0",
+  "category": "security",
+  "descriptionKey": "panel.plugins.containment.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "bubbleBadge",
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [],
+  "hostApi": 1
+}

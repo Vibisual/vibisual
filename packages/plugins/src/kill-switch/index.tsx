@@ -10,7 +10,7 @@
  * 버튼은 멈출 것이 실제로 있을 때만 뜬다.
  */
 import { useState } from 'react';
-import type { PluginClientModule, PluginHeaderContext, PluginManifest } from '../types.js';
+import type { PluginClientModule, PluginHeaderContext, PluginManifest } from '../sdk/index.js';
 
 export const killSwitchManifest: PluginManifest = {
   id: 'kill-switch',
@@ -19,8 +19,8 @@ export const killSwitchManifest: PluginManifest = {
   category: 'security',
   descriptionKey: 'panel.plugins.killSwitch.desc',
   enabledByDefault: false,
-  contributes: ['headerItem'],
-  clientOnly: true,
+  contributes: ['headerItem', 'agentPrompt'],
+  clientOnly: false,
 };
 
 const K = 'panel.plugins.killSwitch';

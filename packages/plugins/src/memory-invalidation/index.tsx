@@ -5,8 +5,8 @@
  * 연결된 파일의 변경 감지가 가장 정확한 신호이며, 무효화 시 즉시 지우지 않고 "확인 필요"로 표시해
  * 다음 사람이 판정하게 하는 것이 안전하다. 표시 전용.
  */
-import { defineInspector, ICONS } from '../framework/inspector.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector, ICONS } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const needsCheck = (ctx: PluginBubbleContext): number => ctx.data.brain?.needsCheckCount ?? 0;
 

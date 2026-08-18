@@ -169,27 +169,48 @@ exports.default = async function afterPack(context) {
   // in-process 모델의 server 런타임 deps(express·multer·cors·chokidar)는 전부 순수 JS 라
   // 위 pnpm-sibling BFS 만으로 패키징이 닫힌다.
 
-  // Embed brand bubble icon into Vibisual.exe via rcedit (Windows only).
-  // electron-builder.yml sets signAndEditExecutable=false to skip the winCodeSign
-  // cache download (its 7z contains macOS symlinks that fail to extract on Windows
-  // without Developer Mode). That flag also disables rcedit — so we invoke rcedit
-  // ourselves here. Without this the .exe ships with the default Electron atom
-  // icon embedded by the prebuilt electron binary.
+  // Embed brand bubble icon + our own version resource into Vibisual.exe via rcedit
+  // (Windows only). electron-builder.yml sets signAndEditExecutable=false to skip the
+  // winCodeSign cache download (its 7z contains macOS symlinks that fail to extract on
+  // Windows without Developer Mode). That flag also disables rcedit — so we invoke rcedit
+  // ourselves here. Without this the .exe ships with the prebuilt electron binary's own
+  // resources: the default atom icon AND the "Electron / GitHub, Inc. / 31.x" version
+  // block. That version block is what Windows Task Manager prints in its process Name
+  // column (it reads FileDescription, not the file name) and what File Properties shows —
+  // so setting only the icon left the running app listed as "Electron".
   if (process.platform === 'win32' && context.electronPlatformName === 'win32') {
-    const exeName = `${context.packager.appInfo.productFilename}.exe`;
+    const appInfo = context.packager.appInfo;
+    const exeName = `${appInfo.productFilename}.exe`;
     const exePath = join(appOutDir, exeName);
     const iconPath = join(desktopDir, 'resources', 'icons', 'icon.ico');
     if (existsSync(exePath) && existsSync(iconPath)) {
       const rceditPath = findRcedit();
       if (rceditPath) {
-        const r = spawnSync(rceditPath, [exePath, '--set-icon', iconPath], { stdio: 'inherit' });
+        const productName = appInfo.productName || 'Vibisual';
+        const args = [exePath, '--set-icon', iconPath];
+        const versionStrings = {
+          FileDescription: productName,   // ← Task Manager "Name" column
+          ProductName: productName,
+          InternalName: productName,
+          OriginalFilename: exeName,
+          CompanyName: appInfo.companyName || productName,
+          LegalCopyright: appInfo.copyright,
+        };
+        for (const [key, value] of Object.entries(versionStrings)) {
+          if (value) args.push('--set-version-string', key, String(value));
+        }
+        // App version (0.1.x), not Electron's runtime version.
+        if (appInfo.version) {
+          args.push('--set-file-version', appInfo.version, '--set-product-version', appInfo.version);
+        }
+        const r = spawnSync(rceditPath, args, { stdio: 'inherit' });
         if (r.status === 0) {
-          console.log(`[afterPack] embedded ${iconPath} → ${exePath} via ${rceditPath}`);
+          console.log(`[afterPack] embedded icon + "${productName}" version resource → ${exePath} via ${rceditPath}`);
         } else {
-          console.warn(`[afterPack] rcedit exit=${r.status} — icon not embedded`);
+          console.warn(`[afterPack] rcedit exit=${r.status} — icon/version resource not embedded`);
         }
       } else {
-        console.warn('[afterPack] rcedit not found; icon left as Electron default. Run an electron-builder build once with signAndEditExecutable=true to populate the cache, then rebuild.');
+        console.warn('[afterPack] rcedit not found; icon + version resource left as Electron default. Run an electron-builder build once with signAndEditExecutable=true to populate the cache, then rebuild.');
       }
     }
   }

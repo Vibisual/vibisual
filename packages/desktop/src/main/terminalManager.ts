@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import * as pty from 'node-pty';
-import { resolveClaudeBin, buildInteractiveClaudeArgs, prepareInteractiveRulesDir, getCmdResumeSession, recordDiagnostic, killTree } from '@vibisual/server';
+import { resolveClaudeBin, buildInteractiveClaudeArgs, buildBashTimeoutEnv, prepareInteractiveRulesDir, buildInteractivePluginBlockForAgent, getCmdResumeSession, recordDiagnostic, killTree } from '@vibisual/server';
 import type { AgentConfig } from '@vibisual/shared';
 
 // 임베디드 인터랙티브 터미널 매니저 — SCENARIO.md §4 v2.63.
@@ -58,6 +58,16 @@ export interface CreateTerminalSpec {
   config: AgentConfig;
   cols?: number;
   rows?: number;
+  /**
+   * §5.5 #17-20 ④ v4.74 — 실행 런처. 이 값이 있으면 **claude 를 띄우지 않고** 이 명령을 그대로
+   * 셸에 넣는다(사용자의 dev 서버·빌드·언리얼 실행). claude 경로의 rules `--add-dir` 와
+   * `VIBISUAL_OWNER_AGENT_ID` 태그도 함께 건너뛴다 — 사용자의 서버는 우리 훅의 자식이 아니다.
+   */
+  command?: string;
+  /** command 를 사용자 Enter 없이 바로 실행할지(실행 런처 = true). claude prefill 은 언제나 false. */
+  autoRun?: boolean;
+  /** command 에 실어 줄 추가 환경변수(디버그 모드의 `NODE_OPTIONS` 등). */
+  env?: Record<string, string>;
 }
 
 /** 공백 포함 인자만 따옴표 — 셸 prefill 한 줄 구성용. */
@@ -106,6 +116,11 @@ export function createTerminal(sink: TermSink, spec: CreateTerminalSpec): { ok: 
     const cols = spec.cols && spec.cols > 0 ? spec.cols : 80;
     const rows = spec.rows && spec.rows > 0 ? spec.rows : 24;
 
+    // §5.5 #17-20 ④ v4.74 — 실행 런처인가(=claude 가 아니라 사용자의 명령을 띄우는가).
+    //   이 갈래는 아래에서 rules 폴더·소유자 태그·claude 인자를 전부 건너뛴다.
+    const runCommand = spec.command?.trim();
+    const isRunLauncher = !!runCommand;
+
     // §4 v2.64 — 이 CMD 버블의 agentId(termId=`term:<agentId>:<session>`의 중간 토큰).
     //   아래 env VIBISUAL_OWNER_AGENT_ID 로 셸→claude→hook handler 까지 상속돼, claude 가 쏘는
     //   hook 이벤트가 별개 Hook 버블이 아니라 이 CMD 버블로 귀속된다(server processHookEvent).
@@ -113,7 +128,11 @@ export function createTerminal(sink: TermSink, spec: CreateTerminalSpec): { ok: 
 
     // §4 v2.64 — rules(시스템 프롬프트)를 파일로 미리 써 둔다(있으면 그 폴더 절대경로). 아래 prefill 의
     //   `--add-dir <rulesDir>` 와 짝. spawn 전에 계산하는 이유: rulesDir 유무로 아래 env 플래그를 켜기 위함.
-    const rulesDir = agentId ? prepareInteractiveRulesDir(agentId, spec.config) : null;
+    // §5.11 v4.65 — 이 프로젝트에서 켠 집행 플러그인의 지시도 같은 파일에 함께 쓴다(켠 것이 없으면 빈 문자열).
+    //   프로젝트 해결은 서버가 그래프로 한다 — 터미널이 아는 cwd 는 워크트리·하위 폴더일 수 있어 켬/끔 키와 어긋난다.
+    const rulesDir = agentId && !isRunLauncher
+      ? prepareInteractiveRulesDir(agentId, spec.config, { enforcementBlock: buildInteractivePluginBlockForAgent(agentId) })
+      : null;
 
     const child = pty.spawn(shell, shellArgs, {
       name: 'xterm-color',
@@ -136,9 +155,16 @@ export function createTerminal(sink: TermSink, spec: CreateTerminalSpec): { ok: 
         LANG: 'en_US.UTF-8',
         LC_ALL: 'en_US.UTF-8',
         PYTHONIOENCODING: 'utf-8',
-        ...(agentId ? { VIBISUAL_OWNER_AGENT_ID: agentId } : {}),
+        // 실행 런처(§5.5 #17-20)는 claude 세션이 아니므로 소유자 태그를 붙이지 않는다 —
+        // 사용자의 dev 서버가 훅 이벤트를 쏘는 우리 자식으로 오인되면 버블맵이 오염된다.
+        ...(agentId && !isRunLauncher ? { VIBISUAL_OWNER_AGENT_ID: agentId } : {}),
         VIBISUAL_OWNER_TERM_ID: spec.termId,
         ...(rulesDir ? { CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '1' } : {}),
+        // §4 (CLI 사양 추종) — Bash 타임아웃. 헤드리스 스폰(buildConfigEnv)과 같은 함수를 써
+        //   "설정한 세팅 그대로"가 인터랙티브 터미널에도 적용된다. 실행 런처는 claude 가 아니라 제외.
+        ...(isRunLauncher ? {} : buildBashTimeoutEnv(spec.config)),
+        // 디버그 모드가 실어 보내는 것(NODE_OPTIONS 등) + 실행 구성의 env.
+        ...(spec.env ?? {}),
       },
     });
 
@@ -156,6 +182,17 @@ export function createTerminal(sink: TermSink, spec: CreateTerminalSpec): { ok: 
       if (session.sink.isAlive()) session.sink.sendExit(spec.termId, exitCode);
       sessions.delete(spec.termId);
     });
+
+    // §5.5 #17-20 ④ v4.74 — 실행 런처 갈래. claude 를 부르지 않고 사용자의 명령을 그대로 넣는다.
+    //   `autoRun` 이면 개행까지 붙여 바로 실행하고(사용자가 [실행]을 이미 눌렀으므로),
+    //   아니면 claude prefill 과 같은 규약으로 입력만 채워 둔다.
+    if (isRunLauncher && runCommand) {
+      setTimeout(() => {
+        const s = sessions.get(spec.termId);
+        if (s) s.pty.write(spec.autoRun === false ? runCommand : `${runCommand}\r`);
+      }, 350);
+      return { ok: true };
+    }
 
     // claude 실행 명령 prefill — 셸 배너/프롬프트가 먼저 그려지도록 살짝 지연 후 write.
     // newline 미포함 = 사용자가 직접 Enter(사람이 루프 안 — ToS 합법선).

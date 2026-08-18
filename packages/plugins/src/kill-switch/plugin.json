@@ -1,0 +1,15 @@
+{
+  "id": "kill-switch",
+  "name": "Kill Switch",
+  "version": "1.0.0",
+  "category": "security",
+  "descriptionKey": "panel.plugins.killSwitch.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "headerItem",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [],
+  "hostApi": 1
+}

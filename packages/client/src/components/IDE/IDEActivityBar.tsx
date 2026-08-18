@@ -1,8 +1,10 @@
 import { memo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useGraphStore, selectIDEOverlay } from '../../stores/graphStore.js';
+import { useGraphStore, selectIDEOverlay, countProjectBookmarks } from '../../stores/graphStore.js';
 import type { IDEViewType } from '../../stores/graphStore.js';
-import { useRunningSubagentTasks } from './IDERunningSubagentsView.js';
+import { useRunningSubagentCount } from './IDERunningSubagentsView.js';
+import { computeGoalIndicator } from './goalIndicator.js';
+import { countRunning, useRunSessions } from '../../stores/runSessions.js';
 
 interface ActivityItem {
   view: IDEViewType;
@@ -13,7 +15,9 @@ interface ActivityItem {
 const ACTIVITIES: ActivityItem[] = [
   { view: 'terminal', labelKey: 'ide.activityBar.terminal', icon: 'M4 17l6-5-6-5m8 10h8' },
   { view: 'files', labelKey: 'ide.activityBar.files', icon: 'M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-6l-2-2H5a2 2 0 0 0-2 2z' },
-  { view: 'events', labelKey: 'ide.activityBar.results', icon: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z' },
+  // §5.5 #17-28 v4.96 — 종전 `결과`(훅 이벤트 목록) 자리를 **컨텍스트 주입원 통제**가 잇는다.
+  //   아이콘은 "쌓여 들어가는 층"(lucide layers 톤) — 이 프롬프트 앞에 무엇이 겹쳐 실리는가.
+  { view: 'context', labelKey: 'ide.activityBar.context', icon: 'M12 2l9 5-9 5-9-5 9-5z M3 12l9 5 9-5 M3 17l9 5 9-5' },
   // §5.5 #17-4 v2.32 — Skills: lucide sparkles 톤 (별 + 작은 별 2개) stroke SVG.
   { view: 'skills', labelKey: 'ide.activityBar.skills', icon: 'M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3z M19 14l.8 2.2L22 17l-2.2.8L19 20l-.8-2.2L16 17l2.2-.8L19 14z' },
 ];
@@ -25,55 +29,68 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
   const toggleSidebar = useGraphStore((s) => s.toggleIDESidebar);
   const sidebarCollapsed = useGraphStore((s) => selectIDEOverlay(s).sidebarCollapsed);
 
-  const bookmarkCount = useGraphStore((s) => s.ideBookmarks.length);
-  const bookmarkPanelOpen = useGraphStore((s) => s.bookmarkPanelOpen);
-  const toggleBookmarkPanel = useGraphStore((s) => s.toggleBookmarkPanel);
-  const setBookmarkPanelOpen = useGraphStore((s) => s.setBookmarkPanelOpen);
+  // §5.5 #17-7 v4.93 — 북마크는 덮개 패널이 아니라 사이드바 뷰('bookmarks')다. 배지 = 보관 개수.
+  //   (프로젝트별로 갈라 담기) 개수는 **지금 보고 있는 프로젝트 칸**만 센다 — 목록(IDEBookmarkView)과
+  //   같은 산식(countProjectBookmarks/selectProjectBookmarks)을 써야 배지와 목록이 어긋나지 않는다.
+  const bookmarkCount = useGraphStore(countProjectBookmarks);
 
-  // §5.5 #17-8 v2.95 — 세션 요약 보드 토글 + "미확인 완료" 세션 수 배지.
+  // §5.5 #17-8 v2.95 — 세션 요약 보드 + "미확인 완료" 세션 수 배지.
+  //   v4.93 — 이 항목도 사이드바 뷰('summary') 로 바뀌었다(덮개 토글 폐지).
   const agentId = useGraphStore((s) => selectIDEOverlay(s).agentId);
-  const summaryPanelOpen = useGraphStore((s) => s.summaryPanelOpen);
-  const toggleSummaryPanel = useGraphStore((s) => s.toggleSummaryPanel);
-  const setSummaryPanelOpen = useGraphStore((s) => s.setSummaryPanelOpen);
   const unreviewedCount = useGraphStore((s) => {
     const subs = agentId ? s.subAgents[agentId] : undefined;
     if (!subs) return 0;
     return subs.filter((su) => su.status === 'idle' && !s.acknowledgedSubAgents[su.id]).length;
   });
 
-  // §5.5 #17-9 v3.51 — 백그라운드 서브에이전트: 도는 게 하나라도 있을 때만 항목이 나타난다.
-  //   배지 = 현재 탭 기준 개수(세션 탭 선택 시 그 탭 것, 메인 탭이면 전부) — 패널과 같은 산식.
-  const runningTasks = useRunningSubagentTasks(agentId);
-  const runningTotal = useGraphStore((s) => (agentId ? s.runningSubagentTasks[agentId]?.length ?? 0 : 0));
-  const subagentPanelOpen = useGraphStore((s) => s.subagentPanelOpen);
-  const toggleSubagentPanel = useGraphStore((s) => s.toggleSubagentPanel);
-  const setSubagentPanelOpen = useGraphStore((s) => s.setSubagentPanelOpen);
+  // §5.5 #17-20 v4.74 — 이 에이전트가 켜 둔 실행(디버그 런처)의 수. PTY 수명이라 서버 스냅샷이
+  //   아니라 런타임 스토어에서 읽는다.
+  const runningRuns = useRunSessions((s) => countRunning(s.sessions, agentId));
+
+  // §5.5 #17-9 ③(a) v4.95 — 백그라운드 서브에이전트: **지금 보고 있는 탭이 띄운 수** 하나로
+  //   항목 노출·점등·배지를 모두 결정한다(종전엔 노출만 에이전트 전체 수라 `(0)` 배지가 났다).
+  const runningCount = useRunningSubagentCount(agentId);
 
   // §5.5 #17-11 v3.79 — 세션 반복 실행(루프). 설정 단위가 **지금 열려 있는 세션 탭**이라
   //   배지도 그 탭의 루프만 읽는다(메인 탭이면 배지 없음 — 설정 대상이 없다는 뜻).
+  //   ⑨ v4.51 — 화면은 덮개 패널이 아니라 **사이드바 뷰**('loop') 다(스킬·목표와 같은 자리).
   const activeSessionId = useGraphStore((s) => selectIDEOverlay(s).activeSessionId);
   const activeLoop = useGraphStore((s) => (activeSessionId ? s.sessionLoops[activeSessionId] : undefined));
-  const loopPanelOpen = useGraphStore((s) => s.loopPanelOpen);
-  const toggleLoopPanel = useGraphStore((s) => s.toggleLoopPanel);
-  const setLoopPanelOpen = useGraphStore((s) => s.setLoopPanelOpen);
   const loopRunning = !!activeLoop?.enabled;
   const loopBadge = activeLoop
     ? (activeLoop.mode === 'count' ? `${activeLoop.completed}/${activeLoop.total ?? 0}` : `${activeLoop.completed}`)
     : null;
 
+  // §5.5 #17-17 v4.47 — 세션 목표. 루프와 같은 세션 탭 축이라 그 탭의 목표만 읽는다.
+  //   항목은 **사이드바 뷰**(스킬창 자리)라 덮개 패널이 아니고, 아이콘은 **진행 중일 때만** 색이 켜진다
+  //   (목표가 없거나 달성·중단이면 다른 항목과 같은 회색 = 평소엔 조용히).
+  const activeGoal = useGraphStore((s) => (activeSessionId ? s.sessionGoals[activeSessionId] : undefined));
+  // §5.5 #17-17 ⑩ v4.61 — "목표가 있다"와 "지금 그 목표를 향해 돌고 있다"는 다른 상태다.
+  //   그 세션 탭(sub)이 실제로 실행 중일 때만 **아이콘 글리프가 반짝여** 셋이 한눈에 갈린다(v4.69).
+  const goalWorking = useGraphStore((s) => {
+    if (!agentId || !activeSessionId) return false;
+    return s.subAgents[agentId]?.some((su) => su.id === activeSessionId && su.status === 'active') ?? false;
+  });
+  // §5.5 #17-17 ⑩ v4.73 — 점등·표기 판정은 `goalIndicator` 한 곳에 산다(두 번 뒤집힌 규칙이라
+  //   순수 함수 + 테스트로 고정했다). 여기서는 그 결과를 그리기만 한다.
+  const goalInd = computeGoalIndicator(activeGoal, goalWorking);
+  // 툴팁은 좁은 한 줄이 못 담는 "얼마나 남았는지"까지 말한다.
+  const goalTitle = goalInd.steps
+    ? `${t('ide.activityBar.goal')} — ${t('ide.goal.stepCount', { done: goalInd.steps.done, total: goalInd.steps.total })} · ${t('ide.goal.stepRemaining', { count: goalInd.steps.total - goalInd.steps.done })}`
+    : goalInd.lit
+      ? `${t('ide.activityBar.goal')} — ${goalInd.meter}`
+      : t('ide.activityBar.goal');
+
   const handleClick = useCallback((view: IDEViewType) => {
-    // 사이드바 뷰를 열면 덮개 패널(북마크·세션 요약·실행 중 서브에이전트·루프)은 닫는다 — 동시에 겹치지 않게.
-    if (bookmarkPanelOpen) setBookmarkPanelOpen(false);
-    if (summaryPanelOpen) setSummaryPanelOpen(false);
-    if (subagentPanelOpen) setSubagentPanelOpen(false);
-    if (loopPanelOpen) setLoopPanelOpen(false);
+    // v4.93·v4.95 — 북마크·세션 요약·실행 중 서브에이전트가 차례로 덮개를 벗어, 활동바의 모든 항목이
+    // 이 한 함수를 탄다(같은 항목 재클릭 = 접힘). 상호 배타로 닫아 줄 덮개는 더 이상 없다.
     if (activeView === view && !sidebarCollapsed) {
       toggleSidebar();
     } else {
       setActiveView(view);
       if (sidebarCollapsed) toggleSidebar();
     }
-  }, [activeView, sidebarCollapsed, setActiveView, toggleSidebar, bookmarkPanelOpen, setBookmarkPanelOpen, summaryPanelOpen, setSummaryPanelOpen, subagentPanelOpen, setSubagentPanelOpen, loopPanelOpen, setLoopPanelOpen]);
+  }, [activeView, sidebarCollapsed, setActiveView, toggleSidebar]);
 
   return (
     // §4 v3.24 — 폰(max-md)에선 타이틀바 토글로 열리는 오버레이(본문을 상시 짓누르지 않게).
@@ -100,12 +117,75 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
         );
       })}
 
-      {/* 북마크 — 다른 항목과 같은 줄, 다음 순서. 클릭 시 세션창 전체를 덮는 북마크 패널 토글. */}
+      {/* §5.5 #17-17 v4.47 — 세션 목표. 누르면 사이드바가 목표 뷰(최종 목표 + todo 체크리스트)로
+          바뀌고, 같은 항목을 다시 누르면 접힌다(다른 사이드바 항목과 같은 규약).
+          ⑩ v4.61 — 색이 세 상태로 갈리고(회색 = 목표 없음·달성·중단 / emerald = 진행 중이나 세션은
+          멈춤 / **아이콘만 반짝임** = 지금 도는 중), 아이콘 아래 한 줄이 `완료/전체`(단계가 없으면
+          퍼센트)를 띄운다 — 사이드바를 열지 않아도 어디까지 왔는지 읽힌다.
+          v4.69 — 도는 중 표시는 **아이콘 하나에만** 건다. 버튼 배경·링을 칠하면 40×40 칸 전체가
+          물들어 옆 항목들과 뭉쳐 보인다(사용자 지적) — 깜빡이는 것은 그 글리프뿐이어야 한다.
+          v4.73 — 켜지는 조건은 "목표가 있다"가 아니라 **"보여줄 내용이 들어왔다"**(`goalIndicator`). 명령마다
+          카드가 자동 생성되므로 빈 0% 에도 불이 켜져 눌러 보면 빈 화면이었다 — 불은 약속이다. */}
       <button
         type="button"
-        onClick={toggleBookmarkPanel}
+        onClick={() => handleClick('goal')}
+        className={`relative flex h-10 w-10 flex-col items-center justify-center gap-px rounded transition-colors ${
+          activeView === 'goal' && !sidebarCollapsed
+            ? 'border-l-2 border-emerald-400 bg-gray-800 text-white'
+            : goalInd.lit
+              ? 'text-emerald-400 hover:bg-gray-800 hover:text-emerald-300'
+              : 'text-gray-500 hover:bg-gray-800 hover:text-gray-300'
+        }`}
+        title={goalTitle}
+        aria-label={goalTitle}
+      >
+        <svg
+          className={`h-5 w-5 ${goalInd.blink ? 'animate-pulse' : ''}`}
+          viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"
+        >
+          <circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="5" /><circle cx="12" cy="12" r="1" />
+        </svg>
+        {/* 색은 부모 text-* 를 그대로 따른다(회색/emerald 자동 추종). */}
+        {goalInd.meter && (
+          <span className="text-[8.5px] font-bold leading-none tabular-nums">{goalInd.meter}</span>
+        )}
+      </button>
+
+      {/* §5.5 #17-20 v4.74 — 디버그·실행 런처. 재생 + 벌레 글리프(VS Code 의 Run and Debug 와 같은 뜻).
+          이 프로젝트의 실행 구성을 켜고 끄는 자리이자, 에이전트에 디버그 도구(MCP)를 꽂는 자리.
+          돌고 있는 실행이 있으면 amber 로 켜지고 배지에 그 수가 뜬다(루프 배지와 같은 규약). */}
+      <button
+        type="button"
+        onClick={() => handleClick('debug')}
         className={`relative flex h-10 w-10 items-center justify-center rounded transition-colors ${
-          bookmarkPanelOpen
+          activeView === 'debug' && !sidebarCollapsed
+            ? 'border-l-2 border-emerald-400 bg-gray-800 text-white'
+            : runningRuns > 0
+              ? 'text-amber-400 hover:bg-gray-800 hover:text-amber-300'
+              : 'text-gray-500 hover:bg-gray-800 hover:text-gray-300'
+        }`}
+        title={t('ide.activityBar.debug')}
+        aria-label={t('ide.activityBar.debug')}
+      >
+        <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+          <path d="M4 4l7 4-7 4z" />
+          <rect x="10" y="11" width="8" height="8" rx="4" />
+          <path d="M10 15H7M18 15h3M11.5 11.5L10 9M16.5 11.5L18 9M11.5 19l-1.5 2M16.5 19l1.5 2" />
+        </svg>
+        {runningRuns > 0 && (
+          <span className="absolute right-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[9px] font-bold tabular-nums text-white">
+            {runningRuns > 99 ? '99+' : runningRuns}
+          </span>
+        )}
+      </button>
+
+      {/* 북마크 — §5.5 #17-7 v4.93: 세션창을 덮던 패널을 폐지하고 **사이드바 뷰**로. 누르면 사이드바가
+          북마크 목록으로 바뀌고, 같은 항목을 다시 누르면 접힌다(스킬·목표·루프와 같은 규약). */}
+      <button
+        type="button"
+        onClick={() => handleClick('bookmarks')}
+        className={`relative flex h-10 w-10 items-center justify-center rounded transition-colors ${
+          activeView === 'bookmarks' && !sidebarCollapsed
             ? 'border-l-2 border-blue-400 bg-gray-800 text-white'
             : 'text-gray-500 hover:bg-gray-800 hover:text-gray-300'
         }`}
@@ -122,12 +202,13 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
         )}
       </button>
 
-      {/* 세션 요약 — 쌓인 세션을 한눈에 요약 카드로. 배지 = 미확인 완료 세션 수("확인할 게 N개"). */}
+      {/* 세션 요약 — 쌓인 세션을 한눈에 요약 카드로. 배지 = 미확인 완료 세션 수("확인할 게 N개").
+          §5.5 #17-8 v4.93: 북마크와 함께 덮개를 벗고 사이드바 뷰가 됐다(본문을 보면서 곁눈으로 훑는 자리). */}
       <button
         type="button"
-        onClick={toggleSummaryPanel}
+        onClick={() => handleClick('summary')}
         className={`relative flex h-10 w-10 items-center justify-center rounded transition-colors ${
-          summaryPanelOpen
+          activeView === 'summary' && !sidebarCollapsed
             ? 'border-l-2 border-violet-400 bg-gray-800 text-white'
             : 'text-gray-500 hover:bg-gray-800 hover:text-gray-300'
         }`}
@@ -148,12 +229,13 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
 
       {/* §5.5 #17-11 v3.79 — 세션 반복 실행(루프). 항목은 항상 있고(설정하러 들어오는 입구),
           배지는 지금 열린 세션 탭의 루프 진행(완료/목표 — 무한이면 완료 횟수)만 보여준다.
-          도는 동안에는 아이콘이 amber 로 켜져 "이 탭은 지금 반복 중"이 한눈에 보인다. */}
+          도는 동안에는 아이콘이 amber 로 켜져 "이 탭은 지금 반복 중"이 한눈에 보인다.
+          ⑨ v4.51 — 누르면 세션창을 덮는 대신 **사이드바가 루프 뷰로 바뀐다**(같은 항목 재클릭 시 접힘). */}
       <button
         type="button"
-        onClick={toggleLoopPanel}
+        onClick={() => handleClick('loop')}
         className={`relative flex h-10 w-10 items-center justify-center rounded transition-colors ${
-          loopPanelOpen
+          activeView === 'loop' && !sidebarCollapsed
             ? 'border-l-2 border-amber-400 bg-gray-800 text-white'
             : loopRunning
               ? 'text-amber-400 hover:bg-gray-800 hover:text-amber-300'
@@ -179,34 +261,43 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
         )}
       </button>
 
-      {/* §5.5 #17-9 v3.51 — 실행 중 서브에이전트. 이 에이전트가 백단에 자식을 하나라도 띄운 동안에만
-          나타나고, 마지막 자식이 끝나면 아이콘·배지가 통째로 사라진다(항상 자리를 차지하지 않게).
-          배지는 현재 탭 기준 개수 — 그 탭이 띄운 게 없으면 0 을 숨겨 "다른 탭에서 돈다"를 표현. */}
-      {runningTotal > 0 && (
-        <button
-          type="button"
-          onClick={toggleSubagentPanel}
-          className={`relative flex h-10 w-10 items-center justify-center rounded transition-colors ${
-            subagentPanelOpen
-              ? 'border-l-2 border-sky-400 bg-gray-800 text-white'
-              : 'text-sky-400/80 hover:bg-gray-800 hover:text-sky-300'
-          }`}
-          title={t('ide.activityBar.runningSubagents', { count: runningTasks.length })}
-          aria-label={t('ide.activityBar.runningSubagents', { count: runningTasks.length })}
+      {/* §5.5 #17-9 ⑤ v5.06 — 실행 중 서브에이전트. **항목은 늘 여기 있다**(터미널·파일·스킬과 같은
+          자리·같은 규약). 도는 게 있을 때만 나타나게 두면 그 순간을 놓친 사용자에게는 이 기능이
+          없는 것과 같다(사용자 지적) — 그래서 조건부 렌더와 "뷰 여는 동안만 회색" 예외를 함께 없앴다.
+          상태는 색과 숫자로만 말한다: 도는 중이면 sky 점등 + **아이콘 바로 아래 개수**(목표 항목의
+          진행 표기와 같은 형태 — 사용자가 정한 읽는 방식), 없으면 다른 항목과 같은 회색·숫자 없음.
+          누르면 언제나 사이드바가 이 뷰로 바뀌고(재클릭 = 접힘), 도는 게 없으면 뷰가 설명을 띄운다.
+          개수 산식은 '지금 보고 있는 탭' 한 벌 — `runningSubagents.ts`(③(a) v4.95).
+          ⑨ — 도는 중 점등은 **아이콘(과 그 아래 숫자)에만** 건다. 버튼에 색을 걸면 호버 배경까지
+          그 상태를 따라가 40×40 칸 전체가 물들어 옆 항목들과 뭉쳐 보인다(#17-17 ⑩ v4.69 와 같은 규칙) —
+          빛나는 것은 그 글리프뿐이어야 한다. 버튼 자체는 다른 항목과 같은 회색·같은 호버를 유지한다. */}
+      <button
+        type="button"
+        onClick={() => handleClick('subagents')}
+        className={`relative flex h-10 w-10 flex-col items-center justify-center gap-px rounded transition-colors ${
+          activeView === 'subagents' && !sidebarCollapsed
+            ? 'border-l-2 border-sky-400 bg-gray-800 text-white'
+            : 'text-gray-500 hover:bg-gray-800 hover:text-gray-300'
+        }`}
+        title={t('ide.activityBar.runningSubagents', { count: runningCount })}
+        aria-label={t('ide.activityBar.runningSubagents', { count: runningCount })}
+      >
+        <svg
+          className={`h-5 w-5 ${runningCount > 0 ? 'animate-pulse text-sky-400 drop-shadow-[0_0_5px_rgba(56,189,248,0.7)]' : ''}`}
+          viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"
         >
-          <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
-            <line x1="6" y1="3" x2="6" y2="15" />
-            <circle cx="18" cy="6" r="3" />
-            <circle cx="6" cy="18" r="3" />
-            <path d="M18 9a9 9 0 0 1-9 9" />
-          </svg>
-          {runningTasks.length > 0 && (
-            <span className="absolute right-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-sky-500 px-1 text-[9px] font-bold text-white">
-              {runningTasks.length > 99 ? '99+' : runningTasks.length}
-            </span>
-          )}
-        </button>
-      )}
+          <line x1="6" y1="3" x2="6" y2="15" />
+          <circle cx="18" cy="6" r="3" />
+          <circle cx="6" cy="18" r="3" />
+          <path d="M18 9a9 9 0 0 1-9 9" />
+        </svg>
+        {/* 숫자는 아이콘과 한 몸 — 점등이 버튼이 아니라 글리프에 사는 이상 색도 여기서 직접 준다. */}
+        {runningCount > 0 && (
+          <span className="text-[8.5px] font-bold leading-none tabular-nums text-sky-400">
+            {runningCount > 99 ? '99+' : runningCount}
+          </span>
+        )}
+      </button>
     </div>
   );
 });

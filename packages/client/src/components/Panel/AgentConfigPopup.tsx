@@ -11,20 +11,42 @@ import {
   listModelFamilies,
   listEffortLevels,
   parseModelSemver,
+  AGENT_MEMORY_SCOPES,
+  normalizeAgentMemoryScope,
+  normalizeSubagentDepth,
+  SUBAGENT_DEPTH_MAX,
+  AVAILABLE_PERMISSION_MODES,
+  PERMISSION_MODES_WITHOUT_PROMPT,
+  AVAILABLE_SETTING_SOURCES,
+  AVAILABLE_AUTOCOMPACT_VALUES,
+  normalizeBashTimeoutMs,
+  BASH_TIMEOUT_MS_MAX,
+  BASH_DEFAULT_TIMEOUT_MS_CLI_DEFAULT,
+  BASH_MAX_TIMEOUT_MS_CLI_DEFAULT,
 } from '@vibisual/shared';
 import { HexColorPicker } from 'react-colorful';
 import { ScrollFade } from '../ScrollFade.js';
 import { useGraphStore } from '../../stores/graphStore.js';
+import { useBackdropDismiss, useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 
 const API_BASE = '';
 
-interface SelectOption { value: string; description: string; disabled?: boolean }
+// `label` — 저장값(`value`)과 화면에 보일 이름이 다를 때만 쓴다(§4 CLI 사양 추종: 권한 모드
+//   `'default'` 의 CLI 표시명은 **manual**, `--autocompact` 의 빈 값은 "미설정"). 저장값을 바꾸면
+//   기존 체크포인트를 건드려야 하므로, 바꾸는 것은 이름뿐이다.
+interface SelectOption { value: string; description: string; disabled?: boolean; label?: string }
 
 // §4 v2.77 — Model 드롭다운은 더 이상 3종 하드코딩이 아니라 레지스트리 기반 동적 목록(`listModelFamilies`).
 //   기본 alias(폴백) 만 상수로 둔다.
 const KNOWN_MODEL_FAMILIES = ['opus', 'sonnet', 'haiku'] as const;
-const PERMISSION_VALUES = ['default', 'acceptEdits', 'plan', 'bypassPermissions'] as const;
+// §4 (CLI 사양 추종) — 권한 모드는 설치된 CLI 내부 enum 과 같은 6종. 하드코딩 사본을 두지 않고
+//   shared 상수를 그대로 쓴다(CLI 가 값을 늘리면 여기 한 줄이 아니라 shared 한 곳만 고친다).
+const PERMISSION_VALUES = AVAILABLE_PERMISSION_MODES;
 const ISOLATION_VALUES = ['none', 'worktree'] as const;
+// §4 (CLI 사양 추종) — Bash 타임아웃은 사용자가 말하는 단위(초)로 입력받고 저장은 ms(env 가 ms).
+//   0 = 미설정 = CLI 기본(기본 2분 / 상한 10분) 유지. 범위 밖은 shared 정규화가 undefined 로 떨어뜨린다.
+const bashSecToMs = (sec: number): number | undefined => normalizeBashTimeoutMs(Math.round(sec) * 1000);
+const bashMsToSec = (ms: number | undefined): number => (typeof ms === 'number' && ms > 0 ? Math.round(ms / 1000) : 0);
 // §4 — Effort 등급은 더 이상 하드코딩하지 않는다. 설치된 `claude --help` 에서 서버가 파싱해
 //   `modelRegistry.effortLevels` 로 전달 → `listEffortLevels(registry)` 로 동적 구성(Model 드롭다운과 대칭).
 //   CLI 미발견/파싱 실패 시에만 shared `AVAILABLE_EFFORT_LEVELS` 로 폴백.
@@ -158,13 +180,11 @@ function usePortalDropdown(placement: 'below' | 'left' = 'below') {
     reposition();
   }, [open, reposition]);
 
+  // 바깥 press 로 닫기 — 드롭다운 안(패널·버튼)에서 시작한 드래그로는 닫히지 않는다(공통 규약).
+  useOutsidePressDismiss({ enabled: open, onDismiss: close, refs: [panelRef, btnRef], capture: false });
+
   useEffect(() => {
     if (!open) return;
-    const handleClick = (e: MouseEvent): void => {
-      if (!panelRef.current?.contains(e.target as Node) && !btnRef.current?.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
     const handleScroll = (e: Event): void => {
       // 드롭다운 내부 스크롤은 무시
       if (panelRef.current?.contains(e.target as Node)) return;
@@ -172,11 +192,9 @@ function usePortalDropdown(placement: 'below' | 'left' = 'below') {
     };
     // 창 크기가 바뀌면 남은 공간도 바뀐다 — 닫지 않고 재배치.
     const handleResize = (): void => reposition();
-    document.addEventListener('mousedown', handleClick);
     window.addEventListener('scroll', handleScroll, true);
     window.addEventListener('resize', handleResize);
     return () => {
-      document.removeEventListener('mousedown', handleClick);
       window.removeEventListener('scroll', handleScroll, true);
       window.removeEventListener('resize', handleResize);
     };
@@ -201,7 +219,7 @@ function CustomSelect({ value, onChange, options, disabled }: {
         disabled={disabled}
         className="flex items-center justify-between rounded border border-gray-700 bg-gray-800 px-2.5 py-1.5 text-left text-sm text-gray-200 outline-none hover:border-gray-600 focus:border-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
       >
-        <span>{value}</span>
+        <span>{options.find((o) => o.value === value)?.label ?? value}</span>
         <svg className="ml-2 h-3 w-3 text-gray-500" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth={2}>
           <polyline points="2 4 6 8 10 4" />
         </svg>
@@ -216,7 +234,7 @@ function CustomSelect({ value, onChange, options, disabled }: {
               onClick={() => { if (opt.disabled) return; onChange(opt.value); close(); }}
               className={`flex w-full flex-col gap-0.5 px-3 py-1.5 text-left transition-colors ${opt.disabled ? 'cursor-not-allowed opacity-40' : 'hover:bg-blue-500/15'} ${opt.value === value ? 'bg-blue-500/10' : ''}`}
             >
-              <span className={`text-xs font-medium ${opt.value === value ? 'text-blue-400' : 'text-gray-200'}`}>{opt.value}</span>
+              <span className={`text-xs font-medium ${opt.value === value ? 'text-blue-400' : 'text-gray-200'}`}>{opt.label ?? opt.value}</span>
               <span className="text-[10px] leading-tight text-gray-500">{opt.description}</span>
             </button>
           ))}
@@ -426,8 +444,28 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
       };
     });
   }, [t, modelRegistry]);
-  const PERMISSION_OPTIONS: SelectOption[] = useMemo(() => PERMISSION_VALUES.map((v) => ({ value: v, description: t(`panel.agentConfig.permissionMode.${v}`) })), [t]);
+  // §4 (CLI 사양 추종) — 저장값 `'default'` 의 CLI 표시명은 **manual** 이라 이름만 바꿔 보여준다
+  //   (저장값을 바꾸면 기존 에이전트 설정을 전부 마이그레이션해야 하고, CLI 내부 enum 도 여전히 `default` 다).
+  const PERMISSION_OPTIONS: SelectOption[] = useMemo(() => PERMISSION_VALUES.map((v) => ({
+    value: v,
+    label: v === 'default' ? 'manual' : v,
+    description: t(`panel.agentConfig.permissionMode.${v}`),
+  })), [t]);
   const ISOLATION_OPTIONS: SelectOption[] = useMemo(() => ISOLATION_VALUES.map((v) => ({ value: v, description: t(`panel.agentConfig.isolation.${v}`) })), [t]);
+  // §4 (CLI 사양 추종) — `--autocompact`. 맨 앞 빈 값은 "미설정"(플래그 없음).
+  const AUTOCOMPACT_OPTIONS: SelectOption[] = useMemo(() => AVAILABLE_AUTOCOMPACT_VALUES.map((v) => ({
+    value: v,
+    label: v === '' ? t('panel.agentConfig.autoCompact.unsetLabel') : v === 'auto' ? 'auto' : `${Number(v) / 1000}k`,
+    description: v === ''
+      ? t('panel.agentConfig.autoCompact.unset')
+      : v === 'auto'
+        ? t('panel.agentConfig.autoCompact.auto')
+        : t('panel.agentConfig.autoCompact.tokens', { tokens: `${Number(v) / 1000}k` }),
+  })), [t]);
+  // §5.3 v4.89 — 자기 기억 범위. 'default' 는 저장하지 않는 값(= 레포 공용 기억)이라 목록 맨 앞에 둔다.
+  const MEMORY_OPTIONS: SelectOption[] = useMemo(() => (
+    ['default', ...AGENT_MEMORY_SCOPES].map((v) => ({ value: v, description: t(`panel.agentConfig.memory.${v}`) }))
+  ), [t]);
   // §4 — 설치된 CLI 가 실제로 받는 effort 등급(`modelRegistry.effortLevels`) 기반 동적 목록.
   //   known 등급은 전용 설명, CLI 가 새로 노출한 미지 등급은 공통 'unknown' 설명으로 폴백.
   const EFFORT_OPTIONS: SelectOption[] = useMemo(() => listEffortLevels(modelRegistry).map((v) => ({
@@ -439,8 +477,11 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
       }),
     }),
   })), [t, modelRegistry]);
+  // §4 (CLI 사양 추종) — 목록을 손으로 따로 적으면 도구가 늘 때마다 여기만 빠진다(실제로 `TodoWrite` 가
+  //   그래서 설명 자리에 키 문자열이 그대로 찍혔다). 도구 목록 SSOT 를 그대로 돌고, 번역이 없는 도구는
+  //   빈 문자열로 두어 설명 줄 자체가 생기지 않게 한다.
   const TOOL_DESCRIPTIONS: Record<string, string> = useMemo(() => Object.fromEntries(
-    ['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob', 'Agent', 'WebSearch', 'WebFetch', 'NotebookEdit'].map((tool) => [tool, t(`panel.agentConfig.tools.${tool}`)]),
+    AVAILABLE_AGENT_TOOLS.map((tool) => [tool, t(`panel.agentConfig.tools.${tool}`, { defaultValue: '' })]),
   ), [t]);
   const FIELD_TIPS = useMemo(() => ({
     model: t('panel.agentConfig.fieldTips.model'),
@@ -450,6 +491,8 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
     maxTurns: t('panel.agentConfig.fieldTips.maxTurns'),
     maxBudgetUsd: t('panel.agentConfig.fieldTips.maxBudgetUsd'),
     isolation: t('panel.agentConfig.fieldTips.isolation'),
+    memory: t('panel.agentConfig.fieldTips.memory'),
+    subagentDepth: t('panel.agentConfig.fieldTips.subagentDepth'),
     effort: t('panel.agentConfig.fieldTips.effort'),
     skills: t('panel.agentConfig.fieldTips.skills'),
     color: t('panel.agentConfig.fieldTips.color'),
@@ -458,6 +501,9 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
   const [model, setModel] = useState(base.model);
   // §4 v2.38 — 특정 풀ID 핀. undefined = alias=latest 모드.
   const [modelVersion, setModelVersion] = useState<string | undefined>(base.modelVersion);
+  // §5.5 #17-20 ⑥ v4.74 — 이 창에는 UI 가 없지만 저장할 때 함께 실어 보내야 하는 값(통과용).
+  //   IDE 디버그 뷰에서 켠 MCP 도구 선택이 이 창의 [저장]으로 꺼지지 않게 한다.
+  const mcpServers = base.mcpServers;
   // v1.37 — 툴 구성은 사용자 책임 (Bash 등 자동 포함 없음).
   const [tools, setTools] = useState<string[]>([...base.tools]);
   const [permissionMode, setPermissionMode] = useState(base.permissionMode);
@@ -473,7 +519,21 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
   // §4 v2.88 — API 비용 상한($). 0 = 무제한(기본). 양수면 헤드리스 스폰에 --max-budget-usd 전달.
   const [maxBudgetUsd, setMaxBudgetUsd] = useState(base.maxBudgetUsd ?? 0);
   const [isolation, setIsolation] = useState(base.isolation ?? 'none');
+  // §5.3 v4.89 — 자기 기억 범위 · 서브에이전트 중첩 깊이. 둘 다 미지정이 기본(CLI 기본 동작 유지).
+  const [memory, setMemory] = useState<string>(base.memory ?? 'default');
+  const [subagentDepth, setSubagentDepth] = useState<number>(base.subagentDepth ?? 0);
   const [effort, setEffort] = useState(base.effort ?? 'default');
+  // §4 (CLI 사양 추종) — 설치된 CLI 가 받는 신규 옵션들. 전부 "미설정"이 기본이고, 미설정이면
+  //   해당 플래그를 아예 붙이지 않아 종전과 같은 인자로 스폰된다.
+  const [fallbackModel, setFallbackModel] = useState(base.fallbackModel ?? '');
+  const [autoCompact, setAutoCompact] = useState(base.autoCompact ?? '');
+  const [excludeDynamicSections, setExcludeDynamicSections] = useState(base.excludeDynamicSystemPromptSections === true);
+  const [settingSources, setSettingSources] = useState<string[]>([...(base.settingSources ?? [])]);
+  const [safeMode, setSafeMode] = useState(base.safeMode === true);
+  const [betas, setBetas] = useState((base.betas ?? []).join(', '));
+  // §4 (CLI 사양 추종) — Bash 타임아웃(초). 0 = 미설정. 상한 쪽이 "600초에서 걸린다"를 푸는 축.
+  const [bashDefaultTimeoutSec, setBashDefaultTimeoutSec] = useState(bashMsToSec(base.bashDefaultTimeoutMs));
+  const [bashMaxTimeoutSec, setBashMaxTimeoutSec] = useState(bashMsToSec(base.bashMaxTimeoutMs));
   // §4 v1.53 — disallowedTools UI 노출 (Tools 아래 빨간 칩 라인)
   const [disallowedTools, setDisallowedTools] = useState<string[]>([...(base.disallowedTools ?? [])]);
   // §4 v1.53 — Opus 1M 컨텍스트 토글. **기본 ON** — undefined/'1m' 둘 다 체크, '200k' 만 언체크.
@@ -491,7 +551,6 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
   const [contextItems, setContextItems] = useState<{ name: string; type: string; summary?: string; lines?: number; path?: string }[]>([]);
   const [contextOpen, setContextOpen] = useState(false);
   const [availableSkills, setAvailableSkills] = useState<{ name: string; description: string; source: 'project' | 'global' | 'plugin'; pluginName?: string }[]>([]);
-  const overlayRef = useRef<HTMLDivElement>(null);
 
   // §5.5 #17-6 v2.73 — 오버레이 위젯 창 토글(packaged Electron + customCreated 한정).
   const overlayAgentIds = useGraphStore((s) => s.overlayAgentIds);
@@ -535,9 +594,9 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
 
   const isOpus = model === 'opus';
 
-  const handleOverlayClick = useCallback((e: React.MouseEvent) => {
-    if (e.target === overlayRef.current) onClose();
-  }, [onClose]);
+  const backdrop = useBackdropDismiss(onClose);
+  const closeRulesEditor = useCallback(() => setShowRulesEditor(false), []);
+  const rulesBackdrop = useBackdropDismiss(closeRulesEditor);
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') onClose(); };
@@ -622,6 +681,9 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
     // §4 v2.88 — 0 = 무제한 → undefined 로 직렬화 최소화. 양수만 저장.
     maxBudgetUsd: maxBudgetUsd > 0 ? maxBudgetUsd : undefined,
     isolation: isolation !== 'none' ? isolation : undefined,
+    // §5.3 v4.89 — 'default'(미지정)는 저장하지 않는다. 0 은 "깊이 미지정" 이라 undefined 로.
+    memory: normalizeAgentMemoryScope(memory),
+    subagentDepth: normalizeSubagentDepth(subagentDepth),
     effort: (isOpus && effort !== 'default') ? effort : undefined,
     disallowedTools: disallowedTools.length > 0 ? disallowedTools : undefined,
     rules: rules.trim() || undefined,
@@ -638,10 +700,30 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
     presetId,
     // §4 v2.38 — 풀ID 핀 (undefined = alias=latest 모드)
     modelVersion,
+    // §5.5 #17-20 ⑥ v4.74 — MCP 디버그 도구 선택은 이 창이 아니라 IDE 디버그 뷰에서 켠다.
+    //   PUT 은 body 로 config 전량을 재구축하므로 **여기서 그대로 실어 보내지 않으면 저장할 때
+    //   조용히 꺼진다** — 이 창이 모르는 필드라도 통과시켜야 한다.
+    mcpServers: mcpServers && mcpServers.length > 0 ? mcpServers : undefined,
+    // §4 (CLI 사양 추종) — 미설정은 undefined 로 보내 플래그가 붙지 않게 한다.
+    fallbackModel: fallbackModel.trim() || undefined,
+    autoCompact: autoCompact.trim() || undefined,
+    excludeDynamicSystemPromptSections: excludeDynamicSections ? true : undefined,
+    settingSources: settingSources.length > 0 ? settingSources : undefined,
+    safeMode: safeMode ? true : undefined,
+    betas: (() => {
+      const parsed = betas.split(',').map((b) => b.trim()).filter(Boolean);
+      return parsed.length > 0 ? parsed : undefined;
+    })(),
+    // §4 (CLI 사양 추종) — 초 → ms. 0/범위 밖은 undefined = 미설정(env 키 자체가 안 붙는다).
+    bashDefaultTimeoutMs: bashSecToMs(bashDefaultTimeoutSec),
+    bashMaxTimeoutMs: bashSecToMs(bashMaxTimeoutSec),
   }), [
     model, tools, permissionMode, permissionTimeoutPolicy, skills, color, maxTurns, maxBudgetUsd, isolation, effort,
+    memory, subagentDepth,
     isOpus, disallowedTools, rules, customMode,
-    contextWindow, presetId, modelVersion,
+    contextWindow, presetId, modelVersion, mcpServers,
+    fallbackModel, autoCompact, excludeDynamicSections, settingSources, safeMode, betas,
+    bashDefaultTimeoutSec, bashMaxTimeoutSec,
   ]);
 
   const handleSave = useCallback(async () => {
@@ -660,7 +742,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
   const availableToAdd = AVAILABLE_AGENT_TOOLS.filter((t) => !tools.includes(t));
 
   return (
-    <div ref={overlayRef} className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={handleOverlayClick}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" {...backdrop}>
       <div className="flex max-h-[80vh] w-[420px] max-w-[94vw] flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl max-md:h-dvh max-md:max-h-dvh max-md:w-screen max-md:max-w-none max-md:rounded-none max-md:border-0">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-gray-700 px-4 py-3">
@@ -736,8 +818,10 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
               <CustomSelect value={permissionMode} onChange={setPermissionMode} options={PERMISSION_OPTIONS} />
             </div>
 
-            {/* §5.3 #12-1 v1.90 — On no response (60s) fallback. bypass/plan 은 팝업 자체가 안 떠 무의미 → 숨김 */}
-            {permissionMode !== 'bypassPermissions' && permissionMode !== 'plan' && (
+            {/* §5.3 #12-1 v1.90 — On no response (60s) fallback. 팝업이 원천적으로 안 뜨는 모드
+                (bypassPermissions·plan·auto·dontAsk)에서는 무의미해서 숨긴다 — §4 CLI 사양 추종으로
+                auto·dontAsk 가 늘었으므로 조건을 shared 목록 한 곳으로 모았다. */}
+            {!PERMISSION_MODES_WITHOUT_PROMPT.includes(permissionMode) && (
               <div className="flex flex-col gap-1.5">
                 <label className="flex items-center text-xs font-medium text-gray-400">
                   {t('panel.agentConfig.permissionTimeoutPolicy.label', { defaultValue: 'On no response (60s)' })}
@@ -1069,6 +1153,31 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                 <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.effort.label')}<InfoTip text={FIELD_TIPS.effort} /></label>
                 <CustomSelect value={isOpus ? effort : 'default'} onChange={setEffort} options={EFFORT_OPTIONS} disabled={!isOpus} />
               </div>
+              {/* §5.3 v4.89 — 자기 기억 범위. 이 에이전트가 세션을 넘어 무엇을 기억할지 정한다. */}
+              <div className="flex flex-col gap-1">
+                <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.memory.label')}<InfoTip text={FIELD_TIPS.memory} /></label>
+                <CustomSelect value={memory} onChange={setMemory} options={MEMORY_OPTIONS} />
+              </div>
+              {/* §5.3 v4.89 — 서브에이전트 중첩 깊이. 0 = 미지정(CLI 기본 3층). */}
+              <div className="flex flex-col gap-1">
+                <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.subagentDepth.label')}<InfoTip text={FIELD_TIPS.subagentDepth} /></label>
+                <div className="flex items-stretch rounded border border-gray-700 bg-gray-800 focus-within:border-blue-500">
+                  <button type="button" onClick={() => setSubagentDepth((v) => Math.max(0, v - 1))} className="flex w-7 items-center justify-center text-gray-500 transition-colors hover:bg-gray-700 hover:text-gray-200">
+                    <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth={2}><line x1="2" y1="6" x2="10" y2="6" /></svg>
+                  </button>
+                  <input
+                    type="number"
+                    min={0}
+                    max={SUBAGENT_DEPTH_MAX}
+                    value={subagentDepth}
+                    onChange={(e) => setSubagentDepth(Math.max(0, Math.min(SUBAGENT_DEPTH_MAX, Number(e.target.value) || 0)))}
+                    className="w-full min-w-0 flex-1 border-x border-gray-700 bg-transparent px-2 py-1.5 text-center text-sm text-gray-200 outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                  />
+                  <button type="button" onClick={() => setSubagentDepth((v) => Math.min(SUBAGENT_DEPTH_MAX, v + 1))} className="flex w-7 items-center justify-center text-gray-500 transition-colors hover:bg-gray-700 hover:text-gray-200">
+                    <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth={2}><line x1="2" y1="6" x2="10" y2="6" /><line x1="6" y1="2" x2="6" y2="10" /></svg>
+                  </button>
+                </div>
+              </div>
               {/* §4 v2.88 — API 비용 상한($). 0 = 무제한. 양수면 헤드리스 스폰에 --max-budget-usd 전달. */}
               <div className="flex flex-col gap-1">
                 <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.maxBudgetUsd', { defaultValue: 'Budget ($, 0=∞)' })}<InfoTip text={FIELD_TIPS.maxBudgetUsd} /></label>
@@ -1083,6 +1192,144 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                     className="w-full min-w-0 flex-1 border-l border-gray-700 bg-transparent px-2 py-1.5 text-center text-sm text-gray-200 outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                   />
                 </div>
+              </div>
+            </div>
+
+            {/* §4 (CLI 사양 추종) — 설치된 claude 가 받는 신규 옵션. 전부 "미설정"이 기본이고,
+                미설정이면 해당 플래그를 붙이지 않아 종전과 같은 인자로 스폰된다. */}
+            <div className="flex flex-col gap-2 rounded border border-gray-800 bg-gray-900/40 p-2.5">
+              <span className="flex items-center text-xs font-medium text-gray-400">
+                {t('panel.agentConfig.cliOptions.label')}
+                <InfoTip text={t('panel.agentConfig.cliOptions.tip')} />
+              </span>
+              <div className="grid grid-cols-2 gap-2.5">
+                <div className="flex flex-col gap-1">
+                  <label className="flex items-center text-[11px] font-medium text-gray-500">
+                    {t('panel.agentConfig.fallbackModel.label')}
+                    <InfoTip text={t('panel.agentConfig.fallbackModel.tip')} />
+                  </label>
+                  <input
+                    type="text"
+                    value={fallbackModel}
+                    onChange={(e) => setFallbackModel(e.target.value)}
+                    placeholder={t('panel.agentConfig.fallbackModel.placeholder')}
+                    className="min-w-0 rounded border border-gray-700 bg-gray-800 px-2 py-1.5 text-sm text-gray-200 outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="flex items-center text-[11px] font-medium text-gray-500">
+                    {t('panel.agentConfig.autoCompact.label')}
+                    <InfoTip text={t('panel.agentConfig.autoCompact.tip')} />
+                  </label>
+                  <CustomSelect value={autoCompact} onChange={setAutoCompact} options={AUTOCOMPACT_OPTIONS} />
+                </div>
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="flex items-center text-[11px] font-medium text-gray-500">
+                  {t('panel.agentConfig.settingSources.label')}
+                  <InfoTip text={t('panel.agentConfig.settingSources.tip')} />
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {AVAILABLE_SETTING_SOURCES.map((src) => {
+                    const on = settingSources.includes(src);
+                    return (
+                      <button
+                        key={src}
+                        type="button"
+                        onClick={() => setSettingSources((p) => (p.includes(src) ? p.filter((x) => x !== src) : [...p, src]))}
+                        className={`rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors ${
+                          on ? 'bg-sky-500/15 text-sky-400' : 'bg-gray-800 text-gray-500 hover:text-gray-300'
+                        }`}
+                      >
+                        {src}
+                      </button>
+                    );
+                  })}
+                  {settingSources.length === 0 && (
+                    <span className="self-center text-[11px] text-gray-600">{t('panel.agentConfig.settingSources.all')}</span>
+                  )}
+                </div>
+              </div>
+              <label className="flex items-start gap-2 text-[11px] text-gray-400">
+                <input
+                  type="checkbox"
+                  checked={excludeDynamicSections}
+                  onChange={(e) => setExcludeDynamicSections(e.target.checked)}
+                  className="mt-0.5 h-3.5 w-3.5 accent-blue-500"
+                />
+                <span>
+                  {t('panel.agentConfig.excludeDynamicSections.label')}
+                  <span className="ml-1 text-gray-600">{t('panel.agentConfig.excludeDynamicSections.hint')}</span>
+                </span>
+              </label>
+              <label className="flex items-start gap-2 text-[11px] text-gray-400">
+                <input
+                  type="checkbox"
+                  checked={safeMode}
+                  onChange={(e) => setSafeMode(e.target.checked)}
+                  className="mt-0.5 h-3.5 w-3.5 accent-amber-500"
+                />
+                <span>
+                  {t('panel.agentConfig.safeMode.label')}
+                  <span className="ml-1 text-amber-500/80">{t('panel.agentConfig.safeMode.warn')}</span>
+                </span>
+              </label>
+              <div className="flex flex-col gap-1">
+                <label className="flex items-center text-[11px] font-medium text-gray-500">
+                  {t('panel.agentConfig.betas.label')}
+                  <InfoTip text={t('panel.agentConfig.betas.tip')} />
+                </label>
+                <input
+                  type="text"
+                  value={betas}
+                  onChange={(e) => setBetas(e.target.value)}
+                  placeholder={t('panel.agentConfig.betas.placeholder')}
+                  className="min-w-0 rounded border border-gray-700 bg-gray-800 px-2 py-1.5 text-sm text-gray-200 outline-none focus:border-blue-500"
+                />
+              </div>
+              {/* §4 (CLI 사양 추종) — Bash 타임아웃(초). 0 = 미설정(CLI 기본 유지).
+                  상한을 올려야 10분(600초)에서 잘리던 긴 빌드·테스트가 끝까지 간다. */}
+              <div className="flex flex-col gap-1.5">
+                <span className="flex items-center text-[11px] font-medium text-gray-500">
+                  {t('panel.agentConfig.bashTimeout.label')}
+                  <InfoTip text={t('panel.agentConfig.bashTimeout.tip')} />
+                </span>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[11px] text-gray-500">{t('panel.agentConfig.bashTimeout.defaultLabel')}</label>
+                    <div className="flex items-stretch rounded border border-gray-700 bg-gray-800 focus-within:border-blue-500">
+                      <input
+                        type="number"
+                        min={0}
+                        max={BASH_TIMEOUT_MS_MAX / 1000}
+                        value={bashDefaultTimeoutSec}
+                        onChange={(e) => setBashDefaultTimeoutSec(Math.max(0, Number(e.target.value) || 0))}
+                        className="w-full min-w-0 flex-1 bg-transparent px-2 py-1.5 text-center text-sm text-gray-200 outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                      />
+                      <span className="flex w-7 items-center justify-center border-l border-gray-700 text-xs text-gray-500">s</span>
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[11px] text-gray-500">{t('panel.agentConfig.bashTimeout.maxLabel')}</label>
+                    <div className="flex items-stretch rounded border border-gray-700 bg-gray-800 focus-within:border-blue-500">
+                      <input
+                        type="number"
+                        min={0}
+                        max={BASH_TIMEOUT_MS_MAX / 1000}
+                        value={bashMaxTimeoutSec}
+                        onChange={(e) => setBashMaxTimeoutSec(Math.max(0, Number(e.target.value) || 0))}
+                        className="w-full min-w-0 flex-1 bg-transparent px-2 py-1.5 text-center text-sm text-gray-200 outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                      />
+                      <span className="flex w-7 items-center justify-center border-l border-gray-700 text-xs text-gray-500">s</span>
+                    </div>
+                  </div>
+                </div>
+                <span className="text-[11px] text-gray-600">
+                  {t('panel.agentConfig.bashTimeout.hint', {
+                    defaultSec: BASH_DEFAULT_TIMEOUT_MS_CLI_DEFAULT / 1000,
+                    maxSec: BASH_MAX_TIMEOUT_MS_CLI_DEFAULT / 1000,
+                  })}
+                </span>
               </div>
             </div>
 
@@ -1211,7 +1458,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
 
       {/* Rules Editor Overlay — §5.3 #28 (K) v1.48: 좌 본문 + 우 히스토리 패널 2-column */}
       {showRulesEditor && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70" onClick={(e) => { if (e.target === e.currentTarget) setShowRulesEditor(false); }}>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70" {...rulesBackdrop}>
           <div className="flex h-[82vh] max-h-[92dvh] w-[960px] max-w-[94vw] flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl max-md:h-dvh max-md:max-h-dvh max-md:w-screen max-md:max-w-none max-md:rounded-none max-md:border-0">
             <div className="flex items-center justify-between border-b border-gray-700 px-4 py-3">
               <h3 className="text-sm font-bold text-gray-100">{t('panel.agentConfig.agentRules')}</h3>

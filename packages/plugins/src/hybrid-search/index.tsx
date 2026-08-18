@@ -5,8 +5,8 @@
  * **키워드(텍스트) 축만** 쓰며, 이는 수백 건 규모에서 의도한 선택이다. 이 카드는 그 사실과 지금 규모를
  * 함께 보여준다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const cards = (ctx: PluginBubbleContext): number => ctx.data.brain?.cardCount ?? 0;
 

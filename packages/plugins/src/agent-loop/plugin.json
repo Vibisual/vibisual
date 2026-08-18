@@ -1,0 +1,17 @@
+{
+  "id": "agent-loop",
+  "name": "Agent Loop",
+  "version": "1.0.0",
+  "category": "observability",
+  "descriptionKey": "panel.plugins.agentLoop.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "agentEvents"
+  ],
+  "hostApi": 1
+}

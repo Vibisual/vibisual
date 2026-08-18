@@ -2,13 +2,16 @@ import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { AgentReport, AgentReview } from '@vibisual/shared';
 import { FeedbackButtons } from './FeedbackButtons.js';
-import { CardSection, CardDetails, CardHoverControls } from './AgentCardParts.js';
+import { CardSection, CardDetails, CardHoverControls, CardLiveBadge, CompactCardLine, compactSummary, useCompactCards } from './AgentCardParts.js';
 import { ReviewIcon, InstructionIcon, ChangeIcon, VerifyIcon } from './AgentReviewCard.js';
+import { useStreamToggle } from './streamToggle.js';
 
 interface AgentReportCardProps {
   report: AgentReport;
   /** §5.5 #17-12 — 같은 턴에 온 검수 요청(있으면 이 카드 안쪽 구획으로 합쳐 한 장으로 보여준다). */
   review?: AgentReview;
+  /** §5.5 #17-18 ⑦-2 — 이 카드가 속한 턴이 아직 도는 중(헤더에 `작업 중` 배지 — 끝난 줄 착각 방지). */
+  live?: boolean;
 }
 
 function formatTime(ts: number): string {
@@ -17,6 +20,17 @@ function formatTime(ts: number): string {
     minute: '2-digit',
     hour12: false,
   });
+}
+
+/** 작업 신고 카드의 식별 글리프(문서 + 체크) — 헤더와 간결 한 줄이 함께 쓴다. */
+function ReportIcon(): React.JSX.Element {
+  return (
+    <svg className="h-3.5 w-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <path d="M14 2v6h6" />
+      <path d="M9 15l2 2 4-4" />
+    </svg>
+  );
 }
 
 /** 완료 체크 (did 항목) */
@@ -123,7 +137,7 @@ function NoteBody({ note }: { note: string }): React.JSX.Element {
  * - nextSteps : 보조(슬레이트) — 다음 단계.
  * 표시 전용 — 사용자가 긴 보고를 다 안 읽어도 "내가 할 일"을 한눈에 파악하게 한다.
  */
-export const AgentReportCard = memo(function AgentReportCard({ report, review }: AgentReportCardProps): React.JSX.Element {
+export const AgentReportCard = memo(function AgentReportCard({ report, review, live }: AgentReportCardProps): React.JSX.Element {
   const { t } = useTranslation();
   const hasUserActions = report.userActions.length > 0;
   // §5.5 #17-12 — 기본 노출은 "행동 구획"(사용자가 할 일 / 검수 포인트)뿐. 맥락(한 일·다음 단계·배운 것,
@@ -132,15 +146,29 @@ export const AgentReportCard = memo(function AgentReportCard({ report, review }:
     report.did.length + (report.nextSteps?.length ?? 0) + (report.learned?.length ?? 0)
     + (review ? review.changes.length + (review.instruction ? 1 : 0) : 0);
 
+  // §5.5 #17-21 ④ — 간결에서는 **행동 구획**(사용자가 할 일 / 흡수한 검수 포인트)만 남긴다.
+  //   행동이 하나도 없으면 카드 전체가 한 줄로 접히고, 클릭하면 원래 카드가 그대로 펼쳐진다.
+  const compact = useCompactCards();
+  const [expanded, toggleExpanded] = useStreamToggle(`card-${report.id}`, false);
+  const hasAction = hasUserActions || (review?.checkpoints.length ?? 0) > 0;
+  if (compact && !hasAction && !expanded) {
+    return (
+      <CompactCardLine
+        icon={<ReportIcon />}
+        label={t('ide.report.title')}
+        labelClass="text-gray-400"
+        summary={compactSummary([report.note, report.did[0], report.nextSteps?.[0]])}
+        onExpand={toggleExpanded}
+        live={live}
+      />
+    );
+  }
+
   return (
     <div className="group/card mx-2 my-1.5 overflow-hidden rounded-md border border-gray-700/60 bg-gray-900/40">
       {/* 헤더 */}
       <div className="flex items-center gap-2 border-b border-gray-800/60 bg-gray-800/30 px-3 py-1.5">
-        <svg className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-          <path d="M14 2v6h6" />
-          <path d="M9 15l2 2 4-4" />
-        </svg>
+        <span className="text-gray-400"><ReportIcon /></span>
         <span className="flex-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
           {t('ide.report.title')}
         </span>
@@ -153,11 +181,13 @@ export const AgentReportCard = memo(function AgentReportCard({ report, review }:
             {t('ide.review.title')}
           </span>
         )}
+        {live && <CardLiveBadge />}
         <span className="select-none text-[10px] text-gray-500">{formatTime(report.createdAt)}</span>
       </div>
 
       <div className="px-3 py-2">
-        {report.note && <NoteBody note={report.note} />}
+        {/* §5.5 #17-21 ④ — 간결에서는 본문 note 를 접는다(사용자가 카드를 직접 펼쳤으면 그대로 보여준다). */}
+        {(!compact || expanded) && report.note && <NoteBody note={report.note} />}
 
         {/* 사용자가 할 일 — amber 강조 패널 (행동 구획: 항상 노출) */}
         {hasUserActions && (

@@ -5,9 +5,9 @@
  * 임시 파일에 쓰고 원자적으로 교체하는 것이 표준이며, Vibisual 은 체크포인트·설정 저장에 이 규약을 코어에서 지킨다.
  * 이 카드는 그 보장과, 이 에이전트가 직접 파일을 쓰는지를 함께 보여준다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import { effectiveTools } from '../lethal-trifecta/trifecta.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import { effectiveTools } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const writes = (ctx: PluginBubbleContext): boolean => ['Write', 'Edit', 'NotebookEdit'].some((t) => effectiveTools(ctx.agentConfig).has(t));
 

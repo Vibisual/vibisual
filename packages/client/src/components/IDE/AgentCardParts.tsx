@@ -1,5 +1,7 @@
 import { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { STREAM_COMPACT_SUMMARY_CHARS } from '@vibisual/shared';
+import { useGraphStore } from '../../stores/graphStore.js';
 
 /**
  * AgentCardParts — §5.5 #17-12 카드 다이어트 공용 조각.
@@ -72,6 +74,76 @@ export function CardDetails({ count, children }: CardDetailsProps): React.JSX.El
       </button>
       {open && <div>{children}</div>}
     </div>
+  );
+}
+
+/**
+ * §5.5 #17-21 ④ — 지금 밀도가 `간결`인가. 카드가 "행동만 남길지"를 이걸로 정한다.
+ * 카드는 Sub 탭·메인 탭 양쪽에서 같은 컴포넌트로 쓰이므로, prop 배선 대신 store 를 직접 읽어
+ * 두 탭이 자동으로 같은 규칙을 따르게 한다(#17-12 ⑦).
+ */
+export function useCompactCards(): boolean {
+  return useGraphStore((s) => s.ideStreamDensity) === 'compact';
+}
+
+/** 접힌 한 줄에 실을 요약 — 비어 있지 않은 첫 조각을 상한 길이로 자른다. */
+export function compactSummary(parts: (string | undefined)[]): string {
+  const first = parts.find((p) => p !== undefined && p.trim() !== '')?.trim() ?? '';
+  return first.length > STREAM_COMPACT_SUMMARY_CHARS ? `${first.slice(0, STREAM_COMPACT_SUMMARY_CHARS)}…` : first;
+}
+
+/**
+ * §5.5 #17-18 ⑦-2 — "이 카드가 속한 턴은 **아직 도는 중**" 배지.
+ *
+ * ⑦-1 로 카드가 신고된 자리에 못 박히면서 카드는 화면 한가운데에 앉을 수 있게 됐다. 그 자리에서
+ * 카드가 아무 말도 안 하면 사용자는 종전처럼 "카드가 떴으니 끝났겠지"로 읽는다 — 그래서 도는 중에
+ * 나온 카드는 **자신이 끝을 뜻하지 않는다는 것**을 스스로 말한다. 턴이 끝나면 이 배지는 사라진다.
+ */
+export function CardLiveBadge(): React.JSX.Element {
+  const { t } = useTranslation();
+  return (
+    <span
+      title={t('ide.card.inProgressHint')}
+      className="flex flex-shrink-0 items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-[1px] text-[9.5px] font-semibold uppercase tracking-wide text-amber-300"
+    >
+      <span className="h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full bg-amber-400" />
+      {t('ide.card.inProgress')}
+    </span>
+  );
+}
+
+interface CompactCardLineProps {
+  icon: React.JSX.Element;
+  label: string;
+  /** 라벨·글리프 색(카드 종류별 액센트). */
+  labelClass: string;
+  summary: string;
+  onExpand: () => void;
+  /** §5.5 #17-18 ⑦-2 — 접힌 한 줄에서도 "아직 도는 중"은 보여야 한다(간결 밀도에서 배지가 사라지지 않게). */
+  live?: boolean;
+}
+
+/**
+ * §5.5 #17-21 ④ — **행동 구획이 없는 카드**가 간결에서 접히는 한 줄 모양.
+ * 라벨 + 요약만 남기고, 클릭하면 원래 카드가 그대로 펼쳐진다(내용을 버리지 않는다).
+ */
+export function CompactCardLine({ icon, label, labelClass, summary, onExpand, live }: CompactCardLineProps): React.JSX.Element {
+  const { t } = useTranslation();
+  return (
+    <button
+      type="button"
+      onClick={onExpand}
+      title={t('ide.streamRenderer.clickToExpand')}
+      className="group/cmp mx-2 my-0.5 flex w-[calc(100%-1rem)] items-center gap-2 rounded px-2.5 py-1 text-left transition-colors hover:bg-gray-800/40 max-md:mx-1 max-md:w-[calc(100%-0.5rem)]"
+    >
+      <svg className="h-3 w-3 flex-shrink-0 text-gray-600 transition-colors group-hover/cmp:text-gray-400" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M8 5v14l11-7z" />
+      </svg>
+      <span className={`flex-shrink-0 ${labelClass}`}>{icon}</span>
+      <span className={`flex-shrink-0 text-[11px] font-semibold uppercase tracking-wide ${labelClass}`}>{label}</span>
+      <span className="min-w-0 flex-1 truncate text-[12px] text-gray-500">{summary}</span>
+      {live && <CardLiveBadge />}
+    </button>
   );
 }
 

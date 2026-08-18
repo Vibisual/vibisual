@@ -5,8 +5,8 @@
  * (파일 경로·함수명·에러 코드·결정의 이유)를 먼저 버린다** — 그게 바로 나중에 필요한 것들이다.
  * 자동 압축 전에 중요한 사실을 파일로 내보내는 것이 손실을 막는 요령이다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const fill = (ctx: PluginBubbleContext): number => {
   let best = 0;

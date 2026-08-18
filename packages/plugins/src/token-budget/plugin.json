@@ -1,0 +1,15 @@
+{
+  "id": "token-budget",
+  "name": "Token Budget",
+  "version": "1.0.0",
+  "category": "observability",
+  "descriptionKey": "panel.plugins.tokenBudget.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [],
+  "hostApi": 1
+}

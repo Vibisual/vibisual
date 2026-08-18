@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { SATELLITE_MAX_BOUNDS } from '@vibisual/shared';
+import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 
 interface Props {
   /** 현재 적용된 상한 (서버 SSOT) */
@@ -27,14 +28,8 @@ export function SatelliteMaxPopup({
   const [draft, setDraft] = useState(value);
   const ref = useRef<HTMLDivElement>(null);
 
-  // 바깥 클릭 시 닫기
-  useEffect(() => {
-    const onDown = (e: MouseEvent): void => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
-    };
-    document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
-  }, [onClose]);
+  // 바깥 press 로 닫기(공통 규약 — 팝업 안에서 시작한 드래그로는 안 닫힌다).
+  useOutsidePressDismiss({ onDismiss: onClose, refs: [ref], capture: false });
 
   const commit = useCallback(() => {
     const next = clamp(draft);

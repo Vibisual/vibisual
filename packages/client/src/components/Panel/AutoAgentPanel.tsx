@@ -14,6 +14,7 @@ import { useTranslation } from 'react-i18next';
 import type { BubbleData, AutoAgentSummary, AutoAgentClarifyingQuestion, SubAgentStreamEvent, QueuedCommand } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { StreamRenderer } from '../IDE/StreamRenderer.js';
+import { AutoAgentRunView } from './AutoAgentRunView.js';
 
 const EMPTY_COMMANDS: QueuedCommand[] = [];
 
@@ -32,7 +33,9 @@ export const AutoAgentPanel = memo(function AutoAgentPanel({ node }: AutoAgentPa
   const sessionId = node.path;
   const phase = summary?.phase ?? 'idle';
   const askQuestionsEnabled = summary?.askQuestionsEnabled ?? true;
-  const isBusy = phase !== 'idle' && phase !== 'completed' && phase !== 'error';
+  // §5.3 #10-3 v4.98 — `running`(빌더는 끝났고 워커가 도는 중)은 입력을 막지 않는다.
+  //   종전에는 빌더 완료 = `completed` 라 이 구간에 입력이 열려 있었고, 그 UX 를 그대로 유지한다.
+  const isBusy = phase !== 'idle' && phase !== 'completed' && phase !== 'error' && phase !== 'running';
 
   const handleSend = useCallback(() => {
     const text = draft.trim();
@@ -126,6 +129,10 @@ export const AutoAgentPanel = memo(function AutoAgentPanel({ node }: AutoAgentPa
           {t('panel.autoAgent.buildingHint')}
         </div>
       )}
+
+      {/* §5.3 #10-3 v4.98 — 검증 런. 종전 화면에서 "완료"의 근거는 초록 배지와 문장 하나뿐이었고
+          증거는 한 줄도 없었다. 이 구획이 그 자리를 대신한다 — 지표·게이트 점검·런 목록·증거 표. */}
+      <AutoAgentRunView sessionId={sessionId} />
 
       {/* 빌더 동작 창 — 헤드리스 빌더(=auto-agent 자기 세션)의 라이브 스트림을 패널 안에 임베드.
           building/dispatching/running/completed 동안 "어떻게 동작 중인지" 한눈에. (StreamRenderer 재사용) */}

@@ -5,8 +5,8 @@
  * 정해져 있다 — 같은 자리를 맴돌거나, 목표를 잊고 지엽으로 빠지거나, 검증 없이 다음으로 넘어갈 때.
  * 여기서는 그중 관측 가능한 것(계획 없이 길어지는 진행)을 본다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 function turns(ctx: PluginBubbleContext): number {
   return (ctx.data.agentEvents ?? []).length;

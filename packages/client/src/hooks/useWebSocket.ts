@@ -1,7 +1,9 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
-import type { WSMessage, GraphSnapshot, GraphSnapshotWire, SubAgentStreamEvent, ProjectHydratedPayload, ProjectUnloadedPayload, IframeLogInitPayload, IframeLogAppendPayload, ServerLogInitPayload, ServerLogAppendPayload, PermissionRequest, PermissionDecision, ClaudeInstallProgress, AskUserQuestionRequest, AskUserQuestionDecision } from '@vibisual/shared';
+import type { WSMessage, GraphSnapshot, GraphSnapshotWire, SubAgentStreamEvent, ProjectHydratedPayload, ProjectUnloadedPayload, IframeLogInitPayload, IframeLogAppendPayload, ServerLogInitPayload, ServerLogAppendPayload, PermissionRequest, PermissionDecision, ClaudeInstallProgress, AskUserQuestionRequest, AskUserQuestionDecision, DebugEventPayload } from '@vibisual/shared';
 import { applyKeyedSliceDelta, MAX_RECONNECT_ATTEMPTS, RECONNECT_BASE_DELAY, WS_BATCH_INTERVAL, WS_STREAM_BATCH_INTERVAL, WS_BATCH_INTERVAL_MAX, WS_BATCH_BACKOFF_FACTOR } from '@vibisual/shared';
 import { useGraphStore } from '../stores/graphStore.js';
+// §5.5 #17-20 ⑩ v4.94 — 디버그 세션은 프로세스 수명이라 그래프 스토어가 아닌 런타임 스토어가 받는다.
+import { useDebugSessions } from '../stores/debugSessions.js';
 import { iframeLogEvents } from '../bubble-map/api/iframeLogEvents.js';
 import { serverLogEvents } from '../bubble-map/api/serverLogEvents.js';
 import { setDiagnosticsSender } from '../utils/diagnostics.js';
@@ -15,11 +17,23 @@ import {
 } from '../utils/notification.js';
 import { detectCustomAgentCompletions } from '../utils/completionChime.js';
 
-type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
+export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
 
 interface UseWebSocketReturn {
   status: ConnectionStatus;
   send: (message: WSMessage) => void;
+  /**
+   * §5.12 (J) — 지금 붙어 있는 소켓을 끊고 **즉시 다시 붙는다**. 서버가 새 연결에 보내는
+   * `buildConnectionMessages()`(연결 ack + 전체 스냅샷)가 곧 "새로고침"이다 — 스냅샷을 다시
+   * 달라는 새 메시지 타입을 만들지 않고 이미 있는 계약을 쓴다.
+   */
+  reconnect: () => void;
+  /**
+   * §5.12 (J) — 마지막으로 `graph_snapshot` 을 화면에 반영한 시각(0 = 아직 없음).
+   * **state 가 아니라 ref 를 읽는 함수**다 — 스냅샷마다 setState 하면 이 훅을 쓰는 모든 창이
+   * 16ms 주기로 리렌더된다. 필요한 쪽이 자기 틱에서 읽어 간다.
+   */
+  getLastSnapshotAt: () => number;
 }
 
 function isWSMessage(data: unknown): data is WSMessage {
@@ -54,6 +68,8 @@ export function useWebSocket(url: string): UseWebSocketReturn {
   // 다음 flush 창을 직전 실측 비용 × 배수로 늘려(상한 250ms) 렌더/입력이 굶지 않게 한다.
   // 비용이 낮아지면 즉시 기본 주기 복귀 — 경부하 체감 불변.
   const snapshotDelayRef = useRef(WS_BATCH_INTERVAL);
+  // §5.12 (J) — 마지막으로 스냅샷을 반영한 시각. ref 라 리렌더를 유발하지 않는다(위 주석 참조).
+  const lastSnapshotAtRef = useRef(0);
   // §9 — sub_agent_stream 배치 — 도착분을 16ms 창에 모았다가 store action 1회로 합쳐 적용.
   // 커스텀 에이전트 다중 실행 시 매 스트림 라인마다 구독자 전원 재평가하던 것을 16ms당 1회로.
   const streamPendingRef = useRef<SubAgentStreamEvent[]>([]);
@@ -132,21 +148,36 @@ export function useWebSocket(url: string): UseWebSocketReturn {
       snap.brain ?? {},
       snap.brainInjections ?? {},
     );
+    // §5.13 v4.45 — 앱 버블은 별도 액션으로 반영한다(loadSnapshot 의 위치 인자를 늘리면
+    //   호출부 한 곳만 어긋나도 조용히 다른 값이 들어간다).
+    useGraphStore.getState().applyAppBubbles(snap.appBubbles ?? []);
+    // §5.14 v4.62 — 플레이 버블도 같은 이유로 별도 액션.
+    useGraphStore.getState().applyPlayBubbles(snap.playBubbles ?? []);
+    // §5.5 #17-20 ⑩ v4.94 — 중단점(프로젝트별). 세션이 없어도 편집창 gutter 가 이 값을 그린다.
+    useGraphStore.getState().applyDebugBreakpoints(snap.debugBreakpoints ?? {});
+    // §5.11 v4.65 — 집행 플러그인의 실측(프로젝트별). 켠 것이 없으면 서버가 필드를 안 실으므로 빈 맵으로 비운다.
+    useGraphStore.getState().applyPluginFacts(snap.pluginFacts ?? {});
     const _tLoad = PERF ? performance.now() : 0;
     store.applyStubProjects(snap.stubProjects ?? {});
     store.applyAppState(snap.appState);
     if (snap.uiLocale) store.applyUiLocale(snap.uiLocale);
     store.applyLayoutBoundsByProject(snap.layoutBoundsByProject);
     store.applyV150Metrics(snap.recentToolDurations, snap.compactCounts, snap.rateLimits, snap.claudeUsage);
+    // §4 v4.82 — Claude 로그인 상태(글로벌). 미로그인이면 LoginWindow 가 이 값을 보고 뜬다.
+    store.applyClaudeAuth(snap.claudeAuth);
     store.applySkillUsageCounts(snap.skillUsageCounts);
     store.applyAutoAgentSummaries(snap.autoAgentSummaries);
+    store.applyAutoAgentRuns(snap.autoAgentRuns);
     store.applyRunningSubagentTasks(snap.runningSubagentTasks);
+    store.applyFinishedSubagentTasks(snap.finishedSubagentTasks);
     store.applyAgentReports(snap.agentReports);
     store.applyAgentQuestions(snap.agentQuestions);
     store.applyAgentReviews(snap.agentReviews);
     store.applyAgentLists(snap.agentLists);
     store.applyAgentFeedbacks(snap.agentFeedbacks);
     store.applySessionLoops(snap.sessionLoops);
+    // §5.5 #17-17 v4.46 — 세션 목표(활동바 퍼센트 배지 + 목표 패널의 원본).
+    store.applySessionGoals(snap.sessionGoals);
     store.applyDiagnosticLog(snap.diagnosticLog);
     store.applyModelRegistry(snap.modelRegistry);
     store.applyUserDefaults(snap.userDefaults);
@@ -168,6 +199,7 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     if (!snap) return;
     const t0 = performance.now();
     applyGraphSnapshot(snap);
+    lastSnapshotAtRef.current = Date.now();
     // v3.76 — 완료음·완료 알림의 유일한 발화 지점. 사용자가 만든 커스텀 에이전트가 이번 스냅샷에서
     // completed 로 넘어온 건만 울린다(서버가 서브에이전트 대차대조까지 반영해 매긴 상태라, 배경
     // 서브가 남아 있는 동안에는 넘어오지 않는다).
@@ -370,6 +402,16 @@ export function useWebSocket(url: string): UseWebSocketReturn {
             break;
           }
 
+          // §5.5 #17-20 ⑩ v4.94 — 공통 디버그 층의 상태/출력. 세션은 프로세스 수명이라
+          // graph_snapshot 이 아니라 이 메시지로만 흐른다(런타임 스토어가 받는다).
+          case 'debug_event': {
+            const p = parsed.payload as DebugEventPayload;
+            if (p && typeof p.sessionId === 'string') {
+              useDebugSessions.getState().applyEvent(p);
+            }
+            break;
+          }
+
           // §7.11 v1.44 / v2.5 — iframe 서버 로그 스트리밍. shellId 는 (port, shellId) 필터용 echo.
           case 'iframe_log_init': {
             const p = parsed.payload as IframeLogInitPayload;
@@ -489,5 +531,32 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     }
   }, []);
 
-  return { status, send };
+  /**
+   * §5.12 (J) 새로고침 — 지금 소켓을 버리고 새로 붙는다(서버가 전체 스냅샷을 다시 준다).
+   *
+   * 닫기 전에 기존 소켓의 `onclose` 를 떼는 것이 핵심이다 — 그대로 두면 backoff 재연결이 **여기서
+   * 여는 소켓과 별개로** 하나 더 예약되어 창 하나가 두 소켓을 물게 된다. 예약돼 있던 재시도 타이머도
+   * 같은 이유로 걷어내고 시도 횟수를 0 으로 되돌린다(사용자가 직접 누른 것이 곧 새 시작이다).
+   */
+  const reconnect = useCallback(() => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    attemptRef.current = 0;
+    const ws = wsRef.current;
+    if (ws) {
+      ws.onclose = null;
+      ws.onerror = null;
+      ws.onmessage = null;
+      ws.onopen = null;
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) ws.close();
+      wsRef.current = null; // connect() 의 "이미 열려 있으면 무시" 가드를 지나가게 한다.
+    }
+    connect();
+  }, [connect]);
+
+  const getLastSnapshotAt = useCallback(() => lastSnapshotAtRef.current, []);
+
+  return { status, send, reconnect, getLastSnapshotAt };
 }

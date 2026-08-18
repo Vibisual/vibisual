@@ -1,0 +1,17 @@
+{
+  "id": "test-time-compute",
+  "name": "Test-Time Compute",
+  "version": "1.0.0",
+  "category": "workflow",
+  "descriptionKey": "panel.plugins.testTimeCompute.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "agentEvents"
+  ],
+  "hostApi": 1
+}

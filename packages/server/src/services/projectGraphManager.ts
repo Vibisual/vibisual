@@ -35,7 +35,11 @@ import type {
   ActivityEdge,
   UiLocale,
   CommentBox,
+  DebugBreakpoint,
+  AppBubble,
   CaptureBubble,
+  PlayBubble,
+  PlayRecipe,
   Conti,
   ContiFrame,
   ContiElement,
@@ -43,6 +47,7 @@ import type {
   ContiWorkSource,
   RateLimitInfo,
   ClaudeUsageInfo,
+  ClaudeAuthStatus,
   ExecutionMode,
 } from '@vibisual/shared';
 import { DEFAULT_UI_LOCALE } from '@vibisual/shared';
@@ -53,7 +58,7 @@ import { diagnosticService } from './diagnosticService.js';
 import { modelRegistryService } from './modelRegistryService.js';
 import { userDefaultsService } from './userDefaultsService.js';
 import { logger } from '../logger.js';
-import { dbg } from './debugLog.js';
+import { dbg, dbgOnChange } from './debugLog.js';
 
 // ─── 유틸 ───
 
@@ -156,12 +161,20 @@ function emptySnapshot(): GraphSnapshot {
     stubProjects: {},
     commentBoxes: [],
     captureBubbles: [],
+    appBubbles: [],
+    playBubbles: [],
     contis: {},
   };
 }
 
-/** 두 스냅샷을 병합. 배열은 이어붙이고, Record는 Object.assign으로 합친다. */
-function mergeSnapshots(a: GraphSnapshot, b: GraphSnapshot): GraphSnapshot {
+/**
+ * 두 스냅샷을 병합. 배열은 이어붙이고, Record는 Object.assign으로 합친다.
+ *
+ * 프로젝트를 둘 이상 연 사용자에겐 **모든 방송 스냅샷이 이 함수를 통과**한다. 여기서 빠진
+ * 필드는 서버에 멀쩡히 있어도 화면에는 영영 안 나타나므로, 새 필드를 추가하면 여기도 함께
+ * 손대야 한다(테스트에서 직접 부르려고 export 한다).
+ */
+export function mergeSnapshots(a: GraphSnapshot, b: GraphSnapshot): GraphSnapshot {
   const activeCount = a.activeAgentCount + b.activeAgentCount;
   // 어느 한 쪽이라도 working이면 working, 아니면 a 기준
   const agentPhase: AgentPhase =
@@ -196,6 +209,14 @@ function mergeSnapshots(a: GraphSnapshot, b: GraphSnapshot): GraphSnapshot {
       if (!av && !bv) return undefined;
       return { ...(av ?? {}), ...(bv ?? {}) };
     })(),
+    // §5.5 #17-9 ⑦(b) — "방금 끝난 것" 도 같은 싱글턴에서 오므로 같은 규약(b 우선, 둘 다 없으면 생략).
+    //   여기 빠뜨리면 프로젝트를 여럿 열었을 때만 결과 구역이 사라진다.
+    finishedSubagentTasks: (() => {
+      const av = a.finishedSubagentTasks;
+      const bv = b.finishedSubagentTasks;
+      if (!av && !bv) return undefined;
+      return { ...(av ?? {}), ...(bv ?? {}) };
+    })(),
     agentPhase,
     activeAgentCount: activeCount,
     satellitePositions: { ...a.satellitePositions, ...b.satellitePositions },
@@ -225,6 +246,27 @@ function mergeSnapshots(a: GraphSnapshot, b: GraphSnapshot): GraphSnapshot {
       for (const c of b.captureBubbles ?? []) map.set(c.id, c);
       return Array.from(map.values());
     })(),
+    // §5.14 v4.62 — 플레이 버블도 같은 규칙(위 앱 버블이 이 자리를 빠뜨려 사라졌던 전례를 따른다).
+    playBubbles: (() => {
+      const map = new Map<string, PlayBubble>();
+      for (const c of a.playBubbles ?? []) map.set(c.id, c);
+      for (const c of b.playBubbles ?? []) map.set(c.id, c);
+      return Array.from(map.values());
+    })(),
+    // §5.13 v4.45 — 내부 앱 버블도 같은 규칙. 여기서 빠뜨리면 프로젝트를 둘 이상 연 순간
+    // 앱 버블이 방송 스냅샷에서 통째로 사라진다(서버엔 만들어졌는데 캔버스에 안 뜬다).
+    appBubbles: (() => {
+      const map = new Map<string, AppBubble>();
+      for (const c of a.appBubbles ?? []) map.set(c.id, c);
+      for (const c of b.appBubbles ?? []) map.set(c.id, c);
+      return Array.from(map.values());
+    })(),
+    // §5.5 #17-20 ⑩ v4.94 — 중단점은 projectName 1차 키라 단순 spread 로 안전하다(b 우선).
+    // 여기서 빠뜨리면 프로젝트를 둘 이상 연 순간 중단점이 방송에서 통째로 사라진다.
+    debugBreakpoints: (() => {
+      const merged = { ...(a.debugBreakpoints ?? {}), ...(b.debugBreakpoints ?? {}) };
+      return Object.keys(merged).length > 0 ? merged : undefined;
+    })(),
     // 루트 캔버스 바운딩 박스 — projectName 키로 머지 (b 우선)
     layoutBoundsByProject: { ...(a.layoutBoundsByProject ?? {}), ...(b.layoutBoundsByProject ?? {}) },
     // v1.47 — 콘티 합치기 (contiId 키로 dedup, b 우선)
@@ -234,6 +276,8 @@ function mergeSnapshots(a: GraphSnapshot, b: GraphSnapshot): GraphSnapshot {
     compactCounts: { ...(a.compactCounts ?? {}), ...(b.compactCounts ?? {}) },
     rateLimits: b.rateLimits ?? a.rateLimits,
     claudeUsage: b.claudeUsage ?? a.claudeUsage,
+    // §4 v4.82 — 로그인 상태도 글로벌 1건(계정은 머신 단위).
+    claudeAuth: b.claudeAuth ?? a.claudeAuth,
     // §5.5 #17-4 v2.36 — 스킬 사용 카운트는 projectName 1차 키 → 단순 spread 안전.
     // 같은 projectName 이 양쪽에 들어올 가능성 ❌ (각 ProjectGraph 가 primary 하나).
     skillUsageCounts: (() => {
@@ -246,6 +290,15 @@ function mergeSnapshots(a: GraphSnapshot, b: GraphSnapshot): GraphSnapshot {
     autoAgentSummaries: (() => {
       const av = a.autoAgentSummaries;
       const bv = b.autoAgentSummaries;
+      if (!av && !bv) return undefined;
+      return { ...(av ?? {}), ...(bv ?? {}) };
+    })(),
+    // §5.3 #10-3 v4.98 — 검증 런 (autoAgentId 1차 키 → 단순 spread 안전, b 우선).
+    //   ⚠ 이 병합을 빠뜨리면 **여러 프로젝트를 동시에 열었을 때만** 런이 사라진다
+    //   (단일 프로젝트 테스트로는 안 잡힌다 — appBubbles 에서 실제로 겪은 사고).
+    autoAgentRuns: (() => {
+      const av = a.autoAgentRuns;
+      const bv = b.autoAgentRuns;
       if (!av && !bv) return undefined;
       return { ...(av ?? {}), ...(bv ?? {}) };
     })(),
@@ -292,6 +345,14 @@ function mergeSnapshots(a: GraphSnapshot, b: GraphSnapshot): GraphSnapshot {
       if (!av && !bv) return undefined;
       return { ...(av ?? {}), ...(bv ?? {}) };
     })(),
+    // §5.5 #17-17 v4.46 — 세션 목표도 subAgentId 1차 키(루프와 동형). 여기 빠지면 프로젝트를
+    //   2개 이상 열었을 때 병합 순간 목표·퍼센트가 통째로 사라진다(v3.70 brain 과 같은 결함).
+    sessionGoals: (() => {
+      const av = a.sessionGoals;
+      const bv = b.sessionGoals;
+      if (!av && !bv) return undefined;
+      return { ...(av ?? {}), ...(bv ?? {}) };
+    })(),
     // §5.10 v3.70 — Brain 요약은 projectName 1차 키(skillUsageCounts 와 동형) → 단순 spread 안전.
     //   각 ProjectGraph 가 primary 하나뿐이라 키 충돌 ❌. **이 두 필드가 빠져 있어서** 프로젝트를
     //   2개 이상 열면 병합 순간 요약/주입 신호가 통째로 사라지고 Brain 버블이 "0장"으로 보였다
@@ -308,6 +369,19 @@ function mergeSnapshots(a: GraphSnapshot, b: GraphSnapshot): GraphSnapshot {
       const bv = b.brainInjections;
       if (!av && !bv) return undefined;
       return { ...(av ?? {}), ...(bv ?? {}) };
+    })(),
+    // §5.5 #17-28 — 주입원 오버라이드는 층이 둘이라 **한 겹 안쪽까지** 합쳐야 한다.
+    //   겉만 spread 하면 나중 스냅샷의 `projects`/`sessions` 가 앞 것을 통째로 덮어
+    //   프로젝트를 2개 이상 열었을 때 한쪽의 껐던 설정이 사라진다(위 두 카드가 겪은 결함).
+    contextOverrides: (() => {
+      const av = a.contextOverrides;
+      const bv = b.contextOverrides;
+      if (!av && !bv) return undefined;
+      return {
+        projects: { ...(av?.projects ?? {}), ...(bv?.projects ?? {}) },
+        sessions: { ...(av?.sessions ?? {}), ...(bv?.sessions ?? {}) },
+        updatedAt: Math.max(av?.updatedAt ?? 0, bv?.updatedAt ?? 0),
+      };
     })(),
   };
 }
@@ -396,6 +470,8 @@ function relabelSubSnapshot(snap: GraphSnapshot, from: string, to: string): Grap
     layoutBoundsByProject: renameKey(snap.layoutBoundsByProject),
     commentBoxes: snap.commentBoxes?.map((c) => (c.projectName === from ? { ...c, projectName: to } : c)),
     captureBubbles: snap.captureBubbles?.map((c) => (c.projectName === from ? { ...c, projectName: to } : c)),
+    appBubbles: snap.appBubbles?.map((c) => (c.projectName === from ? { ...c, projectName: to } : c)),
+    playBubbles: snap.playBubbles?.map((c) => (c.projectName === from ? { ...c, projectName: to } : c)),
     // §5.5 #17-4 v2.36 — projectName 1차 키 relabel.
     skillUsageCounts: renameKey(snap.skillUsageCounts),
     // §5.10 v3.70 — Brain 요약도 projectName 1차 키라 전역 유일 표시명으로 함께 relabel해야
@@ -419,6 +495,9 @@ export class ProjectGraphManager {
 
   /** §4 v3.62 — Claude 앱 `/usage` 와 같은 원천(OAuth)의 사용량 (글로벌 1건). */
   private globalClaudeUsage?: ClaudeUsageInfo;
+
+  /** §4 v4.82 — Claude 계정 로그인 상태 (글로벌 1건, `claude auth status`). */
+  private globalClaudeAuth?: ClaudeAuthStatus;
 
   /** project name → stub 메타 (hydrated 인스턴스가 없는 프로젝트) */
   private stubs = new Map<string, ProjectMetaSnapshot>();
@@ -455,6 +534,19 @@ export class ProjectGraphManager {
 
   setGitDirtyProvider(fn: () => Record<string, boolean>): void {
     this.gitDirtyProvider = fn;
+  }
+
+  /**
+   * §5.11 v4.65 — 플러그인 호스트가 주입하는 **집행 실측**(projectPath → pluginId → 값 한 벌).
+   *
+   * 스냅샷 브로드캐스트 지점이 스무 곳이 넘어 호출부마다 얹으면 반드시 어딘가 빠진다(빠진 곳으로 온
+   * 스냅샷은 클라에서 값이 사라진 것으로 읽힌다). 그래서 `gitDirty` 와 같은 provider 방식으로 **한 곳에서**
+   * 채운다 — 그래프는 플러그인을 모르는 상태로 남고, 호스트가 자기 값을 넣는다.
+   */
+  private pluginFactsProvider: (() => Record<string, Record<string, import('@vibisual/shared').PluginFactMap>> | undefined) | null = null;
+
+  setPluginFactsProvider(fn: () => Record<string, Record<string, import('@vibisual/shared').PluginFactMap>> | undefined): void {
+    this.pluginFactsProvider = fn;
   }
 
   /** hydrateProject / unloadProject 성공 직후 호출되는 콜백 (broadcast 트리거용) */
@@ -1000,14 +1092,23 @@ export class ProjectGraphManager {
       dbg('manager.processHookEvent.noInstance', { sessionId: payload.session_id, cwd: payload.cwd, tool: payload.tool_name });
       return null;
     }
-    dbg('manager.processHookEvent', {
-      sessionId: payload.session_id,
-      cwd: payload.cwd,
-      tool: payload.tool_name,
-      event: payload.hook_event_name,
-      routedBy,
-      instanceRoot: inst.getRoot(),
-    });
+    // v4.67 — 이 기록의 진단 가치는 **라우팅**(이 세션의 이벤트가 어느 인스턴스로 가는가)에 있지
+    // 개별 도구 호출에 있지 않다. 훅 이벤트마다 남기면 로그가 무한히 자라므로(실측 2위),
+    // 세션별 라우팅 결과가 달라졌을 때만 남긴다. 오라우팅·인스턴스 이동은 signature 가 바뀌어
+    // 반드시 기록되고, 같은 곳으로 계속 가는 정상 반복만 침묵한다.
+    dbgOnChange(
+      `manager.route:${payload.session_id}`,
+      `${payload.cwd}|${routedBy}|${inst.getRoot()}`,
+      'manager.processHookEvent',
+      {
+        sessionId: payload.session_id,
+        cwd: payload.cwd,
+        tool: payload.tool_name,
+        event: payload.hook_event_name,
+        routedBy,
+        instanceRoot: inst.getRoot(),
+      },
+    );
     return inst.processHookEvent(payload);
   }
 
@@ -1106,6 +1207,15 @@ export class ProjectGraphManager {
 
   getClaudeUsage(): ClaudeUsageInfo | undefined {
     return this.globalClaudeUsage;
+  }
+
+  /** §4 v4.82 — Claude 로그인 상태 갱신(claudeAuthService 가 판정한 값 그대로 보관). */
+  setClaudeAuth(status: ClaudeAuthStatus): void {
+    this.globalClaudeAuth = status;
+  }
+
+  getClaudeAuth(): ClaudeAuthStatus | undefined {
+    return this.globalClaudeAuth;
   }
 
   /** 커스텀 에이전트 상태를 소속 서브에이전트 집계로 재계산. 한 번이라도 바뀐 인스턴스가 있으면 true. */
@@ -1215,6 +1325,98 @@ export class ProjectGraphManager {
     for (const inst of this.instances.values()) {
       const bubble = inst.getAgentBySession(autoAgentSessionId);
       if (bubble && bubble.bubbleType === 'auto') return inst;
+    }
+    return null;
+  }
+
+  // ── §5.3 #10-3 v4.98 — 검증 런 위임 ────────────────────────────────────────
+  //
+  // 런은 auto-agent 를 소유한 인스턴스에 산다. 인스턴스를 가로질러 찾는 이유는
+  // 프로젝트가 여럿 열려 있을 수 있기 때문이며, 판정(ok/verified)은 전부 ProjectGraph 가 한다.
+
+  /** 전체 auto-agent 요약 맵 (모든 인스턴스 합산) */
+  getAutoAgentSummaries(): Record<string, import('@vibisual/shared').AutoAgentSummary> {
+    const out: Record<string, import('@vibisual/shared').AutoAgentSummary> = {};
+    for (const inst of this.instances.values()) Object.assign(out, inst.getAutoAgentSummaries());
+    return out;
+  }
+
+  createAutoAgentRun(params: {
+    autoAgentId: string;
+    userRequest: string;
+    acceptanceCriteria?: string[];
+    baselineRevision?: string;
+    reworkBudget?: number;
+    selfTest?: boolean;
+  }): import('@vibisual/shared').AutoAgentRun | null {
+    const inst = this.findInstanceByAutoAgentSession(params.autoAgentId) ?? this.primaryInstance();
+    if (!inst) return null;
+    return inst.createAutoAgentRun(params);
+  }
+
+  getAutoAgentRun(runId: string): import('@vibisual/shared').AutoAgentRun | null {
+    for (const inst of this.instances.values()) {
+      const run = inst.getAutoAgentRun(runId);
+      if (run) return run;
+    }
+    return null;
+  }
+
+  listAutoAgentRuns(autoAgentId: string): import('@vibisual/shared').AutoAgentRun[] {
+    for (const inst of this.instances.values()) {
+      const runs = inst.listAutoAgentRuns(autoAgentId);
+      if (runs.length > 0) return runs;
+    }
+    return [];
+  }
+
+  getActiveAutoAgentRun(autoAgentId: string): import('@vibisual/shared').AutoAgentRun | null {
+    for (const inst of this.instances.values()) {
+      const run = inst.getActiveAutoAgentRun(autoAgentId);
+      if (run) return run;
+    }
+    return null;
+  }
+
+  appendVerificationAttempt(
+    runId: string,
+    attempt: Omit<import('@vibisual/shared').VerificationAttempt, 'id' | 'ok'>,
+  ): import('@vibisual/shared').AutoAgentRun | null {
+    for (const inst of this.instances.values()) {
+      const run = inst.appendVerificationAttempt(runId, attempt);
+      if (run) return run;
+    }
+    return null;
+  }
+
+  consumeAutoAgentRework(runId: string): { run: import('@vibisual/shared').AutoAgentRun; withinBudget: boolean } | null {
+    for (const inst of this.instances.values()) {
+      const res = inst.consumeAutoAgentRework(runId);
+      if (res) return res;
+    }
+    return null;
+  }
+
+  closeAutoAgentRun(
+    runId: string,
+    desired: import('@vibisual/shared').AutoAgentRunStatus,
+    escalation?: import('@vibisual/shared').EscalationReason,
+  ): import('@vibisual/shared').AutoAgentRun | null {
+    for (const inst of this.instances.values()) {
+      const run = inst.closeAutoAgentRun(runId, desired, escalation);
+      if (run) return run;
+    }
+    return null;
+  }
+
+  setAutoAgentRunVerdict(
+    runId: string,
+    verdict: import('@vibisual/shared').VerificationVerdict,
+    reason?: string,
+  ): import('@vibisual/shared').AutoAgentRun | null {
+    for (const inst of this.instances.values()) {
+      const run = inst.setAutoAgentRunVerdict(runId, verdict, reason);
+      if (run) return run;
     }
     return null;
   }
@@ -1381,6 +1583,155 @@ export class ProjectGraphManager {
       if (rec) out.push(...Object.values(rec));
     }
     return out;
+  }
+
+  // ─── §5.5 #17-28 — 컨텍스트 주입원 오버라이드 ───
+  //
+  // 주입 게이트가 **매 턴** 부르는 자리라 조회는 싸야 한다. 인스턴스 순회는 열린 프로젝트 수(보통 1~3)
+  // 수준이고 각 인스턴스 조회는 메모리 맵 읽기뿐이라 파일 접근이 없다.
+
+  /** 오버라이드 설정. 소유 인스턴스(에이전트 기준)로 라우팅, 없으면 primary. */
+  setContextOverride(
+    scope: { agentId?: string; projectKey?: string; subAgentId?: string },
+    sourceId: string,
+    enabled: boolean | null,
+  ): void {
+    const inst = (scope.agentId ? this.findInstanceByAgentId(scope.agentId) : null) ?? this.primaryInstance();
+    inst?.setContextOverride(scope, sourceId, enabled);
+  }
+
+  /** 한 층의 오버라이드를 통째로 비운다. 어느 인스턴스든 지운 게 있으면 true. */
+  clearContextOverrides(scope: { agentId?: string; projectKey?: string; subAgentId?: string }): boolean {
+    let changed = false;
+    for (const inst of this.instances.values()) {
+      if (inst.clearContextOverrides(scope)) changed = true;
+    }
+    return changed;
+  }
+
+  /** 세션 탭이 닫힐 때의 정리(루프·목표와 같은 규칙). */
+  deleteContextOverridesForSession(subAgentId: string): boolean {
+    let changed = false;
+    for (const inst of this.instances.values()) {
+      if (inst.deleteContextOverridesForSession(subAgentId)) changed = true;
+    }
+    return changed;
+  }
+
+  /**
+   * 열린 인스턴스 전체의 오버라이드 합집합 — 게이트와 화면이 같은 것을 본다.
+   * 인스턴스마다 키 공간(프로젝트 키·세션 id)이 겹치지 않으므로 단순 합치기로 충분하다.
+   */
+  getContextOverrides(): import('@vibisual/shared').ContextOverrides | undefined {
+    let out: import('@vibisual/shared').ContextOverrides | undefined;
+    for (const inst of this.instances.values()) {
+      const one = inst.getContextOverrides();
+      if (!one) continue;
+      if (!out) {
+        out = { projects: { ...one.projects }, sessions: { ...one.sessions }, updatedAt: one.updatedAt };
+        continue;
+      }
+      Object.assign(out.projects, one.projects);
+      Object.assign(out.sessions, one.sessions);
+      if (one.updatedAt > out.updatedAt) out.updatedAt = one.updatedAt;
+    }
+    return out;
+  }
+
+  // ─── §5.5 #17-17 v4.46 — 세션 목표(Goal) ───
+  //
+  // 키가 subAgentId(세션 탭)라 agentId 로 인스턴스를 찾을 수 없는 조회는 루프와 동일하게 순회한다
+  // (목표 수는 열린 탭 수 수준이라 순회 비용이 무의미하다).
+
+  /** 세션 탭 하나의 목표. */
+  getSessionGoal(subAgentId: string): import('@vibisual/shared').SessionGoal | undefined {
+    for (const inst of this.instances.values()) {
+      const goal = inst.getSessionGoal(subAgentId);
+      if (goal) return goal;
+    }
+    return undefined;
+  }
+
+  /** 목표 저장(생성/문장 수정/상태 변경). goal.agentId 소속 인스턴스로 라우팅, 없으면 primary 폴백. */
+  setSessionGoal(input: {
+    agentId: string;
+    subAgentId: string;
+    text: string;
+    status?: import('@vibisual/shared').SessionGoalStatus;
+    steps?: { text: string; status?: import('@vibisual/shared').SessionGoalStepStatus }[];
+    authoredBy?: 'session' | 'user';
+    sourceCommand?: string;
+  }): import('@vibisual/shared').SessionGoal | undefined {
+    const inst = this.findInstanceByAgentId(input.agentId) ?? this.primaryInstance();
+    if (!inst) return undefined;
+    return inst.setSessionGoal(input);
+  }
+
+  /**
+   * §5.5 #17-17 v4.50 — 세션이 세운 `TodoWrite` 계획을 그 세션의 목표 창으로 옮긴다.
+   * 목표가 없으면 그 순간 만들고, 있으면 체크리스트를 계획에 맞춰 갱신한다.
+   * 키가 subAgentId 라 소유 인스턴스를 찾아 라우팅한다(없으면 agentId 기준 인스턴스).
+   */
+  syncSessionGoalFromPlan(
+    subAgentId: string,
+    input: {
+      agentId: string;
+      command?: string;
+      steps: { text: string; status?: import('@vibisual/shared').SessionGoalStepStatus }[];
+    },
+  ): import('@vibisual/shared').SessionGoal | undefined {
+    for (const inst of this.instances.values()) {
+      if (inst.getSessionGoal(subAgentId)) return inst.syncSessionGoalFromPlan(subAgentId, input);
+    }
+    const inst = this.findInstanceByAgentId(input.agentId) ?? this.primaryInstance();
+    return inst ? inst.syncSessionGoalFromPlan(subAgentId, input) : undefined;
+  }
+
+  /**
+   * §5.5 #17-17 ⑨ v4.59 — 명령이 세션 탭으로 발사되는 순간 목표 카드를 세운다(계획 대기 ❌).
+   * 라우팅 규칙은 계획 경로와 동일 — 이미 목표를 가진 인스턴스가 있으면 그쪽, 없으면 agentId 기준.
+   */
+  seedSessionGoalFromCommand(
+    subAgentId: string,
+    input: { agentId: string; command: string },
+  ): import('@vibisual/shared').SessionGoal | undefined {
+    for (const inst of this.instances.values()) {
+      if (inst.getSessionGoal(subAgentId)) return inst.seedSessionGoalFromCommand(subAgentId, input);
+    }
+    const inst = this.findInstanceByAgentId(input.agentId) ?? this.primaryInstance();
+    return inst ? inst.seedSessionGoalFromCommand(subAgentId, input) : undefined;
+  }
+
+  /** 진행 갱신 (단계 체크리스트 우선 · 숫자 신고 · plan 폴백). 적용 안 됐으면 undefined. */
+  noteSessionGoalProgress(
+    subAgentId: string,
+    input: {
+      percent?: number;
+      note?: string;
+      steps?: { text: string; status?: import('@vibisual/shared').SessionGoalStepStatus }[];
+      goal?: string;
+      source: import('@vibisual/shared').SessionGoalProgressSource;
+    },
+  ): import('@vibisual/shared').SessionGoal | undefined {
+    for (const inst of this.instances.values()) {
+      if (!inst.getSessionGoal(subAgentId)) continue;
+      return inst.noteSessionGoalProgress(subAgentId, input);
+    }
+    return undefined;
+  }
+
+  /** 목표 삭제. */
+  deleteSessionGoal(subAgentId: string): boolean {
+    for (const inst of this.instances.values()) {
+      if (inst.deleteSessionGoal(subAgentId)) return true;
+    }
+    return false;
+  }
+
+  /** 한 에이전트에 속한 목표 전부. */
+  getSessionGoalsForAgent(agentId: string): import('@vibisual/shared').SessionGoal[] {
+    const inst = this.findInstanceByAgentId(agentId);
+    return inst ? inst.getSessionGoalsForAgent(agentId) : [];
   }
 
   setAgentConfig(agentId: string, config: AgentConfig): void {
@@ -1592,6 +1943,14 @@ export class ProjectGraphManager {
     return null;
   }
 
+  /** 열기 가드용 — 어느 인스턴스든 이 절대경로를 버블로 그리고 있으면 true (§2.1 #5 외부 폴더/파일 열기). */
+  hasNodeAbsolutePath(absPath: string): boolean {
+    for (const inst of this.instances.values()) {
+      if (inst.hasNodeAbsolutePath(absPath)) return true;
+    }
+    return false;
+  }
+
   // ─── Manager 레벨 ───
 
   /** 숨긴 프로젝트 — 데이터 보존, 스냅샷에서만 제외 */
@@ -1613,6 +1972,14 @@ export class ProjectGraphManager {
   }
 
   /** 전체 프로젝트 목록 집계 */
+  /**
+   * §3.2.3 — 보존 정책 정리를 모든 인스턴스에 돌리기 위한 접근자.
+   * 읽기 전용 순회 용도이며, 인스턴스 자체를 밖에서 보관하지 말 것(unload 시 유령 참조가 된다).
+   */
+  getInstancesForRetention(): ProjectGraph[] {
+    return Array.from(this.instances.values());
+  }
+
   getProjects(): Record<string, ProjectInfo> {
     const result: Record<string, ProjectInfo> = {};
     for (const inst of this.instances.values()) {
@@ -1655,6 +2022,21 @@ export class ProjectGraphManager {
   }
 
   /** 첫 번째 인스턴스의 루트 경로 */
+  /**
+   * §5.11 v4.65 — 지금 떠 있는 인스턴스들의 루트 경로 목록(중복 제거).
+   *
+   * 스냅샷 provider 가 프로젝트 목록을 알아야 하는데, 그 자리에서 `getSnapshot()` 을 부르면 **자기 자신을
+   * 다시 부르는 셈**이라 쓸 수 없다. 그래서 스냅샷을 만들지 않고 루트만 모아 준다.
+   */
+  getProjectRoots(): string[] {
+    const out = new Set<string>();
+    for (const inst of this.instances.values()) {
+      const root = inst.getRoot();
+      if (root) out.add(root);
+    }
+    return [...out];
+  }
+
   getRoot(): string | null {
     return this.primaryInstance()?.getRoot() ?? null;
   }
@@ -1830,6 +2212,16 @@ export class ProjectGraphManager {
       }
     }
 
+    // §5.11 v4.65 — 플러그인 집행 실측. **인스턴스 병합이 끝난 뒤** 얹는다(프로젝트 키가 이미 들어 있는
+    //   값이라 병합 대상이 아니며, 여기서 넣으면 `mergeSnapshots` 에 필드를 빠뜨려 다중 프로젝트에서만
+    //   조용히 사라지는 부류의 사고가 원천적으로 생기지 않는다).
+    if (this.pluginFactsProvider) {
+      const facts = this.pluginFactsProvider();
+      if (facts && Object.keys(facts).length > 0) {
+        snapshot = { ...snapshot, pluginFacts: facts };
+      }
+    }
+
     // stub 프로젝트 합성 — v1.63: 충돌 판정은 **경로(projectId)** 기준. 같은 경로가
     // hydrated 면 그 stub 은 동일 프로젝트라 drop(hydrated 우선). 같은 basename·다른 경로는
     // 충돌이 아니라 둘 다 노출(위 displayNames 로 유일화). stub 키·project.name 도 표시명으로 통일.
@@ -1856,6 +2248,11 @@ export class ProjectGraphManager {
     // §4 v3.62 — 글로벌 Claude 사용량(OAuth 직접 조회) 주입. 한도는 사용자 단위라 프로젝트 무관.
     if (this.globalClaudeUsage) {
       snapshot = { ...snapshot, claudeUsage: this.globalClaudeUsage };
+    }
+
+    // §4 v4.82 — 글로벌 Claude 로그인 상태 주입. 계정도 머신 단위라 프로젝트 무관.
+    if (this.globalClaudeAuth) {
+      snapshot = { ...snapshot, claudeAuth: this.globalClaudeAuth };
     }
 
     // §4 v1.98 — 글로벌 진단 에러 로그 주입 (프로젝트 무관, 런타임 캐시)
@@ -2326,9 +2723,67 @@ export class ProjectGraphManager {
     return out;
   }
 
+  // ─── §5.5 #17-20 ⑩ v4.94 공통 디버그 층 — 중단점 ─────────────────────────
+
+  /** 그 프로젝트에 찍힌 중단점(인스턴스가 없으면 빈 배열). */
+  getDebugBreakpoints(projectName: string): DebugBreakpoint[] {
+    return this.getInstanceByName(projectName)?.getDebugBreakpoints(projectName) ?? [];
+  }
+
+  /** 중단점 전량 교체. 프로젝트 인스턴스가 없으면 null(저장할 자리가 없다). */
+  setDebugBreakpoints(projectName: string, breakpoints: DebugBreakpoint[]): DebugBreakpoint[] | null {
+    const inst = this.getInstanceByName(projectName);
+    if (!inst) return null;
+    return inst.setDebugBreakpoints(projectName, breakpoints);
+  }
+
   // ─── §5.9 화면/프로그램 캡처 버블 — 프로젝트별 인스턴스에 저장 ───
 
   /** 지정 projectName 소속 인스턴스에 캡처 버블 생성. 인스턴스 없으면 primary 폴백. */
+  // ─── §5.13 v4.45 내부 앱 버블 위임 ───
+
+  createAppBubble(input: {
+    projectName: string;
+    appId: string;
+    x: number;
+    y: number;
+    width?: number;
+    height?: number;
+    title?: string;
+    ref?: string;
+  }): AppBubble | null {
+    const inst = this.getInstanceByName(input.projectName) ?? this.primaryInstance();
+    if (!inst) return null;
+    return inst.createAppBubble(input);
+  }
+
+  /** 모든 인스턴스를 훑어 id 로 찾는다(어느 프로젝트 것인지 호출부가 모를 수 있다). */
+  updateAppBubble(
+    id: string,
+    updates: Partial<Omit<AppBubble, 'id' | 'projectName' | 'appId' | 'createdAt'>>,
+  ): AppBubble | null {
+    for (const inst of this.instances.values()) {
+      const updated = inst.updateAppBubble(id, updates);
+      if (updated) return updated;
+    }
+    return null;
+  }
+
+  deleteAppBubble(id: string): boolean {
+    for (const inst of this.instances.values()) {
+      if (inst.getAppBubble(id) && inst.deleteAppBubble(id)) return true;
+    }
+    return false;
+  }
+
+  getAppBubble(id: string): AppBubble | undefined {
+    for (const inst of this.instances.values()) {
+      const found = inst.getAppBubble(id);
+      if (found) return found;
+    }
+    return undefined;
+  }
+
   createCaptureBubble(input: {
     projectName: string;
     x: number;
@@ -2380,6 +2835,73 @@ export class ProjectGraphManager {
   getAllCaptureBubbles(): CaptureBubble[] {
     const out: CaptureBubble[] = [];
     for (const inst of this.instances.values()) out.push(...inst.getCaptureBubbles());
+    return out;
+  }
+
+  // ─── §5.14 v4.62 — 플레이 버블 위임 ───
+
+  createPlayBubble(input: {
+    projectName: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    title?: string;
+    recipe?: PlayRecipe;
+  }): PlayBubble | null {
+    const inst = this.getInstanceByName(input.projectName) ?? this.primaryInstance();
+    if (!inst) return null;
+    return inst.createPlayBubble(input);
+  }
+
+  updatePlayBubble(
+    id: string,
+    updates: Partial<Omit<PlayBubble, 'id' | 'projectName' | 'createdAt' | 'updatedAt'>>,
+  ): PlayBubble | null {
+    for (const inst of this.instances.values()) {
+      if (inst.getPlayBubble(id)) return inst.updatePlayBubble(id, updates);
+    }
+    return null;
+  }
+
+  deletePlayBubble(id: string): boolean {
+    for (const inst of this.instances.values()) {
+      if (inst.getPlayBubble(id)) return inst.deletePlayBubble(id);
+    }
+    return false;
+  }
+
+  getPlayBubble(id: string): PlayBubble | undefined {
+    for (const inst of this.instances.values()) {
+      const b = inst.getPlayBubble(id);
+      if (b) return b;
+    }
+    return undefined;
+  }
+
+  getAllPlayBubbles(): PlayBubble[] {
+    const out: PlayBubble[] = [];
+    for (const inst of this.instances.values()) out.push(...inst.getPlayBubbles());
+    return out;
+  }
+
+  /**
+   * §5.14 4단 계단 ③ — 이 프로젝트에서 **실제로 떠 있던** 명령들.
+   *
+   * 탐지기가 가장 세게 믿는 근거라, 여기서 주는 목록이 곧 "에이전트가 한 번 켜 준 것을
+   * 우리가 기억한다"는 약속이다. `runningServers`(죽은 entry 도 보존된다)를 그대로 읽는다.
+   */
+  getObservedServerCommands(projectName: string): { command: string; port?: number }[] {
+    const inst = this.getInstanceByName(projectName);
+    if (!inst) return [];
+    const out: { command: string; port?: number }[] = [];
+    const snapshot = inst.getSnapshot();
+    for (const entries of Object.values(snapshot.runningServers ?? {})) {
+      for (const entry of entries) {
+        if (entry.reportedOnly === true) continue;
+        out.push({ command: entry.command, ...(entry.port !== undefined ? { port: entry.port } : {}) });
+      }
+    }
     return out;
   }
 
@@ -2549,6 +3071,15 @@ export class ProjectGraphManager {
   getProjectPathForAgent(agentId: string): string | null {
     for (const inst of this.instances.values()) {
       const p = inst.getAgentProjectPath(agentId);
+      if (p) return p;
+    }
+    return null;
+  }
+
+  /** §5.5 #17-28 — 그 에이전트 세션이 실제로 도는 폴더(주입원 계측이 지시 파일을 찾는 기준). */
+  getAgentCwdByAgentId(agentId: string): string | null {
+    for (const inst of this.instances.values()) {
+      const p = inst.getAgentCwdByAgentId(agentId);
       if (p) return p;
     }
     return null;

@@ -1,0 +1,18 @@
+{
+  "id": "context-editing",
+  "name": "Context Editing",
+  "version": "1.0.0",
+  "category": "observability",
+  "descriptionKey": "panel.plugins.contextEditing.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "subAgents",
+    "agentEvents"
+  ],
+  "hostApi": 1
+}

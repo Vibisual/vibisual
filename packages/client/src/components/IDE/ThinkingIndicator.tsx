@@ -11,12 +11,19 @@ export function ThinkingDots(): React.JSX.Element {
   return <span className="thinking-ellipsis inline-block w-[1.1em] text-left" aria-hidden="true" />;
 }
 
-/** 생각 중 라이브 1줄 — 왼쪽 정렬. 펄스 점 + "생각 중" + 말줄임 애니메이션. */
-export function ThinkingLiveLine({ label }: { label: string }): React.JSX.Element {
+/**
+ * 라이브 1줄 — 왼쪽 정렬. 펄스 점 + 라벨 + 말줄임 애니메이션.
+ *
+ * §5.5 #17-24 ② ③ — 에이전트가 작동하는 **내내** 떠 있고, 사고 중이냐(`thinking`) 그 외 작업 중이냐
+ * (`working`)에 따라 라벨과 색만 갈린다. "작업 중"은 이 항목의 생멸이 아니라 **줄 안의 움직임**이 알린다.
+ */
+export function ThinkingLiveLine({ label, mode = 'thinking' }: { label: string; mode?: 'thinking' | 'working' }): React.JSX.Element {
+  const dot = mode === 'working' ? 'bg-blue-400/80' : 'bg-violet-400/80';
+  const text = mode === 'working' ? 'text-blue-300/85' : 'text-violet-300/85';
   return (
     <div className="flex items-center gap-2 px-4 py-1.5">
-      <span className="h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full bg-violet-400/80" aria-hidden="true" />
-      <span className="inline-flex items-baseline text-[12px] italic text-violet-300/85">
+      <span className={`h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full ${dot}`} aria-hidden="true" />
+      <span className={`inline-flex items-baseline text-[12px] italic ${text}`}>
         {label}
         <ThinkingDots />
       </span>

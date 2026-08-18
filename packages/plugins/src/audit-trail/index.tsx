@@ -5,9 +5,9 @@
  * 원본 실행 로그 보존 · 결정에 출처 세션 ID · 커밋에 공동 작성자 표기. 여기서는 앞의 둘,
  * 즉 **이 에이전트의 흔적이 지금 얼마나 남아 있는지**를 센다. 표시 전용.
  */
-import { defineInspector, ICONS } from '../framework/inspector.js';
-import { formatElapsed } from '../ui/kit.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector, ICONS } from '../sdk/index.js';
+import { formatElapsed } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 function turns(ctx: PluginBubbleContext): number {
   return (ctx.data.agentEvents ?? []).length;

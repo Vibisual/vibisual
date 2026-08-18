@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { ContiElement, ContiFrame } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { InlinePromptPopup } from './InlinePromptPopup.js';
+import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 import { StampSvg } from './ContiStamps.js';
 
 /** §5.3 #28 v1.59 — 표준 16:9 스토리보드 viewBox. CONTI_DEFAULTS 와 동기화. */
@@ -452,20 +453,18 @@ export function ContiBoardPanel(): React.JSX.Element | null {
     setPan({ x: 0, y: 0 });
   }, [open?.contiId]);
 
-  // v1.62 — 팝업 열려 있을 때 외부 mousedown → 자동 닫기.
-  //   stopPropagation 으로 막힌 popup 자체 클릭, 그리고 현재 선택된 element 위 클릭은 예외.
-  useEffect(() => {
-    if (!selectedElement) return;
-    const onDown = (e: MouseEvent): void => {
-      const target = e.target as Element | null;
-      if (!target) return;
-      if (target.closest('[data-popup="conti-prompt"]')) return;
-      if (target.closest(`[data-element-id="${selectedElement.elementId}"]`)) return;
-      setSelectedElement(null);
-    };
-    window.addEventListener('mousedown', onDown);
-    return () => window.removeEventListener('mousedown', onDown);
-  }, [selectedElement]);
+  // v1.62 — 팝업 열려 있을 때 외부 press → 자동 닫기(공통 규약 — 팝업 안에서 시작한 드래그는 ❌).
+  //   팝업 자체와 현재 선택된 element 위는 "안"으로 본다(ref 가 아니라 data 속성으로 판정).
+  useOutsidePressDismiss({
+    enabled: selectedElement !== null,
+    onDismiss: () => setSelectedElement(null),
+    isInside: (target) => {
+      if (!target || !selectedElement) return false;
+      if (target.closest('[data-popup="conti-prompt"]')) return true;
+      return target.closest(`[data-element-id="${selectedElement.elementId}"]`) !== null;
+    },
+    capture: false,
+  });
 
   // §5.3 #28 v1.59 — 휠 줌. 컨테이너 위에서 wheel → 줌 in/out (page scroll 막음).
   // mouse 위치를 anchor 로 잡아 자연스러운 줌. passive:false 로 preventDefault 가능하게.

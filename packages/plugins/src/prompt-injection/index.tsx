@@ -5,9 +5,9 @@
  * "해결됐다"는 주장은 신뢰하지 않는 것이 기본이고, 대신 **어떤 경로로 외부 텍스트가 들어오는지**를 세어
  * 공격면을 눈에 보이게 한다. 표시 전용.
  */
-import { defineInspector, ICONS } from '../framework/inspector.js';
-import { effectiveTools } from '../lethal-trifecta/trifecta.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector, ICONS } from '../sdk/index.js';
+import { effectiveTools } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 /** 외부에서 온 텍스트가 컨텍스트로 들어오는 통로들. */
 const INGRESS = ['WebFetch', 'WebSearch', 'Bash', 'Read'];

@@ -1,0 +1,21 @@
+{
+  "id": "agentic-engineering",
+  "name": "Agentic Engineering",
+  "version": "1.0.0",
+  "category": "workflow",
+  "descriptionKey": "panel.plugins.agenticEngineering.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "agentReviews",
+    "taskEdges",
+    "agentReports",
+    "agentEvents",
+    "subAgents"
+  ],
+  "hostApi": 1
+}

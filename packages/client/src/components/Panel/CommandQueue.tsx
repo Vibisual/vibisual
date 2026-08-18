@@ -2,13 +2,18 @@ import { memo, useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useGraphStore } from '../../stores/graphStore.js';
 import type { QueuedCommand, SubAgent } from '@vibisual/shared';
+// §5.5 #17-18 v4.68 — 덧말 처리 방식(대기/합치기/즉시).
+import { COMMAND_DISPATCH_MODES, DEFAULT_COMMAND_DISPATCH_MODE } from '@vibisual/shared';
 import { ScrollFade } from '../ScrollFade.js';
+import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 
 const EMPTY_COMMANDS: QueuedCommand[] = [];
 const API_BASE = '';
 
 interface CommandQueueProps {
   agentId: string;
+  /** §5.5 #17-29 — 훅 버블이면 true. 대기열은 그대로 보여 주되 **넣는 손잡이**만 지운다(관측은 막지 않는다). */
+  readOnly?: boolean;
 }
 
 // ─── 세션 선택 + 명령 입력 팝업 ───
@@ -226,10 +231,12 @@ function CommandInputPopup({ agentId, onSubmit, onClose }: CommandInputPopupProp
     setStep('input');
   }, []);
 
+  const backdrop = useBackdropDismiss(onClose);
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-      onClick={onClose}
+      {...backdrop}
     >
       <div
         className="mx-4 flex w-full max-w-lg flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl shadow-black/50"
@@ -414,6 +421,7 @@ function DraggableItem({
 }: DraggableItemProps): React.JSX.Element {
   const { t } = useTranslation();
   const removeCommand = useGraphStore((s) => s.removeCommand);
+  const setCommandDispatchMode = useGraphStore((s) => s.setCommandDispatchMode);
   const subAgents = useGraphStore((s) => s.subAgents[agentId]);
   const isDragging = dragIndex === index;
   const isOver = overIndex === index && dragIndex !== index;
@@ -472,6 +480,39 @@ function DraggableItem({
               {t('panel.commandQueue.newSessionBadge')}
             </span>
           )}
+          {/* §5.5 #17-18 v4.68 — 대기 중인 명령의 처리 방식(대기/합치기/즉시). IDE 대기 줄과 같은 계약 —
+              같은 큐를 두 화면에서 보는데 한쪽에만 컨트롤이 있으면 방식을 바꾸려고 IDE 를 열어야 한다. */}
+          {!isExecuting && cmd.status === 'queued' && (
+            <span className="inline-flex items-center gap-0.5 rounded bg-gray-950/60 p-0.5">
+              {COMMAND_DISPATCH_MODES.map((m) => {
+                const active = m === (cmd.dispatchMode ?? DEFAULT_COMMAND_DISPATCH_MODE);
+                return (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => { if (!active) setCommandDispatchMode(agentId, cmd.id, m); }}
+                    title={t(`ide.mainArea.dispatchModeTitle.${m}`)}
+                    aria-pressed={active}
+                    className={`rounded px-1 py-px text-[9px] font-medium transition-colors ${
+                      active
+                        ? m === 'immediate'
+                          ? 'bg-amber-500/20 text-amber-300'
+                          : 'bg-blue-500/20 text-blue-300'
+                        : 'text-gray-500 hover:bg-gray-700/60 hover:text-gray-300'
+                    }`}
+                  >
+                    {t(`ide.mainArea.dispatchMode.${m}`)}
+                  </button>
+                );
+              })}
+            </span>
+          )}
+          {/* §5.5 #17-18 v4.68 — 합치기로 덧말이 함께 실려 나간 명령임을 표시. */}
+          {(cmd.mergedCount ?? 0) > 0 && (
+            <span className="inline-block rounded bg-blue-500/10 px-1 py-px text-[9px] font-medium text-blue-300/80">
+              {t('ide.mainArea.mergedNotice', { count: cmd.mergedCount ?? 0 })}
+            </span>
+          )}
           {/* v1.35 — paste 된 이미지 개수 뱃지. 실행 중/대기 중 모두 표시. cleanup 후 archive 엔 잔재 없음. */}
           {cmd.attachments && cmd.attachments.length > 0 && (
             <span className="inline-flex items-center gap-0.5 rounded bg-amber-500/15 px-1 py-px text-[9px] font-medium text-amber-400">
@@ -500,6 +541,7 @@ function DraggableItem({
 
 export const CommandQueue = memo(function CommandQueue({
   agentId,
+  readOnly = false,
 }: CommandQueueProps): React.JSX.Element {
   const { t } = useTranslation();
   const allQueues = useGraphStore((s) => s.queuedCommands);
@@ -544,6 +586,7 @@ export const CommandQueue = memo(function CommandQueue({
       <div className="flex flex-col gap-1">
         <div className="flex items-center justify-between">
           <span className="text-xs text-gray-500">{t('panel.commandQueue.prompts')} ({commands.length})</span>
+          {!readOnly && (
           <button
             type="button"
             onClick={() => setShowPopup(true)}
@@ -555,6 +598,7 @@ export const CommandQueue = memo(function CommandQueue({
               <line x1="5" y1="12" x2="19" y2="12" />
             </svg>
           </button>
+          )}
         </div>
 
         {commands.length > 0 && (

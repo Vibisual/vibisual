@@ -1,0 +1,20 @@
+{
+  "id": "regression-suite",
+  "name": "Regression Suite",
+  "version": "1.0.0",
+  "category": "workflow",
+  "descriptionKey": "panel.plugins.regressionSuite.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "agentReports",
+    "agentReviews",
+    "agentEvents",
+    "subAgents"
+  ],
+  "hostApi": 1
+}

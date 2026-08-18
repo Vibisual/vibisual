@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import type { CaptureSourceInfo } from '@vibisual/shared';
+import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 
 // §5.9 화면/프로그램 캡처 — 소스 선택 팝업(OBS/디스코드식).
 //
@@ -54,6 +55,8 @@ export function CaptureSourcePicker({ open, onClose, onPick }: CaptureSourcePick
     return () => document.removeEventListener('keydown', handleKey);
   }, [open, onClose]);
 
+  const backdrop = useBackdropDismiss(onClose);
+
   if (!open) return null;
 
   const screens = sources.filter((s) => s.kind === 'screen');
@@ -83,7 +86,7 @@ export function CaptureSourcePicker({ open, onClose, onPick }: CaptureSourcePick
   );
 
   return createPortal(
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm" onMouseDown={onClose}>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm" {...backdrop}>
       <div
         className="flex max-h-[82vh] w-[720px] max-w-[94vw] flex-col rounded-xl border border-white/[0.08] bg-gray-900/95 p-5 shadow-2xl"
         onMouseDown={(e) => e.stopPropagation()}

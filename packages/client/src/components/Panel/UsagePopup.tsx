@@ -8,6 +8,7 @@ import {
   usageTextToneClass,
 } from '../../utils/usageLimits.js';
 import { ScrollFade } from '../ScrollFade.js';
+import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 
 // SCENARIO.md §4 v1.50 / v3.60 / v3.62 — 사용량 팝업.
 //
@@ -301,10 +302,12 @@ export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps)
 
   const credits = claudeUsage?.extraCredits;
 
+  const backdrop = useBackdropDismiss(onClose);
+
   return (
     <div
       className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm"
-      onClick={onClose}
+      {...backdrop}
     >
       <div
         className="mx-4 flex max-h-[80vh] w-full max-w-md flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl shadow-black/50"

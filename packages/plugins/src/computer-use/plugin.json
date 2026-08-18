@@ -1,0 +1,17 @@
+{
+  "id": "computer-use",
+  "name": "Computer Use",
+  "version": "1.0.0",
+  "category": "observability",
+  "descriptionKey": "panel.plugins.computerUse.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "captureBubbles"
+  ],
+  "hostApi": 1
+}

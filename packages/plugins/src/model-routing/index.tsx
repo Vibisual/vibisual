@@ -6,8 +6,8 @@
  * 판단하게 한다. 자동으로 바꾸지 않는다 — 모델 선택은 사용자 결정이다. 표시 전용.
  */
 import { parseModelFamily } from '@vibisual/shared';
-import { defineInspector, ICONS } from '../framework/inspector.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector, ICONS } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 /** 사고 비용이 큰 순서. 알 수 없는 패밀리는 중간으로 본다. */
 const WEIGHT: Record<string, number> = { haiku: 1, sonnet: 2, opus: 3 };

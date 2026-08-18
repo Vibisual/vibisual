@@ -5,9 +5,9 @@
  * 없애면 에이전트는 결정권자가 아니라 **고속 타이피스트**로 일하게 되고, 그때 비로소 산출량이 안전하게 커진다.
  * TDD 와 겹치지 않는다 — TDD 는 동작을, SDD 는 요구사항과 제약을 먼저 고정한다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import { toneIfActive } from '../framework/activity.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import { toneIfActive } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 function signals(ctx: PluginBubbleContext): number {
   return [

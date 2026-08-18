@@ -1,7 +1,8 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { BubbleData, BashEntry, ServerEntry, AgentEvent, FileEdit, SubAgent, SessionTokenData, TurnTokenUsage, AgentConfig } from '@vibisual/shared';
-import { BUBBLE_COLORS, PANEL_DEFAULT_WIDTH, PANEL_MIN_WIDTH, PANEL_MAX_WIDTH, MAX_FILE_EDITS } from '@vibisual/shared';
+import { BUBBLE_COLORS, BUBBLE_STYLES, PANEL_DEFAULT_WIDTH, PANEL_MIN_WIDTH, PANEL_MAX_WIDTH, MAX_FILE_EDITS, TOKEN_SUBAGENT_FETCH_CONCURRENCY } from '@vibisual/shared';
+import { mapWithConcurrency } from '../../utils/tokenFanout.js';
 import { useGraphStore, selectIDEOverlay, selectActiveBrainSummary } from '../../stores/graphStore.js';
 import { useIsNarrowViewport } from '../../hooks/useIsMobile.js';
 import { ScrollFade } from '../ScrollFade.js';
@@ -20,6 +21,8 @@ import { RootFileList } from './RootFileList.js';
 import { TaskEdgeDetail } from './TaskEdgeDetail.js';
 import { CommentBoxDetail } from './CommentBoxDetail.js';
 import { CaptureBubbleDetail } from './CaptureBubbleDetail.js';
+import { AppBubbleDetail } from './AppBubbleDetail.js';
+import { getInternalApp } from '../../apps/registry.js';
 import { BrainCardDetail } from './BrainCardDetail.js';
 import { CAPTURE_BUBBLE_DEFAULTS } from '@vibisual/shared';
 import { AutoAgentPanel } from './AutoAgentPanel.js';
@@ -231,14 +234,21 @@ export function DetailPanel({
         const primary = await res.json() as SessionTokenData;
         // 자체 세션 비면 서브에이전트 세션 합산
         if (primary.turns.length === 0 && agentSubIds.length > 0) {
+          // §3.2.4 ② — 왕복을 겹친다. 결과는 **입력 순서 그대로** 오므로 합산 결과가 순차 때와 같다.
+          const subResults = await mapWithConcurrency(
+            agentSubIds,
+            TOKEN_SUBAGENT_FETCH_CONCURRENCY,
+            async (subSid): Promise<SessionTokenData | null> => {
+              try {
+                const subRes = await fetch(`/api/tokens/${subSid}`);
+                if (!subRes.ok || cancelled) return null;
+                return await subRes.json() as SessionTokenData;
+              } catch { return null; }
+            },
+          );
           const allTurns: TurnTokenUsage[] = [];
-          for (const subSid of agentSubIds) {
-            try {
-              const subRes = await fetch(`/api/tokens/${subSid}`);
-              if (!subRes.ok || cancelled) continue;
-              const subData = await subRes.json() as SessionTokenData;
-              allTurns.push(...subData.turns);
-            } catch { /* skip */ }
+          for (const subData of subResults) {
+            if (subData) allTurns.push(...subData.turns);
           }
           if (!cancelled && allTurns.length > 0) {
             allTurns.sort((a, b) => a.timestamp - b.timestamp);
@@ -370,6 +380,9 @@ export function DetailPanel({
   const commentBoxes = useGraphStore((s) => s.commentBoxes);
   const selectedCaptureBubbleId = useGraphStore((s) => s.selectedCaptureBubbleId);
   const captureBubbles = useGraphStore((s) => s.captureBubbles);
+  // §5.13 (M) v4.68 — 앱 버블도 다른 버블처럼 "선택 → 우측 옵션 패널".
+  const selectedAppBubbleId = useGraphStore((s) => s.selectedAppBubbleId);
+  const appBubbles = useGraphStore((s) => s.appBubbles);
   // §5.10 — 기억 카드/두뇌/휴지통 선택.
   const selectedBrainCardId = useGraphStore((s) => s.selectedBrainCardId);
   const selectedBrainCard = useGraphStore((s) => s.selectedBrainCard);
@@ -485,6 +498,57 @@ export function DetailPanel({
     );
   }
 
+  // §5.13 (M) v4.68 — 앱 버블 선택 시 전용 패널 (다른 선택과 배타). 우클릭 메뉴에만 있던
+  // 조작(열기·설치·이름·고정·삭제)을 캡처 버블과 같은 자리에서도 낸다.
+  if (selectedAppBubbleId) {
+    const bubble = appBubbles.find((b) => b.id === selectedAppBubbleId);
+    if (!bubble) return null;
+    const appMeta = getInternalApp(bubble.appId);
+    const headerName = bubble.title?.trim()
+      ? bubble.title
+      : appMeta
+        ? t(appMeta.nameKey, { defaultValue: appMeta.name })
+        : bubble.appId;
+    return (
+      <aside
+        className={panelWrapperClass}
+        style={panelWrapperStyle}
+        onAnimationEnd={() => setAnimating(false)}
+      >
+        <div
+          className={`absolute ${panelOnLeft ? 'right-0' : 'left-0'} top-0 bottom-0 z-20 w-1.5 cursor-col-resize transition-colors hover:bg-blue-500/40 ${isNarrow ? 'hidden' : ''}`}
+          onMouseDown={handleResizeStart}
+        />
+        <div className="flex items-center justify-between border-b border-gray-800 px-4 py-3">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <div
+              className="h-3 w-3 flex-shrink-0 rounded-sm border"
+              style={appMeta
+                ? { backgroundColor: appMeta.color, borderColor: appMeta.glow }
+                : { backgroundColor: '#F59E0B', borderColor: '#FCD34D' }}
+            />
+            <span className="truncate text-sm font-bold text-gray-100" title={headerName}>
+              {headerName}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded p-1 text-gray-400 hover:bg-gray-800 hover:text-white"
+            aria-label={t('panel.detailPanel.close')}
+          >
+            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+          </button>
+        </div>
+        <ScrollFade fill className="flex-1">
+          <div className="p-4">
+            <AppBubbleDetail bubble={bubble} />
+          </div>
+        </ScrollFade>
+      </aside>
+    );
+  }
+
   // Task Edge 선택 시 전용 패널 렌더 (노드 선택과 배타)
   if (selectedTaskEdgeId) {
     const edge = taskEdges[selectedTaskEdgeId];
@@ -569,7 +633,8 @@ export function DetailPanel({
         <div className={`absolute ${panelOnLeft ? 'right-0' : 'left-0'} top-0 bottom-0 z-20 w-1.5 cursor-col-resize transition-colors hover:bg-blue-500/40 ${isNarrow ? 'hidden' : ''}`} onMouseDown={handleResizeStart} />
         <div className="flex items-center justify-between border-b border-gray-800 px-4 py-3">
           <div className="flex min-w-0 flex-1 items-center gap-2">
-            <div className="h-3 w-3 flex-shrink-0 rounded-full" style={{ backgroundColor: '#D946EF' }} />
+            {/* v4.66 — Brain 버블과 같은 인디고(BUBBLE_STYLES.brain). 여기만 푸시아라 같은 것이 두 색이었다. */}
+            <div className="h-3 w-3 flex-shrink-0 rounded-full" style={{ backgroundColor: BUBBLE_STYLES.brain.color }} />
             <span className="truncate text-sm font-bold text-gray-100">{t('brain.cardDetailTitle', { defaultValue: '기억 카드' })}</span>
           </div>
           <button type="button" onClick={onClose} className="rounded p-1 text-gray-400 hover:bg-gray-800 hover:text-white" aria-label={t('panel.detailPanel.close')}>
@@ -1107,9 +1172,10 @@ export function DetailPanel({
             <SubAgentList subAgents={subAgents[node.id] ?? []} />
           )}
 
-          {/* Agent: 명령 대기열 (라이브 모드만) */}
+          {/* Agent: 명령 대기열 (라이브 모드만).
+              §5.5 #17-29 — 훅 버블은 읽기 전용이라 대기열은 보이되 [추가] 손잡이는 없다. */}
           {node.bubbleType === 'agent' && (
-            <CommandQueue agentId={node.id} />
+            <CommandQueue agentId={node.id} readOnly={!node.customCreated} />
           )}
 
           {/* Agent: 결과 목록 */}

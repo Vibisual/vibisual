@@ -4,8 +4,8 @@
  * 단계가 많고 순서가 중요한 작업에서 중간에 길을 잃는 것을 막고, 계획을 사람이 승인·수정할 수 있게
  * 만드는 부수 효과가 크다. 컨텍스트가 압축돼도 **계획은 남는다**는 것이 핵심 이점이다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 function lastTodos(ctx: PluginBubbleContext): { done: number; total: number } {
   const list = ctx.data.agentEvents ?? [];

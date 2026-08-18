@@ -1,0 +1,16 @@
+{
+  "id": "lethal-trifecta",
+  "name": "Lethal Trifecta",
+  "version": "1.0.0",
+  "category": "security",
+  "descriptionKey": "panel.plugins.lethalTrifecta.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "bubbleBadge",
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [],
+  "hostApi": 1
+}

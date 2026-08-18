@@ -1,0 +1,19 @@
+{
+  "id": "cascading-failure",
+  "name": "Cascading Failure",
+  "version": "1.0.0",
+  "category": "security",
+  "descriptionKey": "panel.plugins.cascadingFailure.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "bubbleBadge",
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "taskEdges",
+    "subAgents"
+  ],
+  "hostApi": 1
+}

@@ -1,0 +1,18 @@
+{
+  "id": "fan-out",
+  "name": "Fan-out",
+  "version": "1.0.0",
+  "category": "observability",
+  "descriptionKey": "panel.plugins.fanOut.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "bubbleBadge",
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "runningTasks"
+  ],
+  "hostApi": 1
+}

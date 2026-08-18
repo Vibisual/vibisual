@@ -8,8 +8,8 @@
  * 꺼져 있는 동안에는 스토어를 읽는 비용조차 들지 않는다.
  */
 import type { AgentEvent } from '@vibisual/shared';
-import type { PluginClientModule, PluginBubbleContext, PluginManifest, PluginSeverity } from '../types.js';
-import { PluginSection, PluginRow, PluginBadgePill, formatElapsed, type PluginTone } from '../ui/kit.js';
+import type { PluginClientModule, PluginBubbleContext, PluginManifest, PluginSeverity } from '../sdk/index.js';
+import { PluginSection, PluginRow, PluginBadgePill, formatElapsed, type PluginTone } from '../sdk/index.js';
 
 export const longHorizonManifest: PluginManifest = {
   id: 'long-horizon',
@@ -18,8 +18,8 @@ export const longHorizonManifest: PluginManifest = {
   category: 'observability',
   descriptionKey: 'panel.plugins.longHorizon.desc',
   enabledByDefault: false,
-  contributes: ['bubbleBadge', 'panelSection'],
-  clientOnly: true,
+  contributes: ['bubbleBadge', 'panelSection', 'agentPrompt'],
+  clientOnly: false,
 };
 
 const K = 'panel.plugins.longHorizon';

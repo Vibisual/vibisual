@@ -2,11 +2,11 @@ import { join } from 'node:path';
 import { createServer, type Server as HttpServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
-import { app, shell, BrowserWindow, protocol, screen } from 'electron';
+import { app, shell, BrowserWindow, protocol, screen, dialog } from 'electron';
 import { electronApp, optimizer } from '@electron-toolkit/utils';
 import { inject, type DispatchFunc } from 'light-my-request';
 import type { Express } from 'express';
-import { runServer, setBroadcastSink, setHookListenerPort, setHookListenerToken, setHookListenerIdentityFile, setHookHandlerPath, ensureClaudeHooksInstalled, refreshStatusLineIfInstalled, recordDiagnostic, subAgentManager } from '@vibisual/server';
+import { runServer, setBroadcastSink, setHookListenerPort, setHookListenerToken, setHookListenerIdentityFile, setHookHandlerPath, setDebugLogDir, ensureClaudeHooksInstalled, refreshStatusLineIfInstalled, recordDiagnostic, subAgentManager, stopAllPlays, closeStaticHost } from '@vibisual/server';
 import { setupIpc, type IpcHub } from './ipc';
 import { loadSecrets } from './secrets';
 import { loadHookIdentity, saveHookIdentity, hookIdentityPath } from './hookIdentity';
@@ -54,6 +54,14 @@ export function getHookToken(): string {
 // 다음 배너로 넘어갔으면 그 사이에 팅긴 것" 판별용).
 startCrashReporter();
 logAppStart();
+
+// §3.5 v4.67 — 서버 코어의 버블 생명주기 진단 로그도 crash.log 와 같은 곳(userData/logs)에 둔다.
+// 이 로그는 프로젝트 데이터가 아니라 앱 진단이고, 종전엔 server 가 `process.cwd()` 상대 경로를
+// 쓰는 바람에 패키지 앱의 실행 위치에 따라 AppData/Local 같은 엉뚱한 곳으로 갈라져 쌓였다.
+// (app.getPath 는 ready 전에도 대체로 동작하지만 초기 실패에 대비해 감싼다 — crashLog 와 동일 방어.)
+try {
+  setDebugLogDir(join(app.getPath('userData'), 'logs'));
+} catch { /* ready 전 극초기 실패 — server 의 cwd 상대 폴백을 그대로 쓴다 */ }
 
 // §4 v1.98 — main 프로세스 에러를 진단 로그(diagnosticService)에 적재 → DebugPanel 에 표시.
 // record-and-continue: 비치명 uncaught 에러를 크래시 다이얼로그 대신 앱 안 패널로.
@@ -217,6 +225,18 @@ async function startHookListener(expressApp: Express, preferredPort: number): Pr
       path.startsWith('/api/agent-config/') ||
       path.startsWith('/api/commands/');
 
+    // §5.13 (P) v4.49 — 내부 앱 REST. **앱 이름을 여기 적지 않는다** — 모든 앱이
+    //   `/api/app/<id>/…` 아래로 들어오기로 했으므로 이 한 줄이면 앱이 늘어도 그대로다.
+    //   외부 `claude` 프로세스에게는 이 loopback 이 유일한 통로라 열어 두되 토큰은 필수.
+    const isAppPath = path.startsWith('/api/app/');
+
+    // §5.5 #17-17 v4.46 — 세션 목표 진행률 신고. 주입 지시문을 받은 외부 `claude` 프로세스가
+    // 유일한 호출자라 이 loopback 이 통로다. **`/progress` 로 끝나는 경로만** 연다 —
+    // 목표 문장 자체를 고치는 PUT/DELETE 는 열지 않는다(목표는 사용자의 것이다).
+    // 토큰 게이트 필수(아래 분기 — health/dispatch 만 면제).
+    const isSessionGoalProgressPath =
+      path.startsWith('/api/session-goal/') && path.endsWith('/progress');
+
     // All other whitelisted paths require the per-launch token (item #7).
     if (
       path !== '/health' &&
@@ -234,6 +254,9 @@ async function startHookListener(expressApp: Express, preferredPort: number): Pr
       path !== '/api/agent-list' &&
       // §7.11 v2.29 — 커스텀/스폰 에이전트의 서버 iframe 신고(url). 토큰 인증 필수.
       path !== '/api/agent-iframe' &&
+      // §5.14 v4.62 — 플레이 버블의 실행 레시피 등록. **등록만** 열고 기동(`/start`)은 열지 않는다
+      //   — 서버를 켜는 것은 사용자가 버튼을 누를 때의 일이다. 토큰 인증 필수.
+      path !== '/api/play-recipe' &&
       // §5.10 — Project Brain 능동 검색(에이전트가 과거 기억을 직접 조회). 토큰 인증 필수.
       path !== '/api/brain/search' &&
       // §5.10 — Project Brain 파일 접근 경고(hook PostToolUse Edit/Write). 토큰 인증 필수.
@@ -247,6 +270,11 @@ async function startHookListener(expressApp: Express, preferredPort: number): Pr
       //   statusLine 스크립트를 외부 프로세스로 돌리므로 이 loopback 이 유일한 도달 경로다.
       //   토큰 인증 필수(아래 분기).
       path !== '/api/rate-limits' &&
+      // §4 v4.89 — 서브에이전트 행 수집기(`subagentStatusLine`)가 미는 토큰 사용량·모델·사고 깊이.
+      //   statusLine 과 같은 이유로 이 loopback 이 유일한 도달 경로다. 토큰 인증 필수(아래 분기).
+      path !== '/api/subagent-statusline' &&
+      !isAppPath &&
+      !isSessionGoalProgressPath &&
       !isBuilderPath
     ) {
       res.statusCode = 404;
@@ -450,6 +478,11 @@ async function bootBackend(): Promise<void> {
     } else if (r.alreadyPresent) {
       console.log(`[main] hooks already up-to-date in ${r.settingsPath}`);
     }
+    if (r.prunedLegacy > 0 || r.prunedBackups > 0) {
+      console.log(
+        `[main] hook settings cleanup — 표식 없는 옛 블록 ${r.prunedLegacy}장 / 오래된 백업 ${r.prunedBackups}개 제거`,
+      );
+    }
 
     // §4 v3.60 — 사용량 수집기는 **자동 설치하지 않는다**(opt-in). 사용자가 이미 켜둔
     //   경우에만 이번 런의 포트·토큰으로 명령을 갱신해 "재기동 후 값이 안 들어오는" 것을 막는다.
@@ -531,9 +564,47 @@ app.on('window-all-closed', () => {
 
 // Item #8 — await cleanup before exit to prevent socket leak on dev-cycle restarts.
 // Double-fire guard via quitting flag.
+/**
+ * 서버 코어에서 "지금 끊기면 잃는 일" 요약을 안전하게 읽는다.
+ * 서버가 아직 안 떴거나 이미 정리된 뒤라도 **종료를 막지 않는다** — 판단 못 하면 그냥 닫는다.
+ */
+function safeRunningWorkSummary(): { sessions: number; backgroundTasks: number; labels: string[] } | null {
+  try {
+    return subAgentManager.getRunningWorkSummary();
+  } catch (err) {
+    console.warn('[main] getRunningWorkSummary failed:', err);
+    return null;
+  }
+}
+
 let quitting = false;
 app.on('before-quit', (event) => {
   if (quitting) return;
+
+  // 헤드리스 자식은 우리 프로세스의 자식이라 앱이 내려가면 **함께 죽는다.** 대화는 세션에 남아
+  //   다음 턴이 `--resume` 으로 잇지만(부팅 reconcile 이 자동으로 재개한다), 그 턴이 만들던
+  //   **커밋 전 편집은 돌아오지 않는다.** 닫기 전에 한 번 묻는 것이 유일한 예방이다.
+  //   물음은 사용자가 실수로 닫는 경우만 막는다 — [닫기] 를 고르면 종전과 똑같이 진행한다.
+  const work = safeRunningWorkSummary();
+  if (work && (work.sessions > 0 || work.backgroundTasks > 0)) {
+    const detail = [
+      work.sessions > 0 ? `세션 ${work.sessions}개 실행 중${work.labels.length > 0 ? `: ${work.labels.slice(0, 4).join(', ')}` : ''}` : '',
+      work.backgroundTasks > 0 ? `백그라운드 작업 ${work.backgroundTasks}개` : '',
+      '대화는 남아 다음 턴에 이어지지만, 커밋하지 않은 편집은 복구되지 않습니다.',
+    ].filter(Boolean).join(String.fromCharCode(10));
+    const picked = dialog.showMessageBoxSync({
+      type: 'warning',
+      buttons: ['취소', '닫기'],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+      title: '작업이 실행 중입니다',
+      message: '지금 닫으면 실행 중인 에이전트가 함께 종료됩니다.',
+      detail,
+    });
+    if (picked === 0) { event.preventDefault(); return; }
+  }
+
   quitting = true;
   event.preventDefault();
 
@@ -574,5 +645,16 @@ app.on('before-quit', (event) => {
     console.warn('[main] shutdownAllPersistentChildren failed:', err);
   });
 
-  Promise.all([listenerClose, mobileClose, subShutdown]).finally(() => app.exit(0));
+  // §5.14 v4.62 — 플레이 버블이 띄운 서버 정리. **우리가 띄운 포트만** 죽인다(사용자가 직접
+  // 켠 서버는 건드리지 않는다). 정적 호스트 소켓도 함께 닫는다 — 안 닫으면 다음 실행에서
+  // 포트만 늘어난다.
+  const playShutdown = stopAllPlays()
+    .catch((err: unknown) => {
+      console.warn('[main] stopAllPlays failed:', err);
+    })
+    .finally(() => {
+      closeStaticHost();
+    });
+
+  Promise.all([listenerClose, mobileClose, subShutdown, playShutdown]).finally(() => app.exit(0));
 });

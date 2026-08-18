@@ -34,7 +34,11 @@ import type {
   TaskEdgeCommandMode,
   SubAgent,
   CommentBox,
+  DebugBreakpoint,
+  AppBubble,
   CaptureBubble,
+  PlayBubble,
+  PlayRecipe,
   Conti,
   ContiFrame,
   ContiElement,
@@ -43,6 +47,10 @@ import type {
   ToolDurationEntry,
   CompactCount,
   AutoAgentSummary,
+  AutoAgentRun,
+  AutoAgentRunStatus,
+  VerificationAttempt,
+  EscalationReason,
   AgentReport,
   AgentQuestions,
   AgentReview,
@@ -51,8 +59,17 @@ import type {
   BrainInjectionEvent,
   BrainSummary,
   SessionLoop,
+  SessionLoopContextMode,
+  SessionGoal,
+  SessionGoalStatus,
+  SessionGoalProgress,
+  SessionGoalProgressSource,
+  SessionGoalStep,
+  SessionGoalStepStatus,
+  ContextOverrides,
+  ContextOverrideMap,
 } from '@vibisual/shared';
-import { MAX_BASH_HISTORY, MAX_FILE_EDITS, MAX_WRITE_DIFF_BYTES, DEFAULT_MAX_SATELLITES, SATELLITE_MAX_BOUNDS, MAX_AGENTS, SATELLITE_TYPES, AGENT_FADE_DURATION, BUBBLE_TTL, GHOST_FADE_DURATION, FILE_EXISTENCE_MISS_THRESHOLD, FRONTEND_SERVER_PATTERNS, IFRAME_DEAD_GRACE_MS, parseModelFamily, DEFAULT_AGENT_CONFIG, AVAILABLE_AGENT_TOOLS, DEFAULT_UI_LOCALE, COMMENT_BOX_DEFAULTS, READ_TOOLS, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, AGENT_REPORT_MAX_PER_AGENT, AGENT_QUESTIONS_MAX_PER_AGENT, AGENT_REVIEWS_MAX_PER_AGENT, AGENT_LISTS_MAX_PER_AGENT, AGENT_FEEDBACK_MAX_PER_AGENT, DELETED_AGENT_TOMBSTONE_MAX, CMD_AGENT_COLOR, MAX_AGENT_EVENTS, BRAIN_INJECTIONS_MAX_PER_AGENT } from '@vibisual/shared';
+import { MAX_BASH_HISTORY, MAX_FILE_EDITS, MAX_WRITE_DIFF_BYTES, DEFAULT_MAX_SATELLITES, SATELLITE_MAX_BOUNDS, MAX_AGENTS, SATELLITE_TYPES, AGENT_FADE_DURATION, BUBBLE_TTL, GHOST_FADE_DURATION, FILE_EXISTENCE_MISS_THRESHOLD, FRONTEND_SERVER_PATTERNS, IFRAME_DEAD_GRACE_MS, parseModelFamily, DEFAULT_AGENT_CONFIG, AVAILABLE_AGENT_TOOLS, BACKFILL_AGENT_TOOLS, DEFAULT_UI_LOCALE, COMMENT_BOX_DEFAULTS, READ_TOOLS, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, AGENT_REPORT_MAX_PER_AGENT, AGENT_QUESTIONS_MAX_PER_AGENT, AGENT_REVIEWS_MAX_PER_AGENT, AGENT_LISTS_MAX_PER_AGENT, AGENT_FEEDBACK_MAX_PER_AGENT, DELETED_AGENT_TOMBSTONE_MAX, CMD_AGENT_COLOR, MAX_AGENT_EVENTS, BRAIN_INJECTIONS_MAX_PER_AGENT, SESSION_GOAL_NOTE_MAX, SESSION_GOAL_HISTORY_MAX, SESSION_GOAL_STEPS_MAX, SESSION_GOAL_STEP_TEXT_MAX, SESSION_GOAL_TEXT_MAX, AUTO_AGENT_RUN_MAX_PER_AGENT, AUTO_AGENT_RUN_DEFAULT_REWORK_BUDGET, isExpiredByDays, capMapSize, SESSION_KEYED_MAP_MAX } from '@vibisual/shared';
 import type { ServerKind, UiLocale, ExecutionMode } from '@vibisual/shared';
 import { EdgeManager } from './edgeManager.js';
 import { extractPort, extractPortFromInlineEval, extractPortFromScriptFile, isPortAlive, isUrlServing, isProbeCommand, isVibisualLauncherCommand } from './processChecker.js';
@@ -65,11 +82,47 @@ import { getBrainService } from './brainService.js';
 import type { LocalSession, AgentContextInfo } from './sessionDiscovery.js';
 import { resolveSessionTitle, readUserMessages, readLastAssistantMessage, readContextInfo, discoverSessions, findPidBySession, isSessionInUse, getSessionJsonlPath, listJsonlSessionIds, findEntrypointBySession, isSessionInterrupted } from './sessionDiscovery.js';
 import { logger } from '../logger.js';
+import { appStateGetRetention } from './appState.js';
 import { isLiveWorktreeDir } from './worktreeLiveness.js';
 import { dbg } from './debugLog.js';
 import { userDefaultsService } from './userDefaultsService.js';
 
 // ─── 유틸 (순수 함수) ───
+
+/**
+ * §5.14 v4.62 — 디스크에서 올라온 플레이 버블의 실행 상태를 내린다.
+ *
+ * 버튼·레시피·좌표는 사용자의 것이라 그대로 살리되, `running`/`starting` 은 **앱과 함께 죽은
+ * 프로세스**의 잔상이다. 그대로 복원하면 캔버스에 "실행 중"이라고 적힌 채 아무 데도 안 붙는
+ * 프리뷰가 뜬다(§3.2 왕복 함정과 같은 계열 — 살아 있는 것과 저장된 것을 구분하지 않은 실수).
+ */
+function sanitizePlayBubbleOnLoad(bubble: PlayBubble): PlayBubble {
+  const { url: _url, port: _port, error: _error, ...rest } = bubble;
+  return { ...rest, status: 'idle', previewOpen: false };
+}
+
+/**
+ * §2.4 — 디스크에서 올라온 버블의 "활동중" 잔상을 내린다.
+ *
+ * 재시작 직후엔 아무 일도 일어나고 있지 않다. 저장된 `active`/`completed` 는 앱과 함께 죽은
+ * 세션의 잔상이라, 그대로 살리면 아무도 만지지 않는 버블이 펄스 링을 단 채 캔버스에 남는다.
+ * 에이전트 버블은 예전부터 이 규칙을 받았지만(v1.60/v1.73) 파일/폴더 버블은 빠져 있어서,
+ * 같은 증상이 한 층 아래에서 되풀이됐다 — 에이전트는 얌전히 꺼져 있는데 그 에이전트가 만졌던
+ * 파일·폴더만 계속 빛나는 상태. 그 노드들은 `isAlive` 의 5분 TTL 도 통과해(active 는 항상 alive)
+ * 영영 사라지지 않았다.
+ *
+ * 레거시 체크포인트의 `awaiting_input` 도 여기서 함께 정규화한다(status 유니온에서 빠졌으므로 raw 비교).
+ */
+function demoteStaleActivityOnLoad(bubble: BubbleData): void {
+  if (
+    bubble.status === 'active'
+    || bubble.status === 'completed'
+    || (bubble.status as string) === 'awaiting_input'
+  ) {
+    bubble.status = 'idle';
+    bubble.fadeStartedAt = undefined;
+  }
+}
 
 function hashString(str: string): number {
   let hash = 5381;
@@ -338,6 +391,111 @@ function iframePortKey(url: string | undefined): string | null {
   }
 }
 
+/**
+ * §5.5 #17-17 ⑨ v4.59 — 디스크에서 읽은 에이전트 설정의 도구 목록 백필(복원·병합 공용).
+ *
+ * `TodoWrite` 는 v4.59 전까지 `AVAILABLE_AGENT_TOOLS` 에 없어 **설정창에 체크박스로 존재한 적이
+ * 없었다**. 그러니 옛 설정에 그 항목이 없는 것은 "사용자가 껐다"가 아니라 "고를 기회가 없었다"이며,
+ * 그대로 두면 판올림 전에 만든 에이전트는 계속 계획을 세우지 못해 목표창(#17-17)이 빈 채로 남는다.
+ * 복원·병합 경로에서만 채우므로, 사용자가 앞으로 이 도구를 직접 해제하면 그 선택은 그대로 유지된다.
+ */
+function backfillAgentConfigTools(config: AgentConfig): AgentConfig {
+  if (!Array.isArray(config.tools)) return config;
+  const missing = BACKFILL_AGENT_TOOLS.filter((t) => !config.tools.includes(t));
+  if (missing.length === 0) return config;
+  return { ...config, tools: [...config.tools, ...missing] };
+}
+
+/**
+ * §5.5 #17-17 v4.46 — 디스크에서 읽은 세션 목표 정규화(복원·병합 공용).
+ * 구버전 체크포인트에는 없던 필드가 있을 수 있어 기본값을 채우고, 퍼센트·이력 길이를 계약대로 조인다
+ * (여기서 안 조이면 손상된 파일 하나가 UI 게이지를 이상하게 만든다).
+ */
+function normalizeSessionGoal(goal: SessionGoal): SessionGoal {
+  const history: SessionGoalProgress[] = Array.isArray(goal.history)
+    ? goal.history.filter((h): h is SessionGoalProgress => !!h && typeof h.at === 'number')
+    : [];
+  // §5.5 #17-17 v4.47 — v4.46 판본 체크포인트에는 steps 가 없다(빈 배열로 보충).
+  const steps: SessionGoalStep[] = Array.isArray(goal.steps)
+    ? goal.steps
+        .filter((s): s is SessionGoalStep => !!s && typeof s.text === 'string')
+        .slice(0, SESSION_GOAL_STEPS_MAX)
+    : [];
+  return {
+    ...goal,
+    // v4.46~47 판본에는 authoredBy 가 없다 — 자동 관리(세션 소유)를 기본으로 본다(v4.50 ①).
+    authoredBy: goal.authoredBy === 'user' ? 'user' : 'session',
+    steps,
+    // 단계가 있으면 저장된 숫자를 믿지 않고 체크리스트에서 다시 센다(둘이 어긋난 파일 방어).
+    percent: steps.length > 0
+      ? deriveGoalPercent(steps)
+      : Math.max(0, Math.min(100, Math.round(goal.percent ?? 0))),
+    status: goal.status ?? 'active',
+    history: history.slice(Math.max(0, history.length - SESSION_GOAL_HISTORY_MAX)),
+    revision: typeof goal.revision === 'number' ? goal.revision : 0,
+  };
+}
+
+/**
+ * §5.5 #17-17 v4.50 — 세션 명령에서 목표 머리글 한 줄을 뽑는다(자동 생성 전용).
+ * 사이드바 폭(w-52)에 들어갈 길이로 접고, 줄바꿈·연속 공백은 한 칸으로 눌러 한 줄로 만든다.
+ */
+function summarizeGoalSeed(command: string): string {
+  const flat = command.replace(/\s+/g, ' ').trim();
+  if (!flat) return '';
+  return flat.length > GOAL_SEED_MAX ? `${flat.slice(0, GOAL_SEED_MAX).trimEnd()}…` : flat;
+}
+
+/** 자동 생성 목표 머리글의 최대 길이 — 사용자가 적거나 에이전트가 다듬은 문장에는 적용되지 않는다. */
+const GOAL_SEED_MAX = 200;
+
+/** §5.5 #17-17 v4.47 — 체크리스트에서 퍼센트 파생 (`done/전체`). 단계가 없으면 0. */
+function deriveGoalPercent(steps: SessionGoalStep[]): number {
+  if (steps.length === 0) return 0;
+  const done = steps.filter((s) => s.status === 'done').length;
+  return Math.round((done / steps.length) * 100);
+}
+
+/**
+ * §5.5 #17-17 v4.47 ⑧ — 들어온 단계 목록으로 체크리스트를 다시 세운다.
+ *
+ * **본문이 같은 기존 단계의 id 를 재사용**하는 것이 핵심 — 에이전트가 목록을 통째로 다시 보내도
+ * 사용자가 보고 있던 항목이 새 id 로 갈려 체크박스가 튀거나 리스트가 깜빡이지 않는다.
+ * 같은 본문이 여러 번 나오면 앞에서부터 하나씩 소비한다(중복 항목도 각자 id 를 유지).
+ */
+function rebuildGoalSteps(
+  prev: SessionGoalStep[],
+  incoming: { text: string; status?: SessionGoalStepStatus }[],
+  now: number,
+): SessionGoalStep[] {
+  const pool = new Map<string, SessionGoalStep[]>();
+  for (const p of prev) {
+    const list = pool.get(p.text);
+    if (list) list.push(p);
+    else pool.set(p.text, [p]);
+  }
+  const out: SessionGoalStep[] = [];
+  for (const raw of incoming.slice(0, SESSION_GOAL_STEPS_MAX)) {
+    const text = (raw?.text ?? '').trim().slice(0, SESSION_GOAL_STEP_TEXT_MAX);
+    if (!text) continue;
+    const status: SessionGoalStepStatus =
+      raw.status === 'done' || raw.status === 'in_progress' ? raw.status : 'pending';
+    const reuse = pool.get(text)?.shift();
+    out.push(
+      reuse
+        ? { ...reuse, status, updatedAt: reuse.status === status ? reuse.updatedAt : now }
+        : { id: `gs-${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`, text, status, updatedAt: now },
+    );
+  }
+  return out;
+}
+
+/** 단계 목록이 실질적으로 같은가 (본문·순서·상태 전부 동일). 무의미한 이력 적재 차단용. */
+function sameGoalSteps(a: SessionGoalStep[], b: SessionGoalStep[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((s, i) => s.text === b[i]?.text && s.status === b[i]?.status);
+}
+
 /** `<root>/.vibisual/dev-server.json` 를 cwd 기준으로 위로 탐색하여 읽는다. */
 function readDevServerMarker(
   startCwd: string | undefined,
@@ -360,6 +518,32 @@ function readDevServerMarker(
     dir = parent;
   }
   return null;
+}
+
+/**
+ * §5.5 #17-11 ⑪·⑫ — 디스크에서 올라온 루프 설정 1건을 지금 타입으로 맞춘다.
+ *
+ * 루프는 **사용자가 짜 넣은 설정**이라 옛 체크포인트를 버릴 수 없다. 새로 생긴 필드는 전부
+ * "꺼짐 = 종전 동작" 으로 채우고, ⑪ 이 잠깐 썼던 `autoCompact: boolean` 은 `contextMode` 로 승계한다.
+ * 순수 함수 — 입력을 건드리지 않고 새 객체를 돌려준다(테스트가 이 승계를 지킨다).
+ */
+export function normalizeSessionLoop(loop: SessionLoop): SessionLoop {
+  const legacyAutoCompact = (loop as SessionLoop & { autoCompact?: boolean }).autoCompact === true;
+  const mode = loop.contextMode;
+  const contextMode: SessionLoopContextMode =
+    mode === 'compact' || mode === 'clear' || mode === 'none'
+      ? mode
+      : (legacyAutoCompact ? 'compact' : 'none');
+  const normalized: SessionLoop = {
+    ...loop,
+    contextMode,
+    spentCostUsd: typeof loop.spentCostUsd === 'number' && loop.spentCostUsd > 0 ? loop.spentCostUsd : 0,
+    spentTokens: typeof loop.spentTokens === 'number' && loop.spentTokens > 0 ? loop.spentTokens : 0,
+    oneTaskPerRound: loop.oneTaskPerRound === true,
+    commitEachRound: loop.commitEachRound === true,
+  };
+  delete (normalized as SessionLoop & { autoCompact?: boolean }).autoCompact;
+  return normalized;
 }
 
 // ─── ProjectGraph 클래스 ───
@@ -576,6 +760,12 @@ export class ProjectGraph {
    */
   private autoAgentSummaries = new Map<string, AutoAgentSummary>();
   /**
+   * §5.3 #10-3 v4.98 — 검증 런 (autoAgentSessionId → AutoAgentRun[], 최신이 뒤).
+   * 영속화 대상 (ProjectCheckpoint.autoAgentRuns). ring buffer 캡 = AUTO_AGENT_RUN_MAX_PER_AGENT.
+   * `autoAgentSummaries` 와 달리 요청마다 레코드가 늘어난다(덮어쓰지 않는다).
+   */
+  private autoAgentRuns = new Map<string, AutoAgentRun[]>();
+  /**
    * §4 v2.52 — 에이전트 작업 신고 (agentId → AgentReport[]). did/userActions 색 구분용.
    * 영속화 대상 (ProjectCheckpoint.agentReports). ring buffer 캡 = AGENT_REPORT_MAX_PER_AGENT.
    */
@@ -614,6 +804,23 @@ export class ProjectGraph {
    */
   private sessionLoops = new Map<string, SessionLoop>();
   /**
+   * §5.5 #17-17 v4.46 — 세션 목표 (subAgentId → SessionGoal).
+   * 루프와 같은 키 축(세션 탭)이지만 실행 주체가 아니라 **방향**이다 — 명령을 발사하지 않고
+   * 매 턴 dispatchContext 에 다시 실려 세션을 조향하고, 진행률 퍼센트를 사용자에게 답한다.
+   * 영속화 대상 (ProjectCheckpoint.sessionGoals + identity.json — 사용자가 쓴 문장이라 정체성).
+   */
+  private sessionGoals = new Map<string, SessionGoal>();
+  /**
+   * §5.5 #17-28 — 컨텍스트 주입원 오버라이드. 프로젝트 층 하나 + 세션 탭별 층.
+   *
+   * 여기 담기는 것은 **사용자의 뜻**뿐이다(무엇이 존재하고 몇 토큰인지는 조회 때마다 다시 잰다).
+   * 영속화 대상 (ProjectCheckpoint.contextOverrides) — 잃으면 껐던 것이 조용히 다시 실린다.
+   */
+  private contextOverridesProject = new Map<string, Map<string, boolean>>();
+  /** subAgentId → { 소속 에이전트(프로젝트 필터용), 값 }. 소속을 함께 들지 않으면 체크포인트를 못 가른다. */
+  private contextOverridesSession = new Map<string, { agentId: string; values: Map<string, boolean> }>();
+  private contextOverridesUpdatedAt = 0;
+  /**
    * §5.3 #12-1 v1.91 — 현재 권한 승인 팝업 대기 중인 에이전트 id 집합.
    * PreToolUse 훅이 동기 hold(최대 60s) 하는 동안 에이전트는 "블록된 활성" 상태다.
    * 이 집합에 든 에이전트는 recompute/sweep/expire 가 completed·idle 로 강등하지 못한다
@@ -639,8 +846,17 @@ export class ProjectGraph {
   }
   /** 언리얼 블프 스타일 Comment Box (id → CommentBox). 메인 캔버스 배경 주석. v1.45 */
   private commentBoxes = new Map<string, CommentBox>();
+  /**
+   * §5.5 #17-20 ⑩ v4.94 — 프로젝트별 중단점(projectName → 목록).
+   * 세션이 없어도 남는 사용자 표식이라 체크포인트로 영속한다(세션·콜스택·변수는 프로세스 수명).
+   */
+  private debugBreakpoints = new Map<string, DebugBreakpoint[]>();
   /** §5.9 화면/프로그램 캡처 버블 (id → CaptureBubble). 사용자 생성 독립 캔버스 요소. */
   private captureBubbles = new Map<string, CaptureBubble>();
+  /** §5.13 v4.45 — 내부 앱 버블(범용). 앱이 늘어도 이 Map 하나로 끝난다. */
+  private appBubbles = new Map<string, AppBubble>();
+  /** §5.14 v4.62 — 플레이 버블(이 프로젝트를 켜는 버튼 + 확정된 실행 레시피). */
+  private playBubbles = new Map<string, PlayBubble>();
   /** §5.3 #28 v1.47 — 콘티 (contiId → Conti). 에이전트 cascade 삭제. */
   private contis = new Map<string, Conti>();
 
@@ -1212,6 +1428,25 @@ export class ProjectGraph {
     return false;
   }
 
+  /** 경로 대조 키 — Windows 는 대소문자를 가리지 않는다. */
+  private static pathCompareKey(p: string): string {
+    const resolved = path.resolve(p);
+    return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+  }
+
+  /** Manager용: 이 절대경로가 **지금 버블로 떠 있는 노드**의 경로인지.
+   *  §2.1 #5 v1.55 의 "외부 폴더/파일 클릭 → OS 탐색기·에디터로 열기" 판정에 쓴다 —
+   *  `external_folder` 는 정의상 프로젝트 루트 **밖**이라 루트 경계만 보는 가드로는 늘 거절됐다.
+   *  화면에 없는 임의 절대경로는 여기서도 false(가드의 원래 취지 유지). */
+  hasNodeAbsolutePath(absPath: string): boolean {
+    const target = ProjectGraph.pathCompareKey(absPath);
+    for (const [key, node] of this.nodes) {
+      const abs = node.absolutePath ?? this.resolveAbsolutePath(key);
+      if (abs && ProjectGraph.pathCompareKey(abs) === target) return true;
+    }
+    return false;
+  }
+
   /** Manager용: 위성(persistSatellites)에 nodeId가 존재하는지.
    *  위성은 nodes/agents 맵에 없고 agent.persistSatellites 배열에만 있어서 별도 탐색 필요.
    *  이게 없으면 ProjectGraphManager.removeBubble 가드가 위성 ID 를 못 찾아 silent skip 한다. */
@@ -1471,6 +1706,137 @@ export class ProjectGraph {
     return Object.fromEntries(this.autoAgentSummaries);
   }
 
+  // ── §5.3 #10-3 v4.98 — 검증 런 ────────────────────────────────────────────
+  //
+  // 완료를 LLM 이 쓴 문장이 아니라 **서버가 보관한 증거**로 판정하기 위한 저장소.
+  // 판정(`ok`, `verified`)은 전부 이 클래스가 계산한다 — 에이전트가 주장할 수 없다.
+
+  /** 새 검증 런 시작. 같은 auto-agent 의 이전 런은 지우지 않고 뒤에 쌓는다. */
+  createAutoAgentRun(params: {
+    autoAgentId: string;
+    userRequest: string;
+    acceptanceCriteria?: string[];
+    baselineRevision?: string;
+    reworkBudget?: number;
+    selfTest?: boolean;
+  }): AutoAgentRun {
+    const run: AutoAgentRun = {
+      runId: `run-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+      autoAgentId: params.autoAgentId,
+      userRequest: params.userRequest,
+      acceptanceCriteria: params.acceptanceCriteria ?? [],
+      baselineRevision: params.baselineRevision,
+      attempts: [],
+      reworkUsed: 0,
+      reworkBudget: params.reworkBudget ?? AUTO_AGENT_RUN_DEFAULT_REWORK_BUDGET,
+      status: 'running',
+      selfTest: params.selfTest,
+      startedAt: Date.now(),
+    };
+    const list = this.autoAgentRuns.get(params.autoAgentId) ?? [];
+    list.push(run);
+    // ring buffer — 오래된 런부터 밀어낸다.
+    while (list.length > AUTO_AGENT_RUN_MAX_PER_AGENT) list.shift();
+    this.autoAgentRuns.set(params.autoAgentId, list);
+    this.bumpMutationVersion();
+    return run;
+  }
+
+  /** runId 로 런 조회 (어느 auto-agent 소속이든) */
+  getAutoAgentRun(runId: string): AutoAgentRun | null {
+    for (const list of this.autoAgentRuns.values()) {
+      const found = list.find((r) => r.runId === runId);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  /** 그 auto-agent 의 런 목록 (최신이 뒤) */
+  listAutoAgentRuns(autoAgentId: string): AutoAgentRun[] {
+    return this.autoAgentRuns.get(autoAgentId) ?? [];
+  }
+
+  /** 그 auto-agent 의 가장 최근 running 런 (없으면 null) */
+  getActiveAutoAgentRun(autoAgentId: string): AutoAgentRun | null {
+    const list = this.autoAgentRuns.get(autoAgentId) ?? [];
+    for (let i = list.length - 1; i >= 0; i--) {
+      const run = list[i]!;
+      if (run.status === 'running') return run;
+    }
+    return null;
+  }
+
+  /**
+   * 검증 증거 1건 적재.
+   * **`ok` 는 인자로 받지 않고 `exitCode === 0` 으로 서버가 계산한다** — 에이전트가
+   * "통과했다"고 주장하는 것과 실제로 통과한 것을 구분하기 위한 지점이다.
+   */
+  appendVerificationAttempt(
+    runId: string,
+    attempt: Omit<VerificationAttempt, 'id' | 'ok'>,
+  ): AutoAgentRun | null {
+    const run = this.getAutoAgentRun(runId);
+    if (!run) return null;
+    run.attempts.push({
+      ...attempt,
+      id: `att-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+      ok: attempt.exitCode === 0,
+    });
+    this.bumpMutationVersion();
+    return run;
+  }
+
+  /** 재작업 1회 소모. 예산을 넘겼으면 false (호출부가 에스컬레이션한다). */
+  consumeAutoAgentRework(runId: string): { run: AutoAgentRun; withinBudget: boolean } | null {
+    const run = this.getAutoAgentRun(runId);
+    if (!run) return null;
+    const next = run.reworkUsed + 1;
+    if (next > run.reworkBudget) return { run, withinBudget: false };
+    run.reworkUsed = next;
+    this.bumpMutationVersion();
+    return { run, withinBudget: true };
+  }
+
+  /**
+   * 런을 닫는다.
+   * **`verified` 는 통과 증거가 1개 이상일 때만 허용** — 증거 없이 verified 를 요청하면
+   * `escalated`(`no-evidence`) 로 떨어진다. 이것이 "완료는 서버가 소유한다"의 집행 지점이다.
+   */
+  closeAutoAgentRun(
+    runId: string,
+    desired: AutoAgentRunStatus,
+    escalation?: EscalationReason,
+  ): AutoAgentRun | null {
+    const run = this.getAutoAgentRun(runId);
+    if (!run) return null;
+    if (desired === 'verified' && !run.attempts.some((a) => a.ok)) {
+      run.status = 'escalated';
+      run.escalation = 'no-evidence';
+    } else {
+      run.status = desired;
+      run.escalation = desired === 'escalated' ? (escalation ?? 'verification-failed') : undefined;
+    }
+    run.endedAt = Date.now();
+    this.bumpMutationVersion();
+    return run;
+  }
+
+  /** 판정 기록 (표시용 — 판정 자체로 런이 닫히지는 않는다) */
+  setAutoAgentRunVerdict(runId: string, verdict: AutoAgentRun['lastVerdict'], reason?: string): AutoAgentRun | null {
+    const run = this.getAutoAgentRun(runId);
+    if (!run) return null;
+    run.lastVerdict = verdict;
+    run.lastVerdictReason = reason;
+    this.bumpMutationVersion();
+    return run;
+  }
+
+  /** 전체 런 맵 (broadcast 스냅샷·체크포인트용) */
+  getAutoAgentRunsRecord(): Record<string, AutoAgentRun[]> | undefined {
+    if (this.autoAgentRuns.size === 0) return undefined;
+    return Object.fromEntries(this.autoAgentRuns);
+  }
+
   /**
    * §4 v2.52 — 에이전트 작업 신고 추가 (agentId → AgentReport[], append + ring buffer 캡).
    * 커스텀/스폰 에이전트가 `POST /api/agent-report` 로 보낸 did/userActions 구조화 신고를 적재.
@@ -1521,6 +1887,8 @@ export class ProjectGraph {
       }
     }
     this.brainInjections.set(ev.agentId, list);
+    // §3.2.4 F축 — 값에는 링버퍼 캡이 있었지만 **키(에이전트)에는 없었다**. 표시용 파생물이라 안전.
+    capMapSize(this.brainInjections, SESSION_KEYED_MAP_MAX);
     this.bumpMutationVersion();
   }
 
@@ -1720,6 +2088,377 @@ export class ProjectGraph {
     return out;
   }
 
+  // ─── §5.5 #17-28 — 컨텍스트 주입원 오버라이드 ───
+
+  /**
+   * 오버라이드 한 건 설정. `enabled` 가 `null` 이면 **오버라이드 해제**(= 기본값으로 되돌림)다.
+   * 끔(false)만이 아니라 켬(true)도 저장하는 이유 — 기본값이 나중에 꺼짐으로 바뀌어도 사용자가
+   * 명시적으로 켠 것은 켜진 채여야 한다("여기가 최종"의 양방향).
+   */
+  setContextOverride(
+    scope: { projectKey?: string; subAgentId?: string; agentId?: string },
+    sourceId: string,
+    enabled: boolean | null,
+  ): void {
+    if (!sourceId) return;
+    if (scope.subAgentId) {
+      const cur = this.contextOverridesSession.get(scope.subAgentId)
+        ?? { agentId: scope.agentId ?? '', values: new Map<string, boolean>() };
+      if (scope.agentId) cur.agentId = scope.agentId;
+      if (enabled === null) cur.values.delete(sourceId);
+      else cur.values.set(sourceId, enabled);
+      if (cur.values.size === 0) this.contextOverridesSession.delete(scope.subAgentId);
+      else this.contextOverridesSession.set(scope.subAgentId, cur);
+    } else if (scope.projectKey) {
+      const cur = this.contextOverridesProject.get(scope.projectKey) ?? new Map<string, boolean>();
+      if (enabled === null) cur.delete(sourceId);
+      else cur.set(sourceId, enabled);
+      if (cur.size === 0) this.contextOverridesProject.delete(scope.projectKey);
+      else this.contextOverridesProject.set(scope.projectKey, cur);
+    } else {
+      return; // 어느 층인지 모르면 아무것도 하지 않는다(조용한 오적용 방지).
+    }
+    this.contextOverridesUpdatedAt = Date.now();
+    this.bumpMutationVersion();
+  }
+
+  /** 한 층의 오버라이드를 통째로 비운다(= 전부 기본값). 지운 게 있으면 true. */
+  clearContextOverrides(scope: { projectKey?: string; subAgentId?: string }): boolean {
+    let changed = false;
+    if (scope.subAgentId) changed = this.contextOverridesSession.delete(scope.subAgentId);
+    else if (scope.projectKey) changed = this.contextOverridesProject.delete(scope.projectKey);
+    if (!changed) return false;
+    this.contextOverridesUpdatedAt = Date.now();
+    this.bumpMutationVersion();
+    return true;
+  }
+
+  /** 세션 탭이 닫힐 때 그 탭의 오버라이드도 함께 정리(좀비 설정 차단 — 루프·목표와 같은 규칙). */
+  deleteContextOverridesForSession(subAgentId: string): boolean {
+    if (!this.contextOverridesSession.delete(subAgentId)) return false;
+    this.contextOverridesUpdatedAt = Date.now();
+    this.bumpMutationVersion();
+    return true;
+  }
+
+  /**
+   * 오버라이드 전체 (스냅샷/게이트 공용). 아무것도 없으면 undefined.
+   * `agentIds` 를 주면 그 에이전트들에 속한 세션 층만 담는다(프로젝트별 체크포인트가 쓴다).
+   */
+  getContextOverrides(filter?: { projectKey?: string; agentIds?: Set<string> }): ContextOverrides | undefined {
+    const projects: Record<string, ContextOverrideMap> = {};
+    for (const [key, map] of this.contextOverridesProject) {
+      if (filter?.projectKey && key !== filter.projectKey) continue;
+      if (map.size === 0) continue;
+      const rec: ContextOverrideMap = {};
+      for (const [k, v] of map) rec[k] = v;
+      projects[key] = rec;
+    }
+    const sessions: Record<string, ContextOverrideMap> = {};
+    for (const [sub, entry] of this.contextOverridesSession) {
+      if (filter?.agentIds && !filter.agentIds.has(entry.agentId)) continue;
+      if (entry.values.size === 0) continue;
+      const rec: ContextOverrideMap = {};
+      for (const [k, v] of entry.values) rec[k] = v;
+      sessions[sub] = rec;
+    }
+    if (Object.keys(projects).length === 0 && Object.keys(sessions).length === 0) return undefined;
+    return { projects, sessions, updatedAt: this.contextOverridesUpdatedAt };
+  }
+
+  /**
+   * 체크포인트 복원·병합용 — **없는 키만** 채운다(메모리에 있는 현재 뜻을 디스크가 이기지 않게).
+   * 세션 층의 소속 에이전트는 저장 포맷에 없으므로 복원 시 세션→에이전트 역참조로 다시 채운다.
+   */
+  restoreContextOverrides(saved: ContextOverrides | undefined): void {
+    if (!saved) return;
+    for (const [projectKey, rec] of Object.entries(saved.projects ?? {})) {
+      const cur = this.contextOverridesProject.get(projectKey) ?? new Map<string, boolean>();
+      for (const [k, v] of Object.entries(rec)) {
+        if (!cur.has(k)) cur.set(k, v);
+      }
+      if (cur.size > 0) this.contextOverridesProject.set(projectKey, cur);
+    }
+    for (const [sub, rec] of Object.entries(saved.sessions ?? {})) {
+      const cur = this.contextOverridesSession.get(sub)
+        ?? { agentId: this.getAgentIdForSubAgent(sub) ?? '', values: new Map<string, boolean>() };
+      if (!cur.agentId) cur.agentId = this.getAgentIdForSubAgent(sub) ?? '';
+      for (const [k, v] of Object.entries(rec)) {
+        if (!cur.values.has(k)) cur.values.set(k, v);
+      }
+      if (cur.values.size > 0) this.contextOverridesSession.set(sub, cur);
+    }
+    if (saved.updatedAt > this.contextOverridesUpdatedAt) this.contextOverridesUpdatedAt = saved.updatedAt;
+  }
+
+  /** subAgentId → 소속 에이전트 버블 id. 못 찾으면 undefined(오버라이드는 그대로 살아 있고 필터에서만 빠진다). */
+  private getAgentIdForSubAgent(subAgentId: string): string | undefined {
+    for (const sub of subAgentManager.getAllSubsFlat()) {
+      if (sub.id === subAgentId) return sub.parentAgentId;
+    }
+    return undefined;
+  }
+
+  // ─── §5.5 #17-17 v4.46 — 세션 목표(Goal) ───
+
+  /** 한 세션 탭의 목표 (없으면 undefined). */
+  getSessionGoal(subAgentId: string): SessionGoal | undefined {
+    return this.sessionGoals.get(subAgentId);
+  }
+
+  /**
+   * 목표 저장(생성/문장 수정/상태 변경). 진행률·이력은 보존한다 —
+   * 사용자가 목표를 다듬는 것과 진행을 되감는 것은 다른 일이기 때문.
+   * 문장이 실제로 바뀌면 `revision++` → plan 자동 폴백이 다시 열린다(③).
+   */
+  setSessionGoal(input: {
+    agentId: string;
+    subAgentId: string;
+    text: string;
+    status?: SessionGoalStatus;
+    /** §5.5 #17-17 v4.47 — 최초 생성 시 함께 세우는 단계(이후 편집은 진행 갱신 경로로 간다). */
+    steps?: { text: string; status?: SessionGoalStepStatus }[];
+    /** §5.5 #17-17 v4.50 — 문장을 쓴 주체. 사용자가 손대면 'user' 로 굳어 자동 교체가 멈춘다(⑧). */
+    authoredBy?: 'session' | 'user';
+    /** §5.5 #17-17 v4.50 — 이 목표가 딸려 나온 세션 명령(자동 교체 판단 기준). */
+    sourceCommand?: string;
+  }): SessionGoal {
+    const now = Date.now();
+    const prev = this.sessionGoals.get(input.subAgentId);
+    const textChanged = !prev || prev.text !== input.text;
+    const steps = input.steps ? rebuildGoalSteps(prev?.steps ?? [], input.steps, now) : (prev?.steps ?? []);
+    const next: SessionGoal = {
+      agentId: input.agentId,
+      subAgentId: input.subAgentId,
+      text: input.text,
+      // 문장을 실제로 바꾼 주체만 주인을 갱신한다 — 상태만 바꾸는 저장이 주인을 뒤집지 않게.
+      authoredBy: textChanged ? (input.authoredBy ?? 'user') : (prev?.authoredBy ?? input.authoredBy ?? 'session'),
+      ...(input.sourceCommand !== undefined
+        ? { sourceCommand: input.sourceCommand }
+        : prev?.sourceCommand !== undefined ? { sourceCommand: prev.sourceCommand } : {}),
+      steps,
+      // 단계가 있으면 퍼센트는 언제나 체크리스트에서 나온다(①③).
+      percent: steps.length > 0 ? deriveGoalPercent(steps) : (prev?.percent ?? 0),
+      status: input.status ?? prev?.status ?? 'active',
+      ...(prev?.note !== undefined ? { note: prev.note } : {}),
+      history: prev ? [...prev.history] : [],
+      revision: prev ? prev.revision + (textChanged ? 1 : 0) : 0,
+      ...(prev?.lastExplicitRevision !== undefined ? { lastExplicitRevision: prev.lastExplicitRevision } : {}),
+      ...(prev?.lastExplicitAt !== undefined ? { lastExplicitAt: prev.lastExplicitAt } : {}),
+      ...(prev?.lastProgressAt !== undefined ? { lastProgressAt: prev.lastProgressAt } : {}),
+      createdAt: prev?.createdAt ?? now,
+      updatedAt: now,
+    };
+    this.sessionGoals.set(input.subAgentId, next);
+    this.bumpMutationVersion();
+    return next;
+  }
+
+  /**
+   * 진행 갱신 — 단계 체크리스트(우선) 또는 퍼센트 숫자(단계가 없을 때만).
+   *
+   * §5.5 #17-17 ③ 우선순위:
+   *  - **단계가 하나라도 있으면 퍼센트는 오직 `done/전체`** 다. 들어온 숫자는 무시된다.
+   *  - 단계가 없을 때만 숫자를 받되, 명시 신고(agent·user)가 지금 개정판에 한 번이라도 왔으면
+   *    `plan` 자동 폴백은 덮지 않는다(목표를 고치면 `revision` 이 올라 폴백이 다시 열린다).
+   *
+   * 사용자의 체크박스 조작·단계 추가·삭제도 이 문으로 온다(`source:'user'`) — 진행 이력이
+   * 한 곳에만 쌓이게 하기 위해서다. 실제로 바뀐 게 없으면 undefined(이력을 더럽히지 않는다).
+   */
+  noteSessionGoalProgress(
+    subAgentId: string,
+    input: {
+      percent?: number;
+      note?: string;
+      steps?: { text: string; status?: SessionGoalStepStatus }[];
+      /** §5.5 #17-17 v4.50 — 에이전트가 자기 목표 문장을 다듬을 때(사용자가 쓴 문장은 못 덮는다). */
+      goal?: string;
+      source: SessionGoalProgressSource;
+    },
+  ): SessionGoal | undefined {
+    const cur = this.sessionGoals.get(subAgentId);
+    if (!cur) return undefined;
+    const explicit = input.source !== 'plan';
+    const now = Date.now();
+
+    // 목표 문장 갱신 — 세션이 쓴 목표일 때만. 사용자가 고친 문장은 세션이 덮지 않는다(⑧).
+    const goalText = input.goal?.trim() ? input.goal.trim().slice(0, SESSION_GOAL_TEXT_MAX) : undefined;
+    const textChanged = !!goalText && goalText !== cur.text && cur.authoredBy !== 'user';
+
+    // 단계 목록이 왔으면 본문 일치로 기존 id 를 재사용해 다시 세운다(체크박스가 튀지 않게 — ⑧).
+    const nextSteps = input.steps ? rebuildGoalSteps(cur.steps, input.steps, now) : cur.steps;
+    const stepsChanged = input.steps ? !sameGoalSteps(cur.steps, nextSteps) : false;
+
+    let percent: number;
+    if (nextSteps.length > 0) {
+      percent = deriveGoalPercent(nextSteps);
+    } else {
+      if (!explicit && cur.lastExplicitRevision === cur.revision) return undefined;
+      if (input.percent === undefined) return undefined; // 단계도 숫자도 없으면 갱신할 게 없다
+      percent = Math.max(0, Math.min(100, Math.round(input.percent)));
+    }
+
+    const note = input.note?.trim() ? input.note.trim().slice(0, SESSION_GOAL_NOTE_MAX) : undefined;
+    const changed = stepsChanged || textChanged || percent !== cur.percent || (note !== undefined && note !== cur.note);
+    if (!changed) return undefined;
+
+    const entry: SessionGoalProgress = { at: now, percent, source: input.source, ...(note ? { note } : {}) };
+    const history = [...cur.history, entry];
+    if (history.length > SESSION_GOAL_HISTORY_MAX) history.splice(0, history.length - SESSION_GOAL_HISTORY_MAX);
+
+    const next: SessionGoal = {
+      ...cur,
+      ...(textChanged ? { text: goalText!, revision: cur.revision + 1 } : {}),
+      steps: nextSteps,
+      percent,
+      ...(note ? { note } : {}),
+      history,
+      lastProgressAt: now,
+      ...(explicit ? { lastExplicitRevision: cur.revision, lastExplicitAt: now } : {}),
+      updatedAt: now,
+    };
+    this.sessionGoals.set(subAgentId, next);
+    this.bumpMutationVersion();
+    return next;
+  }
+
+  /**
+   * §5.5 #17-17 v4.50 ① — **세션이 스스로 세운 계획을 목표 창으로 옮긴다.**
+   *
+   * 이 기능의 주인은 사용자가 아니라 세션이다: 세션이 `TodoWrite` 로 "이 일을 이렇게 하겠다"고
+   * 마음먹는 순간 훅이 이 메서드를 부르고, 그 순간 목표 카드가 **태어난다**(문장 = 지금 수행 중인
+   * 명령, 단계 = 그 계획). 이후 계획이 갱신될 때마다 체크리스트가 그대로 따라간다.
+   *
+   * 자동 교체: 세션이 쓴 목표(`authoredBy==='session'`)는 **새 명령이 오면 새 목표로 갈아탄다** —
+   * 한 세션이 명령을 여러 개 처리해도 화면은 항상 "지금 하는 일"을 가리킨다. 사용자가 문장을
+   * 고친 목표(`'user'`)는 건드리지 않는다(사용자가 준 방향을 다음 명령이 지우면 안 되므로).
+   *
+   * 반영됐으면 갱신된 목표, 바뀐 게 없으면 undefined.
+   */
+  syncSessionGoalFromPlan(
+    subAgentId: string,
+    input: { agentId: string; command?: string; steps: { text: string; status?: SessionGoalStepStatus }[] },
+  ): SessionGoal | undefined {
+    if (input.steps.length === 0) return undefined;
+    const cur = this.sessionGoals.get(subAgentId);
+    const command = input.command?.trim() ? input.command.trim() : undefined;
+
+    // (a) 아직 목표가 없다 = 이 세션이 처음으로 일을 벌였다 → 목표 카드를 만든다.
+    // (b) 세션이 쓴 목표인데 명령이 바뀌었다 = 새 일을 시작했다 → 새 목표로 갈아탄다.
+    const isNewWork = !!cur && cur.authoredBy === 'session' && !!command && cur.sourceCommand !== command;
+    if (!cur || isNewWork) {
+      // 명령 전문은 몇 백 줄일 수도 있다 — 사이드바 머리글로 읽히게 첫 문단만 짧게 세운다.
+      //   에이전트가 나중에 `goal` 신고로 제대로 된 한 문장으로 다듬는다(⑧ b).
+      const text = summarizeGoalSeed(command ?? cur?.text ?? '');
+      if (!text) return undefined; // 목표라고 부를 문장조차 없으면 카드를 만들지 않는다
+      return this.setSessionGoal({
+        agentId: input.agentId,
+        subAgentId,
+        text,
+        status: 'active',
+        // 새 일이면 옛 단계를 물려받지 않게 이전 목록을 비우고 시작한다.
+        steps: isNewWork ? this.replaceGoalSteps(subAgentId, input.steps) : input.steps,
+        authoredBy: 'session',
+        ...(command ? { sourceCommand: command } : {}),
+      });
+    }
+
+    // (c) 같은 일의 계획 갱신 → 체크리스트만 따라 움직인다.
+    return this.noteSessionGoalProgress(subAgentId, { steps: input.steps, source: 'plan' });
+  }
+
+  /**
+   * §5.5 #17-17 ⑨ v4.59 — **목표는 계획을 기다리지 않는다. 명령이 뜨는 순간 태어난다.**
+   *
+   * v4.50 은 카드 출생을 `TodoWrite` 훅 **하나에** 묶었다. 그래서 계획을 세우지 않는 세션에서는
+   * 목표창이 영원히 비어 있었다(실측: 279 세션 중 계획을 세운 세션 1개 → 목표 0개). 명령이 세션
+   * 탭으로 발사되는 순간 그 명령 머리글로 카드를 세워, 사이드바가 항상 **"지금 이 세션이 하는 일"**
+   * 을 가리키게 한다. 단계는 비어 있다가 계획이 오면 `syncSessionGoalFromPlan` 이 붙인다.
+   *
+   * 자동 교체 규칙은 계획 경로와 같다 — 세션이 쓴 목표만 새 명령에 갈아타고, 사용자가 고친
+   * 문장(`authoredBy==='user'`)은 건드리지 않는다(⑧). 같은 명령이 다시 오면 아무것도 하지 않는다.
+   */
+  seedSessionGoalFromCommand(
+    subAgentId: string,
+    input: { agentId: string; command: string },
+  ): SessionGoal | undefined {
+    const command = input.command.trim();
+    const text = summarizeGoalSeed(command);
+    if (!text) return undefined; // 목표라고 부를 문장조차 없으면 카드를 만들지 않는다
+    const cur = this.sessionGoals.get(subAgentId);
+    if (cur) {
+      if (cur.authoredBy === 'user') return undefined; // 사용자가 준 방향은 명령이 지우지 않는다
+      if (cur.sourceCommand === command) return undefined; // 같은 일 — 이미 이 명령으로 서 있다
+      this.resetGoalForNewWork(subAgentId); // 새 일 — 옛 단계·퍼센트·메모를 물려받지 않는다
+    }
+    return this.setSessionGoal({
+      agentId: input.agentId,
+      subAgentId,
+      text,
+      status: 'active',
+      steps: [],
+      authoredBy: 'session',
+      sourceCommand: command,
+    });
+  }
+
+  /** 새 일로 갈아탈 때 옛 단계를 먼저 비운다(id 재사용이 옛 목록을 끌고 오지 않게). */
+  private replaceGoalSteps(
+    subAgentId: string,
+    steps: { text: string; status?: SessionGoalStepStatus }[],
+  ): { text: string; status?: SessionGoalStepStatus }[] {
+    this.resetGoalForNewWork(subAgentId);
+    return steps;
+  }
+
+  /**
+   * 새 일로 갈아타기 직전 청소 — 단계·퍼센트·진행 메모를 비운다.
+   * 계획이 함께 오는 경로는 곧바로 새 단계에서 퍼센트가 파생되지만, 계획 없이 명령만으로 태어나는
+   * 경로(`seedSessionGoalFromCommand`)에서는 이 청소가 없으면 **지난 목표의 퍼센트·메모가 새 목표에
+   * 그대로 얹힌다**(0% 여야 할 새 일이 80% 로 보이는 증상).
+   */
+  private resetGoalForNewWork(subAgentId: string): void {
+    const cur = this.sessionGoals.get(subAgentId);
+    if (!cur) return;
+    const { note: _dropped, ...rest } = cur;
+    this.sessionGoals.set(subAgentId, { ...rest, steps: [], percent: 0 });
+  }
+
+  /** 목표 삭제 (세션 탭 닫힘/사용자 해제). 지웠으면 true. */
+  deleteSessionGoal(subAgentId: string): boolean {
+    if (!this.sessionGoals.delete(subAgentId)) return false;
+    this.bumpMutationVersion();
+    return true;
+  }
+
+  /** 한 에이전트에 속한 목표 전부 (에이전트 제거 시 순회용). */
+  getSessionGoalsForAgent(agentId: string): SessionGoal[] {
+    const out: SessionGoal[] = [];
+    for (const goal of this.sessionGoals.values()) {
+      if (goal.agentId === agentId) out.push(goal);
+    }
+    return out;
+  }
+
+  /** 한 에이전트의 목표 전부 삭제 (에이전트 영구 제거). 지운 subAgentId 목록. */
+  deleteSessionGoalsForAgent(agentId: string): string[] {
+    const removed: string[] = [];
+    for (const [subId, goal] of this.sessionGoals) {
+      if (goal.agentId === agentId) removed.push(subId);
+    }
+    for (const subId of removed) this.sessionGoals.delete(subId);
+    if (removed.length > 0) this.bumpMutationVersion();
+    return removed;
+  }
+
+  /** 목표 전체 맵 (broadcast 스냅샷/체크포인트용). 빈 맵이면 undefined. */
+  getSessionGoalsRecord(): Record<string, SessionGoal> | undefined {
+    if (this.sessionGoals.size === 0) return undefined;
+    const out: Record<string, SessionGoal> = {};
+    for (const [k, v] of this.sessionGoals) out[k] = { ...v, steps: [...v.steps], history: [...v.history] };
+    return out;
+  }
+
   /** 캔버스에서 파이프라인 에이전트 생성 (부모 1 + 자식 4 원자적 생성) */
   createPipeline(
     type: PipelineType,
@@ -1844,11 +2583,19 @@ export class ProjectGraph {
     if (!sessionId) return false;
     const agent = this.agents.get(sessionId);
     if (!agent || !agent.customCreated) return false;
+    // v4.84 — **휴지통에 있는 것만** 지운다(복구 경로와 대칭). 종전엔 이 확인이 없어 살아 있는
+    //   커스텀 에이전트 id 가 흘러들면 휴지통을 거치지 않고 묘비까지 남기며 사라질 수 있었다.
+    //   일괄 삭제(`POST /api/trash/purge`)가 생겨 한 번에 넘어오는 id 수가 늘었으므로 여기서 막는다.
+    if (!agent.trashed) return false;
     const agentId = agent.id;
     // 개별 기억 카드 파일 삭제(있으면).
     if (this.root) {
       try { getBrainService(this.root).deleteAgentCards(agentId); } catch { /* best effort */ }
     }
+    // v4.67 — sub-streams jsonl 도 함께 정리. 기억 카드와 같은 성격의 사이드카 파일인데
+    // 종전엔 지우는 경로가 없어 영구 삭제한 에이전트의 스트림이 디스크에 계속 남았다.
+    // 묘비가 남아 되살아날 수 없는 이 경로에서만 지운다(복구 경로에는 배선 ❌).
+    try { subAgentManager.purgeAgentStreams(agentId); } catch { /* best effort */ }
     // removeBubble 커스텀 분기 = agents.delete + addTombstone + 엣지/콘티 cascade.
     this.removeBubble(agentId, { force: true, purgeTaskEdges: true });
     return true;
@@ -1966,6 +2713,7 @@ export class ProjectGraph {
         this.agentLists.delete(agent.id);
         this.agentFeedbacks.delete(agent.id);
         this.deleteSessionLoopsForAgent(agent.id);
+        this.deleteSessionGoalsForAgent(agent.id);
         this.manuallyConfigured.delete(agent.id);
         this.observedTools.delete(sessionId);
         logger.info(`Bubble removed: agent "${agent.label}"`);
@@ -2637,18 +3385,37 @@ export class ProjectGraph {
     }
 
     const refs = this.nodeAgentRefs.get(nodePath);
-    if (!refs || refs.size === 0) return enriched;
-    // active 상태 에이전트만 필터
+    // active 상태 에이전트만 필터 (§5.10 휴지통 에이전트는 활성 참조로 치지 않는다 — getActiveAgentIds 와 같은 규칙)
     const activeIds: string[] = [];
-    for (const agentId of refs) {
-      for (const agent of this.agents.values()) {
-        if (agent.id === agentId && agent.status === 'active') {
-          activeIds.push(agentId);
-          break;
+    if (refs) {
+      for (const agentId of refs) {
+        for (const agent of this.agents.values()) {
+          if (agent.id === agentId && agent.status === 'active' && !agent.trashed) {
+            activeIds.push(agentId);
+            break;
+          }
         }
       }
     }
-    if (activeIds.length > 0) enriched.activeAgentIds = activeIds;
+    if (activeIds.length > 0) {
+      enriched.activeAgentIds = activeIds;
+      return enriched;
+    }
+
+    // §2.4 — file/folder 버블의 "활동중"은 저장값이 아니라 **지금 그 파일을 만지고 있는 에이전트**에서
+    // 파생한다. 저장 status 를 그대로 믿으면, 에이전트를 idle 로 내리면서 노드까지 못 내린 경로
+    // (체크포인트 복원 · dev 서버 keep-alive · dormant 부활 등)에서 아무도 만지지 않는 파일이 계속
+    // 펄스 링을 달고 있게 된다. 바로 위 worktree 분기와 getSnapshot 의 bash/iframe 위성이 이미 쓰는
+    // 규칙을 파일/폴더에도 그대로 적용해, 새 idle 경로가 생겨도 표시가 어긋나지 않게 한다.
+    // (저장 노드는 건드리지 않고 스냅샷 파생값만 덮으므로, 다시 만지면 자동으로 active 로 복귀한다.)
+    if (
+      (enriched.status === 'active' || enriched.status === 'completed')
+      && (node.bubbleType === 'file'
+        || node.bubbleType === 'internal_folder'
+        || node.bubbleType === 'external_folder')
+    ) {
+      enriched.status = 'idle';
+    }
     return enriched;
   }
 
@@ -2900,6 +3667,8 @@ export class ProjectGraph {
       //   직렬화(toCheckpoint/toProjectCheckpoint)에는 절대 넣지 않는다). 하나도 없으면 undefined →
       //   클라 활동바 항목/배지/패널이 자동으로 사라진다.
       runningSubagentTasks: subAgentManager.getRunningSubagentTasks(),
+      // §5.5 #17-9 ⑦(b) — 방금 끝난 자식(부모별 최근 5건 + 결과 발췌). 같은 이유로 런타임 전용이다.
+      finishedSubagentTasks: subAgentManager.getFinishedSubagentTasks(),
       // subAgents 스냅샷에 contextUsed/contextMax 주입 — 클라이언트가 IDE에서 선택한 sub로
       // 커스텀 에이전트 버블 게이지를 전환할 때 필요. (서버는 부모 cwd + sub.sessionId 만 알면 JSONL 읽기 가능.)
       subAgents: (() => {
@@ -2946,6 +3715,11 @@ export class ProjectGraph {
       uiLocale: this.uiLocale,
       commentBoxes: this.getCommentBoxes(),
       captureBubbles: this.getCaptureBubbles(),
+      appBubbles: this.getAppBubbles(),
+      playBubbles: this.getPlayBubbles(),
+      debugBreakpoints: this.debugBreakpoints.size > 0
+        ? Object.fromEntries([...this.debugBreakpoints].map(([k, v]) => [k, [...v]]))
+        : undefined,
       layoutBoundsByProject: this.layoutBoundsByProject.size > 0
         ? Object.fromEntries(this.layoutBoundsByProject)
         : undefined,
@@ -2955,12 +3729,16 @@ export class ProjectGraph {
       compactCounts: this.compactCounts.size > 0 ? this.getCompactCounts() : undefined,
       skillUsageCounts: this.getSkillUsageCountsRecord(),
       autoAgentSummaries: this.autoAgentSummaries.size > 0 ? this.getAutoAgentSummaries() : undefined,
+      autoAgentRuns: this.getAutoAgentRunsRecord(),
       agentReports: this.getAgentReportsRecord(),
       agentQuestions: this.getAgentQuestionsRecord(),
       agentReviews: this.getAgentReviewsRecord(),
       agentLists: this.getAgentListsRecord(),
       agentFeedbacks: this.getAgentFeedbacksRecord(),
       sessionLoops: this.getSessionLoopsRecord(),
+      sessionGoals: this.getSessionGoalsRecord(),
+      // §5.5 #17-28 — 주입원 오버라이드. 화면이 "무엇이 꺼져 있는지"를 스냅샷만으로도 알 수 있게.
+      contextOverrides: this.getContextOverrides(),
       brain: this.getBrainSummary(),
       brainInjections: this.getBrainInjectionsRecord(),
     };
@@ -3087,19 +3865,28 @@ export class ProjectGraph {
         : undefined,
       uiLocale: this.uiLocale,
       commentBoxes: this.commentBoxes.size > 0 ? [...this.commentBoxes.values()] : undefined,
+      // §5.5 #17-20 ⑩ v4.94 — 이 프로젝트의 중단점(메모리 포맷)
+      debugBreakpoints: this.debugBreakpoints.get(project.name)?.length
+        ? [...(this.debugBreakpoints.get(project.name) as DebugBreakpoint[])]
+        : undefined,
       captureBubbles: this.captureBubbles.size > 0 ? [...this.captureBubbles.values()] : undefined,
+      appBubbles: this.appBubbles.size > 0 ? [...this.appBubbles.values()] : undefined,
+      playBubbles: this.playBubbles.size > 0 ? [...this.playBubbles.values()] : undefined,
       layoutBoundsHalfWidth: this.layoutBoundsByProject.get(project.name)?.hw,
       layoutBoundsHalfHeight: this.layoutBoundsByProject.get(project.name)?.hh,
       contis: this.contis.size > 0 ? this.getContisRecord() : undefined,
       compactCounts: this.compactCounts.size > 0 ? this.getCompactCounts() : undefined,
       skillUsageCounts: this.getSkillUsageCountsFlat(),
       autoAgentSummaries: this.autoAgentSummaries.size > 0 ? this.getAutoAgentSummaries() : undefined,
+      autoAgentRuns: this.getAutoAgentRunsRecord(),
       agentReports: this.getAgentReportsRecord(),
       agentQuestions: this.getAgentQuestionsRecord(),
       agentReviews: this.getAgentReviewsRecord(),
       agentLists: this.getAgentListsRecord(),
       agentFeedbacks: this.getAgentFeedbacksRecord(),
       sessionLoops: this.getSessionLoopsRecord(),
+      sessionGoals: this.getSessionGoalsRecord(),
+      contextOverrides: this.getContextOverrides(),
     };
   }
 
@@ -3335,9 +4122,16 @@ export class ProjectGraph {
       if (projectSessions.has(sessionId)) runningServers[sessionId] = entries;
     }
 
+    // v4.67 — 노드가 실재하는 경로의 편집만 저장한다.
+    //   `projectNodePaths` 는 `nodeProjectNames`(경로→프로젝트 귀속 기록)에서 오는데, 노드가
+    //   사라진 뒤에도 이 귀속 기록은 남는다. 반면 화면으로 나가는 `buildFileEditsRecord` 는
+    //   `this.nodes.get(relPath)` 가 없으면 건너뛰고, 바로 위 노드 필터도 같은 기준으로
+    //   `graph.nodes` 에서 뺀다. 즉 노드 없는 경로의 편집은 저장·백업·복원만 되고 UI 에는
+    //   영영 도달하지 못하는 죽은 데이터였다(실측 94키 1.15MB, 백업 4벌 포함 4.6MB).
+    //   기준을 노드 필터와 일치시켜 그만큼을 덜어낸다 — 화면에 보이던 것은 하나도 줄지 않는다.
     const fileEdits: Record<string, FileEdit[]> = {};
     for (const [filePath, edits] of this.fileEdits) {
-      if (projectNodePaths.has(filePath)) fileEdits[filePath] = edits;
+      if (projectNodePaths.has(filePath) && this.nodes.has(filePath)) fileEdits[filePath] = edits;
     }
 
     // 엣지 필터
@@ -3457,9 +4251,23 @@ export class ProjectGraph {
         const boxes = [...this.commentBoxes.values()].filter((b) => b.projectName === project.name);
         return boxes.length > 0 ? boxes : undefined;
       })(),
+      // §5.5 #17-20 ⑩ v4.94 — 중단점(디스크 포맷). 여기 빠뜨리면 껐다 켜면 사라진다.
+      debugBreakpoints: (() => {
+        const list = this.debugBreakpoints.get(project.name);
+        return list && list.length > 0 ? [...list] : undefined;
+      })(),
       // §5.9 — 캡처 버블 필터: 이 프로젝트 소속만
       captureBubbles: (() => {
         const bubbles = [...this.captureBubbles.values()].filter((b) => b.projectName === project.name);
+        return bubbles.length > 0 ? bubbles : undefined;
+      })(),
+      appBubbles: (() => {
+        const bubbles = [...this.appBubbles.values()].filter((b) => b.projectName === project.name);
+        return bubbles.length > 0 ? bubbles : undefined;
+      })(),
+      // §5.14 v4.62 — 플레이 버블도 이 프로젝트 소속만(디스크 포맷 — 여기 빠지면 껐다 켤 때 사라진다).
+      playBubbles: (() => {
+        const bubbles = [...this.playBubbles.values()].filter((b) => b.projectName === project.name);
         return bubbles.length > 0 ? bubbles : undefined;
       })(),
       layoutBoundsHalfWidth: this.layoutBoundsByProject.get(project.name)?.hw,
@@ -3470,6 +4278,17 @@ export class ProjectGraph {
         const out: Record<string, Conti> = {};
         for (const [cid, c] of this.contis) {
           if (projectBubbleIds.has(c.agentId)) out[cid] = c;
+        }
+        return Object.keys(out).length > 0 ? out : undefined;
+      })(),
+      // §5.3 #10-3 v4.98 — 검증 런: 이 프로젝트 소속 auto-agent(세션 id)분만 필터해 영속.
+      //   ⚠ 키가 버블 id 가 아니라 **sessionId** 라 projectSessions 로 거른다(아래 카드류와 다름).
+      //   여기를 빠뜨리면 화면에는 보이는데 껐다 켜면 증거가 사라진다 — v2.55·v1.59 와 같은 함정이며
+      //   실제로 이번 라운드에도 처음엔 빠뜨렸다가 왕복 테스트가 잡았다.
+      autoAgentRuns: (() => {
+        const out: Record<string, AutoAgentRun[]> = {};
+        for (const [autoAgentId, runs] of this.autoAgentRuns) {
+          if (projectSessions.has(autoAgentId) && runs.length > 0) out[autoAgentId] = [...runs];
         }
         return Object.keys(out).length > 0 ? out : undefined;
       })(),
@@ -3526,6 +4345,18 @@ export class ProjectGraph {
         }
         return Object.keys(out).length > 0 ? out : undefined;
       })(),
+      // §5.5 #17-17 v4.46 — 세션 목표: 루프와 동형(키는 세션 탭, 소속 판정은 goal.agentId).
+      //   디스크 포맷이라 여기 빠뜨리면 껐다 켜면 목표가 통째로 사라진다(v2.55 함정).
+      sessionGoals: (() => {
+        const out: Record<string, SessionGoal> = {};
+        for (const [subId, goal] of this.sessionGoals) {
+          if (projectBubbleIds.has(goal.agentId)) out[subId] = { ...goal, steps: [...goal.steps], history: [...goal.history] };
+        }
+        return Object.keys(out).length > 0 ? out : undefined;
+      })(),
+      // §5.5 #17-28 — 주입원 오버라이드: 프로젝트 층은 이 프로젝트 키 하나, 세션 층은 이 프로젝트의
+      //   에이전트에 속한 것만. 디스크 포맷이라 여기 빠뜨리면 껐다 켜면 껐던 것이 다시 실린다.
+      contextOverrides: this.getContextOverrides({ projectKey: projectName, agentIds: projectBubbleIds }),
       // §3.2.1-3 v2.63 — 명시 삭제된 커스텀 에이전트 묘비. 이미 삭제돼 세션이 없으므로
       //   프로젝트 필터를 걸 키가 없다 → 전체 묘비를 그대로 싣는다(다른 프로젝트 sessionId 가
       //   섞여도 그 프로젝트엔 해당 세션이 존재하지 않아 무해, 부활 차단에만 쓰임).
@@ -3545,14 +4376,19 @@ export class ProjectGraph {
     // root가 없으면 설정
     if (!this.root) this.root = normalize(cp.project.path);
 
-    // 에이전트 병합
+    // 에이전트 병합 — 디스크에서 올라온 것이므로 복원 경로와 같은 규칙으로 "활동중"을 내린다.
+    //   이미 있는 키는 **살아 있는 인스턴스의 것**이라 절대 건드리지 않는다(돌고 있는 세션을 꺼뜨리게 된다).
     for (const [k, v] of Object.entries(cp.graph.agents)) {
-      if (!this.agents.has(k)) this.agents.set(k, v);
+      if (this.agents.has(k)) continue;
+      demoteStaleActivityOnLoad(v);
+      this.agents.set(k, v);
     }
 
-    // 노드 병합
+    // 노드 병합 — 위와 같은 규칙. 프로젝트를 둘 이상 연 사람에게만 드러나는 자리라 함께 막는다.
     for (const [k, v] of Object.entries(cp.graph.nodes)) {
-      if (!this.nodes.has(k)) this.nodes.set(k, v);
+      if (this.nodes.has(k)) continue;
+      demoteStaleActivityOnLoad(v);
+      this.nodes.set(k, v);
     }
 
     // 프로젝트 병합
@@ -3757,9 +4593,22 @@ export class ProjectGraph {
     if (cp.sessionLoops) {
       for (const [subId, loop] of Object.entries(cp.sessionLoops)) {
         if (!loop || typeof loop !== 'object') continue;
-        if (!this.sessionLoops.has(subId)) this.sessionLoops.set(subId, { ...loop });
+        // §5.5 #17-11 ⑪·⑫ — 구버전 체크포인트 보정(없으면 새 옵션 전부 꺼짐 = 기존 동작).
+        if (!this.sessionLoops.has(subId)) this.sessionLoops.set(subId, normalizeSessionLoop(loop));
       }
     }
+
+    // §5.5 #17-17 v4.46 — 세션 목표 병합. 루프와 동일 규칙(키가 세션 단위로 유일하므로
+    // 메모리에 이미 있는 쪽을 이기지 않게 **없는 것만** 채운다).
+    if (cp.sessionGoals) {
+      for (const [subId, goal] of Object.entries(cp.sessionGoals)) {
+        if (!goal || typeof goal !== 'object') continue;
+        if (!this.sessionGoals.has(subId)) this.sessionGoals.set(subId, normalizeSessionGoal(goal));
+      }
+    }
+
+    // §5.5 #17-28 — 주입원 오버라이드 병합(없는 키만 채우는 같은 규칙).
+    this.restoreContextOverrides(cp.contextOverrides);
 
     // §5.7 #23-2 v1.60 — agent-view 생존 sub 의 status 를 'active' 로 되돌려 orphan 봉합 회피.
     // restore 가 status='active' → 'idle' 로 강등한 후 아래 orphan 정리가 봉합해버리므로,
@@ -3800,6 +4649,12 @@ export class ProjectGraph {
           } else {
             cmd.status = 'error';
             cmd.result = `[orphaned] 서버 재기동으로 이 명령의 실행 컨텍스트가 끊겨 종료 처리됨.${sub ? '' : ' 참조 서브에이전트 소실.'}`;
+            // §5.5 #17-12 ③ — 하단 상태바가 "오류" 한 단어 대신 "앱 재기동으로 끊김" 이라고 말하게 하고,
+            //   세션이 남아 있으면 그 대화 끝에도 같은 사유를 한 줄 남긴다.
+            subAgentManager.markCommandError(cmd.subAgentId, cmd, {
+              code: 'orphaned',
+              ...(sub ? {} : { detail: 'subagent missing' }),
+            });
           }
         }
       }
@@ -3819,7 +4674,7 @@ export class ProjectGraph {
     // agentConfigs 병합
     if (cp.agentConfigs) {
       for (const [agentId, config] of Object.entries(cp.agentConfigs)) {
-        if (!this.agentConfigs.has(agentId)) this.agentConfigs.set(agentId, config);
+        if (!this.agentConfigs.has(agentId)) this.agentConfigs.set(agentId, backfillAgentConfigTools(config));
       }
     }
 
@@ -3860,11 +4715,33 @@ export class ProjectGraph {
       }
     }
 
+    // §5.5 #17-20 ⑩ v4.94 — 중단점 병합(멀티프로젝트 보트에서 이 프로젝트 몫만 채운다).
+    // 이미 들고 있으면 덮어쓰지 않는다 — 켜져 있던 쪽이 최신이다.
+    if (cp.debugBreakpoints && !this.debugBreakpoints.has(cp.project.name)) {
+      this.debugBreakpoints.set(cp.project.name, cp.debugBreakpoints.map((bp) => ({ ...bp })));
+    }
+
     // §5.9 — 캡처 버블 병합 (중복 ID 는 기존 유지)
     if (cp.captureBubbles) {
       for (const bubble of cp.captureBubbles) {
         if (this.captureBubbles.has(bubble.id)) continue;
         this.captureBubbles.set(bubble.id, { ...bubble });
+      }
+    }
+
+    // §5.13 v4.45 — 내부 앱 버블도 같은 규칙(있던 것을 덮지 않는 합집합).
+    if (cp.appBubbles) {
+      for (const bubble of cp.appBubbles) {
+        if (this.appBubbles.has(bubble.id)) continue;
+        this.appBubbles.set(bubble.id, { ...bubble });
+      }
+    }
+
+    // §5.14 v4.62 — 플레이 버블도 같은 규칙. 프로세스는 재기동과 함께 사라졌으므로 상태만 내린다.
+    if (cp.playBubbles) {
+      for (const bubble of cp.playBubbles) {
+        if (this.playBubbles.has(bubble.id)) continue;
+        this.playBubbles.set(bubble.id, sanitizePlayBubbleOnLoad(bubble));
       }
     }
 
@@ -3970,18 +4847,15 @@ export class ProjectGraph {
       agent.lastActivity = now;
       // v1.73 — 레거시 체크포인트에 영속된 'awaiting_input'(모래시계)도 idle 로 정규화.
       //         이게 없으면 서버 재시작 때 죽은 모래시계가 그대로 부활해 연속성이 끊겨 보인다.
-      //         (status 유니온에서 제거됐으므로 raw string 비교.)
-      if (
-        agent.status === 'active'
-        || agent.status === 'completed'
-        || (agent.status as string) === 'awaiting_input'
-      ) {
-        agent.status = 'idle';
-        agent.fadeStartedAt = undefined;
-      }
+      demoteStaleActivityOnLoad(agent);
     }
     for (const node of this.nodes.values()) {
       node.lastActivity = now;
+      // 에이전트와 **같은 규칙**을 파일/폴더 버블에도 적용한다. 종전엔 이 루프가 lastActivity 만
+      // 갱신하고 status 는 그대로 둬서, 껐다 켜면 에이전트는 idle 인데 그 에이전트가 만졌던
+      // 파일·폴더만 활동중으로 빛나 있었다(실측: 체크포인트에 active 로 굳은 노드 260개).
+      // active 노드는 isAlive 의 5분 TTL 도 통과해 영영 정리되지 않는다는 점까지 함께 풀린다.
+      demoteStaleActivityOnLoad(node);
       // 안전장치: ghost + idle(비pinned) 노드는 disappearing 재설정
       if (node.bubbleType === 'ghost' && node.status !== 'disappearing' && !node.ghostInfo?.pinned && !node.preservePinned) {
         node.status = 'disappearing';
@@ -4028,7 +4902,9 @@ export class ProjectGraph {
 
     // agentConfigs 복원
     if (cp.agentConfigs) {
-      this.agentConfigs = new Map(Object.entries(cp.agentConfigs));
+      this.agentConfigs = new Map(
+        Object.entries(cp.agentConfigs).map(([id, cfg]) => [id, backfillAgentConfigTools(cfg)]),
+      );
       // §4 v2.63 — 색 기반 레거시 토글 마이그레이션은 제거. executionMode 가 이제 PUT 에서 보존되는
       //   에이전트 정체성이라, CMD 에이전트 색을 teal 에서 바꾸면 색 휴리스틱이 executionMode 를 잘못
       //   지우는 footgun 이 된다. 누수 원인은 createCustomAgent(상속 차단) + userDefaultsService(잔재 정리)
@@ -4064,11 +4940,34 @@ export class ProjectGraph {
       }
     }
 
+    // §5.5 #17-20 ⑩ v4.94 — 중단점 복원
+    this.debugBreakpoints = new Map();
+    if (cp.debugBreakpoints && cp.debugBreakpoints.length > 0) {
+      this.debugBreakpoints.set(cp.project.name, cp.debugBreakpoints.map((bp) => ({ ...bp })));
+    }
+
     // §5.9 — 캡처 버블 복원
     this.captureBubbles = new Map();
     if (cp.captureBubbles) {
       for (const bubble of cp.captureBubbles) {
         this.captureBubbles.set(bubble.id, { ...bubble });
+      }
+    }
+
+    // §5.13 v4.45 — 내부 앱 버블 복원.
+    this.appBubbles = new Map();
+    if (cp.appBubbles) {
+      for (const bubble of cp.appBubbles) {
+        this.appBubbles.set(bubble.id, { ...bubble });
+      }
+    }
+
+    // §5.14 v4.62 — 플레이 버블 복원. 버튼·레시피는 그대로, 실행 상태는 초기화한다
+    //   (프로세스는 앱과 함께 죽었으므로 running 인 채로 살아나면 거짓말이 된다).
+    this.playBubbles = new Map();
+    if (cp.playBubbles) {
+      for (const bubble of cp.playBubbles) {
+        this.playBubbles.set(bubble.id, sanitizePlayBubbleOnLoad(bubble));
       }
     }
 
@@ -4115,6 +5014,17 @@ export class ProjectGraph {
       for (const [id, summary] of Object.entries(cp.autoAgentSummaries)) {
         if (summary && typeof summary === 'object') {
           this.autoAgentSummaries.set(id, summary);
+        }
+      }
+    }
+
+    // §5.3 #10-3 v4.98 — 검증 런 복원. 증거는 "무엇을 근거로 완료라고 했는가"라
+    //   세션을 넘어 남아야 한다(§3.2.1 영속 5지점 중 ④).
+    this.autoAgentRuns.clear();
+    if (cp.autoAgentRuns) {
+      for (const [id, runs] of Object.entries(cp.autoAgentRuns)) {
+        if (Array.isArray(runs)) {
+          this.autoAgentRuns.set(id, runs.filter((r) => r && typeof r === 'object'));
         }
       }
     }
@@ -4177,15 +5087,32 @@ export class ProjectGraph {
     if (cp.sessionLoops) {
       for (const [subId, loop] of Object.entries(cp.sessionLoops)) {
         if (!loop || typeof loop !== 'object') continue;
-        const restored: SessionLoop = { ...loop };
+        // §5.5 #17-11 ⑪·⑫ — 구버전 체크포인트엔 새 필드가 없다(없으면 전부 꺼짐 = 기존 동작).
+        const restored: SessionLoop = normalizeSessionLoop(loop);
         if (restored.status === 'running') {
           restored.status = restored.enabled ? 'waiting' : 'stopped';
           restored.pendingCommandId = undefined;
+          // 회차 사이 압축도 서버가 죽는 동안 사라졌다 — 대조 id 를 비워야 다음 회차가 나간다.
+          restored.pendingCompactCommandId = undefined;
           restored.nextRunAt = Date.now();
         }
         this.sessionLoops.set(subId, restored);
       }
     }
+
+    // §5.5 #17-17 v4.46 — 세션 목표 복원. 루프와 달리 진행 중인 "회차"가 없어 되돌릴 상태가 없다 —
+    //   문장·퍼센트·이력을 그대로 이어받으면 된다(구버전 체크포인트는 누락 필드를 정규화로 보충).
+    this.sessionGoals.clear();
+    if (cp.sessionGoals) {
+      for (const [subId, goal] of Object.entries(cp.sessionGoals)) {
+        if (!goal || typeof goal !== 'object') continue;
+        this.sessionGoals.set(subId, normalizeSessionGoal(goal));
+      }
+    }
+
+    // §5.5 #17-28 — 주입원 오버라이드 복원. 되돌릴 진행 상태가 없어 목표와 같이 그대로 이어받는다.
+    //   이 프로젝트의 몫만 담긴 체크포인트라 다른 프로젝트의 키를 지우면 안 된다 → clear ❌, 병합 ○.
+    this.restoreContextOverrides(cp.contextOverrides);
 
     // 루트 캔버스 바운딩 박스 복원 (이 프로젝트 한정)
     if (cp.layoutBoundsHalfWidth != null && cp.layoutBoundsHalfHeight != null) {
@@ -4279,6 +5206,12 @@ export class ProjectGraph {
           } else {
             cmd.status = 'error';
             cmd.result = `[orphaned] 서버 재기동으로 이 명령의 실행 컨텍스트가 끊겨 종료 처리됨.${sub ? '' : ' 참조 서브에이전트 소실.'}`;
+            // §5.5 #17-12 ③ — 하단 상태바가 "오류" 한 단어 대신 "앱 재기동으로 끊김" 이라고 말하게 하고,
+            //   세션이 남아 있으면 그 대화 끝에도 같은 사유를 한 줄 남긴다.
+            subAgentManager.markCommandError(cmd.subAgentId, cmd, {
+              code: 'orphaned',
+              ...(sub ? {} : { detail: 'subagent missing' }),
+            });
           }
         }
       }
@@ -4606,7 +5539,11 @@ export class ProjectGraph {
     // 이어도, 이 에이전트가 스스로 띄운 Task/Agent 서브에이전트의 SubagentStop 이 아직 안 왔으면
     // "대기 중인 활성"이다. permissionWaitingAgents(v1.91)와 동형의 completed 강등 차단 —
     // 별도 상태·비주얼 없이 기존 active 그대로 유지(자식이 일하는 중 = 사용자에겐 "활동 중").
-    if (subAgentManager.hasPendingSubagentTasks(parentAgentId)) {
+    // §5.3 #12-1 — 훅 대차대조(Task/Agent 자식) **또는** 스트림으로만 보이는 백그라운드 작업
+    //   (`Bash run_in_background` · `Monitor`). 후자를 안 보면 그 작업을 기다리는 감독관 버블이
+    //   "끝난 것"으로 내려간다 — 사용자 보고 "서브가 시킨 거 대기 중인데 끝난 걸로 착각한다".
+    if (subAgentManager.hasPendingSubagentTasks(parentAgentId)
+      || subAgentManager.hasLiveBackgroundTasks(parentAgentId)) {
       if (found.status !== 'active') {
         this.bumpMutationVersion();
         found.status = 'active';
@@ -4651,6 +5588,21 @@ export class ProjectGraph {
     // **"이 에이전트에 낼 일이 남았는가"** 로 넓힌다.
     if (this.hasPendingAgentWork(parentAgentId)) {
       found.lastActivity = Date.now();
+      return false;
+    }
+
+    // 실패로 끝난 세션이 하나라도 있으면 **완료가 아니라 실패**다. 종전에는 `NodeStatus` 에 `error` 가
+    // 없어서 이 경우도 아래 completed 로 내려갔고, 캔버스에서 실패가 완료로 보이는 데다 완료음까지
+    // 울렸다(`completionChime` 은 `→ completed` 전이에 반응한다). `SubAgentStatus.error` 를 그대로
+    // 버블까지 올려 두 축이 같은 말을 하게 한다.
+    if (subs.some((s) => s.status === 'error')) {
+      if (found.status !== 'error') {
+        this.bumpMutationVersion();
+        found.status = 'error';
+        found.fadeStartedAt = undefined;
+        found.lastActivity = Date.now();
+        return true;
+      }
       return false;
     }
 
@@ -4739,6 +5691,8 @@ export class ProjectGraph {
     arr.unshift({ ts: Date.now(), tool, durationMs });
     if (arr.length > 5) arr.length = 5;
     this.recentToolDurations.set(sessionId, arr);
+    // §3.2.4 F축 — 세션당 5건 캡은 있었으나 세션 키가 무제한이었다. 소요시간 표시용이라 안전.
+    capMapSize(this.recentToolDurations, SESSION_KEYED_MAP_MAX);
   }
 
   /** §4 v1.50 — PreCompact 카운터 증가. 영속화 대상. */
@@ -4953,8 +5907,10 @@ export class ProjectGraph {
       if (!this.keepAliveLogged.has(sessionId)) {
         this.keepAliveLogged.add(sessionId);
         logger.info(`Keeping agent ${sessionId.slice(0, 8)} alive — has active iframe (dev server running)`);
+        // v4.67 — dbg 도 같은 게이트 안으로. 종전엔 게이트 밖이라 iframe 보존이 지속되는 동안
+        // 2초마다 같은 줄이 계속 쌓였다(진입 1회만 남겨도 진단에 필요한 정보는 동일).
+        dbg('removeAgentBySession.keep-iframe', { sessionId, label: agent.label, projectName, cwd });
       }
-      dbg('removeAgentBySession.keep-iframe', { sessionId, label: agent.label, projectName, cwd });
       agent.status = 'idle';
       return false;
     }
@@ -5092,6 +6048,7 @@ export class ProjectGraph {
     this.agentLists.delete(agent.id);
     this.agentFeedbacks.delete(agent.id);
     this.deleteSessionLoopsForAgent(agent.id);
+    this.deleteSessionGoalsForAgent(agent.id);
     this.manuallyConfigured.delete(agent.id);
     this.observedTools.delete(sessionId);
   }
@@ -6075,6 +7032,15 @@ export class ProjectGraph {
     return null;
   }
 
+  /** §5.5 #17-28 — agentId → 그 에이전트 세션이 실제로 도는 폴더. 못 찾으면 null. */
+  getAgentCwdByAgentId(agentId: string): string | null {
+    for (const [sessionId, cwd] of this.sessionCwds) {
+      const agent = this.agents.get(sessionId);
+      if (agent?.id === agentId) return cwd || null;
+    }
+    return null;
+  }
+
   /** agentId → 소속 프로젝트의 디스크 path (스킬 스캔 등 경로 작업용). 못 찾으면 null. */
   getAgentProjectPath(agentId: string): string | null {
     for (const [sessionId, cwd] of this.sessionCwds) {
@@ -6134,7 +7100,10 @@ export class ProjectGraph {
   /** Bash 명령을 히스토리에 기록 / output 매칭 */
   private recordBashEntry(payload: HookEventPayload): void {
     if (!payload.tool_input) return;
-    const isPost = payload.hook_event_name === 'PostToolUse';
+    // §3.6 v4.89 — 실패한 도구도 **끝난 도구**다. `PostToolUseFailure` 를 사후로 안 세면
+    //   같은 tool_use_id 로 사전 엔트리가 한 번 더 만들어져 히스토리에 중복으로 남는다.
+    const isPost = payload.hook_event_name === 'PostToolUse'
+      || payload.hook_event_name === 'PostToolUseFailure';
     const toolUseId = payload.tool_use_id;
 
     if (isPost) {
@@ -6927,14 +7896,115 @@ export class ProjectGraph {
 
     let list = this.fileEdits.get(key);
     if (!list) { list = []; this.fileEdits.set(key, list); }
-    list.unshift(entry);
-    // 노드별 unlimitedFileEdits=true 면 트림 스킵(무한 저장), 아니면 MAX_FILE_EDITS 상한
+
+    // 노드별 unlimitedFileEdits=true 면 사용자가 "이 파일은 다 남겨라"를 명시한 것이므로
+    // 아래 세 축(병합창·나이·경로 LRU) 전부에서 제외한다 — 상한이 사용자 지정을 뒤집으면 안 된다.
     const fileNode = this.nodes.get(key);
-    if (!fileNode?.unlimitedFileEdits && list.length > MAX_FILE_EDITS) {
-      list.length = MAX_FILE_EDITS;
+    const unlimited = fileNode?.unlimitedFileEdits === true;
+    const retention = appStateGetRetention();
+
+    // ─── D축 병합창 (§3.2.3) ───
+    // 같은 파일을 병합창 안에서 연달아 고치면 마지막 항목에 합친다(VS Code `mergeWindow` 와 같은 뜻).
+    // 에이전트는 한 파일을 연속 수정하는 일이 잦아, 이게 없으면 MAX_FILE_EDITS(20)가 한 턴 만에 차서
+    // 그 파일의 이력이 통째로 밀려난다. 합칠 때 **oldString 은 처음 것을 유지**해야 diff 가
+    // "그 창 전체의 변화"를 가리킨다.
+    // ⚠ head 를 **제자리 수정하지 않고 새 객체로 교체**한다 — `fileEditsViewCache` 가
+    //   (length, head 참조) 로 "안 바뀐 파일"을 판정하므로, 제자리 수정하면 스냅샷이 옛 내용을
+    //   그대로 재사용해 화면이 갱신되지 않는다(§9 v3.89 메모의 "엔트리는 불변" 전제).
+    const head = list[0];
+    const withinMergeWindow =
+      !unlimited
+      && retention.fileEditMergeWindowMs > 0
+      && head !== undefined
+      && head.filePath === entry.filePath
+      && entry.timestamp - head.timestamp <= retention.fileEditMergeWindowMs;
+
+    if (withinMergeWindow && head) {
+      list[0] = { ...head, newString: entry.newString, timestamp: entry.timestamp };
+    } else {
+      list.unshift(entry);
     }
 
-    logger.debug(`Recorded file ${tool.toLowerCase()}: ${key} (${list.length} total)`);
+    // B축 — 파일당 항목 수 (기존 동작 그대로)
+    if (!unlimited && list.length > MAX_FILE_EDITS) {
+      list.length = MAX_FILE_EDITS;
+    }
+    // A축 — 이 파일의 오래된 편집 정리(리스트가 ≤20건이라 뜨거운 경로에서도 싸다)
+    if (!unlimited) this.pruneFileEditListByAge(key, list, retention.fileEditRetentionDays);
+    // E축 — 편집 이력을 든 **경로 키 개수** 상한(우리에게 없던 축 — 597개까지 늘었던 자리)
+    this.enforceFileEditPathCap(retention.maxFileEditPaths);
+
+    logger.debug(`Recorded file ${tool.toLowerCase()}: ${key} (${list.length} total${withinMergeWindow ? ', merged' : ''})`);
+  }
+
+  /**
+   * A축 — 한 파일의 편집 이력에서 보존 기간이 지난 것을 버린다(§3.2.3).
+   * 리스트는 최신순(`unshift`)이라 **뒤에서부터** 자르면 된다. 전부 만료면 키 자체를 지운다
+   * (빈 배열을 남기면 E축 경로 상한에 헛자리로 잡힌다).
+   */
+  private pruneFileEditListByAge(key: string, list: FileEdit[], days: number): void {
+    if (days <= 0 || list.length === 0) return; // 0 = 무제한
+    let keep = list.length;
+    while (keep > 0 && isExpiredByDays(list[keep - 1]?.timestamp ?? 0, days)) keep -= 1;
+    if (keep === list.length) return;
+    if (keep === 0) this.fileEdits.delete(key);
+    else list.length = keep;
+  }
+
+  /**
+   * E축 — 편집 이력을 들고 있는 **파일 경로 키 개수** 상한. 마지막 편집이 가장 오래된 경로부터 버린다(LRU).
+   *
+   * 종전에 `fileEdits.delete` 는 소스에 존재조차 하지 않았고, 유일한 방벽이던 "노드 살아있는 경로만
+   * 저장"(v4.67 필터)은 `pruneExpired()` 가 비활성이라 걸러 낼 대상이 안 생겼다 — 그래서 597키까지 늘었다.
+   */
+  private enforceFileEditPathCap(maxPaths: number): void {
+    if (maxPaths <= 0 || this.fileEdits.size <= maxPaths) return; // 0 = 무제한
+    const candidates: { key: string; lastAt: number }[] = [];
+    for (const [k, edits] of this.fileEdits) {
+      if (this.nodes.get(k)?.unlimitedFileEdits) continue; // 사용자 명시 보존은 건드리지 않는다
+      candidates.push({ key: k, lastAt: edits[0]?.timestamp ?? 0 });
+    }
+    const overflow = this.fileEdits.size - maxPaths;
+    if (overflow <= 0 || candidates.length === 0) return;
+    candidates.sort((a, b) => a.lastAt - b.lastAt); // 오래된 것 먼저
+    for (let i = 0; i < Math.min(overflow, candidates.length); i += 1) {
+      this.fileEdits.delete(candidates[i]?.key ?? '');
+    }
+  }
+
+  /**
+   * §3.2.3 — 편집 이력 전체 정리. **부팅 시 1회 + 보존 설정 변경 시** 호출한다.
+   *
+   * `recordFileEdit` 경로는 "방금 손댄 파일"만 늙히므로, 한동안 건드리지 않은 경로는 여기서만 정리된다.
+   * 반환값은 저장소 사용량 화면이 "얼마나 회수했는지" 그대로 보여 주는 데 쓴다(조용히 지우지 않는다).
+   */
+  pruneFileEditRetention(): { removedEdits: number; removedPaths: number } {
+    const retention = appStateGetRetention();
+    let removedEdits = 0;
+    let removedPaths = 0;
+
+    if (retention.fileEditRetentionDays > 0) {
+      for (const [k, list] of Array.from(this.fileEdits)) {
+        if (this.nodes.get(k)?.unlimitedFileEdits) continue;
+        const before = list.length;
+        this.pruneFileEditListByAge(k, list, retention.fileEditRetentionDays);
+        const after = this.fileEdits.has(k) ? list.length : 0;
+        removedEdits += before - after;
+        if (!this.fileEdits.has(k)) removedPaths += 1;
+      }
+    }
+
+    const beforePaths = this.fileEdits.size;
+    this.enforceFileEditPathCap(retention.maxFileEditPaths);
+    removedPaths += beforePaths - this.fileEdits.size;
+
+    // ⚠ 내부 Map 을 직접 건드렸으므로 스냅샷 캐시를 무효화해야 화면·테스트에 반영된다
+    //   (mutationVersion 누락 = "고쳤는데 안 보인다"로 오진하는 자리).
+    if (removedEdits > 0 || removedPaths > 0) {
+      this.bumpMutationVersion();
+      logger.info(`fileEdits retention: removed ${removedEdits} edit(s), ${removedPaths} path(s) — ${this.fileEdits.size} path(s) remain`);
+    }
+    return { removedEdits, removedPaths };
   }
 
   /**
@@ -7991,9 +9061,114 @@ export class ProjectGraph {
     return true;
   }
 
+  // ─── §5.5 #17-20 ⑩ v4.94 공통 디버그 층 — 중단점 ─────────────────────────
+
+  /** 이 프로젝트에 찍힌 중단점(없으면 빈 배열). */
+  getDebugBreakpoints(projectName: string): DebugBreakpoint[] {
+    return [...(this.debugBreakpoints.get(projectName) ?? [])];
+  }
+
+  /**
+   * 중단점 **전량 교체**. 화면이 한 줄을 토글할 때마다 그 프로젝트의 목록 전체를 보낸다 —
+   * DAP `setBreakpoints` 가 파일 단위 전량 교체라 축을 맞춰 두면 어긋날 일이 없다.
+   */
+  setDebugBreakpoints(projectName: string, breakpoints: DebugBreakpoint[]): DebugBreakpoint[] {
+    const normalized: DebugBreakpoint[] = breakpoints
+      .filter((bp) => typeof bp?.file === 'string' && bp.file.length > 0 && Number.isFinite(bp.line) && bp.line > 0)
+      .map((bp) => ({
+        file: bp.file,
+        line: Math.floor(bp.line),
+        enabled: bp.enabled !== false,
+        ...(bp.verified !== undefined ? { verified: bp.verified } : {}),
+      }));
+    if (normalized.length === 0) this.debugBreakpoints.delete(projectName);
+    else this.debugBreakpoints.set(projectName, normalized);
+    // Map 을 직접 건드렸으므로 스냅샷 캐시를 무효화한다(빠뜨리면 화면·테스트에 안 보인다).
+    this.bumpMutationVersion();
+    return normalized;
+  }
+
   // ─── §5.9 화면/프로그램 캡처 버블 — 사용자 생성 독립 캔버스 요소 (CommentBox 패턴) ───
 
   /** 캡처 버블 생성. 서버에서 ID 발급. */
+  // ─── §5.13 v4.45 내부 앱 버블 (범용) ───
+  //
+  // 앱마다 버블 타입을 새로 만들지 않는다 — `appId` 만 다른 같은 그릇이다. 앱을 계속
+  // 늘리기로 한 이상, 앱 하나가 코어에 남기는 자국이 상수여야 한다.
+
+  createAppBubble(input: {
+    projectName: string;
+    appId: string;
+    x: number;
+    y: number;
+    width?: number;
+    height?: number;
+    title?: string;
+    ref?: string;
+  }): AppBubble {
+    const id = `app-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    const bubble: AppBubble = {
+      id,
+      projectName: input.projectName,
+      appId: input.appId,
+      x: input.x,
+      y: input.y,
+      width: input.width ?? 200,
+      height: input.height ?? 200,
+      ...(input.title === undefined ? {} : { title: input.title }),
+      ...(input.ref === undefined ? {} : { ref: input.ref }),
+      createdAt: Date.now(),
+    };
+    this.appBubbles.set(id, bubble);
+    // Map 을 직접 만졌으므로 스냅샷 캐시(mutationVersion + 200ms TTL)를 무효화한다.
+    // 빠뜨리면 생성 직후의 broadcastSnapshot 이 **버블 없는 캐시본**을 그대로 내보내,
+    // 다음 활동이 있을 때까지 캔버스에 아무것도 안 뜬다.
+    this.bumpMutationVersion();
+    return bubble;
+  }
+
+  updateAppBubble(
+    id: string,
+    updates: Partial<Omit<AppBubble, 'id' | 'projectName' | 'appId' | 'createdAt'>>,
+  ): AppBubble | null {
+    const bubble = this.appBubbles.get(id);
+    if (!bubble) return null;
+    if (updates.x !== undefined) bubble.x = updates.x;
+    if (updates.y !== undefined) bubble.y = updates.y;
+    if (updates.width !== undefined) bubble.width = updates.width;
+    if (updates.height !== undefined) bubble.height = updates.height;
+    if (updates.title !== undefined) bubble.title = updates.title;
+    if (updates.ref !== undefined) bubble.ref = updates.ref;
+    if (updates.preservePinned !== undefined) bubble.preservePinned = updates.preservePinned;
+    this.bumpMutationVersion();
+    return bubble;
+  }
+
+  /** 삭제. 핀이 걸려 있으면 거절한다(§2.4 preserve-pin). */
+  deleteAppBubble(id: string): boolean {
+    const bubble = this.appBubbles.get(id);
+    if (bubble?.preservePinned === true) return false;
+    const removed = this.appBubbles.delete(id);
+    if (removed) this.bumpMutationVersion();
+    return removed;
+  }
+
+  getAppBubble(id: string): AppBubble | undefined {
+    return this.appBubbles.get(id);
+  }
+
+  getAppBubbles(): AppBubble[] {
+    return [...this.appBubbles.values()];
+  }
+
+  /** 기존 ID 그대로 수용 (체크포인트 복원/머지용). */
+  acceptAppBubble(bubble: AppBubble): boolean {
+    if (this.appBubbles.has(bubble.id)) return false;
+    this.appBubbles.set(bubble.id, { ...bubble });
+    this.bumpMutationVersion();
+    return true;
+  }
+
   createCaptureBubble(input: {
     projectName: string;
     x: number;
@@ -8060,6 +9235,91 @@ export class ProjectGraph {
   acceptCaptureBubble(bubble: CaptureBubble): boolean {
     if (this.captureBubbles.has(bubble.id)) return false;
     this.captureBubbles.set(bubble.id, bubble);
+    return true;
+  }
+
+  // ─── §5.14 v4.62 — 플레이 버블 ───
+
+  createPlayBubble(input: {
+    projectName: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    title?: string;
+    recipe?: PlayRecipe;
+  }): PlayBubble {
+    const id = `play-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    const now = Date.now();
+    const bubble: PlayBubble = {
+      id,
+      projectName: input.projectName,
+      x: input.x,
+      y: input.y,
+      width: input.width,
+      height: input.height,
+      ...(input.title !== undefined ? { title: input.title } : {}),
+      ...(input.recipe !== undefined ? { recipe: input.recipe } : {}),
+      status: 'idle',
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.playBubbles.set(id, bubble);
+    this.bumpMutationVersion();
+    return bubble;
+  }
+
+  /**
+   * 플레이 버블 부분 갱신 — 좌표·크기·제목·레시피·실행 상태 전부 이 문 하나로 들어온다.
+   *
+   * `recipe` 는 통째로 교체한다(부분 병합 ❌ — 반쪽만 바뀐 레시피는 무엇이 실행될지 알 수 없다).
+   */
+  updatePlayBubble(
+    id: string,
+    updates: Partial<Omit<PlayBubble, 'id' | 'projectName' | 'createdAt' | 'updatedAt'>>,
+  ): PlayBubble | null {
+    const bubble = this.playBubbles.get(id);
+    if (!bubble) return null;
+    const writable = bubble as unknown as Record<string, unknown>;
+    for (const key of [
+      'x', 'y', 'width', 'height', 'previewX', 'previewY', 'previewWidth', 'previewHeight',
+      'title', 'recipe', 'status', 'url', 'port', 'error', 'lastStartedAt', 'previewOpen', 'preservePinned',
+    ] as const) {
+      if (!(key in updates)) continue;
+      const value = updates[key];
+      // `undefined` 를 그대로 대입하면 JSON 직렬화에서는 사라지지만 in-memory 에는 키가 남아
+      // `'port' in bubble` 류 판정이 어긋난다 — 명시적으로 지운다.
+      if (value === undefined) delete writable[key];
+      else writable[key] = value;
+    }
+    bubble.updatedAt = Date.now();
+    this.bumpMutationVersion();
+    return bubble;
+  }
+
+  /** 삭제. §2.4 preserve-pin 이 걸려 있으면 거절한다(앱 버블과 같은 규칙). */
+  deletePlayBubble(id: string): boolean {
+    const bubble = this.playBubbles.get(id);
+    if (!bubble) return false;
+    if (bubble.preservePinned === true) return false;
+    const removed = this.playBubbles.delete(id);
+    if (removed) this.bumpMutationVersion();
+    return removed;
+  }
+
+  getPlayBubble(id: string): PlayBubble | undefined {
+    return this.playBubbles.get(id);
+  }
+
+  getPlayBubbles(): PlayBubble[] {
+    return [...this.playBubbles.values()];
+  }
+
+  /** 기존 ID 그대로 수용 (체크포인트 복원/머지용). */
+  acceptPlayBubble(bubble: PlayBubble): boolean {
+    if (this.playBubbles.has(bubble.id)) return false;
+    this.playBubbles.set(bubble.id, { ...bubble });
+    this.bumpMutationVersion();
     return true;
   }
 

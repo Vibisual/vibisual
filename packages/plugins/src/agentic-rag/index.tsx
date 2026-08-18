@@ -4,8 +4,8 @@
  * 고정된 파이프라인이 한 번 검색해 주는 대신, 에이전트가 필요할 때 스스로 질의를 만들어 찾아 오는 형태다.
  * 밀어넣기만 있으면 필요 없는 것도 매번 실리고, 능동 검색이 있으면 필요한 순간에만 들어온다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const events = (ctx: PluginBubbleContext) => ctx.data.brainInjections ?? [];
 const searched = (ctx: PluginBubbleContext): number => events(ctx).filter((e) => e.trigger === 'search').length;

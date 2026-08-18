@@ -9,8 +9,8 @@
  * 별도 결정이 필요하고, 이 플러그인은 "보이게 하는 것"까지만 맡는다.
  */
 import type { SubAgent } from '@vibisual/shared';
-import type { PluginClientModule, PluginBubbleContext, PluginManifest, PluginSeverity } from '../types.js';
-import { PluginSection, PluginRow, PluginBadgePill, formatElapsed, type PluginTone } from '../ui/kit.js';
+import type { PluginClientModule, PluginBubbleContext, PluginManifest, PluginSeverity } from '../sdk/index.js';
+import { PluginSection, PluginRow, PluginBadgePill, formatElapsed, type PluginTone } from '../sdk/index.js';
 
 export const rogueAgentManifest: PluginManifest = {
   id: 'rogue-agent',
@@ -19,8 +19,8 @@ export const rogueAgentManifest: PluginManifest = {
   category: 'security',
   descriptionKey: 'panel.plugins.rogueAgent.desc',
   enabledByDefault: false,
-  contributes: ['bubbleBadge', 'panelSection'],
-  clientOnly: true,
+  contributes: ['bubbleBadge', 'panelSection', 'agentPrompt'],
+  clientOnly: false,
 };
 
 const K = 'panel.plugins.rogueAgent';

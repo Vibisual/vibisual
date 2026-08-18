@@ -191,13 +191,19 @@ const api = {
       return () => ipcRenderer.removeListener('vibisual:overlay:list', listener);
     },
   },
-  /** §5.12 (v4.43) — 지휘통제실 창 surface. 프로젝트별 1창. */
+  /** §5.12 (v4.44) — 지휘통제실 창 surface. **앱 전체에 1창**이며 활성 프로젝트를 따라간다. */
   command: {
-    /** 프로젝트 root 버블 더블클릭 → 지휘통제실 창. 이미 있으면 그 창 focus. */
+    /** 프로젝트 root 버블 더블클릭 → 지휘통제실 창. 이미 있으면 focus + show-project push. */
     open: (payload: { projectId: string; cursor?: { x: number; y: number } }): Promise<{ windowId: number; reused: boolean }> =>
       ipcRenderer.invoke('vibisual:command:open', payload),
-    /** 특정 프로젝트의 지휘통제실 창 닫기. */
-    close: (projectId: string): Promise<boolean> => ipcRenderer.invoke('vibisual:command:close', projectId),
+    /** 지휘통제실 창 닫기(창이 하나라 인자 없음). */
+    close: (): Promise<boolean> => ipcRenderer.invoke('vibisual:command:close'),
+    /** 지휘통제실 창 한정 — "이 프로젝트를 보여라" 신호 구독(v4.44). */
+    onShowProject: (cb: (payload: { projectId: string }) => void): (() => void) => {
+      const listener = (_e: unknown, payload: { projectId: string }): void => cb(payload);
+      ipcRenderer.on('vibisual:command:show-project', listener);
+      return () => ipcRenderer.removeListener('vibisual:command:show-project', listener);
+    },
     /** 카드 [이동] — 메인 창 focus + 그 세션으로 점프 신호. */
     revealInMain: (payload: { projectId: string; agentId: string; subAgentId?: string | null }): Promise<boolean> =>
       ipcRenderer.invoke('vibisual:command:reveal-in-main', payload),
@@ -206,6 +212,26 @@ const api = {
       const listener = (_e: unknown, payload: { projectId: string; agentId: string; subAgentId: string | null }): void => cb(payload);
       ipcRenderer.on('vibisual:command:reveal', listener);
       return () => ipcRenderer.removeListener('vibisual:command:reveal', listener);
+    },
+  },
+  /**
+   * §5.13 (O) v4.48 — 내부 앱 surface (앱 무관).
+   *
+   * 앱마다 surface 를 만들지 않는다. `appId` 만 다르고 통로는 셋으로 고정이다 —
+   * 앱이 늘어도 이 파일은 그대로다.
+   */
+  app: {
+    open: (appId: string, params?: Record<string, string>): Promise<{ windowId: number; reused: boolean }> =>
+      ipcRenderer.invoke('vibisual:app:open', { appId, params }),
+    close: (appId: string): Promise<boolean> => ipcRenderer.invoke('vibisual:app:close', { appId }),
+    /** 그 앱만 아는 기능. 코어는 뜻을 모르고 그대로 넘긴다. */
+    invoke: (appId: string, action: string, payload?: unknown): Promise<unknown> =>
+      ipcRenderer.invoke('vibisual:app:invoke', { appId, action, payload }),
+    /** 앱 창 한정 — "이 대상을 보여라" 신호 구독(같은 앱을 다시 열었을 때). */
+    onShowTarget: (cb: (payload: { appId: string; hash: string }) => void): (() => void) => {
+      const listener = (_e: unknown, payload: { appId: string; hash: string }): void => cb(payload);
+      ipcRenderer.on('vibisual:app:show-target', listener);
+      return () => ipcRenderer.removeListener('vibisual:app:show-target', listener);
     },
   },
   /** §4 v2.44 자동 업데이트 surface — VS Code 식 업데이트 버튼. */
@@ -250,8 +276,20 @@ const api = {
   },
   /** §4 v2.63 임베디드 인터랙티브 터미널 surface — IDE 창 안 PTY. */
   terminal: {
-    /** 셸+claude prefill PTY 생성. termId 는 renderer 가 (agent+session) 으로 부여. */
-    create: (spec: { termId: string; cwd: string; config: AgentConfig; cols?: number; rows?: number }): Promise<{ ok: boolean; error?: string }> =>
+    /**
+     * 셸+claude prefill PTY 생성. termId 는 renderer 가 (agent+session) 으로 부여.
+     * §5.5 #17-20 v4.74 — `command` 를 주면 claude 대신 그 명령을 띄우는 실행 런처가 된다.
+     */
+    create: (spec: {
+      termId: string;
+      cwd: string;
+      config: AgentConfig;
+      cols?: number;
+      rows?: number;
+      command?: string;
+      autoRun?: boolean;
+      env?: Record<string, string>;
+    }): Promise<{ ok: boolean; error?: string }> =>
       ipcRenderer.invoke('vibisual:term:create', spec),
     /** xterm 키 입력 → PTY stdin. */
     write: (termId: string, data: string): Promise<void> =>

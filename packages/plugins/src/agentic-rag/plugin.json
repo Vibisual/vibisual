@@ -1,0 +1,17 @@
+{
+  "id": "agentic-rag",
+  "name": "Agentic RAG",
+  "version": "1.0.0",
+  "category": "observability",
+  "descriptionKey": "panel.plugins.agenticRag.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "brainInjections"
+  ],
+  "hostApi": 1
+}

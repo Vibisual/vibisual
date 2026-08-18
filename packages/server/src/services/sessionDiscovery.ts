@@ -5,12 +5,44 @@ import { execSync, spawn } from 'node:child_process';
 import {
   INITIAL_AGENT_COUNT, MAX_AGENT_EVENTS, getModelContextLimit,
   TOKEN_BYTES_RATIO, TOKEN_FIXED_CATEGORIES,
+  ByteBudgetCache, approximateStringBytes,
+  SESSION_CACHE_BYTE_BUDGET, SESSION_CACHE_MAX_ENTRIES,
 } from '@vibisual/shared';
 import { modelRegistryService } from './modelRegistryService.js';
 import type { AgentEvent, TodoItem, TurnTokenUsage, TokenCategoryEstimate, SessionTokenData } from '@vibisual/shared';
 import { logger } from '../logger.js';
 import { dbg } from './debugLog.js';
 import { resolveClaudeBin } from './claudeBin.js';
+import { scanFileLines, scanWholeFileLines } from './jsonlChunkReader.js';
+import { registerEvictableCache } from './memoryMonitor.js';
+
+/**
+ * §3.2.4 F축 — 세션 JSONL 파생 캐시가 **나눠 쓰는 예산**.
+ *
+ * 종전엔 캐시마다 "파일 몇 개"(64)로만 묶여 있었다. 26MB 짜리와 4KB 짜리가 같은 한 칸을
+ * 차지하니 트랜스크립트가 수천 개인 기계에서는 캐시가 끊임없이 교체되고 그때마다 전량 재파싱이
+ * 돌았다(실측: 10.9시간에 누적 읽기 16GB — 읽을 대상 전체는 2.1GB).
+ *
+ * 몫은 실측에서 실제로 큰 것부터 준다 — 토큰 스캔(턴 배열)과 사용자 메시지(대화 본문)가 크고,
+ * 컨텍스트 스캔은 숫자 몇 개뿐이며, 제목·경로는 짧은 문자열이다. 합은 1 이다.
+ */
+const CACHE_SHARES = {
+  tokenScan: 0.40,
+  userMessages: 0.30,
+  contextScan: 0.12,
+  lastAssistant: 0.10,
+  paths: 0.08,
+} as const;
+
+/** 몫(0~1)을 바이트 예산으로. */
+function cacheBudget(share: number): number {
+  return Math.floor(SESSION_CACHE_BYTE_BUDGET * share);
+}
+
+/** 몫에 비례해 개수 상한도 나눈다 — 작은 값 수천 개가 엔트리 오버헤드로만 부푸는 것을 막는 축. */
+function cacheEntryCap(share: number): number {
+  return Math.max(32, Math.floor(SESSION_CACHE_MAX_ENTRIES * share));
+}
 
 /** `claude` CLI 바이너리 SSOT 경로 (subAgentManager/contiManager 와 동일). */
 const CLAUDE_BIN = resolveClaudeBin().binPath;
@@ -394,8 +426,18 @@ function cwdToSlug(cwd: string): string {
  * §9 v3.89 — 세션 제목 캐시. 제목은 **첫 user 메시지**라 한 번 잡히면 다시 바뀌지 않는다
  * (JSONL 은 append-only). 못 찾은 경우만 파일이 자란 뒤 재시도한다.
  */
-const sessionTitleCache = new Map<string, string>();
-const sessionTitleMissSize = new Map<string, number>();
+const sessionTitleCache = new ByteBudgetCache<string, string>({
+  name: 'sessionDiscovery.title',
+  maxBytes: cacheBudget(CACHE_SHARES.paths / 4),
+  maxEntries: cacheEntryCap(CACHE_SHARES.paths),
+  sizeOf: approximateStringBytes,
+});
+const sessionTitleMissSize = new ByteBudgetCache<string, number>({
+  name: 'sessionDiscovery.titleMiss',
+  maxBytes: cacheBudget(CACHE_SHARES.paths / 4),
+  maxEntries: cacheEntryCap(CACHE_SHARES.paths),
+  sizeOf: () => 64, // 숫자 하나 + Map 엔트리 오버헤드 근사
+});
 /** 제목 탐색 시 우선 읽어보는 파일 앞부분 크기. 첫 user 메시지는 파일 맨 앞에 있다. */
 const TITLE_HEAD_BYTES = 256 * 1024;
 
@@ -444,7 +486,7 @@ function readSessionTitle(cwd: string, sessionId: string): string | null {
       return null;
     }
 
-    const full = scanTitle(fs.readFileSync(jsonlPath, 'utf8'));
+    const full = scanTitleFromFile(jsonlPath);
     if (full !== null) {
       sessionTitleCache.set(jsonlPath, full);
       sessionTitleMissSize.delete(jsonlPath);
@@ -457,42 +499,73 @@ function readSessionTitle(cwd: string, sessionId: string): string | null {
   }
 }
 
+/**
+ * JSONL 한 줄로 제목을 판정한다. `null` = 이 줄로는 결론이 안 남(계속 봐야 함),
+ * 객체 = **여기서 결론**(첫 user 엔트리의 첫 text 블록).
+ *
+ * ⚠ 빈 텍스트도 결론이다 — 종전 구현은 첫 text 블록을 만나면 `text || null` 을 그대로 돌려주고
+ *   더 찾지 않았다. 이를 "계속 찾기"로 바꾸면 제목이 달라지는 세션이 생긴다(등가성 유지).
+ */
+function scanTitleLine(line: string): { title: string | null } | null {
+  try {
+    const entry: unknown = JSON.parse(line);
+    if (typeof entry !== 'object' || entry === null) return null;
+    const d = entry as Record<string, unknown>;
+    if (d['type'] !== 'user') return null;
+
+    const msg = d['message'] as Record<string, unknown> | undefined;
+    if (!msg || !Array.isArray(msg['content'])) return null;
+
+    for (const block of msg['content'] as unknown[]) {
+      if (typeof block !== 'object' || block === null) continue;
+      const b = block as Record<string, unknown>;
+      if (b['type'] === 'text' && typeof b['text'] === 'string') {
+        let text = b['text']
+          .replace(/<[^>]+>/g, '')  // XML 태그 제거
+          .trim();
+        if (text.length > MAX_TITLE_LENGTH) {
+          text = text.slice(0, MAX_TITLE_LENGTH) + '…';
+        }
+        return { title: text || null };
+      }
+    }
+    return null;
+  } catch {
+    return null; // skip parse error
+  }
+}
+
 /** JSONL 텍스트에서 첫 user 메시지 제목을 뽑는다(없으면 null). */
 function scanTitle(content: string): string | null {
   try {
     // 줄 단위 파싱 — 첫 user 메시지만 찾으면 중단
     for (const line of content.split('\n')) {
       if (!line) continue;
-      try {
-        const entry: unknown = JSON.parse(line);
-        if (typeof entry !== 'object' || entry === null) continue;
-        const d = entry as Record<string, unknown>;
-        if (d['type'] !== 'user') continue;
-
-        const msg = d['message'] as Record<string, unknown> | undefined;
-        if (!msg || !Array.isArray(msg['content'])) continue;
-
-        for (const block of msg['content'] as unknown[]) {
-          if (typeof block !== 'object' || block === null) continue;
-          const b = block as Record<string, unknown>;
-          if (b['type'] === 'text' && typeof b['text'] === 'string') {
-            let text = b['text']
-              .replace(/<[^>]+>/g, '')  // XML 태그 제거
-              .trim();
-            if (text.length > MAX_TITLE_LENGTH) {
-              text = text.slice(0, MAX_TITLE_LENGTH) + '…';
-            }
-            return text || null;
-          }
-        }
-      } catch {
-        // skip parse error
-      }
+      const hit = scanTitleLine(line);
+      if (hit) return hit.title;
     }
     return null;
   } catch {
     return null;
   }
+}
+
+/**
+ * 파일을 **청크로 훑어** 제목을 뽑는다 — §3.2.4 G축.
+ *
+ * 종전 `scanTitle(fs.readFileSync(p,'utf8'))` 는 앞 256KB 에서 못 찾았을 때 26MB 파일을 통째로
+ * 문자열(UTF-16 이라 최대 52MB)로 올렸다. 첫 user 를 만나면 그 자리에서 읽기를 멈춘다.
+ */
+function scanTitleFromFile(jsonlPath: string): string | null {
+  // 콜백 안에서의 할당을 TS 가 좁히지 못하게 상자에 담는다.
+  const box: { title: string | null } = { title: null };
+  scanWholeFileLines(jsonlPath, (line) => {
+    const hit = scanTitleLine(line);
+    if (!hit) return;
+    box.title = hit.title;
+    return false; // 결론이 났다 — 나머지는 읽지 않는다.
+  });
+  return box.title;
 }
 
 /** 특정 세션의 제목을 다시 조회 (JSONL 생성 대기용) */
@@ -520,7 +593,12 @@ export function listJsonlSessionIds(cwd: string): { sessionId: string; jsonlPath
 /** sessionId → 해석된 JSONL 디렉토리 캐시.
  *  Claude Code `--isolation worktree` 처럼 실제 실행 cwd 가 부모 cwd 와 달라
  *  cwd-slug 직행이 빗나가는 경우의 전역 탐색 결과를 보존(핫패스 재스캔 방지). */
-const sessionDirCache = new Map<string, string>();
+const sessionDirCache = new ByteBudgetCache<string, string>({
+  name: 'sessionDiscovery.dir',
+  maxBytes: cacheBudget(CACHE_SHARES.paths / 4),
+  maxEntries: cacheEntryCap(CACHE_SHARES.paths),
+  sizeOf: approximateStringBytes,
+});
 
 /**
  * §9 v3.89 — "이 sessionId 는 어디에도 없다" 를 기억하는 부정 캐시(sessionId → 재탐색 가능 시각).
@@ -531,7 +609,12 @@ const sessionDirCache = new Map<string, string>();
  * 세션 하나가 영구적인 디렉토리 스캔 루프가 된다. 짧은 TTL 을 둬 "잠시 후 다시 찾아본다" 는
  * 기존 의미(파일이 나중에 생기면 잡힘)는 유지하면서 스캔 빈도만 낮춘다.
  */
-const sessionPathMissCache = new Map<string, number>();
+const sessionPathMissCache = new ByteBudgetCache<string, number>({
+  name: 'sessionDiscovery.pathMiss',
+  maxBytes: cacheBudget(CACHE_SHARES.paths / 4),
+  maxEntries: cacheEntryCap(CACHE_SHARES.paths),
+  sizeOf: () => 64,
+});
 const SESSION_PATH_MISS_TTL_MS = 3000;
 
 /**
@@ -666,106 +749,192 @@ function extractTodos(entry: Record<string, unknown>): TodoItem[] | null {
  * 횟수만큼 겹쳐 붙는다 — 그래서 **매번 얕은 복사본**을 돌려준다(엔트리 최대 MAX_AGENT_EVENTS 개라
  * 파일 재파싱과 비교할 수 없이 싸다).
  */
-const userMessagesCache = new Map<string, { fileSize: number; mtimeMs: number; events: AgentEvent[] }>();
-
 /**
- * 파일별 캐시 상한(세션 수 기준). 넘으면 가장 오래 들어온 것부터 버린다(Map 은 삽입 순서 보존).
- * 대화 본문·요약 원문을 들고 있으므로 무제한이면 오래 켜둔 앱에서 메모리가 계속 는다 —
- * 느려짐을 고치려다 메모리를 새게 두지 않기 위한 상한.
+ * §3.2.4 G축 + 증분 — 대화 이벤트 추출 **누적 상태**(파일 크기·mtime·파싱 오프셋).
+ *
+ * 종전엔 파일이 한 줄이라도 자라면 **처음부터 전량 재파싱**했다(캐시 키가 크기·mtime 이라 append
+ * 마다 통째로 미스). 트랜스크립트는 append-only 라 붙은 줄만 같은 순서로 먹이면 결과가 전량
+ * 재스캔과 같다 — `ContextScanState`·`TokenScanState` 와 같은 규약이다.
+ *
+ * ⚠ 마지막 턴 커밋은 **누적 상태에 넣지 않는다.** 그 턴은 아직 안 끝났을 수 있어(다음 append 에
+ *   같은 턴의 assistant 텍스트가 더 붙는다) 결과 계산에만 반영한다. `pendingTail`(개행 없이 끝난
+ *   줄)도 같은 이유로 상태 밖에 둔다.
  */
-const SESSION_TEXT_CACHE_MAX = 64;
-
-function trimCache(cache: Map<string, unknown>): void {
-  while (cache.size > SESSION_TEXT_CACHE_MAX) {
-    const oldest = cache.keys().next();
-    if (oldest.done) break;
-    cache.delete(oldest.value);
-  }
+interface UserMessagesState {
+  fileSize: number;
+  mtimeMs: number;
+  /** 완결된 줄까지 파싱한 바이트 오프셋(다음 읽기 시작점). */
+  parsedBytes: number;
+  /** 개행 없이 끝난 마지막 줄 — 결과에만 반영한다. */
+  pendingTail: string;
+  /** 이미 완결된 턴들(뒤 MAX_AGENT_EVENTS 개만 남기는 링버퍼). */
+  events: AgentEvent[];
+  /** 원본 기준 일련번호 — 링버퍼로 잘라내도 `id` 가 전량 재스캔과 같아야 한다. */
+  emitted: number;
+  /** 아직 assistant 응답을 모으는 중인 user 턴. */
+  pendingUser: { text: string; ts: number } | null;
+  parts: string[];
+  lastTodos: TodoItem[] | undefined;
 }
+
+const userMessagesCache = new ByteBudgetCache<string, UserMessagesState>({
+  name: 'sessionDiscovery.userMessages',
+  maxBytes: cacheBudget(CACHE_SHARES.userMessages),
+  maxEntries: cacheEntryCap(CACHE_SHARES.userMessages),
+  // 대화 본문이 실체다 — 항목 수가 아니라 글자 수가 이 캐시의 크기를 정한다.
+  sizeOf: (state) => {
+    let bytes = 128 + approximateStringBytes(state.pendingTail);
+    for (const e of state.events) {
+      bytes += approximateStringBytes(e.message) + approximateStringBytes(e.response) + 160;
+      if (e.todos) bytes += e.todos.length * 200;
+    }
+    for (const p of state.parts) bytes += approximateStringBytes(p);
+    if (state.pendingUser) bytes += approximateStringBytes(state.pendingUser.text);
+    return bytes;
+  },
+});
+
+// §3.2.4 F축 — 종전의 `SESSION_TEXT_CACHE_MAX`(64) + `trimCache()` 는 **개수**만 세는 상한이라
+// 26MB 짜리와 4KB 짜리를 같은 한 칸으로 취급했다. 이제 캐시가 스스로 바이트 예산을 지키므로
+// 호출부에서 따로 다듬을 일이 없다(`ByteBudgetCache.set` 안에서 축출까지 끝난다).
 
 /** 캐시 원본 보호용 얕은 복사(호출부가 이벤트 필드를 덮어쓰므로 필수). */
 function cloneAgentEvents(events: AgentEvent[]): AgentEvent[] {
   return events.map((e) => ({ ...e }));
 }
 
-/** JSONL에서 유저 메시지 + 뒤따르는 assistant 응답 읽기 (최신순, MAX_AGENT_EVENTS개) */
-export function readUserMessages(cwd: string, sessionId: string): AgentEvent[] {
-  try {
-    const jsonlPath = resolveSessionJsonlPath(cwd, sessionId);
-    if (!jsonlPath) return [];
+function freshUserMessagesState(fileSize: number, mtimeMs: number): UserMessagesState {
+  return {
+    fileSize,
+    mtimeMs,
+    parsedBytes: 0,
+    pendingTail: '',
+    events: [],
+    emitted: 0,
+    pendingUser: null,
+    parts: [],
+    lastTodos: undefined,
+  };
+}
 
+/** 완결된 턴 하나를 링버퍼에 밀어 넣는다. 전량/증분 경로가 공유하는 유일한 커밋 지점. */
+function commitUserTurn(state: UserMessagesState): void {
+  if (!state.pendingUser) return;
+  state.events.push({
+    id: `msg-${state.pendingUser.ts}-${state.emitted}`,
+    message: state.pendingUser.text,
+    response: state.parts.length > 0 ? state.parts.join('\n\n') : undefined,
+    timestamp: state.pendingUser.ts,
+    source: 'user',
+    todos: state.lastTodos,
+  });
+  state.emitted += 1;
+  if (state.events.length > MAX_AGENT_EVENTS) state.events.shift();
+  state.pendingUser = null;
+  state.parts = [];
+  state.lastTodos = undefined;
+}
+
+/** 한 줄(JSONL 엔트리)을 누적 상태에 반영. 전량/증분 경로가 공유하는 유일한 파싱 지점. */
+function feedUserMessageLine(state: UserMessagesState, line: string): void {
+  if (!line) return;
+  let d: Record<string, unknown>;
+  try {
+    const entry: unknown = JSON.parse(line);
+    if (typeof entry !== 'object' || entry === null) return;
+    d = entry as Record<string, unknown>;
+  } catch {
+    return; // skip
+  }
+  const type = typeof d['type'] === 'string' ? d['type'] : '';
+  if (type !== 'user' && type !== 'assistant') return;
+
+  const text = extractText(d);
+  const todos = type === 'assistant' ? extractTodos(d) : null;
+  // 텍스트도 없고 todos도 없으면 skip (종전 1차 필터 그대로)
+  if (!text && !todos) return;
+
+  if (type === 'user') {
+    commitUserTurn(state);
+    const ts = typeof d['timestamp'] === 'string'
+      ? new Date(d['timestamp']).getTime()
+      : Date.now();
+    state.pendingUser = { text: text ?? '', ts };
+    return;
+  }
+
+  // assistant — 앞선 user 가 있을 때만 그 턴에 합산한다(첫 user 이전 것은 종전에도 버려졌다).
+  if (!state.pendingUser) return;
+  if (text) state.parts.push(text);
+  if (todos) state.lastTodos = todos;
+}
+
+/** `[start, end)` 를 청크로 훑어 누적 상태에 먹이고 다음 시작 오프셋을 돌려준다(§3.2.4 G축). */
+function feedUserMessagesRange(
+  state: UserMessagesState,
+  jsonlPath: string,
+  start: number,
+  end: number,
+): number {
+  if (end - start <= 0) { state.pendingTail = ''; return start; }
+  const { nextOffset, pendingTail } = scanFileLines(jsonlPath, start, end, (line) => {
+    feedUserMessageLine(state, line);
+  });
+  state.pendingTail = pendingTail;
+  return nextOffset;
+}
+
+/**
+ * JSONL **경로로 직접** 읽는 핵심 — 증분 상태 관리가 전부 여기 있다.
+ * 세션 해석(cwd+sessionId → 경로)은 껍데기가 맡는다. 그래야 등가성 테스트가 임시 파일만으로
+ * 돌 수 있다(`scanActiveBackgroundShells` 와 같은 형태 — 사용자 홈을 건드리지 않는다).
+ */
+export function readUserMessagesByPath(jsonlPath: string): AgentEvent[] {
+  try {
     const stat = fs.statSync(jsonlPath);
     const cached = userMessagesCache.get(jsonlPath);
-    if (cached && cached.fileSize === stat.size && cached.mtimeMs === stat.mtimeMs) {
-      return cloneAgentEvents(cached.events);
+
+    let state: UserMessagesState;
+    if (cached !== undefined && cached.fileSize === stat.size && cached.mtimeMs === stat.mtimeMs) {
+      // 변경 없음 — 파일을 열지 않는다.
+      state = cached;
+    } else if (cached !== undefined && stat.size >= cached.parsedBytes) {
+      // append 만 일어난 경우 — 붙은 부분만 이어 읽는다.
+      state = cached;
+      state.parsedBytes = feedUserMessagesRange(state, jsonlPath, state.parsedBytes, stat.size);
+      state.fileSize = stat.size;
+      state.mtimeMs = stat.mtimeMs;
+      // 제자리 변경 뒤에는 캐시에 크기를 다시 알려야 예산 회계가 어긋나지 않는다(§3.2.4 F축).
+      userMessagesCache.refresh(jsonlPath);
+    } else {
+      // 첫 조회 또는 파일이 줄어듦(재작성/rotate) — 전체 재파싱.
+      state = freshUserMessagesState(stat.size, stat.mtimeMs);
+      state.parsedBytes = feedUserMessagesRange(state, jsonlPath, 0, stat.size);
+      userMessagesCache.set(jsonlPath, state);
     }
 
-    const content = fs.readFileSync(jsonlPath, 'utf8');
-    const rawLines = content.split('\n');
+    // 미완결 꼬리 + 아직 안 끝난 턴은 **결과에만** 반영한다 — 누적 상태는 건드리지 않는다.
+    const view: UserMessagesState = {
+      ...state,
+      events: state.events.slice(),
+      parts: state.parts.slice(),
+      pendingUser: state.pendingUser ? { ...state.pendingUser } : null,
+    };
+    if (state.pendingTail) feedUserMessageLine(view, state.pendingTail);
+    commitUserTurn(view);
 
-    // 1차: 모든 엔트리를 파싱하여 type + 텍스트 + todos 배열로 변환
-    const parsed: { type: string; text: string; ts: number; todos?: TodoItem[] }[] = [];
-    for (const line of rawLines) {
-      if (!line) continue;
-      try {
-        const entry: unknown = JSON.parse(line);
-        if (typeof entry !== 'object' || entry === null) continue;
-        const d = entry as Record<string, unknown>;
-        const type = typeof d['type'] === 'string' ? d['type'] : '';
-        if (type !== 'user' && type !== 'assistant') continue;
-
-        const text = extractText(d);
-        const todos = type === 'assistant' ? extractTodos(d) : null;
-
-        // 텍스트도 없고 todos도 없으면 skip
-        if (!text && !todos) continue;
-
-        const ts = typeof d['timestamp'] === 'string'
-          ? new Date(d['timestamp']).getTime()
-          : Date.now();
-        parsed.push({ type, text: text ?? '', ts, todos: todos ?? undefined });
-      } catch {
-        // skip
-      }
-    }
-
-    // 2차: user → 다음 user 전까지 모든 assistant 텍스트 + 마지막 todos 합산
-    const events: AgentEvent[] = [];
-    for (let i = 0; i < parsed.length; i++) {
-      const entry = parsed[i]!;
-      if (entry.type !== 'user') continue;
-
-      // i+1부터 다음 user 직전까지 assistant 텍스트 + todos 수집
-      const parts: string[] = [];
-      let lastTodos: TodoItem[] | undefined;
-      for (let j = i + 1; j < parsed.length && parsed[j]!.type !== 'user'; j++) {
-        const a = parsed[j]!;
-        if (a.type === 'assistant') {
-          if (a.text) parts.push(a.text);
-          if (a.todos) lastTodos = a.todos;
-        }
-      }
-
-      const response = parts.length > 0 ? parts.join('\n\n') : undefined;
-
-      events.push({
-        id: `msg-${entry.ts}-${events.length}`,
-        message: entry.text,
-        response,
-        timestamp: entry.ts,
-        source: 'user',
-        todos: lastTodos,
-      });
-    }
-
-    events.reverse();
-    const recent = events.slice(0, MAX_AGENT_EVENTS);
-    userMessagesCache.set(jsonlPath, { fileSize: stat.size, mtimeMs: stat.mtimeMs, events: recent });
-    trimCache(userMessagesCache);
-    return cloneAgentEvents(recent);
+    view.events.reverse();
+    return cloneAgentEvents(view.events);
   } catch {
     return [];
   }
+}
+
+/** JSONL에서 유저 메시지 + 뒤따르는 assistant 응답 읽기 (최신순, MAX_AGENT_EVENTS개) */
+export function readUserMessages(cwd: string, sessionId: string): AgentEvent[] {
+  const jsonlPath = resolveSessionJsonlPath(cwd, sessionId);
+  if (!jsonlPath) return [];
+  return readUserMessagesByPath(jsonlPath);
 }
 
 /**
@@ -773,72 +942,120 @@ export function readUserMessages(cwd: string, sessionId: string): AgentEvent[] {
  * 여러 턴에 걸친 작업 보고를 하나로 합친다.
  */
 /**
- * §9 v3.89 — 요약 추출 결과 캐시(파일 크기·mtime 키). **실패(null)도 캐시**한다.
+ * §9 v3.89 + §3.2.4 증분 — 요약 추출 **누적 상태**(파일 크기·mtime·파싱 오프셋).
  *
  * `resolveMissingSummaries()` 는 "summary 가 아직 없는 completed 에이전트" 를 매 스냅샷 재구축마다
- * 다시 시도하는데, 그 세션에서 요약을 못 뽑으면(마지막 user 뒤 assistant 텍스트가 없는 경우)
- * **영원히** 매번 수 MB 짜리 JSONL 을 통째로 읽고 전 줄을 파싱했다. 파일이 그대로면 결과도 같으므로
- * 재시도는 파일이 바뀐 뒤에만 의미가 있다 — 재시도 의미는 유지하면서 헛읽기만 없앤다.
+ * 다시 시도하는데, 종전엔 파일이 조금이라도 자라면 수 MB 짜리 JSONL 을 **처음부터** 다시 읽고 전
+ * 줄을 파싱했다. 트랜스크립트는 append-only 라 붙은 줄만 이어 먹이면 결과가 전량 재스캔과 같다.
+ *
+ * 수집 규칙이 그대로 증분에 맞는다 — `user` 를 만나면 모으던 것을 버리므로, 끝까지 먹이고 나면
+ * 남는 것은 언제나 "마지막 user 이후의 assistant 텍스트"뿐이다. 결과가 `null`(모은 게 없음)인
+ * 경우도 상태로 남아, 파일이 안 바뀌면 다시 읽지 않는다(종전의 "실패도 캐시" 와 같은 효과).
  */
-const lastAssistantCache = new Map<string, { fileSize: number; mtimeMs: number; value: string | null }>();
+interface LastAssistantState {
+  fileSize: number;
+  mtimeMs: number;
+  /** 완결된 줄까지 파싱한 바이트 오프셋(다음 읽기 시작점). */
+  parsedBytes: number;
+  /** 개행 없이 끝난 마지막 줄 — 결과에만 반영한다. */
+  pendingTail: string;
+  /** 마지막 user 이후 모인 assistant 텍스트들. */
+  parts: string[];
+}
 
-export function readLastAssistantMessage(cwd: string, sessionId: string): string | null {
+const lastAssistantCache = new ByteBudgetCache<string, LastAssistantState>({
+  name: 'sessionDiscovery.lastAssistant',
+  maxBytes: cacheBudget(CACHE_SHARES.lastAssistant),
+  maxEntries: cacheEntryCap(CACHE_SHARES.lastAssistant),
+  sizeOf: (state) => {
+    let bytes = 96 + approximateStringBytes(state.pendingTail);
+    for (const p of state.parts) bytes += approximateStringBytes(p);
+    return bytes;
+  },
+});
+
+/** 한 줄을 누적 상태에 반영. 전량/증분 경로가 공유하는 유일한 파싱 지점. */
+function feedLastAssistantLine(state: LastAssistantState, line: string): void {
+  if (!line) return;
+  let d: Record<string, unknown>;
   try {
-    const jsonlPath = resolveSessionJsonlPath(cwd, sessionId);
-    if (!jsonlPath) return null;
+    const entry: unknown = JSON.parse(line);
+    if (typeof entry !== 'object' || entry === null) return;
+    d = entry as Record<string, unknown>;
+  } catch {
+    return; // skip
+  }
+  const type = typeof d['type'] === 'string' ? d['type'] : '';
+  // user 를 만나면 모으던 것을 버린다 — 그래서 끝까지 먹이면 "마지막 user 이후"만 남는다.
+  if (type === 'user') { state.parts = []; return; }
+  if (type !== 'assistant') return;
+  const text = extractText(d);
+  if (text) state.parts.push(text);
+}
 
+/** `[start, end)` 를 청크로 훑어 누적 상태에 먹이고 다음 시작 오프셋을 돌려준다(§3.2.4 G축). */
+function feedLastAssistantRange(
+  state: LastAssistantState,
+  jsonlPath: string,
+  start: number,
+  end: number,
+): number {
+  if (end - start <= 0) { state.pendingTail = ''; return start; }
+  const { nextOffset, pendingTail } = scanFileLines(jsonlPath, start, end, (line) => {
+    feedLastAssistantLine(state, line);
+  });
+  state.pendingTail = pendingTail;
+  return nextOffset;
+}
+
+/** JSONL **경로로 직접** 읽는 핵심 — 증분 상태 관리가 전부 여기 있다(테스트는 이쪽을 쓴다). */
+export function readLastAssistantMessageByPath(jsonlPath: string): string | null {
+  try {
     const stat = fs.statSync(jsonlPath);
     const cached = lastAssistantCache.get(jsonlPath);
-    if (cached && cached.fileSize === stat.size && cached.mtimeMs === stat.mtimeMs) {
-      return cached.value;
-    }
-    const remember = (value: string | null): string | null => {
-      lastAssistantCache.set(jsonlPath, { fileSize: stat.size, mtimeMs: stat.mtimeMs, value });
-      trimCache(lastAssistantCache);
-      return value;
-    };
 
-    const content = fs.readFileSync(jsonlPath, 'utf8');
-    const rawLines = content.split('\n');
-
-    // 전체 파싱 → type + 텍스트 배열
-    const entries: { type: string; text: string }[] = [];
-    for (const line of rawLines) {
-      if (!line) continue;
-      try {
-        const entry: unknown = JSON.parse(line);
-        if (typeof entry !== 'object' || entry === null) continue;
-        const d = entry as Record<string, unknown>;
-        const type = typeof d['type'] === 'string' ? d['type'] : '';
-        if (type !== 'user' && type !== 'assistant') continue;
-        const text = extractText(d);
-        entries.push({ type, text: text ?? '' });
-      } catch {
-        // skip
-      }
+    let state: LastAssistantState;
+    if (cached !== undefined && cached.fileSize === stat.size && cached.mtimeMs === stat.mtimeMs) {
+      // 변경 없음 — 파일을 열지 않는다(결과가 null 이어도 다시 읽지 않는다).
+      state = cached;
+    } else if (cached !== undefined && stat.size >= cached.parsedBytes) {
+      // append 만 일어난 경우 — 붙은 부분만 이어 읽는다.
+      state = cached;
+      state.parsedBytes = feedLastAssistantRange(state, jsonlPath, state.parsedBytes, stat.size);
+      state.fileSize = stat.size;
+      state.mtimeMs = stat.mtimeMs;
+      // 제자리 변경 뒤에는 캐시에 크기를 다시 알려야 예산 회계가 어긋나지 않는다(§3.2.4 F축).
+      lastAssistantCache.refresh(jsonlPath);
+    } else {
+      // 첫 조회 또는 파일이 줄어듦(재작성/rotate) — 전체 재파싱.
+      state = { fileSize: stat.size, mtimeMs: stat.mtimeMs, parsedBytes: 0, pendingTail: '', parts: [] };
+      state.parsedBytes = feedLastAssistantRange(state, jsonlPath, 0, stat.size);
+      lastAssistantCache.set(jsonlPath, state);
     }
 
-    // 마지막 user 인덱스 찾기
-    let lastUserIdx = -1;
-    for (let i = entries.length - 1; i >= 0; i--) {
-      if (entries[i]!.type === 'user') { lastUserIdx = i; break; }
+    // 미완결 꼬리(개행 없이 끝난 마지막 줄)는 결과에만 반영 — 누적 상태는 건드리지 않는다.
+    let parts = state.parts;
+    if (state.pendingTail) {
+      const view: LastAssistantState = { ...state, parts: state.parts.slice() };
+      feedLastAssistantLine(view, state.pendingTail);
+      parts = view.parts;
     }
 
-    // 마지막 user 이후 모든 assistant 텍스트 합산
-    const parts: string[] = [];
-    const start = lastUserIdx >= 0 ? lastUserIdx + 1 : 0;
-    for (let i = start; i < entries.length; i++) {
-      const e = entries[i]!;
-      if (e.type === 'assistant' && e.text) parts.push(e.text);
-    }
-
-    if (parts.length === 0) return remember(null);
-
-    const summary = parts.join('\n\n');
-    return remember(summary);
+    if (parts.length === 0) return null;
+    return parts.join('\n\n');
   } catch {
     return null;
   }
+}
+
+/**
+ * JSONL에서 마지막 user 프롬프트 이후 모든 assistant 텍스트를 합산하여 요약 생성.
+ * 여러 턴에 걸친 작업 보고를 하나로 합친다.
+ */
+export function readLastAssistantMessage(cwd: string, sessionId: string): string | null {
+  const jsonlPath = resolveSessionJsonlPath(cwd, sessionId);
+  if (!jsonlPath) return null;
+  return readLastAssistantMessageByPath(jsonlPath);
 }
 
 /**
@@ -964,7 +1181,22 @@ interface ContextScanState {
   pendingTail: string;
 }
 
-const contextScanCache = new Map<string, ContextScanState>();
+// ⚠ 이 캐시는 §3.2.4 이전까지 **상한이 아예 없었다**(다른 캐시들이 64개 상한을 가진 동안).
+//   값이 작아 눈에 안 띄었을 뿐, 세션 수만큼 무한히 늘어나는 구조였다.
+const contextScanCache = new ByteBudgetCache<string, ContextScanState>({
+  name: 'sessionDiscovery.contextScan',
+  maxBytes: cacheBudget(CACHE_SHARES.contextScan),
+  maxEntries: cacheEntryCap(CACHE_SHARES.contextScan),
+  sizeOf: (state) => 160 + approximateStringBytes(state.pendingTail) + approximateStringBytes(state.lastModel),
+});
+
+/**
+ * 테스트용 — 세션 JSONL 파생 캐시를 전부 비운다.
+ * 증분 경로와 "캐시가 빈 상태에서의 전량 재스캔" 을 같은 조건에서 비교하기 위한 자리다.
+ */
+export function __resetSessionCachesForTest(): void {
+  for (const cache of EVICTABLE_SESSION_CACHES) cache.clear();
+}
 
 /** 한 줄(assistant 엔트리)을 누적 상태에 반영. 전체/증분 경로가 공유하는 유일한 파싱 지점. */
 function feedContextLine(state: ContextScanState, line: string): void {
@@ -1009,27 +1241,14 @@ function feedContextLine(state: ContextScanState, line: string): void {
 function feedRange(state: ContextScanState, jsonlPath: string, start: number, end: number): number {
   const length = end - start;
   if (length <= 0) { state.pendingTail = ''; return start; }
-  let fd: number | null = null;
-  try {
-    fd = fs.openSync(jsonlPath, 'r');
-    const buf = Buffer.allocUnsafe(length);
-    const read = fs.readSync(fd, buf, 0, length, start);
-    if (read <= 0) { state.pendingTail = ''; return start; }
-    const lastNewline = buf.lastIndexOf(0x0a, read - 1); // '\n'
-    // 개행이 하나도 없으면 아직 줄이 완결되지 않은 것 — 커밋하지 않고 꼬리로만 들고 간다.
-    if (lastNewline < 0) {
-      state.pendingTail = buf.subarray(0, read).toString('utf8');
-      return start;
-    }
-    const complete = buf.subarray(0, lastNewline).toString('utf8');
-    for (const line of complete.split('\n')) feedContextLine(state, line);
-    state.pendingTail = lastNewline + 1 < read
-      ? buf.subarray(lastNewline + 1, read).toString('utf8')
-      : '';
-    return start + lastNewline + 1;
-  } finally {
-    if (fd !== null) { try { fs.closeSync(fd); } catch { /* 무시 */ } }
-  }
+  // §3.2.4 G축 — 종전엔 `Buffer.allocUnsafe(구간 전체)` 라 첫 조회(= 전체 재파싱)에서 파일 크기만 한
+  // 버퍼 + 그만 한 문자열이 한꺼번에 잡혔다. 청크 순회는 같은 줄을 같은 순서로 한 번씩 먹이므로
+  // 결과가 동일하고(등가성 테스트로 고정) 피크만 상수가 된다.
+  const { nextOffset, pendingTail } = scanFileLines(jsonlPath, start, end, (line) => {
+    feedContextLine(state, line);
+  });
+  state.pendingTail = pendingTail;
+  return nextOffset;
 }
 
 /**
@@ -1059,6 +1278,8 @@ export function readContextInfo(cwd: string, sessionId: string): AgentContextInf
       state.parsedBytes = feedRange(state, jsonlPath, state.parsedBytes, stat.size);
       state.fileSize = stat.size;
       state.mtimeMs = stat.mtimeMs;
+      // 제자리 변경 뒤에는 캐시에 크기를 다시 알려야 예산 회계가 어긋나지 않는다(§3.2.4 F축).
+      contextScanCache.refresh(jsonlPath);
     } else {
       // 첫 조회 또는 파일이 줄어듦(재작성/rotate) — 전체 재파싱.
       state = {
@@ -1269,9 +1490,41 @@ interface TokenScanState {
   pendingTail: string;
 }
 
-const tokenScanCache = new Map<string, TokenScanState>();
-/** 캐시 파일 수 상한 — 넘으면 가장 먼저 들어온 항목부터 버린다(무한 증가 방지). */
-const TOKEN_SCAN_CACHE_MAX = 64;
+const tokenScanCache = new ByteBudgetCache<string, TokenScanState>({
+  name: 'sessionDiscovery.tokenScan',
+  maxBytes: cacheBudget(CACHE_SHARES.tokenScan),
+  maxEntries: cacheEntryCap(CACHE_SHARES.tokenScan),
+  // 실체는 `turns` 다 — 긴 세션 하나가 수천 턴이라, 항목 수가 아니라 이 배열 길이가 크기를 정한다.
+  sizeOf: (state) => {
+    let bytes = 512 + approximateStringBytes(state.pendingTail);
+    for (const t of state.turns) {
+      bytes += 160 + (t.tools.length * 48) + approximateStringBytes(t.model);
+    }
+    return bytes;
+  },
+});
+
+/**
+ * §3.2.4 I축 — 힙 압력이 걸리면 이 캐시들을 스스로 비운다.
+ *
+ * 여기 있는 것은 전부 **파일에서 다시 만들 수 있는 파생물**이라 버려도 소비자에게 no-op 이다
+ * (다음 조회에서 원본 JSONL 로부터 그대로 복원된다). 사용자가 보던 대화·이력은 이 목록에 없다.
+ */
+/** 압력 축출 대상 = 파일에서 다시 만들 수 있는 파생 캐시 전부. 테스트 리셋도 같은 목록을 쓴다. */
+const EVICTABLE_SESSION_CACHES = [
+  sessionTitleCache,
+  sessionTitleMissSize,
+  sessionDirCache,
+  sessionPathMissCache,
+  userMessagesCache,
+  lastAssistantCache,
+  contextScanCache,
+  tokenScanCache,
+];
+
+for (const cache of EVICTABLE_SESSION_CACHES) {
+  registerEvictableCache(cache);
+}
 
 /** 한 줄(JSONL 엔트리)을 turns + meta 양쪽에 반영. 라인당 JSON.parse 1회. */
 function feedTokenLine(state: TokenScanState, line: string): void {
@@ -1334,27 +1587,12 @@ function feedTokenLine(state: TokenScanState, line: string): void {
 function feedTokenRange(state: TokenScanState, jsonlPath: string, start: number, end: number): number {
   const length = end - start;
   if (length <= 0) { state.pendingTail = ''; return start; }
-  let fd: number | null = null;
-  try {
-    fd = fs.openSync(jsonlPath, 'r');
-    const buf = Buffer.allocUnsafe(length);
-    const read = fs.readSync(fd, buf, 0, length, start);
-    if (read <= 0) { state.pendingTail = ''; return start; }
-    const lastNewline = buf.lastIndexOf(0x0a, read - 1); // '\n'
-    // 개행이 하나도 없으면 아직 줄이 완결되지 않은 것 — 커밋하지 않고 꼬리로만 들고 간다.
-    if (lastNewline < 0) {
-      state.pendingTail = buf.subarray(0, read).toString('utf8');
-      return start;
-    }
-    const complete = buf.subarray(0, lastNewline).toString('utf8');
-    for (const line of complete.split('\n')) feedTokenLine(state, line);
-    state.pendingTail = lastNewline + 1 < read
-      ? buf.subarray(lastNewline + 1, read).toString('utf8')
-      : '';
-    return start + lastNewline + 1;
-  } finally {
-    if (fd !== null) { try { fs.closeSync(fd); } catch { /* 무시 */ } }
-  }
+  // §3.2.4 G축 — `feedRange` 와 같은 이유로 청크 순회(결과는 전량 읽기와 동일).
+  const { nextOffset, pendingTail } = scanFileLines(jsonlPath, start, end, (line) => {
+    feedTokenLine(state, line);
+  });
+  state.pendingTail = pendingTail;
+  return nextOffset;
 }
 
 /** 파일 상태를 최신으로 맞춘 스캔 상태 반환(변경 없으면 파일 미개봉). */
@@ -1377,6 +1615,8 @@ function scanTokenState(jsonlPath: string): TokenScanState | null {
     cached.parsedBytes = feedTokenRange(cached, jsonlPath, cached.parsedBytes, stat.size);
     cached.fileSize = stat.size;
     cached.mtimeMs = stat.mtimeMs;
+    // `turns` 가 자란 만큼 캐시에 크기를 다시 알린다 — 안 하면 예산이 조용히 새어 나간다(§3.2.4 F축).
+    tokenScanCache.refresh(jsonlPath);
     return cached;
   }
 
@@ -1390,10 +1630,7 @@ function scanTokenState(jsonlPath: string): TokenScanState | null {
     pendingTail: '',
   };
   state.parsedBytes = feedTokenRange(state, jsonlPath, 0, stat.size);
-  if (tokenScanCache.size >= TOKEN_SCAN_CACHE_MAX) {
-    const oldest = tokenScanCache.keys().next().value;
-    if (oldest !== undefined) tokenScanCache.delete(oldest);
-  }
+  // 상한은 캐시가 스스로 지킨다(개수 + 바이트 이중 예산) — 호출부 수동 축출 코드는 없앴다.
   tokenScanCache.set(jsonlPath, state);
   return state;
 }

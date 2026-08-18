@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyStreamDensity, sameDisplayItem, type StreamToolGroup } from './streamDensity.js';
+import { applyStreamDensity, sameDisplayItem, clampStreamText, type StreamToolGroup } from './streamDensity.js';
 import type { StreamGroup, StreamItemFull, StreamPlan } from './streamItems.js';
 
 function tool(id: string, toolName: string, isActive = false): StreamGroup {
@@ -14,9 +14,31 @@ function system(id: string, content = '[task_started]'): StreamItemFull {
 function plan(id: string, content: string): StreamPlan {
   return { kind: 'plan', id, todos: [{ content, status: 'in_progress' }], timestamp: 1 };
 }
+function result(id: string, content = 'done'): StreamItemFull {
+  return { kind: 'result', id, content, timestamp: 1 };
+}
 function command(id: string): StreamItemFull {
   return { kind: 'command', id, prompt: 'p', result: '', status: 'completed', timestamp: 1 };
 }
+function error(id: string, content = '[exit:1] boom'): StreamItemFull {
+  return { kind: 'error', id, content, timestamp: 1 };
+}
+
+describe('applyStreamDensity — 실패 사유(§5.5 #17-12 ③)', () => {
+  it('어느 밀도에서도 오류 줄은 사라지지 않는다', () => {
+    // 사용자가 읽어야 할 유일한 실패 원인이다 — 간결이라고 지우면 "오류라고만 나온다"로 되돌아간다.
+    const items = [command('c1'), tool('a1', 'Bash'), error('e1'), text('t1')];
+    for (const density of ['compact', 'standard', 'raw'] as const) {
+      const kinds = applyStreamDensity(items, density).map((i) => i.kind);
+      expect(kinds).toContain('error');
+    }
+  });
+
+  it('오류 줄은 도구 묶음에 흡수되지 않고 런을 끊는다', () => {
+    const out = applyStreamDensity([tool('a1', 'Bash'), error('e1'), tool('a2', 'Bash')], 'standard');
+    expect(out.map((i) => i.kind)).toEqual(['toolgroup', 'error', 'toolgroup']);
+  });
+});
 
 describe('applyStreamDensity — 도구 실행 묶기', () => {
   it('연속 도구는 한 묶음으로 접힌다', () => {
@@ -134,6 +156,117 @@ describe('applyStreamDensity — 옛 계획 접기', () => {
   it('계획이 하나뿐이면 접지 않는다', () => {
     const out = applyStreamDensity([plan('p1', 'only')], 'compact');
     expect((out[0] as StreamPlan).superseded).toBeFalsy();
+  });
+});
+
+describe('applyStreamDensity — §5.5 #17-21 간결은 진짜 간결하게', () => {
+  it('간결에서 완료된 도구 묶음은 화면에서 빠진다(표준에서는 남는다)', () => {
+    const items = [text('t1', '설명'), tool('a1', 'Read'), tool('a2', 'Bash'), text('t2', '결론')];
+    expect(applyStreamDensity(items, 'compact').map((i) => i.kind)).toEqual(['text', 'text']);
+    expect(applyStreamDensity(items, 'standard').map((i) => i.kind)).toEqual(['text', 'toolgroup', 'text']);
+  });
+
+  it('§5.5 #17-24 ① — 진행 중인 묶음도 간결에서는 안 나온다(생겼다 사라지며 깜빡이던 줄)', () => {
+    const out = applyStreamDensity([tool('a1', 'Read'), tool('a2', 'Bash', true)], 'compact');
+    expect(out).toHaveLength(0);
+    // 표준에서는 종전대로 진행 중 묶음이 남는다.
+    const std = applyStreamDensity([tool('a1', 'Read'), tool('a2', 'Bash', true)], 'standard');
+    expect((std[0] as StreamToolGroup).active).toBe(true);
+  });
+
+  it('묶음에 흡수된 내용 있는 system 본문은 묶음이 빠져도 남는다(오류·권한 메시지)', () => {
+    const items = [
+      tool('a1', 'Read'),
+      system('s1', '[Read] file not found'),
+      tool('a2', 'Bash'),
+    ];
+    // 표준에선 묶음 안쪽에 있고, 간결에선 묶음이 빠지면서 밖으로 나와 살아남는다.
+    expect(applyStreamDensity(items, 'standard').map((i) => i.kind)).toEqual(['toolgroup']);
+    expect(applyStreamDensity(items, 'compact').map((i) => i.id)).toEqual(['s1']);
+  });
+
+  it('상태 칩만 흡수한 완료 묶음은 흔적 없이 사라진다', () => {
+    const items = [tool('a1', 'Read'), system('s1', '[task_started]'), tool('a2', 'Read')];
+    expect(applyStreamDensity(items, 'compact')).toHaveLength(0);
+  });
+
+  it('간결에서도 대화 본문·계획·결과는 남는다(핵심은 보인다)', () => {
+    const items = [plan('p1', '단계'), tool('a1', 'Read'), text('t1', '설명'), result('r1', '끝')];
+    expect(applyStreamDensity(items, 'compact').map((i) => i.kind)).toEqual(['plan', 'text', 'result']);
+  });
+});
+
+describe('applyStreamDensity — §5.5 #17-26 간결은 첫 말과 마지막 말만', () => {
+  it('턴 안의 중간 본문(진행 나레이션)은 빠지고 처음·마지막만 남는다', () => {
+    const items = [
+      command('c1'),
+      text('t1', '요청은 이렇게 이해했습니다'),
+      text('t2', 'Now the render body'),
+      text('t3', 'Now extend StreamCommand'),
+      text('t4', '작업을 마쳤습니다'),
+    ];
+    expect(applyStreamDensity(items, 'compact').map((i) => i.id)).toEqual(['c1', 't1', 't4']);
+    // 표준·원문은 그대로 — 중간 본문이 전부 남는다.
+    expect(applyStreamDensity(items, 'standard').map((i) => i.id)).toEqual(['c1', 't1', 't2', 't3', 't4']);
+    expect(applyStreamDensity(items, 'raw').map((i) => i.id)).toEqual(['c1', 't1', 't2', 't3', 't4']);
+  });
+
+  it('턴마다 따로 센다 — 명령 경계를 넘으면 첫 말·마지막 말이 새로 잡힌다', () => {
+    const items = [
+      command('c1'), text('a1', '의도1'), text('a2', '중간1'), text('a3', '결론1'),
+      command('c2'), text('b1', '의도2'), text('b2', '중간2'), text('b3', '결론2'),
+    ];
+    expect(applyStreamDensity(items, 'compact').map((i) => i.id)).toEqual(['c1', 'a1', 'a3', 'c2', 'b1', 'b3']);
+  });
+
+  it('본문이 둘 이하인 턴은 아무것도 빠지지 않는다', () => {
+    expect(applyStreamDensity([command('c1'), text('t1', '하나')], 'compact').map((i) => i.id)).toEqual(['c1', 't1']);
+    expect(applyStreamDensity([command('c1'), text('t1', '하나'), text('t2', '둘')], 'compact').map((i) => i.id))
+      .toEqual(['c1', 't1', 't2']);
+  });
+
+  it('카드·계획·결과·내용 있는 system 본문은 중간에 있어도 그대로 남는다', () => {
+    const items = [
+      command('c1'),
+      text('t1', '의도'),
+      plan('p1', '단계'),
+      text('t2', '중간 나레이션'),
+      system('s1', '[Read] file not found'),
+      result('r1', '끝'),
+      text('t3', '결론'),
+    ];
+    expect(applyStreamDensity(items, 'compact').map((i) => i.id)).toEqual(['c1', 't1', 'p1', 's1', 'r1', 't3']);
+  });
+
+  it('스트리밍 중(마지막 본문 = 지금 쓰는 말)에도 화면은 [의도] + [지금 하는 말] 두 문단', () => {
+    const streaming = [command('c1'), text('t1', '의도'), text('t2', '중간'), text('t3', '지금 쓰는 중…')];
+    expect(applyStreamDensity(streaming, 'compact').map((i) => i.id)).toEqual(['c1', 't1', 't3']);
+  });
+});
+
+describe('clampStreamText — §5.5 #17-21 ② 본문 접기', () => {
+  it('짧은 본문은 자르지 않는다(null)', () => {
+    expect(clampStreamText('한 줄', 4, 420)).toBeNull();
+    expect(clampStreamText('a\nb\nc\nd', 4, 420)).toBeNull();
+  });
+
+  it('줄 수를 넘으면 앞 N줄만 남기고 숨은 줄 수를 센다', () => {
+    const out = clampStreamText('1\n2\n3\n4\n5\n6', 4, 420);
+    expect(out?.text).toBe('1\n2\n3\n4');
+    expect(out?.hiddenLines).toBe(2);
+  });
+
+  it('줄바꿈 없는 긴 문단도 글자 수로 잘린다', () => {
+    const long = 'ㄱ'.repeat(600);
+    const out = clampStreamText(long, 4, 420);
+    expect(out).not.toBeNull();
+    expect(out!.text.length).toBe(420);
+    expect(out!.hiddenLines).toBe(1);
+  });
+
+  it('빈 줄만 남는 꼬리도 최소 1줄로 센다(버튼 라벨이 0이 되지 않게)', () => {
+    const out = clampStreamText('1\n2\n3\n4\n\n\n', 4, 420);
+    expect(out?.hiddenLines).toBe(1);
   });
 });
 

@@ -5,8 +5,8 @@
  * 형태이고, **컴팩션으로 대화가 압축돼도 파일은 살아남는다**는 결정적 성질이 있다. 여기서는 주입이
  * 밀어넣기(스폰)로만 오는지, 에이전트가 **능동 검색**으로도 끌어오는지를 나눠 본다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 function byTrigger(ctx: PluginBubbleContext, trigger: 'spawn' | 'file' | 'search'): number {
   return (ctx.data.brainInjections ?? []).filter((e) => e.trigger === trigger).length;

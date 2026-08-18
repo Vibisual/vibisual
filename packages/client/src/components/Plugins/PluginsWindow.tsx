@@ -4,16 +4,28 @@
  * OptionsWindow·GuideWindow 와 **동형 모달 셸**(portal + 좌측 목록 + 우측 패널)을 그대로 쓴다.
  * 다른 점은 Apply/Cancel 이 없다는 것 — 토글은 즉시 적용된다(재시작 불필요, §5.11).
  *
- * 활성 상태 SSOT 는 서버 `UserDefaults.enabledPlugins` 다. 여기서는 PUT 하고, 화면은 스토어를 따른다
- * (PUT 응답을 기다리는 동안만 낙관적으로 먼저 반영해 토글이 굼떠 보이지 않게 한다).
+ * 활성 상태 SSOT 는 서버 `UserDefaults.enabledPluginsByProject` 다. 여기서는 PUT 하고, 화면은 스토어를
+ * 따른다(PUT 응답을 기다리는 동안만 낙관적으로 먼저 반영해 토글이 굼떠 보이지 않게 한다).
+ *
+ * **v4.54 — 켬/끔은 프로젝트별이다.** 창은 지금 보고 있는 프로젝트 한 칸만 읽고 쓴다. 그래서 창 머리에
+ * 대상 프로젝트를 **상시 표시**한다 — 프로젝트를 옮겨도 창 모양이 똑같으면 무엇에 적용되는 설정인지
+ * 알 방법이 없기 때문이다(사용자 지적). 프로젝트가 없으면 토글을 막고 그 이유를 적는다.
  */
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
+import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
+import { PLUGIN_API_PREFIX } from '@vibisual/shared';
 import type { PluginManifest } from '@vibisual/shared';
-import { PLUGIN_MANIFESTS, resolveEnabledPlugins, unsupportedContributions } from '@vibisual/plugins';
+import {
+  PLUGIN_MANIFESTS,
+  resolveEnabledPluginsFor,
+  resolveProjectKey,
+  unsupportedContributions,
+  withProjectEnabled,
+} from '@vibisual/plugins';
 import { getClientModule } from '@vibisual/plugins/client';
-import { useGraphStore } from '../../stores/graphStore.js';
+import { useGraphStore, selectActivePluginProjectPath } from '../../stores/graphStore.js';
 import { setCanvasCover } from '../../stores/canvasVisibility.js';
 import { usePluginTranslate } from '../../plugins/host.js';
 import { groupPlugins, resolveSelection } from '../../plugins/pluginList.js';
@@ -29,11 +41,13 @@ interface PluginsWindowProps {
 }
 
 export function PluginsWindow({ open, onClose }: PluginsWindowProps): React.JSX.Element | null {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const pluginT = usePluginTranslate();
-  const overlayRef = useRef<HTMLDivElement>(null);
   const userDefaults = useGraphStore((s) => s.userDefaults);
   const applyUserDefaults = useGraphStore((s) => s.applyUserDefaults);
+  // 이 창이 손대는 대상 = 지금 보고 있는 프로젝트 한 곳. 경로는 저장 키, 이름은 화면 표시용.
+  const projectPath = useGraphStore(selectActivePluginProjectPath);
+  const projectName = useGraphStore((s) => s.activeProject);
 
   const [selectedId, setSelectedId] = useState<string>(PLUGIN_MANIFESTS[0]?.id ?? '');
   const [saving, setSaving] = useState(false);
@@ -43,8 +57,8 @@ export function PluginsWindow({ open, onClose }: PluginsWindowProps): React.JSX.
   const [showUsage, setShowUsage] = useState(false);
 
   const enabledSet = useMemo(
-    () => resolveEnabledPlugins(userDefaults?.enabledPlugins),
-    [userDefaults?.enabledPlugins],
+    () => resolveEnabledPluginsFor(userDefaults, projectPath),
+    [userDefaults, projectPath],
   );
 
   // 목록을 거르고 묶는 판단은 `pluginList.ts` 가 한다 — 여기서는 결과를 그리기만 한다.
@@ -74,25 +88,60 @@ export function PluginsWindow({ open, onClose }: PluginsWindowProps): React.JSX.
     return () => setCanvasCover('plugins-window', false);
   }, [open]);
 
-  const handleOverlayClick = useCallback((e: React.MouseEvent) => {
-    if (e.target === overlayRef.current) onClose();
-  }, [onClose]);
+  const backdrop = useBackdropDismiss(onClose);
+
+  /**
+   * §5.11 v4.67 — 설정 슬롯이 쓰는 **플러그인 전용 창구**.
+   *
+   * 플러그인에 `fetch` 를 그대로 쥐여 주면 그 순간 어디로든 갈 수 있다. 그래서 여기서 접두사
+   * (`/api/plugins/<id>`)와 **지금 프로젝트**를 붙여 주고, 플러그인은 뒤쪽 경로만 말한다 — 서버 주소도,
+   * 어느 프로젝트인지도 몰라도 되고, 남의 라우트로는 못 간다(§5.11 "슬롯 경유만").
+   */
+  const callPlugin = useCallback(
+    async (id: string, path: string, init?: { method?: string; body?: unknown }): Promise<unknown> => {
+      const qs = projectPath ? `?projectId=${encodeURIComponent(projectPath)}` : '';
+      const res = await fetch(`${API_BASE}${PLUGIN_API_PREFIX}/${id}/${path}${qs}`, {
+        method: init?.method ?? 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          // 서버가 문서 뼈대를 만들 때 쓸 언어 — 화면과 같은 말로 된 문서가 나오게 한다.
+          'x-vibisual-locale': i18n.language,
+        },
+        ...(init?.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
+      });
+      // fetch 는 4xx·5xx 에도 resolve 한다 — 여기서 안 던지면 설정 화면이 "저장됨"으로 거짓말한다.
+      if (!res.ok) throw new Error(`plugin api ${res.status}`);
+      return res.json();
+    },
+    [projectPath, i18n.language],
+  );
 
   const toggle = useCallback(async (id: string) => {
-    const next = new Set(resolveEnabledPlugins(useGraphStore.getState().userDefaults?.enabledPlugins));
+    // 프로젝트가 없으면 매달 칸이 없다 — 전역으로 흘려 저장하면 v4.54 이전으로 조용히 되돌아간다.
+    if (!projectPath) return;
+
+    const prev = useGraphStore.getState().userDefaults;
+    const next = new Set(resolveEnabledPluginsFor(prev, projectPath));
     if (next.has(id)) next.delete(id); else next.add(id);
     const list = [...next];
 
-    // 낙관적 반영 — 서버 broadcast 가 곧 같은 값으로 확정한다.
-    const prev = useGraphStore.getState().userDefaults;
-    applyUserDefaults({ ...(prev ?? {}), enabledPlugins: list, updatedAt: Date.now() });
+    // 낙관적 반영 — 서버 broadcast 가 곧 같은 값으로 확정한다. 다른 프로젝트 칸은 건드리지 않는다.
+    applyUserDefaults({
+      ...(prev ?? {}),
+      enabledPluginsByProject: withProjectEnabled(prev, projectPath, list),
+      updatedAt: Date.now(),
+    });
 
     setSaving(true);
     try {
       const res = await fetch(`${API_BASE}/api/user-defaults`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabledPlugins: list }),
+        // **방금 바꾼 한 칸만** 보낸다 — 서버가 프로젝트 키 단위로 머지하므로, 맵 전체를 보내면
+        // 그 사이 다른 창이 바꾼 프로젝트를 이 창의 옛 값으로 되돌려 놓는다.
+        body: JSON.stringify({
+          enabledPluginsByProject: { [resolveProjectKey(prev, projectPath)]: list },
+        }),
       });
       // fetch 는 4xx·5xx 에도 resolve 한다 — 상태를 안 보면 **저장에 실패했는데 화면만 켜진 채로 남고**,
       // 다음에 앱을 켜면 조용히 꺼져 있다("켰는데 왜 안 켜져 있냐"가 여기서 난다).
@@ -103,7 +152,7 @@ export function PluginsWindow({ open, onClose }: PluginsWindowProps): React.JSX.
     } finally {
       setSaving(false);
     }
-  }, [applyUserDefaults]);
+  }, [applyUserDefaults, projectPath]);
 
   const selected: PluginManifest | undefined = useMemo(
     () => PLUGIN_MANIFESTS.find((m) => m.id === visibleId),
@@ -118,9 +167,8 @@ export function PluginsWindow({ open, onClose }: PluginsWindowProps): React.JSX.
 
   return createPortal(
     <div
-      ref={overlayRef}
       className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60"
-      onClick={handleOverlayClick}
+      {...backdrop}
     >
       <div className="flex h-[640px] max-h-[92dvh] w-[860px] max-w-[94vw] flex-col overflow-hidden rounded-lg border border-gray-700 bg-gray-900 shadow-2xl max-md:h-dvh max-md:max-h-dvh max-md:w-screen max-md:max-w-none max-md:rounded-none max-md:border-0">
         {/* Header */}
@@ -144,6 +192,33 @@ export function PluginsWindow({ open, onClose }: PluginsWindowProps): React.JSX.
           >
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
           </button>
+        </div>
+
+        {/* 적용 범위 — 이 창이 어느 프로젝트를 손대는지. 켬/끔이 프로젝트별이므로 상시 표시한다. */}
+        <div
+          className={`flex shrink-0 items-center gap-2 border-b px-4 py-2 text-[11px] ${
+            projectPath
+              ? 'border-gray-700/50 bg-white/[0.03] text-gray-400'
+              : 'border-amber-500/20 bg-amber-500/[0.07] text-amber-300/90'
+          }`}
+        >
+          <svg
+            className="h-3.5 w-3.5 shrink-0"
+            viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
+          >
+            <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+          </svg>
+          {projectPath ? (
+            <>
+              {/* 이름은 문장 밖의 라벨로 둔다 — 어순이 다른 언어에서도 자리가 흔들리지 않는다. */}
+              <span className="max-w-[200px] shrink-0 truncate rounded bg-white/[0.07] px-1.5 py-0.5 font-semibold text-gray-200" title={projectPath}>
+                {projectName}
+              </span>
+              <span className="min-w-0 truncate">{t('panel.plugins.scopeProject')}</span>
+            </>
+          ) : (
+            <span className="min-w-0">{t('panel.plugins.scopeNone')}</span>
+          )}
         </div>
 
         {/* Body */}
@@ -262,7 +337,10 @@ export function PluginsWindow({ open, onClose }: PluginsWindowProps): React.JSX.
                   <button
                     type="button"
                     onClick={() => void toggle(selected.id)}
-                    className={`shrink-0 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                    // 매달 프로젝트가 없으면 저장할 칸이 없다 — 눌리는데 아무 일도 안 일어나는 버튼을 두지 않는다.
+                    disabled={!projectPath}
+                    title={projectPath ? undefined : t('panel.plugins.scopeNone')}
+                    className={`shrink-0 rounded-md px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
                       selectedEnabled
                         ? 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25'
                         : 'bg-white/[0.06] text-gray-400 hover:bg-white/[0.1] hover:text-gray-200'
@@ -328,7 +406,14 @@ export function PluginsWindow({ open, onClose }: PluginsWindowProps): React.JSX.
                 {settingsSection && selectedEnabled && (
                   // 설정 섹션도 플러그인 코드다 — 여기서 던지면 창 전체가 사라진다.
                   <PluginErrorBoundary pluginId={selected.id}>
-                    <div>{tryBuild(selected.id, () => settingsSection({ enabled: selectedEnabled, t: pluginT }))}</div>
+                    <div>{tryBuild(selected.id, () => settingsSection({
+                      enabled: selectedEnabled,
+                      t: pluginT,
+                      // v4.67 — 설정도 켬/끔과 같은 프로젝트 한 칸에 매인다. 이 둘을 안 넘기면
+                      //   플러그인은 "어디에 저장되는지 모르는 저장 버튼"을 그리게 된다.
+                      projectPath,
+                      call: (path, init) => callPlugin(selected.id, path, init),
+                    }))}</div>
                   </PluginErrorBoundary>
                 )}
 

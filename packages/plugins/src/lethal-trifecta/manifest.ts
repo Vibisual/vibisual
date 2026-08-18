@@ -15,6 +15,6 @@ export const lethalTrifectaManifest: PluginManifest = {
   category: 'security',
   descriptionKey: 'panel.plugins.lethalTrifecta.desc',
   enabledByDefault: false,
-  contributes: ['bubbleBadge', 'panelSection'],
-  clientOnly: true,
+  contributes: ['bubbleBadge', 'panelSection', 'agentPrompt'],
+  clientOnly: false,
 };

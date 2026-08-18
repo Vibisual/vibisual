@@ -4,8 +4,8 @@
  * 한 번의 검색으로 답이 나오지 않는 질문은 찾은 것을 근거로 **다시 질의**해야 풀린다. 여기서는 이 에이전트가
  * 능동 검색을 몇 번이나 이어서 했는지를 센다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const hops = (ctx: PluginBubbleContext): number => (ctx.data.brainInjections ?? []).filter((e) => e.trigger === 'search').length;
 

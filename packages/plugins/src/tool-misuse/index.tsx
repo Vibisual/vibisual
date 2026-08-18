@@ -4,9 +4,9 @@
  * 실행된 명령에서 되돌릴 수 없는 형태를 찾아 보여준다. 탐지가 아니라 **표시**이며, 이미 실행된 것을
  * 보여줄 뿐 막지 않는다 — 막는 자리는 도구 호출 직전의 승인 팝업이다. 표시 전용.
  */
-import { defineInspector, ICONS } from '../framework/inspector.js';
+import { defineInspector, ICONS } from '../sdk/index.js';
 import { findMisuse } from './toolMisuse.js';
-import type { PluginBubbleContext } from '../types.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const hits = (ctx: PluginBubbleContext) => findMisuse(ctx.data.bashCommands);
 const kinds = (ctx: PluginBubbleContext): string[] => [...new Set(hits(ctx).map((h) => h.kind))];

@@ -9,7 +9,7 @@
  * "안 쓰는 도구"를 잘못 지목하게 된다.
  */
 import type { AgentConfig } from '@vibisual/shared';
-import { effectiveTools } from '../lethal-trifecta/trifecta.js';
+import { effectiveTools } from '../sdk/index.js';
 
 export type ToolClass = 'mutating' | 'reach' | 'read' | 'meta';
 

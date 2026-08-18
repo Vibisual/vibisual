@@ -1,11 +1,21 @@
 import { create } from 'zustand';
-import type { BubbleData, ActivityEdge, BashEntry, ServerEntry, AgentEvent, FileEdit, AgentPhase, ProjectInfo, QueuedCommand, SubAgent, RunningSubagentTask, ServerKind, PipelineType, PipelineState, AgentConfig, SubAgentStreamEvent, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, UiLocale, ProjectMetaSnapshot, AppState, AppStatePatch, CommentBox, CaptureBubble, Conti, ActiveContiWork, ToolDurationEntry, CompactCount, RateLimitInfo,
-  ClaudeUsageInfo, DiagnosticEntry, AutoAgentSummary, ModelRegistry, UserDefaults, AgentReport, AgentQuestions, AgentReview, AgentList, AgentFeedback, AgentFeedbackTargetType, AgentFeedbackVerdict, BrainSummary, BrainInjectionEvent, BrainCard, BrainCardType, BrainCardScope, BrainCardStatus, SessionLoop, SessionLoopMode } from '@vibisual/shared';
-import type { StreamDensity } from '@vibisual/shared';
-import { DEFAULT_UI_LOCALE, STREAM_EVENTS_MAX_PER_SESSION, STREAM_EVENTS_TRIM_SLACK, STREAM_EVENTS_MAX_PER_INACTIVE_SESSION, STREAM_INACTIVE_SESSIONS_MAX, DIAGNOSTIC_LOG_MAX, STREAM_DENSITIES } from '@vibisual/shared';
+// §5.5 #17-20 ⑩ v4.94 — 중단점을 켜고 끄면 붙어 있는 세션에도 바로 밀어 넣는다(단방향: graphStore → debugSessions).
+import { useDebugSessions, pushBreakpointsToSession } from './debugSessions.js';
+import type { BubbleData, ActivityEdge, BashEntry, ServerEntry, AgentEvent, FileEdit, AgentPhase, ProjectInfo, QueuedCommand, SubAgent, RunningSubagentTask, FinishedSubagentTask, ServerKind, PipelineType, PipelineState, AgentConfig, SubAgentStreamEvent, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, UiLocale, ProjectMetaSnapshot, AppState, AppStatePatch, CommentBox, CaptureBubble, DebugBreakpoint, AppBubble, PlayBubble, PlayRecipeCandidate, Conti, ActiveContiWork, ToolDurationEntry, CompactCount, RateLimitInfo,
+  ClaudeUsageInfo, ClaudeAuthStatus, DiagnosticEntry, AutoAgentSummary, AutoAgentRun, ModelRegistry, UserDefaults, AgentReport, AgentQuestions, AgentReview, AgentList, AgentFeedback, AgentFeedbackTargetType, AgentFeedbackVerdict, BrainSummary, BrainInjectionEvent, BrainCard, BrainCardType, BrainCardScope, BrainCardStatus, PluginFactMap, SessionLoop, SessionLoopMode, SessionLoopContextMode, SessionGoal, SessionGoalStatus, SessionGoalStepStatus } from '@vibisual/shared';
+import type { StreamDensity, CommandDispatchMode } from '@vibisual/shared';
+import { isReadOnlyHookAgent } from '@vibisual/shared';
+import { DEFAULT_UI_LOCALE, STREAM_EVENTS_MAX_PER_SESSION, STREAM_EVENTS_TRIM_SLACK, STREAM_EVENTS_MAX_PER_INACTIVE_SESSION, STREAM_INACTIVE_SESSIONS_MAX, DIAGNOSTIC_LOG_MAX, STREAM_DENSITIES, IDE_EDITOR_MAX_TABS, IDE_EDITOR_WIDTH } from '@vibisual/shared';
 import { changeUiLocale } from '../i18n/index.js';
 import { calcFileSizeRange } from '../utils/sizeCalc.js';
 import { structuralShare } from './structuralShare.js';
+import type { ReadingSettings } from '../components/IDE/reading/readingModel.js';
+import {
+  DEFAULT_READING_SETTINGS, DEFAULT_IDE_STREAM_DENSITY, DEFAULT_IDE_TEXT_ZOOM, normalizeReadingSettings,
+} from '../components/IDE/reading/readingModel.js';
+import { recordCommandHistory, dropSessionCommandHistory } from '../components/IDE/commandHistory.js';
+import { insertEventInTurnOrder } from '../components/IDE/turnOrder.js';
+import type { FollowSkipReason } from '../components/IDE/editorFollow.js';
 
 /**
  * §5.3 #28 v1.48 — IDE TerminalInput 세션 스코프 draft.
@@ -23,6 +33,21 @@ export interface AgentSessionInputAttachment {
 export interface AgentSessionInputDraft {
   text: string;
   attachments: AgentSessionInputAttachment[];
+}
+
+/**
+ * §5.5 #17-25 v4.80 — 라이트박스가 연 이미지가 **아직 보내지 않은 입력창 첨부**일 때 그 자리.
+ * 주석본을 저장하면 새 첨부를 붙이는 대신 이 항목을 교체한다(옛 파일은 지운다).
+ * 이미 보낸 이미지(대화·상태바 썸네일)를 열었으면 undefined — 지난 기록은 손대지 않는다.
+ */
+export interface ImageLightboxAttachment {
+  agentId: string;
+  sessionId: string | null;
+  tempId: string;
+}
+export interface ImageLightboxState {
+  url: string;
+  attachment?: ImageLightboxAttachment;
 }
 
 export function agentSessionInputKey(agentId: string, sessionId: string | null): string {
@@ -55,6 +80,27 @@ const DEFAULT_TABBAR_KEY = 'vibisual:defaultTabbar';
 // IDE 본문(스트림/대화) 텍스트 줌 배율 — Ctrl+휠로 조절, 캔버스·창 UI 와 무관한 순수 클라 표시 환경설정.
 //   localStorage 영속(앱·창 재시작 후에도 유지) + storage 이벤트로 다중 창 동기화. 캔버스 zoom 과 별개.
 const IDE_TEXT_ZOOM_KEY = 'vibisual:ideTextZoom';
+// §5.5 #17-27 — 내장 편집창 폭(px). 줌·밀도와 동형인 순수 클라 표시 환경설정(서버 미전달).
+const IDE_EDITOR_WIDTH_KEY = 'vibisual:ideEditorWidth';
+function clampIdeEditorWidth(w: number): number {
+  if (!Number.isFinite(w)) return IDE_EDITOR_WIDTH.DEFAULT;
+  return Math.min(IDE_EDITOR_WIDTH.MAX, Math.max(IDE_EDITOR_WIDTH.MIN, Math.round(w)));
+}
+// §5.5 #17-27 ⑪ — 편집창이 에이전트가 고치는 파일을 따라가는가([추종] 토글). 폭·밀도와 동형인
+//   순수 클라 표시 환경설정(서버 미전달). 기본은 꺼짐 — 켜기 전까지 화면은 종전과 같아야 한다(#17-27 ①).
+//   (g) 켜짐은 **세션마다** 따로다 — 값은 "켜진 세션키의 집합"(꺼면 키를 지운다)이라 저절로 작게 유지된다.
+const IDE_EDITOR_FOLLOW_KEY = 'vibisual:ideEditorFollow';
+/** 세션은 계속 새로 생기므로 켜 둔 기록이 무한히 쌓이지 않도록 상한을 둔다(오래된 것부터 정리). */
+const IDE_FOLLOW_MAX_KEYS = 60;
+/** localStorage 에서 읽어 온 켜짐 집합 정규화 — 옛 판(전역 boolean)이 남아 있어도 조용히 버린다. */
+function normalizeFollowMap(raw: unknown): Record<string, true> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const out: Record<string, true> = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (value === true) out[key] = true;
+  }
+  return out;
+}
 const IDE_TEXT_ZOOM_MIN = 0.6;
 const IDE_TEXT_ZOOM_MAX = 2.4;
 function clampIdeTextZoom(z: number): number {
@@ -66,6 +112,9 @@ const IDE_STREAM_DENSITY_KEY = 'vibisual:ideStreamDensity';
 function normalizeStreamDensity(value: string | null | undefined): StreamDensity {
   return STREAM_DENSITIES.includes(value as StreamDensity) ? (value as StreamDensity) : 'standard';
 }
+// §5.5 — IDE 읽기 설정(폭 안·읽기 폭·행간·자간·어간·문단 간격·글꼴·모바일 자동 변형).
+//   밀도·줌과 동형인 순수 클라 표시 환경설정(서버 미전달). 값 검증은 readingModel 이 전담한다.
+const IDE_READING_KEY = 'vibisual:ideReading';
 const DEFAULT_SUBAGENTS_KEY = 'vibisual:defaultSubAgents';
 const TAB_PINS_KEY = 'vibisual:tabPins';
 const SUBAGENT_LABELS_KEY = 'vibisual:subAgentLabels';
@@ -73,7 +122,9 @@ const SUBAGENT_LABELS_KEY = 'vibisual:subAgentLabels';
 // 없으면 부팅 시 메모리 기본값 {} 으로 시작 → idle sub 들이 전부 미확인(녹색)으로 회귀.
 const ACK_SUBAGENTS_KEY = 'vibisual:ackSubAgents';
 // IDE 북마크 — 사용자가 IDE 출력에서 선택한 텍스트를 보관(말풍선 카드). 재시작 후에도 유지되도록
-// localStorage 영속(서버 비관여 — 순수 클라 기능). 값 = IDEBookmark[].
+// localStorage 영속(서버 비관여 — 순수 클라 기능).
+// §5.5 #17-7 (프로젝트별로 갈라 담기) — 값 = BookmarkStore(프로젝트 표시명 → IDEBookmark[]).
+//   종전의 전역 단일 배열도 같은 키에 남아 있으므로 loadBookmarks 가 읽을 때 한 번 갈라 담는다.
 const IDE_BOOKMARKS_KEY = 'vibisual:ideBookmarks';
 // §5.5 #17-4 v2.93 — SkillsView "본 적 있는 스킬" 집합(키=`source:name`). 미클릭 신규 스킬을
 // 다른 색으로 표시하기 위함. localStorage 영속(순수 클라). initialized=false 면 첫 로드 시 현재
@@ -110,6 +161,33 @@ function loadJSON<T>(key: string, fallback: T): T {
     return JSON.parse(raw) as T;
   } catch {
     return fallback;
+  }
+}
+
+/**
+ * §5.5 #17-20 ⑩ / #17-27 ⑨ — 중단점 목록을 확정한다: 화면 먼저 → 서버 저장 → 붙어 있는 세션에 주입.
+ * 한 줄을 켜고 끄는 일(`toggleBreakpoint`)과 파일 단위로 지우는 일(`clearBreakpointsInFile`)이
+ * **같은 뒤처리**를 쓰도록 여기 한 곳에 둔다 — 저장 경로가 둘이면 그중 하나는 반드시 뒤처진다.
+ */
+function commitBreakpoints(
+  set: (updater: (s: GraphState) => Partial<GraphState>) => void,
+  get: () => GraphState,
+  projectName: string,
+  next: DebugBreakpoint[],
+): void {
+  // 화면에 먼저 반영 — 클릭이 서버 왕복만큼 늦게 보이면 "안 눌렸다" 로 느껴진다.
+  set((s) => ({ debugBreakpoints: { ...s.debugBreakpoints, [projectName]: next } }));
+  void fetch('/api/debug/breakpoints', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ projectName, breakpoints: next }),
+  }).catch(() => { /* 스냅샷이 진실 — 실패하면 다음 방송에서 원래 값으로 돌아온다 */ });
+  // 붙어 있는 세션에는 **지금 바로** 밀어 넣는다 — 저장만 하면 다음에 붙을 때부터 걸린다.
+  const projectPath = get().projects[projectName]?.path;
+  for (const session of Object.values(useDebugSessions.getState().sessions)) {
+    if (session.status === 'ended') continue;
+    if (projectPath && session.projectPath !== projectPath) continue;
+    void pushBreakpointsToSession(session.sessionId, next);
   }
 }
 
@@ -208,6 +286,51 @@ export function selectActiveBrainSummary(state: { brain: Record<string, BrainSum
   return (state.activeProject ? state.brain[state.activeProject] : null) ?? null;
 }
 
+/**
+ * §5.11 v4.54 — 플러그인 켬/끔을 매달 **프로젝트 키**(= 루트 절대경로).
+ *
+ * `activeProject` 는 표시명이라 basename 충돌 시 세션 간 바뀔 수 있어 영속 키로 못 쓴다. 그래서 여기서
+ * 한 번만 `ProjectInfo.path` 로 바꿔 주고, 창·호스트가 **모두 이 값**을 쓴다(둘이 다른 키를 쓰면
+ * 창에서 켠 것이 캔버스에 안 나타난다). stub 프로젝트(아직 hydrate 전)도 경로는 알고 있으므로 함께 본다.
+ *
+ * 워크트리 드릴다운(`selectEffectiveProject`)을 쓰지 않는 이유: 워크트리는 같은 프로젝트의 격리 사본이라
+ * 폴더 안으로 들어갔다고 켠 카드가 달라지면 사용자가 이유를 알 수 없다.
+ */
+export function selectActivePluginProjectPath(state: {
+  activeProject: string | null;
+  projects: Record<string, ProjectInfo>;
+  stubProjects: Record<string, ProjectMetaSnapshot>;
+}): string | null {
+  const name = state.activeProject;
+  if (!name) return null;
+  return state.projects[name]?.path ?? state.stubProjects[name]?.project.path ?? null;
+}
+
+/**
+ * §5.11 v4.65 — 활성 프로젝트에서 집행이 실제로 측정한 값(pluginId → 실측 한 벌). 없으면 `undefined`.
+ *
+ * 키 비교를 정규화하는 이유: 켬/끔 키와 마찬가지로 같은 폴더가 대소문자·구분자만 달리 적힐 수 있고,
+ * 그러면 값이 있는데도 카드가 "아직 측정 전"으로 보인다. 없음(`undefined`)과 빈 값은 **구분해서** 넘긴다 —
+ * 카드가 "측정 전"과 "SSOT 없음"을 다르게 그려야 하기 때문이다.
+ */
+export function selectActivePluginFacts(state: {
+  activeProject: string | null;
+  projects: Record<string, ProjectInfo>;
+  stubProjects: Record<string, ProjectMetaSnapshot>;
+  pluginFacts: Record<string, Record<string, PluginFactMap>>;
+}): Record<string, PluginFactMap> | undefined {
+  const path = selectActivePluginProjectPath(state);
+  if (!path) return undefined;
+  const norm = (p: string): string => p.replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '');
+  const want = norm(path);
+  const direct = state.pluginFacts[path];
+  if (direct) return direct;
+  for (const [k, v] of Object.entries(state.pluginFacts)) {
+    if (norm(k) === want) return v;
+  }
+  return undefined;
+}
+
 /** iframe 탭 정보 */
 export interface IframeTab {
   id: string;
@@ -216,8 +339,97 @@ export interface IframeTab {
   serverKind: ServerKind;
 }
 
-/** IDE 오버레이 사이드바 뷰 타입 — §5.5 #17-4 v2.32 에서 'skills' 추가 */
-export type IDEViewType = 'terminal' | 'files' | 'events' | 'skills';
+/** IDE 오버레이 사이드바 뷰 타입 — §5.5 #17-4 v2.32 에서 'skills', #17-11 ⑨ v4.51 에서 'loop'(덮개 패널 → 사이드바 뷰) 추가 */
+// §5.5 #17-20 v4.74 — 'debug' = 디버그·실행 런처(실행 구성 목록 + MCP 연결 + 외부 디버거 위임).
+// §5.5 #17-7·#17-8 v4.93 — 'bookmarks'·'summary' 도 루프(v4.51)와 같은 길로 왔다: 세션창을 덮던
+//   패널을 폐지하고 활동바의 다른 항목과 같은 사이드바 뷰가 된다(덮개 토글 상태 2종 제거).
+// §5.5 #17-28 v4.96 — 'events'(훅 이벤트 목록) 는 **'context'(컨텍스트 주입원 통제)** 로 대체됐다.
+//   이벤트는 스트림·카드·목표창이 이미 보여 주고 있었고, 정작 볼 수 없던 것은 "이 프롬프트에 무엇이
+//   얼마나 붙어 나가는가" 였다. 저장된 옛 값('events')은 부팅 시 'context' 로 이관한다(아래 selectIDEOverlay).
+// §5.5 #17-9 ③ v4.95 — 'subagents'(실행 중 서브에이전트) 가 마지막 덮개였다. 같은 길로 보내면서
+//   여닫는 상태가 이 프로젝트 슬롯의 activeView 로 들어가 **프로젝트·창마다 독립**이 된다.
+export type IDEViewType = 'terminal' | 'files' | 'context' | 'skills' | 'goal' | 'loop' | 'debug' | 'bookmarks' | 'summary' | 'subagents';
+
+/** §5.5 #17-28 v4.96 — localStorage 에 남은 옛 뷰 id 를 지금 쓰는 것으로 옮긴다(모르는 값은 terminal). */
+export function migrateIDEViewType(v: unknown): IDEViewType {
+  if (v === 'events') return 'context';
+  const known: IDEViewType[] = ['terminal', 'files', 'context', 'skills', 'goal', 'loop', 'debug', 'bookmarks', 'summary', 'subagents'];
+  return known.includes(v as IDEViewType) ? (v as IDEViewType) : 'terminal';
+}
+
+/**
+ * §5.5 #17-27 v4.87 — 내장 편집창에 열어 둔 파일 한 개(탭 하나).
+ *
+ * 여는 손잡이가 세 곳(탐색기 트리 · 편집한 파일 구역 · 스트림의 Edit 도구 헤더)이라
+ * 절대 경로와 상대 경로를 **여는 쪽에서** 함께 실어 준다 — 편집창은 자기가 경로를 유추하지 않는다.
+ */
+export interface IDEEditorFile {
+  /** 프로젝트 루트 기준 상대 경로 — 탭의 식별자 */
+  relPath: string;
+  /** 절대 경로 (외부 편집기로 열 때 그대로 쓴다) */
+  absPath: string;
+  /** 탭에 적는 이름(경로 마지막 조각) */
+  name: string;
+  /** 저장하지 않은 편집이 있는가 — 편집창이 신고한다(탭 점 표시 + 탭 밀어내기 예외 판정). */
+  dirty?: boolean;
+}
+
+/**
+ * §5.5 #17-27 ⑪ — "이 파일이 방금 이렇게 고쳐졌다" 는 편집창행 신호 한 건.
+ *
+ * 편집 신고(`fileEdits`)에서 편집창이 필요한 것만 뽑은 모양이다 — 어떤 탭을 다시 읽고(relPath),
+ * 어느 줄로 스크롤할지 찾을 실마리(newString), 그리고 같은 편집을 두 번 처리하지 않기 위한 시각(at).
+ */
+export interface EditorFollowSignal {
+  /** §5.5 #17-27 ⑪ (g) — 이 신호를 낸 세션. 다른 세션을 보고 있으면 편집창은 이 신호를 따르지 않는다. */
+  sessionKey: string;
+  relPath: string;
+  absPath: string;
+  /** 그 편집으로 파일에 들어간 글자 — 다시 읽은 본문에서 이걸 찾아 줄 번호를 낸다. */
+  newString: string;
+  /** 편집 완료(결과) 시각(ms) — 신호의 신원. 같은 값이면 이미 처리한 편집이다. */
+  at: number;
+}
+
+/**
+ * §5.5 #17-27 ⑪ (h) — 방금 따라간 자국. 강조가 꺼진 뒤에도 "무엇을 따라갔는지" 를 화면이 계속 말한다.
+ * 줄 번호가 없으면(본문에서 새 글자를 못 찾은 경우) 파일만 열고 움직이지 않았다는 뜻이다.
+ */
+export interface EditorFollowMark {
+  sessionKey: string;
+  relPath: string;
+  absPath: string;
+  /** 탭에 적히는 짧은 이름(경로 마지막 조각). */
+  name: string;
+  startLine: number | null;
+  endLine: number | null;
+  /** 이미 열려 있던 탭을 **자동으로 다시 읽었는가** — "내가 안 건드렸는데 내용이 바뀌었다" 를 화면이 설명한다. */
+  reloaded: boolean;
+  at: number;
+  /**
+   * §5.5 #17-27 ⑪ (h) — **끝까지 못 간 이유**(끝까지 갔으면 `null`).
+   * 조용히 넘어가면 "고장" 과 "따라갈 것이 없음" 이 사용자에게 같은 그림이 된다.
+   */
+  skip: FollowSkipReason | null;
+}
+
+/**
+ * §5.5 #17-27 ⑪ (h) — 추종이 **꺼져 있는 동안** 그 세션이 마지막으로 고친, 따라갈 수 있었던 편집.
+ *
+ * **화면에 상주하지 않는다** — 켜는 순간 그리로 데려가기 위한 기억일 뿐이다(옛 판은 이 자리를 건수
+ * 배지로 드러냈는데, 그 수가 스캔 창 밖으로 밀릴 때마다 줄어 흔들렸다). 켜는 행위가 곧 "저기로 가자"
+ * 이므로 (e) 의 "자동으로 과거를 거슬러 오르지 ❌" 는 그대로다 — 방아쇠가 사용자다.
+ */
+export interface EditorFollowPending {
+  sessionKey: string;
+  relPath: string;
+  absPath: string;
+  name: string;
+  /** 그 편집으로 들어간 글자 — 켜는 순간 곧바로 신호로 옮겨 담는다. */
+  newString: string;
+  /** 마지막 편집의 완료 시각(ms). */
+  at: number;
+}
 
 /** IDE 오버레이 상태 — 프로젝트 단위로 독립적으로 보관 (ideOverlays[projectId]). */
 export interface IDEOverlayState {
@@ -235,6 +447,14 @@ export interface IDEOverlayState {
   dockedRight: boolean;
   /** §5.5 #17-1 — 도킹 폭 (px). DetailPanel 이 우측 도킹된 IDE 를 피해 좌측에 뜰 때 사용. */
   dockWidth: number;
+  /**
+   * §5.5 #17-27 — 내장 편집창에 열어 둔 파일들(탭 순서, 왼→오른쪽).
+   * 파일을 여는 곳(사이드바·스트림)과 그리는 곳(우측 패널)이 서로 멀어 컴포넌트 로컬로는 이을 수 없어
+   * `activeView`·`dockWidth` 와 같은 자리에 둔다(디스크 내용은 여기 없다 — 경로만 있다).
+   */
+  editorFiles: IDEEditorFile[];
+  /** §5.5 #17-27 — 지금 보고 있는 탭의 relPath. null 이면 편집창이 닫혀 있다. */
+  activeEditorPath: string | null;
 }
 
 /** IDE 닫힘/없음 상태 기본값. selectIDEOverlay 가 미보유 프로젝트에 대해 반환. */
@@ -246,6 +466,8 @@ export const DEFAULT_IDE_OVERLAY: IDEOverlayState = {
   sidebarCollapsed: true,
   dockedRight: false,
   dockWidth: 480,
+  editorFiles: [],
+  activeEditorPath: null,
 };
 
 /** 현재 활성 프로젝트 탭의 IDE 오버레이 상태를 반환. 없으면 기본값. */
@@ -254,7 +476,12 @@ export function selectIDEOverlay(state: {
   activeProject: string | null;
 }): IDEOverlayState {
   if (!state.activeProject) return DEFAULT_IDE_OVERLAY;
-  return state.ideOverlays[state.activeProject] ?? DEFAULT_IDE_OVERLAY;
+  const cur = state.ideOverlays[state.activeProject];
+  if (!cur) return DEFAULT_IDE_OVERLAY;
+  // §5.5 #17-28 v4.96 — 저장돼 있던 옛 뷰 id('events')를 여기서 한 번 옮긴다. 읽는 길이 이 함수
+  //   하나라 여기만 손보면 활동바·사이드바가 동시에 새 뷰를 가리킨다(빈 화면이 뜨지 않는다).
+  const migrated = migrateIDEViewType(cur.activeView);
+  return migrated === cur.activeView ? cur : { ...cur, activeView: migrated };
 }
 
 // ─── 스트림 메모리 관리 (성능: 비활성 세션 차등 cap + 오래된 세션 pruning) ───
@@ -278,13 +505,19 @@ function computeActiveSessionIds(
 
 /**
  * 비활성 세션 버퍼를 (1) 작은 상한으로 축소하고 (2) 비활성 세션 수가 상한을 넘으면
- * 마지막 수신이 가장 오래된 것부터 통째로 제거한다. streams/lastActivity 를 **제자리 수정**
- * (호출자가 항상 fresh 복사본을 넘긴다). 다시 열면 서버 버퍼에서 복구되므로 표시 손실 없음.
+ * 마지막 수신이 가장 오래된 것부터 통째로 제거한다. streams/lastActivity/deepRestored 를
+ * **제자리 수정**(호출자가 항상 fresh 복사본을 넘긴다).
+ *
+ * ⚠ 여기서 깎인 세션은 **깊은 복원 표식을 반드시 함께 지운다**. "다시 열면 서버 버퍼에서
+ *   복구되므로 표시 손실 없음"이 성립하려면 그 복구가 실제로 다시 일어나야 하는데, 표식을
+ *   남겨 두면 IDE 가 "이 세션은 이미 깊게 받았다"로 읽어 재요청을 걸지 않는다 — 그러면 이
+ *   300 컷이 그대로 화면의 상한이 되어, 말풍선·카드만 남고 사이 대화가 빈 채로 굳는다.
  */
 function pruneInactiveStreams(
   streams: Record<string, SubAgentStreamEvent[]>,
   lastActivity: Record<string, number>,
   active: Set<string>,
+  deepRestored: Record<string, true>,
 ): void {
   const inactive = Object.keys(streams).filter((sid) => !active.has(sid));
   if (inactive.length === 0) return;
@@ -292,6 +525,7 @@ function pruneInactiveStreams(
     const arr = streams[sid]!;
     if (arr.length > STREAM_EVENTS_MAX_PER_INACTIVE_SESSION) {
       streams[sid] = arr.slice(arr.length - STREAM_EVENTS_MAX_PER_INACTIVE_SESSION);
+      delete deepRestored[sid];
     }
   }
   if (inactive.length > STREAM_INACTIVE_SESSIONS_MAX) {
@@ -301,14 +535,15 @@ function pruneInactiveStreams(
       const sid = inactive[i]!;
       delete streams[sid];
       delete lastActivity[sid];
+      delete deepRestored[sid];
     }
   }
 }
 
 /**
  * IDE 북마크 — IDE 출력에서 우클릭→"북마크"로 보관한 텍스트 조각.
- * 전역 단일 목록(프로젝트/에이전트 무관)으로 localStorage 영속. "이동" 시 출처 세션으로 복귀하기 위해
- * 출처 agentId/sessionId/projectId 를 함께 보관한다.
+ * §5.5 #17-7 (프로젝트별로 갈라 담기) — 보관함은 **프로젝트가 소유**한다(BookmarkStore). "이동" 시
+ * 출처 세션으로 복귀하기 위해 출처 agentId/sessionId/projectId 를 항목에도 함께 보관한다.
  */
 export interface IDEBookmark {
   id: string;
@@ -349,8 +584,90 @@ const SESSION_SUMMARY_MAX = 200;
 
 /** 북마크 본문 저장 상한(localStorage 비대화 방지). 표시도 이 길이까지. */
 const BOOKMARK_TEXT_MAX = 8000;
-/** 보관 가능한 북마크 최대 개수(오래된 것부터 밀어냄). */
+/** **프로젝트 한 칸당** 보관 가능한 북마크 최대 개수(오래된 것부터 밀어냄). */
 const BOOKMARK_MAX = 200;
+
+/**
+ * §5.5 #17-7 (프로젝트별로 갈라 담기) — 북마크 보관함. 프로젝트 표시명 → 그 프로젝트에서 보관한 조각(최신 앞).
+ * 종전의 전역 단일 배열이 프로젝트를 가리지 않고 모든 IDE 에 뜨던 것을 프로젝트가 소유하는 칸으로 나눈다.
+ */
+export type BookmarkStore = Record<string, IDEBookmark[]>;
+
+/** 소속 프로젝트를 알 수 없는 항목이 들어가는 칸. 프로젝트 표시명은 비어 있을 수 없어 실제 칸과 겹치지 않는다. */
+const UNKNOWN_BOOKMARK_PROJECT = '';
+
+/** 안정 참조용 빈 목록 — 선택자가 매번 새 배열을 만들면 구독이 매 갱신마다 다시 그린다. */
+const EMPTY_BOOKMARKS: IDEBookmark[] = [];
+
+/**
+ * 보관함 읽기 — 값이 **배열**(v2.90 이래의 전역 단일 목록)이면 여기서 한 번 `projectId` 기준으로 갈라 담는다.
+ * 읽는 길이 이 함수 하나라 여기만 손보면 배지·목록이 동시에 새 모양을 본다(`selectIDEOverlay` 의 옛 뷰 id
+ * 이관과 같은 규약). 이관된 값은 다음 저장 때 새 모양으로 덮인다.
+ */
+function loadBookmarks(): BookmarkStore {
+  const raw = loadJSON<BookmarkStore | IDEBookmark[] | null>(IDE_BOOKMARKS_KEY, {});
+  if (!raw || typeof raw !== 'object') return {};
+  if (!Array.isArray(raw)) return raw;
+  const out: BookmarkStore = {};
+  for (const bm of raw) {
+    if (!bm || typeof bm !== 'object') continue;
+    const key = bm.projectId ?? UNKNOWN_BOOKMARK_PROJECT;
+    const bucket = out[key];
+    if (bucket) bucket.push(bm);
+    else out[key] = [bm];
+  }
+  return out;
+}
+
+/** 북마크를 프로젝트로 가르는 데 필요한 상태만 추린 것(활동바·사이드바·테스트가 함께 쓴다). */
+export interface BookmarkScope {
+  ideBookmarks: BookmarkStore;
+  activeProject: string | null;
+  projects: Record<string, unknown>;
+  stubProjects: Record<string, unknown>;
+}
+
+/**
+ * 지금 보고 있는 프로젝트 화면이 봐야 할 칸 이름들 — 자기 칸 + **떠돌이 칸**.
+ * 떠돌이 = 프로젝트 미상(`''`) 이거나 지금 프로젝트 목록에 없는 이름(옛 워크트리명 등). 감추면 사용자가
+ * 그 항목을 지울 수도 없으므로 어느 프로젝트에서도 보이게 남긴다. 아직 프로젝트 목록을 모르는 부팅
+ * 순간에는 떠돌이를 가려낼 근거가 없으므로 추측하지 않는다(자기 칸 + `''` 만).
+ */
+function visibleBookmarkKeys(state: BookmarkScope): string[] {
+  const knowsProjects = Object.keys(state.projects).length > 0 || Object.keys(state.stubProjects).length > 0;
+  const keys: string[] = [];
+  for (const key of Object.keys(state.ideBookmarks)) {
+    if ((state.ideBookmarks[key]?.length ?? 0) === 0) continue;
+    if (key === state.activeProject || key === UNKNOWN_BOOKMARK_PROJECT) keys.push(key);
+    else if (knowsProjects && !state.projects[key] && !state.stubProjects[key]) keys.push(key);
+  }
+  return keys;
+}
+
+/**
+ * 활동바 배지 개수 — 원시값이라 그대로 구독해도 안전하다(`useGraphStore(countProjectBookmarks)`).
+ * 목록(`selectProjectBookmarks`)과 **같은 산식**을 쓰도록 칸 고르기는 한 곳(`visibleBookmarkKeys`)만 둔다.
+ */
+export function countProjectBookmarks(state: BookmarkScope): number {
+  let n = 0;
+  for (const key of visibleBookmarkKeys(state)) n += state.ideBookmarks[key]?.length ?? 0;
+  return n;
+}
+
+/**
+ * 지금 프로젝트에서 보이는 북마크(최신 앞).
+ * ⚠ 칸이 둘 이상이면 합쳐 새 배열을 만들므로 **zustand 선택자로 직접 쓰지 말고** `useMemo` 로 감싼다
+ * (매번 새 참조를 돌려주면 구독이 갱신마다 다시 그린다).
+ */
+export function selectProjectBookmarks(state: BookmarkScope): IDEBookmark[] {
+  const keys = visibleBookmarkKeys(state);
+  if (keys.length === 0) return EMPTY_BOOKMARKS;
+  // 한 칸이면 저장 순서(최신 앞)가 그대로 답이고, 참조도 그대로 유지된다.
+  if (keys.length === 1) return state.ideBookmarks[keys[0]!] ?? EMPTY_BOOKMARKS;
+  const out: IDEBookmark[] = [];
+  for (const key of keys) out.push(...(state.ideBookmarks[key] ?? []));
+  return out.sort((a, b) => b.createdAt - a.createdAt);
+}
 
 /** 이동 직후 본문 위치로 스크롤하기 위한 1회성 타깃(IDEMainArea 가 소비 후 clear). */
 export interface BookmarkScrollTarget {
@@ -455,6 +772,8 @@ interface GraphState {
   addCommand: (agentId: string, text: string, subAgentId?: string | null, attachments?: string[]) => void;
   removeCommand: (agentId: string, commandId: string) => void;
   reorderCommands: (agentId: string, fromIndex: number, toIndex: number) => void;
+  /** §5.5 #17-18 v4.68 — 대기 중인 덧말의 처리 방식(대기/합치기/즉시) 변경. */
+  setCommandDispatchMode: (agentId: string, commandId: string, mode: CommandDispatchMode) => void;
   createTaskEdge: (sourceAgentId: string, targetAgentId: string, command: string, forwardMode: TaskEdgeForwardMode, templateId: string | null, options?: TaskEdgeOptions) => void;
   updateTaskEdge: (id: string, updates: { command?: string; forwardMode?: TaskEdgeForwardMode } & TaskEdgeOptions) => void;
   deleteTaskEdge: (id: string) => void;
@@ -488,9 +807,15 @@ interface GraphState {
   skillUsageCounts: Record<string, Record<string, number>>;
   /** §5.3 #10-2 v2.37 — Auto Agent 가 spawn 한 군의 요약 메타 (autoAgentSessionId → summary). */
   autoAgentSummaries: Record<string, AutoAgentSummary>;
+  /** §5.3 #10-3 v4.98 — 검증 런 (autoAgentSessionId → AutoAgentRun[], 최신이 뒤).
+   *  서버가 소유한 완료 근거라 클라는 스냅샷을 그대로 표시만 한다(클라 판정 ❌). */
+  autoAgentRuns: Record<string, AutoAgentRun[]>;
   /** §5.5 #17-9 v3.51 — 지금 백단에서 도는 서브에이전트 (agentId → RunningSubagentTask[]).
    *  서버 런타임 전용 값이라 클라도 영속화 ❌ — 스냅샷마다 통째 교체(끝나면 자동으로 빈다). */
   runningSubagentTasks: Record<string, RunningSubagentTask[]>;
+  /** §5.5 #17-9 ⑦(b) — 방금 끝난 서브에이전트 (agentId → FinishedSubagentTask[], 새 것이 앞).
+   *  결과가 늦게 붙으므로 항목이 같아도 내용이 갱신된다. 같은 이유로 영속화 ❌. */
+  finishedSubagentTasks: Record<string, FinishedSubagentTask[]>;
   /** §4 v2.52 — 에이전트 작업 신고 (agentId → AgentReport[]). IDE 색 구분 카드. */
   agentReports: Record<string, AgentReport[]>;
   /** §4 v2.60 — 에이전트 질문 카드 (agentId → AgentQuestions[]). IDE 질문 카드. */
@@ -503,6 +828,8 @@ interface GraphState {
   agentFeedbacks: Record<string, AgentFeedback[]>;
   /** §5.5 #17-11 v3.79 — 세션 반복 실행(루프) 설정 (subAgentId → SessionLoop). 서버 SSOT, 클라는 표시·전송만. */
   sessionLoops: Record<string, SessionLoop>;
+  /** §5.5 #17-17 v4.46 — 세션 목표 (subAgentId → SessionGoal). 서버 SSOT, 클라는 표시·전송만. */
+  sessionGoals: Record<string, SessionGoal>;
   /** §4 v2.38 — 동적 모델 레지스트리 (서버 modelRegistryService 가 시드+/v1/models 머지 후 push). */
   modelRegistry: ModelRegistry | null;
   /** §4 v2.42 — 사용자 글로벌 옵션 (Options 창 SSOT). */
@@ -511,6 +838,18 @@ interface GraphState {
   rateLimits: RateLimitInfo | null;
   /** §4 v3.62 — Claude 앱 /usage 와 같은 원천(OAuth)의 사용량. 글로벌, 비영속. */
   claudeUsage: ClaudeUsageInfo | null;
+  /**
+   * §4 v4.82 — Claude 계정 로그인 상태(`claude auth status`). 글로벌, 비영속.
+   * `loggedIn === false && !error` 일 때만 로그인 팝업이 뜬다(error = 판정 불가 = "모름").
+   */
+  claudeAuth: ClaudeAuthStatus | null;
+  /** 서버 스냅샷/REST 응답으로 받은 로그인 상태 반영. */
+  applyClaudeAuth: (auth: ClaudeAuthStatus | undefined) => void;
+  /** 사용자가 로그인 팝업을 "나중에"로 닫았는가 — 이 앱 실행 동안 다시 자동으로 뜨지 않게. */
+  loginGateDismissed: boolean;
+  /** 팝업 강제 열기(옵션창 Account 의 [로그인]) / 닫기. null = 사용자 요청 없음(자동 판정에 맡김). */
+  loginGateForced: boolean;
+  setLoginGate: (state: { forced?: boolean; dismissed?: boolean }) => void;
   /** §4 v1.98 — 진단 에러 로그 (글로벌 ring buffer, append 순). DebugPanel 에러 뷰어용. */
   diagnosticLog: DiagnosticEntry[];
   /**
@@ -542,9 +881,11 @@ interface GraphState {
   contiBoardOpen: { agentId: string; contiId: string } | null;
   openContiBoard: (agentId: string, contiId: string) => void;
   closeContiBoard: () => void;
-  /** v2.61 — 첨부 이미지 라이트박스(전체화면 확대) URL. null=닫힘. 전환 상태이므로 영속화 ❌. */
-  imageLightbox: string | null;
-  openImageLightbox: (url: string) => void;
+  /** v2.61 — 첨부 이미지 라이트박스(전체화면 확대). null=닫힘. 전환 상태이므로 영속화 ❌.
+   *  §5.5 #17-25 v4.80 — URL 하나에서 `{ url, attachment? }` 로 넓혔다. 주석본을 저장할 때
+   *  **어느 첨부를 열었는지** 알아야 그 자리를 교체할 수 있다(모르면 새 첨부로만 붙는다). */
+  imageLightbox: ImageLightboxState | null;
+  openImageLightbox: (url: string, attachment?: ImageLightboxAttachment) => void;
   closeImageLightbox: () => void;
   /** 콘티 생성 in-flight (agentId Set) — UX 스피너용. 완료 시 자동 제거. */
   contiGenerating: Record<string, true>;
@@ -592,6 +933,45 @@ interface GraphState {
   selectCaptureBubble: (id: string | null) => void;
   /** §5.9 캡처 버블 목록 (서버 스냅샷). 현재 프로젝트 필터로 렌더. */
   captureBubbles: CaptureBubble[];
+  /**
+   * §5.5 #17-20 ⑩ v4.94 — 프로젝트별 중단점(projectName → 목록). 서버 스냅샷이 진실이고
+   * 화면은 그대로 그린다. 세션이 없어도 존재하므로 편집창 gutter 는 이 값만 보면 된다.
+   */
+  debugBreakpoints: Record<string, DebugBreakpoint[]>;
+  /** 스냅샷에서 받은 중단점을 반영(별도 액션 — loadSnapshot 위치 인자 ❌). */
+  applyDebugBreakpoints: (record: Record<string, DebugBreakpoint[]>) => void;
+  /** 한 줄을 켜고 끈다. 화면에 먼저 반영하고 서버에 저장을 보낸다(스냅샷이 곧 덮어쓴다). */
+  toggleBreakpoint: (projectName: string, file: string, line: number) => void;
+  /** §5.5 #17-27 ⑨ v4.97 — 한 파일에 찍힌 중단점을 모두 지운다(편집창 줄 번호 우클릭). */
+  clearBreakpointsInFile: (projectName: string, file: string) => void;
+  /** §5.13 v4.45 — 내부 앱 버블(범용). 앱이 늘어도 이 배열 하나. */
+  appBubbles: AppBubble[];
+  /** 스냅샷에서 받은 앱 버블을 반영. loadSnapshot 의 긴 인자 목록을 더 늘리지 않는다. */
+  applyAppBubbles: (list: AppBubble[]) => void;
+  /** 드래그 중 위치를 화면에만 먼저 반영(서버 왕복 전). */
+  patchAppBubbleLocal: (id: string, updates: Partial<AppBubble>) => void;
+  /** 드래그 중인 앱 버블 ID 집합 — applyAppBubbles 가 이 버블들의 geometry 를 로컬 값으로 보호. */
+  draggingAppBubbleIds: string[];
+  setAppBubbleDragLock: (id: string, on: boolean) => void;
+  /** §5.13 선택된 앱 버블 ID — Delete 키의 대상. 노드/Task Edge/Comment Box/캡처 선택과 배타. */
+  selectedAppBubbleId: string | null;
+  selectAppBubble: (id: string | null) => void;
+  /**
+   * 앱 버블 삭제. 우클릭 메뉴와 Delete 키가 **같은 이 경로**를 쓴다.
+   *
+   * 핀(preservePinned)이 걸려 있으면 서버가 409 로 거절하므로(§2.4) 낙관 제거를 먼저 하지
+   * 않는다 — 화면에서 지웠다가 다음 스냅샷에 되살아나는 깜빡임을 막기 위함. 거절되면 false.
+   */
+  deleteAppBubble: (id: string) => Promise<boolean>;
+  /**
+   * 앱 버블 이름 바꾸기. 빈 문자열이면 앱 기본 이름으로 되돌아간다.
+   *
+   * 우클릭 메뉴와 우측 옵션 패널이 **같은 이 경로**를 쓴다(v4.68) — 각자 fetch 를 쓰면
+   * 낙관 반영 규칙이 갈라져 한쪽에서만 "바꿨는데 다시 열면 옛 이름"이 된다.
+   */
+  renameAppBubble: (id: string, title: string) => void;
+  /** §2.4 preserve-pin 토글. 우클릭 메뉴·옵션 패널 공용. */
+  setAppBubblePin: (id: string, pinned: boolean) => void;
   /** 드래그/리사이즈 중인 캡처 버블 ID 집합 — loadSnapshot 이 이 버블들의 geometry 를 로컬 값으로 보호. */
   draggingCaptureBubbleIds: string[];
   setCaptureBubbleDragLock: (id: string, on: boolean) => void;
@@ -612,6 +992,31 @@ interface GraphState {
   updateCaptureBubble: (id: string, updates: Partial<Omit<CaptureBubble, 'id' | 'projectName' | 'createdAt' | 'updatedAt'>>) => Promise<void>;
   /** 서버 캡처 버블 삭제. */
   deleteCaptureBubble: (id: string) => Promise<void>;
+
+  // ─── §5.14 v4.62 — 플레이 버블 (이 프로젝트를 켜는 버튼) ───
+  /** 플레이 버블 목록 (서버 스냅샷). 현재 프로젝트 필터로 렌더. */
+  playBubbles: PlayBubble[];
+  /** 스냅샷 반영. 드래그 중인 버블의 좌표는 로컬 값으로 보호한다(앱 버블과 같은 규칙). */
+  applyPlayBubbles: (list: PlayBubble[]) => void;
+  /** 드래그 중 좌표를 화면에만 먼저 반영(서버 왕복 전). */
+  patchPlayBubbleLocal: (id: string, updates: Partial<PlayBubble>) => void;
+  draggingPlayBubbleIds: string[];
+  setPlayBubbleDragLock: (id: string, on: boolean) => void;
+  /** 선택된 플레이 버블 ID — Delete 키 대상. 다른 선택과 배타. */
+  selectedPlayBubbleId: string | null;
+  selectPlayBubble: (id: string | null) => void;
+  createPlayBubble: (input: { projectName: string; x: number; y: number }) => Promise<PlayBubble | null>;
+  updatePlayBubble: (id: string, updates: Partial<Omit<PlayBubble, 'id' | 'projectName' | 'createdAt' | 'updatedAt'>>) => Promise<void>;
+  /** 핀이면 서버가 409 로 거절한다 — 낙관 제거 없이 결과를 돌려준다(앱 버블과 같은 규칙). */
+  deletePlayBubble: (id: string) => Promise<boolean>;
+  /** 버튼 누름 — 서버가 띄우고, 진행은 스냅샷으로 흘러온다. */
+  startPlayBubble: (id: string) => Promise<void>;
+  stopPlayBubble: (id: string) => Promise<void>;
+  /** 실행법 다시 찾기(4단 계단 1~3단). apply=true 면 1등 후보를 바로 확정. */
+  detectPlayRecipe: (id: string, apply: boolean) => Promise<PlayRecipeCandidate[]>;
+  /** 4단 계단 ④ — 에이전트에게 실행법 조사를 맡긴다(기존 명령 큐). */
+  askAgentForPlayRecipe: (id: string, agentId: string) => Promise<boolean>;
+
   agentPhase: AgentPhase;
   activeAgentCount: number;
   pendingFocus: boolean;
@@ -725,6 +1130,13 @@ interface GraphState {
   /** agentId → 최근 주입 이벤트 목록(스냅샷 런타임 신호, 영속 X). IDE "기억 N장 참조" 칩 + Brain 엣지 연출. */
   brainInjections: Record<string, BrainInjectionEvent[]>;
   /**
+   * §5.11 v4.65 — projectPath → pluginId → 집행 실측(스냅샷 런타임 신호, 영속 X).
+   *
+   * 집행은 서버에서 프로젝트 파일을 훑어 판단하는데 카드는 파일을 볼 수 없다. 이 값이 그 판단 근거를
+   * 카드까지 실어 오므로, 화면이 프롬프트와 **같은 숫자**를 말할 수 있다. 조회는 `selectActivePluginFacts`.
+   */
+  pluginFacts: Record<string, Record<string, PluginFactMap>>;
+  /**
    * §5.10 v3.49 — 휴지통 내부 진입 상태 — currentFolderId/navStack 과 독립. null=일반 캔버스.
    * 기억(brain/agentMemory)은 v3.49 에서 버블 산개 폐기 → `brainFeed` 오버레이가 담당.
    * 휴지통(버려진 에이전트 나열)만 기존 버블 진입 방식을 유지한다.
@@ -776,6 +1188,12 @@ interface GraphState {
   restoreTrashedAgent: (sessionId: string) => Promise<void>;
   /** 휴지통 커스텀 에이전트 영구 삭제(기억 카드 포함). */
   purgeTrashedAgent: (sessionId: string) => Promise<void>;
+  /** §5.10 v4.84 — 휴지통 일괄 영구 삭제(배치 1회 = 스냅샷 1회). 확인 팝업을 거친 뒤에만 호출. */
+  purgeTrashedAgents: (sessionIds: string[]) => Promise<void>;
+  /** §5.10 v4.84 — 휴지통 영구 삭제 확인 팝업 대상([모두 삭제]·Delete 키 공용). null 이면 안 뜬다. */
+  trashPurgeTarget: { ids: string[] } | null;
+  requestTrashPurge: (ids: string[]) => void;
+  closeTrashPurge: () => void;
 
   loadSnapshot: (
     projects: Record<string, ProjectInfo>,
@@ -810,6 +1228,11 @@ interface GraphState {
     brain: Record<string, BrainSummary>,
     brainInjections: Record<string, BrainInjectionEvent[]>,
   ) => void;
+  /**
+   * §5.11 v4.65 — 집행 실측 반영. `loadSnapshot` 의 위치 인자를 늘리지 않는 이유는 그 목록이 이미
+   * 서른 개가 넘어 **한 자리만 어긋나도 조용히 다른 값이 들어가기** 때문이다(appBubbles·playBubbles 전례).
+   */
+  applyPluginFacts: (facts: Record<string, Record<string, PluginFactMap>>) => void;
   setActiveProject: (name: string) => void;
   /** v1.63: projectId(경로) 로 닫기. name 은 로컬 활성탭 전환용 표시명(생략 시 역추론). */
   closeProject: (projectId: string, name?: string) => Promise<void>;
@@ -868,10 +1291,21 @@ interface GraphState {
   subAgentStreams: Record<string, SubAgentStreamEvent[]>;
   /** 세션별 마지막 스트림 수신 시각 (ms) — 비활성 세션 pruning(가장 오래된 것부터 제거)에 사용. */
   streamLastActivity: Record<string, number>;
+  /**
+   * 지금 **깊은 복원분**(단건 경로 `GET /api/subagent-streams/:agentId/:subId`, 상한 전체)을
+   * 들고 있는 세션 표식. 비활성 컷(300)·세션 통째 제거로 그 깊은 창이 깎이면 여기서 지워지고,
+   * IDE 가 그것을 보고 **다시 받아 온다**. 이 표식이 없으면 "한 번 깎인 세션은 영영 얕은 채로"가
+   * 된다 — 말풍선·카드만 남고 사이가 빈 화면의 정체가 그것이었다.
+   */
+  deepRestoredSessions: Record<string, true>;
   appendStreamEvent: (event: SubAgentStreamEvent) => void;
   /** §9 — sub_agent_stream 16ms 배치 수신. 도착 순서대로 합쳐 set 1회 (구독자 재평가 1회). */
   appendStreamEvents: (events: SubAgentStreamEvent[]) => void;
-  loadStreamBuffers: (buffers: Record<string, SubAgentStreamEvent[]>) => void;
+  /**
+   * 서버 버퍼 적재. `depth='deep'` 은 보고 있는 세션의 상한 전체 복원분이라 표식을 세우고,
+   * 기본값 `'shallow'`(에이전트 전체 얕은 조회)는 **이미 깊은 복원분이 있는 세션을 줄이지 않는다**.
+   */
+  loadStreamBuffers: (buffers: Record<string, SubAgentStreamEvent[]>, depth?: 'deep' | 'shallow') => void;
   /** IDE 오버레이 상태 — 프로젝트별 독립 슬롯 (projectId → state). 활성 탭의 슬롯만 화면에 노출. */
   ideOverlays: Record<string, IDEOverlayState>;
   openIDEOverlay: (agentId: string) => void;
@@ -880,13 +1314,60 @@ interface GraphState {
   setIDEActiveView: (view: IDEViewType) => void;
   toggleIDESidebar: () => void;
   setIDEDocked: (docked: boolean, dockWidth?: number) => void;
+  /** §5.5 #17-27 — 파일을 내장 편집창에 연다(이미 열려 있으면 그 탭을 활성화). 여는 손잡이 3곳의 공통 창구. */
+  openIDEEditorFile: (file: IDEEditorFile) => void;
+  /** §5.5 #17-27 — 탭 하나 닫기. 활성 탭이었으면 옆 탭으로 넘어가고, 마지막이면 편집창이 닫힌다. */
+  closeIDEEditorFile: (relPath: string) => void;
+  /** §5.5 #17-27 — 탭 전환. null 이면 편집창 자체를 접는다(탭 목록은 남는다). */
+  setActiveIDEEditorFile: (relPath: string | null) => void;
+  /** §5.5 #17-27 — 편집창 통째로 닫기(탭 목록도 비운다). */
+  closeIDEEditor: () => void;
+  /** §5.5 #17-27 — 그 탭에 저장하지 않은 편집이 있는지 신고(탭 점 + 밀어내기 예외). */
+  setIDEEditorFileDirty: (relPath: string, dirty: boolean) => void;
+  /** §5.5 #17-27 — 편집창 폭(px). 좌측 손잡이 드래그로 조절. localStorage 영속. */
+  ideEditorWidth: number;
+  setIdeEditorWidth: (w: number) => void;
+  /**
+   * §5.5 #17-27 ⑪ (g) — [추종]이 켜진 **세션키의 집합**(`에이전트::세션id`). 켜져 있으면 그 세션이
+   * 고친 파일을 편집창이 따라 연다. 밀도(`ideStreamDensity`)와 **다른 축**이고, 세션마다 따로다 —
+   * 옆 세션에서 켰다고 이 세션이 따라가지 않는다. localStorage 영속(상한 초과 시 오래된 키부터 정리).
+   */
+  ideEditorFollow: Record<string, true>;
+  setIdeEditorFollow: (sessionKey: string, on: boolean) => void;
+  /**
+   * §5.5 #17-27 ⑪ — 방금 도착한 편집을 편집창에 알리는 **일회성 신호**(영속 ❌ · 체크포인트 ❌).
+   * 여는 쪽(`useEditorFollow`)과 그리는 쪽(`IDEEditorPane`)이 서로 멀어, 탭 목록과 같은 축으로 건넨다.
+   * 편집창이 다시 읽기·스크롤·강조를 끝내면 스스로 비운다.
+   */
+  ideEditorFollowSignal: EditorFollowSignal | null;
+  setIdeEditorFollowSignal: (signal: EditorFollowSignal) => void;
+  clearIdeEditorFollowSignal: () => void;
+  /**
+   * §5.5 #17-27 ⑪ (h) — **방금 따라간 것**(어느 세션이 · 어느 파일 · 몇 번째 줄 · 언제).
+   * 강조는 1.8초면 사라지지만 이 자국은 남아 상태바 칩·편집창 추종 띠가 같은 것을 말한다.
+   * 표시 전용 · 영속 ❌(창을 닫으면 사라진다).
+   */
+  ideEditorFollowLast: EditorFollowMark | null;
+  setIdeEditorFollowLast: (mark: EditorFollowMark) => void;
+  /**
+   * §5.5 #17-27 ⑪ (h) — 추종이 **꺼져 있는 동안** 그 세션이 마지막으로 고친 "따라갈 수 있었던 편집".
+   * 화면에 상주하지 않는 **속기억** · 영속 ❌. 켜는 순간 소진된다.
+   */
+  ideEditorFollowPending: EditorFollowPending | null;
+  setIdeEditorFollowPending: (pending: EditorFollowPending | null) => void;
+  /**
+   * §5.5 #17-27 ⑪ (h) — **켜면서 마지막 편집으로 곧바로 따라간다**(토글을 켜는 유일한 경로).
+   * 켜기 + 열기 + 신호를 한 걸음으로 묶어, "켰는데 다음 편집이 올 때까지 아무 일도 없는" 빈 시간을 없앤다.
+   * 기억해 둔 편집이 없으면 그냥 켜기만 한다.
+   */
+  followPendingEditNow: (sessionKey: string) => void;
   /** 커스텀 에이전트 버블이 표시할 "선택된 sub" 영구 맵 (agentId → subId).
    *  IDE 오버레이가 닫혀도 유지 — 버블의 context 게이지/라벨 override 소스. */
   selectedSubByAgent: Record<string, string>;
   selectSubForAgent: (agentId: string, subId: string) => void;
-  /** IDE 북마크 — IDE 출력에서 보관한 텍스트 조각의 전역 목록(localStorage 영속). */
-  ideBookmarks: IDEBookmark[];
-  /** 선택 텍스트를 북마크로 추가(최신이 앞). 빈 텍스트는 무시. */
+  /** IDE 북마크 — 프로젝트별 보관함(프로젝트 표시명 → 조각 목록, localStorage 영속). §5.5 #17-7. */
+  ideBookmarks: BookmarkStore;
+  /** 선택 텍스트를 지금 보고 있는 프로젝트 칸에 북마크로 추가(최신이 앞). 빈 텍스트는 무시. */
   addBookmark: (input: { text: string; agentId: string; sessionId: string | null; projectId: string | null; agentLabel: string; anchorId?: string }) => void;
   /** 북마크 1개 제거. */
   removeBookmark: (id: string) => void;
@@ -896,23 +1377,12 @@ interface GraphState {
   bookmarkScrollTarget: BookmarkScrollTarget | null;
   /** bookmarkScrollTarget 소비 완료 처리. */
   clearBookmarkScrollTarget: () => void;
-  /** 북마크 패널이 열려 있는지 — 활동바 북마크 버튼이 토글. 세션창(메인 영역) 전체를 덮는 오버레이. 휘발(영속 ❌). */
-  bookmarkPanelOpen: boolean;
-  setBookmarkPanelOpen: (open: boolean) => void;
-  toggleBookmarkPanel: () => void;
-  /** §5.5 #17-8 v2.95 — 세션 요약 보드 패널이 열려 있는지(북마크 패널과 동형 휘발 토글, 세션창 전체 덮개). 영속 ❌. */
-  summaryPanelOpen: boolean;
-  setSummaryPanelOpen: (open: boolean) => void;
-  toggleSummaryPanel: () => void;
-  /** §5.5 #17-9 v3.51 — "실행 중 서브에이전트" 패널이 열려 있는지(북마크·세션요약과 동형 휘발 토글,
-   *  셋은 상호 배타). 실행 항목이 0 이 되면 패널 쪽에서 자동으로 닫는다. 영속 ❌. */
-  subagentPanelOpen: boolean;
-  setSubagentPanelOpen: (open: boolean) => void;
-  toggleSubagentPanel: () => void;
-  /** §5.5 #17-11 v3.79 — 세션 루프 설정 패널이 열려 있는지(위 셋과 동형 휘발 토글, 넷은 상호 배타). 영속 ❌. */
-  loopPanelOpen: boolean;
-  setLoopPanelOpen: (open: boolean) => void;
-  toggleLoopPanel: () => void;
+  // §5.5 #17-7·#17-8 v4.93 — 북마크·세션 요약의 덮개 토글(`bookmarkPanelOpen`/`summaryPanelOpen`)은
+  //   폐지됐다. 두 화면은 `IDEViewType` 의 'bookmarks'/'summary' 사이드바 뷰이므로 여닫는 상태는
+  //   다른 항목과 똑같이 `ideOverlays[proj].activeView` + `sidebarCollapsed` 하나로 표현된다.
+  // §5.5 #17-9 ③ v4.95 — "실행 중 서브에이전트" 의 덮개 토글(`subagentPanelOpen` + 2 액션)도 폐지됐다.
+  //   그 화면은 `IDEViewType` 의 'subagents' 사이드바 뷰이므로 여닫는 상태는 다른 항목과 똑같이
+  //   `ideOverlays[proj].activeView` + `sidebarCollapsed` 하나로 표현된다(= IDE 에 남은 덮개는 실행 출력뿐).
   /** §5.5 #17-8 v2.95 — 세션 자기요약 캐시(subId → 항목). 카드 없는 세션의 CLI 요약 텍스트 보관 + 닫힌 세션도 보드에 남김. localStorage 영속. */
   sessionSummaries: Record<string, SessionSummaryEntry>;
   /** 자기요약 텍스트 저장(없으면 추가, 있으면 갱신). */
@@ -935,6 +1405,12 @@ interface GraphState {
   ideStreamDensity: StreamDensity;
   /** 표시 밀도 설정(+영속). */
   setIdeStreamDensity: (d: StreamDensity) => void;
+  /** §5.5 — IDE 읽기 설정(폭·행간·자간·글꼴 등). 상단 바 [읽기] 패널로 조절. localStorage 영속. */
+  ideReading: ReadingSettings;
+  /** 읽기 설정 부분 갱신(+정규화·영속). 바뀐 게 없으면 상태를 그대로 둔다. */
+  setIdeReading: (patch: Partial<ReadingSettings>) => void;
+  /** 읽기 설정을 연구 기본값으로 되돌린다. */
+  resetIdeReading: () => void;
   /** 현재 UI 언어 (서버 SSOT — ProjectCheckpoint.uiLocale). */
   uiLocale: UiLocale;
   /** 서버 스냅샷 수신 시 호출 — 상태 갱신 + i18n 언어 전환. */
@@ -950,8 +1426,12 @@ interface GraphState {
   applySkillUsageCounts: (counts: Record<string, Record<string, number>> | undefined) => void;
   /** §5.3 #10-2 v2.37 — graph_snapshot 의 Auto Agent 요약 메타 반영. */
   applyAutoAgentSummaries: (summaries: Record<string, AutoAgentSummary> | undefined) => void;
+  /** §5.3 #10-3 v4.98 — graph_snapshot 의 검증 런 반영. */
+  applyAutoAgentRuns: (runs: Record<string, AutoAgentRun[]> | undefined) => void;
   /** §5.5 #17-9 v3.51 — graph_snapshot 의 "실행 중 서브에이전트" 반영. */
   applyRunningSubagentTasks: (tasks: Record<string, RunningSubagentTask[]> | undefined) => void;
+  /** §5.5 #17-9 ⑦(b) — graph_snapshot 의 "방금 끝난 서브에이전트" 반영. */
+  applyFinishedSubagentTasks: (tasks: Record<string, FinishedSubagentTask[]> | undefined) => void;
   /** §4 v2.52 — graph_snapshot 의 에이전트 작업 신고 반영. */
   applyAgentReports: (reports: Record<string, AgentReport[]> | undefined) => void;
   /** §4 v2.60 — graph_snapshot 의 에이전트 질문 카드 반영. */
@@ -989,10 +1469,47 @@ interface GraphState {
     total?: number;
     intervalMs: number;
     stopOnError: boolean;
+    /** §5.5 #17-11 ⑪·⑫(b) — 회차 사이 컨텍스트 처리(없음/압축/초기화). */
+    contextMode: SessionLoopContextMode;
+    /** §5.5 #17-11 ⑫(a) — 누적 예산 상한. 0·미설정이면 무제한. */
+    maxCostUsd?: number;
+    maxTokens?: number;
+    maxDurationMs?: number;
+    /** §5.5 #17-11 ⑫(c)(d)(e)(f) — 회차 프롬프트 규약. */
+    progressFile?: string;
+    oneTaskPerRound: boolean;
+    commitEachRound: boolean;
+    commandFile?: string;
     enabled: boolean;
   }) => Promise<void>;
   /** §5.5 #17-11 v3.79 — 루프 정지(설정 유지) 또는 삭제. */
   endSessionLoop: (agentId: string, subAgentId: string, mode: 'stop' | 'delete') => Promise<void>;
+  /** §5.5 #17-17 v4.46 — graph_snapshot 의 세션 목표 반영. */
+  applySessionGoals: (goals: Record<string, SessionGoal> | undefined) => void;
+  /**
+   * §5.5 #17-17 v4.46 — 목표 저장 (PUT). 문장 수정·상태 변경 모두 이 문으로 간다.
+   * 서버가 revision·textChangedAt 을 판정하므로 클라는 낙관적 갱신 ❌(broadcast 가 SSOT).
+   */
+  saveSessionGoal: (input: {
+    agentId: string;
+    subAgentId: string;
+    text: string;
+    status?: SessionGoalStatus;
+  }) => Promise<void>;
+  /**
+   * §5.5 #17-17 v4.47 — 사용자 진행 갱신 (POST …/progress, `source:'user'`).
+   * 체크박스 토글·단계 추가·삭제는 **목록 전체**를 `steps` 로 보낸다(서버가 본문 일치로 id 를 잇는다).
+   * 단계가 없는 목표에서만 `percent` 숫자 보정이 의미를 갖는다.
+   */
+  setSessionGoalProgress: (input: {
+    agentId: string;
+    subAgentId: string;
+    percent?: number;
+    steps?: { text: string; status: SessionGoalStepStatus }[];
+    note?: string;
+  }) => Promise<void>;
+  /** §5.5 #17-17 v4.46 — 목표 해제(삭제). */
+  endSessionGoal: (agentId: string, subAgentId: string) => Promise<void>;
   /** §4 v1.98 — graph_snapshot 수신 시 진단 에러 로그 반영. */
   applyDiagnosticLog: (log: DiagnosticEntry[] | undefined) => void;
   /** §4 v2.38 — graph_snapshot 또는 model_registry_updated 수신 시 레지스트리 반영. */
@@ -1078,6 +1595,9 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   pendingSubAgentRestores: {},
   optimisticRemoveSubAgent: (agentId, subAgentId) =>
     set((s) => {
+      // §5.5 #17-23 ③ — 세션이 지워지면 그 세션의 명령 히스토리도 함께 지운다.
+      //   세션 제거의 단일 창구(탭바·세션 요약·지휘통제실이 모두 이 액션을 지난다)라 여기 한 곳이면 된다.
+      dropSessionCommandHistory(agentId, subAgentId);
       const nextRestores = { ...s.pendingSubAgentRestores };
       delete nextRestores[subAgentId];
       return {
@@ -1136,6 +1656,17 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   addCommand: (agentId, text, subAgentId, attachments) => {
     const sid = findSessionId(get().agents, agentId);
     if (!sid) return;
+    // §5.5 #17-29 — 훅 버블은 읽기 전용. 여기가 클라의 **유일한 전송 창구**라, 화면 어딘가에서
+    //   손잡이를 지우는 걸 놓쳐도 명령은 나가지 않는다(서버도 같은 술어로 403 — 이중 방어).
+    //   판정 원천은 `sid` 를 찾은 것과 같은 `agents` 배열이라 둘이 어긋나지 않는다.
+    if (isReadOnlyHookAgent(get().agents.find((a) => a.id === agentId))) return;
+    // §5.5 #17-23 — 사용자가 **보낸** 프롬프트를 그 세션의 명령 히스토리(↑/↓)에 적재.
+    //   여기가 클라의 유일한 전송 창구(입력창·지휘통제실 카드·상세 패널 큐가 모두 지난다)라
+    //   기록도 여기 한 곳에서 한다. 서버 큐는 완료된 명령을 빼 가므로 큐를 되읽는 방식으로는
+    //   보낸 명령이 끝나는 순간 히스토리에서 사라졌다.
+    //   키는 **사용자가 친 자리**(subAgentId, 메인 탭이면 null)다 — 서버가 새 세션을 배정하기
+    //   전이므로 여기서 알 수 있는 세션이자, 사용자가 다음에 ↑ 를 누를 그 입력창이기도 하다.
+    recordCommandHistory(agentId, subAgentId ?? null, text);
     // §5.7 #23-1 v1.59 — 첫 명령 발사 직전에 Claude Code 버전 체크. outdated 면 모달 결정까지 보류.
     void (async () => {
       await get().ensureClaudeVersionChecked();
@@ -1161,6 +1692,17 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     const sid = findSessionId(get().agents, agentId);
     if (!sid) return;
     fetch(`${API_BASE}/api/commands/${sid}/${commandId}`, { method: 'DELETE' }).catch(() => {});
+  },
+  setCommandDispatchMode: (agentId, commandId, mode) => {
+    const sid = findSessionId(get().agents, agentId);
+    if (!sid) return;
+    // 서버가 SSOT — 성공하면 broadcast 로 돌아온 스냅샷이 칩을 갱신한다(낙관 반영 없음:
+    // 즉시(immediate)는 서버가 실제로 끊었는지까지 판정하므로 화면이 앞서가면 거짓이 된다).
+    fetch(`${API_BASE}/api/commands/${sid}/${commandId}/mode`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dispatchMode: mode }),
+    }).catch(() => {});
   },
   reorderCommands: (agentId, fromIndex, toIndex) => {
     const sid = findSessionId(get().agents, agentId);
@@ -1243,6 +1785,117 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       await fetch(`${API_BASE}/api/comment-boxes/${id}`, { method: 'DELETE' });
     } catch { /* 재연결 후 다음 snapshot 에서 동기화 */ }
   },
+  // ─── §5.13 v4.45 내부 앱 버블 ───
+  // ─── §5.5 #17-20 ⑩ v4.94 공통 디버그 층 — 중단점 ───────────────────────────
+
+  applyDebugBreakpoints: (record) => set((s) => {
+    // 참조가 같으면 리렌더를 일으키지 않는다(대부분의 스냅샷에서 이 값은 안 바뀐다).
+    const prev = s.debugBreakpoints;
+    const prevKeys = Object.keys(prev);
+    const nextKeys = Object.keys(record);
+    if (prevKeys.length === nextKeys.length && prevKeys.every((k) => {
+      const a = prev[k];
+      const b = record[k];
+      return !!a && !!b && a.length === b.length
+        && a.every((bp, i) => bp.file === b[i]!.file && bp.line === b[i]!.line
+          && bp.enabled === b[i]!.enabled && bp.verified === b[i]!.verified);
+    })) {
+      return s;
+    }
+    return { debugBreakpoints: record };
+  }),
+
+  toggleBreakpoint: (projectName, file, line) => {
+    const current = get().debugBreakpoints[projectName] ?? [];
+    const at = current.findIndex((bp) => bp.file === file && bp.line === line);
+    const next = at >= 0
+      ? current.filter((_, i) => i !== at)
+      : [...current, { file, line, enabled: true }];
+    commitBreakpoints(set, get, projectName, next);
+  },
+
+  // §5.5 #17-27 ⑨ v4.97 — 편집창 줄 번호 우클릭의 "이 파일 중단점 모두 제거".
+  //   저장·세션 주입은 toggleBreakpoint 와 **같은 함수**를 쓴다(경로가 둘이면 한쪽이 뒤처진다).
+  clearBreakpointsInFile: (projectName, file) => {
+    const current = get().debugBreakpoints[projectName] ?? [];
+    const next = current.filter((bp) => bp.file !== file);
+    if (next.length === current.length) return;
+    commitBreakpoints(set, get, projectName, next);
+  },
+
+  applyAppBubbles: (list) => set((s) => {
+    // 드래그 중인 버블의 geometry 는 서버 값으로 덮지 않는다(CommentBox·CaptureBubble 과 동일 규칙).
+    // 손이 움직이는 도중 WS 스냅샷이 도착하면 옛 좌표로 회귀해 버블이 마우스 뒤로 튄다.
+    // 다른 창·다른 인스턴스에서 지워졌으면 선택도 함께 놓는다(없는 것을 고른 채로 두지 않는다).
+    const keepSelected = s.selectedAppBubbleId !== null && list.some((b) => b.id === s.selectedAppBubbleId)
+      ? s.selectedAppBubbleId
+      : null;
+    if (s.draggingAppBubbleIds.length === 0) return { appBubbles: list, selectedAppBubbleId: keepSelected };
+    const locked = new Map<string, AppBubble>();
+    for (const id of s.draggingAppBubbleIds) {
+      const local = s.appBubbles.find((b) => b.id === id);
+      if (local) locked.set(id, local);
+    }
+    if (locked.size === 0) return { appBubbles: list, selectedAppBubbleId: keepSelected };
+    return {
+      appBubbles: list.map((b) => {
+        const local = locked.get(b.id);
+        return local ? { ...b, x: local.x, y: local.y, width: local.width, height: local.height } : b;
+      }),
+      selectedAppBubbleId: keepSelected,
+    };
+  }),
+  patchAppBubbleLocal: (id, updates) => set((s) => ({
+    appBubbles: s.appBubbles.map((b) => (b.id === id ? { ...b, ...updates } : b)),
+  })),
+  // §5.11 v4.65 — 서버 권위 런타임 값이라 매 스냅샷 통째 교체다(영속 X → 스냅샷 정리 함정 무관).
+  //   빈 맵도 정상값이다 — 마지막 집행 플러그인을 끈 직후 카드가 옛 실측을 계속 보여 주면 안 된다.
+  //   신원이 같으면 그대로 둔다(모든 버블의 플러그인 컨텍스트가 재계산되는 것을 막는다).
+  applyPluginFacts: (facts) => set((s) => {
+    const prev = s.pluginFacts;
+    const sameKeys = Object.keys(prev).length === Object.keys(facts).length
+      && Object.keys(facts).every((k) => prev[k] === facts[k]);
+    return sameKeys ? {} : { pluginFacts: facts };
+  }),
+  draggingAppBubbleIds: [],
+  setAppBubbleDragLock: (id, on) => set((s) => {
+    const has = s.draggingAppBubbleIds.includes(id);
+    if (on && !has) return { draggingAppBubbleIds: [...s.draggingAppBubbleIds, id] };
+    if (!on && has) return { draggingAppBubbleIds: s.draggingAppBubbleIds.filter((x) => x !== id) };
+    return s;
+  }),
+  deleteAppBubble: async (id) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/app-bubbles/${id}`, { method: 'DELETE' });
+      if (!res.ok) return false; // 409 = 핀으로 보호됨, 404 = 이미 없음
+    } catch {
+      return false; // 연결이 끊겼으면 지운 척하지 않는다 — 다음 스냅샷이 진실이다.
+    }
+    set((s) => ({
+      appBubbles: s.appBubbles.filter((b) => b.id !== id),
+      selectedAppBubbleId: s.selectedAppBubbleId === id ? null : s.selectedAppBubbleId,
+    }));
+    return true;
+  },
+  // 이름·핀은 화면 먼저(낙관), 서버는 뒤따른다 — 실패해도 다음 스냅샷이 진실을 되돌린다.
+  //   삭제와 달리 되돌아와도 사용자가 잃는 것이 없어 즉시 반영이 낫다.
+  renameAppBubble: (id, title) => {
+    const next = title.trim();
+    get().patchAppBubbleLocal(id, { title: next });
+    void fetch(`${API_BASE}/api/app-bubbles/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: next }),
+    }).catch(() => undefined);
+  },
+  setAppBubblePin: (id, pinned) => {
+    get().patchAppBubbleLocal(id, { preservePinned: pinned });
+    void fetch(`${API_BASE}/api/app-bubbles/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ preservePinned: pinned }),
+    }).catch(() => undefined);
+  },
   // ─── §5.9 캡처 버블 (CommentBox 패턴) ───
   patchCaptureBubbleLocal: (id, updates) => set((s) => ({
     captureBubbles: s.captureBubbles.map((b) => (b.id === id ? { ...b, ...updates } : b)),
@@ -1295,6 +1948,140 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       await fetch(`${API_BASE}/api/capture-bubbles/${id}`, { method: 'DELETE' });
     } catch { /* 재연결 후 다음 snapshot 에서 동기화 */ }
   },
+
+  // ─── §5.14 v4.62 플레이 버블 (앱 버블 패턴 — 낙관 반영 + 드래그 락이 한 쌍) ───
+  playBubbles: [],
+  applyPlayBubbles: (list) => set((s) => {
+    const keepSelected = s.selectedPlayBubbleId !== null && list.some((b) => b.id === s.selectedPlayBubbleId)
+      ? s.selectedPlayBubbleId
+      : null;
+    if (s.draggingPlayBubbleIds.length === 0) return { playBubbles: list, selectedPlayBubbleId: keepSelected };
+    // 드래그 중인 버블의 좌표만 로컬 값으로 지킨다(실행 상태·레시피는 서버가 권위).
+    const locked = new Map<string, PlayBubble>();
+    for (const id of s.draggingPlayBubbleIds) {
+      const local = s.playBubbles.find((b) => b.id === id);
+      if (local) locked.set(id, local);
+    }
+    if (locked.size === 0) return { playBubbles: list, selectedPlayBubbleId: keepSelected };
+    return {
+      playBubbles: list.map((b) => {
+        const local = locked.get(b.id);
+        if (!local) return b;
+        return {
+          ...b,
+          x: local.x, y: local.y, width: local.width, height: local.height,
+          previewX: local.previewX, previewY: local.previewY,
+          previewWidth: local.previewWidth, previewHeight: local.previewHeight,
+        };
+      }),
+      selectedPlayBubbleId: keepSelected,
+    };
+  }),
+  patchPlayBubbleLocal: (id, updates) => set((s) => ({
+    playBubbles: s.playBubbles.map((b) => (b.id === id ? { ...b, ...updates } : b)),
+  })),
+  draggingPlayBubbleIds: [],
+  setPlayBubbleDragLock: (id, on) => set((s) => {
+    const has = s.draggingPlayBubbleIds.includes(id);
+    if (on && !has) return { draggingPlayBubbleIds: [...s.draggingPlayBubbleIds, id] };
+    if (!on && has) return { draggingPlayBubbleIds: s.draggingPlayBubbleIds.filter((x) => x !== id) };
+    return s;
+  }),
+  selectedPlayBubbleId: null,
+  // 다른 선택과 배타 — 캔버스의 선택은 언제나 하나여야 Delete 키가 무엇을 지울지 헷갈리지 않는다.
+  selectPlayBubble: (id) => set({
+    selectedPlayBubbleId: id,
+    selectedNodeId: null,
+    selectIntentId: null,
+    selectedTaskEdgeId: null,
+    selectedCommentBoxId: null,
+    selectedCaptureBubbleId: null,
+    selectedAppBubbleId: null,
+  }),
+  createPlayBubble: async (input) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/play-bubbles`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+      if (!res.ok) return null;
+      const data = await res.json() as { ok: boolean; data?: PlayBubble };
+      const bubble = data.data ?? null;
+      if (bubble) {
+        set((s) => (s.playBubbles.some((b) => b.id === bubble.id) ? s : { playBubbles: [...s.playBubbles, bubble] }));
+      }
+      return bubble;
+    } catch {
+      return null;
+    }
+  },
+  updatePlayBubble: async (id, updates) => {
+    set((s) => ({ playBubbles: s.playBubbles.map((b) => (b.id === id ? { ...b, ...updates } : b)) }));
+    try {
+      await fetch(`${API_BASE}/api/play-bubbles/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      });
+    } catch { /* 다음 스냅샷이 진실 */ }
+  },
+  deletePlayBubble: async (id) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/play-bubbles/${id}`, { method: 'DELETE' });
+      if (!res.ok) return false; // 409 = 핀으로 보호됨, 404 = 이미 없음
+    } catch {
+      return false;
+    }
+    set((s) => ({
+      playBubbles: s.playBubbles.filter((b) => b.id !== id),
+      selectedPlayBubbleId: s.selectedPlayBubbleId === id ? null : s.selectedPlayBubbleId,
+    }));
+    return true;
+  },
+  startPlayBubble: async (id) => {
+    // 낙관 반영 — 누른 즉시 버튼이 반응해야 한다(기동은 수십 초까지 걸린다).
+    set((s) => ({ playBubbles: s.playBubbles.map((b) => (b.id === id ? { ...b, status: 'starting' as const, error: undefined } : b)) }));
+    try {
+      await fetch(`${API_BASE}/api/play-bubbles/${id}/start`, { method: 'POST' });
+    } catch { /* 실패는 서버가 status='failed' 로 알려 준다 */ }
+  },
+  stopPlayBubble: async (id) => {
+    set((s) => ({ playBubbles: s.playBubbles.map((b) => (b.id === id ? { ...b, status: 'idle' as const, url: undefined } : b)) }));
+    try {
+      await fetch(`${API_BASE}/api/play-bubbles/${id}/stop`, { method: 'POST' });
+    } catch { /* 다음 스냅샷이 진실 */ }
+  },
+  detectPlayRecipe: async (id, apply) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/play-bubbles/${id}/detect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apply }),
+      });
+      if (!res.ok) return [];
+      const data = await res.json() as { candidates?: PlayRecipeCandidate[]; data?: PlayBubble };
+      if (data.data) {
+        const updated = data.data;
+        set((s) => ({ playBubbles: s.playBubbles.map((b) => (b.id === id ? updated : b)) }));
+      }
+      return data.candidates ?? [];
+    } catch {
+      return [];
+    }
+  },
+  askAgentForPlayRecipe: async (id, agentId) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/play-bubbles/${id}/ask-agent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId }),
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  },
   activeProject: null,
   currentProject: null,
   currentFolderId: null,
@@ -1306,11 +2093,15 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   commentBoxes: [],
   selectedCaptureBubbleId: null,
   captureBubbles: [],
+  debugBreakpoints: {},
+  appBubbles: [],
+  selectedAppBubbleId: null,
   contis: {},
   activeContiWork: {},
   // §5.10 Project Brain
   brain: {},
   brainInjections: {},
+  pluginFacts: {},
   interiorView: null,
   brainFeed: null,
   selectedBrainCardId: null,
@@ -1319,17 +2110,21 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   compactCounts: {},
   skillUsageCounts: {},
   autoAgentSummaries: {},
+  autoAgentRuns: {},
   runningSubagentTasks: {},
+  finishedSubagentTasks: {},
   agentReports: {},
   agentQuestions: {},
   agentReviews: {},
   agentLists: {},
   agentFeedbacks: {},
   sessionLoops: {},
+  sessionGoals: {},
   modelRegistry: null,
   userDefaults: null,
   rateLimits: null,
   claudeUsage: null,
+  claudeAuth: null,
   diagnosticLog: [],
   contiBoardOpen: null,
   imageLightbox: null,
@@ -1413,7 +2208,8 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   },
   openContiBoard: (agentId, contiId) => set({ contiBoardOpen: { agentId, contiId } }),
   closeContiBoard: () => set({ contiBoardOpen: null }),
-  openImageLightbox: (url) => set({ imageLightbox: url }),
+  openImageLightbox: (url, attachment) =>
+    set({ imageLightbox: attachment ? { url, attachment } : { url } }),
   closeImageLightbox: () => set({ imageLightbox: null }),
   generateConti: async (agentId) => {
     set((s) => ({ contiGenerating: { ...s.contiGenerating, [agentId]: true } }));
@@ -1868,11 +2664,14 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     });
   },
   setRunningServers: (servers: Record<string, ServerEntry[]>) => set({ runningServers: servers }),
-  selectNode: (id) => set({ selectedNodeId: id, selectIntentId: id, selectedTaskEdgeId: null, selectedCommentBoxId: null, selectedCaptureBubbleId: null, selectedBrainCardId: null, selectedBrainCard: null }),
+  selectNode: (id) => set({ selectedNodeId: id, selectIntentId: id, selectedTaskEdgeId: null, selectedCommentBoxId: null, selectedCaptureBubbleId: null, selectedAppBubbleId: null, selectedPlayBubbleId: null, selectedBrainCardId: null, selectedBrainCard: null }),
   setSelectIntent: (id) => set({ selectIntentId: id }),
-  selectTaskEdge: (id) => set({ selectedTaskEdgeId: id, selectedNodeId: null, selectIntentId: null, selectedCommentBoxId: null, selectedCaptureBubbleId: null }),
-  selectCommentBox: (id) => set({ selectedCommentBoxId: id, selectedNodeId: null, selectIntentId: null, selectedTaskEdgeId: null, selectedCaptureBubbleId: null }),
-  selectCaptureBubble: (id) => set({ selectedCaptureBubbleId: id, selectedNodeId: null, selectIntentId: null, selectedTaskEdgeId: null, selectedCommentBoxId: null }),
+  selectTaskEdge: (id) => set({ selectedTaskEdgeId: id, selectedNodeId: null, selectIntentId: null, selectedCommentBoxId: null, selectedCaptureBubbleId: null, selectedAppBubbleId: null, selectedPlayBubbleId: null }),
+  selectCommentBox: (id) => set({ selectedCommentBoxId: id, selectedNodeId: null, selectIntentId: null, selectedTaskEdgeId: null, selectedCaptureBubbleId: null, selectedAppBubbleId: null, selectedPlayBubbleId: null }),
+  selectCaptureBubble: (id) => set({ selectedCaptureBubbleId: id, selectedNodeId: null, selectIntentId: null, selectedTaskEdgeId: null, selectedCommentBoxId: null, selectedAppBubbleId: null, selectedPlayBubbleId: null }),
+  // §5.13 (M) v4.61 — 앱 버블 선택. 다른 선택(노드·엣지·코멘트·캡처)과 배타 — 캔버스에서
+  //   선택은 언제나 하나이고, 그래야 Delete 키가 무엇을 지울지 헷갈리지 않는다.
+  selectAppBubble: (id) => set({ selectedAppBubbleId: id, selectedNodeId: null, selectIntentId: null, selectedTaskEdgeId: null, selectedCommentBoxId: null, selectedCaptureBubbleId: null, selectedPlayBubbleId: null }),
   setAgentPhase: (phase) => set({ agentPhase: phase }),
 
   // 상태는 서버 스냅샷이 관리 — 클라이언트에서 덮어쓰지 않음
@@ -1929,18 +2728,32 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     saveJSON(DEFAULT_TABBAR_KEY, key);
     return { defaultTabbarKey: key };
   }),
-  ideTextZoom: clampIdeTextZoom(loadJSON<number>(IDE_TEXT_ZOOM_KEY, 1)),
+  ideTextZoom: clampIdeTextZoom(loadJSON<number>(IDE_TEXT_ZOOM_KEY, DEFAULT_IDE_TEXT_ZOOM)),
   setIdeTextZoom: (z) => set((state) => {
     const next = clampIdeTextZoom(z);
     if (state.ideTextZoom === next) return state;
     saveJSON(IDE_TEXT_ZOOM_KEY, next);
     return { ideTextZoom: next };
   }),
-  ideStreamDensity: normalizeStreamDensity(loadJSON<string>(IDE_STREAM_DENSITY_KEY, 'standard')),
+  ideStreamDensity: normalizeStreamDensity(loadJSON<string>(IDE_STREAM_DENSITY_KEY, DEFAULT_IDE_STREAM_DENSITY)),
   setIdeStreamDensity: (d) => set((state) => {
     if (state.ideStreamDensity === d) return state;
     saveJSON(IDE_STREAM_DENSITY_KEY, d);
     return { ideStreamDensity: d };
+  }),
+  ideReading: normalizeReadingSettings(loadJSON<unknown>(IDE_READING_KEY, null)),
+  setIdeReading: (patch) => set((state) => {
+    const next = normalizeReadingSettings({ ...state.ideReading, ...patch });
+    // 정규화 후 값이 같으면(범위 밖 입력이 같은 값으로 잘린 경우 등) 리렌더를 만들지 않는다.
+    const same = (Object.keys(next) as (keyof ReadingSettings)[]).every((k) => next[k] === state.ideReading[k]);
+    if (same) return state;
+    saveJSON(IDE_READING_KEY, next);
+    return { ideReading: next };
+  }),
+  resetIdeReading: () => set(() => {
+    const next = { ...DEFAULT_READING_SETTINGS };
+    saveJSON(IDE_READING_KEY, next);
+    return { ideReading: next };
   }),
   defaultSubAgents: loadJSON<Record<string, string>>(DEFAULT_SUBAGENTS_KEY, {}),
   setDefaultSubAgent: (agentId, subAgentId) => set((state) => {
@@ -2209,6 +3022,27 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     } catch { return; }
     set({ selectedNodeId: null, selectIntentId: null });
   },
+  // §5.10 v4.84 — [모두 삭제] / Delete 키(단일·다중) 공용. 개별 DELETE 를 N 번 쏘면 스냅샷이 N 번
+  //   와서 버블이 여러 번 나눠 사라지므로 서버 배치 경로로 한 번에 보낸다.
+  purgeTrashedAgents: async (sessionIds) => {
+    const ids = sessionIds.filter(Boolean);
+    if (ids.length === 0) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/trash/purge`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionIds: ids }),
+      });
+      if (!res.ok) { console.warn('[trash] batch purge failed', res.status, ids.length); return; }
+    } catch { return; }
+    set({ selectedNodeId: null, selectIntentId: null });
+  },
+  trashPurgeTarget: null,
+  requestTrashPurge: (ids) => {
+    const unique = [...new Set(ids.filter(Boolean))];
+    if (unique.length === 0) return;
+    set({ trashPurgeTarget: { ids: unique } });
+  },
+  closeTrashPurge: () => set({ trashPurgeTarget: null }),
   // §4 v2.63 — CMD(인터랙티브 터미널) 에이전트. 동일 엔드포인트에 executionMode 플래그만 추가.
   createCmdAgent: (canvasX, canvasY) => {
     const project = selectEffectiveProject(get());
@@ -2328,9 +3162,12 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   closeWorktreeDelete: () => set({ worktreeDeleteTarget: null }),
   subAgentStreams: {},
   streamLastActivity: {},
+  deepRestoredSessions: {},
   appendStreamEvent: (event) => set((s) => {
     const prev = s.subAgentStreams[event.subAgentId];
-    const merged = prev ? [...prev, event] : [event];
+    // §5.3 #12-1 — 턴 세대 도장으로 **제 턴 자리**에 넣는다. 앞 턴이 띄운 백단 작업이 뒤늦게
+    //   뱉는 줄이 새 명령 블록 아래로 들어가던 것을 여기서 막는다(평소 흐름은 그냥 꼬리 추가).
+    const merged = prev ? insertEventInTurnOrder([...prev], event).buffer : [event];
     // 성능: 보고 있는(활성) 세션은 큰 상한, 안 보는 세션은 작은 상한으로 차등 절단.
     // 활성 세션은 slack 여유를 둬 상한 도달 후에도 대부분 순수 append 를 유지(증분 파서 유효).
     const active = computeActiveSessionIds(s.ideOverlays, s.subAgents);
@@ -2340,8 +3177,9 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     const next = merged.length > cap + slack ? merged.slice(merged.length - cap) : merged;
     const streams = { ...s.subAgentStreams, [event.subAgentId]: next };
     const lastActivity = { ...s.streamLastActivity, [event.subAgentId]: Date.now() };
-    pruneInactiveStreams(streams, lastActivity, active);
-    return { subAgentStreams: streams, streamLastActivity: lastActivity };
+    const deepRestored = { ...s.deepRestoredSessions };
+    pruneInactiveStreams(streams, lastActivity, active, deepRestored);
+    return { subAgentStreams: streams, streamLastActivity: lastActivity, deepRestoredSessions: deepRestored };
   }),
   appendStreamEvents: (events) => set((s) => {
     if (events.length === 0) return {};
@@ -2353,7 +3191,8 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     const now = Date.now();
     for (const event of events) {
       const prev = nextStreams[event.subAgentId];
-      nextStreams[event.subAgentId] = prev ? [...prev, event] : [event];
+      // 단건 경로와 같은 규칙 — 도장이 가리키는 제 턴 자리에 꽂는다.
+      nextStreams[event.subAgentId] = prev ? insertEventInTurnOrder([...prev], event).buffer : [event];
       nextLast[event.subAgentId] = now;
       touched.add(event.subAgentId);
     }
@@ -2367,24 +3206,44 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       const arr = nextStreams[sid]!;
       if (arr.length > cap + slack) nextStreams[sid] = arr.slice(arr.length - cap);
     }
-    pruneInactiveStreams(nextStreams, nextLast, active);
-    return { subAgentStreams: nextStreams, streamLastActivity: nextLast };
+    const nextDeep = { ...s.deepRestoredSessions };
+    pruneInactiveStreams(nextStreams, nextLast, active, nextDeep);
+    return { subAgentStreams: nextStreams, streamLastActivity: nextLast, deepRestoredSessions: nextDeep };
   }),
-  loadStreamBuffers: (buffers) => set((s) => {
+  loadStreamBuffers: (buffers, depth = 'shallow') => set((s) => {
     // 서버 스냅샷 버퍼도 무한 누적일 수 있으니 합류 시 동일 차등 상한 적용.
     // 이제 막 불러온 세션은 lastActivity=now 라 pruning 의 "가장 오래된" 후보가 되지 않는다.
     const streams = { ...s.subAgentStreams };
     const lastActivity = { ...s.streamLastActivity };
+    const deepRestored = { ...s.deepRestoredSessions };
     const active = computeActiveSessionIds(s.ideOverlays, s.subAgents);
     const now = Date.now();
     for (const sid of Object.keys(buffers)) {
       const arr = buffers[sid]!;
+      // 얕은 조회(에이전트 전체, 세션당 `MAX_STREAM_BUFFER_BULK`)는 **이미 들고 있는 것을 줄이지
+      // 않는다**. 두 조회는 IDE 를 열 때 나란히 날아가는데, 응답 순서는 정해져 있지 않아 얕은
+      // 쪽이 나중에 도착하면 방금 받은 깊은 복원분을 통째로 덮어 화면이 다시 500 창으로 되돌아간다
+      // (그 세션은 다시 요청될 일이 없으므로 그대로 굳는다). 겹치지 않는 꼬리만 이어 붙인다.
+      const prev = streams[sid];
+      if (depth === 'shallow' && prev && prev.length >= arr.length) {
+        const seen = new Set(prev.map((e) => e.id));
+        const extra = arr.filter((e) => !seen.has(e.id));
+        if (extra.length > 0) streams[sid] = [...prev, ...extra];
+        lastActivity[sid] = now;
+        continue;
+      }
+      // 깊은 복원분은 **사용자가 지금 열어 놓은 그 세션**이라 활성 상한으로 받는다. 스냅샷이
+      // 아직 안 닿아 `active` 에 안 잡힌 찰나에 비활성 상한(300)으로 깎이면, 표식만 서고 창은
+      // 깎인 채 굳어 "다시 받아 오는 길"이 도로 막힌다 — 그래서 이번 호출 한정으로 활성 취급한다.
+      if (depth === 'deep') active.add(sid);
       const cap = active.has(sid) ? STREAM_EVENTS_MAX_PER_SESSION : STREAM_EVENTS_MAX_PER_INACTIVE_SESSION;
       streams[sid] = arr.length > cap ? arr.slice(arr.length - cap) : arr;
       lastActivity[sid] = now;
+      // 상한 전체를 받아 온 세션만 표식을 세운다 — 그래야 다음에 깎였을 때 다시 받아 온다.
+      if (depth === 'deep') deepRestored[sid] = true;
     }
-    pruneInactiveStreams(streams, lastActivity, active);
-    return { subAgentStreams: streams, streamLastActivity: lastActivity };
+    pruneInactiveStreams(streams, lastActivity, active, deepRestored);
+    return { subAgentStreams: streams, streamLastActivity: lastActivity, deepRestoredSessions: deepRestored };
   }),
   ideOverlays: {},
   openIDEOverlay: (agentId) => set((state) => {
@@ -2412,10 +3271,6 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     const wasOpen = !!prev?.agentId;
     const keepDock = wasOpen && !!prev?.dockedRight;
     return {
-      bookmarkPanelOpen: false,
-      summaryPanelOpen: false,
-      subagentPanelOpen: false,
-      loopPanelOpen: false,
       ideOverlays: {
         ...state.ideOverlays,
         [ownerProject]: {
@@ -2426,6 +3281,9 @@ export const useGraphStore = create<GraphState>((set, get) => ({
           sidebarCollapsed: true,
           dockedRight: keepDock,
           dockWidth: keepDock ? (prev?.dockWidth ?? 480) : 480,
+          // §5.5 #17-27 — 편집창은 IDE 를 새로 열 때(=에이전트 교체) 빈 상태에서 시작한다.
+          editorFiles: [],
+          activeEditorPath: null,
         },
       },
     };
@@ -2436,7 +3294,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     if (!proj || !state.ideOverlays[proj]) return {};
     const next = { ...state.ideOverlays };
     delete next[proj];
-    return { ideOverlays: next, bookmarkPanelOpen: false, summaryPanelOpen: false, subagentPanelOpen: false, loopPanelOpen: false };
+    return { ideOverlays: next };
   }),
   setIDEDocked: (docked, dockWidth) => set((s) => {
     const proj = s.activeProject;
@@ -2450,6 +3308,156 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       },
     };
   }),
+  // ─── §5.5 #17-27 내장 편집창 ───
+  // 모든 변경자는 IDE 오버레이와 같은 슬롯 규약(activeProject 기준)을 따른다 — 여는 손잡이가
+  // 사이드바·스트림 어디든 결국 "지금 보고 있는 탭의 IDE" 로 모여야 하기 때문이다.
+  openIDEEditorFile: (file) => set((s) => {
+    const proj = s.activeProject;
+    if (!proj) return {};
+    const cur = s.ideOverlays[proj];
+    if (!cur) return {};
+    const already = cur.editorFiles.some((f) => f.relPath === file.relPath);
+    let files = already ? cur.editorFiles : [...cur.editorFiles, file];
+    // 상한을 넘으면 **저장할 것이 없는 가장 오래된 탭**부터 밀어낸다(고치던 파일은 남는다).
+    if (!already && files.length > IDE_EDITOR_MAX_TABS) {
+      const victim = files.find((f) => !f.dirty && f.relPath !== file.relPath);
+      if (victim) files = files.filter((f) => f.relPath !== victim.relPath);
+    }
+    return {
+      ideOverlays: {
+        ...s.ideOverlays,
+        [proj]: { ...cur, editorFiles: files, activeEditorPath: file.relPath },
+      },
+    };
+  }),
+  closeIDEEditorFile: (relPath) => set((s) => {
+    const proj = s.activeProject;
+    if (!proj) return {};
+    const cur = s.ideOverlays[proj];
+    if (!cur) return {};
+    const idx = cur.editorFiles.findIndex((f) => f.relPath === relPath);
+    if (idx < 0) return {};
+    const files = cur.editorFiles.filter((f) => f.relPath !== relPath);
+    // 활성 탭을 닫았으면 오른쪽 이웃 → 없으면 왼쪽 이웃으로. 마지막 탭이면 편집창이 닫힌다.
+    const nextActive = cur.activeEditorPath === relPath
+      ? (files[idx]?.relPath ?? files[idx - 1]?.relPath ?? null)
+      : cur.activeEditorPath;
+    return {
+      ideOverlays: {
+        ...s.ideOverlays,
+        [proj]: { ...cur, editorFiles: files, activeEditorPath: nextActive },
+      },
+    };
+  }),
+  setActiveIDEEditorFile: (relPath) => set((s) => {
+    const proj = s.activeProject;
+    if (!proj) return {};
+    const cur = s.ideOverlays[proj];
+    if (!cur || cur.activeEditorPath === relPath) return {};
+    return {
+      ideOverlays: { ...s.ideOverlays, [proj]: { ...cur, activeEditorPath: relPath } },
+    };
+  }),
+  closeIDEEditor: () => set((s) => {
+    const proj = s.activeProject;
+    if (!proj) return {};
+    const cur = s.ideOverlays[proj];
+    if (!cur) return {};
+    return {
+      ideOverlays: { ...s.ideOverlays, [proj]: { ...cur, editorFiles: [], activeEditorPath: null } },
+    };
+  }),
+  setIDEEditorFileDirty: (relPath, dirty) => set((s) => {
+    const proj = s.activeProject;
+    if (!proj) return {};
+    const cur = s.ideOverlays[proj];
+    if (!cur) return {};
+    const target = cur.editorFiles.find((f) => f.relPath === relPath);
+    if (!target || !!target.dirty === dirty) return {};
+    return {
+      ideOverlays: {
+        ...s.ideOverlays,
+        [proj]: {
+          ...cur,
+          editorFiles: cur.editorFiles.map((f) => (f.relPath === relPath ? { ...f, dirty } : f)),
+        },
+      },
+    };
+  }),
+  ideEditorWidth: clampIdeEditorWidth(loadJSON<number>(IDE_EDITOR_WIDTH_KEY, IDE_EDITOR_WIDTH.DEFAULT)),
+  setIdeEditorWidth: (w) => set((s) => {
+    const next = clampIdeEditorWidth(w);
+    if (s.ideEditorWidth === next) return s;
+    saveJSON(IDE_EDITOR_WIDTH_KEY, next);
+    return { ideEditorWidth: next };
+  }),
+  // ─── §5.5 #17-27 ⑪ [추종] — 켜짐도 신호도 세션마다 따로 ───
+  ideEditorFollow: normalizeFollowMap(loadJSON<unknown>(IDE_EDITOR_FOLLOW_KEY, {})),
+  setIdeEditorFollow: (sessionKey, on) => set((s) => {
+    const already = s.ideEditorFollow[sessionKey] === true;
+    if (already === on) return s;
+    const next: Record<string, true> = { ...s.ideEditorFollow };
+    if (on) {
+      next[sessionKey] = true;
+      // 키 순서 = 켠 순서. 상한을 넘으면 **가장 오래 전에 켠 세션부터** 버린다(방금 켠 것은 남는다).
+      const keys = Object.keys(next);
+      for (let i = 0; i < keys.length - IDE_FOLLOW_MAX_KEYS; i += 1) {
+        const victim = keys[i]!;
+        if (victim !== sessionKey) delete next[victim];
+      }
+    } else {
+      delete next[sessionKey];
+    }
+    saveJSON(IDE_EDITOR_FOLLOW_KEY, next);
+    // 켤 때는 그 세션의 속기억을 비운다 — `followPendingEditNow` 가 그 한 건을 이미 신호로 옮겨 담았고,
+    //   남겨 두면 다음에 껐다 켤 때 **옛 편집으로** 한 번 더 끌려간다.
+    if (on) {
+      return s.ideEditorFollowPending?.sessionKey === sessionKey
+        ? { ideEditorFollow: next, ideEditorFollowPending: null }
+        : { ideEditorFollow: next };
+    }
+    // 끌 때는 아직 처리되지 않은 신호·자국도 함께 버린다 — 끈 뒤에 화면이 한 번 더 움직이면 안 된다.
+    return {
+      ideEditorFollow: next,
+      ideEditorFollowSignal: s.ideEditorFollowSignal?.sessionKey === sessionKey ? null : s.ideEditorFollowSignal,
+      ideEditorFollowLast: s.ideEditorFollowLast?.sessionKey === sessionKey ? null : s.ideEditorFollowLast,
+    };
+  }),
+  ideEditorFollowSignal: null,
+  setIdeEditorFollowSignal: (signal) => set((s) => (
+    s.ideEditorFollowSignal?.at === signal.at && s.ideEditorFollowSignal.relPath === signal.relPath
+      ? s
+      : { ideEditorFollowSignal: signal }
+  )),
+  clearIdeEditorFollowSignal: () => set((s) => (s.ideEditorFollowSignal ? { ideEditorFollowSignal: null } : s)),
+  ideEditorFollowLast: null,
+  setIdeEditorFollowLast: (mark) => set(() => ({ ideEditorFollowLast: mark })),
+  ideEditorFollowPending: null,
+  setIdeEditorFollowPending: (pending) => set((s) => {
+    const cur = s.ideEditorFollowPending;
+    // 매 스트림 틱마다 같은 값을 다시 심지 않는다 — 추종이 꺼진 세션에서도 이 계산은 계속 돌기 때문이다.
+    if (cur === pending) return s;
+    if (cur && pending
+      && cur.sessionKey === pending.sessionKey
+      && cur.at === pending.at) return s;
+    return { ideEditorFollowPending: pending };
+  }),
+  followPendingEditNow: (sessionKey) => {
+    const s = get();
+    const pending = s.ideEditorFollowPending;
+    s.setIdeEditorFollow(sessionKey, true);
+    if (!pending || pending.sessionKey !== sessionKey) return;
+    // 켜는 그 손짓이 곧 "저 편집을 보여 달라" 이므로, 여는 것도 알리는 것도 여기서 한 번에 한다.
+    s.openIDEEditorFile({ relPath: pending.relPath, absPath: pending.absPath, name: pending.name });
+    s.setIdeEditorFollowSignal({
+      sessionKey,
+      relPath: pending.relPath,
+      absPath: pending.absPath,
+      newString: pending.newString,
+      at: pending.at,
+    });
+    s.setIdeEditorFollowPending(null);
+  },
   setIDEActiveSession: (sessionId) => set((s) => {
     const proj = s.activeProject;
     if (!proj) return {};
@@ -2476,7 +3484,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   selectSubForAgent: (agentId, subId) => set((s) => ({
     selectedSubByAgent: { ...s.selectedSubByAgent, [agentId]: subId },
   })),
-  ideBookmarks: loadJSON<IDEBookmark[]>(IDE_BOOKMARKS_KEY, []),
+  ideBookmarks: loadBookmarks(),
   addBookmark: (input) => set((s) => {
     const text = input.text.trim();
     if (!text) return {};
@@ -2490,13 +3498,27 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       anchorId: input.anchorId,
       createdAt: Date.now(),
     };
-    const next = [bookmark, ...s.ideBookmarks].slice(0, BOOKMARK_MAX);
+    // 들어갈 칸은 **보고 있는 프로젝트 우선** — openIDEOverlay 와 같은 순서다(워크트리로 드릴다운해도
+    // activeProject 는 부모 그대로이고 agentProjects 만 워크트리명이 되므로, agentProjects 를 앞세우면
+    // 부모 탭을 읽는 화면이 그 칸을 영영 못 본다).
+    const key = s.activeProject ?? input.projectId ?? s.agentProjects[input.agentId] ?? UNKNOWN_BOOKMARK_PROJECT;
+    const next: BookmarkStore = {
+      ...s.ideBookmarks,
+      [key]: [bookmark, ...(s.ideBookmarks[key] ?? [])].slice(0, BOOKMARK_MAX),
+    };
     saveJSON(IDE_BOOKMARKS_KEY, next);
     return { ideBookmarks: next };
   }),
   removeBookmark: (id) => set((s) => {
-    const next = s.ideBookmarks.filter((b) => b.id !== id);
-    if (next.length === s.ideBookmarks.length) return {};
+    // 어느 칸에 있든 id 로 찾아 지운다(떠돌이 칸의 옛 항목도 지워진다).
+    const next: BookmarkStore = {};
+    let removed = false;
+    for (const [key, list] of Object.entries(s.ideBookmarks)) {
+      const kept = list.filter((b) => b.id !== id);
+      if (kept.length !== list.length) removed = true;
+      if (kept.length > 0) next[key] = kept.length === list.length ? list : kept;
+    }
+    if (!removed) return {};
     saveJSON(IDE_BOOKMARKS_KEY, next);
     return { ideBookmarks: next };
   }),
@@ -2535,21 +3557,6 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   },
   bookmarkScrollTarget: null,
   clearBookmarkScrollTarget: () => set((s) => (s.bookmarkScrollTarget ? { bookmarkScrollTarget: null } : {})),
-  bookmarkPanelOpen: false,
-  setBookmarkPanelOpen: (open) => set((s) => (s.bookmarkPanelOpen === open ? {} : { bookmarkPanelOpen: open, ...(open ? { summaryPanelOpen: false, subagentPanelOpen: false, loopPanelOpen: false } : {}) })),
-  toggleBookmarkPanel: () => set((s) => ({ bookmarkPanelOpen: !s.bookmarkPanelOpen, ...(!s.bookmarkPanelOpen ? { summaryPanelOpen: false, subagentPanelOpen: false, loopPanelOpen: false } : {}) })),
-  // §5.5 #17-8 v2.95 — 세션 요약 보드. 북마크 패널과 상호 배타(하나 열면 다른 하나 닫힘).
-  summaryPanelOpen: false,
-  setSummaryPanelOpen: (open) => set((s) => (s.summaryPanelOpen === open ? {} : { summaryPanelOpen: open, ...(open ? { bookmarkPanelOpen: false, subagentPanelOpen: false, loopPanelOpen: false } : {}) })),
-  toggleSummaryPanel: () => set((s) => ({ summaryPanelOpen: !s.summaryPanelOpen, ...(!s.summaryPanelOpen ? { bookmarkPanelOpen: false, subagentPanelOpen: false, loopPanelOpen: false } : {}) })),
-  // §5.5 #17-9 v3.51 — 실행 중 서브에이전트 패널. 위 둘과 상호 배타(덮개 하나만 뜨게).
-  subagentPanelOpen: false,
-  setSubagentPanelOpen: (open) => set((s) => (s.subagentPanelOpen === open ? {} : { subagentPanelOpen: open, ...(open ? { bookmarkPanelOpen: false, summaryPanelOpen: false, loopPanelOpen: false } : {}) })),
-  toggleSubagentPanel: () => set((s) => ({ subagentPanelOpen: !s.subagentPanelOpen, ...(!s.subagentPanelOpen ? { bookmarkPanelOpen: false, summaryPanelOpen: false, loopPanelOpen: false } : {}) })),
-  // §5.5 #17-11 v3.79 — 세션 루프 설정 패널. 위 셋과 상호 배타(덮개 하나만 뜨게).
-  loopPanelOpen: false,
-  setLoopPanelOpen: (open) => set((s) => (s.loopPanelOpen === open ? {} : { loopPanelOpen: open, ...(open ? { bookmarkPanelOpen: false, summaryPanelOpen: false, subagentPanelOpen: false } : {}) })),
-  toggleLoopPanel: () => set((s) => ({ loopPanelOpen: !s.loopPanelOpen, ...(!s.loopPanelOpen ? { bookmarkPanelOpen: false, summaryPanelOpen: false, subagentPanelOpen: false } : {}) })),
   sessionSummaries: loadJSON<Record<string, SessionSummaryEntry>>(SESSION_SUMMARIES_KEY, {}),
   setSessionSummary: (entry) => set((s) => {
     const next = { ...s.sessionSummaries, [entry.subId]: entry };
@@ -2605,8 +3612,23 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     rateLimits: rateLimits ?? null,
     claudeUsage: claudeUsage ?? null,
   }),
+  // §4 v4.82 — 로그인 상태. 서버가 판정 전이면 필드가 없어 null 로 남고, 그동안 팝업은 뜨지 않는다.
+  applyClaudeAuth: (auth) => set((s) => {
+    if (!auth) return s.claudeAuth === null ? {} : { claudeAuth: null };
+    const prev = s.claudeAuth;
+    // 로그아웃 → 로그인으로 바뀌면 "나중에" 기억을 푼다(다음에 로그아웃되면 다시 물어야 하므로).
+    const dismissed = prev?.loggedIn === false && auth.loggedIn ? false : s.loginGateDismissed;
+    return { claudeAuth: auth, loginGateDismissed: dismissed, ...(auth.loggedIn ? { loginGateForced: false } : {}) };
+  }),
+  loginGateDismissed: false,
+  loginGateForced: false,
+  setLoginGate: (state) => set((s) => ({
+    loginGateForced: state.forced ?? s.loginGateForced,
+    loginGateDismissed: state.dismissed ?? s.loginGateDismissed,
+  })),
   applySkillUsageCounts: (counts) => set({ skillUsageCounts: counts ?? {} }),
   applyAutoAgentSummaries: (summaries) => set({ autoAgentSummaries: summaries ?? {} }),
+  applyAutoAgentRuns: (runs) => set({ autoAgentRuns: runs ?? {} }),
   // §5.5 #17-9 v3.51 — 서버가 매 스냅샷에 전량을 싣는다. 비면(=다 끝남) 빈 맵으로 교체 →
   //   활동바 아이콘/배지가 사라지고, 열려 있던 패널은 컴포넌트 쪽 가드가 닫는다.
   applyRunningSubagentTasks: (tasks) => set((s) => {
@@ -2614,6 +3636,12 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     const prevKeys = Object.keys(s.runningSubagentTasks);
     if (prevKeys.length === 0 && Object.keys(next).length === 0) return {};
     return { runningSubagentTasks: next };
+  }),
+  // §5.5 #17-9 ⑦(b) — 도는 것과 같은 규약(서버가 매 스냅샷에 전량). 빈 스냅샷이 반복될 때만 no-op.
+  applyFinishedSubagentTasks: (tasks) => set((s) => {
+    const next = tasks ?? {};
+    if (Object.keys(s.finishedSubagentTasks).length === 0 && Object.keys(next).length === 0) return {};
+    return { finishedSubagentTasks: next };
   }),
   applyAgentReports: (reports) => set({ agentReports: reports ?? {} }),
   applyAgentQuestions: (questions) => set({ agentQuestions: questions ?? {} }),
@@ -2623,6 +3651,9 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   // §5.5 #17-11 v3.79 — 서버가 매 스냅샷에 전량을 싣는다(삭제도 곧 사라짐으로 반영).
   applySessionLoops: (loops) => set({ sessionLoops: loops ?? {} }),
   saveSessionLoop: async (input) => {
+    // §5.5 #17-29 — 루프는 회차마다 큐에 명령을 넣는 또 하나의 입력구다. 훅 버블에는 걸지 않는다
+    //   (서버도 같은 술어로 403 — 화면이 앞서가 "켜진 것처럼" 보이지 않게 여기서 먼저 끊는다).
+    if (isReadOnlyHookAgent(get().agents.find((a) => a.id === input.agentId))) return;
     await fetch(`${API_BASE}/api/session-loop/${encodeURIComponent(input.agentId)}/${encodeURIComponent(input.subAgentId)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -2632,6 +3663,14 @@ export const useGraphStore = create<GraphState>((set, get) => ({
         ...(input.mode === 'count' ? { total: input.total } : {}),
         intervalMs: input.intervalMs,
         stopOnError: input.stopOnError,
+        contextMode: input.contextMode,
+        maxCostUsd: input.maxCostUsd ?? 0,
+        maxTokens: input.maxTokens ?? 0,
+        maxDurationMs: input.maxDurationMs ?? 0,
+        progressFile: input.progressFile ?? '',
+        oneTaskPerRound: input.oneTaskPerRound,
+        commitEachRound: input.commitEachRound,
+        commandFile: input.commandFile ?? '',
         enabled: input.enabled,
       }),
     }).catch(() => {});
@@ -2641,6 +3680,33 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ stopOnly: mode === 'stop' }),
+    }).catch(() => {});
+  },
+  // §5.5 #17-17 v4.46 — 서버가 매 스냅샷에 전량을 싣는다(삭제도 곧 사라짐으로 반영).
+  applySessionGoals: (goals) => set({ sessionGoals: goals ?? {} }),
+  saveSessionGoal: async (input) => {
+    await fetch(`${API_BASE}/api/session-goal/${encodeURIComponent(input.agentId)}/${encodeURIComponent(input.subAgentId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: input.text, ...(input.status ? { status: input.status } : {}) }),
+    }).catch(() => {});
+  },
+  setSessionGoalProgress: async (input) => {
+    await fetch(`${API_BASE}/api/session-goal/${encodeURIComponent(input.agentId)}/${encodeURIComponent(input.subAgentId)}/progress`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...(input.percent !== undefined ? { percent: input.percent } : {}),
+        ...(input.steps ? { steps: input.steps } : {}),
+        ...(input.note ? { note: input.note } : {}),
+        source: 'user',
+      }),
+    }).catch(() => {});
+  },
+  endSessionGoal: async (agentId, subAgentId) => {
+    await fetch(`${API_BASE}/api/session-goal/${encodeURIComponent(agentId)}/${encodeURIComponent(subAgentId)}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
     }).catch(() => {});
   },
   setFeedback: (input) => {

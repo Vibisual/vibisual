@@ -1,0 +1,15 @@
+{
+  "id": "agents-md",
+  "name": "Agent Instructions",
+  "version": "1.0.0",
+  "category": "observability",
+  "descriptionKey": "panel.plugins.agentsMd.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [],
+  "hostApi": 1
+}

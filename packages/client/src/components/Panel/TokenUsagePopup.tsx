@@ -1,7 +1,10 @@
 import { memo, useEffect, useState, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { SessionTokenData, TurnTokenUsage, TokenCategoryEstimate } from '@vibisual/shared';
+import { TOKEN_SUBAGENT_FETCH_CONCURRENCY } from '@vibisual/shared';
+import { mapWithConcurrency } from '../../utils/tokenFanout.js';
 import { ScrollFade } from '../ScrollFade.js';
+import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 
 const API_BASE = '';
 
@@ -282,19 +285,28 @@ export const TokenUsagePopup = memo(function TokenUsagePopup({
       // 자체 데이터가 비어있고 서브에이전트 세션이 있으면 합산
       const ids = subSessionIds ?? [];
       if (primary.turns.length === 0 && ids.length > 0) {
+        // §3.2.4 ② — 왕복을 겹친다. 결과가 **입력 순서 그대로** 오므로 아래 병합 규칙
+        //   (뒤에 오는 비어있지 않은 categories 가 이긴다)이 순차 때와 같은 값을 낸다.
+        const subResults = await mapWithConcurrency(
+          ids,
+          TOKEN_SUBAGENT_FETCH_CONCURRENCY,
+          async (subSid): Promise<SessionTokenData | null> => {
+            try {
+              const subRes = await fetch(`${API_BASE}/api/tokens/${subSid}`);
+              if (!subRes.ok) return null;
+              return await subRes.json() as SessionTokenData;
+            } catch { return null; }
+          },
+        );
         const allTurns: TurnTokenUsage[] = [];
         const allCategories: TokenCategoryEstimate[] = [];
-        for (const subSid of ids) {
-          try {
-            const subRes = await fetch(`${API_BASE}/api/tokens/${subSid}`);
-            if (!subRes.ok) continue;
-            const subData = await subRes.json() as SessionTokenData;
-            allTurns.push(...subData.turns);
-            if (subData.categories.length > 0) {
-              allCategories.length = 0;
-              allCategories.push(...subData.categories);
-            }
-          } catch { /* skip */ }
+        for (const subData of subResults) {
+          if (!subData) continue;
+          allTurns.push(...subData.turns);
+          if (subData.categories.length > 0) {
+            allCategories.length = 0;
+            allCategories.push(...subData.categories);
+          }
         }
         if (allTurns.length > 0) {
           allTurns.sort((a, b) => a.timestamp - b.timestamp);
@@ -363,10 +375,12 @@ export const TokenUsagePopup = memo(function TokenUsagePopup({
 
   const title = mode === 'turn' ? t('panel.tokenUsage.titleTurn') : t('panel.tokenUsage.titleSession');
 
+  const backdrop = useBackdropDismiss(onClose);
+
   return (
     <div
       className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm"
-      onClick={onClose}
+      {...backdrop}
     >
       <div
         className="mx-4 flex max-h-[80vh] w-full max-w-lg flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl shadow-black/50"

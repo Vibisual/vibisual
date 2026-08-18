@@ -5,8 +5,8 @@
  * **카드 한 장이 곧 한 덩어리**이고 주제 문서로 묶이므로, 청크 경계를 따로 조율할 필요가 없는 대신
  * 카드 하나의 크기가 곧 품질이 된다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const cards = (ctx: PluginBubbleContext): number => ctx.data.brain?.cardCount ?? 0;
 

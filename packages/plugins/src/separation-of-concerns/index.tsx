@@ -5,9 +5,9 @@
  * 멀티 에이전트에서는 "한 기능을 맡은 에이전트가 그 테스트도 맡는다"가 같은 원칙의 에이전트판이다. 표시 전용.
  */
 import { AVAILABLE_AGENT_TOOLS } from '@vibisual/shared';
-import { defineInspector } from '../framework/inspector.js';
-import { effectiveTools } from '../lethal-trifecta/trifecta.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import { effectiveTools } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const breadth = (ctx: PluginBubbleContext): number => effectiveTools(ctx.agentConfig).size / AVAILABLE_AGENT_TOOLS.length;
 const sessions = (ctx: PluginBubbleContext): number => (ctx.data.subAgents ?? []).length;

@@ -1,0 +1,16 @@
+{
+  "id": "worktree-isolation",
+  "name": "Worktree Isolation",
+  "version": "1.0.0",
+  "category": "workflow",
+  "descriptionKey": "panel.plugins.worktreeIsolation.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "bubbleBadge",
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [],
+  "hostApi": 1
+}

@@ -13,6 +13,7 @@ import type {
 } from '@vibisual/shared';
 import { TASK_EDGE_TEMPLATES, TASK_EDGE_KIND_STYLES, TASK_EDGE_DEFAULTS, TASK_EDGE_CRITIQUE_MAX_REWORK_LIMIT } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
+import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 
 interface TaskEdgePopupProps {
   sourceAgentId: string;
@@ -131,11 +132,9 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
   );
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const popupRef = useRef<HTMLDivElement>(null);
-  // v1.48 — backdrop 닫기 판정용. mousedown 이 backdrop 위에서 시작했고 mouseup 도 backdrop 위에서
-  // 끝났을 때만 닫는다. textarea/input 안에서 드래그-선택을 시작했다가 마우스가 카드 밖으로
-  // 빠져나간 뒤 mouseup 되는 경우(자연스러운 텍스트 선택)에 팝업이 닫히는 것을 방지.
-  const mainBackdropDownRef = useRef(false);
-  const schemaBackdropDownRef = useRef(false);
+  // v1.48 — backdrop 닫기 판정은 공통 규약(useBackdropDismiss)에 위임한다. textarea/input 안에서
+  // 드래그-선택을 시작했다가 마우스가 카드 밖(창 밖 포함)에서 떨어져도 팝업이 닫히지 않는다.
+  const backdrop = useBackdropDismiss(onClose);
 
   const isEditing = Boolean(editingEdgeId);
 
@@ -167,6 +166,7 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
   // v1.48 — 자유 형식 schema 본문. messageFormat='schema' 일 때만 적용. 빈 값이면 형식 강제 없음.
   const [messageSchema, setMessageSchema] = useState<string>(existingEdge?.messageSchema ?? '');
   const [schemaEditOpen, setSchemaEditOpen] = useState(false);
+  const schemaBackdrop = useBackdropDismiss(() => setSchemaEditOpen(false));
   const [schemaDraft, setSchemaDraft] = useState<string>('');
   const [returnFormat, setReturnFormat] = useState<TaskEdgeReturnFormat>(
     existingEdge?.returnFormat ?? initialTemplate.defaultReturnFormat ?? TASK_EDGE_DEFAULTS.returnFormat,
@@ -417,17 +417,7 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
   const targetLabel = agents.find((a) => a.id === targetAgentId)?.label ?? 'Agent';
 
   return (
-    <div
-      className="fixed inset-0 z-50"
-      onMouseDown={(e) => {
-        // backdrop 자체에서 시작한 mousedown 만 닫기 후보. 안쪽 카드/textarea 에서 시작한 드래그는 무시.
-        mainBackdropDownRef.current = e.target === e.currentTarget;
-      }}
-      onMouseUp={(e) => {
-        if (e.target === e.currentTarget && mainBackdropDownRef.current) onClose();
-        mainBackdropDownRef.current = false;
-      }}
-    >
+    <div className="fixed inset-0 z-50" {...backdrop}>
       <div
         ref={popupRef}
         className={`scrollbar-thin absolute z-50 max-h-[90vh] w-96 overflow-y-auto rounded-lg border border-gray-700 bg-gray-900 p-3 shadow-2xl ${
@@ -980,20 +970,13 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
 
       {/* v1.48 — Schema 편집 sub-popup. messageFormat='schema' 일 때 "편집" 버튼으로 오픈.
        *  메인 TaskEdgePopup 의 backdrop 으로 버블링 차단(stopPropagation) + 자체 backdrop 닫기는
-       *  mousedown↔mouseup 이 둘 다 backdrop 위에서 발생한 경우에만 — textarea 텍스트 선택
-       *  드래그가 우연히 backdrop 위에서 끝나도 닫히지 않도록. */}
+       *  공통 규약(누른 곳도 뗀 곳도 backdrop 자신) — textarea 텍스트 선택 드래그가 우연히
+       *  backdrop 위에서 끝나도 닫히지 않도록. */}
       {schemaEditOpen && (
         <div
           className="fixed inset-0 z-[65] flex items-center justify-center bg-black/40"
-          onClick={(e) => e.stopPropagation()}
-          onMouseDown={(e) => {
-            e.stopPropagation();
-            schemaBackdropDownRef.current = e.target === e.currentTarget;
-          }}
-          onMouseUp={(e) => {
-            if (e.target === e.currentTarget && schemaBackdropDownRef.current) setSchemaEditOpen(false);
-            schemaBackdropDownRef.current = false;
-          }}
+          onMouseDown={(e) => { e.stopPropagation(); schemaBackdrop.onMouseDown(e); }}
+          onClick={(e) => { e.stopPropagation(); schemaBackdrop.onClick(e); }}
         >
           <div className="w-[520px] max-w-[92vw] rounded-md border border-gray-700 bg-gray-900 p-4 shadow-2xl">
             <div className="mb-2 flex items-center justify-between">

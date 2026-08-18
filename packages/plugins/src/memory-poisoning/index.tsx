@@ -5,8 +5,8 @@
  * 기억은 "우리 시스템이 학습한 것"이라 더 신뢰받는다. 그래서 승급 경로에 출처 검증이 필요하다 —
  * 사용자 발화에서 나온 사실과 외부 문서에서 읽은 내용을 같은 신뢰도로 저장하면 안 된다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const contested = (ctx: PluginBubbleContext): number => ctx.data.brain?.contestedCount ?? 0;
 const needsCheck = (ctx: PluginBubbleContext): number => ctx.data.brain?.needsCheckCount ?? 0;

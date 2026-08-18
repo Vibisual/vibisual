@@ -67,4 +67,24 @@ describe('패널 경고 농도', () => {
     const leaked = loud(contexts[1] as PluginBubbleContext).filter((c) => historyCards.has(c.id));
     expect(leaked.map((c) => c.id)).toEqual([]);
   });
+
+  /**
+   * **전부 켠 화면의 실제 무게 — 래칫.**
+   *
+   * 위 상한들은 "조용해야 할 세 컨텍스트"만 본다. 그런데 사용자가 창에서 111종을 다 켜는 것은 막혀 있지
+   * 않고, 그때 한 버블에 **경고가 몇 장까지 겹치는지는 아무도 재지 않았다.** 실측하면 20~32장이다
+   * (전 도구 허용 + 승인 없음처럼 흔한 조합에서 가장 크다). 경고는 규칙상 접히지 않으므로 그 수가 곧
+   * 화면 길이다.
+   *
+   * 이 검사는 **판단하지 않고 수치를 고정만 한다.** 32 라는 값이 옳은지(=경고도 접어야 하는지)는 설계
+   * 결정이라 여기서 정하지 않는다. 다만 새 카드가 이 벽을 더 높이면 그때는 눈에 띄어야 한다 —
+   * 지금까지 이 자리는 아무 검사도 보지 않아서, 한 장씩 늘어나는 동안 아무도 몰랐다.
+   */
+  it(`전부 켠 버블 하나에 겹치는 경고가 ${32}장을 넘지 않는다`, () => {
+    const worst = contexts.reduce(
+      (max, ctx) => Math.max(max, loud(ctx as PluginBubbleContext).length),
+      0,
+    );
+    expect(worst, '경고가 더 겹치게 됐다 — 늘린 카드가 정말 경고여야 하는지 먼저 보라').toBeLessThanOrEqual(32);
+  });
 });

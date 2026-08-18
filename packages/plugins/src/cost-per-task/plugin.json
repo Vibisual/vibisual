@@ -1,0 +1,19 @@
+{
+  "id": "cost-per-task",
+  "name": "Cost per Task",
+  "version": "1.0.0",
+  "category": "observability",
+  "descriptionKey": "panel.plugins.costPerTask.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "bubbleBadge",
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "subAgents",
+    "agentEvents"
+  ],
+  "hostApi": 1
+}

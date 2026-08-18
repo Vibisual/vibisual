@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { MOBILE_QR_TICKET_TTL_MS, type MobileAccessState } from '@vibisual/shared';
 import { drawQrToCanvas, downloadCanvasPng } from '../../utils/qrCanvas';
 import { setCanvasCover } from '../../stores/canvasVisibility.js';
+import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 
 // 모바일 웹 접속 모드 모달 — SCENARIO.md §4 v3.16.
 //
@@ -160,6 +161,8 @@ export function MobileAccessWindow({ open, onClose }: MobileAccessWindowProps): 
     });
   }, [qrUrl]);
 
+  const backdrop = useBackdropDismiss(onClose);
+
   if (!open) return null;
 
   const enabled = state?.enabled === true;
@@ -168,7 +171,7 @@ export function MobileAccessWindow({ open, onClose }: MobileAccessWindowProps): 
   const qrIssuable = (state?.urls.length ?? 0) > 0 || (state?.externalUrl ?? null) !== null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm" onMouseDown={onClose}>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm" {...backdrop}>
       <div
         className="w-[440px] max-w-[92vw] rounded-xl border border-white/[0.08] bg-gray-900/95 p-5 shadow-2xl"
         onMouseDown={(e) => e.stopPropagation()}

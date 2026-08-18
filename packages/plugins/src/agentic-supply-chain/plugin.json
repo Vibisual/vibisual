@@ -1,0 +1,15 @@
+{
+  "id": "agentic-supply-chain",
+  "name": "Agentic Supply Chain",
+  "version": "1.0.0",
+  "category": "security",
+  "descriptionKey": "panel.plugins.agenticSupplyChain.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [],
+  "hostApi": 1
+}

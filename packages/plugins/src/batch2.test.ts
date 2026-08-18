@@ -7,7 +7,7 @@
 import { describe, it, expect } from 'vitest';
 import type { AgentConfig, AgentEvent, SubAgent } from '@vibisual/shared';
 import { judgeLeastPrivilege } from './least-privilege/leastPrivilege.js';
-import { judgeBlastRadius } from './blast-radius/index.js';
+import { judgeBlastRadius } from './sdk/judgments/blastRadius.js';
 import { judgeAutonomy } from './autonomy-level/index.js';
 import { computeLongHorizon } from './long-horizon/index.js';
 import { judgeRogue } from './rogue-agent/index.js';

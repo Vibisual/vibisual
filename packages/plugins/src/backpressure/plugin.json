@@ -1,0 +1,18 @@
+{
+  "id": "backpressure",
+  "name": "Backpressure",
+  "version": "1.0.0",
+  "category": "observability",
+  "descriptionKey": "panel.plugins.backpressure.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "runningTasks",
+    "agentEvents"
+  ],
+  "hostApi": 1
+}

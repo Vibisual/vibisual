@@ -176,6 +176,57 @@ export async function deleteSkill(name: string, source: 'project' | 'global' | '
 }
 
 /**
+ * §5.5 #17-4 — 복사 대상 하나의 결과.
+ * `exists` = 이미 있어 **덮지 않고 멈춤**(사용자 승인 후 overwrite 재전송), `same` = 원본과 같은 자리.
+ */
+export type SkillCopyStatus = 'copied' | 'overwritten' | 'exists' | 'same' | 'error';
+
+export interface SkillCopyResult {
+  /** 보낸 대상 ref 그대로 — `'global'` 또는 프로젝트 path. */
+  target: string;
+  status: SkillCopyStatus;
+  error?: string;
+}
+
+/**
+ * §5.5 #17-4 — 스킬(폴더) 또는 슬래시 커맨드(.md)를 다른 프로젝트·전역으로 복사.
+ * 원본 프로젝트는 `agentId` 로 서버가 직접 해소한다(표시명 의존 ❌ — 목록 조회와 같은 규약).
+ * 한 곳이라도 실제로 쓰였으면 목록을 재조회해 대상 탭에서 즉시 보이게 한다.
+ */
+export async function copySkill(params: {
+  name: string;
+  source: SkillInfo['source'];
+  agentId?: string | null;
+  targets: string[];
+  overwrite?: boolean;
+}): Promise<SkillCopyResult[]> {
+  const failAll = (error?: string): SkillCopyResult[] =>
+    params.targets.map((target) => ({ target, status: 'error' as const, ...(error ? { error } : {}) }));
+  try {
+    const res = await fetch('/api/skill/copy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: params.name,
+        source: params.source,
+        agentId: params.agentId ?? undefined,
+        targets: params.targets,
+        overwrite: params.overwrite === true,
+      }),
+    });
+    const data = (await res.json()) as { ok?: boolean; results?: unknown; error?: string };
+    if (!res.ok || data.ok !== true || !Array.isArray(data.results)) return failAll(data.error);
+    const results = data.results as SkillCopyResult[];
+    if (results.some((r) => r.status === 'copied' || r.status === 'overwritten')) {
+      await refreshAvailableSkills();
+    }
+    return results;
+  } catch {
+    return failAll();
+  }
+}
+
+/**
  * 한 타입의 고정 순서를 저장. 낙관적으로 캐시를 갱신하고 서버에도 반영.
  * order 는 전역 appState 라 캐시된 모든 프로젝트 키에 동일하게 반영한다.
  */

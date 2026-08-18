@@ -1,0 +1,18 @@
+{
+  "id": "ssot-drift",
+  "name": "SSOT Drift",
+  "version": "1.0.0",
+  "category": "observability",
+  "descriptionKey": "panel.plugins.ssotDrift.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "settingsSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "pluginFacts"
+  ],
+  "hostApi": 1
+}

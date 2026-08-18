@@ -5,8 +5,8 @@
  * 장기 기억으로 만들려는 것도 실패한다 — 대부분의 대화는 그 자리에서 소비되고 버려져야 정상이다.
  * 그래서 **무엇을 넘길지의 승급 기준**이 기억 설계의 첫 단추다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const injected = (ctx: PluginBubbleContext): number =>
   (ctx.data.brainInjections ?? []).reduce((n, e) => n + e.cardIds.length, 0);

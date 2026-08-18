@@ -1,0 +1,17 @@
+{
+  "id": "multi-hop",
+  "name": "Multi-hop Retrieval",
+  "version": "1.0.0",
+  "category": "observability",
+  "descriptionKey": "panel.plugins.multiHop.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "brainInjections"
+  ],
+  "hostApi": 1
+}

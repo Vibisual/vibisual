@@ -4,9 +4,9 @@
  * 전부에 승인을 걸면 사람이 내용을 안 보고 누르게 되어 승인 자체가 무의미해지고, 아무 데도 안 걸면
  * 사고가 난다. 그래서 판단 기준은 **가역성**이다 — 되돌릴 수 있으면 승인이 필요 없다. 표시 전용.
  */
-import { defineInspector, ICONS } from '../framework/inspector.js';
-import { effectiveTools } from '../lethal-trifecta/trifecta.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector, ICONS } from '../sdk/index.js';
+import { effectiveTools } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const K = 'panel.plugins.humanInTheLoop';
 

@@ -1,0 +1,18 @@
+{
+  "id": "memory-invalidation",
+  "name": "Memory Invalidation",
+  "version": "1.0.0",
+  "category": "observability",
+  "descriptionKey": "panel.plugins.memoryInvalidation.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "bubbleBadge",
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "brain"
+  ],
+  "hostApi": 1
+}

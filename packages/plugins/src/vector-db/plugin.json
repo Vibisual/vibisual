@@ -1,0 +1,17 @@
+{
+  "id": "vector-db",
+  "name": "Vector DB",
+  "version": "1.0.0",
+  "category": "observability",
+  "descriptionKey": "panel.plugins.vectorDb.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "brain"
+  ],
+  "hostApi": 1
+}

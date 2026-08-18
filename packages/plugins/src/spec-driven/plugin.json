@@ -1,0 +1,19 @@
+{
+  "id": "spec-driven",
+  "name": "Spec-Driven Development",
+  "version": "1.0.0",
+  "category": "workflow",
+  "descriptionKey": "panel.plugins.specDriven.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "agentEvents",
+    "agentReviews",
+    "subAgents"
+  ],
+  "hostApi": 1
+}

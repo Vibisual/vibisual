@@ -1,0 +1,17 @@
+{
+  "id": "memory-consolidation",
+  "name": "Memory Consolidation",
+  "version": "1.0.0",
+  "category": "observability",
+  "descriptionKey": "panel.plugins.memoryConsolidation.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "brain"
+  ],
+  "hostApi": 1
+}

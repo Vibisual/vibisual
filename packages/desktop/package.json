@@ -1,6 +1,6 @@
 {
   "name": "@vibisual/desktop",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "private": true,
   "type": "module",
   "description": "Vibisual Electron desktop shell — main process runs the server in-process (§3.7)",
@@ -35,7 +35,8 @@
     "node-pty": "^1.0.0",
     "selfsigned": "^5.5.0",
     "ws": "^8.18.0",
-    "@vibisual/plugins": "workspace:*"
+    "@vibisual/plugins": "workspace:*",
+    "@vibisual/video": "workspace:*"
   },
   "devDependencies": {
     "@electron-toolkit/preload": "^3.0.1",

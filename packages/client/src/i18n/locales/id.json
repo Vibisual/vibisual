@@ -18,7 +18,11 @@
       "availableTooltip": "Versi {{version}} tersedia dan sedang diunduh di latar belakang",
       "downloading": "Memperbarui {{percent}}%",
       "restart": "Mulai ulang untuk memperbarui",
-      "restartTooltip": "Versi {{version}} siap — mulai ulang untuk menerapkan"
+      "restartTooltip": "Versi {{version}} siap — mulai ulang untuk menerapkan",
+      "confirmTitle": "Mulai ulang untuk memperbarui?",
+      "confirmBody": "Memperbarui akan menutup dan menginstal ulang aplikasi. Pekerjaan agent yang sedang berlangsung atau perubahan yang belum disimpan mungkin akan hilang.",
+      "confirmHint": "Jika Anda memiliki pekerjaan agent kustom yang penting, selesaikan dulu, lalu perbarui.",
+      "confirmCancel": "Batal"
     },
     "agentStatus": {
       "waiting": "Menunggu agent",
@@ -44,7 +48,139 @@
       "file": "File",
       "openFolder": "Buka Folder...",
       "options": "Opsi…",
+      "guide": "Panduan",
+      "mobileAccess": "Akses Seluler…",
       "plugins": "Plugin…"
+    },
+    "mobileAccess": {
+      "title": "Akses Seluler",
+      "subtitle": "Buka Vibisual di browser ponsel Anda melalui Wi-Fi yang sama. Aktifkan, buka alamat di bawah ini di ponsel Anda, lalu masukkan kode pemasangan.",
+      "statusOn": "Mendengarkan di jaringan lokal Anda",
+      "statusOff": "Nonaktif",
+      "enable": "Aktifkan",
+      "disable": "Nonaktifkan",
+      "url": "Buka di ponsel Anda",
+      "noNetwork": "Tidak ada alamat jaringan lokal yang terdeteksi — periksa Wi-Fi atau adaptor jaringan Anda.",
+      "pairingCode": "Kode pemasangan",
+      "pairingHint": "Ponsel Anda akan meminta kode ini saat pertama kali terhubung. Perangkat yang sudah dipasangkan akan tetap terhubung.",
+      "regen": "Kode baru",
+      "locked": "Terlalu banyak percobaan gagal — pemasangan terkunci. Buat kode baru untuk membuka kunci.",
+      "clients": "Perangkat terhubung: {{count}}",
+      "securityNote": "Siapa pun di jaringan Anda yang memiliki kode ini dapat mengontrol Vibisual dan menjalankan agent di PC ini. Gunakan hanya pada Wi-Fi yang terpercaya.",
+      "externalTitle": "Akses dari luar",
+      "externalSubtitle": "Jangkau PC ini melalui internet. Vibisual meminta router Anda membuka port secara otomatis (UPnP) dan melayani melalui HTTPS terenkripsi.",
+      "externalMapping": "Meminta router Anda membuka port…",
+      "externalCgnat": "Koneksi internet Anda tidak memiliki alamat publik (carrier-grade NAT), sehingga port tidak dapat dibuka dari sini. Gunakan VPN seperti Tailscale, atau minta IP publik dari penyedia layanan internet Anda.",
+      "externalManual": "Tidak dapat membuka port secara otomatis (UPnP router Anda mungkin nonaktif). Untuk melakukannya secara manual, teruskan port TCP eksternal {{port}} ke {{ip}}:{{port}} di PC ini melalui pengaturan router Anda.",
+      "externalManualUrl": "Setelah port diteruskan, hubungkan dari luar melalui alamat ini:",
+      "externalReachable": "Dapat dijangkau — hubungkan dari luar di",
+      "externalHttpsNote": "Menggunakan sertifikat self-signed — ponsel Anda akan menampilkan peringatan keamanan pada percobaan pertama. Ketuk \"Advanced → proceed\" untuk melanjutkan; koneksi tetap terenkripsi.",
+      "qrTitle": "Pemasangan QR",
+      "qrSubtitle": "Pindai dengan kamera ponsel Anda — Vibisual akan terbuka dan memasangkan diri secara otomatis, tanpa perlu mengetik alamat atau kode. Setiap QR berlaku selama {{minutes}} menit.",
+      "qrIssue": "Terbitkan QR",
+      "qrReissue": "Terbitkan QR baru",
+      "qrRevoke": "Cabut sekarang",
+      "qrDownload": "Simpan gambar",
+      "qrTarget": "Alamat untuk dikodekan",
+      "qrTargetLan": "Wi-Fi",
+      "qrTargetExternal": "Internet",
+      "qrExpiresIn": "Berlaku selama {{time}}",
+      "qrExpired": "Kedaluwarsa — terbitkan QR baru.",
+      "qrPairedCount": "Dipasangkan dengan QR ini: {{count}}"
+    },
+    "guide": {
+      "title": "Panduan",
+      "subtitle": "Tur singkat tentang apa yang bisa dilakukan Vibisual — dan daftar fitur yang sudah dibuat sejauh ini.",
+      "cat": {
+        "start": "Memulai",
+        "bubbleMap": "Bubble Map",
+        "agents": "Agent",
+        "taskEdges": "Task Edge",
+        "ide": "IDE Overlay",
+        "navigation": "Navigasi",
+        "history": "Riwayat & Penyimpanan",
+        "shortcuts": "Pintasan"
+      },
+      "start": {
+        "intro": "Vibisual memvisualisasikan apa yang sedang dilakukan agent AI Anda, secara real-time, sebagai bubble map.",
+        "openFolderT": "Buka folder",
+        "openFolderD": "File → Buka Folder untuk mulai melacak proyek. Setiap proyek terbuka di tab-nya sendiri.",
+        "watchT": "Amati agent bekerja",
+        "watchD": "Saat Claude Code berjalan, file dan folder yang disentuhnya muncul sebagai bubble dan berdenyut saat berubah.",
+        "optionsT": "Atur default Anda",
+        "optionsD": "File → Opsi untuk memilih model default, tools, mode izin, dan binary Claude Code untuk agent baru."
+      },
+      "bubbleMap": {
+        "intro": "Canvas menggambar proyek Anda sebagai bubble yang terhubung berdasarkan hierarki dan aktivitas.",
+        "typesT": "Kategori bubble",
+        "typesD": "File, folder, agent, Bash, edit, iframe, dan lainnya — masing-masing diberi kode warna berdasarkan kategori.",
+        "sizeT": "Ukuran menunjukkan aktivitas",
+        "sizeD": "Bubble yang lebih besar lebih sering disentuh. Bubble yang berdenyut sedang aktif sekarang.",
+        "contextT": "Isi konteks",
+        "contextD": "Bubble agent terisi seperti air untuk menunjukkan seberapa banyak context window yang sedang digunakan.",
+        "ghostT": "Node hantu",
+        "ghostD": "Node yang dihapus atau diganti nama akan tetap ada sebagai hantu yang memudar agar jejaknya tidak hilang."
+      },
+      "agents": {
+        "intro": "Selain pelacakan pasif, Anda dapat membuat dan mengatur agent Anda sendiri dari canvas.",
+        "customT": "Agent Kustom",
+        "customD": "Klik kanan pada canvas untuk memunculkan bubble agent Anda sendiri dan berikan perintah.",
+        "autoT": "Auto Agent",
+        "autoD": "Jelaskan yang Anda inginkan dalam bahasa sehari-hari; sebuah builder agent akan merancang dan menyusun seluruh tim untuk Anda.",
+        "configT": "Pengaturan agent",
+        "configD": "Klik sebuah bubble untuk mengatur model, tools, mode izin, upaya, isolasi, dan warnanya.",
+        "pipelineT": "Sub-agent & Pipeline",
+        "pipelineD": "Jalankan sesi independen dan rangkai agent bersama dengan strategi pipeline, team, atau hybrid."
+      },
+      "taskEdges": {
+        "intro": "Hubungkan dua agent kustom dengan Task Edge untuk mendelegasikan pekerjaan di antara mereka.",
+        "drawT": "Gambar sebuah edge",
+        "drawD": "Seret dari satu bubble agent kustom ke bubble lainnya untuk membuat delegation edge di antara keduanya.",
+        "kindsT": "Arti edge",
+        "kindsD": "Command, artifact, request, atau critique — jenisnya menentukan apa yang mengalir melalui edge.",
+        "critiqueT": "Review & auto-rework",
+        "critiqueD": "Critique edge dapat memaksa agent tujuan mengerjakan ulang outputnya sampai reviewer menyetujuinya."
+      },
+      "ide": {
+        "intro": "Klik dua kali pada agent untuk membuka IDE overlay — output langsung, sesi, dan laporannya.",
+        "streamT": "Live stream",
+        "streamD": "Ikuti pesan, pemanggilan tool, dan hasil dari agent saat itu terjadi.",
+        "cardsT": "Kartu Selesai / To-do",
+        "cardsD": "Pekerjaan yang selesai dan hal yang perlu Anda lakukan sendiri dipisahkan menjadi kartu berkode warna.",
+        "reviewT": "Kartu Review",
+        "reviewD": "Saat agent menyelesaikan perbaikan, kartu ungu menunjukkan apa yang berubah dan apa yang perlu diperiksa.",
+        "dockT": "Dock atau mengambang",
+        "dockD": "Seret title bar overlay untuk membuatnya mengambang, atau tempelkan ke kanan sebagai panel samping."
+      },
+      "navigation": {
+        "intro": "Bergerak cepat di peta besar.",
+        "panT": "Pan & zoom",
+        "panD": "Seret canvas untuk pan dan scroll untuk zoom; minimap menunjukkan posisi Anda.",
+        "tabsT": "Tab & Lepas",
+        "tabsD": "Setiap folder yang terbuka adalah sebuah tab; seret tab keluar dari bar untuk membukanya di jendela sendiri.",
+        "inspectorT": "Inspector",
+        "inspectorD": "Tahan Alt untuk menyorot elemen dan klik untuk menyalin; Shift-seret untuk memilih wilayah.",
+        "copyT": "Salin & tempel",
+        "copyD": "Pilih agent kustom dan edge, lalu Ctrl+C / Ctrl+V untuk mengklonnya ke proyek lain."
+      },
+      "history": {
+        "intro": "Vibisual mengingat proyek Anda setiap kali Anda membukanya kembali.",
+        "saveT": "Penyimpanan otomatis",
+        "saveD": "Seluruh graph di-checkpoint ke disk dan dipulihkan saat Anda membuka Vibisual berikutnya.",
+        "replayT": "Replay Riwayat",
+        "replayD": "Geser linimasa untuk replay bagaimana peta berkembang selama satu sesi."
+      },
+      "shortcuts": {
+        "intro": "Pintasan keyboard mempercepat navigasi dan pengeditan. Pintasan ini nonaktif sementara saat Anda mengetik di input atau terminal.",
+        "bookmarkT": "Bookmark Bubble",
+        "bookmarkD": "Alt+1…0 menyematkan bubble atau sesi ke sebuah slot; tekan 1…0 untuk kembali ke sana.",
+        "copyT": "Salin / tempel",
+        "copyD": "Ctrl+C / Ctrl+V (Cmd di macOS) menyalin dan menempelkan agent, edge, dan kotak komentar yang dipilih.",
+        "inspectorT": "Inspector",
+        "inspectorD": "Tahan Alt untuk menginspeksi dan klik untuk menyalin elemen; Shift-seret untuk memilih wilayah.",
+        "closeT": "Tutup & batal",
+        "closeD": "Esc menutup menu, popup, dan IDE overlay."
+      }
     },
     "options": {
       "title": "Opsi",
@@ -61,7 +197,13 @@
         "notifications": "Notifikasi",
         "permissions": "Izin",
         "advanced": "Lanjutan",
-        "version": "Versi"
+        "version": "Versi",
+        "account": "Akun"
+      },
+      "appearance": {
+        "intro": "Sesuaikan tampilan Vibisual.",
+        "language": "Bahasa",
+        "languageDesc": "Bahasa tampilan UI. Berlaku langsung."
       },
       "version": {
         "title": "Versi & Tentang",
@@ -90,32 +232,59 @@
         "permissionMode": "Mode Izin",
         "effort": "Upaya",
         "maxTurns": "Maks Giliran (0 = tidak terbatas)",
+        "maxBudgetUsd": "Anggaran ($, 0 = tidak terbatas)",
         "isolation": "Isolasi",
         "tools": "Tools (daftar izin)",
         "disallowedTools": "Tools yang Diblokir (daftar tolak)",
         "rules": "Aturan Default (markdown)",
         "rulesPlaceholder": "# Aturan default opsional yang disuntikkan ke setiap agent baru\n- ...",
         "color": "Warna Bubble Default (hex, opsional)"
+      },
+      "account": {
+        "intro": "Akun Claude Code yang dipakai Vibisual untuk menjalankan agen. Keluar di sini juga mengeluarkan Claude Code.",
+        "signedIn": "Sudah masuk",
+        "signedOut": "Belum masuk",
+        "unknown": "Tidak bisa memeriksa status masuk",
+        "unknownDesc": "Biner claude tidak merespons. Cek tab Version untuk memastikan Claude Code terpasang.",
+        "email": "Email",
+        "org": "Organisasi",
+        "method": "Metode",
+        "provider": "Penyedia",
+        "logout": "Keluar",
+        "logoutConfirm": "Keluar dari Claude Code?",
+        "logoutYes": "Keluar",
+        "logoutNo": "Tetap masuk",
+        "loggingOut": "Sedang keluar…",
+        "login": "Masuk",
+        "recheck": "Periksa lagi",
+        "checking": "Memeriksa…",
+        "actionFailed": "Tidak berhasil. Coba lagi."
       }
     },
     "autoAgent": {
       "title": "Auto Agent",
-      "placeholder": "Jelaskan yang Anda inginkan — mis. \"Tambahkan login OAuth ke dashboard\"",
-      "send": "Kirim",
-      "shortcutHint": "Ctrl/Cmd + Enter untuk kirim",
-      "toggleQuestionsTip": "Jika ON, mengajukan pertanyaan klarifikasi untuk permintaan kompleks sebelum memunculkan agent.",
-      "questionsOn": "Tanya jika kompleks",
+      "description": "Harness builder. Jelaskan tujuan Anda dan builder agent akan merancang harness multi-agent untuk Anda — memilih agent, model, tools, dan izin mereka, serta menyusun koneksi tugas — lalu menjalankannya. Anda tidak perlu menyusun bubble atau edge secara manual.",
+      "placeholder": "Jelaskan tujuan Anda — mis. \"Tambahkan login OAuth ke dashboard dan tulis testnya\". Saya akan memilih agent, model dan tools serta menyambungkannya.",
+      "send": "Bangun harness",
+      "shortcutHint": "Ctrl/Cmd + Enter untuk membangun",
+      "toggleQuestionsTip": "Jika ON, builder dapat mengajukan beberapa pertanyaan klarifikasi sebelum membangun harness.",
+      "questionsOn": "Tanya jika tidak jelas",
       "questionsOff": "Lewati pertanyaan",
-      "clarifying": "Saya perlu beberapa klarifikasi sebelum memunculkan tim",
+      "clarifying": "Beberapa klarifikasi sebelum saya membangun harness",
       "notePlaceholder": "Tambahkan catatan (opsional)",
       "submitAnswers": "Kirim jawaban",
       "summary": "Ringkasan",
       "spawnedCount": "Memunculkan {{count}} sub-agent",
       "entryHint": "Sub-agent sedang berjalan. Tanya saya di sini untuk tindak lanjut.",
+      "buildingHint": "Builder sedang merancang agent dan koneksi di canvas. Buka bubble ini untuk melihatnya bekerja.",
+      "activityTitle": "Aktivitas builder",
+      "activityLive": "Live",
+      "activityWaiting": "Memulai builder…",
       "phase": {
         "idle": "Idle — ketik permintaan untuk mulai",
         "analyzing": "Menganalisis permintaan…",
         "asking": "Menunggu klarifikasi Anda",
+        "building": "Membangun harness…",
         "spawning": "Memunculkan agent…",
         "dispatching": "Mengirim ke entry agent…",
         "running": "Sub-agent bekerja",
@@ -131,8 +300,56 @@
         "pipeline": "Pipeline",
         "team": "Team",
         "ralph": "Ralph (team + critique loop)",
-        "autopilot": "Autopilot (agent tunggal)"
+        "autopilot": "Autopilot (agent tunggal)",
+        "custom": "Kustom (dirancang builder)"
+      },
+      "run": {
+        "title": "Run terverifikasi",
+        "selfTest": "Uji gate",
+        "selfTestRunning": "Menguji…",
+        "selfTestTip": "Menjalankan dua pemeriksaan yang sengaja dibuat gagal. Sebuah gate hanya bisa dibuktikan dari apa yang diblokirnya, bukan dari apa yang dilewatkannya.",
+        "selfTestPass": "Gate berfungsi — {{count}} pemeriksaan memblokir sebagaimana mestinya",
+        "selfTestFail": "{{count}} pemeriksaan TIDAK memblokir — gate belum bisa dipercaya",
+        "selfTestBadge": "self-test",
+        "metricHandsOff": "Tanpa campur tangan",
+        "metricHandsOffHint": "{{verified}} dari {{total}} run selesai tanpa memanggil Anda",
+        "metricEscalated": "Memanggil Anda",
+        "metricEvidence": "Bukti",
+        "metricEvidenceHint": "Pemeriksaan lolos / semua pemeriksaan yang benar-benar dijalankan",
+        "empty": "Belum ada run. Kirim permintaan di atas dan bukti penyelesaiannya akan tercantum di sini.",
+        "noEvidence": "Tidak ada bukti tercatat — tidak ada yang benar-benar dijalankan untuk run ini.",
+        "evidenceCount": "{{passed}}/{{total}} lolos",
+        "reworkCount": "rework {{used}}/{{budget}}",
+        "lastVerdict": "Putusan: {{verdict}}",
+        "status": {
+          "running": "Berjalan",
+          "verified": "Terverifikasi",
+          "escalated": "Perlu Anda",
+          "abandoned": "Dibatalkan"
+        },
+        "verdict": {
+          "approve": "setuju",
+          "reject": "tolak",
+          "held": "ditahan (tanpa bukti)"
+        },
+        "escalation": {
+          "budget-exhausted": "Anggaran rework habis tanpa lolos.",
+          "verification-failed": "Verifikasi tetap gagal.",
+          "irreversible-action": "Tindakan tidak dapat dibatalkan — persetujuan Anda diperlukan.",
+          "no-evidence": "Dilaporkan lolos, tapi tidak ada yang benar-benar dijalankan."
+        }
       }
+    },
+    "feedback": {
+      "title": "Feedback pengguna",
+      "promote": "Promosikan ke aturan",
+      "distilling": "Menyaring…",
+      "distillFailed": "Tidak dapat menyaring — coba lagi",
+      "proposalTitle": "Usulan aturan berdasarkan hal yang tidak Anda sukai",
+      "proposalHint": "Tinjau dan edit aturan di bawah ini. Aturan ini ditambahkan ke Aturan Agent milik agent ini hanya saat Anda menerapkannya (undo lewat Riwayat Aturan).",
+      "apply": "Tambahkan ke aturan",
+      "applying": "Menambahkan…",
+      "cancel": "Batal"
     },
     "detailPanel": {
       "close": "Tutup",
@@ -333,17 +550,20 @@
         "label": "Model",
         "opus": "Paling canggih. Penalaran terbaik dan tugas kompleks. Biaya tertinggi.",
         "sonnet": "Performa dan biaya seimbang. Cocok untuk sebagian besar tugas.",
-        "haiku": "Tercepat dan termurah. Terbaik untuk tugas sederhana yang hanya baca."
+        "haiku": "Tercepat dan termurah. Terbaik untuk tugas sederhana yang hanya baca.",
+        "unknown": "{{name}} — model yang baru dirilis. Kemampuan dan biaya diperkirakan dari default keluarganya."
       },
       "contextWindow": {
         "oneMillion": "Context window 1 juta"
       },
       "permissionMode": {
         "label": "Mode Izin",
-        "default": "Meminta konfirmasi untuk tindakan berisiko (tulis, shell).",
+        "default": "Manual — meminta konfirmasi untuk tindakan berisiko (tulis, shell).",
         "acceptEdits": "Menyetujui otomatis pengeditan file (Write, Edit). Tetap meminta untuk Bash.",
         "plan": "Hanya baca. Tidak dapat mengubah file atau menjalankan perintah.",
-        "bypassPermissions": "Tanpa konfirmasi. Agent berjalan tanpa persetujuan apapun."
+        "bypassPermissions": "Tanpa konfirmasi. Agent berjalan tanpa persetujuan apapun.",
+        "auto": "Pengklasifikasi CLI memutuskan tiap panggilan. Vibisual tidak menambah pop-up sendiri.",
+        "dontAsk": "Tidak pernah bertanya. Apa pun yang belum disetujui akan ditolak — untuk eksekusi tanpa pengawasan."
       },
       "permissionTimeoutPolicy": {
         "label": "Tanpa respons (60 dtk)",
@@ -391,6 +611,7 @@
         "medium": "Kedalaman berpikir seimbang.",
         "high": "Penalaran mendalam. Lebih lambat tapi menyeluruh.",
         "xhigh": "Penalaran ekstra tinggi (Opus 4.7+). Direkomendasikan untuk sebagian besar pekerjaan coding.",
+        "max": "Penalaran maksimal, tanpa batas token (Opus 4.8). Untuk keputusan tersulit; mungkin terlalu berlebihan untuk tugas sederhana.",
         "unknown": "{{name}} — tingkat upaya penalaran yang didukung oleh CLI yang terinstal."
       },
       "tools": {
@@ -406,9 +627,22 @@
         "WebSearch": "Cari informasi di web.",
         "WebFetch": "Ambil dan baca konten dari URL.",
         "NotebookEdit": "Edit sel di Jupyter notebook.",
-        "lockedHint": "Diperlukan untuk pengiriman delegasi (Bash curl) — tidak dapat dihapus."
+        "lockedHint": "Diperlukan untuk pengiriman delegasi (Bash curl) — tidak dapat dihapus.",
+        "AskUserQuestion": "Mengajukan pertanyaan pilihan ganda sebagai kartu di IDE.",
+        "TodoWrite": "Menulis rencana / daftar. Tanpa ini blok rencana tidak bisa muncul.",
+        "ExitPlanMode": "Keluar dari mode plan. Wajib bila Mode Izin adalah “plan”.",
+        "Skill": "Memanggil skill yang terpasang (/skill-name).",
+        "Monitor": "Menunggu shell latar atau sebuah kondisi selesai.",
+        "BashOutput": "Membaca keluaran shell latar.",
+        "KillShell": "Menghentikan shell latar.",
+        "TaskOutput": "Membaca keluaran tugas atau subagen latar belakang.",
+        "TaskStop": "Menghentikan tugas atau subagen latar belakang.",
+        "MultiEdit": "Menerapkan beberapa suntingan pada satu berkas sekaligus.",
+        "SendMessage": "Mengirim pesan lanjutan ke subagen yang sedang berjalan.",
+        "Artifact": "Membuat artefak (dokumen, aplikasi)."
       },
       "maxTurns": "Maks Giliran",
+      "maxBudgetUsd": "Anggaran ($, 0=∞)",
       "defaultSkills": "Skill Default",
       "addSkill": "+ Tambah Skill",
       "color": "Warna",
@@ -418,12 +652,68 @@
         "rules": "Instruksi kustom yang disuntikkan ke prompt agent setiap dijalankan (Markdown).",
         "tools": "Tools yang diizinkan untuk digunakan agent ini.",
         "maxTurns": "Maks giliran percakapan sebelum agent berhenti. Mencegah perulangan tak terbatas.",
+        "maxBudgetUsd": "Batas pengeluaran API dalam USD untuk proses headless agent ini. 0 = tidak terbatas. Jika diatur, agent selalu menggunakan spawn --print baru sehingga batas ini diberlakukan di setiap giliran (proteksi credit-pool Agent SDK). Tidak berlaku untuk agent interactive-terminal.",
         "isolation": "Apakah dijalankan di git worktree terisolasi.",
         "effort": "Kedalaman berpikir (Opus 4.7+).",
         "skills": "Skill yang dimuat otomatis saat mulai. Ekstensi Vibisual — bukan Claude Code standar.",
         "color": "Warna bubble kustom dalam visualisasi.",
         "projectContext": "Hanya baca. File dan aturan yang otomatis disuntikkan ke setiap prompt saat agent berjalan. Diperbarui saat dibuka.",
-        "agentSettingsNote": "Pengaturan ini hanya berlaku saat menjalankan perintah dari Vibisual (eksekusi sub-agent). Tidak mengubah sesi Claude Code agent itu sendiri."
+        "agentSettingsNote": "Pengaturan ini hanya berlaku saat menjalankan perintah dari Vibisual (eksekusi sub-agent). Tidak mengubah sesi Claude Code agent itu sendiri.",
+        "memory": "Apa yang diingat agen ini antarsesi, dan di mana catatan itu disimpan.",
+        "subagentDepth": "Berapa lapis subagen yang boleh dibuat agen ini di bawahnya. 0 memakai bawaan CLI (3 lapis); 1 mematikan penyarangan."
+      },
+      "memory": {
+        "label": "Memori",
+        "default": "Memakai memori bersama repositori (bawaan).",
+        "off": "Agen ini tidak mengingat apa pun antarsesi.",
+        "user": "Folder memori sendiri, dipakai bersama di semua proyek.",
+        "project": "Folder memori sendiri untuk proyek ini, dapat dibagikan lewat kontrol versi.",
+        "local": "Folder memori sendiri untuk proyek ini, di luar kontrol versi."
+      },
+      "subagentDepth": {
+        "label": "Kedalaman subagen"
+      },
+      "cliOptions": {
+        "label": "Opsi CLI",
+        "tip": "Flag tambahan yang diterima CLI claude terpasang. Semuanya tidak disetel secara bawaan — tidak disetel berarti flag itu tidak dikirim sama sekali."
+      },
+      "fallbackModel": {
+        "label": "Model cadangan",
+        "tip": "Model yang dipakai saat model utama kelebihan beban atau tidak tersedia. Daftar dipisah koma dicoba berurutan. Hanya untuk jalur headless.",
+        "placeholder": "mis. sonnet"
+      },
+      "autoCompact": {
+        "label": "Pemadatan otomatis",
+        "tip": "Ukuran konteks saat CLI memadatkan percakapan sendiri.",
+        "unset": "Tidak disetel — CLI yang menentukan (bawaan).",
+        "unsetLabel": "tidak disetel",
+        "auto": "auto — CLI memilih jendelanya.",
+        "tokens": "Padatkan sekitar {{tokens}} token."
+      },
+      "settingSources": {
+        "label": "Sumber setelan",
+        "tip": "Lapisan setelan yang dimuat agen ini. Tidak memilih apa pun berarti semuanya dimuat (bawaan CLI).",
+        "all": "semua (bawaan)"
+      },
+      "excludeDynamicSections": {
+        "label": "Pindahkan bagian prompt khas mesin ke pesan pertama",
+        "hint": "meningkatkan penggunaan ulang cache prompt"
+      },
+      "safeMode": {
+        "label": "Mode aman (semua kustomisasi mati)",
+        "warn": "hook mati — aktivitasnya tidak akan tampak di peta"
+      },
+      "betas": {
+        "label": "Header beta",
+        "tip": "Header beta yang dikirim bersama permintaan API. Hanya untuk pengguna kunci API — autentikasi langganan mengabaikannya.",
+        "placeholder": "dipisah koma"
+      },
+      "bashTimeout": {
+        "label": "Timeout Bash",
+        "tip": "Batas waktu untuk tool Bash. Jika dibiarkan 0, bawaan CLI berlaku — perintah tanpa timeout eksplisit berhenti pada {{defaultSec}}dtk, dan tidak ada perintah yang boleh berjalan lebih dari {{maxSec}}dtk. Naikkan batas Max saat build atau test run yang panjang terpotong. Dikirim ke agent sebagai BASH_DEFAULT_TIMEOUT_MS / BASH_MAX_TIMEOUT_MS.",
+        "defaultLabel": "Default (dtk, 0 = bawaan CLI)",
+        "maxLabel": "Batas maks (dtk, 0 = bawaan CLI)",
+        "hint": "0 memakai bawaan CLI — {{defaultSec}}dtk default, {{maxSec}}dtk maks."
       }
     },
     "permissionPrompt": {
@@ -526,6 +816,21 @@
       "noProject": "Tidak ada proyek aktif",
       "fps": "fps",
       "fpsTip": "Frame render per detik",
+      "visibility": "Visibilitas",
+      "profiling": {
+        "title": "Profiling",
+        "startNow": "Mulai profiling sekarang",
+        "collecting": "Mengumpulkan…",
+        "manual": "manual",
+        "auto": "auto (< {{fps}} fps)",
+        "copy": "Salin",
+        "copied": "Tersalin",
+        "fpsRange": "FPS",
+        "longFrames": "Frame panjang",
+        "topScripts": "Script yang menahan frame paling lama",
+        "noScripts": "Tidak ada atribusi script ({{type}})",
+        "idleHint": "Idle. Saat FPS turun di bawah {{fps}}, profil 1 menit dikumpulkan secara otomatis (cooldown 1 jam). Salin laporan dan bagikan untuk mendiagnosis penyebabnya."
+      },
       "errorLog": "Log Error",
       "noErrors": "Tidak ada error yang tercatat",
       "servers": "Server",
@@ -649,6 +954,7 @@
       "close": "Tutup penggunaan",
       "session5h": "Sesi saat ini (5 jam)",
       "weekly7d": "Batas mingguan (7 hari)",
+      "noValue": "--",
       "resetsIn": "Disetel ulang dalam {{span}}",
       "resetUnknown": "Waktu setel ulang tidak diketahui",
       "resettingNow": "Sedang disetel ulang",
@@ -671,7 +977,6 @@
       "localInput": "Token masukan",
       "localOutput": "Token keluaran",
       "localHint": "Dihitung dari agen pada tab proyek aktif. Batas paket di atas berlaku untuk seluruh akun dan mencakup pekerjaan di luar Vibisual.",
-      "noValue": "--",
       "emptyOff": "Belum ada data penggunaan — pengumpul nonaktif. Aktifkan di bawah, lalu buka sesi Claude Code interaktif sekali.",
       "emptyWaiting": "Pengumpul aktif dan menunggu pembacaan pertama. Nilai masuk saat sesi Claude Code interaktif menggambar status line-nya — bubble terminal di kanvas, atau Claude Code di editor Anda. Agen yang dijalankan Vibisual secara headless tidak punya status line, jadi tidak pernah melapor.",
       "refresh": "Segarkan",
@@ -688,6 +993,8 @@
     },
     "plugins": {
       "title": "Plugin",
+      "scopeProject": "pengaturan ini hanya berlaku untuk proyek ini",
+      "scopeNone": "Buka proyek terlebih dahulu — plugin diaktifkan per proyek.",
       "close": "Tutup",
       "saving": "menyimpan…",
       "empty": "Belum ada plugin terdaftar.",
@@ -708,6 +1015,7 @@
         "settingsSection": "Bagian pengaturan",
         "ideView": "Tampilan IDE",
         "headerItem": "Item header",
+        "agentPrompt": "Penegakan agen",
         "contextMenuItem": "Menu konteks",
         "hookSubscriber": "Pelanggan hook",
         "restRoute": "Rute REST",
@@ -717,1761 +1025,8 @@
         "bubbleType": "Tipe bubble",
         "edgeKind": "Tipe edge"
       },
-      "lethalTrifecta": {
-        "heading": "Trifecta mematikan",
-        "level": {
-          "safe": "Jalur terputus",
-          "caution": "Ditahan persetujuan",
-          "critical": "Ketiganya terbuka"
-        },
-        "leg": {
-          "data": "Akses data sensitif",
-          "untrusted": "Konten tak tepercaya",
-          "egress": "Komunikasi keluar"
-        },
-        "state": {
-          "closed": "putus",
-          "gated": "persetujuan",
-          "open": "terbuka"
-        },
-        "noTool": "Tidak ada alat yang mengaktifkannya",
-        "prescription": "Komunikasi keluar adalah kaki termurah untuk diputus — tambahkan WebFetch (dan Bash bila agen ini tidak memerlukannya) ke alat yang dilarang di Agent Settings.",
-        "alreadyCut": "Satu kaki sudah terputus, jadi injeksi tidak bisa menjadi kebocoran pada agen ini.",
-        "isolatedNote": "Bekerja di worktree terisolasi — ini mempersempit dampak, tetapi tidak memutus kaki mana pun.",
-        "displayOnly": "Hanya tampilan — bagian ini tidak pernah mengubah izin.",
-        "title": {
-          "critical": "Trifecta mematikan: ketiga kaki terbuka tanpa persetujuan"
-        },
-        "isolated": "Berjalan di worktree terisolasi",
-        "desc": "Menampilkan pada setiap bubble agen berapa dari tiga syarat kebocoran — akses data sensitif, konten tak tepercaya, komunikasi keluar — yang dipegang agen itu. Memutus satu syarat sudah mematahkan jalurnya. Hanya tampilan: tidak pernah mengubah izin."
-      },
-      "leastPrivilege": {
-        "desc": "Memisahkan alat yang diberikan ke agen berdasarkan sifatnya — perubahan tak terbalikkan, jangkauan ke luar, hanya baca — agar pemberian berlebih terlihat. Dinilai hanya dari daftar alat.",
-        "heading": "Hak minimum",
-        "level": {
-          "tight": "Sempit",
-          "broad": "Luas",
-          "wide": "Sangat luas"
-        },
-        "badge": {
-          "broad": "{{count}} alat kuat diberikan",
-          "wide": "{{count}} alat kuat — pertimbangkan menarik sebagian"
-        },
-        "class": {
-          "mutating": "Perubahan tak terbalikkan",
-          "reach": "Jangkauan ke luar",
-          "read": "Hanya baca"
-        },
-        "denied": "Diblokir eksplisit",
-        "lockedNote": "{{tools}} tidak bisa dihapus dari UI — jalur delegasi bergantung padanya. Gunakan daftar alat yang dilarang bila perlu.",
-        "none": "tidak ada",
-        "displayOnly": "Hanya tampilan — bagian ini tidak mengubah pengaturan."
-      },
-      "blastRadius": {
-        "desc": "Mendaftar apa yang bisa dijangkau, diubah, dan dikirim agen ini bila sepenuhnya dikuasai — daftar itulah radius ledaknya. Worktree terisolasi mempersempitnya satu tingkat.",
-        "heading": "Radius ledak",
-        "level": {
-          "small": "Kecil",
-          "medium": "Sedang",
-          "large": "Besar"
-        },
-        "row": {
-          "read": "Bisa membaca berkas",
-          "write": "Bisa mengubah berkas",
-          "execute": "Bisa menjalankan perintah",
-          "send": "Bisa mengirim data keluar"
-        },
-        "isolatedNote": "Worktree terisolasi — kerusakan tetap di salinan, jadi radius dihitung satu tingkat lebih kecil.",
-        "narrowHint": "Baca-saja sebagai default, tulis hanya ke jalur tertentu, jaringan hanya ke daftar izin — begitulah radius mengecil.",
-        "yes": "Ya",
-        "no": "Tidak"
-      },
-      "autonomyLevel": {
-        "desc": "Menunjukkan agen ini ada di anak tangga mana — hanya mengusulkan, menjalankan setelah persetujuan, atau berjalan sendiri lalu melapor. Membiarkan otonomi jadi semua-atau-tidak adalah kegagalan desain paling umum.",
-        "heading": "Tingkat otonomi",
-        "level": {
-          "suggest": "Hanya usul",
-          "approve": "Jalan setelah disetujui",
-          "autonomous": "Jalan sendiri"
-        },
-        "badge": {
-          "autonomous": "Otonomi: menjalankan tanpa bertanya"
-        },
-        "row": {
-          "mode": "Mode izin",
-          "timeout": "Jika Anda tidak menjawab",
-          "maxTurns": "Batas giliran",
-          "isolation": "Isolasi"
-        },
-        "timeout": {
-          "allow": "izinkan otomatis",
-          "deny": "blokir otomatis"
-        },
-        "timeoutHint": "Bila Anda pergi, persetujuan menjadi izin otomatis — tingkatnya efektif naik.",
-        "ladderNote": "Otonomi dinaikkan seiring tumbuhnya kepercayaan, bukan diberikan sejak awal.",
-        "isolated": "worktree",
-        "notIsolated": "folder sama",
-        "unlimited": "tanpa batas",
-        "levelDesc": {
-          "suggest": "Mode rencana — tidak ada yang dijalankan.",
-          "approve": "Alat yang mengubah memunculkan permintaan persetujuan.",
-          "autonomous": "Tidak ada permintaan persetujuan sama sekali."
-        }
-      },
-      "longHorizon": {
-        "desc": "Melacak berapa lama sesi berjalan — giliran, waktu berlalu, dan progres tugas terakhir. Tugas panjang biasanya gagal karena konteks habis dan galat menumpuk, bukan kurang kemampuan.",
-        "heading": "Tugas jangka panjang",
-        "level": {
-          "short": "Pendek",
-          "long": "Mulai panjang",
-          "verylong": "Sangat panjang"
-        },
-        "badge": "{{turns}} giliran dalam {{elapsed}}",
-        "row": {
-          "turns": "Giliran",
-          "elapsed": "Berlalu",
-          "todos": "Progres tugas"
-        },
-        "shortNote": "Masih pendek — belum ada yang perlu diawasi.",
-        "longNote": "Catat keputusan dan jalur berkas sebelum pemadatan berjalan — ringkasan membuang hal spesifik lebih dulu."
-      },
-      "rogueAgent": {
-        "desc": "Menunjukkan berapa lama agen diam sementara sesinya masih hidup. Sebagian besar insiden bermula dari “tidak tahu itu masih berjalan”, bukan niat jahat.",
-        "heading": "Idle & lepas kendali",
-        "level": {
-          "active": "Aktif",
-          "idle": "Idle",
-          "forgotten": "Mungkin terlupakan"
-        },
-        "badge": {
-          "idle": "Diam {{elapsed}} padahal sesi masih hidup",
-          "forgotten": "Diam {{elapsed}} — mungkin terlupakan"
-        },
-        "row": {
-          "idle": "Diam selama",
-          "live": "Sesi hidup",
-          "total": "Total sesi"
-        },
-        "activeNote": "Baru aktif — tidak ada yang terlupakan di sini.",
-        "idleNote": "Rancang saat mematikan agen, bukan hanya saat membuatnya."
-      },
       "showMore": "Tampilkan {{count}} lagi",
       "showLess": "Tampilkan lebih sedikit",
-      "guardrails": {
-        "check": {
-          "mode": "Mode izin",
-          "timeout": "Jika Anda tidak menjawab",
-          "denied": "Alat diblokir",
-          "tools": "Alat efektif"
-        },
-        "timeout": {
-          "allow": "izinkan otomatis",
-          "deny": "blokir otomatis"
-        },
-        "heading": "Pagar pengaman",
-        "level": {
-          "gated": "Dicegat sebelum panggilan alat",
-          "none": "Tanpa gerbang",
-          "blocked": "Tidak ada yang dijalankan"
-        },
-        "desc": "Menunjukkan apakah ada sesuatu yang benar-benar menghentikan pemanggilan alat. Pagar pengaman yang dipasang **tepat sebelum pemanggilan** menahan kerusakan pada detik terakhir; jika hanya di depan model, ia datang terlambat.",
-        "notePlacement": "Permintaan persetujuan berada tepat sebelum pemanggilan alat — posisi yang menahan paling akhir sekaligus paling murah.",
-        "noteNone": "Tidak ada permintaan persetujuan yang muncul, jadi tidak ada yang mencegat pemanggilan alat sebelum dijalankan."
-      },
-      "humanInTheLoop": {
-        "yes": "ya",
-        "no": "tidak",
-        "heading": "Campur tangan manusia",
-        "check": {
-          "irreversible": "Alat tak terbalikkan",
-          "prompt": "Permintaan persetujuan",
-          "reversible": "Pekerjaan bisa dibatalkan"
-        },
-        "level": {
-          "present": "Ada konfirmasi",
-          "absent": "Tanpa konfirmasi",
-          "notNeeded": "Tidak diperlukan di sini"
-        },
-        "desc": "Memeriksa apakah ada konfirmasi manusia di depan tindakan yang tak terbalikkan. Menyetujui semuanya membuat persetujuan kehilangan makna; tidak menyetujui apa pun menimbulkan insiden — ukurannya adalah keterbalikan.",
-        "note": "Lebih baik daripada menambah persetujuan adalah membuat tindakan bisa dibatalkan — tempat sampah alih-alih hapus, versi alih-alih timpa, draf alih-alih kirim."
-      },
-      "allowlist": {
-        "level": {
-          "partial": "Sebagian",
-          "narrow": "Sempit",
-          "all": "Semua diberikan"
-        },
-        "check": {
-          "denied": "Diblokir eksplisit",
-          "granted": "Diberikan",
-          "missing": "Tidak diberikan"
-        },
-        "heading": "Daftar izin",
-        "desc": "Menunjukkan seberapa dekat agen ini dengan «hanya ini yang diizinkan». Daftar blokir bocor justru lewat yang terlupa; daftar izin seiring waktu gagal ke sisi aman.",
-        "note": "Tempat daftar izin paling berhasil adalah tujuan jaringan — itu saja sudah mempersempit tahap terakhir sebuah kebocoran."
-      },
-      "sandboxing": {
-        "level": {
-          "shared": "Tree bersama",
-          "isolated": "Worktree terisolasi"
-        },
-        "heading": "Sandboxing",
-        "check": {
-          "filesystem": "Sistem berkas",
-          "network": "Jaringan",
-          "execution": "Mode eksekusi"
-        },
-        "worktree": "worktree terpisah",
-        "sameTree": "working tree yang sama",
-        "noNetworkIsolation": "tidak terisolasi",
-        "desc": "Menunjukkan apakah agen berjalan di atas salinan terisolasi. Isolasi berkas saja tidak cukup — tanpa isolasi jaringan, tahap terakhir kebocoran tetap terbuka.",
-        "note": "Vibisual mengisolasi sistem berkas lewat git worktree. Jaringan tidak diisolasi, jadi jalan keluar tetap terbuka bahkan di dalam worktree."
-      },
-      "nonHumanIdentity": {
-        "check": {
-          "owner": "Pemilik",
-          "sessions": "Sesi",
-          "id": "Identitas"
-        },
-        "ours": "Vibisual (agen kustom)",
-        "claudeCode": "Claude Code (sesi hook)",
-        "heading": "Identitas non-manusia",
-        "level": {
-          "owned": "Bisa kami hentikan",
-          "external": "Milik Claude Code"
-        },
-        "desc": "Mengajukan pertanyaan praktis: bisakah Anda memutus **agen ini saja** sekarang? Kalau jawabannya «harus menghentikan semuanya», berarti tidak ada rancangan identitas.",
-        "noteOwned": "Kami yang membuat agen ini, jadi ia membawa pengaturannya sendiri dan bisa dihentikan sendiri.",
-        "noteExternal": "Sesi ini terdaftar lewat hook dan milik Claude Code — kami tidak punya pegangan untuk menghentikannya sendirian."
-      },
-      "containment": {
-        "check": {
-          "leak": "Jalur kebocoran",
-          "radius": "Radius ledak",
-          "isolation": "Isolasi"
-        },
-        "isolated": "worktree",
-        "heading": "Pembatasan",
-        "level": {
-          "contained": "Terbatasi",
-          "partial": "Sebagian terbatasi",
-          "open": "Tidak terbatasi"
-        },
-        "possible": "mungkin",
-        "broken": "putus",
-        "shared": "tree bersama",
-        "desc": "Menganggap serangan berhasil lalu bertanya apa yang masih mungkin. Yang aman bukan pemilik filter paling agresif, melainkan tempat yang radiusnya terbatas secara struktural ketika ada yang lolos.",
-        "note": "Tanyakan «apa yang mungkin setelah tembus», bukan «bagaimana memblokirnya». Kalau yang pertama tak terjawab, rancangannya belum selesai."
-      },
-      "auditTrail": {
-        "level": {
-          "partial": "Sebagian",
-          "traceable": "Bisa dilacak",
-          "empty": "Belum ada jejak"
-        },
-        "check": {
-          "turns": "Giliran tercatat",
-          "sessions": "ID sesi",
-          "last": "Aktivitas terakhir"
-        },
-        "heading": "Jejak audit",
-        "desc": "Menghitung sisa jejak agen ini — giliran yang tercatat dan ID sesi yang tersimpan — supaya «siapa yang melakukan ini» tetap bisa dijawab kemudian.",
-        "note": "Menyimpan log eksekusi asli, menandai keputusan dengan sesi asalnya, dan mencantumkan agen sebagai rekan penulis pada commit: itu perangkat minimalnya."
-      },
-      "contextRot": {
-        "level": {
-          "low": "Masih ada ruang",
-          "unknown": "Tidak diketahui",
-          "high": "Hampir penuh",
-          "half": "Lewat separuh"
-        },
-        "check": {
-          "sessions": "Sesi",
-          "fill": "Terisi",
-          "tokens": "Token"
-        },
-        "heading": "Pembusukan konteks",
-        "desc": "Menunjukkan seberapa penuh jendela konteks. Ukurannya adalah batas atas, bukan target — kualitas sering turun terasa sudah di sekitar setengah, dan pengalih perhatian yang mirip lebih merusak daripada panjang semata.",
-        "noteLow": "Masih ada ruang. Ukurlah jendela efektif Anda dengan pekerjaan nyata alih-alih memercayai ukuran yang tertulis.",
-        "noteHigh": "Tulis keputusan dan jalur berkas ke sebuah berkas sebelum pemadatan berjalan — ringkasan membuang yang konkret lebih dulu."
-      },
-      "costPerTask": {
-        "level": {
-          "moderate": "Sedang",
-          "light": "Ringan",
-          "heavy": "Berat",
-          "idle": "Belum ada yang terpakai"
-        },
-        "check": {
-          "turns": "Giliran",
-          "tokens": "Masukan / keluaran",
-          "perTurn": "Token per giliran",
-          "usd": "Perkiraan biaya"
-        },
-        "heading": "Biaya per tugas",
-        "desc": "Melihat biaya per **tugas yang selesai** alih-alih per token, dan menampilkan token per giliran — pekerjaan latar yang hasilnya sedikit bisa diam-diam menghabiskan sebagian besar tagihan.",
-        "note": "Perkiraan hanya menghitung masukan dan keluaran; token cache tidak diakumulasi per sesi, jadi angka sebenarnya sedikit lebih tinggi."
-      },
-      "modelRouting": {
-        "check": {
-          "model": "Model",
-          "effort": "Upaya",
-          "turns": "Giliran sejauh ini"
-        },
-        "heading": "Perutean model",
-        "level": {
-          "fit": "Cocok dengan tugas",
-          "upgrade": "Pertimbangkan naikkan",
-          "downgrade": "Pertimbangkan turunkan"
-        },
-        "desc": "Menaruh model saat ini di sebelah besarnya pekerjaan agar menaikkan atau menurunkan kelas menjadi keputusan yang terlihat. Ia tidak pernah mengganti model untuk Anda — itu tetap keputusan Anda.",
-        "advice": {
-          "fit": "Model dan beban tampak sepadan. Kaskade menguntungkan ketika model murah menangani mayoritas yang mudah.",
-          "upgrade": "Ini sudah menjadi tugas panjang di atas model kecil. Menaikkan kelas biasanya lebih murah daripada mengulang percobaan.",
-          "downgrade": "Tugas pendek di model terbesar. Model yang lebih murah kemungkinan besar memberi hasil yang sama."
-        }
-      },
-      "reasoningEffort": {
-        "level": {
-          "normal": "Normal",
-          "deep": "Berpikir dalam",
-          "overthinking": "Mungkin berpikir berlebihan"
-        },
-        "check": {
-          "effort": "Upaya",
-          "turns": "Giliran sejauh ini",
-          "model": "Model"
-        },
-        "heading": "Upaya penalaran",
-        "desc": "Menampilkan upaya penalaran di sebelah besarnya pekerjaan. Berpikir lebih lama tidak selalu lebih baik — ada rentang terukur di mana pertimbangan berlebih justru menurunkan ketepatan pada tugas sederhana dan faktual.",
-        "noteMeasure": "Naikkan upaya lalu ukur, alih-alih membiarkan maksimum menyala — menaikkannya memakan token di setiap giliran.",
-        "noteOverthinking": "Penalaran maksimum pada tugas yang sangat pendek. Inilah rentang di mana biaya naik dan ketepatan bisa turun."
-      },
-      "toolUse": {
-        "level": {
-          "lean": "Ramping",
-          "moderate": "Sedang",
-          "all": "Semua dimuat"
-        },
-        "check": {
-          "count": "Alat",
-          "tokens": "Token skema",
-          "share": "Porsi jendela"
-        },
-        "heading": "Penggunaan alat",
-        "desc": "Menunjukkan berapa banyak jendela konteks yang dipakai definisi alat saja. Lewat beberapa puluh alat, definisinya menghabiskan puluhan ribu token dan ketepatan pemilihan ikut turun.",
-        "note": "Menghapus alat yang tak pernah dipakai agen ini memperbaiki biaya dan ketepatan pemilihan sekaligus."
-      },
-      "tokenBudget": {
-        "check": {
-          "share": "Porsi jendela",
-          "window": "Jendela",
-          "fixed": "Bagian tetap",
-          "rules": "Aturan agen (perkiraan token)"
-        },
-        "heading": "Anggaran token",
-        "level": {
-          "ok": "Biaya tetap ringan",
-          "heavy": "Biaya tetap berat"
-        },
-        "desc": "Membagi jendela konteks lebih dulu ke bagian-bagian tetap. Tanpa anggaran per bagian, satu bagian diam-diam mendorong yang lain keluar — begitulah instruksi terpotong pada hari yang padat.",
-        "note": "Jumlah karakter dibagi empat mendekati jumlah token. Tetapkan batas sebagai konstanta dan tentukan apa yang dipangkas saat meluap."
-      },
-      "systemPrompt": {
-        "level": {
-          "long": "Panjang",
-          "none": "Tanpa aturan khusus",
-          "sized": "Ukuran wajar"
-        },
-        "check": {
-          "rules": "Karakter aturan",
-          "skills": "Skill",
-          "rulesTokens": "Token aturan",
-          "base": "Prompt dasar"
-        },
-        "heading": "Prompt sistem",
-        "desc": "Menunjukkan besarnya lapisan instruksi yang selalu menyala. Prompt sistem harus berada di ketinggian yang tepat — terlalu spesifik jadi rapuh, terlalu abstrak jadi diabaikan.",
-        "note": "Pekerjaan latar seperti meringkas atau mengklasifikasi jarang butuh prompt serbaguna — yang pendek dan khusus, tanpa alat, biasanya jawabannya.",
-        "noteLong": "Aturan ini ikut di setiap giliran. Kalau panjang, ia memakan token terus-menerus dan paling awal mengencer saat sesi memanjang."
-      },
-      "subagent": {
-        "check": {
-          "sessions": "Sesi",
-          "running": "Tugas berjalan",
-          "kinds": "Tipe"
-        },
-        "heading": "Isolasi subagen",
-        "level": {
-          "isolated": "Sesi terisolasi",
-          "delegating": "Sedang mendelegasikan",
-          "single": "Utas tunggal"
-        },
-        "desc": "Menunjukkan apakah isolasi konteks benar-benar terjadi. Inti subagen bukan kecepatan, melainkan menjauhkan catatan penjelajahan dan keluaran alat yang bertele-tele dari utas utama.",
-        "note": "Isolasi membeli konteks yang bersih sekaligus menciptakan sumbatan baru — kualitas serah terima. Utas utama seharusnya melihat hasil, bukan proses pencarian."
-      },
-      "fanOut": {
-        "heading": "Fan-out",
-        "check": {
-          "branches": "Cabang",
-          "oldest": "Cabang tertua"
-        },
-        "level": {
-          "none": "Tanpa cabang",
-          "parallel": "Berjalan paralel",
-          "wide": "Fan-out lebar"
-        },
-        "desc": "Menghitung berapa cabang berjalan bersamaan. Paralelisme hanya menguntungkan bila subtugasnya benar-benar mandiri; bila tidak, ia menghasilkan pekerjaan ganda dan kesimpulan yang bertentangan.",
-        "note": "Putuskan cara penggabungannya sebelum membelah. Tanpa aturan penggabungan, integrasi menjadi sumbatannya.",
-        "noteWide": "Banyak cabang sekaligus. Periksa apakah benar-benar mandiri — kalau saling membutuhkan hasil, berurutan justru lebih murah."
-      },
-      "orchestrator": {
-        "level": {
-          "mixed": "Campuran",
-          "worker": "Mengerjakan sendiri",
-          "supervisor": "Mengawasi"
-        },
-        "check": {
-          "running": "Sedang berjalan",
-          "delegated": "Sesi didelegasikan",
-          "turns": "Giliran sendiri"
-        },
-        "heading": "Orkestrator",
-        "desc": "Menunjukkan apakah agen ini berperan sebagai pengawas atau mengerjakan sendiri. Mengumpulkan agen tanpa pengawas adalah antipola yang dikenal — skalanya membesar dan keandalannya turun.",
-        "note": "Bentuk yang dianjurkan adalah pengawas yang menilai, sementara eksekusi alat yang sebenarnya berada di bawahnya."
-      },
-      "planAndExecute": {
-        "check": {
-          "turns": "Giliran",
-          "steps": "Langkah",
-          "progress": "Progres"
-        },
-        "heading": "Rencanakan lalu jalankan",
-        "level": {
-          "noPlan": "Tanpa rencana tercatat",
-          "running": "Berjalan",
-          "done": "Rencana selesai"
-        },
-        "desc": "Menunjukkan apakah ada rencana dan sejauh mana ia berjalan. Ditulis ke berkas, rencana bertahan melewati pemadatan — itulah alasan utama memilikinya.",
-        "note": "Rencana yang bisa disetujui dan disunting pengguna lebih berharga daripada mulai lebih cepat.",
-        "noteNoPlan": "Belum ada rencana yang tercatat. Untuk pekerjaan dengan banyak langkah berurutan, rencana tertulislah yang menjaga utas tidak tersesat."
-      },
-      "reactPattern": {
-        "check": {
-          "turns": "Giliran",
-          "plan": "Rencana tercatat"
-        },
-        "yes": "ya",
-        "no": "tidak",
-        "heading": "ReAct",
-        "level": {
-          "healthy": "Sehat",
-          "drifting": "Mungkin melenceng",
-          "idle": "Belum dimulai"
-        },
-        "desc": "Bergantian menalar dan bertindak adalah bentuk bawaannya, bukan salah satu pilihan. Kartu ini mengawasi tanda bahwa itu tidak lagi cukup — rangkaian panjang tanpa satu pun catatan.",
-        "note": "Tanda bahwa ReAct saja tidak cukup: berputar di alat yang sama, kehilangan tujuan, melanjutkan tanpa memverifikasi.",
-        "noteDrifting": "Rangkaian panjang tanpa rencana tercatat. Di titik inilah rencana tertulis atau satu langkah verifikasi biasanya terbayar."
-      },
-      "scopeCreep": {
-        "heading": "Cakupan",
-        "check": {
-          "first": "Catatan pertama",
-          "peak": "Puncak",
-          "last": "Terakhir"
-        },
-        "level": {
-          "unknown": "Tak ada rencana pembanding",
-          "grew": "Bertambah",
-          "stable": "Stabil",
-          "shrank": "Menyusut"
-        },
-        "desc": "Mengawasi daftar tugas, baik pertumbuhannya maupun penyusutannya yang senyap. Dalam kolaborasi dengan AI arah menyusut sama pentingnya — orang percaya semuanya sudah selesai dan baru sadar belakangan.",
-        "note": "Cakupan adalah keputusan pihak yang memberi instruksi, bukan kebijaksanaan model.",
-        "noteGrew": "Daftarnya tumbuh jauh melewati titik awal. Layak diperiksa apakah pertumbuhan itu memang disepakati.",
-        "noteShrank": "Daftarnya menyusut dari puncaknya. Pastikan butir-butir itu selesai, bukan ditinggalkan."
-      },
-      "reviewGate": {
-        "check": {
-          "reviews": "Permintaan tinjauan",
-          "checkpoints": "Titik periksa"
-        },
-        "heading": "Gerbang tinjauan",
-        "level": {
-          "none": "Tanpa permintaan tinjauan",
-          "noPoints": "Tanpa titik periksa",
-          "present": "Bisa ditinjau"
-        },
-        "desc": "Menghitung apakah penyelesaian diserahkan dalam bentuk yang bisa ditinjau. Laporan panjang berbentuk prosa tidak dibaca; daftar perubahan ditambah titik periksa dibaca.",
-        "note": "Yang membuat peninjauan murah adalah memisahkan «apa yang berubah» dari «apa yang perlu diperiksa»."
-      },
-      "structuredOutput": {
-        "level": {
-          "structured": "Terstruktur",
-          "prose": "Hanya narasi"
-        },
-        "check": {
-          "reports": "Laporan kerja",
-          "reviews": "Permintaan tinjauan",
-          "userActions": "Tindakan untuk Anda"
-        },
-        "heading": "Keluaran terstruktur",
-        "desc": "Menunjukkan apakah agen ini melapor lewat skema alih-alih prosa. Begitu keluaran satu agen menjadi masukan agen lain, kegagalan penguraian berarti rantai berhenti.",
-        "note": "Paket serah terima, hasil penilaian, dan argumen alat lebih baik diterima sebagai skema daripada sebagai kalimat."
-      },
-      "instructionDrift": {
-        "level": {
-          "noRules": "Tidak ada aturan tetap",
-          "rising": "Mengencer",
-          "high": "Mungkin mengencer",
-          "fresh": "Masih segar"
-        },
-        "check": {
-          "rules": "Aturan tetap",
-          "turns": "Giliran",
-          "skills": "Skill"
-        },
-        "yes": "ya",
-        "no": "tidak",
-        "heading": "Pergeseran instruksi",
-        "desc": "Instruksi awal kehilangan cengkeramannya seiring sesi memanjang, dan pemadatan mengencerkannya lebih cepat. «Saya sudah bilang sekali» tidak berlaku.",
-        "note": "Batasan penting perlu disuntikkan ulang setiap giliran, atau ditandai sebagai bagian yang dipertahankan melewati pemadatan.",
-        "noteLong": "Sesi sudah cukup panjang sehingga instruksi awal kemungkinan memudar. Sebutkan lagi batasan yang masih berlaku."
-      },
-      "semanticMemory": {
-        "level": {
-          "none": "Belum ada memori",
-          "contested": "Slot berbeda",
-          "settled": "Mapan"
-        },
-        "check": {
-          "cards": "Kartu tersimpan",
-          "current": "Kebenaran saat ini",
-          "contested": "Berbeda"
-        },
-        "heading": "Memori semantik",
-        "desc": "Menghitung berapa fakta yang benar-benar mengendap. Yang penting bukan berapa kartu tersimpan, melainkan berapa slot yang memegang **satu kebenaran terkini**; slot yang nilainya terbelah menunggu manusia.",
-        "note": "Skala menentukan penyimpanan: beberapa ratus entri masuk berkas, ratusan ribu masuk penyimpanan vektor. Memilih infrastruktur sebelum mengukur skala adalah perancangan berlebih yang lazim."
-      },
-      "memoryInvalidation": {
-        "level": {
-          "none": "Belum ada memori",
-          "clean": "Tidak ada tanda",
-          "pending": "Perlu diperiksa"
-        },
-        "check": {
-          "needsCheck": "Ditandai usang",
-          "review": "Menunggu penilaian",
-          "cards": "Kartu tersimpan"
-        },
-        "heading": "Invalidasi memori",
-        "desc": "Memori yang hilang membuat model berkata tidak tahu; memori usang menghasilkan kesalahan yang diucapkan dengan yakin. Menandai alih-alih menghapus membiarkan orang berikutnya menilai.",
-        "note": "Dalam kode, perubahan pada berkas tertaut adalah sinyal keusangan paling akurat — karena mencocokkan jalur, nyaris tanpa positif palsu.",
-        "notePending": "Beberapa kartu ditandai karena berkas tertautnya berubah. Bandingkan dengan kode saat ini lalu konfirmasi atau pensiunkan."
-      },
-      "forgettingPolicy": {
-        "level": {
-          "none": "Belum ada memori",
-          "full": "Dekat batas anggaran",
-          "room": "Dalam anggaran"
-        },
-        "check": {
-          "archived": "Diarsipkan",
-          "used": "Pemakaian anggaran",
-          "share": "Porsi"
-        },
-        "heading": "Kebijakan lupa",
-        "desc": "Kebijakan penyimpanan lebih mudah daripada kebijakan melupakan. Memori yang hanya bertambah kehilangan ketepatan pencarian sampai bernilai lebih rendah daripada tanpa memori sama sekali.",
-        "note": "Bentuk amannya adalah anggaran total yang kelebihannya **dipindahkan ke arsip alih-alih dihapus** — penghapusan permanen otomatis tidak menyisakan jalan kembali."
-      },
-      "supersede": {
-        "level": {
-          "none": "Belum ada memori",
-          "flat": "Belum ada riwayat",
-          "history": "Riwayat tersimpan"
-        },
-        "heading": "Penggantian",
-        "check": {
-          "stored": "Tersimpan",
-          "current": "Saat ini",
-          "closed": "Ditutup"
-        },
-        "desc": "Ketika pengetahuan baru berbenturan dengan yang lama, menutup lebih baik daripada menghapus. Dua penanda waktu — dibuka dan ditutup — memberi catatan yang tak berubah sekaligus masa kini yang bersih.",
-        "note": "Pertentangan bukan sekadar kemiripan — negasi ikut menentukan, agar «gunakan A» dan «jangan pernah gunakan A» dikenali sebagai pokok yang sama."
-      },
-      "memoryDrift": {
-        "level": {
-          "none": "Belum ada memori",
-          "immutable": "Entri tak berubah",
-          "queued": "Menunggu penilaian"
-        },
-        "check": {
-          "review": "Menunggu penilaian",
-          "rewrite": "Jalur penulisan ulang",
-          "unseen": "Belum dilihat"
-        },
-        "heading": "Pergeseran memori",
-        "noRewritePath": "sengaja tidak ada",
-        "desc": "Menulis ulang memori berkali-kali memolesnya menjauh dari aslinya, sampai detail yang dikarang mengeras menjadi fakta. Pertahanannya adalah menjaga entri tetap tak berubah.",
-        "note": "Memperbarui berarti menambah entri baru dan menutup yang lama. Tidak ada jalur di mana model menulis ulang isi yang sudah ada."
-      },
-      "memoryConsolidation": {
-        "level": {
-          "none": "Belum ada memori",
-          "pending": "Kartu baru belum dilihat",
-          "settled": "Ditinjau"
-        },
-        "check": {
-          "recent": "Terbaru",
-          "archived": "Diarsipkan",
-          "unseen": "Kartu belum dilihat"
-        },
-        "heading": "Konsolidasi memori",
-        "desc": "Menyuling peristiwa menjadi fakta tidaklah gratis — itu operasi yang mengandung kehilangan. Simpan aslinya dan tambahkan hasil sulingan alih-alih menggantinya.",
-        "note": "Ada dua jebakan: ringkasan naif kehilangan fakta yang sudah terkodekan, dan deduplikasi yang lemah membiarkan catatan baru menimpa catatan lama yang masih benar."
-      },
-      "episodicMemory": {
-        "level": {
-          "empty": "Tidak ada catatan",
-          "partial": "Hanya giliran",
-          "kept": "Sesi tersimpan"
-        },
-        "check": {
-          "turns": "Giliran tercatat",
-          "sessions": "Log sesi"
-        },
-        "heading": "Memori episodik",
-        "desc": "Pengalaman mentah adalah bukti kelas satu. Kalau hanya ringkasan yang tersisa, tak ada lagi dasar untuk memverifikasinya maupun membatalkan kesalahannya.",
-        "note": "Pengetahuan yang diekstraksi sebaiknya membawa sesi asal dan waktunya, agar bisa ditelusuri kembali ke aslinya."
-      },
-      "proceduralMemory": {
-        "check": {
-          "skills": "Skill",
-          "rules": "Aturan tetap"
-        },
-        "yes": "ya",
-        "no": "tidak",
-        "heading": "Memori prosedural",
-        "level": {
-          "filed": "Ada di berkas",
-          "none": "Tidak ada yang diarsipkan"
-        },
-        "desc": "Dari tiga lapis memori, inilah lapisan yang jelas jawabannya adalah berkas — sebuah prosedur tidak perlu dicari, ia dibutuhkan utuh saat tugasnya datang.",
-        "note": "Berkas skill dan definisi agen adalah wujud fisik memori prosedural, dan kendali versi adalah keunggulan menentukannya atas penyimpanan vektor."
-      },
-      "workingMemory": {
-        "level": {
-          "live": "Dimuat",
-          "empty": "Tidak ada yang dimuat"
-        },
-        "check": {
-          "context": "Konteks terpakai",
-          "events": "Peristiwa injeksi",
-          "injected": "Kartu diinjeksi"
-        },
-        "heading": "Memori kerja",
-        "desc": "Cepat, dan lenyap begitu sesi berakhir. Ia sendiri tidak akan pernah menjadi sistem yang makin pintar seiring dipakai — tetapi mencoba menaikkan semuanya ke memori jangka panjang juga gagal.",
-        "note": "Sebagian besar percakapan memang seharusnya dipakai lalu dibuang. Menentukan apa yang naik adalah langkah pertama perancangan memori."
-      },
-      "memoryTool": {
-        "level": {
-          "pushed": "Hanya didorong",
-          "active": "Dicari aktif",
-          "unused": "Tidak dipakai"
-        },
-        "heading": "Alat memori",
-        "check": {
-          "spawn": "Saat mulai",
-          "file": "Saat akses berkas",
-          "search": "Dicari"
-        },
-        "desc": "Memisahkan memori yang didorong saat mulai dari memori yang dicari sendiri oleh agen. Catatan dalam berkas bertahan melewati pemadatan, dan itulah yang menjadikannya bentuk memori bertahan paling ringan.",
-        "note": "Cobalah catatan berbasis berkas sebelum membangun infrastruktur vektor terpisah — biaya tambahannya nyaris nol."
-      },
-      "progressiveDisclosure": {
-        "level": {
-          "none": "Tanpa injeksi",
-          "lean": "Ramping",
-          "repeating": "Berulang"
-        },
-        "check": {
-          "events": "Peristiwa injeksi",
-          "repeats": "Berulang",
-          "cards": "Total kartu"
-        },
-        "heading": "Pengungkapan bertahap",
-        "desc": "Alih-alih memuat semuanya di muka, serahkan sebuah indeks dan biarkan isinya diambil saat benar-benar diperlukan. Kartu ini mengawasi apakah justru paket yang sama disuntikkan berulang kali.",
-        "note": "Menempelkan dokumen utuh berarti sengaja menciptakan pembusukan konteks. «Kalau tugasnya X, baca berkas Y» melakukan hal yang sama dengan biaya jauh lebih kecil."
-      },
-      "contextPollution": {
-        "check": {
-          "sessions": "Sesi",
-          "turns": "Giliran",
-          "perSession": "Giliran per sesi"
-        },
-        "heading": "Polusi konteks",
-        "level": {
-          "clean": "Bersih",
-          "ok": "Bisa diterima",
-          "mixed": "Sangat tercampur"
-        },
-        "desc": "Pembusukan soal panjang; polusi soal percampuran. Log percobaan gagal dan pendekatan yang ditinggalkan tetap mengendap — dan kesimpulan antara yang keliru terus diperlakukan sebagai fakta.",
-        "note": "Inilah alasan sebenarnya memakai subagen — bukan kecepatan, melainkan agar tiap subtugas mulai dari konteks yang bersih.",
-        "noteMixed": "Banyak giliran menumpuk di sedikit sesi. Memisahkan subtugas berikutnya ke sesinya sendiri mencegah kesimpulan antara yang keliru ikut terbawa."
-      },
-      "agentHarness": {
-        "check": {
-          "model": "Model",
-          "tools": "Alat",
-          "skills": "Skill",
-          "isolation": "Isolasi",
-          "permission": "Izin"
-        },
-        "heading": "Harness agen",
-        "level": {
-          "bare": "Nyaris kosong",
-          "basic": "Dasar",
-          "rich": "Lengkap"
-        },
-        "desc": "Mengumpulkan semua yang membungkus model — alat, izin, isolasi, skill, aturan. Model yang sama memberi hasil sangat berbeda tergantung lapisan ini, dan ke sanalah persaingan berpindah.",
-        "note": "Angka benchmark membawa inflasi dari perancah — model yang sama memberi skor berbeda di bawah harness lain, jadi bandingkan harness, bukan cuma model."
-      },
-      "scaffold": {
-        "level": {
-          "partial": "Sebagian",
-          "none": "Tanpa perancah",
-          "full": "Aturan dan skill"
-        },
-        "check": {
-          "rules": "Karakter aturan",
-          "skills": "Skill",
-          "maxTurns": "Batas giliran"
-        },
-        "heading": "Perancah",
-        "desc": "Menunjukkan berapa banyak perekat yang ditulis di sekeliling model — aturan, skill, batas giliran. Peningkatan pada agen berjalan lama jauh lebih banyak datang dari perancah yang lebih baik daripada dari model yang lebih pintar.",
-        "note": "Makalah menyebut «perancah», produk menyebut «harness». Hal yang sama dengan nuansa berbeda — struktur kode di satu sisi, operasional di sisi lain."
-      },
-      "agentLoop": {
-        "check": {
-          "turns": "Giliran",
-          "cap": "Batas giliran",
-          "avg": "Jeda rata-rata"
-        },
-        "none": "tidak ada",
-        "heading": "Loop agen",
-        "level": {
-          "capped": "Ada batas",
-          "idle": "Tidak berjalan",
-          "uncapped": "Tanpa batas giliran"
-        },
-        "desc": "Menunjukkan irama loop dan apakah ia punya kondisi berhenti. Loop yang tak bisa menghentikan diri sendiri mengubah batas giliran dan tombol henti darurat menjadi perangkat keselamatan, bukan kenyamanan.",
-        "note": "Mengukur biaya dan waktu satu putaran loop adalah titik awal mengoperasikan agen.",
-        "noteUncapped": "Tidak ada batas giliran yang disetel. Tanpa itu, satu-satunya yang menghentikan loop adalah Anda menyadarinya."
-      },
-      "handoffPacket": {
-        "level": {
-          "structured": "Terstruktur",
-          "none": "Tanpa serah terima",
-          "free": "Bentuk bebas"
-        },
-        "check": {
-          "edges": "Task edge",
-          "outgoing": "Keluar",
-          "templated": "Dari templat"
-        },
-        "heading": "Serah terima",
-        "desc": "Menghitung bagaimana pekerjaan diserahkan. Sumbatan sebenarnya pada sistem multi-agen adalah kualitas serah terima, bukan kekuatan model — diserahkan sebagai prosa bebas, selalu ada yang bocor.",
-        "note": "Tetapkan bentuk paketnya — tujuan, apa yang sudah dicoba, batasan, di mana hasilnya, dan apa yang tidak bisa dipastikan."
-      },
-      "verifierCritic": {
-        "check": {
-          "critiques": "Edge kritik",
-          "incoming": "Kritik masuk"
-        },
-        "heading": "Verifikator dan kritikus",
-        "level": {
-          "selfReview": "Hanya tinjauan sendiri",
-          "separated": "Terpisah"
-        },
-        "desc": "Memeriksa apakah yang menulis dan yang memeriksa terpisah. Kritikus yang berbagi titik buta dengan penulis hanya mengecap jawaban buruk sebagai lolos.",
-        "note": "Verifikasi yang bisa dijalankan — tes, lint, pemeriksaan tipe — lebih murah dan lebih tepat daripada kritikus, jadi tempatkan lebih dulu.",
-        "noteSelf": "Tidak ada edge kritik. Meninjau hasil sendiri biasanya berakhir sebagai kelulusan formal; yang benar-benar menangkap adalah kritikus terpisah atau pemeriksaan yang bisa dijalankan."
-      },
-      "hookLifecycle": {
-        "level": {
-          "normal": "Normal",
-          "busy": "Sering terpicu",
-          "quiet": "Sepi"
-        },
-        "heading": "Siklus hidup hook",
-        "check": {
-          "events": "Peristiwa tercatat",
-          "rate": "Per menit"
-        },
-        "desc": "Hook datang lebih sering daripada dugaan orang — mengira hook «akhir sesi» menyala sekali padahal menyala tiap giliran adalah penyebab klasik perilaku lepas kendali.",
-        "note": "I/O sinkron di dalam hook menahan agen persis selama itu. Lebih baik antrekan dan gabungkan."
-      },
-      "contextWindow": {
-        "heading": "Jendela konteks",
-        "check": {
-          "configured": "Dikonfigurasi",
-          "peak": "Penggunaan puncak",
-          "headroom": "Sisa ruang"
-        },
-        "level": {
-          "deep": "Terisi dalam",
-          "unused": "Belum diukur",
-          "shallow": "Dangkal"
-        },
-        "desc": "Jendela adalah batas atas, bukan target. «Model ini punya 200k, jadi 150k aman» tidak mengikuti — ukur jendela efektif Anda dengan pekerjaan nyata.",
-        "note": "Jangan percaya skor jenis jarum di tumpukan jerami — itu mengukur pencocokan kata, bukan sulitnya pekerjaan konteks panjang yang nyata."
-      },
-      "testTimeCompute": {
-        "check": {
-          "effort": "Upaya",
-          "turns": "Giliran",
-          "model": "Model"
-        },
-        "heading": "Komputasi saat inferensi",
-        "level": {
-          "baseline": "Dasar",
-          "unmeasured": "Dinaikkan, belum diukur",
-          "invested": "Dinaikkan dan dipakai"
-        },
-        "desc": "Membeli waktu berpikir alih-alih model yang lebih besar menguntungkan pada rentang yang lebar. Secara praktis, kualitas, latensi, dan biaya menjadi tombol putar yang Anda atur per tugas.",
-        "note": "Menaikkan tombol pada pekerjaan mudah adalah pemborosan murni. Sesuaikan banyaknya penalaran dengan tingkat kesulitan."
-      },
-      "extendedThinking": {
-        "check": {
-          "effort": "Upaya",
-          "context": "Konteks terpakai"
-        },
-        "heading": "Pemikiran diperluas",
-        "level": {
-          "off": "Mati",
-          "on": "Aktif",
-          "onLoaded": "Aktif, jendela terisi"
-        },
-        "desc": "Menimbang lama sebelum menjawab membantu pada perencanaan, penelusuran galat, dan penalaran bertahap — tetapi token penalaran juga memakan jendela dan ditagih.",
-        "note": "Menampilkan penalaran kepada pengguna atau tidak adalah keputusan produk — ia menumbuhkan kepercayaan, tetapi tebakan antara yang salah terbaca seperti kesimpulan final.",
-        "noteOn": "Penalaran dalam sedang menyala dan jendela mulai penuh. Pada sesi panjang, membersihkan blok penalaran lama berubah dari pilihan menjadi keharusan."
-      },
-      "reflexion": {
-        "check": {
-          "reports": "Laporan kerja",
-          "learned": "Pelajaran tercatat"
-        },
-        "heading": "Refleksi diri",
-        "level": {
-          "none": "Tanpa laporan",
-          "noLessons": "Tidak ada pelajaran tercatat",
-          "accruing": "Pelajaran menumpuk"
-        },
-        "desc": "Kritik diri bekerja bila bertumpu pada sinyal yang bisa dijalankan, seperti tes yang gagal. Refleksi tanpa bukti hanyalah derau yang terdengar masuk akal.",
-        "note": "Pola ini paling berhasil dalam pemrograman, di mana tes berperan sebagai hakim objektif. Di ranah tanpa hakim semacam itu, nilainya anjlok."
-      },
-      "contextEngineering": {
-        "heading": "Rekayasa konteks",
-        "check": {
-          "applied": "Pola diterapkan",
-          "tools": "Alat dimuat",
-          "memory": "Injeksi memori"
-        },
-        "level": {
-          "default": "Hanya bawaan",
-          "designed": "Disengaja",
-          "partial": "Sebagian diterapkan"
-        },
-        "desc": "Menghitung berapa pola konteks yang benar-benar dipakai agen ini — indeks alih-alih injeksi, memangkas alat, pencarian aktif, mengatur banyaknya penalaran.",
-        "note": "Pertanyaannya bergeser dari «bagaimana menyusun prompt» menjadi «apa yang saya perlihatkan»."
-      },
-      "agentSkills": {
-        "level": {
-          "loaded": "Skill terpasang",
-          "none": "Tanpa skill"
-        },
-        "check": {
-          "count": "Skill",
-          "idleCost": "Biaya tetap (perkiraan token)"
-        },
-        "heading": "Skill agen",
-        "desc": "Skill memberi pengetahuan prosedural sebagai berkas alih-alih teks prompt. Nama dan deskripsi dimuat saat mulai, isinya hanya bila relevan — sehingga puluhan skill nyaris tak menaikkan biaya tetap.",
-        "note": "Prosedur yang dipakai berulang — langkah rilis, daftar periksa tinjauan, cara pakai API internal — tempatnya di berkas yang dikelola versi, bukan di prompt."
-      },
-      "trajectoryEval": {
-        "check": {
-          "turns": "Giliran",
-          "sessions": "Sesi",
-          "density": "Giliran per sesi",
-          "edges": "Task edge"
-        },
-        "heading": "Evaluasi lintasan",
-        "level": {
-          "short": "Jalur langsung",
-          "long": "Jalur panjang",
-          "none": "Tak ada yang dinilai"
-        },
-        "desc": "Menilai bagaimana jawabannya dicapai, bukan jawabannya sendiri. Hasil yang sama setelah 3 dan setelah 40 pemanggilan alat adalah dua sistem berbeda, dan penilaian hanya atas hasil tidak melihat perbedaan itu.",
-        "note": "Melihat urutan pemanggilan alat menangkap pola boros atau berisiko sebelum sampai ke produksi."
-      },
-      "eval": {
-        "check": {
-          "repeated": "Berulang",
-          "unique": "Instruksi berbeda"
-        },
-        "heading": "Evaluasi",
-        "level": {
-          "none": "Belum ada instruksi",
-          "single": "Hanya sekali jalan",
-          "repeated": "Eksekusi berulang"
-        },
-        "desc": "Agen bersifat non-deterministik, jadi satu kali jalan bukanlah bukti — masukan yang sama harus dilihat sebagai sebaran. Di sini dihitung berapa kali sebuah instruksi benar-benar diulang.",
-        "note": "Apa pun yang bisa diperiksa secara deterministik — format, skema, bidang wajib, kata terlarang — lebih murah dan lebih tepat lewat kode daripada lewat model juri."
-      },
-      "goldenSet": {
-        "level": {
-          "empty": "Belum terkumpul",
-          "accruing": "Terkumpul",
-          "partial": "Hanya kartu"
-        },
-        "check": {
-          "lessons": "Pelajaran tercatat",
-          "cards": "Kartu memori"
-        },
-        "heading": "Golden set",
-        "desc": "Keterwakilan lebih penting daripada ukuran, dan kegagalan nyata di masa lalu harus ada di dalamnya. Kumpulan yang dibangun hanya dari keberhasilan selalu memberi nilai penuh.",
-        "note": "Menambahkan kegagalan ke kumpulan begitu ditemukan adalah infrastruktur mutu termurah yang ada — satu insiden menjadi satu tes regresi permanen."
-      },
-      "regressionSuite": {
-        "level": {
-          "none": "Belum terkumpul",
-          "accruing": "Terkumpul"
-        },
-        "check": {
-          "lessons": "Pelajaran tercatat",
-          "checkpoints": "Titik periksa"
-        },
-        "heading": "Suite regresi",
-        "desc": "Agen sering membatalkan perbaikan sebelumnya karena alasannya tidak ada di konteksnya. Tes regresi menggantikan ingatan itu.",
-        "note": "Makin halus perbaikannya, makin butuh tes. «Ubah ini maka itu rusak» bertahan jauh lebih baik sebagai tes daripada sebagai komentar."
-      },
-      "traceSpan": {
-        "check": {
-          "sessions": "Sesi",
-          "spans": "Span",
-          "costed": "Sesi dengan token"
-        },
-        "heading": "Trace dan span",
-        "level": {
-          "empty": "Tanpa span",
-          "shapeOnly": "Hanya bentuk",
-          "costed": "Dengan biaya"
-        },
-        "desc": "Trace adalah seluruh jalur satu permintaan dan span adalah ruas-ruasnya. Pemanggilan model, eksekusi alat, dan penilaian semuanya menjadi span.",
-        "note": "Bawa token dan biaya pada span, maka observabilitas sekaligus menjadi analisis biaya."
-      },
-      "observability": {
-        "heading": "Observabilitas",
-        "level": {
-          "partial": "Sebagian",
-          "blind": "Tanpa sinyal",
-          "full": "Log, sesi, laporan"
-        },
-        "check": {
-          "turns": "Giliran",
-          "sessions": "Sesi",
-          "reports": "Laporan"
-        },
-        "desc": "Bisa merekonstruksi «kenapa ia melakukan itu» sesudahnya adalah yang membuat sistem non-deterministik bisa diperbaiki. Galat yang tak bisa direproduksi tak bisa diperbaiki tanpa catatan.",
-        "note": "Pengamatan bisa membunuh aplikasi — penulisan disk sinkron pada tiap peristiwa alat menjadi sumbatannya sendiri. Pencuplikan, debounce, dan pengelompokan adalah perangkat dasarnya."
-      },
-      "llmAsJudge": {
-        "check": {
-          "critique": "Edge kritik",
-          "human": "Tinjauan manusia"
-        },
-        "heading": "LLM sebagai juri",
-        "level": {
-          "none": "Tanpa penilaian",
-          "model": "Kritik model",
-          "human": "Tinjauan manusia"
-        },
-        "desc": "Model kuat yang menilai keluaran adalah kompromi praktis ketika tak ada rangkaian jawaban yang benar. Ia punya bias yang dikenal — menyukai jawaban panjang, lunak pada keluarganya sendiri, dan terpengaruh urutan penyajian.",
-        "note": "Tanpa membandingkan penilaian juri dengan penilaian manusia, tak ada cara mengetahui bahwa jurinya sendiri keliru."
-      },
-      "evalDrivenDevelopment": {
-        "check": {
-          "reviews": "Permintaan tinjauan",
-          "withPoints": "Dengan titik periksa"
-        },
-        "heading": "Pengembangan berbasis evaluasi",
-        "level": {
-          "none": "Tanpa tinjauan",
-          "partial": "Sebagian tanpa titik",
-          "defined": "Titik ditentukan"
-        },
-        "desc": "Bangun evaluasinya lebih dulu lalu perbaiki ke arah skornya. Langkah menentukannya adalah menyatukan evaluasi dan pagar pengaman — juri luring dinaikkan menjadi gerbang saat berjalan.",
-        "note": "Mengubah prompt tanpa evaluasi di belakangnya adalah menyetir tanpa SIM di bidang ini."
-      },
-      "hallucinationGuard": {
-        "check": {
-          "read": "Bisa baca sumber",
-          "execute": "Bisa menjalankan pemeriksaan"
-        },
-        "yes": "ya",
-        "no": "tidak",
-        "heading": "Penjaga halusinasi",
-        "level": {
-          "blind": "Tidak bisa memverifikasi",
-          "readOnly": "Hanya bisa membaca",
-          "verifiable": "Bisa mengeksekusi"
-        },
-        "desc": "Pada agen, bentuk yang lazim adalah mengarang API, berkas, atau fungsi yang tidak ada. Pemeriksaan tipe, lint, dan tes langsung menangkap API karangan — jauh lebih andal daripada meminta model memeriksa ulang.",
-        "note": "Dokumen usang menghasilkan kesalahan yang diucapkan dengan yakin dan tak bisa diperbaiki oleh pencarian — pencarian akan setia mengambil yang keliru."
-      },
-      "worktreeIsolation": {
-        "level": {
-          "shared": "Tree bersama",
-          "isolated": "Terisolasi"
-        },
-        "check": {
-          "mode": "Isolasi",
-          "merge": "Tahap penggabungan"
-        },
-        "heading": "Isolasi worktree",
-        "pending": "masih menanti",
-        "notNeeded": "tidak berlaku",
-        "desc": "Begitu beberapa agen berjalan bersamaan, ini menjadi infrastruktur wajib — branch saja tak bisa di-checkout dua kali, dan dua agen di satu direktori saling menimpa.",
-        "note": "Mengisolasi adalah separuh yang mudah. Dependensi harus dipasang per tree, konflik menumpuk saat penggabungan, dan bagian yang lebih sulit adalah rancangan integrasinya.",
-        "noteIsolated": "Pekerjaan berlangsung di tree terpisah, jadi penggabungan masih menanti. Di situlah konflik datang sekaligus."
-      },
-      "vibeCoding": {
-        "check": {
-          "reviews": "Tinjauan",
-          "rules": "Karakter aturan",
-          "supervision": "Sinyal pengawasan"
-        },
-        "heading": "Vibe coding",
-        "level": {
-          "vibe": "Sedikit pengawasan",
-          "mixed": "Ada sedikit pengawasan",
-          "supervised": "Diawasi"
-        },
-        "desc": "Ciri khasnya adalah menerima keluaran tanpa membaca tiap baris. Ia tidak hilang — jangkauannya menyempit ke purwarupa, penjelajahan, dan alat sekali pakai.",
-        "note": "Ukurannya sederhana: berapa lama kode ini harus hidup — sehari berarti vibe, tiga tahun berarti spesifikasi."
-      },
-      "agenticEngineering": {
-        "level": {
-          "partial": "Sebagian",
-          "raw": "Tanpa pengawasan",
-          "engineered": "Diawasi dan diverifikasi"
-        },
-        "check": {
-          "pillars": "Sinyal ada",
-          "reviews": "Tinjauan",
-          "critique": "Edge kritik"
-        },
-        "heading": "Rekayasa agentik",
-        "desc": "Perbedaan antara «membuat kode dengan AI» dan «mengoperasikan agen» ada di sini. Memprogram lewat agen menjadi cara baku para ahli — tetapi dengan lebih banyak pengawasan dan tinjauan.",
-        "note": "Dokumen aturan, kumpulan evaluasi, pencegahan kehilangan, dan gerbang commit semuanya adalah belanja di muka — sepersekian dari ongkos penyelamatan di kemudian hari."
-      },
-      "rag": {
-        "check": {
-          "recent": "Terbaru",
-          "cards": "Kartu ditarik",
-          "events": "Pengambilan"
-        },
-        "heading": "RAG",
-        "level": {
-          "none": "Tidak menarik bukti",
-          "grounded": "Bukti ditarik"
-        },
-        "desc": "Menunjukkan bukti apa yang benar-benar ditarik untuk agen ini. Di Vibisual salurannya adalah Project Brain, jadi kartu ini menghitung kartu yang datang alih-alih menebak mutu pencarian.",
-        "note": "Sumber yang salah tapi yakin tak bisa diperbaiki dengan pencarian — pencarian akan setia mengambil yang keliru."
-      },
-      "agenticRag": {
-        "level": {
-          "static": "Hanya didorong",
-          "none": "Tanpa pengambilan",
-          "agentic": "Mencari aktif"
-        },
-        "check": {
-          "searched": "Pencarian agen",
-          "pushed": "Didorong saat mulai"
-        },
-        "heading": "RAG agentik",
-        "desc": "Memisahkan memori yang didorong saat mulai dari memori yang dicari sendiri oleh agen. Hanya didorong berarti paket yang sama ikut setiap kali; pencarian aktif berarti ia datang saat dibutuhkan.",
-        "note": "Pipeline tetap mencari sekali; agen memutuskan kapan ia butuh lebih dan kembali mencari."
-      },
-      "grounding": {
-        "level": {
-          "partial": "Sebagian",
-          "ungrounded": "Tak ada dasar",
-          "both": "Sumber dan bukti"
-        },
-        "check": {
-          "source": "Bisa baca sumber",
-          "memory": "Kartu bukti"
-        },
-        "yes": "ya",
-        "no": "tidak",
-        "heading": "Pendasaran",
-        "desc": "Memeriksa apakah klaim terikat pada sesuatu yang bisa diverifikasi — kemampuan membaca sumbernya, dan bukti yang benar-benar sampai.",
-        "note": "Membaca berkasnya lebih baik daripada diceritakan tentang berkasnya. Pendasaran mengubah klaim yang terdengar masuk akal menjadi klaim yang bisa diperiksa."
-      },
-      "agenticFileSearch": {
-        "level": {
-          "partial": "Sebagian",
-          "none": "Tanpa alat pencarian",
-          "full": "Grep dan Glob"
-        },
-        "yes": "ya",
-        "no": "tidak",
-        "heading": "Pencarian berkas oleh agen",
-        "check": {
-          "tools": "Alat pencarian",
-          "read": "Bisa baca hasil"
-        },
-        "desc": "Di sebuah basis kode, menyusuri sistem berkas biasanya mengalahkan membangun indeks — indeks menua, grep selalu melihat keadaan sekarang.",
-        "note": "Membiarkan agen menjelajah — menaksir kerumitan dari ukuran berkas dan tujuan dari namanya — adalah gagasan yang sama dengan pengungkapan bertahap."
-      },
-      "vectorDb": {
-        "level": {
-          "none": "Belum ada memori",
-          "fits": "Berkas masih cukup",
-          "outgrown": "Melampaui skala berkas"
-        },
-        "check": {
-          "cards": "Kartu tersimpan",
-          "storage": "Penyimpanan",
-          "limit": "Batas skala berkas"
-        },
-        "heading": "Basis data vektor",
-        "files": "berkas markdown",
-        "desc": "Skala menentukan penyimpanan. Beberapa ratus entri masuk berkas dengan pencarian teks; ratusan ribu baru membenarkan penyimpanan vektor. Memilih infrastruktur sebelum mengukur adalah perancangan berlebih yang lazim.",
-        "note": "Vibisual sengaja menyimpan memori dalam berkas. Kartu ini ada untuk menyadari hari ketika pilihan itu berhenti menguntungkan."
-      },
-      "gracefulDegradation": {
-        "check": {
-          "mode": "Mode izin",
-          "policy": "Bila tanpa jawaban"
-        },
-        "heading": "Penurunan bertahap",
-        "level": {
-          "noGate": "Tak ada gerbang untuk gagal",
-          "failSafe": "Gagal jadi aman",
-          "failOpen": "Gagal jadi terbuka"
-        },
-        "open": "izinkan (fail-open)",
-        "safe": "blokir (fail-safe)",
-        "desc": "Pagar pengaman harus gagal ke sisi aman — kalau penilaian gagal, jawabannya blokir, bukan lolos. Percabangannya di sini adalah apa yang terjadi ketika permintaan persetujuan tak dijawab.",
-        "note": "Gagal-terbuka adalah pilihan yang sah ketika pekerjaan tak boleh berhenti — tetapi itu harus berupa pilihan, bukan nilai bawaan yang tak seorang pun sadari.",
-        "noteOpen": "Kalau Anda pergi, permintaan tanpa jawaban berubah menjadi persetujuan. Beralihlah ke blokir otomatis untuk pekerjaan yang mementingkan hal itu."
-      },
-      "idempotency": {
-        "check": {
-          "cap": "Batas giliran",
-          "risky": "Alat tak aman untuk diulang"
-        },
-        "none": "tidak ada",
-        "heading": "Idempotensi",
-        "level": {
-          "safe": "Alat aman diulang",
-          "capped": "Berisiko tapi dibatasi",
-          "unbounded": "Berisiko dan tanpa batas"
-        },
-        "desc": "Agen menambal kegagalan dengan mencoba ulang. Alat yang tidak idempoten menggandakan data hanya dengan satu kali ulang, dan karena itu hal ini diperlakukan sebagai syarat dasar, bukan praktik baik.",
-        "note": "Untuk alat yang tak bisa dibatalkan, kunci idempotensi di dalam skema itulah yang membuat pengulangan menjadi aman."
-      },
-      "separationOfConcerns": {
-        "level": {
-          "mixed": "Campuran",
-          "focused": "Terfokus",
-          "broad": "Luas dan tak terbagi"
-        },
-        "check": {
-          "sessions": "Sesi",
-          "breadth": "Cakupan alat"
-        },
-        "heading": "Pemisahan perhatian",
-        "desc": "Ketika agen menyunting satu tempat, radius efek sampingnya adalah besarnya insiden. Bila terpisah rapi, suntingan yang salah berhenti di dalam batasnya sendiri.",
-        "note": "Versi agen dari prinsip ini adalah pemecahan berpusat konteks — agen yang memiliki sebuah fitur juga memiliki tesnya."
-      },
-      "eventDriven": {
-        "heading": "Berbasis peristiwa",
-        "check": {
-          "total": "Total peristiwa",
-          "queued": "Dari antrean",
-          "direct": "Langsung"
-        },
-        "level": {
-          "silent": "Tanpa peristiwa",
-          "flowing": "Peristiwa mengalir"
-        },
-        "desc": "Vibisual sendiri berjalan di atas peristiwa hook, jadi kartu ini menunjukkan berapa banyak sinyal yang benar-benar melewati agen ini dan dari mana asalnya.",
-        "note": "Keterkaitan longgar dan kegagalan yang mandiri memang tujuannya — tetapi itu juga berarti tak ada yang memberi tahu ketika sebuah peristiwa hilang."
-      },
-      "backpressure": {
-        "level": {
-          "idle": "Idle",
-          "flowing": "Mengalir",
-          "saturated": "Jenuh"
-        },
-        "check": {
-          "running": "Sedang berjalan",
-          "queued": "Instruksi antre"
-        },
-        "heading": "Tekanan balik",
-        "desc": "Ketika laju masuk melampaui laju proses, antrean membesar; dibiarkan begitu, kelebihannya entah dibuang diam-diam atau menghentikan semuanya.",
-        "note": "Banyak cabang sekaligus bukanlah keluaran kerja bila mereka memperebutkan konteks yang sama dan perhatian tinjauan yang sama."
-      },
-      "durableExecution": {
-        "check": {
-          "turns": "Giliran",
-          "sessions": "Sesi",
-          "guarantee": "Jaminan"
-        },
-        "heading": "Eksekusi tahan gangguan",
-        "level": {
-          "checkpointed": "Ada checkpoint",
-          "fresh": "Tak ada yang dilanjutkan"
-        },
-        "core": "checkpoint inti",
-        "desc": "Tugas panjang lebih sering gagal karena mogok di tengah jalan daripada karena kurang mampu. Menyimpan keadaan secara berkala berarti tidak perlu mulai dari nol.",
-        "note": "Vibisual menjamin lapisan ini di inti, jadi sebuah agen tak perlu membangun jalur pemulihannya sendiri."
-      },
-      "atomicWrite": {
-        "yes": "ya",
-        "no": "tidak",
-        "heading": "Penulisan atomik",
-        "check": {
-          "agent": "Agen menulis",
-          "core": "Status inti"
-        },
-        "level": {
-          "readOnly": "Agen tidak menulis",
-          "agentWrites": "Agen menulis berkas"
-        },
-        "guaranteed": "atomik + cadangan",
-        "desc": "Mati di tengah penulisan meninggalkan berkas separuh jadi, dan kerusakan senyap dimulai begitu boot berikutnya membacanya sebagai sah. Menulis ke berkas sementara lalu menukar secara atomik adalah standarnya.",
-        "note": "Inti menulis checkpoint dan pengaturannya secara atomik dengan beberapa generasi cadangan. Berkas yang ditulis sendiri oleh agen tidak tercakup jaminan itu."
-      },
-      "promptInjection": {
-        "yes": "ya",
-        "no": "tidak",
-        "heading": "Injeksi prompt",
-        "check": {
-          "paths": "Jalur masuk",
-          "web": "Menjangkau web"
-        },
-        "level": {
-          "sealed": "Tanpa jalur masuk",
-          "narrow": "Jalur masuk sempit",
-          "wide": "Jalur masuk lebar"
-        },
-        "desc": "Menghitung jalur yang dilalui teks luar untuk sampai ke agen ini. Penyebabnya struktural — model menerima instruksi dan data pada aliran token yang sama dan pada dasarnya tak bisa membedakannya.",
-        "note": "Setiap teks luar yang dibaca agen adalah jalur potensial — hasil pencarian, berkas yang dibuka, README dependensi, bahkan yang dikembalikan sebuah alat."
-      },
-      "owaspAsi": {
-        "level": {
-          "clear": "Tidak ada tanda",
-          "some": "Beberapa tanda",
-          "many": "Beberapa tanda"
-        },
-        "check": {
-          "trifecta": "Jalur kebocoran",
-          "radius": "Radius ledak",
-          "flags": "Tanda muncul"
-        },
-        "heading": "OWASP ASI Top 10",
-        "desc": "Mengelompokkan ulang penilaian sebelumnya menurut sumbu risiko khas agen. Yang menonjol, lebih dari separuh risiko itu tinggal di harness dan bukan di model — karena itulah hal ini bisa diperiksa sendiri.",
-        "note": "Pembajakan tujuan, penyalahgunaan alat, identitas, peracunan memori, dan agen lepas kendali adalah butir yang paling sering muncul dalam praktik."
-      },
-      "goalHijack": {
-        "check": {
-          "rules": "Aturan tetap",
-          "plan": "Rencana tertulis"
-        },
-        "yes": "ya",
-        "no": "tidak",
-        "heading": "Pembajakan tujuan",
-        "level": {
-          "loose": "Tujuan tak dipatok",
-          "partial": "Sebagian dipatok",
-          "anchored": "Dipatok"
-        },
-        "desc": "Begitu tujuannya sendiri ditukar, tiap langkah berikutnya membantu penyerang secara mandiri — dan karena perilakunya tetap tampak runtut dari luar, jarang ada yang menyadarinya.",
-        "note": "Simpan tujuan di tempat yang tak bisa ditulis ulang — jangan menaruh instruksi pengguna dan hasil alat pada lapisan yang sama."
-      },
-      "memoryPoisoning": {
-        "level": {
-          "none": "Belum ada memori",
-          "clean": "Tidak ada tertunda",
-          "review": "Menunggu penilaian"
-        },
-        "check": {
-          "contested": "Berbeda",
-          "needsCheck": "Ditandai usang",
-          "cards": "Kartu tersimpan"
-        },
-        "heading": "Peracunan memori",
-        "desc": "Injeksi biasa mati bersama sesi; memori yang diracuni bertahan dan menulari sesi-sesi berikutnya. Lebih buruk lagi, ia lebih dipercaya karena tampak seperti sesuatu yang dipelajari sistem.",
-        "note": "Kenaikan menjadi memori menuntut asal-usul — fakta dari ucapan pengguna dan baris yang dibaca dari dokumen luar tidak boleh disimpan pada tingkat kepercayaan yang sama."
-      },
-      "agenticSupplyChain": {
-        "level": {
-          "builtin": "Hanya bawaan",
-          "skills": "Skill terpasang",
-          "external": "Alat eksternal"
-        },
-        "check": {
-          "external": "Alat eksternal",
-          "skills": "Skill",
-          "builtin": "Alat bawaan"
-        },
-        "heading": "Rantai pasok agentik",
-        "desc": "Pembobolan datang lewat hal-hal yang menjadi sandaran agen — alat berbahaya, server tak tepercaya, berkas skill yang diutak-atik. Deskripsi alat itu sendiri adalah prompt, jadi alat yang jahat bisa menyembunyikan instruksi di sana.",
-        "note": "Perlakukan server alat eksternal sebagai pendelegasian wewenang, bukan sebagai dependensi — kunci sumber dan versinya, dan tinjau ulang saat berubah."
-      },
-      "cascadingFailure": {
-        "heading": "Kegagalan beruntun",
-        "check": {
-          "chain": "Panjang rantai",
-          "gated": "Serah terima berpagar"
-        },
-        "level": {
-          "single": "Tanpa rantai",
-          "chained": "Berantai",
-          "unchecked": "Panjang tanpa pagar"
-        },
-        "desc": "Keluaran yang salah menjadi masukan berikutnya dan di tiap langkah dipoles menjadi sesuatu yang lebih meyakinkan. Di titik tim manusia akan bertanya «ini benar?», agen justru menjadikannya premis.",
-        "note": "Teruskan ketidakpastian di tiap batas dan sediakan kolom «tidak bisa dipastikan» dalam serah terima. Memberi makan diri sendiri — agen yang mengonsumsi sinyalnya sendiri — adalah bentuk ekstremnya."
-      },
-      "agentCard": {
-        "level": {
-          "partial": "Sebagian",
-          "thin": "Tipis",
-          "complete": "Terinci baik"
-        },
-        "heading": "Kartu agen",
-        "check": {
-          "filled": "Bidang terisi",
-          "purpose": "Tujuan",
-          "limits": "Batas"
-        },
-        "stated": "dinyatakan",
-        "unstated": "tidak dinyatakan",
-        "set": "diatur",
-        "unset": "belum diatur",
-        "desc": "Pernyataan yang bisa dibaca mesin tentang apa yang bisa dilakukan sebuah agen. Ia baru berguna untuk pemilihan otomatis setelah biaya, latensi, dan mode kegagalan ikut dicatat.",
-        "note": "Tidak setiap agen butuh tumpukan discovery lengkap — untuk susunan sederhana, satu berkas instruksi pendek sudah cukup."
-      },
-      "toolSearch": {
-        "level": {
-          "lean": "Ramping",
-          "all": "Semua dimuat",
-          "most": "Hampir semua dimuat"
-        },
-        "check": {
-          "loaded": "Dimuat",
-          "cost": "Token skema"
-        },
-        "heading": "Pencarian alat",
-        "desc": "Alih-alih memuat setiap definisi alat, cari lalu muat hanya yang diperlukan. Memanggil satu alat seratus kali menumpuk seratus hasil antara di jendela; menjalankannya sebagai kode hanya mengembalikan hasil akhir.",
-        "note": "Kelanjutan dari «kurangi alatnya» adalah «biarkan ia mencari alat». Makin besar katalognya, makin besar keuntungannya."
-      },
-      "compactionWatch": {
-        "level": {
-          "unknown": "Tidak diketahui",
-          "far": "Masih ada ruang",
-          "near": "Pemadatan mendekat"
-        },
-        "check": {
-          "fill": "Jendela terisi",
-          "sessions": "Sesi"
-        },
-        "heading": "Pemantauan pemadatan",
-        "desc": "Melipat giliran-giliran lampau menjadi ringkasan adalah perangkat baku untuk pekerjaan panjang. Kepiawaiannya terletak pada mengetahui di mana kehilangan terjadi — ringkasan membuang pengenal konkret lebih dulu.",
-        "note": "Jalur berkas, nama fungsi, kode galat, dan alasan di balik keputusan justru itulah yang dibuang ringkasan dan yang nanti Anda butuhkan.",
-        "noteNear": "Jendela mulai penuh. Tulis keputusan dan jalur ke sebuah berkas sebelum pemadatan otomatis berjalan."
-      },
-      "contextEditing": {
-        "check": {
-          "turns": "Giliran",
-          "fill": "Jendela terisi"
-        },
-        "heading": "Penyuntingan konteks",
-        "level": {
-          "ok": "Untuk sekarang cukup",
-          "fresh": "Tak ada yang dipangkas",
-          "due": "Layak dipangkas"
-        },
-        "desc": "Alih-alih meringkas, buang berdasarkan aturan hanya pemanggilan alat, hasil, dan blok penalaran yang lama. Ini bentuk pemampatan paling aman dan paling sedikit kehilangan — teks hasil alat yang sudah selesai jarang perlu dilihat lagi.",
-        "note": "Coba ini sebelum pemadatan — lebih murah dan lebih kecil risikonya, dan implementasi di sisi server tidak lagi merusak awalan cache prompt."
-      },
-      "specDriven": {
-        "level": {
-          "partial": "Sebagian",
-          "prompt": "Berbasis prompt",
-          "spec": "Berbasis spesifikasi"
-        },
-        "check": {
-          "signals": "Sinyal ada",
-          "rules": "Aturan tetap",
-          "plan": "Rencana tertulis"
-        },
-        "yes": "ya",
-        "no": "tidak",
-        "heading": "Pengembangan berbasis spesifikasi",
-        "desc": "Spesifikasi yang dikelola versi menjadi sumber kebenaran, dan implementasi, tes, serta dokumentasi diturunkan darinya. Begitu spesifikasi menghapus keraguan, agen bekerja sebagai juru ketik cepat, bukan pengambil keputusan.",
-        "note": "Ini tidak menggantikan TDD — TDD mengunci perilaku, SDD mengunci kebutuhan dan batasan. Keduanya dipakai bersama."
-      },
-      "preCommitGate": {
-        "yes": "ya",
-        "no": "tidak",
-        "heading": "Gerbang pra-commit",
-        "check": {
-          "canCommit": "Bisa menjalankan git",
-          "gate": "Gerbang repositori"
-        },
-        "level": {
-          "cannot": "Tidak bisa commit",
-          "gated": "Bisa commit, ada gerbang"
-        },
-        "repoHook": "hook commit aktif",
-        "desc": "Agen melakukan commit dengan mudah dan sering, dan memblokir di depan jauh lebih murah daripada meninjau di belakang. Kebocoran rahasia adalah satu-satunya kategori tanpa penanganan susulan — begitu terdorong, ia sudah terbuka.",
-        "note": "Gerbang yang bisa dilewati agen bukanlah gerbang. Susunan minimalnya: pemindaian rahasia, lint dan tipe, serta jalur terlarang."
-      },
-      "ssotDrift": {
-        "check": {
-          "rules": "Aturan tetap",
-          "memory": "Kebenaran saat ini",
-          "sources": "Sumber"
-        },
-        "yes": "ya",
-        "no": "tidak",
-        "heading": "Pergeseran SSOT",
-        "level": {
-          "single": "Sumber tunggal",
-          "two": "Dua sumber",
-          "many": "Beberapa sumber"
-        },
-        "desc": "Menghitung dari berapa tempat agen ini menerima arahan. Ketika fakta yang sama tinggal di dua tempat, keduanya menyimpang, dan model akan mengutip keduanya seolah masing-masing yang berlaku.",
-        "note": "Orang melewati baris usang sambil berpikir «itu yang lama». Model mengutipnya dengan penuh keyakinan."
-      },
-      "adrPresence": {
-        "level": {
-          "none": "Tidak ada catatan",
-          "recorded": "Tercatat"
-        },
-        "heading": "Catatan keputusan",
-        "check": {
-          "decided": "Keputusan tetap",
-          "lessons": "Pelajaran"
-        },
-        "desc": "Tanpa catatan apa yang ditolak dan mengapa, agen akan dengan niat baik mengusulkan lagi rancangan yang sudah dibuang. Catatan keputusan adalah tempat «jangan lakukan ini» tinggal bersama alasannya.",
-        "note": "Menyimpan keputusan di samping kode dan merujuknya dari berkas instruksi adalah susunan yang lazim."
-      },
-      "schemaEvolution": {
-        "check": {
-          "sessions": "Sesi",
-          "policy": "Kebijakan bidang"
-        },
-        "heading": "Evolusi skema",
-        "level": {
-          "fresh": "Belum ada yang disimpan",
-          "persisted": "Tersimpan"
-        },
-        "optional": "opsional + nilai bawaan",
-        "desc": "Tambahkan bidang secara opsional dengan nilai bawaan, maka keadaan tersimpan yang lebih lama tetap terbaca oleh kode yang lebih baru. Vibisual menjaga checkpoint-nya di atas aturan itu.",
-        "note": "Merusak kompatibilitas mundur berarti checkpoint lama berhenti dimuat — persis saat sebuah crash berubah menjadi pekerjaan yang hilang."
-      },
-      "mcpClientInventory": {
-        "level": {
-          "none": "Hanya bawaan",
-          "attached": "Eksternal terpasang"
-        },
-        "check": {
-          "servers": "Alat eksternal",
-          "builtin": "Alat bawaan"
-        },
-        "heading": "Inventaris MCP",
-        "desc": "Menghitung server alat eksternal yang terpasang pada agen ini. Satu baris pemasangan bisa membawa masuk kode sembarang dan definisi alat, jadi daftarnya sendiri layak diperiksa.",
-        "note": "Server yang tak tepercaya adalah risiko rantai pasok, bukan kemudahan. Kunci sumber dan versinya, dan tinjau ulang saat berubah."
-      },
-      "a2a": {
-        "check": {
-          "edges": "Task edge",
-          "sessions": "Sesi",
-          "crossOrg": "Lintas organisasi"
-        },
-        "none": "tidak ada",
-        "heading": "A2A",
-        "level": {
-          "internal": "Mendelegasikan internal",
-          "solo": "Bekerja sendiri"
-        },
-        "desc": "MCP menghubungkan agen ke dunia luar; A2A adalah cara agen bekerja satu sama lain. Keduanya lapisan berbeda, jadi «pilih yang mana» adalah pertanyaan yang keliru.",
-        "note": "Untuk subagen di dalam satu proses, protokol ini berlebihan — kegunaannya adalah kolaborasi melintasi batas organisasi."
-      },
-      "acpAnp": {
-        "check": {
-          "authority": "Wewenang",
-          "audit": "Jejak audit"
-        },
-        "heading": "ACP dan ANP",
-        "level": {
-          "none": "Keduanya belum",
-          "governed": "Wewenang dan audit",
-          "partial": "Sebagian diatur"
-        },
-        "desc": "Keterbatasan bersama protokol interoperabilitas adalah tata kelola: mereka membakukan apa yang bisa terhubung ke apa, bukan siapa yang boleh melakukan apa.",
-        "note": "Mengadopsi protokol tidak memberi Anda rancangan izin maupun audit — keduanya tetap harus dibangun terpisah."
-      },
-      "agentsMd": {
-        "level": {
-          "none": "Tidak ada aturan tetap",
-          "long": "Panjang",
-          "short": "Ukuran pas"
-        },
-        "check": {
-          "chars": "Karakter aturan",
-          "threshold": "Ambang"
-        },
-        "heading": "Instruksi agen",
-        "desc": "Satu berkas instruksi di akar repositori menjadi standar de facto, tetapi lebih panjang bukan berarti lebih baik — melewati sekitar 150 baris, hasilnya turun tajam sementara biaya inferensi terus naik.",
-        "note": "Instruksi pendek dengan tautan ke rinciannya: itulah bentuk yang benar. Menempelkan dokumen utuh justru menciptakan pembusukan konteks.",
-        "noteLong": "Aturan ini cukup panjang untuk menagih biaya di tiap giliran, sementara bagian belakangnya paling dulu mengencer. Pindahkan rinciannya ke luar lalu tautkan."
-      },
-      "computerUse": {
-        "heading": "Penggunaan komputer",
-        "check": {
-          "captures": "Bubble tangkapan",
-          "screens": "Tangkapan layar penuh"
-        },
-        "level": {
-          "none": "Tanpa tangkapan",
-          "watching": "Mengamati satu jendela",
-          "controlling": "Seluruh layar ditangkap"
-        },
-        "desc": "Mengendalikan perangkat lunak dengan melihat layar menjangkau semua yang tak punya API, tetapi tiap langkah bergantung pada pengenalan visual, sehingga lambat dan rapuh.",
-        "note": "Yang bisa lewat CLI atau API sebaiknya tidak lewat antarmuka grafis. Klik yang tak terbalikkan ditempatkan di balik konfirmasi manusia."
-      },
-      "chunking": {
-        "level": {
-          "none": "Belum ada memori",
-          "perCard": "Satu kartu per potongan"
-        },
-        "check": {
-          "cards": "Kartu",
-          "unit": "Satuan potongan"
-        },
-        "heading": "Pemotongan",
-        "card": "satu kartu memori",
-        "desc": "Dipotong terlalu halus, konteksnya putus; blok terlalu besar membawa serta hal yang tak berkaitan. Di Vibisual satu kartu memori adalah satu potongan, jadi ukuran kartu itulah tombol mutunya.",
-        "note": "Karena topik mengelompokkan kartu, batas potongan di sini tak perlu disetel terpisah — menulis satu gagasan per kartu sudah melakukan tugas itu."
-      },
-      "reranking": {
-        "level": {
-          "none": "Tanpa injeksi",
-          "loose": "Di atas batas",
-          "tight": "Dalam batas"
-        },
-        "heading": "Pemeringkatan ulang",
-        "check": {
-          "perEvent": "Kartu per injeksi",
-          "topK": "Batas"
-        },
-        "desc": "Pencarian tahap pertama menjaring luas; pemeringkatan ulang mengangkat yang benar-benar relevan. Vibisual hanya menyuntikkan beberapa kartu teratas, jadi batas itulah hasil pemeringkatan ulangnya.",
-        "note": "Batas yang ketat itulah yang mencegah pencarian berubah menjadi sumber pembusukan konteks yang lain."
-      },
-      "hybridSearch": {
-        "level": {
-          "none": "Belum ada memori",
-          "keyword": "Sumbu kata kunci"
-        },
-        "check": {
-          "cards": "Kartu",
-          "axis": "Sumbu pencarian"
-        },
-        "heading": "Pencarian hibrida",
-        "keywordOnly": "hanya kata kunci",
-        "desc": "Pencarian kata kunci kuat pada nama dan jalur yang persis; pencarian makna kuat ketika susunan katanya berbeda. Vibisual mencari memori hanya pada sumbu kata kunci — pilihan yang disengaja pada skala ini.",
-        "note": "Pada beberapa ratus entri, sumbu kedua lebih mahal dijalankan daripada hasil yang diberikannya. Kartu ini ada untuk menyadari kapan hal itu tak lagi benar."
-      },
-      "multiHop": {
-        "level": {
-          "none": "Tanpa pencarian",
-          "multi": "Beberapa lompatan",
-          "single": "Satu lompatan"
-        },
-        "check": {
-          "hops": "Pencarian agen",
-          "total": "Semua injeksi"
-        },
-        "heading": "Pengambilan multi-langkah",
-        "desc": "Pertanyaan yang tak terjawab oleh satu pencarian butuh kueri kedua yang dibangun di atas temuan pertama. Di sini dihitung berapa kali agen kembali mencari.",
-        "note": "Kembali mencari adalah tanda agen menyadari buktinya belum lengkap — biasanya pertanda baik, bukan langkah yang terbuang."
-      },
-      "queryRewriting": {
-        "level": {
-          "none": "Tanpa pencarian",
-          "empty": "Pencarian nihil",
-          "effective": "Pencarian menemukan"
-        },
-        "heading": "Penulisan ulang kueri",
-        "check": {
-          "searches": "Pencarian",
-          "hits": "Kartu ditemukan"
-        },
-        "desc": "Kata-kata seseorang dan kata-kata yang tersimpan dalam pengetahuan jarang cocok, jadi kuerinya harus dibentuk ulang. Di sini agen menulis sendiri istilah pencariannya, sehingga penulisan ulang terjadi di sisinya.",
-        "note": "Pencarian yang terus kembali kosong biasanya berarti susunan kata yang tersimpan dan yang ditanyakan tak pernah beririsan."
-      },
-      "benchmarkHygiene": {
-        "heading": "Higiene benchmark",
-        "check": {
-          "own": "Kriteria sendiri"
-        },
-        "level": {
-          "none": "Tanpa kriteria sendiri",
-          "own": "Kriteria sendiri menumpuk"
-        },
-        "desc": "Skor publik menumpuk di atas, data uji merembes ke pelatihan, dan model yang sama memberi skor berbeda di bawah harness lain. Hanya kumpulan yang dibangun dari ranah Anda sendiri yang merupakan sinyal tepercaya.",
-        "note": "Pelajaran dan titik periksa yang tercatat di sini persis merupakan bahan untuk membangun kumpulan evaluasi internal."
-      },
-      "hybridWorkflow": {
-        "check": {
-          "spec": "Aturan tetap",
-          "plan": "Rencana tertulis"
-        },
-        "yes": "ya",
-        "no": "tidak",
-        "heading": "Alur kerja hibrida",
-        "level": {
-          "free": "Improvisasi",
-          "leaning": "Condong sebelah",
-          "balanced": "Spesifikasi plus kebebasan"
-        },
-        "desc": "Spesifikasi murni lambat dan improvisasi murni runtuh, jadi di mana Anda menarik garis itulah keahliannya. Antarmuka, model data, dan batas izin menuntut spesifikasi; implementasi di dalamnya boleh bebas.",
-        "note": "Anda bisa berpindah di antara keduanya dalam satu proyek sesuai tahapannya — itulah inti dari pendekatan hibrida."
-      },
-      "rescueEngineering": {
-        "check": {
-          "turns": "Giliran",
-          "prepaid": "Pengaman dibayar di muka"
-        },
-        "heading": "Rekayasa penyelamatan",
-        "level": {
-          "accruing": "Utang menumpuk",
-          "fresh": "Belum ada",
-          "prepaid": "Dibayar di muka"
-        },
-        "desc": "Membereskan kode yang dibuat terburu-buru menjadi pasar tersendiri. Ongkos kecepatan tidak lenyap; ia ditunda dan kembali dengan bunga.",
-        "note": "Dokumen aturan, kumpulan evaluasi, pencegahan kehilangan, dan gerbang commit semuanya adalah belanja di muka — sepersekian dari ongkos penyelamatan nanti."
-      },
-      "promptCaching": {
-        "check": {
-          "sessions": "Sesi",
-          "prefix": "Prefiks stabil",
-          "tools": "Definisi alat"
-        },
-        "none": "tidak ada",
-        "heading": "Caching prompt",
-        "level": {
-          "single": "Sesi tunggal",
-          "thin": "Tanpa prefiks stabil",
-          "reusable": "Prefiks bisa dipakai ulang"
-        },
-        "stable": "aturan tetap",
-        "desc": "Memakai ulang awalan yang sama pada tiap permintaan memangkas biaya dan latensi secara tajam, tetapi awalannya harus sama persis bita demi bita — taruh penanda waktu atau id acak di depan, dan seluruh cache pun runtuh.",
-        "note": "Tingkat keberhasilan ada di respons penyedia, jadi kartu ini tidak menebaknya — ia hanya memeriksa apakah awalannya cukup stabil agar cache mungkin terjadi. Aturannya: yang berubah di belakang, yang tetap di depan."
-      },
-      "toolMisuse": {
-        "level": {
-          "noCommands": "Belum ada yang dijalankan",
-          "clean": "Tidak ada tanda",
-          "found": "Perintah ditandai"
-        },
-        "check": {
-          "commands": "Perintah dijalankan",
-          "last": "Terbaru",
-          "hits": "Ditandai"
-        },
-        "heading": "Penyalahgunaan alat",
-        "kind": {
-          "destructive": "penghapusan tak terbalikkan",
-          "forcePush": "push paksa",
-          "remoteExec": "kode jarak jauh dijalankan",
-          "permission": "izin dibuka",
-          "historyRewrite": "riwayat ditulis ulang"
-        },
-        "desc": "Menyisir perintah yang benar-benar dijalankan agen ini untuk mencari bentuk yang tak terbalikkan. Penyalahgunaan tak memerlukan penyusupan — wewenangnya sudah diberikan, dan karena itu pemberian itu sendiri adalah bagian dari permukaan serangan.",
-        "note": "Memberi satu alat shell dan memberi lima perintah tertentu adalah kelas risiko yang sama sekali berbeda. Argumen pun butuh validasi, bukan hanya daftar alatnya.",
-        "noteFound": "Ini sudah dijalankan — kartu ini melaporkan, bukan memblokir. Yang memblokir adalah permintaan persetujuan di depan pemanggilan alat."
-      },
-      "dataExfiltration": {
-        "level": {
-          "noCommands": "Belum ada yang dijalankan",
-          "none": "Tanpa pengiriman keluar",
-          "used": "Jalur keluar terpakai"
-        },
-        "check": {
-          "commands": "Perintah dijalankan",
-          "last": "Terbaru",
-          "egress": "Keluar"
-        },
-        "heading": "Eksfiltrasi data",
-        "kind": {
-          "push": "git push",
-          "upload": "unggah dengan isi",
-          "webhook": "webhook",
-          "copy": "salin jarak jauh",
-          "secretsRead": "berkas rahasia dibaca"
-        },
-        "desc": "Mencari perintah yang mengirim data ke luar. Ia tidak memeriksa isinya — yang penting adalah apakah jalur keluar benar-benar dipakai, sebab yang sudah keluar tak bisa ditarik kembali.",
-        "note": "Apa yang terhitung sebagai «mengirim ke luar» kini luas — commit, push, panggilan API, permintaan URL gambar, dan webhook semuanya termasuk.",
-        "noteUsed": "Begitu isinya keluar, menghapusnya kemudian tidak menghilangkannya dari cache dan indeks. Periksa apa yang dibawa perintah-perintah ini."
-      },
-      "mcpServer": {
-        "check": {
-          "scope": "Cakupan",
-          "exposed": "Terekspos ke luar",
-          "client": "Sisi yang menyambung"
-        },
-        "no": "tidak",
-        "heading": "Server MCP",
-        "level": {
-          "notExposed": "Tidak terekspos"
-        },
-        "outOfScope": "di luar cakupan",
-        "clientCard": "lihat Inventaris MCP",
-        "desc": "Menunjukkan apakah Vibisual sendiri terekspos sebagai alat yang bisa disambungi klien luar. Tidak — pemaparan itu ada di daftar di luar cakupan, dan kartu ini ada supaya keputusan tersebut tetap terlihat.",
-        "note": "Sisi di mana kami menyambung ke server luar adalah pertanyaan lain dan kartu lain. Yang ini hanya melaporkan pemaparan kami sendiri, dan tak pernah menyalakannya."
-      },
-      "killSwitch": {
-        "label": "Hentikan semua",
-        "confirm": "Tekan lagi",
-        "title": "Menghentikan semua sesi berjalan dan membatalkan loop terjadwal ({{count}} agen)",
-        "desc": "Menambahkan satu kendali yang menghentikan semua yang sedang berjalan. Ia membatalkan loop terjadwal lebih dulu lalu menghentikan sesi yang hidup — mematikan hanya eksekusi saat ini membiarkan penjadwal memulai yang berikutnya."
-      },
-      "agentRegistry": {
-        "check": {
-          "owner": "Pemilik",
-          "authority": "Wewenang",
-          "sessions": "Sesi",
-          "lastSeen": "Terakhir terlihat"
-        },
-        "ours": "Vibisual (agen kustom)",
-        "external": "Claude Code (sesi hook)",
-        "heading": "Registri agen",
-        "level": {
-          "unregistered": "Tidak ada di registri",
-          "partial": "Sebagian diketahui",
-          "registered": "Terdaftar"
-        },
-        "desc": "Menjawab pertanyaan praktis yang menjadi alasan adanya registri — siapa yang membuat agen ini, wewenang apa yang dipegangnya, dan kapan terakhir kali ia bergerak. Bila tak terjawab, agen yang tak terdaftar sekadar berjalan tanpa terlihat.",
-        "note": "Rancanglah saat sebuah agen dipensiunkan, bukan hanya saat ia dibuat — pendaftaran wajib, kredensial yang kedaluwarsa, dan penghentian saat menganggur adalah disiplin operasional, bukan teknik keamanan.",
-        "noteExternal": "Sesi ini terdaftar lewat hook, jadi daur hidupnya milik Claude Code. Kami melihatnya, tetapi tidak menaikkan maupun memensiunkannya."
-      },
       "searchPlaceholder": "Cari plugin",
       "clearSearch": "Hapus pencarian",
       "onlyEnabled": "Hanya yang aktif",
@@ -2499,18 +1054,82 @@
         "brainInjections": "memori yang dikirim",
         "taskEdges": "serah terima",
         "captureBubbles": "tangkapan layar",
-        "bashCommands": "perintah yang dijalankan"
+        "bashCommands": "perintah yang dijalankan",
+        "pluginFacts": "hasil ukur penegakan"
       }
+    },
+    "login": {
+      "title": "Masuk ke Claude",
+      "intro": "Vibisual menjalankan agen dengan akun Claude Code kamu. Masuk di sini — tidak perlu terminal terpisah.",
+      "modeSubscription": "Langganan Claude",
+      "modeSubscriptionDesc": "Paket Pro / Max — pemakaian dipotong dari paketmu.",
+      "modeConsole": "Anthropic Console",
+      "modeConsoleDesc": "Akun API — ditagih per token.",
+      "emailLabel": "Email (opsional — mengisi halaman masuk lebih dulu)",
+      "starting": "Memulai proses masuk…",
+      "openBrowser": "Setujui proses masuk di browser, lalu kembali ke sini.",
+      "openBrowserBtn": "Buka di browser",
+      "copyUrl": "Salin tautan",
+      "copied": "Tersalin",
+      "codePrompt": "Tempel kode yang ditampilkan di browser.",
+      "codePlaceholder": "Kode otorisasi",
+      "sendCode": "Kirim",
+      "failed": "Proses masuk belum selesai. Periksa terminal di bawah lalu coba lagi.",
+      "noTerminal": "Jendela ini tidak bisa menjalankan terminal. Masuk lewat aplikasi desktop.",
+      "startFailed": "Tidak bisa memulai proses masuk.",
+      "showTerminal": "Terminal",
+      "success": "Berhasil masuk. Menutup…",
+      "recheck": "Periksa lagi",
+      "later": "Nanti",
+      "stop": "Hentikan",
+      "start": "Masuk"
     }
   },
   "ide": {
+    "imageAnnotate": {
+      "tool": {
+        "view": "Tampilan",
+        "rect": "Persegi panjang",
+        "ellipse": "Elips",
+        "arrow": "Panah",
+        "pen": "Pena",
+        "highlight": "Sorotan",
+        "mask": "Sensor",
+        "text": "Teks",
+        "number": "Lencana angka"
+      },
+      "color": "Warna",
+      "width": {
+        "thin": "Tipis",
+        "medium": "Sedang",
+        "thick": "Tebal"
+      },
+      "undo": "Undo (Ctrl+Z)",
+      "redo": "Redo (Ctrl+Shift+Z)",
+      "clear": "Hapus semua tanda",
+      "download": "Unduh PNG",
+      "saveReplace": "Simpan",
+      "saveAttach": "Lampirkan salinan bertanda",
+      "textPlaceholder": "Ketik, lalu tekan Enter",
+      "hintPick": "Pilih tool untuk menandai gambar ini, lalu simpan sebagai lampiran.",
+      "hintDraw": "Seret pada gambar untuk menandainya. Ctrl+Z membatalkan tanda terakhir.",
+      "discardTitle": "Buang tanda Anda dan tutup?",
+      "discardCancel": "Lanjutkan mengedit",
+      "discardConfirm": "Buang dan tutup",
+      "renderFailed": "Tidak dapat me-render gambar yang ditandai.",
+      "noSession": "Tidak ada sesi untuk melampirkan gambar ini.",
+      "saveFailed": "Tidak dapat menyimpan gambar yang ditandai."
+    },
     "overlay": {
       "closeLabel": "Tutup IDE",
+      "toggleNav": "Alihkan navigasi",
+      "toggleStatusBar": "Alihkan status bar",
       "refreshLabel": "Muat ulang sesi",
       "maximizeLabel": "Maksimalkan",
       "restoreLabel": "Pulihkan",
       "resizeDock": "Ubah ukuran dock",
       "customLabel": "Kustom",
+      "cmdLabel": "CMD",
       "hookLabel": "Hook",
       "renameHint": "Klik dua kali untuk ganti nama (F2)",
       "renameInputLabel": "Nama agent"
@@ -2522,7 +1141,38 @@
       "pastSessionsClose": "Tutup",
       "loading": "Memuat...",
       "noClosedSessions": "Tidak ada sesi tertutup untuk dipulihkan.",
-      "agentTabLabel": "Agent"
+      "agentTabLabel": "Agent",
+      "confirmCloseTitle": "Tutup sesi yang sedang berjalan?",
+      "confirmCloseMessage": "Sesi ini masih berjalan. Menutupnya akan menghentikan pekerjaannya. Tetap tutup?",
+      "confirmCloseConfirm": "Tutup",
+      "confirmCloseCancel": "Batal",
+      "hiddenRunning": "{{count}} tab berjalan tersembunyi di sini — klik untuk lompat"
+    },
+    "terminal": {
+      "unavailable": "Terminal tertanam hanya tersedia di aplikasi desktop Vibisual.",
+      "unavailableExternal": "Demi keamanan, terminal tertanam dinonaktifkan untuk akses eksternal (internet) — gunakan di jaringan lokal Anda.",
+      "exited": "claude keluar (kode {{code}})",
+      "createFailed": "Gagal membuka terminal: {{error}}",
+      "harnessNote": "Sesi interaktif yang Anda kendalikan — Vibisual memvisualisasikan & membantu pengaturan harness, namun otoritas eksekusi berada di dalam Claude Code.",
+      "copy": "Salin",
+      "paste": "Tempel",
+      "selectAll": "Pilih semua",
+      "clear": "Hapus",
+      "find": "Cari",
+      "findPlaceholder": "Cari di terminal",
+      "findNext": "Cocok berikutnya",
+      "findPrev": "Cocok sebelumnya",
+      "findClose": "Tutup pencarian",
+      "fontIncrease": "Perbesar ukuran font",
+      "fontDecrease": "Perkecil ukuran font",
+      "fontReset": "Setel ulang ukuran font",
+      "cards": {
+        "title": "Kartu",
+        "empty": "Belum ada kartu",
+        "clear": "Hapus kartu",
+        "collapse": "Ciutkan kartu",
+        "expand": "Tampilkan kartu"
+      }
     },
     "mainArea": {
       "scrollPrompt": "Gulir ke prompt",
@@ -2534,12 +1184,29 @@
       "stopping": "Menghentikan…",
       "followUp": "Tambah",
       "followUpTitle": "Kirim pesan lanjutan tanpa menghentikan agen (Enter)",
+      "queuedTitle": "{{count}} menunggu",
+      "queuedHint": "Gabung mengirim pesan lanjutan bersama-sama dalam satu giliran. Tunggu memberi pesan gilirannya sendiri; Sekarang menyela giliran yang sedang berjalan.",
+      "queuedRemove": "Hapus dari antrean",
+      "mergedNotice": "Dikirim bersama {{count}} pesan lanjutan",
+      "dispatchMode": {
+        "wait": "Tunggu",
+        "merge": "Gabung",
+        "immediate": "Sekarang"
+      },
+      "dispatchModeTitle": {
+        "wait": "Tunggu — jalankan pesan ini di gilirannya sendiri setelah giliran saat ini berakhir",
+        "merge": "Gabung — kirim pesan ini bersama pesan-pesan gabung berikutnya dalam satu giliran",
+        "immediate": "Sekarang — hentikan giliran saat ini dan lanjutkan dengan pesan ini (percakapan tetap disimpan)"
+      },
       "executing": "Mengeksekusi…",
-      "readOnly": "Hanya baca — pilih tab sesi atau buat baru",
+      "readOnly": "Hanya baca — bubble hook hanya mencerminkan sesi eksternal. Kirim perintah dari custom agent.",
       "attachmentError": "ERR",
       "statusError": "Error",
       "statusCompleted": "Selesai",
       "slashHint": "↑↓ navigasi · Tab/Enter pilih · Esc batal",
+      "historyHintPrev": "Tekan lagi untuk perintah terakhir",
+      "historyHintNext": "Tekan lagi untuk perintah terlama",
+      "slashBuiltin": "bawaan",
       "slashEmpty": "Tidak ada skill yang cocok",
       "slashLoading": "Memuat skill…",
       "ctxCopy": "Salin",
@@ -2547,8 +1214,16 @@
       "ctxQuoteReply": "Kutip balasan",
       "ctxSendAsPrompt": "Kirim sebagai prompt baru",
       "ctxSelectAll": "Pilih semua",
+      "jumpToBottom": "Gulir ke bawah",
       "ctxSelectionRequired": "Pilih teks terlebih dahulu",
-      "ctxSaveToBrain": "Simpan ke Brain"
+      "inputCtxCut": "Potong",
+      "inputCtxCopy": "Salin",
+      "inputCtxPaste": "Tempel",
+      "inputCtxSelectAll": "Pilih semua",
+      "ctxSaveToBrain": "Simpan ke Brain",
+      "stopAll": "Hentikan semua",
+      "stopAllTitle": "Hentikan semua yang dijalankan agent ini (tab lain + sub-agent di latar belakang)",
+      "stopSessionTitle": "Hentikan sesi ini beserta sub-agent yang dimulainya (tab sesi lain tetap berjalan)"
     },
     "askQuestion": {
       "title": "Pertanyaan",
@@ -2570,9 +1245,151 @@
     "activityBar": {
       "terminal": "Terminal",
       "files": "File",
+      "context": "Sumber konteks",
       "results": "Hasil",
       "skills": "Skills",
-      "bookmarks": "Bookmarks"
+      "bookmarks": "Bookmarks",
+      "sessionSummary": "Ringkasan sesi",
+      "runningSubagents": "Sub-agent berjalan ({{count}})",
+      "loop": "Ulangi loop",
+      "goal": "Sasaran",
+      "debug": "Jalankan dan debug"
+    },
+    "debug": {
+      "title": "Jalankan dan debug",
+      "refresh": "Pindai ulang konfigurasi",
+      "noProject": "Buka proyek untuk melihat konfigurasi run-nya.",
+      "debugMode": "Mode Debug",
+      "debugModeHint": "Menambahkan flag debugger ke perintah yang sama sehingga debugger bisa tersambung.",
+      "configs": "Konfigurasi run",
+      "noConfigs": "Tidak ada konfigurasi run yang ditemukan. Tambahkan satu ke .vscode/launch.json, script package.json, atau .vibisual/run.json. Proyek Unreal (.uproject) terdeteksi otomatis.",
+      "scanned": "Dipindai: {{files}}",
+      "run": "Jalankan",
+      "stop": "Hentikan",
+      "restart": "Jalankan lagi",
+      "output": "Output",
+      "running": "Berjalan",
+      "exitCode": "keluar {{code}}",
+      "attachOnly": "Konfigurasi attach-only — Vibisual tidak memulai proses ini.",
+      "notApplied": "Tidak dapat menambahkan flag debugger ke perintah ini. Perintah dijalankan apa adanya.",
+      "sendToAgent": "Kirim kegagalan ke agent",
+      "sentToAgent": "Terkirim ke agent",
+      "attachDebugger": "Sambungkan debugger",
+      "attachOk": "Permintaan sambung terkirim — editor akan melanjutkan begitu Visual Studio mengambil alih.",
+      "attachError": {
+        "editor-not-running": "Editor belum berjalan. Jalankan dalam mode debug terlebih dahulu.",
+        "jit-debugger-not-found": "Just-in-time debugger Visual Studio (vsjitdebugger.exe) tidak ditemukan. Instal Visual Studio dengan workload C++.",
+        "not-unreal-project": "Tidak ditemukan .uproject di proyek ini.",
+        "unknown": "Tidak dapat menyambungkan debugger."
+      },
+      "failurePrompt": "Konfigurasi run \"{{name}}\" gagal dengan kode keluar {{code}}. Berikut perintah dan bagian akhir outputnya — tolong temukan penyebabnya dan perbaiki.",
+      "copy": "Salin",
+      "copied": "Tersalin",
+      "close": "Tutup",
+      "noOutput": "Belum ada output.",
+      "source": {
+        "launchJson": ".vscode/launch.json",
+        "tasksJson": ".vscode/tasks.json",
+        "packageJson": "package.json",
+        "vibisual": ".vibisual/run.json",
+        "unreal": ".uproject",
+        "detected": "terdeteksi"
+      },
+      "note": {
+        "node": "Debugger Node.js mendengarkan di port di atas (sambungkan dengan klien DAP mana pun).",
+        "python": "Memerlukan debugpy di environment proyek (pip install debugpy).",
+        "go": "Memerlukan Delve (dlv) di PATH.",
+        "rust": "Rust memerlukan binary yang sudah di-build terlebih dahulu — gunakan debugger eksternal di bawah.",
+        "dotnet": "Debugging .NET ditangani oleh debugger eksternal di bawah.",
+        "java": "JDWP mendengarkan di port di atas.",
+        "unreal": "Editor dimulai dengan -WaitForDebugger dan berhenti sejenak hingga debugger tersambung — tekan Sambungkan debugger, lalu gunakan breakpoint di Visual Studio. Log-nya mengalir ke Output.",
+        "unsupported": "Tidak ada flag debugger yang diketahui untuk perintah ini."
+      },
+      "mcpTitle": "Tools debug agent",
+      "mcpHint": "Vibisual tidak menyediakan debugger sendiri. Ini adalah server MCP yang sudah ada dan disambungkan ke agent ini sehingga ia bisa memasang breakpoint dan memeriksa state-nya sendiri.",
+      "mcpApplyHint": "Berlaku untuk sesi yang dimulai setelah perubahan ini (sesi yang sudah berjalan tetap memakai tools miliknya).",
+      "docs": "Dokumentasi",
+      "mcp": {
+        "debugger": "Step debugger (7 bahasa)",
+        "chromeDevtools": "Browser (console · network · performance)",
+        "chromeDevtoolsRequires": "Jalankan Chrome dengan --remote-debugging-port=9222 terlebih dahulu.",
+        "unreal": "Unreal Engine",
+        "unrealRequires": "Aktifkan plugin Remote Control API (port 30010) di editor.",
+        "lldb": "Native (LLDB)",
+        "lldbRequires": "Memerlukan build LLDB dengan dukungan MCP di PATH."
+      },
+      "externalTitle": "Debugger eksternal",
+      "externalHint": "Debugging native (Unreal C++) ditangani oleh tools ini — Vibisual tidak dapat menyediakan debug engine miliknya.",
+      "open": "Buka",
+      "notInstalled": "Tidak terinstal",
+      "toggleBreakpoint": "Klik untuk mengaktifkan/menonaktifkan breakpoint pada baris ini",
+      "waitingForDebugger": "Menunggu debugger",
+      "connectDebugger": "Sambungkan debugger",
+      "releaseWait": "Lanjutkan saja",
+      "releaseWaitHint": "Biarkan proses berjalan tanpa menyambungkan debugger (proses sedang dijeda menunggu debugger).",
+      "detach": "Lepas Sambungan",
+      "continue": "Lanjutkan",
+      "pause": "Jeda",
+      "stepOver": "Lewati (Step Over)",
+      "stepIn": "Masuk (Step Into)",
+      "stepOut": "Keluar (Step Out)",
+      "callStack": "Tumpukan Panggilan",
+      "variables": "Variabel",
+      "watchPlaceholder": "Evaluasi sebuah ekspresi",
+      "evaluate": "Evaluasi",
+      "status": {
+        "connecting": "Menghubungkan",
+        "running": "Tersambung",
+        "paused": "Dijeda",
+        "ended": "Berakhir",
+        "error": "Gagal"
+      },
+      "stoppedReason": {
+        "breakpoint": "breakpoint",
+        "step": "step",
+        "exception": "exception",
+        "pause": "dijeda oleh Anda",
+        "entry": "titik masuk",
+        "other": "berhenti"
+      },
+      "sessionError": {
+        "no-adapter-for-runtime": "Kami belum tahu cara menyambung ke runtime ini.",
+        "delegated-runtime": "Runtime ini ditangani oleh debugger eksternal di bawah.",
+        "adapter-not-configured": "Tidak ada debug adapter yang dikonfigurasi untuk runtime ini.",
+        "port-required": "Tidak ada port debug — jalankan lagi dengan mode debug aktif.",
+        "pid-required": "Tidak dapat menemukan proses untuk disambungkan.",
+        "inspector-not-listening": "Belum ada yang mendengarkan di port inspector.",
+        "adapter-not-listening": "Debug adapter tidak mulai mendengarkan.",
+        "adapter-exited": "Debug adapter keluar.",
+        "adapter-not-started": "Debug adapter tidak dapat dimulai.",
+        "no-free-port": "Tidak ada port debug yang tersedia.",
+        "debuggee-terminated": "Proses yang di-debug telah berakhir.",
+        "no-session": "Sesi debug tersebut sudah tidak ada."
+      },
+      "adapterTitle": "Debug adapter",
+      "adapterHint": "Breakpoint, stepping, dan variabel berjalan melalui ini. Semua yang tercantum bebas dipakai untuk komersial — hanya engine Microsoft yang didelegasikan di bawah.",
+      "adapterReady": "Siap",
+      "adapterMissing": "Tidak terinstal",
+      "adapterDelegated": "Didelegasikan",
+      "runtime": {
+        "node": "Node.js · JavaScript · TypeScript",
+        "python": "Python",
+        "go": "Go",
+        "rust": "Rust · native",
+        "dotnet": ".NET · C#",
+        "java": "Java",
+        "unreal": "Unreal C++",
+        "other": "Lainnya"
+      },
+      "adapter": {
+        "node": "Bawaan Node.js — tidak perlu instalasi.",
+        "python": "Instal debugpy di environment proyek (pip install debugpy).",
+        "go": "Instal Delve (go install github.com/go-delve/delve/cmd/dlv@latest).",
+        "rust": "Instal CodeLLDB dan taruh codelldb di PATH.",
+        "dotnet": "Instal netcoredbg dan taruh di PATH — vsdbg milik Microsoft hanya berlisensi untuk IDE mereka.",
+        "java": "Memerlukan debug adapter Java yang mendukung DAP di PATH.",
+        "unreal": "Stepping native diarahkan ke Visual Studio di bawah — debug engine tersebut tidak dapat didistribusikan ulang."
+      }
     },
     "bookmarks": {
       "title": "Bookmarks",
@@ -2583,6 +1400,30 @@
       "close": "Tutup",
       "sourceGone": "Sumber tidak ada lagi"
     },
+    "sessionSummary": {
+      "title": "Ringkasan sesi",
+      "close": "Tutup",
+      "empty": "Belum ada sesi untuk diringkas.",
+      "jump": "Buka sesi ini",
+      "closeSession": "Tutup sesi",
+      "closeBlocked": "Hanya sesi tidak aktif yang sudah ditinjau yang bisa ditutup",
+      "closeTidied": "Tutup yang dirapikan ({{count}})",
+      "closeTidiedHint": "Tutup semua sesi tidak aktif yang sudah ditinjau (tetap tersimpan di Riwayat)",
+      "getSummary": "Ringkas",
+      "summarizing": "Meringkas…",
+      "resummarize": "Ringkas ulang",
+      "noCards": "Tidak ada kartu laporan di sesi ini.",
+      "summaryError": "Tidak dapat meringkas sesi ini.",
+      "closedBadge": "Ditutup",
+      "dismiss": "Abaikan",
+      "secDid": "Selesai",
+      "secChanges": "Perubahan",
+      "secUserActions": "Tindakan Anda",
+      "secCheckpoints": "Cek",
+      "secQuestions": "Pertanyaan",
+      "secList": "Daftar",
+      "secNext": "Berikutnya"
+    },
     "sidebar": {
       "sessions": "Sesi",
       "files": "File ({{count}})",
@@ -2592,13 +1433,102 @@
       "hasResult": "ada hasil",
       "skills": "Skills ({{count}})",
       "projectSkills": "Proyek ({{count}})",
+      "globalSkills": "Global ({{count}})",
       "pluginSkills": "Plugin ({{count}})",
+      "favoriteSkills": "Favorit ({{count}})",
+      "favoriteAdd": "Tambah ke favorit",
+      "favoriteRemove": "Hapus dari favorit",
+      "refreshSkills": "Segarkan skill",
+      "newSkill": "Skill baru",
       "noSkills": "Tidak ada skill terinstal",
       "skillsLoading": "Memuat skill…",
       "deleteSkillTitle": "Hapus skill",
       "deleteSkillConfirm": "Hapus skill ini?",
       "deleteSkillYes": "Hapus",
-      "deleteSkillNo": "Batal"
+      "deleteSkillNo": "Batal",
+      "copySkillTitle": "Salin ke proyek lain",
+      "copySkillHeader": "Salin ke",
+      "copySkillGlobal": "Global (semua proyek)",
+      "copySkillNoTargets": "Tidak ada proyek lain untuk disalin",
+      "copySkillAll": "Semua",
+      "copySkillDo": "Salin",
+      "copySkillBusy": "Menyalin…",
+      "copySkillCancel": "Batal",
+      "copySkillClose": "Tutup",
+      "copySkillOverwrite": "Timpa",
+      "copySkillDone": "Disalin ke {{count}}",
+      "copySkillExists": "{{count}} sudah memilikinya",
+      "copySkillSame": "{{count}} adalah sumbernya",
+      "copySkillFailed": "{{count}} gagal"
+    },
+    "explorer": {
+      "title": "Explorer",
+      "refresh": "Segarkan",
+      "collapseAll": "Ciutkan folder",
+      "edited": "File yang diedit ({{count}})",
+      "noEdited": "Belum ada edit file",
+      "loading": "Memuat…",
+      "empty": "Folder kosong",
+      "error": "Tidak dapat membaca folder ini",
+      "noProject": "Tidak ada proyek terbuka",
+      "openFile": "Buka di editor",
+      "copyPath": "Salin path",
+      "copied": "Tersalin",
+      "truncated": "Hanya {{count}} item pertama"
+    },
+    "editor": {
+      "resize": "Ubah ukuran panel editor",
+      "save": "Simpan (Ctrl+S)",
+      "reload": "Muat ulang dari disk",
+      "closeTab": "Tutup tab",
+      "closePane": "Tutup panel editor",
+      "closeDirtyConfirm": "File ini memiliki perubahan yang belum disimpan. Tetap tutup?",
+      "conflict": "File ini berubah di disk setelah Anda membukanya.",
+      "conflictReload": "Muat ulang",
+      "conflictOverwrite": "Tetap simpan",
+      "binary": "File binary — hanya baca.",
+      "truncated": "Hanya bagian awal file besar ini yang ditampilkan — hanya baca.",
+      "readError": "Tidak dapat membaca file ini",
+      "plainLanguage": "teks",
+      "openInPane": "Buka di panel editor — {{path}}",
+      "openFolder": "Buka folder yang berisi file ini — {{path}}",
+      "readOnlyLocked": "File ini terkunci hanya-baca di disk (checkout Perforce, atribut file).",
+      "readOnlyUnlock": "Buka kunci dan simpan",
+      "readOnlyUnlockHint": "Menghapus atribut hanya-baca lalu menyimpan. Kunci tidak dipasang kembali, dan tidak ada perintah version control (p4 edit, …) yang dijalankan.",
+      "saveError": {
+        "tooLarge": "Terlalu besar untuk disimpan",
+        "missing": "File ini sudah tidak ada lagi di disk",
+        "forbidden": "File ini berada di luar root proyek",
+        "readonly": "File ini terkunci hanya-baca (checkout Perforce, atribut file)",
+        "failed": "Tidak dapat menyimpan file ini"
+      },
+      "closeDirtyConfirmMany": "{{count}} dari file ini memiliki perubahan yang belum disimpan. Tetap tutup?",
+      "ctx": {
+        "cut": "Potong",
+        "copy": "Salin",
+        "paste": "Tempel",
+        "selectAll": "Pilih semua",
+        "undo": "Undo",
+        "redo": "Redo",
+        "save": "Simpan",
+        "reload": "Muat ulang dari disk",
+        "copyPath": "Salin path",
+        "copyLine": "Salin baris",
+        "copyLineRef": "Salin path dengan nomor baris",
+        "openExternal": "Buka di editor eksternal",
+        "closeTab": "Tutup",
+        "closeOthers": "Tutup tab lain",
+        "closeAll": "Tutup semua tab",
+        "addBreakpoint": "Tambah breakpoint di baris {{line}}",
+        "removeBreakpoint": "Hapus breakpoint",
+        "clearFileBreakpoints": "Hapus semua breakpoint di file ini",
+        "needSelection": "Pilih teks terlebih dahulu",
+        "readOnlyFile": "File ini hanya baca",
+        "nothingToSave": "Tidak ada perubahan yang belum disimpan",
+        "noBreakpoints": "Tidak ada breakpoint di file ini",
+        "noBreakpointTarget": "Tidak ada proyek terbuka untuk debugging",
+        "noOtherTabs": "Tidak ada tab lain yang terbuka"
+      }
     },
     "statusBar": {
       "custom": "Kustom",
@@ -2608,12 +1538,43 @@
       "sessionOne": "{{count}} sesi",
       "sessionMany": "{{count}} sesi"
     },
+    "search": {
+      "placeholder": "Cari dalam percakapan",
+      "prev": "Cocok sebelumnya",
+      "next": "Cocok berikutnya",
+      "close": "Tutup"
+    },
     "zoom": {
       "reset": "Setel ulang"
+    },
+    "systemNode": {
+      "taskFailed": "Tugas gagal",
+      "taskStopped": "Tugas dihentikan",
+      "durationMs": "{{value}} ms",
+      "durationSec": "{{value}} dtk",
+      "durationMin": "{{value}} mnt",
+      "taskStarted": "Tugas dimulai",
+      "taskCompleted": "Tugas selesai",
+      "taskUpdated": "Tugas diperbarui",
+      "taskNotification": "Notifikasi tugas",
+      "notification": "Notifikasi",
+      "taskProgress": "Sedang bekerja",
+      "taskSummary": "Ringkasan tugas",
+      "thinkingTokens": "Berpikir",
+      "compactBoundary": "Konteks dipadatkan",
+      "status": "Status",
+      "backgroundTasksChanged": "Tugas latar belakang diperbarui",
+      "commandsChanged": "Perintah diperbarui",
+      "apiRetry": "Mencoba ulang permintaan",
+      "apiError": "Galat API",
+      "modelFallback": "Model cadangan",
+      "interrupt": "Dihentikan",
+      "permissionDenied": "Izin ditolak"
     },
     "streamRenderer": {
       "noActivity": "Tidak ada aktivitas di sesi ini",
       "thinking": "berpikir",
+      "working": "bekerja",
       "input": "Input",
       "output": "Output",
       "clickToExpand": "Klik untuk perluas",
@@ -2622,17 +1583,168 @@
       "collapse": "ciutkan",
       "copy": "Salin",
       "copied": "Tersalin",
+      "youTyped": "Anda",
+      "diff": {
+        "created": "Dibuat",
+        "modified": "Diubah",
+        "change": "Perubahan {{index}}",
+        "moreLines": "… {{count}} baris lagi"
+      },
       "toolRun": "×{{count}}",
       "diffLines": "{{count}} baris",
-      "activity": "Perintah dijalankan"
+      "activity": "Perintah dijalankan",
+      "showMoreLines": "Tampilkan {{count}} baris lagi",
+      "showLess": "Tampilkan lebih sedikit",
+      "pathLink": {
+        "openFile": "Buka di editor — {{path}}",
+        "openFolder": "Buka folder — {{path}}"
+      },
+      "restartResumed": "Terputus saat aplikasi ditutup — dilanjutkan pada sesi tersimpan."
     },
     "report": {
+      "title": "Laporan kerja",
+      "didTitle": "Yang dilakukan AI",
+      "userActionsTitle": "Yang perlu Anda lakukan",
+      "nextStepsTitle": "Langkah selanjutnya",
       "learnedTitle": "Dipelajari"
+    },
+    "question": {
+      "title": "Pertanyaan",
+      "copy": "Salin",
+      "copied": "Tersalin",
+      "instant": "Kirim sekarang",
+      "instantSent": "Terkirim",
+      "copyCard": "Salin kartu",
+      "copyQuestions": "Salin pertanyaan",
+      "copySelection": "Salin pilihan",
+      "copySelectionHint": "Seret untuk memilih bagian yang diinginkan, lalu salin",
+      "copyOne": "Salin pertanyaan ini",
+      "selectAnswer": "Pilih jawaban ini",
+      "selectNone": "Bersihkan",
+      "sendSelected": "Kirim {{n}} terpilih"
+    },
+    "review": {
+      "title": "Permintaan Tinjauan",
+      "instructionTitle": "Instruksi yang diberikan",
+      "changesTitle": "Apa yang diubah",
+      "checkpointsTitle": "Mohon periksa"
+    },
+    "list": {
+      "title": "Daftar",
+      "moreItems": "{{count}} lagi"
+    },
+    "feedback": {
+      "upTitle": "Kerja bagus — masuk ke pembelajaran agent ini",
+      "downTitle": "Kurang baik — tambahkan alasan agar ia belajar",
+      "reasonPlaceholder": "Apa yang salah? (opsional, dipakai untuk pembelajaran)",
+      "reasonSave": "Simpan",
+      "addReason": "Tambah alasan",
+      "editReason": "Edit alasan",
+      "statsTitle": "Feedback Anda untuk sesi ini"
+    },
+    "unseenCards": {
+      "hint": "Kartu terlewat — klik untuk lompat",
+      "jump": "Lompat ke kartu ini",
+      "dismiss": "Abaikan"
+    },
+    "runningSubagents": {
+      "title": "Subagent yang berjalan",
+      "close": "Tutup",
+      "empty": "Tidak ada subagent yang berjalan saat ini.",
+      "untitled": "Subagent",
+      "scopeAll": "Menampilkan semua subagent yang dijalankan agent ini.",
+      "scopeSession": "Menampilkan subagent yang dimulai oleh \"{{label}}\".",
+      "endedAt": "Selesai pukul {{time}}",
+      "finishedTitle": "Baru saja selesai",
+      "noResult": "Tidak ada hasil yang diterima.",
+      "toggleResult": "Tampilkan atau sembunyikan hasil lengkap",
+      "toolUses": "{{count}} panggilan alat",
+      "nowUsing": "Alat yang sedang dipakai",
+      "duration": "Butuh {{value}}",
+      "emptySession": "Sesi ini tidak menjalankan subagen apa pun.",
+      "hint": "Tempat ini hanya menampilkan subagen yang dijalankan sesi ini di latar belakang — percakapan yang sedang berlangsung tidak dihitung. Selama berjalan, ikon di kiri menyala dan menampilkan jumlahnya.",
+      "othersRunning": "{{count}} lagi berjalan di tempat lain",
+      "startedAt": "Dimulai pukul {{time}}",
+      "noResponse": "Tanpa respons selama {{value}}",
+      "dismiss": "Berhenti menunggu",
+      "dismissTip": "Menghapus dari daftar ini. Tidak menghentikan proses — agen menghentikan anaknya sendiri dengan TaskStop."
+    },
+    "loop": {
+      "title": "Loop Pengulangan",
+      "close": "Tutup",
+      "scopeSession": "Loop untuk sesi \"{{label}}\".",
+      "scopeNone": "Tidak ada tab sesi yang dipilih.",
+      "pickSession": "Loop pengulangan hanya berlaku untuk satu tab sesi. Buka tab sesi terlebih dahulu, lalu atur loop-nya di sini.",
+      "commandLabel": "Perintah yang diulang",
+      "commandPlaceholder": "mis. Jalankan test dan perbaiki yang gagal.",
+      "commandHint": "Setiap putaran mengirim teks persis ini ke sesi, sama seperti Anda mengetiknya sendiri.",
+      "commandFileLabel": "Baca perintah dari berkas",
+      "commandFilePlaceholder": "mis. PROMPT.md",
+      "commandFileHint": "Dibaca ulang setiap putaran: mengubah berkas saat loop berjalan akan berlaku mulai putaran berikutnya. Jika gagal dibaca, memakai teks di atas.",
+      "modeLabel": "Ulangi",
+      "modeCount": "Kali",
+      "modeInfinite": "Sampai saya hentikan",
+      "intervalLabel": "Jeda antar putaran",
+      "intervalUnit": "detik",
+      "intervalHint": "0 berarti putaran berikutnya langsung mulai begitu yang sebelumnya selesai.",
+      "stopOnError": "Hentikan loop jika satu putaran gagal",
+      "contextModeCompactHint": "Mengirim /compact di antara putaran agar loop panjang tidak kehabisan konteks di tengah putaran. Peringkasan tidak dihitung sebagai putaran.",
+      "contextModeLabel": "Di antara putaran",
+      "contextModeNone": "Pertahankan konteks",
+      "contextModeCompact": "Ringkas (menyisakan rangkuman)",
+      "contextModeClear": "Kosongkan (mulai baru)",
+      "contextModeClearHint": "Mengirim /clear di antara putaran agar setiap putaran mulai dengan konteks kosong. Tidak ada yang tersisa, jadi pakai bersama berkas progres.",
+      "budgetLabel": "Berhenti setelah memakai",
+      "budgetCostUnit": "US$ (perkiraan)",
+      "budgetTokenUnit": "ribu token",
+      "budgetTimeUnit": "menit",
+      "budgetHint": "Kosongkan untuk tanpa batas. Hanya diperiksa di antara putaran, jadi putaran yang sedang berjalan tidak pernah dipotong. Biayanya perkiraan yang dilebihkan.",
+      "progressFileLabel": "Berkas progres",
+      "progressFilePlaceholder": "mis. .vibisual/loop-progress.md",
+      "progressFileHint": "Setiap putaran membacanya lebih dulu dan memperbaruinya di akhir, sehingga pekerjaan berlanjut meski konteks diringkas atau dikosongkan.",
+      "oneTask": "Satu tugas per putaran",
+      "oneTaskHint": "Mengulang aturan ini di awal prompt dan di bagian aturan, agar satu putaran tidak menumpuk banyak perubahan dalam satu commit.",
+      "commitEachRound": "Commit di akhir putaran",
+      "commitEachRoundHint": "Meminta agen melakukan commit sendiri, dengan nomor putaran dan apa yang diverifikasi. Vibisual tidak pernah menjalankan git untuk Anda.",
+      "compacting": "Meringkas konteks sebelum putaran berikutnya…",
+      "clearing": "Mengosongkan konteks sebelum putaran berikutnya…",
+      "spent": "Terpakai {{cost}} · {{tokens}} token · {{elapsed}}",
+      "start": "Mulai",
+      "restart": "Mulai ulang",
+      "stop": "Hentikan",
+      "delete": "Hapus",
+      "progressCount": "{{done}} dari {{total}} putaran selesai",
+      "progressInfinite": "{{done}} putaran selesai",
+      "nextIn": "Putaran berikutnya dalam {{time}}.",
+      "lastError": "Error terakhir: {{message}}",
+      "note": "Menghentikan sesi (atau seluruh agent) juga menghentikan loop ini. Menutup tab akan menghapusnya.",
+      "status": {
+        "idle": "Nonaktif",
+        "running": "Berjalan",
+        "waiting": "Menunggu",
+        "done": "Selesai",
+        "stopped": "Dihentikan",
+        "error": "Gagal",
+        "budget": "Anggaran habis"
+      }
     },
     "plan": {
       "title": "Rencana",
       "progress": "{{done}}/{{total}}",
       "superseded": "Rencana diperbarui"
+    },
+    "cmdError": {
+      "spawn": "Claude CLI tidak dapat dimulai",
+      "stdin": "Tidak dapat mengirim prompt ke sesi yang berjalan",
+      "exit": "Claude CLI keluar dengan kode {{code}}",
+      "exitUnknown": "Claude CLI keluar secara tak terduga",
+      "crash": "Proses sesi berhenti tak terduga (kode {{code}})",
+      "crashUnknown": "Proses sesi berhenti tak terduga",
+      "cli": "Claude CLI melaporkan kegagalan",
+      "maxTurns": "Berhenti di batas maks giliran",
+      "agentView": "Proses agent berakhir dengan kegagalan",
+      "orphaned": "Terinterupsi saat aplikasi dimulai ulang",
+      "unknown": "Gagal karena alasan yang tidak diketahui"
     },
     "density": {
       "label": "Kepadatan tampilan",
@@ -2640,9 +1752,377 @@
       "standard": "Standar",
       "raw": "Mentah"
     },
+    "follow": {
+      "label": "Ikuti",
+      "labelOn": "Mengikuti",
+      "tipOn": "Mengikuti suntingan sesi ini — editor membuka berkas yang diubah dan melompat ke baris yang berubah. Klik untuk berhenti.",
+      "tipOff": "Ikuti suntingan sesi ini — editor membuka berkas yang diubah dan melompat ke baris yang berubah. Tiap sesi punya sakelarnya sendiri.",
+      "lineShort": "Brs {{line}}",
+      "stop": "Hentikan",
+      "bannerIdle": "Editor akan melompat ke sini saat sesi ini menyunting berkas.",
+      "bannerOpened": "{{name}} dibuka",
+      "bannerChanged": "{{name}} baris {{from}}–{{to}} berubah",
+      "bannerChangedReloaded": "{{name}} baris {{from}}–{{to}} berubah — dibaca ulang dari disk",
+      "skipOutsideRoot": "{{name}} berada di luar proyek ini, jadi tidak dibuka",
+      "skipEditorClosed": "{{name}} berubah — buka editor untuk mengikuti",
+      "skipDirty": "{{name}} berubah di disk — suntingan Anda yang belum disimpan dipertahankan, jadi tidak dimuat ulang",
+      "skipNoLine": "{{name}} dibuka — baris yang berubah tidak ditemukan, jadi tampilan tidak berpindah",
+      "lineRange": "Brs {{from}}–{{to}}",
+      "skipShortOutsideRoot": "di luar proyek",
+      "skipShortEditorClosed": "editor tertutup",
+      "skipShortDirty": "draf dijaga",
+      "skipShortNoLine": "hanya dibuka"
+    },
+    "reading": {
+      "title": "Pengaturan Baca",
+      "buttonLabel": "Pengaturan Baca",
+      "reset": "Setel ulang",
+      "resetField": "Setel ulang pengaturan ini ke bawaan",
+      "resetFieldAtDefault": "Sudah di nilai bawaan",
+      "measureTitle": "Lebar Baca",
+      "measurePreset": {
+        "comprehension": "Pemahaman",
+        "balanced": "Seimbang",
+        "speed": "Kecepatan",
+        "full": "Penuh"
+      },
+      "measureNote": "Dyson & Haselgrove mengukur tiga titik optimal berbeda: 95 karakter per baris paling cepat dibaca, 35 memberi pemahaman terbaik, dan 55 adalah titik seimbangnya.",
+      "chatAlign": "Perataan Percakapan",
+      "chatAlignOn": "Ratakan pesan saya ke kanan, AI ke kiri",
+      "chatAlignNote": "Seperti aplikasi pesan: prompt Anda menempel ke tepi kanan dan menyusut mengikuti teksnya, balasan AI tetap di kiri. Siapa yang berkata apa langsung terlihat dari posisinya saja, sebelum Anda membaca satu kata pun. Kode, tabel, dan kotak tool tetap selebar penuh.",
+      "contentWidth": "Lebar Konten",
+      "contentWidthFull": "Penuh",
+      "contentWidthNote": "Mempersempit seluruh area konten — kartu, kotak tool, kode, dan tabel ikut masuk ke dalamnya juga. Lebar baca di atas hanya mempersempit kolom prosa; ini mempersempit semuanya. 100% adalah lebar penuh jendela, dan setiap langkah ke bawah langsung mempersempitnya (minimum 10%). Arah penyempitannya ditentukan oleh Perataan Percakapan di atas: bila mati, konten berkumpul di tengah; bila menyala, balasan AI tetap menempel di tepi kiri dan prompt Anda di tepi kanan, jadi hanya sisi sebaliknya yang mengalah. Jendela sempit melepaskannya secara otomatis.",
+      "charsPerLine": "≈ {{cjk}} karakter CJK / {{latin}} Latin per baris",
+      "charsUnlimited": "Panjang baris tergantung lebar jendela",
+      "verdict": {
+        "ok": "masih dalam batas WCAG CJK {{limit}}",
+        "warn": "melebihi batas WCAG CJK {{limit}}",
+        "over": "tidak ada batas yang diterapkan"
+      },
+      "fontSize": "Ukuran Teks",
+      "fontSizeNote": "Rello dkk. (CHI 2016) menemukan keterbacaan dan pemahaman terus membaik hingga 18pt ({{px}}px) dalam studi eye-tracking terhadap 104 pembaca.",
+      "lineHeight": "Tinggi Baris",
+      "lineHeightNote": "Typesetting CJK menyarankan {{cjk}}. WCAG 1.4.12 mensyaratkan {{wcag}} agar tetap dapat digunakan.",
+      "letterSpacing": "Jarak Huruf",
+      "letterSpacingNote": "WCAG 1.4.12 mensyaratkan hingga {{max}}em agar tetap dapat digunakan.",
+      "wordSpacing": "Jarak Kata",
+      "wordSpacingNote": "WCAG 1.4.12 mensyaratkan hingga {{max}}em agar tetap dapat digunakan.",
+      "paragraphSpacing": "Jarak Paragraf",
+      "paragraphSpacingNote": "WCAG 1.4.12 mensyaratkan jarak paragraf hingga dua kali ukuran font agar tetap dapat digunakan.",
+      "font": "Font",
+      "fontNote": "Semua font yang terdaftar sudah termasuk dalam aplikasi, jadi tampilannya sama di setiap perangkat — tidak perlu instalasi. Semuanya gratis untuk penggunaan komersial (SIL Open Font License 1.1); font yang ditandai titik berasal dari riset keterbacaan.",
+      "fontMissing": "tidak terinstal di sistem ini",
+      "fontResearch": "riset keterbacaan",
+      "fontSource": {
+        "preset": "Font Bawaan",
+        "custom": "Font Kustom"
+      },
+      "fontSourceNote": {
+        "preset": "Font yang sudah termasuk dalam aplikasi, sehingga tampilannya sama di setiap perangkat — tidak perlu instalasi. Semuanya gratis untuk penggunaan komersial (SIL Open Font License 1.1).",
+        "custom": "Gunakan font yang sudah terinstal di komputer ini. Hanya namanya yang disimpan — tidak ada file font yang disalin atau dibagikan, sehingga tidak ada yang didistribusikan ulang."
+      },
+      "customFont": "Nama Font Family",
+      "customFontPlaceholder": "mis. Segoe UI",
+      "customFontBrowse": "Pindai Font",
+      "customFontBrowseHint": "Memuat font family yang terinstal di komputer ini sebagai saran. Anda mungkin akan diminta izin terlebih dahulu.",
+      "customFontBrowseUnavailable": "daftar font tidak tersedia di sini, jadi ketik saja namanya",
+      "customFontEmpty": "Ketik nama font, atau tekan \"Pindai Font\" untuk memilih salah satu.",
+      "customFontFound": "\"{{name}}\" ditemukan di komputer ini — sedang digunakan sekarang.",
+      "customFontNotFound": "\"{{name}}\" tidak ditemukan di komputer ini, sehingga font bawaan ditampilkan.",
+      "customFontUnknown": "Tidak dapat memeriksa apakah \"{{name}}\" terinstal.",
+      "autoMobile": "Jendela Sempit",
+      "autoMobileOn": "Sesuaikan Otomatis",
+      "autoMobileNote": "Di bawah 768px batas lebar dilepaskan (karena hanya akan memakan margin) dan tinggi baris dinaikkan sedikit.",
+      "mobileActive": "Jendela sempit — batas lebar dilepaskan otomatis.",
+      "rationale": "Membiarkan pembaca menyesuaikan tipografi alih-alih mematok satu nilai tetap meningkatkan kecepatan baca lebih dari 25 kata per menit rata-rata (The Readability Consortium)."
+    },
     "card": {
       "showDetails": "Detail ({{count}})",
       "hideDetails": "Sembunyikan detail"
+    },
+    "context": {
+      "title": "Sumber konteks",
+      "tokensLabel": "token dalam prompt ini",
+      "refresh": "Ukur ulang sekarang",
+      "reset": "Setel ulang layer ini ke bawaan",
+      "searchPlaceholder": "Cari sumber, file, path…",
+      "loading": "Mengukur…",
+      "empty": "Tidak ada yang cocok.",
+      "turnOn": "Aktifkan — sertakan di prompt berikutnya",
+      "turnOff": "Nonaktifkan — kecualikan dari prompt berikutnya",
+      "locked": "Ini tidak bisa dinonaktifkan di sini",
+      "sort": {
+        "category": "Grup",
+        "tokens": "Token",
+        "updated": "Tanggal",
+        "name": "Nama"
+      },
+      "scope": {
+        "project": "Proyek",
+        "session": "Sesi ini"
+      },
+      "control": {
+        "session": "prompt",
+        "spawn": "spawn",
+        "external": "di tempat lain",
+        "none": "terkunci"
+      },
+      "cat": {
+        "vibisual": "Prompt Vibisual",
+        "plugins": "Plugin penegakan",
+        "memory": "Memori",
+        "instructions": "File instruksi",
+        "skills": "Skill & perintah",
+        "tools": "Tools",
+        "system": "Claude Code"
+      },
+      "src": {
+        "skillsPrefix": "Prefiks skill",
+        "agentRules": "Aturan Agent",
+        "edges": "Aturan edge keluar",
+        "feedback": "Feedback pengguna sebelumnya",
+        "intentFirst": "Nyatakan niat lebih dulu",
+        "cardReport": "Protokol kartu laporan kerja",
+        "cardQuestion": "Protokol kartu pertanyaan",
+        "cardReview": "Protokol kartu review",
+        "cardList": "Protokol kartu daftar bernomor",
+        "cardIframe": "Protokol pratinjau server",
+        "goal": "Sasaran sesi",
+        "brainCards": "Briefing Project Brain",
+        "brainTopics": "Indeks topik Brain",
+        "brainRules": "Kerangka aturan Brain",
+        "hookEnforcement": "Injeksi sesi hook",
+        "plugins": "Semua plugin penegakan",
+        "claudeMd": "File CLAUDE.md",
+        "autoMemory": "Indeks memori otomatis",
+        "skills": "Skill & perintah garis miring",
+        "bundledSkills": "Skill bawaan",
+        "subagentDefs": "Definisi subagent",
+        "workflows": "Workflow",
+        "gitInstructions": "Instruksi git",
+        "toolSchemas": "Definisi tool",
+        "mcp": "Server MCP",
+        "hooks": "Hooks",
+        "systemPrompt": "System prompt Claude Code"
+      },
+      "hint": {
+        "tools": "Pilih daftar tool di Pengaturan Agent",
+        "mcp": "Sambungkan server MCP di Pengaturan Agent",
+        "hooks": "Hooks dipasang di settings.json"
+      },
+      "warn": {
+        "slashCommands": "Menonaktifkan ini menonaktifkan semua skill dan perintah garis miring untuk sesi ini.",
+        "hooks": "Tanpa hooks, Vibisual berhenti melihat sesi ini."
+      },
+      "rowHint": "Klik untuk melihat apa ini dan apa yang benar-benar dikirim",
+      "detail": {
+        "whatLabel": "Apa ini",
+        "moreLabel": "Dari mana asalnya",
+        "offLabel": "Jika Anda nonaktifkan",
+        "bodyLabel": "Apa yang benar-benar dikirim",
+        "filesLabel": "File ({{count}})",
+        "stateOn": "Aktif — masuk ke prompt berikutnya",
+        "stateOff": "Nonaktif — dikecualikan dari prompt berikutnya",
+        "overrideBy": "Anda mengubah ini di level {{scope}}",
+        "sizeLine": "{{chars}} karakter · ~{{tokens}} token",
+        "loading": "Membaca…",
+        "error": "Tidak dapat membaca sumber ini.",
+        "emptyBody": "Sumber ini tidak menambahkan apa pun pada giliran ini — statusnya aktif, tapi saat ini tidak ada konten untuknya.",
+        "unreadable": "Sumber ini berada di dalam Claude Code sendiri, jadi tidak ada file untuk dibuka. Angka di sampingnya adalah perkiraan, bukan pengukuran.",
+        "truncated": "Menampilkan {{count}} karakter pertama.",
+        "openInEditor": "Buka di editor bawaan",
+        "openOutside": "Buka di luar aplikasi",
+        "copy": "Salin",
+        "copied": "Tersalin"
+      },
+      "about": {
+        "control": {
+          "session": "Vibisual mengecualikannya saat menyusun prompt, jadi menonaktifkannya berlaku mulai pesan Anda berikutnya.",
+          "spawn": "Dinonaktifkan lewat switch command-line pada proses berikutnya. Setiap giliran memulai proses baru, jadi ini juga berlaku mulai pesan Anda berikutnya.",
+          "external": "Layar pengaturan lain yang memiliki ini — sakelar di sini sengaja dikunci.",
+          "none": "Tidak ada cara untuk menonaktifkan ini. Diukur di sini agar totalnya jujur."
+        },
+        "src": {
+          "skillsPrefix": {
+            "what": "Perintah garis miring yang diketik Vibisual di depan pesan Anda sehingga sesi dimulai dengan skill tersebut sudah dimuat.",
+            "more": "Berasal dari kolom Skills di Pengaturan Agent. Setiap skill dikirim sebagai baris /nama di atas prompt Anda.",
+            "off": "Pesan Anda dikirim sendirian dan skill tersebut tidak dipanggil."
+          },
+          "agentRules": {
+            "what": "Instruksi tetap Anda sendiri untuk bubble agent ini.",
+            "more": "Berasal dari kotak Aturan Agent di Pengaturan Agent, ditambahkan di bawah heading \"# Agent Rules\".",
+            "off": "Agent berhenti menerima instruksi tetap tersebut."
+          },
+          "edges": {
+            "what": "Instruksi yang dibawa oleh panah yang Anda gambar dari bubble ini ke bubble lain.",
+            "more": "Dibangun dari task edge keluar bubble ini — cara menyerahkan pekerjaan dan apa yang harus dikirim balik.",
+            "off": "Agent tidak lagi tahu apa yang diharapkan dari panah keluarnya."
+          },
+          "feedback": {
+            "what": "Catatan jempol naik/turun Anda sebelumnya pada jawaban agent ini.",
+            "more": "Dikumpulkan dari tombol feedback di bawah jawaban sebelumnya agar agent mengulangi yang berhasil.",
+            "off": "Feedback sebelumnya tidak lagi diputar ulang ke agent."
+          },
+          "intentFirst": {
+            "what": "Aturan yang membuat agent menyatakan apa yang akan dilakukannya sebelum menyentuh file apa pun.",
+            "more": "Instruksi tetap Vibisual. Ada agar Anda bisa menghentikan agent lebih awal saat arahnya salah.",
+            "off": "Agent bisa mulai mengedit file tanpa mengumumkan rencananya lebih dulu."
+          },
+          "cardReport": {
+            "what": "Resep untuk kartu berwarna \"apa yang saya lakukan / apa yang perlu Anda lakukan\".",
+            "more": "Memberi tahu agent untuk melaporkan hasilnya lewat API Vibisual sehingga kedua daftar bisa dipisah berdasarkan warna.",
+            "off": "Hasil datang hanya sebagai teks biasa — tanpa kartu berwarna."
+          },
+          "cardQuestion": {
+            "what": "Resep untuk kartu pertanyaan dengan tombol balasan siap pakai.",
+            "more": "Saat agent menanyakan sesuatu, ia juga mengirim pertanyaan dan jawaban yang disarankan sebagai data.",
+            "off": "Pertanyaan tetap terkubur dalam teks, tanpa tombol salin atau kirim."
+          },
+          "cardReview": {
+            "what": "Resep untuk kartu ungu \"mohon periksa ini\" yang muncul setelah perbaikan.",
+            "more": "Memberi tahu agent untuk mendaftar apa yang diubah dan apa yang harus Anda klik untuk memverifikasinya.",
+            "off": "Anda mendapat ringkasan teks alih-alih daftar periksa review."
+          },
+          "cardList": {
+            "what": "Resep untuk kartu daftar bernomor otomatis.",
+            "more": "Enumerasi panjang dikirim sebagai data sehingga Vibisual menomori dan merapikannya untuk Anda.",
+            "off": "Daftar dicetak inline sebagai teks biasa."
+          },
+          "cardIframe": {
+            "what": "Resep yang mengubah URL server lokal menjadi bubble pratinjau langsung.",
+            "more": "Saat Anda meminta sebuah server, agent melaporkan alamatnya dan Vibisual membukanya di canvas.",
+            "off": "Alamat server hanya disebutkan sebagai teks; Anda membukanya sendiri."
+          },
+          "goal": {
+            "what": "Sasaran sesi ini dan daftar langkahnya, seperti yang ditampilkan di jendela sasaran.",
+            "more": "Berasal dari kartu sasaran sehingga agent tahu posisinya dalam rencana.",
+            "off": "Agent berhenti melihat sasaran dan daftar progresnya. Jendela sasaran itu sendiri tetap ada."
+          },
+          "brainCards": {
+            "what": "Kartu memori dari Project Brain yang cocok dengan yang baru saja Anda tanyakan.",
+            "more": "Diurutkan berdasarkan pesan Anda, ditambah aturan yang ditandai selalu-aktif. Disimpan di .vibisual/brain dalam proyek ini.",
+            "off": "Agent mulai tanpa pelajaran yang sudah dipelajari proyek ini."
+          },
+          "brainTopics": {
+            "what": "Daftar isi memori tersebut — hanya nama topik, bukan isinya.",
+            "more": "Memungkinkan agent membuka hanya file topik yang dibutuhkannya alih-alih memuat semua kartu.",
+            "off": "Agent tidak bisa lagi mencari memori sebelumnya berdasarkan topik."
+          },
+          "brainRules": {
+            "what": "Catatan singkat yang menjelaskan apa itu kartu memori dan cara memperlakukannya.",
+            "more": "Tanpa ini agent menerima kartu tapi tanpa instruksi tentang cara menanganinya.",
+            "off": "Kartu memori datang tanpa penjelasan yang menyertainya."
+          },
+          "hookEnforcement": {
+            "what": "Blok yang disuntikkan Vibisual ke sesi yang menyambungkan dirinya lewat hooks Claude Code.",
+            "more": "Vibisual tidak memulai sesi tersebut, jadi instruksinya menumpang lewat jalur hook setiap giliran.",
+            "off": "Sesi yang tersambung lewat hook berhenti menerima instruksi Vibisual."
+          },
+          "plugins": {
+            "what": "Sakelar utama untuk setiap plugin penegakan yang diaktifkan di proyek ini.",
+            "more": "Setiap plugin yang diaktifkan juga mendapat barisnya sendiri di bawah, sehingga Anda bisa mempertahankan sebagian dan melepas yang lain.",
+            "off": "Tidak ada instruksi plugin yang ditambahkan sama sekali, apa pun plugin yang diaktifkan."
+          },
+          "plugin": {
+            "what": "Instruksi satu plugin penegakan: {{name}}.",
+            "more": "Anda mengaktifkan plugin ini di jendela Plugin; ia menulis aturannya ke setiap prompt proyek ini.",
+            "off": "Hanya plugin ini yang berhenti ditegakkan — yang lain tetap seperti biasa."
+          },
+          "claudeMd": {
+            "what": "File instruksi proyek yang dimuat Claude Code sendiri — CLAUDE.md, CLAUDE.local.md, AGENTS.md.",
+            "more": "Ditemukan di sebelah proyek Anda, di folder-folder di atasnya, dan di folder .claude home Anda. Klik sebuah file untuk membacanya di sini.",
+            "off": "Sesi dimulai tanpa aturan rumah proyek Anda (CLAUDE_CODE_DISABLE_CLAUDE_MDS)."
+          },
+          "autoMemory": {
+            "what": "Indeks memori Claude Code sendiri (MEMORY.md) untuk folder ini.",
+            "more": "Hanya indeksnya yang dimuat setiap giliran; file memori masing-masing dibaca saat dibutuhkan.",
+            "off": "Claude Code mulai tanpa catatannya dari sesi sebelumnya (CLAUDE_CODE_DISABLE_AUTO_MEMORY)."
+          },
+          "skills": {
+            "what": "Deskripsi satu baris dari setiap skill dan perintah garis miring yang tersedia di sini.",
+            "more": "Hanya nama dan deskripsi dari front matter setiap file yang dimuat — isi lengkapnya dibaca saat sebuah skill benar-benar dipakai.",
+            "off": "Semua skill dan perintah garis miring dinonaktifkan untuk sesi ini (--disable-slash-commands)."
+          },
+          "bundledSkills": {
+            "what": "Skill yang sudah termasuk di dalam Claude Code itu sendiri.",
+            "more": "Berada di dalam executable, jadi ukurannya tidak bisa diukur dari sini.",
+            "off": "Claude Code berjalan tanpa skill bawaannya (CLAUDE_CODE_DISABLE_BUNDLED_SKILLS)."
+          },
+          "workflows": {
+            "what": "Instruksi workflow bawaan Claude Code.",
+            "more": "Bagian dari Claude Code, bukan dari proyek ini, jadi tidak ada file untuk ditampilkan.",
+            "off": "Workflow tersebut tidak ditawarkan ke agent (CLAUDE_CODE_DISABLE_WORKFLOWS)."
+          },
+          "gitInstructions": {
+            "what": "Panduan git dan ringkasan status repositori yang ditambahkan Claude Code sendiri.",
+            "more": "Inilah sebabnya agent sudah tahu branch Anda dan file mana yang dimodifikasi.",
+            "off": "Agent mulai tanpa panduan git atau ringkasan status (CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS)."
+          },
+          "subagentDefs": {
+            "what": "Tipe subagent yang didefinisikan proyek ini di .claude/agents.",
+            "more": "Deskripsinya menumpang di dalam deskripsi tool Agent itu sendiri, itulah sebabnya tidak ada sakelar untuknya.",
+            "off": "Ini tidak bisa dinonaktifkan di sini — hanya diukur."
+          },
+          "systemPrompt": {
+            "what": "System prompt Claude Code sendiri — instruksi yang membuatnya menjadi Claude Code.",
+            "more": "Berada di dalam executable, jadi angka di sini adalah perkiraan, bukan pengukuran.",
+            "off": "Ini tidak bisa dinonaktifkan. Dicantumkan agar totalnya jujur."
+          },
+          "toolSchemas": {
+            "what": "Definisi tool yang boleh dipanggil agent ini — Read, Edit, Bash, dan lainnya.",
+            "more": "Daftar tool dimiliki oleh Pengaturan Agent; mempersingkatnya di sana membuat angka ini lebih kecil.",
+            "off": "Ubah daftar tool di Pengaturan Agent — sakelar di sini terkunci."
+          },
+          "mcp": {
+            "what": "Tool tambahan yang tersambung lewat server MCP.",
+            "more": "Setiap server yang tersambung menambahkan definisi toolnya sendiri ke setiap prompt.",
+            "off": "Lepas server di Pengaturan Agent — sakelar di sini terkunci."
+          },
+          "hooks": {
+            "what": "Hooks Claude Code yang memungkinkan Vibisual melihat sesi ini sama sekali.",
+            "more": "Terdaftar di settings.json. Hampir tidak menambah token, tapi setiap event melewatinya.",
+            "off": "Hooks dihapus di settings.json, bukan di sini. Tanpanya, Vibisual berhenti melihat sesi ini."
+          }
+        },
+        "cat": {
+          "vibisual": {
+            "what": "Blok yang ditulis Vibisual langsung ke dalam prompt.",
+            "more": "Disusun ulang setiap giliran dari apa yang ada di canvas dan pengaturan Anda.",
+            "off": "Cukup dikecualikan dari prompt berikutnya."
+          },
+          "plugins": {
+            "what": "Aturan yang ditambahkan sebuah plugin penegakan ke setiap prompt di proyek ini.",
+            "more": "Berasal dari jendela Plugin — hanya plugin yang Anda aktifkan yang ada di sini.",
+            "off": "Aturan plugin tersebut berhenti dikirim."
+          },
+          "memory": {
+            "what": "Sesuatu yang diingat agent dari sesi sebelumnya.",
+            "more": "Dibaca dari file memori proyek atau folder ini.",
+            "off": "Agent bekerja hanya dari percakapan ini saja."
+          },
+          "instructions": {
+            "what": "File instruksi yang dimuat Claude Code sendiri sebelum Anda mengetik apa pun.",
+            "more": "Dibaca dari disk setiap kali sesi dimulai. Klik sebuah file untuk membacanya di sini.",
+            "off": "Sesi dimulai tanpa instruksi tersebut."
+          },
+          "skills": {
+            "what": "Deskripsi skill dan perintah yang bisa dipanggil agent.",
+            "more": "Hanya deskripsi singkat yang dimuat; teks lengkapnya dibaca saat benar-benar dipakai.",
+            "off": "Agent tidak lagi tahu itu tersedia."
+          },
+          "tools": {
+            "what": "Definisi tool yang boleh dipanggil agent.",
+            "more": "Daftarnya dimiliki oleh Pengaturan Agent.",
+            "off": "Ubah di Pengaturan Agent — tidak bisa dinonaktifkan di sini."
+          },
+          "system": {
+            "what": "Sesuatu yang ditambahkan Claude Code sendiri, di luar proyek ini.",
+            "more": "Berada di dalam Claude Code, jadi angkanya adalah perkiraan.",
+            "off": "Ini bukan milik kita untuk dinonaktifkan; diukur agar totalnya jujur."
+          }
+        }
+      }
     }
   },
   "bubbleMap": {
@@ -2662,6 +2142,32 @@
       "controlToggle": "Kontrol jarak jauh (kirim klik & ketikan ke target yang ditangkap)",
       "controlOn": "Mengontrol",
       "controlOff": "Kontrol Jarak Jauh",
+      "controlModeOff": "Nonaktif",
+      "pointerModeSwitch": "Mode pointer — Sentuh: klik di tempat Anda menunjuk · Mouse: seret untuk memindahkan pointer, lalu tap untuk klik (klik untuk beralih)",
+      "pointerModeTouch": "Sentuh",
+      "pointerModeMouse": "Mouse",
+      "qualityHint": "Kualitas / data — makin rendah berarti resolusi & FPS makin kecil (klik untuk beralih)",
+      "quality_full": "Penuh",
+      "quality_saver": "Hemat",
+      "quality_min": "Min",
+      "quality_auto": "AUTO",
+      "snapshot": "Simpan frame saat ini (PNG)",
+      "pause": "Jeda (hemat data)",
+      "resume": "Lanjutkan",
+      "pausedTapResume": "Dijeda · tap untuk lanjutkan",
+      "paste": "Tempel clipboard (ponsel → PC)",
+      "pasteShort": "Tempel",
+      "settings": "Pengaturan Bubble Tangkapan",
+      "opacity": "Opasitas",
+      "controlTimeout": "Lepas Kontrol Otomatis",
+      "timeoutOff": "Nonaktif",
+      "pin": "Selalu di atas (pin)",
+      "stillSaver": "Hemat Frame Diam",
+      "readOnly": "Hanya Baca (kunci kontrol)",
+      "readOnlyOn": "Hanya baca — kontrol jarak jauh terkunci (buka kunci di pengaturan)",
+      "readOnlyShort": "Hanya Lihat",
+      "badge": "Lencana fps · resolusi",
+      "badgeIdle": "Diam · idle",
       "expandHint": "Klik dua kali untuk membuka di jendela",
       "collapse": "Kembalikan ukuran (Esc)",
       "maximize": "Maksimalkan",
@@ -2688,7 +2194,13 @@
       "backgroundClick": "Jangan gerakkan kursor saya (eksperimental)",
       "backgroundClickHint": "Mengirim klik langsung ke jendela target sehingga mouse Anda tidak bergerak. Game dan jendela terproteksi mengabaikannya dan otomatis kembali ke cara biasa.",
       "backgroundClickBlocked": "Jendela ini mengabaikan klik latar · kursor dipinjam sebentar",
-      "backgroundClickUnavailable": "Klik latar tidak tersedia · kursor dipinjam sebentar"
+      "backgroundClickUnavailable": "Klik latar tidak tersedia · kursor dipinjam sebentar",
+      "join": "Gabungkan Bubble",
+      "snapHint": "Seret bubble tangkapan ke sebelah bubble lain dan tepinya akan menempel otomatis. Tahan Alt sambil menyeret untuk mematikan magnet.",
+      "fitAspect": "Samakan Rasio Sumber",
+      "fitAspectHint": "Menyetel ulang tinggi bubble ke rasio aspek sumber sehingga bilah hitam hilang — bubble yang digabung jadi terlihat menyatu.",
+      "seamless": "Sembunyikan Sambungan",
+      "seamlessHint": "Menyembunyikan border dan header sehingga bubble yang digabung terlihat seperti satu layar (header muncul kembali saat hover)"
     },
     "taskEdge": {
       "iconHint": "Klik: detail · Klik dua kali: edit",
@@ -2828,7 +2340,25 @@
     "setDefault": "Jadikan Default",
     "unsetDefault": "Hapus Default",
     "defaultTooltip": "Tab default terbuka otomatis jika tidak ada tab terakhir yang bisa dipulihkan.",
-    "detach": "Lepas ke jendela baru"
+    "detach": "Lepas ke jendela baru",
+    "rename": "Ganti Nama"
+  },
+  "overlay": {
+    "sendToOverlay": "Keluarkan bubble ini sebagai widget desktop yang selalu di atas",
+    "removeFromOverlay": "Hapus bubble ini dari overlay desktop",
+    "sendToOverlayLabel": "Overlay",
+    "removeFromOverlayLabel": "Di overlay",
+    "openIDE": "Klik untuk buka IDE",
+    "agentGone": "Agent tidak tersedia",
+    "toggleShow": "Tampilkan bubble overlay desktop",
+    "toggleHide": "Sembunyikan bubble overlay desktop",
+    "menu": {
+      "openIde": "Buka IDE",
+      "reveal": "Temukan di canvas",
+      "opacity": "Opasitas",
+      "hide": "Sembunyikan bubble ini",
+      "close": "Hapus dari overlay"
+    }
   },
   "tabDetach": {
     "detachHint": "Jatuhkan di luar tab bar untuk dibuka di jendela baru",
@@ -2841,6 +2371,9 @@
     "redockCardTitle": "Jatuhkan ke tab bar utama untuk redock",
     "redockCardSubtitle": "Atau lepaskan di tempat lain untuk tetap terlepas",
     "detachedBadge": "terlepas",
+    "minimizeWindow": "Perkecil",
+    "maximizeWindow": "Maksimalkan",
+    "restoreWindow": "Pulihkan",
     "closeWindow": "Tutup jendela",
     "missingTitle": "Tab tidak lagi tersedia",
     "missingProject": "Proyek \"{{name}}\" tidak dimuat di instance Vibisual ini.",
@@ -2860,6 +2393,8 @@
     },
     "contextMenu": {
       "createCustomAgent": "Buat Agent Kustom",
+      "createCmdAgent": "Buat CMD Agent",
+      "createCmdAgentHint": "Terminal interaktif yang Anda kendalikan (billing langganan)",
       "createAutoAgent": "Buat Auto Agent",
       "createAutoAgentHint": "Meta agent — otomatis memunculkan tim agent kustom dari prompt Anda",
       "createWorktree": "Buat Worktree",
@@ -2880,6 +2415,13 @@
       "empty": "Clipboard canvas kosong",
       "failed": "Tempel gagal",
       "invalidVersion": "Format clipboard tidak kompatibel dengan versi ini"
+    },
+    "bookmark": {
+      "assigned": "Bookmark {{slot}} → {{label}}",
+      "assignEmpty": "Tidak ada yang bisa di-bookmark — pilih bubble atau buka IDE agent terlebih dahulu",
+      "jumped": "Melompat ke {{label}}",
+      "jumpEmpty": "Bookmark {{slot}} kosong",
+      "jumpMissing": "Target bookmark sudah tidak tersedia"
     }
   },
   "common": {
@@ -2976,6 +2518,12 @@
     "purge": "Hapus permanen",
     "purgeConfirm": "Ini akan menghapus semuanya termasuk {{n}} kartu memori agent.",
     "purgeYes": "Hapus permanen",
+    "purgeAll": "Hapus semua",
+    "trashCountLabel": "{{n}} agen di tempat sampah",
+    "trashDeleteHint": "Pilih lalu tekan Delete · Shift untuk beberapa",
+    "purgeConfirmMany": "Ini menghapus {{count}} agen beserta {{n}} kartu memorinya.",
+    "purgeIrreversible": "Tindakan ini tidak dapat dibatalkan.",
+    "trashItemsMore": "+{{n}} lainnya",
     "cardCountUnitSuffix": "",
     "feed": {
       "title": "Brain Proyek",

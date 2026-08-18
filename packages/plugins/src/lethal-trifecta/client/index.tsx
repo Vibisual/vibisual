@@ -5,9 +5,9 @@
  * 훅으로 등록된 외부 Claude Code 세션은 우리가 설정을 소유하지 않으므로 판정 대상이 아니다
  * (판정할 근거가 없는데 배지를 다는 것은 잘못된 안심을 준다).
  */
-import type { PluginClientModule, PluginBubbleContext, PluginSeverity } from '../../types.js';
+import type { PluginClientModule, PluginBubbleContext, PluginSeverity } from '../../sdk/index.js';
 import { lethalTrifectaManifest } from '../manifest.js';
-import { judgeTrifecta } from '../trifecta.js';
+import { judgeTrifecta } from '../../sdk/index.js';
 import { TrifectaBadge } from './TrifectaBadge.js';
 import { TrifectaSection } from './TrifectaSection.js';
 

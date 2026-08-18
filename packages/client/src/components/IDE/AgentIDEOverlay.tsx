@@ -4,15 +4,18 @@ import type { SubAgent, SubAgentStreamEvent } from '@vibisual/shared';
 import { useGraphStore, selectIDEOverlay } from '../../stores/graphStore.js';
 import { setCanvasCover } from '../../stores/canvasVisibility.js';
 import { useIsNarrowViewport } from '../../hooks/useIsMobile.js';
+import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 import { IDEActivityBar } from './IDEActivityBar.js';
 import { IDETabBar } from './IDETabBar.js';
 import { IDESidebar } from './IDESidebar.js';
 import { IDEMainArea } from './IDEMainArea.js';
+import { IDEEditorPane } from './IDEEditorPane.js';
+import { useEditorFollow } from './useEditorFollow.js';
 import { IDEStatusBar } from './IDEStatusBar.js';
-import { IDEBookmarkView } from './IDEBookmarkPanel.js';
-import { IDESessionSummaryView } from './IDESessionSummaryView.js';
-import { IDERunningSubagentsView } from './IDERunningSubagentsView.js';
-import { IDELoopPanel } from './IDELoopPanel.js';
+import { IDERunOutputPanel } from './IDERunOutputPanel.js';
+import { useRunSessions } from '../../stores/runSessions.js';
+import { useReadingSettings } from './reading/useReadingSettings.js';
+import { ReadingSettingsPopover } from './reading/ReadingSettingsPopover.js';
 
 const EMPTY_SUBS: SubAgent[] = [];
 
@@ -45,16 +48,12 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   const activeSessionId = useGraphStore((s) => selectIDEOverlay(s).activeSessionId);
   const closeOverlay = useGraphStore((s) => s.closeIDEOverlay);
   const setSession = useGraphStore((s) => s.setIDEActiveSession);
-  const bookmarkPanelOpen = useGraphStore((s) => s.bookmarkPanelOpen);
-  const setBookmarkPanelOpen = useGraphStore((s) => s.setBookmarkPanelOpen);
-  const summaryPanelOpen = useGraphStore((s) => s.summaryPanelOpen);
-  const setSummaryPanelOpen = useGraphStore((s) => s.setSummaryPanelOpen);
-  // §5.5 #17-9 v3.51 — 실행 중 서브에이전트 덮개 패널(북마크/세션요약과 상호 배타).
-  const subagentPanelOpen = useGraphStore((s) => s.subagentPanelOpen);
-  const setSubagentPanelOpen = useGraphStore((s) => s.setSubagentPanelOpen);
-  // §5.5 #17-11 v3.79 — 세션 루프 설정 덮개 패널(위 셋과 상호 배타).
-  const loopPanelOpen = useGraphStore((s) => s.loopPanelOpen);
-  const setLoopPanelOpen = useGraphStore((s) => s.setLoopPanelOpen);
+  // §5.5 #17-20 ④ v4.74 — 실행 출력 패널(런타임 스토어 — PTY 수명과 같은 축).
+  const runOutputRunId = useRunSessions((s) => s.outputRunId);
+  const openRunOutput = useRunSessions((s) => s.openOutput);
+
+  // §5.5 #17-9 ③ v4.95 — 실행 중 서브에이전트도 사이드바 뷰('subagents')가 되어 덮개가 사라졌다.
+  //   이제 IDE 에 남은 덮개는 #17-20 ④ 실행 출력 하나뿐이다.
   const setIDEDocked = useGraphStore((s) => s.setIDEDocked);
   const storeDockedRight = useGraphStore((s) => selectIDEOverlay(s).dockedRight);
   const storeDockWidth = useGraphStore((s) => selectIDEOverlay(s).dockWidth);
@@ -97,16 +96,26 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   // §4 v3.24 — 폰(max-md)에선 좌측 내비(활동바+사이드바)를 기본 숨기고, 타이틀바 토글 버튼으로만 연다
   //   (좁은 화면에서 활동바 48px 가 본문을 상시 짓누르지 않게). 데스크톱은 isNarrow=false 라 항상 표시.
   const isNarrow = useIsNarrowViewport();
+  // §5.5 #17-27 ⑪ — [추종] 이 켜져 있으면 그 **세션**이 고치는 파일을 편집창이 따라 연다.
+  //   편집창은 열린 파일이 없으면 렌더되지 않으므로, 여는 판단은 그 밖(여기)에 있어야 한다.
+  useEditorFollow(agentId ?? '', activeSessionId, isNarrow);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  // 사이드바에서 세션을 고르거나(activeSessionId 변경) 덮개 패널(북마크/세션요약)을 열면
-  //   내비를 닫아 목적지 화면이 바로 보이게 한다.
+  // 사이드바에서 세션을 고르면(activeSessionId 변경) 내비를 닫아 목적지 화면이 바로 보이게 한다.
+  //   v4.93 — 북마크·세션 요약은 여기서 빠졌다: 이제 목적지가 **사이드바 자신**이라 내비를 닫으면
+  //   방금 연 목록까지 함께 사라진다(폰에서 사이드바는 내비와 한 몸으로 뜬다).
+  //   v4.95 — 실행 중 서브에이전트도 같은 이유로 빠졌다(사이드바 뷰가 됐다).
   useEffect(() => {
     if (isNarrow) setMobileNavOpen(false);
-  }, [isNarrow, activeSessionId, bookmarkPanelOpen, summaryPanelOpen, subagentPanelOpen, loopPanelOpen]);
+  }, [isNarrow, activeSessionId]);
   // §4 v3.25 — 폰에선 하단 상태바(IDEStatusBar)도 기본 숨김 — 타이틀바 우측 토글 버튼으로만 연다
   //   (h-6 한 줄이지만 폰에선 본문 세로 공간이 더 귀하다). 데스크톱은 isNarrow=false 라 항상 표시.
   const [mobileStatusOpen, setMobileStatusOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  // §5.5 읽기 설정 — 훅이 <html> 에 CSS 변수를 실어 IDE 본문 폭·타이포그래피를 결정한다.
+  //   패널 열림 여부는 이 컴포넌트만 아는 UI 상태(전역 store 금지 규칙).
+  const { mobileAdapted, fontAvailability } = useReadingSettings();
+  const [readingOpen, setReadingOpen] = useState(false);
+  const closeReading = useCallback(() => setReadingOpen(false), []);
   // 열 때 사이드바가 접혀 있으면 함께 펼친다 — 활동바 48px 만 덜렁 뜨면 "버튼 눌렀는데 안 나온다"로 보인다.
   const handleToggleMobileNav = useCallback(() => {
     const next = !mobileNavOpen;
@@ -115,6 +124,9 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     }
     setMobileNavOpen(next);
   }, [mobileNavOpen]);
+
+  // 폰 내비 스크림 — 스크림 자체를 눌렀다 뗐을 때만 닫는다(사이드바에서 시작한 드래그로는 ❌).
+  const mobileNavBackdrop = useBackdropDismiss(() => setMobileNavOpen(false));
 
   // §5.5 v3.39 — 타이틀바 에이전트 이름 인라인 편집. DetailPanel 의 클릭 리네임과 같은 경로
   //   (PATCH /api/bubble/:id/label) 를 써서 캔버스 버블 이름이 함께 바뀐다. 진입은 이름 더블클릭
@@ -198,10 +210,10 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   const [flashKey, setFlashKey] = useState<number>(0);
   const windowRef = useRef<HTMLDivElement | null>(null);
   const prevRef = useRef<{ agentId: string | null; projectId: string | null }>({ agentId: null, projectId: null });
-  // modal 백드롭(여백) 클릭으로 닫기 — 단, "누르기 시작한 지점"이 백드롭일 때만.
+  // modal 백드롭(여백) 클릭으로 닫기 — 판정은 모든 팝업이 공유하는 규약(useBackdropDismiss)에 위임한다.
   // IDE 윈도우 안에서 시작한 드래그(텍스트 선택 등)가 백드롭에서 끝나면 click 의 공통 조상이
-  // 백드롭이 되어 닫혀버리던 버그 차단. mousedown 타깃을 기록해 그때만 닫는다.
-  const pressOnBackdropRef = useRef(false);
+  // 백드롭이 되어 닫혀버리던 버그가 그 규약의 출발점이다.
+  const backdrop = useBackdropDismiss(closeOverlay);
 
   // §5.5 #17-1 (v2.17) — agentId/projectId 전이 처리:
   //   (a) null → truthy : 새로 열림 — store.dockedRight 가 true 면 docked-right 복원, 아니면 modal
@@ -391,7 +403,10 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     fetch(`/api/subagent-streams/${agentId}`)
       .then((r) => r.json())
       .then((data: { streams?: Record<string, SubAgentStreamEvent[]> }) => {
-        if (data.streams) useGraphStore.getState().loadStreamBuffers(data.streams);
+        // 'shallow' — 세션당 얕은 꼬리(`MAX_STREAM_BUFFER_BULK`)라, 이미 깊은 복원분을 들고 있는
+        // 세션은 스토어가 줄이지 않고 겹치지 않는 꼬리만 이어 붙인다(늦게 도착한 얕은 응답이
+        // 깊은 창을 덮어 되돌리던 것을 막는다).
+        if (data.streams) useGraphStore.getState().loadStreamBuffers(data.streams, 'shallow');
       })
       .catch(() => {})
       .finally(() => setRefreshing(false));
@@ -399,6 +414,61 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
 
   // IDE 열릴 때(agentId 변경 시) 자동 로드.
   useEffect(() => { refreshStreams(); }, [refreshStreams]);
+
+  // §5.5 v4.92 — 보고 있는 세션만 **깊은 복원분**을 따로 받는다.
+  //   위 전체 조회는 에이전트의 모든 세션을 담느라 세션당 얕게 주고(안 보는 세션은 클라가 어차피
+  //   비활성 상한으로 깎는다), 사용자가 실제로 연 세션은 여기서 상한 전체를 받아 오래된 대화가
+  //   "말풍선과 카드만 남고" 비지 않게 한다. 세션 탭을 옮길 때마다 그 세션 것 하나만 오간다.
+  //
+  //   ⚠ 이 요청은 **한 번 성공할 때까지, 그리고 깎일 때마다 다시** 나가야 한다. 종전에는
+  //   `[agentId, activeSessionId]` 가 바뀔 때만 한 번 나가서 — ① 응답이 비어 오거나(복원 직후
+  //   서버가 그 세션을 아직 들고 있지 않은 찰나) ② 그 사이 얕은 응답이 덮거나 ③ 비활성 컷(300)이
+  //   창을 깎아도 재요청이 없었다. 그러면 그 세션은 얕은 창인 채로 굳고, 화면은 말풍선·카드만
+  //   남는다. 이제 스토어의 깊은 복원 표식(`deepRestoredSessions`)이 없으면 다시 받아 온다 —
+  //   표식은 비활성 컷·세션 제거가 지우므로, **세션이 다시 활성화될 때마다 자동으로 재요청**된다.
+  const deepRestored = useGraphStore((s) => (activeSessionId ? s.deepRestoredSessions[activeSessionId] === true : true));
+  useEffect(() => {
+    if (!agentId || !activeSessionId || deepRestored) return;
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    // 빈 응답은 "없다"가 아니라 대개 "아직"이다 — 복원 직후엔 서버가 그 세션을 등록하기 전이라
+    // 빈 배열이 온다. 종전처럼 조용히 포기하면 영영 얕은 채로 남으므로 짧게 물러났다 다시 묻는다.
+    const RETRY_DELAYS = [400, 1200, 3000];
+    const run = (attempt: number): void => {
+      fetch(`/api/subagent-streams/${agentId}/${activeSessionId}`)
+        .then((r) => r.json())
+        .then((data: { events?: SubAgentStreamEvent[] }) => {
+          if (cancelled) return;
+          const server = data.events;
+          if (!server || server.length === 0) {
+            const delay = RETRY_DELAYS[attempt];
+            if (delay !== undefined) retryTimer = setTimeout(() => run(attempt + 1), delay);
+            return;
+          }
+          // ⚠ 이 적재는 그 세션의 버퍼를 **교체**한다. 요청이 오가는 사이 WS 로 도착한 라이브
+          //   이벤트가 응답에는 없으므로, 그대로 덮으면 방금 흘러온 몇 줄이 화면에서 사라진다
+          //   (에이전트가 말하는 중에 탭을 옮기면 바로 보이는 증상). 서버 응답의 마지막 시각
+          //   이후분만 id 로 걸러 뒤에 이어 붙여 순서를 지킨다.
+          const lastTs = server[server.length - 1]!.timestamp;
+          const seen = new Set(server.map((e) => e.id));
+          const prev = useGraphStore.getState().subAgentStreams[activeSessionId] ?? [];
+          const tail = prev.filter((e) => e.timestamp >= lastTs && !seen.has(e.id));
+          useGraphStore.getState().loadStreamBuffers({
+            [activeSessionId]: tail.length > 0 ? [...server, ...tail] : server,
+          }, 'deep');
+        })
+        .catch(() => {
+          if (cancelled) return;
+          const delay = RETRY_DELAYS[attempt];
+          if (delay !== undefined) retryTimer = setTimeout(() => run(attempt + 1), delay);
+        });
+    };
+    run(0);
+    return () => {
+      cancelled = true;
+      if (retryTimer !== null) clearTimeout(retryTimer);
+    };
+  }, [agentId, activeSessionId, deepRestored]);
 
   // + 탭 클릭 — 브라우저 새 탭 처럼 클릭 즉시 새 탭 생성 + 포커스 (서버 응답 대기 X).
   //   1) 클라이언트가 sub id 미리 생성
@@ -410,6 +480,9 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   //   3) 같은 id 를 body 로 POST → 서버가 그 id 로 등록 (snapshot 이 도착해도 같은 sub 라 no-op)
   const handleNewSession = useCallback(() => {
     if (!agentId) return;
+    // §5.5 #17-29 — 훅 버블은 읽기 전용. 손잡이(탭 `+`)는 이미 숨겼지만, 낙관적 탭을 먼저 그려 두고
+    //   POST 가 403 으로 튕기면 유령 탭이 남으므로 여기서도 끊는다(서버가 권위, 화면은 앞서가지 않는다).
+    if (!isCustom) return;
     const id = `sub-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     const optimisticSub: SubAgent = {
       id,
@@ -427,7 +500,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ subAgentId: id }),
     }).catch(() => {});
-  }, [agentId, setSession]);
+  }, [agentId, isCustom, setSession]);
 
   // §4 v2.63 — 커스텀 에이전트(CMD 포함)는 항상 ≥1 세션 탭. IDE 가 열렸는데 세션이 0개면 자동으로
   //   하나 연다 ("+"=새 세션 모델과 동일 경로). 새 커스텀 에이전트를 더블클릭해 IDE 를 처음 열면
@@ -508,8 +581,8 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   return (
     <div
       className={outerClass}
-      onMouseDown={useBackdrop ? (e) => { pressOnBackdropRef.current = e.target === e.currentTarget; } : undefined}
-      onClick={useBackdrop ? (e) => { if (e.target === e.currentTarget && pressOnBackdropRef.current) closeOverlay(); } : undefined}
+      onMouseDown={useBackdrop ? backdrop.onMouseDown : undefined}
+      onClick={useBackdrop ? backdrop.onClick : undefined}
       // modal(백드롭 블러) 모드에선 뒤쪽 캔버스가 가려진 상태다 — 백드롭 우클릭이 rfContainer 까지
       // 올라가 캔버스 생성 메뉴가 블러 뒤에서 열리던 것을 차단한다(보이지도 않는 메뉴가 뜨는 문제).
       // floating/docked 는 백드롭이 없고(outer 가 pointer-events-none) 캔버스가 그대로 살아 있어야
@@ -664,6 +737,33 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
                 <path d="M3 15h18" />
               </svg>
             </button>
+            {/* §5.5 읽기 설정 — 폭 안(A~D)·읽기 폭·행간/자간/어간·글꼴·모바일 자동 변형.
+                초광폭 창에서 한 줄이 길어져 읽기 어려운 문제를 사용자가 직접 조절하는 자리. */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setReadingOpen((v) => !v)}
+                aria-expanded={readingOpen}
+                className={`app-nodrag flex h-6 w-6 items-center justify-center rounded transition-colors pointer-coarse:h-9 pointer-coarse:w-9 ${
+                  readingOpen ? 'bg-gray-700 text-gray-100' : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+                }`}
+                aria-label={t('ide.reading.buttonLabel')}
+                title={t('ide.reading.buttonLabel')}
+              >
+                <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M4 7V4h16v3" />
+                  <path d="M9 20h6" />
+                  <path d="M12 4v16" />
+                </svg>
+              </button>
+              {readingOpen && (
+                <ReadingSettingsPopover
+                  onClose={closeReading}
+                  mobileAdapted={mobileAdapted}
+                  fontAvailability={fontAvailability}
+                />
+              )}
+            </div>
             {/* 새로고침 — 디스크의 세션 스트림(sub-streams/*.jsonl) + 캔버스 스냅샷을 재요청.
                 크래시/미hydrate 로 "No activity" 인데 데이터는 살아있는 경우 앱 재시작 없이 복구. */}
             <button
@@ -729,14 +829,15 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
         />
 
         {/* Body: Activity bar + Sidebar + Main area.
-            §5.5 #17-7 — 북마크 패널은 활동바 우측(메인+사이드바) 영역 전체를 덮는 별도 "세션창"으로 뜬다. */}
+            §5.5 #17-20 ④ — 활동바 우측 영역 전체를 덮는 별도 "세션창"은 이제 실행 출력 하나뿐이다
+            (북마크·세션 요약은 v4.93, 실행 중 서브에이전트는 #17-9 ③ v4.95 부터 사이드바 뷰). */}
         <div className="relative flex min-h-0 flex-1">
           {/* §4 v3.24 — 폰에선 좌측 내비(활동바+사이드바)를 타이틀바 토글로만 연다. 열리면 본문 위
               오버레이(활동바 max-md:absolute + 사이드바 v3.18 오버레이)로 뜨고, backdrop 탭으로 닫는다. */}
           {isNarrow && mobileNavOpen && (
             <div
               className="absolute inset-0 z-20 bg-black/40"
-              onClick={() => setMobileNavOpen(false)}
+              {...mobileNavBackdrop}
               aria-hidden="true"
             />
           )}
@@ -747,24 +848,13 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
             </>
           )}
           <IDEMainArea agentId={agentId} isCustom={isCustom} />
-          {bookmarkPanelOpen && (
+          {/* §5.5 #17-27 v4.87 — 내장 편집창. 대화를 덮지 않고 그 오른쪽에 선다(열린 파일이 없으면 렌더 ❌).
+              폰 폭에서는 나란히 둘 자리가 없어 대화 위 오버레이로 뜬다. */}
+          <IDEEditorPane narrow={isNarrow} />
+          {/* §5.5 #17-20 ④ v4.74 — 실행 출력. 디버그 뷰에서 [출력]을 누르면 열린다(같은 덮개 자리). */}
+          {runOutputRunId && (
             <div className="absolute inset-y-0 left-12 right-0 z-20 max-md:left-0">
-              <IDEBookmarkView onClose={() => setBookmarkPanelOpen(false)} />
-            </div>
-          )}
-          {summaryPanelOpen && (
-            <div className="absolute inset-y-0 left-12 right-0 z-20 max-md:left-0">
-              <IDESessionSummaryView agentId={agentId} onClose={() => setSummaryPanelOpen(false)} />
-            </div>
-          )}
-          {subagentPanelOpen && (
-            <div className="absolute inset-y-0 left-12 right-0 z-20 max-md:left-0">
-              <IDERunningSubagentsView agentId={agentId} onClose={() => setSubagentPanelOpen(false)} />
-            </div>
-          )}
-          {loopPanelOpen && (
-            <div className="absolute inset-y-0 left-12 right-0 z-20 max-md:left-0">
-              <IDELoopPanel agentId={agentId} onClose={() => setLoopPanelOpen(false)} />
+              <IDERunOutputPanel onClose={() => openRunOutput(null)} />
             </div>
           )}
         </div>

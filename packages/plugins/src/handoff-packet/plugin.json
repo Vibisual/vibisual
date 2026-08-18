@@ -1,0 +1,17 @@
+{
+  "id": "handoff-packet",
+  "name": "Handoff",
+  "version": "1.0.0",
+  "category": "workflow",
+  "descriptionKey": "panel.plugins.handoffPacket.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "taskEdges"
+  ],
+  "hostApi": 1
+}

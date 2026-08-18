@@ -1,0 +1,17 @@
+{
+  "id": "semantic-memory",
+  "name": "Semantic Memory",
+  "version": "1.0.0",
+  "category": "observability",
+  "descriptionKey": "panel.plugins.semanticMemory.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "brain"
+  ],
+  "hostApi": 1
+}

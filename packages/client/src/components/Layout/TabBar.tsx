@@ -5,6 +5,8 @@ import { useGraphStore } from '../../stores/graphStore.js';
 import type { IframeTab } from '../../stores/graphStore.js';
 import { TabContextMenu } from './TabContextMenu.js';
 import { HoverTooltip } from './HoverTooltip.js';
+import { useTabPushAnimation } from '../../hooks/useTabPushAnimation.js';
+import { resolveTabReorder } from '../../hooks/tabPushGeom.js';
 
 type TabItem =
   | {
@@ -161,7 +163,6 @@ export function TabBar(): React.JSX.Element | null {
   }, []);
 
   // --- Drag & Drop ---
-  const dragIndexRef = useRef<number | null>(null);
   const dragKeyRef = useRef<string | null>(null);
   const tabBarRectRef = useRef<DOMRect | null>(null);
   const [dragKey, setDragKey] = useState<string | null>(null);
@@ -172,8 +173,7 @@ export function TabBar(): React.JSX.Element | null {
   const [floatingHint, setFloatingHint] = useState<{ x: number; y: number; outside: boolean; label: string } | null>(null);
 
   const handleDragStart = useCallback(
-    (e: React.DragEvent, index: number, key: string) => {
-      dragIndexRef.current = index;
+    (e: React.DragEvent, key: string) => {
       dragKeyRef.current = key;
       setDragKey(key);
       e.dataTransfer.effectAllowed = 'move';
@@ -195,23 +195,30 @@ export function TabBar(): React.JSX.Element | null {
         }, 0);
       } catch { /* noop */ }
     },
-    [tabMap],
+    [],
   );
 
+  // 자리를 내주는 순간 = 커서가 **그 탭의 중앙선을 넘었을 때**. 넘기 전에 바꾸면 자리가 바뀌자마자
+  // 커서가 다시 반대편 탭 위에 놓여 두 탭이 매 프레임 맞바꿔지는 떨림이 생긴다(§5.4 #14 밀어내기).
+  // 순서는 index 가 아니라 **키**로 옮긴다 — 별창으로 빠져 화면에 없는 탭이 tabOrder 사이에 껴 있어도
+  // 보이는 앞뒤가 어긋나지 않는다.
   const handleDragOver = useCallback(
-    (e: React.DragEvent, overIndex: number) => {
+    (e: React.DragEvent, overKey: string) => {
       e.preventDefault();
       e.dataTransfer.dropEffect = 'move';
-      const fromIndex = dragIndexRef.current;
-      if (fromIndex === null || fromIndex === overIndex) return;
-      // Live reorder (Chrome-tab-like behavior)
-      setTabOrder((prev) => {
-        const next = [...prev];
-        const moved = next.splice(fromIndex, 1)[0] as string;
-        next.splice(overIndex, 0, moved);
-        return next;
-      });
-      dragIndexRef.current = overIndex;
+      const movedKey = dragKeyRef.current;
+      if (!movedKey || movedKey === overKey) return;
+      // rect/좌표는 핸들러가 살아 있는 지금 읽는다(updater 안에서는 currentTarget 이 이미 비어 있다).
+      const rect = e.currentTarget.getBoundingClientRect();
+      const pointerX = e.clientX;
+      setTabOrder((prev) => resolveTabReorder({
+        order: prev,
+        movedKey,
+        targetKey: overKey,
+        pointerX,
+        targetLeft: rect.left,
+        targetWidth: rect.width,
+      }) ?? prev);
     },
     [],
   );
@@ -258,7 +265,6 @@ export function TabBar(): React.JSX.Element | null {
 
   const handleDragEnd = useCallback((e: React.DragEvent) => {
     const draggedKey = dragKeyRef.current;
-    dragIndexRef.current = null;
     dragKeyRef.current = null;
     setDragKey(null);
     setDetachHint(false);
@@ -501,6 +507,15 @@ export function TabBar(): React.JSX.Element | null {
 
   useEffect(() => { updateScrollState(); }, [orderedTabs, updateScrollState]);
 
+  // §5.4 #14 — 순서가 바뀌면 옆 탭이 **밀려나며** 제자리에 앉는다(FLIP). 끌고 있는 탭은 손을 바로
+  // 따라오고 이웃은 살짝 넘겼다 돌아온다. 탭이 닫혀 옆이 메워질 때도 같은 재생이 돈다.
+  useTabPushAnimation({
+    container: scrollEl,
+    keyAttribute: 'data-tab-key',
+    order: orderedTabs.map((t) => t.key),
+    leadKey: dragKey,
+  });
+
   const handleWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
     const el = scrollEl;
     if (!el) return;
@@ -608,8 +623,8 @@ export function TabBar(): React.JSX.Element | null {
               key={item.key}
               data-tab-key={item.key}
               draggable
-              onDragStart={(e) => handleDragStart(e, idx, item.key)}
-              onDragOver={(e) => handleDragOver(e, idx)}
+              onDragStart={(e) => handleDragStart(e, item.key)}
+              onDragOver={(e) => handleDragOver(e, item.key)}
               onDragEnd={handleDragEnd}
               onContextMenu={(e) => handleContextMenu(e, item, idx)}
               className={`group app-nodrag relative flex w-32 flex-shrink-0 items-center gap-1.5 border-r border-black/30 px-2.5 text-[12px] font-medium transition-all duration-150 cursor-grab select-none ${
@@ -685,8 +700,8 @@ export function TabBar(): React.JSX.Element | null {
             key={item.key}
             data-tab-key={item.key}
             draggable
-            onDragStart={(e) => handleDragStart(e, idx, item.key)}
-            onDragOver={(e) => handleDragOver(e, idx)}
+            onDragStart={(e) => handleDragStart(e, item.key)}
+            onDragOver={(e) => handleDragOver(e, item.key)}
             onDragEnd={handleDragEnd}
             onContextMenu={(e) => handleContextMenu(e, item, idx)}
             className={`group app-nodrag relative flex w-32 flex-shrink-0 items-center gap-1.5 border-r border-black/30 px-2.5 text-[12px] font-medium transition-all duration-150 cursor-grab select-none ${

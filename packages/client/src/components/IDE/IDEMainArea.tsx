@@ -2,20 +2,28 @@ import { memo, useState, useCallback, useRef, useEffect, useLayoutEffect, useMem
 import { Virtuoso, type VirtuosoHandle, type StateSnapshot } from 'react-virtuoso';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import type { QueuedCommand, SubAgent, SubAgentStreamEvent, AgentEvent, AgentReport, AgentQuestions, AgentReview, AgentList, AskUserQuestionRequest } from '@vibisual/shared';
-import { STREAM_DENSITIES, type StreamDensity } from '@vibisual/shared';
+import type { QueuedCommand, CommandError, SubAgent, SubAgentStreamEvent, AgentEvent, AgentReport, AgentQuestions, AgentReview, AgentList, AskUserQuestionRequest } from '@vibisual/shared';
+import { STREAM_DENSITIES, STREAM_COMPACT_TEXT_CLAMP_LINES, STREAM_COMPACT_TEXT_CLAMP_CHARS, type StreamDensity } from '@vibisual/shared';
+import { useSessionRunning } from '../../hooks/useSessionRunning.js';
+import { clampStreamText } from './streamDensity.js';
 import type { TodoItem } from '@vibisual/shared';
-import { latestPlanProgress, parsePlanTodos, isSystemSubtypeChip, PLAN_TOOL_NAME } from './streamItems.js';
+import { latestPlanProgress, parsePlanTodos, isSystemSubtypeChip, isHiddenSystemSubtype, PLAN_TOOL_NAME, commandAnchorTs, PENDING_COMMAND_TS, isCardEchoText } from './streamItems.js';
+import { foldTaskChips } from './taskChips.js';
+import { describeCommandError, parseStreamErrorContent, joinCommandErrorLine } from './commandError.js';
 import { PlanBlock } from './PlanBlock.js';
 import { toolPreview } from './toolPreview.js';
 import { useGraphStore, agentSessionInputKey, selectIDEOverlay } from '../../stores/graphStore.js';
-import type { AgentSessionInputAttachment } from '../../stores/graphStore.js';
+import type { AgentSessionInputAttachment, EditorFollowMark } from '../../stores/graphStore.js';
 import { useAvailableSkills, type SkillInfo, type BuiltinCommandInfo } from '../../hooks/useAvailableSkills.js';
 import { useSessionStop } from '../../hooks/useSessionStop.js';
+import { IDEContextMenu, type ContextMenuItem } from './IDEContextMenu.js';
 import { StreamRenderer, StreamEndGap, type StreamRendererHandle } from './StreamRenderer.js';
 import { useAttachmentThumbs } from './attachmentThumb.js';
+import { ImageLightboxView } from './ImageAnnotator.js';
 import { decideFollow } from './followDecision.js';
+import { FOLLOW_SKIP_SHORT_KEYS, followSessionKey } from './editorFollow.js';
 import { useVirtuosoFrontShift } from './frontShift.js';
+import { readingItemAttrsNoProse } from './reading/readingModel.js';
 import { useStreamToggle, streamToggleProps, STREAM_TOGGLE_ATTR } from './streamToggle.js';
 import { findTextRangeInContainer, scrollRangeIntoCenter, scrollElementIntoCenter, flashElement, findItemElement, resolveAnchorIdFromSelection } from './bookmarkScroll.js';
 import { AskQuestionCard } from './AskQuestionCard.js';
@@ -25,10 +33,12 @@ import { AgentReviewCard } from './AgentReviewCard.js';
 import { AgentListCard } from './AgentListCard.js';
 import { UnseenCardPills, type UnseenCardMeta } from './UnseenCardPills.js';
 import { IDETerminalView } from './IDETerminalView.js';
-import { SystemNode, parseSystemSubtype } from './SystemNode.js';
+import { SystemNode, parseSystemSubtype, parseSystemTaskInfo } from './SystemNode.js';
 import { ThinkingLiveLine } from './ThinkingIndicator.js';
-import { CollapsiblePrompt, AiSpeakerGlyph } from './CollapsiblePrompt.js';
+// §5.5 #17-18 ⑤ v4.77 — 대기 중 덧말의 상태·컨트롤은 이 말풍선이 갖는다(옛 대기 줄 대체).
+import { CollapsiblePrompt, AiSpeakerGlyph, type PromptCommandState } from './CollapsiblePrompt.js';
 import { INPUT_FIELD_SIZING, INPUT_MAX_HEIGHT, autosizeInput } from './inputAutosize.js';
+import { decideArrowKey, getCommandHistory, hasCommandHistory, seedCommandHistory, type HistoryNavState } from './commandHistory.js';
 
 /** SDK 가 생각 중 반복 송출하는 system 펄스 subtype — 본문에 쌓이지 않게 라이브 1줄로 대체. */
 const THINKING_PULSE_SUBTYPE = 'thinking_tokens';
@@ -40,6 +50,14 @@ function isThinkingPulse(evt: { eventType: string; content: string }): boolean {
  *  사고 원문은 본문에 쌓지 않고, 진행 중 라이브 1줄만이 유일한 표면이다(Sub 탭 streamItems 와 같은 규칙). */
 function isThinkingActivity(evt: { eventType: string; content: string }): boolean {
   return evt.eventType === 'thinking' || isThinkingPulse(evt);
+}
+
+/** §5.5 #17-13 ⑤-4 — 어느 밀도에서도 안 그리는 칩(`status`·살림성 `*_changed`)은 항목 자체를 만들지 않는다.
+ *  Sub 탭(streamItems)이 항목 조립 단계에서 이미 거르는 것과 **같은 판정**이다(두 탭이 갈라지지 않게). */
+function isHiddenSystemEvent(evt: { eventType: string; content: string }): boolean {
+  if (evt.eventType !== 'system') return false;
+  const subtype = parseSystemSubtype(evt.content);
+  return subtype !== null && isHiddenSystemSubtype(subtype);
 }
 
 /** §5.5 #17-2 v3.19 — 슬래시 드롭다운 항목: 디스크 스킬/커맨드 또는 CLI 내장(built-in) 명령. */
@@ -132,6 +150,11 @@ interface TerminalEntry {
   timestamp: number;
   sessionLabel?: string;
   toolName?: string;
+  /**
+   * §5.5 #17-18 ⑤ v4.77 — `type==='command'` 일 때 그 명령의 큐 상태. 말풍선이 이 값으로 색을 정하고,
+   * 대기 중이면 [대기|합치기|즉시]·삭제 컨트롤을 스스로 띄운다(옛 입력창 위 대기 줄 대체).
+   */
+  command?: PromptCommandState;
 }
 
 /** 접을 수 있는 그룹 (tool_use+tool_result 쌍, 연속 text 블록) */
@@ -152,10 +175,12 @@ interface TerminalGroup {
   toolNames?: string[];
 }
 
-/** 생각 중 라이브 1줄 — 실제 thinking 중일 때만 본문 하단에 1개 등장 */
+/** 라이브 1줄 — 에이전트가 작동하는 내내 본문 하단에 1개 떠 있다(§5.5 #17-24 ②, Sub 탭과 동형). */
 interface TerminalThinkingLive {
   kind: 'thinking-live';
   id: string;
+  /** `thinking` = 사고 중, `working` = 그 외 작업 중. 라벨·색만 가른다(항목은 그대로). */
+  mode: 'thinking' | 'working';
   timestamp: number;
 }
 
@@ -174,10 +199,11 @@ type TerminalItem = (TerminalEntry & { kind?: undefined }) | TerminalGroup | Ter
 type MainTimelineNode =
   | { t: 'item'; item: TerminalItem }
   // §5.5 #17-12 — 같은 턴의 검수 요청은 별도 노드가 아니라 이 신고 카드 안쪽 구획으로 흡수된다.
-  | { t: 'report'; report: AgentReport; review?: AgentReview }
-  | { t: 'question'; questions: AgentQuestions }
-  | { t: 'review'; review: AgentReview }
-  | { t: 'list'; list: AgentList }
+  // §5.5 #17-18 ⑦-2 — `live` = 이 카드가 속한 턴이 아직 도는 중(헤더에 `작업 중` 배지).
+  | { t: 'report'; report: AgentReport; review?: AgentReview; live?: boolean }
+  | { t: 'question'; questions: AgentQuestions; live?: boolean }
+  | { t: 'review'; review: AgentReview; live?: boolean }
+  | { t: 'list'; list: AgentList; live?: boolean }
   | { t: 'ask'; request: AskUserQuestionRequest };
 
 /** 타임라인 노드의 안정 id — Virtuoso key·앞쪽 절단 shift 카운트가 공용(중복 분기 제거). */
@@ -192,6 +218,67 @@ function mainTimelineNodeId(n: MainTimelineNode): string {
   }
 }
 
+// ─── §5.5 #17-18 ⑦-5: 카드 발송 보고 한 줄 걷어내기(메인 탭 판본) ───
+//   Sub 탭은 `dropCardEchoTexts`(streamItems.ts)가 같은 일을 한다. 문구 판정은 **같은 함수**
+//   (`isCardEchoText`)를 쓴다 — 두 렌더 경로가 갈리면 같은 줄이 탭에 따라 보이고 안 보인다(⑦-3 과 같은 이유).
+
+/** 이 노드 바로 뒤에 붙은 한 줄이라야 발송 보고로 본다. */
+const MAIN_ECHO_CARD_TYPES: ReadonlySet<MainTimelineNode['t']> = new Set(['report', 'question', 'review', 'list']);
+
+/** 뒤로 훑을 때 건너뛰는 노드 — 그 자체로는 에이전트가 "한 말"이 아니다(도구 묶음·회색 잡음·라이브 1줄). */
+function isMainEchoSkip(n: MainTimelineNode): boolean {
+  if (n.t !== 'item') return false;
+  const it = n.item;
+  if (it.kind === 'group') return it.groupType === 'tool';
+  if (it.kind === 'thinking-live') return true;
+  if (it.kind === undefined) return it.type === 'system' || it.type === 'tool_use' || it.type === 'tool_result';
+  return false;
+}
+
+/** 이 노드가 단독 본문 한 줄이면 그 내용, 아니면 null(묶인 본문은 이미 접혀 있어 대상이 아니다). */
+function mainEchoTextOf(n: MainTimelineNode): string | null {
+  if (n.t !== 'item') return null;
+  const it = n.item;
+  return it.kind === undefined && it.type === 'text' ? it.text : null;
+}
+
+/** `sofar[0..end)` 의 마지막 "말" 이 카드인가(도구·시스템 노드는 건너뛴다). */
+function precededByCardNode(sofar: readonly MainTimelineNode[], end: number): boolean {
+  for (let k = end - 1; k >= 0; k--) {
+    const n = sofar[k]!;
+    if (isMainEchoSkip(n)) continue;
+    return MAIN_ECHO_CARD_TYPES.has(n.t);
+  }
+  return false;
+}
+
+/** 뺄 것이 하나도 없으면 입력 배열을 그대로 돌려준다(노드 참조 안정 = 재측정 없음). */
+function dropCardEchoNodes(nodes: MainTimelineNode[]): MainTimelineNode[] {
+  let out: MainTimelineNode[] | null = null;
+  for (let i = 0; i < nodes.length; i++) {
+    const n = nodes[i]!;
+    const content = mainEchoTextOf(n);
+    if (content !== null && isCardEchoText(content) && precededByCardNode(out ?? nodes, out ? out.length : i)) {
+      if (!out) out = nodes.slice(0, i);
+      continue;
+    }
+    if (out) out.push(n);
+  }
+  return out ?? nodes;
+}
+
+/**
+ * §5.5 읽기 설정 — 메인 탭 노드의 폭 취급.
+ * 메인 탭은 Sub 탭과 달리 마크다운 컨테이너(`.ide-md`)를 쓰지 않으므로 안쪽에 폭을 넘길 그리드가 없다.
+ * 그래서 **도구 줄·도구 묶음만** 칼럼 밖으로 내보내고 나머지는 전부 칼럼 안에 남긴다.
+ */
+function mainTimelineReadingKind(n: MainTimelineNode): string {
+  if (n.t !== 'item') return n.t;
+  if (n.item.kind === 'group') return n.item.groupType === 'tool' ? 'toolgroup' : n.item.groupType;
+  if (n.item.kind === 'plan' || n.item.kind === 'thinking-live') return n.item.kind;
+  return n.item.type === 'tool_use' || n.item.type === 'tool_result' ? 'tool' : n.item.type;
+}
+
 /** 스트림 이벤트 + 명령 대기열 + agentEvents를 통합하여 터미널 항목 생성 */
 function buildEntries(
   commands: QueuedCommand[],
@@ -199,6 +286,8 @@ function buildEntries(
   streams: Record<string, SubAgentStreamEvent[]>,
   activeSessionId: string | null,
   agentEvents: AgentEvent[],
+  // §5.5 #17-12 ③ — 실패 사유를 사람 문장으로 바꾸는 로케일 주입(이 함수는 순수하게 유지한다).
+  formatError: (error: CommandError) => string,
 ): TerminalEntry[] {
   const entries: TerminalEntry[] = [];
   const subLabelMap = new Map(subAgents.map((s) => [s.id, s.label]));
@@ -223,7 +312,10 @@ function buildEntries(
     }
   }
 
-  // 명령 대기열 프롬프트 — 상태 무관하게 항상 표시 (queued는 system 스타일, 나머지는 command 스타일)
+  // 명령 대기열 프롬프트 — 상태 무관하게 항상 "내 메시지" 말풍선으로 표시한다.
+  //   §5.5 #17-18 ⑤ v4.77 — 대기 중(queued)도 종전 system 잔줄이 아니라 같은 말풍선이다.
+  //   상태는 `command` 로 실어 보내 말풍선이 **색**으로 구분하고(대기/합치기/즉시/실행 중),
+  //   대기 중이면 방식 칩·삭제까지 그 말풍선 안에서 조작한다.
   const targetCmds = activeSessionId === null
     ? commands
     : commands.filter((c) => c.subAgentId === activeSessionId);
@@ -235,10 +327,17 @@ function buildEntries(
 
     entries.push({
       id: `cmd-${cmd.id}`,
-      type: cmd.status === 'queued' ? 'system' : 'command',
+      type: 'command',
       text: cmd.text,
-      timestamp: cmd.timestamp,
+      // §5.5 #17-18 ⑥ — 큐에 넣은 시각이 아니라 **나간 시각**에 선다. 대기 중이면 꼬리로 밀려
+      //   화면 맨 아래에 남고(=다음에 나갈 것), dispatch 되는 순간 그 자리에 고정돼 턴 경계선이 된다.
+      timestamp: commandAnchorTs(cmd),
       sessionLabel,
+      command: {
+        status: cmd.status,
+        ...(cmd.dispatchMode ? { dispatchMode: cmd.dispatchMode } : {}),
+        commandId: cmd.id,
+      },
     });
   }
 
@@ -251,10 +350,12 @@ function buildEntries(
       const label = subLabelMap.get(subId);
       for (const evt of events) {
         if (isThinkingActivity(evt)) continue; // §5.5 #17-15 — 사고(펄스·델타)는 본문에 쌓지 않음 (라이브 1줄로 대체)
+        if (isHiddenSystemEvent(evt)) continue; // §5.5 #17-13 ⑤-4 — 살림성 칩(`*_changed`)·`status` 는 원문 밀도에서도 안 그린다
         entries.push({
           id: evt.id,
           type: evt.eventType,
-          text: evt.content,
+          // §5.5 #17-12 ③ — 오류 줄만 서버 원문(`[code:exit] …`)이라 여기서 문장으로 편다.
+          text: evt.eventType === 'error' ? formatError(parseStreamErrorContent(evt.content)) : evt.content,
           timestamp: evt.timestamp,
           sessionLabel: label,
           toolName: evt.toolName,
@@ -267,10 +368,11 @@ function buildEntries(
     if (events) {
       for (const evt of events) {
         if (isThinkingActivity(evt)) continue; // §5.5 #17-15 — 사고(펄스·델타)는 본문에 쌓지 않음 (라이브 1줄로 대체)
+        if (isHiddenSystemEvent(evt)) continue; // §5.5 #17-13 ⑤-4 — 살림성 칩(`*_changed`)·`status` 는 원문 밀도에서도 안 그린다
         entries.push({
           id: evt.id,
           type: evt.eventType,
-          text: evt.content,
+          text: evt.eventType === 'error' ? formatError(parseStreamErrorContent(evt.content)) : evt.content,
           timestamp: evt.timestamp,
           toolName: evt.toolName,
         });
@@ -281,12 +383,23 @@ function buildEntries(
   // completed/error 명령의 결과 — 스트림 result 이벤트가 없을 때만 cmd.result 폴백 (프롬프트는 위에서 이미 push)
   for (const cmd of targetCmds) {
     if (cmd.status !== 'completed' && cmd.status !== 'error') continue;
-    if (!cmd.result) continue;
     const sessionLabel = activeSessionId === null && cmd.subAgentId
       ? subLabelMap.get(cmd.subAgentId)
       : undefined;
 
     const subStreams = cmd.subAgentId ? (streams[cmd.subAgentId] ?? []) : [];
+    // §5.5 #17-12 ③ — 실패 사유. 스트림에 오류 줄이 이미 있으면 그 자리가 진짜 시점이므로 겹쳐 쓰지 않는다.
+    if (cmd.status === 'error' && cmd.error && !subStreams.some((e) => e.eventType === 'error')) {
+      entries.push({
+        id: `cmderr-${cmd.id}`,
+        type: 'error',
+        // §5.5 #17-18 ⑥ — 결과 줄은 그 명령의 말풍선 **바로 아래**에 붙는다(같은 기준 + 1).
+        text: formatError(cmd.error),
+        timestamp: commandAnchorTs(cmd) + 1,
+        sessionLabel,
+      });
+    }
+    if (!cmd.result) continue;
     const hasResultStream = subStreams.some((e) => e.eventType === 'result');
     if (hasResultStream) continue;
 
@@ -294,7 +407,7 @@ function buildEntries(
       id: `cmdres-${cmd.id}`,
       type: cmd.status === 'error' ? 'error' : 'result',
       text: cmd.result,
-      timestamp: cmd.timestamp + 1,
+      timestamp: commandAnchorTs(cmd) + 1,
       sessionLabel,
     });
   }
@@ -322,18 +435,53 @@ function buildEntries(
 /** tool_use+tool_result 쌍을 접을 수 있는 그룹으로, 연속 text를 하나로 묶기.
  *  §5.5 #17-15 — 사고는 buildEntries 단계에서 이미 빠졌다(묶을 대상이 없다). */
 /**
+ * §5.5 #17-26 ① — 간결에서 **턴마다 AI 본문의 처음 것과 마지막 것만** 남긴다
+ * (Sub 탭 `streamDensity.keepFirstAndLastText` 와 같은 규칙, 자료형만 다르다).
+ *
+ * 턴 경계는 사용자 명령(`command`) 항목. 첫 본문 = 의도 선언, 마지막 본문 = 결론·질문이고 사이의 본문은
+ * 도구를 감싼 진행 나레이션이라 도구를 숨긴 화면에서 맥락 없는 토막이 된다. 빈 본문은 후보로 세지 않는다.
+ */
+function keepFirstAndLastMainText(items: TerminalItem[]): TerminalItem[] {
+  const keep = new Set<string>();
+  let firstOfTurn: string | null = null;
+  let lastOfTurn: string | null = null;
+  const closeTurn = (): void => {
+    if (firstOfTurn) keep.add(firstOfTurn);
+    if (lastOfTurn) keep.add(lastOfTurn);
+    firstOfTurn = null;
+    lastOfTurn = null;
+  };
+  for (const it of items) {
+    if (it.kind !== undefined) continue;
+    if (it.type === 'command') { closeTurn(); continue; }
+    if (it.type !== 'text' || it.text.trim() === '') continue;
+    if (!firstOfTurn) firstOfTurn = it.id;
+    else lastOfTurn = it.id;
+  }
+  closeTurn();
+  return items.filter((it) => it.kind !== undefined || it.type !== 'text' || keep.has(it.id));
+}
+
+/**
  * §5.5 #17-12 — 메인 탭 밀도 적용(Sub 탭 streamDensity 와 같은 규칙, 자료형만 다르다).
  *  - 연속 동종 도구 묶음(진행 중 제외)을 `도구 ×N` 한 줄로 합친다.
  *  - 같은 턴(명령 경계)의 옛 계획은 접는다.
  * `raw` 밀도에서는 아무것도 하지 않는다.
  */
 function applyMainDensity(items: TerminalItem[], density: StreamDensity): TerminalItem[] {
-  if (density === 'raw') return items;
+  // §5.5 #17-13 ⑤-3 — 작업 칩(시작·끝)을 한 줄로 접는다. Sub 탭(`applyStreamDensity`)과 **같은 함수**라
+  //   두 탭이 같은 스트림을 같은 모양으로 접는다.
+  const folded = foldTaskChips(
+    items,
+    (it) => (it.kind === undefined && it.type === 'system' ? it.text : null),
+    (it, text) => (it.kind === undefined && it.type === 'system' ? { ...it, text } : it),
+  );
+  if (density === 'raw') return folded;
 
   // §5.5 #17-13 ⑤ — SDK 상태 칩(`[task_started]` 레일 점)은 간결/표준에서 그리지 않는다(내용 없는 한 줄).
   //   내용이 있는 system 본문(권한 결정 등)은 subtype 단독 패턴이 아니므로 그대로 남는다.
   // §5.5 #17-15 — 사고는 밀도 축에서 빠졌다(항목 조립 시점에 이미 없다 — 여기서 거를 것이 없다).
-  const shown = items.filter((it) => (
+  const shown = folded.filter((it) => (
     !(it.kind === undefined && it.type === 'system' && isSystemSubtypeChip(it.text))
   ));
 
@@ -393,6 +541,22 @@ function applyMainDensity(items: TerminalItem[], density: StreamDensity): Termin
     }
     out.push(cur);
     i++;
+  }
+
+  // §5.5 #17-21 ① / #17-24 ① — 간결은 **도구 묶음을 진행 중이든 완료든 화면에서 뺀다**(Sub 탭
+  //   applyStreamDensity 와 같은 규칙). 진행 중 한 줄을 남겨 두면 도구가 시작·완료할 때마다 그 줄이
+  //   생겼다 사라지며 화면이 깜빡인다 — 지금 작동 중이라는 사실은 상시 라이브 1줄이 알린다.
+  //   런에 흡수됐던 **내용 있는 system 본문**(오류·권한 결정)은 묶음 밖으로 꺼내 남긴다 — 사용자가 읽어야
+  //   하는 내용이라 묶음과 함께 사라지면 안 된다(Sub 탭과 동일).
+  if (density === 'compact') {
+    const compacted: TerminalItem[] = [];
+    for (const it of out) {
+      if (!(it.kind === 'group' && it.groupType === 'tool')) { compacted.push(it); continue; }
+      for (const e of it.entries) {
+        if (e.type === 'system' && !isSystemSubtypeChip(e.text)) compacted.push(e);
+      }
+    }
+    return keepFirstAndLastMainText(compacted);
   }
   return out;
 }
@@ -465,40 +629,77 @@ const TYPE_STYLES: Record<string, { color: string; prefix: string }> = {
   system:      { color: 'text-gray-500',       prefix: '*' },
 };
 
-function TerminalLine({ entry }: { entry: TerminalEntry }): React.JSX.Element {
+/**
+ * §5.5 #17-21 ② — 메인 탭 AI 본문. 간결에서는 앞 N줄(또는 N자)만 남기고 [더 보기]로 접는다.
+ * `exempt`(화면의 마지막 본문)는 지금 하는 말이자 결론이라 자르지 않는다. 훅을 쓰므로 별도 컴포넌트
+ * (TerminalLine 은 분기마다 early return 이라 그 안에서 훅을 부를 수 없다).
+ */
+function TerminalTextLine({ entry, density, exempt }: { entry: TerminalEntry; density: StreamDensity; exempt: boolean }): React.JSX.Element {
+  const { t } = useTranslation();
+  const clamped = useMemo(
+    () => (density === 'compact' && !exempt
+      ? clampStreamText(entry.text, STREAM_COMPACT_TEXT_CLAMP_LINES, STREAM_COMPACT_TEXT_CLAMP_CHARS)
+      : null),
+    [density, exempt, entry.text],
+  );
+  const [open, toggleOpen] = useStreamToggle(`text-more-${entry.id}`, false);
+  const body = clamped && !open ? clamped.text : entry.text;
+  return (
+    <div className="px-3 py-1 max-md:px-1.5">
+      <div className="flex gap-2">
+        <AiSpeakerGlyph />
+        <div className="min-w-0 flex-1">
+          <span className="block whitespace-pre-wrap break-words text-[13px] leading-relaxed text-gray-200">
+            {entry.sessionLabel && (
+              <span className="mr-1.5 rounded bg-cyan-500/15 px-1 py-0.5 text-[10px] font-semibold text-cyan-400/80">
+                {entry.sessionLabel}
+              </span>
+            )}
+            {body}
+          </span>
+          {clamped && (
+            <button
+              type="button"
+              onClick={toggleOpen}
+              className="mt-0.5 flex items-center gap-1 text-[11px] text-gray-500 transition-colors hover:text-gray-300"
+            >
+              <svg className={`h-3 w-3 transition-transform ${open ? 'rotate-90' : ''}`} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M8 5v14l11-7z" />
+              </svg>
+              {open ? t('ide.streamRenderer.showLess') : t('ide.streamRenderer.showMoreLines', { count: clamped.hiddenLines })}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TerminalLine({ entry, density, exempt, agentId }: { entry: TerminalEntry; density?: StreamDensity; exempt?: boolean; agentId?: string }): React.JSX.Element {
   // SDK system 메시지 subtype([task_started] 등)은 날 텍스트 대신 깔끔한 칩으로.
   if (entry.type === 'system') {
     const subtype = parseSystemSubtype(entry.text);
-    if (subtype) return <SystemNode subtype={subtype} />;
+    // §5.5 #17-13 ⑤-3 — 작업 칩이면 payload(이름·결과·소요 시간)를 함께 넘긴다(없으면 종전 모양).
+    if (subtype) return <SystemNode subtype={subtype} task={parseSystemTaskInfo(entry.text)} />;
   }
   // 사용자 입력(command)은 길이와 무관하게 StreamRenderer(Sub 탭)와 동일한 "내 메시지" 말풍선으로.
   // (탭에 따라 옛 평문으로 뜨던 불일치 제거 — 두 경로가 같은 CollapsiblePrompt 사용.)
   if (entry.type === 'command') {
+    // 대기 중 명령의 컨트롤은 큐 좌표(agentId + commandId)를 알아야 동작한다 — 여기서 합쳐 넘긴다.
+    const command = entry.command
+      ? (agentId ? { ...entry.command, agentId } : entry.command)
+      : undefined;
     return (
       // §4 v3.24 — 폰(max-md)에선 좌우 여백 압축(Sub 탭 블록들과 동일 방침).
       <div className="px-3 py-1 max-md:px-1.5">
-        <CollapsiblePrompt prompt={entry.text} />
+        <CollapsiblePrompt prompt={entry.text} command={command} />
       </div>
     );
   }
   // AI 일상 대화(assistant text)는 Sub 탭 TextBlock 과 동일하게 박스 없이 평범한 본문 + 왼쪽 스파클
   // 글리프로만 표식한다(도구/생각=좌측 세로바 박스, 내 입력=우측 sky 말풍선과 자연히 구분).
   if (entry.type === 'text') {
-    return (
-      <div className="px-3 py-1 max-md:px-1.5">
-        <div className="flex gap-2">
-          <AiSpeakerGlyph />
-          <span className="min-w-0 flex-1 whitespace-pre-wrap break-words text-[13px] leading-relaxed text-gray-200">
-            {entry.sessionLabel && (
-              <span className="mr-1.5 rounded bg-cyan-500/15 px-1 py-0.5 text-[10px] font-semibold text-cyan-400/80">
-                {entry.sessionLabel}
-              </span>
-            )}
-            {entry.text}
-          </span>
-        </div>
-      </div>
-    );
+    return <TerminalTextLine entry={entry} density={density ?? 'standard'} exempt={exempt ?? false} />;
   }
   const style = TYPE_STYLES[entry.type] ?? TYPE_STYLES['text']!;
 
@@ -517,7 +718,11 @@ function TerminalLine({ entry }: { entry: TerminalEntry }): React.JSX.Element {
             {entry.toolName}
           </span>
         )}
-        <span className={`whitespace-pre-wrap break-words text-[13px] leading-relaxed ${style.color}`}>
+        {/* §5.5 #17-21 ⑤ — 간결에서는 내용 있는 system·도구 잔줄만 한 줄로 자른다(내용을 지우진 않는다).
+            결론(result)과 오류(error)는 어느 밀도에서도 온전히 보여준다 — 그게 핵심이다. */}
+        <span className={`break-words text-[13px] leading-relaxed ${style.color} ${
+          density === 'compact' && entry.type !== 'result' && entry.type !== 'error' ? 'block truncate' : 'whitespace-pre-wrap'
+        }`}>
           {entry.text}
         </span>
       </div>
@@ -545,6 +750,7 @@ const TOOL_GROUP_NAME_CHIPS = 3;
 /** §5.5 #17-16 — 접힌 묶음이 그리는 최근 도구 한 줄(Sub 탭 ToolGroupLatestLine 과 같은 규칙·같은 높이). */
 function TerminalRunLatestLine({ entry, active }: { entry: TerminalEntry; active: boolean }): React.JSX.Element {
   return (
+    // 이 줄은 항상 헤더 아래에 붙는다(§5.5 #17-24 ① 로 헤더 없는 `bare` 자리는 사라졌다).
     <div className="flex items-center gap-2 border-t border-gray-800/40 px-2.5 py-1">
       <span className="flex h-3 w-3 flex-shrink-0 items-center justify-center">
         {active ? <Spinner /> : (
@@ -561,7 +767,7 @@ function TerminalRunLatestLine({ entry, active }: { entry: TerminalEntry; active
   );
 }
 
-function TerminalGroupLine({ group }: { group: TerminalGroup }): React.JSX.Element {
+function TerminalGroupLine({ group, density }: { group: TerminalGroup; density?: StreamDensity }): React.JSX.Element {
   const { t } = useTranslation();
   // §5.5 #17-16 ④ — 펼침은 모듈 저장소에 보관(가상 리스트 언마운트에도 유지).
   const [open, toggleOpen] = useStreamToggle(group.id, false);
@@ -570,6 +776,9 @@ function TerminalGroupLine({ group }: { group: TerminalGroup }): React.JSX.Eleme
   const isRun = group.runCount !== undefined;
   // 접혀 있을 때 보여줄 가장 최근 도구 호출(진행 중이면 그게 지금 하는 일).
   const latestUse = isRun ? [...group.entries].reverse().find((e) => e.type === 'tool_use') : undefined;
+
+  // §5.5 #17-24 ① — 간결에는 도구 묶음이 **아예 도달하지 않는다**(진행 중이든 완료든 applyMainDensity 가
+  //   배열에서 뺐다). 종전의 "진행 중 한 줄" 분기는 그 줄이 생겼다 사라지며 화면을 깜빡이게 해 없앴다.
 
   // 활성 상태 색상
   const accentColor = group.isActive
@@ -718,7 +927,7 @@ type PastedAttachment = AgentSessionInputAttachment;
 
 function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.JSX.Element {
   const { t } = useTranslation();
-  // §5.5 #17-12 — 중지 동작은 공용 훅(useSessionStop)이 단일 창구. 하단 상태바의 [중지]와 같은 경로를 쓴다.
+  // §5.5 #17-12 ③ v4.64 — 중지 동작은 공용 훅(useSessionStop)이 단일 창구이자, 이제 화면에서도 유일한 [중지].
   const { stopping, stop: handleStop } = useSessionStop(agentId, activeSessionId);
   const addCommand = useGraphStore((s) => s.addCommand);
   const agents = useGraphStore((s) => s.agents);
@@ -749,33 +958,39 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
   // 자동 send ❌ — 사용자가 직접 Send 눌러야 dispatch (사용자 작성 흐름 보존).
   const draftForAgent = useGraphStore((s) => s.agentInputDrafts[agentId]);
   const consumeAgentInputDraft = useGraphStore((s) => s.consumeAgentInputDraft);
-  // 이 탭(activeSessionId) 에서 현재 실행 중인 커맨드 존재 여부 — Run/Stop 토글 판정.
+  // 이 탭(activeSessionId) 이 **지금 돌고 있는가** — Run/Stop 토글 판정.
   // 메인 탭(activeSessionId===null) 은 여러 서브가 병렬 실행될 수 있으므로 Stop 대상이 모호 → Run 유지.
-  const executingForSession = useGraphStore((s) => {
-    if (activeSessionId === null) return false;
-    const q = s.queuedCommands[agentId];
-    if (!q) return false;
-    return q.some((c) => c.subAgentId === activeSessionId && c.status === 'executing');
-  });
+  //
+  // 종전에는 `QueuedCommand.status === 'executing'` **하나만** 봤다. 그런데 턴 봉인이 만료된 뒤
+  // 세션이 다시 깨어나면 서버는 `SubAgent.status` 만 `active` 로 되돌리고(명령은 이미 아카이브로
+  // 옮겨져 되돌릴 수 없다), 그 결과 **아직 돌고 있는 세션에서 [중지]가 사라졌다**. 판정을
+  // 공유 모듈(`isSessionRunning`)로 옮겨 세션 축까지 함께 보게 한다.
+  const sessionRunning = useSessionRunning(agentId, activeSessionId) && activeSessionId !== null;
   // §5.5 #17-10 v3.53 — 컴팩트 [중지] 노출 조건. **버튼이 실제로 멈출 수 있는 게 있을 때만** 뜬다.
-  //   세션 탭: 이 탭은 executing 이 아니지만 **이 세션이 띄운** 백그라운드 Task 서브에이전트가 살아있는
-  //     동안(누르면 그것만 멈춘다). 다른 탭이 바쁘다는 이유로 뜨면 눌러도 아무것도 안 멈추는 거짓 버튼이 된다.
-  //   메인 탭(activeSessionId===null): 스코프를 좁힐 세션이 없으므로 종전 전역 조건 그대로
-  //     — (a) 어느 세션 탭이든 executing, (b) 백그라운드 Task 서브에이전트가 하나라도 살아있음 → stop-all.
-  const agentBusyElsewhere = useGraphStore((s) => {
-    const tasks = s.runningSubagentTasks[agentId];
-    if (activeSessionId !== null) {
-      return (tasks ?? []).some((task) => task.subAgentId === activeSessionId);
-    }
-    if ((tasks?.length ?? 0) > 0) return true;
-    const q = s.queuedCommands[agentId];
-    if (!q) return false;
-    return q.some((c) => c.status === 'executing');
-  });
+  //   이제 세션 탭의 "이 세션이 띄운 백그라운드 Task" 도 위 `sessionRunning` 이 함께 보므로, 이 조건은
+  //   **스코프를 좁힐 세션이 없는 메인 탭 전용**으로 남는다 — 어느 세션 탭이든 executing 이거나
+  //   백그라운드 Task 가 하나라도 살아있으면 `stop-all` 을 낼 수 있다.
+  const agentBusyElsewhere = useSessionRunning(agentId, null) && activeSessionId === null;
   const sid = useMemo(() => agents.find((a) => a.id === agentId)?.path ?? null, [agents, agentId]);
   const sidRef = useRef<string | null>(sid);
   const agentIdRef = useRef<string>(agentId);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // §5.5 #17-23 — 명령 히스토리 상태(자세한 규약은 아래 히스토리 블록 주석 참조).
+  //   `historyNavRef` = 탐색 커서(null = 탐색 중 아님), `historyHint` = 진입 힌트(두 번 눌러야 이동).
+  //   ref 를 함께 두는 이유: keydown 은 리렌더를 기다릴 수 없어 **직전 힌트 상태를 즉시** 봐야 한다.
+  const historyNavRef = useRef<HistoryNavState | null>(null);
+  const [historyHint, setHistoryHint] = useState<'prev' | 'next' | null>(null);
+  const historyHintRef = useRef<'prev' | 'next' | null>(null);
+  const setHint = useCallback((next: 'prev' | 'next' | null) => {
+    if (historyHintRef.current === next) return;
+    historyHintRef.current = next;
+    setHistoryHint(next);
+  }, []);
+  // 방향키를 누른 **뒤** 커서가 실제로 움직였는지 재는 탐침(기본 동작이 끝난 다음 틱에 확인).
+  const arrowProbeRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (arrowProbeRef.current !== null) clearTimeout(arrowProbeRef.current);
+  }, []);
 
   // §5.5 #17-2 v2.30 / #17-4 v2.32 — 슬래시 자동완성. `useAvailableSkills` 가 모듈 캐시를 공유.
   // v2.59 — 이 에이전트가 속한 프로젝트의 스킬만 자동완성(탭별 개별 조회).
@@ -955,9 +1170,10 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
     if (textareaRef.current && !INPUT_FIELD_SIZING) {
       textareaRef.current.style.height = 'auto';
     }
-    // 전송하면 히스토리 탐색 상태 초기화.
-    historyIdxRef.current = -1;
-  }, [text, agentId, activeSessionId, addCommand, attachments, hasPendingUploads, registerAttachmentPreview, clearAgentSessionInput, setText, setAttachments]);
+    // 전송하면 히스토리 탐색 상태·힌트 초기화(적재는 addCommand 가 한다 — #17-23).
+    historyNavRef.current = null;
+    setHint(null);
+  }, [text, agentId, activeSessionId, addCommand, attachments, hasPendingUploads, registerAttachmentPreview, clearAgentSessionInput, setText, setAttachments, setHint]);
 
   // §5.5 #17-10 v3.53 — [중지] = **열려 있는 세션 하나 + 그 세션이 띄운 서브에이전트** 중지.
   //   v3.51 은 이걸 에이전트 전체(stop-all)로 올려 다른 세션 탭까지 함께 끊었다 — 중지의 기본 단위는
@@ -1017,21 +1233,39 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
     });
   }, [agentId, activeSessionId, setAgentSessionInputText]);
 
-  // §5.5 — 입력 명령 히스토리: 이 세션에서 보낸 사용자 프롬프트를 ↑/↓ 로 재호출(터미널/REPL/챗 관례).
+  // §5.5 #17-23 — 입력 명령 히스토리: **이 세션에서** 보낸 사용자 프롬프트를 ↑/↓ 로 재호출(셸/CMD 관례).
   //   커서가 첫 줄일 때 ↑(더 오래된 것), 마지막 줄일 때 ↓(더 최근/원래 draft)에만 반응해 멀티라인 편집을
-  //   깨지 않는다. 슬래시 드롭다운/한글 IME 조합 중엔 비활성. queuedCommands 에서 이 세션의 프롬프트만 추출.
-  const sessionCommands = useGraphStore((s) => s.queuedCommands[agentId]);
-  const commandHistory = useMemo(() => {
-    const texts: string[] = [];
-    for (const c of sessionCommands ?? []) {
-      if (activeSessionId !== null && c.subAgentId !== activeSessionId) continue;
-      const tx = (c.text ?? '').trim();
-      if (tx && texts[texts.length - 1] !== tx) texts.push(tx); // 연속 중복 제거
-    }
-    return texts;
-  }, [sessionCommands, activeSessionId]);
-  const historyIdxRef = useRef(-1);   // -1 = 미탐색(현재 draft). 그 외 = commandHistory 인덱스.
-  const historyDraftRef = useRef(''); // 탐색 시작 시 원래 draft 보존(↓ 로 끝까지 내려오면 복원).
+  //   깨지 않는다. 슬래시 드롭다운/한글 IME 조합 중엔 비활성.
+  //   ⚠ 진입은 **두 번 누름** — 경계에서 첫 번째 방향키는 힌트만 띄우고(historyHint), 두 번째에 실제로
+  //     히스토리로 들어간다. 꺼낼 게 없으면 힌트조차 뜨지 않고 키도 가로채지 않는다(#17-23 ⑤).
+  //   ⚠ 목록은 **구독하지 않는다**(commandHistory 모듈 캐시에서 키를 누른 순간 읽는다) — 종전엔
+  //     queuedCommands 를 구독해 명령 상태가 바뀔 때마다 입력창이 리렌더됐고, 완료된 명령은 서버가
+  //     큐에서 빼 가므로 정작 히스토리는 비어 있었다.
+  // 세션 탭을 옮기면 그 탭의 히스토리로 갈아타므로 탐색·힌트 상태를 버린다.
+  useEffect(() => {
+    historyNavRef.current = null;
+    historyHintRef.current = null;
+    setHistoryHint(null);
+  }, [agentId, activeSessionId]);
+  // 이 기능 이전에 보낸 명령을 첫 사용에서 한 번 끌어온다(저장분이 없을 때만 — 이후엔 addCommand 가 유일 입구).
+  //   완료 아카이브를 의존성에 두는 이유: 창을 여는 순간엔 아직 서버 스냅샷이 안 왔을 수 있어
+  //   마운트 1회로 끝내면 "첫 실행에서만 히스토리가 비는" 창이 생긴다. 이 값은 명령이 끝날 때만
+  //   바뀌고 구조적 공유로 동일성이 유지되므로 리렌더 부담이 없다(큐를 구독하던 종전과 다르다).
+  const completedForAgent = useGraphStore((s) => s.completedCommands[agentId]);
+  useEffect(() => {
+    if (activeSessionId === null) return; // 메인 탭은 보낼 때마다 새 세션이 생기므로 시드할 과거가 없다
+    if (hasCommandHistory(agentId, activeSessionId)) return;
+    const st = useGraphStore.getState();
+    const seen = [
+      ...(st.completedCommands[agentId] ?? []),
+      ...(st.queuedCommands[agentId] ?? []),
+    ]
+      .filter((c) => c.subAgentId === activeSessionId) // 세션 단위 — 옆 탭 명령이 섞이지 않게
+      .filter((c) => !c.edgeId) // Task Edge 로 주입된 것은 사용자가 친 명령이 아니다
+      .sort((a, b) => a.timestamp - b.timestamp)
+      .map((c) => c.text ?? '');
+    seedCommandHistory(agentId, activeSessionId, seen);
+  }, [agentId, activeSessionId, completedForAgent]);
   const applyHistoryText = useCallback((value: string) => {
     setText(value);
     requestAnimationFrame(() => {
@@ -1076,31 +1310,41 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
     }
     // 명령 히스토리 (↑/↓) — 슬래시 드롭다운 비활성 + IME 조합 아님 + 커서 collapsed 일 때만.
     const composing = (e.nativeEvent as { isComposing?: boolean }).isComposing === true;
-    if (!slashOpen && !composing && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+    const isArrow = e.key === 'ArrowUp' || e.key === 'ArrowDown';
+    // 방향키가 아닌 키를 누르면 힌트를 내린다(= 다음엔 다시 두 번 눌러야 들어간다).
+    if (!isArrow && historyHintRef.current !== null) setHint(null);
+    if (!slashOpen && !composing && isArrow) {
       const el = textareaRef.current;
       if (el && el.selectionStart === el.selectionEnd) {
-        const caret = el.selectionStart ?? 0;
-        const value = el.value;
-        if (e.key === 'ArrowUp') {
-          const inFirstLine = value.slice(0, caret).indexOf('\n') === -1;
-          if (inFirstLine && commandHistory.length > 0) {
-            e.preventDefault();
-            if (historyIdxRef.current === -1) { historyDraftRef.current = value; historyIdxRef.current = commandHistory.length; }
-            const nextIdx = Math.max(0, historyIdxRef.current - 1);
-            historyIdxRef.current = nextIdx;
-            applyHistoryText(commandHistory[nextIdx] ?? '');
-            return;
+        // ⚠ **커서 이동이 언제나 우선이다** — 키를 가로채지 않고(preventDefault ❌) 브라우저가
+        //   기본 동작을 하게 둔 뒤, 커서가 **실제로 움직였는지**로 경계를 판정한다.
+        //   줄바꿈(`\n`) 위치로 계산하면 워드랩으로 접힌 긴 한 줄에서 "이미 첫 줄"로 오판해
+        //   사용자가 커서를 위로 못 올린다(실제 사용자 신고 지점). 화면상 몇 행인지는 브라우저만 안다.
+        const direction = e.key === 'ArrowUp' ? 'prev' : 'next';
+        const beforeCaret = el.selectionStart ?? 0;
+        const beforeValue = el.value;
+        if (arrowProbeRef.current !== null) clearTimeout(arrowProbeRef.current);
+        arrowProbeRef.current = setTimeout(() => {
+          arrowProbeRef.current = null;
+          const el2 = textareaRef.current;
+          if (!el2 || el2.value !== beforeValue) return; // 그 사이 값이 바뀌었으면 판단 보류
+          // 판정 규칙은 순수 함수 한 곳(decideArrowKey)에 있다 — 화면은 결과만 집행한다.
+          const outcome = decideArrowKey({
+            caretMoved: (el2.selectionStart ?? 0) !== beforeCaret,
+            nav: historyNavRef.current,
+            hint: historyHintRef.current,
+            entries: getCommandHistory(agentId, activeSessionId),
+            draft: el2.value,
+            direction,
+          });
+          if (outcome.kind === 'clearHint') setHint(null);
+          else if (outcome.kind === 'hint') setHint(outcome.direction);
+          else if (outcome.kind === 'apply') {
+            historyNavRef.current = outcome.nav;
+            setHint(null);
+            applyHistoryText(outcome.text);
           }
-        } else { // ArrowDown — 히스토리 탐색 중일 때만 더 최근/원래 draft 로.
-          const inLastLine = value.slice(caret).indexOf('\n') === -1;
-          if (inLastLine && historyIdxRef.current !== -1) {
-            e.preventDefault();
-            const nextIdx = historyIdxRef.current + 1;
-            if (nextIdx >= commandHistory.length) { historyIdxRef.current = -1; applyHistoryText(historyDraftRef.current); }
-            else { historyIdxRef.current = nextIdx; applyHistoryText(commandHistory[nextIdx] ?? ''); }
-            return;
-          }
-        }
+        }, 0);
       }
     }
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -1127,7 +1371,7 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
         });
       }
     }
-  }, [slashOpen, slashState, slashIndex, confirmSlash, setText, handleSubmit, commandHistory, applyHistoryText]);
+  }, [slashOpen, slashState, slashIndex, confirmSlash, setText, handleSubmit, agentId, activeSessionId, applyHistoryText, setHint]);
 
   const handleInput = useCallback(() => {
     const el = textareaRef.current;
@@ -1135,11 +1379,12 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
     // ⚠ 타이핑 핫패스 — field-sizing 지원 시 autosizeInput 은 no-op(강제 reflow 0회).
     //   여기에 per-keystroke 레이아웃 읽기(scrollHeight 등)를 다시 넣으면 입력 지연 회귀.
     autosizeInput(el);
-    // 사용자가 직접 타이핑하면 히스토리 탐색 종료(다음 ↑ 는 현재 편집분을 draft 로 다시 시작).
-    historyIdxRef.current = -1;
+    // 사용자가 직접 타이핑하면 히스토리 탐색·힌트 종료(다음 ↑ 는 현재 편집분을 prefix·draft 로 다시 시작).
+    historyNavRef.current = null;
+    if (historyHintRef.current !== null) setHint(null);
     // 타이핑 = 완료 알림 확인 — 도트 녹색→회색.
     if (activeSessionId) markSubAcknowledged(activeSessionId);
-  }, [activeSessionId, markSubAcknowledged]);
+  }, [activeSessionId, markSubAcknowledged, setHint]);
 
   // §5.5 #17-3 v2.79 — 입력 textarea 우클릭 컨텍스트 메뉴 (Cut/Copy/Paste/Select All).
   //   Electron packaged 빌드엔 브라우저 기본 메뉴가 없어 우클릭 시 아무 것도 안 떴다 →
@@ -1231,6 +1476,37 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
 
   return (
     <div className="relative flex flex-col gap-1.5 border-t border-gray-700 bg-gray-900/80 px-3 py-2">
+      {/* §5.5 #17-23 ⑤ — 히스토리 진입 힌트. 경계에서 방향키를 처음 눌렀을 때만 뜨고,
+          같은 방향으로 한 번 더 누르면 실제로 히스토리로 들어간다. 꺼낼 게 없으면 아예 안 뜬다. */}
+      {historyHint !== null && !slashOpen && (
+        <div className="pointer-events-none absolute bottom-full left-3 mb-1 flex items-center gap-1.5 rounded border border-gray-700 bg-gray-900 px-2 py-1 text-[11px] text-gray-300 shadow-lg">
+          <span className="flex h-4 w-4 items-center justify-center rounded border border-gray-600 bg-gray-800 text-gray-300">
+            <svg
+              className="h-2.5 w-2.5"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              {historyHint === 'prev' ? (
+                <>
+                  <path d="M12 19V5" />
+                  <path d="M5 12l7-7 7 7" />
+                </>
+              ) : (
+                <>
+                  <path d="M12 5v14" />
+                  <path d="M19 12l-7 7-7-7" />
+                </>
+              )}
+            </svg>
+          </span>
+          <span>{t(historyHint === 'prev' ? 'ide.mainArea.historyHintPrev' : 'ide.mainArea.historyHintNext')}</span>
+        </div>
+      )}
       {/* §5.5 #17-2 v2.30 — 슬래시 자동완성 드롭다운 (입력행 바로 위) */}
       {slashOpen && slashState && (
         <div ref={slashListRef} className="absolute bottom-full left-0 right-0 mb-1 max-h-72 overflow-y-auto rounded-t border border-b-0 border-gray-700 bg-gray-900 shadow-lg scrollbar-thin">
@@ -1290,6 +1566,8 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
           </div>
         </div>
       )}
+      {/* §5.5 #17-18 ⑤ v4.77 — 옛 "대기 줄"은 없앴다. 대기 중 덧말의 상태·방식 칩·삭제는 그 덧말의
+          **말풍선(CollapsiblePrompt)** 안에 있다 — 같은 내용을 두 곳에 그리지 않는다. */}
       {attachments.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {attachments.map((a) => (
@@ -1301,7 +1579,12 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
               <img
                 src={a.previewUrl}
                 alt=""
-                onClick={() => { if (!a.uploading && !a.error) openImageLightbox(a.previewUrl); }}
+                // §5.5 #17-25 v4.80 — 아직 안 보낸 첨부는 "어느 자리인지"를 함께 넘긴다
+                //   → 라이트박스에서 주석을 저장하면 새로 붙지 않고 **이 자리를 교체**한다.
+                onClick={() => {
+                  if (a.uploading || a.error) return;
+                  openImageLightbox(a.previewUrl, { agentId, sessionId: activeSessionId, tempId: a.tempId });
+                }}
                 className={`h-full w-full object-cover ${a.uploading || a.error ? 'opacity-40' : 'cursor-zoom-in'}`}
               />
               {a.uploading && (
@@ -1342,6 +1625,7 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
             onChange={(e) => setText(e.target.value)}
             onKeyDown={handleKeyDown}
             onInput={handleInput}
+            onBlur={() => setHint(null)} // 포커스를 잃으면 히스토리 힌트도 내린다
             onPaste={handlePaste}
             onContextMenu={handleInputContextMenu}
             rows={1}
@@ -1356,7 +1640,7 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
             data-ide-input-session={activeSessionId ?? ''}
           />
         </div>
-        {executingForSession ? (
+        {sessionRunning ? (
           // 실행 중: 좌측 [중지](마우스 클릭 전용) + 우측 [덧말](Enter=추가 대화).
           //   중지는 실행을 끊는 파괴적 동작이라 마우스로만 — Enter 는 handleSubmit(덧말)에 배정.
           //   덧말 = 멈추지 않고 후속 메시지를 큐에 추가(서버 busy 가드가 현재 턴 종료 후 이어서 처리).
@@ -1428,7 +1712,7 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
         )}
       </div>
       {inputCtx && (
-        <TerminalContextMenu x={inputCtx.x} y={inputCtx.y} items={inputCtxItems} onClose={closeInputCtx} />
+        <IDEContextMenu x={inputCtx.x} y={inputCtx.y} items={inputCtxItems} onClose={closeInputCtx} />
       )}
     </div>
   );
@@ -1445,11 +1729,14 @@ interface StreamStatusBarProps {
   onJump?: () => void;
   /** §5.5 #17-12 — 이 세션의 스트림 이벤트(마지막 TodoWrite 로 "지금 무엇을" 판정). */
   events: SubAgentStreamEvent[];
-  /** §5.5 #17-12 — 실행 중일 때 이 줄 오른쪽에 [중지]. 무엇을 멈추는지와 버튼이 같은 줄에 있어야 판단이 선다. */
-  onStop: () => void;
-  stopping: boolean;
-  /** 우리가 띄운 세션이 아닌 읽기 전용 화면(Hook 에이전트 메인 뷰)에서는 [중지]를 숨긴다. */
-  canStop: boolean;
+  /**
+   * 이 세션이 **지금 돌고 있는가**(`isSessionRunning` 판정 결과).
+   *
+   * 명령 상태(`executing`)만으로는 부족하다 — 턴 봉인이 만료된 뒤 세션이 다시 깨어나면 명령은
+   * `completed` 로 굳은 채 스트림만 계속 흐른다. 그때 이 줄이 초록 "완료"를 띄우면 화면이
+   * 거짓말을 한다(탭 점은 파랗게 도는데 여기만 끝났다고 말하던 그 불일치).
+   */
+  sessionRunning: boolean;
 }
 
 const STATUS_SUMMARY_MAX = 80;
@@ -1477,7 +1764,139 @@ function StreamDensityToggle(): React.JSX.Element {
   );
 }
 
-function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, onStop, stopping, canStop }: StreamStatusBarProps): React.JSX.Element | null {
+/** §5.5 #17-27 ⑪ (h) — 따라간 알림이 화면에 머무는 시간(ms). `index.css` 의 `follow-flyout` 길이와 맞춘다. */
+const FOLLOW_FLYOUT_MS = 2200;
+
+/**
+ * §5.5 #17-27 ⑪ — [추종] 토글. 밀도 토글 **옆에** 서지만 밀도 축이 아니다(별개 on/off).
+ * 켜면 **이 세션이** 고치는 파일을 오른쪽 편집창이 따라 연다 — 끄면 종전처럼 사용자가 눌러야 열린다.
+ *
+ * (h) — **옆에는 아무것도 붙지 않는다.** 한때 자국 칩과 대기 건수 배지를 상주시켰지만, 좁은 상태바가
+ * 셋으로 붐볐고 그 수는 스캔 창 밖으로 밀릴 때마다 줄어 흔들렸다. 상시 표시는 정보가 아니라 배경이 된다 —
+ * 그래서 지금은 **따라간 그 순간에만** 버튼 위로 한 줄이 떠올랐다 사라진다(`absolute` 라 줄을 밀지 않고,
+ * 사라지는 요소라 클릭 대상도 아니다). 켜짐 자체는 파란 채움 + 맥동하는 점이 말한다.
+ */
+function StreamFollowToggle(): React.JSX.Element {
+  const { t } = useTranslation();
+  const agentId = useGraphStore((s) => selectIDEOverlay(s).agentId);
+  const activeSessionId = useGraphStore((s) => selectIDEOverlay(s).activeSessionId);
+  const sessionKey = followSessionKey(agentId ?? '', activeSessionId);
+  const follow = useGraphStore((s) => s.ideEditorFollow[sessionKey] === true);
+  const setFollow = useGraphStore((s) => s.setIdeEditorFollow);
+  const followNow = useGraphStore((s) => s.followPendingEditNow);
+  const lastMark = useGraphStore((s) => s.ideEditorFollowLast);
+  // 자국은 **그 세션의 것**만 본다 — 옆 세션이 따라간 파일이 여기 뜨면 세션 격리가 무너져 보인다.
+  const mark = follow && lastMark && lastMark.sessionKey === sessionKey ? lastMark : null;
+
+  /** 지금 떠 있는 알림 — 자국이 **새로** 찍힐 때만 서고 스스로 걷힌다(`at` 이 곧 그 알림의 신원). */
+  const [flyout, setFlyout] = useState<EditorFollowMark | null>(null);
+  /** 이미 띄운 자국의 시각. `null` = 아직 아무것도 안 띄웠다. */
+  const flyoutSeenRef = useRef<number | null>(null);
+  /** 이 컴포넌트가 처음 그려지는 중인가 — 처음 본 자국은 **옛 것**이라 띄우면 거짓말이 된다. */
+  const flyoutMountedRef = useRef(false);
+  useEffect(() => {
+    const at = mark?.at ?? null;
+    // 화면을 다시 그릴 때(뷰 전환·재마운트) 남아 있던 자국이 "방금 따라갔다" 로 둔갑하지 않게 한 번 건너뛴다.
+    if (!flyoutMountedRef.current) {
+      flyoutMountedRef.current = true;
+      flyoutSeenRef.current = at;
+      return;
+    }
+    if (at === null) { flyoutSeenRef.current = null; setFlyout(null); return; }
+    if (at === flyoutSeenRef.current) return;
+    flyoutSeenRef.current = at;
+    setFlyout(mark);
+    const timer = window.setTimeout(() => setFlyout(null), FOLLOW_FLYOUT_MS);
+    return () => window.clearTimeout(timer);
+    // 자국의 시각이 바뀔 때가 곧 "새로 따라갔다" 이다 — 같은 편집으로 두 번 띄우지 않는다.
+  }, [mark?.at]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const flySkip = flyout?.skip ?? null;
+
+  return (
+    <span className="relative flex flex-shrink-0 items-center">
+      {flyout && (
+        // 줄을 밀지 않게 절대 배치 · 읽기 전용(사라지는 것을 누르게 하면 헛클릭이 된다).
+        <span
+          key={flyout.at}
+          role="status"
+          className={`animate-follow-flyout pointer-events-none absolute bottom-[calc(100%+6px)] right-0 z-20 flex max-w-[18rem] items-center gap-1.5 whitespace-nowrap rounded-md border px-2 py-1 text-[10.5px] shadow-lg shadow-black/40 ${
+            flySkip
+              ? 'border-amber-400/60 bg-amber-950/95 text-amber-200'
+              : 'border-blue-400/60 bg-blue-950/95 text-blue-100'
+          }`}
+        >
+          {flySkip ? (
+            <svg
+              className="h-3 w-3 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden
+            >
+              <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
+              <line x1="12" y1="9" x2="12" y2="13" />
+              <line x1="12" y1="17" x2="12.01" y2="17" />
+            </svg>
+          ) : (
+            <svg
+              className="h-3 w-3 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden
+            >
+              <path d="M12 20V6" />
+              <path d="m6 12 6-6 6 6" />
+            </svg>
+          )}
+          <span className="min-w-0 truncate font-semibold">{flyout.name}</span>
+          {flySkip ? (
+            <span className="flex-shrink-0 text-amber-300/80">{t(FOLLOW_SKIP_SHORT_KEYS[flySkip])}</span>
+          ) : flyout.startLine !== null && (
+            <span className="flex-shrink-0 tabular-nums text-blue-300/80">
+              {flyout.endLine !== null && flyout.endLine !== flyout.startLine
+                ? t('ide.follow.lineRange', { from: flyout.startLine, to: flyout.endLine })
+                : t('ide.follow.lineShort', { line: flyout.startLine })}
+            </span>
+          )}
+        </span>
+      )}
+      <button
+        type="button"
+        aria-pressed={follow}
+        onClick={(e) => {
+          e.stopPropagation();
+          // 켤 때는 켜는 것으로 끝내지 않는다 — 기억해 둔 마지막 편집이 있으면 **거기까지** 데려간다.
+          if (follow) setFollow(sessionKey, false);
+          else followNow(sessionKey);
+        }}
+        title={follow ? t('ide.follow.tipOn') : t('ide.follow.tipOff')}
+        className={`flex flex-shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-semibold transition-colors ${
+          follow
+            ? 'border-blue-400/80 bg-blue-500/25 text-blue-100'
+            : 'border-gray-600/70 text-gray-400 hover:bg-gray-800 hover:text-gray-100'
+        }`}
+      >
+        {follow ? (
+          <span className="relative flex h-2 w-2 flex-shrink-0" aria-hidden>
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400/70" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-blue-400" />
+          </span>
+        ) : (
+          <svg
+            className="h-3.5 w-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden
+          >
+            <circle cx="12" cy="12" r="7" />
+            <circle cx="12" cy="12" r="2.5" />
+            <line x1="12" y1="1.5" x2="12" y2="4" />
+            <line x1="12" y1="20" x2="12" y2="22.5" />
+            <line x1="1.5" y1="12" x2="4" y2="12" />
+            <line x1="20" y1="12" x2="22.5" y2="12" />
+          </svg>
+        )}
+        {follow ? t('ide.follow.labelOn') : t('ide.follow.label')}
+      </button>
+    </span>
+  );
+}
+
+function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, sessionRunning }: StreamStatusBarProps): React.JSX.Element | null {
   const { t } = useTranslation();
   const openImageLightbox = useGraphStore((s) => s.openImageLightbox);
   // 우선순위(기본): 실행 중 > 최신 완료/에러. queued 단독은 하단 표시 대상 아님.
@@ -1535,6 +1954,16 @@ function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, onSto
 
   // §5.5 #17-12 — 마지막 TodoWrite 기준 "지금 무엇을 하는 중" + 완료/전체. 이벤트가 바뀔 때만 재계산.
   const planProgress = useMemo(() => latestPlanProgress(events), [events]);
+  // §5.3 #12-1 — 이 세션이 백단에 띄운 작업 수(훅 대차대조 + 스트림 칩 합산, 서버가 합쳐 보낸다).
+  const agentId = useGraphStore((s) => selectIDEOverlay(s).agentId);
+  const activeSessionId = useGraphStore((s) => selectIDEOverlay(s).activeSessionId);
+  const bgTaskCount = useGraphStore((s) => {
+    const tasks = agentId ? s.runningSubagentTasks[agentId] : undefined;
+    if (!tasks) return 0;
+    return activeSessionId === null
+      ? tasks.length
+      : tasks.filter((x) => x.subAgentId === activeSessionId).length;
+  });
 
   const handleJump = useCallback(() => {
     if (!target) return;
@@ -1561,16 +1990,36 @@ function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, onSto
     return (
       <div className="flex w-full flex-shrink-0 items-center justify-end gap-2 border-t border-gray-800 bg-gray-900/70 px-4 py-1">
         <StreamDensityToggle />
+        <StreamFollowToggle />
       </div>
     );
   }
 
-  const isExecuting = target.status === 'executing';
-  const isError = target.status === 'error';
+  // **되살아난 턴** — 세션은 도는데 이 세션 소유의 `executing` 명령이 없는 상태(봉인 만료 후 재진입).
+  //   이때 마지막 완료 명령을 그대로 "완료"로 그리면 화면이 거짓말을 하므로 실행 중 줄로 되돌린다.
+  //   단 **사용자가 위로 스크롤해 과거 명령을 보고 있을 때(`target !== defaultTarget`)는 건드리지 않는다** —
+  //   그 줄은 "지금"이 아니라 "그때"를 가리키는 자리라, 지나간 명령에 스피너가 돌면 그게 또 거짓이 된다.
+  const resumedTurn = sessionRunning
+    && target === defaultTarget
+    && !commands.some((c) => c.status === 'executing');
+  const isExecuting = target.status === 'executing' || resumedTurn;
+  const isError = target.status === 'error' && !resumedTurn;
   // §5.5 #17-12 — 실행 중에는 "내가 친 프롬프트" 대신 **에이전트가 지금 하는 단계**를 보여준다(계획이 있을 때).
   //   계획이 없으면 종전대로 프롬프트 앞부분 — 어떤 경우에도 빈 줄이 되지 않게.
   const plan = isExecuting ? planProgress : null;
-  const rawSummary = plan ? plan.current : target.text;
+  // §5.5 #17-12 ③ — 오류로 끝났으면 이 줄이 말할 것은 **내가 친 프롬프트가 아니라 실패 사유**다.
+  //   "오류"라는 단어만 놓고 원인을 삼키면 사용자는 무엇이 잘못됐는지 알 길이 없다(사용자 지적).
+  //   사유가 없는 옛 명령은 결과 텍스트 → 프롬프트 순으로 폴백해 종전 화면과 같아진다.
+  const errorDesc = isError && target.error ? describeCommandError(target.error) : null;
+  const errorLine = errorDesc
+    ? joinCommandErrorLine(t(errorDesc.labelKey, errorDesc.labelParams), errorDesc.detail)
+    : (isError && target.result ? target.result.replace(/\s*\n+\s*/g, ' ') : null);
+  // §5.3 #12-1 — 자기 턴은 끝났는데 **백단 자식이 아직 도는** 상태. 이 줄이 그때 내가 친 프롬프트를
+  //   되뇌면 "왜 멈춰 있지?"로 읽힌다 — 무엇을 기다리는지(몇 개가 도는지)를 말해야 한다.
+  const waitingOnBackground = isExecuting && bgTaskCount > 0 && !commands.some((c) => c.status === 'executing');
+  const rawSummary = waitingOnBackground
+    ? t('ide.activityBar.runningSubagents', { count: bgTaskCount })
+    : plan ? plan.current : (errorLine ?? target.text);
   const preview = rawSummary.length > STATUS_SUMMARY_MAX
     ? `${rawSummary.slice(0, STATUS_SUMMARY_MAX)}…`
     : rawSummary;
@@ -1610,22 +2059,9 @@ function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, onSto
           </span>
         )}
         <StreamDensityToggle />
-        {/* §5.5 #17-12 — [중지]가 "무엇을 하는 중"과 같은 줄에 있어야 멈출지 판단할 수 있다.
-            중지 범위·동작은 #17-10 그대로(마우스 클릭 전용). 점프(부모 div) 로 전파되지 않게 stopPropagation. */}
-        {canStop && (
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); onStop(); }}
-          disabled={stopping}
-          title={t('ide.mainArea.stopSessionTitle')}
-          className="flex flex-shrink-0 items-center gap-1 rounded border border-red-500/40 px-1.5 py-0.5 text-[11px] font-medium text-red-300 transition-colors hover:border-red-400 hover:bg-red-500/15 hover:text-red-200 disabled:opacity-50"
-        >
-          <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <rect x="6" y="6" width="12" height="12" rx="1.5" />
-          </svg>
-          {stopping ? t('ide.mainArea.stopping') : t('ide.mainArea.stop')}
-        </button>
-        )}
+        <StreamFollowToggle />
+        {/* §5.5 #17-12 ③ v4.64 — 이 줄에는 [중지]를 두지 않는다. 실행 중이면 바로 아래 입력창에 같은 동작의
+            [중지]가 뜨므로 버튼이 둘로 보였다("왜 중지가 2개냐"). 중지 창구는 입력창 하나(#17-10). */}
         <span className="flex-shrink-0 text-[10px] text-gray-600 group-hover:text-gray-300">{'↑'}</span>
       </div>
     );
@@ -1639,7 +2075,10 @@ function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, onSto
       onClick={handleJump}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleJump(); } }}
       className="group flex w-full flex-shrink-0 cursor-pointer items-center gap-2 border-t border-gray-800 bg-gray-900/70 px-4 py-1.5 text-left transition-colors hover:bg-gray-800/70"
-      title={t('ide.mainArea.scrollPrompt')}
+      // §5.5 #17-12 ③ — 한 줄이라 80자에서 잘린다. 잘린 사유 전문은 툴팁이 받는다(잘려서 못 읽는 일 방지).
+      title={errorLine ? `${errorLine}
+
+${t('ide.mainArea.scrollPrompt')}` : t('ide.mainArea.scrollPrompt')}
     >
       <span className={`flex flex-shrink-0 items-center ${isError ? 'text-red-400' : 'text-emerald-400'}`}>
         {isError ? (
@@ -1651,10 +2090,13 @@ function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, onSto
       <span className={`flex-shrink-0 text-[12px] ${isError ? 'text-red-400' : 'text-emerald-400'}`}>
         {isError ? t('ide.mainArea.statusError') : t('ide.mainArea.statusCompleted')}
       </span>
-      <span className="min-w-0 flex-1 truncate text-[12px] text-gray-300 group-hover:text-gray-100">
+      <span className={`min-w-0 flex-1 truncate text-[12px] ${
+        isError ? 'text-red-200/90 group-hover:text-red-100' : 'text-gray-300 group-hover:text-gray-100'
+      }`}>
         {preview}
       </span>
       <StreamDensityToggle />
+      <StreamFollowToggle />
       <span className="flex-shrink-0 text-[10px] text-gray-600 group-hover:text-gray-300">
         {'↑'}
       </span>
@@ -1662,125 +2104,37 @@ function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, onSto
   );
 }
 
-// ─── 우클릭 컨텍스트 메뉴 (v2.31 §5.5 #17-3) ───
-
-interface ContextMenuItem {
-  label: string;
-  onClick: () => void;
-  disabled?: boolean;
-  disabledTitle?: string;
-}
-
-function TerminalContextMenu({
-  x, y, items, onClose,
-}: {
-  x: number;
-  y: number;
-  items: ContextMenuItem[];
-  onClose: () => void;
-}): React.JSX.Element {
-  const ref = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<{ left: number; top: number }>({ left: x, top: y });
-
-  // 뷰포트 클리핑: 메뉴가 화면 밖으로 넘치면 좌상단 좌표 보정 (mount 직후 1회).
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    let left = x;
-    let top = y;
-    if (left + r.width > window.innerWidth - 8) left = Math.max(8, window.innerWidth - r.width - 8);
-    if (top + r.height > window.innerHeight - 8) top = Math.max(8, window.innerHeight - r.height - 8);
-    setPos({ left, top });
-  }, [x, y]);
-
-  // 외부 mousedown / Esc → 닫기.
-  // 누수 방지: onClose 를 ref 로 고정해 의존성에서 빼면, 호출자가 매 렌더 새 콜백을 줘도
-  //   리스너를 재등록(중복 누적)하지 않는다 — 마운트당 1회만 등록/해제.
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
-  useEffect(() => {
-    const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onCloseRef.current();
-    };
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onCloseRef.current(); };
-    window.addEventListener('mousedown', onDown, true);
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('mousedown', onDown, true);
-      window.removeEventListener('keydown', onKey);
-    };
-  }, []);
-
-  return createPortal(
-    <div
-      ref={ref}
-      style={{ position: 'fixed', left: pos.left, top: pos.top, zIndex: 9999 }}
-      className="min-w-[180px] rounded border border-gray-700 bg-gray-900 py-1 shadow-xl"
-      onContextMenu={(e) => e.preventDefault()}
-    >
-      {items.map((it, i) => (
-        <button
-          key={i}
-          type="button"
-          disabled={it.disabled}
-          title={it.disabled ? it.disabledTitle : undefined}
-          onClick={() => { if (!it.disabled) { it.onClick(); onClose(); } }}
-          className={`flex w-full items-center px-3 py-1.5 text-left text-[12px] transition-colors ${
-            it.disabled
-              ? 'cursor-not-allowed text-gray-600'
-              : 'text-gray-200 hover:bg-blue-500/20'
-          }`}
-        >
-          {it.label}
-        </button>
-      ))}
-    </div>,
-    document.body,
-  );
-}
+// ─── 우클릭 컨텍스트 메뉴 — §5.5 #17-27 ⑨ v4.97 로 `IDEContextMenu` 공용 컴포넌트로 이사(편집창과 공유). ───
 
 // ─── 메인 영역 ───
 
 // ─── v2.61 첨부 이미지 라이트박스 — 전역 transient state(imageLightbox)를 body 로 portal. ───
 //      입력칩 · 실행 상태바 · 대화 스트림의 어떤 썸네일을 클릭해도 여기서 전체화면 확대.
-function ImageLightboxHost(): React.JSX.Element | null {
-  const { t } = useTranslation();
-  const url = useGraphStore((s) => s.imageLightbox);
+//      §5.5 #17-25 v4.80 — 확대만 하던 자리에 주석 도구를 얹었다(ImageLightboxView). 여기는
+//      "store 를 읽어 body 로 portal" 만 하고, 도구·저장 배선은 그 컴포넌트가 갖는다.
+function ImageLightboxHost({ agentId, activeSessionId, canAttach }: ImageLightboxHostProps): React.JSX.Element | null {
+  const lightbox = useGraphStore((s) => s.imageLightbox);
   const close = useGraphStore((s) => s.closeImageLightbox);
-  useEffect(() => {
-    if (!url) return;
-    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') close(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [url, close]);
-  if (!url) return null;
+  if (!lightbox) return null;
   return createPortal(
-    <div
-      onClick={close}
-      className="vibi-image-lightbox fixed inset-0 z-[9999] flex cursor-zoom-out items-center justify-center bg-black/80 p-6"
-      role="dialog"
-      aria-modal="true"
-    >
-      <img
-        src={url}
-        alt=""
-        onClick={(e) => e.stopPropagation()}
-        className="max-h-[92vh] max-w-[92vw] rounded-lg border border-gray-700 shadow-2xl"
-      />
-      {/* v2.94 — top-4(16px)는 Windows 네이티브 타이틀바 오버레이(우상단 ~144×36px, OS가 웹 위에
-          그려 클릭 가로챔)와 겹쳐 닫기가 막혔다. 타이틀바 높이(36px) 아래(top-12=48px)로 내려 회피. */}
-      <button
-        type="button"
-        onClick={close}
-        aria-label={t('panel.detailPanel.close')}
-        className="absolute right-4 top-12 flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-gray-200 transition-colors hover:bg-black/80"
-      >
-        <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-      </button>
-    </div>,
+    <ImageLightboxView
+      // 이미지가 바뀌면 주석·도구 상태를 새로 시작한다(다음 이미지에 앞 그림이 남아 있으면 안 된다).
+      key={lightbox.url}
+      state={lightbox}
+      agentId={agentId}
+      activeSessionId={activeSessionId}
+      canAttach={canAttach}
+      onClose={close}
+    />,
     document.body,
   );
+}
+
+interface ImageLightboxHostProps {
+  agentId: string;
+  activeSessionId: string | null;
+  /** 붙일 입력창이 있는가 — 읽기 전용(Hook 에이전트 메인 탭)이면 [내려받기]만 남는다. */
+  canAttach: boolean;
 }
 
 // IDE 본문 텍스트 줌 배율 사다리 — 크롬 페이지 줌처럼 정해진 단(段)만 밟아, 어디서 확대/축소해도 항상
@@ -1813,9 +2167,17 @@ export const IDEMainArea = memo(function IDEMainArea({
   isCustom,
 }: IDEMainAreaProps): React.JSX.Element {
   const { t } = useTranslation();
+  // §5.5 #17-12 ③ — 실패 사유(코드 + 원문) → 한 줄 문장. 타임라인 조립은 순수 함수라 로케일을 주입한다.
+  const formatError = useCallback((error: CommandError): string => {
+    const desc = describeCommandError(error);
+    return joinCommandErrorLine(t(desc.labelKey, desc.labelParams), desc.detail);
+  }, [t]);
   const activeSessionId = useGraphStore((s) => selectIDEOverlay(s).activeSessionId);
-  // §5.5 #17-12 — 하단 상태바 [중지]. 입력창의 [중지]와 같은 훅(=같은 범위 규칙)을 쓴다.
-  const { stopping, stop: handleStop } = useSessionStop(agentId, activeSessionId);
+  // 하단 상태바가 "완료"라고 말할지 "실행 중"이라고 말할지의 근거. 입력창의 [중지] 토글과 **같은 훅**을
+  //   써서 두 자리가 어긋나지 않게 한다(종전에는 각자 명령 상태만 따로 봐서 갈라졌다).
+  const streamSessionRunning = useSessionRunning(agentId, activeSessionId);
+  // §5.5 #17-12 ③ v4.64 — 하단 상태바의 [중지]를 없애면서 여기서 쓰던 useSessionStop 도 함께 제거.
+  //   중지 창구는 입력창(TerminalInput)의 [중지] 하나뿐이다(#17-10 범위 규칙 그대로).
   const markSubAcknowledged = useGraphStore((s) => s.markSubAcknowledged);
   // 사용자가 메인 영역(스크롤 영역) 안을 클릭하면 현재 sub 의 완료 알림을 확인 처리(녹색→회색).
   const handleAckClick = useCallback(() => {
@@ -2026,8 +2388,10 @@ export const IDEMainArea = memo(function IDEMainArea({
   // 북마크 이동 nonce — 막 전환된 세션이 북마크 점프인지 식별해 스크롤 복원을 양보(중복 스크롤 충돌 방지).
   const handledBookmarkNonceRef = useRef<number>(-1);
 
-  // Hook 메인 뷰(activeSessionId===null) = read-only, 서브에이전트 탭 = interactive
-  const isReadOnly = !isCustom && activeSessionId === null;
+  // §5.5 #17 / #17-29 — 훅 버블은 **어느 탭에서도** read-only. 종전엔 `activeSessionId === null`(메인 탭)
+  //   조건이 붙어 있어 훅 버블의 세션 탭 위에서는 입력창이 열렸고, 그렇게 보낸 명령은 우리가 spawn 하지
+  //   않은 부모에 자식을 매달았다(스폰 주입·완료 신고 경로가 통째로 없는 세션). 커스텀만 interactive.
+  const isReadOnly = !isCustom;
 
   // §4 v2.63 — CMD(interactive-terminal) 에이전트는 **모든 탭**이 임베디드 PTY 터미널.
   // 탭(세션)마다 독립 termId → "+"=새 cmd 터미널, IDE 닫았다 열어도 reattach 로 보존.
@@ -2215,7 +2579,7 @@ export const IDEMainArea = memo(function IDEMainArea({
     // 없어 매 스냅샷마다 전 세션 이벤트를 재파싱·정렬한다. 이 비용이 스냅샷 비용과 겹치는지 확인.
     const _PERF = !!(globalThis as unknown as { __VIBI_PERF__?: boolean }).__VIBI_PERF__;
     const _t0 = _PERF ? performance.now() : 0;
-    const flat = buildEntries(commands, subAgents, streams, activeSessionId, agentEvents);
+    const flat = buildEntries(commands, subAgents, streams, activeSessionId, agentEvents, formatError);
     const agentBusy = commands.some((c) => c.status === 'executing' || c.status === 'queued');
     const grouped = applyMainDensity(groupEntries(flat), density);
     if (_PERF && activeSessionId === null) {
@@ -2228,8 +2592,8 @@ export const IDEMainArea = memo(function IDEMainArea({
       );
     }
 
-    // 라이브 "생각 중 …" 1줄 — 에이전트 작동 중이고 가장 최근 스트림 이벤트가 사고 이벤트(펄스 또는
-    // thinking 델타)면 (= 지금 실제로 생각 중) 본문 하단에 1개만 띄운다. 출력이 시작되면 사라진다.
+    // §5.5 #17-24 ② — 라이브 1줄은 **에이전트가 작동하는 동안 항상** 뜬다(Sub 탭 computeThinkingLive 와 동형).
+    //   가장 최근 이벤트는 켜고 끄는 스위치가 아니라 라벨을 고르는 값 — 사고 이벤트면 `생각 중`, 그 외는 `작업 중`.
     if (agentBusy) {
       // v3.72 — 종전엔 "가장 최근 이벤트" 를 찾으려고 **전 세션 이벤트를 매번 완주**했다(O(전체)).
       //   스트림 배열은 도착 순서대로 append 되므로 각 배열의 **마지막 원소**만 보면 된다(O(세션 수)).
@@ -2239,12 +2603,11 @@ export const IDEMainArea = memo(function IDEMainArea({
         const tail = evts[evts.length - 1];
         if (tail && (!latest || tail.timestamp > latest.timestamp)) latest = tail;
       }
-      if (latest && isThinkingActivity(latest)) {
-        grouped.push({ kind: 'thinking-live', id: 'thinking-live', timestamp: latest.timestamp });
-      }
+      const mode = latest && isThinkingActivity(latest) ? 'thinking' : 'working';
+      grouped.push({ kind: 'thinking-live', id: 'thinking-live', mode, timestamp: latest?.timestamp ?? Date.now() });
     }
     return grouped;
-  }, [commands, subAgents, streams, activeSessionId, agentEvents, density]);
+  }, [commands, subAgents, streams, activeSessionId, agentEvents, density, formatError]);
 
   // §5.3 #12-2 v2.26 — 이 에이전트 (+ 활성 세션) 의 AskUserQuestion 카드 목록.
   // 메인 탭(activeSessionId === null): 이 에이전트의 모든 sub 질문을 시간순.
@@ -2311,50 +2674,83 @@ export const IDEMainArea = memo(function IDEMainArea({
     return all.sort((a, b) => a.createdAt - b.createdAt);
   }, [reportCards, questionCards, reviewCards, listCards]);
 
-  // §4 v2.53/v2.57 — 메인 탭: 터미널 항목 + 작업 신고 카드를 합쳐 정렬. 신고는 createdAt 그대로가 아니라
-  //   **그 신고가 속한 턴의 끝**(createdAt 이후 첫 프롬프트 직전, 없으면 맨 끝)에 배치 — StreamRenderer 와 동일.
-  //   작업 도중 카드가 중간에 끼는 걸 막고, 다음 턴 대화가 오면 자연스럽게 위로 밀려 올라가게 한다.
+  // §4 v2.53/v2.57 · §5.5 #17-18 ⑦-1 — 메인 탭: 터미널 항목 + 카드를 합쳐 정렬. 카드는 **신고된 그 시각**
+  //   (`createdAt`)에 못 박히고, 그 뒤 출력은 전부 카드 아래로 쌓인다 — StreamRenderer 와 동일 규칙.
+  //   옛 "그 턴 끝으로 미루기"(`turnEndSortTs`)는 도는 턴에 뒤에 올 명령이 없어 카드를 화면 바닥에
+  //   붙박아 두었고, 그 탓에 "안 끝났는데 카드부터 나와 끝난 줄 착각"·"언제 나온 카드인지 모름"이 됐다.
   const mainTimeline = useMemo(() => {
-    const cmdTsAsc = commands.map((c) => c.timestamp).sort((a, b) => a - b);
-    const turnEndSortTs = (createdAt: number): number => {
+    // §5.5 #17-18 ⑥-3 — 턴 경계는 **이미 나간 명령**의 dispatch 시각이다. 대기 중 덧말은 아직
+    //   아무것도 끊지 않았으므로 경계에서 뺀다. Ask 의 "맨 끝" 폴백은 대기 말풍선(꼬리)보다 **위**여야 한다.
+    const cmdTsAsc = commands
+      .filter((c) => c.status !== 'queued')
+      .map((c) => commandAnchorTs(c))
+      .sort((a, b) => a - b);
+    // §5.3 #12-2 — 답을 기다리는 AskUserQuestion 만 종전대로 그 턴 끝(없으면 꼬리)에 둔다(60초 안에 답해야
+    //   하는 요청이라 눈앞에서 밀려 올라가면 안 된다). 지나간 보고인 카드류는 ⑦-1 로 제자리 고정.
+    const pendingAskSortTs = (createdAt: number): number => {
       for (const ts of cmdTsAsc) { if (ts > createdAt) return ts - 0.5; }
-      return Number.MAX_SAFE_INTEGER;
+      return PENDING_COMMAND_TS - 1;
     };
-    // §5.5 #17-12 — 같은 턴(=같은 turnEndSortTs 버킷)의 검수는 그 턴 신고 카드로 흡수해 한 장으로 보여준다.
+    // §5.5 #17-18 ⑦-3 — 턴 식별은 정렬과 분리: dispatch 경계를 몇 개 지났는가가 곧 턴 번호다.
+    const turnIndexOf = (createdAt: number): number => {
+      let n = 0;
+      for (const ts of cmdTsAsc) { if (ts <= createdAt) n += 1; else break; }
+      return n;
+    };
+    // §5.5 #17-18 ⑦-2 — 이 카드가 속한 턴이 아직 도는 중인가(뒤에 나간 명령이 없고 지금 실행 중).
+    const lastAnchor = cmdTsAsc[cmdTsAsc.length - 1];
+    const turnRunning = commands.some((c) => c.status === 'executing');
+    const isLive = (createdAt: number): boolean =>
+      turnRunning && !(lastAnchor !== undefined && lastAnchor > createdAt);
+    // §5.5 #17-12 — 같은 턴의 검수는 그 턴 신고 카드로 흡수해 한 장으로 보여준다.
     //   짝 없는 검수만 독립 카드로 남는다(StreamRenderer 의 mergeCardsIntoItems 와 동일 규칙).
-    const reportNodes = reportCards.map((r) => ({
-      ts: turnEndSortTs(r.createdAt),
-      node: { t: 'report' as const, report: r } as MainTimelineNode,
-    }));
+    const reportNodes: Array<{ ts: number; node: MainTimelineNode }> = [];
     const reportNodeByTurn = new Map<number, { node: MainTimelineNode }>();
-    for (const entry of reportNodes) reportNodeByTurn.set(entry.ts, entry);
+    for (const r of reportCards) {
+      const entry = {
+        ts: r.createdAt,
+        node: { t: 'report' as const, report: r, live: isLive(r.createdAt) } as MainTimelineNode,
+      };
+      reportNodes.push(entry);
+      reportNodeByTurn.set(turnIndexOf(r.createdAt), entry);
+    }
     const reviewNodes: Array<{ ts: number; node: MainTimelineNode }> = [];
     for (const rv of reviewCards) {
-      const ts = turnEndSortTs(rv.createdAt);
-      const host = reportNodeByTurn.get(ts);
+      const host = reportNodeByTurn.get(turnIndexOf(rv.createdAt));
       if (host && host.node.t === 'report' && !host.node.review) {
         host.node = { ...host.node, review: rv };
         continue;
       }
-      reviewNodes.push({ ts, node: { t: 'review' as const, review: rv } });
+      reviewNodes.push({ ts: rv.createdAt, node: { t: 'review' as const, review: rv, live: isLive(rv.createdAt) } });
     }
     const merged: Array<{ ts: number; node: MainTimelineNode }> = [
       ...items.map((item) => ({ ts: item.timestamp, node: { t: 'item' as const, item } })),
       ...reportNodes,
-      ...questionCards.map((q) => ({ ts: turnEndSortTs(q.createdAt), node: { t: 'question' as const, questions: q } })),
+      ...questionCards.map((q) => ({ ts: q.createdAt, node: { t: 'question' as const, questions: q, live: isLive(q.createdAt) } })),
       ...reviewNodes,
-      ...listCards.map((l) => ({ ts: turnEndSortTs(l.createdAt), node: { t: 'list' as const, list: l } })),
+      ...listCards.map((l) => ({ ts: l.createdAt, node: { t: 'list' as const, list: l, live: isLive(l.createdAt) } })),
       // §5.3 #12-2 — pending AskUserQuestion 카드도 타임라인 안으로(가상 리스트 밖 형제 렌더 → 겹침 제거).
-      ...askCards.map((req) => ({ ts: turnEndSortTs(req.createdAt), node: { t: 'ask' as const, request: req } })),
+      ...askCards.map((req) => ({ ts: pendingAskSortTs(req.createdAt), node: { t: 'ask' as const, request: req } })),
     ];
     merged.sort((a, b) => a.ts - b.ts);
-    return merged.map((m) => m.node);
+    // §5.5 #17-18 ⑦-5 — 카드 바로 뒤에 붙는 "~카드로 보냈습니다" 한 줄은 화면에서 뺀다(카드가 이미 하는 말).
+    //   정렬 **뒤**에 걷는다: "바로 앞이 카드"라는 자리 조건은 시간순으로 놓인 뒤에야 성립한다.
+    return dropCardEchoNodes(merged.map((m) => m.node));
   }, [items, reportCards, questionCards, reviewCards, listCards, askCards, commands]);
 
   // v3.13 — 스트림 버퍼 앞쪽 절단(상한 초과 시 오래된 이벤트 일괄 제거)을 메인 Virtuoso 에도 shift 로 신고.
   //   인덱스 기반 sizeTree 가 절단마다 밀려 측정 모델이 붕괴 → 긴 세션에서 스크롤이 "위로 말려 올라가던" 원인.
   //   §5.5 #17-12 — 밀도를 리셋 키로 함께(전환 시 항목 id 가 통째로 갈리는 걸 절단으로 오인 방지).
   const mainFirstItemIndex = useVirtuosoFrontShift(mainTimeline, mainTimelineNodeId, density);
+
+  // §5.5 #17-21 ② — 간결에서 유일하게 자르지 않는 본문 = 타임라인의 **마지막 AI 텍스트**(지금 하는 말 = 결론).
+  const mainLastTextId = useMemo(() => {
+    for (let k = mainTimeline.length - 1; k >= 0; k--) {
+      const n = mainTimeline[k]!;
+      if (n.t === 'item' && n.item.kind === undefined && n.item.type === 'text') return mainTimelineNodeId(n);
+    }
+    return null;
+  }, [mainTimeline]);
 
   // v2.99 — 세션(탭) 전환 시 위치 복원: 자식(StreamRenderer / 메인 Virtuoso)을 key={sessionKey} 로 재마운트하고
   //   restoreStateFrom 으로 그 세션의 저장 스냅샷(측정된 항목 높이 + 스크롤 위치)을 받아 **재측정 출렁임 없이**
@@ -2909,24 +3305,30 @@ export const IDEMainArea = memo(function IDEMainArea({
                   // §5.5 — 놓친 카드 pill 이 관측할 앵커. 카드류(신고/질문/검수/목록)에만 표식.
                   const isCard = n.t === 'report' || n.t === 'question' || n.t === 'review' || n.t === 'list';
                   return (
-                    <div data-stream-item-id={itemId} {...(isCard ? { 'data-card-id': itemId } : {})} style={ideTextZoom === 1 ? undefined : { zoom: ideTextZoom }}>
+                    <div
+                      data-stream-item-id={itemId}
+                      className="ide-stream"
+                      {...readingItemAttrsNoProse(mainTimelineReadingKind(n))}
+                      {...(isCard ? { 'data-card-id': itemId } : {})}
+                      style={ideTextZoom === 1 ? undefined : { zoom: ideTextZoom }}
+                    >
                       {n.t === 'report'
-                        ? <AgentReportCard report={n.report} review={n.review} />
+                        ? <AgentReportCard report={n.report} review={n.review} live={n.live} />
                         : n.t === 'review'
-                          ? <AgentReviewCard review={n.review} />
+                          ? <AgentReviewCard review={n.review} live={n.live} />
                         : n.t === 'list'
-                          ? <AgentListCard list={n.list} />
+                          ? <AgentListCard list={n.list} live={n.live} />
                         : n.t === 'question'
-                          ? <AgentQuestionCard questions={n.questions} />
+                          ? <AgentQuestionCard questions={n.questions} live={n.live} />
                         : n.t === 'ask'
                           ? <AskQuestionCard request={n.request} />
                           : n.item.kind === 'plan'
                             ? <PlanBlock item={n.item} />
                           : n.item.kind === 'group'
-                            ? <TerminalGroupLine group={n.item} />
+                            ? <TerminalGroupLine group={n.item} density={density} />
                             : n.item.kind === 'thinking-live'
-                              ? <ThinkingLiveLine label={t('ide.streamRenderer.thinking')} />
-                              : <TerminalLine entry={n.item} />}
+                              ? <ThinkingLiveLine label={n.item.mode === 'working' ? t('ide.streamRenderer.working') : t('ide.streamRenderer.thinking')} mode={n.item.mode} />
+                              : <TerminalLine entry={n.item} density={density} exempt={itemId === mainLastTextId} agentId={agentId} />}
                     </div>
                   );
                 }}
@@ -2974,27 +3376,25 @@ export const IDEMainArea = memo(function IDEMainArea({
         )}
       </div>
 
-      {/* Stream 하단 상태바 — §5.5 #17-12 로 메인 탭에도 상주(밀도 토글·[중지]가 어느 탭에서도 닿게).
-          메인 탭은 스코프를 좁힐 세션이 없어 명령 전체를 보고, [중지]도 #17-10 규칙대로 stop-all 이 된다. */}
+      {/* Stream 하단 상태바 — §5.5 #17-12 로 메인 탭에도 상주(밀도 토글이 어느 탭에서도 닿게).
+          메인 탭은 스코프를 좁힐 세션이 없어 명령 전체를 본다. v4.64 — [중지]는 이 줄에서 빠지고 입력창 하나로. */}
       <StreamStatusBar
         commands={activeSessionId !== null ? commands.filter((c) => c.subAgentId === activeSessionId) : commands}
         scrollRef={scrollRef}
         streamRef={streamRef}
         onJump={releaseFollowForJump}
-        // §5.5 #17-12 — "지금 무엇을"(마지막 계획 단계) + 같은 줄 [중지](범위는 #17-10 규칙 그대로).
+        // §5.5 #17-12 — "지금 무엇을"(마지막 계획 단계).
         //   메인 탭은 단일 스트림이 아니므로 계획 줄 없이 프롬프트 미리보기를 유지한다.
         events={activeSessionId !== null ? activeStreamEvents : EMPTY_STREAM_EVENTS}
-        onStop={handleStop}
-        stopping={stopping}
-        canStop={!isReadOnly}
+        sessionRunning={streamSessionRunning}
       />
 
-      {/* Command input — 서브에이전트 탭이거나 커스텀이면 입력 가능 */}
+      {/* Command input — 커스텀 에이전트만 입력 가능(§5.5 #17-29) */}
       {!isReadOnly && (
         <TerminalInput agentId={agentId} activeSessionId={activeSessionId} />
       )}
 
-      {/* Read-only — Hook 에이전트 메인 뷰만 */}
+      {/* Read-only — 훅 버블은 모든 탭에서 관측 전용 */}
       {isReadOnly && (
         <div className="flex h-8 items-center justify-center border-t border-gray-700 bg-gray-900/60">
           <span className="text-[10px] text-gray-600">{t('ide.mainArea.readOnly')}</span>
@@ -3002,11 +3402,11 @@ export const IDEMainArea = memo(function IDEMainArea({
       )}
 
       {/* v2.61 — 첨부 이미지 라이트박스 (입력칩·상태바·대화 썸네일 클릭 시 전체화면 확대) */}
-      <ImageLightboxHost />
+      <ImageLightboxHost agentId={agentId} activeSessionId={activeSessionId} canAttach={!isReadOnly} />
 
       {/* §5.5 #17-3 v2.31 — 우클릭 컨텍스트 메뉴 */}
       {ctxMenu && (
-        <TerminalContextMenu
+        <IDEContextMenu
           x={ctxMenu.x}
           y={ctxMenu.y}
           items={ctxItems}

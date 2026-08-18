@@ -5,8 +5,8 @@
  * 손실이 적은 형태의 압축**으로 평가된다. 이유는 단순하다 — 이미 처리가 끝난 도구 결과의 원문을 모델이
  * 다시 볼 이유가 대개 없다. 컴팩션보다 먼저 적용해 보는 것이 순서다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const fill = (ctx: PluginBubbleContext): number => {
   let best = 0;

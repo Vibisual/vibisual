@@ -5,9 +5,9 @@
  * 죽일 수 있다** — 도구 이벤트마다 동기 디스크 쓰기·브로드캐스트를 하면 그 자체가 병목이 된다.
  * 샘플링·디바운스·배치가 기본 장치다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import { toneIfActive } from '../framework/activity.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import { toneIfActive } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const signals = (ctx: PluginBubbleContext): number =>
   [

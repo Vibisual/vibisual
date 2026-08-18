@@ -87,6 +87,12 @@ const ICON_PATHS: Record<BubbleStyleConfig['icon'], { viewBox: string; d: string
     d: 'M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m5 5v6m4-6v6',
     fill: false,
   },
+  // §5.13 v4.45 — Vibistudio 영상 문서. 재생 삼각형이 든 화면.
+  video: {
+    viewBox: '0 0 24 24',
+    d: 'M2 6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6zm8 3 5 3-5 3V9z',
+    fill: false,
+  },
 };
 
 function BubbleIcon({ icon, px }: { icon: BubbleStyleConfig['icon']; px?: number }): React.JSX.Element {
@@ -326,6 +332,9 @@ export const BubbleNode = memo(function BubbleNode({
   const ts = size / BUBBLE_TEXT_REF_SIZE;
   const isActive = data.status === 'active';
   const isCompleted = data.status === 'completed';
+  // 소속 세션이 실패로 끝났다 — completed(시안)와 **같은 자리, 다른 색**으로 그린다.
+  //   종전에는 이 상태가 completed 로 내려가 실패가 완료로 보였다.
+  const isFailed = data.status === 'error';
   // §4 v1.49 — Notification 시각 신호 (permission 대기). v1.73 — awaiting_input(모래시계) 제거.
   const isAwaitingPermission = data.status === 'awaiting_permission';
   const isFolder = data.bubbleType === 'internal_folder' || data.bubbleType === 'external_folder';
@@ -396,6 +405,8 @@ export const BubbleNode = memo(function BubbleNode({
   // 우선순위: (1) 현재 active 인 sub → (2) IDE 오버레이에서 사용자가 선택한 탭 → (3) 서버가 준 default(가장 최근).
   //  - (1) 이 있으면 동작중 컨텍스트를 실시간 반영
   //  - 없으면 사용자가 IDE 에서 골라본 sub 로 전환(요구사항: "동작중인게 없을 경우 그 선택한거로 변경")
+  // §5.3 #12-1 — 백단 작업 중임을 말하는 것은 **기존 동작중 이펙트 하나**다(별도 색·배지 ❌).
+  //   서버가 그동안 버블을 `active` 로 유지하므로 위 `isActive` 경로가 그대로 그 일을 한다.
   const subAgentsMap = useGraphStore((s) => s.subAgents);
   const ideAgentId = useGraphStore((s) => selectIDEOverlay(s).agentId);
   const ideActiveSessionId = useGraphStore((s) => selectIDEOverlay(s).activeSessionId);
@@ -451,9 +462,11 @@ export const BubbleNode = memo(function BubbleNode({
     ? 'border-amber-400 shadow-lg shadow-amber-400/40 animate-pulse'
     : isActive
       ? style.ringActive
-      : isCompleted
-        ? 'border-cyan-400 shadow-lg shadow-cyan-400/30'
-        : style.ringIdle;
+      : isFailed
+        ? 'border-rose-500 shadow-lg shadow-rose-500/30'
+        : isCompleted
+          ? 'border-cyan-400 shadow-lg shadow-cyan-400/30'
+          : style.ringIdle;
 
   // 마운트 시 스폰 애니메이션
   const [spawning, setSpawning] = useState(true);
@@ -555,7 +568,10 @@ export const BubbleNode = memo(function BubbleNode({
     const id = rawId.startsWith('sat-') ? rawId.slice(4) : rawId;
     useGraphStore.getState().selectNode(id);
 
-    if (data.bubbleType === 'agent' && data.status === 'completed') {
+    // 확인 dismiss(§2.4) — `error` 도 대상이다. 실패 버블은 idle sweep 에서 **일부러 제외**돼
+    //   자동으로 사라지지 않으므로(거짓 idle 세탁 금지), 사용자가 확인해서 내리는 이 길이 없으면
+    //   캔버스에 영영 남는다.
+    if (data.bubbleType === 'agent' && (data.status === 'completed' || data.status === 'error')) {
       fetch(`/api/dismiss-agent`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -985,6 +1001,14 @@ export const BubbleNode = memo(function BubbleNode({
         <>
           <div className="pointer-events-none absolute -inset-1 rounded-full border-[3px] border-cyan-400" />
           <div className="pointer-events-none absolute -inset-2 animate-pulse rounded-full opacity-50" style={{ boxShadow: '0 0 20px 8px #22D3EE', animationDuration: '3s' }} />
+        </>
+      )}
+
+      {/* error 글로우 — completed 와 같은 형태, 색만 rose. 완료와 실패가 한눈에 갈려야 한다. */}
+      {isFailed && (
+        <>
+          <div className="pointer-events-none absolute -inset-1 rounded-full border-[3px] border-rose-500" />
+          <div className="pointer-events-none absolute -inset-2 animate-pulse rounded-full opacity-50" style={{ boxShadow: '0 0 20px 8px #F43F5E', animationDuration: '3s' }} />
         </>
       )}
 

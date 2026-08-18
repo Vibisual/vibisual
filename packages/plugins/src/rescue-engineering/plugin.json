@@ -1,0 +1,18 @@
+{
+  "id": "rescue-engineering",
+  "name": "Rescue Engineering",
+  "version": "1.0.0",
+  "category": "workflow",
+  "descriptionKey": "panel.plugins.rescueEngineering.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "agentEvents",
+    "agentReviews"
+  ],
+  "hostApi": 1
+}

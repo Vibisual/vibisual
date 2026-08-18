@@ -5,8 +5,8 @@
  * 사람이 알아채기 어렵다. 방어는 목표를 **고정된 자리**에 두고(사용자 지시와 도구 결과를 같은 층에 두지 않기),
  * 궤적으로 이탈을 탐지하는 것이다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const pinned = (ctx: PluginBubbleContext): boolean => (ctx.agentConfig?.rules ?? '').trim().length > 0;
 const hasPlan = (ctx: PluginBubbleContext): boolean => (ctx.data.agentEvents ?? []).some((e) => (e.todos ?? []).length > 0);

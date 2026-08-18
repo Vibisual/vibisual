@@ -5,8 +5,8 @@
  * 주범이고, 특히 틀린 중간 결론이 남으면 모델이 그것을 계속 사실로 취급한다. 서브에이전트를 쓰는 진짜 이유가
  * 성능이 아니라 여기에 있다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const sessions = (ctx: PluginBubbleContext): number => (ctx.data.subAgents ?? []).length;
 const turns = (ctx: PluginBubbleContext): number => (ctx.data.agentEvents ?? []).length;

@@ -1,4 +1,5 @@
 import { ipcMain, type WebContents } from 'electron';
+import { mountAppIpc, removeAppIpc } from './apps/index';
 import { inject, type DispatchFunc } from 'light-my-request';
 import type { Express } from 'express';
 import {
@@ -6,6 +7,7 @@ import {
   buildConnectionMessages,
   shutdownIframeLogStreamer,
   shutdownServerLogService,
+  debugSessionManager,
   type ClientConnection,
 } from '@vibisual/server';
 import {
@@ -41,6 +43,7 @@ import {
   overlayMenuAction,
   closeOverlayMenuByWindowId,
   openCommandCenter,
+
   closeCommandCenter,
   revealSessionInMain,
 } from './windowManager';
@@ -66,7 +69,7 @@ import {
 } from './terminalManager';
 import { listCaptureSources } from './captureManager';
 import { injectCaptureInput, resolveCaptureTargetRect } from './captureInputManager';
-import type { UpdateState, AgentConfig, MobileAccessState, CaptureSourceInfo, CaptureInputEvent, CaptureSourceKind, CaptureTargetRect, CaptureInjectResult } from '@vibisual/shared';
+import type { UpdateState, MobileAccessState, CaptureSourceInfo, CaptureInputEvent, CaptureSourceKind, CaptureTargetRect, CaptureInjectResult } from '@vibisual/shared';
 
 // IPC hub — SCENARIO.md §3.7 (in-process 통합).
 //
@@ -352,9 +355,14 @@ export function setupIpc(expressApp: Express): IpcHub {
       return openCommandCenter({ projectId: payload.projectId, cursor: payload.cursor });
     },
   );
-  ipcMain.handle('vibisual:command:close', (_event, projectId: string): boolean => {
-    return typeof projectId === 'string' ? closeCommandCenter(projectId) : false;
-  });
+  // v4.44 — 창이 하나뿐이라 인자가 없다(구버전 renderer 가 projectId 를 보내도 무시).
+  ipcMain.handle('vibisual:command:close', (): boolean => closeCommandCenter());
+
+  // ─── §5.13 (O) v4.48 내부 앱 채널 ───
+  //
+  // 앱마다 채널을 늘리지 않는다. 코어가 아는 것은 이 한 줄뿐이고, 앱이 늘어도
+  // 늘어나는 것은 `main/apps/` 안의 파일 하나다(플러그인 호스트와 같은 규율).
+  mountAppIpc(ipcMain);
   ipcMain.handle(
     'vibisual:command:reveal-in-main',
     (_event, payload: { projectId: string; agentId: string; subAgentId?: string | null }): boolean => {
@@ -392,7 +400,7 @@ export function setupIpc(expressApp: Express): IpcHub {
   //   여기서는 renderer→main 의 invoke 액션(create/write/resize/kill)만 등록한다.
   ipcMain.handle(
     'vibisual:term:create',
-    (event, spec: { termId: string; cwd: string; config: AgentConfig; cols?: number; rows?: number }): { ok: boolean; error?: string } => {
+    (event, spec: CreateTerminalSpec): { ok: boolean; error?: string } => {
       if (!spec || typeof spec.termId !== 'string' || !spec.termId) {
         return { ok: false, error: 'termId required' };
       }
@@ -467,6 +475,7 @@ export function setupIpc(expressApp: Express): IpcHub {
       ipcMain.removeHandler('vibisual:overlay:menu-resize');
       ipcMain.removeHandler('vibisual:overlay:menu-action');
       ipcMain.removeHandler('vibisual:overlay:close-menu');
+      removeAppIpc(ipcMain);
       ipcMain.removeHandler('vibisual:command:open');
       ipcMain.removeHandler('vibisual:command:close');
       ipcMain.removeHandler('vibisual:command:reveal-in-main');
@@ -490,6 +499,8 @@ export function setupIpc(expressApp: Express): IpcHub {
       ipcMain.removeHandler('vibisual:capture:target-rect');
       shutdownIframeLogStreamer();
       shutdownServerLogService();
+      // §5.5 #17-20 ⑩ v4.94 — 붙어 있던 디버그 세션(어댑터 자식 프로세스·소켓)을 함께 회수한다.
+      debugSessionManager.disposeAll();
       connections.clear();
     },
   };

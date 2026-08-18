@@ -2,10 +2,13 @@ import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { AgentReview } from '@vibisual/shared';
 import { FeedbackButtons } from './FeedbackButtons.js';
-import { CardSection, CardDetails, CardHoverControls } from './AgentCardParts.js';
+import { CardSection, CardDetails, CardHoverControls, CardLiveBadge, CompactCardLine, compactSummary, useCompactCards } from './AgentCardParts.js';
+import { useStreamToggle } from './streamToggle.js';
 
 interface AgentReviewCardProps {
   review: AgentReview;
+  /** §5.5 #17-18 ⑦-2 — 이 카드가 속한 턴이 아직 도는 중(헤더에 `작업 중` 배지). */
+  live?: boolean;
 }
 
 function formatTime(ts: number): string {
@@ -66,11 +69,27 @@ export function VerifyIcon(): React.JSX.Element {
  * - changes     : 무슨 동작을 어떻게 고쳤는지 — AI 가 완료한 변경(violet 중립).
  * - checkpoints : 사용자가 확인할 검수 포인트 — violet 강조 패널.
  */
-export const AgentReviewCard = memo(function AgentReviewCard({ review }: AgentReviewCardProps): React.JSX.Element {
+export const AgentReviewCard = memo(function AgentReviewCard({ review, live }: AgentReviewCardProps): React.JSX.Element {
   const { t } = useTranslation();
   const hasCheckpoints = review.checkpoints.length > 0;
   // §5.5 #17-12 — 행동 구획(검수 포인트)만 기본 노출, 맥락(받은 지시·고친 내용)은 [자세히] 안으로.
   const detailCount = review.changes.length + (review.instruction ? 1 : 0);
+
+  // §5.5 #17-21 ④ — 간결에서는 행동 구획(검수 포인트)만. 확인할 것이 없으면 카드 전체가 한 줄로 접힌다.
+  const compact = useCompactCards();
+  const [expanded, toggleExpanded] = useStreamToggle(`card-${review.id}`, false);
+  if (compact && !hasCheckpoints && !expanded) {
+    return (
+      <CompactCardLine
+        icon={<ReviewIcon />}
+        label={t('ide.review.title')}
+        labelClass="text-violet-300"
+        summary={compactSummary([review.note, review.instruction, review.changes[0]])}
+        onExpand={toggleExpanded}
+        live={live}
+      />
+    );
+  }
 
   return (
     <div className="group/card mx-2 my-1.5 overflow-hidden rounded-md border border-gray-700/40 bg-gray-900/25">
@@ -80,11 +99,13 @@ export const AgentReviewCard = memo(function AgentReviewCard({ review }: AgentRe
         <span className="flex-1 text-[11px] font-semibold uppercase tracking-wide text-violet-300">
           {t('ide.review.title')}
         </span>
+        {live && <CardLiveBadge />}
         <span className="select-none text-[10px] text-gray-500">{formatTime(review.createdAt)}</span>
       </div>
 
       <div className="px-3 py-2">
-        {review.note && (
+        {/* §5.5 #17-21 ④ — 간결에서는 본문 note 를 접는다(사용자가 직접 펼쳤으면 그대로). */}
+        {(!compact || expanded) && review.note && (
           <p className="mb-2 text-[12.5px] leading-relaxed text-gray-300">{review.note}</p>
         )}
 

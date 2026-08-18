@@ -5,8 +5,8 @@
  * 에이전트는 받은 것을 사실로 전제하고 진행한다. 실효적 대응은 경계마다 불확실성을 함께 전달하고,
  * 인계 패킷에 "확인하지 못한 것" 칸을 두는 것이다. 표시 전용.
  */
-import { defineInspector, ICONS } from '../framework/inspector.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector, ICONS } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 /** 위임 사슬이 길수록 원 출처와 멀어져 검증이 어려워진다. */
 const chain = (ctx: PluginBubbleContext): number => (ctx.data.taskEdges ?? []).length + (ctx.data.subAgents ?? []).length;

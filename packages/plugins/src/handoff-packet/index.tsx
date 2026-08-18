@@ -4,8 +4,8 @@
  * 멀티 에이전트의 실제 병목은 모델 성능이 아니라 **인계 품질**이다. 인계 지점이 가장 취약하고, 인계에
  * 시간이 오래 걸린다면 대개 맥락이 비대해졌거나 지시가 모호하다는 신호다. 자유 서술로 넘기면 반드시 샌다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const edges = (ctx: PluginBubbleContext) => ctx.data.taskEdges ?? [];
 const outgoing = (ctx: PluginBubbleContext) => edges(ctx).filter((e) => e.sourceAgentId === ctx.bubbleId);

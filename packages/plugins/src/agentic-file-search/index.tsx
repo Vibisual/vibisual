@@ -4,9 +4,9 @@
  * 코드베이스에서는 색인을 세우는 것보다 **파일시스템을 직접 훑는 편**이 대개 낫다 — 색인은 낡고,
  * grep 은 항상 현재 상태를 본다. 이 카드는 이 에이전트가 그 도구를 쥐고 있는지 본다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import { effectiveTools } from '../lethal-trifecta/trifecta.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import { effectiveTools } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const SEARCH = ['Grep', 'Glob'];
 const have = (ctx: PluginBubbleContext): string[] => SEARCH.filter((t) => effectiveTools(ctx.agentConfig).has(t));

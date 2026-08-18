@@ -192,13 +192,17 @@ export function closeByTabKey(tabKey: string): boolean {
   return true;
 }
 
-// 별창 + §5.12 Command Center 창을 함께 조회 — 두 창 모두 같은 `vibisual:window:*-self`
-// 채널로 자기 창의 최소화/최대화/닫기를 요청하기 때문(Command Center 는 redock 만 없다).
+// 별창 + §5.12 Command Center 창 + §5.13 (O) 내부 앱 창을 함께 조회 — 이 창들이 모두 같은
+// `vibisual:window:*-self` 채널로 자기 창의 최소화/최대화/닫기를 요청하기 때문
+// (Command Center 는 redock 만 없다). frame:false 라 여기서 빠지면 그 창은 타이틀바 버튼이
+// 눌려도 아무 일이 일어나지 않는다 — 창을 새로 만들면 여기에도 등록할 것.
 function selfWindowById(windowId: number): BrowserWindow | null {
   const detachedEntry = byWindowId.get(windowId);
   if (detachedEntry) return detachedEntry.window;
-  const ccEntry = commandCentersByWindowId.get(windowId);
-  if (ccEntry) return ccEntry.window;
+  if (commandCenter && commandCenter.id === windowId) return commandCenter.window;
+  for (const entry of appWindows.values()) {
+    if (entry.id === windowId) return entry.window;
+  }
   return null;
 }
 
@@ -970,12 +974,15 @@ export function closeAllOverlays(): void {
   overlaysByWindowId.clear();
 }
 
-// ─── §5.12 (v4.43) Command Center — 지휘통제실 창 ──────────────────────────
+// ─── §5.12 (v4.43, v4.44 개정) Command Center — 지휘통제실 창 ──────────────
 //
-// 프로젝트 root 버블 더블클릭으로 뜨는 전용 OS 창. **projectId 1:1** — 같은 프로젝트를 다시
-// 더블클릭하면 새로 만들지 않고 기존 창을 focus 한다(openDetached 의 tabKey 가드와 동형).
+// 프로젝트 root 버블 더블클릭으로 뜨는 전용 OS 창. **앱 전체에 1창**(v4.44) — 어느 프로젝트의
+// root 를 눌러도 같은 창을 focus 하고, 그 창에 "이 프로젝트를 보여라"(`show-project`)를 민다.
+// v4.43 의 projectId 1:1 다중 창은 폐기했다: 사용자가 프로젝트를 옮겨 다니면 창만 쌓이고 정작
+// 지금 보는 프로젝트의 통제실이 뒤에 묻힌다.
+//
 // 별창과 달리 redock 이 없다(탭이 아니라 도구 창). 최소화/최대화/닫기는 별창의 기존
-// `vibisual:window:*-self` 채널을 그대로 쓰므로, 아래 맵을 byWindowId 조회에 함께 물린다.
+// `vibisual:window:*-self` 채널을 그대로 쓰므로, 아래 entry 를 byWindowId 조회에 함께 물린다.
 
 const CC_DEFAULT_W = 1180;
 const CC_DEFAULT_H = 760;
@@ -984,22 +991,24 @@ const CC_MIN_H = 460;
 
 interface CommandCenterEntry {
   id: number;
-  projectId: string;
   window: BrowserWindow;
 }
 
-const commandCentersByProject = new Map<string, CommandCenterEntry>();
-const commandCentersByWindowId = new Map<number, CommandCenterEntry>();
+let commandCenter: CommandCenterEntry | null = null;
 
 export function openCommandCenter(opts: {
   projectId: string;
   cursor?: { x: number; y: number } | undefined;
 }): { windowId: number; reused: boolean } {
-  const existing = commandCentersByProject.get(opts.projectId);
-  if (existing && !existing.window.isDestroyed()) {
-    if (existing.window.isMinimized()) existing.window.restore();
-    existing.window.focus();
-    return { windowId: existing.id, reused: true };
+  if (commandCenter && !commandCenter.window.isDestroyed()) {
+    const win = commandCenter.window;
+    if (win.isMinimized()) win.restore();
+    win.focus();
+    // 창이 하나뿐이므로 "다른 프로젝트의 root 를 눌렀다" = "그 프로젝트를 보여 달라"다.
+    if (!win.webContents.isDestroyed()) {
+      win.webContents.send('vibisual:command:show-project', { projectId: opts.projectId });
+    }
+    return { windowId: commandCenter.id, reused: true };
   }
 
   let x: number | undefined;
@@ -1035,9 +1044,7 @@ export function openCommandCenter(opts: {
     if (!win.isDestroyed()) win.show();
   });
 
-  const entry: CommandCenterEntry = { id: win.id, projectId: opts.projectId, window: win };
-  commandCentersByProject.set(opts.projectId, entry);
-  commandCentersByWindowId.set(win.id, entry);
+  commandCenter = { id: win.id, window: win };
 
   const pushMaximizeState = (): void => {
     if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
@@ -1048,8 +1055,7 @@ export function openCommandCenter(opts: {
   win.on('unmaximize', pushMaximizeState);
 
   win.on('closed', () => {
-    commandCentersByProject.delete(opts.projectId);
-    commandCentersByWindowId.delete(win.id);
+    if (commandCenter?.id === win.id) commandCenter = null;
   });
 
   const hash = `command=1&projectId=${encodeURIComponent(opts.projectId)}`;
@@ -1064,10 +1070,9 @@ export function openCommandCenter(opts: {
   return { windowId: win.id, reused: false };
 }
 
-export function closeCommandCenter(projectId: string): boolean {
-  const entry = commandCentersByProject.get(projectId);
-  if (!entry) return false;
-  if (!entry.window.isDestroyed()) entry.window.close();
+export function closeCommandCenter(): boolean {
+  if (!commandCenter) return false;
+  if (!commandCenter.window.isDestroyed()) commandCenter.window.close();
   return true;
 }
 
@@ -1092,9 +1097,88 @@ export function revealSessionInMain(payload: {
 }
 
 export function closeAllCommandCenters(): void {
-  for (const entry of [...commandCentersByProject.values()]) {
-    if (!entry.window.isDestroyed()) entry.window.destroy();
+  if (commandCenter && !commandCenter.window.isDestroyed()) commandCenter.window.destroy();
+  commandCenter = null;
+}
+
+// ─── §5.13 (O) v4.48 내부 앱 창 (앱 무관) ───
+//
+// 앱마다 `openXxxWindow` 를 만들지 않는다. 창 규격은 앱이 선언하고 여기서는 그대로 연다.
+// 앱 하나당 **앱 전체에 창 하나**이며, 다시 열면 새 창을 쌓지 않고 그 창에 대상을 밀어 넣는다
+// (편집 창은 오래 띄워 두는 것이라 창이 쌓이면 어느 것이 지금 것인지 알 수 없게 된다).
+
+export interface AppWindowSpec {
+  title: string;
+  width: number;
+  height: number;
+  minWidth: number;
+  minHeight: number;
+  /** 렌더러가 어떤 화면을 그릴지 정하는 hash. `app=<id>&…` 형태. */
+  hash: string;
+}
+
+interface AppWindowEntry {
+  id: number;
+  window: BrowserWindow;
+}
+
+const appWindows = new Map<string, AppWindowEntry>();
+
+export function openAppWindow(appId: string, spec: AppWindowSpec): { windowId: number; reused: boolean } {
+  const existing = appWindows.get(appId);
+  if (existing && !existing.window.isDestroyed()) {
+    const win = existing.window;
+    if (win.isMinimized()) win.restore();
+    win.focus();
+    if (!win.webContents.isDestroyed()) {
+      win.webContents.send('vibisual:app:show-target', { appId, hash: spec.hash });
+    }
+    return { windowId: existing.id, reused: true };
   }
-  commandCentersByProject.clear();
-  commandCentersByWindowId.clear();
+
+  const win = new BrowserWindow({
+    width: spec.width,
+    height: spec.height,
+    minWidth: spec.minWidth,
+    minHeight: spec.minHeight,
+    show: false,
+    backgroundColor: '#030712',
+    autoHideMenuBar: true,
+    title: spec.title,
+    frame: false,
+    icon: join(__dirname, '..', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.cjs'),
+      sandbox: false,
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+
+  win.on('ready-to-show', () => {
+    if (!win.isDestroyed()) win.show();
+  });
+
+  appWindows.set(appId, { id: win.id, window: win });
+
+  const pushMaximizeState = (): void => {
+    if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
+      win.webContents.send('vibisual:window:maximize-state', { maximized: win.isMaximized() });
+    }
+  };
+  win.on('maximize', pushMaximizeState);
+  win.on('unmaximize', pushMaximizeState);
+  win.on('closed', () => {
+    if (appWindows.get(appId)?.id === win.id) appWindows.delete(appId);
+  });
+
+  void win.loadFile(join(__dirname, '../renderer/index.html'), { hash: spec.hash });
+  return { windowId: win.id, reused: false };
+}
+
+export function closeAppWindow(appId: string): boolean {
+  const entry = appWindows.get(appId);
+  if (!entry) return false;
+  if (!entry.window.isDestroyed()) entry.window.close();
+  return true;
 }

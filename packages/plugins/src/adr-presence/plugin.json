@@ -1,0 +1,20 @@
+{
+  "id": "adr-presence",
+  "name": "Decision Records",
+  "version": "1.0.0",
+  "category": "observability",
+  "descriptionKey": "panel.plugins.adrPresence.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "brain",
+    "agentReports",
+    "agentEvents",
+    "subAgents"
+  ],
+  "hostApi": 1
+}

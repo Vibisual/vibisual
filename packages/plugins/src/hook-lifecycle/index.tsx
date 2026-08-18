@@ -5,8 +5,8 @@
  * "세션 종료" 훅이 실제로는 매 턴 종료마다 오는 식의 오해가 폭주 사고의 단골 원인이다. 훅에서 동기 I/O 를
  * 하면 에이전트가 그만큼 멈추므로 큐잉·코얼레스가 기본이다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 function perMinute(ctx: PluginBubbleContext): number {
   const list = ctx.data.agentEvents ?? [];

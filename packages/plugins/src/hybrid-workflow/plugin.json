@@ -1,0 +1,18 @@
+{
+  "id": "hybrid-workflow",
+  "name": "Hybrid Workflow",
+  "version": "1.0.0",
+  "category": "workflow",
+  "descriptionKey": "panel.plugins.hybridWorkflow.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "agentEvents",
+    "subAgents"
+  ],
+  "hostApi": 1
+}

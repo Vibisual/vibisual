@@ -1,0 +1,19 @@
+{
+  "id": "verifier-critic",
+  "name": "Verifier and Critic",
+  "version": "1.0.0",
+  "category": "workflow",
+  "descriptionKey": "panel.plugins.verifierCritic.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "taskEdges",
+    "agentEvents",
+    "subAgents"
+  ],
+  "hostApi": 1
+}

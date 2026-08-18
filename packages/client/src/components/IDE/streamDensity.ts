@@ -9,6 +9,7 @@
  */
 import type { StreamDensity } from '@vibisual/shared';
 import { sameStreamItem, isSystemSubtypeChip, type StreamGroup, type StreamItemFull, type StreamPlan } from './streamItems.js';
+import { foldTaskChips } from './taskChips.js';
 
 /**
  * 도구 실행 묶음 — 기본은 "명령 실행됨 ×N" 한 줄 + 최근 도구 한 줄, 펼치면 원래 항목들이 그대로 나온다.
@@ -38,6 +39,34 @@ export interface StreamToolGroup {
 
 /** 렌더러가 실제로 그리는 아이템 = 파싱 아이템 + 묶음. */
 export type StreamDisplayItem = StreamItemFull | StreamToolGroup;
+
+/** 잘린 본문 — 보여줄 앞부분과 숨은 줄 수(버튼 라벨용). */
+export interface ClampedText {
+  text: string;
+  hiddenLines: number;
+}
+
+/**
+ * §5.5 #17-21 ② — 간결에서 AI 본문을 앞부분만 남긴다. 자를 필요가 없으면 `null`(그대로 그린다).
+ *
+ * 줄 수와 글자 수를 **둘 다** 본다: 마크다운 문단은 줄바꿈 없이 한 줄로 길게 오는 일이 잦아
+ * 줄 수만 보면 클램프가 헛돌고, 글자 수만 보면 짧은 줄이 많은 목록이 안 잘린다.
+ * 자르는 위치는 줄 경계 → 공백 경계 순으로 물러서 마크다운 문법을 최대한 덜 깬다
+ * (닫히지 않은 코드펜스는 react-markdown 이 끝까지 코드로 관대하게 처리한다).
+ */
+export function clampStreamText(content: string, maxLines: number, maxChars: number): ClampedText | null {
+  const lines = content.split('\n');
+  let head = lines.length > maxLines ? lines.slice(0, maxLines).join('\n') : content;
+  if (head.length > maxChars) {
+    const space = head.lastIndexOf(' ', maxChars);
+    // 공백이 너무 앞이면(한국어처럼 띄어쓰기가 드문 문장) 그냥 글자 수에서 자른다.
+    head = head.slice(0, space > maxChars * 0.6 ? space : maxChars);
+  }
+  if (head.length >= content.length) return null;
+  const rest = content.slice(head.length);
+  const hiddenLines = Math.max(1, rest.split('\n').filter((l) => l.trim() !== '').length);
+  return { text: head, hiddenLines };
+}
 
 /** Virtuoso key·앞쪽 절단 shift 카운트용 안정 id. */
 export function displayItemId(item: StreamDisplayItem): string {
@@ -99,9 +128,39 @@ function markSupersededPlans(items: StreamItemFull[]): StreamItemFull[] {
 }
 
 /**
+ * §5.5 #17-26 ① — 간결에서 **턴마다 AI 본문의 처음 것과 마지막 것만** 남기고 사이를 뺀다.
+ *
+ * 턴 경계는 사용자 명령(`command`). 첫 본문 = "그 턴에 무엇을 하려는가"(의도 선언), 마지막 본문 =
+ * "무엇으로 끝났는가"(결론·질문)이고, 사이의 본문은 도구를 감싼 진행 나레이션이라 도구를 숨긴 화면에서는
+ * 맥락 없는 토막이 된다. 빈 본문은 후보로 세지 않는다(있어도 그냥 뺀다). 본문이 둘 이하인 턴은 그대로.
+ */
+function keepFirstAndLastText(items: StreamDisplayItem[]): StreamDisplayItem[] {
+  // 남길 본문 id 집합을 먼저 고른다(턴 단위로 처음·마지막 하나씩).
+  const keep = new Set<string>();
+  let firstOfTurn: string | null = null;
+  let lastOfTurn: string | null = null;
+  const closeTurn = (): void => {
+    if (firstOfTurn) keep.add(firstOfTurn);
+    if (lastOfTurn) keep.add(lastOfTurn);
+    firstOfTurn = null;
+    lastOfTurn = null;
+  };
+  for (const it of items) {
+    if (it.kind === 'command') { closeTurn(); continue; }
+    if (it.kind !== 'text' || it.content.trim() === '') continue;
+    if (!firstOfTurn) firstOfTurn = it.id;
+    else lastOfTurn = it.id;
+  }
+  closeTurn();
+  return items.filter((it) => it.kind !== 'text' || keep.has(it.id));
+}
+
+/**
  * 밀도에 맞춰 표시 아이템을 만든다.
  * - `raw`  : 아무것도 접지 않는다(원문 그대로).
- * - `standard`/`compact` : SDK 상태 칩 숨김 + 옛 계획 접기 + 연속 동종 도구 묶기.
+ * - `standard` : SDK 상태 칩 숨김 + 옛 계획 접기 + 연속 동종 도구 묶기.
+ * - `compact`  : 위 전부 + **도구 묶음을 배열에서 아예 뺀다**(§5.5 #17-21 ① / #17-24 ①)
+ *                + **턴마다 AI 본문은 처음·마지막 하나씩만 남긴다**(§5.5 #17-26 ①).
  *
  * §5.5 #17-15 — 사고(thinking)는 밀도 축에서 빠졌다. 파싱 단계가 아이템 자체를 만들지 않으므로
  * 여기서 거를 것도 없다(진행 중 표시는 `thinking-live` 1줄이 전담).
@@ -109,11 +168,18 @@ function markSupersededPlans(items: StreamItemFull[]): StreamItemFull[] {
  * 반환 배열의 항목 참조는 변환이 필요 없는 한 입력 그대로다(불필요한 재렌더 방지).
  */
 export function applyStreamDensity(items: StreamItemFull[], density: StreamDensity): StreamDisplayItem[] {
-  if (density === 'raw') return items;
+  // §5.5 #17-13 ⑤-3 — 작업 칩(시작·끝)은 밀도를 가르기 **전에** 한 줄로 접는다. 밀도 안쪽에 두면
+  //   같은 스트림이 탭·밀도마다 다르게 접힌다(간결/표준에서는 어차피 ⑤ 가 걷어내므로 결과는 같다).
+  const folded = foldTaskChips(
+    items,
+    (it) => (it.kind === 'system' ? it.content : null),
+    (it, content) => (it.kind === 'system' ? { ...it, content } : it),
+  );
+  if (density === 'raw') return folded;
 
   // §5.5 #17-13 ⑤ — SDK 상태 칩(`[task_started]` 등)은 간결/표준에서 아예 그리지 않는다.
   //   내용 없는 레일 점이 한 줄씩 먹으며 화면을 갈랐다(사용자 스크린샷). 내용 있는 system 본문은 남긴다.
-  const visible = items.filter((it) => !(it.kind === 'system' && isSystemSubtypeChip(it.content)));
+  const visible = folded.filter((it) => !(it.kind === 'system' && isSystemSubtypeChip(it.content)));
 
   const marked = markSupersededPlans(visible);
   const out: StreamDisplayItem[] = [];
@@ -157,6 +223,25 @@ export function applyStreamDensity(items: StreamItemFull[], density: StreamDensi
     }
     out.push(item);
     i++;
+  }
+
+  // §5.5 #17-21 ① / #17-24 ① — 간결은 **도구 묶음을 진행 중이든 완료든 화면에서 뺀다**
+  //   (무엇을 했는지 볼 사람은 `표준` 으로 올린다). 높이 0 자리표시자로 남기지 않고 **배열에서 제거**해야
+  //   가상 리스트 측정이 흐려지지 않는다.
+  //   단, 런에 흡수됐던 **내용 있는 system 본문**(오류·권한 결정 메시지)은 묶음 밖으로 꺼내 남긴다 —
+  //   그건 사용자가 읽어야 하는 내용이라 묶음과 함께 사라지면 안 된다.
+  if (density === 'compact') {
+    const compacted: StreamDisplayItem[] = [];
+    for (const it of out) {
+      if (it.kind !== 'toolgroup') { compacted.push(it); continue; }
+      for (const child of it.children) {
+        if (child.kind === 'system' && !isSystemSubtypeChip(child.content)) compacted.push(child);
+      }
+      // §5.5 #17-24 ① — 진행 중 묶음도 남기지 않는다. 도구가 시작할 때 생겼다가 끝나는 순간 빠지는
+      //   그 한 줄이 간결 화면이 끊임없이 깜빡이던 원인이었다. "지금 뭘 하는지"는 작동하는 내내 떠 있는
+      //   라이브 1줄(`thinking-live`)이 대신 알린다 — 실행 내용을 문자 그대로 볼 사람은 `표준` 으로 올린다.
+    }
+    return keepFirstAndLastText(compacted);
   }
   return out;
 }

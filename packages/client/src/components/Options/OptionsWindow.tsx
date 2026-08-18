@@ -8,13 +8,17 @@
  * Apply/Cancel 패턴 — dirty 추적 후 Apply 시에만 서버 PUT.
  * 서버 응답 + WS `user_defaults_updated` 로 graphStore.userDefaults 갱신 → 다른 창들도 즉시 반영.
  */
-import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
+import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 import type { AgentConfig, UserDefaults, ClaudeInstallsInfo, ClaudeInstall, UiLocale } from '@vibisual/shared';
 import {
   AVAILABLE_AGENT_TOOLS,
   DEFAULT_AGENT_CONFIG,
+  AVAILABLE_PERMISSION_MODES,
+  AVAILABLE_SETTING_SOURCES,
+  AVAILABLE_AUTOCOMPACT_VALUES,
   isOpusModel,
   resolveAliasToLatest,
   listModelFamilies,
@@ -22,20 +26,31 @@ import {
   parseModelSemver,
   SUPPORTED_UI_LOCALES,
   LOCALE_META,
+  normalizeBashTimeoutMs,
+  BASH_TIMEOUT_MS_MAX,
+  BASH_DEFAULT_TIMEOUT_MS_CLI_DEFAULT,
+  BASH_MAX_TIMEOUT_MS_CLI_DEFAULT,
 } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { setCanvasCover } from '../../stores/canvasVisibility.js';
+import { AccountTab } from './AccountTab.js';
+import { StorageTab } from './StorageTab.js';
 
 const API_BASE = '';
 
-type CategoryKey = 'agent' | 'appearance' | 'notifications' | 'permissions' | 'advanced' | 'version';
+type CategoryKey = 'account' | 'agent' | 'appearance' | 'storage' | 'notifications' | 'permissions' | 'advanced' | 'version';
 
 const MARKETPLACE_URL = 'https://marketplace.visualstudio.com/items?itemName=anthropic.claude-code';
 const REPO_URL = 'https://github.com/Vibisual/vibisual';
 
 // §4 v2.77 — Model 목록은 레지스트리 기반 동적(`listModelFamilies`). 폴백 alias 만 상수.
-const PERMISSION_VALUES = ['default', 'acceptEdits', 'plan', 'bypassPermissions'] as const;
+// §4 (CLI 사양 추종) — 권한 모드 6종은 shared 한 곳(설치된 CLI 내부 enum 과 동일 집합).
+const PERMISSION_VALUES = AVAILABLE_PERMISSION_MODES;
 const ISOLATION_VALUES = ['none', 'worktree'] as const;
+// §4 (CLI 사양 추종) — Bash 타임아웃은 초로 입력받고 ms 로 저장(스폰 env 가 ms). 0 = 미설정.
+//   AgentConfigPopup 과 같은 규칙 — 여기서 정한 값이 새 커스텀 에이전트의 초기값이 된다.
+const bashSecToMs = (sec: number): number | undefined => normalizeBashTimeoutMs(Math.round(sec) * 1000);
+const bashMsToSec = (ms: number | undefined): number => (typeof ms === 'number' && ms > 0 ? Math.round(ms / 1000) : 0);
 // §4 — Effort 등급은 하드코딩 폐기. `listEffortLevels(modelRegistry)` 로 설치된 `claude --help` 파싱값 사용
 //   (CLI 미발견/파싱 실패 시 shared `AVAILABLE_EFFORT_LEVELS` 폴백). Model 드롭다운 동적화와 대칭.
 
@@ -52,7 +67,6 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
   //   Apply/Cancel dirty 흐름과 독립 — 선택 즉시 적용(헤더 스위처와 동일 setUiLocale 경로).
   const uiLocale = useGraphStore((s) => s.uiLocale);
   const setUiLocale = useGraphStore((s) => s.setUiLocale);
-  const overlayRef = useRef<HTMLDivElement>(null);
 
   const [category, setCategory] = useState<CategoryKey>('agent');
 
@@ -78,6 +92,16 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
   const [disallowedTools, setDisallowedTools] = useState<string[]>([...(baseAgent.disallowedTools ?? [])]);
   const [rules, setRules] = useState(baseAgent.rules ?? '');
   const [color, setColor] = useState(baseAgent.color ?? '');
+  // §4 (CLI 사양 추종) — 설치된 CLI 신규 옵션의 전역 기본값. 미설정이면 플래그를 붙이지 않는다.
+  const [fallbackModel, setFallbackModel] = useState(baseAgent.fallbackModel ?? '');
+  const [autoCompact, setAutoCompact] = useState(baseAgent.autoCompact ?? '');
+  const [excludeDynamicSections, setExcludeDynamicSections] = useState(baseAgent.excludeDynamicSystemPromptSections === true);
+  const [settingSources, setSettingSources] = useState<string[]>([...(baseAgent.settingSources ?? [])]);
+  const [safeMode, setSafeMode] = useState(baseAgent.safeMode === true);
+  const [betas, setBetas] = useState((baseAgent.betas ?? []).join(', '));
+  // §4 (CLI 사양 추종) — Bash 타임아웃 기본값(초). 0 = 미설정 = CLI 기본(기본 2분 / 상한 10분).
+  const [bashDefaultTimeoutSec, setBashDefaultTimeoutSec] = useState(bashMsToSec(baseAgent.bashDefaultTimeoutMs));
+  const [bashMaxTimeoutSec, setBashMaxTimeoutSec] = useState(bashMsToSec(baseAgent.bashMaxTimeoutMs));
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -139,6 +163,14 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
     setDisallowedTools([...(baseAgent.disallowedTools ?? [])]);
     setRules(baseAgent.rules ?? '');
     setColor(baseAgent.color ?? '');
+    setFallbackModel(baseAgent.fallbackModel ?? '');
+    setAutoCompact(baseAgent.autoCompact ?? '');
+    setExcludeDynamicSections(baseAgent.excludeDynamicSystemPromptSections === true);
+    setSettingSources([...(baseAgent.settingSources ?? [])]);
+    setSafeMode(baseAgent.safeMode === true);
+    setBetas((baseAgent.betas ?? []).join(', '));
+    setBashDefaultTimeoutSec(bashMsToSec(baseAgent.bashDefaultTimeoutMs));
+    setBashMaxTimeoutSec(bashMsToSec(baseAgent.bashMaxTimeoutMs));
   }, [baseAgent, dirty]);
 
   // §4 v3.71 가시성 LOD — 열려 있는 동안 캔버스를 전면으로 덮으므로 덮개로 등록한다.
@@ -155,9 +187,7 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
     return () => window.removeEventListener('keydown', handleKey);
   }, [open, onClose]);
 
-  const handleOverlayClick = useCallback((e: React.MouseEvent) => {
-    if (e.target === overlayRef.current) onClose();
-  }, [onClose]);
+  const backdrop = useBackdropDismiss(onClose);
 
   const isOpus = isOpusModel(model);
   const oneMillionEnabled = contextWindow !== '200k';
@@ -237,6 +267,16 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
           rules: rules.trim() || undefined,
           color: color || undefined,
           skills: [...(userDefaults?.agentConfig?.skills ?? DEFAULT_AGENT_CONFIG.skills)],
+          // §4 (CLI 사양 추종) — 미설정은 undefined 로 보내 플래그가 붙지 않게 한다.
+          fallbackModel: fallbackModel.trim() || undefined,
+          autoCompact: autoCompact.trim() || undefined,
+          excludeDynamicSystemPromptSections: excludeDynamicSections ? true : undefined,
+          settingSources: settingSources.length > 0 ? settingSources : undefined,
+          safeMode: safeMode ? true : undefined,
+          betas: betas.split(',').map((b) => b.trim()).filter(Boolean).length > 0 ? betas.split(',').map((b) => b.trim()).filter(Boolean) : undefined,
+          // §4 (CLI 사양 추종) — 초 → ms. 0/범위 밖은 undefined = 미설정(스폰 env 키 자체가 안 붙는다).
+          bashDefaultTimeoutMs: bashSecToMs(bashDefaultTimeoutSec),
+          bashMaxTimeoutMs: bashSecToMs(bashMaxTimeoutSec),
         },
       };
       await fetch(`${API_BASE}/api/user-defaults`, {
@@ -247,7 +287,7 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
       setDirty(false);
     } catch { /* ignore */ }
     finally { setSaving(false); }
-  }, [model, modelVersion, permissionMode, permissionTimeoutPolicy, isOpus, effort, maxTurns, maxBudgetUsd, isolation, contextWindow, tools, disallowedTools, rules, color, userDefaults]);
+  }, [model, modelVersion, permissionMode, permissionTimeoutPolicy, isOpus, effort, maxTurns, maxBudgetUsd, isolation, contextWindow, tools, disallowedTools, rules, color, userDefaults, fallbackModel, autoCompact, excludeDynamicSections, settingSources, safeMode, betas, bashDefaultTimeoutSec, bashMaxTimeoutSec]);
 
   const handleCancel = useCallback(() => {
     if (dirty && !window.confirm(t('panel.options.discardConfirm', { defaultValue: 'Discard unsaved changes?' }))) return;
@@ -257,11 +297,19 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
   if (!open) return null;
 
   const categories: { key: CategoryKey; label: string; icon: React.JSX.Element }[] = [
+    // §4 v4.82 — Account. 로그인 계정 확인 + 로그아웃이 여기 있다(File > Options > Account).
+    { key: 'account', label: t('panel.options.categories.account', { defaultValue: 'Account' }), icon: (
+      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+    ) },
     { key: 'agent', label: t('panel.options.categories.agent', { defaultValue: 'Agent Defaults' }), icon: (
       <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3h0a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5h0a1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v0a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
     ) },
     { key: 'appearance', label: t('panel.options.categories.appearance', { defaultValue: 'Appearance' }), icon: (
       <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"/></svg>
+    ) },
+    // §3.2.3 — 보존 설정 + 저장소 사용량. "몰래 지우지 않는다"를 성립시키는 자리.
+    { key: 'storage', label: t('panel.options.categories.storage', { defaultValue: 'Storage' }), icon: (
+      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.7 4 3 9 3s9-1.3 9-3V5"/><path d="M3 12c0 1.7 4 3 9 3s9-1.3 9-3"/></svg>
     ) },
     { key: 'notifications', label: t('panel.options.categories.notifications', { defaultValue: 'Notifications' }), icon: (
       <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
@@ -279,9 +327,8 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
 
   return createPortal(
     <div
-      ref={overlayRef}
       className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60"
-      onClick={handleOverlayClick}
+      {...backdrop}
     >
       <div className="flex h-[640px] max-h-[92dvh] w-[860px] max-w-[94vw] flex-col overflow-hidden rounded-lg border border-gray-700 bg-gray-900 shadow-2xl max-md:h-dvh max-md:max-h-dvh max-md:w-screen max-md:max-w-none max-md:rounded-none max-md:border-0">
         {/* Header */}
@@ -381,7 +428,8 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
                     onChange={(e) => { setDirty(true); setPermissionMode(e.target.value); }}
                     className="rounded border border-gray-700 bg-gray-900 px-2 py-1.5 text-xs text-gray-200 outline-none hover:border-gray-600 focus:border-blue-500"
                   >
-                    {PERMISSION_VALUES.map((v) => <option key={v} value={v}>{v}</option>)}
+                    {/* §4 (CLI 사양 추종) — 저장값 'default' 의 CLI 표시명은 manual. 이름만 바꿔 보여준다. */}
+                    {PERMISSION_VALUES.map((v) => <option key={v} value={v}>{v === 'default' ? 'manual' : v}</option>)}
                   </select>
                   {permissionMode !== 'bypassPermissions' && permissionMode !== 'plan' && (
                     <div className="mt-1 flex items-center gap-2 rounded border border-gray-700/60 bg-gray-900/40 px-2.5 py-1.5">
@@ -445,6 +493,125 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
                     >
                       {ISOLATION_VALUES.map((v) => <option key={v} value={v}>{v}</option>)}
                     </select>
+                  </div>
+                </div>
+
+                {/* §4 (CLI 사양 추종) — 설치된 claude 신규 옵션의 전역 기본값. 전부 미설정이 기본. */}
+                <div className="flex flex-col gap-2 rounded border border-gray-800 bg-gray-900/40 p-2.5">
+                  <span className="text-xs font-medium text-gray-400">{t('panel.agentConfig.cliOptions.label')}</span>
+                  <div className="flex gap-3">
+                    <div className="flex flex-1 flex-col gap-1">
+                      <label className="text-[11px] font-medium text-gray-500">{t('panel.agentConfig.fallbackModel.label')}</label>
+                      <input
+                        type="text"
+                        value={fallbackModel}
+                        onChange={(e) => { setDirty(true); setFallbackModel(e.target.value); }}
+                        placeholder={t('panel.agentConfig.fallbackModel.placeholder')}
+                        className="rounded border border-gray-700 bg-gray-900 px-2 py-1.5 text-xs text-gray-200 outline-none focus:border-blue-500"
+                      />
+                    </div>
+                    <div className="flex flex-1 flex-col gap-1">
+                      <label className="text-[11px] font-medium text-gray-500">{t('panel.agentConfig.autoCompact.label')}</label>
+                      <select
+                        value={autoCompact}
+                        onChange={(e) => { setDirty(true); setAutoCompact(e.target.value); }}
+                        className="rounded border border-gray-700 bg-gray-900 px-2 py-1.5 text-xs text-gray-200 outline-none hover:border-gray-600 focus:border-blue-500"
+                      >
+                        {AVAILABLE_AUTOCOMPACT_VALUES.map((v) => (
+                          <option key={v} value={v}>
+                            {v === '' ? t('panel.agentConfig.autoCompact.unsetLabel') : v === 'auto' ? 'auto' : `${Number(v) / 1000}k`}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[11px] font-medium text-gray-500">{t('panel.agentConfig.settingSources.label')}</label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {AVAILABLE_SETTING_SOURCES.map((src) => {
+                        const on = settingSources.includes(src);
+                        return (
+                          <button
+                            key={src}
+                            type="button"
+                            onClick={() => { setDirty(true); setSettingSources((p) => (p.includes(src) ? p.filter((x) => x !== src) : [...p, src])); }}
+                            className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-colors ${
+                              on ? 'bg-sky-500/15 text-sky-400' : 'bg-gray-800 text-gray-500 hover:text-gray-300'
+                            }`}
+                          >
+                            {src}
+                          </button>
+                        );
+                      })}
+                      {settingSources.length === 0 && (
+                        <span className="self-center text-[11px] text-gray-600">{t('panel.agentConfig.settingSources.all')}</span>
+                      )}
+                    </div>
+                  </div>
+                  <label className="flex items-start gap-2 text-[11px] text-gray-400">
+                    <input
+                      type="checkbox"
+                      checked={excludeDynamicSections}
+                      onChange={(e) => { setDirty(true); setExcludeDynamicSections(e.target.checked); }}
+                      className="mt-0.5 h-3.5 w-3.5 accent-blue-500"
+                    />
+                    <span>{t('panel.agentConfig.excludeDynamicSections.label')}</span>
+                  </label>
+                  <label className="flex items-start gap-2 text-[11px] text-gray-400">
+                    <input
+                      type="checkbox"
+                      checked={safeMode}
+                      onChange={(e) => { setDirty(true); setSafeMode(e.target.checked); }}
+                      className="mt-0.5 h-3.5 w-3.5 accent-amber-500"
+                    />
+                    <span>
+                      {t('panel.agentConfig.safeMode.label')}
+                      <span className="ml-1 text-amber-500/80">{t('panel.agentConfig.safeMode.warn')}</span>
+                    </span>
+                  </label>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[11px] font-medium text-gray-500">{t('panel.agentConfig.betas.label')}</label>
+                    <input
+                      type="text"
+                      value={betas}
+                      onChange={(e) => { setDirty(true); setBetas(e.target.value); }}
+                      placeholder={t('panel.agentConfig.betas.placeholder')}
+                      className="rounded border border-gray-700 bg-gray-900 px-2 py-1.5 text-xs text-gray-200 outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  {/* §4 (CLI 사양 추종) — Bash 타임아웃 기본값(초). 0 = 미설정(CLI 기본 유지). */}
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-[11px] font-medium text-gray-500">{t('panel.agentConfig.bashTimeout.label')}</span>
+                    <div className="flex gap-3">
+                      <div className="flex flex-1 flex-col gap-1">
+                        <label className="text-[11px] text-gray-500">{t('panel.agentConfig.bashTimeout.defaultLabel')}</label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={BASH_TIMEOUT_MS_MAX / 1000}
+                          value={bashDefaultTimeoutSec}
+                          onChange={(e) => { setDirty(true); setBashDefaultTimeoutSec(Math.max(0, Number(e.target.value) || 0)); }}
+                          className="rounded border border-gray-700 bg-gray-900 px-2 py-1.5 text-xs text-gray-200 outline-none focus:border-blue-500"
+                        />
+                      </div>
+                      <div className="flex flex-1 flex-col gap-1">
+                        <label className="text-[11px] text-gray-500">{t('panel.agentConfig.bashTimeout.maxLabel')}</label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={BASH_TIMEOUT_MS_MAX / 1000}
+                          value={bashMaxTimeoutSec}
+                          onChange={(e) => { setDirty(true); setBashMaxTimeoutSec(Math.max(0, Number(e.target.value) || 0)); }}
+                          className="rounded border border-gray-700 bg-gray-900 px-2 py-1.5 text-xs text-gray-200 outline-none focus:border-blue-500"
+                        />
+                      </div>
+                    </div>
+                    <span className="text-[11px] text-gray-600">
+                      {t('panel.agentConfig.bashTimeout.hint', {
+                        defaultSec: BASH_DEFAULT_TIMEOUT_MS_CLI_DEFAULT / 1000,
+                        maxSec: BASH_MAX_TIMEOUT_MS_CLI_DEFAULT / 1000,
+                      })}
+                    </span>
                   </div>
                 </div>
 
@@ -550,6 +717,10 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
               </div>
             )}
 
+            {category === 'account' && <AccountTab />}
+
+            {category === 'storage' && <StorageTab />}
+
             {category === 'version' && (
               <VersionTab
                 info={installs}
@@ -562,7 +733,7 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
               />
             )}
 
-            {category !== 'agent' && category !== 'version' && category !== 'appearance' && (
+            {category !== 'agent' && category !== 'version' && category !== 'appearance' && category !== 'account' && category !== 'storage' && (
               <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
                 <svg className="h-10 w-10 text-gray-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>

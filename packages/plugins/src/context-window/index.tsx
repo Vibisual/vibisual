@@ -6,8 +6,8 @@
  * 나란히 놓는다. 표시 전용.
  */
 import { getModelContextLimit } from '@vibisual/shared';
-import { defineInspector } from '../framework/inspector.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const limit = (ctx: PluginBubbleContext): number => getModelContextLimit(ctx.agentConfig?.model);
 const peak = (ctx: PluginBubbleContext): number =>

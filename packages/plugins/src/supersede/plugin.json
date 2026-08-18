@@ -1,0 +1,17 @@
+{
+  "id": "supersede",
+  "name": "Supersede",
+  "version": "1.0.0",
+  "category": "observability",
+  "descriptionKey": "panel.plugins.supersede.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "brain"
+  ],
+  "hostApi": 1
+}

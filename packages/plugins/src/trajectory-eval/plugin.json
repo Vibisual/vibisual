@@ -1,0 +1,20 @@
+{
+  "id": "trajectory-eval",
+  "name": "Trajectory Eval",
+  "version": "1.0.0",
+  "category": "observability",
+  "descriptionKey": "panel.plugins.trajectoryEval.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "bubbleBadge",
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "agentEvents",
+    "subAgents",
+    "taskEdges"
+  ],
+  "hostApi": 1
+}

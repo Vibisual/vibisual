@@ -5,9 +5,9 @@
  * 문제가 생기므로 종료 조건·반복 상한·중지 수단이 편의 기능이 아니라 안전장치가 된다. 여기서는
  * **회차의 리듬**(턴 수와 평균 간격)과 상한 유무를 본다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import { formatElapsed } from '../ui/kit.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import { formatElapsed } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 function span(ctx: PluginBubbleContext): { turns: number; avgMs: number } {
   const list = ctx.data.agentEvents ?? [];

@@ -5,9 +5,9 @@
  * 프로토타입·탐색·일회성 도구에는 여전히 최적이고, 오래 살아야 하는 코드에는 부적합하다.
  * 판단 기준은 하나다 — 하루면 바이브, 3년이면 명세. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import { toneIfActive } from '../framework/activity.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import { toneIfActive } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 /** 감독 장치가 붙어 있을수록 "읽지 않고 받아들이는" 상태에서 멀어진다. */
 function supervision(ctx: PluginBubbleContext): number {

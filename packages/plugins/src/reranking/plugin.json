@@ -1,0 +1,17 @@
+{
+  "id": "reranking",
+  "name": "Reranking",
+  "version": "1.0.0",
+  "category": "observability",
+  "descriptionKey": "panel.plugins.reranking.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "brainInjections"
+  ],
+  "hostApi": 1
+}

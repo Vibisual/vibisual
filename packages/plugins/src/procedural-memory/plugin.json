@@ -1,0 +1,15 @@
+{
+  "id": "procedural-memory",
+  "name": "Procedural Memory",
+  "version": "1.0.0",
+  "category": "workflow",
+  "descriptionKey": "panel.plugins.proceduralMemory.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [],
+  "hostApi": 1
+}

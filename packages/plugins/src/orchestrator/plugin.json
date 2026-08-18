@@ -1,0 +1,19 @@
+{
+  "id": "orchestrator",
+  "name": "Orchestrator",
+  "version": "1.0.0",
+  "category": "workflow",
+  "descriptionKey": "panel.plugins.orchestrator.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "subAgents",
+    "agentEvents",
+    "runningTasks"
+  ],
+  "hostApi": 1
+}

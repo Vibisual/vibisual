@@ -5,9 +5,9 @@
  * 비평자는 나쁜 답에 그대로 도장을 찍는다. 그리고 가능하면 **실행 가능한 검증**(테스트·린트·타입체크)을
  * 비평자보다 먼저 두는 편이 싸고 정확하다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import { toneIfActive } from '../framework/activity.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import { toneIfActive } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const critiques = (ctx: PluginBubbleContext) => (ctx.data.taskEdges ?? []).filter((e) => e.kind === 'critique');
 const incoming = (ctx: PluginBubbleContext) => critiques(ctx).filter((e) => e.targetAgentId === ctx.bubbleId);

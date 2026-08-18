@@ -5,9 +5,9 @@
  * 더 빨리 희석된다. "한 번 말했으니 계속 지켜지겠지"는 성립하지 않는다. 이 에이전트가 상시 규칙을
  * 갖고 있는지와, 세션이 얼마나 길어졌는지를 나란히 본다. 표시 전용.
  */
-import { defineInspector, ICONS } from '../framework/inspector.js';
+import { defineInspector, ICONS } from '../sdk/index.js';
 import { defineDriftLevel } from './drift.js';
-import type { PluginBubbleContext } from '../types.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 function turns(ctx: PluginBubbleContext): number {
   return (ctx.data.agentEvents ?? []).length;

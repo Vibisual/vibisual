@@ -1,0 +1,16 @@
+{
+  "id": "graceful-degradation",
+  "name": "Graceful Degradation",
+  "version": "1.0.0",
+  "category": "security",
+  "descriptionKey": "panel.plugins.gracefulDegradation.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "bubbleBadge",
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [],
+  "hostApi": 1
+}

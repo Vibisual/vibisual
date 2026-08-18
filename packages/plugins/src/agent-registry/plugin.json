@@ -1,0 +1,17 @@
+{
+  "id": "agent-registry",
+  "name": "Agent Registry",
+  "version": "1.0.0",
+  "category": "security",
+  "descriptionKey": "panel.plugins.agentRegistry.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "subAgents"
+  ],
+  "hostApi": 1
+}

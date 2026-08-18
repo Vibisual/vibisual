@@ -1,0 +1,17 @@
+{
+  "id": "schema-evolution",
+  "name": "Schema Evolution",
+  "version": "1.0.0",
+  "category": "observability",
+  "descriptionKey": "panel.plugins.schemaEvolution.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "subAgents"
+  ],
+  "hostApi": 1
+}

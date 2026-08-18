@@ -1,0 +1,15 @@
+{
+  "id": "idempotency",
+  "name": "Idempotency",
+  "version": "1.0.0",
+  "category": "security",
+  "descriptionKey": "panel.plugins.idempotency.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [],
+  "hostApi": 1
+}

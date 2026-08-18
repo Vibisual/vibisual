@@ -5,10 +5,10 @@
  * **하네스의 문제**라는 것 — 그래서 우리 설정만으로도 상당 부분을 자가 점검할 수 있다.
  * 이 카드는 앞선 판정들을 ASI 축으로 다시 묶어 한 장으로 보여준다. 표시 전용.
  */
-import { defineInspector, ICONS } from '../framework/inspector.js';
-import { judgeTrifecta } from '../lethal-trifecta/trifecta.js';
-import { judgeBlastRadius } from '../blast-radius/index.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector, ICONS } from '../sdk/index.js';
+import { judgeTrifecta } from '../sdk/index.js';
+import { judgeBlastRadius } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 /** ASI01 목표 탈취 · ASI02 도구 오남용 · ASI03 신원 · ASI06 기억 오염 · ASI10 통제 이탈에 대응하는 관측치. */
 function flags(ctx: PluginBubbleContext): number {

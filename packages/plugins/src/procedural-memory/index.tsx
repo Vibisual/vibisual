@@ -5,8 +5,8 @@
  * 통째로 필요하기 때문이다. 스킬 정의와 에이전트 규칙이 그 물리적 형태이며, 버전 관리가 붙는 것이
  * 벡터 저장소 대비 결정적 이점이다. 표시 전용.
  */
-import { defineInspector } from '../framework/inspector.js';
-import type { PluginBubbleContext } from '../types.js';
+import { defineInspector } from '../sdk/index.js';
+import type { PluginBubbleContext } from '../sdk/index.js';
 
 const skills = (ctx: PluginBubbleContext): string[] => ctx.agentConfig?.skills ?? [];
 const hasRules = (ctx: PluginBubbleContext): boolean => (ctx.agentConfig?.rules ?? '').trim().length > 0;

@@ -5,8 +5,8 @@
  * 실패한다. 여기서는 전체 도구 중 몇 개를 실제로 쥐고 있는지, 무엇이 빠져 있는지를 보여준다. 표시 전용.
  */
 import { AVAILABLE_AGENT_TOOLS } from '@vibisual/shared';
-import { defineInspector } from '../framework/inspector.js';
-import { effectiveTools } from '../lethal-trifecta/trifecta.js';
+import { defineInspector } from '../sdk/index.js';
+import { effectiveTools } from '../sdk/index.js';
 
 const inspector = defineInspector({
   id: 'allowlist',

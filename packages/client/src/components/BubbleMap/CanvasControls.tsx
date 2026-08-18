@@ -28,9 +28,11 @@ const PlusIcon = (): React.JSX.Element => (
 const MinusIcon = (): React.JSX.Element => (
   <Glyph><path d="M5 12h14" /></Glyph>
 );
+// 화면맞춤(중앙 포커싱) — 전체화면의 모서리 괄호와 헷갈리지 않도록 조준경처럼 중앙에 원을 둔다.
 const FitIcon = (): React.JSX.Element => (
   <Glyph>
-    <path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3" />
+    <circle cx="12" cy="12" r="3" />
+    <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2" />
   </Glyph>
 );
 const LockIcon = (): React.JSX.Element => (

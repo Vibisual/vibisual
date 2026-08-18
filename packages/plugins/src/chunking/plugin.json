@@ -1,0 +1,17 @@
+{
+  "id": "chunking",
+  "name": "Chunking",
+  "version": "1.0.0",
+  "category": "observability",
+  "descriptionKey": "panel.plugins.chunking.desc",
+  "enabledByDefault": false,
+  "contributes": [
+    "panelSection",
+    "agentPrompt"
+  ],
+  "clientOnly": false,
+  "needs": [
+    "brain"
+  ],
+  "hostApi": 1
+}
