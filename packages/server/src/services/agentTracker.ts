@@ -20,7 +20,7 @@ function broadcastSnapshot(): void {
   broadcast({
     type: 'graph_snapshot',
     timestamp: Date.now(),
-    payload: graphManager.getSnapshot(),
+    payload: graphManager.getBroadcastSnapshot(),
   });
 }
 

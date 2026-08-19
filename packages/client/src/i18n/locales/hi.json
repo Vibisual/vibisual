@@ -41,6 +41,10 @@
     "usage": {
       "tooltip": "वर्तमान सत्र: 5-घंटे की सीमा का {{percent}}% उपयोग — विवरण के लिए क्लिक करें",
       "tooltipNoData": "उपयोग डेटा अभी एकत्र नहीं हो रहा — चालू करने के लिए क्लिक करें"
+    },
+    "setupBanner": {
+      "text": "Claude Code इंस्टॉल नहीं है — एजेंट अभी नहीं चल सकते।",
+      "action": "इंस्टॉल करें"
     }
   },
   "panel": {
@@ -198,7 +202,8 @@
         "permissions": "अनुमतियां",
         "advanced": "उन्नत",
         "version": "संस्करण",
-        "account": "खाता"
+        "account": "खाता",
+        "storage": "स्टोरेज"
       },
       "appearance": {
         "intro": "Vibisual कैसा दिखता है उसे अपने अनुसार सेट करें।",
@@ -224,7 +229,19 @@
         "restartHint": "चयन सहेजा गया। नए spawn किए गए agents पर लागू करने के लिए Vibisual पुनः शुरू करें।",
         "about": "परिचय",
         "repo": "GitHub repository",
-        "marketplace": "VS Code Marketplace पर Claude Code"
+        "marketplace": "VS Code Marketplace पर Claude Code",
+        "selectionApplied": "चयन सहेजा और लागू किया गया — नए बनाए गए एजेंट इसे तुरंत उपयोग करेंगे।",
+        "claudeAutoUpdate": {
+          "title": "Claude Code अपडेट",
+          "label": "Claude Code को स्वचालित रूप से अपडेट रखें",
+          "onHint": "Vibisual हर बार ऐप लॉन्च करने पर CLI को नवीनतम वर्शन में अपडेट करता है।",
+          "offHint": "स्वचालित अपडेट बंद हैं। CLI को खुद अपडेट करने के लिए \"अभी अपडेट करें\" का उपयोग करें।",
+          "vscodeNotice": "सक्रिय बाइनरी VS Code एक्सटेंशन से आती है, जिसे केवल Marketplace ही अपडेट कर सकता है। Vibisual को अपडेट प्रबंधित करने देने के लिए ऊपर कोई अलग इंस्टॉलेशन चुनें।",
+          "updateNow": "अभी अपडेट करें",
+          "updating": "अपडेट हो रहा है…",
+          "updated": "{{version}} पर अपडेट किया गया",
+          "updateFailed": "अपडेट विफल"
+        }
       },
       "agent": {
         "intro": "ये डिफ़ॉल्ट नए बनाए गए custom agents पर लागू होते हैं। मौजूदा agents प्रभावित नहीं होते।",
@@ -259,18 +276,85 @@
         "recheck": "फिर जाँचें",
         "checking": "जाँच रहे हैं…",
         "actionFailed": "यह नहीं हो पाया। फिर कोशिश करें।"
+      },
+      "storage": {
+        "intro": "Vibisual डिस्क पर गतिविधि इतिहास कितने समय तक रखता है। हमेशा के लिए रखने के लिए किसी भी वैल्यू को 0 पर सेट करें — कुछ भी चुपचाप नहीं हटाया जाता, और लाइव सेशन को कभी नहीं छुआ जाता।",
+        "save": "लागू करें",
+        "saving": "सहेजा जा रहा है…",
+        "reset": "डिफ़ॉल्ट पुनर्स्थापित करें",
+        "unsaved": "अभी लागू नहीं हुआ",
+        "usageTitle": "डिस्क उपयोग",
+        "total": "कुल",
+        "rescan": "फिर से स्कैन करें",
+        "scanning": "स्कैन हो रहा है…",
+        "cleanNow": "अभी साफ़ करें",
+        "cleaning": "साफ़ हो रहा है…",
+        "cleaned": "{{files}} फ़ाइल(ें) हटाई गईं, {{size}} खाली किया गया।",
+        "empty": "डिस्क पर अभी तक कोई प्रोजेक्ट डेटा नहीं है।",
+        "worktreesTitle": "Git worktrees",
+        "worktreesNote": "कभी स्वचालित रूप से नहीं हटाया जाता — इनमें आपका काम हो सकता है। यदि अब ज़रूरत नहीं है तो फ़ोल्डर खुद हटाएं।",
+        "worktreeOrphan": "अनाथ",
+        "units": {
+          "days": "दिन",
+          "count": "आइटम",
+          "seconds": "सेकंड"
+        },
+        "fields": {
+          "fileEditRetentionDays": {
+            "label": "फ़ाइल एडिट इतने समय तक रखें",
+            "desc": "इससे पुराना एडिट इतिहास हटा दिया जाता है। 0 = हमेशा के लिए रखें।"
+          },
+          "maxFileEditPaths": {
+            "label": "एडिट इतिहास वाली अधिकतम फ़ाइलें",
+            "desc": "सबसे पहले वे पाथ हटाए जाते हैं जिन्हें सबसे कम हाल में एडिट किया गया हो। 0 = असीमित।"
+          },
+          "fileEditMergeWindowMs": {
+            "label": "इतने समय के भीतर बार-बार के एडिट मर्ज करें",
+            "desc": "एक ही फ़ाइल पर लगातार किए गए एडिट एक एंट्री में समा जाते हैं। 0 = कभी मर्ज न करें।"
+          },
+          "completedCommandMaxPerSession": {
+            "label": "प्रति सेशन पूर्ण किए गए कमांड",
+            "desc": "प्रति सेशन रखे गए आपके प्रॉम्प्ट बबल। 0 = असीमित।"
+          },
+          "subStreamRetentionDays": {
+            "label": "एजेंट ट्रांसक्रिप्ट इतने समय तक रखें",
+            "desc": "स्टार्टअप पर साफ़ किया जाता है। लाइव सेशन उम्र चाहे जो भी हो, रखे जाते हैं। 0 = हमेशा के लिए रखें।"
+          },
+          "attachmentRetentionDays": {
+            "label": "अटैचमेंट इतने समय तक रखें",
+            "desc": "वे इमेज जो आपने प्रॉम्प्ट में पेस्ट कीं। 0 = हमेशा के लिए रखें।"
+          }
+        },
+        "kinds": {
+          "checkpoint": "चेकपॉइंट",
+          "checkpointBackups": "बैकअप",
+          "activity": "गतिविधि",
+          "identity": "पहचान",
+          "subStreams": "ट्रांसक्रिप्ट",
+          "attachments": "अटैचमेंट",
+          "brain": "मेमोरी",
+          "logs": "लॉग",
+          "video": "वीडियो",
+          "other": "अन्य"
+        },
+        "error": {
+          "load": "रिटेंशन सेटिंग्स लोड नहीं हो सकीं।",
+          "save": "रिटेंशन सेटिंग्स सहेजी नहीं जा सकीं।",
+          "scan": "डिस्क उपयोग मापा नहीं जा सका।",
+          "clean": "सफाई विफल रही। कृपया फिर से प्रयास करें।"
+        }
       }
     },
     "autoAgent": {
       "title": "Auto Agent",
       "description": "Harness builder। अपना लक्ष्य बताएं और एक builder agent आपके लिए multi-agent harness डिज़ाइन करता है — agents, उनके models, tools और permissions चुनकर, और task connections जोड़कर — फिर उसे शुरू कर देता है। आपको खुद bubbles या edges बनाने की ज़रूरत नहीं।",
-      "placeholder": "जो चाहते हैं वह बताएं — जैसे \"Dashboard में OAuth login जोड़ें\"",
-      "send": "भेजें",
-      "shortcutHint": "Ctrl/Cmd + Enter से भेजें",
-      "toggleQuestionsTip": "चालू होने पर, spawning से पहले उच्च-जटिलता अनुरोधों के लिए स्पष्टीकरण प्रश्न पूछता है।",
-      "questionsOn": "जटिल होने पर पूछें",
+      "placeholder": "लक्ष्य बताएं — जैसे \"Dashboard में OAuth login जोड़ें और tests लिखें\"। मैं agents, models और tools चुनकर उन्हें जोड़ दूंगा।",
+      "send": "Harness बनाएं",
+      "shortcutHint": "बनाने के लिए Ctrl/Cmd + Enter",
+      "toggleQuestionsTip": "चालू होने पर, builder harness बनाने से पहले कुछ स्पष्टीकरण प्रश्न पूछ सकता है।",
+      "questionsOn": "अस्पष्ट होने पर पूछें",
       "questionsOff": "प्रश्न छोड़ें",
-      "clarifying": "Team spawn करने से पहले मुझे कुछ स्पष्टीकरण चाहिए",
+      "clarifying": "Harness बनाने से पहले मुझे कुछ स्पष्टीकरण चाहिए",
       "notePlaceholder": "नोट जोड़ें (वैकल्पिक)",
       "submitAnswers": "उत्तर सबमिट करें",
       "summary": "सारांश",
@@ -502,7 +586,17 @@
       "stderr": "stderr",
       "copy": "कॉपी करें",
       "copied": "कॉपी हो गया",
-      "close": "बंद करें"
+      "close": "बंद करें",
+      "mergeBtn": "मर्ज करें",
+      "mergeTitle": "{{branch}} को वर्तमान ब्रांच में मर्ज करें",
+      "mergeConflict": "मर्ज कॉन्फ्लिक्ट",
+      "mergeConflictNote": "मुख्य ब्रांच को merge --abort से रीस्टोर किया गया। नीचे दी गई फ़ाइलों में कॉन्फ्लिक्ट है — इन्हें उस एजेंट को सौंपें जिसने इस worktree में काम किया, या खुद इन्हें हल करें।",
+      "mergeHandOff": "एजेंट को सौंपें",
+      "mergeHandOffPrompt": "इस worktree को मुख्य ब्रांच में मर्ज करते समय कॉन्फ्लिक्ट आए। अपनी ब्रांच को इस तरह ठीक करें कि वह बिना किसी समस्या के मर्ज हो जाए, फिर मुझे बताएं कि आपने क्या बदला।",
+      "mergeParentDirty": "मुख्य ब्रांच में बिना कमिट किए बदलाव हैं",
+      "mergeParentDirtyNote": "पहले इन्हें कमिट या स्टैश करें — बिना कमिट किए काम के ऊपर मर्ज करने से वह खो सकता है।",
+      "mergeNothing": "मर्ज करने के लिए कुछ नहीं",
+      "mergeNothingNote": "इस worktree में ऐसा कोई कमिट नहीं है जो मुख्य ब्रांच में न हो।"
     },
     "worktreeDelete": {
       "title": "Worktree हटाएं",
@@ -1083,9 +1177,39 @@
       "later": "बाद में",
       "stop": "रोकें",
       "start": "साइन इन"
+    },
+    "setup": {
+      "title": "Claude Code इंस्टॉल करें",
+      "intro": "Vibisual अपने एजेंट Claude Code CLI से चलाता है, जो अभी इस कंप्यूटर पर इंस्टॉल नहीं है। इसे यहीं इंस्टॉल करें — टर्मिनल की ज़रूरत नहीं।",
+      "commandLabel": "इंस्टॉल कमांड",
+      "copy": "कॉपी करें",
+      "copied": "कॉपी हो गया",
+      "install": "इंस्टॉल करें",
+      "installing": "इंस्टॉल हो रहा है…",
+      "installDone": "इंस्टॉल हो गया",
+      "installFailed": "इंस्टॉल विफल",
+      "retry": "फिर से प्रयास करें",
+      "ready": "Claude Code तैयार है। जारी है…",
+      "failed": "इंस्टॉल पूरा नहीं हुआ। ऊपर दिया गया कमांड टर्मिनल में चलाएं, फिर \"फिर से जांचें\" चुनें।",
+      "manualOnly": "इस प्लेटफ़ॉर्म पर स्वचालित इंस्टॉल उपलब्ध नहीं है। ऊपर दिया गया कमांड टर्मिनल में चलाएं, फिर \"फिर से जांचें\" चुनें।",
+      "recheck": "फिर से जांचें",
+      "rechecking": "जांच हो रही है…",
+      "later": "बाद में",
+      "docs": "आधिकारिक इंस्टॉलेशन गाइड"
     }
   },
   "ide": {
+    "diff": {
+      "addComment": "इस लाइन पर टिप्पणी करें",
+      "removeComment": "टिप्पणी हटाएं",
+      "commentPlaceholder": "यहां क्या बदलना चाहिए? (सहेजने के लिए Ctrl+Enter)",
+      "commentCancel": "रद्द करें",
+      "commentSave": "सहेजें",
+      "commentLimit": "प्रति सेशन अधिकतम {{max}} रिव्यू टिप्पणियां — और जोड़ने के लिए कुछ भेजें या हटाएं।",
+      "sendReview": "रिव्यू भेजें ({{count}})",
+      "sendReviewTip": "आपने diff पर जो टिप्पणियां छोड़ी हैं उन्हें एक ही कमांड के रूप में भेजें",
+      "reviewPromptHeader": "निम्नलिखित रिव्यू टिप्पणियां लागू करें।"
+    },
     "imageAnnotate": {
       "tool": {
         "view": "View",
@@ -1243,9 +1367,8 @@
       "sending": "भेजा जा रहा है…"
     },
     "activityBar": {
-      "terminal": "Terminal",
+      "mcp": "MCP",
       "files": "फ़ाइलें",
-      "results": "परिणाम",
       "context": "Context स्रोत",
       "skills": "Skills",
       "bookmarks": "बुकमार्क",
@@ -1254,6 +1377,49 @@
       "loop": "Repeat loop",
       "goal": "लक्ष्य",
       "debug": "Run और debug"
+    },
+    "mcp": {
+      "title": "MCP सर्वर",
+      "refresh": "MCP दोबारा स्कैन करें",
+      "noProject": "इस प्रोजेक्ट में उपलब्ध MCP देखने के लिए एक प्रोजेक्ट खोलें।",
+      "empty": "इस प्रोजेक्ट में अभी कोई MCP सर्वर नहीं है। इस कमांड से जोड़ें:",
+      "autoApprove": "यह प्रोजेक्ट .mcp.json के सभी सर्वर अपने आप स्वीकृत कर देता है (enableAllProjectMcpServers)।",
+      "applyHint": "चालू/बंद करना अब से शुरू होने वाले sessions पर लागू होता है — जो पहले से चल रहे हैं उनके connections वैसे ही रहते हैं।",
+      "docs": "डॉक्स",
+      "loadFailed": "MCP configuration नहीं पढ़ी जा सकी।",
+      "toggleFailed": "बदलाव सहेजा नहीं जा सका।",
+      "turnOn": "चालू करें",
+      "turnOff": "बंद करें",
+      "state": {
+        "enabled": "चालू",
+        "disabled": "बंद",
+        "pending": "स्वीकृति बाकी"
+      },
+      "scope": {
+        "global": "ग्लोबल (सभी प्रोजेक्ट)",
+        "project": "प्रोजेक्ट (.mcp.json)",
+        "local": "लोकल (केवल यह प्रोजेक्ट)",
+        "preset": "Vibisual प्रीसेट"
+      },
+      "scopeShort": {
+        "global": "ग्लोबल",
+        "project": "प्रोजेक्ट",
+        "local": "लोकल",
+        "preset": "प्रीसेट"
+      },
+      "scopeHint": {
+        "global": "~/.claude.json में लिखा है — हर प्रोजेक्ट में उपलब्ध।",
+        "project": "इस repository की .mcp.json में है और clone करने वाले सबके साथ साझा होता है। यहाँ केवल पढ़ने के लिए।",
+        "local": "~/.claude.json में सिर्फ़ इस प्रोजेक्ट की entry में लिखा है।",
+        "preset": "डिबग टूल्स जिन्हें Vibisual इस agent से जोड़ सकता है।"
+      },
+      "req": {
+        "approval": ".mcp.json में है पर अभी स्वीकृत नहीं — चालू करने पर यह इस प्रोजेक्ट के लिए स्वीकृत हो जाएगा।",
+        "missing-command": "'{{detail}}' PATH में नहीं मिला — पहले इंस्टॉल करें।",
+        "missing-env": "Environment variables सेट नहीं हैं: {{detail}}",
+        "auth": "रिमोट सर्वर — पहले लॉगिन करना पड़ सकता है: claude mcp login {{name}}",
+        "policy": "प्रबंधित नीति (deniedMcpServers) ने रोका है — इसे यहाँ चालू नहीं किया जा सकता।"
+      }
     },
     "debug": {
       "title": "Run और debug",
@@ -1425,12 +1591,8 @@
       "secNext": "अगला"
     },
     "sidebar": {
-      "sessions": "Sessions",
       "files": "फ़ाइलें ({{count}})",
-      "events": "इवेंट्स ({{count}})",
       "noFileEdits": "अभी कोई फ़ाइल संपादन नहीं",
-      "noEvents": "अभी कोई इवेंट नहीं",
-      "hasResult": "परिणाम है",
       "skills": "Skills ({{count}})",
       "projectSkills": "Project ({{count}})",
       "globalSkills": "Global ({{count}})",
@@ -1654,17 +1816,19 @@
       "untitled": "Subagent",
       "scopeAll": "यह agent जो भी subagent चला रहा है, सभी दिखाए जा रहे हैं।",
       "scopeSession": "\"{{label}}\" द्वारा शुरू किए गए subagents दिखाए जा रहे हैं।",
-      "endedAt": "{{time}} पर समाप्त",
-      "finishedTitle": "अभी-अभी पूरा हुआ",
-      "noResult": "कोई परिणाम नहीं आया।",
-      "toggleResult": "पूरा परिणाम दिखाएँ या छिपाएँ",
-      "toolUses": "{{count}} टूल कॉल",
-      "nowUsing": "अभी उपयोग हो रहा टूल",
-      "duration": "{{value}} लगा",
       "emptySession": "इस सत्र का कोई सबएजेंट नहीं चल रहा।",
       "hint": "यहाँ सिर्फ़ वही सबएजेंट दिखते हैं जिन्हें इस सत्र ने पृष्ठभूमि में चलाया है — चल रही बातचीत खुद नहीं गिनी जाती। चलते समय बाईं ओर का आइकन जलता है और उसके नीचे संख्या दिखती है।",
       "othersRunning": "कहीं और {{count}} और चल रहे हैं",
       "startedAt": "{{time}} पर शुरू",
+      "endedAt": "{{time}} पर समाप्त",
+      "finishedTitle": "अभी-अभी पूरा हुआ",
+      "noResult": "कोई परिणाम नहीं आया।",
+      "resultRescued": "ट्रांसक्रिप्ट से पुनर्प्राप्त — सेशन को नहीं भेजा गया",
+      "resultRescuedTitle": "यह चाइल्ड रिपोर्ट करने से पहले ही रुक गया (Stop, टैब बंद होना, या क्रैश), इसलिए सेशन को यह कभी नहीं मिला। Vibisual ने इसे डिस्क पर मौजूद एजेंट ट्रांसक्रिप्ट से वापस पढ़ा।",
+      "toggleResult": "पूरा परिणाम दिखाएँ या छिपाएँ",
+      "toolUses": "{{count}} टूल कॉल",
+      "nowUsing": "अभी उपयोग हो रहा टूल",
+      "duration": "{{value}} लगा",
       "noResponse": "{{value}} से कोई प्रतिक्रिया नहीं",
       "dismiss": "इंतज़ार बंद करें",
       "dismissTip": "इस सूची से हटाता है। प्रक्रिया समाप्त नहीं करता — एजेंट अपने चाइल्ड को TaskStop से रोकता है।"
@@ -1839,7 +2003,9 @@
     },
     "card": {
       "showDetails": "विवरण ({{count}})",
-      "hideDetails": "विवरण छिपाएं"
+      "hideDetails": "विवरण छिपाएं",
+      "inProgress": "प्रगति में",
+      "inProgressHint": "यह टर्न अभी चल ही रहा था जब यह पोस्ट हुआ — इस कार्ड के नीचे और आउटपुट आएगा।"
     },
     "context": {
       "title": "Context स्रोत",
@@ -2400,7 +2566,9 @@
       "createWorktree": "Worktree बनाएं",
       "createWorktreeHint": "नवीनतम master से नया workspace",
       "createCapture": "स्क्रीन / प्रोग्राम कैप्चर Bubble",
-      "createCaptureHint": "स्क्रीन या प्रोग्राम विंडो को bubble के अंदर लाइव दिखाता है"
+      "createCaptureHint": "स्क्रीन या प्रोग्राम विंडो को bubble के अंदर लाइव दिखाता है",
+      "createSpec": "Spec Board बनाएं",
+      "createSpecHint": "आवश्यकताएं लिखें, फिर हर Acceptance Criterion को एक Task Card में बदलें"
     },
     "bounds": {
       "label": "Bubble सीमाएं",
@@ -2422,6 +2590,40 @@
       "jumped": "{{label}} पर पहुंचे",
       "jumpEmpty": "बुकमार्क {{slot}} खाली है",
       "jumpMissing": "बुकमार्क लक्ष्य अब उपलब्ध नहीं है"
+    },
+    "spec": {
+      "title": "Spec",
+      "untitled": "बिना शीर्षक Spec",
+      "criteria": "Acceptance Criteria",
+      "cards": "Cards",
+      "revision": "संशोधन {{count}}",
+      "openBoard": "Spec board खोलें",
+      "rename": "नाम बदलें",
+      "renamePrompt": "Spec शीर्षक",
+      "addItem": "Acceptance Criterion जोड़ें",
+      "addItemPrompt": "Acceptance Criterion (एक पंक्ति)",
+      "addItemPlaceholder": "Acceptance Criterion…",
+      "add": "जोड़ें",
+      "removeItem": "Acceptance Criterion हटाएं",
+      "emptyItems": "अभी कोई Acceptance Criteria नहीं · उन्हें नीचे एक-एक करके जोड़ें",
+      "bodyLabel": "आवश्यकताएं (Markdown)",
+      "bodyPlaceholder": "आप क्या बना रहे हैं, क्यों, और इसका दायरा कहाँ खत्म होता है?",
+      "generateTasks": "Task Cards बनाएं",
+      "generateTasksN": "Task Cards बनाएं ({{count}})",
+      "generateOne": "इस आइटम से Task Card",
+      "generateNoneHint": "हर Acceptance Criterion के पास पहले से एक Task Card है",
+      "generating": "Task Cards बन रहे हैं…",
+      "generateHint": "हर Acceptance Criterion के लिए एक Task Card, क्रम में Task Edges से जुड़ा हुआ। जिन आइटम के पास पहले से Card है उन्हें छोड़ दिया जाता है।",
+      "stale": "Spec बदल गया",
+      "staleCount": "Spec बदल गया: {{count}}",
+      "staleBadge": "Spec बदल गया — {{title}}",
+      "acknowledge": "स्वीकार करें",
+      "detach": "अनलिंक करें",
+      "cardMissing": "Card (bubble उपलब्ध नहीं)",
+      "pin": "पिन करें",
+      "unpin": "अनपिन करें",
+      "delete": "हटाएं",
+      "deletePinnedHint": "यह Spec पिन किया गया है। पहले इसे अनपिन करें।"
     }
   },
   "common": {
@@ -2450,6 +2652,28 @@
         "goBack": "वापस जाने के लिए डबल-क्लिक करें",
         "expand": "विस्तार के लिए डबल-क्लिक करें"
       }
+    },
+    "preview": {
+      "deviceAuto": "ऑटो",
+      "deviceAutoTip": "उपलब्ध चौड़ाई भरें",
+      "deviceMobile": "मोबाइल",
+      "deviceTablet": "टैबलेट",
+      "deviceDesktop": "डेस्कटॉप",
+      "deviceTip": "{{width}}px चौड़ाई पर रेंडर करें",
+      "pickElement": "एलिमेंट चुनें",
+      "pickHint": "किसी बदलाव का वर्णन करने के लिए प्रीव्यू में कोई एलिमेंट क्लिक करें",
+      "pickPlaceholder": "इस एलिमेंट में क्या बदलना चाहिए? (भेजने के लिए Ctrl+Enter)",
+      "pickSend": "भेजें",
+      "pickCopy": "सेलेक्टर कॉपी करें",
+      "pickCopied": "कॉपी हो गया",
+      "pickClose": "बंद करें",
+      "pickNoHost": "कोई एजेंट इस प्रीव्यू को होस्ट नहीं कर रहा, इसलिए इसे भेजने के लिए कोई जगह नहीं है। इसके बजाय सेलेक्टर कॉपी करें।",
+      "pickPromptHeader": "नीचे दिए गए स्क्रीन एलिमेंट को ठीक करें।",
+      "pickLabelPage": "पेज",
+      "pickLabelElement": "एलिमेंट",
+      "pickLabelSelector": "सेलेक्टर",
+      "pickLabelText": "दिखाई देने वाला टेक्स्ट",
+      "pickLabelRequest": "अनुरोध"
     }
   },
   "brain": {

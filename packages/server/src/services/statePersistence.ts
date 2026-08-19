@@ -19,8 +19,15 @@ import {
   CHECKPOINT_SHRINK_GUARD_MIN_PRIOR,
   CHECKPOINT_SHRINK_GUARD_RATIO,
   CHECKPOINT_SHRINK_GUARD_ENABLED,
+  ROOT_NODE_KEY_PREFIX,
+  LEGACY_ROOT_NODE_KEY,
 } from '@vibisual/shared';
 import { logger } from '../logger.js';
+import {
+  writeFileAtomicSyncRaw,
+  queueAtomicWrite,
+  flushPendingDiskWritesSync,
+} from './diskWriteQueue.js';
 import { isDeadWorktreeProject, isLiveWorktreeDir, isUnderDeadWorktree, shouldReportDeadWorktree } from './worktreeLiveness.js';
 
 // v1.52: 체크포인트 = 각 프로젝트 폴더 안의 `<projectPath>/.vibisual/save/`.
@@ -55,21 +62,24 @@ export function atomicWriteFileSync(filePath: string, data: string): void {
     }
     fs.mkdirSync(dir, { recursive: true });
   }
-  const tmp = `${filePath}.tmp`;
-  const fd = fs.openSync(tmp, 'w');
-  try {
-    fs.writeFileSync(fd, data, 'utf8');
-    try { fs.fsyncSync(fd); } catch { /* 일부 FS 는 fsync 미지원 — best effort */ }
-  } finally {
-    fs.closeSync(fd);
-  }
-  fs.renameSync(tmp, filePath);
-  // 디렉토리 엔트리(rename 메타데이터)도 디스크 도달 강제 — 전원 손실 시 옛 파일 부활 방지.
-  try {
-    const dfd = fs.openSync(dir, 'r');
-    try { fs.fsyncSync(dfd); } catch { /* Windows 등은 디렉토리 fsync 미지원 — best effort */ }
-    finally { fs.closeSync(dfd); }
-  } catch { /* 디렉토리 open 실패해도 rename 자체는 이미 완료 */ }
+  // 쓰기 절차(tmp → fsync → rename → 디렉토리 fsync)의 **유일한 구현**은 diskWriteQueue 에 있다.
+  // 여기(가드) 와 워커(성능) 가 같은 절차를 두 벌로 들고 있다가 어긋나는 것을 막기 위함이다.
+  writeFileAtomicSyncRaw(filePath, data);
+}
+
+/**
+ * §9 "디스크 쓰기는 워커 스레드로" — **체크포인트 3종(core·activity·identity) 전용** 쓰기 창구.
+ *
+ * 가드(§3.2.1 통째-0·shrink·죽은 워크트리)를 이미 통과한 뒤에만 불린다. 워커가 켜져 있으면
+ * 문자열만 넘기고 즉시 돌아오고, 꺼져 있거나 큐가 가득 차면 종전처럼 동기로 쓴다.
+ *
+ * ⚠ 이 창구는 `atomicWriteFileSync`(범용) 와 **일부러 분리**돼 있다. 범용 쪽까지 비동기로 만들면
+ *   "쓴 직후 다시 읽는" 호출자(Brain 카드·훅 설정 등)가 옛 내용을 볼 수 있다. 체크포인트 읽기
+ *   경로에는 `flushPendingDiskWritesSync()` 를 걸어 두었으므로 이 3종만 안전하게 미룰 수 있다.
+ */
+function atomicWriteCheckpointFile(filePath: string, data: string): void {
+  if (queueAtomicWrite(filePath, data)) return;
+  atomicWriteFileSync(filePath, data);
 }
 
 /**
@@ -251,6 +261,8 @@ function deriveIdentity(cp: ProjectCheckpoint): ProjectIdentity {
     appBubbles: cp.appBubbles ?? [],
     // §5.14 v4.62 — 플레이 버블은 사용자가 놓은 버튼 + 확정한 실행 레시피라 정체성이다.
     playBubbles: cp.playBubbles ?? [],
+    // §5.15 — 스펙 보드는 사람이 쓴 요구사항 문장이라 잃으면 복구할 길이 없다(정체성).
+    specDocs: cp.specDocs ?? [],
     contis: cp.contis ?? {},
     // §5.5 #17-17 v4.46 — 세션 목표는 사용자가 직접 쓴 문장이라 잃으면 복구할 길이 없다(정체성).
     sessionGoals: cp.sessionGoals ?? {},
@@ -266,6 +278,9 @@ function isValidIdentityObj(obj: Record<string, unknown>): boolean {
 
 /** identity.json 1개를 읽어 반환(백업 복구 포함). 없거나 손상되면 null. */
 export function loadIdentityFromDir(saveDir: string): ProjectIdentity | null {
+  // §9 — 워커 큐에 남아 있는 쓰기를 먼저 디스크에 앉힌다. 이 한 줄이 없으면 방금 저장한
+  // 내용을 못 본 채 옛 파일을 읽어 복원하는 창이 생긴다(탭 닫고 바로 다시 여는 흐름).
+  flushPendingDiskWritesSync();
   const filePath = path.join(saveDir, IDENTITY_FILENAME);
   try {
     if (fs.existsSync(filePath)) {
@@ -326,18 +341,38 @@ function passesShrinkGuard(saveDir: string, nextIdentity: ProjectIdentity): bool
   return true;
 }
 
+/** 가드 비교용 그래프 합계. `rootNodes` 는 `nodes` 중 프로젝트 루트 노드의 개수(= 보호 대상에서 뺀다). */
+interface CheckpointTotals {
+  agents: number;
+  nodes: number;
+  rootNodes: number;
+}
+
+/** 프로젝트 루트 노드 키인가(`__root__:<이름>` + 레거시 단일 키). 그래프 계층의 `isRootKey` 와 같은 기준. */
+function isRootNodeKey(key: string): boolean {
+  return key.startsWith(ROOT_NODE_KEY_PREFIX) || key === LEGACY_ROOT_NODE_KEY;
+}
+
+/** 노드 맵에서 개수 + 그중 루트 노드 개수를 센다. */
+function countNodes(nodes: Record<string, unknown> | undefined): { nodes: number; rootNodes: number } {
+  const keys = Object.keys(nodes ?? {});
+  let rootNodes = 0;
+  for (const k of keys) if (isRootNodeKey(k)) rootNodes += 1;
+  return { nodes: keys.length, rootNodes };
+}
+
 /**
  * §3.2.1-3 (v3.03) — 디스크 checkpoint(없으면 `.bak1`)에서 그래프 합계만 가볍게 읽는다.
  * `loadCheckpointFromPath` 는 매번 info 로그를 찍어 고빈도 저장 경로에 부적합하므로 별도 조용한 reader.
  */
-function readCheckpointTotalsFromDisk(cpPath: string): { agents: number; nodes: number } | null {
-  const tryRead = (f: string): { agents: number; nodes: number } | null => {
+function readCheckpointTotalsFromDisk(cpPath: string): CheckpointTotals | null {
+  const tryRead = (f: string): CheckpointTotals | null => {
     try {
       if (!fs.existsSync(f)) return null;
       const o = JSON.parse(fs.readFileSync(f, 'utf8')) as Record<string, unknown>;
       if (!isValidCheckpointObj(o)) return null;
       const g = (o['graph'] ?? {}) as { agents?: Record<string, unknown>; nodes?: Record<string, unknown> };
-      return { agents: Object.keys(g.agents ?? {}).length, nodes: Object.keys(g.nodes ?? {}).length };
+      return { agents: Object.keys(g.agents ?? {}).length, ...countNodes(g.nodes) };
     } catch {
       return null;
     }
@@ -352,6 +387,13 @@ function readCheckpointTotalsFromDisk(cpPath: string): { agents: number; nodes: 
  * - (1) 통째-0 가드(1차 활성): 디스크 합계 ≥ MIN_PRIOR 인데 새 저장본 합계 == 0 → 거부.
  * - (2) 급감 비율 가드(기본 비활성): 정상 대량 만료 오탐 위험이 커 상수 토글로만 둔다.
  * 정상 만료는 프로젝트 루트 노드가 남아 통째-0 이 되지 않으므로 오탐하지 않는다.
+ *
+ * ⚠ (1) 의 "디스크 합계" 는 **루트 노드를 뺀 수**다. 루트 노드는 프로젝트 등록 시 자동 생성되는
+ *   골격이라 지킬 사용자 데이터가 아니고, 워크트리 프로젝트는 화면 표현이 부모 캔버스의 워크트리
+ *   버블로 옮겨가 자기 소유 버블이 정상적으로 0개가 된다. 이 예외가 없으면 "루트 노드 하나뿐인
+ *   디스크 vs 비어 있는 정상 인스턴스" 가 매 저장마다 거부되는데, 거부는 디스크도 아래 합계
+ *   캐시도 갱신하지 않으므로 **판정 조건이 그대로 남아 영원히 반복**된다(가드가 자기를 발화시키는
+ *   파일을 스스로 보존하는 고착 상태 — 실제로 워크트리 두 개에서 매 저장마다 경고가 쌓였다).
  */
 /**
  * §9 v3.45 — 세션 내 마지막 기록 합계 캐시. 종전엔 매 저장마다 디스크의 checkpoint.json
@@ -359,7 +401,7 @@ function readCheckpointTotalsFromDisk(cpPath: string): { agents: number; nodes: 
  * 한 축이었다. 파일은 이 프로세스만 쓰므로 첫 저장 때 1회 디스크 판독 후 캐시로 대체해도
  * 가드 의미(빈 인스턴스의 덮어쓰기 차단)는 동일하다.
  */
-const lastWrittenCheckpointTotals = new Map<string, { agents: number; nodes: number }>();
+const lastWrittenCheckpointTotals = new Map<string, CheckpointTotals>();
 
 function passesCheckpointShrinkGuard(
   cpPath: string,
@@ -368,12 +410,14 @@ function passesCheckpointShrinkGuard(
   const prev = lastWrittenCheckpointTotals.get(cpPath) ?? readCheckpointTotalsFromDisk(cpPath);
   if (!prev) return { ok: true }; // 첫 저장 / 디스크에 비교 대상 없음 — 보호할 것 없음
   const prevTotal = prev.agents + prev.nodes;
+  // 보호 대상 = 자동 생성 골격(루트 노드)을 뺀 실제 버블. 이게 0이면 지킬 것이 없다.
+  const prevProtected = prev.agents + (prev.nodes - prev.rootNodes);
   const nextAgents = Object.keys(next.graph?.agents ?? {}).length;
   const nextNodes = Object.keys(next.graph?.nodes ?? {}).length;
   const nextTotal = nextAgents + nextNodes;
 
   // (1) 통째-0 가드.
-  if (prevTotal >= CHECKPOINT_EMPTY_GUARD_MIN_PRIOR && nextTotal === 0) {
+  if (prevProtected >= CHECKPOINT_EMPTY_GUARD_MIN_PRIOR && nextTotal === 0) {
     return {
       ok: false,
       reason: `prior had ${prevTotal} bubble(s) (agents=${prev.agents}, nodes=${prev.nodes}), next is empty — likely empty-instance overwrite`,
@@ -471,11 +515,13 @@ export function writeCheckpoint(
     // §3.2.1-2 백업 롤링 후 §3.2.1-1 원자적 쓰기.
     if (!opts?.skipCore) {
       rotateBackups(cpPath);
-      atomicWriteFileSync(cpPath, preSerialized ?? JSON.stringify(core));
+      atomicWriteCheckpointFile(cpPath, preSerialized ?? JSON.stringify(core));
       // §9 v3.45 — 다음 저장의 shrink guard 는 디스크 재읽기 대신 이 캐시로 비교한다.
+      //   ⚠ 디스크 판독(readCheckpointTotalsFromDisk)과 **같은 모양**이어야 한다 — `rootNodes` 를
+      //   빠뜨리면 캐시 경로에서만 루트 노드가 보호 대상으로 잡혀 판정이 갈린다.
       lastWrittenCheckpointTotals.set(cpPath, {
         agents: Object.keys(checkpoint.graph?.agents ?? {}).length,
-        nodes: Object.keys(checkpoint.graph?.nodes ?? {}).length,
+        ...countNodes(checkpoint.graph?.nodes as Record<string, unknown> | undefined),
       });
     }
     writeActivityFile(dir, activity, opts?.activityJson);
@@ -483,7 +529,7 @@ export function writeCheckpoint(
     if (identityOk) {
       const idPath = path.join(dir, IDENTITY_FILENAME);
       rotateBackups(idPath);
-      atomicWriteFileSync(idPath, JSON.stringify(identity));
+      atomicWriteCheckpointFile(idPath, JSON.stringify(identity));
       lastWrittenIdentityByDir.set(dir, identity);
     }
 
@@ -586,7 +632,7 @@ function writeActivityFile(dir: string, data: ActivityFileData, preSerialized?: 
     if (lastWrittenActivityJson.get(dir) === stamp) return;
     const target = path.join(dir, ACTIVITY_FILENAME);
     rotateBackups(target);
-    atomicWriteFileSync(target, json);
+    atomicWriteCheckpointFile(target, json);
     lastWrittenActivityJson.set(dir, stamp);
   } catch (err) {
     // 이력 저장 실패는 비치명 — 그래프·정체성은 이미 제 파일에 있다.
@@ -604,6 +650,9 @@ function isValidCheckpointObj(obj: Record<string, unknown>): boolean {
  *  손상 시 .bak1~N 백업에서 복구 시도(§3.2.1-4). */
 function loadCheckpointFromPath(filePath: string): ProjectCheckpoint | null {
   try {
+  // §9 — 워커 큐에 남아 있는 쓰기를 먼저 디스크에 앉힌다. 이 한 줄이 없으면 방금 저장한
+  // 내용을 못 본 채 옛 파일을 읽어 복원하는 창이 생긴다(탭 닫고 바로 다시 여는 흐름).
+  flushPendingDiskWritesSync();
     if (fs.existsSync(filePath)) {
       const raw = fs.readFileSync(filePath, 'utf8');
       const data: unknown = JSON.parse(raw);
@@ -709,6 +758,9 @@ export function pruneOrphanWorktreeDirs(liveProjects: ProjectInfo[]): number {
  *    부모 프로젝트가 openProjects 에 있으면 워크트리도 stub 으로 자동 발견됨(SCENARIO §5.7 #26).
  *  - dedup: 같은 ProjectInfo.path 기준 lastSavedAt 최신 1건만 유지. */
 export function discoverProjectMetas(projectPaths: string[]): ProjectMetaSnapshot[] {
+  // §9 — 워커 큐에 남아 있는 쓰기를 먼저 디스크에 앉힌다. 이 한 줄이 없으면 방금 저장한
+  // 내용을 못 본 채 옛 파일을 읽어 복원하는 창이 생긴다(탭 닫고 바로 다시 여는 흐름).
+  flushPendingDiskWritesSync();
   const byPath = new Map<string, ProjectMetaSnapshot>();
 
   /** §3.2.1-4 (v3.29) project.json 이 없거나 손상됐을 때 checkpoint/identity(+백업)에서
@@ -883,6 +935,12 @@ function mergeIdentityIntoCheckpoint(cp: ProjectCheckpoint, identity: ProjectIde
     const seen = new Set(existing.map((b) => b.id));
     cp.playBubbles = [...existing, ...identity.playBubbles.filter((b) => !seen.has(b.id))];
   }
+  // §5.15 specDocs 보충 — 같은 규칙(id 기준 합집합).
+  if (identity.specDocs && identity.specDocs.length > 0) {
+    const existing = cp.specDocs ?? [];
+    const seen = new Set(existing.map((d) => d.id));
+    cp.specDocs = [...existing, ...identity.specDocs.filter((d) => !seen.has(d.id))];
+  }
   // contis 보충.
   if (identity.contis && Object.keys(identity.contis).length > 0) {
     cp.contis = cp.contis ?? {};
@@ -904,6 +962,9 @@ function mergeIdentityIntoCheckpoint(cp: ProjectCheckpoint, identity: ProjectIde
 
 /** meta.checkpointPath의 체크포인트 1개를 로드 + identity.json 보충(§3.2.2). 검증 실패 시 null. */
 export function loadCheckpointByMeta(meta: ProjectMetaSnapshot): ProjectCheckpoint | null {
+  // §9 — 워커 큐에 남아 있는 쓰기를 먼저 디스크에 앉힌다. 이 한 줄이 없으면 방금 저장한
+  // 내용을 못 본 채 옛 파일을 읽어 복원하는 창이 생긴다(탭 닫고 바로 다시 여는 흐름).
+  flushPendingDiskWritesSync();
   const saveDir = path.dirname(meta.checkpointPath);
   let cp = loadCheckpointFromPath(meta.checkpointPath);
   const identity = loadIdentityFromDir(saveDir);
@@ -953,6 +1014,7 @@ function buildCheckpointSkeletonFromIdentity(identity: ProjectIdentity): Project
     captureBubbles: [...identity.captureBubbles],
     appBubbles: [...(identity.appBubbles ?? [])],
     playBubbles: [...(identity.playBubbles ?? [])],
+    specDocs: [...(identity.specDocs ?? [])],
     contis: { ...identity.contis },
     deletedCustomAgentIds: identity.deletedSessionIds ?? [],
   };

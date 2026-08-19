@@ -12,6 +12,12 @@
 # ⚠️ Windows 미서명 빌드는 자동 업데이트는 동작하나 SmartScreen 경고가 뜬다. macOS 는
 #    서명+공증이 없으면 자동 업데이트가 차단된다(현재 코드서명 슬롯 미배선 — SCENARIO §3.7 / task §7).
 #    그래도 빌드/발행 자체는 성공한다.
+#
+# ⚠️ v0.1.0~v0.1.9 의 mac 잡이 전부 실패한 진짜 원인은 서명이 아니라 **아이콘 크기**였다 —
+#    `resources/icons/icon.png` 가 256×256 이라 electron-builder 의
+#    "image ... must be at least 512x512" 검사에서 죽었다(2026-08-19, v0.1.9 로그 163줄에서 확인).
+#    아이콘을 1024×1024 로 재생성해 해소. 서명 탓으로 적어 둔 아래 주석 때문에 10번의 릴리스 동안
+#    아무도 로그를 열어보지 않았다 — 실패를 "예상된 것"으로 적어 두면 그 실패는 조사되지 않는다.
 
 name: Release
 
@@ -38,8 +44,9 @@ jobs:
           - os: ubuntu-latest
             script: release:linux
     runs-on: ${{ matrix.os }}
-    # macOS 빌드는 코드서명·공증 미배선이라 실패할 수 있다(mac 자동 업데이트는 서명 전까지 불가).
-    # win/linux 발행을 막지 않도록 mac 잡 실패는 전체 워크플로를 깨지 않게 둔다.
+    # mac 잡 실패가 win/linux 발행을 막지 않도록 열어 둔다. 다만 이 관용이 바로 아이콘 크기
+    # 하나짜리 실패를 10번의 릴리스 동안 덮어 준 장치였다 — mac 이 실제로 초록으로 도는 것을
+    # 한 번 확인하면 이 줄을 지워, 다음 번 mac 회귀가 조용히 지나가지 않게 할 것.
     continue-on-error: ${{ matrix.os == 'macos-latest' }}
     steps:
       - name: Checkout

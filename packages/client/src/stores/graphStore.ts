@@ -1,11 +1,11 @@
 import { create } from 'zustand';
 // §5.5 #17-20 ⑩ v4.94 — 중단점을 켜고 끄면 붙어 있는 세션에도 바로 밀어 넣는다(단방향: graphStore → debugSessions).
 import { useDebugSessions, pushBreakpointsToSession } from './debugSessions.js';
-import type { BubbleData, ActivityEdge, BashEntry, ServerEntry, AgentEvent, FileEdit, AgentPhase, ProjectInfo, QueuedCommand, SubAgent, RunningSubagentTask, FinishedSubagentTask, ServerKind, PipelineType, PipelineState, AgentConfig, SubAgentStreamEvent, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, UiLocale, ProjectMetaSnapshot, AppState, AppStatePatch, CommentBox, CaptureBubble, DebugBreakpoint, AppBubble, PlayBubble, PlayRecipeCandidate, Conti, ActiveContiWork, ToolDurationEntry, CompactCount, RateLimitInfo,
-  ClaudeUsageInfo, ClaudeAuthStatus, DiagnosticEntry, AutoAgentSummary, AutoAgentRun, ModelRegistry, UserDefaults, AgentReport, AgentQuestions, AgentReview, AgentList, AgentFeedback, AgentFeedbackTargetType, AgentFeedbackVerdict, BrainSummary, BrainInjectionEvent, BrainCard, BrainCardType, BrainCardScope, BrainCardStatus, PluginFactMap, SessionLoop, SessionLoopMode, SessionLoopContextMode, SessionGoal, SessionGoalStatus, SessionGoalStepStatus } from '@vibisual/shared';
-import type { StreamDensity, CommandDispatchMode } from '@vibisual/shared';
+import type { BubbleData, ActivityEdge, BashEntry, ServerEntry, AgentEvent, FileEdit, AgentPhase, ProjectInfo, QueuedCommand, SubAgent, RunningSubagentTask, FinishedSubagentTask, ServerKind, PipelineType, PipelineState, AgentConfig, SubAgentStreamEvent, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, UiLocale, ProjectMetaSnapshot, AppState, AppStatePatch, CommentBox, CaptureBubble, DebugBreakpoint, AppBubble, PlayBubble, PlayRecipeCandidate, SpecDoc, Conti, ActiveContiWork, ToolDurationEntry, CompactCount, RateLimitInfo,
+  ClaudeUsageInfo, ClaudeAuthStatus, ClaudeSetupState, ClaudeSetupProgress, DiagnosticEntry, AutoAgentSummary, AutoAgentRun, ModelRegistry, UserDefaults, AgentReport, AgentQuestions, AgentReview, AgentList, AgentFeedback, AgentFeedbackTargetType, AgentFeedbackVerdict, BrainSummary, BrainInjectionEvent, BrainCard, BrainCardType, BrainCardScope, BrainCardStatus, PluginFactMap, SessionLoop, SessionLoopMode, SessionLoopContextMode, SessionGoal, SessionGoalStatus, SessionGoalStepStatus } from '@vibisual/shared';
+import type { StreamDensity, CommandDispatchMode, ProjectAgentCounts } from '@vibisual/shared';
 import { isReadOnlyHookAgent } from '@vibisual/shared';
-import { DEFAULT_UI_LOCALE, STREAM_EVENTS_MAX_PER_SESSION, STREAM_EVENTS_TRIM_SLACK, STREAM_EVENTS_MAX_PER_INACTIVE_SESSION, STREAM_INACTIVE_SESSIONS_MAX, DIAGNOSTIC_LOG_MAX, STREAM_DENSITIES, IDE_EDITOR_MAX_TABS, IDE_EDITOR_WIDTH } from '@vibisual/shared';
+import { DEFAULT_UI_LOCALE, STREAM_EVENTS_MAX_PER_SESSION, STREAM_EVENTS_TRIM_SLACK, STREAM_EVENTS_MAX_PER_INACTIVE_SESSION, STREAM_INACTIVE_SESSIONS_MAX, DIAGNOSTIC_LOG_MAX, STREAM_DENSITIES, IDE_EDITOR_MAX_TABS, IDE_EDITOR_WIDTH, DIFF_COMMENT_MAX } from '@vibisual/shared';
 import { changeUiLocale } from '../i18n/index.js';
 import { calcFileSizeRange } from '../utils/sizeCalc.js';
 import { structuralShare } from './structuralShare.js';
@@ -16,6 +16,7 @@ import {
 import { recordCommandHistory, dropSessionCommandHistory } from '../components/IDE/commandHistory.js';
 import { insertEventInTurnOrder } from '../components/IDE/turnOrder.js';
 import type { FollowSkipReason } from '../components/IDE/editorFollow.js';
+import type { DiffComment } from '../components/IDE/diffCommentPrompt.js';
 
 /**
  * §5.3 #28 v1.48 — IDE TerminalInput 세션 스코프 draft.
@@ -348,13 +349,18 @@ export interface IframeTab {
 //   얼마나 붙어 나가는가" 였다. 저장된 옛 값('events')은 부팅 시 'context' 로 이관한다(아래 selectIDEOverlay).
 // §5.5 #17-9 ③ v4.95 — 'subagents'(실행 중 서브에이전트) 가 마지막 덮개였다. 같은 길로 보내면서
 //   여닫는 상태가 이 프로젝트 슬롯의 activeView 로 들어가 **프로젝트·창마다 독립**이 된다.
-export type IDEViewType = 'terminal' | 'files' | 'context' | 'skills' | 'goal' | 'loop' | 'debug' | 'bookmarks' | 'summary' | 'subagents';
+// §5.5 #17-31 — 'terminal'(세션 목록) 은 **'mcp'(이 프로젝트에서 쓸 수 있는 MCP)** 로 대체됐다.
+//   세션 목록은 탭 바(#17-5)·세션 요약(#17-8)이 이미 두 벌로 보여 주고 있었고, 앱 안에서 볼 길이
+//   전혀 없던 것은 "무엇이 붙어 있고 무엇이 켜져 있는가" 였다. 저장된 옛 값('terminal')은 이관한다.
+export type IDEViewType = 'mcp' | 'files' | 'context' | 'skills' | 'goal' | 'loop' | 'debug' | 'bookmarks' | 'summary' | 'subagents';
 
-/** §5.5 #17-28 v4.96 — localStorage 에 남은 옛 뷰 id 를 지금 쓰는 것으로 옮긴다(모르는 값은 terminal). */
+/** §5.5 #17-28 v4.96 · #17-31 — localStorage 에 남은 옛 뷰 id 를 지금 쓰는 것으로 옮긴다(모르는 값은 mcp). */
 export function migrateIDEViewType(v: unknown): IDEViewType {
   if (v === 'events') return 'context';
-  const known: IDEViewType[] = ['terminal', 'files', 'context', 'skills', 'goal', 'loop', 'debug', 'bookmarks', 'summary', 'subagents'];
-  return known.includes(v as IDEViewType) ? (v as IDEViewType) : 'terminal';
+  // #17-31 — 세션 목록 자리가 MCP 인벤토리로 바뀌었다. 이미 열려 있던 IDE 도 같은 칸을 본다.
+  if (v === 'terminal') return 'mcp';
+  const known: IDEViewType[] = ['mcp', 'files', 'context', 'skills', 'goal', 'loop', 'debug', 'bookmarks', 'summary', 'subagents'];
+  return known.includes(v as IDEViewType) ? (v as IDEViewType) : 'mcp';
 }
 
 /**
@@ -462,7 +468,7 @@ export const DEFAULT_IDE_OVERLAY: IDEOverlayState = {
   agentId: null,
   projectId: null,
   activeSessionId: null,
-  activeView: 'terminal',
+  activeView: 'mcp',
   sidebarCollapsed: true,
   dockedRight: false,
   dockWidth: 480,
@@ -850,6 +856,28 @@ interface GraphState {
   /** 팝업 강제 열기(옵션창 Account 의 [로그인]) / 닫기. null = 사용자 요청 없음(자동 판정에 맡김). */
   loginGateForced: boolean;
   setLoginGate: (state: { forced?: boolean; dismissed?: boolean }) => void;
+  /**
+   * §4 (첫 실행 설치 온보딩) — `claude` CLI 설치 판정. 글로벌, 비영속.
+   * `phase === 'missing' | 'failed'` 이면 설치 게이트가 뜬다(**로그인 게이트보다 앞 단계**).
+   */
+  claudeSetup: ClaudeSetupState | null;
+  /** 서버 스냅샷/REST 응답으로 받은 설치 판정 반영. */
+  applyClaudeSetup: (setup: ClaudeSetupState | undefined) => void;
+  /** 네이티브 인스톨러 진행 상황(WS `claude_setup_progress`). 설치를 누르기 전엔 null. */
+  claudeSetupProgress: ClaudeSetupProgress | null;
+  setClaudeSetupProgress: (p: ClaudeSetupProgress) => void;
+  /**
+   * 사용자가 설치 게이트를 "나중에"로 닫았는가.
+   * **권장형**이라 닫으면 모달만 사라지고 상단 배너가 남는다(배너를 누르면 다시 열린다).
+   */
+  setupGateDismissed: boolean;
+  /** 게이트 강제 열기(상단 배너 클릭) / 닫기. */
+  setupGateForced: boolean;
+  setSetupGate: (state: { forced?: boolean; dismissed?: boolean }) => void;
+  /** [설치하기] — 서버가 공식 네이티브 인스톨러를 실행한다. 진행은 WS 로 온다. */
+  installClaudeSetup: () => Promise<void>;
+  /** 설치 판정 재조회(수동 설치한 뒤 [다시 확인]). */
+  refreshClaudeSetup: () => Promise<void>;
   /** §4 v1.98 — 진단 에러 로그 (글로벌 ring buffer, append 순). DebugPanel 에러 뷰어용. */
   diagnosticLog: DiagnosticEntry[];
   /**
@@ -944,6 +972,14 @@ interface GraphState {
   toggleBreakpoint: (projectName: string, file: string, line: number) => void;
   /** §5.5 #17-27 ⑨ v4.97 — 한 파일에 찍힌 중단점을 모두 지운다(편집창 줄 번호 우클릭). */
   clearBreakpointsInFile: (projectName: string, file: string) => void;
+  /**
+   * §9 스코프드 구독 — 프로젝트별 에이전트 집계 (projectName → 수).
+   * **구독 범위 밖(=지금 안 보는) 프로젝트도 들어 있다** — 탭 배지가 배경 탭에서 0 으로 보이지
+   * 않게 하려고 서버가 항상 전량을 싣는 유일한 에이전트 슬라이스다.
+   */
+  projectAgentCounts: Record<string, ProjectAgentCounts>;
+  /** 스냅샷에서 받은 프로젝트별 집계를 반영(별도 액션 — loadSnapshot 위치 인자 ❌). */
+  applyProjectAgentCounts: (counts: Record<string, ProjectAgentCounts>) => void;
   /** §5.13 v4.45 — 내부 앱 버블(범용). 앱이 늘어도 이 배열 하나. */
   appBubbles: AppBubble[];
   /** 스냅샷에서 받은 앱 버블을 반영. loadSnapshot 의 긴 인자 목록을 더 늘리지 않는다. */
@@ -1016,6 +1052,34 @@ interface GraphState {
   detectPlayRecipe: (id: string, apply: boolean) => Promise<PlayRecipeCandidate[]>;
   /** 4단 계단 ④ — 에이전트에게 실행법 조사를 맡긴다(기존 명령 큐). */
   askAgentForPlayRecipe: (id: string, agentId: string) => Promise<boolean>;
+
+  // ─── §5.15 — 스펙 보드 (요구사항 → 수용 기준 → 작업 카드 → 실행) ───
+  /** 스펙 목록 (서버 스냅샷). 현재 프로젝트 필터로 렌더. */
+  specDocs: SpecDoc[];
+  /** 스냅샷 반영. 드래그 중인 스펙의 좌표는 로컬 값으로 보호한다(플레이 버블과 같은 규칙). */
+  applySpecDocs: (list: SpecDoc[]) => void;
+  patchSpecDocLocal: (id: string, updates: Partial<SpecDoc>) => void;
+  draggingSpecDocIds: string[];
+  setSpecDocDragLock: (id: string, on: boolean) => void;
+  /** 선택된 스펙 ID — Delete 키 대상. 다른 선택과 배타. */
+  selectedSpecDocId: string | null;
+  selectSpecDoc: (id: string | null) => void;
+  /** 스펙 보드 패널(전체 화면)에서 열려 있는 스펙 ID. null 이면 닫힘. */
+  specBoardOpenId: string | null;
+  openSpecBoard: (id: string) => void;
+  closeSpecBoard: () => void;
+  createSpecDoc: (input: { projectName: string; x: number; y: number; title?: string }) => Promise<SpecDoc | null>;
+  updateSpecDoc: (
+    id: string,
+    updates: Partial<Omit<SpecDoc, 'id' | 'projectName' | 'createdAt' | 'updatedAt' | 'bodyRevision'>>,
+  ) => Promise<void>;
+  addSpecItem: (id: string, text: string) => Promise<void>;
+  /** 핀이면 서버가 409 로 거절한다 — 낙관 제거 없이 결과를 돌려준다. */
+  deleteSpecDoc: (id: string) => Promise<boolean>;
+  /** 수용 기준 → 작업 카드. `itemIds` 를 주면 그 항목만, 없으면 카드 없는 전부. */
+  generateSpecTasks: (id: string, itemIds?: string[], regenerate?: boolean) => Promise<boolean>;
+  /** 항목에서 카드 연결만 끊는다(에이전트 버블은 남는다). */
+  detachSpecTask: (id: string, itemId: string) => Promise<void>;
 
   agentPhase: AgentPhase;
   activeAgentCount: number;
@@ -1334,6 +1398,17 @@ interface GraphState {
    */
   ideEditorFollow: Record<string, true>;
   setIdeEditorFollow: (sessionKey: string, on: boolean) => void;
+  /**
+   * §5.5 #17-30 — 그 세션에서 **아직 보내지 않은** diff 리뷰 코멘트(세션키 → 목록).
+   *
+   * 보내면 사라지는 작업 메모라 서버·체크포인트·localStorage 어디에도 남기지 않는다(휘발).
+   * 세션당 `DIFF_COMMENT_MAX` 개까지만 담는다 — 캡을 값 길이에만 걸고 **개수**에 안 걸어
+   * 터졌던 전례(§3.2.3)를 반복하지 않기 위함.
+   */
+  diffComments: Record<string, DiffComment[]>;
+  addDiffComment: (sessionKey: string, comment: DiffComment) => void;
+  removeDiffComment: (sessionKey: string, commentId: string) => void;
+  clearDiffComments: (sessionKey: string) => void;
   /**
    * §5.5 #17-27 ⑪ — 방금 도착한 편집을 편집창에 알리는 **일회성 신호**(영속 ❌ · 체크포인트 ❌).
    * 여는 쪽(`useEditorFollow`)과 그리는 쪽(`IDEEditorPane`)이 서로 멀어, 탭 목록과 같은 축으로 건넨다.
@@ -1823,6 +1898,12 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     commitBreakpoints(set, get, projectName, next);
   },
 
+  projectAgentCounts: {},
+  applyProjectAgentCounts: (counts) => set((s) => ({
+    // 내용이 그대로면 이전 참조를 유지한다(v3.72 구조적 공유 재사용) — 탭바가 스냅샷 주기마다
+    // 헛되이 다시 그리지 않게 한다.
+    projectAgentCounts: structuralShare(s.projectAgentCounts, counts),
+  })),
   applyAppBubbles: (list) => set((s) => {
     // 드래그 중인 버블의 geometry 는 서버 값으로 덮지 않는다(CommentBox·CaptureBubble 과 동일 규칙).
     // 손이 움직이는 도중 WS 스냅샷이 도착하면 옛 좌표로 회귀해 버블이 마우스 뒤로 튄다.
@@ -2081,6 +2162,160 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     } catch {
       return false;
     }
+  },
+
+  // ─── §5.15 스펙 보드 (플레이 버블 패턴 — 낙관 반영 + 드래그 락이 한 쌍) ───
+  specDocs: [],
+  applySpecDocs: (list) => set((s) => {
+    const keepSelected = s.selectedSpecDocId !== null && list.some((d) => d.id === s.selectedSpecDocId)
+      ? s.selectedSpecDocId
+      : null;
+    // 패널이 열려 있던 스펙이 사라졌으면 패널도 닫는다(빈 오버레이가 남지 않게).
+    const keepOpen = s.specBoardOpenId !== null && list.some((d) => d.id === s.specBoardOpenId)
+      ? s.specBoardOpenId
+      : null;
+    if (s.draggingSpecDocIds.length === 0) {
+      return { specDocs: list, selectedSpecDocId: keepSelected, specBoardOpenId: keepOpen };
+    }
+    const locked = new Map<string, SpecDoc>();
+    for (const id of s.draggingSpecDocIds) {
+      const local = s.specDocs.find((d) => d.id === id);
+      if (local) locked.set(id, local);
+    }
+    if (locked.size === 0) {
+      return { specDocs: list, selectedSpecDocId: keepSelected, specBoardOpenId: keepOpen };
+    }
+    return {
+      specDocs: list.map((d) => {
+        const local = locked.get(d.id);
+        if (!local) return d;
+        return { ...d, x: local.x, y: local.y, width: local.width, height: local.height };
+      }),
+      selectedSpecDocId: keepSelected,
+      specBoardOpenId: keepOpen,
+    };
+  }),
+  patchSpecDocLocal: (id, updates) => set((s) => ({
+    specDocs: s.specDocs.map((d) => (d.id === id ? { ...d, ...updates } : d)),
+  })),
+  draggingSpecDocIds: [],
+  setSpecDocDragLock: (id, on) => set((s) => {
+    const has = s.draggingSpecDocIds.includes(id);
+    if (on && !has) return { draggingSpecDocIds: [...s.draggingSpecDocIds, id] };
+    if (!on && has) return { draggingSpecDocIds: s.draggingSpecDocIds.filter((x) => x !== id) };
+    return s;
+  }),
+  selectedSpecDocId: null,
+  // 다른 선택과 배타 — 캔버스의 선택은 언제나 하나여야 Delete 키가 무엇을 지울지 헷갈리지 않는다.
+  selectSpecDoc: (id) => set({
+    selectedSpecDocId: id,
+    selectedNodeId: null,
+    selectIntentId: null,
+    selectedTaskEdgeId: null,
+    selectedCommentBoxId: null,
+    selectedCaptureBubbleId: null,
+    selectedAppBubbleId: null,
+    selectedPlayBubbleId: null,
+  }),
+  specBoardOpenId: null,
+  openSpecBoard: (id) => set({ specBoardOpenId: id }),
+  closeSpecBoard: () => set({ specBoardOpenId: null }),
+  createSpecDoc: async (input) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/spec-docs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+      if (!res.ok) return null;
+      const data = await res.json() as { ok: boolean; data?: SpecDoc };
+      const doc = data.data ?? null;
+      if (doc) {
+        set((s) => (s.specDocs.some((d) => d.id === doc.id) ? s : { specDocs: [...s.specDocs, doc] }));
+      }
+      return doc;
+    } catch {
+      return null;
+    }
+  },
+  updateSpecDoc: async (id, updates) => {
+    set((s) => ({ specDocs: s.specDocs.map((d) => (d.id === id ? { ...d, ...updates } : d)) }));
+    try {
+      const res = await fetch(`${API_BASE}/api/spec-docs/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      });
+      if (!res.ok) return;
+      // 개정 번호·항목 id 는 서버가 발급한다 — 응답으로 덮어 로컬 낙관값을 진실로 되돌린다.
+      const data = await res.json() as { ok: boolean; data?: SpecDoc };
+      const doc = data.data;
+      if (doc) set((s) => ({ specDocs: s.specDocs.map((d) => (d.id === id ? doc : d)) }));
+    } catch { /* 다음 스냅샷이 진실 */ }
+  },
+  addSpecItem: async (id, text) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/spec-docs/${id}/items`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      if (!res.ok) return;
+      const data = await res.json() as { ok: boolean; data?: SpecDoc };
+      const doc = data.data;
+      if (doc) set((s) => ({ specDocs: s.specDocs.map((d) => (d.id === id ? doc : d)) }));
+    } catch { /* 다음 스냅샷이 진실 */ }
+  },
+  deleteSpecDoc: async (id) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/spec-docs/${id}`, { method: 'DELETE' });
+      if (!res.ok) return false; // 409 = 핀으로 보호됨, 404 = 이미 없음
+    } catch {
+      return false;
+    }
+    set((s) => ({
+      specDocs: s.specDocs.filter((d) => d.id !== id),
+      selectedSpecDocId: s.selectedSpecDocId === id ? null : s.selectedSpecDocId,
+      specBoardOpenId: s.specBoardOpenId === id ? null : s.specBoardOpenId,
+    }));
+    return true;
+  },
+  generateSpecTasks: async (id, itemIds, regenerate) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/spec-docs/${id}/generate-tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...(itemIds ? { itemIds } : {}),
+          ...(regenerate === true ? { regenerate: true } : {}),
+        }),
+      });
+      if (!res.ok) return false;
+      const data = await res.json() as { ok: boolean; data?: SpecDoc };
+      const doc = data.data;
+      if (doc) set((s) => ({ specDocs: s.specDocs.map((d) => (d.id === id ? doc : d)) }));
+      return true;
+    } catch {
+      return false;
+    }
+  },
+  detachSpecTask: async (id, itemId) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/spec-docs/${id}/items/${itemId}/task`, { method: 'DELETE' });
+      if (!res.ok) return;
+    } catch { return; }
+    set((s) => ({
+      specDocs: s.specDocs.map((d) => (d.id === id
+        ? {
+          ...d,
+          items: d.items.map((it) => {
+            if (it.id !== itemId) return it;
+            const { taskAgentId: _a, taskSessionId: _s, generatedRevision: _r, ...rest } = it;
+            return rest;
+          }),
+        }
+        : d)),
+    }));
   },
   activeProject: null,
   currentProject: null,
@@ -2664,14 +2899,14 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     });
   },
   setRunningServers: (servers: Record<string, ServerEntry[]>) => set({ runningServers: servers }),
-  selectNode: (id) => set({ selectedNodeId: id, selectIntentId: id, selectedTaskEdgeId: null, selectedCommentBoxId: null, selectedCaptureBubbleId: null, selectedAppBubbleId: null, selectedPlayBubbleId: null, selectedBrainCardId: null, selectedBrainCard: null }),
+  selectNode: (id) => set({ selectedNodeId: id, selectIntentId: id, selectedTaskEdgeId: null, selectedCommentBoxId: null, selectedCaptureBubbleId: null, selectedAppBubbleId: null, selectedPlayBubbleId: null, selectedSpecDocId: null, selectedBrainCardId: null, selectedBrainCard: null }),
   setSelectIntent: (id) => set({ selectIntentId: id }),
-  selectTaskEdge: (id) => set({ selectedTaskEdgeId: id, selectedNodeId: null, selectIntentId: null, selectedCommentBoxId: null, selectedCaptureBubbleId: null, selectedAppBubbleId: null, selectedPlayBubbleId: null }),
-  selectCommentBox: (id) => set({ selectedCommentBoxId: id, selectedNodeId: null, selectIntentId: null, selectedTaskEdgeId: null, selectedCaptureBubbleId: null, selectedAppBubbleId: null, selectedPlayBubbleId: null }),
-  selectCaptureBubble: (id) => set({ selectedCaptureBubbleId: id, selectedNodeId: null, selectIntentId: null, selectedTaskEdgeId: null, selectedCommentBoxId: null, selectedAppBubbleId: null, selectedPlayBubbleId: null }),
+  selectTaskEdge: (id) => set({ selectedTaskEdgeId: id, selectedNodeId: null, selectIntentId: null, selectedCommentBoxId: null, selectedCaptureBubbleId: null, selectedAppBubbleId: null, selectedPlayBubbleId: null, selectedSpecDocId: null }),
+  selectCommentBox: (id) => set({ selectedCommentBoxId: id, selectedNodeId: null, selectIntentId: null, selectedTaskEdgeId: null, selectedCaptureBubbleId: null, selectedAppBubbleId: null, selectedPlayBubbleId: null, selectedSpecDocId: null }),
+  selectCaptureBubble: (id) => set({ selectedCaptureBubbleId: id, selectedNodeId: null, selectIntentId: null, selectedTaskEdgeId: null, selectedCommentBoxId: null, selectedAppBubbleId: null, selectedPlayBubbleId: null, selectedSpecDocId: null }),
   // §5.13 (M) v4.61 — 앱 버블 선택. 다른 선택(노드·엣지·코멘트·캡처)과 배타 — 캔버스에서
   //   선택은 언제나 하나이고, 그래야 Delete 키가 무엇을 지울지 헷갈리지 않는다.
-  selectAppBubble: (id) => set({ selectedAppBubbleId: id, selectedNodeId: null, selectIntentId: null, selectedTaskEdgeId: null, selectedCommentBoxId: null, selectedCaptureBubbleId: null, selectedPlayBubbleId: null }),
+  selectAppBubble: (id) => set({ selectedAppBubbleId: id, selectedNodeId: null, selectIntentId: null, selectedTaskEdgeId: null, selectedCommentBoxId: null, selectedCaptureBubbleId: null, selectedPlayBubbleId: null, selectedSpecDocId: null }),
   setAgentPhase: (phase) => set({ agentPhase: phase }),
 
   // 상태는 서버 스냅샷이 관리 — 클라이언트에서 덮어쓰지 않음
@@ -3277,7 +3512,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
           agentId,
           projectId: ownerProject,
           activeSessionId: initialSession,
-          activeView: 'terminal',
+          activeView: 'mcp',
           sidebarCollapsed: true,
           dockedRight: keepDock,
           dockWidth: keepDock ? (prev?.dockWidth ?? 480) : 480,
@@ -3422,6 +3657,31 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       ideEditorFollowSignal: s.ideEditorFollowSignal?.sessionKey === sessionKey ? null : s.ideEditorFollowSignal,
       ideEditorFollowLast: s.ideEditorFollowLast?.sessionKey === sessionKey ? null : s.ideEditorFollowLast,
     };
+  }),
+  // ─── §5.5 #17-30 diff 리뷰 코멘트 — 세션마다 따로, 보내면 비운다(휘발) ───
+  diffComments: {},
+  addDiffComment: (sessionKey, comment) => set((s) => {
+    const cur = s.diffComments[sessionKey] ?? [];
+    // 상한을 넘으면 **더 담지 않는다**(오래된 것을 조용히 버리면 사용자가 적은 문장이 사라진다 —
+    //   화면이 "N건까지" 라고 말하고 사용자가 보내거나 지워서 자리를 만든다).
+    if (cur.length >= DIFF_COMMENT_MAX) return s;
+    return { diffComments: { ...s.diffComments, [sessionKey]: [...cur, comment] } };
+  }),
+  removeDiffComment: (sessionKey, commentId) => set((s) => {
+    const cur = s.diffComments[sessionKey];
+    if (!cur) return s;
+    const next = cur.filter((c) => c.id !== commentId);
+    if (next.length === cur.length) return s;
+    const map = { ...s.diffComments };
+    if (next.length === 0) delete map[sessionKey];
+    else map[sessionKey] = next;
+    return { diffComments: map };
+  }),
+  clearDiffComments: (sessionKey) => set((s) => {
+    if (!s.diffComments[sessionKey]) return s;
+    const map = { ...s.diffComments };
+    delete map[sessionKey];
+    return { diffComments: map };
   }),
   ideEditorFollowSignal: null,
   setIdeEditorFollowSignal: (signal) => set((s) => (
@@ -3626,6 +3886,46 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     loginGateForced: state.forced ?? s.loginGateForced,
     loginGateDismissed: state.dismissed ?? s.loginGateDismissed,
   })),
+
+  // §4 (첫 실행 설치 온보딩) — CLI 설치 판정. 서버가 판정 전이면 null 이라 게이트는 뜨지 않는다.
+  claudeSetup: null,
+  applyClaudeSetup: (setup) => set((s) => {
+    if (!setup) return s.claudeSetup === null ? {} : { claudeSetup: null };
+    const prev = s.claudeSetup;
+    // 없다 → 있다(설치 성공/수동 설치 감지)로 바뀌면 "나중에" 기억을 푼다. 나중에 실행본이
+    // 사라져 다시 missing 이 되면 그때는 사용자에게 다시 물어야 하기 때문이다.
+    const becameReady = prev?.phase !== 'ready' && setup.phase === 'ready';
+    return {
+      claudeSetup: setup,
+      ...(becameReady ? { setupGateDismissed: false, setupGateForced: false } : {}),
+    };
+  }),
+  claudeSetupProgress: null,
+  setClaudeSetupProgress: (p) => set({ claudeSetupProgress: p }),
+  setupGateDismissed: false,
+  setupGateForced: false,
+  setSetupGate: (state) => set((s) => ({
+    setupGateForced: state.forced ?? s.setupGateForced,
+    setupGateDismissed: state.dismissed ?? s.setupGateDismissed,
+  })),
+  installClaudeSetup: async () => {
+    try {
+      const r = await fetch(`${API_BASE}/api/claude-setup/install`, { method: 'POST' });
+      const data = await r.json() as { ok: boolean; progress?: ClaudeSetupProgress };
+      if (data.progress) set({ claudeSetupProgress: data.progress });
+    } catch {
+      // WS 가 진행을 push 하므로 REST 실패는 무시한다(설치 자체는 서버에서 이미 시작됐을 수 있다).
+    }
+  },
+  refreshClaudeSetup: async () => {
+    try {
+      const r = await fetch(`${API_BASE}/api/claude-setup/refresh`, { method: 'POST' });
+      const data = await r.json() as ClaudeSetupState;
+      if (data && typeof data.phase === 'string') get().applyClaudeSetup(data);
+    } catch {
+      // 서버 끊김 — 다음 스냅샷에서 따라온다.
+    }
+  },
   applySkillUsageCounts: (counts) => set({ skillUsageCounts: counts ?? {} }),
   applyAutoAgentSummaries: (summaries) => set({ autoAgentSummaries: summaries ?? {} }),
   applyAutoAgentRuns: (runs) => set({ autoAgentRuns: runs ?? {} }),

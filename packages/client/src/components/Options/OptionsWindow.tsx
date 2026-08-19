@@ -793,12 +793,113 @@ function semverLt(a: string | null, b: string | null): boolean {
   return false;
 }
 
+/**
+ * §4 (Claude Code CLI 자동 업데이트) — CLI 를 앱 켤 때마다 최신으로 유지할지 정하는 토글.
+ *
+ * SSOT 는 `UserDefaults.claudeAutoUpdate.enabled`(**미설정 = 켬**). 켜져 있으면 서버가 부팅 시
+ * 1회 `isOutdated` 를 보고 `installLatestClaude()` 를 조용히 돌린다. 꺼 두면 그 자동 경로만
+ * 멈추고 여기 [지금 업데이트] 로 직접 올린다.
+ *
+ * ⚠ **Vibisual 앱 업데이트(§4 v2.44 electron-updater)와는 다른 축**이다 — 앱 쪽은 종전대로
+ *   항상 자동이고 헤더의 파란 업데이트 버튼이 담당한다. 이 토글은 CLI 에만 걸린다.
+ */
+function ClaudeAutoUpdateSection({ source, outdated, onRefresh }: {
+  source: ClaudeInstall['source'] | undefined;
+  outdated: boolean;
+  onRefresh: () => void;
+}): React.JSX.Element {
+  const { t } = useTranslation();
+  const userDefaults = useGraphStore((s) => s.userDefaults);
+  const progress = useGraphStore((s) => s.claudeInstallProgress);
+  const install = useGraphStore((s) => s.installClaudeVersion);
+  const [saving, setSaving] = useState(false);
+
+  const enabled = userDefaults?.claudeAutoUpdate?.enabled !== false;
+  // 확장 번들은 마켓플레이스 밖에서 갱신할 수 없다 — 자동도 수동도 불가라 그 사실을 밝힌다.
+  const canUpdate = source !== 'vscode-extension' && source !== 'unknown';
+  const running = progress != null && (progress.status === 'starting' || progress.status === 'running');
+
+  const toggle = useCallback(async () => {
+    setSaving(true);
+    try {
+      await fetch(`${API_BASE}/api/user-defaults`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ claudeAutoUpdate: { enabled: !enabled } } satisfies Partial<UserDefaults>),
+      });
+    } catch { /* WS user_defaults_updated 로 따라온다 */ }
+    finally { setSaving(false); }
+  }, [enabled]);
+
+  return (
+    <div className="flex flex-col gap-2">
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+        {t('panel.options.version.claudeAutoUpdate.title', { defaultValue: 'Claude Code updates' })}
+      </span>
+      <div className="flex flex-col gap-2 rounded border border-gray-700/60 bg-gray-900/40 px-3 py-2.5">
+        <label className="flex cursor-pointer items-start gap-2.5">
+          <input
+            type="checkbox"
+            checked={enabled}
+            disabled={saving}
+            onChange={() => { void toggle(); }}
+            className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-blue-500"
+          />
+          <span className="flex flex-col gap-0.5">
+            <span className="text-xs text-gray-200">
+              {t('panel.options.version.claudeAutoUpdate.label', { defaultValue: 'Keep Claude Code up to date automatically' })}
+            </span>
+            <span className="text-[11px] text-gray-500">
+              {enabled
+                ? t('panel.options.version.claudeAutoUpdate.onHint', { defaultValue: 'Vibisual updates the CLI to the latest version each time you launch the app.' })
+                : t('panel.options.version.claudeAutoUpdate.offHint', { defaultValue: 'Automatic updates are off. Use "Update now" to update the CLI yourself.' })}
+            </span>
+          </span>
+        </label>
+
+        {source === 'vscode-extension' && (
+          <div className="rounded border border-amber-500/30 bg-amber-500/5 px-2.5 py-1.5 text-[11px] text-amber-200">
+            {t('panel.options.version.claudeAutoUpdate.vscodeNotice', {
+              defaultValue: 'The active binary comes from the VS Code extension, which only the Marketplace can update. Pick a different installation above to let Vibisual manage updates.',
+            })}
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center gap-2 border-t border-gray-800 pt-2 text-[11px]">
+          <button
+            type="button"
+            onClick={() => { void install().then(onRefresh); }}
+            disabled={!canUpdate || running}
+            className="rounded border border-gray-700 bg-gray-800 px-2 py-1 text-gray-300 hover:bg-gray-700 disabled:opacity-40"
+          >
+            {running
+              ? t('panel.options.version.claudeAutoUpdate.updating', { defaultValue: 'Updating…' })
+              : t('panel.options.version.claudeAutoUpdate.updateNow', { defaultValue: 'Update now' })}
+          </button>
+          <span className="text-gray-500">
+            {progress?.status === 'error'
+              ? (progress.error ?? t('panel.options.version.claudeAutoUpdate.updateFailed', { defaultValue: 'Update failed' }))
+              : progress?.status === 'done'
+                ? t('panel.options.version.claudeAutoUpdate.updated', { defaultValue: 'Updated to {{version}}', version: progress.newVersion ?? '?' })
+                : outdated
+                  ? t('panel.options.version.updateAvailable', { defaultValue: 'Update available' })
+                  : t('panel.options.version.upToDate', { defaultValue: 'Up to date' })}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SourceBadge({ source }: { source: ClaudeInstall['source'] }): React.JSX.Element {
-  const cls = source === 'vscode-extension'
-    ? 'bg-blue-500/20 text-blue-300'
-    : source === 'unknown'
-      ? 'bg-red-500/20 text-red-300'
-      : 'bg-gray-700 text-gray-300';
+  // §4 (첫 실행 설치 온보딩) — 'native' 는 우리가 깔고 우리가 갱신하는 출처라 자동 선택 1순위다.
+  const cls = source === 'native'
+    ? 'bg-emerald-500/20 text-emerald-300'
+    : source === 'vscode-extension'
+      ? 'bg-blue-500/20 text-blue-300'
+      : source === 'unknown'
+        ? 'bg-red-500/20 text-red-300'
+        : 'bg-gray-700 text-gray-300';
   return (
     <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${cls}`}>
       {source}
@@ -936,12 +1037,16 @@ function VersionTab({ info, loading, error, savingBin, binChanged, onSelect, onR
               })}
             </div>
             {binChanged && (
-              <div className="flex items-center gap-1.5 rounded border border-amber-500/30 bg-amber-500/5 px-2.5 py-1.5 text-[11px] text-amber-200">
-                <svg className="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                {t('panel.options.version.restartHint', { defaultValue: 'Selection saved. Restart Vibisual to apply it to newly spawned agents.' })}
+              <div className="flex items-center gap-1.5 rounded border border-emerald-500/30 bg-emerald-500/5 px-2.5 py-1.5 text-[11px] text-emerald-200">
+                <svg className="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+                {/* §4 (첫 실행 설치 온보딩) — 실행본 해석이 지연 캐시가 되면서 v2.43 의 "restart to apply" 제약이 풀렸다. */}
+                {t('panel.options.version.selectionApplied', { defaultValue: 'Selection saved and applied — newly spawned agents use it right away.' })}
               </div>
             )}
           </div>
+
+          {/* Section 2-1 — Claude Code CLI 자동 업데이트 (§4). 앱 업데이트(헤더 버튼)와는 별개 축. */}
+          <ClaudeAutoUpdateSection source={active?.source} outdated={outdated} onRefresh={onRefresh} />
 
           {/* Section 3 — About */}
           <div className="flex flex-col gap-2">

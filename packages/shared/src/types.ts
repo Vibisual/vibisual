@@ -260,7 +260,7 @@ export type NodeStatus =
   | 'awaiting_permission';
 
 /** 버블 타입 — 시각 카테고리 */
-export type BubbleType = 'agent' | 'internal_folder' | 'external_folder' | 'file' | 'bash' | 'root' | 'back' | 'ghost' | 'iframe' | 'pipeline' | 'worktree' | 'conti' | 'auto' | 'brain' | 'trash' | 'video';
+export type BubbleType = 'agent' | 'internal_folder' | 'external_folder' | 'file' | 'bash' | 'root' | 'back' | 'ghost' | 'iframe' | 'pipeline' | 'worktree' | 'conti' | 'auto' | 'brain' | 'trash' | 'video' | 'spec';
 
 // ─── 화면/프로그램 캡처 (§5.9 capture 버블) ───
 //
@@ -549,6 +549,63 @@ export interface PlayBubble {
   preservePinned?: boolean;
 }
 
+// ─── §5.15 — 스펙 보드 (요구사항 → 수용 기준 → 작업 카드 → 실행) ───
+
+/**
+ * 수용 기준 한 줄. **이 한 줄이 작업 카드 한 장의 씨앗**이다.
+ *
+ * 카드를 만들면 `taskAgentId`/`taskSessionId` 가 채워지고, 그때의 스펙 개정 번호가
+ * `generatedRevision` 에 박힌다 — 이후 스펙이 바뀌면 두 숫자의 차이가 곧 "낡았다"는 뜻이다.
+ */
+export interface SpecItem {
+  /** 고유 id (예: "sitem-lp3x9-a1b2"). */
+  id: string;
+  /** 수용 기준 본문 한 줄. */
+  text: string;
+  /** 사람이 손으로 체크하는 완료 표시. 카드 생성 여부와 무관하다. */
+  done?: boolean;
+  /** 이 항목에서 만들어진 작업 카드(커스텀 에이전트) 버블 id. 없으면 아직 카드 없음. */
+  taskAgentId?: string;
+  /** 그 카드의 세션 키(`custom-…`). 서버가 카드 생존을 확인할 때 쓴다. */
+  taskSessionId?: string;
+  /** 카드를 만든 시점의 `SpecDoc.bodyRevision`. 지금 값보다 낮으면 "스펙 변경됨". */
+  generatedRevision?: number;
+}
+
+/**
+ * §5.15 — 스펙 한 장.
+ *
+ * 캡처 버블·앱 버블·플레이 버블과 같은 "사용자가 캔버스에 직접 만드는 독립 요소"다
+ * (그래프 노드도 위성도 아니다). 캔버스에는 표지 한 장으로 그려지고, 더블클릭하면
+ * 전체 화면 보드가 열려 본문과 수용 기준을 고친다.
+ */
+export interface SpecDoc {
+  /** 고유 id (예: "spec-lp3x9-a1b2"). */
+  id: string;
+  /** 소속 프로젝트 이름(basename) — 렌더 시 활성 프로젝트로 필터. */
+  projectName: string;
+  /** 표지 캔버스 절대 x/y. */
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** 스펙 제목. */
+  title: string;
+  /** 스펙 본문(마크다운). */
+  body: string;
+  /** 수용 기준 목록. 순서가 곧 작업 사슬의 순서다. */
+  items: SpecItem[];
+  /**
+   * 스펙 내용 개정 번호. `body` 또는 `items[].text` 가 **실제로 달라질 때만** 서버가 +1 한다.
+   * 좌표·크기·제목·`done` 토글은 스펙 내용이 아니므로 올리지 않는다.
+   */
+  bodyRevision: number;
+  createdAt: number;
+  updatedAt: number;
+  /** §2.4 v1.28 — 사용자 preserve-pin. 삭제 경로 차단. */
+  preservePinned?: boolean;
+}
+
 // ─── Git Status (§7.6 GitStatusCard) ───
 
 /** git 커밋 한 개의 요약 (최근 커밋 리스트용) */
@@ -820,7 +877,7 @@ export interface GhostInfo {
 export interface BubbleStyleConfig {
   color: string;
   glow: string;
-  icon: 'agent' | 'folder' | 'file' | 'terminal' | 'root' | 'back' | 'ghost' | 'iframe' | 'pipeline' | 'conti' | 'auto' | 'brain' | 'trash' | 'video';
+  icon: 'agent' | 'folder' | 'file' | 'terminal' | 'root' | 'back' | 'ghost' | 'iframe' | 'pipeline' | 'conti' | 'auto' | 'brain' | 'trash' | 'video' | 'spec';
   ringIdle: string;
   ringActive: string;
 }
@@ -1779,6 +1836,8 @@ export type WSMessageType =
   | 'project-hydrated'
   | 'unload-project'
   | 'project-unloaded'
+  // §9 스코프드 스냅샷 구독 — 창이 "내가 지금 필요한 프로젝트"를 선언(클라→서버, 응답 없음)
+  | 'set-project-scope'
   // §5.3 #12-1 v1.43 — 권한 승인 UX
   | 'permission_request'
   | 'permission_resolved'
@@ -1799,6 +1858,7 @@ export type WSMessageType =
   | 'conti_updated'
   // §5.7 #23-1 v1.59 — Claude Code 버전 업데이트 설치 진행 상황 푸시
   | 'claude_install_progress'
+  | 'claude_setup_progress'
   // §5.3 #12-2 v2.26 — AskUserQuestion IDE 인라인 카드
   | 'ask_user_question'
   | 'ask_user_question_resolved'
@@ -1945,6 +2005,89 @@ export interface AskUserQuestionToolInput {
 }
 
 /**
+ * §4 (첫 실행 설치 온보딩) — `claude` 실행본의 출처. `resolveClaudeBin()` 이 경로 패턴으로 판정.
+ *
+ * - `'native'` = 공식 네이티브 인스톨러가 깐 위치(`~/.local/bin`, `~/.local/share/claude/versions` 등).
+ *   **우리 앱이 직접 설치·관리하는 출처라 우선순위 최상위**(사용자 override 다음).
+ * - `'vscode-extension'` = `~/.vscode/extensions/anthropic.claude-code-*` 하위. 마켓플레이스 밖에서
+ *   갱신할 수 없어 자동 업데이트 ❌ — 안내만 한다. 우선순위는 native 뒤로 내려간다.
+ * - `'path'` = PATH / npm global 등 그 밖의 실제 설치본. `npm install -g` 자동 갱신 가능.
+ * - `'unknown'` = 검출 자체 실패(어디에도 없음) — 설치 온보딩 게이트가 뜨는 상태.
+ */
+export type ClaudeBinSource = 'native' | 'vscode-extension' | 'path' | 'unknown';
+
+/**
+ * §4 (첫 실행 설치 온보딩) — `claude` CLI 설치 여부 판정 결과. 글로벌 1건.
+ *
+ * 앱만 내려받은 사람은 CLI 가 없을 수 있는데, §4 v4.82 로그인 팝업은 `error`(판정 불가)면 뜨지
+ * 않도록 설계돼 있어 **아무 안내도 못 받는 구멍**이 있었다. 이 상태가 그 구멍을 메운다 —
+ * `phase === 'missing'` 이면 클라가 권장형 설치 게이트를 띄운다(차단 ❌, 닫으면 상단 배너로 잔류).
+ *
+ * 영속화 ❌ — 설치 여부는 디스크를 보면 알 수 있는 파생 사실이고, 프로젝트가 아니라 기기에
+ * 매인 값이라 `ProjectCheckpoint` 에 넣지 않는다(런타임 캐시 + 스냅샷 전달).
+ */
+export type ClaudeSetupPhase =
+  /** 아직 판정 전(부팅 직후) — 게이트를 띄우지 않는다. */
+  | 'unknown'
+  /** 쓸 수 있는 실행본이 없다 → 설치 권장 게이트. */
+  | 'missing'
+  /** 네이티브 인스톨러 실행 중. */
+  | 'installing'
+  /** 설치·검증 완료(또는 처음부터 깔려 있었음). */
+  | 'ready'
+  /** 설치를 시도했으나 실패 — 수동 명령 안내로 떨어진다. */
+  | 'failed';
+
+/** §4 (첫 실행 설치 온보딩) — `GraphSnapshot.claudeSetup` + `GET /api/claude-setup` 응답. */
+export interface ClaudeSetupState {
+  phase: ClaudeSetupPhase;
+  /** 판정된 실행본 절대 경로. `phase==='missing'` 이면 없음. */
+  binPath?: string;
+  /** 검증된 버전("2.1.211" 등). 검출 실패 시 없음. */
+  version?: string;
+  /** 실행본 출처 — 배지 표시용. */
+  source?: ClaudeBinSource;
+  /**
+   * 이 플랫폼에서 자동 설치를 시도할 수 있는가. 지원 플랫폼(win32/darwin/linux)이면 true.
+   * false 면 게이트는 [설치하기] 대신 수동 명령만 보여준다.
+   */
+  canAutoInstall: boolean;
+  /**
+   * 자동 설치가 실행할(또는 사용자가 직접 칠) 공식 네이티브 인스톨러 명령 — **플랫폼별 동적**.
+   * 화면의 "직접 설치" 안내와 서버가 실제로 spawn 하는 명령이 **같은 문자열**이어야 안내와 동작이
+   * 어긋나지 않으므로 서버가 조립해 내려보낸다.
+   */
+  installCommand: string;
+  /** 공식 설치 문서 URL — 자동 설치가 막혔을 때의 탈출구. */
+  docsUrl: string;
+  /** 마지막 판정 시각(Date.now()). */
+  checkedAt: number;
+  /** `phase==='failed'` 일 때 사람 읽기용 원인. */
+  error?: string;
+}
+
+/**
+ * §4 (첫 실행 설치 온보딩) — 네이티브 인스톨러 실행 진행 상황.
+ * WS `claude_setup_progress` payload + REST 동기 응답 dual-use
+ * (§5.7 #23-1 `ClaudeInstallProgress` 와 같은 모양 — 같은 in-flight 세션 패턴을 쓴다).
+ */
+export interface ClaudeSetupProgress {
+  /** 설치 시도 식별자 — 중복 호출 시 같은 in-flight 작업 ID 반환 */
+  setupId: string;
+  status: 'starting' | 'running' | 'done' | 'error';
+  /** 누적 stdout/stderr 전체 (ANSI 미스트립) */
+  output?: string;
+  /** done/error 시 spawn exit code */
+  exitCode?: number;
+  /** done 시 새로 검증된 실행본 경로 */
+  binPath?: string;
+  /** done 시 새로 검증된 버전 */
+  version?: string;
+  /** error 시 사람 읽기용 메시지 */
+  error?: string;
+}
+
+/**
  * §5.7 #23-1 v1.59 — Claude Code CLI 의 현재/최신 버전 비교 결과.
  * 서버 `claudeVersionService` 가 발급, `GET /api/claude-version` 응답 + 클라 모달 표시.
  */
@@ -1953,13 +2096,8 @@ export interface ClaudeVersionInfo {
   current: string | null;
   /** npm registry @anthropic-ai/claude-code latest 태그. registryError 시 null. */
   latest: string | null;
-  /**
-   * 바이너리 출처. `findClaudeBin()` 가 결정한 경로 패턴으로 판정:
-   * - 'vscode-extension' = `~/.vscode/extensions/anthropic.claude-code-*` 하위 → 자동 설치 ❌, 안내만
-   * - 'path' = PATH 의 `claude` (npm global 등) → `npm install -g @anthropic-ai/claude-code` 자동 설치 가능
-   * - 'unknown' = 검출 자체 실패 (PATH 에도 없음 등)
-   */
-  source: 'vscode-extension' | 'path' | 'unknown';
+  /** 바이너리 출처 — 판정 규칙은 `ClaudeBinSource` 주석 참고. */
+  source: ClaudeBinSource;
   /** 사용된 바이너리 절대 경로 (UI 디버그/안내용) */
   binPath: string;
   /** current/latest 모두 채워졌고 semver 비교 결과 current < latest 면 true. 한쪽이라도 null 이면 false. */
@@ -2000,7 +2138,7 @@ export interface ClaudeInstall {
   /** 절대 경로 (realpath 정규화) */
   binPath: string;
   /** 출처 — `ClaudeVersionInfo.source` 와 동일 의미 */
-  source: 'vscode-extension' | 'path' | 'unknown';
+  source: ClaudeBinSource;
   /** `--version` 파싱 결과 ("2.1.154" 등). probe 실패 시 null. */
   version: string | null;
   /** probe 실패 시 원인 (UI 노출용) */
@@ -2085,6 +2223,22 @@ export interface UnloadProjectPayload {
 /** 서버→클라: unload 완료 broadcast */
 export interface ProjectUnloadedPayload {
   projectName: string;
+}
+
+/**
+ * §9 스코프드 스냅샷 구독 — 클라→서버: **이 창이 지금 필요한 프로젝트 집합**.
+ *
+ * 메인 창은 활성 탭 하나, Command Center(§5.12 A)는 따라가기/고정 대상 하나를 싣는다.
+ * 서버는 붙어 있는 모든 창의 선언을 **합집합**해 그것만 무거운 슬라이스에 담는다.
+ *
+ * ⚠ 규약 셋 — 어기면 최적화가 아니라 기능 손상이 된다:
+ *  1. **아무도 선언하지 않았으면 전부 보낸다.** 침묵(구버전 클라·부팅 직후)이 축소로 해석되면 안 된다.
+ *  2. 범위 밖 프로젝트도 **탭·전역 집계는 그대로** 흐른다(`projects`/`stubProjects`/`activeAgentCount` 등).
+ *  3. 값은 **표시명**(`GraphSnapshot.projects` 의 키)이다 — 경로가 아니다.
+ */
+export interface SetProjectScopePayload {
+  /** 이 창이 필요한 프로젝트 표시명 목록. 빈 배열 = "지금은 아무것도 안 본다"(탭 0개). */
+  projects: string[];
 }
 
 // ─── §7.11 v1.44 Iframe 서버 로그 스트리밍 ───
@@ -3048,9 +3202,28 @@ export interface AgentFeedback {
   createdAt: number;
 }
 
+/**
+ * §9 스코프드 구독 — 프로젝트별 에이전트 집계(탭 배지 전용).
+ * 무거운 슬라이스가 구독 범위로 좁혀져도 **이 집계만은 항상 전 프로젝트**가 실린다.
+ */
+export interface ProjectAgentCounts {
+  /** 그 프로젝트에 속한(살아 있고 숨김이 아닌) 에이전트 수 */
+  total: number;
+  /** 그중 status==='active' */
+  active: number;
+  /** 그중 status==='completed' */
+  completed: number;
+}
+
 export interface GraphSnapshot {
   /** hydrated 프로젝트 목록 (projectName → ProjectInfo). keys와 stubProjects keys는 겹치지 않음 */
   projects: Record<string, ProjectInfo>;
+  /**
+   * §9 — 프로젝트별 에이전트 집계 (projectName → 수). **구독 범위와 무관하게 항상 전 프로젝트.**
+   * 탭바 배지처럼 "안 보는 프로젝트도 숫자는 보여야 하는" 표시의 SSOT.
+   * 미설정(구버전 스냅샷)이면 클라가 `agents` 로 직접 세던 종전 경로로 폴백한다.
+   */
+  projectAgentCounts?: Record<string, ProjectAgentCounts>;
   /** boot 시 stub 상태인 프로젝트 메타 (projectName → ProjectMetaSnapshot). hydrate 완료 시 projects로 이동 */
   stubProjects?: Record<string, ProjectMetaSnapshot>;
   /** 앱 전역 탭 라이프사이클 상태 (openProjects / lastActive / default / pinned). 서버가 authoritative. */
@@ -3138,6 +3311,8 @@ export interface GraphSnapshot {
   appBubbles?: AppBubble[];
   /** §5.14 v4.62 — 플레이 버블 목록. `projectName` 으로 걸러 렌더한다. */
   playBubbles?: PlayBubble[];
+  /** §5.15 — 스펙 보드 목록. `projectName` 으로 걸러 렌더한다. */
+  specDocs?: SpecDoc[];
   /**
    * 프로젝트별 루트 캔버스 바운딩 박스 반쪽 폭/높이 (LAYOUT_CENTER_X/Y 중심).
    * 키 = projectName. 미설정 항목은 클라이언트 기본값 사용.
@@ -3173,6 +3348,12 @@ export interface GraphSnapshot {
    * 클라는 이 값만 보고 로그인 팝업 노출/옵션창 Account 표시를 결정한다.
    */
   claudeAuth?: ClaudeAuthStatus;
+
+  /**
+   * §4 (첫 실행 설치 온보딩) — `claude` CLI 설치 판정. 글로벌 1건. 영속화 ❌ — 런타임 캐시.
+   * 클라는 이 값만 보고 설치 게이트/상단 배너 노출을 결정한다(로그인 팝업보다 **앞** 단계).
+   */
+  claudeSetup?: ClaudeSetupState;
 
   /** §4 v1.98 — 진단 에러 로그 (글로벌 ring buffer, 최신순). 영속화 ❌ — 런타임 캐시. */
   diagnosticLog?: DiagnosticEntry[];
@@ -3611,6 +3792,8 @@ export interface ProjectCheckpoint {
   appBubbles?: AppBubble[];
   /** §5.14 v4.62 — 플레이 버블(영속). optional — 구버전 체크포인트 하위호환. */
   playBubbles?: PlayBubble[];
+  /** §5.15 — 스펙 보드(영속). optional — 구버전 체크포인트 하위호환. */
+  specDocs?: SpecDoc[];
   /**
    * 루트 캔버스에서 부모 버블이 못 빠져나가는 사각 바운딩 박스의 반쪽 폭/높이.
    * LAYOUT_CENTER_X/Y 중심 기준. 사용자가 캔버스에서 핸들로 조절. optional — 미설정 시
@@ -3761,6 +3944,11 @@ export interface ProjectIdentity {
   appBubbles: AppBubble[];
   /** §5.14 v4.62 — 플레이 버블 목록 (정체성 — 사용자가 놓은 버튼 + 확정한 실행 레시피). */
   playBubbles: PlayBubble[];
+  /**
+   * §5.15 — 스펙 보드 목록 (정체성 — 사람이 쓴 요구사항 문장이라 잃으면 복구할 길이 없다).
+   * optional — 구버전 identity.json 하위호환. 미설정이면 빈 배열로 취급.
+   */
+  specDocs?: SpecDoc[];
   /** 콘티 데이터 (contiId → Conti). */
   contis: Record<string, Conti>;
   /**
@@ -3864,6 +4052,20 @@ export interface UserDefaults {
    * 최우선 반환(파일 존재 검증 후). `subAgentManager` 가 모듈 로드 시 1회 캡처하므로 변경은 다음 실행에 적용.
    */
   claudeBinPath?: string;
+  /**
+   * §4 (Claude Code CLI 자동 업데이트) — **CLI 를 앱 켤 때마다 최신으로 유지할지**.
+   *
+   * **미설정 = 켬**(`enabled !== false` 로 판정). 켜져 있으면 부팅 시 1회
+   * `getClaudeVersionInfo` → `isOutdated` 면 `installLatestClaude()` 를 조용히 돌린다.
+   * 끄면 그 자동 경로만 멈추고 옵션창 Version 탭의 [지금 업데이트] 수동 버튼은 그대로 쓴다.
+   *
+   * ⚠ **§4 v2.44 Vibisual 앱 자동 업데이트(electron-updater)와는 무관한 별개 축**이다 —
+   * 갱신 대상(CLI vs 앱)도 주체(우리 spawn vs electron-updater)도 다르므로 토글을 공유하지 않고,
+   * 앱 업데이트는 종전대로 항상 자동이다.
+   */
+  claudeAutoUpdate?: {
+    enabled?: boolean;
+  };
   /**
    * §5.11 v4.54 — **프로젝트별** 활성 플러그인 목록. 키 = 프로젝트 루트 절대경로(`ProjectInfo.path` = projectId).
    *
@@ -4925,6 +5127,99 @@ export interface McpServerPreset {
   requiresKey?: string;
 }
 
+// ─── §5.5 #17-31 — 이 프로젝트에서 쓸 수 있는 MCP 인벤토리 ───────────────────────────
+//
+// #17-20 ⑥ 은 **우리가 아는 프리셋 4종**을 에이전트에 꽂는 축이고, 여기는 그보다 넓다 —
+// 사용자가 `claude mcp add` 로 직접 붙인 것까지 포함해 "지금 이 프로젝트에서 무엇을 쓸 수
+// 있는가" 를 Claude Code 의 실제 설정에서 읽어 세운다. 우리 나름의 켜짐 개념을 새로 만들지
+// 않는다(화면과 실제가 갈리지 않도록).
+
+/** MCP 가 어디에 적혀 있는가. 화면의 묶음 머리이자 토글이 어느 키를 만질지 가르는 축. */
+export type McpServerScope =
+  /** `~/.claude.json` 최상위 `mcpServers` — 모든 프로젝트에서 보인다. */
+  | 'global'
+  /** `~/.claude.json` 의 `projects[<경로>].mcpServers` — 이 프로젝트에서만. */
+  | 'local'
+  /** `<루트>/.mcp.json` — 레포에 커밋되는 공유 자산(읽기 전용). */
+  | 'project'
+  /** `MCP_SERVER_PRESETS` — 우리가 꽂아 주는 것(#17-20 ⑥, 축이 에이전트 단위). */
+  | 'preset';
+
+/**
+ * 켜짐 / 꺼짐 / **승인 대기** — 셋은 서로 다른 상태다.
+ * `pending` 은 `.mcp.json` 에 적혀 있으나 아직 승인하지 않은 것(`claude mcp list` 의 `⏸`)이고,
+ * 사용자가 해야 할 일이 `disabled` 와 다르므로 한 색으로 뭉개지 않는다.
+ */
+export type McpServerState = 'enabled' | 'disabled' | 'pending';
+
+/** 붙는 방식. `stdio` 는 프로세스, 나머지는 원격 주소(로그인이 필요할 수 있다). */
+export type McpServerTransport = 'stdio' | 'http' | 'sse';
+
+/** 켜기까지 남은 일의 종류 — 화면은 이 종류로 문구를 고르고 `detail` 을 끼워 넣는다. */
+export type McpRequirementKind =
+  /** `.mcp.json` 서버가 승인 대기 — [켜기] 한 번이 곧 승인이다. */
+  | 'approval'
+  /** stdio 실행 파일이 PATH 에 없다(Windows 는 `PATHEXT` 까지 본다). */
+  | 'missing-command'
+  /** `env` 값이 비었거나 `${VAR}` 가 풀리지 않았다. */
+  | 'missing-env'
+  /** 원격 서버 — `claude mcp login <이름>` 이 필요할 수 있다. */
+  | 'auth'
+  /** 관리자 정책(`deniedMcpServers`)이 막았다 — 여기서 풀 수 없다(남의 정책 파일을 고쳐 뚫지 않는다). */
+  | 'policy';
+
+export interface McpRequirement {
+  kind: McpRequirementKind;
+  /**
+   * 문구에 끼워 넣을 값(명령 이름 · 환경변수 **이름** 목록 · 서버 이름).
+   * 값 자체는 비밀이므로 서버가 클라이언트로 내보내지 않는다.
+   */
+  detail?: string;
+}
+
+/** 목록의 한 줄. */
+export interface McpServerEntry {
+  /** 목록 키 = `<scope>:<name>` — 범위가 다르면 같은 이름이 함께 설 수 있다. */
+  id: string;
+  /** 설정에 적힌 서버 이름(번역 ❌ — 도구 접두사 `mcp__<name>__` 가 여기서 나온다). */
+  name: string;
+  scope: McpServerScope;
+  transport: McpServerTransport;
+  state: McpServerState;
+  /** stdio 실행 명령(원문 그대로). */
+  command?: string;
+  args?: string[];
+  /** 원격 서버 주소. */
+  url?: string;
+  /** `env` 의 **키 이름만**. */
+  envKeys?: string[];
+  /** 이 설정이 적힌 파일의 절대 경로 — 화면이 "어디서 왔는지" 를 적는다. */
+  sourceFile: string;
+  /** 켜기까지 남은 일. 비어 있으면 지금 그대로 쓸 수 있다. */
+  requirements: McpRequirement[];
+  /** 프리셋일 때만(#17-20 ⑥) — 토글이 `AgentConfig.mcpServers` 를 타게 하는 표식. */
+  presetId?: string;
+  docsUrl?: string;
+  /** 프리셋 사전 조건 안내 i18n 키. */
+  requiresKey?: string;
+  /** false 면 화면은 토글 대신 이유를 적는다. */
+  toggleable: boolean;
+}
+
+/** `GET /api/mcp-servers` 의 응답. 매 조회마다 디스크를 다시 읽어 만든다(캐시 ❌). */
+export interface McpInventory {
+  projectPath: string;
+  servers: McpServerEntry[];
+  /** 들여다본 파일들(없는 파일 포함) — 화면의 "어디를 봤는지". */
+  scanned: string[];
+  /**
+   * `enableAllProjectMcpServers` — 참이면 `.mcp.json` 서버가 전부 자동 승인이다.
+   * 이 사실을 화면이 말해 주지 않으면 "승인 대기가 왜 하나도 없지" 가 된다.
+   */
+  autoApproveProject: boolean;
+  scannedAt: number;
+}
+
 /** C층 — 우리가 라이선스상 못 하는 디버깅을 넘길 외부 도구. */
 export type ExternalDebuggerId = 'visual-studio' | 'rider' | 'vscode' | 'unreal-editor';
 
@@ -5138,4 +5433,39 @@ export interface MemoryDiagnosticsReport {
   reliefFreedBytes: number;
   /** 프로세스가 뜬 뒤 지난 시간(ms) — 표본을 읽을 때의 맥락. */
   uptimeMs: number;
+}
+
+// ─── §7.11 프리뷰 조작 (판올림 번호 발급 대기) — 디바이스 폭 프리셋 + 요소 클릭 ───
+
+/**
+ * 프리뷰에서 집은 화면 요소 한 개.
+ *
+ * 프록시가 주입한 picker 가 `postMessage` 로 올리고, 클라가 받아 명령으로 조립한다.
+ * **DOM 을 읽기만 한 결과**이며 네트워크·저장소 정보는 담지 않는다(§7.11 (F) 경계).
+ */
+export interface PreviewPickPayload {
+  /** 문서 안에서 그 요소를 다시 찾을 수 있는 CSS 선택자. */
+  selector: string;
+  /** 태그 이름(소문자). */
+  tagName: string;
+  /** id 속성(없으면 생략). */
+  id?: string;
+  /** class 목록(없으면 빈 배열). */
+  classes: string[];
+  /** `data-testid` — 있으면 코드에서 찾기 가장 쉬운 실마리라 따로 싣는다. */
+  testId?: string;
+  /** 화면에 보이는 글 일부(최대 `PREVIEW_PICK_TEXT_MAX`자). */
+  textSnippet: string;
+  /** 그 요소의 화면 위치·크기(px). */
+  rect: { x: number; y: number; width: number; height: number };
+  /** 그 요소가 있던 페이지 주소(프록시 경로가 아니라 원본 주소). */
+  pageUrl: string;
+}
+
+/** 프리뷰 폭 프리셋 한 칸. `width: null` = Auto(가득 채움). */
+export interface PreviewDevicePreset {
+  id: 'auto' | 'mobile' | 'tablet' | 'desktop';
+  /** i18n 키 — 라벨을 코드에 박지 않는다(§3.3). */
+  labelKey: string;
+  width: number | null;
 }

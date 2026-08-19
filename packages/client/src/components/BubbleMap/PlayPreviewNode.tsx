@@ -4,6 +4,8 @@ import { NodeResizer, type NodeProps } from '@xyflow/react';
 
 import { useGraphStore } from '../../stores/graphStore.js';
 import { toProxyUrl } from '../../utils/iframeProxyUrl.js';
+import { usePreviewPicker } from '../Preview/usePreviewPicker.js';
+import { PreviewControls, PreviewPickPanel } from '../Preview/PreviewControls.js';
 
 /**
  * §5.14 v4.62 — 플레이 프리뷰 버블.
@@ -32,6 +34,8 @@ export const PlayPreviewNode = memo(function PlayPreviewNode({
 }: NodeProps & { data: PlayPreviewNodeData }): React.JSX.Element {
   const { t } = useTranslation();
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  // §7.11 — 폭 프리셋 + 요소 집기. 탭 프리뷰(IframeView)와 **같은 훅**이라 한 쪽만 되는 일이 없다.
+  const picker = usePreviewPicker(iframeRef, data.url);
   // 새로고침 — src 를 다시 넣으면 되지만, 같은 문자열이면 브라우저가 무시하므로 키를 돌린다.
   const [reloadKey, setReloadKey] = useState(0);
 
@@ -129,6 +133,9 @@ export const PlayPreviewNode = memo(function PlayPreviewNode({
           <span className="min-w-0 flex-1 truncate text-[10px] text-white/70">
             {data.title ?? data.url.replace(/^https?:\/\//, '')}
           </span>
+          <span onMouseDown={(e) => e.stopPropagation()} className="shrink-0">
+            <PreviewControls picker={picker} />
+          </span>
           <button type="button" onClick={reload} onMouseDown={(e) => e.stopPropagation()} className={iconBtn} title={t('common.iframe.reload')}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3">
               <path d="M23 4v6h-6M1 20v-6h6" />
@@ -161,16 +168,23 @@ export const PlayPreviewNode = memo(function PlayPreviewNode({
           </button>
         </div>
 
-        <div className="min-h-0 flex-1 bg-white">
+        {/* 폭 프리셋이 걸리면 그 폭 그대로 가운데 정렬(scale 축소 ❌ — 미디어쿼리가 실제 폭을 봐야 한다). */}
+        <div className="flex min-h-0 flex-1 justify-center overflow-auto bg-white">
           <iframe
             key={reloadKey}
             ref={iframeRef}
             src={toProxyUrl(data.url)}
-            className="h-full w-full border-0"
+            className="h-full border-0"
+            style={picker.deviceWidth === null
+              ? { width: '100%' }
+              : { width: `${picker.deviceWidth}px`, flex: '0 0 auto' }}
             title={t('common.iframe.serverPreview')}
             sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
           />
         </div>
+        <span onMouseDown={(e) => e.stopPropagation()}>
+          <PreviewPickPanel picker={picker} />
+        </span>
       </div>
     </>
   );

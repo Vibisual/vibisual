@@ -41,6 +41,10 @@
     "usage": {
       "tooltip": "Session en cours : {{percent}} % de la limite de 5 heures utilisée — cliquez pour les détails",
       "tooltipNoData": "Les données d’usage ne sont pas encore collectées — cliquez pour activer"
+    },
+    "setupBanner": {
+      "text": "Claude Code n'est pas installé — les agents ne peuvent pas encore s'exécuter.",
+      "action": "Installer"
     }
   },
   "panel": {
@@ -198,7 +202,8 @@
         "permissions": "Permissions",
         "advanced": "Avancé",
         "version": "Version",
-        "account": "Compte"
+        "account": "Compte",
+        "storage": "Stockage"
       },
       "appearance": {
         "intro": "Personnalisez l'apparence de Vibisual.",
@@ -224,7 +229,19 @@
         "restartHint": "Sélection enregistrée. Redémarrez Vibisual pour l'appliquer aux agents nouvellement lancés.",
         "about": "À propos",
         "repo": "Dépôt GitHub",
-        "marketplace": "Claude Code sur VS Code Marketplace"
+        "marketplace": "Claude Code sur VS Code Marketplace",
+        "selectionApplied": "Sélection enregistrée et appliquée — les agents nouvellement créés l'utilisent immédiatement.",
+        "claudeAutoUpdate": {
+          "title": "Mises à jour de Claude Code",
+          "label": "Maintenir Claude Code à jour automatiquement",
+          "onHint": "Vibisual met à jour le CLI vers la dernière version à chaque lancement de l'application.",
+          "offHint": "Les mises à jour automatiques sont désactivées. Utilisez « Mettre à jour maintenant » pour mettre à jour le CLI vous-même.",
+          "vscodeNotice": "Le binaire actif provient de l'extension VS Code, que seul le Marketplace peut mettre à jour. Choisissez une autre installation ci-dessus pour laisser Vibisual gérer les mises à jour.",
+          "updateNow": "Mettre à jour maintenant",
+          "updating": "Mise à jour…",
+          "updated": "Mis à jour vers {{version}}",
+          "updateFailed": "Échec de la mise à jour"
+        }
       },
       "agent": {
         "intro": "Ces défauts s'appliquent aux agents personnalisés nouvellement créés. Les agents existants ne sont pas affectés.",
@@ -259,6 +276,73 @@
         "recheck": "Vérifier à nouveau",
         "checking": "Vérification…",
         "actionFailed": "Cela n’a pas fonctionné. Réessayez."
+      },
+      "storage": {
+        "intro": "Durée de conservation de l'historique d'activité de Vibisual sur le disque. Réglez une valeur sur 0 pour la conserver indéfiniment — rien n'est supprimé silencieusement, et les sessions actives ne sont jamais touchées.",
+        "save": "Appliquer",
+        "saving": "Enregistrement…",
+        "reset": "Restaurer les valeurs par défaut",
+        "unsaved": "Pas encore appliqué",
+        "usageTitle": "Utilisation du disque",
+        "total": "Total",
+        "rescan": "Réanalyser",
+        "scanning": "Analyse…",
+        "cleanNow": "Nettoyer maintenant",
+        "cleaning": "Nettoyage…",
+        "cleaned": "{{files}} fichier(s) supprimé(s), {{size}} libéré(s).",
+        "empty": "Aucune donnée de projet sur le disque pour l'instant.",
+        "worktreesTitle": "Worktrees Git",
+        "worktreesNote": "Jamais supprimés automatiquement — ils peuvent contenir votre travail. Supprimez vous-même le dossier si vous n'en avez plus besoin.",
+        "worktreeOrphan": "orphelin",
+        "units": {
+          "days": "jours",
+          "count": "éléments",
+          "seconds": "s"
+        },
+        "fields": {
+          "fileEditRetentionDays": {
+            "label": "Conserver les modifications de fichiers pendant",
+            "desc": "L'historique des modifications plus ancien que cette durée est supprimé. 0 = conserver indéfiniment."
+          },
+          "maxFileEditPaths": {
+            "label": "Nombre max. de fichiers avec historique",
+            "desc": "Les chemins modifiés le moins récemment sont supprimés en premier. 0 = illimité."
+          },
+          "fileEditMergeWindowMs": {
+            "label": "Fusionner les modifications répétées sous",
+            "desc": "Les modifications successives d'un même fichier sont regroupées en une seule entrée. 0 = ne jamais fusionner."
+          },
+          "completedCommandMaxPerSession": {
+            "label": "Commandes terminées par session",
+            "desc": "Vos bulles de prompt conservées par session. 0 = illimité."
+          },
+          "subStreamRetentionDays": {
+            "label": "Conserver les transcriptions d'agents pendant",
+            "desc": "Nettoyé au démarrage. Les sessions actives sont conservées quel que soit leur âge. 0 = conserver indéfiniment."
+          },
+          "attachmentRetentionDays": {
+            "label": "Conserver les pièces jointes pendant",
+            "desc": "Images collées dans les prompts. 0 = conserver indéfiniment."
+          }
+        },
+        "kinds": {
+          "checkpoint": "Point de contrôle",
+          "checkpointBackups": "Sauvegardes",
+          "activity": "Activité",
+          "identity": "Identité",
+          "subStreams": "Transcriptions",
+          "attachments": "Pièces jointes",
+          "brain": "Mémoire",
+          "logs": "Journaux",
+          "video": "Vidéo",
+          "other": "Autre"
+        },
+        "error": {
+          "load": "Impossible de charger les paramètres de rétention.",
+          "save": "Impossible d'enregistrer les paramètres de rétention.",
+          "scan": "Impossible de mesurer l'utilisation du disque.",
+          "clean": "Échec du nettoyage. Veuillez réessayer."
+        }
       }
     },
     "autoAgent": {
@@ -502,7 +586,17 @@
       "stderr": "stderr",
       "copy": "Copier",
       "copied": "Copié",
-      "close": "Fermer"
+      "close": "Fermer",
+      "mergeBtn": "Fusionner",
+      "mergeTitle": "Fusionner {{branch}} dans la branche actuelle",
+      "mergeConflict": "Conflit de fusion",
+      "mergeConflictNote": "La branche principale a été restaurée avec merge --abort. Les fichiers ci-dessous sont en conflit — confiez-les à l'agent qui a travaillé dans ce worktree, ou résolvez-les vous-même.",
+      "mergeHandOff": "Confier à l'agent",
+      "mergeHandOffPrompt": "La fusion de ce worktree dans la branche principale a rencontré des conflits. Retravaillez votre branche pour qu'elle fusionne proprement, puis indiquez-moi ce que vous avez changé.",
+      "mergeParentDirty": "La branche principale a des modifications non validées",
+      "mergeParentDirtyNote": "Validez-les (commit) ou mettez-les de côté (stash) d'abord — fusionner par-dessus un travail non validé peut le faire perdre.",
+      "mergeNothing": "Rien à fusionner",
+      "mergeNothingNote": "Ce worktree n'a aucun commit qui manque à la branche principale."
     },
     "worktreeDelete": {
       "title": "Supprimer le Worktree",
@@ -1083,9 +1177,39 @@
       "later": "Plus tard",
       "stop": "Arrêter",
       "start": "Se connecter"
+    },
+    "setup": {
+      "title": "Installer Claude Code",
+      "intro": "Vibisual exécute ses agents avec le CLI Claude Code, qui n'est pas encore installé sur cet ordinateur. Installez-le ici — aucun terminal requis.",
+      "commandLabel": "Commande d'installation",
+      "copy": "Copier",
+      "copied": "Copié",
+      "install": "Installer",
+      "installing": "Installation…",
+      "installDone": "Installé",
+      "installFailed": "Échec de l'installation",
+      "retry": "Réessayer",
+      "ready": "Claude Code est prêt. Poursuite en cours…",
+      "failed": "L'installation ne s'est pas terminée. Exécutez la commande ci-dessus dans un terminal, puis choisissez « Vérifier à nouveau ».",
+      "manualOnly": "L'installation automatique n'est pas disponible sur cette plateforme. Exécutez la commande ci-dessus dans un terminal, puis choisissez « Vérifier à nouveau ».",
+      "recheck": "Vérifier à nouveau",
+      "rechecking": "Vérification…",
+      "later": "Plus tard",
+      "docs": "Guide d'installation officiel"
     }
   },
   "ide": {
+    "diff": {
+      "addComment": "Commenter cette ligne",
+      "removeComment": "Supprimer le commentaire",
+      "commentPlaceholder": "Que faut-il changer ici ? (Ctrl+Entrée pour enregistrer)",
+      "commentCancel": "Annuler",
+      "commentSave": "Enregistrer",
+      "commentLimit": "Jusqu'à {{max}} commentaires de revue par session — envoyez-en ou supprimez-en pour en ajouter d'autres.",
+      "sendReview": "Envoyer la revue ({{count}})",
+      "sendReviewTip": "Envoyer les commentaires laissés sur le diff sous forme d'une seule commande",
+      "reviewPromptHeader": "Appliquer les commentaires de revue suivants."
+    },
     "imageAnnotate": {
       "tool": {
         "view": "Affichage",
@@ -1243,9 +1367,8 @@
       "sending": "Envoi en cours…"
     },
     "activityBar": {
-      "terminal": "Terminal",
+      "mcp": "MCP",
       "files": "Fichiers",
-      "results": "Résultats",
       "context": "Contexte",
       "skills": "Compétences",
       "bookmarks": "Signets",
@@ -1254,6 +1377,49 @@
       "loop": "Boucle de répétition",
       "goal": "Objectif",
       "debug": "Exécuter et déboguer"
+    },
+    "mcp": {
+      "title": "Serveurs MCP",
+      "refresh": "Rescanner les MCP",
+      "noProject": "Ouvrez un projet pour voir les MCP qu'il peut utiliser.",
+      "empty": "Ce projet n'a pas encore de serveur MCP. Vous pouvez en ajouter un avec",
+      "autoApprove": "Ce projet approuve automatiquement tous les serveurs de .mcp.json (enableAllProjectMcpServers).",
+      "applyHint": "L'activation ou la désactivation s'applique aux sessions démarrées à partir de maintenant ; les sessions en cours conservent leurs connexions.",
+      "docs": "Documentation",
+      "loadFailed": "Impossible de lire la configuration MCP.",
+      "toggleFailed": "Impossible d'enregistrer la modification.",
+      "turnOn": "Activer",
+      "turnOff": "Désactiver",
+      "state": {
+        "enabled": "Activé",
+        "disabled": "Désactivé",
+        "pending": "En attente d'approbation"
+      },
+      "scope": {
+        "global": "Global (tous les projets)",
+        "project": "Projet (.mcp.json)",
+        "local": "Local (ce projet uniquement)",
+        "preset": "Préréglages Vibisual"
+      },
+      "scopeShort": {
+        "global": "Global",
+        "project": "Projet",
+        "local": "Local",
+        "preset": "Préréglage"
+      },
+      "scopeHint": {
+        "global": "Écrit dans ~/.claude.json — disponible dans tous les projets.",
+        "project": "Écrit dans le .mcp.json de ce dépôt et partagé avec tous ceux qui le clonent. Lecture seule ici.",
+        "local": "Écrit uniquement dans l'entrée de ce projet de ~/.claude.json.",
+        "preset": "Outils de débogage que Vibisual peut brancher sur cet agent."
+      },
+      "req": {
+        "approval": "Présent dans .mcp.json mais pas encore approuvé — l'activer l'approuve pour ce projet.",
+        "missing-command": "« {{detail}} » est introuvable dans le PATH — installez-le d'abord.",
+        "missing-env": "Variables d'environnement non définies : {{detail}}",
+        "auth": "Serveur distant — une connexion peut être nécessaire : claude mcp login {{name}}",
+        "policy": "Bloqué par une stratégie gérée (deniedMcpServers) — impossible de l'activer ici."
+      }
     },
     "debug": {
       "title": "Exécuter et déboguer",
@@ -1425,12 +1591,8 @@
       "secNext": "Suite"
     },
     "sidebar": {
-      "sessions": "Sessions",
       "files": "Fichiers ({{count}})",
-      "events": "Événements ({{count}})",
       "noFileEdits": "Aucune modification de fichier pour l'instant",
-      "noEvents": "Aucun événement pour l'instant",
-      "hasResult": "a un résultat",
       "skills": "Compétences ({{count}})",
       "projectSkills": "Projet ({{count}})",
       "globalSkills": "Globales ({{count}})",
@@ -1654,17 +1816,19 @@
       "untitled": "Sous-agent",
       "scopeAll": "Affiche tous les sous-agents que cet agent exécute.",
       "scopeSession": "Affiche les sous-agents démarrés par « {{label}} ».",
-      "endedAt": "Terminé à {{time}}",
-      "finishedTitle": "Terminés à l’instant",
-      "noResult": "Aucun résultat n’est arrivé.",
-      "toggleResult": "Afficher ou masquer le résultat complet",
-      "toolUses": "{{count}} appels d’outils",
-      "nowUsing": "Outil utilisé en ce moment",
-      "duration": "A pris {{value}}",
       "emptySession": "Cette session n’a aucun sous-agent en cours.",
       "hint": "Cet emplacement ne montre que les sous-agents lancés en arrière-plan par cette session — la conversation elle-même n’est pas comptée. Pendant leur exécution, l’icône de gauche s’allume et affiche leur nombre.",
       "othersRunning": "{{count}} autres en cours ailleurs",
       "startedAt": "Démarré à {{time}}",
+      "endedAt": "Terminé à {{time}}",
+      "finishedTitle": "Terminés à l’instant",
+      "noResult": "Aucun résultat n’est arrivé.",
+      "resultRescued": "Récupéré depuis la transcription — non transmis à la session",
+      "resultRescuedTitle": "Cet enfant a été interrompu avant de pouvoir faire son rapport (Stop, fermeture d'onglet ou plantage), donc la session ne l'a jamais reçu. Vibisual l'a relu depuis la transcription de l'agent sur le disque.",
+      "toggleResult": "Afficher ou masquer le résultat complet",
+      "toolUses": "{{count}} appels d’outils",
+      "nowUsing": "Outil utilisé en ce moment",
+      "duration": "A pris {{value}}",
       "noResponse": "Aucune réponse depuis {{value}}",
       "dismiss": "Ne plus attendre",
       "dismissTip": "Retire de cette liste. N’arrête pas le processus — l’agent arrête son propre enfant avec TaskStop."
@@ -1839,7 +2003,9 @@
     },
     "card": {
       "showDetails": "Détails ({{count}})",
-      "hideDetails": "Masquer les détails"
+      "hideDetails": "Masquer les détails",
+      "inProgress": "en cours",
+      "inProgressHint": "Publié pendant que ce tour était encore en cours — d'autres résultats suivent sous cette carte."
     },
     "context": {
       "title": "Sources de contexte",
@@ -2400,7 +2566,9 @@
       "createWorktree": "Créer un Worktree",
       "createWorktreeHint": "Nouvel espace de travail depuis le master le plus récent",
       "createCapture": "Bulle de capture d'écran/programme",
-      "createCaptureHint": "Affiche un écran ou une fenêtre de programme en direct dans une bulle"
+      "createCaptureHint": "Affiche un écran ou une fenêtre de programme en direct dans une bulle",
+      "createSpec": "Tableau Spec",
+      "createSpecHint": "Rédige les exigences, puis transforme chaque critère d'acceptation en carte de tâche"
     },
     "bounds": {
       "label": "Limites des bulles",
@@ -2422,6 +2590,40 @@
       "jumped": "Déplacé vers {{label}}",
       "jumpEmpty": "Le signet {{slot}} est vide",
       "jumpMissing": "La cible du signet n'est plus disponible"
+    },
+    "spec": {
+      "title": "Spec",
+      "untitled": "Spec sans titre",
+      "criteria": "Critères d'acceptation",
+      "cards": "Cartes",
+      "revision": "Révision {{count}}",
+      "openBoard": "Ouvrir le tableau spec",
+      "rename": "Renommer",
+      "renamePrompt": "Titre de la spec",
+      "addItem": "Ajouter un critère d'acceptation",
+      "addItemPrompt": "Critère d'acceptation (une ligne)",
+      "addItemPlaceholder": "Critère d'acceptation…",
+      "add": "Ajouter",
+      "removeItem": "Supprimer le critère d'acceptation",
+      "emptyItems": "Aucun critère d'acceptation pour l'instant · ajoutez-les un par un ci-dessous",
+      "bodyLabel": "Exigences (Markdown)",
+      "bodyPlaceholder": "Que construisez-vous, pourquoi, et où s'arrête le périmètre ?",
+      "generateTasks": "Créer des cartes de tâche",
+      "generateTasksN": "Créer des cartes de tâche ({{count}})",
+      "generateOne": "Carte de tâche à partir de cet élément",
+      "generateNoneHint": "Chaque critère d'acceptation a déjà une carte de tâche",
+      "generating": "Création des cartes de tâche…",
+      "generateHint": "Une carte de tâche par critère d'acceptation, toutes enchaînées dans l'ordre par des arêtes de tâche. Les éléments qui ont déjà une carte sont ignorés.",
+      "stale": "Spec modifiée",
+      "staleCount": "Spec modifiée : {{count}}",
+      "staleBadge": "Spec modifiée — {{title}}",
+      "acknowledge": "Confirmer",
+      "detach": "Dissocier",
+      "cardMissing": "Carte (bulle manquante)",
+      "pin": "Épingler",
+      "unpin": "Désépingler",
+      "delete": "Supprimer",
+      "deletePinnedHint": "Cette spec est épinglée. Désépinglez-la d'abord."
     }
   },
   "common": {
@@ -2450,6 +2652,28 @@
         "goBack": "Double-cliquer pour revenir",
         "expand": "Double-cliquer pour développer"
       }
+    },
+    "preview": {
+      "deviceAuto": "Auto",
+      "deviceAutoTip": "Occuper toute la largeur disponible",
+      "deviceMobile": "Mobile",
+      "deviceTablet": "Tablette",
+      "deviceDesktop": "Ordinateur",
+      "deviceTip": "Afficher sur {{width}}px de large",
+      "pickElement": "Choisir un élément",
+      "pickHint": "Cliquez sur un élément dans l'aperçu pour décrire une modification à lui apporter",
+      "pickPlaceholder": "Que faut-il changer sur cet élément ? (Ctrl+Entrée pour envoyer)",
+      "pickSend": "Envoyer",
+      "pickCopy": "Copier le sélecteur",
+      "pickCopied": "Copié",
+      "pickClose": "Fermer",
+      "pickNoHost": "Aucun agent n'héberge cet aperçu, il n'y a donc nulle part où l'envoyer. Copiez plutôt le sélecteur.",
+      "pickPromptHeader": "Corriger l'élément d'écran ci-dessous.",
+      "pickLabelPage": "page",
+      "pickLabelElement": "élément",
+      "pickLabelSelector": "sélecteur",
+      "pickLabelText": "texte visible",
+      "pickLabelRequest": "demande"
     }
   },
   "brain": {

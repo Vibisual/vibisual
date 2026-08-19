@@ -2,8 +2,12 @@
 //
 // Rasterizes the brand bubble — same blue→purple linear gradient as
 // packages/client/public/favicon.svg — into:
-//   - icon.png  (256×256, single image)
+//   - icon.png  (1024×1024, single image; feeds macOS .icns and Linux)
 //   - icon.ico  (16/32/48/64/128/256, multi-image; Windows picks per-DPI)
+//
+// icon.png must stay at 512×512 or larger: electron-builder refuses to package
+// for macOS below that ("image ... must be at least 512x512") and that check is
+// what broke every mac release job before v0.1.9.
 //
 // Run:  node packages/desktop/resources/icons/generate-placeholder.mjs
 
@@ -118,12 +122,17 @@ function wrapMultiIco(images /* [{ size, png }] */) {
   return Buffer.concat([dir, ...payloads]);
 }
 
-const SIZES = [16, 32, 48, 64, 128, 256];
-const renders = SIZES.map((size) => ({ size, png: encodePng(size, renderBubble(size)) }));
+// Windows never renders an icon above 256, so the ICO ladder stops there.
+const ICO_SIZES = [16, 32, 48, 64, 128, 256];
+// The standalone PNG feeds macOS (.icns) and Linux, and electron-builder scales
+// down from it — so render the largest size Apple asks for rather than the
+// 512 minimum, and both platforms get a crisp icon from one file.
+const APP_PNG_SIZE = 1024;
 
-const png256 = renders.find((r) => r.size === 256).png;
+const renders = ICO_SIZES.map((size) => ({ size, png: encodePng(size, renderBubble(size)) }));
 const ico = wrapMultiIco(renders);
+const appPng = encodePng(APP_PNG_SIZE, renderBubble(APP_PNG_SIZE));
 
-writeFileSync(join(HERE, 'icon.png'), png256);
+writeFileSync(join(HERE, 'icon.png'), appPng);
 writeFileSync(join(HERE, 'icon.ico'), ico);
-console.log(`wrote icon.png (${png256.length} B, 256×256) + icon.ico (${ico.length} B, sizes ${SIZES.join('/')})`);
+console.log(`wrote icon.png (${appPng.length} B, ${APP_PNG_SIZE}×${APP_PNG_SIZE}) + icon.ico (${ico.length} B, sizes ${ICO_SIZES.join('/')})`);

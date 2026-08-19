@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { exec, execFile } from 'node:child_process';
 import multer from 'multer';
-import { DEFAULT_PORT, SESSION_SCAN_INTERVAL, FILE_EXISTENCE_CHECK_INTERVAL, SATELLITE_TYPES, IFRAME_PROXY_PATH, AGENT_IDLE_THRESHOLD_MS, AGENT_IDLE_SWEEP_INTERVAL_MS, INTERRUPT_RECONCILE_INTERVAL_MS, TASK_EDGE_DISPATCH_DEFAULT_TIMEOUT_MS, TASK_EDGE_CRITIQUE_MAX_REWORK_LIMIT, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, SUPPORTED_UI_LOCALES, CONTI_AGENT_RULES, RULES_HISTORY_MAX, CANVAS_CLIPBOARD_SCHEMA_VERSION, AGENT_INTENT_FIRST_RULES, buildAgentReportRules, buildAgentQuestionRules, buildAgentReviewRules, buildAgentListRules, buildAgentIframeRules, buildAgentFeedbackBlock, AGENT_FEEDBACK_SUMMARY_ITEM_MAX, CLAUDE_USAGE_POLL_INTERVAL_MS, CLAUDE_AUTH_POLL_INTERVAL_MS, SESSION_GOAL_TEXT_MAX, buildSessionGoalRules, CONTEXT_SOURCE_IDS, CONTEXT_PLUGIN_ID_PREFIX, CONTEXT_PREVIEW_MAX_CHARS, estimateTokens, VERIFICATION_VERDICT_SCHEMA_GUIDE } from '@vibisual/shared';
+import { DEFAULT_PORT, SESSION_SCAN_INTERVAL, FILE_EXISTENCE_CHECK_INTERVAL, SATELLITE_TYPES, IFRAME_PROXY_PATH, AGENT_IDLE_THRESHOLD_MS, AGENT_IDLE_SWEEP_INTERVAL_MS, INTERRUPT_RECONCILE_INTERVAL_MS, TASK_EDGE_DISPATCH_DEFAULT_TIMEOUT_MS, TASK_EDGE_CRITIQUE_MAX_REWORK_LIMIT, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, SUPPORTED_UI_LOCALES, CONTI_AGENT_RULES, RULES_HISTORY_MAX, CANVAS_CLIPBOARD_SCHEMA_VERSION, AGENT_INTENT_FIRST_RULES, buildAgentReportRules, buildAgentQuestionRules, buildAgentReviewRules, buildAgentListRules, buildAgentIframeRules, buildAgentFeedbackBlock, AGENT_FEEDBACK_SUMMARY_ITEM_MAX, CLAUDE_USAGE_POLL_INTERVAL_MS, CLAUDE_AUTH_POLL_INTERVAL_MS, CLAUDE_AUTO_UPDATE_BOOT_DELAY_MS, SESSION_GOAL_TEXT_MAX, buildSessionGoalRules, CONTEXT_SOURCE_IDS, CONTEXT_PLUGIN_ID_PREFIX, CONTEXT_PREVIEW_MAX_CHARS, estimateTokens, VERIFICATION_VERDICT_SCHEMA_GUIDE } from '@vibisual/shared';
 import type { HookEventPayload, WSMessage, SubAgentStreamEvent, QueuedCommand, SessionTokenData, PipelineType, AgentConfig, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, SubAgentHistoryItem, UiLocale, PermissionDecision, RulesHistoryEntry, Conti, CanvasClipboardPayload, CanvasPasteResponse, AskUserQuestionDecision, AskUserQuestionAnswer, AskUserQuestionOption, AskUserQuestionItem, AskUserQuestionToolInput, AgentReport, AgentQuestions, AgentQuestionItem, AgentReview, AgentList, AgentFeedback, AgentFeedbackTargetType, AgentFeedbackVerdict, BrainCard, BrainCardInput, BrainCardType, BrainCardScope, BrainInjectionEvent, ClaudeUsageInfo, ClaudeAuthStatus, VerificationVerdict, VerificationKind, VerificationAttempt, EscalationReason, AutoAgentRun } from '@vibisual/shared';
 import { BRAIN_INJECTION_TOP_K, BRAIN_INJECTION_TOKEN_BUDGET, BRAIN_FILE_WARN_ONCE_PER_SESSION, BRAIN_EXPERIENCE_TYPES, buildBrainRulesSection, buildBrainTopicIndexSection } from '@vibisual/shared';
 // §3.2.3 보존 정책 — 상한·기본값은 shared 한 곳, 파일 정리·실측은 storageRetention.
@@ -36,7 +36,7 @@ import { absorbMergeFollowUps } from './services/followUpMerge.js';
 import { permissionBroker } from './services/permissionBroker.js';
 import { askUserQuestionBroker } from './services/askUserQuestionBroker.js';
 import { AutoAgentRuntime } from './services/autoAgentRuntime.js';
-import { BUBBLE_COLORS, READ_TOOLS, WS_BATCH_INTERVAL, WS_BATCH_INTERVAL_MAX, WS_BATCH_BACKOFF_FACTOR, CHECKPOINT_BATCH_INTERVAL, CHECKPOINT_BATCH_INTERVAL_MAX } from '@vibisual/shared';
+import { BUBBLE_COLORS, READ_TOOLS, WS_BATCH_INTERVAL, WS_BATCH_INTERVAL_MAX, WS_BATCH_BACKOFF_FACTOR, CHECKPOINT_BATCH_INTERVAL, CHECKPOINT_BATCH_INTERVAL_MAX, CHECKPOINT_QUIET_SWEEP_MS, PROJECT_IDLE_UNLOAD_MS, PROJECT_IDLE_UNLOAD_SWEEP_MS, PROJECT_IDLE_UNLOAD_PRESSURE_MS } from '@vibisual/shared';
 import { broadcast } from './broadcastBus.js';
 import { graphManager } from './services/projectGraphManager.js';
 import { modelRegistryService } from './services/modelRegistryService.js';
@@ -73,7 +73,8 @@ import { analyzeBrainMigration, applyBrainMigration } from './services/brainMigr
 import { scheduleBrainReflection, isBrainReflectionCwd } from './services/brainReflectionService.js';
 import { isPortAlive, killByPort, respawn } from './services/processChecker.js';
 // §5.14 v4.62 — 플레이 버블(이 프로젝트를 켜는 버튼).
-import type { PlayBubble, PlayRecipe } from '@vibisual/shared';
+import type { PlayBubble, PlayRecipe, SpecDoc } from '@vibisual/shared';
+import { SPEC_BUBBLE_DEFAULT_HEIGHT, SPEC_BUBBLE_DEFAULT_WIDTH, SPEC_ITEM_TEXT_MAX, SPEC_RULES_BEGIN, SPEC_RULES_END, SPEC_TASK_GAP_Y, SPEC_TASK_LABEL_MAX, SPEC_TASK_OFFSET_X, buildSpecTaskRules } from '@vibisual/shared';
 import { PLAY_ALIVE_SWEEP_MS, PLAY_BUBBLE_DEFAULT_HEIGHT, PLAY_BUBBLE_DEFAULT_WIDTH, PLAY_PREVIEW_DEFAULT_HEIGHT, PLAY_PREVIEW_DEFAULT_WIDTH, PLAY_PREVIEW_GAP, buildPlayRecipeAskPrompt } from '@vibisual/shared';
 import { detectPlayRecipes } from './services/playRecipeDetector.js';
 import { isPlayAlive, startPlay, stopAllPlays, stopPlay } from './services/playRunner.js';
@@ -84,6 +85,7 @@ import { readWorkspaceFile, writeWorkspaceFile } from './services/workspaceFile.
 // §5.5 #17-20 v4.74 — 디버그·실행 런처(실행 구성 스캔 + 외부 디버거 위임).
 import { scanRunConfigs } from './services/runConfigScanner.js';
 import { listExternalDebuggers, launchExternalDebugger } from './services/externalDebuggerService.js';
+import { scanMcpInventory, setMcpServerEnabled } from './services/mcpInventoryService.js';
 import { attachDebuggerToEditor } from './services/unrealProjectService.js';
 // §5.5 #17-20 ⑩ v4.94 — 공통 디버그 층(런타임 무관 중단점·스텝·변수)
 import { debugSessionManager, findFreePort, type DebugControlAction } from './services/debug/debugSessionManager.js';
@@ -97,10 +99,12 @@ import {
   uninstallStatusLine,
 } from './services/statusLineInstaller.js';
 import { claudeUsageService, pickPrimaryWindows } from './services/claudeUsageService.js';
-import { getMemoryDiagnostics, startMemoryMonitor } from './services/memoryMonitor.js';
+import { getMemoryDiagnostics, startMemoryMonitor, pressureLevelOf, sampleMemory } from './services/memoryMonitor.js';
 import { claudeAuthService } from './services/claudeAuthService.js';
+import { claudeSetupService } from './services/claudeSetupService.js';
+import { invalidateClaudeBinCache } from './services/claudeBin.js';
 import { isAgentViewEnabled, reconcileOnBoot as agentViewReconcileOnBoot } from './services/claudeAgentViewService.js';
-import { getClaudeVersionInfo, getClaudeInstallsInfo, installLatestClaude, getInflightInstall, invalidateLatestCache } from './services/claudeVersionService.js';
+import { getClaudeVersionInfo, getClaudeInstallsInfo, installLatestClaude, getInflightInstall, invalidateLatestCache, autoUpdateClaudeIfEnabled, onClaudeInstallSettled } from './services/claudeVersionService.js';
 import { agentTracker, setSnapshotScheduler as setAgentTrackerSnapshotScheduler } from './services/agentTracker.js';
 import { discoverSessions, findPidBySession, isProcessAlive, readSessionTokenData, setLivenessProbeListener } from './services/sessionDiscovery.js';
 import { SessionLifecycleManager } from './services/sessionLifecycle.js';
@@ -114,6 +118,7 @@ import { iframeProxyHandler } from './services/iframeProxy.js';
 import { gitStatusService, type WorktreeResolveInfo } from './services/gitStatusService.js';
 import { generateContiFrames, patchContiElement, createEmptyConti, contiId, parseContiResponse, type ContiContextInput } from './services/contiManager.js';
 import { logger } from './logger.js';
+import { enableAsyncDiskWrites, flushPendingDiskWritesSync } from './services/diskWriteQueue.js';
 import { diagnosticService } from './services/diagnosticService.js';
 
 // §5.10 Project Brain — 파일 접근 경고를 세션+파일 조합당 1회만 내기 위한 인메모리 집합.
@@ -127,8 +132,11 @@ function normPathForWarn(p: string): string {
 // §3.7 — desktop in-process 진입점이 server 코어를 라이브러리로 쓰기 위한 re-export.
 // `@vibisual/server` 단일 import 지점에서 코어 API를 모두 가져갈 수 있게 한다.
 export { setBroadcastSink, broadcast, type BroadcastSink } from './broadcastBus.js';
+// §9 — 체크포인트 디스크 쓰기 워커. desktop main 의 before-quit 가 남은 쓰기를 마무리하고 워커를 내린다.
+export { shutdownDiskWriteQueue, flushPendingDiskWritesSync, getDiskWriteQueueStats } from './services/diskWriteQueue.js';
 export {
   handleClientMessage,
+  handleClientDisconnect,
   buildConnectionMessages,
   shutdownIframeLogStreamer,
   shutdownServerLogService,
@@ -161,7 +169,7 @@ export { stopAllPlays } from './services/playRunner.js';
 export { closeStaticHost } from './services/playStaticHost.js';
 // §4 v2.63 — desktop main 의 임베디드 터미널 매니저가 인터랙티브 claude 를 스폰할 때
 // 같은 바이너리(버전 체크/헤드리스 스폰과 동일 SSOT)를 쓰도록 경로 resolver 를 노출.
-export { resolveClaudeBin } from './services/claudeBin.js';
+export { resolveClaudeBin, getClaudeBin, invalidateClaudeBinCache } from './services/claudeBin.js';
 
 // §3.7 v2.8 — hook loopback 리스너 포트. 통합(in-process) 모델에서 외부 `claude` 프로세스
 // (hook curl·커스텀 위임 엣지 dispatch)가 in-process 서버에 닿는 유일한 네트워크 포트다.
@@ -202,6 +210,9 @@ export interface RunServerHandle { app: import('express').Express; }
 export async function runServer(): Promise<RunServerHandle> {
   // 크래시(before-quit 미발동)로 지난 런의 claude 트리가 고아로 남았으면 부팅 시 회수(§ 프로세스 트리 누수).
   void reapOrphanedPidsFromPreviousRun();
+
+  // §9 "디스크 쓰기는 워커 스레드로" — 실제 구동 경로에서만 켠다(테스트·도구는 동기 그대로).
+  enableAsyncDiskWrites();
 
   /** cwd에서 위로 올라가며 pnpm-workspace.yaml 있는 디렉토리 = 프로젝트 루트 */
   function findProjectRoot(start: string): string {
@@ -349,6 +360,12 @@ export async function runServer(): Promise<RunServerHandle> {
         return;
       }
       const next = await userDefaultsService.update(patch);
+      // §4 (첫 실행 설치 온보딩) — 실행본 override 가 바뀌면 캐시된 해석 결과를 버린다.
+      //   v2.43 은 "선택은 다음 실행에 적용"이었지만, 이제 해석이 지연 캐시라 **즉시** 반영된다.
+      if ('claudeBinPath' in patch) {
+        invalidateClaudeBinCache();
+        void claudeSetupService.refresh().catch(() => {});
+      }
       res.json({ ok: true, userDefaults: next });
     } catch (err) {
       res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
@@ -974,6 +991,105 @@ export async function runServer(): Promise<RunServerHandle> {
   );
 
   /**
+   * §4 (첫 실행 설치 온보딩) — `claude` CLI 자체가 없는 사람을 위한 설치 창구.
+   *
+   * 로그인(위)보다 **한 단계 앞**이다: CLI 가 없으면 `claude auth status` 는 spawn 실패라
+   * 로그인 팝업이 뜨지 않도록 설계돼 있어(§4 v4.82 — 판정 불가는 모달로 막지 않는다) 사용자가
+   * 아무 신호도 못 받는 구멍이 있었다. 여기서 "없다"를 1급 상태로 세워 게이트가 뜨게 한다.
+   * 값은 `GraphSnapshot.claudeSetup` 으로도 흘러가므로 클라는 평소 스냅샷만 봐도 된다.
+   */
+  claudeSetupService.onChange((state) => {
+    graphManager.setClaudeSetup(state);
+    broadcastSnapshot();
+    // 없다 → 쓸 수 있다 로 **바뀐** 순간이 온보딩 사슬의 이음매다. 이때 CLI 파생 캐시를 다시
+    // 태우지 않으면 방금 설치한 사용자가 다음 실행 전까지 로그인 창도 못 본다(아래 함수 주석 참고).
+    //
+    // ⚠ 첫 판정(`lastSetupPhase === null`)은 **전이가 아니라 기준점**이다. 이미 CLI 가 깔린
+    //   사용자는 부팅 첫 판정이 곧바로 'ready' 라, 이걸 전이로 세면 **모든 실행마다** 부팅 직후
+    //   캐시를 한 번 더 태우게 된다(`claude --help` 재스캔 + auth 재조회 + 명령 재스캔 = 헛일).
+    const isFirstJudgement = lastSetupPhase === null;
+    const becameReady = !isFirstJudgement && lastSetupPhase !== 'ready' && state.phase === 'ready';
+    lastSetupPhase = state.phase;
+    if (becameReady) void reprimeClaudeDerivedCaches('setup-ready');
+  });
+
+  /**
+   * §4 (첫 실행 설치 온보딩 / CLI 자동 업데이트) — **CLI 에서 파생된 캐시를 다시 태운다.**
+   *
+   * 아래 셋은 모두 "부팅 시 1회" 전제로 만들어졌는데, 이제 앱을 켠 뒤에 CLI 가 **새로 깔리거나
+   * 최신으로 바뀌는** 경로가 생겨 그 전제가 깨졌다. 다시 태우지 않으면 이렇게 끊긴다:
+   *  · `claudeAuth` — `claude auth status` 는 spawn 실패 시 `error: 'cli-missing'` 로 캐시되고
+   *    재조회는 10분 주기다. 그런데 `LoginWindow` 는 `error` 가 있으면 뜨지 않으므로(§4 v4.82),
+   *    **설치를 끝내도 로그인 창이 최대 10분간 안 뜬다** — 사슬이 여기서 끊긴다.
+   *  · `modelRegistry` — 모델 목록과 effort 등급을 `claude` 실행본/`--help` 에서 긁어 오므로
+   *    CLI 가 없던 부팅에서는 시드만 남는다(설정창 드롭다운이 빈약해진다).
+   *  · `builtinCommands` — 슬래시 내장 명령 목록이 빈 채로 남는다.
+   */
+  let lastSetupPhase: string | null = null;
+  async function reprimeClaudeDerivedCaches(reason: string): Promise<void> {
+    logger.info(`[claude-setup] re-priming CLI-derived caches (${reason})`);
+    await Promise.allSettled([
+      refreshClaudeAuth(),
+      modelRegistryService.refreshIfStale(),
+      builtinCommandsService.forceRefresh(),
+    ]);
+    broadcastSnapshot();
+  }
+
+  // 자동/수동 업데이트로 실행본이 바뀐 뒤에도 같은 이유로 다시 태운다 — 새 버전이 추가한 모델·
+  // effort 등급·슬래시 명령이 "다음 실행부터"가 아니라 그 자리에서 반영되게.
+  onClaudeInstallSettled((progress) => {
+    if (progress.status === 'done') void reprimeClaudeDerivedCaches('cli-updated');
+  });
+
+  app.get('/api/claude-setup', (_req, res) => {
+    const cached = graphManager.getClaudeSetup();
+    if (cached) { res.json(cached); return; }
+    void claudeSetupService.refresh()
+      .then((state) => res.json(state))
+      .catch(() => res.status(500).json({ error: 'Internal server error' }));
+  });
+
+  app.post('/api/claude-setup/refresh', (_req, res) => {
+    void claudeSetupService.refresh()
+      .then((state) => res.json(state))
+      .catch(() => res.status(500).json({ error: 'Internal server error' }));
+  });
+
+  /**
+   * 게이트의 [설치하기]. 공식 네이티브 인스톨러를 서버가 spawn 하고, 진행은 WS
+   * `claude_setup_progress` 로 밀어 준다(REST 는 즉시 현재 진행 상태만 돌려준다).
+   * 여러 창에서 눌러도 in-flight 세션 하나를 공유한다.
+   */
+  app.post('/api/claude-setup/install', (_req, res) => {
+    try {
+      const progress = claudeSetupService.startInstall();
+      res.json({ ok: progress.status !== 'error', progress });
+    } catch {
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  // 부팅 직후 1회 판정. 로그인 판정보다 먼저 떠야 게이트 순서(설치 → 로그인)가 뒤집히지 않는다.
+  setTimeout(() => { void claudeSetupService.refresh().catch(() => {}); }, 1_200);
+
+  /**
+   * §4 (Claude Code CLI 자동 업데이트) — 앱을 켤 때 1회 CLI 를 최신으로 맞춘다(기본 켬).
+   * 설치·로그인 판정보다 뒤에 둔다 — 안 깔린 사람은 설치 온보딩이 먼저 맡아야 하고, 갓 설치한
+   * 실행본은 이미 최신이라 곧바로 갱신할 이유가 없다. 실패해도 기동엔 무관.
+   * ⚠ §4 v2.44 **앱** 자동 업데이트(electron-updater)와는 별개 축 — 그쪽은 종전 그대로 항상 자동.
+   */
+  setTimeout(() => {
+    void autoUpdateClaudeIfEnabled()
+      .then((r) => {
+        if (!r.started && r.reason && r.reason !== 'up-to-date') {
+          logger.info(`[claudeVersionService] auto-update skipped (${r.reason})`);
+        }
+      })
+      .catch(() => {});
+  }, CLAUDE_AUTO_UPDATE_BOOT_DELAY_MS);
+
+  /**
    * §3.2.4 H축 — 힙 표본 + 캐시 점유 진단.
    *
    * 이 창구가 없어서 3GB 진단을 프로세스 I/O 카운터와 소거법으로 해야 했다. 읽기 전용이고
@@ -1035,7 +1151,7 @@ export async function runServer(): Promise<RunServerHandle> {
       // §7.11 v2.4 — 죽은 ServerEntry 를 즉시 제거하지 않는다. iframe 위성이 살아 있는
       // 동안(고정핀 / grace 이내) 매칭 entry 가 남아야 IframeServerCard 의 Start/Restart
       // 가 동작한다. 정리는 위성 grace 제거(checkIframesAlive)가 위성과 함께 수행.
-      broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getSnapshot() });
+      broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getBroadcastSnapshot() });
       saveCheckpoint();
       res.json({ servers: graphManager.getRunningServers() });
     } catch (err) {
@@ -1056,7 +1172,7 @@ export async function runServer(): Promise<RunServerHandle> {
       if (!target || !target.port) {
         target && (target.alive = false);
         if (target) graphManager.markIframeStoppedByServerId(id);
-        broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getSnapshot() });
+        broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getBroadcastSnapshot() });
         res.json({ killed: false, servers: graphManager.getRunningServers() });
         return;
       }
@@ -1067,7 +1183,7 @@ export async function runServer(): Promise<RunServerHandle> {
       // §7.11 v2.4 — removeDeadServers 제거: 죽은 entry 는 iframe 위성(고정핀/grace)이
       // 살아 있는 한 보존해야 Start/Restart 버튼의 serverId 매칭이 동작한다.
       logger.info(`Stop server port=${target.port} killed=${killed}`);
-      broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getSnapshot() });
+      broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getBroadcastSnapshot() });
       saveCheckpoint();
       res.json({ killed, servers: graphManager.getRunningServers() });
     } catch (err) {
@@ -1107,7 +1223,7 @@ export async function runServer(): Promise<RunServerHandle> {
       // Claude JSONL 에 active 로 기록 안 돼 v1.48 검사가 영원히 false → 포트가 살아도 idle 고정.
       graphManager.noteIframeRespawnedByServerId(id);
       logger.info(`Restart server port=${target.port ?? '?'} cwd="${owner?.cwd ?? '(default)'}" cmd="${target.command}"`);
-      broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getSnapshot() });
+      broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getBroadcastSnapshot() });
       saveCheckpoint();
 
       // §7.11 v2.22 — 5초 정기 sweep 외에 빠른 수렴: 0.5s / 1.5s / 3s 에 추가 probe.
@@ -2246,7 +2362,7 @@ export async function runServer(): Promise<RunServerHandle> {
       const tFlush0 = performance.now();
       if (PERF_SNAPSHOT) {
         const t0 = performance.now();
-        const snap = graphManager.getSnapshot();
+        const snap = graphManager.getBroadcastSnapshot();
         const t1 = performance.now();
         const bytes = JSON.stringify(snap).length; // 직렬화 비용 계측용(broadcast 가 다시 직렬화하지만 PERF 시에만)
         const t2 = performance.now();
@@ -2258,7 +2374,7 @@ export async function runServer(): Promise<RunServerHandle> {
         );
         broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: snap });
       } else {
-        broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getSnapshot() });
+        broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getBroadcastSnapshot() });
       }
       // 직전 flush 실측 비용(getSnapshot + sink 직렬화/팬아웃 — webContents.send 는 동기 직렬화)으로
       // 다음 창을 적응. 스케줄 시점이 아니라 flush 시점에 갱신하므로 폭주가 끝나면 즉시 16ms 복귀.
@@ -4199,6 +4315,27 @@ export async function runServer(): Promise<RunServerHandle> {
     return { parentAbs, wtAbs, wtNormalized };
   }
 
+  /**
+   * §7.6 (판올림 번호 발급 대기) — 그 워크트리에서 일하던 **커스텀 에이전트** 하나.
+   *
+   * 합치기가 충돌했을 때 "충돌을 그 에이전트에게 넘기기"의 상대다. 워크트리는 자기 이름의
+   * 프로젝트로 등록되므로 `agentProjects`(에이전트 → 프로젝트명) 로 고르면 된다 — 새 상태·새
+   * 매핑을 만들지 않는다. 훅 버블(`customCreated` 아님)과 휴지통은 제외한다(§5.5 #17-29 경계:
+   * 관측 대상에는 명령을 넣지 않는다). 후보가 없으면 null 이고, 화면은 버튼 자체를 렌더하지 않는다.
+   */
+  function findWorktreeOwnerAgentId(wtAbs: string): string | undefined {
+    const wtName = path.basename(wtAbs);
+    const snap = graphManager.getSnapshot();
+    let best: { id: string; at: number } | null = null;
+    for (const agent of snap.agents) {
+      if (agent.customCreated !== true || agent.trashed === true) continue;
+      if (snap.agentProjects[agent.id] !== wtName) continue;
+      const at = agent.lastActivity ?? 0;
+      if (!best || at > best.at) best = { id: agent.id, at };
+    }
+    return best?.id;
+  }
+
   /** 삭제 후에도 남아 있는 파일 경로(디렉토리 기준 상대경로)를 최대 `max`개 수집.
    *  v3.71 — 잠금 파일로 인한 부분 삭제를 사용자에게 그대로 보여주기 위한 진단용. */
   function listRemainingFiles(dir: string, max: number): string[] {
@@ -4412,6 +4549,74 @@ export async function runServer(): Promise<RunServerHandle> {
         res.json({ ok: true, base });
       } catch (err) {
         logger.error('POST /api/worktree/:id/sync failed', err);
+        res.status(500).json({ error: err instanceof Error ? err.message : 'Internal server error' });
+      }
+    })();
+  });
+
+  /**
+   * POST /api/worktree/:nodeId/merge — 워크트리 브랜치를 **부모(본선)** 로 합친다. §7.6 (판올림 번호 발급 대기).
+   *
+   * 바로 위 sync 의 **반대 방향**이다. 종전에는 이 방향이 없어, 격리해서 일을 다 시켜 놓고도 마지막
+   * 합치기만 사용자가 터미널을 따로 열어서 했다.
+   *
+   * - `--no-ff` 고정: 워크트리 한 벌이 커밋 하나로 뭉개지지 않고 갈래가 남아야 되돌릴 수 있다.
+   * - 선행 거부 2종(둘 다 409, 손대기 전에 판정): 부모가 dirty(`parent-dirty`) / 합칠 것 없음(`nothing-to-merge`).
+   * - 충돌이면 부모에서 `merge --abort` 로 **원복**하고 충돌 파일 목록을 돌려준다(사용자 본선을 충돌 상태로 두지 않는다).
+   */
+  app.post('/api/worktree/:nodeId/merge', (req, res) => {
+    void (async () => {
+      try {
+        const info = resolveWorktreeNode(req.params.nodeId);
+        if (!info) { res.status(404).json({ error: 'worktree node not found' }); return; }
+        const branch = await getWorktreeBranch(info.parentAbs, info.wtAbs);
+        if (!branch) {
+          res.status(400).json({ error: 'branch not resolved', stderr: 'Could not determine worktree branch via `git worktree list`.' });
+          return;
+        }
+
+        // 1) 부모가 dirty 면 거부 — 남의 미커밋 작업물 위에 머지를 얹지 않는다(§3.2.1 손실 방지와 같은 방향).
+        const status = await runGit(info.parentAbs, ['status', '--porcelain']);
+        const dirtyFiles = status.stdout.split(/\r?\n/).map((l) => l.slice(3).trim()).filter((l) => l !== '');
+        if (status.code === 0 && dirtyFiles.length > 0) {
+          res.status(409).json({ ok: false, step: 'precheck', error: 'parent-dirty', branch, files: dirtyFiles.slice(0, 50) });
+          return;
+        }
+
+        // 2) 합칠 것이 있나 — 브랜치가 이미 부모 HEAD 의 조상이면 새로 들어올 커밋이 없다(= ahead 0).
+        const ancestor = await runGit(info.parentAbs, ['merge-base', '--is-ancestor', branch, 'HEAD']);
+        if (ancestor.code === 0) {
+          res.status(409).json({ ok: false, step: 'precheck', error: 'nothing-to-merge', branch });
+          return;
+        }
+
+        // 3) 합치기
+        const merge = await runGit(info.parentAbs, ['merge', '--no-ff', '--no-edit', branch]);
+        if (merge.code !== 0) {
+          // 충돌 파일은 **abort 하기 전에** 뽑는다(abort 뒤엔 U 상태가 사라진다).
+          const conflictRes = await runGit(info.parentAbs, ['diff', '--name-only', '--diff-filter=U']);
+          const conflicts = conflictRes.stdout.split(/\r?\n/).map((l) => l.trim()).filter((l) => l !== '');
+          const abort = await runGit(info.parentAbs, ['merge', '--abort']);
+          if (abort.code !== 0) logger.warn(`worktree merge: merge --abort failed: ${abort.stderr.trim()}`);
+          res.status(409).json({
+            ok: false,
+            step: 'merge',
+            branch,
+            conflicts,
+            // 충돌을 넘길 상대 — 그 워크트리에서 일하던 커스텀 에이전트(없으면 undefined → 화면이 버튼을 안 낸다).
+            ownerAgentId: findWorktreeOwnerAgentId(info.wtAbs),
+            stderr: merge.stderr || merge.stdout || 'merge failed',
+          });
+          return;
+        }
+
+        // 4) 캐시 무효화 — 부모의 ahead/behind·최근 커밋이 바뀌었다.
+        const parentInst = graphManager.getProjectByName(path.basename(info.parentAbs));
+        if (parentInst?.name) gitStatusService.invalidate(parentInst.name);
+        broadcastSnapshot();
+        res.json({ ok: true, branch });
+      } catch (err) {
+        logger.error('POST /api/worktree/:id/merge failed', err);
         res.status(500).json({ error: err instanceof Error ? err.message : 'Internal server error' });
       }
     })();
@@ -6455,7 +6660,7 @@ export async function runServer(): Promise<RunServerHandle> {
       graphManager.updateBubblePositionsBatch(positions);
       saveCheckpoint();
       logger.info(`Batch positions saved: ${positions.length} nodes`);
-      broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getSnapshot() });
+      broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getBroadcastSnapshot() });
       res.json({ ok: true });
     } catch (err) {
       logger.error('batch positions save failed', err);
@@ -6483,14 +6688,14 @@ export async function runServer(): Promise<RunServerHandle> {
       // §5.10 — 커스텀 에이전트 삭제는 즉시 소멸 대신 휴지통 이동(identity 보존, 묘비 ❌).
       //   휴지통 이동에 성공하면 removeBubble 로 내려가지 않는다(영구 삭제는 /api/trash/agent).
       if (graphManager.tryTrashCustomAgentByBubbleId(nodeId)) {
-        broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getSnapshot() });
+        broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getBroadcastSnapshot() });
         saveCheckpoint();
         res.json({ ok: true, trashed: true });
         return;
       }
       // v1.85 — 사용자 명시 버블 삭제: 에이전트면 그 Task Edge 까지 cascade 제거(고아 방지).
       graphManager.removeBubble(nodeId, { purgeTaskEdges: true });
-      broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getSnapshot() });
+      broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getBroadcastSnapshot() });
       saveCheckpoint();
       res.json({ ok: true });
     } catch (err) {
@@ -6527,7 +6732,7 @@ export async function runServer(): Promise<RunServerHandle> {
       }
       logger.info(`POST /api/bubbles/delete — removed ${deleted.length}, blocked ${blocked.length}`);
       // 한 번만 스냅샷 브로드캐스트 → 클라이언트가 선택 버블을 동시에 제거
-      broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getSnapshot() });
+      broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getBroadcastSnapshot() });
       saveCheckpoint();
       res.json({ ok: true, deleted, blocked });
     } catch (err) {
@@ -6861,6 +7066,80 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
+   * GET /api/mcp-servers — §5.5 #17-31: 이 프로젝트에서 쓸 수 있는 MCP 전부.
+   *
+   * 글로벌(`~/.claude.json` 최상위) · 로컬(그 프로젝트 엔트리) · 프로젝트(`.mcp.json`) · 프리셋을
+   * 한 목록으로 낸다. **매 호출마다 디스크를 다시 읽는다** — 화면의 새로고침이 곧 이 호출이다
+   * (앱 밖 터미널에서 `claude mcp add` 를 한 직후에도 누르면 바로 보이게).
+   * 경로 가드는 탐색기·실행 런처와 같은 `isWithinOpenableRoots` 하나를 그대로 쓴다.
+   */
+  app.get('/api/mcp-servers', (req, res) => {
+    try {
+      const root = req.query['root'];
+      if (typeof root !== 'string' || root.length === 0) {
+        res.status(400).json({ error: 'root query required' });
+        return;
+      }
+      const resolvedRoot = path.resolve(root);
+      if (!isWithinOpenableRoots(resolvedRoot)) {
+        logger.warn(`mcp-servers blocked (outside project root): "${root}"`);
+        res.status(403).json({ error: 'Path outside project root' });
+        return;
+      }
+      // 프리셋 줄의 켜짐은 파일이 아니라 이 에이전트의 설정이 진실이다(#17-20 ⑥).
+      const agentId = req.query['agentId'];
+      const presetIds = typeof agentId === 'string' && agentId.length > 0
+        ? graphManager.getAgentConfig(agentId)?.mcpServers
+        : undefined;
+      res.json(scanMcpInventory(resolvedRoot, presetIds));
+    } catch (err) {
+      logger.error('GET /api/mcp-servers failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * POST /api/mcp-servers/toggle — §5.5 #17-31 ④: 그 서버를 이 프로젝트에서 켜거나 끈다.
+   *
+   * 쓰는 곳은 `~/.claude.json` 의 그 프로젝트 엔트리 하나뿐이다(= `/mcp disable` 과 같은 자리).
+   * 레포의 `.mcp.json`·`.claude/settings*.json` 은 읽기만 한다. 프리셋(`scope='preset'`)은 축이
+   * 달라 여기서 받지 않는다 — 기존 `PUT /api/agent-config/:agentId` 가 그 통로다.
+   * 응답은 갱신된 인벤토리라 화면이 따로 다시 묻지 않는다.
+   */
+  app.post('/api/mcp-servers/toggle', (req, res) => {
+    try {
+      const { root, scope, name, enabled, agentId } = req.body as {
+        root?: string; scope?: string; name?: string; enabled?: boolean; agentId?: string;
+      };
+      if (typeof root !== 'string' || root.length === 0 || typeof name !== 'string' || name.length === 0) {
+        res.status(400).json({ error: 'root and name required' });
+        return;
+      }
+      if (scope !== 'global' && scope !== 'local' && scope !== 'project') {
+        res.status(400).json({ error: 'scope must be global | local | project' });
+        return;
+      }
+      const resolvedRoot = path.resolve(root);
+      if (!isWithinOpenableRoots(resolvedRoot)) {
+        res.status(403).json({ error: 'Path outside project root' });
+        return;
+      }
+      const result = setMcpServerEnabled(resolvedRoot, scope, name, enabled === true);
+      if (!result.ok) {
+        res.status(400).json({ error: result.reason });
+        return;
+      }
+      const presetIds = typeof agentId === 'string' && agentId.length > 0
+        ? graphManager.getAgentConfig(agentId)?.mcpServers
+        : undefined;
+      res.json({ ok: true, inventory: scanMcpInventory(resolvedRoot, presetIds) });
+    } catch (err) {
+      logger.error('POST /api/mcp-servers/toggle failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /**
    * POST /api/unreal/attach — §5.5 #17-20 ③⑦: 실행 중인 언리얼 에디터에 디버거를 붙인다.
    *
    * `-WaitForDebugger` 로 띄운 에디터는 디버거가 붙을 때까지 멈춰 서 있다. 그 "붙이는" 한 동작을
@@ -7116,7 +7395,7 @@ export async function runServer(): Promise<RunServerHandle> {
         res.status(404).json({ error: 'File not found' });
         return;
       }
-      broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getSnapshot() });
+      broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getBroadcastSnapshot() });
       saveCheckpoint();
       res.json({ ok: true });
     } catch (err) {
@@ -7138,7 +7417,7 @@ export async function runServer(): Promise<RunServerHandle> {
         res.status(404).json({ error: 'Folder not found' });
         return;
       }
-      broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getSnapshot() });
+      broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getBroadcastSnapshot() });
       saveCheckpoint();
       res.json({ ok: true });
     } catch (err) {
@@ -7160,7 +7439,7 @@ export async function runServer(): Promise<RunServerHandle> {
         res.status(404).json({ error: 'File node not found' });
         return;
       }
-      broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getSnapshot() });
+      broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getBroadcastSnapshot() });
       saveCheckpoint();
       res.json({ ok: true });
     } catch (err) {
@@ -7189,7 +7468,7 @@ export async function runServer(): Promise<RunServerHandle> {
         res.status(404).json({ error: 'File not found' });
         return;
       }
-      broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getSnapshot() });
+      broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getBroadcastSnapshot() });
       saveCheckpoint();
       res.json({ ok: true });
     } catch (err) {
@@ -8474,6 +8753,233 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
+  // ─── §5.15 — 스펙 보드 (요구사항 → 수용 기준 → 작업 카드 → 실행) ───
+
+  /** POST /api/spec-docs — 스펙 한 장을 캔버스에 놓는다. */
+  app.post('/api/spec-docs', (req, res) => {
+    try {
+      const body = (req.body ?? {}) as {
+        projectName?: unknown;
+        x?: unknown;
+        y?: unknown;
+        width?: unknown;
+        height?: unknown;
+        title?: unknown;
+        body?: unknown;
+        items?: unknown;
+      };
+      if (typeof body.projectName !== 'string' || typeof body.x !== 'number' || typeof body.y !== 'number') {
+        res.status(400).json({ ok: false, error: 'projectName, x, y required' });
+        return;
+      }
+      const doc = graphManager.createSpecDoc({
+        projectName: body.projectName,
+        x: body.x,
+        y: body.y,
+        width: typeof body.width === 'number' ? body.width : SPEC_BUBBLE_DEFAULT_WIDTH,
+        height: typeof body.height === 'number' ? body.height : SPEC_BUBBLE_DEFAULT_HEIGHT,
+        ...(typeof body.title === 'string' ? { title: body.title } : {}),
+        ...(typeof body.body === 'string' ? { body: body.body } : {}),
+        ...(Array.isArray(body.items)
+          ? { items: body.items.filter((t): t is string => typeof t === 'string') }
+          : {}),
+      });
+      if (!doc) {
+        res.status(500).json({ ok: false, error: 'no project instance registered' });
+        return;
+      }
+      broadcastSnapshot();
+      saveCheckpoint();
+      res.json({ ok: true, data: doc });
+    } catch (err) {
+      logger.error('POST /api/spec-docs failed', err);
+      res.status(500).json({ ok: false, error: 'internal error' });
+    }
+  });
+
+  /** PATCH /api/spec-docs/:id — 좌표·크기·제목·본문·수용 기준. 개정 번호는 서버가 판단해 올린다. */
+  app.patch('/api/spec-docs/:id', (req, res) => {
+    try {
+      const id = req.params['id']!;
+      if (!graphManager.getSpecDoc(id)) {
+        res.status(404).json({ ok: false, error: 'spec doc not found' });
+        return;
+      }
+      const updated = graphManager.updateSpecDoc(id, (req.body ?? {}) as Partial<SpecDoc>);
+      if (!updated) {
+        res.status(404).json({ ok: false, error: 'spec doc not found' });
+        return;
+      }
+      broadcastSnapshot();
+      saveCheckpoint();
+      res.json({ ok: true, data: updated });
+    } catch (err) {
+      logger.error('PATCH /api/spec-docs failed', err);
+      res.status(500).json({ ok: false, error: 'internal error' });
+    }
+  });
+
+  /** POST /api/spec-docs/:id/items — 수용 기준 한 줄 추가. */
+  app.post('/api/spec-docs/:id/items', (req, res) => {
+    try {
+      const id = req.params['id']!;
+      const text = (req.body as { text?: unknown } | undefined)?.text;
+      if (typeof text !== 'string' || !text.trim()) {
+        res.status(400).json({ ok: false, error: 'text required' });
+        return;
+      }
+      const updated = graphManager.addSpecItem(id, text.trim().slice(0, SPEC_ITEM_TEXT_MAX));
+      if (!updated) {
+        res.status(404).json({ ok: false, error: 'spec doc not found' });
+        return;
+      }
+      broadcastSnapshot();
+      saveCheckpoint();
+      res.json({ ok: true, data: updated });
+    } catch (err) {
+      logger.error('POST /api/spec-docs/:id/items failed', err);
+      res.status(500).json({ ok: false, error: 'internal error' });
+    }
+  });
+
+  /** DELETE /api/spec-docs/:id — 스펙만 지운다. 거기서 나온 작업 에이전트·Task Edge 는 남는다. */
+  app.delete('/api/spec-docs/:id', (req, res) => {
+    try {
+      const id = req.params['id']!;
+      const doc = graphManager.getSpecDoc(id);
+      if (!doc) {
+        res.status(404).json({ ok: false, error: 'spec doc not found' });
+        return;
+      }
+      if (doc.preservePinned === true) {
+        res.status(409).json({ ok: false, error: 'spec doc preserved' });
+        return;
+      }
+      graphManager.deleteSpecDoc(id);
+      broadcastSnapshot();
+      saveCheckpoint();
+      res.json({ ok: true });
+    } catch (err) {
+      logger.error('DELETE /api/spec-docs failed', err);
+      res.status(500).json({ ok: false, error: 'internal error' });
+    }
+  });
+
+  /**
+   * POST /api/spec-docs/:id/generate-tasks — 수용 기준 → 작업 카드.
+   *
+   * 항목 하나당 커스텀 에이전트 버블을 **기존 `createCustomAgent` 경로**로 한 장 만들고,
+   * 만들어진 순서대로 **기존 Task Edge** 로 사슬처럼 잇는다(새 스폰 경로·새 엣지 타입 ❌).
+   * 이미 카드가 붙은 항목은 건너뛴다 — `itemIds` 를 주면 그 항목만, 주지 않으면 카드 없는 전부.
+   * `regenerate` 가 참이면 이미 카드가 있어도 **개정 번호만 지금 값으로 올린다**(카드 재생성 ❌ —
+   * 사람이 만든 작업물을 스펙 한 장이 갈아엎지 않는다는 §5.15 규율).
+   */
+  app.post('/api/spec-docs/:id/generate-tasks', (req, res) => {
+    try {
+      const id = req.params['id']!;
+      const doc = graphManager.getSpecDoc(id);
+      if (!doc) {
+        res.status(404).json({ ok: false, error: 'spec doc not found' });
+        return;
+      }
+      const body = (req.body ?? {}) as { itemIds?: unknown; regenerate?: unknown };
+      const wanted = Array.isArray(body.itemIds)
+        ? new Set(body.itemIds.filter((v): v is string => typeof v === 'string'))
+        : null;
+      const regenerate = body.regenerate === true;
+
+      const targets = doc.items.filter((it) => (wanted ? wanted.has(it.id) : true));
+      const created: { itemId: string; agentId: string }[] = [];
+      const refreshed: string[] = [];
+      const edges: string[] = [];
+      // 사슬의 앞 고리 — 이번에 만든 카드와 이미 있던 카드를 한 줄로 잇기 위해 항목 순서를 따라간다.
+      let prevAgentId: string | null = null;
+
+      for (const item of doc.items) {
+        const isTarget = targets.includes(item);
+        // 이미 카드가 있는 항목: 사슬의 앞 고리로만 쓰고, regenerate 면 개정 번호를 지금 값으로 올린다.
+        if (item.taskAgentId) {
+          if (isTarget && regenerate) {
+            graphManager.attachSpecTask(doc.id, item.id, item.taskAgentId, item.taskSessionId ?? '');
+            refreshed.push(item.id);
+          }
+          prevAgentId = item.taskAgentId;
+          continue;
+        }
+        if (!isTarget) continue;
+
+        const index = doc.items.indexOf(item);
+        const label = item.text.trim().slice(0, SPEC_TASK_LABEL_MAX) || `Spec ${index + 1}`;
+        const agent = graphManager.createCustomAgent(
+          label,
+          { x: doc.x + doc.width + SPEC_TASK_OFFSET_X, y: doc.y + index * SPEC_TASK_GAP_Y },
+          doc.projectName,
+        );
+        // 카드가 무엇을 만족시켜야 하는지는 rules 자동 섹션으로 얹는다(§7.9 v1.33 과 같은 문법).
+        const cfg = graphManager.getAgentConfig(agent.id);
+        if (cfg) {
+          const rules = buildSpecTaskRules({
+            specTitle: doc.title || doc.id,
+            specBody: doc.body,
+            itemText: item.text,
+            itemIndex: index,
+            itemTotal: doc.items.length,
+          });
+          const existing = (cfg.rules ?? '').replace(
+            new RegExp(`${SPEC_RULES_BEGIN}[\\s\\S]*?${SPEC_RULES_END}\\n?`, 'g'),
+            '',
+          );
+          graphManager.setAgentConfig(agent.id, { ...cfg, rules: existing ? `${rules}\n\n${existing}` : rules });
+        }
+        graphManager.attachSpecTask(doc.id, item.id, agent.id, agent.path);
+        created.push({ itemId: item.id, agentId: agent.id });
+
+        // 앞 고리가 있으면 사슬로 잇는다. `delegationPolicy='auto'` 고정 — 기본값 strict 는
+        // §7.9 v1.36 에서 소스의 도구를 런타임에 박탈해 형제 카드끼리 서로를 무력화한다.
+        if (prevAgentId) {
+          try {
+            const edge = graphManager.createTaskEdge(
+              prevAgentId,
+              agent.id,
+              label,
+              'manual',
+              null,
+              { kind: 'command', delegationPolicy: 'auto' },
+            );
+            edges.push(edge.id);
+          } catch (err) {
+            logger.warn('spec task edge skipped', err);
+          }
+        }
+        prevAgentId = agent.id;
+      }
+
+      broadcastSnapshot();
+      saveCheckpoint();
+      res.json({ ok: true, data: graphManager.getSpecDoc(doc.id) ?? doc, created, refreshed, edges });
+    } catch (err) {
+      logger.error('POST /api/spec-docs/:id/generate-tasks failed', err);
+      res.status(500).json({ ok: false, error: 'internal error' });
+    }
+  });
+
+  /** DELETE /api/spec-docs/:id/items/:itemId/task — 항목에서 카드 연결만 끊는다(에이전트는 남는다). */
+  app.delete('/api/spec-docs/:id/items/:itemId/task', (req, res) => {
+    try {
+      const ok = graphManager.detachSpecTask(req.params['id']!, req.params['itemId']!);
+      if (!ok) {
+        res.status(404).json({ ok: false, error: 'spec item not found' });
+        return;
+      }
+      broadcastSnapshot();
+      saveCheckpoint();
+      res.json({ ok: true });
+    } catch (err) {
+      logger.error('DELETE spec task link failed', err);
+      res.status(500).json({ ok: false, error: 'internal error' });
+    }
+  });
+
   /**
    * §5.4 #29 v1.51 — Canvas 복사·붙여넣기.
    * 클라가 localStorage 에 저장한 CanvasClipboardPayload + 대상 projectName + anchor(캔버스 좌표)
@@ -8814,22 +9320,70 @@ export async function runServer(): Promise<RunServerHandle> {
     return runStorageCleanup({ projects, liveSubAgentIds });
   }
 
-  function saveCheckpoint(): void {
+  /**
+   * §9 "저장은 바뀐 프로젝트만" — 프로젝트별 마지막 저장 시점의 (변경 카운터, 시각).
+   * 세션 휘발 — 부팅 직후에는 비어 있어 첫 저장이 전 프로젝트를 한 번 훑는다(의도된 초기화).
+   */
+  const lastSavedProjectState = new Map<string, { version: number; at: number }>();
+
+  /**
+   * @param opts.dirtyOnly **훅 이벤트 폭주 경로 전용** — 이번 창에서 실제로 바뀐 프로젝트만 저장한다.
+   *
+   * 종전에는 호출마다 열린 프로젝트 **전부**를 `toProjectCheckpoint()` 로 재구축 + 전체 직렬화했다
+   * (실측 2026-08-19 · 열린 탭 7개: 직렬화만 21.8ms, 활성 1개면 3.8ms). 서버가 Electron 메인
+   * 프로세스와 한 몸이라 그 시간이 곧 UI 정지다.
+   *
+   * ⚠ **기본값은 종전 그대로(전부 저장)** 이고, 좁히는 것은 `scheduleCheckpoint()`(훅 도구 이벤트
+   *   코얼레스) 한 경로뿐이다. 이유: 판정 근거인 `mutationVersion` 은 **모든** 변경 지점이 올리지
+   *   않는다(예: `createCustomAgent` 는 올리지 않는다). 훅 경로는 `processHookEvent` 가 반드시
+   *   올리므로 그 경로에서만 신뢰할 수 있고, 사용자 조작·설정·정체성 변경(§3.2.1 #4 즉시 저장)은
+   *   종전대로 전부 저장한다. 좁힌 경로에서도 조용한 프로젝트는 `CHECKPOINT_QUIET_SWEEP_MS`
+   *   마다 한 번은 무조건 재구축한다(싱글턴발 변경의 안전망).
+   */
+  function saveCheckpoint(opts?: { dirtyOnly?: boolean }): void {
     const fallbackProject = graphManager.getPrimaryProjectName();
     if (!fallbackProject) return;
 
-    graphManager.incrementSeq();
     // §3.2.1-4 (v3.03) — read-only 격리 프로젝트는 자동 저장 동결(빈/손상 인스턴스가 디스크 덮어쓰기 방지).
     // readOnly 는 stub 상태라 보통 getProjectNames(인스턴스 기반)에 안 잡히지만, 방어적으로 필터한다.
     const projectNames = graphManager.getProjectNames().filter((n) => !graphManager.isProjectReadOnly(n));
     if (projectNames.length === 0) return;
 
-    if (projectNames.length <= 1) {
-      const cp = graphManager.toProjectCheckpoint(projectNames[0] ?? fallbackProject);
-      saveScheduler.forceCheckpoint(cp);
-    } else {
-      const checkpoints = projectNames.map((name) => graphManager.toProjectCheckpoint(name));
-      saveScheduler.forceCheckpointAll(checkpoints);
+    const dirtyOnly = opts?.dirtyOnly === true;
+    const now = Date.now();
+    const targets = !dirtyOnly
+      ? projectNames
+      : projectNames.filter((name) => {
+          const version = graphManager.getProjectMutationVersion(name);
+          if (version === null) return true;           // 인스턴스 해석 실패 → 보수적으로 저장
+          const prev = lastSavedProjectState.get(name);
+          if (prev === undefined) return true;         // 이 세션에서 아직 한 번도 저장 안 함
+          if (prev.version !== version) return true;   // 그래프가 실제로 바뀜
+          return now - prev.at >= CHECKPOINT_QUIET_SWEEP_MS; // 조용해도 주기적으로 한 번은
+        });
+
+    if (targets.length > 0) {
+      // seq 는 저장 대상만 올린다 — 안 올린 프로젝트는 직렬화 결과가 그대로라 지문 비교가 산다.
+      graphManager.incrementSeqForProjects(targets);
+
+      if (targets.length <= 1) {
+        const cp = graphManager.toProjectCheckpoint(targets[0] ?? fallbackProject);
+        saveScheduler.forceCheckpoint(cp);
+      } else {
+        const checkpoints = targets.map((name) => graphManager.toProjectCheckpoint(name));
+        saveScheduler.forceCheckpointAll(checkpoints);
+      }
+
+      for (const name of targets) {
+        lastSavedProjectState.set(name, { version: graphManager.getProjectMutationVersion(name) ?? 0, at: now });
+      }
+      // 닫힌 프로젝트의 흔적은 남기지 않는다(세션 내내 자라지 않게).
+      if (lastSavedProjectState.size > projectNames.length) {
+        const alive = new Set(projectNames);
+        for (const key of [...lastSavedProjectState.keys()]) {
+          if (!alive.has(key)) lastSavedProjectState.delete(key);
+        }
+      }
     }
 
     // hydrated + stub 프로젝트를 합산해 orphan prune — stub 프로젝트 worktree를 잘못 제거하지 않도록.
@@ -8863,7 +9417,9 @@ export async function runServer(): Promise<RunServerHandle> {
     checkpointTimer = setTimeout(() => {
       checkpointTimer = null;
       const t0 = performance.now();
-      saveCheckpoint();
+      // §9 "저장은 바뀐 프로젝트만" — 이 경로(훅 도구 이벤트 코얼레스)에서만 좁힌다.
+      //   `processHookEvent` 가 변경 카운터를 반드시 올리므로 여기서는 판정이 신뢰된다.
+      saveCheckpoint({ dirtyOnly: true });
       const cost = performance.now() - t0;
       checkpointDelay = Math.min(
         Math.max(CHECKPOINT_BATCH_INTERVAL, cost * WS_BATCH_BACKOFF_FACTOR),
@@ -8876,8 +9432,12 @@ export async function runServer(): Promise<RunServerHandle> {
     if (checkpointTimer !== null) {
       clearTimeout(checkpointTimer);
       checkpointTimer = null;
+      // §9 — 종료 flush 는 변경 판정을 타지 않는다(전 프로젝트 전량, 내구성 우선).
       try { saveCheckpoint(); } catch { /* 종료 중 저장 실패는 다음 부팅 백업 복구에 위임 */ }
     }
+    // §9 — 워커에 넘긴 뒤 아직 디스크에 앉지 않은 쓰기를 동기로 마무리한다(§3.2.1 내구성).
+    //   'exit' 는 동기 작업만 허용되므로 이 flush 도 전 구간 동기다.
+    try { flushPendingDiskWritesSync(); } catch { /* 마지막 방어선 — 실패해도 다음 부팅이 백업으로 복구 */ }
   });
 
   // §9 v3.45 — PostToolUse Bash 전 노드 existsSync 스윕 최소 간격.
@@ -9823,6 +10383,24 @@ export async function runServer(): Promise<RunServerHandle> {
         saveCheckpoint();
       }
     }, AGENT_IDLE_SWEEP_INTERVAL_MS);
+
+    // §9 배경 탭 유휴 해제 — 아무 창도 안 보고 · 일하는 것 없고 · 오래 지난 프로젝트를 stub 으로 내린다.
+    //   탭은 그대로 보이고(스냅샷의 stubProjects), 그 탭을 다시 고르면 구독 선언이 자동 hydrate 한다.
+    //   힙 압력(§3.2.4 I축)이 걸려 있으면 임계값을 낮춰 먼저 내려놓는다 — 끈 경우(0)는 그대로 끈다.
+    setInterval(() => {
+      if (PROJECT_IDLE_UNLOAD_MS <= 0) return;
+      const level = pressureLevelOf(sampleMemory());
+      const idleMs = level === 'normal'
+        ? PROJECT_IDLE_UNLOAD_MS
+        : Math.min(PROJECT_IDLE_UNLOAD_MS, PROJECT_IDLE_UNLOAD_PRESSURE_MS);
+      const unloaded = graphManager.sweepIdleBackgroundProjects(idleMs);
+      if (unloaded.length > 0) {
+        logger.info(
+          `Idle background project(s) unloaded → stub (${level === 'normal' ? 'idle' : `memory-pressure:${level}`}): ${unloaded.join(', ')}`,
+        );
+        broadcastSnapshot();
+      }
+    }, PROJECT_IDLE_UNLOAD_SWEEP_MS);
 
     // §5.3 — 사용자 인터럽트(Esc/Ctrl+C)·도구 거부 시 Claude Code 는 Stop 훅을 발사하지 않아
     // Hook 에이전트 버블이 active(파란 링)로 stuck 된다. 세션 JSONL 마지막 엔트리가 인터럽트

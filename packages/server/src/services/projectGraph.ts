@@ -39,6 +39,8 @@ import type {
   CaptureBubble,
   PlayBubble,
   PlayRecipe,
+  SpecDoc,
+  SpecItem,
   Conti,
   ContiFrame,
   ContiElement,
@@ -69,7 +71,7 @@ import type {
   ContextOverrides,
   ContextOverrideMap,
 } from '@vibisual/shared';
-import { MAX_BASH_HISTORY, MAX_FILE_EDITS, MAX_WRITE_DIFF_BYTES, DEFAULT_MAX_SATELLITES, SATELLITE_MAX_BOUNDS, MAX_AGENTS, SATELLITE_TYPES, AGENT_FADE_DURATION, BUBBLE_TTL, GHOST_FADE_DURATION, FILE_EXISTENCE_MISS_THRESHOLD, FRONTEND_SERVER_PATTERNS, IFRAME_DEAD_GRACE_MS, parseModelFamily, DEFAULT_AGENT_CONFIG, AVAILABLE_AGENT_TOOLS, BACKFILL_AGENT_TOOLS, DEFAULT_UI_LOCALE, COMMENT_BOX_DEFAULTS, READ_TOOLS, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, AGENT_REPORT_MAX_PER_AGENT, AGENT_QUESTIONS_MAX_PER_AGENT, AGENT_REVIEWS_MAX_PER_AGENT, AGENT_LISTS_MAX_PER_AGENT, AGENT_FEEDBACK_MAX_PER_AGENT, DELETED_AGENT_TOMBSTONE_MAX, CMD_AGENT_COLOR, MAX_AGENT_EVENTS, BRAIN_INJECTIONS_MAX_PER_AGENT, SESSION_GOAL_NOTE_MAX, SESSION_GOAL_HISTORY_MAX, SESSION_GOAL_STEPS_MAX, SESSION_GOAL_STEP_TEXT_MAX, SESSION_GOAL_TEXT_MAX, AUTO_AGENT_RUN_MAX_PER_AGENT, AUTO_AGENT_RUN_DEFAULT_REWORK_BUDGET, isExpiredByDays, capMapSize, SESSION_KEYED_MAP_MAX } from '@vibisual/shared';
+import { MAX_BASH_HISTORY, MAX_FILE_EDITS, MAX_WRITE_DIFF_BYTES, DEFAULT_MAX_SATELLITES, SATELLITE_MAX_BOUNDS, MAX_AGENTS, SATELLITE_TYPES, AGENT_FADE_DURATION, BUBBLE_TTL, GHOST_FADE_DURATION, FILE_EXISTENCE_MISS_THRESHOLD, FRONTEND_SERVER_PATTERNS, IFRAME_DEAD_GRACE_MS, parseModelFamily, DEFAULT_AGENT_CONFIG, AVAILABLE_AGENT_TOOLS, BACKFILL_AGENT_TOOLS, DEFAULT_UI_LOCALE, COMMENT_BOX_DEFAULTS, READ_TOOLS, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, AGENT_REPORT_MAX_PER_AGENT, AGENT_QUESTIONS_MAX_PER_AGENT, AGENT_REVIEWS_MAX_PER_AGENT, AGENT_LISTS_MAX_PER_AGENT, AGENT_FEEDBACK_MAX_PER_AGENT, DELETED_AGENT_TOMBSTONE_MAX, CMD_AGENT_COLOR, MAX_AGENT_EVENTS, BRAIN_INJECTIONS_MAX_PER_AGENT, SESSION_GOAL_NOTE_MAX, SESSION_GOAL_HISTORY_MAX, SESSION_GOAL_STEPS_MAX, SESSION_GOAL_STEP_TEXT_MAX, SESSION_GOAL_TEXT_MAX, AUTO_AGENT_RUN_MAX_PER_AGENT, AUTO_AGENT_RUN_DEFAULT_REWORK_BUDGET, isExpiredByDays, capMapSize, SESSION_KEYED_MAP_MAX, ROOT_NODE_KEY_PREFIX, LEGACY_ROOT_NODE_KEY, SPEC_TITLE_MAX, SPEC_BODY_MAX, SPEC_MAX_ITEMS, SPEC_ITEM_TEXT_MAX } from '@vibisual/shared';
 import type { ServerKind, UiLocale, ExecutionMode } from '@vibisual/shared';
 import { EdgeManager } from './edgeManager.js';
 import { extractPort, extractPortFromInlineEval, extractPortFromScriptFile, isPortAlive, isUrlServing, isProbeCommand, isVibisualLauncherCommand } from './processChecker.js';
@@ -99,6 +101,23 @@ import { userDefaultsService } from './userDefaultsService.js';
 function sanitizePlayBubbleOnLoad(bubble: PlayBubble): PlayBubble {
   const { url: _url, port: _port, error: _error, ...rest } = bubble;
   return { ...rest, status: 'idle', previewOpen: false };
+}
+
+/**
+ * §5.15 — 디스크에서 올라온 스펙 한 장을 정규화한다.
+ *
+ * 실행 상태가 없으므로 내릴 것은 없고, **구버전·손상 체크포인트에서 빠졌을 수 있는 필드만**
+ * 채운다(`items` 가 배열이 아니면 빈 배열, `bodyRevision` 이 없으면 0). 사람이 쓴 문장 자체는
+ * 손대지 않는다 — 여기서 자르면 사용자가 쓴 것이 조용히 사라진다.
+ */
+function sanitizeSpecDocOnLoad(doc: SpecDoc): SpecDoc {
+  return {
+    ...doc,
+    title: typeof doc.title === 'string' ? doc.title : '',
+    body: typeof doc.body === 'string' ? doc.body : '',
+    items: Array.isArray(doc.items) ? doc.items.filter((it) => it && typeof it.id === 'string') : [],
+    bodyRevision: typeof doc.bodyRevision === 'number' ? doc.bodyRevision : 0,
+  };
 }
 
 /**
@@ -857,6 +876,10 @@ export class ProjectGraph {
   private appBubbles = new Map<string, AppBubble>();
   /** §5.14 v4.62 — 플레이 버블(이 프로젝트를 켜는 버튼 + 확정된 실행 레시피). */
   private playBubbles = new Map<string, PlayBubble>();
+  /** §5.15 — 스펙 보드(요구사항 본문 + 수용 기준 + 거기서 나온 작업 카드 연결). */
+  private specDocs = new Map<string, SpecDoc>();
+  /** 스펙·항목 id 발급 카운터. 한 밀리초에 여러 항목을 만들 때 id 가 겹치지 않게 한다. */
+  private specIdCounter = 0;
   /** §5.3 #28 v1.47 — 콘티 (contiId → Conti). 에이전트 cascade 삭제. */
   private contis = new Map<string, Conti>();
 
@@ -897,6 +920,17 @@ export class ProjectGraph {
   /** 상태 변경을 추적하는 단조증가 버전 카운터 */
   private mutationVersion = 0;
   private snapshotCache: { snapshot: GraphSnapshot; version: number; cachedAt: number } | null = null;
+
+  /**
+   * §9 "저장은 바뀐 프로젝트만" — 이 인스턴스가 지난 저장 이후 바뀌었는지 판정하는 단조 카운터.
+   *
+   * ⚠ 이 값 하나로 "저장이 필요 없다"를 단정하면 안 된다. 체크포인트에는 인스턴스 **밖** 싱글턴
+   *   (`subAgentManager`·`pipelineManager`·카드류)에서 오는 값이 함께 담기는데 그쪽 변경은 여기를
+   *   올리지 않는다. 호출자는 반드시 `CHECKPOINT_QUIET_SWEEP_MS` 주기 강제 재구축과 짝지어 쓴다.
+   */
+  getMutationVersion(): number {
+    return this.mutationVersion;
+  }
 
   /** 상태 변경 진입점에서 호출 — mutationVersion 증가 + 스냅샷 캐시 무효화 */
   private bumpMutationVersion(): void {
@@ -952,11 +986,12 @@ export class ProjectGraph {
    * cwd에서 프로젝트 등록. 이미 있으면 무시.
    * 원본 케이스 보존 (forward slash 변환만).
    */
-  /** 루트 노드 키 접두사 (프로젝트별: __root__:프로젝트명) */
-  private static readonly ROOT_PREFIX = '__root__:';
+  /** 루트 노드 키 접두사 (프로젝트별: __root__:프로젝트명).
+   *  영속 계층의 빈 체크포인트 판정과 같은 기준을 써야 해서 공유 상수를 그대로 쓴다. */
+  private static readonly ROOT_PREFIX = ROOT_NODE_KEY_PREFIX;
 
   /** 하위 호환용 레거시 키 */
-  private static readonly LEGACY_ROOT_KEY = '__root__';
+  private static readonly LEGACY_ROOT_KEY = LEGACY_ROOT_NODE_KEY;
 
   /** 프로젝트명 → 루트 키 */
   private static rootKeyFor(projectName: string): string {
@@ -1014,7 +1049,7 @@ export class ProjectGraph {
       // SSOT §5.4 #14 (v1.34): 사용자 close 의도는 훅보다 강함. 이미 hidden 인 프로젝트는
       // 훅의 registerProject 재호출로 자동 unhide 하지 않는다. 복구는 사용자 명시 액션
       // (POST /api/projects/open-folder → showProject)만 수행한다.
-      this.ensureRootNode(existing.name);
+      this.ensureRootNode(existing.name, existing);
       return existing;
     }
 
@@ -1030,7 +1065,7 @@ export class ProjectGraph {
     logger.info(`Project registered: "${info.name}" (${info.path})`);
 
     // 루트 노드 자동 생성
-    this.ensureRootNode(info.name);
+    this.ensureRootNode(info.name, info);
 
     // 새 프로젝트 → 기존 세션 탐색 + 에이전트 시딩 (기존 프로젝트와 동일 초기화)
     this.discoverAndSeed(cwd);
@@ -1191,10 +1226,22 @@ export class ProjectGraph {
     }
   }
 
-  /** 프로젝트별 루트 폴더 노드가 없으면 생성 */
-  private ensureRootNode(projectName: string): void {
+  /**
+   * 프로젝트별 루트 폴더 노드가 없으면 생성.
+   *
+   * ⚠ 워크트리 프로젝트에는 만들지 않는다 — 워크트리의 화면 표현은 자기 루트 버블이 아니라
+   *   **부모 캔버스의 워크트리 버블**(`ensureWorktreeNode`, 부모 이름으로 귀속)이고, 주기 스윕
+   *   `migrateWorktreeProjects()` → `reparentWorktreeArtifacts()` 가 어차피 이 루트 노드를 지운다.
+   *   만들었다 지우는 왕복이 남아 있으면 부팅 직후 저장본에만 루트 노드가 실려, 그 뒤 정상적으로
+   *   비어 있는 저장본이 §3.2.1-3 통째-0 가드에 매 저장마다 걸린다(경고 무한 반복의 발화점).
+   *   호출부가 `info` 를 넘겨 주면 그것으로, 아니면 등록된 프로젝트에서 이름으로 찾아 판정한다
+   *   (복원 경로는 `graph.projects` 가 비어 있을 수 있어 `info` 를 직접 받는 쪽이 확실하다).
+   */
+  private ensureRootNode(projectName: string, info?: ProjectInfo): void {
     const key = ProjectGraph.rootKeyFor(projectName);
     if (this.nodes.has(key)) return;
+    const owner = info ?? this.getProjectByName(projectName);
+    if (owner?.parentProjectPath) return; // 워크트리 — 부모 캔버스의 워크트리 버블이 대신한다
     this.nodes.set(key, {
       id: `root-${hashString(key)}`,
       label: projectName,
@@ -3717,6 +3764,7 @@ export class ProjectGraph {
       captureBubbles: this.getCaptureBubbles(),
       appBubbles: this.getAppBubbles(),
       playBubbles: this.getPlayBubbles(),
+      specDocs: this.getSpecDocs(),
       debugBreakpoints: this.debugBreakpoints.size > 0
         ? Object.fromEntries([...this.debugBreakpoints].map(([k, v]) => [k, [...v]]))
         : undefined,
@@ -3872,6 +3920,7 @@ export class ProjectGraph {
       captureBubbles: this.captureBubbles.size > 0 ? [...this.captureBubbles.values()] : undefined,
       appBubbles: this.appBubbles.size > 0 ? [...this.appBubbles.values()] : undefined,
       playBubbles: this.playBubbles.size > 0 ? [...this.playBubbles.values()] : undefined,
+      specDocs: this.specDocs.size > 0 ? [...this.specDocs.values()] : undefined,
       layoutBoundsHalfWidth: this.layoutBoundsByProject.get(project.name)?.hw,
       layoutBoundsHalfHeight: this.layoutBoundsByProject.get(project.name)?.hh,
       contis: this.contis.size > 0 ? this.getContisRecord() : undefined,
@@ -4269,6 +4318,11 @@ export class ProjectGraph {
       playBubbles: (() => {
         const bubbles = [...this.playBubbles.values()].filter((b) => b.projectName === project.name);
         return bubbles.length > 0 ? bubbles : undefined;
+      })(),
+      // §5.15 — 스펙 보드도 같은 규칙. 사람이 쓴 문장이라 여기 빠지면 껐다 켤 때 그대로 사라진다.
+      specDocs: (() => {
+        const docs = [...this.specDocs.values()].filter((d) => d.projectName === project.name);
+        return docs.length > 0 ? docs : undefined;
       })(),
       layoutBoundsHalfWidth: this.layoutBoundsByProject.get(project.name)?.hw,
       layoutBoundsHalfHeight: this.layoutBoundsByProject.get(project.name)?.hh,
@@ -4745,6 +4799,14 @@ export class ProjectGraph {
       }
     }
 
+    // §5.15 — 스펙 보드 병합(id 기준 합집합). 실행 상태가 없으므로 내릴 것도 없다.
+    if (cp.specDocs) {
+      for (const doc of cp.specDocs) {
+        if (this.specDocs.has(doc.id)) continue;
+        this.specDocs.set(doc.id, sanitizeSpecDocOnLoad(doc));
+      }
+    }
+
     // §5.3 #28 v1.47 — 콘티 병합 (v1.59 hotfix — toProjectCheckpoint 누락 픽스와 짝).
     // workId/updatedAt 누락 시 폴백 (restoreFromCheckpoint 와 같은 정책).
     if (cp.contis) {
@@ -4787,9 +4849,9 @@ export class ProjectGraph {
 
     // 루트 노드 보장
     for (const info of Object.values(cp.graph.projects)) {
-      this.ensureRootNode(info.name);
+      this.ensureRootNode(info.name, info);
     }
-    this.ensureRootNode(cp.project.name);
+    this.ensureRootNode(cp.project.name, cp.project);
 
     // 구 체크포인트 호환: 미스코프 node id 재해싱
     this.regenerateScopedNodeIds();
@@ -4968,6 +5030,14 @@ export class ProjectGraph {
     if (cp.playBubbles) {
       for (const bubble of cp.playBubbles) {
         this.playBubbles.set(bubble.id, sanitizePlayBubbleOnLoad(bubble));
+      }
+    }
+
+    // §5.15 — 스펙 보드 복원. 사람이 쓴 문장 그대로 살린다(정규화만).
+    this.specDocs = new Map();
+    if (cp.specDocs) {
+      for (const doc of cp.specDocs) {
+        this.specDocs.set(doc.id, sanitizeSpecDocOnLoad(doc));
       }
     }
 
@@ -5153,10 +5223,10 @@ export class ProjectGraph {
 
     // 모든 등록 프로젝트에 루트 노드 보장
     for (const info of this.projects.values()) {
-      this.ensureRootNode(info.name);
+      this.ensureRootNode(info.name, info);
     }
     // primary project 루트도 보장
-    this.ensureRootNode(cp.project.name);
+    this.ensureRootNode(cp.project.name, cp.project);
 
     // commandQueues 복원 (외부에서 주입된 ref Map에 데이터 주입)
     if (cp.commandQueues) {
@@ -7010,6 +7080,88 @@ export class ProjectGraph {
   }
 
   /** agent ID → project name 매핑. worktree 세션은 PID.json cwd가 부모이든 worktree이든 worktree 소속으로 stamp (todo0417 A-2). */
+  /**
+   * §9 스코프드 구독 — **범위 밖 프로젝트의 탭 배지를 위한 경량 집계**.
+   *
+   * 탭바는 프로젝트마다 "에이전트 N개 · 실행 중 N개 · 끝남 N개"를 보여 준다. 그런데 스코프드
+   * 구독은 **안 보는 프로젝트의 `agents` 배열을 스냅샷에서 뺀다** — 그대로 두면 배경 탭 배지가
+   * 전부 0 으로 보인다(최적화가 아니라 기능 손상). 그래서 무거운 슬라이스와 무관하게 이 집계만은
+   * **항상 전 프로젝트**를 싣는다. 프로젝트당 수십 바이트라 전선 비용이 사실상 없다.
+   *
+   * ⚠ 필터는 `getSnapshot()` 의 `aliveAgents` 와 **같은 기준**이어야 한다(살아 있음 · 숨김 아님 ·
+   *   파이프라인 자식 아님). 어긋나면 배지 숫자가 캔버스와 다르게 보인다.
+   */
+  /**
+   * §9 배경 탭 유휴 해제 — **지금 일하는 것이 하나라도 있는가.**
+   *
+   * 하나라도 참이면 이 프로젝트는 화면에 없어도 내려놓지 않는다. "안 보이니 꺼도 된다"가 아니라
+   * "안 보이고 **아무 일도 없을 때만**" 내려놓는다는 것이 이 정리를 자동화해도 되는 근거다.
+   *  · active 에이전트 — 지금 돌고 있는 세션
+   *  · 대기 명령 — 곧 돌 세션(비워지기 전에 내리면 그 명령이 갈 곳을 잃는다)
+   *  · 살아 있는 dev server(iframe 위성) — §7.11 "명시 stop 전까지 살아있다"
+   *  · running 플레이 버블(§5.14) — 우리가 띄운 프로세스가 물려 있다
+   */
+  hasRunningWork(): boolean {
+    if (this.getActiveAgentCount() > 0) return true;
+    for (const [sessionId, cmds] of this.commandQueuesRef) {
+      if (cmds.length > 0 && this.agents.has(sessionId)) return true;
+    }
+    for (const agent of this.agents.values()) {
+      if (agent.persistSatellites?.some((sat) => sat.bubbleType === 'iframe' && sat.iframeAlive === true)) return true;
+    }
+    for (const bubble of this.playBubbles.values()) {
+      if (bubble.status === 'running') return true;
+    }
+    return false;
+  }
+
+  /**
+   * §9 배경 탭 유휴 해제 — 이 인스턴스에서 **가장 최근에 무언가 일어난 시각**(epoch ms).
+   * 기록이 하나도 없으면 0(= 아주 오래됨)을 돌려준다. 판정은 호출자 몫.
+   */
+  getLastActivityAt(): number {
+    let last = 0;
+    for (const agent of this.agents.values()) {
+      const at = agent.lastActivity ?? 0;
+      if (at > last) last = at;
+    }
+    for (const node of this.nodes.values()) {
+      const at = node.lastActivity ?? 0;
+      if (at > last) last = at;
+    }
+    return last;
+  }
+
+  /**
+   * §9 — 이 인스턴스의 활성 에이전트 수. **구독 범위 밖 프로젝트도 세어야** 헤더의 "지금 몇 개
+   * 돌고 있나"가 줄지 않는다. 판정은 `getSnapshot()` 의 `activeCount` 와 같은 기준
+   * (살아 있음 · 숨김 아님 · 파이프라인 자식 아님 · active · 휴지통 아님).
+   */
+  getActiveAgentCount(): number {
+    let count = 0;
+    for (const [sessionId, agent] of this.agents) {
+      if (!this.isAlive(agent) || this.isAgentHidden(sessionId) || agent.pipelineParentId) continue;
+      if (agent.status === 'active' && !agent.trashed) count += 1;
+    }
+    return count;
+  }
+
+  getAgentCountsByProject(): Record<string, { total: number; active: number; completed: number }> {
+    const result: Record<string, { total: number; active: number; completed: number }> = {};
+    for (const [sessionId, agent] of this.agents) {
+      if (!this.isAlive(agent) || this.isAgentHidden(sessionId) || agent.pipelineParentId) continue;
+      const cwd = this.sessionCwds.get(sessionId);
+      if (cwd === undefined) continue;
+      const proj = this.getProjectForCwd(cwd);
+      const name = proj?.name ?? (path.basename(cwd) || 'unknown');
+      const bucket = result[name] ?? (result[name] = { total: 0, active: 0, completed: 0 });
+      bucket.total += 1;
+      if (agent.status === 'active') bucket.active += 1;
+      else if (agent.status === 'completed') bucket.completed += 1;
+    }
+    return result;
+  }
+
   private buildAgentProjects(): Record<string, string> {
     const result: Record<string, string> = {};
     for (const [sessionId, cwd] of this.sessionCwds) {
@@ -9319,6 +9471,177 @@ export class ProjectGraph {
   acceptPlayBubble(bubble: PlayBubble): boolean {
     if (this.playBubbles.has(bubble.id)) return false;
     this.playBubbles.set(bubble.id, { ...bubble });
+    this.bumpMutationVersion();
+    return true;
+  }
+
+  // ─── §5.15 — 스펙 보드 ───
+
+  createSpecDoc(input: {
+    projectName: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    title?: string;
+    body?: string;
+    items?: string[];
+  }): SpecDoc {
+    this.specIdCounter += 1;
+    const id = `spec-${Date.now().toString(36)}-${this.specIdCounter.toString(36)}`;
+    const now = Date.now();
+    const doc: SpecDoc = {
+      id,
+      projectName: input.projectName,
+      x: input.x,
+      y: input.y,
+      width: input.width,
+      height: input.height,
+      title: (input.title ?? '').slice(0, SPEC_TITLE_MAX),
+      body: (input.body ?? '').slice(0, SPEC_BODY_MAX),
+      items: (input.items ?? [])
+        .slice(0, SPEC_MAX_ITEMS)
+        .map((text) => this.newSpecItem(text)),
+      bodyRevision: 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.specDocs.set(id, doc);
+    this.bumpMutationVersion();
+    return doc;
+  }
+
+  /** 수용 기준 한 줄을 새 항목으로. id 는 여기서만 발급한다. */
+  private newSpecItem(text: string): SpecItem {
+    this.specIdCounter += 1;
+    return {
+      id: `sitem-${Date.now().toString(36)}-${this.specIdCounter.toString(36)}`,
+      text: text.slice(0, SPEC_ITEM_TEXT_MAX),
+    };
+  }
+
+  /**
+   * 스펙 부분 갱신 — 좌표·크기·제목·본문·항목 목록이 전부 이 문 하나로 들어온다.
+   *
+   * **개정 번호는 여기서만 오른다.** `body` 또는 항목 텍스트가 실제로 달라졌을 때만 +1 하고,
+   * 좌표·크기·제목·`done` 토글은 올리지 않는다 — 그건 스펙 내용이 아니라서, 버블을 옮겼다는
+   * 이유로 하위 작업 카드가 전부 "스펙 변경됨" 이 되면 그 배지는 아무 뜻도 없어진다.
+   */
+  updateSpecDoc(
+    id: string,
+    updates: Partial<Omit<SpecDoc, 'id' | 'projectName' | 'createdAt' | 'updatedAt' | 'bodyRevision'>>,
+  ): SpecDoc | null {
+    const doc = this.specDocs.get(id);
+    if (!doc) return null;
+    let contentChanged = false;
+
+    for (const key of ['x', 'y', 'width', 'height'] as const) {
+      const value = updates[key];
+      if (typeof value === 'number') doc[key] = value;
+    }
+    if (typeof updates.title === 'string') doc.title = updates.title.slice(0, SPEC_TITLE_MAX);
+    if (typeof updates.preservePinned === 'boolean') doc.preservePinned = updates.preservePinned;
+    if (typeof updates.body === 'string') {
+      const next = updates.body.slice(0, SPEC_BODY_MAX);
+      if (next !== doc.body) contentChanged = true;
+      doc.body = next;
+    }
+    if (Array.isArray(updates.items)) {
+      const prevText = new Map(doc.items.map((it) => [it.id, it.text]));
+      const next: SpecItem[] = [];
+      for (const raw of updates.items.slice(0, SPEC_MAX_ITEMS)) {
+        if (!raw || typeof raw.text !== 'string') continue;
+        // id 가 없거나 모르는 항목이면 새로 발급 — 클라이언트가 id 를 지어내지 못하게 한다.
+        const existing = typeof raw.id === 'string' ? doc.items.find((it) => it.id === raw.id) : undefined;
+        const text = raw.text.slice(0, SPEC_ITEM_TEXT_MAX);
+        if (!existing) {
+          contentChanged = true;
+          next.push({ ...this.newSpecItem(text), ...(raw.done === true ? { done: true } : {}) });
+          continue;
+        }
+        if (prevText.get(existing.id) !== text) contentChanged = true;
+        const merged: SpecItem = { ...existing, text };
+        if (raw.done === true) merged.done = true;
+        else delete merged.done;
+        next.push(merged);
+      }
+      // 항목이 사라지는 것도 스펙 내용의 변경이다(남은 카드가 근거를 잃는다).
+      if (next.length !== doc.items.length) contentChanged = true;
+      doc.items = next;
+    }
+
+    if (contentChanged) doc.bodyRevision += 1;
+    doc.updatedAt = Date.now();
+    this.bumpMutationVersion();
+    return doc;
+  }
+
+  /** 수용 기준 한 줄 추가. 내용 변경이므로 개정 번호가 오른다. */
+  addSpecItem(id: string, text: string): SpecDoc | null {
+    const doc = this.specDocs.get(id);
+    if (!doc) return null;
+    if (doc.items.length >= SPEC_MAX_ITEMS) return doc;
+    doc.items.push(this.newSpecItem(text));
+    doc.bodyRevision += 1;
+    doc.updatedAt = Date.now();
+    this.bumpMutationVersion();
+    return doc;
+  }
+
+  /**
+   * 한 항목에 작업 카드를 매단다. 카드를 만든 **그 시점의 개정 번호**를 함께 박아,
+   * 이후 스펙이 바뀌면 두 숫자의 차이가 "스펙 변경됨" 의 근거가 된다.
+   */
+  attachSpecTask(specId: string, itemId: string, taskAgentId: string, taskSessionId: string): SpecItem | null {
+    const doc = this.specDocs.get(specId);
+    if (!doc) return null;
+    const item = doc.items.find((it) => it.id === itemId);
+    if (!item) return null;
+    item.taskAgentId = taskAgentId;
+    // 재확인(regenerate) 경로는 세션 키를 모른 채 들어올 수 있다 — 빈 값으로 덮지 않는다.
+    if (taskSessionId) item.taskSessionId = taskSessionId;
+    item.generatedRevision = doc.bodyRevision;
+    doc.updatedAt = Date.now();
+    this.bumpMutationVersion();
+    return item;
+  }
+
+  /** 항목에서 카드 연결만 끊는다(에이전트 버블 자체는 건드리지 않는다 — 사용자 작업물). */
+  detachSpecTask(specId: string, itemId: string): boolean {
+    const doc = this.specDocs.get(specId);
+    if (!doc) return false;
+    const item = doc.items.find((it) => it.id === itemId);
+    if (!item) return false;
+    delete item.taskAgentId;
+    delete item.taskSessionId;
+    delete item.generatedRevision;
+    doc.updatedAt = Date.now();
+    this.bumpMutationVersion();
+    return true;
+  }
+
+  /** 삭제. §2.4 preserve-pin 이 걸려 있으면 거절한다(플레이·앱 버블과 같은 규칙). */
+  deleteSpecDoc(id: string): boolean {
+    const doc = this.specDocs.get(id);
+    if (!doc) return false;
+    if (doc.preservePinned === true) return false;
+    const removed = this.specDocs.delete(id);
+    if (removed) this.bumpMutationVersion();
+    return removed;
+  }
+
+  getSpecDoc(id: string): SpecDoc | undefined {
+    return this.specDocs.get(id);
+  }
+
+  getSpecDocs(): SpecDoc[] {
+    return [...this.specDocs.values()];
+  }
+
+  /** 기존 ID 그대로 수용 (체크포인트 복원/머지용). */
+  acceptSpecDoc(doc: SpecDoc): boolean {
+    if (this.specDocs.has(doc.id)) return false;
+    this.specDocs.set(doc.id, sanitizeSpecDocOnLoad(doc));
     this.bumpMutationVersion();
     return true;
   }

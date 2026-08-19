@@ -51,6 +51,12 @@ export function TabBar(): React.JSX.Element | null {
   const agentProjects = useGraphStore((s) => s.agentProjects);
   const activeProject = useGraphStore((s) => s.activeProject);
   const agents = useGraphStore((s) => s.agents);
+  // §9 스코프드 구독 — 배지 숫자는 **서버 집계**를 쓴다. `agents` 는 지금 보는 프로젝트 것만
+  //   실려 오므로(구독 범위), 그걸로 세면 배경 탭 배지가 전부 0 으로 보인다.
+  const projectAgentCounts = useGraphStore((s) => s.projectAgentCounts);
+  // §9 배경 탭 유휴 해제 — 내려간(stub) 프로젝트도 **탭은 그대로 보여야 한다**. 안 그리면
+  //   "오래 안 봤더니 탭이 사라졌다"가 되어 정리가 아니라 손실로 보인다. 클릭하면 되살아난다.
+  const stubProjects = useGraphStore((s) => s.stubProjects);
   const iframeTabs = useGraphStore((s) => s.iframeTabs);
   const activeIframeId = useGraphStore((s) => s.activeIframeId);
   const tabPins = useGraphStore((s) => s.tabPins);
@@ -81,29 +87,58 @@ export function TabBar(): React.JSX.Element | null {
   // --- Build unordered tab items ---
   const projectItems = useMemo((): TabItem[] => {
     // SSOT §5.7 #26: worktree 프로젝트는 부모 캔버스 내 버블로만 노출 — TabBar에서 제외.
-    return Object.values(registeredProjects)
+    const hydratedItems = Object.values(registeredProjects)
       .filter((info) => !info.parentProjectPath)
       .map((info) => {
-        const agentIds = Object.entries(agentProjects)
-          .filter(([, p]) => p === info.name)
-          .map(([id]) => id);
+        // 서버가 준 집계가 있으면 그것이 SSOT(§3.1). 없을 때만(구버전 스냅샷) 종전처럼 직접 센다.
+        const served = projectAgentCounts[info.name];
+        if (served) {
+          return {
+            kind: 'project' as const,
+            key: `p:${info.name}`,
+            name: info.name,
+            path: info.path,
+            count: served.total,
+            activeCount: served.active,
+            completedCount: served.completed,
+          };
+        }
+        const agentIds = new Set(
+          Object.entries(agentProjects)
+            .filter(([, p]) => p === info.name)
+            .map(([id]) => id),
+        );
         const activeCount = agents.filter(
-          (a) => agentIds.includes(a.id) && a.status === 'active',
+          (a) => agentIds.has(a.id) && a.status === 'active',
         ).length;
         const completedCount = agents.filter(
-          (a) => agentIds.includes(a.id) && a.status === 'completed',
+          (a) => agentIds.has(a.id) && a.status === 'completed',
         ).length;
         return {
           kind: 'project' as const,
           key: `p:${info.name}`,
           name: info.name,
           path: info.path,
-          count: agentIds.length,
+          count: agentIds.size,
           activeCount,
           completedCount,
         };
       });
-  }, [registeredProjects, agentProjects, agents]);
+    // 내려가 있는(stub) 프로젝트를 같은 목록에 얹는다. 에이전트 수는 메모리에 없으므로 0 —
+    // 배지는 `count > 0` 일 때만 그려지니 숫자가 "0/0" 으로 보이지 않고 조용히 빠진다.
+    const stubItems = Object.entries(stubProjects)
+      .filter(([name, meta]) => !meta.project.parentProjectPath && !registeredProjects[name])
+      .map(([name, meta]): TabItem => ({
+        kind: 'project' as const,
+        key: `p:${name}`,
+        name,
+        path: meta.project.path,
+        count: 0,
+        activeCount: 0,
+        completedCount: 0,
+      }));
+    return [...hydratedItems, ...stubItems];
+  }, [registeredProjects, stubProjects, agentProjects, agents, projectAgentCounts]);
 
   const iframeItems = useMemo((): TabItem[] => {
     return iframeTabs.map((tab) => ({

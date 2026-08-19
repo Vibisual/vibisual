@@ -1,88 +1,31 @@
 import { memo, useMemo, useCallback, useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { SubAgent, QueuedCommand, ActivityEdge, SessionGoalStepStatus } from '@vibisual/shared';
+import type { QueuedCommand, ActivityEdge, SessionGoalStepStatus } from '@vibisual/shared';
 import { useGraphStore, selectIDEOverlay, agentSessionInputKey } from '../../stores/graphStore.js';
 import type { IDEViewType } from '../../stores/graphStore.js';
 import { useAvailableSkills, deleteSkill, persistSkillOrder, persistSkillFavorites, refreshAvailableSkills, type SkillInfo } from '../../hooks/useAvailableSkills.js';
 import { IDESkillCopyPanel } from './IDESkillCopyPanel.js';
 import { IDELoopView } from './IDELoopView.js';
 import { IDEExplorerView } from './IDEExplorerView.js';
+import { IDEMcpView } from './IDEMcpView.js';
 import { IDEDebugView } from './IDEDebugView.js';
 import { IDEContextView } from './IDEContextView.js';
 import { IDEBookmarkView } from './IDEBookmarkView.js';
 import { IDESessionSummaryView } from './IDESessionSummaryView.js';
 import { IDERunningSubagentsView } from './IDERunningSubagentsView.js';
 import { ScrollFade } from '../ScrollFade.js';
-import { SESSION_STATUS_DOT, sessionRunStateOf, serializeBusySubIds, parseBusySubIds } from '../../utils/sessionStatus.js';
 import { autosizeInput } from './inputAutosize.js';
-
-const EMPTY_SUBS: SubAgent[] = [];
 
 interface IDESidebarProps {
   agentId: string;
 }
 
-// 도트 색표는 `utils/sessionStatus` 공용 — 여기 사본을 두면 탭바와 어긋난다.
-// (종전 사본은 확인(ack) 여부를 안 봐서, 탭바에서 회색이 된 세션이 이 목록에선 계속 녹색이었다.)
-
 function formatTime(ts: number): string {
   return new Date(ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
 }
 
-function formatTokenShort(tokens: number): string {
-  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`;
-  if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(1)}K`;
-  return String(tokens);
-}
-
-// ─── Terminal view: SubAgent list ───
-
-function TerminalView({ agentId }: { agentId: string }): React.JSX.Element {
-  const { t } = useTranslation();
-  const subAgents = useGraphStore((s) => s.subAgents[agentId] ?? EMPTY_SUBS);
-  const setSession = useGraphStore((s) => s.setIDEActiveSession);
-  // 탭바와 같은 규약으로 도트를 칠하려면 확인 여부도 같이 봐야 한다.
-  const acknowledgedSubAgents = useGraphStore((s) => s.acknowledgedSubAgents);
-  // 탭바와 같은 규약 — 백단 작업을 가진 세션은 도트가 켜진다.
-  const busySubKey = useGraphStore((s) => serializeBusySubIds(s.runningSubagentTasks[agentId]));
-  const busySubIds = useMemo(() => parseBusySubIds(busySubKey), [busySubKey]);
-
-  return (
-    <div className="flex flex-col gap-1 p-2">
-      <span className="px-1 text-[10px] font-semibold uppercase tracking-wider text-gray-500">{t('ide.sidebar.sessions')}</span>
-      <ScrollFade maxHeight={400}>
-        <ul className="flex flex-col gap-1">
-          {subAgents.map((sub) => {
-            const dot = SESSION_STATUS_DOT[sessionRunStateOf(sub, !!acknowledgedSubAgents[sub.id], busySubIds.has(sub.id))];
-            return (
-              <li
-                key={sub.id}
-                className="cursor-pointer rounded px-2 py-1.5 transition-colors hover:bg-gray-700/60"
-                onClick={() => setSession(sub.id)}
-              >
-                <div className="flex items-center gap-2">
-                  <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${dot}`} />
-                  <span className="text-xs font-medium text-gray-300">{sub.label}</span>
-                </div>
-                {sub.lastCommand && (
-                  <p className="mt-0.5 truncate pl-4 text-[10px] text-gray-500">{sub.lastCommand}</p>
-                )}
-                <div className="mt-0.5 flex items-center gap-2 pl-4">
-                  <span className="text-[9px] text-gray-600">{formatTime(sub.lastActivityAt)}</span>
-                  {(sub.totalInputTokens ?? 0) > 0 && (
-                    <span className="text-[9px] text-violet-400/60">
-                      {formatTokenShort(sub.totalInputTokens ?? 0)}in
-                    </span>
-                  )}
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      </ScrollFade>
-    </div>
-  );
-}
+// §5.5 #17-31 — 종전 이 자리의 `TerminalView`(세션 목록)는 **MCP 인벤토리**(`IDEMcpView`)로
+//   대체됐다. 세션 목록은 탭 바(#17-5)와 세션 요약(#17-8)이 이미 두 벌로 보여 주고 있었다.
 
 // §5.5 #17-19 v4.71 — 파일 뷰는 워크스페이스 탐색기(IDEExplorerView)로 대체됐다.
 //   종전의 "이 에이전트가 만진 파일" 목록은 사라지지 않고 그 탐색기 안 접이식 구역으로 옮겨 갔다.
@@ -778,7 +721,8 @@ function GoalView({ agentId }: { agentId: string }): React.JSX.Element {
 // ─── 뷰 라우터 ───
 
 const VIEW_MAP: Record<IDEViewType, React.FC<{ agentId: string }>> = {
-  terminal: TerminalView,
+  // §5.5 #17-31 — 활동바 첫 항목: 이 프로젝트에서 쓸 수 있는 MCP(글로벌·프로젝트·로컬·프리셋).
+  mcp: IDEMcpView,
   // §5.5 #17-19 v4.71 — 이름 목록 → VS Code 톤 워크스페이스 탐색기(경로가 보이는 트리).
   files: IDEExplorerView,
   // §5.5 #17-28 v4.96 — 종전 `events`(훅 이벤트 목록) 자리를 컨텍스트 주입원 통제가 잇는다.

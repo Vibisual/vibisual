@@ -41,6 +41,10 @@
     "usage": {
       "tooltip": "Sessão atual: {{percent}}% do limite de 5 horas usado — clique para detalhes",
       "tooltipNoData": "Os dados de uso ainda não estão sendo coletados — clique para ativar"
+    },
+    "setupBanner": {
+      "text": "O Claude Code não está instalado — os agentes ainda não podem ser executados.",
+      "action": "Instalar"
     }
   },
   "panel": {
@@ -198,7 +202,8 @@
         "permissions": "Permissões",
         "advanced": "Avançado",
         "version": "Versão",
-        "account": "Conta"
+        "account": "Conta",
+        "storage": "Armazenamento"
       },
       "appearance": {
         "intro": "Personalize a aparência do Vibisual.",
@@ -224,7 +229,19 @@
         "restartHint": "Seleção salva. Reinicie o Vibisual para aplicar aos agentes criados a partir de agora.",
         "about": "Sobre",
         "repo": "Repositório no GitHub",
-        "marketplace": "Claude Code no VS Code Marketplace"
+        "marketplace": "Claude Code no VS Code Marketplace",
+        "selectionApplied": "Seleção salva e aplicada — os agentes recém-criados já a utilizam.",
+        "claudeAutoUpdate": {
+          "title": "Atualizações do Claude Code",
+          "label": "Manter o Claude Code atualizado automaticamente",
+          "onHint": "O Vibisual atualiza a CLI para a versão mais recente sempre que você abre o aplicativo.",
+          "offHint": "As atualizações automáticas estão desativadas. Use \"Atualizar agora\" para atualizar a CLI manualmente.",
+          "vscodeNotice": "O binário ativo vem da extensão do VS Code, que só pode ser atualizada pelo Marketplace. Escolha outra instalação acima para deixar o Vibisual gerenciar as atualizações.",
+          "updateNow": "Atualizar agora",
+          "updating": "Atualizando…",
+          "updated": "Atualizado para {{version}}",
+          "updateFailed": "Falha na atualização"
+        }
       },
       "agent": {
         "intro": "Estes padrões se aplicam a agentes personalizados recém-criados. Agentes existentes não são afetados.",
@@ -259,6 +276,73 @@
         "recheck": "Verificar de novo",
         "checking": "Verificando…",
         "actionFailed": "Não funcionou. Tente de novo."
+      },
+      "storage": {
+        "intro": "Por quanto tempo o Vibisual mantém o histórico de atividades no disco. Defina qualquer valor como 0 para manter para sempre — nada é excluído silenciosamente, e as sessões ativas nunca são afetadas.",
+        "save": "Aplicar",
+        "saving": "Salvando…",
+        "reset": "Restaurar padrões",
+        "unsaved": "Ainda não aplicado",
+        "usageTitle": "Uso de disco",
+        "total": "Total",
+        "rescan": "Reescanear",
+        "scanning": "Escaneando…",
+        "cleanNow": "Limpar agora",
+        "cleaning": "Limpando…",
+        "cleaned": "{{files}} arquivo(s) removido(s), {{size}} liberado(s).",
+        "empty": "Ainda não há dados de projeto no disco.",
+        "worktreesTitle": "Worktrees do Git",
+        "worktreesNote": "Nunca removidas automaticamente — elas podem conter seu trabalho. Exclua a pasta manualmente se não precisar mais dela.",
+        "worktreeOrphan": "órfã",
+        "units": {
+          "days": "dias",
+          "count": "itens",
+          "seconds": "seg"
+        },
+        "fields": {
+          "fileEditRetentionDays": {
+            "label": "Manter edições de arquivos por",
+            "desc": "O histórico de edições mais antigo que isso é descartado. 0 = manter para sempre."
+          },
+          "maxFileEditPaths": {
+            "label": "Máximo de arquivos com histórico de edições",
+            "desc": "Os caminhos editados há mais tempo são descartados primeiro. 0 = ilimitado."
+          },
+          "fileEditMergeWindowMs": {
+            "label": "Mesclar edições repetidas dentro de",
+            "desc": "Edições sucessivas no mesmo arquivo são combinadas em uma única entrada. 0 = nunca mesclar."
+          },
+          "completedCommandMaxPerSession": {
+            "label": "Comandos concluídos por sessão",
+            "desc": "Suas bolhas de prompt mantidas por sessão. 0 = ilimitado."
+          },
+          "subStreamRetentionDays": {
+            "label": "Manter transcrições de agentes por",
+            "desc": "Limpo na inicialização. Sessões ativas são mantidas independentemente da idade. 0 = manter para sempre."
+          },
+          "attachmentRetentionDays": {
+            "label": "Manter anexos por",
+            "desc": "Imagens que você colou nos prompts. 0 = manter para sempre."
+          }
+        },
+        "kinds": {
+          "checkpoint": "Checkpoint",
+          "checkpointBackups": "Backups",
+          "activity": "Atividade",
+          "identity": "Identidade",
+          "subStreams": "Transcrições",
+          "attachments": "Anexos",
+          "brain": "Memória",
+          "logs": "Logs",
+          "video": "Vídeo",
+          "other": "Outro"
+        },
+        "error": {
+          "load": "Não foi possível carregar as configurações de retenção.",
+          "save": "Não foi possível salvar as configurações de retenção.",
+          "scan": "Não foi possível medir o uso de disco.",
+          "clean": "Falha na limpeza. Tente novamente."
+        }
       }
     },
     "autoAgent": {
@@ -502,7 +586,17 @@
       "stderr": "stderr",
       "copy": "Copiar",
       "copied": "Copiado",
-      "close": "Fechar"
+      "close": "Fechar",
+      "mergeBtn": "Mesclar",
+      "mergeTitle": "Mesclar {{branch}} na branch atual",
+      "mergeConflict": "Conflito de mesclagem",
+      "mergeConflictNote": "A branch principal foi restaurada com merge --abort. Os arquivos abaixo estão em conflito — repasse-os ao agente que trabalhou neste Worktree, ou resolva-os você mesmo.",
+      "mergeHandOff": "Repassar ao agente",
+      "mergeHandOffPrompt": "A mesclagem deste Worktree na branch principal encontrou conflitos. Refaça sua branch para que ela seja mesclada sem problemas e depois me diga o que você mudou.",
+      "mergeParentDirty": "A branch principal tem alterações não commitadas",
+      "mergeParentDirtyNote": "Faça commit ou stash delas primeiro — mesclar por cima de um trabalho não commitado pode perdê-lo.",
+      "mergeNothing": "Nada para mesclar",
+      "mergeNothingNote": "Este Worktree não tem commits que estejam faltando na branch principal."
     },
     "worktreeDelete": {
       "title": "Excluir Worktree",
@@ -1083,9 +1177,39 @@
       "later": "Depois",
       "stop": "Parar",
       "start": "Entrar"
+    },
+    "setup": {
+      "title": "Instalar o Claude Code",
+      "intro": "O Vibisual executa seus agentes com a CLI do Claude Code, que ainda não está instalada neste computador. Instale-a aqui — sem precisar de terminal.",
+      "commandLabel": "Comando de instalação",
+      "copy": "Copiar",
+      "copied": "Copiado",
+      "install": "Instalar",
+      "installing": "Instalando…",
+      "installDone": "Instalado",
+      "installFailed": "Falha na instalação",
+      "retry": "Tentar novamente",
+      "ready": "O Claude Code está pronto. Continuando…",
+      "failed": "A instalação não foi concluída. Execute o comando acima em um terminal e depois escolha \"Verificar novamente\".",
+      "manualOnly": "A instalação automática não está disponível nesta plataforma. Execute o comando acima em um terminal e depois escolha \"Verificar novamente\".",
+      "recheck": "Verificar novamente",
+      "rechecking": "Verificando…",
+      "later": "Mais tarde",
+      "docs": "Guia oficial de instalação"
     }
   },
   "ide": {
+    "diff": {
+      "addComment": "Comentar nesta linha",
+      "removeComment": "Remover comentário",
+      "commentPlaceholder": "O que deve mudar aqui? (Ctrl+Enter para salvar)",
+      "commentCancel": "Cancelar",
+      "commentSave": "Salvar",
+      "commentLimit": "Até {{max}} comentários de revisão por sessão — envie ou remova alguns para adicionar mais.",
+      "sendReview": "Enviar revisão ({{count}})",
+      "sendReviewTip": "Envie os comentários que você deixou no diff como um único comando",
+      "reviewPromptHeader": "Aplique os seguintes comentários de revisão."
+    },
     "imageAnnotate": {
       "tool": {
         "view": "Visualizar",
@@ -1243,9 +1367,8 @@
       "sending": "Enviando…"
     },
     "activityBar": {
-      "terminal": "Terminal",
+      "mcp": "MCP",
       "files": "Arquivos",
-      "results": "Resultados",
       "context": "Fontes de contexto",
       "skills": "Habilidades",
       "bookmarks": "Marcadores",
@@ -1254,6 +1377,49 @@
       "loop": "Loop de repetição",
       "goal": "Objetivo",
       "debug": "Executar e depurar"
+    },
+    "mcp": {
+      "title": "Servidores MCP",
+      "refresh": "Verificar MCP novamente",
+      "noProject": "Abra um projeto para ver os MCP que ele pode usar.",
+      "empty": "Este projeto ainda não tem servidores MCP. Você pode adicionar um com",
+      "autoApprove": "Este projeto aprova automaticamente todos os servidores do .mcp.json (enableAllProjectMcpServers).",
+      "applyHint": "Ligar ou desligar vale para as sessões iniciadas de agora em diante; as que já estão rodando mantêm suas conexões.",
+      "docs": "Documentação",
+      "loadFailed": "Não foi possível ler a configuração do MCP.",
+      "toggleFailed": "Não foi possível salvar a alteração.",
+      "turnOn": "Ligar",
+      "turnOff": "Desligar",
+      "state": {
+        "enabled": "Ligado",
+        "disabled": "Desligado",
+        "pending": "Aguardando aprovação"
+      },
+      "scope": {
+        "global": "Global (todos os projetos)",
+        "project": "Projeto (.mcp.json)",
+        "local": "Local (somente este projeto)",
+        "preset": "Predefinições do Vibisual"
+      },
+      "scopeShort": {
+        "global": "Global",
+        "project": "Projeto",
+        "local": "Local",
+        "preset": "Predefinição"
+      },
+      "scopeHint": {
+        "global": "Está no ~/.claude.json — disponível em todos os projetos.",
+        "project": "Está no .mcp.json deste repositório e é compartilhado com quem o clona. Aqui é somente leitura.",
+        "local": "Está apenas na entrada deste projeto dentro do ~/.claude.json.",
+        "preset": "Ferramentas de depuração que o Vibisual pode conectar a este agente."
+      },
+      "req": {
+        "approval": "Está no .mcp.json, mas ainda não foi aprovado — ligá-lo aprova para este projeto.",
+        "missing-command": "'{{detail}}' não foi encontrado no PATH — instale primeiro.",
+        "missing-env": "Variáveis de ambiente não definidas: {{detail}}",
+        "auth": "Servidor remoto — talvez seja preciso entrar antes: claude mcp login {{name}}",
+        "policy": "Bloqueado por uma política gerenciada (deniedMcpServers) — não dá para ligar aqui."
+      }
     },
     "debug": {
       "title": "Executar e depurar",
@@ -1425,12 +1591,8 @@
       "secNext": "Próximos"
     },
     "sidebar": {
-      "sessions": "Sessões",
       "files": "Arquivos ({{count}})",
-      "events": "Eventos ({{count}})",
       "noFileEdits": "Nenhuma edição de arquivo ainda",
-      "noEvents": "Nenhum evento ainda",
-      "hasResult": "tem resultado",
       "skills": "Habilidades ({{count}})",
       "projectSkills": "Projeto ({{count}})",
       "globalSkills": "Global ({{count}})",
@@ -1654,17 +1816,19 @@
       "untitled": "Subagente",
       "scopeAll": "Mostrando todos os subagentes que este agente está executando.",
       "scopeSession": "Mostrando subagentes iniciados por \"{{label}}\".",
-      "endedAt": "Terminou às {{time}}",
-      "finishedTitle": "Recém-concluídos",
-      "noResult": "Nenhum resultado chegou.",
-      "toggleResult": "Mostrar ou ocultar o resultado completo",
-      "toolUses": "{{count}} chamadas de ferramentas",
-      "nowUsing": "Ferramenta em uso agora",
-      "duration": "Levou {{value}}",
       "emptySession": "Esta sessão não tem subagentes em execução.",
       "hint": "Aqui aparecem apenas os subagentes que esta sessão iniciou em segundo plano — a própria conversa não é contada. Enquanto rodam, o ícone à esquerda acende e mostra quantos são.",
       "othersRunning": "Mais {{count}} em execução em outro lugar",
       "startedAt": "Iniciado às {{time}}",
+      "endedAt": "Terminou às {{time}}",
+      "finishedTitle": "Recém-concluídos",
+      "noResult": "Nenhum resultado chegou.",
+      "resultRescued": "Recuperado da transcrição — não entregue à sessão",
+      "resultRescuedTitle": "Este processo filho foi interrompido antes de conseguir reportar (Stop, fechamento da aba ou uma falha), então a sessão nunca recebeu isso. O Vibisual recuperou essa informação a partir da transcrição do agente salva em disco.",
+      "toggleResult": "Mostrar ou ocultar o resultado completo",
+      "toolUses": "{{count}} chamadas de ferramentas",
+      "nowUsing": "Ferramenta em uso agora",
+      "duration": "Levou {{value}}",
       "noResponse": "Sem resposta há {{value}}",
       "dismiss": "Parar de esperar",
       "dismissTip": "Remove desta lista. Não encerra o processo — o agente para o próprio filho com TaskStop."
@@ -1839,7 +2003,9 @@
     },
     "card": {
       "showDetails": "Detalhes ({{count}})",
-      "hideDetails": "Ocultar detalhes"
+      "hideDetails": "Ocultar detalhes",
+      "inProgress": "em andamento",
+      "inProgressHint": "Publicado enquanto este turno ainda estava em execução — mais saída aparece abaixo deste cartão."
     },
     "context": {
       "title": "Fontes de contexto",
@@ -2400,7 +2566,9 @@
       "createWorktree": "Criar Worktree",
       "createWorktreeHint": "Novo workspace a partir do master mais recente",
       "createCapture": "Bubble de captura de tela/programa",
-      "createCaptureHint": "Exibe uma tela ou janela de programa ao vivo dentro de um bubble"
+      "createCaptureHint": "Exibe uma tela ou janela de programa ao vivo dentro de um bubble",
+      "createSpec": "Quadro de Spec",
+      "createSpecHint": "Escreva os requisitos e depois transforme cada critério de aceitação em um cartão de tarefa"
     },
     "bounds": {
       "label": "Limites do bubble",
@@ -2422,6 +2590,40 @@
       "jumped": "Foi para {{label}}",
       "jumpEmpty": "O marcador {{slot}} está vazio",
       "jumpMissing": "O destino do marcador não está mais disponível"
+    },
+    "spec": {
+      "title": "Spec",
+      "untitled": "Spec sem título",
+      "criteria": "Critérios de aceitação",
+      "cards": "Cartões",
+      "revision": "Revisão {{count}}",
+      "openBoard": "Abrir quadro do spec",
+      "rename": "Renomear",
+      "renamePrompt": "Título do spec",
+      "addItem": "Adicionar critério de aceitação",
+      "addItemPrompt": "Critério de aceitação (uma linha)",
+      "addItemPlaceholder": "Critério de aceitação…",
+      "add": "Adicionar",
+      "removeItem": "Excluir critério de aceitação",
+      "emptyItems": "Ainda não há critérios de aceitação · adicione-os abaixo, um por vez",
+      "bodyLabel": "Requisitos (Markdown)",
+      "bodyPlaceholder": "O que você está construindo, por que e onde termina o escopo?",
+      "generateTasks": "Criar cartões de tarefa",
+      "generateTasksN": "Criar cartões de tarefa ({{count}})",
+      "generateOne": "Cartão de tarefa a partir deste item",
+      "generateNoneHint": "Todo critério de aceitação já tem um cartão de tarefa",
+      "generating": "Criando cartões de tarefa…",
+      "generateHint": "Um cartão de tarefa para cada critério de aceitação, encadeados em ordem com Task Edges. Itens que já têm um cartão são ignorados.",
+      "stale": "Spec alterado",
+      "staleCount": "Spec alterado: {{count}}",
+      "staleBadge": "Spec alterado — {{title}}",
+      "acknowledge": "Reconhecer",
+      "detach": "Desvincular",
+      "cardMissing": "Cartão (bolha ausente)",
+      "pin": "Fixar",
+      "unpin": "Desafixar",
+      "delete": "Excluir",
+      "deletePinnedHint": "Este spec está fixado. Desafixe-o primeiro."
     }
   },
   "common": {
@@ -2450,6 +2652,28 @@
         "goBack": "Clique duplo para voltar",
         "expand": "Clique duplo para expandir"
       }
+    },
+    "preview": {
+      "deviceAuto": "Auto",
+      "deviceAutoTip": "Preencher a largura disponível",
+      "deviceMobile": "Mobile",
+      "deviceTablet": "Tablet",
+      "deviceDesktop": "Desktop",
+      "deviceTip": "Renderizar com {{width}}px de largura",
+      "pickElement": "Selecionar elemento",
+      "pickHint": "Clique em um elemento na pré-visualização para descrever uma alteração para ele",
+      "pickPlaceholder": "O que deve mudar neste elemento? (Ctrl+Enter para enviar)",
+      "pickSend": "Enviar",
+      "pickCopy": "Copiar seletor",
+      "pickCopied": "Copiado",
+      "pickClose": "Fechar",
+      "pickNoHost": "Nenhum agente está hospedando esta pré-visualização, então não há para onde enviar. Copie o seletor em vez disso.",
+      "pickPromptHeader": "Corrija o elemento de tela abaixo.",
+      "pickLabelPage": "página",
+      "pickLabelElement": "elemento",
+      "pickLabelSelector": "seletor",
+      "pickLabelText": "texto visível",
+      "pickLabelRequest": "solicitação"
     }
   },
   "brain": {

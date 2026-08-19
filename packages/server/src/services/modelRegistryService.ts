@@ -28,7 +28,7 @@ import {
   type ModelRegistryEntry,
 } from '@vibisual/shared';
 import { logger } from '../logger.js';
-import { resolveClaudeBin } from './claudeBin.js';
+import { getClaudeBin } from './claudeBin.js';
 
 const IS_WIN = process.platform === 'win32';
 const PLATFORM_BIN_NAME = IS_WIN ? 'claude.exe' : 'claude';
@@ -115,7 +115,7 @@ class ModelRegistryService {
    * 사용자가 `npm i -g @anthropic-ai/claude-code@latest` 로 CLI 만 업데이트하면 신규 모델이 자동 발견됨.
    *
    * 후보 경로(빈 결과 시 다음 후보로):
-   *  (1) `resolveClaudeBin().binPath` — VS Code 확장 번들 또는 PATH 의 `claude` 본체
+   *  (1) `getClaudeBin().binPath` — 네이티브/확장 번들/PATH 중 활성 실행본 `claude` 본체
    *  (2) `<binPath>/../node_modules/@anthropic-ai/claude-code-{platform}/claude(.exe)` — 플랫폼 패키지
    *  (3) `<global npm root>/@anthropic-ai/claude-code/node_modules/@anthropic-ai/claude-code-{platform}/claude(.exe)`
    *
@@ -124,7 +124,7 @@ class ModelRegistryService {
   private scanClaudeBinaryForModels(): ModelRegistryEntry[] {
     const candidates: string[] = [];
     try {
-      const bin = resolveClaudeBin();
+      const bin = getClaudeBin();
       if (bin?.binPath) candidates.push(bin.binPath);
     } catch { /* PATH 미발견 — 다른 후보 시도 */ }
 
@@ -200,7 +200,7 @@ class ModelRegistryService {
   private async scanEffortLevelsFromCli(): Promise<string[] | undefined> {
     let binPath: string | undefined;
     try {
-      binPath = resolveClaudeBin()?.binPath;
+      binPath = getClaudeBin()?.binPath;
     } catch { /* PATH 미발견 */ }
     if (!binPath) return undefined;
 

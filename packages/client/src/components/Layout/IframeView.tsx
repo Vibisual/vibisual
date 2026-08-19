@@ -2,6 +2,8 @@ import { useState, useCallback, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { toProxyUrl } from '../../utils/iframeProxyUrl.js';
+import { usePreviewPicker } from '../Preview/usePreviewPicker.js';
+import { PreviewControls, PreviewPickPanel } from '../Preview/PreviewControls.js';
 
 interface IframeViewProps {
   url: string;
@@ -13,6 +15,8 @@ export function IframeView({ url, tabId }: IframeViewProps): React.JSX.Element {
   const [currentUrl, setCurrentUrl] = useState(url);
   const [inputUrl, setInputUrl] = useState(url);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  // §7.11 — 폭 프리셋 + 요소 집기(집은 요소 → 이 프리뷰를 띄운 에이전트에게 명령).
+  const picker = usePreviewPicker(iframeRef, currentUrl);
 
   // 서버 꺼짐 감지: 동일 URL을 가진 iframe 버블의 iframeAlive 필드를 구독.
   // 버블이 없으면 (사용자 Delete 등) 그냥 살아있는 것으로 간주 → 평소 스타일.
@@ -81,18 +85,27 @@ export function IframeView({ url, tabId }: IframeViewProps): React.JSX.Element {
             placeholder={t('common.iframe.urlInput')}
           />
         </form>
+
+        {/* §7.11 — 폭 프리셋 + 요소 집기. 캔버스 프리뷰와 같은 훅·같은 화면 요소를 쓴다. */}
+        <PreviewControls picker={picker} />
       </div>
 
       {/* iframe content — 프록시 경유. 서버 꺼짐 시 opacity 낮춰 비활성 표시. */}
-      <div className="flex-1" style={overlayStyle}>
+      {/*   폭 프리셋이 걸리면 그 폭 **그대로** 가운데 정렬해 렌더한다(scale 축소 ❌ — 미디어쿼리가 실제 폭을 봐야 한다). */}
+      <div className="flex flex-1 justify-center overflow-auto bg-gray-950" style={overlayStyle}>
         <iframe
           ref={iframeRef}
           src={toProxyUrl(currentUrl)}
-          className="h-full w-full border-0 bg-white"
+          className="h-full border-0 bg-white"
+          style={picker.deviceWidth === null
+            ? { width: '100%' }
+            : { width: `${picker.deviceWidth}px`, flex: '0 0 auto' }}
           title={t('common.iframe.serverPreview')}
           sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
         />
       </div>
+
+      <PreviewPickPanel picker={picker} />
     </div>
   );
 }

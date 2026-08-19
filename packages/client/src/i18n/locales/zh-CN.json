@@ -41,6 +41,10 @@
     "usage": {
       "tooltip": "当前会话：已用 5 小时额度的 {{percent}}% — 点击查看详情",
       "tooltipNoData": "尚未收集用量数据 — 点击开启"
+    },
+    "setupBanner": {
+      "text": "未安装 Claude Code — Agent 尚无法运行。",
+      "action": "安装"
     }
   },
   "panel": {
@@ -198,7 +202,8 @@
         "permissions": "权限",
         "advanced": "高级",
         "version": "版本",
-        "account": "账户"
+        "account": "账户",
+        "storage": "存储"
       },
       "appearance": {
         "intro": "个性化 Vibisual 的外观。",
@@ -224,7 +229,19 @@
         "restartHint": "已保存选择。重启 Vibisual 后将对新派生的 Agent 生效。",
         "about": "关于",
         "repo": "GitHub 仓库",
-        "marketplace": "VS Code Marketplace 上的 Claude Code"
+        "marketplace": "VS Code Marketplace 上的 Claude Code",
+        "selectionApplied": "已保存并应用选择 — 新派生的 Agent 会立即使用该选择。",
+        "claudeAutoUpdate": {
+          "title": "Claude Code 更新",
+          "label": "自动保持 Claude Code 为最新版本",
+          "onHint": "每次启动应用时，Vibisual 都会将 CLI 更新到最新版本。",
+          "offHint": "自动更新已关闭。请使用“立即更新”手动更新 CLI。",
+          "vscodeNotice": "当前使用的可执行文件来自 VS Code 扩展，只能通过 Marketplace 更新。请在上方选择其他安装方式，以便由 Vibisual 管理更新。",
+          "updateNow": "立即更新",
+          "updating": "更新中…",
+          "updated": "已更新到 {{version}}",
+          "updateFailed": "更新失败"
+        }
       },
       "agent": {
         "intro": "这些默认值适用于新创建的自定义 Agent，已有 Agent 不受影响。",
@@ -259,6 +276,73 @@
         "recheck": "重新检查",
         "checking": "检查中…",
         "actionFailed": "操作未成功。请重试。"
+      },
+      "storage": {
+        "intro": "Vibisual 在磁盘上保留活动历史的时长。将任意值设为 0 即可永久保留 — 不会静默删除任何内容，运行中的 Session 也绝不会被触碰。",
+        "save": "应用",
+        "saving": "保存中…",
+        "reset": "恢复默认值",
+        "unsaved": "尚未应用",
+        "usageTitle": "磁盘占用",
+        "total": "总计",
+        "rescan": "重新扫描",
+        "scanning": "扫描中…",
+        "cleanNow": "立即清理",
+        "cleaning": "清理中…",
+        "cleaned": "已删除 {{files}} 个文件，释放 {{size}}。",
+        "empty": "磁盘上尚无项目数据。",
+        "worktreesTitle": "Git Worktree",
+        "worktreesNote": "不会自动删除 — 其中可能保存着工作内容。如不再需要，请自行删除该文件夹。",
+        "worktreeOrphan": "孤立",
+        "units": {
+          "days": "天",
+          "count": "项",
+          "seconds": "秒"
+        },
+        "fields": {
+          "fileEditRetentionDays": {
+            "label": "文件编辑保留时长",
+            "desc": "早于此时长的编辑历史将被丢弃。0 = 永久保留。"
+          },
+          "maxFileEditPaths": {
+            "label": "保留编辑历史的最大文件数",
+            "desc": "最久未编辑的文件路径会被优先丢弃。0 = 不限。"
+          },
+          "fileEditMergeWindowMs": {
+            "label": "合并重复编辑的时间窗口",
+            "desc": "对同一文件的连续编辑会合并为一条记录。0 = 从不合并。"
+          },
+          "completedCommandMaxPerSession": {
+            "label": "每个 Session 保留的已完成命令数",
+            "desc": "每个 Session 保留的提示词气泡数量。0 = 不限。"
+          },
+          "subStreamRetentionDays": {
+            "label": "Agent 会话记录保留时长",
+            "desc": "在启动时清理。运行中的 Session 无论多久都会保留。0 = 永久保留。"
+          },
+          "attachmentRetentionDays": {
+            "label": "附件保留时长",
+            "desc": "粘贴到提示词中的图片。0 = 永久保留。"
+          }
+        },
+        "kinds": {
+          "checkpoint": "检查点",
+          "checkpointBackups": "备份",
+          "activity": "活动记录",
+          "identity": "身份信息",
+          "subStreams": "会话记录",
+          "attachments": "附件",
+          "brain": "记忆",
+          "logs": "日志",
+          "video": "视频",
+          "other": "其他"
+        },
+        "error": {
+          "load": "无法加载保留期限设置。",
+          "save": "无法保存保留期限设置。",
+          "scan": "无法测量磁盘占用。",
+          "clean": "清理失败，请重试。"
+        }
       }
     },
     "autoAgent": {
@@ -502,7 +586,17 @@
       "stderr": "stderr",
       "copy": "复制",
       "copied": "已复制",
-      "close": "关闭"
+      "close": "关闭",
+      "mergeBtn": "合并",
+      "mergeTitle": "将 {{branch}} 合并到当前分支",
+      "mergeConflict": "合并冲突",
+      "mergeConflictNote": "主分支已通过 merge --abort 恢复。以下文件存在冲突 — 请交给在此 Worktree 中工作的 Agent 处理，或自行解决。",
+      "mergeHandOff": "交给 Agent 处理",
+      "mergeHandOffPrompt": "将此 Worktree 合并到主分支时出现冲突。请调整你的分支使其能够干净合并，然后告诉我你做了哪些改动。",
+      "mergeParentDirty": "主分支存在未提交的更改",
+      "mergeParentDirtyNote": "请先提交或暂存这些更改 — 在未提交的工作之上合并可能导致丢失。",
+      "mergeNothing": "没有可合并的内容",
+      "mergeNothingNote": "此 Worktree 没有主分支缺少的提交。"
     },
     "worktreeDelete": {
       "title": "删除 Worktree",
@@ -1083,9 +1177,39 @@
       "later": "稍后",
       "stop": "停止",
       "start": "登录"
+    },
+    "setup": {
+      "title": "安装 Claude Code",
+      "intro": "Vibisual 使用 Claude Code CLI 运行代理，但此电脑尚未安装。可在此直接安装，无需使用终端。",
+      "commandLabel": "安装命令",
+      "copy": "复制",
+      "copied": "已复制",
+      "install": "安装",
+      "installing": "安装中…",
+      "installDone": "已安装",
+      "installFailed": "安装失败",
+      "retry": "重试",
+      "ready": "Claude Code 已就绪，继续中…",
+      "failed": "安装未完成。请在终端运行上方命令，然后选择“重新检查”。",
+      "manualOnly": "此平台不支持自动安装。请在终端运行上方命令，然后选择“重新检查”。",
+      "recheck": "重新检查",
+      "rechecking": "检查中…",
+      "later": "稍后",
+      "docs": "官方安装指南"
     }
   },
   "ide": {
+    "diff": {
+      "addComment": "在此行添加评论",
+      "removeComment": "删除评论",
+      "commentPlaceholder": "这里应该改成什么？（Ctrl+Enter 保存）",
+      "commentCancel": "取消",
+      "commentSave": "保存",
+      "commentLimit": "每个会话最多 {{max}} 条评论 — 请发送或删除部分评论以继续添加。",
+      "sendReview": "发送评论（{{count}}）",
+      "sendReviewTip": "将您在差异视图中留下的评论作为一条命令发送",
+      "reviewPromptHeader": "应用以下评论。"
+    },
     "imageAnnotate": {
       "tool": {
         "view": "查看",
@@ -1243,9 +1367,8 @@
       "sending": "发送中…"
     },
     "activityBar": {
-      "terminal": "终端",
+      "mcp": "MCP",
       "files": "文件",
-      "results": "结果",
       "context": "上下文来源",
       "skills": "技能",
       "bookmarks": "书签",
@@ -1254,6 +1377,49 @@
       "loop": "重复循环",
       "goal": "目标",
       "debug": "运行与调试"
+    },
+    "mcp": {
+      "title": "MCP 服务器",
+      "refresh": "重新扫描 MCP",
+      "noProject": "打开一个项目即可查看它可用的 MCP。",
+      "empty": "此项目尚未配置 MCP 服务器。可用以下命令添加：",
+      "autoApprove": "此项目会自动批准 .mcp.json 中的所有服务器（enableAllProjectMcpServers）。",
+      "applyHint": "开关将在此后新启动的会话中生效；正在运行的会话保持现有连接。",
+      "docs": "文档",
+      "loadFailed": "无法读取 MCP 配置。",
+      "toggleFailed": "无法保存更改。",
+      "turnOn": "开启",
+      "turnOff": "关闭",
+      "state": {
+        "enabled": "已开启",
+        "disabled": "已关闭",
+        "pending": "待批准"
+      },
+      "scope": {
+        "global": "全局（所有项目）",
+        "project": "项目（.mcp.json）",
+        "local": "本地（仅此项目）",
+        "preset": "Vibisual 预设"
+      },
+      "scopeShort": {
+        "global": "全局",
+        "project": "项目",
+        "local": "本地",
+        "preset": "预设"
+      },
+      "scopeHint": {
+        "global": "写在 ~/.claude.json 中，所有项目都可使用。",
+        "project": "写在此仓库的 .mcp.json 中并与克隆者共享。此处只读。",
+        "local": "只写在 ~/.claude.json 中此项目的条目里。",
+        "preset": "Vibisual 可为该 Agent 接入的调试工具。"
+      },
+      "req": {
+        "approval": "已在 .mcp.json 中但尚未批准 — 点击[开启]即在此项目中批准。",
+        "missing-command": "在 PATH 中找不到 '{{detail}}' — 请先安装。",
+        "missing-env": "环境变量未设置：{{detail}}",
+        "auth": "这是远程服务器 — 可能需要先登录：claude mcp login {{name}}",
+        "policy": "被管理策略（deniedMcpServers）阻止，无法在此开启。"
+      }
     },
     "debug": {
       "title": "运行与调试",
@@ -1425,12 +1591,8 @@
       "secNext": "后续"
     },
     "sidebar": {
-      "sessions": "Sessions",
       "files": "文件（{{count}}）",
-      "events": "事件（{{count}}）",
       "noFileEdits": "暂无文件编辑",
-      "noEvents": "暂无事件",
-      "hasResult": "有结果",
       "skills": "技能（{{count}}）",
       "projectSkills": "项目（{{count}}）",
       "globalSkills": "全局（{{count}}）",
@@ -1654,17 +1816,19 @@
       "untitled": "子 Agent",
       "scopeAll": "显示此 Agent 正在运行的所有子 Agent。",
       "scopeSession": "显示由“{{label}}”启动的子 Agent。",
-      "endedAt": "结束于 {{time}}",
-      "finishedTitle": "刚刚完成",
-      "noResult": "未收到结果。",
-      "toggleResult": "展开或收起完整结果",
-      "toolUses": "工具调用 {{count}} 次",
-      "nowUsing": "当前正在使用的工具",
-      "duration": "耗时 {{value}}",
       "emptySession": "此会话没有启动中的子代理。",
       "hint": "这里只列出此会话在后台启动的子代理 — 当前的对话本身不计入。运行期间左侧图标会亮起，并在下方显示数量。",
       "othersRunning": "其他地方还有 {{count}} 个在运行",
       "startedAt": "开始于 {{time}}",
+      "endedAt": "结束于 {{time}}",
+      "finishedTitle": "刚刚完成",
+      "noResult": "未收到结果。",
+      "resultRescued": "已从记录中恢复 — 未送达会话",
+      "resultRescuedTitle": "该子代理在汇报前被中断（Stop、关闭标签页或崩溃），会话因此从未收到结果。Vibisual 已从磁盘上的代理记录中读回。",
+      "toggleResult": "展开或收起完整结果",
+      "toolUses": "工具调用 {{count}} 次",
+      "nowUsing": "当前正在使用的工具",
+      "duration": "耗时 {{value}}",
       "noResponse": "{{value}} 无响应",
       "dismiss": "不再等待",
       "dismissTip": "从此列表中移除。不会终止进程 — 子任务由启动它的代理用 TaskStop 停止。"
@@ -1839,7 +2003,9 @@
     },
     "card": {
       "showDetails": "详情 ({{count}})",
-      "hideDetails": "收起"
+      "hideDetails": "收起",
+      "inProgress": "进行中",
+      "inProgressHint": "此内容发布于本轮仍在进行时 — 更多输出将显示在此卡片下方。"
     },
     "context": {
       "title": "上下文来源",
@@ -2400,7 +2566,9 @@
       "createWorktree": "创建 Worktree",
       "createWorktreeHint": "从最新 master 创建新工作区",
       "createCapture": "屏幕/程序捕获气泡",
-      "createCaptureHint": "在气泡中实时显示屏幕或程序窗口"
+      "createCaptureHint": "在气泡中实时显示屏幕或程序窗口",
+      "createSpec": "Spec 看板",
+      "createSpecHint": "先编写需求，再将每条验收标准转换为任务卡片"
     },
     "bounds": {
       "label": "气泡边界",
@@ -2422,6 +2590,40 @@
       "jumped": "已跳转到 {{label}}",
       "jumpEmpty": "书签 {{slot}} 为空",
       "jumpMissing": "书签目标已不可用"
+    },
+    "spec": {
+      "title": "Spec",
+      "untitled": "未命名 Spec",
+      "criteria": "验收标准",
+      "cards": "卡片",
+      "revision": "修订版 {{count}}",
+      "openBoard": "打开 Spec 看板",
+      "rename": "重命名",
+      "renamePrompt": "Spec 标题",
+      "addItem": "添加验收标准",
+      "addItemPrompt": "验收标准（一行）",
+      "addItemPlaceholder": "验收标准…",
+      "add": "添加",
+      "removeItem": "删除验收标准",
+      "emptyItems": "暂无验收标准 · 请在下方逐行添加",
+      "bodyLabel": "需求（Markdown）",
+      "bodyPlaceholder": "你要构建什么、为什么构建，以及范围到哪里为止？",
+      "generateTasks": "创建任务卡片",
+      "generateTasksN": "创建任务卡片（{{count}}）",
+      "generateOne": "生成此项的任务卡片",
+      "generateNoneHint": "每条验收标准都已有对应的任务卡片",
+      "generating": "正在创建任务卡片…",
+      "generateHint": "每条验收标准对应一张任务卡片，按顺序通过任务边相连。已有卡片的项会被跳过。",
+      "stale": "Spec 已变更",
+      "staleCount": "Spec 已变更：{{count}}",
+      "staleBadge": "Spec 已变更 — {{title}}",
+      "acknowledge": "确认",
+      "detach": "取消关联",
+      "cardMissing": "卡片（气泡缺失）",
+      "pin": "固定",
+      "unpin": "取消固定",
+      "delete": "删除",
+      "deletePinnedHint": "此 Spec 已固定，请先取消固定。"
     }
   },
   "common": {
@@ -2450,6 +2652,28 @@
         "goBack": "双击返回",
         "expand": "双击展开"
       }
+    },
+    "preview": {
+      "deviceAuto": "自动",
+      "deviceAutoTip": "填满可用宽度",
+      "deviceMobile": "手机",
+      "deviceTablet": "平板",
+      "deviceDesktop": "桌面",
+      "deviceTip": "以 {{width}}px 宽度渲染",
+      "pickElement": "选取元素",
+      "pickHint": "点击预览中的元素，描述需要的更改",
+      "pickPlaceholder": "这个元素要改成什么样？（Ctrl+Enter 发送）",
+      "pickSend": "发送",
+      "pickCopy": "复制选择器",
+      "pickCopied": "已复制",
+      "pickClose": "关闭",
+      "pickNoHost": "没有代理承载此预览，因此无法发送，请改为复制选择器。",
+      "pickPromptHeader": "修复以下屏幕元素。",
+      "pickLabelPage": "页面",
+      "pickLabelElement": "元素",
+      "pickLabelSelector": "选择器",
+      "pickLabelText": "可见文本",
+      "pickLabelRequest": "请求"
     }
   },
   "brain": {

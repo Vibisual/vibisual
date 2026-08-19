@@ -1,10 +1,12 @@
-import { memo } from 'react';
+import { memo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { BubbleData, SubAgent } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import {
   NODE_STATUS_RUN_STATE, SESSION_STATUS_DOT, SESSION_STATUS_LABEL_KEY, sessionRunStateOf,
 } from '../../utils/sessionStatus.js';
+import { followSessionKey } from './editorFollow.js';
+import { buildDiffCommentPrompt } from './diffCommentPrompt.js';
 
 interface IDEStatusBarProps {
   agent: BubbleData;
@@ -42,6 +44,21 @@ export const IDEStatusBar = memo(function IDEStatusBar({
     : NODE_STATUS_RUN_STATE[agent.status];
   const inputTokens = activeSession?.totalInputTokens ?? agent.totalInputTokens ?? 0;
   const outputTokens = activeSession?.totalOutputTokens ?? agent.totalOutputTokens ?? 0;
+
+  // ─── §5.5 #17-30 — 이 세션에 모인 diff 리뷰 코멘트를 한 명령으로 보낸다 ───
+  const sessionKey = followSessionKey(agent.id, activeSession?.id ?? null);
+  const reviewComments = useGraphStore((s) => s.diffComments[sessionKey]);
+  const addCommand = useGraphStore((s) => s.addCommand);
+  const clearDiffComments = useGraphStore((s) => s.clearDiffComments);
+  const reviewCount = reviewComments?.length ?? 0;
+  const sendReview = useCallback(() => {
+    if (!reviewComments || reviewComments.length === 0) return;
+    const text = buildDiffCommentPrompt(reviewComments, t('ide.diff.reviewPromptHeader'));
+    if (text === '') return;
+    // 전송 창구는 기존 하나뿐(`addCommand`) — 새 경로를 만들지 않는다. 보낸 뒤에만 비운다.
+    addCommand(agent.id, text, activeSession?.id ?? null, []);
+    clearDiffComments(sessionKey);
+  }, [reviewComments, t, addCommand, agent.id, activeSession?.id, clearDiffComments, sessionKey]);
 
   return (
     <div className="flex h-6 flex-shrink-0 items-center gap-4 border-t border-gray-700 bg-gray-900/80 px-3 text-[10px]">
@@ -83,6 +100,21 @@ export const IDEStatusBar = memo(function IDEStatusBar({
 
       {/* Spacer */}
       <div className="flex-1" />
+
+      {/* §5.5 #17-30 — 모인 리뷰 코멘트 보내기. 훅 버블(읽기 전용)에는 뜨지 않는다(#17-29). */}
+      {isCustom && reviewCount > 0 && (
+        <button
+          type="button"
+          onClick={sendReview}
+          className="flex items-center gap-1 rounded bg-blue-600/80 px-2 py-0.5 text-[10px] font-semibold text-white transition-colors hover:bg-blue-500"
+          title={t('ide.diff.sendReviewTip')}
+        >
+          <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z" />
+          </svg>
+          {t('ide.diff.sendReview', { count: reviewCount })}
+        </button>
+      )}
 
       {/* Session count */}
       <span className="text-gray-600">

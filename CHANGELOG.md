@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.10] - 2026-08-19
+
+### Added
+- **Spec Board — requirements, acceptance criteria, and the cards that carry them out, on one canvas thread.** Write what you're building in Markdown, list the acceptance criteria under it, and one click turns each criterion into a task card, chained in order so they run one after another. Edit the spec afterwards and the affected cards are marked *Spec changed* rather than being silently deleted or rebuilt — what to do about it stays your call.
+- **The MCP servers this project can actually use.** There was no way to see, inside the app, what MCP is attached here and what is switched on. A new sidebar view gathers all four places a server can come from — your global config, this project's entry, the repo's own `.mcp.json`, and our presets — into one list, marks each on / off / awaiting approval, and says what's still missing before it can run (approval, a command that isn't installed, an unset variable, sign-in, or a policy block). Toggling writes to the same place `/mcp disable` writes, so this list and `/mcp` never disagree, and nothing in your repo is touched. It replaces the old *Terminal* session list, which the tab bar and session summary were already showing twice over.
+- **Review a diff where you're reading it.** Hover any line in a diff to leave a comment, keep going, and send the whole batch as one instruction to the agent — instead of scrolling back and describing the line in prose. Comments live with the session, and a diff you've commented on won't fold itself away.
+- **Merge a worktree back into the main line, from the app.** Isolation, running, watching and reviewing all happened here; merging was the one step that still sent you to a terminal. It refuses with a reason when the parent has uncommitted changes or there's nothing to merge, and on a conflict it backs the merge out, lists the conflicting files, and offers to hand them to the agent that owns the worktree.
+- **Preview at real device widths — and click an element to talk about it.** Auto / 390 / 820 / 1280 presets render at the actual width rather than a shrunken copy, and an element picker turns a click in the preview into a command: the thing you clicked, its text, and where it sits go to the agent, so you can say "this one" instead of describing it.
+- **First-run setup for people who only downloaded the app.** Without the `claude` CLI installed, the app previously said nothing at all — no login window, no prompt, no explanation. Now you get a guided install that runs the official native installer (no Node.js needed) inside the app, a banner that waits for you if you'd rather do it later, and a handoff to the sign-in window once it succeeds. A **Version** setting decides which `claude` executable is used, and CLI auto-update can be switched on or off.
+
+### Changed
+- **Vibisual is a Visual Development Environment.** The product describes itself as *the first Visual Development Environment for AI coding agents* — a step up the ladder from IDE (you type) and ADE (the agent writes, you read a terminal) to a canvas where the agent builds and you watch the map. The canvas, and everything in it, is unchanged; what changed is how the thing is named.
+- **Ctrl+F finds what the agent said.** In-conversation search was matching command text, tool input and output, and system lines, so the sentence you were actually looking for sat behind a wall of matches you didn't want. It now searches the agent's prose, with the same rule in the main tab and in a subagent's tab.
+- **Open projects you aren't looking at stop costing anything.** Four changes together: each window declares which projects it needs and only those are sent in full (of a 3.31 MB update, 81 % was projects nobody had on screen); a save now re-serialises only the projects that actually changed; backup rotation and atomic writes moved off the UI thread onto a worker; and a project that's open, idle, and running nothing is unloaded after 15 minutes — its tab stays where it is, one click brings it back, and it's saved on the way down.
+
+### Fixed
+- **macOS builds work again.** Ten releases in a row failed on macOS, and the workflow's own comment blamed code signing — so nobody opened the log. The log said the app icon was 256×256 where at least 512×512 is required. The icon is now generated at 1024×1024, with the Windows icon byte-for-byte unchanged. Signing and notarisation are still absent, so macOS auto-update remains unavailable, but the build and the release itself now go through.
+- **A save guard that kept firing at itself.** Two worktrees refused every checkpoint write, over and over. A root node was being created for worktrees at boot and swept away again ten seconds later, and a refused write updated neither the file nor the count it compares against — so the condition that caused the refusal never cleared.
+
 ## [0.1.9] - 2026-08-18
 
 ### Added
@@ -196,7 +215,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - Dropped preset options from the custom agent settings.
 
-[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.1.9...HEAD
+[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.1.10...HEAD
+[0.1.10]: https://github.com/Vibisual/vibisual/compare/v0.1.9...v0.1.10
 [0.1.9]: https://github.com/Vibisual/vibisual/compare/v0.1.8...v0.1.9
 [0.1.8]: https://github.com/Vibisual/vibisual/compare/v0.1.7...v0.1.8
 [0.1.7]: https://github.com/Vibisual/vibisual/compare/v0.1.6...v0.1.7

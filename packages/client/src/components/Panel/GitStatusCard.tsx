@@ -4,12 +4,19 @@ import type { GitStatus, GitCommit, GitWorktreeStatus } from '@vibisual/shared';
 import { BUBBLE_COLORS, GIT_STATUS_CONFIG } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
+import { buildMergeConflictPrompt } from './mergeConflictPrompt.js';
 
 interface GitError {
   title: string;
   subtitle?: React.ReactNode;
   note?: React.ReactNode;
   stderr: string;
+  /**
+   * §7.6 (판올림 번호 발급 대기) — 모달 안에서 한 걸음 더 갈 수 있을 때의 손잡이.
+   * 합치기 충돌에서 "이 충돌을 그 워크트리 에이전트에게 넘기기" 가 이 자리를 쓴다.
+   * 없으면 모달은 종전대로 [닫기] 하나뿐이다.
+   */
+  action?: { label: string; onClick: () => void };
 }
 
 const API_BASE = '';
@@ -40,6 +47,8 @@ export function GitStatusCard({ projectName }: GitStatusCardProps): React.JSX.El
   const [error, setError] = useState<string | null>(null);
   const [gitError, setGitError] = useState<GitError | null>(null);
   const [syncingNodeId, setSyncingNodeId] = useState<string | null>(null);
+  /** §7.6 — 지금 본선으로 합치는 중인 워크트리(버튼 스피너용). sync 와 다른 축이라 따로 둔다. */
+  const [mergingNodeId, setMergingNodeId] = useState<string | null>(null);
   const [committing, setCommitting] = useState(false);
   const setGitRefreshing = useGraphStore((s) => s.setGitRefreshing);
   const gitRefreshing = useGraphStore((s) => s.gitRefreshing[projectName] ?? false);
@@ -105,6 +114,96 @@ export function GitStatusCard({ projectName }: GitStatusCardProps): React.JSX.El
       setSyncingNodeId(null);
     }
   }, [fetchStatus, t]);
+
+  /**
+   * §7.6 (판올림 번호 발급 대기) — 워크트리를 **본선으로** 합친다(sync 의 반대 방향).
+   *
+   * 서버가 선행 거부(부모 dirty / 합칠 것 없음)와 충돌 원복까지 맡으므로 여기서는 결과를 읽어
+   * 사람이 다음에 뭘 할 수 있는지만 보여 준다. 충돌이면 그 워크트리에서 일하던 커스텀 에이전트
+   * (서버가 `ownerAgentId` 로 알려 준다)에게 **그 자리에서** 넘길 수 있다.
+   */
+  const mergeWorktree = useCallback(async (wt: GitWorktreeStatus): Promise<void> => {
+    // 본선 브랜치 이름 — repo 케이스에서만 있다(no-git/not-repo 면 애초에 워크트리 목록도 없다).
+    const baseBranch = status?.case === 'repo' ? status.branch : undefined;
+    setMergingNodeId(wt.nodeId);
+    try {
+      const res = await fetch(`${API_BASE}/api/worktree/${encodeURIComponent(wt.nodeId)}/merge`, {
+        method: 'POST',
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        ok?: boolean; step?: string; error?: string; branch?: string; stderr?: string;
+        conflicts?: string[]; files?: string[]; ownerAgentId?: string;
+      };
+
+      if (res.status === 409 && body.error === 'parent-dirty') {
+        setGitError({
+          title: t('panel.gitStatus.mergeParentDirty'),
+          subtitle: <span className="font-mono text-lime-300">{wt.branch}</span>,
+          note: t('panel.gitStatus.mergeParentDirtyNote'),
+          stderr: (body.files ?? []).join('\n') || 'uncommitted changes',
+        });
+        return;
+      }
+      if (res.status === 409 && body.error === 'nothing-to-merge') {
+        setGitError({
+          title: t('panel.gitStatus.mergeNothing'),
+          subtitle: <span className="font-mono text-lime-300">{wt.branch}</span>,
+          stderr: t('panel.gitStatus.mergeNothingNote'),
+        });
+        return;
+      }
+      if (res.status === 409 && body.step === 'merge') {
+        const conflicts = body.conflicts ?? [];
+        const ownerAgentId = body.ownerAgentId;
+        setGitError({
+          title: t('panel.gitStatus.mergeConflict'),
+          subtitle: (
+            <>
+              <span className="font-mono text-lime-300">{wt.branch}</span>
+              {' → '}
+              <span className="font-mono text-gray-300">{baseBranch ?? '?'}</span>
+            </>
+          ),
+          note: t('panel.gitStatus.mergeConflictNote'),
+          stderr: conflicts.length > 0 ? conflicts.join('\n') : (body.stderr ?? 'merge conflict'),
+          // 넘길 상대가 없으면(훅만 붙은 워크트리 등) 버튼 자체를 만들지 않는다 — §5.5 #17-29 경계.
+          ...(ownerAgentId !== undefined && conflicts.length > 0
+            ? {
+              action: {
+                label: t('panel.gitStatus.mergeHandOff'),
+                onClick: () => {
+                  const text = buildMergeConflictPrompt(
+                    { branch: wt.branch, baseBranch, conflicts },
+                    t('panel.gitStatus.mergeHandOffPrompt'),
+                  );
+                  if (text === '') return;
+                  useGraphStore.getState().addCommand(ownerAgentId, text, null, []);
+                  setGitError(null);
+                },
+              },
+            }
+            : {}),
+        });
+        return;
+      }
+      if (!res.ok || !body.ok) {
+        setGitError({
+          title: t('panel.gitStatus.mergeFailed'),
+          subtitle: <span className="font-mono text-gray-300">{wt.branch}</span>,
+          stderr: body.stderr ?? (body.error ?? `HTTP ${res.status}`),
+        });
+        return;
+      }
+      await fetchStatus(true);
+    } catch (err) {
+      setGitError({
+        title: t('panel.gitStatus.mergeFailed'),
+        stderr: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setMergingNodeId(null);
+    }
+  }, [fetchStatus, t, status]);
 
   const runCommit = useCallback(async (): Promise<void> => {
     setCommitting(true);
@@ -179,6 +278,8 @@ export function GitStatusCard({ projectName }: GitStatusCardProps): React.JSX.El
           status={status}
           onSyncWorktree={(wt) => { void syncWorktree(wt); }}
           syncingNodeId={syncingNodeId}
+          onMergeWorktree={(wt) => { void mergeWorktree(wt); }}
+          mergingNodeId={mergingNodeId}
           onCommit={() => { void runCommit(); }}
           committing={committing}
         />
@@ -285,12 +386,16 @@ function RepoState({
   status,
   onSyncWorktree,
   syncingNodeId,
+  onMergeWorktree,
+  mergingNodeId,
   onCommit,
   committing,
 }: {
   status: Extract<GitStatus, { case: 'repo' }>;
   onSyncWorktree: (wt: GitWorktreeStatus) => void;
   syncingNodeId: string | null;
+  onMergeWorktree: (wt: GitWorktreeStatus) => void;
+  mergingNodeId: string | null;
   onCommit: () => void;
   committing: boolean;
 }): React.JSX.Element {
@@ -306,6 +411,8 @@ function RepoState({
           worktrees={status.worktrees}
           onSync={onSyncWorktree}
           syncingNodeId={syncingNodeId}
+          onMerge={onMergeWorktree}
+          mergingNodeId={mergingNodeId}
         />
       )}
     </div>
@@ -440,10 +547,14 @@ function WorktreeList({
   worktrees,
   onSync,
   syncingNodeId,
+  onMerge,
+  mergingNodeId,
 }: {
   worktrees: GitWorktreeStatus[];
   onSync: (wt: GitWorktreeStatus) => void;
   syncingNodeId: string | null;
+  onMerge: (wt: GitWorktreeStatus) => void;
+  mergingNodeId: string | null;
 }): React.JSX.Element {
   const { t } = useTranslation();
   return (
@@ -458,6 +569,8 @@ function WorktreeList({
             wt={w}
             onSync={onSync}
             syncing={syncingNodeId === w.nodeId}
+            onMerge={onMerge}
+            merging={mergingNodeId === w.nodeId}
           />
         ))}
       </ul>
@@ -469,10 +582,14 @@ function WorktreeRow({
   wt,
   onSync,
   syncing,
+  onMerge,
+  merging,
 }: {
   wt: GitWorktreeStatus;
   onSync: (wt: GitWorktreeStatus) => void;
   syncing: boolean;
+  onMerge: (wt: GitWorktreeStatus) => void;
+  merging: boolean;
 }): React.JSX.Element {
   const { t } = useTranslation();
   const focusOnNode = useGraphStore((s) => s.focusOnNode);
@@ -491,6 +608,14 @@ function WorktreeRow({
     if (!canSync || syncing) return;
     onSync(wt);
   }, [wt, onSync, canSync, syncing]);
+
+  // §7.6 — 합치기는 sync 의 반대 방향이라 조건도 반대다: 워크트리가 **앞서 있을 때**만 의미가 있다.
+  const canMerge = wt.ahead > 0;
+  const handleMerge = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!canMerge || merging) return;
+    onMerge(wt);
+  }, [wt, onMerge, canMerge, merging]);
 
   return (
     <li>
@@ -545,6 +670,25 @@ function WorktreeRow({
             <SyncIcon className="h-2.5 w-2.5" />
           )}
           <span>{t('panel.gitStatus.syncBtn')}</span>
+        </button>
+        {/* §7.6 — 본선으로 합치기. ahead > 0 일 때만 활성(Sync 의 behind > 0 대칭). */}
+        <button
+          type="button"
+          onClick={handleMerge}
+          disabled={!canMerge || merging}
+          className={`flex flex-shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[10px] transition-colors ${
+            canMerge
+              ? 'border border-gray-700 text-gray-300 hover:border-lime-500/60 hover:bg-lime-500/10 hover:text-lime-300'
+              : 'border border-gray-800 text-gray-600'
+          } disabled:opacity-50`}
+          title={canMerge ? t('panel.gitStatus.mergeTitle', { branch: wt.branch }) : t('panel.gitStatus.mergeNothing')}
+        >
+          {merging ? (
+            <RefreshIcon className="h-2.5 w-2.5 animate-spin" />
+          ) : (
+            <MergeIcon className="h-2.5 w-2.5" />
+          )}
+          <span>{t('panel.gitStatus.mergeBtn')}</span>
         </button>
         {wt.lastActivityAt && (
           <span className="flex-shrink-0 text-[10px] text-gray-600">{formatRelativeShort(wt.lastActivityAt)}</span>
@@ -617,7 +761,17 @@ function GitErrorModal({
           >
             {error.stderr}
           </pre>
-          <div className="mt-4 flex justify-end">
+          <div className="mt-4 flex justify-end gap-2">
+            {/* §7.6 — 여기서 한 걸음 더 갈 수 있으면 그 손잡이를 함께 낸다(충돌 → 에이전트에게 넘기기). */}
+            {error.action && (
+              <button
+                type="button"
+                onClick={error.action.onClick}
+                className="rounded bg-blue-600/90 px-3 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-blue-500"
+              >
+                {error.action.label}
+              </button>
+            )}
             <button
               type="button"
               onClick={onClose}
@@ -707,6 +861,17 @@ function ArrowDownIcon(props: { className?: string }): React.JSX.Element {
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" className={props.className}>
       <line x1="12" y1="5" x2="12" y2="19" />
       <polyline points="19 12 12 19 5 12" />
+    </svg>
+  );
+}
+
+/** §7.6 합치기 아이콘 — 두 갈래가 하나로 모이는 모양(lucide git-merge 톤). */
+function MergeIcon(props: { className?: string }): React.JSX.Element {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className={props.className}>
+      <circle cx="18" cy="18" r="3" />
+      <circle cx="6" cy="6" r="3" />
+      <path d="M6 21V9a9 9 0 0 0 9 9" />
     </svg>
   );
 }

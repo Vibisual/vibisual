@@ -1,0 +1,131 @@
+import { PREVIEW_PICK_SOURCE, PREVIEW_PICK_TEXT_MAX } from '@vibisual/shared';
+
+/**
+ * §7.11 (판올림 번호 발급 대기) — 프리뷰 **요소 집기** 주입 스크립트.
+ *
+ * 프리뷰는 이미 우리 `iframe-proxy` 를 거쳐 같은 오리진으로 뜨므로, Electron `webview` 로
+ * 격상하지 않고도 프록시가 HTML 을 재작성하는 그 자리에서 스크립트 한 개를 넣어 요소를 집을 수 있다.
+ *
+ * 규약(양방향 모두 `source` 표식이 있는 메시지만 취급 — 프리뷰 안 페이지가 자기 목적으로 쓰는
+ * postMessage 를 우리 것으로 오인하지 않는다):
+ *
+ * - 부모 → 프리뷰: `{ source, type: 'pick-mode', on: boolean }`
+ * - 프리뷰 → 부모: `{ source, type: 'pick', payload: PreviewPickPayload }` / `{ source, type: 'pick-cancel' }`
+ *
+ * 경계: DOM 을 **읽기만** 한다. 네트워크·저장소·쿠키에 손대지 않고, 켜져 있지 않으면 아무 것도 하지
+ * 않는다(평소 프리뷰 조작은 종전 그대로). 켜져 있는 동안의 클릭은 여기서 소비해 대상 앱이 조작되지 않는다.
+ *
+ * 문자열로 사는 코드라 **ES5 범위**로 쓰고, CSS 선택자에 역슬래시 이스케이프가 필요한 이름은
+ * 아예 쓰지 않는다(단순한 이름만 선택자에 넣고, 나머지는 `nth-of-type` 경로로 간다).
+ */
+export function buildPreviewPickerScript(proxyBase: string, target: string): string {
+  const lines = [
+    '<script>',
+    '(function(){',
+    '  if (window.__vibisualPicker) return;',
+    '  window.__vibisualPicker = true;',
+    `  var SRC = ${JSON.stringify(PREVIEW_PICK_SOURCE)};`,
+    `  var BASE = ${JSON.stringify(proxyBase)};`,
+    `  var TARGET = ${JSON.stringify(target)};`,
+    `  var TEXT_MAX = ${PREVIEW_PICK_TEXT_MAX};`,
+    '  var on = false, box = null;',
+    '  function simpleName(s){ return /^[A-Za-z][A-Za-z0-9_-]*$/.test(s); }',
+    '  function pageUrl(){',
+    '    var p = location.pathname || "/";',
+    '    if (p.indexOf(BASE) === 0) p = p.slice(BASE.length) || "/";',
+    '    return (location.protocol === "https:" ? "https://" : "http://") + TARGET + p + (location.search || "");',
+    '  }',
+    '  function ensureBox(){',
+    '    if (box && box.parentNode) return box;',
+    '    box = document.createElement("div");',
+    '    box.setAttribute("data-vibisual-pick", "1");',
+    '    box.style.cssText = "position:fixed;z-index:2147483647;pointer-events:none;border:2px solid #3B82F6;background:rgba(59,130,246,0.16);border-radius:2px;display:none";',
+    '    (document.body || document.documentElement).appendChild(box);',
+    '    return box;',
+    '  }',
+    '  function place(el){',
+    '    var r = el.getBoundingClientRect(); var b = ensureBox();',
+    '    b.style.left = r.left + "px"; b.style.top = r.top + "px";',
+    '    b.style.width = r.width + "px"; b.style.height = r.height + "px"; b.style.display = "block";',
+    '  }',
+    '  function hide(){ if (box) box.style.display = "none"; }',
+    '  function classesOf(el){',
+    '    var raw = (el.getAttribute && el.getAttribute("class")) || "";',
+    '    return raw.split(/\\s+/).filter(function(c){ return c !== ""; });',
+    '  }',
+    '  function typeIndex(el){',
+    '    var p = el.parentElement; if (!p) return 0;',
+    '    var same = 0, i;',
+    '    for (i = 0; i < p.children.length; i++) {',
+    '      var c = p.children[i];',
+    '      if (c === el) return same;',
+    '      if (c.tagName === el.tagName) same++;',
+    '    }',
+    '    return same;',
+    '  }',
+    '  function selectorFor(el){',
+    '    var parts = [], node = el, depth = 0;',
+    '    while (node && node.nodeType === 1 && depth < 6) {',
+    '      var tag = String(node.tagName).toLowerCase();',
+    '      if (tag === "html" || tag === "body") break;',
+    '      var testId = node.getAttribute ? node.getAttribute("data-testid") : null;',
+    '      if (testId) { parts.unshift(tag + "[data-testid=" + JSON.stringify(testId) + "]"); break; }',
+    '      if (node.id && simpleName(node.id)) { parts.unshift("#" + node.id); break; }',
+    '      var part = tag;',
+    '      var cls = classesOf(node).filter(simpleName).slice(0, 2);',
+    '      if (cls.length) part += "." + cls.join(".");',
+    '      var idx = typeIndex(node);',
+    '      if (idx > 0) part += ":nth-of-type(" + (idx + 1) + ")";',
+    '      parts.unshift(part);',
+    '      node = node.parentElement; depth++;',
+    '    }',
+    '    return parts.join(" > ");',
+    '  }',
+    '  function payloadFor(el){',
+    '    var r = el.getBoundingClientRect();',
+    '    var text = (el.innerText || el.textContent || "").replace(/\\s+/g, " ").trim();',
+    '    var testId = el.getAttribute ? el.getAttribute("data-testid") : null;',
+    '    var out = {',
+    '      selector: selectorFor(el),',
+    '      tagName: String(el.tagName).toLowerCase(),',
+    '      classes: classesOf(el),',
+    '      textSnippet: text.length > TEXT_MAX ? text.slice(0, TEXT_MAX) : text,',
+    '      rect: { x: Math.round(r.left), y: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) },',
+    '      pageUrl: pageUrl()',
+    '    };',
+    '    if (el.id) out.id = el.id;',
+    '    if (testId) out.testId = testId;',
+    '    return out;',
+    '  }',
+    '  function post(msg){ try { parent.postMessage(msg, "*"); } catch (e) {} }',
+    '  function setMode(v){',
+    '    on = !!v;',
+    '    if (!on) hide();',
+    '    try { document.documentElement.style.cursor = on ? "crosshair" : ""; } catch (e) {}',
+    '  }',
+    '  function onMove(e){ if (!on) return; var el = e.target; if (!el || el.nodeType !== 1 || el === box) return; place(el); }',
+    '  function onClick(e){',
+    '    if (!on) return;',
+    '    var el = e.target; if (!el || el.nodeType !== 1) return;',
+    '    e.preventDefault(); e.stopPropagation();',
+    '    post({ source: SRC, type: "pick", payload: payloadFor(el) });',
+    '    setMode(false);',
+    '  }',
+    '  function onKey(e){',
+    '    if (!on) return;',
+    '    if (e.key === "Escape" || e.keyCode === 27) { setMode(false); post({ source: SRC, type: "pick-cancel" }); }',
+    '  }',
+    '  window.addEventListener("message", function(e){',
+    '    var d = e.data;',
+    '    if (!d || d.source !== SRC) return;',
+    '    if (d.type === "pick-mode") setMode(!!d.on);',
+    '  });',
+    '  document.addEventListener("mousemove", onMove, true);',
+    '  document.addEventListener("click", onClick, true);',
+    '  document.addEventListener("keydown", onKey, true);',
+    '  window.addEventListener("scroll", hide, true);',
+    '})();',
+    '</script>',
+  ];
+  return lines.join('\n');
+}

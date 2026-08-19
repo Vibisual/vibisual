@@ -10,10 +10,10 @@ import type {
 } from '@vibisual/shared';
 import { CONTI_DEFAULTS, STAMP_CATALOG } from '@vibisual/shared';
 import { logger } from '../logger.js';
-import { resolveClaudeBin } from './claudeBin.js';
+import { getClaudeBin } from './claudeBin.js';
 
 /** §5.3 #28 v1.62 — patch sub-agent 가 spawn 할 claude 바이너리 경로. */
-const CLAUDE_BIN_PATH = resolveClaudeBin().binPath;
+const CLAUDE_BIN_PATH = (): string => getClaudeBin().binPath;
 
 const TIMEOUT_MS = 120_000;
 
@@ -194,7 +194,7 @@ function callClaude(
     // 보안: shell:false + 해석된 CLAUDE_BIN_PATH (runPatchAgent 와 동일 패턴).
     // shell:true + 'claude' 는 win32 cmd.exe 가 args 를 재파싱해 sessionId/model 경유
     // 셸 인젝션이 가능했음 — argv 형태로 차단.
-    const child = spawn(CLAUDE_BIN_PATH, args, {
+    const child = spawn(CLAUDE_BIN_PATH(), args, {
       shell: false,
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -446,7 +446,7 @@ function runPatchAgent(tmpdir: string, userPrompt: string, model: string): Promi
       '--model', model,
       promptArg,
     ];
-    const child = spawn(CLAUDE_BIN_PATH, args, {
+    const child = spawn(CLAUDE_BIN_PATH(), args, {
       shell: false,
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],

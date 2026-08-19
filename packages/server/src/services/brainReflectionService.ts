@@ -54,12 +54,12 @@ import {
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { resolveClaudeBin } from './claudeBin.js';
+import { getClaudeBin } from './claudeBin.js';
 import { getSessionJsonlPath } from './sessionDiscovery.js';
 import { getBrainService } from './brainService.js';
 import { logger } from '../logger.js';
 
-const CLAUDE_BIN = resolveClaudeBin().binPath;
+const CLAUDE_BIN = (): string => getClaudeBin().binPath;
 
 /** one-shot 리플렉션 상한 — haiku 가 이 시간 안에 못 끝내면 실패 처리(무한 대기 방지). */
 const REFLECT_TIMEOUT_MS = 60_000;
@@ -466,7 +466,7 @@ function runReflection(input: BrainReflectionInput): void {
   let settled = false;
   let outBuf = '';
   const child = spawn(
-    CLAUDE_BIN,
+    CLAUDE_BIN(),
     [
       '-p', prompt,
       '--model', 'haiku',

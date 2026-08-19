@@ -81,6 +81,9 @@ class UserDefaultsService {
       notifications: patch.notifications !== undefined ? { ...(prev.notifications ?? {}), ...patch.notifications } : prev.notifications,
       permissions:   patch.permissions   !== undefined ? { ...(prev.permissions   ?? {}), ...patch.permissions   } : prev.permissions,
       advanced:      patch.advanced      !== undefined ? { ...(prev.advanced      ?? {}), ...patch.advanced      } : prev.advanced,
+      // §4 (Claude Code CLI 자동 업데이트) — 다른 카테고리와 같은 부분 머지. 미설정 = 켬이라
+      // 이 키가 없는 기존 사용자는 앱을 켤 때 CLI 가 최신으로 유지된다.
+      claudeAutoUpdate: patch.claudeAutoUpdate !== undefined ? { ...(prev.claudeAutoUpdate ?? {}), ...patch.claudeAutoUpdate } : prev.claudeAutoUpdate,
       updatedAt: Date.now(),
     };
     this.defaults = next;

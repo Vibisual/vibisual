@@ -41,6 +41,10 @@
     "usage": {
       "tooltip": "現在のセッション: 5時間の上限の{{percent}}%を使用 — クリックで詳細",
       "tooltipNoData": "使用量はまだ収集されていません — クリックしてオンに"
+    },
+    "setupBanner": {
+      "text": "Claude Code がインストールされていません — エージェントはまだ実行できません。",
+      "action": "インストール"
     }
   },
   "panel": {
@@ -198,7 +202,8 @@
         "permissions": "権限",
         "advanced": "詳細",
         "version": "バージョン",
-        "account": "アカウント"
+        "account": "アカウント",
+        "storage": "ストレージ"
       },
       "appearance": {
         "intro": "Vibisualの見た目をカスタマイズします。",
@@ -224,7 +229,19 @@
         "restartHint": "選択を保存しました。新規スポーンエージェントに反映するにはVibisualを再起動してください。",
         "about": "概要",
         "repo": "GitHubリポジトリ",
-        "marketplace": "VS Code MarketplaceのClaude Code"
+        "marketplace": "VS Code MarketplaceのClaude Code",
+        "selectionApplied": "選択を保存して適用しました — 新しく起動するエージェントにすぐ反映されます。",
+        "claudeAutoUpdate": {
+          "title": "Claude Code の更新",
+          "label": "Claude Code を自動的に最新の状態に保つ",
+          "onHint": "Vibisual はアプリを起動するたびに CLI を最新バージョンに更新します。",
+          "offHint": "自動更新はオフです。CLI を手動で更新するには「今すぐ更新」を使用してください。",
+          "vscodeNotice": "現在使用中のバイナリは VS Code 拡張機能由来のため、更新は Marketplace からのみ可能です。Vibisual に更新を管理させるには、上で別のインストールを選択してください。",
+          "updateNow": "今すぐ更新",
+          "updating": "更新中…",
+          "updated": "{{version}} に更新しました",
+          "updateFailed": "更新に失敗しました"
+        }
       },
       "agent": {
         "intro": "これらのデフォルト設定は新規作成されるカスタムエージェントに適用されます。既存のエージェントには影響しません。",
@@ -259,6 +276,73 @@
         "recheck": "再確認",
         "checking": "確認中…",
         "actionFailed": "実行できませんでした。もう一度お試しください。"
+      },
+      "storage": {
+        "intro": "Vibisual がアクティビティ履歴をディスク上に保持する期間です。値を 0 に設定すると無期限に保持されます — 何かが黙って削除されることはなく、実行中のセッションが影響を受けることもありません。",
+        "save": "適用",
+        "saving": "保存中…",
+        "reset": "既定値に戻す",
+        "unsaved": "未適用",
+        "usageTitle": "ディスク使用量",
+        "total": "合計",
+        "rescan": "再スキャン",
+        "scanning": "スキャン中…",
+        "cleanNow": "今すぐクリーンアップ",
+        "cleaning": "クリーンアップ中…",
+        "cleaned": "{{files}} 件のファイルを削除し、{{size}} を解放しました。",
+        "empty": "ディスク上にプロジェクトデータはまだありません。",
+        "worktreesTitle": "Git Worktree",
+        "worktreesNote": "自動的に削除されることはありません — 作業内容が含まれている可能性があります。不要になった場合はフォルダを手動で削除してください。",
+        "worktreeOrphan": "孤立",
+        "units": {
+          "days": "日",
+          "count": "件",
+          "seconds": "秒"
+        },
+        "fields": {
+          "fileEditRetentionDays": {
+            "label": "ファイル編集の保持期間",
+            "desc": "これより古い編集履歴は破棄されます。0 = 無期限に保持。"
+          },
+          "maxFileEditPaths": {
+            "label": "編集履歴を保持する最大ファイル数",
+            "desc": "最も長い間編集されていないファイルから順に破棄されます。0 = 無制限。"
+          },
+          "fileEditMergeWindowMs": {
+            "label": "編集をマージする間隔",
+            "desc": "同一ファイルへの連続編集は 1 件にまとめられます。0 = マージしない。"
+          },
+          "completedCommandMaxPerSession": {
+            "label": "セッションごとの完了コマンド数",
+            "desc": "セッションごとに保持するプロンプトバブルの数です。0 = 無制限。"
+          },
+          "subStreamRetentionDays": {
+            "label": "エージェントトランスクリプトの保持期間",
+            "desc": "起動時にクリーンアップされます。実行中のセッションは経過期間に関わらず保持されます。0 = 無期限に保持。"
+          },
+          "attachmentRetentionDays": {
+            "label": "添付ファイルの保持期間",
+            "desc": "プロンプトに貼り付けた画像です。0 = 無期限に保持。"
+          }
+        },
+        "kinds": {
+          "checkpoint": "チェックポイント",
+          "checkpointBackups": "バックアップ",
+          "activity": "アクティビティ",
+          "identity": "識別情報",
+          "subStreams": "トランスクリプト",
+          "attachments": "添付ファイル",
+          "brain": "記憶",
+          "logs": "ログ",
+          "video": "動画",
+          "other": "その他"
+        },
+        "error": {
+          "load": "保持設定を読み込めませんでした。",
+          "save": "保持設定を保存できませんでした。",
+          "scan": "ディスク使用量を測定できませんでした。",
+          "clean": "クリーンアップに失敗しました。もう一度お試しください。"
+        }
       }
     },
     "autoAgent": {
@@ -502,7 +586,17 @@
       "stderr": "stderr",
       "copy": "コピー",
       "copied": "コピー済み",
-      "close": "閉じる"
+      "close": "閉じる",
+      "mergeBtn": "マージ",
+      "mergeTitle": "{{branch}} を現在のブランチにマージ",
+      "mergeConflict": "マージコンフリクト",
+      "mergeConflictNote": "メインブランチは merge --abort で元の状態に復元されました。以下のファイルがコンフリクトしています — この Worktree で作業したエージェントに引き継ぐか、自分で解決してください。",
+      "mergeHandOff": "エージェントに引き継ぐ",
+      "mergeHandOffPrompt": "この Worktree をメインブランチにマージしようとしたところ、コンフリクトが発生しました。クリーンにマージできるようブランチを修正し、変更内容を教えてください。",
+      "mergeParentDirty": "メインブランチに未コミットの変更があります",
+      "mergeParentDirtyNote": "先にコミットするかスタッシュしてください — 未コミットの変更がある状態でマージすると失われる可能性があります。",
+      "mergeNothing": "マージする内容がありません",
+      "mergeNothingNote": "この Worktree にはメインブランチに存在しないコミットはありません。"
     },
     "worktreeDelete": {
       "title": "Worktreeを削除",
@@ -1083,9 +1177,39 @@
       "later": "後で",
       "stop": "停止",
       "start": "サインイン"
+    },
+    "setup": {
+      "title": "Claude Code をインストール",
+      "intro": "Vibisual は Claude Code CLI でエージェントを実行しますが、このコンピューターにはまだインストールされていません。ターミナル不要でここからインストールできます。",
+      "commandLabel": "インストールコマンド",
+      "copy": "コピー",
+      "copied": "コピー済み",
+      "install": "インストール",
+      "installing": "インストール中…",
+      "installDone": "インストール完了",
+      "installFailed": "インストールに失敗しました",
+      "retry": "再試行",
+      "ready": "Claude Code の準備ができました。続行しています…",
+      "failed": "インストールが完了しませんでした。上記のコマンドをターミナルで実行してから「再確認」を選択してください。",
+      "manualOnly": "このプラットフォームでは自動インストールを利用できません。上記のコマンドをターミナルで実行してから「再確認」を選択してください。",
+      "recheck": "再確認",
+      "rechecking": "確認中…",
+      "later": "後で",
+      "docs": "公式インストールガイド"
     }
   },
   "ide": {
+    "diff": {
+      "addComment": "この行にコメント",
+      "removeComment": "コメントを削除",
+      "commentPlaceholder": "ここをどう変更しますか？（Ctrl+Enter で保存）",
+      "commentCancel": "キャンセル",
+      "commentSave": "保存",
+      "commentLimit": "1 セッションあたりレビューコメントは最大 {{max}} 件です — 追加するには送信するか削除してください。",
+      "sendReview": "レビューを送信（{{count}}）",
+      "sendReviewTip": "diff に残したコメントを 1 つのコマンドとして送信します",
+      "reviewPromptHeader": "次のレビューコメントを反映してください。"
+    },
     "imageAnnotate": {
       "tool": {
         "view": "表示",
@@ -1243,9 +1367,8 @@
       "sending": "送信中…"
     },
     "activityBar": {
-      "terminal": "ターミナル",
+      "mcp": "MCP",
       "files": "ファイル",
-      "results": "結果",
       "context": "コンテキストソース",
       "skills": "スキル",
       "bookmarks": "ブックマーク",
@@ -1254,6 +1377,49 @@
       "loop": "リピートループ",
       "goal": "目標",
       "debug": "実行とデバッグ"
+    },
+    "mcp": {
+      "title": "MCP サーバー",
+      "refresh": "MCP を再スキャン",
+      "noProject": "プロジェクトを開くと、そこで使える MCP が表示されます。",
+      "empty": "このプロジェクトにはまだ MCP サーバーがありません。次のコマンドで追加できます:",
+      "autoApprove": "このプロジェクトは .mcp.json のサーバーをすべて自動承認します（enableAllProjectMcpServers）。",
+      "applyHint": "オン・オフはこれから起動するセッションに適用されます。実行中のセッションの接続はそのままです。",
+      "docs": "ドキュメント",
+      "loadFailed": "MCP 設定を読み込めませんでした。",
+      "toggleFailed": "変更を保存できませんでした。",
+      "turnOn": "オンにする",
+      "turnOff": "オフにする",
+      "state": {
+        "enabled": "有効",
+        "disabled": "無効",
+        "pending": "承認待ち"
+      },
+      "scope": {
+        "global": "グローバル（全プロジェクト）",
+        "project": "プロジェクト（.mcp.json）",
+        "local": "ローカル（このプロジェクトのみ）",
+        "preset": "Vibisual プリセット"
+      },
+      "scopeShort": {
+        "global": "グローバル",
+        "project": "プロジェクト",
+        "local": "ローカル",
+        "preset": "プリセット"
+      },
+      "scopeHint": {
+        "global": "~/.claude.json に書かれており、すべてのプロジェクトで使えます。",
+        "project": "このリポジトリの .mcp.json にあり、クローンした全員と共有されます。ここでは読み取り専用です。",
+        "local": "~/.claude.json のこのプロジェクトの項目にのみ書かれています。",
+        "preset": "Vibisual がこのエージェントに接続できるデバッグツールです。"
+      },
+      "req": {
+        "approval": ".mcp.json にありますが未承認です — [オンにする] でこのプロジェクトで承認されます。",
+        "missing-command": "'{{detail}}' が PATH に見つかりません — 先にインストールしてください。",
+        "missing-env": "環境変数が設定されていません: {{detail}}",
+        "auth": "リモートサーバーです — 先にログインが必要な場合があります: claude mcp login {{name}}",
+        "policy": "管理ポリシー（deniedMcpServers）によりブロックされており、ここではオンにできません。"
+      }
     },
     "debug": {
       "title": "実行とデバッグ",
@@ -1425,12 +1591,8 @@
       "secNext": "次へ"
     },
     "sidebar": {
-      "sessions": "セッション",
       "files": "ファイル ({{count}})",
-      "events": "イベント ({{count}})",
       "noFileEdits": "ファイル編集はまだありません",
-      "noEvents": "イベントはまだありません",
-      "hasResult": "結果あり",
       "skills": "スキル ({{count}})",
       "projectSkills": "プロジェクト ({{count}})",
       "globalSkills": "全体 ({{count}})",
@@ -1654,17 +1816,19 @@
       "untitled": "サブエージェント",
       "scopeAll": "このエージェントが実行中のすべてのサブエージェントを表示しています。",
       "scopeSession": "「{{label}}」が起動したサブエージェントを表示しています。",
-      "endedAt": "終了 {{time}}",
-      "finishedTitle": "たった今終了",
-      "noResult": "結果は届きませんでした。",
-      "toggleResult": "結果の全文を開く・閉じる",
-      "toolUses": "ツール {{count}} 回",
-      "nowUsing": "今使っているツール",
-      "duration": "{{value}} かかりました",
       "emptySession": "このセッションが起動したサブエージェントはありません。",
       "hint": "ここに並ぶのは、このセッションがバックグラウンドで起動したサブエージェントだけです — 今のやり取り自体は数えません。動いている間は左のアイコンが点灯し、その下に件数が出ます。",
       "othersRunning": "他の場所であと {{count}} 件実行中",
       "startedAt": "開始 {{time}}",
+      "endedAt": "終了 {{time}}",
+      "finishedTitle": "たった今終了",
+      "noResult": "結果は届きませんでした。",
+      "resultRescued": "トランスクリプトから復元 — セッションには届いていません",
+      "resultRescuedTitle": "この子エージェントは報告前に中断されたため（Stop、タブを閉じる、またはクラッシュ）、セッションはこれを受け取っていません。Vibisual がディスク上のエージェントトランスクリプトから読み戻しました。",
+      "toggleResult": "結果の全文を開く・閉じる",
+      "toolUses": "ツール {{count}} 回",
+      "nowUsing": "今使っているツール",
+      "duration": "{{value}} かかりました",
       "noResponse": "{{value}} 応答なし",
       "dismiss": "待機をやめる",
       "dismissTip": "この一覧から外します。プロセスは停止しません — 子の停止はそれを起動したエージェントが TaskStop で行います。"
@@ -1839,7 +2003,9 @@
     },
     "card": {
       "showDetails": "詳細 ({{count}})",
-      "hideDetails": "折りたたむ"
+      "hideDetails": "折りたたむ",
+      "inProgress": "進行中",
+      "inProgressHint": "このターンの実行中に投稿されました — このカードの下に続きの出力があります。"
     },
     "context": {
       "title": "コンテキストソース",
@@ -2400,7 +2566,43 @@
       "createWorktree": "Worktreeを作成",
       "createWorktreeHint": "最新のmasterから新しいワークスペースを作成",
       "createCapture": "画面／プログラムキャプチャバブル",
-      "createCaptureHint": "画面またはプログラムウィンドウをバブル内にライブ表示"
+      "createCaptureHint": "画面またはプログラムウィンドウをバブル内にライブ表示",
+      "createSpec": "仕様ボード",
+      "createSpecHint": "要件を書き、受け入れ基準ごとにタスクカードへ変換"
+    },
+    "spec": {
+      "title": "仕様",
+      "untitled": "無題の仕様",
+      "criteria": "受け入れ基準",
+      "cards": "カード",
+      "revision": "リビジョン {{count}}",
+      "openBoard": "仕様ボードを開く",
+      "rename": "名前を変更",
+      "renamePrompt": "仕様タイトル",
+      "addItem": "受け入れ基準を追加",
+      "addItemPrompt": "受け入れ基準（1行）",
+      "addItemPlaceholder": "受け入れ基準…",
+      "add": "追加",
+      "removeItem": "受け入れ基準を削除",
+      "emptyItems": "受け入れ基準はまだありません · 下に1行ずつ追加してください",
+      "bodyLabel": "要件（Markdown）",
+      "bodyPlaceholder": "何を作るのか、なぜ作るのか、どこまでが範囲か?",
+      "generateTasks": "タスクカードを作成",
+      "generateTasksN": "タスクカードを作成 ({{count}})",
+      "generateOne": "この項目からタスクカードを作成",
+      "generateNoneHint": "すべての受け入れ基準に既にタスクカードがあります",
+      "generating": "タスクカードを作成中…",
+      "generateHint": "受け入れ基準ごとに1枚のタスクカードを作成し、順にタスクエッジで連結します。既にカードがある項目はスキップされます。",
+      "stale": "仕様変更済み",
+      "staleCount": "仕様変更済み: {{count}}",
+      "staleBadge": "仕様変更済み — {{title}}",
+      "acknowledge": "確認",
+      "detach": "リンク解除",
+      "cardMissing": "カード（バブルなし）",
+      "pin": "固定",
+      "unpin": "固定解除",
+      "delete": "削除",
+      "deletePinnedHint": "この仕様は固定されています。先に固定を解除してください。"
     },
     "bounds": {
       "label": "バブル境界",
@@ -2450,6 +2652,28 @@
         "goBack": "ダブルクリックで戻る",
         "expand": "ダブルクリックで展開"
       }
+    },
+    "preview": {
+      "deviceAuto": "自動",
+      "deviceAutoTip": "利用可能な幅いっぱいに表示",
+      "deviceMobile": "モバイル",
+      "deviceTablet": "タブレット",
+      "deviceDesktop": "デスクトップ",
+      "deviceTip": "幅 {{width}}px で表示",
+      "pickElement": "要素を選択",
+      "pickHint": "プレビュー内の要素をクリックして変更内容を記述",
+      "pickPlaceholder": "この要素をどう変更しますか？（Ctrl+Enter で送信）",
+      "pickSend": "送信",
+      "pickCopy": "セレクタをコピー",
+      "pickCopied": "コピー済み",
+      "pickClose": "閉じる",
+      "pickNoHost": "このプレビューをホストしているエージェントがないため、送信先がありません。代わりにセレクタをコピーしてください。",
+      "pickPromptHeader": "以下の画面要素を修正してください。",
+      "pickLabelPage": "ページ",
+      "pickLabelElement": "要素",
+      "pickLabelSelector": "セレクタ",
+      "pickLabelText": "表示テキスト",
+      "pickLabelRequest": "リクエスト"
     }
   },
   "brain": {

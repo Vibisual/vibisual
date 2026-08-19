@@ -13,7 +13,7 @@
 import { memo, useState, useMemo, useRef, useCallback, useContext, createContext, forwardRef, useImperativeHandle } from 'react';
 import { Virtuoso, type VirtuosoHandle, type StateSnapshot } from 'react-virtuoso';
 import { useTranslation } from 'react-i18next';
-import { findTextRangeInContainer, scrollRangeIntoCenter, scrollElementIntoCenter, flashElement, findItemElement } from './bookmarkScroll.js';
+import { findTextRangeInContainer, scrollRangeIntoCenter, scrollElementIntoCenter, flashElement, findItemElement, markRange } from './bookmarkScroll.js';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Components } from 'react-markdown';
@@ -29,7 +29,8 @@ import { AgentReviewCard } from './AgentReviewCard.js';
 import { AgentListCard } from './AgentListCard.js';
 import { AskQuestionCard } from './AskQuestionCard.js';
 import { CollapsiblePrompt, AiSpeakerGlyph, type PromptCommandState } from './CollapsiblePrompt.js';
-import { DiffView } from './DiffView.js';
+import { DiffView, type DiffReviewCtx } from './DiffView.js';
+import { followSessionKey } from './editorFollow.js';
 import { PlanBlock } from './PlanBlock.js';
 import { parseEditToolInput, editSizeLines } from './diffTool.js';
 import { editorFileFromAbsPath } from './editorModel.js';
@@ -49,9 +50,11 @@ import {
   type StreamDisplayItem, type StreamToolGroup,
 } from './streamDensity.js';
 import { useStreamToggle, streamToggleProps } from './streamToggle.js';
+import { streamItemFindText, findTextMatches } from './streamSearch.js';
 import {
   STREAM_DIFF_AUTO_EXPAND_MAX_LINES,
   STREAM_COMPACT_TEXT_CLAMP_LINES, STREAM_COMPACT_TEXT_CLAMP_CHARS,
+  isReadOnlyHookAgent,
   type StreamDensity,
 } from '@vibisual/shared';
 import { useVirtuosoFrontShift } from './frontShift.js';
@@ -102,8 +105,10 @@ interface StreamRendererProps {
 
 /** §5.5 #17-7 — 북마크 "이동" 시 부모(IDEMainArea)가 호출하는 명령형 핸들. */
 export interface StreamRendererHandle {
-  /** 출처 항목(anchorId)으로 가상 리스트를 스크롤하고 그 항목/텍스트를 하이라이트. */
-  scrollToBookmark: (anchorId: string | undefined, text: string) => void;
+  /** 출처 항목(anchorId)으로 가상 리스트를 스크롤하고 그 항목/텍스트를 하이라이트.
+   *  `preserveFocus` 는 인-페이지 검색용 — 텍스트를 selection 대신 CSS 하이라이트로 칠해
+   *  포커스를 쥔 검색 입력창의 caret 을 건드리지 않는다(기본 false = 북마크 이동, 종전대로 선택). */
+  scrollToBookmark: (anchorId: string | undefined, text: string, preserveFocus?: boolean) => void;
   /**
    * 하단 StreamStatusBar 의 "프롬프트로 이동" 점프 — 해당 명령(cmd-${id}) 항목으로 스크롤.
    * 가상 리스트(virtuoso)는 뷰포트 밖 항목을 렌더하지 않으므로, scrollToIndex 로 먼저 그 항목을
@@ -336,7 +341,12 @@ const TextBlock = memo(function TextBlock({ item, density, exempt }: { item: Str
 });
 
 /** tool_use + tool_result 접이식 그룹 */
-const ToolBlock = memo(function ToolBlock({ item, density }: { item: StreamGroup; density: StreamDensity }): React.JSX.Element {
+const ToolBlock = memo(function ToolBlock({ item, density, review }: {
+  item: StreamGroup;
+  density: StreamDensity;
+  /** §5.5 #17-30 — 이 스트림이 속한 세션(코멘트를 담을 자리). 없으면 코멘트 손잡이는 뜨지 않는다. */
+  review?: DiffReviewCtx | undefined;
+}): React.JSX.Element {
   const { t } = useTranslation();
   // §5.5 #17-27 — 헤더에 적힌 파일명이 곧 여는 손잡이다(앱 안 편집창 — 밖 편집기는 diff 우측 연필 그대로).
   const rootPath = useIDEProjectRoot();
@@ -346,7 +356,15 @@ const ToolBlock = memo(function ToolBlock({ item, density }: { item: StreamGroup
   // §5.5 #17-12 — 종전엔 Edit 이면 무조건 기본 펼침이라 긴 diff 가 화면을 통째로 먹었다. 이제 **짧은 편집만**
   //   자동으로 펼치고(비교가 곧 결과), 임계를 넘으면 접힌 채 줄 수만 알린다. 간결 밀도에서는 항상 접힘.
   const editLines = useMemo(() => (parsedEdit ? editSizeLines(parsedEdit) : 0), [parsedEdit]);
-  const autoOpen = parsedEdit !== null && density !== 'compact' && editLines <= STREAM_DIFF_AUTO_EXPAND_MAX_LINES;
+  // §5.5 #17-30 — 이 파일에 아직 보내지 않은 리뷰 코멘트가 있으면 **접힘 대상에서 뺀다**.
+  //   접혀 버리면 사용자가 적어 둔 문장이 사라진 것처럼 보인다(불리언만 구독 — 목록 참조 ❌).
+  const hasReviewComments = useGraphStore((s) => {
+    if (!review || !parsedEdit) return false;
+    const list = s.diffComments[review.sessionKey];
+    return list !== undefined && list.some((c) => c.filePath === parsedEdit.filePath);
+  });
+  const autoOpen = parsedEdit !== null
+    && (hasReviewComments || (density !== 'compact' && editLines <= STREAM_DIFF_AUTO_EXPAND_MAX_LINES));
   // §5.5 #17-16 ④ — 펼침은 컴포넌트 밖(모듈 저장소)에 산다: 가상 리스트가 언마운트해도 펼쳐 둔 채 돌아온다.
   const [open, toggleOpen] = useStreamToggle(item.id, autoOpen);
 
@@ -442,7 +460,7 @@ const ToolBlock = memo(function ToolBlock({ item, density }: { item: StreamGroup
       {/* 펼친 내용 — Edit 계열은 side-by-side diff, 그 외는 raw input/output. */}
       {open && parsedEdit && (
         <div className="border-t border-gray-800/60 bg-gray-950/50 px-2 py-2">
-          <DiffView parsed={parsedEdit} />
+          <DiffView parsed={parsedEdit} review={review} />
         </div>
       )}
       {open && !parsedEdit && (
@@ -726,31 +744,18 @@ function CommandBlock({ item, agentId }: { item: StreamCommand; agentId?: string
 
 // ─── 메인 렌더러 ───
 
-/** 인-페이지 검색용 항목 텍스트 추출 — 대화 본문(text/tool/command/system/result)만.
- *  카드류(report/question/…)는 별도 UI 라 v1 검색 대상에서 제외. */
-function itemSearchText(item: StreamDisplayItem): string {
-  switch (item.kind) {
-    case 'text': case 'system': case 'result': case 'error': return item.content;
-    case 'tool': return `${item.toolName} ${item.input} ${item.output}`;
-    case 'toolgroup': return item.children.map((c) => (c.kind === 'tool' ? `${c.toolName} ${c.input} ${c.output}` : c.kind === 'system' ? c.content : '')).join(' ');
-    case 'plan': return item.todos.map((td) => td.content).join(' ');
-    case 'command': return `${item.prompt} ${item.result}`;
-    default: return '';
-  }
-}
-
 /** §5.5 #17-24 ② — 라이브 1줄의 두 라벨(모드로 고른다). */
 interface LiveLabels { thinking: string; working: string }
 
 /** 단일 스트림 아이템 → 블록 엘리먼트. 북마크 이동 앵커용 `data-stream-item-id` 래퍼로 감싼다.
  *  zoom — IDE 본문 텍스트 줌 배율. **스크롤러(가상 리스트 뷰포트)가 아니라 각 항목 래퍼**에 걸어,
  *  Virtuoso 가 zoom 반영된 실제 항목 높이를 그대로 측정(가상화·스크롤 계산과 일관)하게 한다. */
-function renderStreamItem(item: StreamDisplayItem, liveLabels: LiveLabels, zoom: number, density: StreamDensity, lastTextId: string | null, feedbackCtx?: StreamFeedbackCtx): React.JSX.Element {
+function renderStreamItem(item: StreamDisplayItem, liveLabels: LiveLabels, zoom: number, density: StreamDensity, lastTextId: string | null, feedbackCtx?: StreamFeedbackCtx, reviewCtx?: DiffReviewCtx): React.JSX.Element {
   let inner: React.JSX.Element;
   switch (item.kind) {
     // §5.5 #17-21 ② — 마지막 본문(lastTextId)만 간결에서도 통째로 보인다(지금 하는 말 = 결론).
     case 'text':     inner = <TextBlock item={item} density={density} exempt={item.id === lastTextId} />; break;
-    case 'tool':     inner = <ToolBlock item={item} density={density} />; break;
+    case 'tool':     inner = <ToolBlock item={item} density={density} review={reviewCtx} />; break;
     case 'toolgroup': inner = <ToolGroupBlock item={item} density={density} />; break;
     case 'plan':     inner = <PlanBlock item={item} />; break;
     case 'result':   inner = <ResultBlock item={item} feedbackCtx={feedbackCtx} />; break;
@@ -850,10 +855,19 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
     }
     return null;
   }, [items]);
+  // §5.5 #17-30 — 이 스트림이 속한 세션 = 코멘트를 담을 자리. 쓰기 가능 여부는 `addCommand` 와 **같은 술어**
+  //   (`isReadOnlyHookAgent`)로 판정해, 화면에서 손잡이를 지운 것과 서버가 막는 것이 어긋나지 않게 한다.
+  const canReviewComment = useGraphStore((s) => (
+    agentId !== undefined && !isReadOnlyHookAgent(s.agents.find((a) => a.id === agentId))
+  ));
+  const reviewCtx = useMemo<DiffReviewCtx | undefined>(
+    () => (agentId ? { sessionKey: followSessionKey(agentId, subAgentId ?? null), canComment: canReviewComment } : undefined),
+    [agentId, subAgentId, canReviewComment],
+  );
   const itemContent = useCallback(
     (_index: number, item: StreamDisplayItem) =>
-      renderStreamItem(item, liveLabels, ideTextZoom, density, lastTextId, agentId ? { agentId, ...(subAgentId ? { subAgentId } : {}) } : undefined),
-    [liveLabels, ideTextZoom, density, lastTextId, agentId, subAgentId],
+      renderStreamItem(item, liveLabels, ideTextZoom, density, lastTextId, agentId ? { agentId, ...(subAgentId ? { subAgentId } : {}) } : undefined, reviewCtx),
+    [liveLabels, ideTextZoom, density, lastTextId, agentId, subAgentId, reviewCtx],
   );
 
   // v2.99 — virtuoso 가 단독 소유한 내부 스크롤러 DOM. 북마크 이동의 "컨테이너 한정 스크롤" 이 이걸 쓴다
@@ -868,7 +882,8 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
 
   // §5.5 #17-7 — 북마크 이동: anchorId 인덱스로 가상 리스트를 스크롤(렌더 보장)한 뒤, 다음 프레임에
   //   컨테이너 한정 스크롤 + 항목 외곽선 플래시 + 텍스트 선택. anchorId 없거나 못 찾으면 텍스트 검색 폴백.
-  const scrollToBookmark = useCallback((anchorId: string | undefined, text: string) => {
+  //   preserveFocus(인-페이지 검색)면 텍스트를 selection 대신 CSS 하이라이트로 칠해 검색창 caret 을 지킨다.
+  const scrollToBookmark = useCallback((anchorId: string | undefined, text: string, preserveFocus = false) => {
     // §5.5 #17-12 — 신고 카드에 흡수된 검수(`review-…`)는 독립 항목이 아니므로 흡수한 신고 항목을 찾아준다.
     const idx = anchorId
       ? items.findIndex((it) => it.id === anchorId || (it.kind === 'report' && it.review !== undefined && `review-${it.review.id}` === anchorId))
@@ -883,15 +898,12 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
           scrollElementIntoCenter(cont, el);
           flashElement(el);
           const range = findTextRangeInContainer(el, text);
-          if (range) {
-            const sel = window.getSelection();
-            if (sel) { sel.removeAllRanges(); sel.addRange(range); }
-          }
+          if (range) markRange(range, preserveFocus);
           return;
         }
       }
       const range = findTextRangeInContainer(cont, text);
-      if (range) scrollRangeIntoCenter(cont, range);
+      if (range) scrollRangeIntoCenter(cont, range, preserveFocus);
     }, idx >= 0 ? 280 : 60);
   }, [items]);
   // 하단 상태바 점프: 명령 항목(cmd-${id})을 인덱스로 먼저 렌더(virtuoso)시킨 뒤, 다음 프레임에 컨테이너
@@ -913,12 +925,11 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
   const getState = useCallback((cb: (snap: StateSnapshot) => void) => {
     virtuosoRef.current?.getState(cb);
   }, []);
+  // §5.5 #17 — 검색은 **본문 텍스트만** 훑는다(명령창·도구 입출력·시스템 줄 ❌ — streamSearch.ts).
   const searchMatchIds = useCallback((query: string): string[] => {
-    const q = query.trim().toLowerCase();
-    if (!q) return [];
     const ids: string[] = [];
     for (const it of items) {
-      if (itemSearchText(it).toLowerCase().includes(q)) ids.push(it.id);
+      if (findTextMatches(streamItemFindText(it), query)) ids.push(it.id);
     }
     return ids;
   }, [items]);

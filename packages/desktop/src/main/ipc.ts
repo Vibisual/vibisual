@@ -4,6 +4,7 @@ import { inject, type DispatchFunc } from 'light-my-request';
 import type { Express } from 'express';
 import {
   handleClientMessage,
+  handleClientDisconnect,
   buildConnectionMessages,
   shutdownIframeLogStreamer,
   shutdownServerLogService,
@@ -154,7 +155,11 @@ export function setupIpc(expressApp: Express): IpcHub {
       },
     };
     connections.set(sender.id, conn);
-    sender.once('destroyed', () => connections.delete(sender.id));
+    sender.once('destroyed', () => {
+      connections.delete(sender.id);
+      // §9 — 창이 닫히면 그 창의 프로젝트 구독 선언도 함께 지운다(합집합이 넓어진 채 굳지 않게).
+      handleClientDisconnect(conn);
+    });
     return conn;
   };
 

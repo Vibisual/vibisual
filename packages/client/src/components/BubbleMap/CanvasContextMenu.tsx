@@ -25,6 +25,8 @@ interface CanvasContextMenuProps {
   onCreateAppBubble: (appId: string, canvasX: number, canvasY: number) => void;
   /** §5.14 v4.62 — 플레이 버블(이 프로젝트를 켜는 버튼) 생성. */
   onCreatePlay: (canvasX: number, canvasY: number) => void;
+  /** §5.15 — 스펙 보드(요구사항 → 수용 기준 → 작업 카드) 생성. */
+  onCreateSpec: (canvasX: number, canvasY: number) => void;
   onClose: () => void;
 }
 
@@ -43,6 +45,7 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
   onCreateCapture,
   onCreateAppBubble,
   onCreatePlay,
+  onCreateSpec,
   onClose,
 }: CanvasContextMenuProps): React.JSX.Element {
   const { t } = useTranslation();
@@ -108,6 +111,11 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
     onCreatePlay(canvasX, canvasY);
     onClose();
   }, [onCreatePlay, onClose, canvasX, canvasY]);
+
+  const handleCreateSpec = useCallback(() => {
+    onCreateSpec(canvasX, canvasY);
+    onClose();
+  }, [onCreateSpec, onClose, canvasX, canvasY]);
 
   const handleCreatePipeline = useCallback((type: PipelineType) => {
     onCreatePipeline(type, canvasX, canvasY);
@@ -229,6 +237,24 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
           <div className="flex flex-col">
             <span>{t('canvas.contextMenu.createPlay', { defaultValue: '플레이 버블' })}</span>
             <span className="text-xs text-gray-500">{t('canvas.contextMenu.createPlayHint', { defaultValue: '이 프로젝트를 켜고 끄고 바로 미리보기' })}</span>
+          </div>
+        </button>
+
+        {/* §5.15 — 스펙 보드 (요구사항 → 수용 기준 → 작업 카드, teal 톤). */}
+        <button
+          type="button"
+          className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-800 transition-colors"
+          onClick={handleCreateSpec}
+        >
+          <svg className="h-4 w-4 shrink-0 text-teal-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <path d="M14 2v6h6" />
+            <path d="m8.5 13.5 1.5 1.5 3-3" />
+            <path d="M8.5 18h7" />
+          </svg>
+          <div className="flex flex-col">
+            <span>{t('canvas.contextMenu.createSpec', { defaultValue: '스펙 보드' })}</span>
+            <span className="text-xs text-gray-500">{t('canvas.contextMenu.createSpecHint', { defaultValue: '요구사항을 적고 수용 기준마다 작업 카드 만들기' })}</span>
           </div>
         </button>
 

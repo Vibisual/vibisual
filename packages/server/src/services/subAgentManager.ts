@@ -16,7 +16,7 @@ import { rescueSubagentResult } from './subagentResultRescue.js';
 import { modelRegistryService } from './modelRegistryService.js';
 import { readLastAssistantMessage, readSessionTokenData, getSessionJsonlPath } from './sessionDiscovery.js';
 import * as streamBufferStore from './streamBufferStore.js';
-import { resolveClaudeBin } from './claudeBin.js';
+import { getClaudeBin } from './claudeBin.js';
 // §5.5 #17-2 — 턴 프롬프트 조립(슬래시 명령은 앞말 없이 원문 그대로). 순수 모듈 + 단위 테스트.
 import { composeTurnPrompt, isSlashCommandText } from './turnPrompt.js';
 import { isAgentViewEnabled, spawnBackground, stopSession, rmSession } from './claudeAgentViewService.js';
@@ -372,7 +372,7 @@ export function getCmdSessionIds(agentId: string): string[] {
 }
 
 /** claude CLI 경로 — `services/claudeBin.ts` 가 SSOT (§5.7 #23-1 v1.59 버전 체크와 동일 바이너리). */
-const CLAUDE_BIN = resolveClaudeBin().binPath;
+const CLAUDE_BIN = (): string => getClaudeBin().binPath;
 
 /**
  * Persistent child process — VS Code Claude Code 확장과 같은 long-lived 모델.
@@ -1459,7 +1459,7 @@ export class SubAgentManager {
       const args = ['--resume', sessionId, '--print', '--output-format', 'json', '--input-format', 'stream-json', '--verbose'];
       let child: ChildProcess;
       try {
-        child = spawn(CLAUDE_BIN, args, {
+        child = spawn(CLAUDE_BIN(), args, {
           cwd,
           stdio: ['pipe', 'pipe', 'pipe'],
           shell: false,
@@ -3209,7 +3209,7 @@ export class SubAgentManager {
     logger.info(`SubAgent ${sub.id} ${usePersistent ? 'persistent spawning' : 'legacy executing'}: "${cmd.text.slice(0, 50)}..."${configArgs.length > 0 ? ` [config: ${configArgs.join(' ')}]` : ''}`);
 
     try {
-      const child = spawn(CLAUDE_BIN, args, {
+      const child = spawn(CLAUDE_BIN(), args, {
         cwd: parentCwd,
         stdio: ['pipe', 'pipe', 'pipe'], // v1.33 — stdin 으로 prompt 주입하려 pipe.
         shell: false,
