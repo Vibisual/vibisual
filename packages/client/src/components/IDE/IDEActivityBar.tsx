@@ -13,7 +13,10 @@ interface ActivityItem {
 }
 
 const ACTIVITIES: ActivityItem[] = [
-  { view: 'terminal', labelKey: 'ide.activityBar.terminal', icon: 'M4 17l6-5-6-5m8 10h8' },
+  // §5.5 #17-31 — 첫 항목은 **이 프로젝트에서 쓸 수 있는 MCP**(종전 `터미널` = 세션 목록 자리).
+  //   세션 목록은 탭 바·세션 요약이 이미 보여 주고 있었고, 여기서만 볼 수 있는 것은 무엇이
+  //   붙어 있고 무엇이 켜져 있는가다. 아이콘은 lucide plug 톤(꽂는 것) stroke SVG.
+  { view: 'mcp', labelKey: 'ide.activityBar.mcp', icon: 'M12 22v-5 M9 8V2 M15 8V2 M6 8h12v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4z' },
   { view: 'files', labelKey: 'ide.activityBar.files', icon: 'M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-6l-2-2H5a2 2 0 0 0-2 2z' },
   // §5.5 #17-28 v4.96 — 종전 `결과`(훅 이벤트 목록) 자리를 **컨텍스트 주입원 통제**가 잇는다.
   //   아이콘은 "쌓여 들어가는 층"(lucide layers 톤) — 이 프롬프트 앞에 무엇이 겹쳐 실리는가.

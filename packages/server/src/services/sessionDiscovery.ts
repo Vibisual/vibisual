@@ -12,7 +12,7 @@ import { modelRegistryService } from './modelRegistryService.js';
 import type { AgentEvent, TodoItem, TurnTokenUsage, TokenCategoryEstimate, SessionTokenData } from '@vibisual/shared';
 import { logger } from '../logger.js';
 import { dbg } from './debugLog.js';
-import { resolveClaudeBin } from './claudeBin.js';
+import { getClaudeBin } from './claudeBin.js';
 import { scanFileLines, scanWholeFileLines } from './jsonlChunkReader.js';
 import { registerEvictableCache } from './memoryMonitor.js';
 
@@ -45,7 +45,7 @@ function cacheEntryCap(share: number): number {
 }
 
 /** `claude` CLI 바이너리 SSOT 경로 (subAgentManager/contiManager 와 동일). */
-const CLAUDE_BIN = resolveClaudeBin().binPath;
+const CLAUDE_BIN = (): string => getClaudeBin().binPath;
 
 /**
  * Claude Code 세션 ID 안전 문자셋. 세션 ID 는 UUID 계열(hex + 하이픈)이며
@@ -287,13 +287,13 @@ export function isSessionInUse(sessionId: string, cwd: string, timeoutMs = 1500)
     return Promise.resolve(false);
   }
   const args = ['-p', 'x', '--resume', sessionId];
-  const cmdLine = `${CLAUDE_BIN} -p "x" --resume ${sessionId}`;
+  const cmdLine = `${CLAUDE_BIN()} -p "x" --resume ${sessionId}`;
   logger.info(`[isSessionInUse] SPAWN sess=${shortId} cwd=${cwd} cmd=${cmdLine}`);
   return new Promise((resolve) => {
     // 보안: shell:false + 해석된 CLAUDE_BIN. shell:true 는 win32 cmd.exe 가
     // sessionId 를 재파싱해 인젝션 가능했음 — SAFE_SESSION_ID 검증과 함께 차단.
     const child = spawn(
-      CLAUDE_BIN,
+      CLAUDE_BIN(),
       args,
       { shell: false, windowsHide: true, cwd },
     );

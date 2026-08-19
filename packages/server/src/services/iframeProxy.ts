@@ -9,6 +9,7 @@ import net from 'node:net';
 import type { Request, Response } from 'express';
 import { IFRAME_PROXY_PATH } from '@vibisual/shared';
 import { logger } from '../logger.js';
+import { buildPreviewPickerScript } from './previewPicker.js';
 
 /**
  * 보안 — SSRF 가드. 이 프록시는 **로컬 dev 서버 프리뷰** 전용이므로
@@ -211,6 +212,13 @@ export async function iframeProxyHandler(req: Request, res: Response): Promise<v
       } else {
         html = injection + html;
       }
+
+      // §7.11 (판올림 번호 발급 대기) — 요소 집기(picker) 는 문서가 다 선 뒤에 붙인다(`</body>` 앞).
+      //   항상 넣되 **기본 비활성**이라, 부모가 켜기 전까지는 아무 것도 하지 않는다.
+      const picker = buildPreviewPickerScript(proxyBase, target);
+      html = /<\/body\s*>/i.test(html)
+        ? html.replace(/<\/body\s*>/i, () => `${picker}</body>`)
+        : html + picker;
       res.send(html);
     } else if (contentType.includes('text/css')) {
       // CSS 내부 url(/...) 도 프록시 경로로 재작성

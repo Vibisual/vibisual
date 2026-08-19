@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import * as pty from 'node-pty';
-import { resolveClaudeBin, buildInteractiveClaudeArgs, buildBashTimeoutEnv, prepareInteractiveRulesDir, buildInteractivePluginBlockForAgent, getCmdResumeSession, recordDiagnostic, killTree } from '@vibisual/server';
+import { getClaudeBin, buildInteractiveClaudeArgs, buildBashTimeoutEnv, prepareInteractiveRulesDir, buildInteractivePluginBlockForAgent, getCmdResumeSession, recordDiagnostic, killTree } from '@vibisual/server';
 import type { AgentConfig } from '@vibisual/shared';
 
 // 임베디드 인터랙티브 터미널 매니저 — SCENARIO.md §4 v2.63.
@@ -197,7 +197,7 @@ export function createTerminal(sink: TermSink, spec: CreateTerminalSpec): { ok: 
     // claude 실행 명령 prefill — 셸 배너/프롬프트가 먼저 그려지도록 살짝 지연 후 write.
     // newline 미포함 = 사용자가 직접 Enter(사람이 루프 안 — ToS 합법선).
     // 최초 spawn 시에만 — reattach 경로는 위에서 이미 return.
-    const { binPath } = resolveClaudeBin();
+    const { binPath } = getClaudeBin();
     // rules(멀티라인 시스템 프롬프트)는 prefill 한 줄에 못 넣으므로 §4 v2.63 파일 경유:
     //   ~/.vibisual/cmd-agents/<agentId>/CLAUDE.md 에 써 두고 `--add-dir` + env 플래그로 시작 시 자동 주입.
     //   rulesDir 는 위(spawn 전)에서 이미 계산.

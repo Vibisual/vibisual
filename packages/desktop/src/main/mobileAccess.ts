@@ -11,7 +11,7 @@ import { inject, type DispatchFunc } from 'light-my-request';
 import { WebSocketServer, WebSocket } from 'ws';
 import { Client as NatUpnpClient } from '@runonflux/nat-upnp';
 import { generate as generateSelfSigned } from 'selfsigned';
-import { handleClientMessage, buildConnectionMessages, type ClientConnection } from '@vibisual/server';
+import { handleClientMessage, handleClientDisconnect, buildConnectionMessages, type ClientConnection } from '@vibisual/server';
 import { createTerminal, writeTerminal, resizeTerminal, killTerminal, type TermSink } from './terminalManager';
 import {
   WS_PATH,
@@ -801,7 +801,8 @@ function bindUpgrade(server: HttpServer | HttpsServer): void {
           handleClientMessage(msg, conn);
         } catch { /* 비 JSON 프레임 무시 */ }
       });
-      ws.on('close', () => { wsClients.delete(ws); pushState(); });
+      // §9 — 모바일 소켓이 끊기면 그 클라이언트의 프로젝트 구독 선언도 지운다(ipc 창과 동일 규약).
+      ws.on('close', () => { wsClients.delete(ws); handleClientDisconnect(conn); pushState(); });
       ws.on('error', () => { /* close 가 정리 */ });
       pushState();
     });

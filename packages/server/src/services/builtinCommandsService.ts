@@ -18,7 +18,7 @@ import fsSync from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { logger } from '../logger.js';
-import { resolveClaudeBin } from './claudeBin.js';
+import { getClaudeBin } from './claudeBin.js';
 
 const IS_WIN = process.platform === 'win32';
 const PLATFORM_BIN_NAME = IS_WIN ? 'claude.exe' : 'claude';
@@ -62,7 +62,7 @@ interface CachedBuiltins {
 function scanCandidates(): string[] {
   const candidates: string[] = [];
   try {
-    const bin = resolveClaudeBin();
+    const bin = getClaudeBin();
     if (bin?.binPath && bin.binPath !== 'claude') candidates.push(bin.binPath);
   } catch { /* PATH 미발견 — 다른 후보 시도 */ }
 
@@ -152,6 +152,21 @@ class BuiltinCommandsService {
         logger.warn(`[builtinCommands] refresh failed: ${err instanceof Error ? err.message : String(err)}`);
       });
     }
+    return this.refreshPromise;
+  }
+
+  /**
+   * §4 (첫 실행 설치 온보딩) — **CLI 가 새로 생기거나 갱신된 뒤** 다시 스캔한다.
+   *
+   * `refreshIfStale` 는 `refreshPromise` 를 한 번 만들면 다시 지우지 않아 두 번째 호출부터
+   * no-op 이다(부팅 1회 전제). 그런데 이제 앱을 켠 뒤에 CLI 가 **설치되거나 최신으로 바뀌는**
+   * 경로가 생겼으므로, 그 순간 목록을 다시 태울 창구가 필요하다 — 없으면 갓 설치한 사용자의
+   * 슬래시 내장 명령 목록이 다음 실행 때까지 빈 채로 남는다.
+   */
+  forceRefresh(): Promise<void> {
+    this.refreshPromise = this.doRefresh().catch((err) => {
+      logger.warn(`[builtinCommands] force refresh failed: ${err instanceof Error ? err.message : String(err)}`);
+    });
     return this.refreshPromise;
   }
 

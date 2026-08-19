@@ -2,7 +2,7 @@
 
 # Vibisual
 
-### See your AI agents think.
+### The first Visual Development Environment for AI coding agents.
 
 </div>
 
@@ -10,8 +10,9 @@
 
 <div align="center">
 
-Visualize agent behavior through hooks, or build your harness by placing
-custom agent bubbles on a canvas.
+Design your agent team on a canvas, watch them work, and edit right there.
+
+*See your AI agents think.*
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%E2%89%A520-brightgreen.svg)](https://nodejs.org)
@@ -22,21 +23,35 @@ custom agent bubbles on a canvas.
 
 ---
 
+## IDE → ADE → VDE
+
+Coding agents don't type. They act — reading files, running commands,
+spawning other agents. Yet the tools we watch them with are still text:
+a terminal, a chat log, a list of tasks.
+
+| | Who writes the code | What you do | Examples |
+|---|---|---|---|
+| **IDE** | You | **Type** it | VS Code, Cursor |
+| **ADE** | The agent | **Read** the terminal | Warp |
+| **VDE** | The agents | **Watch** the map | **Vibisual** |
+
+A Visual Development Environment draws agent work as *space* instead of
+text — and keeps design, execution, observation, and editing on that one
+surface.
+
 ## What it does
 
-Vibisual does two things.
+### 1. Draws the run as a live map
 
-### 1. Visualizes Claude Code through hooks
+Claude Code hook events — including `PreToolUse`, `PostToolUse`,
+`UserPromptSubmit`, and `SessionStart` — become nodes on a live
+canvas. Sub-agent spawns become edges. Tool calls become child
+bubbles. Folders and files light up as they are touched.
 
-Supported Claude Code hook events — including `PreToolUse`, `PostToolUse`,
-`UserPromptSubmit`, `SessionStart`, and others — become nodes on a live
-bubble map. Sub-agent spawns become edges. Tool calls become child
-bubbles. Keyword links connect related work across sessions.
+The output of a multi-agent session is a tree printed as a wall of
+text. Vibisual draws that tree as it grows.
 
-The terminal output of a multi-agent Claude session is a tree printed
-as a wall of text. Vibisual draws that tree as it grows.
-
-### 2. Designs the harness as a visual graph
+### 2. Designs the agent team as a visual graph
 
 The bubble map is both the runtime view **and** the design surface for
 your harness. Instead of editing `settings.json` in a text editor, you
@@ -57,6 +72,15 @@ build the harness on a canvas:
 What used to be a buried `settings.json` tree is now a workflow you can
 see, edit, and rearrange at any time.
 
+### 3. Lets you fix things without leaving the map
+
+Double-click a bubble and the workspace opens in place: the agent's live
+stream, a file tree, a code editor with syntax highlighting, diffs, and a
+terminal — all in the same window as the canvas.
+
+You direct, the agents build, and when something needs a human hand you
+fix it on the spot instead of switching to another app.
+
 ## Watch the full walkthrough
 
 [![Vibisual — full walkthrough on YouTube](https://img.youtube.com/vi/asJ_Z-75uqc/maxresdefault.jpg)](https://youtu.be/asJ_Z-75uqc)
@@ -67,16 +91,15 @@ see, edit, and rearrange at any time.
 
 ### Install on Windows
 
-Vibisual is a hooks-based visualizer that runs on top of the
-[Claude CLI](https://claude.com/claude-code). The Claude CLI must
-already be installed and available on your PATH.
+Vibisual runs on top of the [Claude CLI](https://claude.com/claude-code),
+which must already be installed and available on your PATH.
 
 1. Download the latest installer from the
    [Releases page](https://github.com/Vibisual/vibisual/releases/latest)
    and run it:
 
    ```
-   Vibisual-0.1.0-setup.exe
+   Vibisual-0.1.9-setup.exe
    ```
 
 2. Launch Vibisual.
@@ -109,7 +132,7 @@ Tested on Windows. macOS and Linux builds are available but not extensively test
 
 Vibisual is currently an early preview release.
 
-Version 0.1.0 is intended for experimentation, demos, and feedback.
+This 0.1.x preview is intended for experimentation, demos, and feedback.
 Expect bugs, incomplete features, rough edges, and occasional breaking
 changes.
 

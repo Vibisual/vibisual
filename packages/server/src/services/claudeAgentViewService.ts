@@ -20,11 +20,11 @@ import os from 'node:os';
 import path from 'node:path';
 import type { AgentViewRosterEntry, AgentViewJobState } from '@vibisual/shared';
 import { logger } from '../logger.js';
-import { resolveClaudeBin } from './claudeBin.js';
+import { getClaudeBin } from './claudeBin.js';
 import { getClaudeVersionInfo } from './claudeVersionService.js';
 import { getSessionJsonlPath } from './sessionDiscovery.js';
 
-const CLAUDE_BIN = resolveClaudeBin().binPath;
+const CLAUDE_BIN = (): string => getClaudeBin().binPath;
 
 const HOME = os.homedir();
 const ROSTER_PATH = path.join(HOME, '.claude', 'daemon', 'roster.json');
@@ -180,7 +180,7 @@ export async function spawnBackground(
 
     const args = ['--bg', ...extraArgs];
 
-    const child = spawn(CLAUDE_BIN, args, {
+    const child = spawn(CLAUDE_BIN(), args, {
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
       shell: false,
@@ -307,7 +307,7 @@ export function readJobState(short: string): AgentViewJobState | null {
 /** fire-and-forget 헬퍼 — short subprocess 1회 발사. exitCode 만 promise. */
 function fireSubcommand(args: string[]): Promise<{ exitCode: number | null; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
-    const child = spawn(CLAUDE_BIN, args, {
+    const child = spawn(CLAUDE_BIN(), args, {
       stdio: ['ignore', 'pipe', 'pipe'],
       shell: false,
       windowsHide: true,

@@ -41,6 +41,10 @@
     "usage": {
       "tooltip": "Current session: {{percent}}% of your 5-hour limit used — click for details",
       "tooltipNoData": "Usage data is not being collected yet — click to turn it on"
+    },
+    "setupBanner": {
+      "text": "Claude Code is not installed — agents cannot run yet.",
+      "action": "Install"
     }
   },
   "panel": {
@@ -225,7 +229,19 @@
         "restartHint": "Selection saved. Restart Vibisual to apply it to newly spawned agents.",
         "about": "About",
         "repo": "GitHub repository",
-        "marketplace": "Claude Code on VS Code Marketplace"
+        "marketplace": "Claude Code on VS Code Marketplace",
+        "selectionApplied": "Selection saved and applied — newly spawned agents use it right away.",
+        "claudeAutoUpdate": {
+          "title": "Claude Code updates",
+          "label": "Keep Claude Code up to date automatically",
+          "onHint": "Vibisual updates the CLI to the latest version each time you launch the app.",
+          "offHint": "Automatic updates are off. Use \"Update now\" to update the CLI yourself.",
+          "vscodeNotice": "The active binary comes from the VS Code extension, which only the Marketplace can update. Pick a different installation above to let Vibisual manage updates.",
+          "updateNow": "Update now",
+          "updating": "Updating…",
+          "updated": "Updated to {{version}}",
+          "updateFailed": "Update failed"
+        }
       },
       "agent": {
         "intro": "These defaults apply to newly created custom agents. Existing agents are not affected.",
@@ -570,7 +586,17 @@
       "stderr": "stderr",
       "copy": "Copy",
       "copied": "Copied",
-      "close": "Close"
+      "close": "Close",
+      "mergeBtn": "Merge",
+      "mergeTitle": "Merge {{branch}} into the current branch",
+      "mergeConflict": "Merge conflict",
+      "mergeConflictNote": "The main branch was restored with merge --abort. The files below conflict — hand them to the agent that worked in this worktree, or resolve them yourself.",
+      "mergeHandOff": "Hand off to the agent",
+      "mergeHandOffPrompt": "Merging this worktree into the main branch hit conflicts. Rework your branch so it merges cleanly, then tell me what you changed.",
+      "mergeParentDirty": "The main branch has uncommitted changes",
+      "mergeParentDirtyNote": "Commit or stash them first — merging on top of uncommitted work can lose it.",
+      "mergeNothing": "Nothing to merge",
+      "mergeNothingNote": "This worktree has no commits that the main branch is missing."
     },
     "worktreeDelete": {
       "title": "Delete worktree",
@@ -1151,9 +1177,39 @@
       "later": "Later",
       "stop": "Stop",
       "start": "Sign in"
+    },
+    "setup": {
+      "title": "Install Claude Code",
+      "intro": "Vibisual runs its agents with the Claude Code CLI, which is not installed on this computer yet. Install it here — no terminal needed.",
+      "commandLabel": "Install command",
+      "copy": "Copy",
+      "copied": "Copied",
+      "install": "Install",
+      "installing": "Installing…",
+      "installDone": "Installed",
+      "installFailed": "Install failed",
+      "retry": "Try again",
+      "ready": "Claude Code is ready. Continuing…",
+      "failed": "The install did not complete. Run the command above in a terminal, then choose \"Check again\".",
+      "manualOnly": "Automatic install is not available on this platform. Run the command above in a terminal, then choose \"Check again\".",
+      "recheck": "Check again",
+      "rechecking": "Checking…",
+      "later": "Later",
+      "docs": "Official installation guide"
     }
   },
   "ide": {
+    "diff": {
+      "addComment": "Comment on this line",
+      "removeComment": "Remove comment",
+      "commentPlaceholder": "What should change here? (Ctrl+Enter to save)",
+      "commentCancel": "Cancel",
+      "commentSave": "Save",
+      "commentLimit": "Up to {{max}} review comments per session — send or remove some to add more.",
+      "sendReview": "Send review ({{count}})",
+      "sendReviewTip": "Send the comments you left on the diff as a single command",
+      "reviewPromptHeader": "Apply the following review comments."
+    },
     "imageAnnotate": {
       "tool": {
         "view": "View",
@@ -1311,7 +1367,7 @@
       "sending": "Sending…"
     },
     "activityBar": {
-      "terminal": "Terminal",
+      "mcp": "MCP",
       "files": "Files",
       "context": "Context sources",
       "skills": "Skills",
@@ -1321,6 +1377,49 @@
       "loop": "Repeat loop",
       "goal": "Goal",
       "debug": "Run and debug"
+    },
+    "mcp": {
+      "title": "MCP servers",
+      "refresh": "Rescan MCP servers",
+      "noProject": "Open a project to see the MCP servers it can use.",
+      "empty": "No MCP servers are configured for this project yet. Add one with",
+      "autoApprove": "This project auto-approves every server in .mcp.json (enableAllProjectMcpServers).",
+      "applyHint": "Turning a server on or off applies to sessions started from now on — sessions already running keep their current connections.",
+      "docs": "Docs",
+      "loadFailed": "Could not read the MCP configuration.",
+      "toggleFailed": "Could not save the change.",
+      "turnOn": "Turn on",
+      "turnOff": "Turn off",
+      "state": {
+        "enabled": "On",
+        "disabled": "Off",
+        "pending": "Awaiting approval"
+      },
+      "scope": {
+        "global": "Global (all projects)",
+        "project": "Project (.mcp.json)",
+        "local": "Local (this project only)",
+        "preset": "Vibisual presets"
+      },
+      "scopeShort": {
+        "global": "Global",
+        "project": "Project",
+        "local": "Local",
+        "preset": "Preset"
+      },
+      "scopeHint": {
+        "global": "Written in ~/.claude.json — available in every project.",
+        "project": "Written in this repository's .mcp.json and shared with everyone who clones it. Read-only here.",
+        "local": "Written only in this project's entry inside ~/.claude.json.",
+        "preset": "Debug tools Vibisual can plug into this agent."
+      },
+      "req": {
+        "approval": "Listed in .mcp.json but not approved yet — turning it on approves it for this project.",
+        "missing-command": "'{{detail}}' was not found on PATH — install it first.",
+        "missing-env": "Environment variables are not set: {{detail}}",
+        "auth": "Remote server — you may need to sign in first: claude mcp login {{name}}",
+        "policy": "Blocked by a managed policy (deniedMcpServers) — it cannot be turned on here."
+      }
     },
     "debug": {
       "title": "Run and debug",
@@ -1492,7 +1591,6 @@
       "secNext": "Next"
     },
     "sidebar": {
-      "sessions": "Sessions",
       "files": "Files ({{count}})",
       "noFileEdits": "No file edits yet",
       "skills": "Skills ({{count}})",
@@ -2468,7 +2566,9 @@
       "createWorktree": "Create Worktree",
       "createWorktreeHint": "New workspace from latest master",
       "createCapture": "Screen / Program Capture Bubble",
-      "createCaptureHint": "Show a screen or program window live inside a bubble"
+      "createCaptureHint": "Show a screen or program window live inside a bubble",
+      "createSpec": "Spec Board",
+      "createSpecHint": "Write requirements, then turn each acceptance criterion into a task card"
     },
     "bounds": {
       "label": "Bubble Bounds",
@@ -2490,6 +2590,40 @@
       "jumped": "Jumped to {{label}}",
       "jumpEmpty": "Bookmark {{slot}} is empty",
       "jumpMissing": "Bookmark target is no longer available"
+    },
+    "spec": {
+      "title": "Spec",
+      "untitled": "Untitled spec",
+      "criteria": "Acceptance criteria",
+      "cards": "Cards",
+      "revision": "Revision {{count}}",
+      "openBoard": "Open spec board",
+      "rename": "Rename",
+      "renamePrompt": "Spec title",
+      "addItem": "Add acceptance criterion",
+      "addItemPrompt": "Acceptance criterion (one line)",
+      "addItemPlaceholder": "Acceptance criterion…",
+      "add": "Add",
+      "removeItem": "Delete acceptance criterion",
+      "emptyItems": "No acceptance criteria yet · add them one line at a time below",
+      "bodyLabel": "Requirements (Markdown)",
+      "bodyPlaceholder": "What are you building, why, and where does the scope end?",
+      "generateTasks": "Create task cards",
+      "generateTasksN": "Create task cards ({{count}})",
+      "generateOne": "Task card from this item",
+      "generateNoneHint": "Every acceptance criterion already has a task card",
+      "generating": "Creating task cards…",
+      "generateHint": "One task card per acceptance criterion, chained with Task Edges in order. Items that already have a card are skipped.",
+      "stale": "Spec changed",
+      "staleCount": "Spec changed: {{count}}",
+      "staleBadge": "Spec changed — {{title}}",
+      "acknowledge": "Acknowledge",
+      "detach": "Unlink",
+      "cardMissing": "Card (bubble missing)",
+      "pin": "Pin",
+      "unpin": "Unpin",
+      "delete": "Delete",
+      "deletePinnedHint": "This spec is pinned. Unpin it first."
     }
   },
   "common": {
@@ -2518,6 +2652,28 @@
         "goBack": "Double-click to go back",
         "expand": "Double-click to expand"
       }
+    },
+    "preview": {
+      "deviceAuto": "Auto",
+      "deviceAutoTip": "Fill the available width",
+      "deviceMobile": "Mobile",
+      "deviceTablet": "Tablet",
+      "deviceDesktop": "Desktop",
+      "deviceTip": "Render at {{width}}px wide",
+      "pickElement": "Pick element",
+      "pickHint": "Click an element in the preview to describe a change for it",
+      "pickPlaceholder": "What should change about this element? (Ctrl+Enter to send)",
+      "pickSend": "Send",
+      "pickCopy": "Copy selector",
+      "pickCopied": "Copied",
+      "pickClose": "Close",
+      "pickNoHost": "No agent is hosting this preview, so there is nowhere to send it. Copy the selector instead.",
+      "pickPromptHeader": "Fix the screen element below.",
+      "pickLabelPage": "page",
+      "pickLabelElement": "element",
+      "pickLabelSelector": "selector",
+      "pickLabelText": "visible text",
+      "pickLabelRequest": "request"
     }
   },
   "brain": {

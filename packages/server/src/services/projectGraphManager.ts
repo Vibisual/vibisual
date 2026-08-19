@@ -13,6 +13,7 @@ import fs from 'node:fs';
 import type {
   BubbleData,
   GraphSnapshot,
+  ProjectAgentCounts,
   HookEventPayload,
   ProjectInfo,
   ProjectCheckpoint,
@@ -40,6 +41,8 @@ import type {
   CaptureBubble,
   PlayBubble,
   PlayRecipe,
+  SpecDoc,
+  SpecItem,
   Conti,
   ContiFrame,
   ContiElement,
@@ -48,6 +51,7 @@ import type {
   RateLimitInfo,
   ClaudeUsageInfo,
   ClaudeAuthStatus,
+  ClaudeSetupState,
   ExecutionMode,
 } from '@vibisual/shared';
 import { DEFAULT_UI_LOCALE } from '@vibisual/shared';
@@ -163,6 +167,7 @@ function emptySnapshot(): GraphSnapshot {
     captureBubbles: [],
     appBubbles: [],
     playBubbles: [],
+    specDocs: [],
     contis: {},
   };
 }
@@ -253,6 +258,14 @@ export function mergeSnapshots(a: GraphSnapshot, b: GraphSnapshot): GraphSnapsho
       for (const c of b.playBubbles ?? []) map.set(c.id, c);
       return Array.from(map.values());
     })(),
+    // §5.15 — 스펙 보드도 같은 규칙. 여기서 빠뜨리면 프로젝트를 둘 이상 연 순간
+    // 스펙이 방송 스냅샷에서 통째로 사라진다(앱 버블이 그렇게 사라졌던 전례를 따른다).
+    specDocs: (() => {
+      const map = new Map<string, SpecDoc>();
+      for (const c of a.specDocs ?? []) map.set(c.id, c);
+      for (const c of b.specDocs ?? []) map.set(c.id, c);
+      return Array.from(map.values());
+    })(),
     // §5.13 v4.45 — 내부 앱 버블도 같은 규칙. 여기서 빠뜨리면 프로젝트를 둘 이상 연 순간
     // 앱 버블이 방송 스냅샷에서 통째로 사라진다(서버엔 만들어졌는데 캔버스에 안 뜬다).
     appBubbles: (() => {
@@ -278,6 +291,8 @@ export function mergeSnapshots(a: GraphSnapshot, b: GraphSnapshot): GraphSnapsho
     claudeUsage: b.claudeUsage ?? a.claudeUsage,
     // §4 v4.82 — 로그인 상태도 글로벌 1건(계정은 머신 단위).
     claudeAuth: b.claudeAuth ?? a.claudeAuth,
+    // §4 (첫 실행 설치 온보딩) — CLI 설치 판정도 글로벌 1건(설치는 기기 단위).
+    claudeSetup: b.claudeSetup ?? a.claudeSetup,
     // §5.5 #17-4 v2.36 — 스킬 사용 카운트는 projectName 1차 키 → 단순 spread 안전.
     // 같은 projectName 이 양쪽에 들어올 가능성 ❌ (각 ProjectGraph 가 primary 하나).
     skillUsageCounts: (() => {
@@ -472,6 +487,7 @@ function relabelSubSnapshot(snap: GraphSnapshot, from: string, to: string): Grap
     captureBubbles: snap.captureBubbles?.map((c) => (c.projectName === from ? { ...c, projectName: to } : c)),
     appBubbles: snap.appBubbles?.map((c) => (c.projectName === from ? { ...c, projectName: to } : c)),
     playBubbles: snap.playBubbles?.map((c) => (c.projectName === from ? { ...c, projectName: to } : c)),
+    specDocs: snap.specDocs?.map((c) => (c.projectName === from ? { ...c, projectName: to } : c)),
     // §5.5 #17-4 v2.36 — projectName 1차 키 relabel.
     skillUsageCounts: renameKey(snap.skillUsageCounts),
     // §5.10 v3.70 — Brain 요약도 projectName 1차 키라 전역 유일 표시명으로 함께 relabel해야
@@ -498,6 +514,9 @@ export class ProjectGraphManager {
 
   /** §4 v4.82 — Claude 계정 로그인 상태 (글로벌 1건, `claude auth status`). */
   private globalClaudeAuth?: ClaudeAuthStatus;
+
+  /** §4 (첫 실행 설치 온보딩) — `claude` CLI 설치 판정 (글로벌 1건, 기기 단위). */
+  private globalClaudeSetup?: ClaudeSetupState;
 
   /** project name → stub 메타 (hydrated 인스턴스가 없는 프로젝트) */
   private stubs = new Map<string, ProjectMetaSnapshot>();
@@ -1218,6 +1237,15 @@ export class ProjectGraphManager {
     return this.globalClaudeAuth;
   }
 
+  /** §4 (첫 실행 설치 온보딩) — CLI 설치 판정 갱신(claudeSetupService 가 판정한 값 그대로 보관). */
+  setClaudeSetup(state: ClaudeSetupState): void {
+    this.globalClaudeSetup = state;
+  }
+
+  getClaudeSetup(): ClaudeSetupState | undefined {
+    return this.globalClaudeSetup;
+  }
+
   /** 커스텀 에이전트 상태를 소속 서브에이전트 집계로 재계산. 한 번이라도 바뀐 인스턴스가 있으면 true. */
   recomputeCustomAgentStatus(parentAgentId: string): boolean {
     let changed = false;
@@ -1440,6 +1468,33 @@ export class ProjectGraphManager {
   toggleRootChild(projectName: string, filePath: string, show: boolean): boolean {
     const inst = this.getInstanceByName(projectName) ?? this.primaryInstance();
     return inst ? inst.toggleRootChild(projectName, filePath, show) : false;
+  }
+
+  /**
+   * §9 "저장은 바뀐 프로젝트만" — `toProjectCheckpoint(name)` 이 읽어 갈 **그 인스턴스**의 변경 카운터.
+   * 인스턴스를 못 찾으면 `null` → 호출자는 보수적으로 "저장 필요"로 취급해야 한다(판정 실패가
+   * 조용한 미저장이 되면 안 된다).
+   */
+  getProjectMutationVersion(name: string): number | null {
+    const inst = this.getInstanceByName(name) ?? this.primaryInstance();
+    return inst ? inst.getMutationVersion() : null;
+  }
+
+  /**
+   * §9 — **저장 대상 프로젝트의 인스턴스만** seq 를 올린다.
+   *
+   * 종전 `incrementSeq()` 는 저장할 때마다 열린 인스턴스 전부의 seq 를 올렸는데, `seq` 는 체크포인트
+   * 본문에 실리므로 **아무것도 안 바뀐 프로젝트도 직렬화 결과가 매번 달라져** `SaveScheduler` 의
+   * 지문 비교(변경 없으면 디스크 쓰기 생략)가 무력화됐다. 저장하는 것만 올리면 그 비교가 실제로 산다.
+   */
+  incrementSeqForProjects(names: string[]): void {
+    const bumped = new Set<ProjectGraph>();
+    for (const name of names) {
+      const inst = this.getInstanceByName(name) ?? this.primaryInstance();
+      if (!inst || bumped.has(inst)) continue;
+      bumped.add(inst);
+      inst.incrementSeq();
+    }
   }
 
   toProjectCheckpoint(name: string): ProjectCheckpoint {
@@ -2123,16 +2178,182 @@ export class ProjectGraphManager {
     return removed;
   }
 
-  getSnapshot(): GraphSnapshot {
-    // v1.34: hidden 판정은 ProjectGraph 인스턴스 SSOT 기준 (체크포인트에 저장되는 쪽).
-    // Manager 의 hiddenProjects 는 휘발성이라 서버 재시작 후 빈 채로 복원됨 → 인스턴스 조회로 일원화.
-    const visibleInstances = [...this.instances.entries()]
+  // ─── §9 스코프드 스냅샷 구독 ─────────────────────────────────────────────────
+  //
+  // 창(renderer webContents · 모바일 소켓)마다 "지금 내가 그리는 프로젝트"를 선언하고, 서버는
+  // 그 **합집합**만 무거운 슬라이스에 싣는다. 실측(2026-08-19 · 열린 탭 7개 · 보는 탭 1개):
+  // 브로드캐스트 3.31MB 중 2.68MB(81%)가 아무도 안 보는 프로젝트 몫이었다.
+  //
+  // ⚠ **아무도 선언하지 않았으면 전부 보낸다.** 침묵(구버전 클라·부팅 직후·선언 전 첫 스냅샷)이
+  //   축소로 해석되면 화면이 빈 채로 굳는다 — 최적화가 기능을 이기지 않게 하는 안전 기본값.
+  /** 클라이언트(창) → 그 창이 필요한 프로젝트 표시명 집합. 키는 conn 객체 자체(창 정체성). */
+  private clientScopes = new Map<object, Set<string>>();
+
+  /** §9 배경 탭 유휴 해제 — 표시명 → 마지막으로 어떤 창의 구독 범위에 들어 있던 시각(epoch ms). */
+  private lastInScopeAt = new Map<string, number>();
+  /** §9 — 서버 기동 시각. "이 세션에서 한 번도 본 적 없는" 프로젝트의 유휴 기준점. */
+  private readonly bootedAt = Date.now();
+  /** §9 — 이 세션에서 자동 hydrate 가 실패한 프로젝트(같은 실패를 매 선언마다 되풀이하지 않는다). */
+  private autoHydrateFailed = new Set<string>();
+
+  /**
+   * §9 — 한 창의 구독 범위를 갱신한다. 빈 배열도 유효한 선언("나는 지금 아무것도 안 본다").
+   *
+   * 선언은 곧 "지금 이걸 본다"는 신호이므로 두 가지를 함께 한다:
+   *  · 유휴 해제 타이머의 기준 시각(`lastInScopeAt`)을 지금으로 당긴다.
+   *  · 그 프로젝트가 stub(=내려가 있음)이면 **자동으로 다시 올린다** — §9 "탭을 클릭하면
+   *    되살아난다"의 실행 지점이다(사용자가 [불러오기]를 한 번 더 누르게 하지 않는다).
+   */
+  setClientProjectScope(client: object, projects: string[]): void {
+    const names = projects.filter((p) => typeof p === 'string' && p.length > 0);
+    this.clientScopes.set(client, new Set(names));
+    const now = Date.now();
+    for (const name of names) {
+      this.lastInScopeAt.set(name, now);
+      if (this.autoHydrateFailed.has(name)) continue;
+      if (this.isProjectReadOnly(name)) continue;      // §3.2.1-4 격리된 것은 건드리지 않는다
+      if (!this.isStubbed(name)) continue;
+      const result = this.hydrateProject(name);
+      if (!result.ok && result.reason !== 'already-hydrated') {
+        this.autoHydrateFailed.add(name);
+        logger.warn(`auto-hydrate on scope declaration failed for "${name}" (${result.reason ?? 'unknown'}) — not retrying this session`);
+      }
+    }
+  }
+
+  /**
+   * §9 배경 탭 유휴 해제 — 아무 창도 안 보고 있고, 아무 일도 하지 않으며, 마지막으로 본 지
+   * `idleMs` 가 지난 프로젝트를 stub 으로 내려놓는다(`unloadProject` = 저장 후 메모리 해제).
+   *
+   * 안 내리는 경우(하나라도 걸리면 그대로 둔다):
+   *  · `idleMs <= 0` — 사용자가 이 정리를 껐다(§3.2.3 "0 = 무제한" 규약).
+   *  · **선언한 창이 하나도 없다** — 무엇을 보고 있는지 알 수 없으면 아무것도 내리지 않는다.
+   *  · 지금 어떤 창의 구독 범위 안이다 / 일하는 것이 있다(`hasRunningWork`).
+   *  · 마지막 활동 또는 마지막으로 본 시각이 아직 `idleMs` 안이다.
+   *
+   * @returns 내려놓은 프로젝트 표시명 목록(호출자가 로그·브로드캐스트에 쓴다)
+   */
+  sweepIdleBackgroundProjects(idleMs: number): string[] {
+    if (idleMs <= 0) return [];
+    const scope = this.getEffectiveProjectScope();
+    if (scope === null) return [];
+
+    const now = Date.now();
+    const visible = this.visibleInstanceList();
+    const displayNames = this.instanceDisplayNames(visible);
+    const unloaded: string[] = [];
+
+    for (const inst of visible) {
+      const display = displayNames.get(inst);
+      const info = inst.getPrimaryProject();
+      if (!display || !info) continue;
+      if (scope.has(display) || scope.has(info.name)) {
+        this.lastInScopeAt.set(display, now);
+        continue;
+      }
+      if (inst.hasRunningWork()) continue;
+      const lastViewed = this.lastInScopeAt.get(display) ?? 0;
+      // 한 번도 본 적 없는(이 세션에서 선언된 적 없는) 프로젝트는 부팅 시각을 기준으로 삼는다 —
+      // 부팅 직후 전부 내려가 버리는 일을 막는다.
+      const viewedRef = lastViewed > 0 ? lastViewed : this.bootedAt;
+      if (now - viewedRef < idleMs) continue;
+      if (now - inst.getLastActivityAt() < idleMs) continue;
+
+      const result = this.unloadProject(info.path);
+      if (result.ok) {
+        unloaded.push(display);
+        this.lastInScopeAt.delete(display);
+      }
+    }
+    return unloaded;
+  }
+
+  /** §9 — 창이 닫히면 그 선언을 지운다. 남겨 두면 합집합이 넓어진 채로 굳고 유휴 해제도 막힌다. */
+  clearClientProjectScope(client: object): void {
+    this.clientScopes.delete(client);
+  }
+
+  /**
+   * §9 — 지금 유효한 구독 범위(모든 창 선언의 합집합).
+   * `null` 이면 "제한 없음"(선언한 창이 하나도 없음) — 호출자는 전부를 대상으로 삼아야 한다.
+   */
+  getEffectiveProjectScope(): Set<string> | null {
+    if (this.clientScopes.size === 0) return null;
+    const union = new Set<string>();
+    for (const set of this.clientScopes.values()) {
+      for (const name of set) union.add(name);
+    }
+    return union;
+  }
+
+  /**
+   * 탭으로 보이는(비-worktree · 비-hidden) 인스턴스 목록.
+   *
+   * v1.34: hidden 판정은 ProjectGraph 인스턴스 SSOT 기준 (체크포인트에 저장되는 쪽).
+   * Manager 의 hiddenProjects 는 휘발성이라 서버 재시작 후 빈 채로 복원됨 → 인스턴스 조회로 일원화.
+   *
+   * §9 — 스냅샷과 배경 탭 유휴 해제가 **같은 목록**을 봐야 "화면에 있는 것"과 "내려도 되는 것"의
+   * 기준이 갈리지 않는다. 그래서 한 곳에서만 만든다.
+   */
+  private visibleInstanceList(): ProjectGraph[] {
+    return [...this.instances.entries()]
       .filter(([key, inst]) => !this.isWorktreeInstance(key, inst))
       .map(([, inst]) => inst)
       .filter((inst) => {
         const name = inst.getPrimaryProjectName();
         return name ? !inst.isProjectHidden(name) : true;
       });
+  }
+
+  /**
+   * §9 — 인스턴스 → 전역 유일 표시명. 스냅샷(머지 전 relabel)과 구독 범위 판정이 **같은 이름**을
+   * 써야 한다 — 한쪽이 원본 이름, 다른 쪽이 표시명이면 같은 basename 프로젝트가 둘 열렸을 때
+   * 범위 판정이 조용히 어긋난다.
+   */
+  private instanceDisplayNames(visibleInstances: ProjectGraph[]): Map<ProjectGraph, string> {
+    const idItems: { id: string; name: string; path: string }[] = [];
+    const instProj = new Map<ProjectGraph, { id: string; raw: string }>();
+    for (const inst of visibleInstances) {
+      const pp = inst.getPrimaryProject();
+      if (!pp) continue;
+      const id = normPathId(pp.path);
+      idItems.push({ id, name: pp.name, path: pp.path });
+      instProj.set(inst, { id, raw: pp.name });
+    }
+    const hydratedIds = new Set(idItems.map((it) => it.id));
+    for (const meta of Object.values(this.getStubProjects())) {
+      const id = normPathId(meta.project.path);
+      if (hydratedIds.has(id)) continue;
+      idItems.push({ id, name: meta.project.name, path: meta.project.path });
+    }
+    const displayNames = computeUniqueDisplayNames(idItems);
+    const result = new Map<ProjectGraph, string>();
+    for (const [inst, pj] of instProj) result.set(inst, displayNames.get(pj.id) ?? pj.raw);
+    return result;
+  }
+
+  /**
+   * **서버 내부용 전체 스냅샷** — 구독 범위를 적용하지 않는다.
+   *
+   * ⚠ 이 구분이 §9 스코프드 구독의 안전선이다. REST 라우트·명령 dispatch·로그 스트리머 같은
+   *   내부 소비처가 범위로 좁혀진 스냅샷에서 무언가를 찾으면, 배경 프로젝트의 에이전트를
+   *   "없다"고 판정한다(= 최적화가 아니라 기능 손상). 좁히는 것은 **전선으로 나가는 것**뿐이므로
+   *   범위는 `getBroadcastSnapshot()` 에만 적용한다.
+   */
+  getSnapshot(): GraphSnapshot {
+    return this.buildSnapshot(null);
+  }
+
+  /**
+   * §9 — **브로드캐스트로 나갈 스냅샷**. 붙어 있는 창들의 구독 범위 합집합만 무거운 슬라이스에 싣는다.
+   * 선언한 창이 없으면 전체와 같다(안전 기본값).
+   */
+  getBroadcastSnapshot(): GraphSnapshot {
+    return this.buildSnapshot(this.getEffectiveProjectScope());
+  }
+
+  private buildSnapshot(scope: Set<string> | null): GraphSnapshot {
+    const visibleInstances = this.visibleInstanceList();
 
     // B 진단(§3.2.2) — 라이브 스냅샷은 visibleInstances(비-worktree · 비-hidden)만 병합하므로,
     //   커스텀 에이전트가 worktree/hidden 인스턴스에 얹혀 있으면 "작업 중 버블이 사라진" 것처럼 보인다
@@ -2175,7 +2396,23 @@ export class ProjectGraphManager {
     }
     const displayNames = computeUniqueDisplayNames(idItems);
 
-    const subSnaps = visibleInstances.map((inst) => {
+    // §9 스코프드 구독 — 무거운 슬라이스는 **지금 누군가 그리고 있는** 인스턴스만 만든다.
+    //   범위 밖 인스턴스는 `getSnapshot()` 자체를 부르지 않으므로 그쪽 `enrichNode`·요약 재시도
+    //   비용까지 함께 사라진다(전선 부피뿐 아니라 CPU 도 준다).
+    const displayNameOfInstance = (inst: ProjectGraph): string | null => {
+      const pj = instProj.get(inst);
+      if (!pj) return null;
+      return displayNames.get(pj.id) ?? pj.raw;
+    };
+    const scopedInstances = scope === null
+      ? visibleInstances
+      : visibleInstances.filter((inst) => {
+          const name = displayNameOfInstance(inst);
+          // 표시명을 못 구한 인스턴스는 **포함**한다 — 판정 실패가 조용한 누락이 되면 안 된다.
+          return name === null ? true : scope.has(name);
+        });
+
+    const subSnaps = scopedInstances.map((inst) => {
       const pj = instProj.get(inst);
       const snap = inst.getSnapshot();
       if (!pj) return snap;
@@ -2185,6 +2422,42 @@ export class ProjectGraphManager {
     let snapshot = subSnaps.length === 0 ? emptySnapshot() : subSnaps[0]!;
     for (let i = 1; i < subSnaps.length; i++) {
       snapshot = mergeSnapshots(snapshot, subSnaps[i]!);
+    }
+
+    // §9 — **범위와 무관하게 항상 전량**인 것들. 여기를 빠뜨리면 배경 탭이 사라지거나(탭 목록)
+    //   헤더 숫자가 줄어(전역 집계) "최적화가 아니라 기능 손상"이 된다.
+    {
+      const projectsAll: Record<string, ProjectInfo> = { ...snapshot.projects };
+      const agentCounts: Record<string, ProjectAgentCounts> = {};
+      let activeAgentCountAll = 0;
+      for (const inst of visibleInstances) {
+        activeAgentCountAll += inst.getActiveAgentCount();
+        const display = displayNameOfInstance(inst);
+        const pj = instProj.get(inst);
+        // 탭 목록: 범위 밖 인스턴스의 ProjectInfo 를 표시명으로 얹는다(프로젝트당 수백 바이트).
+        if (pj && display && !(display in projectsAll)) {
+          const info = inst.getProjectByName(pj.raw) ?? inst.getPrimaryProject();
+          if (info) projectsAll[display] = { ...info, name: display };
+        }
+        // 탭 배지: 인스턴스 안의 프로젝트 이름(원본)을 표시명으로 옮겨 담는다.
+        for (const [rawName, counts] of Object.entries(inst.getAgentCountsByProject())) {
+          const key = pj && display && rawName === pj.raw ? display : rawName;
+          const prev = agentCounts[key];
+          agentCounts[key] = prev
+            ? {
+                total: prev.total + counts.total,
+                active: prev.active + counts.active,
+                completed: prev.completed + counts.completed,
+              }
+            : counts;
+        }
+      }
+      snapshot = {
+        ...snapshot,
+        projects: projectsAll,
+        projectAgentCounts: agentCounts,
+        activeAgentCount: activeAgentCountAll,
+      };
     }
 
     // Manager 레벨 task edges 는 fallback(인스턴스 없을 때) 용도만 — overlay 하되
@@ -2253,6 +2526,11 @@ export class ProjectGraphManager {
     // §4 v4.82 — 글로벌 Claude 로그인 상태 주입. 계정도 머신 단위라 프로젝트 무관.
     if (this.globalClaudeAuth) {
       snapshot = { ...snapshot, claudeAuth: this.globalClaudeAuth };
+    }
+
+    // §4 (첫 실행 설치 온보딩) — CLI 설치 판정 주입. 설치도 기기 단위라 프로젝트 무관.
+    if (this.globalClaudeSetup) {
+      snapshot = { ...snapshot, claudeSetup: this.globalClaudeSetup };
     }
 
     // §4 v1.98 — 글로벌 진단 에러 로그 주입 (프로젝트 무관, 런타임 캐시)
@@ -2882,6 +3160,75 @@ export class ProjectGraphManager {
   getAllPlayBubbles(): PlayBubble[] {
     const out: PlayBubble[] = [];
     for (const inst of this.instances.values()) out.push(...inst.getPlayBubbles());
+    return out;
+  }
+
+  // ─── §5.15 — 스펙 보드 위임 ───
+
+  createSpecDoc(input: {
+    projectName: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    title?: string;
+    body?: string;
+    items?: string[];
+  }): SpecDoc | null {
+    const inst = this.getInstanceByName(input.projectName) ?? this.primaryInstance();
+    if (!inst) return null;
+    return inst.createSpecDoc(input);
+  }
+
+  updateSpecDoc(
+    id: string,
+    updates: Partial<Omit<SpecDoc, 'id' | 'projectName' | 'createdAt' | 'updatedAt' | 'bodyRevision'>>,
+  ): SpecDoc | null {
+    for (const inst of this.instances.values()) {
+      if (inst.getSpecDoc(id)) return inst.updateSpecDoc(id, updates);
+    }
+    return null;
+  }
+
+  addSpecItem(id: string, text: string): SpecDoc | null {
+    for (const inst of this.instances.values()) {
+      if (inst.getSpecDoc(id)) return inst.addSpecItem(id, text);
+    }
+    return null;
+  }
+
+  attachSpecTask(specId: string, itemId: string, taskAgentId: string, taskSessionId: string): SpecItem | null {
+    for (const inst of this.instances.values()) {
+      if (inst.getSpecDoc(specId)) return inst.attachSpecTask(specId, itemId, taskAgentId, taskSessionId);
+    }
+    return null;
+  }
+
+  detachSpecTask(specId: string, itemId: string): boolean {
+    for (const inst of this.instances.values()) {
+      if (inst.getSpecDoc(specId)) return inst.detachSpecTask(specId, itemId);
+    }
+    return false;
+  }
+
+  deleteSpecDoc(id: string): boolean {
+    for (const inst of this.instances.values()) {
+      if (inst.getSpecDoc(id)) return inst.deleteSpecDoc(id);
+    }
+    return false;
+  }
+
+  getSpecDoc(id: string): SpecDoc | undefined {
+    for (const inst of this.instances.values()) {
+      const d = inst.getSpecDoc(id);
+      if (d) return d;
+    }
+    return undefined;
+  }
+
+  getAllSpecDocs(): SpecDoc[] {
+    const out: SpecDoc[] = [];
+    for (const inst of this.instances.values()) out.push(...inst.getSpecDocs());
     return out;
   }
 

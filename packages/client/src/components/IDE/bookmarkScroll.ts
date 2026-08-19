@@ -75,14 +75,46 @@ export function scrollElementIntoCenter(container: HTMLElement, el: HTMLElement)
   scrollRectIntoCenter(container, el.getBoundingClientRect());
 }
 
-/** Range 를 컨테이너 중앙으로 스크롤 + 텍스트 선택(브라우저 기본 하이라이트). */
-export function scrollRangeIntoCenter(container: HTMLElement, range: Range): void {
-  scrollRectIntoCenter(container, range.getBoundingClientRect());
+/** 인-페이지 검색이 찾은 텍스트를 칠하는 CSS Custom Highlight 이름(index.css 의 `::highlight()` 와 짝). */
+const FIND_HIGHLIGHT_NAME = 'vibisual-find';
+
+/** CSS Custom Highlight 레지스트리 — 미지원 환경(jsdom 등)이면 null. */
+function highlightRegistry(): HighlightRegistry | null {
+  if (typeof CSS === 'undefined' || typeof Highlight === 'undefined') return null;
+  return CSS.highlights ?? null;
+}
+
+/** 검색 하이라이트 지우기 — 검색을 닫거나 매칭이 하나도 없을 때. */
+export function clearFindHighlight(): void {
+  highlightRegistry()?.delete(FIND_HIGHLIGHT_NAME);
+}
+
+/**
+ * 찾은 range 를 화면에 표시한다.
+ *  - `preserveFocus`(인-페이지 검색): **document selection 을 건드리지 않고** CSS Custom Highlight 로 칠한다.
+ *    selection 을 본문으로 옮기면 브라우저가 포커스를 쥔 검색 입력창의 caret 을 함께 지워, 한 번 검색한
+ *    뒤로는 그 입력창에 이어서 타이핑을 못 한다(사용자 보고: "한번 검색하면 포커싱이 꺼진다").
+ *    미지원 환경이면 아무것도 칠하지 않는다 — selection 폴백은 그 포커스 유실을 되살리므로 두지 않는다.
+ *  - 그 외(북마크 "이동"): 종전대로 selection 으로 잡아 준다(도착 즉시 복사할 수 있게).
+ */
+export function markRange(range: Range, preserveFocus = false): void {
+  if (preserveFocus) {
+    const reg = highlightRegistry();
+    if (!reg) return;
+    reg.set(FIND_HIGHLIGHT_NAME, new Highlight(range));
+    return;
+  }
   const sel = window.getSelection();
   if (sel) {
     sel.removeAllRanges();
     sel.addRange(range);
   }
+}
+
+/** Range 를 컨테이너 중앙으로 스크롤 + 텍스트 표시(선택 또는 검색 하이라이트 — `markRange` 참고). */
+export function scrollRangeIntoCenter(container: HTMLElement, range: Range, preserveFocus = false): void {
+  scrollRectIntoCenter(container, range.getBoundingClientRect());
+  markRange(range, preserveFocus);
 }
 
 /** 엘리먼트에 잠깐 파란 외곽선(outline — layout 영향 ❌)을 줘 "여기로 왔다" 표식. */

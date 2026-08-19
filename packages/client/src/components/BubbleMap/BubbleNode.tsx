@@ -87,6 +87,12 @@ const ICON_PATHS: Record<BubbleStyleConfig['icon'], { viewBox: string; d: string
     d: 'M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m5 5v6m4-6v6',
     fill: false,
   },
+  // §5.15 — 스펙 보드. 체크가 든 문서(요구사항 + 수용 기준).
+  spec: {
+    viewBox: '0 0 24 24',
+    d: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8.5 13.5l1.5 1.5 3-3M8.5 18h7',
+    fill: false,
+  },
   // §5.13 v4.45 — Vibistudio 영상 문서. 재생 삼각형이 든 화면.
   video: {
     viewBox: '0 0 24 24',
@@ -282,6 +288,25 @@ export const BubbleNode = memo(function BubbleNode({
       for (const ev of list) if (ev.at > m) m = ev.at;
     }
     return m;
+  });
+  /**
+   * §5.15 — 이 에이전트 버블이 스펙에서 나온 작업 카드이고, 그 스펙이 카드 생성 이후
+   * 바뀌었으면 스펙 제목을 돌려준다(아니면 null).
+   *
+   * 서버가 준 두 숫자(`bodyRevision` vs 항목의 `generatedRevision`)의 비교뿐이다 — 판정도
+   * 자동 재생성도 하지 않는다(§5.15). 셀렉터가 **원시값**을 돌려주므로 스냅샷이 흘러도
+   * 실제로 낡음 여부가 바뀔 때만 리렌더한다.
+   */
+  const specStaleTitle = useGraphStore((s) => {
+    if (data.bubbleType !== 'agent' || s.specDocs.length === 0) return null;
+    for (const doc of s.specDocs) {
+      for (const item of doc.items) {
+        if (item.taskAgentId !== data.id) continue;
+        if ((item.generatedRevision ?? 0) >= doc.bodyRevision) continue;
+        return doc.title || doc.id;
+      }
+    }
+    return null;
   });
   // §5.10 — 휴지통 배지: 현재 프로젝트의 trashed 에이전트 수.
   //   store.agents 는 전 프로젝트 합본이라 여기서 세면 다른 프로젝트의 휴지통까지 합산된다(§3.5 프로젝트
@@ -787,6 +812,22 @@ export const BubbleNode = memo(function BubbleNode({
           title={t('brain.unseenBadge', { defaultValue: '미확인 {{n}}장', n: brainUnseen })}
         >
           {brainUnseen > 99 ? '99+' : brainUnseen}
+        </span>
+      )}
+
+      {/* §5.15 — 스펙 변경됨 배지. 이 카드를 낳은 스펙이 그 뒤에 바뀌었다는 표시일 뿐,
+          카드를 지우거나 다시 만들지는 않는다 — 무엇을 할지는 사람이 정한다. */}
+      {specStaleTitle !== null && (
+        <span
+          className="pointer-events-none absolute z-20 flex items-center justify-center rounded-full bg-amber-400 text-gray-950 ring-2 ring-gray-950"
+          style={{ bottom: -1, right: -1, width: 16, height: 16 }}
+          title={t('canvas.spec.staleBadge', { defaultValue: '스펙 변경됨 — {{title}}', title: specStaleTitle })}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="h-2.5 w-2.5">
+            <path d="M12 9v4" />
+            <path d="M12 17h.01" />
+            <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+          </svg>
         </span>
       )}
 

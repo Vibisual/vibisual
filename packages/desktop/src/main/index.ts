@@ -6,7 +6,7 @@ import { app, shell, BrowserWindow, protocol, screen, dialog } from 'electron';
 import { electronApp, optimizer } from '@electron-toolkit/utils';
 import { inject, type DispatchFunc } from 'light-my-request';
 import type { Express } from 'express';
-import { runServer, setBroadcastSink, setHookListenerPort, setHookListenerToken, setHookListenerIdentityFile, setHookHandlerPath, setDebugLogDir, ensureClaudeHooksInstalled, refreshStatusLineIfInstalled, recordDiagnostic, subAgentManager, stopAllPlays, closeStaticHost } from '@vibisual/server';
+import { runServer, shutdownDiskWriteQueue, setBroadcastSink, setHookListenerPort, setHookListenerToken, setHookListenerIdentityFile, setHookHandlerPath, setDebugLogDir, ensureClaudeHooksInstalled, refreshStatusLineIfInstalled, recordDiagnostic, subAgentManager, stopAllPlays, closeStaticHost } from '@vibisual/server';
 import { setupIpc, type IpcHub } from './ipc';
 import { loadSecrets } from './secrets';
 import { loadHookIdentity, saveHookIdentity, hookIdentityPath } from './hookIdentity';
@@ -655,6 +655,14 @@ app.on('before-quit', (event) => {
     .finally(() => {
       closeStaticHost();
     });
+
+  // §9 — 체크포인트 디스크 쓰기 워커: 남은 쓰기를 동기로 마무리하고 스레드를 내린다.
+  //   여기서 정리해 두면 뒤따르는 process 'exit' flush 는 아무것도 남지 않은 상태에서 no-op 이 된다.
+  try {
+    shutdownDiskWriteQueue();
+  } catch (err) {
+    console.warn('[main] shutdownDiskWriteQueue failed:', err);
+  }
 
   Promise.all([listenerClose, mobileClose, subShutdown, playShutdown]).finally(() => app.exit(0));
 });

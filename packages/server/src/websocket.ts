@@ -5,6 +5,7 @@ import type {
   ProjectHydratedPayload,
   UnloadProjectPayload,
   ProjectUnloadedPayload,
+  SetProjectScopePayload,
   IframeLogSubscribePayload,
   IframeLogUnsubscribePayload,
   ServerEntry,
@@ -57,6 +58,15 @@ const iframeLogStreamer = new IframeLogStreamer(
   },
 );
 
+/**
+ * §9 — 창이 닫혔을 때 그 창의 구독 선언을 지운다(desktop ipc 의 webContents 'destroyed',
+ * 모바일 소켓 close 에서 호출). 남겨 두면 합집합이 넓어진 채 굳어 스코프드 구독이 무력해지고,
+ * 배경 탭 유휴 해제도 "누군가 보고 있다"는 이유로 영영 걸리지 않는다.
+ */
+export function handleClientDisconnect(conn: ClientConnection): void {
+  graphManager.clearClientProjectScope(conn);
+}
+
 /** graceful shutdown — 프로세스 종료 시 호출 가능하도록 export */
 export function shutdownIframeLogStreamer(): void {
   iframeLogStreamer.shutdown();
@@ -90,8 +100,24 @@ export function handleClientMessage(
     };
     conn.send(JSON.stringify(response));
     if (result.ok) {
-      broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getSnapshot() });
+      broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getBroadcastSnapshot() });
     }
+    return;
+  }
+
+  // §9 스코프드 스냅샷 구독 — 이 창이 지금 그리는 프로젝트를 선언한다(응답은 스냅샷 1벌).
+  if (message.type === 'set-project-scope') {
+    const { projects } = (message.payload ?? {}) as SetProjectScopePayload;
+    if (!Array.isArray(projects)) return;
+    graphManager.setClientProjectScope(conn, projects);
+    // ⚠ **즉시 1벌을 돌려주는 것이 필수다.** 브로드캐스트는 "무언가 바뀔 때" 나가므로, 조용한
+    //   프로젝트로 탭을 옮기면 다음 변경이 올 때까지 캔버스가 빈 채로 남는다. 첫 연결
+    //   (`buildConnectionMessages`)과 같은 이유·같은 형태(증분 아닌 전체)로 한 벌 보낸다.
+    conn.send(JSON.stringify({
+      type: 'graph_snapshot',
+      timestamp: Date.now(),
+      payload: graphManager.getBroadcastSnapshot(),
+    } satisfies WSMessage));
     return;
   }
 
@@ -106,7 +132,7 @@ export function handleClientMessage(
         payload: responsePayload,
       };
       conn.send(JSON.stringify(response));
-      broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getSnapshot() });
+      broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getBroadcastSnapshot() });
     } else {
       logger.warn(`unload-project: "${projectName}" ${result.reason ?? 'failed'} — ignoring`);
     }
@@ -162,7 +188,7 @@ export function handleClientMessage(
 export function buildConnectionMessages(): WSMessage[] {
   return [
     { type: 'connection_ack', timestamp: Date.now(), payload: { message: 'Connected to Vibisual server' } },
-    { type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getSnapshot() },
+    { type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getBroadcastSnapshot() },
   ];
 }
 

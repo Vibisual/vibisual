@@ -19,6 +19,7 @@ import { StubProjectPlaceholder } from './components/Layout/StubProjectPlacehold
 import { PermissionPromptStack } from './components/PermissionPrompt/PermissionPromptStack.js';
 import { ClaudeVersionGate } from './components/Panel/ClaudeVersionGate.js';
 import { LoginWindow } from './components/Auth/LoginWindow.js';
+import { ClaudeSetupGate, ClaudeSetupBanner } from './components/Auth/ClaudeSetupGate.js';
 import { useWebSocket } from './hooks/useWebSocket.js';
 import { useGraphStore, selectIDEOverlay } from './stores/graphStore.js';
 import { WS_PATH } from '@vibisual/shared';
@@ -93,6 +94,9 @@ export function App(): React.JSX.Element {
     // §4 v3.16 — h-dvh: 모바일 브라우저의 동적 URL 바가 하단(입력창·상태바)을 가리지 않게
     // dynamic viewport height 사용. 데스크톱(Electron)에선 100vh 와 동일.
     <div className="flex h-dvh w-screen flex-col bg-gray-950">
+      {/* §4 (첫 실행 설치 온보딩) — 게이트를 [나중에]로 닫았을 때 남는 배너. 헤더보다 위에 둬야
+          "에이전트를 아직 못 돌린다"는 사실이 화면 맨 처음에 읽힌다. */}
+      <ClaudeSetupBanner />
       <Header connectionStatus={status} agentPhase={agentPhase} />
       <div className="relative flex flex-1 overflow-hidden">
         {/* DebugPanel — 평소엔 숨김, `~`/` 키로 debugMode 토글 시에만 마운트(꺼지면 비용 0).
@@ -141,6 +145,9 @@ export function App(): React.JSX.Element {
       <TrashPurgeDialog />
       <PermissionPromptStack />
       <ClaudeVersionGate />
+      {/* §4 (첫 실행 설치 온보딩) — 설치 게이트. 로그인보다 **앞** 단계라 z-index 도 위다
+          (CLI 가 없으면 로그인 자체가 불가능하다). 로그인과 같은 이유로 메인 창에만 마운트. */}
+      <ClaudeSetupGate />
       {/* §4 v4.82 — 로그인 게이트. main.tsx(공통 부팅 지점)가 아니라 여기 — 별창마다 같은 모달이
           겹쳐 뜨면 안 되고, 로그인은 메인 창에서 한 번만 물으면 되는 일이다. */}
       <LoginWindow />

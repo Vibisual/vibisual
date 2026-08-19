@@ -10,10 +10,10 @@
  */
 import { spawn } from 'child_process';
 import { AGENT_FEEDBACK_DISTILL_MAX, type AgentFeedback } from '@vibisual/shared';
-import { resolveClaudeBin } from './claudeBin.js';
+import { getClaudeBin } from './claudeBin.js';
 import { logger } from '../logger.js';
 
-const CLAUDE_BIN = resolveClaudeBin().binPath;
+const CLAUDE_BIN = (): string => getClaudeBin().binPath;
 
 /** one-shot 증류 상한 — haiku 가 이 시간 안에 못 끝내면 실패 처리(무한 대기 방지). */
 const DISTILL_TIMEOUT_MS = 60_000;
@@ -62,7 +62,7 @@ export function distillFeedbackToRules(feedbacks: AgentFeedback[]): Promise<stri
     let out = '';
     // 보안: shell:false — 프롬프트는 argv 로 전달되어 셸 재파싱 없음(sessionDiscovery 선례).
     const child = spawn(
-      CLAUDE_BIN,
+      CLAUDE_BIN(),
       ['-p', prompt, '--model', 'haiku', '--output-format', 'text'],
       { shell: false, windowsHide: true },
     );

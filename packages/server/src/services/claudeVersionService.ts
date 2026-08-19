@@ -14,8 +14,10 @@ import type {
 import { CLAUDE_VERSION_PROBE_TIMEOUT_MS, CLAUDE_INSTALL_SCAN_MAX } from '@vibisual/shared';
 import { logger } from '../logger.js';
 import { broadcast } from '../broadcastBus.js';
+import { userDefaultsService } from './userDefaultsService.js';
 import {
-  resolveClaudeBin,
+  getClaudeBin,
+  invalidateClaudeBinCache,
   discoverAllClaudeBins,
   readClaudeBinOverride,
   type ClaudeBinSource,
@@ -103,6 +105,17 @@ function detectCurrentVersion(
   });
 }
 
+/**
+ * §4 (첫 실행 설치 온보딩) — 임의 경로의 `claude` 실행본 버전 probe 공개 창구.
+ * `claudeSetupService` 가 설치 전후 판정에 쓴다(같은 spawn·파싱 규칙을 공유해 판정이 갈리지 않게).
+ */
+export function probeClaudeBinVersion(
+  binPath: string,
+  timeoutMs: number = CLAUDE_VERSION_PROBE_TIMEOUT_MS,
+): Promise<{ version: string | null; error?: string }> {
+  return detectCurrentVersion(binPath, timeoutMs);
+}
+
 function fetchLatestVersion(): Promise<{ version: string | null; error?: string }> {
   return new Promise((resolve) => {
     let settled = false;
@@ -178,14 +191,15 @@ async function getLatestCached(forceRefresh = false): Promise<CachedLatest> {
  * latest 는 5분 TTL 캐시. forceRefresh=true 면 캐시 무효화.
  */
 export async function getClaudeVersionInfo(forceRefresh = false): Promise<ClaudeVersionInfo> {
-  const bin = resolveClaudeBin();
+  const bin = getClaudeBin();
   const detected = await detectCurrentVersion(bin.binPath);
 
   const latestEntry = await getLatestCached(forceRefresh);
 
-  // PATH 폴백이지만 검출도 실패 → 'unknown' 로 격하 (안내만 가능, 자동설치 ❌)
+  // 실제 파일을 가리키는 출처인데 `--version` 검증도 실패 → 'unknown' 로 격하 (안내만, 자동설치 ❌).
+  // §4 (첫 실행 설치 온보딩) — 'native' 도 같은 규칙을 탄다(경로만 있고 못 돌면 없는 것과 같다).
   let source: ClaudeBinSource = bin.source;
-  if (source === 'path' && !detected.version) source = 'unknown';
+  if ((source === 'path' || source === 'native') && !detected.version) source = 'unknown';
 
   return {
     current: detected.version,
@@ -248,7 +262,7 @@ function readAppVersion(): string {
  * 현재 활성/선택 표시 + Vibisual·런타임 메타 + npm latest 를 묶어 반환. 전부 런타임 동적.
  */
 export async function getClaudeInstallsInfo(forceRefresh = false): Promise<ClaudeInstallsInfo> {
-  const active = resolveClaudeBin();
+  const active = getClaudeBin();
   const override = readClaudeBinOverride();
 
   // 발견 + 상한. active 바이너리가 후보에 없으면(예: bare 'claude' 폴백) 앞에 보강.
@@ -393,7 +407,7 @@ export function installLatestClaude(): ClaudeInstallProgress {
   inflightInstall = session;
 
   // VS Code 확장 출처면 호출 측에서 막는 게 정상이지만 방어적으로 fail-fast.
-  const bin = resolveClaudeBin();
+  const bin = getClaudeBin();
   if (bin.source === 'vscode-extension') {
     session.status = 'error';
     session.error = 'VS Code extension binary cannot be auto-updated. Use the Marketplace.';
@@ -413,7 +427,17 @@ export function installLatestClaude(): ClaudeInstallProgress {
     shell: plan.useShell,
     windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: process.env,
+    env: {
+      ...process.env,
+      // §4 (Claude Code CLI 자동 업데이트) — **패키지 매니저 설치본도 실제로 올라가게.**
+      //   Homebrew(mac)·WinGet(Windows) 로 깐 실행본은 `claude update` 가 기본적으로
+      //   "이미 최신"이라고만 답하고 **아무것도 하지 않는다**(갱신은 brew/winget 담당).
+      //   그대로 두면 우리는 매 실행마다 갱신을 시도했다고 보고하면서 버전은 그대로인
+      //   조용한 거짓말이 된다. CLI 가 이 env 를 보면 자기가 알아서 `brew upgrade` /
+      //   `winget upgrade` 를 대신 돌려 준다(공식 문서가 지정한 레버).
+      //   네이티브·npm 설치본에는 아무 영향이 없다.
+      CLAUDE_CODE_PACKAGE_MANAGER_AUTO_UPDATE: '1',
+    },
   });
 
   session.status = 'running';
@@ -458,7 +482,9 @@ export function installLatestClaude(): ClaudeInstallProgress {
     }
     // 종료 정상 — 새 바이너리 --version 으로 PATH 캐시 검증 + 캐시 무효화
     invalidateLatestCache();
-    const verifyBin = resolveClaudeBin();
+    // 갱신 후에는 실행본 경로 자체가 바뀔 수 있다(네이티브 self-update 는 versions/ 심볼릭 교체).
+    invalidateClaudeBinCache();
+    const verifyBin = getClaudeBin();
     const verify = await detectCurrentVersion(verifyBin.binPath);
     inflightInstall.newVersion = verify.version ?? undefined;
     inflightInstall.status = 'done';
@@ -466,7 +492,9 @@ export function installLatestClaude(): ClaudeInstallProgress {
       inflightInstall.error = `installed but --version verification failed: ${verify.error ?? 'unknown'}`;
     }
     pushProgress();
+    const settled = getInflightInstall();
     inflightInstall = null;
+    if (settled) emitInstallSettled(settled);
   });
 
   return {
@@ -474,6 +502,70 @@ export function installLatestClaude(): ClaudeInstallProgress {
     status: session.status,
     stdout: session.stdout,
   };
+}
+
+// ─── §4 — 설치/갱신 완료 알림 ─────────────────────────────────────────────────
+//
+// CLI 가 바뀌면 **CLI 에서 파생된 캐시**(로그인 판정 · 모델 레지스트리 · effort 등급 ·
+// 내장 슬래시 명령)가 통째로 낡는다. 종전엔 그 캐시들이 전부 "부팅 1회" 전제였는데,
+// 이제 앱을 켠 뒤에 CLI 가 새로 깔리거나 최신으로 바뀌는 경로가 생겼으므로 그 순간을
+// 알려 줄 창구가 필요하다. 없으면 갓 설치한 사용자는 다음 실행 전까지 로그인 창도
+// 못 보고 모델 목록도 비어 있다.
+
+type InstallSettledListener = (progress: ClaudeInstallProgress) => void;
+const installSettledListeners = new Set<InstallSettledListener>();
+
+/**
+ * 인스톨러가 **정상 종료(exit 0)해 실행본이 실제로 바뀌었을 수 있는** 순간 알림.
+ * spawn 실패·비정상 종료는 바뀐 게 없으므로 발화하지 않는다(헛된 재스캔 방지).
+ * 해제 함수를 돌려준다.
+ */
+export function onClaudeInstallSettled(listener: InstallSettledListener): () => void {
+  installSettledListeners.add(listener);
+  return () => installSettledListeners.delete(listener);
+}
+
+function emitInstallSettled(progress: ClaudeInstallProgress): void {
+  for (const l of installSettledListeners) {
+    try {
+      l(progress);
+    } catch (err) {
+      logger.warn(`[claudeVersionService] settled listener failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+}
+
+/**
+ * §4 (Claude Code CLI 자동 업데이트) — **앱을 켤 때 1회** CLI 를 최신으로 맞춘다.
+ *
+ * `installLatestClaude()` 는 §5.7 #23-1 부터 있었지만 **그것을 부르는 자동 경로가 없었다** —
+ * 유일한 트리거였던 `ClaudeVersionGate` 는 `claudeVersionModalOpen` 을 켜는 곳이 클라 어디에도
+ * 없어서(미배선), 사용자가 옵션창을 직접 열지 않는 한 버전이 영원히 그대로였다. 이 함수가
+ * 그 빈 자리를 메운다 — 새 설치 레일을 만들지 않고 기존 서비스·기존 WS 진행 push 를 그대로 쓴다.
+ *
+ * 건너뛰는 경우:
+ *  - 사용자가 껐다(`UserDefaults.claudeAutoUpdate.enabled === false`)
+ *  - 이미 최신 (또는 current/latest 중 하나를 못 읽어 비교 자체가 불가)
+ *  - `source === 'vscode-extension'` — 마켓플레이스 밖에서 갱신할 수 없다(안내만)
+ *  - `source === 'unknown'` — 아직 안 깔렸다. 이건 갱신이 아니라 **설치** 문제라
+ *    §4 설치 온보딩 게이트(`claudeSetupService`)가 맡는다.
+ *
+ * ⚠ §4 v2.44 **Vibisual 앱** 자동 업데이트(electron-updater)와는 무관하다 — 그쪽은 종전 그대로.
+ */
+export async function autoUpdateClaudeIfEnabled(): Promise<{ started: boolean; reason?: string }> {
+  if (userDefaultsService.get().claudeAutoUpdate?.enabled === false) {
+    return { started: false, reason: 'disabled' };
+  }
+  const info = await getClaudeVersionInfo(true);
+  if (info.source === 'unknown') return { started: false, reason: 'not-installed' };
+  if (info.source === 'vscode-extension') return { started: false, reason: 'vscode-extension' };
+  if (!info.isOutdated) return { started: false, reason: 'up-to-date' };
+
+  logger.info(
+    `[claudeVersionService] auto-update on launch: ${info.current ?? '?'} → ${info.latest ?? '?'} (${info.source})`,
+  );
+  installLatestClaude();
+  return { started: true };
 }
 
 export function getInflightInstall(): ClaudeInstallProgress | null {

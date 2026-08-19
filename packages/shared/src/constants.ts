@@ -1,4 +1,4 @@
-import type { BubbleType, BubbleStyleConfig, EdgeStyleConfig, AgentRole, PipelineChildConfig, PipelineType, AgentConfig, TaskEdgeTemplate, TaskEdgeKind, UiLocale, AutoAgentRole, AutoAgentTemplate, ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry, AgentFeedback, BrainTopicDef, BrainTopicIndexEntry, BrainCardType, BrainAuthority, StreamDensity, PluginContributionKind, SessionGoalStepStatus, CommandDispatchMode, RunRuntime, RunConfig, McpServerPreset, AgentMemoryScope, DebugAdapterSpec, ProblemMatch, ProblemSeverity, RetentionSettings } from './types.js';
+import type { BubbleType, BubbleStyleConfig, EdgeStyleConfig, AgentRole, PipelineChildConfig, PipelineType, AgentConfig, TaskEdgeTemplate, TaskEdgeKind, UiLocale, AutoAgentRole, AutoAgentTemplate, ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry, AgentFeedback, BrainTopicDef, BrainTopicIndexEntry, BrainCardType, BrainAuthority, StreamDensity, PluginContributionKind, SessionGoalStepStatus, CommandDispatchMode, RunRuntime, RunConfig, McpServerPreset, AgentMemoryScope, DebugAdapterSpec, ProblemMatch, ProblemSeverity, RetentionSettings, PreviewDevicePreset } from './types.js';
 export type { ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry } from './types.js';
 
 // ─── UI 다국어 (i18n) ───
@@ -94,6 +94,20 @@ export const CHECKPOINT_BATCH_INTERVAL = 500;
  * 비정상 종료 시 잃을 수 있는 휘발성 그래프 상태를 최대 5초 분량으로 묶는다.
  */
 export const CHECKPOINT_BATCH_INTERVAL_MAX = 5000;
+
+/**
+ * §9 "저장은 바뀐 프로젝트만" — **조용한 프로젝트를 그래도 한 번은 재구축하는 주기(ms)**.
+ *
+ * `saveCheckpoint()` 는 인스턴스 `mutationVersion` 이 지난 저장 이후 바뀐 프로젝트만 다시
+ * 만든다(실측 2026-08-19: 열린 탭 7개 직렬화만 21.8ms → 활성 1개면 3.8ms). 그런데 체크포인트에는
+ * 인스턴스 **밖** 싱글턴(서브에이전트·파이프라인·신고/검수/질문 카드류)에서 오는 값이 함께 담기고
+ * 그쪽 변경은 `mutationVersion` 을 올리지 않는다 — 그래서 조용해 보이는 프로젝트도 이 주기마다
+ * 한 번은 **무조건** 재구축한다.
+ *
+ * ⚠ 이 값을 키우면 "인스턴스는 안 바뀌었지만 싱글턴만 바뀐" 변경의 디스크 반영이 그만큼 늦어진다
+ *   (유실이 아니라 지연 — 종료 시 `process 'exit'` 동기 flush 는 항상 전 프로젝트 전량).
+ */
+export const CHECKPOINT_QUIET_SWEEP_MS = 10_000;
 
 // ─── 버블 스타일 Config 테이블 ───
 // 새 BubbleType 추가 시 여기 한 줄만 추가하면 전체 반영
@@ -221,6 +235,15 @@ export const BUBBLE_STYLES: Record<BubbleType, BubbleStyleConfig> = {
     icon: 'video',
     ringIdle: 'border-slate-400',
     ringActive: 'border-slate-200 shadow-lg shadow-slate-300/30',
+  },
+  // §5.15 — 스펙 보드. 팔레트에서 emerald(외부 폴더)와 sky(iframe) 사이가 비어 있어 식별이 서고,
+  //   "합의된 문서"라는 은유에 맞게 채도를 절제한 teal 로 간다.
+  spec: {
+    color: '#0D9488',
+    glow: '#5EEAD4',
+    icon: 'spec',
+    ringIdle: 'border-teal-300',
+    ringActive: 'border-teal-500 shadow-lg shadow-teal-500/30',
   },
 };
 
@@ -536,6 +559,26 @@ export const AGENT_IDLE_THRESHOLD_MS = 5 * 60 * 1000;
 export const AGENT_IDLE_SWEEP_INTERVAL_MS = 30_000;
 
 /**
+ * §9 "열려 있어도 오래 안 보면 내려놓는다" — **배경 탭 유휴 해제 임계값(ms)**.
+ *
+ * 어떤 창의 구독 범위(§9 스코프드 구독)에도 들어 있지 않고, 이 시간 동안 아무 일도 하지 않은
+ * 프로젝트를 `unloadProject`(stub 강등)로 내려놓는다. 탭은 그대로 보이고 클릭하면 되살아난다.
+ *
+ * **0 이면 이 정리를 하지 않는다**(§3.2.3 "전부 사용자 조절 가능 · 0 = 무제한" 규약과 동일).
+ */
+export const PROJECT_IDLE_UNLOAD_MS = 15 * 60 * 1000;
+
+/** 배경 탭 유휴 해제 판정 주기 (ms). 판정 자체가 부하가 되면 안 되므로 넉넉히 잡는다. */
+export const PROJECT_IDLE_UNLOAD_SWEEP_MS = 60_000;
+
+/**
+ * 힙 압력(§3.2.4 I축)이 걸렸을 때 적용하는 **낮춘** 유휴 임계값(ms).
+ * 압력 상황에서는 "15분은 기다려 보자"가 사치라 3분으로 좁혀 먼저 내려놓는다.
+ * `PROJECT_IDLE_UNLOAD_MS` 가 0(끔)이면 이 값도 적용하지 않는다 — 끈 것은 끈 것이다.
+ */
+export const PROJECT_IDLE_UNLOAD_PRESSURE_MS = 3 * 60 * 1000;
+
+/**
  * §4 v1.50/v3.60 — Claude.ai 한도 사용률 경고 임계(%).
  * DetailPanel 게이지·헤더 사용량 필·팝업이 모두 이 값을 공유한다(색 기준 단일화).
  */
@@ -660,11 +703,25 @@ export const DELETED_AGENT_TOMBSTONE_MAX = 1000;
  * - `SHRINK_GUARD_MIN_PRIOR` / `SHRINK_GUARD_RATIO`: 급감 비율 가드(2차) — 직전 합계가 MIN_PRIOR 이상인데
  *   새 합계가 `직전 * RATIO` 미만이고 묘비로 설명 안 되는 에이전트 소멸이 있을 때 거부. 정상 대량 만료
  *   오탐 위험이 있어 **기본 비활성**(`CHECKPOINT_SHRINK_GUARD_ENABLED=false`); 통째-0 가드만 1차 운용.
+ *
+ * ⚠ 직전 합계에서 **프로젝트 루트 노드는 빼고** 센다(`ROOT_NODE_KEY_PREFIX`). 루트 노드는 프로젝트를
+ *   등록하면 자동 생성되는 골격이라 "지켜야 할 사용자 데이터" 가 아니고, 워크트리처럼 화면 표현이
+ *   부모 캔버스로 옮겨간 프로젝트는 정상적으로 0개가 되기 때문. 이 예외가 없으면 "루트 노드 하나뿐인
+ *   디스크 vs 비어 있는 정상 인스턴스" 가 매 저장마다 거부되고, 거부되면 디스크도 캐시도 갱신되지
+ *   않아 같은 판정이 영원히 반복된다(가드가 자기를 발화시키는 파일을 스스로 보존하는 고착 상태).
  */
 export const CHECKPOINT_EMPTY_GUARD_MIN_PRIOR = 1;
 export const CHECKPOINT_SHRINK_GUARD_MIN_PRIOR = 8;
 export const CHECKPOINT_SHRINK_GUARD_RATIO = 0.34;
 export const CHECKPOINT_SHRINK_GUARD_ENABLED = false;
+
+/**
+ * 프로젝트 루트 폴더 노드의 키 접두사 — 실제 키는 `__root__:<프로젝트명>`.
+ * 그래프 계층(노드 생성·정리)과 영속 계층(빈 체크포인트 판정)이 **같은 기준**을 써야 하므로 공유 상수로 둔다.
+ */
+export const ROOT_NODE_KEY_PREFIX = '__root__:';
+/** 프로젝트별 루트 키 도입 이전의 단일 루트 키(하위 호환 — 복원 시 접두사 키로 승격된다). */
+export const LEGACY_ROOT_NODE_KEY = '__root__';
 
 // ─── 버블 렌더링 ───
 
@@ -961,6 +1018,51 @@ export const CLAUDE_VERSION_PROBE_TIMEOUT_MS = 2_500;
 
 /** §4 v2.43 — 옵션창 Version 탭: 다중 설치본 스캔 시 probe 할 최대 후보 수 (폭주 가드) */
 export const CLAUDE_INSTALL_SCAN_MAX = 24;
+
+// ─── 첫 실행 설치 온보딩 (§4) ───
+//
+// 앱만 내려받은 사람에게 `claude` CLI 를 깔아 주는 경로. 명령은 **공식 네이티브 인스톨러**다
+// (Node 불필요 — npm 경로는 Node/npm 이 이미 있는 사람 전용이라 신규 사용자에게 통하지 않는다).
+// 출처: https://code.claude.com/docs/en/setup
+
+/**
+ * Windows 네이티브 설치 명령. `irm | iex` 는 PowerShell 문법이라 PowerShell 을 명시 호출한다.
+ * `-NoProfile` = 사용자 프로필 스크립트가 설치를 방해하지 않게, `-ExecutionPolicy Bypass` =
+ * 기본 정책(RemoteSigned)에서 원격 스크립트가 막히는 것을 피한다(레지스트리 정책은 안 건드림).
+ */
+export const CLAUDE_SETUP_INSTALL_COMMAND_WIN =
+  'powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://claude.ai/install.ps1 | iex"';
+
+/** macOS / Linux / WSL 네이티브 설치 명령. */
+export const CLAUDE_SETUP_INSTALL_COMMAND_POSIX = 'curl -fsSL https://claude.ai/install.sh | bash';
+
+/** 자동 설치가 막혔을 때의 탈출구 — 공식 설치 문서. */
+export const CLAUDE_SETUP_DOCS_URL = 'https://code.claude.com/docs/en/setup';
+
+/**
+ * 인스톨러 실행 타임아웃. 바이너리 다운로드(수십 MB)가 느린 회선에서 오래 걸릴 수 있어
+ * `claudeVersionService` 의 npm 설치 상한(5분)보다 넉넉하게 잡는다.
+ */
+export const CLAUDE_SETUP_INSTALL_TIMEOUT_MS = 10 * 60 * 1000;
+
+/**
+ * 설치 직후 재판정 재시도 간격/횟수. 인스톨러가 종료해도 PATH 반영·파일 flush 가 한 박자
+ * 늦을 수 있어, 바로 실패로 단정하지 않고 짧게 몇 번 더 확인한다.
+ */
+export const CLAUDE_SETUP_VERIFY_RETRY_INTERVAL_MS = 1_500;
+export const CLAUDE_SETUP_VERIFY_RETRY_MAX = 4;
+
+/** 누적 출력 상한 — 인스톨러가 진행률을 대량으로 찍어도 메모리·전선이 부풀지 않게 자른다. */
+export const CLAUDE_SETUP_OUTPUT_MAX_CHARS = 20_000;
+
+/**
+ * §4 (Claude Code CLI 자동 업데이트) — 앱을 켠 뒤 CLI 최신화를 시도하기까지의 지연.
+ *
+ * 설치 판정(1.2s)·로그인 판정(1.5s)보다 **뒤**여야 한다: 아직 안 깔린 사람은 설치 온보딩이
+ * 먼저 맡아야 하고, 갓 설치한 실행본은 이미 최신이라 곧바로 갱신을 시도할 이유가 없다.
+ * 부팅 직후 몰리는 작업(체크포인트 복원·훅 설치)과도 겹치지 않게 넉넉히 뒤로 민다.
+ */
+export const CLAUDE_AUTO_UPDATE_BOOT_DELAY_MS = 20_000;
 
 /** v1.36 — STRICT delegation enforcement 경로(dispatch curl)가 Bash 에 의존하므로
  *  사용자가 UI 에서 제거할 수 없고, STRICT strip 계산에서도 항상 보존된다.
@@ -2698,6 +2800,15 @@ export const STREAM_DENSITIES: readonly StreamDensity[] = ['compact', 'standard'
 /** Edit 계열 diff 를 자동으로 펼쳐 두는 변경 줄 수 상한(초과하면 접힌 채 "+N줄"). */
 export const STREAM_DIFF_AUTO_EXPAND_MAX_LINES = 20;
 
+/**
+ * §5.5 #17-30 — 한 세션이 모아 둘 수 있는 diff 리뷰 코멘트 상한.
+ *
+ * 코멘트는 보내면 사라지는 작업 메모라 영속화하지 않지만, "보내지 않고 계속 다는" 사용에도
+ * 메모리가 무한히 늘지 않도록 **개수**에 상한을 건다(§3.2.3 — 캡이 값 길이에만 있고 키 개수에
+ * 없어서 터진 전례를 반복하지 않는다). 초과분은 더 담지 않고 화면이 안내한다.
+ */
+export const DIFF_COMMENT_MAX = 50;
+
 // ─── §5.5 #17-28 "간결" 밀도 = 핵심만 남기는 밀도 (v4.75) ───
 // 종전 간결은 표준과 같은 분기를 타서 사실상 차이가 없었다. 아래 상수들이 "얼마나 남길지"를 정한다.
 
@@ -2927,6 +3038,68 @@ JSON
 \`\`\`
 
 등록이 끝나면 한 줄로만 알려 주세요("실행법을 등록했습니다: <label>"). 서버 기동·빌드·설치는 하지 마세요.`;
+}
+
+// ─── §5.15 — 스펙 보드 (요구사항 → 수용 기준 → 작업 카드 → 실행) ───
+
+/** 스펙 표지 버블 기본 크기. 캔버스에서는 표지만 보이고 본문은 보드 패널에서 읽는다. */
+export const SPEC_BUBBLE_DEFAULT_WIDTH = 220;
+export const SPEC_BUBBLE_DEFAULT_HEIGHT = 140;
+
+/** 스펙 제목·수용 기준 한 줄의 길이 상한 — 한 줄이 문단이 되면 목록이 읽히지 않는다. */
+export const SPEC_TITLE_MAX = 120;
+export const SPEC_ITEM_TEXT_MAX = 400;
+
+/** 스펙 본문(마크다운) 길이 상한. 넘으면 서버가 잘라서 저장한다(무한 성장 차단). */
+export const SPEC_BODY_MAX = 20_000;
+
+/** 스펙 한 장이 가질 수 있는 수용 기준 개수 상한. */
+export const SPEC_MAX_ITEMS = 60;
+
+/** 작업 카드(커스텀 에이전트) 라벨로 쓸 수용 기준 앞머리 길이. */
+export const SPEC_TASK_LABEL_MAX = 40;
+
+/** 작업 카드를 놓을 자리 — 스펙 표지 오른쪽으로 이만큼 띄우고, 세로로 이 간격씩 쌓는다. */
+export const SPEC_TASK_OFFSET_X = 320;
+export const SPEC_TASK_GAP_Y = 150;
+
+/**
+ * §5.15 — 작업 카드 한 장에 얹는 자동 규칙 섹션.
+ *
+ * 카드는 **기존 `createCustomAgent` 경로**로 만들어지고, 그 에이전트의 `AgentConfig.rules` 앞에
+ * 이 블록이 붙는다(§7.9 v1.33 의 "연결된 위임 엣지(자동)" 섹션과 같은 문법 — 새 주입 경로 ❌).
+ * 사용자가 rules 를 손으로 고쳐도 이 블록만 갈아 끼울 수 있도록 시작·끝 표식을 둔다.
+ */
+export const SPEC_RULES_BEGIN = '<!-- vibisual:spec-task:begin -->';
+export const SPEC_RULES_END = '<!-- vibisual:spec-task:end -->';
+
+/** 작업 카드 규칙 블록 본문 조립. 스펙 본문은 길 수 있으므로 앞부분만 싣는다. */
+export function buildSpecTaskRules(args: {
+  specTitle: string;
+  specBody: string;
+  itemText: string;
+  itemIndex: number;
+  itemTotal: number;
+  bodyExcerptMax?: number;
+}): string {
+  const { specTitle, specBody, itemText, itemIndex, itemTotal } = args;
+  const max = args.bodyExcerptMax ?? 2_000;
+  const body = specBody.length > max ? `${specBody.slice(0, max)}\n…(생략)` : specBody;
+  return [
+    SPEC_RULES_BEGIN,
+    `# 스펙 작업 카드 (자동 — 스펙 보드 §5.15)`,
+    '',
+    `이 카드는 스펙 **"${specTitle}"** 의 수용 기준 ${itemIndex + 1}/${itemTotal} 에서 나왔습니다.`,
+    '',
+    `## 이 카드가 만족시켜야 할 수용 기준`,
+    `- ${itemText}`,
+    '',
+    `## 스펙 본문`,
+    body.trim().length > 0 ? body : '(본문 없음)',
+    '',
+    `수용 기준을 벗어나는 변경은 하지 말고, 스펙과 어긋나는 점을 발견하면 고치지 말고 보고하세요.`,
+    SPEC_RULES_END,
+  ].join('\n');
 }
 
 // ─── §4 v3.21 — 에이전트 피드백 학습 루프 (좋아요/싫어요 → 규칙 되먹임) ───
@@ -4315,3 +4488,29 @@ export const MCP_SERVER_PRESETS: readonly McpServerPreset[] = [
 export function findMcpPreset(id: string): McpServerPreset | undefined {
   return MCP_SERVER_PRESETS.find((p) => p.id === id);
 }
+
+// ─── §7.11 프리뷰 조작 (판올림 번호 발급 대기) ───
+
+/**
+ * 프리뷰 ↔ 주입 스크립트가 주고받는 메시지의 출처 표식.
+ *
+ * 프리뷰 안의 페이지가 자기 목적으로 `postMessage` 를 쓰는 일은 흔하므로, 이 문자열이 없는
+ * 메시지는 양쪽 모두 무시한다(남의 메시지를 우리 것으로 오인하지 않는다).
+ */
+export const PREVIEW_PICK_SOURCE = 'vibisual-preview';
+
+/** 집은 요소에서 가져올 텍스트 길이 상한. */
+export const PREVIEW_PICK_TEXT_MAX = 80;
+
+/**
+ * 프리뷰 폭 프리셋 — Auto / 모바일 / 태블릿 / 데스크톱.
+ *
+ * `transform: scale()` 로 줄이지 않고 **실제 폭**으로 렌더한다(축소하면 미디어쿼리가 실제 폭을
+ * 못 보고, "모바일에서 어떻게 보이나"를 확인하려던 목적 자체가 무너진다).
+ */
+export const PREVIEW_DEVICE_PRESETS: readonly PreviewDevicePreset[] = [
+  { id: 'auto', labelKey: 'common.preview.deviceAuto', width: null },
+  { id: 'mobile', labelKey: 'common.preview.deviceMobile', width: 390 },
+  { id: 'tablet', labelKey: 'common.preview.deviceTablet', width: 820 },
+  { id: 'desktop', labelKey: 'common.preview.deviceDesktop', width: 1280 },
+] as const;

@@ -1,8 +1,8 @@
 {
   "name": "vibisual",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "private": true,
-  "description": "AI agent activity visualizer with bubble maps",
+  "description": "The first Visual Development Environment (VDE) for AI coding agents — design your agent team on a canvas, watch them work, and edit right there",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",

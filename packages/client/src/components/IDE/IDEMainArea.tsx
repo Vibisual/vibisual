@@ -25,7 +25,8 @@ import { FOLLOW_SKIP_SHORT_KEYS, followSessionKey } from './editorFollow.js';
 import { useVirtuosoFrontShift } from './frontShift.js';
 import { readingItemAttrsNoProse } from './reading/readingModel.js';
 import { useStreamToggle, streamToggleProps, STREAM_TOGGLE_ATTR } from './streamToggle.js';
-import { findTextRangeInContainer, scrollRangeIntoCenter, scrollElementIntoCenter, flashElement, findItemElement, resolveAnchorIdFromSelection } from './bookmarkScroll.js';
+import { findTextRangeInContainer, scrollRangeIntoCenter, scrollElementIntoCenter, flashElement, findItemElement, resolveAnchorIdFromSelection, markRange, clearFindHighlight } from './bookmarkScroll.js';
+import { isFindableTextKind, findTextMatches } from './streamSearch.js';
 import { AskQuestionCard } from './AskQuestionCard.js';
 import { AgentReportCard } from './AgentReportCard.js';
 import { AgentQuestionCard } from './AgentQuestionCard.js';
@@ -117,25 +118,24 @@ function formatTime(ts: number): string {
  * 북마크 "이동" 의 실제 스크롤 — anchorId(출처 항목)가 있으면 그 엘리먼트로 컨테이너 중앙 스크롤 +
  * 외곽선 플래시, 없거나 못 찾으면 보관 텍스트를 컨테이너에서 검색(공백/노드 경계 관용)해 선택+스크롤.
  * 가상 리스트는 호출 전에 scrollToIndex 로 그 항목을 렌더시켜 둔다.
+ * `preserveFocus` 는 인-페이지 검색용 — 찾은 텍스트를 selection 대신 CSS 하이라이트로 칠해 검색
+ * 입력창의 포커스/caret 을 건드리지 않는다(`markRange` 주석 참고).
  */
-function performBookmarkScroll(container: HTMLElement, anchorId: string | undefined, text: string): boolean {
+function performBookmarkScroll(container: HTMLElement, anchorId: string | undefined, text: string, preserveFocus = false): boolean {
   if (anchorId) {
     const el = findItemElement(container, anchorId);
     if (el) {
       scrollElementIntoCenter(container, el);
       flashElement(el);
-      // 항목 안에서 정확한 텍스트도 선택해 주면 더 좋다(있으면).
+      // 항목 안에서 정확한 텍스트도 표시해 주면 더 좋다(있으면).
       const range = findTextRangeInContainer(el, text);
-      if (range) {
-        const sel = window.getSelection();
-        if (sel) { sel.removeAllRanges(); sel.addRange(range); }
-      }
+      if (range) markRange(range, preserveFocus);
       return true;
     }
   }
   const range = findTextRangeInContainer(container, text);
   if (range) {
-    scrollRangeIntoCenter(container, range);
+    scrollRangeIntoCenter(container, range, preserveFocus);
     return true;
   }
   return false;
@@ -3023,22 +3023,36 @@ export const IDEMainArea = memo(function IDEMainArea({
   const [searchMatches, setSearchMatches] = useState<string[]>([]);
   const [searchIdx, setSearchIdx] = useState(0);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const searchCaretRef = useRef(0);
 
+  // 검색창 포커스 유지 — 이동(가상 리스트 렌더 → 스크롤 → 하이라이트)은 비동기라 그 사이에 포커스가
+  //   빠지면 사용자가 이어서 타이핑을 못 한다(브라우저 찾기막대는 늘 입력칸에 머문다). 이동이 끝나는
+  //   시점들에서 "검색창이 포커스를 잃었고, 사용자가 다른 입력칸으로 옮겨간 것도 아닐 때"만 되돌린다.
+  //   이미 포커스면 아무것도 하지 않는다 — focus/setSelectionRange 는 IME(한글) 조합을 깨뜨린다.
+  const restoreSearchFocus = useCallback(() => {
+    const el = searchInputRef.current;
+    if (!el || document.activeElement === el) return;
+    const active = document.activeElement as HTMLElement | null;
+    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) return;
+    const caret = Math.min(searchCaretRef.current, el.value.length);
+    el.focus();
+    try { el.setSelectionRange(caret, caret); } catch { /* 선택 범위를 지원 안 하는 입력이면 무시 */ }
+  }, []);
+
+  // 검색 대상은 **본문 텍스트뿐** — 도구 묶음·계획·라이브 줄은 물론, 명령(`command`)·도구 출력
+  //   엔트리도 제외한다. 판정은 Sub 탭과 같은 술어(streamSearch.isFindableTextKind)를 쓴다.
   const mainItemSearchText = useCallback((item: TerminalItem): string => {
-    if ('kind' in item && item.kind === 'group') return `${item.header} ${item.entries.map((en) => en.text).join(' ')}`;
-    if ('kind' in item && item.kind === 'thinking-live') return '';
-    if ('kind' in item && item.kind === 'plan') return item.todos.map((td) => td.content).join(' ');
-    return (item as TerminalEntry).text ?? '';
+    if (item.kind !== undefined) return ''; // 도구 묶음·계획·라이브 줄
+    return isFindableTextKind(item.type) ? item.text ?? '' : '';
   }, []);
 
   const computeMatches = useCallback((query: string): string[] => {
-    const q = query.trim().toLowerCase();
-    if (!q) return [];
+    if (!query.trim()) return [];
     if (activeSessionId !== null) return streamRef.current?.searchMatchIds(query) ?? [];
     const ids: string[] = [];
     for (const n of mainTimeline) {
       if (n.t !== 'item') continue;
-      if (mainItemSearchText(n.item).toLowerCase().includes(q)) ids.push(n.item.id);
+      if (findTextMatches(mainItemSearchText(n.item), query)) ids.push(n.item.id);
     }
     return ids;
   }, [activeSessionId, mainTimeline, mainItemSearchText]);
@@ -3046,17 +3060,25 @@ export const IDEMainArea = memo(function IDEMainArea({
   const navigateSearch = useCallback((ids: string[], idx: number, query: string) => {
     const id = ids[idx];
     if (!id) return;
+    // 이동 전 검색창 caret 을 기억해 둔다 — 도중에 포커스가 빠졌을 때 그 자리로 되돌리기 위함.
+    const input = searchInputRef.current;
+    if (input && document.activeElement === input) searchCaretRef.current = input.selectionStart ?? input.value.length;
+    // 이동이 끝나는 시점들(다음 프레임 · 하이라이트 직후 · 부드러운 스크롤 꼬리)에서 포커스를 확인·복구.
+    requestAnimationFrame(restoreSearchFocus);
+    window.setTimeout(restoreSearchFocus, 340);
+    window.setTimeout(restoreSearchFocus, 620);
     // v3.14 — 검색 이동 동안 워치독이 바닥으로 되끌지 않게 추종 명시 해제(바닥 근처 도착 시 자동 재무장).
     followRef.current = false;
     sessionAtBottomRef.current.set(sessionKey, false);
-    if (activeSessionId !== null) { streamRef.current?.scrollToBookmark(id, query); return; }
+    // preserveFocus=true — 찾은 텍스트는 selection 이 아니라 CSS 하이라이트로 칠한다(검색창 caret 보존).
+    if (activeSessionId !== null) { streamRef.current?.scrollToBookmark(id, query, true); return; }
     const nodeIdx = mainTimeline.findIndex((n) => n.t === 'item' && n.item.id === id);
     if (nodeIdx >= 0) mainVirtuosoRef.current?.scrollToIndex({ index: nodeIdx, align: 'center' });
     window.setTimeout(() => {
       const cont = scrollRef.current;
-      if (cont) performBookmarkScroll(cont, id, query);
+      if (cont) performBookmarkScroll(cont, id, query, true);
     }, nodeIdx >= 0 ? 260 : 40);
-  }, [activeSessionId, mainTimeline, sessionKey]);
+  }, [activeSessionId, mainTimeline, sessionKey, restoreSearchFocus]);
 
   // query/열림/탭 변경 시 매칭 재계산 + 첫 매칭으로 이동. 스트리밍 데이터 변경마다 자동 점프하지 않도록
   //   deps 는 최소화(검색 중 본문이 계속 자라도 화면이 튀지 않게).
@@ -3066,6 +3088,7 @@ export const IDEMainArea = memo(function IDEMainArea({
     setSearchMatches(ids);
     setSearchIdx(0);
     if (ids.length > 0) navigateSearch(ids, 0, searchQuery);
+    else clearFindHighlight(); // 매칭 0 — 앞 검색어의 하이라이트가 남아 있지 않게.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchOpen, searchQuery, activeSessionId]);
 
@@ -3078,7 +3101,11 @@ export const IDEMainArea = memo(function IDEMainArea({
 
   const closeSearch = useCallback(() => {
     setSearchOpen(false); setSearchQuery(''); setSearchMatches([]); setSearchIdx(0);
+    clearFindHighlight();
   }, []);
+
+  // 하이라이트 레지스트리는 document 전역이라, 이 IDE 가 사라질 때 남은 칠을 거둔다.
+  useEffect(() => () => clearFindHighlight(), []);
 
   useEffect(() => {
     if (showInteractiveTerminal) return;
@@ -3218,8 +3245,11 @@ export const IDEMainArea = memo(function IDEMainArea({
             <span className="min-w-[40px] text-right text-[11px] tabular-nums text-gray-400">
               {searchQuery.trim() ? `${searchMatches.length ? searchIdx + 1 : 0}/${searchMatches.length}` : ''}
             </span>
+            {/* 다음/이전은 mousedown 기본동작(포커스 이동)을 막아 **입력칸이 포커스를 잃지 않게** 한다 —
+                브라우저 찾기막대처럼 눌러 가며 계속 타이핑할 수 있어야 한다(클릭 이벤트는 그대로 뜬다). */}
             <button
               type="button"
+              onMouseDown={(e) => e.preventDefault()}
               onClick={() => searchStep(-1)}
               disabled={searchMatches.length === 0}
               title={t('ide.search.prev')}
@@ -3230,6 +3260,7 @@ export const IDEMainArea = memo(function IDEMainArea({
             </button>
             <button
               type="button"
+              onMouseDown={(e) => e.preventDefault()}
               onClick={() => searchStep(1)}
               disabled={searchMatches.length === 0}
               title={t('ide.search.next')}

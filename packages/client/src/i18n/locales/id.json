@@ -41,6 +41,10 @@
     "usage": {
       "tooltip": "Sesi saat ini: {{percent}}% dari batas 5 jam terpakai — klik untuk detail",
       "tooltipNoData": "Data penggunaan belum dikumpulkan — klik untuk mengaktifkan"
+    },
+    "setupBanner": {
+      "text": "Claude Code belum terinstal — agent belum bisa berjalan.",
+      "action": "Instal"
     }
   },
   "panel": {
@@ -198,7 +202,8 @@
         "permissions": "Izin",
         "advanced": "Lanjutan",
         "version": "Versi",
-        "account": "Akun"
+        "account": "Akun",
+        "storage": "Penyimpanan"
       },
       "appearance": {
         "intro": "Sesuaikan tampilan Vibisual.",
@@ -224,7 +229,19 @@
         "restartHint": "Pilihan disimpan. Mulai ulang Vibisual untuk menerapkannya ke agent yang baru dimunculkan.",
         "about": "Tentang",
         "repo": "Repositori GitHub",
-        "marketplace": "Claude Code di VS Code Marketplace"
+        "marketplace": "Claude Code di VS Code Marketplace",
+        "selectionApplied": "Pilihan disimpan dan diterapkan — agent yang baru dibuat langsung menggunakannya.",
+        "claudeAutoUpdate": {
+          "title": "Pembaruan Claude Code",
+          "label": "Perbarui Claude Code secara otomatis",
+          "onHint": "Vibisual memperbarui CLI ke versi terbaru setiap kali Anda membuka aplikasi.",
+          "offHint": "Pembaruan otomatis nonaktif. Gunakan \"Perbarui sekarang\" untuk memperbarui CLI secara manual.",
+          "vscodeNotice": "Binary yang aktif berasal dari ekstensi VS Code, yang hanya bisa diperbarui melalui Marketplace. Pilih instalasi lain di atas agar Vibisual dapat mengelola pembaruan.",
+          "updateNow": "Perbarui sekarang",
+          "updating": "Memperbarui…",
+          "updated": "Diperbarui ke {{version}}",
+          "updateFailed": "Pembaruan gagal"
+        }
       },
       "agent": {
         "intro": "Default ini berlaku untuk agent kustom yang baru dibuat. Agent yang sudah ada tidak terpengaruh.",
@@ -259,6 +276,73 @@
         "recheck": "Periksa lagi",
         "checking": "Memeriksa…",
         "actionFailed": "Tidak berhasil. Coba lagi."
+      },
+      "storage": {
+        "intro": "Berapa lama Vibisual menyimpan riwayat aktivitas di disk. Atur nilai ke 0 untuk menyimpannya selamanya — tidak ada yang dihapus diam-diam, dan sesi yang sedang berjalan tidak akan pernah disentuh.",
+        "save": "Terapkan",
+        "saving": "Menyimpan…",
+        "reset": "Pulihkan default",
+        "unsaved": "Belum diterapkan",
+        "usageTitle": "Penggunaan disk",
+        "total": "Total",
+        "rescan": "Pindai ulang",
+        "scanning": "Memindai…",
+        "cleanNow": "Bersihkan sekarang",
+        "cleaning": "Membersihkan…",
+        "cleaned": "Menghapus {{files}} file, membebaskan {{size}}.",
+        "empty": "Belum ada data proyek di disk.",
+        "worktreesTitle": "Git worktree",
+        "worktreesNote": "Tidak pernah dihapus otomatis — folder ini mungkin menyimpan pekerjaan Anda. Hapus foldernya sendiri jika sudah tidak diperlukan.",
+        "worktreeOrphan": "terlantar",
+        "units": {
+          "days": "hari",
+          "count": "item",
+          "seconds": "dtk"
+        },
+        "fields": {
+          "fileEditRetentionDays": {
+            "label": "Simpan riwayat edit file selama",
+            "desc": "Riwayat edit yang lebih lama dari ini akan dihapus. 0 = simpan selamanya."
+          },
+          "maxFileEditPaths": {
+            "label": "Jumlah maksimum file dengan riwayat edit",
+            "desc": "Path yang paling lama tidak diedit akan dihapus lebih dulu. 0 = tanpa batas."
+          },
+          "fileEditMergeWindowMs": {
+            "label": "Gabungkan edit berulang dalam",
+            "desc": "Edit berturut-turut pada file yang sama akan digabung menjadi satu entri. 0 = tidak pernah digabung."
+          },
+          "completedCommandMaxPerSession": {
+            "label": "Perintah selesai per sesi",
+            "desc": "Jumlah gelembung prompt Anda yang disimpan per sesi. 0 = tanpa batas."
+          },
+          "subStreamRetentionDays": {
+            "label": "Simpan transkrip agent selama",
+            "desc": "Dibersihkan saat aplikasi dimulai. Sesi yang sedang berjalan tetap disimpan berapa pun usianya. 0 = simpan selamanya."
+          },
+          "attachmentRetentionDays": {
+            "label": "Simpan lampiran selama",
+            "desc": "Gambar yang Anda tempel ke prompt. 0 = simpan selamanya."
+          }
+        },
+        "kinds": {
+          "checkpoint": "Checkpoint",
+          "checkpointBackups": "Cadangan",
+          "activity": "Aktivitas",
+          "identity": "Identitas",
+          "subStreams": "Transkrip",
+          "attachments": "Lampiran",
+          "brain": "Memori",
+          "logs": "Log",
+          "video": "Video",
+          "other": "Lainnya"
+        },
+        "error": {
+          "load": "Tidak dapat memuat pengaturan retensi.",
+          "save": "Tidak dapat menyimpan pengaturan retensi.",
+          "scan": "Tidak dapat mengukur penggunaan disk.",
+          "clean": "Pembersihan gagal. Silakan coba lagi."
+        }
       }
     },
     "autoAgent": {
@@ -502,7 +586,17 @@
       "stderr": "stderr",
       "copy": "Salin",
       "copied": "Tersalin",
-      "close": "Tutup"
+      "close": "Tutup",
+      "mergeBtn": "Merge",
+      "mergeTitle": "Merge {{branch}} ke branch saat ini",
+      "mergeConflict": "Konflik merge",
+      "mergeConflictNote": "Branch utama dipulihkan dengan merge --abort. File di bawah ini mengalami konflik — serahkan ke agent yang bekerja di worktree ini, atau selesaikan sendiri.",
+      "mergeHandOff": "Serahkan ke agent",
+      "mergeHandOffPrompt": "Merge worktree ini ke branch utama mengalami konflik. Perbaiki branch Anda agar bisa di-merge dengan bersih, lalu beri tahu saya apa yang Anda ubah.",
+      "mergeParentDirty": "Branch utama memiliki perubahan yang belum di-commit",
+      "mergeParentDirtyNote": "Commit atau stash dulu — merge di atas pekerjaan yang belum di-commit dapat membuatnya hilang.",
+      "mergeNothing": "Tidak ada yang perlu di-merge",
+      "mergeNothingNote": "Worktree ini tidak memiliki commit yang belum ada di branch utama."
     },
     "worktreeDelete": {
       "title": "Hapus worktree",
@@ -1083,9 +1177,39 @@
       "later": "Nanti",
       "stop": "Hentikan",
       "start": "Masuk"
+    },
+    "setup": {
+      "title": "Instal Claude Code",
+      "intro": "Vibisual menjalankan agent-nya menggunakan Claude Code CLI, yang belum terinstal di komputer ini. Instal di sini — tidak perlu terminal.",
+      "commandLabel": "Perintah instalasi",
+      "copy": "Salin",
+      "copied": "Disalin",
+      "install": "Instal",
+      "installing": "Menginstal…",
+      "installDone": "Terinstal",
+      "installFailed": "Instalasi gagal",
+      "retry": "Coba lagi",
+      "ready": "Claude Code siap. Melanjutkan…",
+      "failed": "Instalasi belum selesai. Jalankan perintah di atas di terminal, lalu pilih \"Periksa lagi\".",
+      "manualOnly": "Instalasi otomatis tidak tersedia di platform ini. Jalankan perintah di atas di terminal, lalu pilih \"Periksa lagi\".",
+      "recheck": "Periksa lagi",
+      "rechecking": "Memeriksa…",
+      "later": "Nanti",
+      "docs": "Panduan instalasi resmi"
     }
   },
   "ide": {
+    "diff": {
+      "addComment": "Beri komentar pada baris ini",
+      "removeComment": "Hapus komentar",
+      "commentPlaceholder": "Apa yang perlu diubah di sini? (Ctrl+Enter untuk menyimpan)",
+      "commentCancel": "Batal",
+      "commentSave": "Simpan",
+      "commentLimit": "Maksimal {{max}} komentar review per sesi — kirim atau hapus beberapa untuk menambah lagi.",
+      "sendReview": "Kirim review ({{count}})",
+      "sendReviewTip": "Kirim semua komentar yang Anda tinggalkan pada diff sebagai satu perintah",
+      "reviewPromptHeader": "Terapkan komentar review berikut."
+    },
     "imageAnnotate": {
       "tool": {
         "view": "Tampilan",
@@ -1243,10 +1367,9 @@
       "sending": "Mengirim…"
     },
     "activityBar": {
-      "terminal": "Terminal",
+      "mcp": "MCP",
       "files": "File",
       "context": "Sumber konteks",
-      "results": "Hasil",
       "skills": "Skills",
       "bookmarks": "Bookmarks",
       "sessionSummary": "Ringkasan sesi",
@@ -1254,6 +1377,49 @@
       "loop": "Ulangi loop",
       "goal": "Sasaran",
       "debug": "Jalankan dan debug"
+    },
+    "mcp": {
+      "title": "Server MCP",
+      "refresh": "Pindai ulang MCP",
+      "noProject": "Buka proyek untuk melihat MCP yang bisa dipakainya.",
+      "empty": "Proyek ini belum punya server MCP. Kamu bisa menambahkannya dengan",
+      "autoApprove": "Proyek ini otomatis menyetujui semua server di .mcp.json (enableAllProjectMcpServers).",
+      "applyHint": "Menyalakan atau mematikan berlaku untuk sesi yang dimulai setelah ini; sesi yang sedang berjalan tetap memakai koneksinya.",
+      "docs": "Dokumentasi",
+      "loadFailed": "Tidak bisa membaca konfigurasi MCP.",
+      "toggleFailed": "Tidak bisa menyimpan perubahan.",
+      "turnOn": "Nyalakan",
+      "turnOff": "Matikan",
+      "state": {
+        "enabled": "Nyala",
+        "disabled": "Mati",
+        "pending": "Menunggu persetujuan"
+      },
+      "scope": {
+        "global": "Global (semua proyek)",
+        "project": "Proyek (.mcp.json)",
+        "local": "Lokal (hanya proyek ini)",
+        "preset": "Preset Vibisual"
+      },
+      "scopeShort": {
+        "global": "Global",
+        "project": "Proyek",
+        "local": "Lokal",
+        "preset": "Preset"
+      },
+      "scopeHint": {
+        "global": "Ditulis di ~/.claude.json — tersedia di semua proyek.",
+        "project": "Ditulis di .mcp.json repositori ini dan dibagikan ke semua yang meng-clone. Di sini hanya bisa dibaca.",
+        "local": "Ditulis hanya di entri proyek ini dalam ~/.claude.json.",
+        "preset": "Alat debug yang bisa Vibisual sambungkan ke agent ini."
+      },
+      "req": {
+        "approval": "Ada di .mcp.json tapi belum disetujui — menyalakannya berarti menyetujuinya untuk proyek ini.",
+        "missing-command": "'{{detail}}' tidak ditemukan di PATH — pasang dulu.",
+        "missing-env": "Variabel lingkungan belum diisi: {{detail}}",
+        "auth": "Server remote — mungkin perlu masuk dulu: claude mcp login {{name}}",
+        "policy": "Diblokir oleh kebijakan terkelola (deniedMcpServers) — tidak bisa dinyalakan di sini."
+      }
     },
     "debug": {
       "title": "Jalankan dan debug",
@@ -1425,12 +1591,8 @@
       "secNext": "Berikutnya"
     },
     "sidebar": {
-      "sessions": "Sesi",
       "files": "File ({{count}})",
-      "events": "Event ({{count}})",
       "noFileEdits": "Belum ada edit file",
-      "noEvents": "Belum ada event",
-      "hasResult": "ada hasil",
       "skills": "Skills ({{count}})",
       "projectSkills": "Proyek ({{count}})",
       "globalSkills": "Global ({{count}})",
@@ -1654,17 +1816,19 @@
       "untitled": "Subagent",
       "scopeAll": "Menampilkan semua subagent yang dijalankan agent ini.",
       "scopeSession": "Menampilkan subagent yang dimulai oleh \"{{label}}\".",
-      "endedAt": "Selesai pukul {{time}}",
-      "finishedTitle": "Baru saja selesai",
-      "noResult": "Tidak ada hasil yang diterima.",
-      "toggleResult": "Tampilkan atau sembunyikan hasil lengkap",
-      "toolUses": "{{count}} panggilan alat",
-      "nowUsing": "Alat yang sedang dipakai",
-      "duration": "Butuh {{value}}",
       "emptySession": "Sesi ini tidak menjalankan subagen apa pun.",
       "hint": "Tempat ini hanya menampilkan subagen yang dijalankan sesi ini di latar belakang — percakapan yang sedang berlangsung tidak dihitung. Selama berjalan, ikon di kiri menyala dan menampilkan jumlahnya.",
       "othersRunning": "{{count}} lagi berjalan di tempat lain",
       "startedAt": "Dimulai pukul {{time}}",
+      "endedAt": "Selesai pukul {{time}}",
+      "finishedTitle": "Baru saja selesai",
+      "noResult": "Tidak ada hasil yang diterima.",
+      "resultRescued": "Dipulihkan dari transkrip — tidak terkirim ke sesi",
+      "resultRescuedTitle": "Agent anak ini terputus sebelum sempat melapor (Stop, tab ditutup, atau crash), sehingga sesi tidak pernah menerimanya. Vibisual membacanya kembali dari transkrip agent yang tersimpan di disk.",
+      "toggleResult": "Tampilkan atau sembunyikan hasil lengkap",
+      "toolUses": "{{count}} panggilan alat",
+      "nowUsing": "Alat yang sedang dipakai",
+      "duration": "Butuh {{value}}",
       "noResponse": "Tanpa respons selama {{value}}",
       "dismiss": "Berhenti menunggu",
       "dismissTip": "Menghapus dari daftar ini. Tidak menghentikan proses — agen menghentikan anaknya sendiri dengan TaskStop."
@@ -1839,7 +2003,9 @@
     },
     "card": {
       "showDetails": "Detail ({{count}})",
-      "hideDetails": "Sembunyikan detail"
+      "hideDetails": "Sembunyikan detail",
+      "inProgress": "sedang berlangsung",
+      "inProgressHint": "Diposting saat giliran ini masih berjalan — output selanjutnya akan muncul di bawah kartu ini."
     },
     "context": {
       "title": "Sumber konteks",
@@ -2400,7 +2566,9 @@
       "createWorktree": "Buat Worktree",
       "createWorktreeHint": "Ruang kerja baru dari master terbaru",
       "createCapture": "Bubble Tangkap Layar/Program",
-      "createCaptureHint": "Menampilkan layar atau jendela program secara langsung di dalam bubble"
+      "createCaptureHint": "Menampilkan layar atau jendela program secara langsung di dalam bubble",
+      "createSpec": "Papan Spec",
+      "createSpecHint": "Menulis persyaratan, lalu mengubah setiap kriteria penerimaan menjadi kartu tugas"
     },
     "bounds": {
       "label": "Batas Bubble",
@@ -2422,6 +2590,40 @@
       "jumped": "Melompat ke {{label}}",
       "jumpEmpty": "Bookmark {{slot}} kosong",
       "jumpMissing": "Target bookmark sudah tidak tersedia"
+    },
+    "spec": {
+      "title": "Spec",
+      "untitled": "Spec tanpa judul",
+      "criteria": "Kriteria penerimaan",
+      "cards": "Kartu",
+      "revision": "Revisi {{count}}",
+      "openBoard": "Buka papan spec",
+      "rename": "Ganti Nama",
+      "renamePrompt": "Judul spec",
+      "addItem": "Tambah kriteria penerimaan",
+      "addItemPrompt": "Kriteria penerimaan (satu baris)",
+      "addItemPlaceholder": "Kriteria penerimaan…",
+      "add": "Tambah",
+      "removeItem": "Hapus kriteria penerimaan",
+      "emptyItems": "Belum ada kriteria penerimaan · tambahkan satu per satu di bawah",
+      "bodyLabel": "Persyaratan (Markdown)",
+      "bodyPlaceholder": "Apa yang sedang Anda bangun, mengapa, dan di mana batas cakupannya?",
+      "generateTasks": "Buat kartu tugas",
+      "generateTasksN": "Buat kartu tugas ({{count}})",
+      "generateOne": "Kartu tugas dari item ini",
+      "generateNoneHint": "Setiap kriteria penerimaan sudah memiliki kartu tugas",
+      "generating": "Membuat kartu tugas…",
+      "generateHint": "Satu kartu tugas per kriteria penerimaan, dirangkai dengan Task Edge secara berurutan. Item yang sudah punya kartu akan dilewati.",
+      "stale": "Spec berubah",
+      "staleCount": "Spec berubah: {{count}}",
+      "staleBadge": "Spec berubah — {{title}}",
+      "acknowledge": "Konfirmasi",
+      "detach": "Lepas Tautan",
+      "cardMissing": "Kartu (bubble tidak ditemukan)",
+      "pin": "Pin",
+      "unpin": "Unpin",
+      "delete": "Hapus",
+      "deletePinnedHint": "Spec ini sedang di-pin. Unpin dulu."
     }
   },
   "common": {
@@ -2450,6 +2652,28 @@
         "goBack": "Klik dua kali untuk kembali",
         "expand": "Klik dua kali untuk perluas"
       }
+    },
+    "preview": {
+      "deviceAuto": "Otomatis",
+      "deviceAutoTip": "Isi lebar yang tersedia",
+      "deviceMobile": "Ponsel",
+      "deviceTablet": "Tablet",
+      "deviceDesktop": "Desktop",
+      "deviceTip": "Render dengan lebar {{width}}px",
+      "pickElement": "Pilih elemen",
+      "pickHint": "Klik elemen di pratinjau untuk mendeskripsikan perubahan untuknya",
+      "pickPlaceholder": "Apa yang perlu diubah pada elemen ini? (Ctrl+Enter untuk mengirim)",
+      "pickSend": "Kirim",
+      "pickCopy": "Salin selector",
+      "pickCopied": "Disalin",
+      "pickClose": "Tutup",
+      "pickNoHost": "Tidak ada agent yang meng-host pratinjau ini, jadi tidak ada tempat untuk mengirimnya. Salin selector sebagai gantinya.",
+      "pickPromptHeader": "Perbaiki elemen layar berikut.",
+      "pickLabelPage": "halaman",
+      "pickLabelElement": "elemen",
+      "pickLabelSelector": "selector",
+      "pickLabelText": "teks yang terlihat",
+      "pickLabelRequest": "permintaan"
     }
   },
   "brain": {

@@ -4,7 +4,7 @@ import {
   CLAUDE_AUTH_LOGOUT_TIMEOUT_MS,
 } from '@vibisual/shared';
 import type { ClaudeAuthStatus, ClaudeAuthProbeError } from '@vibisual/shared';
-import { resolveClaudeBin } from './claudeBin.js';
+import { getClaudeBin } from './claudeBin.js';
 import { logger } from '../logger.js';
 
 /**
@@ -63,7 +63,7 @@ interface RunResult {
 function runClaude(args: string[], timeoutMs: number): Promise<RunResult> {
   let binPath: string | undefined;
   try {
-    binPath = resolveClaudeBin()?.binPath;
+    binPath = getClaudeBin()?.binPath;
   } catch {
     /* PATH 미발견 */
   }

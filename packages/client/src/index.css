@@ -891,3 +891,13 @@ html.overlay-window .react-flow__pane {
 html.overlay-window .react-flow__node {
   -webkit-app-region: no-drag;
 }
+
+/* §5.5 #17 대화 인-페이지 검색(Ctrl+F) — 찾은 텍스트 하이라이트.
+ * document selection(파란 선택영역)으로 칠하면 브라우저가 selection 을 본문으로 옮기며 포커스를 쥔
+ * 검색 입력창의 caret 을 함께 지워, 한 번 검색한 뒤로는 그 칸에 이어서 타이핑을 못 한다.
+ * 그래서 selection 을 건드리지 않는 CSS Custom Highlight 로 칠한다(bookmarkScroll.markRange).
+ * 브라우저 찾기막대와 같은 감각으로 어두운 본문 위에서 한눈에 띄는 불투명 앰버. */
+::highlight(vibisual-find) {
+  background-color: #fbbf24; /* amber-400 */
+  color: #0b0f14; /* 어두운 본문 톤 — 앰버 위 대비 */
+}

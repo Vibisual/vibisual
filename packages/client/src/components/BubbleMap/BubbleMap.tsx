@@ -16,13 +16,14 @@ import {
 import '@xyflow/react/dist/style.css';
 import type { EdgeTypes } from '@xyflow/react';
 import type { BubbleData, BubbleType, CommentBox, CaptureBubble, CaptureSourceInfo } from '@vibisual/shared';
-import { EDGE_STYLE, POSITION_SAVE_INTERVAL, TASK_EDGE_STYLES, COMMENT_BOX_DEFAULTS, CAPTURE_BUBBLE_DEFAULTS, CAPTURE_SNAP, CANVAS_LOD, LAYOUT_CENTER_X, LAYOUT_CENTER_Y, SATELLITE_TYPES, PLAY_BUBBLE_DEFAULT_HEIGHT, PLAY_BUBBLE_DEFAULT_WIDTH, PLAY_PREVIEW_DEFAULT_HEIGHT, PLAY_PREVIEW_DEFAULT_WIDTH, PLAY_PREVIEW_GAP } from '@vibisual/shared';
+import { EDGE_STYLE, POSITION_SAVE_INTERVAL, TASK_EDGE_STYLES, COMMENT_BOX_DEFAULTS, CAPTURE_BUBBLE_DEFAULTS, CAPTURE_SNAP, CANVAS_LOD, LAYOUT_CENTER_X, LAYOUT_CENTER_Y, SATELLITE_TYPES, PLAY_BUBBLE_DEFAULT_HEIGHT, PLAY_BUBBLE_DEFAULT_WIDTH, PLAY_PREVIEW_DEFAULT_HEIGHT, PLAY_PREVIEW_DEFAULT_WIDTH, PLAY_PREVIEW_GAP, SPEC_BUBBLE_DEFAULT_HEIGHT, SPEC_BUBBLE_DEFAULT_WIDTH } from '@vibisual/shared';
 import { BubbleNode } from './BubbleNode.js';
 import { CommentBoxNode } from './CommentBoxNode.js';
 import { CaptureNode, CAPTURE_REPICK_EVENT } from './CaptureNode.js';
 import { AppBubbleNode } from './AppBubbleNode.js';
 import { PlayNode } from './PlayNode.js';
 import { PlayPreviewNode } from './PlayPreviewNode.js';
+import { SpecNode } from './SpecNode.js';
 import { getInternalApp } from '../../apps/registry.js';
 import { useCapturePrefsStore } from '../../stores/captureBubblePrefs.js';
 import { useCaptureSnapGuideStore } from '../../stores/captureSnapGuides.js';
@@ -45,6 +46,7 @@ import { LayoutBoundsBox } from './LayoutBoundsBox.js';
 import { CanvasControls } from './CanvasControls.js';
 import { AgentIDEOverlay } from '../IDE/AgentIDEOverlay.js';
 import { ContiBoardPanel } from '../Panel/ContiBoardPanel.js';
+import { SpecBoardPanel } from '../Panel/SpecBoardPanel.js';
 import { TaskEdgeComponent } from './TaskEdgeComponent.js';
 import { TaskEdgePopup } from './TaskEdgePopup.js';
 import { TaskEdgeDragPreview } from './TaskEdgeDragPreview.js';
@@ -55,7 +57,7 @@ import { useBookmarks } from '../../hooks/useBookmarks.js';
 import { useCoarsePointer, useIsNarrowViewport, useLongPress } from '../../hooks/useIsMobile.js';
 import { useTranslation } from 'react-i18next';
 
-const nodeTypes: NodeTypes = { bubble: BubbleNode, commentBox: CommentBoxNode, captureNode: CaptureNode, appNode: AppBubbleNode, playNode: PlayNode, playPreviewNode: PlayPreviewNode };
+const nodeTypes: NodeTypes = { bubble: BubbleNode, commentBox: CommentBoxNode, captureNode: CaptureNode, appNode: AppBubbleNode, playNode: PlayNode, playPreviewNode: PlayPreviewNode, specNode: SpecNode };
 
 /**
  * §5.14 v4.62 — 프리뷰 노드 id(`<recordId>__preview`) → 레코드 id.
@@ -69,7 +71,7 @@ function playRecordId(nodeId: string): string {
 const edgeTypes: EdgeTypes = { curved: CurvedEdge, taskEdge: TaskEdgeComponent };
 
 /** 물리로 움직인 store 기반 요소의 종류 — 이동 반영/영속화 경로가 종류마다 다르다. */
-type PhysicsExternalKind = 'comment' | 'capture' | 'app' | 'play' | 'playPreview';
+type PhysicsExternalKind = 'comment' | 'capture' | 'app' | 'play' | 'playPreview' | 'spec';
 
 /** §4 v3.71 — 덮였을 때 캔버스에 씌우는 스타일(참조 고정 — 매 렌더 새 객체 ❌). */
 const HIDDEN_CANVAS_STYLE: React.CSSProperties = { visibility: 'hidden' };
@@ -606,12 +608,42 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     return out;
   }, [allPlayBubbles, selectedPlayBubbleId, activeProject, currentFolderId, interiorView]);
 
+  // ── §5.15 스펙 보드 — 표지 한 장. 메인 뷰·현재 프로젝트만(플레이 버블과 같은 규칙) ──
+  const allSpecDocs = useGraphStore((s) => s.specDocs);
+  const selectedSpecDocId = useGraphStore((s) => s.selectedSpecDocId);
+  const specNodes = useMemo<Node[]>(() => {
+    if (currentFolderId !== null || interiorView !== null) return [];
+    const scoped = activeProject ? allSpecDocs.filter((d) => d.projectName === activeProject) : allSpecDocs;
+    return scoped.map((d) => ({
+      id: d.id,
+      type: 'specNode' as const,
+      position: { x: d.x, y: d.y },
+      width: d.width,
+      height: d.height,
+      data: {
+        specDocId: d.id,
+        projectName: d.projectName,
+        width: d.width,
+        height: d.height,
+        title: d.title,
+        items: d.items,
+        bodyRevision: d.bodyRevision,
+        preservePinned: d.preservePinned,
+      },
+      // 선택은 store 한 채널로만(앱·플레이 버블과 같은 규칙 — flowNodes 밖이라 select change 가 버려진다).
+      selected: selectedSpecDocId === d.id,
+      draggable: true,
+      selectable: false,
+      deletable: false,
+    } as Node));
+  }, [allSpecDocs, selectedSpecDocId, activeProject, currentFolderId, interiorView]);
+
   const displayNodes = useMemo<Node[]>(() => {
     const base = pendingNodes.length === 0 ? flowNodes : [...flowNodes, ...pendingNodes];
-    if (commentBoxNodes.length === 0 && captureBubbleNodes.length === 0 && appBubbleNodes.length === 0 && playNodes.length === 0) return base;
+    if (commentBoxNodes.length === 0 && captureBubbleNodes.length === 0 && appBubbleNodes.length === 0 && playNodes.length === 0 && specNodes.length === 0) return base;
     // CommentBox·Capture 먼저(뒤로), 그 다음 일반 버블/pending (앞으로)
-    return [...commentBoxNodes, ...captureBubbleNodes, ...appBubbleNodes, ...playNodes, ...base];
-  }, [flowNodes, pendingNodes, commentBoxNodes, captureBubbleNodes, appBubbleNodes, playNodes]);
+    return [...commentBoxNodes, ...captureBubbleNodes, ...appBubbleNodes, ...playNodes, ...specNodes, ...base];
+  }, [flowNodes, pendingNodes, commentBoxNodes, captureBubbleNodes, appBubbleNodes, playNodes, specNodes]);
 
   // §5.9 캡처 소스 picker — 생성(canvas 좌표) 또는 다시 선택(repickId) 두 모드.
   const [capturePicker, setCapturePicker] = useState<{ canvasX: number; canvasY: number; repickId?: string } | null>(null);
@@ -689,6 +721,24 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       x: canvasX - PLAY_BUBBLE_DEFAULT_WIDTH / 2,
       y: canvasY - PLAY_BUBBLE_DEFAULT_HEIGHT / 2,
     });
+  }, []);
+
+  /**
+   * §5.15 — 스펙 보드 생성. 놓자마자 보드를 열어 본문부터 쓰게 한다 — 빈 표지만 놓고
+   * 어디를 눌러야 쓸 수 있는지 찾게 만들면 그 스펙은 영영 비어 있는다.
+   */
+  const handleCreateSpec = useCallback((canvasX: number, canvasY: number) => {
+    const store = useGraphStore.getState();
+    const project = store.activeProject;
+    if (!project) return;
+    void (async () => {
+      const doc = await store.createSpecDoc({
+        projectName: project,
+        x: canvasX - SPEC_BUBBLE_DEFAULT_WIDTH / 2,
+        y: canvasY - SPEC_BUBBLE_DEFAULT_HEIGHT / 2,
+      });
+      if (doc) useGraphStore.getState().openSpecBoard(doc.id);
+    })();
   }, []);
 
   // CaptureNode 의 "다시 선택" 요청 → 같은 picker 를 repick 모드로 연다.
@@ -794,8 +844,9 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     for (const n of captureBubbleNodes) map.set(n.id, 'capture');
     for (const n of appBubbleNodes) map.set(n.id, 'app');
     for (const n of playNodes) map.set(n.id, n.type === 'playPreviewNode' ? 'playPreview' : 'play');
+    for (const n of specNodes) map.set(n.id, 'spec');
     return map;
-  }, [commentBoxNodes, captureBubbleNodes, appBubbleNodes, playNodes]);
+  }, [commentBoxNodes, captureBubbleNodes, appBubbleNodes, playNodes, specNodes]);
 
   const physicsExternals = useMemo<ExternalPhysicsNode[]>(() => {
     const out: ExternalPhysicsNode[] = [];
@@ -827,6 +878,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     pushRects(captureBubbleNodes.filter((n) => !capturePrefsMap[n.id]?.pinned), 'panel');
     pushRects(appBubbleNodes, 'panel');
     pushRects(playNodes, 'panel');
+    pushRects(specNodes, 'panel');
 
     // 워크트리 생성 대기 버블 — 좌표를 되돌려 줄 store 가 없으므로 "밀리지 않는 장애물"로만 참여.
     for (const n of pendingNodes) {
@@ -843,7 +895,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       });
     }
     return out;
-  }, [commentBoxNodes, captureBubbleNodes, appBubbleNodes, playNodes, pendingNodes, scopedCommentBoxes, capturePrefsMap]);
+  }, [commentBoxNodes, captureBubbleNodes, appBubbleNodes, playNodes, specNodes, pendingNodes, scopedCommentBoxes, capturePrefsMap]);
 
   /** 물리로 움직인 store 요소 — 정착 시점에 한 번씩 PATCH 하고 락을 푼다. */
   const physicsMovedRef = useRef<Map<string, PhysicsExternalKind>>(new Map());
@@ -861,11 +913,13 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
         if (kind === 'comment') store.setCommentBoxDragLock(mv.id, true);
         else if (kind === 'capture') store.setCaptureBubbleDragLock(mv.id, true);
         else if (kind === 'app') store.setAppBubbleDragLock(mv.id, true);
+        else if (kind === 'spec') store.setSpecDocDragLock(mv.id, true);
         else store.setPlayBubbleDragLock(playRecordId(mv.id), true);
       }
       if (kind === 'comment') store.patchCommentBoxLocal(mv.id, { x: mv.x, y: mv.y });
       else if (kind === 'capture') store.patchCaptureBubbleLocal(mv.id, { x: mv.x, y: mv.y });
       else if (kind === 'app') store.patchAppBubbleLocal(mv.id, { x: mv.x, y: mv.y });
+      else if (kind === 'spec') store.patchSpecDocLocal(mv.id, { x: mv.x, y: mv.y });
       else if (kind === 'play') store.patchPlayBubbleLocal(mv.id, { x: mv.x, y: mv.y });
       else store.patchPlayBubbleLocal(playRecordId(mv.id), { previewX: mv.x, previewY: mv.y });
     }
@@ -903,6 +957,10 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
               });
             }
             setTimeout(() => useGraphStore.getState().setAppBubbleDragLock(id, false), 300);
+          } else if (kind === 'spec') {
+            const rec = store.specDocs.find((d) => d.id === id);
+            if (rec) await store.updateSpecDoc(id, { x: rec.x, y: rec.y });
+            setTimeout(() => useGraphStore.getState().setSpecDocDragLock(id, false), 300);
           } else {
             const recordId = playRecordId(id);
             const rec = store.playBubbles.find((b) => b.id === recordId);
@@ -1732,6 +1790,11 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       useGraphStore.getState().setPlayBubbleDragLock(playRecordId(node.id), true);
       return;
     }
+    // §5.15 스펙 버블 드래그 시작 — geometry 락(WS snapshot 회귀 방지).
+    if (node.type === 'specNode') {
+      useGraphStore.getState().setSpecDocDragLock(node.id, true);
+      return;
+    }
     // §5.9 캡처 버블 드래그 시작 — geometry 락(WS snapshot 회귀 방지). 동반 이동 없음.
     if (node.type === 'captureNode') {
       useGraphStore.getState().setCaptureBubbleDragLock(node.id, true);
@@ -1804,6 +1867,11 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     //    flowNodes 밖 노드의 position change 를 조용히 버린다).
     if (node.type === 'playNode') {
       useGraphStore.getState().patchPlayBubbleLocal(node.id, { x: node.position.x, y: node.position.y });
+      return;
+    }
+    // §5.15 스펙 버블 — store 기반 노드라 매 프레임 낙관 반영이 있어야 손을 따라온다(v4.60 함정).
+    if (node.type === 'specNode') {
+      useGraphStore.getState().patchSpecDocLocal(node.id, { x: node.position.x, y: node.position.y });
       return;
     }
     if (node.type === 'playPreviewNode') {
@@ -1886,6 +1954,18 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     }
 
     // §5.14 플레이 버블 드래그 종료 — 버튼은 x/y 로, 프리뷰는 previewX/Y 로 저장한다.
+    // §5.15 스펙 버블 드래그 종료 — 좌표 PATCH + 락 해제(버퍼 300ms, 다른 store 요소와 동일).
+    if (node.type === 'specNode') {
+      const store = useGraphStore.getState();
+      const pos = { x: node.position.x, y: node.position.y };
+      store.patchSpecDocLocal(node.id, pos);
+      void (async () => {
+        await store.updateSpecDoc(node.id, pos);
+        setTimeout(() => store.setSpecDocDragLock(node.id, false), 300);
+      })();
+      return;
+    }
+
     if (node.type === 'playNode' || node.type === 'playPreviewNode') {
       const store = useGraphStore.getState();
       const recordId = playRecordId(node.id);
@@ -2096,6 +2176,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
         if (state.selectedCaptureBubbleId) state.selectCaptureBubble(null);
         if (state.selectedAppBubbleId) state.selectAppBubble(null);
         if (state.selectedPlayBubbleId) state.selectPlayBubble(null);
+        if (state.selectedSpecDocId) state.selectSpecDoc(null);
         if (state.selectedTaskEdgeId) state.selectTaskEdge(null);
         return;
       }
@@ -2108,6 +2189,11 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       // §5.14 플레이 버블 — 앱 버블과 같은 자리, 같은 규칙(핀이면 서버가 409 로 거절).
       if (state.selectedPlayBubbleId) {
         void state.deletePlayBubble(state.selectedPlayBubbleId);
+        return;
+      }
+      // §5.15 스펙 보드 — 같은 자리, 같은 규칙. 스펙만 지우고 거기서 나온 작업 카드는 남는다.
+      if (state.selectedSpecDocId) {
+        void state.deleteSpecDoc(state.selectedSpecDocId);
         return;
       }
       // §5.13 앱 버블 — 캡처 버블과 같은 자리, 같은 규칙. 핀이 걸려 있으면 서버가 거절한다(§2.4).
@@ -2285,6 +2371,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
           onCreateCapture={handleCreateCapture}
           onCreateAppBubble={handleCreateAppBubble}
           onCreatePlay={handleCreatePlay}
+          onCreateSpec={handleCreateSpec}
           onClose={handleCtxClose}
         />
       )}
@@ -2344,6 +2431,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       )}
       <AgentIDEOverlay />
       <ContiBoardPanel />
+      <SpecBoardPanel />
     </div>
   );
 });

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
-import type { WSMessage, GraphSnapshot, GraphSnapshotWire, SubAgentStreamEvent, ProjectHydratedPayload, ProjectUnloadedPayload, IframeLogInitPayload, IframeLogAppendPayload, ServerLogInitPayload, ServerLogAppendPayload, PermissionRequest, PermissionDecision, ClaudeInstallProgress, AskUserQuestionRequest, AskUserQuestionDecision, DebugEventPayload } from '@vibisual/shared';
+import type { WSMessage, GraphSnapshot, GraphSnapshotWire, SubAgentStreamEvent, ProjectHydratedPayload, ProjectUnloadedPayload, IframeLogInitPayload, IframeLogAppendPayload, ServerLogInitPayload, ServerLogAppendPayload, PermissionRequest, PermissionDecision, ClaudeInstallProgress, ClaudeSetupProgress, AskUserQuestionRequest, AskUserQuestionDecision, DebugEventPayload } from '@vibisual/shared';
 import { applyKeyedSliceDelta, MAX_RECONNECT_ATTEMPTS, RECONNECT_BASE_DELAY, WS_BATCH_INTERVAL, WS_STREAM_BATCH_INTERVAL, WS_BATCH_INTERVAL_MAX, WS_BATCH_BACKOFF_FACTOR } from '@vibisual/shared';
 import { useGraphStore } from '../stores/graphStore.js';
 // §5.5 #17-20 ⑩ v4.94 — 디버그 세션은 프로세스 수명이라 그래프 스토어가 아닌 런타임 스토어가 받는다.
@@ -148,11 +148,16 @@ export function useWebSocket(url: string): UseWebSocketReturn {
       snap.brain ?? {},
       snap.brainInjections ?? {},
     );
+    // §9 스코프드 구독 — 프로젝트별 에이전트 집계(탭 배지). **구독 범위 밖 프로젝트도 들어 있다.**
+    //   같은 이유로 별도 액션(loadSnapshot 위치 인자 ❌).
+    useGraphStore.getState().applyProjectAgentCounts(snap.projectAgentCounts ?? {});
     // §5.13 v4.45 — 앱 버블은 별도 액션으로 반영한다(loadSnapshot 의 위치 인자를 늘리면
     //   호출부 한 곳만 어긋나도 조용히 다른 값이 들어간다).
     useGraphStore.getState().applyAppBubbles(snap.appBubbles ?? []);
     // §5.14 v4.62 — 플레이 버블도 같은 이유로 별도 액션.
     useGraphStore.getState().applyPlayBubbles(snap.playBubbles ?? []);
+    // §5.15 — 스펙 보드도 같은 이유로 별도 액션.
+    useGraphStore.getState().applySpecDocs(snap.specDocs ?? []);
     // §5.5 #17-20 ⑩ v4.94 — 중단점(프로젝트별). 세션이 없어도 편집창 gutter 가 이 값을 그린다.
     useGraphStore.getState().applyDebugBreakpoints(snap.debugBreakpoints ?? {});
     // §5.11 v4.65 — 집행 플러그인의 실측(프로젝트별). 켠 것이 없으면 서버가 필드를 안 실으므로 빈 맵으로 비운다.
@@ -165,6 +170,8 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     store.applyV150Metrics(snap.recentToolDurations, snap.compactCounts, snap.rateLimits, snap.claudeUsage);
     // §4 v4.82 — Claude 로그인 상태(글로벌). 미로그인이면 LoginWindow 가 이 값을 보고 뜬다.
     store.applyClaudeAuth(snap.claudeAuth);
+    // §4 (첫 실행 설치 온보딩) — CLI 설치 판정(글로벌). 미설치면 ClaudeSetupGate 가 이 값을 보고 뜬다.
+    store.applyClaudeSetup(snap.claudeSetup);
     store.applySkillUsageCounts(snap.skillUsageCounts);
     store.applyAutoAgentSummaries(snap.autoAgentSummaries);
     store.applyAutoAgentRuns(snap.autoAgentRuns);
@@ -465,6 +472,15 @@ export function useWebSocket(url: string): UseWebSocketReturn {
             }
             break;
           }
+
+          // §4 (첫 실행 설치 온보딩) — 네이티브 인스톨러 진행. 게이트가 이 값으로 로그를 보여준다.
+          case 'claude_setup_progress': {
+            const p = parsed.payload as ClaudeSetupProgress;
+            if (p && typeof p.setupId === 'string') {
+              store.setClaudeSetupProgress(p);
+            }
+            break;
+          }
           case 'model_registry_updated': {
             // §4 v2.38 — 시드→api-merged 전환 또는 TTL refresh 시 단독 push.
             store.applyModelRegistry(parsed.payload as import('@vibisual/shared').ModelRegistry);
@@ -557,6 +573,31 @@ export function useWebSocket(url: string): UseWebSocketReturn {
   }, [connect]);
 
   const getLastSnapshotAt = useCallback(() => lastSnapshotAtRef.current, []);
+
+  // ─── §9 스코프드 스냅샷 구독 ───────────────────────────────────────────────
+  //
+  // 이 창이 **지금 그리는 프로젝트**를 서버에 선언한다. 모든 shell(메인 · 별창 · 지휘통제실 ·
+  // 오버레이)이 자기 창의 활성 프로젝트를 `activeProject` 로 들고 있으므로(별창·통제실은
+  // `setActiveProjectLocal`), 선언 지점을 이 훅 하나로 모을 수 있다.
+  //
+  // ⚠ `activeProject` 가 아직 정해지지 않았으면(부팅 첫 스냅샷 전) **선언하지 않는다** —
+  //   서버는 "선언한 창이 하나도 없으면 전부 보낸다"가 기본값이라, 침묵이 곧 안전 쪽이다.
+  //   여기서 성급히 `[]` 를 보내면 활성 프로젝트를 정하기도 전에 데이터가 끊긴다.
+  const activeProject = useGraphStore((s) => s.activeProject);
+  const declaredScopeRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (status !== 'connected') {
+      declaredScopeRef.current = null; // 재연결하면 다시 선언해야 한다(서버 쪽 선언은 창과 함께 사라진다)
+      return;
+    }
+    if (!activeProject || declaredScopeRef.current === activeProject) return;
+    declaredScopeRef.current = activeProject;
+    send({
+      type: 'set-project-scope',
+      timestamp: Date.now(),
+      payload: { projects: [activeProject] },
+    });
+  }, [status, activeProject, send]);
 
   return { status, send, reconnect, getLastSnapshotAt };
 }

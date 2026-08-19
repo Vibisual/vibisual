@@ -41,6 +41,10 @@
     "usage": {
       "tooltip": "현재 세션: 5시간 한도의 {{percent}}% 사용 — 클릭하면 상세",
       "tooltipNoData": "사용량을 아직 수집하지 않고 있습니다 — 클릭해서 켜기"
+    },
+    "setupBanner": {
+      "text": "Claude Code가 설치되지 않아 아직 에이전트를 실행할 수 없습니다.",
+      "action": "설치하기"
     }
   },
   "panel": {
@@ -225,7 +229,19 @@
         "restartHint": "선택이 저장되었습니다. 새로 생성되는 에이전트에 적용하려면 Vibisual을 재시작하세요.",
         "about": "정보",
         "repo": "GitHub 저장소",
-        "marketplace": "VS Code Marketplace의 Claude Code"
+        "marketplace": "VS Code Marketplace의 Claude Code",
+        "selectionApplied": "선택을 저장하고 바로 적용했습니다 — 새로 스폰되는 에이전트부터 이 실행본을 씁니다.",
+        "claudeAutoUpdate": {
+          "title": "Claude Code 업데이트",
+          "label": "Claude Code를 자동으로 최신 상태로 유지",
+          "onHint": "앱을 켤 때마다 Vibisual이 CLI를 최신 버전으로 올려 둡니다.",
+          "offHint": "자동 업데이트가 꺼져 있습니다. [지금 업데이트]로 직접 올려 주세요.",
+          "vscodeNotice": "지금 쓰는 실행본이 VS Code 확장 번들이라 마켓플레이스에서만 갱신됩니다. 위 목록에서 다른 설치본을 고르면 Vibisual이 업데이트를 맡습니다.",
+          "updateNow": "지금 업데이트",
+          "updating": "업데이트 중…",
+          "updated": "{{version}} (으)로 업데이트됨",
+          "updateFailed": "업데이트 실패"
+        }
       },
       "agent": {
         "intro": "이 기본값은 새로 생성되는 커스텀 에이전트에만 적용됩니다. 기존 에이전트는 영향을 받지 않습니다.",
@@ -570,7 +586,17 @@
       "stderr": "stderr",
       "copy": "복사",
       "copied": "복사됨",
-      "close": "닫기"
+      "close": "닫기",
+      "mergeBtn": "합치기",
+      "mergeTitle": "{{branch}} 를 현재 브랜치로 합치기",
+      "mergeConflict": "합치기 충돌",
+      "mergeConflictNote": "본선은 merge --abort 로 원래대로 돌려놨습니다. 아래 파일이 충돌합니다 — 이 워크트리에서 일하던 에이전트에게 넘기거나 직접 해결하세요.",
+      "mergeHandOff": "에이전트에게 넘기기",
+      "mergeHandOffPrompt": "이 워크트리를 본선에 합치려는데 충돌이 났어. 깔끔하게 합쳐지도록 네 브랜치를 손보고, 무엇을 바꿨는지 알려줘.",
+      "mergeParentDirty": "본선에 커밋 안 된 변경이 있습니다",
+      "mergeParentDirtyNote": "먼저 커밋하거나 stash 해 주세요 — 커밋 안 된 작업 위에 합치면 그 작업을 잃을 수 있습니다.",
+      "mergeNothing": "합칠 것이 없습니다",
+      "mergeNothingNote": "이 워크트리에는 본선에 없는 커밋이 없습니다."
     },
     "worktreeDelete": {
       "title": "Worktree 삭제",
@@ -1151,9 +1177,39 @@
       "later": "나중에",
       "stop": "중지",
       "start": "로그인"
+    },
+    "setup": {
+      "title": "Claude Code 설치",
+      "intro": "Vibisual은 Claude Code CLI로 에이전트를 실행하는데, 이 컴퓨터에는 아직 설치돼 있지 않습니다. 터미널을 열 필요 없이 여기서 설치하세요.",
+      "commandLabel": "설치 명령",
+      "copy": "복사",
+      "copied": "복사됨",
+      "install": "설치하기",
+      "installing": "설치 중…",
+      "installDone": "설치 완료",
+      "installFailed": "설치 실패",
+      "retry": "다시 시도",
+      "ready": "Claude Code 준비 완료. 이어서 진행합니다…",
+      "failed": "설치가 끝나지 않았습니다. 위 명령을 터미널에서 실행한 뒤 [다시 확인]을 눌러 주세요.",
+      "manualOnly": "이 플랫폼에서는 자동 설치를 쓸 수 없습니다. 위 명령을 터미널에서 실행한 뒤 [다시 확인]을 눌러 주세요.",
+      "recheck": "다시 확인",
+      "rechecking": "확인 중…",
+      "later": "나중에",
+      "docs": "공식 설치 안내 보기"
     }
   },
   "ide": {
+    "diff": {
+      "addComment": "이 줄에 코멘트",
+      "removeComment": "코멘트 지우기",
+      "commentPlaceholder": "이 줄을 어떻게 고칠까요? (Ctrl+Enter 로 저장)",
+      "commentCancel": "취소",
+      "commentSave": "저장",
+      "commentLimit": "리뷰 코멘트는 세션당 {{max}}건까지입니다 — 보내거나 지워서 자리를 만들어 주세요.",
+      "sendReview": "리뷰 보내기 ({{count}})",
+      "sendReviewTip": "diff 에 단 코멘트를 명령 하나로 모아 보냅니다",
+      "reviewPromptHeader": "아래 리뷰 코멘트를 반영해 고쳐줘."
+    },
     "imageAnnotate": {
       "tool": {
         "view": "보기",
@@ -1311,9 +1367,8 @@
       "sending": "보내는 중…"
     },
     "activityBar": {
-      "terminal": "터미널",
+      "mcp": "MCP",
       "files": "파일",
-      "results": "결과",
       "context": "컨텍스트 소스",
       "skills": "스킬",
       "bookmarks": "북마크",
@@ -1322,6 +1377,49 @@
       "loop": "반복 루프",
       "goal": "목표",
       "debug": "실행·디버그"
+    },
+    "mcp": {
+      "title": "MCP 서버",
+      "refresh": "MCP 다시 읽기",
+      "noProject": "프로젝트를 열면 그 프로젝트에서 쓸 수 있는 MCP 가 보입니다.",
+      "empty": "이 프로젝트에 등록된 MCP 서버가 아직 없습니다. 이 명령으로 추가하실 수 있습니다:",
+      "autoApprove": "이 프로젝트는 .mcp.json 의 서버를 전부 자동 승인합니다(enableAllProjectMcpServers).",
+      "applyHint": "켜고 끈 것은 지금부터 새로 뜨는 세션에 적용됩니다 — 이미 돌고 있는 세션의 연결은 그대로 유지됩니다.",
+      "docs": "문서",
+      "loadFailed": "MCP 설정을 읽지 못했습니다.",
+      "toggleFailed": "변경을 저장하지 못했습니다.",
+      "turnOn": "켜기",
+      "turnOff": "끄기",
+      "state": {
+        "enabled": "켜짐",
+        "disabled": "꺼짐",
+        "pending": "승인 대기"
+      },
+      "scope": {
+        "global": "글로벌 (모든 프로젝트)",
+        "project": "프로젝트 (.mcp.json)",
+        "local": "로컬 (이 프로젝트 전용)",
+        "preset": "Vibisual 프리셋"
+      },
+      "scopeShort": {
+        "global": "글로벌",
+        "project": "프로젝트",
+        "local": "로컬",
+        "preset": "프리셋"
+      },
+      "scopeHint": {
+        "global": "~/.claude.json 에 적혀 있어 모든 프로젝트에서 보입니다.",
+        "project": "이 저장소의 .mcp.json 에 적혀 있어 함께 쓰는 사람 모두가 받습니다. 여기서는 읽기만 합니다.",
+        "local": "~/.claude.json 의 이 프로젝트 칸에만 적혀 있습니다.",
+        "preset": "Vibisual 이 이 에이전트에 꽂아 줄 수 있는 디버그 도구입니다."
+      },
+      "req": {
+        "approval": ".mcp.json 에 있지만 아직 승인하지 않았습니다 — [켜기] 를 누르면 이 프로젝트에서 승인됩니다.",
+        "missing-command": "'{{detail}}' 을(를) PATH 에서 찾지 못했습니다 — 먼저 설치해 주세요.",
+        "missing-env": "환경변수가 설정되지 않았습니다: {{detail}}",
+        "auth": "원격 서버입니다 — 먼저 로그인이 필요할 수 있습니다: claude mcp login {{name}}",
+        "policy": "관리자 정책(deniedMcpServers)이 막고 있어 여기서는 켤 수 없습니다."
+      }
     },
     "debug": {
       "title": "실행·디버그",
@@ -1493,12 +1591,8 @@
       "secNext": "다음"
     },
     "sidebar": {
-      "sessions": "세션",
       "files": "파일 ({{count}})",
-      "events": "이벤트 ({{count}})",
       "noFileEdits": "파일 편집 없음",
-      "noEvents": "이벤트 없음",
-      "hasResult": "결과 있음",
       "skills": "스킬 ({{count}})",
       "projectSkills": "프로젝트 ({{count}})",
       "globalSkills": "글로벌 ({{count}})",
@@ -2472,7 +2566,9 @@
       "createWorktree": "Worktree 만들기",
       "createWorktreeHint": "최신 master 기준 새 작업 공간",
       "createCapture": "화면·프로그램 캡처 버블",
-      "createCaptureHint": "화면이나 프로그램 창을 라이브로 버블에 띄우기"
+      "createCaptureHint": "화면이나 프로그램 창을 라이브로 버블에 띄우기",
+      "createSpec": "스펙 보드",
+      "createSpecHint": "요구사항을 적고, 인수 조건마다 태스크 카드로 만들기"
     },
     "bounds": {
       "label": "버블 영역",
@@ -2494,6 +2590,40 @@
       "jumped": "{{label}} 로 이동",
       "jumpEmpty": "북마크 {{slot}} 가 비어 있습니다",
       "jumpMissing": "북마크 대상을 더 이상 찾을 수 없습니다"
+    },
+    "spec": {
+      "title": "스펙",
+      "untitled": "제목 없는 스펙",
+      "criteria": "인수 조건",
+      "cards": "카드",
+      "revision": "리비전 {{count}}",
+      "openBoard": "스펙 보드 열기",
+      "rename": "이름 변경",
+      "renamePrompt": "스펙 제목",
+      "addItem": "인수 조건 추가",
+      "addItemPrompt": "인수 조건 (한 줄)",
+      "addItemPlaceholder": "인수 조건…",
+      "add": "추가",
+      "removeItem": "인수 조건 삭제",
+      "emptyItems": "아직 인수 조건이 없습니다 · 아래에서 한 줄씩 추가하세요",
+      "bodyLabel": "요구사항 (Markdown)",
+      "bodyPlaceholder": "무엇을 만들고 있나요? 왜 필요하고, 범위는 어디까지인가요?",
+      "generateTasks": "태스크 카드 생성",
+      "generateTasksN": "태스크 카드 생성 ({{count}})",
+      "generateOne": "이 항목의 태스크 카드 생성",
+      "generateNoneHint": "모든 인수 조건에 이미 태스크 카드가 있습니다",
+      "generating": "태스크 카드 생성 중…",
+      "generateHint": "인수 조건마다 태스크 카드를 하나씩 만들고 순서대로 태스크 엣지로 연결합니다. 이미 카드가 있는 항목은 건너뜁니다.",
+      "stale": "스펙 변경됨",
+      "staleCount": "스펙 변경: {{count}}건",
+      "staleBadge": "스펙 변경됨 — {{title}}",
+      "acknowledge": "확인",
+      "detach": "연결 해제",
+      "cardMissing": "카드 (버블 없음)",
+      "pin": "고정",
+      "unpin": "고정 해제",
+      "delete": "삭제",
+      "deletePinnedHint": "이 스펙은 고정되어 있습니다. 먼저 고정을 해제해 주세요."
     }
   },
   "common": {
@@ -2522,6 +2652,28 @@
         "goBack": "더블클릭하여 뒤로",
         "expand": "더블클릭하여 펼치기"
       }
+    },
+    "preview": {
+      "deviceAuto": "자동",
+      "deviceAutoTip": "남는 폭을 가득 채웁니다",
+      "deviceMobile": "모바일",
+      "deviceTablet": "태블릿",
+      "deviceDesktop": "데스크톱",
+      "deviceTip": "{{width}}px 폭 그대로 렌더합니다",
+      "pickElement": "요소 선택",
+      "pickHint": "프리뷰에서 요소를 클릭하면 그 요소에 대해 고칠 것을 적을 수 있습니다",
+      "pickPlaceholder": "이 요소를 어떻게 고칠까요? (Ctrl+Enter 로 전송)",
+      "pickSend": "보내기",
+      "pickCopy": "선택자 복사",
+      "pickCopied": "복사됨",
+      "pickClose": "닫기",
+      "pickNoHost": "이 프리뷰를 띄운 에이전트가 없어 보낼 곳이 없습니다. 선택자를 복사해 쓰세요.",
+      "pickPromptHeader": "아래 화면 요소를 고쳐줘.",
+      "pickLabelPage": "페이지",
+      "pickLabelElement": "요소",
+      "pickLabelSelector": "선택자",
+      "pickLabelText": "보이는 글",
+      "pickLabelRequest": "요청"
     }
   },
   "brain": {
