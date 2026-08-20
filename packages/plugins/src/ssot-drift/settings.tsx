@@ -79,10 +79,10 @@ export function SsotDriftSettings(ctx: PluginSettingsContext): React.JSX.Element
 
   return (
     <div className="rounded-md border border-gray-700/60 bg-white/[0.02] p-3">
-      <h5 className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">{t(`${K}.title`)}</h5>
-      <p className="mb-2 text-[11px] leading-relaxed text-gray-500">{t(`${K}.desc`)}</p>
+      <h5 className="mb-1 text-[12px] font-semibold uppercase tracking-wide text-gray-400">{t(`${K}.title`)}</h5>
+      <p className="mb-2 text-[12px] leading-relaxed text-gray-500">{t(`${K}.desc`)}</p>
 
-      <label className="mb-1 block text-[11px] text-gray-400" htmlFor="ssot-drift-doc">{t(`${K}.docLabel`)}</label>
+      <label className="mb-1 block text-[12px] text-gray-400" htmlFor="ssot-drift-doc">{t(`${K}.docLabel`)}</label>
       <div className="flex gap-1.5">
         <input
           id="ssot-drift-doc"
@@ -97,7 +97,7 @@ export function SsotDriftSettings(ctx: PluginSettingsContext): React.JSX.Element
           type="button"
           disabled={!editable || busy}
           onClick={() => void run('config', { doc }, 'PUT')}
-          className="shrink-0 rounded bg-white/[0.08] px-2 py-1 text-[11px] text-gray-200 hover:bg-white/[0.14] disabled:opacity-40"
+          className="shrink-0 rounded bg-white/[0.08] px-2 py-1 text-[12px] text-gray-200 hover:bg-white/[0.14] disabled:opacity-40"
         >
           {t(`${K}.save`)}
         </button>
@@ -108,7 +108,7 @@ export function SsotDriftSettings(ctx: PluginSettingsContext): React.JSX.Element
           type="button"
           disabled={!editable || busy}
           onClick={() => void run('create-doc', { path: doc.trim() === '' ? 'docs/SSOT.md' : doc.trim() }, 'POST')}
-          className="rounded bg-white/[0.08] px-2 py-1 text-[11px] text-gray-200 hover:bg-white/[0.14] disabled:opacity-40"
+          className="rounded bg-white/[0.08] px-2 py-1 text-[12px] text-gray-200 hover:bg-white/[0.14] disabled:opacity-40"
         >
           {t(`${K}.create`)}
         </button>
@@ -116,20 +116,20 @@ export function SsotDriftSettings(ctx: PluginSettingsContext): React.JSX.Element
           type="button"
           disabled={!editable || busy}
           onClick={() => void run('config', { doc: '' }, 'PUT')}
-          className="rounded bg-white/[0.05] px-2 py-1 text-[11px] text-gray-400 hover:bg-white/[0.1] disabled:opacity-40"
+          className="rounded bg-white/[0.05] px-2 py-1 text-[12px] text-gray-400 hover:bg-white/[0.1] disabled:opacity-40"
         >
           {t(`${K}.clear`)}
         </button>
       </div>
 
       {/* 지금 무엇이 잡혀 있는지 — 지정을 안 했어도 집행이 실제로 잡은 문서를 그대로 보여 준다. */}
-      <p className="mt-2 text-[11px] text-gray-500">
+      <p className="mt-2 text-[12px] text-gray-500">
         {t(`${K}.current`, { doc: current === '' ? '—' : current })}
       </p>
 
-      {!editable && <p className="mt-1 text-[11px] text-amber-300/80">{t(`${K}.noProject`)}</p>}
-      {status === 'saved' && <p className="mt-1 text-[11px] text-emerald-300/80">{t(`${K}.saved`)}</p>}
-      {status === 'failed' && <p className="mt-1 text-[11px] text-rose-300/80">{t(`${K}.failed`)}</p>}
+      {!editable && <p className="mt-1 text-[12px] text-amber-300/80">{t(`${K}.noProject`)}</p>}
+      {status === 'saved' && <p className="mt-1 text-[12px] text-emerald-300/80">{t(`${K}.saved`)}</p>}
+      {status === 'failed' && <p className="mt-1 text-[12px] text-rose-300/80">{t(`${K}.failed`)}</p>}
     </div>
   );
 }

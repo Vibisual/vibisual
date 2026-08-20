@@ -1,4 +1,5 @@
 import { Suspense, lazy, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { getInternalApp, type AppHash } from './index.js';
 
@@ -13,6 +14,7 @@ import { getInternalApp, type AppHash } from './index.js';
  * 오래된 창 복원, 오타 전부 여기서 드러난다).
  */
 export function AppShellHost({ hash }: { hash: AppHash }): React.JSX.Element {
+  const { t } = useTranslation();
   const app = getInternalApp(hash.appId);
   const loader = app?.shells[hash.mode];
 
@@ -26,7 +28,9 @@ export function AppShellHost({ hash }: { hash: AppHash }): React.JSX.Element {
       <div className="flex h-screen items-center justify-center bg-gray-950 p-8 text-center text-sm text-gray-400">
         <div>
           <p className="font-semibold text-gray-200">
-            {app ? `알 수 없는 화면: ${hash.mode}` : `알 수 없는 앱: ${hash.appId}`}
+            {app
+              ? t('panel.appsWindow.unknownMode', { mode: hash.mode })
+              : t('panel.appsWindow.unknownApp', { id: hash.appId })}
           </p>
           <p className="mt-1 text-xs text-gray-500">{`#app=${hash.appId}&mode=${hash.mode}`}</p>
         </div>

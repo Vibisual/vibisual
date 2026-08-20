@@ -15,13 +15,14 @@ import { BrainLibraryOverlay } from './components/Panel/BrainLibraryOverlay.js';
 import { DebugPanel } from './components/Panel/DebugPanel.js';
 import { WorktreeDeleteDialog } from './components/Panel/WorktreeDeleteDialog.js';
 import { TrashPurgeDialog } from './components/Panel/TrashPurgeDialog.js';
+import { LocalModelWindow } from './components/LocalModel/LocalModelWindow.js';
 import { StubProjectPlaceholder } from './components/Layout/StubProjectPlaceholder.js';
 import { PermissionPromptStack } from './components/PermissionPrompt/PermissionPromptStack.js';
 import { ClaudeVersionGate } from './components/Panel/ClaudeVersionGate.js';
 import { LoginWindow } from './components/Auth/LoginWindow.js';
 import { ClaudeSetupGate, ClaudeSetupBanner } from './components/Auth/ClaudeSetupGate.js';
 import { useWebSocket } from './hooks/useWebSocket.js';
-import { useGraphStore, selectIDEOverlay } from './stores/graphStore.js';
+import { useGraphStore, selectIDEOverlay, selectIDEDockVisible } from './stores/graphStore.js';
 import { WS_PATH } from '@vibisual/shared';
 
 const WS_URL = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}${WS_PATH}`;
@@ -72,20 +73,16 @@ export function App(): React.JSX.Element {
 
   // §5.5 #17-1 — 활성 탭의 IDE 가 우측 도킹이면 그 폭만큼 메인 캔버스를 축소(오버랩 X, 나란히).
   // IframeView 가 떠있으면 BubbleMap 이 언마운트되어 IDE 도 안 보이므로 축소 불필요.
-  const ideDocked = useGraphStore((s) => selectIDEOverlay(s).dockedRight);
+  // 자리를 비우는 판정은 `dockedRight` 한 비트가 아니라 **그 IDE 가 실제로 그려지는가**(selectIDEDockVisible)로.
+  //   슬롯의 에이전트가 스냅샷에서 사라지면 AgentIDEOverlay 는 null 을 반환하는데, 종전 판정은 그때도
+  //   도크 폭만큼 캔버스를 잘라 "IDE 없는 빈 칸"이 화면을 가렸다(북마크 숫자키 점프 뒤 사용자 보고).
+  const ideDocked = useGraphStore(selectIDEDockVisible);
   const ideDockWidth = useGraphStore((s) => selectIDEOverlay(s).dockWidth);
   const shrinkForDock = ideDocked && !activeIframeTab;
 
-  // 전역 `fixed inset-0` 모달(AgentConfigPopup 등)도 도크 영역을 침범하지 않도록 body 에 신호 + CSS 변수.
-  useEffect(() => {
-    if (shrinkForDock) {
-      document.body.dataset.ideDock = 'right';
-      document.body.style.setProperty('--ide-dock-width', `${ideDockWidth}px`);
-    } else {
-      delete document.body.dataset.ideDock;
-      document.body.style.removeProperty('--ide-dock-width');
-    }
-  }, [shrinkForDock, ideDockWidth]);
+  // 도크 폭은 여기 `main` 의 marginRight 로만 반영한다 — 전역 `fixed inset-0` 모달/팝업까지 도크를
+  //   피해 줄이던 body 신호(data-ide-dock·--ide-dock-width)는 폐기했다. 전면 오버레이는 도킹 여부와
+  //   무관하게 창 전체를 덮어야 한다(사유는 index.css §5.5 #17-1 주석).
 
   // DebugPanel onClose 를 안정 참조로 — 매 렌더 새 함수가 prop 으로 들어가 memo 를 깨지 않도록.
   const closeDebug = useCallback(() => useGraphStore.getState().toggleDebug(), []);
@@ -143,6 +140,8 @@ export function App(): React.JSX.Element {
       {/* §5.10 v4.84 — 휴지통 영구 삭제 확인. 트리거(툴바·Delete 키)와 같은 창의 스토어를 보므로
           캔버스가 있는 셸(App·DetachedShell)에 각각 마운트한다. */}
       <TrashPurgeDialog />
+      {/* §5.19 — All Model 창(엔진 설치 + 모델 고르기). 캔버스 우클릭이 여는 유일한 진입이다. */}
+      <LocalModelWindow />
       <PermissionPromptStack />
       <ClaudeVersionGate />
       {/* §4 (첫 실행 설치 온보딩) — 설치 게이트. 로그인보다 **앞** 단계라 z-index 도 위다

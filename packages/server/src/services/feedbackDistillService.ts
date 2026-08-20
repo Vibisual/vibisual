@@ -10,7 +10,7 @@
  */
 import { spawn } from 'child_process';
 import { AGENT_FEEDBACK_DISTILL_MAX, type AgentFeedback } from '@vibisual/shared';
-import { getClaudeBin } from './claudeBin.js';
+import { getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
 import { logger } from '../logger.js';
 
 const CLAUDE_BIN = (): string => getClaudeBin().binPath;
@@ -87,6 +87,7 @@ export function distillFeedbackToRules(feedbacks: AgentFeedback[]): Promise<stri
     child.stdout?.on('data', (d: Buffer) => { out += d.toString(); });
     child.on('error', (err) => {
       logger.warn('[feedback-distill] spawn error', err);
+      noteClaudeSpawnFailure(err);
       finish(null, 'spawn-error');
     });
     child.on('close', (code) => {

@@ -64,7 +64,7 @@ export const IDEExplorerEdited = memo(function IDEExplorerEdited({
       <button
         type="button"
         onClick={() => setOpen((p) => !p)}
-        className="flex w-full items-center gap-1 px-1.5 py-1 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500 transition-colors hover:text-gray-300"
+        className="flex w-full items-center gap-1 px-1.5 py-1 text-left text-[12px] font-semibold uppercase tracking-wider text-gray-500 transition-colors hover:text-gray-300"
       >
         <svg
           className={`h-3 w-3 flex-shrink-0 transition-transform ${open ? 'rotate-90' : ''}`}
@@ -88,7 +88,7 @@ export const IDEExplorerEdited = memo(function IDEExplorerEdited({
                   onClick={() => onOpen(f.absPath, f.relPath)}
                   onDoubleClick={() => openFileByPath(f.absPath, f.relPath)}
                   title={f.relPath}
-                  className={`flex w-full items-center gap-1.5 py-[3px] pl-4 pr-1.5 text-left text-[11px] transition-colors ${
+                  className={`flex w-full items-center gap-1.5 py-[3px] pl-4 pr-1.5 text-left text-[12px] transition-colors ${
                     isSelected ? 'bg-blue-500/20 text-blue-100' : 'text-gray-400 hover:bg-gray-700/50 hover:text-gray-200'
                   }`}
                 >
@@ -99,14 +99,14 @@ export const IDEExplorerEdited = memo(function IDEExplorerEdited({
                     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zM14 2v6h6" />
                   </svg>
                   <span className="truncate">{name}</span>
-                  {dir && <span className="min-w-0 flex-1 truncate text-[9.5px] text-gray-600">{dir}</span>}
-                  <span className="ml-auto flex-shrink-0 text-[9px] text-gray-600">{f.count}</span>
+                  {dir && <span className="min-w-0 flex-1 truncate text-[12px] text-gray-600">{dir}</span>}
+                  <span className="ml-auto flex-shrink-0 text-[12px] text-gray-600">{f.count}</span>
                 </button>
               </li>
             );
           })}
           {files.length === 0 && (
-            <li className="px-4 py-2 text-[10px] text-gray-600">{t('ide.explorer.noEdited')}</li>
+            <li className="px-4 py-2 text-[12px] text-gray-600">{t('ide.explorer.noEdited')}</li>
           )}
         </ul>
         </ScrollFade>

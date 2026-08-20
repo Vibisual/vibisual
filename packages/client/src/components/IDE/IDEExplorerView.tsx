@@ -70,7 +70,7 @@ export const IDEExplorerView = memo(function IDEExplorerView({ agentId }: { agen
       {/* 헤더 — 루트 이름(전체 경로는 툴팁) + 새로고침 / 모두 접기 */}
       <div className="flex items-center gap-1 border-b border-gray-800 px-1.5 py-1">
         <span
-          className="min-w-0 flex-1 truncate text-[10px] font-semibold uppercase tracking-wider text-gray-400"
+          className="min-w-0 flex-1 truncate text-[12px] font-semibold uppercase tracking-wider text-gray-400"
           title={rootPath ?? ''}
         >
           {rootName || t('ide.explorer.title')}
@@ -110,17 +110,17 @@ export const IDEExplorerView = memo(function IDEExplorerView({ agentId }: { agen
 
       <ScrollFade fill className="flex-1">
         {!rootPath ? (
-          <p className="px-3 py-4 text-center text-[11px] text-gray-600">{t('ide.explorer.noProject')}</p>
+          <p className="px-3 py-4 text-center text-[12px] text-gray-600">{t('ide.explorer.noProject')}</p>
         ) : rootError ? (
-          <p className="px-3 py-4 text-center text-[11px] text-gray-600">{t('ide.explorer.error')}</p>
+          <p className="px-3 py-4 text-center text-[12px] text-gray-600">{t('ide.explorer.error')}</p>
         ) : rows.length === 0 ? (
-          <p className="px-3 py-4 text-center text-[11px] text-gray-600">
+          <p className="px-3 py-4 text-center text-[12px] text-gray-600">
             {rootLoading ? t('ide.explorer.loading') : t('ide.explorer.empty')}
           </p>
         ) : (
           <>
             {truncated.has('') && (
-              <p className="px-3 py-1 text-[10px] italic text-gray-600">
+              <p className="px-3 py-1 text-[12px] italic text-gray-600">
                 {t('ide.explorer.truncated', { count: WORKSPACE_DIR_ENTRY_MAX })}
               </p>
             )}
@@ -143,7 +143,7 @@ export const IDEExplorerView = memo(function IDEExplorerView({ agentId }: { agen
       {/* 바닥 경로 줄 — 고른 파일의 루트 기준 경로(없으면 루트 경로). 클릭 한 번으로 복사. */}
       <div className="flex items-center gap-1 border-t border-gray-800 bg-gray-900/60 px-1.5 py-1">
         <span
-          className={`min-w-0 flex-1 truncate text-[10px] ${selectedPath ? 'text-gray-300' : 'text-gray-600'}`}
+          className={`min-w-0 flex-1 truncate text-[12px] ${selectedPath ? 'text-gray-300' : 'text-gray-600'}`}
           title={selectedPath ?? rootPath ?? ''}
         >
           {selectedPath ?? rootPath ?? ''}

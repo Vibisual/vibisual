@@ -37,12 +37,12 @@ export function PluginSection(
   return (
     <div className="mt-3 rounded-lg border border-white/[0.06] bg-white/[0.02] p-2.5">
       <div className="mb-2 flex items-center justify-between gap-2">
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">{title}</span>
-        {status && <span className={`text-[11px] font-medium ${TONE_TEXT[tone]}`}>{status}</span>}
+        <span className="text-[12px] font-semibold uppercase tracking-wide text-gray-400">{title}</span>
+        {status && <span className={`text-[12px] font-medium ${TONE_TEXT[tone]}`}>{status}</span>}
       </div>
       {children}
       {note && (
-        <p className="mt-2 border-t border-white/[0.05] pt-2 text-[11px] leading-relaxed text-gray-400">{note}</p>
+        <p className="mt-2 border-t border-white/[0.05] pt-2 text-[12px] leading-relaxed text-gray-400">{note}</p>
       )}
     </div>
   );
@@ -59,9 +59,9 @@ export function PluginRow(
       <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between gap-2">
           <span className="truncate text-[12px] text-gray-300">{label}</span>
-          <span className="shrink-0 text-[11px] text-gray-400">{value}</span>
+          <span className="shrink-0 text-[12px] text-gray-400">{value}</span>
         </div>
-        {hint && <div className="mt-0.5 truncate text-[11px] text-gray-500">{hint}</div>}
+        {hint && <div className="mt-0.5 truncate text-[12px] text-gray-500">{hint}</div>}
       </div>
     </div>
   );
@@ -74,7 +74,7 @@ export function PluginBadgePill(
 ): React.JSX.Element {
   return (
     <span
-      className={`pointer-events-auto flex items-center gap-1 rounded-full bg-gray-950/85 px-1.5 py-[3px] text-[9px] font-bold leading-none ring-1 ${TONE_RING[tone]} ${TONE_TEXT[tone]}`}
+      className={`pointer-events-auto flex items-center gap-1 rounded-full bg-gray-950/85 px-1.5 py-[3px] text-[12px] font-bold leading-none ring-1 ${TONE_RING[tone]} ${TONE_TEXT[tone]}`}
       title={title}
     >
       {children}

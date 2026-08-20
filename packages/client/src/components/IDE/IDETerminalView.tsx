@@ -398,7 +398,7 @@ export function IDETerminalView({ agentId, sessionId }: IDETerminalViewProps): R
           <path d="M6 9l3 3-3 3" />
           <line x1="12" y1="15" x2="16" y2="15" />
         </svg>
-        <span className="min-w-0 flex-1 truncate text-[10px] leading-snug text-teal-200/70">{t('ide.terminal.harnessNote')}</span>
+        <span className="min-w-0 flex-1 truncate text-[12px] leading-snug text-teal-200/70">{t('ide.terminal.harnessNote')}</span>
         {hasTerminalApi && (
           <div className="flex shrink-0 items-center gap-0.5">
             <button
@@ -415,7 +415,7 @@ export function IDETerminalView({ agentId, sessionId }: IDETerminalViewProps): R
               onClick={() => applyFontSize(FONT_SIZE_DEFAULT)}
               title={t('ide.terminal.fontReset')}
               aria-label={t('ide.terminal.fontReset')}
-              className="min-w-[28px] rounded px-1 py-0.5 text-center text-[10px] tabular-nums text-teal-200/60 transition-colors hover:bg-teal-500/15 hover:text-teal-100"
+              className="min-w-[28px] rounded px-1 py-0.5 text-center text-[12px] tabular-nums text-teal-200/60 transition-colors hover:bg-teal-500/15 hover:text-teal-100"
             >
               {fontSize}
             </button>
@@ -541,7 +541,7 @@ function TerminalMenuItem({ label, shortcut, disabled, onClick }: {
       className="flex w-full items-center justify-between gap-4 px-3 py-1.5 text-left text-[12px] text-gray-200 transition-colors hover:bg-gray-800 disabled:cursor-not-allowed disabled:text-gray-600 disabled:hover:bg-transparent"
     >
       <span>{label}</span>
-      {shortcut && <span className="font-mono text-[10px] text-gray-500">{shortcut}</span>}
+      {shortcut && <span className="font-mono text-[12px] text-gray-500">{shortcut}</span>}
     </button>
   );
 }

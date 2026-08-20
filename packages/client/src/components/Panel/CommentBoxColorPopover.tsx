@@ -233,7 +233,7 @@ export function CommentBoxColorPopover({ value, onLive, onCommit, onClose, ancho
       aria-label={t('panel.commentBox.colorPicker', 'Color picker')}
     >
       <div className="mb-2 flex items-center justify-between">
-        <span className="text-[10px] uppercase tracking-wider text-gray-500">{t('panel.commentBox.colorPicker', 'Color')}</span>
+        <span className="text-[12px] uppercase tracking-wider text-gray-500">{t('panel.commentBox.colorPicker', 'Color')}</span>
         <button
           type="button"
           onClick={onClose}

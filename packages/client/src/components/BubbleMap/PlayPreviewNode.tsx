@@ -1,10 +1,12 @@
 import { memo, useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { NodeResizer, type NodeProps } from '@xyflow/react';
+import { Handle, NodeResizer, Position, type NodeProps } from '@xyflow/react';
 
 import { useGraphStore } from '../../stores/graphStore.js';
 import { toProxyUrl } from '../../utils/iframeProxyUrl.js';
 import { usePreviewPicker } from '../Preview/usePreviewPicker.js';
+import { usePreviewSnip } from '../Preview/usePreviewSnip.js';
+import { PreviewFrames } from '../Preview/PreviewFrames.js';
 import { PreviewControls, PreviewPickPanel } from '../Preview/PreviewControls.js';
 
 /**
@@ -23,7 +25,25 @@ export interface PlayPreviewNodeData extends Record<string, unknown> {
   width: number;
   height: number;
   title?: string | undefined;
+  /** §5.17 (C) — 이 화면을 만든 에이전트. 캔버스 점선의 끝점이자, 집기·캡처가 향하는 곳. */
+  ownerAgentId?: string | undefined;
 }
+
+/**
+ * §5.17 (C) — 담당 에이전트 엣지의 끝점. 보이지 않는 점 하나면 충분하다(연결을 **끄는** 손잡이가
+ * 아니라 이미 정해진 관계를 그리기 위한 자리라, 크기 1px·투명으로 둔다 — BubbleNode 와 같은 규칙).
+ */
+const HANDLE_STYLE: React.CSSProperties = {
+  left: '50%',
+  top: '50%',
+  opacity: 0,
+  width: 1,
+  height: 1,
+  minWidth: 0,
+  minHeight: 0,
+  border: 'none',
+  pointerEvents: 'none',
+};
 
 const CHROME_BG = 'rgba(17, 24, 39, 0.92)';
 const CHROME_BORDER = 'rgba(255, 255, 255, 0.12)';
@@ -33,9 +53,11 @@ export const PlayPreviewNode = memo(function PlayPreviewNode({
   selected,
 }: NodeProps & { data: PlayPreviewNodeData }): React.JSX.Element {
   const { t } = useTranslation();
-  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
   // §7.11 — 폭 프리셋 + 요소 집기. 탭 프리뷰(IframeView)와 **같은 훅**이라 한 쪽만 되는 일이 없다.
-  const picker = usePreviewPicker(iframeRef, data.url);
+  const picker = usePreviewPicker(iframeRef, data.url, data.ownerAgentId);
+  // §5.17 (B) — 그은 사각형이 그 에이전트의 입력창 첨부가 된다.
+  const snip = usePreviewSnip(picker.hostAgentId);
   // 새로고침 — src 를 다시 넣으면 되지만, 같은 문자열이면 브라우저가 무시하므로 키를 돌린다.
   const [reloadKey, setReloadKey] = useState(0);
 
@@ -127,14 +149,17 @@ export const PlayPreviewNode = memo(function PlayPreviewNode({
           boxShadow: isSelected ? '0 0 0 3px rgba(52, 211, 153, 0.45)' : '0 10px 30px rgba(0,0,0,0.45)',
         }}
       >
+        <Handle type="source" id="src" position={Position.Top} style={HANDLE_STYLE} isConnectable={false} />
+        <Handle type="target" id="tgt" position={Position.Top} style={HANDLE_STYLE} isConnectable={false} />
+
         {/* 헤더 — 여기만 드래그 손잡이다(본체는 페이지 조작에 내준다). */}
         <div className="drag-handle flex h-7 shrink-0 cursor-grab items-center gap-1.5 border-b px-2" style={{ borderColor: CHROME_BORDER }}>
           <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-emerald-400" aria-hidden />
-          <span className="min-w-0 flex-1 truncate text-[10px] text-white/70">
+          <span className="min-w-0 flex-1 truncate text-[12px] text-white/70">
             {data.title ?? data.url.replace(/^https?:\/\//, '')}
           </span>
           <span onMouseDown={(e) => e.stopPropagation()} className="shrink-0">
-            <PreviewControls picker={picker} />
+            <PreviewControls picker={picker} snip={snip} />
           </span>
           <button type="button" onClick={reload} onMouseDown={(e) => e.stopPropagation()} className={iconBtn} title={t('common.iframe.reload')}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3">
@@ -168,22 +193,17 @@ export const PlayPreviewNode = memo(function PlayPreviewNode({
           </button>
         </div>
 
-        {/* 폭 프리셋이 걸리면 그 폭 그대로 가운데 정렬(scale 축소 ❌ — 미디어쿼리가 실제 폭을 봐야 한다). */}
-        <div className="flex min-h-0 flex-1 justify-center overflow-auto bg-white">
-          <iframe
-            key={reloadKey}
-            ref={iframeRef}
-            src={toProxyUrl(data.url)}
-            className="h-full border-0"
-            style={picker.deviceWidth === null
-              ? { width: '100%' }
-              : { width: `${picker.deviceWidth}px`, flex: '0 0 auto' }}
-            title={t('common.iframe.serverPreview')}
-            sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-          />
-        </div>
+        {/* 폭 프리셋이 걸리면 그 폭 그대로(scale 축소 ❌), `compare` 면 세 폭을 나란히(§5.17 (A)). */}
+        <PreviewFrames
+          picker={picker}
+          snip={snip}
+          src={toProxyUrl(data.url)}
+          primaryRef={iframeRef}
+          reloadKey={reloadKey}
+          className="bg-white"
+        />
         <span onMouseDown={(e) => e.stopPropagation()}>
-          <PreviewPickPanel picker={picker} />
+          <PreviewPickPanel picker={picker} snip={snip} />
         </span>
       </div>
     </>

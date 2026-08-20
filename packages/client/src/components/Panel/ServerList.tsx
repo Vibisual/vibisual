@@ -86,7 +86,7 @@ export const ServerList = memo(function ServerList({
           type="button"
           onClick={handleRefresh}
           disabled={refreshing}
-          className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 disabled:opacity-40"
+          className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[12px] text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 disabled:opacity-40"
         >
           <svg
             className={`h-3 w-3 ${refreshing ? 'animate-spin' : ''}`}
@@ -102,7 +102,7 @@ export const ServerList = memo(function ServerList({
       </div>
 
       {uniqueServers.length === 0 ? (
-        <p className="py-1 text-[10px] text-gray-600">{t('panel.serverList.empty')}</p>
+        <p className="py-1 text-[12px] text-gray-600">{t('panel.serverList.empty')}</p>
       ) : (
       <ScrollFade maxHeight={160}><ul className="flex flex-col gap-1.5">
         {uniqueServers.map((s) => (
@@ -119,7 +119,7 @@ export const ServerList = memo(function ServerList({
               <span className="block truncate text-xs font-medium text-gray-200">
                 {serverName(s)}
               </span>
-              <div className="mt-0.5 flex items-center gap-2 text-[10px] text-gray-500">
+              <div className="mt-0.5 flex items-center gap-2 text-[12px] text-gray-500">
                 <span>{formatUptime(s.startedAt)}</span>
                 {s.alive && <span className="text-emerald-400/80">{t('panel.serverList.running')}</span>}
               </div>

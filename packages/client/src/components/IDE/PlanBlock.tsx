@@ -100,17 +100,17 @@ export const PlanBlock = memo(function PlanBlock({ item }: PlanBlockProps): Reac
         }`}
       >
         <span className={item.superseded ? 'text-gray-500' : 'text-sky-300'}><PlanGlyph /></span>
-        <span className={`flex-1 text-[11px] font-semibold uppercase tracking-wide ${item.superseded ? 'text-gray-500' : 'text-sky-300'}`}>
+        <span className={`flex-1 text-[12px] font-semibold uppercase tracking-wide ${item.superseded ? 'text-gray-500' : 'text-sky-300'}`}>
           {item.superseded ? t('ide.plan.superseded') : t('ide.plan.title')}
         </span>
-        <span className="flex-shrink-0 text-[11px] tabular-nums text-gray-500">{t('ide.plan.progress', { done, total })}</span>
+        <span className="flex-shrink-0 text-[12px] tabular-nums text-gray-500">{t('ide.plan.progress', { done, total })}</span>
       </button>
       {open && (
         <ul className="space-y-0.5 border-t border-gray-800/60 bg-gray-950/40 px-3 py-2">
           {item.todos.map((td, i) => {
             const style = ROW_STYLE[td.status];
             return (
-              <li key={i} className={`flex items-start gap-2 text-[12.5px] leading-relaxed ${style.text}`}>
+              <li key={i} className={`flex items-start gap-2 text-[13px] leading-relaxed ${style.text}`}>
                 <span className={`mt-0.5 ${style.glyph}`}>{style.icon}</span>
                 <span className="min-w-0 flex-1 break-words">{td.content}</span>
               </li>

@@ -1,6 +1,8 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { ContiElement, ContiFrame } from '@vibisual/shared';
+import type { ContiElement, ContiFrame, StoryboardPresetId } from '@vibisual/shared';
+import { DEFAULT_STORYBOARD_PRESET_ID, STORYBOARD_PRESET_IDS, STORYBOARD_PRESETS } from '@vibisual/shared';
+import { listStoryboardApps } from '../../apps/registry.js';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { InlinePromptPopup } from './InlinePromptPopup.js';
 import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
@@ -302,7 +304,7 @@ function FrameCard({
         className="-mx-1 flex cursor-grab items-center justify-between gap-2 rounded-md bg-gray-900/50 px-3 py-2 transition-colors hover:bg-gray-900/80 active:cursor-grabbing"
         title="Drag to reorder"
       >
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-300">FRAME {index + 1}</span>
+        <span className="text-[12px] font-semibold uppercase tracking-wider text-gray-300">FRAME {index + 1}</span>
         <svg className="h-5 w-5 text-gray-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <circle cx="9" cy="6" r="1.4" /><circle cx="15" cy="6" r="1.4" />
           <circle cx="9" cy="12" r="1.4" /><circle cx="15" cy="12" r="1.4" />
@@ -389,7 +391,7 @@ function FrameCard({
                   ? 'bg-amber-900/40 text-amber-300 border-amber-700/50'
                   : 'bg-blue-900/40 text-blue-300 border-blue-700/50';
             return (
-              <span key={i} className={`rounded border px-1.5 py-0.5 font-mono text-[10px] ${cls}`}>
+              <span key={i} className={`rounded border px-1.5 py-0.5 font-mono text-[12px] ${cls}`}>
                 {b.text}
               </span>
             );
@@ -417,6 +419,16 @@ export function ContiBoardPanel(): React.JSX.Element | null {
     screenX: number;
     screenY: number;
   } | null>(null);
+
+  // §5.13 (Q) — 출력 프리셋 · 스토리보드를 받는 앱으로 넘기기.
+  const setPreset = useGraphStore((s) => s.setContiPreset);
+  const linkRender = useGraphStore((s) => s.linkContiRender);
+  const userDefaults = useGraphStore((s) => s.userDefaults);
+  const currentProject = useGraphStore((s) => s.currentProject);
+  const [handoffBusy, setHandoffBusy] = useState(false);
+  const [handoffError, setHandoffError] = useState<string | null>(null);
+  /** 받을 수 있다고 선언한 설치된 앱들. 코어는 이름을 묻지 않는다(§5.13 (P-4)). */
+  const storyboardApps = useMemo(() => listStoryboardApps(userDefaults), [userDefaults]);
 
   // §5.3 #28 v1.59 — 줌(transform scale) + 팬(transform translate) 상태
   const [zoom, setZoom] = useState(1);
@@ -695,6 +707,35 @@ export function ContiBoardPanel(): React.JSX.Element | null {
     void patchFrame(conti.id, selectedFrameIdx, { title: nextTitle, action: nextAction });
   }, [conti, selectedFrameIdx, patchFrame, t]);
 
+  /**
+   * §5.13 (Q) — 이 콘티를 받는 앱에게 넘긴다.
+   *
+   * 코어는 **어떤 앱인지 모른다** — "받겠다고 선언한 설치된 앱" 중 첫 번째를 부르고,
+   * 그 앱이 돌려준 `{appId, docId, jobId}` 를 데이터로 콘티에 적어 둘 뿐이다.
+   */
+  const handleHandoff = useCallback(async () => {
+    const target = storyboardApps[0];
+    const projectId = currentProject?.path ?? '';
+    if (!conti || !target?.storyboard || projectId === '' || handoffBusy) return;
+    setHandoffBusy(true);
+    setHandoffError(null);
+    try {
+      const preset = STORYBOARD_PRESETS[conti.presetId ?? DEFAULT_STORYBOARD_PRESET_ID];
+      const result = await target.storyboard.accept({ projectId, conti, preset });
+      await linkRender(conti.id, {
+        appId: result.appId,
+        docId: result.docId,
+        ...(result.jobId ? { jobId: result.jobId } : {}),
+        presetId: preset.id,
+        ...(result.status ? { status: result.status } : {}),
+      });
+    } catch (err) {
+      setHandoffError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setHandoffBusy(false);
+    }
+  }, [storyboardApps, currentProject, conti, handoffBusy, linkRender]);
+
   if (!open || !conti) return null;
 
   return (
@@ -717,6 +758,42 @@ export function ContiBoardPanel(): React.JSX.Element | null {
               </option>
             ))}
           </select>
+        )}
+        {/* §5.13 (Q) 출력 프리셋 — 컷 좌표계(320×180)는 그대로, 출력 판형만 정한다. */}
+        <label className="flex items-center gap-1.5 text-xs text-gray-400">
+          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="2" y="6" width="14" height="12" rx="2" />
+            <path d="M18 9h4v6h-4z" />
+          </svg>
+          <span>{t('panel.contiBoard.presetLabel', { defaultValue: '출력' })}</span>
+          <select
+            value={conti.presetId ?? DEFAULT_STORYBOARD_PRESET_ID}
+            onChange={(e) => void setPreset(conti.id, e.target.value as StoryboardPresetId)}
+            className="rounded border border-gray-700 bg-gray-800 px-2 py-1 text-xs text-gray-200"
+          >
+            {STORYBOARD_PRESET_IDS.map((id) => (
+              <option key={id} value={id}>
+                {t(STORYBOARD_PRESETS[id].labelKey, { defaultValue: id })}
+              </option>
+            ))}
+          </select>
+        </label>
+        {conti.render && (
+          <span
+            className="flex items-center gap-1.5 rounded border border-gray-700/60 bg-gray-800/60 px-2 py-1 font-mono text-[12px] text-gray-300"
+            title={`${conti.render.appId} · ${conti.render.docId}`}
+          >
+            <svg className="h-3.5 w-3.5 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M20 6 9 17l-5-5" />
+            </svg>
+            <span>
+              {t('panel.contiBoard.renderLinked', {
+                defaultValue: '{{app}} · {{status}}',
+                app: conti.render.appId,
+                status: conti.render.status ?? 'queued',
+              })}
+            </span>
+          </span>
         )}
         <button
           type="button"
@@ -829,13 +906,13 @@ export function ContiBoardPanel(): React.JSX.Element | null {
                 <svg className="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M12 5v14M5 12l7 7 7-7" />
                 </svg>
-                <span className="text-[11px] font-semibold uppercase tracking-wider">Drop here</span>
+                <span className="text-[12px] font-semibold uppercase tracking-wider">Drop here</span>
               </div>
             </div>
           )}
         </div>
         {/* 줌 HUD — 우측 상단 */}
-        <div className="pointer-events-none absolute right-3 top-3 flex items-center gap-2 rounded border border-gray-700 bg-gray-900/80 px-2 py-1 font-mono text-[10px] text-gray-400 backdrop-blur-sm">
+        <div className="pointer-events-none absolute right-3 top-3 flex items-center gap-2 rounded border border-gray-700 bg-gray-900/80 px-2 py-1 font-mono text-[12px] text-gray-400 backdrop-blur-sm">
           <span>{Math.round(zoom * 100)}%</span>
           <span className="text-gray-600">·</span>
           <span>{t('panel.contiBoard.zoomReset', { defaultValue: 'Ctrl+0 reset' })}</span>
@@ -876,6 +953,48 @@ export function ContiBoardPanel(): React.JSX.Element | null {
           </svg>
           <span>{t('panel.contiBoard.editFrame', { defaultValue: '텍스트 수정' })}</span>
         </button>
+
+        {/* §5.13 (Q) 렌더 — 받는 앱이 설치돼 있을 때만. 없으면 같은 자리에 한 줄 안내. */}
+        <span className="mx-1 h-5 w-px bg-gray-700" aria-hidden />
+        {storyboardApps.length === 0 ? (
+          <span className="flex items-center gap-1.5 rounded border border-dashed border-gray-700 px-3 py-1.5 text-xs text-gray-500">
+            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            <span>{t('panel.contiBoard.renderNoApp', { defaultValue: '렌더하려면 영상 앱을 설치하세요' })}</span>
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => void handleHandoff()}
+            disabled={handoffBusy || conti.frames.length === 0}
+            className="flex items-center gap-1.5 rounded border border-sky-700/60 bg-sky-900/30 px-3 py-1.5 text-xs font-medium text-sky-300 hover:bg-sky-900/50 disabled:cursor-not-allowed disabled:opacity-40"
+            title={t('panel.contiBoard.renderTitle', {
+              defaultValue: '컷을 타임라인 문서로 옮기고 렌더를 겁니다',
+            })}
+          >
+            {handoffBusy ? (
+              <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+              </svg>
+            ) : (
+              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="2" y="4" width="20" height="16" rx="2" />
+                <path d="m10 9 5 3-5 3z" />
+              </svg>
+            )}
+            <span>
+              {handoffBusy
+                ? t('panel.contiBoard.renderWorking', { defaultValue: '넘기는 중…' })
+                : t('panel.contiBoard.render', { defaultValue: '렌더' })}
+            </span>
+          </button>
+        )}
+        {handoffError && (
+          <span className="max-w-[28rem] truncate rounded border border-red-800/60 bg-red-950/40 px-2 py-1 text-[12px] text-red-300" title={handoffError}>
+            {handoffError}
+          </span>
+        )}
       </div>
 
       {/* 인라인 프롬프트 팝업 */}

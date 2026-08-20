@@ -77,7 +77,7 @@ export function ClaudeVersionGate(): React.JSX.Element | null {
             <h3 className="flex-1 text-sm font-bold text-gray-100">
               {t('panel.claudeVersionGate.title', { defaultValue: 'Claude Code update available' })}
             </h3>
-            <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-300">
+            <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[12px] font-semibold uppercase tracking-wider text-amber-300">
               {info.source}
             </span>
           </div>
@@ -86,26 +86,26 @@ export function ClaudeVersionGate(): React.JSX.Element | null {
           <div className="flex flex-col gap-3 px-4 py-3">
             <div className="grid grid-cols-2 gap-3">
               <div className="flex flex-col gap-1 rounded border border-gray-800 bg-gray-950/70 px-3 py-2">
-                <span className="text-[10px] uppercase tracking-wider text-gray-500">
+                <span className="text-[12px] uppercase tracking-wider text-gray-500">
                   {t('panel.claudeVersionGate.current', { defaultValue: 'Current' })}
                 </span>
                 <span className="font-mono text-base text-gray-200">{info.current ?? '?'}</span>
               </div>
               <div className="flex flex-col gap-1 rounded border border-emerald-500/40 bg-emerald-500/5 px-3 py-2">
-                <span className="text-[10px] uppercase tracking-wider text-emerald-400">
+                <span className="text-[12px] uppercase tracking-wider text-emerald-400">
                   {t('panel.claudeVersionGate.latest', { defaultValue: 'Latest' })}
                 </span>
                 <span className="font-mono text-base text-emerald-300">{info.latest ?? '?'}</span>
               </div>
             </div>
 
-            <div className="text-[11px] text-gray-400">
+            <div className="text-[12px] text-gray-400">
               {t('panel.claudeVersionGate.binPath', { defaultValue: 'Binary' })}:{' '}
               <span className="font-mono text-gray-500">{info.binPath}</span>
             </div>
 
             {info.source === 'vscode-extension' && (
-              <div className="rounded border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-[11px] text-amber-200">
+              <div className="rounded border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-[12px] text-amber-200">
                 {t('panel.claudeVersionGate.vscodeNotice', {
                   defaultValue: 'This binary comes from the VS Code extension and cannot be auto-updated. Open the Marketplace to update.',
                 })}
@@ -123,7 +123,7 @@ export function ClaudeVersionGate(): React.JSX.Element | null {
             )}
 
             {info.source === 'unknown' && (
-              <div className="rounded border border-red-500/40 bg-red-500/5 px-3 py-2 text-[11px] text-red-200">
+              <div className="rounded border border-red-500/40 bg-red-500/5 px-3 py-2 text-[12px] text-red-200">
                 {t('panel.claudeVersionGate.unknownNotice', {
                   defaultValue: 'Could not detect a working `claude` binary. Install Claude Code manually before continuing.',
                 })}
@@ -133,7 +133,7 @@ export function ClaudeVersionGate(): React.JSX.Element | null {
             {/* Install progress */}
             {progress && (
               <div className="flex flex-col gap-1.5 rounded border border-gray-800 bg-gray-950/70 px-3 py-2">
-                <div className="flex items-center gap-2 text-[11px]">
+                <div className="flex items-center gap-2 text-[12px]">
                   <span
                     className={`inline-block h-2 w-2 rounded-full ${
                       installing ? 'animate-pulse bg-amber-400' :
@@ -153,19 +153,19 @@ export function ClaudeVersionGate(): React.JSX.Element | null {
                 {progress.stdout && (
                   <pre
                     ref={stdoutRef}
-                    className="max-h-32 overflow-auto whitespace-pre-wrap break-words rounded bg-black/40 px-2 py-1 font-mono text-[10px] leading-relaxed text-gray-400"
+                    className="max-h-32 overflow-auto whitespace-pre-wrap break-words rounded bg-black/40 px-2 py-1 font-mono text-[12px] leading-relaxed text-gray-400"
                   >
                     {progress.stdout}
                   </pre>
                 )}
                 {progress.error && (
-                  <div className="text-[11px] text-red-300">{progress.error}</div>
+                  <div className="text-[12px] text-red-300">{progress.error}</div>
                 )}
               </div>
             )}
 
             {info.registryError && !info.latest && (
-              <div className="text-[10px] text-gray-500">
+              <div className="text-[12px] text-gray-500">
                 {t('panel.claudeVersionGate.registryError', { defaultValue: 'npm registry check failed' })}: {info.registryError}
               </div>
             )}

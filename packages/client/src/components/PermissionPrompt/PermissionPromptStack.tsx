@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { useGraphStore } from '../../stores/graphStore.js';
 import type { PermissionRequest } from '@vibisual/shared';
+// §5.22 — 위험 배지는 타임라인과 **같은 색·같은 라벨**을 쓴다(두 화면이 어긋나면 못 믿는다).
+import { riskLabelKey, riskToneClass } from '../../utils/auditLog.js';
 
 /** §5.3 #12-1 v1.43 — 스택 모달 간 z-index 시작값. */
 const BASE_Z = 100_000;
@@ -157,43 +159,70 @@ function PermissionModal({
               <h3 className="truncate text-sm font-bold text-gray-100">
                 {t('panel.permissionPrompt.title', { defaultValue: 'Permission required' })}
               </h3>
-              <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-300">
+              <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[12px] font-semibold uppercase tracking-wider text-amber-300">
                 {request.toolName}
               </span>
             </div>
-            <span className="truncate text-[11px] text-gray-400">
+            <span className="truncate text-[12px] text-gray-400">
               {request.agentLabel}
               {request.projectName ? ` · ${request.projectName}` : ''}
             </span>
           </div>
           {total > 1 && (
             <span
-              className="flex-shrink-0 rounded-full bg-amber-500/25 px-2 py-0.5 text-[10px] font-bold text-amber-200"
+              className="flex-shrink-0 rounded-full bg-amber-500/25 px-2 py-0.5 text-[12px] font-bold text-amber-200"
               title={t('panel.permissionPrompt.stackCount', { defaultValue: '{{current}} of {{total}} pending', current: indexFromTop + 1, total })}
             >
               {indexFromTop + 1} / {total}
             </span>
           )}
-          <span className="ml-2 flex-shrink-0 rounded bg-gray-800 px-2 py-0.5 font-mono text-[10px] text-gray-400">
+          <span className="ml-2 flex-shrink-0 rounded bg-gray-800 px-2 py-0.5 font-mono text-[12px] text-gray-400">
             {seconds}s
           </span>
         </div>
 
+        {/* §5.22 — 위험 띠. 위험 3종으로 분류된 호출일 때만 뜨고, 모드가 통과시켰을 호출을
+            경계가 되돌려 물은 것이면 왜 지금 묻는지도 한 줄로 말한다. */}
+        {(request.risk?.length ?? 0) > 0 && (
+          <div className="flex flex-col gap-1 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <svg className="h-3.5 w-3.5 flex-shrink-0 text-amber-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M12 3 4.5 6v5.5c0 4.5 3.1 8.3 7.5 9.5 4.4-1.2 7.5-5 7.5-9.5V6Z" />
+              </svg>
+              <span className="text-[12px] font-semibold text-amber-200">
+                {t('panel.audit.promptRiskTitle', { defaultValue: 'Risky action' })}
+              </span>
+              {request.risk?.map((kind) => (
+                <span key={kind} className={`rounded border px-1.5 py-0.5 text-[12px] font-semibold ${riskToneClass(kind)}`}>
+                  {t(riskLabelKey(kind))}
+                </span>
+              ))}
+            </div>
+            {request.escalated && (
+              <span className="text-[12px] leading-relaxed text-amber-200/80">
+                {t('panel.audit.promptEscalatedHint', {
+                  defaultValue: 'Your permission mode would have allowed this automatically — the audit boundary is asking first.',
+                })}
+              </span>
+            )}
+          </div>
+        )}
+
         {/* Body — tool_input 요약 */}
         <div className="flex max-h-64 flex-col gap-2 overflow-auto px-4 py-3">
-          <div className="text-[11px] text-gray-500">
+          <div className="text-[12px] text-gray-500">
             {t('panel.permissionPrompt.bodyHint', {
               defaultValue: 'This agent is about to call a tool. Approve or deny to continue.',
             })}
           </div>
-          <pre className="whitespace-pre-wrap break-words rounded border border-gray-800 bg-gray-950/70 px-3 py-2 font-mono text-[11px] leading-relaxed text-gray-200">
+          <pre className="whitespace-pre-wrap break-words rounded border border-gray-800 bg-gray-950/70 px-3 py-2 font-mono text-[12px] leading-relaxed text-gray-200">
             {formatToolInput(request.toolInput ?? {}, t('panel.permissionPrompt.emptyToolInput', { defaultValue: '(empty)' }))}
           </pre>
         </div>
 
         {/* Deny reason (optional) */}
         <div className="border-t border-gray-800 px-4 py-2">
-          <label className="flex items-center gap-2 text-[10px] text-gray-500">
+          <label className="flex items-center gap-2 text-[12px] text-gray-500">
             <span>{t('panel.permissionPrompt.denyReasonLabel', { defaultValue: 'Deny reason (optional)' })}</span>
           </label>
           <input
@@ -207,7 +236,7 @@ function PermissionModal({
 
         {/* Footer — Allow / Deny */}
         <div className="flex items-center justify-between gap-2 border-t border-gray-700 px-4 py-3">
-          <span className="text-[10px] text-gray-600">
+          <span className="text-[12px] text-gray-600">
             {t('panel.permissionPrompt.shortcutHint', { defaultValue: 'Ctrl+Enter = Allow · Esc = Deny' })}
           </span>
           <div className="flex gap-2">

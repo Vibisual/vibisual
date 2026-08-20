@@ -133,7 +133,7 @@ const HeaderCopyButton = memo(function HeaderCopyButton({
       disabled={disabled === true}
       title={copied ? t('ide.question.copied') : title}
       aria-label={copied ? t('ide.question.copied') : title}
-      className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
+      className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[12px] font-medium transition-colors ${
         disabled === true
           ? 'cursor-not-allowed border-white/5 bg-gray-900/40 text-gray-600'
           : copied
@@ -273,7 +273,7 @@ const PromptBox = memo(function PromptBox({
             disabled={inert}
             title={copied ? t('ide.question.copied') : t('ide.question.copy')}
             aria-label={copied ? t('ide.question.copied') : t('ide.question.copy')}
-            className={`inline-flex items-center gap-1 rounded border px-1.5 py-1 text-[10px] font-medium transition-colors ${
+            className={`inline-flex items-center gap-1 rounded border px-1.5 py-1 text-[12px] font-medium transition-colors ${
               inert
                 ? 'cursor-not-allowed border-white/5 bg-gray-900/40 text-gray-600'
                 : copied
@@ -289,7 +289,7 @@ const PromptBox = memo(function PromptBox({
             disabled={inert}
             title={wasSent ? t('ide.question.instantSent') : t('ide.question.instant')}
             aria-label={wasSent ? t('ide.question.instantSent') : t('ide.question.instant')}
-            className={`inline-flex items-center gap-1 rounded border px-1.5 py-1 text-[10px] font-semibold transition-colors ${
+            className={`inline-flex items-center gap-1 rounded border px-1.5 py-1 text-[12px] font-semibold transition-colors ${
               wasSent
                 ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300'
                 : dimmed
@@ -338,13 +338,13 @@ const QuestionItem = memo(function QuestionItem({
       {/* 질문 */}
       <div className="flex items-start gap-1.5">
         {multi && (
-          <span className="mt-0.5 flex-shrink-0 rounded bg-sky-500/20 px-1.5 py-0.5 text-[9px] font-bold text-sky-300">
+          <span className="mt-0.5 flex-shrink-0 rounded bg-sky-500/20 px-1.5 py-0.5 text-[12px] font-bold text-sky-300">
             {index + 1}
           </span>
         )}
         <div className="min-w-0 flex-1">
           {item.header && (
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-sky-400/80">{item.header}</div>
+            <div className="text-[12px] font-semibold uppercase tracking-wide text-sky-400/80">{item.header}</div>
           )}
           <p className="whitespace-pre-wrap break-words text-[13px] font-medium leading-relaxed text-gray-100">
             {item.question}
@@ -466,7 +466,7 @@ export const AgentQuestionCard = memo(function AgentQuestionCard({ questions, on
           <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
           <path d="M12 17h.01" />
         </svg>
-        <span className="flex-1 text-[11px] font-semibold uppercase tracking-wide text-sky-300">
+        <span className="flex-1 text-[12px] font-semibold uppercase tracking-wide text-sky-300">
           {t('ide.question.title')}
         </span>
         <div className="flex flex-wrap items-center justify-end gap-1">
@@ -492,12 +492,12 @@ export const AgentQuestionCard = memo(function AgentQuestionCard({ questions, on
           />
         </div>
         {live && <CardLiveBadge />}
-        <span className="select-none text-[10px] text-gray-500">{formatTime(questions.createdAt)}</span>
+        <span className="select-none text-[12px] text-gray-500">{formatTime(questions.createdAt)}</span>
       </div>
 
       <div className="px-3 py-2">
         {questions.note && (
-          <p className="mb-2 text-[12.5px] leading-relaxed text-gray-300">{questions.note}</p>
+          <p className="mb-2 text-[13px] leading-relaxed text-gray-300">{questions.note}</p>
         )}
 
         <ul className="flex flex-col gap-3">
@@ -523,7 +523,7 @@ export const AgentQuestionCard = memo(function AgentQuestionCard({ questions, on
               <button
                 type="button"
                 onClick={clearSelection}
-                className="rounded border border-white/10 bg-gray-900/60 px-2 py-1 text-[10px] font-medium text-gray-400 transition-colors hover:border-white/20 hover:text-gray-200"
+                className="rounded border border-white/10 bg-gray-900/60 px-2 py-1 text-[12px] font-medium text-gray-400 transition-colors hover:border-white/20 hover:text-gray-200"
               >
                 {t('ide.question.selectNone')}
               </button>
@@ -532,7 +532,7 @@ export const AgentQuestionCard = memo(function AgentQuestionCard({ questions, on
               type="button"
               onClick={handleSendSelected}
               disabled={selectedCount === 0}
-              className={`inline-flex items-center gap-1 rounded border px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+              className={`inline-flex items-center gap-1 rounded border px-2.5 py-1 text-[12px] font-semibold transition-colors ${
                 selectedCount === 0
                   ? 'cursor-not-allowed border-white/5 bg-gray-900/40 text-gray-600'
                   : 'border-sky-500/50 bg-sky-500/20 text-sky-200 hover:border-sky-400/70 hover:bg-sky-500/30 hover:text-sky-100'

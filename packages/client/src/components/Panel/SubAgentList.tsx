@@ -53,21 +53,27 @@ export const SubAgentList = memo(function SubAgentList({
                   {sub.label}
                 </span>
                 {sub.lastCommand && (
-                  <span className="block truncate text-[10px] text-gray-500">
+                  <span className="block truncate text-[12px] text-gray-500">
                     {sub.lastCommand}
                   </span>
                 )}
               </div>
               <div className="flex flex-col items-end gap-0.5">
-                <span className={`text-[9px] ${runState === 'error' ? 'text-red-400' : 'text-gray-500'}`}>
+                <span className={`text-[12px] ${runState === 'error' ? 'text-red-400' : 'text-gray-500'}`}>
                   {t(SESSION_STATUS_LABEL_KEY[runState])}
                 </span>
+                {/* §2.4 (잠듦) — 이 세션의 자식 프로세스는 회수됐다. 다음 명령이 --resume 으로 되살린다. */}
+                {sub.dormant && (
+                  <span className="text-[12px] text-gray-500">
+                    {t('common.bubble.dormant')}
+                  </span>
+                )}
                 {(sub.totalInputTokens ?? 0) > 0 && (
-                  <span className="text-[9px] text-violet-400/70">
+                  <span className="text-[12px] text-violet-400/70">
                     {t('panel.subAgent.tokensInOut', { in: formatTokenShort(sub.totalInputTokens ?? 0), out: formatTokenShort(sub.totalOutputTokens ?? 0) })}
                   </span>
                 )}
-                <span className="text-[9px] text-gray-600">
+                <span className="text-[12px] text-gray-600">
                   {formatTime(sub.lastActivityAt)}
                 </span>
               </div>

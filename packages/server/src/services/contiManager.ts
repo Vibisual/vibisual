@@ -7,10 +7,17 @@ import type {
   ContiFrame,
   ContiElement,
   ContiElementType,
+  StoryboardPresetId,
 } from '@vibisual/shared';
-import { CONTI_DEFAULTS, STAMP_CATALOG } from '@vibisual/shared';
+import {
+  CONTI_DEFAULTS,
+  STAMP_CATALOG,
+  CONTI_SCRIPT_MAX_CHARS,
+  CONTI_SCRIPT_FRAME_MIN,
+  CONTI_SCRIPT_FRAME_MAX,
+} from '@vibisual/shared';
 import { logger } from '../logger.js';
-import { getClaudeBin } from './claudeBin.js';
+import { getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
 
 /** §5.3 #28 v1.62 — patch sub-agent 가 spawn 할 claude 바이너리 경로. */
 const CLAUDE_BIN_PATH = (): string => getClaudeBin().binPath;
@@ -168,15 +175,18 @@ function extractJson(raw: string): unknown | null {
 /**
  * Claude CLI 서브프로세스 단발 호출.
  *
- * **반드시 부모 에이전트 세션에 `--resume` 으로 붙는다** — 별도 새 세션 ❌.
- * 부모가 이미 들고 있는 컨텍스트(파일·tool_use 이력)를 그대로 활용하므로
- * 호출 측에서 추가 컨텍스트 압축·재요약 불필요. spawn cwd 도 부모 cwd 로 맞춘다.
+ * **회고 모드는 부모 에이전트 세션에 `--resume` 으로 붙는다.** 부모가 이미 들고 있는
+ * 컨텍스트(파일·tool_use 이력)를 그대로 활용하므로 호출 측에서 추가 컨텍스트 압축·재요약
+ * 불필요. spawn cwd 도 부모 cwd 로 맞춘다.
+ *
+ * §5.13 (Q) 대본 모드만 예외로 `sessionId` 를 비운다 — 그 경우 대본 자체가 컨텍스트라
+ * 부모 이력이 섞이면 오히려 장면 해석을 망친다.
  *
  * 사용자 세션 쿼터 재사용 — Anthropic SDK 직접 호출 ❌.
  */
 function callClaude(
   prompt: string,
-  opts: { sessionId: string; cwd: string; model?: string },
+  opts: { sessionId?: string; cwd: string; model?: string },
 ): Promise<string | null> {
   return new Promise((resolve) => {
     let settled = false;
@@ -186,7 +196,9 @@ function callClaude(
       resolve(v);
     };
 
-    const args = ['-p', prompt, '--resume', opts.sessionId];
+    // §5.13 (Q) — `sessionId` 는 선택이다. 대본 모드는 **부모 세션에 붙지 않는다** —
+    //   대본이 곧 컨텍스트인데 부모의 작업 이력이 섞이면 장면이 아니라 작업이 그려진다.
+    const args = ['-p', prompt, ...(opts.sessionId ? ['--resume', opts.sessionId] : [])];
     if (opts.model) args.push('--model', opts.model);
 
     let stdout = '';
@@ -213,6 +225,7 @@ function callClaude(
     child.on('error', (err) => {
       clearTimeout(timer);
       logger.warn(`contiManager.callClaude: spawn error: ${err.message}`);
+      noteClaudeSpawnFailure(err);
       settle(null);
     });
 
@@ -242,6 +255,18 @@ export interface ContiContextInput {
   agentLabel: string;
 }
 
+/** §5.13 (Q) — 대본 모드 입력. 세션 id 가 없다는 것이 회고 모드와의 차이다. */
+export interface ContiScriptInput {
+  /** 사용자가 붙여 넣은 대본 원문. 상한은 호출부가 아니라 여기서 건다. */
+  script: string;
+  /** spawn cwd — 프로젝트 경로. */
+  cwd: string;
+  /** 출력 프리셋(프롬프트에 한 줄 echo — 좌표계는 바뀌지 않는다). */
+  presetId: StoryboardPresetId;
+  /** 원하는 컷 수. 비우면 모델이 대본의 비트 수대로 정한다. */
+  frameCount?: number;
+}
+
 /**
  * §5.3 #28 v1.60 — STAMP_CATALOG 를 LLM 프롬프트용 인라인 텍스트로 렌더.
  * 카탈로그 항목 추가/제거는 shared/constants.ts 만 수정하면 자동 반영.
@@ -266,13 +291,14 @@ function buildStampCatalogText(): string {
 
 const STAMP_CATALOG_TEXT = buildStampCatalogText();
 
-const GENERATE_INSTRUCTIONS = `You are a UX storyboard generator. Convert recent AI-agent activity into a comic-strip "conti" of 4-8 frames.
-Each frame is a wireframe sketch inside a **320x180 (16:9)** viewBox — standard storyboard aspect.
-Focus on what changed visually or what user-facing action happened. One frame = one beat.
-Use 'add' badges for new artifacts, 'mod' for modifications, 'evt' for user events (clicks, saves).
-Keep titles under 70 chars and actions under 200. Do not invent details — base every frame on the supplied events.
-
-# STAMP-FIRST RULE (v1.60) — MANDATORY for legibility
+/**
+ * §5.13 (Q) — 두 생성 경로(작업 회고 · 대본)가 **함께 쓰는** 규칙 본문.
+ *
+ * 갈리는 것은 맨 앞 한 문단(무엇을 컷으로 끊느냐)뿐이고, 스탬프 카탈로그·밀도 규칙·
+ * 디자인 토큰·출력 스키마·좌표계는 하나여야 한다. 두 벌로 두면 한쪽만 고쳐져
+ * 같은 보드 위에 규칙이 다른 컷이 섞인다.
+ */
+const CONTI_COMMON_RULES = `# STAMP-FIRST RULE (v1.60) — MANDATORY for legibility
 **ALL UI components MUST be drawn as \`stamp\` elements, NEVER as composed rect/circle/line.**
 Do NOT synthesize buttons, windows, inputs, avatars, arrows, etc. from raw primitives — the result is inconsistent and unreadable.
 
@@ -358,6 +384,35 @@ Forbidden:
 - Mixing the semantics: purple for results or mint for triggers.
 - Markdown, code fences, prose. JSON only.`;
 
+/** 작업 회고 모드 — 에이전트가 방금 한 일을 컷으로 끊는다(기존 경로). */
+const GENERATE_INSTRUCTIONS = `You are a UX storyboard generator. Convert recent AI-agent activity into a comic-strip "conti" of 4-8 frames.
+Each frame is a wireframe sketch inside a **320x180 (16:9)** viewBox — standard storyboard aspect.
+Focus on what changed visually or what user-facing action happened. One frame = one beat.
+Use 'add' badges for new artifacts, 'mod' for modifications, 'evt' for user events (clicks, saves).
+Keep titles under 70 chars and actions under 200. Do not invent details — base every frame on the supplied events.
+
+${CONTI_COMMON_RULES}`;
+
+/**
+ * §5.13 (Q) 대본 모드 — 대본을 장면 순서대로 끊는다.
+ *
+ * 회고 모드와 어긋나면 안 되는 것 셋을 여기서 못 박는다: **순서를 바꾸지 않는다**,
+ * **대본에 없는 것을 지어내지 않는다**, **한 장면 = 한 컷**. 이 셋이 빠지면 모델이
+ * 대본을 요약해 버려 사용자가 쓴 것과 다른 이야기가 보드에 올라온다.
+ */
+const SCRIPT_INSTRUCTIONS = `You are a storyboard artist. Convert the SCRIPT below into a comic-strip "conti".
+Each frame is a wireframe sketch inside a **320x180 (16:9)** viewBox — standard storyboard aspect.
+
+Scene rules (strict):
+- **One scene / beat = one frame**, in the SAME ORDER as the script. Never reorder, never merge distant beats.
+- **Never invent story content.** Every frame must be traceable to a line of the script. If the script is short, produce fewer frames rather than padding it.
+- \`title\` = the scene heading (who/where, under 70 chars). \`action\` = what happens in that beat, in the script's own language, under 200 chars.
+- Draw what the *camera* sees: characters, props, setting, motion. Use \`user-avatar\`/\`agent-avatar\` for people, \`card\`/\`browser-window\`/\`app-window\` for surfaces, \`arrow\` for motion, \`chat-bubble\` for dialogue.
+- Dialogue goes in a \`chat-bubble\` stamp label (shortened) — do not paste whole lines of dialogue as free text.
+- Badges: 'evt' for a beat the audience acts on, 'add' for something appearing for the first time, 'mod' for a change of state.
+
+${CONTI_COMMON_RULES}`;
+
 
 /**
  * §5.3 #28 v1.47 — 콘티 1건 생성.
@@ -368,13 +423,51 @@ Forbidden:
  */
 export async function generateContiFrames(input: ContiContextInput): Promise<{ title?: string; frames: ContiFrame[] } | null> {
   const prompt = `${GENERATE_INSTRUCTIONS}\n\n---\n\nYou are agent "${input.agentLabel}". Reflect on YOUR OWN recent work in this session and emit a ${CONTI_DEFAULTS.defaultFrameCount}-frame conti as a single JSON object only.`;
+  return runContiPrompt(prompt, { sessionId: input.sessionId, cwd: input.cwd }, 'generate');
+}
 
+/**
+ * §5.13 (Q) — 대본에서 콘티 1건 생성.
+ *
+ * **부모 세션에 붙지 않는다**(`sessionId` 없음). 대본이 곧 컨텍스트이고, 부모 세션에
+ * resume 하면 그 세션의 작업 이력이 장면 해석에 섞여 사용자가 쓴 이야기가 아니라
+ * 에이전트가 한 일이 그려진다. 모델·타임아웃·JSON 관용 파서·STAMP_CATALOG·좌표계는
+ * 회고 모드와 **같은 것**을 그대로 쓴다.
+ */
+export async function generateContiFramesFromScript(
+  input: ContiScriptInput,
+): Promise<{ title?: string; frames: ContiFrame[] } | null> {
+  const script = input.script.slice(0, CONTI_SCRIPT_MAX_CHARS);
+  const count =
+    typeof input.frameCount === 'number' && Number.isFinite(input.frameCount)
+      ? Math.min(CONTI_SCRIPT_FRAME_MAX, Math.max(CONTI_SCRIPT_FRAME_MIN, Math.round(input.frameCount)))
+      : null;
+  const countLine =
+    count === null
+      ? `Emit as many frames as the script has beats (${CONTI_SCRIPT_FRAME_MIN}~${CONTI_SCRIPT_FRAME_MAX}; around ${CONTI_DEFAULTS.defaultFrameCount} is typical).`
+      : `Emit exactly ${count} frames — split or merge beats to reach that count without dropping the ending.`;
+
+  const prompt = `${SCRIPT_INSTRUCTIONS}\n\n---\n\n${countLine}\nThe output aspect is ${input.presetId}, but the frame viewBox stays 320x180 regardless — draw in that box.\n\n# SCRIPT\n\n${script}`;
+  return runContiPrompt(prompt, { cwd: input.cwd }, 'script');
+}
+
+/**
+ * 프롬프트 1회 실행 + 모델 폴백 + 응답 정규화.
+ *
+ * 두 생성 경로가 이 함수 하나를 쓰기 때문에 "빈 frames 면 다음 모델로 내려간다" 같은
+ * 판정이 한 벌만 존재한다.
+ */
+async function runContiPrompt(
+  prompt: string,
+  opts: { sessionId?: string; cwd: string },
+  tag: string,
+): Promise<{ title?: string; frames: ContiFrame[] } | null> {
   for (const model of [CONTI_DEFAULTS.primaryModel, CONTI_DEFAULTS.fallbackModel]) {
-    const out = await callClaude(prompt, { sessionId: input.sessionId, cwd: input.cwd, model });
+    const out = await callClaude(prompt, { ...opts, model });
     if (!out) continue;
     const parsed = extractJson(out);
     if (!parsed || typeof parsed !== 'object') {
-      logger.warn(`contiManager.generate: model=${model} unparseable: ${out.slice(0, 200)}`);
+      logger.warn(`contiManager.${tag}: model=${model} unparseable: ${out.slice(0, 200)}`);
       continue;
     }
     const obj = parsed as Record<string, unknown>;
@@ -385,11 +478,11 @@ export async function generateContiFrames(input: ContiContextInput): Promise<{ t
       if (f) frames.push(f);
     }
     if (frames.length === 0) {
-      logger.warn(`contiManager.generate: empty frames from model=${model}`);
+      logger.warn(`contiManager.${tag}: empty frames from model=${model}`);
       continue;
     }
     const title = typeof obj['title'] === 'string' ? (obj['title'] as string).slice(0, 200) : undefined;
-    return { ...(title ? { title } : {}), frames };
+    return { ...(title ? { title } : {}), frames: frames.slice(0, CONTI_SCRIPT_FRAME_MAX) };
   }
   return null;
 }
@@ -462,6 +555,7 @@ function runPatchAgent(tmpdir: string, userPrompt: string, model: string): Promi
     child.on('error', (err) => {
       clearTimeout(timer);
       logger.warn(`contiManager.patch: spawn error (model=${model}): ${err.message}`);
+      noteClaudeSpawnFailure(err);
       settle({ ok: false, stdout, stderr });
     });
     child.on('close', (code) => {

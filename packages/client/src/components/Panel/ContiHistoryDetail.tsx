@@ -1,5 +1,14 @@
-import { useMemo, useCallback } from 'react';
+import { useMemo, useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { StoryboardPresetId } from '@vibisual/shared';
+import {
+  CONTI_SCRIPT_FRAME_MAX,
+  CONTI_SCRIPT_FRAME_MIN,
+  CONTI_SCRIPT_MAX_CHARS,
+  DEFAULT_STORYBOARD_PRESET_ID,
+  STORYBOARD_PRESET_IDS,
+  STORYBOARD_PRESETS,
+} from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 
 interface Props {
@@ -57,12 +66,38 @@ export function ContiHistoryDetail({ agentId }: Props): React.JSX.Element {
     openIDEOverlay(agentId);
   }, [agentId, openIDEOverlay, setIDEActiveSession]);
 
+  // §5.13 (Q) — 대본에서 콘티. 접혀 있다가 사용자가 열 때만 자리를 차지한다.
+  const generateFromScript = useGraphStore((s) => s.generateContiFromScript);
+  const scriptBusy = useGraphStore((s) => s.contiScriptGenerating[agentId] === true);
+  const openContiBoardFor = openContiBoard;
+  const [scriptOpen, setScriptOpen] = useState(false);
+  const [script, setScript] = useState('');
+  const [presetId, setPresetId] = useState<StoryboardPresetId>(DEFAULT_STORYBOARD_PRESET_ID);
+  const [frameCount, setFrameCount] = useState('');
+  const [scriptError, setScriptError] = useState<string | null>(null);
+
+  const handleScriptGenerate = useCallback(async () => {
+    const text = script.trim();
+    if (text === '' || scriptBusy) return;
+    setScriptError(null);
+    const parsed = Number.parseInt(frameCount, 10);
+    const count = Number.isFinite(parsed) ? parsed : undefined;
+    const result = await generateFromScript(agentId, text, presetId, count);
+    if (result.ok) {
+      setScript('');
+      setScriptOpen(false);
+      openContiBoardFor(agentId, result.contiId);
+      return;
+    }
+    setScriptError(result.error);
+  }, [script, scriptBusy, frameCount, generateFromScript, agentId, presetId, openContiBoardFor]);
+
   const now = Date.now();
 
   return (
     <div className="flex flex-col gap-3 p-4">
       {work && !work.contiId && (
-        <div className="flex items-center gap-2 rounded border border-amber-700/50 bg-amber-900/20 px-2.5 py-1.5 text-[11px] text-amber-200">
+        <div className="flex items-center gap-2 rounded border border-amber-700/50 bg-amber-900/20 px-2.5 py-1.5 text-[12px] text-amber-200">
           <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M21 12a9 9 0 1 1-6.219-8.56" />
           </svg>
@@ -89,6 +124,104 @@ export function ContiHistoryDetail({ agentId }: Props): React.JSX.Element {
           </svg>
           <span>{t('panel.contiHistory.generate', { defaultValue: '새 콘티 생성' })}</span>
         </button>
+      </div>
+
+      {/* §5.13 (Q) 대본에서 콘티 — 접힘/펼침. 대본이 곧 컨텍스트라 세션이 없어도 된다. */}
+      <div className="rounded border border-gray-700/60 bg-gray-800/30">
+        <button
+          type="button"
+          onClick={() => setScriptOpen((v) => !v)}
+          className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs font-medium text-gray-300 transition-colors hover:bg-gray-800/60"
+        >
+          <svg
+            className={`h-3.5 w-3.5 shrink-0 transition-transform ${scriptOpen ? 'rotate-90' : ''}`}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="m9 18 6-6-6-6" />
+          </svg>
+          <svg className="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <path d="M14 2v6h6" />
+            <path d="M8 13h8M8 17h5" />
+          </svg>
+          <span>{t('panel.contiHistory.scriptTitle', { defaultValue: '대본에서 콘티' })}</span>
+        </button>
+
+        {scriptOpen && (
+          <div className="flex flex-col gap-2 border-t border-gray-700/60 p-2.5">
+            <textarea
+              value={script}
+              onChange={(e) => setScript(e.target.value.slice(0, CONTI_SCRIPT_MAX_CHARS))}
+              rows={6}
+              spellCheck={false}
+              placeholder={t('panel.contiHistory.scriptPlaceholder', {
+                defaultValue: '대본을 붙여 넣으세요 — 장면 순서대로 컷이 만들어집니다.',
+              })}
+              className="w-full resize-y rounded border border-gray-700 bg-gray-900/70 p-2 font-mono text-[12px] leading-relaxed text-gray-200 placeholder:text-gray-600 focus:border-emerald-600/60 focus:outline-none"
+            />
+            <div className="flex items-center gap-2">
+              <label className="flex items-center gap-1.5 text-[12px] text-gray-400">
+                <span>{t('panel.contiHistory.scriptPreset', { defaultValue: '출력' })}</span>
+                <select
+                  value={presetId}
+                  onChange={(e) => setPresetId(e.target.value as StoryboardPresetId)}
+                  className="rounded border border-gray-700 bg-gray-800 px-1.5 py-0.5 text-[12px] text-gray-200"
+                >
+                  {STORYBOARD_PRESET_IDS.map((id) => (
+                    <option key={id} value={id}>
+                      {t(STORYBOARD_PRESETS[id].labelKey, { defaultValue: id })}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex items-center gap-1.5 text-[12px] text-gray-400">
+                <span>{t('panel.contiHistory.scriptFrames', { defaultValue: '컷 수' })}</span>
+                <input
+                  type="number"
+                  min={CONTI_SCRIPT_FRAME_MIN}
+                  max={CONTI_SCRIPT_FRAME_MAX}
+                  value={frameCount}
+                  onChange={(e) => setFrameCount(e.target.value)}
+                  placeholder={t('panel.contiHistory.scriptFramesAuto', { defaultValue: '자동' })}
+                  className="w-16 rounded border border-gray-700 bg-gray-800 px-1.5 py-0.5 text-[12px] text-gray-200 placeholder:text-gray-600"
+                />
+              </label>
+              <span className="ml-auto font-mono text-[12px] text-gray-600">
+                {script.length}/{CONTI_SCRIPT_MAX_CHARS}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => void handleScriptGenerate()}
+              disabled={scriptBusy || script.trim() === ''}
+              className="flex items-center justify-center gap-1.5 rounded border border-sky-700/50 bg-sky-900/30 px-2.5 py-1.5 text-xs font-medium text-sky-200 transition-colors hover:bg-sky-900/50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {scriptBusy ? (
+                <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                </svg>
+              ) : (
+                <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M4 4h7l2 3h7v13H4z" />
+                  <path d="M9 12h6M9 16h4" />
+                </svg>
+              )}
+              <span>
+                {scriptBusy
+                  ? t('panel.contiHistory.scriptWorking', { defaultValue: '컷을 끊는 중…' })
+                  : t('panel.contiHistory.scriptGenerate', { defaultValue: '대본에서 콘티 만들기' })}
+              </span>
+            </button>
+            {scriptError && (
+              <div className="rounded border border-red-800/60 bg-red-950/40 px-2 py-1 text-[12px] text-red-300">{scriptError}</div>
+            )}
+          </div>
+        )}
       </div>
 
       {list.length === 0 ? (
@@ -120,16 +253,24 @@ export function ContiHistoryDetail({ agentId }: Props): React.JSX.Element {
                   title={t('panel.contiHistory.openBoard', { defaultValue: '콘티 보드 열기' })}
                 >
                   <span
-                    className={`rounded px-1.5 py-0.5 font-mono text-[10px] ${
+                    className={`rounded px-1.5 py-0.5 font-mono text-[12px] ${
                       isLatest ? 'bg-emerald-700/40 text-emerald-100' : 'bg-gray-700/50 text-gray-400'
                     }`}
                   >
                     #{seq}
                   </span>
-                  <span className="font-mono text-[10px] text-gray-500">{formatDateTime(c.createdAt)}</span>
+                  <span className="font-mono text-[12px] text-gray-500">{formatDateTime(c.createdAt)}</span>
+                  {c.source === 'script' && (
+                    <span
+                      className="rounded bg-sky-900/50 px-1.5 py-0.5 text-[12px] text-sky-200"
+                      title={c.scriptExcerpt?.slice(0, 200) ?? ''}
+                    >
+                      {t('panel.contiHistory.scriptChip', { defaultValue: '대본' })}
+                    </span>
+                  )}
                   {wasEdited && (
                     <span
-                      className="flex items-center gap-1 rounded bg-amber-900/40 px-1.5 py-0.5 text-[10px] text-amber-200"
+                      className="flex items-center gap-1 rounded bg-amber-900/40 px-1.5 py-0.5 text-[12px] text-amber-200"
                       title={t('panel.contiHistory.editedTitle', { defaultValue: '마지막 수정 시각' })}
                     >
                       <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -140,11 +281,11 @@ export function ContiHistoryDetail({ agentId }: Props): React.JSX.Element {
                     </span>
                   )}
                   {isWorkTarget && (
-                    <span className="rounded bg-amber-700/40 px-1.5 py-0.5 text-[10px] text-amber-100">
+                    <span className="rounded bg-amber-700/40 px-1.5 py-0.5 text-[12px] text-amber-100">
                       {t('panel.contiHistory.working', { defaultValue: 'Working…', source: work?.source ?? '' })}
                     </span>
                   )}
-                  <span className="ml-auto truncate text-[11px]">{subtitle.slice(0, 60)}</span>
+                  <span className="ml-auto truncate text-[12px]">{subtitle.slice(0, 60)}</span>
                 </button>
               </li>
             );

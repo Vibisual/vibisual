@@ -6,7 +6,7 @@ import { app, shell, BrowserWindow, protocol, screen, dialog } from 'electron';
 import { electronApp, optimizer } from '@electron-toolkit/utils';
 import { inject, type DispatchFunc } from 'light-my-request';
 import type { Express } from 'express';
-import { runServer, shutdownDiskWriteQueue, setBroadcastSink, setHookListenerPort, setHookListenerToken, setHookListenerIdentityFile, setHookHandlerPath, setDebugLogDir, ensureClaudeHooksInstalled, refreshStatusLineIfInstalled, recordDiagnostic, subAgentManager, stopAllPlays, closeStaticHost } from '@vibisual/server';
+import { unloadAllLocalModels, runServer, shutdownDiskWriteQueue, setBroadcastSink, setHookListenerPort, setHookListenerToken, setHookListenerIdentityFile, setHookHandlerPath, setDebugLogDir, ensureClaudeHooksInstalled, refreshStatusLineIfInstalled, recordDiagnostic, subAgentManager, stopAllPlays, closeStaticHost } from '@vibisual/server';
 import { setupIpc, type IpcHub } from './ipc';
 import { loadSecrets } from './secrets';
 import { loadHookIdentity, saveHookIdentity, hookIdentityPath } from './hookIdentity';
@@ -655,6 +655,14 @@ app.on('before-quit', (event) => {
     .finally(() => {
       closeStaticHost();
     });
+
+  // §5.19 — All Model 이 띄운 로컬 엔진(llama-server) 자식 정리. 이걸 안 하면 모델이 올라간
+  //   메모리를 그대로 문 채 프로세스가 남아, 앱을 껐는데도 자원이 안 돌아온다.
+  try {
+    unloadAllLocalModels();
+  } catch (err) {
+    console.warn('[main] unloadAllLocalModels failed:', err);
+  }
 
   // §9 — 체크포인트 디스크 쓰기 워커: 남은 쓰기를 동기로 마무리하고 스레드를 내린다.
   //   여기서 정리해 두면 뒤따르는 process 'exit' flush 는 아무것도 남지 않은 상태에서 no-op 이 된다.

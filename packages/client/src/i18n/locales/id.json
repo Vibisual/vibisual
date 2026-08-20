@@ -29,8 +29,9 @@
       "completed": "{{count}} selesai",
       "working": "{{active}}/{{total}}",
       "tooltipWaiting": "Belum ada agent di proyek ini",
-      "tooltipCompleted": "{{count}} agent di proyek ini selesai",
-      "tooltipWorking": "{{active}} dari {{total}} agent berjalan di proyek ini"
+      "tooltipWorking": "Proyek ini: {{agents}} agent · {{running}} dari {{sessions}} sesi berjalan",
+      "tooltipIdle": "Proyek ini: {{agents}} agent · {{sessions}} sesi — tidak ada yang berjalan sekarang",
+      "tooltipCommand": "{{status}} · Klik untuk membuka Pusat Kendali"
     },
     "tab": {
       "closeProject": "Tutup proyek",
@@ -190,6 +191,10 @@
       "title": "Opsi",
       "unsaved": "belum disimpan",
       "discardConfirm": "Buang perubahan yang belum disimpan?",
+      "discardTitle": "Perubahan belum disimpan",
+      "discardDesc": "Perubahan Anda belum diterapkan. Jika keluar sekarang, perubahan akan hilang.",
+      "discardKeep": "Lanjut mengedit",
+      "discardLeave": "Buang dan tutup",
       "apply": "Terapkan",
       "cancel": "Batal",
       "saving": "Menyimpan…",
@@ -278,7 +283,7 @@
         "actionFailed": "Tidak berhasil. Coba lagi."
       },
       "storage": {
-        "intro": "Berapa lama Vibisual menyimpan riwayat aktivitas di disk. Atur nilai ke 0 untuk menyimpannya selamanya — tidak ada yang dihapus diam-diam, dan sesi yang sedang berjalan tidak akan pernah disentuh.",
+        "intro": "Berapa lama Vibisual menyimpan riwayat aktivitas di disk. Setel nilai apa pun ke 0 untuk menyimpannya selamanya. Tidak ada yang dihapus secara diam-diam: berkas yang masih dirujuk oleh sebuah percakapan tetap disimpan berapa pun usianya, sesi yang aktif dan yang masih bisa dibuka kembali tidak pernah disentuh, dan pembersihan memindahkan berkas ke tempat sampah sehingga Anda dapat memulihkannya.",
         "save": "Terapkan",
         "saving": "Menyimpan…",
         "reset": "Pulihkan default",
@@ -289,7 +294,7 @@
         "scanning": "Memindai…",
         "cleanNow": "Bersihkan sekarang",
         "cleaning": "Membersihkan…",
-        "cleaned": "Menghapus {{files}} file, membebaskan {{size}}.",
+        "cleaned": "{{files}} berkas ({{size}}) dipindahkan ke tempat sampah — Anda dapat memulihkannya selama masih ada di sana.",
         "empty": "Belum ada data proyek di disk.",
         "worktreesTitle": "Git worktree",
         "worktreesNote": "Tidak pernah dihapus otomatis — folder ini mungkin menyimpan pekerjaan Anda. Hapus foldernya sendiri jika sudah tidak diperlukan.",
@@ -314,15 +319,19 @@
           },
           "completedCommandMaxPerSession": {
             "label": "Perintah selesai per sesi",
-            "desc": "Jumlah gelembung prompt Anda yang disimpan per sesi. 0 = tanpa batas."
+            "desc": "Perintah Anda sendiri yang disimpan per sesi. Ini tidak bisa dibuat ulang, jadi batasnya longgar. 0 = tanpa batas."
           },
           "subStreamRetentionDays": {
-            "label": "Simpan transkrip agent selama",
-            "desc": "Dibersihkan saat aplikasi dimulai. Sesi yang sedang berjalan tetap disimpan berapa pun usianya. 0 = simpan selamanya."
+            "label": "Riwayat percakapan agen",
+            "desc": "Dibersihkan sekali saat aplikasi dijalankan. Sesi yang aktif atau masih ada di daftar buka kembali tetap disimpan berapa pun usianya. 0 = simpan selamanya."
           },
           "attachmentRetentionDays": {
-            "label": "Simpan lampiran selama",
-            "desc": "Gambar yang Anda tempel ke prompt. 0 = simpan selamanya."
+            "label": "Berkas lampiran",
+            "desc": "Gambar yang Anda tempelkan ke perintah. Berkas yang masih dirujuk sebuah percakapan tetap disimpan berapa pun usianya; hanya yang tak terpakai yang kedaluwarsa. 0 = simpan selamanya."
+          },
+          "trashRetentionDays": {
+            "label": "Tempat sampah",
+            "desc": "Berapa hari berkas yang dibersihkan tetap dapat dipulihkan sebelum dihapus permanen. 0 = simpan selamanya."
           }
         },
         "kinds": {
@@ -335,14 +344,24 @@
           "brain": "Memori",
           "logs": "Log",
           "video": "Video",
-          "other": "Lainnya"
+          "other": "Lainnya",
+          "trash": "Tempat sampah"
         },
         "error": {
           "load": "Tidak dapat memuat pengaturan retensi.",
           "save": "Tidak dapat menyimpan pengaturan retensi.",
           "scan": "Tidak dapat mengukur penggunaan disk.",
-          "clean": "Pembersihan gagal. Silakan coba lagi."
-        }
+          "clean": "Pembersihan gagal. Silakan coba lagi.",
+          "restore": "Berkas itu tidak dapat dipulihkan. Mungkin sudah ada di lokasi aslinya."
+        },
+        "purged": "{{files}} berkas kedaluwarsa di tempat sampah dihapus permanen ({{size}}).",
+        "keptReferenced": "{{files}} berkas yang masih dirujuk tetap disimpan, berapa pun usianya.",
+        "trashTitle": "Tempat sampah",
+        "trashNote": "Pembersihan memindahkan berkas ke sini, bukan menghapusnya. Anda dapat memulihkan apa pun dalam daftar sampai berusia {{days}} hari.",
+        "trashNoteForever": "Pembersihan memindahkan berkas ke sini, bukan menghapusnya. Tidak ada yang di sini dihapus secara otomatis.",
+        "trashEmpty": "Tempat sampah kosong — belum ada yang dibersihkan.",
+        "restore": "Pulihkan",
+        "restoring": "Memulihkan…"
       }
     },
     "autoAgent": {
@@ -491,7 +510,15 @@
       "empty": "Belum ada conti — tekan 'Buat conti baru' untuk menangkap take pertama",
       "working": "Memproses… ({{source}})",
       "edited": "diedit {{when}}",
-      "editedTitle": "Waktu modifikasi terakhir"
+      "editedTitle": "Waktu modifikasi terakhir",
+      "scriptTitle": "Storyboard dari naskah",
+      "scriptPlaceholder": "Tempel naskah Anda — satu panel per beat, sesuai urutan naskah.",
+      "scriptPreset": "Keluaran",
+      "scriptFrames": "Panel",
+      "scriptFramesAuto": "otomatis",
+      "scriptGenerate": "Buat storyboard dari naskah",
+      "scriptWorking": "Memotong adegan…",
+      "scriptChip": "naskah"
     },
     "contiBoard": {
       "latest": "Conti Terbaru",
@@ -501,7 +528,18 @@
       "editFrame": "Edit teks",
       "editTitlePrompt": "Judul frame:",
       "editActionPrompt": "Aksi frame:",
-      "zoomReset": "Ctrl+0 reset"
+      "zoomReset": "Ctrl+0 reset",
+      "presetLabel": "Keluaran",
+      "preset": {
+        "landscape": "Lanskap 16:9",
+        "portrait": "Potret 9:16",
+        "webtoon": "Webtoon (vertikal)"
+      },
+      "render": "Render",
+      "renderTitle": "Pindahkan panel ke dokumen linimasa lalu mulai render",
+      "renderWorking": "Mengirim…",
+      "renderNoApp": "Pasang aplikasi video untuk merender",
+      "renderLinked": "{{app}} · {{status}}"
     },
     "contiPrompt": {
       "title": "Patch elemen dengan prompt",
@@ -733,7 +771,8 @@
         "TaskStop": "Menghentikan tugas atau subagen latar belakang.",
         "MultiEdit": "Menerapkan beberapa suntingan pada satu berkas sekaligus.",
         "SendMessage": "Mengirim pesan lanjutan ke subagen yang sedang berjalan.",
-        "Artifact": "Membuat artefak (dokumen, aplikasi)."
+        "Artifact": "Membuat artefak (dokumen, aplikasi).",
+        "strippedByEdgeHint": "Didelegasikan melalui edge STRICT — agent ini tidak bisa memakainya saat runtime (dipulihkan saat edge dihapus)"
       },
       "maxTurns": "Maks Giliran",
       "maxBudgetUsd": "Anggaran ($, 0=∞)",
@@ -808,6 +847,12 @@
         "defaultLabel": "Default (dtk, 0 = bawaan CLI)",
         "maxLabel": "Batas maks (dtk, 0 = bawaan CLI)",
         "hint": "0 memakai bawaan CLI — {{defaultSec}}dtk default, {{maxSec}}dtk maks."
+      },
+      "modelVersion": {
+        "label": "Versi",
+        "latest": "Terbaru (alias)",
+        "latestWith": "Terbaru ({{id}})",
+        "custom": "Custom…"
       }
     },
     "permissionPrompt": {
@@ -1196,6 +1241,132 @@
       "rechecking": "Memeriksa…",
       "later": "Nanti",
       "docs": "Panduan instalasi resmi"
+    },
+    "appsWindow": {
+      "notInstalledTitle": "{{name}} belum terpasang",
+      "notInstalledBody": "Klik kanan pada canvas lalu pasang dari Aplikasi. Anda juga bisa meletakkan bubble dan langsung memasangnya dari bubble itu.",
+      "unknownMode": "Layar tidak dikenal: {{mode}}",
+      "unknownApp": "Aplikasi tidak dikenal: {{id}}"
+    },
+    "apps": {
+      "open": "Buka",
+      "openHint": "Klik dua kali untuk membuka.",
+      "installApp": "Pasang aplikasi",
+      "installHint": "Klik dua kali untuk memasang.",
+      "uninstallApp": "Copot pemasangan aplikasi",
+      "notInstalledBadge": "Perlu dipasang",
+      "unknown": "Aplikasi tidak dikenal",
+      "rename": "Ganti Nama",
+      "renamePrompt": "Nama bubble",
+      "pin": "Pin",
+      "unpin": "Unpin",
+      "delete": "Hapus",
+      "deletePinnedHint": "Bubble ini sedang di-pin. Unpin dulu.",
+      "detail": {
+        "app": "Aplikasi",
+        "installed": "Terpasang",
+        "unknownHint": "Aplikasi ini bukan bagian dari versi saat ini. Anda tetap bisa menghapus bubble ini.",
+        "installHint": "Pasang dulu sebelum bisa membukanya. Klik dua kali bubble di canvas juga akan memasangnya.",
+        "bubble": "Bubble ini",
+        "nameHint": "Biarkan kosong untuk memakai nama aplikasi.",
+        "protection": "Perlindungan",
+        "pinHint": "Jika aktif, baik tombol Delete maupun aksi hapus tidak bisa menghapusnya.",
+        "deleteBubble": "Hapus bubble ini",
+        "deleteHint": "Tombol Delete juga bisa menghapusnya. Aplikasinya sendiri tetap terpasang."
+      }
+    },
+    "videoStudio": {
+      "title": "Vibistudio",
+      "pickDoc": "Pilih video…",
+      "newDoc": "Video baru",
+      "untitled": "Video baru",
+      "empty": "Pilih video atau buat yang baru.",
+      "newTitle": "Kartu judul",
+      "addTitle": "Tambah judul",
+      "play": "Putar",
+      "pause": "Jeda",
+      "seek": "Posisi pemutaran",
+      "toggleItem": "Aktifkan / nonaktifkan",
+      "removeItem": "Hapus",
+      "pickAgent": "Pilih agent…",
+      "delegate": "Serahkan potongan ini",
+      "delegated": "Potongan ini sudah diserahkan ke agent.",
+      "render": "Render",
+      "renderQueued": "Render diantrekan.",
+      "renderDone": "Render selesai.",
+      "noAudio": "Diekspor tanpa audio.",
+      "downgraded": "Mode render diturunkan: {{id}}",
+      "previewFailed": "Gagal menampilkan pratinjau.",
+      "reloaded": "Dokumen berubah di tempat lain, jadi dimuat ulang."
+    },
+    "cost": {
+      "title": "Peta biaya & token",
+      "close": "Tutup peta biaya",
+      "pillLabel": "Biaya hari ini",
+      "pillEmpty": "Biaya belum terukur",
+      "notMeasured": "Tidak terukur",
+      "notMeasuredHint": "Tidak ada giliran yang dibaca untuk sesi ini, sehingga tidak ada klaim apa pun soal biayanya.",
+      "periodToday": "Hari ini",
+      "periodWeek": "Minggu ini",
+      "periodMonth": "Bulan ini",
+      "periodAll": "Sepanjang waktu",
+      "totalCost": "Biaya",
+      "inputTokens": "Input",
+      "outputTokens": "Output",
+      "cacheReadTokens": "Baca cache",
+      "cacheCreateTokens": "Tulis cache",
+      "agentsTitle": "Per agent",
+      "sessionsTitle": "Per sesi",
+      "colName": "Nama",
+      "colModel": "Model",
+      "colTokens": "Token",
+      "colCost": "Biaya",
+      "sessionCumulativeNote": "Baris sesi menampilkan seluruh sesi, difilter berdasarkan aktivitas terakhir.",
+      "empty": "Belum ada yang terukur di proyek ini.",
+      "emptyHint": "Biaya muncul setelah agent menyelesaikan satu giliran — biaya ini dibaca dari transkrip sesi, bukan jumlah yang ditagihkan.",
+      "estimateNote": "Diperkirakan dari jumlah token dan harga yang dipublikasikan.",
+      "retiredNote": "{{cost}} dari sesi lama digabungkan ke dalam total sepanjang waktu.",
+      "sessions_one": "{{count}} sesi",
+      "sessions_other": "{{count}} sesi",
+      "openMap": "Buka peta biaya & token"
+    },
+    "audit": {
+      "title": "Batas izin & audit",
+      "close": "Tutup linimasa audit",
+      "pillLabel": "Panggilan berisiko hari ini",
+      "pillEmpty": "Tidak ada panggilan tool berisiko hari ini",
+      "pillOff": "Batas audit nonaktif — tindakan berisiko berjalan tanpa bertanya (tetap dicatat)",
+      "boundaryOn": "Tanya sebelum tindakan berisiko",
+      "boundaryHint": "Pencatatan tidak pernah berhenti — ini hanya menentukan apakah agent dihentikan lebih dulu.",
+      "routeTitle": "Pos pemeriksaan kedua, terpisah dari mode izin",
+      "routeBody": "Batas ini berjalan terpisah dari mode izin (Permission Mode) agen — panggilan alat yang sudah diloloskan mode izin akan diperiksa sekali lagi di sini.",
+      "routeOn": "Saat aktif — agen yang disetel ke “izinkan semua (bypassPermissions)” pun tetap mendapat kartu persetujuan untuk panggilan hapus, jaringan, dan konfigurasi.",
+      "routeOff": "Saat nonaktif (bawaan) — semua panggilan berjalan sesuai keputusan mode izin dan hanya dicatat.",
+      "routeScope": "Yang ditahan di sini hanya agen khusus yang dijalankan Vibisual. Sesi Claude Code yang Anda jalankan sendiri hanya dicatat.",
+      "routeStateOn": "Sekarang aktif — panggilan berisiko ditanyakan lebih dulu, sebelum mode izin berlaku.",
+      "routeStateOff": "Sekarang nonaktif — panggilan berjalan sesuai mode izin dan hanya dicatat.",
+      "risk": {
+        "delete": "Hapus",
+        "network": "Jaringan",
+        "config": "Config"
+      },
+      "filterAll": "Semua",
+      "filterRisky": "Berisiko",
+      "filterDenied": "Ditolak",
+      "escalated": "Ditanya dulu",
+      "decisionAllow": "Diizinkan",
+      "decisionDeny": "Ditolak",
+      "sourceTimeout": "waktu habis",
+      "sourcePolicy": "oleh mode",
+      "reason": "Alasan",
+      "countSummary": "{{total}} panggilan · {{risky}} berisiko · {{denied}} ditolak",
+      "showMore": "Tampilkan {{count}} lagi",
+      "noMatch": "Tidak ada panggilan yang cocok dengan filter ini.",
+      "retired": "{{count}} panggilan lama dihitung dalam total, tetapi detailnya sudah hilang.",
+      "empty": "Belum ada panggilan tool yang tercatat di proyek ini.",
+      "emptyHint": "Setiap panggilan tool yang dibuat agent akan muncul di sini — apa yang disentuhnya, dan apa yang kamu jawab.",
+      "promptRiskTitle": "Tindakan berisiko",
+      "promptEscalatedHint": "Mode izin kamu akan mengizinkan ini secara otomatis — batas audit sedang bertanya dulu."
     }
   },
   "ide": {
@@ -1234,6 +1405,12 @@
       "download": "Unduh PNG",
       "saveReplace": "Simpan",
       "saveAttach": "Lampirkan salinan bertanda",
+      "saveFile": "Simpan ke file",
+      "saveFileHint": "Menimpa {{path}} dengan tanda-tanda ini",
+      "saveFileUnsupported": "Format ini tidak dapat dikodekan ulang — lampirkan atau unduh salinan bertanda sebagai gantinya.",
+      "fileSaveFailed": "Tidak dapat menyimpan ke file itu.",
+      "fileConflict": "File itu berubah di disk setelah Anda membukanya.",
+      "fileConflictOverwrite": "Tetap simpan",
       "textPlaceholder": "Ketik, lalu tekan Enter",
       "hintPick": "Pilih tool untuk menandai gambar ini, lalu simpan sebagai lampiran.",
       "hintDraw": "Seret pada gambar untuk menandainya. Ctrl+Z membatalkan tanda terakhir.",
@@ -1256,7 +1433,9 @@
       "cmdLabel": "CMD",
       "hookLabel": "Hook",
       "renameHint": "Klik dua kali untuk ganti nama (F2)",
-      "renameInputLabel": "Nama agent"
+      "renameInputLabel": "Nama agent",
+      "localLabel": "All Model",
+      "localSwitchModel": "Ganti model yang dipakai bubble ini"
     },
     "tabbar": {
       "newSession": "Sesi Baru",
@@ -1376,7 +1555,9 @@
       "runningSubagents": "Sub-agent berjalan ({{count}})",
       "loop": "Ulangi loop",
       "goal": "Sasaran",
-      "debug": "Jalankan dan debug"
+      "debug": "Jalankan dan debug",
+      "hooks": "Hook sesi",
+      "plugins": "Plugin Claude Code"
     },
     "mcp": {
       "title": "Server MCP",
@@ -1652,6 +1833,11 @@
       "truncated": "Hanya bagian awal file besar ini yang ditampilkan — hanya baca.",
       "readError": "Tidak dapat membaca file ini",
       "plainLanguage": "teks",
+      "imageEdit": "Edit",
+      "imageEditHint": "Beri tanda pada gambar ini",
+      "imageFit": "Sesuaikan dengan panel",
+      "imageActualSize": "Ukuran asli (1:1)",
+      "imageReadError": "Gambar ini tidak dapat ditampilkan",
       "openInPane": "Buka di panel editor — {{path}}",
       "openFolder": "Buka folder yang berisi file ini — {{path}}",
       "readOnlyLocked": "File ini terkunci hanya-baca di disk (checkout Perforce, atribut file).",
@@ -1790,6 +1976,45 @@
       "instructionTitle": "Instruksi yang diberikan",
       "changesTitle": "Apa yang diubah",
       "checkpointsTitle": "Mohon periksa"
+    },
+    "reviewLane": {
+      "unknownBranch": "(branch tidak diketahui)",
+      "fileCount": "{{count}} file",
+      "uncommitted": "belum di-commit",
+      "uncommittedHint": "Belum di-commit — menyetujui tidak akan me-merge perubahan ini.",
+      "showMoreFiles": "Tampilkan {{count}} lagi",
+      "showLessFiles": "Tampilkan lebih sedikit",
+      "filesTruncated": "Sebagian file tidak ditampilkan (batas tercapai).",
+      "showDiff": "Tampilkan diff ({{count}} baris)",
+      "hideDiff": "Sembunyikan diff",
+      "diffTruncated": "Diff dipotong pada batas ukuran.",
+      "approve": "Setujui",
+      "approveTitle": "Setujui dan merge branch ini ke branch induk",
+      "reject": "Tolak",
+      "rejectTitle": "Tolak dengan alasan dan kembalikan untuk diperbaiki",
+      "hold": "Tunda",
+      "holdTitle": "Putuskan nanti — tidak ada yang di-merge atau dikembalikan",
+      "sendReject": "Kirim penolakan",
+      "cancel": "Batal",
+      "reasonPlaceholder": "Mengapa Anda menolaknya? Teks ini menjadi perintah berikutnya untuk agent.",
+      "reasonHint": "Alasan menjadi perintah berikutnya.",
+      "rejectPromptHeader": "Perubahan ini ditolak saat review. Perbaiki sesuai alasan di bawah, lalu beri tahu saya apa yang kamu ubah.",
+      "decisionFailed": "Tidak dapat mencatat keputusan: {{error}}",
+      "historyTitle": "Riwayat keputusan ({{count}})",
+      "changeType": {
+        "added": "Ditambahkan",
+        "modified": "Diubah",
+        "deleted": "Dihapus",
+        "renamed": "Diganti nama",
+        "unknown": "Tidak diketahui"
+      },
+      "result": {
+        "approvedMerged": "Disetujui · sudah di-merge",
+        "approvedMergeFailed": "Disetujui · merge gagal ({{error}})",
+        "rejected": "Ditolak",
+        "rejectedDispatched": "Ditolak · perbaikan dikirim",
+        "held": "Ditunda"
+      }
     },
     "list": {
       "title": "Daftar",
@@ -2289,6 +2514,129 @@
           }
         }
       }
+    },
+    "goal": {
+      "title": "Tujuan",
+      "pickSession": "Pilih sesi untuk melihat tujuannya.",
+      "waiting": "Belum ada tujuan. Tujuan akan muncul begitu sesi menyusun rencana.",
+      "setManually": "Tulis sendiri",
+      "textPlaceholder": "Apa yang harus dicapai sesi ini?",
+      "textHint": "Setelah Anda mengedit sendiri kata-katanya, sesi berhenti menulis ulang.",
+      "create": "Buat",
+      "update": "Perbarui",
+      "cancel": "Batal",
+      "editHint": "Edit tujuan",
+      "stepCount": "{{done}} / {{total}} langkah",
+      "stepRemaining": "{{count}} tersisa",
+      "noSteps": "Belum ada langkah",
+      "byUser": "Ditetapkan oleh Anda",
+      "bySession": "Ditetapkan oleh sesi",
+      "toggleStep": "Alihkan langkah ini",
+      "removeStep": "Hapus langkah ini",
+      "addStepPlaceholder": "Tambah langkah…",
+      "historyLabel": "Riwayat",
+      "achieve": "Tandai tercapai",
+      "resume": "Buka kembali",
+      "delete": "Batalkan tujuan",
+      "status": {
+        "active": "Berlangsung",
+        "achieved": "Tercapai",
+        "abandoned": "Dibatalkan"
+      },
+      "source": {
+        "agent": "Dilaporkan oleh agent",
+        "user": "Disesuaikan oleh Anda",
+        "plan": "Diturunkan dari rencana"
+      }
+    },
+    "hooks": {
+      "title": "Hook sesi",
+      "refresh": "Pindai ulang hook",
+      "noProject": "Buka proyek untuk melihat hook yang berlaku untuk sesinya.",
+      "empty": "Tidak ada hook yang dikonfigurasi untuk sesi ini.",
+      "applyHint": "Mengaktifkan atau menonaktifkan hook berlaku untuk sesi yang dimulai sejak saat ini. Hook yang dinonaktifkan tetap ada di file pengaturan — hook itu hanya dipindahkan agar Claude Code tidak lagi menjalankannya.",
+      "loadFailed": "Tidak dapat membaca konfigurasi hook.",
+      "toggleFailed": "Tidak dapat menyimpan perubahan.",
+      "turnOn": "Aktifkan",
+      "turnOff": "Nonaktifkan",
+      "matcher": "Berjalan pada: {{matcher}}",
+      "matcherAll": "Berjalan pada setiap panggilan untuk event ini",
+      "timeout": "timeout {{seconds}}s",
+      "state": {
+        "enabled": "Aktif",
+        "disabled": "Nonaktif"
+      },
+      "scope": {
+        "user": "Global (semua proyek)",
+        "project": "Proyek (dibagikan di repo)",
+        "local": "Lokal (hanya mesin ini)",
+        "managed": "Kebijakan terkelola"
+      },
+      "scopeShort": {
+        "user": "Global",
+        "project": "Proyek",
+        "local": "Lokal",
+        "managed": "Kebijakan"
+      },
+      "scopeHint": {
+        "user": "Ditulis di ~/.claude/settings.json — berjalan di setiap proyek.",
+        "project": "Ditulis di .claude/settings.json — di-commit ke repo, jadi berlaku untuk seluruh tim.",
+        "local": "Ditulis di .claude/settings.local.json — tidak di-commit, jadi hanya Anda yang memilikinya.",
+        "managed": "Ditetapkan oleh file kebijakan administrator. Hanya baca di sini."
+      },
+      "lock": {
+        "vibisual": "Vibisual memasang hook ini untuk memantau sesi Anda. Menonaktifkannya akan membutakan aplikasi ini, jadi hook ini tetap aktif.",
+        "managed": "Kebijakan administrator menetapkan hook ini. Tidak dapat diubah di sini."
+      }
+    },
+    "plugins": {
+      "title": "Plugin Claude Code",
+      "refresh": "Pindai ulang plugin",
+      "noProject": "Buka proyek untuk melihat plugin yang berlaku untuk sesinya.",
+      "loadFailed": "Tidak dapat membaca daftar plugin.",
+      "actionFailed": "Perintah tidak berhasil.",
+      "unavailable": "Tidak dapat meminta daftar plugin dari CLI Claude Code.",
+      "emptyInstalled": "Belum ada plugin Claude Code yang terpasang. Buka tab Marketplace untuk menambahkannya.",
+      "emptyMarket": "Tidak ada plugin yang cocok dengan pencarian Anda.",
+      "applyHint": "Mengaktifkan atau menonaktifkan plugin berlaku untuk sesi yang dimulai sejak saat ini — sesi yang sudah berjalan akan tetap memakai yang sudah dimuat sebelumnya.",
+      "turnOn": "Aktifkan",
+      "turnOff": "Nonaktifkan",
+      "install": "Pasang",
+      "installing": "Memasang…",
+      "alreadyInstalled": "Terpasang",
+      "uninstall": "Copot pemasangan",
+      "installCount": "Jumlah pemasangan yang dilaporkan oleh marketplace",
+      "installScope": "Pasang ke",
+      "searchPlaceholder": "Cari plugin…",
+      "showMore": "Tampilkan {{count}} lagi",
+      "marketplaces": "Marketplace",
+      "marketplaceAdd": "Tambah",
+      "marketplaceRemove": "Hapus",
+      "marketplacePlaceholder": "owner/repo, URL, atau path",
+      "tab": {
+        "installed": "Terpasang",
+        "market": "Marketplace"
+      },
+      "scope": {
+        "user": "Global",
+        "project": "Proyek ini",
+        "local": "Lokal"
+      },
+      "placement": {
+        "global": "Global (semua proyek)",
+        "this-project": "Proyek ini",
+        "other-project": "Terikat ke proyek lain"
+      },
+      "placementShort": {
+        "global": "Global",
+        "this-project": "Proyek",
+        "other-project": "Lainnya"
+      },
+      "placementHint": {
+        "global": "Terpasang untuk pengguna Anda — dimuat di setiap proyek.",
+        "this-project": "Terpasang hanya untuk proyek ini — dimuat di sesi yang Anda jalankan di sini.",
+        "other-project": "Terpasang, tetapi terikat ke proyek lain, jadi tidak dimuat di sesi ini."
+      }
     }
   },
   "bubbleMap": {
@@ -2366,7 +2714,31 @@
       "fitAspect": "Samakan Rasio Sumber",
       "fitAspectHint": "Menyetel ulang tinggi bubble ke rasio aspek sumber sehingga bilah hitam hilang — bubble yang digabung jadi terlihat menyatu.",
       "seamless": "Sembunyikan Sambungan",
-      "seamlessHint": "Menyembunyikan border dan header sehingga bubble yang digabung terlihat seperti satu layar (header muncul kembali saat hover)"
+      "seamlessHint": "Menyembunyikan border dan header sehingga bubble yang digabung terlihat seperti satu layar (header muncul kembali saat hover)",
+      "playtest": {
+        "section": "Playtest",
+        "startRecording": "Mulai rekam playtest",
+        "stopRecording": "Berhenti rekam · pangkas rentang",
+        "recording": "Merekam playtest",
+        "recordFailed": "Perekaman gagal: {{reason}}",
+        "emptyHint": "Rekam sesi, pangkas momen yang bermasalah, lalu lampirkan frame itu ke agent. Klip hanya tersimpan di memori perangkat ini.",
+        "windowTitle": "Klip playtest",
+        "autoStopped": "Berhenti karena mencapai batas durasi",
+        "playRange": "Putar rentang",
+        "rangeReset": "Seluruh klip",
+        "rangeLength": "Rentang {{len}}",
+        "rangeStart": "Awal rentang",
+        "rangeEnd": "Akhir rentang",
+        "save": "Simpan klip (.webm)",
+        "deleteClip": "Buang klip ini",
+        "frames": "Frame",
+        "target": "Kirim ke",
+        "noTarget": "Tidak ada agent yang tersedia",
+        "attach": "Lampirkan {{count}} frame dari rentang",
+        "attaching": "Mengekstrak frame {{done}}/{{total}}",
+        "attached": "{{count}} frame telah dilampirkan ke {{agent}} — sekarang tulis apa yang salah, lalu kirim.",
+        "attachFailed": "Gagal melampirkan: {{reason}}"
+      }
     },
     "taskEdge": {
       "iconHint": "Klik: detail · Klik dua kali: edit",
@@ -2568,7 +2940,20 @@
       "createCapture": "Bubble Tangkap Layar/Program",
       "createCaptureHint": "Menampilkan layar atau jendela program secara langsung di dalam bubble",
       "createSpec": "Papan Spec",
-      "createSpecHint": "Menulis persyaratan, lalu mengubah setiap kriteria penerimaan menjadi kartu tugas"
+      "createSpecHint": "Menulis persyaratan, lalu mengubah setiap kriteria penerimaan menjadi kartu tugas",
+      "createPlay": "Bubble Play",
+      "createPlayHint": "Memulai dan menghentikan proyek ini, serta menampilkan pratinjaunya langsung di sini",
+      "apps": "Aplikasi",
+      "appsHint": "Meletakkan bubble aplikasi, lalu klik dua kali untuk membukanya",
+      "appUninstall": "Copot pemasangan",
+      "appInstall": "Pasang",
+      "appsHelp": "Klik baris untuk meletakkannya di canvas sebagai bubble. Klik dua kali bubble untuk membukanya, klik kanan untuk mengelolanya.",
+      "createLab": "Lab Agen",
+      "createLabHint": "Jalankan tugas yang sama dengan pengaturan berbeda dan bandingkan hasilnya dalam satu tabel",
+      "createLocalAgent": "All Model",
+      "createLocalAgentHint": "Menaruh bubble untuk model yang berjalan di PC ini",
+      "createShelf": "Rak script",
+      "createShelfHint": "Menyimpan perintah dan prompt yang sering dipakai agar tetap satu klik jauhnya"
     },
     "bounds": {
       "label": "Batas Bubble",
@@ -2624,6 +3009,139 @@
       "unpin": "Unpin",
       "delete": "Hapus",
       "deletePinnedHint": "Spec ini sedang di-pin. Unpin dulu."
+    },
+    "play": {
+      "title": "Play",
+      "idle": "Klik untuk menjalankan",
+      "starting": "Memulai…",
+      "findHint": "Klik untuk mencari cara menjalankannya",
+      "unknownRecipe": "Perintah run tidak diketahui",
+      "detected": "Ditemukan cara menjalankannya",
+      "noAgent": "Tidak ada agent custom yang tersedia untuk menyelidiki",
+      "askSent": "Sudah meminta agent mencari cara menjalankan ini",
+      "askFailed": "Tidak bisa menyerahkan penyelidikan ini ke agent",
+      "findRecipe": "Cari tahu cara menjalankannya",
+      "askAgent": "Tanya agent",
+      "editRecipe": "Edit perintah run",
+      "editCommandPrompt": "Perintah run",
+      "editRootPrompt": "Folder untuk di-serve (path absolut)",
+      "showPreview": "Tampilkan pratinjau",
+      "hidePreview": "Sembunyikan pratinjau",
+      "openBrowser": "Buka di browser",
+      "rename": "Ganti Nama",
+      "renamePrompt": "Nama tombol",
+      "pin": "Pin",
+      "unpin": "Unpin",
+      "delete": "Hapus",
+      "deletePinnedHint": "Bubble ini sedang di-pin. Unpin dulu."
+    },
+    "lab": {
+      "title": "Lab",
+      "untitled": "Lab tanpa judul",
+      "openPanel": "Buka lab",
+      "rename": "Ganti nama",
+      "renamePrompt": "Judul lab",
+      "addVariant": "Tambah varian",
+      "removeVariant": "Hapus varian",
+      "startAll": "Jalankan semua",
+      "startAllN": "Jalankan semua ({{count}})",
+      "startNoneHint": "Tidak ada varian untuk dijalankan",
+      "startNoTaskHint": "Tulis tugasnya dulu",
+      "starting": "Menjalankan varian…",
+      "pin": "Sematkan",
+      "unpin": "Lepas sematan",
+      "delete": "Hapus",
+      "deletePinnedHint": "Lab ini disematkan. Lepas sematannya dulu.",
+      "badgeDraft": "Menunggu",
+      "badgeRunning": "Berjalan",
+      "badgeDone": "Selesai",
+      "variants": "Varian",
+      "runningN": "Berjalan {{count}}",
+      "emptyHint": "Klik dua kali untuk menulis tugas dan menyusun varian",
+      "progressRunning": "Berjalan {{done}}/{{total}}",
+      "progressIdle": "Selesai {{done}}/{{total}}",
+      "taskLabel": "Tugas (sama untuk setiap varian)",
+      "taskLocked": "Tugas terkunci selama varian berjalan",
+      "taskPlaceholder": "Tulis perintahnya satu kali saja. Antar varian hanya pengaturannya yang boleh berbeda.",
+      "noVariants": "Belum ada varian. Tambahkan kombinasi pengaturan di bawah.",
+      "variantEditor": "Pengaturan varian",
+      "inherit": "(ikuti pengaturan dasar)",
+      "maxTurns": "Maks giliran",
+      "rulesAppend": "Instruksi khusus varian ini (opsional)",
+      "promote": "Jadikan default",
+      "promoteHint": "Hanya varian yang berhasil bisa dijadikan default",
+      "promotedBadge": "Default",
+      "runOne": "Jalankan",
+      "rerun": "Jalankan lagi",
+      "openCard": "Buka kartu",
+      "col": {
+        "variant": "Varian",
+        "model": "Model",
+        "effort": "Effort",
+        "permission": "Izin",
+        "status": "Status",
+        "duration": "Durasi",
+        "files": "Berkas",
+        "lines": "± baris",
+        "tokens": "Token (masuk/keluar)",
+        "cost": "Biaya",
+        "actions": "Aksi"
+      },
+      "status": {
+        "pending": "Menunggu",
+        "running": "Berjalan",
+        "success": "Berhasil",
+        "failed": "Gagal",
+        "stopped": "Dihentikan"
+      },
+      "baseAgentLabel": "Pengaturan dasar",
+      "baseAgentNone": "(tidak ada — default kartu baru)",
+      "baseAgentHint": "Pengaturan yang diwarisi varian, dan agen tempat promosi disimpan."
+    },
+    "shelf": {
+      "title": "Rak",
+      "untitled": "Rak tanpa judul",
+      "openPanel": "Buka rak",
+      "rename": "Ganti Nama",
+      "renamePrompt": "Nama rak",
+      "addItem": "Tambah item",
+      "countBadge": "{{count}} item",
+      "itemCount": "Item {{count}}/{{max}}",
+      "itemLimit": "Satu rak menampung hingga {{count}} item",
+      "emptyHint": "Klik dua kali untuk menambahkan perintah dan prompt yang sering dipakai",
+      "panelEmpty": "Belum ada item. Taruh perintah shell atau prompt di sini agar bisa dijalankan dari canvas hanya dengan satu klik.",
+      "export": "Ekspor (JSON)",
+      "exportEmptyHint": "Belum ada yang bisa diekspor",
+      "import": "Impor (JSON)",
+      "importReplace": "Impor dan ganti semua",
+      "imported": "{{added}} item berhasil diimpor ({{dropped}} dilewati)",
+      "importFailed": "Tidak dapat mengimpor — itu bukan file rak.",
+      "pin": "Pin",
+      "unpin": "Unpin",
+      "delete": "Hapus",
+      "deletePinnedHint": "Rak ini sedang di-pin. Unpin dulu.",
+      "kindCommand": "Shell",
+      "kindPrompt": "Prompt",
+      "newCommand": "Perintah baru",
+      "newPrompt": "Prompt baru",
+      "addCommand": "+ Perintah Shell",
+      "addPrompt": "+ Prompt",
+      "removeItem": "Hapus item",
+      "moveUp": "Naikkan",
+      "moveDown": "Turunkan",
+      "run": "Jalankan",
+      "running": "Berjalan",
+      "labelPlaceholder": "Nama",
+      "commandPlaceholder": "Perintah Shell yang akan dijalankan (mis. pnpm test)",
+      "promptPlaceholder": "Prompt yang akan dikirim ke agent",
+      "cwdPlaceholder": "Direktori kerja (default: root proyek)",
+      "newAgentTarget": "Buat kartu baru saat dijalankan",
+      "statusSuccess": "Berhasil",
+      "statusFailed": "Gagal",
+      "statusRunning": "Berjalan",
+      "exitCode": "Exit code",
+      "outputTruncated": "(bagian awal dipotong)",
+      "openCard": "Buka kartu itu"
     }
   },
   "common": {
@@ -2645,6 +3163,7 @@
       "awaitingPermission": "Menunggu izin Anda",
       "awaitingInput": "Menunggu input Anda",
       "idle": "Idle",
+      "dormant": "Tidur",
       "autoIdle": "Auto Agent — jelaskan yang Anda inginkan",
       "hint": {
         "enter": "Klik dua kali untuk masuk",
@@ -2659,6 +3178,8 @@
       "deviceMobile": "Ponsel",
       "deviceTablet": "Tablet",
       "deviceDesktop": "Desktop",
+      "deviceCompare": "Bandingkan",
+      "deviceCompareTip": "Tampilkan semua lebar berdampingan dalam satu pratinjau",
       "deviceTip": "Render dengan lebar {{width}}px",
       "pickElement": "Pilih elemen",
       "pickHint": "Klik elemen di pratinjau untuk mendeskripsikan perubahan untuknya",
@@ -2673,8 +3194,16 @@
       "pickLabelElement": "elemen",
       "pickLabelSelector": "selector",
       "pickLabelText": "teks yang terlihat",
-      "pickLabelRequest": "permintaan"
-    }
+      "pickLabelRequest": "permintaan",
+      "snip": "Tangkap area",
+      "snipBusy": "Menangkap…",
+      "snipHint": "Seret pada pratinjau untuk menangkap area itu dan melampirkannya ke kolom input agent",
+      "snipAttached": "Dilampirkan ke kolom input:",
+      "snipRemove": "Hapus tangkapan ini",
+      "snipUnavailable": "Tangkap area tidak tersedia di layar ini.",
+      "snipFailed": "Gagal menangkap: {{error}}"
+    },
+    "close": "Tutup"
   },
   "brain": {
     "bubbleLabel": "Brain",
@@ -2887,6 +3416,86 @@
     "bulkStopAll": "Hentikan semua yang sedang berjalan",
     "resetSettings": "Setel ulang opsi ini",
     "confirmCloseDone": "Tutup {{count}} tab sesi yang selesai?",
-    "confirmStopAll": "Hentikan semua sesi berjalan dari {{count}} agen?"
+    "confirmStopAll": "Hentikan semua sesi berjalan dari {{count}} agen?",
+    "title": "Pusat Komando",
+    "detailToggle": "Alihkan panel detail",
+    "all": "Semua",
+    "shortcuts": "Pintasan",
+    "rankHint": "Prioritas {{rank}}",
+    "jump": "Lompat ke sesi",
+    "followProject": "Ikuti proyek aktif",
+    "followProjectNote": "Selalu menampilkan proyek yang sedang aktif di jendela utama.",
+    "pinnedHint": "Di-pin ke proyek ini — klik untuk mengikuti proyek aktif.",
+    "followingHint": "Mengikuti proyek aktif — klik untuk pin satu proyek.",
+    "noProject": "Tidak ada proyek",
+    "noProjects": "Tidak ada proyek yang terbuka.",
+    "updatedNever": "Belum diperbarui",
+    "updatedNow": "Baru saja diperbarui",
+    "updatedAgo": "Diperbarui {{time}} lalu",
+    "connLive": "Live",
+    "connConnecting": "Menghubungkan…",
+    "connLost": "Offline",
+    "connLostHint": "Koneksi terputus — menyambung ulang.",
+    "refresh": "Segarkan",
+    "refreshHint": "Segarkan sekarang",
+    "view": {
+      "board": "Papan",
+      "list": "Daftar"
+    },
+    "sortRule": {
+      "recent": "Aktivitas terbaru dulu",
+      "waiting": "Waktu tunggu terlama dulu",
+      "context": "Sisa context paling sedikit dulu"
+    },
+    "detail": {
+      "close": "Tutup",
+      "context": "Sisa context",
+      "permission": "Perlu izin",
+      "question": "Pertanyaan",
+      "suggested": "Disarankan",
+      "review": "Review",
+      "changes": "Perubahan",
+      "checkpoints": "Checkpoint",
+      "report": "Laporan",
+      "userActions": "Giliran Anda",
+      "did": "Yang dilakukan agent",
+      "nextSteps": "Langkah berikutnya",
+      "queued": "Perintah dalam antrean",
+      "lastActivity": "Aktivitas terakhir",
+      "nothingYet": "Belum ada.",
+      "queuedIt": "Diantrekan.",
+      "composerHint": "Ketik perintah lalu tekan Enter untuk mengirimkannya ke sesi ini."
+    }
+  },
+  "localModel": {
+    "title": "All Model",
+    "subtitle": "Pilih model yang berjalan di PC ini dan tautkan ke bubble",
+    "installIntro": "Menjalankan model lokal membutuhkan inference engine. Ini tidak disertakan dalam paket dasar agar installer-nya tetap kecil — Anda hanya perlu mengunduhnya sekali.",
+    "installWhat": "Yang Anda dapatkan — build GPU (Vulkan) dan CPU. Vulkan mendukung sebagian besar kartu grafis; tanpa itu, model tetap bisa berjalan di CPU.",
+    "installWhere": "Lokasi",
+    "install": "Unduh & pasang engine",
+    "preparing": "Menyiapkan",
+    "engineReady": "Engine siap",
+    "uninstall": "Hapus engine",
+    "myModels": "Model yang diunduh",
+    "noModels": "Belum ada model. Cari di bawah dan unduh salah satu.",
+    "loaded": "dimuat di memori",
+    "deleteModel": "Hapus",
+    "downloading": "Mengunduh",
+    "cancel": "Batal",
+    "catalog": "Dapatkan model",
+    "searchPlaceholder": "Cari berdasarkan nama model (mis. qwen coder)",
+    "search": "Cari",
+    "searching": "Mencari…",
+    "noFiles": "Tidak ditemukan file GGUF yang bisa diunduh di repositori ini.",
+    "sizeUnknown": "ukuran tidak diketahui",
+    "download": "Unduh",
+    "footerHint": "Model yang dipilih berjalan dengan sumber daya PC ini. Setelah siap, IDE bubble ini terbuka, dan bubble Claude yang ada tetap seperti semula.",
+    "preparingFor": "Menyiapkan model yang akan dipakai {{name}}",
+    "stepEngine": "Engine",
+    "stepModel": "Model",
+    "stepIde": "IDE",
+    "useModelStart": "Mulai dengan model ini",
+    "opensIdeHint": "Begitu unduhan selesai, IDE bubble ini langsung terbuka."
   }
 }

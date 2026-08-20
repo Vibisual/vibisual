@@ -133,7 +133,7 @@ export function CommentBoxDetail({ box }: Props): React.JSX.Element {
             ref={bgPickerRef}
             type="button"
             onClick={openBgPicker}
-            className="relative flex h-6 w-6 cursor-pointer items-center justify-center overflow-hidden rounded-full border border-dashed border-gray-600 text-[10px] text-gray-300 transition-all hover:scale-110 hover:border-gray-300"
+            className="relative flex h-6 w-6 cursor-pointer items-center justify-center overflow-hidden rounded-full border border-dashed border-gray-600 text-[12px] text-gray-300 transition-all hover:scale-110 hover:border-gray-300"
             title={t('panel.commentBox.customColor', 'Custom color')}
             aria-label={t('panel.commentBox.customColor', 'Custom color')}
             style={{
@@ -156,7 +156,7 @@ export function CommentBoxDetail({ box }: Props): React.JSX.Element {
           <button
             type="button"
             onClick={() => commitTextColor(undefined)}
-            className={`rounded border px-2 py-0.5 text-[10px] transition-colors ${
+            className={`rounded border px-2 py-0.5 text-[12px] transition-colors ${
               box.textColor === undefined || box.textColor === ''
                 ? 'border-blue-500 bg-blue-500/20 text-blue-400'
                 : 'border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-500'

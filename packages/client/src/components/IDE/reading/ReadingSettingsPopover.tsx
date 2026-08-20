@@ -55,18 +55,18 @@ export function ReadingSettingsPopover({
       aria-label={t('ide.reading.title')}
     >
       <div className="flex items-center justify-between border-b border-gray-700 px-3 py-2">
-        <span className="text-[11.5px] font-semibold text-gray-200">{t('ide.reading.title')}</span>
+        <span className="text-[12px] font-semibold text-gray-200">{t('ide.reading.title')}</span>
         <button
           type="button"
           onClick={resetIdeReading}
-          className="rounded border border-gray-700 px-1.5 py-0.5 text-[10px] text-gray-400 transition-colors hover:border-gray-600 hover:text-gray-200"
+          className="rounded border border-gray-700 px-1.5 py-0.5 text-[12px] text-gray-400 transition-colors hover:border-gray-600 hover:text-gray-200"
         >
           {t('ide.reading.reset')}
         </button>
       </div>
 
       {mobileAdapted ? (
-        <div className="border-b border-gray-700 bg-amber-500/10 px-3 py-1.5 text-[10px] leading-relaxed text-amber-300">
+        <div className="border-b border-gray-700 bg-amber-500/10 px-3 py-1.5 text-[12px] leading-relaxed text-amber-300">
           {t('ide.reading.mobileActive')}
         </div>
       ) : null}
@@ -78,7 +78,7 @@ export function ReadingSettingsPopover({
         </div>
       </ScrollFade>
 
-      <p className="border-t border-gray-700 px-3 py-2 text-[10px] leading-relaxed text-gray-500">
+      <p className="border-t border-gray-700 px-3 py-2 text-[12px] leading-relaxed text-gray-500">
         {t('ide.reading.rationale')}
       </p>
     </div>

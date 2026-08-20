@@ -89,11 +89,11 @@ export const IframeServerCard = memo(function IframeServerCard({
       <div className="flex items-center justify-between">
         <span className="text-xs text-gray-500">Server</span>
         <div className="flex items-center gap-1.5">
-          <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${kindClasses}`}>
+          <span className={`rounded px-1.5 py-0.5 text-[12px] font-semibold ${kindClasses}`}>
             {kindLabel}
           </span>
           <span
-            className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+            className={`rounded px-1.5 py-0.5 text-[12px] font-semibold ${
               alive ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-500/20 text-slate-400'
             }`}
           >

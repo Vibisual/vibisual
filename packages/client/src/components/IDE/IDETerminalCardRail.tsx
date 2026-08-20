@@ -125,10 +125,10 @@ export const IDETerminalCardRail = memo(function IDETerminalCardRail({
         <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="M15 18l-6-6 6-6" />
         </svg>
-        <span className="rounded bg-violet-500/20 px-1 py-0.5 text-[10px] font-bold tabular-nums text-violet-300">
+        <span className="rounded bg-violet-500/20 px-1 py-0.5 text-[12px] font-bold tabular-nums text-violet-300">
           {cards.length}
         </span>
-        <span className="[writing-mode:vertical-rl] text-[10px] font-semibold uppercase tracking-wide">
+        <span className="[writing-mode:vertical-rl] text-[12px] font-semibold uppercase tracking-wide">
           {t('ide.terminal.cards.title')}
         </span>
       </button>
@@ -140,10 +140,10 @@ export const IDETerminalCardRail = memo(function IDETerminalCardRail({
       {/* 헤더 */}
       <div className="flex items-center gap-2 border-b border-gray-800 bg-gray-900/70 px-3 py-1.5">
         <span className="text-violet-300"><CardsIcon /></span>
-        <span className="flex-1 text-[11px] font-semibold uppercase tracking-wide text-gray-300">
+        <span className="flex-1 text-[12px] font-semibold uppercase tracking-wide text-gray-300">
           {t('ide.terminal.cards.title')}
         </span>
-        <span className="rounded bg-violet-500/20 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-violet-300">
+        <span className="rounded bg-violet-500/20 px-1.5 py-0.5 text-[12px] font-bold tabular-nums text-violet-300">
           {pairTerminalCards(cards).length}
         </span>
         <button
@@ -178,7 +178,7 @@ export const IDETerminalCardRail = memo(function IDETerminalCardRail({
       <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto py-1.5">
         {cards.length === 0 ? (
           <div className="flex h-full items-center justify-center px-6 text-center">
-            <span className="text-[11px] text-gray-600">{t('ide.terminal.cards.empty')}</span>
+            <span className="text-[12px] text-gray-600">{t('ide.terminal.cards.empty')}</span>
           </div>
         ) : (
           pairTerminalCards(cards).map(({ card, review }) => (

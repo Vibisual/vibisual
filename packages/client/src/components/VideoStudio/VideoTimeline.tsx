@@ -103,7 +103,7 @@ export function VideoTimeline({
         {ticks.map((s) => (
           <div
             key={s}
-            className="absolute top-0 h-full border-l border-white/10 pl-1 text-[10px] leading-7 text-white/40"
+            className="absolute top-0 h-full border-l border-white/10 pl-1 text-[12px] leading-7 text-white/40"
             style={{ left: `${(s / duration) * 100}%` }}
           >
             {s}s
@@ -121,7 +121,7 @@ export function VideoTimeline({
         const tone = TRACK_TONE[track.kind] ?? 'bg-slate-500/70 border-slate-300/50';
         return (
           <div key={track.id} className="flex items-stretch gap-2">
-            <div className="flex w-24 shrink-0 items-center gap-1 truncate text-[11px] text-white/50">
+            <div className="flex w-24 shrink-0 items-center gap-1 truncate text-[12px] text-white/50">
               {track.hidden === true || track.muted === true ? (
                 <svg
                   viewBox="0 0 24 24"
@@ -150,7 +150,7 @@ export function VideoTimeline({
                     key={item.id}
                     type="button"
                     onClick={() => onSelectItem(selected ? null : item.id)}
-                    className={`absolute top-1 h-7 overflow-hidden rounded border px-1.5 text-left text-[11px] text-white/90 transition-shadow ${tone} ${
+                    className={`absolute top-1 h-7 overflow-hidden rounded border px-1.5 text-left text-[12px] text-white/90 transition-shadow ${tone} ${
                       off ? 'opacity-35' : ''
                     } ${selected ? 'ring-2 ring-white/80' : ''}`}
                     style={{ left: `${left}%`, width: `${width}%` }}
@@ -166,7 +166,7 @@ export function VideoTimeline({
       })}
 
       {timeline.diagnostics.length > 0 ? (
-        <ul className="mt-1 space-y-0.5 rounded bg-amber-500/10 p-2 text-[11px] text-amber-200">
+        <ul className="mt-1 space-y-0.5 rounded bg-amber-500/10 p-2 text-[12px] text-amber-200">
           {timeline.diagnostics.slice(0, 6).map((d, i) => (
             <li key={`${d.code}-${i}`}>{d.message}</li>
           ))}

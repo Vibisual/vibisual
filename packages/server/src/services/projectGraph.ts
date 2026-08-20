@@ -16,6 +16,7 @@ import type {
   AgentPhase,
   ProjectInfo,
   ProjectCheckpoint,
+  ProjectAgentCounts,
   QueuedCommand,
   FolderFileEntry,
   GhostChangeType,
@@ -41,10 +42,26 @@ import type {
   PlayRecipe,
   SpecDoc,
   SpecItem,
+  ReviewRequest,
+  ReviewDecision,
+  ReviewRequestStatus,
+  ReviewFileChange,
+  LabRun,
+  ShelfBubble,
+  ShelfItem,
+  ShelfItemKind,
+  ShelfItemRun,
+  ShelfRunStatus,
+  ShelfImportDraftItem,
+  LabVariant,
+  LabVariantConfig,
+  LabResult,
   Conti,
   ContiFrame,
   ContiElement,
   ActiveContiWork,
+  ContiRenderLink,
+  StoryboardPresetId,
   ContiWorkSource,
   ToolDurationEntry,
   CompactCount,
@@ -71,18 +88,25 @@ import type {
   ContextOverrides,
   ContextOverrideMap,
 } from '@vibisual/shared';
-import { MAX_BASH_HISTORY, MAX_FILE_EDITS, MAX_WRITE_DIFF_BYTES, DEFAULT_MAX_SATELLITES, SATELLITE_MAX_BOUNDS, MAX_AGENTS, SATELLITE_TYPES, AGENT_FADE_DURATION, BUBBLE_TTL, GHOST_FADE_DURATION, FILE_EXISTENCE_MISS_THRESHOLD, FRONTEND_SERVER_PATTERNS, IFRAME_DEAD_GRACE_MS, parseModelFamily, DEFAULT_AGENT_CONFIG, AVAILABLE_AGENT_TOOLS, BACKFILL_AGENT_TOOLS, DEFAULT_UI_LOCALE, COMMENT_BOX_DEFAULTS, READ_TOOLS, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, AGENT_REPORT_MAX_PER_AGENT, AGENT_QUESTIONS_MAX_PER_AGENT, AGENT_REVIEWS_MAX_PER_AGENT, AGENT_LISTS_MAX_PER_AGENT, AGENT_FEEDBACK_MAX_PER_AGENT, DELETED_AGENT_TOMBSTONE_MAX, CMD_AGENT_COLOR, MAX_AGENT_EVENTS, BRAIN_INJECTIONS_MAX_PER_AGENT, SESSION_GOAL_NOTE_MAX, SESSION_GOAL_HISTORY_MAX, SESSION_GOAL_STEPS_MAX, SESSION_GOAL_STEP_TEXT_MAX, SESSION_GOAL_TEXT_MAX, AUTO_AGENT_RUN_MAX_PER_AGENT, AUTO_AGENT_RUN_DEFAULT_REWORK_BUDGET, isExpiredByDays, capMapSize, SESSION_KEYED_MAP_MAX, ROOT_NODE_KEY_PREFIX, LEGACY_ROOT_NODE_KEY, SPEC_TITLE_MAX, SPEC_BODY_MAX, SPEC_MAX_ITEMS, SPEC_ITEM_TEXT_MAX } from '@vibisual/shared';
-import type { ServerKind, UiLocale, ExecutionMode } from '@vibisual/shared';
+import { LOCAL_AGENT_COLOR, ALL_MODEL_DEFAULT_LABEL_RE, MAX_BASH_HISTORY, MAX_FILE_EDITS, MAX_WRITE_DIFF_BYTES, DEFAULT_MAX_SATELLITES, SATELLITE_MAX_BOUNDS, MAX_AGENTS, SATELLITE_TYPES, AGENT_FADE_DURATION, BUBBLE_TTL, GHOST_FADE_DURATION, FILE_EXISTENCE_MISS_THRESHOLD, FRONTEND_SERVER_PATTERNS, IFRAME_DEAD_GRACE_MS, parseModelFamily, DEFAULT_AGENT_CONFIG, AVAILABLE_AGENT_TOOLS, BACKFILL_AGENT_TOOLS, DEFAULT_UI_LOCALE, COMMENT_BOX_DEFAULTS, READ_TOOLS, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, AGENT_REPORT_MAX_PER_AGENT, AGENT_QUESTIONS_MAX_PER_AGENT, AGENT_REVIEWS_MAX_PER_AGENT, AGENT_LISTS_MAX_PER_AGENT, AGENT_FEEDBACK_MAX_PER_AGENT, DELETED_AGENT_TOMBSTONE_MAX, CMD_AGENT_COLOR, MAX_AGENT_EVENTS, BRAIN_INJECTIONS_MAX_PER_AGENT, SESSION_GOAL_NOTE_MAX, SESSION_GOAL_HISTORY_MAX, SESSION_GOAL_STEPS_MAX, SESSION_GOAL_STEP_TEXT_MAX, SESSION_GOAL_TEXT_MAX, AUTO_AGENT_RUN_MAX_PER_AGENT, AUTO_AGENT_RUN_DEFAULT_REWORK_BUDGET, isExpiredByDays, capMapSize, SESSION_KEYED_MAP_MAX, ROOT_NODE_KEY_PREFIX, LEGACY_ROOT_NODE_KEY, SPEC_TITLE_MAX, SPEC_BODY_MAX, SPEC_MAX_ITEMS, SPEC_ITEM_TEXT_MAX, REVIEW_FILES_MAX, REVIEW_DIFF_MAX_BYTES, REVIEW_REQUESTS_MAX_PER_PROJECT, REVIEW_DECISIONS_MAX, REVIEW_REASON_MAX, LAB_TITLE_MAX, LAB_TASK_MAX, LAB_VARIANT_LABEL_MAX, LAB_RULES_APPEND_MAX, LAB_SUMMARY_MAX, LAB_MAX_VARIANTS, LAB_RUNS_MAX_PER_PROJECT, SHELF_TITLE_MAX, SHELF_LABEL_MAX, SHELF_COMMAND_MAX, SHELF_PROMPT_MAX, SHELF_MAX_ITEMS, SHELF_BUBBLES_MAX_PER_PROJECT, SHELF_RUN_OUTPUT_MAX_CHARS, normalizeShelfIcon, normalizeShelfColor, isSessionRunning, agentBadgeShare } from '@vibisual/shared';
+import type { ServerKind, UiLocale, ExecutionMode, AgentProvider, ModelRegistry } from '@vibisual/shared';
+// §5.22 — 권한·감사 경계.
+import type { AuditBoundaryConfig, AuditDecisionSource, ProjectAuditLog } from '@vibisual/shared';
+import { COST_MAP_ACTIVE_WINDOW_MS } from '@vibisual/shared';
 import { EdgeManager } from './edgeManager.js';
 import { extractPort, extractPortFromInlineEval, extractPortFromScriptFile, isPortAlive, isUrlServing, isProbeCommand, isVibisualLauncherCommand } from './processChecker.js';
 import { BackgroundShellWatcher, parseBackgroundShellResponse, scanActiveBackgroundShells } from './backgroundShellWatcher.js';
 import { subAgentManager, getCmdSessionIds } from './subAgentManager.js';
+import { CostMapService } from './costMap.js';
+import type { CostSweepSession } from './costMap.js';
+import { AuditLogService } from './auditLog.js';
+import type { AuditRecordInput } from './auditLog.js';
 import { sanitizeContiOnLoad } from './contiManager.js';
 import { isShortAlive as isAgentViewShortAlive, isShortWorking as isAgentViewShortWorking, readRoster as readAgentViewRoster } from './claudeAgentViewService.js';
 import { pipelineManager } from './pipelineManager.js';
 import { getBrainService } from './brainService.js';
 import type { LocalSession, AgentContextInfo } from './sessionDiscovery.js';
-import { resolveSessionTitle, readUserMessages, readLastAssistantMessage, readContextInfo, discoverSessions, findPidBySession, isSessionInUse, getSessionJsonlPath, listJsonlSessionIds, findEntrypointBySession, isSessionInterrupted } from './sessionDiscovery.js';
+import { resolveSessionTitle, readUserMessages, readLastAssistantMessage, readContextInfo, discoverSessions, findPidBySession, isSessionInUse, getSessionJsonlPath, listJsonlSessionIds, findEntrypointBySession, isSessionInterrupted, readSessionTokenData } from './sessionDiscovery.js';
 import { logger } from '../logger.js';
 import { appStateGetRetention } from './appState.js';
 import { isLiveWorktreeDir } from './worktreeLiveness.js';
@@ -120,6 +144,108 @@ function sanitizeSpecDocOnLoad(doc: SpecDoc): SpecDoc {
   };
 }
 
+/**
+ * §5.16 — 디스크에서 올라온 리뷰 한 건을 정규화한다.
+ *
+ * 실행 상태가 없으므로 내릴 것은 없고, 구버전·손상 체크포인트에서 빠졌을 수 있는 필드만 채운다.
+ * 사람이 쓴 반려 사유는 손대지 않는다 — 여기서 자르면 판단 근거가 조용히 사라진다.
+ */
+function sanitizeReviewRequestOnLoad(req: ReviewRequest): ReviewRequest {
+  const status: ReviewRequestStatus =
+    req.status === 'approved' || req.status === 'rejected' || req.status === 'held' ? req.status : 'pending';
+  return {
+    ...req,
+    files: Array.isArray(req.files) ? req.files.filter((f) => f && typeof f.path === 'string') : [],
+    diff: typeof req.diff === 'string' ? req.diff : '',
+    status,
+    decisions: Array.isArray(req.decisions) ? req.decisions.filter((d) => d && typeof d.id === 'string') : [],
+  };
+}
+
+/**
+ * §5.18 — 변형이 흔드는 설정 축만 남긴다. 여기 없는 키는 기준 에이전트 설정에서 온다.
+ * 빈 문자열은 "이 축은 안 흔든다"는 뜻이므로 필드 자체를 떨어뜨린다(빈 값으로 덮어써서
+ * 기준 설정의 모델이 사라지는 사고를 막는다).
+ */
+function sanitizeLabVariantConfig(cfg: LabVariantConfig | undefined): LabVariantConfig {
+  const out: LabVariantConfig = {};
+  if (!cfg) return out;
+  if (typeof cfg.model === 'string' && cfg.model.trim() !== '') out.model = cfg.model.trim();
+  if (typeof cfg.effort === 'string' && cfg.effort.trim() !== '') out.effort = cfg.effort.trim();
+  if (typeof cfg.permissionMode === 'string' && cfg.permissionMode.trim() !== '') {
+    out.permissionMode = cfg.permissionMode.trim();
+  }
+  if (typeof cfg.maxTurns === 'number' && Number.isFinite(cfg.maxTurns) && cfg.maxTurns > 0) {
+    out.maxTurns = Math.floor(cfg.maxTurns);
+  }
+  if (typeof cfg.rulesAppend === 'string' && cfg.rulesAppend.trim() !== '') {
+    out.rulesAppend = cfg.rulesAppend.slice(0, LAB_RULES_APPEND_MAX);
+  }
+  return out;
+}
+
+/**
+ * §5.18 — 디스크에서 올라온 랩 한 장을 정규화한다.
+ *
+ * 앱과 함께 죽은 프로세스는 아무것도 돌고 있지 않으므로 **`running` 잔상을 내린다**(플레이 버블의
+ * `running → idle` 강등과 같은 규율). 사람이 쓴 과제 문장·측정된 결과값은 손대지 않는다.
+ */
+function sanitizeLabRunOnLoad(run: LabRun): LabRun {
+  const variants: LabVariant[] = Array.isArray(run.variants)
+    ? run.variants
+      .filter((v) => v && typeof v.id === 'string')
+      .map((v) => {
+        const result = v.result;
+        if (!result) return { ...v, config: sanitizeLabVariantConfig(v.config) };
+        // 재시작 직후에 도는 변형은 없다 — 끊긴 것으로 표시해 표가 거짓말하지 않게 한다.
+        const status = result.status === 'running' || result.status === 'pending' ? 'stopped' : result.status;
+        return { ...v, config: sanitizeLabVariantConfig(v.config), result: { ...result, status } };
+      })
+    : [];
+  const hasResult = variants.some((v) => v.result !== undefined);
+  return {
+    ...run,
+    title: typeof run.title === 'string' ? run.title : '',
+    task: typeof run.task === 'string' ? run.task : '',
+    variants,
+    status: hasResult ? 'done' : 'draft',
+  };
+}
+
+/**
+ * §5.20 — 디스크에서 올라온 선반 한 장을 정규화한다.
+ *
+ * 앱과 함께 죽은 프로세스는 아무것도 돌고 있지 않으므로 **`running` 잔상을 내린다**(랩·플레이 버블과
+ * 같은 규율 — 그대로 살리면 화면이 "지금 돌고 있다"고 거짓말한다). 아이콘·색은 고정 목록 안으로
+ * 되돌린다 — 예전 버전이 남긴 값이나 손으로 고친 체크포인트가 화면에 아무 글리프나 그리지 못하게.
+ */
+function sanitizeShelfBubbleOnLoad(bubble: ShelfBubble): ShelfBubble {
+  const items: ShelfItem[] = Array.isArray(bubble.items)
+    ? bubble.items
+      .filter((i) => i && typeof i.id === 'string')
+      .slice(0, SHELF_MAX_ITEMS)
+      .map((i) => {
+        const kind: ShelfItemKind = i.kind === 'prompt' ? 'prompt' : 'command';
+        const run = i.lastRun;
+        const next: ShelfItem = {
+          ...i,
+          kind,
+          icon: normalizeShelfIcon(i.icon, kind),
+          color: normalizeShelfColor(i.color),
+        };
+        // 재시작 직후에 도는 항목은 없다 — 끊긴 것으로 표시한다.
+        if (run && run.status === 'running') {
+          next.lastRun = { ...run, status: 'failed', error: run.error ?? 'interrupted by restart' };
+        }
+        return next;
+      })
+    : [];
+  return {
+    ...bubble,
+    title: typeof bubble.title === 'string' ? bubble.title : '',
+    items,
+  };
+}
 /**
  * §2.4 — 디스크에서 올라온 버블의 "활동중" 잔상을 내린다.
  *
@@ -880,6 +1006,28 @@ export class ProjectGraph {
   private specDocs = new Map<string, SpecDoc>();
   /** 스펙·항목 id 발급 카운터. 한 밀리초에 여러 항목을 만들 때 id 가 겹치지 않게 한다. */
   private specIdCounter = 0;
+  /** §5.16 — 리뷰·승인 레인(격리 변경분 + 사람이 내린 결정 이력). */
+  private reviewRequests = new Map<string, ReviewRequest>();
+  /** 리뷰·결정 id 발급 카운터. 같은 밀리초에 둘을 만들어도 id 가 겹치지 않게 한다. */
+  private reviewIdCounter = 0;
+  /** §5.18 — 에이전트 랩(과제 하나 + 설정 조합 N개 + 그 결과). */
+  private labRuns = new Map<string, LabRun>();
+  /** 랩·변형 id 발급 카운터. 같은 밀리초에 여러 변형을 만들 때 id 가 겹치지 않게 한다. */
+  private labIdCounter = 0;
+  /** §5.20 — 스크립트 선반(자주 쓰는 명령·프롬프트 한 장). */
+  private shelfBubbles = new Map<string, ShelfBubble>();
+  /** 선반·항목 id 발급 카운터. 같은 밀리초에 여러 줄을 만들어도 id 가 겹치지 않게 한다. */
+  private shelfIdCounter = 0;
+  /**
+   * §5.21 — 비용·토큰 지도. 원장은 세션 하나이고 에이전트·프로젝트 합계는 거기서 접은 파생이라
+   * 이 인스턴스 하나가 자기 프로젝트들의 원장을 전부 들고 있다.
+   */
+  private costMapService = new CostMapService();
+  /**
+   * §5.22 — 권한·감사 원장. 훅 이벤트가 지나가는 자리에서 한 줄씩 적고, 승인 창구의 결정도
+   * **같은 줄**에 적힌다(요청 원장·결정 원장을 따로 두지 않는다).
+   */
+  private auditLogService = new AuditLogService();
   /** §5.3 #28 v1.47 — 콘티 (contiId → Conti). 에이전트 cascade 삭제. */
   private contis = new Map<string, Conti>();
 
@@ -1317,6 +1465,19 @@ export class ProjectGraph {
 
   /** 에이전트 설정 저장 (사용자 수동 편집) */
   setAgentConfig(agentId: string, config: AgentConfig): void {
+    // §5.19 (B) — 준비 중이던 All Model 버블이 **모델을 무는 순간** 라벨의 주인공이 모델명으로 바뀐다.
+    //   생성 시 명명(createCustomAgent)의 뒷짝이라 이름 규칙 둘이 한 파일 안에 나란히 산다.
+    //   사용자가 직접 바꾼 이름은 기본 라벨 모양이 아니라서 여기 걸리지 않는다 — 지키려고 플래그를
+    //   따로 두지 않는 이유다.
+    const boundName = config.provider?.modelName?.trim();
+    const hadModel = !!this.agentConfigs.get(agentId)?.provider?.modelId;
+    if (boundName && config.provider?.modelId && !hadModel) {
+      for (const agent of this.agents.values()) {
+        if (agent.id !== agentId) continue;
+        if (ALL_MODEL_DEFAULT_LABEL_RE.test(agent.label)) this.updateBubbleLabel(agentId, this.uniqueLabel(boundName));
+        break;
+      }
+    }
     this.agentConfigs.set(agentId, config);
     this.manuallyConfigured.add(agentId);
     logger.info(`Agent config updated (manual): ${agentId}`);
@@ -1572,6 +1733,10 @@ export class ProjectGraph {
       if (agent.id === nodeId) {
         this.customLabels.set(nodeId, label);
         agent.label = label;
+        // §3.2 스냅샷 캐시 — 이름을 바꿔 놓고 판을 올리지 않으면 곧바로 이어지는 broadcast 가
+        //   **옛 이름을 실은 캐시**를 그대로 내보낸다(TTL 이 지나야 제 이름이 뜬다). 바뀐 이름은
+        //   저장돼야 하는 상태이기도 해서, 판 올림이 체크포인트 저장 판정까지 함께 맞춘다.
+        this.bumpMutationVersion();
         return;
       }
     }
@@ -1644,13 +1809,18 @@ export class ProjectGraph {
     label: string,
     position?: { x: number; y: number },
     projectName?: string | null,
-    options?: { executionMode?: ExecutionMode },
+    options?: { executionMode?: ExecutionMode; provider?: AgentProvider },
   ): BubbleData {
     this.agentCounter += 1;
     const sessionId = `custom-${Date.now().toString(36)}-${this.agentCounter}`;
     // §4 v2.63 — CMD(인터랙티브 터미널) 에이전트는 생성 시점에 executionMode + 구분 색 + 이름을 baked.
     const cmdMode = options?.executionMode === 'interactive-terminal';
-    const baseName = label || `${cmdMode ? 'CMD' : 'Custom'} Agent ${this.agentCounter}`;
+    // §5.19 (C) — All Model(로컬 LLM) 버블. CMD 와 같은 자리에서 갈리는 세 번째 갈래이고,
+    //   라벨의 주인공은 에이전트 이름이 아니라 **모델명**이다(캔버스에서 무엇을 물었는지 바로 읽히게).
+    const localMode = !!options?.provider;
+    const localName = options?.provider?.modelName?.trim();
+    const baseName = label
+      || (localMode ? (localName || `All Model ${this.agentCounter}`) : `${cmdMode ? 'CMD' : 'Custom'} Agent ${this.agentCounter}`);
     const uniqueName = this.uniqueLabel(baseName);
     const agent: BubbleData = {
       id: `agent-${hashString(sessionId)}`,
@@ -1676,7 +1846,11 @@ export class ProjectGraph {
       // §4 v2.63 — executionMode 는 userDefaults 에서 **절대 상속하지 않는다**(레거시 토글 잔재 차단).
       //   CMD 는 우클릭 "CMD Agent"(명시 options) 로만 baked. 일반 커스텀 에이전트는 항상 헤드리스.
       executionMode: cmdMode ? 'interactive-terminal' as const : undefined,
+      // §5.19 — provider 도 같은 규약이다: userDefaults 에서 상속하지 않고 **생성 시 명시된 것만** baked.
+      //   이 값이 없으면 이 에이전트는 지금까지와 똑같은 claude 경로를 탄다.
+      ...(localMode && options?.provider ? { provider: options.provider } : {}),
       ...(cmdMode ? { color: CMD_AGENT_COLOR } : {}),
+      ...(localMode ? { color: LOCAL_AGENT_COLOR } : {}),
     });
     // activeProject name → 해당 프로젝트의 원본 cwd 조회
     const cwd = this.resolveProjectCwd(projectName ?? null);
@@ -3189,6 +3363,10 @@ export class ProjectGraph {
         this.recordObservedTool(payload.session_id, payload.tool_name);
       }
 
+      // §5.22 — 감사 원장 한 줄. 이 자리가 "모든 도구 호출이 지나가는 유일한 길"이라
+      // 새 감시 계층 없이 여기 얹는다. 디스크는 이 경로가 이미 쓰는 코얼레스 저장에 맡긴다.
+      this.recordAuditFromHook(payload, agent);
+
       // 파일 경로 없는 특수 도구 → 전용 버블
       if (specialType) {
         const result = this.processSpecialTool(agent, payload.tool_name, specialType);
@@ -3765,6 +3943,13 @@ export class ProjectGraph {
       appBubbles: this.getAppBubbles(),
       playBubbles: this.getPlayBubbles(),
       specDocs: this.getSpecDocs(),
+      reviewRequests: this.getReviewRequests(),
+      labRuns: this.getLabRuns(),
+      shelfBubbles: this.getShelfBubbles(),
+      // §5.21 — 전선용 지도(세션 날짜 분해는 빼고 실는다 — 그건 체크포인트 몫).
+      costMaps: this.costMapService.getSnapshot(),
+      // §5.22 — 감사 원장(집계는 서버가 접어서 실어 준다 — 클라가 다시 세지 않는다).
+      auditLogs: this.auditLogService.getSnapshot(),
       debugBreakpoints: this.debugBreakpoints.size > 0
         ? Object.fromEntries([...this.debugBreakpoints].map(([k, v]) => [k, [...v]]))
         : undefined,
@@ -3921,6 +4106,13 @@ export class ProjectGraph {
       appBubbles: this.appBubbles.size > 0 ? [...this.appBubbles.values()] : undefined,
       playBubbles: this.playBubbles.size > 0 ? [...this.playBubbles.values()] : undefined,
       specDocs: this.specDocs.size > 0 ? [...this.specDocs.values()] : undefined,
+      reviewRequests: this.reviewRequests.size > 0 ? [...this.reviewRequests.values()] : undefined,
+      labRuns: this.labRuns.size > 0 ? [...this.labRuns.values()] : undefined,
+      shelfBubbles: this.shelfBubbles.size > 0 ? [...this.shelfBubbles.values()] : undefined,
+      // §5.21 — 비용·토큰 지도(세션 날짜 분해 포함).
+      costMap: this.costMapService.toCheckpoint(project.name),
+      // §5.22 — 감사 원장. 결정 이력은 재계산이 불가능하므로 빠뜨리면 영영 없다.
+      auditLog: this.auditLogService.toCheckpoint(project.name),
       layoutBoundsHalfWidth: this.layoutBoundsByProject.get(project.name)?.hw,
       layoutBoundsHalfHeight: this.layoutBoundsByProject.get(project.name)?.hh,
       contis: this.contis.size > 0 ? this.getContisRecord() : undefined,
@@ -4324,6 +4516,26 @@ export class ProjectGraph {
         const docs = [...this.specDocs.values()].filter((d) => d.projectName === project.name);
         return docs.length > 0 ? docs : undefined;
       })(),
+      // §5.16 — 리뷰·승인 레인도 같은 규칙. 여기 빠지면 사람이 내린 승인·반려 판단이 껐다 켤 때 사라진다.
+      reviewRequests: (() => {
+        const reqs = [...this.reviewRequests.values()].filter((r) => r.projectName === project.name);
+        return reqs.length > 0 ? reqs : undefined;
+      })(),
+      // §5.18 — 에이전트 랩도 같은 규칙. 여기 빠지면 사람이 쓴 과제와 측정된 표가 껐다 켤 때 사라진다.
+      labRuns: (() => {
+        const runs = [...this.labRuns.values()].filter((r) => r.projectName === project.name);
+        return runs.length > 0 ? runs : undefined;
+      })(),
+      // §5.20 — 선반도 같은 규칙. 여기 빠지면 사람이 모아 둔 명령·프롬프트가 껐다 켤 때 사라진다.
+      shelfBubbles: (() => {
+        const list = [...this.shelfBubbles.values()].filter((b) => b.projectName === project.name);
+        return list.length > 0 ? list : undefined;
+      })(),
+      // §5.21 — 비용·토큰 지도. 트랜스크립트가 지워지면 다시 접을 수 없으므로 디스크 포맷에도 싣는다.
+      costMap: this.costMapService.toCheckpoint(project.name),
+      // §5.22 — 감사 원장. **여기가 이 항목에서 가장 조용히 깨질 자리** — 결정 이력은
+      // 어디서도 재계산할 수 없어서 디스크 포맷에서 빠지면 껐다 켠 순간 영영 없다.
+      auditLog: this.auditLogService.toCheckpoint(project.name),
       layoutBoundsHalfWidth: this.layoutBoundsByProject.get(project.name)?.hw,
       layoutBoundsHalfHeight: this.layoutBoundsByProject.get(project.name)?.hh,
       // §5.3 #28 v1.47 — 콘티: 이 프로젝트 에이전트 소유분만 필터.
@@ -4807,6 +5019,36 @@ export class ProjectGraph {
       }
     }
 
+    // §5.16 — 리뷰 병합(id 기준 합집합). 결정 이력은 사람이 내린 판단이라 덮어쓰지 않는다.
+    if (cp.reviewRequests) {
+      for (const r of cp.reviewRequests) {
+        if (this.reviewRequests.has(r.id)) continue;
+        this.reviewRequests.set(r.id, sanitizeReviewRequestOnLoad(r));
+      }
+    }
+
+    // §5.18 — 랩 병합(id 기준 합집합). 측정된 결과는 사람이 판단할 근거라 덮어쓰지 않는다.
+    if (cp.labRuns) {
+      for (const r of cp.labRuns) {
+        if (this.labRuns.has(r.id)) continue;
+        this.labRuns.set(r.id, sanitizeLabRunOnLoad(r));
+      }
+    }
+
+    // §5.21 — 비용 지도 병합(세션 id 기준 합집합, 겹치면 턴을 더 많이 읽은 쪽).
+    this.costMapService.merge(cp.costMap);
+
+    // §5.22 — 감사 원장 병합(id 기준 합집합). 지금 돌고 있는 원장이 디스크보다 새것이라 덮지 않는다.
+    this.auditLogService.merge(cp.auditLog);
+
+    // §5.20 — 선반 병합(id 기준 합집합). 사람이 모아 둔 줄은 덮어쓰지 않는다.
+    if (cp.shelfBubbles) {
+      for (const b of cp.shelfBubbles) {
+        if (this.shelfBubbles.has(b.id)) continue;
+        this.shelfBubbles.set(b.id, sanitizeShelfBubbleOnLoad(b));
+      }
+    }
+
     // §5.3 #28 v1.47 — 콘티 병합 (v1.59 hotfix — toProjectCheckpoint 누락 픽스와 짝).
     // workId/updatedAt 누락 시 폴백 (restoreFromCheckpoint 와 같은 정책).
     if (cp.contis) {
@@ -5038,6 +5280,36 @@ export class ProjectGraph {
     if (cp.specDocs) {
       for (const doc of cp.specDocs) {
         this.specDocs.set(doc.id, sanitizeSpecDocOnLoad(doc));
+      }
+    }
+
+    // §5.16 — 리뷰 복원. 사람이 쓴 반려 사유와 결정 시각을 그대로 살린다(정규화만).
+    this.reviewRequests = new Map();
+    if (cp.reviewRequests) {
+      for (const r of cp.reviewRequests) {
+        this.reviewRequests.set(r.id, sanitizeReviewRequestOnLoad(r));
+      }
+    }
+
+    // §5.18 — 랩 복원. 사람이 쓴 과제와 측정된 표를 그대로 살린다(도는 잔상만 내린다).
+    this.labRuns = new Map();
+    if (cp.labRuns) {
+      for (const r of cp.labRuns) {
+        this.labRuns.set(r.id, sanitizeLabRunOnLoad(r));
+      }
+    }
+
+    // §5.21 — 비용 지도 복원. 없으면 빈 원장으로 시작한다(옛 체크포인트 호환).
+    this.costMapService.restore(cp.costMap);
+
+    // §5.22 — 감사 원장 복원(경계 스위치도 함께). 없으면 빈 원장 + 기본 스위치(전부 묻는다).
+    this.auditLogService.restore(cp.auditLog);
+
+    // §5.20 — 선반 복원. 사람이 모아 둔 명령·프롬프트를 그대로 살린다(도는 잔상만 내린다).
+    this.shelfBubbles = new Map();
+    if (cp.shelfBubbles) {
+      for (const b of cp.shelfBubbles) {
+        this.shelfBubbles.set(b.id, sanitizeShelfBubbleOnLoad(b));
       }
     }
 
@@ -7146,18 +7418,47 @@ export class ProjectGraph {
     return count;
   }
 
-  getAgentCountsByProject(): Record<string, { total: number; active: number; completed: number }> {
-    const result: Record<string, { total: number; active: number; completed: number }> = {};
+  /**
+   * §9 탭·헤더 배지의 SSOT — 프로젝트별 에이전트/세션 집계.
+   *
+   * **휴지통은 세지 않는다.** 캔버스가 `trashed` 버블을 숨기므로(BubbleMap), 숫자에만 남으면
+   * "에이전트 20개 중 1개 실행 중"처럼 화면 어디에도 없는 20 이 나온다(사용자 보고).
+   *
+   * **`sessions`/`running` 은 세션 축**이다. 사용자가 "동작 중"으로 세는 단위는 버블이 아니라
+   * 세션이라(한 커스텀 에이전트가 세션 다섯을 동시에 돌린다) 버블 축 `active` 만으로는
+   * 실제로 도는 수를 영영 못 보여준다. 판정은 공용 `isSessionRunning` 하나로 클라와 맞춘다.
+   */
+  getAgentCountsByProject(): Record<string, ProjectAgentCounts> {
+    const runningTasksAll = subAgentManager.getRunningSubagentTasks();
+    const result: Record<string, ProjectAgentCounts> = {};
     for (const [sessionId, agent] of this.agents) {
       if (!this.isAlive(agent) || this.isAgentHidden(sessionId) || agent.pipelineParentId) continue;
+      if (agent.trashed) continue;
       const cwd = this.sessionCwds.get(sessionId);
       if (cwd === undefined) continue;
       const proj = this.getProjectForCwd(cwd);
       const name = proj?.name ?? (path.basename(cwd) || 'unknown');
-      const bucket = result[name] ?? (result[name] = { total: 0, active: 0, completed: 0 });
+      const bucket = result[name] ?? (result[name] = { total: 0, active: 0, completed: 0, sessions: 0, running: 0 });
       bucket.total += 1;
       if (agent.status === 'active') bucket.active += 1;
       else if (agent.status === 'completed') bucket.completed += 1;
+
+      // 세션 축 — 버블이 도는 것으로 보이는 창(권한 대기·자식 Task 대기)에는 세션이 조용해도
+      //   사용자에게는 "하나가 도는 중"이므로 최소 1 을 보장한다.
+      const bubbleRunning = agent.status === 'active' || agent.status === 'awaiting_permission';
+      const subs = subAgentManager.getAllSubs(agent.id);
+      const cmds = this.commandQueuesRef.get(sessionId) ?? [];
+      const tasks = runningTasksAll?.[agent.id] ?? [];
+      const sessionRunning = subs.map((sub) => isSessionRunning({
+        subStatus: sub.status,
+        hasExecutingCommand: cmds.some((c) => c.status === 'executing' && c.subAgentId === sub.id),
+        runningTaskCount: tasks.filter((t) => t.subAgentId === sub.id).length,
+        hasQueuedCommand: false,
+        acknowledged: false,
+      }));
+      const share = agentBadgeShare({ bubbleRunning, sessionRunning });
+      bucket.sessions += share.sessions;
+      bucket.running += share.running;
     }
     return result;
   }
@@ -9436,6 +9737,9 @@ export class ProjectGraph {
     for (const key of [
       'x', 'y', 'width', 'height', 'previewX', 'previewY', 'previewWidth', 'previewHeight',
       'title', 'recipe', 'status', 'url', 'port', 'error', 'lastStartedAt', 'previewOpen', 'preservePinned',
+      // §5.17 (C) — 이 목록에 없으면 값이 조용히 버려진다. 영속 자체는 레코드가 통째로 저장되므로
+      //   여기 한 줄이 곧 "누가 만든 화면인지" 를 재시작 뒤에도 남기는 전부다.
+      'ownerAgentId',
     ] as const) {
       if (!(key in updates)) continue;
       const value = updates[key];
@@ -9646,6 +9950,847 @@ export class ProjectGraph {
     return true;
   }
 
+  // ─── §5.16 — 리뷰·승인 레인 (머지 전에 사람이 붙잡는 자리) ───
+
+  /**
+   * §5.16 — 리뷰 한 건 생성. **id 발급은 여기서만** 한다.
+   *
+   * 개수 캡(`REVIEW_REQUESTS_MAX_PER_PROJECT`)은 같은 프로젝트 안에서만 적용하고, 넘칠 때는
+   * **결정이 끝난 것부터** 오래된 순으로 버린다 — 사람이 아직 판단하지 않은 pending 을 조용히
+   * 치우면 그 변경분이 본선에 들어갈 길이 함께 사라진다.
+   */
+  createReviewRequest(input: {
+    projectName: string;
+    parentProjectName?: string;
+    agentId: string;
+    subAgentId?: string;
+    worktreeNodeId?: string;
+    worktreePath: string;
+    branch?: string;
+    baseBranch?: string;
+    files: ReviewFileChange[];
+    filesTruncated?: boolean;
+    diff: string;
+    diffTruncated?: boolean;
+  }): ReviewRequest {
+    this.reviewIdCounter += 1;
+    const now = Date.now();
+    const files = input.files.slice(0, REVIEW_FILES_MAX);
+    const req: ReviewRequest = {
+      id: `review-${now.toString(36)}-${this.reviewIdCounter.toString(36)}`,
+      projectName: input.projectName,
+      ...(input.parentProjectName ? { parentProjectName: input.parentProjectName } : {}),
+      agentId: input.agentId,
+      ...(input.subAgentId ? { subAgentId: input.subAgentId } : {}),
+      ...(input.worktreeNodeId ? { worktreeNodeId: input.worktreeNodeId } : {}),
+      worktreePath: input.worktreePath,
+      ...(input.branch ? { branch: input.branch } : {}),
+      ...(input.baseBranch ? { baseBranch: input.baseBranch } : {}),
+      files,
+      ...(input.filesTruncated === true || files.length < input.files.length ? { filesTruncated: true } : {}),
+      diff: input.diff.slice(0, REVIEW_DIFF_MAX_BYTES),
+      ...(input.diffTruncated === true || input.diff.length > REVIEW_DIFF_MAX_BYTES ? { diffTruncated: true } : {}),
+      status: 'pending',
+      decisions: [],
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.reviewRequests.set(req.id, req);
+    this.pruneReviewRequests(req.projectName);
+    this.bumpMutationVersion();
+    return req;
+  }
+
+  /** 프로젝트당 개수 캡 — 결정이 끝난 것부터 오래된 순으로 버린다(pending 은 남긴다). */
+  private pruneReviewRequests(projectName: string): void {
+    const mine = [...this.reviewRequests.values()].filter((r) => r.projectName === projectName);
+    if (mine.length <= REVIEW_REQUESTS_MAX_PER_PROJECT) return;
+    const decided = mine
+      .filter((r) => r.status !== 'pending')
+      .sort((a, b) => a.updatedAt - b.updatedAt);
+    let over = mine.length - REVIEW_REQUESTS_MAX_PER_PROJECT;
+    for (const r of decided) {
+      if (over <= 0) break;
+      this.reviewRequests.delete(r.id);
+      over -= 1;
+    }
+    // 전부 pending 이라 못 줄였으면 그대로 둔다 — 판단 대기분을 버리는 것보다 낫다.
+  }
+
+  getReviewRequest(id: string): ReviewRequest | undefined {
+    return this.reviewRequests.get(id);
+  }
+
+  /** 모든 리뷰 (스냅샷/체크포인트 직렬화 공통). */
+  getReviewRequests(): ReviewRequest[] {
+    return [...this.reviewRequests.values()];
+  }
+
+  /**
+   * 그 에이전트에게 **아직 결정 안 난** 리뷰가 있나 — 있으면 새로 만들지 않는다(§5.16 조건 (d)).
+   * 보류(`held`)도 "아직 판단 중"이라 새 카드를 겹쳐 만들지 않는다.
+   */
+  findOpenReviewRequestByAgent(agentId: string): ReviewRequest | undefined {
+    let best: ReviewRequest | undefined;
+    for (const r of this.reviewRequests.values()) {
+      if (r.agentId !== agentId) continue;
+      if (r.status !== 'pending' && r.status !== 'held') continue;
+      if (!best || r.createdAt > best.createdAt) best = r;
+    }
+    return best;
+  }
+
+  /**
+   * §5.16 — 결정 한 건 적재. id/시각은 서버가 stamp 한다.
+   *
+   * `status` 는 마지막 결정에서 나오는 파생값이고 **여기서만** 계산한다(§3.1). 승인했는데 병합이
+   * 실패했으면(`mergeOk === false`) 상태를 `pending` 으로 되돌린다 — 부모를 정리한 뒤 다시 승인할
+   * 자리를 남겨야 한다(그 실패 사실은 결정 이력에 그대로 남는다).
+   */
+  recordReviewDecision(
+    id: string,
+    input: Omit<ReviewDecision, 'id' | 'decidedAt'> & { decidedAt?: number },
+  ): ReviewRequest | null {
+    const req = this.reviewRequests.get(id);
+    if (!req) return null;
+    this.reviewIdCounter += 1;
+    const now = input.decidedAt ?? Date.now();
+    const decision: ReviewDecision = {
+      id: `rdec-${now.toString(36)}-${this.reviewIdCounter.toString(36)}`,
+      kind: input.kind,
+      ...(input.reason ? { reason: input.reason.slice(0, REVIEW_REASON_MAX) } : {}),
+      decidedAt: now,
+      ...(input.mergeOk !== undefined ? { mergeOk: input.mergeOk } : {}),
+      ...(input.mergeError ? { mergeError: input.mergeError } : {}),
+      ...(input.conflicts && input.conflicts.length > 0 ? { conflicts: input.conflicts.slice(0, REVIEW_FILES_MAX) } : {}),
+      ...(input.reworkDispatched !== undefined ? { reworkDispatched: input.reworkDispatched } : {}),
+    };
+    req.decisions.push(decision);
+    if (req.decisions.length > REVIEW_DECISIONS_MAX) {
+      req.decisions.splice(0, req.decisions.length - REVIEW_DECISIONS_MAX);
+    }
+    req.status = decision.kind === 'approve'
+      ? (decision.mergeOk === false ? 'pending' : 'approved')
+      : decision.kind === 'reject' ? 'rejected' : 'held';
+    req.updatedAt = now;
+    this.bumpMutationVersion();
+    return req;
+  }
+
+  /** 사람이 치운다 — 서버가 결정 안 난 리뷰를 스스로 지우지는 않는다(§5.16 경계). */
+  deleteReviewRequest(id: string): boolean {
+    const removed = this.reviewRequests.delete(id);
+    if (removed) this.bumpMutationVersion();
+    return removed;
+  }
+
+  /** 기존 ID 그대로 수용 (체크포인트 복원/머지용). */
+  acceptReviewRequest(req: ReviewRequest): boolean {
+    if (this.reviewRequests.has(req.id)) return false;
+    this.reviewRequests.set(req.id, sanitizeReviewRequestOnLoad(req));
+    this.bumpMutationVersion();
+    return true;
+  }
+
+  // ─── §5.18 — 에이전트 랩 (같은 과제를 설정만 바꿔 N벌) ───
+
+  /**
+   * §5.18 — 랩 한 장을 캔버스에 놓는다. **id 발급은 여기서만** 한다.
+   *
+   * 변형 없이 시작해도 되고(패널에서 짠다), 초기 변형을 함께 받아도 된다.
+   */
+  createLabRun(input: {
+    projectName: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    title?: string;
+    task?: string;
+    baseAgentId?: string;
+    variants?: { label?: string; config?: LabVariantConfig }[];
+  }): LabRun {
+    this.labIdCounter += 1;
+    const id = `lab-${Date.now().toString(36)}-${this.labIdCounter.toString(36)}`;
+    const now = Date.now();
+    const run: LabRun = {
+      id,
+      projectName: input.projectName,
+      x: input.x,
+      y: input.y,
+      width: input.width,
+      height: input.height,
+      title: (input.title ?? '').slice(0, LAB_TITLE_MAX),
+      task: (input.task ?? '').slice(0, LAB_TASK_MAX),
+      variants: (input.variants ?? [])
+        .slice(0, LAB_MAX_VARIANTS)
+        .map((v, i) => this.newLabVariant(v.label ?? `V${i + 1}`, v.config ?? {})),
+      status: 'draft',
+      ...(input.baseAgentId ? { baseAgentId: input.baseAgentId } : {}),
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.labRuns.set(id, run);
+    this.pruneLabRuns(run.projectName);
+    this.bumpMutationVersion();
+    return run;
+  }
+
+  /** 변형 한 벌을 만든다. id 는 여기서만 발급한다. */
+  private newLabVariant(label: string, config: LabVariantConfig): LabVariant {
+    this.labIdCounter += 1;
+    return {
+      id: `lvar-${Date.now().toString(36)}-${this.labIdCounter.toString(36)}`,
+      label: label.slice(0, LAB_VARIANT_LABEL_MAX) || 'V',
+      config: sanitizeLabVariantConfig(config),
+    };
+  }
+
+  /** 프로젝트당 개수 캡 — 도는 랩은 남기고 끝난 것부터 오래된 순으로 버린다(§9 키 개수 캡). */
+  private pruneLabRuns(projectName: string): void {
+    const mine = [...this.labRuns.values()].filter((r) => r.projectName === projectName);
+    if (mine.length <= LAB_RUNS_MAX_PER_PROJECT) return;
+    const idle = mine.filter((r) => r.status !== 'running').sort((a, b) => a.updatedAt - b.updatedAt);
+    let over = mine.length - LAB_RUNS_MAX_PER_PROJECT;
+    for (const r of idle) {
+      if (over <= 0) break;
+      if (r.preservePinned === true) continue;
+      this.labRuns.delete(r.id);
+      over -= 1;
+    }
+  }
+
+  /**
+   * 랩 부분 갱신 — 좌표·크기·제목·과제·기준 에이전트가 이 문 하나로 들어온다.
+   *
+   * **도는 중에는 과제를 못 바꾼다** — 그 표가 무엇을 비교한 것인지 알 수 없게 되기 때문이다.
+   * 변형 목록은 `setLabVariants` 로만 바꾼다(실행 결과를 실수로 지우지 않게 문을 나눈다).
+   */
+  updateLabRun(
+    id: string,
+    updates: Partial<Pick<LabRun, 'x' | 'y' | 'width' | 'height' | 'title' | 'task' | 'baseAgentId' | 'preservePinned'>>,
+  ): LabRun | null {
+    const run = this.labRuns.get(id);
+    if (!run) return null;
+
+    for (const key of ['x', 'y', 'width', 'height'] as const) {
+      const v = updates[key];
+      if (typeof v === 'number' && Number.isFinite(v)) run[key] = v;
+    }
+    if (typeof updates.title === 'string') run.title = updates.title.slice(0, LAB_TITLE_MAX);
+    if (typeof updates.task === 'string' && run.status !== 'running') {
+      run.task = updates.task.slice(0, LAB_TASK_MAX);
+    }
+    if (typeof updates.baseAgentId === 'string') run.baseAgentId = updates.baseAgentId;
+    if (typeof updates.preservePinned === 'boolean') run.preservePinned = updates.preservePinned;
+
+    run.updatedAt = Date.now();
+    this.bumpMutationVersion();
+    return run;
+  }
+
+  /**
+   * 변형 목록 통째 교체(패널의 편집 결과). **이미 실행된 변형의 결과는 지키고** 설정만 덮는다 —
+   * 표에 남은 측정값이 편집 한 번에 사라지면 비교의 근거가 없어진다.
+   */
+  setLabVariants(id: string, variants: { id?: string; label?: string; config?: LabVariantConfig }[]): LabRun | null {
+    const run = this.labRuns.get(id);
+    if (!run) return null;
+    const byId = new Map(run.variants.map((v) => [v.id, v]));
+    const next: LabVariant[] = [];
+    for (const incoming of variants.slice(0, LAB_MAX_VARIANTS)) {
+      const prev = incoming.id ? byId.get(incoming.id) : undefined;
+      if (prev) {
+        next.push({
+          ...prev,
+          label: (incoming.label ?? prev.label).slice(0, LAB_VARIANT_LABEL_MAX) || prev.label,
+          config: sanitizeLabVariantConfig(incoming.config ?? prev.config),
+        });
+      } else {
+        next.push(this.newLabVariant(incoming.label ?? `V${next.length + 1}`, incoming.config ?? {}));
+      }
+    }
+    run.variants = next;
+    if (run.promotedVariantId && !next.some((v) => v.id === run.promotedVariantId)) {
+      delete run.promotedVariantId;
+    }
+    run.updatedAt = Date.now();
+    this.recomputeLabStatus(run);
+    this.bumpMutationVersion();
+    return run;
+  }
+
+  /** 변형 한 벌 추가(패널의 [+ 변형 추가]). 상한을 넘으면 null. */
+  addLabVariant(id: string, label: string, config?: LabVariantConfig): LabRun | null {
+    const run = this.labRuns.get(id);
+    if (!run) return null;
+    if (run.variants.length >= LAB_MAX_VARIANTS) return null;
+    run.variants.push(this.newLabVariant(label, config ?? {}));
+    run.updatedAt = Date.now();
+    this.bumpMutationVersion();
+    return run;
+  }
+
+  /** 변형 한 벌 제거. 만들어진 에이전트·워크트리는 남는다(사람이 만든 작업물을 데려가지 않는다). */
+  removeLabVariant(id: string, variantId: string): LabRun | null {
+    const run = this.labRuns.get(id);
+    if (!run) return null;
+    const before = run.variants.length;
+    run.variants = run.variants.filter((v) => v.id !== variantId);
+    if (run.variants.length === before) return run;
+    if (run.promotedVariantId === variantId) delete run.promotedVariantId;
+    run.updatedAt = Date.now();
+    this.recomputeLabStatus(run);
+    this.bumpMutationVersion();
+    return run;
+  }
+
+  /**
+   * 실행이 걸린 변형에 카드·워크트리 정보를 붙이고 `pending → running` 으로 올린다.
+   * 서버의 실행 경로(`/api/lab-runs/:id/start`)가 워크트리와 에이전트를 만든 직후에 부른다.
+   */
+  attachLabVariantRun(
+    id: string,
+    variantId: string,
+    info: {
+      agentId: string;
+      sessionId: string;
+      worktreeProjectName?: string;
+      worktreePath?: string;
+      branch?: string;
+      startedAt?: number;
+    },
+  ): LabRun | null {
+    const run = this.labRuns.get(id);
+    if (!run) return null;
+    const variant = run.variants.find((v) => v.id === variantId);
+    if (!variant) return null;
+    const now = info.startedAt ?? Date.now();
+    variant.agentId = info.agentId;
+    variant.sessionId = info.sessionId;
+    if (info.worktreeProjectName) variant.worktreeProjectName = info.worktreeProjectName;
+    if (info.worktreePath) variant.worktreePath = info.worktreePath;
+    if (info.branch) variant.branch = info.branch;
+    variant.result = { status: 'running', startedAt: now };
+    run.startedAt = run.startedAt ?? now;
+    delete run.finishedAt;
+    run.updatedAt = now;
+    this.recomputeLabStatus(run);
+    this.bumpMutationVersion();
+    return run;
+  }
+
+  /**
+   * 그 턴이 끝났다 — 변형에 결과를 적는다. 명령 완료 콜백(`setOnComplete`)에서만 부른다.
+   *
+   * **못 읽은 값은 넣지 않는다**(§5.18) — 호출부가 `undefined` 로 주면 그 필드는 비운 채 둔다.
+   */
+  finishLabVariant(
+    id: string,
+    variantId: string,
+    result: Omit<LabResult, 'startedAt'> & { startedAt?: number },
+  ): LabRun | null {
+    const run = this.labRuns.get(id);
+    if (!run) return null;
+    const variant = run.variants.find((v) => v.id === variantId);
+    if (!variant) return null;
+    const now = Date.now();
+    const startedAt = result.startedAt ?? variant.result?.startedAt;
+    const finishedAt = result.finishedAt ?? now;
+    const merged: LabResult = {
+      status: result.status,
+      ...(startedAt !== undefined ? { startedAt } : {}),
+      finishedAt,
+      ...(startedAt !== undefined ? { durationMs: Math.max(0, finishedAt - startedAt) } : {}),
+      ...(result.filesChanged !== undefined ? { filesChanged: result.filesChanged } : {}),
+      ...(result.additions !== undefined ? { additions: result.additions } : {}),
+      ...(result.deletions !== undefined ? { deletions: result.deletions } : {}),
+      ...(result.inputTokens !== undefined ? { inputTokens: result.inputTokens } : {}),
+      ...(result.outputTokens !== undefined ? { outputTokens: result.outputTokens } : {}),
+      ...(result.costUsd !== undefined ? { costUsd: result.costUsd } : {}),
+      ...(result.model ? { model: result.model } : {}),
+      ...(result.summary ? { summary: result.summary.slice(0, LAB_SUMMARY_MAX) } : {}),
+      ...(result.error ? { error: result.error.slice(0, LAB_SUMMARY_MAX) } : {}),
+    };
+    variant.result = merged;
+    run.updatedAt = now;
+    this.recomputeLabStatus(run);
+    if (run.status === 'done') run.finishedAt = now;
+    this.bumpMutationVersion();
+    return run;
+  }
+
+  /** 승격한 변형을 표에 남긴다(`기본값` 배지). 실제 설정 저장은 호출부가 `setAgentConfig` 로 한다. */
+  markLabPromoted(id: string, variantId: string): LabRun | null {
+    const run = this.labRuns.get(id);
+    if (!run) return null;
+    if (!run.variants.some((v) => v.id === variantId)) return null;
+    run.promotedVariantId = variantId;
+    run.updatedAt = Date.now();
+    this.bumpMutationVersion();
+    return run;
+  }
+
+  /** 파생 상태 계산 — 서버만 한다(§3.1). 하나라도 도는 중이면 running, 하나라도 끝났으면 done. */
+  private recomputeLabStatus(run: LabRun): void {
+    const results = run.variants.map((v) => v.result).filter((r): r is LabResult => r !== undefined);
+    if (results.some((r) => r.status === 'running')) {
+      run.status = 'running';
+      return;
+    }
+    run.status = results.length > 0 ? 'done' : 'draft';
+  }
+
+  /** 이 에이전트가 어느 랩의 어느 변형인지 역인덱스 — 완료 콜백이 한 번에 찾는다. */
+  findLabVariantByAgent(agentId: string): { run: LabRun; variant: LabVariant } | undefined {
+    for (const run of this.labRuns.values()) {
+      const variant = run.variants.find((v) => v.agentId === agentId);
+      if (variant) return { run, variant };
+    }
+    return undefined;
+  }
+
+  /** 삭제. §2.4 preserve-pin 이 걸려 있으면 거절한다(스펙·플레이 버블과 같은 규칙). */
+  deleteLabRun(id: string): boolean {
+    const run = this.labRuns.get(id);
+    if (!run) return false;
+    if (run.preservePinned === true) return false;
+    const removed = this.labRuns.delete(id);
+    if (removed) this.bumpMutationVersion();
+    return removed;
+  }
+
+  getLabRun(id: string): LabRun | undefined {
+    return this.labRuns.get(id);
+  }
+
+  getLabRuns(): LabRun[] {
+    return [...this.labRuns.values()];
+  }
+
+  /** 기존 ID 그대로 수용 (체크포인트 복원/머지용). */
+  acceptLabRun(run: LabRun): boolean {
+    if (this.labRuns.has(run.id)) return false;
+    this.labRuns.set(run.id, sanitizeLabRunOnLoad(run));
+    this.bumpMutationVersion();
+    return true;
+  }
+
+  // ─── §5.20 스크립트 선반 (Shelf) ───
+
+  /**
+   * §5.20 — 선반 한 장을 캔버스에 놓는다.
+   *
+   * 항목 없이 시작해도 되고(패널·우클릭에서 채운다), 초기 항목을 함께 받아도 된다
+   * (가져오기가 이 문으로 들어온다).
+   */
+  createShelfBubble(input: {
+    projectName: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    title?: string;
+    items?: ShelfImportDraftItem[];
+  }): ShelfBubble {
+    this.shelfIdCounter += 1;
+    const id = `shelf-${Date.now().toString(36)}-${this.shelfIdCounter.toString(36)}`;
+    const now = Date.now();
+    const bubble: ShelfBubble = {
+      id,
+      projectName: input.projectName,
+      x: input.x,
+      y: input.y,
+      width: input.width,
+      height: input.height,
+      title: (input.title ?? '').slice(0, SHELF_TITLE_MAX),
+      items: (input.items ?? []).slice(0, SHELF_MAX_ITEMS).map((it) => this.newShelfItem(it)),
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.shelfBubbles.set(id, bubble);
+    this.pruneShelfBubbles(bubble.projectName);
+    this.bumpMutationVersion();
+    return bubble;
+  }
+
+  /** 항목 한 줄을 만든다. id 는 여기서만 발급하고 아이콘·색은 고정 목록 안으로 강제한다. */
+  private newShelfItem(draft: ShelfImportDraftItem): ShelfItem {
+    this.shelfIdCounter += 1;
+    const now = Date.now();
+    const kind: ShelfItemKind = draft.kind === 'prompt' ? 'prompt' : 'command';
+    const command = (draft.command ?? '').slice(0, SHELF_COMMAND_MAX);
+    const prompt = (draft.prompt ?? '').slice(0, SHELF_PROMPT_MAX);
+    return {
+      id: `sitem-${Date.now().toString(36)}-${this.shelfIdCounter.toString(36)}`,
+      label: (draft.label || '').slice(0, SHELF_LABEL_MAX) || (kind === 'command' ? 'command' : 'prompt'),
+      kind,
+      ...(kind === 'command' ? { command } : { prompt }),
+      icon: normalizeShelfIcon(draft.icon, kind),
+      color: normalizeShelfColor(draft.color),
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+
+  /** 프로젝트당 개수 캡 — 오래된 것부터 버리되 고정된 선반은 남긴다(§9 키 개수 캡). */
+  private pruneShelfBubbles(projectName: string): void {
+    const mine = [...this.shelfBubbles.values()].filter((b) => b.projectName === projectName);
+    if (mine.length <= SHELF_BUBBLES_MAX_PER_PROJECT) return;
+    const old = [...mine].sort((a, b) => a.updatedAt - b.updatedAt);
+    let over = mine.length - SHELF_BUBBLES_MAX_PER_PROJECT;
+    for (const b of old) {
+      if (over <= 0) break;
+      if (b.preservePinned === true) continue;
+      this.shelfBubbles.delete(b.id);
+      over -= 1;
+    }
+  }
+
+  /** 선반 부분 갱신 — 좌표·크기·제목·핀이 이 문 하나로 들어온다(항목은 별도 문). */
+  updateShelfBubble(
+    id: string,
+    updates: Partial<Pick<ShelfBubble, 'x' | 'y' | 'width' | 'height' | 'title' | 'preservePinned'>>,
+  ): ShelfBubble | null {
+    const bubble = this.shelfBubbles.get(id);
+    if (!bubble) return null;
+    if (typeof updates.x === 'number') bubble.x = updates.x;
+    if (typeof updates.y === 'number') bubble.y = updates.y;
+    if (typeof updates.width === 'number') bubble.width = updates.width;
+    if (typeof updates.height === 'number') bubble.height = updates.height;
+    if (typeof updates.title === 'string') bubble.title = updates.title.slice(0, SHELF_TITLE_MAX);
+    if (typeof updates.preservePinned === 'boolean') bubble.preservePinned = updates.preservePinned;
+    bubble.updatedAt = Date.now();
+    this.bumpMutationVersion();
+    return bubble;
+  }
+
+  /** 항목 한 줄 추가. 상한을 넘으면 `null`(호출부가 409 로 돌려준다). */
+  addShelfItem(id: string, draft: ShelfImportDraftItem): ShelfBubble | null {
+    const bubble = this.shelfBubbles.get(id);
+    if (!bubble) return null;
+    if (bubble.items.length >= SHELF_MAX_ITEMS) return null;
+    bubble.items.push(this.newShelfItem(draft));
+    bubble.updatedAt = Date.now();
+    this.bumpMutationVersion();
+    return bubble;
+  }
+
+  /**
+   * 항목 한 줄 수정.
+   *
+   * **실행 결과(`lastRun`)는 이 문으로 지워지지 않는다** — 이름을 고쳤다고 마지막 실행이 없던 일이
+   * 되면, 화면이 "한 번도 안 눌렀다"고 거짓말한다. 종류를 바꾸면 그때만 결과를 비운다(셸 결과와
+   * 프롬프트 결과는 서로 다른 것을 말하기 때문).
+   */
+  updateShelfItem(
+    id: string,
+    itemId: string,
+    updates: Partial<Pick<ShelfItem, 'label' | 'kind' | 'command' | 'cwd' | 'prompt' | 'targetAgentId' | 'icon' | 'color'>>,
+  ): ShelfBubble | null {
+    const bubble = this.shelfBubbles.get(id);
+    if (!bubble) return null;
+    const item = bubble.items.find((i) => i.id === itemId);
+    if (!item) return null;
+
+    if (typeof updates.label === 'string') item.label = updates.label.slice(0, SHELF_LABEL_MAX);
+    if (updates.kind === 'command' || updates.kind === 'prompt') {
+      if (updates.kind !== item.kind) {
+        item.kind = updates.kind;
+        delete item.lastRun;
+      }
+    }
+    if (typeof updates.command === 'string') item.command = updates.command.slice(0, SHELF_COMMAND_MAX);
+    if (typeof updates.prompt === 'string') item.prompt = updates.prompt.slice(0, SHELF_PROMPT_MAX);
+    if (typeof updates.cwd === 'string') {
+      const cwd = updates.cwd.trim();
+      if (cwd) item.cwd = cwd;
+      else delete item.cwd;
+    }
+    if (typeof updates.targetAgentId === 'string') {
+      const target = updates.targetAgentId.trim();
+      if (target) item.targetAgentId = target;
+      else delete item.targetAgentId;
+    }
+    if (updates.icon !== undefined) item.icon = normalizeShelfIcon(updates.icon, item.kind);
+    if (updates.color !== undefined) item.color = normalizeShelfColor(updates.color);
+    item.updatedAt = Date.now();
+    bubble.updatedAt = item.updatedAt;
+    this.bumpMutationVersion();
+    return bubble;
+  }
+
+  /** 항목 한 줄 삭제. */
+  removeShelfItem(id: string, itemId: string): ShelfBubble | null {
+    const bubble = this.shelfBubbles.get(id);
+    if (!bubble) return null;
+    const next = bubble.items.filter((i) => i.id !== itemId);
+    if (next.length === bubble.items.length) return null;
+    bubble.items = next;
+    bubble.updatedAt = Date.now();
+    this.bumpMutationVersion();
+    return bubble;
+  }
+
+  /** 항목 순서 바꾸기 — 목록에 있는 id 만, 빠진 것은 뒤에 그대로 남긴다. */
+  reorderShelfItems(id: string, order: string[]): ShelfBubble | null {
+    const bubble = this.shelfBubbles.get(id);
+    if (!bubble) return null;
+    const byId = new Map(bubble.items.map((i) => [i.id, i]));
+    const out: ShelfItem[] = [];
+    for (const itemId of order) {
+      const hit = byId.get(itemId);
+      if (!hit) continue;
+      byId.delete(itemId);
+      out.push(hit);
+    }
+    bubble.items = [...out, ...byId.values()];
+    bubble.updatedAt = Date.now();
+    this.bumpMutationVersion();
+    return bubble;
+  }
+
+  /**
+   * §5.20 — 가져오기. 초안은 이미 `normalizeShelfImport` 를 통과한 것만 들어온다.
+   *
+   * `replace=true` 면 통째 교체, 아니면 덧붙이기(기본). 상한을 넘는 분은 조용히 버리고
+   * 몇 개가 들어갔는지 돌려준다 — 화면이 "20개 중 12개만 들어왔다"고 말할 수 있어야 한다.
+   */
+  importShelfItems(id: string, drafts: ShelfImportDraftItem[], replace: boolean): { bubble: ShelfBubble; added: number; dropped: number } | null {
+    const bubble = this.shelfBubbles.get(id);
+    if (!bubble) return null;
+    const base = replace ? [] : bubble.items;
+    const room = Math.max(0, SHELF_MAX_ITEMS - base.length);
+    const taken = drafts.slice(0, room);
+    bubble.items = [...base, ...taken.map((d) => this.newShelfItem(d))];
+    bubble.updatedAt = Date.now();
+    this.bumpMutationVersion();
+    return { bubble, added: taken.length, dropped: drafts.length - taken.length };
+  }
+
+  /** 실행 시작 — 그 줄의 마지막 결과를 `running` 으로 갈아 끼운다. */
+  startShelfItemRun(id: string, itemId: string, seed?: { agentId?: string; sessionId?: string }): ShelfItem | null {
+    const bubble = this.shelfBubbles.get(id);
+    if (!bubble) return null;
+    const item = bubble.items.find((i) => i.id === itemId);
+    if (!item) return null;
+    item.lastRun = {
+      status: 'running',
+      startedAt: Date.now(),
+      ...(seed?.agentId ? { agentId: seed.agentId } : {}),
+      ...(seed?.sessionId ? { sessionId: seed.sessionId } : {}),
+    };
+    item.updatedAt = item.lastRun.startedAt;
+    bubble.updatedAt = item.updatedAt;
+    this.bumpMutationVersion();
+    return item;
+  }
+
+  /**
+   * 실행 종료 — 결과를 그 줄에 적는다.
+   *
+   * **못 읽은 값은 채우지 않는다**(§5.20) — `undefined` 로 온 필드는 건드리지 않아 화면이 `—` 로 그린다.
+   */
+  finishShelfItemRun(
+    id: string,
+    itemId: string,
+    result: Partial<Omit<ShelfItemRun, 'status' | 'startedAt'>> & { status: ShelfRunStatus },
+  ): ShelfItem | null {
+    const bubble = this.shelfBubbles.get(id);
+    if (!bubble) return null;
+    const item = bubble.items.find((i) => i.id === itemId);
+    if (!item) return null;
+    const prev = item.lastRun;
+    const startedAt = prev?.startedAt ?? Date.now();
+    const finishedAt = result.finishedAt ?? Date.now();
+    const output = result.output !== undefined
+      ? result.output.slice(-SHELF_RUN_OUTPUT_MAX_CHARS)
+      : undefined;
+    item.lastRun = {
+      ...(prev ?? {}),
+      status: result.status,
+      startedAt,
+      finishedAt,
+      durationMs: finishedAt - startedAt,
+      ...(result.exitCode !== undefined ? { exitCode: result.exitCode } : {}),
+      ...(output !== undefined ? { output } : {}),
+      ...(result.outputTruncated !== undefined ? { outputTruncated: result.outputTruncated } : {}),
+      ...(result.error !== undefined ? { error: result.error } : {}),
+      ...(result.agentId !== undefined ? { agentId: result.agentId } : {}),
+      ...(result.sessionId !== undefined ? { sessionId: result.sessionId } : {}),
+    };
+    item.updatedAt = finishedAt;
+    bubble.updatedAt = finishedAt;
+    this.bumpMutationVersion();
+    return item;
+  }
+
+  /** 선반 삭제. 고정된 선반은 거절한다(§2.4 preserve-pin). */
+  deleteShelfBubble(id: string): boolean {
+    const bubble = this.shelfBubbles.get(id);
+    if (!bubble) return false;
+    if (bubble.preservePinned === true) return false;
+    const removed = this.shelfBubbles.delete(id);
+    if (removed) this.bumpMutationVersion();
+    return removed;
+  }
+
+  /**
+   * §5.20 — 이 에이전트가 지금 어느 선반 줄의 프롬프트를 처리 중인가.
+   *
+   * 도는 줄만 돌려준다 — 이미 마감된 줄까지 잡으면 그 뒤에 사람이 그 카드에 직접 시킨 일이
+   * 선반 결과로 덮어써진다(랩 변형 마감과 같은 규율).
+   */
+  findShelfItemByAgent(agentId: string): { bubble: ShelfBubble; item: ShelfItem } | undefined {
+    for (const bubble of this.shelfBubbles.values()) {
+      for (const item of bubble.items) {
+        if (item.lastRun?.status === 'running' && item.lastRun.agentId === agentId) {
+          return { bubble, item };
+        }
+      }
+    }
+    return undefined;
+  }
+
+  getShelfBubble(id: string): ShelfBubble | undefined {
+    return this.shelfBubbles.get(id);
+  }
+
+  getShelfBubbles(): ShelfBubble[] {
+    return [...this.shelfBubbles.values()];
+  }
+
+  /** §3.2.2 identity 복구 — 이미 있는 id 는 건드리지 않는다(디스크가 메모리를 덮지 않게). */
+  acceptShelfBubble(bubble: ShelfBubble): boolean {
+    if (this.shelfBubbles.has(bubble.id)) return false;
+    this.shelfBubbles.set(bubble.id, sanitizeShelfBubbleOnLoad(bubble));
+    this.bumpMutationVersion();
+    return true;
+  }
+
+
+  // ─── §5.22 — 권한·감사 경계 ───
+
+  /**
+   * 훅 이벤트 한 건을 감사 원장에 적는다(`processHookEvent` 안에서만 불린다).
+   *
+   * 실패해도 그래프 처리를 멈추지 않는다 — 감사는 기록이지 판정이 아니다.
+   */
+  private recordAuditFromHook(payload: HookEventPayload, agent: BubbleData): void {
+    try {
+      if (!payload.tool_name) return;
+      const projectName = this.getAgentProjectName(agent.id)
+        ?? this.projects.get(normalize(this.sessionCwds.get(payload.session_id) ?? ''))?.name
+        ?? null;
+      if (!projectName) return;
+      // 타임라인 좌측 dot 색은 그 에이전트의 설정 색(버블과 같은 색). 없으면 클라 기본값이 쓴다.
+      const agentColor = this.agentConfigs.get(agent.id)?.color;
+      this.auditLogService.record({
+        projectName,
+        sessionId: payload.session_id,
+        agentId: agent.id,
+        agentLabel: agent.label,
+        ...(agentColor ? { agentColor } : {}),
+        toolName: payload.tool_name,
+        toolInput: payload.tool_input ?? null,
+        ...(payload.tool_use_id ? { toolUseId: payload.tool_use_id } : {}),
+      });
+    } catch (err) {
+      logger.debug('[audit] hook record skipped', err);
+    }
+  }
+
+  /**
+   * 승인 창구(`/api/permission-check`)가 먼저 적는 줄. `tool_use_id` 가 없는 자리라
+   * 뒤따라오는 훅 이벤트가 찾아올 수 있게 표식을 걸어 둔다.
+   */
+  recordAuditCall(input: AuditRecordInput): string | null {
+    try {
+      const id = this.auditLogService.record(input).id;
+      // §9 — 스냅샷 캐시는 mutationVersion 으로 무효화된다. 여기를 빼면 방금 적은 줄이
+      //   200ms 동안 화면과 체크포인트 양쪽에서 안 보인다(내부 mutate 의 고전적 함정).
+      this.bumpMutationVersion();
+      return id;
+    } catch (err) {
+      logger.debug('[audit] call record skipped', err);
+      return null;
+    }
+  }
+
+  /** 승인 카드가 뜬 줄에 "물었다"는 표식. */
+  markAuditEscalated(projectName: string, entryId: string): void {
+    this.auditLogService.markEscalated(projectName, entryId);
+    this.bumpMutationVersion();
+  }
+
+  /** 사람(또는 정책)의 답을 그 줄에 적는다. */
+  recordAuditDecision(
+    projectName: string,
+    entryId: string,
+    decision: 'allow' | 'deny',
+    source: AuditDecisionSource,
+    reason?: string,
+  ): boolean {
+    const ok = this.auditLogService.recordDecision(projectName, entryId, decision, source, reason);
+    if (ok) this.bumpMutationVersion();
+    return ok;
+  }
+
+  /** 그 프로젝트의 경계 스위치(없으면 기본 = 전부 묻는다). */
+  getAuditBoundary(projectName: string): AuditBoundaryConfig {
+    return this.auditLogService.getBoundary(projectName);
+  }
+
+  /** 경계 스위치 갱신 — 부분 페이로드도 나머지 값을 잃지 않는다. */
+  setAuditBoundary(projectName: string, patch: Partial<AuditBoundaryConfig>): AuditBoundaryConfig {
+    const next = this.auditLogService.setBoundary(projectName, patch);
+    this.bumpMutationVersion();
+    return next;
+  }
+
+  /** 조회용 — 그 프로젝트의 원장 한 장(없으면 undefined). */
+  getAuditLog(projectName: string): ProjectAuditLog | undefined {
+    return this.auditLogService.getSnapshot().find((l) => l.projectName === projectName);
+  }
+
+  // ─── §5.21 — 비용·토큰 지도 ───
+
+  /**
+   * 세션 원장을 한 번 훑는다. 바뀐 게 있으면 true(호출부가 브로드캐스트·저장을 결정).
+   *
+   * **활성 세션만** 넘긴다 — 이미 원장에 있고 한동안 조용한 세션은 값이 변할 수 없다.
+   * 그 뒤로도 스캐너가 mtime·size 로 한 번 더 걸러 변화 없으면 파일을 열지 않는다.
+   */
+  sweepCostMap(registry: ModelRegistry | null, now: number = Date.now()): boolean {
+    const sessions: CostSweepSession[] = [];
+    for (const sub of subAgentManager.getAllSubsFlat()) {
+      if (!sub.sessionId) continue;
+      const projectName = this.getAgentProjectName(sub.parentAgentId);
+      const cwd = this.getAgentCwdByAgentId(sub.parentAgentId);
+      if (!projectName || !cwd) continue;
+      const quiet = now - (sub.lastActivityAt || 0) > COST_MAP_ACTIVE_WINDOW_MS;
+      if (quiet && this.costMapService.hasSession(projectName, sub.sessionId)) continue;
+      sessions.push({
+        sessionId: sub.sessionId,
+        agentId: sub.parentAgentId,
+        subAgentId: sub.id,
+        label: sub.label,
+        cwd,
+        projectName,
+      });
+    }
+    if (sessions.length === 0) return false;
+
+    const changed = this.costMapService.sweep(
+      sessions,
+      (cwd, sessionId) => readSessionTokenData(cwd, sessionId)?.turns ?? null,
+      registry,
+      now,
+    );
+    if (changed) this.bumpMutationVersion();
+    return changed;
+  }
+
   // ─── §5.3 #28 v1.47 — 콘티모드 (Conti) ───
 
   /** 콘티 단건 조회 */
@@ -9768,6 +10913,34 @@ export class ProjectGraph {
     c.frames = frames;
     if (title !== undefined) c.title = title.slice(0, 200);
     c.updatedAt = Date.now();
+    return c;
+  }
+
+  /**
+   * §5.13 (Q) — 출력 프리셋 지정.
+   *
+   * `updatedAt` 은 건드리지 않는다 — 히스토리의 "edited" 마커는 *컷이 바뀐 것*을 뜻하는데,
+   * 판형만 고른 것을 수정으로 세면 사용자가 고치지도 않은 콘티가 고쳐진 것처럼 보인다.
+   */
+  setContiPreset(contiId: string, presetId: StoryboardPresetId): Conti | null {
+    const c = this.contis.get(contiId);
+    if (!c) return null;
+    c.presetId = presetId;
+    this.bumpMutationVersion();
+    return c;
+  }
+
+  /**
+   * §5.13 (Q) — 콘티를 받아 간 앱의 산출물 기록.
+   *
+   * 한 콘티가 들고 있는 것은 **마지막 한 건**이다. 넘길 때마다 쌓으면 체크포인트가
+   * 사용자 산출물이 아닌 이력으로 부푼다(§3.2.3 보존 정책) — 지난 문서는 앱 쪽 목록에 남는다.
+   */
+  setContiRenderLink(contiId: string, link: ContiRenderLink): Conti | null {
+    const c = this.contis.get(contiId);
+    if (!c) return null;
+    c.render = link;
+    this.bumpMutationVersion();
     return c;
   }
 

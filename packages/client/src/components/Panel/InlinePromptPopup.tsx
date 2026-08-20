@@ -91,7 +91,7 @@ export function InlinePromptPopup({
         className="w-full resize-none rounded border border-gray-700 bg-gray-800 px-2 py-1.5 text-xs text-gray-100 outline-none focus:border-blue-500 disabled:opacity-50"
       />
       <div className="mt-2 flex items-center justify-end gap-2">
-        <span className="mr-auto text-[10px] text-gray-500">
+        <span className="mr-auto text-[12px] text-gray-500">
           {t('panel.contiPrompt.hint', { defaultValue: 'Enter 로 재가동, Esc 로 취소' })}
         </span>
         <button

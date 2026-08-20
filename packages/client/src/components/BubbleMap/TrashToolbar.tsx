@@ -24,14 +24,14 @@ export function TrashToolbar(): React.JSX.Element | null {
   return (
     <div className="pointer-events-none absolute inset-x-0 top-10 z-20 flex justify-center">
       <div className="pointer-events-auto flex items-center gap-2 rounded-md border border-gray-800 bg-gray-900/85 px-2 py-1 shadow-lg shadow-black/30 backdrop-blur-sm">
-        <span className="text-[11px] text-white/45">
+        <span className="text-[12px] text-white/45">
           {t('brain.trashCountLabel', { defaultValue: '버려진 에이전트 {{n}}개', n: trashedAgents.length })}
         </span>
         <span className="h-3 w-px bg-white/10" />
         <button
           type="button"
           onClick={() => requestTrashPurge(trashedAgents.map((a) => a.id))}
-          className="flex items-center gap-1.5 rounded bg-red-900/40 px-2 py-1 text-[11px] font-medium text-red-300 transition-colors hover:bg-red-900/70 hover:text-red-200"
+          className="flex items-center gap-1.5 rounded bg-red-900/40 px-2 py-1 text-[12px] font-medium text-red-300 transition-colors hover:bg-red-900/70 hover:text-red-200"
         >
           <svg
             viewBox="0 0 24 24"
@@ -50,7 +50,7 @@ export function TrashToolbar(): React.JSX.Element | null {
           </svg>
           {t('brain.purgeAll', { defaultValue: '모두 삭제' })}
         </button>
-        <span className="hidden text-[11px] text-white/30 sm:inline">
+        <span className="hidden text-[12px] text-white/30 sm:inline">
           {t('brain.trashDeleteHint', { defaultValue: '선택 후 Delete · Shift 로 여러 개' })}
         </span>
       </div>

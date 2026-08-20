@@ -66,13 +66,13 @@ function TokenStatsGrid({ items }: {
     <div className="flex flex-col gap-1.5">
       {items.map((item) => (
         <div key={item.label} className="flex items-center justify-between">
-          <span className="text-[11px] text-gray-500">{item.label}</span>
+          <span className="text-[12px] text-gray-500">{item.label}</span>
           <div className="flex items-center gap-1.5">
             <span className={`font-mono text-xs font-semibold ${item.color}`}>
               {formatNumber(item.value)}
             </span>
             {item.actual !== undefined && (
-              <span className="font-mono text-[10px] text-gray-600">
+              <span className="font-mono text-[12px] text-gray-600">
                 ({t('panel.tokenUsage.actualSuffix', { count: formatNumber(item.actual) })})
               </span>
             )}
@@ -94,19 +94,19 @@ function CurrentTurnSection({ turn }: { turn: TurnTokenUsage }): React.JSX.Eleme
       <div className="mb-2 flex items-center gap-2">
         <span className="text-xs font-semibold text-gray-100">{t('panel.tokenUsage.thisPrompt')}</span>
         {turn.model && (
-          <span className="rounded bg-blue-500/20 px-1.5 py-0.5 text-[10px] text-blue-400">
+          <span className="rounded bg-blue-500/20 px-1.5 py-0.5 text-[12px] text-blue-400">
             {turn.model}
           </span>
         )}
         {turn.tools.length > 0 && (
-          <span className="text-[10px] text-gray-500">
+          <span className="text-[12px] text-gray-500">
             {turn.tools.join(', ')}
           </span>
         )}
       </div>
       {/* 이 턴 청구 기준 */}
       <div className="mb-2 flex items-center justify-between rounded bg-gray-800/50 px-2.5 py-1.5">
-        <span className="text-[11px] text-gray-400">{t('panel.tokenUsage.billable')}</span>
+        <span className="text-[12px] text-gray-400">{t('panel.tokenUsage.billable')}</span>
         <span className="font-mono text-sm font-bold text-amber-400">{formatNumber(billable)}</span>
       </div>
       <TokenStatsGrid items={[
@@ -146,21 +146,21 @@ function SessionSummarySection({ turns }: { turns: TurnTokenUsage[] }): React.JS
         <div className="font-mono text-3xl font-bold text-amber-400">
           {formatNumber(totals.billableTotal)}
         </div>
-        <div className="mt-0.5 text-[11px] text-gray-500">{t('panel.tokenUsage.billableTokens')}</div>
+        <div className="mt-0.5 text-[12px] text-gray-500">{t('panel.tokenUsage.billableTokens')}</div>
       </div>
 
       {/* 메타 */}
       <div className="mb-3 flex items-center justify-center gap-3">
-        <span className="rounded bg-gray-600/30 px-2 py-0.5 text-[10px] text-gray-400">
+        <span className="rounded bg-gray-600/30 px-2 py-0.5 text-[12px] text-gray-400">
           {t('panel.tokenUsage.turns', { count: turns.length })}
         </span>
         {lastModel && (
-          <span className="rounded bg-blue-500/20 px-2 py-0.5 text-[10px] text-blue-400">
+          <span className="rounded bg-blue-500/20 px-2 py-0.5 text-[12px] text-blue-400">
             {lastModel}
           </span>
         )}
         {lastTurn && (
-          <span className="rounded bg-gray-600/30 px-2 py-0.5 text-[10px] text-gray-400">
+          <span className="rounded bg-gray-600/30 px-2 py-0.5 text-[12px] text-gray-400">
             {t('panel.tokenUsage.nowContext', { count: formatNumber(lastTurn.totalContext) })}
           </span>
         )}
@@ -190,7 +190,7 @@ function TokenLogSection({ turns }: { turns: TurnTokenUsage[] }): React.JSX.Elem
           {turns.map((t) => (
             <div
               key={t.turnIndex}
-              className="flex items-center gap-2 rounded px-2 py-1 text-[11px] hover:bg-gray-800/50"
+              className="flex items-center gap-2 rounded px-2 py-1 text-[12px] hover:bg-gray-800/50"
             >
               <span className="w-6 shrink-0 text-right font-mono text-gray-600">
                 {t.turnIndex + 1}
@@ -215,7 +215,7 @@ function CategoryGraphSection({ categories }: { categories: TokenCategoryEstimat
     <div className="px-4 py-3">
       <div className="mb-2 flex items-center gap-2">
         <h3 className="text-xs font-semibold text-gray-400">{t('panel.tokenUsage.categoryBreakdown')}</h3>
-        <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[9px] font-semibold text-amber-400">
+        <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[12px] font-semibold text-amber-400">
           {t('panel.tokenUsage.estimate')}
         </span>
       </div>
@@ -226,12 +226,12 @@ function CategoryGraphSection({ categories }: { categories: TokenCategoryEstimat
           return (
             <div key={cat.key}>
               <div className="mb-0.5 flex items-center justify-between">
-                <span className="text-[11px] text-gray-300">{cat.label}</span>
+                <span className="text-[12px] text-gray-300">{cat.label}</span>
                 <div className="flex items-center gap-2">
-                  <span className="font-mono text-[11px] text-gray-400">
+                  <span className="font-mono text-[12px] text-gray-400">
                     {formatNumber(cat.estimatedTokens)}
                   </span>
-                  <span className="w-8 text-right text-[10px] text-gray-600">
+                  <span className="w-8 text-right text-[12px] text-gray-600">
                     {cat.percentage}%
                   </span>
                 </div>
@@ -243,7 +243,7 @@ function CategoryGraphSection({ categories }: { categories: TokenCategoryEstimat
                 />
               </div>
               {cat.detail && (
-                <div className="mt-0.5 text-[10px] text-gray-600">
+                <div className="mt-0.5 text-[12px] text-gray-600">
                   ({cat.detail})
                 </div>
               )}

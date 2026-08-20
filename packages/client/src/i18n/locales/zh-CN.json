@@ -29,8 +29,9 @@
       "completed": "{{count}} 项已完成",
       "working": "{{active}}/{{total}}",
       "tooltipWaiting": "此项目暂无 Agent",
-      "tooltipCompleted": "此项目 {{count}} 个 Agent 已完成",
-      "tooltipWorking": "此项目 {{active}}/{{total}} 个 Agent 运行中"
+      "tooltipWorking": "此项目：{{agents}} 个 Agent · {{sessions}} 个会话中 {{running}} 个运行中",
+      "tooltipIdle": "此项目：{{agents}} 个 Agent · {{sessions}} 个会话 — 当前没有运行中的会话",
+      "tooltipCommand": "{{status}} · 点击打开指挥中心"
     },
     "tab": {
       "closeProject": "关闭项目",
@@ -190,6 +191,10 @@
       "title": "选项",
       "unsaved": "未保存",
       "discardConfirm": "放弃未保存的更改？",
+      "discardTitle": "未保存的更改",
+      "discardDesc": "更改尚未应用。现在离开将会丢失。",
+      "discardKeep": "继续编辑",
+      "discardLeave": "放弃并关闭",
       "apply": "应用",
       "cancel": "取消",
       "saving": "保存中…",
@@ -278,7 +283,7 @@
         "actionFailed": "操作未成功。请重试。"
       },
       "storage": {
-        "intro": "Vibisual 在磁盘上保留活动历史的时长。将任意值设为 0 即可永久保留 — 不会静默删除任何内容，运行中的 Session 也绝不会被触碰。",
+        "intro": "设置活动记录在磁盘上保留多久。任何一项设为 0 即永久保留。不会悄悄删除任何东西——会话仍在引用的文件无论多旧都会保留，正在运行和可重新打开的会话不会被触碰，清理是移入回收站而非删除，因此可以还原。",
         "save": "应用",
         "saving": "保存中…",
         "reset": "恢复默认值",
@@ -289,7 +294,7 @@
         "scanning": "扫描中…",
         "cleanNow": "立即清理",
         "cleaning": "清理中…",
-        "cleaned": "已删除 {{files}} 个文件，释放 {{size}}。",
+        "cleaned": "已将 {{files}} 个文件（{{size}}）移入回收站——只要还在下面的列表中就能还原。",
         "empty": "磁盘上尚无项目数据。",
         "worktreesTitle": "Git Worktree",
         "worktreesNote": "不会自动删除 — 其中可能保存着工作内容。如不再需要，请自行删除该文件夹。",
@@ -313,16 +318,20 @@
             "desc": "对同一文件的连续编辑会合并为一条记录。0 = 从不合并。"
           },
           "completedCommandMaxPerSession": {
-            "label": "每个 Session 保留的已完成命令数",
-            "desc": "每个 Session 保留的提示词气泡数量。0 = 不限。"
+            "label": "每个会话保留的已完成命令",
+            "desc": "每个会话保留你自己输入的提示条数。这些无法重新生成，因此上限设得宽松。0 = 无限制。"
           },
           "subStreamRetentionDays": {
-            "label": "Agent 会话记录保留时长",
-            "desc": "在启动时清理。运行中的 Session 无论多久都会保留。0 = 永久保留。"
+            "label": "智能体对话记录保留",
+            "desc": "启动时清理一次。正在运行以及仍在“重新打开”列表中的会话无论多旧都会保留。0 = 永久保留。"
           },
           "attachmentRetentionDays": {
-            "label": "附件保留时长",
-            "desc": "粘贴到提示词中的图片。0 = 永久保留。"
+            "label": "附件保留",
+            "desc": "你粘贴到命令中的图片。会话仍指向的文件无论多旧都会保留，只有孤立文件会过期。0 = 永久保留。"
+          },
+          "trashRetentionDays": {
+            "label": "回收站保留",
+            "desc": "已清理的文件保持可还原状态多少天，之后才彻底删除。0 = 永久保留。"
           }
         },
         "kinds": {
@@ -335,14 +344,24 @@
           "brain": "记忆",
           "logs": "日志",
           "video": "视频",
-          "other": "其他"
+          "other": "其他",
+          "trash": "回收站"
         },
         "error": {
           "load": "无法加载保留期限设置。",
           "save": "无法保存保留期限设置。",
           "scan": "无法测量磁盘占用。",
-          "clean": "清理失败，请重试。"
-        }
+          "clean": "清理失败，请重试。",
+          "restore": "无法还原该文件。原位置可能已存在同名文件。"
+        },
+        "purged": "已永久删除回收站中过期的 {{files}} 个文件（{{size}}）。",
+        "keptReferenced": "仍被引用的 {{files}} 个文件无论多旧都已保留。",
+        "trashTitle": "回收站",
+        "trashNote": "清理会把文件移到这里而不是删除。列表中的文件在满 {{days}} 天之前都可以还原。",
+        "trashNoteForever": "清理会把文件移到这里而不是删除。这里的文件永远不会被自动删除。",
+        "trashEmpty": "回收站是空的——没有清理过任何东西。",
+        "restore": "还原",
+        "restoring": "正在还原…"
       }
     },
     "autoAgent": {
@@ -491,7 +510,15 @@
       "empty": "暂无 Conti — 按「生成新 Conti」截取第一帧",
       "working": "处理中… ({{source}})",
       "edited": "编辑于 {{when}}",
-      "editedTitle": "最后修改时间"
+      "editedTitle": "最后修改时间",
+      "scriptTitle": "从剧本生成分镜",
+      "scriptPlaceholder": "粘贴剧本 — 按剧本顺序，每个节拍一格。",
+      "scriptPreset": "输出",
+      "scriptFrames": "格数",
+      "scriptFramesAuto": "自动",
+      "scriptGenerate": "从剧本生成分镜",
+      "scriptWorking": "正在切分场景…",
+      "scriptChip": "剧本"
     },
     "contiBoard": {
       "latest": "最新 Conti",
@@ -501,7 +528,18 @@
       "editFrame": "编辑文本",
       "editTitlePrompt": "帧标题：",
       "editActionPrompt": "帧动作：",
-      "zoomReset": "Ctrl+0 重置"
+      "zoomReset": "Ctrl+0 重置",
+      "presetLabel": "输出",
+      "preset": {
+        "landscape": "横版 16:9",
+        "portrait": "竖版 9:16",
+        "webtoon": "条漫（竖向滚动）"
+      },
+      "render": "渲染",
+      "renderTitle": "把分镜移入时间线文档并开始渲染",
+      "renderWorking": "正在移交…",
+      "renderNoApp": "安装视频应用后才能渲染",
+      "renderLinked": "{{app}} · {{status}}"
     },
     "contiPrompt": {
       "title": "用提示词修改元素",
@@ -733,7 +771,8 @@
         "TaskStop": "停止后台任务或子代理。",
         "MultiEdit": "一次对同一文件应用多处编辑。",
         "SendMessage": "向运行中的子代理发送后续消息。",
-        "Artifact": "创建文档、应用等制品。"
+        "Artifact": "创建文档、应用等制品。",
+        "strippedByEdgeHint": "通过 STRICT 边委派——该 Agent 在运行时无法使用此工具（移除该边后将恢复）"
       },
       "maxTurns": "最大轮次",
       "maxBudgetUsd": "预算（$，0=∞）",
@@ -808,6 +847,12 @@
         "defaultLabel": "默认值（秒，0 = CLI 默认）",
         "maxLabel": "最大限制（秒，0 = CLI 默认）",
         "hint": "0 表示使用 CLI 默认值 — 默认 {{defaultSec}} 秒，最大 {{maxSec}} 秒。"
+      },
+      "modelVersion": {
+        "label": "版本",
+        "latest": "最新版（别名）",
+        "latestWith": "最新（{{id}}）",
+        "custom": "自定义…"
       }
     },
     "permissionPrompt": {
@@ -1196,6 +1241,132 @@
       "rechecking": "检查中…",
       "later": "稍后",
       "docs": "官方安装指南"
+    },
+    "appsWindow": {
+      "notInstalledTitle": "{{name}} 尚未安装",
+      "notInstalledBody": "右键点击画布，从应用中安装。你也可以放置一个气泡，直接从该气泡安装。",
+      "unknownMode": "未知界面：{{mode}}",
+      "unknownApp": "未知应用：{{id}}"
+    },
+    "apps": {
+      "open": "打开",
+      "openHint": "双击打开。",
+      "installApp": "安装应用",
+      "installHint": "双击安装。",
+      "uninstallApp": "卸载应用",
+      "notInstalledBadge": "需安装",
+      "unknown": "未知应用",
+      "rename": "重命名",
+      "renamePrompt": "气泡名称",
+      "pin": "固定",
+      "unpin": "取消固定",
+      "delete": "删除",
+      "deletePinnedHint": "此气泡已固定，请先取消固定。",
+      "detail": {
+        "app": "应用",
+        "installed": "已安装",
+        "unknownHint": "此应用不属于当前版本，你仍可以删除该气泡。",
+        "installHint": "安装后才能打开。双击画布上的气泡也可以安装。",
+        "bubble": "此气泡",
+        "nameHint": "留空则使用应用名称。",
+        "protection": "保护",
+        "pinHint": "开启后，Delete 键和删除操作都无法移除它。",
+        "deleteBubble": "删除此气泡",
+        "deleteHint": "Delete 键同样可以移除它，应用本身仍会保留安装。"
+      }
+    },
+    "videoStudio": {
+      "title": "Vibistudio",
+      "pickDoc": "选择一个视频…",
+      "newDoc": "新建视频",
+      "untitled": "新建视频",
+      "empty": "选择一个视频，或新建一个。",
+      "newTitle": "标题卡",
+      "addTitle": "添加标题",
+      "play": "播放",
+      "pause": "暂停",
+      "seek": "播放进度",
+      "toggleItem": "开启/关闭",
+      "removeItem": "移除",
+      "pickAgent": "选择一个 Agent…",
+      "delegate": "移交此片段",
+      "delegated": "已将此片段移交给 Agent。",
+      "render": "渲染",
+      "renderQueued": "渲染已排队。",
+      "renderDone": "渲染已完成。",
+      "noAudio": "导出时未包含音频。",
+      "downgraded": "渲染模式已降级：{{id}}",
+      "previewFailed": "无法绘制预览。",
+      "reloaded": "文档已在别处更改，因此已重新加载。"
+    },
+    "cost": {
+      "title": "费用与 Token 地图",
+      "close": "关闭费用地图",
+      "pillLabel": "今日费用",
+      "pillEmpty": "尚未测得费用",
+      "notMeasured": "未测量",
+      "notMeasuredHint": "此会话未读取到任何轮次数据,因此不对其费用做任何断言。",
+      "periodToday": "今天",
+      "periodWeek": "本周",
+      "periodMonth": "本月",
+      "periodAll": "全部时间",
+      "totalCost": "费用",
+      "inputTokens": "输入",
+      "outputTokens": "输出",
+      "cacheReadTokens": "缓存读取",
+      "cacheCreateTokens": "缓存写入",
+      "agentsTitle": "按 Agent",
+      "sessionsTitle": "按会话",
+      "colName": "名称",
+      "colModel": "模型",
+      "colTokens": "Token 数",
+      "colCost": "费用",
+      "sessionCumulativeNote": "会话行显示的是完整会话,按最后活动时间筛选。",
+      "empty": "此项目尚未测得任何数据。",
+      "emptyHint": "费用会在 Agent 完成一个轮次后出现——它们是从会话记录中读取的,而非账单金额。",
+      "estimateNote": "根据 Token 数量与公开价格估算得出。",
+      "retiredNote": "来自旧会话的 {{cost}} 已并入全部时间总计。",
+      "sessions_one": "{{count}} 个会话",
+      "sessions_other": "{{count}} 个会话",
+      "openMap": "打开费用与 Token 地图"
+    },
+    "audit": {
+      "title": "权限与审计边界",
+      "close": "关闭审计时间线",
+      "pillLabel": "今日风险调用",
+      "pillEmpty": "今日无风险工具调用",
+      "pillOff": "审计边界已关闭——风险操作无需确认即可执行(仍会被记录)",
+      "boundaryOn": "风险操作前先询问",
+      "boundaryHint": "记录不会停止——这只决定是否先暂停 Agent。",
+      "routeTitle": "与权限模式分开运行的第二道关卡",
+      "routeBody": "此边界与智能体设置中的权限模式（Permission Mode）分开运行，会对权限模式已放行的工具调用再检查一次。",
+      "routeOn": "开启时 — 即使智能体设为“全部允许（bypassPermissions）”，删除、网络、配置这三类仍会弹出审批卡片。",
+      "routeOff": "关闭时（默认）— 所有调用都按权限模式的决定执行，只做记录。",
+      "routeScope": "这里只会拦下 Vibisual 启动的自定义智能体。您自己运行的 Claude Code 会话只会被记录。",
+      "routeStateOn": "当前开启 — 三类风险调用会先于权限模式进行确认。",
+      "routeStateOff": "当前关闭 — 调用按权限模式执行，仅做记录。",
+      "risk": {
+        "delete": "删除",
+        "network": "网络",
+        "config": "配置"
+      },
+      "filterAll": "全部",
+      "filterRisky": "风险",
+      "filterDenied": "拒绝",
+      "escalated": "已先询问",
+      "decisionAllow": "已允许",
+      "decisionDeny": "已拒绝",
+      "sourceTimeout": "超时",
+      "sourcePolicy": "按模式",
+      "reason": "原因",
+      "countSummary": "{{total}} 次调用 · {{risky}} 次风险 · {{denied}} 次拒绝",
+      "showMore": "显示另外 {{count}} 条",
+      "noMatch": "没有符合该筛选条件的调用。",
+      "retired": "{{count}} 条较早的调用计入了总数,但详情已不再保留。",
+      "empty": "此项目尚未记录任何工具调用。",
+      "emptyHint": "Agent 发起的每一次工具调用都会被记录在这里——它涉及了什么,你又是如何回应的。",
+      "promptRiskTitle": "风险操作",
+      "promptEscalatedHint": "按你的权限模式,这项操作本会被自动允许——但审计边界选择先询问。"
     }
   },
   "ide": {
@@ -1234,6 +1405,12 @@
       "download": "下载 PNG",
       "saveReplace": "保存",
       "saveAttach": "附加标记副本",
+      "saveFile": "保存到文件",
+      "saveFileHint": "用这些标记覆盖 {{path}}",
+      "saveFileUnsupported": "该格式无法重新编码 — 请改为附加或下载标记后的副本。",
+      "fileSaveFailed": "无法保存到该文件。",
+      "fileConflict": "打开之后该文件在磁盘上已更改。",
+      "fileConflictOverwrite": "仍然保存",
       "textPlaceholder": "输入后按 Enter",
       "hintPick": "选择工具标记此图片，然后将其保存为附件。",
       "hintDraw": "在图片上拖动即可标记。Ctrl+Z 可撤销上一次标记。",
@@ -1256,7 +1433,9 @@
       "cmdLabel": "CMD",
       "hookLabel": "Hook",
       "renameHint": "双击重命名 (F2)",
-      "renameInputLabel": "Agent 名称"
+      "renameInputLabel": "Agent 名称",
+      "localLabel": "All Model",
+      "localSwitchModel": "更换该气泡使用的模型"
     },
     "tabbar": {
       "newSession": "新建 Session",
@@ -1376,7 +1555,9 @@
       "runningSubagents": "运行中的子 Agent（{{count}}）",
       "loop": "重复循环",
       "goal": "目标",
-      "debug": "运行与调试"
+      "debug": "运行与调试",
+      "hooks": "会话 Hooks",
+      "plugins": "Claude Code 插件"
     },
     "mcp": {
       "title": "MCP 服务器",
@@ -1652,6 +1833,11 @@
       "truncated": "此文件过大，仅显示开头部分 — 只读。",
       "readError": "无法读取此文件",
       "plainLanguage": "纯文本",
+      "imageEdit": "编辑",
+      "imageEditHint": "标记这张图片",
+      "imageFit": "适应面板",
+      "imageActualSize": "实际大小 (1:1)",
+      "imageReadError": "无法显示这张图片",
       "openInPane": "在编辑器面板中打开 — {{path}}",
       "openFolder": "打开此文件所在的文件夹 — {{path}}",
       "readOnlyLocked": "此文件在磁盘上被锁定为只读（Perforce 签出、文件属性）。",
@@ -1790,6 +1976,45 @@
       "instructionTitle": "已下达的指令",
       "changesTitle": "变更内容",
       "checkpointsTitle": "请核实"
+    },
+    "reviewLane": {
+      "unknownBranch": "（分支未知）",
+      "fileCount": "{{count}} 个文件",
+      "uncommitted": "未提交",
+      "uncommittedHint": "尚未提交 — 即使批准，此改动也不会被合并。",
+      "showMoreFiles": "再显示 {{count}} 个",
+      "showLessFiles": "收起",
+      "filesTruncated": "已达上限，部分文件未列出。",
+      "showDiff": "查看差异（{{count}} 行）",
+      "hideDiff": "收起差异",
+      "diffTruncated": "差异内容已在大小上限处截断。",
+      "approve": "批准",
+      "approveTitle": "批准并将此分支合并到父分支",
+      "reject": "驳回",
+      "rejectTitle": "写明理由驳回，退回让其重做",
+      "hold": "暂缓",
+      "holdTitle": "稍后决定 — 既不合并也不退回",
+      "sendReject": "发送驳回",
+      "cancel": "取消",
+      "reasonPlaceholder": "为什么驳回？你写的理由会直接作为 Agent 的下一条指令。",
+      "reasonHint": "该理由将成为下一条指令。",
+      "rejectPromptHeader": "这次改动在评审中被驳回了。请按下面的理由修改，然后告诉我你做了哪些改动。",
+      "decisionFailed": "无法记录该决定：{{error}}",
+      "historyTitle": "决定记录（{{count}}）",
+      "changeType": {
+        "added": "新增",
+        "modified": "修改",
+        "deleted": "删除",
+        "renamed": "重命名",
+        "unknown": "未知"
+      },
+      "result": {
+        "approvedMerged": "已批准 · 已合并",
+        "approvedMergeFailed": "已批准 · 合并失败（{{error}}）",
+        "rejected": "已驳回",
+        "rejectedDispatched": "已驳回 · 已发送重做",
+        "held": "暂缓中"
+      }
     },
     "list": {
       "title": "列表",
@@ -2289,6 +2514,129 @@
           }
         }
       }
+    },
+    "goal": {
+      "title": "目标",
+      "pickSession": "选择一个会话以查看其目标。",
+      "waiting": "暂无目标。会话制定计划后即会出现。",
+      "setManually": "自行填写",
+      "textPlaceholder": "这个会话应该达成什么？",
+      "textHint": "一旦你自行编辑文字，会话就不会再重写它。",
+      "create": "创建",
+      "update": "更新",
+      "cancel": "取消",
+      "editHint": "编辑目标",
+      "stepCount": "{{done}} / {{total}} 步",
+      "stepRemaining": "剩余 {{count}} 项",
+      "noSteps": "暂无步骤",
+      "byUser": "由你设定",
+      "bySession": "由会话设定",
+      "toggleStep": "切换此步骤",
+      "removeStep": "移除此步骤",
+      "addStepPlaceholder": "添加步骤…",
+      "historyLabel": "历史记录",
+      "achieve": "标记为已达成",
+      "resume": "重新开启",
+      "delete": "放弃目标",
+      "status": {
+        "active": "进行中",
+        "achieved": "已达成",
+        "abandoned": "已放弃"
+      },
+      "source": {
+        "agent": "由 Agent 报告",
+        "user": "由你调整",
+        "plan": "源自计划"
+      }
+    },
+    "hooks": {
+      "title": "会话 Hooks",
+      "refresh": "重新扫描 Hooks",
+      "noProject": "打开项目以查看适用于其会话的 Hooks。",
+      "empty": "此会话尚未配置任何 Hooks。",
+      "applyHint": "启用或禁用某个 Hook 仅影响此后启动的会话。被禁用的 Hook 仍保留在设置文件中 — 只是被移到一旁，使 Claude Code 不再运行它。",
+      "loadFailed": "无法读取 Hook 配置。",
+      "toggleFailed": "无法保存更改。",
+      "turnOn": "启用",
+      "turnOff": "禁用",
+      "matcher": "运行条件：{{matcher}}",
+      "matcherAll": "对此事件的每次调用都会运行",
+      "timeout": "超时 {{seconds}} 秒",
+      "state": {
+        "enabled": "开",
+        "disabled": "关"
+      },
+      "scope": {
+        "user": "全局（所有项目）",
+        "project": "项目（在仓库中共享）",
+        "local": "本地（仅此设备）",
+        "managed": "托管策略"
+      },
+      "scopeShort": {
+        "user": "全局",
+        "project": "项目",
+        "local": "本地",
+        "managed": "策略"
+      },
+      "scopeHint": {
+        "user": "写入 ~/.claude/settings.json — 在所有项目中运行。",
+        "project": "写入 .claude/settings.json — 已提交到仓库，团队所有成员都会获得。",
+        "local": "写入 .claude/settings.local.json — 未提交，仅你自己拥有。",
+        "managed": "由管理员策略文件设置，此处只读。"
+      },
+      "lock": {
+        "vibisual": "Vibisual 安装此 Hook 以监视你的会话。关闭它会使本应用失去感知，因此保持开启。",
+        "managed": "此 Hook 由管理员策略设置，无法在此更改。"
+      }
+    },
+    "plugins": {
+      "title": "Claude Code 插件",
+      "refresh": "重新扫描插件",
+      "noProject": "打开项目以查看适用于其会话的插件。",
+      "loadFailed": "无法读取插件列表。",
+      "actionFailed": "命令执行失败。",
+      "unavailable": "无法向 Claude Code CLI 请求插件列表。",
+      "emptyInstalled": "尚未安装任何 Claude Code 插件。打开「市场」标签页添加一个。",
+      "emptyMarket": "没有插件匹配你的搜索。",
+      "applyHint": "启用或禁用插件仅影响此后启动的会话 — 已在运行的会话会保留其已加载的内容。",
+      "turnOn": "启用",
+      "turnOff": "禁用",
+      "install": "安装",
+      "installing": "安装中…",
+      "alreadyInstalled": "已安装",
+      "uninstall": "卸载",
+      "installCount": "市场报告的安装次数",
+      "installScope": "安装到",
+      "searchPlaceholder": "搜索插件…",
+      "showMore": "显示另外 {{count}} 项",
+      "marketplaces": "市场",
+      "marketplaceAdd": "添加",
+      "marketplaceRemove": "移除",
+      "marketplacePlaceholder": "owner/repo、URL 或路径",
+      "tab": {
+        "installed": "已安装",
+        "market": "市场"
+      },
+      "scope": {
+        "user": "全局",
+        "project": "此项目",
+        "local": "本地"
+      },
+      "placement": {
+        "global": "全局（所有项目）",
+        "this-project": "此项目",
+        "other-project": "绑定到另一个项目"
+      },
+      "placementShort": {
+        "global": "全局",
+        "this-project": "项目",
+        "other-project": "其他"
+      },
+      "placementHint": {
+        "global": "已为你的用户安装 — 这些插件会在所有项目中加载。",
+        "this-project": "仅为此项目安装 — 它们会在你在此运行的会话中加载。",
+        "other-project": "已安装，但绑定到另一个项目，因此不会在此会话中加载。"
+      }
     }
   },
   "bubbleMap": {
@@ -2366,7 +2714,31 @@
       "fitAspect": "匹配源画面比例",
       "fitAspectHint": "将气泡高度重置为源画面的宽高比，以消除黑边 — 拼接后的气泡看起来会连成一体。",
       "seamless": "隐藏接缝",
-      "seamlessHint": "隐藏边框和标题栏，使拼接后的气泡看起来像同一块屏幕（悬停时标题栏会重新显示）"
+      "seamlessHint": "隐藏边框和标题栏，使拼接后的气泡看起来像同一块屏幕（悬停时标题栏会重新显示）",
+      "playtest": {
+        "section": "试玩",
+        "startRecording": "开始录制试玩",
+        "stopRecording": "停止录制 · 裁剪范围",
+        "recording": "正在录制试玩",
+        "recordFailed": "录制失败：{{reason}}",
+        "emptyHint": "录制一次试玩，裁剪出问题发生的瞬间，并将这些帧附加给 Agent。片段仅保存在本设备的内存中。",
+        "windowTitle": "试玩片段",
+        "autoStopped": "已达时长上限，自动停止",
+        "playRange": "播放范围",
+        "rangeReset": "整个片段",
+        "rangeLength": "范围 {{len}}",
+        "rangeStart": "范围起点",
+        "rangeEnd": "范围终点",
+        "save": "保存片段 (.webm)",
+        "deleteClip": "丢弃此片段",
+        "frames": "帧",
+        "target": "发送至",
+        "noTarget": "没有可用的 Agent",
+        "attach": "附加范围内的 {{count}} 帧",
+        "attaching": "正在提取帧 {{done}}/{{total}}",
+        "attached": "已将 {{count}} 帧附加给 {{agent}}——现在写下问题所在并发送。",
+        "attachFailed": "附加失败：{{reason}}"
+      }
     },
     "taskEdge": {
       "iconHint": "单击：详情 · 双击：编辑",
@@ -2568,7 +2940,20 @@
       "createCapture": "屏幕/程序捕获气泡",
       "createCaptureHint": "在气泡中实时显示屏幕或程序窗口",
       "createSpec": "Spec 看板",
-      "createSpecHint": "先编写需求，再将每条验收标准转换为任务卡片"
+      "createSpecHint": "先编写需求，再将每条验收标准转换为任务卡片",
+      "createPlay": "运行气泡",
+      "createPlayHint": "在此启动/停止项目并预览",
+      "apps": "应用",
+      "appsHint": "放置一个应用气泡，双击即可打开",
+      "appUninstall": "卸载",
+      "appInstall": "安装",
+      "appsHelp": "点击一行即可将其作为气泡放置到画布上。双击气泡可打开，右键点击可管理。",
+      "createLab": "智能体实验室",
+      "createLabHint": "用不同设置运行同一任务，并在一张表中比较结果",
+      "createLocalAgent": "所有模型",
+      "createLocalAgentHint": "放置一个用于本机模型的气泡",
+      "createShelf": "脚本搁板",
+      "createShelfHint": "将常用命令和提示词放在一键可达之处"
     },
     "bounds": {
       "label": "气泡边界",
@@ -2624,6 +3009,139 @@
       "unpin": "取消固定",
       "delete": "删除",
       "deletePinnedHint": "此 Spec 已固定，请先取消固定。"
+    },
+    "play": {
+      "title": "运行",
+      "idle": "点击运行",
+      "starting": "启动中…",
+      "findHint": "点击以确定运行方式",
+      "unknownRecipe": "运行命令未知",
+      "detected": "已找到运行方式",
+      "noAgent": "没有可用于排查的自定义 Agent",
+      "askSent": "已请 Agent 确定运行方式",
+      "askFailed": "无法将排查任务交给 Agent",
+      "findRecipe": "确定运行方式",
+      "askAgent": "询问 Agent",
+      "editRecipe": "编辑运行命令",
+      "editCommandPrompt": "运行命令",
+      "editRootPrompt": "要提供服务的文件夹（绝对路径）",
+      "showPreview": "显示预览",
+      "hidePreview": "隐藏预览",
+      "openBrowser": "在浏览器中打开",
+      "rename": "重命名",
+      "renamePrompt": "按钮名称",
+      "pin": "固定",
+      "unpin": "取消固定",
+      "delete": "删除",
+      "deletePinnedHint": "此气泡已固定，请先取消固定。"
+    },
+    "lab": {
+      "title": "实验室",
+      "untitled": "未命名实验",
+      "openPanel": "打开实验室",
+      "rename": "重命名",
+      "renamePrompt": "实验标题",
+      "addVariant": "添加变体",
+      "removeVariant": "删除变体",
+      "startAll": "全部运行",
+      "startAllN": "全部运行 ({{count}})",
+      "startNoneHint": "没有可运行的变体",
+      "startNoTaskHint": "请先填写任务",
+      "starting": "正在运行变体…",
+      "pin": "固定",
+      "unpin": "取消固定",
+      "delete": "删除",
+      "deletePinnedHint": "该实验已固定，请先取消固定。",
+      "badgeDraft": "待运行",
+      "badgeRunning": "运行中",
+      "badgeDone": "已完成",
+      "variants": "变体",
+      "runningN": "运行中 {{count}}",
+      "emptyHint": "双击以编写任务并搭建变体",
+      "progressRunning": "运行中 {{done}}/{{total}}",
+      "progressIdle": "已完成 {{done}}/{{total}}",
+      "taskLabel": "任务（所有变体使用同一段文字）",
+      "taskLocked": "运行期间无法修改任务",
+      "taskPlaceholder": "只写一次要做什么。变体之间只应有设置不同，比较才有意义。",
+      "noVariants": "还没有变体。在下方添加设置组合。",
+      "variantEditor": "变体设置",
+      "inherit": "（沿用基准设置）",
+      "maxTurns": "最大轮次",
+      "rulesAppend": "仅此变体的附加说明（可选）",
+      "promote": "提升为默认值",
+      "promoteHint": "只有成功的变体才能提升",
+      "promotedBadge": "默认",
+      "runOne": "运行",
+      "rerun": "重新运行",
+      "openCard": "查看卡片",
+      "col": {
+        "variant": "变体",
+        "model": "模型",
+        "effort": "Effort",
+        "permission": "权限",
+        "status": "状态",
+        "duration": "耗时",
+        "files": "文件",
+        "lines": "±行",
+        "tokens": "令牌（入/出）",
+        "cost": "成本",
+        "actions": "操作"
+      },
+      "status": {
+        "pending": "待运行",
+        "running": "运行中",
+        "success": "成功",
+        "failed": "失败",
+        "stopped": "已中断"
+      },
+      "baseAgentLabel": "基准设置",
+      "baseAgentNone": "（未选择 — 新卡片默认值）",
+      "baseAgentHint": "变体继承的设置，也是提升时保存到的智能体。"
+    },
+    "shelf": {
+      "title": "搁板",
+      "untitled": "未命名搁板",
+      "openPanel": "打开搁板",
+      "rename": "重命名",
+      "renamePrompt": "搁板名称",
+      "addItem": "添加项目",
+      "countBadge": "{{count}} 项",
+      "itemCount": "项目 {{count}}/{{max}}",
+      "itemLimit": "一个搁板最多可容纳 {{count}} 项",
+      "emptyHint": "双击以添加常用命令和提示词",
+      "panelEmpty": "还没有项目。放入 Shell 命令或提示词后，在画布上点击一下即可运行。",
+      "export": "导出（JSON）",
+      "exportEmptyHint": "暂无可导出内容",
+      "import": "导入（JSON）",
+      "importReplace": "导入并替换全部",
+      "imported": "已导入 {{added}} 项（丢弃 {{dropped}} 项）",
+      "importFailed": "无法导入 — 这不是搁板文件。",
+      "pin": "固定",
+      "unpin": "取消固定",
+      "delete": "删除",
+      "deletePinnedHint": "此搁板已固定，请先取消固定。",
+      "kindCommand": "Shell",
+      "kindPrompt": "提示词",
+      "newCommand": "新建命令",
+      "newPrompt": "新建提示词",
+      "addCommand": "+ Shell 命令",
+      "addPrompt": "+ 提示词",
+      "removeItem": "删除项目",
+      "moveUp": "上移",
+      "moveDown": "下移",
+      "run": "运行",
+      "running": "运行中",
+      "labelPlaceholder": "名称",
+      "commandPlaceholder": "要运行的 Shell 命令（例如 pnpm test）",
+      "promptPlaceholder": "发送给 Agent 的提示词",
+      "cwdPlaceholder": "工作目录（默认为项目根目录）",
+      "newAgentTarget": "运行时创建新卡片",
+      "statusSuccess": "成功",
+      "statusFailed": "失败",
+      "statusRunning": "运行中",
+      "exitCode": "退出码",
+      "outputTruncated": "（省略开头部分）",
+      "openCard": "打开该卡片"
     }
   },
   "common": {
@@ -2645,6 +3163,7 @@
       "awaitingPermission": "等待您的授权",
       "awaitingInput": "等待您的输入",
       "idle": "空闲",
+      "dormant": "休眠",
       "autoIdle": "Auto Agent — 描述你想要的内容",
       "hint": {
         "enter": "双击进入",
@@ -2659,6 +3178,8 @@
       "deviceMobile": "手机",
       "deviceTablet": "平板",
       "deviceDesktop": "桌面",
+      "deviceCompare": "对比",
+      "deviceCompareTip": "在一个预览中并排显示所有宽度",
       "deviceTip": "以 {{width}}px 宽度渲染",
       "pickElement": "选取元素",
       "pickHint": "点击预览中的元素，描述需要的更改",
@@ -2673,8 +3194,16 @@
       "pickLabelElement": "元素",
       "pickLabelSelector": "选择器",
       "pickLabelText": "可见文本",
-      "pickLabelRequest": "请求"
-    }
+      "pickLabelRequest": "请求",
+      "snip": "截取区域",
+      "snipBusy": "截取中…",
+      "snipHint": "在预览上拖动即可截取该区域，并附加到代理的输入框",
+      "snipAttached": "已附加到输入框：",
+      "snipRemove": "删除此截图",
+      "snipUnavailable": "此界面不支持区域截取。",
+      "snipFailed": "截取失败：{{error}}"
+    },
+    "close": "关闭"
   },
   "brain": {
     "bubbleLabel": "大脑",
@@ -2887,6 +3416,86 @@
     "bulkStopAll": "停止所有正在运行的任务",
     "resetSettings": "重置这些选项",
     "confirmCloseDone": "要关闭 {{count}} 个已完成的会话标签吗？",
-    "confirmStopAll": "要停止 {{count}} 个智能体正在运行的所有会话吗？"
+    "confirmStopAll": "要停止 {{count}} 个智能体正在运行的所有会话吗？",
+    "title": "指挥中心",
+    "detailToggle": "切换详情面板",
+    "all": "全部",
+    "shortcuts": "快捷键",
+    "rankHint": "优先级 {{rank}}",
+    "jump": "跳转到会话",
+    "followProject": "跟随当前项目",
+    "followProjectNote": "始终显示主窗口中当前的项目。",
+    "pinnedHint": "已固定到此项目——点击可改为跟随当前项目。",
+    "followingHint": "正在跟随当前项目——点击可固定某个项目。",
+    "noProject": "无项目",
+    "noProjects": "没有已打开的项目。",
+    "updatedNever": "尚未更新",
+    "updatedNow": "刚刚更新",
+    "updatedAgo": "{{time}}前更新",
+    "connLive": "实时",
+    "connConnecting": "连接中…",
+    "connLost": "离线",
+    "connLostHint": "连接已断开——正在重新连接。",
+    "refresh": "刷新",
+    "refreshHint": "立即刷新",
+    "view": {
+      "board": "看板",
+      "list": "列表"
+    },
+    "sortRule": {
+      "recent": "最新活动优先",
+      "waiting": "等待时间最长优先",
+      "context": "剩余上下文最少优先"
+    },
+    "detail": {
+      "close": "关闭",
+      "context": "剩余上下文",
+      "permission": "需要权限",
+      "question": "问题",
+      "suggested": "建议",
+      "review": "Review",
+      "changes": "更改",
+      "checkpoints": "检查点",
+      "report": "报告",
+      "userActions": "轮到你",
+      "did": "Agent 做了什么",
+      "nextSteps": "后续步骤",
+      "queued": "已排队的命令",
+      "lastActivity": "最近活动",
+      "nothingYet": "暂无内容。",
+      "queuedIt": "已加入队列。",
+      "composerHint": "输入命令并按 Enter 键发送给此会话。"
+    }
+  },
+  "localModel": {
+    "title": "所有模型",
+    "subtitle": "选择一个可在本机运行的模型并绑定到该气泡",
+    "installIntro": "运行本地模型需要推理引擎。它不包含在基础安装包中，以保持安装包体积小巧 — 你只需下载一次。",
+    "installWhat": "包含内容 — GPU（Vulkan）和 CPU 版本。Vulkan 覆盖大多数显卡；若没有它，模型仍可在 CPU 上运行。",
+    "installWhere": "位置",
+    "install": "下载并安装引擎",
+    "preparing": "准备中",
+    "engineReady": "引擎已就绪",
+    "uninstall": "移除引擎",
+    "myModels": "已下载的模型",
+    "noModels": "还没有模型。请在下方搜索并下载一个。",
+    "loaded": "已加载到内存",
+    "deleteModel": "删除",
+    "downloading": "下载中",
+    "cancel": "取消",
+    "catalog": "获取模型",
+    "searchPlaceholder": "按模型名称搜索（例如 qwen coder）",
+    "search": "搜索",
+    "searching": "搜索中…",
+    "noFiles": "此仓库中未找到可下载的 GGUF 文件。",
+    "sizeUnknown": "大小未知",
+    "download": "下载",
+    "footerHint": "所选模型使用本机资源运行。准备完成后会打开该气泡的 IDE，现有的 Claude 气泡不受影响。",
+    "preparingFor": "正在为 {{name}} 准备模型",
+    "stepEngine": "引擎",
+    "stepModel": "模型",
+    "stepIde": "IDE",
+    "useModelStart": "用此模型开始",
+    "opensIdeHint": "下载完成后会立即打开该气泡的 IDE。"
   }
 }

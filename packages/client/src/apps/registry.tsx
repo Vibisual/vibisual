@@ -12,7 +12,7 @@
  */
 
 import type { ComponentType, JSX } from 'react';
-import type { UserDefaults } from '@vibisual/shared';
+import type { Conti, ContiRenderStatus, StoryboardPreset, UserDefaults } from '@vibisual/shared';
 
 /** 앱 창이 받는 것. 무엇을 쓸지는 앱이 정한다 — 코어는 hash 를 그대로 넘길 뿐이다. */
 export interface AppShellProps {
@@ -40,6 +40,34 @@ export interface InternalAppInstallInfo {
  * - `plate` — 라운드 사각 명패. 아직 자기 형태가 없는 앱의 기본값.
  */
 export type AppBubbleShape = 'film' | 'plate';
+
+/**
+ * §5.13 (Q) — 캔버스의 스토리보드(콘티) 한 벌을 앱에게 넘길 때 건네는 것.
+ *
+ * 코어는 **어떤 앱이 이것을 받는지 모른다**(§5.13 (P-4)). "받겠다고 선언한 설치된 앱"을
+ * 레지스트리에서 찾아 부를 뿐이고, 앱은 자기 id 를 결과에 담아 돌려준다.
+ */
+export interface StoryboardHandoffArgs {
+  /** 프로젝트 루트 절대 경로(= projectId). */
+  readonly projectId: string;
+  readonly conti: Conti;
+  readonly preset: StoryboardPreset;
+  /** false 면 문서만 만들고 렌더는 걸지 않는다. 기본은 렌더까지. */
+  readonly render?: boolean;
+}
+
+/** 앱이 돌려주는 산출물. 그대로 `Conti.render` 로 적힌다. */
+export interface StoryboardHandoffResult {
+  readonly appId: string;
+  readonly docId: string;
+  readonly jobId?: string;
+  readonly status?: ContiRenderStatus;
+}
+
+/** 스토리보드를 받을 수 있는 앱이 선언하는 것. 늦은 로더라 안 쓰면 앱 코드가 안 실린다. */
+export interface StoryboardCapability {
+  readonly accept: (args: StoryboardHandoffArgs) => Promise<StoryboardHandoffResult>;
+}
 
 export interface InternalApp {
   /** `AppBubble.appId` 와 `UserDefaults.installedApps` 에 저장되는 값. 바꾸면 기존 것이 앱을 못 찾는다. */
@@ -80,6 +108,12 @@ export interface InternalApp {
    * 안 일어나는 대신 호출부가 안내를 띄울 수 있게.
    */
   readonly open: (args: { projectId: string; ref?: string | undefined }) => Promise<boolean>;
+  /**
+   * §5.13 (Q) — 이 앱이 캔버스의 스토리보드를 받아 자기 문서로 옮길 수 있는가.
+   *
+   * 선언하지 않은 앱은 콘티 보드의 [렌더] 대상에서 그냥 빠진다 — 코어에 분기가 늘지 않는다.
+   */
+  readonly storyboard?: StoryboardCapability;
 }
 
 function VideoIcon(): JSX.Element {
@@ -143,6 +177,10 @@ export const INTERNAL_APPS: readonly InternalApp[] = [
       await api.open('vibistudio', ref === undefined ? { projectId } : { projectId, docId: ref });
       return true;
     },
+    // §5.13 (Q) — 콘티를 받아 타임라인 문서로 옮긴다. 늦은 로더라 안 부르면 안 실린다.
+    storyboard: {
+      accept: async (args) => (await import('../components/VideoStudio/contiHandoff.js')).acceptStoryboard(args),
+    },
   },
 ];
 
@@ -164,4 +202,15 @@ export function resolveInstalledApps(defaults: UserDefaults | null | undefined):
 
 export function isAppInstalled(appId: string, defaults: UserDefaults | null | undefined): boolean {
   return resolveInstalledApps(defaults).has(appId);
+}
+
+/**
+ * §5.13 (Q) — 스토리보드를 받을 수 있는 **설치된** 앱들.
+ *
+ * 콘티 보드는 이 목록이 비었는지만 보고 [렌더] 를 켜고 끈다. 앱 이름을 묻지 않으므로
+ * 두 번째 영상 앱이 와도 보드 쪽 코드는 그대로다.
+ */
+export function listStoryboardApps(defaults: UserDefaults | null | undefined): readonly InternalApp[] {
+  const installed = resolveInstalledApps(defaults);
+  return INTERNAL_APPS.filter((a) => a.storyboard !== undefined && installed.has(a.id));
 }

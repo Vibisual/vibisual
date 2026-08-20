@@ -44,7 +44,7 @@ export function LanguageSwitcher(): React.JSX.Element {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1 rounded-md bg-white/[0.08] px-2 py-1 text-[11px] text-white/80 transition-colors hover:bg-white/[0.14]"
+        className="flex items-center gap-1 rounded-md bg-white/[0.08] px-2 py-1 text-[12px] text-white/80 transition-colors hover:bg-white/[0.14]"
         aria-label={t('layout.languageSwitcher.changeLanguage')}
       >
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -71,7 +71,7 @@ export function LanguageSwitcher(): React.JSX.Element {
                 }`}
               >
                 <span>{LOCALE_META[loc].nativeName}</span>
-                {isActive && <span className="text-[10px] text-blue-400">●</span>}
+                {isActive && <span className="text-[12px] text-blue-400">●</span>}
               </button>
             );
           })}

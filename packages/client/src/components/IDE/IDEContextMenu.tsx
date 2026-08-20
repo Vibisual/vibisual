@@ -86,7 +86,7 @@ export function IDEContextMenu({ x, y, items, onClose }: IDEContextMenuProps): R
             }`}
           >
             <span className="min-w-0 flex-1 truncate">{it.label}</span>
-            {it.hint && <span className="flex-shrink-0 text-[10px] text-gray-500">{it.hint}</span>}
+            {it.hint && <span className="flex-shrink-0 text-[12px] text-gray-500">{it.hint}</span>}
           </button>
         </div>
       ))}

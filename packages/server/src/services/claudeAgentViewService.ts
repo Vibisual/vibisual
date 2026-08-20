@@ -20,7 +20,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { AgentViewRosterEntry, AgentViewJobState } from '@vibisual/shared';
 import { logger } from '../logger.js';
-import { getClaudeBin } from './claudeBin.js';
+import { getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
 import { getClaudeVersionInfo } from './claudeVersionService.js';
 import { getSessionJsonlPath } from './sessionDiscovery.js';
 
@@ -204,6 +204,8 @@ export async function spawnBackground(
       if (resolved) return;
       resolved = true;
       clearTimeout(timer);
+      // §4 (실행본 자가 복구) — ENOENT 면 캐시된 실행본이 사라진 것: 다음 호출이 재해석하도록 버린다.
+      noteClaudeSpawnFailure(err);
       reject(err);
     });
 
@@ -316,7 +318,7 @@ function fireSubcommand(args: string[]): Promise<{ exitCode: number | null; stdo
     let stderr = '';
     child.stdout?.on('data', (c) => { stdout += c.toString(); });
     child.stderr?.on('data', (c) => { stderr += c.toString(); });
-    child.on('error', () => resolve({ exitCode: -1, stdout, stderr }));
+    child.on('error', (err) => { noteClaudeSpawnFailure(err); resolve({ exitCode: -1, stdout, stderr }); });
     child.on('close', (code) => resolve({ exitCode: code, stdout, stderr }));
   });
 }

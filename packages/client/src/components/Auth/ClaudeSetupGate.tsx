@@ -108,7 +108,7 @@ export function ClaudeSetupGate(): React.JSX.Element | null {
               {t('panel.setup.title', { defaultValue: 'Install Claude Code' })}
             </h3>
             {setup.version && (
-              <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-emerald-300">
+              <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 font-mono text-[12px] font-semibold text-emerald-300">
                 {setup.version}
               </span>
             )}
@@ -124,7 +124,7 @@ export function ClaudeSetupGate(): React.JSX.Element | null {
               </div>
             ) : (
               <>
-                <p className="text-[12.5px] leading-relaxed text-gray-400">
+                <p className="text-[13px] leading-relaxed text-gray-400">
                   {t('panel.setup.intro', {
                     defaultValue: 'Vibisual runs its agents with the Claude Code CLI, which is not installed on this computer yet. Install it here — no terminal needed.',
                   })}
@@ -133,20 +133,20 @@ export function ClaudeSetupGate(): React.JSX.Element | null {
                 {/* 설치 명령 — 자동 설치가 실제로 실행하는 것과 같은 문자열(서버가 조립해 내려준다). */}
                 <div className="flex flex-col gap-1.5 rounded-lg border border-gray-800 bg-gray-950/70 px-3.5 py-2.5">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-[11px] uppercase tracking-wider text-gray-500">
+                    <span className="text-[12px] uppercase tracking-wider text-gray-500">
                       {t('panel.setup.commandLabel', { defaultValue: 'Install command' })}
                     </span>
                     <button
                       type="button"
                       onClick={handleCopy}
-                      className="text-[11.5px] text-gray-500 transition-colors hover:text-gray-300"
+                      className="text-[12px] text-gray-500 transition-colors hover:text-gray-300"
                     >
                       {copied
                         ? t('panel.setup.copied', { defaultValue: 'Copied' })
                         : t('panel.setup.copy', { defaultValue: 'Copy' })}
                     </button>
                   </div>
-                  <code className="block overflow-x-auto whitespace-pre font-mono text-[11.5px] text-gray-300">
+                  <code className="block overflow-x-auto whitespace-pre font-mono text-[12px] text-gray-300">
                     {setup.installCommand}
                   </code>
                 </div>
@@ -163,7 +163,7 @@ export function ClaudeSetupGate(): React.JSX.Element | null {
                   <div className="flex flex-col gap-1.5 rounded-lg border border-red-500/40 bg-red-500/5 px-3.5 py-2.5 text-[12px] text-red-300">
                     <span>{t('panel.setup.failed', { defaultValue: 'The install did not complete. Run the command above in a terminal, then choose "Check again".' })}</span>
                     {(setup.error ?? progress?.error) && (
-                      <span className="font-mono text-[11px] text-red-400/80">{setup.error ?? progress?.error}</span>
+                      <span className="font-mono text-[12px] text-red-400/80">{setup.error ?? progress?.error}</span>
                     )}
                   </div>
                 )}
@@ -171,7 +171,7 @@ export function ClaudeSetupGate(): React.JSX.Element | null {
                 {/* 진행 로그 */}
                 {progress && (
                   <div className="flex flex-col gap-1.5 rounded-lg border border-gray-800 bg-gray-950/70 px-3.5 py-2.5">
-                    <div className="flex items-center gap-2 text-[11.5px]">
+                    <div className="flex items-center gap-2 text-[12px]">
                       <span
                         className={`inline-block h-2 w-2 rounded-full ${
                           installing ? 'animate-pulse bg-sky-400' :
@@ -190,7 +190,7 @@ export function ClaudeSetupGate(): React.JSX.Element | null {
                     {progress.output && (
                       <pre
                         ref={outputRef}
-                        className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-black/40 px-2 py-1 font-mono text-[10.5px] leading-relaxed text-gray-400"
+                        className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-black/40 px-2 py-1 font-mono text-[12px] leading-relaxed text-gray-400"
                       >
                         {progress.output}
                       </pre>
@@ -202,7 +202,7 @@ export function ClaudeSetupGate(): React.JSX.Element | null {
                   href={setup.docsUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="self-start text-[11.5px] text-sky-400 underline transition-colors hover:text-sky-300"
+                  className="self-start text-[12px] text-sky-400 underline transition-colors hover:text-sky-300"
                 >
                   {t('panel.setup.docs', { defaultValue: 'Official installation guide' })}
                 </a>
@@ -227,7 +227,7 @@ export function ClaudeSetupGate(): React.JSX.Element | null {
                 <button
                   type="button"
                   onClick={() => setSetupGate({ forced: false, dismissed: true })}
-                  className="rounded-md border border-gray-700 px-3 py-1.5 text-[12.5px] text-gray-300 transition-colors hover:border-gray-600 hover:text-white"
+                  className="rounded-md border border-gray-700 px-3 py-1.5 text-[13px] text-gray-300 transition-colors hover:border-gray-600 hover:text-white"
                 >
                   {t('panel.setup.later', { defaultValue: 'Later' })}
                 </button>
@@ -236,7 +236,7 @@ export function ClaudeSetupGate(): React.JSX.Element | null {
                     type="button"
                     onClick={() => { void install(); }}
                     disabled={installing}
-                    className="rounded-md bg-sky-600 px-4 py-1.5 text-[12.5px] font-semibold text-white transition-colors hover:bg-sky-500 disabled:opacity-50"
+                    className="rounded-md bg-sky-600 px-4 py-1.5 text-[13px] font-semibold text-white transition-colors hover:bg-sky-500 disabled:opacity-50"
                   >
                     {installing
                       ? t('panel.setup.installing', { defaultValue: 'Installing…' })

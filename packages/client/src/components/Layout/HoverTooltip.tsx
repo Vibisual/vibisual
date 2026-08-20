@@ -59,7 +59,7 @@ export function HoverTooltip({ label, className, delay = 150 }: HoverTooltipProp
       {pos &&
         createPortal(
           <div
-            className="pointer-events-none fixed z-[9999] max-w-[320px] -translate-x-1/2 truncate rounded-md border border-white/[0.08] bg-[#1f2937] px-2 py-1 text-[11px] font-medium text-gray-100 shadow-lg shadow-black/50"
+            className="pointer-events-none fixed z-[9999] max-w-[320px] -translate-x-1/2 truncate rounded-md border border-white/[0.08] bg-[#1f2937] px-2 py-1 text-[12px] font-medium text-gray-100 shadow-lg shadow-black/50"
             style={{ left: pos.x, top: pos.y }}
           >
             {label}

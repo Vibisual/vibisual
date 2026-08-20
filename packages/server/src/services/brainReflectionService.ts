@@ -54,7 +54,7 @@ import {
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { getClaudeBin } from './claudeBin.js';
+import { getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
 import { getSessionJsonlPath } from './sessionDiscovery.js';
 import { getBrainService } from './brainService.js';
 import { logger } from '../logger.js';
@@ -497,7 +497,7 @@ function runReflection(input: BrainReflectionInput): void {
   };
   const timer = setTimeout(() => finish('timeout'), REFLECT_TIMEOUT_MS);
   child.stdout?.on('data', (d: Buffer) => { outBuf += d.toString(); });
-  child.on('error', (err) => { logger.warn('[brain-reflect] spawn error', err); finish('spawn-error'); });
+  child.on('error', (err) => { logger.warn('[brain-reflect] spawn error', err); noteClaudeSpawnFailure(err); finish('spawn-error'); });
   child.on('close', (code) => {
     try {
       if (code === 0) {

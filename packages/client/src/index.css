@@ -25,18 +25,16 @@
   app-region: no-drag;
 }
 
-/* §5.5 #17-1 — IDE 우측 도킹 시 전역 모달/팝업이 도크 영역을 침범하지 않도록 일괄 우측 오프셋.
-   App.tsx 가 활성 탭의 IDE 도크 상태에 따라 body[data-ide-dock="right"] 와 --ide-dock-width 를 세팅.
-   `fixed inset-0` 패턴(viewport 전체 덮는 배경)만 줄어들고, 자식의 `fixed` 자체 위치는 영향 X. */
-body[data-ide-dock="right"] .fixed.inset-0 {
-  right: var(--ide-dock-width, 0);
-}
-/* 예외 — 이미지 라이트박스(v2.61)는 IDE 도크 위(z-9999)에 뜨는 전체화면 이미지 뷰어라
-   도크 오프셋을 받으면 배경이 좌측으로 밀리고 폭이 줄어(→ 큰 이미지가 배경 밖으로 넘쳐 배경/닫기
-   영역을 가림) 도킹 상태에서 닫히지 않는다. 뷰어는 도크를 덮어도 무방하므로 전체 뷰포트를 덮게 되돌린다. */
-body[data-ide-dock="right"] .vibi-image-lightbox.fixed.inset-0 {
-  right: 0;
-}
+/* §5.5 #17-1 — **IDE 우측 도킹 중에도 전면 오버레이는 창 전체를 덮는다 (도크 회피 오프셋 ❌).**
+   종전에는 도킹 중 `body[data-ide-dock="right"] .fixed.inset-0 { right: var(--ide-dock-width) }` 로
+   모든 전면 오버레이의 오른쪽 변을 도크 폭만큼 당겨 도킹된 IDE 자리를 비워 뒀다. 그 결과
+   ① 백드롭이 화면을 다 덮지 못하고 ② 그 안에서 가운데 정렬되는 팝업 상자가 창 중심이 아니라
+   축소된 캔버스의 중심으로 밀렸으며(사용자 보고 — 전체화면 + 우측 도킹에서 사용량 팝업이 왼쪽으로
+   치우쳐 뜸) ③ IDE 내부 dialog·엣지 드래그 프리뷰 SVG 처럼 `fixed inset-0` 을 쓰는 다른 것들까지
+   함께 잘렸다. 이미지 라이트박스(v2.61)가 이미 예외를 강요한 자리라, 예외를 하나 더 붙이는 대신
+   규칙 자체를 걷어낸다 — 모달이 뜨면 도킹된 IDE 도 같이 어두워지고 클릭이 막힌다(모달 본래 동작).
+   도크와 캔버스를 나란히 두는 축소는 CSS 가 아니라 App.tsx 의 `main` marginRight 담당이다.
+   여기에 도크 오프셋을 다시 추가하지 말 것. */
 
 /* §4 v3.44 — 저전력(발열 억제)을 '끄기'가 아니라 '최적화'로 전환(사용자 지시: "다 끄지 말고
  * 최적화해서 보여줘"). 모바일/터치에서도 애니메이션은 **하나도 끄지 않고 계속 보여주되**, 폰
@@ -809,7 +807,8 @@ body[data-ide-dock="right"] .vibi-image-lightbox.fixed.inset-0 {
  * fenced code block(<pre> 내부 <code>)은 제외 — 거기는 자체 배경이 이미 있다. */
 .ide-md :where(code):not(:where(pre *)) {
   font-family: var(--font-mono);
-  font-size: 0.86em;
+  /* §9 가독 하한 — 읽기 설정에서 본문 크기를 줄여도 인라인 코드가 12px 아래로 내려가지 않게 바닥을 둔다. */
+  font-size: max(12px, 0.86em);
   font-weight: 500;
   color: #eceef1;
   background: rgba(140, 149, 165, 0.24);
@@ -851,22 +850,25 @@ body[data-ide-dock="right"] .vibi-image-lightbox.fixed.inset-0 {
 /* ─── IDE 오버레이 마크다운 — 펜스드 코드/인덴트 블록 (<pre>) ───
  * 기본 prose-invert + prose-pre:bg-gray-800/80 조합은 반투명 배경 위에
  * slate-300 톤 텍스트라 12px 에서 흐릿하게 묻혀 보인다.
- * 배경을 짙고 불투명하게, 텍스트는 밝은 회백색 + 약간 보강된 자간/스무딩으로
- * 또렷하게 만든다. (TextBlock / ResultBlock / CommandBlock 모두 적용) */
+ * 배경을 짙고 불투명하게, 텍스트는 밝은 회백색으로 또렷하게 만든다.
+ * (TextBlock / ResultBlock / CommandBlock 모두 적용)
+ *
+ * ⚠ `-webkit-font-smoothing: antialiased` 는 여기 있었으나 제거했다 — 그것은 macOS Retina 에서
+ * 글자를 얇게 보이려는 관용구이고, Windows 에서는 ClearType(서브픽셀) 렌더링을 끄는 쪽으로 작용해
+ * "또렷하게" 라는 원래 의도와 반대다. 이 앱의 주 사용 환경이 Windows 이므로 브라우저 기본에 맡긴다. */
 .ide-md :where(pre) {
   background: #1a1c20;
   border: 1px solid rgba(255, 255, 255, 0.06);
   color: #e6e8ec;
   border-radius: 6px;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
 }
 
 .ide-md :where(pre code) {
   color: inherit;
   font-family: var(--font-mono);
   font-weight: 450;
-  font-size: 12.5px;
+  /* §9 가독 하한 — 소수점 px 금지(획이 픽셀 격자 사이에 걸쳐 흐려진다). */
+  font-size: 13px;
   line-height: 1.55;
   background: transparent;
   letter-spacing: 0;
@@ -900,4 +902,15 @@ html.overlay-window .react-flow__node {
 ::highlight(vibisual-find) {
   background-color: #fbbf24; /* amber-400 */
   color: #0b0f14; /* 어두운 본문 톤 — 앰버 위 대비 */
+}
+
+/* §5.5 #17-27 ⑭ — 이미지 미리보기 바탕. 투명 PNG 의 알파를 눈으로 확인하는 바둑판.
+   미리보기 뒤에만 깔리고 두 겹 그러데이션이라 그리는 비용이 사실상 없다(§9). */
+@utility bg-alpha-checker {
+  background-color: rgb(17 24 39);
+  background-image:
+    linear-gradient(45deg, rgb(55 65 81 / 0.55) 25%, transparent 25%, transparent 75%, rgb(55 65 81 / 0.55) 75%),
+    linear-gradient(45deg, rgb(55 65 81 / 0.55) 25%, transparent 25%, transparent 75%, rgb(55 65 81 / 0.55) 75%);
+  background-position: 0 0, 8px 8px;
+  background-size: 16px 16px;
 }

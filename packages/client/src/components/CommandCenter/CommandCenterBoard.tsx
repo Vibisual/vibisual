@@ -371,7 +371,7 @@ export function CommandCenterBoard({ projectId, settings, onUpdate: update }: Co
             value={rawQuery}
             onChange={(e) => setRawQuery(e.target.value)}
             placeholder={t('commandCenter.searchPlaceholder')}
-            className="w-full rounded-md border border-white/10 bg-black/40 py-1.5 pl-8 pr-8 text-[12.5px] text-gray-100 outline-none placeholder:text-gray-600 focus:border-sky-500/50"
+            className="w-full rounded-md border border-white/10 bg-black/40 py-1.5 pl-8 pr-8 text-[13px] text-gray-100 outline-none placeholder:text-gray-600 focus:border-sky-500/50"
           />
           {rawQuery && (
             <button
@@ -410,7 +410,7 @@ export function CommandCenterBoard({ projectId, settings, onUpdate: update }: Co
           <button
             type="button"
             onClick={() => setTidyOpen((v) => !v)}
-            className={`flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-[11.5px] transition-colors ${
+            className={`flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-[12px] transition-colors ${
               settings.autoTidy
                 ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200'
                 : 'border-white/10 bg-black/40 text-gray-400 hover:text-gray-100'
@@ -456,7 +456,7 @@ export function CommandCenterBoard({ projectId, settings, onUpdate: update }: Co
           />
         ))}
 
-        <span className="ml-auto flex items-center gap-3 text-[10.5px] text-gray-500">
+        <span className="ml-auto flex items-center gap-3 text-[12px] text-gray-500">
           {searching && (
             <span className="tabular-nums">{t('commandCenter.resultCount', { count: visible.length })}</span>
           )}
@@ -530,7 +530,7 @@ export function CommandCenterBoard({ projectId, settings, onUpdate: update }: Co
       </div>
 
       {/* ── 단축키 안내 줄 ────────────────────────────────────────────────── */}
-      <div className="flex flex-shrink-0 items-center gap-3 border-t border-white/[0.07] px-4 py-1.5 text-[10px] text-gray-600">
+      <div className="flex flex-shrink-0 items-center gap-3 border-t border-white/[0.07] px-4 py-1.5 text-[12px] text-gray-600">
         <span className="tabular-nums">{t('commandCenter.sessionCount', { count: allItems.length })}</span>
         {/* §5.12 (I) — 지금 무슨 기준으로 줄 세웠는지 항상 보이게. 순서가 왜 이런지 묻지 않아도 되게 한다. */}
         <span className="min-w-0 truncate">{t(`commandCenter.sortRule.${settings.sort}`)}</span>
@@ -569,10 +569,10 @@ function BoardColumns({
         >
           <header className="flex flex-shrink-0 items-center gap-1.5 border-b border-white/[0.06] px-3 py-2">
             <span className={`h-2 w-2 rounded-full ${LANE_DOT[lane]}`} />
-            <span className={`text-[11px] font-semibold uppercase tracking-wide ${LANE_ACCENT[lane]}`}>
+            <span className={`text-[12px] font-semibold uppercase tracking-wide ${LANE_ACCENT[lane]}`}>
               {t(`commandCenter.lane.${lane}`)}
             </span>
-            <span className="ml-auto rounded bg-white/[0.06] px-1.5 py-[1px] text-[10px] tabular-nums text-gray-400">
+            <span className="ml-auto rounded bg-white/[0.06] px-1.5 py-[1px] text-[12px] tabular-nums text-gray-400">
               {lanes[lane].length}
             </span>
           </header>
@@ -595,10 +595,10 @@ function BoardColumns({
             >
               <path d="m9 6 6 6-6 6" />
             </svg>
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-600">
+            <span className="text-[12px] font-semibold uppercase tracking-wide text-gray-600">
               {t('commandCenter.archived')}
             </span>
-            <span className="ml-auto rounded bg-white/[0.06] px-1.5 py-[1px] text-[10px] tabular-nums text-gray-500">
+            <span className="ml-auto rounded bg-white/[0.06] px-1.5 py-[1px] text-[12px] tabular-nums text-gray-500">
               {archived.length}
             </span>
           </button>
@@ -656,10 +656,10 @@ function StackedLanes({
                   <path d="m9 6 6 6-6 6" />
                 </svg>
                 <span className={`h-2 w-2 rounded-full ${LANE_DOT[lane]}`} />
-                <span className={`text-[11px] font-semibold uppercase tracking-wide ${LANE_ACCENT[lane]}`}>
+                <span className={`text-[12px] font-semibold uppercase tracking-wide ${LANE_ACCENT[lane]}`}>
                   {t(`commandCenter.lane.${lane}`)}
                 </span>
-                <span className="rounded bg-white/[0.06] px-1.5 py-[1px] text-[10px] tabular-nums text-gray-400">{items.length}</span>
+                <span className="rounded bg-white/[0.06] px-1.5 py-[1px] text-[12px] tabular-nums text-gray-400">{items.length}</span>
               </button>
               {!collapsed && (
                 <div className="flex flex-col gap-1.5">
@@ -683,10 +683,10 @@ function StackedLanes({
               >
                 <path d="m9 6 6 6-6 6" />
               </svg>
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-600">
+              <span className="text-[12px] font-semibold uppercase tracking-wide text-gray-600">
                 {t('commandCenter.archived')}
               </span>
-              <span className="rounded bg-white/[0.06] px-1.5 py-[1px] text-[10px] tabular-nums text-gray-500">{archived.length}</span>
+              <span className="rounded bg-white/[0.06] px-1.5 py-[1px] text-[12px] tabular-nums text-gray-500">{archived.length}</span>
             </button>
             {archiveOpen && (
               <div className="flex flex-col gap-1.5 opacity-70">{archived.map(renderCard)}</div>
@@ -739,7 +739,7 @@ function TriagePill({
       type="button"
       onClick={onClick}
       title={shortcut}
-      className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11.5px] transition-colors ${
+      className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] transition-colors ${
         active ? on : 'border-white/[0.08] bg-transparent text-gray-400 hover:border-white/20 hover:text-gray-100'
       } ${count === 0 && !active ? 'opacity-50' : ''}`}
     >
@@ -825,8 +825,8 @@ function EmptyState({ title, body }: { title: string; body: string }): React.JSX
         <rect x="3" y="4" width="18" height="16" rx="2" />
         <path d="M8 9h8M8 13h5" />
       </svg>
-      <p className="text-[12.5px] text-gray-300">{title}</p>
-      <p className="text-[11.5px] text-gray-600">{body}</p>
+      <p className="text-[13px] text-gray-300">{title}</p>
+      <p className="text-[12px] text-gray-600">{body}</p>
     </div>
   );
 }
@@ -838,7 +838,7 @@ function SortPicker({ value, onChange }: { value: CommandCenterSort; onChange: (
     <select
       value={value}
       onChange={(e) => onChange(e.target.value as CommandCenterSort)}
-      className="flex-shrink-0 rounded-md border border-white/10 bg-black/40 px-2 py-1.5 text-[11.5px] text-gray-300 outline-none focus:border-sky-500/50"
+      className="flex-shrink-0 rounded-md border border-white/10 bg-black/40 px-2 py-1.5 text-[12px] text-gray-300 outline-none focus:border-sky-500/50"
       title={`${t('commandCenter.sortHint')} — ${t(`commandCenter.sortRule.${value}`)}`}
     >
       {COMMAND_CENTER_SORTS.map((id) => (
@@ -871,7 +871,7 @@ function TidyPanel({
           onChange={(e) => onUpdate({ groupByAgent: e.target.checked })}
           className="mt-0.5 h-3.5 w-3.5 accent-sky-500"
         />
-        <span className="text-[11.5px] text-gray-300">{t('commandCenter.groupByAgent')}</span>
+        <span className="text-[12px] text-gray-300">{t('commandCenter.groupByAgent')}</span>
       </label>
 
       <div className="my-2.5 h-px bg-white/[0.07]" />
@@ -883,9 +883,9 @@ function TidyPanel({
           onChange={(e) => onUpdate({ autoTidy: e.target.checked })}
           className="mt-0.5 h-3.5 w-3.5 accent-emerald-500"
         />
-        <span className="text-[11.5px] text-gray-300">
+        <span className="text-[12px] text-gray-300">
           {t('commandCenter.autoTidy')}
-          <span className="mt-0.5 block text-[10.5px] leading-snug text-gray-500">
+          <span className="mt-0.5 block text-[12px] leading-snug text-gray-500">
             {t('commandCenter.autoTidyNote')}
           </span>
         </span>
@@ -898,7 +898,7 @@ function TidyPanel({
               key={m}
               type="button"
               onClick={() => onUpdate({ autoTidyMinutes: m })}
-              className={`rounded px-2 py-1 text-[10.5px] tabular-nums transition-colors ${
+              className={`rounded px-2 py-1 text-[12px] tabular-nums transition-colors ${
                 settings.autoTidyMinutes === m
                   ? 'bg-emerald-500/20 text-emerald-200 ring-1 ring-emerald-400/30'
                   : 'bg-white/[0.05] text-gray-400 hover:text-gray-100'
@@ -915,14 +915,14 @@ function TidyPanel({
       <button
         type="button"
         onClick={() => { onBulkCloseDone(); onClose(); }}
-        className="block w-full rounded px-2 py-1.5 text-left text-[11.5px] text-gray-300 transition-colors hover:bg-white/[0.08]"
+        className="block w-full rounded px-2 py-1.5 text-left text-[12px] text-gray-300 transition-colors hover:bg-white/[0.08]"
       >
         {t('commandCenter.bulkCloseDone')}
       </button>
       <button
         type="button"
         onClick={() => { onStopAll(); onClose(); }}
-        className="block w-full rounded px-2 py-1.5 text-left text-[11.5px] text-red-300 transition-colors hover:bg-white/[0.08]"
+        className="block w-full rounded px-2 py-1.5 text-left text-[12px] text-red-300 transition-colors hover:bg-white/[0.08]"
       >
         {t('commandCenter.bulkStopAll')}
       </button>
@@ -930,7 +930,7 @@ function TidyPanel({
       <button
         type="button"
         onClick={() => { onUpdate({ ...DEFAULT_COMMAND_CENTER_SETTINGS }); }}
-        className="mt-1.5 block w-full rounded px-2 py-1.5 text-left text-[10.5px] text-gray-600 transition-colors hover:bg-white/[0.06] hover:text-gray-400"
+        className="mt-1.5 block w-full rounded px-2 py-1.5 text-left text-[12px] text-gray-600 transition-colors hover:bg-white/[0.06] hover:text-gray-400"
       >
         {t('commandCenter.resetSettings')}
       </button>

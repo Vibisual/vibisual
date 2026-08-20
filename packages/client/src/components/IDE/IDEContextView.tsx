@@ -109,35 +109,35 @@ const SourceRow = memo(function SourceRow({
                 onClick={() => onOpenDetail(item)}
                 className="block w-full text-left"
               >
-                <span className={`block truncate text-[11px] font-medium underline-offset-2 hover:underline ${item.enabled ? 'text-gray-200' : 'text-gray-500 line-through'}`}>
+                <span className={`block truncate text-[12px] font-medium underline-offset-2 hover:underline ${item.enabled ? 'text-gray-200' : 'text-gray-500 line-through'}`}>
                   {title}
                 </span>
               </button>
             </InfoTooltip>
             {item.detail && (
-              <span className="flex-shrink-0 text-[9px] text-gray-500">{item.detail.length > 22 ? `${item.detail.slice(0, 22)}…` : item.detail}</span>
+              <span className="flex-shrink-0 text-[12px] text-gray-500">{item.detail.length > 22 ? `${item.detail.slice(0, 22)}…` : item.detail}</span>
             )}
           </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-1">
-            <span className={`tabular-nums text-[9.5px] font-semibold ${item.enabled ? 'text-violet-300/80' : 'text-gray-600'}`}>
+            <span className={`tabular-nums text-[12px] font-semibold ${item.enabled ? 'text-violet-300/80' : 'text-gray-600'}`}>
               {item.estimated ? '~' : ''}{formatTokens(item.tokens)}
             </span>
-            <span className={`rounded px-1 py-px text-[8px] ${CONTROL_STYLE[item.control] ?? CONTROL_STYLE['none']}`}>
+            <span className={`rounded px-1 py-px text-[12px] ${CONTROL_STYLE[item.control] ?? CONTROL_STYLE['none']}`}>
               {t(`ide.context.control.${item.control}`)}
             </span>
             {item.overrideScope && (
-              <span className="rounded bg-violet-500/20 px-1 py-px text-[8px] text-violet-300">
+              <span className="rounded bg-violet-500/20 px-1 py-px text-[12px] text-violet-300">
                 {t(`ide.context.scope.${item.overrideScope}`)}
               </span>
             )}
             {item.updatedAt && (
-              <span className="text-[8.5px] text-gray-600">{formatDay(item.updatedAt)}</span>
+              <span className="text-[12px] text-gray-600">{formatDay(item.updatedAt)}</span>
             )}
             {children.length > 0 && (
               <button
                 type="button"
                 onClick={() => setOpen((v) => !v)}
-                className="ml-auto flex items-center gap-0.5 text-[8.5px] text-gray-500 transition-colors hover:text-gray-300"
+                className="ml-auto flex items-center gap-0.5 text-[12px] text-gray-500 transition-colors hover:text-gray-300"
               >
                 <svg className={`h-3 w-3 transition-transform ${open ? 'rotate-90' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
                   <path d="M9 6l6 6-6 6" />
@@ -147,14 +147,14 @@ const SourceRow = memo(function SourceRow({
             )}
           </div>
           {item.warnKey && !item.enabled && (
-            <p className="mt-0.5 text-[8.5px] leading-snug text-amber-400/80">{t(item.warnKey)}</p>
+            <p className="mt-0.5 text-[12px] leading-snug text-amber-400/80">{t(item.warnKey)}</p>
           )}
           {open && children.length > 0 && (
             <ul className="mt-1 flex flex-col gap-0.5 border-l border-gray-700 pl-1.5">
               {children.map((c) => (
                 <li key={`${c.path ?? c.title}`} className="flex items-baseline gap-1">
-                  <span className="truncate text-[9.5px] text-gray-400" title={c.path ?? c.title}>{c.title}</span>
-                  <span className="ml-auto flex-shrink-0 tabular-nums text-[9px] text-violet-300/60">{formatTokens(c.tokens)}</span>
+                  <span className="truncate text-[12px] text-gray-400" title={c.path ?? c.title}>{c.title}</span>
+                  <span className="ml-auto flex-shrink-0 tabular-nums text-[12px] text-violet-300/60">{formatTokens(c.tokens)}</span>
                 </li>
               ))}
             </ul>
@@ -263,7 +263,7 @@ export function IDEContextView({ agentId }: { agentId: string }): React.JSX.Elem
   return (
     <div className="flex min-h-0 flex-col gap-1 p-2">
       <div className="flex items-center gap-1 px-0.5">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">{t('ide.context.title')}</span>
+        <span className="text-[12px] font-semibold uppercase tracking-wider text-gray-500">{t('ide.context.title')}</span>
         <button
           type="button"
           onClick={() => { void refresh(); }}
@@ -280,8 +280,8 @@ export function IDEContextView({ agentId }: { agentId: string }): React.JSX.Elem
       {/* 합계 — "지금 이 프롬프트가 얼마짜리인가" 한 줄. */}
       <div className="flex items-baseline gap-1 rounded bg-gray-800/60 px-2 py-1">
         <span className="tabular-nums text-[13px] font-bold text-violet-300">~{formatTokens(totals.enabled)}</span>
-        <span className="text-[9px] text-gray-500">/ ~{formatTokens(totals.total)}</span>
-        <span className="ml-auto text-[9px] text-gray-500">{t('ide.context.tokensLabel')}</span>
+        <span className="text-[12px] text-gray-500">/ ~{formatTokens(totals.total)}</span>
+        <span className="ml-auto text-[12px] text-gray-500">{t('ide.context.tokensLabel')}</span>
       </div>
 
       {/* 어느 층에 걸까 — 프로젝트 전체 / 이 세션만. */}
@@ -292,7 +292,7 @@ export function IDEContextView({ agentId }: { agentId: string }): React.JSX.Elem
             type="button"
             disabled={s === 'session' && !activeSessionId}
             onClick={() => setScope(s)}
-            className={`flex-1 rounded px-1 py-1 text-[9.5px] font-semibold transition-colors ${
+            className={`flex-1 rounded px-1 py-1 text-[12px] font-semibold transition-colors ${
               scope === s
                 ? 'bg-violet-500/25 text-violet-200'
                 : 'bg-gray-800/60 text-gray-500 hover:text-gray-300 disabled:opacity-40 disabled:hover:text-gray-500'
@@ -320,7 +320,7 @@ export function IDEContextView({ agentId }: { agentId: string }): React.JSX.Elem
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         placeholder={t('ide.context.searchPlaceholder')}
-        className="w-full rounded border border-gray-700 bg-gray-900/80 px-1.5 py-1 text-[10.5px] text-gray-200 placeholder:text-gray-600 focus:border-violet-500/60 focus:outline-none"
+        className="w-full rounded border border-gray-700 bg-gray-900/80 px-1.5 py-1 text-[12px] text-gray-200 placeholder:text-gray-600 focus:border-violet-500/60 focus:outline-none"
       />
 
       {/* 정렬 축 — 누른 축을 다시 누르면 오름/내림이 뒤집힌다. */}
@@ -333,7 +333,7 @@ export function IDEContextView({ agentId }: { agentId: string }): React.JSX.Elem
               if (sortKey === s.key) setDesc((v) => !v);
               else { setSortKey(s.key); setDesc(true); }
             }}
-            className={`flex items-center gap-0.5 rounded px-1 py-0.5 text-[9px] font-semibold transition-colors ${
+            className={`flex items-center gap-0.5 rounded px-1 py-0.5 text-[12px] font-semibold transition-colors ${
               sortKey === s.key ? 'bg-gray-700 text-gray-100' : 'text-gray-500 hover:bg-gray-800 hover:text-gray-300'
             }`}
           >
@@ -351,7 +351,7 @@ export function IDEContextView({ agentId }: { agentId: string }): React.JSX.Elem
         {groups
           ? groups.map((g) => (
             <div key={g.category} className="mb-1">
-              <div className="px-1 pb-0.5 pt-1 text-[8.5px] font-bold uppercase tracking-wider text-gray-600">
+              <div className="px-1 pb-0.5 pt-1 text-[12px] font-bold uppercase tracking-wider text-gray-600">
                 {t(CONTEXT_CATEGORY_LABEL_KEY[g.category] ?? g.category)}
               </div>
               <ul className="flex flex-col">
@@ -365,7 +365,7 @@ export function IDEContextView({ agentId }: { agentId: string }): React.JSX.Elem
             </ul>
           )}
         {visible.length === 0 && (
-          <p className="px-2 py-4 text-center text-[10.5px] text-gray-600">
+          <p className="px-2 py-4 text-center text-[12px] text-gray-600">
             {loading ? t('ide.context.loading') : t('ide.context.empty')}
           </p>
         )}

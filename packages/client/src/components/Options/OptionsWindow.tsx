@@ -35,8 +35,15 @@ import { useGraphStore } from '../../stores/graphStore.js';
 import { setCanvasCover } from '../../stores/canvasVisibility.js';
 import { AccountTab } from './AccountTab.js';
 import { StorageTab } from './StorageTab.js';
+import { NumberStepper } from './NumberStepper.js';
+import { UnsavedChangesDialog } from './UnsavedChangesDialog.js';
 
 const API_BASE = '';
+
+// §4 — 스테퍼 한 칸의 크기. 축마다 자릿수가 달라(턴 수는 수천, 비용은 한 자리) 같이 둘 수 없다.
+const MAX_TURNS_STEP = 10;
+const BUDGET_USD_STEP = 1;
+const BASH_TIMEOUT_STEP_SEC = 10;
 
 type CategoryKey = 'account' | 'agent' | 'appearance' | 'storage' | 'notifications' | 'permissions' | 'advanced' | 'version';
 
@@ -104,6 +111,11 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
   const [bashMaxTimeoutSec, setBashMaxTimeoutSec] = useState(bashMsToSec(baseAgent.bashMaxTimeoutMs));
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
+  // §4 — Storage 탭은 자기 state 로 편집한다. 창의 나가기 가드가 그 미저장분까지 지키려면
+  //   탭이 dirty 를 위로 올려 줘야 한다(탭을 떠나거나 창이 닫히면 언마운트 시 false 로 풀린다).
+  const [storageDirty, setStorageDirty] = useState(false);
+  // §4 — 저장 없이 나가려 할 때 뜨는 우리 디자인 확인 팝업(종전 `window.confirm` 대체).
+  const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false);
 
   // §4 v2.43 — Version 탭 상태 (Apply/Cancel dirty 흐름과 독립 — 선택은 즉시 저장)
   const [installs, setInstalls] = useState<ClaudeInstallsInfo | null>(null);
@@ -179,15 +191,43 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
     return () => setCanvasCover('options-window', false);
   }, [open]);
 
-  // ESC 닫기
+  /**
+   * §4 — 창을 닫으려는 **모든 경로의 단일 출입구**(헤더 X · 푸터 Cancel · Esc · 배경 클릭).
+   * 한 경로라도 `onClose` 를 직접 부르면 그 길로만 미저장분이 조용히 사라진다(종전 Esc·배경 클릭이
+   * 그랬다 — `window.confirm` 은 Cancel 버튼에만 걸려 있었다).
+   */
+  const requestClose = useCallback(() => {
+    if (dirty || storageDirty) { setConfirmDiscardOpen(true); return; }
+    onClose();
+  }, [dirty, storageDirty, onClose]);
+
+  const handleKeepEditing = useCallback(() => setConfirmDiscardOpen(false), []);
+
+  /** 확인 팝업의 "버리고 닫기" — 폼을 저장값으로 되돌린 뒤 닫는다. */
+  const handleDiscardAndClose = useCallback(() => {
+    setConfirmDiscardOpen(false);
+    // dirty 를 내리면 재시드 effect 가 폼을 `userDefaults` 기준으로 되돌린다(버린 편집이 남지 않게).
+    // Storage 탭은 언마운트되며 서버 값으로 다시 로드하므로 별도 되돌리기가 필요 없다.
+    setDirty(false);
+    onClose();
+  }, [onClose]);
+
+  // 창이 닫히면 확인 팝업도 함께 접는다(다음에 열 때 뜬 채로 시작하지 않게).
+  useEffect(() => { if (!open) setConfirmDiscardOpen(false); }, [open]);
+
+  // ESC 닫기 — 확인 팝업이 떠 있으면 그 팝업만 닫는다(Esc 주인은 여기 한 곳).
   useEffect(() => {
     if (!open) return;
-    const handleKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') onClose(); };
+    const handleKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return;
+      if (confirmDiscardOpen) { setConfirmDiscardOpen(false); return; }
+      requestClose();
+    };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [open, onClose]);
+  }, [open, confirmDiscardOpen, requestClose]);
 
-  const backdrop = useBackdropDismiss(onClose);
+  const backdrop = useBackdropDismiss(requestClose);
 
   const isOpus = isOpusModel(model);
   const oneMillionEnabled = contextWindow !== '200k';
@@ -289,11 +329,6 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
     finally { setSaving(false); }
   }, [model, modelVersion, permissionMode, permissionTimeoutPolicy, isOpus, effort, maxTurns, maxBudgetUsd, isolation, contextWindow, tools, disallowedTools, rules, color, userDefaults, fallbackModel, autoCompact, excludeDynamicSections, settingSources, safeMode, betas, bashDefaultTimeoutSec, bashMaxTimeoutSec]);
 
-  const handleCancel = useCallback(() => {
-    if (dirty && !window.confirm(t('panel.options.discardConfirm', { defaultValue: 'Discard unsaved changes?' }))) return;
-    onClose();
-  }, [dirty, onClose, t]);
-
   if (!open) return null;
 
   const categories: { key: CategoryKey; label: string; icon: React.JSX.Element }[] = [
@@ -338,7 +373,7 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
             {t('panel.options.title', { defaultValue: 'Options' })}
             {dirty && <span className="text-xs font-normal text-amber-400">• {t('panel.options.unsaved', { defaultValue: 'unsaved' })}</span>}
           </h3>
-          <button type="button" onClick={handleCancel} className="flex h-6 w-6 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200">
+          <button type="button" onClick={requestClose} className="flex h-6 w-6 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200">
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
           </button>
         </div>
@@ -370,7 +405,7 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
               <div className="flex flex-col gap-4">
                 <div className="border-b border-gray-700/50 pb-2">
                   <h4 className="text-sm font-semibold text-gray-200">{t('panel.options.categories.agent', { defaultValue: 'Agent Defaults' })}</h4>
-                  <p className="mt-1 text-[11px] text-gray-500">
+                  <p className="mt-1 text-[12px] text-gray-500">
                     {t('panel.options.agent.intro', { defaultValue: 'These defaults apply to newly created custom agents. Existing agents are not affected.' })}
                   </p>
                 </div>
@@ -386,12 +421,12 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
                     {listModelFamilies(modelRegistry).map((v) => <option key={v} value={v}>{v}</option>)}
                   </select>
                   {/* Version sub */}
-                  <div className="mt-0.5 flex items-center gap-1 text-[10px] text-gray-500">
+                  <div className="mt-0.5 flex items-center gap-1 text-[12px] text-gray-500">
                     <span className="uppercase tracking-wider">Version:</span>
                     <select
                       value={effectiveVersionValue}
                       onChange={(e) => handleVersionChange(e.target.value)}
-                      className="cursor-pointer rounded border border-gray-700/50 bg-gray-900/40 px-1 py-0 font-mono text-[10px] text-gray-300 outline-none hover:border-gray-600 focus:border-blue-500"
+                      className="cursor-pointer rounded border border-gray-700/50 bg-gray-900/40 px-1 py-0 font-mono text-[12px] text-gray-300 outline-none hover:border-gray-600 focus:border-blue-500"
                     >
                       {VERSION_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                     </select>
@@ -401,7 +436,7 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
                         value={modelVersion ?? ''}
                         onChange={(e) => { setDirty(true); setModelVersion(e.target.value); }}
                         placeholder={`claude-${model}-X-Y`}
-                        className="flex-1 rounded border border-gray-700 bg-gray-900 px-1.5 py-0 font-mono text-[10px] text-gray-200 placeholder:text-gray-600 focus:border-blue-500 focus:outline-none"
+                        className="flex-1 rounded border border-gray-700 bg-gray-900 px-1.5 py-0 font-mono text-[12px] text-gray-200 placeholder:text-gray-600 focus:border-blue-500 focus:outline-none"
                       />
                     )}
                   </div>
@@ -433,11 +468,11 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
                   </select>
                   {permissionMode !== 'bypassPermissions' && permissionMode !== 'plan' && (
                     <div className="mt-1 flex items-center gap-2 rounded border border-gray-700/60 bg-gray-900/40 px-2.5 py-1.5">
-                      <span className="text-[11px] text-gray-400">{t('panel.agentConfig.permissionTimeoutPolicy.label', { defaultValue: 'On no response (60s)' })}:</span>
+                      <span className="text-[12px] text-gray-400">{t('panel.agentConfig.permissionTimeoutPolicy.label', { defaultValue: 'On no response (60s)' })}:</span>
                       <select
                         value={permissionTimeoutPolicy}
                         onChange={(e) => { setDirty(true); setPermissionTimeoutPolicy(e.target.value as 'allow' | 'deny'); }}
-                        className="rounded border border-gray-700 bg-gray-900 px-1.5 py-0.5 text-[11px] text-gray-200 outline-none focus:border-blue-500"
+                        className="rounded border border-gray-700 bg-gray-900 px-1.5 py-0.5 text-[12px] text-gray-200 outline-none focus:border-blue-500"
                       >
                         <option value="allow">allow</option>
                         <option value="deny">deny</option>
@@ -464,24 +499,25 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
                 <div className="flex gap-3">
                   <div className="flex flex-1 flex-col gap-1">
                     <label className="text-xs font-medium text-gray-400">{t('panel.options.agent.maxTurns', { defaultValue: 'Max Turns (0 = unlimited)' })}</label>
-                    <input
-                      type="number"
+                    <NumberStepper
                       min={0}
+                      step={MAX_TURNS_STEP}
                       value={maxTurns}
-                      onChange={(e) => { setDirty(true); setMaxTurns(Math.max(0, Number(e.target.value) || 0)); }}
-                      className="rounded border border-gray-700 bg-gray-900 px-2 py-1.5 text-xs text-gray-200 outline-none focus:border-blue-500"
+                      widthClassName="w-full"
+                      ariaLabel={t('panel.options.agent.maxTurns', { defaultValue: 'Max Turns (0 = unlimited)' })}
+                      onChange={(next) => { setDirty(true); setMaxTurns(next); }}
                     />
                   </div>
                   {/* §4 v2.88 — 전역 기본 API 비용 상한($). 0 = 무제한. */}
                   <div className="flex flex-1 flex-col gap-1">
                     <label className="text-xs font-medium text-gray-400">{t('panel.options.agent.maxBudgetUsd', { defaultValue: 'Budget ($, 0 = unlimited)' })}</label>
-                    <input
-                      type="number"
+                    <NumberStepper
                       min={0}
-                      step={1}
+                      step={BUDGET_USD_STEP}
                       value={maxBudgetUsd}
-                      onChange={(e) => { setDirty(true); setMaxBudgetUsd(Math.max(0, Number(e.target.value) || 0)); }}
-                      className="rounded border border-gray-700 bg-gray-900 px-2 py-1.5 text-xs text-gray-200 outline-none focus:border-blue-500"
+                      widthClassName="w-full"
+                      ariaLabel={t('panel.options.agent.maxBudgetUsd', { defaultValue: 'Budget ($, 0 = unlimited)' })}
+                      onChange={(next) => { setDirty(true); setMaxBudgetUsd(next); }}
                     />
                   </div>
                   <div className="flex flex-1 flex-col gap-1">
@@ -501,7 +537,7 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
                   <span className="text-xs font-medium text-gray-400">{t('panel.agentConfig.cliOptions.label')}</span>
                   <div className="flex gap-3">
                     <div className="flex flex-1 flex-col gap-1">
-                      <label className="text-[11px] font-medium text-gray-500">{t('panel.agentConfig.fallbackModel.label')}</label>
+                      <label className="text-[12px] font-medium text-gray-500">{t('panel.agentConfig.fallbackModel.label')}</label>
                       <input
                         type="text"
                         value={fallbackModel}
@@ -511,7 +547,7 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
                       />
                     </div>
                     <div className="flex flex-1 flex-col gap-1">
-                      <label className="text-[11px] font-medium text-gray-500">{t('panel.agentConfig.autoCompact.label')}</label>
+                      <label className="text-[12px] font-medium text-gray-500">{t('panel.agentConfig.autoCompact.label')}</label>
                       <select
                         value={autoCompact}
                         onChange={(e) => { setDirty(true); setAutoCompact(e.target.value); }}
@@ -526,7 +562,7 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
                     </div>
                   </div>
                   <div className="flex flex-col gap-1">
-                    <label className="text-[11px] font-medium text-gray-500">{t('panel.agentConfig.settingSources.label')}</label>
+                    <label className="text-[12px] font-medium text-gray-500">{t('panel.agentConfig.settingSources.label')}</label>
                     <div className="flex flex-wrap gap-1.5">
                       {AVAILABLE_SETTING_SOURCES.map((src) => {
                         const on = settingSources.includes(src);
@@ -535,7 +571,7 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
                             key={src}
                             type="button"
                             onClick={() => { setDirty(true); setSettingSources((p) => (p.includes(src) ? p.filter((x) => x !== src) : [...p, src])); }}
-                            className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-colors ${
+                            className={`rounded-full px-2.5 py-0.5 text-[12px] font-medium transition-colors ${
                               on ? 'bg-sky-500/15 text-sky-400' : 'bg-gray-800 text-gray-500 hover:text-gray-300'
                             }`}
                           >
@@ -544,11 +580,11 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
                         );
                       })}
                       {settingSources.length === 0 && (
-                        <span className="self-center text-[11px] text-gray-600">{t('panel.agentConfig.settingSources.all')}</span>
+                        <span className="self-center text-[12px] text-gray-600">{t('panel.agentConfig.settingSources.all')}</span>
                       )}
                     </div>
                   </div>
-                  <label className="flex items-start gap-2 text-[11px] text-gray-400">
+                  <label className="flex items-start gap-2 text-[12px] text-gray-400">
                     <input
                       type="checkbox"
                       checked={excludeDynamicSections}
@@ -557,7 +593,7 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
                     />
                     <span>{t('panel.agentConfig.excludeDynamicSections.label')}</span>
                   </label>
-                  <label className="flex items-start gap-2 text-[11px] text-gray-400">
+                  <label className="flex items-start gap-2 text-[12px] text-gray-400">
                     <input
                       type="checkbox"
                       checked={safeMode}
@@ -570,7 +606,7 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
                     </span>
                   </label>
                   <div className="flex flex-col gap-1">
-                    <label className="text-[11px] font-medium text-gray-500">{t('panel.agentConfig.betas.label')}</label>
+                    <label className="text-[12px] font-medium text-gray-500">{t('panel.agentConfig.betas.label')}</label>
                     <input
                       type="text"
                       value={betas}
@@ -581,32 +617,34 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
                   </div>
                   {/* §4 (CLI 사양 추종) — Bash 타임아웃 기본값(초). 0 = 미설정(CLI 기본 유지). */}
                   <div className="flex flex-col gap-1.5">
-                    <span className="text-[11px] font-medium text-gray-500">{t('panel.agentConfig.bashTimeout.label')}</span>
+                    <span className="text-[12px] font-medium text-gray-500">{t('panel.agentConfig.bashTimeout.label')}</span>
                     <div className="flex gap-3">
                       <div className="flex flex-1 flex-col gap-1">
-                        <label className="text-[11px] text-gray-500">{t('panel.agentConfig.bashTimeout.defaultLabel')}</label>
-                        <input
-                          type="number"
+                        <label className="text-[12px] text-gray-500">{t('panel.agentConfig.bashTimeout.defaultLabel')}</label>
+                        <NumberStepper
                           min={0}
                           max={BASH_TIMEOUT_MS_MAX / 1000}
+                          step={BASH_TIMEOUT_STEP_SEC}
                           value={bashDefaultTimeoutSec}
-                          onChange={(e) => { setDirty(true); setBashDefaultTimeoutSec(Math.max(0, Number(e.target.value) || 0)); }}
-                          className="rounded border border-gray-700 bg-gray-900 px-2 py-1.5 text-xs text-gray-200 outline-none focus:border-blue-500"
+                          widthClassName="w-full"
+                          ariaLabel={t('panel.agentConfig.bashTimeout.defaultLabel')}
+                          onChange={(next) => { setDirty(true); setBashDefaultTimeoutSec(next); }}
                         />
                       </div>
                       <div className="flex flex-1 flex-col gap-1">
-                        <label className="text-[11px] text-gray-500">{t('panel.agentConfig.bashTimeout.maxLabel')}</label>
-                        <input
-                          type="number"
+                        <label className="text-[12px] text-gray-500">{t('panel.agentConfig.bashTimeout.maxLabel')}</label>
+                        <NumberStepper
                           min={0}
                           max={BASH_TIMEOUT_MS_MAX / 1000}
+                          step={BASH_TIMEOUT_STEP_SEC}
                           value={bashMaxTimeoutSec}
-                          onChange={(e) => { setDirty(true); setBashMaxTimeoutSec(Math.max(0, Number(e.target.value) || 0)); }}
-                          className="rounded border border-gray-700 bg-gray-900 px-2 py-1.5 text-xs text-gray-200 outline-none focus:border-blue-500"
+                          widthClassName="w-full"
+                          ariaLabel={t('panel.agentConfig.bashTimeout.maxLabel')}
+                          onChange={(next) => { setDirty(true); setBashMaxTimeoutSec(next); }}
                         />
                       </div>
                     </div>
-                    <span className="text-[11px] text-gray-600">
+                    <span className="text-[12px] text-gray-600">
                       {t('panel.agentConfig.bashTimeout.hint', {
                         defaultSec: BASH_DEFAULT_TIMEOUT_MS_CLI_DEFAULT / 1000,
                         maxSec: BASH_MAX_TIMEOUT_MS_CLI_DEFAULT / 1000,
@@ -624,7 +662,7 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
                         key={tool}
                         type="button"
                         onClick={() => toggleTool(tool)}
-                        className={`rounded px-2 py-0.5 text-[11px] ${
+                        className={`rounded px-2 py-0.5 text-[12px] ${
                           tools.includes(tool)
                             ? 'bg-blue-500/20 text-blue-200 ring-1 ring-blue-500/40'
                             : 'bg-gray-800 text-gray-500 hover:bg-gray-700 hover:text-gray-300'
@@ -645,7 +683,7 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
                         key={tool}
                         type="button"
                         onClick={() => toggleDisallowed(tool)}
-                        className={`rounded px-2 py-0.5 text-[11px] ${
+                        className={`rounded px-2 py-0.5 text-[12px] ${
                           disallowedTools.includes(tool)
                             ? 'bg-red-500/20 text-red-200 ring-1 ring-red-500/40'
                             : 'bg-gray-800 text-gray-500 hover:bg-gray-700 hover:text-gray-300'
@@ -665,7 +703,7 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
                     onChange={(e) => { setDirty(true); setRules(e.target.value); }}
                     rows={4}
                     placeholder={t('panel.options.agent.rulesPlaceholder', { defaultValue: '# Optional default rules injected into every new agent\n- ...' })}
-                    className="rounded border border-gray-700 bg-gray-900 px-2 py-1.5 font-mono text-[11px] text-gray-200 placeholder:text-gray-600 outline-none focus:border-blue-500"
+                    className="rounded border border-gray-700 bg-gray-900 px-2 py-1.5 font-mono text-[12px] text-gray-200 placeholder:text-gray-600 outline-none focus:border-blue-500"
                   />
                 </div>
 
@@ -678,7 +716,7 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
                       value={color}
                       onChange={(e) => { setDirty(true); setColor(e.target.value); }}
                       placeholder="#3B82F6"
-                      className="flex-1 rounded border border-gray-700 bg-gray-900 px-2 py-1.5 font-mono text-[11px] text-gray-200 placeholder:text-gray-600 outline-none focus:border-blue-500"
+                      className="flex-1 rounded border border-gray-700 bg-gray-900 px-2 py-1.5 font-mono text-[12px] text-gray-200 placeholder:text-gray-600 outline-none focus:border-blue-500"
                     />
                     {color && (
                       <span className="h-6 w-6 rounded border border-gray-700" style={{ backgroundColor: color }} />
@@ -693,7 +731,7 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
               <div className="flex flex-col gap-4">
                 <div className="border-b border-gray-700/50 pb-2">
                   <h4 className="text-sm font-semibold text-gray-200">{t('panel.options.categories.appearance', { defaultValue: 'Appearance' })}</h4>
-                  <p className="mt-1 text-[11px] text-gray-500">
+                  <p className="mt-1 text-[12px] text-gray-500">
                     {t('panel.options.appearance.intro', { defaultValue: 'Personalize how Vibisual looks.' })}
                   </p>
                 </div>
@@ -710,7 +748,7 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
                       <option key={loc} value={loc}>{LOCALE_META[loc].nativeName}</option>
                     ))}
                   </select>
-                  <p className="text-[10px] text-gray-600">
+                  <p className="text-[12px] text-gray-600">
                     {t('panel.options.appearance.languageDesc', { defaultValue: 'UI display language. Applies immediately.' })}
                   </p>
                 </div>
@@ -719,7 +757,7 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
 
             {category === 'account' && <AccountTab />}
 
-            {category === 'storage' && <StorageTab />}
+            {category === 'storage' && <StorageTab onDirtyChange={setStorageDirty} />}
 
             {category === 'version' && (
               <VersionTab
@@ -739,7 +777,7 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
                   <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
                 </svg>
                 <p className="text-sm text-gray-400">{t('panel.options.comingSoon', { defaultValue: 'Coming soon' })}</p>
-                <p className="text-[11px] text-gray-600">
+                <p className="text-[12px] text-gray-600">
                   {t('panel.options.comingSoonDesc', { defaultValue: 'This category is reserved for future settings.' })}
                 </p>
               </div>
@@ -751,7 +789,7 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
         <div className="flex items-center justify-end gap-2 border-t border-gray-700 px-4 py-3">
           <button
             type="button"
-            onClick={handleCancel}
+            onClick={requestClose}
             className="rounded border border-gray-700 bg-gray-800 px-3 py-1.5 text-xs text-gray-300 hover:bg-gray-700"
           >
             {t('panel.options.cancel', { defaultValue: 'Cancel' })}
@@ -770,6 +808,13 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
           </button>
         </div>
       </div>
+
+      {/* 저장 없이 나가려 할 때 — 우리 디자인 확인 팝업(스스로 portal 이라 이 자리 위에 뜬다) */}
+      <UnsavedChangesDialog
+        open={confirmDiscardOpen}
+        onKeepEditing={handleKeepEditing}
+        onDiscard={handleDiscardAndClose}
+      />
     </div>,
     document.body,
   );
@@ -833,7 +878,7 @@ function ClaudeAutoUpdateSection({ source, outdated, onRefresh }: {
 
   return (
     <div className="flex flex-col gap-2">
-      <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+      <span className="text-[12px] font-semibold uppercase tracking-wider text-gray-500">
         {t('panel.options.version.claudeAutoUpdate.title', { defaultValue: 'Claude Code updates' })}
       </span>
       <div className="flex flex-col gap-2 rounded border border-gray-700/60 bg-gray-900/40 px-3 py-2.5">
@@ -849,7 +894,7 @@ function ClaudeAutoUpdateSection({ source, outdated, onRefresh }: {
             <span className="text-xs text-gray-200">
               {t('panel.options.version.claudeAutoUpdate.label', { defaultValue: 'Keep Claude Code up to date automatically' })}
             </span>
-            <span className="text-[11px] text-gray-500">
+            <span className="text-[12px] text-gray-500">
               {enabled
                 ? t('panel.options.version.claudeAutoUpdate.onHint', { defaultValue: 'Vibisual updates the CLI to the latest version each time you launch the app.' })
                 : t('panel.options.version.claudeAutoUpdate.offHint', { defaultValue: 'Automatic updates are off. Use "Update now" to update the CLI yourself.' })}
@@ -858,14 +903,14 @@ function ClaudeAutoUpdateSection({ source, outdated, onRefresh }: {
         </label>
 
         {source === 'vscode-extension' && (
-          <div className="rounded border border-amber-500/30 bg-amber-500/5 px-2.5 py-1.5 text-[11px] text-amber-200">
+          <div className="rounded border border-amber-500/30 bg-amber-500/5 px-2.5 py-1.5 text-[12px] text-amber-200">
             {t('panel.options.version.claudeAutoUpdate.vscodeNotice', {
               defaultValue: 'The active binary comes from the VS Code extension, which only the Marketplace can update. Pick a different installation above to let Vibisual manage updates.',
             })}
           </div>
         )}
 
-        <div className="flex flex-wrap items-center gap-2 border-t border-gray-800 pt-2 text-[11px]">
+        <div className="flex flex-wrap items-center gap-2 border-t border-gray-800 pt-2 text-[12px]">
           <button
             type="button"
             onClick={() => { void install().then(onRefresh); }}
@@ -901,7 +946,7 @@ function SourceBadge({ source }: { source: ClaudeInstall['source'] }): React.JSX
         ? 'bg-red-500/20 text-red-300'
         : 'bg-gray-700 text-gray-300';
   return (
-    <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${cls}`}>
+    <span className={`rounded px-1.5 py-0.5 text-[12px] font-semibold uppercase tracking-wider ${cls}`}>
       {source}
     </span>
   );
@@ -929,7 +974,7 @@ function VersionTab({ info, loading, error, savingBin, binChanged, onSelect, onR
       <div className="flex items-center justify-between border-b border-gray-700/50 pb-2">
         <div>
           <h4 className="text-sm font-semibold text-gray-200">{t('panel.options.version.title', { defaultValue: 'Version & About' })}</h4>
-          <p className="mt-1 text-[11px] text-gray-500">
+          <p className="mt-1 text-[12px] text-gray-500">
             {t('panel.options.version.intro', { defaultValue: 'The Claude Code binary Vibisual uses to spawn agents, and where it comes from.' })}
           </p>
         </div>
@@ -937,7 +982,7 @@ function VersionTab({ info, loading, error, savingBin, binChanged, onSelect, onR
           type="button"
           onClick={onRefresh}
           disabled={loading}
-          className="flex items-center gap-1 rounded border border-gray-700 bg-gray-800 px-2 py-1 text-[11px] text-gray-300 hover:bg-gray-700 disabled:opacity-40"
+          className="flex items-center gap-1 rounded border border-gray-700 bg-gray-800 px-2 py-1 text-[12px] text-gray-300 hover:bg-gray-700 disabled:opacity-40"
         >
           <svg className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg>
           {t('panel.options.version.refresh', { defaultValue: 'Rescan' })}
@@ -948,25 +993,25 @@ function VersionTab({ info, loading, error, savingBin, binChanged, onSelect, onR
         <div className="py-8 text-center text-xs text-gray-500">{t('panel.options.version.scanning', { defaultValue: 'Scanning installations…' })}</div>
       )}
       {error && (
-        <div className="rounded border border-red-500/40 bg-red-500/5 px-3 py-2 text-[11px] text-red-300">{error}</div>
+        <div className="rounded border border-red-500/40 bg-red-500/5 px-3 py-2 text-[12px] text-red-300">{error}</div>
       )}
 
       {info && (
         <>
           {/* Section 1 — Claude Code (active) */}
           <div className="flex flex-col gap-2">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">{t('panel.options.version.claudeCode', { defaultValue: 'Claude Code (in use)' })}</span>
+            <span className="text-[12px] font-semibold uppercase tracking-wider text-gray-500">{t('panel.options.version.claudeCode', { defaultValue: 'Claude Code (in use)' })}</span>
             <div className="grid grid-cols-2 gap-3">
               <div className="flex flex-col gap-1 rounded border border-gray-800 bg-gray-950/70 px-3 py-2">
-                <span className="text-[10px] uppercase tracking-wider text-gray-500">{t('panel.options.version.current', { defaultValue: 'Current' })}</span>
+                <span className="text-[12px] uppercase tracking-wider text-gray-500">{t('panel.options.version.current', { defaultValue: 'Current' })}</span>
                 <span className="font-mono text-base text-gray-200">{active?.version ?? '?'}</span>
               </div>
               <div className={`flex flex-col gap-1 rounded border px-3 py-2 ${outdated ? 'border-amber-500/40 bg-amber-500/5' : 'border-emerald-500/40 bg-emerald-500/5'}`}>
-                <span className={`text-[10px] uppercase tracking-wider ${outdated ? 'text-amber-400' : 'text-emerald-400'}`}>{t('panel.options.version.latest', { defaultValue: 'Latest (npm)' })}</span>
+                <span className={`text-[12px] uppercase tracking-wider ${outdated ? 'text-amber-400' : 'text-emerald-400'}`}>{t('panel.options.version.latest', { defaultValue: 'Latest (npm)' })}</span>
                 <span className={`font-mono text-base ${outdated ? 'text-amber-300' : 'text-emerald-300'}`}>{info.latest ?? '?'}</span>
               </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2 text-[11px] text-gray-400">
+            <div className="flex flex-wrap items-center gap-2 text-[12px] text-gray-400">
               {active && <SourceBadge source={active.source} />}
               {outdated
                 ? <span className="text-amber-300">{t('panel.options.version.updateAvailable', { defaultValue: 'Update available' })}</span>
@@ -977,12 +1022,12 @@ function VersionTab({ info, loading, error, savingBin, binChanged, onSelect, onR
                 <span className="text-gray-600">{t('panel.options.version.registryError', { defaultValue: 'npm check failed' })}: {info.registryError}</span>
               )}
             </div>
-            {active && <div className="break-all font-mono text-[10px] text-gray-600">{active.binPath}</div>}
+            {active && <div className="break-all font-mono text-[12px] text-gray-600">{active.binPath}</div>}
           </div>
 
           {/* Section 2 — Installations selector */}
           <div className="flex flex-col gap-2">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+            <span className="text-[12px] font-semibold uppercase tracking-wider text-gray-500">
               {t('panel.options.version.installations', { defaultValue: 'Installations' })} ({info.installs.length})
             </span>
             <div className="flex flex-col gap-1.5 rounded border border-gray-700/60 bg-gray-900/40 p-2">
@@ -1000,7 +1045,7 @@ function VersionTab({ info, loading, error, savingBin, binChanged, onSelect, onR
                 </span>
                 <span className="flex-1">
                   <span className="font-medium text-gray-200">{t('panel.options.version.auto', { defaultValue: 'Auto (recommended)' })}</span>
-                  <span className="ml-1.5 text-[10px] text-gray-500">{t('panel.options.version.autoDesc', { defaultValue: 'Let Vibisual pick automatically' })}</span>
+                  <span className="ml-1.5 text-[12px] text-gray-500">{t('panel.options.version.autoDesc', { defaultValue: 'Let Vibisual pick automatically' })}</span>
                 </span>
               </button>
 
@@ -1024,20 +1069,20 @@ function VersionTab({ info, loading, error, savingBin, binChanged, onSelect, onR
                         <span className="font-mono font-medium text-gray-200">{inst.version ?? t('panel.options.version.unknownVer', { defaultValue: 'unknown' })}</span>
                         <SourceBadge source={inst.source} />
                         {inst.active && (
-                          <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-emerald-300">
+                          <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 text-[12px] font-semibold uppercase tracking-wider text-emerald-300">
                             {t('panel.options.version.activeBadge', { defaultValue: 'active' })}
                           </span>
                         )}
                       </span>
-                      <span className="break-all font-mono text-[10px] text-gray-500">{inst.binPath}</span>
-                      {inst.detectError && <span className="text-[10px] text-red-400/80">{inst.detectError}</span>}
+                      <span className="break-all font-mono text-[12px] text-gray-500">{inst.binPath}</span>
+                      {inst.detectError && <span className="text-[12px] text-red-400/80">{inst.detectError}</span>}
                     </span>
                   </button>
                 );
               })}
             </div>
             {binChanged && (
-              <div className="flex items-center gap-1.5 rounded border border-emerald-500/30 bg-emerald-500/5 px-2.5 py-1.5 text-[11px] text-emerald-200">
+              <div className="flex items-center gap-1.5 rounded border border-emerald-500/30 bg-emerald-500/5 px-2.5 py-1.5 text-[12px] text-emerald-200">
                 <svg className="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
                 {/* §4 (첫 실행 설치 온보딩) — 실행본 해석이 지연 캐시가 되면서 v2.43 의 "restart to apply" 제약이 풀렸다. */}
                 {t('panel.options.version.selectionApplied', { defaultValue: 'Selection saved and applied — newly spawned agents use it right away.' })}
@@ -1050,8 +1095,8 @@ function VersionTab({ info, loading, error, savingBin, binChanged, onSelect, onR
 
           {/* Section 3 — About */}
           <div className="flex flex-col gap-2">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">{t('panel.options.version.about', { defaultValue: 'About' })}</span>
-            <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 rounded border border-gray-700/60 bg-gray-900/40 px-3 py-2.5 text-[11px]">
+            <span className="text-[12px] font-semibold uppercase tracking-wider text-gray-500">{t('panel.options.version.about', { defaultValue: 'About' })}</span>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 rounded border border-gray-700/60 bg-gray-900/40 px-3 py-2.5 text-[12px]">
               <span className="text-gray-500">Vibisual</span>
               <span className="font-mono text-gray-300">{info.appVersion}</span>
               <span className="text-gray-500">Node</span>
@@ -1060,7 +1105,7 @@ function VersionTab({ info, loading, error, savingBin, binChanged, onSelect, onR
               <span className="text-gray-500">Platform</span>
               <span className="font-mono text-gray-300">{info.runtime.platform} · {info.runtime.arch}</span>
             </div>
-            <div className="flex flex-wrap gap-3 text-[11px]">
+            <div className="flex flex-wrap gap-3 text-[12px]">
               <a href={REPO_URL} target="_blank" rel="noopener noreferrer" className="text-blue-400 underline hover:text-blue-300">
                 {t('panel.options.version.repo', { defaultValue: 'GitHub repository' })}
               </a>

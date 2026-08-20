@@ -66,13 +66,13 @@ export function AppBubbleDetail({ bubble }: Props): React.JSX.Element {
           <span className="flex min-w-0 flex-1 flex-col">
             <span className="truncate text-xs font-semibold text-gray-100">{appName}</span>
             {app ? (
-              <span className="truncate text-[10px] text-gray-500">
+              <span className="truncate text-[12px] text-gray-500">
                 {t(app.descKey, { defaultValue: '' })}
               </span>
             ) : null}
           </span>
           <span
-            className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+            className={`shrink-0 rounded-full px-2 py-0.5 text-[12px] font-semibold ${
               installed ? 'bg-emerald-400/10 text-emerald-300' : 'bg-white/[0.06] text-gray-400'
             }`}
           >
@@ -107,14 +107,14 @@ export function AppBubbleDetail({ bubble }: Props): React.JSX.Element {
             </GhostButton>
           </div>
         ) : (
-          <p className="text-[10px] leading-snug text-amber-300/80">
+          <p className="text-[12px] leading-snug text-amber-300/80">
             {t('panel.apps.detail.unknownHint', {
               defaultValue: '이 앱은 지금 버전에 없습니다. 버블은 지울 수 있습니다.',
             })}
           </p>
         )}
         {!installed && app ? (
-          <p className="text-[10px] leading-snug text-gray-500">
+          <p className="text-[12px] leading-snug text-gray-500">
             {t('panel.apps.detail.installHint', {
               defaultValue: '설치해야 열 수 있습니다. 캔버스에서 버블을 더블클릭해도 설치됩니다.',
             })}
@@ -137,7 +137,7 @@ export function AppBubbleDetail({ bubble }: Props): React.JSX.Element {
           placeholder={appName}
           className="w-full rounded-lg border border-white/[0.08] bg-black/20 px-2.5 py-2 text-xs text-gray-100 outline-none transition-colors placeholder:text-gray-600 focus:border-sky-400/60"
         />
-        <p className="text-[10px] leading-snug text-gray-500">
+        <p className="text-[12px] leading-snug text-gray-500">
           {t('panel.apps.detail.nameHint', { defaultValue: '비우면 앱 이름으로 돌아갑니다.' })}
         </p>
       </section>
@@ -171,7 +171,7 @@ export function AppBubbleDetail({ bubble }: Props): React.JSX.Element {
           </svg>
           {t('panel.apps.detail.deleteBubble', { defaultValue: '이 버블 삭제' })}
         </button>
-        <p className="mt-1.5 text-center text-[10px] leading-snug text-gray-500">
+        <p className="mt-1.5 text-center text-[12px] leading-snug text-gray-500">
           {isPinned
             ? t('panel.apps.deletePinnedHint', { defaultValue: '고정된 버블입니다. 먼저 고정을 해제하세요.' })
             : t('panel.apps.detail.deleteHint', { defaultValue: 'Delete 키로도 지울 수 있습니다. 앱은 지워지지 않습니다.' })}
@@ -186,7 +186,7 @@ function SectionLabel({ children }: { children: React.ReactNode }): React.JSX.El
   return (
     <div className="flex items-center gap-1.5">
       <span className="h-1 w-1 rounded-full bg-sky-400" />
-      <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">{children}</span>
+      <span className="text-[12px] font-semibold uppercase tracking-wide text-gray-500">{children}</span>
     </div>
   );
 }
@@ -234,7 +234,7 @@ function SwitchRow({ label, hint, checked, onChange }: SwitchRowProps): React.JS
     <label className="flex cursor-pointer items-start justify-between gap-3">
       <span className="flex min-w-0 flex-col gap-0.5">
         <span className="text-xs text-gray-300">{label}</span>
-        {hint && <span className="text-[10px] leading-snug text-gray-500">{hint}</span>}
+        {hint && <span className="text-[12px] leading-snug text-gray-500">{hint}</span>}
       </span>
       <span className="relative mt-0.5 shrink-0">
         <input

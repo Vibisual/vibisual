@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { toProxyUrl } from '../../utils/iframeProxyUrl.js';
 import { usePreviewPicker } from '../Preview/usePreviewPicker.js';
+import { usePreviewSnip } from '../Preview/usePreviewSnip.js';
+import { PreviewFrames } from '../Preview/PreviewFrames.js';
 import { PreviewControls, PreviewPickPanel } from '../Preview/PreviewControls.js';
 
 interface IframeViewProps {
@@ -14,9 +16,11 @@ export function IframeView({ url, tabId }: IframeViewProps): React.JSX.Element {
   const { t } = useTranslation();
   const [currentUrl, setCurrentUrl] = useState(url);
   const [inputUrl, setInputUrl] = useState(url);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
   // §7.11 — 폭 프리셋 + 요소 집기(집은 요소 → 이 프리뷰를 띄운 에이전트에게 명령).
   const picker = usePreviewPicker(iframeRef, currentUrl);
+  // §5.17 (B) — 그은 사각형이 그 에이전트의 입력창 첨부가 된다.
+  const snip = usePreviewSnip(picker.hostAgentId);
 
   // 서버 꺼짐 감지: 동일 URL을 가진 iframe 버블의 iframeAlive 필드를 구독.
   // 버블이 없으면 (사용자 Delete 등) 그냥 살아있는 것으로 간주 → 평소 스타일.
@@ -86,26 +90,22 @@ export function IframeView({ url, tabId }: IframeViewProps): React.JSX.Element {
           />
         </form>
 
-        {/* §7.11 — 폭 프리셋 + 요소 집기. 캔버스 프리뷰와 같은 훅·같은 화면 요소를 쓴다. */}
-        <PreviewControls picker={picker} />
+        {/* §7.11 · §5.17 — 폭 프리셋 + 요소 집기 + 영역 캡처. 캔버스 프리뷰와 같은 훅·같은 화면 요소. */}
+        <PreviewControls picker={picker} snip={snip} />
       </div>
 
       {/* iframe content — 프록시 경유. 서버 꺼짐 시 opacity 낮춰 비활성 표시. */}
-      {/*   폭 프리셋이 걸리면 그 폭 **그대로** 가운데 정렬해 렌더한다(scale 축소 ❌ — 미디어쿼리가 실제 폭을 봐야 한다). */}
-      <div className="flex flex-1 justify-center overflow-auto bg-gray-950" style={overlayStyle}>
-        <iframe
-          ref={iframeRef}
-          src={toProxyUrl(currentUrl)}
-          className="h-full border-0 bg-white"
-          style={picker.deviceWidth === null
-            ? { width: '100%' }
-            : { width: `${picker.deviceWidth}px`, flex: '0 0 auto' }}
-          title={t('common.iframe.serverPreview')}
-          sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-        />
-      </div>
+      {/*   폭 프리셋이 걸리면 그 폭 **그대로**(scale 축소 ❌), `compare` 면 세 폭을 나란히(§5.17 (A)). */}
+      <PreviewFrames
+        picker={picker}
+        snip={snip}
+        src={toProxyUrl(currentUrl)}
+        primaryRef={iframeRef}
+        className="bg-gray-950"
+        style={overlayStyle}
+      />
 
-      <PreviewPickPanel picker={picker} />
+      <PreviewPickPanel picker={picker} snip={snip} />
     </div>
   );
 }

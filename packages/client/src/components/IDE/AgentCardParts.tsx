@@ -33,10 +33,10 @@ export const CardSection = memo(function CardSection({
   if (items.length === 0) return null;
   const body = (
     <>
-      <div className={`mb-1 text-[10px] font-semibold uppercase tracking-wide ${titleClass}`}>{title}</div>
+      <div className={`mb-1 text-[12px] font-semibold uppercase tracking-wide ${titleClass}`}>{title}</div>
       <ul className="space-y-0.5">
         {items.map((item, i) => (
-          <li key={i} className={`flex items-start gap-1.5 text-[12.5px] leading-relaxed ${textClass}`}>
+          <li key={i} className={`flex items-start gap-1.5 text-[13px] leading-relaxed ${textClass}`}>
             <span className={glyphClass}>{icon}</span>
             <span className="min-w-0 flex-1 break-words">{item}</span>
           </li>
@@ -65,7 +65,7 @@ export function CardDetails({ count, children }: CardDetailsProps): React.JSX.El
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="group/det mb-1 flex items-center gap-1 text-[11px] text-gray-500 transition-colors hover:text-gray-300"
+        className="group/det mb-1 flex items-center gap-1 text-[12px] text-gray-500 transition-colors hover:text-gray-300"
       >
         <svg className={`h-3 w-3 transition-transform ${open ? 'rotate-90' : ''}`} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
           <path d="M8 5v14l11-7z" />
@@ -104,7 +104,7 @@ export function CardLiveBadge(): React.JSX.Element {
   return (
     <span
       title={t('ide.card.inProgressHint')}
-      className="flex flex-shrink-0 items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-[1px] text-[9.5px] font-semibold uppercase tracking-wide text-amber-300"
+      className="flex flex-shrink-0 items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-[1px] text-[12px] font-semibold uppercase tracking-wide text-amber-300"
     >
       <span className="h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full bg-amber-400" />
       {t('ide.card.inProgress')}
@@ -140,7 +140,7 @@ export function CompactCardLine({ icon, label, labelClass, summary, onExpand, li
         <path d="M8 5v14l11-7z" />
       </svg>
       <span className={`flex-shrink-0 ${labelClass}`}>{icon}</span>
-      <span className={`flex-shrink-0 text-[11px] font-semibold uppercase tracking-wide ${labelClass}`}>{label}</span>
+      <span className={`flex-shrink-0 text-[12px] font-semibold uppercase tracking-wide ${labelClass}`}>{label}</span>
       <span className="min-w-0 flex-1 truncate text-[12px] text-gray-500">{summary}</span>
       {live && <CardLiveBadge />}
     </button>

@@ -16,6 +16,10 @@ export { hashItem, hashDocShape, stableHash } from './hashItem.js';
 export { validateDoc } from './validateDoc.js';
 export type { ValidateResult } from './validateDoc.js';
 
+// §5.13 (Q) — 콘티 한 벌을 이 앱의 문서로 옮기는 순수 변환(파일·네트워크 없음).
+export { buildStoryboardOps, buildStoryboardDoc, storyboardLayout, storyboardDuration } from './storyboard.js';
+export type { StoryboardBuildArgs, StoryboardLayout, StoryboardRect } from './storyboard.js';
+
 // 순수한 렌더 결정 규칙 — 서버도 "어떤 방식으로 그렸나"를 말할 수 있어야 한다.
 export {
   RENDER_BACKEND_CAPABILITIES,

@@ -14,7 +14,7 @@ import { IDEContextMenu, type ContextMenuItem } from './IDEContextMenu.js';
  */
 
 /** 두 층이 공유하는 글자 배치 — 여기만 고치면 본문·줄번호가 함께 따라온다. */
-const LAYER_TEXT = 'font-mono text-[12.5px] leading-[19px]';
+const LAYER_TEXT = 'font-mono text-[13px] leading-[19px]';
 const LAYER_PAD = 'px-3 py-2';
 /**
  * §5.5 #17-27 ⑪ — 줄 번호로 스크롤 위치를 계산할 때 쓰는 치수. **위 두 상수와 같은 값**이어야 한다
@@ -331,7 +331,7 @@ export const CodeEditor = memo(function CodeEditor({
                   <span className="absolute right-0 top-0 h-full w-[2px] bg-blue-400/70" aria-hidden />
                 )}
                 {isStopped && !hasBreakpoint && (
-                  <span className="absolute left-1 text-[10px] leading-none text-amber-300" aria-hidden>
+                  <span className="absolute left-1 text-[12px] leading-none text-amber-300" aria-hidden>
                     &#9656;
                   </span>
                 )}

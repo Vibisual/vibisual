@@ -243,10 +243,10 @@ export const SpecNode = memo(function SpecNode({
       >
         <div className="flex items-center gap-1.5 text-white/90">
           <SpecGlyph />
-          <span className="text-[10px] font-semibold uppercase tracking-wide text-white/70">
+          <span className="text-[12px] font-semibold uppercase tracking-wide text-white/70">
             {t('canvas.spec.title', { defaultValue: '스펙' })}
           </span>
-          <span className="ml-auto rounded bg-black/25 px-1.5 py-0.5 text-[9px] text-white/70">
+          <span className="ml-auto rounded bg-black/25 px-1.5 py-0.5 text-[12px] text-white/70">
             r{data.bodyRevision}
           </span>
         </div>
@@ -255,7 +255,7 @@ export const SpecNode = memo(function SpecNode({
 
         <div className="mt-auto flex flex-col gap-1">
           {/* 수용 기준 진행 — 사람이 손으로 체크한 것만 센다(카드 생성과 별개 축). */}
-          <div className="flex items-center gap-1.5 text-[10px] text-white/80">
+          <div className="flex items-center gap-1.5 text-[12px] text-white/80">
             <span>{t('canvas.spec.criteria', { defaultValue: '수용 기준' })}</span>
             <span className="font-semibold">{counts.done}/{counts.total}</span>
             <span className="ml-auto text-white/60">
@@ -269,18 +269,18 @@ export const SpecNode = memo(function SpecNode({
             />
           </div>
           {counts.stale > 0 ? (
-            <div className="flex items-center gap-1 text-[10px] font-semibold text-amber-200">
+            <div className="flex items-center gap-1 text-[12px] font-semibold text-amber-200">
               <StaleGlyph />
               <span>{t('canvas.spec.staleCount', { count: counts.stale, defaultValue: '스펙 변경됨 {{count}}' })}</span>
             </div>
           ) : busy ? (
-            <div className="text-[10px] text-white/70">{t('canvas.spec.generating', { defaultValue: '작업 카드 만드는 중…' })}</div>
+            <div className="text-[12px] text-white/70">{t('canvas.spec.generating', { defaultValue: '작업 카드 만드는 중…' })}</div>
           ) : counts.pending > 0 ? (
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); generate(); }}
               onMouseDown={(e) => e.stopPropagation()}
-              className="rounded bg-black/25 px-2 py-1 text-[10px] font-semibold text-white transition-colors hover:bg-black/40"
+              className="rounded bg-black/25 px-2 py-1 text-[12px] font-semibold text-white transition-colors hover:bg-black/40"
             >
               {t('canvas.spec.generateTasksN', { count: counts.pending, defaultValue: '작업 카드 만들기 ({{count}})' })}
             </button>

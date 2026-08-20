@@ -29,8 +29,9 @@
       "completed": "{{count}} completed",
       "working": "{{active}}/{{total}}",
       "tooltipWaiting": "No agents in this project yet",
-      "tooltipCompleted": "{{count}} agents in this project finished",
-      "tooltipWorking": "{{active}} of {{total}} agents running in this project"
+      "tooltipWorking": "This project: {{agents}} agents · {{running}} of {{sessions}} sessions running",
+      "tooltipIdle": "This project: {{agents}} agents · {{sessions}} sessions — nothing running right now",
+      "tooltipCommand": "{{status}} · Click to open the Command Center"
     },
     "tab": {
       "closeProject": "Close project",
@@ -190,6 +191,10 @@
       "title": "Options",
       "unsaved": "unsaved",
       "discardConfirm": "Discard unsaved changes?",
+      "discardTitle": "Unsaved changes",
+      "discardDesc": "Your changes have not been applied yet. If you leave now, they will be lost.",
+      "discardKeep": "Keep editing",
+      "discardLeave": "Discard & close",
       "apply": "Apply",
       "cancel": "Cancel",
       "saving": "Saving…",
@@ -278,7 +283,7 @@
         "actionFailed": "That did not work. Try again."
       },
       "storage": {
-        "intro": "How long Vibisual keeps activity history on disk. Set any value to 0 to keep it forever — nothing is deleted silently, and live sessions are never touched.",
+        "intro": "How long Vibisual keeps activity history on disk. Set any value to 0 to keep it forever. Nothing is deleted silently: files still referenced by a conversation are kept regardless of age, live and reopenable sessions are never touched, and cleanup moves files to the trash so you can restore them.",
         "save": "Apply",
         "saving": "Saving…",
         "reset": "Restore defaults",
@@ -289,7 +294,7 @@
         "scanning": "Scanning…",
         "cleanNow": "Clean now",
         "cleaning": "Cleaning…",
-        "cleaned": "Removed {{files}} file(s), freed {{size}}.",
+        "cleaned": "Moved {{files}} file(s) ({{size}}) to the trash — restore them below while they are still there.",
         "empty": "No project data on disk yet.",
         "worktreesTitle": "Git worktrees",
         "worktreesNote": "Never removed automatically — these may hold your work. Delete the folder yourself if you no longer need it.",
@@ -314,15 +319,19 @@
           },
           "completedCommandMaxPerSession": {
             "label": "Completed commands per session",
-            "desc": "Your prompt bubbles kept per session. 0 = unlimited."
+            "desc": "Your own prompts kept per session. These cannot be recreated, so the cap is generous. 0 = unlimited."
           },
           "subStreamRetentionDays": {
-            "label": "Keep agent transcripts for",
-            "desc": "Cleaned at startup. Live sessions are kept regardless of age. 0 = keep forever."
+            "label": "Agent conversation history",
+            "desc": "Cleaned once when the app starts. Sessions that are live or still in the reopen list are kept regardless of age. 0 = keep forever."
           },
           "attachmentRetentionDays": {
-            "label": "Keep attachments for",
-            "desc": "Images you pasted into prompts. 0 = keep forever."
+            "label": "Attached files",
+            "desc": "Images you pasted into commands. Files a conversation still points to are kept regardless of age — only orphans expire. 0 = keep forever."
+          },
+          "trashRetentionDays": {
+            "label": "Trash",
+            "desc": "How long cleaned-up files stay restorable before they are deleted for good. 0 = keep forever."
           }
         },
         "kinds": {
@@ -335,14 +344,24 @@
           "brain": "Memory",
           "logs": "Logs",
           "video": "Video",
-          "other": "Other"
+          "other": "Other",
+          "trash": "Trash"
         },
         "error": {
           "load": "Could not load retention settings.",
           "save": "Could not save retention settings.",
           "scan": "Could not measure disk usage.",
-          "clean": "Cleanup failed. Please try again."
-        }
+          "clean": "Cleanup failed. Please try again.",
+          "restore": "Could not restore that file. It may already exist in its original place."
+        },
+        "purged": "Permanently deleted {{files}} expired trash file(s) ({{size}}).",
+        "keptReferenced": "Kept {{files}} still-referenced file(s) regardless of age.",
+        "trashTitle": "Trash",
+        "trashNote": "Cleanup moves files here instead of deleting them. You can restore anything listed until it is {{days}} day(s) old.",
+        "trashNoteForever": "Cleanup moves files here instead of deleting them. Nothing here is ever deleted automatically.",
+        "trashEmpty": "Trash is empty — nothing has been cleaned up.",
+        "restore": "Restore",
+        "restoring": "Restoring…"
       }
     },
     "autoAgent": {
@@ -491,7 +510,15 @@
       "empty": "No conti yet — press 'Generate new conti' to capture the first take",
       "working": "Working… ({{source}})",
       "edited": "edited {{when}}",
-      "editedTitle": "Last modification time"
+      "editedTitle": "Last modification time",
+      "scriptTitle": "Conti from script",
+      "scriptPlaceholder": "Paste your script — one cut per beat, in the script order.",
+      "scriptPreset": "Output",
+      "scriptFrames": "Cuts",
+      "scriptFramesAuto": "auto",
+      "scriptGenerate": "Make conti from script",
+      "scriptWorking": "Cutting scenes…",
+      "scriptChip": "script"
     },
     "contiBoard": {
       "latest": "Latest Conti",
@@ -501,7 +528,18 @@
       "editFrame": "Edit text",
       "editTitlePrompt": "Frame title:",
       "editActionPrompt": "Frame action:",
-      "zoomReset": "Ctrl+0 reset"
+      "zoomReset": "Ctrl+0 reset",
+      "presetLabel": "Output",
+      "preset": {
+        "landscape": "Landscape 16:9",
+        "portrait": "Portrait 9:16",
+        "webtoon": "Webtoon (vertical)"
+      },
+      "render": "Render",
+      "renderTitle": "Move the cuts into a timeline document and start a render",
+      "renderWorking": "Handing over…",
+      "renderNoApp": "Install the video app to render",
+      "renderLinked": "{{app}} · {{status}}"
     },
     "contiPrompt": {
       "title": "Patch element with prompt",
@@ -733,7 +771,8 @@
         "TaskStop": "Stop a background task or subagent.",
         "MultiEdit": "Apply several edits to one file at once.",
         "SendMessage": "Send a follow-up message to a running subagent.",
-        "Artifact": "Create rich artifacts (documents, apps)."
+        "Artifact": "Create rich artifacts (documents, apps).",
+        "strippedByEdgeHint": "Delegated through a STRICT edge — this agent cannot use it at runtime (restored when the edge is removed)"
       },
       "maxTurns": "Max Turns",
       "maxBudgetUsd": "Budget ($, 0=∞)",
@@ -808,6 +847,12 @@
         "defaultLabel": "Default (s, 0 = CLI default)",
         "maxLabel": "Max limit (s, 0 = CLI default)",
         "hint": "0 keeps the CLI defaults — {{defaultSec}}s default, {{maxSec}}s max."
+      },
+      "modelVersion": {
+        "label": "Version",
+        "latest": "Latest (alias)",
+        "latestWith": "Latest ({{id}})",
+        "custom": "Custom…"
       }
     },
     "permissionPrompt": {
@@ -1196,6 +1241,132 @@
       "rechecking": "Checking…",
       "later": "Later",
       "docs": "Official installation guide"
+    },
+    "appsWindow": {
+      "notInstalledTitle": "{{name}} is not installed",
+      "notInstalledBody": "Right-click the canvas and install it from Apps. You can also drop a bubble and install straight from that bubble.",
+      "unknownMode": "Unknown screen: {{mode}}",
+      "unknownApp": "Unknown app: {{id}}"
+    },
+    "apps": {
+      "open": "Open",
+      "openHint": "Double-click to open.",
+      "installApp": "Install app",
+      "installHint": "Double-click to install.",
+      "uninstallApp": "Uninstall app",
+      "notInstalledBadge": "Install required",
+      "unknown": "Unknown app",
+      "rename": "Rename",
+      "renamePrompt": "Bubble name",
+      "pin": "Pin",
+      "unpin": "Unpin",
+      "delete": "Delete",
+      "deletePinnedHint": "This bubble is pinned. Unpin it first.",
+      "detail": {
+        "app": "App",
+        "installed": "Installed",
+        "unknownHint": "This app is not part of the current version. You can still delete the bubble.",
+        "installHint": "Install it before you can open it. Double-clicking the bubble on the canvas installs it too.",
+        "bubble": "This bubble",
+        "nameHint": "Leave it empty to fall back to the app name.",
+        "protection": "Protection",
+        "pinHint": "When on, neither the Delete key nor delete actions can remove it.",
+        "deleteBubble": "Delete this bubble",
+        "deleteHint": "The Delete key removes it too. The app itself stays installed."
+      }
+    },
+    "videoStudio": {
+      "title": "Vibistudio",
+      "pickDoc": "Pick a video…",
+      "newDoc": "New video",
+      "untitled": "New video",
+      "empty": "Pick a video or create a new one.",
+      "newTitle": "Title card",
+      "addTitle": "Add title",
+      "play": "Play",
+      "pause": "Pause",
+      "seek": "Playback position",
+      "toggleItem": "Turn on / off",
+      "removeItem": "Remove",
+      "pickAgent": "Pick an agent…",
+      "delegate": "Hand off this cut",
+      "delegated": "Handed this cut to an agent.",
+      "render": "Render",
+      "renderQueued": "Render queued.",
+      "renderDone": "Render finished.",
+      "noAudio": "Exported without audio.",
+      "downgraded": "Render mode was downgraded: {{id}}",
+      "previewFailed": "Could not draw the preview.",
+      "reloaded": "The document changed elsewhere, so it was reloaded."
+    },
+    "cost": {
+      "title": "Cost & token map",
+      "close": "Close cost map",
+      "pillLabel": "Today's cost",
+      "pillEmpty": "No cost measured yet",
+      "notMeasured": "Not measured",
+      "notMeasuredHint": "No turns were read for this session, so nothing is claimed about its cost.",
+      "periodToday": "Today",
+      "periodWeek": "This week",
+      "periodMonth": "This month",
+      "periodAll": "All time",
+      "totalCost": "Cost",
+      "inputTokens": "Input",
+      "outputTokens": "Output",
+      "cacheReadTokens": "Cache read",
+      "cacheCreateTokens": "Cache write",
+      "agentsTitle": "By agent",
+      "sessionsTitle": "By session",
+      "colName": "Name",
+      "colModel": "Model",
+      "colTokens": "Tokens",
+      "colCost": "Cost",
+      "sessionCumulativeNote": "Session rows show the whole session, filtered by last activity.",
+      "empty": "Nothing measured yet in this project.",
+      "emptyHint": "Costs appear once an agent finishes a turn — they are read from the session transcript, not billed amounts.",
+      "estimateNote": "Estimated from token counts and published prices.",
+      "retiredNote": "{{cost}} from older sessions is folded into the all-time total.",
+      "sessions_one": "{{count}} session",
+      "sessions_other": "{{count}} sessions",
+      "openMap": "Open cost & token map"
+    },
+    "audit": {
+      "title": "Permission & audit boundary",
+      "close": "Close audit timeline",
+      "pillLabel": "Risky calls today",
+      "pillEmpty": "No risky tool calls today",
+      "pillOff": "Audit boundary is off — risky actions run without asking (still recorded)",
+      "boundaryOn": "Ask before risky actions",
+      "boundaryHint": "Recording never stops — this only decides whether we stop the agent first.",
+      "routeTitle": "A second checkpoint, separate from permission mode",
+      "routeBody": "This boundary runs separately from the permission mode in agent settings — it takes a second look at tool calls that permission mode already let through.",
+      "routeOn": "When on — even an agent set to “allow everything (bypassPermissions)” gets an approval card for delete, network and config calls.",
+      "routeOff": "When off (default) — every call runs exactly as permission mode decided, and is only recorded.",
+      "routeScope": "Only custom agents Vibisual launched are held here. Claude Code sessions you run yourself are recorded, never stopped.",
+      "routeStateOn": "On now — risky calls are asked about before permission mode applies.",
+      "routeStateOff": "Off now — calls run per permission mode and are only recorded.",
+      "risk": {
+        "delete": "Delete",
+        "network": "Network",
+        "config": "Config"
+      },
+      "filterAll": "All",
+      "filterRisky": "Risky",
+      "filterDenied": "Denied",
+      "escalated": "Asked first",
+      "decisionAllow": "Allowed",
+      "decisionDeny": "Denied",
+      "sourceTimeout": "timed out",
+      "sourcePolicy": "by mode",
+      "reason": "Reason",
+      "countSummary": "{{total}} calls · {{risky}} risky · {{denied}} denied",
+      "showMore": "Show {{count}} more",
+      "noMatch": "No calls match this filter.",
+      "retired": "{{count}} older calls are counted in the totals, but their details are not on this screen.",
+      "empty": "No tool calls recorded in this project yet.",
+      "emptyHint": "Every tool call an agent makes lands here — what it touched, and what you answered.",
+      "promptRiskTitle": "Risky action",
+      "promptEscalatedHint": "Your permission mode would have allowed this automatically — the audit boundary is asking first."
     }
   },
   "ide": {
@@ -1234,6 +1405,12 @@
       "download": "Download PNG",
       "saveReplace": "Save",
       "saveAttach": "Attach marked copy",
+      "saveFile": "Save to file",
+      "saveFileHint": "Overwrite {{path}} with these marks",
+      "saveFileUnsupported": "This format cannot be re-encoded — attach or download the marked copy instead.",
+      "fileSaveFailed": "Could not save to that file.",
+      "fileConflict": "That file changed on disk after you opened it.",
+      "fileConflictOverwrite": "Save anyway",
       "textPlaceholder": "Type, then press Enter",
       "hintPick": "Pick a tool to mark this image, then save it as an attachment.",
       "hintDraw": "Drag on the image to mark it. Ctrl+Z undoes the last mark.",
@@ -1256,7 +1433,9 @@
       "cmdLabel": "CMD",
       "hookLabel": "Hook",
       "renameHint": "Double-click to rename (F2)",
-      "renameInputLabel": "Agent name"
+      "renameInputLabel": "Agent name",
+      "localLabel": "All Model",
+      "localSwitchModel": "Change the model this bubble uses"
     },
     "tabbar": {
       "newSession": "New Session",
@@ -1376,7 +1555,9 @@
       "runningSubagents": "Running subagents ({{count}})",
       "loop": "Repeat loop",
       "goal": "Goal",
-      "debug": "Run and debug"
+      "debug": "Run and debug",
+      "hooks": "Session hooks",
+      "plugins": "Claude Code plugins"
     },
     "mcp": {
       "title": "MCP servers",
@@ -1652,6 +1833,11 @@
       "truncated": "Only the beginning of this large file is shown — read only.",
       "readError": "Cannot read this file",
       "plainLanguage": "text",
+      "imageEdit": "Edit",
+      "imageEditHint": "Mark up this image",
+      "imageFit": "Fit to panel",
+      "imageActualSize": "Actual size (1:1)",
+      "imageReadError": "Cannot show this image",
       "openInPane": "Open in editor pane — {{path}}",
       "openFolder": "Open the folder that holds this file — {{path}}",
       "readOnlyLocked": "This file is locked read-only on disk (Perforce checkout, file attribute).",
@@ -1790,6 +1976,45 @@
       "instructionTitle": "Instruction given",
       "changesTitle": "What was changed",
       "checkpointsTitle": "Please verify"
+    },
+    "reviewLane": {
+      "unknownBranch": "(branch unknown)",
+      "fileCount": "{{count}} file(s)",
+      "uncommitted": "uncommitted",
+      "uncommittedHint": "Not committed yet — approving will not merge this change.",
+      "showMoreFiles": "Show {{count}} more",
+      "showLessFiles": "Show less",
+      "filesTruncated": "Some files were left out (limit reached).",
+      "showDiff": "Show diff ({{count}} lines)",
+      "hideDiff": "Hide diff",
+      "diffTruncated": "The diff was cut off at the size limit.",
+      "approve": "Approve",
+      "approveTitle": "Approve and merge this branch into the parent",
+      "reject": "Reject",
+      "rejectTitle": "Reject with a reason and send it back for rework",
+      "hold": "Hold",
+      "holdTitle": "Decide later — nothing is merged or sent",
+      "sendReject": "Send rejection",
+      "cancel": "Cancel",
+      "reasonPlaceholder": "Why are you rejecting this? It goes to the agent as the next prompt.",
+      "reasonHint": "The reason becomes the next prompt.",
+      "rejectPromptHeader": "This change was rejected in review. Fix it per the reason below and report back.",
+      "decisionFailed": "Could not record the decision: {{error}}",
+      "historyTitle": "Decision history ({{count}})",
+      "changeType": {
+        "added": "Added",
+        "modified": "Modified",
+        "deleted": "Deleted",
+        "renamed": "Renamed",
+        "unknown": "Unknown"
+      },
+      "result": {
+        "approvedMerged": "Approved · merged",
+        "approvedMergeFailed": "Approved · merge failed ({{error}})",
+        "rejected": "Rejected",
+        "rejectedDispatched": "Rejected · rework sent",
+        "held": "On hold"
+      }
     },
     "list": {
       "title": "List",
@@ -2289,6 +2514,129 @@
           }
         }
       }
+    },
+    "goal": {
+      "title": "Goal",
+      "pickSession": "Pick a session to see its goal.",
+      "waiting": "No goal yet. One appears as soon as the session lays out a plan.",
+      "setManually": "Write one yourself",
+      "textPlaceholder": "What should this session accomplish?",
+      "textHint": "Once you edit the wording yourself, the session stops rewriting it.",
+      "create": "Create",
+      "update": "Update",
+      "cancel": "Cancel",
+      "editHint": "Edit the goal",
+      "stepCount": "{{done}} / {{total}} steps",
+      "stepRemaining": "{{count}} left",
+      "noSteps": "No steps yet",
+      "byUser": "Set by you",
+      "bySession": "Set by the session",
+      "toggleStep": "Toggle this step",
+      "removeStep": "Remove this step",
+      "addStepPlaceholder": "Add a step…",
+      "historyLabel": "History",
+      "achieve": "Mark achieved",
+      "resume": "Reopen",
+      "delete": "Drop goal",
+      "status": {
+        "active": "In progress",
+        "achieved": "Achieved",
+        "abandoned": "Dropped"
+      },
+      "source": {
+        "agent": "Reported by the agent",
+        "user": "Adjusted by you",
+        "plan": "Derived from the plan"
+      }
+    },
+    "hooks": {
+      "title": "Session hooks",
+      "refresh": "Rescan hooks",
+      "noProject": "Open a project to see the hooks that apply to its sessions.",
+      "empty": "No hooks are configured for this session.",
+      "applyHint": "Turning a hook on or off applies to sessions started from now on. A hook you turn off stays in the settings file — it is just moved aside so Claude Code no longer runs it.",
+      "loadFailed": "Could not read the hook configuration.",
+      "toggleFailed": "Could not save the change.",
+      "turnOn": "Turn on",
+      "turnOff": "Turn off",
+      "matcher": "Runs on: {{matcher}}",
+      "matcherAll": "Runs on every call for this event",
+      "timeout": "timeout {{seconds}}s",
+      "state": {
+        "enabled": "On",
+        "disabled": "Off"
+      },
+      "scope": {
+        "user": "Global (all projects)",
+        "project": "Project (shared in the repo)",
+        "local": "Local (this machine only)",
+        "managed": "Managed policy"
+      },
+      "scopeShort": {
+        "user": "Global",
+        "project": "Project",
+        "local": "Local",
+        "managed": "Policy"
+      },
+      "scopeHint": {
+        "user": "Written in ~/.claude/settings.json — these run in every project.",
+        "project": "Written in .claude/settings.json — committed to the repo, so the whole team gets them.",
+        "local": "Written in .claude/settings.local.json — not committed, so only you have them.",
+        "managed": "Set by an administrator policy file. Read-only here."
+      },
+      "lock": {
+        "vibisual": "Vibisual installed this hook to watch your sessions. Turning it off would blind this app, so it stays on.",
+        "managed": "An administrator policy set this hook. It cannot be changed here."
+      }
+    },
+    "plugins": {
+      "title": "Claude Code plugins",
+      "refresh": "Rescan plugins",
+      "noProject": "Open a project to see the plugins that apply to its sessions.",
+      "loadFailed": "Could not read the plugin list.",
+      "actionFailed": "The command did not succeed.",
+      "unavailable": "Could not ask the Claude Code CLI for the plugin list.",
+      "emptyInstalled": "No Claude Code plugins are installed yet. Open the Marketplace tab to add one.",
+      "emptyMarket": "No plugins match your search.",
+      "applyHint": "Turning a plugin on or off applies to sessions started from now on — sessions already running keep what they loaded.",
+      "turnOn": "Turn on",
+      "turnOff": "Turn off",
+      "install": "Install",
+      "installing": "Installing…",
+      "alreadyInstalled": "Installed",
+      "uninstall": "Uninstall",
+      "installCount": "Installs reported by the marketplace",
+      "installScope": "Install into",
+      "searchPlaceholder": "Search plugins…",
+      "showMore": "Show {{count}} more",
+      "marketplaces": "Marketplaces",
+      "marketplaceAdd": "Add",
+      "marketplaceRemove": "Remove",
+      "marketplacePlaceholder": "owner/repo, URL, or path",
+      "tab": {
+        "installed": "Installed",
+        "market": "Marketplace"
+      },
+      "scope": {
+        "user": "Global",
+        "project": "This project",
+        "local": "Local"
+      },
+      "placement": {
+        "global": "Global (all projects)",
+        "this-project": "This project",
+        "other-project": "Bound to another project"
+      },
+      "placementShort": {
+        "global": "Global",
+        "this-project": "Project",
+        "other-project": "Other"
+      },
+      "placementHint": {
+        "global": "Installed for your user — these load in every project.",
+        "this-project": "Installed for this project only — they load in the sessions you run here.",
+        "other-project": "Installed, but bound to a different project, so they do not load in this session."
+      }
     }
   },
   "bubbleMap": {
@@ -2366,7 +2714,31 @@
       "fitAspect": "Match source ratio",
       "fitAspectHint": "Resets the bubble height to the source aspect ratio so the black bars disappear — joined bubbles then look continuous.",
       "seamless": "Hide seams",
-      "seamlessHint": "Hides the border and header so joined bubbles look like one screen (the header reappears on hover)"
+      "seamlessHint": "Hides the border and header so joined bubbles look like one screen (the header reappears on hover)",
+      "playtest": {
+        "section": "Playtest",
+        "startRecording": "Start playtest recording",
+        "stopRecording": "Stop recording · trim range",
+        "recording": "Recording playtest",
+        "recordFailed": "Recording failed: {{reason}}",
+        "emptyHint": "Record a run, trim the moment that broke, and attach those frames to an agent. Clips live in this device’s memory only.",
+        "windowTitle": "Playtest clip",
+        "autoStopped": "Stopped at length limit",
+        "playRange": "Play range",
+        "rangeReset": "Whole clip",
+        "rangeLength": "Range {{len}}",
+        "rangeStart": "Range start",
+        "rangeEnd": "Range end",
+        "save": "Save clip (.webm)",
+        "deleteClip": "Discard this clip",
+        "frames": "Frames",
+        "target": "Send to",
+        "noTarget": "No agent available",
+        "attach": "Attach {{count}} frames from range",
+        "attaching": "Extracting frames {{done}}/{{total}}",
+        "attached": "Attached {{count}} frames to {{agent}} — now write what went wrong and send.",
+        "attachFailed": "Attach failed: {{reason}}"
+      }
     },
     "taskEdge": {
       "iconHint": "Click: details · Double-click: edit",
@@ -2568,7 +2940,20 @@
       "createCapture": "Screen / Program Capture Bubble",
       "createCaptureHint": "Show a screen or program window live inside a bubble",
       "createSpec": "Spec Board",
-      "createSpecHint": "Write requirements, then turn each acceptance criterion into a task card"
+      "createSpecHint": "Write requirements, then turn each acceptance criterion into a task card",
+      "createPlay": "Play bubble",
+      "createPlayHint": "Start and stop this project, and preview it right here",
+      "apps": "Apps",
+      "appsHint": "Drop an app bubble and double-click it to open",
+      "appUninstall": "Uninstall",
+      "appInstall": "Install",
+      "appsHelp": "Click a row to drop it on the canvas as a bubble. Double-click a bubble to open it, right-click to manage it.",
+      "createLab": "Agent Lab",
+      "createLabHint": "Run the same task with different settings and compare the results in one table",
+      "createLocalAgent": "All Model",
+      "createLocalAgentHint": "Drops a bubble for a model that runs on this PC",
+      "createShelf": "Script shelf",
+      "createShelfHint": "Keep the commands and prompts you use often one click away"
     },
     "bounds": {
       "label": "Bubble Bounds",
@@ -2624,6 +3009,139 @@
       "unpin": "Unpin",
       "delete": "Delete",
       "deletePinnedHint": "This spec is pinned. Unpin it first."
+    },
+    "play": {
+      "title": "Play",
+      "idle": "Click to run",
+      "starting": "Starting…",
+      "findHint": "Click to work out how to run it",
+      "unknownRecipe": "Run command unknown",
+      "detected": "Found how to run it",
+      "noAgent": "No custom agent available to investigate",
+      "askSent": "Asked the agent to work out how to run this",
+      "askFailed": "Could not hand the investigation to an agent",
+      "findRecipe": "Work out how to run it",
+      "askAgent": "Ask an agent",
+      "editRecipe": "Edit run command",
+      "editCommandPrompt": "Run command",
+      "editRootPrompt": "Folder to serve (absolute path)",
+      "showPreview": "Show preview",
+      "hidePreview": "Hide preview",
+      "openBrowser": "Open in browser",
+      "rename": "Rename",
+      "renamePrompt": "Button name",
+      "pin": "Pin",
+      "unpin": "Unpin",
+      "delete": "Delete",
+      "deletePinnedHint": "This bubble is pinned. Unpin it first."
+    },
+    "lab": {
+      "title": "Lab",
+      "untitled": "Untitled lab",
+      "openPanel": "Open lab",
+      "rename": "Rename",
+      "renamePrompt": "Lab title",
+      "addVariant": "Add variant",
+      "removeVariant": "Delete variant",
+      "startAll": "Run all",
+      "startAllN": "Run all ({{count}})",
+      "startNoneHint": "No variants to run",
+      "startNoTaskHint": "Write the task first",
+      "starting": "Running variants…",
+      "pin": "Pin",
+      "unpin": "Unpin",
+      "delete": "Delete",
+      "deletePinnedHint": "This lab is pinned. Unpin it first.",
+      "badgeDraft": "Idle",
+      "badgeRunning": "Running",
+      "badgeDone": "Done",
+      "variants": "Variants",
+      "runningN": "Running {{count}}",
+      "emptyHint": "Double-click to write the task and build variants",
+      "progressRunning": "Running {{done}}/{{total}}",
+      "progressIdle": "Done {{done}}/{{total}}",
+      "taskLabel": "Task (identical for every variant)",
+      "taskLocked": "The task is locked while variants are running",
+      "taskPlaceholder": "Write the job once. Only the settings should differ between variants — otherwise the comparison means nothing.",
+      "noVariants": "No variants yet. Add setting combinations below.",
+      "variantEditor": "Variant settings",
+      "inherit": "(inherit base settings)",
+      "maxTurns": "Max turns",
+      "rulesAppend": "Extra instruction for this variant (optional)",
+      "promote": "Promote to default",
+      "promoteHint": "Only successful variants can be promoted",
+      "promotedBadge": "Default",
+      "runOne": "Run",
+      "rerun": "Run again",
+      "openCard": "Open card",
+      "col": {
+        "variant": "Variant",
+        "model": "Model",
+        "effort": "Effort",
+        "permission": "Permission",
+        "status": "Status",
+        "duration": "Time",
+        "files": "Files",
+        "lines": "± lines",
+        "tokens": "Tokens (in/out)",
+        "cost": "Cost",
+        "actions": "Actions"
+      },
+      "status": {
+        "pending": "Idle",
+        "running": "Running",
+        "success": "Success",
+        "failed": "Failed",
+        "stopped": "Stopped"
+      },
+      "baseAgentLabel": "Base settings",
+      "baseAgentNone": "(none — new card defaults)",
+      "baseAgentHint": "Settings the variants inherit, and the agent a promotion is saved to."
+    },
+    "shelf": {
+      "title": "Shelf",
+      "untitled": "Untitled shelf",
+      "openPanel": "Open shelf",
+      "rename": "Rename",
+      "renamePrompt": "Shelf name",
+      "addItem": "Add item",
+      "countBadge": "{{count}} items",
+      "itemCount": "Items {{count}}/{{max}}",
+      "itemLimit": "A shelf holds up to {{count}} items",
+      "emptyHint": "Double-click to add the commands and prompts you use often",
+      "panelEmpty": "No items yet. Put a shell command or a prompt here and it runs from the canvas with a single click.",
+      "export": "Export (JSON)",
+      "exportEmptyHint": "Nothing to export yet",
+      "import": "Import (JSON)",
+      "importReplace": "Import and replace all",
+      "imported": "Imported {{added}} items ({{dropped}} dropped)",
+      "importFailed": "Could not import — that is not a shelf file.",
+      "pin": "Pin",
+      "unpin": "Unpin",
+      "delete": "Delete",
+      "deletePinnedHint": "This shelf is pinned. Unpin it first.",
+      "kindCommand": "Shell",
+      "kindPrompt": "Prompt",
+      "newCommand": "New command",
+      "newPrompt": "New prompt",
+      "addCommand": "+ Shell command",
+      "addPrompt": "+ Prompt",
+      "removeItem": "Delete item",
+      "moveUp": "Move up",
+      "moveDown": "Move down",
+      "run": "Run",
+      "running": "Running",
+      "labelPlaceholder": "Name",
+      "commandPlaceholder": "Shell command to run (e.g. pnpm test)",
+      "promptPlaceholder": "Prompt to send to the agent",
+      "cwdPlaceholder": "Working directory (defaults to the project root)",
+      "newAgentTarget": "Create a new card when it runs",
+      "statusSuccess": "Succeeded",
+      "statusFailed": "Failed",
+      "statusRunning": "Running",
+      "exitCode": "Exit code",
+      "outputTruncated": "(beginning omitted)",
+      "openCard": "Open that card"
     }
   },
   "common": {
@@ -2645,6 +3163,7 @@
       "awaitingPermission": "Awaiting your permission",
       "awaitingInput": "Waiting for your input",
       "idle": "Idle",
+      "dormant": "Dormant",
       "autoIdle": "Auto Agent — describe what you want",
       "hint": {
         "enter": "Double-click to enter",
@@ -2659,6 +3178,8 @@
       "deviceMobile": "Mobile",
       "deviceTablet": "Tablet",
       "deviceDesktop": "Desktop",
+      "deviceCompare": "Compare",
+      "deviceCompareTip": "Show every width side by side in one preview",
       "deviceTip": "Render at {{width}}px wide",
       "pickElement": "Pick element",
       "pickHint": "Click an element in the preview to describe a change for it",
@@ -2673,8 +3194,16 @@
       "pickLabelElement": "element",
       "pickLabelSelector": "selector",
       "pickLabelText": "visible text",
-      "pickLabelRequest": "request"
-    }
+      "pickLabelRequest": "request",
+      "snip": "Snip area",
+      "snipBusy": "Capturing…",
+      "snipHint": "Drag across the preview to capture that area and attach it to the agent's input",
+      "snipAttached": "Attached to the input:",
+      "snipRemove": "Remove this capture",
+      "snipUnavailable": "Area capture is not available on this screen.",
+      "snipFailed": "Capture failed: {{error}}"
+    },
+    "close": "Close"
   },
   "brain": {
     "bubbleLabel": "Brain",
@@ -2887,6 +3416,86 @@
     "bulkStopAll": "Stop everything that is running",
     "resetSettings": "Reset these options",
     "confirmCloseDone": "Close {{count}} finished session tabs?",
-    "confirmStopAll": "Stop all running sessions of {{count}} agents?"
+    "confirmStopAll": "Stop all running sessions of {{count}} agents?",
+    "title": "Command Center",
+    "detailToggle": "Toggle the detail pane",
+    "all": "All",
+    "shortcuts": "Shortcuts",
+    "rankHint": "Priority {{rank}}",
+    "jump": "Jump to session",
+    "followProject": "Follow the active project",
+    "followProjectNote": "Always shows whichever project is active in the main window.",
+    "pinnedHint": "Pinned to this project — click to follow the active project instead.",
+    "followingHint": "Following the active project — click to pin one project.",
+    "noProject": "No project",
+    "noProjects": "No projects are open.",
+    "updatedNever": "Not updated yet",
+    "updatedNow": "Updated just now",
+    "updatedAgo": "Updated {{time}} ago",
+    "connLive": "Live",
+    "connConnecting": "Connecting…",
+    "connLost": "Offline",
+    "connLostHint": "Connection lost — reconnecting.",
+    "refresh": "Refresh",
+    "refreshHint": "Refresh now",
+    "view": {
+      "board": "Board",
+      "list": "List"
+    },
+    "sortRule": {
+      "recent": "Newest activity first",
+      "waiting": "Longest wait first",
+      "context": "Least context left first"
+    },
+    "detail": {
+      "close": "Close",
+      "context": "Context left",
+      "permission": "Permission needed",
+      "question": "Question",
+      "suggested": "Suggested",
+      "review": "Review",
+      "changes": "Changes",
+      "checkpoints": "Checkpoints",
+      "report": "Report",
+      "userActions": "Your turn",
+      "did": "What the agent did",
+      "nextSteps": "Next steps",
+      "queued": "Queued commands",
+      "lastActivity": "Last activity",
+      "nothingYet": "Nothing yet.",
+      "queuedIt": "Queued.",
+      "composerHint": "Type a command and press Enter to send it to this session."
+    }
+  },
+  "localModel": {
+    "title": "All Model",
+    "subtitle": "Pick a model that runs on this PC and attach it to the bubble",
+    "installIntro": "Running local models needs an inference engine. It is not in the base bundle so the installer stays small — you only download it once.",
+    "installWhat": "What you get — GPU (Vulkan) and CPU builds. Vulkan covers most graphics cards; without it, models still run on CPU.",
+    "installWhere": "Location",
+    "install": "Download & install engine",
+    "preparing": "Preparing",
+    "engineReady": "Engine ready",
+    "uninstall": "Remove engine",
+    "myModels": "Downloaded models",
+    "noModels": "No models yet. Search below and download one.",
+    "loaded": "loaded in memory",
+    "deleteModel": "Delete",
+    "downloading": "Downloading",
+    "cancel": "Cancel",
+    "catalog": "Get a model",
+    "searchPlaceholder": "Search by model name (e.g. qwen coder)",
+    "search": "Search",
+    "searching": "Searching…",
+    "noFiles": "No downloadable GGUF files found in this repository.",
+    "sizeUnknown": "size unknown",
+    "download": "Download",
+    "footerHint": "The model you pick runs on this PC. When setup finishes the IDE for this bubble opens, and your existing Claude bubbles are untouched.",
+    "preparingFor": "Preparing the model {{name}} will use",
+    "stepEngine": "Engine",
+    "stepModel": "Model",
+    "stepIde": "IDE",
+    "useModelStart": "Start with this model",
+    "opensIdeHint": "The IDE for this bubble opens as soon as the download finishes."
   }
 }

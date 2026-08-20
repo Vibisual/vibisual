@@ -86,14 +86,14 @@ function InfoIcon({ title }: { title: string }): React.JSX.Element {
         ref={iconRef}
         onMouseEnter={handleEnter}
         onMouseLeave={handleLeave}
-        className="ml-1 inline-flex h-3.5 w-3.5 cursor-help select-none items-center justify-center rounded-full border border-gray-600 text-[9px] leading-none text-gray-500 hover:border-gray-400 hover:text-gray-300"
+        className="ml-1 inline-flex h-3.5 w-3.5 cursor-help select-none items-center justify-center rounded-full border border-gray-600 text-[12px] leading-none text-gray-500 hover:border-gray-400 hover:text-gray-300"
       >
         ?
       </span>
       {rect && (
         <div
           role="tooltip"
-          className="pointer-events-none fixed z-[60] w-64 rounded border border-gray-600 bg-gray-950 px-2 py-1.5 text-[11px] leading-snug text-gray-200 shadow-xl"
+          className="pointer-events-none fixed z-[60] w-64 rounded border border-gray-600 bg-gray-950 px-2 py-1.5 text-[12px] leading-snug text-gray-200 shadow-xl"
           style={{
             left: Math.max(8, Math.min(window.innerWidth - 264, rect.left + rect.width / 2 - 128)),
             top: rect.top - 6,
@@ -442,11 +442,11 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
           <span className="rounded bg-blue-500/20 px-1.5 py-0.5 text-blue-300">{sourceLabel}</span>
           <span>→</span>
           <span className="rounded bg-green-500/20 px-1.5 py-0.5 text-green-300">{targetLabel}</span>
-          {isEditing && <span className="ml-auto text-[10px] uppercase tracking-wider text-amber-400">{t('bubbleMap.taskEdgePopup.editBadge')}</span>}
+          {isEditing && <span className="ml-auto text-[12px] uppercase tracking-wider text-amber-400">{t('bubbleMap.taskEdgePopup.editBadge')}</span>}
         </div>
 
         {/* Template dropdown */}
-        <div className="mb-1 flex items-center text-[10px] uppercase tracking-wider text-gray-500">
+        <div className="mb-1 flex items-center text-[12px] uppercase tracking-wider text-gray-500">
           {t('bubbleMap.taskEdgePopup.template')}
           <InfoIcon title={t('bubbleMap.taskEdgePopup.templateTooltip')} />
         </div>
@@ -464,7 +464,7 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
         </select>
 
         {/* Message */}
-        <div className="mb-1 flex items-center text-[10px] uppercase tracking-wider text-gray-500">
+        <div className="mb-1 flex items-center text-[12px] uppercase tracking-wider text-gray-500">
           {t('bubbleMap.taskEdgePopup.message')}
           <InfoIcon title={t('bubbleMap.taskEdgePopup.messageTooltip')} />
         </div>
@@ -481,7 +481,7 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
         {/* Main: Type + Gate */}
         <div className="mb-3 grid grid-cols-2 gap-2">
           <div>
-            <div className="mb-1 flex items-center text-[10px] uppercase tracking-wider text-gray-500">
+            <div className="mb-1 flex items-center text-[12px] uppercase tracking-wider text-gray-500">
               {t('bubbleMap.taskEdgePopup.type')}
               <InfoIcon title={t('bubbleMap.taskEdgePopup.typeTooltip')} />
             </div>
@@ -499,7 +499,7 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
             </select>
           </div>
           <div>
-            <div className="mb-1 flex items-center text-[10px] uppercase tracking-wider text-gray-500">
+            <div className="mb-1 flex items-center text-[12px] uppercase tracking-wider text-gray-500">
               {t('bubbleMap.taskEdgePopup.gate')}
               <InfoIcon title={t('bubbleMap.taskEdgePopup.gateTooltip')} />
             </div>
@@ -533,7 +533,7 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
          * shared = 부모 도구 유지 / tool-delegation = 박탈 / mode-delegation = 도구 공유 + 시스템 프롬프트 강제. */}
         {kind === 'command' && (
           <div className="mb-3 space-y-2.5 rounded border border-sky-400/40 bg-sky-400/5 p-2">
-            <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-sky-300">
+            <div className="flex items-center gap-1.5 text-[12px] uppercase tracking-wider text-sky-300">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5">
                 <path d="M9 17l-5-5 5-5" />
                 <path d="M15 17l5-5-5-5" />
@@ -544,7 +544,7 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
 
             {/* Mode 선택 — shared / tool-delegation / mode-delegation */}
             <div>
-              <div className="mb-1 flex items-center text-[10px] uppercase tracking-wider text-gray-500">
+              <div className="mb-1 flex items-center text-[12px] uppercase tracking-wider text-gray-500">
                 {t('bubbleMap.taskEdgePopup.commandModeLabel')}
                 <InfoIcon title={t('bubbleMap.taskEdgePopup.commandModeTooltip')} />
               </div>
@@ -579,20 +579,20 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
             {/* tool-delegation 박탈 대상 도구 프리뷰 */}
             {commandMode === 'tool-delegation' && (
               <div>
-                <div className="mb-1 flex items-center text-[10px] uppercase tracking-wider text-gray-500">
+                <div className="mb-1 flex items-center text-[12px] uppercase tracking-wider text-gray-500">
                   {t('bubbleMap.taskEdgePopup.commandStripPreview')}
                   <InfoIcon title={t('bubbleMap.taskEdgePopup.commandStripPreviewTooltip')} />
                 </div>
                 {stripPreview.length > 0 ? (
                   <div className="flex flex-wrap gap-1 rounded border border-gray-700 bg-gray-800/60 px-2 py-1.5">
                     {stripPreview.map((tool) => (
-                      <span key={tool} className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-300">
+                      <span key={tool} className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[12px] text-amber-300">
                         {tool}
                       </span>
                     ))}
                   </div>
                 ) : (
-                  <div className="rounded border border-gray-700 bg-gray-800/40 px-2 py-1.5 text-[10px] text-gray-500">
+                  <div className="rounded border border-gray-700 bg-gray-800/40 px-2 py-1.5 text-[12px] text-gray-500">
                     {t('bubbleMap.taskEdgePopup.commandStripPreviewEmpty')}
                   </div>
                 )}
@@ -601,7 +601,7 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
 
             {/* mode-delegation 안내 (도구 회수 안 함, 시스템 프롬프트로 강제) */}
             {commandMode === 'mode-delegation' && (
-              <div className="rounded border border-sky-400/30 bg-sky-400/5 px-2 py-1.5 text-[10px] leading-relaxed text-sky-200/80">
+              <div className="rounded border border-sky-400/30 bg-sky-400/5 px-2 py-1.5 text-[12px] leading-relaxed text-sky-200/80">
                 {t('bubbleMap.taskEdgePopup.commandModeModeNote')}
               </div>
             )}
@@ -611,7 +611,7 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
         {/* v1.41 — Critique 전용 옵션. kind='critique' 일 때만 보임. 보라(violet) 액센트로 감시자 톤 통일. */}
         {kind === 'critique' && (
           <div className="mb-3 space-y-2.5 rounded border border-violet-500/40 bg-violet-500/5 p-2">
-            <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-violet-300">
+            <div className="flex items-center gap-1.5 text-[12px] uppercase tracking-wider text-violet-300">
               <span>{TASK_EDGE_KIND_STYLES.critique.icon}</span>
               Critique Options
               <InfoIcon title={t('bubbleMap.taskEdgePopup.critiqueOptionsTip')} />
@@ -619,7 +619,7 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
 
             {/* Timing */}
             <div>
-              <div className="mb-1 flex items-center text-[10px] uppercase tracking-wider text-gray-500">
+              <div className="mb-1 flex items-center text-[12px] uppercase tracking-wider text-gray-500">
                 Timing
                 <InfoIcon title={t('bubbleMap.taskEdgePopup.critiqueTimingTip')} />
               </div>
@@ -650,7 +650,7 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
             {/* Authority + MaxRework */}
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <div className="mb-1 flex items-center text-[10px] uppercase tracking-wider text-gray-500">
+                <div className="mb-1 flex items-center text-[12px] uppercase tracking-wider text-gray-500">
                   Authority
                   <InfoIcon title={t('bubbleMap.taskEdgePopup.critiqueAuthorityTip')} />
                 </div>
@@ -678,7 +678,7 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
                 </div>
               </div>
               <div>
-                <div className="mb-1 flex items-center text-[10px] uppercase tracking-wider text-gray-500">
+                <div className="mb-1 flex items-center text-[12px] uppercase tracking-wider text-gray-500">
                   Max Rework
                   <InfoIcon title={t('bubbleMap.taskEdgePopup.critiqueMaxReworkTip')} />
                 </div>
@@ -715,7 +715,7 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
             {t('bubbleMap.taskEdgePopup.advancedOptions')}
             <InfoIcon title={t('bubbleMap.taskEdgePopup.advancedTooltip')} />
           </span>
-          <span className="text-[10px] uppercase tracking-wider text-gray-600">
+          <span className="text-[12px] uppercase tracking-wider text-gray-600">
             {advancedOpen ? t('bubbleMap.taskEdgePopup.hide') : t('bubbleMap.taskEdgePopup.show')}
           </span>
         </button>
@@ -724,7 +724,7 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
           <div className="mb-3 space-y-3 rounded border border-gray-800 bg-gray-950/40 p-2">
             {/* Message Format */}
             <div>
-              <div className="mb-1 flex items-center text-[10px] uppercase tracking-wider text-gray-500">
+              <div className="mb-1 flex items-center text-[12px] uppercase tracking-wider text-gray-500">
                 {t('bubbleMap.taskEdgePopup.messageFormat')}
                 <InfoIcon title={t('bubbleMap.taskEdgePopup.messageFormatTooltip')} />
               </div>
@@ -752,7 +752,7 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
               </div>
               {messageFormat === 'schema' && (
                 <div className="mt-1.5 flex items-center justify-between gap-2 rounded border border-gray-800 bg-gray-900/60 px-2 py-1.5">
-                  <div className="flex items-center gap-1.5 text-[11px]">
+                  <div className="flex items-center gap-1.5 text-[12px]">
                     <svg className={`h-3.5 w-3.5 ${messageSchema.trim() ? 'text-blue-400' : 'text-gray-500'}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                       <path d="M14 3v4a1 1 0 0 0 1 1h4" />
                       <path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z" />
@@ -767,7 +767,7 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
                   </div>
                   <button
                     type="button"
-                    className="rounded border border-gray-700 bg-gray-800 px-2 py-0.5 text-[11px] text-gray-200 hover:border-blue-500 hover:text-white"
+                    className="rounded border border-gray-700 bg-gray-800 px-2 py-0.5 text-[12px] text-gray-200 hover:border-blue-500 hover:text-white"
                     onClick={() => {
                       setSchemaDraft(messageSchema);
                       setSchemaEditOpen(true);
@@ -782,7 +782,7 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
 
             {/* Return Format */}
             <div>
-              <div className="mb-1 flex items-center text-[10px] uppercase tracking-wider text-gray-500">
+              <div className="mb-1 flex items-center text-[12px] uppercase tracking-wider text-gray-500">
                 {t('bubbleMap.taskEdgePopup.returnFormat')}
                 <InfoIcon title={t('bubbleMap.taskEdgePopup.returnFormatTooltip')} />
               </div>
@@ -820,7 +820,7 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
             {/* Timeout / Retry */}
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <div className="mb-1 flex items-center text-[10px] uppercase tracking-wider text-gray-500">
+                <div className="mb-1 flex items-center text-[12px] uppercase tracking-wider text-gray-500">
                   {t('bubbleMap.taskEdgePopup.timeout')}
                   <InfoIcon title={t('bubbleMap.taskEdgePopup.timeoutTooltip')} />
                 </div>
@@ -835,9 +835,9 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
                 />
               </div>
               <div>
-                <div className="mb-1 flex items-center text-[10px] uppercase tracking-wider text-gray-500">
+                <div className="mb-1 flex items-center text-[12px] uppercase tracking-wider text-gray-500">
                   {t('bubbleMap.taskEdgePopup.retry')}
-                  <span className="ml-1 text-[9px] normal-case tracking-normal text-amber-400/70">
+                  <span className="ml-1 text-[12px] normal-case tracking-normal text-amber-400/70">
                     {t('bubbleMap.taskEdgePopup.comingSoonSuffix')}
                   </span>
                   <InfoIcon title={t('bubbleMap.taskEdgePopup.retryDisabledNote')} />
@@ -861,9 +861,9 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
             {/* Priority + Cache */}
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <div className="mb-1 flex items-center text-[10px] uppercase tracking-wider text-gray-500">
+                <div className="mb-1 flex items-center text-[12px] uppercase tracking-wider text-gray-500">
                   {t('bubbleMap.taskEdgePopup.priority')}
-                  <span className="ml-1 text-[9px] normal-case tracking-normal text-amber-400/70">
+                  <span className="ml-1 text-[12px] normal-case tracking-normal text-amber-400/70">
                     {t('bubbleMap.taskEdgePopup.comingSoonSuffix')}
                   </span>
                   <InfoIcon title={t('bubbleMap.taskEdgePopup.priorityDisabledNote')} />
@@ -883,9 +883,9 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
                 </select>
               </div>
               <div>
-                <div className="mb-1 flex items-center text-[10px] uppercase tracking-wider text-gray-500">
+                <div className="mb-1 flex items-center text-[12px] uppercase tracking-wider text-gray-500">
                   {t('bubbleMap.taskEdgePopup.cache')}
-                  <span className="ml-1 text-[9px] normal-case tracking-normal text-amber-400/70">
+                  <span className="ml-1 text-[12px] normal-case tracking-normal text-amber-400/70">
                     {t('bubbleMap.taskEdgePopup.comingSoonSuffix')}
                   </span>
                   <InfoIcon title={t('bubbleMap.taskEdgePopup.cacheDisabledNote')} />
@@ -908,7 +908,7 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
               </div>
               {/* Per-edge delegation policy — full width below the grid. */}
               <div className="col-span-2">
-                <div className="mb-1 flex items-center text-[10px] uppercase tracking-wider text-gray-500">
+                <div className="mb-1 flex items-center text-[12px] uppercase tracking-wider text-gray-500">
                   {t('bubbleMap.taskEdgePopup.delegationPolicy')}
                   <InfoIcon title={t('bubbleMap.taskEdgePopup.delegationTooltip')} />
                 </div>
@@ -995,7 +995,7 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
                 </svg>
               </button>
             </div>
-            <div className="mb-2 text-[11px] leading-snug text-gray-400">
+            <div className="mb-2 text-[12px] leading-snug text-gray-400">
               {t('bubbleMap.taskEdgePopup.schemaEditHint')}
             </div>
             <textarea
@@ -1044,7 +1044,7 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
       {hoverTip && (
         <div
           role="tooltip"
-          className="pointer-events-none fixed z-[60] w-64 rounded border border-gray-600 bg-gray-950 px-2 py-1.5 text-[11px] leading-snug text-gray-200 shadow-xl"
+          className="pointer-events-none fixed z-[60] w-64 rounded border border-gray-600 bg-gray-950 px-2 py-1.5 text-[12px] leading-snug text-gray-200 shadow-xl"
           style={{
             left: Math.max(8, Math.min(window.innerWidth - 264, hoverTip.rect.left + hoverTip.rect.width / 2 - 128)),
             top: hoverTip.rect.top - 6,

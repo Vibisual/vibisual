@@ -280,7 +280,7 @@ export const AppBubbleNode = memo(function AppBubbleNode({
           onPointerDownCapture={handleSelect}
           onContextMenu={handleContextMenu}
           className={`bubble-press flex cursor-pointer select-none items-center justify-center overflow-hidden border-dashed bg-gray-900/70 text-center leading-tight text-amber-300 ${
-            dense ? 'rounded-md border px-1 text-[8px]' : 'rounded-lg border-2 px-2 text-[11px]'
+            dense ? 'rounded-md border px-1 text-[12px]' : 'rounded-lg border-2 px-2 text-[12px]'
           } ${isSelected ? 'border-white ring-2 ring-amber-300/70' : 'border-amber-400/70'}`}
           style={{ width: data.width, height: data.height }}
         >
@@ -356,7 +356,7 @@ export const AppBubbleNode = memo(function AppBubbleNode({
     <>
       <div
         className={`max-w-full truncate text-center font-semibold leading-tight ${
-          dense ? 'text-[9px]' : 'text-[12px]'
+          dense ? 'text-[12px]' : 'text-[12px]'
         } ${installed ? 'text-white' : 'text-white/70'}`}
       >
         {label}
@@ -364,7 +364,7 @@ export const AppBubbleNode = memo(function AppBubbleNode({
       {showSubLabel ? (
         <div
           className={`max-w-full truncate text-center leading-tight tracking-wide text-white/55 ${
-            dense ? 'text-[8px]' : 'mt-0.5 text-[9px]'
+            dense ? 'text-[12px]' : 'mt-0.5 text-[12px]'
           }`}
         >
           {subLabel}

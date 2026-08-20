@@ -1,4 +1,4 @@
-import type { BubbleType, BubbleStyleConfig, EdgeStyleConfig, AgentRole, PipelineChildConfig, PipelineType, AgentConfig, TaskEdgeTemplate, TaskEdgeKind, UiLocale, AutoAgentRole, AutoAgentTemplate, ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry, AgentFeedback, BrainTopicDef, BrainTopicIndexEntry, BrainCardType, BrainAuthority, StreamDensity, PluginContributionKind, SessionGoalStepStatus, CommandDispatchMode, RunRuntime, RunConfig, McpServerPreset, AgentMemoryScope, DebugAdapterSpec, ProblemMatch, ProblemSeverity, RetentionSettings, PreviewDevicePreset } from './types.js';
+import type { AgentProvider, LocalEngineBackend, BubbleType, BubbleStyleConfig, EdgeStyleConfig, AgentRole, PipelineChildConfig, PipelineType, AgentConfig, TaskEdgeTemplate, TaskEdgeKind, UiLocale, AutoAgentRole, AutoAgentTemplate, ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry, AgentFeedback, BrainTopicDef, BrainTopicIndexEntry, BrainCardType, BrainAuthority, StreamDensity, PluginContributionKind, SessionGoalStepStatus, CommandDispatchMode, RunRuntime, RunConfig, McpServerPreset, AgentMemoryScope, DebugAdapterSpec, ProblemMatch, ProblemSeverity, RetentionSettings, PreviewDevicePreset, ShelfIconName, ShelfItemKind, CostPeriod, CostTotals, CostPeriodTotals, AuditRiskKind, AuditBoundaryConfig, AuditCounts, StoryboardPresetId, StoryboardPreset } from './types.js';
 export type { ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry } from './types.js';
 
 // ─── UI 다국어 (i18n) ───
@@ -245,6 +245,22 @@ export const BUBBLE_STYLES: Record<BubbleType, BubbleStyleConfig> = {
     ringIdle: 'border-teal-300',
     ringActive: 'border-teal-500 shadow-lg shadow-teal-500/30',
   },
+  // §5.18 — 에이전트 랩. amber-500(내부 폴더)보다 붉고 rose 계열보다 따뜻한 자리라 캔버스에서
+  //   바로 갈린다. "같은 과제를 여러 벌 태워 본다"는 은유에 맞는 온도.
+  lab: {
+    color: '#EA580C',
+    glow: '#FDBA74',
+    icon: 'lab',
+    ringIdle: 'border-orange-300',
+    ringActive: 'border-orange-500 shadow-lg shadow-orange-500/30',
+  },
+  shelf: {
+    color: '#0891B2',
+    glow: '#67E8F9',
+    icon: 'shelf',
+    ringIdle: 'border-cyan-300',
+    ringActive: 'border-cyan-500 shadow-lg shadow-cyan-500/30',
+  },
 };
 
 /**
@@ -324,9 +340,14 @@ export const FILE_EDIT_MERGE_WINDOW_MS = 10_000;
  * 세션 하나가 보관하는 완료 명령(사용자 말풍선) 상한.
  *
  * 종전엔 `archive.push(...)` 에 상한 검사가 **아예 없었다**. IDE 스트림 복원이 2,000 이벤트인데
- * 말풍선만 무제한이라 짝이 맞지 않았다 — 200 이면 그 창보다 촘촘해 화면에서 줄어 보이지 않는다.
+ * 말풍선만 무제한이라 짝이 맞지 않았다.
+ *
+ * ⚠ 처음 값은 200 이었으나 **실측에서 이미 232건인 세션이 나왔다**(2026-08-19). 이 축이 자르는 것은
+ * 파생물이 아니라 **사용자가 직접 타이핑한 원문**이라 재생성할 방법이 없고(Claude Code 쪽 트랜스크립트도
+ * 같은 30일에 만료된다), 나이 축이 아니라 개수 축이라 "많이 쓴 세션"에서 바로 발동한다.
+ * 1,000 이면 한 세션을 몇 달 써도 닿지 않으면서 IDE 복원 창(2,000 이벤트)보다 여전히 촘촘하다.
  */
-export const COMPLETED_COMMAND_MAX_PER_SESSION = 200;
+export const COMPLETED_COMMAND_MAX_PER_SESSION = 1000;
 
 /**
  * `sub-streams/<agentId>/<subId>.jsonl` 보존 기간(일). 부팅 시 1회 정리.
@@ -334,8 +355,27 @@ export const COMPLETED_COMMAND_MAX_PER_SESSION = 200;
  */
 export const SUB_STREAM_RETENTION_DAYS = 30;
 
-/** `.vibisual/attachments/<sessionId>/` 첨부 보존 기간(일). 부팅 시 1회 정리. */
+/**
+ * `.vibisual/attachments/<sessionId>/` 첨부 보존 기간(일). 부팅 시 1회 정리.
+ *
+ * ⚠ 이 값은 **고아(참조 0)에만** 적용된다. 체크포인트 그래프 노드·완료 명령 보관분이 아직 그 파일을
+ * 가리키고 있으면 나이와 무관하게 남긴다 — 종전에는 그 검사가 없어 세션 폴더를 mtime 만으로 통째
+ * 삭제했고, 실측에서 위성 노드 89개와 완료 명령(최고령 37일)이 그 파일들을 참조하고 있었다.
+ * 30 을 유지하는 근거는 git 이 unreachable 을 30일에 지우는 것과 같은 갈래라는 점이다.
+ */
 export const ATTACHMENT_RETENTION_DAYS = 30;
+
+/**
+ * 휴지통 보존 기간(일). 정리로 옮겨진 파일을 이만큼 두고 나서 영구 삭제한다. 0=영구 보관.
+ *
+ * 휴지통 자체에 만료가 없으면 "정리"가 이름만 남고 용량은 그대로다(Cursor 가 만료를 안 걸어
+ * 25~30GB 가 된 그 자리). 반대로 만료만 있고 유예가 없으면 Claude Code 처럼 되돌릴 수단이 없다 —
+ * 14일이면 "지난주에 뭐였지"가 닿는 창이면서 용량이 두 배로 눌러앉지 않는다.
+ */
+export const TRASH_RETENTION_DAYS = 14;
+
+/** 정리 기록(`RetentionLogEntry`) 보관 상한 — 링버퍼. 값이 아니라 **개수**에 건 캡(§3.2.3 E축). */
+export const RETENTION_LOG_MAX = 500;
 
 /** 하루를 ms 로. 보존 기간 계산 공용. */
 export const RETENTION_DAY_MS = 24 * 60 * 60 * 1000;
@@ -348,6 +388,7 @@ export const DEFAULT_RETENTION_SETTINGS: RetentionSettings = {
   completedCommandMaxPerSession: COMPLETED_COMMAND_MAX_PER_SESSION,
   subStreamRetentionDays: SUB_STREAM_RETENTION_DAYS,
   attachmentRetentionDays: ATTACHMENT_RETENTION_DAYS,
+  trashRetentionDays: TRASH_RETENTION_DAYS,
 };
 
 /**
@@ -361,6 +402,7 @@ export const RETENTION_LIMITS: Record<keyof RetentionSettings, { min: number; ma
   completedCommandMaxPerSession: { min: 0, max: 100_000, step: 10 },
   subStreamRetentionDays: { min: 0, max: 3650, step: 1 },
   attachmentRetentionDays: { min: 0, max: 3650, step: 1 },
+  trashRetentionDays: { min: 0, max: 3650, step: 1 },
 };
 
 /**
@@ -498,6 +540,78 @@ export const IDE_EDITOR_MAX_TABS = 12;
 /** 편집창 폭(px) — 기본값과 드래그 허용 범위. */
 export const IDE_EDITOR_WIDTH = { DEFAULT: 520, MIN: 280, MAX: 1400 } as const;
 
+// ─── §5.5 #17-27 ⑭ · #17-25 ④-1 — 편집창이 그림으로 여는 파일 ───
+
+/**
+ * 편집창이 **텍스트가 아니라 그림으로** 여는 확장자(소문자, 마침표 포함).
+ *
+ * 판정을 확장자로 하는 이유는 바이트를 한 번 더 훑지 않기 위해서다 — 형식별 매직 넘버 스니핑은
+ * 형식마다 다른 규칙을 우리가 떠안는 일이고, 여기서 틀렸을 때의 대가는 "안 그려짐" 하나뿐이다.
+ */
+export const WORKSPACE_IMAGE_EXTENSIONS: readonly string[] = [
+  '.png',
+  '.jpg',
+  '.jpeg',
+  '.gif',
+  '.webp',
+  '.svg',
+  '.bmp',
+  '.avif',
+  '.ico',
+];
+
+/**
+ * §5.5 #17-25 ④-1 — 주석을 구워 **원본 형식 그대로 덮어쓸 수 있는** 확장자.
+ *
+ * `canvas.toBlob` 이 실제로 인코딩하는 세 가지뿐이다. 나머지(svg·gif·ico·bmp·avif)에 저장하면
+ * 브라우저가 조용히 PNG 를 뱉어 **확장자와 내용이 어긋난 파일**이 되므로 그 자리는 아예 막는다.
+ */
+export const WORKSPACE_IMAGE_BAKEABLE_EXTENSIONS: readonly string[] = ['.png', '.jpg', '.jpeg', '.webp'];
+
+/**
+ * 미리보기로 통째로 읽어 보내는 이미지 크기 상한(bytes).
+ *
+ * 텍스트 상한(`WORKSPACE_FILE_MAX_BYTES`)과 갈라 두는 이유는 성격이 다르기 때문이다 — 텍스트는
+ * "잘리면 저장이 위험해서" 막는 값이고, 이미지는 읽기 전용이라 위험이 없고 대신 **4K 스크린샷 한 장이
+ * 예사로 5MB** 라 같은 상한을 쓰면 정작 볼 것을 못 본다. 넘으면 미리보기 없이 종전 안내로 떨어진다.
+ */
+export const WORKSPACE_IMAGE_MAX_BYTES = 32_000_000;
+
+/** 확장자 → MIME. 미리보기 응답의 `Content-Type` 과 굽기 대상 형식이 같은 표를 본다. */
+export const WORKSPACE_IMAGE_MIME_BY_EXT: Readonly<Record<string, string>> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml',
+  '.bmp': 'image/bmp',
+  '.avif': 'image/avif',
+  '.ico': 'image/x-icon',
+};
+
+/** 경로에서 소문자 확장자를 뽑는다(마침표 포함, 없으면 빈 문자열). 구분자는 `/`·`\` 둘 다. */
+export function workspaceFileExt(filePath: string): string {
+  const name = filePath.split(/[/\\]/).pop() ?? '';
+  const dot = name.lastIndexOf('.');
+  return dot > 0 ? name.slice(dot).toLowerCase() : '';
+}
+
+/** 그림으로 열 수 있는 확장자인가. */
+export function isWorkspaceImagePath(filePath: string): boolean {
+  return WORKSPACE_IMAGE_EXTENSIONS.includes(workspaceFileExt(filePath));
+}
+
+/** 주석본을 **같은 형식으로 구워** 덮어쓸 수 있는가(§5.5 #17-25 ④-1). */
+export function isWorkspaceImageBakeable(filePath: string): boolean {
+  return WORKSPACE_IMAGE_BAKEABLE_EXTENSIONS.includes(workspaceFileExt(filePath));
+}
+
+/** 확장자에 맞는 MIME. 표에 없으면 `application/octet-stream`. */
+export function workspaceImageMime(filePath: string): string {
+  return WORKSPACE_IMAGE_MIME_BY_EXT[workspaceFileExt(filePath)] ?? 'application/octet-stream';
+}
+
 // ─── 위성(satellite) 상한 ───
 
 /** 폴더당 표시 위성 기본 상한. 폴더 노드에 maxSatellites 가 없으면 이 값 사용. */
@@ -555,6 +669,12 @@ export const SESSION_SCAN_INTERVAL = 10_000;
  */
 export const AGENT_IDLE_THRESHOLD_MS = 5 * 60 * 1000;
 
+/**
+ * §2.4 (잠듦) — 이 시간을 넘겨 아무 명령도 처리하지 않은 세션의 claude 자식 프로세스를 회수한다.
+ * Anthropic 자사 Claude Desktop 의 WarmLifecycle(idleTimeoutMs: 900_000)과 같은 값.
+ * 대화는 디스크 JSONL 에 남아 있어 다음 명령이 --resume 으로 그대로 이어 간다.
+ */
+export const SUBAGENT_DORMANT_IDLE_MS = 15 * 60 * 1000;
 /** 자동 idle 전환 판정 주기 (ms) */
 export const AGENT_IDLE_SWEEP_INTERVAL_MS = 30_000;
 
@@ -1170,6 +1290,12 @@ export const AVAILABLE_EXECUTION_MODES = [
  * 사용자가 이후 색을 바꾸면 그 값이 우선(기능 표식은 executionMode 가 전담, 색은 cosmetic).
  */
 export const CMD_AGENT_COLOR = '#0d9488';
+/**
+ * §5.19 (C) — All Model(로컬 LLM) 버블 본체 색.
+ * 채도 높은 원색을 하나 더 들이면 캔버스가 탁해진다 — 앱 버블이 푸시아를 걷어내고 그레이파이트로
+ * 간 것과 같은 이유로 무채색을 쓰고, 무엇을 물고 있는지는 라벨(모델명)이 말한다.
+ */
+export const LOCAL_AGENT_COLOR = '#3F4658';
 
 /**
  * §5.3 #28 (K) v1.48 — 콘티 모드 진입 시 자동으로 `AgentConfig.rules` 에 박히는 강제 룰셋.
@@ -1463,6 +1589,69 @@ export const CONTI_DEFAULTS = {
   /** in-flight 1 agent 동시 1건 제한 */
   inflightTimeoutMs: 60_000,
 } as const;
+
+// ─── §5.13 (Q) 대본 → 콘티 → 렌더 ───
+
+/**
+ * 출력 프리셋 표 — **이 표가 유일한 출처다**(§3.3 하드코딩 금지).
+ *
+ * 컷의 좌표계는 여기 없다. `CONTI_DEFAULTS.viewBoxWidth/Height`(320×180)는 프리셋과
+ * 무관하게 고정이며, 프리셋은 *출력* 판형(화면 크기·컷 길이·배치)만 정한다. 좌표계를
+ * 프리셋마다 갈면 이미 그려 둔 콘티가 프리셋을 바꾸는 순간 전부 어긋난다.
+ */
+export const STORYBOARD_PRESETS = {
+  landscape: {
+    id: 'landscape',
+    output: { width: 1920, height: 1080 },
+    fps: 30,
+    secondsPerFrame: 3.0,
+    stacked: false,
+    labelKey: 'panel.contiBoard.preset.landscape',
+  },
+  portrait: {
+    id: 'portrait',
+    output: { width: 1080, height: 1920 },
+    fps: 30,
+    secondsPerFrame: 2.5,
+    stacked: false,
+    labelKey: 'panel.contiBoard.preset.portrait',
+  },
+  webtoon: {
+    id: 'webtoon',
+    output: { width: 1080, height: 1920 },
+    fps: 30,
+    secondsPerFrame: 4.0,
+    stacked: true,
+    labelKey: 'panel.contiBoard.preset.webtoon',
+  },
+} as const satisfies Readonly<Record<StoryboardPresetId, StoryboardPreset>>;
+
+/** 드롭다운이 그리는 순서. 가로 → 세로 → 웹툰. */
+export const STORYBOARD_PRESET_IDS: readonly StoryboardPresetId[] = ['landscape', 'portrait', 'webtoon'] as const;
+
+/** 프리셋을 안 고른 콘티(= 기존 콘티 전부)가 쓰는 값. */
+export const DEFAULT_STORYBOARD_PRESET_ID: StoryboardPresetId = 'landscape';
+
+/** 모르는 값은 기본 프리셋으로 떨어뜨린다 — REST body·옛 체크포인트 공용. */
+export function resolveStoryboardPreset(id: unknown): StoryboardPreset {
+  const key = typeof id === 'string' && id in STORYBOARD_PRESETS ? (id as StoryboardPresetId) : DEFAULT_STORYBOARD_PRESET_ID;
+  return STORYBOARD_PRESETS[key];
+}
+
+/** 프리셋 id 로만 정규화한다(표 전체가 필요 없을 때). */
+export function normalizeStoryboardPresetId(id: unknown): StoryboardPresetId {
+  return typeof id === 'string' && id in STORYBOARD_PRESETS ? (id as StoryboardPresetId) : DEFAULT_STORYBOARD_PRESET_ID;
+}
+
+/** 한 번에 넘길 수 있는 대본 길이 상한(자). 넘으면 서버가 앞에서 자른다. */
+export const CONTI_SCRIPT_MAX_CHARS = 12_000;
+
+/** 콘티에 남기는 대본 발췌 상한(자) — 체크포인트가 대본 전문으로 부풀지 않게. */
+export const CONTI_SCRIPT_EXCERPT_MAX = 2_000;
+
+/** 대본에서 뽑을 컷 수의 상한·하한. 사용자가 비우면 모델이 `CONTI_DEFAULTS.defaultFrameCount` 근처로 정한다. */
+export const CONTI_SCRIPT_FRAME_MIN = 2;
+export const CONTI_SCRIPT_FRAME_MAX = 16;
 
 /** 에이전트 기본 설정 — 새 에이전트 생성 시 / 설정이 없을 때. 도구는 전체 허용,
  *  maxTurns 0=무제한이 기본(subAgentManager 의 `maxTurns>0` 가드가 0을 무제한 처리).
@@ -2153,6 +2342,38 @@ export const CAPTURE_SNAP = {
   GUIDE_ALIGN_COLOR: '#A78BFA',
   /** 가이드선 두께(화면 px) — 렌더 시 줌으로 나눠 캔버스 단위로 환산. */
   GUIDE_WIDTH_PX: 1.5,
+} as const;
+
+/**
+ * §5.9 캡처 버블 **플레이테스트(녹화 + 구간 프레임 첨부)** — 만든 빌드를 앱 안에서 직접 플레이해
+ * 보다가, 버그가 난 그 구간을 프레임째 에이전트에게 넘기기 위한 값들.
+ *
+ * 영상은 렌더러 메모리(Blob)에만 살고 서버·WS·체크포인트를 타지 않는다(§5.9 렌더러 전용 원칙).
+ * 그래서 상한이 곧 안전장치다 — 길이(자동 정지)와 개수(오래된 것부터 폐기) 둘 다 여기서 온다.
+ */
+export const CAPTURE_PLAYTEST = {
+  /** 한 클립 최대 길이(초). 넘으면 녹화가 스스로 멈춘다(누르고 잊어도 메모리가 자라지 않게). */
+  MAX_CLIP_SECONDS: 180,
+  /** 버블당 보관 클립 수. 넘치면 가장 오래된 것부터 버린다(Blob URL 도 함께 되돌린다). */
+  MAX_CLIPS_PER_BUBBLE: 6,
+  /** 구간에서 뽑을 프레임 장수 선택지(세그먼트 피커). */
+  FRAME_COUNT_OPTIONS: [1, 2, 4, 6, 9],
+  /** 기본 프레임 장수 — 한 장은 맥락이 없고 열 장은 입력창을 덮는다. */
+  DEFAULT_FRAME_COUNT: 4,
+  /** 한 번에 붙일 수 있는 최대 프레임 장수. */
+  MAX_FRAME_COUNT: 9,
+  /** 구간 최소 길이(ms). 손잡이가 이보다 좁아지지 않는다(프레임이 전부 같은 그림이 되는 것 방지). */
+  MIN_RANGE_MS: 200,
+  /** MediaRecorder 조각 주기(ms). 조각이 있어야 중간에 멈춰도 앞부분이 살아 있다. */
+  TIMESLICE_MS: 1000,
+  /** 녹화 컨테이너 후보 — 앞에서부터 이 환경이 지원하는 첫 번째를 쓴다(Chromium/Electron 기준). */
+  MIME_CANDIDATES: ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"],
+  /** 프레임 한 장을 뽑을 때 seek 를 기다리는 상한(ms). 못 받으면 그 장은 건너뛴다(무한 대기 ❌). */
+  SEEK_TIMEOUT_MS: 4000,
+  /** 첨부 프레임 가로 상한(px). 4K 원본이어도 이 폭으로 줄여 붙인다(업로드·토큰 절감). */
+  FRAME_MAX_WIDTH: 1280,
+  /** 녹화 중 표시색 — 라이브 도트(LIVE_COLOR)와 구분되는 진한 붉음(red-500). */
+  RECORD_COLOR: "#EF4444",
 } as const;
 
 /**
@@ -3056,6 +3277,34 @@ export const SPEC_BODY_MAX = 20_000;
 /** 스펙 한 장이 가질 수 있는 수용 기준 개수 상한. */
 export const SPEC_MAX_ITEMS = 60;
 
+// ─── §5.16 — 리뷰·승인 레인 ───
+
+/**
+ * 리뷰 한 건에 실을 diff 본문 바이트 상한. 넘으면 자르고 `diffTruncated` 로 말한다.
+ * 체크포인트에 함께 저장되므로(§5.16 영속) 이 값이 곧 리뷰 한 건의 최대 무게다.
+ */
+export const REVIEW_DIFF_MAX_BYTES = 120_000;
+
+/** 리뷰 한 건에 실을 변경 파일 개수 상한. 넘으면 자르고 `filesTruncated` 로 말한다. */
+export const REVIEW_FILES_MAX = 200;
+
+/**
+ * 프로젝트(워크트리)당 보관할 리뷰 개수 상한 — **키 개수에 두는 캡**.
+ * 값 길이만 자르고 개수를 안 막으면 체크포인트가 무한히 자란다(§9 최적화 규약).
+ * 넘으면 오래된 것부터 버리되 **결정 안 난(pending) 리뷰는 남긴다**(사람이 아직 판단해야 하는 것).
+ */
+export const REVIEW_REQUESTS_MAX_PER_PROJECT = 40;
+
+/** 리뷰 한 건이 보관할 결정 이력 개수 상한. 넘으면 오래된 것부터 버린다. */
+export const REVIEW_DECISIONS_MAX = 20;
+
+/** 반려 사유 길이 상한. 그대로 다음 프롬프트가 되므로 한 명령에 실릴 만큼만 받는다. */
+export const REVIEW_REASON_MAX = 2_000;
+
+/** 반려 명령에 실을 변경 파일 수 상한 — 넘으면 잘라 내고 "+N" 으로 말한다. */
+export const REVIEW_REJECT_FILES_MAX = 40;
+
+
 /** 작업 카드(커스텀 에이전트) 라벨로 쓸 수용 기준 앞머리 길이. */
 export const SPEC_TASK_LABEL_MAX = 40;
 
@@ -3100,6 +3349,95 @@ export function buildSpecTaskRules(args: {
     `수용 기준을 벗어나는 변경은 하지 말고, 스펙과 어긋나는 점을 발견하면 고치지 말고 보고하세요.`,
     SPEC_RULES_END,
   ].join('\n');
+}
+
+
+// ─── §5.18 — 에이전트 랩 (같은 과제를 설정만 바꿔 N벌) ───
+
+/** 랩 표지 버블 기본 크기. 캔버스에서는 표지만 보이고 비교 표는 보드 패널에서 읽는다. */
+export const LAB_BUBBLE_DEFAULT_WIDTH = 240;
+export const LAB_BUBBLE_DEFAULT_HEIGHT = 150;
+
+/** 랩 제목·변형 이름 길이 상한 — 한 줄이 문단이 되면 표가 읽히지 않는다. */
+export const LAB_TITLE_MAX = 120;
+export const LAB_VARIANT_LABEL_MAX = 60;
+
+/** 과제 프롬프트 길이 상한. 그대로 명령 큐로 나가므로 한 명령에 실릴 만큼만 받는다. */
+export const LAB_TASK_MAX = 8_000;
+
+/** 변형 덧말(`rulesAppend`) 길이 상한 — 기준 rules 앞에 붙는 실험용 문장. */
+export const LAB_RULES_APPEND_MAX = 2_000;
+
+/** 표에 싣는 결과 요약(마지막 응답 앞머리) 길이 상한. */
+export const LAB_SUMMARY_MAX = 300;
+
+/**
+ * 랩 한 장이 가질 수 있는 변형 개수 상한 — **키 개수에 두는 캡**(§9).
+ * 변형 하나가 워크트리 하나 + 에이전트 하나 + 도는 CLI 하나이므로, 이 숫자는 곧 한 번에
+ * 태울 수 있는 프로세스 수다. 값 길이만 자르고 개수를 안 막으면 디스크와 CPU가 함께 터진다.
+ */
+export const LAB_MAX_VARIANTS = 8;
+
+/** 프로젝트당 보관할 랩 개수 상한. 넘으면 오래된 것부터 버리되 도는 랩은 남긴다. */
+export const LAB_RUNS_MAX_PER_PROJECT = 20;
+
+/** 변형 워크트리 이름 앞머리 — `.claude/worktrees/lab-<랩id끝자리>-<변형순번>`. */
+export const LAB_WORKTREE_PREFIX = 'lab';
+
+/** 변형 카드를 놓을 자리 — 랩 표지 오른쪽으로 이만큼 띄우고, 세로로 이 간격씩 쌓는다. */
+export const LAB_CARD_OFFSET_X = 320;
+export const LAB_CARD_GAP_Y = 150;
+
+/**
+ * §5.18 — 변형 한 벌에 얹는 자동 규칙 섹션.
+ *
+ * 카드는 **기존 `createCustomAgent` 경로**로 만들어지고, 그 에이전트의 `AgentConfig.rules` 앞에
+ * 이 블록이 붙는다(§5.15 스펙 작업 카드와 같은 문법 — 새 주입 경로 ❌).
+ */
+export const LAB_RULES_BEGIN = '<!-- vibisual:lab-variant:begin -->';
+export const LAB_RULES_END = '<!-- vibisual:lab-variant:end -->';
+
+/** 변형 규칙 블록 본문 조립. 덧말이 없으면 안내 줄만 남는다. */
+export function buildLabVariantRules(args: {
+  labTitle: string;
+  variantLabel: string;
+  variantIndex: number;
+  variantTotal: number;
+  rulesAppend?: string;
+}): string {
+  const { labTitle, variantLabel, variantIndex, variantTotal } = args;
+  const append = (args.rulesAppend ?? '').trim();
+  return [
+    LAB_RULES_BEGIN,
+    `# 에이전트 랩 변형 (자동 — 에이전트 랩 §5.18)`,
+    '',
+    `이 카드는 랩 **"${labTitle}"** 의 변형 ${variantIndex + 1}/${variantTotal}("${variantLabel}") 입니다.`,
+    `같은 과제를 설정만 바꿔 여러 벌 돌려 비교하는 중이므로, **주어진 과제 범위만** 처리하고`,
+    `다른 변형의 작업 공간을 건드리지 마세요.`,
+    ...(append ? ['', '## 이 변형에만 적용되는 지시', append] : []),
+    LAB_RULES_END,
+  ].join('\n');
+}
+
+/**
+ * §5.18 — 토큰 × 단가로 추정 비용(USD)을 낸다. **단가를 모르면 `undefined`** 를 돌려준다 —
+ * 0 을 돌려주면 화면이 "공짜로 끝났다"고 말하게 된다(§5.18 "측정 없음과 0 을 구분한다").
+ *
+ * 입력 토큰은 캐시 읽기·생성이 뒤섞여 들어오므로 여기서는 input 단가 하나로 뭉뚱그린다 —
+ * 랩의 목적은 변형끼리의 **상대 비교**이고, 같은 셈법을 모든 변형에 똑같이 적용하면 순위는 선다.
+ */
+export function estimateLabCostUsd(args: {
+  inputTokens?: number;
+  outputTokens?: number;
+  pricing?: { input: number; output: number } | undefined;
+}): number | undefined {
+  const { pricing } = args;
+  if (!pricing) return undefined;
+  const input = args.inputTokens ?? 0;
+  const output = args.outputTokens ?? 0;
+  if (input === 0 && output === 0) return undefined;
+  const usd = (input / 1_000_000) * pricing.input + (output / 1_000_000) * pricing.output;
+  return Math.round(usd * 10_000) / 10_000;
 }
 
 // ─── §4 v3.21 — 에이전트 피드백 학습 루프 (좋아요/싫어요 → 규칙 되먹임) ───
@@ -4513,4 +4851,741 @@ export const PREVIEW_DEVICE_PRESETS: readonly PreviewDevicePreset[] = [
   { id: 'mobile', labelKey: 'common.preview.deviceMobile', width: 390 },
   { id: 'tablet', labelKey: 'common.preview.deviceTablet', width: 820 },
   { id: 'desktop', labelKey: 'common.preview.deviceDesktop', width: 1280 },
+  // §5.17 (A) — 한 칸이지만 폭이 하나가 아니다. 고르면 아래 `resolveCompareWidths()` 가 준 폭을
+  //   **모두** 나란히 그린다(그래서 `width` 는 null — 이 칸 자체의 폭이라는 게 없다).
+  { id: 'compare', labelKey: 'common.preview.deviceCompare', width: null },
 ] as const;
+
+/** §5.17 (A) — `compare` 가 나란히 놓는 폭 한 칸. */
+export interface PreviewCompareWidth {
+  id: PreviewDevicePreset['id'];
+  labelKey: string;
+  width: number;
+}
+
+/**
+ * §5.17 (A) — `compare` 칸이 나란히 놓을 폭들.
+ *
+ * 목록을 따로 적지 않고 **위 표에서 폭이 있는 칸 전부**로 파생한다 — 프리셋을 한 줄 더 넣으면
+ * 비교 줄도 함께 늘어난다(§3.3 하드코딩 ❌). `auto`/`compare` 는 폭이 없어 자연히 빠진다.
+ */
+export function resolveCompareWidths(
+  presets: readonly PreviewDevicePreset[] = PREVIEW_DEVICE_PRESETS,
+): readonly PreviewCompareWidth[] {
+  const out: PreviewCompareWidth[] = [];
+  for (const preset of presets) {
+    if (preset.width === null) continue;
+    out.push({ id: preset.id, labelKey: preset.labelKey, width: preset.width });
+  }
+  return out;
+}
+
+/**
+ * §5.17 (B) — 이보다 작게 그은 사각형은 오조작으로 보고 버린다(가로·세로 둘 다 이 값 이상이어야 한다).
+ * 캡처 모드를 켠 채 무심코 클릭한 것과 "여기를 찍겠다" 를 가르는 선이다.
+ */
+export const PREVIEW_SNIP_MIN_PX = 8;
+
+// ─── §5.19 All Model — 로컬 LLM ───
+
+/**
+ * §5.19 (B) — All Model 설치 식별자.
+ * `UserDefaults.installedApps` 에 이 id 가 들어가면 "설치했다"는 뜻이다(새 영속 필드 발명 ❌).
+ * 다만 이 플래그는 사용자의 의사일 뿐이고, **실제로 켜지는 판정은 디스크의 실물**이 한다.
+ */
+export const ALL_MODEL_INSTALL_ID = 'allmodel';
+
+/** §5.19 (D) — llama.cpp 최신 릴리스 조회. **빌드 번호를 코드에 박지 않는다.** */
+export const LLAMA_RELEASE_LATEST_API = 'https://api.github.com/repos/ggml-org/llama.cpp/releases/latest';
+
+/**
+ * §5.19 (D) — 기본 설치 백엔드.
+ * Vulkan 한 벌이 NVIDIA·AMD·Intel 을 함께 덮고(33MB 급), CPU(18MB 급)는 폴백이다.
+ * CUDA 는 빌드가 크고 런타임이 없으면 `cudart` 를 더 받아야 해서 **기본이 아니라 선택**이다.
+ */
+export const LOCAL_ENGINE_DEFAULT_BACKENDS: readonly LocalEngineBackend[] = ['vulkan', 'cpu'];
+
+/** §5.19 (F) — 동시에 메모리에 올려 두는 모델 수 상한. 넘는 요청은 거절이 아니라 줄을 선다. */
+export const LOCAL_MODEL_MAX_LOADED = 1;
+
+/** §5.19 (F) — 이만큼 안 쓰이면 모델을 내린다(ms). */
+export const LOCAL_MODEL_IDLE_UNLOAD_MS = 5 * 60 * 1000;
+
+/** §5.19 (D) — 로컬 엔진 HTTP 포트 탐색 시작점. 잡혀 있으면 1씩 올려 가며 빈 자리를 찾는다. */
+export const LOCAL_ENGINE_PORT_BASE = 51500;
+
+/** §5.19 (D) — 엔진이 응답할 때까지 기다리는 상한(ms). 큰 모델은 로드가 길다. */
+export const LOCAL_ENGINE_BOOT_TIMEOUT_MS = 180_000;
+
+/** §5.19 (E) — Hugging Face 모델 검색·조회 API(카탈로그는 코드가 아니라 조회로 만든다). */
+export const HF_MODEL_API = 'https://huggingface.co/api/models';
+
+/** §5.19 (E) — 검색 결과 상한. */
+export const LOCAL_MODEL_SEARCH_LIMIT = 20;
+
+/** §5.19 (E) — 한 저장소에서 보여 줄 GGUF 파일(양자화) 상한. */
+export const LOCAL_MODEL_FILE_LIMIT = 40;
+
+/** §5.19 — 엔진·모델이 놓이는 폴더 이름(홈의 `.vibisual` 아래). */
+export const LOCAL_ENGINE_DIR_NAME = 'engine';
+export const LOCAL_MODEL_DIR_NAME = 'models';
+
+/**
+ * §5.19 (D) — 로컬 대화의 기본 컨텍스트 길이(토큰).
+ * 엔진 기본값(4K 급)을 그대로 쓰면 도구를 물리거나 대화가 조금만 길어져도 즉시 막힌다.
+ */
+export const LOCAL_DEFAULT_CONTEXT_SIZE = 16384;
+
+/** §5.19 (D) — 한 턴에 만들 토큰 상한. 로컬은 느려서 상한이 없으면 사람이 하염없이 기다린다. */
+export const LOCAL_DEFAULT_MAX_TOKENS = 4096;
+
+/**
+ * §5.19 (B) — 요청 본문에서 온 `provider` 를 좁힌다. 생성(create-custom-agent)과 저장
+ * (PUT /api/agent-config) 두 입구가 **같은 규칙**을 써야, 한 쪽에서 만든 버블이 다른 쪽 저장
+ * 한 번에 정체를 잃지 않는다.
+ *
+ * **모델이 없어도 통과시킨다.** 진입 순서가 뒤집혀(§5.19 (B)) 버블이 먼저 생기고 모델은
+ * 그 뒤에 매이므로, `modelId` 가 빈 문자열인 "아직 준비 중인 버블"이 정상 상태다 — 여기서
+ * 그것을 걸러 내면 우클릭으로 만든 All Model 버블이 조용히 클로드 버블이 된다.
+ */
+export function normalizeAgentProvider(value: unknown): AgentProvider | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const raw = value as {
+    kind?: unknown; modelId?: unknown; modelName?: unknown; contextSize?: unknown; temperature?: unknown;
+  };
+  if (raw.kind !== 'local-llama') return undefined;
+  const provider: AgentProvider = {
+    kind: 'local-llama',
+    modelId: typeof raw.modelId === 'string' ? raw.modelId.trim() : '',
+  };
+  const modelName = typeof raw.modelName === 'string' ? raw.modelName.trim() : '';
+  if (modelName) provider.modelName = modelName;
+  if (typeof raw.contextSize === 'number' && raw.contextSize > 0) provider.contextSize = raw.contextSize;
+  if (typeof raw.temperature === 'number') provider.temperature = raw.temperature;
+  return provider;
+}
+
+/**
+ * §5.19 (B) — 아직 모델을 안 문 All Model 버블의 기본 라벨 모양(`All Model 3`).
+ * 모델을 매는 순간 라벨이 이 모양이면 **모델명이 그 자리를 잇는다** — 사용자가 직접 바꾼
+ * 이름은 이 모양이 아니므로 자연히 보존된다(이름을 지키려고 별도 플래그를 두지 않는다).
+ */
+export const ALL_MODEL_DEFAULT_LABEL_RE = /^All Model \d+$/;
+
+// ─── §5.20 — 스크립트 선반 (Shelf) ───
+
+/** 선반 버블 기본 크기 — 항목 4~5줄이 보이는 크기. */
+export const SHELF_BUBBLE_DEFAULT_WIDTH = 260;
+export const SHELF_BUBBLE_DEFAULT_HEIGHT = 220;
+
+/**
+ * 선반 한 장이 가질 수 있는 항목 개수 상한 — **키 개수에 두는 캡**(§9).
+ * 값 길이만 자르고 개수를 안 막으면 체크포인트가 조용히 부푼다.
+ */
+export const SHELF_MAX_ITEMS = 40;
+
+/** 프로젝트당 보관할 선반 개수 상한. 넘으면 오래된 것부터 버린다. */
+export const SHELF_BUBBLES_MAX_PER_PROJECT = 20;
+
+/** 선반 이름·항목 이름의 글자 상한. */
+export const SHELF_TITLE_MAX = 60;
+export const SHELF_LABEL_MAX = 48;
+
+/** 명령·프롬프트 본문 길이 상한. */
+export const SHELF_COMMAND_MAX = 2_000;
+export const SHELF_PROMPT_MAX = 8_000;
+
+/** 셸 항목 한 번의 실행에 주는 시간. 넘으면 프로세스 트리를 정리하고 `failed` 로 적는다. */
+export const SHELF_RUN_TIMEOUT_MS = 120_000;
+
+/** 결과에 남기는 출력 꼬리 길이. 넘으면 앞을 버리고 `outputTruncated=true`. */
+export const SHELF_RUN_OUTPUT_MAX_CHARS = 8_000;
+
+/** 프롬프트 항목이 새로 만드는 카드를 놓을 자리 — 선반 오른쪽으로 이만큼 띄운다. */
+export const SHELF_CARD_OFFSET_X = 320;
+
+/** 내보내기 파일 스키마 버전. 모르는 버전은 가져오기에서 거절한다. */
+export const SHELF_EXPORT_VERSION = 1;
+
+/**
+ * §5.20 — 항목 글리프 고정 목록. 클라이언트가 이 이름과 1:1로 인라인 stroke SVG 를 그린다.
+ * 여기 없는 이름은 저장 단계에서 기본값으로 되돌린다(이모지·임의 문자열 차단).
+ */
+export const SHELF_ICONS: readonly ShelfIconName[] = [
+  'terminal',
+  'play',
+  'rocket',
+  'wrench',
+  'bug',
+  'sparkles',
+  'refresh',
+  'package',
+  'database',
+  'search',
+  'doc',
+  'shield',
+] as const;
+
+/** 항목 기본 글리프 — 셸은 터미널, 프롬프트는 반짝임. */
+export const SHELF_DEFAULT_ICON: Record<ShelfItemKind, ShelfIconName> = {
+  command: 'terminal',
+  prompt: 'sparkles',
+};
+
+/**
+ * §5.20 — 항목 색 팔레트. 캔버스 버블 색과 부딪히지 않도록 **채도를 한 단계 낮춘 600 계열**만 쓴다.
+ * 여기 없는 값은 저장 단계에서 기본값으로 되돌린다.
+ */
+export const SHELF_ITEM_COLORS: readonly string[] = [
+  '#0891B2', // cyan-600 — 선반 기본
+  '#2563EB', // blue-600
+  '#7C3AED', // violet-600
+  '#059669', // emerald-600
+  '#CA8A04', // yellow-600
+  '#EA580C', // orange-600
+  '#475569', // slate-600
+  '#BE123C', // rose-700
+] as const;
+
+/** 항목 기본 색 — 선반 자신의 색과 같다. */
+export const SHELF_DEFAULT_ITEM_COLOR = SHELF_ITEM_COLORS[0]!;
+
+/** 내보내기 파일이 담을 수 있는 항목 수 — 가져오기에서 이 개수까지만 받는다. */
+export const SHELF_IMPORT_MAX_ITEMS = SHELF_MAX_ITEMS;
+
+/** 목록 밖 글리프 이름이면 기본값으로 되돌린다. */
+export function normalizeShelfIcon(icon: unknown, kind: ShelfItemKind): ShelfIconName {
+  return typeof icon === 'string' && (SHELF_ICONS as readonly string[]).includes(icon)
+    ? (icon as ShelfIconName)
+    : SHELF_DEFAULT_ICON[kind];
+}
+
+/** 팔레트 밖 색이면 기본값으로 되돌린다(대소문자만 다른 값은 받아 준다). */
+export function normalizeShelfColor(color: unknown): string {
+  if (typeof color !== 'string') return SHELF_DEFAULT_ITEM_COLOR;
+  const upper = color.trim().toUpperCase();
+  const hit = SHELF_ITEM_COLORS.find((c) => c.toUpperCase() === upper);
+  return hit ?? SHELF_DEFAULT_ITEM_COLOR;
+}
+
+/** §5.20 — 가져오기가 만들어 내는 항목 초안(서버가 id·시각을 붙인다). */
+export interface ShelfImportDraftItem {
+  label: string;
+  kind: ShelfItemKind;
+  command?: string;
+  prompt?: string;
+  icon: ShelfIconName;
+  color: string;
+}
+
+/** §5.20 — 가져오기 판정 결과. 거절도 값으로 돌려준다(던지지 않는다 — 화면이 사유를 보여야 한다). */
+export interface ShelfImportResult {
+  ok: boolean;
+  /** 거절 사유(사람이 읽는 한 줄). `ok=false` 일 때만. */
+  error?: string;
+  /** 파일이 말한 선반 이름 — 새 선반을 만들 때 제안값으로만 쓴다. */
+  title?: string;
+  items: ShelfImportDraftItem[];
+  /** 상한·빈 본문에 걸려 버린 항목 수. 0 이면 전부 받았다. */
+  dropped: number;
+}
+
+/**
+ * §5.20 — 가져온 JSON 한 장을 **믿지 않고** 훑어 우리 항목 초안으로 바꾼다.
+ *
+ * 남이 준 파일이 우리 상태를 그대로 밀어 넣는 통로가 되면 안 되므로 여기서 —
+ * ① 모르는 스키마 버전은 통째로 거절하고, ② 런타임 필드(id·lastRun·에이전트 id·절대 경로 `cwd`)는
+ * 애초에 읽지 않으며, ③ 아이콘·색은 고정 목록 안으로 강제하고, ④ 본문은 길이 상한으로 자르고,
+ * ⑤ 개수는 `SHELF_IMPORT_MAX_ITEMS` 까지만 받는다. **클라이언트와 서버가 같은 함수를 쓴다.**
+ */
+export function normalizeShelfImport(raw: unknown): ShelfImportResult {
+  if (raw === null || typeof raw !== 'object') {
+    return { ok: false, error: 'not a shelf file', items: [], dropped: 0 };
+  }
+  const obj = raw as Record<string, unknown>;
+  const version = typeof obj['version'] === 'number' ? obj['version'] : 0;
+  if (version !== SHELF_EXPORT_VERSION) {
+    return { ok: false, error: `unsupported version: ${version}`, items: [], dropped: 0 };
+  }
+  const rawItems = Array.isArray(obj['items']) ? obj['items'] : null;
+  if (!rawItems) {
+    return { ok: false, error: 'items must be an array', items: [], dropped: 0 };
+  }
+
+  const items: ShelfImportDraftItem[] = [];
+  let dropped = 0;
+  for (const entry of rawItems) {
+    if (entry === null || typeof entry !== 'object') {
+      dropped += 1;
+      continue;
+    }
+    const it = entry as Record<string, unknown>;
+    const kind: ShelfItemKind = it['kind'] === 'prompt' ? 'prompt' : 'command';
+    const label = typeof it['label'] === 'string' ? it['label'].trim().slice(0, SHELF_LABEL_MAX) : '';
+    const command = typeof it['command'] === 'string' ? it['command'].trim().slice(0, SHELF_COMMAND_MAX) : '';
+    const prompt = typeof it['prompt'] === 'string' ? it['prompt'].trim().slice(0, SHELF_PROMPT_MAX) : '';
+    // 실행 내용이 비어 있으면 눌러도 아무 일도 없는 줄이다 — 받지 않는다.
+    const body = kind === 'command' ? command : prompt;
+    if (!body || items.length >= SHELF_IMPORT_MAX_ITEMS) {
+      dropped += 1;
+      continue;
+    }
+    items.push({
+      label: label || body.split('\n')[0]!.slice(0, SHELF_LABEL_MAX),
+      kind,
+      ...(kind === 'command' ? { command } : { prompt }),
+      icon: normalizeShelfIcon(it['icon'], kind),
+      color: normalizeShelfColor(it['color']),
+    });
+  }
+
+  const title = typeof obj['title'] === 'string' ? obj['title'].trim().slice(0, SHELF_TITLE_MAX) : '';
+  return { ok: true, ...(title ? { title } : {}), items, dropped };
+}
+
+// ─── §5.21 — 비용·토큰 지도 (Cost Map) ───
+
+/**
+ * 지도 스윕 주기(ms). 훅 이벤트마다 재파싱하는 형태는 금지 — 전수 재파싱이 프리즈를 부른 전례가 둘이다.
+ * 이 주기로 **활성 세션만** 훑고, JSONL 스캐너가 mtime·size 로 먼저 걸러 변화 없으면 파일을 열지도 않는다.
+ */
+export const COST_MAP_SWEEP_INTERVAL_MS = 20_000;
+
+/**
+ * 이 시간보다 오래 조용한 세션은 스윕에서 건너뛴다 — 이미 원장에 있는 세션은 값이 변할 수 없다.
+ * (원장에 아직 없는 세션은 조용하더라도 한 번은 읽는다.)
+ */
+export const COST_MAP_ACTIVE_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/** 세션 원장 상한(키 개수 캡 — §9). 넘치면 오래된 순으로 빠지고 그 몫은 `retired` 로 접힌다. */
+export const COST_MAP_SESSIONS_MAX = 400;
+
+/** 에이전트 합계 상한(키 개수 캡). 비용 내림차순으로 남긴다. */
+export const COST_MAP_AGENTS_MAX = 200;
+
+/** 날짜 버킷 보관 일수(키 개수 캡). 최신 순으로 남긴다. */
+export const COST_MAP_DAYS_MAX = 180;
+
+/** 이 금액을 넘으면 배지·표가 경고 색으로 바뀐다(USD). */
+export const COST_WARN_USD = 5;
+
+/** 이 금액을 넘으면 위험 색(USD). */
+export const COST_DANGER_USD = 20;
+
+/** 팝업 기간 탭 순서. */
+export const COST_PERIODS: readonly CostPeriod[] = ['today', 'week', 'month', 'all'] as const;
+
+/** 0 으로 채운 합계 한 벌(새 객체 — 공유 참조를 돌려주지 않는다). */
+export function emptyCostTotals(): CostTotals {
+  return { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreateTokens: 0, costUsd: 0 };
+}
+
+/** 합계 둘을 더한 **새** 객체. 어느 쪽도 변형하지 않는다. */
+export function addCostTotals(a: CostTotals, b: CostTotals): CostTotals {
+  return {
+    inputTokens: a.inputTokens + b.inputTokens,
+    outputTokens: a.outputTokens + b.outputTokens,
+    cacheReadTokens: a.cacheReadTokens + b.cacheReadTokens,
+    cacheCreateTokens: a.cacheCreateTokens + b.cacheCreateTokens,
+    costUsd: a.costUsd + b.costUsd,
+  };
+}
+
+/** 합계의 토큰 총량(4종 합) — 표에서 "토큰" 한 칸에 쓰는 값. */
+export function costTokenTotal(t: CostTotals): number {
+  return t.inputTokens + t.outputTokens + t.cacheReadTokens + t.cacheCreateTokens;
+}
+
+/** 이 합계가 실제로 무언가를 담고 있는가(토큰이든 비용이든). */
+export function hasCostActivity(t: CostTotals): boolean {
+  return costTokenTotal(t) > 0 || t.costUsd > 0;
+}
+
+/**
+ * epoch ms → **로컬** 날짜 키(`YYYY-MM-DD`).
+ * UTC 로 접으면 사용자가 보는 달력과 하루가 어긋난다(밤에 돌린 세션이 내일로 넘어감).
+ */
+export function costDayKey(ts: number): string {
+  const d = new Date(ts);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * 기간의 시작 시각(epoch ms). 주는 **월요일 시작**, 달은 1일 0시.
+ * `all` 은 0(=전부).
+ */
+export function costPeriodStart(period: CostPeriod, now: number): number {
+  if (period === 'all') return 0;
+  const d = new Date(now);
+  d.setHours(0, 0, 0, 0);
+  if (period === 'today') return d.getTime();
+  if (period === 'week') {
+    // getDay(): 0=일요일 → 월요일 기준으로 되돌리려면 (day+6)%7 일만큼 뺀다.
+    const back = (d.getDay() + 6) % 7;
+    d.setDate(d.getDate() - back);
+    return d.getTime();
+  }
+  d.setDate(1);
+  return d.getTime();
+}
+
+/** 날짜 키가 그 기간 안인가. 키 자체가 로컬 날짜라 시작일 키와 문자열 비교로 충분하다. */
+export function isCostDayInPeriod(date: string, period: CostPeriod, now: number): boolean {
+  if (period === 'all') return true;
+  return date >= costDayKey(costPeriodStart(period, now));
+}
+
+/** 날짜 버킷들에서 한 기간의 합을 접는다. */
+export function sumCostDays(
+  days: readonly { date: string; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreateTokens: number; costUsd: number }[],
+  period: CostPeriod,
+  now: number,
+): CostTotals {
+  let acc = emptyCostTotals();
+  for (const d of days) {
+    if (!isCostDayInPeriod(d.date, period, now)) continue;
+    acc = addCostTotals(acc, d);
+  }
+  return acc;
+}
+
+/** 기간 프리셋 4종을 한 번에 접는다. */
+export function buildCostPeriodTotals(
+  days: readonly { date: string; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreateTokens: number; costUsd: number }[],
+  now: number,
+): CostPeriodTotals {
+  return {
+    today: sumCostDays(days, 'today', now),
+    week: sumCostDays(days, 'week', now),
+    month: sumCostDays(days, 'month', now),
+    all: sumCostDays(days, 'all', now),
+  };
+}
+
+/** §5.21 — 금액 색조. 배지와 표가 같은 함수를 통과해야 같은 금액이 두 화면에서 같은 색이 된다. */
+export type CostTone = 'none' | 'normal' | 'warn' | 'danger';
+
+/**
+ * 금액 → 색조. `measured:false`(턴을 못 읽음)는 `none` 이고 화면은 0 이 아니라 "측정 없음"을 쓴다.
+ */
+export function costTone(costUsd: number | undefined, measured = true): CostTone {
+  if (!measured || costUsd === undefined) return 'none';
+  if (costUsd >= COST_DANGER_USD) return 'danger';
+  if (costUsd >= COST_WARN_USD) return 'warn';
+  return 'normal';
+}
+
+/**
+ * 금액 표기. 아주 작은 값이 `$0.00` 으로 뭉개지지 않게 1센트 미만은 소수 3자리까지 쓴다.
+ * 표시 전용 — 계산에 되먹이지 않는다.
+ */
+export function formatCostUsd(costUsd: number): string {
+  if (costUsd > 0 && costUsd < 0.01) return `$${costUsd.toFixed(3)}`;
+  if (costUsd >= 1000) return `$${Math.round(costUsd).toLocaleString('en-US')}`;
+  return `$${costUsd.toFixed(2)}`;
+}
+
+/** 토큰 수 표기(1.2M / 34.5K / 812). 표 칸이 좁아 자리수를 고정한다. */
+export function formatTokenCount(tokens: number): string {
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`;
+  if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(1)}K`;
+  return String(Math.round(tokens));
+}
+
+// ─── 권한·감사 경계 (§5.22) ───
+//
+// 판정은 **여기 한 곳**이다. 서버(사전 승인 판단)와 클라(타임라인 배지·승인 카드 배지)가 같은
+// 함수를 통과해야 두 화면이 같은 답을 말한다 — 어긋나는 순간 감사는 믿을 수 없는 화면이 된다.
+// 패턴은 전부 아래 테이블에서만 오고 분류 함수 안에 정규식을 박아 넣지 않는다(§3.3).
+
+/** 위험 종류 표시 순서(배지·스위치 공용). */
+export const AUDIT_RISK_KINDS: readonly AuditRiskKind[] = ['delete', 'network', 'config'] as const;
+
+/** 프로젝트당 원장 상한(키 개수 캡 — §9). 밀려난 줄의 몫은 `retired` 합계로 접힌다. */
+export const AUDIT_ENTRIES_MAX_PER_PROJECT = 500;
+
+/** 요약 한 줄 길이 상한 — 원장이 두 번째 트랜스크립트가 되지 않게. */
+export const AUDIT_SUMMARY_MAX_CHARS = 200;
+
+/** 대상(경로·호스트) 길이 상한. */
+export const AUDIT_TARGET_MAX_CHARS = 160;
+
+/** 거부 사유 보관 길이 상한. */
+export const AUDIT_REASON_MAX_CHARS = 200;
+
+/** 타임라인 팝업이 한 번에 그리는 줄 수(더 보기로 늘린다). */
+export const AUDIT_TIMELINE_PAGE_SIZE = 60;
+
+/**
+ * **전선에 싣는** 줄 수(§9). 원장은 프로젝트당 500 줄까지 들고 있지만 그 전량을 브로드캐스트마다
+ * 실으면 스냅샷이 통째로 무거워진다 — §5.21 이 세션 `days` 를 전선에서 뺀 것과 같은 이유다.
+ * 화면이 필요로 하는 것은 최근 몫이고, 전량은 체크포인트와 `GET /api/audit-log` 에 있다.
+ */
+export const AUDIT_SNAPSHOT_ENTRIES = 120;
+
+/** 파일 경로를 입력으로 받는 쓰기 도구 — 이 도구가 설정 파일을 향하면 `config` 위험. */
+export const AUDIT_WRITE_TOOLS: ReadonlySet<string> = new Set([
+  'Write', 'Edit', 'MultiEdit', 'NotebookEdit',
+]);
+
+/** 이름만으로 바깥과 말한다고 볼 수 있는 도구. */
+export const AUDIT_NETWORK_TOOLS: ReadonlySet<string> = new Set([
+  'WebFetch', 'WebSearch',
+]);
+
+/** 지우는 명령(셸 명령 문자열 대상). */
+export const AUDIT_DELETE_PATTERNS: readonly RegExp[] = [
+  /\brm\s+-\w*[rf]/i,
+  /\brm\s+["'./~$\\]/i,
+  /\brmdir\b/i,
+  /\bunlink\s+\S/i,
+  /\bshred\b/i,
+  /\btruncate\s+-s\s*0/i,
+  /\bRemove-Item\b/i,
+  /\bdel\s+\/[a-z]/i,
+  /\bgit\s+clean\b/i,
+  /\bgit\s+reset\s+--hard\b/i,
+  /\bgit\s+checkout\s+--\s/i,
+  /\bgit\s+branch\s+-D\b/i,
+  /\bgit\s+push\s+.*--force\b/i,
+  /\bdd\s+if=/i,
+  /\bmkfs\b/i,
+  /\bdrop\s+(table|database)\b/i,
+];
+
+/** 바깥과 말하는 명령(셸 명령 문자열 대상). 루프백만 가리키면 아래 예외가 걷어낸다. */
+export const AUDIT_NETWORK_PATTERNS: readonly RegExp[] = [
+  /\bcurl\b/i,
+  /\bwget\b/i,
+  /\bInvoke-WebRequest\b/i,
+  /\bInvoke-RestMethod\b/i,
+  /\bssh\b\s+\S/i,
+  /\bscp\b\s+\S/i,
+  /\brsync\b\s+\S/i,
+  /\bnc\s+-\w*\s*\S/i,
+  /\btelnet\b/i,
+  /\bftp\b/i,
+  /\bgit\s+(push|clone|fetch|pull|remote\s+add)\b/i,
+  /\bnpm\s+publish\b/i,
+  /\bpnpm\s+publish\b/i,
+  /\bgh\s+(pr|release|repo|api|issue)\b/i,
+  /\bdocker\s+push\b/i,
+];
+
+/** 명령·URL 에서 http(s) 주소를 뽑는 패턴(루프백 예외 판정용). */
+export const AUDIT_URL_PATTERN = /https?:\/\/[^\s'"`)\\]+/gi;
+
+/** 우리 자신에게 가는 호출은 "바깥으로 나간 것"이 아니다(작업 신고 카드 curl 이 매번 걸리는 것을 막는다). */
+export const AUDIT_LOOPBACK_HOSTS: ReadonlySet<string> = new Set([
+  'localhost', '127.0.0.1', '0.0.0.0', '::1', '[::1]',
+]);
+
+/** 설정 파일 경로(파일 경로 또는 명령 문자열 대상). */
+export const AUDIT_CONFIG_PATH_PATTERNS: readonly RegExp[] = [
+  /(^|[\\/])\.claude[\\/]/i,
+  /(^|[\\/])settings(\.local)?\.json$/i,
+  /(^|[\\/])settings(\.local)?\.json\b/i,
+  /(^|[\\/])\.env(\.[\w-]+)?$/i,
+  /(^|[\\/])\.env(\.[\w-]+)?\b/i,
+  /(^|[\\/])\.mcp\.json\b/i,
+  /(^|[\\/])CLAUDE\.md\b/i,
+  /(^|[\\/])package\.json\b/i,
+  /(^|[\\/])tsconfig([\w.-]+)?\.json\b/i,
+  /(^|[\\/])pnpm-workspace\.yaml\b/i,
+  /(^|[\\/])\.npmrc\b/i,
+  /(^|[\\/])\.gitignore\b/i,
+  /(^|[\\/])\.git[\\/]config\b/i,
+  /(^|[\\/])\.vscode[\\/]/i,
+  /(^|[\\/])hosts$/i,
+];
+
+/** 설정을 바꾸는 손짓 — 명령이 설정 경로를 **건드릴 때만** `config` 로 본다(읽기만 하는 grep 은 제외). */
+export const AUDIT_CONFIG_MUTATION_PATTERNS: readonly RegExp[] = [
+  />>?\s*\S/,
+  /\bsed\s+-i\b/i,
+  /\b(cp|mv|copy|move)\b/i,
+  /\btee\b/i,
+  /\bSet-Content\b/i,
+  /\bAdd-Content\b/i,
+  /\bOut-File\b/i,
+  /\b(npm|pnpm|yarn|git)\s+config\s+set\b/i,
+  /\bclaude\s+config\b/i,
+  /\bsetx?\b\s+\w+=/i,
+];
+
+/**
+ * 스위치가 없을 때의 기본 — **꺼짐**이다(§5.22).
+ *
+ * 묻는 쪽이 더 안전해 보이지만 이 경계가 되무르는 것은 **사용자가 직접 고른 권한 모드**다.
+ * `bypassPermissions` 를 고른 사람에게 기본값으로 승인 카드를 띄우면 그가 고른 모드가
+ * 설명 없이 무효가 되고, 그 카드는 원인을 알 수 없는 팝업으로만 보인다. 되무를지는
+ * **사용자가 켜서** 정하고, 꺼져 있는 동안에도 기록은 계속된다(기록을 끄는 스위치는 없다).
+ *
+ * 종류별 `kinds` 는 켬 그대로 둔다 — 전체를 켠 사용자가 셋을 다시 켜야 하는 일은 만들지 않는다.
+ *
+ * **기본값은 이 상수 하나에서만 읽는다**: 서버 fallback·체크포인트 "저장할 것 없음" 판정·
+ * 클라 두 화면이 저마다 기본을 하드코딩하면, 켠 적 없는 프로젝트가 화면마다 다른 상태로 보인다.
+ */
+export const DEFAULT_AUDIT_BOUNDARY: AuditBoundaryConfig = {
+  escalateRisky: false,
+  kinds: { delete: true, network: true, config: true },
+};
+
+function auditClip(value: string, max: number): string {
+  const s = value.replace(/\s+/g, ' ').trim();
+  return s.length > max ? `${s.slice(0, max - 1)}…` : s;
+}
+
+function auditFirstString(input: Record<string, unknown>, keys: readonly string[]): string | undefined {
+  for (const k of keys) {
+    const v = input[k];
+    if (typeof v === 'string' && v.trim()) return v.trim();
+  }
+  return undefined;
+}
+
+function auditMatches(value: string, patterns: readonly RegExp[]): boolean {
+  // 전역 플래그가 없는 패턴만 담으므로 lastIndex 오염 없음.
+  return patterns.some((re) => re.test(value));
+}
+
+/** URL·호스트 문자열이 우리 자신(루프백)을 가리키는가. */
+export function isAuditLoopbackTarget(value: string): boolean {
+  const m = value.match(/^(?:[a-z][\w+.-]*:\/\/)?(?:[^@\s/]*@)?([^\s/:?#]+)/i);
+  const host = (m?.[1] ?? value).toLowerCase();
+  if (AUDIT_LOOPBACK_HOSTS.has(host)) return true;
+  return host.endsWith('.localhost');
+}
+
+/** 명령 안의 http(s) 주소가 **하나 이상 있고 전부** 루프백인가. */
+function auditLoopbackOnly(command: string): boolean {
+  const urls = command.match(AUDIT_URL_PATTERN);
+  if (!urls || urls.length === 0) return false;
+  return urls.every((u) => isAuditLoopbackTarget(u));
+}
+
+/**
+ * §5.22 — 위험 판정. 빈 배열이면 평범한 호출이다.
+ * 서버(사전 승인)와 클라(배지)가 **같은 이 함수**를 쓴다.
+ */
+export function classifyToolRisk(
+  toolName: string,
+  toolInput?: Record<string, unknown> | null,
+): AuditRiskKind[] {
+  const input = toolInput ?? {};
+  const command = typeof input['command'] === 'string' ? input['command'] : '';
+  const url = auditFirstString(input, ['url', 'endpoint']);
+  const filePath = auditFirstString(input, ['file_path', 'notebook_path', 'path', 'target_file']);
+  const found = new Set<AuditRiskKind>();
+
+  // ① 바깥과 말하는가 — 루프백(우리 자신)은 바깥이 아니다.
+  if (AUDIT_NETWORK_TOOLS.has(toolName) && !(url && isAuditLoopbackTarget(url))) found.add('network');
+  if (url && /^https?:/i.test(url) && !isAuditLoopbackTarget(url)) found.add('network');
+  if (command && auditMatches(command, AUDIT_NETWORK_PATTERNS) && !auditLoopbackOnly(command)) found.add('network');
+
+  // ② 지우는가.
+  if (command && auditMatches(command, AUDIT_DELETE_PATTERNS)) found.add('delete');
+
+  // ③ 설정을 바꾸는가 — 쓰기 도구가 설정 파일을 향하거나, 명령이 설정 경로를 **건드릴 때**.
+  if (filePath && AUDIT_WRITE_TOOLS.has(toolName) && auditMatches(filePath, AUDIT_CONFIG_PATH_PATTERNS)) {
+    found.add('config');
+  }
+  if (
+    command
+    && auditMatches(command, AUDIT_CONFIG_PATH_PATTERNS)
+    && auditMatches(command, AUDIT_CONFIG_MUTATION_PATTERNS)
+  ) {
+    found.add('config');
+  }
+
+  return AUDIT_RISK_KINDS.filter((k) => found.has(k));
+}
+
+/**
+ * §5.22 — 원장 한 줄이 보여 줄 요약과 대상. 도구 입력 전문을 담지 않기 위한 접기다.
+ */
+export function summarizeToolCall(
+  toolName: string,
+  toolInput?: Record<string, unknown> | null,
+): { summary: string; target?: string } {
+  const input = toolInput ?? {};
+  const command = typeof input['command'] === 'string' ? input['command'] : '';
+  const url = auditFirstString(input, ['url', 'endpoint']);
+  const filePath = auditFirstString(input, ['file_path', 'notebook_path', 'path', 'target_file']);
+
+  if (command) {
+    const urls = command.match(AUDIT_URL_PATTERN);
+    const target = urls?.[0] ?? filePath;
+    return {
+      summary: auditClip(command, AUDIT_SUMMARY_MAX_CHARS),
+      ...(target ? { target: auditClip(target, AUDIT_TARGET_MAX_CHARS) } : {}),
+    };
+  }
+  if (url) {
+    return {
+      summary: auditClip(url, AUDIT_SUMMARY_MAX_CHARS),
+      target: auditClip(url, AUDIT_TARGET_MAX_CHARS),
+    };
+  }
+  if (filePath) {
+    return {
+      summary: auditClip(filePath, AUDIT_SUMMARY_MAX_CHARS),
+      target: auditClip(filePath, AUDIT_TARGET_MAX_CHARS),
+    };
+  }
+  const fallback = auditFirstString(input, ['query', 'pattern', 'description', 'prompt', 'subagent_type']);
+  return { summary: fallback ? auditClip(fallback, AUDIT_SUMMARY_MAX_CHARS) : toolName };
+}
+
+/** 그 종류를 지금 물어야 하는가. 스위치가 아예 없으면 **기본값 하나**(`DEFAULT_AUDIT_BOUNDARY`)를 따른다. */
+export function isAuditRiskEnabled(boundary: AuditBoundaryConfig | undefined, kind: AuditRiskKind): boolean {
+  const b = boundary ?? DEFAULT_AUDIT_BOUNDARY;
+  if (!b.escalateRisky) return false;
+  return b.kinds?.[kind] !== false;
+}
+
+/** 이 호출을 실행 전에 붙잡아야 하는가(위험 종류 중 하나라도 켜져 있으면). */
+export function shouldEscalateRisk(
+  boundary: AuditBoundaryConfig | undefined,
+  kinds: readonly AuditRiskKind[],
+): boolean {
+  return kinds.some((k) => isAuditRiskEnabled(boundary, k));
+}
+
+/** 외부(REST 바디·옛 체크포인트)에서 온 스위치를 안전한 모양으로 되돌린다. */
+export function normalizeAuditBoundary(input: unknown): AuditBoundaryConfig {
+  const raw = (input ?? {}) as Partial<AuditBoundaryConfig>;
+  const kinds: Partial<Record<AuditRiskKind, boolean>> = {};
+  for (const k of AUDIT_RISK_KINDS) {
+    const v = (raw.kinds ?? {})[k];
+    kinds[k] = v === undefined ? DEFAULT_AUDIT_BOUNDARY.kinds[k] !== false : v !== false;
+  }
+  return {
+    escalateRisky: raw.escalateRisky === undefined
+      ? DEFAULT_AUDIT_BOUNDARY.escalateRisky
+      : raw.escalateRisky !== false,
+    kinds,
+  };
+}
+
+/**
+ * 사용자가 아직 손대지 않은 기본 상태인가.
+ *
+ * "저장할 것이 없다"를 판정하는 자리(체크포인트)가 종전 기본값을 직접 비교하면, 기본이 뒤집힌
+ * 순간 **사용자가 켜 둔 경계가 저장되지 않고 사라진다**. 판정은 여기 한 곳에서만 한다.
+ */
+export function isDefaultAuditBoundary(boundary: AuditBoundaryConfig | undefined): boolean {
+  const b = boundary ?? DEFAULT_AUDIT_BOUNDARY;
+  if (b.escalateRisky !== DEFAULT_AUDIT_BOUNDARY.escalateRisky) return false;
+  return AUDIT_RISK_KINDS.every(
+    (k) => (b.kinds?.[k] !== false) === (DEFAULT_AUDIT_BOUNDARY.kinds[k] !== false),
+  );
+}
+
+/** 빈 집계(원장이 비었을 때). */
+export function emptyAuditCounts(): AuditCounts {
+  return { total: 0, risky: 0, denied: 0, escalated: 0, todayRisky: 0 };
+}

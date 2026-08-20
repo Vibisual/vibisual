@@ -128,7 +128,7 @@ function coalesce(entries: ServerLogEntry[]): LogGroup[] {
 function CategoryMark({ category }: { category: ServerLogCategory }): React.JSX.Element {
   return (
     <span className="w-9 shrink-0">
-      <span className={`border-b border-dotted pb-px text-[9px] uppercase ${categoryMarkClasses(category)}`}>
+      <span className={`border-b border-dotted pb-px text-[12px] uppercase ${categoryMarkClasses(category)}`}>
         {category}
       </span>
     </span>
@@ -141,7 +141,7 @@ function LogRow({ entry, child = false }: { entry: ServerLogEntry; child?: boole
     <div
       className={`flex items-start gap-2 whitespace-pre-wrap break-all ${child ? 'bg-gray-900/40' : ''} ${levelClasses(entry.level)}`}
     >
-      <span className="shrink-0 text-[10px] text-gray-600">{formatTime(entry.ts)}</span>
+      <span className="shrink-0 text-[12px] text-gray-600">{formatTime(entry.ts)}</span>
       {/* chevron 자리 — 그룹 헤더의 chevron(w-3)과 같은 폭을 비워 메시지 열을 맞춘다. */}
       <span className="h-3 w-3 shrink-0" aria-hidden />
       <CategoryMark category={entry.category} />
@@ -301,11 +301,11 @@ export const ServerLogPopup = memo(function ServerLogPopup({
             </span>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
-            <span className="rounded bg-gray-700/40 px-1.5 py-0.5 font-mono text-[10px] text-gray-300">
+            <span className="rounded bg-gray-700/40 px-1.5 py-0.5 font-mono text-[12px] text-gray-300">
               {t('panel.serverLog.linesCount', { count: lines.length })}
             </span>
             {categoryCounts.error > 0 && (
-              <span className="rounded bg-rose-500/20 px-1.5 py-0.5 font-mono text-[10px] text-rose-300">
+              <span className="rounded bg-rose-500/20 px-1.5 py-0.5 font-mono text-[12px] text-rose-300">
                 {t('panel.serverLog.errorsCount', { count: categoryCounts.error })}
               </span>
             )}
@@ -352,7 +352,7 @@ export const ServerLogPopup = memo(function ServerLogPopup({
                   key={category}
                   type="button"
                   onClick={() => toggleCategory(category)}
-                  className={`rounded px-1.5 py-0.5 font-mono text-[10px] uppercase transition ${
+                  className={`rounded px-1.5 py-0.5 font-mono text-[12px] uppercase transition ${
                     hidden
                       ? 'bg-gray-800 text-gray-600 line-through'
                       : categoryChipClasses(category)
@@ -387,7 +387,7 @@ export const ServerLogPopup = memo(function ServerLogPopup({
         <div
           ref={scrollRef}
           onScroll={handleScroll}
-          className="min-h-0 flex-1 overflow-y-auto bg-gray-950/70 px-3 py-2 font-mono text-[11px] leading-relaxed"
+          className="min-h-0 flex-1 overflow-y-auto bg-gray-950/70 px-3 py-2 font-mono text-[12px] leading-relaxed"
         >
           {!connected && (
             <div className="py-10 text-center text-xs text-gray-500">
@@ -424,7 +424,7 @@ export const ServerLogPopup = memo(function ServerLogPopup({
                   onClick={() => toggleGroup(group.key)}
                   className={`flex w-full items-start gap-2 whitespace-pre-wrap break-all text-left hover:bg-gray-900/60 ${levelClasses(head.level)}`}
                 >
-                  <span className="shrink-0 text-[10px] text-gray-600">{formatTime(head.ts)}</span>
+                  <span className="shrink-0 text-[12px] text-gray-600">{formatTime(head.ts)}</span>
                   <svg
                     className={`mt-px h-3 w-3 shrink-0 text-gray-500 transition-transform ${expanded ? 'rotate-90' : ''}`}
                     viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"
@@ -433,7 +433,7 @@ export const ServerLogPopup = memo(function ServerLogPopup({
                   </svg>
                   <CategoryMark category={head.category} />
                   <span className="flex-1">{head.message}</span>
-                  <span className="shrink-0 rounded bg-gray-700/60 px-1.5 text-[10px] font-semibold text-gray-200">
+                  <span className="shrink-0 rounded bg-gray-700/60 px-1.5 text-[12px] font-semibold text-gray-200">
                     ×{group.lines.length}
                   </span>
                 </button>

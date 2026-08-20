@@ -342,7 +342,7 @@ export const PlayNode = memo(function PlayNode({
         </button>
 
         <div className="mt-1.5 max-w-[92%] truncate text-center text-[12px] font-semibold leading-tight">{label}</div>
-        <div className="mt-0.5 max-w-[92%] truncate text-center text-[9px] leading-tight text-white/70">
+        <div className="mt-0.5 max-w-[92%] truncate text-center text-[12px] leading-tight text-white/70">
           {notice ?? subLabel}
         </div>
 

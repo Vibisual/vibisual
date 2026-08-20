@@ -11,7 +11,7 @@
 // Rationale: "renderer fetch/WS → window.api 일괄 교체" (Stage 4) at a single
 // chokepoint instead of editing every call site. UI source stays untouched.
 
-import type { UpdateState, AgentConfig, MobileAccessState, CaptureSourceInfo, CaptureInputEvent, CaptureSourceKind, CaptureTargetRect, CaptureInjectResult } from '@vibisual/shared';
+import type { UpdateState, AgentConfig, MobileAccessState, CaptureSourceInfo, CaptureInputEvent, CaptureSourceKind, CaptureTargetRect, CaptureInjectResult, PreviewSnipRect, PageRegionCapture } from '@vibisual/shared';
 
 interface FetchInitWire {
   method?: string;
@@ -177,6 +177,11 @@ export interface PackagedCaptureApi {
   sendInput(event: CaptureInputEvent): Promise<CaptureInjectResult | void>;
   /** §5.9 v3.57 — 대상 화면/창 사각형(DIP+물리). 드래그 좌표 계산용. 구버전 preload 엔 없을 수 있다. */
   targetRect?(spec: { sourceId: string; sourceKind: CaptureSourceKind; sourceName: string }): Promise<CaptureTargetRect>;
+  /**
+   * §5.17 (B) — 이 창의 그 사각형을 PNG 로 찍는다(프리뷰 영역 캡처 → 입력창 첨부).
+   * 구버전 preload·web 모드엔 없다 — 없으면 화면이 그 사실을 한 줄로 말한다(조용한 무동작 ❌).
+   */
+  pageRegion?(rect: PreviewSnipRect): Promise<PageRegionCapture>;
 }
 
 export interface PackagedApi {

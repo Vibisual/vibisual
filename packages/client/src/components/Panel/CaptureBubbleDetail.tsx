@@ -4,7 +4,9 @@ import type { CaptureBubble } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { useCapturePrefs, type CaptureQualityMode } from '../../stores/captureBubblePrefs.js';
 import { useCaptureRuntime } from '../../stores/captureBubbleRuntime.js';
-import { CAPTURE_FIT_EVENT, CAPTURE_REPICK_EVENT, CAPTURE_SNAPSHOT_EVENT } from '../BubbleMap/CaptureNode.js';
+import { CAPTURE_FIT_EVENT, CAPTURE_RECORD_EVENT, CAPTURE_REPICK_EVENT, CAPTURE_SNAPSHOT_EVENT } from '../BubbleMap/CaptureNode.js';
+import { useCapturePlaytest, useCapturePlaytestStore } from '../../stores/capturePlaytest.js';
+import { formatClipDuration } from '../BubbleMap/playtestClip.js';
 
 interface Props {
   bubble: CaptureBubble;
@@ -30,6 +32,15 @@ export function CaptureBubbleDetail({ bubble }: Props): React.JSX.Element {
   const [prefs, setPrefs] = useCapturePrefs(bubble.id);
   const [runtime, setRuntime] = useCaptureRuntime(bubble.id);
   const deleteCaptureBubble = useGraphStore((s) => s.deleteCaptureBubble);
+  const { recording, clips, openClipId } = useCapturePlaytest(bubble.id);
+  const openClip = useCapturePlaytestStore((s) => s.openClip);
+  const removeClip = useCapturePlaytestStore((s) => s.removeClip);
+
+  // §5.9 플레이테스트 — 녹화기는 스트림을 쥔 CaptureNode 에만 있으므로 여기선 위임 이벤트만 쏜다
+  // (스냅샷·비율 맞추기와 같은 패턴).
+  const toggleRecording = useCallback(() => {
+    window.dispatchEvent(new CustomEvent(CAPTURE_RECORD_EVENT, { detail: { id: bubble.id, action: 'toggle' } }));
+  }, [bubble.id]);
 
   const requestRepick = useCallback(() => {
     window.dispatchEvent(new CustomEvent(CAPTURE_REPICK_EVENT, { detail: { id: bubble.id } }));
@@ -67,7 +78,7 @@ export function CaptureBubbleDetail({ bubble }: Props): React.JSX.Element {
           <span className="min-w-0 flex-1 truncate text-xs text-gray-200" title={bubble.sourceName}>
             {bubble.sourceName}
           </span>
-          <span className="shrink-0 rounded-full bg-sky-400/10 px-2 py-0.5 text-[10px] font-semibold text-sky-300">
+          <span className="shrink-0 rounded-full bg-sky-400/10 px-2 py-0.5 text-[12px] font-semibold text-sky-300">
             {bubble.sourceKind === 'screen'
               ? t('bubbleMap.capture.kindScreen', { defaultValue: '화면' })
               : t('bubbleMap.capture.kindWindow', { defaultValue: '창' })}
@@ -106,6 +117,69 @@ export function CaptureBubbleDetail({ bubble }: Props): React.JSX.Element {
         </div>
       </section>
 
+      {/* 플레이테스트 — 녹화하고, 버그 난 구간을 프레임째 에이전트에게 넘긴다(§5.9). */}
+      <section className="flex flex-col gap-2">
+        <SectionLabel>{t('bubbleMap.capture.playtest.section', { defaultValue: '플레이테스트' })}</SectionLabel>
+        <button
+          type="button"
+          onClick={toggleRecording}
+          className={`flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs transition-colors ${
+            recording
+              ? 'border-red-500/45 bg-red-500/15 text-red-200 hover:bg-red-500/25'
+              : 'border-white/[0.07] bg-white/[0.03] text-gray-300 hover:border-red-500/40 hover:text-red-200'
+          }`}
+        >
+          <svg className="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+            {recording ? <rect x="7" y="7" width="10" height="10" rx="2" /> : <circle cx="12" cy="12" r="7" />}
+          </svg>
+          {recording
+            ? t('bubbleMap.capture.playtest.stopRecording', { defaultValue: '녹화 멈추고 구간 자르기' })
+            : t('bubbleMap.capture.playtest.startRecording', { defaultValue: '플레이 녹화 시작' })}
+        </button>
+        {clips.length === 0 ? (
+          <p className="text-[12px] leading-snug text-gray-500">
+            {t('bubbleMap.capture.playtest.emptyHint', {
+              defaultValue: '녹화한 구간을 잘라 그 프레임을 에이전트 입력창에 붙일 수 있습니다. 클립은 이 기기 메모리에만 남습니다.',
+            })}
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-1">
+            {clips.map((clip) => {
+              const open = clip.id === openClipId;
+              return (
+                <li key={clip.id} className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => openClip(bubble.id, clip.id)}
+                    className={`flex min-w-0 flex-1 items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs transition-colors ${
+                      open
+                        ? 'border-sky-400/40 bg-sky-400/10 text-sky-200'
+                        : 'border-white/[0.07] bg-white/[0.03] text-gray-300 hover:border-sky-400/40 hover:text-sky-200'
+                    }`}
+                  >
+                    <span className="font-semibold tabular-nums">{formatClipDuration(clip.durationMs)}</span>
+                    <span className="min-w-0 flex-1 truncate text-left text-[12px] text-gray-500">
+                      {new Date(clip.at).toLocaleTimeString()}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => removeClip(bubble.id, clip.id)}
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-white/[0.07] bg-white/[0.03] text-gray-500 transition-colors hover:border-rose-500/40 hover:text-rose-300"
+                    title={t('bubbleMap.capture.playtest.deleteClip', { defaultValue: '이 클립 버리기' })}
+                    aria-label={t('bubbleMap.capture.playtest.deleteClip', { defaultValue: '이 클립 버리기' })}
+                  >
+                    <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M3 6h18" /><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                    </svg>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+
       {/* 화질 / 데이터 */}
       <section className="flex flex-col gap-2">
         <SectionLabel>{t('bubbleMap.capture.quality', { defaultValue: '화질 / 데이터' })}</SectionLabel>
@@ -117,7 +191,7 @@ export function CaptureBubbleDetail({ bubble }: Props): React.JSX.Element {
                 key={opt.mode}
                 type="button"
                 onClick={() => setPrefs({ qualityMode: opt.mode })}
-                className={`flex-1 rounded-md px-2 py-1 text-[11px] font-semibold transition-colors ${
+                className={`flex-1 rounded-md px-2 py-1 text-[12px] font-semibold transition-colors ${
                   active ? 'bg-sky-400/90 text-slate-900' : 'text-gray-400 hover:bg-white/[0.06] hover:text-gray-100'
                 }`}
               >
@@ -126,7 +200,7 @@ export function CaptureBubbleDetail({ bubble }: Props): React.JSX.Element {
             );
           })}
         </div>
-        <p className="text-[10px] leading-snug text-gray-500">
+        <p className="text-[12px] leading-snug text-gray-500">
           {t('bubbleMap.capture.qualityHint', { defaultValue: '화질/데이터 — 낮출수록 해상도·FPS↓, AUTO=회선따라 자동' })}
         </p>
       </section>
@@ -138,7 +212,7 @@ export function CaptureBubbleDetail({ bubble }: Props): React.JSX.Element {
           <div className="flex flex-col gap-1.5">
             <div className="flex items-center justify-between">
               <span className="text-xs text-gray-300">{t('bubbleMap.capture.opacity', { defaultValue: '불투명도' })}</span>
-              <span className="rounded bg-white/[0.06] px-1.5 py-px font-mono text-[11px] text-gray-300">
+              <span className="rounded bg-white/[0.06] px-1.5 py-px font-mono text-[12px] text-gray-300">
                 {Math.round(prefs.opacity * 100)}%
               </span>
             </div>
@@ -177,7 +251,7 @@ export function CaptureBubbleDetail({ bubble }: Props): React.JSX.Element {
       <section className="flex flex-col gap-2.5">
         <SectionLabel>{t('bubbleMap.capture.join', { defaultValue: '이어 붙이기' })}</SectionLabel>
         <div className="flex flex-col gap-3 rounded-lg border border-white/[0.07] bg-white/[0.03] p-3">
-          <p className="text-[10px] leading-snug text-gray-500">
+          <p className="text-[12px] leading-snug text-gray-500">
             {t('bubbleMap.capture.snapHint', {
               defaultValue: '다른 캡처 버블 옆으로 끌면 변이 자석처럼 붙습니다. Alt 를 누른 채 끌면 자석이 꺼집니다.',
             })}
@@ -188,7 +262,7 @@ export function CaptureBubbleDetail({ bubble }: Props): React.JSX.Element {
           >
             <rect width="18" height="18" x="3" y="3" rx="2" /><path d="M3 9h18" /><path d="M9 21V9" />
           </GhostButton>
-          <p className="text-[10px] leading-snug text-gray-500">
+          <p className="text-[12px] leading-snug text-gray-500">
             {t('bubbleMap.capture.fitAspectHint', {
               defaultValue: '버블 높이를 소스 비율로 다시 잡아 위아래 검은 띠를 없앱니다 — 붙였을 때 화면이 이어져 보입니다.',
             })}
@@ -223,7 +297,7 @@ export function CaptureBubbleDetail({ bubble }: Props): React.JSX.Element {
                       type="button"
                       disabled={disabled}
                       onClick={() => setRuntime({ controlMode: mode })}
-                      className={`flex-1 rounded-md px-2 py-1.5 text-[11px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                      className={`flex-1 rounded-md px-2 py-1.5 text-[12px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
                         on
                           ? 'bg-emerald-400 text-emerald-950'
                           : active
@@ -240,7 +314,7 @@ export function CaptureBubbleDetail({ bubble }: Props): React.JSX.Element {
                   );
                 })}
               </div>
-              <p className="text-[10px] leading-snug text-gray-500">
+              <p className="text-[12px] leading-snug text-gray-500">
                 {t('bubbleMap.capture.pointerModeSwitch', {
                   defaultValue: '터치: 가리킨 곳을 바로 클릭 · 마우스: 밀어서 커서 이동 후 탭 클릭',
                 })}
@@ -272,7 +346,7 @@ export function CaptureBubbleDetail({ bubble }: Props): React.JSX.Element {
               <select
                 value={prefs.controlTimeoutSec}
                 onChange={(e) => setPrefs({ controlTimeoutSec: Number(e.target.value) })}
-                className="rounded-md border border-white/[0.08] bg-gray-900 px-2 py-1 text-[11px] text-gray-200 outline-none transition-colors focus:border-emerald-400/60"
+                className="rounded-md border border-white/[0.08] bg-gray-900 px-2 py-1 text-[12px] text-gray-200 outline-none transition-colors focus:border-emerald-400/60"
               >
                 <option value={0}>{t('bubbleMap.capture.timeoutOff', { defaultValue: '끄기' })}</option>
                 <option value={15}>15s</option>
@@ -306,7 +380,7 @@ function SectionLabel({ children, accent = 'sky' }: { children: React.ReactNode;
   return (
     <div className="flex items-center gap-1.5">
       <span className={`h-1 w-1 rounded-full ${accent === 'emerald' ? 'bg-emerald-400' : 'bg-sky-400'}`} />
-      <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">{children}</span>
+      <span className="text-[12px] font-semibold uppercase tracking-wide text-gray-500">{children}</span>
     </div>
   );
 }
@@ -353,7 +427,7 @@ function SwitchRow({ label, hint, checked, onChange, tone = 'sky' }: SwitchRowPr
     <label className="flex cursor-pointer items-start justify-between gap-3">
       <span className="flex min-w-0 flex-col gap-0.5">
         <span className="text-xs text-gray-300">{label}</span>
-        {hint && <span className="text-[10px] leading-snug text-gray-500">{hint}</span>}
+        {hint && <span className="text-[12px] leading-snug text-gray-500">{hint}</span>}
       </span>
       <span className="relative mt-0.5 shrink-0">
         <input

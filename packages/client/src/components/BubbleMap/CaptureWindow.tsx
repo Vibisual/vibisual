@@ -1,13 +1,15 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import { CAPTURE_BUBBLE_DEFAULTS, type CaptureSourceKind } from '@vibisual/shared';
+import { CAPTURE_BUBBLE_DEFAULTS, CAPTURE_PLAYTEST, type CaptureSourceKind } from '@vibisual/shared';
 import { useCaptureRemoteControl } from '../../hooks/useCaptureRemoteControl.js';
 import { useFloatingWindow } from '../../hooks/useFloatingWindow.js';
 import { useCapturePrefs } from '../../stores/captureBubblePrefs.js';
 import { useCaptureRuntime, type CaptureControlMode } from '../../stores/captureBubbleRuntime.js';
 import { CaptureControlOverlay } from './CaptureControlOverlay.js';
 import { registerCaptureWindow, type CaptureWindowHandle } from './captureWindowManager.js';
+import { CAPTURE_RECORD_EVENT } from './CaptureNode.js';
+import { useIsPlaytestRecording } from '../../stores/capturePlaytest.js';
 
 // §5.9 v3.34 — 캡처 버블 헤더 더블클릭 시 뜨는 "앱 내부 IDE식 창".
 //
@@ -109,6 +111,12 @@ export const CaptureWindow = memo(function CaptureWindow({
     backgroundClick: prefs.backgroundClick,
     onDisengage: useCallback(() => setRuntime({ controlMode: 'off' }), [setRuntime]),
   });
+  // §5.9 플레이테스트 — 녹화기는 스트림을 쥔 CaptureNode 에 있으므로 여기선 위임 이벤트만 쏜다.
+  const recording = useIsPlaytestRecording(captureBubbleId);
+  const toggleRecording = useCallback(() => {
+    window.dispatchEvent(new CustomEvent(CAPTURE_RECORD_EVENT, { detail: { id: captureBubbleId, action: 'toggle' } }));
+  }, [captureBubbleId]);
+
   // 언마운트 — 매니저 등록 해제(진행 중 드래그 리스너 정리는 공용 훅이 담당).
   useEffect(() => () => { handle.release(); }, [handle]);
 
@@ -167,7 +175,7 @@ export const CaptureWindow = memo(function CaptureWindow({
         />
         <span className="truncate text-[13px] font-semibold text-slate-100" title={title}>{title}</span>
         <span
-          className="shrink-0 rounded-full px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide"
+          className="shrink-0 rounded-full px-1.5 py-px text-[12px] font-semibold uppercase tracking-wide"
           style={{ background: `${accent}1f`, color: accent }}
         >
           {sourceKind === 'screen'
@@ -197,7 +205,7 @@ export const CaptureWindow = memo(function CaptureWindow({
                   type="button"
                   disabled={disabled}
                   onClick={() => setRuntime({ controlMode: m })}
-                  className="rounded-full px-2 py-0.5 text-[10px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+                  className="rounded-full px-2 py-0.5 text-[12px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40"
                   style={{
                     background: on
                       ? CAPTURE_BUBBLE_DEFAULTS.CONTROL_COLOR
@@ -212,6 +220,27 @@ export const CaptureWindow = memo(function CaptureWindow({
           </div>
         )}
 
+        {/* 플레이 녹화 — 캔버스 버블 헤더의 그 버튼과 같은 축(어느 쪽에서 눌러도 같은 녹화기). */}
+        {stream && (
+          <button
+            type="button"
+            onClick={toggleRecording}
+            className="flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-white/10"
+            style={recording
+              ? { color: CAPTURE_PLAYTEST.RECORD_COLOR, background: `${CAPTURE_PLAYTEST.RECORD_COLOR}1f` }
+              : { color: '#94A3B8' }}
+            title={recording
+              ? t('bubbleMap.capture.playtest.stopRecording', { defaultValue: '녹화 멈추고 구간 자르기' })
+              : t('bubbleMap.capture.playtest.startRecording', { defaultValue: '플레이 녹화 시작' })}
+            aria-label={recording
+              ? t('bubbleMap.capture.playtest.stopRecording', { defaultValue: '녹화 멈추고 구간 자르기' })
+              : t('bubbleMap.capture.playtest.startRecording', { defaultValue: '플레이 녹화 시작' })}
+          >
+            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+              {recording ? <rect x="7" y="7" width="10" height="10" rx="2" /> : <circle cx="12" cy="12" r="7" />}
+            </svg>
+          </button>
+        )}
         <button
           type="button"
           onClick={fw.toggleMaximized}

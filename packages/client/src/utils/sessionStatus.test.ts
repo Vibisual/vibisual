@@ -18,6 +18,7 @@ import {
   sessionRunStateOf,
   serializeBusySubIds,
   parseBusySubIds,
+  isAgentDormant,
 } from './sessionStatus.js';
 
 function inputs(patch: Partial<SessionRunInputs>): SessionRunInputs {
@@ -241,5 +242,31 @@ describe('serializeBusySubIds — 켜짐이 바뀔 때만 값이 달라진다', 
   it('왕복해도 같은 집합', () => {
     const set = parseBusySubIds(serializeBusySubIds([task('a'), task('b')]));
     expect([...set].sort()).toEqual(['a', 'b']);
+  });
+});
+
+describe('isAgentDormant — 자식 프로세스를 하나도 안 들고 있는가(§2.4 잠듦)', () => {
+  const sub = (id: string, dormant?: boolean): SubAgent => ({
+    id,
+    sessionId: `session-${id}`,
+    label: id,
+    parentAgentId: 'agent-1',
+    status: 'idle',
+    createdAt: 0,
+    lastActivityAt: 0,
+    ...(dormant === undefined ? {} : { dormant }),
+  });
+
+  it('세션이 없으면 잠든 것이 아니다(갓 만든 버블에 잠듦이 붙으면 안 된다)', () => {
+    expect(isAgentDormant(undefined)).toBe(false);
+    expect(isAgentDormant([])).toBe(false);
+  });
+
+  it('모든 세션이 잠들었을 때만 잠든 것으로 본다', () => {
+    expect(isAgentDormant([sub('a', true), sub('b', true)])).toBe(true);
+  });
+
+  it('하나라도 자식을 들고 있으면 잠든 것이 아니다 — 그 버블은 여전히 메모리를 쓴다', () => {
+    expect(isAgentDormant([sub('a', true), sub('b')])).toBe(false);
   });
 });

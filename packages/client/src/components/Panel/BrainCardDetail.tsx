@@ -180,7 +180,7 @@ export function BrainCardDetail({ card }: BrainCardDetailProps): React.JSX.Eleme
           <div className="text-xs font-semibold text-gray-300">{t('brain.chainTitle', { defaultValue: '대체 이력' })}</div>
           {chain.older.length > 0 && (
             <div className="space-y-1">
-              <div className="text-[10.5px] uppercase tracking-wide text-gray-500">
+              <div className="text-[12px] uppercase tracking-wide text-gray-500">
                 {t('brain.chainOlder', { defaultValue: '이 카드가 대체한 기억' })}
               </div>
               {chain.older.map((o) => (
@@ -198,7 +198,7 @@ export function BrainCardDetail({ card }: BrainCardDetailProps): React.JSX.Eleme
           )}
           {chain.newer.length > 0 && (
             <div className="space-y-1">
-              <div className="text-[10.5px] uppercase tracking-wide text-gray-500">
+              <div className="text-[12px] uppercase tracking-wide text-gray-500">
                 {t('brain.chainNewer', { defaultValue: '이 카드를 대체한 기억(현재)' })}
               </div>
               {chain.newer.map((n) => (

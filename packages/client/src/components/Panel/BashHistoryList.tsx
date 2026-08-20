@@ -80,7 +80,7 @@ function BashDetailPopup({ entry, onClose }: BashDetailPopupProps): React.JSX.El
           <div className="flex flex-col gap-3 p-4">
             {/* Input */}
             <div className="flex shrink-0 flex-col gap-1">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-blue-400">
+              <span className="text-[12px] font-semibold uppercase tracking-wider text-blue-400">
                 {t('panel.bashHistory.input')}
               </span>
               <pre className="whitespace-pre-wrap break-all rounded border border-gray-700/50 bg-gray-800 p-3 font-mono text-xs leading-relaxed text-gray-200">
@@ -90,7 +90,7 @@ function BashDetailPopup({ entry, onClose }: BashDetailPopupProps): React.JSX.El
 
             {/* Output */}
             <div className="flex min-h-0 flex-col gap-1">
-              <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wider text-emerald-400">
+              <span className="shrink-0 text-[12px] font-semibold uppercase tracking-wider text-emerald-400">
                 {t('panel.bashHistory.output')}
               </span>
               {entry.output ? (
@@ -145,11 +145,11 @@ export const BashHistoryList = memo(function BashHistoryList({
                 </code>
                 {/* Output preview */}
                 {entry.output && (
-                  <p className="mt-0.5 truncate text-[10px] text-emerald-400/60">
+                  <p className="mt-0.5 truncate text-[12px] text-emerald-400/60">
                     {entry.output.split('\n')[0]}
                   </p>
                 )}
-                <span className="mt-0.5 block text-[10px] text-gray-500">
+                <span className="mt-0.5 block text-[12px] text-gray-500">
                   {formatTime(entry.timestamp)}
                 </span>
               </li>

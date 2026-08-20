@@ -1,14 +1,17 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { NodeResizer, useStore, useStoreApi, type NodeProps } from '@xyflow/react';
-import { CAPTURE_BUBBLE_DEFAULTS, CAPTURE_SNAP, type CaptureSourceKind } from '@vibisual/shared';
+import { CAPTURE_BUBBLE_DEFAULTS, CAPTURE_PLAYTEST, CAPTURE_SNAP, type CaptureSourceKind } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { useCaptureSnapGuideStore } from '../../stores/captureSnapGuides.js';
 import { useCanvasCovered } from '../../stores/canvasVisibility.js';
 import { computeCaptureResizeSnap, type SnapRect } from './captureSnap.js';
 import { useCaptureStream, type CaptureQuality } from '../../hooks/useCaptureStream.js';
 import { useCaptureRemoteControl } from '../../hooks/useCaptureRemoteControl.js';
+import { useCaptureRecorder } from '../../hooks/useCaptureRecorder.js';
 import { useCapturePrefs } from '../../stores/captureBubblePrefs.js';
 import { useCaptureRuntime } from '../../stores/captureBubbleRuntime.js';
+import { useIsPlaytestRecording } from '../../stores/capturePlaytest.js';
+import { formatClipDuration } from './playtestClip.js';
 import { useTranslation } from 'react-i18next';
 import { CaptureControlOverlay } from './CaptureControlOverlay.js';
 import { CaptureWindow } from './CaptureWindow.js';
@@ -39,6 +42,13 @@ export const CAPTURE_SNAPSHOT_EVENT = 'vibisual:capture:snapshot';
  * 비율 맞추기는 이어 붙이기와 한 짝이다. 비율은 실제 프레임에만 있으므로 스냅샷과 같은 위임 패턴.
  */
 export const CAPTURE_FIT_EVENT = 'vibisual:capture:fit';
+
+/**
+ * §5.9 플레이테스트 — DetailPanel·크게 보기 창의 녹화 버튼이 발행 → 그 버블의 CaptureNode 가 듣고
+ * **자기 스트림**을 녹화한다(녹화기는 스트림을 쥔 이 노드에만 있다 — 두 번째 getUserMedia ❌).
+ * detail.action 이 없으면 토글. 스냅샷·비율 맞추기와 같은 위임 패턴.
+ */
+export const CAPTURE_RECORD_EVENT = 'vibisual:capture:record';
 
 /** 데이터 절감 화질 프리셋(외부·모바일 접속). 낮출수록 해상도·FPS↓ → CPU/대역폭↓. */
 interface CaptureQualityPreset extends CaptureQuality {
@@ -120,7 +130,11 @@ export const CaptureNode = memo(function CaptureNode({
   //   못 본다. IDE 를 최대화한 채 라이브 화면을 계속 디코딩하던 낭비를 끊는다. 단 크게보기 창은
   //   캔버스 밖(body portal)에 떠 있어 덮임과 무관하게 보이고, 원격 조작 중이면 끊으면 안 된다.
   const canvasCovered = useCanvasCovered();
-  const streamEnabled = !frozen && onScreen && (!canvasCovered || expanded || controlMode !== 'off');
+  // §5.9 플레이테스트 — 녹화 중에는 절전(일시정지·오프스크린·덮임 LOD)이 스트림을 내리지 않는다.
+  //   중간에 끊기면 그 구간이 통째로 비고, 사용자는 무엇이 빠졌는지 알 방법이 없다.
+  const playtestRecording = useIsPlaytestRecording(d.captureBubbleId);
+  const streamEnabled = playtestRecording
+    || (!frozen && onScreen && (!canvasCovered || expanded || controlMode !== 'off'));
 
   const { stream, error, loading } = useCaptureStream(d.sourceId, streamEnabled, quality);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -145,6 +159,13 @@ export const CaptureNode = memo(function CaptureNode({
     readOnly: prefs.readOnly,
     backgroundClick: prefs.backgroundClick,
     onDisengage: useCallback(() => setRuntime({ controlMode: 'off' }), [setRuntime]),
+  });
+
+  // §5.9 플레이테스트 — 지금 붙어 있는 그 스트림을 그대로 클립으로 담는다(새 캡처 레이어 ❌).
+  const recorder = useCaptureRecorder({
+    captureBubbleId: d.captureBubbleId,
+    sourceName: d.sourceName,
+    stream,
   });
 
   useEffect(() => {
@@ -255,6 +276,19 @@ export const CaptureNode = memo(function CaptureNode({
     window.addEventListener(CAPTURE_SNAPSHOT_EVENT, onSnapshot);
     return () => window.removeEventListener(CAPTURE_SNAPSHOT_EVENT, onSnapshot);
   }, [d.captureBubbleId, saveSnapshot]);
+
+  // DetailPanel·크게 보기 창의 녹화 버튼 위임 — 이 버블 id 로 온 이벤트면 녹화를 켜고 끈다.
+  useEffect(() => {
+    const onRecord = (e: Event): void => {
+      const detail = (e as CustomEvent<{ id?: string; action?: 'start' | 'stop' | 'toggle' }>).detail;
+      if (detail?.id !== d.captureBubbleId) return;
+      if (detail.action === 'start') recorder.start();
+      else if (detail.action === 'stop') recorder.stop();
+      else recorder.toggle();
+    };
+    window.addEventListener(CAPTURE_RECORD_EVENT, onRecord);
+    return () => window.removeEventListener(CAPTURE_RECORD_EVENT, onRecord);
+  }, [d.captureBubbleId, recorder]);
 
   const handleHeaderClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -423,17 +457,30 @@ export const CaptureNode = memo(function CaptureNode({
             : t('bubbleMap.capture.pausedTapResume', { defaultValue: '일시정지됨 · 눌러서 재생' })}
         />
         <span
-          className="min-w-0 flex-1 truncate text-[11px] font-medium tracking-tight text-slate-200"
+          className="min-w-0 flex-1 truncate text-[12px] font-medium tracking-tight text-slate-200"
           title={d.sourceName}
         >
           {d.sourceName}
         </span>
 
-        {/* 상태 칩 — 조작 중 / 보기 전용 / 일시정지 / 핀. 글리프만으로 한눈에. */}
+        {/* 상태 칩 — 녹화 중 / 조작 중 / 보기 전용 / 일시정지 / 핀. 글리프만으로 한눈에. */}
         <span className="flex shrink-0 items-center gap-1">
+          {recorder.recording && (
+            <span
+              className="flex items-center gap-1 rounded px-1 py-px text-[12px] font-semibold tabular-nums"
+              style={{ background: `${CAPTURE_PLAYTEST.RECORD_COLOR}26`, color: CAPTURE_PLAYTEST.RECORD_COLOR }}
+              title={t('bubbleMap.capture.playtest.recording', { defaultValue: '플레이 녹화 중' })}
+            >
+              <span
+                className="inline-block h-1.5 w-1.5 animate-pulse rounded-full"
+                style={{ background: CAPTURE_PLAYTEST.RECORD_COLOR }}
+              />
+              {formatClipDuration(recorder.elapsedMs)}
+            </span>
+          )}
           {control.active && (
             <span
-              className="rounded px-1 py-px text-[9px] font-semibold uppercase tracking-wide"
+              className="rounded px-1 py-px text-[12px] font-semibold uppercase tracking-wide"
               style={{ background: `${controlColor}26`, color: controlColor }}
               title={t('bubbleMap.capture.controlOn', { defaultValue: '조작 중' })}
             >
@@ -477,6 +524,19 @@ export const CaptureNode = memo(function CaptureNode({
               ) : (
                 <><rect x="6" y="4" width="4" height="16" rx="1" /><rect x="14" y="4" width="4" height="16" rx="1" /></>
               )}
+            </HeaderButton>
+            <HeaderButton
+              label={recorder.recording
+                ? t('bubbleMap.capture.playtest.stopRecording', { defaultValue: '녹화 멈추고 구간 자르기' })
+                : t('bubbleMap.capture.playtest.startRecording', { defaultValue: '플레이 녹화 시작' })}
+              onClick={recorder.toggle}
+              disabled={!recorder.available}
+              active={recorder.recording}
+              activeColor={CAPTURE_PLAYTEST.RECORD_COLOR}
+            >
+              {recorder.recording
+                ? <rect x="7" y="7" width="10" height="10" rx="2" />
+                : <circle cx="12" cy="12" r="7" />}
             </HeaderButton>
             <HeaderButton
               label={t('bubbleMap.capture.snapshot', { defaultValue: '현재 프레임 저장 (PNG)' })}
@@ -538,10 +598,24 @@ export const CaptureNode = memo(function CaptureNode({
           justifyContent: 'center',
         }}
       >
+        {/* 녹화 실패 사유 — 조용히 아무 일도 안 일어나면 기능 오류인지 미지원인지 구분할 수 없다. */}
+        {recorder.error && (
+          <button
+            type="button"
+            className="absolute left-2 top-2 z-[4] rounded-full px-2 py-0.5 text-[12px] font-semibold"
+            style={{ background: 'rgba(190,18,60,0.85)', color: '#FFE4E6', pointerEvents: 'auto' }}
+            onClick={(e) => { e.stopPropagation(); recorder.clearError(); }}
+          >
+            {t('bubbleMap.capture.playtest.recordFailed', {
+              defaultValue: '녹화 실패: {{reason}}',
+              reason: recorder.error,
+            })}
+          </button>
+        )}
         {/* fps·해상도 배지(지연 지표) — 유리 알약. AUTO 화질·정지절전 상태도 함께. */}
         {prefs.showBadge && stream && (
           <div
-            className="pointer-events-none absolute right-2 top-2 z-[4] rounded-full px-2 py-0.5 text-[9px] font-semibold tabular-nums"
+            className="pointer-events-none absolute right-2 top-2 z-[4] rounded-full px-2 py-0.5 text-[12px] font-semibold tabular-nums"
             style={{
               background: 'rgba(8,10,14,0.72)',
               border: `1px solid ${CAPTURE_BUBBLE_DEFAULTS.CHROME_BORDER}`,
@@ -635,20 +709,21 @@ interface HeaderButtonProps {
   disabled?: boolean;
   /** 켜짐 상태(핀 등) — 액센트로 눌린 티를 낸다. */
   active?: boolean;
+  /** 켜짐 색 — 기본은 캡처 액센트(sky). 녹화처럼 뜻이 다른 켜짐은 자기 색을 쓴다. */
+  activeColor?: string;
   children: React.ReactNode;
 }
 
 /** 헤더 호버 툴바의 고스트 아이콘 버튼 — 캔버스로 이벤트가 새지 않게 전파를 끊는다. */
-function HeaderButton({ label, onClick, disabled, active, children }: HeaderButtonProps): React.JSX.Element {
+function HeaderButton({ label, onClick, disabled, active, activeColor, children }: HeaderButtonProps): React.JSX.Element {
+  const onColor = activeColor ?? CAPTURE_BUBBLE_DEFAULTS.ACCENT_COLOR;
   return (
     <button
       type="button"
       className={`nodrag flex h-[18px] w-[18px] items-center justify-center rounded-[5px] transition-colors disabled:cursor-not-allowed disabled:opacity-30 ${
         active ? '' : 'text-slate-400 hover:bg-white/[0.12] hover:text-slate-100'
       }`}
-      style={active
-        ? { color: CAPTURE_BUBBLE_DEFAULTS.ACCENT_COLOR, background: `${CAPTURE_BUBBLE_DEFAULTS.ACCENT_COLOR}1f` }
-        : undefined}
+      style={active ? { color: onColor, background: `${onColor}1f` } : undefined}
       disabled={disabled}
       title={label}
       aria-label={label}
@@ -691,7 +766,7 @@ function StageMessage({ label, onClick, accent, spinning, children }: StageMessa
           {children}
         </svg>
       </span>
-      <span className="text-[11px] leading-tight text-slate-400">{label}</span>
+      <span className="text-[12px] leading-tight text-slate-400">{label}</span>
     </button>
   );
 }

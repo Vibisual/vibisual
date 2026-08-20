@@ -39,10 +39,10 @@ function isInsideRoot(absPath: string, rootPath: string | null): boolean {
 const PreviewBody = memo(function PreviewBody({ text, language }: { text: string; language: string }): React.JSX.Element {
   const lines = useMemo(() => highlightCode(text, language).slice(0, MAX_VIEWER_LINES), [text, language]);
   return (
-    <div className="font-mono text-[11px] leading-[1.55]">
+    <div className="font-mono text-[12px] leading-[1.55]">
       {lines.map((line, i) => (
         <div key={i} className="flex">
-          <span className="mr-2 w-9 flex-shrink-0 select-none pr-1 text-right text-[10px] text-gray-600">{i + 1}</span>
+          <span className="mr-2 w-9 flex-shrink-0 select-none pr-1 text-right text-[12px] text-gray-600">{i + 1}</span>
           <span className="min-w-0 flex-1 whitespace-pre-wrap break-words text-gray-300">
             {line.map((token, j) => (
               <span key={j} className={TOKEN_CLASS[token.kind]}>{token.text}</span>
@@ -145,7 +145,7 @@ export function IDEContextSourceDialog({
         <div className="flex items-center gap-2 border-b border-white/[0.06] px-4 py-3">
           <div className="min-w-0 flex-1">
             <h2 className="truncate text-[15px] font-semibold text-white">{title}</h2>
-            <p className="mt-0.5 truncate text-[10.5px] text-gray-500">
+            <p className="mt-0.5 truncate text-[12px] text-gray-500">
               {t(CONTEXT_CATEGORY_LABEL_KEY[item.category] ?? item.category)}
               {item.detail ? ` · ${item.detail}` : ''}
             </p>
@@ -170,10 +170,10 @@ export function IDEContextSourceDialog({
               if (!body) return null;
               return (
                 <div key={field}>
-                  <p className="text-[9.5px] font-bold uppercase tracking-wider text-gray-600">
+                  <p className="text-[12px] font-bold uppercase tracking-wider text-gray-600">
                     {t(`ide.context.detail.${field}Label`)}
                   </p>
-                  <p className="mt-1 whitespace-pre-line text-[11.5px] leading-relaxed text-gray-300">{body}</p>
+                  <p className="mt-1 whitespace-pre-line text-[12px] leading-relaxed text-gray-300">{body}</p>
                 </div>
               );
             })}
@@ -199,18 +199,18 @@ export function IDEContextSourceDialog({
                 >
                   <span className={`h-3 w-3 rounded-full bg-white/90 transition-transform ${item.enabled ? 'translate-x-3' : 'translate-x-0'} ${!lockable ? 'opacity-40' : ''}`} />
                 </button>
-                <span className={`text-[11px] font-semibold ${item.enabled ? 'text-emerald-300/90' : 'text-gray-500'}`}>
+                <span className={`text-[12px] font-semibold ${item.enabled ? 'text-emerald-300/90' : 'text-gray-500'}`}>
                   {t(item.enabled ? 'ide.context.detail.stateOn' : 'ide.context.detail.stateOff')}
                 </span>
-                <span className="ml-auto tabular-nums text-[11px] font-semibold text-violet-300/80">
+                <span className="ml-auto tabular-nums text-[12px] font-semibold text-violet-300/80">
                   {item.estimated ? '~' : ''}{formatTokens(item.tokens)}
                 </span>
               </div>
-              <p className="mt-2 text-[10.5px] leading-relaxed text-gray-400">{t(controlExplainKey(item.control))}</p>
-              {item.hintKey && <p className="mt-1 text-[10.5px] leading-relaxed text-sky-300/80">{t(item.hintKey)}</p>}
-              {item.warnKey && <p className="mt-1 text-[10.5px] leading-relaxed text-amber-400/80">{t(item.warnKey)}</p>}
+              <p className="mt-2 text-[12px] leading-relaxed text-gray-400">{t(controlExplainKey(item.control))}</p>
+              {item.hintKey && <p className="mt-1 text-[12px] leading-relaxed text-sky-300/80">{t(item.hintKey)}</p>}
+              {item.warnKey && <p className="mt-1 text-[12px] leading-relaxed text-amber-400/80">{t(item.warnKey)}</p>}
               {item.overrideScope && (
-                <p className="mt-1 text-[10px] text-violet-300/70">
+                <p className="mt-1 text-[12px] text-violet-300/70">
                   {t('ide.context.detail.overrideBy', { scope: t(`ide.context.scope.${item.overrideScope}`) })}
                 </p>
               )}
@@ -219,7 +219,7 @@ export function IDEContextSourceDialog({
             {/* 파일 목록 — 누르면 그 파일이 오른쪽에 열린다. */}
             {files.length > 0 && (
               <div>
-                <p className="text-[9.5px] font-bold uppercase tracking-wider text-gray-600">
+                <p className="text-[12px] font-bold uppercase tracking-wider text-gray-600">
                   {t('ide.context.detail.filesLabel', { count: files.length })}
                 </p>
                 <ul className="mt-1 flex flex-col gap-0.5">
@@ -234,10 +234,10 @@ export function IDEContextSourceDialog({
                             title={f.path ?? f.title}
                             className="min-w-0 flex-1 text-left"
                           >
-                            <span className={`block truncate text-[11px] ${active ? 'text-violet-200' : 'text-gray-300'}`}>{f.title}</span>
-                            <span className="block truncate text-[9px] text-gray-600">{f.path}</span>
+                            <span className={`block truncate text-[12px] ${active ? 'text-violet-200' : 'text-gray-300'}`}>{f.title}</span>
+                            <span className="block truncate text-[12px] text-gray-600">{f.path}</span>
                           </button>
-                          <span className="flex-shrink-0 tabular-nums text-[9.5px] text-violet-300/60">{formatTokens(f.tokens)}</span>
+                          <span className="flex-shrink-0 tabular-nums text-[12px] text-violet-300/60">{formatTokens(f.tokens)}</span>
                           {f.path && (
                             <button
                               type="button"
@@ -263,14 +263,14 @@ export function IDEContextSourceDialog({
           {/* 오른쪽 — 실제로 나가는 본문 */}
           <div className="flex min-w-0 flex-1 flex-col">
             <div className="flex items-center gap-2 border-b border-white/[0.06] px-3 py-2">
-              <span className="text-[9.5px] font-bold uppercase tracking-wider text-gray-600">
+              <span className="text-[12px] font-bold uppercase tracking-wider text-gray-600">
                 {t('ide.context.detail.bodyLabel')}
               </span>
               {preview?.filePath && (
-                <span className="min-w-0 flex-1 truncate text-[10px] text-gray-500" title={preview.filePath}>{preview.filePath}</span>
+                <span className="min-w-0 flex-1 truncate text-[12px] text-gray-500" title={preview.filePath}>{preview.filePath}</span>
               )}
               {preview && !preview.unreadable && (
-                <span className={`${preview.filePath ? '' : 'ml-auto '}flex-shrink-0 tabular-nums text-[10px] text-gray-500`}>
+                <span className={`${preview.filePath ? '' : 'ml-auto '}flex-shrink-0 tabular-nums text-[12px] text-gray-500`}>
                   {t('ide.context.detail.sizeLine', { chars: preview.chars.toLocaleString('en-US'), tokens: formatTokens(preview.tokens) })}
                 </span>
               )}
@@ -278,7 +278,7 @@ export function IDEContextSourceDialog({
                 <button
                   type="button"
                   onClick={handleCopy}
-                  className="flex-shrink-0 rounded px-1.5 py-0.5 text-[10px] text-gray-500 transition-colors hover:bg-white/[0.08] hover:text-gray-200"
+                  className="flex-shrink-0 rounded px-1.5 py-0.5 text-[12px] text-gray-500 transition-colors hover:bg-white/[0.08] hover:text-gray-200"
                 >
                   {t(copied ? 'ide.context.detail.copied' : 'ide.context.detail.copy')}
                 </button>
@@ -286,19 +286,19 @@ export function IDEContextSourceDialog({
             </div>
 
             <div className="min-h-0 flex-1 overflow-auto bg-black/30 px-3 py-2">
-              {loading && <p className="p-4 text-center text-[11px] text-gray-600">{t('ide.context.detail.loading')}</p>}
-              {!loading && failed && <p className="p-4 text-center text-[11px] text-amber-400/80">{t('ide.context.detail.error')}</p>}
+              {loading && <p className="p-4 text-center text-[12px] text-gray-600">{t('ide.context.detail.loading')}</p>}
+              {!loading && failed && <p className="p-4 text-center text-[12px] text-amber-400/80">{t('ide.context.detail.error')}</p>}
               {!loading && !failed && preview?.unreadable && (
-                <p className="p-4 text-[11.5px] leading-relaxed text-gray-500">{t('ide.context.detail.unreadable')}</p>
+                <p className="p-4 text-[12px] leading-relaxed text-gray-500">{t('ide.context.detail.unreadable')}</p>
               )}
               {!loading && !failed && preview && !preview.unreadable && preview.text.length === 0 && (
-                <p className="p-4 text-[11.5px] leading-relaxed text-gray-500">{t('ide.context.detail.emptyBody')}</p>
+                <p className="p-4 text-[12px] leading-relaxed text-gray-500">{t('ide.context.detail.emptyBody')}</p>
               )}
               {!loading && !failed && preview && preview.text.length > 0 && (
                 <>
                   <PreviewBody text={preview.text} language={language} />
                   {preview.truncated && (
-                    <p className="mt-2 border-t border-white/[0.06] pt-2 text-[10.5px] text-amber-400/70">
+                    <p className="mt-2 border-t border-white/[0.06] pt-2 text-[12px] text-amber-400/70">
                       {t('ide.context.detail.truncated', { count: preview.text.length.toLocaleString('en-US') })}
                     </p>
                   )}

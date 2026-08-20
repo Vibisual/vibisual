@@ -18,6 +18,7 @@ import {
   clearAnnotations,
   commitAnnotation,
   createAnnotation,
+  exportAnnotatedImage,
   exportAnnotatedPng,
   extendAnnotation,
   isCommittable,
@@ -35,6 +36,7 @@ import {
   type Point,
   type Size,
 } from './imageAnnotate.js';
+import { putWorkspaceImage } from './workspaceImageSave.js';
 
 // §5.5 #17-25 v4.80 — 라이트박스 안에서 이미지에 직접 표시하고, 표시가 박힌 PNG 를 그대로 첨부한다.
 //
@@ -70,6 +72,7 @@ export function ImageLightboxView({
   const { t } = useTranslation();
   const agents = useGraphStore((s) => s.agents);
   const updateAttachments = useGraphStore((s) => s.updateAgentSessionInputAttachments);
+  const markWorkspaceImageSaved = useGraphStore((s) => s.markWorkspaceImageSaved);
 
   const [tool, setTool] = useState<AnnotationTool | null>(null);
   const [color, setColor] = useState<string>(ANNOTATION_COLORS[0] ?? '#ef4444');
@@ -81,6 +84,8 @@ export function ImageLightboxView({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  // ④-1 그 사이 디스크가 바뀌었을 때 — 사용자가 [그래도 저장]을 고를 때까지 덮어쓰지 않는다.
+  const [fileConflict, setFileConflict] = useState(false);
 
   const imgRef = useRef<HTMLImageElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -291,6 +296,38 @@ export function ImageLightboxView({
     }
   }, [saving, items, state.attachment, agentId, activeSessionId, agents, uploadAnnotated, updateAttachments, onClose, t]);
 
+  /**
+   * §5.5 #17-25 ④-1 — 세 번째 저장 자리: **그 파일 자체를 덮어쓴다**.
+   *
+   * 첨부 저장(`handleSave`)과 갈라 둔 이유는 목적지가 다르기 때문이다. 규율은 편집창의 텍스트 저장과
+   * 같은 것을 쓴다 — 읽을 때 본 `mtimeMs` 를 함께 보내고, 그 사이 디스크가 바뀌었으면(409) 덮어쓰지
+   * 않고 사용자가 [그래도 저장]을 고르게 한다.
+   */
+  const handleSaveToFile = useCallback(async (force = false) => {
+    const img = imgRef.current;
+    const target = state.workspace;
+    if (!img || !target || saving || items.length === 0 || !target.bakeable) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const blob = await exportAnnotatedImage(img, items, target.mime);
+      if (!blob) throw new Error(t('ide.imageAnnotate.renderFailed'));
+      const out = await putWorkspaceImage(target.root, target.path, blob, force ? 0 : target.mtimeMs);
+      if (!out.ok) {
+        setFileConflict(out.status === 409);
+        setError(t(out.status === 409 ? 'ide.imageAnnotate.fileConflict' : 'ide.imageAnnotate.fileSaveFailed'));
+        return;
+      }
+      // 편집창이 이 신호를 보고 다시 읽어, 방금 그린 표시가 미리보기에 그대로 올라온다.
+      markWorkspaceImageSaved(target.path);
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('ide.imageAnnotate.fileSaveFailed'));
+    } finally {
+      setSaving(false);
+    }
+  }, [state.workspace, saving, items, markWorkspaceImageSaved, onClose, t]);
+
   const handleDownload = useCallback(async () => {
     const img = imgRef.current;
     if (!img) return;
@@ -408,12 +445,37 @@ export function ImageLightboxView({
         <ToolbarButton label={t('ide.imageAnnotate.download')} onClick={() => void handleDownload()}>
           <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
         </ToolbarButton>
+        {/* ④-1 워크스페이스 파일에서 연 팝업 — 첨부가 아니라 그 파일을 덮어쓴다(둘은 병행). */}
+        {state.workspace && (
+          <button
+            type="button"
+            disabled={items.length === 0 || saving || !state.workspace.bakeable}
+            onClick={() => void handleSaveToFile()}
+            title={
+              state.workspace.bakeable
+                ? t('ide.imageAnnotate.saveFileHint', { path: state.workspace.path })
+                : t('ide.imageAnnotate.saveFileUnsupported')
+            }
+            className="ml-1 flex h-7 items-center gap-1.5 rounded bg-emerald-600 px-2.5 text-[11px] font-semibold text-white transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-gray-700 disabled:text-gray-500"
+          >
+            {saving ? (
+              <span className="h-3 w-3 animate-spin rounded-full border-[1.5px] border-white border-t-transparent" />
+            ) : (
+              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                <polyline points="17 21 17 13 7 13 7 21" />
+                <polyline points="7 3 7 8 15 8" />
+              </svg>
+            )}
+            {t('ide.imageAnnotate.saveFile')}
+          </button>
+        )}
         {canAttach && (
           <button
             type="button"
             disabled={items.length === 0 || saving}
             onClick={() => void handleSave()}
-            className="ml-1 flex h-7 items-center gap-1.5 rounded bg-blue-600 px-2.5 text-[11px] font-semibold text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-gray-700 disabled:text-gray-500"
+            className="ml-1 flex h-7 items-center gap-1.5 rounded bg-blue-600 px-2.5 text-[12px] font-semibold text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-gray-700 disabled:text-gray-500"
           >
             {saving ? (
               <span className="h-3 w-3 animate-spin rounded-full border-[1.5px] border-white border-t-transparent" />
@@ -428,9 +490,18 @@ export function ImageLightboxView({
       {error && (
         <div
           onClick={(e) => e.stopPropagation()}
-          className="max-w-[92vw] truncate rounded border border-red-500/40 bg-red-900/60 px-3 py-1 text-[11px] text-red-200"
+          className="flex max-w-[92vw] items-center rounded border border-red-500/40 bg-red-900/60 px-3 py-1 text-[12px] text-red-200"
         >
-          {error}
+          <span className="min-w-0 truncate">{error}</span>
+          {fileConflict && (
+            <button
+              type="button"
+              onClick={() => { setFileConflict(false); void handleSaveToFile(true); }}
+              className="ml-2 flex-shrink-0 rounded border border-red-400/50 px-1.5 py-0.5 text-[11px] transition-colors hover:bg-red-500/20"
+            >
+              {t('ide.imageAnnotate.fileConflictOverwrite')}
+            </button>
+          )}
         </div>
       )}
 
@@ -480,7 +551,7 @@ export function ImageLightboxView({
         )}
       </div>
 
-      <p className="text-[11px] text-gray-500" onClick={(e) => e.stopPropagation()}>
+      <p className="text-[12px] text-gray-500" onClick={(e) => e.stopPropagation()}>
         {annotating ? t('ide.imageAnnotate.hintDraw') : t('ide.imageAnnotate.hintPick')}
       </p>
 
@@ -505,14 +576,14 @@ export function ImageLightboxView({
               <button
                 type="button"
                 onClick={() => setConfirmDiscard(false)}
-                className="rounded border border-gray-600 px-2.5 py-1 text-[11px] text-gray-300 transition-colors hover:bg-gray-800"
+                className="rounded border border-gray-600 px-2.5 py-1 text-[12px] text-gray-300 transition-colors hover:bg-gray-800"
               >
                 {t('ide.imageAnnotate.discardCancel')}
               </button>
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded bg-red-600 px-2.5 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-red-500"
+                className="rounded bg-red-600 px-2.5 py-1 text-[12px] font-semibold text-white transition-colors hover:bg-red-500"
               >
                 {t('ide.imageAnnotate.discardConfirm')}
               </button>

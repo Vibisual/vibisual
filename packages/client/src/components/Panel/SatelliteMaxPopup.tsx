@@ -62,7 +62,7 @@ export function SatelliteMaxPopup({
       onKeyDown={onKeyDown}
     >
       <div className="mb-2 flex items-center justify-between">
-        <span className="text-[11px] font-semibold text-violet-300">
+        <span className="text-[12px] font-semibold text-violet-300">
           {t('panel.folderFileTree.maxTitle')}
         </span>
         <button
@@ -126,11 +126,11 @@ export function SatelliteMaxPopup({
       />
 
       <div className="mt-2 flex items-center justify-between">
-        <span className="text-[10px] text-gray-500">{t('panel.folderFileTree.maxHint')}</span>
+        <span className="text-[12px] text-gray-500">{t('panel.folderFileTree.maxHint')}</span>
         <button
           type="button"
           onClick={commit}
-          className="rounded bg-violet-600 px-2.5 py-0.5 text-[11px] font-medium text-white hover:bg-violet-500"
+          className="rounded bg-violet-600 px-2.5 py-0.5 text-[12px] font-medium text-white hover:bg-violet-500"
         >
           {t('panel.folderFileTree.maxSave')}
         </button>

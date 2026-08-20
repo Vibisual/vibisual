@@ -179,7 +179,7 @@ export function PluginsWindow({ open, onClose }: PluginsWindowProps): React.JSX.
             </svg>
             {t('panel.plugins.title')}
             {/* 켠 수를 창 머리에 둔다 — 111종 중 무엇이 켜져 있는지가 가장 먼저 궁금한 정보다. */}
-            <span className="text-[11px] font-normal text-gray-500">
+            <span className="text-[12px] font-normal text-gray-500">
               {t('panel.plugins.enabledCount', { on: enabledSet.size, total: PLUGIN_MANIFESTS.length })}
             </span>
             {saving && <span className="text-xs font-normal text-gray-500">{t('panel.plugins.saving')}</span>}
@@ -196,7 +196,7 @@ export function PluginsWindow({ open, onClose }: PluginsWindowProps): React.JSX.
 
         {/* 적용 범위 — 이 창이 어느 프로젝트를 손대는지. 켬/끔이 프로젝트별이므로 상시 표시한다. */}
         <div
-          className={`flex shrink-0 items-center gap-2 border-b px-4 py-2 text-[11px] ${
+          className={`flex shrink-0 items-center gap-2 border-b px-4 py-2 text-[12px] ${
             projectPath
               ? 'border-gray-700/50 bg-white/[0.03] text-gray-400'
               : 'border-amber-500/20 bg-amber-500/[0.07] text-amber-300/90'
@@ -256,7 +256,7 @@ export function PluginsWindow({ open, onClose }: PluginsWindowProps): React.JSX.
               <button
                 type="button"
                 onClick={() => setOnlyEnabled((v) => !v)}
-                className={`mt-1.5 flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-[11px] ${
+                className={`mt-1.5 flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-[12px] ${
                   onlyEnabled ? 'bg-emerald-500/15 text-emerald-300' : 'text-gray-500 hover:bg-white/[0.04] hover:text-gray-300'
                 }`}
               >
@@ -267,7 +267,7 @@ export function PluginsWindow({ open, onClose }: PluginsWindowProps): React.JSX.
 
             <div className="flex-1 overflow-y-auto py-1">
               {groups.length === 0 ? (
-                <p className="px-3 py-4 text-[11px] leading-relaxed text-gray-600">{t('panel.plugins.noMatch')}</p>
+                <p className="px-3 py-4 text-[12px] leading-relaxed text-gray-600">{t('panel.plugins.noMatch')}</p>
               ) : (
                 groups.map((group) => {
                   const folded = collapsed.has(group.category);
@@ -283,7 +283,7 @@ export function PluginsWindow({ open, onClose }: PluginsWindowProps): React.JSX.
                         return next;
                       })}
                       aria-expanded={!folded}
-                      className="flex w-full items-center gap-1 px-3 pb-1 pt-2.5 text-left text-[10px] font-semibold uppercase tracking-wide text-gray-600 hover:text-gray-400"
+                      className="flex w-full items-center gap-1 px-3 pb-1 pt-2.5 text-left text-[12px] font-semibold uppercase tracking-wide text-gray-600 hover:text-gray-400"
                     >
                       <svg
                         className={`h-3 w-3 shrink-0 transition-transform ${folded ? '-rotate-90' : ''}`}
@@ -330,7 +330,7 @@ export function PluginsWindow({ open, onClose }: PluginsWindowProps): React.JSX.
                 <div className="flex items-start justify-between gap-4 border-b border-gray-700/50 pb-3">
                   <div className="min-w-0">
                     <h4 className="text-sm font-semibold text-gray-200">{selected.name}</h4>
-                    <p className="mt-0.5 text-[11px] text-gray-500">
+                    <p className="mt-0.5 text-[12px] text-gray-500">
                       v{selected.version} · {t(`panel.plugins.category.${selected.category}`)}
                     </p>
                   </div>
@@ -361,7 +361,7 @@ export function PluginsWindow({ open, onClose }: PluginsWindowProps): React.JSX.
                     <p className="text-[13px] leading-relaxed text-gray-300 group-hover:text-gray-100">
                       {t(selected.descriptionKey)}
                     </p>
-                    <span className="mt-1 inline-flex items-center gap-1 text-[11px] text-gray-500 group-hover:text-gray-300">
+                    <span className="mt-1 inline-flex items-center gap-1 text-[12px] text-gray-500 group-hover:text-gray-300">
                       <svg
                         className={`h-3 w-3 transition-transform ${showUsage ? 'rotate-180' : ''}`}
                         viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
@@ -379,7 +379,7 @@ export function PluginsWindow({ open, onClose }: PluginsWindowProps): React.JSX.
                 </div>
 
                 <div>
-                  <h5 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                  <h5 className="mb-1.5 text-[12px] font-semibold uppercase tracking-wide text-gray-500">
                     {t('panel.plugins.contributes')}
                   </h5>
                   <div className="flex flex-wrap gap-1.5">
@@ -388,7 +388,7 @@ export function PluginsWindow({ open, onClose }: PluginsWindowProps): React.JSX.
                       return (
                         <span
                           key={c}
-                          className={`rounded px-1.5 py-0.5 text-[11px] ${
+                          className={`rounded px-1.5 py-0.5 text-[12px] ${
                             off ? 'bg-white/[0.04] text-gray-600 line-through' : 'bg-white/[0.06] text-gray-300'
                           }`}
                           title={off ? t('panel.plugins.unsupported') : undefined}
@@ -399,7 +399,7 @@ export function PluginsWindow({ open, onClose }: PluginsWindowProps): React.JSX.
                     })}
                   </div>
                   {unsupported.length > 0 && (
-                    <p className="mt-1.5 text-[11px] text-gray-600">{t('panel.plugins.unsupported')}</p>
+                    <p className="mt-1.5 text-[12px] text-gray-600">{t('panel.plugins.unsupported')}</p>
                   )}
                 </div>
 
@@ -417,7 +417,7 @@ export function PluginsWindow({ open, onClose }: PluginsWindowProps): React.JSX.
                   </PluginErrorBoundary>
                 )}
 
-                <p className="mt-1 rounded-md bg-white/[0.03] p-2.5 text-[11px] leading-relaxed text-gray-500">
+                <p className="mt-1 rounded-md bg-white/[0.03] p-2.5 text-[12px] leading-relaxed text-gray-500">
                   {t('panel.plugins.offNote')}
                 </p>
               </div>

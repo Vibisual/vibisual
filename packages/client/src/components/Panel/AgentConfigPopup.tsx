@@ -73,7 +73,7 @@ function HoverTip({ text, children, className }: {
       {children}
       {show && createPortal(
         <div
-          className="pointer-events-none fixed z-[9999] max-w-56 -translate-x-1/2 -translate-y-full rounded border border-gray-700 bg-gray-800 px-2.5 py-1.5 text-[10px] leading-snug text-gray-300 shadow-lg"
+          className="pointer-events-none fixed z-[9999] max-w-56 -translate-x-1/2 -translate-y-full rounded border border-gray-700 bg-gray-800 px-2.5 py-1.5 text-[12px] leading-snug text-gray-300 shadow-lg"
           style={{ left: pos.x, top: pos.y }}
         >
           {text}
@@ -235,7 +235,7 @@ function CustomSelect({ value, onChange, options, disabled }: {
               className={`flex w-full flex-col gap-0.5 px-3 py-1.5 text-left transition-colors ${opt.disabled ? 'cursor-not-allowed opacity-40' : 'hover:bg-blue-500/15'} ${opt.value === value ? 'bg-blue-500/10' : ''}`}
             >
               <span className={`text-xs font-medium ${opt.value === value ? 'text-blue-400' : 'text-gray-200'}`}>{opt.label ?? opt.value}</span>
-              <span className="text-[10px] leading-tight text-gray-500">{opt.description}</span>
+              <span className="text-[12px] leading-tight text-gray-500">{opt.description}</span>
             </button>
           ))}
         </div>,
@@ -355,7 +355,7 @@ function AutoEdgeSection({
   const edges = useOutboundEdgesForAgent(agentId);
   if (edges.length === 0) {
     return compact ? null : (
-      <div className="rounded border border-gray-800 bg-gray-950/40 px-2.5 py-2 text-[11px] text-gray-600">
+      <div className="rounded border border-gray-800 bg-gray-950/40 px-2.5 py-2 text-[12px] text-gray-600">
         {t('panel.agentConfig.autoEdge.empty')}
       </div>
     );
@@ -363,21 +363,21 @@ function AutoEdgeSection({
   return (
     <div className="flex flex-col gap-1 rounded border border-indigo-800/50 bg-indigo-950/20 px-2.5 py-2">
       <div className="flex items-center gap-1.5">
-        <span className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-indigo-300">
+        <span className="flex items-center gap-1 text-[12px] uppercase tracking-wider text-indigo-300">
           <svg viewBox="0 0 24 24" className="h-3 w-3 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
           {t('panel.agentConfig.autoEdge.title')}
         </span>
-        <span className="text-[10px] text-indigo-500/70">{edges.length}</span>
+        <span className="text-[12px] text-indigo-500/70">{edges.length}</span>
       </div>
       <div className="flex flex-col gap-1">
         {edges.map((e) => {
           const rowCls = e.inactive
-            ? 'rounded bg-gray-800/50 px-2 py-1 text-[11px] text-gray-500 opacity-70'
-            : 'rounded bg-indigo-950/30 px-2 py-1 text-[11px] text-indigo-100';
+            ? 'rounded bg-gray-800/50 px-2 py-1 text-[12px] text-gray-500 opacity-70'
+            : 'rounded bg-indigo-950/30 px-2 py-1 text-[12px] text-indigo-100';
           const labelCls = e.inactive
             ? 'font-semibold text-gray-400 line-through decoration-gray-500/60'
             : 'font-semibold text-indigo-200';
-          const metaCls = e.inactive ? 'text-[10px] text-gray-500' : 'text-[10px] text-indigo-400/80';
+          const metaCls = e.inactive ? 'text-[12px] text-gray-500' : 'text-[12px] text-indigo-400/80';
           const usageCls = e.inactive ? 'mt-0.5 text-gray-500' : 'mt-0.5 text-indigo-100/90';
           const usagePh = e.inactive ? 'text-gray-600' : 'text-indigo-300/50';
           return (
@@ -398,7 +398,7 @@ function AutoEdgeSection({
                     returnFormat: {e.returnFormat} · {e.hasArtifact ? t('panel.agentConfig.autoEdge.sync') : t('panel.agentConfig.autoEdge.async')}
                   </div>
                   {e.inactive && (
-                    <div className="mt-0.5 flex items-start gap-1 text-[10px] text-amber-400/80">
+                    <div className="mt-0.5 flex items-start gap-1 text-[12px] text-amber-400/80">
                       <svg viewBox="0 0 24 24" className="mt-px h-3 w-3 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>
                       <span>{t('panel.agentConfig.autoEdge.inactiveWarn')}</span>
                     </div>
@@ -410,7 +410,7 @@ function AutoEdgeSection({
         })}
       </div>
       {!compact && (
-        <div className="mt-1 text-[10px] text-indigo-500/70">
+        <div className="mt-1 text-[12px] text-indigo-500/70">
           {t('panel.agentConfig.autoEdge.footnote')}
         </div>
       )}
@@ -770,12 +770,12 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
 
               {/* §4 v2.41 — 작은 인라인 버전 라인. `version: claude-opus-4-8 ▾` 식.
                   native <select> 로 컴팩트 + 옵션 4개 이내 (Latest / 최신 / 직전 / Custom…) */}
-              <div className="mt-0.5 flex items-center gap-1 px-0.5 text-[10px] text-gray-500">
+              <div className="mt-0.5 flex items-center gap-1 px-0.5 text-[12px] text-gray-500">
                 <span className="uppercase tracking-wider">{t('panel.agentConfig.modelVersion.label', { defaultValue: 'Version' })}:</span>
                 <select
                   value={effectiveVersionValue}
                   onChange={(e) => handleVersionChange(e.target.value)}
-                  className="cursor-pointer rounded border border-gray-700/50 bg-gray-900/40 px-1 py-0 font-mono text-[10px] text-gray-300 outline-none hover:border-gray-600 focus:border-blue-500"
+                  className="cursor-pointer rounded border border-gray-700/50 bg-gray-900/40 px-1 py-0 font-mono text-[12px] text-gray-300 outline-none hover:border-gray-600 focus:border-blue-500"
                 >
                   {VERSION_OPTIONS.map((o) => (
                     <option key={o.value} value={o.value}>{o.description}</option>
@@ -791,7 +791,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                     value={modelVersion ?? ''}
                     onChange={(e) => setModelVersion(e.target.value)}
                     placeholder={`claude-${model}-X-Y`}
-                    className="flex-1 rounded border border-gray-700 bg-gray-900 px-1.5 py-0 font-mono text-[10px] text-gray-200 placeholder:text-gray-600 focus:border-blue-500 focus:outline-none"
+                    className="flex-1 rounded border border-gray-700 bg-gray-900 px-1.5 py-0 font-mono text-[12px] text-gray-200 placeholder:text-gray-600 focus:border-blue-500 focus:outline-none"
                   />
                 )}
               </div>
@@ -850,7 +850,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                         key={p}
                         type="button"
                         onClick={() => setPermissionTimeoutPolicy(p)}
-                        className={`relative flex flex-1 items-center justify-center gap-1.5 rounded text-[11px] font-semibold uppercase tracking-wide transition-colors ${
+                        className={`relative flex flex-1 items-center justify-center gap-1.5 rounded text-[12px] font-semibold uppercase tracking-wide transition-colors ${
                           active
                             ? (p === 'deny' ? 'text-red-300' : 'text-emerald-200')
                             : 'text-gray-500 hover:text-gray-300'
@@ -908,7 +908,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
               />
               {/* §5.3 #28 (K) v1.48 — 콘티모드 ON 으로 전이될 때만 룰 덮어쓰기 경고 노출 */}
               {customMode === 'conti' && base.customMode !== 'conti' && (
-                <p className="flex items-start gap-1.5 text-[10px] leading-tight text-amber-400/85">
+                <p className="flex items-start gap-1.5 text-[12px] leading-tight text-amber-400/85">
                   <svg viewBox="0 0 24 24" className="mt-0.5 h-3 w-3 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
                     <line x1="12" y1="9" x2="12" y2="13" />
@@ -922,7 +922,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                 </p>
               )}
               {customMode !== 'conti' && base.customMode === 'conti' && (
-                <p className="flex items-start gap-1.5 text-[10px] leading-tight text-gray-400">
+                <p className="flex items-start gap-1.5 text-[12px] leading-tight text-gray-400">
                   <svg viewBox="0 0 24 24" className="mt-0.5 h-3 w-3 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <circle cx="12" cy="12" r="9" />
                     <line x1="12" y1="8" x2="12" y2="12" />
@@ -936,14 +936,14 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                 </p>
               )}
               {customMode === 'review' || customMode === 'debug' ? (
-                <p className="text-[10px] leading-tight text-amber-400/70">
+                <p className="text-[12px] leading-tight text-amber-400/70">
                   {t('panel.agentConfig.customMode.placeholderHint', {
                     defaultValue: '이 모드는 아직 구현되지 않았습니다 — 저장은 되지만 동작은 비활성.',
                   })}
                 </p>
               ) : null}
               {customMode === 'conti' && (
-                <p className="text-[10px] leading-tight text-emerald-400/80">
+                <p className="text-[12px] leading-tight text-emerald-400/80">
                   {t('panel.agentConfig.customMode.contiHint', {
                     defaultValue: '저장 시 에이전트 옆에 콘티 버블이 자동 생성됩니다 (단일 클릭=히스토리, 더블 클릭=보드).',
                   })}
@@ -978,7 +978,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                 </svg>
                 {t('panel.agentConfig.projectContext')}
                 <InfoTip text={t('panel.agentConfig.fieldTips.projectContext')} />
-                <span className="ml-auto text-[10px] text-gray-600">{t('panel.agentConfig.contextItems', { count: contextItems.length })}</span>
+                <span className="ml-auto text-[12px] text-gray-600">{t('panel.agentConfig.contextItems', { count: contextItems.length })}</span>
               </button>
               {contextOpen && (
                 <div className="mt-1 flex flex-col gap-0.5 rounded border border-gray-700/50 bg-gray-800/50 p-2">
@@ -986,11 +986,11 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                     <div key={item.name} className="group/ctx flex flex-col gap-0.5 rounded px-2 py-1 hover:bg-gray-700/30">
                       <div className="flex items-center gap-1.5">
                         <svg className="h-3 w-3 flex-shrink-0 text-emerald-500" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1Zm3.3 5.7-4 4a.75.75 0 0 1-1.06 0l-2-2a.75.75 0 1 1 1.06-1.06L6.75 9.1l3.47-3.47a.75.75 0 1 1 1.06 1.06Z" /></svg>
-                        <span className="text-[11px] font-medium text-gray-300">{item.name}</span>
+                        <span className="text-[12px] font-medium text-gray-300">{item.name}</span>
                         {/* File open + Folder open buttons */}
                         {item.path && (
                           <span className="ml-auto flex items-center gap-1 opacity-0 transition-opacity group-hover/ctx:opacity-100">
-                            {item.lines != null && <span className="mr-1 text-[10px] text-gray-600">{item.lines}L</span>}
+                            {item.lines != null && <span className="mr-1 text-[12px] text-gray-600">{item.lines}L</span>}
                             <HoverTip text="Open file in editor" className="inline-flex">
                               <button type="button" onClick={() => { fetch(`${API_BASE}/api/open-context-path`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filePath: item.path, mode: 'file' }) }).catch(() => {}); }} className="rounded p-0.5 text-gray-500 hover:bg-gray-700 hover:text-gray-300">
                                 <svg className="h-3 w-3" viewBox="0 0 16 16" fill="currentColor"><path d="M2 1.75C2 .784 2.784 0 3.75 0h6.586c.464 0 .909.184 1.237.513l2.914 2.914c.329.328.513.773.513 1.237v9.586A1.75 1.75 0 0 1 13.25 16h-9.5A1.75 1.75 0 0 1 2 14.25Zm1.75-.25a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25h9.5a.25.25 0 0 0 .25-.25V6h-2.75A1.75 1.75 0 0 1 9 4.25V1.5Zm6.75.062V4.25c0 .138.112.25.25.25h2.688l-.011-.013-2.914-2.914-.013-.011Z" /></svg>
@@ -1003,21 +1003,21 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                             </HoverTip>
                           </span>
                         )}
-                        {!item.path && item.lines != null && <span className="ml-auto text-[10px] text-gray-600">{item.lines}L</span>}
+                        {!item.path && item.lines != null && <span className="ml-auto text-[12px] text-gray-600">{item.lines}L</span>}
                       </div>
-                      {item.summary && <span className="pl-[18px] text-[10px] leading-tight text-gray-500">{item.summary}</span>}
+                      {item.summary && <span className="pl-[18px] text-[12px] leading-tight text-gray-500">{item.summary}</span>}
                     </div>
                   ))}
                   {contextItems.some((i) => i.type === 'not_accessible') && (
                     <div className="mt-1 border-t border-gray-700/30 pt-1">
-                      <span className="px-2 text-[10px] font-medium text-gray-600">Not accessible (Claude Code internal)</span>
+                      <span className="px-2 text-[12px] font-medium text-gray-600">Not accessible (Claude Code internal)</span>
                       {contextItems.filter((i) => i.type === 'not_accessible').map((item) => (
                         <div key={item.name} className="flex flex-col gap-0.5 rounded px-2 py-1">
                           <div className="flex items-center gap-1.5">
                             <svg className="h-3 w-3 flex-shrink-0 text-gray-600" viewBox="0 0 16 16" fill="currentColor"><path d="M4 4a4 4 0 0 1 8 0v2h.25A1.75 1.75 0 0 1 14 7.75v5.5A1.75 1.75 0 0 1 12.25 15h-8.5A1.75 1.75 0 0 1 2 13.25v-5.5A1.75 1.75 0 0 1 3.75 6H4V4Zm6 0v2H6V4a2 2 0 1 1 4 0ZM8 10a1 1 0 1 0 0 2 1 1 0 0 0 0-2Z" /></svg>
-                            <span className="text-[11px] text-gray-500">{item.name}</span>
+                            <span className="text-[12px] text-gray-500">{item.name}</span>
                           </div>
-                          {item.summary && <span className="pl-[18px] text-[10px] leading-tight text-gray-600">{item.summary}</span>}
+                          {item.summary && <span className="pl-[18px] text-[12px] leading-tight text-gray-600">{item.summary}</span>}
                         </div>
                       ))}
                     </div>
@@ -1068,7 +1068,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                     {availableToAdd.map((t) => (
                       <button key={t} type="button" onClick={() => { setTools((p) => [...p, t]); toolPicker.close(); }} className="flex w-full flex-col gap-0.5 px-3 py-1.5 text-left transition-colors hover:bg-blue-500/15">
                         <span className="text-xs font-medium text-gray-200">{t}</span>
-                        {TOOL_DESCRIPTIONS[t] && <span className="text-[10px] leading-tight text-gray-500">{TOOL_DESCRIPTIONS[t]}</span>}
+                        {TOOL_DESCRIPTIONS[t] && <span className="text-[12px] leading-tight text-gray-500">{TOOL_DESCRIPTIONS[t]}</span>}
                       </button>
                     ))}
                   </div>,
@@ -1122,7 +1122,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                         className="flex w-full flex-col gap-0.5 px-3 py-1.5 text-left transition-colors hover:bg-red-500/15"
                       >
                         <span className="text-xs font-medium text-gray-200">{tool}</span>
-                        {TOOL_DESCRIPTIONS[tool] && <span className="text-[10px] leading-tight text-gray-500">{TOOL_DESCRIPTIONS[tool]}</span>}
+                        {TOOL_DESCRIPTIONS[tool] && <span className="text-[12px] leading-tight text-gray-500">{TOOL_DESCRIPTIONS[tool]}</span>}
                       </button>
                     ))}
                   </div>,
@@ -1204,7 +1204,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
               </span>
               <div className="grid grid-cols-2 gap-2.5">
                 <div className="flex flex-col gap-1">
-                  <label className="flex items-center text-[11px] font-medium text-gray-500">
+                  <label className="flex items-center text-[12px] font-medium text-gray-500">
                     {t('panel.agentConfig.fallbackModel.label')}
                     <InfoTip text={t('panel.agentConfig.fallbackModel.tip')} />
                   </label>
@@ -1217,7 +1217,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                   />
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="flex items-center text-[11px] font-medium text-gray-500">
+                  <label className="flex items-center text-[12px] font-medium text-gray-500">
                     {t('panel.agentConfig.autoCompact.label')}
                     <InfoTip text={t('panel.agentConfig.autoCompact.tip')} />
                   </label>
@@ -1225,7 +1225,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                 </div>
               </div>
               <div className="flex flex-col gap-1">
-                <label className="flex items-center text-[11px] font-medium text-gray-500">
+                <label className="flex items-center text-[12px] font-medium text-gray-500">
                   {t('panel.agentConfig.settingSources.label')}
                   <InfoTip text={t('panel.agentConfig.settingSources.tip')} />
                 </label>
@@ -1246,11 +1246,11 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                     );
                   })}
                   {settingSources.length === 0 && (
-                    <span className="self-center text-[11px] text-gray-600">{t('panel.agentConfig.settingSources.all')}</span>
+                    <span className="self-center text-[12px] text-gray-600">{t('panel.agentConfig.settingSources.all')}</span>
                   )}
                 </div>
               </div>
-              <label className="flex items-start gap-2 text-[11px] text-gray-400">
+              <label className="flex items-start gap-2 text-[12px] text-gray-400">
                 <input
                   type="checkbox"
                   checked={excludeDynamicSections}
@@ -1262,7 +1262,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                   <span className="ml-1 text-gray-600">{t('panel.agentConfig.excludeDynamicSections.hint')}</span>
                 </span>
               </label>
-              <label className="flex items-start gap-2 text-[11px] text-gray-400">
+              <label className="flex items-start gap-2 text-[12px] text-gray-400">
                 <input
                   type="checkbox"
                   checked={safeMode}
@@ -1275,7 +1275,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                 </span>
               </label>
               <div className="flex flex-col gap-1">
-                <label className="flex items-center text-[11px] font-medium text-gray-500">
+                <label className="flex items-center text-[12px] font-medium text-gray-500">
                   {t('panel.agentConfig.betas.label')}
                   <InfoTip text={t('panel.agentConfig.betas.tip')} />
                 </label>
@@ -1290,13 +1290,13 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
               {/* §4 (CLI 사양 추종) — Bash 타임아웃(초). 0 = 미설정(CLI 기본 유지).
                   상한을 올려야 10분(600초)에서 잘리던 긴 빌드·테스트가 끝까지 간다. */}
               <div className="flex flex-col gap-1.5">
-                <span className="flex items-center text-[11px] font-medium text-gray-500">
+                <span className="flex items-center text-[12px] font-medium text-gray-500">
                   {t('panel.agentConfig.bashTimeout.label')}
                   <InfoTip text={t('panel.agentConfig.bashTimeout.tip')} />
                 </span>
                 <div className="grid grid-cols-2 gap-2.5">
                   <div className="flex flex-col gap-1">
-                    <label className="text-[11px] text-gray-500">{t('panel.agentConfig.bashTimeout.defaultLabel')}</label>
+                    <label className="text-[12px] text-gray-500">{t('panel.agentConfig.bashTimeout.defaultLabel')}</label>
                     <div className="flex items-stretch rounded border border-gray-700 bg-gray-800 focus-within:border-blue-500">
                       <input
                         type="number"
@@ -1310,7 +1310,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                     </div>
                   </div>
                   <div className="flex flex-col gap-1">
-                    <label className="text-[11px] text-gray-500">{t('panel.agentConfig.bashTimeout.maxLabel')}</label>
+                    <label className="text-[12px] text-gray-500">{t('panel.agentConfig.bashTimeout.maxLabel')}</label>
                     <div className="flex items-stretch rounded border border-gray-700 bg-gray-800 focus-within:border-blue-500">
                       <input
                         type="number"
@@ -1324,7 +1324,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                     </div>
                   </div>
                 </div>
-                <span className="text-[11px] text-gray-600">
+                <span className="text-[12px] text-gray-600">
                   {t('panel.agentConfig.bashTimeout.hint', {
                     defaultSec: BASH_DEFAULT_TIMEOUT_MS_CLI_DEFAULT / 1000,
                     maxSec: BASH_MAX_TIMEOUT_MS_CLI_DEFAULT / 1000,
@@ -1365,11 +1365,11 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                     {/* Project Skills */}
                     {availableSkills.some((s) => s.source === 'project' && !skills.includes(s.name)) && (
                       <>
-                        <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-emerald-500/70">Project</div>
+                        <div className="px-3 py-1 text-[12px] font-semibold uppercase tracking-wider text-emerald-500/70">Project</div>
                         {availableSkills.filter((s) => s.source === 'project' && !skills.includes(s.name)).map((s) => (
                           <button key={s.name} type="button" onClick={() => { addSkill(s.name); skillPicker.close(); }} className="flex w-full flex-col gap-0.5 px-3 py-1.5 text-left transition-colors hover:bg-emerald-500/10">
                             <span className="text-xs font-medium text-emerald-400">{s.name}</span>
-                            {s.description && <span className="line-clamp-2 text-[10px] leading-tight text-gray-500">{s.description}</span>}
+                            {s.description && <span className="line-clamp-2 text-[12px] leading-tight text-gray-500">{s.description}</span>}
                           </button>
                         ))}
                       </>
@@ -1377,11 +1377,11 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                     {/* Global Skills — 홈 ~/.claude (전 프로젝트 공통) */}
                     {availableSkills.some((s) => s.source === 'global' && !skills.includes(s.name)) && (
                       <>
-                        <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-sky-500/70">Global</div>
+                        <div className="px-3 py-1 text-[12px] font-semibold uppercase tracking-wider text-sky-500/70">Global</div>
                         {availableSkills.filter((s) => s.source === 'global' && !skills.includes(s.name)).map((s) => (
                           <button key={s.name} type="button" onClick={() => { addSkill(s.name); skillPicker.close(); }} className="flex w-full flex-col gap-0.5 px-3 py-1.5 text-left transition-colors hover:bg-sky-500/10">
                             <span className="text-xs font-medium text-sky-400">{s.name}</span>
-                            {s.description && <span className="line-clamp-2 text-[10px] leading-tight text-gray-500">{s.description}</span>}
+                            {s.description && <span className="line-clamp-2 text-[12px] leading-tight text-gray-500">{s.description}</span>}
                           </button>
                         ))}
                       </>
@@ -1389,14 +1389,14 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                     {/* Plugin Skills */}
                     {availableSkills.some((s) => s.source === 'plugin' && !skills.includes(s.name)) && (
                       <>
-                        <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-purple-500/70">Installed Plugins</div>
+                        <div className="px-3 py-1 text-[12px] font-semibold uppercase tracking-wider text-purple-500/70">Installed Plugins</div>
                         {availableSkills.filter((s) => s.source === 'plugin' && !skills.includes(s.name)).map((s) => (
                           <button key={s.name} type="button" onClick={() => { addSkill(s.name); skillPicker.close(); }} className="flex w-full flex-col gap-0.5 px-3 py-1.5 text-left transition-colors hover:bg-purple-500/10">
                             <div className="flex items-center gap-1.5">
                               <span className="text-xs font-medium text-purple-400">{s.name}</span>
-                              {s.pluginName && <span className="text-[9px] text-gray-600">{s.pluginName}</span>}
+                              {s.pluginName && <span className="text-[12px] text-gray-600">{s.pluginName}</span>}
                             </div>
-                            {s.description && <span className="line-clamp-2 text-[10px] leading-tight text-gray-500">{s.description}</span>}
+                            {s.description && <span className="line-clamp-2 text-[12px] leading-tight text-gray-500">{s.description}</span>}
                           </button>
                         ))}
                       </>
@@ -1469,7 +1469,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
             <div className="flex flex-1 overflow-hidden">
               {/* Left — 본문 편집 */}
               <div className="flex flex-1 flex-col overflow-hidden">
-                <p className="px-4 pt-2 text-[10px] text-gray-600">{t('panel.agentConfig.rulesEditor.help', { defaultValue: 'Custom rules injected into the agent prompt on every run (Markdown)' })}</p>
+                <p className="px-4 pt-2 text-[12px] text-gray-600">{t('panel.agentConfig.rulesEditor.help', { defaultValue: 'Custom rules injected into the agent prompt on every run (Markdown)' })}</p>
                 <textarea
                   value={rules}
                   onChange={(e) => { setRules(e.target.value); setHistoryPreviewTs(null); }}
@@ -1485,13 +1485,13 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
               {/* Right — Rules History 패널 (폰에선 숨김 — 좁은 화면에서 본문 편집 우선) */}
               <div className="flex w-[320px] flex-col border-l border-gray-700 bg-gray-950/40 max-md:hidden">
                 <div className="flex items-center justify-between border-b border-gray-800 px-3 py-2">
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                  <span className="text-[12px] font-semibold uppercase tracking-wider text-gray-400">
                     {t('panel.agentConfig.rulesHistory.title', { defaultValue: 'History' })}
                   </span>
-                  <span className="text-[10px] text-gray-600">{rulesHistory.length}/20</span>
+                  <span className="text-[12px] text-gray-600">{rulesHistory.length}/20</span>
                 </div>
                 {rulesHistory.length === 0 ? (
-                  <div className="flex flex-1 items-center justify-center px-4 text-center text-[11px] leading-snug text-gray-600">
+                  <div className="flex flex-1 items-center justify-center px-4 text-center text-[12px] leading-snug text-gray-600">
                     {t('panel.agentConfig.rulesHistory.empty', { defaultValue: '히스토리 없음 — 룰을 변경하고 저장하면 직전 값이 여기에 쌓입니다.' })}
                   </div>
                 ) : (
@@ -1515,12 +1515,12 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                             }`}
                           >
                             <div className="flex items-center gap-1.5">
-                              <span className={`rounded border px-1.5 py-0.5 font-mono text-[9px] ${labelCls}`}>{entry.label}</span>
-                              <span className="ml-auto font-mono text-[10px] text-gray-500">
+                              <span className={`rounded border px-1.5 py-0.5 font-mono text-[12px] ${labelCls}`}>{entry.label}</span>
+                              <span className="ml-auto font-mono text-[12px] text-gray-500">
                                 {new Date(entry.ts).toLocaleString()}
                               </span>
                             </div>
-                            <span className="truncate text-[10px] text-gray-400">{firstLine}</span>
+                            <span className="truncate text-[12px] text-gray-400">{firstLine}</span>
                           </button>
                         </li>
                       );
@@ -1533,19 +1533,19 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                   return (
                     <div className="flex flex-col gap-2 border-t border-gray-800 bg-gray-900/60 p-2">
                       <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                        <span className="text-[12px] font-semibold uppercase tracking-wider text-gray-500">
                           {t('panel.agentConfig.rulesHistory.preview', { defaultValue: 'Preview' })}
                         </span>
                         <button
                           type="button"
                           onClick={() => { setRules(entry.rules); setHistoryPreviewTs(null); }}
-                          className="rounded border border-blue-700/60 bg-blue-900/30 px-2 py-0.5 text-[10px] font-medium text-blue-300 hover:bg-blue-900/50"
+                          className="rounded border border-blue-700/60 bg-blue-900/30 px-2 py-0.5 text-[12px] font-medium text-blue-300 hover:bg-blue-900/50"
                           title={t('panel.agentConfig.rulesHistory.restoreTitle', { defaultValue: '텍스트영역에 로드 (저장 전까지 dirty)' })}
                         >
                           {t('panel.agentConfig.rulesHistory.restore', { defaultValue: '되돌리기' })}
                         </button>
                       </div>
-                      <pre className="scrollbar-thin max-h-32 overflow-auto rounded border border-gray-700 bg-gray-950 p-2 font-mono text-[10px] leading-snug text-gray-300">
+                      <pre className="scrollbar-thin max-h-32 overflow-auto rounded border border-gray-700 bg-gray-950 p-2 font-mono text-[12px] leading-snug text-gray-300">
                         {entry.rules}
                       </pre>
                     </div>

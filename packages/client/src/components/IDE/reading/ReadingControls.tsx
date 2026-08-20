@@ -29,9 +29,9 @@ export function ReadingRow({
   return (
     <div className="flex flex-col gap-1.5 border-b border-gray-700/60 px-3 py-2.5 last:border-b-0">
       <div className="flex items-baseline justify-between gap-2">
-        <span className="text-[11px] font-semibold text-gray-300">{label}</span>
+        <span className="text-[12px] font-semibold text-gray-300">{label}</span>
         <span className="flex items-center gap-1.5">
-          {value ? <span className="tabular-nums text-[11px] text-gray-500">{value}</span> : null}
+          {value ? <span className="tabular-nums text-[12px] text-gray-500">{value}</span> : null}
           {onReset ? (
             <button
               type="button"
@@ -63,7 +63,7 @@ export function ReadingRow({
         </span>
       </div>
       {children}
-      {note ? <p className="text-[10px] leading-relaxed text-gray-500">{note}</p> : null}
+      {note ? <p className="text-[12px] leading-relaxed text-gray-500">{note}</p> : null}
     </div>
   );
 }
@@ -101,7 +101,7 @@ export function ReadingSegmented<T extends string>({
             onClick={() => onChange(opt.id)}
             aria-pressed={active}
             title={opt.disabledReason ?? opt.title ?? opt.label}
-            className={`flex-1 whitespace-nowrap rounded border px-2 py-1 text-[10.5px] transition-colors ${
+            className={`flex-1 whitespace-nowrap rounded border px-2 py-1 text-[12px] transition-colors ${
               active
                 ? 'border-blue-500 bg-blue-500/20 text-blue-200'
                 : 'border-gray-700 bg-gray-800/60 text-gray-400 hover:border-gray-600 hover:text-gray-200'
@@ -134,7 +134,7 @@ export function ReadingSelect<T extends string>({
       aria-label={label}
       value={value}
       onChange={(e) => onChange(e.target.value as T)}
-      className="w-full min-w-0 cursor-pointer rounded border border-gray-700 bg-gray-800 px-2 py-1 text-[11px] text-gray-200 outline-none transition-colors hover:border-gray-600 focus:border-blue-500"
+      className="w-full min-w-0 cursor-pointer rounded border border-gray-700 bg-gray-800 px-2 py-1 text-[12px] text-gray-200 outline-none transition-colors hover:border-gray-600 focus:border-blue-500"
     >
       {options.map((opt) => (
         <option key={opt.id} value={opt.id} disabled={Boolean(opt.disabledReason)}>
@@ -173,7 +173,7 @@ export function ReadingTextField({
         spellCheck={false}
         autoComplete="off"
         {...(hasList ? { list: listId } : {})}
-        className="min-w-0 flex-1 rounded border border-gray-700 bg-gray-800 px-2 py-1 text-[11px] text-gray-200 outline-none transition-colors placeholder:text-gray-600 hover:border-gray-600 focus:border-blue-500"
+        className="min-w-0 flex-1 rounded border border-gray-700 bg-gray-800 px-2 py-1 text-[12px] text-gray-200 outline-none transition-colors placeholder:text-gray-600 hover:border-gray-600 focus:border-blue-500"
       />
       {hasList ? (
         <datalist id={listId}>
@@ -186,7 +186,7 @@ export function ReadingTextField({
           onClick={action.onClick}
           disabled={action.disabled}
           title={action.title ?? action.label}
-          className="flex-shrink-0 whitespace-nowrap rounded border border-gray-700 bg-gray-800/60 px-1.5 py-1 text-[9.5px] text-gray-400 transition-colors hover:border-gray-600 hover:text-gray-200 disabled:cursor-not-allowed disabled:opacity-40"
+          className="flex-shrink-0 whitespace-nowrap rounded border border-gray-700 bg-gray-800/60 px-1.5 py-1 text-[12px] text-gray-400 transition-colors hover:border-gray-600 hover:text-gray-200 disabled:cursor-not-allowed disabled:opacity-40"
         >
           {action.label}
         </button>
@@ -226,7 +226,7 @@ export function ReadingSlider({
           type="button"
           onClick={() => onChange(recommend.value)}
           title={recommend.label}
-          className={`flex-shrink-0 rounded border px-1.5 py-0.5 text-[9.5px] transition-colors ${
+          className={`flex-shrink-0 rounded border px-1.5 py-0.5 text-[12px] transition-colors ${
             Math.abs(value - recommend.value) < step / 2
               ? 'border-emerald-500/60 bg-emerald-500/15 text-emerald-300'
               : 'border-gray-700 bg-gray-800/60 text-gray-500 hover:border-gray-600 hover:text-gray-300'
@@ -247,7 +247,7 @@ interface ReadingToggleProps {
 
 export function ReadingToggle({ label, checked, onChange }: ReadingToggleProps): React.JSX.Element {
   return (
-    <label className="flex cursor-pointer items-center gap-2 text-[11px] text-gray-300">
+    <label className="flex cursor-pointer items-center gap-2 text-[12px] text-gray-300">
       <input
         type="checkbox"
         checked={checked}

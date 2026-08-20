@@ -202,7 +202,7 @@ export const UnseenCardPills = memo(function UnseenCardPills({ scrollEl, cards, 
   return (
     <div className="pointer-events-none absolute bottom-3 left-3 z-20 flex max-w-[min(320px,60%)] flex-col items-start gap-1.5">
       {overflow > 0 && (
-        <span className="pointer-events-none select-none rounded-full bg-gray-800/80 px-2 py-0.5 text-[10px] font-medium text-gray-400 shadow backdrop-blur-sm">
+        <span className="pointer-events-none select-none rounded-full bg-gray-800/80 px-2 py-0.5 text-[12px] font-medium text-gray-400 shadow backdrop-blur-sm">
           +{overflow}
         </span>
       )}
@@ -224,7 +224,7 @@ export const UnseenCardPills = memo(function UnseenCardPills({ scrollEl, cards, 
                 {s.icon}
                 <span className={`absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full ${s.dot} ring-2 ring-gray-900`} />
               </span>
-              <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-gray-200">
+              <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-gray-200">
                 {t(s.label)}
               </span>
               {/* 위치로 이동 힌트(방향 무관 — 스크롤이 카드 위치로 데려간다). */}

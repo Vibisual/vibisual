@@ -101,7 +101,7 @@ export const AutoAgentPanel = memo(function AutoAgentPanel({ node }: AutoAgentPa
       </div>
 
       {/* 설명 — 하네스 설정 전용 자동 툴 */}
-      <p className="text-[11px] leading-relaxed text-gray-500">{t('panel.autoAgent.description')}</p>
+      <p className="text-[12px] leading-relaxed text-gray-500">{t('panel.autoAgent.description')}</p>
 
       {/* 진행 상태 라인 */}
       <div className={`flex items-center gap-2 rounded border px-2.5 py-1.5 text-xs ${
@@ -117,7 +117,7 @@ export const AutoAgentPanel = memo(function AutoAgentPanel({ node }: AutoAgentPa
         )}
         <span className="font-medium">{phaseLabel}</span>
         {summary?.complexity && phase !== 'idle' && (
-          <span className="ml-auto text-[10px] text-gray-500">
+          <span className="ml-auto text-[12px] text-gray-500">
             {t(`panel.autoAgent.complexity.${summary.complexity}`)} · {t(`panel.autoAgent.topology.${summary.topology}`)}
           </span>
         )}
@@ -183,7 +183,7 @@ export const AutoAgentPanel = memo(function AutoAgentPanel({ node }: AutoAgentPa
           className="scrollbar-thin w-full resize-y rounded border border-gray-700 bg-gray-950 px-2.5 py-2 text-sm text-gray-100 placeholder-gray-600 focus:border-blue-700 focus:outline-none disabled:opacity-50"
         />
         <div className="flex items-center justify-between">
-          <span className="text-[10px] text-gray-600">{t('panel.autoAgent.shortcutHint')}</span>
+          <span className="text-[12px] text-gray-600">{t('panel.autoAgent.shortcutHint')}</span>
           <button
             type="button"
             onClick={handleSend}
@@ -262,9 +262,9 @@ const BuilderActivityWindow = memo(function BuilderActivityWindow({ agentId, pha
           <polyline points="4 17 10 11 4 5" />
           <line x1="12" y1="19" x2="20" y2="19" />
         </svg>
-        <span className="text-[11px] font-semibold text-gray-300">{t('panel.autoAgent.activityTitle')}</span>
+        <span className="text-[12px] font-semibold text-gray-300">{t('panel.autoAgent.activityTitle')}</span>
         {isBuilding && (
-          <span className="ml-auto flex items-center gap-1.5 text-[10px] text-blue-300">
+          <span className="ml-auto flex items-center gap-1.5 text-[12px] text-blue-300">
             <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-blue-400" />
             {t('panel.autoAgent.activityLive')}
           </span>
@@ -273,7 +273,7 @@ const BuilderActivityWindow = memo(function BuilderActivityWindow({ agentId, pha
       {/* 스트림 본문 */}
       <div ref={scrollRef} className="scrollbar-thin max-h-72 overflow-y-auto">
         {events.length === 0 ? (
-          <div className="flex items-center gap-2 px-3 py-4 text-[11px] text-gray-500">
+          <div className="flex items-center gap-2 px-3 py-4 text-[12px] text-gray-500">
             <span className="inline-block h-3 w-3 animate-spin rounded-full border-[1.5px] border-blue-400 border-t-transparent" />
             {t('panel.autoAgent.activityWaiting')}
           </div>
@@ -342,7 +342,7 @@ const ClarifyingQuestionsForm = memo(function ClarifyingQuestionsForm({ question
                   />
                   <div className="flex flex-col">
                     <span>{opt.label}</span>
-                    {opt.description && <span className="text-[10px] text-gray-500">{opt.description}</span>}
+                    {opt.description && <span className="text-[12px] text-gray-500">{opt.description}</span>}
                   </div>
                 </label>
               );

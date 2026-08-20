@@ -6,8 +6,18 @@
  *
  * 규칙 셋(§3.2.3):
  *  1. **살아있는 것은 나이와 무관하게 보존** — 화면에 떠 있는 서브에이전트의 스트림 파일은 지우지 않는다.
- *  2. **되돌릴 수 없는 정리는 사용자가 고른다** — 워크트리는 실측만 하고 자동 삭제하지 않는다.
- *  3. **조용히 지우지 않는다** — 무엇을 얼마나 지웠는지 그대로 돌려준다(로그 + 화면).
+ *     ⚠ "살아있는" 은 registry 뿐 아니라 **아카이브(탭 닫아 '다시 열기' 목록에 남은 것)** 도 포함한다.
+ *     registry 만 보면 목록에는 항목이 보이는데 누르면 빈 화면이 된다(실측 2026-08-19: 아카이브 102개 중
+ *     실제로 돌았던 2개가 이미 기록 소실, 91개가 같은 시계 위에 있었다).
+ *  2. **참조되는 것은 나이와 무관하게 보존** — 첨부는 나이만으로 지우지 않는다. 체크포인트·활동 이력이
+ *     아직 그 파일을 가리키면(위성 파일 노드·완료 명령 썸네일) 남긴다. 삭제 후보는 **고아**뿐이다.
+ *     git 이 reachable/unreachable 을 가르는 것과 같은 갈래이며, 참조되는 쪽을 무기한으로 둔다.
+ *  3. **되돌릴 수 없는 정리는 사용자가 고른다** — 워크트리는 실측만 하고 자동 삭제하지 않는다.
+ *     자동 정리 대상도 곧바로 지우지 않고 **휴지통으로 옮긴 뒤** `trashRetentionDays` 가 지나서야 지운다.
+ *  4. **조용히 지우지 않는다** — 무엇을 얼마나 지웠는지 그대로 돌려준다(로그 + 화면 + 휴지통 목록).
+ *
+ * ⚠ **판단이 서지 않으면 지우지 않는다** — 참조 목록을 읽지 못한 프로젝트(체크포인트 손상·권한)는
+ *   첨부를 아예 건드리지 않는다(`hasProjectSaveData` 가 접근 실패를 보수적으로 true 로 두는 것과 같은 태도).
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -20,7 +30,8 @@ import type {
   StorageUsageReport,
   WorktreeStorageUsage,
 } from '@vibisual/shared';
-import { isExpiredByDays } from '@vibisual/shared';
+import { isExpiredByDays, RETENTION_LOG_MAX } from '@vibisual/shared';
+import type { RetentionLogEntry } from '@vibisual/shared';
 import { appStateGetRetention } from './appState.js';
 import { projectDirForInfo } from './statePersistence.js';
 import { logger } from '../logger.js';
@@ -71,6 +82,249 @@ function measureBackups(fp: string): { bytes: number; files: number } {
   return { bytes, files };
 }
 
+// ─── 휴지통 (§3.2.3 규칙 3) ───
+//
+// 정리는 `unlink` 가 아니라 **이동**이다. 원래 상대 구조를 그대로 보존하므로 복원이 계산으로 끝나고,
+// 휴지통 자체를 훑으면 그것이 곧 "무엇을 지웠는지" 목록이 된다 — 별도 기록 파일을 만들지 않는 이유다
+// (§3.2 "별도 JSON 저장 금지" 를 새 예외 없이 지킨다).
+
+/** 휴지통 루트 — 프로젝트 저장 폴더 안. 저장 폴더와 같은 볼륨이라 `rename` 이 성립한다. */
+const TRASH_SUBDIR = 'trash';
+
+/** 휴지통 상대경로 → 원래 절대경로. `attachments/…` 는 `.vibisual` 아래, 그 밖은 저장 폴더 아래. */
+export function originalPathForTrashRel(projectPath: string, saveDir: string, trashRel: string): string {
+  const rel = trashRel.replace(/\\/g, '/');
+  if (rel.startsWith('attachments/')) return path.join(projectPath, '.vibisual', rel);
+  return path.join(saveDir, rel);
+}
+
+/** 휴지통 상대경로의 첫 세그먼트로 갈래를 정한다(목록 표시·복원 검증 공용). */
+function kindForTrashRel(trashRel: string): RetentionLogEntry['kind'] | null {
+  const head = trashRel.replace(/\\/g, '/').split('/')[0];
+  if (head === 'attachments') return 'attachments';
+  if (head === 'sub-streams') return 'subStreams';
+  return null;
+}
+
+/**
+ * 파일을 휴지통으로 옮긴다. 같은 이름이 이미 있으면 `-1`, `-2` 를 붙여 덮어쓰기를 피한다.
+ * 반환은 실제로 들어간 휴지통 상대경로(복원 요청에 그대로 쓰인다). 실패하면 null.
+ */
+function moveToTrash(saveDir: string, trashRel: string, absPath: string): string | null {
+  const base = path.join(saveDir, TRASH_SUBDIR);
+  let rel = trashRel.replace(/\\/g, '/');
+  let target = path.join(base, rel);
+  try {
+    const ext = path.extname(rel);
+    const stem = rel.slice(0, rel.length - ext.length);
+    for (let i = 1; fs.existsSync(target) && i <= 50; i += 1) {
+      rel = `${stem}-${i}${ext}`;
+      target = path.join(base, rel);
+    }
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    try {
+      fs.renameSync(absPath, target);
+    } catch (err) {
+      // 볼륨이 다르면 rename 이 EXDEV 로 실패한다 — 복사 후 원본 삭제로 같은 결과를 만든다.
+      if ((err as NodeJS.ErrnoException)?.code !== 'EXDEV') throw err;
+      fs.copyFileSync(absPath, target);
+      fs.unlinkSync(absPath);
+    }
+    // ⚠ 휴지통 시계는 **들어온 시점**부터다. `rename` 은 원본 mtime 을 그대로 옮기므로 이 한 줄이 없으면
+    //   90일 된 파일은 휴지통에 들어가는 순간 이미 만료 상태여서 같은 회차에 영구 삭제된다
+    //   = 유예가 0 이 되어 휴지통이 이름만 남는다(테스트로 못 박아 둔 자리).
+    try {
+      const now = new Date();
+      fs.utimesSync(target, now, now);
+    } catch { /* 시각 갱신 실패는 치명적이지 않다 — 다음 정리에서 지워질 뿐 */ }
+    return rel;
+  } catch {
+    return null; // 잠김/권한 — 다음 부팅에 다시 본다(원본은 그대로 남는다)
+  }
+}
+
+/** 빈 폴더를 위로 접는다(고아 폴더가 쌓이면 목록만 길어진다). `stopAt` 위로는 올라가지 않는다. */
+function pruneEmptyDirsUpTo(startDir: string, stopAt: string): void {
+  let cur = path.resolve(startDir);
+  const stop = path.resolve(stopAt);
+  while (cur.length > stop.length && cur.startsWith(stop)) {
+    try {
+      if (fs.readdirSync(cur).length > 0) return;
+      fs.rmdirSync(cur);
+    } catch {
+      return;
+    }
+    cur = path.dirname(cur);
+  }
+}
+
+/**
+ * 휴지통 목록 — 무엇이 복원 가능한 상태로 남아 있는지. 별도 기록 파일 없이 폴더를 훑어 만든다.
+ *
+ * `reason` 은 갈래에서 되짚는다(첨부는 참조 0 + 나이 초과, 스트림은 나이 초과) — 기록 파일을 두지
+ * 않는 대가로 이 한 칸만 추론이다. 나머지는 전부 파일 자체가 사실이다.
+ */
+export function listTrash(projects: ProjectInfo[]): { entries: RetentionLogEntry[]; totalBytes: number } {
+  const entries: RetentionLogEntry[] = [];
+  let totalBytes = 0;
+  for (const info of projects) {
+    let saveDir: string;
+    try {
+      saveDir = projectDirForInfo(info);
+    } catch {
+      continue;
+    }
+    const root = path.join(saveDir, TRASH_SUBDIR);
+    const walk = (dir: string): void => {
+      let items: fs.Dirent[];
+      try {
+        items = fs.readdirSync(dir, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const it of items) {
+        const p = path.join(dir, it.name);
+        if (it.isDirectory()) { walk(p); continue; }
+        if (!it.isFile()) continue;
+        try {
+          const st = fs.statSync(p);
+          const trashRel = path.relative(root, p).replace(/\\/g, '/');
+          const kind = kindForTrashRel(trashRel);
+          if (!kind) continue;
+          totalBytes += st.size;
+          entries.push({
+            at: st.mtimeMs,
+            kind,
+            projectPath: info.path,
+            projectName: info.name,
+            trashRel,
+            originalPath: originalPathForTrashRel(info.path, saveDir, trashRel).replace(/\\/g, '/'),
+            bytes: st.size,
+            reason: kind === 'attachments' ? 'orphan-expired' : 'expired',
+          });
+        } catch { /* 사라짐 — 무시 */ }
+      }
+    };
+    walk(root);
+  }
+  // 최근 것이 위로. 목록은 화면용이라 개수에 상한을 둔다(§3.2.3 — 값이 아니라 개수에도 캡).
+  entries.sort((a, b) => b.at - a.at);
+  return { entries: entries.slice(0, RETENTION_LOG_MAX), totalBytes };
+}
+
+/**
+ * 휴지통에서 되살린다. 원래 자리에 이미 파일이 있으면 **덮어쓰지 않고** 실패로 돌려준다
+ * (되살리기가 지금 것을 지우는 일이 되면 안 된다).
+ */
+export function restoreFromTrash(info: ProjectInfo, trashRel: string): { ok: boolean; error?: string; restoredTo?: string } {
+  const rel = trashRel.replace(/\\/g, '/');
+  if (!kindForTrashRel(rel)) return { ok: false, error: 'unknown trash kind' };
+  let saveDir: string;
+  try {
+    saveDir = projectDirForInfo(info);
+  } catch {
+    return { ok: false, error: 'project has no save dir' };
+  }
+  const root = path.resolve(path.join(saveDir, TRASH_SUBDIR));
+  const src = path.resolve(path.join(root, rel));
+  // 경로 탈출 차단 — `..` 이 섞인 요청이 휴지통 밖을 건드리지 못하게.
+  if (!src.startsWith(root + path.sep)) return { ok: false, error: 'path outside trash' };
+  if (!fs.existsSync(src)) return { ok: false, error: 'not found in trash' };
+  const dest = originalPathForTrashRel(info.path, saveDir, rel);
+  if (fs.existsSync(dest)) return { ok: false, error: 'destination already exists' };
+  try {
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    try {
+      fs.renameSync(src, dest);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException)?.code !== 'EXDEV') throw err;
+      fs.copyFileSync(src, dest);
+      fs.unlinkSync(src);
+    }
+    pruneEmptyDirsUpTo(path.dirname(src), root);
+    return { ok: true, restoredTo: dest.replace(/\\/g, '/') };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * 휴지통 만료분 **영구 삭제**. 여기가 유일하게 되돌릴 수 없는 자리라, 지운 양을 따로 돌려준다.
+ * `days <= 0` 이면 영구 보관(지우지 않음).
+ */
+export function pruneTrash(
+  saveDirs: string[],
+  days: number,
+): { purgedFiles: number; purgedBytes: number } {
+  let purgedFiles = 0;
+  let purgedBytes = 0;
+  if (days <= 0) return { purgedFiles, purgedBytes };
+
+  for (const saveDir of saveDirs) {
+    const root = path.join(saveDir, TRASH_SUBDIR);
+    const walk = (dir: string): void => {
+      let items: fs.Dirent[];
+      try {
+        items = fs.readdirSync(dir, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const it of items) {
+        const p = path.join(dir, it.name);
+        if (it.isDirectory()) { walk(p); continue; }
+        if (!it.isFile()) continue;
+        try {
+          const st = fs.statSync(p);
+          if (!isExpiredByDays(st.mtimeMs, days)) continue;
+          purgedBytes += st.size;
+          fs.unlinkSync(p);
+          purgedFiles += 1;
+        } catch { /* 사라짐/잠김 — 다음 부팅에 다시 본다 */ }
+      }
+      pruneEmptyDirsUpTo(dir, root);
+    };
+    walk(root);
+  }
+  return { purgedFiles, purgedBytes };
+}
+
+// ─── 참조 수집 (§3.2.3 규칙 2) ───
+
+/**
+ * 그 프로젝트가 **아직 가리키고 있는 첨부 파일명** 집합. 못 읽으면 `null` — 호출부는 그때 정리를 건너뛴다.
+ *
+ * 왜 파일명(basename)인가: 같은 파일을 체크포인트는 상대경로(`.vibisual/attachments/…`)로, 완료 명령은
+ * 절대경로로 들고 있어 경로 문자열이 한 벌로 맞지 않는다. 파일명은 업로드 때 붙인 UUID 라 충돌이 없고,
+ * 혹시 겹쳐도 **더 많이 남기는 쪽**으로만 틀린다(안전한 방향).
+ *
+ * 왜 JSON.parse 가 아니라 문자열 훑기인가: 필요한 건 "이 이름이 어딘가 나오는가" 뿐이라 파싱은
+ * 낭비다(체크포인트 2.5MB + 활동 6.7MB). 부팅 1회라도 파싱 피크를 만들지 않는다.
+ */
+function collectReferencedAttachmentNames(saveDir: string): Set<string> | null {
+  const names = new Set<string>();
+  let readAny = false;
+  for (const fname of ['checkpoint.json', 'activity.json']) {
+    const fp = path.join(saveDir, fname);
+    if (!fs.existsSync(fp)) continue; // 없는 것은 정상(활동 분리 전 버전 등)
+    let text: string;
+    try {
+      text = fs.readFileSync(fp, 'utf8');
+    } catch {
+      return null; // 있는데 못 읽었다 = 판단이 서지 않는다 → 정리 금지
+    }
+    readAny = true;
+    const re = /attachments\/[^"\\]+/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text)) !== null) {
+      const seg = m[0].split('/');
+      const last = seg[seg.length - 1];
+      if (last) names.add(last.toLowerCase());
+    }
+  }
+  // 저장 데이터가 하나도 없으면 참조를 확정할 수 없다 — 이 경우도 건드리지 않는다.
+  return readAny ? names : null;
+}
+
 /** 프로젝트 하나의 `.vibisual` 사용량을 갈래별로 실측. */
 export function scanProjectStorage(info: ProjectInfo): ProjectStorageUsage {
   const saveDir = projectDirForInfo(info);
@@ -85,6 +339,7 @@ export function scanProjectStorage(info: ProjectInfo): ProjectStorageUsage {
   const identity = measureFile(path.join(saveDir, 'identity.json'));
   const identityBak = measureBackups(path.join(saveDir, 'identity.json'));
   const subStreams = measureDir(path.join(saveDir, 'sub-streams'));
+  const trash = measureDir(path.join(saveDir, TRASH_SUBDIR));
   const attachments = measureDir(path.join(vibiDir, 'attachments'));
   const brain = measureDir(path.join(vibiDir, 'brain'));
   const logs = measureDir(path.join(vibiDir, 'logs'));
@@ -101,6 +356,8 @@ export function scanProjectStorage(info: ProjectInfo): ProjectStorageUsage {
     }),
     add('subStreams', subStreams),
     add('attachments', attachments),
+    // 휴지통은 본체와 따로 세운다 — 합치면 "정리했는데 왜 안 줄었나"가 안 보인다.
+    add('trash', trash),
     add('brain', brain),
     add('logs', logs),
     add('video', video),
@@ -172,7 +429,7 @@ export function scanStorageUsage(projects: ProjectInfo[]): StorageUsageReport {
  */
 export function pruneSubStreams(
   saveDirs: string[],
-  liveSubAgentIds: Set<string>,
+  protectedSubAgentIds: Set<string>,
   days: number,
 ): { removedFiles: number; freedBytes: number; skipped: number } {
   let removedFiles = 0;
@@ -199,13 +456,16 @@ export function pruneSubStreams(
       for (const f of files) {
         if (!f.endsWith('.jsonl')) continue;
         const subId = f.slice(0, -'.jsonl'.length);
-        if (liveSubAgentIds.has(subId)) { skipped += 1; continue; }
+        // 규칙 1 — 살아있는 것 + **아카이브(다시 열기 목록)** 는 나이와 무관하게 보존.
+        if (protectedSubAgentIds.has(subId)) { skipped += 1; continue; }
         const fp = path.join(dir, f);
         try {
           const st = fs.statSync(fp);
           if (!isExpiredByDays(st.mtimeMs, days)) continue;
-          freedBytes += st.size;
-          fs.unlinkSync(fp);
+          const size = st.size;
+          // 규칙 3 — 지우지 않고 휴지통으로. 실패하면 원본을 그대로 두고 넘어간다.
+          if (!moveToTrash(saveDir, `sub-streams/${agentDir}/${f}`, fp)) continue;
+          freedBytes += size;
           removedFiles += 1;
         } catch { /* 사라짐/잠김 — 다음 부팅에 다시 본다 */ }
       }
@@ -219,39 +479,100 @@ export function pruneSubStreams(
 }
 
 /**
- * 보존 기간이 지난 첨부 정리. 명세(`index.ts` 업로드 주석)에는 "완료 후 cleanup" 이 적혀 있었으나
- * 실제 정리 함수가 없어 118파일 6.9MB 가 남아 있었다 — 그 명세를 여기서 실제로 이행한다.
+ * 보존 기간이 지난 **고아** 첨부 정리. 명세(`index.ts` 업로드 주석)에는 "완료 후 cleanup" 이 적혀
+ * 있었으나 실제 정리 함수가 없어 118파일 6.9MB 가 남아 있었다 — 그 명세를 여기서 이행한다.
+ *
+ * ⚠ 종전 구현은 두 가지를 함께 틀렸고 그 둘이 겹쳐 **실제 손실 직전까지 갔다**(실측 2026-08-19):
+ *  - **살아있음·참조 검사가 없었다** — `liveSubAgentIds` 를 받지도 않아 지금 돌고 있는 세션의 첨부까지
+ *    지웠다. 반대편에서 참조하는 쪽은 나이 제한이 없다(위성 파일 노드 89개 · 완료 명령 최고령 37일)
+ *    → 읽는 쪽이 파일 쪽보다 멀리 닿아 §3.2.3 의 "소비자에게 no-op" 이 뒤집혔다.
+ *  - **세션 폴더 mtime 으로 판정했다** — 손자 파일 추가를 추적하지 못해 살아있는 폴더를 늙은 것으로 봤고,
+ *    판정 단위가 폴더라 `rmSync(recursive)` 로 참조 중인 파일까지 함께 날렸다.
+ *
+ * 사라지는 방식까지 조용했다 — 클라이언트(`attachmentThumb.ts`)는 fetch 실패를 걸러내므로 썸네일이
+ * 깨진 아이콘도 없이 없어졌다. 붙여넣은 스크린샷은 클립보드가 사라진 뒤라 이 파일이 유일본이다.
  */
 export function pruneAttachments(
-  projectPaths: string[],
+  projects: ProjectInfo[],
+  protectedSubAgentIds: Set<string>,
   days: number,
-): { removedFiles: number; freedBytes: number } {
+): { removedFiles: number; freedBytes: number; keptReferenced: number; skippedProjects: number } {
   let removedFiles = 0;
   let freedBytes = 0;
-  if (days <= 0) return { removedFiles, freedBytes }; // 0 = 무제한
+  let keptReferenced = 0;
+  let skippedProjects = 0;
+  if (days <= 0) return { removedFiles, freedBytes, keptReferenced, skippedProjects }; // 0 = 무제한
 
-  for (const root of projectPaths) {
-    const attachRoot = path.join(root, '.vibisual', 'attachments');
-    let sessionDirs: string[];
+  for (const info of projects) {
+    let saveDir: string;
     try {
-      sessionDirs = fs.readdirSync(attachRoot);
+      saveDir = projectDirForInfo(info);
     } catch {
       continue;
     }
-    for (const sd of sessionDirs) {
-      const dir = path.join(attachRoot, sd);
+    const attachRoot = path.join(info.path, '.vibisual', 'attachments');
+    if (!fs.existsSync(attachRoot)) continue;
+
+    // ① 후보를 먼저 모은다 — **파일 단위 mtime**. 종전에는 1단 세션 폴더의 mtime 을 봤는데,
+    //    부모 폴더의 mtime 은 **직속 자식**이 바뀔 때만 갱신되고 손자 파일 추가는 추적하지 않는다
+    //    (`<세션>/<서브>/<파일>` 구조라 실제로 늘 손자다) → 방금 쓴 이미지가 든 폴더도 늙은 것으로 오판됐다.
+    const candidates: { fp: string; rel: string; size: number; subId: string; name: string }[] = [];
+    const walk = (dir: string): void => {
+      let items: fs.Dirent[];
       try {
-        const st = fs.statSync(dir);
-        if (!st.isDirectory()) continue;
-        if (!isExpiredByDays(st.mtimeMs, days)) continue;
-        const m = measureDir(dir);
-        fs.rmSync(dir, { recursive: true, force: true });
-        removedFiles += m.files;
-        freedBytes += m.bytes;
-      } catch { /* noop */ }
+        items = fs.readdirSync(dir, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const it of items) {
+        const p = path.join(dir, it.name);
+        if (it.isDirectory()) { walk(p); continue; }
+        if (!it.isFile()) continue;
+        try {
+          const st = fs.statSync(p);
+          if (!isExpiredByDays(st.mtimeMs, days)) continue;
+          const rel = path.relative(attachRoot, p).replace(/\\/g, '/');
+          const seg = rel.split('/');
+          candidates.push({
+            fp: p,
+            rel,
+            size: st.size,
+            // `<세션키>/<서브에이전트id>/<파일>` — 서브가 없는 옛 구조면 빈 문자열.
+            subId: seg.length >= 3 ? (seg[seg.length - 2] ?? '') : '',
+            name: (seg[seg.length - 1] ?? '').toLowerCase(),
+          });
+        } catch { /* 사라짐 — 무시 */ }
+      }
+    };
+    walk(attachRoot);
+    if (candidates.length === 0) continue; // 후보가 없으면 참조 목록도 읽지 않는다(부팅 비용 0)
+
+    // ② 참조 목록. 못 읽었으면 이 프로젝트는 아예 건드리지 않는다("판단이 서지 않으면 지우지 않는다").
+    const referenced = collectReferencedAttachmentNames(saveDir);
+    if (!referenced) {
+      skippedProjects += 1;
+      logger.warn(
+        `storage cleanup: attachments untouched for "${info.name}" — 참조 목록을 읽지 못했다(체크포인트 손상/권한). ` +
+        `후보 ${candidates.length}건은 그대로 남긴다.`,
+      );
+      continue;
+    }
+
+    for (const c of candidates) {
+      // 규칙 2 — 아직 가리켜지고 있으면 나이와 무관하게 남긴다.
+      //   (a) 체크포인트·활동 이력에 이름이 남아 있다(위성 파일 노드 · 완료 명령 썸네일).
+      //   (b) 그 대화 자체를 보존 중이다 — 살아있거나 "다시 열기" 목록에 있는 서브에이전트의 첨부.
+      if (referenced.has(c.name) || (c.subId && protectedSubAgentIds.has(c.subId))) {
+        keptReferenced += 1;
+        continue;
+      }
+      if (!moveToTrash(saveDir, `attachments/${c.rel}`, c.fp)) continue;
+      removedFiles += 1;
+      freedBytes += c.size;
+      pruneEmptyDirsUpTo(path.dirname(c.fp), attachRoot);
     }
   }
-  return { removedFiles, freedBytes };
+  return { removedFiles, freedBytes, keptReferenced, skippedProjects };
 }
 
 /**
@@ -261,19 +582,33 @@ export function pruneAttachments(
  */
 export function runStorageCleanup(opts: {
   projects: ProjectInfo[];
-  liveSubAgentIds: Set<string>;
+  /**
+   * 나이와 무관하게 지키는 서브에이전트 id — **registry(살아있는 것) + archive(다시 열기 목록)** 합집합.
+   * 호출부에서 합쳐 넘긴다(여기서 `getSnapshot()` 만 보면 아카이브가 새어 나간다).
+   */
+  protectedSubAgentIds: Set<string>;
 }): StorageCleanupResult {
   const retention = appStateGetRetention();
-  const saveDirs = opts.projects.map(projectDirForInfo);
-  const projectPaths = opts.projects.map((p) => p.path);
+  const saveDirs: string[] = [];
+  for (const p of opts.projects) {
+    try {
+      saveDirs.push(projectDirForInfo(p));
+    } catch { /* path 빈 ghost meta — 건너뛴다 */ }
+  }
 
-  const streams = pruneSubStreams(saveDirs, opts.liveSubAgentIds, retention.subStreamRetentionDays);
-  const attachments = pruneAttachments(projectPaths, retention.attachmentRetentionDays);
+  const streams = pruneSubStreams(saveDirs, opts.protectedSubAgentIds, retention.subStreamRetentionDays);
+  const attachments = pruneAttachments(opts.projects, opts.protectedSubAgentIds, retention.attachmentRetentionDays);
+  // 휴지통 만료분은 **마지막에** 지운다 — 방금 옮긴 것이 같은 회차에 사라지지 않게(mtime 이 지금이라 안전하지만
+  // 순서를 뒤집으면 "옮겼다가 곧 지웠다"는 흐름이 로그에서 뒤바뀌어 읽힌다).
+  const trash = pruneTrash(saveDirs, retention.trashRetentionDays);
 
   const skipped: string[] = [];
-  if (streams.skipped > 0) skipped.push(`live-sub-streams:${streams.skipped}`);
+  if (streams.skipped > 0) skipped.push(`protected-sub-streams:${streams.skipped}`);
+  if (attachments.keptReferenced > 0) skipped.push(`referenced-attachments:${attachments.keptReferenced}`);
+  if (attachments.skippedProjects > 0) skipped.push(`attachments-unknown-refs:${attachments.skippedProjects}`);
   if (retention.subStreamRetentionDays <= 0) skipped.push('sub-streams:disabled');
   if (retention.attachmentRetentionDays <= 0) skipped.push('attachments:disabled');
+  if (retention.trashRetentionDays <= 0) skipped.push('trash:kept-forever');
 
   const result: StorageCleanupResult = {
     removedFiles: streams.removedFiles + attachments.removedFiles,
@@ -281,15 +616,21 @@ export function runStorageCleanup(opts: {
     byKind: {
       subStreams: streams.freedBytes,
       attachments: attachments.freedBytes,
+      trash: trash.purgedBytes,
     },
     skipped,
+    purgedFiles: trash.purgedFiles,
+    purgedBytes: trash.purgedBytes,
+    keptReferenced: attachments.keptReferenced,
   };
 
-  if (result.removedFiles > 0) {
+  if (result.removedFiles > 0 || trash.purgedFiles > 0) {
     logger.info(
-      `storage cleanup: removed ${result.removedFiles} file(s), freed ${(result.freedBytes / 1024 / 1024).toFixed(1)}MB ` +
-      `(sub-streams ${streams.removedFiles}, attachments ${attachments.removedFiles}` +
-      `${streams.skipped > 0 ? `, kept ${streams.skipped} live` : ''})`,
+      `storage cleanup: moved ${result.removedFiles} file(s) to trash (${(result.freedBytes / 1024 / 1024).toFixed(1)}MB) ` +
+      `— sub-streams ${streams.removedFiles}, attachments ${attachments.removedFiles}` +
+      `${streams.skipped > 0 ? `, kept ${streams.skipped} protected` : ''}` +
+      `${attachments.keptReferenced > 0 ? `, kept ${attachments.keptReferenced} referenced` : ''}` +
+      `; purged ${trash.purgedFiles} from trash (${(trash.purgedBytes / 1024 / 1024).toFixed(1)}MB)`,
     );
   }
   return result;

@@ -651,7 +651,7 @@ function TerminalTextLine({ entry, density, exempt }: { entry: TerminalEntry; de
         <div className="min-w-0 flex-1">
           <span className="block whitespace-pre-wrap break-words text-[13px] leading-relaxed text-gray-200">
             {entry.sessionLabel && (
-              <span className="mr-1.5 rounded bg-cyan-500/15 px-1 py-0.5 text-[10px] font-semibold text-cyan-400/80">
+              <span className="mr-1.5 rounded bg-cyan-500/15 px-1 py-0.5 text-[12px] font-semibold text-cyan-400/80">
                 {entry.sessionLabel}
               </span>
             )}
@@ -661,7 +661,7 @@ function TerminalTextLine({ entry, density, exempt }: { entry: TerminalEntry; de
             <button
               type="button"
               onClick={toggleOpen}
-              className="mt-0.5 flex items-center gap-1 text-[11px] text-gray-500 transition-colors hover:text-gray-300"
+              className="mt-0.5 flex items-center gap-1 text-[12px] text-gray-500 transition-colors hover:text-gray-300"
             >
               <svg className={`h-3 w-3 transition-transform ${open ? 'rotate-90' : ''}`} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                 <path d="M8 5v14l11-7z" />
@@ -705,16 +705,16 @@ function TerminalLine({ entry, density, exempt, agentId }: { entry: TerminalEntr
 
   return (
     <div className="group flex gap-2 px-3 py-1 max-md:px-1.5 hover:bg-gray-800/40">
-      <span className="flex-shrink-0 select-none pt-px text-[10px] text-gray-500">{formatTime(entry.timestamp)}</span>
+      <span className="flex-shrink-0 select-none pt-px text-[12px] text-gray-500">{formatTime(entry.timestamp)}</span>
       <span className={`w-3 flex-shrink-0 select-none text-center font-mono text-[13px] ${style.color}`}>{style.prefix}</span>
       <div className="min-w-0 flex-1">
         {entry.sessionLabel && (
-          <span className="mr-1.5 rounded bg-cyan-500/15 px-1 py-0.5 text-[10px] font-semibold text-cyan-400/80">
+          <span className="mr-1.5 rounded bg-cyan-500/15 px-1 py-0.5 text-[12px] font-semibold text-cyan-400/80">
             {entry.sessionLabel}
           </span>
         )}
         {entry.toolName && (
-          <span className="mr-1.5 rounded bg-amber-500/15 px-1 py-0.5 text-[10px] font-semibold text-amber-400/80">
+          <span className="mr-1.5 rounded bg-amber-500/15 px-1 py-0.5 text-[12px] font-semibold text-amber-400/80">
             {entry.toolName}
           </span>
         )}
@@ -759,10 +759,10 @@ function TerminalRunLatestLine({ entry, active }: { entry: TerminalEntry; active
           </svg>
         )}
       </span>
-      <span className={`flex-shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold ${active ? 'bg-blue-500/15 text-blue-300' : 'bg-amber-500/10 text-amber-400/70'}`}>
+      <span className={`flex-shrink-0 rounded px-1 py-0.5 text-[12px] font-semibold ${active ? 'bg-blue-500/15 text-blue-300' : 'bg-amber-500/10 text-amber-400/70'}`}>
         {entry.toolName ?? 'Tool'}
       </span>
-      <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-gray-500">{toolInputPreview(entry)}</span>
+      <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-gray-500">{toolInputPreview(entry)}</span>
     </div>
   );
 }
@@ -805,7 +805,7 @@ function TerminalGroupLine({ group, density }: { group: TerminalGroup; density?:
         title={open ? 'Click to collapse' : 'Click to expand'}
       >
         {/* 시간 */}
-        <span className="flex-shrink-0 select-none text-[10px] text-gray-500">
+        <span className="flex-shrink-0 select-none text-[12px] text-gray-500">
           {formatTime(group.timestamp)}
         </span>
 
@@ -823,7 +823,7 @@ function TerminalGroupLine({ group, density }: { group: TerminalGroup; density?:
         {/* 라벨 영역 */}
         <div className="flex min-w-0 flex-1 items-center gap-1.5">
           {group.sessionLabel && (
-            <span className="rounded bg-cyan-500/15 px-1 py-0.5 text-[10px] font-semibold text-cyan-400/80">
+            <span className="rounded bg-cyan-500/15 px-1 py-0.5 text-[12px] font-semibold text-cyan-400/80">
               {group.sessionLabel}
             </span>
           )}
@@ -835,18 +835,18 @@ function TerminalGroupLine({ group, density }: { group: TerminalGroup; density?:
                 {t('ide.streamRenderer.toolRun', { count: group.runCount })}
               </span>
               {(group.toolNames ?? []).slice(0, TOOL_GROUP_NAME_CHIPS).map((name) => (
-                <span key={name} className="flex-shrink-0 rounded bg-gray-700/40 px-1 py-0.5 text-[10px] font-medium text-gray-500">
+                <span key={name} className="flex-shrink-0 rounded bg-gray-700/40 px-1 py-0.5 text-[12px] font-medium text-gray-500">
                   {name}
                 </span>
               ))}
               {(group.toolNames?.length ?? 0) > TOOL_GROUP_NAME_CHIPS && (
-                <span className="flex-shrink-0 text-[10px] text-gray-600">+{(group.toolNames?.length ?? 0) - TOOL_GROUP_NAME_CHIPS}</span>
+                <span className="flex-shrink-0 text-[12px] text-gray-600">+{(group.toolNames?.length ?? 0) - TOOL_GROUP_NAME_CHIPS}</span>
               )}
             </>
           ) : (
             <>
               {isTool && group.toolName && (
-                <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-bold text-amber-400/90">
+                <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[12px] font-bold text-amber-400/90">
                   {group.toolName}
                 </span>
               )}
@@ -869,12 +869,12 @@ function TerminalGroupLine({ group, density }: { group: TerminalGroup; density?:
         <div className="flex flex-shrink-0 items-center gap-1.5">
           {group.isActive && !isRun && <Spinner />}
           {!group.isActive && isTool && !isRun && group.entries.length > 1 && (
-            <span className="rounded bg-gray-700/50 px-1.5 py-0.5 text-[10px] text-gray-400">
+            <span className="rounded bg-gray-700/50 px-1.5 py-0.5 text-[12px] text-gray-400">
               {group.entries.length - 1} result{group.entries.length > 2 ? 's' : ''}
             </span>
           )}
           {/* hover 힌트 */}
-          <span className="hidden text-[10px] text-gray-500 group-hover/hdr:inline">
+          <span className="hidden text-[12px] text-gray-500 group-hover/hdr:inline">
             {open ? 'collapse' : 'expand'}
           </span>
         </div>
@@ -1185,7 +1185,11 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
   // 매칭 0개여도 드롭다운은 열려 "No matching skills" hint 표기.
   // v3.19 — 디스크 스킬 뒤에 CLI 내장 명령을 병행 매칭(별칭 포함). 같은 이름은 스킬이 이긴다
   //   (Claude Code 규칙: project/personal 커맨드가 built-in 을 가림).
+  // §5.19 (G) — 로컬 버블(All Model)에는 클로드 CLI 의 슬래시 명령·스킬이 없다. 목록을 띄우면
+  //   고를 수 있는 것처럼 보이지만 실제로는 그 텍스트가 모델에게 그대로 흘러갈 뿐이다.
+  const isLocalProviderAgent = useGraphStore((s) => (agentId ? !!s.agentConfigs[agentId]?.provider : false));
   const slashState = useMemo(() => {
+    if (isLocalProviderAgent) return null;
     if (!text.startsWith('/')) return null;
     const firstWord = text.slice(1).split(/\s/)[0] ?? '';
     if (text.length > firstWord.length + 1) return null;
@@ -1205,7 +1209,7 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
       ...builtinMatched.map((c): SlashItem => ({ kind: 'builtin', name: c.name, builtin: c })),
     ];
     return { filter, matched };
-  }, [text, availableSkills, builtinCommands]);
+  }, [text, availableSkills, builtinCommands, isLocalProviderAgent]);
 
   const slashOpen = slashState !== null;
   const slashKey = slashState?.filter ?? '';
@@ -1479,7 +1483,7 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
       {/* §5.5 #17-23 ⑤ — 히스토리 진입 힌트. 경계에서 방향키를 처음 눌렀을 때만 뜨고,
           같은 방향으로 한 번 더 누르면 실제로 히스토리로 들어간다. 꺼낼 게 없으면 아예 안 뜬다. */}
       {historyHint !== null && !slashOpen && (
-        <div className="pointer-events-none absolute bottom-full left-3 mb-1 flex items-center gap-1.5 rounded border border-gray-700 bg-gray-900 px-2 py-1 text-[11px] text-gray-300 shadow-lg">
+        <div className="pointer-events-none absolute bottom-full left-3 mb-1 flex items-center gap-1.5 rounded border border-gray-700 bg-gray-900 px-2 py-1 text-[12px] text-gray-300 shadow-lg">
           <span className="flex h-4 w-4 items-center justify-center rounded border border-gray-600 bg-gray-800 text-gray-300">
             <svg
               className="h-2.5 w-2.5"
@@ -1511,7 +1515,7 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
       {slashOpen && slashState && (
         <div ref={slashListRef} className="absolute bottom-full left-0 right-0 mb-1 max-h-72 overflow-y-auto rounded-t border border-b-0 border-gray-700 bg-gray-900 shadow-lg scrollbar-thin">
           {slashState.matched.length === 0 ? (
-            <div className="px-3 py-2 text-[11px] text-gray-500">
+            <div className="px-3 py-2 text-[12px] text-gray-500">
               {skillsLoaded ? t('ide.mainArea.slashEmpty') : t('ide.mainArea.slashLoading')}
             </div>
           ) : (
@@ -1537,23 +1541,23 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
                   <div className="flex items-center gap-1.5">
                     <span className={`font-mono text-[12px] font-semibold ${accentText}`}>/{item.name}</span>
                     {item.kind === 'skill' && item.skill.source === 'plugin' && item.skill.pluginName && (
-                      <span className="rounded bg-purple-500/15 px-1 py-0.5 text-[9px] uppercase tracking-wide text-purple-400/80">
+                      <span className="rounded bg-purple-500/15 px-1 py-0.5 text-[12px] uppercase tracking-wide text-purple-400/80">
                         {item.skill.pluginName}
                       </span>
                     )}
                     {item.kind === 'builtin' && (
-                      <span className="rounded bg-sky-500/15 px-1 py-0.5 text-[9px] uppercase tracking-wide text-sky-400/80">
+                      <span className="rounded bg-sky-500/15 px-1 py-0.5 text-[12px] uppercase tracking-wide text-sky-400/80">
                         {t('ide.mainArea.slashBuiltin')}
                       </span>
                     )}
                     {item.kind === 'builtin' && item.builtin.aliases.length > 0 && (
-                      <span className="font-mono text-[10px] text-gray-600">
+                      <span className="font-mono text-[12px] text-gray-600">
                         {item.builtin.aliases.map((a) => `/${a}`).join(' ')}
                       </span>
                     )}
                   </div>
                   {description && (
-                    <span className="line-clamp-2 text-[10px] leading-tight text-gray-500">
+                    <span className="line-clamp-2 text-[12px] leading-tight text-gray-500">
                       {description}
                     </span>
                   )}
@@ -1561,7 +1565,7 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
               );
             })
           )}
-          <div className="border-t border-gray-800 bg-gray-950/70 px-3 py-1 text-[10px] text-gray-600">
+          <div className="border-t border-gray-800 bg-gray-950/70 px-3 py-1 text-[12px] text-gray-600">
             {t('ide.mainArea.slashHint')}
           </div>
         </div>
@@ -1594,13 +1598,13 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
               )}
               {a.error && (
                 <div className="absolute inset-0 flex items-center justify-center bg-red-900/60">
-                  <span className="text-[9px] font-semibold text-red-200">{t('ide.mainArea.attachmentError')}</span>
+                  <span className="text-[12px] font-semibold text-red-200">{t('ide.mainArea.attachmentError')}</span>
                 </div>
               )}
               <button
                 type="button"
                 onClick={() => removeAttachment(a.tempId)}
-                className="absolute right-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded bg-black/70 text-[10px] text-gray-200 opacity-0 transition-opacity hover:bg-red-600 group-hover:opacity-100"
+                className="absolute right-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded bg-black/70 text-[12px] text-gray-200 opacity-0 transition-opacity hover:bg-red-600 group-hover:opacity-100"
                 aria-label={t('panel.commandQueue.removeAttachment')}
               >
                 <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3}>
@@ -1753,7 +1757,7 @@ function StreamDensityToggle(): React.JSX.Element {
           key={d}
           type="button"
           onClick={(e) => { e.stopPropagation(); setDensity(d); }}
-          className={`rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
+          className={`rounded px-1.5 py-0.5 text-[12px] font-medium transition-colors ${
             density === d ? 'bg-gray-700 text-gray-100' : 'text-gray-500 hover:bg-gray-800 hover:text-gray-300'
           }`}
         >
@@ -1820,7 +1824,7 @@ function StreamFollowToggle(): React.JSX.Element {
         <span
           key={flyout.at}
           role="status"
-          className={`animate-follow-flyout pointer-events-none absolute bottom-[calc(100%+6px)] right-0 z-20 flex max-w-[18rem] items-center gap-1.5 whitespace-nowrap rounded-md border px-2 py-1 text-[10.5px] shadow-lg shadow-black/40 ${
+          className={`animate-follow-flyout pointer-events-none absolute bottom-[calc(100%+6px)] right-0 z-20 flex max-w-[18rem] items-center gap-1.5 whitespace-nowrap rounded-md border px-2 py-1 text-[12px] shadow-lg shadow-black/40 ${
             flySkip
               ? 'border-amber-400/60 bg-amber-950/95 text-amber-200'
               : 'border-blue-400/60 bg-blue-950/95 text-blue-100'
@@ -1866,7 +1870,7 @@ function StreamFollowToggle(): React.JSX.Element {
           else followNow(sessionKey);
         }}
         title={follow ? t('ide.follow.tipOn') : t('ide.follow.tipOff')}
-        className={`flex flex-shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-semibold transition-colors ${
+        className={`flex flex-shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 text-[12px] font-semibold transition-colors ${
           follow
             ? 'border-blue-400/80 bg-blue-500/25 text-blue-100'
             : 'border-gray-600/70 text-gray-400 hover:bg-gray-800 hover:text-gray-100'
@@ -2054,7 +2058,7 @@ function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, sessi
         <span className={`min-w-0 flex-1 truncate text-[12px] ${plan ? 'text-gray-200' : 'font-mono text-gray-400 group-hover:text-gray-200'}`}>{preview}</span>
         {/* 계획이 있으면 완료/전체 — "얼마나 남았나"가 중지 판단의 재료가 된다. */}
         {plan && (
-          <span className="flex-shrink-0 tabular-nums text-[11px] text-gray-500">
+          <span className="flex-shrink-0 tabular-nums text-[12px] text-gray-500">
             {t('ide.plan.progress', { done: plan.done, total: plan.total })}
           </span>
         )}
@@ -2062,7 +2066,7 @@ function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, sessi
         <StreamFollowToggle />
         {/* §5.5 #17-12 ③ v4.64 — 이 줄에는 [중지]를 두지 않는다. 실행 중이면 바로 아래 입력창에 같은 동작의
             [중지]가 뜨므로 버튼이 둘로 보였다("왜 중지가 2개냐"). 중지 창구는 입력창 하나(#17-10). */}
-        <span className="flex-shrink-0 text-[10px] text-gray-600 group-hover:text-gray-300">{'↑'}</span>
+        <span className="flex-shrink-0 text-[12px] text-gray-600 group-hover:text-gray-300">{'↑'}</span>
       </div>
     );
   }
@@ -2097,7 +2101,7 @@ ${t('ide.mainArea.scrollPrompt')}` : t('ide.mainArea.scrollPrompt')}
       </span>
       <StreamDensityToggle />
       <StreamFollowToggle />
-      <span className="flex-shrink-0 text-[10px] text-gray-600 group-hover:text-gray-300">
+      <span className="flex-shrink-0 text-[12px] text-gray-600 group-hover:text-gray-300">
         {'↑'}
       </span>
     </div>
@@ -3211,14 +3215,14 @@ export const IDEMainArea = memo(function IDEMainArea({
             onMouseEnter={holdZoomBadge}
             onMouseLeave={releaseZoomBadge}
           >
-            <span className="text-[11px] font-medium tabular-nums text-gray-500">{Math.round(ideTextZoom * 100)}%</span>
+            <span className="text-[12px] font-medium tabular-nums text-gray-500">{Math.round(ideTextZoom * 100)}%</span>
             {/* 크롬 줌 버블의 "재설정" 짝 — 100% 가 아닐 때만 활성화. 배지가 떠 있는 동안에만 클릭 가능
                 (pointer-events 는 컨테이너에서 일괄 제어)라 본문 클릭/스크롤을 가리지 않는다. */}
             <button
               type="button"
               onClick={() => setIdeTextZoom(1)}
               disabled={ideTextZoom === 1}
-              className="rounded px-1.5 py-0.5 text-[11px] font-medium text-gray-300 transition-colors hover:bg-gray-700/70 hover:text-gray-100 disabled:cursor-default disabled:text-gray-600 disabled:hover:bg-transparent"
+              className="rounded px-1.5 py-0.5 text-[12px] font-medium text-gray-300 transition-colors hover:bg-gray-700/70 hover:text-gray-100 disabled:cursor-default disabled:text-gray-600 disabled:hover:bg-transparent"
             >
               {t('ide.zoom.reset')}
             </button>
@@ -3242,7 +3246,7 @@ export const IDEMainArea = memo(function IDEMainArea({
               spellCheck={false}
               className="w-44 bg-transparent text-[12px] text-gray-100 placeholder-gray-500 outline-none"
             />
-            <span className="min-w-[40px] text-right text-[11px] tabular-nums text-gray-400">
+            <span className="min-w-[40px] text-right text-[12px] tabular-nums text-gray-400">
               {searchQuery.trim() ? `${searchMatches.length ? searchIdx + 1 : 0}/${searchMatches.length}` : ''}
             </span>
             {/* 다음/이전은 mousedown 기본동작(포커스 이동)을 막아 **입력칸이 포커스를 잃지 않게** 한다 —
@@ -3428,7 +3432,7 @@ export const IDEMainArea = memo(function IDEMainArea({
       {/* Read-only — 훅 버블은 모든 탭에서 관측 전용 */}
       {isReadOnly && (
         <div className="flex h-8 items-center justify-center border-t border-gray-700 bg-gray-900/60">
-          <span className="text-[10px] text-gray-600">{t('ide.mainArea.readOnly')}</span>
+          <span className="text-[12px] text-gray-600">{t('ide.mainArea.readOnly')}</span>
         </div>
       )}
 

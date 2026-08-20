@@ -5,6 +5,7 @@ import type { BubbleData, BubbleStyleConfig } from '@vibisual/shared';
 import { BUBBLE_STYLES, HOOK_AGENT_STYLE, BUBBLE_TEXT_WIDTH_RATIO, BUBBLE_TEXT_REF_SIZE, GIT_STATUS_CONFIG } from '@vibisual/shared';
 import { calcBubbleSize } from '../../utils/sizeCalc.js';
 import { useGraphStore, selectIDEOverlay, selectActiveBrainSummary } from '../../stores/graphStore.js';
+import { isAgentDormant } from '../../utils/sessionStatus.js';
 import { PluginBubbleBadgeSlot } from '../../plugins/host.js';
 
 type BubbleNodeData = BubbleData & Record<string, unknown>;
@@ -91,6 +92,18 @@ const ICON_PATHS: Record<BubbleStyleConfig['icon'], { viewBox: string; d: string
   spec: {
     viewBox: '0 0 24 24',
     d: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8.5 13.5l1.5 1.5 3-3M8.5 18h7',
+    fill: false,
+  },
+  // §5.18 — 에이전트 랩. 플라스크(같은 과제를 여러 벌 태워 비교한다).
+  lab: {
+    viewBox: '0 0 24 24',
+    d: 'M10 2v6.5L4.8 17.4A2 2 0 0 0 6.5 20.5h11a2 2 0 0 0 1.7-3.1L14 8.5V2M9 2h6M7.5 14h9',
+    fill: false,
+  },
+  // §5.20 — 스크립트 선반. 칸이 나뉜 선반 옆모습.
+  shelf: {
+    viewBox: '0 0 24 24',
+    d: 'M3 4h18M3 12h18M3 20h18M6 4v8M18 12v8',
     fill: false,
   },
   // §5.13 v4.45 — Vibistudio 영상 문서. 재생 삼각형이 든 화면.
@@ -436,6 +449,12 @@ export const BubbleNode = memo(function BubbleNode({
   const ideAgentId = useGraphStore((s) => selectIDEOverlay(s).agentId);
   const ideActiveSessionId = useGraphStore((s) => selectIDEOverlay(s).activeSessionId);
   const stickySelectedSubId = useGraphStore((s) => s.selectedSubByAgent[data.id]);
+  // §2.4 (잠듦) — 서버가 유휴로 판정해 이 에이전트의 claude 자식 프로세스를 회수해 둔 상태.
+  //   세션이 여럿이면 전부 잠들었을 때만 잠든 것이다(하나라도 자식을 들고 있으면 아니다).
+  const isDormant = useMemo(
+    () => isAgentDormant(isAgent ? subAgentsMap[data.id] : undefined),
+    [isAgent, subAgentsMap, data.id],
+  );
   const effectiveSubOverride = useMemo(() => {
     if (!isAgent || !data.customCreated) return null;
     const subs = subAgentsMap[data.id];
@@ -469,6 +488,7 @@ export const BubbleNode = memo(function BubbleNode({
     : data.contextMax;
 
   const contextRatio = isAgent && effectiveContextMax ? (effectiveContextUsed ?? 0) / effectiveContextMax : 0;
+
   const isCreating = data.creatingStatus === 'creating';
   const isCreatingError = data.creatingStatus === 'error';
 
@@ -955,6 +975,12 @@ export const BubbleNode = memo(function BubbleNode({
                 {formatTokenCount(effectiveContextUsed ?? 0)}/{formatTokenCount(effectiveContextMax)}
               </span>
             )}
+            {/* §2.4 (잠듦) — 자식 프로세스를 회수해 둔 세션. 새 모양 ❌, 기존 하단 타이포에 한 줄만. */}
+            {isDormant && (
+              <span className="text-white/40" style={{ fontSize: Math.max(5, Math.round(8 * ts)) }}>
+                {t('common.bubble.dormant')}
+              </span>
+            )}
             {(data.totalInputTokens ?? 0) > 0 && (
               <span className="text-amber-300/60" style={{ fontSize: Math.max(5, Math.round(7 * ts)) }}>
                 {formatTokenCount(data.totalInputTokens ?? 0)}+{formatTokenCount(data.totalOutputTokens ?? 0)}
@@ -978,7 +1004,7 @@ export const BubbleNode = memo(function BubbleNode({
               </span>
             )}
             <span className="text-white/50" style={{ fontSize: Math.max(5, Math.round(8 * ts)) }}>
-              {t('common.bubble.idle')}
+              {t(isDormant ? 'common.bubble.dormant' : 'common.bubble.idle')}
             </span>
           </div>
         )}
@@ -1134,7 +1160,7 @@ export const BubbleNode = memo(function BubbleNode({
           <div className="absolute -top-1.5 left-1/2 h-3 w-3 -translate-x-1/2 rotate-45 border-l border-t border-gray-600 bg-gray-800" />
           {/* 말풍선 본문 */}
           <div className="max-w-[260px] rounded-lg border border-gray-600 bg-gray-800 px-3 py-2 shadow-lg shadow-black/40">
-            <p className="line-clamp-6 break-words text-[11px] leading-relaxed text-gray-200">
+            <p className="line-clamp-6 break-words text-[12px] leading-relaxed text-gray-200">
               {data.summary}
             </p>
           </div>
@@ -1143,7 +1169,7 @@ export const BubbleNode = memo(function BubbleNode({
 
       {/* Disappearing 상태 뱃지 */}
       {isDisappearing && (
-        <div className="pointer-events-none absolute -bottom-5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-gray-700/80 px-2 py-0.5 text-[10px] text-gray-400">
+        <div className="pointer-events-none absolute -bottom-5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-gray-700/80 px-2 py-0.5 text-[12px] text-gray-400">
           {isGhost && data.ghostInfo
             ? (data.ghostInfo.changeType === 'deleted' ? 'Deleted' : `Renamed → ${data.ghostInfo.toPath?.split('/').pop() ?? '?'}`)
             : 'Disappearing'}
@@ -1152,28 +1178,28 @@ export const BubbleNode = memo(function BubbleNode({
 
       {/* 폴더 더블클릭 힌트 — 클릭/드래그 투과 */}
       {isFolder && (
-        <div className="pointer-events-none absolute -bottom-5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-gray-700 px-2 py-0.5 text-[10px] text-white opacity-0 transition-opacity group-hover:opacity-100">
+        <div className="pointer-events-none absolute -bottom-5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-gray-700 px-2 py-0.5 text-[12px] text-white opacity-0 transition-opacity group-hover:opacity-100">
           {t('common.bubble.hint.enter')}
         </div>
       )}
 
       {/* 에이전트 더블클릭 힌트 */}
       {isAgent && !isBack && (
-        <div className="pointer-events-none absolute -bottom-5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-gray-700 px-2 py-0.5 text-[10px] text-white opacity-0 transition-opacity group-hover:opacity-100">
+        <div className="pointer-events-none absolute -bottom-5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-gray-700 px-2 py-0.5 text-[12px] text-white opacity-0 transition-opacity group-hover:opacity-100">
           {t('common.bubble.hint.openIDE')}
         </div>
       )}
 
       {/* Back 네비게이션 버블 hover 툴팁 — 더블클릭 시 상위 한 단계 복귀 */}
       {isBack && (
-        <div className="pointer-events-none absolute -bottom-5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-gray-700 px-2 py-0.5 text-[10px] text-white opacity-0 transition-opacity group-hover:opacity-100">
+        <div className="pointer-events-none absolute -bottom-5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-gray-700 px-2 py-0.5 text-[12px] text-white opacity-0 transition-opacity group-hover:opacity-100">
           {t('common.bubble.hint.goBack')}
         </div>
       )}
 
       {/* iframe 더블클릭 힌트 */}
       {isIframe && (
-        <div className="pointer-events-none absolute -bottom-5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-gray-700 px-2 py-0.5 text-[10px] text-white opacity-0 transition-opacity group-hover:opacity-100">
+        <div className="pointer-events-none absolute -bottom-5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-gray-700 px-2 py-0.5 text-[12px] text-white opacity-0 transition-opacity group-hover:opacity-100">
           {t('common.bubble.hint.expand')}
         </div>
       )}
@@ -1208,13 +1234,13 @@ function DebugTTL({ data, nodeId, nx, ny }: DebugTTLProps): React.JSX.Element | 
 
   return (
     <div className="pointer-events-none absolute -top-10 left-1/2 -translate-x-1/2 flex flex-col items-center gap-0.5">
-      <div className="whitespace-nowrap rounded bg-black/80 px-2 py-0.5 text-[9px] font-mono text-white">
+      <div className="whitespace-nowrap rounded bg-black/80 px-2 py-0.5 text-[12px] font-mono text-white">
         {saved && <><span className="text-yellow-400">S({Math.round(saved.x)},{Math.round(saved.y)})</span>{' '}</>}
         <span className="text-cyan-400">N({nxStr},{nyStr})</span>
       </div>
       {liveness && (
         <div
-          className={`whitespace-nowrap rounded px-2 py-0.5 text-[9px] font-mono text-white ${
+          className={`whitespace-nowrap rounded px-2 py-0.5 text-[12px] font-mono text-white ${
             liveness.inUse ? 'bg-emerald-700/90' : 'bg-rose-700/90'
           }`}
         >

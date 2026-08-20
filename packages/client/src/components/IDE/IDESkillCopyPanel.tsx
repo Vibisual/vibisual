@@ -97,12 +97,12 @@ export function IDESkillCopyPanel({ skill, agentId, currentProjectPath, onClose 
       onDragStart={(e) => e.preventDefault()}
     >
       <div className="flex items-center gap-1">
-        <span className="min-w-0 truncate text-[10px] font-semibold text-gray-300">{t('ide.sidebar.copySkillHeader')}</span>
+        <span className="min-w-0 truncate text-[12px] font-semibold text-gray-300">{t('ide.sidebar.copySkillHeader')}</span>
         {targets.length > 0 && (
           <button
             type="button"
             onClick={handleToggleAll}
-            className="ml-auto flex-shrink-0 rounded px-1 py-0.5 text-[9px] font-medium text-gray-400 transition-colors hover:bg-gray-700/60 hover:text-gray-200"
+            className="ml-auto flex-shrink-0 rounded px-1 py-0.5 text-[12px] font-medium text-gray-400 transition-colors hover:bg-gray-700/60 hover:text-gray-200"
           >
             {t('ide.sidebar.copySkillAll')}
           </button>
@@ -110,7 +110,7 @@ export function IDESkillCopyPanel({ skill, agentId, currentProjectPath, onClose 
       </div>
 
       {targets.length === 0 ? (
-        <span className="px-1 py-1 text-[10px] text-gray-500">{t('ide.sidebar.copySkillNoTargets')}</span>
+        <span className="px-1 py-1 text-[12px] text-gray-500">{t('ide.sidebar.copySkillNoTargets')}</span>
       ) : (
         <ScrollFade maxHeight={140}>
           <ul className="flex flex-col gap-0.5">
@@ -132,7 +132,7 @@ export function IDESkillCopyPanel({ skill, agentId, currentProjectPath, onClose 
                       </svg>
                     </span>
                     {TARGET_GLYPH[target.kind]}
-                    <span className={`min-w-0 truncate text-[10px] ${on ? 'text-gray-200' : 'text-gray-400'}`}>
+                    <span className={`min-w-0 truncate text-[12px] ${on ? 'text-gray-200' : 'text-gray-400'}`}>
                       {target.kind === 'global' ? t('ide.sidebar.copySkillGlobal') : target.label}
                     </span>
                   </button>
@@ -144,7 +144,7 @@ export function IDESkillCopyPanel({ skill, agentId, currentProjectPath, onClose 
       )}
 
       {summaryText && (
-        <span className={`px-1 text-[10px] leading-tight ${summary && summary.failed > 0 ? 'text-red-300/90' : 'text-emerald-300/90'}`}>
+        <span className={`px-1 text-[12px] leading-tight ${summary && summary.failed > 0 ? 'text-red-300/90' : 'text-emerald-300/90'}`}>
           {summaryText}
         </span>
       )}
@@ -154,7 +154,7 @@ export function IDESkillCopyPanel({ skill, agentId, currentProjectPath, onClose 
           type="button"
           disabled={busy || selected.length === 0}
           onClick={handleCopy}
-          className="flex-shrink-0 rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-300 transition-colors hover:bg-emerald-500/30 disabled:cursor-not-allowed disabled:bg-gray-700/40 disabled:text-gray-500"
+          className="flex-shrink-0 rounded bg-emerald-500/20 px-1.5 py-0.5 text-[12px] font-semibold text-emerald-300 transition-colors hover:bg-emerald-500/30 disabled:cursor-not-allowed disabled:bg-gray-700/40 disabled:text-gray-500"
         >
           {busy ? t('ide.sidebar.copySkillBusy') : t('ide.sidebar.copySkillDo')}
         </button>
@@ -163,7 +163,7 @@ export function IDESkillCopyPanel({ skill, agentId, currentProjectPath, onClose 
             type="button"
             disabled={busy}
             onClick={handleOverwrite}
-            className="flex-shrink-0 rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-amber-300 transition-colors hover:bg-amber-500/30 disabled:cursor-not-allowed disabled:bg-gray-700/40 disabled:text-gray-500"
+            className="flex-shrink-0 rounded bg-amber-500/20 px-1.5 py-0.5 text-[12px] font-semibold text-amber-300 transition-colors hover:bg-amber-500/30 disabled:cursor-not-allowed disabled:bg-gray-700/40 disabled:text-gray-500"
           >
             {t('ide.sidebar.copySkillOverwrite')}
           </button>
@@ -171,7 +171,7 @@ export function IDESkillCopyPanel({ skill, agentId, currentProjectPath, onClose 
         <button
           type="button"
           onClick={onClose}
-          className="ml-auto flex-shrink-0 rounded bg-gray-600/40 px-1.5 py-0.5 text-[10px] font-medium text-gray-300 transition-colors hover:bg-gray-600/60"
+          className="ml-auto flex-shrink-0 rounded bg-gray-600/40 px-1.5 py-0.5 text-[12px] font-medium text-gray-300 transition-colors hover:bg-gray-600/60"
         >
           {summary ? t('ide.sidebar.copySkillClose') : t('ide.sidebar.copySkillCancel')}
         </button>

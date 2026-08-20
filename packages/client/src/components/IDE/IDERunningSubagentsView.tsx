@@ -96,18 +96,18 @@ export const IDERunningSubagentsView = memo(function IDERunningSubagentsView({
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-1 p-2">
       <div className="flex items-center gap-1.5 px-1">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+        <span className="text-[12px] font-semibold uppercase tracking-wider text-gray-500">
           {t('ide.runningSubagents.title')}
         </span>
         {tasks.length > 0 && (
-          <span className="rounded bg-sky-500/20 px-1 text-[9px] font-semibold tabular-nums text-sky-300">
+          <span className="rounded bg-sky-500/20 px-1 text-[12px] font-semibold tabular-nums text-sky-300">
             {tasks.length}
           </span>
         )}
       </div>
 
       {/* 지금 무슨 범위를 보고 있는지 한 줄 — 세션마다 다른 기능이라 범위를 늘 밝힌다. */}
-      <p className="px-1 text-[9.5px] leading-snug text-gray-600">
+      <p className="px-1 text-[12px] leading-snug text-gray-600">
         {activeSessionId === null
           ? t('ide.runningSubagents.scopeAll')
           : t('ide.runningSubagents.scopeSession', { label: labelOf(activeSessionId) ?? activeSessionId })}
@@ -119,10 +119,10 @@ export const IDERunningSubagentsView = memo(function IDERunningSubagentsView({
           // §5.5 #17-9 ⑤ v5.06 — 항목이 상시 노출이라 **도는 게 없을 때 눌러 들어오는 것이 정상**이다.
           //   그 경우 빈칸이 아니라 "여기가 무엇을 보여 주는 자리인지"를 설명한다(사용자 지시).
           <div className="flex flex-col gap-1.5 px-2 py-4 text-center">
-            <p className="text-[11px] leading-relaxed text-gray-500">
+            <p className="text-[12px] leading-relaxed text-gray-500">
               {activeSessionId === null ? t('ide.runningSubagents.empty') : t('ide.runningSubagents.emptySession')}
             </p>
-            <p className="text-[10px] leading-relaxed text-gray-600">
+            <p className="text-[12px] leading-relaxed text-gray-600">
               {t('ide.runningSubagents.hint')}
             </p>
           </div>
@@ -138,10 +138,10 @@ export const IDERunningSubagentsView = memo(function IDERunningSubagentsView({
         {finished.length > 0 && (
           <div className="mt-2 flex flex-col gap-1">
             <div className="flex items-center gap-1.5 px-1">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-600">
+              <span className="text-[12px] font-semibold uppercase tracking-wider text-gray-600">
                 {t('ide.runningSubagents.finishedTitle')}
               </span>
-              <span className="rounded bg-gray-700/60 px-1 text-[9px] font-semibold tabular-nums text-gray-400">
+              <span className="rounded bg-gray-700/60 px-1 text-[12px] font-semibold tabular-nums text-gray-400">
                 {finished.length}
               </span>
             </div>
@@ -155,7 +155,7 @@ export const IDERunningSubagentsView = memo(function IDERunningSubagentsView({
       </ScrollFade>
 
       {others > 0 && (
-        <p className="flex-shrink-0 border-t border-gray-800 px-1 pt-1 text-[9.5px] text-gray-500">
+        <p className="flex-shrink-0 border-t border-gray-800 px-1 pt-1 text-[12px] text-gray-500">
           {t('ide.runningSubagents.othersRunning', { count: others })}
         </p>
       )}

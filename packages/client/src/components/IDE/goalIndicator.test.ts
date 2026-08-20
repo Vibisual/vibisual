@@ -86,3 +86,52 @@ describe('computeGoalIndicator — 활동바 목표 아이콘', () => {
     expect(computeGoalIndicator(goal({ steps }), false).blink).toBe(false);
   });
 });
+
+/**
+ * §5.5 #17-17 ⑩ 3차 정정 — **끝난 목록에는 불을 남기지 않는다**.
+ *
+ * `achieved` 로 닫는 것은 사용자의 몫이라 세션이 마지막 단계까지 끝내고 꺼져도 `status` 는 `active` 로
+ * 남는다. 그래서 v4.73 판정은 이미 끝난 목표에도 계속 불을 켜고 `5/5` 를 띄웠다(실측: 저장된 목표
+ * 66건 중 전 단계 `done` + sub `idle` 인 카드가 다수). 켜 두는 쪽과 끄는 쪽 모두 여기서 고정한다.
+ */
+describe('computeGoalIndicator — 완수한 목표의 소등', () => {
+  const fiveOfFive = [
+    { id: 'a', text: 'A', status: 'done' as SessionGoalStepStatus, updatedAt: 0 },
+    { id: 'b', text: 'B', status: 'done' as SessionGoalStepStatus, updatedAt: 0 },
+  ];
+
+  it('전 단계를 끝내고 세션도 멈췄으면 꺼진다(숫자도 안 띄운다)', () => {
+    const ind = computeGoalIndicator(goal({ steps: fiveOfFive, percent: 100 }), false);
+    expect(ind).toEqual({ lit: false, meter: null, blink: false, steps: null });
+  });
+
+  it('전 단계를 끝냈어도 그 세션이 도는 중이면 켜 둔다(목록이 더 붙을 수 있다)', () => {
+    const ind = computeGoalIndicator(goal({ steps: fiveOfFive, percent: 100 }), true);
+    expect(ind.lit).toBe(true);
+    expect(ind.meter).toBe('2/2');
+    expect(ind.blink).toBe(true);
+  });
+
+  it('중간에 멈춘 목표는 그대로 켜져 있다(아직 남은 일이 있다)', () => {
+    const ind = computeGoalIndicator(goal({
+      steps: [
+        { id: 'a', text: 'A', status: 'done', updatedAt: 0 },
+        { id: 'b', text: 'B', status: 'pending', updatedAt: 0 },
+      ],
+      percent: 50,
+    }), false);
+    expect(ind.lit).toBe(true);
+    expect(ind.meter).toBe('1/2');
+    expect(ind.blink).toBe(false);
+  });
+
+  it('단계가 없어도 100% 를 신고하고 멈췄으면 꺼진다', () => {
+    expect(computeGoalIndicator(goal({ percent: 100 }), false).lit).toBe(false);
+    expect(computeGoalIndicator(goal({ percent: 100 }), true).lit).toBe(true);
+  });
+
+  it('사용자가 직접 쓴 목표도 다 끝나고 멈추면 조용해진다', () => {
+    const ind = computeGoalIndicator(goal({ authoredBy: 'user', steps: fiveOfFive, percent: 100 }), false);
+    expect(ind.lit).toBe(false);
+  });
+});

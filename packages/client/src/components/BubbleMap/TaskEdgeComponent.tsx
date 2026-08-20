@@ -253,7 +253,7 @@ export const TaskEdgeComponent = memo(function TaskEdgeComponent({
                   <button
                     key={ev}
                     type="button"
-                    className="flex h-5 min-w-5 items-center justify-center rounded px-1 text-[11px] hover:bg-gray-700"
+                    className="flex h-5 min-w-5 items-center justify-center rounded px-1 text-[12px] hover:bg-gray-700"
                     style={{ color: cfg.color }}
                     title={t('bubbleMap.taskEdge.pulseDebugTitle', { label: t(cfg.labelKey) })}
                     onClick={(e) => { e.stopPropagation(); triggerPulse(ev); }}

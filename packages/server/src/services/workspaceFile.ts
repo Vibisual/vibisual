@@ -1,6 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { WORKSPACE_FILE_MAX_BYTES } from '@vibisual/shared';
+import {
+  WORKSPACE_FILE_MAX_BYTES,
+  WORKSPACE_IMAGE_MAX_BYTES,
+  isWorkspaceImageBakeable,
+  isWorkspaceImagePath,
+  workspaceImageMime,
+} from '@vibisual/shared';
 import type { WorkspaceEol, WorkspaceFileContent, WorkspaceFileSaveResult } from '@vibisual/shared';
 import { resolveWorkspacePath } from './workspaceExplorer.js';
 
@@ -22,7 +28,15 @@ import { resolveWorkspacePath } from './workspaceExplorer.js';
 const BINARY_SNIFF_BYTES = 8_000;
 
 /** 저장 실패 사유 — 호출부가 HTTP 코드로 옮긴다. */
-export type WorkspaceFileSaveError = 'outside' | 'not-found' | 'conflict' | 'too-large' | 'readonly' | 'write-failed';
+export type WorkspaceFileSaveError =
+  | 'outside'
+  | 'not-found'
+  | 'conflict'
+  | 'too-large'
+  | 'readonly'
+  | 'write-failed'
+  /** §5.5 #17-25 ④-1 — 원본 형식으로 구울 수 없는 이미지(svg·gif·ico·bmp·avif)에 저장 시도. */
+  | 'unsupported';
 
 /** 디스크가 쓰기를 막는 오류 코드 — Perforce 체크아웃 전 파일·`attrib +r`·권한·읽기 전용 마운트. */
 const READ_ONLY_ERROR_CODES = new Set(['EACCES', 'EPERM', 'EROFS']);
@@ -131,6 +145,8 @@ export function readWorkspaceFile(
     mtimeMs: stat.mtimeMs,
     truncated,
     binary,
+    // ⑭ 그림으로 열 자리인가 — 판정을 여기서 끝내 클라이언트가 두 값을 다시 조합하지 않게 한다.
+    image: binary && isWorkspaceImagePath(resolved.rel),
     readOnly: isReadOnlyFile(resolved.abs),
     eol: detectEol(raw),
   };
@@ -191,6 +207,99 @@ export function writeWorkspaceFile(
   } catch (err) {
     // 잠금을 이미 풀어 본 뒤에도 막혔으면 우리가 할 수 있는 것은 끝났다 — 같은 버튼을 또 권하지 않는다.
     if (!clearReadOnly && isPermissionError(err)) return { ok: false, error: 'readonly' };
+    return { ok: false, error: 'write-failed' };
+  }
+}
+
+/**
+ * §5.5 #17-27 ⑭ — 미리보기에 실을 **이미지 바이트 한 장**.
+ *
+ * 텍스트 창구(`readWorkspaceFile`)와 갈라 두는 이유는 돌려주는 것이 글자가 아니라 버퍼이고,
+ * 상한도 다르기 때문이다(`WORKSPACE_IMAGE_MAX_BYTES`). 경로 가드는 같은 `resolveWorkspacePath`
+ * 하나를 그대로 쓴다 — 두 개의 가드는 언젠가 서로 어긋나고, 어긋난 쪽이 곧 구멍이 된다.
+ *
+ * 잘라 보내지 않는다 — 잘린 이미지는 그리다 만 그림이라 보여 줄 값이 없다. 상한을 넘으면 null 로
+ * 답해 화면이 종전 안내(`이진 파일 — 읽기 전용`)로 떨어지게 한다.
+ */
+export function readWorkspaceImage(
+  root: string,
+  relPath: string,
+  limit: number = WORKSPACE_IMAGE_MAX_BYTES,
+): { bytes: Buffer; mime: string; size: number; mtimeMs: number } | null {
+  const resolved = resolveWorkspacePath(root, relPath);
+  if (!resolved || resolved.rel === '') return null;
+  if (!isWorkspaceImagePath(resolved.rel)) return null;
+
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(resolved.abs);
+    if (!stat.isFile()) return null;
+  } catch {
+    return null;
+  }
+  if (stat.size > limit) return null;
+
+  let bytes: Buffer;
+  try {
+    bytes = fs.readFileSync(resolved.abs);
+  } catch {
+    return null;
+  }
+
+  return { bytes, mime: workspaceImageMime(resolved.rel), size: stat.size, mtimeMs: stat.mtimeMs };
+}
+
+/**
+ * §5.5 #17-25 ④-1 — 주석을 구운 이미지로 **그 파일을 덮어쓴다**.
+ *
+ * 규율은 텍스트 저장과 같은 것을 쓴다 — 읽을 때 본 `mtimeMs` 가 디스크와 다르면 `conflict` 로 거절하고
+ * (그 사이 에이전트가 같은 파일을 고쳤을 수 있다), 사용자가 "그래도 저장" 을 고르면 `baseMtimeMs <= 0`
+ * 으로 다시 와 대조를 건너뛴다. 다른 점은 두 가지다:
+ *
+ * - **형식을 바꿔 쓰지 않는다** — `canvas.toBlob` 이 굽지 못하는 확장자(svg·gif·ico·bmp·avif)는
+ *   `unsupported` 로 거절한다. 조용히 PNG 를 써 넣으면 확장자와 내용이 어긋난 파일이 남는다.
+ * - **줄바꿈·BOM 규약이 없다** — 바이트를 그대로 쓴다.
+ */
+export function writeWorkspaceImage(
+  root: string,
+  relPath: string,
+  bytes: Buffer,
+  baseMtimeMs: number,
+  limit: number = WORKSPACE_IMAGE_MAX_BYTES,
+): WorkspaceFileSaveOutcome {
+  const resolved = resolveWorkspacePath(root, relPath);
+  if (!resolved || resolved.rel === '') return { ok: false, error: 'outside' };
+  if (!isWorkspaceImageBakeable(resolved.rel)) return { ok: false, error: 'unsupported' };
+  if (bytes.length > limit) return { ok: false, error: 'too-large' };
+
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(resolved.abs);
+    if (!stat.isFile()) return { ok: false, error: 'not-found' };
+  } catch {
+    return { ok: false, error: 'not-found' };
+  }
+
+  // 텍스트 저장과 같은 어림값 — 소수점 ms 반올림 차이는 같은 것으로 본다.
+  if (baseMtimeMs > 0 && Math.abs(stat.mtimeMs - baseMtimeMs) > 1) {
+    return { ok: false, error: 'conflict', mtimeMs: stat.mtimeMs };
+  }
+
+  try {
+    fs.writeFileSync(resolved.abs, bytes);
+    const after = fs.statSync(resolved.abs);
+    return {
+      ok: true,
+      result: {
+        root: path.resolve(root),
+        path: resolved.rel,
+        size: after.size,
+        mtimeMs: after.mtimeMs,
+        readOnly: isReadOnlyFile(resolved.abs),
+      },
+    };
+  } catch (err) {
+    if (isPermissionError(err)) return { ok: false, error: 'readonly' };
     return { ok: false, error: 'write-failed' };
   }
 }

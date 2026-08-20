@@ -29,8 +29,9 @@
       "completed": "{{count}} abgeschlossen",
       "working": "{{active}}/{{total}}",
       "tooltipWaiting": "Noch keine Agenten in diesem Projekt",
-      "tooltipCompleted": "{{count}} Agenten in diesem Projekt abgeschlossen",
-      "tooltipWorking": "{{active}} von {{total}} Agenten laufen in diesem Projekt"
+      "tooltipWorking": "Dieses Projekt: {{agents}} Agenten · {{running}} von {{sessions}} Sessions laufen",
+      "tooltipIdle": "Dieses Projekt: {{agents}} Agenten · {{sessions}} Sessions — derzeit läuft nichts",
+      "tooltipCommand": "{{status}} · Klicken, um den Leitstand zu öffnen"
     },
     "tab": {
       "closeProject": "Projekt schließen",
@@ -190,6 +191,10 @@
       "title": "Optionen",
       "unsaved": "ungespeichert",
       "discardConfirm": "Ungespeicherte Änderungen verwerfen?",
+      "discardTitle": "Ungespeicherte Änderungen",
+      "discardDesc": "Ihre Änderungen wurden noch nicht übernommen. Wenn Sie jetzt schließen, gehen sie verloren.",
+      "discardKeep": "Weiter bearbeiten",
+      "discardLeave": "Verwerfen und schließen",
       "apply": "Anwenden",
       "cancel": "Abbrechen",
       "saving": "Wird gespeichert…",
@@ -278,7 +283,7 @@
         "actionFailed": "Das hat nicht geklappt. Versuche es erneut."
       },
       "storage": {
-        "intro": "Wie lange Vibisual den Aktivitätsverlauf auf der Festplatte speichert. Setzen Sie einen Wert auf 0, um ihn dauerhaft zu behalten — nichts wird stillschweigend gelöscht, und laufende Sitzungen werden nie angetastet.",
+        "intro": "Wie lange Vibisual den Aktivitätsverlauf auf der Festplatte behält. Setze einen Wert auf 0, um ihn dauerhaft zu behalten. Es wird nichts stillschweigend gelöscht: Dateien, auf die ein Gespräch noch verweist, bleiben unabhängig vom Alter erhalten, laufende und wieder öffenbare Sitzungen werden nie angetastet, und die Bereinigung verschiebt Dateien in den Papierkorb, sodass du sie wiederherstellen kannst.",
         "save": "Anwenden",
         "saving": "Wird gespeichert…",
         "reset": "Standardwerte wiederherstellen",
@@ -289,7 +294,7 @@
         "scanning": "Wird gescannt…",
         "cleanNow": "Jetzt bereinigen",
         "cleaning": "Wird bereinigt…",
-        "cleaned": "{{files}} Datei(en) entfernt, {{size}} freigegeben.",
+        "cleaned": "{{files}} Datei(en) ({{size}}) in den Papierkorb verschoben — du kannst sie wiederherstellen, solange sie dort liegen.",
         "empty": "Noch keine Projektdaten auf der Festplatte.",
         "worktreesTitle": "Git-Worktrees",
         "worktreesNote": "Werden nie automatisch entfernt — sie können Ihre Arbeit enthalten. Löschen Sie den Ordner selbst, wenn Sie ihn nicht mehr benötigen.",
@@ -314,15 +319,19 @@
           },
           "completedCommandMaxPerSession": {
             "label": "Abgeschlossene Befehle pro Sitzung",
-            "desc": "Ihre aufbewahrten Prompt-Sprechblasen pro Sitzung. 0 = unbegrenzt."
+            "desc": "Deine eigenen Eingaben, die pro Sitzung behalten werden. Sie lassen sich nicht wiederherstellen, daher ist das Limit großzügig. 0 = unbegrenzt."
           },
           "subStreamRetentionDays": {
-            "label": "Agent-Transkripte aufbewahren für",
-            "desc": "Wird beim Start bereinigt. Laufende Sitzungen werden unabhängig vom Alter behalten. 0 = dauerhaft behalten."
+            "label": "Verlauf der Agentengespräche",
+            "desc": "Wird beim Start einmal bereinigt. Laufende Sitzungen und solche in der Wieder-öffnen-Liste bleiben unabhängig vom Alter erhalten. 0 = dauerhaft behalten."
           },
           "attachmentRetentionDays": {
-            "label": "Anhänge aufbewahren für",
-            "desc": "Bilder, die Sie in Prompts eingefügt haben. 0 = dauerhaft behalten."
+            "label": "Angehängte Dateien",
+            "desc": "Bilder, die du in Befehle eingefügt hast. Dateien, auf die ein Gespräch noch verweist, bleiben unabhängig vom Alter; nur Verwaiste laufen ab. 0 = dauerhaft behalten."
+          },
+          "trashRetentionDays": {
+            "label": "Papierkorb",
+            "desc": "Wie viele Tage bereinigte Dateien wiederherstellbar bleiben, bevor sie endgültig gelöscht werden. 0 = dauerhaft behalten."
           }
         },
         "kinds": {
@@ -335,14 +344,24 @@
           "brain": "Gedächtnis",
           "logs": "Logs",
           "video": "Video",
-          "other": "Sonstiges"
+          "other": "Sonstiges",
+          "trash": "Papierkorb"
         },
         "error": {
           "load": "Aufbewahrungseinstellungen konnten nicht geladen werden.",
           "save": "Aufbewahrungseinstellungen konnten nicht gespeichert werden.",
           "scan": "Speichernutzung konnte nicht ermittelt werden.",
-          "clean": "Bereinigung fehlgeschlagen. Bitte versuchen Sie es erneut."
-        }
+          "clean": "Bereinigung fehlgeschlagen. Bitte versuchen Sie es erneut.",
+          "restore": "Diese Datei konnte nicht wiederhergestellt werden. Möglicherweise existiert sie am ursprünglichen Ort bereits."
+        },
+        "purged": "{{files}} abgelaufene Datei(en) im Papierkorb endgültig gelöscht ({{size}}).",
+        "keptReferenced": "{{files}} noch referenzierte Datei(en) unabhängig vom Alter behalten.",
+        "trashTitle": "Papierkorb",
+        "trashNote": "Die Bereinigung verschiebt Dateien hierher, statt sie zu löschen. Du kannst alles in der Liste wiederherstellen, bis es {{days}} Tag(e) alt ist.",
+        "trashNoteForever": "Die Bereinigung verschiebt Dateien hierher, statt sie zu löschen. Hier wird nichts automatisch gelöscht.",
+        "trashEmpty": "Der Papierkorb ist leer — es wurde nichts bereinigt.",
+        "restore": "Wiederherstellen",
+        "restoring": "Wird wiederhergestellt…"
       }
     },
     "autoAgent": {
@@ -491,7 +510,15 @@
       "empty": "Noch kein Conti — 'Neues Conti generieren' drücken, um die erste Aufnahme zu erfassen",
       "working": "Wird verarbeitet… ({{source}})",
       "edited": "bearbeitet {{when}}",
-      "editedTitle": "Letzte Änderungszeit"
+      "editedTitle": "Letzte Änderungszeit",
+      "scriptTitle": "Storyboard aus Skript",
+      "scriptPlaceholder": "Skript einfügen — ein Bild pro Beat, in der Reihenfolge des Skripts.",
+      "scriptPreset": "Ausgabe",
+      "scriptFrames": "Bilder",
+      "scriptFramesAuto": "auto",
+      "scriptGenerate": "Storyboard aus Skript erstellen",
+      "scriptWorking": "Szenen werden geschnitten…",
+      "scriptChip": "Skript"
     },
     "contiBoard": {
       "latest": "Neuestes Conti",
@@ -501,7 +528,18 @@
       "editFrame": "Text bearbeiten",
       "editTitlePrompt": "Frame-Titel:",
       "editActionPrompt": "Frame-Aktion:",
-      "zoomReset": "Ctrl+0 zurücksetzen"
+      "zoomReset": "Ctrl+0 zurücksetzen",
+      "presetLabel": "Ausgabe",
+      "preset": {
+        "landscape": "Querformat 16:9",
+        "portrait": "Hochformat 9:16",
+        "webtoon": "Webtoon (vertikal)"
+      },
+      "render": "Rendern",
+      "renderTitle": "Die Einstellungen in ein Timeline-Dokument übertragen und das Rendern starten",
+      "renderWorking": "Wird übergeben…",
+      "renderNoApp": "Video-App installieren, um zu rendern",
+      "renderLinked": "{{app}} · {{status}}"
     },
     "contiPrompt": {
       "title": "Element mit Prompt anpassen",
@@ -733,7 +771,8 @@
         "TaskStop": "Beendet eine Hintergrundaufgabe oder einen Subagenten.",
         "MultiEdit": "Wendet mehrere Änderungen auf eine Datei gleichzeitig an.",
         "SendMessage": "Sendet eine Folgenachricht an einen laufenden Subagenten.",
-        "Artifact": "Erstellt Artefakte (Dokumente, Apps)."
+        "Artifact": "Erstellt Artefakte (Dokumente, Apps).",
+        "strippedByEdgeHint": "Über eine STRICT-Kante delegiert – dieser Agent kann es zur Laufzeit nicht verwenden (wird wiederhergestellt, sobald die Kante entfernt wird)"
       },
       "maxTurns": "Max. Durchläufe",
       "maxBudgetUsd": "Budget ($, 0=∞)",
@@ -808,6 +847,12 @@
         "defaultLabel": "Standard (s, 0 = CLI-Standard)",
         "maxLabel": "Max. Limit (s, 0 = CLI-Standard)",
         "hint": "0 behält die CLI-Standardwerte — {{defaultSec}}s Standard, {{maxSec}}s max."
+      },
+      "modelVersion": {
+        "label": "Version",
+        "latest": "Neueste (Alias)",
+        "latestWith": "Neueste ({{id}})",
+        "custom": "Benutzerdefiniert…"
       }
     },
     "permissionPrompt": {
@@ -1196,6 +1241,132 @@
       "rechecking": "Wird geprüft…",
       "later": "Später",
       "docs": "Offizielle Installationsanleitung"
+    },
+    "appsWindow": {
+      "notInstalledTitle": "{{name}} ist nicht installiert",
+      "notInstalledBody": "Rechtsklick auf die Arbeitsfläche und über Apps installieren. Du kannst auch eine Blase ablegen und direkt darüber installieren.",
+      "unknownMode": "Unbekannte Ansicht: {{mode}}",
+      "unknownApp": "Unbekannte App: {{id}}"
+    },
+    "apps": {
+      "open": "Öffnen",
+      "openHint": "Doppelklick zum Öffnen.",
+      "installApp": "App installieren",
+      "installHint": "Doppelklick zum Installieren.",
+      "uninstallApp": "App deinstallieren",
+      "notInstalledBadge": "Installation erforderlich",
+      "unknown": "Unbekannte App",
+      "rename": "Umbenennen",
+      "renamePrompt": "Blasenname",
+      "pin": "Anheften",
+      "unpin": "Lösen",
+      "delete": "Löschen",
+      "deletePinnedHint": "Diese Blase ist angeheftet. Zuerst lösen.",
+      "detail": {
+        "app": "App",
+        "installed": "Installiert",
+        "unknownHint": "Diese App ist nicht Teil der aktuellen Version. Du kannst die Blase trotzdem löschen.",
+        "installHint": "Erst installieren, dann lässt sie sich öffnen. Ein Doppelklick auf die Blase auf der Arbeitsfläche installiert sie ebenfalls.",
+        "bubble": "Diese Blase",
+        "nameHint": "Leer lassen, um den App-Namen zu verwenden.",
+        "protection": "Schutz",
+        "pinHint": "Wenn aktiviert, kann sie weder über die Delete-Taste noch über Löschaktionen entfernt werden.",
+        "deleteBubble": "Diese Blase löschen",
+        "deleteHint": "Die Delete-Taste entfernt sie ebenfalls. Die App selbst bleibt installiert."
+      }
+    },
+    "videoStudio": {
+      "title": "Vibistudio",
+      "pickDoc": "Video auswählen…",
+      "newDoc": "Neues Video",
+      "untitled": "Neues Video",
+      "empty": "Video auswählen oder ein neues erstellen.",
+      "newTitle": "Titelkarte",
+      "addTitle": "Titel hinzufügen",
+      "play": "Play",
+      "pause": "Pause",
+      "seek": "Wiedergabeposition",
+      "toggleItem": "Ein-/ausschalten",
+      "removeItem": "Entfernen",
+      "pickAgent": "Agenten auswählen…",
+      "delegate": "Diesen Schnitt übergeben",
+      "delegated": "Diesen Schnitt an einen Agenten übergeben.",
+      "render": "Rendern",
+      "renderQueued": "Rendern eingereiht.",
+      "renderDone": "Rendern abgeschlossen.",
+      "noAudio": "Ohne Audio exportiert.",
+      "downgraded": "Rendermodus wurde herabgestuft: {{id}}",
+      "previewFailed": "Vorschau konnte nicht gezeichnet werden.",
+      "reloaded": "Das Dokument wurde an anderer Stelle geändert und daher neu geladen."
+    },
+    "cost": {
+      "title": "Kosten- & Token-Übersicht",
+      "close": "Kostenübersicht schließen",
+      "pillLabel": "Kosten heute",
+      "pillEmpty": "Noch keine Kosten gemessen",
+      "notMeasured": "Nicht gemessen",
+      "notMeasuredHint": "Für diese Sitzung wurden keine Turns gelesen, daher wird keine Aussage über ihre Kosten getroffen.",
+      "periodToday": "Heute",
+      "periodWeek": "Diese Woche",
+      "periodMonth": "Dieser Monat",
+      "periodAll": "Gesamt",
+      "totalCost": "Kosten",
+      "inputTokens": "Eingabe",
+      "outputTokens": "Ausgabe",
+      "cacheReadTokens": "Cache-Lesen",
+      "cacheCreateTokens": "Cache-Schreiben",
+      "agentsTitle": "Nach Agent",
+      "sessionsTitle": "Nach Sitzung",
+      "colName": "Name",
+      "colModel": "Modell",
+      "colTokens": "Tokens",
+      "colCost": "Kosten",
+      "sessionCumulativeNote": "Sitzungszeilen zeigen die gesamte Sitzung, gefiltert nach der letzten Aktivität.",
+      "empty": "In diesem Projekt wurde noch nichts gemessen.",
+      "emptyHint": "Kosten erscheinen, sobald ein Agent einen Turn abschließt — sie werden aus dem Sitzungsprotokoll gelesen, nicht aus abgerechneten Beträgen.",
+      "estimateNote": "Geschätzt anhand von Token-Anzahl und veröffentlichten Preisen.",
+      "retiredNote": "{{cost}} aus älteren Sitzungen ist in die Gesamtsumme eingerechnet.",
+      "sessions_one": "{{count}} Sitzung",
+      "sessions_other": "{{count}} Sitzungen",
+      "openMap": "Kosten- & Token-Übersicht öffnen"
+    },
+    "audit": {
+      "title": "Berechtigungs- und Audit-Grenze",
+      "close": "Audit-Verlauf schließen",
+      "pillLabel": "Riskante Aufrufe heute",
+      "pillEmpty": "Heute keine riskanten Aufrufe",
+      "pillOff": "Audit-Grenze ist aus – riskante Aktionen laufen ohne nachzufragen (werden weiterhin erfasst)",
+      "boundaryOn": "Vor riskanten Aktionen nachfragen",
+      "boundaryHint": "Die Aufzeichnung wird nie gestoppt – das entscheidet nur, ob wir den Agenten vorher anhalten.",
+      "routeTitle": "Ein zweiter Kontrollpunkt, unabhängig vom Berechtigungsmodus",
+      "routeBody": "Diese Grenze arbeitet unabhängig vom Berechtigungsmodus des Agenten — sie prüft Tool-Aufrufe erneut, die der Berechtigungsmodus bereits durchgelassen hat.",
+      "routeOn": "Eingeschaltet — selbst ein Agent mit „alles erlauben (bypassPermissions)“ erhält bei Lösch-, Netzwerk- und Konfigurationsaufrufen eine Freigabekarte.",
+      "routeOff": "Ausgeschaltet (Standard) — jeder Aufruf läuft genau so, wie der Berechtigungsmodus entschieden hat, und wird nur aufgezeichnet.",
+      "routeScope": "Angehalten werden hier nur benutzerdefinierte Agenten, die Vibisual gestartet hat. Selbst gestartete Claude-Code-Sitzungen werden nur aufgezeichnet.",
+      "routeStateOn": "Jetzt an — riskante Aufrufe werden vor dem Berechtigungsmodus abgefragt.",
+      "routeStateOff": "Jetzt aus — Aufrufe laufen gemäß Berechtigungsmodus und werden nur aufgezeichnet.",
+      "risk": {
+        "delete": "Löschen",
+        "network": "Netzwerk",
+        "config": "Konfiguration"
+      },
+      "filterAll": "Alle",
+      "filterRisky": "Riskant",
+      "filterDenied": "Abgelehnt",
+      "escalated": "Zuerst nachgefragt",
+      "decisionAllow": "Erlaubt",
+      "decisionDeny": "Abgelehnt",
+      "sourceTimeout": "abgelaufen",
+      "sourcePolicy": "laut Modus",
+      "reason": "Grund",
+      "countSummary": "{{total}} Aufrufe · {{risky}} riskant · {{denied}} abgelehnt",
+      "showMore": "{{count}} weitere anzeigen",
+      "noMatch": "Keine Aufrufe entsprechen diesem Filter.",
+      "retired": "{{count}} ältere Aufrufe sind in den Gesamtzahlen enthalten, aber ihre Details sind nicht mehr vorhanden.",
+      "empty": "In diesem Projekt wurden noch keine Tool-Aufrufe erfasst.",
+      "emptyHint": "Jeder Tool-Aufruf eines Agenten landet hier – was er berührt hat und was du geantwortet hast.",
+      "promptRiskTitle": "Riskante Aktion",
+      "promptEscalatedHint": "Dein Berechtigungsmodus hätte dies automatisch erlaubt – die Audit-Grenze fragt zuerst nach."
     }
   },
   "ide": {
@@ -1234,6 +1405,12 @@
       "download": "PNG herunterladen",
       "saveReplace": "Speichern",
       "saveAttach": "Markierte Kopie anhängen",
+      "saveFile": "In Datei speichern",
+      "saveFileHint": "Überschreibt {{path}} mit diesen Markierungen",
+      "saveFileUnsupported": "Dieses Format kann nicht neu kodiert werden — hängen Sie stattdessen die markierte Kopie an oder laden Sie sie herunter.",
+      "fileSaveFailed": "Konnte nicht in diese Datei gespeichert werden.",
+      "fileConflict": "Diese Datei hat sich seit dem Öffnen auf der Festplatte geändert.",
+      "fileConflictOverwrite": "Trotzdem speichern",
       "textPlaceholder": "Eingeben und Enter drücken",
       "hintPick": "Ein Tool wählen, um dieses Bild zu markieren, und dann als Anhang speichern.",
       "hintDraw": "Auf dem Bild ziehen, um es zu markieren. Strg+Z macht die letzte Markierung rückgängig.",
@@ -1256,7 +1433,9 @@
       "cmdLabel": "CMD",
       "hookLabel": "Hook",
       "renameHint": "Doppelklick zum Umbenennen (F2)",
-      "renameInputLabel": "Agent-Name"
+      "renameInputLabel": "Agent-Name",
+      "localLabel": "All Model",
+      "localSwitchModel": "Modell dieser Bubble wechseln"
     },
     "tabbar": {
       "newSession": "Neue Session",
@@ -1376,7 +1555,9 @@
       "runningSubagents": "Laufende Unteragenten ({{count}})",
       "loop": "Wiederholungsschleife",
       "goal": "Ziel",
-      "debug": "Ausführen und Debuggen"
+      "debug": "Ausführen und Debuggen",
+      "hooks": "Sitzungs-Hooks",
+      "plugins": "Claude Code-Plugins"
     },
     "mcp": {
       "title": "MCP-Server",
@@ -1652,6 +1833,11 @@
       "truncated": "Nur der Anfang dieser großen Datei wird angezeigt — schreibgeschützt.",
       "readError": "Diese Datei kann nicht gelesen werden",
       "plainLanguage": "Text",
+      "imageEdit": "Bearbeiten",
+      "imageEditHint": "Dieses Bild markieren",
+      "imageFit": "An Panel anpassen",
+      "imageActualSize": "Originalgröße (1:1)",
+      "imageReadError": "Dieses Bild kann nicht angezeigt werden",
       "openInPane": "Im Editor-Bereich öffnen — {{path}}",
       "openFolder": "Den Ordner öffnen, der diese Datei enthält — {{path}}",
       "readOnlyLocked": "Diese Datei ist auf der Festplatte schreibgeschützt gesperrt (Perforce-Checkout, Dateiattribut).",
@@ -1790,6 +1976,45 @@
       "instructionTitle": "Erteilte Anweisung",
       "changesTitle": "Was geändert wurde",
       "checkpointsTitle": "Bitte prüfen"
+    },
+    "reviewLane": {
+      "unknownBranch": "(Branch unbekannt)",
+      "fileCount": "{{count}} Datei(en)",
+      "uncommitted": "nicht committet",
+      "uncommittedHint": "Noch nicht committet — beim Freigeben wird diese Änderung nicht gemergt.",
+      "showMoreFiles": "{{count}} weitere anzeigen",
+      "showLessFiles": "Weniger anzeigen",
+      "filesTruncated": "Einige Dateien fehlen (Obergrenze erreicht).",
+      "showDiff": "Diff anzeigen ({{count}} Zeilen)",
+      "hideDiff": "Diff ausblenden",
+      "diffTruncated": "Der Diff wurde an der Größengrenze abgeschnitten.",
+      "approve": "Freigeben",
+      "approveTitle": "Freigeben und diesen Branch in den übergeordneten Branch mergen",
+      "reject": "Ablehnen",
+      "rejectTitle": "Mit Begründung ablehnen und zur Nachbesserung zurückgeben",
+      "hold": "Zurückstellen",
+      "holdTitle": "Später entscheiden — es wird nichts gemergt oder zurückgegeben",
+      "sendReject": "Ablehnung senden",
+      "cancel": "Abbrechen",
+      "reasonPlaceholder": "Warum lehnst du ab? Der Text geht als nächster Prompt an den Agenten.",
+      "reasonHint": "Die Begründung wird zum nächsten Prompt.",
+      "rejectPromptHeader": "Diese Änderung wurde im Review abgelehnt. Behebe sie gemäß der Begründung unten und sag mir dann, was du geändert hast.",
+      "decisionFailed": "Entscheidung konnte nicht gespeichert werden: {{error}}",
+      "historyTitle": "Entscheidungsverlauf ({{count}})",
+      "changeType": {
+        "added": "Hinzugefügt",
+        "modified": "Geändert",
+        "deleted": "Gelöscht",
+        "renamed": "Umbenannt",
+        "unknown": "Unbekannt"
+      },
+      "result": {
+        "approvedMerged": "Freigegeben · gemergt",
+        "approvedMergeFailed": "Freigegeben · Merge fehlgeschlagen ({{error}})",
+        "rejected": "Abgelehnt",
+        "rejectedDispatched": "Abgelehnt · Nachbesserung gesendet",
+        "held": "Zurückgestellt"
+      }
     },
     "list": {
       "title": "Liste",
@@ -2289,6 +2514,129 @@
           }
         }
       }
+    },
+    "goal": {
+      "title": "Ziel",
+      "pickSession": "Sitzung auswählen, um ihr Ziel zu sehen.",
+      "waiting": "Noch kein Ziel. Sobald die Sitzung einen Plan erstellt, erscheint eines.",
+      "setManually": "Selbst eines schreiben",
+      "textPlaceholder": "Was soll diese Sitzung erreichen?",
+      "textHint": "Sobald du den Wortlaut selbst bearbeitest, hört die Sitzung auf, ihn umzuschreiben.",
+      "create": "Erstellen",
+      "update": "Aktualisieren",
+      "cancel": "Abbrechen",
+      "editHint": "Ziel bearbeiten",
+      "stepCount": "{{done}} / {{total}} Schritte",
+      "stepRemaining": "{{count}} übrig",
+      "noSteps": "Noch keine Schritte",
+      "byUser": "Von dir festgelegt",
+      "bySession": "Von der Sitzung festgelegt",
+      "toggleStep": "Diesen Schritt umschalten",
+      "removeStep": "Diesen Schritt entfernen",
+      "addStepPlaceholder": "Schritt hinzufügen…",
+      "historyLabel": "Verlauf",
+      "achieve": "Als erreicht markieren",
+      "resume": "Wiedereröffnen",
+      "delete": "Ziel verwerfen",
+      "status": {
+        "active": "In Bearbeitung",
+        "achieved": "Erreicht",
+        "abandoned": "Verworfen"
+      },
+      "source": {
+        "agent": "Vom Agenten gemeldet",
+        "user": "Von dir angepasst",
+        "plan": "Aus dem Plan abgeleitet"
+      }
+    },
+    "hooks": {
+      "title": "Sitzungs-Hooks",
+      "refresh": "Hooks neu scannen",
+      "noProject": "Öffne ein Projekt, um die Hooks zu sehen, die für dessen Sitzungen gelten.",
+      "empty": "Für diese Sitzung sind keine Hooks konfiguriert.",
+      "applyHint": "Das Ein- oder Ausschalten eines Hooks gilt für Sitzungen, die ab jetzt gestartet werden. Ein ausgeschalteter Hook bleibt in der Einstellungsdatei erhalten — er wird nur beiseitegelegt, sodass Claude Code ihn nicht mehr ausführt.",
+      "loadFailed": "Die Hook-Konfiguration konnte nicht gelesen werden.",
+      "toggleFailed": "Die Änderung konnte nicht gespeichert werden.",
+      "turnOn": "Einschalten",
+      "turnOff": "Ausschalten",
+      "matcher": "Läuft bei: {{matcher}}",
+      "matcherAll": "Läuft bei jedem Aufruf dieses Ereignisses",
+      "timeout": "Timeout {{seconds}}s",
+      "state": {
+        "enabled": "An",
+        "disabled": "Aus"
+      },
+      "scope": {
+        "user": "Global (alle Projekte)",
+        "project": "Projekt (im Repository geteilt)",
+        "local": "Lokal (nur dieser Rechner)",
+        "managed": "Verwaltete Richtlinie"
+      },
+      "scopeShort": {
+        "user": "Global",
+        "project": "Projekt",
+        "local": "Lokal",
+        "managed": "Richtlinie"
+      },
+      "scopeHint": {
+        "user": "Steht in ~/.claude/settings.json — diese laufen in jedem Projekt.",
+        "project": "Steht in .claude/settings.json — wird ins Repository gecommittet, sodass das ganze Team sie bekommt.",
+        "local": "Steht in .claude/settings.local.json — wird nicht gecommittet, sodass nur du sie hast.",
+        "managed": "Wird durch eine Administrator-Richtliniendatei festgelegt. Hier nur lesbar."
+      },
+      "lock": {
+        "vibisual": "Vibisual hat diesen Hook installiert, um deine Sitzungen zu beobachten. Schaltest du ihn aus, wird diese App blind — deshalb bleibt er eingeschaltet.",
+        "managed": "Eine Administrator-Richtlinie hat diesen Hook festgelegt. Er kann hier nicht geändert werden."
+      }
+    },
+    "plugins": {
+      "title": "Claude Code-Plugins",
+      "refresh": "Plugins neu scannen",
+      "noProject": "Öffne ein Projekt, um die Plugins zu sehen, die für dessen Sitzungen gelten.",
+      "loadFailed": "Die Plugin-Liste konnte nicht gelesen werden.",
+      "actionFailed": "Der Befehl ist fehlgeschlagen.",
+      "unavailable": "Die Plugin-Liste konnte nicht von der Claude Code-CLI abgerufen werden.",
+      "emptyInstalled": "Es sind noch keine Claude Code-Plugins installiert. Öffne den Marketplace-Tab, um eines hinzuzufügen.",
+      "emptyMarket": "Keine Plugins entsprechen deiner Suche.",
+      "applyHint": "Das Ein- oder Ausschalten eines Plugins gilt für Sitzungen, die ab jetzt gestartet werden — bereits laufende Sitzungen behalten das, was sie geladen haben.",
+      "turnOn": "Einschalten",
+      "turnOff": "Ausschalten",
+      "install": "Installieren",
+      "installing": "Wird installiert…",
+      "alreadyInstalled": "Installiert",
+      "uninstall": "Deinstallieren",
+      "installCount": "Vom Marketplace gemeldete Installationen",
+      "installScope": "Installieren in",
+      "searchPlaceholder": "Plugins suchen…",
+      "showMore": "{{count}} weitere anzeigen",
+      "marketplaces": "Marketplaces",
+      "marketplaceAdd": "Hinzufügen",
+      "marketplaceRemove": "Entfernen",
+      "marketplacePlaceholder": "owner/repo, URL oder Pfad",
+      "tab": {
+        "installed": "Installiert",
+        "market": "Marketplace"
+      },
+      "scope": {
+        "user": "Global",
+        "project": "Dieses Projekt",
+        "local": "Lokal"
+      },
+      "placement": {
+        "global": "Global (alle Projekte)",
+        "this-project": "Dieses Projekt",
+        "other-project": "An ein anderes Projekt gebunden"
+      },
+      "placementShort": {
+        "global": "Global",
+        "this-project": "Projekt",
+        "other-project": "Andere"
+      },
+      "placementHint": {
+        "global": "Für deinen Benutzer installiert — diese werden in jedem Projekt geladen.",
+        "this-project": "Nur für dieses Projekt installiert — sie werden in den Sitzungen geladen, die du hier ausführst.",
+        "other-project": "Installiert, aber an ein anderes Projekt gebunden, daher werden sie in dieser Sitzung nicht geladen."
+      }
     }
   },
   "bubbleMap": {
@@ -2366,7 +2714,31 @@
       "fitAspect": "Seitenverhältnis der Quelle übernehmen",
       "fitAspectHint": "Setzt die Bubble-Höhe auf das Seitenverhältnis der Quelle zurück, damit die schwarzen Balken verschwinden — verbundene Bubbles wirken dann nahtlos.",
       "seamless": "Nähte verbergen",
-      "seamlessHint": "Blendet Rahmen und Kopfzeile aus, damit verbundene Bubbles wie ein Bildschirm wirken (die Kopfzeile erscheint beim Hover wieder)"
+      "seamlessHint": "Blendet Rahmen und Kopfzeile aus, damit verbundene Bubbles wie ein Bildschirm wirken (die Kopfzeile erscheint beim Hover wieder)",
+      "playtest": {
+        "section": "Playtest",
+        "startRecording": "Playtest-Aufnahme starten",
+        "stopRecording": "Aufnahme stoppen · Bereich zuschneiden",
+        "recording": "Playtest-Aufnahme läuft",
+        "recordFailed": "Aufnahme fehlgeschlagen: {{reason}}",
+        "emptyHint": "Nimm einen Durchlauf auf, schneide den Moment zu, der schiefgelaufen ist, und hänge diese Frames an einen Agenten an. Clips bleiben ausschließlich im Arbeitsspeicher dieses Geräts.",
+        "windowTitle": "Playtest-Clip",
+        "autoStopped": "Bei Längenlimit gestoppt",
+        "playRange": "Bereich abspielen",
+        "rangeReset": "Gesamter Clip",
+        "rangeLength": "Bereich {{len}}",
+        "rangeStart": "Bereichsanfang",
+        "rangeEnd": "Bereichsende",
+        "save": "Clip speichern (.webm)",
+        "deleteClip": "Diesen Clip verwerfen",
+        "frames": "Frames",
+        "target": "Senden an",
+        "noTarget": "Kein Agent verfügbar",
+        "attach": "{{count}} Frames aus dem Bereich anhängen",
+        "attaching": "Extrahiere Frames {{done}}/{{total}}",
+        "attached": "{{count}} Frames an {{agent}} angehängt — schreib jetzt, was schiefgelaufen ist, und schick es ab.",
+        "attachFailed": "Anhängen fehlgeschlagen: {{reason}}"
+      }
     },
     "taskEdge": {
       "iconHint": "Klicken: Details · Doppelklick: Bearbeiten",
@@ -2568,7 +2940,20 @@
       "createCapture": "Bildschirm-/Programmaufnahme-Blase",
       "createCaptureHint": "Zeigt einen Bildschirm oder ein Programmfenster live in einer Blase",
       "createSpec": "Spec-Board",
-      "createSpecHint": "Anforderungen schreiben, dann jedes Akzeptanzkriterium in eine Aufgabenkarte verwandeln"
+      "createSpecHint": "Anforderungen schreiben, dann jedes Akzeptanzkriterium in eine Aufgabenkarte verwandeln",
+      "createPlay": "Play-Blase",
+      "createPlayHint": "Startet und stoppt dieses Projekt und zeigt hier direkt eine Vorschau",
+      "apps": "Apps",
+      "appsHint": "App-Blase ablegen und zum Öffnen doppelklicken",
+      "appUninstall": "Deinstallieren",
+      "appInstall": "Installieren",
+      "appsHelp": "Auf eine Zeile klicken, um sie als Blase auf der Arbeitsfläche abzulegen. Doppelklick öffnet eine Blase, Rechtsklick verwaltet sie.",
+      "createLab": "Agenten-Labor",
+      "createLabHint": "Dieselbe Aufgabe mit verschiedenen Einstellungen ausführen und in einer Tabelle vergleichen",
+      "createLocalAgent": "Alle Modelle",
+      "createLocalAgentHint": "Legt eine Bubble für ein Modell ab, das auf diesem PC läuft",
+      "createShelf": "Skript-Ablage",
+      "createShelfHint": "Halte die Befehle und Prompts, die du oft verwendest, einen Klick entfernt"
     },
     "bounds": {
       "label": "Blasenrahmen",
@@ -2624,6 +3009,139 @@
       "unpin": "Lösen",
       "delete": "Löschen",
       "deletePinnedHint": "Dieser Spec ist angeheftet. Zuerst lösen."
+    },
+    "play": {
+      "title": "Play",
+      "idle": "Klicken zum Starten",
+      "starting": "Wird gestartet…",
+      "findHint": "Klicken, um den Startbefehl zu ermitteln",
+      "unknownRecipe": "Startbefehl unbekannt",
+      "detected": "Startbefehl gefunden",
+      "noAgent": "Kein benutzerdefinierter Agent zum Untersuchen verfügbar",
+      "askSent": "Agenten gebeten, den Startbefehl herauszufinden",
+      "askFailed": "Untersuchung konnte nicht an einen Agenten übergeben werden",
+      "findRecipe": "Startbefehl ermitteln",
+      "askAgent": "Agenten fragen",
+      "editRecipe": "Startbefehl bearbeiten",
+      "editCommandPrompt": "Startbefehl",
+      "editRootPrompt": "Bereitzustellender Ordner (absoluter Pfad)",
+      "showPreview": "Vorschau anzeigen",
+      "hidePreview": "Vorschau ausblenden",
+      "openBrowser": "Im Browser öffnen",
+      "rename": "Umbenennen",
+      "renamePrompt": "Button-Name",
+      "pin": "Anheften",
+      "unpin": "Lösen",
+      "delete": "Löschen",
+      "deletePinnedHint": "Diese Blase ist angeheftet. Zuerst lösen."
+    },
+    "lab": {
+      "title": "Labor",
+      "untitled": "Unbenanntes Labor",
+      "openPanel": "Labor öffnen",
+      "rename": "Umbenennen",
+      "renamePrompt": "Labortitel",
+      "addVariant": "Variante hinzufügen",
+      "removeVariant": "Variante löschen",
+      "startAll": "Alle ausführen",
+      "startAllN": "Alle ausführen ({{count}})",
+      "startNoneHint": "Keine Varianten zum Ausführen",
+      "startNoTaskHint": "Schreibe zuerst die Aufgabe",
+      "starting": "Varianten laufen…",
+      "pin": "Anheften",
+      "unpin": "Lösen",
+      "delete": "Löschen",
+      "deletePinnedHint": "Dieses Labor ist angeheftet. Löse es zuerst.",
+      "badgeDraft": "Bereit",
+      "badgeRunning": "Läuft",
+      "badgeDone": "Fertig",
+      "variants": "Varianten",
+      "runningN": "Laufen {{count}}",
+      "emptyHint": "Doppelklicken, um Aufgabe und Varianten anzulegen",
+      "progressRunning": "Läuft {{done}}/{{total}}",
+      "progressIdle": "Fertig {{done}}/{{total}}",
+      "taskLabel": "Aufgabe (für jede Variante identisch)",
+      "taskLocked": "Während der Ausführung ist die Aufgabe gesperrt",
+      "taskPlaceholder": "Schreibe den Auftrag einmal. Zwischen den Varianten dürfen sich nur die Einstellungen unterscheiden.",
+      "noVariants": "Noch keine Varianten. Füge unten Einstellungskombinationen hinzu.",
+      "variantEditor": "Varianten-Einstellungen",
+      "inherit": "(Basis-Einstellungen übernehmen)",
+      "maxTurns": "Max. Turns",
+      "rulesAppend": "Zusatzanweisung nur für diese Variante (optional)",
+      "promote": "Als Standard übernehmen",
+      "promoteHint": "Nur erfolgreiche Varianten können übernommen werden",
+      "promotedBadge": "Standard",
+      "runOne": "Ausführen",
+      "rerun": "Erneut ausführen",
+      "openCard": "Karte öffnen",
+      "col": {
+        "variant": "Variante",
+        "model": "Modell",
+        "effort": "Effort",
+        "permission": "Berechtigung",
+        "status": "Status",
+        "duration": "Dauer",
+        "files": "Dateien",
+        "lines": "± Zeilen",
+        "tokens": "Tokens (ein/aus)",
+        "cost": "Kosten",
+        "actions": "Aktionen"
+      },
+      "status": {
+        "pending": "Bereit",
+        "running": "Läuft",
+        "success": "Erfolg",
+        "failed": "Fehlgeschlagen",
+        "stopped": "Gestoppt"
+      },
+      "baseAgentLabel": "Basis-Einstellungen",
+      "baseAgentNone": "(keine — Standard neuer Karten)",
+      "baseAgentHint": "Einstellungen, die die Varianten erben, und der Agent, in den eine Übernahme gespeichert wird."
+    },
+    "shelf": {
+      "title": "Ablage",
+      "untitled": "Unbenannte Ablage",
+      "openPanel": "Ablage öffnen",
+      "rename": "Umbenennen",
+      "renamePrompt": "Name der Ablage",
+      "addItem": "Element hinzufügen",
+      "countBadge": "{{count}} Elemente",
+      "itemCount": "Elemente {{count}}/{{max}}",
+      "itemLimit": "Eine Ablage fasst bis zu {{count}} Elemente",
+      "emptyHint": "Doppelklicke, um die Befehle und Prompts hinzuzufügen, die du oft verwendest",
+      "panelEmpty": "Noch keine Elemente. Lege hier einen Shell-Befehl oder einen Prompt ab, und er läuft mit einem einzigen Klick von der Arbeitsfläche aus.",
+      "export": "Exportieren (JSON)",
+      "exportEmptyHint": "Noch nichts zu exportieren",
+      "import": "Importieren (JSON)",
+      "importReplace": "Importieren und alles ersetzen",
+      "imported": "{{added}} Elemente importiert ({{dropped}} verworfen)",
+      "importFailed": "Import fehlgeschlagen — das ist keine Ablage-Datei.",
+      "pin": "Anheften",
+      "unpin": "Lösen",
+      "delete": "Löschen",
+      "deletePinnedHint": "Diese Ablage ist angeheftet. Löse sie zuerst.",
+      "kindCommand": "Shell",
+      "kindPrompt": "Prompt",
+      "newCommand": "Neuer Befehl",
+      "newPrompt": "Neuer Prompt",
+      "addCommand": "+ Shell-Befehl",
+      "addPrompt": "+ Prompt",
+      "removeItem": "Element löschen",
+      "moveUp": "Nach oben verschieben",
+      "moveDown": "Nach unten verschieben",
+      "run": "Ausführen",
+      "running": "Wird ausgeführt",
+      "labelPlaceholder": "Name",
+      "commandPlaceholder": "Auszuführender Shell-Befehl (z. B. pnpm test)",
+      "promptPlaceholder": "Prompt, der an den Agenten gesendet wird",
+      "cwdPlaceholder": "Arbeitsverzeichnis (Standard: Projekt-Root)",
+      "newAgentTarget": "Beim Ausführen eine neue Karte erstellen",
+      "statusSuccess": "Erfolgreich",
+      "statusFailed": "Fehlgeschlagen",
+      "statusRunning": "Wird ausgeführt",
+      "exitCode": "Exit-Code",
+      "outputTruncated": "(Anfang ausgelassen)",
+      "openCard": "Diese Karte öffnen"
     }
   },
   "common": {
@@ -2645,6 +3163,7 @@
       "awaitingPermission": "Wartet auf Ihre Genehmigung",
       "awaitingInput": "Wartet auf Ihre Eingabe",
       "idle": "Bereit",
+      "dormant": "Ruhend",
       "autoIdle": "Auto Agent — beschreiben Sie, was Sie möchten",
       "hint": {
         "enter": "Doppelklick zum Betreten",
@@ -2659,6 +3178,8 @@
       "deviceMobile": "Mobil",
       "deviceTablet": "Tablet",
       "deviceDesktop": "Desktop",
+      "deviceCompare": "Vergleich",
+      "deviceCompareTip": "Alle Breiten nebeneinander in einer Vorschau anzeigen",
       "deviceTip": "Mit {{width}}px Breite rendern",
       "pickElement": "Element auswählen",
       "pickHint": "Klicken Sie auf ein Element in der Vorschau, um eine Änderung dafür zu beschreiben",
@@ -2673,8 +3194,16 @@
       "pickLabelElement": "Element",
       "pickLabelSelector": "Selektor",
       "pickLabelText": "sichtbarer Text",
-      "pickLabelRequest": "Anfrage"
-    }
+      "pickLabelRequest": "Anfrage",
+      "snip": "Bereich aufnehmen",
+      "snipBusy": "Wird aufgenommen …",
+      "snipHint": "Ziehen Sie über die Vorschau, um diesen Bereich aufzunehmen und an das Eingabefeld des Agents anzuhängen",
+      "snipAttached": "An das Eingabefeld angehängt:",
+      "snipRemove": "Diese Aufnahme entfernen",
+      "snipUnavailable": "Die Bereichsaufnahme ist auf diesem Bildschirm nicht verfügbar.",
+      "snipFailed": "Aufnahme fehlgeschlagen: {{error}}"
+    },
+    "close": "Schließen"
   },
   "brain": {
     "bubbleLabel": "Gehirn",
@@ -2887,6 +3416,86 @@
     "bulkStopAll": "Alles Laufende stoppen",
     "resetSettings": "Diese Optionen zurücksetzen",
     "confirmCloseDone": "{{count}} abgeschlossene Sitzungs-Tabs schließen?",
-    "confirmStopAll": "Alle laufenden Sitzungen von {{count}} Agenten stoppen?"
+    "confirmStopAll": "Alle laufenden Sitzungen von {{count}} Agenten stoppen?",
+    "title": "Kommandozentrale",
+    "detailToggle": "Detailbereich ein-/ausblenden",
+    "all": "Alle",
+    "shortcuts": "Shortcuts",
+    "rankHint": "Priorität {{rank}}",
+    "jump": "Zur Sitzung springen",
+    "followProject": "Aktivem Projekt folgen",
+    "followProjectNote": "Zeigt immer das im Hauptfenster aktive Projekt.",
+    "pinnedHint": "An dieses Projekt angeheftet – klicken, um stattdessen dem aktiven Projekt zu folgen.",
+    "followingHint": "Folgt dem aktiven Projekt – klicken, um ein Projekt anzuheften.",
+    "noProject": "Kein Projekt",
+    "noProjects": "Keine Projekte geöffnet.",
+    "updatedNever": "Noch nicht aktualisiert",
+    "updatedNow": "Gerade aktualisiert",
+    "updatedAgo": "Vor {{time}} aktualisiert",
+    "connLive": "Live",
+    "connConnecting": "Verbindung wird hergestellt…",
+    "connLost": "Offline",
+    "connLostHint": "Verbindung getrennt – wird wiederhergestellt.",
+    "refresh": "Aktualisieren",
+    "refreshHint": "Jetzt aktualisieren",
+    "view": {
+      "board": "Board",
+      "list": "Liste"
+    },
+    "sortRule": {
+      "recent": "Neueste Aktivität zuerst",
+      "waiting": "Längste Wartezeit zuerst",
+      "context": "Geringster Kontext zuerst"
+    },
+    "detail": {
+      "close": "Schließen",
+      "context": "Verbleibender Kontext",
+      "permission": "Berechtigung erforderlich",
+      "question": "Frage",
+      "suggested": "Vorgeschlagen",
+      "review": "Review",
+      "changes": "Änderungen",
+      "checkpoints": "Checkpoints",
+      "report": "Bericht",
+      "userActions": "Du bist dran",
+      "did": "Was der Agent getan hat",
+      "nextSteps": "Nächste Schritte",
+      "queued": "Wartende Befehle",
+      "lastActivity": "Letzte Aktivität",
+      "nothingYet": "Noch nichts.",
+      "queuedIt": "Eingereiht.",
+      "composerHint": "Befehl eingeben und Enter drücken, um ihn an diese Sitzung zu senden."
+    }
+  },
+  "localModel": {
+    "title": "Alle Modelle",
+    "subtitle": "Wähle ein Modell, das auf diesem PC läuft, und binde es an die Bubble",
+    "installIntro": "Um lokale Modelle auszuführen, wird eine Inferenz-Engine benötigt. Sie ist nicht im Basispaket enthalten, damit der Installer klein bleibt — du lädst sie nur einmal herunter.",
+    "installWhat": "Was du bekommst — GPU-Builds (Vulkan) und CPU-Builds. Vulkan deckt die meisten Grafikkarten ab; ohne Vulkan laufen Modelle weiterhin auf der CPU.",
+    "installWhere": "Speicherort",
+    "install": "Engine herunterladen & installieren",
+    "preparing": "Wird vorbereitet",
+    "engineReady": "Engine bereit",
+    "uninstall": "Engine entfernen",
+    "myModels": "Heruntergeladene Modelle",
+    "noModels": "Noch keine Modelle. Suche unten und lade eines herunter.",
+    "loaded": "im Speicher geladen",
+    "deleteModel": "Löschen",
+    "downloading": "Wird heruntergeladen",
+    "cancel": "Abbrechen",
+    "catalog": "Modell holen",
+    "searchPlaceholder": "Nach Modellname suchen (z. B. qwen coder)",
+    "search": "Suchen",
+    "searching": "Wird gesucht…",
+    "noFiles": "Keine herunterladbaren GGUF-Dateien in diesem Repository gefunden.",
+    "sizeUnknown": "Größe unbekannt",
+    "download": "Herunterladen",
+    "footerHint": "Das gewählte Modell läuft mit den Ressourcen dieses PCs. Nach der Einrichtung öffnet sich die IDE dieser Bubble; vorhandene Claude-Bubbles bleiben unverändert.",
+    "preparingFor": "Modell für {{name}} wird vorbereitet",
+    "stepEngine": "Engine",
+    "stepModel": "Modell",
+    "stepIde": "IDE",
+    "useModelStart": "Mit diesem Modell starten",
+    "opensIdeHint": "Sobald der Download fertig ist, öffnet sich die IDE dieser Bubble."
   }
 }

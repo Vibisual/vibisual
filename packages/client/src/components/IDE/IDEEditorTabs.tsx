@@ -49,7 +49,7 @@ export const IDEEditorTabs = memo(function IDEEditorTabs({
                 type="button"
                 onClick={() => onSelect(file.relPath)}
                 title={file.relPath}
-                className="max-w-[160px] truncate py-1 text-left text-[11px]"
+                className="max-w-[160px] truncate py-1 text-left text-[12px]"
               >
                 {labels[file.relPath] ?? file.name}
               </button>

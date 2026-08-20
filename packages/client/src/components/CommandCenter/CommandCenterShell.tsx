@@ -153,14 +153,14 @@ export function CommandCenterShell({ projectId: initialProjectId }: CommandCente
               <path d="M12 8v4M12 16h.01" />
             </svg>
             <p className="text-[13px] text-gray-300">{t('commandCenter.missingTitle')}</p>
-            <p className="text-[11px] text-gray-500">
+            <p className="text-[12px] text-gray-500">
               {t('commandCenter.missingBody', { name: viewed ?? '—' })}
             </p>
             {settings.pinnedProject && (
               <button
                 type="button"
                 onClick={() => update({ pinnedProject: null })}
-                className="mt-1 rounded-md border border-white/10 bg-white/[0.05] px-2.5 py-1 text-[11px] text-gray-300 transition-colors hover:bg-white/[0.1]"
+                className="mt-1 rounded-md border border-white/10 bg-white/[0.05] px-2.5 py-1 text-[12px] text-gray-300 transition-colors hover:bg-white/[0.1]"
               >
                 {t('commandCenter.followProject')}
               </button>
@@ -256,22 +256,22 @@ function CommandCenterTitleBar({
                 <circle cx="19" cy="12" r="2" />
               </svg>
               <span className="min-w-0">
-                <span className="block text-[11.5px] text-gray-200">{t('commandCenter.followProject')}</span>
-                <span className="mt-0.5 block text-[10.5px] leading-snug text-gray-500">{t('commandCenter.followProjectNote')}</span>
+                <span className="block text-[12px] text-gray-200">{t('commandCenter.followProject')}</span>
+                <span className="mt-0.5 block text-[12px] leading-snug text-gray-500">{t('commandCenter.followProjectNote')}</span>
               </span>
             </button>
 
             <div className="my-1 h-px bg-white/[0.07]" />
 
             {projectNames.length === 0 ? (
-              <p className="px-3 py-2 text-[11px] text-gray-600">{t('commandCenter.noProjects')}</p>
+              <p className="px-3 py-2 text-[12px] text-gray-600">{t('commandCenter.noProjects')}</p>
             ) : (
               projectNames.map((name) => (
                 <button
                   key={name}
                   type="button"
                   onClick={() => { onPin(name); setPickerOpen(false); }}
-                  className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[11.5px] transition-colors hover:bg-white/[0.08] ${
+                  className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] transition-colors hover:bg-white/[0.08] ${
                     pinned === name ? 'text-amber-200' : 'text-gray-300'
                   }`}
                 >
@@ -389,14 +389,14 @@ function CommandCenterRefresh({
     <div className="flex flex-shrink-0 items-center gap-1.5 pr-1 app-nodrag">
       {status !== 'connected' && (
         <span
-          className={`rounded px-1.5 py-[1px] text-[10.5px] ${
+          className={`rounded px-1.5 py-[1px] text-[12px] ${
             status === 'connecting' ? 'bg-amber-500/15 text-amber-200' : 'bg-rose-500/15 text-rose-200'
           }`}
         >
           {status === 'connecting' ? t('commandCenter.connConnecting') : t('commandCenter.connLost')}
         </span>
       )}
-      <span className="whitespace-nowrap text-[10.5px] tabular-nums text-gray-500">{updatedLabel}</span>
+      <span className="whitespace-nowrap text-[12px] tabular-nums text-gray-500">{updatedLabel}</span>
       <button
         type="button"
         onClick={run}

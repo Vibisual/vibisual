@@ -47,12 +47,12 @@ function SummarySection({ label, items, dotClass, textClass }: {
     <div className="mt-1.5 first:mt-0">
       <div className="flex items-center gap-1">
         <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${dotClass}`} />
-        <span className="min-w-0 truncate text-[9px] font-bold uppercase tracking-wider text-gray-400">{label}</span>
-        <span className="flex-shrink-0 rounded bg-gray-700/60 px-1 text-[9px] font-semibold tabular-nums text-gray-300">{items.length}</span>
+        <span className="min-w-0 truncate text-[12px] font-bold uppercase tracking-wider text-gray-400">{label}</span>
+        <span className="flex-shrink-0 rounded bg-gray-700/60 px-1 text-[12px] font-semibold tabular-nums text-gray-300">{items.length}</span>
       </div>
       <ul className="mt-0.5 flex flex-col gap-0.5 pl-2.5">
         {items.map((it, i) => (
-          <li key={i} className={`line-clamp-2 break-words text-[10.5px] leading-snug ${textClass}`}>{it}</li>
+          <li key={i} className={`line-clamp-2 break-words text-[12px] leading-snug ${textClass}`}>{it}</li>
         ))}
       </ul>
     </div>
@@ -254,11 +254,11 @@ export const IDESessionSummaryView = memo(function IDESessionSummaryView({
     <div className="flex min-h-0 flex-1 flex-col gap-1 p-2">
       {/* 헤더 — 제목 + 개수 + 일괄 닫기(아이콘 + 대상 수). 폭이 좁아 라벨은 툴팁이 맡는다. */}
       <div className="flex items-center gap-1.5 px-1">
-        <span className="min-w-0 truncate text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+        <span className="min-w-0 truncate text-[12px] font-semibold uppercase tracking-wider text-gray-500">
           {t('ide.sessionSummary.title')}
         </span>
         {totalCount > 0 && (
-          <span className="flex-shrink-0 rounded bg-gray-700/60 px-1 text-[9px] font-semibold tabular-nums text-gray-300">
+          <span className="flex-shrink-0 rounded bg-gray-700/60 px-1 text-[12px] font-semibold tabular-nums text-gray-300">
             {totalCount}
           </span>
         )}
@@ -277,13 +277,13 @@ export const IDESessionSummaryView = memo(function IDESessionSummaryView({
             <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2" />
           </svg>
           {closeableOpen.length > 0 && (
-            <span className="text-[9px] font-bold tabular-nums">{closeableOpen.length}</span>
+            <span className="text-[12px] font-bold tabular-nums">{closeableOpen.length}</span>
           )}
         </button>
       </div>
 
       {totalCount === 0 ? (
-        <p className="px-2 py-4 text-center text-[11px] leading-relaxed text-gray-600">
+        <p className="px-2 py-4 text-center text-[12px] leading-relaxed text-gray-600">
           {t('ide.sessionSummary.empty')}
         </p>
       ) : (
@@ -301,12 +301,12 @@ export const IDESessionSummaryView = memo(function IDESessionSummaryView({
                   {/* 헤더: 상태점 + 라벨 + 시각 + (hover) 이동/닫기 */}
                   <div className="flex items-center gap-1">
                     <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${statusDot(sub, acked, busySubIds.has(sub.id))}`} />
-                    <span className="min-w-0 flex-1 truncate text-[11px] font-semibold text-gray-200" title={labelOf(sub)}>
+                    <span className="min-w-0 flex-1 truncate text-[12px] font-semibold text-gray-200" title={labelOf(sub)}>
                       {labelOf(sub)}
                     </span>
                     {/* §4 v3.21 — 이 세션 좋아요/싫어요 집계 칩 */}
                     {d && (d.feedUp > 0 || d.feedDown > 0) && (
-                      <span className="flex flex-shrink-0 items-center gap-1 text-[9px] font-medium" title={t('ide.feedback.statsTitle')}>
+                      <span className="flex flex-shrink-0 items-center gap-1 text-[12px] font-medium" title={t('ide.feedback.statsTitle')}>
                         {d.feedUp > 0 && (
                           <span className="flex items-center gap-px text-emerald-400"><ThumbsUpIcon className="h-2.5 w-2.5" />{d.feedUp}</span>
                         )}
@@ -315,7 +315,7 @@ export const IDESessionSummaryView = memo(function IDESessionSummaryView({
                         )}
                       </span>
                     )}
-                    <span className="flex-shrink-0 text-[9px] tabular-nums text-gray-600" title={formatStamp(sub.lastActivityAt)}>
+                    <span className="flex-shrink-0 text-[12px] tabular-nums text-gray-600" title={formatStamp(sub.lastActivityAt)}>
                       {formatShort(sub.lastActivityAt)}
                     </span>
                     <div className="flex flex-shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
@@ -358,12 +358,12 @@ export const IDESessionSummaryView = memo(function IDESessionSummaryView({
                     </div>
                   ) : cached ? (
                     <div className="mt-1.5 border-t border-gray-700/60 pt-1.5">
-                      <div className="whitespace-pre-wrap break-words text-[10.5px] leading-snug text-gray-300">{cached.text}</div>
+                      <div className="whitespace-pre-wrap break-words text-[12px] leading-snug text-gray-300">{cached.text}</div>
                       <button
                         type="button"
                         onClick={() => fetchSummary(sub)}
                         disabled={state === 'loading'}
-                        className="mt-1 flex items-center gap-1 text-[10px] text-gray-500 transition-colors hover:text-gray-300 disabled:opacity-50"
+                        className="mt-1 flex items-center gap-1 text-[12px] text-gray-500 transition-colors hover:text-gray-300 disabled:opacity-50"
                       >
                         <svg className={`h-3 w-3 ${state === 'loading' ? 'animate-spin' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
                           <path d="M21 12a9 9 0 1 1-3-6.7L21 8" /><path d="M21 3v5h-5" />
@@ -374,15 +374,15 @@ export const IDESessionSummaryView = memo(function IDESessionSummaryView({
                   ) : (
                     <div className="mt-1.5 border-t border-gray-700/60 pt-1.5">
                       {state === 'error' ? (
-                        <p className="mb-1 text-[10.5px] leading-snug text-amber-300/90">{t('ide.sessionSummary.summaryError')}</p>
+                        <p className="mb-1 text-[12px] leading-snug text-amber-300/90">{t('ide.sessionSummary.summaryError')}</p>
                       ) : (
-                        <p className="mb-1 text-[10.5px] leading-snug text-gray-500">{t('ide.sessionSummary.noCards')}</p>
+                        <p className="mb-1 text-[12px] leading-snug text-gray-500">{t('ide.sessionSummary.noCards')}</p>
                       )}
                       <button
                         type="button"
                         onClick={() => fetchSummary(sub)}
                         disabled={state === 'loading'}
-                        className="flex items-center gap-1 rounded border border-gray-700 px-1.5 py-0.5 text-[10px] font-medium text-violet-300 transition-colors hover:border-violet-500/50 hover:bg-violet-500/10 disabled:opacity-50"
+                        className="flex items-center gap-1 rounded border border-gray-700 px-1.5 py-0.5 text-[12px] font-medium text-violet-300 transition-colors hover:border-violet-500/50 hover:bg-violet-500/10 disabled:opacity-50"
                       >
                         <svg className={`h-3 w-3 ${state === 'loading' ? 'animate-spin' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
                           {state === 'loading'
@@ -402,11 +402,11 @@ export const IDESessionSummaryView = memo(function IDESessionSummaryView({
               <div key={e.subId} className="group rounded border border-gray-700/50 bg-gray-900/50 px-2 py-1.5">
                 <div className="flex items-center gap-1">
                   <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-gray-500" />
-                  <span className="min-w-0 flex-1 truncate text-[11px] font-semibold text-gray-400" title={e.label}>{e.label}</span>
-                  <span className="flex-shrink-0 rounded bg-gray-700/70 px-1 text-[8.5px] font-semibold uppercase tracking-wide text-gray-400">
+                  <span className="min-w-0 flex-1 truncate text-[12px] font-semibold text-gray-400" title={e.label}>{e.label}</span>
+                  <span className="flex-shrink-0 rounded bg-gray-700/70 px-1 text-[12px] font-semibold uppercase tracking-wide text-gray-400">
                     {t('ide.sessionSummary.closedBadge')}
                   </span>
-                  <span className="flex-shrink-0 text-[9px] tabular-nums text-gray-600" title={formatStamp(e.at)}>
+                  <span className="flex-shrink-0 text-[12px] tabular-nums text-gray-600" title={formatStamp(e.at)}>
                     {formatShort(e.at)}
                   </span>
                   <button
@@ -422,7 +422,7 @@ export const IDESessionSummaryView = memo(function IDESessionSummaryView({
                   </button>
                 </div>
                 {e.text && (
-                  <div className="mt-1.5 whitespace-pre-wrap break-words border-t border-gray-700/50 pt-1.5 text-[10.5px] leading-snug text-gray-400">{e.text}</div>
+                  <div className="mt-1.5 whitespace-pre-wrap break-words border-t border-gray-700/50 pt-1.5 text-[12px] leading-snug text-gray-400">{e.text}</div>
                 )}
               </div>
             ))}

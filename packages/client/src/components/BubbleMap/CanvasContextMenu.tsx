@@ -4,6 +4,7 @@ import type { PipelineType } from '@vibisual/shared';
 import { PIPELINE_TYPE_INFO } from '@vibisual/shared';
 import { INTERNAL_APPS } from '../../apps/registry.js';
 import { useAppInstall } from '../../apps/useAppInstall.js';
+import { useGraphStore } from '../../stores/graphStore.js';
 import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 import { POPUP_DISMISS } from '../../hooks/popupDismiss.js';
 
@@ -27,6 +28,10 @@ interface CanvasContextMenuProps {
   onCreatePlay: (canvasX: number, canvasY: number) => void;
   /** §5.15 — 스펙 보드(요구사항 → 수용 기준 → 작업 카드) 생성. */
   onCreateSpec: (canvasX: number, canvasY: number) => void;
+  /** §5.18 — 에이전트 랩(같은 과제를 설정만 바꿔 N벌) 생성. */
+  onCreateLab: (canvasX: number, canvasY: number) => void;
+  /** §5.20 — 스크립트 선반(자주 쓰는 명령·프롬프트 한 장) 생성. */
+  onCreateShelf: (canvasX: number, canvasY: number) => void;
   onClose: () => void;
 }
 
@@ -46,6 +51,8 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
   onCreateAppBubble,
   onCreatePlay,
   onCreateSpec,
+  onCreateLab,
+  onCreateShelf,
   onClose,
 }: CanvasContextMenuProps): React.JSX.Element {
   const { t } = useTranslation();
@@ -56,6 +63,9 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
   // §5.13 (N) v4.47 — 설치도 여기서 한다. 별도 창을 띄우지 않고 **이 메뉴와 캔버스 버블이
   //   유일한 관리 지점**이다 — 무엇이 깔려 있는지 캔버스에서 바로 보이는 편이 낫다는 판단.
   const { installed: installedApps, setInstalled, busy: installBusy } = useAppInstall();
+  const createLocalAgent = useGraphStore((st) => st.createLocalAgent);
+  // 노출 게이트 — 아래 네 항목(플레이·스펙·랩·선반)은 디버그 모드에서만 낸다(§7.7).
+  const debugMode = useGraphStore((st) => st.debugMode);
 
   // 바깥 press 로 닫기(공통 규약 — 메뉴 안에서 시작한 드래그로는 안 닫힌다).
   //  - 좌클릭(0)/중간 휠(1) 만 닫기 사유. 우클릭(2)은 메뉴 재오픈용이라 무시한다.
@@ -102,6 +112,13 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
     onClose();
   }, [onCreateCapture, onClose, canvasX, canvasY]);
 
+  // §5.19 (B) — All Model. **고르는 순간 버블이 생긴다** — 커스텀·CMD 와 같다.
+  //   엔진·모델 준비는 그 버블을 눌렀을 때 판정한다(설치 창이 캔버스 앞을 막지 않는다).
+  const handleCreateLocalAgent = useCallback(() => {
+    createLocalAgent(canvasX, canvasY);
+    onClose();
+  }, [createLocalAgent, onClose, canvasX, canvasY]);
+
   const handleCreateApp = useCallback((appId: string) => {
     onCreateAppBubble(appId, canvasX, canvasY);
     onClose();
@@ -117,6 +134,16 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
     onClose();
   }, [onCreateSpec, onClose, canvasX, canvasY]);
 
+  const handleCreateLab = useCallback(() => {
+    onCreateLab(canvasX, canvasY);
+    onClose();
+  }, [onCreateLab, onClose, canvasX, canvasY]);
+
+  const handleCreateShelf = useCallback(() => {
+    onCreateShelf(canvasX, canvasY);
+    onClose();
+  }, [onCreateShelf, onClose, canvasX, canvasY]);
+
   const handleCreatePipeline = useCallback((type: PipelineType) => {
     onCreatePipeline(type, canvasX, canvasY);
     onClose();
@@ -128,7 +155,8 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
   const vw = typeof window !== 'undefined' ? window.innerWidth : 9999;
   const vh = typeof window !== 'undefined' ? window.innerHeight : 9999;
   const clampedX = Math.max(8, Math.min(x, vw - 244));
-  const clampedY = Math.max(8, Math.min(y, vh - 380));
+  // 메뉴 높이는 게이트로 넷이 빠지면 짧아지므로 클램프도 그 높이를 따라간다.
+  const clampedY = Math.max(8, Math.min(y, vh - (debugMode ? 380 : 240)));
 
   return (
     <div
@@ -169,6 +197,27 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
           <div className="flex flex-col">
             <span>{t('canvas.contextMenu.createCmdAgent')}</span>
             <span className="text-xs text-gray-500">{t('canvas.contextMenu.createCmdAgentHint')}</span>
+          </div>
+        </button>
+
+        {/* §5.19 (B) — All Model (내 PC 에서 도는 로컬 LLM). 커스텀·CMD 와 같은 줄기의 세 번째 갈래.
+            누르면 **버블이 바로 생긴다** — 엔진·모델이 없으면 그 버블을 눌렀을 때 설치 창이 뜬다. */}
+        <button
+          type="button"
+          className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-800 transition-colors"
+          onClick={handleCreateLocalAgent}
+        >
+          <svg className="h-4 w-4 shrink-0 text-slate-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="4" width="18" height="12" rx="2" />
+            <path d="M8 20h8" />
+            <path d="M12 16v4" />
+            <path d="M7.5 10h3l1.5-2.5L13.5 13l1-3h2" />
+          </svg>
+          <div className="flex flex-col">
+            <span>{t('canvas.contextMenu.createLocalAgent', { defaultValue: 'All Model' })}</span>
+            <span className="text-xs text-gray-500">
+              {t('canvas.contextMenu.createLocalAgentHint', { defaultValue: '내 PC 에서 도는 모델을 골라 씁니다' })}
+            </span>
           </div>
         </button>
 
@@ -224,39 +273,80 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
           </div>
         </button>
 
-        {/* §5.14 v4.62 — 플레이 버블 (이 프로젝트를 켜는 버튼, emerald 톤). */}
-        <button
-          type="button"
-          className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-800 transition-colors"
-          onClick={handleCreatePlay}
-        >
-          <svg className="h-4 w-4 shrink-0 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="9" />
-            <path d="M10 8.5v7l6-3.5-6-3.5z" />
-          </svg>
-          <div className="flex flex-col">
-            <span>{t('canvas.contextMenu.createPlay', { defaultValue: '플레이 버블' })}</span>
-            <span className="text-xs text-gray-500">{t('canvas.contextMenu.createPlayHint', { defaultValue: '이 프로젝트를 켜고 끄고 바로 미리보기' })}</span>
-          </div>
-        </button>
+        {/* 노출 게이트 — 아래 넷(플레이 버블·스펙 보드·에이전트 랩·스크립트 선반)은 §7.7 디버그
+            모드를 켰을 때만 나온다. 일반 사용에서는 우클릭해도 보이지 않고, 이미 놓인 버블도
+            캔버스에서 함께 숨는다 — 레코드·서버·영속은 그대로라 다시 켜면 있던 자리로 돌아온다. */}
+        {debugMode && (
+          <>
+          {/* §5.14 v4.62 — 플레이 버블 (이 프로젝트를 켜는 버튼, emerald 톤). */}
+          <button
+            type="button"
+            className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-800 transition-colors"
+            onClick={handleCreatePlay}
+          >
+            <svg className="h-4 w-4 shrink-0 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="9" />
+              <path d="M10 8.5v7l6-3.5-6-3.5z" />
+            </svg>
+            <div className="flex flex-col">
+              <span>{t('canvas.contextMenu.createPlay', { defaultValue: '플레이 버블' })}</span>
+              <span className="text-xs text-gray-500">{t('canvas.contextMenu.createPlayHint', { defaultValue: '이 프로젝트를 켜고 끄고 바로 미리보기' })}</span>
+            </div>
+          </button>
 
-        {/* §5.15 — 스펙 보드 (요구사항 → 수용 기준 → 작업 카드, teal 톤). */}
-        <button
-          type="button"
-          className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-800 transition-colors"
-          onClick={handleCreateSpec}
-        >
-          <svg className="h-4 w-4 shrink-0 text-teal-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-            <path d="M14 2v6h6" />
-            <path d="m8.5 13.5 1.5 1.5 3-3" />
-            <path d="M8.5 18h7" />
-          </svg>
-          <div className="flex flex-col">
-            <span>{t('canvas.contextMenu.createSpec', { defaultValue: '스펙 보드' })}</span>
-            <span className="text-xs text-gray-500">{t('canvas.contextMenu.createSpecHint', { defaultValue: '요구사항을 적고 수용 기준마다 작업 카드 만들기' })}</span>
-          </div>
-        </button>
+          {/* §5.15 — 스펙 보드 (요구사항 → 수용 기준 → 작업 카드, teal 톤). */}
+          <button
+            type="button"
+            className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-800 transition-colors"
+            onClick={handleCreateSpec}
+          >
+            <svg className="h-4 w-4 shrink-0 text-teal-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <path d="M14 2v6h6" />
+              <path d="m8.5 13.5 1.5 1.5 3-3" />
+              <path d="M8.5 18h7" />
+            </svg>
+            <div className="flex flex-col">
+              <span>{t('canvas.contextMenu.createSpec', { defaultValue: '스펙 보드' })}</span>
+              <span className="text-xs text-gray-500">{t('canvas.contextMenu.createSpecHint', { defaultValue: '요구사항을 적고 수용 기준마다 작업 카드 만들기' })}</span>
+            </div>
+          </button>
+
+          {/* §5.18 — 에이전트 랩 (같은 과제를 설정만 바꿔 N벌 → 비교 표 → 승격, orange 톤). */}
+          <button
+            type="button"
+            className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-800 transition-colors"
+            onClick={handleCreateLab}
+          >
+            <svg className="h-4 w-4 shrink-0 text-orange-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M10 2v6.5L4.8 17.4A2 2 0 0 0 6.5 20.5h11a2 2 0 0 0 1.7-3.1L14 8.5V2" />
+              <path d="M9 2h6" />
+              <path d="M7.5 14h9" />
+            </svg>
+            <div className="flex flex-col">
+              <span>{t('canvas.contextMenu.createLab', { defaultValue: '에이전트 랩' })}</span>
+              <span className="text-xs text-gray-500">{t('canvas.contextMenu.createLabHint', { defaultValue: '같은 과제를 설정만 바꿔 여러 벌 돌리고 표로 비교하기' })}</span>
+            </div>
+          </button>
+
+          {/* §5.20 — 스크립트 선반 (자주 쓰는 명령·프롬프트를 캔버스에 고정, cyan 톤). */}
+          <button
+            type="button"
+            className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-800 transition-colors"
+            onClick={handleCreateShelf}
+          >
+            <svg className="h-4 w-4 shrink-0 text-cyan-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 4h18M3 12h18M3 20h18" />
+              <path d="M6 4v8M18 12v8" />
+            </svg>
+            <div className="flex flex-col">
+              <span>{t('canvas.contextMenu.createShelf', { defaultValue: '스크립트 선반' })}</span>
+              <span className="text-xs text-gray-500">{t('canvas.contextMenu.createShelfHint', { defaultValue: '자주 쓰는 명령·프롬프트를 올려 두고 클릭 한 번으로 실행하기' })}</span>
+            </div>
+          </button>
+
+          </>
+        )}
 
         {/* §5.13 v4.45 — 앱 카테고리. 마우스를 올리면 등록된 내부 앱이 옆으로 펼쳐진다.
             앱을 계속 늘릴 것이므로 메뉴에 항목을 하나씩 쌓지 않고 한 칸으로 묶는다. */}
@@ -326,7 +416,7 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
                         void setInstalled(app.id, !on);
                       }}
                       title={app.install.sizeHint}
-                      className={`shrink-0 rounded px-2 py-1 text-[11px] transition-colors disabled:opacity-40 ${
+                      className={`shrink-0 rounded px-2 py-1 text-[12px] transition-colors disabled:opacity-40 ${
                         on
                           ? 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
                           : 'bg-violet-600/90 text-white hover:bg-violet-500'
@@ -340,7 +430,7 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
                 );
               })}
               <div className="mx-2 my-1 border-t border-gray-700" />
-              <p className="px-3 py-1 text-[11px] leading-relaxed text-gray-500">
+              <p className="px-3 py-1 text-[12px] leading-relaxed text-gray-500">
                 {t('canvas.contextMenu.appsHelp', {
                   defaultValue: '행을 누르면 캔버스에 버블로 놓입니다. 버블을 더블클릭하면 열리고, 우클릭하면 관리합니다.',
                 })}

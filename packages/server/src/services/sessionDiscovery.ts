@@ -12,7 +12,7 @@ import { modelRegistryService } from './modelRegistryService.js';
 import type { AgentEvent, TodoItem, TurnTokenUsage, TokenCategoryEstimate, SessionTokenData } from '@vibisual/shared';
 import { logger } from '../logger.js';
 import { dbg } from './debugLog.js';
-import { getClaudeBin } from './claudeBin.js';
+import { getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
 import { scanFileLines, scanWholeFileLines } from './jsonlChunkReader.js';
 import { registerEvictableCache } from './memoryMonitor.js';
 
@@ -336,6 +336,7 @@ export function isSessionInUse(sessionId: string, cwd: string, timeoutMs = 1500)
     child.stdout.on('data', onData);
     child.on('error', (err) => {
       logger.warn(`[isSessionInUse] SPAWN ERROR sess=${shortId} err=${String(err)}`);
+      noteClaudeSpawnFailure(err);
       finish(false, 'spawn-error');
     });
     // 'exit'는 stdio 드레인 전에 발화할 수 있어 regex가 empty buf에 걸림 → 'close' 사용

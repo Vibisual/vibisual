@@ -164,11 +164,11 @@ export const IframeServerLogsPopup = memo(function IframeServerLogsPopup({
             </span>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
-            <span className="rounded bg-gray-700/40 px-1.5 py-0.5 font-mono text-[10px] text-gray-300">
+            <span className="rounded bg-gray-700/40 px-1.5 py-0.5 font-mono text-[12px] text-gray-300">
               {t('panel.iframeServerLog.linesCount', { count: lines.length })}
             </span>
             {errorCount > 0 && (
-              <span className="rounded bg-rose-500/20 px-1.5 py-0.5 font-mono text-[10px] text-rose-300">
+              <span className="rounded bg-rose-500/20 px-1.5 py-0.5 font-mono text-[12px] text-rose-300">
                 {t('panel.iframeServerLog.errorsCount', { count: errorCount })}
               </span>
             )}
@@ -218,7 +218,7 @@ export const IframeServerLogsPopup = memo(function IframeServerLogsPopup({
         <div
           ref={scrollRef}
           onScroll={handleScroll}
-          className="min-h-0 flex-1 overflow-y-auto bg-gray-950/70 px-3 py-2 font-mono text-[11px] leading-relaxed"
+          className="min-h-0 flex-1 overflow-y-auto bg-gray-950/70 px-3 py-2 font-mono text-[12px] leading-relaxed"
         >
           {!initialized && (
             <div className="flex items-center justify-center py-10 text-xs text-gray-500">
@@ -248,7 +248,7 @@ export const IframeServerLogsPopup = memo(function IframeServerLogsPopup({
               key={l.seq}
               className={`flex items-start gap-2 whitespace-pre-wrap break-all ${levelClasses(l.level)}`}
             >
-              <span className="shrink-0 text-[10px] text-gray-600">{formatTime(l.ts)}</span>
+              <span className="shrink-0 text-[12px] text-gray-600">{formatTime(l.ts)}</span>
               <span className="flex-1">{l.text}</span>
             </div>
           ))}

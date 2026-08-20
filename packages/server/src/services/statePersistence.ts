@@ -263,6 +263,10 @@ function deriveIdentity(cp: ProjectCheckpoint): ProjectIdentity {
     playBubbles: cp.playBubbles ?? [],
     // §5.15 — 스펙 보드는 사람이 쓴 요구사항 문장이라 잃으면 복구할 길이 없다(정체성).
     specDocs: cp.specDocs ?? [],
+    // §5.18 — 에이전트 랩도 사람이 쓴 과제 문장 + 손으로 짠 설정 조합이라 정체성이다.
+    labRuns: cp.labRuns ?? [],
+    // §5.20 — 선반은 사람이 모아 둔 명령·프롬프트라 코드에서 되살릴 길이 없다(정체성).
+    shelfBubbles: cp.shelfBubbles ?? [],
     contis: cp.contis ?? {},
     // §5.5 #17-17 v4.46 — 세션 목표는 사용자가 직접 쓴 문장이라 잃으면 복구할 길이 없다(정체성).
     sessionGoals: cp.sessionGoals ?? {},
@@ -941,6 +945,18 @@ function mergeIdentityIntoCheckpoint(cp: ProjectCheckpoint, identity: ProjectIde
     const seen = new Set(existing.map((d) => d.id));
     cp.specDocs = [...existing, ...identity.specDocs.filter((d) => !seen.has(d.id))];
   }
+  // §5.18 labRuns 보충 — 같은 규칙(id 기준 합집합).
+  if (identity.labRuns && identity.labRuns.length > 0) {
+    const existing = cp.labRuns ?? [];
+    const seen = new Set(existing.map((r) => r.id));
+    cp.labRuns = [...existing, ...identity.labRuns.filter((r) => !seen.has(r.id))];
+  }
+  // §5.20 shelfBubbles 보충 — 같은 규칙(id 기준 합집합).
+  if (identity.shelfBubbles && identity.shelfBubbles.length > 0) {
+    const existing = cp.shelfBubbles ?? [];
+    const seen = new Set(existing.map((b) => b.id));
+    cp.shelfBubbles = [...existing, ...identity.shelfBubbles.filter((b) => !seen.has(b.id))];
+  }
   // contis 보충.
   if (identity.contis && Object.keys(identity.contis).length > 0) {
     cp.contis = cp.contis ?? {};
@@ -1015,6 +1031,8 @@ function buildCheckpointSkeletonFromIdentity(identity: ProjectIdentity): Project
     appBubbles: [...(identity.appBubbles ?? [])],
     playBubbles: [...(identity.playBubbles ?? [])],
     specDocs: [...(identity.specDocs ?? [])],
+    labRuns: [...(identity.labRuns ?? [])],
+    shelfBubbles: [...(identity.shelfBubbles ?? [])],
     contis: { ...identity.contis },
     deletedCustomAgentIds: identity.deletedSessionIds ?? [],
   };

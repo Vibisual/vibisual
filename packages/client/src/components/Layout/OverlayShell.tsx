@@ -221,7 +221,7 @@ export function OverlayShell({ agentId, projectId }: OverlayShellProps): React.J
                 <circle cx="12" cy="12" r="10" />
                 <path d="M12 8v4M12 16h.01" />
               </svg>
-              <span className="text-[11px] text-gray-400">{t('overlay.agentGone', { defaultValue: 'Agent unavailable' })}</span>
+              <span className="text-[12px] text-gray-400">{t('overlay.agentGone', { defaultValue: 'Agent unavailable' })}</span>
             </div>
           </div>
         )

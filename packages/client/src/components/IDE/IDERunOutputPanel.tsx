@@ -138,17 +138,17 @@ export const IDERunOutputPanel = memo(function IDERunOutputPanel({ onClose }: { 
       <div className="flex items-center gap-2 border-b border-gray-700 px-3 py-2">
         <span className="min-w-0 flex-1">
           <span className="block truncate text-xs font-semibold text-gray-200">{session.name}</span>
-          <span className="block truncate font-mono text-[10px] text-gray-500" title={session.command}>
+          <span className="block truncate font-mono text-[12px] text-gray-500" title={session.command}>
             {session.command}
           </span>
         </span>
         {running ? (
-          <span className="flex items-center gap-1 text-[10px] text-amber-300">
+          <span className="flex items-center gap-1 text-[12px] text-amber-300">
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />
             {t('ide.debug.running')}
           </span>
         ) : (
-          <span className={`text-[10px] ${failed ? 'text-rose-400' : 'text-gray-500'}`}>
+          <span className={`text-[12px] ${failed ? 'text-rose-400' : 'text-gray-500'}`}>
             {t('ide.debug.exitCode', { code: session.exitCode ?? 0 })}
           </span>
         )}
@@ -156,7 +156,7 @@ export const IDERunOutputPanel = memo(function IDERunOutputPanel({ onClose }: { 
           <button
             type="button"
             onClick={() => void stopRun(runId)}
-            className="rounded bg-gray-800 px-2 py-1 text-[10px] text-rose-300 transition-colors hover:bg-gray-700"
+            className="rounded bg-gray-800 px-2 py-1 text-[12px] text-rose-300 transition-colors hover:bg-gray-700"
           >
             {t('ide.debug.stop')}
           </button>
@@ -164,7 +164,7 @@ export const IDERunOutputPanel = memo(function IDERunOutputPanel({ onClose }: { 
         <button
           type="button"
           onClick={handleCopy}
-          className="rounded bg-gray-800 px-2 py-1 text-[10px] text-gray-300 transition-colors hover:bg-gray-700"
+          className="rounded bg-gray-800 px-2 py-1 text-[12px] text-gray-300 transition-colors hover:bg-gray-700"
         >
           {copied ? t('ide.debug.copied') : t('ide.debug.copy')}
         </button>
@@ -185,7 +185,7 @@ export const IDERunOutputPanel = memo(function IDERunOutputPanel({ onClose }: { 
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className="min-h-0 flex-1 overflow-auto px-3 py-2 font-mono text-[11px] leading-relaxed text-gray-300"
+        className="min-h-0 flex-1 overflow-auto px-3 py-2 font-mono text-[12px] leading-relaxed text-gray-300"
       >
         {lines.length === 0 ? (
           <p className="text-gray-600">{t('ide.debug.noOutput')}</p>

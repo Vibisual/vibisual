@@ -223,16 +223,16 @@ export function CollapsiblePrompt({ prompt, command }: { prompt: string; command
           <circle cx="12" cy="7" r="4" />
         </svg>
       </span>
-      <span className={`flex-shrink-0 text-[11px] font-semibold uppercase tracking-wide ${tone.label}`}>{t('ide.streamRenderer.youTyped')}</span>
+      <span className={`flex-shrink-0 text-[12px] font-semibold uppercase tracking-wide ${tone.label}`}>{t('ide.streamRenderer.youTyped')}</span>
       {/* 실행 중 / 대기 중 — 색만으로 못 읽는 사람을 위해 글자로도 한 번 말한다. */}
       {command?.status === 'executing' && (
-        <span className={`flex flex-shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold ${tone.badge}`}>
+        <span className={`flex flex-shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[12px] font-semibold ${tone.badge}`}>
           <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-current" />
           {t('ide.mainArea.executing')}
         </span>
       )}
       {command?.status === 'queued' && (
-        <span className={`flex flex-shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold ${tone.badge}`}>
+        <span className={`flex flex-shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[12px] font-semibold ${tone.badge}`}>
           <DispatchModeIcon mode={mode} />
           {t(`ide.mainArea.dispatchMode.${mode}`)}
         </span>
@@ -274,7 +274,7 @@ export function CollapsiblePrompt({ prompt, command }: { prompt: string; command
           onClick={onCopy}
           title={copied ? t('ide.streamRenderer.copied') : t('ide.streamRenderer.copy')}
           aria-label={copied ? t('ide.streamRenderer.copied') : t('ide.streamRenderer.copy')}
-          className={`absolute right-2 top-2 inline-flex items-center gap-1 rounded border px-1.5 py-1 text-[10px] font-medium transition-colors ${
+          className={`absolute right-2 top-2 inline-flex items-center gap-1 rounded border px-1.5 py-1 text-[12px] font-medium transition-colors ${
             copied ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300' : tone.copyIdle
           }`}
         >
@@ -294,7 +294,7 @@ export function CollapsiblePrompt({ prompt, command }: { prompt: string; command
 
         {/* 펼친 내용 — 사용자가 넣은 그대로(공백·줄바꿈 보존) */}
         {collapsible && open && (
-          <pre className={`scrollbar-thin max-h-80 overflow-auto whitespace-pre-wrap break-words border-t px-3 py-2.5 font-mono text-[12.5px] leading-relaxed ${tone.pre}`}>
+          <pre className={`scrollbar-thin max-h-80 overflow-auto whitespace-pre-wrap break-words border-t px-3 py-2.5 font-mono text-[13px] leading-relaxed ${tone.pre}`}>
             {prompt}
           </pre>
         )}
@@ -313,7 +313,7 @@ export function CollapsiblePrompt({ prompt, command }: { prompt: string; command
                     onClick={() => { if (!active) setCommandDispatchMode(controlAgentId, controlCommandId, m); }}
                     title={t(`ide.mainArea.dispatchModeTitle.${m}`)}
                     aria-pressed={active}
-                    className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] transition-colors ${
+                    className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[12px] transition-colors ${
                       active
                         ? m === 'immediate'
                           ? 'bg-amber-500/25 text-amber-200'
@@ -329,7 +329,7 @@ export function CollapsiblePrompt({ prompt, command }: { prompt: string; command
                 );
               })}
             </div>
-            <span className="min-w-0 flex-1 truncate text-[10px] leading-tight text-gray-400/80" title={t(`ide.mainArea.dispatchModeTitle.${mode}`)}>
+            <span className="min-w-0 flex-1 truncate text-[12px] leading-tight text-gray-400/80" title={t(`ide.mainArea.dispatchModeTitle.${mode}`)}>
               {t(`ide.mainArea.dispatchModeTitle.${mode}`)}
             </span>
             <button

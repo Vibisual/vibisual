@@ -448,10 +448,18 @@ export function drawAnnotations(ctx: CanvasRenderingContext2D, items: readonly A
 /** 화면 SVG 와 저장 캔버스가 **같은 글꼴**로 그려야 저장본이 화면과 어긋나지 않는다. */
 export const ANNOTATION_FONT_STACK = 'system-ui, -apple-system, "Segoe UI", sans-serif';
 
-/** 원본 + 주석을 원본 해상도 PNG 한 장으로 굽는다. 실패하면 null(호출부가 오류 표시). */
-export async function exportAnnotatedPng(
+/**
+ * 원본 + 주석을 **원본 해상도 한 장**으로 굽는다. 실패하면 null(호출부가 오류 표시).
+ *
+ * §5.5 #17-25 ④-1 — `mime` 은 저장 대상이 정한다. 워크스페이스 파일을 덮어쓸 때 형식을 바꾸면
+ * 확장자와 내용이 어긋나므로 원본 확장자의 MIME 을 그대로 받아 굽는다(png·jpeg·webp).
+ * `canvas.toBlob` 이 모르는 MIME 을 받으면 브라우저는 조용히 PNG 를 뱉으므로, 그런 형식은
+ * 애초에 호출부(`canOverwriteWorkspaceImage`)가 막는다.
+ */
+export async function exportAnnotatedImage(
   image: HTMLImageElement,
   items: readonly Annotation[],
+  mime: string = 'image/png',
 ): Promise<Blob | null> {
   const w = image.naturalWidth;
   const h = image.naturalHeight;
@@ -464,6 +472,14 @@ export async function exportAnnotatedPng(
   ctx.drawImage(image, 0, 0, w, h);
   drawAnnotations(ctx, items);
   return await new Promise<Blob | null>((resolve) => {
-    canvas.toBlob((blob) => resolve(blob), 'image/png');
+    canvas.toBlob((blob) => resolve(blob), mime);
   });
+}
+
+/** 원본 + 주석을 원본 해상도 PNG 한 장으로 굽는다(첨부·내려받기의 기본 형식). */
+export async function exportAnnotatedPng(
+  image: HTMLImageElement,
+  items: readonly Annotation[],
+): Promise<Blob | null> {
+  return await exportAnnotatedImage(image, items, 'image/png');
 }
