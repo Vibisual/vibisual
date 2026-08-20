@@ -261,7 +261,7 @@ function DebugPanelImpl({ onClose }: DebugPanelProps): React.JSX.Element {
       <div className="flex flex-col gap-2 border-b border-gray-800 p-4">
         <div className="flex items-center justify-between">
           <span className="text-xs font-medium text-gray-400">{t('panel.debugPanel.project')}</span>
-          <span className={`flex items-center gap-1 font-mono text-[10px] ${fpsColor}`} title={t('panel.debugPanel.fpsTip')}>
+          <span className={`flex items-center gap-1 font-mono text-[12px] ${fpsColor}`} title={t('panel.debugPanel.fpsTip')}>
             <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
               <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
             </svg>
@@ -272,7 +272,7 @@ function DebugPanelImpl({ onClose }: DebugPanelProps): React.JSX.Element {
 
         {/* §4 v3.71 가시성 LOD 계측 — 덮임 여부 / 현재 줌 티어 / 뷰포트 밖 컬링.
             FPS 를 볼 때 "지금 캔버스가 그려지고 있는지"를 같은 줄에서 확인하려는 용도. */}
-        <div className="flex items-center justify-between gap-2 font-mono text-[10px]">
+        <div className="flex items-center justify-between gap-2 font-mono text-[12px]">
           <span className="text-gray-500">{t('panel.debugPanel.visibility', { defaultValue: 'Visibility' })}</span>
           <span className="flex items-center gap-2">
             <span className={canvasCovered ? 'text-amber-400' : 'text-emerald-400'}>
@@ -287,7 +287,7 @@ function DebugPanelImpl({ onClose }: DebugPanelProps): React.JSX.Element {
 
         {/* v3.72 입력 지연 — FPS 옆에 나란히. "타자가 밀린다" 는 FPS 가 아니라 이 값이 말해준다.
             감시 무장 후 임계(200ms) 초과 인터랙션이 관측되면 그 값이 찍힌다. */}
-        <div className="flex items-center justify-between gap-2 font-mono text-[10px]">
+        <div className="flex items-center justify-between gap-2 font-mono text-[12px]">
           <span className="text-gray-500">Input lag</span>
           <span className={lastSlowMs > 0 ? 'text-red-400' : 'text-gray-600'}>
             {lastSlowMs > 0 ? `${lastSlowMs}ms` : `< ${PERF_SLOW_INTERACTION_MS}ms`}
@@ -296,7 +296,7 @@ function DebugPanelImpl({ onClose }: DebugPanelProps): React.JSX.Element {
 
         <div className="rounded border border-gray-800 bg-gray-950 p-3">
           {activeProject ? (
-            <dl className="flex flex-col gap-1.5 text-[11px]">
+            <dl className="flex flex-col gap-1.5 text-[12px]">
               <div className="flex items-center justify-between gap-2">
                 <dt className="flex-shrink-0 text-gray-500">{t('panel.debugPanel.projectName')}</dt>
                 <dd className="truncate font-mono text-gray-200">{currentProject?.name ?? activeProject}</dd>
@@ -310,20 +310,20 @@ function DebugPanelImpl({ onClose }: DebugPanelProps): React.JSX.Element {
               <div className="mt-1 grid grid-cols-3 gap-2 border-t border-gray-800/60 pt-2 text-center">
                 <div>
                   <div className="font-mono text-sm tabular-nums text-gray-200">{counts.agents}</div>
-                  <div className="text-[9px] uppercase tracking-wide text-gray-500">{t('panel.debugPanel.agents')}</div>
+                  <div className="text-[12px] uppercase tracking-wide text-gray-500">{t('panel.debugPanel.agents')}</div>
                 </div>
                 <div>
                   <div className="font-mono text-sm tabular-nums text-gray-200">{counts.nodes}</div>
-                  <div className="text-[9px] uppercase tracking-wide text-gray-500">{t('panel.debugPanel.nodes')}</div>
+                  <div className="text-[12px] uppercase tracking-wide text-gray-500">{t('panel.debugPanel.nodes')}</div>
                 </div>
                 <div>
                   <div className="font-mono text-sm tabular-nums text-gray-200">{counts.edges}</div>
-                  <div className="text-[9px] uppercase tracking-wide text-gray-500">{t('panel.debugPanel.edges')}</div>
+                  <div className="text-[12px] uppercase tracking-wide text-gray-500">{t('panel.debugPanel.edges')}</div>
                 </div>
               </div>
             </dl>
           ) : (
-            <p className="py-2 text-center text-[11px] text-gray-600">{t('panel.debugPanel.noProject')}</p>
+            <p className="py-2 text-center text-[12px] text-gray-600">{t('panel.debugPanel.noProject')}</p>
           )}
         </div>
       </div>
@@ -341,7 +341,7 @@ function DebugPanelImpl({ onClose }: DebugPanelProps): React.JSX.Element {
             <button
               type="button"
               onClick={startNow}
-              className="rounded border border-gray-700 px-2 py-0.5 font-mono text-[10px] text-gray-300 hover:bg-gray-800 hover:text-gray-100"
+              className="rounded border border-gray-700 px-2 py-0.5 font-mono text-[12px] text-gray-300 hover:bg-gray-800 hover:text-gray-100"
             >
               {t('panel.debugPanel.profiling.startNow')}
             </button>
@@ -350,7 +350,7 @@ function DebugPanelImpl({ onClose }: DebugPanelProps): React.JSX.Element {
 
         {perfState === 'profiling' ? (
           <div className="rounded border border-amber-800/60 bg-amber-950/20 p-3">
-            <div className="flex items-center justify-between text-[11px] text-amber-300">
+            <div className="flex items-center justify-between text-[12px] text-amber-300">
               <span className="flex items-center gap-1.5">
                 <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
                   <path d="M21 12a9 9 0 1 1-6.219-8.56" />
@@ -366,13 +366,13 @@ function DebugPanelImpl({ onClose }: DebugPanelProps): React.JSX.Element {
         ) : perfReport ? (
           <div className="rounded border border-gray-800 bg-gray-950 p-3">
             <div className="flex items-center justify-between">
-              <span className="font-mono text-[10px] text-gray-500">
+              <span className="font-mono text-[12px] text-gray-500">
                 {formatClockTime(perfReport.endedAt)} · {perfReport.manual ? t('panel.debugPanel.profiling.manual') : t('panel.debugPanel.profiling.auto', { fps: PERF_TRIGGER_FPS })}
               </span>
               <button
                 type="button"
                 onClick={copyReport}
-                className="flex items-center gap-1 rounded border border-gray-700 px-2 py-0.5 font-mono text-[10px] text-gray-300 hover:bg-gray-800 hover:text-gray-100"
+                className="flex items-center gap-1 rounded border border-gray-700 px-2 py-0.5 font-mono text-[12px] text-gray-300 hover:bg-gray-800 hover:text-gray-100"
               >
                 <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
                   <rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
@@ -381,7 +381,7 @@ function DebugPanelImpl({ onClose }: DebugPanelProps): React.JSX.Element {
               </button>
             </div>
 
-            <dl className="mt-2 flex flex-col gap-1 text-[11px]">
+            <dl className="mt-2 flex flex-col gap-1 text-[12px]">
               <div className="flex items-center justify-between gap-2">
                 <dt className="text-gray-500">{t('panel.debugPanel.profiling.fpsRange')}</dt>
                 <dd className="font-mono text-gray-200">min {perfReport.frames.minFps} · avg {perfReport.frames.avgFps} · jank {perfReport.frames.jankSeconds}s</dd>
@@ -394,26 +394,26 @@ function DebugPanelImpl({ onClose }: DebugPanelProps): React.JSX.Element {
 
             {perfReport.topScripts.length > 0 ? (
               <div className="mt-2 border-t border-gray-800/60 pt-2">
-                <div className="mb-1 text-[9px] uppercase tracking-wide text-gray-500">{t('panel.debugPanel.profiling.topScripts')}</div>
+                <div className="mb-1 text-[12px] uppercase tracking-wide text-gray-500">{t('panel.debugPanel.profiling.topScripts')}</div>
                 <div className="scrollbar-thin max-h-40 overflow-y-auto">
                   {perfReport.topScripts.map((s) => (
                     <div key={s.key} className="flex items-center justify-between gap-2 border-b border-gray-800/40 py-1 last:border-b-0">
-                      <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-gray-300" title={`${s.functionName} — ${s.sourceURL}`}>
+                      <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-gray-300" title={`${s.functionName} — ${s.sourceURL}`}>
                         {s.functionName} <span className="text-gray-600">{s.sourceURL}</span>
                       </span>
-                      <span className="flex-shrink-0 font-mono text-[10px] tabular-nums text-amber-300">{Math.round(s.totalMs)}ms</span>
+                      <span className="flex-shrink-0 font-mono text-[12px] tabular-nums text-amber-300">{Math.round(s.totalMs)}ms</span>
                     </div>
                   ))}
                 </div>
               </div>
             ) : (
-              <p className="mt-2 border-t border-gray-800/60 pt-2 text-[10px] text-gray-600">
+              <p className="mt-2 border-t border-gray-800/60 pt-2 text-[12px] text-gray-600">
                 {t('panel.debugPanel.profiling.noScripts', { type: perfReport.observedType })}
               </p>
             )}
           </div>
         ) : (
-          <p className="rounded border border-gray-800 bg-gray-950 px-3 py-2.5 text-[11px] leading-snug text-gray-600">
+          <p className="rounded border border-gray-800 bg-gray-950 px-3 py-2.5 text-[12px] leading-snug text-gray-600">
             {t('panel.debugPanel.profiling.idleHint', { fps: PERF_TRIGGER_FPS })}
           </p>
         )}
@@ -424,26 +424,26 @@ function DebugPanelImpl({ onClose }: DebugPanelProps): React.JSX.Element {
         <div className="flex items-center justify-between">
           <span className="text-xs font-medium text-gray-400">{t('panel.debugPanel.errorLog')}</span>
           {logNewestFirst.length > 0 && (
-            <span className="font-mono text-[10px] text-gray-600">{logNewestFirst.length}</span>
+            <span className="font-mono text-[12px] text-gray-600">{logNewestFirst.length}</span>
           )}
         </div>
 
         <div className="scrollbar-thin max-h-80 overflow-y-auto rounded border border-gray-800 bg-gray-950">
           {logNewestFirst.length === 0 ? (
-            <p className="px-3 py-4 text-center text-[11px] text-gray-600">{t('panel.debugPanel.noErrors')}</p>
+            <p className="px-3 py-4 text-center text-[12px] text-gray-600">{t('panel.debugPanel.noErrors')}</p>
           ) : (
             logNewestFirst.map((e) => (
               <div key={e.id} className="border-b border-gray-800/60 px-2.5 py-1.5 last:border-b-0">
                 <div className="flex items-center gap-1.5">
                   <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${e.level === 'error' ? 'bg-red-500' : 'bg-amber-400'}`} />
-                  <span className="rounded bg-gray-800 px-1 font-mono text-[9px] uppercase text-gray-400">{e.source}</span>
-                  <span className="font-mono text-[9px] text-gray-600">{formatClockTime(e.ts)}</span>
+                  <span className="rounded bg-gray-800 px-1 font-mono text-[12px] uppercase text-gray-400">{e.source}</span>
+                  <span className="font-mono text-[12px] text-gray-600">{formatClockTime(e.ts)}</span>
                 </div>
-                <p className={`mt-0.5 break-words font-mono text-[11px] leading-snug ${e.level === 'error' ? 'text-red-300' : 'text-amber-200'}`}>
+                <p className={`mt-0.5 break-words font-mono text-[12px] leading-snug ${e.level === 'error' ? 'text-red-300' : 'text-amber-200'}`}>
                   {e.message}
                 </p>
                 {e.stack && (
-                  <pre className="scrollbar-thin mt-1 max-h-28 overflow-auto whitespace-pre-wrap break-words rounded bg-black/40 p-1.5 font-mono text-[9px] leading-snug text-gray-500">
+                  <pre className="scrollbar-thin mt-1 max-h-28 overflow-auto whitespace-pre-wrap break-words rounded bg-black/40 p-1.5 font-mono text-[12px] leading-snug text-gray-500">
                     {e.stack}
                   </pre>
                 )}

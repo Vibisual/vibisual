@@ -28,7 +28,7 @@ import {
   type ModelRegistryEntry,
 } from '@vibisual/shared';
 import { logger } from '../logger.js';
-import { getClaudeBin } from './claudeBin.js';
+import { getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
 
 const IS_WIN = process.platform === 'win32';
 const PLATFORM_BIN_NAME = IS_WIN ? 'claude.exe' : 'claude';
@@ -221,7 +221,7 @@ class ModelRegistryService {
       const timer = setTimeout(() => { try { child.kill(); } catch { /* ignore */ } finish(out); }, HELP_PROBE_TIMEOUT_MS);
       child.stdout?.on('data', (c) => { out += c.toString(); });
       child.stderr?.on('data', (c) => { out += c.toString(); });
-      child.on('error', () => { clearTimeout(timer); finish(''); });
+      child.on('error', (err) => { clearTimeout(timer); noteClaudeSpawnFailure(err); finish(''); });
       child.on('close', () => { clearTimeout(timer); finish(out); });
     });
 

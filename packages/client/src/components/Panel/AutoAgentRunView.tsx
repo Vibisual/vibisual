@@ -67,7 +67,7 @@ export const AutoAgentRunView = memo(function AutoAgentRunView({ sessionId }: Au
           type="button"
           onClick={runSelfTest}
           disabled={selfTest?.running}
-          className="flex items-center gap-1 rounded border border-gray-700 px-2 py-0.5 text-[10px] text-gray-400 transition-colors hover:border-gray-500 hover:text-gray-200 disabled:opacity-50"
+          className="flex items-center gap-1 rounded border border-gray-700 px-2 py-0.5 text-[12px] text-gray-400 transition-colors hover:border-gray-500 hover:text-gray-200 disabled:opacity-50"
           title={t('panel.autoAgent.run.selfTestTip')}
         >
           <BeakerIcon />
@@ -77,7 +77,7 @@ export const AutoAgentRunView = memo(function AutoAgentRunView({ sessionId }: Au
 
       {/* 자가진단 결과 — 게이트가 정말 막는지에 대한 유일한 증거 */}
       {selfTestSummary && (
-        <div className={`rounded border px-2.5 py-1.5 text-[11px] ${
+        <div className={`rounded border px-2.5 py-1.5 text-[12px] ${
           selfTestSummary.allPassed
             ? 'border-emerald-800 bg-emerald-950/20 text-emerald-200'
             : 'border-red-800 bg-red-950/20 text-red-200'
@@ -89,7 +89,7 @@ export const AutoAgentRunView = memo(function AutoAgentRunView({ sessionId }: Au
           </div>
           <ul className="flex flex-col gap-0.5">
             {selfTest?.checks.map((c) => (
-              <li key={c.id} className="flex items-center gap-1.5 font-mono text-[10px]">
+              <li key={c.id} className="flex items-center gap-1.5 font-mono text-[12px]">
                 {c.pass ? <CheckIcon /> : <CrossIcon />}
                 <span className="text-gray-400">{c.id}</span>
                 <span className="text-gray-600">→ {c.actual}</span>
@@ -122,7 +122,7 @@ export const AutoAgentRunView = memo(function AutoAgentRunView({ sessionId }: Au
 
       {/* 런 목록 */}
       {ordered.length === 0 ? (
-        <div className="rounded border border-gray-800 bg-gray-950/40 px-2.5 py-2 text-[11px] text-gray-500">
+        <div className="rounded border border-gray-800 bg-gray-950/40 px-2.5 py-2 text-[12px] text-gray-500">
           {t('panel.autoAgent.run.empty')}
         </div>
       ) : (
@@ -140,26 +140,26 @@ export const AutoAgentRunView = memo(function AutoAgentRunView({ sessionId }: Au
                   <ChevronIcon open={isOpen} />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
-                      <span className="text-[10px] font-semibold uppercase tracking-wide">
+                      <span className="text-[12px] font-semibold uppercase tracking-wide">
                         {t(`panel.autoAgent.run.status.${run.status}`)}
                       </span>
                       {run.selfTest && (
-                        <span className="rounded bg-gray-800 px-1 text-[9px] text-gray-400">
+                        <span className="rounded bg-gray-800 px-1 text-[12px] text-gray-400">
                           {t('panel.autoAgent.run.selfTestBadge')}
                         </span>
                       )}
-                      <span className="text-[10px] text-gray-500">
+                      <span className="text-[12px] text-gray-500">
                         {t('panel.autoAgent.run.evidenceCount', { passed, total: run.attempts.length })}
                       </span>
                       {run.reworkUsed > 0 && (
-                        <span className="text-[10px] text-gray-500">
+                        <span className="text-[12px] text-gray-500">
                           {t('panel.autoAgent.run.reworkCount', { used: run.reworkUsed, budget: run.reworkBudget })}
                         </span>
                       )}
                     </div>
-                    <div className="truncate text-[11px] text-gray-400">{run.userRequest}</div>
+                    <div className="truncate text-[12px] text-gray-400">{run.userRequest}</div>
                     {run.status === 'escalated' && run.escalation && (
-                      <div className="mt-0.5 text-[10px] text-amber-400/90">
+                      <div className="mt-0.5 text-[12px] text-amber-400/90">
                         {t(`panel.autoAgent.run.escalation.${run.escalation}`)}
                       </div>
                     )}
@@ -169,14 +169,14 @@ export const AutoAgentRunView = memo(function AutoAgentRunView({ sessionId }: Au
                 {isOpen && (
                   <div className="border-t border-gray-800/70 px-2.5 py-2">
                     {run.attempts.length === 0 ? (
-                      <div className="text-[10px] text-gray-500">{t('panel.autoAgent.run.noEvidence')}</div>
+                      <div className="text-[12px] text-gray-500">{t('panel.autoAgent.run.noEvidence')}</div>
                     ) : (
                       <ul className="flex flex-col gap-1">
                         {run.attempts.map((a) => <EvidenceRow key={a.id} attempt={a} />)}
                       </ul>
                     )}
                     {run.lastVerdict && (
-                      <div className="mt-1.5 text-[10px] text-gray-500">
+                      <div className="mt-1.5 text-[12px] text-gray-500">
                         {t('panel.autoAgent.run.lastVerdict', { verdict: t(`panel.autoAgent.run.verdict.${run.lastVerdict}`) })}
                         {run.lastVerdictReason ? ` — ${run.lastVerdictReason}` : ''}
                       </div>
@@ -195,7 +195,7 @@ export const AutoAgentRunView = memo(function AutoAgentRunView({ sessionId }: Au
 /** 증거 한 줄 — 명령 · exit code · revision · 시각. 이 네 개가 "완료"의 근거 전부다. */
 const EvidenceRow = memo(function EvidenceRow({ attempt }: { attempt: VerificationAttempt }): React.JSX.Element {
   return (
-    <li className="flex items-start gap-1.5 font-mono text-[10px]">
+    <li className="flex items-start gap-1.5 font-mono text-[12px]">
       {attempt.ok ? <CheckIcon /> : <CrossIcon />}
       <span className={attempt.ok ? 'text-emerald-300' : 'text-red-300'}>exit {attempt.exitCode}</span>
       <span className="min-w-0 flex-1 truncate text-gray-400" title={attempt.command}>{attempt.command}</span>
@@ -208,7 +208,7 @@ const EvidenceRow = memo(function EvidenceRow({ attempt }: { attempt: Verificati
 function MetricCell({ label, value, hint }: { label: string; value: string; hint?: string }): React.JSX.Element {
   return (
     <div className="rounded border border-gray-800 bg-gray-950/40 px-2 py-1.5" title={hint}>
-      <div className="text-[9px] uppercase tracking-wide text-gray-600">{label}</div>
+      <div className="text-[12px] uppercase tracking-wide text-gray-600">{label}</div>
       <div className="text-sm font-semibold text-gray-200">{value}</div>
     </div>
   );

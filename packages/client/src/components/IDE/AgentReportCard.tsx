@@ -107,16 +107,16 @@ function parseNumberedNote(note: string): NumberedNote | null {
 function NoteBody({ note }: { note: string }): React.JSX.Element {
   const parsed = parseNumberedNote(note);
   if (!parsed) {
-    return <p className="mb-2 text-[12.5px] leading-relaxed text-gray-300">{note}</p>;
+    return <p className="mb-2 text-[13px] leading-relaxed text-gray-300">{note}</p>;
   }
   return (
     <div className="mb-2">
       {parsed.intro && (
-        <p className="mb-1.5 text-[12.5px] leading-relaxed text-gray-300">{parsed.intro}</p>
+        <p className="mb-1.5 text-[13px] leading-relaxed text-gray-300">{parsed.intro}</p>
       )}
       <ol className="space-y-0.5">
         {parsed.items.map((it, i) => (
-          <li key={i} className="flex items-start gap-2 text-[12.5px] leading-relaxed text-gray-300">
+          <li key={i} className="flex items-start gap-2 text-[13px] leading-relaxed text-gray-300">
             <span className="min-w-[1.5rem] flex-shrink-0 select-none text-right font-medium tabular-nums text-gray-500">
               {it.num}.
             </span>
@@ -169,20 +169,20 @@ export const AgentReportCard = memo(function AgentReportCard({ report, review, l
       {/* 헤더 */}
       <div className="flex items-center gap-2 border-b border-gray-800/60 bg-gray-800/30 px-3 py-1.5">
         <span className="text-gray-400"><ReportIcon /></span>
-        <span className="flex-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+        <span className="flex-1 text-[12px] font-semibold uppercase tracking-wide text-gray-400">
           {t('ide.report.title')}
         </span>
         {/* 검수를 흡수했으면 그 사실을 헤더 칩으로 알린다(카드 두 장이 한 장으로 합쳐졌음). */}
         {/* data-card-id 는 놓친 카드 pill 앵커 — 검수 포인트가 비어 있어도 이 칩은 항상 그려지므로
             병합된 검수 카드의 "봤다" 관측·점프가 끊기지 않는다(빈 구획에 앵커를 달면 높이 0 이라 관측 불가). */}
         {review && (
-          <span data-card-id={review.id} className="flex flex-shrink-0 items-center gap-1 rounded bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-violet-300">
+          <span data-card-id={review.id} className="flex flex-shrink-0 items-center gap-1 rounded bg-violet-500/15 px-1.5 py-0.5 text-[12px] font-semibold text-violet-300">
             <ReviewIcon />
             {t('ide.review.title')}
           </span>
         )}
         {live && <CardLiveBadge />}
-        <span className="select-none text-[10px] text-gray-500">{formatTime(report.createdAt)}</span>
+        <span className="select-none text-[12px] text-gray-500">{formatTime(report.createdAt)}</span>
       </div>
 
       <div className="px-3 py-2">

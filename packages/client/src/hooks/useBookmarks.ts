@@ -7,6 +7,8 @@
  * 1~0       : 비입력 포커스에서 슬롯 N 으로 점프.
  *             - `bubble`: 프로젝트 전환 → (폴더면 enterFolderDeep) → focusOnNode + selectNode.
  *             - `session`: 프로젝트 전환 → focusOnNode(에이전트) → openIDEOverlay → setIDEActiveSession.
+ *             - **생존 게이트**: 대상 노드가 지금 스냅샷에 없으면 아무 상태도 바꾸지 않고 토스트만
+ *               (`resolveJumpTarget` — 사라진 대상으로 점프해 도킹 슬롯만 남던 빈 도크 방지).
  *
  * - 영속화는 localStorage(`vibisual:bookmarks`) — tabPins/defaultSubAgents 와 동형. 서버/스냅샷/체크포인트 미관여.
  * - INPUT/TEXTAREA/contentEditable(xterm 터미널 helper textarea·IDE 입력창 포함) 포커스에서는 비활성.
@@ -19,7 +21,7 @@ import { useGraphStore, selectIDEOverlay } from '../stores/graphStore.js';
 const BOOKMARKS_STORAGE_KEY = 'vibisual:bookmarks';
 
 /** 버블(캔버스 노드) 북마크 — 점프 시 포커싱만. */
-interface BubbleBookmark {
+export interface BubbleBookmark {
   kind: 'bubble';
   projectName: string;
   /** 드릴다운 폴더 컨텍스트(메인 캔버스면 null). */
@@ -29,7 +31,7 @@ interface BubbleBookmark {
 }
 
 /** 세션 북마크 — 점프 시 에이전트 버블 포커싱 + IDE 창 해당 세션 탭 열기. */
-interface SessionBookmark {
+export interface SessionBookmark {
   kind: 'session';
   projectName: string;
   agentId: string;
@@ -38,8 +40,42 @@ interface SessionBookmark {
   label: string;
 }
 
-type Bookmark = BubbleBookmark | SessionBookmark;
+export type Bookmark = BubbleBookmark | SessionBookmark;
 type BookmarkMap = Record<string, Bookmark>;
+
+/** 점프 판정 결과 — `ok` 면 이동, 아니면 토스트만 내고 상태는 그대로 둔다. */
+export type JumpDecision =
+  | { ok: true; stub: boolean }
+  | { ok: false; reason: 'unknown-project' | 'missing-target' };
+
+/**
+ * §5.4 #30 (C) **출처 생존 게이트** — "지금 갈 수 있는 자리인가"를 순수 함수로 판정한다.
+ *
+ * `session` 점프는 `openIDEOverlay` 가 **열려 있던 도킹 슬롯의 agentId 를 갈아끼운다**. 대상 에이전트가
+ * 스냅샷에 없으면 `AgentIDEOverlay` 는 `null` 을 반환하는데 슬롯은 도킹으로 남아, **도크 폭만 예약된
+ * 빈 칸**이 캔버스를 가렸다(사용자 보고: "북마크 숫자키를 눌렀더니 켜둔 IDE 가 제대로 안 닫히고
+ * 화면을 가린다"). 그래서 이동 전에 대상 노드의 생존을 먼저 본다 — §5.5 #17-7 v2.96 IDE 북마크의
+ * 생존 게이트와 **같은 규약·같은 산식**(`nodeMap` 하나).
+ *
+ * stub(미hydrate) 프로젝트는 노드가 애초에 스냅샷에 실리지 않으므로 게이트를 적용하지 않는다 —
+ * 적용하면 "아직 안 연 프로젝트로는 영영 못 간다"가 된다. 대신 탭 전환까지만 한다(호출부 참조).
+ */
+export function resolveJumpTarget(
+  bm: Bookmark,
+  state: {
+    projects: Record<string, unknown>;
+    stubProjects: Record<string, unknown>;
+    nodeMap: Record<string, unknown>;
+  },
+): JumpDecision {
+  const loaded = !!state.projects[bm.projectName];
+  const stub = !loaded && !!state.stubProjects[bm.projectName];
+  if (!loaded && !stub) return { ok: false, reason: 'unknown-project' };
+  if (stub) return { ok: true, stub: true };
+  const targetId = bm.kind === 'session' ? bm.agentId : bm.nodeId;
+  if (!state.nodeMap[targetId]) return { ok: false, reason: 'missing-target' };
+  return { ok: true, stub: false };
+}
 
 /** 키('0'~'9') → 사람이 읽는 슬롯 번호('0' = 10). */
 function slotLabel(key: string): string {
@@ -164,31 +200,40 @@ export function useBookmarks({ onToast, messages }: Params): void {
         return;
       }
       const store = useGraphStore.getState();
-      const known = !!store.projects[bm.projectName] || !!store.stubProjects[bm.projectName];
-      if (!known) {
+      // 생존 게이트 — 프로젝트가 없거나(종전 판정) 대상 노드가 스냅샷에서 사라졌으면 아무것도
+      //   바꾸지 않는다. 특히 session 점프를 그냥 통과시키면 도킹 슬롯이 사라진 에이전트를 가리켜
+      //   "IDE 는 안 보이는데 도크 폭만 남는" 빈 칸이 된다(resolveJumpTarget 주석 참조).
+      const decision = resolveJumpTarget(bm, store);
+      if (!decision.ok) {
         onToast(messages.jumpMissing, 'error');
         return;
       }
 
       if (bm.kind === 'session') {
         store.setActiveProject(bm.projectName);
-        store.focusOnNode(bm.agentId);
-        store.openIDEOverlay(bm.agentId);
-        const subs = useGraphStore.getState().subAgents[bm.agentId] ?? [];
-        if (bm.sessionId && subs.some((s) => s.id === bm.sessionId)) {
-          store.setIDEActiveSession(bm.sessionId);
-        } else {
-          // 세션이 사라졌으면 메인 세션으로 폴백
-          store.setIDEActiveSession(null);
+        // stub(미hydrate) 프로젝트는 아직 버블이 없다 — 탭만 열어 주고 IDE 는 열지 않는다.
+        //   여기서 openIDEOverlay 를 부르면 그리지도 못할 에이전트로 도킹 슬롯이 만들어진다.
+        if (!decision.stub) {
+          store.focusOnNode(bm.agentId);
+          store.openIDEOverlay(bm.agentId);
+          const subs = useGraphStore.getState().subAgents[bm.agentId] ?? [];
+          if (bm.sessionId && subs.some((s) => s.id === bm.sessionId)) {
+            store.setIDEActiveSession(bm.sessionId);
+          } else {
+            // 세션이 사라졌으면 메인 세션으로 폴백
+            store.setIDEActiveSession(null);
+          }
         }
       } else {
         store.setActiveProject(bm.projectName);
         // 버블 북마크는 캔버스의 버블을 보여주는 용도 — 직전 세션 점프로 열린 IDE 오버레이가
         // 남아 캔버스를 가리지 않도록, 그 프로젝트의 IDE 창을 닫는다.
         store.closeIDEOverlay();
-        if (bm.folderId) store.enterFolderDeep(bm.folderId);
-        store.focusOnNode(bm.nodeId);
-        store.selectNode(bm.nodeId);
+        if (!decision.stub) {
+          if (bm.folderId) store.enterFolderDeep(bm.folderId);
+          store.focusOnNode(bm.nodeId);
+          store.selectNode(bm.nodeId);
+        }
       }
       onToast(messages.jumped(bm.label), 'success');
     }

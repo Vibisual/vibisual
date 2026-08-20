@@ -51,7 +51,7 @@ function KillButton({ ctx }: { ctx: PluginHeaderContext }): React.JSX.Element {
       onClick={() => void fire()}
       disabled={busy}
       title={ctx.t(`${K}.title`, { count: ctx.liveAgents })}
-      className={`app-nodrag flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
+      className={`app-nodrag flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium transition-colors ${
         armed
           ? 'bg-red-500/25 text-red-200 ring-1 ring-red-400/60'
           : 'bg-white/[0.06] text-gray-400 hover:bg-red-500/15 hover:text-red-300'

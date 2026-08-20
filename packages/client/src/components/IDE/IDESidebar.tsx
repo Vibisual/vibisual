@@ -8,6 +8,8 @@ import { IDESkillCopyPanel } from './IDESkillCopyPanel.js';
 import { IDELoopView } from './IDELoopView.js';
 import { IDEExplorerView } from './IDEExplorerView.js';
 import { IDEMcpView } from './IDEMcpView.js';
+import { IDEHooksView } from './IDEHooksView.js';
+import { IDEPluginsView } from './IDEPluginsView.js';
 import { IDEDebugView } from './IDEDebugView.js';
 import { IDEContextView } from './IDEContextView.js';
 import { IDEBookmarkView } from './IDEBookmarkView.js';
@@ -238,16 +240,16 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
               className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-amber-400"
             />
           )}
-          <span className={`min-w-0 truncate font-mono text-[11px] font-semibold ${accentText}`}>
+          <span className={`min-w-0 truncate font-mono text-[12px] font-semibold ${accentText}`}>
             /{s.name}
           </span>
           {s.source === 'plugin' && s.pluginName && (
-            <span className="flex-shrink-0 rounded bg-purple-500/15 px-1 py-0.5 text-[9px] uppercase tracking-wide text-purple-400/80">
+            <span className="flex-shrink-0 rounded bg-purple-500/15 px-1 py-0.5 text-[12px] uppercase tracking-wide text-purple-400/80">
               {s.pluginName}
             </span>
           )}
           {count > 0 && (
-            <span className="ml-auto flex-shrink-0 rounded bg-blue-500/15 px-1 py-0.5 font-mono text-[9px] font-semibold text-blue-300/90">
+            <span className="ml-auto flex-shrink-0 rounded bg-blue-500/15 px-1 py-0.5 font-mono text-[12px] font-semibold text-blue-300/90">
               {count}×
             </span>
           )}
@@ -304,12 +306,12 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
         </div>
         {confirming ? (
           <div className="mt-1 flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-            <span className="truncate text-[10px] text-red-300/90">{t('ide.sidebar.deleteSkillConfirm')}</span>
+            <span className="truncate text-[12px] text-red-300/90">{t('ide.sidebar.deleteSkillConfirm')}</span>
             <button
               type="button"
               draggable={false}
               onClick={(e) => { e.stopPropagation(); handleDelete(s); }}
-              className="ml-auto flex-shrink-0 rounded bg-red-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-red-300 transition-colors hover:bg-red-500/30"
+              className="ml-auto flex-shrink-0 rounded bg-red-500/20 px-1.5 py-0.5 text-[12px] font-semibold text-red-300 transition-colors hover:bg-red-500/30"
             >
               {t('ide.sidebar.deleteSkillYes')}
             </button>
@@ -317,14 +319,14 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
               type="button"
               draggable={false}
               onClick={(e) => { e.stopPropagation(); setConfirmDelete(null); }}
-              className="flex-shrink-0 rounded bg-gray-600/40 px-1.5 py-0.5 text-[10px] font-medium text-gray-300 transition-colors hover:bg-gray-600/60"
+              className="flex-shrink-0 rounded bg-gray-600/40 px-1.5 py-0.5 text-[12px] font-medium text-gray-300 transition-colors hover:bg-gray-600/60"
             >
               {t('ide.sidebar.deleteSkillNo')}
             </button>
           </div>
         ) : (
           s.description && (
-            <p className="mt-0.5 line-clamp-2 text-[10px] leading-tight text-gray-500">
+            <p className="mt-0.5 line-clamp-2 text-[12px] leading-tight text-gray-500">
               {s.description}
             </p>
           )
@@ -349,7 +351,7 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-1 p-2">
       <div className="flex items-center gap-1 px-1">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+        <span className="text-[12px] font-semibold uppercase tracking-wider text-gray-500">
           {t('ide.sidebar.skills', { count: skills.length })}
         </span>
         <button
@@ -374,7 +376,7 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
           <div className="flex flex-col gap-2">
             {favoriteSkills.length > 0 && (
               <div className="flex flex-col gap-1">
-                <span className="px-1 text-[9px] font-medium uppercase tracking-wider text-amber-400/70">
+                <span className="px-1 text-[12px] font-medium uppercase tracking-wider text-amber-400/70">
                   {t('ide.sidebar.favoriteSkills', { count: favoriteSkills.length })}
                 </span>
                 <ul className="flex flex-col gap-0.5">{favoriteSkills.map((s) => renderSkill(s, favoriteNames, true))}</ul>
@@ -382,7 +384,7 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
             )}
             {projectSkills.length > 0 && (
               <div className="flex flex-col gap-1">
-                <span className="px-1 text-[9px] font-medium uppercase tracking-wider text-emerald-400/60">
+                <span className="px-1 text-[12px] font-medium uppercase tracking-wider text-emerald-400/60">
                   {t('ide.sidebar.projectSkills', { count: projectSkills.length })}
                 </span>
                 <ul className="flex flex-col gap-0.5">{projectSkills.map((s) => renderSkill(s, projectNames))}</ul>
@@ -390,7 +392,7 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
             )}
             {globalSkills.length > 0 && (
               <div className="flex flex-col gap-1">
-                <span className="px-1 text-[9px] font-medium uppercase tracking-wider text-sky-400/60">
+                <span className="px-1 text-[12px] font-medium uppercase tracking-wider text-sky-400/60">
                   {t('ide.sidebar.globalSkills', { count: globalSkills.length })}
                 </span>
                 <ul className="flex flex-col gap-0.5">{globalSkills.map((s) => renderSkill(s, globalNames))}</ul>
@@ -398,7 +400,7 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
             )}
             {pluginSkills.length > 0 && (
               <div className="flex flex-col gap-1">
-                <span className="px-1 text-[9px] font-medium uppercase tracking-wider text-purple-400/60">
+                <span className="px-1 text-[12px] font-medium uppercase tracking-wider text-purple-400/60">
                   {t('ide.sidebar.pluginSkills', { count: pluginSkills.length })}
                 </span>
                 <ul className="flex flex-col gap-0.5">{pluginSkills.map((s) => renderSkill(s, pluginNames))}</ul>
@@ -465,8 +467,8 @@ function GoalView({ agentId }: { agentId: string }): React.JSX.Element {
   if (!activeSessionId) {
     return (
       <div className="flex flex-col gap-1 p-2">
-        <span className="px-1 text-[10px] font-semibold uppercase tracking-wider text-gray-500">{t('ide.goal.title')}</span>
-        <p className="px-1 py-2 text-[11px] leading-relaxed text-gray-500">{t('ide.goal.pickSession')}</p>
+        <span className="px-1 text-[12px] font-semibold uppercase tracking-wider text-gray-500">{t('ide.goal.title')}</span>
+        <p className="px-1 py-2 text-[12px] leading-relaxed text-gray-500">{t('ide.goal.pickSession')}</p>
       </div>
     );
   }
@@ -477,8 +479,8 @@ function GoalView({ agentId }: { agentId: string }): React.JSX.Element {
   if (!goal) {
     return (
       <div className="flex flex-col gap-2 p-2">
-        <span className="px-1 text-[10px] font-semibold uppercase tracking-wider text-gray-500">{t('ide.goal.title')}</span>
-        <p className="px-1 text-[11px] leading-relaxed text-gray-500">{t('ide.goal.waiting')}</p>
+        <span className="px-1 text-[12px] font-semibold uppercase tracking-wider text-gray-500">{t('ide.goal.title')}</span>
+        <p className="px-1 text-[12px] leading-relaxed text-gray-500">{t('ide.goal.waiting')}</p>
         {editing ? (
           <>
             <textarea
@@ -487,21 +489,21 @@ function GoalView({ agentId }: { agentId: string }): React.JSX.Element {
               onChange={(e) => setDraft(e.target.value)}
               rows={3}
               placeholder={t('ide.goal.textPlaceholder')}
-              className="scrollbar-thin w-full resize-none rounded border border-gray-700 bg-gray-900 px-2 py-1.5 text-[11.5px] leading-relaxed text-gray-100 placeholder-gray-600 outline-none focus:border-emerald-500/60"
+              className="scrollbar-thin w-full resize-none rounded border border-gray-700 bg-gray-900 px-2 py-1.5 text-[12px] leading-relaxed text-gray-100 placeholder-gray-600 outline-none focus:border-emerald-500/60"
             />
             <div className="flex items-center gap-1.5">
               <button
                 type="button"
                 onClick={saveText}
                 disabled={!draft.trim()}
-                className="rounded bg-emerald-600 px-2 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
+                className="rounded bg-emerald-600 px-2 py-1 text-[12px] font-semibold text-white transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {t('ide.goal.create')}
               </button>
               <button
                 type="button"
                 onClick={() => setEditing(false)}
-                className="rounded border border-gray-600 px-2 py-1 text-[11px] text-gray-300 transition-colors hover:bg-gray-800"
+                className="rounded border border-gray-600 px-2 py-1 text-[12px] text-gray-300 transition-colors hover:bg-gray-800"
               >
                 {t('ide.goal.cancel')}
               </button>
@@ -511,7 +513,7 @@ function GoalView({ agentId }: { agentId: string }): React.JSX.Element {
           <button
             type="button"
             onClick={() => { setDraft(''); setEditing(true); }}
-            className="self-start rounded border border-gray-700 px-2 py-1 text-[10.5px] text-gray-400 transition-colors hover:border-emerald-500/40 hover:text-gray-200"
+            className="self-start rounded border border-gray-700 px-2 py-1 text-[12px] text-gray-400 transition-colors hover:border-emerald-500/40 hover:text-gray-200"
           >
             {t('ide.goal.setManually')}
           </button>
@@ -524,33 +526,33 @@ function GoalView({ agentId }: { agentId: string }): React.JSX.Element {
   if (editing) {
     return (
       <div className="flex flex-col gap-1.5 p-2">
-        <span className="px-1 text-[10px] font-semibold uppercase tracking-wider text-gray-500">{t('ide.goal.title')}</span>
+        <span className="px-1 text-[12px] font-semibold uppercase tracking-wider text-gray-500">{t('ide.goal.title')}</span>
         <textarea
           autoFocus
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           rows={3}
           placeholder={t('ide.goal.textPlaceholder')}
-          className="scrollbar-thin w-full resize-none rounded border border-gray-700 bg-gray-900 px-2 py-1.5 text-[11.5px] leading-relaxed text-gray-100 placeholder-gray-600 outline-none focus:border-emerald-500/60"
+          className="scrollbar-thin w-full resize-none rounded border border-gray-700 bg-gray-900 px-2 py-1.5 text-[12px] leading-relaxed text-gray-100 placeholder-gray-600 outline-none focus:border-emerald-500/60"
         />
         <div className="flex items-center gap-1.5">
           <button
             type="button"
             onClick={saveText}
             disabled={!draft.trim()}
-            className="rounded bg-emerald-600 px-2 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded bg-emerald-600 px-2 py-1 text-[12px] font-semibold text-white transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {t('ide.goal.update')}
           </button>
           <button
             type="button"
             onClick={() => setEditing(false)}
-            className="rounded border border-gray-600 px-2 py-1 text-[11px] text-gray-300 transition-colors hover:bg-gray-800"
+            className="rounded border border-gray-600 px-2 py-1 text-[12px] text-gray-300 transition-colors hover:bg-gray-800"
           >
             {t('ide.goal.cancel')}
           </button>
         </div>
-        <p className="px-1 text-[10px] leading-relaxed text-gray-500">{t('ide.goal.textHint')}</p>
+        <p className="px-1 text-[12px] leading-relaxed text-gray-500">{t('ide.goal.textHint')}</p>
       </div>
     );
   }
@@ -560,7 +562,7 @@ function GoalView({ agentId }: { agentId: string }): React.JSX.Element {
   return (
     <div className="flex min-h-0 flex-col">
       <div className="flex flex-shrink-0 items-center justify-between gap-2 px-3 pt-2">
-        <span className="min-w-0 truncate text-[10px] font-semibold uppercase tracking-wider text-gray-500">{t('ide.goal.title')}</span>
+        <span className="min-w-0 truncate text-[12px] font-semibold uppercase tracking-wider text-gray-500">{t('ide.goal.title')}</span>
         <span className={`flex-shrink-0 text-[13px] font-bold tabular-nums ${isActive ? 'text-emerald-300' : 'text-gray-400'}`}>
           {goal.percent}%
         </span>
@@ -575,7 +577,7 @@ function GoalView({ agentId }: { agentId: string }): React.JSX.Element {
             type="button"
             onClick={() => { setDraft(goal.text); setEditing(true); }}
             title={t('ide.goal.editHint')}
-            className="w-full min-w-0 overflow-hidden whitespace-pre-wrap break-words rounded border border-gray-700/70 bg-gray-900/60 px-2 py-1.5 text-left text-[11.5px] leading-relaxed text-gray-200 transition-colors hover:border-emerald-500/40 hover:bg-gray-800/60"
+            className="w-full min-w-0 overflow-hidden whitespace-pre-wrap break-words rounded border border-gray-700/70 bg-gray-900/60 px-2 py-1.5 text-left text-[12px] leading-relaxed text-gray-200 transition-colors hover:border-emerald-500/40 hover:bg-gray-800/60"
           >
             {goal.text}
           </button>
@@ -587,12 +589,12 @@ function GoalView({ agentId }: { agentId: string }): React.JSX.Element {
               style={{ width: `${goal.percent}%` }}
             />
           </div>
-          <div className="flex items-center justify-between gap-1.5 px-0.5 text-[10px] text-gray-500">
+          <div className="flex items-center justify-between gap-1.5 px-0.5 text-[12px] text-gray-500">
             <span className="min-w-0 truncate">{steps.length > 0 ? t('ide.goal.stepCount', { done: doneCount, total: steps.length }) : t('ide.goal.noSteps')}</span>
             <span className={`flex-shrink-0 ${isActive ? 'text-emerald-400/80' : 'text-gray-500'}`}>{t(`ide.goal.status.${goal.status}`)}</span>
           </div>
           {/* 이 목표를 누가 썼는지 — 세션이 쓴 것이면 다음 명령에 자동으로 갈아탄다는 뜻이다. */}
-          <span className="px-0.5 text-[9.5px] text-gray-600">
+          <span className="px-0.5 text-[12px] text-gray-600">
             {goal.authoredBy === 'user' ? t('ide.goal.byUser') : t('ide.goal.bySession')}
           </span>
 
@@ -622,7 +624,7 @@ function GoalView({ agentId }: { agentId: string }): React.JSX.Element {
                       <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />
                     ) : null}
                   </button>
-                  <span className={`min-w-0 flex-1 break-words text-[11px] leading-snug ${
+                  <span className={`min-w-0 flex-1 break-words text-[12px] leading-snug ${
                     s.status === 'done' ? 'text-gray-500 line-through' : s.status === 'in_progress' ? 'text-amber-200' : 'text-gray-300'
                   }`}>
                     {s.text}
@@ -650,12 +652,12 @@ function GoalView({ agentId }: { agentId: string }): React.JSX.Element {
             onChange={(e) => setNewStep(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addStep(); } }}
             placeholder={t('ide.goal.addStepPlaceholder')}
-            className="w-full rounded border border-gray-700/70 bg-gray-900 px-2 py-1 text-[11px] text-gray-100 placeholder-gray-600 outline-none focus:border-emerald-500/60"
+            className="w-full rounded border border-gray-700/70 bg-gray-900 px-2 py-1 text-[12px] text-gray-100 placeholder-gray-600 outline-none focus:border-emerald-500/60"
           />
 
           {/* 마지막 진행 메모 — 지금 어디쯤인지 한 줄. */}
           {goal.note && (
-            <p className="break-words px-1 text-[10.5px] leading-relaxed text-gray-400">{goal.note}</p>
+            <p className="break-words px-1 text-[12px] leading-relaxed text-gray-400">{goal.note}</p>
           )}
 
           {/* 진행 기록 — 기본 접힘(좁은 폭을 먹지 않게). */}
@@ -664,7 +666,7 @@ function GoalView({ agentId }: { agentId: string }): React.JSX.Element {
               <button
                 type="button"
                 onClick={() => setHistoryOpen((v) => !v)}
-                className="flex items-center gap-1 px-1 text-[10px] font-semibold uppercase tracking-wider text-gray-500 transition-colors hover:text-gray-300"
+                className="flex items-center gap-1 px-1 text-[12px] font-semibold uppercase tracking-wider text-gray-500 transition-colors hover:text-gray-300"
               >
                 <svg className={`h-3 w-3 transition-transform ${historyOpen ? 'rotate-90' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
                   <path d="M9 18l6-6-6-6" />
@@ -674,7 +676,7 @@ function GoalView({ agentId }: { agentId: string }): React.JSX.Element {
               {historyOpen && (
                 <ul className="flex flex-col gap-0.5">
                   {[...goal.history].reverse().slice(0, 20).map((h, i) => (
-                    <li key={`${h.at}-${i}`} className="flex items-start gap-1.5 px-1 text-[10px]">
+                    <li key={`${h.at}-${i}`} className="flex items-start gap-1.5 px-1 text-[12px]">
                       <span className="w-7 flex-shrink-0 text-right font-bold tabular-nums text-emerald-400/80">{h.percent}%</span>
                       <span className="min-w-0 flex-1 break-words text-gray-400">{h.note ?? t(`ide.goal.source.${h.source}`)}</span>
                       <span className="flex-shrink-0 tabular-nums text-gray-600">{formatTime(h.at)}</span>
@@ -691,7 +693,7 @@ function GoalView({ agentId }: { agentId: string }): React.JSX.Element {
               <button
                 type="button"
                 onClick={() => { void saveSessionGoal({ agentId, subAgentId: activeSessionId, text: goal.text, status: 'achieved' }); }}
-                className="rounded border border-emerald-500/40 px-2 py-1 text-[10.5px] font-semibold text-emerald-300 transition-colors hover:bg-emerald-500/10"
+                className="rounded border border-emerald-500/40 px-2 py-1 text-[12px] font-semibold text-emerald-300 transition-colors hover:bg-emerald-500/10"
               >
                 {t('ide.goal.achieve')}
               </button>
@@ -699,7 +701,7 @@ function GoalView({ agentId }: { agentId: string }): React.JSX.Element {
               <button
                 type="button"
                 onClick={() => { void saveSessionGoal({ agentId, subAgentId: activeSessionId, text: goal.text, status: 'active' }); }}
-                className="rounded border border-gray-600 px-2 py-1 text-[10.5px] font-semibold text-gray-300 transition-colors hover:bg-gray-800"
+                className="rounded border border-gray-600 px-2 py-1 text-[12px] font-semibold text-gray-300 transition-colors hover:bg-gray-800"
               >
                 {t('ide.goal.resume')}
               </button>
@@ -707,7 +709,7 @@ function GoalView({ agentId }: { agentId: string }): React.JSX.Element {
             <button
               type="button"
               onClick={() => { void endSessionGoal(agentId, activeSessionId); }}
-              className="ml-auto rounded border border-red-500/40 px-2 py-1 text-[10.5px] font-semibold text-red-300 transition-colors hover:bg-red-500/10"
+              className="ml-auto rounded border border-red-500/40 px-2 py-1 text-[12px] font-semibold text-red-300 transition-colors hover:bg-red-500/10"
             >
               {t('ide.goal.delete')}
             </button>
@@ -723,6 +725,11 @@ function GoalView({ agentId }: { agentId: string }): React.JSX.Element {
 const VIEW_MAP: Record<IDEViewType, React.FC<{ agentId: string }>> = {
   // §5.5 #17-31 — 활동바 첫 항목: 이 프로젝트에서 쓸 수 있는 MCP(글로벌·프로젝트·로컬·프리셋).
   mcp: IDEMcpView,
+  // §5.5 #17-32 — 이 세션에 적용되는 Claude Code 훅(글로벌·이 프로젝트·로컬·정책) + 발동 표시.
+  hooks: IDEHooksView,
+  // §5.5 #17-33 — Claude Code 자신의 플러그인(글로벌·이 프로젝트·다른 프로젝트) + 마켓플레이스.
+  //   §5.11 의 우리 관측 플러그인과는 다른 물건이다.
+  plugins: IDEPluginsView,
   // §5.5 #17-19 v4.71 — 이름 목록 → VS Code 톤 워크스페이스 탐색기(경로가 보이는 트리).
   files: IDEExplorerView,
   // §5.5 #17-28 v4.96 — 종전 `events`(훅 이벤트 목록) 자리를 컨텍스트 주입원 통제가 잇는다.

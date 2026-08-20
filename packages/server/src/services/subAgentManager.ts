@@ -12,11 +12,12 @@ import {
   type TurnSealState, type LiveTaskInfo,
 } from './turnSeal.js';
 import { logger } from '../logger.js';
+import { runLocalTurn, stopLocalTurn, type LocalTurnArgs } from './localRunner.js';
 import { rescueSubagentResult } from './subagentResultRescue.js';
 import { modelRegistryService } from './modelRegistryService.js';
 import { readLastAssistantMessage, readSessionTokenData, getSessionJsonlPath } from './sessionDiscovery.js';
 import * as streamBufferStore from './streamBufferStore.js';
-import { getClaudeBin } from './claudeBin.js';
+import { getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
 // §5.5 #17-2 — 턴 프롬프트 조립(슬래시 명령은 앞말 없이 원문 그대로). 순수 모듈 + 단위 테스트.
 import { composeTurnPrompt, isSlashCommandText } from './turnPrompt.js';
 import { isAgentViewEnabled, spawnBackground, stopSession, rmSession } from './claudeAgentViewService.js';
@@ -723,6 +724,20 @@ function oldestOf(
   return best;
 }
 
+/** `oldestOf` 의 열쇠판 — 항목을 **내리려면** 값이 아니라 열쇠가 필요하다(§5.5 #17-9 ⑪). */
+function oldestKeyOf(
+  m: Map<string, PendingSubagentEntry>,
+  match: (e: PendingSubagentEntry) => boolean,
+): string | undefined {
+  let bestKey: string | undefined;
+  let bestTs = Infinity;
+  for (const [k, e] of m) {
+    if (!match(e)) continue;
+    if (e.ts < bestTs) { bestTs = e.ts; bestKey = k; }
+  }
+  return bestKey;
+}
+
 export class SubAgentManager {
   /** agentId → SubAgent[] */
   private registry = new Map<string, SubAgent[]>();
@@ -1039,15 +1054,64 @@ export class SubAgentManager {
    * 백단 작업이 늘거나 줄어도 화면이 꿈쩍하지 않는다(= 끝난 것처럼 보인다).
    */
   noteStreamTaskChip(subAgentId: string, subtype: string, task: StreamTaskInfo | null): void {
+    const state = this.getTurnSealState(subAgentId);
+    // 끝 칩은 `task_id` 만 들고 온다(종류·이름은 시작 칩에만 있다) — 지워지기 전에 읽어 둔다.
+    const ending = subtype === TASK_CHIP_END_SUBTYPE && task?.id ? state.liveTasks.get(task.id) : undefined;
     const changed = noteTaskChip(
-      this.getTurnSealState(subAgentId), subtype, task, Date.now(),
+      state, subtype, task, Date.now(),
       this.currentTurnId.get(subAgentId),
     );
     if (!changed) return;
     const sub = this.index.get(subAgentId);
     if (!sub) return;
+    // §5.5 #17-9 ⑪ — Task/Agent 자식의 **끝 통지**를 훅 대차대조에도 내려 준다.
+    //   배경 스폰(`run_in_background`)은 `PostToolUse` 가 접수증이라 ⑧ 이 내리지 않으므로 내리는
+    //   길이 `SubagentStop` 하나뿐인데, 그 신호가 유실되거나 `parent_tool_use_id` 가 우리 열쇠와
+    //   어긋나면 항목이 **영영** 남았다(세션이 살아 있으면 `sweepOrphanedBackgroundTasks` 도
+    //   손대지 않고, 소유 탭을 아는 항목이라 절대 상한도 비껴간다). 그래서 사용자 화면에는 이미
+    //   끝난 자식이 몇 시간째 "실행 중"으로 붙어 있었다(사용자 보고).
+    //   끝 통지는 **추정이 아니라 사실**이라(§ turnSeal.ts 머리말의 두 근거 중 ①) 이 자리에서
+    //   내리는 것은 "조용하니 죽었겠지"와 전혀 다르다.
+    if (ending?.subagentType) {
+      this.dropPendingBySubagentEndChip(sub.parentAgentId, subAgentId, ending, task?.summary);
+    }
     this.syncBgSubStatus(sub.parentAgentId);
     this.onSubStatusChange?.(sub.parentAgentId);
+  }
+
+  /**
+   * §5.5 #17-9 ⑪ — 스트림 끝 통지로 훅 대차대조 항목 하나를 내린다.
+   *
+   * 두 장부는 열쇠가 다르다 — 훅 항목은 부모의 `tool_use_id`, 스트림 칩은 CLI 가 발급한 `task_id`.
+   * 그래서 **그 자식이 무엇이었는지**로 짝을 찾는다: 같은 탭(`subId`)이 띄운, 같은 `subagent_type`
+   * 항목 중 이름(`description`)이 같은 것 → 없으면 최고령. 범위를 탭+종류로 좁히므로 다른 종류의
+   * 자식을 대신 내리는 일은 없고, 같은 종류가 여럿이면 어차피 모두 이 통지를 한 번씩 받는다.
+   *
+   * 아무것도 못 찾으면 조용히 지나간다 — `SubagentStop` 이 이미 제때 내렸다는 뜻이다(정상 경로).
+   */
+  private dropPendingBySubagentEndChip(
+    parentAgentId: string,
+    subId: string,
+    ending: LiveTaskInfo,
+    summary?: string,
+  ): void {
+    const m = this.pendingSubagentTasks.get(parentAgentId);
+    if (!m || m.size === 0) return;
+    const sameKind = (e: PendingSubagentEntry): boolean =>
+      e.subId === subId && e.subagentType === ending.subagentType;
+    let key = ending.description
+      ? oldestKeyOf(m, (e) => sameKind(e) && e.description === ending.description)
+      : undefined;
+    key ??= oldestKeyOf(m, sameKind);
+    if (key === undefined) return;
+    const e = m.get(key)!;
+    m.delete(key);
+    this.archiveSubagentTask(parentAgentId, key, e, summary);
+    logger.info(`[bg-subagent] stop via stream end-chip parent=${parentAgentId} key=${key} sub=${subId} type=${ending.subagentType ?? '-'} pending=${m.size} (SubagentStop 미도달 — 끝 통지로 회수)`);
+    if (m.size === 0) {
+      this.pendingSubagentTasks.delete(parentAgentId);
+      this.pendingSubagentLastSignal.delete(parentAgentId);
+    }
   }
 
   /** 이 sub 의 턴 봉인 대차대조(없으면 만든다). */
@@ -1496,7 +1560,7 @@ export class SubAgentManager {
       } catch { /* stdin 실패는 close 에서 처리 */ }
 
       child.stdout?.on('data', (chunk: Buffer) => { stdout += chunk.toString('utf8'); });
-      child.on('error', (err) => done({ ok: false, error: err.message }));
+      child.on('error', (err) => { noteClaudeSpawnFailure(err); done({ ok: false, error: err.message }); });
       child.on('close', () => {
         // `--output-format json` = 마지막에 result 객체 1개. 여러 줄일 수 있어 result 타입만 추출.
         let text = '';
@@ -2295,10 +2359,14 @@ export class SubAgentManager {
     subCounter = Math.max(subCounter, counter);
     for (const [agentId, subs] of Object.entries(data)) {
       if (this.registry.has(agentId)) continue;
-      const items = subs.map((s) => ({
-        ...s,
-        status: (s.status === 'active' ? 'idle' : s.status) as SubAgent['status'],
-      }));
+      const items = subs.map((s) => {
+        const item = { ...s, status: (s.status === 'active' ? 'idle' : s.status) as SubAgent['status'] };
+        // §2.4 (잠듦) — 런타임 표식이다. 부팅 직후엔 회수해 둔 자식 자체가 없으므로 걷고 시작한다
+        //   (남겨 두면 프로세스가 없는 다른 세션들과 표시가 어긋난다).
+        delete item.dormant;
+        delete item.dormantSince;
+        return item;
+      });
       this.registry.set(agentId, items);
       const dir = project ? streamBufferStore.subStreamsDir(project, agentId) : null;
       for (const s of items) {
@@ -2357,6 +2425,91 @@ export class SubAgentManager {
       logger.info(`SubAgent ${sub.id} was 'active' with no live process — reconciled to idle`);
     }
     return demoted;
+  }
+
+  /**
+   * §2.4 (잠듦) — **유휴가 길어진 세션의 claude 자식 프로세스를 회수한다.**
+   *
+   * persistent-child 모델(§5.3)은 다음 턴의 부팅 비용을 없애려고 자식을 살려 두는데, 그 "다음 턴"이
+   * 영영 오지 않는 세션도 앱을 켜 둔 내내 자리를 차지했다(실측: 세션 11개 약 5.5GB, CPU 전부 0%).
+   * 유휴가 길어지면 프롬프트 캐시가 이미 만료돼(서브에이전트는 구독에서도 5분 TTL) 살려 둬서 아끼는
+   * 것은 부팅·JSONL 재로드·MCP 재연결(수 초)뿐이고, 그 대가가 세션당 500MB 안팎이다.
+   *
+   * **사용자가 잃는 것은 없다** — 대화는 디스크 JSONL 에 있고 `sub.sessionId` 를 그대로 두므로, 다음
+   * 명령이 기존 크래시 복구 경로와 **같은** `--resume` fresh spawn 으로 이어 간다(새 복귀 경로 ❌).
+   * 종료는 반드시 **의도된 것으로 마킹**한다(`intentionalKill`) — 안 하면 close 핸들러가 크래시로 읽어
+   * 멀쩡히 끝난 세션을 `error` 로 물들인다.
+   *
+   * 제외는 `reconcileDeadActiveSubs` 와 **같은 사실 목록**에 백그라운드 한 항목을 더한 것이다. 그
+   * 마지막 항목이 핵심인데, `--resume` 은 대화는 되살려도 **백그라운드 Bash·Monitor 작업은 복원하지
+   * 않는다**(공식 문서 "Background Bash and monitor tasks aren't"). 그것을 무시하고 회수한 Claude
+   * Desktop 은 "작업이 조용히 죽는데 화면엔 running 으로 남는" 버그를 안았다(claude-code#68625) —
+   * 그 자리를 처음부터 피한다.
+   *
+   * @param thresholdMs 마지막 활동으로부터 이만큼 지나면 회수(`SUBAGENT_DORMANT_IDLE_MS`).
+   * @param hasPendingWork 이 sub 가 곧 쓸 자식인가 — 대기 중인 명령이나 켜져 있는 반복 명령(루프).
+   *                       매니저는 큐도 루프도 모르므로(§3.4 의존성 방향) 호출자가 주입한다.
+   * @returns 재운 sub.id 목록(호출자 broadcast 판단용).
+   */
+  sweepDormantIdleSubs(thresholdMs: number, hasPendingWork?: (subId: string) => boolean): string[] {
+    const now = Date.now();
+    const slept: string[] = [];
+    for (const sub of this.index.values()) {
+      if (sub.dormant) continue;
+      const child = this.runningChildren.get(sub.id);
+      if (!child) continue; // 회수할 프로세스가 애초에 없다
+      // 이 자식이 **다음 턴을 기다리며 놀고 있는** persistent child 인가. ready=false 는 스폰 중이거나
+      //   한 턴을 처리하는 중이라는 뜻이라 건드리지 않는다(legacy 자식도 여기서 걸러진다).
+      if (this.persistentChildReady.get(sub.id) !== true) continue;
+      // 이미 창구가 닫힌 자식은 남의 종료 경로가 처리 중이다(§5.5 #17-18).
+      if (!isChildStdinWritable(child)) continue;
+
+      // ── reconcileDeadActiveSubs 와 같은 제외 셋 ──
+      if (this.cmdDrivenSubs.has(sub.id)) continue;
+      if (this.dispatchingSubs.has(sub.id)) continue;
+      if (this.deferredSeals.has(sub.id)) continue;
+      if (this.isSubProcessingCommand(sub.id)) continue;
+      if (this.persistentInFlightCmd.has(sub.id)) continue;
+      if (this.runningAgentViewWatchers.has(sub.id)) continue;
+
+      // ── 백그라운드가 살아 있으면 재우지 않는다(이 회수가 유일하게 되살리지 못하는 것) ──
+      if (this.bgPromotedSubs.has(sub.id)) continue;
+      const seal = this.turnSealStates.get(sub.id);
+      if (seal && listDisplayableLiveTasks(seal).length > 0) continue;
+      // 훅이 소유 세션을 못 푼 자식(`subId` 미상)은 **누구의 것인지 모른다**(§5.5 #17-9 ③(c) —
+      //   session_id/termId 로 탭을 못 풀고 처리 중인 탭도 하나가 아니면 미상으로 남는 실재 경로).
+      //   그럴 땐 이 부모의 **어느 세션도** 재우지 않는다 — 모르는 채 재우면 그 자식을 띄운 세션의
+      //   프로세스를 뺏어 백단에서 돌던 서브에이전트가 통지도 없이 죽는다.
+      const pending = this.pendingSubagentTasks.get(sub.parentAgentId);
+      if (pending && [...pending.values()].some((e) => e.subId === undefined || e.subId === sub.id)) continue;
+
+      // 아직 나가지 않은 명령이나 켜져 있는 루프가 있으면 곧 쓸 자식이다.
+      if (hasPendingWork?.(sub.id)) continue;
+
+      if (now - sub.lastActivityAt <= thresholdMs) continue;
+
+      this.intentionalKill.add(sub.id);
+      sub.dormant = true;
+      sub.dormantSince = now;
+      // stdin.end() → SIGTERM → grace 후 트리 강제 종료(손자 MCP/worker 고아 방지).
+      terminateChildTree(child);
+      slept.push(sub.id);
+      logger.info(
+        `SubAgent ${sub.id} idle ${Math.round((now - sub.lastActivityAt) / 1000)}s — persistent child reclaimed (dormant; next turn resumes via --resume)`,
+      );
+    }
+    return slept;
+  }
+
+  /**
+   * §2.4 (잠듦) — 이 세션이 다시 쓰이면 표식을 걷는다. dispatch 시점과 스폰 시점 **양쪽**에서 부른다:
+   * dispatch 에서 걷어야 사용자가 명령을 넣는 즉시 화면의 '잠듦'이 사라지고, 스폰에서도 걷어야
+   * dispatch 를 거치지 않는 경로(재개·되태우기)가 표식을 남기지 않는다.
+   */
+  private wakeSub(sub: SubAgent): void {
+    if (sub.dormant === undefined && sub.dormantSince === undefined) return;
+    delete sub.dormant;
+    delete sub.dormantSince;
   }
 
   /**
@@ -2644,6 +2797,14 @@ export class SubAgentManager {
     //   "아직 N개 도는 중"이 뜨고 버블이 완료로 못 간다.
     this.clearLiveBackgroundTasks(subAgentId);
 
+    // §5.19 — 로컬 LLM 세션에는 자식이 없다. 생성만 끊고 러너가 onDone 으로 마감하게 둔다
+    //   (모델은 내리지 않는다 — 다음 턴에 그대로 다시 쓴다).
+    if (stopLocalTurn(subAgentId)) {
+      this.stoppedByUser.add(subAgentId);
+      logger.info(`SubAgent stop requested by user (local): ${subAgentId}`);
+      return true;
+    }
+
     // §5.7 #23-2 v1.60 — agent-view 경로: supervisor 에 stop 요청. finishTerminal 에서 후처리.
     const av = this.runningAgentViewWatchers.get(subAgentId);
     if (av) {
@@ -2685,6 +2846,12 @@ export class SubAgentManager {
     for (const sub of this.registry.get(parentAgentId) ?? []) {
       // 스트림 칩 장부도 세션마다 비운다 — `stop()` 과 같은 이유(끊긴 자식은 끝 통지를 안 보낸다).
       this.clearLiveBackgroundTasks(sub.id);
+      // §5.19 — 로컬 LLM 세션(자식 없음)도 함께 끊는다.
+      if (stopLocalTurn(sub.id)) {
+        this.stoppedByUser.add(sub.id);
+        stopped.push(sub.id);
+        continue;
+      }
       // agent-view 경로: supervisor 에 stop 요청. finishTerminal 에서 후처리.
       const av = this.runningAgentViewWatchers.get(sub.id);
       if (av) {
@@ -2814,6 +2981,7 @@ export class SubAgentManager {
 
     sub.status = 'active';
     // 자식/워처가 등록되기 전까지는 "죽은 active" 로 오해받지 않게 표식을 든다(생존 대조 제외).
+    this.wakeSub(sub); // §2.4 (잠듦) — 명령이 들어온 순간 표식을 걷는다
     this.dispatchingSubs.add(sub.id);
     sub.lastCommand = cmd.text;
     sub.lastActivityAt = Date.now();
@@ -2827,6 +2995,13 @@ export class SubAgentManager {
     cmd.status = 'executing';
     // 이 턴의 도장 — 지금부터 이 세션이 뱉는 줄은 전부 이 명령의 것이다.
     this.currentTurnId.set(sub.id, cmd.id);
+
+    // §5.19 — All Model(로컬 LLM) 갈림. **이 한 곳**이 이 기능이 기존 실행 경로에 내는 유일한 자국이다.
+    //   `provider` 가 없으면 아래 claude 스폰 경로가 지금까지와 한 줄도 다르지 않게 흐른다.
+    if (agentConfig?.provider) {
+      this.executeLocalProvider(sub, cmd, agentConfig);
+      return;
+    }
     // §5.5 #17-18 ⑥ — 이 명령이 **실제로 나간** 시각. 화면은 큐에 넣은 시각(`timestamp`)이 아니라
     //   이 값으로 말풍선 자리를 고정해 "여기서 턴이 끊겼다"를 그린다(대기·합치기는 둘 사이가
     //   몇 분씩 벌어진다). 흡수된 덧말은 이 명령에 실려 나가므로 base 의 이 값 하나가 그 턴의 시작이다.
@@ -3208,8 +3383,14 @@ export class SubAgentManager {
 
     logger.info(`SubAgent ${sub.id} ${usePersistent ? 'persistent spawning' : 'legacy executing'}: "${cmd.text.slice(0, 50)}..."${configArgs.length > 0 ? ` [config: ${configArgs.join(' ')}]` : ''}`);
 
+    // §4 (실행본 자가 복구) — **무엇으로 띄우려 했는지**를 붙잡아 둔다. spawn 이 ENOENT 로 죽었을 때
+    //   재해석 결과와 이 값을 대조해야 "경로가 실제로 바뀌었으니 다시 태울 만하다"를 판정할 수 있다.
+    const triedBin = CLAUDE_BIN();
+    /** ENOENT 로 실행본이 사라져 이 명령을 되태우기로 한 경우 — 판단은 'error', 실행은 'close' 에서. */
+    let retryForMissingBin = false;
+
     try {
-      const child = spawn(CLAUDE_BIN(), args, {
+      const child = spawn(triedBin, args, {
         cwd: parentCwd,
         stdio: ['pipe', 'pipe', 'pipe'], // v1.33 — stdin 으로 prompt 주입하려 pipe.
         shell: false,
@@ -3228,6 +3409,7 @@ export class SubAgentManager {
         },
       });
       this.runningChildren.set(sub.id, child);
+      this.wakeSub(sub); // §2.4 (잠듦) — 자식이 다시 섰으니 표식 해제
       // §5.5 #17-18 — **stdin 오류는 예외가 아니라 이벤트로 온다.** `write-after-end` · `EPIPE` 는
       //   `write()` 를 감싼 try/catch 를 지나쳐 이 stream 의 `error` 로 올라오고, 듣는 사람이 없으면
       //   메인 프로세스 `uncaughtException` 이 되어 **그 순간 돌던 dispatch 체인을 끊는다**(사용자에게는
@@ -3345,6 +3527,19 @@ export class SubAgentManager {
 
       child.on('error', (err) => {
         logger.warn(`SubAgent ${sub!.id} spawn error: ${err.message}`);
+        // §4 (실행본 자가 복구) — ENOENT = 우리가 든 `claude` 가 그 사이 사라졌다(확장 자동 갱신이 옛
+        //   폴더를 통째로 지운다). 캐시를 버린 뒤 **재해석 결과가 방금 실패한 경로와 다를 때만** 되태운다
+        //   — 같으면 되태워도 같은 곳에서 죽으므로, 이 비교가 곧 무한 재시도 방지 퓨즈다.
+        //   실제 requeue 는 'close' 에서 한 번만 한다: ENOENT 는 'error' 다음에 'close'(code -4058) 가
+        //   이어 오므로, 여기서 큐에 돌려놓으면 뒤이은 'close' 가 그 명령을 다시 마감해 버린다.
+        if (noteClaudeSpawnFailure(err) && getClaudeBin().binPath !== triedBin) {
+          retryForMissingBin = true;
+          logger.warn(
+            `SubAgent ${sub!.id} claude binary vanished (${triedBin}) — requeueing cmd=${cmd.id}`
+            + ` for the re-resolved binary (${getClaudeBin().binPath})`,
+          );
+          return;
+        }
         sub!.status = 'error';
         sub!.lastActivityAt = Date.now();
         cmd.status = 'error';
@@ -3356,6 +3551,17 @@ export class SubAgentManager {
       });
 
       child.on('close', (code) => {
+        // §4 (실행본 자가 복구) — 실행본이 사라져 되태우기로 한 경우: 아래 정리·마감을 **전부 건너뛰고**
+        //   명령을 큐로 돌려놓는다. `onComplete` 가 부르는 다음 dispatch 가 재해석된 경로로 다시 띄운다.
+        //   (여기서 걸러 두면 이어지는 persistent/legacy 마감 분기가 이 명령을 실패로 못박지 않는다.)
+        if (retryForMissingBin) {
+          if (this.runningChildren.get(sub!.id) === child) this.runningChildren.delete(sub!.id);
+          this._requeueForDyingChild(sub!, cmd);
+          this.onSubStatusChange?.(sub!.parentAgentId);
+          this.onComplete?.();
+          return;
+        }
+
         // **이 자리가 백그라운드 작업의 실제 종료 시점이다.** 배경 Bash 셸은 이 프로세스의 자식이라
         //   프로세스가 사라지면 함께 사라진다(공식 규약: `claude -p` 는 최종 결과 뒤 약 5초에 그 셸을
         //   종료한다). 그러니 여기서 장부를 내리면 시간 추정도, 주기 대조가 우리를 따라잡기를 기다릴
@@ -3421,6 +3627,13 @@ export class SubAgentManager {
       });
     } catch (err) {
       logger.warn(`SubAgent ${sub!.id} spawn failed: ${err instanceof Error ? err.message : String(err)}`);
+      // §4 (실행본 자가 복구) — 동기 throw 경로. 자식이 없어 'close' 가 오지 않으므로 여기서 바로 되태운다.
+      if (noteClaudeSpawnFailure(err) && getClaudeBin().binPath !== triedBin) {
+        this._requeueForDyingChild(sub, cmd);
+        this.onSubStatusChange?.(sub.parentAgentId);
+        this.onComplete?.();
+        return;
+      }
       sub.status = 'error';
       sub.lastActivityAt = Date.now();
       cmd.status = 'error';
@@ -3539,6 +3752,90 @@ export class SubAgentManager {
    * @param initialCliError §5.5 #17-12 ③ — CLI 가 result 라인에서 `is_error` 로 신고한 실패 본문(있을 때).
    *                persistent 경로는 그 라인을 인라인 처리하므로 여기로 넘겨주고, legacy 경로는 stdout 에서 직접 줍는다.
    */
+  /**
+   * §5.19 (D) — 로컬 LLM 턴. `claude` 를 띄우지 않고 우리 러너가 직접 돈다.
+   *
+   * **화면은 하나도 새로 만들지 않는다** — `SubAgentStreamEvent` 일곱 종이 이미 프로바이더
+   * 중립이라, 여기서 그 이벤트만 뱉으면 말풍선·턴 봉인·바닥 추종·검색·카드 레일이 그대로
+   * 붙는다. 끝맺음도 기존 계약(`clearDispatching` → 상태 → `onSubStatusChange` → `onComplete`)
+   * 그대로라 명령 큐가 다음 명령으로 자연히 넘어간다.
+   *
+   * 자식 프로세스가 없는 경로라 `runningChildren` 에 등록하지 않는다. 대신 스폰 진행 표식을
+   * 즉시 걷어 "죽은 active" 대조가 이 세션을 오해하지 않게 한다.
+   */
+  private executeLocalProvider(sub: SubAgent, cmd: QueuedCommand, config: AgentConfig): void {
+    const provider = config.provider;
+    if (!provider) return;
+    this.clearDispatching(sub.id);
+
+    const emit = (eventType: StreamEventType, content: string): void => {
+      this.emitStreamEvent({
+        id: makeEventId(),
+        subAgentId: sub.id,
+        parentAgentId: sub.parentAgentId,
+        timestamp: Date.now(),
+        eventType,
+        content,
+      });
+    };
+
+    /** 이 턴을 끝맺는다. 성공·실패·중지가 전부 여기로 모인다. */
+    const finish = (error: string | undefined, finalText: string): void => {
+      this.cancelDeferredSeal(sub.id);
+      if (this.currentTurnId.get(sub.id) === cmd.id) this.currentTurnId.delete(sub.id);
+      const userStopped = this.stoppedByUser.delete(sub.id);
+      sub.lastActivityAt = Date.now();
+      if (error && !userStopped) {
+        sub.status = 'error';
+        cmd.status = 'error';
+        this.failCommand(sub, cmd, { code: 'local', detail: error });
+      } else {
+        sub.status = 'idle';
+        cmd.status = 'completed';
+        const text = userStopped ? `[Stopped by user]${finalText ? `\n\n${finalText}` : ''}` : finalText;
+        if (text) {
+          sub.lastResult = text;
+          cmd.result = text;
+        }
+      }
+      this.onSubStatusChange?.(sub.parentAgentId);
+      this.onComplete?.();
+    };
+
+    if (!provider.modelId) {
+      // 모델을 아직 안 고른 버블. 조용히 아무 일도 안 일어나는 대신 사유를 남긴다.
+      finish('no model selected', '');
+      return;
+    }
+
+    let finalText = '';
+    const args: LocalTurnArgs = {
+      subAgentId: sub.id,
+      prompt: cmd.text,
+      modelId: provider.modelId,
+      onEvent: (eventType, content) => {
+        if (eventType === 'result') finalText = content;
+        emit(eventType, content);
+      },
+      onDone: (error) => finish(error, finalText),
+    };
+    const rules = config.rules?.trim();
+    if (rules) args.systemPrompt = rules;
+    if (provider.contextSize && provider.contextSize > 0) args.contextSize = provider.contextSize;
+    if (typeof provider.temperature === 'number') args.temperature = provider.temperature;
+
+    logger.info(`SubAgent ${sub.id} local turn: model=${provider.modelId} "${cmd.text.slice(0, 50)}..."`);
+    runLocalTurn(args);
+  }
+
+  /**
+   * §5.19 (D) — 로컬 세션의 [중지]. 자식을 죽이는 대신 생성을 끊는다(모델은 다음 턴에 다시 쓴다).
+   * 로컬 세션이 아니면 false — 호출자가 기존 중지 경로로 넘어간다.
+   */
+  stopLocalSession(subAgentId: string): boolean {
+    return stopLocalTurn(subAgentId);
+  }
+
   private _finalizeLegacyCommand(
     sub: SubAgent,
     cmd: QueuedCommand,

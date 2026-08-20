@@ -89,6 +89,11 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   // §4 v2.63 — CMD(인터랙티브 터미널) 에이전트: 라벨/자동 세션 분기. customCreated 기반이라 isCustom 도 true.
   const executionMode = useGraphStore((s) => (agentId ? s.agentConfigs[agentId]?.executionMode : undefined));
   const isCmdAgent = isCustom && executionMode === 'interactive-terminal';
+  // §5.19 (G) — All Model(로컬 LLM) 버블: 정체가 다르면 창의 얼굴도 달라야 한다.
+  //   이 창은 클로드 CLI 의 것이 아니라 지금 문 로컬 모델의 것이다.
+  const localProvider = useGraphStore((s) => (agentId ? s.agentConfigs[agentId]?.provider : undefined));
+  const isLocalAgent = !!localProvider;
+  const openLocalModelWindow = useGraphStore((s) => s.openLocalModelWindow);
 
   const [maximized, setMaximized] = useState(false);
   const toggleMaximized = useCallback(() => setMaximized((v) => !v), []);
@@ -715,11 +720,28 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
                 {agent.label}
               </span>
             )}
-            <span className={`rounded px-1.5 py-0.5 text-[9px] font-semibold ${
-              isCmdAgent ? 'bg-teal-500/15 text-teal-300' : isCustom ? 'bg-blue-500/15 text-blue-400' : 'bg-gray-600/30 text-gray-500'
-            }`}>
-              {isCmdAgent ? t('ide.overlay.cmdLabel') : isCustom ? t('ide.overlay.customLabel') : t('ide.overlay.hookLabel')}
-            </span>
+            {isLocalAgent ? (
+              /* §5.19 (G) — 로컬 버블은 `커스텀` 이 아니라 **All Model + 지금 문 모델명**을 단다.
+                 눌러서 그 모델을 바꾼다(설치 창의 모델 목록으로 — 바꾸는 입구가 창 안에 있어야
+                 "이 창은 이 모델의 것"이라는 말이 끝까지 성립한다). */
+              <button
+                type="button"
+                onClick={() => openLocalModelWindow(agentId)}
+                className="app-nodrag flex items-center gap-1.5 rounded bg-slate-500/15 px-1.5 py-0.5 text-[12px] font-semibold text-slate-300 transition-colors hover:bg-slate-500/25"
+                title={t('ide.overlay.localSwitchModel', { defaultValue: '이 버블이 쓸 모델 바꾸기' })}
+              >
+                <span>{t('ide.overlay.localLabel', { defaultValue: 'All Model' })}</span>
+                {localProvider?.modelName && (
+                  <span className="max-w-[180px] truncate font-normal text-slate-400">{localProvider.modelName}</span>
+                )}
+              </button>
+            ) : (
+              <span className={`rounded px-1.5 py-0.5 text-[12px] font-semibold ${
+                isCmdAgent ? 'bg-teal-500/15 text-teal-300' : isCustom ? 'bg-blue-500/15 text-blue-400' : 'bg-gray-600/30 text-gray-500'
+              }`}>
+                {isCmdAgent ? t('ide.overlay.cmdLabel') : isCustom ? t('ide.overlay.customLabel') : t('ide.overlay.hookLabel')}
+              </span>
+            )}
           </div>
           <div className={`flex items-center gap-1 ${fullWindow ? 'app-nodrag' : ''}`}>
             {/* §4 v3.25 — 폰 전용 하단 상태바 토글(md:hidden). 기본 숨김인 IDEStatusBar 표시/숨김. */}

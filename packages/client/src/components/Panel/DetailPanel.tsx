@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { BubbleData, BashEntry, ServerEntry, AgentEvent, FileEdit, SubAgent, SessionTokenData, TurnTokenUsage, AgentConfig } from '@vibisual/shared';
 import { BUBBLE_COLORS, BUBBLE_STYLES, PANEL_DEFAULT_WIDTH, PANEL_MIN_WIDTH, PANEL_MAX_WIDTH, MAX_FILE_EDITS, TOKEN_SUBAGENT_FETCH_CONCURRENCY } from '@vibisual/shared';
 import { mapWithConcurrency } from '../../utils/tokenFanout.js';
-import { useGraphStore, selectIDEOverlay, selectActiveBrainSummary } from '../../stores/graphStore.js';
+import { useGraphStore, selectIDEOverlay, selectIDEDockVisible, selectActiveBrainSummary } from '../../stores/graphStore.js';
 import { useIsNarrowViewport } from '../../hooks/useIsMobile.js';
 import { ScrollFade } from '../ScrollFade.js';
 import { BashHistoryList } from './BashHistoryList.js';
@@ -87,7 +87,7 @@ function RateLimitBar({
   const barColor = usageBarToneClass(pct);
   return (
     <div className="flex flex-col gap-0.5">
-      <div className="flex items-center justify-between text-[10px]">
+      <div className="flex items-center justify-between text-[12px]">
         <span className="text-gray-400">{label}</span>
         <span className="font-mono text-gray-300">
           {pct.toFixed(0)}%
@@ -131,7 +131,9 @@ export function DetailPanel({
 
   // §5.5 #17-1 (v2.18) — IDE 가 우측 도킹된 상태면 DetailPanel 을 왼쪽으로.
   // selectIDEOverlay 는 activeProject 의 슬롯만 반환하므로 자동으로 현재 탭의 IDE 만 반영.
-  const ideDockedRight = useGraphStore((s) => selectIDEOverlay(s).dockedRight);
+  //   판정은 App 의 캔버스 축소와 **같은 산식**(selectIDEDockVisible) — 도킹 슬롯만 남고 IDE 가
+  //   안 그려지는 상태에서 패널만 좌측으로 넘어가 있으면 우측은 빈 칸인 채 자리만 어긋난다.
+  const ideDockedRight = useGraphStore(selectIDEDockVisible);
   const panelOnLeft = ideDockedRight;
   // §4 v3.16 — 폰(좁은 뷰포트)에선 사이드 패널이 캔버스를 짓누르지 않게 하단 바텀시트로 전환한다.
   const isNarrow = useIsNarrowViewport();
@@ -877,8 +879,8 @@ export function DetailPanel({
             <>
               {/* Session ID */}
               <div className="flex flex-col gap-0.5 -mt-2">
-                <span className="text-[10px] text-gray-500">{t('panel.detailPanel.sessionId')}</span>
-                <p className="truncate font-mono text-[10px] text-gray-400" title={node.path}>
+                <span className="text-[12px] text-gray-500">{t('panel.detailPanel.sessionId')}</span>
+                <p className="truncate font-mono text-[12px] text-gray-400" title={node.path}>
                   {node.path}
                 </p>
               </div>
@@ -936,8 +938,8 @@ export function DetailPanel({
                     {(agentConfig?.tools ?? ['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob']).map((tool) => {
                       const stripped = strictStripSet.has(tool);
                       const cls = stripped
-                        ? 'rounded bg-gray-700/30 px-1.5 py-0.5 text-[10px] text-gray-500 line-through'
-                        : 'rounded bg-blue-500/10 px-1.5 py-0.5 text-[10px] text-blue-400';
+                        ? 'rounded bg-gray-700/30 px-1.5 py-0.5 text-[12px] text-gray-500 line-through'
+                        : 'rounded bg-blue-500/10 px-1.5 py-0.5 text-[12px] text-blue-400';
                       return <span key={tool} className={cls}>{tool}</span>;
                     })}
                   </div>
@@ -1036,10 +1038,10 @@ export function DetailPanel({
           {isRoot && rateLimits && (
             <div className="flex flex-col gap-1.5 rounded-md border border-gray-700 bg-gray-800/40 px-2.5 py-2">
               <div className="flex items-center justify-between">
-                <span className="text-[10px] uppercase tracking-wide text-gray-500">
+                <span className="text-[12px] uppercase tracking-wide text-gray-500">
                   {t('panel.detailPanel.rateLimits')}
                 </span>
-                <span className="text-[9px] text-gray-600">
+                <span className="text-[12px] text-gray-600">
                   {formatRelativeTime(rateLimits.updatedAt, t)}
                 </span>
               </div>
@@ -1125,14 +1127,14 @@ export function DetailPanel({
               <div className="flex flex-col gap-1.5 rounded-md border border-gray-700 bg-gray-800/40 px-2.5 py-2">
                 {durations.length > 0 && (
                   <div className="flex flex-col gap-1">
-                    <span className="text-[10px] uppercase tracking-wide text-gray-500">
+                    <span className="text-[12px] uppercase tracking-wide text-gray-500">
                       {t('panel.detailPanel.lastTools')}
                     </span>
                     <div className="flex flex-wrap gap-1.5">
                       {durations.map((d) => (
                         <span
                           key={`${d.ts}-${d.tool}`}
-                          className="max-w-full break-all rounded bg-gray-700/60 px-1.5 py-0.5 text-[10px] font-mono text-gray-300"
+                          className="max-w-full break-all rounded bg-gray-700/60 px-1.5 py-0.5 text-[12px] font-mono text-gray-300"
                           title={new Date(d.ts).toLocaleTimeString()}
                         >
                           {d.tool} {formatDurationMs(d.durationMs)}
@@ -1143,7 +1145,7 @@ export function DetailPanel({
                 )}
                 {compact && (
                   <div className="flex items-center justify-between">
-                    <span className="text-[10px] uppercase tracking-wide text-gray-500">
+                    <span className="text-[12px] uppercase tracking-wide text-gray-500">
                       {t('panel.detailPanel.contextCompacted')}
                     </span>
                     <span className="text-xs font-medium text-gray-300">
@@ -1227,7 +1229,7 @@ export function DetailPanel({
           {node.bubbleType === 'file' && (
             <div className="flex flex-col gap-1.5">
               <label
-                className="flex cursor-pointer select-none items-center gap-1.5 text-[11px] text-gray-400"
+                className="flex cursor-pointer select-none items-center gap-1.5 text-[12px] text-gray-400"
                 title={t('panel.fileEdit.limitHint')}
               >
                 <input
@@ -1317,7 +1319,7 @@ function IframeServerLogsButton({ node, onOpen }: IframeServerLogsButtonProps): 
         </svg>
         {t('panel.iframeServerLog.openButton')}
       </button>
-      <p className="text-[10px] leading-snug text-gray-500">
+      <p className="text-[12px] leading-snug text-gray-500">
         {disabled
           ? t('panel.iframeServerLog.noPort')
           : t('panel.iframeServerLog.buttonHint')}

@@ -99,7 +99,7 @@ export const FeedbackButtons = memo(function FeedbackButtons({ agentId, subAgent
           <button
             type="button"
             onClick={() => { setReasonText(current.reason); setReasonOpen(true); }}
-            className="truncate text-[10.5px] text-rose-300/60 hover:text-rose-300"
+            className="truncate text-[12px] text-rose-300/60 hover:text-rose-300"
             title={t('ide.feedback.editReason')}
           >
             {current.reason || t('ide.feedback.addReason')}
@@ -118,12 +118,12 @@ export const FeedbackButtons = memo(function FeedbackButtons({ agentId, subAgent
             }}
             placeholder={t('ide.feedback.reasonPlaceholder')}
             autoFocus
-            className="min-w-0 flex-1 rounded border border-rose-500/30 bg-gray-900/60 px-2 py-1 text-[11.5px] text-gray-200 placeholder-gray-500 outline-none focus:border-rose-400/50"
+            className="min-w-0 flex-1 rounded border border-rose-500/30 bg-gray-900/60 px-2 py-1 text-[12px] text-gray-200 placeholder-gray-500 outline-none focus:border-rose-400/50"
           />
           <button
             type="button"
             onClick={submitReason}
-            className="rounded bg-rose-500/15 px-2 py-1 text-[11px] font-medium text-rose-300 hover:bg-rose-500/25"
+            className="rounded bg-rose-500/15 px-2 py-1 text-[12px] font-medium text-rose-300 hover:bg-rose-500/25"
           >
             {t('ide.feedback.reasonSave')}
           </button>

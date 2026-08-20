@@ -129,7 +129,7 @@ function EditDetailPopup({ edit, onClose }: EditDetailPopupProps): React.JSX.Ele
           <div className="flex flex-col gap-3 p-4">
             {/* Removed */}
             <div className="flex shrink-0 flex-col gap-1">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-red-400">
+              <span className="text-[12px] font-semibold uppercase tracking-wider text-red-400">
                 {t('panel.fileEdit.removed', { count: lineCount(edit.oldString) })}
               </span>
               <pre className="whitespace-pre-wrap break-all rounded border border-red-900/30 bg-red-950/20 p-3 font-mono text-xs leading-relaxed text-red-300">
@@ -139,7 +139,7 @@ function EditDetailPopup({ edit, onClose }: EditDetailPopupProps): React.JSX.Ele
 
             {/* Added */}
             <div className="flex min-h-0 flex-col gap-1">
-              <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wider text-emerald-400">
+              <span className="shrink-0 text-[12px] font-semibold uppercase tracking-wider text-emerald-400">
                 {t('panel.fileEdit.added', { count: lineCount(edit.newString) })}
               </span>
               <pre className="scrollbar-terminal whitespace-pre-wrap break-all rounded border border-emerald-900/30 bg-emerald-950/20 p-3 font-mono text-xs leading-relaxed text-emerald-300">
@@ -179,13 +179,13 @@ export const FileEditList = memo(function FileEditList({
               >
                 {/* Top row: diff badges + preview + pencil */}
                 <div className="flex items-center gap-1.5">
-                  <span className="shrink-0 rounded bg-red-500/20 px-1 py-0.5 font-mono text-[10px] text-red-400">
+                  <span className="shrink-0 rounded bg-red-500/20 px-1 py-0.5 font-mono text-[12px] text-red-400">
                     -{lineCount(edit.oldString)}
                   </span>
-                  <span className="shrink-0 rounded bg-emerald-500/20 px-1 py-0.5 font-mono text-[10px] text-emerald-400">
+                  <span className="shrink-0 rounded bg-emerald-500/20 px-1 py-0.5 font-mono text-[12px] text-emerald-400">
                     +{lineCount(edit.newString)}
                   </span>
-                  <code className="min-w-0 flex-1 truncate text-[11px] text-gray-400">
+                  <code className="min-w-0 flex-1 truncate text-[12px] text-gray-400">
                     {editPreview(edit)}
                   </code>
                   <button
@@ -201,7 +201,7 @@ export const FileEditList = memo(function FileEditList({
                     <PencilIcon />
                   </button>
                 </div>
-                <span className="mt-0.5 block text-[10px] text-gray-500">
+                <span className="mt-0.5 block text-[12px] text-gray-500">
                   {formatTime(edit.timestamp)}
                 </span>
               </li>

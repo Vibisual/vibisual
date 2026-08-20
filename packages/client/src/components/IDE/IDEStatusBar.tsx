@@ -61,7 +61,7 @@ export const IDEStatusBar = memo(function IDEStatusBar({
   }, [reviewComments, t, addCommand, agent.id, activeSession?.id, clearDiffComments, sessionKey]);
 
   return (
-    <div className="flex h-6 flex-shrink-0 items-center gap-4 border-t border-gray-700 bg-gray-900/80 px-3 text-[10px]">
+    <div className="flex h-6 flex-shrink-0 items-center gap-4 border-t border-gray-700 bg-gray-900/80 px-3 text-[12px]">
       {/* Agent type */}
       <span className={`rounded px-1.5 py-0.5 font-semibold ${
         isCustom ? 'bg-blue-500/15 text-blue-400' : 'bg-gray-600/30 text-gray-400'
@@ -106,7 +106,7 @@ export const IDEStatusBar = memo(function IDEStatusBar({
         <button
           type="button"
           onClick={sendReview}
-          className="flex items-center gap-1 rounded bg-blue-600/80 px-2 py-0.5 text-[10px] font-semibold text-white transition-colors hover:bg-blue-500"
+          className="flex items-center gap-1 rounded bg-blue-600/80 px-2 py-0.5 text-[12px] font-semibold text-white transition-colors hover:bg-blue-500"
           title={t('ide.diff.sendReviewTip')}
         >
           <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">

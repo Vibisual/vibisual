@@ -29,8 +29,9 @@
       "completed": "{{count}}件完了",
       "working": "{{active}}/{{total}}",
       "tooltipWaiting": "このプロジェクトにはまだエージェントがいません",
-      "tooltipCompleted": "このプロジェクトの{{count}}件のエージェントが完了しました",
-      "tooltipWorking": "このプロジェクトで{{total}}件中{{active}}件のエージェントが稼働中"
+      "tooltipWorking": "このプロジェクト: エージェント{{agents}}件 · セッション{{sessions}}件中{{running}}件が実行中",
+      "tooltipIdle": "このプロジェクト: エージェント{{agents}}件 · セッション{{sessions}}件 — 実行中のセッションなし",
+      "tooltipCommand": "{{status}} · クリックでコマンドセンターを開きます"
     },
     "tab": {
       "closeProject": "プロジェクトを閉じる",
@@ -190,6 +191,10 @@
       "title": "オプション",
       "unsaved": "未保存",
       "discardConfirm": "未保存の変更を破棄しますか?",
+      "discardTitle": "未保存の変更",
+      "discardDesc": "まだ適用されていない変更があります。ここで閉じると失われます。",
+      "discardKeep": "編集を続ける",
+      "discardLeave": "破棄して閉じる",
       "apply": "適用",
       "cancel": "キャンセル",
       "saving": "保存中…",
@@ -278,7 +283,7 @@
         "actionFailed": "実行できませんでした。もう一度お試しください。"
       },
       "storage": {
-        "intro": "Vibisual がアクティビティ履歴をディスク上に保持する期間です。値を 0 に設定すると無期限に保持されます — 何かが黙って削除されることはなく、実行中のセッションが影響を受けることもありません。",
+        "intro": "アクティビティ履歴をディスクにどれだけ残すかを決めます。どの値も 0 にすればその項目は保持され続けます。黙って削除することはありません — 会話がまだ参照しているファイルは古さに関係なく残し、稼働中のセッションと再度開けるセッションには触れず、クリーンアップは削除ではなくゴミ箱への移動なので元に戻せます。",
         "save": "適用",
         "saving": "保存中…",
         "reset": "既定値に戻す",
@@ -289,7 +294,7 @@
         "scanning": "スキャン中…",
         "cleanNow": "今すぐクリーンアップ",
         "cleaning": "クリーンアップ中…",
-        "cleaned": "{{files}} 件のファイルを削除し、{{size}} を解放しました。",
+        "cleaned": "{{files}} 件（{{size}}）をゴミ箱に移動しました — 下の一覧にある間は元に戻せます。",
         "empty": "ディスク上にプロジェクトデータはまだありません。",
         "worktreesTitle": "Git Worktree",
         "worktreesNote": "自動的に削除されることはありません — 作業内容が含まれている可能性があります。不要になった場合はフォルダを手動で削除してください。",
@@ -313,16 +318,20 @@
             "desc": "同一ファイルへの連続編集は 1 件にまとめられます。0 = マージしない。"
           },
           "completedCommandMaxPerSession": {
-            "label": "セッションごとの完了コマンド数",
-            "desc": "セッションごとに保持するプロンプトバブルの数です。0 = 無制限。"
+            "label": "セッションごとの完了コマンド",
+            "desc": "セッションごとに残す自分のプロンプト数です。作り直せない原文なので余裕を持たせています。0 = 無制限。"
           },
           "subStreamRetentionDays": {
-            "label": "エージェントトランスクリプトの保持期間",
-            "desc": "起動時にクリーンアップされます。実行中のセッションは経過期間に関わらず保持されます。0 = 無期限に保持。"
+            "label": "エージェント会話履歴の保存",
+            "desc": "起動時に一度整理します。稼働中および再度開ける一覧にあるセッションは古さに関係なく残します。0 = ずっと保存。"
           },
           "attachmentRetentionDays": {
-            "label": "添付ファイルの保持期間",
-            "desc": "プロンプトに貼り付けた画像です。0 = 無期限に保持。"
+            "label": "添付ファイルの保存",
+            "desc": "コマンドに貼り付けた画像です。会話がまだ参照しているものは古さに関係なく残し、孤立したものだけが期限切れになります。0 = ずっと保存。"
+          },
+          "trashRetentionDays": {
+            "label": "ゴミ箱の保存",
+            "desc": "整理されたファイルを何日間、元に戻せる状態で置くかです。0 = ずっと保存。"
           }
         },
         "kinds": {
@@ -335,14 +344,24 @@
           "brain": "記憶",
           "logs": "ログ",
           "video": "動画",
-          "other": "その他"
+          "other": "その他",
+          "trash": "ゴミ箱"
         },
         "error": {
           "load": "保持設定を読み込めませんでした。",
           "save": "保持設定を保存できませんでした。",
           "scan": "ディスク使用量を測定できませんでした。",
-          "clean": "クリーンアップに失敗しました。もう一度お試しください。"
-        }
+          "clean": "クリーンアップに失敗しました。もう一度お試しください。",
+          "restore": "元に戻せませんでした。元の場所に既にファイルがある可能性があります。"
+        },
+        "purged": "保存期間を過ぎたゴミ箱のファイル {{files}} 件（{{size}}）を完全に削除しました。",
+        "keptReferenced": "まだ参照されている {{files}} 件は古さに関係なく残しました。",
+        "trashTitle": "ゴミ箱",
+        "trashNote": "クリーンアップは削除せずここへ移します。一覧にあるものは {{days}} 日になるまで元に戻せます。",
+        "trashNoteForever": "クリーンアップは削除せずここへ移します。ここにあるものが自動で削除されることはありません。",
+        "trashEmpty": "ゴミ箱は空です — 整理されたものはありません。",
+        "restore": "元に戻す",
+        "restoring": "復元中…"
       }
     },
     "autoAgent": {
@@ -491,7 +510,15 @@
       "empty": "コンティがありません — 「新しいコンティを生成」を押して最初のコマを記録してください",
       "working": "処理中… ({{source}})",
       "edited": "{{when}}に編集",
-      "editedTitle": "最終更新日時"
+      "editedTitle": "最終更新日時",
+      "scriptTitle": "台本からコンテ",
+      "scriptPlaceholder": "台本を貼り付けてください — 台本の順にビートごとに1カット。",
+      "scriptPreset": "出力",
+      "scriptFrames": "カット数",
+      "scriptFramesAuto": "自動",
+      "scriptGenerate": "台本からコンテを作成",
+      "scriptWorking": "シーンを分割中…",
+      "scriptChip": "台本"
     },
     "contiBoard": {
       "latest": "最新コンティ",
@@ -501,7 +528,18 @@
       "editFrame": "テキストを編集",
       "editTitlePrompt": "コマタイトル:",
       "editActionPrompt": "コマアクション:",
-      "zoomReset": "Ctrl+0 リセット"
+      "zoomReset": "Ctrl+0 リセット",
+      "presetLabel": "出力",
+      "preset": {
+        "landscape": "横 16:9",
+        "portrait": "縦 9:16",
+        "webtoon": "ウェブトゥーン（縦スクロール）"
+      },
+      "render": "レンダリング",
+      "renderTitle": "カットをタイムライン文書に移してレンダリングを開始します",
+      "renderWorking": "受け渡し中…",
+      "renderNoApp": "レンダリングするには動画アプリをインストールしてください",
+      "renderLinked": "{{app}} · {{status}}"
     },
     "contiPrompt": {
       "title": "プロンプトで要素を修正",
@@ -733,7 +771,8 @@
         "TaskStop": "バックグラウンドタスクやサブエージェントを停止します。",
         "MultiEdit": "1 つのファイルに複数の編集をまとめて適用します。",
         "SendMessage": "実行中のサブエージェントに追加メッセージを送ります。",
-        "Artifact": "ドキュメントやアプリなどの成果物を作ります。"
+        "Artifact": "ドキュメントやアプリなどの成果物を作ります。",
+        "strippedByEdgeHint": "STRICTエッジ経由で委譲済み — 実行時はこのAgentは使用不可（エッジを削除すると復元）"
       },
       "maxTurns": "最大ターン数",
       "maxBudgetUsd": "予算 ($、0=∞)",
@@ -808,6 +847,12 @@
         "defaultLabel": "デフォルト (秒、0 = CLI既定)",
         "maxLabel": "最大値 (秒、0 = CLI既定)",
         "hint": "0にするとCLIの既定値のまま — デフォルト{{defaultSec}}秒、最大{{maxSec}}秒。"
+      },
+      "modelVersion": {
+        "label": "バージョン",
+        "latest": "最新（エイリアス）",
+        "latestWith": "最新（{{id}}）",
+        "custom": "カスタム…"
       }
     },
     "permissionPrompt": {
@@ -1196,6 +1241,132 @@
       "rechecking": "確認中…",
       "later": "後で",
       "docs": "公式インストールガイド"
+    },
+    "appsWindow": {
+      "notInstalledTitle": "{{name}}はインストールされていません",
+      "notInstalledBody": "キャンバスを右クリックし、アプリからインストールしてください。バブルをドロップし、そのバブルから直接インストールすることもできます。",
+      "unknownMode": "不明な画面: {{mode}}",
+      "unknownApp": "不明なアプリ: {{id}}"
+    },
+    "apps": {
+      "open": "開く",
+      "openHint": "ダブルクリックで開きます。",
+      "installApp": "アプリをインストール",
+      "installHint": "ダブルクリックでインストールします。",
+      "uninstallApp": "アプリをアンインストール",
+      "notInstalledBadge": "要インストール",
+      "unknown": "不明なアプリ",
+      "rename": "名前を変更",
+      "renamePrompt": "バブル名",
+      "pin": "ピン留め",
+      "unpin": "ピン留め解除",
+      "delete": "削除",
+      "deletePinnedHint": "このバブルはピン留めされています。先にピン留めを解除してください。",
+      "detail": {
+        "app": "アプリ",
+        "installed": "インストール済み",
+        "unknownHint": "このアプリは現在のバージョンに含まれていません。バブル自体は削除できます。",
+        "installHint": "開く前にインストールが必要です。キャンバス上のバブルをダブルクリックしてもインストールできます。",
+        "bubble": "このバブル",
+        "nameHint": "空欄にするとアプリ名が使用されます。",
+        "protection": "保護",
+        "pinHint": "オンにすると、Deleteキーや削除操作でも削除できなくなります。",
+        "deleteBubble": "このバブルを削除",
+        "deleteHint": "Deleteキーでも削除されます。アプリ自体はインストールされたままです。"
+      }
+    },
+    "videoStudio": {
+      "title": "Vibistudio",
+      "pickDoc": "動画を選択…",
+      "newDoc": "新規動画",
+      "untitled": "新規動画",
+      "empty": "動画を選択するか、新規作成してください。",
+      "newTitle": "タイトルカード",
+      "addTitle": "タイトルを追加",
+      "play": "再生",
+      "pause": "一時停止",
+      "seek": "再生位置",
+      "toggleItem": "オン/オフ切り替え",
+      "removeItem": "削除",
+      "pickAgent": "Agentを選択…",
+      "delegate": "このカットを委任",
+      "delegated": "このカットをAgentに委任しました。",
+      "render": "レンダリング",
+      "renderQueued": "レンダリングをキューに追加しました。",
+      "renderDone": "レンダリングが完了しました。",
+      "noAudio": "音声なしで書き出しました。",
+      "downgraded": "レンダリングモードがダウングレードされました: {{id}}",
+      "previewFailed": "プレビューを描画できませんでした。",
+      "reloaded": "他の場所でドキュメントが変更されたため、再読み込みしました。"
+    },
+    "cost": {
+      "title": "コスト＆トークンマップ",
+      "close": "コストマップを閉じる",
+      "pillLabel": "今日のコスト",
+      "pillEmpty": "まだコストが測定されていません",
+      "notMeasured": "未測定",
+      "notMeasuredHint": "このセッションはターンが読み込まれていないため、コストについては何も算出していません。",
+      "periodToday": "今日",
+      "periodWeek": "今週",
+      "periodMonth": "今月",
+      "periodAll": "全期間",
+      "totalCost": "コスト",
+      "inputTokens": "入力",
+      "outputTokens": "出力",
+      "cacheReadTokens": "キャッシュ読み取り",
+      "cacheCreateTokens": "キャッシュ書き込み",
+      "agentsTitle": "Agent別",
+      "sessionsTitle": "セッション別",
+      "colName": "名前",
+      "colModel": "モデル",
+      "colTokens": "トークン",
+      "colCost": "コスト",
+      "sessionCumulativeNote": "セッション行はセッション全体を表示し、最終アクティビティで絞り込まれます。",
+      "empty": "このプロジェクトではまだ何も測定されていません。",
+      "emptyHint": "コストはAgentがターンを完了すると表示されます。これは課金額ではなく、セッションのトランスクリプトから読み取った値です。",
+      "estimateNote": "トークン数と公開価格から算出した推定値です。",
+      "retiredNote": "古いセッションの{{cost}}は、全期間の合計に含まれています。",
+      "sessions_one": "{{count}}件のセッション",
+      "sessions_other": "{{count}}件のセッション",
+      "openMap": "コスト＆トークンマップを開く"
+    },
+    "audit": {
+      "title": "権限・監査境界",
+      "close": "監査タイムラインを閉じる",
+      "pillLabel": "本日の危険な呼び出し",
+      "pillEmpty": "本日、危険なツール呼び出しはありません",
+      "pillOff": "監査境界はオフです。危険な操作は確認なしで実行されます（記録は継続）。",
+      "boundaryOn": "危険な操作を事前に確認",
+      "boundaryHint": "記録は常に続きます。ここで決まるのは、Agentを事前に止めるかどうかだけです。",
+      "routeTitle": "権限モードとは別に動く、2つ目の検問所",
+      "routeBody": "この境界はAgent設定の権限モード（Permission Mode）とは別に動きます。権限モードが通したツール呼び出しを、監査境界がもう一度確認します。",
+      "routeOn": "オンの場合 — 権限モードを「すべて許可（bypassPermissions）」にしたAgentでも、削除・ネットワーク・設定の3種類では承認カードが表示されます。",
+      "routeOff": "オフの場合（既定） — すべての呼び出しは権限モードの判断どおりに実行され、記録だけが残ります。",
+      "routeScope": "ここで止まるのはVibisualが起動したカスタムAgentだけです。ご自身で実行されたClaude Codeセッションは記録のみです。",
+      "routeStateOn": "現在オン — 危険な3種類は権限モードより先に確認します。",
+      "routeStateOff": "現在オフ — 権限モードのまま実行され、記録だけが残ります。",
+      "risk": {
+        "delete": "削除",
+        "network": "ネットワーク",
+        "config": "設定"
+      },
+      "filterAll": "すべて",
+      "filterRisky": "危険",
+      "filterDenied": "拒否",
+      "escalated": "事前確認",
+      "decisionAllow": "許可",
+      "decisionDeny": "拒否",
+      "sourceTimeout": "タイムアウト",
+      "sourcePolicy": "モードによる",
+      "reason": "理由",
+      "countSummary": "呼び出し{{total}}件・危険{{risky}}件・拒否{{denied}}件",
+      "showMore": "さらに{{count}}件を表示",
+      "noMatch": "このフィルターに一致する呼び出しはありません。",
+      "retired": "{{count}}件の古い呼び出しは合計には含まれていますが、詳細は残っていません。",
+      "empty": "このプロジェクトではまだツール呼び出しが記録されていません。",
+      "emptyHint": "Agentのツール呼び出しはすべてここに残ります。何に対する操作か、あなたの回答も含めて確認できます。",
+      "promptRiskTitle": "危険な操作",
+      "promptEscalatedHint": "本来は権限モードにより自動で許可されますが、監査境界が事前に確認を求めています。"
     }
   },
   "ide": {
@@ -1234,6 +1405,12 @@
       "download": "PNGをダウンロード",
       "saveReplace": "保存",
       "saveAttach": "マーク付き画像を添付",
+      "saveFile": "ファイルに保存",
+      "saveFileHint": "{{path}} をこのマークごと上書きします",
+      "saveFileUnsupported": "この形式は再エンコードできません — 代わりにマーク付き画像を添付するかダウンロードしてください。",
+      "fileSaveFailed": "そのファイルに保存できませんでした。",
+      "fileConflict": "開いた後にそのファイルがディスク上で変更されました。",
+      "fileConflictOverwrite": "それでも保存",
       "textPlaceholder": "入力してEnterを押してください",
       "hintPick": "ツールを選んでこの画像にマークし、添付として保存してください。",
       "hintDraw": "画像上をドラッグしてマークします。Ctrl+Zで直前のマークを元に戻せます。",
@@ -1256,7 +1433,9 @@
       "cmdLabel": "CMD",
       "hookLabel": "Hook",
       "renameHint": "ダブルクリックで名前を変更 (F2)",
-      "renameInputLabel": "エージェント名"
+      "renameInputLabel": "エージェント名",
+      "localLabel": "All Model",
+      "localSwitchModel": "このバブルが使うモデルを変更"
     },
     "tabbar": {
       "newSession": "新しいセッション",
@@ -1376,7 +1555,9 @@
       "runningSubagents": "実行中のサブエージェント ({{count}})",
       "loop": "リピートループ",
       "goal": "目標",
-      "debug": "実行とデバッグ"
+      "debug": "実行とデバッグ",
+      "hooks": "セッションフック",
+      "plugins": "Claude Code プラグイン"
     },
     "mcp": {
       "title": "MCP サーバー",
@@ -1652,6 +1833,11 @@
       "truncated": "このファイルは大きいため先頭のみ表示しています — 読み取り専用。",
       "readError": "このファイルを読み込めません",
       "plainLanguage": "text",
+      "imageEdit": "編集",
+      "imageEditHint": "この画像にマークを付ける",
+      "imageFit": "パネルに合わせる",
+      "imageActualSize": "実際のサイズ (1:1)",
+      "imageReadError": "この画像を表示できません",
       "openInPane": "エディターペインで開く — {{path}}",
       "openFolder": "このファイルを含むフォルダーを開く — {{path}}",
       "readOnlyLocked": "このファイルはディスク上で読み取り専用にロックされています（Perforce のチェックアウト、ファイル属性）。",
@@ -1790,6 +1976,45 @@
       "instructionTitle": "指示内容",
       "changesTitle": "変更内容",
       "checkpointsTitle": "確認事項"
+    },
+    "reviewLane": {
+      "unknownBranch": "(ブランチ不明)",
+      "fileCount": "{{count}} 件のファイル",
+      "uncommitted": "未コミット",
+      "uncommittedHint": "まだコミットされていません — 承認してもこの変更はマージされません。",
+      "showMoreFiles": "さらに {{count}} 件を表示",
+      "showLessFiles": "折りたたむ",
+      "filesTruncated": "上限に達したため一部のファイルは省略されています。",
+      "showDiff": "差分を表示 ({{count}} 行)",
+      "hideDiff": "差分を隠す",
+      "diffTruncated": "差分はサイズ上限で切り詰められました。",
+      "approve": "承認",
+      "approveTitle": "承認して、このブランチを親ブランチにマージします",
+      "reject": "差し戻し",
+      "rejectTitle": "理由を書いて差し戻し、修正させます",
+      "hold": "保留",
+      "holdTitle": "後で判断 — マージも差し戻しも行いません",
+      "sendReject": "差し戻しを送信",
+      "cancel": "キャンセル",
+      "reasonPlaceholder": "差し戻す理由は何ですか？ この内容がそのままエージェントへの次の指示になります。",
+      "reasonHint": "理由がそのまま次の指示になります。",
+      "rejectPromptHeader": "この変更はレビューで差し戻されました。下記の理由どおりに修正し、変更内容を教えてください。",
+      "decisionFailed": "判断を記録できませんでした: {{error}}",
+      "historyTitle": "判断の履歴 ({{count}})",
+      "changeType": {
+        "added": "追加",
+        "modified": "変更",
+        "deleted": "削除",
+        "renamed": "名前変更",
+        "unknown": "不明"
+      },
+      "result": {
+        "approvedMerged": "承認 · マージ済み",
+        "approvedMergeFailed": "承認 · マージ失敗 ({{error}})",
+        "rejected": "差し戻し",
+        "rejectedDispatched": "差し戻し · 再作業を送信",
+        "held": "保留中"
+      }
     },
     "list": {
       "title": "リスト",
@@ -2289,6 +2514,129 @@
           }
         }
       }
+    },
+    "goal": {
+      "title": "目標",
+      "pickSession": "目標を表示するセッションを選択してください。",
+      "waiting": "まだ目標はありません。セッションが計画を立てると表示されます。",
+      "setManually": "自分で入力",
+      "textPlaceholder": "このセッションで達成すべきことは？",
+      "textHint": "自分で文言を編集すると、セッションによる書き換えは止まります。",
+      "create": "作成",
+      "update": "更新",
+      "cancel": "キャンセル",
+      "editHint": "目標を編集",
+      "stepCount": "{{done}} / {{total}} ステップ",
+      "stepRemaining": "残り{{count}}件",
+      "noSteps": "ステップはまだありません",
+      "byUser": "あなたが設定",
+      "bySession": "セッションが設定",
+      "toggleStep": "このステップを切り替え",
+      "removeStep": "このステップを削除",
+      "addStepPlaceholder": "ステップを追加…",
+      "historyLabel": "履歴",
+      "achieve": "達成にする",
+      "resume": "再開",
+      "delete": "目標を破棄",
+      "status": {
+        "active": "進行中",
+        "achieved": "達成",
+        "abandoned": "破棄"
+      },
+      "source": {
+        "agent": "Agentが報告",
+        "user": "あなたが調整",
+        "plan": "計画から導出"
+      }
+    },
+    "hooks": {
+      "title": "セッションフック",
+      "refresh": "フックを再スキャン",
+      "noProject": "プロジェクトを開くと、そのセッションに適用されるフックが表示されます。",
+      "empty": "このセッションに設定されているフックはありません。",
+      "applyHint": "フックのオン・オフは、これ以降に開始するセッションから適用されます。オフにしたフックは設定ファイルからは削除されず、Claude Codeが実行しないよう退避されるだけです。",
+      "loadFailed": "フックの設定を読み込めませんでした。",
+      "toggleFailed": "変更を保存できませんでした。",
+      "turnOn": "有効化",
+      "turnOff": "無効化",
+      "matcher": "実行対象：{{matcher}}",
+      "matcherAll": "このイベントのすべての呼び出しで実行",
+      "timeout": "タイムアウト {{seconds}}秒",
+      "state": {
+        "enabled": "オン",
+        "disabled": "オフ"
+      },
+      "scope": {
+        "user": "グローバル（全プロジェクト）",
+        "project": "プロジェクト（リポジトリで共有）",
+        "local": "ローカル（このマシンのみ）",
+        "managed": "管理ポリシー"
+      },
+      "scopeShort": {
+        "user": "グローバル",
+        "project": "プロジェクト",
+        "local": "ローカル",
+        "managed": "ポリシー"
+      },
+      "scopeHint": {
+        "user": "~/.claude/settings.json に記述されます。すべてのプロジェクトで実行されます。",
+        "project": ".claude/settings.json に記述されます。リポジトリにコミットされるため、チーム全員に共有されます。",
+        "local": ".claude/settings.local.json に記述されます。コミットされないため、あなただけが持つ設定です。",
+        "managed": "管理者のポリシーファイルで設定されています。ここでは読み取り専用です。"
+      },
+      "lock": {
+        "vibisual": "Vibisualがセッションを監視するためにインストールしたフックです。オフにするとこのアプリが状況を把握できなくなるため、常にオンのままです。",
+        "managed": "管理者のポリシーによって設定されたフックです。ここでは変更できません。"
+      }
+    },
+    "plugins": {
+      "title": "Claude Code プラグイン",
+      "refresh": "プラグインを再スキャン",
+      "noProject": "プロジェクトを開くと、そのセッションに適用されるプラグインが表示されます。",
+      "loadFailed": "プラグイン一覧を読み込めませんでした。",
+      "actionFailed": "コマンドが失敗しました。",
+      "unavailable": "Claude Code CLIにプラグイン一覧を問い合わせできませんでした。",
+      "emptyInstalled": "まだClaude Codeプラグインがインストールされていません。マーケットプレイスタブを開いて追加してください。",
+      "emptyMarket": "検索条件に一致するプラグインがありません。",
+      "applyHint": "プラグインのオン・オフは、これ以降に開始するセッションから適用されます。実行中のセッションは読み込み済みの状態のままです。",
+      "turnOn": "有効化",
+      "turnOff": "無効化",
+      "install": "インストール",
+      "installing": "インストール中…",
+      "alreadyInstalled": "インストール済み",
+      "uninstall": "アンインストール",
+      "installCount": "マーケットプレイスが報告するインストール数",
+      "installScope": "インストール先",
+      "searchPlaceholder": "プラグインを検索…",
+      "showMore": "他{{count}}件を表示",
+      "marketplaces": "マーケットプレイス",
+      "marketplaceAdd": "追加",
+      "marketplaceRemove": "削除",
+      "marketplacePlaceholder": "owner/repo、URL、またはパス",
+      "tab": {
+        "installed": "インストール済み",
+        "market": "マーケットプレイス"
+      },
+      "scope": {
+        "user": "グローバル",
+        "project": "このプロジェクト",
+        "local": "ローカル"
+      },
+      "placement": {
+        "global": "グローバル（全プロジェクト）",
+        "this-project": "このプロジェクト",
+        "other-project": "別のプロジェクトに紐付け済み"
+      },
+      "placementShort": {
+        "global": "グローバル",
+        "this-project": "プロジェクト",
+        "other-project": "その他"
+      },
+      "placementHint": {
+        "global": "ユーザー向けにインストールされています。すべてのプロジェクトで読み込まれます。",
+        "this-project": "このプロジェクトのみにインストールされています。ここで実行するセッションで読み込まれます。",
+        "other-project": "インストール済みですが、別のプロジェクトに紐付けられているため、このセッションでは読み込まれません。"
+      }
     }
   },
   "bubbleMap": {
@@ -2366,7 +2714,31 @@
       "fitAspect": "ソースの比率に合わせる",
       "fitAspectHint": "バブルの高さをソースのアスペクト比にリセットし、黒帯を消します — 結合したバブルが連続しているように見えます。",
       "seamless": "継ぎ目を非表示",
-      "seamlessHint": "枠線とヘッダーを非表示にし、結合したバブルが1つの画面のように見せます（ヘッダーはホバー時に再表示されます）"
+      "seamlessHint": "枠線とヘッダーを非表示にし、結合したバブルが1つの画面のように見せます（ヘッダーはホバー時に再表示されます）",
+      "playtest": {
+        "section": "プレイテスト",
+        "startRecording": "プレイテスト録画開始",
+        "stopRecording": "録画停止・範囲トリミング",
+        "recording": "プレイテスト録画中",
+        "recordFailed": "録画に失敗しました：{{reason}}",
+        "emptyHint": "プレイを録画し、不具合が起きた瞬間をトリミングして、そのフレームをagentに添付できます。クリップはこのデバイスのメモリ内にのみ保持されます。",
+        "windowTitle": "プレイテストクリップ",
+        "autoStopped": "長さの上限により停止しました。",
+        "playRange": "再生範囲",
+        "rangeReset": "クリップ全体",
+        "rangeLength": "範囲 {{len}}",
+        "rangeStart": "範囲開始",
+        "rangeEnd": "範囲終了",
+        "save": "クリップを保存（.webm）",
+        "deleteClip": "このクリップを破棄",
+        "frames": "フレーム",
+        "target": "送信先",
+        "noTarget": "利用可能なagentがありません",
+        "attach": "範囲の{{count}}フレームを添付",
+        "attaching": "フレームを抽出中 {{done}}/{{total}}",
+        "attached": "{{agent}}に{{count}}フレームを添付しました。うまくいかなかった内容を書いて送信してください。",
+        "attachFailed": "添付に失敗しました：{{reason}}"
+      }
     },
     "taskEdge": {
       "iconHint": "クリック: 詳細 · ダブルクリック: 編集",
@@ -2568,7 +2940,41 @@
       "createCapture": "画面／プログラムキャプチャバブル",
       "createCaptureHint": "画面またはプログラムウィンドウをバブル内にライブ表示",
       "createSpec": "仕様ボード",
-      "createSpecHint": "要件を書き、受け入れ基準ごとにタスクカードへ変換"
+      "createSpecHint": "要件を書き、受け入れ基準ごとにタスクカードへ変換",
+      "createPlay": "再生バブル",
+      "createPlayHint": "このプロジェクトを起動・停止し、その場でプレビュー",
+      "apps": "アプリ",
+      "appsHint": "アプリバブルをドロップし、ダブルクリックで開く",
+      "appUninstall": "アンインストール",
+      "appInstall": "インストール",
+      "appsHelp": "行をクリックするとキャンバスにバブルとしてドロップされます。バブルをダブルクリックで開き、右クリックで管理します。",
+      "createLab": "エージェントラボ",
+      "createLabHint": "同じタスクを設定だけ変えて複数回実行し、表で比較する",
+      "createLocalAgent": "モデル一覧",
+      "createLocalAgentHint": "このPCで動作するモデル用のバブルを置きます",
+      "createShelf": "スクリプトシェルフ",
+      "createShelfHint": "よく使うコマンドやプロンプトをワンクリックで呼び出せるようにします"
+    },
+    "bounds": {
+      "label": "バブル境界",
+      "tooltip": "バブルがキャンバス外へ流れないようにする矩形エリア。任意の辺をドラッグしてリサイズ。プロジェクトごとに保存されます。"
+    },
+    "copy": {
+      "success": "{{count}}件をキャンバスクリップボードにコピーしました",
+      "empty": "コピーする項目が選択されていません"
+    },
+    "paste": {
+      "success": "{{count}}件をこのプロジェクトに貼り付けました",
+      "empty": "キャンバスクリップボードが空です",
+      "failed": "貼り付けに失敗しました",
+      "invalidVersion": "クリップボードの形式がこのバージョンと互換性がありません"
+    },
+    "bookmark": {
+      "assigned": "ブックマーク {{slot}} → {{label}}",
+      "assignEmpty": "ブックマークする対象がありません — 先にバブルを選択するかエージェントのIDEを開いてください",
+      "jumped": "{{label}}へ移動しました",
+      "jumpEmpty": "ブックマーク {{slot}} は空です",
+      "jumpMissing": "ブックマークの対象は利用できなくなりました"
     },
     "spec": {
       "title": "仕様",
@@ -2604,26 +3010,138 @@
       "delete": "削除",
       "deletePinnedHint": "この仕様は固定されています。先に固定を解除してください。"
     },
-    "bounds": {
-      "label": "バブル境界",
-      "tooltip": "バブルがキャンバス外へ流れないようにする矩形エリア。任意の辺をドラッグしてリサイズ。プロジェクトごとに保存されます。"
+    "play": {
+      "title": "再生",
+      "idle": "クリックして実行",
+      "starting": "起動中…",
+      "findHint": "クリックして実行方法を調べる",
+      "unknownRecipe": "実行コマンド不明",
+      "detected": "実行方法を検出",
+      "noAgent": "調査できるカスタムAgentがありません",
+      "askSent": "Agentに実行方法の調査を依頼しました",
+      "askFailed": "Agentへの調査依頼に失敗しました",
+      "findRecipe": "実行方法を調査",
+      "askAgent": "Agentに依頼",
+      "editRecipe": "実行コマンドを編集",
+      "editCommandPrompt": "実行コマンド",
+      "editRootPrompt": "配信するフォルダ（絶対パス）",
+      "showPreview": "プレビューを表示",
+      "hidePreview": "プレビューを非表示",
+      "openBrowser": "ブラウザで開く",
+      "rename": "名前を変更",
+      "renamePrompt": "ボタン名",
+      "pin": "ピン留め",
+      "unpin": "ピン留め解除",
+      "delete": "削除",
+      "deletePinnedHint": "このバブルはピン留めされています。先にピン留めを解除してください。"
     },
-    "copy": {
-      "success": "{{count}}件をキャンバスクリップボードにコピーしました",
-      "empty": "コピーする項目が選択されていません"
+    "lab": {
+      "title": "ラボ",
+      "untitled": "無題のラボ",
+      "openPanel": "ラボを開く",
+      "rename": "名前を変更",
+      "renamePrompt": "ラボのタイトル",
+      "addVariant": "バリアントを追加",
+      "removeVariant": "バリアントを削除",
+      "startAll": "すべて実行",
+      "startAllN": "すべて実行 ({{count}})",
+      "startNoneHint": "実行できるバリアントがありません",
+      "startNoTaskHint": "先にタスクを記入してください",
+      "starting": "バリアントを実行中…",
+      "pin": "ピン留め",
+      "unpin": "ピン留めを解除",
+      "delete": "削除",
+      "deletePinnedHint": "このラボはピン留めされています。先に解除してください。",
+      "badgeDraft": "待機",
+      "badgeRunning": "実行中",
+      "badgeDone": "完了",
+      "variants": "バリアント",
+      "runningN": "実行中 {{count}}",
+      "emptyHint": "ダブルクリックしてタスクとバリアントを作成",
+      "progressRunning": "実行中 {{done}}/{{total}}",
+      "progressIdle": "完了 {{done}}/{{total}}",
+      "taskLabel": "タスク（すべてのバリアントで同一）",
+      "taskLocked": "実行中はタスクを変更できません",
+      "taskPlaceholder": "依頼内容を一度だけ書きます。バリアント間で異なるのは設定だけであるべきです。",
+      "noVariants": "バリアントがありません。下で設定の組み合わせを追加してください。",
+      "variantEditor": "バリアント設定",
+      "inherit": "（基準設定のまま）",
+      "maxTurns": "最大ターン",
+      "rulesAppend": "このバリアントだけの追加指示（任意）",
+      "promote": "既定値に昇格",
+      "promoteHint": "成功したバリアントのみ昇格できます",
+      "promotedBadge": "既定",
+      "runOne": "実行",
+      "rerun": "再実行",
+      "openCard": "カードを開く",
+      "col": {
+        "variant": "バリアント",
+        "model": "モデル",
+        "effort": "Effort",
+        "permission": "権限",
+        "status": "状態",
+        "duration": "時間",
+        "files": "ファイル",
+        "lines": "±行",
+        "tokens": "トークン (入/出)",
+        "cost": "コスト",
+        "actions": "操作"
+      },
+      "status": {
+        "pending": "待機",
+        "running": "実行中",
+        "success": "成功",
+        "failed": "失敗",
+        "stopped": "中断"
+      },
+      "baseAgentLabel": "基準設定",
+      "baseAgentNone": "（未選択 — 新規カードの既定値）",
+      "baseAgentHint": "バリアントが引き継ぐ設定であり、昇格の保存先エージェントです。"
     },
-    "paste": {
-      "success": "{{count}}件をこのプロジェクトに貼り付けました",
-      "empty": "キャンバスクリップボードが空です",
-      "failed": "貼り付けに失敗しました",
-      "invalidVersion": "クリップボードの形式がこのバージョンと互換性がありません"
-    },
-    "bookmark": {
-      "assigned": "ブックマーク {{slot}} → {{label}}",
-      "assignEmpty": "ブックマークする対象がありません — 先にバブルを選択するかエージェントのIDEを開いてください",
-      "jumped": "{{label}}へ移動しました",
-      "jumpEmpty": "ブックマーク {{slot}} は空です",
-      "jumpMissing": "ブックマークの対象は利用できなくなりました"
+    "shelf": {
+      "title": "シェルフ",
+      "untitled": "無題のシェルフ",
+      "openPanel": "シェルフを開く",
+      "rename": "名前の変更",
+      "renamePrompt": "シェルフ名",
+      "addItem": "アイテムを追加",
+      "countBadge": "{{count}}件",
+      "itemCount": "アイテム {{count}}/{{max}}",
+      "itemLimit": "シェルフには最大{{count}}件のアイテムを登録できます",
+      "emptyHint": "ダブルクリックでよく使うコマンドやプロンプトを追加",
+      "panelEmpty": "まだアイテムがありません。シェルコマンドやプロンプトを登録すると、キャンバスからワンクリックで実行できます。",
+      "export": "エクスポート（JSON）",
+      "exportEmptyHint": "エクスポートできる内容がまだありません",
+      "import": "インポート（JSON）",
+      "importReplace": "インポートしてすべて置き換え",
+      "imported": "{{added}}件をインポートしました（{{dropped}}件は除外）",
+      "importFailed": "インポートできませんでした。シェルフファイルではありません。",
+      "pin": "ピン留め",
+      "unpin": "ピン留め解除",
+      "delete": "削除",
+      "deletePinnedHint": "このシェルフはピン留めされています。先にピン留めを解除してください。",
+      "kindCommand": "シェル",
+      "kindPrompt": "プロンプト",
+      "newCommand": "新規コマンド",
+      "newPrompt": "新規プロンプト",
+      "addCommand": "+ シェルコマンド",
+      "addPrompt": "+ プロンプト",
+      "removeItem": "アイテムを削除",
+      "moveUp": "上に移動",
+      "moveDown": "下に移動",
+      "run": "実行",
+      "running": "実行中",
+      "labelPlaceholder": "名前",
+      "commandPlaceholder": "実行するシェルコマンド（例：pnpm test）",
+      "promptPlaceholder": "Agentに送信するプロンプト",
+      "cwdPlaceholder": "作業ディレクトリ（既定はプロジェクトルート）",
+      "newAgentTarget": "実行時に新しいカードを作成",
+      "statusSuccess": "成功",
+      "statusFailed": "失敗",
+      "statusRunning": "実行中",
+      "exitCode": "終了コード",
+      "outputTruncated": "（冒頭省略）",
+      "openCard": "そのカードを開く"
     }
   },
   "common": {
@@ -2645,6 +3163,7 @@
       "awaitingPermission": "権限の確認待ち",
       "awaitingInput": "入力を待機中",
       "idle": "待機中",
+      "dormant": "休止中",
       "autoIdle": "Auto Agent — やりたいことを説明してください",
       "hint": {
         "enter": "ダブルクリックで入る",
@@ -2659,6 +3178,8 @@
       "deviceMobile": "モバイル",
       "deviceTablet": "タブレット",
       "deviceDesktop": "デスクトップ",
+      "deviceCompare": "比較",
+      "deviceCompareTip": "すべての幅を1つのプレビューに並べて表示",
       "deviceTip": "幅 {{width}}px で表示",
       "pickElement": "要素を選択",
       "pickHint": "プレビュー内の要素をクリックして変更内容を記述",
@@ -2673,8 +3194,16 @@
       "pickLabelElement": "要素",
       "pickLabelSelector": "セレクタ",
       "pickLabelText": "表示テキスト",
-      "pickLabelRequest": "リクエスト"
-    }
+      "pickLabelRequest": "リクエスト",
+      "snip": "範囲キャプチャ",
+      "snipBusy": "キャプチャ中…",
+      "snipHint": "プレビュー上をドラッグするとその範囲をキャプチャし、エージェントの入力欄に添付します",
+      "snipAttached": "入力欄に添付しました:",
+      "snipRemove": "このキャプチャを削除",
+      "snipUnavailable": "この画面では範囲キャプチャを利用できません。",
+      "snipFailed": "キャプチャに失敗しました: {{error}}"
+    },
+    "close": "閉じる"
   },
   "brain": {
     "bubbleLabel": "ブレイン",
@@ -2887,6 +3416,86 @@
     "bulkStopAll": "実行中のものをすべて停止",
     "resetSettings": "これらのオプションをリセット",
     "confirmCloseDone": "完了したセッションタブ {{count}}件を閉じますか？",
-    "confirmStopAll": "{{count}}体のエージェントの実行中セッションをすべて停止しますか？"
+    "confirmStopAll": "{{count}}体のエージェントの実行中セッションをすべて停止しますか？",
+    "title": "コマンドセンター",
+    "detailToggle": "詳細ペインを切り替え",
+    "all": "すべて",
+    "shortcuts": "ショートカット",
+    "rankHint": "優先度{{rank}}",
+    "jump": "セッションへ移動",
+    "followProject": "アクティブなプロジェクトを追従",
+    "followProjectNote": "メインウィンドウでアクティブなプロジェクトを常に表示します。",
+    "pinnedHint": "このプロジェクトに固定中 — クリックするとアクティブなプロジェクトの追従に切り替わります。",
+    "followingHint": "アクティブなプロジェクトを追従中 — クリックすると1つのプロジェクトに固定します。",
+    "noProject": "プロジェクトなし",
+    "noProjects": "開いているプロジェクトはありません。",
+    "updatedNever": "まだ更新されていません",
+    "updatedNow": "たった今更新",
+    "updatedAgo": "{{time}}前に更新",
+    "connLive": "ライブ",
+    "connConnecting": "接続中…",
+    "connLost": "オフライン",
+    "connLostHint": "接続が切断されました — 再接続中です。",
+    "refresh": "更新",
+    "refreshHint": "今すぐ更新",
+    "view": {
+      "board": "ボード",
+      "list": "リスト"
+    },
+    "sortRule": {
+      "recent": "新しいアクティビティ順",
+      "waiting": "待機時間が長い順",
+      "context": "残りコンテキストが少ない順"
+    },
+    "detail": {
+      "close": "閉じる",
+      "context": "残りコンテキスト",
+      "permission": "権限が必要",
+      "question": "質問",
+      "suggested": "提案",
+      "review": "レビュー",
+      "changes": "変更",
+      "checkpoints": "チェックポイント",
+      "report": "レポート",
+      "userActions": "あなたの番",
+      "did": "Agentが行ったこと",
+      "nextSteps": "次のステップ",
+      "queued": "キュー内のコマンド",
+      "lastActivity": "最終アクティビティ",
+      "nothingYet": "まだありません。",
+      "queuedIt": "キューに追加しました。",
+      "composerHint": "コマンドを入力してEnterキーを押すと、このセッションに送信されます。"
+    }
+  },
+  "localModel": {
+    "title": "モデル一覧",
+    "subtitle": "このPCで動作するモデルを選んでバブルに結び付けます",
+    "installIntro": "ローカルモデルの実行には推論エンジンが必要です。インストーラーを軽量に保つため基本パッケージには含まれておらず、ダウンロードは最初の一度だけです。",
+    "installWhat": "含まれる内容：GPU（Vulkan）版とCPU版。Vulkanはほとんどのグラフィックカードに対応しており、非対応でもCPUでモデルは動作します。",
+    "installWhere": "保存先",
+    "install": "エンジンをダウンロードしてインストール",
+    "preparing": "準備中",
+    "engineReady": "エンジン準備完了",
+    "uninstall": "エンジンを削除",
+    "myModels": "ダウンロード済みモデル",
+    "noModels": "まだモデルがありません。下の検索からダウンロードしてください。",
+    "loaded": "メモリに読み込み済み",
+    "deleteModel": "削除",
+    "downloading": "ダウンロード中",
+    "cancel": "キャンセル",
+    "catalog": "モデルを入手",
+    "searchPlaceholder": "モデル名で検索（例：qwen coder）",
+    "search": "検索",
+    "searching": "検索中…",
+    "noFiles": "このリポジトリにダウンロード可能なGGUFファイルが見つかりません。",
+    "sizeUnknown": "サイズ不明",
+    "download": "ダウンロード",
+    "footerHint": "選んだモデルはこのPCの資源で動きます。準備が終わるとこのバブルのIDEが開き、既存のClaudeバブルはそのままです。",
+    "preparingFor": "{{name}} が使うモデルを準備しています",
+    "stepEngine": "エンジン",
+    "stepModel": "モデル",
+    "stepIde": "IDE",
+    "useModelStart": "このモデルで開始",
+    "opensIdeHint": "ダウンロードが終わると、このバブルのIDEがすぐに開きます。"
   }
 }

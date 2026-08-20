@@ -257,7 +257,7 @@ export function GitStatusCard({ projectName }: GitStatusCardProps): React.JSX.El
           type="button"
           onClick={() => { void fetchStatus(true); }}
           disabled={gitRefreshing}
-          className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-gray-500 transition-colors hover:bg-gray-700/40 hover:text-gray-200 disabled:opacity-50"
+          className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[12px] text-gray-500 transition-colors hover:bg-gray-700/40 hover:text-gray-200 disabled:opacity-50"
           title={t('panel.gitStatus.refreshTitle')}
         >
           <RefreshIcon className={`h-3 w-3 ${gitRefreshing ? 'animate-spin' : ''}`} />
@@ -309,11 +309,11 @@ function ErrorState({ message, onRetry }: { message: string; onRetry: () => void
     <div className="flex flex-col items-center gap-2 py-3 text-center">
       <AlertIcon className="h-5 w-5 text-red-400" />
       <p className="text-xs text-gray-400">{t('panel.gitStatus.failedToLoad')}</p>
-      <p className="font-mono text-[10px] text-gray-500">{message}</p>
+      <p className="font-mono text-[12px] text-gray-500">{message}</p>
       <button
         type="button"
         onClick={onRetry}
-        className="rounded border border-gray-700 px-2 py-1 text-[10px] text-gray-300 hover:border-gray-500 hover:text-white"
+        className="rounded border border-gray-700 px-2 py-1 text-[12px] text-gray-300 hover:border-gray-500 hover:text-white"
       >
         {t('panel.gitStatus.retry')}
       </button>
@@ -327,12 +327,12 @@ function NoGitState(): React.JSX.Element {
     <div className="flex flex-col items-center gap-2 py-3 text-center">
       <AlertIcon className="h-6 w-6 text-amber-400/80" />
       <p className="text-xs font-medium text-gray-200">{t('panel.gitStatus.notInstalled')}</p>
-      <p className="text-[10px] text-gray-500">{t('panel.gitStatus.needsGit')}</p>
+      <p className="text-[12px] text-gray-500">{t('panel.gitStatus.needsGit')}</p>
       <a
         href="https://git-scm.com/downloads"
         target="_blank"
         rel="noreferrer noopener"
-        className="mt-1 flex items-center gap-1 rounded border border-gray-700 px-2 py-1 text-[10px] text-gray-300 transition-colors hover:border-blue-500/60 hover:bg-blue-500/10 hover:text-blue-300"
+        className="mt-1 flex items-center gap-1 rounded border border-gray-700 px-2 py-1 text-[12px] text-gray-300 transition-colors hover:border-blue-500/60 hover:bg-blue-500/10 hover:text-blue-300"
       >
         {t('panel.gitStatus.installGuide')}
         <ExternalLinkIcon className="h-3 w-3" />
@@ -368,12 +368,12 @@ function NotRepoState({ projectName, onInitDone }: { projectName: string; onInit
     <div className="flex flex-col items-center gap-2 py-3 text-center">
       <CircleDotIcon className="h-6 w-6 text-blue-400/80" />
       <p className="text-xs font-medium text-gray-200">{t('panel.gitStatus.notRepo')}</p>
-      <p className="truncate font-mono text-[10px] text-gray-500">/{projectName}</p>
+      <p className="truncate font-mono text-[12px] text-gray-500">/{projectName}</p>
       <button
         type="button"
         onClick={() => { void handleInit(); }}
         disabled={pending}
-        className="mt-1 flex items-center gap-1 rounded border border-gray-700 px-2 py-1 text-[10px] text-gray-300 transition-colors hover:border-blue-500/60 hover:bg-blue-500/10 hover:text-blue-300 disabled:opacity-50"
+        className="mt-1 flex items-center gap-1 rounded border border-gray-700 px-2 py-1 text-[12px] text-gray-300 transition-colors hover:border-blue-500/60 hover:bg-blue-500/10 hover:text-blue-300 disabled:opacity-50"
       >
         {pending ? t('panel.gitStatus.initRunning') : t('panel.gitStatus.runInit')}
         {!pending && <ArrowRightIcon className="h-3 w-3" />}
@@ -435,7 +435,7 @@ function CommitButton({
       type="button"
       onClick={onClick}
       disabled={!enabled}
-      className={`flex items-center justify-center gap-1.5 rounded border px-2 py-1.5 text-[11px] transition-colors ${
+      className={`flex items-center justify-center gap-1.5 rounded border px-2 py-1.5 text-[12px] transition-colors ${
         enabled
           ? 'border-gray-700 bg-gray-800/40 text-gray-200 hover:border-sky-500/60 hover:bg-sky-500/10 hover:text-sky-300'
           : 'border-gray-800 text-gray-600'
@@ -462,7 +462,7 @@ function BranchRow({ branch, ahead, behind }: { branch: string; ahead: number; b
         <BranchIcon className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
         <span className="truncate font-mono text-xs text-gray-200">{branch}</span>
       </div>
-      <div className="flex items-center gap-1.5 text-[10px]">
+      <div className="flex items-center gap-1.5 text-[12px]">
         {ahead > 0 && (
           <span className="flex items-center gap-0.5 rounded bg-emerald-500/10 px-1.5 py-0.5 text-emerald-400">
             <ArrowUpIcon className="h-2.5 w-2.5" />
@@ -487,7 +487,7 @@ function ChangeCounts({ staged, modified, untracked }: { staged: number; modifie
   const { t } = useTranslation();
   const hasAny = staged + modified + untracked > 0;
   if (!hasAny) {
-    return <p className="text-[10px] text-gray-500">{t('panel.gitStatus.clean')}</p>;
+    return <p className="text-[12px] text-gray-500">{t('panel.gitStatus.clean')}</p>;
   }
   return (
     <div className="grid grid-cols-3 gap-1.5">
@@ -508,7 +508,7 @@ function CountBox({ label, count, tone }: { label: 'staged' | 'modified' | 'untr
   return (
     <div className={`flex flex-col items-center gap-0.5 rounded border px-1 py-1 ${toneMap[tone]}`}>
       <span className="font-mono text-sm font-semibold leading-none">{count}</span>
-      <span className="text-[9px] uppercase tracking-wide opacity-80">{t(`panel.gitStatus.${label}Label`)}</span>
+      <span className="text-[12px] uppercase tracking-wide opacity-80">{t(`panel.gitStatus.${label}Label`)}</span>
     </div>
   );
 }
@@ -517,13 +517,13 @@ function CommitList({ commits }: { commits: GitCommit[] }): React.JSX.Element {
   const { t } = useTranslation();
   return (
     <div className="flex flex-col gap-1">
-      <span className="text-[10px] uppercase tracking-wide text-gray-500">{t('panel.gitStatus.recentCommits')}</span>
+      <span className="text-[12px] uppercase tracking-wide text-gray-500">{t('panel.gitStatus.recentCommits')}</span>
       <ul className="flex flex-col gap-0.5">
         {commits.map((c) => (
           <li key={c.sha} className="flex items-center gap-2 rounded px-1 py-0.5 hover:bg-gray-800/40">
             {c.coAuthoredByClaude ? (
               <span
-                className="flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center rounded-full text-[8px] font-bold text-white"
+                className="flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center rounded-full text-[12px] font-bold text-white"
                 style={{ backgroundColor: BUBBLE_COLORS.agent }}
                 title={t('panel.gitStatus.coAuthoredByClaude')}
               >
@@ -532,10 +532,10 @@ function CommitList({ commits }: { commits: GitCommit[] }): React.JSX.Element {
             ) : (
               <span className="h-3.5 w-3.5 flex-shrink-0 rounded-full border border-gray-600" title={c.author} />
             )}
-            <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-gray-300" title={c.subject}>
+            <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-gray-300" title={c.subject}>
               {c.subject}
             </span>
-            <span className="flex-shrink-0 text-[10px] text-gray-500">{formatRelativeShort(c.timestamp)}</span>
+            <span className="flex-shrink-0 text-[12px] text-gray-500">{formatRelativeShort(c.timestamp)}</span>
           </li>
         ))}
       </ul>
@@ -559,7 +559,7 @@ function WorktreeList({
   const { t } = useTranslation();
   return (
     <div className="flex flex-col gap-1">
-      <span className="text-[10px] uppercase tracking-wide text-gray-500">
+      <span className="text-[12px] uppercase tracking-wide text-gray-500">
         {t('panel.gitStatus.worktrees')} · {worktrees.length}
       </span>
       <ul className="flex flex-col gap-0.5">
@@ -631,8 +631,8 @@ function WorktreeRow({
           className="h-2 w-2 flex-shrink-0 rounded-full"
           style={{ backgroundColor: BUBBLE_COLORS.worktree }}
         />
-        <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-gray-300">{wt.branch}</span>
-        <span className="flex items-center gap-1 text-[10px]">
+        <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-gray-300">{wt.branch}</span>
+        <span className="flex items-center gap-1 text-[12px]">
           {wt.ahead > 0 && (
             <span className="flex items-center gap-0.5 text-emerald-400">
               <ArrowUpIcon className="h-2 w-2" />
@@ -657,7 +657,7 @@ function WorktreeRow({
           type="button"
           onClick={handleSync}
           disabled={!canSync || syncing}
-          className={`flex flex-shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[10px] transition-colors ${
+          className={`flex flex-shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[12px] transition-colors ${
             canSync
               ? 'border border-gray-700 text-gray-300 hover:border-sky-500/60 hover:bg-sky-500/10 hover:text-sky-300'
               : 'border border-gray-800 text-gray-600'
@@ -676,7 +676,7 @@ function WorktreeRow({
           type="button"
           onClick={handleMerge}
           disabled={!canMerge || merging}
-          className={`flex flex-shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[10px] transition-colors ${
+          className={`flex flex-shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[12px] transition-colors ${
             canMerge
               ? 'border border-gray-700 text-gray-300 hover:border-lime-500/60 hover:bg-lime-500/10 hover:text-lime-300'
               : 'border border-gray-800 text-gray-600'
@@ -691,7 +691,7 @@ function WorktreeRow({
           <span>{t('panel.gitStatus.mergeBtn')}</span>
         </button>
         {wt.lastActivityAt && (
-          <span className="flex-shrink-0 text-[10px] text-gray-600">{formatRelativeShort(wt.lastActivityAt)}</span>
+          <span className="flex-shrink-0 text-[12px] text-gray-600">{formatRelativeShort(wt.lastActivityAt)}</span>
         )}
       </div>
     </li>

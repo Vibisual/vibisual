@@ -80,7 +80,7 @@ export function RootFileList({ folderPath, projectName, parentNodeId }: RootFile
     return (
       <div className="flex flex-col gap-1">
         <span className="text-xs text-gray-500">{t('panel.rootFileList.files')}</span>
-        <span className="text-[10px] text-gray-600">{t('panel.rootFileList.loading')}</span>
+        <span className="text-[12px] text-gray-600">{t('panel.rootFileList.loading')}</span>
       </div>
     );
   }
@@ -89,7 +89,7 @@ export function RootFileList({ folderPath, projectName, parentNodeId }: RootFile
     return (
       <div className="flex flex-col gap-1">
         <span className="text-xs text-gray-500">{t('panel.rootFileList.files')}</span>
-        <span className="text-[10px] text-gray-600">{t('panel.rootFileList.empty')}</span>
+        <span className="text-[12px] text-gray-600">{t('panel.rootFileList.empty')}</span>
       </div>
     );
   }
@@ -98,7 +98,7 @@ export function RootFileList({ folderPath, projectName, parentNodeId }: RootFile
 
   return (
     <div className="flex flex-col">
-      <div className="mb-1 flex items-center gap-1 text-[9px]">
+      <div className="mb-1 flex items-center gap-1 text-[12px]">
         <span className="font-semibold text-violet-400">{t('panel.rootFileList.visible', { count: visibleEntries.length })}</span>
         <span className="text-gray-600">/</span>
         <span className="font-semibold text-gray-500">{t('panel.rootFileList.files')}</span>
@@ -113,7 +113,7 @@ export function RootFileList({ folderPath, projectName, parentNodeId }: RootFile
                 <RootFileRow key={entry.relativePath} entry={entry} isVisible onToggle={handleToggle} />
               ))
             ) : (
-              <span className="text-[10px] text-gray-600">{t('panel.rootFileList.noVisible')}</span>
+              <span className="text-[12px] text-gray-600">{t('panel.rootFileList.noVisible')}</span>
             )}
           </ScrollFade>
         </div>
@@ -147,7 +147,7 @@ interface RootFileRowProps {
 
 function RootFileRow({ entry, isVisible, onToggle }: RootFileRowProps): React.JSX.Element {
   return (
-    <label className="flex cursor-pointer items-center gap-1.5 rounded px-1 py-0.5 text-[11px] text-gray-400 hover:bg-gray-800/50 hover:text-gray-200">
+    <label className="flex cursor-pointer items-center gap-1.5 rounded px-1 py-0.5 text-[12px] text-gray-400 hover:bg-gray-800/50 hover:text-gray-200">
       <input
         type="checkbox"
         className="checkbox-slate"
@@ -165,7 +165,7 @@ function RootFileRow({ entry, isVisible, onToggle }: RootFileRowProps): React.JS
       )}
       <span className="truncate">{entry.name}</span>
       {entry.isDirectory && entry.children && (
-        <span className="ml-auto flex-shrink-0 text-[9px] text-gray-600">
+        <span className="ml-auto flex-shrink-0 text-[12px] text-gray-600">
           {entry.children.length}
         </span>
       )}

@@ -214,7 +214,7 @@ export const DiffView = memo(function DiffView({ parsed, review }: DiffViewProps
           return (
             <div key={hi}>
               {multi && (
-                <div className="border-b border-gray-800/60 bg-gray-800/40 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                <div className="border-b border-gray-800/60 bg-gray-800/40 px-2 py-0.5 text-[12px] font-semibold uppercase tracking-wide text-gray-400">
                   {t('ide.streamRenderer.diff.change', { index: hi + 1 })}
                 </div>
               )}
@@ -235,7 +235,7 @@ export const DiffView = memo(function DiffView({ parsed, review }: DiffViewProps
                       commentLabel={t('ide.diff.addComment')}
                     />
                     {rowComments.map((c) => (
-                      <div key={c.id} className="flex items-start gap-1.5 border-l-2 border-blue-500/60 bg-blue-500/10 py-1 pl-2 pr-1 text-[11px] text-blue-100">
+                      <div key={c.id} className="flex items-start gap-1.5 border-l-2 border-blue-500/60 bg-blue-500/10 py-1 pl-2 pr-1 text-[12px] text-blue-100">
                         <span className="min-w-0 flex-1 whitespace-pre-wrap break-words font-sans">{c.comment}</span>
                         <button
                           type="button"
@@ -267,7 +267,7 @@ export const DiffView = memo(function DiffView({ parsed, review }: DiffViewProps
                           <button
                             type="button"
                             onClick={closeDraft}
-                            className="rounded px-2 py-0.5 font-sans text-[11px] text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
+                            className="rounded px-2 py-0.5 font-sans text-[12px] text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
                           >
                             {t('ide.diff.commentCancel')}
                           </button>
@@ -275,7 +275,7 @@ export const DiffView = memo(function DiffView({ parsed, review }: DiffViewProps
                             type="button"
                             onClick={() => submitDraft(row)}
                             disabled={draftText.trim() === ''}
-                            className="rounded bg-blue-600/80 px-2 py-0.5 font-sans text-[11px] font-semibold text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-gray-700 disabled:text-gray-500"
+                            className="rounded bg-blue-600/80 px-2 py-0.5 font-sans text-[12px] font-semibold text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-gray-700 disabled:text-gray-500"
                           >
                             {t('ide.diff.commentSave')}
                           </button>
@@ -286,7 +286,7 @@ export const DiffView = memo(function DiffView({ parsed, review }: DiffViewProps
                 );
               })}
               {hidden > 0 && (
-                <div className="bg-gray-900/50 px-2 py-1 text-center text-[11px] italic text-gray-500">
+                <div className="bg-gray-900/50 px-2 py-1 text-center text-[12px] italic text-gray-500">
                   {t('ide.streamRenderer.diff.moreLines', { count: hidden })}
                 </div>
               )}
@@ -295,7 +295,7 @@ export const DiffView = memo(function DiffView({ parsed, review }: DiffViewProps
         })}
         {/* §5.5 #17-30 — 상한에 닿으면 조용히 버리지 않고 말한다(보내거나 지워서 자리를 만든다). */}
         {canComment && atLimit && (
-          <div className="bg-amber-500/10 px-2 py-1 text-center font-sans text-[11px] text-amber-300">
+          <div className="bg-amber-500/10 px-2 py-1 text-center font-sans text-[12px] text-amber-300">
             {t('ide.diff.commentLimit', { max: DIFF_COMMENT_MAX })}
           </div>
         )}

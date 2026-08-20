@@ -174,7 +174,7 @@ export function SpecBoardPanel(): React.JSX.Element | null {
     <div className="fixed inset-0 z-[55] flex flex-col bg-gray-950/95 backdrop-blur-sm">
       {/* 헤더 — 제목 인라인 편집 + 개정 번호 + 닫기 */}
       <div className="flex shrink-0 items-center gap-3 border-b border-gray-800 px-4 py-3">
-        <span className="rounded bg-teal-900/60 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-teal-200">
+        <span className="rounded bg-teal-900/60 px-2 py-1 text-[12px] font-semibold uppercase tracking-wide text-teal-200">
           {t('canvas.spec.title', { defaultValue: '스펙' })}
         </span>
         <input
@@ -185,7 +185,7 @@ export function SpecBoardPanel(): React.JSX.Element | null {
           placeholder={t('canvas.spec.untitled', { defaultValue: '제목 없는 스펙' })}
           className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-2 py-1 text-lg font-semibold text-gray-100 outline-none transition-colors hover:border-gray-700 focus:border-teal-600"
         />
-        <span className="shrink-0 rounded bg-gray-800 px-2 py-1 text-[11px] text-gray-400">
+        <span className="shrink-0 rounded bg-gray-800 px-2 py-1 text-[12px] text-gray-400">
           {t('canvas.spec.revision', { count: doc.bodyRevision, defaultValue: '개정 {{count}}' })}
         </span>
         <button
@@ -291,14 +291,14 @@ export function SpecBoardPanel(): React.JSX.Element | null {
                             <button
                               type="button"
                               onClick={() => selectNode(item.taskAgentId ?? null)}
-                              className="flex items-center gap-1 rounded bg-blue-950/70 px-1.5 py-0.5 text-[11px] text-blue-200 transition-colors hover:bg-blue-900/70"
+                              className="flex items-center gap-1 rounded bg-blue-950/70 px-1.5 py-0.5 text-[12px] text-blue-200 transition-colors hover:bg-blue-900/70"
                             >
                               <CardGlyph />
                               {agentLabel ?? t('canvas.spec.cardMissing', { defaultValue: '카드(버블 없음)' })}
                             </button>
                             {stale ? (
                               <>
-                                <span className="flex items-center gap-1 rounded bg-amber-950/70 px-1.5 py-0.5 text-[11px] font-semibold text-amber-200">
+                                <span className="flex items-center gap-1 rounded bg-amber-950/70 px-1.5 py-0.5 text-[12px] font-semibold text-amber-200">
                                   <StaleGlyph />
                                   {t('canvas.spec.stale', { defaultValue: '스펙 변경됨' })}
                                 </span>
@@ -306,7 +306,7 @@ export function SpecBoardPanel(): React.JSX.Element | null {
                                   type="button"
                                   onClick={() => acknowledgeStale(item.id)}
                                   disabled={busy}
-                                  className="rounded bg-gray-800 px-1.5 py-0.5 text-[11px] text-gray-300 transition-colors hover:bg-gray-700 disabled:opacity-50"
+                                  className="rounded bg-gray-800 px-1.5 py-0.5 text-[12px] text-gray-300 transition-colors hover:bg-gray-700 disabled:opacity-50"
                                 >
                                   {t('canvas.spec.acknowledge', { defaultValue: '확인함' })}
                                 </button>
@@ -315,7 +315,7 @@ export function SpecBoardPanel(): React.JSX.Element | null {
                             <button
                               type="button"
                               onClick={() => void detachSpecTask(doc.id, item.id)}
-                              className="rounded px-1.5 py-0.5 text-[11px] text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300"
+                              className="rounded px-1.5 py-0.5 text-[12px] text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300"
                             >
                               {t('canvas.spec.detach', { defaultValue: '연결 끊기' })}
                             </button>
@@ -325,7 +325,7 @@ export function SpecBoardPanel(): React.JSX.Element | null {
                             type="button"
                             onClick={() => generateOne(item.id)}
                             disabled={busy}
-                            className="rounded bg-teal-900/70 px-1.5 py-0.5 text-[11px] text-teal-200 transition-colors hover:bg-teal-800/70 disabled:opacity-50"
+                            className="rounded bg-teal-900/70 px-1.5 py-0.5 text-[12px] text-teal-200 transition-colors hover:bg-teal-800/70 disabled:opacity-50"
                           >
                             {t('canvas.spec.generateOne', { defaultValue: '이 항목으로 작업 카드' })}
                           </button>
@@ -369,7 +369,7 @@ export function SpecBoardPanel(): React.JSX.Element | null {
                 ? t('canvas.spec.generating', { defaultValue: '작업 카드 만드는 중…' })
                 : t('canvas.spec.generateTasksN', { count: counts.pending, defaultValue: '작업 카드 만들기 ({{count}})' })}
             </button>
-            <p className="mt-1.5 text-[11px] leading-snug text-gray-500">
+            <p className="mt-1.5 text-[12px] leading-snug text-gray-500">
               {t('canvas.spec.generateHint', { defaultValue: '수용 기준 하나당 작업 카드 하나가 생기고, 만든 순서대로 Task Edge 로 이어집니다. 이미 카드가 있는 항목은 건너뜁니다.' })}
             </p>
           </div>

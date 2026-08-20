@@ -192,7 +192,7 @@ export function GuideWindow({ open, onClose }: GuideWindowProps): React.JSX.Elem
                 <h4 className="text-sm font-semibold text-gray-200">
                   {categories.find((c) => c.key === category)?.label}
                 </h4>
-                <p className="mt-1 text-[11px] text-gray-500">{active.intro}</p>
+                <p className="mt-1 text-[12px] text-gray-500">{active.intro}</p>
               </div>
 
               <div className="flex flex-col gap-2">
@@ -205,7 +205,7 @@ export function GuideWindow({ open, onClose }: GuideWindowProps): React.JSX.Elem
                       <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-400/80" />
                       <span className="text-xs font-medium text-gray-200">{entry.title}</span>
                     </div>
-                    <p className="mt-1 pl-3.5 text-[11px] leading-relaxed text-gray-400">{entry.desc}</p>
+                    <p className="mt-1 pl-3.5 text-[12px] leading-relaxed text-gray-400">{entry.desc}</p>
                   </div>
                 ))}
               </div>
@@ -215,7 +215,7 @@ export function GuideWindow({ open, onClose }: GuideWindowProps): React.JSX.Elem
 
         {/* Footer — subtitle as a quiet hint */}
         <div className="border-t border-gray-700 px-4 py-2.5">
-          <p className="text-[11px] text-gray-600">
+          <p className="text-[12px] text-gray-600">
             {t('panel.guide.subtitle', { defaultValue: 'A tour of what Vibisual can do — and an inventory of features built so far.' })}
           </p>
         </div>

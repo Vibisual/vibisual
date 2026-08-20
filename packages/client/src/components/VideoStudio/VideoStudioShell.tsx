@@ -461,7 +461,7 @@ export function VideoStudioShell({ params }: AppShellProps): React.JSX.Element {
             />
           </div>
 
-          {status !== '' ? <p className="shrink-0 text-[11px] text-amber-300">{status}</p> : null}
+          {status !== '' ? <p className="shrink-0 text-[12px] text-amber-300">{status}</p> : null}
         </div>
       )}
     </div>

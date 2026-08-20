@@ -66,7 +66,7 @@ export const AgentFeedbackSection = memo(function AgentFeedbackSection({ agentId
   return (
     <div className="flex flex-col gap-1.5 rounded-md border border-gray-700 bg-gray-800/40 px-2.5 py-2">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[10px] uppercase tracking-wide text-gray-500">
+        <span className="text-[12px] uppercase tracking-wide text-gray-500">
           {t('panel.feedback.title')}
         </span>
         <span className="flex items-center gap-2 text-xs font-medium">
@@ -80,7 +80,7 @@ export const AgentFeedbackSection = memo(function AgentFeedbackSection({ agentId
             type="button"
             onClick={() => void requestDistill()}
             disabled={phase === 'loading'}
-            className="flex items-center gap-1.5 rounded bg-rose-500/15 px-2 py-1 text-[11px] font-medium text-rose-300 transition-colors hover:bg-rose-500/25 disabled:opacity-50"
+            className="flex items-center gap-1.5 rounded bg-rose-500/15 px-2 py-1 text-[12px] font-medium text-rose-300 transition-colors hover:bg-rose-500/25 disabled:opacity-50"
           >
             {phase === 'loading' ? (
               <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -94,7 +94,7 @@ export const AgentFeedbackSection = memo(function AgentFeedbackSection({ agentId
             {phase === 'loading' ? t('panel.feedback.distilling') : t('panel.feedback.promote')}
           </button>
           {phase === 'error' && (
-            <span className="text-[10.5px] text-amber-300">{t('panel.feedback.distillFailed')}</span>
+            <span className="text-[12px] text-amber-300">{t('panel.feedback.distillFailed')}</span>
           )}
         </div>
       )}
@@ -105,7 +105,7 @@ export const AgentFeedbackSection = memo(function AgentFeedbackSection({ agentId
           <div className="flex max-h-[80vh] w-[520px] max-w-full flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl">
             <div className="border-b border-gray-800 px-4 py-3">
               <h3 className="text-[13px] font-semibold text-gray-100">{t('panel.feedback.proposalTitle')}</h3>
-              <p className="mt-0.5 text-[11px] leading-relaxed text-gray-400">{t('panel.feedback.proposalHint')}</p>
+              <p className="mt-0.5 text-[12px] leading-relaxed text-gray-400">{t('panel.feedback.proposalHint')}</p>
             </div>
             <textarea
               value={proposal}

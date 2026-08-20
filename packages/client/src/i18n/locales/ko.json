@@ -29,8 +29,9 @@
       "completed": "{{count}}개 완료",
       "working": "{{active}}/{{total}}",
       "tooltipWaiting": "이 프로젝트에 아직 에이전트가 없습니다",
-      "tooltipCompleted": "이 프로젝트의 에이전트 {{count}}개 작업 완료",
-      "tooltipWorking": "이 프로젝트의 에이전트 {{total}}개 중 {{active}}개가 실행 중"
+      "tooltipWorking": "이 프로젝트: 에이전트 {{agents}}개 · 세션 {{sessions}}개 중 {{running}}개 실행 중",
+      "tooltipIdle": "이 프로젝트: 에이전트 {{agents}}개 · 세션 {{sessions}}개 — 지금 실행 중인 세션 없음",
+      "tooltipCommand": "{{status}} · 클릭하면 지휘통제실이 열립니다"
     },
     "tab": {
       "closeProject": "프로젝트 닫기",
@@ -190,6 +191,10 @@
       "title": "옵션",
       "unsaved": "저장 안 됨",
       "discardConfirm": "저장하지 않은 변경 사항을 버리시겠습니까?",
+      "discardTitle": "저장하지 않은 변경 사항",
+      "discardDesc": "아직 적용하지 않은 변경 사항이 있습니다. 지금 나가면 사라집니다.",
+      "discardKeep": "계속 편집",
+      "discardLeave": "버리고 닫기",
       "apply": "적용",
       "cancel": "취소",
       "saving": "저장 중…",
@@ -278,7 +283,7 @@
         "actionFailed": "실행하지 못했습니다. 다시 시도하세요."
       },
       "storage": {
-        "intro": "활동 이력을 디스크에 얼마나 오래 둘지 정합니다. 어느 값이든 0 으로 두면 그 항목은 정리하지 않습니다 — 말없이 지우는 일은 없고, 지금 살아있는 세션은 나이와 무관하게 보존합니다.",
+        "intro": "활동 이력을 디스크에 얼마나 오래 둘지 정합니다. 어느 값이든 0 으로 두면 그 항목은 계속 보존합니다. 말없이 지우는 일은 없습니다 — 대화가 아직 가리키는 파일은 나이와 무관하게 남기고, 살아있는 세션과 다시 열 수 있는 세션은 건드리지 않으며, 정리는 삭제가 아니라 휴지통으로 옮기므로 되돌릴 수 있습니다.",
         "save": "적용",
         "saving": "저장 중…",
         "reset": "기본값으로",
@@ -289,7 +294,7 @@
         "scanning": "측정 중…",
         "cleanNow": "지금 정리",
         "cleaning": "정리 중…",
-        "cleaned": "{{files}}개 파일을 지워 {{size}} 를 확보했습니다.",
+        "cleaned": "{{files}}개({{size}})를 휴지통으로 옮겼습니다 — 아래 목록에 있는 동안 되돌릴 수 있습니다.",
         "empty": "아직 디스크에 저장된 프로젝트 데이터가 없습니다.",
         "worktreesTitle": "Git 워크트리",
         "worktreesNote": "자동으로 지우지 않습니다 — 작업물이 들어 있을 수 있어, 필요 없어지면 폴더를 직접 지워 주세요.",
@@ -314,15 +319,19 @@
           },
           "completedCommandMaxPerSession": {
             "label": "세션당 완료 명령 보관",
-            "desc": "세션마다 남기는 내 말풍선 개수입니다. 0 = 무제한."
+            "desc": "세션마다 남기는 내 말풍선 개수입니다. 다시 만들 수 없는 원문이라 넉넉하게 둡니다. 0 = 무제한."
           },
           "subStreamRetentionDays": {
             "label": "에이전트 대화 기록 보존",
-            "desc": "앱을 켤 때 정리합니다. 살아있는 세션은 나이와 무관하게 남깁니다. 0 = 계속 보존."
+            "desc": "앱을 켤 때 정리합니다. 살아있는 세션과 다시 열기 목록에 있는 세션은 나이와 무관하게 남깁니다. 0 = 계속 보존."
           },
           "attachmentRetentionDays": {
             "label": "첨부 파일 보존",
-            "desc": "명령에 붙여 넣은 이미지입니다. 0 = 계속 보존."
+            "desc": "명령에 붙여 넣은 이미지입니다. 대화가 아직 가리키는 파일은 나이와 무관하게 남기고, 고아만 만료됩니다. 0 = 계속 보존."
+          },
+          "trashRetentionDays": {
+            "label": "휴지통 보존",
+            "desc": "정리된 파일을 며칠 동안 되돌릴 수 있게 둘지입니다. 0 = 계속 보존."
           }
         },
         "kinds": {
@@ -335,14 +344,24 @@
           "brain": "기억",
           "logs": "로그",
           "video": "영상",
-          "other": "기타"
+          "other": "기타",
+          "trash": "휴지통"
         },
         "error": {
           "load": "보존 설정을 불러오지 못했습니다.",
           "save": "보존 설정을 저장하지 못했습니다.",
           "scan": "디스크 사용량을 측정하지 못했습니다.",
-          "clean": "정리에 실패했습니다. 다시 시도해 주세요."
-        }
+          "clean": "정리에 실패했습니다. 다시 시도해 주세요.",
+          "restore": "되돌리지 못했습니다. 원래 자리에 이미 파일이 있을 수 있습니다."
+        },
+        "purged": "보존일이 지난 휴지통 파일 {{files}}개({{size}})를 영구 삭제했습니다.",
+        "keptReferenced": "아직 참조 중인 파일 {{files}}개는 나이와 무관하게 남겼습니다.",
+        "trashTitle": "휴지통",
+        "trashNote": "정리는 지우지 않고 여기로 옮깁니다. 목록에 있는 것은 {{days}}일이 되기 전까지 되돌릴 수 있습니다.",
+        "trashNoteForever": "정리는 지우지 않고 여기로 옮깁니다. 여기 있는 것은 자동으로 지워지지 않습니다.",
+        "trashEmpty": "휴지통이 비어 있습니다 — 정리된 것이 없습니다.",
+        "restore": "되돌리기",
+        "restoring": "되돌리는 중…"
       }
     },
     "autoAgent": {
@@ -491,7 +510,15 @@
       "empty": "콘티 없음 — '새 콘티 생성'을 눌러 첫 번째 장면을 캡처하세요",
       "working": "작업 중… ({{source}})",
       "edited": "{{when}} 편집됨",
-      "editedTitle": "마지막 수정 시각"
+      "editedTitle": "마지막 수정 시각",
+      "scriptTitle": "대본에서 콘티",
+      "scriptPlaceholder": "대본을 붙여 넣으세요 — 장면 순서대로 컷이 만들어집니다.",
+      "scriptPreset": "출력",
+      "scriptFrames": "컷 수",
+      "scriptFramesAuto": "자동",
+      "scriptGenerate": "대본에서 콘티 만들기",
+      "scriptWorking": "컷을 끊는 중…",
+      "scriptChip": "대본"
     },
     "contiBoard": {
       "latest": "최신 콘티",
@@ -501,7 +528,18 @@
       "editFrame": "텍스트 편집",
       "editTitlePrompt": "프레임 제목:",
       "editActionPrompt": "프레임 액션:",
-      "zoomReset": "Ctrl+0 초기화"
+      "zoomReset": "Ctrl+0 초기화",
+      "presetLabel": "출력",
+      "preset": {
+        "landscape": "가로 16:9",
+        "portrait": "세로 9:16",
+        "webtoon": "웹툰(세로 스크롤)"
+      },
+      "render": "렌더",
+      "renderTitle": "컷을 타임라인 문서로 옮기고 렌더를 겁니다",
+      "renderWorking": "넘기는 중…",
+      "renderNoApp": "렌더하려면 영상 앱을 설치하세요",
+      "renderLinked": "{{app}} · {{status}}"
     },
     "contiPrompt": {
       "title": "프롬프트로 요소 수정",
@@ -733,7 +771,8 @@
         "TaskStop": "백그라운드 작업·서브에이전트를 중지합니다.",
         "MultiEdit": "한 파일에 여러 편집을 한 번에 적용합니다.",
         "SendMessage": "실행 중인 서브에이전트에게 후속 메시지를 보냅니다.",
-        "Artifact": "문서·앱 같은 아티팩트를 만듭니다."
+        "Artifact": "문서·앱 같은 아티팩트를 만듭니다.",
+        "strippedByEdgeHint": "STRICT 엣지로 위임되는 도구 — 이 에이전트는 런타임에 사용 불가 (엣지 해제 시 복구)"
       },
       "maxTurns": "최대 턴 수",
       "maxBudgetUsd": "비용 상한 ($, 0=무제한)",
@@ -808,6 +847,12 @@
         "defaultLabel": "기본값 (초, 0 = CLI 기본값)",
         "maxLabel": "최대 한도 (초, 0 = CLI 기본값)",
         "hint": "0이면 CLI 기본값을 그대로 씁니다 — 기본 {{defaultSec}}초, 최대 {{maxSec}}초."
+      },
+      "modelVersion": {
+        "label": "버전",
+        "latest": "최신 (별칭)",
+        "latestWith": "최신 ({{id}})",
+        "custom": "커스텀…"
       }
     },
     "permissionPrompt": {
@@ -1196,6 +1241,132 @@
       "rechecking": "확인 중…",
       "later": "나중에",
       "docs": "공식 설치 안내 보기"
+    },
+    "appsWindow": {
+      "notInstalledTitle": "{{name}} 이(가) 설치되지 않았습니다",
+      "notInstalledBody": "캔버스를 우클릭해 앱에서 설치하세요. 버블을 놓고 그 버블에서 바로 설치해도 됩니다.",
+      "unknownMode": "알 수 없는 화면: {{mode}}",
+      "unknownApp": "알 수 없는 앱: {{id}}"
+    },
+    "apps": {
+      "open": "열기",
+      "openHint": "더블클릭하면 열립니다.",
+      "installApp": "앱 설치",
+      "installHint": "더블클릭하면 설치합니다.",
+      "uninstallApp": "앱 삭제(제거)",
+      "notInstalledBadge": "설치 필요",
+      "unknown": "알 수 없는 앱",
+      "rename": "이름 바꾸기",
+      "renamePrompt": "버블 이름",
+      "pin": "고정",
+      "unpin": "고정 해제",
+      "delete": "삭제",
+      "deletePinnedHint": "고정된 버블입니다. 먼저 고정을 해제하세요.",
+      "detail": {
+        "app": "앱",
+        "installed": "설치됨",
+        "unknownHint": "이 앱은 지금 버전에 없습니다. 버블은 지울 수 있습니다.",
+        "installHint": "설치해야 열 수 있습니다. 캔버스에서 버블을 더블클릭해도 설치됩니다.",
+        "bubble": "이 버블",
+        "nameHint": "비우면 앱 이름으로 돌아갑니다.",
+        "protection": "보호",
+        "pinHint": "켜면 Delete 키·삭제로 지워지지 않습니다.",
+        "deleteBubble": "이 버블 삭제",
+        "deleteHint": "Delete 키로도 지울 수 있습니다. 앱은 지워지지 않습니다."
+      }
+    },
+    "videoStudio": {
+      "title": "Vibistudio",
+      "pickDoc": "영상 선택…",
+      "newDoc": "새 영상",
+      "untitled": "새 영상",
+      "empty": "영상을 고르거나 새로 만드세요.",
+      "newTitle": "제목 화면",
+      "addTitle": "제목 추가",
+      "play": "재생",
+      "pause": "일시정지",
+      "seek": "재생 위치",
+      "toggleItem": "켜기/끄기",
+      "removeItem": "삭제",
+      "pickAgent": "에이전트 선택…",
+      "delegate": "이 컷 맡기기",
+      "delegated": "이 컷을 에이전트에게 맡겼습니다.",
+      "render": "렌더",
+      "renderQueued": "렌더를 걸었습니다.",
+      "renderDone": "렌더를 마쳤습니다.",
+      "noAudio": "소리 없이 나갔습니다.",
+      "downgraded": "렌더 방식이 내려갔습니다: {{id}}",
+      "previewFailed": "미리보기를 그리지 못했습니다.",
+      "reloaded": "다른 곳에서 문서가 바뀌어 다시 읽었습니다."
+    },
+    "cost": {
+      "title": "비용 및 토큰 맵",
+      "close": "비용 맵 닫기",
+      "pillLabel": "오늘 비용",
+      "pillEmpty": "아직 측정된 비용 없음",
+      "notMeasured": "측정 안 됨",
+      "notMeasuredHint": "이 세션은 읽어들인 턴이 없어 비용에 대해 아무것도 단정하지 않습니다.",
+      "periodToday": "오늘",
+      "periodWeek": "이번 주",
+      "periodMonth": "이번 달",
+      "periodAll": "전체 기간",
+      "totalCost": "비용",
+      "inputTokens": "입력",
+      "outputTokens": "출력",
+      "cacheReadTokens": "캐시 읽기",
+      "cacheCreateTokens": "캐시 쓰기",
+      "agentsTitle": "agent별",
+      "sessionsTitle": "세션별",
+      "colName": "이름",
+      "colModel": "모델",
+      "colTokens": "토큰",
+      "colCost": "비용",
+      "sessionCumulativeNote": "세션 행에는 세션 전체가 표시되며, 마지막 활동을 기준으로 필터링됩니다.",
+      "empty": "이 프로젝트에서는 아직 측정된 항목이 없습니다.",
+      "emptyHint": "비용은 agent가 턴을 마치면 나타납니다 — 청구 금액이 아닌, 세션 트랜스크립트에서 읽어온 값입니다.",
+      "estimateNote": "토큰 수와 공개된 가격을 기준으로 추정한 값입니다.",
+      "retiredNote": "이전 세션의 비용({{cost}})은 전체 기간 합계에 포함됩니다.",
+      "sessions_one": "세션 {{count}}개",
+      "sessions_other": "세션 {{count}}개",
+      "openMap": "비용 및 토큰 맵 열기"
+    },
+    "audit": {
+      "title": "권한·감사 경계",
+      "close": "감사 타임라인 닫기",
+      "pillLabel": "오늘 위험 호출",
+      "pillEmpty": "오늘 위험한 도구 호출 없음",
+      "pillOff": "감사 경계가 꺼져 있습니다 — 위험한 작업이 확인 없이 실행됩니다(기록은 계속됩니다)",
+      "boundaryOn": "위험한 작업 전 확인",
+      "boundaryHint": "기록은 항상 계속됩니다 — 이 설정은 에이전트를 먼저 멈출지 여부만 결정합니다.",
+      "routeTitle": "권한 모드와 별개로 도는 두 번째 검문소",
+      "routeBody": "이 경계는 에이전트 설정의 권한 모드(Permission Mode)와 따로 돕니다 — 권한 모드가 통과시킨 도구 호출을 감사 경계가 한 번 더 봅니다.",
+      "routeOn": "켜면 — 권한 모드를 “전부 허용(bypassPermissions)”으로 두신 에이전트도 삭제·네트워크·설정 3종에서는 승인 카드를 만납니다.",
+      "routeOff": "끄면(기본) — 모든 호출이 권한 모드가 정한 대로 실행되고, 기록만 남습니다.",
+      "routeScope": "여기서 붙잡히는 것은 Vibisual 이 띄운 커스텀 에이전트뿐입니다. 직접 실행하신 Claude Code 세션은 기록만 됩니다.",
+      "routeStateOn": "지금 켜짐 — 위험 3종은 권한 모드보다 먼저 확인합니다.",
+      "routeStateOff": "지금 꺼짐 — 권한 모드 그대로 실행되고 기록만 남습니다.",
+      "risk": {
+        "delete": "삭제",
+        "network": "네트워크",
+        "config": "설정"
+      },
+      "filterAll": "전체",
+      "filterRisky": "위험",
+      "filterDenied": "거부",
+      "escalated": "사전 확인",
+      "decisionAllow": "허용됨",
+      "decisionDeny": "거부됨",
+      "sourceTimeout": "시간 초과",
+      "sourcePolicy": "모드에 따라",
+      "reason": "사유",
+      "countSummary": "호출 {{total}}건 · 위험 {{risky}}건 · 거부 {{denied}}건",
+      "showMore": "{{count}}개 더 보기",
+      "noMatch": "이 필터와 일치하는 호출이 없습니다.",
+      "retired": "이전 호출 {{count}}건은 합계에는 포함되지만 세부 정보는 남아 있지 않습니다.",
+      "empty": "이 프로젝트에는 아직 기록된 도구 호출이 없습니다.",
+      "emptyHint": "에이전트가 실행하는 모든 도구 호출이 여기에 기록됩니다 — 무엇을 건드렸는지, 어떻게 응답했는지.",
+      "promptRiskTitle": "위험한 작업",
+      "promptEscalatedHint": "권한 모드라면 자동으로 허용됐겠지만, 감사 경계가 먼저 확인을 요청합니다."
     }
   },
   "ide": {
@@ -1234,6 +1405,12 @@
       "download": "PNG 내려받기",
       "saveReplace": "저장",
       "saveAttach": "주석본 첨부",
+      "saveFile": "파일에 저장",
+      "saveFileHint": "{{path}} 을(를) 이 표시가 반영된 내용으로 덮어씁니다",
+      "saveFileUnsupported": "이 형식은 다시 인코딩할 수 없습니다 — 대신 표시본을 첨부하거나 내려받으세요.",
+      "fileSaveFailed": "그 파일에 저장하지 못했습니다.",
+      "fileConflict": "연 뒤에 그 파일이 디스크에서 바뀌었습니다.",
+      "fileConflictOverwrite": "그래도 저장",
       "textPlaceholder": "입력 후 Enter",
       "hintPick": "도구를 고르면 이미지에 표시할 수 있습니다. 표시한 그대로 첨부됩니다.",
       "hintDraw": "이미지 위를 끌어 표시하세요. Ctrl+Z 로 마지막 표시를 되돌립니다.",
@@ -1256,7 +1433,9 @@
       "cmdLabel": "CMD",
       "hookLabel": "Hook",
       "renameHint": "더블클릭하여 이름 변경 (F2)",
-      "renameInputLabel": "에이전트 이름"
+      "renameInputLabel": "에이전트 이름",
+      "localLabel": "All Model",
+      "localSwitchModel": "이 버블이 쓸 모델 바꾸기"
     },
     "tabbar": {
       "newSession": "새 세션",
@@ -1376,7 +1555,9 @@
       "runningSubagents": "실행 중 서브에이전트 ({{count}})",
       "loop": "반복 루프",
       "goal": "목표",
-      "debug": "실행·디버그"
+      "debug": "실행·디버그",
+      "hooks": "세션 훅",
+      "plugins": "Claude Code 플러그인"
     },
     "mcp": {
       "title": "MCP 서버",
@@ -1652,6 +1833,11 @@
       "truncated": "용량이 큰 파일이라 앞부분만 표시됩니다 — 읽기 전용.",
       "readError": "이 파일을 읽을 수 없습니다",
       "plainLanguage": "텍스트",
+      "imageEdit": "편집",
+      "imageEditHint": "이 이미지에 표시하기",
+      "imageFit": "패널에 맞추기",
+      "imageActualSize": "실제 크기 (1:1)",
+      "imageReadError": "이 이미지를 표시할 수 없습니다",
       "openInPane": "에디터 패널에서 열기 — {{path}}",
       "openFolder": "이 파일이 있는 폴더 열기 — {{path}}",
       "readOnlyLocked": "이 파일은 디스크에서 읽기 전용으로 잠겨 있습니다 (Perforce 체크아웃·파일 속성).",
@@ -1790,6 +1976,45 @@
       "instructionTitle": "받은 지시",
       "changesTitle": "고친 내용",
       "checkpointsTitle": "검수 포인트"
+    },
+    "reviewLane": {
+      "unknownBranch": "(브랜치 미확인)",
+      "fileCount": "파일 {{count}}개",
+      "uncommitted": "미커밋",
+      "uncommittedHint": "아직 커밋되지 않았습니다 — 승인해도 이 변경은 합쳐지지 않습니다.",
+      "showMoreFiles": "{{count}}개 더 보기",
+      "showLessFiles": "접기",
+      "filesTruncated": "일부 파일은 상한에 걸려 빠졌습니다.",
+      "showDiff": "변경 내용 보기 ({{count}}줄)",
+      "hideDiff": "변경 내용 접기",
+      "diffTruncated": "변경 내용이 용량 상한에서 잘렸습니다.",
+      "approve": "승인",
+      "approveTitle": "승인하고 이 브랜치를 부모(본선)로 합칩니다",
+      "reject": "반려",
+      "rejectTitle": "사유를 적어 반려하고 다시 고치도록 돌려보냅니다",
+      "hold": "보류",
+      "holdTitle": "나중에 결정 — 합치지도, 돌려보내지도 않습니다",
+      "sendReject": "반려 보내기",
+      "cancel": "취소",
+      "reasonPlaceholder": "왜 반려하시나요? 적으신 사유가 그대로 에이전트의 다음 명령이 됩니다.",
+      "reasonHint": "사유가 다음 명령이 됩니다.",
+      "rejectPromptHeader": "이 변경은 검수에서 반려됐어. 아래 사유대로 고치고, 무엇을 바꿨는지 알려줘.",
+      "decisionFailed": "결정을 기록하지 못했습니다: {{error}}",
+      "historyTitle": "결정 이력 ({{count}})",
+      "changeType": {
+        "added": "추가",
+        "modified": "수정",
+        "deleted": "삭제",
+        "renamed": "이름 변경",
+        "unknown": "알 수 없음"
+      },
+      "result": {
+        "approvedMerged": "승인 · 합쳐짐",
+        "approvedMergeFailed": "승인 · 합치기 실패 ({{error}})",
+        "rejected": "반려",
+        "rejectedDispatched": "반려 · 재작업 보냄",
+        "held": "보류 중"
+      }
     },
     "list": {
       "title": "목록",
@@ -2289,6 +2514,129 @@
           }
         }
       }
+    },
+    "goal": {
+      "title": "목표",
+      "pickSession": "목표를 보려면 세션을 선택하세요.",
+      "waiting": "아직 목표가 없습니다. 세션이 계획을 세우면 나타납니다.",
+      "setManually": "직접 쓰기",
+      "textPlaceholder": "이 세션이 무엇을 달성해야 하나요?",
+      "textHint": "문구를 직접 수정하면 세션이 더 이상 고쳐 쓰지 않습니다.",
+      "create": "만들기",
+      "update": "수정",
+      "cancel": "취소",
+      "editHint": "목표 수정",
+      "stepCount": "{{done}}/{{total}}단계",
+      "stepRemaining": "{{count}}개 남음",
+      "noSteps": "아직 단계 없음",
+      "byUser": "직접 설정",
+      "bySession": "세션이 설정",
+      "toggleStep": "이 단계 켜기/끄기",
+      "removeStep": "이 단계 삭제",
+      "addStepPlaceholder": "단계 추가…",
+      "historyLabel": "기록",
+      "achieve": "달성 처리",
+      "resume": "다시 열기",
+      "delete": "목표 포기",
+      "status": {
+        "active": "진행 중",
+        "achieved": "달성",
+        "abandoned": "포기"
+      },
+      "source": {
+        "agent": "에이전트가 보고",
+        "user": "직접 조정",
+        "plan": "계획에서 도출"
+      }
+    },
+    "hooks": {
+      "title": "세션 훅",
+      "refresh": "훅 다시 읽기",
+      "noProject": "프로젝트를 열면 그 세션에 적용되는 훅이 보입니다.",
+      "empty": "이 세션에 걸린 훅이 없습니다.",
+      "applyHint": "켜고 끈 것은 지금부터 시작하는 세션에 적용됩니다. 끈 훅은 설정 파일에 그대로 남아 있고, Claude Code 가 실행하지 않도록 옆자리로 옮겨 둘 뿐입니다.",
+      "loadFailed": "훅 설정을 읽지 못했습니다.",
+      "toggleFailed": "변경을 저장하지 못했습니다.",
+      "turnOn": "켜기",
+      "turnOff": "끄기",
+      "matcher": "걸리는 도구: {{matcher}}",
+      "matcherAll": "이 이벤트의 모든 호출에 걸립니다",
+      "timeout": "제한 {{seconds}}초",
+      "state": {
+        "enabled": "켜짐",
+        "disabled": "꺼짐"
+      },
+      "scope": {
+        "user": "글로벌 (모든 프로젝트)",
+        "project": "프로젝트 (레포 공유)",
+        "local": "로컬 (이 컴퓨터만)",
+        "managed": "관리자 정책"
+      },
+      "scopeShort": {
+        "user": "글로벌",
+        "project": "프로젝트",
+        "local": "로컬",
+        "managed": "정책"
+      },
+      "scopeHint": {
+        "user": "~/.claude/settings.json 에 적혀 있습니다 — 모든 프로젝트에서 돕니다.",
+        "project": ".claude/settings.json 에 적혀 있습니다 — 레포에 커밋되어 팀 전체가 함께 씁니다.",
+        "local": ".claude/settings.local.json 에 적혀 있습니다 — 커밋되지 않아 나만 가지고 있습니다.",
+        "managed": "관리자 정책 파일이 정한 훅입니다. 여기서는 읽기만 합니다."
+      },
+      "lock": {
+        "vibisual": "Vibisual 이 세션을 지켜보려고 깐 훅입니다. 끄면 이 앱이 눈을 감게 되어 켜 둡니다.",
+        "managed": "관리자 정책이 정한 훅이라 여기서 바꿀 수 없습니다."
+      }
+    },
+    "plugins": {
+      "title": "Claude Code 플러그인",
+      "refresh": "플러그인 다시 읽기",
+      "noProject": "프로젝트를 열면 그 세션에 적용되는 플러그인이 보입니다.",
+      "loadFailed": "플러그인 목록을 읽지 못했습니다.",
+      "actionFailed": "명령이 성공하지 못했습니다.",
+      "unavailable": "Claude Code CLI 에 플러그인 목록을 묻지 못했습니다.",
+      "emptyInstalled": "설치된 Claude Code 플러그인이 없습니다. 마켓플레이스 탭에서 가져올 수 있습니다.",
+      "emptyMarket": "검색어와 맞는 플러그인이 없습니다.",
+      "applyHint": "켜고 끈 것은 지금부터 시작하는 세션에 적용됩니다 — 이미 돌고 있는 세션은 처음 불러온 것을 그대로 씁니다.",
+      "turnOn": "켜기",
+      "turnOff": "끄기",
+      "install": "설치",
+      "installing": "설치 중…",
+      "alreadyInstalled": "설치됨",
+      "uninstall": "제거",
+      "installCount": "마켓이 밝힌 설치 수",
+      "installScope": "설치 범위",
+      "searchPlaceholder": "플러그인 검색…",
+      "showMore": "{{count}}개 더 보기",
+      "marketplaces": "마켓플레이스",
+      "marketplaceAdd": "추가",
+      "marketplaceRemove": "제거",
+      "marketplacePlaceholder": "owner/repo · URL · 경로",
+      "tab": {
+        "installed": "설치됨",
+        "market": "마켓플레이스"
+      },
+      "scope": {
+        "user": "글로벌",
+        "project": "이 프로젝트",
+        "local": "로컬"
+      },
+      "placement": {
+        "global": "글로벌 (모든 프로젝트)",
+        "this-project": "이 프로젝트",
+        "other-project": "다른 프로젝트에 매임"
+      },
+      "placementShort": {
+        "global": "글로벌",
+        "this-project": "프로젝트",
+        "other-project": "다른 곳"
+      },
+      "placementHint": {
+        "global": "사용자 범위로 깔려 모든 프로젝트에서 실립니다.",
+        "this-project": "이 프로젝트에만 깔려 여기서 띄우는 세션에 실립니다.",
+        "other-project": "깔려 있지만 다른 프로젝트에 매여 있어 이 세션에는 실리지 않습니다."
+      }
     }
   },
   "bubbleMap": {
@@ -2366,7 +2714,31 @@
       "fitAspect": "원본 비율 맞추기",
       "fitAspectHint": "버블 높이를 원본 화면 비율로 재설정해 블랙바를 없앱니다 — 연결된 버블이 하나로 이어져 보입니다.",
       "seamless": "이음매 숨기기",
-      "seamlessHint": "테두리와 헤더를 숨겨 연결된 버블이 하나의 화면처럼 보이게 합니다 (헤더는 마우스를 올리면 다시 나타납니다)"
+      "seamlessHint": "테두리와 헤더를 숨겨 연결된 버블이 하나의 화면처럼 보이게 합니다 (헤더는 마우스를 올리면 다시 나타납니다)",
+      "playtest": {
+        "section": "플레이테스트",
+        "startRecording": "플레이 녹화 시작",
+        "stopRecording": "녹화 멈추고 구간 자르기",
+        "recording": "플레이 녹화 중",
+        "recordFailed": "녹화 실패: {{reason}}",
+        "emptyHint": "녹화한 구간을 잘라 그 프레임을 에이전트 입력창에 붙일 수 있습니다. 클립은 이 기기 메모리에만 남습니다.",
+        "windowTitle": "플레이테스트 클립",
+        "autoStopped": "길이 상한에서 멈춤",
+        "playRange": "구간 재생",
+        "rangeReset": "구간 전체",
+        "rangeLength": "구간 {{len}}",
+        "rangeStart": "구간 시작",
+        "rangeEnd": "구간 끝",
+        "save": "클립 저장 (.webm)",
+        "deleteClip": "이 클립 버리기",
+        "frames": "프레임",
+        "target": "보낼 곳",
+        "noTarget": "보낼 에이전트가 없습니다",
+        "attach": "구간 프레임 {{count}}장 첨부",
+        "attaching": "프레임 뽑는 중 {{done}}/{{total}}",
+        "attached": "{{count}}장을 {{agent}} 입력창에 붙였습니다 — 무엇이 잘못됐는지 적어 보내세요.",
+        "attachFailed": "첨부 실패: {{reason}}"
+      }
     },
     "taskEdge": {
       "iconHint": "클릭: 상세 · 더블클릭: 편집",
@@ -2568,7 +2940,20 @@
       "createCapture": "화면·프로그램 캡처 버블",
       "createCaptureHint": "화면이나 프로그램 창을 라이브로 버블에 띄우기",
       "createSpec": "스펙 보드",
-      "createSpecHint": "요구사항을 적고, 인수 조건마다 태스크 카드로 만들기"
+      "createSpecHint": "요구사항을 적고, 인수 조건마다 태스크 카드로 만들기",
+      "createPlay": "플레이 버블",
+      "createPlayHint": "이 프로젝트를 켜고 끄고 바로 미리보기",
+      "apps": "앱",
+      "appsHint": "앱 버블을 놓고 더블클릭해 엽니다",
+      "appUninstall": "삭제",
+      "appInstall": "설치",
+      "appsHelp": "행을 누르면 캔버스에 버블로 놓입니다. 버블을 더블클릭하면 열리고, 우클릭하면 관리합니다.",
+      "createLab": "에이전트 랩",
+      "createLabHint": "같은 과제를 설정만 바꿔 여러 벌 돌리고 표로 비교하기",
+      "createLocalAgent": "All Model 만들기",
+      "createLocalAgentHint": "내 PC 에서 도는 모델용 버블을 놓습니다",
+      "createShelf": "스크립트 선반",
+      "createShelfHint": "자주 쓰는 명령어와 프롬프트를 클릭 한 번으로 꺼내 쓰기"
     },
     "bounds": {
       "label": "버블 영역",
@@ -2624,6 +3009,139 @@
       "unpin": "고정 해제",
       "delete": "삭제",
       "deletePinnedHint": "이 스펙은 고정되어 있습니다. 먼저 고정을 해제해 주세요."
+    },
+    "play": {
+      "title": "플레이",
+      "idle": "눌러서 실행",
+      "starting": "켜는 중…",
+      "findHint": "눌러서 실행법 찾기",
+      "unknownRecipe": "실행법 모름",
+      "detected": "실행법을 찾았습니다",
+      "noAgent": "조사를 맡길 커스텀 에이전트가 없습니다",
+      "askSent": "에이전트에게 실행법 조사를 맡겼습니다",
+      "askFailed": "조사를 맡기지 못했습니다",
+      "findRecipe": "실행법 알아내기",
+      "askAgent": "에이전트에게 물어보기",
+      "editRecipe": "실행 명령 고치기",
+      "editCommandPrompt": "실행 명령",
+      "editRootPrompt": "서빙할 폴더(절대 경로)",
+      "showPreview": "프리뷰 보이기",
+      "hidePreview": "프리뷰 숨기기",
+      "openBrowser": "브라우저로 열기",
+      "rename": "이름 바꾸기",
+      "renamePrompt": "버튼 이름",
+      "pin": "고정",
+      "unpin": "고정 해제",
+      "delete": "삭제",
+      "deletePinnedHint": "고정된 버블입니다. 먼저 고정을 해제하세요."
+    },
+    "lab": {
+      "title": "랩",
+      "untitled": "제목 없는 랩",
+      "openPanel": "랩 열기",
+      "rename": "이름 바꾸기",
+      "renamePrompt": "랩 제목",
+      "addVariant": "변형 추가",
+      "removeVariant": "변형 삭제",
+      "startAll": "전부 실행",
+      "startAllN": "전부 실행 ({{count}})",
+      "startNoneHint": "실행할 변형이 없습니다",
+      "startNoTaskHint": "먼저 과제를 적으세요",
+      "starting": "변형 실행 중…",
+      "pin": "고정",
+      "unpin": "고정 해제",
+      "delete": "삭제",
+      "deletePinnedHint": "고정된 랩입니다. 먼저 고정을 해제하세요.",
+      "badgeDraft": "대기",
+      "badgeRunning": "실행 중",
+      "badgeDone": "완료",
+      "variants": "변형",
+      "runningN": "도는 중 {{count}}",
+      "emptyHint": "더블클릭해 과제와 변형을 짜세요",
+      "progressRunning": "실행 중 {{done}}/{{total}}",
+      "progressIdle": "완료 {{done}}/{{total}}",
+      "taskLabel": "과제 (모든 변형에 같은 문장)",
+      "taskLocked": "실행 중에는 과제를 바꿀 수 없습니다",
+      "taskPlaceholder": "무엇을 시킬지 한 벌만 적습니다. 변형끼리 다른 것은 설정뿐이어야 비교가 성립합니다.",
+      "noVariants": "변형이 없습니다. 아래에서 설정 조합을 더하세요.",
+      "variantEditor": "변형 설정",
+      "inherit": "(기준 설정 그대로)",
+      "maxTurns": "최대 턴",
+      "rulesAppend": "이 변형에만 붙일 덧말(선택)",
+      "promote": "기본값으로 승격",
+      "promoteHint": "성공한 변형만 승격할 수 있습니다",
+      "promotedBadge": "기본값",
+      "runOne": "실행",
+      "rerun": "다시 실행",
+      "openCard": "카드 보기",
+      "col": {
+        "variant": "변형",
+        "model": "모델",
+        "effort": "Effort",
+        "permission": "권한",
+        "status": "상태",
+        "duration": "소요",
+        "files": "파일",
+        "lines": "±줄",
+        "tokens": "토큰 (입/출)",
+        "cost": "비용",
+        "actions": "동작"
+      },
+      "status": {
+        "pending": "대기",
+        "running": "도는 중",
+        "success": "성공",
+        "failed": "실패",
+        "stopped": "중단"
+      },
+      "baseAgentLabel": "기준 설정",
+      "baseAgentNone": "(고르지 않음 — 새 카드 기본 설정)",
+      "baseAgentHint": "변형이 물려받을 설정, 그리고 승격이 저장될 대상 에이전트입니다."
+    },
+    "shelf": {
+      "title": "선반",
+      "untitled": "제목 없는 선반",
+      "openPanel": "선반 열기",
+      "rename": "이름 바꾸기",
+      "renamePrompt": "선반 이름",
+      "addItem": "항목 추가",
+      "countBadge": "항목 {{count}}개",
+      "itemCount": "항목 {{count}}/{{max}}",
+      "itemLimit": "선반 하나에는 최대 {{count}}개 항목을 담을 수 있어요",
+      "emptyHint": "더블클릭으로 자주 쓰는 명령어와 프롬프트 추가하기",
+      "panelEmpty": "아직 항목이 없어요. 셸 명령어나 프롬프트를 여기 추가하면 캔버스에서 클릭 한 번으로 실행할 수 있어요.",
+      "export": "내보내기 (JSON)",
+      "exportEmptyHint": "아직 내보낼 항목이 없어요",
+      "import": "가져오기 (JSON)",
+      "importReplace": "가져와서 전체 교체하기",
+      "imported": "{{added}}개 항목을 가져왔어요 ({{dropped}}개 제외)",
+      "importFailed": "가져올 수 없어요 — 선반 파일이 아니에요.",
+      "pin": "고정",
+      "unpin": "고정 해제",
+      "delete": "삭제",
+      "deletePinnedHint": "이 선반은 고정되어 있어요. 먼저 고정을 해제하세요.",
+      "kindCommand": "쉘",
+      "kindPrompt": "프롬프트",
+      "newCommand": "새 명령어",
+      "newPrompt": "새 프롬프트",
+      "addCommand": "+ 쉘 명령어",
+      "addPrompt": "+ 프롬프트",
+      "removeItem": "항목 삭제",
+      "moveUp": "위로 이동",
+      "moveDown": "아래로 이동",
+      "run": "실행",
+      "running": "실행 중",
+      "labelPlaceholder": "이름",
+      "commandPlaceholder": "실행할 쉘 명령어 (예: pnpm test)",
+      "promptPlaceholder": "agent에게 보낼 프롬프트",
+      "cwdPlaceholder": "작업 디렉터리 (기본값: 프로젝트 루트)",
+      "newAgentTarget": "실행하면 새 카드 만들기",
+      "statusSuccess": "성공",
+      "statusFailed": "실패",
+      "statusRunning": "실행 중",
+      "exitCode": "종료 코드",
+      "outputTruncated": "(앞부분 생략)",
+      "openCard": "해당 카드 열기"
     }
   },
   "common": {
@@ -2645,6 +3163,7 @@
       "awaitingPermission": "권한 승인 대기 중",
       "awaitingInput": "입력 대기 중",
       "idle": "대기",
+      "dormant": "잠듦",
       "autoIdle": "오토 에이전트 — 원하는 작업을 입력하세요",
       "hint": {
         "enter": "더블클릭하여 진입",
@@ -2659,6 +3178,8 @@
       "deviceMobile": "모바일",
       "deviceTablet": "태블릿",
       "deviceDesktop": "데스크톱",
+      "deviceCompare": "비교",
+      "deviceCompareTip": "모든 폭을 한 프리뷰에 나란히 봅니다",
       "deviceTip": "{{width}}px 폭 그대로 렌더합니다",
       "pickElement": "요소 선택",
       "pickHint": "프리뷰에서 요소를 클릭하면 그 요소에 대해 고칠 것을 적을 수 있습니다",
@@ -2673,8 +3194,16 @@
       "pickLabelElement": "요소",
       "pickLabelSelector": "선택자",
       "pickLabelText": "보이는 글",
-      "pickLabelRequest": "요청"
-    }
+      "pickLabelRequest": "요청",
+      "snip": "영역 캡처",
+      "snipBusy": "캡처 중…",
+      "snipHint": "프리뷰 위를 드래그하면 그 영역이 캡처되어 에이전트 입력창에 첨부됩니다",
+      "snipAttached": "입력창에 첨부됨:",
+      "snipRemove": "이 캡처 지우기",
+      "snipUnavailable": "이 화면에서는 영역 캡처를 쓸 수 없습니다.",
+      "snipFailed": "캡처 실패: {{error}}"
+    },
+    "close": "닫기"
   },
   "brain": {
     "bubbleLabel": "두뇌",
@@ -2887,6 +3416,86 @@
     "bulkStopAll": "실행 중인 것 모두 중지",
     "resetSettings": "이 옵션 초기화",
     "confirmCloseDone": "끝난 세션 탭 {{count}}개를 닫을까요?",
-    "confirmStopAll": "에이전트 {{count}}개의 실행 중인 세션을 모두 중지할까요?"
+    "confirmStopAll": "에이전트 {{count}}개의 실행 중인 세션을 모두 중지할까요?",
+    "title": "커맨드 센터",
+    "detailToggle": "상세 패널 열기/닫기",
+    "all": "전체",
+    "shortcuts": "단축키",
+    "rankHint": "우선순위 {{rank}}",
+    "jump": "세션으로 이동",
+    "followProject": "활성 프로젝트 따라가기",
+    "followProjectNote": "메인 창에서 활성화된 프로젝트를 항상 보여줍니다.",
+    "pinnedHint": "이 프로젝트에 고정됨 — 클릭하면 활성 프로젝트를 따라갑니다.",
+    "followingHint": "활성 프로젝트를 따라가는 중 — 클릭하면 프로젝트 하나에 고정합니다.",
+    "noProject": "프로젝트 없음",
+    "noProjects": "열린 프로젝트가 없습니다.",
+    "updatedNever": "아직 업데이트 없음",
+    "updatedNow": "방금 업데이트됨",
+    "updatedAgo": "{{time}} 전 업데이트됨",
+    "connLive": "실시간",
+    "connConnecting": "연결 중…",
+    "connLost": "오프라인",
+    "connLostHint": "연결이 끊겼습니다 — 재연결 중.",
+    "refresh": "새로고침",
+    "refreshHint": "지금 새로고침",
+    "view": {
+      "board": "보드",
+      "list": "목록"
+    },
+    "sortRule": {
+      "recent": "최근 활동 순",
+      "waiting": "대기 시간 긴 순",
+      "context": "남은 컨텍스트 적은 순"
+    },
+    "detail": {
+      "close": "닫기",
+      "context": "남은 컨텍스트",
+      "permission": "권한 필요",
+      "question": "질문",
+      "suggested": "제안",
+      "review": "리뷰",
+      "changes": "변경 사항",
+      "checkpoints": "체크포인트",
+      "report": "리포트",
+      "userActions": "사용자가 할 일",
+      "did": "에이전트가 한 일",
+      "nextSteps": "다음 단계",
+      "queued": "대기 중인 명령",
+      "lastActivity": "마지막 활동",
+      "nothingYet": "아직 없습니다.",
+      "queuedIt": "대기열에 넣었습니다.",
+      "composerHint": "명령을 입력하고 Enter를 누르면 이 세션으로 전송됩니다."
+    }
+  },
+  "localModel": {
+    "title": "All Model",
+    "subtitle": "내 PC 에서 도는 모델을 골라 버블에 매답니다",
+    "installIntro": "로컬 모델을 돌리려면 추론 엔진이 필요합니다. 앱 설치 파일을 무겁게 만들지 않으려고 기본 번들에 넣지 않았고, 지금 한 번만 받아 두면 됩니다.",
+    "installWhat": "받는 것 — GPU(Vulkan)·CPU 두 벌. 대부분의 그래픽카드가 Vulkan 한 벌로 커버되고, 안 되면 CPU 로 돕니다.",
+    "installWhere": "받는 곳",
+    "install": "엔진 받아서 설치",
+    "preparing": "준비 중",
+    "engineReady": "엔진 준비됨",
+    "uninstall": "엔진 삭제",
+    "myModels": "받아 둔 모델",
+    "noModels": "아직 받아 둔 모델이 없습니다. 아래에서 검색해 하나 받아 보세요.",
+    "loaded": "메모리에 올라감",
+    "deleteModel": "삭제",
+    "downloading": "받는 중",
+    "cancel": "중단",
+    "catalog": "모델 받기",
+    "searchPlaceholder": "모델 이름으로 검색 (예: qwen coder)",
+    "search": "검색",
+    "searching": "찾는 중…",
+    "noFiles": "이 저장소에서 받을 수 있는 GGUF 를 찾지 못했습니다.",
+    "sizeUnknown": "크기 미상",
+    "download": "받기",
+    "footerHint": "고른 모델은 이 PC 의 자원으로 돕니다. 준비가 끝나면 이 버블의 IDE 가 열리고, 기존 Claude 버블은 그대로입니다.",
+    "preparingFor": "{{name}} 이(가) 쓸 모델을 준비합니다",
+    "stepEngine": "엔진",
+    "stepModel": "모델",
+    "stepIde": "IDE",
+    "useModelStart": "이 모델로 시작",
+    "opensIdeHint": "받기가 끝나면 이 버블의 IDE 가 바로 열립니다."
   }
 }

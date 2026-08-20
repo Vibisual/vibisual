@@ -91,3 +91,32 @@ export function resolveSessionRunState(inputs: SessionRunInputs): SessionRunStat
   if (inputs.subStatus === 'idle' && !inputs.acknowledged) return 'doneUnseen';
   return 'done';
 }
+
+/** `agentBadgeShare` 의 입력 — 버블 하나가 배지에 얹는 몫을 재는 데 필요한 사실 전부. */
+export interface AgentBadgeShareInputs {
+  /** 서버가 이 **버블**을 도는 중으로 보는가(`active` · 권한 승인 대기). */
+  bubbleRunning: boolean;
+  /** 이 버블에 달린 세션들이 각각 도는가(`isSessionRunning` 결과). 세션이 없으면 빈 배열. */
+  sessionRunning: boolean[];
+}
+
+/**
+ * 에이전트 버블 하나가 **배지 숫자에 얹는 몫** — 세션 축 집계 규칙을 여기 한 곳에 둔다.
+ *
+ * 같은 규칙을 서버(탭·헤더 집계)와 클라(서버 집계가 없을 때의 폴백)가 각각 쓴다. 두 벌로 적으면
+ * 어느 한쪽만 고쳐졌을 때 배지가 화면마다 다른 수를 말한다 — 이 함수가 그 갈라짐을 막는다.
+ *
+ * 규칙은 둘이다.
+ *  · **세션이 없는 버블은 자기 자신이 한 단위다.** 훅 에이전트처럼 세션 목록이 비는 버블을
+ *    세션 축으로만 세면 숫자에서 통째로 사라진다.
+ *  · **세션이 전부 조용해도 버블이 도는 중이면 1 이다.** 권한 승인 대기(훅이 동기 hold)나 자식
+ *    Task 를 기다리는 감독관이 그렇다 — 사용자에게는 그것도 "하나가 도는 중"이다.
+ */
+export function agentBadgeShare(inputs: AgentBadgeShareInputs): { sessions: number; running: number } {
+  const sessions = inputs.sessionRunning.length === 0 ? 1 : inputs.sessionRunning.length;
+  const runningSessions = inputs.sessionRunning.filter(Boolean).length;
+  return {
+    sessions,
+    running: runningSessions === 0 && inputs.bubbleRunning ? 1 : runningSessions,
+  };
+}

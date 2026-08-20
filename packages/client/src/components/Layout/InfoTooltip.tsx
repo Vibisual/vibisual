@@ -114,9 +114,9 @@ export function InfoTooltip({
             style={{ left: pos?.x ?? -9999, top: pos?.y ?? -9999, width: TOOLTIP_WIDTH, visibility: pos ? 'visible' : 'hidden' }}
             className="pointer-events-none fixed z-[9999] rounded-md border border-white/[0.08] bg-[#1f2937] px-2.5 py-2 shadow-xl shadow-black/50"
           >
-            <p className="text-[11.5px] font-semibold leading-snug text-gray-100">{title}</p>
-            <p className="mt-1 whitespace-pre-line text-[11px] leading-relaxed text-gray-300">{body}</p>
-            {footer && <p className="mt-1.5 text-[10px] leading-snug text-gray-500">{footer}</p>}
+            <p className="text-[12px] font-semibold leading-snug text-gray-100">{title}</p>
+            <p className="mt-1 whitespace-pre-line text-[12px] leading-relaxed text-gray-300">{body}</p>
+            {footer && <p className="mt-1.5 text-[12px] leading-snug text-gray-500">{footer}</p>}
           </div>,
           document.body,
         )}

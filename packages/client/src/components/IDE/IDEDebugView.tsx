@@ -326,7 +326,7 @@ export const IDEDebugView = memo(function IDEDebugView({ agentId }: { agentId: s
 
   if (!rootPath) {
     return (
-      <div className="flex flex-1 items-center justify-center p-4 text-center text-[11px] text-gray-500">
+      <div className="flex flex-1 items-center justify-center p-4 text-center text-[12px] text-gray-500">
         {t('ide.debug.noProject')}
       </div>
     );
@@ -336,11 +336,11 @@ export const IDEDebugView = memo(function IDEDebugView({ agentId }: { agentId: s
     <div className="flex min-h-0 flex-1 flex-col">
       {/* 머리 — 제목 + 실행 중 수 + 새로고침 */}
       <div className="flex items-center gap-1 border-b border-gray-700/60 px-2 py-1.5">
-        <span className="flex-1 truncate text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+        <span className="flex-1 truncate text-[12px] font-semibold uppercase tracking-wide text-gray-400">
           {t('ide.debug.title')}
         </span>
         {runningCount > 0 && (
-          <span className="rounded bg-amber-500/20 px-1 text-[9px] font-bold tabular-nums text-amber-300">
+          <span className="rounded bg-amber-500/20 px-1 text-[12px] font-bold tabular-nums text-amber-300">
             {runningCount}
           </span>
         )}
@@ -369,18 +369,18 @@ export const IDEDebugView = memo(function IDEDebugView({ agentId }: { agentId: s
               className="mt-0.5 h-3 w-3 accent-amber-500"
             />
             <span className="flex-1">
-              <span className="block text-[11px] font-semibold text-gray-200">{t('ide.debug.debugMode')}</span>
-              <span className="mt-0.5 block text-[9.5px] leading-snug text-gray-500">{t('ide.debug.debugModeHint')}</span>
+              <span className="block text-[12px] font-semibold text-gray-200">{t('ide.debug.debugMode')}</span>
+              <span className="mt-0.5 block text-[12px] leading-snug text-gray-500">{t('ide.debug.debugModeHint')}</span>
             </span>
           </label>
 
           {/* A층 — 실행 구성 */}
           <section>
-            <h3 className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+            <h3 className="mb-1 text-[12px] font-semibold uppercase tracking-wide text-gray-500">
               {t('ide.debug.configs')}
             </h3>
             {configs.length === 0 ? (
-              <p className="px-1 py-2 text-[10px] leading-snug text-gray-600">{t('ide.debug.noConfigs')}</p>
+              <p className="px-1 py-2 text-[12px] leading-snug text-gray-600">{t('ide.debug.noConfigs')}</p>
             ) : (
               <ul className="flex flex-col gap-1">
                 {configs.map((cfg) => {
@@ -401,7 +401,7 @@ export const IDEDebugView = memo(function IDEDebugView({ agentId }: { agentId: s
                   return (
                     <li key={cfg.id} className="rounded border border-gray-700/50 bg-gray-800/30 px-1.5 py-1">
                       <div className="flex items-center gap-1">
-                        <span className="min-w-0 flex-1 truncate text-[11px] text-gray-200" title={cfg.reason}>
+                        <span className="min-w-0 flex-1 truncate text-[12px] text-gray-200" title={cfg.reason}>
                           {cfg.name}
                         </span>
                         {/*
@@ -413,7 +413,7 @@ export const IDEDebugView = memo(function IDEDebugView({ agentId }: { agentId: s
                           <button
                             type="button"
                             onClick={() => handleAttachDebugger(runId, cfg, cfg.port)}
-                            className="rounded bg-sky-500/20 px-1.5 py-0.5 text-[9px] text-sky-300 transition-colors hover:bg-sky-500/30"
+                            className="rounded bg-sky-500/20 px-1.5 py-0.5 text-[12px] text-sky-300 transition-colors hover:bg-sky-500/30"
                           >
                             {t('ide.debug.connectDebugger')}
                           </button>
@@ -442,20 +442,20 @@ export const IDEDebugView = memo(function IDEDebugView({ agentId }: { agentId: s
                         )}
                       </div>
                       <div className="mt-0.5 flex items-center gap-1">
-                        <span className={`rounded px-1 text-[8.5px] font-medium ${SOURCE_TONE[cfg.source]}`}>
+                        <span className={`rounded px-1 text-[12px] font-medium ${SOURCE_TONE[cfg.source]}`}>
                           {t(SOURCE_LABEL_KEY[cfg.source])}
                         </span>
                         {running && (
-                          <span className="flex items-center gap-0.5 text-[8.5px] text-amber-300">
+                          <span className="flex items-center gap-0.5 text-[12px] text-amber-300">
                             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />
                             {t('ide.debug.running')}
                           </span>
                         )}
                         {session?.debugMode && session.debugPort && (
-                          <span className="text-[8.5px] text-sky-300">:{session.debugPort}</span>
+                          <span className="text-[12px] text-sky-300">:{session.debugPort}</span>
                         )}
                         {waitingForDebugger && (
-                          <span className="flex items-center gap-0.5 text-[8.5px] text-sky-300">
+                          <span className="flex items-center gap-0.5 text-[12px] text-sky-300">
                             <svg className="h-3 w-3 animate-pulse" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
                               <circle cx="12" cy="12" r="9" />
                               <path d="M12 7v5l3 2" />
@@ -464,13 +464,13 @@ export const IDEDebugView = memo(function IDEDebugView({ agentId }: { agentId: s
                           </span>
                         )}
                         {session && session.status === 'exited' && (
-                          <span className={`text-[8.5px] ${failed ? 'text-rose-400' : 'text-gray-500'}`}>
+                          <span className={`text-[12px] ${failed ? 'text-rose-400' : 'text-gray-500'}`}>
                             {t('ide.debug.exitCode', { code: session.exitCode ?? 0 })}
                           </span>
                         )}
                       </div>
                       {session?.debugMode && !session.debugApplied && (
-                        <p className="mt-0.5 text-[9px] leading-snug text-amber-400/80">
+                        <p className="mt-0.5 text-[12px] leading-snug text-amber-400/80">
                           {t('ide.debug.notApplied')}
                         </p>
                       )}
@@ -479,7 +479,7 @@ export const IDEDebugView = memo(function IDEDebugView({ agentId }: { agentId: s
                           <button
                             type="button"
                             onClick={() => openOutput(runId)}
-                            className="rounded bg-gray-700/60 px-1.5 py-0.5 text-[9px] text-gray-300 transition-colors hover:bg-gray-600"
+                            className="rounded bg-gray-700/60 px-1.5 py-0.5 text-[12px] text-gray-300 transition-colors hover:bg-gray-600"
                           >
                             {t('ide.debug.output')}
                           </button>
@@ -487,7 +487,7 @@ export const IDEDebugView = memo(function IDEDebugView({ agentId }: { agentId: s
                             <button
                               type="button"
                               onClick={() => handleRun(cfg)}
-                              className="rounded bg-gray-700/60 px-1.5 py-0.5 text-[9px] text-gray-300 transition-colors hover:bg-gray-600"
+                              className="rounded bg-gray-700/60 px-1.5 py-0.5 text-[12px] text-gray-300 transition-colors hover:bg-gray-600"
                             >
                               {t('ide.debug.restart')}
                             </button>
@@ -497,7 +497,7 @@ export const IDEDebugView = memo(function IDEDebugView({ agentId }: { agentId: s
                               type="button"
                               onClick={() => handleSendFailure(runId)}
                               disabled={sentRunIds[runId]}
-                              className="rounded bg-rose-500/20 px-1.5 py-0.5 text-[9px] text-rose-300 transition-colors hover:bg-rose-500/30 disabled:opacity-50"
+                              className="rounded bg-rose-500/20 px-1.5 py-0.5 text-[12px] text-rose-300 transition-colors hover:bg-rose-500/30 disabled:opacity-50"
                             >
                               {sentRunIds[runId] ? t('ide.debug.sentToAgent') : t('ide.debug.sendToAgent')}
                             </button>
@@ -510,7 +510,7 @@ export const IDEDebugView = memo(function IDEDebugView({ agentId }: { agentId: s
                             <button
                               type="button"
                               onClick={() => handleAttachDebugger(runId, cfg, session.debugPort)}
-                              className="rounded bg-sky-500/20 px-1.5 py-0.5 text-[9px] text-sky-300 transition-colors hover:bg-sky-500/30"
+                              className="rounded bg-sky-500/20 px-1.5 py-0.5 text-[12px] text-sky-300 transition-colors hover:bg-sky-500/30"
                             >
                               {t('ide.debug.connectDebugger')}
                             </button>
@@ -519,7 +519,7 @@ export const IDEDebugView = memo(function IDEDebugView({ agentId }: { agentId: s
                             <button
                               type="button"
                               onClick={() => handleReleaseWait(runId, session.debugPort as number)}
-                              className="rounded bg-gray-700/60 px-1.5 py-0.5 text-[9px] text-gray-300 transition-colors hover:bg-gray-600"
+                              className="rounded bg-gray-700/60 px-1.5 py-0.5 text-[12px] text-gray-300 transition-colors hover:bg-gray-600"
                               title={t('ide.debug.releaseWaitHint')}
                             >
                               {t('ide.debug.releaseWait')}
@@ -530,7 +530,7 @@ export const IDEDebugView = memo(function IDEDebugView({ agentId }: { agentId: s
                             <button
                               type="button"
                               onClick={() => handleAttachUnreal(runId)}
-                              className="rounded bg-cyan-500/20 px-1.5 py-0.5 text-[9px] text-cyan-300 transition-colors hover:bg-cyan-500/30"
+                              className="rounded bg-cyan-500/20 px-1.5 py-0.5 text-[12px] text-cyan-300 transition-colors hover:bg-cyan-500/30"
                             >
                               {t('ide.debug.attachDebugger')}
                             </button>
@@ -539,7 +539,7 @@ export const IDEDebugView = memo(function IDEDebugView({ agentId }: { agentId: s
                       )}
                       {attachState[runId] && (
                         <p
-                          className={`mt-0.5 text-[9px] leading-snug ${attachState[runId]?.ok ? 'text-cyan-300/90' : 'text-amber-400/80'}`}
+                          className={`mt-0.5 text-[12px] leading-snug ${attachState[runId]?.ok ? 'text-cyan-300/90' : 'text-amber-400/80'}`}
                         >
                           {attachState[runId]?.ok
                             ? t('ide.debug.attachOk')
@@ -550,7 +550,7 @@ export const IDEDebugView = memo(function IDEDebugView({ agentId }: { agentId: s
                       )}
                       {/* ⑩ — 붙기 실패 사유는 그대로 적는다("어댑터가 없다"와 "포트가 안 열렸다"는 할 일이 다르다). */}
                       {attachError && (
-                        <p className="mt-0.5 text-[9px] leading-snug text-amber-400/80">
+                        <p className="mt-0.5 text-[12px] leading-snug text-amber-400/80">
                           {t(`ide.debug.sessionError.${attachError}`, { defaultValue: attachError })}
                         </p>
                       )}
@@ -562,7 +562,7 @@ export const IDEDebugView = memo(function IDEDebugView({ agentId }: { agentId: s
               </ul>
             )}
             {scanned.length > 0 && (
-              <p className="mt-1 truncate px-1 text-[9px] text-gray-600" title={scanned.join(' · ')}>
+              <p className="mt-1 truncate px-1 text-[12px] text-gray-600" title={scanned.join(' · ')}>
                 {t('ide.debug.scanned', { files: scanned.join(' · ') })}
               </p>
             )}
@@ -570,10 +570,10 @@ export const IDEDebugView = memo(function IDEDebugView({ agentId }: { agentId: s
 
           {/* B층 — 에이전트 디버그 도구(MCP) */}
           <section>
-            <h3 className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+            <h3 className="mb-1 text-[12px] font-semibold uppercase tracking-wide text-gray-500">
               {t('ide.debug.mcpTitle')}
             </h3>
-            <p className="mb-1 px-1 text-[9px] leading-snug text-gray-600">{t('ide.debug.mcpHint')}</p>
+            <p className="mb-1 px-1 text-[12px] leading-snug text-gray-600">{t('ide.debug.mcpHint')}</p>
             <ul className="flex flex-col gap-1">
               {MCP_SERVER_PRESETS.map((preset) => (
                 <li key={preset.id} className="rounded border border-gray-700/50 bg-gray-800/30 px-1.5 py-1">
@@ -586,25 +586,25 @@ export const IDEDebugView = memo(function IDEDebugView({ agentId }: { agentId: s
                       className="mt-0.5 h-3 w-3 accent-sky-500"
                     />
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[11px] text-gray-200">{t(preset.labelKey)}</span>
-                      <span className="block truncate text-[9px] text-gray-500" title={preset.name}>{preset.name}</span>
+                      <span className="block truncate text-[12px] text-gray-200">{t(preset.labelKey)}</span>
+                      <span className="block truncate text-[12px] text-gray-500" title={preset.name}>{preset.name}</span>
                     </span>
                   </label>
                   {preset.requiresKey && enabledMcp.has(preset.id) && (
-                    <p className="mt-0.5 text-[9px] leading-snug text-amber-400/80">{t(preset.requiresKey)}</p>
+                    <p className="mt-0.5 text-[12px] leading-snug text-amber-400/80">{t(preset.requiresKey)}</p>
                   )}
                   <a
                     href={preset.docsUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="mt-0.5 inline-block text-[9px] text-sky-400 hover:text-sky-300 hover:underline"
+                    className="mt-0.5 inline-block text-[12px] text-sky-400 hover:text-sky-300 hover:underline"
                   >
                     {t('ide.debug.docs')}
                   </a>
                 </li>
               ))}
             </ul>
-            <p className="mt-1 px-1 text-[9px] leading-snug text-gray-600">{t('ide.debug.mcpApplyHint')}</p>
+            <p className="mt-1 px-1 text-[12px] leading-snug text-gray-600">{t('ide.debug.mcpApplyHint')}</p>
           </section>
 
           {/*
@@ -613,10 +613,10 @@ export const IDEDebugView = memo(function IDEDebugView({ agentId }: { agentId: s
             사용자가 화면에서 읽을 수 있어야 한다.
           */}
           <section>
-            <h3 className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+            <h3 className="mb-1 text-[12px] font-semibold uppercase tracking-wide text-gray-500">
               {t('ide.debug.adapterTitle')}
             </h3>
-            <p className="mb-1 px-1 text-[9px] leading-snug text-gray-600">{t('ide.debug.adapterHint')}</p>
+            <p className="mb-1 px-1 text-[12px] leading-snug text-gray-600">{t('ide.debug.adapterHint')}</p>
             <ul className="flex flex-col gap-1">
               {debugAdapters.map((adapter) => (
                 <li
@@ -624,25 +624,25 @@ export const IDEDebugView = memo(function IDEDebugView({ agentId }: { agentId: s
                   className="flex items-center gap-1 rounded border border-gray-700/50 bg-gray-800/30 px-1.5 py-1"
                 >
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[11px] text-gray-200">
+                    <span className="block truncate text-[12px] text-gray-200">
                       {t(`ide.debug.runtime.${adapter.runtime}`, { defaultValue: adapter.runtime })}
                     </span>
-                    <span className="block truncate text-[9px] text-gray-500" title={adapter.execPath ?? adapter.licence}>
+                    <span className="block truncate text-[12px] text-gray-500" title={adapter.execPath ?? adapter.licence}>
                       {adapter.licence}
                     </span>
                   </span>
                   {adapter.available ? (
-                    <span className="rounded bg-emerald-500/15 px-1 text-[8.5px] font-medium text-emerald-300">
+                    <span className="rounded bg-emerald-500/15 px-1 text-[12px] font-medium text-emerald-300">
                       {t('ide.debug.adapterReady')}
                     </span>
                   ) : adapter.backend === 'delegated' ? (
-                    <span className="text-[9px] text-gray-600">{t('ide.debug.adapterDelegated')}</span>
+                    <span className="text-[12px] text-gray-600">{t('ide.debug.adapterDelegated')}</span>
                   ) : (
                     <a
                       href={adapter.docsUrl}
                       target="_blank"
                       rel="noreferrer"
-                      className="text-[9px] text-sky-400 hover:text-sky-300 hover:underline"
+                      className="text-[12px] text-sky-400 hover:text-sky-300 hover:underline"
                       title={t(adapter.installKey)}
                     >
                       {t('ide.debug.adapterMissing')}
@@ -655,10 +655,10 @@ export const IDEDebugView = memo(function IDEDebugView({ agentId }: { agentId: s
 
           {/* C층 — 외부 디버거 위임 */}
           <section>
-            <h3 className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+            <h3 className="mb-1 text-[12px] font-semibold uppercase tracking-wide text-gray-500">
               {t('ide.debug.externalTitle')}
             </h3>
-            <p className="mb-1 px-1 text-[9px] leading-snug text-gray-600">{t('ide.debug.externalHint')}</p>
+            <p className="mb-1 px-1 text-[12px] leading-snug text-gray-600">{t('ide.debug.externalHint')}</p>
             <ul className="flex flex-col gap-1">
               {debuggers.map((dbg) => (
                 <li
@@ -666,19 +666,19 @@ export const IDEDebugView = memo(function IDEDebugView({ agentId }: { agentId: s
                   className="flex items-center gap-1 rounded border border-gray-700/50 bg-gray-800/30 px-1.5 py-1"
                 >
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[11px] text-gray-200">{dbg.name}</span>
-                    {dbg.reason && <span className="block truncate text-[9px] text-gray-500">{dbg.reason}</span>}
+                    <span className="block truncate text-[12px] text-gray-200">{dbg.name}</span>
+                    {dbg.reason && <span className="block truncate text-[12px] text-gray-500">{dbg.reason}</span>}
                   </span>
                   {dbg.available ? (
                     <button
                       type="button"
                       onClick={() => handleLaunchExternal(dbg.id)}
-                      className="rounded bg-gray-700/60 px-1.5 py-0.5 text-[9px] text-gray-300 transition-colors hover:bg-gray-600"
+                      className="rounded bg-gray-700/60 px-1.5 py-0.5 text-[12px] text-gray-300 transition-colors hover:bg-gray-600"
                     >
                       {t('ide.debug.open')}
                     </button>
                   ) : (
-                    <span className="text-[9px] text-gray-600">{t('ide.debug.notInstalled')}</span>
+                    <span className="text-[12px] text-gray-600">{t('ide.debug.notInstalled')}</span>
                   )}
                 </li>
               ))}

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { readWorkspaceFile, writeWorkspaceFile, detectEol } from './workspaceFile.js';
+import { readWorkspaceFile, readWorkspaceImage, writeWorkspaceFile, writeWorkspaceImage, detectEol } from './workspaceFile.js';
 
 /**
  * §5.5 #17-27 v4.87 — 내장 편집창의 파일 읽기·쓰기 테스트.
@@ -179,5 +179,100 @@ describe('읽기 전용 잠금(⑫)', () => {
     const out = writeWorkspaceFile(root, 'src/app.ts', 'user text\n', 'lf', base.mtimeMs, undefined, true);
     expect(out.ok === false && out.error).toBe('conflict');
     expect(fs.readFileSync(path.join(root, 'src', 'app.ts'), 'utf8')).toBe('agent wrote this\n');
+  });
+});
+
+/**
+ * §5.5 #17-27 ⑭ · #17-25 ④-1 — 이미지를 그림으로 여는 창구.
+ *
+ * 지키는 것 셋 — (a) "그림으로 열 자리인가" 판정을 서버가 끝낸다, (b) 굽지 못하는 형식은 덮어쓰지
+ * 않는다(확장자와 내용이 어긋난 파일 방지), (c) 덮어쓰기도 텍스트와 **같은** mtime 대조를 지난다.
+ */
+
+/** 1×1 투명 PNG — NUL 바이트를 포함해 이진 판정에도 걸린다. */
+const TINY_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+  'base64',
+);
+
+describe('readWorkspaceFile — image 판정', () => {
+  it('이미지 확장자 + 이진이면 image 로 알린다', () => {
+    fs.writeFileSync(path.join(root, 'shot.png'), TINY_PNG);
+    const file = readWorkspaceFile(root, 'shot.png');
+    expect(file?.binary).toBe(true);
+    expect(file?.image).toBe(true);
+  });
+
+  it('SVG 처럼 글자로 읽히는 이미지는 image 가 아니다(편집을 빼앗지 않는다)', () => {
+    fs.writeFileSync(path.join(root, 'icon.svg'), '<svg xmlns="http://www.w3.org/2000/svg" />');
+    const file = readWorkspaceFile(root, 'icon.svg');
+    expect(file?.binary).toBe(false);
+    expect(file?.image).toBe(false);
+  });
+
+  it('이미지가 아닌 이진 파일은 종전 안내로 떨어진다', () => {
+    const file = readWorkspaceFile(root, 'bin.dat');
+    expect(file?.binary).toBe(true);
+    expect(file?.image).toBe(false);
+  });
+});
+
+describe('readWorkspaceImage', () => {
+  it('바이트와 확장자에 맞는 MIME 을 함께 준다', () => {
+    fs.writeFileSync(path.join(root, 'shot.png'), TINY_PNG);
+    const out = readWorkspaceImage(root, 'shot.png');
+    expect(out?.mime).toBe('image/png');
+    expect(out?.bytes.equals(TINY_PNG)).toBe(true);
+    expect(out?.size).toBe(TINY_PNG.length);
+  });
+
+  it('이미지가 아닌 파일과 루트 밖 경로는 null', () => {
+    expect(readWorkspaceImage(root, 'bin.dat')).toBeNull();
+    expect(readWorkspaceImage(root, '../outside.png')).toBeNull();
+  });
+
+  it('상한을 넘으면 잘라 보내지 않고 null — 그리다 만 그림은 보여 줄 값이 없다', () => {
+    fs.writeFileSync(path.join(root, 'shot.png'), TINY_PNG);
+    expect(readWorkspaceImage(root, 'shot.png', 4)).toBeNull();
+  });
+});
+
+describe('writeWorkspaceImage', () => {
+  it('구울 수 있는 형식은 바이트를 그대로 덮어쓴다', () => {
+    const abs = path.join(root, 'shot.png');
+    fs.writeFileSync(abs, TINY_PNG);
+    const before = readWorkspaceImage(root, 'shot.png');
+    const next = Buffer.concat([TINY_PNG, Buffer.from([0x00])]);
+    const out = writeWorkspaceImage(root, 'shot.png', next, before?.mtimeMs ?? 0);
+    expect(out.ok).toBe(true);
+    expect(fs.readFileSync(abs).equals(next)).toBe(true);
+  });
+
+  it('굽지 못하는 형식은 unsupported — 조용히 PNG 로 바꿔 쓰지 않는다', () => {
+    fs.writeFileSync(path.join(root, 'icon.svg'), '<svg />');
+    const out = writeWorkspaceImage(root, 'icon.svg', TINY_PNG, 0);
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.error).toBe('unsupported');
+  });
+
+  it('읽은 뒤 디스크가 바뀌었으면 conflict — 텍스트 저장과 같은 규율', () => {
+    const abs = path.join(root, 'shot.png');
+    fs.writeFileSync(abs, TINY_PNG);
+    const out = writeWorkspaceImage(root, 'shot.png', TINY_PNG, 1);
+    expect(out.ok).toBe(false);
+    if (!out.ok) {
+      expect(out.error).toBe('conflict');
+      expect(out.mtimeMs).toBeGreaterThan(0);
+    }
+    // baseMtimeMs 0 = 사용자가 [그래도 저장]을 골랐다 → 대조를 건너뛴다.
+    expect(writeWorkspaceImage(root, 'shot.png', TINY_PNG, 0).ok).toBe(true);
+  });
+
+  it('루트 밖 경로와 없는 파일은 쓰지 않는다', () => {
+    const outside = writeWorkspaceImage(root, '../evil.png', TINY_PNG, 0);
+    expect(outside.ok).toBe(false);
+    const missing = writeWorkspaceImage(root, 'nope.png', TINY_PNG, 0);
+    expect(missing.ok).toBe(false);
+    if (!missing.ok) expect(missing.error).toBe('not-found');
   });
 });

@@ -67,13 +67,13 @@ const BookmarkRow = memo(function BookmarkRow({ bookmark }: { bookmark: IDEBookm
       }`}
     >
       {/* 본문 — 좁은 칸이라 4줄까지만. 전체는 이동해서 원문으로 본다. */}
-      <p className="line-clamp-4 whitespace-pre-wrap break-words text-[11px] leading-snug text-gray-300">
+      <p className="line-clamp-4 whitespace-pre-wrap break-words text-[12px] leading-snug text-gray-300">
         {bookmark.text}
       </p>
 
       {/* 메타 + 액션 한 줄 */}
       <div className="mt-1 flex items-center gap-1">
-        <span className="min-w-0 truncate rounded bg-cyan-500/15 px-1 py-px text-[9px] font-semibold text-cyan-400/80">
+        <span className="min-w-0 truncate rounded bg-cyan-500/15 px-1 py-px text-[12px] font-semibold text-cyan-400/80">
           {bookmark.agentLabel}
         </span>
         {!sourceAlive && (
@@ -84,7 +84,7 @@ const BookmarkRow = memo(function BookmarkRow({ bookmark }: { bookmark: IDEBookm
             <path d="M9 17H7A5 5 0 0 1 7 7h2M15 7h2a5 5 0 0 1 3.5 8.5M8 12h3M3 3l18 18" />
           </svg>
         )}
-        <span className="flex-shrink-0 text-[9px] tabular-nums text-gray-600" title={formatFull(bookmark.createdAt)}>
+        <span className="flex-shrink-0 text-[12px] tabular-nums text-gray-600" title={formatFull(bookmark.createdAt)}>
           {formatShort(bookmark.createdAt)}
         </span>
         <div className="ml-auto flex flex-shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
@@ -155,18 +155,18 @@ export const IDEBookmarkView = memo(function IDEBookmarkView(): React.JSX.Elemen
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-1 p-2">
       <div className="flex items-center gap-1.5 px-1">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+        <span className="text-[12px] font-semibold uppercase tracking-wider text-gray-500">
           {t('ide.bookmarks.title')}
         </span>
         {bookmarks.length > 0 && (
-          <span className="rounded bg-gray-700/60 px-1 text-[9px] font-semibold tabular-nums text-gray-300">
+          <span className="rounded bg-gray-700/60 px-1 text-[12px] font-semibold tabular-nums text-gray-300">
             {bookmarks.length}
           </span>
         )}
       </div>
 
       {bookmarks.length === 0 ? (
-        <p className="px-2 py-4 text-center text-[11px] leading-relaxed text-gray-600">
+        <p className="px-2 py-4 text-center text-[12px] leading-relaxed text-gray-600">
           {t('ide.bookmarks.empty')}
         </p>
       ) : (

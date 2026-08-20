@@ -337,9 +337,9 @@ export function SystemNode({ subtype, task }: { subtype: string; task?: StreamTa
         </span>
       </span>
       <span className="flex min-w-0 flex-1 items-center gap-2 py-0.5 pl-2">
-        <span className={`truncate text-[11px] font-medium leading-none ${style.label}`}>{label}</span>
+        <span className={`truncate text-[12px] font-medium leading-none ${style.label}`}>{label}</span>
         {meta && (
-          <span className="flex-shrink-0 whitespace-nowrap text-[10px] leading-none text-gray-500">{meta}</span>
+          <span className="flex-shrink-0 whitespace-nowrap text-[12px] leading-none text-gray-500">{meta}</span>
         )}
       </span>
     </div>

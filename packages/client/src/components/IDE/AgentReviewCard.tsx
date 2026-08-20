@@ -4,6 +4,8 @@ import type { AgentReview } from '@vibisual/shared';
 import { FeedbackButtons } from './FeedbackButtons.js';
 import { CardSection, CardDetails, CardHoverControls, CardLiveBadge, CompactCardLine, compactSummary, useCompactCards } from './AgentCardParts.js';
 import { useStreamToggle } from './streamToggle.js';
+import { useGraphStore } from '../../stores/graphStore.js';
+import { ReviewLaneSection } from './ReviewLaneSection.js';
 
 interface AgentReviewCardProps {
   review: AgentReview;
@@ -71,6 +73,13 @@ export function VerifyIcon(): React.JSX.Element {
  */
 export const AgentReviewCard = memo(function AgentReviewCard({ review, live }: AgentReviewCardProps): React.JSX.Element {
   const { t } = useTranslation();
+  // §5.16 — 서버가 격리 변경분을 붙잡아 만든 카드면 `reviewRequestId` 로 그 레코드를 찾아 레인 구획을
+  //   함께 그린다. 에이전트가 스스로 보낸 종전 검수 카드에는 이 값이 없어 종전 그대로 렌더된다.
+  const laneReview = useGraphStore((st) =>
+    review.reviewRequestId === undefined
+      ? undefined
+      : st.reviewRequests.find((r) => r.id === review.reviewRequestId),
+  );
   const hasCheckpoints = review.checkpoints.length > 0;
   // §5.5 #17-12 — 행동 구획(검수 포인트)만 기본 노출, 맥락(받은 지시·고친 내용)은 [자세히] 안으로.
   const detailCount = review.changes.length + (review.instruction ? 1 : 0);
@@ -78,7 +87,7 @@ export const AgentReviewCard = memo(function AgentReviewCard({ review, live }: A
   // §5.5 #17-21 ④ — 간결에서는 행동 구획(검수 포인트)만. 확인할 것이 없으면 카드 전체가 한 줄로 접힌다.
   const compact = useCompactCards();
   const [expanded, toggleExpanded] = useStreamToggle(`card-${review.id}`, false);
-  if (compact && !hasCheckpoints && !expanded) {
+  if (compact && !hasCheckpoints && laneReview === undefined && !expanded) {
     return (
       <CompactCardLine
         icon={<ReviewIcon />}
@@ -96,17 +105,17 @@ export const AgentReviewCard = memo(function AgentReviewCard({ review, live }: A
       {/* 헤더 — 카드 본체는 연하게(작업 신고 카드보다 더 다운). violet 은 식별 라벨·제목에만 대비로. */}
       <div className="flex items-center gap-2 border-b border-gray-800/50 bg-gray-800/15 px-3 py-1.5">
         <span className="text-violet-300"><ReviewIcon /></span>
-        <span className="flex-1 text-[11px] font-semibold uppercase tracking-wide text-violet-300">
+        <span className="flex-1 text-[12px] font-semibold uppercase tracking-wide text-violet-300">
           {t('ide.review.title')}
         </span>
         {live && <CardLiveBadge />}
-        <span className="select-none text-[10px] text-gray-500">{formatTime(review.createdAt)}</span>
+        <span className="select-none text-[12px] text-gray-500">{formatTime(review.createdAt)}</span>
       </div>
 
       <div className="px-3 py-2">
         {/* §5.5 #17-21 ④ — 간결에서는 본문 note 를 접는다(사용자가 직접 펼쳤으면 그대로). */}
         {(!compact || expanded) && review.note && (
-          <p className="mb-2 text-[12.5px] leading-relaxed text-gray-300">{review.note}</p>
+          <p className="mb-2 text-[13px] leading-relaxed text-gray-300">{review.note}</p>
         )}
 
         {/* 검수 포인트 — violet 강조 패널 (행동 구획: 항상 노출) */}
@@ -121,6 +130,9 @@ export const AgentReviewCard = memo(function AgentReviewCard({ review, live }: A
             panelClass="border-violet-500/30 bg-violet-500/10"
           />
         )}
+
+        {/* §5.16 / §7.15 — 리뷰·승인 레인 구획(브랜치·파일 목록·diff·결정) */}
+        {laneReview !== undefined && <ReviewLaneSection review={laneReview} />}
 
         {/* 맥락 구획 — 기본 접힘(받은 지시·고친 내용) */}
         <CardDetails count={detailCount}>

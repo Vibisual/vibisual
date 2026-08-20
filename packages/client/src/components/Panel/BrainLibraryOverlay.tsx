@@ -394,7 +394,7 @@ export function BrainLibraryOverlay(): React.JSX.Element | null {
           {t('brain.library.title', { defaultValue: '기억' })}
         </h2>
         <span className="h-1 w-1 shrink-0 rounded-full bg-zinc-700" aria-hidden="true" />
-        <div className="flex min-w-0 items-center gap-1.5 text-[11px] text-zinc-500">
+        <div className="flex min-w-0 items-center gap-1.5 text-[12px] text-zinc-500">
           {agentMeta ? (
             <>
               <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: agentMeta.color }} />
@@ -494,7 +494,7 @@ export function BrainLibraryOverlay(): React.JSX.Element | null {
                     key={tp}
                     type="button"
                     onClick={() => toggleType(tp)}
-                    className="shrink-0 rounded-md px-2 py-1 text-[11px] transition-colors"
+                    className="shrink-0 rounded-md px-2 py-1 text-[12px] transition-colors"
                     style={on ? { backgroundColor: `${c}26`, color: c } : { color: '#71717A' }}
                   >
                     {t(TYPE_LABEL_KEY[tp].key, { defaultValue: TYPE_LABEL_KEY[tp].fallback })}
@@ -515,7 +515,7 @@ export function BrainLibraryOverlay(): React.JSX.Element | null {
                     type="button"
                     onClick={() => selectTopic(sp.slug)}
                     title={sp.hint}
-                    className={`shrink-0 rounded-full border px-2.5 py-1 text-[11.5px] transition-colors ${
+                    className={`shrink-0 rounded-full border px-2.5 py-1 text-[12px] transition-colors ${
                       on ? 'border-transparent font-semibold' : 'border-zinc-800 hover:brightness-125'
                     }`}
                     style={on ? { backgroundColor: `${sp.color}26`, color: sp.color } : { color: sp.color }}
@@ -533,7 +533,7 @@ export function BrainLibraryOverlay(): React.JSX.Element | null {
                     type="button"
                     onClick={() => selectTopic(tp.slug)}
                     title={tp.whenToRead}
-                    className={`shrink-0 rounded-full border px-2.5 py-1 text-[11.5px] transition-colors ${
+                    className={`shrink-0 rounded-full border px-2.5 py-1 text-[12px] transition-colors ${
                       on ? 'border-transparent font-semibold' : 'border-zinc-800 text-zinc-400 hover:text-zinc-200'
                     }`}
                     style={on ? { backgroundColor: `${ACCENT}26`, color: '#C7D2FE' } : undefined}
@@ -569,15 +569,15 @@ export function BrainLibraryOverlay(): React.JSX.Element | null {
                               {on && <span className="absolute inset-y-2 left-0 w-[2px] rounded-full" style={{ backgroundColor: sp.color }} />}
                               <span className="min-w-0 flex-1">
                                 <span className="block truncate text-[13px] font-semibold" style={{ color: sp.color }}>{sp.title}</span>
-                                <span className="mt-0.5 block truncate text-[10.5px] text-zinc-600" title={sp.hint}>{sp.hint}</span>
+                                <span className="mt-0.5 block truncate text-[12px] text-zinc-600" title={sp.hint}>{sp.hint}</span>
                               </span>
-                              <span className="mt-px shrink-0 text-[11px] tabular-nums" style={{ color: sp.color }}>{sp.count}</span>
+                              <span className="mt-px shrink-0 text-[12px] tabular-nums" style={{ color: sp.color }}>{sp.count}</span>
                             </button>
                           );
                         })}
                       </div>
                     )}
-                    <div className="px-2 pb-2 text-[10.5px] font-medium uppercase tracking-wider text-zinc-600">
+                    <div className="px-2 pb-2 text-[12px] font-medium uppercase tracking-wider text-zinc-600">
                       {t('brain.library.topics', { defaultValue: '주제' })}
                     </div>
                     {topicList.map((tp) => {
@@ -596,9 +596,9 @@ export function BrainLibraryOverlay(): React.JSX.Element | null {
                             <span className={`block truncate text-[13px] ${on ? 'font-semibold text-zinc-100' : 'text-zinc-300'}`}>
                               {t(`brain.topic.${tp.slug}`, { defaultValue: tp.title })}
                             </span>
-                            <span className="mt-0.5 block truncate text-[10.5px] text-zinc-600" title={tp.whenToRead}>{tp.whenToRead}</span>
+                            <span className="mt-0.5 block truncate text-[12px] text-zinc-600" title={tp.whenToRead}>{tp.whenToRead}</span>
                           </span>
-                          <span className="mt-px shrink-0 text-[11px] tabular-nums text-zinc-600">{tp.cardCount}</span>
+                          <span className="mt-px shrink-0 text-[12px] tabular-nums text-zinc-600">{tp.cardCount}</span>
                         </button>
                       );
                     })}
@@ -637,7 +637,7 @@ export function BrainLibraryOverlay(): React.JSX.Element | null {
                       {t(`brain.topic.${activeTopic.slug}`, { defaultValue: activeTopic.title })}
                     </h3>
                     <p className="mt-1 text-xs leading-relaxed text-zinc-500">{activeTopic.whenToRead}</p>
-                    <p className="mt-1.5 truncate font-mono text-[10.5px] text-zinc-700" title={activeTopic.docPath}>{activeTopic.docPath}</p>
+                    <p className="mt-1.5 truncate font-mono text-[12px] text-zinc-700" title={activeTopic.docPath}>{activeTopic.docPath}</p>
                   </div>
                 ) : null}
 

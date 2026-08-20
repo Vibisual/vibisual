@@ -147,7 +147,7 @@ export function CommandCenterCard({
       <div className="flex items-start gap-2">
         {rank !== undefined && (
           <span
-            className={`mt-[1px] w-4 flex-shrink-0 text-right text-[10.5px] tabular-nums ${
+            className={`mt-[1px] w-4 flex-shrink-0 text-right text-[12px] tabular-nums ${
               rank <= 3 ? 'font-semibold text-gray-300' : 'text-gray-600'
             }`}
             title={t('commandCenter.rankHint', { rank })}
@@ -161,14 +161,14 @@ export function CommandCenterCard({
         />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            <span className="truncate text-[12.5px] font-semibold text-gray-100">{item.agentLabel}</span>
+            <span className="truncate text-[13px] font-semibold text-gray-100">{item.agentLabel}</span>
             {item.subAgentId ? (
               <>
-                <span className="text-[11px] text-gray-600">/</span>
-                <span className="truncate text-[11.5px] text-gray-400">{item.sessionLabel}</span>
+                <span className="text-[12px] text-gray-600">/</span>
+                <span className="truncate text-[12px] text-gray-400">{item.sessionLabel}</span>
               </>
             ) : (
-              <span className="rounded bg-white/[0.05] px-1 py-[1px] text-[9.5px] uppercase tracking-wide text-gray-500">
+              <span className="rounded bg-white/[0.05] px-1 py-[1px] text-[12px] uppercase tracking-wide text-gray-500">
                 {t('commandCenter.mainSession')}
               </span>
             )}
@@ -179,7 +179,7 @@ export function CommandCenterCard({
           )}
 
           {/* 메타 줄 — 레인 · 도구 · 대기 · 경과 · 큐 · 컨텍스트 */}
-          <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[10.5px] text-gray-500">
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[12px] text-gray-500">
             <span className={`rounded px-1.5 py-[1px] ring-1 ${tone.chip}`}>
               {t(`commandCenter.lane.${item.lane}`)}
             </span>
@@ -284,10 +284,10 @@ export function CommandCenterCard({
       </div>
 
       {busy && (
-        <p className="mt-2 text-[10.5px] text-gray-500">{t('commandCenter.summarizing')}</p>
+        <p className="mt-2 text-[12px] text-gray-500">{t('commandCenter.summarizing')}</p>
       )}
       {summary && (
-        <p className="mt-2 rounded bg-white/[0.04] px-2 py-1.5 text-[11.5px] leading-snug text-gray-300">{summary}</p>
+        <p className="mt-2 rounded bg-white/[0.04] px-2 py-1.5 text-[12px] leading-snug text-gray-300">{summary}</p>
       )}
 
       {/* 질문 레인 — 제안 응답 프롬프트 칩. 누르면 입력창에 채워진다. */}
@@ -298,7 +298,7 @@ export function CommandCenterCard({
               key={idx}
               type="button"
               onClick={() => { setDraft(prompt); setCommandOpen(true); }}
-              className="max-w-full truncate rounded-full bg-rose-500/10 px-2 py-[3px] text-[10.5px] text-rose-200 ring-1 ring-rose-400/25 transition-colors hover:bg-rose-500/20"
+              className="max-w-full truncate rounded-full bg-rose-500/10 px-2 py-[3px] text-[12px] text-rose-200 ring-1 ring-rose-400/25 transition-colors hover:bg-rose-500/20"
               title={prompt}
             >
               {prompt}
@@ -324,13 +324,13 @@ export function CommandCenterCard({
               if (e.key === 'Escape') { e.preventDefault(); setCommandOpen(false); }
             }}
             placeholder={t('commandCenter.commandPlaceholder')}
-            className="min-w-0 flex-1 resize-none rounded border border-white/10 bg-black/40 px-2 py-1.5 text-[11.5px] text-gray-100 outline-none placeholder:text-gray-600 focus:border-sky-500/50"
+            className="min-w-0 flex-1 resize-none rounded border border-white/10 bg-black/40 px-2 py-1.5 text-[12px] text-gray-100 outline-none placeholder:text-gray-600 focus:border-sky-500/50"
           />
           <button
             type="button"
             onClick={handleSend}
             disabled={!draft.trim()}
-            className="rounded bg-sky-600/80 px-2.5 py-1.5 text-[11.5px] font-medium text-white transition-colors hover:bg-sky-500 disabled:cursor-not-allowed disabled:bg-white/[0.06] disabled:text-gray-600"
+            className="rounded bg-sky-600/80 px-2.5 py-1.5 text-[12px] font-medium text-white transition-colors hover:bg-sky-500 disabled:cursor-not-allowed disabled:bg-white/[0.06] disabled:text-gray-600"
           >
             {t('commandCenter.send')}
           </button>
@@ -345,7 +345,7 @@ function MenuItem({ onClick, label, danger }: { onClick: () => void; label: stri
     <button
       type="button"
       onClick={onClick}
-      className={`block w-full px-3 py-1.5 text-left text-[11.5px] transition-colors hover:bg-white/[0.08] ${
+      className={`block w-full px-3 py-1.5 text-left text-[12px] transition-colors hover:bg-white/[0.08] ${
         danger ? 'text-red-300' : 'text-gray-300'
       }`}
     >

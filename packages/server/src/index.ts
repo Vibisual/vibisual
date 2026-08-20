@@ -4,19 +4,23 @@ import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { exec, execFile } from 'node:child_process';
+import { exec, execFile, spawn, type ChildProcess } from 'node:child_process';
 import multer from 'multer';
-import { DEFAULT_PORT, SESSION_SCAN_INTERVAL, FILE_EXISTENCE_CHECK_INTERVAL, SATELLITE_TYPES, IFRAME_PROXY_PATH, AGENT_IDLE_THRESHOLD_MS, AGENT_IDLE_SWEEP_INTERVAL_MS, INTERRUPT_RECONCILE_INTERVAL_MS, TASK_EDGE_DISPATCH_DEFAULT_TIMEOUT_MS, TASK_EDGE_CRITIQUE_MAX_REWORK_LIMIT, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, SUPPORTED_UI_LOCALES, CONTI_AGENT_RULES, RULES_HISTORY_MAX, CANVAS_CLIPBOARD_SCHEMA_VERSION, AGENT_INTENT_FIRST_RULES, buildAgentReportRules, buildAgentQuestionRules, buildAgentReviewRules, buildAgentListRules, buildAgentIframeRules, buildAgentFeedbackBlock, AGENT_FEEDBACK_SUMMARY_ITEM_MAX, CLAUDE_USAGE_POLL_INTERVAL_MS, CLAUDE_AUTH_POLL_INTERVAL_MS, CLAUDE_AUTO_UPDATE_BOOT_DELAY_MS, SESSION_GOAL_TEXT_MAX, buildSessionGoalRules, CONTEXT_SOURCE_IDS, CONTEXT_PLUGIN_ID_PREFIX, CONTEXT_PREVIEW_MAX_CHARS, estimateTokens, VERIFICATION_VERDICT_SCHEMA_GUIDE } from '@vibisual/shared';
-import type { HookEventPayload, WSMessage, SubAgentStreamEvent, QueuedCommand, SessionTokenData, PipelineType, AgentConfig, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, SubAgentHistoryItem, UiLocale, PermissionDecision, RulesHistoryEntry, Conti, CanvasClipboardPayload, CanvasPasteResponse, AskUserQuestionDecision, AskUserQuestionAnswer, AskUserQuestionOption, AskUserQuestionItem, AskUserQuestionToolInput, AgentReport, AgentQuestions, AgentQuestionItem, AgentReview, AgentList, AgentFeedback, AgentFeedbackTargetType, AgentFeedbackVerdict, BrainCard, BrainCardInput, BrainCardType, BrainCardScope, BrainInjectionEvent, ClaudeUsageInfo, ClaudeAuthStatus, VerificationVerdict, VerificationKind, VerificationAttempt, EscalationReason, AutoAgentRun } from '@vibisual/shared';
-import { BRAIN_INJECTION_TOP_K, BRAIN_INJECTION_TOKEN_BUDGET, BRAIN_FILE_WARN_ONCE_PER_SESSION, BRAIN_EXPERIENCE_TYPES, buildBrainRulesSection, buildBrainTopicIndexSection } from '@vibisual/shared';
+import { DEFAULT_PORT, SESSION_SCAN_INTERVAL, FILE_EXISTENCE_CHECK_INTERVAL, SATELLITE_TYPES, IFRAME_PROXY_PATH, AGENT_IDLE_THRESHOLD_MS, AGENT_IDLE_SWEEP_INTERVAL_MS, INTERRUPT_RECONCILE_INTERVAL_MS, SUBAGENT_DORMANT_IDLE_MS, TASK_EDGE_DISPATCH_DEFAULT_TIMEOUT_MS, TASK_EDGE_CRITIQUE_MAX_REWORK_LIMIT, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, SUPPORTED_UI_LOCALES, CONTI_AGENT_RULES, RULES_HISTORY_MAX, CANVAS_CLIPBOARD_SCHEMA_VERSION, AGENT_INTENT_FIRST_RULES, buildAgentReportRules, buildAgentQuestionRules, buildAgentReviewRules, buildAgentListRules, buildAgentIframeRules, buildAgentFeedbackBlock, AGENT_FEEDBACK_SUMMARY_ITEM_MAX, CLAUDE_USAGE_POLL_INTERVAL_MS, CLAUDE_AUTH_POLL_INTERVAL_MS, CLAUDE_AUTO_UPDATE_BOOT_DELAY_MS, SESSION_GOAL_TEXT_MAX, buildSessionGoalRules, CONTEXT_SOURCE_IDS, CONTEXT_PLUGIN_ID_PREFIX, CONTEXT_PREVIEW_MAX_CHARS, estimateTokens, VERIFICATION_VERDICT_SCHEMA_GUIDE, COST_MAP_SWEEP_INTERVAL_MS } from '@vibisual/shared';
+import type { HookEventPayload, WSMessage, SubAgentStreamEvent, QueuedCommand, SessionTokenData, PipelineType, AgentConfig, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, SubAgentHistoryItem, UiLocale, PermissionDecision, RulesHistoryEntry, Conti, CanvasClipboardPayload, CanvasPasteResponse, AskUserQuestionDecision, AskUserQuestionAnswer, AskUserQuestionOption, AskUserQuestionItem, AskUserQuestionToolInput, AgentReport, AgentQuestions, AgentQuestionItem, AgentReview, AgentList, AgentFeedback, AgentFeedbackTargetType, AgentFeedbackVerdict, BrainCard, BrainCardInput, BrainCardType, BrainCardScope, BrainInjectionEvent, ClaudeUsageInfo, ClaudeAuthStatus, VerificationVerdict, VerificationKind, VerificationAttempt, EscalationReason, AutoAgentRun, ShelfItemKind } from '@vibisual/shared';
+import { WORKSPACE_IMAGE_MAX_BYTES, BRAIN_INJECTION_TOP_K, BRAIN_INJECTION_TOKEN_BUDGET, BRAIN_FILE_WARN_ONCE_PER_SESSION, BRAIN_EXPERIENCE_TYPES, buildBrainRulesSection, buildBrainTopicIndexSection } from '@vibisual/shared';
 // §3.2.3 보존 정책 — 상한·기본값은 shared 한 곳, 파일 정리·실측은 storageRetention.
 import { RETENTION_LIMITS, DEFAULT_RETENTION_SETTINGS } from '@vibisual/shared';
-import type { StorageCleanupResult } from '@vibisual/shared';
-import { scanStorageUsage, runStorageCleanup } from './services/storageRetention.js';
+// §5.13 (Q) 대본 → 콘티 → 렌더.
+import { normalizeStoryboardPresetId, CONTI_SCRIPT_EXCERPT_MAX } from '@vibisual/shared';
+import type { ContiRenderLink, ContiRenderStatus } from '@vibisual/shared';
+import type { StorageCleanupResult, ProjectInfo } from '@vibisual/shared';
+import { scanStorageUsage, runStorageCleanup, listTrash, restoreFromTrash } from './services/storageRetention.js';
 // §5.5 #17-20 ⑥ v4.74 — MCP 프리셋 검증(모르는 id 는 설정에 남기지 않는다).
-import { findMcpPreset, normalizeAgentMemoryScope, normalizeSubagentDepth, normalizeBashTimeoutMs, AVAILABLE_SETTING_SOURCES, AVAILABLE_AUTOCOMPACT_VALUES } from '@vibisual/shared';
+import { findMcpPreset, normalizeAgentProvider, normalizeAgentMemoryScope, normalizeSubagentDepth, normalizeBashTimeoutMs, AVAILABLE_SETTING_SOURCES, AVAILABLE_AUTOCOMPACT_VALUES } from '@vibisual/shared';
 // §5.5 #17-20 ⑫ v4.94 — 디버그 포트 기본값(비어 있는 자리 찾기의 출발점)
 import { DEBUG_PORT_BASE } from '@vibisual/shared';
+import { REVIEW_FILES_MAX, REVIEW_DIFF_MAX_BYTES, REVIEW_REASON_MAX } from '@vibisual/shared';
 import { serializeAppliesTo } from './services/brainCanonical.js';
 // §5.5 #17-11 v3.79 — 세션 반복 실행(루프).
 import type { SessionLoop, SessionLoopMode, SessionLoopContextMode, SessionGoalStatus, SessionGoalProgressSource, SessionGoalStepStatus } from '@vibisual/shared';
@@ -34,6 +38,9 @@ import {
 } from '@vibisual/shared';
 import { absorbMergeFollowUps } from './services/followUpMerge.js';
 import { permissionBroker } from './services/permissionBroker.js';
+// §5.22 — 권한·감사 경계. 위험 판정은 shared 순수 함수 한 곳(서버·클라 같은 답).
+import { classifyToolRisk, shouldEscalateRisk, normalizeAuditBoundary } from '@vibisual/shared';
+import type { AuditDecisionSource, AuditBoundaryConfig } from '@vibisual/shared';
 import { askUserQuestionBroker } from './services/askUserQuestionBroker.js';
 import { AutoAgentRuntime } from './services/autoAgentRuntime.js';
 import { BUBBLE_COLORS, READ_TOOLS, WS_BATCH_INTERVAL, WS_BATCH_INTERVAL_MAX, WS_BATCH_BACKOFF_FACTOR, CHECKPOINT_BATCH_INTERVAL, CHECKPOINT_BATCH_INTERVAL_MAX, CHECKPOINT_QUIET_SWEEP_MS, PROJECT_IDLE_UNLOAD_MS, PROJECT_IDLE_UNLOAD_SWEEP_MS, PROJECT_IDLE_UNLOAD_PRESSURE_MS } from '@vibisual/shared';
@@ -74,18 +81,32 @@ import { scheduleBrainReflection, isBrainReflectionCwd } from './services/brainR
 import { isPortAlive, killByPort, respawn } from './services/processChecker.js';
 // §5.14 v4.62 — 플레이 버블(이 프로젝트를 켜는 버튼).
 import type { PlayBubble, PlayRecipe, SpecDoc } from '@vibisual/shared';
+import type { ReviewFileChange, ReviewFileChangeType } from '@vibisual/shared';
 import { SPEC_BUBBLE_DEFAULT_HEIGHT, SPEC_BUBBLE_DEFAULT_WIDTH, SPEC_ITEM_TEXT_MAX, SPEC_RULES_BEGIN, SPEC_RULES_END, SPEC_TASK_GAP_Y, SPEC_TASK_LABEL_MAX, SPEC_TASK_OFFSET_X, buildSpecTaskRules } from '@vibisual/shared';
+import { LAB_BUBBLE_DEFAULT_HEIGHT, LAB_BUBBLE_DEFAULT_WIDTH, LAB_CARD_GAP_Y, LAB_CARD_OFFSET_X, LAB_RULES_BEGIN, LAB_RULES_END, LAB_VARIANT_LABEL_MAX, LAB_WORKTREE_PREFIX, buildLabVariantRules, estimateLabCostUsd, getModelPricing, DEFAULT_AGENT_CONFIG, SHELF_BUBBLE_DEFAULT_WIDTH, SHELF_BUBBLE_DEFAULT_HEIGHT, SHELF_CARD_OFFSET_X, SHELF_LABEL_MAX, SHELF_RUN_OUTPUT_MAX_CHARS, SHELF_RUN_TIMEOUT_MS, normalizeShelfIcon, normalizeShelfColor, normalizeShelfImport } from '@vibisual/shared';
+import type { LabResultStatus, LabVariant, LabVariantConfig } from '@vibisual/shared';
 import { PLAY_ALIVE_SWEEP_MS, PLAY_BUBBLE_DEFAULT_HEIGHT, PLAY_BUBBLE_DEFAULT_WIDTH, PLAY_PREVIEW_DEFAULT_HEIGHT, PLAY_PREVIEW_DEFAULT_WIDTH, PLAY_PREVIEW_GAP, buildPlayRecipeAskPrompt } from '@vibisual/shared';
 import { detectPlayRecipes } from './services/playRecipeDetector.js';
 import { isPlayAlive, startPlay, stopAllPlays, stopPlay } from './services/playRunner.js';
 import { discoverProjectMetas, hasProjectSaveData, migrateLegacy, migrateLegacySaveRootToProjectDirs, pruneOrphanWorktreeDirs, SaveScheduler, writeCheckpoint } from './services/statePersistence.js';
 import { invalidateWorktreeLiveness } from './services/worktreeLiveness.js';
 import { listWorkspaceDir, statWorkspacePath } from './services/workspaceExplorer.js';
-import { readWorkspaceFile, writeWorkspaceFile } from './services/workspaceFile.js';
+import { readWorkspaceFile, readWorkspaceImage, writeWorkspaceFile, writeWorkspaceImage } from './services/workspaceFile.js';
 // §5.5 #17-20 v4.74 — 디버그·실행 런처(실행 구성 스캔 + 외부 디버거 위임).
 import { scanRunConfigs } from './services/runConfigScanner.js';
 import { listExternalDebuggers, launchExternalDebugger } from './services/externalDebuggerService.js';
 import { scanMcpInventory, setMcpServerEnabled } from './services/mcpInventoryService.js';
+import { scanHookInventory, setHookEnabled } from './services/hookInventoryService.js';
+import { noteHookFired } from './services/hookFireBroadcaster.js';
+import {
+  scanClaudePlugins,
+  setClaudePluginEnabled,
+  installClaudePlugin,
+  uninstallClaudePlugin,
+  addClaudeMarketplace,
+  removeClaudeMarketplace,
+  type PluginMutationResult,
+} from './services/claudePluginService.js';
 import { attachDebuggerToEditor } from './services/unrealProjectService.js';
 // §5.5 #17-20 ⑩ v4.94 — 공통 디버그 층(런타임 무관 중단점·스텝·변수)
 import { debugSessionManager, findFreePort, type DebugControlAction } from './services/debug/debugSessionManager.js';
@@ -102,8 +123,12 @@ import { claudeUsageService, pickPrimaryWindows } from './services/claudeUsageSe
 import { getMemoryDiagnostics, startMemoryMonitor, pressureLevelOf, sampleMemory } from './services/memoryMonitor.js';
 import { claudeAuthService } from './services/claudeAuthService.js';
 import { claudeSetupService } from './services/claudeSetupService.js';
-import { invalidateClaudeBinCache } from './services/claudeBin.js';
+import { invalidateClaudeBinCache, setClaudeBinOverrideWriter } from './services/claudeBin.js';
 import { isAgentViewEnabled, reconcileOnBoot as agentViewReconcileOnBoot } from './services/claudeAgentViewService.js';
+import type { AgentProvider } from '@vibisual/shared';
+import { getEngineState, getInflightEngineInstall, installEngine, uninstallEngine } from './services/localEngineService.js';
+import { cancelDownload, deleteModel, downloadModel, listDownloads, listModels, listRepoFiles, searchCatalog } from './services/localModelService.js';
+import { listLoadedModels } from './services/localRunner.js';
 import { getClaudeVersionInfo, getClaudeInstallsInfo, installLatestClaude, getInflightInstall, invalidateLatestCache, autoUpdateClaudeIfEnabled, onClaudeInstallSettled } from './services/claudeVersionService.js';
 import { agentTracker, setSnapshotScheduler as setAgentTrackerSnapshotScheduler } from './services/agentTracker.js';
 import { discoverSessions, findPidBySession, isProcessAlive, readSessionTokenData, setLivenessProbeListener } from './services/sessionDiscovery.js';
@@ -111,12 +136,12 @@ import { SessionLifecycleManager } from './services/sessionLifecycle.js';
 import { subAgentManager, recordCmdTermSession } from './services/subAgentManager.js';
 // §5.5 #17-9 ⑦ — 자식 도구 한 줄 요약 · Task 결과 본문 추출(판본 흔들림을 흡수하는 순수 함수).
 import { describeToolTarget, extractTaskResultText } from './services/subagentActivity.js';
-import { reapOrphanedPidsFromPreviousRun } from './services/processTree.js';
+import { reapOrphanedPidsFromPreviousRun, registerSpawnedPid, terminateChildTree, unregisterSpawnedPid } from './services/processTree.js';
 import { validatePathWithinRoot } from './services/pathValidator.js';
 import { openFile, openFileAtSearch, openFolder } from './services/editorLauncher.js';
 import { iframeProxyHandler } from './services/iframeProxy.js';
 import { gitStatusService, type WorktreeResolveInfo } from './services/gitStatusService.js';
-import { generateContiFrames, patchContiElement, createEmptyConti, contiId, parseContiResponse, type ContiContextInput } from './services/contiManager.js';
+import { generateContiFrames, generateContiFramesFromScript, patchContiElement, createEmptyConti, contiId, parseContiResponse, type ContiContextInput } from './services/contiManager.js';
 import { logger } from './logger.js';
 import { enableAsyncDiskWrites, flushPendingDiskWritesSync } from './services/diskWriteQueue.js';
 import { diagnosticService } from './services/diagnosticService.js';
@@ -166,6 +191,8 @@ export { setDebugLogDir } from './services/debugLog.js';
 
 // §5.14 v4.62 — 앱 종료 시 플레이 버블이 띄운 서버·정적 호스트 정리(main 이 before-quit 에서 호출).
 export { stopAllPlays } from './services/playRunner.js';
+// §5.19 — 앱 종료 시 로컬 엔진 자식(llama-server) 정리. 안 내리면 모델이 메모리를 물고 남는다.
+export { unloadAllLocalModels } from './services/localRunner.js';
 export { closeStaticHost } from './services/playStaticHost.js';
 // §4 v2.63 — desktop main 의 임베디드 터미널 매니저가 인터랙티브 claude 를 스폰할 때
 // 같은 바이너리(버전 체크/헤드리스 스폰과 동일 SSOT)를 쓰도록 경로 resolver 를 노출.
@@ -213,6 +240,13 @@ export async function runServer(): Promise<RunServerHandle> {
 
   // §9 "디스크 쓰기는 워커 스레드로" — 실제 구동 경로에서만 켠다(테스트·도구는 동기 그대로).
   enableAsyncDiskWrites();
+
+  // §4 (실행본 자가 복구) — 확장 자동 갱신으로 override 가 낡았을 때 `claudeBin` 이 이어받은 새 경로를
+  //   사용자 설정에 되쓰는 창구. `claudeBin` 은 초기화 순서 때문에 서비스를 import 하지 않으므로
+  //   여기서 배선한다(미배선이어도 승계 자체는 동작 — 되쓰기만 생략된다).
+  setClaudeBinOverrideWriter((nextPath) => {
+    void userDefaultsService.update({ claudeBinPath: nextPath }).catch(() => {});
+  });
 
   /** cwd에서 위로 올라가며 pnpm-workspace.yaml 있는 디렉토리 = 프로젝트 루트 */
   function findProjectRoot(start: string): string {
@@ -518,6 +552,19 @@ export async function runServer(): Promise<RunServerHandle> {
       const bgOwnerSub = subAgentManager.findSubBySessionId(claudeSessionId)
         ?? (body._vibisualOwnerTermId ? subAgentManager.findSubByTermId(body._vibisualOwnerTermId) : undefined);
       const bgOwnerAgentId = body._vibisualOwnerAgentId ?? bgOwnerSub?.parentAgentId;
+
+      // §5.5 #17-32 ⑤ — 이 이벤트가 여기 도착했다는 것은 **같은 이벤트에 걸린 다른 훅들도 그
+      //   순간에 함께 돌았다**는 뜻이다(우리 훅이 그들과 같은 자리에 걸려 있으므로 — 새 계측 ❌).
+      //   어느 줄에 불이 켜질지는 화면이 `hookMatcherMatches` 로 고르므로 여기서는 이벤트·도구
+      //   이름만 흘려보낸다. 짧은 창으로 모아 자체 메시지로만 나가고 graph_snapshot·체크포인트에는
+      //   손대지 않는다(§9 v3.45 가 고친 그 폭주 경로 위라 이 규율이 곧 안전장치다).
+      noteHookFired(
+        bgOwnerAgentId ?? graphManager.getAgentBySession(body.session_id)?.id,
+        bgOwnerSub?.id,
+        body.hook_event_name,
+        typeof body.tool_name === 'string' ? body.tool_name : undefined,
+      );
+
       if (bgOwnerAgentId) {
         const isSubagentSpawn = body.hook_event_name === 'PreToolUse'
           && (body.tool_name === 'Task' || body.tool_name === 'Agent');
@@ -3292,9 +3339,21 @@ export async function runServer(): Promise<RunServerHandle> {
    *  §4 v2.63 — `executionMode:'interactive-terminal'` 이면 CMD(인터랙티브 터미널) 에이전트로 baked. */
   app.post('/api/create-custom-agent', (req, res) => {
     try {
-      const { label, x, y, project, executionMode } = req.body as { label?: string; x?: number; y?: number; project?: string; executionMode?: 'headless' | 'interactive-terminal' };
+      const { label, x, y, project, executionMode, provider: providerRaw } = req.body as {
+        label?: string; x?: number; y?: number; project?: string;
+        executionMode?: 'headless' | 'interactive-terminal';
+        // §5.19 (B) — All Model 버블. **모델 없이도 온다** — 우클릭으로 고른 순간 버블이 먼저 생기고
+        //   모델은 그 버블을 눌렀을 때 매인다(진입 순서 역전). 그래서 modelId 가 비었다고 버리면 안 된다.
+        provider?: unknown;
+      };
       const position = typeof x === 'number' && typeof y === 'number' ? { x, y } : undefined;
-      const options = executionMode === 'interactive-terminal' ? { executionMode } : undefined;
+      const provider: AgentProvider | undefined = normalizeAgentProvider(providerRaw);
+      const options =
+        executionMode === 'interactive-terminal'
+          ? { executionMode, ...(provider ? { provider } : {}) }
+          : provider
+            ? { provider }
+            : undefined;
       const agent = graphManager.createCustomAgent(label ?? '', position, project ?? null, options);
       broadcastSnapshot();
       saveCheckpoint();
@@ -4179,92 +4238,116 @@ export async function runServer(): Promise<RunServerHandle> {
   }
 
   /** POST /api/create-worktree — 캔버스에서 `master` 기준 새 git worktree + 버블 생성 */
+  /**
+   * 워크트리 한 벌을 만든다 — **`/api/create-worktree` 와 §5.18 에이전트 랩이 같이 쓰는 한 함수.**
+   *
+   * 예전에는 이 본체가 라우트 안에 인라인으로만 있어서, 다른 기능이 워크트리를 만들려면 코드를
+   * 한 벌 더 베끼는 수밖에 없었다(그러면 한 쪽만 고쳐지는 사고가 난다). 랩이 변형마다 격리를
+   * 필요로 하게 되면서 헬퍼로 뽑았고, 라우트는 이 함수를 부르는 얇은 껍데기가 됐다.
+   *
+   * 브로드캐스트·체크포인트 저장은 **호출부의 몫**이다 — 랩은 N개를 만든 뒤 한 번만 저장한다.
+   */
+  async function createWorktreeUnder(input: {
+    project?: string | undefined;
+    name?: string | undefined;
+    base?: string | undefined;
+    x?: number | undefined;
+    y?: number | undefined;
+  }): Promise<
+    | { ok: true; name: string; branch: string; base: string; path: string; nodeId: string; parentPath: string }
+    | { ok: false; status: number; error: string }
+  > {
+    // 1) 부모 프로젝트 resolve — worktree 프로젝트가 넘어오면 부모로 승격
+    const requested = typeof input.project === 'string' && input.project.length > 0 ? input.project : null;
+    const info = requested ? graphManager.getProjectByName(requested) : graphManager.getPrimaryProject();
+    if (!info) {
+      return { ok: false, status: 400, error: 'No project available to create a worktree under.' };
+    }
+    let parentInfo = info;
+    if (info.parentProjectPath) {
+      // `getProjectByName`은 모든 인스턴스를 훑으므로 worktree 본인일 수도 있다 → 부모로 치환
+      const parent = graphManager.getProjectByName(path.basename(info.parentProjectPath));
+      if (parent) parentInfo = parent;
+    }
+    const parentCwd = parentInfo.path.replace(/\//g, path.sep);
+
+    // 2) 이름 자동 생성 (미지정 시 timestamp). 파일 시스템 안전 문자만 허용.
+    const sanitize = (s: string): string => s.replace(/[^a-zA-Z0-9._-]/g, '-').replace(/^-+|-+$/g, '');
+    const autoName = (() => {
+      const d = new Date();
+      const pad = (n: number): string => n.toString().padStart(2, '0');
+      return `wt-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+    })();
+    let wtName = sanitize(typeof input.name === 'string' && input.name.trim() ? input.name.trim() : autoName);
+    if (!wtName) wtName = autoName;
+
+    const wtRoot = path.join(parentCwd, '.claude', 'worktrees');
+    try { fs.mkdirSync(wtRoot, { recursive: true }); } catch { /* ignore */ }
+
+    // 3) 중복 회피 — 같은 이름 존재 시 `-2`, `-3`... 접미어
+    let targetDir = path.join(wtRoot, wtName);
+    let attempt = 1;
+    while (fs.existsSync(targetDir)) {
+      attempt += 1;
+      targetDir = path.join(wtRoot, `${wtName}-${attempt}`);
+    }
+    const finalName = path.basename(targetDir);
+    const branch = `wt/${finalName}`;
+
+    // 4) `git worktree add -b <branch> <target> <base>` — base 후보: 사용자 지정 → master → main
+    const baseCandidates = input.base ? [input.base, 'master', 'main'] : ['master', 'main'];
+    const result = await runGitWorktreeAdd(parentCwd, targetDir, branch, baseCandidates);
+    if (!result.ok) {
+      logger.warn(`create-worktree git failed: ${result.error}`);
+      return { ok: false, status: 500, error: `git worktree add failed: ${result.error}` };
+    }
+
+    // v3.71: 방금 만든 워크트리가 "죽은 폴더" 판정 캐시에 걸려 발견에서 밀리지 않도록 즉시 무효화.
+    invalidateWorktreeLiveness(targetDir);
+
+    // 5) 등록 + 버블 생성
+    //    부모가 이미 등록돼 있으면 manager.registerProject(wtCwd) 는 부모로 리다이렉트 후 early return 하므로,
+    //    `scanAllProjects` 로 부모 인스턴스의 `discoverWorktrees` 를 강제 실행시켜 worktree 노드를 생성한다.
+    try {
+      graphManager.registerProject(parentCwd); // 부모 인스턴스 확보 (idempotent)
+    } catch (err) {
+      // §3.2.1-4 (v3.03) — 부모가 read-only 격리(load-error)면 워크트리 생성 불가.
+      logger.warn(`create-worktree: parent registerProject("${parentCwd}") failed: ${err instanceof Error ? err.message : String(err)}`);
+      return { ok: false, status: 409, error: `parent project not available (possibly read-only isolated): ${parentCwd}` };
+    }
+    graphManager.scanAllProjects();          // `.claude/worktrees/*` 재스캔 → ensureWorktreeNode
+
+    // 6) 위치 부여 — ensureWorktreeNode 의 id 규칙: `worktree-${hashString(normalized)}`
+    const normalizedWt = targetDir.replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '');
+    let hash = 5381;
+    for (let i = 0; i < normalizedWt.length; i++) {
+      hash = ((hash << 5) + hash + normalizedWt.charCodeAt(i)) >>> 0;
+    }
+    const nodeId = `worktree-${hash}`;
+    if (typeof input.x === 'number' && typeof input.y === 'number') {
+      const positioned = graphManager.updateBubblePosition(nodeId, input.x, input.y);
+      if (!positioned) {
+        logger.warn(`create-worktree: node not found after scan — id=${nodeId}, path=${normalizedWt}`);
+      }
+    }
+
+    return { ok: true, name: finalName, branch, base: result.base, path: targetDir, nodeId, parentPath: parentCwd };
+  }
+
   app.post('/api/create-worktree', (req, res) => {
     void (async () => {
       try {
         const { project, x, y, name, base } = req.body as {
           project?: string; x?: number; y?: number; name?: string; base?: string;
         };
-        // 1) 부모 프로젝트 resolve — worktree 프로젝트가 넘어오면 부모로 승격
-        const requested = typeof project === 'string' && project.length > 0 ? project : null;
-        const info = requested ? graphManager.getProjectByName(requested) : graphManager.getPrimaryProject();
-        if (!info) {
-          res.status(400).json({ error: 'No project available to create a worktree under.' });
+        const created = await createWorktreeUnder({ project, x, y, name, base });
+        if (!created.ok) {
+          res.status(created.status).json({ error: created.error });
           return;
         }
-        let parentInfo = info;
-        if (info.parentProjectPath) {
-          // `getProjectByName`은 모든 인스턴스를 훑으므로 worktree 본인일 수도 있다 → 부모로 치환
-          const parent = graphManager.getProjectByName(path.basename(info.parentProjectPath));
-          if (parent) parentInfo = parent;
-        }
-        const parentCwd = parentInfo.path.replace(/\//g, path.sep);
-
-        // 2) 이름 자동 생성 (미지정 시 timestamp). 파일 시스템 안전 문자만 허용.
-        const sanitize = (s: string): string => s.replace(/[^a-zA-Z0-9._-]/g, '-').replace(/^-+|-+$/g, '');
-        const autoName = (() => {
-          const d = new Date();
-          const pad = (n: number): string => n.toString().padStart(2, '0');
-          return `wt-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
-        })();
-        let wtName = sanitize(typeof name === 'string' && name.trim() ? name.trim() : autoName);
-        if (!wtName) wtName = autoName;
-
-        const wtRoot = path.join(parentCwd, '.claude', 'worktrees');
-        try { fs.mkdirSync(wtRoot, { recursive: true }); } catch { /* ignore */ }
-
-        // 3) 중복 회피 — 같은 이름 존재 시 `-2`, `-3`... 접미어
-        let targetDir = path.join(wtRoot, wtName);
-        let attempt = 1;
-        while (fs.existsSync(targetDir)) {
-          attempt += 1;
-          targetDir = path.join(wtRoot, `${wtName}-${attempt}`);
-        }
-        const finalName = path.basename(targetDir);
-        const branch = `wt/${finalName}`;
-
-        // 4) `git worktree add -b <branch> <target> <base>` — base 후보: 사용자 지정 → master → main
-        const baseCandidates = base ? [base, 'master', 'main'] : ['master', 'main'];
-        const result = await runGitWorktreeAdd(parentCwd, targetDir, branch, baseCandidates);
-        if (!result.ok) {
-          logger.warn(`create-worktree git failed: ${result.error}`);
-          res.status(500).json({ error: `git worktree add failed: ${result.error}` });
-          return;
-        }
-
-        // v3.71: 방금 만든 워크트리가 "죽은 폴더" 판정 캐시에 걸려 발견에서 밀리지 않도록 즉시 무효화.
-        invalidateWorktreeLiveness(targetDir);
-
-        // 5) 등록 + 버블 생성
-        //    부모가 이미 등록돼 있으면 manager.registerProject(wtCwd) 는 부모로 리다이렉트 후 early return 하므로,
-        //    `scanAllProjects` 로 부모 인스턴스의 `discoverWorktrees` 를 강제 실행시켜 worktree 노드를 생성한다.
-        try {
-          graphManager.registerProject(parentCwd); // 부모 인스턴스 확보 (idempotent)
-        } catch (err) {
-          // §3.2.1-4 (v3.03) — 부모가 read-only 격리(load-error)면 워크트리 생성 불가.
-          logger.warn(`create-worktree: parent registerProject("${parentCwd}") failed: ${err instanceof Error ? err.message : String(err)}`);
-          res.status(409).json({ error: `parent project not available (possibly read-only isolated): ${parentCwd}` });
-          return;
-        }
-        graphManager.scanAllProjects();          // `.claude/worktrees/*` 재스캔 → ensureWorktreeNode
-
-        // 6) 위치 부여 — ensureWorktreeNode 의 id 규칙: `worktree-${hashString(normalized)}`
-        const normalizedWt = targetDir.replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '');
-        let hash = 5381;
-        for (let i = 0; i < normalizedWt.length; i++) {
-          hash = ((hash << 5) + hash + normalizedWt.charCodeAt(i)) >>> 0;
-        }
-        const nodeId = `worktree-${hash}`;
-        if (typeof x === 'number' && typeof y === 'number') {
-          const positioned = graphManager.updateBubblePosition(nodeId, x, y);
-          if (!positioned) {
-            logger.warn(`create-worktree: node not found after scan — id=${nodeId}, path=${normalizedWt}`);
-          }
-        }
-
         broadcastSnapshot();
         saveCheckpoint();
-        res.json({ ok: true, name: finalName, branch, base: result.base, path: targetDir, nodeId });
+        res.json({ ok: true, name: created.name, branch: created.branch, base: created.base, path: created.path, nodeId: created.nodeId });
       } catch (err) {
         logger.error('POST /api/create-worktree failed', err);
         res.status(500).json({ error: err instanceof Error ? err.message : 'Internal server error' });
@@ -4555,71 +4638,437 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
-   * POST /api/worktree/:nodeId/merge — 워크트리 브랜치를 **부모(본선)** 로 합친다. §7.6 (판올림 번호 발급 대기).
+   * §7.6 (판올림 번호 발급 대기) — 워크트리 브랜치를 **부모(본선)** 로 합치는 본문.
    *
-   * 바로 위 sync 의 **반대 방향**이다. 종전에는 이 방향이 없어, 격리해서 일을 다 시켜 놓고도 마지막
-   * 합치기만 사용자가 터미널을 따로 열어서 했다.
+   * 엔드포인트(`POST /api/worktree/:nodeId/merge`)와 §5.16 리뷰 승인이 **같은 함수**를 쓴다 —
+   * 두 벌로 갈라 두면 승인 병합만 선행 거부·충돌 원복 규칙에서 벗어나는 상태가 생긴다.
    *
    * - `--no-ff` 고정: 워크트리 한 벌이 커밋 하나로 뭉개지지 않고 갈래가 남아야 되돌릴 수 있다.
    * - 선행 거부 2종(둘 다 409, 손대기 전에 판정): 부모가 dirty(`parent-dirty`) / 합칠 것 없음(`nothing-to-merge`).
    * - 충돌이면 부모에서 `merge --abort` 로 **원복**하고 충돌 파일 목록을 돌려준다(사용자 본선을 충돌 상태로 두지 않는다).
    */
+  type WorktreeMergeOutcome =
+    | { ok: true; branch: string }
+    | {
+        ok: false;
+        httpStatus: number;
+        step: 'resolve' | 'precheck' | 'merge';
+        error: string;
+        branch?: string;
+        files?: string[];
+        conflicts?: string[];
+        ownerAgentId?: string;
+        stderr?: string;
+      };
+
+  async function performWorktreeMerge(nodeId: string): Promise<WorktreeMergeOutcome> {
+    const info = resolveWorktreeNode(nodeId);
+    if (!info) return { ok: false, httpStatus: 404, step: 'resolve', error: 'worktree node not found' };
+    const branch = await getWorktreeBranch(info.parentAbs, info.wtAbs);
+    if (!branch) {
+      return {
+        ok: false,
+        httpStatus: 400,
+        step: 'resolve',
+        error: 'branch not resolved',
+        stderr: 'Could not determine worktree branch via `git worktree list`.',
+      };
+    }
+
+    // 1) 부모가 dirty 면 거부 — 남의 미커밋 작업물 위에 머지를 얹지 않는다(§3.2.1 손실 방지와 같은 방향).
+    const status = await runGit(info.parentAbs, ['status', '--porcelain']);
+    const dirtyFiles = status.stdout.split(/\r?\n/).map((l) => l.slice(3).trim()).filter((l) => l !== '');
+    if (status.code === 0 && dirtyFiles.length > 0) {
+      return { ok: false, httpStatus: 409, step: 'precheck', error: 'parent-dirty', branch, files: dirtyFiles.slice(0, 50) };
+    }
+
+    // 2) 합칠 것이 있나 — 브랜치가 이미 부모 HEAD 의 조상이면 새로 들어올 커밋이 없다(= ahead 0).
+    const ancestor = await runGit(info.parentAbs, ['merge-base', '--is-ancestor', branch, 'HEAD']);
+    if (ancestor.code === 0) {
+      return { ok: false, httpStatus: 409, step: 'precheck', error: 'nothing-to-merge', branch };
+    }
+
+    // 3) 합치기
+    const merge = await runGit(info.parentAbs, ['merge', '--no-ff', '--no-edit', branch]);
+    if (merge.code !== 0) {
+      // 충돌 파일은 **abort 하기 전에** 뽑는다(abort 뒤엔 U 상태가 사라진다).
+      const conflictRes = await runGit(info.parentAbs, ['diff', '--name-only', '--diff-filter=U']);
+      const conflicts = conflictRes.stdout.split(/\r?\n/).map((l) => l.trim()).filter((l) => l !== '');
+      const abort = await runGit(info.parentAbs, ['merge', '--abort']);
+      if (abort.code !== 0) logger.warn(`worktree merge: merge --abort failed: ${abort.stderr.trim()}`);
+      const ownerAgentId = findWorktreeOwnerAgentId(info.wtAbs);
+      return {
+        ok: false,
+        httpStatus: 409,
+        step: 'merge',
+        error: 'merge-conflict',
+        branch,
+        conflicts,
+        // 충돌을 넘길 상대 — 그 워크트리에서 일하던 커스텀 에이전트(없으면 생략 → 화면이 버튼을 안 낸다).
+        ...(ownerAgentId ? { ownerAgentId } : {}),
+        stderr: merge.stderr || merge.stdout || 'merge failed',
+      };
+    }
+
+    // 4) 캐시 무효화 — 부모의 ahead/behind·최근 커밋이 바뀌었다.
+    const parentInst = graphManager.getProjectByName(path.basename(info.parentAbs));
+    if (parentInst?.name) gitStatusService.invalidate(parentInst.name);
+    broadcastSnapshot();
+    return { ok: true, branch };
+  }
+
+  /**
+   * POST /api/worktree/:nodeId/merge — 위 본문을 그대로 HTTP 로 낸다. §7.6 (판올림 번호 발급 대기).
+   *
+   * 바로 위 sync 의 **반대 방향**이다. 종전에는 이 방향이 없어, 격리해서 일을 다 시켜 놓고도 마지막
+   * 합치기만 사용자가 터미널을 따로 열어서 했다.
+   */
   app.post('/api/worktree/:nodeId/merge', (req, res) => {
     void (async () => {
       try {
-        const info = resolveWorktreeNode(req.params.nodeId);
-        if (!info) { res.status(404).json({ error: 'worktree node not found' }); return; }
-        const branch = await getWorktreeBranch(info.parentAbs, info.wtAbs);
-        if (!branch) {
-          res.status(400).json({ error: 'branch not resolved', stderr: 'Could not determine worktree branch via `git worktree list`.' });
-          return;
-        }
-
-        // 1) 부모가 dirty 면 거부 — 남의 미커밋 작업물 위에 머지를 얹지 않는다(§3.2.1 손실 방지와 같은 방향).
-        const status = await runGit(info.parentAbs, ['status', '--porcelain']);
-        const dirtyFiles = status.stdout.split(/\r?\n/).map((l) => l.slice(3).trim()).filter((l) => l !== '');
-        if (status.code === 0 && dirtyFiles.length > 0) {
-          res.status(409).json({ ok: false, step: 'precheck', error: 'parent-dirty', branch, files: dirtyFiles.slice(0, 50) });
-          return;
-        }
-
-        // 2) 합칠 것이 있나 — 브랜치가 이미 부모 HEAD 의 조상이면 새로 들어올 커밋이 없다(= ahead 0).
-        const ancestor = await runGit(info.parentAbs, ['merge-base', '--is-ancestor', branch, 'HEAD']);
-        if (ancestor.code === 0) {
-          res.status(409).json({ ok: false, step: 'precheck', error: 'nothing-to-merge', branch });
-          return;
-        }
-
-        // 3) 합치기
-        const merge = await runGit(info.parentAbs, ['merge', '--no-ff', '--no-edit', branch]);
-        if (merge.code !== 0) {
-          // 충돌 파일은 **abort 하기 전에** 뽑는다(abort 뒤엔 U 상태가 사라진다).
-          const conflictRes = await runGit(info.parentAbs, ['diff', '--name-only', '--diff-filter=U']);
-          const conflicts = conflictRes.stdout.split(/\r?\n/).map((l) => l.trim()).filter((l) => l !== '');
-          const abort = await runGit(info.parentAbs, ['merge', '--abort']);
-          if (abort.code !== 0) logger.warn(`worktree merge: merge --abort failed: ${abort.stderr.trim()}`);
-          res.status(409).json({
-            ok: false,
-            step: 'merge',
-            branch,
-            conflicts,
-            // 충돌을 넘길 상대 — 그 워크트리에서 일하던 커스텀 에이전트(없으면 undefined → 화면이 버튼을 안 낸다).
-            ownerAgentId: findWorktreeOwnerAgentId(info.wtAbs),
-            stderr: merge.stderr || merge.stdout || 'merge failed',
-          });
-          return;
-        }
-
-        // 4) 캐시 무효화 — 부모의 ahead/behind·최근 커밋이 바뀌었다.
-        const parentInst = graphManager.getProjectByName(path.basename(info.parentAbs));
-        if (parentInst?.name) gitStatusService.invalidate(parentInst.name);
-        broadcastSnapshot();
-        res.json({ ok: true, branch });
+        const outcome = await performWorktreeMerge(req.params.nodeId);
+        if (outcome.ok) { res.json({ ok: true, branch: outcome.branch }); return; }
+        const { httpStatus, ...rest } = outcome;
+        res.status(httpStatus).json(rest);
       } catch (err) {
         logger.error('POST /api/worktree/:id/merge failed', err);
         res.status(500).json({ error: err instanceof Error ? err.message : 'Internal server error' });
       }
     })();
+  });
+
+  // ─── §5.16 — 리뷰·승인 레인 (머지 전에 사람이 붙잡는 자리) ───
+
+  /**
+   * §5.16 — 워크트리 변경분 한 벌. `merge-base` 기준 커밋분 + 미커밋분을 합친 결과.
+   *
+   * **읽기 전용**이다 — 리뷰를 만들기 위해 워킹트리·인덱스를 건드리지 않는다(add/stash ❌).
+   */
+  interface WorktreeChangeSet {
+    files: ReviewFileChange[];
+    diff: string;
+    filesTruncated: boolean;
+    diffTruncated: boolean;
+  }
+
+  /** `git diff --numstat` → 경로별 증감. 바이너리는 `-`/`-` 로 오므로 0/0 이다. */
+  function parseNumstat(out: string): Map<string, { additions: number; deletions: number }> {
+    const map = new Map<string, { additions: number; deletions: number }>();
+    for (const line of out.split(/\r?\n/)) {
+      const m = line.match(/^(\d+|-)\t(\d+|-)\t(.+)$/);
+      if (!m) continue;
+      // rename 은 `old => new` 형태로 오므로 화살표 뒤(현재 경로)를 쓴다.
+      const rawPath = m[3]!.trim();
+      const arrow = rawPath.lastIndexOf('=>');
+      const filePath = (arrow >= 0 ? rawPath.slice(arrow + 2) : rawPath)
+        .replace(/[{}]/g, '')
+        .replace(/\\/g, '/')
+        .trim();
+      if (filePath === '') continue;
+      map.set(filePath, {
+        additions: m[1] === '-' ? 0 : Number(m[1]),
+        deletions: m[2] === '-' ? 0 : Number(m[2]),
+      });
+    }
+    return map;
+  }
+
+  /** git 의 상태 문자 한 개 → 우리 변경 종류. 모르는 문자는 숨기지 않고 `unknown` 으로 남긴다. */
+  function toReviewChangeType(code: string): ReviewFileChangeType {
+    switch (code) {
+      case 'A': return 'added';
+      case '?': return 'added';
+      case 'M': return 'modified';
+      case 'T': return 'modified';
+      case 'D': return 'deleted';
+      case 'R': return 'renamed';
+      case 'C': return 'renamed';
+      default: return 'unknown';
+    }
+  }
+
+  /** `git diff --name-status` → 경로별 변경 종류. */
+  function parseNameStatus(out: string): Map<string, ReviewFileChangeType> {
+    const map = new Map<string, ReviewFileChangeType>();
+    for (const line of out.split(/\r?\n/)) {
+      const parts = line.split('\t');
+      if (parts.length < 2) continue;
+      const code = (parts[0] ?? '').trim().charAt(0);
+      // rename/copy 는 `R100 <old> <new>` — 마지막 칸이 현재 경로다.
+      const filePath = (parts[parts.length - 1] ?? '').replace(/\\/g, '/').trim();
+      if (filePath === '') continue;
+      map.set(filePath, toReviewChangeType(code));
+    }
+    return map;
+  }
+
+  /**
+   * `git status --porcelain` → 미커밋 변경(스테이지·워킹트리·추적 안 된 파일 전부).
+   *
+   * `git diff HEAD` 는 추적되지 않은 새 파일을 못 보므로, 미커밋 목록의 근거는 이쪽이 맡는다.
+   */
+  function parsePorcelainStatus(out: string): { path: string; changeType: ReviewFileChangeType }[] {
+    const rows: { path: string; changeType: ReviewFileChangeType }[] = [];
+    for (const line of out.split(/\r?\n/)) {
+      if (line.trim() === '') continue;
+      const codes = line.slice(0, 2);
+      let rest = line.slice(3).trim();
+      // rename 은 `R  <old> -> <new>` — 현재 경로만 남긴다.
+      const arrow = rest.indexOf(' -> ');
+      if (arrow >= 0) rest = rest.slice(arrow + 4).trim();
+      const filePath = rest.replace(/^"/, '').replace(/"$/, '').replace(/\\/g, '/').trim();
+      if (filePath === '') continue;
+      const code = codes.trim().charAt(0) || codes.charAt(1);
+      rows.push({ path: filePath, changeType: toReviewChangeType(code) });
+    }
+    return rows;
+  }
+
+  /**
+   * §5.16 — 그 워크트리의 변경분을 모은다. git 이 이미 아는 것만 읽는다(새 계산 ❌).
+   *
+   * 커밋분은 부모와 갈라진 지점(`merge-base`) 기준이라 부모의 최신 커밋이 섞여 들어오지 않는다.
+   * 미커밋분은 따로 표시(`uncommitted`)해 "승인해도 병합에는 안 들어간다"를 화면이 말할 수 있게 한다.
+   */
+  async function collectWorktreeChanges(
+    parentAbs: string,
+    wtAbs: string,
+    branch: string | null,
+  ): Promise<WorktreeChangeSet> {
+    const byPath = new Map<string, ReviewFileChange>();
+    const diffParts: string[] = [];
+
+    // 1) 커밋분 — merge-base..HEAD
+    if (branch) {
+      const base = await runGit(parentAbs, ['merge-base', 'HEAD', branch]);
+      const baseSha = base.code === 0 ? base.stdout.trim() : '';
+      if (baseSha !== '') {
+        const range = `${baseSha}..HEAD`;
+        const [numstat, nameStatus, body] = await Promise.all([
+          runGit(wtAbs, ['diff', '--numstat', range]),
+          runGit(wtAbs, ['diff', '--name-status', range]),
+          runGit(wtAbs, ['diff', range]),
+        ]);
+        const counts = parseNumstat(numstat.stdout);
+        for (const [filePath, changeType] of parseNameStatus(nameStatus.stdout)) {
+          const c = counts.get(filePath);
+          byPath.set(filePath, {
+            path: filePath,
+            changeType,
+            additions: c?.additions ?? 0,
+            deletions: c?.deletions ?? 0,
+          });
+        }
+        if (body.code === 0 && body.stdout.trim() !== '') diffParts.push(body.stdout);
+      }
+    }
+
+    // 2) 미커밋분 — 목록은 status(추적 안 된 파일 포함), 증감은 diff HEAD.
+    const [status, unNumstat, unBody] = await Promise.all([
+      runGit(wtAbs, ['status', '--porcelain']),
+      runGit(wtAbs, ['diff', '--numstat', 'HEAD']),
+      runGit(wtAbs, ['diff', 'HEAD']),
+    ]);
+    if (status.code === 0) {
+      const counts = parseNumstat(unNumstat.stdout);
+      for (const row of parsePorcelainStatus(status.stdout)) {
+        const c = counts.get(row.path);
+        byPath.set(row.path, {
+          path: row.path,
+          changeType: row.changeType,
+          additions: c?.additions ?? 0,
+          deletions: c?.deletions ?? 0,
+          uncommitted: true,
+        });
+      }
+    }
+    if (unBody.code === 0 && unBody.stdout.trim() !== '') diffParts.push(unBody.stdout);
+
+    const all = [...byPath.values()].sort((a, b) => a.path.localeCompare(b.path));
+    const files = all.slice(0, REVIEW_FILES_MAX);
+    const joined = diffParts.join('\n');
+    return {
+      files,
+      diff: joined.slice(0, REVIEW_DIFF_MAX_BYTES),
+      filesTruncated: all.length > files.length,
+      diffTruncated: joined.length > REVIEW_DIFF_MAX_BYTES,
+    };
+  }
+
+  /**
+   * §5.16 — 격리에서 일한 에이전트가 그 턴을 끝냈다. **조건 넷을 다 만족할 때만** 리뷰를 만든다.
+   *
+   * (a) 커스텀 에이전트 · (b) 그 프로젝트가 워크트리 · (c) 실제 변경분 있음 · (d) 미결정 리뷰 없음.
+   * 하나라도 어긋나면 조용히 만들지 않는다 — 턴마다 카드를 쌓으면 레인이 그 순간 소음이 된다.
+   */
+  async function maybeCreateReviewRequest(agentId: string, subAgentId?: string): Promise<void> {
+    const snap = graphManager.getSnapshot();
+    const agent = snap.agents.find((a) => a.id === agentId);
+    if (!agent || agent.customCreated !== true || agent.trashed === true) return;  // (a)
+    const projectName = snap.agentProjects[agentId];
+    if (!projectName) return;
+    const info = graphManager.getProjectByName(projectName);
+    if (!info?.parentProjectPath) return;                                          // (b)
+    if (graphManager.findOpenReviewRequestByAgent(agentId)) return;                 // (d)
+
+    const wtAbs = info.path.replace(/\//g, path.sep);
+    const parentAbs = info.parentProjectPath.replace(/\//g, path.sep);
+    const branch = await getWorktreeBranch(parentAbs, wtAbs);
+    const changes = await collectWorktreeChanges(parentAbs, wtAbs, branch);
+    if (changes.files.length === 0) return;                                        // (c)
+
+    const baseRes = await runGit(parentAbs, ['rev-parse', '--abbrev-ref', 'HEAD']);
+    const baseBranch = baseRes.code === 0 ? baseRes.stdout.trim() : '';
+    // 부모 캔버스의 worktree 버블 id = 승인 병합의 키. `worktreeProjects`(nodeId → 프로젝트명) 역인덱스.
+    const nodeId = Object.entries(snap.worktreeProjects ?? {}).find(([, name]) => name === projectName)?.[0];
+
+    const created = graphManager.createReviewRequest({
+      projectName,
+      parentProjectName: path.basename(info.parentProjectPath),
+      agentId,
+      ...(subAgentId ? { subAgentId } : {}),
+      ...(nodeId ? { worktreeNodeId: nodeId } : {}),
+      worktreePath: info.path,
+      ...(branch ? { branch } : {}),
+      ...(baseBranch !== '' ? { baseBranch } : {}),
+      files: changes.files,
+      filesTruncated: changes.filesTruncated,
+      diff: changes.diff,
+      diffTruncated: changes.diffTruncated,
+    });
+    if (!created) return;
+
+    // 표시는 §4 v2.70 검수 카드 그 자리 — `reviewRequestId` 한 줄로 레코드를 가리킨다(새 카드 계열 ❌).
+    const shown = changes.files
+      .slice(0, 8)
+      .map((f) => `${f.path} (+${f.additions}/-${f.deletions})${f.uncommitted === true ? ' *' : ''}`);
+    if (changes.files.length > shown.length) shown.push(`… +${changes.files.length - shown.length}`);
+    const card: AgentReview = {
+      id: randomUUID(),
+      agentId,
+      ...(subAgentId ? { subAgentId } : {}),
+      changes: shown,
+      checkpoints: [],
+      reviewRequestId: created.id,
+      createdAt: Date.now(),
+    };
+    graphManager.addAgentReview(card);
+    broadcast({ type: 'agent_review', payload: { agentId, subAgentId } } as WSMessage);
+    broadcastSnapshot();
+    saveCheckpoint();
+    logger.info(`[review-lane] created review=${created.id} agent=${agent.label} branch=${branch ?? '?'} files=${changes.files.length}`);
+  }
+
+  /** 그 에이전트의 명령 큐에 한 건 넣고 바로 발사. 반려 재작업이 쓰는 경로(새 전송 경로 ❌). */
+  function enqueueAgentCommand(agentId: string, text: string, idTag: string): boolean {
+    const agent = graphManager.getSnapshot().agents.find((a) => a.id === agentId);
+    if (!agent) return false;
+    const sessionId = agent.path;
+    const sub = subAgentManager.getPrimarySub(agentId) ?? subAgentManager.create(agentId);
+    const cmd: QueuedCommand = {
+      id: `cmd-${Date.now().toString(36)}-${idTag}${Math.random().toString(36).slice(2, 5)}`,
+      text,
+      timestamp: Date.now(),
+      subAgentId: sub.id,
+      status: 'queued',
+    };
+    const queue = commandQueues.get(sessionId) ?? [];
+    queue.push(cmd);
+    commandQueues.set(sessionId, queue);
+    processNextCommand(sessionId);
+    return true;
+  }
+
+  /**
+   * POST /api/review-requests/:id/decision — 승인 / 반려(사유) / 보류. §5.16.
+   *
+   * - 승인: §7.6 `performWorktreeMerge()` 를 **그대로** 부른다(선행 거부·충돌 원복 동일). 결과는
+   *   결정 레코드에 `mergeOk`/`mergeError`/`conflicts` 로 남고, 실패면 상태가 `pending` 으로 돌아가
+   *   부모를 정리한 뒤 다시 승인할 수 있다.
+   * - 반려: 사유 필수. 클라이언트가 번역문으로 조립한 `reworkPrompt` 를 기존 명령 큐로 그 에이전트에게
+   *   보낸다(없으면 사유 본문만 보낸다 — 서버가 언어를 정하지 않는다).
+   * - 보류: 적재만. 병합·재작업 어느 쪽도 발사하지 않는다.
+   */
+  app.post('/api/review-requests/:id/decision', (req, res) => {
+    void (async () => {
+      try {
+        const id = req.params.id;
+        const record = graphManager.getReviewRequest(id);
+        if (!record) { res.status(404).json({ ok: false, error: 'review not found' }); return; }
+        const body = (req.body ?? {}) as { kind?: unknown; reason?: unknown; reworkPrompt?: unknown };
+        const kind = body.kind;
+        if (kind !== 'approve' && kind !== 'reject' && kind !== 'hold') {
+          res.status(400).json({ ok: false, error: 'kind must be approve|reject|hold' });
+          return;
+        }
+        const reason = typeof body.reason === 'string' ? body.reason.trim().slice(0, REVIEW_REASON_MAX) : '';
+        if (kind === 'reject' && reason === '') {
+          res.status(400).json({ ok: false, error: 'reason required' });
+          return;
+        }
+
+        if (kind === 'hold') {
+          const updated = graphManager.recordReviewDecision(id, { kind: 'hold', ...(reason !== '' ? { reason } : {}) });
+          broadcastSnapshot();
+          saveCheckpoint();
+          res.json({ ok: true, status: updated?.status ?? 'held' });
+          return;
+        }
+
+        if (kind === 'reject') {
+          const prompt = typeof body.reworkPrompt === 'string' && body.reworkPrompt.trim() !== ''
+            ? body.reworkPrompt.trim()
+            : reason;
+          const dispatched = enqueueAgentCommand(record.agentId, prompt, 'rvw');
+          const updated = graphManager.recordReviewDecision(id, { kind: 'reject', reason, reworkDispatched: dispatched });
+          broadcastSnapshot();
+          saveCheckpoint();
+          logger.info(`[review-lane] rejected review=${id} agent=${record.agentId} dispatched=${dispatched}`);
+          res.json({ ok: true, status: updated?.status ?? 'rejected', reworkDispatched: dispatched });
+          return;
+        }
+
+        // 승인 — 병합 절차로.
+        if (!record.worktreeNodeId) {
+          graphManager.recordReviewDecision(id, { kind: 'approve', mergeOk: false, mergeError: 'worktree-node-missing' });
+          broadcastSnapshot();
+          saveCheckpoint();
+          res.status(409).json({ ok: false, error: 'worktree-node-missing' });
+          return;
+        }
+        const outcome = await performWorktreeMerge(record.worktreeNodeId);
+        if (outcome.ok) {
+          const updated = graphManager.recordReviewDecision(id, { kind: 'approve', mergeOk: true });
+          broadcastSnapshot();
+          saveCheckpoint();
+          logger.info(`[review-lane] approved+merged review=${id} branch=${outcome.branch}`);
+          res.json({ ok: true, status: updated?.status ?? 'approved', branch: outcome.branch });
+          return;
+        }
+        graphManager.recordReviewDecision(id, {
+          kind: 'approve',
+          mergeOk: false,
+          mergeError: outcome.error,
+          ...(outcome.conflicts && outcome.conflicts.length > 0 ? { conflicts: outcome.conflicts } : {}),
+        });
+        broadcastSnapshot();
+        saveCheckpoint();
+        const { httpStatus, ...rest } = outcome;
+        res.status(httpStatus).json(rest);
+      } catch (err) {
+        logger.error('POST /api/review-requests/:id/decision failed', err);
+        res.status(500).json({ ok: false, error: err instanceof Error ? err.message : 'Internal server error' });
+      }
+    })();
+  });
+
+  /** DELETE /api/review-requests/:id — 사람이 레인에서 치운다(서버는 스스로 지우지 않는다). §5.16 */
+  app.delete('/api/review-requests/:id', (req, res) => {
+    const removed = graphManager.deleteReviewRequest(req.params.id);
+    if (!removed) { res.status(404).json({ ok: false, error: 'review not found' }); return; }
+    broadcastSnapshot();
+    saveCheckpoint();
+    res.json({ ok: true });
   });
 
   /** 특정 프로젝트의 worktree 버블 → gitStatusService 로 넘길 resolve 정보 리스트 */
@@ -5672,6 +6121,10 @@ export async function runServer(): Promise<RunServerHandle> {
           body.executionMode === 'interactive-terminal' || body.executionMode === 'headless'
             ? body.executionMode
             : prev?.executionMode,
+        // §5.19 (B) — provider(All Model 의 정체)는 executionMode 와 같은 규약이다: **body 에 없으면
+        //   이전 값을 유지**한다. 이 축을 모르는 창(에이전트 설정 팝업)이 저장하는 순간 provider 가
+        //   지워지면 All Model 버블이 조용히 클로드 버블로 되돌아간다. 모델을 새로 매는 것도 이 통로다.
+        provider: normalizeAgentProvider(body.provider) ?? prev?.provider,
         // §4 v2.88 — API 비용 상한(달러). 양수만 저장, 그 외(0/미설정)는 undefined = 무제한.
         maxBudgetUsd: typeof body.maxBudgetUsd === 'number' && body.maxBudgetUsd > 0 ? body.maxBudgetUsd : undefined,
         // §5.5 #17-20 ⑥ v4.74 — MCP 디버그 도구 선택. 알 수 없는 id 는 여기서 걸러 두면
@@ -5783,32 +6236,71 @@ export async function runServer(): Promise<RunServerHandle> {
         return;
       }
 
+      /*
+       * §5.22 — 권한·감사 경계.
+       *
+       * 원장 줄은 **모드 단축보다 먼저** 적는다. 통과시킨 호출까지 남아야 "그때 무슨 일이
+       * 있었나"에 답할 수 있고, 묻지 않은 것과 허용한 것이 다른 상태로 구분된다.
+       * (훅으로만 붙은 세션은 이 창구에 오지 않지만 `processHookEvent` 가 같은 원장에 적는다 —
+       *  이 창구가 커스텀 에이전트 전용이라는 기존 경계는 그대로 둔다.)
+       */
+      const auditProject = graphManager.getAgentProjectName(agentId) ?? '';
+      const riskKinds = classifyToolRisk(toolName, toolInput);
+      const escalate = riskKinds.length > 0
+        && shouldEscalateRisk(graphManager.getAuditBoundary(auditProject), riskKinds);
+      const auditEntryId = graphManager.recordAuditCall({
+        projectName: auditProject,
+        sessionId: typeof body.sessionId === 'string' ? body.sessionId : '',
+        agentId,
+        ...(typeof body.subAgentId === 'string' && body.subAgentId ? { subAgentId: body.subAgentId } : {}),
+        ...(agentNode.label ? { agentLabel: agentNode.label } : {}),
+        ...(config.color ? { agentColor: config.color } : {}),
+        toolName,
+        toolInput,
+        awaitHookEvent: true,
+      });
+      const noteAuditDecision = (
+        decision: 'allow' | 'deny',
+        source: AuditDecisionSource,
+        reason?: string,
+      ): void => {
+        if (auditEntryId) graphManager.recordAuditDecision(auditProject, auditEntryId, decision, source, reason);
+      };
+
       // §5.3 #12-1 v1.87 — 권한 축 = permissionMode 단일. CC 정식 권한모델에 팝업 발동을 매핑:
       //   bypassPermissions → 무확인 / plan → 실행차단은 CC 자체 / 읽기전용 → 자동 allow
       //   acceptEdits → 편집계열 자동 allow / default·acceptEdits(비편집 가변) → 사용자 확인 팝업
       const mode = config.permissionMode || 'default';
       const EDIT_TOOLS = new Set(['Write', 'Edit', 'NotebookEdit', 'MultiEdit']);
 
-      if (mode === 'bypassPermissions') {
+      // §5.22 — `!escalate` 가 붙은 단축은 **위험 3종이 아닐 때만** 탄다. 경계를 끄면
+      //   `escalate` 가 늘 false 라 아래는 종전 그대로 동작한다.
+      if (!escalate && mode === 'bypassPermissions') {
+        noteAuditDecision('allow', 'policy', 'bypass');
         res.json({ ok: true, decision: 'allow', reason: 'bypass' });
         return;
       }
+      // §5.22 — `plan` 은 경계가 건드리지 않는다. 실행 자체를 CLI 가 막는 자리라
+      //   여기서 또 물으면 **일어나지도 않을 호출**에 사람을 세우는 셈이다.
       if (mode === 'plan') {
+        noteAuditDecision('allow', 'policy', 'plan');
         res.json({ ok: true, decision: 'allow', reason: 'plan' });
         return;
       }
       // §4 (CLI 사양 추종) — `auto` 는 **판정을 CLI 모델 분류기에 맡긴 모드**다. 여기서 또 팝업을 띄우면
       //   같은 호출을 두 번 묻는 셈이고 사용자가 auto 를 고른 의미가 사라진다 — 우리는 비관여로 통과시키고
       //   차단은 CLI 가 한다(거부 시 transcript 에 분류기 사유가 남는다).
-      if (mode === 'auto') {
+      if (!escalate && mode === 'auto') {
         res.json({ ok: true, decision: 'allow', reason: 'cli-auto-classifier' });
         return;
       }
+      // §5.22 — 읽기 전용 도구의 통과도 종전 그대로다(위험 3종 어디에도 걸리지 않는다).
       if (READ_TOOLS.has(toolName)) {
         res.json({ ok: true, decision: 'allow', reason: 'read-only' });
         return;
       }
-      if (mode === 'acceptEdits' && EDIT_TOOLS.has(toolName)) {
+      if (!escalate && mode === 'acceptEdits' && EDIT_TOOLS.has(toolName)) {
+        noteAuditDecision('allow', 'policy', 'accept-edits');
         res.json({ ok: true, decision: 'allow', reason: 'accept-edits' });
         return;
       }
@@ -5818,6 +6310,8 @@ export async function runServer(): Promise<RunServerHandle> {
       if (mode === 'dontAsk') {
         //   reason 은 훅이 분기하는 **약속된 마커**('timeout' 과 같은 자리) — 문구는 훅이 만든다.
         //   여기서 자유 문장을 보내면 훅의 "사용자가 Deny 를 눌렀다" 문구에 섞여 거짓말이 된다.
+        //   §5.22 — 이 즉시 거부는 경계가 건드리지 않는다(사람 없이 이미 안전한 답을 낸다).
+        noteAuditDecision('deny', 'policy', 'dont-ask');
         res.json({ ok: true, decision: 'deny', reason: 'dont-ask' });
         return;
       }
@@ -5831,6 +6325,8 @@ export async function runServer(): Promise<RunServerHandle> {
       const timeoutPolicy = config.permissionTimeoutPolicy === 'deny' ? 'deny' : 'allow';
       // §5.3 #12-1 v1.91 — 팝업 대기 동안 에이전트를 "블록된 활성"으로 고정(completed 강등 방지).
       graphManager.setPermissionWaiting(agentId, true);
+      // §5.22 — 모드가 통과시켰을 호출을 경계가 되돌려 물었다는 표식(타임라인에서 구분된다).
+      if (escalate && auditEntryId) graphManager.markAuditEscalated(auditProject, auditEntryId);
       broadcastSnapshot();
       let decision;
       try {
@@ -5844,11 +6340,21 @@ export async function runServer(): Promise<RunServerHandle> {
           projectName,
           toolName,
           toolInput,
+          // §5.22 — 카드가 "왜 지금 묻는지"를 말할 수 있게 위험 판정을 함께 싣는다.
+          ...(riskKinds.length > 0 ? { risk: riskKinds } : {}),
+          ...(escalate ? { escalated: true } : {}),
+          ...(auditEntryId ? { auditEntryId } : {}),
         }, timeoutPolicy);
       } finally {
         graphManager.setPermissionWaiting(agentId, false);
         broadcastSnapshot();
       }
+      // §5.22 — 사람(또는 60초 무응답 정책)의 답을 원장의 그 줄에 적는다.
+      noteAuditDecision(
+        decision.decision,
+        decision.reason === 'timeout' ? 'timeout' : 'user',
+        decision.reason,
+      );
       res.json({ ok: true, decision: decision.decision, reason: decision.reason });
     } catch (err) {
       logger.error('POST /api/permission-check failed', err);
@@ -5880,6 +6386,64 @@ export async function runServer(): Promise<RunServerHandle> {
       res.json({ ok: true });
     } catch (err) {
       logger.error('POST /api/permission-decide failed', err);
+      res.status(500).json({ ok: false, error: 'internal error' });
+    }
+  });
+
+  /**
+   * §5.22 — GET /api/audit-log/:projectName
+   * 그 프로젝트의 감사 원장 한 장(전선 스냅샷과 같은 모양). 스냅샷이 늦거나 끊긴 상황에서
+   * 타임라인이 "없다"와 "못 물었다"를 구분할 수 있게 하는 조회 창구.
+   */
+  app.get('/api/audit-log/:projectName', (req, res) => {
+    try {
+      const projectName = decodeURIComponent(req.params['projectName'] ?? '');
+      if (!projectName) {
+        res.status(400).json({ ok: false, error: 'projectName required' });
+        return;
+      }
+      const log = graphManager.getAuditLog(projectName);
+      res.json({ ok: true, log: log ?? null, boundary: graphManager.getAuditBoundary(projectName) });
+    } catch (err) {
+      logger.error('GET /api/audit-log failed', err);
+      res.status(500).json({ ok: false, error: 'internal error' });
+    }
+  });
+
+  /**
+   * §5.22 — POST /api/audit-boundary/:projectName
+   * 경계 스위치(전체 + 위험 종류별) 갱신. **기록을 끄는 스위치는 없다** — 이 창구는
+   * "실행 전에 물을지"만 정한다.
+   */
+  app.post('/api/audit-boundary/:projectName', (req, res) => {
+    try {
+      const projectName = decodeURIComponent(req.params['projectName'] ?? '');
+      if (!projectName) {
+        res.status(400).json({ ok: false, error: 'projectName required' });
+        return;
+      }
+      const body = (req.body ?? {}) as Partial<AuditBoundaryConfig>;
+      const patch: Partial<AuditBoundaryConfig> = {};
+      if (typeof body.escalateRisky === 'boolean') patch.escalateRisky = body.escalateRisky;
+      if (body.kinds && typeof body.kinds === 'object') {
+        // 외부에서 온 값이므로 종류·불리언을 한 번 걸러 넣는다.
+        // 여기서 쓰는 것은 `.kinds` 뿐이다 — 전체 스위치는 위에서 따로 받으므로 넣지 않는다
+        // (기본값을 이 자리에 적어 두면 §5.22 기본이 바뀔 때 조용히 어긋난다).
+        patch.kinds = normalizeAuditBoundary({ kinds: body.kinds }).kinds;
+        for (const [k, v] of Object.entries(body.kinds)) {
+          if (typeof v !== 'boolean') delete (patch.kinds as Record<string, unknown>)[k];
+        }
+      }
+      const boundary = graphManager.setAuditBoundary(projectName, patch);
+      if (!boundary) {
+        res.status(404).json({ ok: false, error: 'project not found' });
+        return;
+      }
+      broadcastSnapshot();
+      saveCheckpoint();
+      res.json({ ok: true, boundary });
+    } catch (err) {
+      logger.error('POST /api/audit-boundary failed', err);
       res.status(500).json({ ok: false, error: 'internal error' });
     }
   });
@@ -5948,6 +6512,128 @@ export async function runServer(): Promise<RunServerHandle> {
     invalidateLatestCache();
     res.json({ ok: true });
   });
+
+  // ─── §5.19 All Model — 로컬 LLM (엔진 설치 · 모델 카탈로그 · 내려받기) ───
+  //
+  // 전부 조회/조작 전용이라 그래프 상태를 건드리지 않는다. 목록이 바뀌는 조작(설치 시작·
+  // 내려받기·삭제) 뒤에는 스냅샷을 한 번 밀어 화면이 곧바로 따라오게 한다.
+
+  /** GET /api/local-llm — 엔진 상태 + 받아 둔 모델 + 진행 중 내려받기. */
+  app.get('/api/local-llm', (_req, res) => {
+    res.json({
+      ok: true,
+      state: {
+        engine: getEngineState(),
+        models: listModels(),
+        downloads: listDownloads(),
+        loaded: listLoadedModels(),
+      },
+    });
+  });
+
+  /**
+   * POST /api/local-llm/engine/install — 엔진 설치 1회 발사.
+   * 동시 호출은 같은 in-flight installId 를 돌려준다. 진행은 WS `local_engine_progress`.
+   */
+  app.post('/api/local-llm/engine/install', (req, res) => {
+    try {
+      const body = req.body as { backends?: string[] } | undefined;
+      const raw = Array.isArray(body?.backends) ? body.backends : [];
+      const backends = raw.filter((b): b is 'vulkan' | 'cpu' | 'cuda' => b === 'vulkan' || b === 'cpu' || b === 'cuda');
+      const progress = installEngine(backends.length > 0 ? backends : undefined);
+      broadcastSnapshot();
+      res.json({ ok: true, progress });
+    } catch (err) {
+      logger.error('POST /api/local-llm/engine/install failed', err);
+      res.status(500).json({ ok: false, error: (err as Error).message });
+    }
+  });
+
+  /** GET /api/local-llm/engine/install — 진행 중(또는 마지막) 설치 상태. 재연결 복구용. */
+  app.get('/api/local-llm/engine/install', (_req, res) => {
+    res.json({ ok: true, progress: getInflightEngineInstall() });
+  });
+
+  /**
+   * DELETE /api/local-llm/engine — 엔진 삭제.
+   * 받아 둔 모델은 건드리지 않는다 — 수십 GB 를 말없이 지우지 않는다(§5.19 (B)).
+   */
+  app.delete('/api/local-llm/engine', (_req, res) => {
+    void (async (): Promise<void> => {
+      try {
+        await uninstallEngine();
+        broadcastSnapshot();
+        res.json({ ok: true });
+      } catch (err) {
+        logger.error('DELETE /api/local-llm/engine failed', err);
+        res.status(500).json({ ok: false, error: (err as Error).message });
+      }
+    })();
+  });
+
+  /** GET /api/local-llm/catalog?q= — 받을 수 있는 저장소 검색(조회로 만든다, 하드코딩 목록 ❌). */
+  app.get('/api/local-llm/catalog', (req, res) => {
+    void (async (): Promise<void> => {
+      const q = typeof req.query['q'] === 'string' ? req.query['q'] : '';
+      const repos = await searchCatalog(q);
+      res.json({ ok: true, repos });
+    })();
+  });
+
+  /** GET /api/local-llm/catalog/files?repo= — 그 저장소의 GGUF(=양자화 선택지) 목록. */
+  app.get('/api/local-llm/catalog/files', (req, res) => {
+    void (async (): Promise<void> => {
+      const repo = typeof req.query['repo'] === 'string' ? req.query['repo'] : '';
+      if (!repo) {
+        res.status(400).json({ ok: false, error: 'repo required' });
+        return;
+      }
+      const files = await listRepoFiles(repo);
+      res.json({ ok: true, files });
+    })();
+  });
+
+  /** POST /api/local-llm/models/download — 모델 내려받기(재개 가능). 진행은 WS `local_model_progress`. */
+  app.post('/api/local-llm/models/download', (req, res) => {
+    try {
+      const body = req.body as { repo?: string; file?: string } | undefined;
+      const repo = body?.repo ?? '';
+      const file = body?.file ?? '';
+      if (!repo || !file) {
+        res.status(400).json({ ok: false, error: 'repo and file required' });
+        return;
+      }
+      const progress = downloadModel(repo, file);
+      broadcastSnapshot();
+      res.json({ ok: true, progress });
+    } catch (err) {
+      logger.error('POST /api/local-llm/models/download failed', err);
+      res.status(500).json({ ok: false, error: (err as Error).message });
+    }
+  });
+
+  /** POST /api/local-llm/models/cancel — 내려받기 중단. 받다 만 조각은 남긴다(다음에 이어 받게). */
+  app.post('/api/local-llm/models/cancel', (req, res) => {
+    const body = req.body as { downloadId?: string } | undefined;
+    const ok = cancelDownload(body?.downloadId ?? '');
+    broadcastSnapshot();
+    res.json({ ok });
+  });
+
+  /** DELETE /api/local-llm/models/:modelId — 받아 둔 모델 삭제. */
+  app.delete('/api/local-llm/models/:modelId', (req, res) => {
+    void (async (): Promise<void> => {
+      try {
+        const removed = await deleteModel(req.params.modelId ?? '');
+        broadcastSnapshot();
+        res.json({ ok: removed });
+      } catch (err) {
+        logger.error('DELETE /api/local-llm/models failed', err);
+        res.status(500).json({ ok: false, error: (err as Error).message });
+      }
+    })();
+  });
+
 
   /**
    * §5.3 #12-1 v1.43 — GET /api/permission-pending
@@ -6990,6 +7676,108 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
+   * GET /api/workspace-image — §5.5 #17-27 ⑭ IDE 내장 편집창: 이미지 **한 장**의 원본 바이트.
+   *
+   * 텍스트 창구(`/api/workspace-file`)와 갈라 둔 이유는 돌려주는 것이 JSON 이 아니라 바이트라서다.
+   * 가드는 같은 `isWithinOpenableRoots` + `resolveWorkspacePath` 하나를 그대로 쓴다(새 가드 발명 ❌).
+   * 조회 전용이라 broadcast·checkpoint 없음. 캐시하지 않는다 — 주석을 저장하면 **같은 URL 의 내용만**
+   * 바뀌므로 캐시가 남으면 방금 그린 표시가 화면에 안 나타난다.
+   */
+  app.get('/api/workspace-image', (req, res) => {
+    try {
+      const root = req.query['root'];
+      const relPath = req.query['path'];
+      if (typeof root !== 'string' || root.length === 0 || typeof relPath !== 'string' || relPath.length === 0) {
+        res.status(400).json({ error: 'root and path query required' });
+        return;
+      }
+
+      const resolvedRoot = path.resolve(root);
+      if (!isWithinOpenableRoots(resolvedRoot)) {
+        logger.warn(`workspace-image blocked (outside project root): "${root}"`);
+        res.status(403).json({ error: 'Path outside project root' });
+        return;
+      }
+
+      const image = readWorkspaceImage(resolvedRoot, relPath);
+      if (!image) {
+        res.status(404).json({ error: 'Image not found' });
+        return;
+      }
+      res.setHeader('Content-Type', image.mime);
+      res.setHeader('Cache-Control', 'no-store');
+      res.end(image.bytes);
+    } catch (err) {
+      logger.error('GET /api/workspace-image failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * PUT /api/workspace-image — §5.5 #17-25 ④-1 라이트박스 주석본으로 그 이미지 파일 덮어쓰기.
+   *
+   * 본문은 **이미지 바이트 그대로**이고 나머지 값은 쿼리로 온다. JSON+base64 로 싣지 않는 이유는 둘이다 —
+   * base64 가 33% 를 부풀리고, 앱 전역 `express.json()` 상한(100kb)에 스크린샷 한 장이 바로 걸린다.
+   * 그래서 이 라우트에만 `express.raw` 를 물린다(전역 상한은 손대지 않는다 — 한 기능 때문에 모든
+   * 엔드포인트의 방벽을 낮추지 않는다).
+   *
+   * 덮어쓰기 규율은 텍스트 저장(`PUT /api/workspace-file`)과 **같다** — 읽을 때 본 `mtimeMs` 가
+   * 디스크와 다르면 409, 사용자가 [그래도 저장]을 고르면 `baseMtimeMs=0` 으로 다시 온다.
+   * 굽지 못하는 형식(svg·gif·ico·bmp·avif)은 415 로 갈라 답한다.
+   */
+  app.put(
+    '/api/workspace-image',
+    express.raw({ type: () => true, limit: WORKSPACE_IMAGE_MAX_BYTES }),
+    (req, res) => {
+      try {
+        const root = req.query['root'];
+        const relPath = req.query['path'];
+        if (typeof root !== 'string' || root.length === 0 || typeof relPath !== 'string' || relPath.length === 0) {
+          res.status(400).json({ error: 'root and path query required' });
+          return;
+        }
+        const bytes = req.body;
+        if (!Buffer.isBuffer(bytes) || bytes.length === 0) {
+          res.status(400).json({ error: 'image body required' });
+          return;
+        }
+
+        const resolvedRoot = path.resolve(root);
+        if (!isWithinOpenableRoots(resolvedRoot)) {
+          logger.warn(`workspace-image write blocked (outside project root): "${root}"`);
+          res.status(403).json({ error: 'Path outside project root' });
+          return;
+        }
+
+        const rawBase = req.query['baseMtimeMs'];
+        const baseMtimeMs = typeof rawBase === 'string' ? Number(rawBase) : 0;
+        const outcome = writeWorkspaceImage(
+          resolvedRoot,
+          relPath,
+          bytes,
+          Number.isFinite(baseMtimeMs) ? baseMtimeMs : 0,
+        );
+        if (outcome.ok) {
+          res.json(outcome.result);
+          return;
+        }
+        const status = outcome.error === 'outside' ? 403
+          : outcome.error === 'not-found' ? 404
+          : outcome.error === 'conflict' ? 409
+          : outcome.error === 'too-large' ? 413
+          // ④-1 415 — 원본 형식으로 구울 수 없는 확장자. 화면은 [파일에 저장]을 아예 흐리게 둔다.
+          : outcome.error === 'unsupported' ? 415
+          : outcome.error === 'readonly' ? 423
+          : 500;
+        res.status(status).json({ error: outcome.error, mtimeMs: outcome.mtimeMs });
+      } catch (err) {
+        logger.error('PUT /api/workspace-image failed', err);
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    },
+  );
+
+  /**
    * GET /api/run-configs — §5.5 #17-20 ② v4.74 디버그·실행 런처: 이 프로젝트의 실행 구성.
    *
    * `.vscode/launch.json`·`tasks.json`(JSONC)·`package.json` scripts·`.vibisual/run.json` 과
@@ -7137,6 +7925,189 @@ export async function runServer(): Promise<RunServerHandle> {
       logger.error('POST /api/mcp-servers/toggle failed', err);
       res.status(500).json({ error: 'Internal server error' });
     }
+  });
+
+  /**
+   * GET /api/hooks — §5.5 #17-32: 지금 이 프로젝트(=이 세션)에 적용되는 Claude Code 훅 전부.
+   *
+   * 글로벌(`~/.claude/settings.json`) · 프로젝트(`<루트>/.claude/settings.json`) · 로컬
+   * (`settings.local.json`) · 관리자 정책을 한 목록으로 낸다. **매 호출마다 디스크를 다시 읽는다** —
+   * 화면의 새로고침이 곧 이 호출이다(앱 밖에서 훅을 추가한 직후에도 눌러서 보이게, #17-32 ③).
+   * 경로 가드는 탐색기·MCP 인벤토리와 같은 `isWithinOpenableRoots` 하나를 그대로 쓴다.
+   */
+  app.get('/api/hooks', (req, res) => {
+    try {
+      const root = req.query['root'];
+      if (typeof root !== 'string' || root.length === 0) {
+        res.status(400).json({ error: 'root query required' });
+        return;
+      }
+      const resolvedRoot = path.resolve(root);
+      if (!isWithinOpenableRoots(resolvedRoot)) {
+        logger.warn(`hooks blocked (outside project root): "${root}"`);
+        res.status(403).json({ error: 'Path outside project root' });
+        return;
+      }
+      res.json(scanHookInventory(resolvedRoot));
+    } catch (err) {
+      logger.error('GET /api/hooks failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * POST /api/hooks/toggle — §5.5 #17-32 ④: 그 훅을 이 컴퓨터에서 켜거나 끈다.
+   *
+   * Claude Code 에는 훅을 끄는 손잡이가 없으므로, 명령 객체를 **같은 블록 안**
+   * `hooks` ↔ `_vibisualDisabled` 사이로 옮긴다(지우지 않는다 = 되돌리기가 항상 가능하다).
+   * 관리자 정책(`managed`)과 Vibisual 자신의 블록은 여기서 받지 않는다.
+   * 응답은 갱신된 인벤토리라 화면이 따로 다시 묻지 않는다.
+   */
+  app.post('/api/hooks/toggle', (req, res) => {
+    try {
+      const { root, scope, event, matcher, command, enabled } = req.body as {
+        root?: string; scope?: string; event?: string; matcher?: string; command?: string; enabled?: boolean;
+      };
+      if (typeof root !== 'string' || root.length === 0
+        || typeof event !== 'string' || event.length === 0
+        || typeof command !== 'string' || command.length === 0) {
+        res.status(400).json({ error: 'root, event and command required' });
+        return;
+      }
+      if (scope !== 'user' && scope !== 'project' && scope !== 'local') {
+        res.status(400).json({ error: 'scope must be user | project | local' });
+        return;
+      }
+      const resolvedRoot = path.resolve(root);
+      if (!isWithinOpenableRoots(resolvedRoot)) {
+        res.status(403).json({ error: 'Path outside project root' });
+        return;
+      }
+      const result = setHookEnabled(
+        resolvedRoot, scope, event, typeof matcher === 'string' ? matcher : '', command, enabled === true,
+      );
+      if (!result.ok) {
+        res.status(400).json({ error: result.reason });
+        return;
+      }
+      res.json({ ok: true, inventory: scanHookInventory(resolvedRoot) });
+    } catch (err) {
+      logger.error('POST /api/hooks/toggle failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * GET /api/claude-plugins — §5.5 #17-33: 이 프로젝트에서 본 Claude Code 플러그인 + 마켓.
+   *
+   * 진실은 CLI 자신의 답이다(`claude plugin list --json --available`) — 매 호출마다 다시 묻는다
+   * (화면의 새로고침이 곧 이 호출). CLI 는 `cwd` 로 `project`/`local` 범위를 해석하므로 그 프로젝트에서 띄운다.
+   * 경로 가드는 탐색기·MCP·훅과 같은 `isWithinOpenableRoots` 하나를 그대로 쓴다.
+   */
+  app.get('/api/claude-plugins', (req, res) => {
+    void (async () => {
+      try {
+        const root = req.query['root'];
+        if (typeof root !== 'string' || root.length === 0) {
+          res.status(400).json({ error: 'root query required' });
+          return;
+        }
+        const resolvedRoot = path.resolve(root);
+        if (!isWithinOpenableRoots(resolvedRoot)) {
+          logger.warn(`claude-plugins blocked (outside project root): "${root}"`);
+          res.status(403).json({ error: 'Path outside project root' });
+          return;
+        }
+        res.json(await scanClaudePlugins(resolvedRoot));
+      } catch (err) {
+        logger.error('GET /api/claude-plugins failed', err);
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    })();
+  });
+
+  /**
+   * POST /api/claude-plugins/action — §5.5 #17-33 ④⑤: 켜기·끄기·설치·제거·마켓 추가/제거.
+   *
+   * 다섯 동작이 **전부 CLI 위임**이라 창구를 하나로 둔다(우리가 git clone 과 설치 상태 파일 쓰기를
+   * 흉내 내면 CLI 의 상태와 두 갈래로 갈린다). 응답에는 갱신된 인벤토리를 함께 실어 화면이 다시 묻지 않는다.
+   */
+  app.post('/api/claude-plugins/action', (req, res) => {
+    void (async () => {
+      try {
+        const { root, action, id, scope, source } = req.body as {
+          root?: string; action?: string; id?: string; scope?: string; source?: string;
+        };
+        if (typeof root !== 'string' || root.length === 0) {
+          res.status(400).json({ error: 'root required' });
+          return;
+        }
+        const resolvedRoot = path.resolve(root);
+        if (!isWithinOpenableRoots(resolvedRoot)) {
+          res.status(403).json({ error: 'Path outside project root' });
+          return;
+        }
+        const pluginScope = scope === 'project' || scope === 'local' ? scope : 'user';
+
+        let result: PluginMutationResult;
+        switch (action) {
+          case 'enable':
+          case 'disable': {
+            if (typeof id !== 'string' || id.length === 0) {
+              res.status(400).json({ error: 'id required' });
+              return;
+            }
+            result = await setClaudePluginEnabled(resolvedRoot, id, pluginScope, action === 'enable');
+            break;
+          }
+          case 'install': {
+            if (typeof id !== 'string' || id.length === 0) {
+              res.status(400).json({ error: 'id required' });
+              return;
+            }
+            result = await installClaudePlugin(resolvedRoot, id, pluginScope);
+            break;
+          }
+          case 'uninstall': {
+            if (typeof id !== 'string' || id.length === 0) {
+              res.status(400).json({ error: 'id required' });
+              return;
+            }
+            result = await uninstallClaudePlugin(resolvedRoot, id, pluginScope);
+            break;
+          }
+          case 'marketplace-add': {
+            if (typeof source !== 'string' || source.trim().length === 0) {
+              res.status(400).json({ error: 'source required' });
+              return;
+            }
+            result = await addClaudeMarketplace(resolvedRoot, source.trim());
+            break;
+          }
+          case 'marketplace-remove': {
+            if (typeof source !== 'string' || source.trim().length === 0) {
+              res.status(400).json({ error: 'source required' });
+              return;
+            }
+            result = await removeClaudeMarketplace(resolvedRoot, source.trim());
+            break;
+          }
+          default:
+            res.status(400).json({ error: 'unknown action' });
+            return;
+        }
+
+        if (!result.ok) {
+          // 실패해도 목록은 함께 준다 — 실패 뒤 화면이 옛 상태로 남아 있으면 무엇이 됐는지 알 수 없다.
+          res.status(400).json({ error: result.reason, inventory: await scanClaudePlugins(resolvedRoot) });
+          return;
+        }
+        res.json({ ok: true, inventory: await scanClaudePlugins(resolvedRoot) });
+      } catch (err) {
+        logger.error('POST /api/claude-plugins/action failed', err);
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    })();
   });
 
   /**
@@ -7576,6 +8547,56 @@ export async function runServer(): Promise<RunServerHandle> {
       res.json(result);
     } catch (err) {
       logger.error('POST /api/storage-cleanup failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /** 열린 프로젝트 + stub 전체 — 저장소 계열 라우트가 같은 목록을 봐야 "있는데 안 보인다"가 안 생긴다. */
+  function allProjectInfosForStorage(): ProjectInfo[] {
+    const stubInfos = Object.values(graphManager.getStubProjects()).map((m) => m.project);
+    return [...Object.values(graphManager.getProjects()), ...stubInfos];
+  }
+
+  /**
+   * GET /api/retention-trash — 휴지통 목록(= 복원 가능한 것 목록). §3.2.3 규칙 4 "조용히 지우지 않는다".
+   *
+   * 별도 기록 파일을 두지 않고 휴지통 폴더를 훑어 만든다 — 파일 자체가 사실이라 기록과 실제가 어긋날 수 없다.
+   */
+  app.get('/api/retention-trash', (_req, res) => {
+    try {
+      res.json(listTrash(allProjectInfosForStorage()));
+    } catch (err) {
+      logger.error('GET /api/retention-trash failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * POST /api/retention-trash/restore — 휴지통에서 원래 자리로 되살린다.
+   * body `{ projectPath, trashRel }`. 원래 자리에 파일이 있으면 **덮어쓰지 않고** 실패로 돌려준다.
+   */
+  app.post('/api/retention-trash/restore', (req, res) => {
+    try {
+      const { projectPath, trashRel } = (req.body ?? {}) as { projectPath?: string; trashRel?: string };
+      if (typeof projectPath !== 'string' || typeof trashRel !== 'string' || !projectPath || !trashRel) {
+        res.status(400).json({ error: 'projectPath, trashRel required' });
+        return;
+      }
+      const target = path.resolve(projectPath).toLowerCase();
+      const info = allProjectInfosForStorage().find((p) => path.resolve(p.path).toLowerCase() === target);
+      if (!info) {
+        res.status(404).json({ error: 'project not found' });
+        return;
+      }
+      const result = restoreFromTrash(info, trashRel);
+      if (!result.ok) {
+        res.status(400).json({ error: result.error ?? 'restore failed' });
+        return;
+      }
+      logger.info(`retention trash restored: ${trashRel} → ${result.restoredTo}`);
+      res.json(result);
+    } catch (err) {
+      logger.error('POST /api/retention-trash/restore failed', err);
       res.status(500).json({ error: 'Internal server error' });
     }
   });
@@ -8172,6 +9193,139 @@ export async function runServer(): Promise<RunServerHandle> {
     res.json({ ok: true, contiId: conti.id });
   });
 
+  /**
+   * §5.13 (Q) POST /api/conti/from-script — 대본 텍스트에서 콘티 1건 생성.
+   *
+   * 기존 "새 콘티 생성"과 같은 저장소·같은 히스토리에 쌓인다. 다른 것은 입력뿐이라
+   * (세션 회고 → 대본) 부모 세션 resume 없이 돌고, 그래서 세션이 없는 에이전트에서도 된다.
+   */
+  app.post('/api/conti/from-script', async (req, res) => {
+    const body = req.body as { agentId?: unknown; script?: unknown; presetId?: unknown; frameCount?: unknown };
+    const agentId = typeof body.agentId === 'string' ? body.agentId : '';
+    const script = typeof body.script === 'string' ? body.script.trim() : '';
+    if (!agentId || !script) {
+      res.status(400).json({ ok: false, error: 'agentId and script required' });
+      return;
+    }
+    if (contiInflight.has(agentId)) {
+      res.status(409).json({ ok: false, error: 'already generating for this agent' });
+      return;
+    }
+    const agent = graphManager.getSnapshot().agents.find((a) => a.id === agentId);
+    if (!agent) {
+      res.status(404).json({ ok: false, error: 'agent not found' });
+      return;
+    }
+    const presetId = normalizeStoryboardPresetId(body.presetId);
+    // 대본 모드는 세션에 안 붙으므로 cwd 만 있으면 된다 — 에이전트 cwd → 프로젝트 경로 → 루트 순.
+    const cwd =
+      graphManager.getAgentCwdByAgentId(agentId) ??
+      graphManager.getProjectPathForAgent(agentId) ??
+      graphManager.getRoot() ??
+      process.cwd();
+
+    const work = (async () => {
+      try {
+        const result = await generateContiFramesFromScript({
+          script,
+          cwd,
+          presetId,
+          ...(typeof body.frameCount === 'number' ? { frameCount: body.frameCount } : {}),
+        });
+        if (!result) return null;
+        const now = Date.now();
+        const c: Conti = {
+          id: contiId.conti(),
+          agentId,
+          createdAt: now,
+          updatedAt: now,
+          workId: '',
+          ...(result.title ? { title: result.title } : {}),
+          frames: result.frames,
+          source: 'script',
+          scriptExcerpt: script.slice(0, CONTI_SCRIPT_EXCERPT_MAX),
+          presetId,
+        };
+        graphManager.addConti(c);
+        broadcast({ type: 'conti_generated', timestamp: Date.now(), payload: { contiId: c.id, agentId, workId: '' } });
+        broadcastSnapshot();
+        saveCheckpoint();
+        return c;
+      } catch (err) {
+        logger.warn(`POST /api/conti/from-script error: ${err instanceof Error ? err.message : String(err)}`);
+        return null;
+      }
+    })();
+
+    contiInflight.set(agentId, work.then(() => undefined));
+    try {
+      const c = await work;
+      if (!c) {
+        res.status(502).json({ ok: false, error: 'generation failed (claude CLI returned no usable JSON)' });
+        return;
+      }
+      res.json({ ok: true, conti: c });
+    } finally {
+      contiInflight.delete(agentId);
+    }
+  });
+
+  /** §5.13 (Q) PATCH /api/conti/:contiId — 출력 프리셋 지정(컷 좌표계는 안 바뀐다). */
+  app.patch('/api/conti/:contiId', (req, res) => {
+    const body = req.body as { presetId?: unknown };
+    if (typeof body?.presetId !== 'string') {
+      res.status(400).json({ ok: false, error: 'presetId required' });
+      return;
+    }
+    const updated = graphManager.setContiPreset(req.params['contiId']!, normalizeStoryboardPresetId(body.presetId));
+    if (!updated) {
+      res.status(404).json({ ok: false, error: 'not found' });
+      return;
+    }
+    broadcastSnapshot();
+    saveCheckpoint();
+    res.json({ ok: true, conti: updated });
+  });
+
+  /**
+   * §5.13 (Q) POST /api/conti/:contiId/render-link — 콘티를 받아 간 앱의 산출물 기록.
+   *
+   * **어느 앱인지는 몸통이 알려 준다**(§5.13 (P-4)) — 코어는 `appId` 를 해석하지 않고
+   * 그대로 적어 둘 뿐이라, 앱이 늘어도 이 라우트는 그대로다.
+   */
+  app.post('/api/conti/:contiId/render-link', (req, res) => {
+    const body = req.body as {
+      appId?: unknown;
+      docId?: unknown;
+      jobId?: unknown;
+      presetId?: unknown;
+      status?: unknown;
+      error?: unknown;
+    };
+    if (typeof body?.appId !== 'string' || !body.appId || typeof body.docId !== 'string' || !body.docId) {
+      res.status(400).json({ ok: false, error: 'appId and docId required' });
+      return;
+    }
+    const statuses: readonly ContiRenderStatus[] = ['queued', 'running', 'done', 'error', 'canceled'];
+    const link: ContiRenderLink = {
+      appId: body.appId.slice(0, 64),
+      docId: body.docId.slice(0, 128),
+      ...(typeof body.jobId === 'string' && body.jobId ? { jobId: body.jobId.slice(0, 128) } : {}),
+      presetId: normalizeStoryboardPresetId(body.presetId),
+      startedAt: Date.now(),
+      ...(statuses.includes(body.status as ContiRenderStatus) ? { status: body.status as ContiRenderStatus } : {}),
+      ...(typeof body.error === 'string' && body.error ? { error: body.error.slice(0, 400) } : {}),
+    };
+    const updated = graphManager.setContiRenderLink(req.params['contiId']!, link);
+    if (!updated) {
+      res.status(404).json({ ok: false, error: 'not found' });
+      return;
+    }
+    broadcastSnapshot();
+    saveCheckpoint();
+    res.json({ ok: true, conti: updated });
+  });
+
   // ─── Comment Box (v1.45) — 언리얼 블프 스타일 주석 컨테이너 ───
 
   /** GET /api/comment-boxes — 모든 Comment Box 조회(디버그용). 일반적으로 snapshot 으로 받음. */
@@ -8688,6 +9842,9 @@ export async function runServer(): Promise<RunServerHandle> {
       status: 'queued' as const,
     });
     processNextCommand(sessionId);
+    // §5.17 (C) — 실행법을 물은 그 시각이 "이 화면을 누가 만들었나" 가 정해지는 자리다.
+    //   이후 프리뷰가 열리면 캔버스가 이 에이전트로 점선을 긋는다(끝점이 화면에 없으면 안 그린다).
+    graphManager.updatePlayBubble(bubble.id, { ownerAgentId: agentId });
     broadcastSnapshot();
     res.json({ ok: true });
   });
@@ -8961,6 +10118,814 @@ export async function runServer(): Promise<RunServerHandle> {
       logger.error('POST /api/spec-docs/:id/generate-tasks failed', err);
       res.status(500).json({ ok: false, error: 'internal error' });
     }
+  });
+
+
+  // ─── §5.18 — 에이전트 랩 (같은 과제를 설정만 바꿔 N벌) ───
+
+  /**
+   * §5.18 — 변형 하나의 설정을 조립한다. **기준 config 전량을 스프레드**한 위에 변형 축만 덮는다.
+   *
+   * `AgentConfig` 는 부분 페이로드를 저장하면 나머지 필드(도구·스킬 등)가 통째로 날아가는 것이
+   * 이미 실측된 함정이라, 랩의 두 쓰기 경로(실행 스폰 · 승격)는 **항상 이 함수 하나**를 지난다.
+   */
+  function mergeLabVariantConfig(base: AgentConfig, variant: LabVariant, extraRules?: string): AgentConfig {
+    const cfg = variant.config;
+    const rules = (() => {
+      const existing = (base.rules ?? '').replace(
+        new RegExp(`${LAB_RULES_BEGIN}[\\s\\S]*?${LAB_RULES_END}\\n?`, 'g'),
+        '',
+      );
+      if (extraRules === undefined) return existing;
+      return existing.trim() ? `${extraRules}\n\n${existing}` : extraRules;
+    })();
+    return {
+      ...base,
+      ...(cfg.model ? { model: cfg.model } : {}),
+      ...(cfg.effort ? { effort: cfg.effort } : {}),
+      ...(cfg.permissionMode ? { permissionMode: cfg.permissionMode } : {}),
+      ...(cfg.maxTurns !== undefined ? { maxTurns: cfg.maxTurns } : {}),
+      ...(extraRules !== undefined ? { rules } : {}),
+    };
+  }
+
+  /**
+   * §5.18 — 그 턴이 끝났다. 이 에이전트가 랩 변형이면 결과를 적는다.
+   *
+   * 리뷰 레인과 **같은 자리**(`setOnComplete`)에서 부르고, 변경분도 **같은 함수**(`collectWorktreeChanges`)로
+   * 읽는다 — 새 수집기를 만들지 않는다. 못 읽은 값은 그대로 비워 둔다(§5.18 "측정 없음과 0 을 구분한다").
+   */
+  async function maybeFinishLabVariant(agentId: string, done: QueuedCommand[]): Promise<void> {
+    const hit = graphManager.findLabVariantByAgent(agentId);
+    if (!hit) return;
+    const { run, variant } = hit;
+    // 이미 마감된 변형은 건드리지 않는다 — 그 뒤에 사람이 그 카드에 직접 시킨 일까지 표에 섞이면
+    // 그 줄은 더 이상 "같은 과제를 한 번 돌린 결과"가 아니게 된다.
+    if (variant.result?.status !== 'running') return;
+
+    // 이 회차의 마지막 명령 = 우리가 발사한 과제의 결말.
+    const last = [...done].reverse()[0];
+    if (!last) return;
+    const stopped = typeof last.result === 'string' && last.result.startsWith('[Stopped by user]');
+    const status: LabResultStatus = last.status === 'error' ? 'failed' : stopped ? 'stopped' : 'success';
+
+    // 변경분 — 그 변형의 워크트리에서 부모 대비 실제로 달라진 것(§5.16 과 같은 셈법).
+    let filesChanged: number | undefined;
+    let additions: number | undefined;
+    let deletions: number | undefined;
+    try {
+      const projectName = variant.worktreeProjectName;
+      const info = projectName ? graphManager.getProjectByName(projectName) : undefined;
+      if (info?.parentProjectPath) {
+        const wtAbs = info.path.replace(/\//g, path.sep);
+        const parentAbs = info.parentProjectPath.replace(/\//g, path.sep);
+        const branch = await getWorktreeBranch(parentAbs, wtAbs);
+        const changes = await collectWorktreeChanges(parentAbs, wtAbs, branch);
+        filesChanged = changes.files.length;
+        additions = changes.files.reduce((sum, f) => sum + f.additions, 0);
+        deletions = changes.files.reduce((sum, f) => sum + f.deletions, 0);
+      }
+    } catch (err) {
+      logger.warn(`[agent-lab] change collection failed agent=${agentId}`, err);
+    }
+
+    // 토큰 — 그 명령의 증분(서브에이전트가 완료 시 적어 둔 값). 없으면 비워 둔다.
+    let inputTokens: number | undefined;
+    let outputTokens: number | undefined;
+    for (const cmd of done) {
+      if (typeof cmd.inputTokens === 'number') inputTokens = (inputTokens ?? 0) + cmd.inputTokens;
+      if (typeof cmd.outputTokens === 'number') outputTokens = (outputTokens ?? 0) + cmd.outputTokens;
+    }
+
+    const sub = subAgentManager.getPrimarySub(agentId);
+    const model = sub?.modelName ?? variant.config.model ?? graphManager.getAgentConfig(agentId)?.model;
+    const pricing = model ? getModelPricing(model) : undefined;
+    const costUsd = estimateLabCostUsd({
+      ...(inputTokens !== undefined ? { inputTokens } : {}),
+      ...(outputTokens !== undefined ? { outputTokens } : {}),
+      ...(pricing ? { pricing: { input: pricing.input, output: pricing.output } } : {}),
+    });
+
+    const summary = typeof last.result === 'string' && last.result.trim() ? last.result.trim() : undefined;
+
+    graphManager.finishLabVariant(run.id, variant.id, {
+      status,
+      finishedAt: Date.now(),
+      ...(filesChanged !== undefined ? { filesChanged } : {}),
+      ...(additions !== undefined ? { additions } : {}),
+      ...(deletions !== undefined ? { deletions } : {}),
+      ...(inputTokens !== undefined ? { inputTokens } : {}),
+      ...(outputTokens !== undefined ? { outputTokens } : {}),
+      ...(costUsd !== undefined ? { costUsd } : {}),
+      ...(model ? { model } : {}),
+      ...(summary ? { summary } : {}),
+      ...(status !== 'success' && summary ? { error: summary } : {}),
+    });
+    broadcastSnapshot();
+    saveCheckpoint();
+    logger.info(`[agent-lab] variant finished run=${run.id} variant=${variant.label} status=${status} files=${filesChanged ?? '-'} cost=${costUsd ?? '-'}`);
+  }
+
+  /** POST /api/lab-runs — 랩 한 장을 캔버스에 놓는다. */
+  app.post('/api/lab-runs', (req, res) => {
+    try {
+      const body = (req.body ?? {}) as {
+        projectName?: unknown; x?: unknown; y?: unknown; width?: unknown; height?: unknown;
+        title?: unknown; task?: unknown; baseAgentId?: unknown;
+      };
+      const projectName = typeof body.projectName === 'string' && body.projectName
+        ? body.projectName
+        : graphManager.getPrimaryProject()?.name;
+      if (!projectName) {
+        res.status(400).json({ ok: false, error: 'no project' });
+        return;
+      }
+      const run = graphManager.createLabRun({
+        projectName,
+        x: typeof body.x === 'number' ? body.x : 0,
+        y: typeof body.y === 'number' ? body.y : 0,
+        width: typeof body.width === 'number' ? body.width : LAB_BUBBLE_DEFAULT_WIDTH,
+        height: typeof body.height === 'number' ? body.height : LAB_BUBBLE_DEFAULT_HEIGHT,
+        ...(typeof body.title === 'string' ? { title: body.title } : {}),
+        ...(typeof body.task === 'string' ? { task: body.task } : {}),
+        ...(typeof body.baseAgentId === 'string' ? { baseAgentId: body.baseAgentId } : {}),
+      });
+      if (!run) {
+        res.status(404).json({ ok: false, error: 'project instance not found' });
+        return;
+      }
+      broadcastSnapshot();
+      saveCheckpoint();
+      res.json({ ok: true, data: run });
+    } catch (err) {
+      logger.error('POST /api/lab-runs failed', err);
+      res.status(500).json({ ok: false, error: 'internal error' });
+    }
+  });
+
+  /** PATCH /api/lab-runs/:id — 좌표·크기·제목·과제·기준 에이전트. 도는 중에는 과제가 잠긴다. */
+  app.patch('/api/lab-runs/:id', (req, res) => {
+    try {
+      const id = req.params['id']!;
+      const updated = graphManager.updateLabRun(id, (req.body ?? {}) as Record<string, never>);
+      if (!updated) {
+        res.status(404).json({ ok: false, error: 'lab run not found' });
+        return;
+      }
+      broadcastSnapshot();
+      saveCheckpoint();
+      res.json({ ok: true, data: updated });
+    } catch (err) {
+      logger.error('PATCH /api/lab-runs failed', err);
+      res.status(500).json({ ok: false, error: 'internal error' });
+    }
+  });
+
+  /** PUT /api/lab-runs/:id/variants — 변형 목록 통째 교체(이미 측정된 결과는 지킨다). */
+  app.put('/api/lab-runs/:id/variants', (req, res) => {
+    try {
+      const id = req.params['id']!;
+      const body = (req.body ?? {}) as { variants?: unknown };
+      if (!Array.isArray(body.variants)) {
+        res.status(400).json({ ok: false, error: 'variants must be an array' });
+        return;
+      }
+      const updated = graphManager.setLabVariants(
+        id,
+        body.variants as { id?: string; label?: string; config?: LabVariantConfig }[],
+      );
+      if (!updated) {
+        res.status(404).json({ ok: false, error: 'lab run not found' });
+        return;
+      }
+      broadcastSnapshot();
+      saveCheckpoint();
+      res.json({ ok: true, data: updated });
+    } catch (err) {
+      logger.error('PUT /api/lab-runs/:id/variants failed', err);
+      res.status(500).json({ ok: false, error: 'internal error' });
+    }
+  });
+
+  /** POST /api/lab-runs/:id/variants — 변형 한 벌 추가. 상한(LAB_MAX_VARIANTS)을 넘으면 409. */
+  app.post('/api/lab-runs/:id/variants', (req, res) => {
+    try {
+      const id = req.params['id']!;
+      const body = (req.body ?? {}) as { label?: unknown; config?: unknown };
+      const run = graphManager.getLabRun(id);
+      if (!run) {
+        res.status(404).json({ ok: false, error: 'lab run not found' });
+        return;
+      }
+      const label = typeof body.label === 'string' && body.label.trim()
+        ? body.label.trim()
+        : `V${run.variants.length + 1}`;
+      const updated = graphManager.addLabVariant(id, label, (body.config ?? {}) as LabVariantConfig);
+      if (!updated) {
+        res.status(409).json({ ok: false, error: 'variant limit reached' });
+        return;
+      }
+      broadcastSnapshot();
+      saveCheckpoint();
+      res.json({ ok: true, data: updated });
+    } catch (err) {
+      logger.error('POST /api/lab-runs/:id/variants failed', err);
+      res.status(500).json({ ok: false, error: 'internal error' });
+    }
+  });
+
+  /** DELETE /api/lab-runs/:id/variants/:vid — 표에서 한 줄을 뺀다(만들어진 카드·워크트리는 남는다). */
+  app.delete('/api/lab-runs/:id/variants/:vid', (req, res) => {
+    try {
+      const updated = graphManager.removeLabVariant(req.params['id']!, req.params['vid']!);
+      if (!updated) {
+        res.status(404).json({ ok: false, error: 'lab run not found' });
+        return;
+      }
+      broadcastSnapshot();
+      saveCheckpoint();
+      res.json({ ok: true, data: updated });
+    } catch (err) {
+      logger.error('DELETE /api/lab-runs/:id/variants failed', err);
+      res.status(500).json({ ok: false, error: 'internal error' });
+    }
+  });
+
+  /**
+   * POST /api/lab-runs/:id/start — 변형마다 워크트리 + 카드 + 과제 발사.
+   *
+   * 새 스폰 경로 ❌ — ① 격리는 `createWorktreeUnder`(라우트와 **같은 함수**), ② 카드는
+   * `createCustomAgent` + `setAgentConfig`, ③ 발사는 기존 명령 큐(`enqueueAgentCommand`).
+   * 변형 하나가 실패해도 나머지는 계속 돈다(그 줄만 `failed` 로 남는다).
+   */
+  app.post('/api/lab-runs/:id/start', (req, res) => {
+    void (async () => {
+      try {
+        const id = req.params['id']!;
+        const run = graphManager.getLabRun(id);
+        if (!run) {
+          res.status(404).json({ ok: false, error: 'lab run not found' });
+          return;
+        }
+        const task = run.task.trim();
+        if (!task) {
+          res.status(400).json({ ok: false, error: 'task is empty' });
+          return;
+        }
+        const body = (req.body ?? {}) as { variantIds?: unknown };
+        const wanted = Array.isArray(body.variantIds)
+          ? new Set(body.variantIds.filter((v): v is string => typeof v === 'string'))
+          : null;
+        // 이미 도는 변형은 다시 쏘지 않는다 — 같은 워크트리에 두 벌이 겹치면 표가 무의미해진다.
+        const targets = run.variants.filter(
+          (v) => (wanted ? wanted.has(v.id) : true) && v.result?.status !== 'running',
+        );
+        if (targets.length === 0) {
+          res.status(400).json({ ok: false, error: 'no runnable variants' });
+          return;
+        }
+
+        // 기준 설정 — 지정된 에이전트가 있으면 그 설정 전량, 없으면 새 카드의 기본 설정을 그대로 쓴다.
+        const baseCfg = run.baseAgentId ? graphManager.getAgentConfig(run.baseAgentId) : undefined;
+        const started: { variantId: string; agentId: string; worktree: string }[] = [];
+        const failed: { variantId: string; error: string }[] = [];
+
+        for (const [index, variant] of targets.entries()) {
+          const suffix = `${run.id.slice(-6)}-${index + 1}`;
+          const wt = await createWorktreeUnder({
+            project: run.projectName,
+            name: `${LAB_WORKTREE_PREFIX}-${suffix}`,
+          });
+          if (!wt.ok) {
+            graphManager.finishLabVariant(run.id, variant.id, {
+              status: 'failed',
+              finishedAt: Date.now(),
+              error: wt.error,
+            });
+            failed.push({ variantId: variant.id, error: wt.error });
+            continue;
+          }
+          const wtProjectName = path.basename(wt.path);
+          const label = `${run.title.trim() || 'Lab'} · ${variant.label}`.slice(0, LAB_VARIANT_LABEL_MAX + 20);
+          const agent = graphManager.createCustomAgent(
+            label,
+            { x: run.x + run.width + LAB_CARD_OFFSET_X, y: run.y + index * LAB_CARD_GAP_Y },
+            wtProjectName,
+          );
+
+          // 설정 — 기준 config 전량 스프레드 위에 변형 축만. 부분 페이로드 저장 ❌(실측된 함정).
+          const current = graphManager.getAgentConfig(agent.id);
+          const base: AgentConfig = { ...(current ?? DEFAULT_AGENT_CONFIG), ...(baseCfg ?? {}) };
+          const rules = buildLabVariantRules({
+            labTitle: run.title.trim() || run.id,
+            variantLabel: variant.label,
+            variantIndex: index,
+            variantTotal: targets.length,
+            ...(variant.config.rulesAppend ? { rulesAppend: variant.config.rulesAppend } : {}),
+          });
+          graphManager.setAgentConfig(agent.id, mergeLabVariantConfig(base, variant, rules));
+
+          graphManager.attachLabVariantRun(run.id, variant.id, {
+            agentId: agent.id,
+            sessionId: agent.path,
+            worktreeProjectName: wtProjectName,
+            worktreePath: wt.path,
+            branch: wt.branch,
+            startedAt: Date.now(),
+          });
+          enqueueAgentCommand(agent.id, task, 'lab');
+          started.push({ variantId: variant.id, agentId: agent.id, worktree: wtProjectName });
+        }
+
+        broadcastSnapshot();
+        saveCheckpoint();
+        logger.info(`[agent-lab] started run=${run.id} variants=${started.length} failed=${failed.length}`);
+        res.json({ ok: true, data: graphManager.getLabRun(run.id) ?? run, started, failed });
+      } catch (err) {
+        logger.error('POST /api/lab-runs/:id/start failed', err);
+        res.status(500).json({ ok: false, error: 'internal error' });
+      }
+    })();
+  });
+
+  /**
+   * POST /api/lab-runs/:id/variants/:vid/promote — 이긴 설정을 그 에이전트의 기본값으로.
+   *
+   * 대상은 body 의 `targetAgentId`, 없으면 랩의 기준 에이전트다. **현재 config 전량을 스프레드**한
+   * 뒤 그 변형이 바꾼 축만 덮는다(자동 규칙 블록은 얹지 않는다 — 승격은 설정을 옮기는 것이지
+   * 그 카드를 랩 변형으로 만드는 것이 아니다).
+   */
+  app.post('/api/lab-runs/:id/variants/:vid/promote', (req, res) => {
+    try {
+      const id = req.params['id']!;
+      const vid = req.params['vid']!;
+      const run = graphManager.getLabRun(id);
+      if (!run) {
+        res.status(404).json({ ok: false, error: 'lab run not found' });
+        return;
+      }
+      const variant = run.variants.find((v) => v.id === vid);
+      if (!variant) {
+        res.status(404).json({ ok: false, error: 'variant not found' });
+        return;
+      }
+      const body = (req.body ?? {}) as { targetAgentId?: unknown };
+      const targetAgentId = typeof body.targetAgentId === 'string' && body.targetAgentId
+        ? body.targetAgentId
+        : run.baseAgentId;
+      if (!targetAgentId) {
+        res.status(400).json({ ok: false, error: 'no target agent (set baseAgentId or pass targetAgentId)' });
+        return;
+      }
+      const current = graphManager.getAgentConfig(targetAgentId);
+      if (!current) {
+        res.status(404).json({ ok: false, error: 'target agent config not found' });
+        return;
+      }
+      graphManager.setAgentConfig(targetAgentId, mergeLabVariantConfig(current, variant));
+      const updated = graphManager.markLabPromoted(id, vid);
+      broadcastSnapshot();
+      saveCheckpoint();
+      logger.info(`[agent-lab] promoted run=${id} variant=${variant.label} -> agent=${targetAgentId}`);
+      res.json({ ok: true, data: updated ?? run, targetAgentId });
+    } catch (err) {
+      logger.error('POST /api/lab-runs/:id/variants/:vid/promote failed', err);
+      res.status(500).json({ ok: false, error: 'internal error' });
+    }
+  });
+
+  /** DELETE /api/lab-runs/:id — 랩만 지운다. 변형이 만든 카드·워크트리는 남는다. */
+  app.delete('/api/lab-runs/:id', (req, res) => {
+    try {
+      const id = req.params['id']!;
+      const run = graphManager.getLabRun(id);
+      if (!run) {
+        res.status(404).json({ ok: false, error: 'lab run not found' });
+        return;
+      }
+      if (!graphManager.deleteLabRun(id)) {
+        res.status(409).json({ ok: false, error: 'lab run is preserve-pinned' });
+        return;
+      }
+      broadcastSnapshot();
+      saveCheckpoint();
+      res.json({ ok: true });
+    } catch (err) {
+      logger.error('DELETE /api/lab-runs failed', err);
+      res.status(500).json({ ok: false, error: 'internal error' });
+    }
+  });
+
+  // ─── §5.20 스크립트 선반 (Shelf) ───
+
+  /**
+   * §5.20 — 선반 항목의 작업 디렉터리를 정한다.
+   *
+   * 항목이 `cwd` 를 들고 있어도 **그 프로젝트 밖이면 받지 않는다**(가져온 선반 파일이 남의 기계
+   * 경로를 들고 오는 것을 막는 것과 같은 이유). 기존 `validatePathWithinRoot` 를 그대로 쓴다.
+   */
+  function resolveShelfCwd(projectName: string, cwd?: string): { ok: true; cwd: string } | { ok: false; error: string } {
+    const info = graphManager.getProjectByName(projectName);
+    const root = info?.path;
+    if (!root) return { ok: false, error: `project not found: ${projectName}` };
+    const rootAbs = root.replace(/\//g, path.sep);
+    if (!cwd || !cwd.trim()) return { ok: true, cwd: rootAbs };
+    const safe = validatePathWithinRoot(cwd.trim(), rootAbs);
+    if (!safe) return { ok: false, error: 'cwd is outside the project' };
+    return { ok: true, cwd: safe };
+  }
+
+  /**
+   * §5.20 — 셸 항목 한 번 실행. **끝나는 일**이라 출력을 모아 결과로 돌려준다
+   * (서버를 띄우는 detached 기동은 §5.14 플레이 버블의 몫 — 여기서 하지 않는다).
+   *
+   * `SHELF_RUN_TIMEOUT_MS` 를 넘기면 프로세스 트리를 정리하고 그때까지의 출력과 함께 실패로 적는다.
+   */
+  function runShelfCommand(command: string, cwd: string): Promise<{
+    exitCode?: number;
+    output: string;
+    outputTruncated: boolean;
+    error?: string;
+  }> {
+    return new Promise((resolve) => {
+      let out = '';
+      let truncated = false;
+      let settled = false;
+
+      const append = (chunk: string): void => {
+        out += chunk;
+        if (out.length > SHELF_RUN_OUTPUT_MAX_CHARS) {
+          out = out.slice(-SHELF_RUN_OUTPUT_MAX_CHARS);
+          truncated = true;
+        }
+      };
+
+      let child: ChildProcess;
+      try {
+        child = spawn(command, { cwd, shell: true, windowsHide: true });
+      } catch (err) {
+        resolve({ output: '', outputTruncated: false, error: err instanceof Error ? err.message : String(err) });
+        return;
+      }
+      registerSpawnedPid(child.pid);
+
+      child.stdout?.on('data', (d: Buffer) => append(d.toString()));
+      child.stderr?.on('data', (d: Buffer) => append(d.toString()));
+
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        terminateChildTree(child);
+        resolve({
+          output: out,
+          outputTruncated: truncated,
+          error: `timed out after ${Math.round(SHELF_RUN_TIMEOUT_MS / 1000)}s`,
+        });
+      }, SHELF_RUN_TIMEOUT_MS);
+
+      child.on('error', (err) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        unregisterSpawnedPid(child.pid);
+        resolve({ output: out, outputTruncated: truncated, error: err.message });
+      });
+
+      child.on('close', (code) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        unregisterSpawnedPid(child.pid);
+        resolve({
+          ...(typeof code === 'number' ? { exitCode: code } : {}),
+          output: out,
+          outputTruncated: truncated,
+          ...(typeof code === 'number' && code !== 0 ? { error: `exit code ${code}` } : {}),
+        });
+      });
+    });
+  }
+
+  /**
+   * §5.20 — 프롬프트 항목의 그 턴이 끝났다. 그 줄의 결과를 마감한다.
+   *
+   * §5.18 랩과 **같은 자리**(`setOnComplete`)에서 부른다 — 발사만 하고 성공으로 적으면 화면이
+   * "끝났다"고 먼저 말해 버린다(사용자는 카드를 보고 끝난 줄 안다).
+   */
+  function maybeFinishShelfPromptRun(agentId: string, done: QueuedCommand[]): void {
+    const hit = graphManager.findShelfItemByAgent(agentId);
+    if (!hit) return;
+    const last = [...done].reverse()[0];
+    if (!last) return;
+    const stopped = typeof last.result === 'string' && last.result.startsWith('[Stopped by user]');
+    const summary = typeof last.result === 'string' && last.result.trim() ? last.result.trim() : undefined;
+    graphManager.finishShelfItemRun(hit.bubble.id, hit.item.id, {
+      status: last.status === 'error' || stopped ? 'failed' : 'success',
+      finishedAt: Date.now(),
+      ...(summary !== undefined ? { output: summary } : {}),
+      ...(last.status === 'error' && summary ? { error: summary } : {}),
+      ...(stopped ? { error: 'stopped by user' } : {}),
+    });
+    logger.info(`[shelf] prompt run finished shelf=${hit.bubble.id} item=${hit.item.label} agent=${agentId}`);
+  }
+
+  /** POST /api/shelf-bubbles — 선반 한 장을 캔버스에 놓는다. */
+  app.post('/api/shelf-bubbles', (req, res) => {
+    try {
+      const body = (req.body ?? {}) as {
+        projectName?: unknown; x?: unknown; y?: unknown; width?: unknown; height?: unknown; title?: unknown;
+      };
+      const projectName = typeof body.projectName === 'string' && body.projectName
+        ? body.projectName
+        : graphManager.getPrimaryProject()?.name;
+      if (!projectName) {
+        res.status(400).json({ ok: false, error: 'no project' });
+        return;
+      }
+      const bubble = graphManager.createShelfBubble({
+        projectName,
+        x: typeof body.x === 'number' ? body.x : 0,
+        y: typeof body.y === 'number' ? body.y : 0,
+        width: typeof body.width === 'number' ? body.width : SHELF_BUBBLE_DEFAULT_WIDTH,
+        height: typeof body.height === 'number' ? body.height : SHELF_BUBBLE_DEFAULT_HEIGHT,
+        ...(typeof body.title === 'string' ? { title: body.title } : {}),
+      });
+      broadcastSnapshot();
+      saveCheckpoint();
+      res.json({ ok: true, data: bubble });
+    } catch (err) {
+      logger.error('POST /api/shelf-bubbles failed', err);
+      res.status(500).json({ ok: false, error: 'internal error' });
+    }
+  });
+
+  /** PATCH /api/shelf-bubbles/:id — 좌표·크기·제목·고정. */
+  app.patch('/api/shelf-bubbles/:id', (req, res) => {
+    try {
+      const id = req.params['id']!;
+      const updated = graphManager.updateShelfBubble(id, (req.body ?? {}) as Record<string, never>);
+      if (!updated) {
+        res.status(404).json({ ok: false, error: 'shelf not found' });
+        return;
+      }
+      broadcastSnapshot();
+      saveCheckpoint();
+      res.json({ ok: true, data: updated });
+    } catch (err) {
+      logger.error('PATCH /api/shelf-bubbles failed', err);
+      res.status(500).json({ ok: false, error: 'internal error' });
+    }
+  });
+
+  /** DELETE /api/shelf-bubbles/:id — 고정된 선반은 409. */
+  app.delete('/api/shelf-bubbles/:id', (req, res) => {
+    try {
+      const id = req.params['id']!;
+      const existing = graphManager.getShelfBubble(id);
+      if (!existing) {
+        res.status(404).json({ ok: false, error: 'shelf not found' });
+        return;
+      }
+      if (!graphManager.deleteShelfBubble(id)) {
+        res.status(409).json({ ok: false, error: 'shelf preserved (pinned)' });
+        return;
+      }
+      broadcastSnapshot();
+      saveCheckpoint();
+      res.json({ ok: true });
+    } catch (err) {
+      logger.error('DELETE /api/shelf-bubbles failed', err);
+      res.status(500).json({ ok: false, error: 'internal error' });
+    }
+  });
+
+  /** POST /api/shelf-bubbles/:id/items — 항목 한 줄 추가. 상한을 넘으면 409. */
+  app.post('/api/shelf-bubbles/:id/items', (req, res) => {
+    try {
+      const id = req.params['id']!;
+      const body = (req.body ?? {}) as {
+        label?: unknown; kind?: unknown; command?: unknown; prompt?: unknown; icon?: unknown; color?: unknown;
+      };
+      const bubble = graphManager.getShelfBubble(id);
+      if (!bubble) {
+        res.status(404).json({ ok: false, error: 'shelf not found' });
+        return;
+      }
+      const kind: ShelfItemKind = body.kind === 'prompt' ? 'prompt' : 'command';
+      const updated = graphManager.addShelfItem(id, {
+        label: typeof body.label === 'string' ? body.label : '',
+        kind,
+        ...(typeof body.command === 'string' ? { command: body.command } : {}),
+        ...(typeof body.prompt === 'string' ? { prompt: body.prompt } : {}),
+        icon: normalizeShelfIcon(body.icon, kind),
+        color: normalizeShelfColor(body.color),
+      });
+      if (!updated) {
+        res.status(409).json({ ok: false, error: 'item limit reached' });
+        return;
+      }
+      broadcastSnapshot();
+      saveCheckpoint();
+      res.json({ ok: true, data: updated });
+    } catch (err) {
+      logger.error('POST /api/shelf-bubbles/:id/items failed', err);
+      res.status(500).json({ ok: false, error: 'internal error' });
+    }
+  });
+
+  /** PATCH /api/shelf-bubbles/:id/items/:itemId — 항목 한 줄 수정. */
+  app.patch('/api/shelf-bubbles/:id/items/:itemId', (req, res) => {
+    try {
+      const id = req.params['id']!;
+      const itemId = req.params['itemId']!;
+      const updated = graphManager.updateShelfItem(id, itemId, (req.body ?? {}) as Record<string, never>);
+      if (!updated) {
+        res.status(404).json({ ok: false, error: 'shelf item not found' });
+        return;
+      }
+      broadcastSnapshot();
+      saveCheckpoint();
+      res.json({ ok: true, data: updated });
+    } catch (err) {
+      logger.error('PATCH /api/shelf-bubbles/:id/items failed', err);
+      res.status(500).json({ ok: false, error: 'internal error' });
+    }
+  });
+
+  /** DELETE /api/shelf-bubbles/:id/items/:itemId — 항목 한 줄 삭제. */
+  app.delete('/api/shelf-bubbles/:id/items/:itemId', (req, res) => {
+    try {
+      const id = req.params['id']!;
+      const itemId = req.params['itemId']!;
+      const updated = graphManager.removeShelfItem(id, itemId);
+      if (!updated) {
+        res.status(404).json({ ok: false, error: 'shelf item not found' });
+        return;
+      }
+      broadcastSnapshot();
+      saveCheckpoint();
+      res.json({ ok: true, data: updated });
+    } catch (err) {
+      logger.error('DELETE /api/shelf-bubbles/:id/items failed', err);
+      res.status(500).json({ ok: false, error: 'internal error' });
+    }
+  });
+
+  /** PUT /api/shelf-bubbles/:id/items/order — 항목 순서 바꾸기. */
+  app.put('/api/shelf-bubbles/:id/items/order', (req, res) => {
+    try {
+      const id = req.params['id']!;
+      const body = (req.body ?? {}) as { order?: unknown };
+      if (!Array.isArray(body.order)) {
+        res.status(400).json({ ok: false, error: 'order must be an array' });
+        return;
+      }
+      const updated = graphManager.reorderShelfItems(
+        id,
+        body.order.filter((v): v is string => typeof v === 'string'),
+      );
+      if (!updated) {
+        res.status(404).json({ ok: false, error: 'shelf not found' });
+        return;
+      }
+      broadcastSnapshot();
+      saveCheckpoint();
+      res.json({ ok: true, data: updated });
+    } catch (err) {
+      logger.error('PUT /api/shelf-bubbles/:id/items/order failed', err);
+      res.status(500).json({ ok: false, error: 'internal error' });
+    }
+  });
+
+  /**
+   * POST /api/shelf-bubbles/:id/import — 가져온 JSON 한 장을 이 선반에 얹는다.
+   *
+   * 파일 내용을 **믿지 않는다** — shared 순수 함수 `normalizeShelfImport` 가 스키마 버전·아이콘·색·
+   * 길이·개수를 전부 훑은 뒤에야 항목이 된다(클라이언트도 같은 함수로 미리 보여 준다).
+   */
+  app.post('/api/shelf-bubbles/:id/import', (req, res) => {
+    try {
+      const id = req.params['id']!;
+      const body = (req.body ?? {}) as { payload?: unknown; replace?: unknown };
+      const parsed = normalizeShelfImport(body.payload);
+      if (!parsed.ok) {
+        res.status(400).json({ ok: false, error: parsed.error ?? 'invalid shelf file' });
+        return;
+      }
+      const result = graphManager.importShelfItems(id, parsed.items, body.replace === true);
+      if (!result) {
+        res.status(404).json({ ok: false, error: 'shelf not found' });
+        return;
+      }
+      broadcastSnapshot();
+      saveCheckpoint();
+      logger.info(`[shelf] imported shelf=${id} added=${result.added} dropped=${result.dropped + parsed.dropped}`);
+      res.json({ ok: true, data: result.bubble, added: result.added, dropped: result.dropped + parsed.dropped });
+    } catch (err) {
+      logger.error('POST /api/shelf-bubbles/:id/import failed', err);
+      res.status(500).json({ ok: false, error: 'internal error' });
+    }
+  });
+
+  /**
+   * POST /api/shelf-bubbles/:id/items/:itemId/run — 그 줄을 누른다.
+   *
+   * 갈래는 둘뿐이고 **둘 다 이미 있는 경로**다(§5.20) — 셸은 여기서 돌려 출력을 결과로 적고,
+   * 프롬프트는 기존 명령 큐로 보낸 뒤 그 턴이 끝날 때 `setOnComplete` 가 결과를 마감한다.
+   */
+  app.post('/api/shelf-bubbles/:id/items/:itemId/run', (req, res) => {
+    void (async () => {
+      try {
+        const id = req.params['id']!;
+        const itemId = req.params['itemId']!;
+        const bubble = graphManager.getShelfBubble(id);
+        if (!bubble) {
+          res.status(404).json({ ok: false, error: 'shelf not found' });
+          return;
+        }
+        const item = bubble.items.find((i) => i.id === itemId);
+        if (!item) {
+          res.status(404).json({ ok: false, error: 'shelf item not found' });
+          return;
+        }
+        if (item.lastRun?.status === 'running') {
+          res.status(409).json({ ok: false, error: 'already running' });
+          return;
+        }
+
+        if (item.kind === 'prompt') {
+          const prompt = (item.prompt ?? '').trim();
+          if (!prompt) {
+            res.status(400).json({ ok: false, error: 'prompt is empty' });
+            return;
+          }
+          // 대상 카드 — 지정된 것이 아직 캔버스에 있으면 그 카드로, 없으면 한 장 만든다(§5.18 과 같은 방식).
+          const agents = graphManager.getSnapshot().agents;
+          let targetId = item.targetAgentId && agents.some((a) => a.id === item.targetAgentId)
+            ? item.targetAgentId
+            : undefined;
+          let sessionId = targetId ? agents.find((a) => a.id === targetId)?.path : undefined;
+          if (!targetId) {
+            const label = `${bubble.title.trim() || 'Shelf'} · ${item.label}`.slice(0, SHELF_LABEL_MAX + 20);
+            const agent = graphManager.createCustomAgent(
+              label,
+              { x: bubble.x + bubble.width + SHELF_CARD_OFFSET_X, y: bubble.y },
+              bubble.projectName,
+            );
+            targetId = agent.id;
+            sessionId = agent.path;
+          }
+          graphManager.startShelfItemRun(id, itemId, {
+            agentId: targetId,
+            ...(sessionId ? { sessionId } : {}),
+          });
+          const sent = enqueueAgentCommand(targetId, prompt, 'shelf');
+          if (!sent) {
+            graphManager.finishShelfItemRun(id, itemId, { status: 'failed', error: 'could not reach the agent' });
+          }
+          broadcastSnapshot();
+          saveCheckpoint();
+          res.json({ ok: true, data: graphManager.getShelfBubble(id), agentId: targetId });
+          return;
+        }
+
+        const command = (item.command ?? '').trim();
+        if (!command) {
+          res.status(400).json({ ok: false, error: 'command is empty' });
+          return;
+        }
+        const where = resolveShelfCwd(bubble.projectName, item.cwd);
+        if (!where.ok) {
+          graphManager.startShelfItemRun(id, itemId);
+          graphManager.finishShelfItemRun(id, itemId, { status: 'failed', error: where.error });
+          broadcastSnapshot();
+          saveCheckpoint();
+          res.json({ ok: true, data: graphManager.getShelfBubble(id) });
+          return;
+        }
+
+        // 도는 동안 캔버스가 그렇게 보이도록 먼저 알린다(끝나고 한 번에 알리면 누른 티가 안 난다).
+        graphManager.startShelfItemRun(id, itemId);
+        broadcastSnapshot();
+
+        const out = await runShelfCommand(command, where.cwd);
+        graphManager.finishShelfItemRun(id, itemId, {
+          status: out.error ? 'failed' : 'success',
+          finishedAt: Date.now(),
+          ...(out.exitCode !== undefined ? { exitCode: out.exitCode } : {}),
+          output: out.output,
+          outputTruncated: out.outputTruncated,
+          ...(out.error !== undefined ? { error: out.error } : {}),
+        });
+        broadcastSnapshot();
+        saveCheckpoint();
+        logger.info(`[shelf] command finished shelf=${id} item=${item.label} exit=${out.exitCode ?? '-'}`);
+        res.json({ ok: true, data: graphManager.getShelfBubble(id) });
+      } catch (err) {
+        logger.error('POST /api/shelf-bubbles/:id/items/:itemId/run failed', err);
+        res.status(500).json({ ok: false, error: 'internal error' });
+      }
+    })();
   });
 
   /** DELETE /api/spec-docs/:id/items/:itemId/task — 항목에서 카드 연결만 끊는다(에이전트는 남는다). */
@@ -9309,15 +11274,23 @@ export async function runServer(): Promise<RunServerHandle> {
    *
    * 살아있는 서브에이전트의 스트림 파일은 **나이와 무관하게 보존**한다 — 그 목록을 여기서 모아 넘긴다.
    * 화면에 떠 있는 대화를 지우면 IDE 를 다시 열었을 때 빈 화면이 되기 때문(`deleteAgentStreams` 주석과 같은 이유).
+   *
+   * ⚠ **`getSnapshot()`(registry) 만으로는 부족하다.** 탭을 닫은 서브에이전트는 `archive` 로 옮겨져
+   *   폴더 버튼의 "다시 열기" 목록 소스가 되는데, registry 에는 없으므로 보호에서 새어 나갔다.
+   *   그 결과가 "목록에는 항목이 보이는데 누르면 빈 화면" 이다(실측 2026-08-19: 아카이브 102개 중
+   *   실제로 돌았던 2개가 이미 기록 소실, 91개가 같은 시계 위). 두 벌을 합쳐 넘긴다.
    */
   function runProjectStorageCleanup(): StorageCleanupResult {
     const stubInfos = Object.values(graphManager.getStubProjects()).map((m) => m.project);
     const projects = [...Object.values(graphManager.getProjects()), ...stubInfos];
-    const liveSubAgentIds = new Set<string>();
+    const protectedSubAgentIds = new Set<string>();
     for (const subs of Object.values(subAgentManager.getSnapshot())) {
-      for (const s of subs) liveSubAgentIds.add(s.id);
+      for (const s of subs) protectedSubAgentIds.add(s.id);
     }
-    return runStorageCleanup({ projects, liveSubAgentIds });
+    for (const subs of Object.values(subAgentManager.getArchiveSnapshot())) {
+      for (const s of subs) protectedSubAgentIds.add(s.id);
+    }
+    return runStorageCleanup({ projects, protectedSubAgentIds });
   }
 
   /**
@@ -10214,6 +12187,34 @@ export async function runServer(): Promise<RunServerHandle> {
       //   "마지막 회차 종료 = 완료" 가 아래 broadcastSnapshot 과 **같은 스냅샷**에 실린다
       //   (늦게 실리면 클라가 루프 종료음과 버블 완료음을 두 번 울린다).
       if (ownerAgentId) graphManager.recomputeCustomAgentStatus(ownerAgentId);
+      // §5.16 — 리뷰·승인 레인: 격리(워크트리)에서 일한 커스텀 에이전트가 그 턴을 끝냈으면
+      //   변경분을 붙잡아 리뷰 카드를 만든다. 판정 넷은 `maybeCreateReviewRequest` 안에 있고,
+      //   여기서는 **사용자 명령 완료(비-critique)** 인 회차만 후보로 넘긴다 — watcher 응답이나
+      //   중단된 턴으로는 리뷰를 만들지 않는다(sawNonCritiqueResponse 가 그 판정을 이미 들고 있다).
+      if (ownerAgentId && sawNonCritiqueResponse) {
+        const lastSub = [...done].reverse().find((c) => typeof c.subAgentId === "string" && c.subAgentId)?.subAgentId;
+        void maybeCreateReviewRequest(ownerAgentId, lastSub ?? undefined).catch((err) => {
+          logger.error(`[review-lane] maybeCreateReviewRequest failed agent=${ownerAgentId}`, err);
+        });
+      }
+
+      // §5.18 — 에이전트 랩: 그 턴을 끝낸 에이전트가 랩 변형이면 결과(변경분·토큰·소요·비용)를
+      //   그 줄에 적는다. 리뷰 레인과 **같은 자리·같은 수집 함수**를 쓴다(새 수집기 ❌).
+      if (ownerAgentId && done.length > 0) {
+        void maybeFinishLabVariant(ownerAgentId, done).catch((err) => {
+          logger.error(`[agent-lab] maybeFinishLabVariant failed agent=${ownerAgentId}`, err);
+        });
+      }
+
+      // §5.20 — 스크립트 선반: 그 턴을 끝낸 에이전트가 선반의 프롬프트 항목이 보낸 것이면 그 줄을
+      //   마감한다. 랩과 **같은 자리**다 — 발사 시점에 성공으로 적으면 화면이 먼저 끝났다고 말한다.
+      if (ownerAgentId && done.length > 0) {
+        try {
+          maybeFinishShelfPromptRun(ownerAgentId, done);
+        } catch (err) {
+          logger.error(`[shelf] maybeFinishShelfPromptRun failed agent=${ownerAgentId}`, err);
+        }
+      }
 
       // v1.55 — critique 런타임:
       //   (1) watcher critique 응답 완료들 처리(reject 판정 시 자매 auto-rework 발사 / 강등)
@@ -10349,6 +12350,21 @@ export async function runServer(): Promise<RunServerHandle> {
       }
     }, SESSION_SCAN_INTERVAL);
 
+    // §5.21 — 비용·토큰 지도 스윕. 훅마다 재파싱하지 않고 이 주기에만 훑으며,
+    //   활성 세션만 넘긴 뒤 JSONL 스캐너가 mtime·size 로 한 번 더 걸러 변화 없으면 파일을 열지 않는다.
+    setInterval(() => {
+      let changed = false;
+      try {
+        changed = graphManager.sweepCostMaps(modelRegistryService.getRegistry());
+      } catch (err) {
+        logger.debug(`cost map sweep failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      if (changed) {
+        broadcastSnapshot();
+        saveCheckpoint();
+      }
+    }, COST_MAP_SWEEP_INTERVAL_MS);
+
     // 파일 존재 확인 + ghost 만료 제거 (별도 주기)
     setInterval(() => {
       let needsBroadcast = false;
@@ -10415,9 +12431,24 @@ export async function runServer(): Promise<RunServerHandle> {
       //   순서가 뒤집히면 유령이 세션·버블을 계속 활동 중으로 붙든다.
       const orphanParents = subAgentManager.sweepOrphanedBackgroundTasks();
       const deadActive = subAgentManager.reconcileDeadActiveSubs();
-      if (deadActive.length > 0 || orphanParents.length > 0) {
+      // §2.4 (잠듦) — 대화가 끝난 지 오래된 세션의 자식 프로세스를 회수해 메모리를 돌려준다.
+      //   다음 명령이 오면 `--resume` fresh spawn 으로 그대로 이어지므로 사용자가 잃는 것은 없다.
+      //   큐에 아직 나가지 않은 명령이 남은 세션은 곧 그 자식을 쓸 자리라 건너뛴다.
+      const slept = subAgentManager.sweepDormantIdleSubs(SUBAGENT_DORMANT_IDLE_MS, (subId) => {
+        // 반복 명령(§5.5 #17-11)이 켜진 탭은 다음 회차를 기다리는 중이다. 회차는 큐를 타므로 재워도
+        //   `--resume` 으로 이어지지만, 사용자에게는 "루프가 도는 탭"이라 건드리지 않는다.
+        if (graphManager.getSessionLoop(subId)?.enabled) return true;
+        for (const queue of commandQueues.values()) {
+          for (const cmd of queue) {
+            if (cmd.subAgentId !== subId) continue;
+            if (cmd.status === 'queued' || cmd.status === 'executing') return true;
+          }
+        }
+        return false;
+      });
+      if (deadActive.length > 0 || orphanParents.length > 0 || slept.length > 0) {
         const parents = new Set(orphanParents);
-        for (const id of deadActive) {
+        for (const id of [...deadActive, ...slept]) {
           const parentId = subAgentManager.getSub(id)?.parentAgentId;
           if (parentId) parents.add(parentId);
         }

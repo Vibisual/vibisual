@@ -28,7 +28,7 @@ export function formatClock(ts: number): string {
   return new Date(ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
 }
 
-const CHIP = 'min-w-0 truncate rounded px-1 py-px text-[9px] font-semibold';
+const CHIP = 'min-w-0 truncate rounded px-1 py-px text-[12px] font-semibold';
 
 /** 도구 글리프 — lucide `terminal-square` 톤. 색은 부모의 `text-*` 가 정한다. */
 function ToolGlyph(): React.JSX.Element {
@@ -74,7 +74,7 @@ function MetaRow({
     <div className="mt-1 flex flex-wrap items-center gap-1">
       {type && <span className={`${CHIP} bg-sky-500/15 text-sky-300`}>{type}</span>}
       {sessionLabel && <span className={`${CHIP} bg-gray-700/60 font-medium text-gray-300`}>{sessionLabel}</span>}
-      <span className="flex-shrink-0 text-[9px] tabular-nums text-gray-600" title={clockTitle}>{clock}</span>
+      <span className="flex-shrink-0 text-[12px] tabular-nums text-gray-600" title={clockTitle}>{clock}</span>
     </div>
   );
 }
@@ -104,10 +104,10 @@ export const RunningTaskRow = memo(function RunningTaskRow({
     <li className="rounded border border-sky-500/30 bg-gray-800/40 px-2 py-1.5">
       <div className="flex items-center gap-1.5">
         <span className="h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full bg-sky-400" />
-        <span className="min-w-0 flex-1 truncate text-[11.5px] font-bold text-gray-100" title={title}>
+        <span className="min-w-0 flex-1 truncate text-[12px] font-bold text-gray-100" title={title}>
           {title}
         </span>
-        <span className="flex-shrink-0 rounded bg-gray-700/60 px-1 text-[9px] font-semibold tabular-nums text-sky-200">
+        <span className="flex-shrink-0 rounded bg-gray-700/60 px-1 text-[12px] font-semibold tabular-nums text-sky-200">
           {formatElapsed(task.startedAt, now)}
         </span>
         {onDismiss && (
@@ -127,7 +127,7 @@ export const RunningTaskRow = memo(function RunningTaskRow({
       </div>
 
       {quietFor && (
-        <p className="mt-0.5 text-[9.5px] font-semibold text-amber-300/90">
+        <p className="mt-0.5 text-[12px] font-semibold text-amber-300/90">
           {t('ide.runningSubagents.noResponse', { value: quietFor })}
         </p>
       )}
@@ -140,7 +140,7 @@ export const RunningTaskRow = memo(function RunningTaskRow({
       />
 
       {task.prompt && (
-        <p className="mt-1 line-clamp-3 whitespace-pre-wrap break-words text-[10.5px] leading-snug text-gray-400"
+        <p className="mt-1 line-clamp-3 whitespace-pre-wrap break-words text-[12px] leading-snug text-gray-400"
           title={task.prompt}>
           {task.prompt}
         </p>
@@ -151,15 +151,15 @@ export const RunningTaskRow = memo(function RunningTaskRow({
         <div className="mt-1 flex items-center gap-1 border-t border-gray-700/60 pt-1 text-sky-300"
           title={t('ide.runningSubagents.nowUsing')}>
           <ToolGlyph />
-          <span className="flex-shrink-0 text-[10px] font-semibold">{task.currentTool}</span>
+          <span className="flex-shrink-0 text-[12px] font-semibold">{task.currentTool}</span>
           {task.currentToolDetail && (
-            <span className="min-w-0 flex-1 truncate text-[9.5px] font-normal text-gray-400"
+            <span className="min-w-0 flex-1 truncate text-[12px] font-normal text-gray-400"
               title={task.currentToolDetail}>
               {task.currentToolDetail}
             </span>
           )}
           {task.toolCount !== undefined && task.toolCount > 0 && (
-            <span className="ml-auto flex-shrink-0 text-[9px] tabular-nums text-gray-500"
+            <span className="ml-auto flex-shrink-0 text-[12px] tabular-nums text-gray-500"
               title={t('ide.runningSubagents.toolUses', { count: task.toolCount })}>
               ×{task.toolCount}
             </span>
@@ -185,10 +185,10 @@ export const FinishedTaskRow = memo(function FinishedTaskRow({
     <li className="rounded border border-gray-700/70 bg-gray-800/30 px-2 py-1.5">
       <div className="flex items-center gap-1.5 text-emerald-400">
         <DoneGlyph />
-        <span className="min-w-0 flex-1 truncate text-[11.5px] font-bold text-gray-300" title={title}>
+        <span className="min-w-0 flex-1 truncate text-[12px] font-bold text-gray-300" title={title}>
           {title}
         </span>
-        <span className="flex-shrink-0 rounded bg-gray-700/60 px-1 text-[9px] font-semibold tabular-nums text-gray-300"
+        <span className="flex-shrink-0 rounded bg-gray-700/60 px-1 text-[12px] font-semibold tabular-nums text-gray-300"
           title={t('ide.runningSubagents.duration', { value: formatElapsed(task.startedAt, task.endedAt) })}>
           {formatElapsed(task.startedAt, task.endedAt)}
         </span>
@@ -207,7 +207,7 @@ export const FinishedTaskRow = memo(function FinishedTaskRow({
               사실을 적지 않으면, 사용자는 부모가 받아 든 결과로 읽고 "그럼 왜 이어서 일을 안 했나"를
               영영 이해할 수 없다. */}
           {task.resultRescued && (
-            <p className="mt-1 flex items-center gap-1 text-[9.5px] font-semibold text-amber-400/90"
+            <p className="mt-1 flex items-center gap-1 text-[12px] font-semibold text-amber-400/90"
               title={t('ide.runningSubagents.resultRescuedTitle')}>
               <RescueGlyph />
               <span className="min-w-0 truncate">{t('ide.runningSubagents.resultRescued')}</span>
@@ -215,17 +215,17 @@ export const FinishedTaskRow = memo(function FinishedTaskRow({
           )}
           <button type="button" onClick={() => setOpen((v) => !v)}
             className="mt-1 block w-full text-left" title={t('ide.runningSubagents.toggleResult')}>
-            <p className={`whitespace-pre-wrap break-words text-[10.5px] leading-snug text-gray-400 ${open ? '' : 'line-clamp-4'}`}>
+            <p className={`whitespace-pre-wrap break-words text-[12px] leading-snug text-gray-400 ${open ? '' : 'line-clamp-4'}`}>
               {task.result}
             </p>
           </button>
         </>
       ) : (
-        <p className="mt-1 text-[10px] italic text-gray-600">{t('ide.runningSubagents.noResult')}</p>
+        <p className="mt-1 text-[12px] italic text-gray-600">{t('ide.runningSubagents.noResult')}</p>
       )}
 
       {task.toolCount !== undefined && task.toolCount > 0 && (
-        <p className="mt-1 text-[9px] tabular-nums text-gray-600">
+        <p className="mt-1 text-[12px] tabular-nums text-gray-600">
           {t('ide.runningSubagents.toolUses', { count: task.toolCount })}
         </p>
       )}

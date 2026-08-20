@@ -104,15 +104,15 @@ export function DocEntry({ card, helpfulOverride, expanded, onToggle, onHelpful,
         </svg>
         <div className="min-w-0 flex-1">
           <h3 className="text-[15px] font-semibold leading-snug text-zinc-100">{card.title}</h3>
-          <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-zinc-500">
+          <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[12px] text-zinc-500">
             <span style={{ color: accent }}>{t(label.key, { defaultValue: label.fallback })}</span>
             {card.always && (
-              <span className="rounded px-1.5 py-px text-[10px]" style={{ backgroundColor: `${BRAIN_ACCENT}1F`, color: '#A5B4FC' }}>
+              <span className="rounded px-1.5 py-px text-[12px]" style={{ backgroundColor: `${BRAIN_ACCENT}1F`, color: '#A5B4FC' }}>
                 {t('brain.alwaysBadge', { defaultValue: '상시' })}
               </span>
             )}
             {needsCheck && (
-              <span className="inline-flex items-center gap-1 rounded px-1.5 py-px text-[10px]" style={{ backgroundColor: `${WARN_COLOR}1F`, color: WARN_COLOR }}>
+              <span className="inline-flex items-center gap-1 rounded px-1.5 py-px text-[12px]" style={{ backgroundColor: `${WARN_COLOR}1F`, color: WARN_COLOR }}>
                 <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <path d="M12 9v4M12 17h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
                 </svg>
@@ -120,12 +120,12 @@ export function DocEntry({ card, helpfulOverride, expanded, onToggle, onHelpful,
               </span>
             )}
             {card.status === 'archived' && (
-              <span className="rounded bg-zinc-800 px-1.5 py-px text-[10px] text-zinc-400">
+              <span className="rounded bg-zinc-800 px-1.5 py-px text-[12px] text-zinc-400">
                 {t('brain.archivedBadge', { defaultValue: '정리됨' })}
               </span>
             )}
             {isCurrent && (
-              <span className="inline-flex items-center gap-1 rounded px-1.5 py-px text-[10px]" style={{ backgroundColor: '#10B9811F', color: '#34D399' }}>
+              <span className="inline-flex items-center gap-1 rounded px-1.5 py-px text-[12px]" style={{ backgroundColor: '#10B9811F', color: '#34D399' }}>
                 <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <path d="M20 6 9 17l-5-5" />
                 </svg>
@@ -133,7 +133,7 @@ export function DocEntry({ card, helpfulOverride, expanded, onToggle, onHelpful,
               </span>
             )}
             {isContested && (
-              <span className="inline-flex items-center gap-1 rounded px-1.5 py-px text-[10px]" style={{ backgroundColor: '#F871711F', color: '#F87171' }}>
+              <span className="inline-flex items-center gap-1 rounded px-1.5 py-px text-[12px]" style={{ backgroundColor: '#F871711F', color: '#F87171' }}>
                 <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <path d="M12 9v4M12 17h.01M12 3 2 21h20L12 3z" />
                 </svg>
@@ -141,17 +141,17 @@ export function DocEntry({ card, helpfulOverride, expanded, onToggle, onHelpful,
               </span>
             )}
             {!isCurrent && !isContested && verifyState === 'candidate' && card.canonicalKey && (
-              <span className="rounded px-1.5 py-px text-[10px] text-zinc-400 ring-1 ring-inset ring-zinc-700">
+              <span className="rounded px-1.5 py-px text-[12px] text-zinc-400 ring-1 ring-inset ring-zinc-700">
                 {t('brain.candidateBadge', { defaultValue: '검토 대기' })}
               </span>
             )}
             {verifyState === 'rejected' && (
-              <span className="rounded bg-zinc-800 px-1.5 py-px text-[10px] text-zinc-500">
+              <span className="rounded bg-zinc-800 px-1.5 py-px text-[12px] text-zinc-500">
                 {t('brain.rejectedBadge', { defaultValue: '거부됨' })}
               </span>
             )}
             {card.canonicalKey && (
-              <span className="font-mono text-[10px] text-zinc-600" title={t('brain.canonicalKeyTip', { defaultValue: '이 지식의 고정 주소 — 같은 주소에는 현재 진실이 하나만 존재합니다.' })}>
+              <span className="font-mono text-[12px] text-zinc-600" title={t('brain.canonicalKeyTip', { defaultValue: '이 지식의 고정 주소 — 같은 주소에는 현재 진실이 하나만 존재합니다.' })}>
                 {card.canonicalKey}
               </span>
             )}
@@ -181,7 +181,7 @@ export function DocEntry({ card, helpfulOverride, expanded, onToggle, onHelpful,
       {/* §5.10 v3.81 — 승인 관문. 여기를 지나야 AI 브리핑에 나간다(저장됐다 ≠ 진실이다). */}
       {awaitingReview && (onConfirm || onReject) && (
         <div className="mt-2 ml-[26px] flex flex-wrap items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/40 px-2.5 py-2">
-          <p className="mr-1 text-[11.5px] text-zinc-400">
+          <p className="mr-1 text-[12px] text-zinc-400">
             {isContested
               ? t('brain.confirmPromptContested', { defaultValue: '같은 주소에 값이 갈렸습니다 — 맞는 쪽을 골라야 AI 에게 전달됩니다.' })
               : t('brain.confirmPrompt', { defaultValue: '아직 AI 에게 전달되지 않는 후보입니다.' })}
@@ -190,7 +190,7 @@ export function DocEntry({ card, helpfulOverride, expanded, onToggle, onHelpful,
             <button
               type="button"
               onClick={() => onConfirm(card)}
-              className="rounded px-2 py-1 text-[11px] font-semibold transition-colors"
+              className="rounded px-2 py-1 text-[12px] font-semibold transition-colors"
               style={{ backgroundColor: `${BRAIN_ACCENT}26`, color: '#A5B4FC' }}
             >
               {t('brain.confirmCurrent', { defaultValue: '현재 진실로 확인' })}
@@ -201,7 +201,7 @@ export function DocEntry({ card, helpfulOverride, expanded, onToggle, onHelpful,
               type="button"
               onClick={() => onReject(card)}
               title={t('brain.rejectTip', { defaultValue: '삭제되지 않습니다 — 기록으로 남고 주입에서만 빠집니다.' })}
-              className="rounded bg-zinc-800 px-2 py-1 text-[11px] text-zinc-300 transition-colors hover:bg-zinc-700"
+              className="rounded bg-zinc-800 px-2 py-1 text-[12px] text-zinc-300 transition-colors hover:bg-zinc-700"
             >
               {t('brain.reject', { defaultValue: '아니오' })}
             </button>
@@ -212,7 +212,7 @@ export function DocEntry({ card, helpfulOverride, expanded, onToggle, onHelpful,
       {/* §5.10 v3.78 — 무효화 신호 + 재검증 1비트. 카드를 감추지 않고 "대조하라"고 말한다. */}
       {needsCheck && (
         <div className="mt-2 ml-[26px] rounded-lg border px-2.5 py-2" style={{ borderColor: `${WARN_COLOR}40`, backgroundColor: `${WARN_COLOR}0F` }}>
-          <p className="text-[11.5px] leading-relaxed" style={{ color: WARN_COLOR }}>
+          <p className="text-[12px] leading-relaxed" style={{ color: WARN_COLOR }}>
             {edited && edited.total > 0
               ? t('brain.needsCheckEdited', {
                   defaultValue: '{{files}} 이(가) 이 기억을 적은 뒤 {{n}}회 수정됐습니다 — 지금 코드와 맞는지 확인해 주세요.',
@@ -227,7 +227,7 @@ export function DocEntry({ card, helpfulOverride, expanded, onToggle, onHelpful,
                 <button
                   type="button"
                   onClick={() => onVerify(card)}
-                  className="rounded px-2 py-1 text-[11px] font-semibold transition-colors"
+                  className="rounded px-2 py-1 text-[12px] font-semibold transition-colors"
                   style={{ backgroundColor: `${WARN_COLOR}26`, color: WARN_COLOR }}
                 >
                   {t('brain.stillValid', { defaultValue: '지금도 맞음' })}
@@ -238,7 +238,7 @@ export function DocEntry({ card, helpfulOverride, expanded, onToggle, onHelpful,
                   type="button"
                   onClick={() => onStale(card)}
                   title={t('brain.markStaleTip', { defaultValue: '반복 신고되면 자동으로 정리됩니다(삭제되지 않고 되돌릴 수 있습니다).' })}
-                  className="rounded bg-zinc-800 px-2 py-1 text-[11px] text-zinc-300 transition-colors hover:bg-zinc-700"
+                  className="rounded bg-zinc-800 px-2 py-1 text-[12px] text-zinc-300 transition-colors hover:bg-zinc-700"
                 >
                   {t('brain.markStale', { defaultValue: '낡았음' })}
                 </button>
@@ -253,7 +253,7 @@ export function DocEntry({ card, helpfulOverride, expanded, onToggle, onHelpful,
           <button
             type="button"
             onClick={() => onRestore(card)}
-            className="rounded bg-zinc-800 px-2 py-1 text-[11px] text-zinc-300 transition-colors hover:bg-zinc-700"
+            className="rounded bg-zinc-800 px-2 py-1 text-[12px] text-zinc-300 transition-colors hover:bg-zinc-700"
           >
             {t('brain.restoreCard', { defaultValue: '되돌리기' })}
           </button>
@@ -267,7 +267,7 @@ export function DocEntry({ card, helpfulOverride, expanded, onToggle, onHelpful,
       {card.files.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1 pl-[26px]">
           {card.files.map((f) => (
-            <span key={f} className="truncate rounded bg-zinc-800/80 px-1.5 py-0.5 font-mono text-[10.5px] text-zinc-500" title={f}>{f}</span>
+            <span key={f} className="truncate rounded bg-zinc-800/80 px-1.5 py-0.5 font-mono text-[12px] text-zinc-500" title={f}>{f}</span>
           ))}
         </div>
       )}
@@ -276,7 +276,7 @@ export function DocEntry({ card, helpfulOverride, expanded, onToggle, onHelpful,
         <button
           type="button"
           onClick={() => onToggle(card.id)}
-          className="text-[11px] text-zinc-500 transition-colors hover:text-zinc-300"
+          className="text-[12px] text-zinc-500 transition-colors hover:text-zinc-300"
         >
           {expanded
             ? t('brain.library.closeDetail', { defaultValue: '닫기' })

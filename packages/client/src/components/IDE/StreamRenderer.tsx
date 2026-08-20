@@ -166,7 +166,7 @@ function CodeBlock({ children, ...rest }: React.HTMLAttributes<HTMLPreElement>):
         onClick={onCopy}
         title={copied ? t('ide.streamRenderer.copied') : t('ide.streamRenderer.copy')}
         aria-label={copied ? t('ide.streamRenderer.copied') : t('ide.streamRenderer.copy')}
-        className={`absolute right-1.5 top-1.5 inline-flex items-center gap-1 rounded border px-1.5 py-1 text-[10px] font-medium transition-opacity ${
+        className={`absolute right-1.5 top-1.5 inline-flex items-center gap-1 rounded border px-1.5 py-1 text-[12px] font-medium transition-opacity ${
           copied
             ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300 opacity-100'
             : 'border-white/10 bg-gray-900/70 text-gray-300 opacity-0 group-hover/code:opacity-100 hover:border-white/20 hover:bg-gray-800/80 hover:text-gray-100 focus:opacity-100'
@@ -326,7 +326,7 @@ const TextBlock = memo(function TextBlock({ item, density, exempt }: { item: Str
             <button
               type="button"
               onClick={toggleOpen}
-              className="mt-0.5 flex items-center gap-1 text-[11px] text-gray-500 transition-colors hover:text-gray-300"
+              className="mt-0.5 flex items-center gap-1 text-[12px] text-gray-500 transition-colors hover:text-gray-300"
             >
               <svg className={`h-3 w-3 transition-transform ${open ? 'rotate-90' : ''}`} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                 <path d="M8 5v14l11-7z" />
@@ -415,7 +415,7 @@ const ToolBlock = memo(function ToolBlock({ item, density, review }: {
         </span>
 
         {/* 도구 이름 */}
-        <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-bold text-amber-400/90">
+        <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[12px] font-bold text-amber-400/90">
           {item.toolName}
         </span>
 
@@ -430,12 +430,12 @@ const ToolBlock = memo(function ToolBlock({ item, density, review }: {
             >
               {fileName}
             </button>
-            <span className={`flex-shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold ${
+            <span className={`flex-shrink-0 rounded px-1 py-0.5 text-[12px] font-semibold ${
               parsedEdit.mode === 'create' ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-300'
             }`}>{modeLabel}</span>
             {/* 접혀 있을 땐 "몇 줄짜리 편집인지"만 알린다(펼침 여부를 사용자가 판단할 재료). */}
             {!open && editLines > 0 && (
-              <span className="flex-shrink-0 tabular-nums text-[10px] text-gray-500">
+              <span className="flex-shrink-0 tabular-nums text-[12px] text-gray-500">
                 {t('ide.streamRenderer.diffLines', { count: editLines })}
               </span>
             )}
@@ -451,7 +451,7 @@ const ToolBlock = memo(function ToolBlock({ item, density, review }: {
           {item.isActive && (
             <span className="inline-block h-3 w-3 animate-spin rounded-full border-[1.5px] border-blue-400 border-t-transparent" />
           )}
-          <span className="hidden text-[10px] text-gray-500 group-hover/hdr:inline">
+          <span className="hidden text-[12px] text-gray-500 group-hover/hdr:inline">
             {open ? t('ide.streamRenderer.collapse') : t('ide.streamRenderer.expand')}
           </span>
         </div>
@@ -467,16 +467,16 @@ const ToolBlock = memo(function ToolBlock({ item, density, review }: {
         <div className="border-t border-gray-800/60 bg-gray-950/50 px-3 py-2">
           {item.input && (
             <div className="mb-1.5">
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">{t('ide.streamRenderer.input')}</span>
-              <pre className="scrollbar-thin mt-1 overflow-x-auto whitespace-pre-wrap rounded bg-gray-800/60 p-2.5 font-mono text-[12.5px] leading-relaxed text-gray-200">
+              <span className="text-[12px] font-semibold uppercase tracking-wide text-gray-400">{t('ide.streamRenderer.input')}</span>
+              <pre className="scrollbar-thin mt-1 overflow-x-auto whitespace-pre-wrap rounded bg-gray-800/60 p-2.5 font-mono text-[13px] leading-relaxed text-gray-200">
                 {item.input}
               </pre>
             </div>
           )}
           {item.output && (
             <div>
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">{t('ide.streamRenderer.output')}</span>
-              <pre className="scrollbar-thin mt-1 max-h-60 overflow-auto whitespace-pre-wrap rounded bg-gray-800/60 p-2.5 font-mono text-[12.5px] leading-relaxed text-gray-300">
+              <span className="text-[12px] font-semibold uppercase tracking-wide text-gray-400">{t('ide.streamRenderer.output')}</span>
+              <pre className="scrollbar-thin mt-1 max-h-60 overflow-auto whitespace-pre-wrap rounded bg-gray-800/60 p-2.5 font-mono text-[13px] leading-relaxed text-gray-300">
                 {item.output}
               </pre>
             </div>
@@ -513,10 +513,10 @@ function ToolGroupLatestLine({ item }: { item: StreamGroup }): React.JSX.Element
           </svg>
         )}
       </span>
-      <span className={`flex-shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold ${item.isActive ? 'bg-blue-500/15 text-blue-300' : 'bg-amber-500/10 text-amber-400/70'}`}>
+      <span className={`flex-shrink-0 rounded px-1 py-0.5 text-[12px] font-semibold ${item.isActive ? 'bg-blue-500/15 text-blue-300' : 'bg-amber-500/10 text-amber-400/70'}`}>
         {item.toolName}
       </span>
-      <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-gray-500">{preview}</span>
+      <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-gray-500">{preview}</span>
     </div>
   );
 }
@@ -570,11 +570,11 @@ const ToolGroupBlock = memo(function ToolGroupBlock({ item, density }: { item: S
         </span>
         <span className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
           {shownNames.map((name) => (
-            <span key={name} className="flex-shrink-0 rounded bg-gray-700/40 px-1 py-0.5 text-[10px] font-medium text-gray-500">
+            <span key={name} className="flex-shrink-0 rounded bg-gray-700/40 px-1 py-0.5 text-[12px] font-medium text-gray-500">
               {name}
             </span>
           ))}
-          {restNames > 0 && <span className="flex-shrink-0 text-[10px] text-gray-600">+{restNames}</span>}
+          {restNames > 0 && <span className="flex-shrink-0 text-[12px] text-gray-600">+{restNames}</span>}
         </span>
       </button>
       {/* 접혀 있어도 최근 도구 한 줄은 항상 — 활성이든 완료든 같은 높이라 스트리밍 중 화면이 안 움직인다. */}
@@ -623,7 +623,7 @@ function ErrorLine({ item }: { item: StreamError }): React.JSX.Element {
         <div className="min-w-0 flex-1">
           <div className="text-[12px] font-medium text-red-300">{t(desc.labelKey, desc.labelParams)}</div>
           {desc.detail && (
-            <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-gray-400">{desc.detail}</pre>
+            <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-gray-400">{desc.detail}</pre>
           )}
         </div>
       </div>
@@ -668,7 +668,7 @@ function CommandErrorNotice({ error }: { error: CommandError }): React.JSX.Eleme
     <div className="mb-1.5 rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2">
       <div className="text-[12px] font-medium text-red-300">{t(desc.labelKey, desc.labelParams)}</div>
       {desc.detail && (
-        <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-gray-400">{desc.detail}</pre>
+        <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-gray-400">{desc.detail}</pre>
       )}
     </div>
   );
@@ -697,12 +697,12 @@ function CommandBlock({ item, agentId }: { item: StreamCommand; agentId?: string
       {/* 앱이 내려가 끊겼다가 보존된 세션으로 다시 이어 돌린 명령 — 그 사실을 말하지 않으면
           사용자에겐 "왜 처음부터 다시 하지?" 또는 "왜 멈춰 있지?" 로 보인다. */}
       {item.restartResumed && (
-        <p className="mt-1 text-[10.5px] text-amber-300/90">{t('ide.streamRenderer.restartResumed')}</p>
+        <p className="mt-1 text-[12px] text-amber-300/90">{t('ide.streamRenderer.restartResumed')}</p>
       )}
       {/* §5.5 #17-18 v4.68 — 합치기로 덧말이 함께 실렸으면 그 사실을 말한다(따로 보낸 말이
           한 프롬프트로 보이는 이유를 화면이 설명해야 한다). */}
       {(item.mergedCount ?? 0) > 0 && (
-        <div className="mb-1.5 flex items-center gap-1 pl-5 text-[10px] text-gray-500">
+        <div className="mb-1.5 flex items-center gap-1 pl-5 text-[12px] text-gray-500">
           <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M7 4v6a5 5 0 0 0 5 5h5" />
             <polyline points="14 12 17 15 14 18" />

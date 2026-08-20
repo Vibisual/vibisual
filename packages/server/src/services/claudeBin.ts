@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { ClaudeBinSource } from '@vibisual/shared';
+import { logger } from '../logger.js';
 
 export type { ClaudeBinSource };
 
@@ -19,6 +20,17 @@ export interface ClaudeBinCandidate {
 const IS_WIN = process.platform === 'win32';
 /** 확장 번들/네이티브 바이너리 파일명 — Windows 만 `.exe`. */
 const BIN_FILE = IS_WIN ? 'claude.exe' : 'claude';
+/** VS Code(및 변종) 확장 폴더 이름 접두사 — 뒤에 `<version>-<platform>` 이 붙는다. */
+const EXT_DIR_PREFIX = 'anthropic.claude-code-';
+
+/**
+ * §4 (실행본 자가 복구) — 낙관적 폴백(`'claude'`)일 때 다시 찾아보는 간격(ms).
+ *
+ * 절대경로는 `isUsableBin()` stat 1회로 실재를 확인할 수 있지만, 아무것도 못 찾아 bare `'claude'`
+ * 를 들고 있는 상태는 stat 할 대상 자체가 없다 — 그렇다고 매 호출 PATH 전수 스캔을 돌릴 수는
+ * 없으니 이 간격으로만 재탐색한다(앱 밖에서 설치가 끝난 직후에도 다음 spawn 이 바로 잡는다).
+ */
+const CLAUDE_BIN_REVALIDATE_MS = 1_000;
 
 /**
  * §4 v2.43 — 사용자가 옵션창 Version 탭에서 고른 override 경로 SSOT.
@@ -38,6 +50,31 @@ export function readClaudeBinOverride(): string | null {
     /* 파일 없음/파싱 실패 — override 없음 */
   }
   return null;
+}
+
+/**
+ * §4 (실행본 자가 복구) — override 되쓰기 창구 **주입**.
+ *
+ * 이 모듈은 위 주석대로 `userDefaultsService` 를 import 하지 않고 파일을 직접 읽어 자급한다.
+ * 그런데 승계(확장 자동 갱신 추종)는 **쓰기**가 필요하고, 그 서비스는 in-memory 사본을 들고
+ * 통째로 저장하므로 우리가 파일을 직접 덮어쓰면 그 사본이 다음 저장 때 되돌려 버린다.
+ * 그래서 쓰기만 **부팅 시 주입**받는다 — 미배선이면 승계는 그대로 되고 되쓰기만 생략된다.
+ */
+let overrideWriter: ((nextPath: string) => void) | null = null;
+
+/** 서버 부팅에서 `userDefaultsService.update({ claudeBinPath })` 로 배선한다. null 로 해제. */
+export function setClaudeBinOverrideWriter(fn: ((nextPath: string) => void) | null): void {
+  overrideWriter = fn;
+}
+
+/** 승계된 경로를 사용자 설정에 되쓴다 — 창구가 없으면 조용히 넘어간다(해석 결과는 이미 유효). */
+function persistClaudeBinOverride(nextPath: string): void {
+  if (!overrideWriter) return;
+  try {
+    overrideWriter(nextPath);
+  } catch (err) {
+    logger.warn(`[claudeBin] override persist failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 /**
@@ -100,34 +137,70 @@ function vscodeExtensionDirs(): string[] {
 }
 
 /**
- * VS Code(및 변종) 확장이 번들한 claude 바이너리 — **모든** 매칭 반환(버전·IDE 별 다수 가능).
+ * **한 `extensions` 디렉터리 안**의 확장 번들 실행본 — 최신 버전 먼저.
  * 정렬: 디렉터리 안에서 semver 내림차순(`.sort().pop()` 와 동일 의미로 최신이 앞).
+ * 확장 번들 레이아웃: `<ext>/resources/native-binary/claude(.exe)` — OS 무관 동일.
+ */
+function listExtensionBinsIn(extensionsDir: string): string[] {
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(extensionsDir);
+  } catch {
+    return []; // 해당 IDE 미설치
+  }
+  const matches = entries
+    .filter((d) => d.startsWith(EXT_DIR_PREFIX))
+    .sort()
+    .reverse(); // 최신 버전 먼저
+  const out: string[] = [];
+  for (const m of matches) {
+    const bin = path.join(extensionsDir, m, 'resources', 'native-binary', BIN_FILE);
+    if (isUsableBin(bin)) out.push(bin);
+  }
+  return out;
+}
+
+/**
+ * VS Code(및 변종) 확장이 번들한 claude 바이너리 — **모든** 매칭 반환(버전·IDE 별 다수 가능).
  */
 function listVscodeExtensionBins(): string[] {
   const out: string[] = [];
-  for (const extDir of vscodeExtensionDirs()) {
-    let entries: string[];
-    try {
-      entries = fs.readdirSync(extDir);
-    } catch {
-      continue; // 해당 IDE 미설치
-    }
-    const matches = entries
-      .filter((d) => d.startsWith('anthropic.claude-code-'))
-      .sort()
-      .reverse(); // 최신 버전 먼저
-    for (const m of matches) {
-      // 확장 번들 레이아웃: <ext>/resources/native-binary/claude(.exe) — OS 무관 동일.
-      const bin = path.join(extDir, m, 'resources', 'native-binary', BIN_FILE);
-      if (fs.existsSync(bin)) out.push(bin);
-    }
-  }
+  for (const extDir of vscodeExtensionDirs()) out.push(...listExtensionBinsIn(extDir));
   return out;
 }
 
 /** VS Code(및 변종) 확장이 번들한 claude 바이너리 절대경로 — 없으면 null (최신 우선). */
 function findVscodeExtensionBin(): string | null {
   return listVscodeExtensionBins()[0] ?? null;
+}
+
+/**
+ * 확장 번들 실행본 경로에서 그것을 담고 있는 `extensions` 디렉터리를 되짚는다 — 아니면 null.
+ * `<extensions>/anthropic.claude-code-<ver>/resources/native-binary/claude(.exe)` → `<extensions>`
+ */
+function extensionsDirOf(binPath: string): string | null {
+  const parts = path.resolve(binPath).split(path.sep);
+  const i = parts.findIndex((seg) => seg.toLowerCase().startsWith(EXT_DIR_PREFIX));
+  if (i <= 0) return null;
+  return parts.slice(0, i).join(path.sep);
+}
+
+/**
+ * §4 (실행본 자가 복구) — **확장 자동 갱신 승계**.
+ *
+ * VS Code 는 확장을 갱신할 때 **새 버전 폴더를 만들고 옛 폴더를 통째로 지운다**
+ * (`anthropic.claude-code-2.1.234-…` → `anthropic.claude-code-2.1.235-…`). 그래서 사용자가
+ * Version 탭에서 고른 override 가 하루아침에 없는 경로가 된다. 그 선택은 "이 확장 번들을
+ * 쓰겠다"는 뜻이지 "그 버전 숫자를 쓰겠다"가 아니므로, **같은 `extensions` 디렉터리의 최신
+ * 번들**로 이어 준다. 승계할 게 없으면 null → 호출 측이 자동 우선순위로 폴백한다.
+ */
+export function succeedStaleExtensionOverride(override: string): string | null {
+  if (classifyClaudeBinSource(override) !== 'vscode-extension') return null;
+  const extDir = extensionsDirOf(override);
+  if (!extDir) return null;
+  const next = listExtensionBinsIn(extDir)[0];
+  if (!next) return null;
+  return normalizeForDedup(next) === normalizeForDedup(override) ? null : next;
 }
 
 /** PATH + 잘 알려진 네이티브/패키지 위치의 claude 후보 절대경로 목록 (존재 검증 전 후보). */
@@ -200,9 +273,11 @@ function findOnPathOrKnownLocations(): string | null {
  */
 export function classifyClaudeBinSource(binPath: string): Exclude<ClaudeBinSource, 'unknown'> {
   if (isUnderNativeRoot(binPath)) return 'native';
-  const lower = binPath.toLowerCase();
+  // 디스크에 저장된 override 는 `/` 표기로 들어올 수 있다(사용자가 손으로 고쳤거나 다른 OS 표기).
+  // 구분자를 OS 표준으로 맞춘 뒤 봐야 확장 번들을 놓치지 않는다 — 승계(자동 갱신 추종)가 이 판정에 걸려 있다.
+  const lower = (path.isAbsolute(binPath) ? path.resolve(binPath) : binPath).toLowerCase();
   const isExt =
-    lower.includes('anthropic.claude-code-') &&
+    lower.includes(EXT_DIR_PREFIX) &&
     lower.includes(`${path.sep}resources${path.sep}native-binary${path.sep}`.toLowerCase());
   return isExt ? 'vscode-extension' : 'path';
 }
@@ -267,8 +342,19 @@ export function discoverAllClaudeBins(): ClaudeBinCandidate[] {
  */
 export function resolveClaudeBin(): ClaudeBinInfo {
   const override = readClaudeBinOverride();
-  if (override && isUsableBin(override)) {
-    return { binPath: override, source: classifyClaudeBinSource(override) };
+  if (override) {
+    if (isUsableBin(override)) {
+      return { binPath: override, source: classifyClaudeBinSource(override) };
+    }
+    // §4 (실행본 자가 복구) — 확장이 자동 갱신되어 override 폴더가 사라진 경우: 같은 확장의
+    //   최신 번들로 승계하고, 사용자의 선택이 계속 유효하도록 저장된 경로도 새 것으로 되쓴다.
+    //   (되쓰지 않으면 Version 탭의 `selected` 판정이 갱신 때마다 어긋난다.)
+    const successor = succeedStaleExtensionOverride(override);
+    if (successor) {
+      logger.info(`[claudeBin] override succeeded to updated extension bundle: ${override} → ${successor}`);
+      persistClaudeBinOverride(successor);
+      return { binPath: successor, source: 'vscode-extension' };
+    }
   }
 
   const native = findNativeBin();
@@ -293,22 +379,69 @@ export function resolveClaudeBin(): ClaudeBinInfo {
 // "설치하면 바로 로그인하고 쓸 수 있게" 라는 요구가 그 지점에서 깨진다.
 //
 // 그래서 **호출 시점에 해석**하되, 매 spawn 마다 PATH 전체를 훑지 않도록 결과를 캐시하고,
-// 값이 실제로 바뀔 수 있는 두 지점에서만 명시적으로 버린다:
+// 값이 실제로 바뀔 수 있는 지점에서 버린다:
 //   ① 설치 완료(`claudeSetupService`)  ② 사용자가 Version 탭에서 실행본을 바꿨을 때
-// (그 밖에는 앱이 도는 동안 실행본이 저절로 바뀌지 않는다.)
+//   ③ §4 (실행본 자가 복구) — **캐시가 가리키는 파일이 그 자리에서 사라졌을 때**
+//
+// ③ 이 뒤늦게 붙은 이유: ①② 만 두었을 때의 전제는 "앱이 도는 동안 실행본이 저절로 바뀌지
+// 않는다" 였는데, **VS Code 확장 자동 갱신**이 정확히 그 전제를 깬다 — 확장은 새 버전 폴더로
+// 갈아치워지며 옛 폴더를 통째로 지우고, 그러면 우리가 든 절대경로는 죽은 채 남는다. 실측
+// (2026-08-19): `2.1.234` → `2.1.235` 교체 후 모든 spawn 이 `ENOENT`(Windows libuv `-4058`) 로
+// 죽었고 **앱을 껐다 켜기 전에는 복구되지 않았다.** 그래서 캐시를 돌려주기 전에 그 경로가
+// 아직 있는지 확인한다(stat 1회 — spawn 비용에 비하면 무시할 수준).
 
 let cachedBin: ClaudeBinInfo | null = null;
+/** `cachedBin` 을 해석한 시각 — 낙관적 폴백(`'claude'`)의 재탐색 간격 판정에만 쓴다. */
+let cachedAt = 0;
+
+/** 캐시된 해석 결과가 **아직 그 자리에 있는가**. */
+function isCachedBinStillThere(info: ClaudeBinInfo, now: number): boolean {
+  // 낙관적 폴백(bare `'claude'`)은 stat 할 대상이 없다 — 간격을 두고 다시 찾아본다.
+  if (!path.isAbsolute(info.binPath)) return now - cachedAt < CLAUDE_BIN_REVALIDATE_MS;
+  return isUsableBin(info.binPath);
+}
 
 /**
  * 지금 이 앱이 쓰는 `claude` 실행본 — **캐시된 해석 결과**. spawn·probe 전 콜사이트가 이것을 쓴다.
- * 첫 호출에 `resolveClaudeBin()` 을 돌리고 이후에는 무효화될 때까지 같은 값을 돌려준다.
+ * 첫 호출에 `resolveClaudeBin()` 을 돌리고, 이후에는 무효화되거나 **그 파일이 사라지기 전까지**
+ * 같은 값을 돌려준다.
  */
 export function getClaudeBin(): ClaudeBinInfo {
-  if (!cachedBin) cachedBin = resolveClaudeBin();
+  const now = Date.now();
+  if (cachedBin && isCachedBinStillThere(cachedBin, now)) return cachedBin;
+
+  const prev = cachedBin;
+  cachedBin = resolveClaudeBin();
+  cachedAt = now;
+  if (prev && prev.binPath !== cachedBin.binPath) {
+    // 앱이 도는 중에 실행본이 바뀐 유일한 흔적 — 이 줄이 없으면 다음 사람이 또 처음부터 추적해야 한다.
+    logger.warn(
+      `[claudeBin] resolved binary changed while running: ${prev.binPath} (${prev.source})`
+      + ` → ${cachedBin.binPath} (${cachedBin.source})`,
+    );
+  }
   return cachedBin;
 }
 
-/** 실행본이 바뀔 수 있는 시점(설치 완료 · override 변경)에 캐시를 버린다. */
+/** 실행본이 바뀔 수 있는 시점(설치 완료 · override 변경 · spawn ENOENT)에 캐시를 버린다. */
 export function invalidateClaudeBinCache(): void {
   cachedBin = null;
+  cachedAt = 0;
+}
+
+/**
+ * §4 (실행본 자가 복구) — **spawn 실패가 ENOENT 면 우리가 든 경로가 사라진 것**이므로 캐시를 버린다.
+ *
+ * `getClaudeBin()` 의 사전 확인과 실제 `spawn()` 사이의 틈(확장 갱신이 하필 그 사이에 끝난 경우)과,
+ * 애초에 아무것도 못 찾아 bare `'claude'` 로 띄운 경우를 함께 받는다. 다음 호출이 재해석한다.
+ *
+ * @returns ENOENT 로 판정해 캐시를 버렸으면 true — 호출 측이 "다시 태울지" 를 이 값으로 정한다.
+ */
+export function noteClaudeSpawnFailure(err: unknown): boolean {
+  const code = (err as NodeJS.ErrnoException | null)?.code;
+  const message = err instanceof Error ? err.message : String(err ?? '');
+  if (code !== 'ENOENT' && !message.includes('ENOENT')) return false;
+  logger.warn(`[claudeBin] spawn ENOENT — cached binary is gone, re-resolving on next use: ${message}`);
+  invalidateClaudeBinCache();
+  return true;
 }

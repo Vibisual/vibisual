@@ -86,7 +86,7 @@ const VariableRow = memo(function VariableRow({
     <>
       <div
         onClick={expandable ? toggle : undefined}
-        className={`flex items-start gap-1 py-0.5 text-[9.5px] ${expandable ? 'cursor-pointer hover:bg-gray-800/60' : ''}`}
+        className={`flex items-start gap-1 py-0.5 text-[12px] ${expandable ? 'cursor-pointer hover:bg-gray-800/60' : ''}`}
       >
         <span className="w-3 flex-shrink-0 text-center text-gray-600">
           {expandable ? (open ? '−' : '+') : ''}
@@ -188,7 +188,7 @@ export const IDEDebugSessionPanel = memo(function IDEDebugSessionPanel({
     <div className="mt-1 rounded border border-sky-500/30 bg-sky-500/5 px-1.5 py-1">
       {/* 상태 + 조작 */}
       <div className="flex items-center gap-1">
-        <span className="flex-1 truncate text-[9.5px] text-sky-300">
+        <span className="flex-1 truncate text-[12px] text-sky-300">
           {t(`ide.debug.status.${session.status}`)}
           {session.stoppedReason ? ` — ${t(`ide.debug.stoppedReason.${session.stoppedReason}`)}` : ''}
         </span>
@@ -213,7 +213,7 @@ export const IDEDebugSessionPanel = memo(function IDEDebugSessionPanel({
       </div>
 
       {session.error && (
-        <p className="mt-0.5 text-[9px] leading-snug text-amber-400/80">
+        <p className="mt-0.5 text-[12px] leading-snug text-amber-400/80">
           {t(`ide.debug.sessionError.${session.error}`, { defaultValue: session.error })}
         </p>
       )}
@@ -221,7 +221,7 @@ export const IDEDebugSessionPanel = memo(function IDEDebugSessionPanel({
       {/* 콜스택 — 누르면 그 파일을 편집창에서 연다 */}
       {paused && frames.length > 0 && (
         <div className="mt-1">
-          <h4 className="text-[9px] font-semibold uppercase tracking-wide text-gray-500">
+          <h4 className="text-[12px] font-semibold uppercase tracking-wide text-gray-500">
             {t('ide.debug.callStack')}
           </h4>
           <ul className="mt-0.5 max-h-28 overflow-y-auto">
@@ -230,7 +230,7 @@ export const IDEDebugSessionPanel = memo(function IDEDebugSessionPanel({
                 <button
                   type="button"
                   onClick={() => openFrame(frame.id, frame.file)}
-                  className={`flex w-full items-baseline gap-1 rounded px-1 py-0.5 text-left text-[9.5px] transition-colors hover:bg-gray-700/60 ${
+                  className={`flex w-full items-baseline gap-1 rounded px-1 py-0.5 text-left text-[12px] transition-colors hover:bg-gray-700/60 ${
                     frame.id === activeFrameId ? 'bg-gray-700/50 text-gray-100' : 'text-gray-400'
                   }`}
                 >
@@ -248,7 +248,7 @@ export const IDEDebugSessionPanel = memo(function IDEDebugSessionPanel({
       {/* 변수 */}
       {paused && scopes.length > 0 && (
         <div className="mt-1">
-          <h4 className="text-[9px] font-semibold uppercase tracking-wide text-gray-500">
+          <h4 className="text-[12px] font-semibold uppercase tracking-wide text-gray-500">
             {t('ide.debug.variables')}
           </h4>
           <div className="mt-0.5 max-h-40 overflow-y-auto">
@@ -269,7 +269,7 @@ export const IDEDebugSessionPanel = memo(function IDEDebugSessionPanel({
                       setVariablesByScope((prev) => ({ ...prev, [scope.variablesReference]: vars })),
                     );
                   }}
-                  className="text-[9px] font-semibold uppercase tracking-wide text-gray-400 hover:text-gray-200"
+                  className="text-[12px] font-semibold uppercase tracking-wide text-gray-400 hover:text-gray-200"
                 >
                   {scope.name}
                 </button>
@@ -290,19 +290,19 @@ export const IDEDebugSessionPanel = memo(function IDEDebugSessionPanel({
             onChange={(e) => setWatchInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') runWatch(); }}
             placeholder={t('ide.debug.watchPlaceholder')}
-            className="min-w-0 flex-1 rounded border border-gray-700 bg-gray-900 px-1 py-0.5 text-[9.5px] text-gray-200 outline-none focus:border-sky-500"
+            className="min-w-0 flex-1 rounded border border-gray-700 bg-gray-900 px-1 py-0.5 text-[12px] text-gray-200 outline-none focus:border-sky-500"
           />
           <button
             type="button"
             onClick={runWatch}
-            className="rounded bg-gray-700/60 px-1.5 py-0.5 text-[9px] text-gray-300 transition-colors hover:bg-gray-600"
+            className="rounded bg-gray-700/60 px-1.5 py-0.5 text-[12px] text-gray-300 transition-colors hover:bg-gray-600"
           >
             {t('ide.debug.evaluate')}
           </button>
         </div>
       )}
       {watchResult && (
-        <p className="mt-0.5 truncate text-[9.5px] text-gray-400" title={watchResult.value}>
+        <p className="mt-0.5 truncate text-[12px] text-gray-400" title={watchResult.value}>
           {watchResult.name} = {watchResult.value}
         </p>
       )}
@@ -311,7 +311,7 @@ export const IDEDebugSessionPanel = memo(function IDEDebugSessionPanel({
       {consoleLines.length > 0 && (
         <div className="mt-1 rounded bg-gray-950/60 px-1 py-0.5">
           {consoleLines.map((line, i) => (
-            <p key={i} className="truncate font-mono text-[9px] text-gray-500" title={line}>{line}</p>
+            <p key={i} className="truncate font-mono text-[12px] text-gray-500" title={line}>{line}</p>
           ))}
         </div>
       )}

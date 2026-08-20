@@ -41,3 +41,20 @@ export const VIDEO_MAX_ITEMS = 5000;
 
 /** 렌더 캐시 보관 상한(개). 넘으면 오래된 것부터 버린다. */
 export const RENDER_CACHE_MAX_ENTRIES = 2000;
+
+// ─── §5.13 (Q) 콘티 → 타임라인 ───
+
+/** 빈 문서가 들고 나오는 트랙 id. 콘티를 옮길 때 새 트랙을 만들지 않는 이유가 이것이다. */
+export const STORYBOARD_VISUAL_TRACK = 'visual';
+export const STORYBOARD_CAPTION_TRACK = 'caption';
+
+/**
+ * 콘티에서 옮겨 온 아이템 수 상한.
+ *
+ * `VIDEO_MAX_ITEMS`(문서 전체 상한)보다 훨씬 낮게 잡는다 — 컷 16장 × 스탬프 십수 개는
+ * 수백 개면 충분하고, 그보다 많이 나오면 콘티 쪽이 깨진 것이라 옮기기를 멈추는 편이 낫다.
+ */
+export const STORYBOARD_MAX_ITEMS = 1200;
+
+/** 판넬 바깥 여백 — 출력 짧은 변 대비 비율. */
+export const STORYBOARD_MARGIN_RATIO = 0.045;

@@ -107,7 +107,7 @@ export function ReadingFontRow({ fontAvailability }: ReadingFontRowProps): React
               disabled: localFonts.length > 0,
             }}
           />
-          <div className={`rounded border px-2 py-1 text-[10px] leading-relaxed ${CHIP_CLASS[chip]}`}>
+          <div className={`rounded border px-2 py-1 text-[12px] leading-relaxed ${CHIP_CLASS[chip]}`}>
             {!cleanCustom
               ? t('ide.reading.customFontEmpty')
               : available === true

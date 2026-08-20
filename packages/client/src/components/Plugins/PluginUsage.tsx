@@ -23,8 +23,8 @@ interface PluginUsageProps {
 function Row({ label, children }: { label: string; children: React.ReactNode }): React.JSX.Element {
   return (
     <div className="flex gap-2">
-      <span className="w-20 shrink-0 text-[11px] text-gray-600">{label}</span>
-      <div className="min-w-0 flex-1 text-[11px] leading-relaxed text-gray-400">{children}</div>
+      <span className="w-20 shrink-0 text-[12px] text-gray-600">{label}</span>
+      <div className="min-w-0 flex-1 text-[12px] leading-relaxed text-gray-400">{children}</div>
     </div>
   );
 }
@@ -32,7 +32,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }):
 const Chips = ({ items }: { items: string[] }): React.JSX.Element => (
   <span className="flex flex-wrap gap-1">
     {items.map((x) => (
-      <span key={x} className="rounded bg-white/[0.06] px-1.5 py-0.5 text-[11px] text-gray-300">{x}</span>
+      <span key={x} className="rounded bg-white/[0.06] px-1.5 py-0.5 text-[12px] text-gray-300">{x}</span>
     ))}
   </span>
 );

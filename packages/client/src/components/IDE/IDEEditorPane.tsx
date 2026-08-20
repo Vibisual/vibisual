@@ -15,6 +15,10 @@ import { buildBodyMenuItems, buildGutterMenuItems, buildTabMenuItems } from './e
 import type { CodeEditorBodyMenuContext } from './CodeEditor.js';
 import { useDebugSessions } from '../../stores/debugSessions.js';
 import { sameWorkspaceFile } from './debugPaths.js';
+import { IDEImagePreview } from './IDEImagePreview.js';
+import { useWorkspaceImage } from './useWorkspaceImage.js';
+import { bakeMimeFor, canOverwriteWorkspaceImage } from './workspaceImageSave.js';
+import { imageMetaLabel } from './editorImageMeta.js';
 
 /**
  * IDEEditorPane.tsx — §5.5 #17-27 v4.87 메인 영역 **오른쪽에 붙는 편집창**.
@@ -53,6 +57,47 @@ export const IDEEditorPane = memo(function IDEEditorPane({ narrow }: IDEEditorPa
   const doc = activePath ? docs[activePath] : undefined;
   const labels = useMemo(() => tabLabels(files), [files]);
   const language = useMemo(() => (active ? languageFromPath(active.relPath) : 'plain'), [active]);
+
+  // ─── §5.5 #17-27 ⑭ — 이미지는 글자가 아니라 그림으로 연다 ──────────────
+  const openImageLightbox = useGraphStore((s) => s.openImageLightbox);
+  const imageSavedAt = useGraphStore((s) => (activePath ? s.workspaceImageSavedAt[activePath] : undefined));
+  /** 서버가 이미 판정해 보낸 값 — 클라이언트가 확장자를 다시 따지지 않는다. */
+  const isImage = doc?.status === 'ready' && doc.image;
+  /** 맞춤(패널에 맞춰 축소) ↔ 원본 크기(1:1). 탭을 옮기면 기본(맞춤)으로 돌아온다. */
+  const [imageFit, setImageFit] = useState(true);
+  const [imageNatural, setImageNatural] = useState<{ w: number; h: number } | null>(null);
+  useEffect(() => {
+    setImageFit(true);
+    setImageNatural(null);
+  }, [activePath]);
+  const imageBlob = useWorkspaceImage(
+    isImage && rootPath ? rootPath : null,
+    isImage ? activePath : null,
+    doc?.mtimeMs ?? 0,
+  );
+
+  /**
+   * §5.5 #17-25 ④-1 — 라이트박스가 이 파일을 덮어썼다. 새 `mtimeMs` 를 받아야 미리보기가
+   * 방금 그린 표시를 보여 준다(같은 시각을 두 번 처리하지 않도록 마지막 값을 기억한다).
+   */
+  const imageReloadedAtRef = useRef(0);
+  useEffect(() => {
+    if (!activePath || !imageSavedAt || imageReloadedAtRef.current === imageSavedAt) return;
+    imageReloadedAtRef.current = imageSavedAt;
+    reload(activePath);
+  }, [activePath, imageSavedAt, reload]);
+
+  /** 그림을 누르거나 [편집]을 누르면 — #17-25 의 주석 팝업을 그대로 연다(새 편집기 ❌). */
+  const handleOpenImageEditor = useCallback((): void => {
+    if (!imageBlob.url || !rootPath || !activePath) return;
+    openImageLightbox(imageBlob.url, undefined, {
+      root: rootPath,
+      path: activePath,
+      mtimeMs: doc?.mtimeMs ?? 0,
+      bakeable: canOverwriteWorkspaceImage(activePath),
+      mime: bakeMimeFor(activePath),
+    });
+  }, [imageBlob.url, rootPath, activePath, doc?.mtimeMs, openImageLightbox]);
 
   // ─── §5.5 #17-20 ⑩ v4.94 — 줄 번호 칸이 곧 중단점 gutter ─────────────────
   const projectName = useGraphStore((s) => selectIDEOverlay(s).projectId ?? s.activeProject);
@@ -403,7 +448,7 @@ export const IDEEditorPane = memo(function IDEEditorPane({ narrow }: IDEEditorPa
       {/* §5.5 #17-27 ⑪ (h) ③ — 추종 띠. 켜져 있는 동안만 서고, 방금 무엇을 했는지(자동으로 다시 읽었다는
           사실까지) 이 한 줄이 말한다 — 사용자가 "내가 안 건드렸는데 내용이 바뀌었다" 고 놀라지 않도록. */}
       {followOn && (
-        <div className={`flex items-center gap-1.5 border-b px-2 py-1 text-[10.5px] ${
+        <div className={`flex items-center gap-1.5 border-b px-2 py-1 text-[12px] ${
           bannerSkip
             ? 'border-amber-500/40 bg-amber-500/10 text-amber-200/90'
             : 'border-blue-500/30 bg-blue-500/10 text-blue-200/90'
@@ -442,7 +487,7 @@ export const IDEEditorPane = memo(function IDEEditorPane({ narrow }: IDEEditorPa
           <button
             type="button"
             onClick={() => setFollowOn(sessionKey, false)}
-            className={`flex-shrink-0 rounded border px-1.5 py-0.5 text-[10px] transition-colors ${
+            className={`flex-shrink-0 rounded border px-1.5 py-0.5 text-[12px] transition-colors ${
               bannerSkip
                 ? 'border-amber-400/40 hover:bg-amber-500/20'
                 : 'border-blue-400/40 hover:bg-blue-500/20'
@@ -460,14 +505,17 @@ export const IDEEditorPane = memo(function IDEEditorPane({ narrow }: IDEEditorPa
           onClick={handleOpenFolder}
           title={t('ide.editor.openFolder', { path: fullPath })}
           aria-label={t('ide.editor.openFolder', { path: fullPath })}
-          className="flex min-w-0 flex-1 items-center overflow-hidden text-left text-[10px] text-gray-500 transition-colors hover:text-blue-300 hover:underline"
+          className="flex min-w-0 flex-1 items-center overflow-hidden text-left text-[12px] text-gray-500 transition-colors hover:text-blue-300 hover:underline"
         >
           <span className="truncate">{pathParts.head}</span>
           <span className="flex-shrink-0">{pathParts.tail}</span>
         </button>
         {doc?.status === 'ready' && (
-          <span className="flex-shrink-0 text-[9.5px] uppercase tracking-wide text-gray-600">
-            {language === 'plain' ? t('ide.editor.plainLanguage') : language} · {doc.eol.toUpperCase()}
+          <span className="flex-shrink-0 text-[12px] uppercase tracking-wide text-gray-600">
+            {/* ⑭ 이미지에는 언어도 줄바꿈도 뜻이 없다 — 그 자리에 픽셀 크기와 파일 크기를 적는다. */}
+            {isImage
+              ? imageMetaLabel(imageNatural, doc.size)
+              : `${language === 'plain' ? t('ide.editor.plainLanguage') : language} · ${doc.eol.toUpperCase()}`}
           </span>
         )}
         <button
@@ -509,30 +557,71 @@ export const IDEEditorPane = memo(function IDEEditorPane({ narrow }: IDEEditorPa
             <line x1="10" y1="14" x2="21" y2="3" />
           </svg>
         </button>
+        {/* ⑭ 이미지일 때만 서는 두 손잡이 — 보는 배율과, #17-25 주석 팝업으로 가는 문. */}
+        {isImage && (
+          <button
+            type="button"
+            onClick={() => setImageFit((v) => !v)}
+            title={t(imageFit ? 'ide.editor.imageActualSize' : 'ide.editor.imageFit')}
+            aria-label={t(imageFit ? 'ide.editor.imageActualSize' : 'ide.editor.imageFit')}
+            className="rounded p-0.5 text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-200"
+          >
+            {imageFit ? (
+              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="15 3 21 3 21 9" />
+                <polyline points="9 21 3 21 3 15" />
+                <line x1="21" y1="3" x2="14" y2="10" />
+                <line x1="3" y1="21" x2="10" y2="14" />
+              </svg>
+            ) : (
+              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="4 14 10 14 10 20" />
+                <polyline points="20 10 14 10 14 4" />
+                <line x1="14" y1="10" x2="21" y2="3" />
+                <line x1="3" y1="21" x2="10" y2="14" />
+              </svg>
+            )}
+          </button>
+        )}
+        {isImage && (
+          <button
+            type="button"
+            onClick={handleOpenImageEditor}
+            disabled={!imageBlob.url}
+            title={t('ide.editor.imageEditHint')}
+            className="flex flex-shrink-0 items-center gap-1 rounded border border-blue-400/40 px-1.5 py-0.5 text-[12px] text-blue-300 transition-colors hover:bg-blue-500/20 disabled:opacity-30"
+          >
+            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 20h9" />
+              <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" />
+            </svg>
+            {t('ide.editor.imageEdit')}
+          </button>
+        )}
       </div>
 
       {/* 알림 줄 — 충돌 / 읽기 전용 / 저장 실패는 본문 위에 그대로 적는다(조용히 삼키지 않는다). */}
       {doc?.conflict && (
-        <div className="flex items-center gap-2 border-b border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-200">
+        <div className="flex items-center gap-2 border-b border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[12px] text-amber-200">
           <span className="min-w-0 flex-1">{t('ide.editor.conflict')}</span>
           <button
             type="button"
             onClick={() => activePath && reload(activePath)}
-            className="flex-shrink-0 rounded border border-amber-400/40 px-1.5 py-0.5 text-[10px] transition-colors hover:bg-amber-500/20"
+            className="flex-shrink-0 rounded border border-amber-400/40 px-1.5 py-0.5 text-[12px] transition-colors hover:bg-amber-500/20"
           >
             {t('ide.editor.conflictReload')}
           </button>
           <button
             type="button"
             onClick={() => handleSave(true)}
-            className="flex-shrink-0 rounded border border-amber-400/40 px-1.5 py-0.5 text-[10px] transition-colors hover:bg-amber-500/20"
+            className="flex-shrink-0 rounded border border-amber-400/40 px-1.5 py-0.5 text-[12px] transition-colors hover:bg-amber-500/20"
           >
             {t('ide.editor.conflictOverwrite')}
           </button>
         </div>
       )}
       {doc?.saveError && (
-        <div className="flex items-center gap-2 border-b border-red-500/40 bg-red-500/10 px-2 py-1 text-[11px] text-red-200">
+        <div className="flex items-center gap-2 border-b border-red-500/40 bg-red-500/10 px-2 py-1 text-[12px] text-red-200">
           <span className="min-w-0 flex-1">{t(`ide.editor.saveError.${doc.saveError}`)}</span>
           {/* ⑫ 잠긴 파일 — 실패를 알리는 그 자리에서 바로 풀 수 있게 한다(다른 창으로 나가지 않는다). */}
           {doc.saveError === 'readonly' && (
@@ -541,7 +630,7 @@ export const IDEEditorPane = memo(function IDEEditorPane({ narrow }: IDEEditorPa
               onClick={handleUnlockSave}
               disabled={doc.saving}
               title={t('ide.editor.readOnlyUnlockHint')}
-              className="flex flex-shrink-0 items-center gap-1 rounded border border-red-400/40 px-1.5 py-0.5 text-[10px] transition-colors hover:bg-red-500/20 disabled:opacity-40"
+              className="flex flex-shrink-0 items-center gap-1 rounded border border-red-400/40 px-1.5 py-0.5 text-[12px] transition-colors hover:bg-red-500/20 disabled:opacity-40"
             >
               <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
                 <rect x="3" y="11" width="18" height="11" rx="2" />
@@ -554,7 +643,7 @@ export const IDEEditorPane = memo(function IDEEditorPane({ narrow }: IDEEditorPa
       )}
       {/* ⑫ 잠금 띠 — 열자마자 "이 파일은 디스크가 잠갔다"를 말한다(타이핑은 막지 않는다). */}
       {doc?.status === 'ready' && doc.readOnly && !doc.binary && !doc.truncated && !doc.saveError && (
-        <div className="flex items-center gap-2 border-b border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-200">
+        <div className="flex items-center gap-2 border-b border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[12px] text-amber-200">
           <svg className="h-3.5 w-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
             <rect x="3" y="11" width="18" height="11" rx="2" />
             <path d="M7 11V7a5 5 0 0 1 10 0v4" />
@@ -565,23 +654,31 @@ export const IDEEditorPane = memo(function IDEEditorPane({ narrow }: IDEEditorPa
             onClick={handleUnlockSave}
             disabled={doc.saving}
             title={t('ide.editor.readOnlyUnlockHint')}
-            className="flex-shrink-0 rounded border border-amber-400/40 px-1.5 py-0.5 text-[10px] transition-colors hover:bg-amber-500/20 disabled:opacity-40"
+            className="flex-shrink-0 rounded border border-amber-400/40 px-1.5 py-0.5 text-[12px] transition-colors hover:bg-amber-500/20 disabled:opacity-40"
           >
             {t('ide.editor.readOnlyUnlock')}
           </button>
         </div>
       )}
-      {doc?.status === 'ready' && (doc.truncated || doc.binary) && (
-        <div className="border-b border-gray-700 bg-gray-800/60 px-2 py-1 text-[11px] text-gray-400">
+      {doc?.status === 'ready' && !doc.image && (doc.truncated || doc.binary) && (
+        <div className="border-b border-gray-700 bg-gray-800/60 px-2 py-1 text-[12px] text-gray-400">
           {doc.binary ? t('ide.editor.binary') : t('ide.editor.truncated')}
         </div>
       )}
 
       {/* 본문 */}
       {!doc || doc.status === 'loading' ? (
-        <p className="px-3 py-4 text-center text-[11px] text-gray-600">{t('ide.explorer.loading')}</p>
+        <p className="px-3 py-4 text-center text-[12px] text-gray-600">{t('ide.explorer.loading')}</p>
       ) : doc.status === 'error' ? (
-        <p className="px-3 py-4 text-center text-[11px] text-gray-600">{t('ide.editor.readError')}</p>
+        <p className="px-3 py-4 text-center text-[12px] text-gray-600">{t('ide.editor.readError')}</p>
+      ) : isImage ? (
+        <IDEImagePreview
+          url={imageBlob.url}
+          status={imageBlob.status}
+          fit={imageFit}
+          onNatural={setImageNatural}
+          onOpen={handleOpenImageEditor}
+        />
       ) : (
         <CodeEditor
           key={activePath}

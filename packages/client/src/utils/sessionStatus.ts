@@ -152,3 +152,17 @@ export function buildSessionRunInputs(src: SessionRunInputSources): SessionRunIn
     acknowledged: src.acknowledged,
   };
 }
+
+/**
+ * §2.4 (잠듦) — 이 에이전트가 **지금 claude 자식 프로세스를 하나도 들고 있지 않은가**.
+ *
+ * 판정·전환은 전부 서버가 한다(`sweepDormantIdleSubs`). 여기서는 시간을 재지도, 상태를 바꾸지도
+ * 않고 서버가 세워 둔 `SubAgent.dormant` 사실을 **접기만** 한다.
+ *
+ * 세션이 여럿이면 **전부 잠들었을 때만** 잠든 것으로 본다 — 하나라도 자식을 들고 있으면 그 버블은
+ * 여전히 메모리를 쓰고 있고, 거기에 '잠듦'을 붙이면 화면이 거짓말이 된다.
+ */
+export function isAgentDormant(subs: readonly SubAgent[] | undefined): boolean {
+  if (!subs || subs.length === 0) return false;
+  return subs.every((s) => s.dormant === true);
+}

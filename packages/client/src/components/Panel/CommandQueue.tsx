@@ -277,10 +277,10 @@ function CommandInputPopup({ agentId, onSubmit, onClose }: CommandInputPopupProp
                     <div className="min-w-0 flex-1">
                       <span className="block text-xs font-medium text-gray-200">{sub.label}</span>
                       {sub.lastCommand && (
-                        <span className="block truncate text-[10px] text-gray-500">{sub.lastCommand}</span>
+                        <span className="block truncate text-[12px] text-gray-500">{sub.lastCommand}</span>
                       )}
                     </div>
-                    <span className="text-[10px] text-gray-500">
+                    <span className="text-[12px] text-gray-500">
                       {new Date(sub.lastActivityAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                     </span>
                   </button>
@@ -306,13 +306,13 @@ function CommandInputPopup({ agentId, onSubmit, onClose }: CommandInputPopupProp
           <div className="p-4">
             {/* 선택된 세션 표시 */}
             <div className="mb-3 flex items-center gap-2">
-              <span className="text-[10px] text-gray-500">{t('panel.commandQueue.session')}</span>
+              <span className="text-[12px] text-gray-500">{t('panel.commandQueue.session')}</span>
               {selectedSubId ? (
-                <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-400">
+                <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[12px] font-medium text-emerald-400">
                   {idleSubs.find((s) => s.id === selectedSubId)?.label ?? selectedSubId}
                 </span>
               ) : (
-                <span className="rounded bg-blue-500/15 px-1.5 py-0.5 text-[10px] font-medium text-blue-400">
+                <span className="rounded bg-blue-500/15 px-1.5 py-0.5 text-[12px] font-medium text-blue-400">
                   {t('panel.commandQueue.newBadge')}
                 </span>
               )}
@@ -320,7 +320,7 @@ function CommandInputPopup({ agentId, onSubmit, onClose }: CommandInputPopupProp
                 <button
                   type="button"
                   onClick={() => setStep('select')}
-                  className="text-[10px] text-gray-500 hover:text-gray-300"
+                  className="text-[12px] text-gray-500 hover:text-gray-300"
                 >
                   {t('panel.commandQueue.change')}
                 </button>
@@ -346,13 +346,13 @@ function CommandInputPopup({ agentId, onSubmit, onClose }: CommandInputPopupProp
                     )}
                     {a.error && (
                       <div className="absolute inset-0 flex items-center justify-center bg-red-900/60">
-                        <span className="text-[9px] font-semibold text-red-200">ERR</span>
+                        <span className="text-[12px] font-semibold text-red-200">ERR</span>
                       </div>
                     )}
                     <button
                       type="button"
                       onClick={() => removeAttachment(a.tempId)}
-                      className="absolute right-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded bg-black/70 text-[10px] text-gray-200 opacity-0 transition-opacity hover:bg-red-600 group-hover:opacity-100"
+                      className="absolute right-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded bg-black/70 text-[12px] text-gray-200 opacity-0 transition-opacity hover:bg-red-600 group-hover:opacity-100"
                       aria-label={t('panel.commandQueue.removeAttachment')}
                     >
                       <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3}>
@@ -453,13 +453,13 @@ function DraggableItem({
           <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-blue-400" />
         </span>
       ) : (
-        <span className="flex-shrink-0 pt-0.5 text-[10px] font-bold text-gray-500">
+        <span className="flex-shrink-0 pt-0.5 text-[12px] font-bold text-gray-500">
           {index + 1}.
         </span>
       )}
       <div className="min-w-0 flex-1">
         {isExecuting && (
-          <span className="mb-0.5 block text-[10px] font-semibold text-blue-400">
+          <span className="mb-0.5 block text-[12px] font-semibold text-blue-400">
             {t('panel.commandQueue.executing')}
           </span>
         )}
@@ -469,14 +469,14 @@ function DraggableItem({
         <div className="mt-0.5 flex flex-wrap items-center gap-1">
           {/* subagent 라벨 */}
           {sub && (
-            <span className={`inline-block rounded px-1 py-px text-[9px] font-medium ${
+            <span className={`inline-block rounded px-1 py-px text-[12px] font-medium ${
               isExecuting ? 'bg-blue-500/15 text-blue-400' : 'bg-gray-600/30 text-gray-500'
             }`}>
               {sub.label}
             </span>
           )}
           {!sub && cmd.subAgentId === null && (
-            <span className="inline-block rounded bg-gray-600/30 px-1 py-px text-[9px] font-medium text-gray-500">
+            <span className="inline-block rounded bg-gray-600/30 px-1 py-px text-[12px] font-medium text-gray-500">
               {t('panel.commandQueue.newSessionBadge')}
             </span>
           )}
@@ -493,7 +493,7 @@ function DraggableItem({
                     onClick={() => { if (!active) setCommandDispatchMode(agentId, cmd.id, m); }}
                     title={t(`ide.mainArea.dispatchModeTitle.${m}`)}
                     aria-pressed={active}
-                    className={`rounded px-1 py-px text-[9px] font-medium transition-colors ${
+                    className={`rounded px-1 py-px text-[12px] font-medium transition-colors ${
                       active
                         ? m === 'immediate'
                           ? 'bg-amber-500/20 text-amber-300'
@@ -509,13 +509,13 @@ function DraggableItem({
           )}
           {/* §5.5 #17-18 v4.68 — 합치기로 덧말이 함께 실려 나간 명령임을 표시. */}
           {(cmd.mergedCount ?? 0) > 0 && (
-            <span className="inline-block rounded bg-blue-500/10 px-1 py-px text-[9px] font-medium text-blue-300/80">
+            <span className="inline-block rounded bg-blue-500/10 px-1 py-px text-[12px] font-medium text-blue-300/80">
               {t('ide.mainArea.mergedNotice', { count: cmd.mergedCount ?? 0 })}
             </span>
           )}
           {/* v1.35 — paste 된 이미지 개수 뱃지. 실행 중/대기 중 모두 표시. cleanup 후 archive 엔 잔재 없음. */}
           {cmd.attachments && cmd.attachments.length > 0 && (
-            <span className="inline-flex items-center gap-0.5 rounded bg-amber-500/15 px-1 py-px text-[9px] font-medium text-amber-400">
+            <span className="inline-flex items-center gap-0.5 rounded bg-amber-500/15 px-1 py-px text-[12px] font-medium text-amber-400">
               <svg className="h-2 w-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3}>
                 <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
               </svg>
@@ -528,7 +528,7 @@ function DraggableItem({
         <button
           type="button"
           onClick={() => removeCommand(agentId, cmd.id)}
-          className="flex-shrink-0 pt-0.5 text-[10px] text-gray-500 opacity-0 transition-opacity hover:text-red-400 group-hover:opacity-100"
+          className="flex-shrink-0 pt-0.5 text-[12px] text-gray-500 opacity-0 transition-opacity hover:text-red-400 group-hover:opacity-100"
         >
           {t('panel.commandQueue.delete')}
         </button>

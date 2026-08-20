@@ -629,7 +629,7 @@ export const IDETabBar = memo(function IDETabBar({
             <path d="M15 18l-6-6 6-6" />
           </svg>
           <span className="h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full bg-blue-400" />
-          <span ref={hiddenLeftCountRef} className="text-[9px] font-semibold tabular-nums">0</span>
+          <span ref={hiddenLeftCountRef} className="text-[12px] font-semibold tabular-nums">0</span>
         </button>
         <button
           ref={hiddenRightRef}
@@ -639,7 +639,7 @@ export const IDETabBar = memo(function IDETabBar({
           className="absolute bottom-1 right-0 z-20 items-center gap-1 rounded-l border border-r-0 border-blue-400/40 bg-gray-900/95 py-0.5 pl-1.5 pr-0.5 text-blue-200 transition-colors hover:bg-gray-800"
         >
           <span className="h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full bg-blue-400" />
-          <span ref={hiddenRightCountRef} className="text-[9px] font-semibold tabular-nums">0</span>
+          <span ref={hiddenRightCountRef} className="text-[12px] font-semibold tabular-nums">0</span>
           <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
             <path d="M9 18l6-6-6-6" />
           </svg>
@@ -854,10 +854,10 @@ function HistoryButton(): React.JSX.Element | null {
                         <div className="min-w-0 flex-1">
                           <span className="block truncate text-xs font-medium text-gray-200">{it.label}</span>
                           {it.lastCommand && (
-                            <span className="block truncate text-[10px] text-gray-500">{it.lastCommand}</span>
+                            <span className="block truncate text-[12px] text-gray-500">{it.lastCommand}</span>
                           )}
                         </div>
-                        <span className="flex-shrink-0 text-[10px] text-gray-500">
+                        <span className="flex-shrink-0 text-[12px] text-gray-500">
                           {new Date(it.lastActivityAt).toLocaleString('en-US', {
                             month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
                           })}

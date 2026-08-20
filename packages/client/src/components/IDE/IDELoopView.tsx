@@ -197,8 +197,8 @@ export const IDELoopView = memo(function IDELoopView({ agentId }: Props): React.
   if (!activeSessionId) {
     return (
       <div className="flex flex-col gap-1 p-2">
-        <span className="px-1 text-[10px] font-semibold uppercase tracking-wider text-gray-500">{t('ide.loop.title')}</span>
-        <p className="px-1 py-2 text-[11px] leading-relaxed text-gray-500">{t('ide.loop.pickSession')}</p>
+        <span className="px-1 text-[12px] font-semibold uppercase tracking-wider text-gray-500">{t('ide.loop.title')}</span>
+        <p className="px-1 py-2 text-[12px] leading-relaxed text-gray-500">{t('ide.loop.pickSession')}</p>
       </div>
     );
   }
@@ -208,9 +208,9 @@ export const IDELoopView = memo(function IDELoopView({ agentId }: Props): React.
   return (
     <div className="flex min-h-0 flex-col">
       <div className="flex flex-shrink-0 items-center justify-between gap-1 px-3 pt-2">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">{t('ide.loop.title')}</span>
+        <span className="text-[12px] font-semibold uppercase tracking-wider text-gray-500">{t('ide.loop.title')}</span>
         {statusLabel && (
-          <span className={`flex-shrink-0 rounded px-1.5 py-0.5 text-[9.5px] font-semibold ${
+          <span className={`flex-shrink-0 rounded px-1.5 py-0.5 text-[12px] font-semibold ${
             loop?.enabled ? 'bg-amber-500/20 text-amber-300' : 'bg-gray-700/70 text-gray-300'
           }`}>
             {statusLabel}
@@ -221,7 +221,7 @@ export const IDELoopView = memo(function IDELoopView({ agentId }: Props): React.
       <ScrollFade fill className="min-h-0 flex-1">
         <div className="flex flex-col gap-2 p-2">
           {/* 대상 세션 — 이 설정이 어느 탭의 것인지. */}
-          <p className="break-words px-0.5 text-[10px] leading-relaxed text-gray-500">
+          <p className="break-words px-0.5 text-[12px] leading-relaxed text-gray-500">
             {t('ide.loop.scopeSession', { label: sessionLabel ?? activeSessionId })}
           </p>
 
@@ -230,7 +230,7 @@ export const IDELoopView = memo(function IDELoopView({ agentId }: Props): React.
             <div className={`rounded border px-2 py-1.5 ${loop.enabled ? 'border-amber-500/40 bg-amber-500/5' : 'border-gray-700 bg-gray-800/60'}`}>
               <div className="flex items-center gap-1.5">
                 {loop.enabled && <span className="h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full bg-amber-400" />}
-                <span className="text-[11px] font-bold text-gray-100">
+                <span className="text-[12px] font-bold text-gray-100">
                   {loop.mode === 'count'
                     ? t('ide.loop.progressCount', { done: loop.completed, total: loop.total ?? 0 })
                     : t('ide.loop.progressInfinite', { done: loop.completed })}
@@ -238,13 +238,13 @@ export const IDELoopView = memo(function IDELoopView({ agentId }: Props): React.
               </div>
               {/* §5.5 #17-11 ⑪·⑫(b) — 회차 사이 정리가 도는 동안에는 그 사실을 말한다(회차로 오인 방지). */}
               {loop.pendingCompactCommandId && (
-                <p className="mt-1 text-[10px] text-amber-300/90">
+                <p className="mt-1 text-[12px] text-amber-300/90">
                   {loop.contextMode === 'clear' ? t('ide.loop.clearing') : t('ide.loop.compacting')}
                 </p>
               )}
               {/* §5.5 #17-11 ⑫(a) — 이번 사이클에 쓴 값. 상한이 있으면 `쓴 값 / 상한` 으로 보인다. */}
               {(loop.spentTokens > 0 || loop.spentCostUsd > 0 || loop.cycleStartedAt) && (
-                <p className="mt-1 break-words text-[10px] leading-relaxed text-gray-400">
+                <p className="mt-1 break-words text-[12px] leading-relaxed text-gray-400">
                   {t('ide.loop.spent', {
                     cost: loop.maxCostUsd
                       ? `$${loop.spentCostUsd.toFixed(2)}/$${loop.maxCostUsd}`
@@ -261,12 +261,12 @@ export const IDELoopView = memo(function IDELoopView({ agentId }: Props): React.
                 </p>
               )}
               {loop.status === 'waiting' && loop.nextRunAt != null && loop.nextRunAt > now && (
-                <p className="mt-1 text-[10px] text-gray-400">
+                <p className="mt-1 text-[12px] text-gray-400">
                   {t('ide.loop.nextIn', { time: formatRemaining(loop.nextRunAt, now) })}
                 </p>
               )}
               {loop.lastError && (
-                <p className="mt-1 break-words text-[10px] leading-relaxed text-red-400">
+                <p className="mt-1 break-words text-[12px] leading-relaxed text-red-400">
                   {t('ide.loop.lastError', { message: loop.lastError })}
                 </p>
               )}
@@ -275,7 +275,7 @@ export const IDELoopView = memo(function IDELoopView({ agentId }: Props): React.
 
           {/* 반복할 명령 */}
           <label className="flex flex-col gap-1">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+            <span className="text-[12px] font-semibold uppercase tracking-wider text-gray-500">
               {t('ide.loop.commandLabel')}
             </span>
             <textarea
@@ -283,14 +283,14 @@ export const IDELoopView = memo(function IDELoopView({ agentId }: Props): React.
               onChange={(e) => patchForm({ command: e.target.value })}
               rows={4}
               placeholder={t('ide.loop.commandPlaceholder')}
-              className="scrollbar-thin w-full resize-y rounded border border-gray-700 bg-gray-900 px-2 py-1.5 text-[11.5px] leading-relaxed text-gray-100 placeholder-gray-600 outline-none focus:border-amber-500/60"
+              className="scrollbar-thin w-full resize-y rounded border border-gray-700 bg-gray-900 px-2 py-1.5 text-[12px] leading-relaxed text-gray-100 placeholder-gray-600 outline-none focus:border-amber-500/60"
             />
-            <span className="text-[10px] leading-relaxed text-gray-500">{t('ide.loop.commandHint')}</span>
+            <span className="text-[12px] leading-relaxed text-gray-500">{t('ide.loop.commandHint')}</span>
           </label>
 
           {/* §5.5 #17-11 ⑫(f) — 매 회차 이 파일을 새로 읽어 본문으로 쓴다(도는 중에 고쳐도 반영). */}
           <label className="flex flex-col gap-1">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+            <span className="text-[12px] font-semibold uppercase tracking-wider text-gray-500">
               {t('ide.loop.commandFileLabel')}
             </span>
             <input
@@ -299,18 +299,18 @@ export const IDELoopView = memo(function IDELoopView({ agentId }: Props): React.
               maxLength={SESSION_LOOP_PATH_MAX}
               onChange={(e) => patchForm({ commandFile: e.target.value })}
               placeholder={t('ide.loop.commandFilePlaceholder')}
-              className="w-full rounded border border-gray-700 bg-gray-900 px-2 py-1 text-[11px] text-gray-100 placeholder-gray-600 outline-none focus:border-amber-500/60"
+              className="w-full rounded border border-gray-700 bg-gray-900 px-2 py-1 text-[12px] text-gray-100 placeholder-gray-600 outline-none focus:border-amber-500/60"
             />
-            <span className="text-[10px] leading-relaxed text-gray-500">{t('ide.loop.commandFileHint')}</span>
+            <span className="text-[12px] leading-relaxed text-gray-500">{t('ide.loop.commandFileHint')}</span>
           </label>
 
           {/* 반복 방식 — 좁은 폭이라 세로로 쌓는다. */}
           <div className="flex flex-col gap-1">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+            <span className="text-[12px] font-semibold uppercase tracking-wider text-gray-500">
               {t('ide.loop.modeLabel')}
             </span>
             <div className="flex items-center gap-1.5">
-              <label className="flex flex-1 items-center gap-1.5 text-[11px] text-gray-200">
+              <label className="flex flex-1 items-center gap-1.5 text-[12px] text-gray-200">
                 <input
                   type="radio"
                   checked={mode === 'count'}
@@ -326,10 +326,10 @@ export const IDELoopView = memo(function IDELoopView({ agentId }: Props): React.
                 value={total}
                 disabled={mode !== 'count'}
                 onChange={(e) => patchForm({ total: Number(e.target.value) || 1 })}
-                className="w-14 flex-shrink-0 rounded border border-gray-700 bg-gray-900 px-1.5 py-0.5 text-[11px] tabular-nums text-gray-100 outline-none focus:border-amber-500/60 disabled:opacity-40"
+                className="w-14 flex-shrink-0 rounded border border-gray-700 bg-gray-900 px-1.5 py-0.5 text-[12px] tabular-nums text-gray-100 outline-none focus:border-amber-500/60 disabled:opacity-40"
               />
             </div>
-            <label className="flex items-center gap-1.5 text-[11px] text-gray-200">
+            <label className="flex items-center gap-1.5 text-[12px] text-gray-200">
               <input
                 type="radio"
                 checked={mode === 'infinite'}
@@ -342,7 +342,7 @@ export const IDELoopView = memo(function IDELoopView({ agentId }: Props): React.
 
           {/* 회차 간 대기 */}
           <label className="flex flex-col gap-1">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+            <span className="text-[12px] font-semibold uppercase tracking-wider text-gray-500">
               {t('ide.loop.intervalLabel')}
             </span>
             <div className="flex items-center gap-1.5">
@@ -352,15 +352,15 @@ export const IDELoopView = memo(function IDELoopView({ agentId }: Props): React.
                 max={Math.floor(SESSION_LOOP_MAX_INTERVAL_MS / 1000)}
                 value={intervalSec}
                 onChange={(e) => patchForm({ intervalSec: Math.max(0, Number(e.target.value) || 0) })}
-                className="w-16 flex-shrink-0 rounded border border-gray-700 bg-gray-900 px-1.5 py-0.5 text-[11px] tabular-nums text-gray-100 outline-none focus:border-amber-500/60"
+                className="w-16 flex-shrink-0 rounded border border-gray-700 bg-gray-900 px-1.5 py-0.5 text-[12px] tabular-nums text-gray-100 outline-none focus:border-amber-500/60"
               />
-              <span className="text-[11px] text-gray-400">{t('ide.loop.intervalUnit')}</span>
+              <span className="text-[12px] text-gray-400">{t('ide.loop.intervalUnit')}</span>
             </div>
-            <span className="text-[10px] leading-relaxed text-gray-500">{t('ide.loop.intervalHint')}</span>
+            <span className="text-[12px] leading-relaxed text-gray-500">{t('ide.loop.intervalHint')}</span>
           </label>
 
           {/* 오류 시 정지 */}
-          <label className="flex items-start gap-1.5 text-[11px] leading-snug text-gray-200">
+          <label className="flex items-start gap-1.5 text-[12px] leading-snug text-gray-200">
             <input
               type="checkbox"
               checked={stopOnError}
@@ -372,26 +372,26 @@ export const IDELoopView = memo(function IDELoopView({ agentId }: Props): React.
 
           {/* §5.5 #17-11 ⑪·⑫(b) — 회차 사이 컨텍스트 처리. 긴 루프의 실질 상한은 횟수가 아니라 컨텍스트다. */}
           <label className="flex flex-col gap-1">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+            <span className="text-[12px] font-semibold uppercase tracking-wider text-gray-500">
               {t('ide.loop.contextModeLabel')}
             </span>
             <select
               value={contextMode}
               onChange={(e) => patchForm({ contextMode: asContextMode(e.target.value) })}
-              className="w-full rounded border border-gray-700 bg-gray-900 px-1.5 py-1 text-[11px] text-gray-100 outline-none focus:border-amber-500/60"
+              className="w-full rounded border border-gray-700 bg-gray-900 px-1.5 py-1 text-[12px] text-gray-100 outline-none focus:border-amber-500/60"
             >
               <option value="none">{t('ide.loop.contextModeNone')}</option>
               <option value="compact">{t('ide.loop.contextModeCompact')}</option>
               <option value="clear">{t('ide.loop.contextModeClear')}</option>
             </select>
-            <span className="text-[10px] leading-relaxed text-gray-500">
+            <span className="text-[12px] leading-relaxed text-gray-500">
               {contextMode === 'clear' ? t('ide.loop.contextModeClearHint') : t('ide.loop.contextModeCompactHint')}
             </span>
           </label>
 
           {/* §5.5 #17-11 ⑫(a) — 예산 상한. 빈 칸이면 무제한이고, 판정은 회차 경계에서만 난다. */}
           <div className="flex flex-col gap-1">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+            <span className="text-[12px] font-semibold uppercase tracking-wider text-gray-500">
               {t('ide.loop.budgetLabel')}
             </span>
             <div className="flex items-center gap-1.5">
@@ -402,9 +402,9 @@ export const IDELoopView = memo(function IDELoopView({ agentId }: Props): React.
                 value={maxCostUsd}
                 onChange={(e) => patchForm({ maxCostUsd: e.target.value })}
                 placeholder="0"
-                className="w-16 flex-shrink-0 rounded border border-gray-700 bg-gray-900 px-1.5 py-0.5 text-[11px] tabular-nums text-gray-100 placeholder-gray-600 outline-none focus:border-amber-500/60"
+                className="w-16 flex-shrink-0 rounded border border-gray-700 bg-gray-900 px-1.5 py-0.5 text-[12px] tabular-nums text-gray-100 placeholder-gray-600 outline-none focus:border-amber-500/60"
               />
-              <span className="text-[11px] text-gray-400">{t('ide.loop.budgetCostUnit')}</span>
+              <span className="text-[12px] text-gray-400">{t('ide.loop.budgetCostUnit')}</span>
             </div>
             <div className="flex items-center gap-1.5">
               <input
@@ -414,9 +414,9 @@ export const IDELoopView = memo(function IDELoopView({ agentId }: Props): React.
                 value={maxKTokens}
                 onChange={(e) => patchForm({ maxKTokens: e.target.value })}
                 placeholder="0"
-                className="w-16 flex-shrink-0 rounded border border-gray-700 bg-gray-900 px-1.5 py-0.5 text-[11px] tabular-nums text-gray-100 placeholder-gray-600 outline-none focus:border-amber-500/60"
+                className="w-16 flex-shrink-0 rounded border border-gray-700 bg-gray-900 px-1.5 py-0.5 text-[12px] tabular-nums text-gray-100 placeholder-gray-600 outline-none focus:border-amber-500/60"
               />
-              <span className="text-[11px] text-gray-400">{t('ide.loop.budgetTokenUnit')}</span>
+              <span className="text-[12px] text-gray-400">{t('ide.loop.budgetTokenUnit')}</span>
             </div>
             <div className="flex items-center gap-1.5">
               <input
@@ -426,16 +426,16 @@ export const IDELoopView = memo(function IDELoopView({ agentId }: Props): React.
                 value={maxMinutes}
                 onChange={(e) => patchForm({ maxMinutes: e.target.value })}
                 placeholder="0"
-                className="w-16 flex-shrink-0 rounded border border-gray-700 bg-gray-900 px-1.5 py-0.5 text-[11px] tabular-nums text-gray-100 placeholder-gray-600 outline-none focus:border-amber-500/60"
+                className="w-16 flex-shrink-0 rounded border border-gray-700 bg-gray-900 px-1.5 py-0.5 text-[12px] tabular-nums text-gray-100 placeholder-gray-600 outline-none focus:border-amber-500/60"
               />
-              <span className="text-[11px] text-gray-400">{t('ide.loop.budgetTimeUnit')}</span>
+              <span className="text-[12px] text-gray-400">{t('ide.loop.budgetTimeUnit')}</span>
             </div>
-            <span className="text-[10px] leading-relaxed text-gray-500">{t('ide.loop.budgetHint')}</span>
+            <span className="text-[12px] leading-relaxed text-gray-500">{t('ide.loop.budgetHint')}</span>
           </div>
 
           {/* §5.5 #17-11 ⑫(c) — 진행 파일. 압축·초기화로 대화가 날아가도 여기서 이어받는다. */}
           <label className="flex flex-col gap-1">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+            <span className="text-[12px] font-semibold uppercase tracking-wider text-gray-500">
               {t('ide.loop.progressFileLabel')}
             </span>
             <input
@@ -444,14 +444,14 @@ export const IDELoopView = memo(function IDELoopView({ agentId }: Props): React.
               maxLength={SESSION_LOOP_PATH_MAX}
               onChange={(e) => patchForm({ progressFile: e.target.value })}
               placeholder={t('ide.loop.progressFilePlaceholder')}
-              className="w-full rounded border border-gray-700 bg-gray-900 px-2 py-1 text-[11px] text-gray-100 placeholder-gray-600 outline-none focus:border-amber-500/60"
+              className="w-full rounded border border-gray-700 bg-gray-900 px-2 py-1 text-[12px] text-gray-100 placeholder-gray-600 outline-none focus:border-amber-500/60"
             />
-            <span className="text-[10px] leading-relaxed text-gray-500">{t('ide.loop.progressFileHint')}</span>
+            <span className="text-[12px] leading-relaxed text-gray-500">{t('ide.loop.progressFileHint')}</span>
           </label>
 
           {/* §5.5 #17-11 ⑫(d) — 회차당 한 가지 일 규칙(맨 위와 규칙란 양쪽에 들어간다). */}
           <label className="flex flex-col gap-0.5">
-            <span className="flex items-start gap-1.5 text-[11px] leading-snug text-gray-200">
+            <span className="flex items-start gap-1.5 text-[12px] leading-snug text-gray-200">
               <input
                 type="checkbox"
                 checked={oneTaskPerRound}
@@ -460,12 +460,12 @@ export const IDELoopView = memo(function IDELoopView({ agentId }: Props): React.
               />
               {t('ide.loop.oneTask')}
             </span>
-            <span className="pl-5 text-[10px] leading-relaxed text-gray-500">{t('ide.loop.oneTaskHint')}</span>
+            <span className="pl-5 text-[12px] leading-relaxed text-gray-500">{t('ide.loop.oneTaskHint')}</span>
           </label>
 
           {/* §5.5 #17-11 ⑫(e) — 회차 커밋 규약(커밋은 에이전트가 한다 — 서버는 git 을 건드리지 않는다). */}
           <label className="flex flex-col gap-0.5">
-            <span className="flex items-start gap-1.5 text-[11px] leading-snug text-gray-200">
+            <span className="flex items-start gap-1.5 text-[12px] leading-snug text-gray-200">
               <input
                 type="checkbox"
                 checked={commitEachRound}
@@ -474,7 +474,7 @@ export const IDELoopView = memo(function IDELoopView({ agentId }: Props): React.
               />
               {t('ide.loop.commitEachRound')}
             </span>
-            <span className="pl-5 text-[10px] leading-relaxed text-gray-500">{t('ide.loop.commitEachRoundHint')}</span>
+            <span className="pl-5 text-[12px] leading-relaxed text-gray-500">{t('ide.loop.commitEachRoundHint')}</span>
           </label>
 
           {/* 조작 */}
@@ -483,7 +483,7 @@ export const IDELoopView = memo(function IDELoopView({ agentId }: Props): React.
               type="button"
               onClick={handleStart}
               disabled={!canSubmit}
-              className="rounded bg-amber-600 px-2 py-1 text-[10.5px] font-semibold text-white transition-colors hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-40"
+              className="rounded bg-amber-600 px-2 py-1 text-[12px] font-semibold text-white transition-colors hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {loop?.enabled ? t('ide.loop.restart') : t('ide.loop.start')}
             </button>
@@ -491,7 +491,7 @@ export const IDELoopView = memo(function IDELoopView({ agentId }: Props): React.
               type="button"
               onClick={handleStop}
               disabled={!loop?.enabled}
-              className="rounded border border-gray-600 px-2 py-1 text-[10.5px] font-semibold text-gray-200 transition-colors hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40"
+              className="rounded border border-gray-600 px-2 py-1 text-[12px] font-semibold text-gray-200 transition-colors hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {t('ide.loop.stop')}
             </button>
@@ -499,13 +499,13 @@ export const IDELoopView = memo(function IDELoopView({ agentId }: Props): React.
               type="button"
               onClick={handleDelete}
               disabled={!loop}
-              className="ml-auto rounded border border-red-500/40 px-2 py-1 text-[10.5px] font-semibold text-red-300 transition-colors hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-40"
+              className="ml-auto rounded border border-red-500/40 px-2 py-1 text-[12px] font-semibold text-red-300 transition-colors hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {t('ide.loop.delete')}
             </button>
           </div>
 
-          <p className="text-[10px] leading-relaxed text-gray-500">{t('ide.loop.note')}</p>
+          <p className="text-[12px] leading-relaxed text-gray-500">{t('ide.loop.note')}</p>
         </div>
       </ScrollFade>
     </div>

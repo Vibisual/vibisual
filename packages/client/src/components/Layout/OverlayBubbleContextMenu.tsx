@@ -65,7 +65,7 @@ export const OverlayBubbleContextMenu = memo(function OverlayBubbleContextMenu({
 
       {/* 불투명도 슬라이더 */}
       <div className="px-2.5 py-1.5">
-        <div className="mb-1.5 flex items-center gap-2 text-[11px] text-gray-400">
+        <div className="mb-1.5 flex items-center gap-2 text-[12px] text-gray-400">
           <svg className="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
             <path d="M12 3.5C12 3.5 5.5 10 5.5 14.5a6.5 6.5 0 0 0 13 0C18.5 10 12 3.5 12 3.5z" />
             <path d="M12 18.5a4 4 0 0 1-4-4" />

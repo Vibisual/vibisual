@@ -115,7 +115,7 @@ function UpdateConfirmModal({
             <h3 className="flex-1 text-sm font-bold text-gray-100">
               {t('header.update.confirmTitle', { defaultValue: 'Restart to update?' })}
             </h3>
-            <span className="rounded bg-amber-500/20 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-amber-300">
+            <span className="rounded bg-amber-500/20 px-1.5 py-0.5 font-mono text-[12px] font-semibold text-amber-300">
               {version}
             </span>
           </div>
@@ -175,7 +175,7 @@ export function UpdateButton(): React.JSX.Element | null {
           type="button"
           onClick={() => setConfirmOpen(true)}
           title={t('header.update.restartTooltip', { version: state.newVersion ?? '' })}
-          className="app-nodrag flex items-center gap-1.5 rounded-md bg-blue-600 px-2.5 py-1 text-[11px] font-medium text-white transition-colors duration-150 hover:bg-blue-500"
+          className="app-nodrag flex items-center gap-1.5 rounded-md bg-blue-600 px-2.5 py-1 text-[12px] font-medium text-white transition-colors duration-150 hover:bg-blue-500"
         >
           <RestartIcon />
           <span>{t('header.update.restart')}</span>
@@ -199,7 +199,7 @@ export function UpdateButton(): React.JSX.Element | null {
   return (
     <div
       title={t('header.update.availableTooltip', { version: state.newVersion ?? '' })}
-      className="app-nodrag flex items-center gap-1.5 rounded-md bg-blue-600/20 px-2.5 py-1 text-[11px] font-medium text-blue-300"
+      className="app-nodrag flex items-center gap-1.5 rounded-md bg-blue-600/20 px-2.5 py-1 text-[12px] font-medium text-blue-300"
     >
       <DownloadIcon className={phase === 'downloading' ? 'animate-pulse' : undefined} />
       <span className="tabular-nums">{label}</span>

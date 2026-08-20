@@ -65,7 +65,13 @@ mac:
   target:
     - target: dmg
       arch: [arm64, x64]
-  # icon: resources/icons/icon.icns   # Stage 8
+  # Point at a finished .icns rather than letting electron-builder derive one from
+  # icon.png. Its converter (app-builder, Go) panics with "index out of range [-1]"
+  # in icons.doConvertIcon on that path — an upstream bug open since 2018, and the
+  # second thing that blocked mac releases after the 512×512 size check. The .icns
+  # is generated alongside icon.png/.ico by resources/icons/generate-placeholder.mjs,
+  # so regenerate all three together.
+  icon: resources/icons/icon.icns
   category: public.app-category.developer-tools
 
 linux:

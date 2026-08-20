@@ -27,10 +27,10 @@ export function TrifectaSection({ ctx }: { ctx: PluginPanelContext }): React.JSX
   return (
     <div className="mt-3 rounded-lg border border-white/[0.06] bg-white/[0.02] p-2.5">
       <div className="mb-2 flex items-center justify-between gap-2">
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+        <span className="text-[12px] font-semibold uppercase tracking-wide text-gray-400">
           {t('panel.plugins.lethalTrifecta.heading')}
         </span>
-        <span className={`text-[11px] font-medium ${levelClass}`}>
+        <span className={`text-[12px] font-medium ${levelClass}`}>
           {t(`panel.plugins.lethalTrifecta.level.${verdict.level}`)}
         </span>
       </div>
@@ -44,11 +44,11 @@ export function TrifectaSection({ ctx }: { ctx: PluginPanelContext }): React.JSX
               <div className="min-w-0 flex-1">
                 <div className="flex items-center justify-between gap-2">
                   <span className="truncate text-[12px] text-gray-300">{t(`panel.plugins.lethalTrifecta.leg.${leg}`)}</span>
-                  <span className="shrink-0 text-[10px] uppercase tracking-wide text-gray-500">
+                  <span className="shrink-0 text-[12px] uppercase tracking-wide text-gray-500">
                     {t(`panel.plugins.lethalTrifecta.state.${result.state}`)}
                   </span>
                 </div>
-                <div className="mt-0.5 truncate text-[11px] text-gray-500">
+                <div className="mt-0.5 truncate text-[12px] text-gray-500">
                   {result.tools.length > 0 ? result.tools.join(' · ') : t('panel.plugins.lethalTrifecta.noTool')}
                 </div>
               </div>
@@ -57,17 +57,17 @@ export function TrifectaSection({ ctx }: { ctx: PluginPanelContext }): React.JSX
         })}
       </div>
 
-      <p className="mt-2 border-t border-white/[0.05] pt-2 text-[11px] leading-relaxed text-gray-400">
+      <p className="mt-2 border-t border-white/[0.05] pt-2 text-[12px] leading-relaxed text-gray-400">
         {verdict.cheapestCut
           ? t('panel.plugins.lethalTrifecta.prescription')
           : t('panel.plugins.lethalTrifecta.alreadyCut')}
       </p>
 
       {verdict.isolated && (
-        <p className="mt-1 text-[11px] leading-relaxed text-sky-300/80">{t('panel.plugins.lethalTrifecta.isolatedNote')}</p>
+        <p className="mt-1 text-[12px] leading-relaxed text-sky-300/80">{t('panel.plugins.lethalTrifecta.isolatedNote')}</p>
       )}
 
-      <p className="mt-1 text-[10px] leading-relaxed text-gray-600">{t('panel.plugins.lethalTrifecta.displayOnly')}</p>
+      <p className="mt-1 text-[12px] leading-relaxed text-gray-600">{t('panel.plugins.lethalTrifecta.displayOnly')}</p>
     </div>
   );
 }

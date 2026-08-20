@@ -7,6 +7,7 @@ import { TabContextMenu } from './TabContextMenu.js';
 import { HoverTooltip } from './HoverTooltip.js';
 import { useTabPushAnimation } from '../../hooks/useTabPushAnimation.js';
 import { resolveTabReorder } from '../../hooks/tabPushGeom.js';
+import { resolveHeaderAgentCounts } from './headerAgentCounts.js';
 
 type TabItem =
   | {
@@ -14,9 +15,13 @@ type TabItem =
       key: string;
       name: string;
       path: string;
+      /** 이 프로젝트의 살아 있는(휴지통 아닌) 에이전트 수 — 배지를 그릴지 말지의 기준. */
       count: number;
-      activeCount: number;
       completedCount: number;
+      /** 그 에이전트들의 세션 수(배지 분모). */
+      sessionCount: number;
+      /** 그중 지금 돌고 있는 세션 수(배지 분자). */
+      runningCount: number;
     }
   | { kind: 'iframe'; key: string; tab: IframeTab };
 
@@ -54,9 +59,17 @@ export function TabBar(): React.JSX.Element | null {
   // §9 스코프드 구독 — 배지 숫자는 **서버 집계**를 쓴다. `agents` 는 지금 보는 프로젝트 것만
   //   실려 오므로(구독 범위), 그걸로 세면 배경 탭 배지가 전부 0 으로 보인다.
   const projectAgentCounts = useGraphStore((s) => s.projectAgentCounts);
+  // 서버 집계가 없을 때만 쓰는 폴백 입력(구버전 스냅샷 · 첫 프레임). 헤더 배지와 **같은 함수**를
+  //   통과시켜 두 배지가 다른 규칙으로 세는 일을 없앤다.
+  const subAgents = useGraphStore((s) => s.subAgents);
+  const queuedCommands = useGraphStore((s) => s.queuedCommands);
+  const runningSubagentTasks = useGraphStore((s) => s.runningSubagentTasks);
   // §9 배경 탭 유휴 해제 — 내려간(stub) 프로젝트도 **탭은 그대로 보여야 한다**. 안 그리면
   //   "오래 안 봤더니 탭이 사라졌다"가 되어 정리가 아니라 손실로 보인다. 클릭하면 되살아난다.
   const stubProjects = useGraphStore((s) => s.stubProjects);
+  // §5.4 #14 v1.34 — × 를 누른 즉시 사라지게 하는 표시. 서버 왕복 + 스냅샷 배치 창(§9, 최대 250ms)
+  //   동안 탭이 그대로 남아 "닫기가 안 먹었다"로 보이던 것을 없앤다(별창 `detachedTabKeys` 와 같은 방식).
+  const closingProjectPaths = useGraphStore((s) => s.closingProjectPaths);
   const iframeTabs = useGraphStore((s) => s.iframeTabs);
   const activeIframeId = useGraphStore((s) => s.activeIframeId);
   const tabPins = useGraphStore((s) => s.tabPins);
@@ -87,58 +100,49 @@ export function TabBar(): React.JSX.Element | null {
   // --- Build unordered tab items ---
   const projectItems = useMemo((): TabItem[] => {
     // SSOT §5.7 #26: worktree 프로젝트는 부모 캔버스 내 버블로만 노출 — TabBar에서 제외.
+    // 닫는 중(× 를 누른) 프로젝트는 서버 스냅샷이 아직 그것을 싣고 있어도 그리지 않는다.
+    const isClosing = (p: string): boolean => !!closingProjectPaths[npClient(p)];
     const hydratedItems = Object.values(registeredProjects)
-      .filter((info) => !info.parentProjectPath)
+      .filter((info) => !info.parentProjectPath && !isClosing(info.path))
       .map((info) => {
         // 서버가 준 집계가 있으면 그것이 SSOT(§3.1). 없을 때만(구버전 스냅샷) 종전처럼 직접 센다.
+        //   숫자 규칙은 헤더 배지와 공유한다 — 같은 사실을 두 벌로 세면 반드시 어긋난다.
+        const counts = resolveHeaderAgentCounts(projectAgentCounts[info.name], {
+          agents,
+          agentProjects,
+          project: info.name,
+          subAgents,
+          queuedCommands,
+          runningSubagentTasks,
+        });
         const served = projectAgentCounts[info.name];
-        if (served) {
-          return {
-            kind: 'project' as const,
-            key: `p:${info.name}`,
-            name: info.name,
-            path: info.path,
-            count: served.total,
-            activeCount: served.active,
-            completedCount: served.completed,
-          };
-        }
-        const agentIds = new Set(
-          Object.entries(agentProjects)
-            .filter(([, p]) => p === info.name)
-            .map(([id]) => id),
-        );
-        const activeCount = agents.filter(
-          (a) => agentIds.has(a.id) && a.status === 'active',
-        ).length;
-        const completedCount = agents.filter(
-          (a) => agentIds.has(a.id) && a.status === 'completed',
-        ).length;
         return {
           kind: 'project' as const,
           key: `p:${info.name}`,
           name: info.name,
           path: info.path,
-          count: agentIds.size,
-          activeCount,
-          completedCount,
+          count: counts.agents,
+          completedCount: counts.completed,
+          sessionCount: counts.sessions,
+          runningCount: counts.running,
         };
       });
     // 내려가 있는(stub) 프로젝트를 같은 목록에 얹는다. 에이전트 수는 메모리에 없으므로 0 —
     // 배지는 `count > 0` 일 때만 그려지니 숫자가 "0/0" 으로 보이지 않고 조용히 빠진다.
     const stubItems = Object.entries(stubProjects)
-      .filter(([name, meta]) => !meta.project.parentProjectPath && !registeredProjects[name])
+      .filter(([name, meta]) => !meta.project.parentProjectPath && !registeredProjects[name] && !isClosing(meta.project.path))
       .map(([name, meta]): TabItem => ({
         kind: 'project' as const,
         key: `p:${name}`,
         name,
         path: meta.project.path,
         count: 0,
-        activeCount: 0,
         completedCount: 0,
+        sessionCount: 0,
+        runningCount: 0,
       }));
     return [...hydratedItems, ...stubItems];
-  }, [registeredProjects, stubProjects, agentProjects, agents, projectAgentCounts]);
+  }, [registeredProjects, stubProjects, closingProjectPaths, agentProjects, agents, projectAgentCounts, subAgents, queuedCommands, runningSubagentTasks]);
 
   const iframeItems = useMemo((): TabItem[] => {
     return iframeTabs.map((tab) => ({
@@ -606,7 +610,7 @@ export function TabBar(): React.JSX.Element | null {
       {floatingHint && createPortal(
         <div
           data-tab-floating-hint="1"
-          className={`pointer-events-none fixed z-[9999] flex max-w-[260px] flex-col gap-0.5 rounded-md px-2.5 py-1.5 text-[11px] font-medium shadow-lg shadow-black/50 transition-colors duration-100 ${
+          className={`pointer-events-none fixed z-[9999] flex max-w-[260px] flex-col gap-0.5 rounded-md px-2.5 py-1.5 text-[12px] font-medium shadow-lg shadow-black/50 transition-colors duration-100 ${
             floatingHint.outside
               ? 'bg-[#1f2937] text-amber-200 ring-1 ring-amber-400/60'
               : 'bg-[#1f2937]/85 text-gray-300 ring-1 ring-white/[0.08]'
@@ -688,25 +692,29 @@ export function TabBar(): React.JSX.Element | null {
               <HoverTooltip className="min-w-0 flex-1 truncate" label={item.name} />
               {item.count > 0 && (() => {
                 const dotState: ProjectDotState =
-                  item.activeCount > 0
+                  item.runningCount > 0
                     ? 'active'
                     : item.completedCount > 0
                       ? 'completed'
                       : 'idle';
                 const tooltip =
-                  item.activeCount > 0
+                  item.runningCount > 0
                     ? t('header.agentStatus.tooltipWorking', {
-                        active: item.activeCount,
-                        total: item.count,
+                        running: item.runningCount,
+                        sessions: item.sessionCount,
+                        agents: item.count,
                       })
-                    : t('header.agentStatus.tooltipCompleted', { count: item.count });
+                    : t('header.agentStatus.tooltipIdle', {
+                        sessions: item.sessionCount,
+                        agents: item.count,
+                      });
                 return (
                   <span
                     title={tooltip}
-                    className="flex flex-shrink-0 items-center gap-1 text-[10px] tabular-nums text-gray-300"
+                    className="flex flex-shrink-0 items-center gap-1 text-[12px] tabular-nums text-gray-300"
                   >
                     <span className={`h-1.5 w-1.5 rounded-full ${PROJECT_DOT_STYLES[dotState]}`} />
-                    <span>{item.activeCount}/{item.count}</span>
+                    <span>{item.runningCount}/{item.sessionCount}</span>
                   </span>
                 );
               })()}
@@ -766,7 +774,7 @@ export function TabBar(): React.JSX.Element | null {
               <path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zM4 12c0-.93.16-1.82.46-2.65L8 12.83V14a2 2 0 0 0 2 2v3.73A8.01 8.01 0 0 1 4 12zm14.54 3.35A2 2 0 0 0 17 14h-1v-3a1 1 0 0 0-1-1H9V8h2a1 1 0 0 0 1-1V5.08A7.97 7.97 0 0 1 20 12c0 1.2-.27 2.34-.74 3.35z" />
             </svg>
             <HoverTooltip className="min-w-0 flex-1 truncate" label={item.tab.label} />
-            <span className={`flex-shrink-0 rounded px-1 text-[9px] font-semibold ${item.tab.serverKind === 'frontend' ? 'bg-sky-500/20 text-sky-400' : 'bg-amber-500/20 text-amber-400'}`}>
+            <span className={`flex-shrink-0 rounded px-1 text-[12px] font-semibold ${item.tab.serverKind === 'frontend' ? 'bg-sky-500/20 text-sky-400' : 'bg-amber-500/20 text-amber-400'}`}>
               {item.tab.serverKind === 'frontend' ? t('common.serverKind.frontendShort') : t('common.serverKind.backendShort')}
             </span>
             <button

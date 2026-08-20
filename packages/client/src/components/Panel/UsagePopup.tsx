@@ -9,6 +9,7 @@ import {
 } from '../../utils/usageLimits.js';
 import { ScrollFade } from '../ScrollFade.js';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
+import { CostPill } from './CostPill.js';
 
 // SCENARIO.md §4 v1.50 / v3.60 / v3.62 — 사용량 팝업.
 //
@@ -63,7 +64,7 @@ function LimitGauge({
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-baseline justify-between gap-2">
-        <span className={`min-w-0 truncate font-semibold ${subdued ? 'text-[11px] text-gray-400' : 'text-xs text-gray-200'}`}>
+        <span className={`min-w-0 truncate font-semibold ${subdued ? 'text-[12px] text-gray-400' : 'text-xs text-gray-200'}`}>
           {label}
         </span>
         <span className={`font-mono font-bold tabular-nums ${subdued ? 'text-sm' : 'text-lg'} ${
@@ -77,7 +78,7 @@ function LimitGauge({
           <div className={`h-full transition-all duration-500 ${usageBarToneClass(pct)}`} style={{ width: `${pct}%` }} />
         )}
       </div>
-      {countdown && <div className="text-[10px] text-gray-500">{countdown}</div>}
+      {countdown && <div className="text-[12px] text-gray-500">{countdown}</div>}
     </div>
   );
 }
@@ -90,7 +91,7 @@ function ErrorNotice({ error }: { error: string }): React.JSX.Element {
       : error === 'unauthorized' ? t('panel.usage.errUnauthorized')
         : t('panel.usage.errNetwork');
   return (
-    <div className="flex gap-2 rounded border border-amber-500/40 bg-amber-500/10 px-2.5 py-2 text-[11px] leading-relaxed text-amber-200">
+    <div className="flex gap-2 rounded border border-amber-500/40 bg-amber-500/10 px-2.5 py-2 text-[12px] leading-relaxed text-amber-200">
       <svg className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         <circle cx="12" cy="12" r="10" />
         <path d="M12 16v-4" />
@@ -118,7 +119,7 @@ function CollectorSection({ status, failed, busy, onToggle }: CollectorSectionPr
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 flex-col">
           <span className="text-xs font-semibold text-gray-200">{t('panel.usage.collectorTitle')}</span>
-          <span className="text-[10px] text-gray-500">
+          <span className="text-[12px] text-gray-500">
             {installed ? t('panel.usage.collectorOnHint') : t('panel.usage.collectorOffHint')}
           </span>
         </div>
@@ -126,7 +127,7 @@ function CollectorSection({ status, failed, busy, onToggle }: CollectorSectionPr
           type="button"
           disabled={busy}
           onClick={() => onToggle(!installed)}
-          className={`flex-shrink-0 rounded px-3 py-1.5 text-[11px] font-semibold transition-colors duration-150 disabled:opacity-50 ${
+          className={`flex-shrink-0 rounded px-3 py-1.5 text-[12px] font-semibold transition-colors duration-150 disabled:opacity-50 ${
             installed
               ? 'border border-gray-700 text-gray-300 hover:bg-gray-800'
               : 'bg-blue-600 text-white hover:bg-blue-500'
@@ -137,22 +138,22 @@ function CollectorSection({ status, failed, busy, onToggle }: CollectorSectionPr
       </div>
 
       {installed && status?.passthroughCommand && (
-        <div className="rounded border border-gray-700 bg-gray-800/40 px-2.5 py-1.5 text-[10px] leading-relaxed text-gray-400">
+        <div className="rounded border border-gray-700 bg-gray-800/40 px-2.5 py-1.5 text-[12px] leading-relaxed text-gray-400">
           {t('panel.usage.collectorPassthrough')}
         </div>
       )}
       {!installed && status?.foreign && (
-        <div className="rounded border border-amber-500/40 bg-amber-500/10 px-2.5 py-1.5 text-[10px] leading-relaxed text-amber-200">
+        <div className="rounded border border-amber-500/40 bg-amber-500/10 px-2.5 py-1.5 text-[12px] leading-relaxed text-amber-200">
           {t('panel.usage.collectorForeign')}
         </div>
       )}
       {(failed || status?.error) && (
-        <div className="rounded border border-red-500/40 bg-red-500/10 px-2.5 py-1.5 text-[10px] leading-relaxed text-red-300">
+        <div className="rounded border border-red-500/40 bg-red-500/10 px-2.5 py-1.5 text-[12px] leading-relaxed text-red-300">
           {status?.error ?? t('panel.usage.collectorFailed')}
         </div>
       )}
       {installed && (
-        <div className="text-[10px] leading-relaxed text-gray-600">
+        <div className="text-[12px] leading-relaxed text-gray-600">
           {t('panel.usage.collectorRestartHint')}
         </div>
       )}
@@ -175,13 +176,19 @@ export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps)
     return () => clearInterval(id);
   }, []);
 
+  // §7.19 — 하단 비용 줄이 여는 비용·토큰 지도. 상태를 **여기서** 드는 이유는 Esc 때문이다:
+  //   위에 비용 팝업이 떠 있으면 Esc 는 그것부터 닫아야 하는데, 그 사실을 이 팝업이 알아야
+  //   자기 차례를 비켜설 수 있다(전역 플래그로 두면 이 팝업이 닫힌 뒤에도 켜진 채 남는다).
+  const [costOpen, setCostOpen] = useState(false);
+
   useEffect(() => {
     function handleKey(e: KeyboardEvent): void {
-      if (e.key === 'Escape') onClose();
+      // 위에 있는 것부터 닫는다 — 비용 팝업이 자기 Esc 로 먼저 닫히고, 그다음 차례가 이 팝업.
+      if (e.key === 'Escape' && !costOpen) onClose();
     }
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [onClose]);
+  }, [onClose, costOpen]);
 
   // 열 때 한 번 최신값을 받아온다(스냅샷으로도 오지만, 팝업을 연 순간이 가장 보고 싶은 시점).
   const [refreshing, setRefreshing] = useState(false);
@@ -322,7 +329,7 @@ export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps)
           </svg>
           <span className="text-sm font-semibold text-gray-100">{t('panel.usage.title')}</span>
           {claudeUsage?.plan && (
-            <span className="rounded bg-violet-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-violet-300">
+            <span className="rounded bg-violet-500/20 px-1.5 py-0.5 text-[12px] font-semibold text-violet-300">
               {claudeUsage.plan}
             </span>
           )}
@@ -382,7 +389,7 @@ export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps)
               />
             ))}
 
-            <div className="flex items-center gap-2 text-[10px]">
+            <div className="flex items-center gap-2 text-[12px]">
               <span className="text-gray-600">
                 {updatedAt
                   ? t('panel.usage.lastUpdated', { time: new Date(updatedAt).toLocaleTimeString() })
@@ -397,13 +404,13 @@ export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps)
             <div className="flex flex-col gap-1.5 border-t border-gray-700 px-4 py-3">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-gray-200">{t('panel.usage.creditsTitle')}</span>
-                <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                <span className={`rounded px-1.5 py-0.5 text-[12px] font-semibold ${
                   credits.enabled ? 'bg-emerald-500/20 text-emerald-300' : 'bg-gray-600/30 text-gray-400'
                 }`}>
                   {credits.enabled ? t('panel.usage.creditsOn') : t('panel.usage.creditsOff')}
                 </span>
               </div>
-              <span className="text-[10px] leading-relaxed text-gray-500">
+              <span className="text-[12px] leading-relaxed text-gray-500">
                 {credits.enabled && typeof credits.utilization === 'number'
                   ? t('panel.usage.creditsUsed', { percent: Math.round(credits.utilization) })
                   : t('panel.usage.creditsHint')}
@@ -424,23 +431,27 @@ export const UsagePopup = memo(function UsagePopup({ onClose }: UsagePopupProps)
           {/* Vibisual 자신이 굴린 몫 */}
           <div className="flex flex-col gap-1.5 border-t border-gray-700 px-4 py-3">
             <span className="text-xs font-semibold text-gray-200">{t('panel.usage.localTitle')}</span>
-            <div className="flex items-center justify-between text-[11px]">
+            <div className="flex items-center justify-between text-[12px]">
               <span className="text-gray-500">{t('panel.usage.localAgents')}</span>
               <span className="font-mono text-gray-300">{local.count}</span>
             </div>
-            <div className="flex items-center justify-between text-[11px]">
+            <div className="flex items-center justify-between text-[12px]">
               <span className="text-gray-500">{t('panel.usage.localInput')}</span>
               <span className="font-mono text-gray-300">{local.input.toLocaleString()}</span>
             </div>
-            <div className="flex items-center justify-between text-[11px]">
+            <div className="flex items-center justify-between text-[12px]">
               <span className="text-gray-500">{t('panel.usage.localOutput')}</span>
               <span className="font-mono text-emerald-400">{local.output.toLocaleString()}</span>
             </div>
-            <div className="mt-0.5 text-[10px] leading-relaxed text-gray-600">
+            <div className="mt-0.5 text-[12px] leading-relaxed text-gray-600">
               {t('panel.usage.localHint')}
             </div>
           </div>
         </ScrollFade>
+
+        {/* §5.21 / §7.19 — 오늘 비용. 헤더에서 옮겨 온 자리이고, 스크롤 **밖** 바닥에 고정한다
+            (아래로 내려야 보이는 입구는 없는 입구와 같다). 누르면 비용·토큰 지도가 이 위에 겹친다. */}
+        <CostPill open={costOpen} onOpenChange={setCostOpen} />
       </div>
     </div>
   );

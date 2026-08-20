@@ -69,7 +69,7 @@ export function ReadingWidthSection(): React.JSX.Element {
           step={1}
           onChange={(measureCh) => setIdeReading({ measureCh })}
         />
-        <div className={`rounded border px-2 py-1 text-[10px] leading-relaxed ${VERDICT_CLASS[verdict]}`}>
+        <div className={`rounded border px-2 py-1 text-[12px] leading-relaxed ${VERDICT_CLASS[verdict]}`}>
           {est
             ? t('ide.reading.charsPerLine', { cjk: est.cjk, latin: est.latin })
             : t('ide.reading.charsUnlimited')}

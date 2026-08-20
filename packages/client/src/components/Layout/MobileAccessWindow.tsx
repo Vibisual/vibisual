@@ -223,7 +223,7 @@ export function MobileAccessWindow({ open, onClose }: MobileAccessWindowProps): 
           <>
             {/* 접속 URL */}
             <div className="mb-3">
-              <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-gray-500">
+              <div className="mb-1 text-[12px] font-medium uppercase tracking-wide text-gray-500">
                 {t('panel.mobileAccess.url')}
               </div>
               {state.urls.length > 0 ? (
@@ -244,14 +244,14 @@ export function MobileAccessWindow({ open, onClose }: MobileAccessWindowProps): 
             {/* 페어링 코드 */}
             <div className="mb-3">
               <div className="mb-1 flex items-center justify-between">
-                <span className="text-[11px] font-medium uppercase tracking-wide text-gray-500">
+                <span className="text-[12px] font-medium uppercase tracking-wide text-gray-500">
                   {t('panel.mobileAccess.pairingCode')}
                 </span>
                 <button
                   type="button"
                   onClick={() => void handleRegen()}
                   disabled={busy}
-                  className="rounded-md px-2 py-1 text-[11px] text-gray-400 transition-colors hover:bg-white/[0.08] hover:text-gray-200"
+                  className="rounded-md px-2 py-1 text-[12px] text-gray-400 transition-colors hover:bg-white/[0.08] hover:text-gray-200"
                 >
                   {t('panel.mobileAccess.regen')}
                 </button>
@@ -291,7 +291,7 @@ export function MobileAccessWindow({ open, onClose }: MobileAccessWindowProps): 
                   {state.qrTicket ? t('panel.mobileAccess.qrReissue') : t('panel.mobileAccess.qrIssue')}
                 </button>
               </div>
-              <p className="text-[11px] leading-relaxed text-gray-500">
+              <p className="text-[12px] leading-relaxed text-gray-500">
                 {t('panel.mobileAccess.qrSubtitle', { minutes: qrTtlMinutes })}
               </p>
 
@@ -300,7 +300,7 @@ export function MobileAccessWindow({ open, onClose }: MobileAccessWindowProps): 
                   {/* 대상 주소 선택 — 주소가 둘 이상일 때만(LAN 인터페이스 다중 / 외부 병행). */}
                   {qrUrls.length > 1 && (
                     <>
-                      <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-gray-500">
+                      <div className="mb-1 text-[12px] font-medium uppercase tracking-wide text-gray-500">
                         {t('panel.mobileAccess.qrTarget')}
                       </div>
                       <div className="mb-2 flex flex-wrap gap-1">
@@ -309,13 +309,13 @@ export function MobileAccessWindow({ open, onClose }: MobileAccessWindowProps): 
                             key={u}
                             type="button"
                             onClick={() => setQrTargetIndex(i)}
-                            className={`rounded-md border px-2 py-1 text-[11px] font-mono transition-colors ${
+                            className={`rounded-md border px-2 py-1 text-[12px] font-mono transition-colors ${
                               u === qrUrl
                                 ? 'border-sky-400/40 bg-sky-500/15 text-sky-200'
                                 : 'border-white/[0.06] bg-black/20 text-gray-400 hover:bg-white/[0.06]'
                             }`}
                           >
-                            <span className="mr-1 font-sans text-[10px] uppercase tracking-wide opacity-70">
+                            <span className="mr-1 font-sans text-[12px] uppercase tracking-wide opacity-70">
                               {isExternalUrl(u)
                                 ? t('panel.mobileAccess.qrTargetExternal')
                                 : t('panel.mobileAccess.qrTargetLan')}
@@ -338,7 +338,7 @@ export function MobileAccessWindow({ open, onClose }: MobileAccessWindowProps): 
                         : t('panel.mobileAccess.qrExpired')}
                     </div>
                     {state.qrTicket.usedCount > 0 && (
-                      <div className="text-[11px] text-gray-500">
+                      <div className="text-[12px] text-gray-500">
                         {t('panel.mobileAccess.qrPairedCount', { count: state.qrTicket.usedCount })}
                       </div>
                     )}
@@ -395,7 +395,7 @@ export function MobileAccessWindow({ open, onClose }: MobileAccessWindowProps): 
                   {state.externalEnabled ? t('panel.mobileAccess.disable') : t('panel.mobileAccess.enable')}
                 </button>
               </div>
-              <p className="mb-2 text-[11px] leading-relaxed text-gray-500">{t('panel.mobileAccess.externalSubtitle')}</p>
+              <p className="mb-2 text-[12px] leading-relaxed text-gray-500">{t('panel.mobileAccess.externalSubtitle')}</p>
 
               {state.externalEnabled && (
                 <>
@@ -409,7 +409,7 @@ export function MobileAccessWindow({ open, onClose }: MobileAccessWindowProps): 
                   {/* UPnP 자동 개방 성공 — 접속 가능. */}
                   {state.externalStatus === 'active' && state.externalUrl && (
                     <>
-                      <div className="mb-1 flex items-center gap-1.5 text-[11px] font-medium text-emerald-300">
+                      <div className="mb-1 flex items-center gap-1.5 text-[12px] font-medium text-emerald-300">
                         <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                           <path d="M20 6 9 17l-5-5" />
                         </svg>
@@ -418,7 +418,7 @@ export function MobileAccessWindow({ open, onClose }: MobileAccessWindowProps): 
                       <div className="rounded-md border border-emerald-500/20 bg-emerald-500/[0.08] px-3 py-2 font-mono text-[13px] text-emerald-300">
                         {state.externalUrl}
                       </div>
-                      <p className="mt-2 text-[11px] leading-relaxed text-amber-300/80">{t('panel.mobileAccess.externalHttpsNote')}</p>
+                      <p className="mt-2 text-[12px] leading-relaxed text-amber-300/80">{t('panel.mobileAccess.externalHttpsNote')}</p>
                     </>
                   )}
 
@@ -440,13 +440,13 @@ export function MobileAccessWindow({ open, onClose }: MobileAccessWindowProps): 
                       </div>
                       {state.externalUrl && (
                         <>
-                          <div className="mb-1 mt-3 text-[11px] font-medium text-gray-400">
+                          <div className="mb-1 mt-3 text-[12px] font-medium text-gray-400">
                             {t('panel.mobileAccess.externalManualUrl')}
                           </div>
                           <div className="rounded-md border border-white/[0.06] bg-black/30 px-3 py-2 font-mono text-[13px] text-sky-300">
                             {state.externalUrl}
                           </div>
-                          <p className="mt-2 text-[11px] leading-relaxed text-amber-300/80">{t('panel.mobileAccess.externalHttpsNote')}</p>
+                          <p className="mt-2 text-[12px] leading-relaxed text-amber-300/80">{t('panel.mobileAccess.externalHttpsNote')}</p>
                         </>
                       )}
                     </>

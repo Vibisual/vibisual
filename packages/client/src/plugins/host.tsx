@@ -243,7 +243,7 @@ function PanelSlotInner(props: BubbleSlotProps & { modules: PluginClientModule[]
         <button
           type="button"
           onClick={() => setExpanded(true)}
-          className="mt-2 w-full rounded-md border border-white/[0.06] bg-white/[0.02] px-2 py-1.5 text-[11px] text-gray-400 transition-colors hover:bg-white/[0.06] hover:text-gray-200"
+          className="mt-2 w-full rounded-md border border-white/[0.06] bg-white/[0.02] px-2 py-1.5 text-[12px] text-gray-400 transition-colors hover:bg-white/[0.06] hover:text-gray-200"
         >
           {ctx.t('panel.plugins.showMore', { count: hidden })}
         </button>
@@ -252,7 +252,7 @@ function PanelSlotInner(props: BubbleSlotProps & { modules: PluginClientModule[]
         <button
           type="button"
           onClick={() => setExpanded(false)}
-          className="mt-2 w-full rounded-md border border-white/[0.06] bg-white/[0.02] px-2 py-1.5 text-[11px] text-gray-500 transition-colors hover:bg-white/[0.06] hover:text-gray-300"
+          className="mt-2 w-full rounded-md border border-white/[0.06] bg-white/[0.02] px-2 py-1.5 text-[12px] text-gray-500 transition-colors hover:bg-white/[0.06] hover:text-gray-300"
         >
           {ctx.t('panel.plugins.showLess')}
         </button>

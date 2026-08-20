@@ -65,7 +65,7 @@ export function AccountTab(): React.JSX.Element {
         <h4 className="text-sm font-semibold text-gray-200">
           {t('panel.options.categories.account', { defaultValue: 'Account' })}
         </h4>
-        <p className="mt-1 text-[11px] leading-relaxed text-gray-500">
+        <p className="mt-1 text-[12px] leading-relaxed text-gray-500">
           {t('panel.options.account.intro', {
             defaultValue: 'The Claude Code account Vibisual uses to run agents. Signing out here signs out Claude Code itself.',
           })}
@@ -86,14 +86,14 @@ export function AccountTab(): React.JSX.Element {
                 : t('panel.options.account.signedOut', { defaultValue: 'Not signed in' })}
           </span>
           {loggedIn && auth?.subscriptionType && (
-            <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-300">
+            <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[12px] font-semibold uppercase tracking-wider text-emerald-300">
               {auth.subscriptionType}
             </span>
           )}
         </div>
 
         {loggedIn && (
-          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-[11.5px]">
+          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-[12px]">
             <Row label={t('panel.options.account.email', { defaultValue: 'Email' })} value={auth?.email} />
             <Row label={t('panel.options.account.org', { defaultValue: 'Organization' })} value={auth?.orgName} />
             <Row label={t('panel.options.account.method', { defaultValue: 'Method' })} value={auth?.authMethod} />
@@ -102,7 +102,7 @@ export function AccountTab(): React.JSX.Element {
         )}
 
         {unknown && (
-          <p className="text-[11px] text-amber-300/80">
+          <p className="text-[12px] text-amber-300/80">
             {t('panel.options.account.unknownDesc', {
               defaultValue: 'The claude binary did not answer. Check the Version tab to make sure Claude Code is installed.',
             })}
@@ -110,7 +110,7 @@ export function AccountTab(): React.JSX.Element {
         )}
 
         {error && (
-          <p className="text-[11px] text-red-300">
+          <p className="text-[12px] text-red-300">
             {t('panel.options.account.actionFailed', { defaultValue: 'That did not work. Try again.' })}
           </p>
         )}
@@ -120,7 +120,7 @@ export function AccountTab(): React.JSX.Element {
           {loggedIn ? (
             confirming ? (
               <>
-                <span className="text-[11.5px] text-gray-300">
+                <span className="text-[12px] text-gray-300">
                   {t('panel.options.account.logoutConfirm', { defaultValue: 'Sign out of Claude Code?' })}
                 </span>
                 <button

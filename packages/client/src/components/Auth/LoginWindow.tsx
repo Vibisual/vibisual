@@ -206,7 +206,7 @@ export function LoginWindow(): React.JSX.Element | null {
               {t('panel.login.title', { defaultValue: 'Sign in to Claude' })}
             </h3>
             {auth?.error && (
-              <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-300">
+              <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[12px] font-semibold uppercase tracking-wider text-amber-300">
                 {auth.error}
               </span>
             )}
@@ -222,7 +222,7 @@ export function LoginWindow(): React.JSX.Element | null {
               </div>
             ) : (
               <>
-                <p className="text-[12.5px] leading-relaxed text-gray-400">
+                <p className="text-[13px] leading-relaxed text-gray-400">
                   {t('panel.login.intro', {
                     defaultValue: 'Vibisual runs agents with your Claude Code account. Sign in here — no separate terminal needed.',
                   })}
@@ -244,7 +244,7 @@ export function LoginWindow(): React.JSX.Element | null {
                       desc={t('panel.login.modeConsoleDesc', { defaultValue: 'API account — usage is billed per token.' })}
                     />
                     <label className="mt-0.5 flex flex-col gap-1">
-                      <span className="text-[11px] text-gray-500">
+                      <span className="text-[12px] text-gray-500">
                         {t('panel.login.emailLabel', { defaultValue: 'Email (optional — prefills the sign-in page)' })}
                       </span>
                       <input
@@ -252,7 +252,7 @@ export function LoginWindow(): React.JSX.Element | null {
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
                         placeholder="you@example.com"
-                        className="rounded-md border border-gray-700 bg-gray-950 px-2.5 py-1.5 text-[12.5px] text-gray-200 outline-none placeholder:text-gray-600 focus:border-violet-500/60"
+                        className="rounded-md border border-gray-700 bg-gray-950 px-2.5 py-1.5 text-[13px] text-gray-200 outline-none placeholder:text-gray-600 focus:border-violet-500/60"
                       />
                     </label>
                   </div>
@@ -263,31 +263,31 @@ export function LoginWindow(): React.JSX.Element | null {
                   <div className="flex flex-col gap-2.5">
                     {scan.url ? (
                       <div className="flex flex-col gap-2 rounded-lg border border-violet-500/30 bg-violet-500/5 px-3.5 py-3">
-                        <span className="text-[12.5px] text-violet-200">
+                        <span className="text-[13px] text-violet-200">
                           {t('panel.login.openBrowser', { defaultValue: 'Approve the sign-in in your browser, then come back here.' })}
                         </span>
                         <div className="flex flex-wrap items-center gap-2">
                           <button
                             type="button"
                             onClick={handleOpenUrl}
-                            className="rounded-md bg-violet-600 px-3 py-1.5 text-[12.5px] font-semibold text-white transition-colors hover:bg-violet-500"
+                            className="rounded-md bg-violet-600 px-3 py-1.5 text-[13px] font-semibold text-white transition-colors hover:bg-violet-500"
                           >
                             {t('panel.login.openBrowserBtn', { defaultValue: 'Open in browser' })}
                           </button>
                           <button
                             type="button"
                             onClick={handleCopyUrl}
-                            className="rounded-md border border-gray-700 px-3 py-1.5 text-[12.5px] text-gray-300 transition-colors hover:border-gray-600 hover:text-white"
+                            className="rounded-md border border-gray-700 px-3 py-1.5 text-[13px] text-gray-300 transition-colors hover:border-gray-600 hover:text-white"
                           >
                             {copied
                               ? t('panel.login.copied', { defaultValue: 'Copied' })
                               : t('panel.login.copyUrl', { defaultValue: 'Copy link' })}
                           </button>
                         </div>
-                        <code className="truncate text-[11px] text-gray-500">{scan.url}</code>
+                        <code className="truncate text-[12px] text-gray-500">{scan.url}</code>
                       </div>
                     ) : (
-                      <div className="flex items-center gap-2 rounded-lg border border-gray-800 bg-gray-950/60 px-3.5 py-3 text-[12.5px] text-gray-400">
+                      <div className="flex items-center gap-2 rounded-lg border border-gray-800 bg-gray-950/60 px-3.5 py-3 text-[13px] text-gray-400">
                         <span className="h-2 w-2 animate-pulse rounded-full bg-violet-400" />
                         {t('panel.login.starting', { defaultValue: 'Starting sign-in…' })}
                       </div>
@@ -304,13 +304,13 @@ export function LoginWindow(): React.JSX.Element | null {
                             onChange={(e) => setCode(e.target.value)}
                             onKeyDown={(e) => { if (e.key === 'Enter') handleSendCode(); }}
                             placeholder={t('panel.login.codePlaceholder', { defaultValue: 'Authorization code' })}
-                            className="min-w-0 flex-1 rounded-md border border-gray-700 bg-gray-900 px-2.5 py-1.5 font-mono text-[12.5px] text-gray-200 outline-none placeholder:text-gray-600 focus:border-violet-500/60"
+                            className="min-w-0 flex-1 rounded-md border border-gray-700 bg-gray-900 px-2.5 py-1.5 font-mono text-[13px] text-gray-200 outline-none placeholder:text-gray-600 focus:border-violet-500/60"
                           />
                           <button
                             type="button"
                             onClick={handleSendCode}
                             disabled={!code.trim()}
-                            className="rounded-md bg-violet-600 px-3 py-1.5 text-[12.5px] font-semibold text-white transition-colors hover:bg-violet-500 disabled:opacity-40"
+                            className="rounded-md bg-violet-600 px-3 py-1.5 text-[13px] font-semibold text-white transition-colors hover:bg-violet-500 disabled:opacity-40"
                           >
                             {t('panel.login.sendCode', { defaultValue: 'Send' })}
                           </button>
@@ -342,7 +342,7 @@ export function LoginWindow(): React.JSX.Element | null {
                     <button
                       type="button"
                       onClick={() => setShowTerminal((v) => !v)}
-                      className="flex items-center gap-1.5 self-start text-[11.5px] text-gray-500 transition-colors hover:text-gray-300"
+                      className="flex items-center gap-1.5 self-start text-[12px] text-gray-500 transition-colors hover:text-gray-300"
                     >
                       <svg viewBox="0 0 24 24" className={`h-3.5 w-3.5 transition-transform ${showTerminal ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M9 18l6-6-6-6" />
@@ -373,7 +373,7 @@ export function LoginWindow(): React.JSX.Element | null {
                     stopLogin();
                     setLoginGate({ forced: false, dismissed: true });
                   }}
-                  className="rounded-md border border-gray-700 px-3 py-1.5 text-[12.5px] text-gray-300 transition-colors hover:border-gray-600 hover:text-white"
+                  className="rounded-md border border-gray-700 px-3 py-1.5 text-[13px] text-gray-300 transition-colors hover:border-gray-600 hover:text-white"
                 >
                   {t('panel.login.later', { defaultValue: 'Later' })}
                 </button>
@@ -381,7 +381,7 @@ export function LoginWindow(): React.JSX.Element | null {
                   <button
                     type="button"
                     onClick={stopLogin}
-                    className="rounded-md border border-gray-700 px-3 py-1.5 text-[12.5px] text-gray-300 transition-colors hover:border-gray-600 hover:text-white"
+                    className="rounded-md border border-gray-700 px-3 py-1.5 text-[13px] text-gray-300 transition-colors hover:border-gray-600 hover:text-white"
                   >
                     {t('panel.login.stop', { defaultValue: 'Stop' })}
                   </button>
@@ -389,7 +389,7 @@ export function LoginWindow(): React.JSX.Element | null {
                   <button
                     type="button"
                     onClick={() => { void handleStart(); }}
-                    className="rounded-md bg-violet-600 px-4 py-1.5 text-[12.5px] font-semibold text-white transition-colors hover:bg-violet-500"
+                    className="rounded-md bg-violet-600 px-4 py-1.5 text-[13px] font-semibold text-white transition-colors hover:bg-violet-500"
                   >
                     {t('panel.login.start', { defaultValue: 'Sign in' })}
                   </button>
@@ -424,8 +424,8 @@ function ModeCard({ active, onClick, title, desc }: {
         {active && <span className="h-2 w-2 rounded-full bg-violet-400" />}
       </span>
       <span className="flex flex-col gap-0.5">
-        <span className={`text-[12.5px] font-semibold ${active ? 'text-violet-100' : 'text-gray-300'}`}>{title}</span>
-        <span className="text-[11.5px] text-gray-500">{desc}</span>
+        <span className={`text-[13px] font-semibold ${active ? 'text-violet-100' : 'text-gray-300'}`}>{title}</span>
+        <span className="text-[12px] text-gray-500">{desc}</span>
       </span>
     </button>
   );

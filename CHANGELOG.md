@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.11] - 2026-08-20
+
+### Added
+- **What a session actually cost you.** Token spend was visible only as a plan-usage percentage, so "which agent burned the afternoon" had no answer. Cost is now kept per session, rolled up per agent, per project and per day, and shown at the bottom of the usage popup (today's figure) with the full breakdown one click deeper. Nothing new is collected for it — it reuses the session log scanner and the price table the app already had.
+- **A permission and audit boundary.** Every tool call an agent makes is now written as one line — the call and its result folded together — so you can read back what was touched, when, and whether it was approved. Risky tools can be escalated to ask you first, and a shield in the header opens the timeline. It ships **entirely switched off**: turn on only the boundary you want, and the popup explains how it relates to the permission mode you already set before it offers you a single switch.
+- **A review lane for isolated work.** Changes made by an agent in a worktree used to reach the main line the moment you merged. They can now be held in a lane first and approved, rejected, or parked — with a rejection going back to the agent that owns the worktree as an instruction, not as a shrug.
+- **See the hooks that are attached to this session — and switch them off.** Hooks are the heart of this app, and yet nothing in the app admitted they existed. A new activity-bar view lists what is registered for this session, where each one came from, and lights up as they fire, so a misbehaving hook is something you can watch instead of guess at.
+- **Claude Code's own plugins, inside the app.** Not our inspector cards — the `claude plugin` unit that ships commands, agents, skills, hooks and MCP together. Global installs, this project's entries, and the marketplaces they came from are gathered into one list.
+- **Local models on the canvas — All Model.** Right-click the canvas and a model bubble appears immediately; picking the engine and the weights comes after, and the IDE reshapes itself to whichever provider that bubble ended up with. A bubble with nothing installed is a bubble that is getting ready, not a dead one.
+- **Agent Lab — run the same task several ways and keep the one that won.** Give it a task, vary the settings, and it runs N copies in isolation, lays the results out in one table, and promotes the winning configuration to that agent's default. No new machinery underneath: worktrees, custom agents and the existing run path do the work.
+- **A shelf for the commands you keep retyping.** Pin frequently-used shell commands and prompts to the canvas and run one with a click; the last result stays on its row.
+- **Design preview — three device widths side by side, and a snip you can send.** A `compare` view renders mobile, tablet and desktop at their real widths in one bubble rather than as a shrunken copy, and dragging a rectangle over the preview attaches exactly that region to your next message.
+- **Playtest recording.** Capture bubbles could already be driven remotely; what was missing was a way to grab the moment that just went past. The live stream is now recorded in place — no second capture prompt — and any stretch of it can be turned into frames attached to a message.
+- **Script → storyboard → render, with three output presets.** Vibistudio's two ends — the storyboard board and the timeline document — are now joined: write the script, let it become a storyboard, pick an output preset, and render. No new app, board, or store was added to do it.
+- **Images open as images.** The editor used to greet a PNG with a one-line "binary file" notice. It now shows the picture, opens it for annotation, and writes the result back over the original file.
+- **The Command Center has a second door.** Clicking the agent badge in the header opens it, so you no longer have to be looking at the canvas — and at that project's root bubble — to get there.
+- **Idle sessions hand their memory back.** A session whose conversation ended kept its `claude` child process alive indefinitely — measured at 300–590 MB each, eleven of them holding roughly 5.5 GB at zero CPU. After fifteen idle minutes the child is now reclaimed, and speaking to that session again revives it with `--resume`. The tab, the history and the session itself stay exactly where they were.
+
+### Changed
+- **The four newest canvas elements start out behind Debug mode.** Play bubbles, the spec board, Agent Lab and the shelf are all reachable from the canvas right-click menu only with Debug mode on. Nothing about them changed — what they do, what they store, and what survives a restart is untouched; only who sees them by default.
+- **Cost lives in the usage popup, not the header.** The header's right-hand cluster is one pill shorter, and the running cost badge that sat under every agent bubble is gone. Collection, totals and history are unchanged — this is only about where the number is drawn.
+- **Full-screen dialogs cover the full screen.** With the IDE docked to the right, popups were being inset to avoid the dock, dimming the canvas only and leaving the dock lit beside them.
+- **No UI text below 12px, and no fractional pixel sizes.** Below that, Korean strokes fall under a single pixel and the text does not reach the colour it was given, so shrinking a label made it *less* readable, not denser. The floor is now enforced across the client and every plugin.
+- **Retention stops deleting things that are still referenced.** Archived material is protected, referenced files are recognised as in-use, and what retention does remove goes to the trash instead of straight out.
+
+### Fixed
+- **macOS builds are published at last.** The previous release cleared the icon-size check only to fail at the PNG-to-ICNS converter itself. The `.icns` is now built directly and shipped in the repository, so the macOS job completes. Signing and notarisation are still absent, so macOS auto-update remains unavailable.
+- **The agent count in the header and tabs counts what is actually running.** A project with five sessions going could read `1` — the count was drawn from the wrong axis and included agents that were already in the trash. There is now one server-side tally that every badge reads.
+- **A background subagent that finished no longer reads as "running" forever.** Its completion notice now settles the hook ledger too, instead of only the stream side.
+- **A session dot you marked as seen stays grey.** Switching tabs or restarting turned it green again — a scoped update that simply said nothing about a project was being read as "that session closed".
+- **Number-key bookmark jumps no longer leave an empty dock.** A bookmark whose session or bubble is gone now says so and leaves you where you are.
+- **The goal light goes out when the goal is met and the session has stopped**, instead of sitting lit at `5/5`.
+- **Closing a project tab takes one click.** The close request was being undone moments later by an unload message that recreated the tab as a stub.
+- **The app follows the `claude` executable when it changes underneath you** — an extension auto-update or a manual move no longer leaves it pointing at a path that is no longer there.
+
 ## [0.1.10] - 2026-08-19
 
 ### Added
@@ -215,7 +250,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - Dropped preset options from the custom agent settings.
 
-[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.1.10...HEAD
+[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.1.11...HEAD
+[0.1.11]: https://github.com/Vibisual/vibisual/compare/v0.1.10...v0.1.11
 [0.1.10]: https://github.com/Vibisual/vibisual/compare/v0.1.9...v0.1.10
 [0.1.9]: https://github.com/Vibisual/vibisual/compare/v0.1.8...v0.1.9
 [0.1.8]: https://github.com/Vibisual/vibisual/compare/v0.1.7...v0.1.8

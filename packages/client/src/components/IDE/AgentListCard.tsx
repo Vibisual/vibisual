@@ -54,27 +54,27 @@ export const AgentListCard = memo(function AgentListCard({ list, live }: AgentLi
       {/* 헤더 — teal 식별 라벨. */}
       <div className="flex items-center gap-2 border-b border-gray-800/50 bg-gray-800/15 px-3 py-1.5">
         <span className="text-teal-300"><ListOrderedIcon /></span>
-        <span className="flex-1 text-[11px] font-semibold uppercase tracking-wide text-teal-300">
+        <span className="flex-1 text-[12px] font-semibold uppercase tracking-wide text-teal-300">
           {t('ide.list.title')}
         </span>
         {live && <CardLiveBadge />}
-        <span className="select-none text-[10px] text-gray-500">{formatTime(list.createdAt)}</span>
+        <span className="select-none text-[12px] text-gray-500">{formatTime(list.createdAt)}</span>
       </div>
 
       <div className="px-3 py-2">
         {(!compact || expanded) && list.note && (
-          <p className="mb-2 text-[12.5px] leading-relaxed text-gray-300">{list.note}</p>
+          <p className="mb-2 text-[13px] leading-relaxed text-gray-300">{list.note}</p>
         )}
 
         {/* 목록 제목 / 머리말 */}
         {list.title && (
-          <div className="mb-1.5 text-[12.5px] font-medium leading-relaxed text-gray-200">{list.title}</div>
+          <div className="mb-1.5 text-[13px] font-medium leading-relaxed text-gray-200">{list.title}</div>
         )}
 
         {/* 번호 목록 — 번호 열 고정폭(우측정렬·tabular-nums) + 본문 행잉 인덴트. */}
         <ol className="space-y-0.5">
           {shownItems.map((item, i) => (
-            <li key={i} className="flex items-start gap-2 text-[12.5px] leading-relaxed text-gray-300">
+            <li key={i} className="flex items-start gap-2 text-[13px] leading-relaxed text-gray-300">
               <span className="min-w-[1.5rem] flex-shrink-0 select-none text-right font-medium tabular-nums text-teal-300/70">
                 {i + 1}.
               </span>
@@ -88,7 +88,7 @@ export const AgentListCard = memo(function AgentListCard({ list, live }: AgentLi
           <button
             type="button"
             onClick={toggleExpanded}
-            className="mt-1 flex items-center gap-1 text-[11px] text-gray-500 transition-colors hover:text-gray-300"
+            className="mt-1 flex items-center gap-1 text-[12px] text-gray-500 transition-colors hover:text-gray-300"
           >
             <svg className="h-3 w-3" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
               <path d="M8 5v14l11-7z" />

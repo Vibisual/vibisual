@@ -102,7 +102,7 @@ export function TaskEdgeDetail({ edge }: TaskEdgeDetailProps): React.JSX.Element
       {/* Badges */}
       <div className="flex flex-wrap gap-1.5">
         <span
-          className="rounded-full px-2 py-0.5 text-[11px] font-semibold"
+          className="rounded-full px-2 py-0.5 text-[12px] font-semibold"
           style={{
             backgroundColor: `${styleCfg.color}20`,
             color: styleCfg.color,
@@ -116,7 +116,7 @@ export function TaskEdgeDetail({ edge }: TaskEdgeDetailProps): React.JSX.Element
           const kStyle = TASK_EDGE_KIND_STYLES[kind];
           return (
             <span
-              className="rounded-full px-2 py-0.5 text-[11px] font-semibold"
+              className="rounded-full px-2 py-0.5 text-[12px] font-semibold"
               style={{
                 backgroundColor: `${kStyle.color}20`,
                 color: kStyle.color,
@@ -129,13 +129,13 @@ export function TaskEdgeDetail({ edge }: TaskEdgeDetailProps): React.JSX.Element
           );
         })()}
         <span
-          className="rounded-full border border-gray-700 bg-gray-800/60 px-2 py-0.5 text-[11px] text-gray-300"
+          className="rounded-full border border-gray-700 bg-gray-800/60 px-2 py-0.5 text-[12px] text-gray-300"
           title={edge.forwardMode === 'auto' ? t('panel.taskEdgeDetail.gateAutoTooltip') : t('panel.taskEdgeDetail.gateManualTooltip')}
         >
           {t('panel.taskEdgeDetail.gate', { value: edge.forwardMode === 'auto' ? t('panel.taskEdgeDetail.gateAuto') : t('panel.taskEdgeDetail.gateManual') })}
         </span>
         {template && (
-          <span className="rounded-full border border-gray-700 bg-gray-800/60 px-2 py-0.5 text-[11px] text-gray-300">
+          <span className="rounded-full border border-gray-700 bg-gray-800/60 px-2 py-0.5 text-[12px] text-gray-300">
             {template.label}
           </span>
         )}
@@ -144,8 +144,8 @@ export function TaskEdgeDetail({ edge }: TaskEdgeDetailProps): React.JSX.Element
       {/* Advanced options (v1.18) — 설정된 값만 간결 표시 */}
       {(edge.messageFormat || edge.returnFormat || edge.timeoutMs !== undefined || edge.retryCount !== undefined || edge.cacheEnabled !== undefined || edge.priority) && (
         <div className="flex flex-col gap-1.5 rounded border border-gray-800 bg-gray-950/40 px-2 py-1.5">
-          <span className="text-[10px] uppercase tracking-wider text-gray-500">{t('panel.taskEdgeDetail.advanced')}</span>
-          <div className="flex flex-wrap gap-2 text-[11px] text-gray-300">
+          <span className="text-[12px] uppercase tracking-wider text-gray-500">{t('panel.taskEdgeDetail.advanced')}</span>
+          <div className="flex flex-wrap gap-2 text-[12px] text-gray-300">
             {edge.messageFormat && <span>{t('panel.taskEdgeDetail.format')}: <span className="text-gray-200">{edge.messageFormat}</span></span>}
             {edge.returnFormat && <span>{t('panel.taskEdgeDetail.return')}: <span className="text-gray-200">{edge.returnFormat}</span></span>}
             {edge.timeoutMs !== undefined && <span>{t('panel.taskEdgeDetail.timeout')}: <span className="text-gray-200">{edge.timeoutMs}ms</span></span>}
@@ -154,19 +154,19 @@ export function TaskEdgeDetail({ edge }: TaskEdgeDetailProps): React.JSX.Element
             {edge.retryCount !== undefined && edge.retryCount > 0 && (
               <span className="text-gray-500">
                 {t('panel.taskEdgeDetail.retry')}: <span className="text-gray-400">{edge.retryCount}</span>
-                <span className="ml-1 text-[10px] text-amber-400/60">{t('panel.taskEdgeDetail.comingSoonSuffix')}</span>
+                <span className="ml-1 text-[12px] text-amber-400/60">{t('panel.taskEdgeDetail.comingSoonSuffix')}</span>
               </span>
             )}
             {edge.cacheEnabled && (
               <span className="text-emerald-300/60">
                 {t('panel.taskEdgeDetail.cacheOn')}
-                <span className="ml-1 text-[10px] text-amber-400/60">{t('panel.taskEdgeDetail.comingSoonSuffix')}</span>
+                <span className="ml-1 text-[12px] text-amber-400/60">{t('panel.taskEdgeDetail.comingSoonSuffix')}</span>
               </span>
             )}
             {edge.priority && edge.priority !== 'normal' && (
               <span className="text-gray-500">
                 {t('panel.taskEdgeDetail.priority')}: <span className="text-gray-400">{edge.priority}</span>
-                <span className="ml-1 text-[10px] text-amber-400/60">{t('panel.taskEdgeDetail.comingSoonSuffix')}</span>
+                <span className="ml-1 text-[12px] text-amber-400/60">{t('panel.taskEdgeDetail.comingSoonSuffix')}</span>
               </span>
             )}
           </div>
@@ -215,15 +215,15 @@ export function TaskEdgeDetail({ edge }: TaskEdgeDetailProps): React.JSX.Element
       {edge.bundleId && (
         <div className="flex flex-col gap-1 rounded border border-indigo-800/50 bg-indigo-950/30 px-2 py-1.5">
           <div className="flex items-center gap-2">
-            <span className="text-[10px] uppercase tracking-wider text-indigo-300">{t('panel.taskEdgeDetail.bundle')}</span>
-            <span className="rounded-full border border-indigo-700 bg-indigo-900/60 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-indigo-200">
+            <span className="text-[12px] uppercase tracking-wider text-indigo-300">{t('panel.taskEdgeDetail.bundle')}</span>
+            <span className="rounded-full border border-indigo-700 bg-indigo-900/60 px-1.5 py-0.5 text-[12px] font-semibold uppercase tracking-wider text-indigo-200">
               {isAutoSibling
                 ? t('panel.taskEdgeDetail.bundleAutoGenerated')
                 : t('panel.taskEdgeDetail.bundlePrimary')}
             </span>
           </div>
           {bundleSibling ? (
-            <div className="text-[11px] text-indigo-100">
+            <div className="text-[12px] text-indigo-100">
               {isAutoArtifact
                 ? t('panel.taskEdgeDetail.bundleAutoArtifactDesc')
                 : isAutoRework
@@ -233,7 +233,7 @@ export function TaskEdgeDetail({ edge }: TaskEdgeDetailProps): React.JSX.Element
                     : t('panel.taskEdgeDetail.bundleBothDesc')}
             </div>
           ) : (
-            <div className="text-[11px] text-indigo-100/70">{t('panel.taskEdgeDetail.bundleOrphan')}</div>
+            <div className="text-[12px] text-indigo-100/70">{t('panel.taskEdgeDetail.bundleOrphan')}</div>
           )}
         </div>
       )}
@@ -242,10 +242,10 @@ export function TaskEdgeDetail({ edge }: TaskEdgeDetailProps): React.JSX.Element
       {edge.kind === 'critique' && (edge.bundleRole ?? 'primary') === 'primary' && (
         <div className="flex flex-col gap-1 rounded border border-violet-800/50 bg-violet-950/20 px-2 py-1.5">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] uppercase tracking-wider text-violet-300">
+            <span className="text-[12px] uppercase tracking-wider text-violet-300">
               {t('panel.taskEdgeDetail.critiqueCycle')}
             </span>
-            <span className="font-mono text-[11px] text-violet-100">
+            <span className="font-mono text-[12px] text-violet-100">
               {(edge.reworkCount ?? 0) === 0
                 ? t('panel.taskEdgeDetail.critiqueCycleFresh')
                 : t('panel.taskEdgeDetail.critiqueCycleValue', {
@@ -255,7 +255,7 @@ export function TaskEdgeDetail({ edge }: TaskEdgeDetailProps): React.JSX.Element
             </span>
           </div>
           {(edge.critiqueAuthority ?? 'force-rework') === 'comment-only' && (edge.reworkCount ?? 0) > 0 && (
-            <div className="text-[10px] text-amber-300">
+            <div className="text-[12px] text-amber-300">
               {t('panel.taskEdgeDetail.critiqueEscalated')}
             </div>
           )}
@@ -265,7 +265,7 @@ export function TaskEdgeDetail({ edge }: TaskEdgeDetailProps): React.JSX.Element
       {/* Actions — v1.54: auto-sibling 은 선택만 허용, 편집/삭제 차단(primary 에서만 가능) */}
       <div className="flex flex-wrap gap-1.5 border-t border-gray-800 pt-3">
         {isAutoSibling ? (
-          <div className="w-full rounded border border-gray-800 bg-gray-950/40 px-2 py-1.5 text-[11px] text-gray-400">
+          <div className="w-full rounded border border-gray-800 bg-gray-950/40 px-2 py-1.5 text-[12px] text-gray-400">
             {t('panel.taskEdgeDetail.autoSiblingReadOnly')}
           </div>
         ) : (

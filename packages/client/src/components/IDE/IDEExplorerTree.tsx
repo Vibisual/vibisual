@@ -59,7 +59,7 @@ export const IDEExplorerTree = memo(function IDEExplorerTree({
                 type="button"
                 onClick={() => onToggleDir(entry.relPath)}
                 title={entry.relPath}
-                className="flex w-full items-center gap-1 py-[3px] pr-1 text-left text-[11px] text-gray-400 transition-colors hover:bg-gray-700/50 hover:text-gray-200"
+                className="flex w-full items-center gap-1 py-[3px] pr-1 text-left text-[12px] text-gray-400 transition-colors hover:bg-gray-700/50 hover:text-gray-200"
                 style={{ paddingLeft: pad }}
               >
                 <svg
@@ -78,7 +78,7 @@ export const IDEExplorerTree = memo(function IDEExplorerTree({
               </button>
               {(isLoading || isFailed || isEmpty || isTruncated) && (
                 <p
-                  className="truncate py-[3px] text-[10px] italic text-gray-600"
+                  className="truncate py-[3px] text-[12px] italic text-gray-600"
                   style={{ paddingLeft: pad + INDENT_PX + 16 }}
                 >
                   {isLoading
@@ -101,7 +101,7 @@ export const IDEExplorerTree = memo(function IDEExplorerTree({
               onClick={() => onSelectFile(entry.relPath)}
               onDoubleClick={() => onOpenFile(entry.relPath)}
               title={entry.relPath}
-              className={`flex w-full items-center gap-1 py-[3px] pr-6 text-left text-[11px] transition-colors ${
+              className={`flex w-full items-center gap-1 py-[3px] pr-6 text-left text-[12px] transition-colors ${
                 isSelected
                   ? 'bg-blue-500/20 text-blue-100'
                   : 'text-gray-400 hover:bg-gray-700/50 hover:text-gray-200'

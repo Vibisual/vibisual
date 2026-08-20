@@ -59,14 +59,14 @@ function RequirementLine({ entry }: { entry: McpServerEntry }): React.JSX.Elemen
       {entry.requirements.map((req) => (
         <li
           key={`${req.kind}-${req.detail ?? ''}`}
-          className={`text-[9px] leading-snug ${req.kind === 'policy' ? 'text-rose-400/90' : 'text-amber-400/85'}`}
+          className={`text-[12px] leading-snug ${req.kind === 'policy' ? 'text-rose-400/90' : 'text-amber-400/85'}`}
         >
           {t(`ide.mcp.req.${req.kind}`, { detail: req.detail ?? '', name: entry.name })}
         </li>
       ))}
       {/* 프리셋의 사전 조건 안내(#17-20 ⑥)도 같은 자리에 선다. */}
       {entry.requiresKey && (
-        <li className="text-[9px] leading-snug text-amber-400/85">{t(entry.requiresKey)}</li>
+        <li className="text-[12px] leading-snug text-amber-400/85">{t(entry.requiresKey)}</li>
       )}
     </ul>
   );
@@ -173,7 +173,7 @@ export const IDEMcpView = memo(function IDEMcpView({ agentId }: { agentId: strin
 
   if (!rootPath) {
     return (
-      <div className="p-3 text-[10.5px] leading-relaxed text-gray-500">{t('ide.mcp.noProject')}</div>
+      <div className="p-3 text-[12px] leading-relaxed text-gray-500">{t('ide.mcp.noProject')}</div>
     );
   }
 
@@ -181,11 +181,11 @@ export const IDEMcpView = memo(function IDEMcpView({ agentId }: { agentId: strin
     <div className="flex min-h-0 flex-1 flex-col">
       {/* 머리 — 제목 + 켜진 수/전체 + 새로고침(#17-31 ⑥) */}
       <div className="flex items-center gap-1 border-b border-gray-700/60 px-2 py-1.5">
-        <span className="flex-1 truncate text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+        <span className="flex-1 truncate text-[12px] font-semibold uppercase tracking-wide text-gray-400">
           {t('ide.mcp.title')}
         </span>
         {inventory && (
-          <span className="rounded bg-gray-700/60 px-1 text-[9px] font-bold tabular-nums text-gray-300">
+          <span className="rounded bg-gray-700/60 px-1 text-[12px] font-bold tabular-nums text-gray-300">
             {enabledCount}/{inventory.servers.length}
           </span>
         )}
@@ -202,28 +202,28 @@ export const IDEMcpView = memo(function IDEMcpView({ agentId }: { agentId: strin
 
       <ScrollFade fill className="min-h-0 flex-1">
         <div className="flex flex-col gap-3 p-2">
-          {error && <p className="px-1 text-[10px] leading-snug text-rose-400">{error}</p>}
+          {error && <p className="px-1 text-[12px] leading-snug text-rose-400">{error}</p>}
 
           {/* 설정 파일에서 온 서버가 하나도 없으면 "없다"고 적고, 붙이는 법을 알려 준다. */}
           {inventory && fileServerCount === 0 && (
-            <p className="px-1 text-[10px] leading-relaxed text-gray-500">
+            <p className="px-1 text-[12px] leading-relaxed text-gray-500">
               {t('ide.mcp.empty')}
-              <code className="ml-1 rounded bg-gray-800 px-1 py-0.5 text-[9.5px] text-gray-300">claude mcp add</code>
+              <code className="ml-1 rounded bg-gray-800 px-1 py-0.5 text-[12px] text-gray-300">claude mcp add</code>
             </p>
           )}
 
           {/* 전부 자동 승인 상태면 그렇게 말해 준다 — 안 그러면 "승인 대기가 왜 없지" 가 된다. */}
           {inventory?.autoApproveProject && (
-            <p className="px-1 text-[9.5px] leading-snug text-sky-400/80">{t('ide.mcp.autoApprove')}</p>
+            <p className="px-1 text-[12px] leading-snug text-sky-400/80">{t('ide.mcp.autoApprove')}</p>
           )}
 
           {grouped.map((group) => (
             <section key={group.scope}>
-              <h3 className="mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+              <h3 className="mb-1 flex items-center gap-1 text-[12px] font-semibold uppercase tracking-wide text-gray-500">
                 <span>{t(`ide.mcp.scope.${group.scope}`)}</span>
                 <span className="text-gray-600">({group.items.length})</span>
               </h3>
-              <p className="mb-1 px-1 text-[9px] leading-snug text-gray-600">{t(`ide.mcp.scopeHint.${group.scope}`)}</p>
+              <p className="mb-1 px-1 text-[12px] leading-snug text-gray-600">{t(`ide.mcp.scopeHint.${group.scope}`)}</p>
               <ul className="flex flex-col gap-1">
                 {group.items.map((entry) => {
                   const on = entry.state === 'enabled';
@@ -241,15 +241,15 @@ export const IDEMcpView = memo(function IDEMcpView({ agentId }: { agentId: strin
                         <span className={`mt-1 h-1.5 w-1.5 flex-shrink-0 rounded-full ${STATE_DOT[entry.state]}`} />
                         <span className="min-w-0 flex-1">
                           <span className="flex items-center gap-1">
-                            <span className="min-w-0 flex-1 truncate text-[11px] text-gray-200" title={entry.name}>
+                            <span className="min-w-0 flex-1 truncate text-[12px] text-gray-200" title={entry.name}>
                               {label}
                             </span>
-                            <span className={`flex-shrink-0 rounded px-1 text-[8.5px] font-semibold uppercase ${SCOPE_TONE[entry.scope]}`}>
+                            <span className={`flex-shrink-0 rounded px-1 text-[12px] font-semibold uppercase ${SCOPE_TONE[entry.scope]}`}>
                               {t(`ide.mcp.scopeShort.${entry.scope}`)}
                             </span>
                           </span>
                           {/* 무엇으로 붙는가 — stdio 는 명령, 원격은 주소. 원문 그대로(번역 ❌). */}
-                          <span className="mt-0.5 block truncate text-[9px] text-gray-500" title={subtitle}>
+                          <span className="mt-0.5 block truncate text-[12px] text-gray-500" title={subtitle}>
                             {subtitle}
                           </span>
                         </span>
@@ -259,7 +259,7 @@ export const IDEMcpView = memo(function IDEMcpView({ agentId }: { agentId: strin
                             type="button"
                             onClick={() => handleToggle(entry)}
                             disabled={busy || (entry.scope === 'preset' && !config)}
-                            className={`flex-shrink-0 rounded px-1.5 py-0.5 text-[9px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                            className={`flex-shrink-0 rounded px-1.5 py-0.5 text-[12px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                               on
                                 ? 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30'
                                 : 'bg-gray-700/60 text-gray-300 hover:bg-gray-600/60'
@@ -276,7 +276,7 @@ export const IDEMcpView = memo(function IDEMcpView({ agentId }: { agentId: strin
 
                       <div className="mt-0.5 flex items-center gap-2">
                         {/* 어디에 적혀 있는지 — 눌러서 여는 것이 아니라 "여기서 왔다"는 표기다. */}
-                        <span className="min-w-0 flex-1 truncate text-[8.5px] text-gray-600" title={entry.sourceFile}>
+                        <span className="min-w-0 flex-1 truncate text-[12px] text-gray-600" title={entry.sourceFile}>
                           {entry.sourceFile}
                         </span>
                         {entry.docsUrl && (
@@ -284,7 +284,7 @@ export const IDEMcpView = memo(function IDEMcpView({ agentId }: { agentId: strin
                             href={entry.docsUrl}
                             target="_blank"
                             rel="noreferrer"
-                            className="flex-shrink-0 text-[9px] text-sky-400 hover:text-sky-300 hover:underline"
+                            className="flex-shrink-0 text-[12px] text-sky-400 hover:text-sky-300 hover:underline"
                           >
                             {t('ide.mcp.docs')}
                           </a>
@@ -299,7 +299,7 @@ export const IDEMcpView = memo(function IDEMcpView({ agentId }: { agentId: strin
 
           {/* 발치 — 켜고 끈 것이 언제 적용되는지 한 번만 말한다(줄마다 반복하지 않는다). */}
           {inventory && inventory.servers.length > 0 && (
-            <p className="px-1 text-[9px] leading-snug text-gray-600">{t('ide.mcp.applyHint')}</p>
+            <p className="px-1 text-[12px] leading-snug text-gray-600">{t('ide.mcp.applyHint')}</p>
           )}
         </div>
       </ScrollFade>

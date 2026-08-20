@@ -122,6 +122,35 @@ function wrapMultiIco(images /* [{ size, png }] */) {
   return Buffer.concat([dir, ...payloads]);
 }
 
+// ICNS: 'icns' + total length, then typed chunks of `type + length + payload`.
+// macOS 10.7+ reads PNG directly out of these chunk types, so we embed the same
+// PNGs rather than the old raw-bitmap formats.
+//
+// We ship a finished .icns instead of letting electron-builder derive one from
+// icon.png: its converter (app-builder, Go) panics with "index out of range [-1]"
+// on that path — a bug reported since 2018 and still open. Handing it a ready
+// .icns skips the converter entirely.
+const ICNS_TYPES = [
+  ['icp4', 16],   ['icp5', 32],   ['ic11', 32],   ['ic12', 64],
+  ['ic07', 128],  ['ic08', 256],  ['ic13', 256],  ['ic09', 512],
+  ['ic14', 512],  ['ic10', 1024],
+];
+
+function buildIcns(pngForSize) {
+  const chunks = ICNS_TYPES.map(([type, size]) => {
+    const png = pngForSize(size);
+    const head = Buffer.alloc(8);
+    head.write(type, 0, 4, 'ascii');
+    head.writeUInt32BE(8 + png.length, 4);
+    return Buffer.concat([head, png]);
+  });
+  const body = Buffer.concat(chunks);
+  const head = Buffer.alloc(8);
+  head.write('icns', 0, 4, 'ascii');
+  head.writeUInt32BE(8 + body.length, 4);
+  return Buffer.concat([head, body]);
+}
+
 // Windows never renders an icon above 256, so the ICO ladder stops there.
 const ICO_SIZES = [16, 32, 48, 64, 128, 256];
 // The standalone PNG feeds macOS (.icns) and Linux, and electron-builder scales
@@ -129,10 +158,24 @@ const ICO_SIZES = [16, 32, 48, 64, 128, 256];
 // 512 minimum, and both platforms get a crisp icon from one file.
 const APP_PNG_SIZE = 1024;
 
-const renders = ICO_SIZES.map((size) => ({ size, png: encodePng(size, renderBubble(size)) }));
+// Several sizes are asked for by more than one output (256 appears in the ICO
+// ladder and twice in the ICNS table), and rendering 1024² is not cheap — so
+// each size is rasterized once and reused.
+const pngCache = new Map();
+const pngForSize = (size) => {
+  let png = pngCache.get(size);
+  if (!png) { png = encodePng(size, renderBubble(size)); pngCache.set(size, png); }
+  return png;
+};
+
+const renders = ICO_SIZES.map((size) => ({ size, png: pngForSize(size) }));
 const ico = wrapMultiIco(renders);
-const appPng = encodePng(APP_PNG_SIZE, renderBubble(APP_PNG_SIZE));
+const appPng = pngForSize(APP_PNG_SIZE);
+const icns = buildIcns(pngForSize);
 
 writeFileSync(join(HERE, 'icon.png'), appPng);
 writeFileSync(join(HERE, 'icon.ico'), ico);
-console.log(`wrote icon.png (${appPng.length} B, ${APP_PNG_SIZE}×${APP_PNG_SIZE}) + icon.ico (${ico.length} B, sizes ${ICO_SIZES.join('/')})`);
+writeFileSync(join(HERE, 'icon.icns'), icns);
+console.log(`wrote icon.png (${appPng.length} B, ${APP_PNG_SIZE}×${APP_PNG_SIZE})`);
+console.log(`      icon.ico (${ico.length} B, sizes ${ICO_SIZES.join('/')})`);
+console.log(`      icon.icns (${icns.length} B, ${ICNS_TYPES.length} chunks)`);

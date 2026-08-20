@@ -88,7 +88,7 @@ function PromptDetailPopup({ event, sessionId, onClose }: PromptDetailPopupProps
             </svg>
             <span className="text-sm font-semibold text-gray-100">Prompt</span>
             {event.source === 'queue' && (
-              <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-amber-400">
+              <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[12px] font-semibold text-amber-400">
                 queue
               </span>
             )}
@@ -96,7 +96,7 @@ function PromptDetailPopup({ event, sessionId, onClose }: PromptDetailPopupProps
               <button
                 type="button"
                 onClick={() => setShowTokens(true)}
-                className="rounded border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-400 transition-colors hover:bg-amber-500/20"
+                className="rounded border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[12px] font-semibold text-amber-400 transition-colors hover:bg-amber-500/20"
               >
                 Token Usage
               </button>
@@ -104,7 +104,7 @@ function PromptDetailPopup({ event, sessionId, onClose }: PromptDetailPopupProps
           </div>
           <div className="flex items-center gap-3">
             {event.source === 'queue' && event.queuedAt && (
-              <span className="text-[10px] text-amber-400/70">
+              <span className="text-[12px] text-amber-400/70">
                 waited {formatWaitTime(event.queuedAt, event.timestamp)}
               </span>
             )}
@@ -313,38 +313,38 @@ export const AgentEventList = memo(function AgentEventList({
                       <svg className="h-3 w-3 flex-shrink-0 text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                         <path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
                       </svg>
-                      <span className="text-[10px] text-indigo-300/80">
+                      <span className="text-[12px] text-indigo-300/80">
                         Todos {done}/{item.todos.length}
                       </span>
                     </div>
                   );
                 })()}
                 <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <span className="text-[10px] text-gray-500">
+                  <span className="text-[12px] text-gray-500">
                     {formatTime(item.timestamp)}
                   </span>
                   {item.sessionLabel && (
-                    <span className="rounded bg-cyan-500/15 px-1 py-px text-[9px] font-semibold text-cyan-400/80">
+                    <span className="rounded bg-cyan-500/15 px-1 py-px text-[12px] font-semibold text-cyan-400/80">
                       {item.sessionLabel}
                     </span>
                   )}
                   {!item.sessionLabel && item.source === 'queue' && (
-                    <span className="rounded bg-amber-500/15 px-1 py-px text-[9px] font-semibold text-amber-400/80">
+                    <span className="rounded bg-amber-500/15 px-1 py-px text-[12px] font-semibold text-amber-400/80">
                       queue
                     </span>
                   )}
                   {item.isError && (
-                    <span className="rounded bg-red-500/20 px-1 py-px text-[9px] font-semibold text-red-400">
+                    <span className="rounded bg-red-500/20 px-1 py-px text-[12px] font-semibold text-red-400">
                       error
                     </span>
                   )}
                   {item.source === 'user' && !item.isError && (
-                    <span className="rounded bg-gray-600/30 px-1 py-px text-[9px] text-gray-500">
+                    <span className="rounded bg-gray-600/30 px-1 py-px text-[12px] text-gray-500">
                       direct
                     </span>
                   )}
                   {item.inputTokens != null && item.inputTokens > 0 && (
-                    <span className="ml-auto rounded bg-violet-500/15 px-1 py-px text-[9px] text-violet-400/80">
+                    <span className="ml-auto rounded bg-violet-500/15 px-1 py-px text-[12px] text-violet-400/80">
                       {formatTokenShort(item.inputTokens)} in / {formatTokenShort(item.outputTokens ?? 0)} out
                     </span>
                   )}

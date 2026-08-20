@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import { electronAPI } from '@electron-toolkit/preload';
-import type { UpdateState, AgentConfig, MobileAccessState, CaptureSourceInfo, CaptureInputEvent, CaptureSourceKind, CaptureTargetRect, CaptureInjectResult } from '@vibisual/shared';
+import type { UpdateState, AgentConfig, MobileAccessState, CaptureSourceInfo, CaptureInputEvent, CaptureSourceKind, CaptureTargetRect, CaptureInjectResult, PreviewSnipRect, PageRegionCapture } from '@vibisual/shared';
 
 // Preload — SCENARIO.md §3.7 / §3.4 contextBridge surface.
 //
@@ -321,6 +321,9 @@ const api = {
     /** §5.9 v3.57 — 대상 화면/창의 사각형(DIP+물리). 드래그 중 손 움직임만 뽑아내는 데 쓴다. */
     targetRect: (spec: { sourceId: string; sourceKind: CaptureSourceKind; sourceName: string }): Promise<CaptureTargetRect> =>
       ipcRenderer.invoke('vibisual:capture:target-rect', spec),
+    /** §5.17 (B) — 프리뷰에서 그은 사각형을 이 창에서 그대로 찍는다(프리뷰 → 입력창 첨부). */
+    pageRegion: (rect: PreviewSnipRect): Promise<PageRegionCapture> =>
+      ipcRenderer.invoke('vibisual:capture:page-region', rect),
   },
 };
 

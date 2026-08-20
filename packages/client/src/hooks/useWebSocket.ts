@@ -1,9 +1,10 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
-import type { WSMessage, GraphSnapshot, GraphSnapshotWire, SubAgentStreamEvent, ProjectHydratedPayload, ProjectUnloadedPayload, IframeLogInitPayload, IframeLogAppendPayload, ServerLogInitPayload, ServerLogAppendPayload, PermissionRequest, PermissionDecision, ClaudeInstallProgress, ClaudeSetupProgress, AskUserQuestionRequest, AskUserQuestionDecision, DebugEventPayload } from '@vibisual/shared';
+import type { WSMessage, GraphSnapshot, GraphSnapshotWire, SubAgentStreamEvent, ProjectHydratedPayload, ProjectUnloadedPayload, IframeLogInitPayload, IframeLogAppendPayload, ServerLogInitPayload, ServerLogAppendPayload, PermissionRequest, PermissionDecision, ClaudeInstallProgress, ClaudeSetupProgress, AskUserQuestionRequest, AskUserQuestionDecision, DebugEventPayload, HookFiredPayload } from '@vibisual/shared';
 import { applyKeyedSliceDelta, MAX_RECONNECT_ATTEMPTS, RECONNECT_BASE_DELAY, WS_BATCH_INTERVAL, WS_STREAM_BATCH_INTERVAL, WS_BATCH_INTERVAL_MAX, WS_BATCH_BACKOFF_FACTOR } from '@vibisual/shared';
 import { useGraphStore } from '../stores/graphStore.js';
 // §5.5 #17-20 ⑩ v4.94 — 디버그 세션은 프로세스 수명이라 그래프 스토어가 아닌 런타임 스토어가 받는다.
 import { useDebugSessions } from '../stores/debugSessions.js';
+import { useHookFires } from '../stores/hookFires.js';
 import { iframeLogEvents } from '../bubble-map/api/iframeLogEvents.js';
 import { serverLogEvents } from '../bubble-map/api/serverLogEvents.js';
 import { setDiagnosticsSender } from '../utils/diagnostics.js';
@@ -158,6 +159,16 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     useGraphStore.getState().applyPlayBubbles(snap.playBubbles ?? []);
     // §5.15 — 스펙 보드도 같은 이유로 별도 액션.
     useGraphStore.getState().applySpecDocs(snap.specDocs ?? []);
+    // §5.18 — 에이전트 랩도 같은 이유로 별도 액션(비교 표는 서버 값 그대로 그린다).
+    useGraphStore.getState().applyLabRuns(snap.labRuns ?? []);
+    // §5.20 — 스크립트 선반도 같은 이유로 별도 액션(항목의 마지막 결과는 서버 값 그대로 그린다).
+    useGraphStore.getState().applyShelfBubbles(snap.shelfBubbles ?? []);
+    // §5.21 — 비용·토큰 지도. 기간 합계·정렬까지 서버가 접어 실어 주므로 그대로 넣는다.
+    useGraphStore.getState().applyCostMaps(snap.costMaps ?? []);
+    // §5.22 — 감사 원장. 위험·거부 집계까지 서버가 접어 실어 주므로 그대로 넣는다.
+    useGraphStore.getState().applyAuditLogs(snap.auditLogs ?? []);
+    // §5.16 — 리뷰·승인 레인. 서버가 전량을 싣고, 사람이 치운 리뷰는 곧 사라짐으로 반영된다.
+    useGraphStore.getState().applyReviewRequests(snap.reviewRequests ?? []);
     // §5.5 #17-20 ⑩ v4.94 — 중단점(프로젝트별). 세션이 없어도 편집창 gutter 가 이 값을 그린다.
     useGraphStore.getState().applyDebugBreakpoints(snap.debugBreakpoints ?? {});
     // §5.11 v4.65 — 집행 플러그인의 실측(프로젝트별). 켠 것이 없으면 서버가 필드를 안 실으므로 빈 맵으로 비운다.
@@ -187,6 +198,8 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     store.applySessionGoals(snap.sessionGoals);
     store.applyDiagnosticLog(snap.diagnosticLog);
     store.applyModelRegistry(snap.modelRegistry);
+    // §5.19 — 로컬 LLM 상태(엔진·모델·내려받기). 스냅샷이 진실이고, 사이사이는 아래 진행 push 가 채운다.
+    store.applyLocalLlm(snap.localLlm);
     store.applyUserDefaults(snap.userDefaults);
     if (PERF) {
       const _t1 = performance.now();
@@ -419,6 +432,16 @@ export function useWebSocket(url: string): UseWebSocketReturn {
             break;
           }
 
+          // §5.5 #17-32 ⑤ — 훅이 방금 울렸다. 서버가 짧은 창으로 모아 배열 한 건으로 보낸다.
+          // 순간의 표시 신호라 graph_snapshot 이 아니라 이 메시지로만 흐른다(런타임 스토어가 받는다).
+          case 'hook_fired': {
+            const fired = parsed.payload as HookFiredPayload[];
+            if (Array.isArray(fired) && fired.length > 0) {
+              useHookFires.getState().applyFired(fired.filter((f) => f && typeof f.event === 'string'));
+            }
+            break;
+          }
+
           // §7.11 v1.44 / v2.5 — iframe 서버 로그 스트리밍. shellId 는 (port, shellId) 필터용 echo.
           case 'iframe_log_init': {
             const p = parsed.payload as IframeLogInitPayload;
@@ -484,6 +507,16 @@ export function useWebSocket(url: string): UseWebSocketReturn {
           case 'model_registry_updated': {
             // §4 v2.38 — 시드→api-merged 전환 또는 TTL refresh 시 단독 push.
             store.applyModelRegistry(parsed.payload as import('@vibisual/shared').ModelRegistry);
+            break;
+          }
+          case 'local_engine_progress': {
+            // §5.19 — 엔진 설치 진행. 스냅샷을 기다리면 막대가 뚝뚝 끊긴다.
+            store.applyLocalEngineProgress(parsed.payload as import('@vibisual/shared').LocalEngineProgress);
+            break;
+          }
+          case 'local_model_progress': {
+            // §5.19 — 모델 내려받기 진행(수 GB 라 이 줄이 사실상 유일한 피드백이다).
+            store.applyLocalModelProgress(parsed.payload as import('@vibisual/shared').LocalModelDownloadProgress);
             break;
           }
           case 'user_defaults_updated': {

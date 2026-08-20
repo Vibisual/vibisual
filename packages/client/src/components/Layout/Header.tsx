@@ -1,8 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { AgentPhase } from '@vibisual/shared';
 import { useTranslation } from 'react-i18next';
-import { useGraphStore } from '../../stores/graphStore.js';
+import { selectEffectiveProject, useGraphStore } from '../../stores/graphStore.js';
 import { isPackagedDesktop } from '../../transport/index.js';
 import { FileMenu } from './FileMenu.js';
 import { TabBar } from './TabBar.js';
@@ -11,7 +11,9 @@ import { UpdateButton } from './UpdateButton.js';
 import { PluginHeaderSlot } from '../../plugins/host.js';
 import { OverlayToggleButton } from './OverlayToggleButton.js';
 import { UsagePill } from './UsagePill.js';
+import { AuditPill } from './AuditPill.js';
 import { ServerLogPopup } from '../Panel/ServerLogPopup.js';
+import { resolveHeaderAgentCounts } from './headerAgentCounts.js';
 
 interface HeaderProps {
   connectionStatus: 'connecting' | 'connected' | 'disconnected';
@@ -48,27 +50,42 @@ export function Header({
   const { t } = useTranslation();
   const agents = useGraphStore((s) => s.agents);
   const agentProjects = useGraphStore((s) => s.agentProjects);
-  const activeProject = useGraphStore((s) => s.activeProject);
+  // 캔버스가 보고 있는 프로젝트 그대로 — worktree 버블 안으로 드릴다운 중이면 그 worktree.
+  //   activeProject 만 보면 워크트리 안에서 도는 것을 세지 못해 배지와 화면이 서로 다른 말을 한다.
+  const effectiveProject = useGraphStore(selectEffectiveProject);
+  const subAgents = useGraphStore((s) => s.subAgents);
+  const queuedCommands = useGraphStore((s) => s.queuedCommands);
+  const runningSubagentTasks = useGraphStore((s) => s.runningSubagentTasks);
+  // §9 — 배지 숫자의 SSOT 는 서버 집계다(탭 배지와 같은 값을 봐야 둘이 어긋나지 않는다).
+  const projectAgentCounts = useGraphStore((s) => s.projectAgentCounts);
   // §7.7 v1.99 — 연결 인디케이터 클릭 시 서버 코어 로그 팝업.
   const [showServerLog, setShowServerLog] = useState(false);
 
-  // 활성 프로젝트 탭 스코프로만 집계 — 전역 합산이 아닌 현재 탭의 에이전트만.
-  const { projectTotal, projectActive, projectCompleted } = useMemo(() => {
-    if (!activeProject) return { projectTotal: 0, projectActive: 0, projectCompleted: 0 };
-    const inProject = agents.filter((a) => agentProjects[a.id] === activeProject);
-    return {
-      projectTotal: inProject.length,
-      projectActive: inProject.filter((a) => a.status === 'active').length,
-      projectCompleted: inProject.filter((a) => a.status === 'completed').length,
-    };
-  }, [agents, agentProjects, activeProject]);
+  // 지금 보고 있는 캔버스 스코프로만 집계 — 전역 합산 ❌, 휴지통 ❌, 판정은 세션 축.
+  //   숫자를 만드는 규칙 자체는 headerAgentCounts 가 갖는다(순수 함수 + 단위 테스트).
+  const counts = useMemo(() => resolveHeaderAgentCounts(
+    effectiveProject ? projectAgentCounts[effectiveProject] : undefined,
+    { agents, agentProjects, project: effectiveProject, subAgents, queuedCommands, runningSubagentTasks },
+  ), [
+    projectAgentCounts, agents, agentProjects, effectiveProject, subAgents, queuedCommands, runningSubagentTasks,
+  ]);
+
+  // §5.12 (A) — 이 배지가 지휘통제실의 **두 번째 입구**다. 프로젝트 root(home) 버블 좌더블클릭과
+  //   같은 호출이라 창 정체성(앱 전체 1창 · 이미 있으면 focus + 보는 프로젝트 교체)도 그대로다.
+  //   지휘통제실은 desktop IPC 전용이므로 그 채널이 없는 창(웹·모바일)에서는 종전처럼 순수
+  //   인디케이터로 남긴다 — `BubbleNode` 가 root 를 더블클릭 대상에서 빼는 것과 같은 가드.
+  const canOpenCommandCenter = typeof window !== 'undefined' && !!window.api?.command?.open && !!effectiveProject;
+  const openCommandCenter = useCallback((): void => {
+    if (!effectiveProject) return;
+    void window.api?.command?.open({ projectId: effectiveProject });
+  }, [effectiveProject]);
 
   // prop `agentPhase` 는 전역값이라 탭 전환 시 갱신되지 않음 → 로컬 파생값 사용.
   void agentPhase;
 
   const dotState: AgentDotState =
-    projectActive > 0 ? 'active' : projectCompleted > 0 ? 'completed' : 'idle';
-  const badgeVisible = projectTotal > 0;
+    counts.running > 0 ? 'active' : counts.completed > 0 ? 'completed' : 'idle';
+  const badgeVisible = counts.agents > 0;
 
   const connLabel: Record<HeaderProps['connectionStatus'], string> = {
     connecting: t('header.conn.connecting'),
@@ -77,11 +94,18 @@ export function Header({
   };
 
   const phaseTooltip =
-    projectTotal === 0
+    counts.agents === 0
       ? t('header.agentStatus.tooltipWaiting')
-      : projectActive > 0
-        ? t('header.agentStatus.tooltipWorking', { active: projectActive, total: projectTotal })
-        : t('header.agentStatus.tooltipCompleted', { count: projectTotal });
+      : counts.running > 0
+        ? t('header.agentStatus.tooltipWorking', {
+          running: counts.running,
+          sessions: counts.sessions,
+          agents: counts.agents,
+        })
+        : t('header.agentStatus.tooltipIdle', {
+          sessions: counts.sessions,
+          agents: counts.agents,
+        });
 
   return (
     // §3.7 v2.10/v2.12/v2.13 — 통합 타이틀바 한 줄(VS Code 톤). `app-drag` 로 헤더 전체가
@@ -130,22 +154,43 @@ export function Header({
         <OverlayToggleButton />
 
         {/* §4 v3.60 — Claude.ai 현재 세션(5시간 창) 사용률. 에이전트 배지 바로 왼쪽에 두고,
-            클릭하면 사용량 전체(5h/7d·리셋 카운트다운·수집기 스위치)를 팝업으로 연다. */}
+            클릭하면 사용량 전체(5h/7d·리셋 카운트다운·수집기 스위치)를 팝업으로 연다.
+            §5.21 — 오늘 비용(비용 필)도 그 팝업 **하단**에 들어 있다. 헤더에는 두지 않는다. */}
         <UsagePill />
 
-        {/* Agent status — 에이전트가 1개라도 있을 때만 표시. 클릭 없음(순수 인디케이터).
+        {/* §5.22 — 오늘 위험 호출 수. 사용량 필 오른쪽에 붙어 클릭하면 감사 타임라인(§7.20)을 연다. */}
+        <AuditPill />
+
+        {/* Agent status — 에이전트가 1개라도 있을 때만 표시. 클릭하면 지휘통제실(§5.12 (A)).
             §4 v3.24 — 폰(max-md)에선 숨김(탭 폭 확보, 상태는 IDE/캔버스에서 확인). */}
-        {badgeVisible && (
-          <div
-            title={phaseTooltip}
-            className={`app-nodrag flex items-center gap-1.5 px-2.5 py-1 text-[12px] font-medium tabular-nums tracking-tight max-md:hidden ${BADGE_STYLE}`}
-          >
-            <span className={`h-1.5 w-1.5 rounded-full ${DOT_STYLES[dotState]}`} />
-            <span>
-              {projectActive}/{projectTotal}
-            </span>
-          </div>
-        )}
+        {badgeVisible && (() => {
+          const badgeBody = (
+            <>
+              <span className={`h-1.5 w-1.5 rounded-full ${DOT_STYLES[dotState]}`} />
+              <span>
+                {counts.running}/{counts.sessions}
+              </span>
+            </>
+          );
+          const badgeClass = `app-nodrag flex items-center gap-1.5 px-2.5 py-1 text-[12px] font-medium tabular-nums tracking-tight max-md:hidden ${BADGE_STYLE}`;
+          if (!canOpenCommandCenter) {
+            return (
+              <div title={phaseTooltip} className={badgeClass}>
+                {badgeBody}
+              </div>
+            );
+          }
+          return (
+            <button
+              type="button"
+              onClick={openCommandCenter}
+              title={t('header.agentStatus.tooltipCommand', { status: phaseTooltip })}
+              className={`${badgeClass} rounded-md transition-colors duration-150 hover:bg-white/[0.08]`}
+            >
+              {badgeBody}
+            </button>
+          );
+        })()}
 
         {/* Connection indicator — 클릭 시 서버 코어 로그 팝업 (§7.7 v1.99).
             §4 v3.24 — 폰(max-md)에선 인디케이터 자체를 숨긴다(연결 단절은 재접속 UX 로 드러남). */}
@@ -156,7 +201,7 @@ export function Header({
           className="app-nodrag flex items-center gap-1.5 rounded-md px-1.5 py-1 transition-colors duration-150 max-md:hidden hover:bg-white/[0.08]"
         >
           <span className={`h-1.5 w-1.5 rounded-full ${CONN_DOT[connectionStatus]}`} />
-          <span className="text-[11px] text-gray-300">{connLabel[connectionStatus]}</span>
+          <span className="text-[12px] text-gray-300">{connLabel[connectionStatus]}</span>
         </button>
 
         {/* Language switcher — 폰(max-md)에선 숨김(옵션창 Appearance › Language 에서 변경, §4 v3.24). */}

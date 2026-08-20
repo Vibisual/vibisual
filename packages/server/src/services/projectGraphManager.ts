@@ -42,24 +42,49 @@ import type {
   PlayBubble,
   PlayRecipe,
   SpecDoc,
+  ReviewRequest,
+  LabRun,
+  ShelfBubble,
+  ProjectCostMap,
+  ProjectAuditLog,
+  AuditBoundaryConfig,
+  AuditDecisionSource,
+  ModelRegistry,
+  ShelfItem,
+  ShelfItemRun,
+  ShelfRunStatus,
+  ShelfImportDraftItem,
+  LabVariant,
+  LabVariantConfig,
+  LabResult,
+  ReviewDecision,
+  ReviewFileChange,
   SpecItem,
   Conti,
   ContiFrame,
   ContiElement,
   ActiveContiWork,
   ContiWorkSource,
+  ContiRenderLink,
+  StoryboardPresetId,
   RateLimitInfo,
   ClaudeUsageInfo,
   ClaudeAuthStatus,
   ClaudeSetupState,
   ExecutionMode,
+  AgentProvider,
 } from '@vibisual/shared';
-import { DEFAULT_UI_LOCALE } from '@vibisual/shared';
+import { DEFAULT_AUDIT_BOUNDARY, DEFAULT_UI_LOCALE } from '@vibisual/shared';
 import { ProjectGraph, resolveGitWorktreeParent, type ProcessResult } from './projectGraph.js';
+// §5.22 — 권한·감사 경계(승인 창구가 원장에 적을 때 쓰는 입력 모양).
+import type { AuditRecordInput } from './auditLog.js';
 import { loadCheckpointByMeta, writeCheckpoint, projectDirForInfo, discoverProjectMetas } from './statePersistence.js';
 import { appStateAddOpenProject, loadAppState } from './appState.js';
 import { diagnosticService } from './diagnosticService.js';
 import { modelRegistryService } from './modelRegistryService.js';
+import { getEngineState } from './localEngineService.js';
+import { listDownloads, listModels } from './localModelService.js';
+import { listLoadedModels } from './localRunner.js';
 import { userDefaultsService } from './userDefaultsService.js';
 import { logger } from '../logger.js';
 import { dbg, dbgOnChange } from './debugLog.js';
@@ -168,6 +193,11 @@ function emptySnapshot(): GraphSnapshot {
     appBubbles: [],
     playBubbles: [],
     specDocs: [],
+    reviewRequests: [],
+    labRuns: [],
+    shelfBubbles: [],
+    costMaps: [],
+    auditLogs: [],
     contis: {},
   };
 }
@@ -264,6 +294,45 @@ export function mergeSnapshots(a: GraphSnapshot, b: GraphSnapshot): GraphSnapsho
       const map = new Map<string, SpecDoc>();
       for (const c of a.specDocs ?? []) map.set(c.id, c);
       for (const c of b.specDocs ?? []) map.set(c.id, c);
+      return Array.from(map.values());
+    })(),
+    // §5.16 — 리뷰·승인 레인도 같은 규칙. 빠뜨리면 프로젝트를 둘 이상 연 순간 리뷰 카드가
+    // 방송 스냅샷에서 사라져 승인·반려 자리가 통째로 없어진다.
+    reviewRequests: (() => {
+      const map = new Map<string, ReviewRequest>();
+      for (const c of a.reviewRequests ?? []) map.set(c.id, c);
+      for (const c of b.reviewRequests ?? []) map.set(c.id, c);
+      return Array.from(map.values());
+    })(),
+    // §5.18 — 에이전트 랩도 같은 규칙. 빠뜨리면 프로젝트를 둘 이상 연 순간 랩 표지와 비교 표가
+    // 방송 스냅샷에서 통째로 사라진다.
+    labRuns: (() => {
+      const map = new Map<string, LabRun>();
+      for (const c of a.labRuns ?? []) map.set(c.id, c);
+      for (const c of b.labRuns ?? []) map.set(c.id, c);
+      return Array.from(map.values());
+    })(),
+    // §5.20 — 스크립트 선반도 같은 규칙. 빠뜨리면 프로젝트를 둘 이상 연 순간 선반이 통째로 사라진다.
+    shelfBubbles: (() => {
+      const map = new Map<string, ShelfBubble>();
+      for (const c of a.shelfBubbles ?? []) map.set(c.id, c);
+      for (const c of b.shelfBubbles ?? []) map.set(c.id, c);
+      return Array.from(map.values());
+    })(),
+    // §5.21 — 비용·토큰 지도는 **프로젝트 이름**이 키다. 빠뜨리면 프로젝트를 둘 이상 연 순간
+    // 배지와 팝업이 통째로 비어 보인다(서버는 재고 있는데 전선에서 사라진다).
+    costMaps: (() => {
+      const map = new Map<string, ProjectCostMap>();
+      for (const c of a.costMaps ?? []) map.set(c.projectName, c);
+      for (const c of b.costMaps ?? []) map.set(c.projectName, c);
+      return Array.from(map.values());
+    })(),
+    // §5.22 — 감사 원장도 프로젝트 이름이 키다. 빠뜨리면 프로젝트를 둘 이상 연 순간
+    // 타임라인이 통째로 비어 보인다(서버는 적고 있는데 전선에서 사라진다).
+    auditLogs: (() => {
+      const map = new Map<string, ProjectAuditLog>();
+      for (const c of a.auditLogs ?? []) map.set(c.projectName, c);
+      for (const c of b.auditLogs ?? []) map.set(c.projectName, c);
       return Array.from(map.values());
     })(),
     // §5.13 v4.45 — 내부 앱 버블도 같은 규칙. 여기서 빠뜨리면 프로젝트를 둘 이상 연 순간
@@ -488,6 +557,11 @@ function relabelSubSnapshot(snap: GraphSnapshot, from: string, to: string): Grap
     appBubbles: snap.appBubbles?.map((c) => (c.projectName === from ? { ...c, projectName: to } : c)),
     playBubbles: snap.playBubbles?.map((c) => (c.projectName === from ? { ...c, projectName: to } : c)),
     specDocs: snap.specDocs?.map((c) => (c.projectName === from ? { ...c, projectName: to } : c)),
+    reviewRequests: snap.reviewRequests?.map((c) => (c.projectName === from ? { ...c, projectName: to } : c)),
+    labRuns: snap.labRuns?.map((c) => (c.projectName === from ? { ...c, projectName: to } : c)),
+    shelfBubbles: snap.shelfBubbles?.map((c) => (c.projectName === from ? { ...c, projectName: to } : c)),
+    costMaps: snap.costMaps?.map((c) => (c.projectName === from ? { ...c, projectName: to } : c)),
+    auditLogs: snap.auditLogs?.map((c) => (c.projectName === from ? { ...c, projectName: to } : c)),
     // §5.5 #17-4 v2.36 — projectName 1차 키 relabel.
     skillUsageCounts: renameKey(snap.skillUsageCounts),
     // §5.10 v3.70 — Brain 요약도 projectName 1차 키라 전역 유일 표시명으로 함께 relabel해야
@@ -839,6 +913,13 @@ export class ProjectGraphManager {
       return stub ? { ok: false, reason: 'not-hydrated' } : { ok: false, reason: 'not-found' };
     }
     const rawName = resolved?.rawName ?? ref;
+    // §5.4 #14 v1.34 — **사용자가 × 로 닫은 프로젝트는 강등 대상이 아니다.**
+    //   탭 닫기는 `DELETE /api/projects/:name`(hide + stub 제거) 뒤에 클라의 `unload-project` 가
+    //   이어지는 2단 흐름이라, 여기서 stub 으로 되돌리면 방금 닫은 탭이 그대로 되살아난다
+    //   (증상: "× 를 한 번 눌러선 안 닫히고 두 번 눌러야 닫힌다"). 닫힘 SSOT 는 hidden 이므로
+    //   hidden 이면 stub 을 남기지 않고, 남아 있던 stub 도 함께 지운다. 사용자가 닫지 않은
+    //   배경 탭의 **유휴 해제**는 종전대로 stub 을 남긴다 — 안 그러면 열어 둔 탭이 저절로 사라진다.
+    const closedByUser = inst.isProjectHidden(rawName) || this.hiddenProjects.has(rawName);
 
     try {
       const cp = inst.toProjectCheckpoint(rawName);
@@ -857,6 +938,15 @@ export class ProjectGraphManager {
     }
     for (const [sid, key] of this.sessionRouting) {
       if (!this.instances.has(key)) this.sessionRouting.delete(sid);
+    }
+
+    if (projectInfo && closedByUser) {
+      // 닫은 탭은 stub 으로 돌려놓지 않는다. DELETE 가 먼저 지웠어도, 순서가 뒤바뀌어 이 unload 가
+      // 먼저 도착했어도 결과가 같도록 여기서 한 번 더 지운다(어느 쪽이 먼저든 탭은 사라진 채 유지).
+      this.stubs.delete(normalize(projectInfo.path));
+      logger.info(`unloadProject: "${rawName}" unloaded → closed (user-closed tab, stub 유지 ❌)`);
+      this.mutatedCallback?.();
+      return { ok: true };
     }
 
     if (projectInfo) {
@@ -1292,7 +1382,7 @@ export class ProjectGraphManager {
     label: string,
     position?: { x: number; y: number },
     projectName?: string | null,
-    options?: { executionMode?: ExecutionMode },
+    options?: { executionMode?: ExecutionMode; provider?: AgentProvider },
   ): BubbleData {
     const inst = projectName
       ? (this.getInstanceByName(projectName) ?? this.primaryInstance())
@@ -2448,6 +2538,8 @@ export class ProjectGraphManager {
                 total: prev.total + counts.total,
                 active: prev.active + counts.active,
                 completed: prev.completed + counts.completed,
+                sessions: prev.sessions + counts.sessions,
+                running: prev.running + counts.running,
               }
             : counts;
         }
@@ -2541,6 +2633,18 @@ export class ProjectGraphManager {
 
     // §4 v2.38 — 모델 레지스트리 주입 (클라 AgentConfigPopup 버전 sub-드롭다운 데이터)
     snapshot = { ...snapshot, modelRegistry: modelRegistryService.getRegistry() };
+
+    // §5.19 — 로컬 LLM 상태 주입(엔진 설치 여부 + 받아 둔 모델 + 진행 중 내려받기).
+    //   modelRegistry 와 같은 기기 전역 값이고, 진실은 디스크라 영속화하지 않는다.
+    snapshot = {
+      ...snapshot,
+      localLlm: {
+        engine: getEngineState(),
+        models: listModels(),
+        downloads: listDownloads(),
+        loaded: listLoadedModels(),
+      },
+    };
 
     // §4 v2.42 — 사용자 글로벌 옵션 주입 (Options 창 데이터)
     snapshot = { ...snapshot, userDefaults: userDefaultsService.get() };
@@ -3232,6 +3336,371 @@ export class ProjectGraphManager {
     return out;
   }
 
+  // ─── §5.16 — 리뷰·승인 레인 위임 ───
+
+  createReviewRequest(input: {
+    projectName: string;
+    parentProjectName?: string;
+    agentId: string;
+    subAgentId?: string;
+    worktreeNodeId?: string;
+    worktreePath: string;
+    branch?: string;
+    baseBranch?: string;
+    files: ReviewFileChange[];
+    filesTruncated?: boolean;
+    diff: string;
+    diffTruncated?: boolean;
+  }): ReviewRequest | null {
+    const inst = this.getInstanceByName(input.projectName) ?? this.primaryInstance();
+    if (!inst) return null;
+    return inst.createReviewRequest(input);
+  }
+
+  getReviewRequest(id: string): ReviewRequest | undefined {
+    for (const inst of this.instances.values()) {
+      const r = inst.getReviewRequest(id);
+      if (r) return r;
+    }
+    return undefined;
+  }
+
+  getAllReviewRequests(): ReviewRequest[] {
+    const out: ReviewRequest[] = [];
+    for (const inst of this.instances.values()) out.push(...inst.getReviewRequests());
+    return out;
+  }
+
+  // ─── §5.18 — 에이전트 랩 위임 ───
+
+  createLabRun(input: {
+    projectName: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    title?: string;
+    task?: string;
+    baseAgentId?: string;
+    variants?: { label?: string; config?: LabVariantConfig }[];
+  }): LabRun | null {
+    const inst = this.getInstanceByName(input.projectName) ?? this.primaryInstance();
+    if (!inst) return null;
+    return inst.createLabRun(input);
+  }
+
+  updateLabRun(
+    id: string,
+    updates: Partial<Pick<LabRun, 'x' | 'y' | 'width' | 'height' | 'title' | 'task' | 'baseAgentId' | 'preservePinned'>>,
+  ): LabRun | null {
+    for (const inst of this.instances.values()) {
+      if (inst.getLabRun(id)) return inst.updateLabRun(id, updates);
+    }
+    return null;
+  }
+
+  setLabVariants(id: string, variants: { id?: string; label?: string; config?: LabVariantConfig }[]): LabRun | null {
+    for (const inst of this.instances.values()) {
+      if (inst.getLabRun(id)) return inst.setLabVariants(id, variants);
+    }
+    return null;
+  }
+
+  addLabVariant(id: string, label: string, config?: LabVariantConfig): LabRun | null {
+    for (const inst of this.instances.values()) {
+      if (inst.getLabRun(id)) return inst.addLabVariant(id, label, config);
+    }
+    return null;
+  }
+
+  removeLabVariant(id: string, variantId: string): LabRun | null {
+    for (const inst of this.instances.values()) {
+      if (inst.getLabRun(id)) return inst.removeLabVariant(id, variantId);
+    }
+    return null;
+  }
+
+  attachLabVariantRun(
+    id: string,
+    variantId: string,
+    info: {
+      agentId: string;
+      sessionId: string;
+      worktreeProjectName?: string;
+      worktreePath?: string;
+      branch?: string;
+      startedAt?: number;
+    },
+  ): LabRun | null {
+    for (const inst of this.instances.values()) {
+      if (inst.getLabRun(id)) return inst.attachLabVariantRun(id, variantId, info);
+    }
+    return null;
+  }
+
+  finishLabVariant(
+    id: string,
+    variantId: string,
+    result: Omit<LabResult, 'startedAt'> & { startedAt?: number },
+  ): LabRun | null {
+    for (const inst of this.instances.values()) {
+      if (inst.getLabRun(id)) return inst.finishLabVariant(id, variantId, result);
+    }
+    return null;
+  }
+
+  markLabPromoted(id: string, variantId: string): LabRun | null {
+    for (const inst of this.instances.values()) {
+      if (inst.getLabRun(id)) return inst.markLabPromoted(id, variantId);
+    }
+    return null;
+  }
+
+  deleteLabRun(id: string): boolean {
+    for (const inst of this.instances.values()) {
+      if (inst.getLabRun(id)) return inst.deleteLabRun(id);
+    }
+    return false;
+  }
+
+  getLabRun(id: string): LabRun | undefined {
+    for (const inst of this.instances.values()) {
+      const r = inst.getLabRun(id);
+      if (r) return r;
+    }
+    return undefined;
+  }
+
+  getAllLabRuns(): LabRun[] {
+    const out: LabRun[] = [];
+    for (const inst of this.instances.values()) out.push(...inst.getLabRuns());
+    return out;
+  }
+
+  /**
+   * 이 에이전트가 어느 랩의 어느 변형인지 — 전 인스턴스를 훑는다.
+   * 변형 카드는 워크트리 인스턴스 소속이고 랩 표지는 부모 인스턴스에 있으므로 한쪽만 봐선 못 찾는다.
+   */
+  findLabVariantByAgent(agentId: string): { run: LabRun; variant: LabVariant } | undefined {
+    for (const inst of this.instances.values()) {
+      const hit = inst.findLabVariantByAgent(agentId);
+      if (hit) return hit;
+    }
+    return undefined;
+  }
+
+  // ─── §5.22 — 권한·감사 경계 위임 ───
+
+  /**
+   * 승인 창구가 원장에 먼저 적는 줄. 그 프로젝트를 든 인스턴스를 찾지 못하면
+   * 에이전트를 든 인스턴스로 되짚는다(워크트리 이름이 표시명과 어긋나는 자리).
+   */
+  recordAuditCall(input: AuditRecordInput): string | null {
+    const inst = this.getInstanceByName(input.projectName)
+      ?? (input.agentId ? this.instanceForAgent(input.agentId) : null)
+      ?? this.primaryInstance();
+    if (!inst) return null;
+    return inst.recordAuditCall(input);
+  }
+
+  /** 승인 카드가 뜬 줄에 "물었다"는 표식(어느 인스턴스가 들고 있든 찾아 적는다). */
+  markAuditEscalated(projectName: string, entryId: string): void {
+    for (const inst of this.instances.values()) inst.markAuditEscalated(projectName, entryId);
+  }
+
+  /** 사람(또는 정책)의 답. 그 줄을 든 인스턴스가 하나라도 적으면 true. */
+  recordAuditDecision(
+    projectName: string,
+    entryId: string,
+    decision: 'allow' | 'deny',
+    source: AuditDecisionSource,
+    reason?: string,
+  ): boolean {
+    let done = false;
+    for (const inst of this.instances.values()) {
+      if (inst.recordAuditDecision(projectName, entryId, decision, source, reason)) done = true;
+    }
+    return done;
+  }
+
+  /** 그 프로젝트의 경계 스위치(인스턴스가 없으면 shared 기본값 = §5.22 기본 꺼짐). */
+  getAuditBoundary(projectName: string): AuditBoundaryConfig {
+    const inst = this.getInstanceByName(projectName) ?? this.primaryInstance();
+    if (inst) return inst.getAuditBoundary(projectName);
+    return { escalateRisky: DEFAULT_AUDIT_BOUNDARY.escalateRisky, kinds: { ...DEFAULT_AUDIT_BOUNDARY.kinds } };
+  }
+
+  /** 경계 스위치 갱신. */
+  setAuditBoundary(projectName: string, patch: Partial<AuditBoundaryConfig>): AuditBoundaryConfig | null {
+    const inst = this.getInstanceByName(projectName) ?? this.primaryInstance();
+    if (!inst) return null;
+    return inst.setAuditBoundary(projectName, patch);
+  }
+
+  /** 조회용 원장 한 장(REST). */
+  getAuditLog(projectName: string): ProjectAuditLog | undefined {
+    for (const inst of this.instances.values()) {
+      const log = inst.getAuditLog(projectName);
+      if (log) return log;
+    }
+    return undefined;
+  }
+
+  /** agentId 를 든 인스턴스(감사 원장이 그 인스턴스 안에 있으므로 되짚기용). */
+  private instanceForAgent(agentId: string): ProjectGraph | null {
+    for (const inst of this.instances.values()) {
+      if (inst.getAgentProjectName(agentId)) return inst;
+    }
+    return null;
+  }
+
+  // ─── §5.20 — 스크립트 선반 위임 ───
+
+  createShelfBubble(input: {
+    projectName: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    title?: string;
+    items?: ShelfImportDraftItem[];
+  }): ShelfBubble | null {
+    const inst = this.getInstanceByName(input.projectName) ?? this.primaryInstance();
+    if (!inst) return null;
+    return inst.createShelfBubble(input);
+  }
+
+  updateShelfBubble(
+    id: string,
+    updates: Partial<Pick<ShelfBubble, 'x' | 'y' | 'width' | 'height' | 'title' | 'preservePinned'>>,
+  ): ShelfBubble | null {
+    for (const inst of this.instances.values()) {
+      if (inst.getShelfBubble(id)) return inst.updateShelfBubble(id, updates);
+    }
+    return null;
+  }
+
+  addShelfItem(id: string, draft: ShelfImportDraftItem): ShelfBubble | null {
+    for (const inst of this.instances.values()) {
+      if (inst.getShelfBubble(id)) return inst.addShelfItem(id, draft);
+    }
+    return null;
+  }
+
+  updateShelfItem(
+    id: string,
+    itemId: string,
+    updates: Partial<Pick<ShelfItem, 'label' | 'kind' | 'command' | 'cwd' | 'prompt' | 'targetAgentId' | 'icon' | 'color'>>,
+  ): ShelfBubble | null {
+    for (const inst of this.instances.values()) {
+      if (inst.getShelfBubble(id)) return inst.updateShelfItem(id, itemId, updates);
+    }
+    return null;
+  }
+
+  removeShelfItem(id: string, itemId: string): ShelfBubble | null {
+    for (const inst of this.instances.values()) {
+      if (inst.getShelfBubble(id)) return inst.removeShelfItem(id, itemId);
+    }
+    return null;
+  }
+
+  reorderShelfItems(id: string, order: string[]): ShelfBubble | null {
+    for (const inst of this.instances.values()) {
+      if (inst.getShelfBubble(id)) return inst.reorderShelfItems(id, order);
+    }
+    return null;
+  }
+
+  importShelfItems(
+    id: string,
+    drafts: ShelfImportDraftItem[],
+    replace: boolean,
+  ): { bubble: ShelfBubble; added: number; dropped: number } | null {
+    for (const inst of this.instances.values()) {
+      if (inst.getShelfBubble(id)) return inst.importShelfItems(id, drafts, replace);
+    }
+    return null;
+  }
+
+  startShelfItemRun(id: string, itemId: string, seed?: { agentId?: string; sessionId?: string }): ShelfItem | null {
+    for (const inst of this.instances.values()) {
+      if (inst.getShelfBubble(id)) return inst.startShelfItemRun(id, itemId, seed);
+    }
+    return null;
+  }
+
+  finishShelfItemRun(
+    id: string,
+    itemId: string,
+    result: Partial<Omit<ShelfItemRun, 'status' | 'startedAt'>> & { status: ShelfRunStatus },
+  ): ShelfItem | null {
+    for (const inst of this.instances.values()) {
+      if (inst.getShelfBubble(id)) return inst.finishShelfItemRun(id, itemId, result);
+    }
+    return null;
+  }
+
+  deleteShelfBubble(id: string): boolean {
+    for (const inst of this.instances.values()) {
+      if (inst.getShelfBubble(id)) return inst.deleteShelfBubble(id);
+    }
+    return false;
+  }
+
+  getShelfBubble(id: string): ShelfBubble | undefined {
+    for (const inst of this.instances.values()) {
+      const b = inst.getShelfBubble(id);
+      if (b) return b;
+    }
+    return undefined;
+  }
+
+  getAllShelfBubbles(): ShelfBubble[] {
+    const out: ShelfBubble[] = [];
+    for (const inst of this.instances.values()) out.push(...inst.getShelfBubbles());
+    return out;
+  }
+
+  /**
+   * 이 에이전트가 지금 어느 선반 줄의 프롬프트를 처리 중인지 — 전 인스턴스를 훑는다.
+   * 선반은 부모 인스턴스에 있고 카드는 워크트리 인스턴스일 수 있으므로 한쪽만 봐선 못 찾는다.
+   */
+  findShelfItemByAgent(agentId: string): { bubble: ShelfBubble; item: ShelfItem } | undefined {
+    for (const inst of this.instances.values()) {
+      const hit = inst.findShelfItemByAgent(agentId);
+      if (hit) return hit;
+    }
+    return undefined;
+  }
+
+  /** 그 에이전트에게 아직 결정 안 난 리뷰가 있나 — 전 인스턴스를 훑는다(에이전트는 워크트리 인스턴스 소속). */
+  findOpenReviewRequestByAgent(agentId: string): ReviewRequest | undefined {
+    for (const inst of this.instances.values()) {
+      const r = inst.findOpenReviewRequestByAgent(agentId);
+      if (r) return r;
+    }
+    return undefined;
+  }
+
+  recordReviewDecision(
+    id: string,
+    input: Omit<ReviewDecision, 'id' | 'decidedAt'> & { decidedAt?: number },
+  ): ReviewRequest | null {
+    for (const inst of this.instances.values()) {
+      if (inst.getReviewRequest(id)) return inst.recordReviewDecision(id, input);
+    }
+    return null;
+  }
+
+  deleteReviewRequest(id: string): boolean {
+    for (const inst of this.instances.values()) {
+      if (inst.getReviewRequest(id)) return inst.deleteReviewRequest(id);
+    }
+    return false;
+  }
+
+
   /**
    * §5.14 4단 계단 ③ — 이 프로젝트에서 **실제로 떠 있던** 명령들.
    *
@@ -3365,6 +3834,18 @@ export class ProjectGraphManager {
     return inst?.updateContiFrames(contiId, frames, title) ?? null;
   }
 
+  /** §5.13 (Q) — 콘티의 출력 프리셋 지정. */
+  setContiPreset(contiId: string, presetId: StoryboardPresetId): Conti | null {
+    const inst = this.getInstanceByContiId(contiId);
+    return inst?.setContiPreset(contiId, presetId) ?? null;
+  }
+
+  /** §5.13 (Q) — 콘티를 받아 간 앱의 문서·작업 기록. */
+  setContiRenderLink(contiId: string, link: ContiRenderLink): Conti | null {
+    const inst = this.getInstanceByContiId(contiId);
+    return inst?.setContiRenderLink(contiId, link) ?? null;
+  }
+
   /** §5.3 #28 (L) v1.58 — 인플라이트 콘티 작업 조회. */
   getActiveContiWork(agentId: string): ActiveContiWork | undefined {
     const inst = this.getInstanceByAgentId(agentId);
@@ -3485,6 +3966,18 @@ export class ProjectGraphManager {
       result.push(...inst.sweepIdleAgents(thresholdMs));
     }
     return result;
+  }
+
+  /**
+   * §5.21 — 열려 있는 모든 인스턴스의 비용·토큰 지도를 한 번 훑는다. 하나라도 바뀌면 true.
+   * 모델 단가는 런타임 레지스트리가 SSOT 라 호출부가 넘긴다(§4 v2.38).
+   */
+  sweepCostMaps(registry: ModelRegistry | null, now: number = Date.now()): boolean {
+    let changed = false;
+    for (const inst of this.instances.values()) {
+      if (inst.sweepCostMap(registry, now)) changed = true;
+    }
+    return changed;
   }
 
   findInterruptedActiveSessions(): string[] {

@@ -23,6 +23,13 @@ export interface EditorDoc {
   truncated: boolean;
   binary: boolean;
   /**
+   * §5.5 #17-27 ⑭ — 이 문서를 **그림으로 그릴 자리**인가(서버 판정 그대로).
+   *
+   * `binary` 와 갈라 두는 이유는 뜻이 다르기 때문이다 — `binary` 는 "저장하지 마라"이고
+   * 이 값은 "본문 대신 미리보기를 그려라"다. 이미지가 아닌 이진 파일은 종전 안내로 떨어진다.
+   */
+  image: boolean;
+  /**
    * §5.5 #17-27 ⑫ — 디스크가 쓰기를 막고 있는가(Perforce 체크아웃 전 파일 등).
    *
    * `truncated`/`binary` 와 달리 **타이핑을 막지 않는다** — 고쳐 두었다가 저장하는 순간 잠금을 푼다.
@@ -62,6 +69,7 @@ const EMPTY_DOC: Omit<EditorDoc, 'status'> = {
   size: 0,
   truncated: false,
   binary: false,
+  image: false,
   readOnly: false,
   saving: false,
   conflict: false,
@@ -147,6 +155,7 @@ export function useEditorDocs(rootPath: string | null): EditorDocsApi {
             size: file.size,
             truncated: file.truncated,
             binary: file.binary,
+            image: file.image,
             readOnly: file.readOnly,
           },
         };

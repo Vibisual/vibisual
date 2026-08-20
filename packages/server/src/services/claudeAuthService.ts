@@ -4,7 +4,7 @@ import {
   CLAUDE_AUTH_LOGOUT_TIMEOUT_MS,
 } from '@vibisual/shared';
 import type { ClaudeAuthStatus, ClaudeAuthProbeError } from '@vibisual/shared';
-import { getClaudeBin } from './claudeBin.js';
+import { getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
 import { logger } from '../logger.js';
 
 /**
@@ -103,8 +103,9 @@ function runClaude(args: string[], timeoutMs: number): Promise<RunResult> {
     child.stderr?.on('data', (c) => {
       out += String(c);
     });
-    child.on('error', () => {
+    child.on('error', (err) => {
       clearTimeout(timer);
+      noteClaudeSpawnFailure(err);
       finish({ code: null, out, failure: 'spawn' });
     });
     child.on('close', (code) => {

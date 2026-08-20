@@ -1,14 +1,15 @@
 import { create } from 'zustand';
 // §5.5 #17-20 ⑩ v4.94 — 중단점을 켜고 끄면 붙어 있는 세션에도 바로 밀어 넣는다(단방향: graphStore → debugSessions).
 import { useDebugSessions, pushBreakpointsToSession } from './debugSessions.js';
-import type { BubbleData, ActivityEdge, BashEntry, ServerEntry, AgentEvent, FileEdit, AgentPhase, ProjectInfo, QueuedCommand, SubAgent, RunningSubagentTask, FinishedSubagentTask, ServerKind, PipelineType, PipelineState, AgentConfig, SubAgentStreamEvent, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, UiLocale, ProjectMetaSnapshot, AppState, AppStatePatch, CommentBox, CaptureBubble, DebugBreakpoint, AppBubble, PlayBubble, PlayRecipeCandidate, SpecDoc, Conti, ActiveContiWork, ToolDurationEntry, CompactCount, RateLimitInfo,
-  ClaudeUsageInfo, ClaudeAuthStatus, ClaudeSetupState, ClaudeSetupProgress, DiagnosticEntry, AutoAgentSummary, AutoAgentRun, ModelRegistry, UserDefaults, AgentReport, AgentQuestions, AgentReview, AgentList, AgentFeedback, AgentFeedbackTargetType, AgentFeedbackVerdict, BrainSummary, BrainInjectionEvent, BrainCard, BrainCardType, BrainCardScope, BrainCardStatus, PluginFactMap, SessionLoop, SessionLoopMode, SessionLoopContextMode, SessionGoal, SessionGoalStatus, SessionGoalStepStatus } from '@vibisual/shared';
+import type { BubbleData, ActivityEdge, BashEntry, ServerEntry, AgentEvent, FileEdit, AgentPhase, ProjectInfo, QueuedCommand, SubAgent, RunningSubagentTask, FinishedSubagentTask, ServerKind, PipelineType, PipelineState, AgentConfig, SubAgentStreamEvent, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, UiLocale, ProjectMetaSnapshot, AppState, AppStatePatch, CommentBox, CaptureBubble, DebugBreakpoint, AppBubble, PlayBubble, PlayRecipeCandidate, SpecDoc, LabRun, LabVariantConfig, ShelfBubble, ShelfItem, ShelfItemKind, ProjectCostMap, ProjectAuditLog, AuditBoundaryConfig, Conti, ActiveContiWork, ContiRenderStatus, StoryboardPresetId, ToolDurationEntry, CompactCount, RateLimitInfo,
+  ClaudeUsageInfo, ClaudeAuthStatus, ClaudeSetupState, ClaudeSetupProgress, DiagnosticEntry, AutoAgentSummary, AutoAgentRun, ModelRegistry, LocalLlmState, LocalEngineProgress, LocalModelDownloadProgress, UserDefaults, AgentReport, AgentQuestions, AgentReview, ReviewRequest, AgentList, AgentFeedback, AgentFeedbackTargetType, AgentFeedbackVerdict, BrainSummary, BrainInjectionEvent, BrainCard, BrainCardType, BrainCardScope, BrainCardStatus, PluginFactMap, SessionLoop, SessionLoopMode, SessionLoopContextMode, SessionGoal, SessionGoalStatus, SessionGoalStepStatus } from '@vibisual/shared';
 import type { StreamDensity, CommandDispatchMode, ProjectAgentCounts } from '@vibisual/shared';
 import { isReadOnlyHookAgent } from '@vibisual/shared';
 import { DEFAULT_UI_LOCALE, STREAM_EVENTS_MAX_PER_SESSION, STREAM_EVENTS_TRIM_SLACK, STREAM_EVENTS_MAX_PER_INACTIVE_SESSION, STREAM_INACTIVE_SESSIONS_MAX, DIAGNOSTIC_LOG_MAX, STREAM_DENSITIES, IDE_EDITOR_MAX_TABS, IDE_EDITOR_WIDTH, DIFF_COMMENT_MAX } from '@vibisual/shared';
 import { changeUiLocale } from '../i18n/index.js';
 import { calcFileSizeRange } from '../utils/sizeCalc.js';
 import { structuralShare } from './structuralShare.js';
+import { diffSubAcknowledgements } from './subAckDiff.js';
 import type { ReadingSettings } from '../components/IDE/reading/readingModel.js';
 import {
   DEFAULT_READING_SETTINGS, DEFAULT_IDE_STREAM_DENSITY, DEFAULT_IDE_TEXT_ZOOM, normalizeReadingSettings,
@@ -17,6 +18,8 @@ import { recordCommandHistory, dropSessionCommandHistory } from '../components/I
 import { insertEventInTurnOrder } from '../components/IDE/turnOrder.js';
 import type { FollowSkipReason } from '../components/IDE/editorFollow.js';
 import type { DiffComment } from '../components/IDE/diffCommentPrompt.js';
+import { clearCapturePlaytest } from './capturePlaytest.js';
+import { resolveLocalEntry } from '../components/LocalModel/localModelEntry.js';
 
 /**
  * §5.3 #28 v1.48 — IDE TerminalInput 세션 스코프 draft.
@@ -46,9 +49,28 @@ export interface ImageLightboxAttachment {
   sessionId: string | null;
   tempId: string;
 }
+/**
+ * §5.5 #17-25 ④-1 — 라이트박스가 연 이미지가 **디스크의 진짜 파일**일 때 그 자리.
+ *
+ * 첨부(`ImageLightboxAttachment`)와 갈라 두는 이유는 저장이 가는 곳이 다르기 때문이다 —
+ * 첨부는 입력창으로, 이쪽은 그 파일 자체로 간다(`PUT /api/workspace-image`).
+ */
+export interface ImageLightboxWorkspaceFile {
+  /** 프로젝트 루트 절대 경로 */
+  root: string;
+  /** 루트 기준 상대 경로 */
+  path: string;
+  /** 읽을 때 본 수정 시각 — 저장할 때 되돌려 보내 그 사이 변경을 판정 */
+  mtimeMs: number;
+  /** 원본 형식 그대로 구워 덮어쓸 수 있는가(png·jpeg·webp 만) */
+  bakeable: boolean;
+  /** 구울 MIME — `canvas.toBlob` 의 두 번째 인자 */
+  mime: string;
+}
 export interface ImageLightboxState {
   url: string;
   attachment?: ImageLightboxAttachment;
+  workspace?: ImageLightboxWorkspaceFile;
 }
 
 export function agentSessionInputKey(agentId: string, sessionId: string | null): string {
@@ -352,14 +374,14 @@ export interface IframeTab {
 // §5.5 #17-31 — 'terminal'(세션 목록) 은 **'mcp'(이 프로젝트에서 쓸 수 있는 MCP)** 로 대체됐다.
 //   세션 목록은 탭 바(#17-5)·세션 요약(#17-8)이 이미 두 벌로 보여 주고 있었고, 앱 안에서 볼 길이
 //   전혀 없던 것은 "무엇이 붙어 있고 무엇이 켜져 있는가" 였다. 저장된 옛 값('terminal')은 이관한다.
-export type IDEViewType = 'mcp' | 'files' | 'context' | 'skills' | 'goal' | 'loop' | 'debug' | 'bookmarks' | 'summary' | 'subagents';
+export type IDEViewType = 'mcp' | 'hooks' | 'plugins' | 'files' | 'context' | 'skills' | 'goal' | 'loop' | 'debug' | 'bookmarks' | 'summary' | 'subagents';
 
 /** §5.5 #17-28 v4.96 · #17-31 — localStorage 에 남은 옛 뷰 id 를 지금 쓰는 것으로 옮긴다(모르는 값은 mcp). */
 export function migrateIDEViewType(v: unknown): IDEViewType {
   if (v === 'events') return 'context';
   // #17-31 — 세션 목록 자리가 MCP 인벤토리로 바뀌었다. 이미 열려 있던 IDE 도 같은 칸을 본다.
   if (v === 'terminal') return 'mcp';
-  const known: IDEViewType[] = ['mcp', 'files', 'context', 'skills', 'goal', 'loop', 'debug', 'bookmarks', 'summary', 'subagents'];
+  const known: IDEViewType[] = ['mcp', 'hooks', 'plugins', 'files', 'context', 'skills', 'goal', 'loop', 'debug', 'bookmarks', 'summary', 'subagents'];
   return known.includes(v as IDEViewType) ? (v as IDEViewType) : 'mcp';
 }
 
@@ -488,6 +510,26 @@ export function selectIDEOverlay(state: {
   //   하나라 여기만 손보면 활동바·사이드바가 동시에 새 뷰를 가리킨다(빈 화면이 뜨지 않는다).
   const migrated = migrateIDEViewType(cur.activeView);
   return migrated === cur.activeView ? cur : { ...cur, activeView: migrated };
+}
+
+/**
+ * §5.5 #17-1 — 우측 도킹이 **실제로 화면을 차지하는가**(캔버스를 도크 폭만큼 줄일 것인가).
+ *
+ * `AgentIDEOverlay` 는 슬롯의 에이전트가 스냅샷에 없으면(`nodeMap[agentId]` 부재 — 에이전트 삭제·
+ * 휴지통·스냅샷 공백·사라진 대상으로의 북마크 점프) `null` 을 반환한다. 그래서 `dockedRight` 한 비트만
+ * 보고 자리를 비우면 **IDE 는 안 그려지는데 캔버스만 잘린 빈 도크**가 남는다(사용자 보고: 북마크
+ * 숫자키 점프 뒤 우측이 빈 칸으로 화면을 가림). 자리를 비우는 쪽(App `main` marginRight · DetailPanel
+ * 좌/우 미러링)과 그리는 쪽이 **같은 산식**을 읽도록 판정을 여기 하나로 모은다.
+ *
+ * 슬롯 자체는 지우지 않는다 — 스냅샷이 잠깐 비었다가 돌아오면 IDE 도 그대로 돌아와야 한다.
+ */
+export function selectIDEDockVisible(state: {
+  ideOverlays: Record<string, IDEOverlayState>;
+  activeProject: string | null;
+  nodeMap: Record<string, BubbleData>;
+}): boolean {
+  const ide = selectIDEOverlay(state);
+  return ide.dockedRight && !!ide.agentId && !!state.nodeMap[ide.agentId];
 }
 
 // ─── 스트림 메모리 관리 (성능: 비활성 세션 차등 cap + 오래된 세션 pruning) ───
@@ -828,6 +870,11 @@ interface GraphState {
   agentQuestions: Record<string, AgentQuestions[]>;
   /** §4 v2.70 — 에이전트 검수 요청 카드 (agentId → AgentReview[]). IDE 검수 카드. */
   agentReviews: Record<string, AgentReview[]>;
+  /**
+   * §5.16 — 리뷰·승인 레인 목록(서버 스냅샷 전량). 검수 카드가 `reviewRequestId` 로 이 목록을
+   * 조회해 파일 목록·diff·승인/반려/보류 구획을 그린다. 판정·상태 전이는 전부 서버(§3.1).
+   */
+  reviewRequests: ReviewRequest[];
   /** §4 v2.84 — 에이전트 번호 목록 정렬 카드 (agentId → AgentList[]). IDE 정렬 카드. */
   agentLists: Record<string, AgentList[]>;
   /** §4 v3.21 — 에이전트 피드백 (agentId → AgentFeedback[]). 좋아요/싫어요 → 규칙 되먹임. */
@@ -838,6 +885,8 @@ interface GraphState {
   sessionGoals: Record<string, SessionGoal>;
   /** §4 v2.38 — 동적 모델 레지스트리 (서버 modelRegistryService 가 시드+/v1/models 머지 후 push). */
   modelRegistry: ModelRegistry | null;
+  /** §5.19 — 로컬 LLM(엔진 설치 상태·받아 둔 모델·내려받기). 서버가 디스크를 읽어 싣는다. */
+  localLlm: LocalLlmState | null;
   /** §4 v2.42 — 사용자 글로벌 옵션 (Options 창 SSOT). */
   userDefaults: UserDefaults | null;
   /** §4 v1.50 — Claude.ai 한도 사용률 (글로벌, 외부 statusline 푸시). */
@@ -913,8 +962,14 @@ interface GraphState {
    *  §5.5 #17-25 v4.80 — URL 하나에서 `{ url, attachment? }` 로 넓혔다. 주석본을 저장할 때
    *  **어느 첨부를 열었는지** 알아야 그 자리를 교체할 수 있다(모르면 새 첨부로만 붙는다). */
   imageLightbox: ImageLightboxState | null;
-  openImageLightbox: (url: string, attachment?: ImageLightboxAttachment) => void;
+  openImageLightbox: (url: string, attachment?: ImageLightboxAttachment, workspace?: ImageLightboxWorkspaceFile) => void;
   closeImageLightbox: () => void;
+  /**
+   * §5.5 #17-25 ④-1 — 라이트박스가 워크스페이스 이미지를 덮어쓴 시각(상대 경로별).
+   * 편집창은 이 값이 바뀌면 그 파일을 다시 읽어 방금 그린 표시를 화면에 올린다.
+   */
+  workspaceImageSavedAt: Record<string, number>;
+  markWorkspaceImageSaved: (relPath: string) => void;
   /** 콘티 생성 in-flight (agentId Set) — UX 스피너용. 완료 시 자동 제거. */
   contiGenerating: Record<string, true>;
   /** 사용자가 "새 콘티 생성" 버튼 누름 — 서버 POST /api/conti/generate. */
@@ -929,6 +984,25 @@ interface GraphState {
   patchContiFrame: (contiId: string, frameIndex: number, updates: { title?: string; action?: string }) => Promise<void>;
   /** §5.3 #28 v1.59 — 콘티 frame 드래그앤드롭 순서 변경 — 서버 POST /api/conti/:id/frames/reorder. */
   reorderContiFrame: (contiId: string, fromIndex: number, toIndex: number) => Promise<void>;
+  /**
+   * §5.13 (Q) — 대본에서 콘티 생성 — 서버 POST /api/conti/from-script.
+   * 성공하면 새 콘티, 실패하면 사유 한 줄을 돌려준다(화면이 그대로 보여 준다).
+   */
+  generateContiFromScript: (
+    agentId: string,
+    script: string,
+    presetId: StoryboardPresetId,
+    frameCount?: number,
+  ) => Promise<{ ok: true; contiId: string } | { ok: false; error: string }>;
+  /** §5.13 (Q) — 대본 콘티 생성 진행 중인 에이전트(버튼 스피너용). */
+  contiScriptGenerating: Record<string, true>;
+  /** §5.13 (Q) — 출력 프리셋 지정 — 서버 PATCH /api/conti/:id. */
+  setContiPreset: (contiId: string, presetId: StoryboardPresetId) => Promise<void>;
+  /** §5.13 (Q) — 콘티를 받아 간 앱의 산출물 기록 — 서버 POST /api/conti/:id/render-link. */
+  linkContiRender: (
+    contiId: string,
+    link: { appId: string; docId: string; jobId?: string; presetId: StoryboardPresetId; status?: ContiRenderStatus; error?: string },
+  ) => Promise<void>;
   /** element patch in-flight (`${cid}::${fid}::${eid}`) — 인라인 팝업 스피너용. */
   contiElementPatching: Record<string, true>;
   /**
@@ -1080,6 +1154,91 @@ interface GraphState {
   generateSpecTasks: (id: string, itemIds?: string[], regenerate?: boolean) => Promise<boolean>;
   /** 항목에서 카드 연결만 끊는다(에이전트 버블은 남는다). */
   detachSpecTask: (id: string, itemId: string) => Promise<void>;
+
+  // ─── §5.18 — 에이전트 랩 (같은 과제를 설정만 바꿔 N벌 → 비교 표 → 승격) ───
+  /** 랩 목록 (서버 스냅샷). 현재 프로젝트 필터로 렌더. */
+  labRuns: LabRun[];
+  /** 스냅샷 반영. 드래그 중인 랩의 좌표는 로컬 값으로 보호한다(스펙 보드와 같은 규칙). */
+  applyLabRuns: (list: LabRun[]) => void;
+  patchLabRunLocal: (id: string, updates: Partial<LabRun>) => void;
+  draggingLabRunIds: string[];
+  setLabRunDragLock: (id: string, on: boolean) => void;
+  /** 선택된 랩 ID — Delete 키 대상. 다른 선택과 배타. */
+  selectedLabRunId: string | null;
+  selectLabRun: (id: string | null) => void;
+  /** 랩 보드 패널(전체 화면)에서 열려 있는 랩 ID. null 이면 닫힘. */
+  labPanelOpenId: string | null;
+  openLabPanel: (id: string) => void;
+  closeLabPanel: () => void;
+  createLabRun: (input: { projectName: string; x: number; y: number; title?: string }) => Promise<LabRun | null>;
+  updateLabRun: (
+    id: string,
+    updates: Partial<Pick<LabRun, 'x' | 'y' | 'width' | 'height' | 'title' | 'task' | 'baseAgentId' | 'preservePinned'>>,
+  ) => Promise<void>;
+  /** 변형 목록 통째 교체(패널 편집 결과). 이미 측정된 결과는 서버가 지킨다. */
+  setLabVariants: (id: string, variants: { id?: string; label?: string; config?: LabVariantConfig }[]) => Promise<void>;
+  addLabVariant: (id: string, label?: string, config?: LabVariantConfig) => Promise<void>;
+  removeLabVariant: (id: string, variantId: string) => Promise<void>;
+  /** 변형마다 워크트리 + 카드 + 과제 발사. `variantIds` 를 주면 그 줄만. */
+  startLabRun: (id: string, variantIds?: string[]) => Promise<boolean>;
+  /** 이긴 줄의 설정을 그 에이전트의 기본값으로. */
+  promoteLabVariant: (id: string, variantId: string, targetAgentId?: string) => Promise<boolean>;
+  /** 핀이면 서버가 409 로 거절한다 — 낙관 제거 없이 결과를 돌려준다. */
+  deleteLabRun: (id: string) => Promise<boolean>;
+
+  // ─── §5.21 비용·토큰 지도 ───
+  /**
+   * 서버가 접어 실어 준 프로젝트별 비용·토큰 지도. **여기서 다시 더하지 않는다**(§3.1) —
+   * 배지·필·팝업이 읽는 값은 전부 이 배열 안에 이미 접혀 있다.
+   */
+  costMaps: ProjectCostMap[];
+  applyCostMaps: (list: ProjectCostMap[]) => void;
+
+  // ─── §5.22 권한·감사 경계 ───
+  /**
+   * 서버가 접어 실어 준 프로젝트별 감사 원장. 집계(`counts`)도 서버가 접어 주므로
+   * **여기서 원장을 다시 세지 않는다**(§3.1).
+   */
+  auditLogs: ProjectAuditLog[];
+  applyAuditLogs: (list: ProjectAuditLog[]) => void;
+  /** 감사 타임라인 팝업이 열려 있는가(헤더 방패 필이 토글). */
+  auditPopupOpen: boolean;
+  setAuditPopupOpen: (open: boolean) => void;
+  /** 경계 스위치 갱신(서버가 SSOT — 낙관 반영 없이 응답을 기다린다). */
+  setAuditBoundary: (projectName: string, patch: Partial<AuditBoundaryConfig>) => Promise<void>;
+
+  // ─── §5.20 스크립트 선반 (Shelf) ───
+  /** 서버 스냅샷이 준 선반 목록. 렌더는 `projectName === activeProject` 로 거른다. */
+  shelfBubbles: ShelfBubble[];
+  applyShelfBubbles: (list: ShelfBubble[]) => void;
+  /** 드래그 중 낙관 patch — 서버 왕복을 기다리면 버블이 손끝에서 뒤처진다. */
+  patchShelfBubbleLocal: (id: string, updates: Partial<ShelfBubble>) => void;
+  draggingShelfBubbleIds: string[];
+  setShelfBubbleDragLock: (id: string, on: boolean) => void;
+  selectedShelfBubbleId: string | null;
+  selectShelfBubble: (id: string | null) => void;
+  /** 전체 화면 선반 패널이 열려 있는 선반 id. */
+  shelfPanelOpenId: string | null;
+  openShelfPanel: (id: string) => void;
+  closeShelfPanel: () => void;
+  createShelfBubble: (input: { projectName: string; x: number; y: number; title?: string }) => Promise<ShelfBubble | null>;
+  updateShelfBubble: (
+    id: string,
+    updates: Partial<Pick<ShelfBubble, 'x' | 'y' | 'width' | 'height' | 'title' | 'preservePinned'>>,
+  ) => Promise<void>;
+  addShelfItem: (id: string, draft: { label: string; kind: ShelfItemKind; command?: string; prompt?: string; icon?: string; color?: string }) => Promise<void>;
+  updateShelfItem: (
+    id: string,
+    itemId: string,
+    updates: Partial<Pick<ShelfItem, 'label' | 'kind' | 'command' | 'cwd' | 'prompt' | 'targetAgentId' | 'icon' | 'color'>>,
+  ) => Promise<void>;
+  removeShelfItem: (id: string, itemId: string) => Promise<void>;
+  reorderShelfItems: (id: string, order: string[]) => Promise<void>;
+  /** 클릭 한 번 = 이 줄 실행. 셸이면 출력이, 프롬프트면 그 카드가 결과로 붙는다. */
+  runShelfItem: (id: string, itemId: string) => Promise<boolean>;
+  /** 가져온 JSON 원문을 서버로 넘긴다(서버가 `normalizeShelfImport` 로 훑는다). */
+  importShelfItems: (id: string, payload: unknown, replace: boolean) => Promise<{ added: number; dropped: number } | null>;
+  deleteShelfBubble: (id: string) => Promise<boolean>;
 
   agentPhase: AgentPhase;
   activeAgentCount: number;
@@ -1256,6 +1415,13 @@ interface GraphState {
   purgeTrashedAgents: (sessionIds: string[]) => Promise<void>;
   /** §5.10 v4.84 — 휴지통 영구 삭제 확인 팝업 대상([모두 삭제]·Delete 키 공용). null 이면 안 뜬다. */
   trashPurgeTarget: { ids: string[] } | null;
+  /**
+   * §5.19 (B) — All Model 설치 창. **그 버블에 매인다**(좌표 ❌ — 버블은 이미 캔버스에 있다).
+   * 엔진 받기 → 모델 받기 → 고르기를 차례로 흘려보내고, 끝나면 그 버블의 IDE 를 연다.
+   */
+  localModelWindow: { agentId: string } | null;
+  openLocalModelWindow: (agentId: string) => void;
+  closeLocalModelWindow: () => void;
   requestTrashPurge: (ids: string[]) => void;
   closeTrashPurge: () => void;
 
@@ -1300,6 +1466,16 @@ interface GraphState {
   setActiveProject: (name: string) => void;
   /** v1.63: projectId(경로) 로 닫기. name 은 로컬 활성탭 전환용 표시명(생략 시 역추론). */
   closeProject: (projectId: string, name?: string) => Promise<void>;
+  /**
+   * SCENARIO.md §5.4 #14 v1.34 — **닫는 중인 프로젝트 경로**(정규화 키). 탭바가 이 집합의 탭을
+   * 렌더에서 제외해, 사용자가 × 를 누른 **그 프레임에** 탭이 사라진다(서버 왕복·스냅샷 배치 창을
+   * 기다리지 않는다 — `detachedTabKeys` 와 같은 방식). 서버 truth 에서 그 프로젝트가 실제로
+   * 빠지면 표시를 해제하고(`applyStubProjects`), 서버가 닫기를 거절하면 즉시 해제해 탭을 되돌린다.
+   * 값은 표시를 세운 시각(ms) — 서버가 끝내 그 프로젝트를 계속 실어 보내면(닫기 실패) 유예가 지난 뒤
+   * 표시를 걷어 **서버 truth 를 보여준다**. 탭이 영영 안 보이는 상태로 갇히지 않게 하는 안전판이다.
+   * 영속화 ❌(왕복 동안만 사는 표시).
+   */
+  closingProjectPaths: Record<string, number>;
   /** stub 프로젝트 hydrate 요청 — WS hydrate-project 발송 + pending 상태 set */
   hydrateProject: (name: string) => void;
   /** WS send 함수 등록 — useWebSocket 훅에서 연결 후 호출 */
@@ -1330,6 +1506,17 @@ interface GraphState {
   createCustomAgent: (canvasX: number, canvasY: number) => void;
   /** §4 v2.63 — CMD(인터랙티브 터미널) 에이전트 생성. 커스텀 에이전트 기반 + executionMode baked. */
   createCmdAgent: (canvasX: number, canvasY: number) => void;
+  /**
+   * §5.19 (B) — All Model(로컬 LLM) 에이전트 생성. 커스텀 에이전트 기반 + provider baked.
+   * **모델 없이 먼저 놓는다** — 우클릭으로 고른 순간 버블이 생기고, 엔진·모델 준비는 그 버블을
+   * 눌렀을 때 판정한다(진입 순서 역전).
+   */
+  createLocalAgent: (canvasX: number, canvasY: number) => void;
+  /**
+   * §5.19 (B) — 이 버블이 물 모델을 정한다(설치 창에서 고르거나, 받아 둔 게 있으면 자동으로).
+   * 성공하면 그 버블의 IDE 가 열린다 — 준비의 끝이 곧 대화의 시작이다.
+   */
+  bindLocalModel: (agentId: string, modelId: string, modelName: string) => void;
   /** §5.3 #10-2 v2.37 — Auto Agent 메타 버블 생성 */
   createAutoAgent: (canvasX: number, canvasY: number) => void;
   /** §5.3 #10-2 v2.37 — Auto Agent 에게 자연어 메시지 → 서버 spawn + dispatch */
@@ -1513,6 +1700,8 @@ interface GraphState {
   applyAgentQuestions: (questions: Record<string, AgentQuestions[]> | undefined) => void;
   /** §4 v2.70 — graph_snapshot 의 에이전트 검수 요청 카드 반영. */
   applyAgentReviews: (reviews: Record<string, AgentReview[]> | undefined) => void;
+  /** §5.16 — graph_snapshot 의 리뷰·승인 레인 반영(서버가 매 스냅샷에 전량을 싣는다). */
+  applyReviewRequests: (list: ReviewRequest[] | undefined) => void;
   /** §4 v2.84 — graph_snapshot 의 에이전트 번호 목록 정렬 카드 반영. */
   applyAgentLists: (lists: Record<string, AgentList[]> | undefined) => void;
   /** §4 v3.21 — graph_snapshot 의 에이전트 피드백 반영. */
@@ -1589,6 +1778,11 @@ interface GraphState {
   applyDiagnosticLog: (log: DiagnosticEntry[] | undefined) => void;
   /** §4 v2.38 — graph_snapshot 또는 model_registry_updated 수신 시 레지스트리 반영. */
   applyModelRegistry: (reg: ModelRegistry | undefined) => void;
+  /** §5.19 — 스냅샷의 로컬 LLM 상태 반영. */
+  applyLocalLlm: (state: LocalLlmState | undefined) => void;
+  /** §5.19 — WS 진행 push 를 같은 슬라이스에 얹는다(스냅샷을 기다리지 않고 막대가 움직이게). */
+  applyLocalEngineProgress: (p: LocalEngineProgress) => void;
+  applyLocalModelProgress: (p: LocalModelDownloadProgress) => void;
   /** §4 v2.42 — graph_snapshot 또는 user_defaults_updated 수신 시 옵션 반영. */
   applyUserDefaults: (d: UserDefaults | undefined) => void;
   /** UI에서 언어 변경 요청 — 서버 PUT /api/ui-locale 후 성공 시 applyUiLocale 호출. */
@@ -1642,9 +1836,56 @@ interface GraphState {
   dismissClaudeVersion: () => void;
 }
 
+/**
+ * §5.21 — 비용 지도가 실제로 달라졌는지 판별하는 지문.
+ * 프로젝트별 갱신 시각과 줄 수만 보면 충분하다 — 값이 바뀌면 서버가 updatedAt 을 올린다.
+ */
+/**
+ * §5.22 — 감사 원장 지문. 프로젝트별 갱신 시각과 줄 수·집계만 보면 충분하다
+ * (결정이 적히면 `counts` 가 움직이고, 줄이 늘면 길이가 움직인다).
+ */
+function auditLogFingerprint(list: readonly ProjectAuditLog[]): string {
+  return list
+    .map((l) => `${l.projectName}:${l.updatedAt}:${l.entries.length}:${l.counts.denied}:${l.counts.escalated}:${l.boundary.escalateRisky ? 1 : 0}`)
+    .join('|');
+}
+
+function costMapFingerprint(list: readonly ProjectCostMap[]): string {
+  return list.map((m) => `${m.projectName}:${m.updatedAt}:${m.sessions.length}:${m.agents.length}`).join('|');
+}
+
+/**
+ * §5.4 #14 v1.34 — 닫는 중 표시(`closingProjectPaths`)를 서버 truth 로 정리한다(순수 함수).
+ * 규칙은 둘뿐이다:
+ *   ① 서버 목록에서 **사라졌으면** 닫힌 것이니 표시를 걷는다(이후엔 서버 truth 가 곧 화면).
+ *   ② 유예(`CLOSING_TAB_GRACE_MS`)가 지나도 **여전히 실려 오면** 닫기가 안 먹은 것이므로 표시를 걷어
+ *      탭을 되돌린다 — 표시를 붙든 채로 두면 실재하는 탭이 영영 안 보이는 상태로 갇힌다.
+ * 바뀐 게 없으면 **원래 참조를 그대로** 돌려준다(스냅샷마다 새 객체를 만들면 구독이 헛돈다).
+ */
+export const CLOSING_TAB_GRACE_MS = 5000;
+
+export function pruneClosingProjects(
+  closing: Record<string, number>,
+  presentPaths: readonly string[],
+  now: number = Date.now(),
+): Record<string, number> {
+  const keys = Object.keys(closing);
+  if (keys.length === 0) return closing;
+  const present = new Set(presentPaths.map(npStore));
+  let changed = false;
+  const next: Record<string, number> = {};
+  for (const key of keys) {
+    const at = closing[key]!;
+    if (!present.has(key) || now - at > CLOSING_TAB_GRACE_MS) { changed = true; continue; }
+    next[key] = at;
+  }
+  return changed ? next : closing;
+}
+
 export const useGraphStore = create<GraphState>((set, get) => ({
   projects: {},
   stubProjects: {},
+  closingProjectPaths: {},
   hydratingProjects: {},
   _wsSend: null,
   _registerWsSend: (fn) => set({ _wsSend: fn }),
@@ -2025,6 +2266,8 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       captureBubbles: s.captureBubbles.filter((b) => b.id !== id),
       selectedCaptureBubbleId: s.selectedCaptureBubbleId === id ? null : s.selectedCaptureBubbleId,
     }));
+    // §5.9 플레이테스트 — 이 버블의 녹화 클립(렌더러 메모리 Blob)을 함께 반납한다.
+    clearCapturePlaytest(id);
     try {
       await fetch(`${API_BASE}/api/capture-bubbles/${id}`, { method: 'DELETE' });
     } catch { /* 재연결 후 다음 snapshot 에서 동기화 */ }
@@ -2078,6 +2321,9 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     selectedCommentBoxId: null,
     selectedCaptureBubbleId: null,
     selectedAppBubbleId: null,
+    selectedSpecDocId: null,
+    selectedLabRunId: null,
+    selectedShelfBubbleId: null,
   }),
   createPlayBubble: async (input) => {
     try {
@@ -2216,6 +2462,8 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     selectedCaptureBubbleId: null,
     selectedAppBubbleId: null,
     selectedPlayBubbleId: null,
+    selectedLabRunId: null,
+    selectedShelfBubbleId: null,
   }),
   specBoardOpenId: null,
   openSpecBoard: (id) => set({ specBoardOpenId: id }),
@@ -2317,6 +2565,394 @@ export const useGraphStore = create<GraphState>((set, get) => ({
         : d)),
     }));
   },
+
+  // ─── §5.18 에이전트 랩 (스펙 보드 패턴 — 낙관 반영 + 드래그 락이 한 쌍) ───
+  labRuns: [],
+  applyLabRuns: (list) => set((s) => {
+    const keepSelected = s.selectedLabRunId !== null && list.some((r) => r.id === s.selectedLabRunId)
+      ? s.selectedLabRunId
+      : null;
+    // 패널이 열려 있던 랩이 사라졌으면 패널도 닫는다(빈 오버레이가 남지 않게).
+    const keepOpen = s.labPanelOpenId !== null && list.some((r) => r.id === s.labPanelOpenId)
+      ? s.labPanelOpenId
+      : null;
+    if (s.draggingLabRunIds.length === 0) {
+      return { labRuns: list, selectedLabRunId: keepSelected, labPanelOpenId: keepOpen };
+    }
+    const locked = new Map<string, LabRun>();
+    for (const id of s.draggingLabRunIds) {
+      const local = s.labRuns.find((r) => r.id === id);
+      if (local) locked.set(id, local);
+    }
+    if (locked.size === 0) {
+      return { labRuns: list, selectedLabRunId: keepSelected, labPanelOpenId: keepOpen };
+    }
+    return {
+      labRuns: list.map((r) => {
+        const local = locked.get(r.id);
+        if (!local) return r;
+        return { ...r, x: local.x, y: local.y, width: local.width, height: local.height };
+      }),
+      selectedLabRunId: keepSelected,
+      labPanelOpenId: keepOpen,
+    };
+  }),
+  patchLabRunLocal: (id, updates) => set((s) => ({
+    labRuns: s.labRuns.map((r) => (r.id === id ? { ...r, ...updates } : r)),
+  })),
+  draggingLabRunIds: [],
+  setLabRunDragLock: (id, on) => set((s) => {
+    const has = s.draggingLabRunIds.includes(id);
+    if (on && !has) return { draggingLabRunIds: [...s.draggingLabRunIds, id] };
+    if (!on && has) return { draggingLabRunIds: s.draggingLabRunIds.filter((x) => x !== id) };
+    return s;
+  }),
+  selectedLabRunId: null,
+  // 다른 선택과 배타 — 캔버스의 선택은 언제나 하나여야 Delete 키가 무엇을 지울지 헷갈리지 않는다.
+  selectLabRun: (id) => set({
+    selectedLabRunId: id,
+    selectedNodeId: null,
+    selectIntentId: null,
+    selectedTaskEdgeId: null,
+    selectedCommentBoxId: null,
+    selectedCaptureBubbleId: null,
+    selectedAppBubbleId: null,
+    selectedPlayBubbleId: null,
+    selectedSpecDocId: null,
+  }),
+  labPanelOpenId: null,
+  openLabPanel: (id) => set({ labPanelOpenId: id }),
+  closeLabPanel: () => set({ labPanelOpenId: null }),
+  createLabRun: async (input) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/lab-runs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+      if (!res.ok) return null;
+      const data = await res.json() as { ok: boolean; data?: LabRun };
+      const run = data.data ?? null;
+      if (run) {
+        set((s) => (s.labRuns.some((r) => r.id === run.id) ? s : { labRuns: [...s.labRuns, run] }));
+      }
+      return run;
+    } catch {
+      return null;
+    }
+  },
+  updateLabRun: async (id, updates) => {
+    set((s) => ({ labRuns: s.labRuns.map((r) => (r.id === id ? { ...r, ...updates } : r)) }));
+    try {
+      const res = await fetch(`${API_BASE}/api/lab-runs/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      });
+      if (!res.ok) return;
+      // 도는 중에는 서버가 과제 변경을 거절한다 — 응답으로 덮어 로컬 낙관값을 진실로 되돌린다.
+      const data = await res.json() as { ok: boolean; data?: LabRun };
+      const run = data.data;
+      if (run) set((s) => ({ labRuns: s.labRuns.map((r) => (r.id === id ? run : r)) }));
+    } catch { /* 다음 스냅샷이 진실 */ }
+  },
+  setLabVariants: async (id, variants) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/lab-runs/${id}/variants`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ variants }),
+      });
+      if (!res.ok) return;
+      const data = await res.json() as { ok: boolean; data?: LabRun };
+      const run = data.data;
+      if (run) set((s) => ({ labRuns: s.labRuns.map((r) => (r.id === id ? run : r)) }));
+    } catch { /* 다음 스냅샷이 진실 */ }
+  },
+  addLabVariant: async (id, label, config) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/lab-runs/${id}/variants`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...(label ? { label } : {}), ...(config ? { config } : {}) }),
+      });
+      if (!res.ok) return;
+      const data = await res.json() as { ok: boolean; data?: LabRun };
+      const run = data.data;
+      if (run) set((s) => ({ labRuns: s.labRuns.map((r) => (r.id === id ? run : r)) }));
+    } catch { /* 다음 스냅샷이 진실 */ }
+  },
+  removeLabVariant: async (id, variantId) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/lab-runs/${id}/variants/${variantId}`, { method: 'DELETE' });
+      if (!res.ok) return;
+      const data = await res.json() as { ok: boolean; data?: LabRun };
+      const run = data.data;
+      if (run) set((s) => ({ labRuns: s.labRuns.map((r) => (r.id === id ? run : r)) }));
+    } catch { /* 다음 스냅샷이 진실 */ }
+  },
+  startLabRun: async (id, variantIds) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/lab-runs/${id}/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(variantIds ? { variantIds } : {}),
+      });
+      if (!res.ok) return false;
+      const data = await res.json() as { ok: boolean; data?: LabRun };
+      const run = data.data;
+      if (run) set((s) => ({ labRuns: s.labRuns.map((r) => (r.id === id ? run : r)) }));
+      return true;
+    } catch {
+      return false;
+    }
+  },
+  promoteLabVariant: async (id, variantId, targetAgentId) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/lab-runs/${id}/variants/${variantId}/promote`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(targetAgentId ? { targetAgentId } : {}),
+      });
+      if (!res.ok) return false;
+      const data = await res.json() as { ok: boolean; data?: LabRun };
+      const run = data.data;
+      if (run) set((s) => ({ labRuns: s.labRuns.map((r) => (r.id === id ? run : r)) }));
+      return true;
+    } catch {
+      return false;
+    }
+  },
+  deleteLabRun: async (id) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/lab-runs/${id}`, { method: 'DELETE' });
+      if (!res.ok) return false; // 409 = 핀으로 보호됨, 404 = 이미 없음
+    } catch {
+      return false;
+    }
+    set((s) => ({
+      labRuns: s.labRuns.filter((r) => r.id !== id),
+      selectedLabRunId: s.selectedLabRunId === id ? null : s.selectedLabRunId,
+      labPanelOpenId: s.labPanelOpenId === id ? null : s.labPanelOpenId,
+    }));
+    return true;
+  },
+
+  // ─── §5.21 비용·토큰 지도 ───
+  costMaps: [],
+  applyCostMaps: (list) => set((s) => {
+    // 스냅샷은 매 브로드캐스트마다 새 배열을 싣지만 지도는 20초마다만 바뀐다. 참조를 그대로
+    // 갈아 끼우면 모든 버블이 브로드캐스트마다 다시 그려지므로, 내용이 같으면 손대지 않는다.
+    if (costMapFingerprint(s.costMaps) === costMapFingerprint(list)) return s;
+    return { costMaps: list };
+  }),
+
+  // ─── §5.22 권한·감사 경계 ───
+  auditLogs: [],
+  applyAuditLogs: (list) => set((s) => {
+    // 원장은 도구 호출이 있을 때만 바뀐다. 내용이 같으면 참조를 갈아 끼우지 않는다
+    // (비용 지도와 같은 이유 — 브로드캐스트마다 헤더·팝업이 다시 그려지는 것을 막는다).
+    if (auditLogFingerprint(s.auditLogs) === auditLogFingerprint(list)) return s;
+    return { auditLogs: list };
+  }),
+  auditPopupOpen: false,
+  setAuditPopupOpen: (open) => set({ auditPopupOpen: open }),
+  setAuditBoundary: async (projectName, patch) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/audit-boundary/${encodeURIComponent(projectName)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      });
+      if (!res.ok) return;
+      // 서버가 broadcastSnapshot 하므로 여기서 상태를 직접 만지지 않는다(§3.1).
+    } catch {
+      // 서버 끊김 — 다음 스냅샷에서 실제 상태가 온다.
+    }
+  },
+
+  // ─── §5.20 스크립트 선반 (Shelf) ───
+  shelfBubbles: [],
+  applyShelfBubbles: (list) => set((s) => {
+    const keepSelected = s.selectedShelfBubbleId !== null && list.some((b) => b.id === s.selectedShelfBubbleId)
+      ? s.selectedShelfBubbleId
+      : null;
+    // 패널이 열려 있던 선반이 사라졌으면 패널도 닫는다(빈 오버레이가 남지 않게).
+    const keepOpen = s.shelfPanelOpenId !== null && list.some((b) => b.id === s.shelfPanelOpenId)
+      ? s.shelfPanelOpenId
+      : null;
+    if (s.draggingShelfBubbleIds.length === 0) {
+      return { shelfBubbles: list, selectedShelfBubbleId: keepSelected, shelfPanelOpenId: keepOpen };
+    }
+    // 드래그 중인 선반은 좌표만 손끝 값을 지킨다(항목·결과는 서버 값이 진실).
+    const locked = new Map<string, ShelfBubble>();
+    for (const id of s.draggingShelfBubbleIds) {
+      const local = s.shelfBubbles.find((b) => b.id === id);
+      if (local) locked.set(id, local);
+    }
+    if (locked.size === 0) {
+      return { shelfBubbles: list, selectedShelfBubbleId: keepSelected, shelfPanelOpenId: keepOpen };
+    }
+    return {
+      shelfBubbles: list.map((b) => {
+        const local = locked.get(b.id);
+        if (!local) return b;
+        return { ...b, x: local.x, y: local.y, width: local.width, height: local.height };
+      }),
+      selectedShelfBubbleId: keepSelected,
+      shelfPanelOpenId: keepOpen,
+    };
+  }),
+  patchShelfBubbleLocal: (id, updates) => set((s) => ({
+    shelfBubbles: s.shelfBubbles.map((b) => (b.id === id ? { ...b, ...updates } : b)),
+  })),
+  draggingShelfBubbleIds: [],
+  setShelfBubbleDragLock: (id, on) => set((s) => {
+    const has = s.draggingShelfBubbleIds.includes(id);
+    if (on && !has) return { draggingShelfBubbleIds: [...s.draggingShelfBubbleIds, id] };
+    if (!on && has) return { draggingShelfBubbleIds: s.draggingShelfBubbleIds.filter((x) => x !== id) };
+    return s;
+  }),
+  selectedShelfBubbleId: null,
+  // 다른 선택과 배타 — 캔버스의 선택은 언제나 하나여야 Delete 키가 무엇을 지울지 헷갈리지 않는다.
+  selectShelfBubble: (id) => set({
+    selectedShelfBubbleId: id,
+    selectedNodeId: null,
+    selectIntentId: null,
+    selectedTaskEdgeId: null,
+    selectedCommentBoxId: null,
+    selectedCaptureBubbleId: null,
+    selectedAppBubbleId: null,
+    selectedPlayBubbleId: null,
+    selectedSpecDocId: null,
+    selectedLabRunId: null,
+  }),
+  shelfPanelOpenId: null,
+  openShelfPanel: (id) => set({ shelfPanelOpenId: id }),
+  closeShelfPanel: () => set({ shelfPanelOpenId: null }),
+  createShelfBubble: async (input) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/shelf-bubbles`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+      if (!res.ok) return null;
+      const data = await res.json() as { ok: boolean; data?: ShelfBubble };
+      const bubble = data.data ?? null;
+      if (bubble) {
+        set((s) => (s.shelfBubbles.some((b) => b.id === bubble.id) ? s : { shelfBubbles: [...s.shelfBubbles, bubble] }));
+      }
+      return bubble;
+    } catch {
+      return null;
+    }
+  },
+  updateShelfBubble: async (id, updates) => {
+    set((s) => ({ shelfBubbles: s.shelfBubbles.map((b) => (b.id === id ? { ...b, ...updates } : b)) }));
+    try {
+      const res = await fetch(`${API_BASE}/api/shelf-bubbles/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      });
+      if (!res.ok) return;
+      const data = await res.json() as { ok: boolean; data?: ShelfBubble };
+      const bubble = data.data;
+      if (bubble) set((s) => ({ shelfBubbles: s.shelfBubbles.map((b) => (b.id === id ? bubble : b)) }));
+    } catch { /* 다음 스냅샷이 진실 */ }
+  },
+  addShelfItem: async (id, draft) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/shelf-bubbles/${id}/items`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(draft),
+      });
+      if (!res.ok) return;
+      const data = await res.json() as { ok: boolean; data?: ShelfBubble };
+      const bubble = data.data;
+      if (bubble) set((s) => ({ shelfBubbles: s.shelfBubbles.map((b) => (b.id === id ? bubble : b)) }));
+    } catch { /* 다음 스냅샷이 진실 */ }
+  },
+  updateShelfItem: async (id, itemId, updates) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/shelf-bubbles/${id}/items/${itemId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      });
+      if (!res.ok) return;
+      const data = await res.json() as { ok: boolean; data?: ShelfBubble };
+      const bubble = data.data;
+      if (bubble) set((s) => ({ shelfBubbles: s.shelfBubbles.map((b) => (b.id === id ? bubble : b)) }));
+    } catch { /* 다음 스냅샷이 진실 */ }
+  },
+  removeShelfItem: async (id, itemId) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/shelf-bubbles/${id}/items/${itemId}`, { method: 'DELETE' });
+      if (!res.ok) return;
+      const data = await res.json() as { ok: boolean; data?: ShelfBubble };
+      const bubble = data.data;
+      if (bubble) set((s) => ({ shelfBubbles: s.shelfBubbles.map((b) => (b.id === id ? bubble : b)) }));
+    } catch { /* 다음 스냅샷이 진실 */ }
+  },
+  reorderShelfItems: async (id, order) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/shelf-bubbles/${id}/items/order`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order }),
+      });
+      if (!res.ok) return;
+      const data = await res.json() as { ok: boolean; data?: ShelfBubble };
+      const bubble = data.data;
+      if (bubble) set((s) => ({ shelfBubbles: s.shelfBubbles.map((b) => (b.id === id ? bubble : b)) }));
+    } catch { /* 다음 스냅샷이 진실 */ }
+  },
+  runShelfItem: async (id, itemId) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/shelf-bubbles/${id}/items/${itemId}/run`, { method: 'POST' });
+      if (!res.ok) return false;
+      const data = await res.json() as { ok: boolean; data?: ShelfBubble };
+      const bubble = data.data;
+      if (bubble) set((s) => ({ shelfBubbles: s.shelfBubbles.map((b) => (b.id === id ? bubble : b)) }));
+      return true;
+    } catch {
+      return false;
+    }
+  },
+  importShelfItems: async (id, payload, replace) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/shelf-bubbles/${id}/import`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ payload, replace }),
+      });
+      if (!res.ok) return null;
+      const data = await res.json() as { ok: boolean; data?: ShelfBubble; added?: number; dropped?: number };
+      const bubble = data.data;
+      if (bubble) set((s) => ({ shelfBubbles: s.shelfBubbles.map((b) => (b.id === id ? bubble : b)) }));
+      return { added: data.added ?? 0, dropped: data.dropped ?? 0 };
+    } catch {
+      return null;
+    }
+  },
+  deleteShelfBubble: async (id) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/shelf-bubbles/${id}`, { method: 'DELETE' });
+      if (!res.ok) return false; // 409 = 핀으로 보호됨, 404 = 이미 없음
+    } catch {
+      return false;
+    }
+    set((s) => ({
+      shelfBubbles: s.shelfBubbles.filter((b) => b.id !== id),
+      selectedShelfBubbleId: s.selectedShelfBubbleId === id ? null : s.selectedShelfBubbleId,
+      shelfPanelOpenId: s.shelfPanelOpenId === id ? null : s.shelfPanelOpenId,
+    }));
+    return true;
+  },
+
   activeProject: null,
   currentProject: null,
   currentFolderId: null,
@@ -2351,11 +2987,13 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   agentReports: {},
   agentQuestions: {},
   agentReviews: {},
+  reviewRequests: [],
   agentLists: {},
   agentFeedbacks: {},
   sessionLoops: {},
   sessionGoals: {},
   modelRegistry: null,
+  localLlm: null,
   userDefaults: null,
   rateLimits: null,
   claudeUsage: null,
@@ -2363,6 +3001,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   diagnosticLog: [],
   contiBoardOpen: null,
   imageLightbox: null,
+  workspaceImageSavedAt: {},
   contiGenerating: {},
   contiElementPatching: {},
   agentInputDrafts: {},
@@ -2443,9 +3082,17 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   },
   openContiBoard: (agentId, contiId) => set({ contiBoardOpen: { agentId, contiId } }),
   closeContiBoard: () => set({ contiBoardOpen: null }),
-  openImageLightbox: (url, attachment) =>
-    set({ imageLightbox: attachment ? { url, attachment } : { url } }),
+  openImageLightbox: (url, attachment, workspace) =>
+    set({
+      imageLightbox: {
+        url,
+        ...(attachment ? { attachment } : {}),
+        ...(workspace ? { workspace } : {}),
+      },
+    }),
   closeImageLightbox: () => set({ imageLightbox: null }),
+  markWorkspaceImageSaved: (relPath) =>
+    set((s) => ({ workspaceImageSavedAt: { ...s.workspaceImageSavedAt, [relPath]: Date.now() } })),
   generateConti: async (agentId) => {
     set((s) => ({ contiGenerating: { ...s.contiGenerating, [agentId]: true } }));
     try {
@@ -2524,6 +3171,54 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       });
     } catch { /* snapshot 으로 자연 reconcile */ }
   },
+  contiScriptGenerating: {},
+  generateContiFromScript: async (agentId, script, presetId, frameCount) => {
+    set((s) => ({ contiScriptGenerating: { ...s.contiScriptGenerating, [agentId]: true } }));
+    try {
+      const r = await fetch(`${API_BASE}/api/conti/from-script`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId, script, presetId, ...(frameCount ? { frameCount } : {}) }),
+      });
+      const body = (await r.json()) as { ok?: boolean; error?: string; conti?: { id: string } };
+      if (!r.ok || !body.ok || !body.conti) {
+        return { ok: false as const, error: body.error ?? `실패 (${r.status})` };
+      }
+      return { ok: true as const, contiId: body.conti.id };
+    } catch (err) {
+      return { ok: false as const, error: err instanceof Error ? err.message : String(err) };
+    } finally {
+      set((s) => {
+        const next = { ...s.contiScriptGenerating };
+        delete next[agentId];
+        return { contiScriptGenerating: next };
+      });
+    }
+  },
+  setContiPreset: async (contiId, presetId) => {
+    // 낙관적 로컬 반영 — 셀렉터가 즉시 바뀌고 다음 snapshot 으로 reconcile.
+    set((s) => {
+      const c = s.contis[contiId];
+      if (!c) return s;
+      return { contis: { ...s.contis, [contiId]: { ...c, presetId } } };
+    });
+    try {
+      await fetch(`${API_BASE}/api/conti/${encodeURIComponent(contiId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ presetId }),
+      });
+    } catch { /* snapshot 으로 자연 reconcile */ }
+  },
+  linkContiRender: async (contiId, link) => {
+    try {
+      await fetch(`${API_BASE}/api/conti/${encodeURIComponent(contiId)}/render-link`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(link),
+      });
+    } catch { /* 표시용 기록이라 실패해도 렌더 자체는 이미 걸렸다 */ }
+  },
   agentPhase: 'waiting',
   activeAgentCount: 0,
   pendingFocus: false,
@@ -2571,46 +3266,20 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       }
     }
 
-    // 서브에이전트 ack 상태 diff — active → idle 전이는 ack 해제(다음 완료는 다시 녹색),
-    // 스냅샷에서 사라진 sub 은 ack 집합에서도 정리.
-    const prevSubStatusById: Record<string, SubAgent['status']> = {};
+    // 서브에이전트 ack 상태 diff — 규칙은 `stores/subAckDiff.ts` 가 단독 소유한다(순수 함수 + 테스트).
+    //   ① active → idle 전이 = 새 완료 → ack 해제(다시 녹색).
+    //   ② **실제로 닫힌** 세션만 집합에서 정리 — 스코프드 스냅샷(§9)에서 배경 프로젝트가 통째로
+    //      빠지는 침묵을 "닫혔다"로 읽으면 확인해 둔 세션이 저절로 녹색으로 되돌아간다.
     set((state) => {
-      for (const list of Object.values(state.subAgents)) {
-        for (const s of list) prevSubStatusById[s.id] = s.status;
-      }
-      const currentSubIds = new Set<string>();
-      for (const list of Object.values(subAgents)) {
-        for (const s of list) currentSubIds.add(s.id);
-      }
-      let nextAck = state.acknowledgedSubAgents;
-      let ackChanged = false;
-      const ensureClone = (): void => {
-        if (!ackChanged) { nextAck = { ...state.acknowledgedSubAgents }; ackChanged = true; }
-      };
-      for (const list of Object.values(subAgents)) {
-        for (const s of list) {
-          const prev = prevSubStatusById[s.id];
-          // active → idle: 새 완료 — 다음 사용자 확인 전까진 unacked(녹색) 유지.
-          if (prev === 'active' && s.status === 'idle' && nextAck[s.id]) {
-            ensureClone();
-            delete nextAck[s.id];
-          }
-        }
-      }
-      // "스냅샷에서 사라진 sub 은 ack 정리" — 단, **직전 상태에 있던(=우리가 인지하던) sub 이
-      // 이번 스냅샷에서 빠진 경우만** 정리한다.
-      // getSnapshot 의 subAgents 는 그 시점에 hydrate 된 프로젝트 인스턴스들의 합집합이라,
-      // 부팅 직후(인스턴스 복원 전)나 타 프로젝트 미hydrate 상태에선 비거나 부분적이다.
-      // "이번 스냅샷에 없다" 만으로 지우면 localStorage 에서 로드한, 아직 한 번도 못 본 ack 를
-      // 전부 삭제 → 그 빈 값이 디스크에 덮여 "재시작하면 또 전부 녹색" 이 재발한다.
-      // prevSubStatusById 에 있던 것만 = 실제로 닫혀 사라진 것만 정리해 이 오삭제를 막는다.
-      for (const id of Object.keys(nextAck)) {
-        if (prevSubStatusById[id] !== undefined && !currentSubIds.has(id)) {
-          ensureClone();
-          delete nextAck[id];
-        }
-      }
-      // ack 변동(완료 재발생으로 해제 / 사라진 sub 정리)을 localStorage 에 반영 — 재시작 후 색 유지.
+      const nextAckResult = diffSubAcknowledgements({
+        prevSubAgents: state.subAgents,
+        nextSubAgents: subAgents,
+        presentAgentIds: agents.map((a) => a.id),
+        acknowledged: state.acknowledgedSubAgents,
+      });
+      const ackChanged = nextAckResult !== null;
+      const nextAck = nextAckResult ?? state.acknowledgedSubAgents;
+      // ack 변동(완료 재발생으로 해제 / 닫힌 sub 정리)을 localStorage 에 반영 — 재시작 후 색 유지.
       if (ackChanged) saveJSON(ACK_SUBAGENTS_KEY, nextAck);
       const saved = loadSavedActiveProject();
       // Default Tabbar 탭 중 프로젝트 타입만 부트 폴백 후보로 사용 (iframe은 세션 한정이라 재접속 시 복원 대상 아님)
@@ -2819,42 +3488,62 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     }));
   },
   closeProject: async (projectId, name) => {
+    // 표시명(로컬 활성탭 전환용) — 생략 시 projectId 로 역추론.
+    const s0 = get();
+    const pk = npStore(projectId);
+    const displayName = name
+      ?? Object.keys(s0.projects).find((k) => npStore(s0.projects[k]!.path) === pk)
+      ?? Object.keys(s0.stubProjects).find((k) => npStore(s0.stubProjects[k]!.project.path) === pk)
+      ?? projectId;
+
+    // §5.4 #14 v1.34 — **× 를 누른 즉시 탭이 사라진다.** 종전엔 DELETE 응답 + 스냅샷 배치 창
+    //   (§9 부하 적응형, 최대 250ms)을 기다린 뒤에야 목록이 갱신돼 "눌렀는데 그대로"로 보였다.
+    //   닫는 중 표시를 먼저 세워 탭바에서 빼고, 활성 탭이었다면 옆 탭으로 그 자리에서 옮긴다.
+    set((state) => {
+      const closing: Record<string, number> = { ...state.closingProjectPaths, [pk]: Date.now() };
+      if (state.activeProject !== displayName) return { closingProjectPaths: closing };
+      // 다음 활성 탭 — 닫는 중인 것들은 후보에서 뺀다(연속으로 닫아도 사라진 탭으로 넘어가지 않게).
+      const alive = (p: string, path: string | undefined): boolean =>
+        p !== displayName && !!path && !closing[npStore(path)];
+      const nextHydrated = Object.keys(state.projects).find((p) => alive(p, state.projects[p]?.path)) ?? null;
+      const nextStub = Object.keys(state.stubProjects).find((p) => alive(p, state.stubProjects[p]?.project.path)) ?? null;
+      const next = nextHydrated ?? nextStub;
+      saveActiveProject(next);
+      return {
+        closingProjectPaths: closing,
+        activeProject: next,
+        currentProject: next ? (state.projects[next] ?? null) : null,
+        currentFolderId: null,
+        navStack: [],
+        selectedNodeId: null,
+        selectIntentId: null,
+      };
+    });
+
+    // 닫는 중 표시 해제 — 서버가 닫기를 받아주지 않았을 때 탭을 되돌리는 유일한 경로.
+    const unmark = (): void => set((state) => {
+      if (!state.closingProjectPaths[pk]) return {};
+      const next = { ...state.closingProjectPaths };
+      delete next[pk];
+      return { closingProjectPaths: next };
+    });
+
     try {
-      // 표시명(로컬 활성탭 전환용) — 생략 시 projectId 로 역추론.
-      const s0 = get();
-      const pk = npStore(projectId);
-      const displayName = name
-        ?? Object.keys(s0.projects).find((k) => npStore(s0.projects[k]!.path) === pk)
-        ?? Object.keys(s0.stubProjects).find((k) => npStore(s0.stubProjects[k]!.project.path) === pk)
-        ?? projectId;
       // v1.63: 식별 = projectId(경로). 서버 resolveProjectRef 가 path 를 해소.
       const res = await fetch(`${API_BASE}/api/projects/${encodeURIComponent(projectId)}`, { method: 'DELETE' });
-      if (!res.ok) return;
-      // 닫은 프로젝트가 활성 탭이면 다른 프로젝트로 전환
-      const state = get();
-      if (state.activeProject === displayName) {
-        const remaining = Object.keys(state.projects).filter((p) => p !== displayName);
-        // stub 프로젝트도 후보에 포함 (hydrated 없으면 stub 탭으로)
-        const nextHydrated = remaining[0] ?? null;
-        const nextStub = Object.keys(state.stubProjects)[0] ?? null;
-        const next = nextHydrated ?? nextStub;
-        saveActiveProject(next);
-        set({
-          activeProject: next,
-          currentProject: next ? (state.projects[next] ?? null) : null,
-          currentFolderId: null,
-          navStack: [],
-          selectedNodeId: null,
-          selectIntentId: null,
-        });
-      }
-      // unload-project WS 발송 — 서버가 인메모리 그래프 해제 + stub 강등 broadcast.
+      // 404 = 서버가 이미 모르는 프로젝트 = 닫힌 것이므로 표시를 걷지 않는다(같은 탭을 두 번
+      // 닫는 요청이 겹쳐도 탭이 도로 나타나지 않게). 그 밖의 실패만 되돌린다.
+      if (!res.ok) { if (res.status !== 404) unmark(); return; }
+      // unload-project WS 발송 — 서버가 인메모리 그래프 해제 + broadcast.
       // projectName 에 projectId(경로) 전달 — 서버 unloadProject 가 ref 해소.
       const wsSend = get()._wsSend;
       if (wsSend) {
         wsSend({ type: 'unload-project', timestamp: Date.now(), payload: { projectName: projectId } });
       }
-    } catch { /* 서버 응답 후 스냅샷이 오므로 별도 처리 불필요 */ }
+    } catch {
+      // 요청 자체가 못 나갔으면 서버는 아무것도 모른다 — 감춘 탭을 되돌린다.
+      unmark();
+    }
   },
   hydrateProject: (name) => {
     set((s) => {
@@ -2866,7 +3555,18 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       wsSend({ type: 'hydrate-project', timestamp: Date.now(), payload: { projectName: name } });
     }
   },
-  applyStubProjects: (stubs) => set({ stubProjects: stubs }),
+  // ⚠ 이 액션은 `loadSnapshot`(= 서버가 준 hydrated `projects`) **다음에** 불린다(useWebSocket).
+  //   닫는 중 표시를 그 두 목록의 합집합으로 정리하는 자리가 여기인 이유다 — stub 만 보고 판정하면
+  //   hydrated 로 살아 있는 프로젝트를 "사라졌다"로 읽는다.
+  applyStubProjects: (stubs) => set((state) => {
+    const closing = pruneClosingProjects(state.closingProjectPaths, [
+      ...Object.values(state.projects).map((p) => p.path),
+      ...Object.values(stubs).map((m) => m.project.path),
+    ]);
+    return closing === state.closingProjectPaths
+      ? { stubProjects: stubs }
+      : { stubProjects: stubs, closingProjectPaths: closing };
+  }),
   onProjectHydrated: (name, success, reason) => {
     set((s) => {
       const next = { ...s.hydratingProjects };
@@ -2899,14 +3599,14 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     });
   },
   setRunningServers: (servers: Record<string, ServerEntry[]>) => set({ runningServers: servers }),
-  selectNode: (id) => set({ selectedNodeId: id, selectIntentId: id, selectedTaskEdgeId: null, selectedCommentBoxId: null, selectedCaptureBubbleId: null, selectedAppBubbleId: null, selectedPlayBubbleId: null, selectedSpecDocId: null, selectedBrainCardId: null, selectedBrainCard: null }),
+  selectNode: (id) => set({ selectedNodeId: id, selectIntentId: id, selectedTaskEdgeId: null, selectedCommentBoxId: null, selectedCaptureBubbleId: null, selectedAppBubbleId: null, selectedPlayBubbleId: null, selectedSpecDocId: null, selectedLabRunId: null, selectedShelfBubbleId: null, selectedBrainCardId: null, selectedBrainCard: null }),
   setSelectIntent: (id) => set({ selectIntentId: id }),
-  selectTaskEdge: (id) => set({ selectedTaskEdgeId: id, selectedNodeId: null, selectIntentId: null, selectedCommentBoxId: null, selectedCaptureBubbleId: null, selectedAppBubbleId: null, selectedPlayBubbleId: null, selectedSpecDocId: null }),
-  selectCommentBox: (id) => set({ selectedCommentBoxId: id, selectedNodeId: null, selectIntentId: null, selectedTaskEdgeId: null, selectedCaptureBubbleId: null, selectedAppBubbleId: null, selectedPlayBubbleId: null, selectedSpecDocId: null }),
-  selectCaptureBubble: (id) => set({ selectedCaptureBubbleId: id, selectedNodeId: null, selectIntentId: null, selectedTaskEdgeId: null, selectedCommentBoxId: null, selectedAppBubbleId: null, selectedPlayBubbleId: null, selectedSpecDocId: null }),
+  selectTaskEdge: (id) => set({ selectedTaskEdgeId: id, selectedNodeId: null, selectIntentId: null, selectedCommentBoxId: null, selectedCaptureBubbleId: null, selectedAppBubbleId: null, selectedPlayBubbleId: null, selectedSpecDocId: null, selectedLabRunId: null, selectedShelfBubbleId: null }),
+  selectCommentBox: (id) => set({ selectedCommentBoxId: id, selectedNodeId: null, selectIntentId: null, selectedTaskEdgeId: null, selectedCaptureBubbleId: null, selectedAppBubbleId: null, selectedPlayBubbleId: null, selectedSpecDocId: null, selectedLabRunId: null, selectedShelfBubbleId: null }),
+  selectCaptureBubble: (id) => set({ selectedCaptureBubbleId: id, selectedNodeId: null, selectIntentId: null, selectedTaskEdgeId: null, selectedCommentBoxId: null, selectedAppBubbleId: null, selectedPlayBubbleId: null, selectedSpecDocId: null, selectedLabRunId: null, selectedShelfBubbleId: null }),
   // §5.13 (M) v4.61 — 앱 버블 선택. 다른 선택(노드·엣지·코멘트·캡처)과 배타 — 캔버스에서
   //   선택은 언제나 하나이고, 그래야 Delete 키가 무엇을 지울지 헷갈리지 않는다.
-  selectAppBubble: (id) => set({ selectedAppBubbleId: id, selectedNodeId: null, selectIntentId: null, selectedTaskEdgeId: null, selectedCommentBoxId: null, selectedCaptureBubbleId: null, selectedPlayBubbleId: null, selectedSpecDocId: null }),
+  selectAppBubble: (id) => set({ selectedAppBubbleId: id, selectedNodeId: null, selectIntentId: null, selectedTaskEdgeId: null, selectedCommentBoxId: null, selectedCaptureBubbleId: null, selectedPlayBubbleId: null, selectedSpecDocId: null, selectedLabRunId: null, selectedShelfBubbleId: null }),
   setAgentPhase: (phase) => set({ agentPhase: phase }),
 
   // 상태는 서버 스냅샷이 관리 — 클라이언트에서 덮어쓰지 않음
@@ -3272,13 +3972,58 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     set({ selectedNodeId: null, selectIntentId: null });
   },
   trashPurgeTarget: null,
+  localModelWindow: null,
   requestTrashPurge: (ids) => {
     const unique = [...new Set(ids.filter(Boolean))];
     if (unique.length === 0) return;
     set({ trashPurgeTarget: { ids: unique } });
   },
   closeTrashPurge: () => set({ trashPurgeTarget: null }),
+  openLocalModelWindow: (agentId) => set({ localModelWindow: { agentId } }),
+  closeLocalModelWindow: () => set({ localModelWindow: null }),
   // §4 v2.63 — CMD(인터랙티브 터미널) 에이전트. 동일 엔드포인트에 executionMode 플래그만 추가.
+  // §5.19 (B) — All Model. CMD 와 같은 엔드포인트에 provider 만 실어 보낸다(새 REST 발명 ❌).
+  //   모델은 아직 없다 — 빈 modelId 가 "아직 준비 중인 버블"이라는 정상 상태다.
+  createLocalAgent: (canvasX, canvasY) => {
+    const project = selectEffectiveProject(get());
+    fetch(`${API_BASE}/api/create-custom-agent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        label: '',
+        x: canvasX,
+        y: canvasY,
+        project,
+        provider: { kind: 'local-llama', modelId: '' },
+      }),
+    }).catch(() => {});
+  },
+  // §5.19 (B) — 모델 매기. 기존 `PUT /api/agent-config` 를 그대로 탄다(새 REST ❌).
+  //   ⚠ 이 PUT 은 body 로 config **전량을 재구축**한다 — 한 필드만 보내면 tools 가 [] 로 날아간다.
+  //   그래서 지금 설정을 통째로 스프레드한 위에 provider 만 얹는다.
+  bindLocalModel: (agentId, modelId, modelName) => {
+    const prev = get().agentConfigs[agentId];
+    if (!prev) return;
+    const provider = { ...(prev.provider ?? {}), kind: 'local-llama' as const, modelId, modelName };
+    fetch(`${API_BASE}/api/agent-config/${encodeURIComponent(agentId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...prev, provider }),
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error(String(res.status));
+        // 낙관 반영 — 서버 스냅샷을 기다리면 아래 openIDEOverlay 의 진입 판정이 아직 옛 설정을
+        // 보고 다시 'bind' 로 떨어져 같은 자리를 맴돈다(서버가 곧 같은 값을 덮어쓴다).
+        set((s) => ({
+          agentConfigs: { ...s.agentConfigs, [agentId]: { ...(s.agentConfigs[agentId] ?? prev), provider } },
+        }));
+        set({ localModelWindow: null });
+        get().openIDEOverlay(agentId);
+      })
+      // 매지 못했으면 **아무 일도 안 일어난 것처럼 두지 않는다** — 버블을 눌렀는데 조용한 화면이
+      // 남으면 사용자는 기능이 죽은 줄 안다. 설치 창을 열어 지금 상태를 그대로 보여 준다.
+      .catch(() => set({ localModelWindow: { agentId } }));
+  },
   createCmdAgent: (canvasX, canvasY) => {
     const project = selectEffectiveProject(get());
     fetch(`${API_BASE}/api/create-custom-agent`, {
@@ -3481,48 +4226,69 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     return { subAgentStreams: streams, streamLastActivity: lastActivity, deepRestoredSessions: deepRestored };
   }),
   ideOverlays: {},
-  openIDEOverlay: (agentId) => set((state) => {
-    // 우선순위: (1) 마지막 활성 서브에이전트 → (2) Default 서브에이전트 → (3) null
-    const subAgents = state.subAgents[agentId] ?? [];
-    const exists = (subId: string): boolean => subAgents.some((s) => s.id === subId);
-    const lastActive = state.selectedSubByAgent[agentId];
-    const defaultSub = state.defaultSubAgents[agentId];
-    const initialSession =
-      (lastActive && exists(lastActive) ? lastActive : null)
-      ?? (defaultSub && exists(defaultSub) ? defaultSub : null);
-    // IDE 오버레이는 "지금 보고 있는 창/탭"(activeProject) 슬롯에 산다. 다른 모든 IDE 오버레이
-    // 변경자(closeIDEOverlay/setIDEActiveSession/setIDEDocked/setIDEActiveView/toggleIDESidebar)가
-    // activeProject 를 쓰므로 open 도 반드시 일치해야 slot 이 맞물린다.
-    //   버그: 워크트리 버블로 이동(migration)한 커스텀 에이전트는 agentProjects[agentId] 가 워크트리
-    //   프로젝트명이 된다. 워크트리로 드릴다운해도 activeProject 는 부모 프로젝트 그대로이고
-    //   currentFolderId 만 바뀌므로, 종전처럼 agentProjects 기준(워크트리명) 슬롯에 쓰면
-    //   부모 탭을 읽는 selectIDEOverlay 가 그 슬롯을 못 봐 IDE 가 안 열렸다.
-    //   교차 프로젝트 열기(jumpToBookmark 등)는 openIDEOverlay 전에 이미 setActiveProject 로 탭을
-    //   전환하므로 activeProject 기준으로도 동일하게 동작한다.
-    const ownerProject = state.activeProject ?? state.agentProjects[agentId];
-    if (!ownerProject) return {}; // 소속 프로젝트 미상이면 무시
-    const prev = state.ideOverlays[ownerProject];
-    // §5.5 #17-1 (v2.17) — 같은 프로젝트의 IDE 가 이미 우측 도킹 상태면 agentId 만 교체 + dockedRight/dockWidth 유지.
-    const wasOpen = !!prev?.agentId;
-    const keepDock = wasOpen && !!prev?.dockedRight;
-    return {
-      ideOverlays: {
-        ...state.ideOverlays,
-        [ownerProject]: {
-          agentId,
-          projectId: ownerProject,
-          activeSessionId: initialSession,
-          activeView: 'mcp',
-          sidebarCollapsed: true,
-          dockedRight: keepDock,
-          dockWidth: keepDock ? (prev?.dockWidth ?? 480) : 480,
-          // §5.5 #17-27 — 편집창은 IDE 를 새로 열 때(=에이전트 교체) 빈 상태에서 시작한다.
-          editorFiles: [],
-          activeEditorPath: null,
+  openIDEOverlay: (agentId) => {
+    // §5.19 (B) — All Model 버블은 **여기서** 준비됐는지 갈린다. 여는 손잡이(캔버스 더블클릭·
+    //   북마크 점프·카드에서 열기)가 전부 이 함수로 모이므로, 갈림도 손잡이마다가 아니라 이 한 곳에.
+    //   준비가 안 됐으면 빈 IDE 대신 그 버블에 매인 설치 창이 뜨고, 쓸 모델이 있는데 아직 안 물었으면
+    //   매고 나서(= bindLocalModel 이 다시 이 함수를 부른다) 들어간다.
+    const entryConfig = get().agentConfigs[agentId];
+    const isLocalAgent = !!entryConfig?.provider;
+    if (isLocalAgent) {
+      const decision = resolveLocalEntry(entryConfig, get().localLlm);
+      if (decision.kind === 'setup') {
+        set({ localModelWindow: { agentId } });
+        return;
+      }
+      if (decision.kind === 'bind') {
+        get().bindLocalModel(agentId, decision.model.id, decision.model.name);
+        return;
+      }
+    }
+    set((state) => {
+      // 우선순위: (1) 마지막 활성 서브에이전트 → (2) Default 서브에이전트 → (3) null
+      const subAgents = state.subAgents[agentId] ?? [];
+      const exists = (subId: string): boolean => subAgents.some((s) => s.id === subId);
+      const lastActive = state.selectedSubByAgent[agentId];
+      const defaultSub = state.defaultSubAgents[agentId];
+      const initialSession =
+        (lastActive && exists(lastActive) ? lastActive : null)
+        ?? (defaultSub && exists(defaultSub) ? defaultSub : null);
+      // IDE 오버레이는 "지금 보고 있는 창/탭"(activeProject) 슬롯에 산다. 다른 모든 IDE 오버레이
+      // 변경자(closeIDEOverlay/setIDEActiveSession/setIDEDocked/setIDEActiveView/toggleIDESidebar)가
+      // activeProject 를 쓰므로 open 도 반드시 일치해야 slot 이 맞물린다.
+      //   버그: 워크트리 버블로 이동(migration)한 커스텀 에이전트는 agentProjects[agentId] 가 워크트리
+      //   프로젝트명이 된다. 워크트리로 드릴다운해도 activeProject 는 부모 프로젝트 그대로이고
+      //   currentFolderId 만 바뀌므로, 종전처럼 agentProjects 기준(워크트리명) 슬롯에 쓰면
+      //   부모 탭을 읽는 selectIDEOverlay 가 그 슬롯을 못 봐 IDE 가 안 열렸다.
+      //   교차 프로젝트 열기(jumpToBookmark 등)는 openIDEOverlay 전에 이미 setActiveProject 로 탭을
+      //   전환하므로 activeProject 기준으로도 동일하게 동작한다.
+      const ownerProject = state.activeProject ?? state.agentProjects[agentId];
+      if (!ownerProject) return {}; // 소속 프로젝트 미상이면 무시
+      const prev = state.ideOverlays[ownerProject];
+      // §5.5 #17-1 (v2.17) — 같은 프로젝트의 IDE 가 이미 우측 도킹 상태면 agentId 만 교체 + dockedRight/dockWidth 유지.
+      const wasOpen = !!prev?.agentId;
+      const keepDock = wasOpen && !!prev?.dockedRight;
+      return {
+        ideOverlays: {
+          ...state.ideOverlays,
+          [ownerProject]: {
+            agentId,
+            projectId: ownerProject,
+            activeSessionId: initialSession,
+            // §5.19 (G) — 로컬 버블의 IDE 에는 MCP 항목 자체가 없다(클로드 CLI 에 매인 자리라 뺐다).
+            //   첫 화면은 프로바이더와 무관하게 뜻이 통하는 파일 탐색기다.
+            activeView: isLocalAgent ? 'files' : 'mcp',
+            sidebarCollapsed: true,
+            dockedRight: keepDock,
+            dockWidth: keepDock ? (prev?.dockWidth ?? 480) : 480,
+            // §5.5 #17-27 — 편집창은 IDE 를 새로 열 때(=에이전트 교체) 빈 상태에서 시작한다.
+            editorFiles: [],
+            activeEditorPath: null,
+          },
         },
-      },
-    };
-  }),
+      };
+    });
+  },
   closeIDEOverlay: () => set((state) => {
     // 닫기는 현재 활성 프로젝트의 슬롯 대상. 슬롯 자체 제거 = 깨끗한 초기 상태로 복귀.
     const proj = state.activeProject;
@@ -3946,6 +4712,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   applyAgentReports: (reports) => set({ agentReports: reports ?? {} }),
   applyAgentQuestions: (questions) => set({ agentQuestions: questions ?? {} }),
   applyAgentReviews: (reviews) => set({ agentReviews: reviews ?? {} }),
+  applyReviewRequests: (list) => set({ reviewRequests: list ?? [] }),
   applyAgentLists: (lists) => set({ agentLists: lists ?? {} }),
   applyAgentFeedbacks: (feedbacks) => set({ agentFeedbacks: feedbacks ?? {} }),
   // §5.5 #17-11 v3.79 — 서버가 매 스냅샷에 전량을 싣는다(삭제도 곧 사라짐으로 반영).
@@ -4030,6 +4797,18 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     set({ diagnosticLog: arr.length > DIAGNOSTIC_LOG_MAX ? arr.slice(arr.length - DIAGNOSTIC_LOG_MAX) : arr });
   },
   applyModelRegistry: (reg) => set({ modelRegistry: reg ?? null }),
+  applyLocalLlm: (state) => set({ localLlm: state ?? null }),
+  applyLocalEngineProgress: (p) => {
+    const cur = get().localLlm;
+    if (!cur) return;
+    set({ localLlm: { ...cur, engine: { ...cur.engine, progress: p } } });
+  },
+  applyLocalModelProgress: (p) => {
+    const cur = get().localLlm;
+    if (!cur) return;
+    const rest = cur.downloads.filter((d) => d.downloadId !== p.downloadId);
+    set({ localLlm: { ...cur, downloads: [...rest, p] } });
+  },
   applyUserDefaults: (d) => set({ userDefaults: d ?? null }),
   setUiLocale: async (locale) => {
     const res = await fetch(`${API_BASE}/api/ui-locale`, {

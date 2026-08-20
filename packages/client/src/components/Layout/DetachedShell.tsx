@@ -114,7 +114,7 @@ function DetachedMissingPlaceholder({ kind, targetName }: { kind: 'project' | 'i
         <path d="M12 8v4M12 16h.01" />
       </svg>
       <p className="text-[13px] text-gray-300">{t('tabDetach.missingTitle', { defaultValue: 'Tab no longer available' })}</p>
-      <p className="text-[11px] text-gray-500">
+      <p className="text-[12px] text-gray-500">
         {kind === 'project'
           ? t('tabDetach.missingProject', { defaultValue: 'The project "{{name}}" is not loaded in this Vibisual instance.', name: targetName })
           : t('tabDetach.missingIframe', { defaultValue: 'The iframe tab "{{id}}" was closed.', id: targetName })}
@@ -240,7 +240,7 @@ function DetachedTitleBar({ kind, tabKey, title }: DetachedTitleBarProps): React
           <span className="truncate text-[12px] font-semibold text-white">{title}</span>
         </div>
         <span
-          className={`truncate text-[10px] font-medium ${
+          className={`truncate text-[12px] font-medium ${
             hovering ? 'text-blue-100' : 'text-amber-200/90'
           }`}
         >
@@ -281,7 +281,7 @@ function DetachedTitleBar({ kind, tabKey, title }: DetachedTitleBarProps): React
           </svg>
         )}
         <span className="truncate max-w-[200px]">{title}</span>
-        <span className="ml-1 rounded bg-white/[0.06] px-1.5 py-[1px] text-[9px] uppercase tracking-wide text-gray-400">
+        <span className="ml-1 rounded bg-white/[0.06] px-1.5 py-[1px] text-[12px] uppercase tracking-wide text-gray-400">
           {t('tabDetach.detachedBadge', { defaultValue: 'detached' })}
         </span>
       </div>

@@ -184,21 +184,21 @@ export function AskQuestionCard({ request }: AskQuestionCardProps): React.JSX.El
               {current.header ?? t('ide.askQuestion.title', { defaultValue: 'Question' })}
             </h4>
             {current.multiSelect && (
-              <span className="rounded bg-sky-500/20 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-sky-300">
+              <span className="rounded bg-sky-500/20 px-1.5 py-0.5 text-[12px] font-semibold uppercase tracking-wider text-sky-300">
                 {t('ide.askQuestion.multiSelect', { defaultValue: 'multi' })}
               </span>
             )}
             {total > 1 && (
-              <span className="rounded bg-gray-700/60 px-1.5 py-0.5 text-[9px] font-semibold text-gray-300">
+              <span className="rounded bg-gray-700/60 px-1.5 py-0.5 text-[12px] font-semibold text-gray-300">
                 {t('ide.askQuestion.stepIndicator', { defaultValue: '{{current}} / {{total}}', current: step + 1, total })}
               </span>
             )}
           </div>
-          <span className="truncate text-[10px] text-gray-500">
+          <span className="truncate text-[12px] text-gray-500">
             {request.agentLabel}
           </span>
         </div>
-        <span className="ml-2 flex-shrink-0 rounded bg-gray-800 px-1.5 py-0.5 font-mono text-[10px] text-gray-400">
+        <span className="ml-2 flex-shrink-0 rounded bg-gray-800 px-1.5 py-0.5 font-mono text-[12px] text-gray-400">
           {seconds}s
         </span>
       </div>
@@ -243,7 +243,7 @@ export function AskQuestionCard({ request }: AskQuestionCardProps): React.JSX.El
                     {opt.label}
                   </span>
                   {opt.description && (
-                    <span className="text-[11px] leading-snug text-gray-500">
+                    <span className="text-[12px] leading-snug text-gray-500">
                       {opt.description}
                     </span>
                   )}
@@ -281,7 +281,7 @@ export function AskQuestionCard({ request }: AskQuestionCardProps): React.JSX.El
               <span className={`text-[12px] ${otherSelected ? 'font-semibold text-sky-200' : 'text-gray-200'}`}>
                 {t('ide.askQuestion.otherLabel', { defaultValue: 'Other (write your own)' })}
               </span>
-              <span className="text-[11px] leading-snug text-gray-500">
+              <span className="text-[12px] leading-snug text-gray-500">
                 {t('ide.askQuestion.otherDescription', { defaultValue: 'Type a free-form answer below.' })}
               </span>
             </div>
@@ -290,7 +290,7 @@ export function AskQuestionCard({ request }: AskQuestionCardProps): React.JSX.El
 
         {/* Note / answer textarea */}
         <div className="mt-1">
-          <label className={`text-[10px] ${otherSelected ? 'text-sky-300' : 'text-gray-500'}`}>
+          <label className={`text-[12px] ${otherSelected ? 'text-sky-300' : 'text-gray-500'}`}>
             {noteLabel}
           </label>
           <textarea
@@ -301,7 +301,7 @@ export function AskQuestionCard({ request }: AskQuestionCardProps): React.JSX.El
             placeholder={notePlaceholder}
             disabled={busy}
             rows={1}
-            className={`mt-1 w-full resize-none rounded border px-2 py-1 text-[11px] text-gray-200 outline-none disabled:opacity-50 ${
+            className={`mt-1 w-full resize-none rounded border px-2 py-1 text-[12px] text-gray-200 outline-none disabled:opacity-50 ${
               otherSelected
                 ? 'border-sky-500/70 bg-gray-800 focus:border-sky-400'
                 : 'border-gray-700 bg-gray-800 focus:border-sky-500'
@@ -313,7 +313,7 @@ export function AskQuestionCard({ request }: AskQuestionCardProps): React.JSX.El
 
       {/* Footer */}
       <div className="flex items-center justify-between gap-2 border-t border-gray-700 bg-gray-900/40 px-3 py-2">
-        <span className="truncate text-[10px] text-gray-600">
+        <span className="truncate text-[12px] text-gray-600">
           {selectedLabels.length > 0
             ? t('ide.askQuestion.selectedPreview', { defaultValue: 'Selected: {{labels}}', labels: selectedLabels.join(', ') })
             : t('ide.askQuestion.hint', { defaultValue: 'Pick an option to answer the agent.' })}
@@ -324,7 +324,7 @@ export function AskQuestionCard({ request }: AskQuestionCardProps): React.JSX.El
               type="button"
               onClick={goBack}
               disabled={busy}
-              className="flex h-7 items-center rounded border border-gray-700 bg-gray-800 px-2.5 text-[11px] font-semibold text-gray-300 transition-colors hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-40"
+              className="flex h-7 items-center rounded border border-gray-700 bg-gray-800 px-2.5 text-[12px] font-semibold text-gray-300 transition-colors hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {t('ide.askQuestion.back', { defaultValue: 'Back' })}
             </button>
@@ -334,7 +334,7 @@ export function AskQuestionCard({ request }: AskQuestionCardProps): React.JSX.El
               type="button"
               onClick={submit}
               disabled={!canAdvance}
-              className="flex h-7 items-center rounded bg-sky-600 px-3 text-[11px] font-semibold text-white shadow-md transition-colors hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-40"
+              className="flex h-7 items-center rounded bg-sky-600 px-3 text-[12px] font-semibold text-white shadow-md transition-colors hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {busy
                 ? t('ide.askQuestion.sending', { defaultValue: 'Sending…' })
@@ -345,7 +345,7 @@ export function AskQuestionCard({ request }: AskQuestionCardProps): React.JSX.El
               type="button"
               onClick={goNext}
               disabled={!canAdvance}
-              className="flex h-7 items-center rounded bg-sky-600 px-3 text-[11px] font-semibold text-white shadow-md transition-colors hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-40"
+              className="flex h-7 items-center rounded bg-sky-600 px-3 text-[12px] font-semibold text-white shadow-md transition-colors hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {t('ide.askQuestion.next', { defaultValue: 'Next' })}
             </button>

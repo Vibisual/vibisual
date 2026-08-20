@@ -70,7 +70,7 @@ import {
 } from './terminalManager';
 import { listCaptureSources } from './captureManager';
 import { injectCaptureInput, resolveCaptureTargetRect } from './captureInputManager';
-import type { UpdateState, MobileAccessState, CaptureSourceInfo, CaptureInputEvent, CaptureSourceKind, CaptureTargetRect, CaptureInjectResult } from '@vibisual/shared';
+import type { UpdateState, MobileAccessState, CaptureSourceInfo, CaptureInputEvent, CaptureSourceKind, CaptureTargetRect, CaptureInjectResult, PreviewSnipRect, PageRegionCapture } from '@vibisual/shared';
 
 // IPC hub — SCENARIO.md §3.7 (in-process 통합).
 //
@@ -444,6 +444,36 @@ export function setupIpc(expressApp: Express): IpcHub {
     (_event, spec: { sourceId: string; sourceKind: CaptureSourceKind; sourceName: string }): Promise<CaptureTargetRect> =>
       resolveCaptureTargetRect(spec),
   );
+  /**
+   * §5.17 (B) — 프리뷰에서 그은 사각형을 PNG 로 찍는다.
+   *
+   * 찍는 대상은 **부른 그 창 자신**(`event.sender`)이다 — 도킹이든 별창(§5.5 #17-6)이든
+   * 사용자가 누른 화면이 찍힌다. 좌표는 렌더러가 준 CSS px(문서 좌상단 기준) 그대로이고,
+   * Electron 이 받는 rect 와 같은 좌표계라 변환이 없다. 실패는 던지지 않고 사유를 담아 돌려준다
+   * (렌더러가 한 줄로 보여 준다 — 조용한 무동작 ❌).
+   */
+  ipcMain.handle(
+    'vibisual:capture:page-region',
+    async (event, rect: PreviewSnipRect): Promise<PageRegionCapture> => {
+      try {
+        const width = Math.round(rect?.width ?? 0);
+        const height = Math.round(rect?.height ?? 0);
+        if (!Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1) {
+          return { ok: false, error: 'invalid rect' };
+        }
+        const image = await event.sender.capturePage({
+          x: Math.round(rect.x),
+          y: Math.round(rect.y),
+          width,
+          height,
+        });
+        if (image.isEmpty()) return { ok: false, error: 'empty capture' };
+        return { ok: true, dataUrl: image.toDataURL() };
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      }
+    },
+  );
 
   return {
     stop(): void {
@@ -502,6 +532,7 @@ export function setupIpc(expressApp: Express): IpcHub {
       ipcMain.removeHandler('vibisual:capture:list-sources');
       ipcMain.removeHandler('vibisual:capture:input');
       ipcMain.removeHandler('vibisual:capture:target-rect');
+      ipcMain.removeHandler('vibisual:capture:page-region');
       shutdownIframeLogStreamer();
       shutdownServerLogService();
       // §5.5 #17-20 ⑩ v4.94 — 붙어 있던 디버그 세션(어댑터 자식 프로세스·소켓)을 함께 회수한다.

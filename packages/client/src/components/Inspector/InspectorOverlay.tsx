@@ -45,7 +45,7 @@ export function InspectorOverlay(): React.JSX.Element | null {
           />
 
           <div
-            className="absolute max-w-[320px] rounded bg-gray-900/95 px-2 py-1 font-mono text-[11px] leading-tight text-sky-300 shadow-lg"
+            className="absolute max-w-[320px] rounded bg-gray-900/95 px-2 py-1 font-mono text-[12px] leading-tight text-sky-300 shadow-lg"
             style={{
               top:
                 info.rect.bottom + 8 + TOOLTIP_HEIGHT_ESTIMATE < window.innerHeight

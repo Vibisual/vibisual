@@ -119,7 +119,7 @@ export function FolderFileTree({ folderPath, nodeId, collectAll, maxSatellites }
     return (
       <div className="flex flex-col gap-1">
         <span className="text-xs text-gray-500">{t('panel.folderFileTree.files')}</span>
-        <span className="text-[10px] text-gray-600">{t('panel.folderFileTree.loading')}</span>
+        <span className="text-[12px] text-gray-600">{t('panel.folderFileTree.loading')}</span>
       </div>
     );
   }
@@ -128,7 +128,7 @@ export function FolderFileTree({ folderPath, nodeId, collectAll, maxSatellites }
     return (
       <div className="flex flex-col gap-1">
         <span className="text-xs text-gray-500">{t('panel.folderFileTree.files')}</span>
-        <span className="text-[10px] text-gray-600">{t('panel.folderFileTree.empty')}</span>
+        <span className="text-[12px] text-gray-600">{t('panel.folderFileTree.empty')}</span>
       </div>
     );
   }
@@ -136,7 +136,7 @@ export function FolderFileTree({ folderPath, nodeId, collectAll, maxSatellites }
   return (
     <div className="flex flex-col">
       {/* 헤더: 위성 N / M (M = 폴더별 표시 상한, 편집 가능) */}
-      <div className="mb-1 flex items-center gap-1 text-[9px]">
+      <div className="mb-1 flex items-center gap-1 text-[12px]">
         <span className="font-semibold text-violet-400">
           {t('panel.folderFileTree.satellites', { count: visibleEntries.length })}
         </span>
@@ -186,7 +186,7 @@ export function FolderFileTree({ folderPath, nodeId, collectAll, maxSatellites }
                 <FileRow key={f.relativePath} entry={f} isSatellite onToggle={handleToggle} />
               ))
             ) : (
-              <span className="text-[10px] text-gray-600">{t('panel.folderFileTree.noVisible')}</span>
+              <span className="text-[12px] text-gray-600">{t('panel.folderFileTree.noVisible')}</span>
             )}
           </ScrollFade>
         </div>
@@ -219,7 +219,7 @@ function TreeNode({ entry, depth, satellitePaths, onToggle }: TreeNodeProps): Re
       <div>
         <button
           type="button"
-          className="flex w-full items-center gap-1 rounded px-1 py-0.5 text-[11px] text-gray-400 hover:bg-gray-800/50 hover:text-gray-200"
+          className="flex w-full items-center gap-1 rounded px-1 py-0.5 text-[12px] text-gray-400 hover:bg-gray-800/50 hover:text-gray-200"
           style={{ paddingLeft: depth * 12 + 4 }}
           onClick={() => setExpanded((p) => !p)}
         >
@@ -238,7 +238,7 @@ function TreeNode({ entry, depth, satellitePaths, onToggle }: TreeNodeProps): Re
           </svg>
           <span className="truncate">{entry.name}</span>
           {entry.children && (
-            <span className="ml-auto flex-shrink-0 text-[9px] text-gray-600">
+            <span className="ml-auto flex-shrink-0 text-[12px] text-gray-600">
               {entry.children.length}
             </span>
           )}
@@ -270,7 +270,7 @@ interface FileRowProps {
 function FileRow({ entry, isSatellite, onToggle, depth = 0 }: FileRowProps): React.JSX.Element {
   return (
     <label
-      className="flex cursor-pointer items-center gap-1.5 rounded px-1 py-0.5 text-[11px] text-gray-400 hover:bg-gray-800/50 hover:text-gray-200"
+      className="flex cursor-pointer items-center gap-1.5 rounded px-1 py-0.5 text-[12px] text-gray-400 hover:bg-gray-800/50 hover:text-gray-200"
       style={{ paddingLeft: depth * 12 + 4 }}
     >
       <input

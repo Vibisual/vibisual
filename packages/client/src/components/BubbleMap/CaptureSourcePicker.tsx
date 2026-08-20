@@ -146,7 +146,7 @@ export function CaptureSourcePicker({ open, onClose, onPick }: CaptureSourcePick
             <div className="space-y-4">
               {screens.length > 0 && (
                 <div>
-                  <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-gray-500">
+                  <div className="mb-2 text-[12px] font-medium uppercase tracking-wide text-gray-500">
                     {t('bubbleMap.capture.screens', { defaultValue: '화면' })}
                   </div>
                   <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">{screens.map(renderCard)}</div>
@@ -154,7 +154,7 @@ export function CaptureSourcePicker({ open, onClose, onPick }: CaptureSourcePick
               )}
               {windows.length > 0 && (
                 <div>
-                  <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-gray-500">
+                  <div className="mb-2 text-[12px] font-medium uppercase tracking-wide text-gray-500">
                     {t('bubbleMap.capture.windows', { defaultValue: '프로그램 · 창' })}
                   </div>
                   <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">{windows.map(renderCard)}</div>

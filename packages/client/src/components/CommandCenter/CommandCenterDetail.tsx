@@ -83,7 +83,7 @@ export const CommandCenterDetail = forwardRef<CommandCenterDetailHandle, Command
           />
           <div className="min-w-0 flex-1">
             <p className="truncate text-[13px] font-semibold text-gray-100">{item.agentLabel}</p>
-            <p className="mt-0.5 truncate text-[11px] text-gray-500">
+            <p className="mt-0.5 truncate text-[12px] text-gray-500">
               {item.subAgentId ? item.sessionLabel : t('commandCenter.mainSession')}
               {item.lastActivityAt > 0 && <span className="tabular-nums"> · {elapsed(item.lastActivityAt)}</span>}
             </p>
@@ -91,7 +91,7 @@ export const CommandCenterDetail = forwardRef<CommandCenterDetailHandle, Command
           <button
             type="button"
             onClick={handleJump}
-            className="flex flex-shrink-0 items-center gap-1 rounded-md bg-white/[0.07] px-2 py-1 text-[11px] text-gray-200 transition-colors hover:bg-white/[0.14]"
+            className="flex flex-shrink-0 items-center gap-1 rounded-md bg-white/[0.07] px-2 py-1 text-[12px] text-gray-200 transition-colors hover:bg-white/[0.14]"
             title={t('commandCenter.jumpHint')}
           >
             <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -116,10 +116,10 @@ export const CommandCenterDetail = forwardRef<CommandCenterDetailHandle, Command
           {ctx && (
             <div>
               <div className="mb-1 flex items-baseline justify-between">
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                <span className="text-[12px] font-semibold uppercase tracking-wider text-gray-500">
                   {t('commandCenter.detail.context')}
                 </span>
-                <span className={`text-[11px] tabular-nums ${ctx.level === 'critical' ? 'text-red-300' : ctx.level === 'warn' ? 'text-amber-300' : 'text-gray-400'}`}>
+                <span className={`text-[12px] tabular-nums ${ctx.level === 'critical' ? 'text-red-300' : ctx.level === 'warn' ? 'text-amber-300' : 'text-gray-400'}`}>
                   {Math.round(ctx.ratio * 100)}%
                 </span>
               </div>
@@ -143,11 +143,11 @@ export const CommandCenterDetail = forwardRef<CommandCenterDetailHandle, Command
             <Section title={t('commandCenter.detail.question')} tone="rose">
               {detail.question.items.map((q, idx) => (
                 <div key={idx} className={idx > 0 ? 'mt-3' : ''}>
-                  {q.header && <p className="text-[11px] font-semibold text-rose-200">{q.header}</p>}
+                  {q.header && <p className="text-[12px] font-semibold text-rose-200">{q.header}</p>}
                   <p className="whitespace-pre-wrap text-[12px] leading-relaxed text-gray-200">{q.question}</p>
                   {q.prompts.length > 0 && (
                     <div className="mt-1.5 flex flex-col gap-1">
-                      <span className="text-[10px] uppercase tracking-wider text-gray-500">
+                      <span className="text-[12px] uppercase tracking-wider text-gray-500">
                         {t('commandCenter.detail.suggested')}
                       </span>
                       {q.prompts.map((prompt, pIdx) => (
@@ -155,7 +155,7 @@ export const CommandCenterDetail = forwardRef<CommandCenterDetailHandle, Command
                           key={pIdx}
                           type="button"
                           onClick={() => { setDraft(prompt); composerRef.current?.focus(); }}
-                          className="rounded border border-rose-400/25 bg-rose-500/10 px-2 py-1.5 text-left text-[11px] leading-snug text-rose-100 transition-colors hover:bg-rose-500/20"
+                          className="rounded border border-rose-400/25 bg-rose-500/10 px-2 py-1.5 text-left text-[12px] leading-snug text-rose-100 transition-colors hover:bg-rose-500/20"
                         >
                           {prompt}
                         </button>
@@ -170,7 +170,7 @@ export const CommandCenterDetail = forwardRef<CommandCenterDetailHandle, Command
           {detail.review && (
             <Section title={t('commandCenter.detail.review')} tone="violet">
               {detail.review.instruction && (
-                <p className="mb-1.5 text-[11px] italic text-gray-400">{detail.review.instruction}</p>
+                <p className="mb-1.5 text-[12px] italic text-gray-400">{detail.review.instruction}</p>
               )}
               <Bullets label={t('commandCenter.detail.changes')} items={detail.review.changes} />
               <Bullets label={t('commandCenter.detail.checkpoints')} items={detail.review.checkpoints} />
@@ -189,7 +189,7 @@ export const CommandCenterDetail = forwardRef<CommandCenterDetailHandle, Command
             <Section title={t('commandCenter.detail.queued')} tone="sky">
               <ol className="space-y-1">
                 {detail.queuedTexts.map((text, idx) => (
-                  <li key={idx} className="flex gap-1.5 text-[11px] leading-snug text-gray-300">
+                  <li key={idx} className="flex gap-1.5 text-[12px] leading-snug text-gray-300">
                     <span className="flex-shrink-0 tabular-nums text-gray-600">{idx + 1}.</span>
                     <span className="min-w-0 break-words">{text}</span>
                   </li>
@@ -201,13 +201,13 @@ export const CommandCenterDetail = forwardRef<CommandCenterDetailHandle, Command
           {!detail.permission && !detail.question && !detail.review && !detail.report && (
             <Section title={t('commandCenter.detail.lastActivity')} tone="gray">
               {detail.lastCommand && (
-                <p className="whitespace-pre-wrap text-[11px] leading-relaxed text-gray-300">{detail.lastCommand}</p>
+                <p className="whitespace-pre-wrap text-[12px] leading-relaxed text-gray-300">{detail.lastCommand}</p>
               )}
               {detail.lastResult && (
-                <p className="mt-1.5 whitespace-pre-wrap text-[11px] leading-relaxed text-gray-500">{detail.lastResult}</p>
+                <p className="mt-1.5 whitespace-pre-wrap text-[12px] leading-relaxed text-gray-500">{detail.lastResult}</p>
               )}
               {!detail.lastCommand && !detail.lastResult && (
-                <p className="text-[11px] text-gray-600">{t('commandCenter.detail.nothingYet')}</p>
+                <p className="text-[12px] text-gray-600">{t('commandCenter.detail.nothingYet')}</p>
               )}
             </Section>
           )}
@@ -217,7 +217,7 @@ export const CommandCenterDetail = forwardRef<CommandCenterDetailHandle, Command
             §5.5 #17-29 — 훅 버블의 세션이면 입력창 대신 읽기 전용 안내만 남는다. */}
         {item.readOnly ? (
           <div className="flex-shrink-0 border-t border-white/[0.07] px-3 py-2.5">
-            <p className="text-[10.5px] leading-relaxed text-gray-600">{t('ide.mainArea.readOnly')}</p>
+            <p className="text-[12px] leading-relaxed text-gray-600">{t('ide.mainArea.readOnly')}</p>
           </div>
         ) : (
         <div className="flex-shrink-0 border-t border-white/[0.07] px-3 py-2.5">
@@ -238,14 +238,14 @@ export const CommandCenterDetail = forwardRef<CommandCenterDetailHandle, Command
             className="w-full resize-none rounded-md border border-white/10 bg-black/40 px-2.5 py-2 text-[12px] leading-snug text-gray-100 outline-none placeholder:text-gray-600 focus:border-sky-500/50"
           />
           <div className="mt-1.5 flex items-center justify-between">
-            <span className="text-[10px] text-gray-600">
+            <span className="text-[12px] text-gray-600">
               {sent ? t('commandCenter.detail.queuedIt') : t('commandCenter.detail.composerHint')}
             </span>
             <button
               type="button"
               onClick={handleSend}
               disabled={!draft.trim()}
-              className="rounded-md bg-sky-600/80 px-3 py-1 text-[11px] font-medium text-white transition-colors hover:bg-sky-500 disabled:cursor-not-allowed disabled:bg-white/[0.06] disabled:text-gray-600"
+              className="rounded-md bg-sky-600/80 px-3 py-1 text-[12px] font-medium text-white transition-colors hover:bg-sky-500 disabled:cursor-not-allowed disabled:bg-white/[0.06] disabled:text-gray-600"
             >
               {t('commandCenter.send')}
             </button>
@@ -268,7 +268,7 @@ const SECTION_TONE: Record<string, string> = {
 function Section({ title, tone, children }: { title: string; tone: keyof typeof SECTION_TONE; children: React.ReactNode }): React.JSX.Element {
   return (
     <section className={`rounded-lg border px-3 py-2.5 ${SECTION_TONE[tone] ?? SECTION_TONE['gray']}`}>
-      <h3 className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">{title}</h3>
+      <h3 className="mb-1.5 text-[12px] font-semibold uppercase tracking-wider text-gray-400">{title}</h3>
       {children}
     </section>
   );
@@ -278,10 +278,10 @@ function Bullets({ label, items, strong }: { label: string; items: string[]; str
   if (items.length === 0) return null;
   return (
     <div className="mt-1.5 first:mt-0">
-      <p className="text-[10px] uppercase tracking-wider text-gray-500">{label}</p>
+      <p className="text-[12px] uppercase tracking-wider text-gray-500">{label}</p>
       <ul className="mt-0.5 space-y-0.5">
         {items.map((text, idx) => (
-          <li key={idx} className={`flex gap-1.5 text-[11.5px] leading-snug ${strong ? 'text-gray-100' : 'text-gray-300'}`}>
+          <li key={idx} className={`flex gap-1.5 text-[12px] leading-snug ${strong ? 'text-gray-100' : 'text-gray-300'}`}>
             <span className="mt-[6px] h-1 w-1 flex-shrink-0 rounded-full bg-current opacity-50" />
             <span className="min-w-0 break-words">{text}</span>
           </li>
@@ -298,7 +298,7 @@ function ToolInputPreview({ input }: { input: Record<string, unknown> }): React.
   return (
     <dl className="mt-1 space-y-0.5">
       {entries.slice(0, 4).map(([k, v]) => (
-        <div key={k} className="flex gap-1.5 text-[11px] leading-snug">
+        <div key={k} className="flex gap-1.5 text-[12px] leading-snug">
           <dt className="flex-shrink-0 text-gray-500">{k}</dt>
           <dd className="min-w-0 truncate font-mono text-gray-300">
             {typeof v === 'string' ? v : JSON.stringify(v)}
