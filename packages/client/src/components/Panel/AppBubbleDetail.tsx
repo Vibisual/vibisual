@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import type { AppBubble } from '@vibisual/shared';
 
 import { getInternalApp } from '../../apps/registry.js';
-import { useAppInstall } from '../../apps/useAppInstall.js';
 import { useGraphStore } from '../../stores/graphStore.js';
 
 interface Props {
@@ -27,8 +26,6 @@ export function AppBubbleDetail({ bubble }: Props): React.JSX.Element {
   const renameAppBubble = useGraphStore((s) => s.renameAppBubble);
   const setAppBubblePin = useGraphStore((s) => s.setAppBubblePin);
   const deleteAppBubble = useGraphStore((s) => s.deleteAppBubble);
-  const { isInstalled, setInstalled, busy: installBusy } = useAppInstall();
-  const installed = isInstalled(bubble.appId);
   const isPinned = bubble.preservePinned === true;
 
   // 이름 입력 — 타이핑 중에는 로컬 값이 권위다(매 글자 PATCH ❌). 저장은 Enter·포커스 아웃에서.
@@ -71,39 +68,16 @@ export function AppBubbleDetail({ bubble }: Props): React.JSX.Element {
               </span>
             ) : null}
           </span>
-          <span
-            className={`shrink-0 rounded-full px-2 py-0.5 text-[12px] font-semibold ${
-              installed ? 'bg-emerald-400/10 text-emerald-300' : 'bg-white/[0.06] text-gray-400'
-            }`}
-          >
-            {installed
-              ? t('panel.apps.detail.installed', { defaultValue: '설치됨' })
-              : t('panel.apps.notInstalledBadge', { defaultValue: '설치 필요' })}
-          </span>
         </div>
         {app ? (
           <div className="flex gap-2">
             <GhostButton
               onClick={open}
-              disabled={!installed}
               tone="accent"
               label={t('panel.apps.open', { defaultValue: '열기' })}
             >
               <path d="M15 3h6v6" /><path d="M10 14 21 3" />
               <path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5" />
-            </GhostButton>
-            <GhostButton
-              onClick={() => { void setInstalled(bubble.appId, !installed); }}
-              disabled={installBusy}
-              label={
-                installed
-                  ? t('panel.apps.uninstallApp', { defaultValue: '앱 삭제(제거)' })
-                  : `${t('panel.apps.installApp', { defaultValue: '앱 설치' })} · ${app.install.sizeHint}`
-              }
-            >
-              {installed
-                ? <><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></>
-                : <><path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M4 21h16" /></>}
             </GhostButton>
           </div>
         ) : (
@@ -113,13 +87,6 @@ export function AppBubbleDetail({ bubble }: Props): React.JSX.Element {
             })}
           </p>
         )}
-        {!installed && app ? (
-          <p className="text-[12px] leading-snug text-gray-500">
-            {t('panel.apps.detail.installHint', {
-              defaultValue: '설치해야 열 수 있습니다. 캔버스에서 버블을 더블클릭해도 설치됩니다.',
-            })}
-          </p>
-        ) : null}
       </section>
 
       {/* 이 버블 — 이름 */}

@@ -2,6 +2,7 @@ import { memo, useMemo, useCallback, useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { QueuedCommand, ActivityEdge, SessionGoalStepStatus } from '@vibisual/shared';
 import { useGraphStore, selectIDEOverlay, agentSessionInputKey } from '../../stores/graphStore.js';
+import { useIDEPaneValue } from './idePane.js';
 import type { IDEViewType } from '../../stores/graphStore.js';
 import { useAvailableSkills, deleteSkill, persistSkillOrder, persistSkillFavorites, refreshAvailableSkills, type SkillInfo } from '../../hooks/useAvailableSkills.js';
 import { IDESkillCopyPanel } from './IDESkillCopyPanel.js';
@@ -68,7 +69,7 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
   const seenSkills = useGraphStore((s) => s.seenSkills);
   const seedSeenSkills = useGraphStore((s) => s.seedSeenSkills);
   const markSkillSeen = useGraphStore((s) => s.markSkillSeen);
-  const activeSessionId = useGraphStore((s) => selectIDEOverlay(s).activeSessionId);
+  const activeSessionId = useIDEPaneValue((o) => o.activeSessionId);
   const setAgentSessionInputText = useGraphStore((s) => s.setAgentSessionInputText);
   // §4 v2.63 — CMD(interactive-terminal) 에이전트는 textarea 대신 임베디드 PTY 가 렌더된다.
   // 그 경우 스킬 클릭은 draft store 가 아니라 PTY stdin 으로 `/skill ` 을 직접 타이핑한다.
@@ -420,7 +421,7 @@ function SkillsView({ agentId }: { agentId: string }): React.JSX.Element {
 
 function GoalView({ agentId }: { agentId: string }): React.JSX.Element {
   const { t } = useTranslation();
-  const activeSessionId = useGraphStore((s) => selectIDEOverlay(s).activeSessionId);
+  const activeSessionId = useIDEPaneValue((o) => o.activeSessionId);
   const goal = useGraphStore((s) => (activeSessionId ? s.sessionGoals[activeSessionId] : undefined));
   const saveSessionGoal = useGraphStore((s) => s.saveSessionGoal);
   const setSessionGoalProgress = useGraphStore((s) => s.setSessionGoalProgress);
@@ -749,8 +750,8 @@ const VIEW_MAP: Record<IDEViewType, React.FC<{ agentId: string }>> = {
 };
 
 export const IDESidebar = memo(function IDESidebar({ agentId }: IDESidebarProps): React.JSX.Element {
-  const activeView = useGraphStore((s) => selectIDEOverlay(s).activeView);
-  const collapsed = useGraphStore((s) => selectIDEOverlay(s).sidebarCollapsed);
+  const activeView = useIDEPaneValue((o) => o.activeView);
+  const collapsed = useIDEPaneValue((o) => o.sidebarCollapsed);
   const View = VIEW_MAP[activeView];
 
   if (collapsed) return <></>;

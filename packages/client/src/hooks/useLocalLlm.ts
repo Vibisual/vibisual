@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import type { LocalModelCatalogEntry, LocalModelCatalogRepo } from '@vibisual/shared';
+import type { LocalModelCatalogEntry, LocalModelCatalogRepo, LocalModelCatalogSort } from '@vibisual/shared';
 
 /**
  * §5.19 — All Model 창이 쓰는 조작들.
@@ -13,9 +13,9 @@ import type { LocalModelCatalogEntry, LocalModelCatalogRepo } from '@vibisual/sh
 export function useLocalLlm(): {
   installEngine: () => Promise<void>;
   uninstallEngine: () => Promise<void>;
-  searchRepos: (q: string) => Promise<LocalModelCatalogRepo[]>;
+  searchRepos: (q: string, sort?: LocalModelCatalogSort) => Promise<LocalModelCatalogRepo[]>;
   listRepoFiles: (repo: string) => Promise<LocalModelCatalogEntry[]>;
-  downloadModel: (repo: string, file: string) => Promise<void>;
+  downloadModel: (repo: string, file: string, partFiles?: readonly string[]) => Promise<void>;
   cancelDownload: (downloadId: string) => Promise<void>;
   deleteModel: (modelId: string) => Promise<void>;
   busy: boolean;
@@ -48,10 +48,12 @@ export function useLocalLlm(): {
     [run],
   );
 
-  const searchRepos = useCallback(async (q: string): Promise<LocalModelCatalogRepo[]> => {
+  // 정렬 축은 **서버를 거쳐 카탈로그로** 넘긴다 — 받아 온 스무 건을 여기서 다시 줄 세우면
+  //   그 스무 건 안에서의 순위가 되어 화면이 말하는 순위와 실제가 갈린다(§5.19 (E)).
+  const searchRepos = useCallback(async (q: string, sort: LocalModelCatalogSort = 'downloads'): Promise<LocalModelCatalogRepo[]> => {
     setError('');
     try {
-      const res = await fetch(`/api/local-llm/catalog?q=${encodeURIComponent(q)}`);
+      const res = await fetch(`/api/local-llm/catalog?q=${encodeURIComponent(q)}&sort=${sort}`);
       if (!res.ok) throw new Error(`${res.status}`);
       const j = (await res.json()) as { repos?: LocalModelCatalogRepo[] };
       return j.repos ?? [];
@@ -75,12 +77,13 @@ export function useLocalLlm(): {
   }, []);
 
   const downloadModel = useCallback(
-    (repo: string, file: string) =>
+    // 쪼개진 모델은 조각 목록을 함께 보낸다 — 한 조각만 받으면 그 모델은 쓸 수 없다.
+    (repo: string, file: string, partFiles?: readonly string[]) =>
       run(() =>
         fetch('/api/local-llm/models/download', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ repo, file }),
+          body: JSON.stringify({ repo, file, ...(partFiles && partFiles.length > 0 ? { partFiles } : {}) }),
         }),
       ),
     [run],

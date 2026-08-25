@@ -5,7 +5,6 @@ import type { NodeProps } from '@xyflow/react';
 
 import type { AppBubbleShape } from '../../apps/registry.js';
 import { getInternalApp } from '../../apps/registry.js';
-import { useAppInstall } from '../../apps/useAppInstall.js';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 
@@ -87,9 +86,6 @@ export const AppBubbleNode = memo(function AppBubbleNode({
    */
   const selectedAppBubbleId = useGraphStore((s) => s.selectedAppBubbleId);
   const isSelected = selected === true || selectedAppBubbleId === data.appBubbleId;
-  // §5.13 (N) v4.47 — 버블 자체가 관리 지점이다. 설치 여부가 여기서 보이고 여기서 바뀐다.
-  const { isInstalled, setInstalled, busy: installBusy } = useAppInstall();
-  const installed = isInstalled(data.appId);
 
   const [menu, setMenu] = useState<MenuPos | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -117,18 +113,17 @@ export const AppBubbleNode = memo(function AppBubbleNode({
   }, [app, projects, data.projectName, data.refKey]);
 
   /**
-   * 더블클릭 — 깔려 있으면 열고, 아직이면 설치한다.
+   * 더블클릭 — 그 앱의 창을 연다.
    *
-   * 안 깔린 버블을 더블클릭했을 때 아무 일도 안 일어나면 사용자는 무엇이 문제인지
-   * 모른다. 그 자리에서 바로 설치되는 편이 "버블로 관리한다"는 말과도 맞는다.
+   * §5.13 (H) 개정 전에는 "안 깔렸으면 설치" 라는 두 번째 뜻이 있었다. 설치라는 단계가
+   * 사라졌으므로 더블클릭의 뜻은 이제 하나다.
    */
   const handleDoubleClick = useCallback(
     (e: React.MouseEvent): void => {
       e.stopPropagation();
-      if (installed) open();
-      else void setInstalled(data.appId, true);
+      open();
     },
-    [installed, open, setInstalled, data.appId],
+    [open],
   );
 
   /**
@@ -232,23 +227,11 @@ export const AppBubbleNode = memo(function AppBubbleNode({
           style={{ left: menu.x, top: menu.y }}
           onMouseDown={(e) => e.stopPropagation()}
         >
-          {app && installed
+          {app
             ? menuItem(() => {
                 setMenu(null);
                 open();
               }, t('panel.apps.open', { defaultValue: '열기' }))
-            : null}
-          {/* 설치·삭제를 버블 메뉴에서 바로 — 별도 창으로 가지 않는다(v4.47). */}
-          {app
-            ? menuItem(
-                () => {
-                  setMenu(null);
-                  void setInstalled(data.appId, !installed);
-                },
-                installed
-                  ? t('panel.apps.uninstallApp', { defaultValue: '앱 삭제(제거)' })
-                  : `${t('panel.apps.installApp', { defaultValue: '앱 설치' })} · ${app.install.sizeHint}`,
-              )
             : null}
           {app ? menuItem(rename, t('panel.apps.rename', { defaultValue: '이름 바꾸기' })) : null}
           {menuItem(
@@ -316,40 +299,32 @@ export const AppBubbleNode = memo(function AppBubbleNode({
   const shape: AppBubbleShape = app.bubbleShape ?? 'plate';
   const isFilm = shape === 'film';
 
-  const borderColor = isSelected ? '#FFFFFF' : installed ? `${app.glow}A6` : `${app.glow}59`;
+  const borderColor = isSelected ? '#FFFFFF' : `${app.glow}A6`;
   const shellStyle: React.CSSProperties = {
     width: data.width,
     height: data.height,
-    // 안 깔린 앱은 점선 테두리 + 흐린 채움으로 한눈에 구분된다(캔버스에서 바로 보이게).
-    border: `${dense ? 1.5 : 2}px ${installed ? 'solid' : 'dashed'}`,
+    border: `${dense ? 1.5 : 2}px solid`,
     borderColor,
     // 구(球)로 보이는 방사형 그라디언트 ❌ — 그게 에이전트 버블의 인상이다. 평면 프레임으로.
-    //   미설치 채움은 본체색이 아니라 `glow`(밝은 쪽)에서 뽑는다 — 본체가 어두운 앱은
-    //   흐린 본체색으로 칠하면 캔버스 배경(gray-950)에 그대로 묻힌다(v4.66).
-    background: installed
-      ? `linear-gradient(160deg, ${app.color}F2, ${app.color}CC)`
-      : `linear-gradient(160deg, ${app.glow}26, ${app.glow}12)`,
+    background: `linear-gradient(160deg, ${app.color}F2, ${app.color}CC)`,
     // 색 번짐(bloom) ❌ — 그 인상이 곧 "장난감"이다. 선택 링만 앱 색으로, 평시엔 그림자로 띄운다.
     //   선택 링은 **흰 테 + 바깥 헤일로 두 겹**이다(v4.68). 작게 줄인 버블에서는 테두리 색만
     //   흰색으로 바뀌어서는 "선택됐다"가 눈에 안 들어온다 — 다른 버블처럼 바깥으로 한 겹 더 나간다.
     //   box-shadow 는 자기 박스 밖에 그려지므로 `overflow-hidden` 에 잘리지 않는다.
     boxShadow: isSelected
       ? `0 0 0 ${dense ? 2 : 3}px #FFFFFF, 0 0 0 ${dense ? 5 : 7}px ${app.glow}59, 0 6px 20px rgba(0,0,0,0.55)`
-      : installed
-        ? '0 4px 14px rgba(0,0,0,0.5)'
-        : 'none',
+      : '0 4px 14px rgba(0,0,0,0.5)',
   };
 
   /**
    * 보조 라벨 — **덧붙일 말이 있을 때만** 나온다.
    *
    * 여기는 바로 윗줄의 앱 이름을 **대문자로 한 번 더** 쓰던 자리였다. 같은 말을 두 번 하는 것은
-   * 정보가 아니라 장식이고, 1/3 로 줄인 프레임에서는 자리마저 없다. 이제 이름을 바꾼 버블(그
-   * 버블이 어떤 앱인지)과 미설치 배지만 이 줄을 쓴다.
+   * 정보가 아니라 장식이고, 1/3 로 줄인 프레임에서는 자리마저 없다. 이제 **이름을 바꾼 버블**만
+   * 이 줄을 쓴다(그 버블이 원래 어떤 앱인지).
    */
-  const subLabel = installed ? (label === appName ? null : appName) : t('panel.apps.notInstalledBadge', { defaultValue: '설치 필요' });
-  const showSubLabel = subLabel !== null && (!dense || !installed);
-  // 좁을 때 아이콘과 배지가 겹치면 아이콘을 뺀다 — 배지("설치 필요")가 더 급한 말이다.
+  const subLabel = label === appName ? null : appName;
+  const showSubLabel = subLabel !== null && !dense;
   const showIcon = !dense || !showSubLabel;
 
   const caption = (
@@ -357,7 +332,7 @@ export const AppBubbleNode = memo(function AppBubbleNode({
       <div
         className={`max-w-full truncate text-center font-semibold leading-tight ${
           dense ? 'text-[12px]' : 'text-[12px]'
-        } ${installed ? 'text-white' : 'text-white/70'}`}
+        } text-white`}
       >
         {label}
       </div>
@@ -379,11 +354,7 @@ export const AppBubbleNode = memo(function AppBubbleNode({
         onPointerDownCapture={handleSelect}
         onDoubleClick={handleDoubleClick}
         onContextMenu={handleContextMenu}
-        title={
-          installed
-            ? t('panel.apps.openHint', { defaultValue: '더블클릭하면 열립니다.' })
-            : t('panel.apps.installHint', { defaultValue: '더블클릭하면 설치합니다.' })
-        }
+        title={t('panel.apps.openHint', { defaultValue: '더블클릭하면 열립니다.' })}
         // bubble-press — 기존 버블과 같은 눌림 반응(스프링 복귀). 조작 감각은 이어받는다.
         className={`bubble-press relative flex cursor-pointer select-none flex-col overflow-hidden text-white ${
           isFilm
@@ -414,7 +385,7 @@ export const AppBubbleNode = memo(function AppBubbleNode({
               />
               {showIcon ? (
                 <div
-                  className={`${installed ? 'opacity-95' : 'opacity-50'} ${
+                  className={`opacity-95 ${
                     dense ? 'mb-px [&>svg]:h-3.5 [&>svg]:w-3.5' : 'mb-1 [&>svg]:h-7 [&>svg]:w-7'
                   }`}
                 >
@@ -431,7 +402,7 @@ export const AppBubbleNode = memo(function AppBubbleNode({
           >
             {showIcon ? (
               <div
-                className={`${installed ? 'opacity-90' : 'opacity-50'} ${
+                className={`opacity-90 ${
                   dense ? 'mb-px [&>svg]:h-3.5 [&>svg]:w-3.5' : 'mb-1 [&>svg]:h-6 [&>svg]:w-6'
                 }`}
               >

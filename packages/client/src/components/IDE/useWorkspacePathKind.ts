@@ -20,9 +20,14 @@ export interface ResolvedWorkspacePath {
   kind: ResolvedPathKind;
   /** 폴더 열기(`POST /api/open-node-folder`)에 그대로 실어 보낼 절대 경로. `'missing'` 이면 빈 문자열. */
   absPath: string;
+  /**
+   * ⑬ (h) — **눌러서 실행할 수 있는 것인가**(서버가 디스크를 보고 정한 값).
+   * 참이면 화면은 편집창·탐색기 대신 #17-20 ④ 실행 세션으로 간다.
+   */
+  executable: boolean;
 }
 
-const MISSING: ResolvedWorkspacePath = { kind: 'missing', absPath: '' };
+const MISSING: ResolvedWorkspacePath = { kind: 'missing', absPath: '', executable: false };
 
 /** 한 창(세션)에서 다룰 만한 경로 수의 넉넉한 상한 — 넘으면 통째로 비운다(LRU 를 둘 만큼 비싼 값이 아니다). */
 const CACHE_MAX = 4000;
@@ -43,7 +48,7 @@ async function fetchPathKind(root: string, relPath: string): Promise<ResolvedWor
     if (!res.ok) return MISSING;
     const info = (await res.json()) as WorkspacePathInfo;
     if (info.kind !== 'file' && info.kind !== 'directory') return MISSING;
-    return { kind: info.kind, absPath: info.absPath };
+    return { kind: info.kind, absPath: info.absPath, executable: info.executable === true };
   } catch {
     // 서버가 잠깐 끊긴 경우도 "열 수 없다" 로 같다 — 화면은 평문으로 두고 사용자를 막지 않는다.
     return MISSING;

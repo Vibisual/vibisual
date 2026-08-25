@@ -7,6 +7,7 @@ import { IframeView } from './IframeView.js';
 import { WindowControls } from './WindowControls.js';
 import { DetailPanel } from '../Panel/DetailPanel.js';
 import { TrashPurgeDialog } from '../Panel/TrashPurgeDialog.js';
+import { MediaConvertDialog } from '../IDE/MediaConvertDialog.js';
 import { PermissionPromptStack } from '../PermissionPrompt/PermissionPromptStack.js';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { useWebSocket } from '../../hooks/useWebSocket.js';
@@ -100,6 +101,8 @@ export function DetachedShell({ kind, tabKey }: DetachedShellProps): React.JSX.E
       </DetailPanelHost>
       {/* InspectorOverlay 는 main.tsx 에서 전역 1회 마운트(창 종류 무관) — 여기 중복 마운트 ❌ */}
       <TrashPurgeDialog />
+      {/* §5.13 (R-8) — 변환 팝업은 캔버스가 있는 셸마다 선다(누른 창에서 답해야 한다). */}
+      <MediaConvertDialog />
       <PermissionPromptStack />
     </div>
   );

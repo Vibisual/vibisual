@@ -23,6 +23,7 @@ import { useIDEProjectRoot } from './useIDEProjectRoot.js';
 import { formatTokens, CONTEXT_CATEGORY_LABEL_KEY } from './contextInventoryView.js';
 import { controlExplainKey, CONTEXT_ABOUT_FIELDS } from './contextSourceAbout.js';
 import { useContextAbout } from './useContextAbout.js';
+import { useIDEPaneActions } from './idePane.js';
 
 /** 본문 뷰어가 한 번에 그리는 줄 수 상한 — 그 위로는 브라우저가 아니라 사람이 못 읽는다. */
 const MAX_VIEWER_LINES = 4_000;
@@ -75,7 +76,7 @@ export function IDEContextSourceDialog({
   const { t } = useTranslation();
   const about = useContextAbout();
   const rootPath = useIDEProjectRoot();
-  const openInEditor = useGraphStore((s) => s.openIDEEditorFile);
+  const { openEditorFile: openInEditor } = useIDEPaneActions();
   const [preview, setPreview] = useState<ContextSourcePreview | null>(null);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);

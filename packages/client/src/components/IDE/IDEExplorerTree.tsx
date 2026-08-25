@@ -19,7 +19,8 @@ interface IDEExplorerTreeProps {
   failed: ReadonlySet<string>;
   selectedPath: string | null;
   onToggleDir: (relPath: string) => void;
-  onSelectFile: (relPath: string) => void;
+  /** §5.13 (R-7) — 실행 여부까지 넘긴다(목록이 서버에게 받아 둔 값). 여는 곳은 호출부가 정한다. */
+  onSelectFile: (relPath: string, executable?: boolean) => void;
   onOpenFile: (relPath: string) => void;
 }
 
@@ -98,7 +99,7 @@ export const IDEExplorerTree = memo(function IDEExplorerTree({
           <li key={entry.relPath} className="group/row relative">
             <button
               type="button"
-              onClick={() => onSelectFile(entry.relPath)}
+              onClick={() => onSelectFile(entry.relPath, entry.executable === true)}
               onDoubleClick={() => onOpenFile(entry.relPath)}
               title={entry.relPath}
               className={`flex w-full items-center gap-1 py-[3px] pr-6 text-left text-[12px] transition-colors ${

@@ -4,9 +4,13 @@ import { useTranslation } from 'react-i18next';
 import type { BubbleData, BubbleStyleConfig } from '@vibisual/shared';
 import { BUBBLE_STYLES, HOOK_AGENT_STYLE, BUBBLE_TEXT_WIDTH_RATIO, BUBBLE_TEXT_REF_SIZE, GIT_STATUS_CONFIG } from '@vibisual/shared';
 import { calcBubbleSize } from '../../utils/sizeCalc.js';
-import { useGraphStore, selectIDEOverlay, selectActiveBrainSummary } from '../../stores/graphStore.js';
+import { useGraphStore, selectIDEActiveSessionForAgent, selectActiveBrainSummary } from '../../stores/graphStore.js';
 import { isAgentDormant } from '../../utils/sessionStatus.js';
 import { PluginBubbleBadgeSlot } from '../../plugins/host.js';
+// §5.19 (G) — 로컬 버블 정체 판정은 패널과 **같은 함수**를 쓴다(두 화면이 어긋나지 않게).
+import { localProviderOf, localModelLabelOf } from '../LocalModel/localModelEntry.js';
+// §2.4 버블 타이포 오토핏 — 하단 블록 예약·요약·현(chord) 폭 계산은 전부 이 순수 모듈이 한다.
+import { planBubbleText, BUBBLE_LINE_HEIGHT, type BubbleBottomLine, type BubbleCenterExtra } from './bubbleTextFit.js';
 
 type BubbleNodeData = BubbleData & Record<string, unknown>;
 
@@ -289,6 +293,12 @@ export const BubbleNode = memo(function BubbleNode({
   const isCmdAgent = useGraphStore((s) => data.bubbleType === 'agent' && s.agentConfigs[data.id]?.executionMode === 'interactive-terminal');
   // §2.4 v1.67 — 갓 스폰된 커스텀 에이전트 idle empty-state: 라이브 세션 전 빈 하단을 설정 모델명으로 메움
   const configModel = useGraphStore((s) => data.bubbleType === 'agent' ? s.agentConfigs[data.id]?.model : undefined);
+  /**
+   * §5.19 (G) — All Model(로컬 LLM) 버블의 정체. 있으면 아래 모델·문맥·토큰 세 줄이 진실을
+   * 가져올 곳은 클로드 세션이 아니라 이 프로바이더다 — `config.model`(기본값 `opus`)은 로컬 턴이
+   * 읽지도 않는 칸이라 그대로 적으면 버블이 자기 정체를 거짓으로 말한다.
+   */
+  const localProvider = useGraphStore((s) => (data.bubbleType === 'agent' ? localProviderOf(s.agentConfigs[data.id]) : null));
   // §5.11 v3.88 — 플러그인 배지 슬롯에 넘길 읽기 전용 설정. 에이전트 버블이 아니면 undefined 라 슬롯이 그냥 빈다.
   const pluginAgentConfig = useGraphStore((s) => data.bubbleType === 'agent' ? s.agentConfigs[data.id] : undefined);
   // §5.10 — Brain 상주 버블: 두뇌 요약(카드 수/미확인/최근 제목). brain 타입 버블에서만 의미.
@@ -446,8 +456,8 @@ export const BubbleNode = memo(function BubbleNode({
   // §5.3 #12-1 — 백단 작업 중임을 말하는 것은 **기존 동작중 이펙트 하나**다(별도 색·배지 ❌).
   //   서버가 그동안 버블을 `active` 로 유지하므로 위 `isActive` 경로가 그대로 그 일을 한다.
   const subAgentsMap = useGraphStore((s) => s.subAgents);
-  const ideAgentId = useGraphStore((s) => selectIDEOverlay(s).agentId);
-  const ideActiveSessionId = useGraphStore((s) => selectIDEOverlay(s).activeSessionId);
+  // §5.5 #17-1 — 창이 여럿이므로 "IDE 의 활성 세션"이 아니라 **이 버블을 띄운 창의** 활성 세션을 본다.
+  const ideActiveSessionId = useGraphStore((s) => selectIDEActiveSessionForAgent(s, data.id));
   const stickySelectedSubId = useGraphStore((s) => s.selectedSubByAgent[data.id]);
   // §2.4 (잠듦) — 서버가 유휴로 판정해 이 에이전트의 claude 자식 프로세스를 회수해 둔 상태.
   //   세션이 여럿이면 전부 잠들었을 때만 잠든 것이다(하나라도 자식을 들고 있으면 아니다).
@@ -462,7 +472,7 @@ export const BubbleNode = memo(function BubbleNode({
     const activeSub = subs.find((s) => s.status === 'active');
     if (activeSub) return activeSub;
     // IDE 오버레이가 열려 있고 탭이 선택돼 있으면 그걸 우선 (실시간 클릭 반응)
-    if (ideAgentId === data.id && ideActiveSessionId) {
+    if (ideActiveSessionId) {
       const selected = subs.find((s) => s.id === ideActiveSessionId);
       if (selected) return selected;
     }
@@ -472,7 +482,7 @@ export const BubbleNode = memo(function BubbleNode({
       if (selected) return selected;
     }
     return null; // 서버 default 유지
-  }, [isAgent, data.customCreated, data.id, subAgentsMap, ideAgentId, ideActiveSessionId, stickySelectedSubId]);
+  }, [isAgent, data.customCreated, data.id, subAgentsMap, ideActiveSessionId, stickySelectedSubId]);
 
   // override 가 "있으면" 그 sub 기준으로만 일관되게 표기한다.
   // 부분 폴백(모델명만 override, 컨텍스트는 data.* 폴백)을 허용하면 라벨은 #16 인데 게이지는
@@ -480,12 +490,25 @@ export const BubbleNode = memo(function BubbleNode({
   const effectiveModelName = effectiveSubOverride
     ? effectiveSubOverride.modelName
     : data.modelName;
-  const effectiveContextUsed = effectiveSubOverride
-    ? effectiveSubOverride.contextUsed
-    : data.contextUsed;
-  const effectiveContextMax = effectiveSubOverride
-    ? effectiveSubOverride.contextMax
-    : data.contextMax;
+  /**
+   * §5.19 (G) — 버블 하단 모델 한 줄. 로컬 버블의 정체는 **지금 문 모델의 이름**이고, 아직 안
+   * 골랐으면 그 사실 자체가 상태다(작은 원 안에 긴 안내문을 넣을 자리는 없으니 `All Model` 로만
+   * 적는다 — 자세한 안내는 그 버블을 눌렀을 때 뜨는 설치 창이 한다).
+   */
+  const localModelLabel = localModelLabelOf(localProvider, t('ide.overlay.localLabel', { defaultValue: 'All Model' }));
+  /** 클로드 별칭만 접는다(`claude-` 접두·날짜 꼬리) — 로컬 파일명은 그 규칙의 대상이 아니다. */
+  const modelLineText = localModelLabel ?? (effectiveModelName ? formatModelName(effectiveModelName) : '');
+  // 로컬 문맥은 엔진이 왕복마다 돌려준 값이다(클로드 세션의 contextUsed/Max 는 로컬에 없어 종전에는
+  //   물결도 숫자도 영영 비어 있었다). 물결 높이와 아래 숫자가 같은 출처를 봐야 둘이 어긋나지 않는다.
+  const effectiveContextUsed = localProvider
+    ? localProvider.contextUsed
+    : effectiveSubOverride ? effectiveSubOverride.contextUsed : data.contextUsed;
+  const effectiveContextMax = localProvider
+    ? localProvider.contextLimit
+    : effectiveSubOverride ? effectiveSubOverride.contextMax : data.contextMax;
+  // 로컬 누적 토큰 — 청구가 아니라 양과 속도의 감각이라, 같은 자리에 같은 모양(`입+출`)으로 적는다.
+  const lineInputTokens = localProvider ? (localProvider.tokensIn ?? 0) : (data.totalInputTokens ?? 0);
+  const lineOutputTokens = localProvider ? (localProvider.tokensOut ?? 0) : (data.totalOutputTokens ?? 0);
 
   const contextRatio = isAgent && effectiveContextMax ? (effectiveContextUsed ?? 0) / effectiveContextMax : 0;
 
@@ -744,16 +767,176 @@ export const BubbleNode = memo(function BubbleNode({
       ? 'border-blue-400 shadow-md shadow-blue-400/30'
       : '';
 
-  // §4 v2.63 — 에이전트 종류 구분 배지(라벨 아래): CMD(인터랙티브 터미널) / 커스텀(우리가 오케스트레이션) /
-  //   훅(Claude Code 이벤트 캡처). 셋 다 같은 위치·타이포로 색만 달라 한눈에 구분된다. auto 버블(bubbleType='auto')은
-  //   고유 별 아이콘이 있어 제외(isAgent=false). 라벨 텍스트는 **영어 고정** — i18n 미대상(사용자 지정).
-  const agentBadge = isCmdAgent
-    ? { text: 'CMD', cls: 'bg-teal-500/25 text-teal-100' }
-    : isAgent && data.customCreated
-      ? { text: 'Custom', cls: 'bg-indigo-500/25 text-indigo-100' }
-      : isAgent
-        ? { text: 'Hook', cls: 'bg-slate-500/30 text-slate-200' }
-        : null;
+  // §4 v2.63 — 에이전트 종류 구분 배지(라벨 아래): All Model(로컬 LLM) / CMD(인터랙티브 터미널) /
+  //   커스텀(우리가 오케스트레이션) / 훅(Claude Code 이벤트 캡처). 넷 다 같은 위치·타이포로 색만 달라
+  //   한눈에 구분된다. auto 버블(bubbleType='auto')은 고유 별 아이콘이 있어 제외(isAgent=false).
+  //   라벨 텍스트는 **영어 고정** — i18n 미대상(사용자 지정).
+  // §5.19 (G) — All Model 버블은 커스텀 에이전트를 뼈대로 삼지만 **말을 거는 상대가 다르다.**
+  //   여기에 `Custom` 을 달면 캔버스가 정체를 거짓으로 말한다 — 설정 창도 IDE 상태바도 이미
+  //   `All Model` 이라 부르는데 버블만 다른 이름을 쓰면 같은 것이 두 이름으로 불린다.
+  //   본체가 무채색(그레이파이트)이라 배지는 밝은 쪽으로 잡아야 읽힌다(훅의 어두운 슬레이트와 구분).
+  const agentBadge = localProvider
+    ? { text: 'All Model', cls: 'bg-slate-200/25 text-slate-50' }
+    : isCmdAgent
+      ? { text: 'CMD', cls: 'bg-teal-500/25 text-teal-100' }
+      : isAgent && data.customCreated
+        ? { text: 'Custom', cls: 'bg-indigo-500/25 text-indigo-100' }
+        : isAgent
+          ? { text: 'Hook', cls: 'bg-slate-500/30 text-slate-200' }
+          : null;
+
+  /**
+   * §2.4 버블 타이포 오토핏 ① — 하단 블록을 **그릴 줄의 목록**으로 먼저 세운다.
+   * 예약 높이가 이 목록에서 나오므로, 줄이 1줄이든 5줄이든 중앙 열이 밟히지 않는다.
+   * (종전에는 예약이 고정 3줄치라 4줄째부터 배지·라벨이 모델명 위에 얹혔다.)
+   */
+  const bottomLines = useMemo<BubbleBottomLine[]>(() => {
+    const px = (n: number, floor: number) => Math.max(floor, Math.round(n * ts));
+    const lines: BubbleBottomLine[] = [];
+    // 에이전트: 모델명 + 컨텍스트 + 상태 + 토큰 합산.
+    // 버블 본체에는 세션 라벨(서브에이전트 이름)을 표시하지 않는다 — 자동 주제명(첫 프롬프트)이
+    // 긴 문장이라 작은 버블에 노이즈가 된다. 어느 세션 컨텍스트인지는 IDE 탭에서 확인.
+    if (isAgent && (localModelLabel ?? effectiveModelName)) {
+      // §5.19 (G) — 로컬 모델명은 파일명이라 길 수 있다. 원 밖으로 삐져나가는 대신 현(chord) 폭에
+      //   맞춰 잘리고 전체 이름은 툴팁으로 남는다(클로드 별칭은 짧아 잘릴 일이 없다).
+      lines.push({
+        key: 'model',
+        text: modelLineText,
+        fontSize: px(9, 5),
+        cls: 'font-semibold text-white/70',
+        priority: 100,
+        title: localModelLabel ?? undefined,
+        summarize: 'middle',
+      });
+      if (effectiveContextMax) {
+        lines.push({
+          key: 'context',
+          text: `${formatTokenCount(effectiveContextUsed ?? 0)}/${formatTokenCount(effectiveContextMax)}`,
+          fontSize: px(8, 5),
+          cls: 'text-white/50',
+          priority: 80,
+          mergeGroup: 'status',
+        });
+      }
+      // §2.4 (잠듦) — 자식 프로세스를 회수해 둔 세션. 새 모양 ❌, 기존 하단 타이포에 한 줄만.
+      if (isDormant) {
+        lines.push({
+          key: 'dormant',
+          text: t('common.bubble.dormant'),
+          fontSize: px(8, 5),
+          cls: 'text-white/40',
+          priority: 60,
+          mergeGroup: 'status',
+        });
+      }
+      // §5.19 (G) — 로컬 버블은 모델명이 설정에서 곧장 오므로 아래 idle empty-state 분기를 타지
+      //   않는다. 그 분기가 하던 "대기" 한 줄을 여기서 이어 받는다 — 정체를 바로잡으면서 상태를
+      //   잃으면 사용자는 이 버블이 쉬는 중인지 죽은 것인지 구분할 수 없다.
+      if (localModelLabel && !isDormant && !isActive && !isCreating && !isCreatingError) {
+        lines.push({
+          key: 'idle',
+          text: t('common.bubble.idle'),
+          fontSize: px(8, 5),
+          cls: 'text-white/50',
+          priority: 60,
+          mergeGroup: 'status',
+        });
+      }
+      if (lineInputTokens > 0) {
+        // `*` = 자식 세션 몫이 섞여 있다는 표식. 로컬 누적은 이 버블 자기 왕복만 세므로 안 붙인다.
+        const shared = !localProvider && (data.totalInputTokens ?? 0) > (data.ownInputTokens ?? 0) ? ' *' : '';
+        lines.push({
+          key: 'tokens',
+          text: `${formatTokenCount(lineInputTokens)}+${formatTokenCount(lineOutputTokens)}${shared}`,
+          fontSize: px(7, 5),
+          cls: 'text-amber-300/60',
+          priority: 40,
+        });
+      }
+      return lines;
+    }
+    // §2.4 v1.67/v1.69 — 라이브 세션 전 에이전트 idle empty-state (커스텀+훅 공통).
+    //   configModel(AgentConfig)이 있으면(커스텀) 모델명도, 없으면(훅) 상태 줄만.
+    if (isAgent && !isActive && contextRatio === 0 && !isCreating && !isCreatingError) {
+      if (configModel) {
+        lines.push({
+          key: 'model',
+          text: formatModelName(configModel),
+          fontSize: px(9, 5),
+          cls: 'font-semibold text-white/70',
+          priority: 100,
+          summarize: 'middle',
+        });
+      }
+      lines.push({
+        key: 'state',
+        text: t(isDormant ? 'common.bubble.dormant' : 'common.bubble.idle'),
+        fontSize: px(8, 5),
+        cls: 'text-white/50',
+        priority: 60,
+      });
+      return lines;
+    }
+    if (isFolder) {
+      // §2.1 v1.55 — 외부 폴더는 평탄화로 satellite 만 가지므로 satelliteFileCount 우선.
+      //   내부 폴더는 기존 childCount(직속 하위 폴더 수) 우선.
+      const count = data.bubbleType === 'external_folder'
+        ? (data.satelliteFileCount ?? data.childCount ?? 0)
+        : (data.childCount ?? 0);
+      lines.push({ key: 'files', text: `${count} files`, fontSize: px(10, 6), cls: 'text-white/60', priority: 100 });
+      return lines;
+    }
+    if (isIframe) {
+      lines.push({
+        key: 'serverKind',
+        text: data.serverKind === 'frontend' ? 'FE' : 'BE',
+        fontSize: px(9, 5),
+        cls: `rounded px-1 py-0.5 font-semibold ${data.serverKind === 'frontend' ? 'bg-sky-500/30 text-sky-300' : 'bg-amber-500/30 text-amber-300'}`,
+        priority: 100,
+        extraHeight: 4, // py-0.5 위아래
+      });
+      return lines;
+    }
+    return lines;
+  }, [
+    ts, isAgent, isFolder, isIframe, localModelLabel, effectiveModelName, modelLineText,
+    effectiveContextMax, effectiveContextUsed, isDormant, isActive, isCreating, isCreatingError,
+    lineInputTokens, lineOutputTokens, localProvider, contextRatio, configModel, t,
+    data.totalInputTokens, data.ownInputTokens, data.bubbleType, data.satelliteFileCount,
+    data.childCount, data.serverKind,
+  ]);
+
+  /** 중앙 열에 라벨·배지 말고 더 얹히는 줄 — 예약 계산에 함께 들어가야 라벨이 잘리지 않는다. */
+  const centerExtras = useMemo<BubbleCenterExtra[]>(() => {
+    const extras: BubbleCenterExtra[] = [];
+    if (data.lastTool && isActive && size >= 55) extras.push({ fontSize: Math.max(6, Math.round(11 * ts)) });
+    if (isBrainBubble) extras.push({ fontSize: Math.max(13, Math.round(19 * ts)) });
+    if (isTrashBubble && trashedCount > 0) extras.push({ fontSize: Math.max(6, Math.round(9 * ts)) });
+    return extras;
+  }, [data.lastTool, isActive, size, ts, isBrainBubble, isTrashBubble, trashedCount]);
+
+  /** 하단 블록 바닥 여백 — 폴더만 종전 값(8·ts)을 그대로 지킨다(보이던 자리를 옮기지 않는다). */
+  const bottomOffset = isFolder ? Math.max(4, Math.round(8 * ts)) : Math.max(3, Math.round(6 * ts));
+
+  /**
+   * §2.4 버블 타이포 오토핏 ② — 배치를 정한다.
+   * 원 안에 다 안 들어가면 간격 밀기 → 줄 병합 요약 → 라벨 가운데 줄임 → 최하 줄 접기 순으로
+   * 내려간다. 접힌 내용은 `foldedText` 로 돌아와 툴팁에 남으므로 정보는 사라지지 않는다.
+   */
+  const fit = useMemo(() => planBubbleText({
+    size,
+    ts,
+    borderWidth,
+    iconPx: Math.max(12, Math.round(32 * ts)),
+    label: data.label,
+    labelFontSize: Math.max(7, Math.round(13 * ts)),
+    labelMaxLines: isAgent ? 2 : 1,
+    labelWidthRatio: BUBBLE_TEXT_WIDTH_RATIO,
+    badge: agentBadge ? { text: agentBadge.text, fontSize: Math.max(5, Math.round(8 * ts)) } : null,
+    centerExtras,
+    bottomLines,
+    bottomOffset,
+  }), [size, ts, borderWidth, data.label, isAgent, agentBadge?.text, centerExtras, bottomLines, bottomOffset]);
 
   return (
     <div
@@ -873,12 +1056,10 @@ export const BubbleNode = memo(function BubbleNode({
         style={{
           borderWidth,
           borderStyle: 'solid',
-          // 에이전트: 하단 모델/컨텍스트(최대 3줄) + idle 칩 블록 높이만큼 바닥 예약.
+          // §2.4 오토핏 — 하단 블록 높이만큼 바닥 예약. 값은 **그릴 줄에서 계산**한다(고정 3줄치 ❌).
           // justify-center 가 이 영역 위에서만 일어나 2줄 라벨이 길어져도 위로 밀려 겹치지 않음.
           // absolute 하단 블록은 padding box 기준이라 이 padding 에 안 밀리고 바닥 유지.
-          paddingBottom: isAgent
-            ? Math.max(16, Math.round(6 * ts) + Math.round(9 * ts) + Math.round(8 * ts) + Math.round(7 * ts) + Math.round(6 * ts))
-            : undefined,
+          paddingBottom: fit.paddingBottom || undefined,
           transition: 'border-width 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease',
           // §5.10 v3.82 — Brain 만 원반이 아니라 구(orb)로: 위 그라디언트는 하이라이트→본색,
           //   아래 그라디언트는 가장자리 비네트. 색은 전부 style 에서 파생하므로 §2.2 팔레트를 벗어나지 않는다.
@@ -915,16 +1096,24 @@ export const BubbleNode = memo(function BubbleNode({
           <WaveFill ratio={0.5} color={style.color} indeterminate />
         )}
 
-        <div className="z-10 flex flex-col items-center justify-center" style={{ gap: Math.max(0, Math.round(4 * ts)) }}>
+        {/* §2.4 오토핏 — gap·라벨 줄 수·배지 표시 여부는 fit 이 정한다(원 안에 들어갈 때까지 단계적으로).
+            maxHeight 는 마지막 안전망 — 사다리를 다 내려가고도 안 들어가는 아주 작은 버블에서
+            중앙 열이 예약 영역(하단 블록 자리)으로 흘러드는 것을 막는다(겹침 대신 잘림). */}
+        <div
+          className="z-10 flex flex-col items-center justify-center overflow-hidden"
+          style={{ gap: fit.centerGap, maxHeight: fit.centerMaxHeight }}
+        >
           <BubbleIcon icon={style.icon} px={Math.max(12, Math.round(32 * ts))} />
           <span
-            className={`${isAgent ? 'line-clamp-2 break-words leading-tight' : 'truncate'} text-center font-bold text-white drop-shadow-sm ${isDisappearing ? 'bubble-ghost-label' : ''}`}
-            style={{ maxWidth: size * BUBBLE_TEXT_WIDTH_RATIO, fontSize: Math.max(7, Math.round(13 * ts)) }}
-            title={isFolder ? (data.absolutePath ?? data.label) : isAgent ? data.label : undefined}
+            className={`${fit.labelLines > 1 ? 'line-clamp-2 break-words' : 'truncate'} leading-tight text-center font-bold text-white drop-shadow-sm ${isDisappearing ? 'bubble-ghost-label' : ''}`}
+            style={{ maxWidth: fit.labelMaxWidth, fontSize: Math.max(7, Math.round(13 * ts)) }}
+            title={isFolder
+              ? (data.absolutePath ?? data.label)
+              : (isAgent || fit.labelText !== data.label) ? data.label : undefined}
           >
-            {data.label}
+            {fit.labelText}
           </span>
-          {agentBadge && (
+          {fit.showBadge && agentBadge && (
             <span
               className={`rounded px-1 font-bold uppercase tracking-wide ${agentBadge.cls}`}
               style={{ fontSize: Math.max(5, Math.round(8 * ts)) }}
@@ -962,68 +1151,31 @@ export const BubbleNode = memo(function BubbleNode({
           )}
         </div>
 
-        {/* 에이전트: 모델명 + 컨텍스트 + 토큰 합산.
-            버블 본체에는 세션 라벨(서브에이전트 이름)을 표시하지 않는다 — 자동 주제명(첫 프롬프트)이
-            긴 문장이라 작은 버블에 노이즈가 된다. 어느 세션 컨텍스트인지는 IDE 탭에서 확인. */}
-        {isAgent && effectiveModelName && (
-          <div className="absolute z-10 flex flex-col items-center" style={{ bottom: Math.max(3, Math.round(6 * ts)) }}>
-            <span className="font-semibold text-white/70" style={{ fontSize: Math.max(5, Math.round(9 * ts)) }}>
-              {formatModelName(effectiveModelName)}
-            </span>
-            {effectiveContextMax && (
-              <span className="text-white/50" style={{ fontSize: Math.max(5, Math.round(8 * ts)) }}>
-                {formatTokenCount(effectiveContextUsed ?? 0)}/{formatTokenCount(effectiveContextMax)}
+        {/* §2.4 오토핏 — 하단 블록(에이전트 모델/컨텍스트/상태/토큰 · 폴더 파일 수 · iframe 종류).
+            무엇을 그릴지는 위 `bottomLines` 가 정하고, 바디의 예약(paddingBottom)이 **같은 목록**에서
+            나오므로 줄이 몇이든 중앙 열과 겹치지 않는다. 원 안에 안 들어가면 오토핏이 병합·접기로
+            줄인 뒤 접힌 내용을 이 블록 툴팁에 남긴다 — 글자는 줄어들어도 사라지지 않는다.
+            가로는 그 높이에서의 현(chord) 폭이라 맨 아랫줄이 원 밖으로 삐져나가지 않는다. */}
+        {fit.bottomLines.length > 0 && (
+          <div
+            className="absolute z-10 flex flex-col items-center"
+            style={{ bottom: bottomOffset }}
+            title={fit.foldedText || undefined}
+          >
+            {fit.bottomLines.map((line, i) => (
+              <span
+                key={line.key}
+                className={`max-w-full truncate text-center ${line.cls}`}
+                style={{
+                  fontSize: line.fontSize,
+                  lineHeight: BUBBLE_LINE_HEIGHT,
+                  maxWidth: fit.bottomMaxWidths[i],
+                }}
+                title={line.title}
+              >
+                {line.text}
               </span>
-            )}
-            {/* §2.4 (잠듦) — 자식 프로세스를 회수해 둔 세션. 새 모양 ❌, 기존 하단 타이포에 한 줄만. */}
-            {isDormant && (
-              <span className="text-white/40" style={{ fontSize: Math.max(5, Math.round(8 * ts)) }}>
-                {t('common.bubble.dormant')}
-              </span>
-            )}
-            {(data.totalInputTokens ?? 0) > 0 && (
-              <span className="text-amber-300/60" style={{ fontSize: Math.max(5, Math.round(7 * ts)) }}>
-                {formatTokenCount(data.totalInputTokens ?? 0)}+{formatTokenCount(data.totalOutputTokens ?? 0)}
-                {(data.totalInputTokens ?? 0) > (data.ownInputTokens ?? 0) && ' *'}
-              </span>
-            )}
-          </div>
-        )}
-
-        {/* §2.4 v1.67/v1.69 — 라이브 세션 전 에이전트 idle empty-state (커스텀+훅 공통).
-            effectiveModelName(라이브)이 잡히거나 contextRatio>0(물결)·active 면 위/펄스 경로로 자연 전환.
-            configModel(AgentConfig)이 있으면(커스텀) 모델명도 표시, 없으면(훅) idle 칩만. */}
-        {isAgent && !effectiveModelName && !isActive && contextRatio === 0 && !isCreating && !isCreatingError && (
-          <div className="absolute z-10 flex flex-col items-center" style={{ bottom: Math.max(3, Math.round(6 * ts)) }}>
-            {/* §2.4 v1.70 — 라이브 모델/컨텍스트 블록과 동일 타이포 시스템.
-                1줄: 모델명(font-semibold text-white/70, 9·ts), 2줄: 상태(text-white/50, 8·ts).
-                글리프 ❌ — 라이브 블록처럼 텍스트 행만으로 정돈된 톤 유지. */}
-            {configModel && (
-              <span className="font-semibold text-white/70" style={{ fontSize: Math.max(5, Math.round(9 * ts)) }}>
-                {formatModelName(configModel)}
-              </span>
-            )}
-            <span className="text-white/50" style={{ fontSize: Math.max(5, Math.round(8 * ts)) }}>
-              {t(isDormant ? 'common.bubble.dormant' : 'common.bubble.idle')}
-            </span>
-          </div>
-        )}
-
-        {isFolder && (
-          <div className="absolute text-white/60" style={{ bottom: Math.max(4, Math.round(8 * ts)), fontSize: Math.max(6, Math.round(10 * ts)) }}>
-            {/* §2.1 v1.55 — 외부 폴더는 평탄화로 satellite 만 가지므로 satelliteFileCount 우선.
-                내부 폴더는 기존 childCount(직속 하위 폴더 수) 우선. */}
-            {data.bubbleType === 'external_folder'
-              ? (data.satelliteFileCount ?? data.childCount ?? 0)
-              : (data.childCount ?? 0)} files
-          </div>
-        )}
-
-        {isIframe && (
-          <div className="absolute z-10 flex items-center gap-1" style={{ bottom: Math.max(3, Math.round(6 * ts)) }}>
-            <span className={`rounded px-1 py-0.5 font-semibold ${data.serverKind === 'frontend' ? 'bg-sky-500/30 text-sky-300' : 'bg-amber-500/30 text-amber-300'}`} style={{ fontSize: Math.max(5, Math.round(9 * ts)) }}>
-              {data.serverKind === 'frontend' ? 'FE' : 'BE'}
-            </span>
+            ))}
           </div>
         )}
 

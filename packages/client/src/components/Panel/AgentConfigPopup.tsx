@@ -1,11 +1,21 @@
 import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import type { AgentConfig } from '@vibisual/shared';
+import { CMD_CLI_KINDS, type CmdCliKind } from '@vibisual/shared';
+
+/** §4 (CMD ⑧) — 고른 CLI 가 "셸만"인가(모델 칸을 감출지 판정). 표를 읽는다 — 문자열 비교 ❌. */
+function cliKindIsShell(kind: CmdCliKind | undefined): boolean {
+  return (CMD_CLI_KINDS.find((k) => k.value === (kind ?? 'claude'))?.bin ?? 'claude') === '';
+}
+import type { AgentConfig, AgentProvider } from '@vibisual/shared';
 import {
   AVAILABLE_AGENT_TOOLS,
   DEFAULT_AGENT_CONFIG,
   CONTI_AGENT_RULES,
+  LOCAL_CONTEXT_MIN,
+  LOCAL_CONTEXT_MAX,
+  LOCAL_DEFAULT_CONTEXT_SIZE,
+  LOCAL_TOOL_NAMES,
   isOpusModel,
   resolveAliasToLatest,
   listModelFamilies,
@@ -26,6 +36,7 @@ import {
 } from '@vibisual/shared';
 import { HexColorPicker } from 'react-colorful';
 import { ScrollFade } from '../ScrollFade.js';
+import { applyLocalProviderDraft } from './localProviderPayload.js';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { useBackdropDismiss, useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 
@@ -421,6 +432,14 @@ function AutoEdgeSection({
 export function AgentConfigPopup({ agentId, config, currentColor, onClose }: AgentConfigPopupProps): React.JSX.Element {
   const { t } = useTranslation();
   const base = config ?? { ...DEFAULT_AGENT_CONFIG, color: currentColor };
+  // §5.19 (G) — 이 버블이 **내 PC 에서 도는 모델**인가. 아래 화면의 모든 갈림이 이 한 줄만 본다.
+  //   `provider` 는 창을 열어 둔 사이에도 왕복마다 갱신되므로(문맥 게이지·누적 토큰) `base` 사본이
+  //   아니라 **지금 값**(`config`)을 읽는다 — 사본을 그리면 열어 둔 창만 과거를 보여 준다.
+  const provider = config?.provider;
+  const isLocal = provider?.kind === 'local-llama';
+  // §4 (CMD ⑧) — 이 버블이 임베디드 터미널(CMD)인가. `executionMode` 는 이 창이 만지지 않는
+  //   정체성 축이라 **지금 값**(config)을 읽는다.
+  const isCmdAgent = config?.executionMode === 'interactive-terminal';
   // v1.37 — STRICT outbound 엣지 타겟 툴은 소스에서 박탈(회색 표시). 서버 dispatch strip 과 동일.
   const strictStripSet = useStrictStripSet(agentId);
   const modelRegistry = useGraphStore((s) => s.modelRegistry);
@@ -499,6 +518,11 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
   }), [t]);
 
   const [model, setModel] = useState(base.model);
+  // §4 (CMD ⑧) — 이 CMD 버블이 띄울 CLI. CMD(임베디드 터미널) 버블에서만 의미가 있어
+  //   아래 화면에서도 그 경우에만 칸이 뜬다(헤드리스는 이 값을 읽지 않는다).
+  const [cliKind, setCliKind] = useState<CmdCliKind | undefined>(base.cliKind);
+  // 순수 셸이면 모델 칸이 가리키는 대상이 없다 — 빈칸을 남기느니 감춘다.
+  const isShellOnly = isCmdAgent && cliKindIsShell(cliKind);
   // §4 v2.38 — 특정 풀ID 핀. undefined = alias=latest 모드.
   const [modelVersion, setModelVersion] = useState<string | undefined>(base.modelVersion);
   // §5.5 #17-20 ⑥ v4.74 — 이 창에는 UI 가 없지만 저장할 때 함께 실어 보내야 하는 값(통과용).
@@ -542,6 +566,18 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
   // §4 v1.53 — 프리셋 트레이스 (UI 제거됨, 기존 값은 save 시 그대로 보존)
   const [presetId] = useState<string | undefined>(base.presetId);
   const [rules, setRules] = useState(base.rules ?? '');
+  // §5.19 (G) — 로컬 버블에서만 서는 세 칸. 입력 중에는 문자열이고 저장할 때 숫자로 굳는다
+  //   (숫자 상태로 들고 있으면 지우는 도중의 빈 칸이 0 으로 튄다).
+  const [localContext, setLocalContext] = useState(
+    String(base.provider?.contextSize ?? LOCAL_DEFAULT_CONTEXT_SIZE),
+  );
+  // 비워 두면 엔진 기본값 — "0" 과 "안 정함"은 다르다(0 은 항상 같은 말만 하는 설정이다).
+  const [localTemperature, setLocalTemperature] = useState(
+    typeof base.provider?.temperature === 'number' ? String(base.provider.temperature) : '',
+  );
+  // §5.19 (H) — 도구 강등(`toolSupport='none'`)은 **판정**이지 사용자가 정한 값이 아니다.
+  //   잘못 박히면 그 버블은 영영 파일을 못 보므로 되돌릴 손잡이가 화면에 있어야 한다.
+  const [retryToolSupport, setRetryToolSupport] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [showRulesEditor, setShowRulesEditor] = useState(false);
   // §5.3 #28 (K) v1.48 — Rules 히스토리 미리보기 선택 (null=텍스트영역, ts=해당 항목 본문)
@@ -571,6 +607,15 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
     void ov.open({ agentId, projectId });
   }, [agentId, isInOverlay]);
 
+  // §5.19 (B)(G) — 모델을 바꾸는 자리는 **이미 있는 설치 창** 하나뿐이다(새 창 ❌ — 카탈로그·받기·
+  //   삭제가 거기 있고, 상태바 뱃지도 같은 창을 연다). 이 창은 닫는다 — 두 창이 겹쳐 뜨면 어느 쪽이
+  //   지금 값인지 알 수 없고, 그쪽에서 모델을 매면 여기 열려 있던 값은 이미 옛것이다.
+  const openLocalModelWindow = useGraphStore((s) => s.openLocalModelWindow);
+  const handleSwitchLocalModel = useCallback(() => {
+    openLocalModelWindow(agentId);
+    onClose();
+  }, [openLocalModelWindow, agentId, onClose]);
+
   const toolPicker = usePortalDropdown();
   const skillPicker = usePortalDropdown('left');
   // §4 v1.53 — disallowedTools 추가용 picker (별도 인스턴스)
@@ -598,11 +643,24 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
   const closeRulesEditor = useCallback(() => setShowRulesEditor(false), []);
   const rulesBackdrop = useBackdropDismiss(closeRulesEditor);
 
+  // Esc — **캡처 단계에서 소비한다**. 종전에는 버블 단계에서 듣고 전파를 끊지 않아, 같은 Esc 가
+  //   `window` 에 붙은 다른 리스너(특히 IDE 창 닫기)까지 함께 발동했다 — 설정창을 닫으려 한 번
+  //   눌렀을 뿐인데 뒤에 있던 IDE 창까지 닫혔다. 규칙 편집기가 열려 있으면 그것부터 닫는다
+  //   (안쪽 창이 열려 있는데 바깥 창이 먼저 닫히면 편집 중이던 글이 사라진다).
   useEffect(() => {
-    const handleKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', handleKey);
-    return () => window.removeEventListener('keydown', handleKey);
-  }, [onClose]);
+    const handleKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (showRulesEditor) {
+        setShowRulesEditor(false);
+        return;
+      }
+      onClose();
+    };
+    window.addEventListener('keydown', handleKey, true);
+    return () => window.removeEventListener('keydown', handleKey, true);
+  }, [onClose, showRulesEditor]);
 
   const handleModelChange = useCallback((v: string) => {
     setModel(v);
@@ -675,6 +733,25 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
     setSkills((p) => p.includes(name) ? p : [...p, name]);
   }, []);
 
+  /**
+   * §5.19 (G) — 저장할 `provider` 한 벌.
+   *
+   * 바닥은 **지금 스토어에 있는 값**이다(창을 연 시점의 사본이 아니다) — 이 창이 열려 있는 동안에도
+   * 왕복은 `contextUsed`·`contextLimit`·`tokensIn/Out` 을 갱신하고, 옛 사본을 되돌려 보내면 그
+   * 값들이 뒤로 간다. 그 위에 이 창이 실제로 만진 칸만 얹는다.
+   */
+  const buildLocalProvider = useCallback((): AgentProvider | undefined => {
+    const live = useGraphStore.getState().agentConfigs[agentId]?.provider ?? provider;
+    if (!live) return undefined;
+    // 굳히는 규칙(클램프 · 빈 칸 = 엔진 기본값 · 판정 되돌리기 · 라이브 값 보존)은 순수 함수 한 곳에
+    //   있고 `localProviderPayload.test.ts` 가 지킨다.
+    return applyLocalProviderDraft(live, {
+      contextDraft: localContext,
+      temperatureDraft: localTemperature,
+      retryToolSupport,
+    });
+  }, [agentId, provider, localContext, localTemperature, retryToolSupport]);
+
   const buildPayload = useCallback((): AgentConfig => ({
     model, tools, permissionMode, skills, color,
     maxTurns: maxTurns > 0 ? maxTurns : undefined,
@@ -700,6 +777,8 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
     presetId,
     // §4 v2.38 — 풀ID 핀 (undefined = alias=latest 모드)
     modelVersion,
+    // §4 (CMD ⑧) — 고른 CLI. 'claude'(기본)는 undefined 로 보내 직렬화를 최소화한다.
+    cliKind: cliKind && cliKind !== 'claude' ? cliKind : undefined,
     // §5.5 #17-20 ⑥ v4.74 — MCP 디버그 도구 선택은 이 창이 아니라 IDE 디버그 뷰에서 켠다.
     //   PUT 은 body 로 config 전량을 재구축하므로 **여기서 그대로 실어 보내지 않으면 저장할 때
     //   조용히 꺼진다** — 이 창이 모르는 필드라도 통과시켜야 한다.
@@ -717,6 +796,11 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
     // §4 (CLI 사양 추종) — 초 → ms. 0/범위 밖은 undefined = 미설정(env 키 자체가 안 붙는다).
     bashDefaultTimeoutMs: bashSecToMs(bashDefaultTimeoutSec),
     bashMaxTimeoutMs: bashSecToMs(bashMaxTimeoutSec),
+    // §5.19 (G) — 로컬 버블의 프로바이더. **저장하는 순간의 최신값**(스토어)을 바닥에 깔고 이 창이
+    //   만진 칸만 얹는다. 창을 연 시점의 사본을 그대로 되돌려 보내면 그사이 왕복이 갱신한
+    //   `contextUsed`·`tokensIn/Out` 이 옛 값으로 되돌아가 게이지가 뒤로 간다.
+    //   로컬이 아니면 **아무것도 보내지 않는다** — 서버가 이전 값을 유지하므로 종전과 같다.
+    provider: isLocal ? buildLocalProvider() : undefined,
   }), [
     model, tools, permissionMode, permissionTimeoutPolicy, skills, color, maxTurns, maxBudgetUsd, isolation, effort,
     memory, subagentDepth,
@@ -724,6 +808,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
     contextWindow, presetId, modelVersion, mcpServers,
     fallbackModel, autoCompact, excludeDynamicSections, settingSources, safeMode, betas,
     bashDefaultTimeoutSec, bashMaxTimeoutSec,
+    isLocal, buildLocalProvider,
   ]);
 
   const handleSave = useCallback(async () => {
@@ -741,19 +826,38 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
 
   const availableToAdd = AVAILABLE_AGENT_TOOLS.filter((t) => !tools.includes(t));
 
-  return (
+  // §5.5 #17-1 — **body 포털**. 이 창은 지금까지 `DetailPanel`(`z-30`) 안에서 그려졌는데, 부모가
+  //   z-index 를 가지면 자식은 그 층 **안**에 갇힌다 — `fixed inset-0 z-50` 이라고 적혀 있어도
+  //   실제로는 30층에 머물러 IDE 창(40층대) 뒤로 깔렸다. 여는 자리가 상세 패널이든 IDE 타이틀바든
+  //   설정창은 늘 맨 위여야 하므로 부모의 층에서 빼낸다.
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" {...backdrop}>
       <div className="flex max-h-[80vh] w-[420px] max-w-[94vw] flex-col rounded-lg border border-gray-700 bg-gray-900 shadow-2xl max-md:h-dvh max-md:max-h-dvh max-md:w-screen max-md:max-w-none max-md:rounded-none max-md:border-0">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-gray-700 px-4 py-3">
-          <h3 className="flex items-center gap-1.5 text-sm font-bold text-gray-100">
-            {t('panel.agentConfig.title')}
-            <HoverTip text={t('panel.agentConfig.fieldTips.agentSettingsNote')} className="inline-flex cursor-help">
-              <svg className="h-3.5 w-3.5 text-yellow-500/70 hover:text-yellow-400" viewBox="0 0 16 16" fill="currentColor">
-                <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1Zm-.75 3.5a.75.75 0 0 1 1.5 0v4a.75.75 0 0 1-1.5 0v-4Zm.75 7a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5Z" />
-              </svg>
-            </HoverTip>
-          </h3>
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <h3 className="flex items-center gap-1.5 text-sm font-bold text-gray-100">
+              {t('panel.agentConfig.title')}
+              <HoverTip text={t('panel.agentConfig.fieldTips.agentSettingsNote')} className="inline-flex cursor-help">
+                <svg className="h-3.5 w-3.5 text-yellow-500/70 hover:text-yellow-400" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1Zm-.75 3.5a.75.75 0 0 1 1.5 0v4a.75.75 0 0 1-1.5 0v-4Zm.75 7a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5Z" />
+                </svg>
+              </HoverTip>
+            </h3>
+            {/* §5.19 (G) — 정체를 창이 스스로 말한다. 이 한 줄이 없으면 **왜 칸이 적은지**를
+                설명할 것이 없어 빈자리가 고장으로 읽힌다. */}
+            {isLocal && (
+              <span className="flex min-w-0 items-center gap-1.5 text-[12px]">
+                <span className="flex-shrink-0 rounded bg-slate-500/15 px-1.5 py-0.5 font-semibold text-slate-300">
+                  {t('ide.overlay.localLabel', { defaultValue: 'All Model' })}
+                </span>
+                <span className="truncate text-slate-400">
+                  {provider?.modelName || provider?.modelId
+                    || t('panel.agentConfig.local.noModel', { defaultValue: '아직 모델을 고르지 않았습니다' })}
+                </span>
+              </span>
+            )}
+          </div>
           <button type="button" onClick={onClose} className="flex h-6 w-6 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200">
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
           </button>
@@ -763,7 +867,111 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
         <ScrollFade fill className="flex-1">
           <div className="flex flex-col gap-4 p-4">
 
+            {/* §5.19 (G) — 로컬 버블의 모델 자리. 이름과 [바꾸기] 뿐이다 — 카탈로그·받기·삭제는
+                이미 설치 창에 있고, 같은 목록을 두 곳에 그리면 둘이 어긋나는 날이 온다. */}
+            {isLocal && (
+              <div className="flex flex-col gap-1.5">
+                <label className="flex items-center text-xs font-medium text-gray-400">
+                  {t('panel.agentConfig.model.label')}
+                  <InfoTip text={t('panel.agentConfig.local.modelTip', {
+                    defaultValue: '이 버블이 말할 때 쓰는 로컬 모델입니다. 바꾸면 다음 턴부터 그 모델이 답합니다.',
+                  })} />
+                </label>
+                <div className="flex items-center gap-2 rounded border border-gray-700 bg-gray-800/60 px-2.5 py-1.5">
+                  <span className={`min-w-0 flex-1 truncate text-xs ${provider?.modelId ? 'text-gray-200' : 'text-gray-500'}`}>
+                    {provider?.modelName || provider?.modelId
+                      || t('panel.agentConfig.local.noModel', { defaultValue: '아직 모델을 고르지 않았습니다' })}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleSwitchLocalModel}
+                    className="flex-shrink-0 rounded bg-gray-700 px-2.5 py-1 text-xs text-gray-200 transition-colors hover:bg-gray-600"
+                  >
+                    {provider?.modelId
+                      ? t('panel.agentConfig.local.switchModel', { defaultValue: '모델 바꾸기' })
+                      : t('panel.agentConfig.local.pickModel', { defaultValue: '모델 고르기' })}
+                  </button>
+                </div>
+
+                {/* §5.19 (D) — 대화 창 크기 · 온도. 로컬 턴이 **실제로 읽는** 두 값이다. */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="flex flex-col gap-1">
+                    <label className="flex items-center text-xs font-medium text-gray-400">
+                      {t('localModel.contextTitle', { defaultValue: '대화 창 크기' })}
+                      <InfoTip text={t('localModel.contextHint', {
+                        defaultValue: '길수록 더 오래 기억하지만 메모리를 더 쓰고 느려집니다. 모델이 학습된 길이보다 크게 잡으면 그 길이로 낮춰서 씁니다. 바꾼 값은 이 모델을 다음에 올릴 때부터 적용됩니다.',
+                      })} />
+                    </label>
+                    <div className="flex items-stretch rounded border border-gray-700 bg-gray-800 focus-within:border-blue-500">
+                      <input
+                        type="number"
+                        min={LOCAL_CONTEXT_MIN}
+                        max={LOCAL_CONTEXT_MAX}
+                        step={1024}
+                        value={localContext}
+                        onChange={(e) => setLocalContext(e.target.value)}
+                        className="w-full min-w-0 flex-1 bg-transparent px-2 py-1.5 text-center text-sm text-gray-200 outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                      />
+                      <span className="flex items-center px-2 text-[12px] text-gray-500">
+                        {t('localModel.contextUnit', { defaultValue: '토큰' })}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="flex items-center text-xs font-medium text-gray-400">
+                      {t('panel.agentConfig.local.temperature', { defaultValue: '온도' })}
+                      <InfoTip text={t('panel.agentConfig.local.temperatureTip', {
+                        defaultValue: '낮으면 또박또박 같은 답을, 높으면 더 자유로운 답을 냅니다. 비워 두면 엔진 기본값을 씁니다.',
+                      })} />
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={2}
+                      step={0.1}
+                      value={localTemperature}
+                      onChange={(e) => setLocalTemperature(e.target.value)}
+                      placeholder={t('panel.agentConfig.local.temperatureDefault', { defaultValue: '엔진 기본값' })}
+                      className="w-full min-w-0 rounded border border-gray-700 bg-gray-800 px-2 py-1.5 text-center text-sm text-gray-200 outline-none placeholder:text-[12px] placeholder:text-gray-600 focus:border-blue-500 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* §4 (CMD ⑧) — CLI 종류. CMD(임베디드 터미널) 버블에서만. */}
+            {isCmdAgent && (
+              <div className="flex flex-col gap-1">
+                <label className="flex items-center text-xs font-medium text-gray-400">
+                  {t('panel.agentConfig.cliKind.label', { defaultValue: 'CLI' })}
+                  <InfoTip text={t('panel.agentConfig.cliKind.tip', { defaultValue: '이 CMD 터미널이 띄울 에이전트 CLI입니다. Claude Code 외에는 우리 훅의 자식이 아니므로 대화 이어받기·규칙 주입이 붙지 않고, 상태는 터미널 출력으로 읽습니다.' })} />
+                </label>
+                <select
+                  value={cliKind ?? 'claude'}
+                  onChange={(e) => setCliKind(e.target.value as CmdCliKind)}
+                  className="w-full cursor-pointer rounded border border-gray-700 bg-gray-800 px-2 py-1.5 text-sm text-gray-200 outline-none focus:border-blue-500"
+                >
+                  {CMD_CLI_KINDS.map((k) => (
+                    <option key={k.value} value={k.value}>{k.label}</option>
+                  ))}
+                </select>
+                {/* 고른 CLI 가 claude 가 아니면 **아래 칸들이 전달되지 않는다** — 말해 주지 않으면
+                    설정을 채워 놓고 안 먹는다고 읽는다. 반영 시점(새 세션)도 함께 알린다. */}
+                {cliKind && cliKind !== 'claude' && (
+                  <p className="text-[12px] leading-relaxed text-amber-300/80">
+                    {t('panel.agentConfig.cliKind.nonClaudeNote', { defaultValue: '이 CLI 는 Claude Code 가 아니라 아래 설정(모델·권한·도구·규칙)이 전달되지 않습니다. 상태는 터미널 출력으로 읽습니다. 바꾼 값은 "+" 로 연 새 세션부터 적용됩니다.' })}
+                  </p>
+                )}
+                {cliKind === 'claude' && base.cliKind && base.cliKind !== 'claude' && (
+                  <p className="text-[12px] leading-relaxed text-gray-500">
+                    {t('panel.agentConfig.cliKind.applyNote', { defaultValue: '바꾼 CLI 는 "+" 로 연 새 세션부터 적용됩니다(이미 떠 있는 터미널은 그대로).' })}
+                  </p>
+                )}
+              </div>
+            )}
+
             {/* Model */}
+            {!isLocal && !isShellOnly && (
             <div className="flex flex-col gap-1">
               <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.model.label')}<InfoTip text={FIELD_TIPS.model} /></label>
               <CustomSelect value={model} onChange={handleModelChange} options={MODEL_OPTIONS} />
@@ -811,6 +1019,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                 </label>
               )}
             </div>
+            )}
 
             {/* Permission Mode */}
             <div className="flex flex-col gap-1">
@@ -874,7 +1083,9 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
               </div>
             )}
 
-            {/* §5.3 #28 v1.47 — Custom Mode (Vibisual 콘티/리뷰/디버그 모드 축, claude CLI 와 직교) */}
+            {/* §5.3 #28 v1.47 — Custom Mode (Vibisual 콘티/리뷰/디버그 모드 축, claude CLI 와 직교)
+                §5.19 (G) — 콘티는 클로드 세션이 낸 결과를 읽어 보드를 채우는 축이라 로컬에는 안 뜬다. */}
+            {!isLocal && (
             <div className="flex flex-col gap-1">
               <label className="flex items-center text-xs font-medium text-gray-400">
                 {t('panel.agentConfig.customMode.label', { defaultValue: 'Custom Mode' })}
@@ -950,6 +1161,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                 </p>
               )}
             </div>
+            )}
 
             {/* Agent Rules */}
             <div className="flex flex-col gap-1.5">
@@ -1026,7 +1238,59 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
               )}
             </div>
 
+            {/* §5.19 (H) — 로컬 버블의 도구. **고를 것이 없다** — 러너는 언제나 같은 목록(`LOCAL_TOOL_DEFS`)을
+                싣는다. 그래서 이 자리는 허용 목록이 아니라 "이 모델이 도구를 실제로 쓰는가"를 말한다. */}
+            {isLocal && (
+              <div className="flex flex-col gap-1.5">
+                <label className="flex items-center text-xs font-medium text-gray-400">
+                  {t('panel.agentConfig.tools.label')}
+                  <InfoTip text={t('panel.agentConfig.local.toolsTip', {
+                    defaultValue: '로컬 모델에게는 아래 도구가 통째로 갑니다(고르는 목록이 아닙니다). 실행 직전에는 위 권한 모드와 승인 팝업이 클로드 버블과 똑같이 걸립니다.',
+                  })} />
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {LOCAL_TOOL_NAMES.map((tool) => {
+                    const desc = t(`panel.agentConfig.tools.${tool}`, { defaultValue: '' });
+                    const chip = (
+                      <span className="flex items-center rounded-full bg-gray-700/40 px-2.5 py-0.5 text-xs font-medium text-gray-300">
+                        {tool}
+                      </span>
+                    );
+                    return desc
+                      ? <HoverTip key={tool} text={desc} className="inline-flex">{chip}</HoverTip>
+                      : <span key={tool} className="inline-flex">{chip}</span>;
+                  })}
+                </div>
+                {(() => {
+                  // 저장하기 전에도 화면은 [다시 확인]을 누른 결과를 보여 준다 — 누르고도 그대로면
+                  //   눌리지 않은 줄 알고 또 누른다.
+                  const verdict = retryToolSupport ? 'unknown' : (provider?.toolSupport ?? 'unknown');
+                  const tone = verdict === 'ok' ? 'text-emerald-400' : verdict === 'none' ? 'text-amber-400' : 'text-gray-500';
+                  const line = verdict === 'ok'
+                    ? t('panel.agentConfig.local.toolsOk', { defaultValue: '이 모델은 도구를 씁니다 — 파일을 읽고 고칠 수 있습니다.' })
+                    : verdict === 'none'
+                      ? t('panel.agentConfig.local.toolsNone', { defaultValue: '이 모델은 도구를 못 씁니다 — 대화만 합니다.' })
+                      : t('panel.agentConfig.local.toolsUnknown', { defaultValue: '아직 확인 전입니다 — 다음 턴에 도구를 실어 보내 확인합니다.' });
+                  return (
+                    <div className="flex items-center gap-2 rounded border border-gray-800 bg-gray-900/40 px-2.5 py-1.5">
+                      <span className={`min-w-0 flex-1 text-[12px] leading-snug ${tone}`}>{line}</span>
+                      {provider?.toolSupport === 'none' && !retryToolSupport && (
+                        <button
+                          type="button"
+                          onClick={() => setRetryToolSupport(true)}
+                          className="flex-shrink-0 rounded bg-gray-700 px-2 py-1 text-[12px] text-gray-200 transition-colors hover:bg-gray-600"
+                        >
+                          {t('panel.agentConfig.local.toolsRecheck', { defaultValue: '다시 확인' })}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
             {/* Tools */}
+            {!isLocal && (
             <div className="flex flex-col gap-1.5">
               <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.tools.label')}<InfoTip text={FIELD_TIPS.tools} /></label>
               <div className="flex flex-wrap gap-1.5">
@@ -1076,8 +1340,11 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                 )}
               </div>
             </div>
+            )}
 
-            {/* §4 v1.53 — Disallowed Tools (deny-list). Tools allow-list 와 직교 — Tools 에 있어도 이 칩에 있으면 CLI --disallowedTools 로 차단 */}
+            {/* §4 v1.53 — Disallowed Tools (deny-list). Tools allow-list 와 직교 — Tools 에 있어도 이 칩에 있으면 CLI --disallowedTools 로 차단
+                §5.19 (G) — CLI 플래그라 로컬에는 뜨지 않는다(로컬의 차단축은 권한 모드 하나다). */}
+            {!isLocal && (
             <div className="flex flex-col gap-1.5">
               <label className="flex items-center text-xs font-medium text-gray-400">
                 {t('panel.agentConfig.disallowedTools.label', { defaultValue: 'Disallowed Tools' })}
@@ -1130,8 +1397,12 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                 )}
               </div>
             </div>
+            )}
 
-            {/* Compact row: Max Turns / Isolation / Effort / Memory */}
+            {/* Compact row: Max Turns / Isolation / Effort / Memory
+                §5.19 (G) — 여섯 칸 전부 클로드 스폰 인자·env 라 로컬에는 뜨지 않는다
+                (왕복 상한은 러너의 `LOCAL_TOOL_MAX_ROUNDS`, 비용은 0, 격리·기억·깊이는 CLI 축). */}
+            {!isLocal && (
             <div className="grid grid-cols-2 gap-2">
               <div className="flex flex-col gap-1">
                 <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.maxTurns')}<InfoTip text={FIELD_TIPS.maxTurns} /></label>
@@ -1194,9 +1465,12 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                 </div>
               </div>
             </div>
+            )}
 
             {/* §4 (CLI 사양 추종) — 설치된 claude 가 받는 신규 옵션. 전부 "미설정"이 기본이고,
-                미설정이면 해당 플래그를 붙이지 않아 종전과 같은 인자로 스폰된다. */}
+                미설정이면 해당 플래그를 붙이지 않아 종전과 같은 인자로 스폰된다.
+                §5.19 (G) — 이름 그대로 CLI 옵션이라 로컬에는 뜨지 않는다. */}
+            {!isLocal && (
             <div className="flex flex-col gap-2 rounded border border-gray-800 bg-gray-900/40 p-2.5">
               <span className="flex items-center text-xs font-medium text-gray-400">
                 {t('panel.agentConfig.cliOptions.label')}
@@ -1332,8 +1606,12 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                 </span>
               </div>
             </div>
+            )}
 
-            {/* Skills */}
+            {/* Skills
+                §5.19 (G) — 스킬은 클로드 CLI 가 해석하는 것이라 로컬 모델에게는 그저 텍스트로 흘러간다.
+                IDE 입력창의 스킬 드롭다운을 로컬에서 감춘 것과 같은 이유로 여기서도 뜨지 않는다. */}
+            {!isLocal && (
             <div className="flex flex-col gap-1.5">
               <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.defaultSkills')}<InfoTip text={FIELD_TIPS.skills} /></label>
               <div className="flex flex-wrap gap-1.5">
@@ -1406,6 +1684,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                 )}
               </div>
             </div>
+            )}
 
             {/* Color */}
             <div className="flex flex-col gap-1.5">
@@ -1571,6 +1850,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
           </div>
         </div>
       )}
-    </div>
+    </div>,
+    document.body,
   );
 }

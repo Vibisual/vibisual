@@ -1,4 +1,4 @@
-import type { AgentConfig, LocalLlmState, LocalModelEntry } from '@vibisual/shared';
+import type { AgentConfig, AgentProvider, LocalLlmState, LocalModelEntry } from '@vibisual/shared';
 
 /**
  * §5.19 (B) — All Model 버블을 눌렀을 때 갈리는 세 갈래.
@@ -49,4 +49,40 @@ export function resolveLocalEntry(
 
   const fallback = pickDefaultModel(models);
   return fallback ? { kind: 'bind', model: fallback } : { kind: 'setup' };
+}
+
+// ─── §5.19 (G) 정체 표시 — 캔버스 버블과 오른쪽 패널이 같은 답을 말하게 ───
+
+/**
+ * §5.19 (G) — 이 설정이 **로컬 프로바이더**인가. 맞으면 그 프로바이더를, 아니면 null.
+ *
+ * 판정을 화면마다 따로 쓰면 한쪽만 고쳐지는 날이 온다 — 설정 창은 이미 프로바이더에 맞췄는데
+ * 오른쪽 패널과 버블에는 `config.model`(기본값 `opus`)·클로드 도구 한 벌이 그대로 남아 All Model
+ * 버블이 자기 정체를 클로드로 말하던 자리가 정확히 그 사고였다.
+ */
+export function localProviderOf(config: AgentConfig | null | undefined): AgentProvider | null {
+  const provider = config?.provider;
+  return provider?.kind === 'local-llama' ? provider : null;
+}
+
+/**
+ * §5.19 (G) — 좁은 자리(버블 하단·패널 한 줄)에 적을 **정체 한 줄**.
+ *
+ * 문 모델이 있으면 그 이름이고, 아직 안 골랐으면 그 사실이 곧 상태라 제품 이름만 적는다
+ * (긴 안내문을 넣을 자리가 아니다 — 자세한 것은 그 버블이 여는 설치 창이 말한다).
+ * 로컬이 아니면 null 이므로 부르는 쪽은 종전 클로드 표기를 그대로 쓰면 된다.
+ */
+export function localModelLabelOf(provider: AgentProvider | null, allModelLabel: string): string | null {
+  if (!provider) return null;
+  return provider.modelName || provider.modelId || allModelLabel;
+}
+
+/**
+ * §5.19 (H) — 이 모델이 도구를 쓰는가. 안 물어봤으면 `unknown`(다음 턴에 실어 보내 확인한다).
+ * 알 수 없는 값이 들어와도 `unknown` 으로 떨어뜨린다 — 옛 설정에서 온 낯선 문자열이 화면에
+ * 그대로 새어 나가면 사용자는 그것을 판정으로 읽는다.
+ */
+export function localToolVerdictOf(provider: AgentProvider | null): 'ok' | 'none' | 'unknown' {
+  const verdict = provider?.toolSupport;
+  return verdict === 'ok' || verdict === 'none' ? verdict : 'unknown';
 }

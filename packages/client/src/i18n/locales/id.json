@@ -46,6 +46,30 @@
     "setupBanner": {
       "text": "Claude Code belum terinstal — agent belum bisa berjalan.",
       "action": "Instal"
+    },
+    "ideWindows": {
+      "label": "Jendela IDE",
+      "tooltip": "Jendela IDE yang terbuka — bawa ke depan, ciutkan, atau buka bubble di jendela baru",
+      "sectionTitle": "Jendela & bubble",
+      "empty": "Tidak ada bubble agen di proyek ini",
+      "hint": "Menciutkan bukan menutup — jendela hanya turun dari layar agar kanvas kembali.",
+      "openNew": "Buka di jendela baru",
+      "bringToFront": "Bawa ke depan",
+      "settings": "Pengaturan agen",
+      "expand": "Bentangkan",
+      "collapse": "Ciutkan",
+      "close": "Tutup jendela",
+      "state": {
+        "floating": "mengambang",
+        "collapsed": "diciutkan"
+      },
+      "side": {
+        "left": "kiri",
+        "right": "kanan",
+        "top": "atas",
+        "bottom": "bawah"
+      },
+      "orphan": "Jendela yang bubble-nya sudah hilang"
     }
   },
   "panel": {
@@ -853,6 +877,20 @@
         "latest": "Terbaru (alias)",
         "latestWith": "Terbaru ({{id}})",
         "custom": "Custom…"
+      },
+      "local": {
+        "noModel": "Belum ada model yang dipilih",
+        "modelTip": "Model lokal yang dipakai bubble ini untuk berbicara. Setelah diganti, giliran berikutnya dijawab oleh model tersebut.",
+        "switchModel": "Ganti model",
+        "pickModel": "Pilih model",
+        "temperature": "Temperature",
+        "temperatureTip": "Nilai rendah membuat jawaban stabil dan konsisten, nilai tinggi membuatnya lebih bebas. Kosongkan untuk memakai nilai bawaan engine.",
+        "temperatureDefault": "Bawaan engine",
+        "toolsTip": "Model lokal selalu menerima seluruh daftar tool di bawah — ini bukan daftar pilihan. Tepat sebelum tool dijalankan, Mode Izin di atas dan popup persetujuan berlaku persis seperti pada bubble Claude.",
+        "toolsOk": "Model ini memakai tools — bisa membaca dan mengubah berkas.",
+        "toolsNone": "Model ini tidak bisa memakai tools — hanya mengobrol.",
+        "toolsUnknown": "Belum dicek — tools akan ikut dikirim pada giliran berikutnya untuk memastikannya.",
+        "toolsRecheck": "Cek lagi"
       }
     },
     "permissionPrompt": {
@@ -1273,6 +1311,18 @@
         "pinHint": "Jika aktif, baik tombol Delete maupun aksi hapus tidak bisa menghapusnya.",
         "deleteBubble": "Hapus bubble ini",
         "deleteHint": "Tombol Delete juga bisa menghapusnya. Aplikasinya sendiri tetap terpasang."
+      },
+      "vibistudio": {
+        "name": "Vibistudio",
+        "desc": "Pengeditan lini masa video dan render"
+      },
+      "vibisound": {
+        "name": "Vibisound",
+        "desc": "Editor audio sederhana untuk memotong dan merapikan"
+      },
+      "vibi3d": {
+        "name": "Vibi3D",
+        "desc": "Putar model 3D di dalam aplikasi"
       }
     },
     "videoStudio": {
@@ -1367,6 +1417,63 @@
       "emptyHint": "Setiap panggilan tool yang dibuat agent akan muncul di sini — apa yang disentuhnya, dan apa yang kamu jawab.",
       "promptRiskTitle": "Tindakan berisiko",
       "promptEscalatedHint": "Mode izin kamu akan mengizinkan ini secara otomatis — batas audit sedang bertanya dulu."
+    },
+    "vibisound": {
+      "title": "Vibisound",
+      "noFile": "Klik berkas audio untuk merapikannya di sini — coba mp3 atau wav di penjelajah atau di obrolan.",
+      "decodeFailed": "Peramban tidak dapat membaca format ini. Buka dengan aplikasi bawaan.",
+      "loading": "Membaca audio…",
+      "play": "Putar",
+      "stop": "Berhenti",
+      "toStart": "Ke awal",
+      "loop": "Ulangi pilihan",
+      "cropSelection": "Simpan pilihan",
+      "deleteSelection": "Hapus pilihan",
+      "silence": "Bisukan pilihan",
+      "fadeIn": "Fade in",
+      "fadeOut": "Fade out",
+      "louder": "Lebih keras +25%",
+      "quieter": "Lebih pelan −20%",
+      "undo": "Urungkan",
+      "exportWav": "Ekspor WAV",
+      "saving": "Menyimpan…",
+      "saved": "Tersimpan — {{path}}",
+      "saveFailed": "Gagal menyimpan.",
+      "needSelection": "Seret pada gelombang untuk memilih rentang terlebih dahulu.",
+      "selectionInfo": "Pilihan {{from}} → {{to}} ({{len}})",
+      "selectHint": "Seret gelombang untuk memilih rentang — tombol edit akan aktif",
+      "openExternal": "Buka dengan aplikasi bawaan"
+    },
+    "vibi3d": {
+      "title": "Vibi3D",
+      "noFile": "Klik berkas 3D untuk memutarnya di sini — coba glb, obj, atau stl di penjelajah atau di obrolan.",
+      "parseFailed": "Berkas ini tidak dapat dibaca. Buka dengan aplikasi bawaan.",
+      "loading": "Membaca model…",
+      "frame": "Sesuaikan tampilan",
+      "wireframe": "Rangka kawat",
+      "grid": "Kisi",
+      "spin": "Putar otomatis",
+      "background": "Latar terang",
+      "openExternal": "Buka dengan aplikasi bawaan",
+      "vertices": "{{n}} verteks",
+      "triangles": "{{n}} segitiga",
+      "dragHint": "Seret untuk memutar, gulir untuk memperbesar",
+      "viewOnly": "Hanya lihat"
+    },
+    "mediaConvert": {
+      "videoIntro": "Format video ini tidak bisa dibuka langsung. Cukup ganti kontainernya (tanpa kehilangan kualitas) untuk membukanya di editor kami.",
+      "audioIntro": "Format audio ini tidak bisa dibuka langsung. Setelah diubah ke WAV, akan terbuka di editor kami.",
+      "needTool": "Perlu pengonversi (ffmpeg) — pasang sekali, setelah itu langsung terbuka.",
+      "needToolManual": "Perlu pengonversi (ffmpeg). Pasang lalu klik lagi.",
+      "convert": "Buka di aplikasi",
+      "install": "Pasang pengonversi",
+      "openExternal": "Buka dengan aplikasi bawaan",
+      "cancel": "Tutup",
+      "converting": "Mengonversi… {{percent}}%",
+      "convertingStart": "Konversi dimulai…",
+      "opening": "Membuka di editor…",
+      "installing": "Memasang pengonversi… hanya pertama kali yang butuh waktu.",
+      "failed": "Gagal mengonversi. Buka dengan aplikasi bawaan."
     }
   },
   "ide": {
@@ -1429,13 +1536,25 @@
       "maximizeLabel": "Maksimalkan",
       "restoreLabel": "Pulihkan",
       "resizeDock": "Ubah ukuran dock",
+      "dockMenuLabel": "Tambatkan jendela",
+      "dockLeft": "Tambatkan ke kiri",
+      "dockRight": "Tambatkan ke kanan",
+      "dockTop": "Tambatkan ke atas",
+      "dockBottom": "Tambatkan ke bawah",
+      "undockLabel": "Lepaskan tambatan",
       "customLabel": "Kustom",
       "cmdLabel": "CMD",
       "hookLabel": "Hook",
       "renameHint": "Klik dua kali untuk ganti nama (F2)",
       "renameInputLabel": "Nama agent",
       "localLabel": "All Model",
-      "localSwitchModel": "Ganti model yang dipakai bubble ini"
+      "localSwitchModel": "Ganti model yang dipakai bubble ini",
+      "localContextUsed": "Konteks {{used}} / {{limit}} token ({{percent}}%) — saat penuh, percakapan terlama akan dibuang",
+      "agentSettings": "Pengaturan agen",
+      "collapseLabel": "Ciutkan",
+      "collapseHint": "Ciutkan — jendela tetap ada dan kanvas kembali (bentangkan lagi dari daftar jendela di header)",
+      "resizeWindow": "Ubah ukuran jendela",
+      "resizeStack": "Atur pembagian"
     },
     "tabbar": {
       "newSession": "Sesi Baru",
@@ -1513,6 +1632,7 @@
       "slashEmpty": "Tidak ada skill yang cocok",
       "slashLoading": "Memuat skill…",
       "ctxCopy": "Salin",
+      "ctxSearchWeb": "Telusuri di web",
       "ctxBookmark": "Bookmark",
       "ctxQuoteReply": "Kutip balasan",
       "ctxSendAsPrompt": "Kirim sebagai prompt baru",
@@ -1609,6 +1729,7 @@
       "debugMode": "Mode Debug",
       "debugModeHint": "Menambahkan flag debugger ke perintah yang sama sehingga debugger bisa tersambung.",
       "configs": "Konfigurasi run",
+      "adhocRuns": "Dijalankan dari obrolan",
       "noConfigs": "Tidak ada konfigurasi run yang ditemukan. Tambahkan satu ke .vscode/launch.json, script package.json, atau .vibisual/run.json. Proyek Unreal (.uproject) terdeteksi otomatis.",
       "scanned": "Dipindai: {{files}}",
       "run": "Jalankan",
@@ -1945,7 +2066,11 @@
       "showLess": "Tampilkan lebih sedikit",
       "pathLink": {
         "openFile": "Buka di editor — {{path}}",
-        "openFolder": "Buka folder — {{path}}"
+        "openFolder": "Buka folder — {{path}}",
+        "runProgram": "Jalankan program — {{path}}",
+        "runFailed": "Tidak dapat dijalankan — jendela ini tidak punya terminal.",
+        "openApp": "Buka di {{app}} — {{path}}",
+        "openExternal": "Buka dengan aplikasi bawaan — {{path}}"
       },
       "restartResumed": "Terputus saat aplikasi ditutup — dilanjutkan pada sesi tersimpan."
     },
@@ -2129,6 +2254,7 @@
       "exitUnknown": "Claude CLI keluar secara tak terduga",
       "crash": "Proses sesi berhenti tak terduga (kode {{code}})",
       "crashUnknown": "Proses sesi berhenti tak terduga",
+      "local": "Menjalankan model lokal gagal",
       "cli": "Claude CLI melaporkan kegagalan",
       "maxTurns": "Berhenti di batas maks giliran",
       "agentView": "Proses agent berakhir dengan kegagalan",
@@ -2637,6 +2763,18 @@
         "this-project": "Terpasang hanya untuk proyek ini — dimuat di sesi yang Anda jalankan di sini.",
         "other-project": "Terpasang, tetapi terikat ke proyek lain, jadi tidak dimuat di sesi ini."
       }
+    },
+    "split": {
+      "closeCell": "Tutup tampilan",
+      "reset": "Batalkan pembagian",
+      "previewSplit": "Bagi di sini",
+      "previewReplace": "Buka di sini",
+      "limit": "Maksimal {{count}} tampilan",
+      "dragHint": "Seret untuk memindahkan tampilan ini",
+      "resizeHint": "Seret untuk mengubah ukuran · klik ganda untuk menyamakan",
+      "foreignSession": "Sesi itu milik bubble lain",
+      "tooSmall": "Terlalu kecil untuk dibagi",
+      "alreadyHere": "Sudah ditampilkan di sini"
     }
   },
   "bubbleMap": {
@@ -2879,7 +3017,9 @@
     "unsetDefault": "Hapus Default",
     "defaultTooltip": "Tab default terbuka otomatis jika tidak ada tab terakhir yang bisa dipulihkan.",
     "detach": "Lepas ke jendela baru",
-    "rename": "Ganti Nama"
+    "rename": "Ganti Nama",
+    "splitRight": "Bagi ke kanan",
+    "splitDown": "Bagi ke bawah"
   },
   "overlay": {
     "sendToOverlay": "Keluarkan bubble ini sebagai widget desktop yang selalu di atas",
@@ -3496,6 +3636,34 @@
     "stepModel": "Model",
     "stepIde": "IDE",
     "useModelStart": "Mulai dengan model ini",
-    "opensIdeHint": "Begitu unduhan selesai, IDE bubble ini langsung terbuka."
+    "opensIdeHint": "Begitu unduhan selesai, IDE bubble ini langsung terbuka.",
+    "contextTitle": "Jendela konteks",
+    "contextUnit": "token",
+    "contextApply": "Terapkan",
+    "contextHint": "Jendela yang lebih besar mengingat lebih banyak, tetapi memakai lebih banyak memori dan lebih lambat. Jika disetel melebihi panjang pelatihan model, panjang itulah yang dipakai. Nilai baru berlaku saat model ini dimuat berikutnya.",
+    "usageTitle": "Token yang dipakai di percakapan ini",
+    "usageLine": "masuk {{in}} · keluar {{out}}",
+    "fitGpu": "Cepat di GPU",
+    "fitRam": "Lambat di RAM",
+    "fitTooBig": "Terlalu besar untuk PC ini",
+    "statDownloads": "Unduhan",
+    "statLikes": "Suka",
+    "statTrending": "Sedang tren",
+    "sortDownloads": "Paling banyak diunduh",
+    "sortLikes": "Paling disukai",
+    "sortTrending": "Sedang tren",
+    "sortRecent": "Baru diperbarui",
+    "runnableOnly": "Hanya yang bisa jalan di sini",
+    "topQuantHint": "Yang paling sering dipakai dulu",
+    "showAllQuants": "Tampilkan {{count}} lainnya",
+    "showFewerQuants": "Tampilkan yang paling sering saja",
+    "noRunnableFiles": "Tidak ada di repositori ini yang bisa jalan di PC ini — matikan filter di atas untuk melihat semuanya.",
+    "partCount": "{{count}} bagian",
+    "missingParts": "{{missing}} dari {{total}} bagian hilang, tidak bisa dipakai — unduh ulang",
+    "companionFile": "Ini file pendamping, bukan model — tidak bisa jalan sendiri",
+    "outputBroken": "Mesin ini tidak menghasilkan apa pun yang bermakna — coba model lain",
+    "archUnsupported": "Tidak didukung mesin ini",
+    "hardwareGpu": "{{device}} · sisa {{vram}} · RAM {{ram}}",
+    "hardwareCpu": "Tanpa akselerator · RAM {{ram}}"
   }
 }

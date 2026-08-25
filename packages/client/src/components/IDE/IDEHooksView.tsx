@@ -16,6 +16,7 @@ import type { HookEntry, HookInventory, HookScope } from '@vibisual/shared';
 import { hookMatcherMatches } from '@vibisual/shared';
 
 import { useGraphStore, selectIDEOverlay } from '../../stores/graphStore.js';
+import { useIDEPaneValue } from './idePane.js';
 import { useHookFires, fireBelongsToSession, HOOK_FIRE_GLOW_MS } from '../../stores/hookFires.js';
 import { ScrollFade } from '../ScrollFade.js';
 
@@ -59,9 +60,9 @@ function BoltIcon(): React.JSX.Element {
 export const IDEHooksView = memo(function IDEHooksView({ agentId }: { agentId: string }): React.JSX.Element {
   const { t } = useTranslation();
   const rootPath = useIDEProjectRoot();
-  const projectId = useGraphStore((s) => selectIDEOverlay(s).projectId);
+  const projectId = useIDEPaneValue((o) => o.projectId);
   // ① 축은 세션이다 — 발동 표시는 **지금 열려 있는 탭**의 것만 켠다(사용자 명시: 통합 ❌).
-  const activeSessionId = useGraphStore((s) => selectIDEOverlay(s).activeSessionId);
+  const activeSessionId = useIDEPaneValue((o) => o.activeSessionId);
 
   const [inventory, setInventory] = useState<HookInventory | null>(null);
   const [loading, setLoading] = useState(false);
@@ -337,7 +338,7 @@ export const IDEHooksView = memo(function IDEHooksView({ agentId }: { agentId: s
  */
 export function useHookFiring(agentId: string | null): boolean {
   const fires = useHookFires((s) => s.fires);
-  const activeSessionId = useGraphStore((s) => selectIDEOverlay(s).activeSessionId);
+  const activeSessionId = useIDEPaneValue((o) => o.activeSessionId);
   const prune = useHookFires((s) => s.prune);
 
   // 마지막 불이 만료될 때 활동바도 함께 꺼지도록 한 번 깨운다.

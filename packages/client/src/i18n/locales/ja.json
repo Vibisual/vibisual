@@ -46,6 +46,30 @@
     "setupBanner": {
       "text": "Claude Code がインストールされていません — エージェントはまだ実行できません。",
       "action": "インストール"
+    },
+    "ideWindows": {
+      "label": "IDE ウィンドウ",
+      "tooltip": "開いている IDE ウィンドウ — 前面に出す・折りたたむ、またはバブルを新しいウィンドウで開く",
+      "sectionTitle": "ウィンドウとバブル",
+      "empty": "このプロジェクトにエージェントバブルがありません",
+      "hint": "折りたたみは閉じることではありません — 画面から下ろしてキャンバスを取り戻すだけです。",
+      "openNew": "新しいウィンドウで開く",
+      "bringToFront": "前面に出す",
+      "settings": "エージェント設定",
+      "expand": "展開",
+      "collapse": "折りたたむ",
+      "close": "ウィンドウを閉じる",
+      "state": {
+        "floating": "フローティング",
+        "collapsed": "折りたたみ"
+      },
+      "side": {
+        "left": "左",
+        "right": "右",
+        "top": "上",
+        "bottom": "下"
+      },
+      "orphan": "バブルが消えたウィンドウ"
     }
   },
   "panel": {
@@ -853,6 +877,20 @@
         "latest": "最新（エイリアス）",
         "latestWith": "最新（{{id}}）",
         "custom": "カスタム…"
+      },
+      "local": {
+        "noModel": "モデルはまだ選ばれていません",
+        "modelTip": "このバブルが話すときに使うローカルモデルです。変更すると次のターンからそのモデルが答えます。",
+        "switchModel": "モデルを変更",
+        "pickModel": "モデルを選ぶ",
+        "temperature": "温度",
+        "temperatureTip": "低いほど答えが安定して同じになり、高いほど自由になります。空にするとエンジンの既定値を使います。",
+        "temperatureDefault": "エンジンの既定値",
+        "toolsTip": "ローカルモデルには下のツール一覧がそのまま渡ります（選ぶための一覧ではありません）。実行の直前には上の権限モードと承認ポップアップが Claude バブルとまったく同じように働きます。",
+        "toolsOk": "このモデルはツールを使えます — ファイルの読み書きができます。",
+        "toolsNone": "このモデルはツールを使えません — 会話だけです。",
+        "toolsUnknown": "まだ確認していません — 次のターンでツールを渡して確かめます。",
+        "toolsRecheck": "もう一度確認"
       }
     },
     "permissionPrompt": {
@@ -1273,6 +1311,18 @@
         "pinHint": "オンにすると、Deleteキーや削除操作でも削除できなくなります。",
         "deleteBubble": "このバブルを削除",
         "deleteHint": "Deleteキーでも削除されます。アプリ自体はインストールされたままです。"
+      },
+      "vibistudio": {
+        "name": "Vibistudio",
+        "desc": "映像タイムライン編集とレンダリング"
+      },
+      "vibisound": {
+        "name": "Vibisound",
+        "desc": "音を切って整えるシンプルな編集"
+      },
+      "vibi3d": {
+        "name": "Vibi3D",
+        "desc": "3Dモデルをアプリ内で回して見る"
       }
     },
     "videoStudio": {
@@ -1367,6 +1417,63 @@
       "emptyHint": "Agentのツール呼び出しはすべてここに残ります。何に対する操作か、あなたの回答も含めて確認できます。",
       "promptRiskTitle": "危険な操作",
       "promptEscalatedHint": "本来は権限モードにより自動で許可されますが、監査境界が事前に確認を求めています。"
+    },
+    "vibisound": {
+      "title": "Vibisound",
+      "noFile": "音声ファイルを押すとここで整えられます — エクスプローラーや本文の mp3・wav を押してみてください。",
+      "decodeFailed": "この形式はブラウザーが読めません。既定のアプリで開いてください。",
+      "loading": "音を読み込み中…",
+      "play": "再生",
+      "stop": "停止",
+      "toStart": "先頭へ",
+      "loop": "区間リピート",
+      "cropSelection": "選択だけ残す",
+      "deleteSelection": "選択を削除",
+      "silence": "選択を無音に",
+      "fadeIn": "フェードイン",
+      "fadeOut": "フェードアウト",
+      "louder": "大きく +25%",
+      "quieter": "小さく −20%",
+      "undo": "元に戻す",
+      "exportWav": "WAV で書き出し",
+      "saving": "保存中…",
+      "saved": "保存しました — {{path}}",
+      "saveFailed": "保存できませんでした。",
+      "needSelection": "まず波形をドラッグして区間を選んでください。",
+      "selectionInfo": "選択 {{from}} → {{to}} ({{len}})",
+      "selectHint": "波形をドラッグして区間を選ぶと編集ボタンが有効になります",
+      "openExternal": "既定のアプリで開く"
+    },
+    "vibi3d": {
+      "title": "Vibi3D",
+      "noFile": "3D ファイルを押すとここで回して見られます — エクスプローラーや本文の glb・obj・stl を押してみてください。",
+      "parseFailed": "このファイルを読み込めませんでした。既定のアプリで開いてください。",
+      "loading": "モデルを読み込み中…",
+      "frame": "画面に合わせる",
+      "wireframe": "ワイヤーフレーム",
+      "grid": "グリッド",
+      "spin": "自動回転",
+      "background": "明るい背景",
+      "openExternal": "既定のアプリで開く",
+      "vertices": "頂点 {{n}}",
+      "triangles": "三角形 {{n}}",
+      "dragHint": "ドラッグで回転、ホイールで拡大",
+      "viewOnly": "表示のみ"
+    },
+    "mediaConvert": {
+      "videoIntro": "この映像形式はアプリで直接開けません。コンテナを入れ替えるだけ（画質そのまま）で編集画面が開きます。",
+      "audioIntro": "この音声形式はアプリで直接開けません。WAV に変換すると編集画面が開きます。",
+      "needTool": "変換ツール（ffmpeg）が必要です。一度入れれば次からはそのまま開きます。",
+      "needToolManual": "変換ツール（ffmpeg）が必要です。入れてからもう一度押してください。",
+      "convert": "アプリ内で見る",
+      "install": "変換ツールを入れる",
+      "openExternal": "既定のアプリで開く",
+      "cancel": "閉じる",
+      "converting": "変換中… {{percent}}%",
+      "convertingStart": "変換を始めました…",
+      "opening": "編集画面で開いています…",
+      "installing": "変換ツールを入れています… 最初の一度だけ時間がかかります。",
+      "failed": "変換できませんでした。既定のアプリで開いてください。"
     }
   },
   "ide": {
@@ -1429,13 +1536,25 @@
       "maximizeLabel": "最大化",
       "restoreLabel": "元に戻す",
       "resizeDock": "ドックをリサイズ",
+      "dockMenuLabel": "ウィンドウを固定",
+      "dockLeft": "左に固定",
+      "dockRight": "右に固定",
+      "dockTop": "上に固定",
+      "dockBottom": "下に固定",
+      "undockLabel": "固定を解除",
       "customLabel": "カスタム",
       "cmdLabel": "CMD",
       "hookLabel": "Hook",
       "renameHint": "ダブルクリックで名前を変更 (F2)",
       "renameInputLabel": "エージェント名",
       "localLabel": "All Model",
-      "localSwitchModel": "このバブルが使うモデルを変更"
+      "localSwitchModel": "このバブルが使うモデルを変更",
+      "localContextUsed": "コンテキスト {{used}} / {{limit}} トークン（{{percent}}%）— 上限に達すると古いやり取りから削除されます",
+      "agentSettings": "エージェント設定",
+      "collapseLabel": "折りたたむ",
+      "collapseHint": "折りたたみ — ウィンドウは残したままキャンバスを取り戻します（ヘッダーのウィンドウ一覧から再表示）",
+      "resizeWindow": "ウィンドウのサイズ変更",
+      "resizeStack": "分割比を調整"
     },
     "tabbar": {
       "newSession": "新しいセッション",
@@ -1513,6 +1632,7 @@
       "slashEmpty": "一致するスキルなし",
       "slashLoading": "スキルを読み込み中…",
       "ctxCopy": "コピー",
+      "ctxSearchWeb": "ウェブで検索",
       "ctxBookmark": "ブックマーク",
       "ctxQuoteReply": "引用返信",
       "ctxSendAsPrompt": "新しいプロンプトとして送信",
@@ -1609,6 +1729,7 @@
       "debugMode": "デバッグモード",
       "debugModeHint": "同じコマンドにデバッガーフラグを追加し、デバッガーがアタッチできるようにします。",
       "configs": "実行設定",
+      "adhocRuns": "本文から実行",
       "noConfigs": "実行設定が見つかりません。.vscode/launch.json、package.jsonのscripts、または.vibisual/run.jsonに追加してください。Unrealプロジェクト（.uproject）は自動的に検出されます。",
       "scanned": "スキャン対象: {{files}}",
       "run": "実行",
@@ -1945,7 +2066,11 @@
       "showLess": "折りたたむ",
       "pathLink": {
         "openFile": "エディタで開く — {{path}}",
-        "openFolder": "フォルダを開く — {{path}}"
+        "openFolder": "フォルダを開く — {{path}}",
+        "runProgram": "プログラムを実行 — {{path}}",
+        "runFailed": "起動できませんでした — このウィンドウにはターミナルがありません。",
+        "openApp": "{{app}} で開く — {{path}}",
+        "openExternal": "既定のアプリで開く — {{path}}"
       },
       "restartResumed": "アプリ終了で中断され、保存済みセッションで再開しました。"
     },
@@ -2129,6 +2254,7 @@
       "exitUnknown": "Claude CLIが予期せず終了しました",
       "crash": "セッションプロセスが予期せず終了しました (コード {{code}})",
       "crashUnknown": "セッションプロセスが予期せず終了しました",
+      "local": "ローカルモデルの実行に失敗しました",
       "cli": "Claude CLIがエラーを報告しました",
       "maxTurns": "最大ターン数の上限で停止しました",
       "agentView": "エージェントの実行が失敗で終了しました",
@@ -2637,6 +2763,18 @@
         "this-project": "このプロジェクトのみにインストールされています。ここで実行するセッションで読み込まれます。",
         "other-project": "インストール済みですが、別のプロジェクトに紐付けられているため、このセッションでは読み込まれません。"
       }
+    },
+    "split": {
+      "closeCell": "ビューを閉じる",
+      "reset": "分割を解除",
+      "previewSplit": "ここで分割",
+      "previewReplace": "ここに表示",
+      "limit": "ビューは最大 {{count}} 個まで",
+      "dragHint": "ドラッグしてこのビューを移動",
+      "resizeHint": "ドラッグでサイズ変更・ダブルクリックで均等",
+      "foreignSession": "別のバブルのセッションです",
+      "tooSmall": "分割するには狭すぎます",
+      "alreadyHere": "すでにこのビューに表示中"
     }
   },
   "bubbleMap": {
@@ -2879,7 +3017,9 @@
     "unsetDefault": "既定を解除",
     "defaultTooltip": "既定タブは、復元すべき最後のアクティブタブがない場合に自動的に開きます。",
     "detach": "新しいウィンドウに切り離す",
-    "rename": "名前を変更"
+    "rename": "名前を変更",
+    "splitRight": "右に分割",
+    "splitDown": "下に分割"
   },
   "overlay": {
     "sendToOverlay": "このバブルを常に最前面のデスクトップウィジェットとして切り離す",
@@ -3496,6 +3636,34 @@
     "stepModel": "モデル",
     "stepIde": "IDE",
     "useModelStart": "このモデルで開始",
-    "opensIdeHint": "ダウンロードが終わると、このバブルのIDEがすぐに開きます。"
+    "opensIdeHint": "ダウンロードが終わると、このバブルのIDEがすぐに開きます。",
+    "contextTitle": "コンテキスト長",
+    "contextUnit": "トークン",
+    "contextApply": "適用",
+    "contextHint": "長いほど多くを記憶できますが、メモリを多く使い動作が遅くなります。モデルの学習時の長さを超えて指定した場合は、その長さに下げて使用します。変更はこのモデルを次に読み込むときから反映されます。",
+    "usageTitle": "この会話で使ったトークン",
+    "usageLine": "入力 {{in}} · 出力 {{out}}",
+    "fitGpu": "GPU で高速",
+    "fitRam": "メモリで低速",
+    "fitTooBig": "この PC には大きすぎます",
+    "statDownloads": "ダウンロード",
+    "statLikes": "いいね",
+    "statTrending": "急上昇",
+    "sortDownloads": "ダウンロードが多い順",
+    "sortLikes": "いいねが多い順",
+    "sortTrending": "いま話題",
+    "sortRecent": "更新が新しい順",
+    "runnableOnly": "この PC で動くものだけ",
+    "topQuantHint": "よく使われる順",
+    "showAllQuants": "残り {{count}} 件をすべて表示",
+    "showFewerQuants": "よく使われるものだけ表示",
+    "noRunnableFiles": "この リポジトリ には この PC で動くものがありません — 上の絞り込みを外すとすべて表示されます。",
+    "partCount": "{{count}} 分割",
+    "missingParts": "{{total}} 個中 {{missing}} 個の分割が欠けていて使えません — もう一度取得してください",
+    "companionFile": "本体モデルではなく付属ファイルです — 単体では動きません",
+    "outputBroken": "今のエンジンでは意味のある出力が得られませんでした — 別のモデルをおすすめします",
+    "archUnsupported": "今のエンジンでは動きません",
+    "hardwareGpu": "{{device}} · 空き {{vram}} · メモリ {{ram}}",
+    "hardwareCpu": "アクセラレータなし · メモリ {{ram}}"
   }
 }

@@ -23,6 +23,7 @@ function bodyHandlers(): BodyMenuHandlers {
   return {
     cut: vi.fn(), copy: vi.fn(), paste: vi.fn(), selectAll: vi.fn(), undo: vi.fn(), redo: vi.fn(),
     save: vi.fn(), reload: vi.fn(), copyPath: vi.fn(), copyLineRef: vi.fn(), openExternal: vi.fn(),
+    searchWeb: vi.fn(),
   };
 }
 
@@ -74,6 +75,26 @@ describe('buildBodyMenuItems', () => {
   it('묶음이 바뀌는 자리에만 구분선이 있다', () => {
     const items = buildBodyMenuItems({ hasSelection: true, readOnly: false, dirty: true }, bodyHandlers(), t);
     expect(items.filter((i) => i.separatorBefore).map((i) => i.id)).toEqual(['undo', 'save', 'copyPath']);
+  });
+  it('웹에서 검색은 고른 글자가 있을 때만 눌린다 — 읽기 전용이어도 막지 않는다', () => {
+    const off = buildBodyMenuItems({ hasSelection: false, readOnly: true, dirty: false }, bodyHandlers(), t);
+    expect(find(off, 'searchWeb').disabled).toBe(true);
+    expect(find(off, 'searchWeb').disabledTitle).toBe('ide.editor.ctx.needSelection');
+
+    const h = bodyHandlers();
+    const on = buildBodyMenuItems({ hasSelection: true, readOnly: true, dirty: false }, h, t);
+    const item = find(on, 'searchWeb');
+    expect(item.disabled).toBe(false);
+    // 스트림·입력창·터미널과 같은 원문이므로 키도 하나를 쓴다.
+    expect(item.label).toBe('ide.mainArea.ctxSearchWeb');
+    item.onClick();
+    expect(h.searchWeb).toHaveBeenCalledTimes(1);
+  });
+
+  it('복사 바로 아래에 선다(#17-7 북마크와 같은 규약)', () => {
+    const items = buildBodyMenuItems({ hasSelection: true, readOnly: false, dirty: false }, bodyHandlers(), t);
+    const ids = items.map((i) => i.id);
+    expect(ids.indexOf('searchWeb')).toBe(ids.indexOf('copy') + 1);
   });
 });
 

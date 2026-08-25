@@ -10,7 +10,18 @@ import { useGraphStore } from '../../stores/graphStore.js';
 import { TerminalCardSniffer, type TerminalCard } from './terminalCardSniffer.js';
 import { IDETerminalCardRail } from './IDETerminalCardRail.js';
 import { getTerminalTransport } from '../../transport/terminalTransport.js';
+import { TerminalStateTracker } from './terminalStateSniffer.js';
+import {
+  cmdPaneTermId,
+  clampTerminalScrollback,
+  CMD_STATE_TICK_MS,
+  CMD_PROCESS_POLL_MS,
+  CMD_PANE_MAX,
+  TERMINAL_RESIZE_DEBOUNCE_MS,
+  type CmdTerminalState,
+} from '@vibisual/shared';
 import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
+import { openWebSearch } from './webSearchUrl.js';
 
 // §4 v2.63 — 임베디드 인터랙티브 터미널 뷰. (편의성 보강 v2.65)
 //
@@ -29,6 +40,21 @@ interface IDETerminalViewProps {
   agentId: string;
   /** 세션(탭) id — null = 메인 탭. 탭마다 독립 PTY(termId=term:agentId:session)로 "+"=새 cmd 터미널. */
   sessionId: string | null;
+  /**
+   * §4 (CMD ⑤) — 이 뷰가 그리는 pane. 단일 pane 은 `'0'`(= termId 에 접미사 없음, 종전과 동일).
+   * 분할 시 `term:<agentId>:<session>#<paneId>` 로 **PTY 가 pane 마다 따로** 뜬다.
+   */
+  paneId?: string;
+  /** §4 (⑤) — 이 pane 을 좌우/상하로 쪼갠다. 없으면 우클릭 메뉴에 항목이 뜨지 않는다. */
+  onSplit?: (paneId: string, dir: 'row' | 'column') => void;
+  /** §4 (⑤) — 이 pane 을 닫는다(형제가 자리를 물려받는다). */
+  onClosePane?: (paneId: string) => void;
+  /** §4 (⑤) — 이 pane 만 임시 전체화면(zoom) 토글. */
+  onToggleZoom?: (paneId: string) => void;
+  /** §4 (⑤) — 지금 이 pane 이 zoom 상태인가(메뉴 라벨 분기). */
+  zoomed?: boolean;
+  /** §4 (⑤) — 현재 세션 탭의 pane 개수(상한 도달 시 split 항목 비활성). */
+  paneCount?: number;
 }
 
 const FONT_SIZE_KEY = 'vibisual.terminal.fontSize';
@@ -83,7 +109,7 @@ const TERMINAL_THEME = {
   brightWhite: '#f9fafb',
 } as const;
 
-export function IDETerminalView({ agentId, sessionId }: IDETerminalViewProps): React.JSX.Element {
+export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onClosePane, onToggleZoom, zoomed = false, paneCount = 1 }: IDETerminalViewProps): React.JSX.Element {
   const { t } = useTranslation();
   const hostRef = useRef<HTMLDivElement>(null);
   // cwd = 그 에이전트가 속한 프로젝트 루트(ProjectInfo.path). config = 그 에이전트의 AgentConfig.
@@ -92,7 +118,18 @@ export function IDETerminalView({ agentId, sessionId }: IDETerminalViewProps): R
   const config = useGraphStore((s) => s.agentConfigs[agentId]);
 
   // 세션(탭)마다 독립 termId. IDE 를 닫았다 열거나 탭을 다시 그려도 같은 termId 로 reattach → 보존.
-  const termId = useMemo(() => `term:${agentId}:${sessionId ?? 'main'}`, [agentId, sessionId]);
+  // §4 (⑤) — pane 이 갈리면 `#<paneId>` 가 붙는다. pane `'0'` 은 접미사가 없어 **기존 termId 와
+  //   바이트 단위로 같다** → 이미 떠 있던 세션·`sessions.json` 의 `--resume` 키가 그대로 이어진다.
+  const termId = useMemo(
+    () => cmdPaneTermId(`term:${agentId}:${sessionId ?? 'main'}`, paneId),
+    [agentId, sessionId, paneId],
+  );
+
+  // §4 (③) — scrollback 은 한 값에서 나온다: xterm 의 `scrollback` 과 desktop PTY 링버퍼 상한이
+  //   같은 숫자를 쓰므로 "화면엔 있는데 Ctrl+F 로는 안 찾히는" 구간이 사라진다.
+  const scrollbackLines = useGraphStore((st) => clampTerminalScrollback(st.userDefaults?.advanced?.terminalScrollbackLines));
+  const scrollbackRef = useRef(scrollbackLines);
+  scrollbackRef.current = scrollbackLines;
 
   // §4 v3.33 — 데스크톱(window.api.terminal IPC) / 모바일(/ws 브리지) 공통 transport. 모듈 참조라 stable.
   const transport = useMemo(() => getTerminalTransport(), []);
@@ -101,6 +138,12 @@ export function IDETerminalView({ agentId, sessionId }: IDETerminalViewProps): R
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const searchRef = useRef<SearchAddon | null>(null);
+  // §4 (CMD ①) — 이 pane 의 상태 감지기. 스니퍼 콜백·cleanup 에서 접근하려고 ref 로 보관.
+  const trackerRef = useRef<TerminalStateTracker | null>(null);
+  // §4 (CMD ③) — 크기 동기화(fit + PTY resize)를 예약하는 **단일 창구**. 아래 effect 가 채운다.
+  //   폰트 확대/축소도 이 창구를 타야 "+"연타가 리사이즈 N회로 번지지 않는다(리사이즈 1회 = ConPTY
+  //   화면 전체 리페인트 1벌이므로, 횟수가 그대로 중복 출력으로 남는다).
+  const scheduleSizeSyncRef = useRef<(() => void) | null>(null);
   const fontSizeRef = useRef<number>(typeof window !== 'undefined' ? readStoredFontSize() : FONT_SIZE_DEFAULT);
 
   const [fontSize, setFontSize] = useState<number>(fontSizeRef.current);
@@ -133,6 +176,13 @@ export function IDETerminalView({ agentId, sessionId }: IDETerminalViewProps): R
     termRef.current?.selectAll();
   }, []);
 
+  // §5.5 #17-3 (판올림 번호 발급 대기) — 고른 글자를 기본 브라우저에서 검색(스트림 메뉴와 같은 함수).
+  const searchWeb = useCallback(() => {
+    const term = termRef.current;
+    if (!term || !term.hasSelection()) return;
+    openWebSearch(term.getSelection());
+  }, []);
+
   // §4 v2.89 — CMD 질문 카드 "즉시 전송": 프롬프트를 터미널 PTY 에 prefill(newline ❌ — 사람이 Enter, ToS 인루프).
   const sendPromptToTerminal = useCallback((prompt: string) => {
     if (!transport) return;
@@ -155,13 +205,11 @@ export function IDETerminalView({ agentId, sessionId }: IDETerminalViewProps): R
     const term = termRef.current;
     if (!term) return;
     term.options.fontSize = size;
-    // 호스트가 측정 가능할 때만 fit → 0 크기에서 dimensions 가 깨지는 걸 방지.
-    if (!hostMeasurable(hostRef.current)) return;
-    try {
-      fitRef.current?.fit();
-      void transport?.resize(termId, term.cols, term.rows);
-    } catch { /* host not measured */ }
-  }, [transport, termId]);
+    // §4 (CMD ③) — 여기서 곧바로 fit+resize 하지 않고 **디바운스 창구**에 맡긴다. 폰트를 한 단계
+    //   올릴 때마다 PTY 를 리사이즈하면 ConPTY 가 그때마다 화면을 통째로 다시 뱉어(실측) 같은
+    //   배너가 단계 수만큼 쌓인다. 연타해도 멎은 뒤 한 번만 PTY 에 통지한다.
+    scheduleSizeSyncRef.current?.();
+  }, []);
 
   const openSearch = useCallback(() => {
     setSearchOpen(true);
@@ -207,7 +255,7 @@ export function IDETerminalView({ agentId, sessionId }: IDETerminalViewProps): R
       cursorBlink: true,
       cursorStyle: 'bar',
       theme: { ...TERMINAL_THEME },
-      scrollback: 5000,
+      scrollback: scrollbackRef.current,
       allowProposedApi: true,
     });
     const fit = new FitAddon();
@@ -227,13 +275,15 @@ export function IDETerminalView({ agentId, sessionId }: IDETerminalViewProps): R
     // xterm 내부 syncScrollArea 가 터지는 걸 막는 가드. cleanup 이 가장 먼저 true 로 세운다.
     let disposed = false;
     // 호스트가 측정 가능하고 dispose 전일 때만 fit. (0 크기 fit = dimensions 깨짐의 원인)
-    const safeFit = (): void => {
-      if (disposed || !hostMeasurable(host)) return;
-      try { fit.fit(); } catch { /* host not measured yet */ }
+    // 반환값 = **실제로 화면 크기에 맞췄는가**. false 면 지금 term.cols/rows 는 xterm 기본값(80x24)이라
+    // 그 값을 PTY 에 실어 보내면 안 된다(§4 CMD ③ — 잘못된 크기로 줄였다 늘리며 리페인트가 두 번 난다).
+    const safeFit = (): boolean => {
+      if (disposed || !hostMeasurable(host)) return false;
+      try { fit.fit(); return true; } catch { return false; /* host not measured yet */ }
     };
 
     term.open(host);
-    safeFit();
+    const measured = safeFit();
 
     // 커스텀 키 핸들러 — 복붙/검색/폰트 단축키. return false = xterm 이 PTY stdin 으로 보내지 않음.
     term.attachCustomKeyEventHandler((e) => {
@@ -259,8 +309,9 @@ export function IDETerminalView({ agentId, sessionId }: IDETerminalViewProps): R
       return true;
     });
 
-    const cols = term.cols;
-    const rows = term.rows;
+    // 측정에 성공했을 때만 크기를 싣는다 — 미측정(숨은 탭·미배치)이면 생략해 **재부착 PTY 를
+    //   80x24 로 건드리지 않는다**(생략 시 새 셸은 main 의 기본 크기로 뜨고, 첫 fit 뒤 한 번만 맞춰진다).
+    const initialSize = measured ? { cols: term.cols, rows: term.rows } : {};
 
     // §4 v2.89 — CMD 카드 스니퍼. PTY 출력 중 `::VIBISUAL-CARD::{…}` 마커 줄을 **터미널에서 숨기고**(feed 가
     //   그 줄을 뺀 문자열을 돌려줌 → claude TUI 무간섭), 파싱한 카드는 onCard 로 받아 우측 DOM 패널이 렌더.
@@ -277,14 +328,50 @@ export function IDETerminalView({ agentId, sessionId }: IDETerminalViewProps): R
           body: JSON.stringify({ agentId, url }),
         }).catch(() => { /* 표시 전용 — 무시 */ });
       },
-      onReset: () => { if (!disposed) setCards([]); },
+      onReset: () => { if (!disposed) { setCards([]); trackerRef.current?.reset(); } },
     });
+
+    // §4 (CMD ①②) — 상태 감지기. **새 스트림을 만들지 않는다** — 위 카드 스니퍼와 같은 PTY
+    //   바이트를 읽기만 해(변형 ❌) working/idle/blocked 를 주기 신고한다. 판정·쓰기·전파는
+    //   서버가 한다(§3.1) — 여기엔 상태 전이 규칙이 한 줄도 없다.
+    const tracker = new TerminalStateTracker();
+    trackerRef.current = tracker;
+    let lastProcess: string | undefined;
+    let lastProcessAt = 0;
+    const postState = (payload: { state: CmdTerminalState; reason?: string }): void => {
+      void fetch('/api/cmd-terminal-state', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          termId,
+          ...payload,
+          ...(lastProcess ? { foregroundProcess: lastProcess } : {}),
+        }),
+      }).catch(() => { /* 표시 전용 — 실패해도 터미널 동작엔 영향 없음 */ });
+    };
+    const stateTimer = setInterval(() => {
+      if (disposed) return;
+      const now = Date.now();
+      // ② 전경 프로세스명은 훨씬 느리게 표본한다(모바일 /ws 브리지엔 info 가 없어 그냥 건너뛴다).
+      if (transport.info && now - lastProcessAt >= CMD_PROCESS_POLL_MS) {
+        lastProcessAt = now;
+        void transport.info(termId).then((info) => {
+          if (disposed || !info?.process || info.process === lastProcess) return;
+          lastProcess = info.process;
+          const cur = tracker.current;
+          if (cur) postState({ state: cur }); // 프로세스명만 바뀐 경우도 한 번 실어 보낸다.
+        }).catch(() => { /* 선택 기능 — 없으면 탭 라벨 보조 표기만 빈다 */ });
+      }
+      const next = tracker.poll(now);
+      if (next) postState(next);
+    }, CMD_STATE_TICK_MS);
 
     // main → renderer 출력: 이 termId 만 골라, 변환된 표시 문자열을 write(원본 data 직접 write ❌).
     const offData = transport.onData(({ termId: id, data }) => {
       if (id === termId && !disposed) {
         const outStr = sniffer.feed(data);
         if (outStr) term.write(outStr);
+        tracker.feed(data);
       }
     });
     const offExit = transport.onExit(({ termId: id, exitCode }) => {
@@ -299,7 +386,7 @@ export function IDETerminalView({ agentId, sessionId }: IDETerminalViewProps): R
     });
 
     // 셸+claude prefill PTY 생성. §4 v3.33 — 외부(인터넷) 접속은 서버가 셸을 막고 external-blocked 회신.
-    void transport.create({ termId, cwd: cwd ?? '', config, cols, rows }).then((r) => {
+    void transport.create({ termId, cwd: cwd ?? '', config, ...initialSize, scrollbackLines: scrollbackRef.current }).then((r) => {
       if (r.ok || disposed) return;
       const msg = r.error === 'external-blocked'
         ? t('ide.terminal.unavailableExternal')
@@ -314,16 +401,22 @@ export function IDETerminalView({ agentId, sessionId }: IDETerminalViewProps): R
     //   • 1회만: 드래그 중 매 픽셀 SIGWINCH 를 쏘면 claude 가 프레임을 다시 그려 누적되므로, 멈춘 최종
     //     크기에서만 한 번 통지한다. (재마운트 replay 덧쌓임은 main 의 clear-before-replay 가 따로 막음.)
     //   드래그 도중에는 xterm 이 마지막으로 동기화된 크기를 유지하다가, 멈추면 새 크기로 한 번에 맞춰진다.
+    //   • §4 (CMD ③) — 리사이즈 1회 = ConPTY 화면 전체 리페인트 1벌이다. 여기서 횟수를 줄이는 것과
+    //     main 의 `shouldBufferPtyChunk` 가 그 리페인트를 링버퍼에서 걸러 내는 것은 **한 쌍** —
+    //     둘 중 하나만 되돌리면 재부착 replay 에 같은 배너가 다시 쌓인다.
     let lastCols = term.cols;
     let lastRows = term.rows;
     let resizeTimer: ReturnType<typeof setTimeout> | undefined;
-    const ro = new ResizeObserver(() => {
+    // 크기 동기화 창구 — 컨테이너 리사이즈와 **폰트 확대/축소가 같은 타이머**를 공유한다.
+    // 마지막에 실제로 cols/rows 가 달라졌을 때만 PTY 에 통지하므로, 드래그 도중이나 "+"연타로
+    // 중간 크기가 여러 번 스쳐 가도 PTY 리사이즈(=ConPTY 화면 전체 리페인트)는 한 번뿐이다.
+    const scheduleSizeSync = (): void => {
       if (disposed) return;
       if (resizeTimer) clearTimeout(resizeTimer);
       resizeTimer = setTimeout(() => {
         resizeTimer = undefined;
         if (disposed) return;
-        safeFit();
+        if (!safeFit()) return; // 미측정 상태에서는 기본 크기를 PTY 에 실어 보내지 않는다.
         try {
           if (term.cols !== lastCols || term.rows !== lastRows) {
             lastCols = term.cols;
@@ -331,8 +424,10 @@ export function IDETerminalView({ agentId, sessionId }: IDETerminalViewProps): R
             void transport.resize(termId, term.cols, term.rows);
           }
         } catch { /* disposed */ }
-      }, 150);
-    });
+      }, TERMINAL_RESIZE_DEBOUNCE_MS);
+    };
+    scheduleSizeSyncRef.current = scheduleSizeSync;
+    const ro = new ResizeObserver(() => { scheduleSizeSync(); });
     ro.observe(host);
 
     term.focus();
@@ -342,6 +437,9 @@ export function IDETerminalView({ agentId, sessionId }: IDETerminalViewProps): R
       // 메인 프로세스의 PTY 는 살려둔다 → 다시 열면 reattach + scrollback replay 로 세션 보존.
       // 진짜 종료(탭 명시 닫기)는 IDETabBar 가 api.terminal.kill 로, 앱/창 종료는 main 이 일괄 정리.
       disposed = true; // 이후 도착하는 write/resize/fit 콜백이 dispose 된 터미널을 건드리지 않게.
+      clearInterval(stateTimer);
+      trackerRef.current = null;
+      scheduleSizeSyncRef.current = null;
       if (resizeTimer) clearTimeout(resizeTimer);
       ro.disconnect();
       offData();
@@ -354,7 +452,17 @@ export function IDETerminalView({ agentId, sessionId }: IDETerminalViewProps): R
     };
     // termId(agentId+session) 단위 1개 터미널 — config/cwd 변경엔 재생성하지 않음(세션 유지).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agentId, sessionId]);
+  }, [agentId, sessionId, paneId]);
+
+  // 검색어 변경 시 라이브 하이라이트(다음 매치로 이동).
+  // §4 (CMD ③ QA) — scrollback 설정을 **이미 떠 있는 터미널에도** 반영한다. 종전에는 생성 시점
+  //   값만 쓰여, 옵션창에서 늘려도 "새로 여는 터미널부터"라 지금 보고 있는 창에서는 아무 일도
+  //   일어나지 않았다(설정을 바꾼 사용자가 고장으로 읽는 자리). PTY 링버퍼 쪽은 다음 부착에서
+  //   맞춰지므로 여기서는 xterm 만 즉시 올린다.
+  useEffect(() => {
+    const term = termRef.current;
+    if (term) term.options.scrollback = scrollbackLines;
+  }, [scrollbackLines]);
 
   // 검색어 변경 시 라이브 하이라이트(다음 매치로 이동).
   useEffect(() => {
@@ -515,11 +623,39 @@ export function IDETerminalView({ agentId, sessionId }: IDETerminalViewProps): R
           style={{ left: menu.x, top: menu.y }}
         >
           <TerminalMenuItem label={t('ide.terminal.copy')} shortcut="Ctrl+C" disabled={!hasSelection()} onClick={() => { copySelection(); setMenu(null); }} />
+          <TerminalMenuItem label={t('ide.mainArea.ctxSearchWeb')} disabled={!hasSelection()} onClick={() => { searchWeb(); setMenu(null); }} />
           <TerminalMenuItem label={t('ide.terminal.paste')} shortcut="Ctrl+V" onClick={() => { paste(); setMenu(null); }} />
           <TerminalMenuItem label={t('ide.terminal.selectAll')} shortcut="Ctrl+A" onClick={() => { selectAll(); setMenu(null); }} />
           <div className="my-1 h-px bg-gray-700/70" />
           <TerminalMenuItem label={t('ide.terminal.find')} shortcut="Ctrl+F" onClick={() => { setMenu(null); openSearch(); }} />
           <TerminalMenuItem label={t('ide.terminal.clear')} onClick={() => { clearTerminal(); setMenu(null); }} />
+          {(onSplit || onToggleZoom || onClosePane) && <div className="my-1 h-px bg-gray-700/70" />}
+          {onSplit && (
+            <>
+              <TerminalMenuItem
+                label={t('ide.terminal.splitRight')}
+                disabled={paneCount >= CMD_PANE_MAX}
+                onClick={() => { setMenu(null); onSplit(paneId, 'row'); }}
+              />
+              <TerminalMenuItem
+                label={t('ide.terminal.splitDown')}
+                disabled={paneCount >= CMD_PANE_MAX}
+                onClick={() => { setMenu(null); onSplit(paneId, 'column'); }}
+              />
+            </>
+          )}
+          {onToggleZoom && paneCount > 1 && (
+            <TerminalMenuItem
+              label={zoomed ? t('ide.terminal.unzoom') : t('ide.terminal.zoom')}
+              onClick={() => { setMenu(null); onToggleZoom(paneId); }}
+            />
+          )}
+          {onClosePane && paneCount > 1 && (
+            <TerminalMenuItem
+              label={t('ide.terminal.closePane')}
+              onClick={() => { setMenu(null); onClosePane(paneId); }}
+            />
+          )}
         </div>,
         document.body,
       )}

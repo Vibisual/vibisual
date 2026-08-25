@@ -1,3 +1,4 @@
+import type { MediaConvertKind } from './constants.js';
 /** UI 표시 언어 — 서버 ProjectCheckpoint에 저장, 클라이언트는 서버 SSOT를 따름 */
 export type UiLocale =
   | 'ko'
@@ -1718,6 +1719,29 @@ export interface SubAgent {
   dormant?: boolean;
   /** 잠든 시각(ms). `dormant` 가 false 면 의미 없다. */
   dormantSince?: number;
+  /**
+   * §4 (CMD 터미널 업그레이드 ①) — 이 세션이 **사용자 입력을 기다리며 멈춰 있는가**.
+   * herdr 의 `blocked` 축 대응. `status` 유니온은 건드리지 않는다 — §2.4 '잠듦'(`dormant`)과
+   * 같은 **직교 플래그**다(새 모양 발명 ❌). CMD(PTY) 세션에서만 세워지며 판정 근거는
+   * 터미널 출력이다: 무출력 `CMD_BLOCKED_IDLE_MS` 경과 + 화면 꼬리가 `CMD_BLOCK_PATTERNS` 매치.
+   * 바이트가 다시 흐르면 즉시 걷힌다. blocked 는 **살아 있는** 세션이라 §2.4 dormant 회수
+   * 대상이 아니다(오히려 사용자를 부르는 상태다).
+   */
+  blocked?: boolean;
+  /** blocked 로 바뀐 시각(ms). `blocked` 가 false 면 의미 없다. */
+  blockedSince?: number;
+  /** blocked 로 본 근거 한 줄(마지막 화면 꼬리 발췌). 표시·진단 전용. */
+  blockedReason?: string;
+  /**
+   * §4 (CMD 터미널 업그레이드 ②) — 이 CMD 세션 PTY 의 전경 프로세스명(예: `claude`, `node`).
+   * 탭 라벨 **보조** 표기 전용 — 라벨을 덮어쓰지 않는다(사용자 rename 우선).
+   */
+  foregroundProcess?: string;
+  /**
+   * §4 (CMD 터미널 업그레이드 ⑤) — 이 CMD 세션 탭의 pane 분할 트리.
+   * undefined = 단일 pane(종전 동작). 그 탭의 표시 상태라 체크포인트에 영속된다.
+   */
+  paneTree?: CmdPaneNode;
   /** §5.7 #23-2 v1.60 — Agent View short id (해당 SubAgent 가 `--bg` 경로로 dispatch 된 경우) */
   agentViewShort?: string;
   /** §5.7 #23-2 v1.60 — Agent View 가 할당한 풀 sessionId (UUID) — `sessionId` 와 일치하지만
@@ -4258,6 +4282,13 @@ export interface WorkspaceEntry {
   size?: number;
   /** 마지막 수정 시각 (ms). stat 실패 시 생략 */
   mtimeMs?: number;
+  /**
+   * §5.13 (R-7) — 눌러서 **실행**할 수 있는가(파일만).
+   *
+   * 탐색기에서 누른 것과 본문에서 누른 것이 같은 곳으로 가야 하므로, 스트림 경로 손잡이가 쓰는
+   * 판정(`/api/workspace-path` 의 `executable`)을 목록도 그대로 받는다.
+   */
+  executable?: boolean;
 }
 
 /** §5.5 #17-19 v4.71 — 디렉터리 한 겹 조회 응답 (`GET /api/workspace-dir`). */
@@ -4290,6 +4321,62 @@ export interface WorkspacePathInfo {
   absPath: string;
   /** 파일인가 폴더인가 (심볼릭 링크는 실제 대상 기준) */
   kind: WorkspacePathKind;
+  /**
+   * §5.5 #17-27 ⑬ (h) — **눌러서 실행할 수 있는 것인가**.
+   *
+   * 참이면 화면은 편집창(②)·탐색기(⑩) 대신 **실행**(#17-20 ④ 실행 세션)으로 간다 — 본문에 적힌
+   * `.exe` 를 누르는 뜻은 "이 프로그램을 켜라" 이지 "이진 파일을 편집창에 띄워라" 가 아니다.
+   * 판정은 디스크를 본 서버가 한다(Windows 확장자 · macOS `.app` 번들 · POSIX 실행 비트) —
+   * 글자 모양만 보고 화면이 정하면 플랫폼마다 갈리는 규칙이 두 벌이 된다.
+   */
+  executable: boolean;
+}
+
+
+// ─── §5.13 (R-8) — 변환기 상태와 변환 작업 ──────────────────────────────────────
+
+/**
+ * 이 PC 의 **변환기(ffmpeg)** 상태.
+ *
+ * "코덱이 깔렸는가"가 아니다(§5.13 (R-8) (a) — Chromium 은 시스템 코덱을 쓰지 않는다).
+ * 우리가 배포하지 않고 있으면 쓰는 물건이라, 화면은 이 값을 보고 [변환] 과 [설치] 중 무엇을 낼지 정한다.
+ */
+export interface MediaToolsInfo {
+  readonly available: boolean;
+  /** 찾은 실행 파일 절대 경로(없으면 null). */
+  readonly ffmpegPath: string | null;
+  /** 길이를 재는 데 쓰는 짝(없어도 변환은 되지만 진행률이 안 뜬다). */
+  readonly ffprobePath: string | null;
+  /** `ffmpeg version` 에서 뽑은 판올림. */
+  readonly version: string | null;
+  /** 이 OS 에서 설치를 대행할 수 있는 창구. 없으면 화면이 공식 페이지를 안내한다. */
+  readonly installer: 'winget' | 'brew' | null;
+}
+
+/** 변환 작업의 상태. `done` 이면 `outRel` 이 실제로 디스크에 있다. */
+export type MediaConvertStatus = 'queued' | 'running' | 'done' | 'error';
+
+/**
+ * 변환 작업 하나.
+ *
+ * 진실은 **디스크의 캐시 파일**이고 이 레코드는 그 과정을 화면에 보여 주기 위한 휘발성 상태다
+ * (체크포인트 미관여 — 앱을 껐다 켜면 사라지지만 결과 파일은 남아 다음엔 변환 없이 열린다).
+ */
+export interface MediaConvertJob {
+  readonly id: string;
+  /** 프로젝트 루트 절대 경로. */
+  readonly root: string;
+  /** 원본(루트 기준 상대 경로). */
+  readonly sourceRel: string;
+  /** 결과물(루트 기준 상대 경로) — `.vibisual/media-cache/…`. */
+  readonly outRel: string;
+  readonly kind: MediaConvertKind;
+  readonly status: MediaConvertStatus;
+  /** 0~100. 길이를 못 재는 파일은 끝날 때까지 0 에 머문다(거짓 진행률을 만들지 않는다). */
+  readonly percent: number;
+  readonly error?: string;
+  readonly startedAt: number;
+  readonly endedAt?: number;
 }
 
 /** §5.5 #17-27 v4.87 — 파일의 원본 줄바꿈. 저장할 때 이 형식으로 되돌린다(브라우저 textarea 는 항상 `\n`). */
@@ -4761,6 +4848,31 @@ export interface TokenCategoryEstimate {
  * - appearance — Appearance 탭(uiLocale 만 1차, 나머지 추후).
  * - notifications / permissions / advanced — placeholder 슬롯(1차는 빈 객체).
  */
+/**
+ * §4 v2.42 / (CMD 터미널 업그레이드 ④) — 알림 기본값.
+ * placeholder 였던 `Record<string, unknown>` 을 **인덱스 시그니처를 유지한 채** 넓힌 것이라
+ * 기존 저장 파일과 하위 호환된다(모르는 키는 그대로 통과).
+ */
+export interface UserNotificationDefaults extends Record<string, unknown> {
+  /**
+   * CMD 세션이 백그라운드에서 `blocked` 로 바뀔 때 OS 알림을 띄울지.
+   * undefined = 켬(기본). false 로만 끈다.
+   */
+  cmdBlocked?: boolean;
+}
+
+/**
+ * §4 v2.42 / (CMD 터미널 업그레이드 ③) — 고급 기본값.
+ * 위와 같은 이유로 인덱스 시그니처를 유지한다.
+ */
+export interface UserAdvancedDefaults extends Record<string, unknown> {
+  /**
+   * 임베디드 터미널 scrollback 줄 수. undefined = `TERMINAL_SCROLLBACK_LINES`.
+   * 이 한 값이 xterm `scrollback` 과 desktop PTY 링버퍼 상한을 **동시에** 정한다.
+   */
+  terminalScrollbackLines?: number;
+}
+
 export interface UserDefaults {
   /** §4 v2.42 — 신규 에이전트 기본 설정. Partial — 미설정 필드는 `DEFAULT_AGENT_CONFIG` 사용. */
   agentConfig?: Partial<AgentConfig>;
@@ -4769,11 +4881,11 @@ export interface UserDefaults {
     uiLocale?: UiLocale;
   };
   /** §4 v2.42 — 알림. 1차 placeholder. */
-  notifications?: Record<string, unknown>;
+  notifications?: UserNotificationDefaults;
   /** §4 v2.42 — 권한 승인 UX. 1차 placeholder. */
   permissions?: Record<string, unknown>;
   /** §4 v2.42 — 고급(API 키·bin 경로·debug). 1차 placeholder. */
-  advanced?: Record<string, unknown>;
+  advanced?: UserAdvancedDefaults;
   /**
    * §5.13 (N) v4.46 — **설치된 내부 앱 id 목록**.
    *
@@ -5077,6 +5189,15 @@ export interface AgentConfig {
    */
   executionMode?: ExecutionMode;
   /**
+   * §4 (CMD 터미널 업그레이드 ⑧) — CMD(`executionMode:'interactive-terminal'`) 버블이 띄울 CLI.
+   * `executionMode` 와 **직교**하지만 의미는 CMD 경로에서만 있다(헤드리스는 이 값을 무시).
+   * undefined = `'claude'` — 지금까지의 동작과 바이트 단위로 같다.
+   * `'claude'` 가 아니면(`CMD_CLI_KINDS[].managed === false`) `--resume`·rules `--add-dir`·
+   * `VIBISUAL_OWNER_AGENT_ID` 태그를 걸지 않는다 — 우리 훅의 자식이 아니기 때문이며,
+   * §5.5 #17-20 ④ v4.74 실행 런처가 같은 이유로 그 셋을 건너뛰는 것과 같은 규율이다.
+   */
+  cliKind?: CmdCliKind;
+  /**
    * §5.19 — 이 에이전트가 말을 거는 상대. `executionMode` 와 **직교하는 축**이다.
    *
    * **undefined = 지금까지의 claude 경로 그대로.** 기존 동작 무변경의 근거가 이 한 줄이며,
@@ -5147,6 +5268,56 @@ export interface AgentConfig {
  * 'headless' = 기존 `claude -p` 백그라운드 스폰. 'interactive-terminal' = IDE 임베디드 PTY REPL.
  */
 export type ExecutionMode = 'headless' | 'interactive-terminal';
+
+/**
+ * §4 (CMD 터미널 업그레이드 ⑧) — CMD(인터랙티브 터미널) 버블이 띄울 CLI 종류.
+ * undefined = `'claude'`(종전 동작 그대로). 실제 실행 파일·인자·훅 귀속 여부는
+ * `CMD_CLI_KINDS` 테이블이 정한다(§3.3 하드코딩 금지) — 새 CLI 는 그 표에 한 줄 추가로 끝난다.
+ */
+export type CmdCliKind = 'claude' | 'codex' | 'gemini' | 'cursor' | 'opencode' | 'aider' | 'shell';
+
+/**
+ * §4 (CMD 터미널 업그레이드 ①) — 터미널 출력에서 읽어 낸 세션 상태.
+ * `SubAgentStatus` 와 **다른 축**이다 — 서버가 이 값을 `SubAgent.blocked` 플래그와
+ * `lastActivityAt` 로 번역해 받아들이며, 상태 유니온을 늘리지 않는다(§2.4 '잠듦' 선례).
+ */
+export type CmdTerminalState = 'working' | 'idle' | 'blocked';
+
+/**
+ * §4 (CMD 터미널 업그레이드 ①) — 클라(터미널 뷰)가 서버에 올리는 감지 신호 1건.
+ * **판정이 아니라 신호다** — 상태 쓰기와 broadcast 는 서버가 한다(§3.1 서버 = SSOT).
+ */
+export interface CmdTerminalSignal {
+  /** `term:<agentId>:<session>` 또는 pane 포함 `term:<agentId>:<session>#<paneId>`. */
+  termId: string;
+  /** 감지된 상태. */
+  state: CmdTerminalState;
+  /** blocked 로 본 근거 한 줄(마지막 화면 꼬리 발췌, 최대 120자). */
+  reason?: string;
+  /** PTY 전경 프로세스명(②). 표본되지 않았으면 생략. */
+  foregroundProcess?: string;
+}
+
+/** §4 (CMD 터미널 업그레이드 ⑤) — pane 트리의 잎(터미널 1개). */
+export interface CmdPaneLeaf {
+  type: 'leaf';
+  /** termId 의 `#` 뒤 토큰. 루트 단일 pane 은 `'0'`. */
+  id: string;
+}
+
+/** §4 (CMD 터미널 업그레이드 ⑤) — pane 트리의 분할 노드(항상 이진 — tmux 와 같은 모양). */
+export interface CmdPaneSplit {
+  type: 'split';
+  /** `'row'` = 좌우 분할(세로 경계선), `'column'` = 상하 분할(가로 경계선). */
+  dir: 'row' | 'column';
+  /** 첫 자식이 차지하는 비율. 드래그 리사이즈가 갱신하며 `CMD_PANE_RATIO_MIN`~`MAX` 로 clamp. */
+  ratio: number;
+  /** 항상 2개 — 더 쪼개려면 자식이 다시 split 이 된다. */
+  children: [CmdPaneNode, CmdPaneNode];
+}
+
+/** §4 (CMD 터미널 업그레이드 ⑤) — pane 분할 트리. */
+export type CmdPaneNode = CmdPaneLeaf | CmdPaneSplit;
 
 // ─── Conti Mode (§5.3 #28 v1.47) ───
 
@@ -6505,6 +6676,35 @@ export interface AgentProvider {
   contextSize?: number;
   /** 샘플링 온도. 미설정 = 엔진 기본값. */
   temperature?: number;
+  /**
+   * §5.19 (H) — 이 모델이 **도구 호출을 하는가**. 실제로 물어보고서야 알 수 있다
+   * (모델의 채팅 서식이 도구를 모르면 엔진이 요청 자체를 거절한다).
+   *
+   * - `undefined`/`'unknown'` — 아직 안 물어봤다. 다음 턴에 도구를 실어 보내 본다.
+   * - `'ok'` — 도구를 쓴다. 파일을 읽고 고칠 수 있다.
+   * - `'none'` — 못 쓴다. **도구 없는 대화 모드로 낮춘다** — 못 하는 일을 하는 척하지
+   *   않는다. 버블이 이 값을 보고 그 사실을 표시한다.
+   *
+   * `AgentConfig` 안에 사니 체크포인트 영속은 따라온다(새 영속 필드 발명 ❌).
+   */
+  toolSupport?: 'unknown' | 'ok' | 'none';
+  /**
+ * §5.19 (D) — 직전 왕복에서 **프롬프트가 실제로 몇 토큰이었나**. 엔진이 응답에 실어 주는 값을
+ * 그대로 옮긴 것이라 우리가 세지 않는다. 창이 얼마나 찼는지를 **넘치기 전에** 보여 주는 자리.
+ */
+  contextUsed?: number;
+  /**
+ * §5.19 (D) — 그 왕복에서 창이 **실제로** 몇 토큰이었나. `contextSize` 요청값과 다를 수 있다
+ * — 모델의 학습 문맥보다 크게 잡으면 엔진이 깎기 때문에, 게이지의 분모는 이 값이어야 사실이다.
+ */
+  contextLimit?: number;
+  /**
+ * §5.19 (D) — 이 세션이 지금까지 **먹인 토큰**의 합(프롬프트). 왕복마다 더해진다.
+ * 로컬은 청구가 0이지만 양과 속도의 감각은 필요하다 — 그게 없으면 "왜 이렇게 느리지"에 답할 수 없다.
+ */
+  tokensIn?: number;
+  /** §5.19 (D) — 이 세션이 지금까지 **뱉은 토큰**의 합(답 + 생각). */
+  tokensOut?: number;
 }
 
 /** §5.19 (D) — 로컬 추론 백엔드. 릴리스 자산 선택과 실행 양쪽에서 같은 이름을 쓴다. */
@@ -6564,6 +6764,38 @@ export interface LocalModelEntry {
   quant?: string;
   /** 파일 mtime. */
   downloadedAt: number;
+  /**
+   * 큰 모델은 `…-00001-of-00003.gguf` 처럼 쪼개져 배포된다. 그 조각들은 **한 모델**이므로
+   * 목록에서도 하나로 묶고, `path` 는 엔진에 줄 첫 조각을 가리킨다(엔진은 첫 조각만 받으면
+   * 나머지를 스스로 따라간다 — 다른 조각을 주면 그대로 죽는다).
+   *
+   * 전체 조각 수. 쪼개지지 않은 모델이면 생략한다.
+   */
+  partCount?: number;
+  /**
+   * 아직 없는 조각의 파일명들. 비어 있지 않으면 **이 모델은 쓸 수 없다** — 고르기 전에
+   * 화면이 말해 줘야 한다(2026-08-20 실측: 두 조각 중 **둘째 것만** 받힌 채로도 고를 수
+   * 있어서, 엔진이 `code=1` 로 죽는 것 말고는 사용자가 알 길이 없었다).
+   */
+  missingParts?: string[];
+  /**
+   * 이 GGUF 는 **단독으로 돌릴 수 있는 모델이 아니다**(예: `mmproj-…` 시각 투영기,
+   * `mtp-…` 투기적 디코딩용 보조 헤드). 본체 모델과 함께 쓰라고 있는 부속 파일이라,
+   * 혼자 열면 엔진이 뻗는다(2026-08-20 실측: 텐서 18개짜리 MTP 헤드를 물려
+   * `0xC0000005` 액세스 위반). 고를 수 없게 막고 이유를 보여 준다.
+   */
+  companion?: boolean;
+  /**
+   * 받은 직후 실제로 몇 마디 시켜 본 결과. **파일이 멀쩡한 것과 말을 하는 것은 다르다** —
+   * 깨진 양자화는 엔진이 읽기는 해도 뜻 없는 글자만 뱉는다(2026-08-21 실측:
+   * `Qwen3.5-9B-IQ4_XS.gguf` 가 GPU·CPU·최신 빌드에서 모두 한 글자 반복 / 기호 나열.
+   * 같은 구조의 공식 Q4_K_M 은 멀쩡했으므로 **구조가 아니라 그 파일**의 문제였다). 그 사실을
+   * 사용자가 프롬프트를 치고 빈 답을 받은 뒤에 알게 두지 않는다.
+   *
+   * `broken` 은 **막는 근거가 아니라 알리는 근거**다(넘겨짚은 판정으로 멀쩡한 모델을
+   * 못 쓰게 만들지 않는다).
+   */
+  outputCheck?: 'ok' | 'broken';
 }
 
 /** §5.19 (E) — 모델 내려받기 진행 상황. WS `local_model_progress` payload. */
@@ -6595,17 +6827,86 @@ export interface LocalModelCatalogEntry {
   file: string;
   /** 내려받을 직링크. */
   url: string;
-  /** 모르면 0 — 화면은 "크기 미상"으로 그린다. */
+  /** 모르면 0 — 화면은 "크기 미상"으로 그린다. 쪼개진 모델이면 **조각 전체의 합**. */
   sizeBytes: number;
   /** 파일명에서 읽은 양자화 라벨. */
   quant?: string;
+  /**
+   * 쪼개져 배포된 모델의 **모든 조각** 경로(`file` 은 그중 첫 조각). 한 조각만 받으면 그
+   * 모델은 못 쓰므로, 받을 때는 이 목록을 통째로 받는다. 쪼개지지 않았으면 생략한다.
+   */
+  partFiles?: string[];
+  /**
+   * GGUF 머리에서 읽은 모델 구조(`general.architecture`, 예: `qwen2` · `gemma3` · `qwen35`).
+   * 받기 전에 앞 몇 바이트만 읽어 알아낸다 — 수 GB 를 받아 보고 알 일이 아니다.
+   */
+  arch?: string;
+  /**
+   * 그 구조가 **지금 엔진에서 실제로 도는지**. 우리가 돌려 본 기록에서 나온다(하드코딩한
+   * 화이트리스트가 아니다). `broken` 이면 받기를 막는다 — 받아 봐야 못 쓴다.
+   */
+  archVerdict?: 'ok' | 'broken' | 'unknown';
+  /** `broken` 일 때 사람에게 보여 줄 한 줄. */
+  archReason?: string;
 }
+
+/** §5.19 (E) — 엔진이 보고한 가속 장치 한 대. */
+export interface LocalDeviceInfo {
+  /** 엔진이 쓰는 이름 그대로(예: `Vulkan0: NVIDIA GeForce RTX 4090`). */
+  name: string;
+  totalBytes: number;
+  freeBytes: number;
+}
+
+/**
+ * §5.19 (E) — 이 PC 가 감당할 수 있는 크기를 판정하기 위한 실측치.
+ *
+ * **우리가 하드웨어를 알아맞히지 않는다** — 실제로 모델을 돌릴 그 엔진에게 물어서 받는다
+ * (`llama-server --list-devices`). 새 의존성도, 벤더별 분기도 필요 없고, 엔진이 못 쓰는
+ * 장치는 애초에 목록에 안 나오므로 "보이는데 못 쓰는" 어긋남이 생기지 않는다.
+ */
+export interface LocalHardwareInfo {
+  devices: LocalDeviceInfo[];
+  /** 가장 여유가 큰 장치의 남은 메모리(장치가 없으면 0). 판정의 기준. */
+  vramFreeBytes: number;
+  totalRamBytes: number;
+  freeRamBytes: number;
+  /** 잰 시각. 엔진을 깔기 전에는 잴 수 없으므로 0 이면 "아직 모름". */
+  measuredAt: number;
+}
+
+/**
+ * 모델 하나가 이 PC 에서 어떻게 돌지.
+ * - `gpu`: 통째로 가속 장치에 올라간다 — 빠르다.
+ * - `ram`: GPU 에는 안 들어가지만 시스템 메모리로는 돌아간다 — 느리다.
+ * - `too-big`: 이 PC 로는 무리다.
+ * - `unknown`: 아직 잴 수 없다(엔진 미설치 등). **모르면 모른다고 한다.**
+ */
+export type LocalModelFit = 'gpu' | 'ram' | 'too-big' | 'unknown';
+
+/**
+ * §5.19 (E) — 카탈로그 목록을 줄 세우는 축.
+ * - `downloads`: 많이 받아 간 순 — 무난한 것을 찾을 때.
+ * - `likes`: 하트가 많은 순 — 써 본 사람들이 좋다고 한 것.
+ * - `trending`: 요즘 뜨는 순 — 갓 나온 모델이 여기 먼저 보인다.
+ * - `recent`: 최근에 갱신된 순.
+ */
+export type LocalModelCatalogSort = 'downloads' | 'likes' | 'trending' | 'recent';
 
 /** §5.19 (E) — 카탈로그에서 고른 저장소 하나(그 안에 양자화가 여럿). */
 export interface LocalModelCatalogRepo {
   repo: string;
   /** 저장소 내려받기 수 — 인기순 정렬 표시용. 모르면 0. */
   downloads: number;
+  /**
+   * 저장소에 달린 하트 수. 모르면 0.
+   * 내려받기 수와 다른 것을 말한다 — 받아 본 사람이 아니라 **좋다고 남긴** 사람의 수다.
+   */
+  likes: number;
+  /** 카탈로그가 매긴 트렌딩 점수(요즘 얼마나 뜨는가). 모르면 0. */
+  trending: number;
+  /** 마지막으로 갱신된 시각(ms). 모르면 0 — 화면은 그때 날짜를 적지 않는다. */
+  updatedAt: number;
   /** 이 저장소가 들고 있는 GGUF 파일들. 비어 있을 수 있다. */
   files: LocalModelCatalogEntry[];
 }
@@ -6622,4 +6923,6 @@ export interface LocalLlmState {
   downloads: LocalModelDownloadProgress[];
   /** 지금 메모리에 올라가 있는 모델 id 들(§5.19 (F) 동시 로드 상한 표시용). */
   loaded: string[];
+  /** 이 PC 의 실측 사양 — 목록이 "이건 돌아갑니다/느립니다/무리입니다"를 말하는 근거. */
+  hardware?: LocalHardwareInfo;
 }

@@ -1,9 +1,10 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { BubbleData, BashEntry, ServerEntry, AgentEvent, FileEdit, SubAgent, SessionTokenData, TurnTokenUsage, AgentConfig } from '@vibisual/shared';
-import { BUBBLE_COLORS, BUBBLE_STYLES, PANEL_DEFAULT_WIDTH, PANEL_MIN_WIDTH, PANEL_MAX_WIDTH, MAX_FILE_EDITS, TOKEN_SUBAGENT_FETCH_CONCURRENCY } from '@vibisual/shared';
+import { BUBBLE_COLORS, BUBBLE_STYLES, PANEL_DEFAULT_WIDTH, PANEL_MIN_WIDTH, PANEL_MAX_WIDTH, MAX_FILE_EDITS, TOKEN_SUBAGENT_FETCH_CONCURRENCY, LOCAL_TOOL_NAMES } from '@vibisual/shared';
 import { mapWithConcurrency } from '../../utils/tokenFanout.js';
-import { useGraphStore, selectIDEOverlay, selectIDEDockVisible, selectActiveBrainSummary } from '../../stores/graphStore.js';
+import { useGraphStore, selectIDEOverlay, selectActiveBrainSummary } from '../../stores/graphStore.js';
+import { useIDEDockLayout } from '../IDE/useIDEDockLayout.js';
 import { useIsNarrowViewport } from '../../hooks/useIsMobile.js';
 import { ScrollFade } from '../ScrollFade.js';
 import { BashHistoryList } from './BashHistoryList.js';
@@ -16,6 +17,7 @@ import { SubAgentList } from './SubAgentList.js';
 import { CommandQueue } from './CommandQueue.js';
 import { TokenUsagePopup } from './TokenUsagePopup.js';
 import { AgentConfigPopup } from './AgentConfigPopup.js';
+import { localProviderOf, localToolVerdictOf } from '../LocalModel/localModelEntry.js';
 import { FolderFileTree } from './FolderFileTree.js';
 import { RootFileList } from './RootFileList.js';
 import { TaskEdgeDetail } from './TaskEdgeDetail.js';
@@ -129,12 +131,13 @@ export function DetailPanel({
   const compactCounts = useGraphStore((s) => s.compactCounts);
   const rateLimits = useGraphStore((s) => s.rateLimits);
 
-  // §5.5 #17-1 (v2.18) — IDE 가 우측 도킹된 상태면 DetailPanel 을 왼쪽으로.
-  // selectIDEOverlay 는 activeProject 의 슬롯만 반환하므로 자동으로 현재 탭의 IDE 만 반영.
-  //   판정은 App 의 캔버스 축소와 **같은 산식**(selectIDEDockVisible) — 도킹 슬롯만 남고 IDE 가
+  // §5.5 #17-1 (v2.18) — IDE 가 우측에 붙어 있으면 DetailPanel 을 왼쪽으로.
+  //   판정은 App 의 캔버스 축소와 **같은 산식**(useIDEDockLayout) — 도킹 슬롯만 남고 IDE 가
   //   안 그려지는 상태에서 패널만 좌측으로 넘어가 있으면 우측은 빈 칸인 채 자리만 어긋난다.
-  const ideDockedRight = useGraphStore(selectIDEDockVisible);
-  const panelOnLeft = ideDockedRight;
+  //   (판올림 번호 발급 대기) 창이 여럿이 되면서 **양쪽이 다 막힐 수 있다** — 그때는 종전 자리(우측)를
+  //   지키고, 어느 쪽에 서든 그 변의 도크 두께만큼 안쪽으로 물러나 도크 밑에 깔리지 않게 한다.
+  const { insets: dockInsets } = useIDEDockLayout();
+  const panelOnLeft = dockInsets.right > 0 && dockInsets.left === 0;
   // §4 v3.16 — 폰(좁은 뷰포트)에선 사이드 패널이 캔버스를 짓누르지 않게 하단 바텀시트로 전환한다.
   const isNarrow = useIsNarrowViewport();
 
@@ -196,8 +199,10 @@ export function DetailPanel({
   // 좁은 뷰포트(폰): 하단 바텀시트(전폭·80dvh·상단 라운드), 넓은 화면: 기존 사이드 패널(가변폭).
   const panelWrapperClass = isNarrow
     ? `absolute inset-x-0 bottom-0 z-30 flex flex-col rounded-t-2xl border-t border-gray-800 bg-gray-900 ${animating ? 'animate-slide-in-right' : ''}`
-    : `absolute ${panelOnLeft ? 'left-0 border-r' : 'right-0 border-l'} top-0 bottom-0 z-30 flex flex-col border-gray-800 bg-gray-900 ${animating ? (panelOnLeft ? 'animate-slide-in-left' : 'animate-slide-in-right') : ''}`;
-  const panelWrapperStyle: React.CSSProperties = isNarrow ? { height: '80dvh' } : { width: panelWidth };
+    : `absolute ${panelOnLeft ? 'border-r' : 'border-l'} top-0 bottom-0 z-30 flex flex-col border-gray-800 bg-gray-900 ${animating ? (panelOnLeft ? 'animate-slide-in-left' : 'animate-slide-in-right') : ''}`;
+  const panelWrapperStyle: React.CSSProperties = isNarrow
+    ? { height: '80dvh' }
+    : { width: panelWidth, ...(panelOnLeft ? { left: dockInsets.left } : { right: dockInsets.right }) };
 
   // billable tokens 가져오기 (자체 세션 비면 서브에이전트 세션 합산)
   const [tokenData, setTokenData] = useState<SessionTokenData | null>(null);
@@ -327,6 +332,28 @@ export function DetailPanel({
   const storeNodeMap = useGraphStore((s) => s.nodeMap);
 
   const agentConfig = node ? agentConfigs[node.id] ?? null : null;
+
+  /**
+   * §5.19 (G) — 이 버블이 **말을 거는 상대**. `provider` 가 있으면 상대는 클로드 CLI 가 아니라
+   * 내 PC 의 로컬 엔진이고, 그때 `config.model`·`config.tools` 는 저장만 될 뿐 아무 일도 하지
+   * 않는 칸이 된다(러너가 읽는 것은 `provider` 와 고정 도구 목록뿐이다) — 아래 요약 줄들이
+   * 진실을 가져올 곳은 여기다.
+   */
+  const localProvider = localProviderOf(agentConfig);
+  const localTokensTotal = (localProvider?.tokensIn ?? 0) + (localProvider?.tokensOut ?? 0);
+  const localContextUsed = localProvider?.contextUsed;
+  const localContextLimit = localProvider?.contextLimit;
+  // 도구 판정 문구·색은 설정 창(§5.19 (H))과 **같은 어휘**를 쓴다 — 두 화면이 다른 낱말로 같은
+  //   상태를 말하면 사용자는 둘 다 믿지 않게 된다.
+  const localToolVerdict = localToolVerdictOf(localProvider);
+  const localToolVerdictTone = localToolVerdict === 'ok'
+    ? 'text-emerald-400'
+    : localToolVerdict === 'none' ? 'text-amber-400' : 'text-gray-500';
+  const localToolVerdictLine = localToolVerdict === 'ok'
+    ? t('panel.agentConfig.local.toolsOk', { defaultValue: '이 모델은 도구를 씁니다 — 파일을 읽고 고칠 수 있습니다.' })
+    : localToolVerdict === 'none'
+      ? t('panel.agentConfig.local.toolsNone', { defaultValue: '이 모델은 도구를 못 씁니다 — 대화만 합니다.' })
+      : t('panel.agentConfig.local.toolsUnknown', { defaultValue: '아직 확인 전입니다 — 다음 턴에 도구를 실어 보내 확인합니다.' });
 
   const isAgent = node?.bubbleType === 'agent';
   const isFile = node?.bubbleType === 'file';
@@ -901,9 +928,12 @@ export function DetailPanel({
                 </div>
               </div>
 
-              {/* Row 2: Billable Tokens / Context */}
+              {/* Row 2: 토큰 / 컨텍스트.
+                  §5.19 (G) — 로컬 버블은 **청구가 0**이고 대화 창도 클로드 세션이 아니라 엔진이
+                  왕복마다 돌려준 수치다. 같은 자리에 클로드 어휘("청구 토큰" · M 단위 창)를 그대로
+                  두면 이 줄 전체가 거짓말이 되므로, 로컬이면 로컬이 실제로 아는 값만 그린다. */}
               <div className="flex items-center gap-3">
-                {billableTokens > 0 && (
+                {!localProvider && billableTokens > 0 && (
                   <button
                     type="button"
                     onClick={() => setShowSessionTokens(true)}
@@ -913,7 +943,17 @@ export function DetailPanel({
                     <span className="font-mono text-xs font-semibold text-amber-400">{billableTokens.toLocaleString()}</span>
                   </button>
                 )}
-                {(node.contextUsed !== undefined || node.contextMax !== undefined) && (
+                {/* §5.19 (D) — 로컬 누적 토큰(입+출). 청구액이 아니라 **양과 속도의 감각**이라
+                    누를 팝업(턴별 청구 내역)도 없다 — 없는 원장을 여는 버튼은 고장으로 읽힌다. */}
+                {localProvider && localTokensTotal > 0 && (
+                  <div className="flex items-center gap-1.5 rounded bg-gray-800/40 px-2 py-1">
+                    <span className="text-xs text-gray-500">{t('panel.cost.colTokens')}</span>
+                    <span className="font-mono text-xs font-semibold text-amber-400">
+                      {(localProvider.tokensIn ?? 0).toLocaleString()}+{(localProvider.tokensOut ?? 0).toLocaleString()}
+                    </span>
+                  </div>
+                )}
+                {!localProvider && (node.contextUsed !== undefined || node.contextMax !== undefined) && (
                   <div className="flex items-center gap-1.5">
                     <span className="text-xs text-gray-500">{t('panel.detailPanel.context')}</span>
                     <span className="font-mono text-xs text-cyan-400">
@@ -922,28 +962,75 @@ export function DetailPanel({
                     </span>
                   </div>
                 )}
+                {/* 로컬 창은 16K~262K 급이라 클로드의 M 단위 표기로는 전부 `0M` 이 된다. IDE 상태바
+                    게이지와 **같은 K 표기**를 써 두 화면이 같은 숫자를 말하게 한다. */}
+                {localProvider && localContextUsed !== undefined && localContextLimit !== undefined && localContextLimit > 0 && (
+                  <div
+                    className="flex items-center gap-1.5"
+                    title={t('ide.overlay.localContextUsed', {
+                      defaultValue: '대화 창 {{used}} / {{limit}} 토큰 ({{percent}}%) — 넘치면 오래된 말부터 덜어 냅니다',
+                      used: localContextUsed,
+                      limit: localContextLimit,
+                      percent: Math.round(Math.min(1, localContextUsed / localContextLimit) * 100),
+                    })}
+                  >
+                    <span className="text-xs text-gray-500">{t('panel.detailPanel.context')}</span>
+                    <span className="font-mono text-xs text-cyan-400">
+                      {Math.round(localContextUsed / 100) / 10}K/{Math.round(localContextLimit / 1024)}K
+                    </span>
+                  </div>
+                )}
               </div>
 
-              {/* Row 3: Model / Tools / Permission Mode (read-only) */}
+              {/* Row 3: Model / Tools / Permission Mode (read-only).
+                  §5.19 (G) — 로컬 버블에서 `config.model`·`config.tools` 는 **저장만 되고 아무 일도
+                  하지 않는 칸**이다(러너는 `provider` 와 고정 `LOCAL_TOOL_DEFS` 만 읽는다). 그대로
+                  그리면 로컬 버블이 `opus` 로 클로드 도구 한 벌을 쓰는 것처럼 보인다 — 설정 창을
+                  이미 프로바이더에 맞췄으니 그 요약인 이 줄도 같은 진실을 말해야 한다.
+                  권한 모드는 **로컬 턴도 실제로 읽으므로** 갈리지 않는다(양쪽 공통). */}
               <div className="flex flex-col gap-1.5 rounded border border-gray-700/50 bg-gray-800/30 p-2">
                 <div className="flex items-center gap-2">
-                  <span className="w-12 text-xs text-gray-500">{t('panel.detailPanel.model')}</span>
-                  <span className="text-xs font-medium text-gray-300">
-                    {agentConfig?.model ?? (node.modelName ? node.modelName.replace('claude-', '').replace(/-\d+$/, '') : 'sonnet')}
-                  </span>
+                  <span className="w-12 flex-shrink-0 text-xs text-gray-500">{t('panel.detailPanel.model')}</span>
+                  {localProvider ? (
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <span className="flex-shrink-0 rounded bg-slate-500/15 px-1.5 py-0.5 text-[12px] font-semibold text-slate-300">
+                        {t('ide.overlay.localLabel', { defaultValue: 'All Model' })}
+                      </span>
+                      <span className={`truncate text-xs font-medium ${localProvider.modelId ? 'text-gray-300' : 'text-gray-500'}`}>
+                        {localProvider.modelName || localProvider.modelId
+                          || t('panel.agentConfig.local.noModel', { defaultValue: '아직 모델을 고르지 않았습니다' })}
+                      </span>
+                    </span>
+                  ) : (
+                    <span className="text-xs font-medium text-gray-300">
+                      {agentConfig?.model ?? (node.modelName ? node.modelName.replace('claude-', '').replace(/-\d+$/, '') : 'sonnet')}
+                    </span>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="w-12 flex-shrink-0 text-xs text-gray-500">{t('panel.detailPanel.tools')}</span>
                   <div className="flex flex-wrap gap-1">
-                    {(agentConfig?.tools ?? ['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob']).map((tool) => {
-                      const stripped = strictStripSet.has(tool);
-                      const cls = stripped
-                        ? 'rounded bg-gray-700/30 px-1.5 py-0.5 text-[12px] text-gray-500 line-through'
-                        : 'rounded bg-blue-500/10 px-1.5 py-0.5 text-[12px] text-blue-400';
-                      return <span key={tool} className={cls}>{tool}</span>;
-                    })}
+                    {localProvider
+                      // 고르는 목록이 아니라 **언제나 이 한 벌**이 간다 — 파랑(=허용된 도구) 대신
+                      //   읽기 전용 회색이고, 엣지 도구 박탈(strictStripSet)도 걸리지 않는다.
+                      ? LOCAL_TOOL_NAMES.map((tool) => (
+                        <span key={tool} className="rounded bg-gray-700/40 px-1.5 py-0.5 text-[12px] text-gray-300">{tool}</span>
+                      ))
+                      : (agentConfig?.tools ?? ['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob']).map((tool) => {
+                        const stripped = strictStripSet.has(tool);
+                        const cls = stripped
+                          ? 'rounded bg-gray-700/30 px-1.5 py-0.5 text-[12px] text-gray-500 line-through'
+                          : 'rounded bg-blue-500/10 px-1.5 py-0.5 text-[12px] text-blue-400';
+                        return <span key={tool} className={cls}>{tool}</span>;
+                      })}
                   </div>
                 </div>
+                {/* §5.19 (H) — 목록이 간다고 쓰는 것은 아니다. 이 모델이 실제로 도구를 부르는지는
+                    물어봐야 알고, 그 판정 한 줄이 없으면 사용자는 못 쓰는 도구를 쓴다고 읽는다.
+                    되돌리는 손잡이([다시 확인])는 설정 창에 있다 — 같은 버튼을 두 곳에 두지 않는다. */}
+                {localProvider && (
+                  <p className={`pl-14 text-[12px] leading-snug ${localToolVerdictTone}`}>{localToolVerdictLine}</p>
+                )}
                 <div className="flex items-center gap-2">
                   <span className="w-12 flex-shrink-0 text-xs text-gray-500">{t('panel.detailPanel.perm')}</span>
                   <span className="text-xs font-medium text-gray-300">{agentConfig?.permissionMode ?? 'default'}</span>

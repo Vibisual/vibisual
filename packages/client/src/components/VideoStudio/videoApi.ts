@@ -48,11 +48,15 @@ export async function listDocs(project: string): Promise<DocSummary[]> {
   return body.docs;
 }
 
-export async function createDoc(project: string, title: string): Promise<VideoDoc> {
+/**
+ * 문서를 만든다. `id` 를 주면 **그 id 로** 만들고 이미 있으면 그것을 돌려받는다(§5.13 (R-3)).
+ * 파일을 눌러 여는 경로가 이 인자를 쓴다 — 같은 파일은 언제 눌러도 같은 문서로 간다.
+ */
+export async function createDoc(project: string, title: string, id?: string): Promise<VideoDoc> {
   const res = await fetch('/api/app/vibistudio/docs', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ project, title }),
+    body: JSON.stringify(id === undefined ? { project, title } : { project, title, id }),
   });
   const body = await json<{ doc: VideoDoc }>(res);
   return body.doc;

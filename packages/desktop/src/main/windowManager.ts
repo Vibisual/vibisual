@@ -127,6 +127,8 @@ export function openDetached(opts: DetachOptions): { windowId: number; reused: b
     webPreferences: {
       preload: join(__dirname, '../preload/index.cjs'),
       sandbox: false,
+      // §5.13 (R) — Chromium 내장 PDF 뷰어를 켠다. 우리가 PDF 렌더를 쓰지 않고 iframe 하나로 여는 근거.
+      plugins: true,
       contextIsolation: true,
       nodeIntegration: false,
     },
@@ -615,6 +617,8 @@ export function openOverlay(opts: {
     webPreferences: {
       preload: join(__dirname, '../preload/index.cjs'),
       sandbox: false,
+      // §5.13 (R) — Chromium 내장 PDF 뷰어를 켠다. 우리가 PDF 렌더를 쓰지 않고 iframe 하나로 여는 근거.
+      plugins: true,
       contextIsolation: true,
       nodeIntegration: false,
     },
@@ -872,6 +876,8 @@ export function openOverlayMenuByWindowId(windowId: number): boolean {
     webPreferences: {
       preload: join(__dirname, '../preload/index.cjs'),
       sandbox: false,
+      // §5.13 (R) — Chromium 내장 PDF 뷰어를 켠다. 우리가 PDF 렌더를 쓰지 않고 iframe 하나로 여는 근거.
+      plugins: true,
       contextIsolation: true,
       nodeIntegration: false,
     },
@@ -1035,6 +1041,8 @@ export function openCommandCenter(opts: {
     webPreferences: {
       preload: join(__dirname, '../preload/index.cjs'),
       sandbox: false,
+      // §5.13 (R) — Chromium 내장 PDF 뷰어를 켠다. 우리가 PDF 렌더를 쓰지 않고 iframe 하나로 여는 근거.
+      plugins: true,
       contextIsolation: true,
       nodeIntegration: false,
     },
@@ -1150,6 +1158,8 @@ export function openAppWindow(appId: string, spec: AppWindowSpec): { windowId: n
     webPreferences: {
       preload: join(__dirname, '../preload/index.cjs'),
       sandbox: false,
+      // §5.13 (R) — Chromium 내장 PDF 뷰어를 켠다. 우리가 PDF 렌더를 쓰지 않고 iframe 하나로 여는 근거.
+      plugins: true,
       contextIsolation: true,
       nodeIntegration: false,
     },

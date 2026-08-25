@@ -119,6 +119,17 @@ export function getRunTail(runId: string, maxLines = RUN_FAILURE_TAIL_LINES): st
   return buf.slice(-maxLines);
 }
 
+/**
+ * §5.5 #17-27 ⑬ (h) — **우리가 적는 한 줄**. PTY 에서 온 바이트와 같은 버퍼에 넣는다.
+ *
+ * 실행이 시작조차 못 했을 때(터미널이 없는 창 등) 출력 패널이 빈 화면에 종료 코드만 남기지
+ * 않도록 그 사실을 그 자리에 적기 위한 창구다 — 번역은 부르는 화면이 한다(스토어는 i18n 을 모른다).
+ */
+export function noteRunLine(runId: string, text: string): void {
+  appendTail(runId, text.endsWith('\n') ? text : `${text}\n`);
+  useRunSessions.getState().bumpOutput();
+}
+
 function clearTail(runId: string): void {
   tails.delete(runId);
   partials.delete(runId);

@@ -1,14 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { WS_PATH } from '@vibisual/shared';
-import { createEmptyDoc, type VideoDoc } from '@vibisual/video';
+import { createEmptyDoc, stableHash, type VideoDoc } from '@vibisual/video';
 
 import { useWebSocket } from '../../hooks/useWebSocket.js';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { WindowControls } from '../Layout/WindowControls.js';
 import { VideoTimeline } from './VideoTimeline.js';
-import { AppNotInstalled } from '../Apps/AppNotInstalled.js';
-import { isAppInstalled } from '../../apps/registry.js';
 import { useVideoRenderer } from './useVideoRenderer.js';
 import {
   VersionConflictError,
@@ -57,15 +55,12 @@ export function VideoStudioShell({ params }: AppShellProps): React.JSX.Element {
   const { t } = useTranslation();
 
   const projects = useGraphStore((s) => s.projects);
-  const userDefaults = useGraphStore((s) => s.userDefaults);
 
   const projectName = useMemo(() => {
     const found = Object.values(projects).find((p) => p.path === projectId || p.name === projectId);
     return found?.name ?? projectId;
   }, [projects, projectId]);
 
-  // 설치 여부 판정은 앱 공통 헬퍼가 한다 — 앱마다 다른 필드를 보면 앱이 늘 때마다 갈라진다.
-  const installed = isAppInstalled('vibistudio', userDefaults);
 
   const [docs, setDocs] = useState<DocSummary[]>([]);
   const [doc, setDoc] = useState<VideoDoc | null>(null);
@@ -103,8 +98,58 @@ export function VideoStudioShell({ params }: AppShellProps): React.JSX.Element {
   );
 
   useEffect(() => {
-    if (installed) void refreshDocs();
-  }, [installed, refreshDocs]);
+    void refreshDocs();
+  }, [refreshDocs]);
+
+  /**
+   * §5.13 (R-3) — **파일을 눌러 열린 창**.
+   *
+   * 그 영상을 담은 문서를 프로젝트 안에 세우고(`file-<해시>` 안정 id) 바로 편집으로 들어간다.
+   * 같은 파일을 다시 눌러도 같은 문서로 돌아오므로, 손본 컷·자막이 그대로 남는다.
+   *
+   * 이미 아이템이 있는 문서는 **건드리지 않는다** — 사람이 편집한 문서에 원본 클립을 다시
+   * 얹으면 그 편집을 조용히 되돌리는 셈이 된다.
+   */
+  const fileParam = params['file'] ?? '';
+  const fileHandledRef = useRef('');
+  useEffect(() => {
+    if (fileParam === '' || projectName === '' || fileHandledRef.current === fileParam) return;
+    fileHandledRef.current = fileParam;
+    let alive = true;
+    void (async () => {
+      try {
+        const name = fileParam.split('/').pop() ?? fileParam;
+        const created = await createDoc(projectName, name, `file-${stableHash(fileParam)}`);
+        let current = created;
+        if (current.tracks.length === 0) {
+          const env = await patchDoc(projectName, current.id, current.version, [
+            { op: 'setAsset', asset: { id: 'src', kind: 'video', source: { kind: 'file', path: fileParam } } },
+            {
+              op: 'addTrack',
+              track: {
+                id: 'v1',
+                kind: 'visual',
+                label: name,
+                // 길이는 'auto' — 소재의 실측 길이가 곧 클립 길이다(§5.13 (D) "오디오가 시간의 주인").
+                items: [{ id: 'clip1', kind: 'footage', at: 0, duration: 'auto', assetId: 'src', label: name }],
+              },
+            },
+          ]);
+          current = env.doc;
+        }
+        if (!alive) return;
+        setDoc(current);
+        setPlayhead(0);
+        setStatus('');
+        void refreshDocs();
+      } catch (err) {
+        if (alive) setStatus(String(err));
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [fileParam, projectName, refreshDocs]);
 
   // ─── 미리보기 ───
 
@@ -252,7 +297,6 @@ export function VideoStudioShell({ params }: AppShellProps): React.JSX.Element {
   // ─── 일꾼 루프 — 에이전트가 건 일감을 이 창이 처리한다 ───
 
   useEffect(() => {
-    if (!installed) return;
     let stopped = false;
 
     const runOne = async (): Promise<void> => {
@@ -316,11 +360,7 @@ export function VideoStudioShell({ params }: AppShellProps): React.JSX.Element {
       stopped = true;
       clearInterval(timer);
     };
-  }, [installed, doc, projectName, renderer, t]);
-
-  if (!installed) {
-    return <AppNotInstalled appId="vibistudio" />;
-  }
+  }, [doc, projectName, renderer, t]);
 
   return (
     <div className="flex h-screen flex-col bg-gray-950 text-gray-100">

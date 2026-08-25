@@ -46,6 +46,30 @@
     "setupBanner": {
       "text": "Claude Code is not installed — agents cannot run yet.",
       "action": "Install"
+    },
+    "ideWindows": {
+      "label": "IDE windows",
+      "tooltip": "Open IDE windows — bring one to front, collapse it, or open a bubble in a new window",
+      "sectionTitle": "Windows & bubbles",
+      "empty": "No agent bubbles in this project",
+      "hint": "Collapsing is not closing — the window just leaves the screen so the canvas comes back.",
+      "openNew": "Open in a new window",
+      "bringToFront": "Bring to front",
+      "settings": "Agent settings",
+      "expand": "Expand",
+      "collapse": "Collapse",
+      "close": "Close window",
+      "state": {
+        "floating": "floating",
+        "collapsed": "collapsed"
+      },
+      "side": {
+        "left": "left",
+        "right": "right",
+        "top": "top",
+        "bottom": "bottom"
+      },
+      "orphan": "Window whose bubble is gone"
     }
   },
   "panel": {
@@ -362,6 +386,14 @@
         "trashEmpty": "Trash is empty — nothing has been cleaned up.",
         "restore": "Restore",
         "restoring": "Restoring…"
+      },
+      "advanced": {
+        "terminalScrollback": "Terminal scrollback (lines)",
+        "terminalScrollbackDesc": "How many output lines a CMD terminal keeps. Scrolling and Ctrl+F search share this range. Applies to terminals opened from now on."
+      },
+      "notifications": {
+        "cmdBlocked": "Notify when a CMD session is waiting for input",
+        "cmdBlockedDesc": "Only notifies while you are looking at another tab or window — if the window is focused it is already on screen."
       }
     },
     "autoAgent": {
@@ -853,6 +885,26 @@
         "latest": "Latest (alias)",
         "latestWith": "Latest ({{id}})",
         "custom": "Custom…"
+      },
+      "local": {
+        "noModel": "No model picked yet",
+        "modelTip": "The local model this bubble speaks with. Change it and the next turn is answered by that model.",
+        "switchModel": "Change model",
+        "pickModel": "Pick a model",
+        "temperature": "Temperature",
+        "temperatureTip": "Lower keeps answers steady and repeatable, higher makes them freer. Leave it empty to use the engine default.",
+        "temperatureDefault": "Engine default",
+        "toolsTip": "A local model always receives the whole tool list below — it is not a pick list. Right before a tool runs, the permission mode above and the approval popup apply exactly as they do for Claude bubbles.",
+        "toolsOk": "This model uses tools — it can read and edit files.",
+        "toolsNone": "This model cannot use tools — it only talks.",
+        "toolsUnknown": "Not checked yet — tools go out with the next turn to find out.",
+        "toolsRecheck": "Check again"
+      },
+      "cliKind": {
+        "label": "CLI",
+        "tip": "Which agent CLI this CMD terminal launches. Anything other than Claude Code is not a child of our hooks, so conversation resume and rule injection are not attached — its status is read from terminal output instead.",
+        "nonClaudeNote": "This CLI is not Claude Code, so the settings below (model, permissions, tools, rules) are not passed to it. Its status is read from terminal output instead. Changes apply to new sessions opened with \"+\".",
+        "applyNote": "A changed CLI applies to new sessions opened with \"+\" — terminals already running keep what they started with."
       }
     },
     "permissionPrompt": {
@@ -1273,6 +1325,18 @@
         "pinHint": "When on, neither the Delete key nor delete actions can remove it.",
         "deleteBubble": "Delete this bubble",
         "deleteHint": "The Delete key removes it too. The app itself stays installed."
+      },
+      "vibistudio": {
+        "name": "Vibistudio",
+        "desc": "Video timeline editing and rendering"
+      },
+      "vibisound": {
+        "name": "Vibisound",
+        "desc": "Simple audio trimming and shaping"
+      },
+      "vibi3d": {
+        "name": "Vibi3D",
+        "desc": "Spin 3D models inside the app"
       }
     },
     "videoStudio": {
@@ -1367,6 +1431,63 @@
       "emptyHint": "Every tool call an agent makes lands here — what it touched, and what you answered.",
       "promptRiskTitle": "Risky action",
       "promptEscalatedHint": "Your permission mode would have allowed this automatically — the audit boundary is asking first."
+    },
+    "vibisound": {
+      "title": "Vibisound",
+      "noFile": "Click an audio file to shape it here — try an mp3 or wav in the explorer or in the chat.",
+      "decodeFailed": "The browser can’t decode this format. Open it with the default app.",
+      "loading": "Reading the audio…",
+      "play": "Play",
+      "stop": "Stop",
+      "toStart": "To start",
+      "loop": "Loop selection",
+      "cropSelection": "Keep selection",
+      "deleteSelection": "Delete selection",
+      "silence": "Silence selection",
+      "fadeIn": "Fade in",
+      "fadeOut": "Fade out",
+      "louder": "Louder +25%",
+      "quieter": "Quieter −20%",
+      "undo": "Undo",
+      "exportWav": "Export WAV",
+      "saving": "Saving…",
+      "saved": "Saved — {{path}}",
+      "saveFailed": "Couldn’t save.",
+      "needSelection": "Drag on the waveform to select a range first.",
+      "selectionInfo": "Selection {{from}} → {{to}} ({{len}})",
+      "selectHint": "Drag the waveform to select a range — the edit buttons light up",
+      "openExternal": "Open with the default app"
+    },
+    "vibi3d": {
+      "title": "Vibi3D",
+      "noFile": "Click a 3D file to spin it here — try a glb, obj or stl in the explorer or in the chat.",
+      "parseFailed": "Couldn’t read this file. Open it with the default app.",
+      "loading": "Reading the model…",
+      "frame": "Fit to view",
+      "wireframe": "Wireframe",
+      "grid": "Grid",
+      "spin": "Auto-rotate",
+      "background": "Light background",
+      "openExternal": "Open with the default app",
+      "vertices": "{{n}} vertices",
+      "triangles": "{{n}} triangles",
+      "dragHint": "Drag to orbit, scroll to zoom",
+      "viewOnly": "View only"
+    },
+    "mediaConvert": {
+      "videoIntro": "This video format can’t open directly in the app. Repackaging it (no quality loss) opens it in our editor.",
+      "audioIntro": "This audio format can’t open directly in the app. Converting it to WAV opens it in our editor.",
+      "needTool": "A converter (ffmpeg) is needed — install it once and it just opens from then on.",
+      "needToolManual": "A converter (ffmpeg) is needed. Install it and click again.",
+      "convert": "Open in the app",
+      "install": "Install converter",
+      "openExternal": "Open with the default app",
+      "cancel": "Close",
+      "converting": "Converting… {{percent}}%",
+      "convertingStart": "Conversion started…",
+      "opening": "Opening in the editor…",
+      "installing": "Installing the converter… only the first time takes a moment.",
+      "failed": "Couldn’t convert it. Open it with the default app."
     }
   },
   "ide": {
@@ -1429,13 +1550,25 @@
       "maximizeLabel": "Maximize",
       "restoreLabel": "Restore",
       "resizeDock": "Resize dock",
+      "dockMenuLabel": "Dock window",
+      "dockLeft": "Dock left",
+      "dockRight": "Dock right",
+      "dockTop": "Dock top",
+      "dockBottom": "Dock bottom",
+      "undockLabel": "Undock",
       "customLabel": "Custom",
       "cmdLabel": "CMD",
       "hookLabel": "Hook",
       "renameHint": "Double-click to rename (F2)",
       "renameInputLabel": "Agent name",
       "localLabel": "All Model",
-      "localSwitchModel": "Change the model this bubble uses"
+      "localSwitchModel": "Change the model this bubble uses",
+      "localContextUsed": "Context {{used}} / {{limit}} tokens ({{percent}}%) — the oldest turns are dropped when it fills up",
+      "agentSettings": "Agent settings",
+      "collapseLabel": "Collapse",
+      "collapseHint": "Collapse — keeps the window and gives the canvas back (reopen it from the header window list)",
+      "resizeWindow": "Resize window",
+      "resizeStack": "Resize split"
     },
     "tabbar": {
       "newSession": "New Session",
@@ -1475,7 +1608,12 @@
         "clear": "Clear cards",
         "collapse": "Collapse cards",
         "expand": "Show cards"
-      }
+      },
+      "splitRight": "Split right",
+      "splitDown": "Split down",
+      "zoom": "Zoom pane",
+      "unzoom": "Restore layout",
+      "closePane": "Close pane"
     },
     "mainArea": {
       "scrollPrompt": "Scroll to prompt",
@@ -1513,6 +1651,7 @@
       "slashEmpty": "No matching skills",
       "slashLoading": "Loading skills…",
       "ctxCopy": "Copy",
+      "ctxSearchWeb": "Search the web",
       "ctxBookmark": "Bookmark",
       "ctxQuoteReply": "Quote reply",
       "ctxSendAsPrompt": "Send as new prompt",
@@ -1609,6 +1748,7 @@
       "debugMode": "Debug mode",
       "debugModeHint": "Adds debugger flags to the same command so a debugger can attach.",
       "configs": "Run configurations",
+      "adhocRuns": "Started from chat",
       "noConfigs": "No run configurations found. Add one to .vscode/launch.json, package.json scripts, or .vibisual/run.json. Unreal projects (.uproject) are detected automatically.",
       "scanned": "Scanned: {{files}}",
       "run": "Run",
@@ -1945,7 +2085,11 @@
       "showLess": "Show less",
       "pathLink": {
         "openFile": "Open in editor — {{path}}",
-        "openFolder": "Open folder — {{path}}"
+        "openFolder": "Open folder — {{path}}",
+        "runProgram": "Run program — {{path}}",
+        "runFailed": "Could not start — this window has no terminal.",
+        "openApp": "Open in {{app}} — {{path}}",
+        "openExternal": "Open with the default app — {{path}}"
       },
       "restartResumed": "Interrupted when the app went down — resumed on the saved session."
     },
@@ -2129,6 +2273,7 @@
       "exitUnknown": "Claude CLI exited unexpectedly",
       "crash": "The session process died unexpectedly (code {{code}})",
       "crashUnknown": "The session process died unexpectedly",
+      "local": "The local model run failed",
       "cli": "Claude CLI reported a failure",
       "maxTurns": "Stopped at the max turns limit",
       "agentView": "The agent run ended in failure",
@@ -2637,6 +2782,18 @@
         "this-project": "Installed for this project only — they load in the sessions you run here.",
         "other-project": "Installed, but bound to a different project, so they do not load in this session."
       }
+    },
+    "split": {
+      "closeCell": "Close view",
+      "reset": "Unsplit",
+      "previewSplit": "Split here",
+      "previewReplace": "Open here",
+      "limit": "Up to {{count}} views",
+      "dragHint": "Drag to move this view",
+      "resizeHint": "Drag to resize · double-click to even out",
+      "foreignSession": "That session belongs to another bubble",
+      "tooSmall": "Too small to split here",
+      "alreadyHere": "Already shown here"
     }
   },
   "bubbleMap": {
@@ -2879,7 +3036,9 @@
     "unsetDefault": "Unset Default",
     "defaultTooltip": "Default tab opens automatically when there is no last-active tab to restore.",
     "detach": "Detach to new window",
-    "rename": "Rename"
+    "rename": "Rename",
+    "splitRight": "Split right",
+    "splitDown": "Split down"
   },
   "overlay": {
     "sendToOverlay": "Pop this bubble out as an always-on-top desktop widget",
@@ -3496,6 +3655,34 @@
     "stepModel": "Model",
     "stepIde": "IDE",
     "useModelStart": "Start with this model",
-    "opensIdeHint": "The IDE for this bubble opens as soon as the download finishes."
+    "opensIdeHint": "The IDE for this bubble opens as soon as the download finishes.",
+    "contextTitle": "Context window",
+    "contextUnit": "tokens",
+    "contextApply": "Apply",
+    "contextHint": "A larger window remembers more but uses more memory and runs slower. If you set it above what the model was trained for, the trained length is used instead. The new value applies the next time this model is loaded.",
+    "usageTitle": "Tokens used in this conversation",
+    "usageLine": "in {{in}} · out {{out}}",
+    "fitGpu": "Fast on GPU",
+    "fitRam": "Slow in RAM",
+    "fitTooBig": "Too big for this PC",
+    "statDownloads": "Downloads",
+    "statLikes": "Likes",
+    "statTrending": "Trending",
+    "sortDownloads": "Most downloaded",
+    "sortLikes": "Most liked",
+    "sortTrending": "Trending now",
+    "sortRecent": "Recently updated",
+    "runnableOnly": "Only what runs here",
+    "topQuantHint": "Most used first",
+    "showAllQuants": "Show all {{count}} others",
+    "showFewerQuants": "Show only the most used",
+    "noRunnableFiles": "Nothing in this repository runs on this PC — turn the filter above off to see them all.",
+    "partCount": "{{count}} parts",
+    "missingParts": "{{missing}} of {{total}} parts are missing, so it cannot be used — download it again",
+    "companionFile": "This is a companion file, not a model — it cannot run on its own",
+    "outputBroken": "This engine could not get anything meaningful out of it — try another model",
+    "archUnsupported": "Not supported by this engine",
+    "hardwareGpu": "{{device}} · {{vram}} free · {{ram}} RAM",
+    "hardwareCpu": "No accelerator · {{ram}} RAM"
   }
 }

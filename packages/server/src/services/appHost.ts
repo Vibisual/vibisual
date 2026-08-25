@@ -3,10 +3,10 @@
  *
  * 코어(`index.ts`)가 아는 것은 `mountAppRoutes(app)` 한 줄뿐이다.
  *
- * **안 깐 앱은 코드조차 로드하지 않는다.** 이게 이 파일의 존재 이유다 — 앱 모듈을 위에서
- * `import` 해 버리면 설치 여부와 무관하게 그 코드가 서버 부팅과 함께 메모리에 올라가고,
- * 그러면 "설치"라는 말이 화면에서만 참이 된다. 그래서 여기서는 **경로만 알고 있다가
- * 실제 요청이 처음 들어올 때** 늦게 불러온다.
+ * **부르지 않은 앱은 코드조차 로드하지 않는다.** 이게 이 파일의 존재 이유다 — 앱 모듈을 위에서
+ * 정적으로 불러오면 그 코드가 서버 부팅과 함께 메모리에 올라가고, 그러면 "안 쓰면 비용이 없다"는
+ * 말이 문서에서만 참이 된다. 그래서 여기서는 **경로만 알고 있다가 실제 요청이 처음 들어올 때**
+ * 늦게 불러온다(§5.13 (H) 개정 — 이 규율의 주인은 설치 여부가 아니라 첫 요청이다).
  *
  * 앱은 코어를 import 하지 않는다(§5.13 (P) 도킹 계약). 필요한 것은 `AppServerHost` 로
  * 건네주며, 그 인터페이스가 앱과 코어 사이의 유일한 접촉면이다.
@@ -17,7 +17,6 @@ import { Router as makeRouter } from 'express';
 
 import { logger } from '../logger.js';
 import { graphManager } from './projectGraphManager.js';
-import { userDefaultsService } from './userDefaultsService.js';
 import { atomicWriteFileSync } from './statePersistence.js';
 
 /** 앱에게 건네는 호스트. 앱이 코어에 닿는 유일한 통로다. */
@@ -63,36 +62,23 @@ const SERVER_APPS: readonly ServerAppEntry[] = [
 ];
 
 /**
- * 설치 여부 판정.
+ * §5.13 (H) 개정 — **설치 게이트는 없다.**
  *
- * 클라이언트의 `resolveInstalledApps` 와 **같은 규칙**이어야 한다 — 한쪽만 구 필드를
- * 인정하면 화면과 서버가 다른 답을 낸다.
+ * 종전에는 `UserDefaults.installedApps` 를 보고 안 깐 앱의 REST 를 409 로 돌려세웠다. 이제 앱은
+ * 프로젝트에 기본으로 귀속되므로 그 판정 자체가 없어졌다 — 사용자가 파일을 눌렀는데 "먼저 설치하라"
+ * 는 답이 돌아오는 자리를 만들지 않는다(사용자 지시: "앱설치 빼버리고 기본 우리 프로젝트에 귀속").
+ *
+ * **그렇다고 앱 코드가 부팅과 함께 올라오지는 않는다** — 늦은 로드(`lazy`)가 그 몫을 그대로 한다.
+ * 즉 "안 쓰는 앱은 코드조차 로드하지 않는다"는 규율은 설치가 아니라 **첫 요청**이 지킨다.
  */
-export function isAppInstalledOnServer(appId: string): boolean {
-  const defaults = userDefaultsService.get();
-  if ((defaults.installedApps ?? []).includes(appId)) return true;
-  // v4.46 이전 필드 — 읽기 전용 하위호환.
-  return appId === 'vibistudio' && defaults.videoStudio?.installed === true;
-}
-
-export function requireAppInstalled(appId: string): RequestHandler {
-  return (_req, res, next) => {
-    if (!isAppInstalledOnServer(appId)) {
-      // 없는 것(404)이 아니라 **아직 켜지지 않은 것**이라 409.
-      res.status(409).json({ ok: false, error: 'app not installed', appId });
-      return;
-    }
-    next();
-  };
-}
 
 export function mountAppRoutes(app: Express): void {
   for (const entry of SERVER_APPS) {
     /**
      * 앱마다 라우터를 하나 세우고, 그 안에서 **처음 통과한 요청에** 앱을 불러온다.
      *
-     * 설치 게이트를 앞에 두므로 안 깐 앱은 여기까지 오지 못하고, 따라서 그 앱의 코드는
-     * 프로세스가 사는 동안 한 번도 메모리에 올라가지 않는다.
+     * 한 번도 부르지 않은 앱의 코드는 프로세스가 사는 동안 메모리에 올라가지 않는다 — 이 규율을
+     * 지키는 것은 설치 여부가 아니라 **첫 요청**이다(§5.13 (H) 개정).
      */
     let loaded: Router | null = null;
     let loading: Promise<void> | null = null;
@@ -123,7 +109,7 @@ export function mountAppRoutes(app: Express): void {
         });
     };
 
-    app.use(entry.apiPrefix, requireAppInstalled(entry.id), lazy);
-    logger.info(`[apps] ${entry.apiPrefix} 게이트 설치 (${entry.id}) — 코드는 첫 요청 때 로드`);
+    app.use(entry.apiPrefix, lazy);
+    logger.info(`[apps] ${entry.apiPrefix} 대기 (${entry.id}) — 코드는 첫 요청 때 로드`);
   }
 }

@@ -16,6 +16,7 @@ import type { AgentConfig, McpInventory, McpServerEntry, McpServerScope } from '
 import { findMcpPreset } from '@vibisual/shared';
 
 import { useGraphStore, selectIDEOverlay } from '../../stores/graphStore.js';
+import { useIDEPaneValue } from './idePane.js';
 import { ScrollFade } from '../ScrollFade.js';
 
 import { useIDEProjectRoot } from './useIDEProjectRoot.js';
@@ -76,7 +77,7 @@ export const IDEMcpView = memo(function IDEMcpView({ agentId }: { agentId: strin
   const { t } = useTranslation();
   const rootPath = useIDEProjectRoot();
   const config = useGraphStore((s) => s.agentConfigs[agentId]) as AgentConfig | undefined;
-  const projectId = useGraphStore((s) => selectIDEOverlay(s).projectId);
+  const projectId = useIDEPaneValue((o) => o.projectId);
 
   const [inventory, setInventory] = useState<McpInventory | null>(null);
   const [loading, setLoading] = useState(false);

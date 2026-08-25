@@ -6,9 +6,24 @@ import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { exec, execFile, spawn, type ChildProcess } from 'node:child_process';
 import multer from 'multer';
-import { DEFAULT_PORT, SESSION_SCAN_INTERVAL, FILE_EXISTENCE_CHECK_INTERVAL, SATELLITE_TYPES, IFRAME_PROXY_PATH, AGENT_IDLE_THRESHOLD_MS, AGENT_IDLE_SWEEP_INTERVAL_MS, INTERRUPT_RECONCILE_INTERVAL_MS, SUBAGENT_DORMANT_IDLE_MS, TASK_EDGE_DISPATCH_DEFAULT_TIMEOUT_MS, TASK_EDGE_CRITIQUE_MAX_REWORK_LIMIT, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, SUPPORTED_UI_LOCALES, CONTI_AGENT_RULES, RULES_HISTORY_MAX, CANVAS_CLIPBOARD_SCHEMA_VERSION, AGENT_INTENT_FIRST_RULES, buildAgentReportRules, buildAgentQuestionRules, buildAgentReviewRules, buildAgentListRules, buildAgentIframeRules, buildAgentFeedbackBlock, AGENT_FEEDBACK_SUMMARY_ITEM_MAX, CLAUDE_USAGE_POLL_INTERVAL_MS, CLAUDE_AUTH_POLL_INTERVAL_MS, CLAUDE_AUTO_UPDATE_BOOT_DELAY_MS, SESSION_GOAL_TEXT_MAX, buildSessionGoalRules, CONTEXT_SOURCE_IDS, CONTEXT_PLUGIN_ID_PREFIX, CONTEXT_PREVIEW_MAX_CHARS, estimateTokens, VERIFICATION_VERDICT_SCHEMA_GUIDE, COST_MAP_SWEEP_INTERVAL_MS } from '@vibisual/shared';
+import { DEFAULT_PORT, SESSION_SCAN_INTERVAL, FILE_EXISTENCE_CHECK_INTERVAL, SATELLITE_TYPES, IFRAME_PROXY_PATH, AGENT_IDLE_THRESHOLD_MS, AGENT_IDLE_SWEEP_INTERVAL_MS, INTERRUPT_RECONCILE_INTERVAL_MS, SUBAGENT_DORMANT_IDLE_MS, TASK_EDGE_DISPATCH_DEFAULT_TIMEOUT_MS, TASK_EDGE_CRITIQUE_MAX_REWORK_LIMIT, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, SUPPORTED_UI_LOCALES, CONTI_AGENT_RULES, RULES_HISTORY_MAX, CANVAS_CLIPBOARD_SCHEMA_VERSION, AGENT_INTENT_FIRST_RULES, buildAgentReportRules, buildAgentQuestionRules, buildAgentReviewRules, buildAgentListRules, buildAgentIframeRules, buildAgentFeedbackBlock, AGENT_FEEDBACK_SUMMARY_ITEM_MAX, CLAUDE_USAGE_POLL_INTERVAL_MS, CLAUDE_AUTH_POLL_INTERVAL_MS, CLAUDE_AUTO_UPDATE_BOOT_DELAY_MS, SESSION_GOAL_TEXT_MAX, buildSessionGoalRules, CONTEXT_SOURCE_IDS, CONTEXT_PLUGIN_ID_PREFIX, CONTEXT_PREVIEW_MAX_CHARS, estimateTokens, VERIFICATION_VERDICT_SCHEMA_GUIDE, COST_MAP_SWEEP_INTERVAL_MS, normalizeTodoStatus } from '@vibisual/shared';
 import type { HookEventPayload, WSMessage, SubAgentStreamEvent, QueuedCommand, SessionTokenData, PipelineType, AgentConfig, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, SubAgentHistoryItem, UiLocale, PermissionDecision, RulesHistoryEntry, Conti, CanvasClipboardPayload, CanvasPasteResponse, AskUserQuestionDecision, AskUserQuestionAnswer, AskUserQuestionOption, AskUserQuestionItem, AskUserQuestionToolInput, AgentReport, AgentQuestions, AgentQuestionItem, AgentReview, AgentList, AgentFeedback, AgentFeedbackTargetType, AgentFeedbackVerdict, BrainCard, BrainCardInput, BrainCardType, BrainCardScope, BrainInjectionEvent, ClaudeUsageInfo, ClaudeAuthStatus, VerificationVerdict, VerificationKind, VerificationAttempt, EscalationReason, AutoAgentRun, ShelfItemKind } from '@vibisual/shared';
-import { WORKSPACE_IMAGE_MAX_BYTES, BRAIN_INJECTION_TOP_K, BRAIN_INJECTION_TOKEN_BUDGET, BRAIN_FILE_WARN_ONCE_PER_SESSION, BRAIN_EXPERIENCE_TYPES, buildBrainRulesSection, buildBrainTopicIndexSection } from '@vibisual/shared';
+import { LOCAL_MODEL_CATALOG_SORTS } from '@vibisual/shared';
+// §4 (CMD 터미널 업그레이드) — pane 트리 정합 + 임베디드 PTY 제어(⑤⑥).
+import { sanitizeCmdPaneTree, CMD_CLI_KINDS } from '@vibisual/shared';
+import type { CmdTerminalSignal, CmdCliKind } from '@vibisual/shared';
+import { readCmdTerminal, sendCmdTerminal, waitCmdTerminal } from './services/cmdTerminalController.js';
+
+/**
+ * §4 (CMD ⑥ QA) — loopback 으로 들어온 termId 가 **우리가 발급하는 모양**인지 검사한다.
+ * 임의 문자열을 그대로 받으면 오타 하나로 엉뚱한 터미널을 훑게 되고, 형식 밖 값이
+ * PTY 맵의 키로 쓰이는 것 자체가 통제를 잃는 자리다. `term:<agentId>:<session>[#pane]` 과
+ * 실행 런처(`run:<agentId>:<configId>`) 두 모양만 통과시킨다.
+ */
+function isCmdTermId(v: string): boolean {
+  return /^(?:term|run):[\w.-]{1,64}:[\w.-]{1,64}(?:#[\w-]{1,32})?$/.test(v);
+}
+import { WORKSPACE_IMAGE_MAX_BYTES, WORKSPACE_MEDIA_MAX_BYTES, workspaceMediaMime, BRAIN_INJECTION_TOP_K, BRAIN_INJECTION_TOKEN_BUDGET, BRAIN_FILE_WARN_ONCE_PER_SESSION, BRAIN_EXPERIENCE_TYPES, buildBrainRulesSection, buildBrainTopicIndexSection } from '@vibisual/shared';
 // §3.2.3 보존 정책 — 상한·기본값은 shared 한 곳, 파일 정리·실측은 storageRetention.
 import { RETENTION_LIMITS, DEFAULT_RETENTION_SETTINGS } from '@vibisual/shared';
 // §5.13 (Q) 대본 → 콘티 → 렌더.
@@ -90,7 +105,7 @@ import { detectPlayRecipes } from './services/playRecipeDetector.js';
 import { isPlayAlive, startPlay, stopAllPlays, stopPlay } from './services/playRunner.js';
 import { discoverProjectMetas, hasProjectSaveData, migrateLegacy, migrateLegacySaveRootToProjectDirs, pruneOrphanWorktreeDirs, SaveScheduler, writeCheckpoint } from './services/statePersistence.js';
 import { invalidateWorktreeLiveness } from './services/worktreeLiveness.js';
-import { listWorkspaceDir, statWorkspacePath } from './services/workspaceExplorer.js';
+import { listWorkspaceDir, resolveWorkspacePath, statWorkspacePath } from './services/workspaceExplorer.js';
 import { readWorkspaceFile, readWorkspaceImage, writeWorkspaceFile, writeWorkspaceImage } from './services/workspaceFile.js';
 // §5.5 #17-20 v4.74 — 디버그·실행 런처(실행 구성 스캔 + 외부 디버거 위임).
 import { scanRunConfigs } from './services/runConfigScanner.js';
@@ -127,8 +142,10 @@ import { invalidateClaudeBinCache, setClaudeBinOverrideWriter } from './services
 import { isAgentViewEnabled, reconcileOnBoot as agentViewReconcileOnBoot } from './services/claudeAgentViewService.js';
 import type { AgentProvider } from '@vibisual/shared';
 import { getEngineState, getInflightEngineInstall, installEngine, uninstallEngine } from './services/localEngineService.js';
-import { cancelDownload, deleteModel, downloadModel, listDownloads, listModels, listRepoFiles, searchCatalog } from './services/localModelService.js';
-import { listLoadedModels } from './services/localRunner.js';
+import { getLocalHardware, invalidateLocalHardware } from './services/localHardwareService.js';
+import { toLocalHookPayload } from './services/localHookPayload.js';
+import { cancelDownload, deleteModel, downloadModel, listDownloads, listModels, listRepoFiles, searchCatalog, setModelDownloadedHook } from './services/localModelService.js';
+import { listLoadedModels, verifyModelOutput } from './services/localRunner.js';
 import { getClaudeVersionInfo, getClaudeInstallsInfo, installLatestClaude, getInflightInstall, invalidateLatestCache, autoUpdateClaudeIfEnabled, onClaudeInstallSettled } from './services/claudeVersionService.js';
 import { agentTracker, setSnapshotScheduler as setAgentTrackerSnapshotScheduler } from './services/agentTracker.js';
 import { discoverSessions, findPidBySession, isProcessAlive, readSessionTokenData, setLivenessProbeListener } from './services/sessionDiscovery.js';
@@ -138,7 +155,10 @@ import { subAgentManager, recordCmdTermSession } from './services/subAgentManage
 import { describeToolTarget, extractTaskResultText } from './services/subagentActivity.js';
 import { reapOrphanedPidsFromPreviousRun, registerSpawnedPid, terminateChildTree, unregisterSpawnedPid } from './services/processTree.js';
 import { validatePathWithinRoot } from './services/pathValidator.js';
-import { openFile, openFileAtSearch, openFolder } from './services/editorLauncher.js';
+import { openFile, openFileAtSearch, openFolder, openWithDefaultApp } from './services/editorLauncher.js';
+// §5.13 (R-8) — 못 읽는 영상·소리를 우리 안에서 열기 위한 변환 레일.
+import { detectMediaTools, installMediaTools } from './services/mediaTools.js';
+import { mediaConvertService } from './services/mediaConvert.js';
 import { iframeProxyHandler } from './services/iframeProxy.js';
 import { gitStatusService, type WorktreeResolveInfo } from './services/gitStatusService.js';
 import { generateContiFrames, generateContiFramesFromScript, patchContiElement, createEmptyConti, contiId, parseContiResponse, type ContiContextInput } from './services/contiManager.js';
@@ -175,7 +195,7 @@ export { refreshStatusLineIfInstalled } from './services/statusLineInstaller.js'
 export { recordDiagnostic, diagnosticService } from './services/diagnosticService.js';
 // Persistent SubAgent child — desktop main 의 before-quit 핸들러가
 // `subAgentManager.shutdownAllPersistentChildren()` 으로 long-lived claude 자식들을 깨끗이 종료.
-export { subAgentManager, buildInteractiveClaudeArgs, buildBashTimeoutEnv, prepareInteractiveRulesDir, recordCmdTermSession, getCmdResumeSession } from './services/subAgentManager.js';
+export { subAgentManager, buildInteractiveClaudeArgs, buildInteractiveCliPrefill, parseCmdTermId, buildBashTimeoutEnv, prepareInteractiveRulesDir, recordCmdTermSession, getCmdResumeSession } from './services/subAgentManager.js';
 // §5.11 v4.65 — CMD 세션에도 집행 플러그인의 지시를 싣는다(desktop 터미널 매니저가 rules 파일에 함께 기록).
 export { buildInteractivePluginBlockForAgent } from './services/pluginHost.js';
 // § 프로세스 트리 누수 — desktop 의 PTY(cmd.exe→claude) 종료 시 Windows 트리 전체를 회수하는 데 재사용.
@@ -198,6 +218,11 @@ export { closeStaticHost } from './services/playStaticHost.js';
 // 같은 바이너리(버전 체크/헤드리스 스폰과 동일 SSOT)를 쓰도록 경로 resolver 를 노출.
 export { resolveClaudeBin, getClaudeBin, invalidateClaudeBinCache } from './services/claudeBin.js';
 
+// §4 (CMD 터미널 업그레이드 ⑥) — 임베디드 PTY 제어 주입 지점. desktop main 이 terminalManager 를
+// 이 인터페이스로 감싸 넣으면 loopback REST(`/api/cmd/*`)가 터미널을 읽고 prefill 할 수 있다.
+export { setCmdTerminalController, getCmdTerminalController, readCmdTerminal, sendCmdTerminal, waitCmdTerminal, stripTerminalAnsi } from './services/cmdTerminalController.js';
+export type { CmdTerminalController } from './services/cmdTerminalController.js';
+
 // §3.7 v2.8 — hook loopback 리스너 포트. 통합(in-process) 모델에서 외부 `claude` 프로세스
 // (hook curl·커스텀 위임 엣지 dispatch)가 in-process 서버에 닿는 유일한 네트워크 포트다.
 // desktop main 이 startHookListener 직후 주입한다. 폐기된 서버-클라 모델엔 DEFAULT_PORT(4800)
@@ -213,6 +238,30 @@ export function setHookListenerPort(port: number): void {
 let hookListenerToken: string | null = null;
 export function setHookListenerToken(token: string): void {
   hookListenerToken = token;
+}
+
+/**
+ * §4 (CMD 터미널 업그레이드 ④) — CMD 세션이 `blocked` 로 **전이할 때** 부를 알림 콜백.
+ *
+ * 실제 알림은 Electron `Notification` 이라 desktop main 만 띄울 수 있다(§3.4 — server 는
+ * desktop 을 import 하지 않는다). `setBroadcastSink`·`setHookListenerToken` 과 같은 주입 방식이며,
+ * 주입이 없으면(웹·테스트) 아무 일도 일어나지 않는다. 스팸 방지(백그라운드 여부·opt-out 판정)는
+ * 창 포커스와 사용자 설정을 아는 main 쪽에서 한다.
+ */
+export interface CmdBlockedNotice {
+  termId: string;
+  agentId: string;
+  subAgentId: string;
+  /** 세션 탭 라벨(예: `Sub #3`). */
+  label: string;
+  /** 막혔다고 본 근거 한 줄(마지막 화면 꼬리 발췌). */
+  reason?: string;
+}
+
+let cmdBlockedNotifier: ((notice: CmdBlockedNotice) => void) | null = null;
+
+export function setCmdBlockedNotifier(fn: ((notice: CmdBlockedNotice) => void) | null): void {
+  cmdBlockedNotifier = fn;
 }
 
 // §4 v2.71 — hook 신원 파일(hook-listener.json)의 절대 경로(forward-slash 정규화). desktop main 이
@@ -6125,6 +6174,10 @@ export async function runServer(): Promise<RunServerHandle> {
         //   이전 값을 유지**한다. 이 축을 모르는 창(에이전트 설정 팝업)이 저장하는 순간 provider 가
         //   지워지면 All Model 버블이 조용히 클로드 버블로 되돌아간다. 모델을 새로 매는 것도 이 통로다.
         provider: normalizeAgentProvider(body.provider) ?? prev?.provider,
+        // §4 (CMD 터미널 업그레이드 ⑧) — CMD 버블이 띄울 CLI. `executionMode`·`provider` 와 **같은
+        //   규약**이다: body 에 유효값이 오면 그걸, 없으면 이전 값을 유지한다. 이 축을 모르는 창이
+        //   저장하는 순간 고른 CLI 가 조용히 claude 로 되돌아가는 것을 막는다.
+        cliKind: CMD_CLI_KINDS.some((k) => k.value === body.cliKind) ? (body.cliKind as CmdCliKind) : prev?.cliKind,
         // §4 v2.88 — API 비용 상한(달러). 양수만 저장, 그 외(0/미설정)는 undefined = 무제한.
         maxBudgetUsd: typeof body.maxBudgetUsd === 'number' && body.maxBudgetUsd > 0 ? body.maxBudgetUsd : undefined,
         // §5.5 #17-20 ⑥ v4.74 — MCP 디버그 도구 선택. 알 수 없는 id 는 여기서 걸러 두면
@@ -6518,17 +6571,28 @@ export async function runServer(): Promise<RunServerHandle> {
   // 전부 조회/조작 전용이라 그래프 상태를 건드리지 않는다. 목록이 바뀌는 조작(설치 시작·
   // 내려받기·삭제) 뒤에는 스냅샷을 한 번 밀어 화면이 곧바로 따라오게 한다.
 
+  // §5.19 (E) — 내려받기가 끝나면 그 모델에게 실제로 몇 마디 시켜 본다.
+  //   러너와 모델 서비스가 서로 물지 않도록 배선은 여기 한 곳에서 한다.
+  setModelDownloadedHook((modelId) => {
+    void verifyModelOutput(modelId).then(() => broadcastSnapshot());
+  });
+
   /** GET /api/local-llm — 엔진 상태 + 받아 둔 모델 + 진행 중 내려받기. */
   app.get('/api/local-llm', (_req, res) => {
-    res.json({
-      ok: true,
-      state: {
-        engine: getEngineState(),
-        models: listModels(),
-        downloads: listDownloads(),
-        loaded: listLoadedModels(),
-      },
-    });
+    void (async (): Promise<void> => {
+      // 사양은 엔진에게 물어 온다(§5.19 (E)) — 캐시가 살아 있으면 프로세스를 띄우지 않는다.
+      const hardware = await getLocalHardware();
+      res.json({
+        ok: true,
+        state: {
+          engine: getEngineState(),
+          models: listModels(),
+          downloads: listDownloads(),
+          loaded: listLoadedModels(),
+          hardware,
+        },
+      });
+    })();
   });
 
   /**
@@ -6562,6 +6626,7 @@ export async function runServer(): Promise<RunServerHandle> {
     void (async (): Promise<void> => {
       try {
         await uninstallEngine();
+        invalidateLocalHardware(); // 엔진이 없어졌으니 재 둔 장치 정보도 버린다
         broadcastSnapshot();
         res.json({ ok: true });
       } catch (err) {
@@ -6571,11 +6636,17 @@ export async function runServer(): Promise<RunServerHandle> {
     })();
   });
 
-  /** GET /api/local-llm/catalog?q= — 받을 수 있는 저장소 검색(조회로 만든다, 하드코딩 목록 ❌). */
+  /**
+   * GET /api/local-llm/catalog?q=&sort= — 받을 수 있는 저장소 검색(조회로 만든다, 하드코딩 목록 ❌).
+   * `sort` 는 §5.19 (E) 의 네 축(내려받기·하트·트렌딩·최근) 중 하나. 모르는 값이 오면
+   * 내려받기 순으로 떨어뜨린다 — 낯선 문자열을 카탈로그에 그대로 넘기지 않는다.
+   */
   app.get('/api/local-llm/catalog', (req, res) => {
     void (async (): Promise<void> => {
       const q = typeof req.query['q'] === 'string' ? req.query['q'] : '';
-      const repos = await searchCatalog(q);
+      const raw = req.query['sort'];
+      const sort = LOCAL_MODEL_CATALOG_SORTS.find((s) => s === raw) ?? 'downloads';
+      const repos = await searchCatalog(q, sort);
       res.json({ ok: true, repos });
     })();
   });
@@ -6596,14 +6667,18 @@ export async function runServer(): Promise<RunServerHandle> {
   /** POST /api/local-llm/models/download — 모델 내려받기(재개 가능). 진행은 WS `local_model_progress`. */
   app.post('/api/local-llm/models/download', (req, res) => {
     try {
-      const body = req.body as { repo?: string; file?: string } | undefined;
+      const body = req.body as { repo?: string; file?: string; partFiles?: unknown } | undefined;
       const repo = body?.repo ?? '';
       const file = body?.file ?? '';
       if (!repo || !file) {
         res.status(400).json({ ok: false, error: 'repo and file required' });
         return;
       }
-      const progress = downloadModel(repo, file);
+      // 쪼개진 모델은 조각 전부를 함께 받는다 — 한 조각만 있으면 그 모델은 못 쓴다.
+      const partFiles = Array.isArray(body?.partFiles)
+        ? body.partFiles.filter((f): f is string => typeof f === 'string' && f.length > 0)
+        : [];
+      const progress = downloadModel(repo, file, partFiles.length > 0 ? partFiles : undefined);
       broadcastSnapshot();
       res.json({ ok: true, progress });
     } catch (err) {
@@ -7054,6 +7129,160 @@ export async function runServer(): Promise<RunServerHandle> {
       logger.error('POST /api/agent-list failed', err);
       res.status(500).json({ ok: false, error: 'internal error' });
     }
+  });
+
+  /**
+   * §4 (CMD 터미널 업그레이드 ①) — POST /api/cmd-terminal-state
+   *
+   * 임베디드 터미널 뷰가 **감지한** 상태(`working|idle|blocked`)를 올린다. 판정·쓰기·전파는
+   * 서버가 한다(§3.1 서버 = SSOT) — 클라는 바이트 흐름만 보고 신호를 보낼 뿐이다.
+   * 훅이 없는 CLI(codex·gemini 등)도 이 경로로 상태가 보인다는 것이 ⑧과 맞물리는 핵심이다.
+   */
+  app.post('/api/cmd-terminal-state', (req, res) => {
+    try {
+      const body = (req.body ?? {}) as Partial<CmdTerminalSignal>;
+      if (typeof body.termId !== 'string' || !body.termId) {
+        res.status(400).json({ ok: false, error: 'termId required' });
+        return;
+      }
+      if (body.state !== 'working' && body.state !== 'idle' && body.state !== 'blocked') {
+        res.status(400).json({ ok: false, error: 'state must be working|idle|blocked' });
+        return;
+      }
+      const changed = subAgentManager.applyCmdTerminalSignal({
+        termId: body.termId,
+        state: body.state,
+        ...(typeof body.reason === 'string' && body.reason.trim() ? { reason: body.reason.trim() } : {}),
+        ...(typeof body.foregroundProcess === 'string' && body.foregroundProcess.trim()
+          ? { foregroundProcess: body.foregroundProcess.trim() }
+          : {}),
+      });
+      if (changed) {
+        broadcastSnapshot();
+        // §4 (④) — blocked 로 **전이한 순간에만** 알린다(상태 에지 = 스팸 방지). 실제 알림은
+        //   Electron 을 아는 desktop main 이 주입한 notifier 가 띄운다(§3.4 의존성 방향).
+        const notifyEnabled = userDefaultsService.get().notifications?.cmdBlocked !== false;
+        if (body.state === 'blocked' && notifyEnabled && cmdBlockedNotifier) {
+          const sub = subAgentManager.findSubByTermId(body.termId);
+          if (sub) {
+            cmdBlockedNotifier({
+              termId: body.termId,
+              agentId: sub.parentAgentId,
+              subAgentId: sub.id,
+              label: sub.label,
+              ...(sub.blockedReason ? { reason: sub.blockedReason } : {}),
+            });
+          }
+        }
+      }
+      res.json({ ok: true, changed });
+    } catch (err) {
+      logger.error('POST /api/cmd-terminal-state failed', err);
+      res.status(500).json({ ok: false, error: 'internal error' });
+    }
+  });
+
+  /**
+   * §4 (CMD 터미널 업그레이드 ⑤) — PUT /api/cmd-pane-tree
+   * 세션 탭의 pane 분할 트리를 저장한다. 그 탭의 표시 상태라 체크포인트에 그대로 실린다.
+   * 신뢰할 수 없는 입력이므로 `sanitizeCmdPaneTree` 로 걸러 넣는다(개수·비율·중복 id 상한).
+   */
+  app.put('/api/cmd-pane-tree', (req, res) => {
+    try {
+      const body = (req.body ?? {}) as { subAgentId?: unknown; tree?: unknown };
+      if (typeof body.subAgentId !== 'string' || !body.subAgentId) {
+        res.status(400).json({ ok: false, error: 'subAgentId required' });
+        return;
+      }
+      const tree = body.tree == null ? null : sanitizeCmdPaneTree(body.tree);
+      const changed = subAgentManager.setCmdPaneTree(body.subAgentId, tree);
+      if (changed) {
+        broadcastSnapshot();
+        saveCheckpoint();
+      }
+      res.json({ ok: true, changed, tree });
+    } catch (err) {
+      logger.error('PUT /api/cmd-pane-tree failed', err);
+      res.status(500).json({ ok: false, error: 'internal error' });
+    }
+  });
+
+  /**
+   * §4 (CMD 터미널 업그레이드 ⑥) — POST /api/cmd/send
+   *
+   * 에이전트가 CMD 터미널에 **prefill** 한다. herdr 의 `pane send-text` 자리지만
+   * **개행·Enter 는 절대 넣지 않는다**(`sendCmdTerminal` 이 개행을 걷어 낸다) — 사람이 Enter 를
+   * 치는 것이 §4 v2.63 이 세운 Anthropic ToS 합법선이고, herdr 의 `agent prompt --wait` 를
+   * 의도적으로 따라가지 않는 지점이다.
+   */
+  app.post('/api/cmd/send', (req, res) => {
+    try {
+      const body = (req.body ?? {}) as { termId?: unknown; text?: unknown };
+      if (typeof body.termId !== 'string' || !isCmdTermId(body.termId)) {
+        res.status(400).json({ ok: false, error: 'valid termId required' });
+        return;
+      }
+      if (typeof body.text !== 'string' || !body.text) {
+        res.status(400).json({ ok: false, error: 'text required' });
+        return;
+      }
+      const out = sendCmdTerminal(body.termId, body.text);
+      if (!out.ok) {
+        res.status(404).json({ ok: false, error: out.error });
+        return;
+      }
+      res.json({ ok: true, note: 'prefilled (no newline sent — the human presses Enter)' });
+    } catch (err) {
+      logger.error('POST /api/cmd/send failed', err);
+      res.status(500).json({ ok: false, error: 'internal error' });
+    }
+  });
+
+  /** §4 (⑥) — GET /api/cmd/read?termId=…&lines=N — 그 터미널 최근 출력(ANSI 제거 평문). */
+  app.get('/api/cmd/read', (req, res) => {
+    try {
+      const termId = typeof req.query['termId'] === 'string' ? req.query['termId'] : '';
+      if (!isCmdTermId(termId)) {
+        res.status(400).json({ ok: false, error: 'valid termId required' });
+        return;
+      }
+      const lines = Number(req.query['lines'] ?? 200);
+      const text = readCmdTerminal(termId, Number.isFinite(lines) ? lines : 200);
+      if (text == null) {
+        res.status(404).json({ ok: false, error: `no such terminal: ${termId}` });
+        return;
+      }
+      res.json({ ok: true, termId, text });
+    } catch (err) {
+      logger.error('GET /api/cmd/read failed', err);
+      res.status(500).json({ ok: false, error: 'internal error' });
+    }
+  });
+
+  /** §4 (⑥) — POST /api/cmd/wait — 출력에 문자열/정규식이 뜰 때까지 대기(상한 `CMD_WAIT_MAX_MS`). */
+  app.post('/api/cmd/wait', (req, res) => {
+    void (async () => {
+      try {
+        const body = (req.body ?? {}) as { termId?: unknown; match?: unknown; regex?: unknown; timeoutMs?: unknown };
+        if (typeof body.termId !== 'string' || !isCmdTermId(body.termId)) {
+          res.status(400).json({ ok: false, error: 'valid termId required' });
+          return;
+        }
+        const out = await waitCmdTerminal(body.termId, {
+          ...(typeof body.match === 'string' ? { match: body.match } : {}),
+          ...(typeof body.regex === 'string' ? { regex: body.regex } : {}),
+          ...(typeof body.timeoutMs === 'number' ? { timeoutMs: body.timeoutMs } : {}),
+        });
+        if (!out.ok) {
+          res.status(400).json({ ok: false, error: out.error });
+          return;
+        }
+        res.json(out);
+      } catch (err) {
+        logger.error('POST /api/cmd/wait failed', err);
+        res.status(500).json({ ok: false, error: 'internal error' });
+      }
+    })();
   });
 
   /**
@@ -7776,6 +8005,282 @@ export async function runServer(): Promise<RunServerHandle> {
       }
     },
   );
+
+  /**
+   * GET /api/workspace-media — §5.13 (R) 영상·음악·3D·PDF 파일의 **바이트**(구간 요청 지원).
+   *
+   * 이미지 창구(`/api/workspace-image`)와 갈라 둔 이유는 크기와 재생 방식이다 — 이미지는 통째로
+   * 읽어 한 번에 보내면 되지만, 영상·음악은 몇백 MB 가 예사이고 `<video>`·`<audio>` 는 **Range**
+   * 요청으로 필요한 구간만 집어 간다(그래야 되감기·구간 반복이 즉시 반응한다). 통째로 보내면
+   * 서버 메모리에 파일 전체가 올라오고 첫 프레임까지 몇 초가 걸린다.
+   *
+   * 가드는 탐색기·편집창과 같은 `isWithinOpenableRoots` + `resolveWorkspacePath` 하나 그대로다.
+   */
+  app.get('/api/workspace-media', (req, res) => {
+    try {
+      const root = req.query['root'];
+      const relPath = req.query['path'];
+      if (typeof root !== 'string' || root.length === 0 || typeof relPath !== 'string' || relPath.length === 0) {
+        res.status(400).json({ error: 'root and path query required' });
+        return;
+      }
+
+      const resolvedRoot = path.resolve(root);
+      if (!isWithinOpenableRoots(resolvedRoot)) {
+        logger.warn(`workspace-media blocked (outside project root): "${root}"`);
+        res.status(403).json({ error: 'Path outside project root' });
+        return;
+      }
+
+      const resolved = resolveWorkspacePath(resolvedRoot, relPath);
+      if (!resolved) {
+        res.status(403).json({ error: 'Path outside project root' });
+        return;
+      }
+
+      let size: number;
+      try {
+        const st = fs.statSync(resolved.abs);
+        if (!st.isFile()) {
+          res.status(404).json({ error: 'Media not found' });
+          return;
+        }
+        size = st.size;
+      } catch {
+        res.status(404).json({ error: 'Media not found' });
+        return;
+      }
+
+      const mime = workspaceMediaMime(resolved.rel);
+      res.setHeader('Content-Type', mime);
+      res.setHeader('Accept-Ranges', 'bytes');
+      // 편집 결과를 덮어써도 같은 URL 이라, 캐시가 남으면 방금 저장한 소리가 안 들린다(이미지와 같은 판단).
+      res.setHeader('Cache-Control', 'no-store');
+
+      const range = req.headers.range;
+      const match = typeof range === 'string' ? /^bytes=(\d*)-(\d*)$/.exec(range.trim()) : null;
+      if (!match) {
+        res.setHeader('Content-Length', String(size));
+        fs.createReadStream(resolved.abs).on('error', () => res.end()).pipe(res);
+        return;
+      }
+
+      // `bytes=-N`(끝에서 N바이트)도 규격이라 함께 받는다.
+      const startRaw = match[1] ?? '';
+      const endRaw = match[2] ?? '';
+      let start = startRaw === '' ? size - Number(endRaw || 0) : Number(startRaw);
+      let end = startRaw === '' || endRaw === '' ? size - 1 : Number(endRaw);
+      if (!Number.isFinite(start) || !Number.isFinite(end)) {
+        res.status(416).setHeader('Content-Range', `bytes */${size}`);
+        res.end();
+        return;
+      }
+      start = Math.max(0, Math.min(start, size === 0 ? 0 : size - 1));
+      end = Math.max(start, Math.min(end, size === 0 ? 0 : size - 1));
+
+      res.status(206);
+      res.setHeader('Content-Range', `bytes ${start}-${end}/${size}`);
+      res.setHeader('Content-Length', String(end - start + 1));
+      fs.createReadStream(resolved.abs, { start, end }).on('error', () => res.end()).pipe(res);
+    } catch (err) {
+      logger.error('GET /api/workspace-media failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * PUT /api/workspace-media — §5.13 (R-4) 음악 편집기가 만든 **새 파일**을 프로젝트 안에 쓴다.
+   *
+   * 본문은 바이트 그대로(이미지 저장과 같은 이유 — base64 는 33% 를 부풀리고 `express.json()`
+   * 상한에 바로 걸린다). **덮어쓰기를 허용하지 않는다** — 편집 결과는 항상 새 이름으로 남고
+   * 원본은 그대로 있어야 한다(사람의 창작물을 잃지 않는다는 §5.13 (I) 와 같은 판단).
+   */
+  app.put(
+    '/api/workspace-media',
+    express.raw({ type: () => true, limit: WORKSPACE_MEDIA_MAX_BYTES }),
+    (req, res) => {
+      try {
+        const root = req.query['root'];
+        const relPath = req.query['path'];
+        if (typeof root !== 'string' || root.length === 0 || typeof relPath !== 'string' || relPath.length === 0) {
+          res.status(400).json({ error: 'root and path query required' });
+          return;
+        }
+        const bytes = req.body;
+        if (!Buffer.isBuffer(bytes) || bytes.length === 0) {
+          res.status(400).json({ error: 'media body required' });
+          return;
+        }
+
+        const resolvedRoot = path.resolve(root);
+        if (!isWithinOpenableRoots(resolvedRoot)) {
+          logger.warn(`workspace-media write blocked (outside project root): "${root}"`);
+          res.status(403).json({ error: 'Path outside project root' });
+          return;
+        }
+        const resolved = resolveWorkspacePath(resolvedRoot, relPath);
+        if (!resolved || resolved.rel === '') {
+          res.status(403).json({ error: 'Path outside project root' });
+          return;
+        }
+        if (fs.existsSync(resolved.abs)) {
+          // 이름이 겹치면 화면이 다른 이름을 고르게 한다 — 조용히 덮어쓰지 않는다.
+          res.status(409).json({ error: 'exists' });
+          return;
+        }
+
+        fs.mkdirSync(path.dirname(resolved.abs), { recursive: true });
+        fs.writeFileSync(resolved.abs, bytes);
+        res.json({ ok: true, path: resolved.rel, size: bytes.length });
+      } catch (err) {
+        logger.error('PUT /api/workspace-media failed', err);
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    },
+  );
+
+  /**
+   * POST /api/open-external — §5.13 (R-6) 그 파일을 **OS 연결 프로그램**으로 연다.
+   *
+   * `/api/open-node-file`(외부 **에디터**로 열기)과 병행이다. 그쪽은 코드를 고치러 가는 길이라
+   * VS Code 를 찾고 없으면 메모장으로 떨어지는데, zip·폰트·xlsx 를 그리로 보내면 이진 바이트가
+   * 메모장에 쏟아진다. 가드는 열기 라우트 둘과 같은 것(`isWithinOpenableRoots` 또는 화면에 있는
+   * 버블 경로)을 그대로 쓴다 — 페어링된 모바일 기기도 이 라우트에 닿기 때문이다.
+   */
+  app.post('/api/open-external', (req, res) => {
+    try {
+      const { absolutePath } = req.body as { absolutePath?: string };
+      if (typeof absolutePath !== 'string' || absolutePath.length === 0) {
+        res.status(400).json({ error: 'absolutePath required' });
+        return;
+      }
+      const resolved = path.resolve(absolutePath);
+      if (!isWithinOpenableRoots(resolved) && !graphManager.hasNodeAbsolutePath(resolved)) {
+        logger.warn(`open-external blocked (not a project root / known bubble path): "${absolutePath}"`);
+        res.status(403).json({ error: 'Path outside project root' });
+        return;
+      }
+      if (!fs.existsSync(resolved)) {
+        res.status(404).json({ error: 'File not found' });
+        return;
+      }
+
+      openWithDefaultApp(resolved);
+      res.json({ ok: true });
+    } catch (err) {
+      logger.error('POST /api/open-external failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * GET /api/media-tools — §5.13 (R-8) (e) 이 PC 에 **변환기(ffmpeg)** 가 있는가.
+   *
+   * "코덱이 깔렸는가"가 아니다 — Chromium 은 시스템 코덱을 쓰지 않으므로 코덱팩은 무효이고,
+   * 우리가 찾는 것은 포장을 바꿔 줄 도구다. `?force=1` 이면 캐시를 무시하고 다시 훑는다(설치 직후).
+   */
+  app.get('/api/media-tools', (req, res) => {
+    try {
+      res.json(detectMediaTools(req.query['force'] === '1'));
+    } catch (err) {
+      logger.error('GET /api/media-tools failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * POST /api/media-tools/install — 변환기를 설치한다(**사용자가 눌렀을 때만**).
+   *
+   * 우리가 바이너리를 나르지 않고 그 OS 의 표준 창구(winget·brew)에 맡긴다 — 라이선스·용량 때문이며
+   * 그 판단은 §5.13 (R-8) (e) 에 적혀 있다. 끝나면 다시 훑은 결과를 함께 돌려준다.
+   */
+  app.post('/api/media-tools/install', (_req, res) => {
+    void installMediaTools()
+      .then((result) => res.json(result))
+      .catch((err: unknown) => {
+        logger.error('POST /api/media-tools/install failed', err);
+        res.status(500).json({ ok: false, error: 'Internal server error' });
+      });
+  });
+
+  /**
+   * GET /api/media-convert/cached — 이 파일의 변환 결과가 **이미 있는가**.
+   *
+   * 화면이 팝업을 띄울지 그냥 열지 가르는 자리다. 변환을 시작하지 않는 순수 조회라,
+   * 두 번째부터는 사용자가 아무것도 누르지 않아도 바로 열린다.
+   * (라우트 순서 주의 — `/:jobId` 보다 **먼저** 서야 `cached` 가 작업 id 로 읽히지 않는다.)
+   */
+  app.get('/api/media-convert/cached', (req, res) => {
+    try {
+      const root = req.query['root'];
+      const relPath = req.query['path'];
+      const kind = req.query['kind'];
+      if (typeof root !== 'string' || typeof relPath !== 'string' || (kind !== 'video' && kind !== 'audio')) {
+        res.status(400).json({ error: 'root, path, kind required' });
+        return;
+      }
+      const resolvedRoot = path.resolve(root);
+      if (!isWithinOpenableRoots(resolvedRoot)) {
+        res.status(403).json({ error: 'Path outside project root' });
+        return;
+      }
+      res.json({ outRel: mediaConvertService.cachedOutput(resolvedRoot, relPath, kind) });
+    } catch (err) {
+      logger.error('GET /api/media-convert/cached failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * POST /api/media-convert — 변환을 시작한다(또는 이미 있는 결과·작업을 돌려준다).
+   *
+   * 같은 파일을 두 번 갈지 않고, 캐시가 있으면 곧바로 `done` 으로 답한다 — 호출부는 셋을 구분할
+   * 필요 없이 `status` 만 보면 된다.
+   */
+  app.post('/api/media-convert', (req, res) => {
+    try {
+      const { root, path: relPath, kind } = req.body as { root?: string; path?: string; kind?: string };
+      if (typeof root !== 'string' || typeof relPath !== 'string' || (kind !== 'video' && kind !== 'audio')) {
+        res.status(400).json({ error: 'root, path, kind required' });
+        return;
+      }
+      const resolvedRoot = path.resolve(root);
+      if (!isWithinOpenableRoots(resolvedRoot)) {
+        logger.warn(`media-convert blocked (outside project root): "${root}"`);
+        res.status(403).json({ error: 'Path outside project root' });
+        return;
+      }
+
+      const result = mediaConvertService.start(resolvedRoot, relPath, kind);
+      if ('error' in result) {
+        // 없는 파일(404)과 변환기 없음(409)은 화면이 서로 다르게 답해야 한다 —
+        // 앞은 잘못된 경로, 뒤는 [변환기 설치] 를 낼 자리다.
+        res.status(result.error === 'not-found' ? 404 : 409).json({ error: result.error });
+        return;
+      }
+      res.json({ job: result });
+    } catch (err) {
+      logger.error('POST /api/media-convert failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /** GET /api/media-convert/:jobId — 진행 상황(화면이 폴링한다. 상태는 휘발성이라 서버가 죽으면 사라진다). */
+  app.get('/api/media-convert/:jobId', (req, res) => {
+    try {
+      const job = mediaConvertService.getJob(req.params.jobId);
+      if (!job) {
+        res.status(404).json({ error: 'unknown job' });
+        return;
+      }
+      res.json({ job });
+    } catch (err) {
+      logger.error('GET /api/media-convert/:jobId failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+
 
   /**
    * GET /api/run-configs — §5.5 #17-20 ② v4.74 디버그·실행 런처: 이 프로젝트의 실행 구성.
@@ -11636,6 +12141,166 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   // subAgent 영속화 경로 해석 — 부모 에이전트 소속 프로젝트를 찾아 save/<project>/(worktrees/<wt>/)sub-streams/<agentId>/ 로 라우팅
+  /**
+   * §5.19 (H) — All Model 세션의 **호스트 도구** 처리기.
+   *
+   * 클로드 세션은 이 세 가지를 CLI 내장 도구로 하고, 그 결과가 훅을 타고 우리에게 온다.
+   * 로컬에는 CLI 도 훅도 없으므로 **우리가 도구를 주고 우리가 받는다** — 새 엔드포인트를 세우지
+   * 않고 이미 REST 로 서 있는 것들(목표 · 질문 카드 · 권한 브로커)을 그대로 부른다.
+   *
+   * 실패는 던지지 않는다. 무엇이 안 됐는지를 **말로** 돌려주면 모델이 다른 수를 고른다.
+   */
+  /**
+   * §5.19 (H) — All Model(로컬) 세션의 도구 호출을 **훅 경로에 이어 준다.**
+   *
+   * 그전까지 로컬 세션은 파일을 읽고 고치고 명령을 돌려도 캔버스에 **자국을 하나도 안 남겼다** —
+   * 파일 노드도, 감사 원장도, Bash 이력도, 띄운 서버의 프리뷰 버블도 클로드 세션에만 있었다.
+   * 같은 일을 하는데 한쪽만 안 보이는 것은 "에이전트가 생각하는 것을 보여 준다"는 이 앱의 약속을
+   * 로컬에서만 깨는 일이다.
+   *
+   * **HTTP 라우트를 거치지 않는다.** 같은 프로세스 안이라 그래프를 직접 부르면 되고, 그 대신
+   * 라우트가 하던 귀속(`_vibisualOwnerAgentId` → 소유 버블 세션)을 여기서 그대로 한다 — CMD
+   * 터미널이 오늘 다니는 길과 같은 길이다.
+   *
+   * **도구 이벤트만 보낸다.** 생명주기(`markActive`/`markStop`)와 `Stop` 은 보내지 않는다 —
+   * 로컬 턴은 자기 상태를 스스로 관리하므로 주인이 둘이 되면 서로를 덮어쓰고, `Stop` 은 두뇌
+   * 리플렉션(`claude -p` 자식)을 깨워 **공짜로 쓰려던 세션이 클로드 토큰을 쓰게** 만든다.
+   */
+  subAgentManager.setLocalHookEmitter((ctx, event) => {
+    // 버블이 캔버스에서 사라졌으면 붙일 곳이 없다(조용히 흘려보낸다 — 표시용 경로다).
+    const session = graphManager.findSessionByAgentId(ctx.agentId);
+    if (!session) return;
+    // 변환은 `localHookPayload` 한 곳에만 있다 — 그 모양이 그래프가 기대하는 모양과 한 칸이라도
+    //   어긋나면 **아무 오류 없이 조용히 아무 일도 안 일어나므로**(2026-08-24: 원장엔 남고 파일
+    //   노드는 0개였다), 시험도 같은 함수를 쓰게 해 사본이 어긋날 자리를 없앤다.
+    const payload: HookEventPayload = toLocalHookPayload(session, event);
+
+    const result = graphManager.processHookEvent(payload);
+    if (event.phase === 'post' && typeof payload.duration_ms === 'number') {
+      graphManager.recordToolDuration(session, event.toolName, payload.duration_ms);
+    }
+
+    // Bash 뒤에는 파일이 사라졌을 수 있다(삭제·이름 변경). 라우트와 **같은 스로틀**을 나눠 써서
+    //   두 경로가 함께 폭주해도 스윕이 겹치지 않게 한다.
+    let changed = result !== null;
+    if (
+      event.phase === 'post' && event.toolName === 'Bash'
+      && Date.now() - lastExistenceSweepAt >= EXISTENCE_SWEEP_MIN_INTERVAL_MS
+    ) {
+      lastExistenceSweepAt = Date.now();
+      const ghosted = graphManager.checkFileExistence();
+      const pruned = graphManager.pruneDisappearing();
+      if (ghosted > 0 || pruned > 0) changed = true;
+    }
+    if (changed) broadcastSnapshot();
+    // 훅 경로와 같은 규율 — 도구 빈도로 도착하는 길이라 즉시 저장이 아니라 코얼레스 저장이다.
+    scheduleCheckpoint();
+  });
+
+  subAgentManager.setLocalHostToolHandler(async (ctx, toolName, input) => {
+    if (toolName === 'TodoWrite') {
+      const raw = Array.isArray(input['todos']) ? (input['todos'] as unknown[]) : [];
+      const steps = parseGoalSteps(raw.map((t) => {
+        const o = (t ?? {}) as { content?: unknown; text?: unknown; status?: unknown };
+        // 도구 스키마는 `content`, 목표창은 `text` — 이름만 맞춰 주고 값은 그대로 넘긴다.
+        return { text: typeof o.content === 'string' ? o.content : o.text, status: normalizeTodoStatus(o.status) };
+      }));
+      if (steps.length === 0) return 'TodoWrite needs a non-empty "todos" array';
+      const wanted = typeof input['goal'] === 'string' ? input['goal'].trim() : '';
+      const existing = graphManager.getSessionGoal(ctx.subAgentId);
+      if (!existing) {
+        // 목표가 아직 없으면 **이 목록이 곧 목표**다 — 사용자가 따로 세워 줄 때까지 기다리면
+        //   화면은 계속 비어 있고, 그건 이 세션이 무엇을 하는지 말하지 않는 것과 같다.
+        const created = graphManager.setSessionGoal({
+          agentId: ctx.agentId,
+          subAgentId: ctx.subAgentId,
+          text: (wanted || steps[0]?.text || ctx.agentLabel).slice(0, SESSION_GOAL_TEXT_MAX),
+          status: 'active',
+          steps,
+          authoredBy: 'session',
+        });
+        if (!created) return 'could not create the plan (this bubble is no longer on the canvas)';
+      } else {
+        graphManager.noteSessionGoalProgress(ctx.subAgentId, {
+          steps,
+          ...(wanted ? { goal: wanted } : {}),
+          source: 'agent',
+        });
+      }
+      broadcastSnapshot();
+      saveCheckpoint();
+      const done = steps.filter((s) => s.status === 'done').length;
+      return `plan updated: ${String(done)}/${String(steps.length)} steps done. The user can see it and stop you if it is wrong.`;
+    }
+
+    if (toolName === 'AskUserQuestion') {
+      const raw = Array.isArray(input['questions']) ? (input['questions'] as unknown[]) : [];
+      const items: AgentQuestionItem[] = [];
+      for (const q of raw) {
+        const o = (q ?? {}) as { question?: unknown; header?: unknown; options?: unknown };
+        const question = typeof o.question === 'string' ? o.question.trim() : '';
+        if (!question) continue;
+        const prompts = Array.isArray(o.options)
+          ? o.options.filter((x): x is string => typeof x === 'string' && x.trim().length > 0).map((x) => x.trim())
+          : [];
+        items.push({
+          question,
+          ...(typeof o.header === 'string' && o.header.trim() ? { header: o.header.trim() } : {}),
+          prompts,
+        });
+      }
+      if (items.length === 0) return 'AskUserQuestion needs at least one question';
+      const questions: AgentQuestions = {
+        id: randomUUID(),
+        agentId: ctx.agentId,
+        subAgentId: ctx.subAgentId,
+        items,
+        createdAt: Date.now(),
+      };
+      if (!graphManager.addAgentQuestions(questions)) {
+        return 'could not post the question (this bubble is no longer on the canvas)';
+      }
+      broadcast({ type: 'agent_questions', payload: { agentId: ctx.agentId, subAgentId: ctx.subAgentId } } as WSMessage);
+      broadcastSnapshot();
+      saveCheckpoint();
+      // **기다리지 않는다.** 사용자는 다음 메시지로 답하므로, 여기서 붙들면 그 턴이 통째로 멈춘다.
+      return `asked the user ${String(items.length)} question(s). They answer in their next message — finish what you can now and stop; do not guess the answer.`;
+    }
+
+    if (toolName === 'ExitPlanMode') {
+      const plan = typeof input['plan'] === 'string' ? input['plan'].trim() : '';
+      if (!plan) return 'ExitPlanMode needs the "plan" you want approved';
+      const mode = ctx.config.permissionMode || 'default';
+      if (mode !== 'plan') {
+        return `you are not in plan mode (current mode: ${mode}) — just do the work, no approval needed`;
+      }
+      const project = graphManager.getProjectPathForAgent(ctx.agentId) ?? '';
+      const decision = await permissionBroker.request(
+        {
+          agentId: ctx.agentId,
+          subAgentId: ctx.subAgentId,
+          agentLabel: ctx.agentLabel,
+          agentColor: ctx.config.color ?? '#6b7280',
+          projectName: project,
+          toolName: 'ExitPlanMode',
+          toolInput: { plan },
+        },
+        // 사람이 안 보고 있으면 **계획대로 진행하지 않는다** — 승인은 사람이 하는 일이다.
+        'deny',
+      );
+      if (decision.decision !== 'allow') {
+        return `the user did not approve the plan${decision.reason ? `: ${decision.reason}` : ''}. Revise it and ask again.`;
+      }
+      // 승인 = 편집 잠금 해제. 살아 있는 설정 객체라 스냅샷·체크포인트를 그대로 탄다.
+      ctx.config.permissionMode = 'acceptEdits';
+      broadcastSnapshot();
+      saveCheckpoint();
+      return 'the user approved the plan. Editing is unlocked (acceptEdits) — start carrying it out now.';
+    }
+
+    return `${toolName} is not a host tool`;
+  });
+
   subAgentManager.setProjectResolver((parentAgentId) => {
     const name = graphManager.getAgentProjectName(parentAgentId);
     if (!name) return null;

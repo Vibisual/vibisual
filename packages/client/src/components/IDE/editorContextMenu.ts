@@ -35,6 +35,8 @@ export interface BodyMenuHandlers {
   copyPath: () => void;
   copyLineRef: () => void;
   openExternal: () => void;
+  /** §5.5 #17-3 (판올림 번호 발급 대기) — 고른 글자를 기본 브라우저에서 검색. */
+  searchWeb: () => void;
 }
 
 /** 줄 번호 칸 우클릭이 아는 상태. */
@@ -93,6 +95,14 @@ export function buildBodyMenuItems(
       disabled: !state.hasSelection,
       disabledTitle: needSelection,
       onClick: h.copy,
+    },
+    {
+      // §5.5 #17-3 (판올림 번호 발급 대기) — 스트림·입력창·터미널과 **같은 원문**이라 키도 하나다.
+      id: 'searchWeb',
+      label: t('ide.mainArea.ctxSearchWeb'),
+      disabled: !state.hasSelection,
+      disabledTitle: needSelection,
+      onClick: h.searchWeb,
     },
     {
       id: 'paste',
