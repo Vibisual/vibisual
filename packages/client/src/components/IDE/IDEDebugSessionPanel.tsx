@@ -15,6 +15,7 @@ import {
 } from '../../stores/debugSessions.js';
 import type { DebugControlActionWire } from '../../stores/debugSessionTypes.js';
 import { toWorkspaceRelative } from './debugPaths.js';
+import { useIDEPaneActions } from './idePane.js';
 
 /**
  * §5.5 #17-20 ⑩ v4.94 — 붙어 있는 디버그 세션 하나의 조작판.
@@ -116,7 +117,7 @@ export const IDEDebugSessionPanel = memo(function IDEDebugSessionPanel({
   const selectedFrame = useDebugSessions((s) => s.selectedFrame[session.sessionId]);
   const selectFrame = useDebugSessions((s) => s.selectFrame);
   const consoleVersion = useDebugSessions((s) => s.consoleVersion);
-  const openEditorFile = useGraphStore((s) => s.openIDEEditorFile);
+  const { openEditorFile } = useIDEPaneActions();
 
   const [scopes, setScopes] = useState<DebugScope[]>([]);
   const [variablesByScope, setVariablesByScope] = useState<Record<number, DebugVariable[]>>({});

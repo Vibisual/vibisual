@@ -47,7 +47,7 @@ import { CanvasContextMenu } from './CanvasContextMenu.js';
 import { DebugOverlay } from './DebugOverlay.js';
 import { LayoutBoundsBox } from './LayoutBoundsBox.js';
 import { CanvasControls } from './CanvasControls.js';
-import { AgentIDEOverlay } from '../IDE/AgentIDEOverlay.js';
+import { IDEPaneHost } from '../IDE/IDEPaneHost.js';
 import { ContiBoardPanel } from '../Panel/ContiBoardPanel.js';
 import { SpecBoardPanel } from '../Panel/SpecBoardPanel.js';
 import { LabPanel } from '../Panel/LabPanel.js';
@@ -59,7 +59,7 @@ import { TaskEdgePopupPreview } from './TaskEdgePopupPreview.js';
 import { computeAngularOffsets, computeParallelOffsets } from './taskEdgeOffsets.js';
 import { useCanvasClipboard } from '../../hooks/useCanvasClipboard.js';
 import { useBookmarks } from '../../hooks/useBookmarks.js';
-import { useCoarsePointer, useIsNarrowViewport, useLongPress } from '../../hooks/useIsMobile.js';
+import { useCoarsePointer, useIsNarrowViewport, useLongPress, isNarrowViewportNow } from '../../hooks/useIsMobile.js';
 import { useTranslation } from 'react-i18next';
 
 const nodeTypes: NodeTypes = { bubble: BubbleNode, commentBox: CommentBoxNode, captureNode: CaptureNode, appNode: AppBubbleNode, playNode: PlayNode, playPreviewNode: PlayPreviewNode, specNode: SpecNode, labNode: LabNode, shelfNode: ShelfNode };
@@ -1695,7 +1695,12 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
           body: JSON.stringify({ agentId: data.id }),
         }).catch(() => {});
       }
-      useGraphStore.getState().openIDEOverlay(data.id);
+      // §5.5 #17-1 (판올림 번호 발급 대기) — 캔버스에서 여는 것은 **새 창**이다. 이미 창이 떠 있어도
+      //   그 자리를 갈아 끼우지 않고 하나 더 세워, 두 에이전트를 나란히 붙여 볼 수 있게 한다
+      //   (이미 그 에이전트의 창이 있으면 새로 만들지 않고 앞으로 올린다 — 스토어가 판정).
+      //   ⚠ 폰·좁은 화면은 예외다 — 거기서 IDE 는 화면을 가득 채우므로 창이 여럿이면 서로를
+      //   완전히 덮기만 하고 "나란히 본다"가 성립하지 않는다. 그때는 종전대로 자리를 재사용한다.
+      useGraphStore.getState().openIDEOverlay(data.id, { pane: isNarrowViewportNow() ? 'reuse' : 'new' });
       return;
     }
     // iframe 더블클릭 → 탭 열기
@@ -2635,7 +2640,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
           onClose={closeTaskEdgeEdit}
         />
       )}
-      <AgentIDEOverlay />
+      <IDEPaneHost />
       <ContiBoardPanel />
       <SpecBoardPanel />
       <LabPanel />

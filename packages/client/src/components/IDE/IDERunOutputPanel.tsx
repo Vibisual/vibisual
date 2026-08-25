@@ -3,7 +3,8 @@ import { useTranslation } from 'react-i18next';
 
 import { RUN_OUTPUT_BUFFER_LINES, matchProblemLine } from '@vibisual/shared';
 
-import { useGraphStore, selectIDEOverlay } from '../../stores/graphStore.js';
+import { useGraphStore, selectIDEPane } from '../../stores/graphStore.js';
+import { useIDEPaneKey } from './idePane.js';
 import { toWorkspaceRelative } from './debugPaths.js';
 
 import { getRunTail, stopRun, useRunSessions } from '../../stores/runSessions.js';
@@ -70,8 +71,9 @@ export const IDERunOutputPanel = memo(function IDERunOutputPanel({ onClose }: { 
   const [copied, setCopied] = useState(false);
 
   // ⑪ — 오류 줄을 눌렀을 때 열 파일의 기준(프로젝트 루트). 없으면 줄은 색만 얻고 클릭은 없다.
+  const paneKey = useIDEPaneKey();
   const rootPath = useGraphStore((s) => {
-    const name = selectIDEOverlay(s).projectId ?? s.activeProject;
+    const name = selectIDEPane(s, paneKey).projectId ?? s.activeProject;
     if (!name) return null;
     return s.projects[name]?.path ?? s.stubProjects[name]?.project.path ?? null;
   });
@@ -84,9 +86,9 @@ export const IDERunOutputPanel = memo(function IDERunOutputPanel({ onClose }: { 
         relPath,
         absPath: `${rootPath}/${relPath}`,
         name: relPath.split('/').pop() ?? relPath,
-      });
+      }, paneKey);
     },
-    [rootPath, openEditorFile],
+    [rootPath, openEditorFile, paneKey],
   );
 
   const lines = useMemo(

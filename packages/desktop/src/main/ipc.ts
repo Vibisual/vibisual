@@ -61,6 +61,7 @@ import {
 } from './mobileAccess';
 import {
   createTerminal,
+  getTerminalInfo,
   writeTerminal,
   resizeTerminal,
   killTerminal,
@@ -428,6 +429,11 @@ export function setupIpc(expressApp: Express): IpcHub {
   ipcMain.handle('vibisual:term:kill', (_event, termId: string): void => {
     if (typeof termId === 'string') killTerminal(termId);
   });
+  // §4 (CMD 터미널 업그레이드 ②) — 전경 프로세스명·크기 표본. 클라가 상태 신호에 얹어 올린다
+  //   (서버가 직접 PTY 를 표본하지 않는 이유: 상태 쓰기 경로를 하나로 유지 — §3.1).
+  ipcMain.handle('vibisual:term:info', (_event, termId: string): { process?: string; cols: number; rows: number } | null => {
+    return typeof termId === 'string' ? getTerminalInfo(termId) : null;
+  });
 
   // ─── §5.9 화면/프로그램 캡처 버블 채널 ──────────────────────────────────────
   // desktopCapturer.getSources 는 main 전용 — 렌더러는 이 목록에서 고른 소스 id 로
@@ -529,6 +535,7 @@ export function setupIpc(expressApp: Express): IpcHub {
       ipcMain.removeHandler('vibisual:term:write');
       ipcMain.removeHandler('vibisual:term:resize');
       ipcMain.removeHandler('vibisual:term:kill');
+      ipcMain.removeHandler('vibisual:term:info');
       ipcMain.removeHandler('vibisual:capture:list-sources');
       ipcMain.removeHandler('vibisual:capture:input');
       ipcMain.removeHandler('vibisual:capture:target-rect');

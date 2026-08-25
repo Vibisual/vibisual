@@ -35,9 +35,11 @@ import { PlanBlock } from './PlanBlock.js';
 import { parseEditToolInput, editSizeLines } from './diffTool.js';
 import { editorFileFromAbsPath } from './editorModel.js';
 import { useIDEProjectRoot } from './useIDEProjectRoot.js';
+import { useIDEPaneActions, useIDEPaneKey } from './idePane.js';
 import { parseStreamPathCandidate } from './streamPathLinks.js';
 import { useWorkspacePathKind } from './useWorkspacePathKind.js';
-import { openFolderByPath } from './useWorkspaceExplorer.js';
+import { openWorkspaceTarget, planWorkspaceOpen } from './openWorkspaceTarget.js';
+import { getInternalApp } from '../../apps/registry.js';
 import { toolPreview } from './toolPreview.js';
 import {
   mergeCardsIntoItems, IncrementalStreamParser,
@@ -226,7 +228,8 @@ const MarkdownCode = memo(function MarkdownCode({ children, ...rest }: React.HTM
   const { t } = useTranslation();
   const inBlock = useContext(InCodeBlock);
   const rootPath = useIDEProjectRoot();
-  const openInEditor = useGraphStore((s) => s.openIDEEditorFile);
+  // §5.5 #17-1 — 본문에서 누른 경로는 **이 창의** 편집창·실행으로 가야 한다(옆 창 ❌).
+  const paneKey = useIDEPaneKey();
 
   const raw = inlineCodeText(children);
   const candidate = useMemo(
@@ -236,36 +239,88 @@ const MarkdownCode = memo(function MarkdownCode({ children, ...rest }: React.HTM
   const resolved = useWorkspacePathKind(rootPath, candidate?.relPath ?? null);
 
   const linked = resolved !== null && resolved.kind !== 'missing' ? resolved : null;
+
+  /**
+   * ⑬ (i) — 어디로 갈지는 **한 곳**(§5.13 (R-1))이 정한다. 화면은 그 답을 받아 아이콘·툴팁만 고르므로,
+   * 앱이 늘어 새 확장자를 받아도 이 컴포넌트는 그대로다.
+   */
+  const plan = useMemo(
+    () =>
+      linked && candidate
+        ? planWorkspaceOpen({
+            relPath: candidate.relPath,
+            kind: linked.kind === 'directory' ? 'directory' : 'file',
+            ...(linked.executable ? { executable: true } : {}),
+          })
+        : null,
+    [linked, candidate],
+  );
+
   const onOpen = useCallback((e: React.MouseEvent): void => {
-    if (!linked) return;
+    if (!linked || !candidate || rootPath === null) return;
     e.preventDefault();
     e.stopPropagation();
-    if (linked.kind === 'file') openInEditor(editorFileFromAbsPath(linked.absPath, rootPath));
-    else openFolderByPath(linked.absPath, candidate?.relPath ?? linked.absPath);
-  }, [linked, rootPath, openInEditor, candidate]);
+    void openWorkspaceTarget(
+      {
+        relPath: candidate.relPath,
+        absPath: linked.absPath,
+        kind: linked.kind === 'directory' ? 'directory' : 'file',
+        ...(linked.executable ? { executable: true } : {}),
+      },
+      rootPath,
+      t('ide.streamRenderer.pathLink.runFailed'),
+      paneKey,
+    );
+  }, [linked, candidate, rootPath, t, paneKey]);
 
-  if (!linked) return <code {...rest}>{children}</code>;
+  if (!linked || !plan) return <code {...rest}>{children}</code>;
 
-  const isFile = linked.kind === 'file';
-  const title = t(isFile ? 'ide.streamRenderer.pathLink.openFile' : 'ide.streamRenderer.pathLink.openFolder', {
-    path: linked.absPath,
-  });
+  // 툴팁은 (f) 의 규약 그대로 "전체 경로 + 벌어질 일" — 여는 곳이 갈리면 말도 갈려야 누르기 전에 안다.
+  const app = plan.action === 'app' && plan.appId !== undefined ? getInternalApp(plan.appId) : undefined;
+  const title =
+    plan.action === 'run'
+      ? t('ide.streamRenderer.pathLink.runProgram', { path: linked.absPath })
+      : plan.action === 'app'
+        ? t('ide.streamRenderer.pathLink.openApp', { app: app?.name ?? plan.appId, path: linked.absPath })
+        : plan.action === 'external'
+          ? t('ide.streamRenderer.pathLink.openExternal', { path: linked.absPath })
+          : plan.action === 'folder'
+            ? t('ide.streamRenderer.pathLink.openFolder', { path: linked.absPath })
+            : t('ide.streamRenderer.pathLink.openFile', { path: linked.absPath });
 
   return (
     // 칩(배경·모노폰트)은 `<code>` 가 그대로 유지하고, 그 안의 버튼만 링크 색·밑줄을 얻는다 —
     // "코드처럼 보이던 그 조각이 이제 눌린다" 가 한눈에 읽히게(⑬ (f)).
     <code {...rest}>
       <button type="button" onClick={onOpen} title={title} aria-label={title} className="ide-path-link">
-        {isFile ? (
-          // file — 모서리 접힌 문서
+        {plan.action === 'run' ? (
+          // run — 재생 삼각형(누르면 열리는 것이 아니라 **돈다**는 뜻)
           <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
-            <path d="M14 3v5h5" />
+            <path d="M6 4l14 8-14 8z" />
           </svg>
-        ) : (
+        ) : plan.action === 'app' && app ? (
+          // 내부 앱 — **그 앱의 아이콘**을 그대로 쓴다(코어가 앱마다 그림을 들지 않는다, §5.13 (P)).
+          //   앱 아이콘은 목록용 치수(h-4)라 인라인 글자 옆에서는 크다 — 이 자리에서만 줄인다.
+          <span className="inline-flex [&>svg]:h-3 [&>svg]:w-3" aria-hidden="true">
+            <app.icon />
+          </span>
+        ) : plan.action === 'external' ? (
+          // external — 상자 밖으로 나가는 화살표(우리 창이 아니라 바깥에서 열린다)
+          <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M15 3h6v6" />
+            <path d="M10 14 21 3" />
+            <path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5" />
+          </svg>
+        ) : plan.action === 'folder' ? (
           // folder
           <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+          </svg>
+        ) : (
+          // file — 모서리 접힌 문서(편집창·그림·PDF 는 전부 우리 창에서 열린다)
+          <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+            <path d="M14 3v5h5" />
           </svg>
         )}
         {children}
@@ -350,7 +405,7 @@ const ToolBlock = memo(function ToolBlock({ item, density, review }: {
   const { t } = useTranslation();
   // §5.5 #17-27 — 헤더에 적힌 파일명이 곧 여는 손잡이다(앱 안 편집창 — 밖 편집기는 diff 우측 연필 그대로).
   const rootPath = useIDEProjectRoot();
-  const openInEditor = useGraphStore((s) => s.openIDEEditorFile);
+  const { openEditorFile: openInEditor } = useIDEPaneActions();
   // Edit 계열이면 "이전 vs 이후" diff 로 렌더.
   const parsedEdit = useMemo(() => parseEditToolInput(item.toolName, item.input), [item.toolName, item.input]);
   // §5.5 #17-12 — 종전엔 Edit 이면 무조건 기본 펼침이라 긴 diff 가 화면을 통째로 먹었다. 이제 **짧은 편집만**

@@ -456,7 +456,7 @@ export function ImageLightboxView({
                 ? t('ide.imageAnnotate.saveFileHint', { path: state.workspace.path })
                 : t('ide.imageAnnotate.saveFileUnsupported')
             }
-            className="ml-1 flex h-7 items-center gap-1.5 rounded bg-emerald-600 px-2.5 text-[11px] font-semibold text-white transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-gray-700 disabled:text-gray-500"
+            className="ml-1 flex h-7 items-center gap-1.5 rounded bg-emerald-600 px-2.5 text-[12px] font-semibold text-white transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-gray-700 disabled:text-gray-500"
           >
             {saving ? (
               <span className="h-3 w-3 animate-spin rounded-full border-[1.5px] border-white border-t-transparent" />
@@ -497,7 +497,7 @@ export function ImageLightboxView({
             <button
               type="button"
               onClick={() => { setFileConflict(false); void handleSaveToFile(true); }}
-              className="ml-2 flex-shrink-0 rounded border border-red-400/50 px-1.5 py-0.5 text-[11px] transition-colors hover:bg-red-500/20"
+              className="ml-2 flex-shrink-0 rounded border border-red-400/50 px-1.5 py-0.5 text-[12px] transition-colors hover:bg-red-500/20"
             >
               {t('ide.imageAnnotate.fileConflictOverwrite')}
             </button>

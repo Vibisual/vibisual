@@ -1,7 +1,8 @@
 import { memo, useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { SubAgent } from '@vibisual/shared';
-import { useGraphStore, selectIDEOverlay } from '../../stores/graphStore.js';
+import { useGraphStore, selectIDEPane } from '../../stores/graphStore.js';
+import { useIDEPaneKey } from './idePane.js';
 import type { SessionSummaryEntry } from '../../stores/graphStore.js';
 import { ThumbsUpIcon, ThumbsDownIcon } from './FeedbackButtons.js';
 import { ScrollFade } from '../ScrollFade.js';
@@ -87,6 +88,8 @@ export const IDESessionSummaryView = memo(function IDESessionSummaryView({
   agentId: string;
 }): React.JSX.Element {
   const { t } = useTranslation();
+  // 세션 닫기는 **이 창의** 활성 탭을 재배정해야 한다 — 옆 창의 탭을 건드리면 안 된다.
+  const paneKey = useIDEPaneKey();
 
   const rawSubAgents = useGraphStore((s) => s.subAgents[agentId] ?? EMPTY_SUBS);
   const pendingRemovals = useGraphStore((s) => s.pendingSubAgentRemovals);
@@ -190,14 +193,14 @@ export const IDESessionSummaryView = memo(function IDESessionSummaryView({
     store.optimisticRemoveSubAgent(agentId, sub.id);
     store.setTabPin(`subagent:${sub.id}`, false);
     if (store.defaultSubAgents[agentId] === sub.id) store.setDefaultSubAgent(agentId, null);
-    if (selectIDEOverlay(store).activeSessionId === sub.id) {
+    if (selectIDEPane(store, paneKey).activeSessionId === sub.id) {
       const remaining = (store.subAgents[agentId] ?? []).filter(
         (s) => s.id !== sub.id && store.pendingSubAgentRemovals[s.id] !== agentId,
       );
-      store.setIDEActiveSession(remaining[0]?.id ?? null);
+      store.setIDEActiveSession(remaining[0]?.id ?? null, paneKey);
     }
     fetch(`/api/subagents/${agentId}/${sub.id}`, { method: 'DELETE' }).catch(() => { /* snapshot 권위 */ });
-  }, [agentId]);
+  }, [agentId, paneKey]);
 
   // 요약을 보드에 남기고 세션 닫기.
   const retainAndClose = useCallback((sub: SubAgent) => {

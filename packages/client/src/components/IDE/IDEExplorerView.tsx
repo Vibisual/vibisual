@@ -7,6 +7,8 @@ import { flattenExplorerRows } from './explorerModel.js';
 import { editorFileFromAbsPath, editorFileFromRelPath } from './editorModel.js';
 import { useWorkspaceExplorer, openWorkspaceFile } from './useWorkspaceExplorer.js';
 import { useIDEProjectRoot } from './useIDEProjectRoot.js';
+import { useIDEPaneActions, useIDEPaneKey } from './idePane.js';
+import { openWorkspaceTarget } from './openWorkspaceTarget.js';
 import { IDEExplorerTree } from './IDEExplorerTree.js';
 import { IDEExplorerEdited } from './IDEExplorerEdited.js';
 
@@ -22,7 +24,9 @@ export const IDEExplorerView = memo(function IDEExplorerView({ agentId }: { agen
   const { t } = useTranslation();
   // §5.5 #17-27 — 트리 루트 판정은 편집창과 같은 훅 하나를 쓴다(둘이 갈라지면 같은 상대 경로가 다른 파일이 된다).
   const rootPath = useIDEProjectRoot();
-  const openInEditor = useGraphStore((s) => s.openIDEEditorFile);
+  // §5.5 #17-1 — 탐색기에서 연 파일은 **이 창의** 편집창에 뜬다.
+  const paneKey = useIDEPaneKey();
+  const { openEditorFile: openInEditor } = useIDEPaneActions();
   const { cache, expanded, loading, truncated, failed, rootError, toggleDir, collapseAll, refresh } = useWorkspaceExplorer(rootPath);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -41,12 +45,26 @@ export const IDEExplorerView = memo(function IDEExplorerView({ agentId }: { agen
     openWorkspaceFile(rootPath, relPath);
   }, [rootPath]);
 
-  /** §5.5 #17-27 — 한 번 클릭 = 앱 안 편집창에서 열기(선택 표시도 함께). */
-  const handleSelectFile = useCallback((relPath: string) => {
-    setSelectedPath(relPath);
-    if (!rootPath) return;
-    openInEditor(editorFileFromRelPath(relPath, rootPath));
-  }, [rootPath, openInEditor]);
+  /**
+   * §5.5 #17-27 / §5.13 (R-7) — 한 번 클릭 = **그 파일이 열릴 곳**에서 열기(선택 표시도 함께).
+   *
+   * 종전에는 무조건 편집창으로 보냈다. 영상·음악·3D·압축이 전부 그리로 갔고, 그중 대부분은
+   * "바이너리 파일" 한 줄로 끝났다. 이제 본문의 경로 손잡이와 **같은 판정**을 쓴다.
+   */
+  const handleSelectFile = useCallback(
+    (relPath: string, executable?: boolean) => {
+      setSelectedPath(relPath);
+      if (!rootPath) return;
+      const file = editorFileFromRelPath(relPath, rootPath);
+      void openWorkspaceTarget(
+        { relPath, absPath: file.absPath, kind: 'file', ...(executable === true ? { executable: true } : {}) },
+        rootPath,
+        t('ide.streamRenderer.pathLink.runFailed'),
+        paneKey,
+      );
+    },
+    [rootPath, t, paneKey],
+  );
 
   /** §5.5 #17-27 — 편집한 파일 구역은 절대 경로를 이미 알고 있다(루트 밖 파일도 그대로 열린다). */
   const handleOpenEdited = useCallback((absPath: string, relPath: string) => {

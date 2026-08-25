@@ -46,6 +46,30 @@
     "setupBanner": {
       "text": "Claude Code n'est pas installé — les agents ne peuvent pas encore s'exécuter.",
       "action": "Installer"
+    },
+    "ideWindows": {
+      "label": "Fenêtres IDE",
+      "tooltip": "Fenêtres IDE ouvertes — mettre au premier plan, replier, ou ouvrir une bulle dans une nouvelle fenêtre",
+      "sectionTitle": "Fenêtres et bulles",
+      "empty": "Aucune bulle d’agent dans ce projet",
+      "hint": "Replier n’est pas fermer — la fenêtre quitte seulement l’écran pour rendre le canevas.",
+      "openNew": "Ouvrir dans une nouvelle fenêtre",
+      "bringToFront": "Mettre au premier plan",
+      "settings": "Paramètres de l’agent",
+      "expand": "Déplier",
+      "collapse": "Replier",
+      "close": "Fermer la fenêtre",
+      "state": {
+        "floating": "flottante",
+        "collapsed": "repliée"
+      },
+      "side": {
+        "left": "gauche",
+        "right": "droite",
+        "top": "haut",
+        "bottom": "bas"
+      },
+      "orphan": "Fenêtre dont la bulle a disparu"
     }
   },
   "panel": {
@@ -853,6 +877,20 @@
         "latest": "Dernière (alias)",
         "latestWith": "Dernière ({{id}})",
         "custom": "Personnalisée…"
+      },
+      "local": {
+        "noModel": "Aucun modèle choisi pour l'instant",
+        "modelTip": "Le modèle local avec lequel cette bulle parle. Après un changement, c'est ce modèle qui répond dès le tour suivant.",
+        "switchModel": "Changer de modèle",
+        "pickModel": "Choisir un modèle",
+        "temperature": "Température",
+        "temperatureTip": "Une valeur basse donne des réponses stables et reproductibles, une valeur haute les rend plus libres. Laissez vide pour utiliser la valeur par défaut du moteur.",
+        "temperatureDefault": "Valeur par défaut du moteur",
+        "toolsTip": "Un modèle local reçoit toujours la liste d'outils ci-dessous en entier — ce n'est pas une liste à cocher. Juste avant l'exécution, le mode de permission ci-dessus et la fenêtre d'approbation s'appliquent exactement comme pour les bulles Claude.",
+        "toolsOk": "Ce modèle utilise les outils — il peut lire et modifier des fichiers.",
+        "toolsNone": "Ce modèle ne peut pas utiliser d'outils — il ne fait que parler.",
+        "toolsUnknown": "Pas encore vérifié — les outils partiront au prochain tour pour le savoir.",
+        "toolsRecheck": "Vérifier à nouveau"
       }
     },
     "permissionPrompt": {
@@ -1273,6 +1311,18 @@
         "pinHint": "Une fois activée, ni la touche Delete ni les actions de suppression ne peuvent la retirer.",
         "deleteBubble": "Supprimer cette bulle",
         "deleteHint": "La touche Delete la supprime aussi. L'application elle-même reste installée."
+      },
+      "vibistudio": {
+        "name": "Vibistudio",
+        "desc": "Montage de timeline vidéo et rendu"
+      },
+      "vibisound": {
+        "name": "Vibisound",
+        "desc": "Éditeur audio simple pour découper et ajuster"
+      },
+      "vibi3d": {
+        "name": "Vibi3D",
+        "desc": "Faire pivoter des modèles 3D dans l’app"
       }
     },
     "videoStudio": {
@@ -1367,6 +1417,63 @@
       "emptyHint": "Chaque appel d'outil fait par un agent atterrit ici — ce qu'il a touché, et ce que vous avez répondu.",
       "promptRiskTitle": "Action à risque",
       "promptEscalatedHint": "Votre mode de permission aurait autorisé cela automatiquement — la limite d'audit demande confirmation d'abord."
+    },
+    "vibisound": {
+      "title": "Vibisound",
+      "noFile": "Cliquez sur un fichier audio pour le retoucher ici — essayez un mp3 ou wav dans l’explorateur ou le chat.",
+      "decodeFailed": "Le navigateur ne peut pas décoder ce format. Ouvrez-le avec l’app par défaut.",
+      "loading": "Lecture de l’audio…",
+      "play": "Lire",
+      "stop": "Arrêter",
+      "toStart": "Au début",
+      "loop": "Boucler la sélection",
+      "cropSelection": "Garder la sélection",
+      "deleteSelection": "Supprimer la sélection",
+      "silence": "Rendre la sélection muette",
+      "fadeIn": "Fondu d’entrée",
+      "fadeOut": "Fondu de sortie",
+      "louder": "Plus fort +25%",
+      "quieter": "Moins fort −20%",
+      "undo": "Annuler",
+      "exportWav": "Exporter en WAV",
+      "saving": "Enregistrement…",
+      "saved": "Enregistré — {{path}}",
+      "saveFailed": "Impossible d’enregistrer.",
+      "needSelection": "Faites d’abord glisser sur la forme d’onde pour choisir une plage.",
+      "selectionInfo": "Sélection {{from}} → {{to}} ({{len}})",
+      "selectHint": "Faites glisser la forme d’onde pour choisir une plage — les boutons d’édition s’activent",
+      "openExternal": "Ouvrir avec l’app par défaut"
+    },
+    "vibi3d": {
+      "title": "Vibi3D",
+      "noFile": "Cliquez sur un fichier 3D pour le faire tourner ici — essayez un glb, obj ou stl dans l’explorateur ou le chat.",
+      "parseFailed": "Impossible de lire ce fichier. Ouvrez-le avec l’app par défaut.",
+      "loading": "Lecture du modèle…",
+      "frame": "Ajuster à la vue",
+      "wireframe": "Fil de fer",
+      "grid": "Grille",
+      "spin": "Rotation auto",
+      "background": "Fond clair",
+      "openExternal": "Ouvrir avec l’app par défaut",
+      "vertices": "{{n}} sommets",
+      "triangles": "{{n}} triangles",
+      "dragHint": "Glisser pour tourner, molette pour zoomer",
+      "viewOnly": "Lecture seule"
+    },
+    "mediaConvert": {
+      "videoIntro": "Ce format vidéo ne s’ouvre pas directement. Il suffit de changer le conteneur (sans perte de qualité) pour l’ouvrir dans notre éditeur.",
+      "audioIntro": "Ce format audio ne s’ouvre pas directement. Converti en WAV, il s’ouvre dans notre éditeur.",
+      "needTool": "Un convertisseur (ffmpeg) est nécessaire — installez-le une fois, ensuite ça s’ouvre tout seul.",
+      "needToolManual": "Un convertisseur (ffmpeg) est nécessaire. Installez-le puis recliquez.",
+      "convert": "Ouvrir dans l’app",
+      "install": "Installer le convertisseur",
+      "openExternal": "Ouvrir avec l’app par défaut",
+      "cancel": "Fermer",
+      "converting": "Conversion… {{percent}}%",
+      "convertingStart": "Conversion lancée…",
+      "opening": "Ouverture dans l’éditeur…",
+      "installing": "Installation du convertisseur… seule la première fois prend un moment.",
+      "failed": "La conversion a échoué. Ouvrez-le avec l’app par défaut."
     }
   },
   "ide": {
@@ -1429,13 +1536,25 @@
       "maximizeLabel": "Agrandir",
       "restoreLabel": "Restaurer",
       "resizeDock": "Redimensionner le dock",
+      "dockMenuLabel": "Ancrer la fenêtre",
+      "dockLeft": "Ancrer à gauche",
+      "dockRight": "Ancrer à droite",
+      "dockTop": "Ancrer en haut",
+      "dockBottom": "Ancrer en bas",
+      "undockLabel": "Détacher",
       "customLabel": "Personnalisé",
       "cmdLabel": "CMD",
       "hookLabel": "Hook",
       "renameHint": "Double-cliquer pour renommer (F2)",
       "renameInputLabel": "Nom de l'agent",
       "localLabel": "All Model",
-      "localSwitchModel": "Changer le modèle utilisé par cette bulle"
+      "localSwitchModel": "Changer le modèle utilisé par cette bulle",
+      "localContextUsed": "Contexte {{used}} / {{limit}} jetons ({{percent}} %) — les échanges les plus anciens sont retirés quand elle est pleine",
+      "agentSettings": "Paramètres de l’agent",
+      "collapseLabel": "Replier",
+      "collapseHint": "Replier — conserve la fenêtre et rend le canevas (à déplier depuis la liste des fenêtres de l’en-tête)",
+      "resizeWindow": "Redimensionner la fenêtre",
+      "resizeStack": "Ajuster le partage"
     },
     "tabbar": {
       "newSession": "Nouvelle session",
@@ -1513,6 +1632,7 @@
       "slashEmpty": "Aucune compétence correspondante",
       "slashLoading": "Chargement des compétences…",
       "ctxCopy": "Copier",
+      "ctxSearchWeb": "Rechercher sur le Web",
       "ctxBookmark": "Marquer",
       "ctxQuoteReply": "Citer en réponse",
       "ctxSendAsPrompt": "Envoyer comme nouvelle invite",
@@ -1609,6 +1729,7 @@
       "debugMode": "Mode débogage",
       "debugModeHint": "Ajoute des options de débogueur à la même commande pour qu'un débogueur puisse s'y attacher.",
       "configs": "Configurations d'exécution",
+      "adhocRuns": "Lancé depuis le chat",
       "noConfigs": "Aucune configuration d'exécution trouvée. Ajoutez-en une dans .vscode/launch.json, les scripts de package.json, ou .vibisual/run.json. Les projets Unreal (.uproject) sont détectés automatiquement.",
       "scanned": "Analysé : {{files}}",
       "run": "Exécuter",
@@ -1945,7 +2066,11 @@
       "showLess": "Afficher moins",
       "pathLink": {
         "openFile": "Ouvrir dans l'éditeur — {{path}}",
-        "openFolder": "Ouvrir le dossier — {{path}}"
+        "openFolder": "Ouvrir le dossier — {{path}}",
+        "runProgram": "Exécuter le programme — {{path}}",
+        "runFailed": "Impossible de démarrer — cette fenêtre n'a pas de terminal.",
+        "openApp": "Ouvrir dans {{app}} — {{path}}",
+        "openExternal": "Ouvrir avec l’app par défaut — {{path}}"
       },
       "restartResumed": "Interrompu à l’arrêt de l’app — repris sur la session enregistrée."
     },
@@ -2129,6 +2254,7 @@
       "exitUnknown": "Claude CLI s'est arrêté de manière inattendue",
       "crash": "Le processus de la session s'est interrompu de manière inattendue (code {{code}})",
       "crashUnknown": "Le processus de la session s'est interrompu de manière inattendue",
+      "local": "L'exécution du modèle local a échoué",
       "cli": "Claude CLI a signalé un échec",
       "maxTurns": "Arrêté à la limite de tours maximum",
       "agentView": "L'exécution de l'agent s'est terminée par un échec",
@@ -2637,6 +2763,18 @@
         "this-project": "Installé pour ce projet uniquement — ils se chargent dans les sessions que vous exécutez ici.",
         "other-project": "Installé, mais lié à un autre projet, donc ils ne se chargent pas dans cette session."
       }
+    },
+    "split": {
+      "closeCell": "Fermer la vue",
+      "reset": "Annuler le fractionnement",
+      "previewSplit": "Fractionner ici",
+      "previewReplace": "Ouvrir ici",
+      "limit": "Jusqu'à {{count}} vues",
+      "dragHint": "Faites glisser pour déplacer cette vue",
+      "resizeHint": "Glissez pour redimensionner · double-clic pour égaliser",
+      "foreignSession": "Cette session appartient à une autre bulle",
+      "tooSmall": "Trop petit pour fractionner",
+      "alreadyHere": "Déjà affiché ici"
     }
   },
   "bubbleMap": {
@@ -2879,7 +3017,9 @@
     "unsetDefault": "Retirer par défaut",
     "defaultTooltip": "L'onglet par défaut s'ouvre automatiquement quand il n'y a pas de dernier onglet actif à restaurer.",
     "detach": "Détacher dans une nouvelle fenêtre",
-    "rename": "Renommer"
+    "rename": "Renommer",
+    "splitRight": "Fractionner à droite",
+    "splitDown": "Fractionner en bas"
   },
   "overlay": {
     "sendToOverlay": "Détacher cette bulle en widget de bureau toujours au premier plan",
@@ -3496,6 +3636,34 @@
     "stepModel": "Modèle",
     "stepIde": "IDE",
     "useModelStart": "Démarrer avec ce modèle",
-    "opensIdeHint": "Dès la fin du téléchargement, l'IDE de cette bulle s'ouvre."
+    "opensIdeHint": "Dès la fin du téléchargement, l'IDE de cette bulle s'ouvre.",
+    "contextTitle": "Fenêtre de contexte",
+    "contextUnit": "jetons",
+    "contextApply": "Appliquer",
+    "contextHint": "Une fenêtre plus grande retient davantage, mais consomme plus de mémoire et ralentit le modèle. Si la valeur dépasse la longueur d'entraînement du modèle, c'est cette dernière qui est utilisée. La nouvelle valeur s'applique au prochain chargement de ce modèle.",
+    "usageTitle": "Jetons utilisés dans cette conversation",
+    "usageLine": "entrée {{in}} · sortie {{out}}",
+    "fitGpu": "Rapide sur GPU",
+    "fitRam": "Lent en RAM",
+    "fitTooBig": "Trop gros pour ce PC",
+    "statDownloads": "Téléchargements",
+    "statLikes": "J'aime",
+    "statTrending": "Tendance",
+    "sortDownloads": "Les plus téléchargés",
+    "sortLikes": "Les plus aimés",
+    "sortTrending": "Tendances actuelles",
+    "sortRecent": "Récemment mis à jour",
+    "runnableOnly": "Seulement ce qui tourne ici",
+    "topQuantHint": "Les plus utilisés d'abord",
+    "showAllQuants": "Afficher les {{count}} autres",
+    "showFewerQuants": "Afficher seulement les plus utilisés",
+    "noRunnableFiles": "Rien dans ce dépôt ne tourne sur ce PC — désactivez le filtre ci-dessus pour tout voir.",
+    "partCount": "{{count}} parties",
+    "missingParts": "{{missing}} des {{total}} parties manquent, inutilisable — téléchargez-le à nouveau",
+    "companionFile": "C'est un fichier annexe, pas un modèle — il ne fonctionne pas seul",
+    "outputBroken": "Ce moteur n'en a rien tiré d'exploitable — essayez un autre modèle",
+    "archUnsupported": "Non pris en charge par ce moteur",
+    "hardwareGpu": "{{device}} · {{vram}} libres · {{ram}} de RAM",
+    "hardwareCpu": "Pas d’accélérateur · {{ram}} de RAM"
   }
 }

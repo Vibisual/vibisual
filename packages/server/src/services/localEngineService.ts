@@ -71,6 +71,111 @@ function findServerBin(dir: string): string | null {
   return null;
 }
 
+/** 검증용 한 번 띄우기의 상한 — 여기서 넘어가면 그 설치는 어차피 못 쓴다. */
+const SMOKE_TIMEOUT_MS = 30_000;
+/** 갓 쓴 파일을 백신이 훑는 동안 실행이 한 번 막히는 일이 있다 — 한 박자 쉬고 한 번 더 묻는다. */
+const SMOKE_RETRY_DELAY_MS = 2_000;
+
+/**
+ * PE 이미지가 잘렸는지 본다 — 섹션 테이블이 가리키는 마지막 바이트가 파일 끝을 넘으면
+ * 그 파일은 반쪽이다. 부족한 바이트 수를 돌려준다(0 이면 온전하거나 판단 대상 밖).
+ *
+ * 해시 목록도 새 의존성도 필요 없다 — **자산이 스스로 자기 길이를 말한다.**
+ */
+function imageShortfall(file: string): number {
+  let fd: number | null = null;
+  try {
+    const size = fs.statSync(file).size;
+    fd = fs.openSync(file, 'r');
+    const head = Buffer.alloc(4096);
+    const read = fs.readSync(fd, head, 0, 4096, 0);
+    if (read < 64 || head.readUInt16LE(0) !== 0x5a4d) return 0; // MZ 가 아니면 우리 판단 밖
+    const pe = head.readUInt32LE(0x3c);
+    if (pe + 24 > read || head.readUInt32LE(pe) !== 0x00004550) return 0;
+    const sectionCount = head.readUInt16LE(pe + 6);
+    const table = pe + 24 + head.readUInt16LE(pe + 20);
+    if (table + sectionCount * 40 > read) return 0;
+    let end = 0;
+    for (let i = 0; i < sectionCount; i += 1) {
+      const s = table + i * 40;
+      const rawEnd = head.readUInt32LE(s + 20) + head.readUInt32LE(s + 16);
+      if (rawEnd > end) end = rawEnd;
+    }
+    return end > size ? end - size : 0;
+  } catch {
+    return 0; // 못 읽으면 여기서 단정하지 않는다 — 아래 실제 실행이 다시 판정한다
+  } finally {
+    if (fd !== null) {
+      try {
+        fs.closeSync(fd);
+      } catch {
+        /* 이미 닫혔으면 그만 */
+      }
+    }
+  }
+}
+
+/**
+ * 폴더 안에서 잘린 실행 이미지들(`이름 (-N B)`). Windows 밖에서는 자연히 빈 배열이다.
+ * 설치 검증과 §5.19 (D) 엔진 기동 앞머리가 **같은 판정**을 쓰도록 여기서만 정의한다.
+ */
+export function truncatedImages(dir: string): string[] {
+  let names: string[];
+  try {
+    names = fs.readdirSync(dir);
+  } catch {
+    return [];
+  }
+  const bad: string[] = [];
+  for (const name of names) {
+    if (!/\.(dll|exe)$/i.test(name)) continue;
+    const short = imageShortfall(path.join(dir, name));
+    if (short > 0) bad.push(`${name} (-${String(short)}B)`);
+  }
+  return bad;
+}
+
+/**
+ * 실제로 뜨는지 한 번 띄워 본다. 포트를 잡지 않는 `--version` 을 쓴다 — 검증이 부작용을
+ * 남기면 안 된다. 문제가 없으면 `null`, 있으면 사람이 읽을 수 있는 사유.
+ */
+function smokeTest(bin: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (v: string | null): void => {
+      if (settled) return;
+      settled = true;
+      resolve(v);
+    };
+    const child = spawn(bin, ['--version'], {
+      cwd: path.dirname(bin),
+      windowsHide: true,
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
+    let err = '';
+    child.stderr?.on('data', (d: Buffer) => {
+      err += d.toString();
+    });
+    const timer = setTimeout(() => {
+      try {
+        child.kill();
+      } catch {
+        /* 이미 죽었으면 그만 */
+      }
+      finish('engine did not answer --version in time');
+    }, SMOKE_TIMEOUT_MS);
+    child.on('error', (e: Error) => {
+      clearTimeout(timer);
+      finish(e.message);
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      const tail = err.trim().slice(-200);
+      finish(code === 0 ? null : `exit ${String(code)}${tail ? ` — ${tail}` : ''}`);
+    });
+  });
+}
+
 function readMeta(dir: string): EngineMeta | null {
   try {
     const raw = fs.readFileSync(path.join(dir, META_NAME), 'utf8');
@@ -191,6 +296,11 @@ async function downloadTo(url: string, dest: string, onBytes: (received: number,
     onBytes(received, total);
   });
   await pipeline(body, fs.createWriteStream(dest));
+  // 스트림이 끝났다는 것은 "다 받았다"가 아니다 — 중간에 끊긴 응답도 정상 종료로 보인다.
+  //   길이를 대조하지 않으면 반쪽 zip 을 그대로 풀어 버린다.
+  if (total > 0 && received !== total) {
+    throw new Error(`download truncated (${String(received)}/${String(total)} bytes) ${url}`);
+  }
 }
 
 /**
@@ -234,20 +344,31 @@ function extractZip(zipPath: string, destDir: string): Promise<void> {
       }
       const child = spawn(a.cmd, a.args, { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
       let err = '';
+      // `error` 와 `close` 는 **둘 다** 뜬다(spawn 실패 시 node 가 이어서 close 도 낸다).
+      //   가드가 없으면 한 번의 실패가 다음 도구를 두 벌 띄워 같은 폴더에 동시에 풀고,
+      //   가장 큰 파일이 서로의 쓰기에 잘린다 — 그 잘린 이미지가 곧 `0xC000007B` 다.
+      let settled = false;
+      const once = (fn: () => void): void => {
+        if (settled) return;
+        settled = true;
+        fn();
+      };
       child.stderr?.on('data', (d: Buffer) => {
         err += d.toString();
       });
-      child.on('error', () => run(i + 1));
+      child.on('error', () => once(() => run(i + 1)));
       child.on('close', (code) => {
-        // 종료 코드가 0 이어도 실제로 풀렸는지는 호출자가 `findServerBin` 으로 다시 본다.
-        if (code === 0) {
-          resolve();
-        } else if (i + 1 < attempts.length) {
-          logger.warn(`[localEngine] extract via ${a.cmd} failed (exit ${String(code)}), trying next`);
-          run(i + 1);
-        } else {
-          reject(new Error(`extract failed (${a.cmd} exit ${String(code)}) ${err.slice(0, 300)}`));
-        }
+        // 종료 코드가 0 이어도 실제로 풀렸는지는 호출자가 검증 단계에서 다시 본다.
+        once(() => {
+          if (code === 0) {
+            resolve();
+          } else if (i + 1 < attempts.length) {
+            logger.warn(`[localEngine] extract via ${a.cmd} failed (exit ${String(code)}), trying next`);
+            run(i + 1);
+          } else {
+            reject(new Error(`extract failed (${a.cmd} exit ${String(code)}) ${err.slice(0, 300)}`));
+          }
+        });
       });
     };
     run(0);
@@ -330,6 +451,31 @@ export function installEngine(backends?: readonly LocalEngineBackend[]): LocalEn
       pushProgress();
       const bin = findServerBin(dir);
       if (!bin) throw new Error(`llama-server not found after extract (dir=${dir})`);
+
+      // **파일이 있다는 것과 쓸 수 있다는 것은 다르다**(2026-08-20 실측 사고).
+      //   `llama-server.exe` 는 9KB 짜리 껍데기라, 옆의 10MB `llama-server-impl.dll` 이
+      //   반쯤 풀려 있어도 존재 검사만으로는 설치가 "완료"로 끝난다. 그 대가는 첫 사용
+      //   순간의 `0xC000007B` — 모델을 다 받아 둔 사용자에게 정체 모를 16진수만 남는다.
+      if (!IS_WIN) {
+        // zip 이 실행 권한을 안 싣고 오는 경우가 있다. 우리가 붙일 수 있는 것을 우리가 붙인다 —
+        //   이걸 안 하면 아래 검증이 멀쩡한 설치를 "못 뜬다"고 오판해 통째로 지운다.
+        await fsp.chmod(bin, 0o755).catch(() => undefined);
+      }
+      const truncated = truncatedImages(path.dirname(bin));
+      let failure = truncated.length > 0 ? `incomplete files: ${truncated.slice(0, 5).join(', ')}` : await smokeTest(bin);
+      if (failure && truncated.length === 0) {
+        // 파일 자체는 온전한데 안 떴다면 그 순간의 사정일 수 있다(백신·잠금). 성급히 지우면
+        //   멀쩡한 설치를 수십 MB 째 다시 받게 만든다 — 한 번은 더 물어보고 판단한다.
+        await new Promise((resolve) => setTimeout(resolve, SMOKE_RETRY_DELAY_MS));
+        failure = await smokeTest(bin);
+      }
+      if (failure) {
+        // 반쪽 설치를 남겨 두면 상태는 "설치됨"인데 쓰면 죽는다(화면은 "엔진 준비됨"이라 오류를
+        //   보여줄 자리조차 없다) — 흔적을 지워 다음 설치가 깨끗한 자리에서 시작하게 한다.
+        //   모델은 다른 폴더라 그대로 남는다.
+        await fsp.rm(dir, { recursive: true, force: true }).catch(() => undefined);
+        throw new Error(`engine verification failed (${failure}) — install again`);
+      }
 
       const meta: EngineMeta = { build, backends: got, installedAt: Date.now() };
       await fsp.writeFile(path.join(dir, META_NAME), JSON.stringify(meta, null, 2), 'utf8');

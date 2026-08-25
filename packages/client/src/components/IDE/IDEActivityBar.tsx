@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useGraphStore, selectIDEOverlay, countProjectBookmarks } from '../../stores/graphStore.js';
+import { useIDEPaneValue, useIDEPaneActions } from './idePane.js';
 import type { IDEViewType } from '../../stores/graphStore.js';
 import { useRunningSubagentCount } from './IDERunningSubagentsView.js';
 import { useHookFiring } from './IDEHooksView.js';
@@ -29,10 +30,9 @@ const ACTIVITIES: ActivityItem[] = [
 
 export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element {
   const { t } = useTranslation();
-  const activeView = useGraphStore((s) => selectIDEOverlay(s).activeView);
-  const setActiveView = useGraphStore((s) => s.setIDEActiveView);
-  const toggleSidebar = useGraphStore((s) => s.toggleIDESidebar);
-  const sidebarCollapsed = useGraphStore((s) => selectIDEOverlay(s).sidebarCollapsed);
+  const activeView = useIDEPaneValue((o) => o.activeView);
+  const { setActiveView, toggleSidebar } = useIDEPaneActions();
+  const sidebarCollapsed = useIDEPaneValue((o) => o.sidebarCollapsed);
 
   // §5.5 #17-7 v4.93 — 북마크는 덮개 패널이 아니라 사이드바 뷰('bookmarks')다. 배지 = 보관 개수.
   //   (프로젝트별로 갈라 담기) 개수는 **지금 보고 있는 프로젝트 칸**만 센다 — 목록(IDEBookmarkView)과
@@ -41,7 +41,7 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
 
   // §5.5 #17-8 v2.95 — 세션 요약 보드 + "미확인 완료" 세션 수 배지.
   //   v4.93 — 이 항목도 사이드바 뷰('summary') 로 바뀌었다(덮개 토글 폐지).
-  const agentId = useGraphStore((s) => selectIDEOverlay(s).agentId);
+  const agentId = useIDEPaneValue((o) => o.agentId);
   // §5.19 (G) — 이 IDE 가 로컬 버블(All Model)의 것인가. 그렇다면 클로드 CLI 에 매인 항목은
   //   아예 그리지 않는다 — 없는 기능의 입구를 남겨 두면 눌러 본 사용자가 빈 화면을 본다.
   const isLocalProvider = useGraphStore((s) => (agentId ? !!s.agentConfigs[agentId]?.provider : false));
@@ -69,7 +69,7 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
   // §5.5 #17-11 v3.79 — 세션 반복 실행(루프). 설정 단위가 **지금 열려 있는 세션 탭**이라
   //   배지도 그 탭의 루프만 읽는다(메인 탭이면 배지 없음 — 설정 대상이 없다는 뜻).
   //   ⑨ v4.51 — 화면은 덮개 패널이 아니라 **사이드바 뷰**('loop') 다(스킬·목표와 같은 자리).
-  const activeSessionId = useGraphStore((s) => selectIDEOverlay(s).activeSessionId);
+  const activeSessionId = useIDEPaneValue((o) => o.activeSessionId);
   const activeLoop = useGraphStore((s) => (activeSessionId ? s.sessionLoops[activeSessionId] : undefined));
   const loopRunning = !!activeLoop?.enabled;
   const loopBadge = activeLoop

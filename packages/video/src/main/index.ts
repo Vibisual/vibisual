@@ -32,13 +32,16 @@ export const vibistudioApp: VideoMainModule = {
     const projectId = params['projectId'] ?? '';
     const docId = params['docId'];
     const docPart = docId === undefined || docId === '' ? '' : `&docId=${encodeURIComponent(docId)}`;
+    // §5.13 (R-2) — 눌러서 연 파일(루트 기준 상대 경로). 창은 이 값을 그대로 셸에 넘긴다.
+    const file = params['file'];
+    const filePart = file === undefined || file === '' ? '' : `&file=${encodeURIComponent(file)}`;
     const spec: AppWindowSpec = {
       title: 'Vibisual — Vibistudio',
       width: DEFAULT_W,
       height: DEFAULT_H,
       minWidth: MIN_W,
       minHeight: MIN_H,
-      hash: `app=vibistudio&projectId=${encodeURIComponent(projectId)}${docPart}`,
+      hash: `app=vibistudio&projectId=${encodeURIComponent(projectId)}${docPart}${filePart}`,
     };
     return spec;
   },

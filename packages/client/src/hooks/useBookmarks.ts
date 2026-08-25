@@ -165,7 +165,7 @@ export function useBookmarks({ onToast, messages }: Params): void {
       const bb = bubbleBookmark();
       // "지금 앞에 떠 있는 IDE" = 모달/플로팅(도킹 아님) 으로 캔버스를 덮고 있는 상태.
       // 이때는 클릭(포커스)·이전 선택과 무관하게 그 IDE 를 그대로 잡는다(사용자: "지금 떠있는 상태를 지정").
-      const ideForeground = !!sb && !ide.dockedRight;
+      const ideForeground = !!sb && !ide.dockSide;
       // 우선순위:
       //   (1) 포커스가 IDE 안(=IDE 를 보는 중) → 그 세션.
       //   (2) IDE 가 앞에 떠 있으면(모달/플로팅) → 그 세션. 클릭 불필요, 이전 선택 무시.

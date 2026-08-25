@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { listWorkspaceDir, resolveWorkspacePath, statWorkspacePath } from './workspaceExplorer.js';
+import { isExecutableWorkspacePath, listWorkspaceDir, resolveWorkspacePath, statWorkspacePath } from './workspaceExplorer.js';
 
 /**
  * §5.5 #17-19 v4.71 — 탐색기 디렉터리 조회 테스트.
@@ -70,6 +70,11 @@ describe('statWorkspacePath', () => {
     expect(statWorkspacePath(root, '')?.kind).toBe('directory');
   });
 
+  it('실행 여부를 함께 실어 보낸다 — 평범한 텍스트 파일은 실행이 아니다', () => {
+    expect(statWorkspacePath(root, 'README.md')?.executable).toBe(false);
+    expect(statWorkspacePath(root, 'packages/Client')?.executable).toBe(false);
+  });
+
   it('없는 경로는 null — 화면은 그 조각을 평문으로 둔다', () => {
     expect(statWorkspacePath(root, 'nope/missing.ts')).toBeNull();
   });
@@ -133,5 +138,51 @@ describe('listWorkspaceDir', () => {
 
   it('[보안] 루트를 벗어나는 요청은 null', () => {
     expect(listWorkspaceDir(root, '../..')).toBeNull();
+  });
+});
+
+/**
+ * §5.5 #17-27 ⑬ (h) — 본문에 적힌 위치가 **실행할 수 있는 것**인가.
+ *
+ * 이 판정이 헐거우면 두 방향으로 다 아프다 — 놓치면 `.exe` 가 빈 편집창으로 열리고(고치기 전 동작),
+ * 너무 넓으면 소스 파일을 눌렀는데 프로그램이 도는 자리가 된다. 그래서 플랫폼을 인자로 받아
+ * 세 OS 의 규칙을 **한 표로** 고정한다(테스트가 도는 OS 와 무관하게 같은 답이 나와야 한다).
+ */
+describe('isExecutableWorkspacePath', () => {
+  const file = (mode = 0o644): { isDirectory: () => boolean; mode: number } => ({ isDirectory: () => false, mode });
+  const dir = (mode = 0o755): { isDirectory: () => boolean; mode: number } => ({ isDirectory: () => true, mode });
+
+  it('windows — 확장자로 가른다(대소문자 무시)', () => {
+    expect(isExecutableWorkspacePath('C:/g/Saved/Windows/P_MPS_GPT.exe', file(), 'win32')).toBe(true);
+    expect(isExecutableWorkspacePath('C:/g/build/Run.BAT', file(), 'win32')).toBe(true);
+    expect(isExecutableWorkspacePath('C:/g/tools/setup.cmd', file(), 'win32')).toBe(true);
+    expect(isExecutableWorkspacePath('C:/g/src/App.tsx', file(), 'win32')).toBe(false);
+    // 설치 마법사·스크립트는 "눌렀을 때 벌어질 일"이 사용자 예상과 갈려 뺐다.
+    expect(isExecutableWorkspacePath('C:/g/setup.msi', file(), 'win32')).toBe(false);
+    expect(isExecutableWorkspacePath('C:/g/build.ps1', file(), 'win32')).toBe(false);
+  });
+
+  it('windows — 이름이 .exe 로 끝나는 폴더는 실행이 아니다', () => {
+    expect(isExecutableWorkspacePath('C:/g/weird.exe', dir(), 'win32')).toBe(false);
+  });
+
+  it('macOS — .app 번들은 폴더지만 실행이다', () => {
+    expect(isExecutableWorkspacePath('/g/Build/Mac/Game.app', dir(), 'darwin')).toBe(true);
+    expect(isExecutableWorkspacePath('/g/Build/Mac/Game.app', dir(), 'linux')).toBe(false);
+    expect(isExecutableWorkspacePath('/g/assets', dir(), 'darwin')).toBe(false);
+  });
+
+  it('posix — 실행 비트가 서 있어도 소스 확장자는 실행이 아니다', () => {
+    // 트리 전체가 755 로 보이는 마운트에서 본문의 소스 경로가 실행 손잡이가 되는 것을 막는다.
+    expect(isExecutableWorkspacePath('/g/src/App.tsx', file(0o755), 'linux')).toBe(false);
+    expect(isExecutableWorkspacePath('/g/README.md', file(0o755), 'darwin')).toBe(false);
+  });
+
+  it('posix — 확장자 없는 실행 파일과 스크립트는 실행 비트가 있을 때만', () => {
+    expect(isExecutableWorkspacePath('/g/build/game', file(0o755), 'linux')).toBe(true);
+    expect(isExecutableWorkspacePath('/g/build/game', file(0o644), 'linux')).toBe(false);
+    expect(isExecutableWorkspacePath('/g/scripts/run.sh', file(0o755), 'linux')).toBe(true);
+    expect(isExecutableWorkspacePath('/g/dist/Game.AppImage', file(0o755), 'linux')).toBe(true);
+    expect(isExecutableWorkspacePath('/g/scripts/run.sh', file(0o644), 'linux')).toBe(false);
   });
 });

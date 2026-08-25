@@ -2,18 +2,18 @@ import { join } from 'node:path';
 import { createServer, type Server as HttpServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
-import { app, shell, BrowserWindow, protocol, screen, dialog } from 'electron';
+import { app, shell, BrowserWindow, protocol, screen, dialog, Notification } from 'electron';
 import { electronApp, optimizer } from '@electron-toolkit/utils';
 import { inject, type DispatchFunc } from 'light-my-request';
 import type { Express } from 'express';
-import { unloadAllLocalModels, runServer, shutdownDiskWriteQueue, setBroadcastSink, setHookListenerPort, setHookListenerToken, setHookListenerIdentityFile, setHookHandlerPath, setDebugLogDir, ensureClaudeHooksInstalled, refreshStatusLineIfInstalled, recordDiagnostic, subAgentManager, stopAllPlays, closeStaticHost } from '@vibisual/server';
+import { unloadAllLocalModels, runServer, shutdownDiskWriteQueue, setBroadcastSink, setHookListenerPort, setHookListenerToken, setHookListenerIdentityFile, setHookHandlerPath, setDebugLogDir, ensureClaudeHooksInstalled, refreshStatusLineIfInstalled, recordDiagnostic, subAgentManager, stopAllPlays, closeStaticHost, setCmdTerminalController, setCmdBlockedNotifier } from '@vibisual/server';
 import { setupIpc, type IpcHub } from './ipc';
 import { loadSecrets } from './secrets';
 import { loadHookIdentity, saveHookIdentity, hookIdentityPath } from './hookIdentity';
 import { configureWindowManager, closeAll as closeAllDetachedWindows, closeAllOverlays, closeAllCommandCenters } from './windowManager';
 import { initMobileAccess, mobileBroadcast, stopMobileAccess } from './mobileAccess';
 import { initAutoUpdater, stopAutoUpdater } from './updaterManager';
-import { killAllTerminals } from './terminalManager';
+import { killAllTerminals, terminalController, setTerminalCardIdentity } from './terminalManager';
 import { appendCrashLine, logAppStart, logCleanExit, startCrashReporter } from './crashLog';
 
 // Vibisual desktop main — SCENARIO.md §3.7 (in-process 통합, 단일 프로세스).
@@ -107,6 +107,8 @@ function createWindow(): void {
       // preload 는 CJS(.cjs)로 빌드 — electron.vite.config.ts 참조.
       preload: join(__dirname, '../preload/index.cjs'),
       sandbox: false,
+      // §5.13 (R) — Chromium 내장 PDF 뷰어를 켠다. 우리가 PDF 렌더를 쓰지 않고 iframe 하나로 여는 근거.
+      plugins: true,
       contextIsolation: true,
       nodeIntegration: false,
     },
@@ -254,6 +256,13 @@ async function startHookListener(expressApp: Express, preferredPort: number): Pr
       path !== '/api/agent-list' &&
       // §7.11 v2.29 — 커스텀/스폰 에이전트의 서버 iframe 신고(url). 토큰 인증 필수.
       path !== '/api/agent-iframe' &&
+      // §4 (CMD 터미널 업그레이드 ⑥) — 임베디드 PTY 제어. herdr 의 `pane send-text/read/wait-output`
+      //   자리이며, **§10 'HTTP/REST API 외부 노출' 이 아니다** — 127.0.0.1 바인드 + 아래 토큰
+      //   인증을 지나야 하는 기존 카드 5경로와 **같은 규율**의 loopback ingress 확장이다.
+      //   `/api/cmd/send` 는 prefill 까지만 넣고 개행(Enter)은 절대 보내지 않는다(§4 v2.63 ToS 합법선).
+      path !== '/api/cmd/send' &&
+      path !== '/api/cmd/read' &&
+      path !== '/api/cmd/wait' &&
       // §5.14 v4.62 — 플레이 버블의 실행 레시피 등록. **등록만** 열고 기동(`/start`)은 열지 않는다
       //   — 서버를 켜는 것은 사용자가 버튼을 누를 때의 일이다. 토큰 인증 필수.
       path !== '/api/play-recipe' &&
@@ -452,6 +461,27 @@ async function bootBackend(): Promise<void> {
   //   forward-slash 정규화: 빌더가 이 경로를 node 의 단일따옴표 JS 문자열에 그대로 박으므로
   //   Windows 역슬래시면 이스케이프가 깨진다. node 의 fs 는 forward-slash 를 그대로 받는다.
   setHookListenerIdentityFile(hookIdentityPath().replace(/\\/g, '/'));
+
+  // §4 (CMD 터미널 업그레이드 ⑥) — loopback REST(`/api/cmd/*`)가 임베디드 PTY 를 만질 수 있게
+  //   terminalManager 를 server 코어에 주입한다(§3.4 — server 는 desktop 을 import 하지 않는다).
+  setCmdTerminalController(terminalController);
+  // §4 (⑦) — PTY 안의 에이전트가 헤드리스와 **같은** 카드 엔드포인트를 curl 로 부를 수 있도록
+  //   loopback 신원을 터미널 env 로 실어 보낸다(없으면 종전 `::VIBISUAL-CARD::` 마커 폴백).
+  setTerminalCardIdentity({ port: hookPort, token: hookToken, identityFile: hookIdentityPath().replace(/\\/g, '/') });
+  // §4 (④) — CMD 세션이 **백그라운드에서** blocked 로 전이할 때 1회 OS 알림. 창이 포커스돼 있으면
+  //   화면에 이미 보이므로 띄우지 않는다(herdr 도 백그라운드 pane 에서만 알린다).
+  setCmdBlockedNotifier((notice) => {
+    try {
+      if (!Notification.isSupported()) return;
+      const focused = BrowserWindow.getAllWindows().some((w) => !w.isDestroyed() && w.isFocused());
+      if (focused) return;
+      new Notification({
+        title: `Vibisual — ${notice.label} 이(가) 입력을 기다립니다`,
+        body: notice.reason ?? 'CMD 터미널이 사용자 응답을 기다리는 중입니다.',
+        silent: false,
+      }).show();
+    } catch { /* 알림은 표시 전용 — 실패해도 작업에 영향 없음 */ }
+  });
   console.log(`[main] hook listener on http://127.0.0.1:${hookPort} (loopback — hook + edge dispatch ingest)`);
 
   // Item #1 — VIBISUAL_SKIP_HOOK_INSTALL opt-out gate.

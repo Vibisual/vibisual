@@ -1,7 +1,8 @@
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { FinishedSubagentTask, RunningSubagentTask, SubAgent } from '@vibisual/shared';
-import { useGraphStore, selectIDEOverlay } from '../../stores/graphStore.js';
+import { useGraphStore, selectIDEPane } from '../../stores/graphStore.js';
+import { useIDEPaneValue, useIDEPaneKey } from './idePane.js';
 import { selectSessionTasks, selectSessionFinished, countSessionTasks, countOtherTasks } from './runningSubagents.js';
 import { RunningTaskRow, FinishedTaskRow } from './IDERunningSubagentsCards.js';
 import { ScrollFade } from '../ScrollFade.js';
@@ -31,26 +32,28 @@ const EMPTY_SUBS: SubAgent[] = [];
  */
 export function useRunningSubagentTasks(agentId: string | null): RunningSubagentTask[] {
   const all = useGraphStore((s) => (agentId ? s.runningSubagentTasks[agentId] : undefined));
-  const activeSessionId = useGraphStore((s) => selectIDEOverlay(s).activeSessionId);
+  const activeSessionId = useIDEPaneValue((o) => o.activeSessionId);
   return useMemo(() => selectSessionTasks(all, activeSessionId), [all, activeSessionId]);
 }
 
 /** 현재 탭 기준 개수만 필요할 때(활동바 점등·아래 숫자). 원시값이라 배열 참조 변화에 흔들리지 않는다. */
 export function useRunningSubagentCount(agentId: string | null): number {
+  const paneKey = useIDEPaneKey();
   return useGraphStore((s) =>
-    countSessionTasks(agentId ? s.runningSubagentTasks[agentId] : undefined, selectIDEOverlay(s).activeSessionId));
+    countSessionTasks(agentId ? s.runningSubagentTasks[agentId] : undefined, selectIDEPane(s, paneKey).activeSessionId));
 }
 
 /** 이 탭 밖(다른 세션 탭 + 소유 탭 미상)에서 도는 수. */
 export function useOtherRunningSubagentCount(agentId: string | null): number {
+  const paneKey = useIDEPaneKey();
   return useGraphStore((s) =>
-    countOtherTasks(agentId ? s.runningSubagentTasks[agentId] : undefined, selectIDEOverlay(s).activeSessionId));
+    countOtherTasks(agentId ? s.runningSubagentTasks[agentId] : undefined, selectIDEPane(s, paneKey).activeSessionId));
 }
 
 /** §5.5 #17-9 ⑦(b) — 이 탭이 띄웠다가 방금 끝난 자식들(새 것이 앞). 개수 산식에는 관여하지 않는다. */
 export function useFinishedSubagentTasks(agentId: string | null): FinishedSubagentTask[] {
   const all = useGraphStore((s) => (agentId ? s.finishedSubagentTasks[agentId] : undefined));
-  const activeSessionId = useGraphStore((s) => selectIDEOverlay(s).activeSessionId);
+  const activeSessionId = useIDEPaneValue((o) => o.activeSessionId);
   return useMemo(() => selectSessionFinished(all, activeSessionId), [all, activeSessionId]);
 }
 
@@ -65,7 +68,7 @@ export const IDERunningSubagentsView = memo(function IDERunningSubagentsView({
   const tasks = useRunningSubagentTasks(agentId);
   const finished = useFinishedSubagentTasks(agentId);
   const others = useOtherRunningSubagentCount(agentId);
-  const activeSessionId = useGraphStore((s) => selectIDEOverlay(s).activeSessionId);
+  const activeSessionId = useIDEPaneValue((o) => o.activeSessionId);
   const subs = useGraphStore((s) => s.subAgents[agentId]) ?? EMPTY_SUBS;
 
   // 경과 시간 표시용 1초 틱 — 이 뷰가 떠 있는 동안만 돈다(사이드바가 접히면 언마운트되며 정리).

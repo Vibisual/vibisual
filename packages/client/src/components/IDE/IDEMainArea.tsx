@@ -13,10 +13,15 @@ import { describeCommandError, parseStreamErrorContent, joinCommandErrorLine } f
 import { PlanBlock } from './PlanBlock.js';
 import { toolPreview } from './toolPreview.js';
 import { useGraphStore, agentSessionInputKey, selectIDEOverlay } from '../../stores/graphStore.js';
+import { useIDEPaneValue } from './idePane.js';
+// §5.5 #17-34 — 창 안 분할. 칸 컨텍스트가 있으면 이 본문은 그 칸의 세션을 그리고, 창 단위 단축키는
+//   초점 칸만 받는다(컨텍스트 밖 = 분할 없음 = 종전 동작 그대로).
+import { useSplitCellFocused, useSplitCellSession } from './splitCellContext.js';
 import type { AgentSessionInputAttachment, EditorFollowMark } from '../../stores/graphStore.js';
 import { useAvailableSkills, type SkillInfo, type BuiltinCommandInfo } from '../../hooks/useAvailableSkills.js';
 import { useSessionStop } from '../../hooks/useSessionStop.js';
 import { IDEContextMenu, type ContextMenuItem } from './IDEContextMenu.js';
+import { openWebSearch } from './webSearchUrl.js';
 import { StreamRenderer, StreamEndGap, type StreamRendererHandle } from './StreamRenderer.js';
 import { useAttachmentThumbs } from './attachmentThumb.js';
 import { ImageLightboxView } from './ImageAnnotator.js';
@@ -33,7 +38,7 @@ import { AgentQuestionCard } from './AgentQuestionCard.js';
 import { AgentReviewCard } from './AgentReviewCard.js';
 import { AgentListCard } from './AgentListCard.js';
 import { UnseenCardPills, type UnseenCardMeta } from './UnseenCardPills.js';
-import { IDETerminalView } from './IDETerminalView.js';
+import { IDETerminalPanes } from './IDETerminalPanes.js';
 import { SystemNode, parseSystemSubtype, parseSystemTaskInfo } from './SystemNode.js';
 import { ThinkingLiveLine } from './ThinkingIndicator.js';
 // §5.5 #17-18 ⑤ v4.77 — 대기 중 덧말의 상태·컨트롤은 이 말풍선이 갖는다(옛 대기 줄 대체).
@@ -1457,6 +1462,13 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
         },
       },
       {
+        // §5.5 #17-3 (판올림 번호 발급 대기) — 입력창에서 고른 글자도 같은 함수로 검색한다.
+        label: t('ide.mainArea.ctxSearchWeb'),
+        disabled: !hasSel,
+        disabledTitle: selectionRequired,
+        onClick: () => { openWebSearch(selText()); },
+      },
+      {
         label: t('ide.mainArea.inputCtxPaste'),
         onClick: () => {
           if (!ctx || typeof navigator === 'undefined' || !navigator.clipboard?.readText) return;
@@ -1768,6 +1780,74 @@ function StreamDensityToggle(): React.JSX.Element {
   );
 }
 
+/**
+ * §5.19 (G) — All Model(로컬 LLM) 버블이 **지금 문 모델**. 종전에는 창 타이틀바의 정체 뱃지였으나
+ * 사용자 지시로 **밀도 토글 옆**(하단 상태바)으로 내려왔다 — 모델을 바꾸는 일은 창의 이름표보다
+ * "지금 이 대화를 무엇으로 굴리나"에 가깝고, 그 조절 손잡이(밀도·추종)가 모여 있는 자리가 여기다.
+ *
+ * 로컬 버블이 아니면 **아무것도 그리지 않는다** — 클로드 버블의 상태바는 종전과 한 픽셀도 다르지 않다.
+ * 바깥 줄이 `role="button"`(프롬프트로 점프)이라 클릭은 밀도 토글과 같이 `stopPropagation` 한다.
+ */
+/**
+ * §5.19 (D) — 이 버블의 **대화 창이 얼마나 찼나.**
+ *
+ * 종전에는 창을 넘긴 **뒤에야** 한 줄이 떴다 — 그때는 이미 오래된 말을 덜어 낸 뒤라 사용자는
+ * 무엇이 사라졌는지 모른 채 결과만 본다. 엔진이 왕복마다 프롬프트 토큰 수를 공짜로 알려 주므로,
+ * 넘치기 전에 보여 주는 것이 옳다.
+ *
+ * 값이 없으면 **아무것도 그리지 않는다** — 첫 턴을 돌기 전에는 잴 것이 없고, 빈 막대는
+ * "0% 찼다"는 거짓말이 된다.
+ */
+function StreamLocalContextGauge({ used, limit }: { used: number; limit: number }): React.JSX.Element | null {
+  const { t } = useTranslation();
+  if (!(limit > 0) || used <= 0) return null;
+  const ratio = Math.min(1, used / limit);
+  const percent = Math.round(ratio * 100);
+  // 색은 셋뿐이다 — 여유 / 슬슬 / 곧 넘침. 눈금을 더 쪼개도 사람이 하는 일은 같다.
+  const tone = ratio >= 0.9 ? 'bg-rose-400' : ratio >= 0.75 ? 'bg-amber-400' : 'bg-slate-400';
+  const label = `${String(Math.round(used / 100) / 10)}K / ${String(Math.round(limit / 1024))}K`;
+  return (
+    <span
+      className="flex flex-shrink-0 items-center gap-1"
+      title={t('ide.overlay.localContextUsed', {
+        defaultValue: '대화 창 {{used}} / {{limit}} 토큰 ({{percent}}%) — 넘치면 오래된 말부터 덜어 냅니다',
+        used,
+        limit,
+        percent,
+      })}
+    >
+      <span className="h-1 w-8 overflow-hidden rounded-full bg-gray-700">
+        <span className={`block h-full ${tone}`} style={{ width: `${String(percent)}%` }} />
+      </span>
+      <span className="text-[12px] font-normal text-slate-400">{label}</span>
+    </span>
+  );
+}
+
+function StreamLocalModelButton(): React.JSX.Element | null {
+  const { t } = useTranslation();
+  const agentId = useIDEPaneValue((o) => o.agentId);
+  const provider = useGraphStore((s) => (agentId ? s.agentConfigs[agentId]?.provider : undefined));
+  const openLocalModelWindow = useGraphStore((s) => s.openLocalModelWindow);
+  if (!agentId || !provider) return null;
+  return (
+    <button
+      type="button"
+      onClick={(e) => { e.stopPropagation(); openLocalModelWindow(agentId); }}
+      className="flex min-w-0 flex-shrink-0 items-center gap-1.5 rounded bg-slate-500/15 px-1.5 py-0.5 text-[12px] font-semibold text-slate-300 transition-colors hover:bg-slate-500/25"
+      title={t('ide.overlay.localSwitchModel', { defaultValue: '이 버블이 쓸 모델 바꾸기' })}
+    >
+      <span className="flex-shrink-0">{t('ide.overlay.localLabel', { defaultValue: 'All Model' })}</span>
+      {provider.modelName && (
+        <span className="max-w-[180px] truncate font-normal text-slate-400">{provider.modelName}</span>
+      )}
+      {provider.contextUsed !== undefined && provider.contextLimit !== undefined && (
+        <StreamLocalContextGauge used={provider.contextUsed} limit={provider.contextLimit} />
+      )}
+    </button>
+  );
+}
+
 /** §5.5 #17-27 ⑪ (h) — 따라간 알림이 화면에 머무는 시간(ms). `index.css` 의 `follow-flyout` 길이와 맞춘다. */
 const FOLLOW_FLYOUT_MS = 2200;
 
@@ -1782,8 +1862,10 @@ const FOLLOW_FLYOUT_MS = 2200;
  */
 function StreamFollowToggle(): React.JSX.Element {
   const { t } = useTranslation();
-  const agentId = useGraphStore((s) => selectIDEOverlay(s).agentId);
-  const activeSessionId = useGraphStore((s) => selectIDEOverlay(s).activeSessionId);
+  const agentId = useIDEPaneValue((o) => o.agentId);
+  const paneSessionId = useIDEPaneValue((o) => o.activeSessionId);
+  // §5.5 #17-34 — 창을 나눴으면 **이 칸의** 세션, 안 나눴으면 종전대로 창의 활성 세션.
+  const activeSessionId = useSplitCellSession(paneSessionId);
   const sessionKey = followSessionKey(agentId ?? '', activeSessionId);
   const follow = useGraphStore((s) => s.ideEditorFollow[sessionKey] === true);
   const setFollow = useGraphStore((s) => s.setIdeEditorFollow);
@@ -1959,8 +2041,10 @@ function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, sessi
   // §5.5 #17-12 — 마지막 TodoWrite 기준 "지금 무엇을 하는 중" + 완료/전체. 이벤트가 바뀔 때만 재계산.
   const planProgress = useMemo(() => latestPlanProgress(events), [events]);
   // §5.3 #12-1 — 이 세션이 백단에 띄운 작업 수(훅 대차대조 + 스트림 칩 합산, 서버가 합쳐 보낸다).
-  const agentId = useGraphStore((s) => selectIDEOverlay(s).agentId);
-  const activeSessionId = useGraphStore((s) => selectIDEOverlay(s).activeSessionId);
+  const agentId = useIDEPaneValue((o) => o.agentId);
+  const paneSessionId = useIDEPaneValue((o) => o.activeSessionId);
+  // §5.5 #17-34 — 창을 나눴으면 **이 칸의** 세션, 안 나눴으면 종전대로 창의 활성 세션.
+  const activeSessionId = useSplitCellSession(paneSessionId);
   const bgTaskCount = useGraphStore((s) => {
     const tasks = agentId ? s.runningSubagentTasks[agentId] : undefined;
     if (!tasks) return 0;
@@ -1993,6 +2077,7 @@ function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, sessi
   if (!target) {
     return (
       <div className="flex w-full flex-shrink-0 items-center justify-end gap-2 border-t border-gray-800 bg-gray-900/70 px-4 py-1">
+        <StreamLocalModelButton />
         <StreamDensityToggle />
         <StreamFollowToggle />
       </div>
@@ -2062,6 +2147,7 @@ function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, sessi
             {t('ide.plan.progress', { done: plan.done, total: plan.total })}
           </span>
         )}
+        <StreamLocalModelButton />
         <StreamDensityToggle />
         <StreamFollowToggle />
         {/* §5.5 #17-12 ③ v4.64 — 이 줄에는 [중지]를 두지 않는다. 실행 중이면 바로 아래 입력창에 같은 동작의
@@ -2099,6 +2185,7 @@ ${t('ide.mainArea.scrollPrompt')}` : t('ide.mainArea.scrollPrompt')}
       }`}>
         {preview}
       </span>
+      <StreamLocalModelButton />
       <StreamDensityToggle />
       <StreamFollowToggle />
       <span className="flex-shrink-0 text-[12px] text-gray-600 group-hover:text-gray-300">
@@ -2176,7 +2263,12 @@ export const IDEMainArea = memo(function IDEMainArea({
     const desc = describeCommandError(error);
     return joinCommandErrorLine(t(desc.labelKey, desc.labelParams), desc.detail);
   }, [t]);
-  const activeSessionId = useGraphStore((s) => selectIDEOverlay(s).activeSessionId);
+  const paneSessionId = useIDEPaneValue((o) => o.activeSessionId);
+  // §5.5 #17-34 — 창을 나눴으면 **이 칸의** 세션, 안 나눴으면 종전대로 창의 활성 세션.
+  const activeSessionId = useSplitCellSession(paneSessionId);
+  // §5.5 #17-34 — 이 본문이 창 단위 단축키(Ctrl+F 검색·Ctrl± 배율)의 임자인가. 분할 중이면 초점 칸만
+  //   참이다(칸마다 window 리스너를 달아 두면 한 번 누른 확대가 칸 수만큼 먹는다).
+  const cellFocused = useSplitCellFocused();
   // 하단 상태바가 "완료"라고 말할지 "실행 중"이라고 말할지의 근거. 입력창의 [중지] 토글과 **같은 훅**을
   //   써서 두 자리가 어긋나지 않게 한다(종전에는 각자 명령 상태만 따로 봐서 갈라졌다).
   const streamSessionRunning = useSessionRunning(agentId, activeSessionId);
@@ -2332,6 +2424,7 @@ export const IDEMainArea = memo(function IDEMainArea({
   //   Ctrl+'0'(또는 Numpad0)=100% 리셋. VS Code·브라우저 관례. IDE 오버레이가 떠 있는 동안(이 컴포넌트 마운트)
   //   window 레벨에서 받아, 휠 줌(위)의 키보드 짝을 이룬다. native 기본 줌은 없지만 안전하게 preventDefault.
   useEffect(() => {
+    if (!cellFocused) return; // §5.5 #17-34 — 분할 중에는 초점 칸 하나만 이 키를 받는다.
     const onKeyZoom = (e: KeyboardEvent): void => {
       if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
       const k = e.key;
@@ -2342,7 +2435,7 @@ export const IDEMainArea = memo(function IDEMainArea({
     };
     window.addEventListener('keydown', onKeyZoom);
     return () => window.removeEventListener('keydown', onKeyZoom);
-  }, [setIdeTextZoom]);
+  }, [setIdeTextZoom, cellFocused]);
   // v3.05 — 바닥 추종의 SSOT 를 "스크롤 의도"(followRef)로 바꾼다. 옛 코드는 virtuoso 의
   //   atBottomStateChange 가 주는 순간 바닥 여부(atBottomRef)로 추종을 판정했는데, 새 메시지/블록이
   //   스트리밍돼 본문이 뷰포트 아래로 자라면 바닥과의 거리가 40px 임계를 넘겨 라이브러리가 곧장
@@ -2491,6 +2584,14 @@ export const IDEMainArea = memo(function IDEMainArea({
             navigator.clipboard.writeText(sel).catch(() => {});
           }
         },
+      },
+      {
+        // §5.5 #17-3 (판올림 번호 발급 대기) — 고른 글자를 기본 브라우저에서 검색.
+        //   창을 여는 길은 이미 있는 것 하나(window.open → Electron main 의 shell.openExternal).
+        label: t('ide.mainArea.ctxSearchWeb'),
+        disabled: !hasSel,
+        disabledTitle: selectionRequired,
+        onClick: () => { openWebSearch(sel); },
       },
       {
         label: t('ide.mainArea.ctxBookmark'),
@@ -3113,6 +3214,7 @@ export const IDEMainArea = memo(function IDEMainArea({
 
   useEffect(() => {
     if (showInteractiveTerminal) return;
+    if (!cellFocused) return; // §5.5 #17-34 — 검색창도 초점 칸에서만 열린다(칸마다 동시에 뜨지 않게).
     const onKey = (e: KeyboardEvent): void => {
       if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'f' || e.key === 'F')) {
         e.preventDefault();
@@ -3122,7 +3224,7 @@ export const IDEMainArea = memo(function IDEMainArea({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [showInteractiveTerminal]);
+  }, [showInteractiveTerminal, cellFocused]);
 
   // v3.14 — 상태바 "프롬프트로 이동" 등 위쪽으로의 점프 전에 추종을 명시 해제(워치독 되끌림 방지).
   const releaseFollowForJump = useCallback(() => {
@@ -3169,7 +3271,9 @@ export const IDEMainArea = memo(function IDEMainArea({
     //   (IDETerminalView 의 TerminalCardSniffer 가 마커 줄을 박스로 대체). 여기선 터미널만 렌더.
     return (
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <IDETerminalView key={activeSessionId ?? 'main'} agentId={agentId} sessionId={activeSessionId} />
+        {/* §4 (CMD ⑤) — 탭 하나가 pane 트리를 갖는다. 분할이 없으면 pane '0' 단일 렌더라
+            종전(IDETerminalView 직접 렌더)과 화면·termId 가 바이트 단위로 같다. */}
+        <IDETerminalPanes key={activeSessionId ?? 'main'} agentId={agentId} sessionId={activeSessionId} />
       </div>
     );
   }

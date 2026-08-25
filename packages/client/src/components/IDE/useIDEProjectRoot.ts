@@ -1,4 +1,5 @@
-import { useGraphStore, selectIDEOverlay } from '../../stores/graphStore.js';
+import { useGraphStore, selectIDEPane } from '../../stores/graphStore.js';
+import { useIDEPaneKey } from './idePane.js';
 
 /**
  * useIDEProjectRoot.ts — §5.5 #17-19 ① / #17-27 — 지금 IDE 가 열려 있는 프로젝트의 **절대 경로**.
@@ -8,8 +9,9 @@ import { useGraphStore, selectIDEOverlay } from '../../stores/graphStore.js';
  * stub 상태(아직 hydrate 전) 프로젝트도 경로는 알고 있으므로 그쪽을 폴백으로 쓴다.
  */
 export function useIDEProjectRoot(): string | null {
+  const paneKey = useIDEPaneKey();
   return useGraphStore((s) => {
-    const name = selectIDEOverlay(s).projectId ?? s.activeProject;
+    const name = selectIDEPane(s, paneKey).projectId ?? s.activeProject;
     if (!name) return null;
     return s.projects[name]?.path ?? s.stubProjects[name]?.project.path ?? null;
   });

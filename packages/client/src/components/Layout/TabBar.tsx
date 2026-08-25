@@ -814,7 +814,12 @@ export function TabBar(): React.JSX.Element | null {
           hasOthers={ctxHasOthers}
           hasLeft={ctxHasLeft}
           hasRight={ctxHasRight}
-          onAction={handleCtxAction}
+          onAction={(action) => {
+            // §5.5 #17-34 — 화면 나누기는 IDE 세션 탭 전용이라 여기선 메뉴 자체가 안 뜬다(showSplit 기본 false).
+            //   도달하지 않지만 타입을 좁히기 위한 가드(detach 선례와 같은 자리).
+            if (action === 'splitRight' || action === 'splitDown') return;
+            handleCtxAction(action);
+          }}
           onClose={() => setCtx(null)}
         />
       )}

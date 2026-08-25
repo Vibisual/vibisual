@@ -142,7 +142,21 @@ class VideoService {
     h().atomicWriteFile(file, JSON.stringify(doc, null, 2));
   }
 
-  createDoc(projectPath: string, title: string): VideoDoc {
+  /**
+   * 문서를 만든다.
+   *
+   * `requestedId` 가 오면 **그 id 로** 만들고, 이미 있으면 만들지 않고 그것을 그대로 돌려준다.
+   * §5.13 (R-3) — 눌러서 연 영상 파일은 경로에서 파생한 안정 id(`file-<해시>`)를 갖는다. 같은
+   * 파일을 다시 누를 때마다 새 문서가 생기면 프로젝트가 문서 무덤이 되므로 그 자리를 여기서 막는다.
+   */
+  createDoc(projectPath: string, title: string, requestedId?: string): VideoDoc {
+    if (requestedId !== undefined && isSafeId(requestedId)) {
+      const existing = this.readDoc(projectPath, requestedId);
+      if (existing) return existing;
+      const reused = createEmptyDoc(requestedId, title);
+      this.writeDoc(projectPath, reused);
+      return reused;
+    }
     const id = `vid-${Date.now().toString(36)}-${(this.seq++).toString(36)}`;
     const doc = createEmptyDoc(id, title);
     this.writeDoc(projectPath, doc);
@@ -290,14 +304,16 @@ export function mountVideoRoutes(app: Express, serverHost: AppServerHost): void 
   });
 
   app.post('/docs', (req, res) => {
-    const body = req.body as { project?: unknown; title?: unknown };
+    const body = req.body as { project?: unknown; title?: unknown; id?: unknown };
     const p = project(body.project);
     if (!p) {
       res.status(404).json({ ok: false, error: 'unknown project' });
       return;
     }
     const title = typeof body.title === 'string' && body.title.trim() !== '' ? body.title.trim() : '새 영상';
-    const doc = videoService.createDoc(p, title);
+    // (R-3) — 파일에서 파생한 안정 id 로 열 때만 온다. 없으면 종전처럼 서버가 새 id 를 붙인다.
+    const requestedId = typeof body.id === 'string' && body.id.trim() !== '' ? body.id.trim() : undefined;
+    const doc = videoService.createDoc(p, title, requestedId);
     res.json({ ok: true, doc });
   });
 

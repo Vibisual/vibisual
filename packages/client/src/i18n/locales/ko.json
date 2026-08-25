@@ -46,6 +46,30 @@
     "setupBanner": {
       "text": "Claude Code가 설치되지 않아 아직 에이전트를 실행할 수 없습니다.",
       "action": "설치하기"
+    },
+    "ideWindows": {
+      "label": "IDE 창",
+      "tooltip": "열린 IDE 창 — 앞으로 가져오기·접기, 또는 버블을 새 창으로 열기",
+      "sectionTitle": "창과 버블",
+      "empty": "이 프로젝트에 에이전트 버블이 없습니다",
+      "hint": "접기는 닫기가 아닙니다 — 화면에서만 내려 캔버스를 돌려줍니다.",
+      "openNew": "새 창으로 열기",
+      "bringToFront": "앞으로 가져오기",
+      "settings": "에이전트 설정",
+      "expand": "펴기",
+      "collapse": "접기",
+      "close": "창 닫기",
+      "state": {
+        "floating": "떠 있음",
+        "collapsed": "접힘"
+      },
+      "side": {
+        "left": "왼쪽",
+        "right": "오른쪽",
+        "top": "위",
+        "bottom": "아래"
+      },
+      "orphan": "버블이 사라진 창"
     }
   },
   "panel": {
@@ -362,6 +386,14 @@
         "trashEmpty": "휴지통이 비어 있습니다 — 정리된 것이 없습니다.",
         "restore": "되돌리기",
         "restoring": "되돌리는 중…"
+      },
+      "advanced": {
+        "terminalScrollback": "터미널 스크롤백 (줄)",
+        "terminalScrollbackDesc": "CMD 터미널이 보관하는 출력 줄 수입니다. 화면 스크롤과 Ctrl+F 검색이 같은 범위를 씁니다. 새로 여는 터미널부터 적용됩니다."
+      },
+      "notifications": {
+        "cmdBlocked": "CMD 세션이 입력을 기다리면 알림",
+        "cmdBlockedDesc": "다른 탭·다른 창을 보고 있을 때만 알립니다. 창이 포커스돼 있으면 화면에 이미 보이므로 띄우지 않습니다."
       }
     },
     "autoAgent": {
@@ -853,6 +885,26 @@
         "latest": "최신 (별칭)",
         "latestWith": "최신 ({{id}})",
         "custom": "커스텀…"
+      },
+      "local": {
+        "noModel": "아직 모델을 고르지 않았습니다",
+        "modelTip": "이 버블이 말할 때 쓰는 로컬 모델입니다. 바꾸면 다음 턴부터 그 모델이 답합니다.",
+        "switchModel": "모델 바꾸기",
+        "pickModel": "모델 고르기",
+        "temperature": "온도",
+        "temperatureTip": "낮으면 또박또박 같은 답을, 높으면 더 자유로운 답을 냅니다. 비워 두면 엔진 기본값을 씁니다.",
+        "temperatureDefault": "엔진 기본값",
+        "toolsTip": "로컬 모델에게는 아래 도구가 통째로 갑니다(고르는 목록이 아닙니다). 실행 직전에는 위 권한 모드와 승인 팝업이 클로드 버블과 똑같이 걸립니다.",
+        "toolsOk": "이 모델은 도구를 씁니다 — 파일을 읽고 고칠 수 있습니다.",
+        "toolsNone": "이 모델은 도구를 못 씁니다 — 대화만 합니다.",
+        "toolsUnknown": "아직 확인 전입니다 — 다음 턴에 도구를 실어 보내 확인합니다.",
+        "toolsRecheck": "다시 확인"
+      },
+      "cliKind": {
+        "label": "CLI",
+        "tip": "이 CMD 터미널이 띄울 에이전트 CLI 입니다. Claude Code 외에는 우리 훅의 자식이 아니라 대화 이어받기·규칙 주입이 붙지 않고, 상태는 터미널 출력에서 읽습니다.",
+        "nonClaudeNote": "이 CLI 는 Claude Code 가 아니라 아래 설정(모델·권한·도구·규칙)이 전달되지 않습니다. 상태는 터미널 출력으로 읽습니다. 바꾼 값은 \"+\" 로 연 새 세션부터 적용됩니다.",
+        "applyNote": "바꾼 CLI 는 \"+\" 로 연 새 세션부터 적용됩니다(이미 떠 있는 터미널은 그대로)."
       }
     },
     "permissionPrompt": {
@@ -1273,6 +1325,18 @@
         "pinHint": "켜면 Delete 키·삭제로 지워지지 않습니다.",
         "deleteBubble": "이 버블 삭제",
         "deleteHint": "Delete 키로도 지울 수 있습니다. 앱은 지워지지 않습니다."
+      },
+      "vibistudio": {
+        "name": "Vibistudio",
+        "desc": "영상 타임라인 편집과 렌더"
+      },
+      "vibisound": {
+        "name": "Vibisound",
+        "desc": "소리 자르고 다듬는 심플한 편집기"
+      },
+      "vibi3d": {
+        "name": "Vibi3D",
+        "desc": "3D 모델을 앱 안에서 돌려 보기"
       }
     },
     "videoStudio": {
@@ -1367,6 +1431,63 @@
       "emptyHint": "에이전트가 실행하는 모든 도구 호출이 여기에 기록됩니다 — 무엇을 건드렸는지, 어떻게 응답했는지.",
       "promptRiskTitle": "위험한 작업",
       "promptEscalatedHint": "권한 모드라면 자동으로 허용됐겠지만, 감사 경계가 먼저 확인을 요청합니다."
+    },
+    "vibisound": {
+      "title": "Vibisound",
+      "noFile": "음악 파일을 눌러 열면 여기서 다듬습니다 — 탐색기나 대화 본문에서 mp3·wav 파일을 눌러 보세요.",
+      "decodeFailed": "이 형식은 브라우저가 읽지 못합니다. 연결 프로그램으로 열어 주세요.",
+      "loading": "소리를 읽는 중…",
+      "play": "재생",
+      "stop": "정지",
+      "toStart": "처음으로",
+      "loop": "구간 반복",
+      "cropSelection": "선택만 남기기",
+      "deleteSelection": "선택 지우기",
+      "silence": "선택 음소거",
+      "fadeIn": "페이드 인",
+      "fadeOut": "페이드 아웃",
+      "louder": "크게 +25%",
+      "quieter": "작게 −20%",
+      "undo": "되돌리기",
+      "exportWav": "WAV 로 내보내기",
+      "saving": "저장 중…",
+      "saved": "저장했습니다 — {{path}}",
+      "saveFailed": "저장하지 못했습니다.",
+      "needSelection": "먼저 파형에서 구간을 끌어 선택해 주세요.",
+      "selectionInfo": "선택 {{from}} → {{to}} ({{len}})",
+      "selectHint": "파형을 끌어 구간을 고르면 편집 버튼이 켜집니다",
+      "openExternal": "연결 프로그램으로 열기"
+    },
+    "vibi3d": {
+      "title": "Vibi3D",
+      "noFile": "3D 파일을 눌러 열면 여기서 돌려 봅니다 — 탐색기나 대화 본문에서 glb·obj·stl 파일을 눌러 보세요.",
+      "parseFailed": "이 파일을 읽지 못했습니다. 연결 프로그램으로 열어 주세요.",
+      "loading": "모델을 읽는 중…",
+      "frame": "화면에 맞추기",
+      "wireframe": "와이어프레임",
+      "grid": "격자",
+      "spin": "자동 회전",
+      "background": "밝은 배경",
+      "openExternal": "연결 프로그램으로 열기",
+      "vertices": "정점 {{n}}",
+      "triangles": "삼각형 {{n}}",
+      "dragHint": "끌어서 돌리고, 휠로 확대합니다",
+      "viewOnly": "보기 전용"
+    },
+    "mediaConvert": {
+      "videoIntro": "이 영상 형식은 앱 안에서 바로 열 수 없습니다. 포장만 바꾸면(화질 손실 없이) 우리 편집기에서 열립니다.",
+      "audioIntro": "이 소리 형식은 앱 안에서 바로 열 수 없습니다. WAV 로 바꾸면 우리 편집기에서 열립니다.",
+      "needTool": "변환기(ffmpeg)가 필요합니다 — 한 번만 설치하면 다음부터는 바로 열립니다.",
+      "needToolManual": "변환기(ffmpeg)가 필요합니다. 설치한 뒤 다시 눌러 주세요.",
+      "convert": "앱 안에서 보기",
+      "install": "변환기 설치",
+      "openExternal": "연결 프로그램으로 열기",
+      "cancel": "닫기",
+      "converting": "변환 중… {{percent}}%",
+      "convertingStart": "변환을 시작했습니다…",
+      "opening": "편집기에서 여는 중…",
+      "installing": "변환기를 설치하는 중… 처음 한 번만 걸립니다.",
+      "failed": "변환하지 못했습니다. 연결 프로그램으로 열어 주세요."
     }
   },
   "ide": {
@@ -1429,13 +1550,25 @@
       "maximizeLabel": "최대화",
       "restoreLabel": "복원",
       "resizeDock": "독 크기 조정",
+      "dockMenuLabel": "창 붙이기",
+      "dockLeft": "왼쪽에 붙이기",
+      "dockRight": "오른쪽에 붙이기",
+      "dockTop": "위쪽에 붙이기",
+      "dockBottom": "아래쪽에 붙이기",
+      "undockLabel": "떼어 내기",
       "customLabel": "커스텀",
       "cmdLabel": "CMD",
       "hookLabel": "Hook",
       "renameHint": "더블클릭하여 이름 변경 (F2)",
       "renameInputLabel": "에이전트 이름",
       "localLabel": "All Model",
-      "localSwitchModel": "이 버블이 쓸 모델 바꾸기"
+      "localSwitchModel": "이 버블이 쓸 모델 바꾸기",
+      "localContextUsed": "대화 창 {{used}} / {{limit}} 토큰 ({{percent}}%) — 넘치면 오래된 말부터 덜어 냅니다",
+      "agentSettings": "에이전트 설정",
+      "collapseLabel": "접기",
+      "collapseHint": "접기 — 창은 그대로 두고 캔버스를 돌려줍니다(헤더 [창] 목록에서 다시 펴기)",
+      "resizeWindow": "창 크기 조절",
+      "resizeStack": "분할 비율 조절"
     },
     "tabbar": {
       "newSession": "새 세션",
@@ -1475,7 +1608,12 @@
         "clear": "카드 비우기",
         "collapse": "카드 접기",
         "expand": "카드 보기"
-      }
+      },
+      "splitRight": "오른쪽으로 분할",
+      "splitDown": "아래로 분할",
+      "zoom": "이 창만 크게",
+      "unzoom": "원래 배치로",
+      "closePane": "이 창 닫기"
     },
     "mainArea": {
       "scrollPrompt": "프롬프트로 이동",
@@ -1513,6 +1651,7 @@
       "slashEmpty": "일치하는 스킬 없음",
       "slashLoading": "스킬 불러오는 중…",
       "ctxCopy": "복사",
+      "ctxSearchWeb": "웹에서 검색",
       "ctxBookmark": "북마크",
       "ctxQuoteReply": "인용 답글",
       "ctxSendAsPrompt": "새 명령으로 전송",
@@ -1609,6 +1748,7 @@
       "debugMode": "디버그 모드",
       "debugModeHint": "같은 명령에 디버거가 붙을 수 있는 인자를 얹어 실행합니다.",
       "configs": "실행 구성",
+      "adhocRuns": "본문에서 실행",
       "noConfigs": "실행 구성을 찾지 못했습니다. .vscode/launch.json, package.json scripts, .vibisual/run.json 중 한 곳에 추가하세요. 언리얼 프로젝트(.uproject)는 자동으로 인식합니다.",
       "scanned": "읽은 파일: {{files}}",
       "run": "실행",
@@ -1945,7 +2085,11 @@
       "showLess": "접기",
       "pathLink": {
         "openFile": "편집창에서 열기 — {{path}}",
-        "openFolder": "폴더 열기 — {{path}}"
+        "openFolder": "폴더 열기 — {{path}}",
+        "runProgram": "프로그램 실행 — {{path}}",
+        "runFailed": "실행을 시작하지 못했습니다 — 이 창에는 터미널이 없습니다.",
+        "openApp": "{{app}} 에서 열기 — {{path}}",
+        "openExternal": "연결 프로그램으로 열기 — {{path}}"
       },
       "restartResumed": "앱이 내려가며 끊겼고, 보존된 세션으로 이어서 재개했습니다."
     },
@@ -2129,6 +2273,7 @@
       "exitUnknown": "Claude CLI 가 예기치 않게 종료됐습니다",
       "crash": "세션 프로세스가 예기치 않게 죽었습니다 (코드 {{code}})",
       "crashUnknown": "세션 프로세스가 예기치 않게 죽었습니다",
+      "local": "로컬 모델 실행이 실패했습니다",
       "cli": "Claude CLI 가 실패를 알렸습니다",
       "maxTurns": "최대 턴 제한에 닿아 중단됐습니다",
       "agentView": "에이전트 실행이 실패로 끝났습니다",
@@ -2637,6 +2782,18 @@
         "this-project": "이 프로젝트에만 깔려 여기서 띄우는 세션에 실립니다.",
         "other-project": "깔려 있지만 다른 프로젝트에 매여 있어 이 세션에는 실리지 않습니다."
       }
+    },
+    "split": {
+      "closeCell": "칸 닫기",
+      "reset": "분할 해제",
+      "previewSplit": "여기에 나눠 붙이기",
+      "previewReplace": "이 칸에 열기",
+      "limit": "칸은 최대 {{count}}개까지",
+      "dragHint": "끌어서 자리 옮기기",
+      "resizeHint": "끌어서 크기 조절 · 더블클릭하면 균등",
+      "foreignSession": "다른 버블의 세션입니다",
+      "tooSmall": "더 나누기엔 너무 좁습니다",
+      "alreadyHere": "이미 이 칸에 있습니다"
     }
   },
   "bubbleMap": {
@@ -2879,7 +3036,9 @@
     "unsetDefault": "기본값 해제",
     "defaultTooltip": "마지막 활성 탭을 복원할 수 없을 때 기본 탭이 자동으로 열립니다.",
     "detach": "새 창으로 분리",
-    "rename": "이름 변경"
+    "rename": "이름 변경",
+    "splitRight": "오른쪽으로 나누기",
+    "splitDown": "아래로 나누기"
   },
   "overlay": {
     "sendToOverlay": "이 버블을 항상 위에 뜨는 데스크톱 위젯으로 빼냅니다",
@@ -3496,6 +3655,34 @@
     "stepModel": "모델",
     "stepIde": "IDE",
     "useModelStart": "이 모델로 시작",
-    "opensIdeHint": "받기가 끝나면 이 버블의 IDE 가 바로 열립니다."
+    "opensIdeHint": "받기가 끝나면 이 버블의 IDE 가 바로 열립니다.",
+    "contextTitle": "대화 창 크기",
+    "contextUnit": "토큰",
+    "contextApply": "적용",
+    "contextHint": "길수록 더 오래 기억하지만 메모리를 더 쓰고 느려집니다. 모델이 학습된 길이보다 크게 잡으면 그 길이로 낮춰서 씁니다. 바꾼 값은 이 모델을 다음에 올릴 때부터 적용됩니다.",
+    "usageTitle": "이 대화에서 쓴 토큰",
+    "usageLine": "읽음 {{in}} · 씀 {{out}}",
+    "fitGpu": "GPU 로 빠르게",
+    "fitRam": "메모리로 느리게",
+    "fitTooBig": "이 PC 로는 무리",
+    "statDownloads": "내려받기",
+    "statLikes": "하트",
+    "statTrending": "요즘 인기",
+    "sortDownloads": "많이 받은 순",
+    "sortLikes": "하트순",
+    "sortTrending": "요즘 뜨는 순",
+    "sortRecent": "최근 갱신순",
+    "runnableOnly": "이 PC 에서 되는 것만",
+    "topQuantHint": "많이 쓰이는 순",
+    "showAllQuants": "나머지 {{count}}개 모두 보기",
+    "showFewerQuants": "많이 쓰이는 것만 보기",
+    "noRunnableFiles": "이 저장소에는 이 PC 에서 돌릴 수 있는 것이 없습니다 — 위의 걸러 내기를 끄면 전부 보입니다.",
+    "partCount": "{{count}}조각",
+    "missingParts": "조각 {{total}}개 중 {{missing}}개가 없어 쓸 수 없습니다 — 다시 받아 주세요",
+    "companionFile": "본체 모델이 아니라 부속 파일입니다 — 혼자서는 돌지 않습니다",
+    "outputBroken": "지금 엔진으로는 뜻 있는 말을 내지 못했습니다 — 다른 모델을 권합니다",
+    "archUnsupported": "지금 엔진으로는 안 됩니다",
+    "hardwareGpu": "{{device}} · 여유 {{vram}} · 램 {{ram}}",
+    "hardwareCpu": "가속 장치 없음 · 램 {{ram}}"
   }
 }

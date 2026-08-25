@@ -54,6 +54,50 @@ function isDirEntry(dirent: fs.Dirent, absPath: string): boolean {
 }
 
 /**
+ * §5.5 #17-27 ⑬ (h) — Windows 에서 **누르면 그대로 도는** 확장자.
+ *
+ * `.msi`(설치 마법사)·`.ps1`(연결 프로그램이 편집기인 경우가 흔하다)은 일부러 뺐다 —
+ * 본문의 경로를 눌렀을 때 벌어질 일이 사용자의 예상과 갈리는 것들이다.
+ */
+const WIN_EXECUTABLE_EXT = new Set(['.exe', '.com', '.bat', '.cmd']);
+
+/**
+ * POSIX 에서 **실행 비트가 서 있을 때만** 실행으로 볼 확장자(`''` = 확장자 없음).
+ *
+ * 실행 비트 하나만으로 판정하지 않는 이유는 트리마다 그 비트의 뜻이 다르기 때문이다 —
+ * NTFS 마운트·`umask` 설정에 따라 저장소의 **모든 파일**이 `755` 로 보이는 트리가 흔하고,
+ * 그러면 본문의 `App.tsx` 까지 실행 손잡이가 된다(⑬ (b) 가 막으려던 "가짜 손잡이" 가
+ * 실행이라는 더 나쁜 형태로 돌아온다). 진짜 실행 파일은 POSIX 에서 확장자가 없거나 이 목록 안이다.
+ */
+const POSIX_EXECUTABLE_EXT = new Set(['', '.sh', '.command', '.appimage', '.bin', '.run']);
+
+/** `fs.Stats` 중 이 판정에 필요한 부분만 — 테스트가 실제 파일 없이 표를 짤 수 있게. */
+export interface ExecutableStatLike {
+  isDirectory(): boolean;
+  mode: number;
+}
+
+/**
+ * §5.5 #17-27 ⑬ (h) — 이 경로를 **눌러서 실행할 수 있는가**.
+ *
+ * 화면이 아니라 여기서 정하는 이유는 규칙이 플랫폼마다 갈리기 때문이다 — 클라이언트가 글자 모양으로
+ * 흉내 내면 같은 판정이 두 벌이 되고, 둘 중 하나는 반드시 뒤처진다(⑬ (b)(c) 와 같은 판단).
+ * 참이면 화면은 편집창·탐색기 대신 #17-20 ④ 실행 세션으로 간다.
+ */
+export function isExecutableWorkspacePath(
+  absPath: string,
+  st: ExecutableStatLike,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  const ext = path.extname(absPath).toLowerCase();
+  if (platform === 'win32') return !st.isDirectory() && WIN_EXECUTABLE_EXT.has(ext);
+  // macOS 앱 번들은 폴더지만 실행이다 — `open` 이 받는 단위가 바로 이 폴더다.
+  if (st.isDirectory()) return platform === 'darwin' && ext === '.app';
+  if ((st.mode & 0o111) === 0) return false;
+  return POSIX_EXECUTABLE_EXT.has(ext);
+}
+
+/**
  * §5.5 #17-27 ⑬ — 경로 **한 개**의 정체(파일/폴더)를 잰다. 없거나 루트 밖이면 null.
  *
  * 스트림 본문에 적힌 경로가 진짜인지, 진짜라면 편집창으로 열지 탐색기로 열지 가르는 유일한 판정이다.
@@ -71,6 +115,8 @@ export function statWorkspacePath(root: string, relPath: string): WorkspacePathI
       path: resolved.rel,
       absPath: resolved.abs,
       kind: st.isDirectory() ? 'directory' : 'file',
+      // (h) — 실행할 수 있는 것이면 화면은 열지 않고 **실행**으로 간다.
+      executable: isExecutableWorkspacePath(resolved.abs, st),
     };
   } catch {
     // 없음·권한 없음·끊긴 링크 — 셋 다 "열 수 없다" 로 같다(호출부가 404 로 옮긴다).
@@ -118,6 +164,8 @@ export function listWorkspaceDir(
         const st = fs.statSync(abs);
         entry.size = st.size;
         entry.mtimeMs = st.mtimeMs;
+        // (R-7) — 탐색기에서 누른 것과 본문에서 누른 것이 같은 곳으로 가야 한다(같은 판정 함수).
+        if (isExecutableWorkspacePath(abs, st)) entry.executable = true;
       } catch { /* 크기·시각 없이 표시 */ }
     }
     entries.push(entry);

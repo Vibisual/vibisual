@@ -1,4 +1,4 @@
-import type { AgentProvider, LocalEngineBackend, BubbleType, BubbleStyleConfig, EdgeStyleConfig, AgentRole, PipelineChildConfig, PipelineType, AgentConfig, TaskEdgeTemplate, TaskEdgeKind, UiLocale, AutoAgentRole, AutoAgentTemplate, ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry, AgentFeedback, BrainTopicDef, BrainTopicIndexEntry, BrainCardType, BrainAuthority, StreamDensity, PluginContributionKind, SessionGoalStepStatus, CommandDispatchMode, RunRuntime, RunConfig, McpServerPreset, AgentMemoryScope, DebugAdapterSpec, ProblemMatch, ProblemSeverity, RetentionSettings, PreviewDevicePreset, ShelfIconName, ShelfItemKind, CostPeriod, CostTotals, CostPeriodTotals, AuditRiskKind, AuditBoundaryConfig, AuditCounts, StoryboardPresetId, StoryboardPreset } from './types.js';
+import type { AgentProvider, LocalEngineBackend, BubbleType, BubbleStyleConfig, EdgeStyleConfig, AgentRole, PipelineChildConfig, PipelineType, AgentConfig, TaskEdgeTemplate, TaskEdgeKind, UiLocale, AutoAgentRole, AutoAgentTemplate, ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry, AgentFeedback, BrainTopicDef, BrainTopicIndexEntry, BrainCardType, BrainAuthority, StreamDensity, PluginContributionKind, SessionGoalStepStatus, CommandDispatchMode, CommandErrorCode, RunRuntime, RunConfig, McpServerPreset, AgentMemoryScope, DebugAdapterSpec, ProblemMatch, ProblemSeverity, RetentionSettings, PreviewDevicePreset, ShelfIconName, ShelfItemKind, CostPeriod, CostTotals, CostPeriodTotals, AuditRiskKind, AuditBoundaryConfig, AuditCounts, StoryboardPresetId, StoryboardPreset, LocalModelCatalogSort, WorkspacePathKind, CmdPaneNode } from './types.js';
 export type { ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry } from './types.js';
 
 // ─── UI 다국어 (i18n) ───
@@ -610,6 +610,227 @@ export function isWorkspaceImageBakeable(filePath: string): boolean {
 /** 확장자에 맞는 MIME. 표에 없으면 `application/octet-stream`. */
 export function workspaceImageMime(filePath: string): string {
   return WORKSPACE_IMAGE_MIME_BY_EXT[workspaceFileExt(filePath)] ?? 'application/octet-stream';
+}
+
+// ─── §5.13 (R) — 워크스페이스 파일 하나를 **무엇으로 여는가** ───────────────────
+//
+// 클릭 지점은 여럿이다(스트림 본문의 경로 손잡이 · 탐색기 · 편집한 파일 목록). 그 자리마다
+// 자기 판정을 들면 같은 파일이 자리마다 다르게 열린다 — 그래서 갈림은 아래 함수 **하나**다.
+//
+// 그리고 **확장자와 앱의 대응표를 코어가 들지 않는다**(§5.13 (R-1) · (P) 독립 규약). 표를
+// 여기 적으면 앱이 늘 때마다 코어가 바뀐다. 앱이 "나는 이 확장자를 연다"고 선언한 것을
+// 인자로 받아 훑을 뿐이라, 앱이 몇 개로 늘어도 이 파일은 그대로다.
+
+/** 파일·폴더 하나를 눌렀을 때 갈리는 일곱 갈래. */
+export type WorkspaceOpenAction =
+  /** 내장 텍스트 편집창(§5.5 #17-27 ②). */
+  | 'editor'
+  /** 내장 그림 미리보기(⑭). */
+  | 'image'
+  /** 내장 PDF 뷰어(Chromium 이 싣고 다니는 것을 그대로 쓴다). */
+  | 'pdf'
+  /** 내부 앱 창(§5.13 — 영상·음악·3D). */
+  | 'app'
+  /** 변환한 뒤 내부 앱 창((R-8) — 우리 엔진이 못 읽는 영상·소리). */
+  | 'convert'
+  /** 실행 세션(⑬ (h)). */
+  | 'run'
+  /** OS 연결 프로그램(⑬ (i) · §5.13 (R-6)). */
+  | 'external'
+  /** 시스템 탐색기 — 폴더. */
+  | 'folder';
+
+/** 앱이 스스로 선언하는 "내가 여는 확장자"(소문자, 마침표 포함). */
+export interface WorkspaceOpenAppClaim {
+  readonly appId: string;
+  readonly opens: readonly string[];
+}
+
+/** 어디로 보낼지 + (앱이면) 어느 앱인지. */
+export interface WorkspaceOpenPlan {
+  readonly action: WorkspaceOpenAction;
+  /** `action === 'app'` 일 때만 있다. */
+  readonly appId?: string;
+  /** `action === 'convert'` 일 때 — 변환 결과가 영상인지 소리인지((R-8)). */
+  readonly convertTo?: MediaConvertKind;
+}
+
+/** 내장 PDF 뷰어가 받는 확장자. */
+export const WORKSPACE_PDF_EXTENSIONS: readonly string[] = ['.pdf'];
+
+/**
+ * **우리가 흉내 내지 않는 것들** — OS 연결 프로그램으로 넘긴다(§5.13 (R-6)).
+ *
+ * 압축을 우리 안에서 풀어 보여 주거나 폰트 미리보기를 그리는 일은 이 앱이 할 일이 아니다.
+ * 브라우저가 디코드하지 못하는 미디어(mkv·avi·wma…)도 여기 있다 — 우리 창에서 못 여는 것을
+ * 우리 창으로 보내면 "눌렀더니 검은 화면"이 되므로, 열 수 있는 프로그램에게 그대로 넘긴다.
+ *
+ * **`.ts` 는 여기 없다** — 영상 컨테이너이기도 하지만 이 저장소에서는 압도적으로 TypeScript 다.
+ */
+export const WORKSPACE_EXTERNAL_EXTENSIONS: readonly string[] = [
+  // 압축·패키지
+  '.zip', '.7z', '.rar', '.tar', '.gz', '.tgz', '.bz2', '.tbz2', '.xz', '.txz', '.zst', '.lz', '.lz4', '.lzma',
+  '.cab', '.iso', '.dmg', '.deb', '.rpm', '.apk', '.jar', '.war', '.whl', '.nupkg', '.msix', '.msi', '.pkg', '.xpi', '.crx', '.zipx',
+  // 폰트
+  '.ttf', '.otf', '.ttc', '.woff', '.woff2', '.eot', '.fon', '.fnt',
+  // 오피스·전자책 — 우리가 그리지 않는 문서
+  '.doc', '.docx', '.docm', '.odt', '.rtf', '.hwp', '.hwpx', '.pages', '.wpd', '.wps', '.msg',
+  '.xls', '.xlsx', '.xlsm', '.ods', '.numbers', '.ppt', '.pptx', '.pptm', '.odp', '.key',
+  '.epub', '.mobi', '.azw3', '.djvu', '.xps', '.one',
+  // 데이터·DB
+  '.db', '.sqlite', '.sqlite3', '.mdb', '.accdb', '.parquet', '.pdb', '.dbf',
+  // 영상·소리는 여기 없다 — (R-8) 이 가져갔다(변환하면 우리 안에서 열리므로).
+  //   단 **mid·midi 만 예외**로 남는다: 악보라서 변환으로도 소리가 되지 않는다(신시사이저가 필요).
+  '.mid', '.midi',
+  // 디자인 원본·우리가 안 그리는 이미지
+  '.psd', '.psb', '.ai', '.eps', '.tif', '.tiff', '.heic', '.heif', '.raw', '.cr2', '.cr3', '.nef', '.arw',
+  '.dng', '.orf', '.rw2', '.xcf', '.sketch', '.fig', '.dds', '.tga', '.exr', '.hdr',
+  // 엔진·3D 저작 원본(뷰어가 못 읽는 것)
+  '.uasset', '.umap', '.ubulk', '.uexp', '.blend', '.max', '.ma', '.mb', '.c4d', '.bank', '.upk',
+  // 바로가기
+  '.lnk', '.appref-ms', '.jnlp',
+];
+
+/** 미디어 스트리밍 응답의 Content-Type. 표에 없으면 application/octet-stream. */
+export const WORKSPACE_MEDIA_MIME_BY_EXT: Readonly<Record<string, string>> = {
+  '.mp4': 'video/mp4',
+  '.m4v': 'video/mp4',
+  '.mov': 'video/quicktime',
+  '.webm': 'video/webm',
+  '.ogv': 'video/ogg',
+  '.mp3': 'audio/mpeg',
+  '.wav': 'audio/wav',
+  '.flac': 'audio/flac',
+  '.m4a': 'audio/mp4',
+  '.aac': 'audio/aac',
+  '.ogg': 'audio/ogg',
+  '.oga': 'audio/ogg',
+  '.opus': 'audio/opus',
+  '.weba': 'audio/webm',
+  '.pdf': 'application/pdf',
+  '.glb': 'model/gltf-binary',
+  '.gltf': 'model/gltf+json',
+  '.obj': 'text/plain',
+  '.mtl': 'text/plain',
+  '.stl': 'application/octet-stream',
+  '.ply': 'application/octet-stream',
+  '.fbx': 'application/octet-stream',
+  '.dae': 'model/vnd.collada+xml',
+  '.3mf': 'model/3mf',
+};
+
+/**
+ * 편집 결과(음악 내보내기 등)를 프로젝트 안에 쓸 때의 상한(bytes).
+ *
+ * 읽기(스트리밍)에는 상한이 없다 — 구간 요청이라 파일이 아무리 커도 메모리에 다 올라오지 않는다.
+ * 쓰기만 막는 이유는 본문이 통째로 메모리를 지나기 때문이다. WAV 는 분당 약 10MB 이므로 이 값이면
+ * 한 시간짜리도 들어간다.
+ */
+export const WORKSPACE_MEDIA_MAX_BYTES = 768_000_000;
+
+/** 확장자에 맞는 미디어 MIME. */
+export function workspaceMediaMime(filePath: string): string {
+  return WORKSPACE_MEDIA_MIME_BY_EXT[workspaceFileExt(filePath)] ?? 'application/octet-stream';
+}
+
+// ─── §5.13 (R-8) — 못 읽는 영상·소리는 **변환해서** 우리 안에서 연다 ─────────────
+//
+// 코덱을 받는 것이 아니다. Chromium 은 시스템 코덱을 쓰지 않으므로(실측: `.avi` 는
+// `DEMUXER_ERROR_COULD_NOT_OPEN`) 코덱팩을 깔아도 우리 창에서는 아무 일도 일어나지 않는다.
+// 대신 **ffmpeg 으로 포장을 바꿔** 우리 엔진이 읽는 형식으로 만든다 — 영상은 리먹스(`-c copy`)가
+// 먼저라 25MB 가 0.073초에 끝나고 화질도 그대로다(실측).
+
+/**
+ * 변환하면 우리 영상 앱이 여는 컨테이너.
+ *
+ * **mkv 는 여기 없다** — 동봉 ffmpeg 에 Matroska 데먹서가 있어 그냥 열린다(H.264-in-MKV 실측 확인).
+ * 여기 있는 것들은 데먹서 자체가 빠져 있어 포장을 바꿔야 하는 것들이다.
+ */
+export const WORKSPACE_CONVERT_VIDEO_EXTENSIONS: readonly string[] = [
+  '.avi', '.divx', '.wmv', '.asf', '.flv', '.f4v', '.mpg', '.mpeg', '.mpe', '.m2v',
+  '.m2ts', '.vob', '.rm', '.rmvb', '.mxf', '.ogm',
+  // **.ts·.mts 는 일부러 없다** — MPEG 전송 스트림이기도 하지만 이 저장소에서는 TypeScript 다.
+  //   영상 하나를 살리려고 소스 파일 전부를 변환기로 보낼 수는 없다(테스트가 이 자리를 지킨다).
+];
+
+/**
+ * 변환하면 우리 음악 편집기가 여는 소리 형식.
+ *
+ * WAV(PCM)로 뽑으므로 편집기가 그대로 받아 자르고 다시 내보낸다. **mid·midi 는 여기 없다** —
+ * 악보라서 디코딩이 아니라 신시사이저가 필요하고, ffmpeg 도 소리를 만들지 못한다.
+ */
+export const WORKSPACE_CONVERT_AUDIO_EXTENSIONS: readonly string[] = [
+  '.wma', '.aiff', '.aif', '.au', '.ape', '.amr', '.dsf', '.dff', '.ra', '.mka', '.wv', '.tta', '.mpc',
+];
+
+/** 변환 결과가 어느 앱으로 가는가. */
+export type MediaConvertKind = 'video' | 'audio';
+
+/** 변환 산출물이 놓이는 폴더(프로젝트 루트 기준). 지워도 안전한 파생물이다. */
+export const MEDIA_CACHE_DIR = '.vibisual/media-cache';
+
+/** 문자열 → 32비트 해시(FNV-1a). 캐시 이름을 만드는 데만 쓰므로 암호학적 강도가 필요 없다. */
+function mediaHash(input: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < input.length; i += 1) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, '0');
+}
+
+/**
+ * §5.13 (R-8) (d) — 변환 결과의 자리.
+ *
+ * 키에 **크기와 수정 시각**을 넣는 이유는 원본이 바뀌면 캐시가 저절로 빗나가야 하기 때문이다.
+ * 같은 파일을 다시 누르면 같은 이름이 나오므로 두 번째부터는 변환 없이 즉시 열린다.
+ */
+export function mediaCacheRelPath(
+  relPath: string,
+  size: number,
+  mtimeMs: number,
+  kind: MediaConvertKind,
+): string {
+  const name = relPath.replace(/\\/g, '/').split('/').filter((p) => p.length > 0).pop() ?? 'media';
+  const base = (name.includes('.') ? name.slice(0, name.lastIndexOf('.')) : name)
+    // 파일 이름에 쓸 수 없는 글자만 걷어낸다(한글·공백은 그대로 둔다 — 사람이 찾을 수 있어야 한다).
+    .replace(/[\\/:*?"<>|]/g, '_')
+    .slice(0, 60);
+  const key = mediaHash(`${relPath.replace(/\\/g, '/')}|${size}|${Math.round(mtimeMs)}`);
+  return `${MEDIA_CACHE_DIR}/${base}-${key}${kind === 'video' ? '.mp4' : '.wav'}`;
+}
+
+/**
+ * §5.13 (R-1) — 이 파일을 **어디로 보낼 것인가**. 클릭 지점 전부의 유일한 갈림길.
+ *
+ * 순서에 뜻이 있다:
+ *   ① 실행할 수 있으면 실행이 먼저다 — macOS `.app` 은 폴더이면서 실행이라 폴더 판정보다 앞서야 한다.
+ *   ② 폴더는 탐색기.
+ *   ③ **앱이 받겠다고 선언한 확장자**는 그 앱으로(코어는 어떤 앱인지 모른다).
+ *   ④ 그림 · PDF 는 우리 안에서 본다. `.svg` 는 예외 — 텍스트라 편집창에서 여는 것이 종전이자 더 쓸모 있다.
+ *   ⑤ 우리가 다룰 이유가 없는 것은 연결 프로그램.
+ *   ⑥ 나머지는 전부 편집창(모르는 확장자를 바깥으로 던지지 않는다 — 텍스트일 가능성이 가장 크다).
+ */
+export function resolveWorkspaceOpen(args: {
+  readonly relPath: string;
+  readonly kind: WorkspacePathKind;
+  readonly executable?: boolean;
+  readonly apps?: readonly WorkspaceOpenAppClaim[];
+}): WorkspaceOpenPlan {
+  if (args.executable === true) return { action: 'run' };
+  if (args.kind === 'directory') return { action: 'folder' };
+
+  const ext = workspaceFileExt(args.relPath);
+  for (const claim of args.apps ?? []) {
+    if (claim.opens.includes(ext)) return { action: 'app', appId: claim.appId };
+  }
+  if (ext !== '.svg' && WORKSPACE_IMAGE_EXTENSIONS.includes(ext)) return { action: 'image' };
+  if (WORKSPACE_PDF_EXTENSIONS.includes(ext)) return { action: 'pdf' };
+  // (R-8) — 변환하면 우리 안에서 열리는 것들. 연결 프로그램보다 먼저 본다.
+  if (WORKSPACE_CONVERT_VIDEO_EXTENSIONS.includes(ext)) return { action: 'convert', convertTo: 'video' };
+  if (WORKSPACE_CONVERT_AUDIO_EXTENSIONS.includes(ext)) return { action: 'convert', convertTo: 'audio' };
+  if (WORKSPACE_EXTERNAL_EXTENSIONS.includes(ext)) return { action: 'external' };
+  return { action: 'editor' };
 }
 
 // ─── 위성(satellite) 상한 ───
@@ -1285,6 +1506,270 @@ export const AVAILABLE_EXECUTION_MODES = [
 ] as const;
 
 /**
+ * §4 (CMD 터미널 업그레이드 ⑧) — CMD 버블이 띄울 수 있는 에이전트 CLI 표.
+ *
+ * `bin` = 셸에 prefill 될 실행 파일명(빈 문자열 = 아무것도 넣지 않는 순수 셸),
+ * `managed` = **우리 훅의 자식으로 다루는지** — true 일 때만 rules `--add-dir`·`--resume`·
+ * 소유자 태그·카드 토큰 env 를 붙인다. 새 CLI 지원은 이 표에 한 줄 추가로 끝난다(§3.3).
+ */
+export const CMD_CLI_KINDS = [
+  { value: 'claude', bin: 'claude', managed: true, label: 'Claude Code' },
+  { value: 'codex', bin: 'codex', managed: false, label: 'Codex CLI' },
+  { value: 'gemini', bin: 'gemini', managed: false, label: 'Gemini CLI' },
+  { value: 'cursor', bin: 'cursor-agent', managed: false, label: 'Cursor Agent' },
+  { value: 'opencode', bin: 'opencode', managed: false, label: 'OpenCode' },
+  { value: 'aider', bin: 'aider', managed: false, label: 'Aider' },
+  { value: 'shell', bin: '', managed: false, label: 'Shell only' },
+] as const;
+
+/** `CMD_CLI_KINDS` 에서 한 줄을 꺼낸다. 미지 값이면 `claude`(기본) 행. */
+export function resolveCmdCliKind(value: string | undefined): (typeof CMD_CLI_KINDS)[number] {
+  return CMD_CLI_KINDS.find((k) => k.value === value) ?? CMD_CLI_KINDS[0];
+}
+
+/**
+ * §4 (CMD 터미널 업그레이드 ③) — 임베디드 터미널 scrollback 줄 수.
+ * xterm 의 `scrollback` 옵션과 desktop PTY 링버퍼가 **같은 값**을 쓰게 하는 단일 출처.
+ * 종전에는 링버퍼 256KB 와 xterm 기본 1000줄이 어긋나 Ctrl+F 로 못 찾는 구간이 있었다.
+ */
+export const TERMINAL_SCROLLBACK_LINES = 5000;
+/** 옵션창 Advanced 가 허용하는 scrollback 하한. */
+export const TERMINAL_SCROLLBACK_MIN = 500;
+/** 옵션창 Advanced 가 허용하는 scrollback 상한(§3.2.3 — 쓸수록 커지는 것에 상한). */
+export const TERMINAL_SCROLLBACK_MAX = 100000;
+/** scrollback 줄 수 → PTY 링버퍼 바이트 상한 환산에 쓰는 줄당 평균 바이트. */
+export const TERMINAL_SCROLLBACK_BYTES_PER_LINE = 160;
+
+/** scrollback 줄 수를 허용 범위로 clamp. 미설정/비정상 값은 기본값. */
+export function clampTerminalScrollback(n: unknown): number {
+  const v = typeof n === 'number' && Number.isFinite(n) ? Math.round(n) : TERMINAL_SCROLLBACK_LINES;
+  return Math.max(TERMINAL_SCROLLBACK_MIN, Math.min(TERMINAL_SCROLLBACK_MAX, v));
+}
+
+/**
+ * §4 (CMD ③) — 클라 리사이즈 트레일링 디바운스(ms).
+ * 드래그 중 매 픽셀 SIGWINCH 를 쏘지 않고 **멎은 뒤 1회**만 PTY 에 통지한다.
+ * 폰트 확대/축소도 같은 창구를 타므로 "+"를 세 번 연타해도 리사이즈는 한 번이다.
+ */
+export const TERMINAL_RESIZE_DEBOUNCE_MS = 150;
+
+/**
+ * §4 (CMD ③) — 리사이즈 직후 **화면 전체 리페인트**를 replay 링버퍼에서 걸러 낼 시간 창(ms).
+ *
+ * Windows ConPTY 는 `ResizePseudoConsole` 마다 보이는 화면을 통째로 다시 내보낸다(실측: 리사이즈
+ * 6회 = cmd 배너 6벌 추가, 배너 사이 간격이 그때의 rows 와 일치). 그대로 링버퍼에 쌓으면 재부착
+ * replay 때 같은 배너·프롬프트가 리사이즈 횟수만큼 되살아난다("cmd 창이 같은 걸 계속 출력").
+ */
+export const CMD_RESIZE_REPAINT_MS = 400;
+
+const CONSOLE_ESC = String.fromCharCode(27);
+
+/**
+ * 리사이즈 리페인트의 실측 시그니처 — 커서 숨김/창크기 보고/속성 리셋 몇 개를 지나 **커서 home**
+ * (`CSI H` 또는 `CSI 1;1H`)으로 시작한다: `ESC[?25l` `ESC[8;<rows>;<cols>t` `ESC[H` `…화면 전체…`.
+ * 화면을 지우는 `J` 는 일부러 빼 둔다 — `cls` 같은 정상 출력까지 삼키지 않게(못 걸러도 종전 동작).
+ */
+const CONSOLE_REPAINT_RE = new RegExp(
+  `^(?:${CONSOLE_ESC}\\[(?:\\?[0-9;]*[hl]|[0-9;]*m|8;[0-9]+;[0-9]+t))*${CONSOLE_ESC}\\[(?:1;1)?H`,
+);
+
+/** 이 PTY 청크가 콘솔의 **화면 전체 재출력**으로 시작하는가(= 리사이즈 리페인트 후보). */
+export function isConsoleRepaintChunk(data: string): boolean {
+  return CONSOLE_REPAINT_RE.test(data);
+}
+
+/**
+ * §4 (CMD ③) — 이 PTY 청크를 replay 링버퍼에 **쌓아야 하는가**.
+ *
+ * 리사이즈 직후(`CMD_RESIZE_REPAINT_MS` 안)에 오는 화면 전체 리페인트만 `false` 다. 그런 청크도
+ * 화면(sink)에는 그대로 흘려보내야 하지만(현재 화면이 곧 그 리페인트다), 버퍼에 쌓으면 재부착
+ * replay 가 리사이즈 횟수만큼 같은 화면을 되풀이한다. `resizedAt=0` 은 "직전 리사이즈 없음".
+ */
+export function shouldBufferPtyChunk(data: string, resizedAt: number, now: number): boolean {
+  if (!resizedAt || now - resizedAt > CMD_RESIZE_REPAINT_MS) return true;
+  return !isConsoleRepaintChunk(data);
+}
+
+/** §4 (CMD ①) — 상태 판정 타이머 주기(ms). */
+export const CMD_STATE_TICK_MS = 1000;
+/** §4 (CMD ①) — 이 시간(ms) 이상 무출력 + 화면 꼬리가 프롬프트 패턴이면 `blocked`. */
+export const CMD_BLOCKED_IDLE_MS = 3000;
+/** §4 (CMD ①) — 이 시간(ms) 이상 무출력인데 프롬프트 패턴이 아니면 `idle`. */
+export const CMD_IDLE_MS = 15000;
+/** §4 (CMD ①) — blocked 판정에 쓸 화면 꼬리 줄 수(빈 줄 제외). */
+export const CMD_BLOCK_TAIL_LINES = 3;
+/** §4 (CMD ①) — `blockedReason` 으로 올릴 근거 문자열 최대 길이. */
+export const CMD_BLOCK_REASON_MAX = 120;
+
+/** §4 (CMD ②) — PTY 전경 프로세스명 표본 주기(ms). */
+export const CMD_PROCESS_POLL_MS = 5000;
+
+/** §4 (CMD ⑥) — `/api/cmd/wait` 최대 대기(ms). 무한 대기 금지. */
+export const CMD_WAIT_MAX_MS = 120000;
+/** §4 (CMD ⑥) — `/api/cmd/wait` 폴링 주기(ms). */
+export const CMD_WAIT_POLL_MS = 250;
+/** §4 (CMD ⑥) — `/api/cmd/read` 가 한 번에 돌려주는 최대 줄 수. */
+export const CMD_READ_MAX_LINES = 2000;
+/** §4 (CMD ⑥) — `/api/cmd/send` 가 한 번에 받는 prefill 최대 길이. */
+export const CMD_SEND_MAX_CHARS = 8000;
+
+/** §4 (CMD ⑤) — pane 분할 비율 하한/상한(드래그 리사이즈 clamp). */
+export const CMD_PANE_RATIO_MIN = 0.15;
+export const CMD_PANE_RATIO_MAX = 0.85;
+/** §4 (CMD ⑤) — 한 세션 탭이 가질 수 있는 pane 최대 개수(§3.2.3 상한 원칙). */
+export const CMD_PANE_MAX = 8;
+/** §4 (CMD ⑤) — pane termId 구분자. `:` 를 쓰면 `parseTermId` 의 sessionToken 해석이 깨진다. */
+export const CMD_PANE_SEPARATOR = '#';
+
+/**
+ * §4 (CMD 터미널 업그레이드 ⑤) — 신뢰할 수 없는 입력(REST body·옛 체크포인트)에서 pane 트리를
+ * 안전하게 복원한다. 형태가 어긋나면 `null`(= 단일 pane)로 떨어뜨린다.
+ *
+ * - `ratio` 는 `CMD_PANE_RATIO_MIN`~`MAX` 로 clamp,
+ * - leaf 총 개수가 `CMD_PANE_MAX` 를 넘으면 거부(§3.2.3 — 쓸수록 커지는 것에 상한),
+ * - 중복 pane id 도 거부(같은 termId 를 두 자리에 그리면 PTY 하나를 두 xterm 이 다툰다).
+ */
+export function sanitizeCmdPaneTree(input: unknown): CmdPaneNode | null {
+  const seen = new Set<string>();
+  let leaves = 0;
+
+  const walk = (node: unknown, depth: number): CmdPaneNode | null => {
+    if (!node || typeof node !== 'object' || depth > CMD_PANE_MAX) return null;
+    const n = node as Record<string, unknown>;
+    if (n['type'] === 'leaf') {
+      const id = typeof n['id'] === 'string' ? n['id'].trim() : '';
+      if (!id || !/^[\w-]{1,32}$/.test(id) || seen.has(id)) return null;
+      seen.add(id);
+      leaves += 1;
+      if (leaves > CMD_PANE_MAX) return null;
+      return { type: 'leaf', id };
+    }
+    if (n['type'] !== 'split') return null;
+    const dir = n['dir'] === 'column' ? 'column' : 'row';
+    const rawRatio = typeof n['ratio'] === 'number' && Number.isFinite(n['ratio']) ? n['ratio'] : 0.5;
+    const ratio = Math.max(CMD_PANE_RATIO_MIN, Math.min(CMD_PANE_RATIO_MAX, rawRatio));
+    const kids = Array.isArray(n['children']) ? n['children'] : null;
+    if (!kids || kids.length !== 2) return null;
+    const a = walk(kids[0], depth + 1);
+    const b = walk(kids[1], depth + 1);
+    if (!a || !b) return null;
+    return { type: 'split', dir, ratio, children: [a, b] };
+  };
+
+  const out = walk(input, 0);
+  // 잎이 하나뿐인 트리는 단일 pane 과 같으므로 표현을 하나로 모은다(비교·저장 안정).
+  if (out && out.type === 'leaf' && out.id === '0') return null;
+  return out;
+}
+
+/** §4 (⑤) — pane 트리의 모든 leaf id 를 왼쪽/위 순서로 모은다. */
+export function collectCmdPaneIds(node: CmdPaneNode | null | undefined): string[] {
+  if (!node) return ['0'];
+  if (node.type === 'leaf') return [node.id];
+  return [...collectCmdPaneIds(node.children[0]), ...collectCmdPaneIds(node.children[1])];
+}
+
+/** §4 (⑤) — `term:<agentId>:<session>` + paneId → 그 pane 의 termId. pane `'0'` 은 접미사 없음(하위호환). */
+export function cmdPaneTermId(baseTermId: string, paneId: string): string {
+  return paneId === '0' ? baseTermId : `${baseTermId}${CMD_PANE_SEPARATOR}${paneId}`;
+}
+
+/**
+ * §4 (⑤) — 지정한 pane 을 둘로 쪼갠 새 트리를 돌려준다(원본 불변).
+ * `newPaneId` 는 호출자가 발급한 미사용 id. 대상 pane 을 못 찾으면 원본을 그대로 돌려준다.
+ */
+export function splitCmdPane(
+  tree: CmdPaneNode | null | undefined,
+  targetPaneId: string,
+  newPaneId: string,
+  dir: 'row' | 'column',
+): CmdPaneNode {
+  const root: CmdPaneNode = tree ?? { type: 'leaf', id: '0' };
+  const walk = (node: CmdPaneNode): CmdPaneNode => {
+    if (node.type === 'leaf') {
+      if (node.id !== targetPaneId) return node;
+      return { type: 'split', dir, ratio: 0.5, children: [node, { type: 'leaf', id: newPaneId }] };
+    }
+    return { ...node, children: [walk(node.children[0]), walk(node.children[1])] };
+  };
+  return walk(root);
+}
+
+/**
+ * §4 (⑤) — 지정한 pane 을 트리에서 뺀다. 형제가 그 자리를 물려받는다(tmux 와 같은 접힘).
+ * 마지막 하나까지 지우면 `null`(= 단일 pane 으로 복귀).
+ */
+export function closeCmdPane(tree: CmdPaneNode | null | undefined, targetPaneId: string): CmdPaneNode | null {
+  if (!tree) return null;
+  const walk = (node: CmdPaneNode): CmdPaneNode | null => {
+    if (node.type === 'leaf') return node.id === targetPaneId ? null : node;
+    const a = walk(node.children[0]);
+    const b = walk(node.children[1]);
+    if (a && b) return { ...node, children: [a, b] };
+    return a ?? b;
+  };
+  const out = walk(tree);
+  if (out && out.type === 'leaf') return null; // 잎 하나 = 단일 pane
+  return out;
+}
+
+/** §4 (⑤) — 지정한 split 노드의 비율을 갈아 끼운 새 트리(원본 불변). */
+export function resizeCmdPane(
+  tree: CmdPaneNode | null | undefined,
+  firstChildPaneId: string,
+  ratio: number,
+): CmdPaneNode | null {
+  if (!tree) return null;
+  const clamped = Math.max(CMD_PANE_RATIO_MIN, Math.min(CMD_PANE_RATIO_MAX, ratio));
+  const walk = (node: CmdPaneNode): CmdPaneNode => {
+    if (node.type === 'leaf') return node;
+    const firstIds = collectCmdPaneIds(node.children[0]);
+    if (firstIds.includes(firstChildPaneId) && firstIds[0] === firstChildPaneId) {
+      return { ...node, ratio: clamped, children: [walk(node.children[0]), walk(node.children[1])] };
+    }
+    return { ...node, children: [walk(node.children[0]), walk(node.children[1])] };
+  };
+  return walk(tree);
+}
+
+/**
+ * §4 (CMD ①) — `blocked` 판정용 프롬프트/질문 패턴 표.
+ *
+ * 화면 **꼬리 `CMD_BLOCK_TAIL_LINES` 줄**(ANSI 제거·빈 줄 제외)에 대해서만 검사한다 —
+ * 본문 산문에서 물음표를 주워 오탐하지 않게 하기 위한 제약이며, 검사 시점 자체가
+ * "무출력 `CMD_BLOCKED_IDLE_MS` 경과" 뒤라 지나가는 출력은 애초에 걸리지 않는다.
+ * 새 CLI 의 확인 문구는 이 표에 한 줄 추가로 지원한다(§3.3 하드코딩 금지).
+ */
+export const CMD_BLOCK_PATTERNS: readonly RegExp[] = [
+  // 예/아니오 확인 — claude·codex·gemini·aider·git 공통 골격.
+  /\(\s*y\s*\/\s*n\s*\)/i,
+  /\[\s*y\s*\/\s*n\s*\]/i,
+  /\byes\s*\/\s*no\b/i,
+  // Claude Code 권한/선택 프롬프트.
+  /\bdo you want to\b/i,
+  /\bwould you like to\b/i,
+  /\bselect an option\b/i,
+  // 번호 선택지가 화면 꼬리에 떠 있다(= 고르기를 기다리는 중).
+  //   커서 마커가 붙었거나 연속 번호 두 줄일 때만 — 로그 속 "1) passed" 한 줄을 줍지 않기 위해.
+  /^\s*[❯>]\s*[1-9][).]\s+\S/m,
+  /^\s*[1-9][).]\s+\S[^\n]*\n\s*[2-9][).]\s+\S/m,
+  // 진행 대기.
+  /\bpress\s+(?:enter|any key|return)\b/i,
+  /\b(?:continue|proceed|overwrite|approve|allow|confirm|retry)\s*\?/i,
+  // 도구가 스스로 밝히는 대기 상태.
+  /\bwaiting for\b[^\n]{0,40}\b(?:input|approval|confirmation|response)\b/i,
+  // 자격증명·값 입력 대기(줄 끝 콜론).
+  /\b(?:password|passphrase|api[ _-]?key|token|username|email)\b[^\n]{0,24}:\s*$/i,
+  // 무엇을 고를지 묻는 **CLI 질문형** 한 줄.
+  //   ⚠ 종전의 맨 물음표 규칙(`/\?\s*$/`)은 폐기했다 — 에이전트가 답을 "~할까요?"로 끝내는 것은
+  //   herdr 정의상 `idle`(다음 프롬프트를 받을 준비)이지 `blocked`(입력을 기다려 멈춤)가 아닌데,
+  //   그 규칙이 매 턴 끝마다 앰버 링과 OS 알림을 띄웠다(실측 오탐).
+  /\b(?:which|what|where|who|how many|select|choose|pick|enter)\b[^\n]{0,60}\?\s*$/i,
+  // 한국어 입력 요청(같은 이유로 평서형 질문은 제외하고 "입력/선택 요청"만).
+  /(?:선택|입력|골라)[^\n]{0,12}(?:하세요|해\s*주세요|하시겠|해라)[^\n]{0,4}[?:]?\s*$/,
+];
+
+/**
  * §4 v2.63 — CMD(인터랙티브 터미널) 에이전트 버블의 구분 색(teal-600).
  * 우클릭 "CMD Agent" 로 생성 시 agentConfig.color 에 baked → 일반 커스텀 에이전트(blue)와 한눈에 구별.
  * 사용자가 이후 색을 바꾸면 그 값이 우선(기능 표식은 executionMode 가 전담, 색은 cosmetic).
@@ -1734,6 +2219,23 @@ export function normalizeCommandDispatchMode(value: unknown): CommandDispatchMod
     ? (value as CommandDispatchMode)
     : DEFAULT_COMMAND_DISPATCH_MODE;
 }
+
+// ─── §5.5 #17-12 ③ 명령 실패 사유 코드 ───
+
+/**
+ * `CommandErrorCode` 전량의 **런타임 목록**. 화면이 "이 코드를 아는가"를 이 목록으로 판정한다.
+ *
+ * 목록을 여기 한 벌만 두는 이유: 클라가 자기 집합을 따로 들고 있던 동안 `local`(§5.19) 이 유니언에만
+ * 추가돼, 로컬 모델 실패가 "알 수 없는 이유" 로 떨어지고 스트림 쪽은 `exit` 로 폴백해 **CLI 를 쓰지도
+ * 않는 실패를 "Claude CLI 가 종료됐다"** 로 말했다(2026-08-20 사용자 보고). 코드를 늘릴 때는
+ * 유니언과 이 목록, 그리고 `ide.cmdError.<code>` 문자열까지 한 번에 늘린다(클라 테스트가 확인한다).
+ */
+export const COMMAND_ERROR_CODES = [
+  'spawn', 'stdin', 'exit', 'crash', 'cli', 'maxTurns', 'agentView', 'orphaned', 'local',
+] as const satisfies readonly CommandErrorCode[];
+
+/** 종료 코드 유무로 문장이 갈리는 코드 — 코드가 없으면 `<code>Unknown` 문장을 쓴다. */
+export const COMMAND_ERROR_CODES_WITH_EXIT = ['exit', 'crash'] as const satisfies readonly CommandErrorCode[];
 
 // ─── 훅 버블 읽기 전용 경계 (§5.5 #17 / #17-29) ───
 
@@ -3683,7 +4185,22 @@ echo '${S}{"kind":"iframe","url":"http://127.0.0.1:8777/index.html"}'
 (읽는 순서는 늘 맥락 → 카드). 인쇄한 뒤에는 본문을 더 붙이지 마라 — 붙이면 카드가 다시 중간에 낀다.
 **특히 "검수 카드로 보냈습니다" · "작업 신고 카드로 정리해 보냈습니다" 같은 발송 사실 보고를 쓰지 마라**(§5.5 #17-18 ⑦-5) —
 카드는 이미 화면에 떠 있어 그 한 줄은 아무것도 더 알려주지 않으면서 카드마다 똑같이 반복된다. 덧붙일 맥락이 없으면
-**아무 말도 하지 말고 그대로 끝내라.**`;
+
+
+## 더 나은 경로 — 환경변수가 있으면 curl 로 보내라 (§4 CMD 업그레이드 ⑦)
+이 터미널에는 Vibisual 이 **loopback 신원**을 환경변수로 실어 준다. \`VIBISUAL_HOOK_TOKEN\` 이 있으면 위 마커 인쇄 대신
+**헤드리스 에이전트와 똑같은 카드 엔드포인트**를 직접 호출하는 쪽이 낫다(마커가 화면 리셋·리플로우와 얽히지 않고,
+\`agentId\`/\`subAgentId\` 도 환경변수로 이미 정확하다). 발생 조건·순서 규칙은 위와 **완전히 동일**하다.
+
+\`\`\`bash
+curl -s -X POST "http://127.0.0.1:$VIBISUAL_HOOK_PORT/api/agent-report" \\
+  -H "x-vibisual-hook-token: $VIBISUAL_HOOK_TOKEN" -H 'Content-Type: application/json' --data-binary @- <<JSON
+{"agentId":"$VIBISUAL_AGENT_ID","subAgentId":"$VIBISUAL_SUB_AGENT_ID","did":["완료한 일"],"userActions":["사용자가 할 일"]}
+JSON
+\`\`\`
+- 엔드포인트는 \`/api/agent-report\` · \`/api/agent-questions\` · \`/api/agent-review\` · \`/api/agent-list\` · \`/api/agent-iframe\` 다(본문 형식은 위 \`kind\` 별 JSON 에서 \`kind\` 만 뺀 것).
+- \`VIBISUAL_HOOK_TOKEN\` 이 **없으면**(구버전·모바일 브리지) 위의 \`${S}\` 마커 인쇄를 그대로 쓴다 — 둘 다 같은 카드를 띄운다.
+- 토큰 헤더가 없으면 401 이다. 실패해도 무시하고 자연어 보고는 그대로 진행하라(표시 전용).**아무 말도 하지 말고 그대로 끝내라.**`;
 }
 
 /**
@@ -4923,12 +5440,145 @@ export const HF_MODEL_API = 'https://huggingface.co/api/models';
 /** §5.19 (E) — 검색 결과 상한. */
 export const LOCAL_MODEL_SEARCH_LIMIT = 20;
 
+/**
+ * §5.19 (E) — **대화용이 아니라고 스스로 밝힌** 저장소의 작업 태그. 목록에서 뺀다.
+ *
+ * **왜 화이트리스트가 아닌가 (2026-08-21 실측)**: `pipeline_tag=text-generation` 만 남기는
+ * 반대 방향을 먼저 재 봤더니, 인기 GGUF 40건 중 그 태그를 단 것은 **6건뿐**이었다. 정작
+ * 대화가 되는 `unsloth/Qwen3.8-27B-GGUF`(태그 없음) · `unsloth/Qwen3.6-35B-A3B-GGUF`
+ * (`image-text-to-text`) · `unsloth/gemma-4-12B-it-qat-GGUF`(`any-to-any`) 가 통째로 사라졌다 —
+ * 좋은 저장소일수록 태그를 안 달거나 멀티모달 태그를 단다.
+ *
+ * 그래서 판정을 뒤집는다. **모르면 막지 않고**(태그가 없으면 통과), 음성인식·임베딩·이미지
+ * 생성처럼 **애초에 대화가 아닌 것**만 뺀다. 사용자가 1.18GB 음성인식 모델(`parakeet-ctc`)을
+ * 받아 놓고 프롬프트를 친 뒤에야 알게 되던 그 자리가 여기다.
+ */
+export const LOCAL_MODEL_NON_CHAT_PIPELINE_TAGS: readonly string[] = [
+  'automatic-speech-recognition', 'audio-classification', 'audio-to-audio',
+  'text-to-speech', 'text-to-audio', 'voice-activity-detection',
+  'feature-extraction', 'sentence-similarity', 'text-ranking', 'fill-mask',
+  'token-classification', 'text-classification', 'zero-shot-classification',
+  'text-to-image', 'image-to-image', 'image-to-video', 'text-to-video',
+  'image-classification', 'object-detection', 'image-segmentation', 'depth-estimation',
+  'video-classification', 'unconditional-image-generation',
+];
+
+/**
+ * §5.19 (E) — 이 저장소를 받기 목록에 올릴 것인가. **태그가 없으면 올린다**(모르면 막지 않는다).
+ * 판정은 여기 한 곳에서만 — 서버가 거르고 화면이 다르게 말하면 사용자는 둘 다 안 믿는다.
+ */
+export function isChatCapablePipelineTag(pipelineTag: string | null | undefined): boolean {
+  if (!pipelineTag) return true;
+  return !LOCAL_MODEL_NON_CHAT_PIPELINE_TAGS.includes(pipelineTag);
+}
+
 /** §5.19 (E) — 한 저장소에서 보여 줄 GGUF 파일(양자화) 상한. */
 export const LOCAL_MODEL_FILE_LIMIT = 40;
+
+/**
+ * §5.19 (E) — 저장소를 펼쳤을 때 **먼저 서는** 양자화 개수. 나머지는 한 줄 뒤로 접힌다.
+ *
+ * 스무 갈래를 한꺼번에 늘어놓는 것은 고르라는 말이 아니라 알아서 공부하라는 말이다.
+ * 셋인 이유는 "가장 많이 쓰는 것 + 한 단계 위 + 한 단계 아래"가 대개 그 안에 들어오기
+ * 때문이다 — 그보다 아래는 접어 두되, 누르면 전부 보인다(숨기는 것이 아니라 미뤄 두는 것).
+ */
+export const LOCAL_MODEL_TOP_QUANT_COUNT = 3;
+
+/**
+ * §5.19 (E) — 양자화가 **얼마나 많이 쓰이는가**의 순위(작을수록 앞에 선다).
+ *
+ * **왜 표를 드는가**: 카탈로그는 저장소 단위 내려받기 수만 준다 — 같은 저장소 안에서
+ * `Q4_K_M` 과 `IQ1_S` 중 무엇이 더 받혔는지는 어디에도 없다(2026-08-24 확인). 그래서 파일
+ * 순서만은 우리가 정해야 하고, 근거는 llama.cpp 진영에서 굳어진 통용 순서다 — `Q4_K_M` 이
+ * 기본, 여유가 있으면 `Q5_K_M`·`Q8_0`, 모자라면 `Q3`·`IQ` 로 내려간다. 올라마가 태그 없는
+ * 저장소에서 `Q4_K_M` 을 집는 것도 같은 순서를 따른 것이다.
+ *
+ * **순위는 숨기는 장치가 아니다** — 표에 없는 이름은 뒤로 갈 뿐 목록에서 빠지지 않는다.
+ * 값을 5씩 띄운 것은 새 양자화가 나왔을 때 사이에 끼워 넣기 위함이다.
+ */
+export const QUANT_POPULARITY: Readonly<Record<string, number>> = {
+  // 가장 흔한 한 벌 — 대부분이 이 셋 안에서 고른다.
+  Q4_K_M: 10, Q5_K_M: 20, Q8_0: 30,
+  // 같은 계열의 이웃(_S 는 조금 작고 _L·_XL 은 조금 크다).
+  Q6_K: 40, Q4_K_S: 50, Q4_K_XL: 55, Q5_K_S: 60, Q5_K_XL: 65, Q6_K_L: 70, Q6_K_XL: 75,
+  // 자리가 모자랄 때 내려가는 층.
+  Q3_K_M: 80, Q3_K_L: 85, Q3_K_XL: 88, IQ4_XS: 90, IQ4_NL: 95, Q3_K_S: 100,
+  Q2_K: 110, Q2_K_L: 115, Q2_K_XL: 118,
+  // i-quant — 같은 크기에서 더 낫지만 느리고, 그만큼 덜 쓰인다.
+  IQ3_M: 120, IQ3_S: 125, IQ3_XS: 130, IQ3_XXS: 135,
+  IQ2_M: 140, IQ2_S: 145, IQ2_XS: 150, IQ2_XXS: 155, IQ1_M: 160, IQ1_S: 165,
+  // 옛 방식(K-quant 이전). 아직 올라오지만 새로 고를 이유는 거의 없다.
+  Q4_0: 200, Q4_1: 205, Q5_0: 210, Q5_1: 215,
+  // 양자화하지 않은 원본 — 크기가 대개 이 PC 로는 무리다.
+  F16: 300, BF16: 305, F32: 310,
+};
+
+/** §5.19 (E) — 표에 없는 양자화의 자리. 옛 방식·원본보다는 앞이다(모르는 것을 맨 뒤로 밀지 않는다). */
+export const QUANT_RANK_UNKNOWN = 190;
+
+/**
+ * §5.19 (E) — 이 양자화가 목록에서 몇 번째로 설 것인가. 판정은 여기 한 곳에서만 한다.
+ * 대소문자를 가리지 않으며(`q4_k_m` 도 같다), unsloth 의 `UD-` 접두는 파일명을 읽는 쪽
+ * (`parseQuant`)이 이미 떼고 넘겨 준다.
+ */
+export function quantRank(quant: string | null | undefined): number {
+  if (!quant) return QUANT_RANK_UNKNOWN;
+  return QUANT_POPULARITY[quant.toUpperCase()] ?? QUANT_RANK_UNKNOWN;
+}
+
+/**
+ * §5.19 (E) — 카탈로그를 어떤 축으로 줄 세울 것인가.
+ *
+ * 이 값은 **카탈로그에 그대로 넘긴다** — 받아 온 스무 건을 우리가 다시 정렬하면 "하트순
+ * 1위"가 그 스무 건 안에서만 1위가 되어, 사용자가 보는 순위와 실제 순위가 갈린다.
+ */
+export const LOCAL_MODEL_CATALOG_SORTS: readonly LocalModelCatalogSort[] = ['downloads', 'likes', 'trending', 'recent'];
+
+/** §5.19 (E) — 우리 정렬 축 → 카탈로그(허깅페이스) 필드 이름. */
+export const HF_SORT_FIELD: Readonly<Record<LocalModelCatalogSort, string>> = {
+  downloads: 'downloads',
+  likes: 'likes',
+  trending: 'trendingScore',
+  recent: 'lastModified',
+};
+
+/**
+ * §5.19 (E) — 목록에 함께 실어 달라고 카탈로그에 명시하는 필드들.
+ * 기본 응답에는 **트렌딩 점수가 없다**(2026-08-24 실측) — 달라고 해야 온다.
+ */
+export const HF_EXPAND_FIELDS: readonly string[] = ['downloads', 'likes', 'trendingScore', 'pipeline_tag', 'lastModified'];
 
 /** §5.19 — 엔진·모델이 놓이는 폴더 이름(홈의 `.vibisual` 아래). */
 export const LOCAL_ENGINE_DIR_NAME = 'engine';
 export const LOCAL_MODEL_DIR_NAME = 'models';
+
+/**
+ * §5.19 (E) — 가중치 말고도 자리가 든다(문맥 캐시·작업 버퍼). 파일 크기에 이만큼 얹어
+ * 잡는다. 후하게 잡아 "된다고 했는데 안 되는" 쪽보다 "된다고 안 했는데 됐다" 쪽으로 튄다.
+ */
+export const LOCAL_MODEL_OVERHEAD_RATIO = 1.2;
+/** 위 비율에 더해 붙는 고정 여유(문맥 16K 기준 대략치). */
+export const LOCAL_MODEL_OVERHEAD_BYTES = 1_500_000_000;
+/** 시스템 메모리는 다 쓸 수 없다 — OS·앱이 쓸 몫을 남긴다. */
+export const LOCAL_MODEL_RAM_USABLE_RATIO = 0.7;
+
+/**
+ * §5.19 (E) — 이 모델이 이 PC 에서 어떻게 돌지 판정한다.
+ *
+ * **판정 규칙은 한 곳에만 둔다** — 서버가 고르고 화면이 다르게 말하면 그 순간부터
+ * 사용자는 둘 다 안 믿는다. 잴 수 없으면 `unknown` 으로 정직하게 물러난다(넘겨짚어
+ * "돌아갑니다"라고 말하는 것이 가장 나쁘다).
+ */
+export function classifyModelFit(
+  sizeBytes: number,
+  hardware?: { vramFreeBytes: number; totalRamBytes: number; measuredAt: number } | null,
+): 'gpu' | 'ram' | 'too-big' | 'unknown' {
+  if (!hardware || hardware.measuredAt === 0 || sizeBytes <= 0) return 'unknown';
+  const need = sizeBytes * LOCAL_MODEL_OVERHEAD_RATIO + LOCAL_MODEL_OVERHEAD_BYTES;
+  if (hardware.vramFreeBytes > 0 && need <= hardware.vramFreeBytes) return 'gpu';
+  if (hardware.totalRamBytes > 0 && need <= hardware.totalRamBytes * LOCAL_MODEL_RAM_USABLE_RATIO) return 'ram';
+  return 'too-big';
+}
 
 /**
  * §5.19 (D) — 로컬 대화의 기본 컨텍스트 길이(토큰).
@@ -4936,8 +5586,452 @@ export const LOCAL_MODEL_DIR_NAME = 'models';
  */
 export const LOCAL_DEFAULT_CONTEXT_SIZE = 16384;
 
-/** §5.19 (D) — 한 턴에 만들 토큰 상한. 로컬은 느려서 상한이 없으면 사람이 하염없이 기다린다. */
-export const LOCAL_DEFAULT_MAX_TOKENS = 4096;
+/**
+ * §5.19 (D) — 사용자가 고를 수 있는 대화 창의 아래·위 끝.
+ *
+ * 아래는 도구 정의만으로도 차 버리지 않을 만큼, 위는 요즘 모델이 실제로 학습된 길이까지.
+ * 위 끝을 넘겨 잡아도 소용이 없다 — 모델의 학습 문맥이 더 작으면 그 값으로 낮춰서 뜬다.
+ */
+export const LOCAL_CONTEXT_MIN = 2048;
+export const LOCAL_CONTEXT_MAX = 262_144;
+
+/**
+ * §5.19 (D) — 답 길이 상한이 문맥에서 차지하는 몫. 나머지는 프롬프트·이력이 쓴다.
+ *
+ * **왜 고정값이 아닌가 (2026-08-21 실측)**: 종전에는 4,096 고정이었다. 그런데 생각을 길게
+ * 하는 모델은 그 상한을 **생각으로만** 다 써 버리고 답을 한 글자도 못 쓴다 — Qwen3.8-27B 에
+ * debounce 구현을 시키자 16,950자를 생각하다 4,096 토큰을 소진하고 빈 답으로 끝났다
+ * (`finish_reason=length`). 사용자에게는 "105초를 돌더니 아무 말도 안 한" 것으로 보인다.
+ * 문맥을 늘린 사용자는 답 길이도 함께 늘어나야 한다.
+ *
+ * 상한 자체를 없애지는 않는다 — 로컬은 느려서 끝을 모르면 사람이 하염없이 기다린다.
+ */
+export const LOCAL_ANSWER_BUDGET_RATIO = 0.75;
+
+/** 그래도 이만큼은 준다 — 문맥을 아주 작게 잡아도 답이 통째로 잘리면 안 된다. */
+export const LOCAL_ANSWER_BUDGET_MIN = 1024;
+
+/**
+ * §5.19 (D) — 창 끝에 남겨 두는 여유(토큰). 프롬프트 토큰 수를 알고 예산을 역산할 때,
+ * 딱 맞게 채우면 채팅 서식이 붙이는 몇 토큰에 밀려 생성이 곧장 끝난다.
+ */
+export const LOCAL_ANSWER_BUDGET_RESERVE = 256;
+
+/**
+ * §5.19 (D) — 이 문맥에서 한 턴에 만들 토큰 상한. **판정은 여기 한 곳에서만.**
+ *
+ * `promptTokens` 를 주면 **남은 자리 안에서** 잡는다. 종전에는 창의 75% 고정이라, 이력이
+ * 길어져 프롬프트가 창의 절반을 먹은 뒤에도 여전히 75% 를 달라고 했다 — 엔진은 그걸 거절하지
+ * 않고(400 은 프롬프트만 본다) 대신 **생성 도중 창 끝에 닿아 답을 자른다**. 사용자에게는
+ * "말하다 만 답"으로 보인다. 프롬프트 토큰 수는 직전 왕복의 `usage` 로 공짜로 알 수 있다.
+ */
+export function localAnswerBudget(contextSize: number, promptTokens?: number): number {
+  const ctx = contextSize > 0 ? contextSize : LOCAL_DEFAULT_CONTEXT_SIZE;
+  const byRatio = Math.floor(ctx * LOCAL_ANSWER_BUDGET_RATIO);
+  const byRoom =
+    promptTokens !== undefined && promptTokens > 0
+      ? ctx - promptTokens - LOCAL_ANSWER_BUDGET_RESERVE
+      : byRatio;
+  return Math.max(LOCAL_ANSWER_BUDGET_MIN, Math.min(byRatio, byRoom));
+}
+
+/**
+ * §5.19 (D) — 그중 **생각**이 쓸 수 있는 몫. 나머지가 실제 답이 된다.
+ *
+ * **왜 사고에 상한이 필요한가 (2026-08-21 실측)**: 답 예산을 4,096 → 12,288 으로 늘려도
+ * Qwen3.8-27B 은 debounce 구현 하나에 48,352자를 생각하다 **예산을 통째로 소진하고 빈 답**
+ * 으로 끝났다(5분 19초). 예산을 더 키우는 것은 답이 아니다 — 생각이 스스로 멈추지 않는다.
+ * 엔진의 `--reasoning-budget` 로 여기서 끊으면 모델은 결론을 내고 답을 쓴다(같은 과제,
+ * 사고 3,072 상한 → `finish_reason=stop`, 1,931자짜리 정상 구현).
+ *
+ * 생각이 없는 모델에는 아무 영향이 없다 — 쓸 일이 없는 몫이다.
+ */
+export const LOCAL_THINKING_BUDGET_RATIO = 0.25;
+
+/** §5.19 (D) — 이 문맥에서 생각에 허용할 토큰. **판정은 여기 한 곳에서만.** */
+export function localThinkingBudget(contextSize: number): number {
+  const ctx = contextSize > 0 ? contextSize : LOCAL_DEFAULT_CONTEXT_SIZE;
+  return Math.max(LOCAL_ANSWER_BUDGET_MIN, Math.floor(ctx * LOCAL_THINKING_BUDGET_RATIO));
+}
+
+// ─── §5.19 (H) 도구 — 로컬 모델이 파일을 읽고 고친다 ───
+
+/**
+ * §5.19 (H) — 한 턴에서 도구를 돌 수 있는 **최대 왕복 수**.
+ *
+ * 도구 대화는 "모델이 부른다 → 우리가 실행한다 → 결과를 돌려준다 → 모델이 또 부른다" 의
+ * 되풀이라, 끝을 안 정하면 모델이 같은 도구를 무한히 부르는 동안 사람이 못 끊는다
+ * ([중지]가 있지만 기본값에 끝이 있어야 한다 — 사고 예산과 같은 규율).
+ */
+export const LOCAL_TOOL_MAX_ROUNDS = 24;
+
+/** 한 파일에서 읽어 모델에게 줄 최대 바이트. 넘으면 앞부분만 주고 잘렸다고 말한다. */
+export const LOCAL_TOOL_READ_MAX_BYTES = 256 * 1024;
+
+/** 도구 결과 한 건이 모델에게 갈 때의 글자 상한. 문맥을 한 번에 삼키지 않게. */
+export const LOCAL_TOOL_RESULT_MAX_CHARS = 24_000;
+
+/**
+ * §5.19 (D)(H) — 토큰을 글자로 어림잡는 환산비. **문맥 예산을 글자로 재기 위한 것**이지
+ * 정확한 토크나이저 대체물이 아니다(모델마다 다르다). 한글은 한 자에 한 토큰 가까이 가고
+ * 영문·코드는 서너 자에 한 토큰이라, 그 사이에서 **적게 잡는 쪽**을 고른다 — 넘겨짚어 크게
+ * 잡으면 예산을 넘긴 채로 엔진에 보내 400 을 맞고, 그쪽이 사용자에게 더 나쁘다.
+ */
+export const LOCAL_CHARS_PER_TOKEN = 3;
+
+/**
+ * §5.19 (H) — 도구 결과 **한 건**이 이 문맥에서 차지해도 되는 몫.
+ *
+ * **왜 고정 24,000자로는 안 되나 (2026-08-21 실측)**: 기본 문맥은 16,384 토큰인데 고정
+ * 상한 24,000자는 그 절반을 훌쩍 넘게 삼킨다. 웹 페이지 한 장을 받아 온 도구 결과 하나가
+ * 창을 다 먹고, 그다음 왕복에서 엔진이
+ * `request (N tokens) exceeds the available context size (M tokens)` 로 **요청 자체를**
+ * **400 으로 거절**했다. 한 건이 창의 4분의 1을 넘지 못하게 한다.
+ */
+export const LOCAL_TOOL_RESULT_CONTEXT_RATIO = 0.25;
+
+/** §5.19 (H) — 이 문맥에서 도구 결과 한 건에 허용할 글자. **판정은 여기 한 곳에서만.** */
+export function localToolResultBudget(contextSize: number): number {
+  const ctx = contextSize > 0 ? contextSize : LOCAL_DEFAULT_CONTEXT_SIZE;
+  const byContext = Math.floor(ctx * LOCAL_TOOL_RESULT_CONTEXT_RATIO * LOCAL_CHARS_PER_TOKEN);
+  return Math.max(2_000, Math.min(LOCAL_TOOL_RESULT_MAX_CHARS, byContext));
+}
+
+/**
+ * §5.19 (D) — 지난 이력이 문맥에서 차지해도 되는 몫. 나머지는 이번 턴의 질문·도구 왕복·답이 쓴다.
+ *
+ * **왜 상한이 필요한가**: 이력은 턴마다 이어 붙기만 하고 스스로 줄지 않는다. 상한이 없으면
+ * 어느 세션이든 언젠가 문맥을 넘고, 그때부터 **그 버블은 무엇을 쳐도 400** 이 된다 — 되돌릴
+ * 손잡이가 화면에 없으므로 사용자에게는 버블이 죽은 것과 같다.
+ */
+export const LOCAL_HISTORY_CONTEXT_RATIO = 0.5;
+
+/** §5.19 (D) — 이 문맥에서 지난 이력에 허용할 글자. **판정은 여기 한 곳에서만.** */
+export function localHistoryBudget(contextSize: number): number {
+  const ctx = contextSize > 0 ? contextSize : LOCAL_DEFAULT_CONTEXT_SIZE;
+  return Math.max(4_000, Math.floor(ctx * LOCAL_HISTORY_CONTEXT_RATIO * LOCAL_CHARS_PER_TOKEN));
+}
+/**
+ * §5.19 (H) — 한 턴에서 **같은 도구를 같은 인자로** 몇 번까지 실제로 돌려줄 것인가.
+ *
+ * 작은 모델은 결과를 못 읽고 같은 호출을 되풀이한다. 왕복 상한(24)만 있으면 그 24번을 전부
+ * 헛돌리며 사람은 몇 분을 기다린다. 그렇다고 한 번만 허용하면 **고친 뒤 다시 돌려 보는**
+ * 정당한 재실행(편집 → 같은 테스트 명령)까지 막힌다 — 그래서 몇 번은 허용하고 그 뒤로는
+ * 실행 대신 "방금 같은 호출을 했다"를 결과로 돌려준다.
+ */
+export const LOCAL_TOOL_REPEAT_LIMIT = 3;
+
+/**
+ * §5.19 (D) — 대화를 접을 때 요약이 쓸 수 있는 토큰.
+ *
+ * 넉넉하면 요약이 아니라 두 번째 대화가 되고, 인색하면 결정·파일 경로가 잘려 접은 값이
+ * 쓸모없어진다. 400 낱말 안팎을 담을 만큼만 준다.
+ */
+export const LOCAL_COMPACT_MAX_TOKENS = 800;
+
+/**
+ * §5.19 (D) — 엔진에게 KV 조각을 이어 쓰게 할 최소 단위(토큰).
+ *
+ * 우리는 문맥이 넘치면 이력 **앞**을 잘라 낸다(§5.19 (D)). 그런데 앞이 바뀌면 토큰 프리픽스가
+ * 달라져 엔진이 프롬프트를 **통째로 다시 평가**한다 — 로컬에서 그건 곧 수십 초다. 이 값을 주면
+ * 엔진이 어긋난 앞부분만 버리고 뒤쪽 조각을 이어 쓴다. 256 은 llama.cpp 쪽에서 통용되는 크기.
+ */
+export const LOCAL_ENGINE_CACHE_REUSE = 256;
+/** 목록·검색이 한 번에 돌려줄 최대 항목 수. */
+export const LOCAL_TOOL_LIST_MAX_ENTRIES = 400;
+
+/** §5.19 (H) — 검색 한 번이 모델에게 줄 최대 결과 수. 열 개를 넘겨도 고르는 일은 같다. */
+export const LOCAL_WEB_SEARCH_MAX_HITS = 8;
+
+/** 명령 실행 도구의 상한(ms). 넘으면 죽이고 그 사실을 결과로 알린다. */
+export const LOCAL_TOOL_COMMAND_TIMEOUT_MS = 120_000;
+
+/**
+ * §5.19 (H) — 이 모델에게 주는 도구들. **OpenAI 함수 호출 서식** 그대로다
+ * (llama-server 의 `/v1/chat/completions` 가 그 서식을 받는다 — 새 규약 발명 ❌).
+ *
+ * 이름은 클로드 경로의 도구와 **같은 이름**을 쓴다(`Read`·`Write`·`Edit`·`Glob`·`Grep`·`Bash`).
+ * 권한 팝업·감사 기록·도구 카드가 전부 도구 **이름**으로 갈라지므로, 여기서 다른 이름을 쓰면
+ * 같은 일을 하는 호출이 화면에서 남남이 된다.
+ */
+export const LOCAL_TOOL_DEFS = [
+  {
+    type: 'function',
+    function: {
+      name: 'Read',
+      description: 'Read a text file from the project. Returns the file content with 1-based line numbers.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'File path, relative to the project root (or absolute inside it).' },
+          offset: { type: 'integer', description: 'Optional 1-based line to start from.' },
+          limit: { type: 'integer', description: 'Optional number of lines to read.' },
+        },
+        required: ['path'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'Write',
+      description: 'Create a file or replace its entire content. Use Edit for partial changes.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'File path, relative to the project root.' },
+          content: { type: 'string', description: 'The full new content of the file.' },
+        },
+        required: ['path', 'content'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'Edit',
+      description:
+        'Replace an exact string in a file. old_string must appear exactly once unless replace_all is true.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'File path, relative to the project root.' },
+          old_string: { type: 'string', description: 'Exact text to replace, including indentation.' },
+          new_string: { type: 'string', description: 'Replacement text.' },
+          replace_all: { type: 'boolean', description: 'Replace every occurrence instead of requiring one.' },
+        },
+        required: ['path', 'old_string', 'new_string'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'Glob',
+      description: 'List project files matching a glob pattern, e.g. "src/**/*.ts".',
+      parameters: {
+        type: 'object',
+        properties: {
+          pattern: { type: 'string', description: 'Glob pattern relative to the project root.' },
+        },
+        required: ['pattern'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'Grep',
+      description: 'Search project file contents with a regular expression. Returns matching lines with paths.',
+      parameters: {
+        type: 'object',
+        properties: {
+          pattern: { type: 'string', description: 'Regular expression to search for.' },
+          glob: { type: 'string', description: 'Optional glob to narrow which files are searched.' },
+        },
+        required: ['pattern'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'Bash',
+      description: 'Run a shell command in the project root and return its output.',
+      parameters: {
+        type: 'object',
+        properties: {
+          command: { type: 'string', description: 'The command line to run.' },
+        },
+        required: ['command'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'TodoWrite',
+      description:
+        'Record or update your plan for this task as a checklist. The user sees it as a plan block and a progress list, and can stop you if the plan is wrong. Call this before starting multi-step work, and again each time a step is finished. Always send the WHOLE list, not just the changed item.',
+      parameters: {
+        type: 'object',
+        properties: {
+          todos: {
+            type: 'array',
+            description: 'The complete checklist, in order.',
+            items: {
+              type: 'object',
+              properties: {
+                content: { type: 'string', description: 'What this step does, in one short line.' },
+                status: {
+                  type: 'string',
+                  enum: ['pending', 'in_progress', 'completed'],
+                  description: 'Mark a step completed only when it is actually done.',
+                },
+              },
+              required: ['content', 'status'],
+            },
+          },
+          goal: { type: 'string', description: 'Optional one-sentence goal for this session.' },
+        },
+        required: ['todos'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'AskUserQuestion',
+      description:
+        'Ask the user a question and offer suggested answers. The user sees a question card with one-click replies. Use this when you need a decision you cannot make yourself. This does not block: finish what you can, then ask, and the user answers in their next message.',
+      parameters: {
+        type: 'object',
+        properties: {
+          questions: {
+            type: 'array',
+            description: 'One or more questions.',
+            items: {
+              type: 'object',
+              properties: {
+                question: { type: 'string', description: 'The question, in the user\'s language.' },
+                header: { type: 'string', description: 'Optional one-line summary of what is being decided.' },
+                options: {
+                  type: 'array',
+                  description: 'Suggested answers, written as the user would say them.',
+                  items: { type: 'string' },
+                },
+              },
+              required: ['question'],
+            },
+          },
+        },
+        required: ['questions'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'ExitPlanMode',
+      description:
+        'Call this when you are in plan mode and your plan is ready. It shows the plan to the user for approval; if they approve, editing is unlocked and you can start doing the work. Do not call it before the plan is complete.',
+      parameters: {
+        type: 'object',
+        properties: {
+          plan: { type: 'string', description: 'The plan you want approved, as a short numbered list.' },
+        },
+        required: ['plan'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'WebFetch',
+      description:
+        'Fetch a web page and read it as text. Use this for documentation, release notes, issue pages — anything you need to read but cannot find on disk. HTML is stripped; you get the readable text.',
+      parameters: {
+        type: 'object',
+        properties: {
+          url: { type: 'string', description: 'Full URL including https://' },
+        },
+        required: ['url'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'WebSearch',
+      description:
+        'Search the web and get back titles, URLs and short snippets. Use it to find pages worth fetching. Your training data has a cutoff; this does not.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'What to search for.' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+] as const;
+
+/** 위 목록의 도구 이름들 — 모델이 없는 도구를 부를 때 걸러내는 근거. */
+export const LOCAL_TOOL_NAMES: readonly string[] = LOCAL_TOOL_DEFS.map((t) => t.function.name);
+
+/**
+ * §5.19 (H) — 읽기만 하는 도구. 이것들은 **묻지 않는다**(클로드 경로의 `READ_TOOLS` 와 같은 규율).
+ * 여기 없는 것은 전부 "무언가를 바꾸는" 도구로 본다 — 모르는 도구를 안전한 쪽으로 넘겨짚지 않는다.
+ */
+export const LOCAL_READ_ONLY_TOOLS: readonly string[] = ['Read', 'Glob', 'Grep'];
+
+/** §5.19 (H) — 파일을 고치는 도구(권한 모드 `acceptEdits` 가 자동 승인하는 범위). */
+export const LOCAL_EDIT_TOOLS: readonly string[] = ['Write', 'Edit'];
+
+/**
+ * §5.19 (H) — **서버가 대신 처리하는** 도구들. 파일이 아니라 우리 화면·설정을 움직인다.
+ * 러너는 이 이름들을 보고 파일 도구 대신 호스트 쪽 처리기로 넘긴다.
+ */
+export const LOCAL_HOST_TOOLS: readonly string[] = ['TodoWrite', 'AskUserQuestion', 'ExitPlanMode'];
+
+/**
+ * §5.19 (H) — `TodoWrite` 가 쓰는 낱말을 목표창의 낱말로 옮긴다.
+ *
+ * 도구 스키마는 클로드의 `TodoWrite` 와 **같은 낱말**(`completed`)을 쓴다 — 모델들이 그 이름으로
+ * 배웠기 때문에 여기서 우리 낱말을 강요하면 모델이 자꾸 틀린다. 반대로 목표창은 `done` 을 쓴다.
+ * 이 함수가 그 사이를 잇는다. **없으면 단계가 영영 완료로 안 넘어가고 퍼센트가 0에 머문다**
+ * (조용히 틀리는 부류라 눈에 안 띈다).
+ */
+export function normalizeTodoStatus(raw: unknown): 'pending' | 'in_progress' | 'done' | undefined {
+  if (raw === 'completed' || raw === 'done') return 'done';
+  if (raw === 'in_progress' || raw === 'active') return 'in_progress';
+  if (raw === 'pending' || raw === 'todo') return 'pending';
+  return undefined;
+}
+
+/** 계획을 적고 사용자에게 묻는 도구 — 프로젝트를 건드리지 않아 어떤 권한 모드에서도 통과한다. */
+export const LOCAL_PLANNING_TOOLS: readonly string[] = ['TodoWrite', 'AskUserQuestion'];
+
+/** 계획 모드를 끝내는 도구. 이름을 한 곳에 둔다(게이트와 처리기가 같은 문자열을 봐야 한다). */
+export const LOCAL_EXIT_PLAN_TOOL = 'ExitPlanMode';
+
+/** 바깥으로 나가는 도구 — 밖에서 받아 오는 일이라 사람이 한 번 본다. */
+export const LOCAL_NETWORK_TOOLS: readonly string[] = ['WebFetch', 'WebSearch'];
+
+/** 도구 한 건을 어떻게 처리할지. `ask` 만 사람에게 팝업이 뜬다. */
+export type LocalToolGate = 'allow' | 'ask' | 'deny';
+
+/**
+ * §5.19 (H) — 이 권한 모드에서 이 도구를 어떻게 할 것인가. **판정은 여기 한 곳에서만.**
+ *
+ * 클로드 경로의 매핑을 그대로 따르되, **CLI 가 대신 해 주던 몫은 우리가 진다** — 거기서는
+ * `plan` 과 `auto` 를 CLI 에 넘기고 통과시켰지만(실행 차단·분류를 CLI 가 한다), 로컬에는
+ * 그 CLI 가 없다. 여기서 통과시키면 아무도 안 막는다.
+ *
+ * - `bypassPermissions` — 묻지 않는다(사용자가 그렇게 골랐다).
+ * - `plan` — 계획만 세우는 모드. 읽기는 되고 **바꾸는 것은 막는다**(CLI 가 하던 차단을 우리가).
+ * - `dontAsk` — 묻지 않고 거절한다(사람 없는 무인 실행).
+ * - `acceptEdits` — 파일 편집은 자동 승인, 나머지 가변 도구는 묻는다.
+ * - `auto`·`default`·그 밖 — 가변 도구는 **묻는다**(분류기가 없으니 사람이 판정한다).
+ */
+export function resolveLocalToolGate(permissionMode: string | undefined, toolName: string): LocalToolGate {
+  if (LOCAL_READ_ONLY_TOOLS.includes(toolName)) return 'allow';
+  // 계획을 적고 사용자에게 묻는 일은 프로젝트를 한 글자도 건드리지 않는다 — 어떤 모드에서도
+  //   막을 이유가 없고, 막으면 `plan` 모드가 **계획을 세울 수단조차 없는** 모드가 된다.
+  if (LOCAL_PLANNING_TOOLS.includes(toolName)) return 'allow';
+  const mode = permissionMode || 'default';
+  // 계획을 끝내는 것은 권한을 푸는 일이라 사람이 승인한다. 여기서 `plan` 을 deny 로 떨구면
+  //   그 모드에 들어간 에이전트는 **나올 길이 없다**(클로드 경로의 ExitPlanMode 와 같은 자리).
+  if (toolName === LOCAL_EXIT_PLAN_TOOL) return mode === 'bypassPermissions' ? 'allow' : 'ask';
+  if (mode === 'bypassPermissions') return 'allow';
+  if (mode === 'dontAsk') return 'deny';
+  // 바깥으로 나가는 호출은 파일을 고치지 않으므로 `plan` 에서도 막지 않는다(계획에는 조사가 든다).
+  //   다만 밖으로 나가는 일이라 사람이 한 번 본다.
+  if (LOCAL_NETWORK_TOOLS.includes(toolName)) return 'ask';
+  if (mode === 'plan') return 'deny';
+  if (mode === 'acceptEdits' && LOCAL_EDIT_TOOLS.includes(toolName)) return 'allow';
+  return 'ask';
+}
 
 /**
  * §5.19 (B) — 요청 본문에서 온 `provider` 를 좁힌다. 생성(create-custom-agent)과 저장
@@ -4952,6 +6046,8 @@ export function normalizeAgentProvider(value: unknown): AgentProvider | undefine
   if (!value || typeof value !== 'object') return undefined;
   const raw = value as {
     kind?: unknown; modelId?: unknown; modelName?: unknown; contextSize?: unknown; temperature?: unknown;
+    toolSupport?: unknown; contextUsed?: unknown; contextLimit?: unknown;
+    tokensIn?: unknown; tokensOut?: unknown;
   };
   if (raw.kind !== 'local-llama') return undefined;
   const provider: AgentProvider = {
@@ -4962,6 +6058,17 @@ export function normalizeAgentProvider(value: unknown): AgentProvider | undefine
   if (modelName) provider.modelName = modelName;
   if (typeof raw.contextSize === 'number' && raw.contextSize > 0) provider.contextSize = raw.contextSize;
   if (typeof raw.temperature === 'number') provider.temperature = raw.temperature;
+  // §5.19 (H) — 도구 지원 판정은 **실제로 물어봐서** 얻은 값이라, 설정 저장 한 번에 날아가면
+  //   매 턴 다시 물어보게 된다(그리고 못 쓰는 모델에 매번 도구를 실어 보낸다). 여기서 태워 보낸다.
+  if (raw.toolSupport === 'ok' || raw.toolSupport === 'none' || raw.toolSupport === 'unknown') {
+    provider.toolSupport = raw.toolSupport;
+  }
+  // 문맥 사용량도 같은 이유로 태워 보낸다 — 설정을 한 번 저장했다고 게이지가 빈칸이 되면
+  //   사용자는 그걸 "안 재고 있다"로 읽는다(다음 왕복까지 기다려야 다시 찬다).
+  if (typeof raw.contextUsed === 'number' && raw.contextUsed >= 0) provider.contextUsed = raw.contextUsed;
+  if (typeof raw.contextLimit === 'number' && raw.contextLimit > 0) provider.contextLimit = raw.contextLimit;
+  if (typeof raw.tokensIn === 'number' && raw.tokensIn >= 0) provider.tokensIn = raw.tokensIn;
+  if (typeof raw.tokensOut === 'number' && raw.tokensOut >= 0) provider.tokensOut = raw.tokensOut;
   return provider;
 }
 

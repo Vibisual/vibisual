@@ -22,6 +22,7 @@ import type {
 } from '@vibisual/shared';
 
 import { useGraphStore, selectIDEOverlay } from '../../stores/graphStore.js';
+import { useIDEPaneValue } from './idePane.js';
 import { ScrollFade } from '../ScrollFade.js';
 
 import { useIDEProjectRoot } from './useIDEProjectRoot.js';
@@ -54,7 +55,7 @@ function RefreshIcon({ spinning }: { spinning: boolean }): React.JSX.Element {
 export const IDEPluginsView = memo(function IDEPluginsView({ agentId: _agentId }: { agentId: string }): React.JSX.Element {
   const { t } = useTranslation();
   const rootPath = useIDEProjectRoot();
-  const projectId = useGraphStore((s) => selectIDEOverlay(s).projectId);
+  const projectId = useIDEPaneValue((o) => o.projectId);
 
   const [inventory, setInventory] = useState<ClaudePluginInventory | null>(null);
   const [loading, setLoading] = useState(false);

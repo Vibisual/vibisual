@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentConfig, LocalLlmState, LocalModelEntry } from '@vibisual/shared';
 
-import { pickDefaultModel, resolveLocalEntry } from './localModelEntry.js';
+import { localModelLabelOf, localProviderOf, localToolVerdictOf, pickDefaultModel, resolveLocalEntry } from './localModelEntry.js';
 
 /**
  * §5.19 (B) — 진입 순서가 뒤집힌 뒤로 "버블을 누르면 무엇이 열리는가"가 이 한 함수에 걸린다.
@@ -65,5 +65,49 @@ describe('§5.19 (B) All Model 진입 판정', () => {
   it('pickDefaultModel 은 받은 시각이 가장 늦은 것을 고른다', () => {
     expect(pickDefaultModel([])).toBeNull();
     expect(pickDefaultModel([model('a', 3), model('b', 7), model('c', 5)])?.id).toBe('b');
+  });
+});
+
+/**
+ * §5.19 (G) — All Model 버블이 화면에서 **자기 정체를 어떻게 말하는가**.
+ *
+ * 커스텀 에이전트를 뼈대로 삼는 탓에 로컬 버블에도 `config.model`(기본값 `opus`)과 클로드 도구
+ * 한 벌이 그대로 들어 있다 — 러너가 읽지도 않는 칸이다. 그것을 그대로 그렸더니 오른쪽 패널이
+ * All Model 버블을 "opus" 로 소개했다(사용자 보고). 판정을 한 함수로 모으고 그 규칙을 여기서 굳힌다.
+ */
+describe('§5.19 (G) All Model 정체 표시', () => {
+  const claudeConfig = { model: 'opus', tools: ['Read'], permissionMode: 'default', skills: [] } as unknown as AgentConfig;
+  const withProvider = (provider: Record<string, unknown>): AgentConfig =>
+    ({ ...claudeConfig, provider }) as unknown as AgentConfig;
+
+  it('클로드 버블은 로컬이 아니다 — 부르는 쪽이 종전 표기를 그대로 쓰도록 null', () => {
+    expect(localProviderOf(claudeConfig)).toBeNull();
+    expect(localProviderOf(undefined)).toBeNull();
+    expect(localProviderOf(null)).toBeNull();
+    // 라벨도 null 이라 화면은 클로드 모델명 경로로 그대로 떨어진다.
+    expect(localModelLabelOf(localProviderOf(claudeConfig), 'All Model')).toBeNull();
+  });
+
+  it('모델을 문 로컬 버블은 **그 모델 이름**을 말한다(`opus` 가 아니다)', () => {
+    const provider = localProviderOf(withProvider({ kind: 'local-llama', modelId: 'qwen3-8b-q4', modelName: 'Qwen3-8B-Q4_K_M' }));
+    expect(provider?.modelId).toBe('qwen3-8b-q4');
+    expect(localModelLabelOf(provider, 'All Model')).toBe('Qwen3-8B-Q4_K_M');
+  });
+
+  it('표시 이름이 없으면 id 로, 아직 아무것도 안 물었으면 제품 이름으로 떨어진다', () => {
+    expect(localModelLabelOf(localProviderOf(withProvider({ kind: 'local-llama', modelId: 'qwen3-8b-q4' })), 'All Model'))
+      .toBe('qwen3-8b-q4');
+    // 모델 미선택은 고장이 아니라 **준비 중**이라는 정상 상태다 — 빈칸 대신 제품 이름을 적는다.
+    expect(localModelLabelOf(localProviderOf(withProvider({ kind: 'local-llama', modelId: '' })), 'All Model'))
+      .toBe('All Model');
+  });
+
+  it('도구 판정은 물어본 결과만 말한다 — 모르면 unknown', () => {
+    expect(localToolVerdictOf(null)).toBe('unknown');
+    expect(localToolVerdictOf(localProviderOf(withProvider({ kind: 'local-llama', modelId: 'a' })))).toBe('unknown');
+    expect(localToolVerdictOf(localProviderOf(withProvider({ kind: 'local-llama', modelId: 'a', toolSupport: 'ok' })))).toBe('ok');
+    expect(localToolVerdictOf(localProviderOf(withProvider({ kind: 'local-llama', modelId: 'a', toolSupport: 'none' })))).toBe('none');
+    // 옛 설정에서 온 낯선 값이 화면에 판정처럼 새어 나가지 않게 한다.
+    expect(localToolVerdictOf(localProviderOf(withProvider({ kind: 'local-llama', modelId: 'a', toolSupport: 'maybe' })))).toBe('unknown');
   });
 });

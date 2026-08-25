@@ -13,6 +13,7 @@ import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ContextInventory, ContextSourceItem } from '@vibisual/shared';
 import { useGraphStore, selectIDEOverlay } from '../../stores/graphStore.js';
+import { useIDEPaneValue } from './idePane.js';
 import { ScrollFade } from '../ScrollFade.js';
 import { InfoTooltip } from '../Layout/InfoTooltip.js';
 import {
@@ -167,7 +168,7 @@ const SourceRow = memo(function SourceRow({
 
 export function IDEContextView({ agentId }: { agentId: string }): React.JSX.Element {
   const { t } = useTranslation();
-  const activeSessionId = useGraphStore((s) => selectIDEOverlay(s).activeSessionId);
+  const activeSessionId = useIDEPaneValue((o) => o.activeSessionId);
   const [inventory, setInventory] = useState<ContextInventory | null>(null);
   const [loading, setLoading] = useState(false);
   const [query, setQuery] = useState('');

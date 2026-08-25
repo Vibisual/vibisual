@@ -83,6 +83,7 @@ import { appStateAddOpenProject, loadAppState } from './appState.js';
 import { diagnosticService } from './diagnosticService.js';
 import { modelRegistryService } from './modelRegistryService.js';
 import { getEngineState } from './localEngineService.js';
+import { peekLocalHardware } from './localHardwareService.js';
 import { listDownloads, listModels } from './localModelService.js';
 import { listLoadedModels } from './localRunner.js';
 import { userDefaultsService } from './userDefaultsService.js';
@@ -2643,6 +2644,7 @@ export class ProjectGraphManager {
         models: listModels(),
         downloads: listDownloads(),
         loaded: listLoadedModels(),
+        hardware: peekLocalHardware(),
       },
     };
 

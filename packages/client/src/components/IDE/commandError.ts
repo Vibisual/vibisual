@@ -1,3 +1,4 @@
+import { COMMAND_ERROR_CODES, COMMAND_ERROR_CODES_WITH_EXIT } from '@vibisual/shared';
 import type { CommandError, CommandErrorCode } from '@vibisual/shared';
 
 /**
@@ -17,12 +18,20 @@ export interface CommandErrorText {
   detail: string | null;
 }
 
-const KNOWN_CODES: ReadonlySet<string> = new Set<CommandErrorCode>([
-  'spawn', 'stdin', 'exit', 'crash', 'cli', 'maxTurns', 'agentView', 'orphaned',
-]);
+// 목록은 shared 한 벌뿐이다 — 여기에 자기 집합을 또 두면 코드가 늘 때마다 한쪽만 늘어나고,
+//   빠진 코드는 조용히 `unknown` 으로 떨어지거나 **다른 엔진의 실패를 Claude CLI 종료로 잘못 말한다**
+//   (§5.19 `local` 이 실제로 그랬다 — 2026-08-20 사용자 보고).
+const KNOWN_CODES: ReadonlySet<string> = new Set<string>(COMMAND_ERROR_CODES);
 
 /** 종료 코드가 있느냐로 문장이 갈리는 코드 — 없는데 `{{code}}` 를 쓰면 "code undefined" 가 뜬다. */
-const CODE_AWARE: ReadonlySet<string> = new Set(['exit', 'crash']);
+const CODE_AWARE: ReadonlySet<string> = new Set<string>(COMMAND_ERROR_CODES_WITH_EXIT);
+
+/**
+ * 사유를 특정할 수 없는 줄에 붙이는 코드. `CommandErrorCode` 유니언 밖의 값이라 캐스트하지만,
+ * 이 값은 **화면 문장을 고르는 데에만** 쓰인다(`describeCommandError` 가 `unknown` 으로 받는다).
+ * 실행·판정 로직은 `CommandError` 를 읽지 않는다(표시 전용).
+ */
+const UNTYPED_ERROR_CODE = 'unknown' as CommandErrorCode;
 
 /** 사유 → 화면 재료. 모르는 코드(옛 데이터·미래 코드)도 버리지 않고 `unknown` 문장 + 원문으로 남긴다. */
 export function describeCommandError(error: CommandError): CommandErrorText {
@@ -44,11 +53,16 @@ export function describeCommandError(error: CommandError): CommandErrorText {
 export function parseStreamErrorContent(content: string): CommandError {
   const m = /^\[([A-Za-z]+)(?::(-?\d+))?\]\s*([\s\S]*)$/.exec(content.trim());
   if (!m) {
+    // 봉투가 없는 줄 = 누가 낸 실패인지 모른다. 예전엔 `exit` 로 떨어뜨려 "Claude CLI 가 예기치 않게
+    //   종료됐습니다" 라고 단정했는데, 로컬 모델처럼 CLI 가 아예 없는 경로의 실패까지 Claude 탓으로
+    //   말하게 된다. 모르면 모른다고 하고(사유는 `unknown`) 원문을 그대로 보여준다.
     const raw = content.trim();
-    return raw ? { code: 'exit' as CommandErrorCode, detail: raw } : { code: 'exit' as CommandErrorCode };
+    return raw ? { code: UNTYPED_ERROR_CODE, detail: raw } : { code: UNTYPED_ERROR_CODE };
   }
   const rawCode = m[1] ?? '';
-  const code = (KNOWN_CODES.has(rawCode) ? rawCode : 'exit') as CommandErrorCode;
+  // 모르는 코드는 **그대로 실어 보낸다** — `describeCommandError` 가 `unknown` 문장으로 받아 준다.
+  //   여기서 `exit` 로 바꿔치면 미래에 코드가 하나 늘 때마다 같은 오인이 되살아난다.
+  const code = (KNOWN_CODES.has(rawCode) ? rawCode : UNTYPED_ERROR_CODE) as CommandErrorCode;
   const exitCode = m[2] !== undefined ? Number(m[2]) : undefined;
   const detail = (m[3] ?? '').trim();
   return {

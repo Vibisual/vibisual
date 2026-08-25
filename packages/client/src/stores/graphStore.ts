@@ -16,6 +16,13 @@ import {
 } from '../components/IDE/reading/readingModel.js';
 import { recordCommandHistory, dropSessionCommandHistory } from '../components/IDE/commandHistory.js';
 import { insertEventInTurnOrder } from '../components/IDE/turnOrder.js';
+import { IDE_DOCK, IDE_MAX_PANES, type DockedPane, type FloatGeom, type IDEDockSide } from '../components/IDE/ideDockLayout.js';
+// §5.5 #17-34 — 창 **안**의 화면 분할. 트리 연산은 전부 순수 모듈이 하고 스토어는 그 결과만 앉힌다.
+import {
+  adjacentCellId, cellIdForSession, closeCell, dropOnCell, findCell, listCells, makeCell, pruneCells,
+  type SplitNode,
+} from '../components/IDE/splitLayout.js';
+import type { SplitDropSide } from '../components/IDE/splitDrop.js';
 import type { FollowSkipReason } from '../components/IDE/editorFollow.js';
 import type { DiffComment } from '../components/IDE/diffCommentPrompt.js';
 import { clearCapturePlaytest } from './capturePlaytest.js';
@@ -459,10 +466,19 @@ export interface EditorFollowPending {
   at: number;
 }
 
-/** IDE 오버레이 상태 — 프로젝트 단위로 독립적으로 보관 (ideOverlays[projectId]). */
+/**
+ * IDE 창 하나의 상태 — **팬 키** 단위로 보관한다(`ideOverlays[paneKey]`).
+ *
+ * §5.5 #17-1 (판올림 번호 발급 대기) 이전에는 키가 곧 `projectId` 라 프로젝트당 창이 하나였고,
+ * 다른 버블을 열면 그 자리에서 내용만 바뀌었다. 이제 **주 창의 키는 종전대로 `projectId`** 이고
+ * (이관·마이그레이션 ❌) 두 번째부터 `<projectId>::ide-N` 이 선다. 한 프로젝트의 창을 모으는
+ * 기준은 키 문자열 파싱이 아니라 아래 `projectId` 필드다.
+ */
 export interface IDEOverlayState {
   /** 열려있는 에이전트 ID (null이면 닫힘) */
   agentId: string | null;
+  /** 이 창의 슬롯 키(= ideOverlays 의 키). 주 창은 projectId 와 같다. */
+  paneKey: string;
   /** 이 IDE 가 속한 프로젝트 ID. ideOverlays 의 키와 동일 — 일관성 보장용. */
   projectId: string | null;
   /** 현재 선택된 세션(SubAgent) ID (null이면 메인 세션) */
@@ -471,10 +487,45 @@ export interface IDEOverlayState {
   activeView: IDEViewType;
   /** 사이드바 접힘 여부 */
   sidebarCollapsed: boolean;
-  /** §5.5 #17-1 — 우측 도킹 여부. DetailPanel 좌/우 위치 결정에 사용. */
-  dockedRight: boolean;
-  /** §5.5 #17-1 — 도킹 폭 (px). DetailPanel 이 우측 도킹된 IDE 를 피해 좌측에 뜰 때 사용. */
-  dockWidth: number;
+  /**
+   * §5.5 #17-1 — 붙어 있는 변. null 이면 안 붙어 있다(모달/플로팅).
+   * 종전 `dockedRight: boolean` 을 네 변으로 넓힌 자리다.
+   */
+  dockSide: IDEDockSide | null;
+  /** §5.5 #17-1 — 붙은 변 기준 두께(px). 좌/우는 폭, 상/하는 높이(종전 `dockWidth`). */
+  dockSize: number;
+  /** §5.5 #17-1 — 같은 변에 여러 창이 붙었을 때의 순서(작을수록 위/왼쪽). */
+  dockOrder: number;
+  /**
+   * §5.5 #17-1 — 같은 변에서 이 창이 가져갈 **몫**(가중치, 기본 1).
+   * 픽셀이 아니라 비율이라 앱 창 크기가 바뀌어도 사용자가 잡아 둔 배분이 유지된다.
+   */
+  dockSpan: number;
+  /**
+   * §5.5 #17-1 — 마지막으로 앞에 온 시각의 도장(단조 증가). 겹칠 때 앞뒤 순서이자
+   * 창이 상한을 넘었을 때 **가장 오래 안 만진 창**을 고르는 기준이다(절대 z-index 가 아니다 —
+   * 화면에 쓰는 값은 이 도장으로 매긴 **순위**라 헤더보다 위로 자라지 않는다).
+   */
+  z: number;
+  /**
+   * §5.5 #17-1 — 안 붙어 있을 때(모달/플로팅) 이 창이 놓인 자리·크기. null 이면 아직 자리를 정한 적이 없다.
+   *
+   * 종전에는 컴포넌트 로컬 상태뿐이라 **언마운트마다 초기화**됐다 — 접었다 펴거나 프로젝트 탭을
+   * 옮겼다 돌아오면 사용자가 옮겨 둔 창이 화면 한가운데로 되돌아갔다. 자리는 사용자가 만든 배치다.
+   */
+  float: FloatGeom | null;
+  /**
+   * §5.5 #17-1 — 접어 둔 창. 접히면 **그리지도 않고 자리도 먹지 않는다**(캔버스가 그만큼 돌아온다).
+   * 닫기와 다르다 — 붙어 있던 변·두께·열어 둔 파일이 그대로 남아 펴면 그 자리로 돌아온다.
+   * 접힌 창을 잃어버리지 않도록 헤더 [창] 메뉴가 개수와 목록을 계속 들고 있다.
+   */
+  collapsed: boolean;
+  /**
+   * §5.5 #17-1 — 이 창이 처음 뜰 때의 모양. 프로젝트의 **첫 창**은 종전대로 중앙 모달이고,
+   * 이미 창이 있는데 새로 여는 창은 곧바로 **플로팅**으로 뜬다(모달은 캔버스를 통째로 덮어
+   * "옆에 놓고 같이 본다"는 목적과 정면으로 어긋난다).
+   */
+  openMode: 'modal' | 'floating';
   /**
    * §5.5 #17-27 — 내장 편집창에 열어 둔 파일들(탭 순서, 왼→오른쪽).
    * 파일을 여는 곳(사이드바·스트림)과 그리는 곳(우측 패널)이 서로 멀어 컴포넌트 로컬로는 이을 수 없어
@@ -488,23 +539,111 @@ export interface IDEOverlayState {
 /** IDE 닫힘/없음 상태 기본값. selectIDEOverlay 가 미보유 프로젝트에 대해 반환. */
 export const DEFAULT_IDE_OVERLAY: IDEOverlayState = {
   agentId: null,
+  paneKey: '',
   projectId: null,
   activeSessionId: null,
   activeView: 'mcp',
   sidebarCollapsed: true,
-  dockedRight: false,
-  dockWidth: 480,
+  dockSide: null,
+  dockSize: IDE_DOCK.DEFAULT_SIZE.x,
+  dockOrder: 0,
+  dockSpan: 1,
+  z: 0,
+  float: null,
+  collapsed: false,
+  openMode: 'modal',
   editorFiles: [],
   activeEditorPath: null,
 };
 
-/** 현재 활성 프로젝트 탭의 IDE 오버레이 상태를 반환. 없으면 기본값. */
+/**
+ * §5.5 #17-34 — 한 IDE 창 **안**의 분할 상태. `ideSplits[슬롯키]` 에 산다.
+ *
+ * 항목 자체가 없으면 "분할 없음"이고, 그때 화면은 이 기능이 생기기 전과 픽셀 단위로 같다.
+ * **두 칸 이상일 때만 존재한다** — 닫다가 한 칸만 남으면 항목을 지우고 그 세션을 창의 활성 세션으로
+ * 돌려준다(칸이 하나뿐인데 칸 머리띠가 남아 있으면 "분할을 껐는데 안 꺼졌다"로 읽힌다).
+ */
+export interface IDESplitState {
+  /** 이 분할이 붙어 있는 에이전트. 창이 다른 버블로 갈아 끼워지면 남은 분할은 무시된다(자가 치유). */
+  agentId: string;
+  layout: SplitNode;
+  /** 초점 칸 — 창 단위 단축키와 탭바 선택이 이 칸을 따라간다. */
+  focusedCellId: string | null;
+}
+
+/**
+ * §5.5 #17-34 — 분할 트리를 앉히는 **유일한 창구**(모든 변형이 여기를 지난다).
+ * 한 칸 이하로 줄면 분할을 접고, 마지막 칸이 보던 세션을 창이 그대로 이어받는다.
+ */
+function commitIDESplit(
+  state: { ideSplits: Record<string, IDESplitState>; ideOverlays: Record<string, IDEOverlayState> },
+  slotKey: string,
+  agentId: string,
+  layout: SplitNode | null,
+  focusedCellId: string | null,
+): Partial<GraphState> {
+  const splits = { ...state.ideSplits };
+  const cells = layout ? listCells(layout) : [];
+  if (!layout || cells.length <= 1) {
+    delete splits[slotKey];
+    const slot = state.ideOverlays[slotKey];
+    const only = cells[0];
+    if (slot && only) {
+      return {
+        ideSplits: splits,
+        ideOverlays: { ...state.ideOverlays, [slotKey]: { ...slot, activeSessionId: only.sessionId } },
+      };
+    }
+    return { ideSplits: splits };
+  }
+  const focus = focusedCellId && cells.some((c) => c.id === focusedCellId)
+    ? focusedCellId
+    : (cells[0]?.id ?? null);
+  splits[slotKey] = { agentId, layout, focusedCellId: focus };
+  return { ideSplits: splits };
+}
+
+/**
+ * §5.5 #17-1 — 지금 활성 프로젝트에서 **맨 앞에 있는** IDE 창.
+ *
+ * 창이 하나뿐이던 시절에는 "그 프로젝트의 슬롯"이 곧 답이었다. 창이 여럿이 된 뒤로 컨텍스트 밖
+ * (북마크 점프·지휘통제실·클립보드 가드·디버그 계기판)에서 "그 IDE" 라고 말할 때 가리켜야 하는 것은
+ * **마지막으로 앞에 온 창**이다. 주 창이 닫히고 둘째 창만 남은 상태에서 종전 산식은 아무것도 못 찾아
+ * (슬롯 키가 프로젝트명이 아니므로) 세션 선택 같은 뒤따르는 동작이 조용히 아무 일도 안 했다.
+ */
+function frontPaneOf(state: {
+  ideOverlays: Record<string, IDEOverlayState>;
+  activeProject: string | null;
+}): IDEOverlayState | undefined {
+  const proj = state.activeProject;
+  if (!proj) return undefined;
+  let best: IDEOverlayState | undefined;
+  for (const o of Object.values(state.ideOverlays)) {
+    if (o.projectId !== proj || !o.agentId) continue;
+    if (!best || o.z > best.z) best = o;
+  }
+  return best ?? state.ideOverlays[proj];
+}
+
+/**
+ * 액션이 손댈 슬롯 키. 키를 명시하면 그 창, 안 주면 **맨 앞 창**(컨텍스트 밖 호출의 뜻).
+ * 열린 창이 하나도 없으면 프로젝트명(=주 창 자리)으로 떨어진다.
+ */
+export function resolvePaneKey(
+  state: { ideOverlays: Record<string, IDEOverlayState>; activeProject: string | null },
+  paneKey?: string | null,
+): string | null {
+  if (paneKey) return paneKey;
+  return frontPaneOf(state)?.paneKey || state.activeProject;
+}
+
+/** 현재 활성 프로젝트 탭에서 맨 앞에 있는 IDE 창의 상태를 반환. 없으면 기본값. */
 export function selectIDEOverlay(state: {
   ideOverlays: Record<string, IDEOverlayState>;
   activeProject: string | null;
 }): IDEOverlayState {
   if (!state.activeProject) return DEFAULT_IDE_OVERLAY;
-  const cur = state.ideOverlays[state.activeProject];
+  const cur = frontPaneOf(state);
   if (!cur) return DEFAULT_IDE_OVERLAY;
   // §5.5 #17-28 v4.96 — 저장돼 있던 옛 뷰 id('events')를 여기서 한 번 옮긴다. 읽는 길이 이 함수
   //   하나라 여기만 손보면 활동바·사이드바가 동시에 새 뷰를 가리킨다(빈 화면이 뜨지 않는다).
@@ -512,24 +651,154 @@ export function selectIDEOverlay(state: {
   return migrated === cur.activeView ? cur : { ...cur, activeView: migrated };
 }
 
+/** 팬 키로 그 창의 슬롯을 읽는다. 키가 없으면(컨텍스트 밖) 종전대로 활성 프로젝트의 주 창. */
+export function selectIDEPane(
+  state: { ideOverlays: Record<string, IDEOverlayState>; activeProject: string | null },
+  paneKey: string | null | undefined,
+): IDEOverlayState {
+  if (!paneKey) return selectIDEOverlay(state);
+  const cur = state.ideOverlays[paneKey];
+  if (!cur) return DEFAULT_IDE_OVERLAY;
+  const migrated = migrateIDEViewType(cur.activeView);
+  return migrated === cur.activeView ? cur : { ...cur, activeView: migrated };
+}
+
+/** 지금 보고 있는 프로젝트에 열려 있는 IDE 창들 — 앞에 온 순서(z 오름차순, 마지막이 맨 앞). */
+export function selectProjectIDEPanes(state: {
+  ideOverlays: Record<string, IDEOverlayState>;
+  activeProject: string | null;
+}): IDEOverlayState[] {
+  const proj = state.activeProject;
+  if (!proj) return [];
+  return Object.values(state.ideOverlays)
+    .filter((o) => o.projectId === proj && !!o.agentId)
+    .sort((a, b) => a.z - b.z);
+}
+
+/** 그 창들의 팬 키만 — 배열 신원이 매번 바뀌는 것을 피하려 화면은 이 키 목록만 구독한다. */
+export function selectProjectIDEPaneKeys(state: {
+  ideOverlays: Record<string, IDEOverlayState>;
+  activeProject: string | null;
+}): string[] {
+  return selectProjectIDEPanes(state).map((o) => o.paneKey);
+}
+
+/** 지금 **화면에 그려지는** 창들(접힌 창 제외) — 겹침 순서·모달 강등 판정이 함께 읽는다. */
+export function selectRenderedIDEPanes(state: {
+  ideOverlays: Record<string, IDEOverlayState>;
+  activeProject: string | null;
+}): IDEOverlayState[] {
+  return selectProjectIDEPanes(state).filter((o) => !o.collapsed);
+}
+
+/** 그 창들의 팬 키만 — `IDEPaneHost` 가 이 목록만큼만 그린다. */
+export function selectRenderedIDEPaneKeys(state: {
+  ideOverlays: Record<string, IDEOverlayState>;
+  activeProject: string | null;
+}): string[] {
+  return selectRenderedIDEPanes(state).map((o) => o.paneKey);
+}
+
 /**
- * §5.5 #17-1 — 우측 도킹이 **실제로 화면을 차지하는가**(캔버스를 도크 폭만큼 줄일 것인가).
+ * 슬롯은 살아 있는데 그 **에이전트가 스냅샷에 없는** 창들(삭제·휴지통·스냅샷 공백).
+ *
+ * `AgentIDEOverlay` 가 `null` 을 반환해 화면에는 아무것도 안 뜨는데 슬롯은 남는다 — 슬롯을
+ * 자동으로 지우지는 않는다(스냅샷이 잠깐 비었다 돌아오면 IDE 도 돌아와야 하는 기존 규약).
+ * 대신 헤더 [창] 메뉴가 이 목록을 함께 보여 **사용자가 직접 닫을 수 있게** 한다 — 안 그러면
+ * 배지 숫자만 오른 채 어디서도 손댈 수 없는 유령 창이 남는다.
+ */
+export function selectOrphanIDEPanes(state: {
+  ideOverlays: Record<string, IDEOverlayState>;
+  activeProject: string | null;
+  nodeMap: Record<string, BubbleData>;
+}): IDEOverlayState[] {
+  return selectProjectIDEPanes(state).filter((o) => !o.agentId || !state.nodeMap[o.agentId]);
+}
+
+/**
+ * 지금 캔버스에 서 있는 **에이전트 버블 목록**(휴지통 제외).
+ *
+ * 판정은 캔버스(`BubbleMap`)와 **같은 산식**이다 — 워크트리로 드릴다운했으면 그 워크트리 프로젝트,
+ * 아니면 활성 탭. 헤더 [창] 메뉴가 "붙인 창이 화면을 덮어 버블에 손이 안 닿을 때" 같은 목록을
+ * 보여 주려면 두 곳이 갈라지면 안 된다.
+ */
+export function selectCanvasAgentBubbles(state: {
+  agents: BubbleData[];
+  agentProjects: Record<string, string>;
+  currentFolderId: string | null;
+  worktreeProjects: Record<string, string>;
+  activeProject: string | null;
+}): BubbleData[] {
+  const proj = selectEffectiveProject(state);
+  return state.agents.filter((a) => !a.trashed && (!proj || state.agentProjects[a.id] === proj));
+}
+
+/**
+ * §5.5 #17-1 — 도킹이 **실제로 화면을 차지하는** 창들(캔버스를 그만큼 줄일 것인가).
  *
  * `AgentIDEOverlay` 는 슬롯의 에이전트가 스냅샷에 없으면(`nodeMap[agentId]` 부재 — 에이전트 삭제·
- * 휴지통·스냅샷 공백·사라진 대상으로의 북마크 점프) `null` 을 반환한다. 그래서 `dockedRight` 한 비트만
- * 보고 자리를 비우면 **IDE 는 안 그려지는데 캔버스만 잘린 빈 도크**가 남는다(사용자 보고: 북마크
- * 숫자키 점프 뒤 우측이 빈 칸으로 화면을 가림). 자리를 비우는 쪽(App `main` marginRight · DetailPanel
+ * 휴지통·스냅샷 공백·사라진 대상으로의 북마크 점프) `null` 을 반환한다. 그래서 도킹 비트만 보고
+ * 자리를 비우면 **IDE 는 안 그려지는데 캔버스만 잘린 빈 도크**가 남는다(사용자 보고: 북마크
+ * 숫자키 점프 뒤 우측이 빈 칸으로 화면을 가림). 자리를 비우는 쪽(App `main` 여백 · DetailPanel
  * 좌/우 미러링)과 그리는 쪽이 **같은 산식**을 읽도록 판정을 여기 하나로 모은다.
  *
  * 슬롯 자체는 지우지 않는다 — 스냅샷이 잠깐 비었다가 돌아오면 IDE 도 그대로 돌아와야 한다.
  */
-export function selectIDEDockVisible(state: {
+export function selectVisibleDockedPanes(state: {
   ideOverlays: Record<string, IDEOverlayState>;
   activeProject: string | null;
   nodeMap: Record<string, BubbleData>;
-}): boolean {
-  const ide = selectIDEOverlay(state);
-  return ide.dockedRight && !!ide.agentId && !!state.nodeMap[ide.agentId];
+}): DockedPane[] {
+  const out: DockedPane[] = [];
+  for (const o of selectProjectIDEPanes(state)) {
+    if (o.collapsed) continue; // 접힌 창은 안 그리므로 자리도 안 먹는다(캔버스가 그만큼 돌아온다).
+    if (!o.dockSide || !o.agentId || !state.nodeMap[o.agentId]) continue;
+    out.push({ paneKey: o.paneKey, side: o.dockSide, size: o.dockSize, order: o.dockOrder, span: o.dockSpan });
+  }
+  return out;
+}
+
+/**
+ * 그 에이전트를 **띄우고 있는 창**의 활성 세션(없으면 null).
+ * 창이 여럿이 된 뒤로 "IDE 의 활성 세션"은 하나가 아니다 — 버블은 자기를 띄운 창의 것을 봐야 한다.
+ */
+export function selectIDEActiveSessionForAgent(
+  state: { ideOverlays: Record<string, IDEOverlayState>; activeProject: string | null },
+  agentId: string,
+): string | null {
+  const proj = state.activeProject;
+  if (!proj) return null;
+  let best: IDEOverlayState | undefined;
+  for (const o of Object.values(state.ideOverlays)) {
+    if (o.projectId !== proj || o.agentId !== agentId) continue;
+    if (!best || o.z > best.z) best = o;
+  }
+  return best?.activeSessionId ?? null;
+}
+
+/**
+ * 지금 그려지는 도크들의 **지문**(원시 문자열). 화면은 이것만 구독하고 목록은 지문이 바뀔 때만 다시 만든다.
+ *
+ * `selectVisibleDockedPanes` 를 그대로 구독하면 매 호출 새 배열이라 zustand v5 가 "캐시되지 않은
+ * 스냅샷"으로 보고, 원시 조각으로 나눠 구독하면 `nodeMap`(스냅샷마다 새 객체) 때문에 **App 전체가
+ * 매 스냅샷 다시 그려진다**. 지문 한 줄이면 실제로 자리가 달라졌을 때만 다시 그린다.
+ */
+export function selectDockSignature(state: {
+  ideOverlays: Record<string, IDEOverlayState>;
+  activeProject: string | null;
+  nodeMap: Record<string, BubbleData>;
+}): string {
+  let out = '';
+  for (const p of selectVisibleDockedPanes(state)) out += `${p.paneKey}|${p.side}|${p.size}|${p.order}|${p.span};`;
+  return out;
+}
+
+/** 그 변에 실제로 그려지는 도크가 있는가 — DetailPanel 좌/우 미러링 판정. */
+export function selectDockSideOccupied(
+  state: { ideOverlays: Record<string, IDEOverlayState>; activeProject: string | null; nodeMap: Record<string, BubbleData> },
+  side: IDEDockSide,
+): boolean {
+  return selectVisibleDockedPanes(state).some((p) => p.side === side);
 }
 
 // ─── 스트림 메모리 관리 (성능: 비활성 세션 차등 cap + 오래된 세션 pruning) ───
@@ -1517,6 +1786,12 @@ interface GraphState {
    * 성공하면 그 버블의 IDE 가 열린다 — 준비의 끝이 곧 대화의 시작이다.
    */
   bindLocalModel: (agentId: string, modelId: string, modelName: string) => void;
+  /**
+   * §5.19 (D) — 이 버블이 쓸 **대화 창 크기**(토큰). 종전에는 타입과 서버에만 있고 사람이
+   * 바꿀 자리가 없어 사실상 기본값 고정이었다 — 대화가 길어져 창이 넘칠 때 사용자가 쓸 수 있는
+   * 유일한 손잡이가 이것이다.
+   */
+  setLocalContextSize: (agentId: string, contextSize: number) => void;
   /** §5.3 #10-2 v2.37 — Auto Agent 메타 버블 생성 */
   createAutoAgent: (canvasX: number, canvasY: number) => void;
   /** §5.3 #10-2 v2.37 — Auto Agent 에게 자연어 메시지 → 서버 spawn + dispatch */
@@ -1559,22 +1834,80 @@ interface GraphState {
   loadStreamBuffers: (buffers: Record<string, SubAgentStreamEvent[]>, depth?: 'deep' | 'shallow') => void;
   /** IDE 오버레이 상태 — 프로젝트별 독립 슬롯 (projectId → state). 활성 탭의 슬롯만 화면에 노출. */
   ideOverlays: Record<string, IDEOverlayState>;
-  openIDEOverlay: (agentId: string) => void;
-  closeIDEOverlay: () => void;
-  setIDEActiveSession: (sessionId: string | null) => void;
-  setIDEActiveView: (view: IDEViewType) => void;
-  toggleIDESidebar: () => void;
-  setIDEDocked: (docked: boolean, dockWidth?: number) => void;
+  /**
+   * §5.5 #17-1 — 창 순번·앞뒤 도장 발급기(단조 증가). 팬 키(`<projectId>::ide-N`)와
+   * 앞뒤 도장(`z`)을 같은 자리에서 받아 두 값이 어긋나지 않게 한다.
+   */
+  idePaneSeq: number;
+  /**
+   * IDE 창을 연다. `pane: 'new'` 면 **새 창**(캔버스 버블 더블클릭 — 나란히 보려는 진입점),
+   * 그 밖(기본)은 종전대로 열려 있는 창의 **자리를 재사용**한다(북마크 점프처럼 창이 쌓이면 안 되는 곳).
+   * 어느 쪽이든 그 에이전트를 이미 띄운 창이 있으면 새로 만들지 않고 그 창을 앞으로 올린다.
+   */
+  openIDEOverlay: (agentId: string, opts?: { pane?: 'new' | 'reuse' }) => void;
+  /** 창 하나를 닫는다. 키를 안 주면 종전대로 활성 프로젝트의 주 창. */
+  closeIDEOverlay: (paneKey?: string | null) => void;
+  /** 그 창을 맨 앞으로(겹칠 때 앞뒤 + 상한 초과 시 재사용 대상 판정에 함께 쓰인다). */
+  focusIDEPane: (paneKey: string) => void;
+  /**
+   * §5.5 #17-1 — 창 접기/펴기. 접으면 안 그리고 자리도 안 먹는다(캔버스가 돌아온다).
+   * 펴면 붙어 있던 변으로 그대로 돌아오고, 펴는 김에 맨 앞으로 올린다.
+   */
+  setIDEPaneCollapsed: (paneKey: string, collapsed: boolean) => void;
+  /**
+   * §5.5 #17-1 — 떠 있는 창의 자리·크기를 적어 둔다(드래그·리사이즈가 끝날 때 한 번).
+   * 매 프레임 쓰면 창 수만큼 리렌더가 붙으므로 **끝났을 때만** 부른다.
+   */
+  setIDEPaneFloat: (paneKey: string | null | undefined, geom: FloatGeom) => void;
+  setIDEActiveSession: (sessionId: string | null, paneKey?: string | null) => void;
+  setIDEActiveView: (view: IDEViewType, paneKey?: string | null) => void;
+  toggleIDESidebar: (paneKey?: string | null) => void;
+  /** §5.5 #17-1 — 그 창을 어느 변에 붙일지(null 이면 뗀다). 같은 변 안 자리는 `order` 로 정한다. */
+  setIDEPaneDock: (paneKey: string | null | undefined, dock: { side: IDEDockSide; size: number; order: number } | null) => void;
+  /** §5.5 #17-1 — 도크 두께. 같은 변에 붙은 창들은 한 칸을 나눠 쓰므로 **함께** 바뀐다. */
+  setIDEDockSize: (paneKey: string | null | undefined, size: number) => void;
+  /**
+   * §5.5 #17-1 — 같은 변에 쌓인 창들의 **몫**(가중치). 이웃한 두 칸을 한 번에 바꾸므로
+   * 맵으로 받는다(둘을 따로 부르면 그 사이 한 프레임 동안 합이 어긋난다).
+   */
+  setIDEDockSpans: (spans: Record<string, number>) => void;
   /** §5.5 #17-27 — 파일을 내장 편집창에 연다(이미 열려 있으면 그 탭을 활성화). 여는 손잡이 3곳의 공통 창구. */
-  openIDEEditorFile: (file: IDEEditorFile) => void;
+  openIDEEditorFile: (file: IDEEditorFile, paneKey?: string | null) => void;
   /** §5.5 #17-27 — 탭 하나 닫기. 활성 탭이었으면 옆 탭으로 넘어가고, 마지막이면 편집창이 닫힌다. */
-  closeIDEEditorFile: (relPath: string) => void;
+  closeIDEEditorFile: (relPath: string, paneKey?: string | null) => void;
   /** §5.5 #17-27 — 탭 전환. null 이면 편집창 자체를 접는다(탭 목록은 남는다). */
-  setActiveIDEEditorFile: (relPath: string | null) => void;
+  setActiveIDEEditorFile: (relPath: string | null, paneKey?: string | null) => void;
   /** §5.5 #17-27 — 편집창 통째로 닫기(탭 목록도 비운다). */
-  closeIDEEditor: () => void;
+  closeIDEEditor: (paneKey?: string | null) => void;
   /** §5.5 #17-27 — 그 탭에 저장하지 않은 편집이 있는지 신고(탭 점 + 밀어내기 예외). */
-  setIDEEditorFileDirty: (relPath: string, dirty: boolean) => void;
+  setIDEEditorFileDirty: (relPath: string, dirty: boolean, paneKey?: string | null) => void;
+  /**
+   * §5.5 #17-34 — 창 **안**의 화면 분할. 키 = 그 IDE 창의 슬롯 키(= `ideOverlays` 의 키라 창마다 따로 선다).
+   * 항목이 없으면 분할이 없다는 뜻이며, 그때 본문은 종전 그대로 한 화면이다.
+   */
+  ideSplits: Record<string, IDESplitState>;
+  /**
+   * §5.5 #17-34 — 세션을 칸의 한 변(또는 가운데)에 떨군다.
+   * `cellId=null` 이면 아직 안 나뉜 창 전체가 대상(첫 분할 — 지금 보던 세션이 반대쪽 칸이 된다).
+   * `fromCellId` 를 주면 그 칸을 **옮기는** 것이라 칸 수가 늘지 않는다(원본 칸은 함께 닫힌다).
+   */
+  dropSessionOnIDECell: (
+    slotKey: string,
+    cellId: string | null,
+    side: SplitDropSide,
+    sessionId: string | null,
+    fromCellId?: string | null,
+  ) => void;
+  /** §5.5 #17-34 — 칸 하나 닫기. 세션은 그대로 살아 있고 화면에서만 물러난다(탭바에 그대로 남는다). */
+  closeIDESplitCell: (slotKey: string, cellId: string) => void;
+  /** §5.5 #17-34 — 초점 칸 지정. 창 단위 단축키(Ctrl+F·Ctrl+휠)와 탭바 선택이 이 칸을 따라간다. */
+  focusIDESplitCell: (slotKey: string, cellId: string) => void;
+  /** §5.5 #17-34 — 손잡이 드래그 결과를 그대로 앉힌다(비율 계산은 `splitLayout` 순수 모듈이 한다). */
+  setIDESplitLayout: (slotKey: string, layout: SplitNode) => void;
+  /** §5.5 #17-34 — 사라진 세션을 문 칸을 걷어낸다. 바뀐 게 없으면 아무 일도 하지 않는다(되풀이 ❌). */
+  syncIDESplitCells: (slotKey: string, validSessionIds: readonly string[]) => void;
+  /** §5.5 #17-34 — 분할 해제. 초점 칸이 보던 세션 한 화면으로 되돌아간다. */
+  resetIDESplit: (slotKey: string) => void;
   /** §5.5 #17-27 — 편집창 폭(px). 좌측 손잡이 드래그로 조절. localStorage 영속. */
   ideEditorWidth: number;
   setIdeEditorWidth: (w: number) => void;
@@ -4001,6 +4334,25 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   // §5.19 (B) — 모델 매기. 기존 `PUT /api/agent-config` 를 그대로 탄다(새 REST ❌).
   //   ⚠ 이 PUT 은 body 로 config **전량을 재구축**한다 — 한 필드만 보내면 tools 가 [] 로 날아간다.
   //   그래서 지금 설정을 통째로 스프레드한 위에 provider 만 얹는다.
+  setLocalContextSize: (agentId, contextSize) => {
+    const prev = get().agentConfigs[agentId];
+    if (!prev?.provider) return;
+    const provider = { ...prev.provider, contextSize };
+    // 설정 저장은 **설정 전체**를 실어 보낸다 — 한 필드만 보내면 서버가 body 로 config 를
+    //   통째로 다시 세우면서 tools 같은 다른 칸이 빈 값으로 덮인다.
+    fetch(`${API_BASE}/api/agent-config/${encodeURIComponent(agentId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...prev, provider }),
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error(String(res.status));
+        set((s) => ({
+          agentConfigs: { ...s.agentConfigs, [agentId]: { ...(s.agentConfigs[agentId] ?? prev), provider } },
+        }));
+      })
+      .catch(() => undefined);
+  },
   bindLocalModel: (agentId, modelId, modelName) => {
     const prev = get().agentConfigs[agentId];
     if (!prev) return;
@@ -4226,7 +4578,8 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     return { subAgentStreams: streams, streamLastActivity: lastActivity, deepRestoredSessions: deepRestored };
   }),
   ideOverlays: {},
-  openIDEOverlay: (agentId) => {
+  idePaneSeq: 0,
+  openIDEOverlay: (agentId, opts) => {
     // §5.19 (B) — All Model 버블은 **여기서** 준비됐는지 갈린다. 여는 손잡이(캔버스 더블클릭·
     //   북마크 점프·카드에서 열기)가 전부 이 함수로 모이므로, 갈림도 손잡이마다가 아니라 이 한 곳에.
     //   준비가 안 됐으면 빈 IDE 대신 그 버블에 매인 설치 창이 뜨고, 쓸 모델이 있는데 아직 안 물었으면
@@ -4264,23 +4617,72 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       //   전환하므로 activeProject 기준으로도 동일하게 동작한다.
       const ownerProject = state.activeProject ?? state.agentProjects[agentId];
       if (!ownerProject) return {}; // 소속 프로젝트 미상이면 무시
-      const prev = state.ideOverlays[ownerProject];
-      // §5.5 #17-1 (v2.17) — 같은 프로젝트의 IDE 가 이미 우측 도킹 상태면 agentId 만 교체 + dockedRight/dockWidth 유지.
-      const wasOpen = !!prev?.agentId;
-      const keepDock = wasOpen && !!prev?.dockedRight;
+
+      const panes = Object.values(state.ideOverlays).filter((o) => o.projectId === ownerProject && !!o.agentId);
+      const seq = state.idePaneSeq + 1;
+
+      // 그 에이전트를 이미 띄운 창이 있으면 **두 벌로 만들지 않는다** — 앞으로 올리기만.
+      //   (같은 버블을 두 번 더블클릭했을 때 똑같은 창이 둘 서면 어느 쪽이 진짜인지 알 수 없다.)
+      const already = panes.find((o) => o.agentId === agentId);
+      if (already) {
+        // 접혀 있던 창이면 펴서 보여 준다 — 안 그러면 눌렀는데 아무 일도 안 일어난 것처럼 보인다.
+        return {
+          idePaneSeq: seq,
+          ideOverlays: { ...state.ideOverlays, [already.paneKey]: { ...already, z: seq, collapsed: false } },
+        };
+      }
+
+      // 어느 자리에 열 것인가:
+      //   ① 주 창(키=projectId)이 비어 있으면 그 자리 — 프로젝트의 첫 창은 종전과 한 픽셀도 다르지 않다.
+      //   ② `pane:'new'`(캔버스 더블클릭) 면 새 창. 상한을 넘으면 **가장 오래 안 만진 창**을 재사용한다
+      //      (§3.2.3 — 캡은 값 길이가 아니라 **개수**에 건다).
+      //   ③ 그 밖(북마크 점프·지휘통제실 [이동]·콘티 이력)은 종전대로 **맨 앞 창의 자리를 교체**한다.
+      const primary = state.ideOverlays[ownerProject];
+      let targetKey: string;
+      let prev: IDEOverlayState | undefined;
+      if (!primary?.agentId) {
+        targetKey = ownerProject;
+        prev = primary;
+      } else if (opts?.pane === 'new' && panes.length < IDE_MAX_PANES) {
+        targetKey = `${ownerProject}::ide-${seq}`;
+        prev = undefined;
+      } else if (opts?.pane === 'new') {
+        const lru = [...panes].sort((a, b) => a.z - b.z)[0]!;
+        targetKey = lru.paneKey;
+        prev = lru;
+      } else {
+        const mru = [...panes].sort((a, b) => b.z - a.z)[0] ?? primary;
+        targetKey = mru.paneKey;
+        prev = mru;
+      }
+
+      // §5.5 #17-1 (v2.17) — 자리를 재사용할 때는 붙어 있던 변·두께·순서를 그대로 이어받는다
+      //   (우측에 붙여 둔 창에서 에이전트만 갈아 끼우는 종전 패턴).
+      const keepDock = !!prev?.agentId && !!prev.dockSide;
+      // 새로 서는 창이 프로젝트의 첫 창이 아니면 **플로팅**으로 뜬다 — 모달은 캔버스를 통째로 덮어
+      //   "옆에 놓고 같이 본다"는 목적과 정면으로 어긋난다.
+      const openMode: 'modal' | 'floating' = keepDock || panes.length > 0 ? 'floating' : 'modal';
       return {
+        idePaneSeq: seq,
         ideOverlays: {
           ...state.ideOverlays,
-          [ownerProject]: {
+          [targetKey]: {
             agentId,
+            paneKey: targetKey,
             projectId: ownerProject,
             activeSessionId: initialSession,
             // §5.19 (G) — 로컬 버블의 IDE 에는 MCP 항목 자체가 없다(클로드 CLI 에 매인 자리라 뺐다).
             //   첫 화면은 프로바이더와 무관하게 뜻이 통하는 파일 탐색기다.
             activeView: isLocalAgent ? 'files' : 'mcp',
             sidebarCollapsed: true,
-            dockedRight: keepDock,
-            dockWidth: keepDock ? (prev?.dockWidth ?? 480) : 480,
+            dockSide: keepDock ? prev!.dockSide : null,
+            dockSize: keepDock ? prev!.dockSize : IDE_DOCK.DEFAULT_SIZE.x,
+            dockOrder: keepDock ? prev!.dockOrder : 0,
+            dockSpan: keepDock ? prev!.dockSpan : 1,
+            z: seq,
+            float: keepDock ? prev?.float ?? null : null,
+            collapsed: false,
+            openMode,
             // §5.5 #17-27 — 편집창은 IDE 를 새로 열 때(=에이전트 교체) 빈 상태에서 시작한다.
             editorFiles: [],
             activeEditorPath: null,
@@ -4289,33 +4691,90 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       };
     });
   },
-  closeIDEOverlay: () => set((state) => {
-    // 닫기는 현재 활성 프로젝트의 슬롯 대상. 슬롯 자체 제거 = 깨끗한 초기 상태로 복귀.
-    const proj = state.activeProject;
-    if (!proj || !state.ideOverlays[proj]) return {};
+  closeIDEOverlay: (paneKey) => set((state) => {
+    // 닫기는 그 창 하나만. 키를 안 주면 종전대로 활성 프로젝트의 주 창.
+    //   슬롯 자체 제거 = 깨끗한 초기 상태로 복귀(다른 창은 그대로 남는다).
+    const key = resolvePaneKey(state, paneKey);
+    if (!key || !state.ideOverlays[key]) return {};
     const next = { ...state.ideOverlays };
-    delete next[proj];
+    delete next[key];
     return { ideOverlays: next };
   }),
-  setIDEDocked: (docked, dockWidth) => set((s) => {
-    const proj = s.activeProject;
-    if (!proj) return {};
-    const cur = s.ideOverlays[proj];
+  focusIDEPane: (paneKey) => set((s) => {
+    const cur = s.ideOverlays[paneKey];
     if (!cur) return {};
+    // 이미 맨 앞이면 도장을 새로 찍지 않는다 — 클릭마다 상태가 바뀌면 리렌더만 늘어난다.
+    const front = Object.values(s.ideOverlays).reduce((m, o) => (o.projectId === cur.projectId && o.z > m ? o.z : m), -1);
+    if (cur.z >= front) return {};
+    const seq = s.idePaneSeq + 1;
+    return { idePaneSeq: seq, ideOverlays: { ...s.ideOverlays, [paneKey]: { ...cur, z: seq } } };
+  }),
+  setIDEPaneCollapsed: (paneKey, collapsed) => set((s) => {
+    const cur = s.ideOverlays[paneKey];
+    if (!cur || cur.collapsed === collapsed) return {};
+    // 펴는 김에 맨 앞으로 — 접었다 편 창이 다른 창 뒤에 숨어 "안 펴졌다"로 보이지 않게.
+    const seq = collapsed ? s.idePaneSeq : s.idePaneSeq + 1;
+    return {
+      idePaneSeq: seq,
+      ideOverlays: { ...s.ideOverlays, [paneKey]: { ...cur, collapsed, z: collapsed ? cur.z : seq } },
+    };
+  }),
+  setIDEPaneFloat: (paneKey, geom) => set((s) => {
+    const key = resolvePaneKey(s, paneKey);
+    if (!key) return {};
+    const cur = s.ideOverlays[key];
+    if (!cur) return {};
+    const prev = cur.float;
+    if (prev && prev.x === geom.x && prev.y === geom.y && prev.w === geom.w && prev.h === geom.h) return {};
+    return { ideOverlays: { ...s.ideOverlays, [key]: { ...cur, float: geom } } };
+  }),
+  setIDEPaneDock: (paneKey, dock) => set((s) => {
+    const key = resolvePaneKey(s, paneKey);
+    if (!key) return {};
+    const cur = s.ideOverlays[key];
+    if (!cur) return {};
+    const nextSide = dock?.side ?? null;
+    if (cur.dockSide === nextSide && (!dock || (cur.dockSize === dock.size && cur.dockOrder === dock.order))) return {};
     return {
       ideOverlays: {
         ...s.ideOverlays,
-        [proj]: { ...cur, dockedRight: docked, dockWidth: dockWidth ?? cur.dockWidth },
+        [key]: dock
+          ? { ...cur, dockSide: dock.side, dockSize: dock.size, dockOrder: dock.order }
+          : { ...cur, dockSide: null },
       },
     };
+  }),
+  setIDEDockSpans: (spans) => set((s) => {
+    let changed = false;
+    const next = { ...s.ideOverlays };
+    for (const [key, span] of Object.entries(spans)) {
+      const cur = next[key];
+      if (!cur || cur.dockSpan === span) continue;
+      next[key] = { ...cur, dockSpan: span };
+      changed = true;
+    }
+    return changed ? { ideOverlays: next } : {};
+  }),
+  setIDEDockSize: (paneKey, size) => set((s) => {
+    const key = resolvePaneKey(s, paneKey);
+    if (!key) return {};
+    const cur = s.ideOverlays[key];
+    if (!cur?.dockSide || cur.dockSize === size) return {};
+    // 같은 변에 붙은 창들은 한 칸을 나눠 쓴다 — 두께는 그 변 전체의 성질이라 함께 바뀐다.
+    //   (한 창만 바꾸면 레이아웃이 `max` 를 집어 손잡이가 "가끔 안 먹는" 것처럼 보인다.)
+    const next = { ...s.ideOverlays };
+    for (const o of Object.values(s.ideOverlays)) {
+      if (o.projectId === cur.projectId && o.dockSide === cur.dockSide) next[o.paneKey] = { ...o, dockSize: size };
+    }
+    return { ideOverlays: next };
   }),
   // ─── §5.5 #17-27 내장 편집창 ───
   // 모든 변경자는 IDE 오버레이와 같은 슬롯 규약(activeProject 기준)을 따른다 — 여는 손잡이가
   // 사이드바·스트림 어디든 결국 "지금 보고 있는 탭의 IDE" 로 모여야 하기 때문이다.
-  openIDEEditorFile: (file) => set((s) => {
-    const proj = s.activeProject;
-    if (!proj) return {};
-    const cur = s.ideOverlays[proj];
+  openIDEEditorFile: (file, paneKey) => set((s) => {
+    const key = resolvePaneKey(s, paneKey);
+    if (!key) return {};
+    const cur = s.ideOverlays[key];
     if (!cur) return {};
     const already = cur.editorFiles.some((f) => f.relPath === file.relPath);
     let files = already ? cur.editorFiles : [...cur.editorFiles, file];
@@ -4327,14 +4786,14 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     return {
       ideOverlays: {
         ...s.ideOverlays,
-        [proj]: { ...cur, editorFiles: files, activeEditorPath: file.relPath },
+        [key]: { ...cur, editorFiles: files, activeEditorPath: file.relPath },
       },
     };
   }),
-  closeIDEEditorFile: (relPath) => set((s) => {
-    const proj = s.activeProject;
-    if (!proj) return {};
-    const cur = s.ideOverlays[proj];
+  closeIDEEditorFile: (relPath, paneKey) => set((s) => {
+    const key = resolvePaneKey(s, paneKey);
+    if (!key) return {};
+    const cur = s.ideOverlays[key];
     if (!cur) return {};
     const idx = cur.editorFiles.findIndex((f) => f.relPath === relPath);
     if (idx < 0) return {};
@@ -4346,39 +4805,39 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     return {
       ideOverlays: {
         ...s.ideOverlays,
-        [proj]: { ...cur, editorFiles: files, activeEditorPath: nextActive },
+        [key]: { ...cur, editorFiles: files, activeEditorPath: nextActive },
       },
     };
   }),
-  setActiveIDEEditorFile: (relPath) => set((s) => {
-    const proj = s.activeProject;
-    if (!proj) return {};
-    const cur = s.ideOverlays[proj];
+  setActiveIDEEditorFile: (relPath, paneKey) => set((s) => {
+    const key = resolvePaneKey(s, paneKey);
+    if (!key) return {};
+    const cur = s.ideOverlays[key];
     if (!cur || cur.activeEditorPath === relPath) return {};
     return {
-      ideOverlays: { ...s.ideOverlays, [proj]: { ...cur, activeEditorPath: relPath } },
+      ideOverlays: { ...s.ideOverlays, [key]: { ...cur, activeEditorPath: relPath } },
     };
   }),
-  closeIDEEditor: () => set((s) => {
-    const proj = s.activeProject;
-    if (!proj) return {};
-    const cur = s.ideOverlays[proj];
+  closeIDEEditor: (paneKey) => set((s) => {
+    const key = resolvePaneKey(s, paneKey);
+    if (!key) return {};
+    const cur = s.ideOverlays[key];
     if (!cur) return {};
     return {
-      ideOverlays: { ...s.ideOverlays, [proj]: { ...cur, editorFiles: [], activeEditorPath: null } },
+      ideOverlays: { ...s.ideOverlays, [key]: { ...cur, editorFiles: [], activeEditorPath: null } },
     };
   }),
-  setIDEEditorFileDirty: (relPath, dirty) => set((s) => {
-    const proj = s.activeProject;
-    if (!proj) return {};
-    const cur = s.ideOverlays[proj];
+  setIDEEditorFileDirty: (relPath, dirty, paneKey) => set((s) => {
+    const key = resolvePaneKey(s, paneKey);
+    if (!key) return {};
+    const cur = s.ideOverlays[key];
     if (!cur) return {};
     const target = cur.editorFiles.find((f) => f.relPath === relPath);
     if (!target || !!target.dirty === dirty) return {};
     return {
       ideOverlays: {
         ...s.ideOverlays,
-        [proj]: {
+        [key]: {
           ...cur,
           editorFiles: cur.editorFiles.map((f) => (f.relPath === relPath ? { ...f, dirty } : f)),
         },
@@ -4484,15 +4943,15 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     });
     s.setIdeEditorFollowPending(null);
   },
-  setIDEActiveSession: (sessionId) => set((s) => {
-    const proj = s.activeProject;
-    if (!proj) return {};
-    const cur = s.ideOverlays[proj];
+  setIDEActiveSession: (sessionId, paneKey) => set((s) => {
+    const key = resolvePaneKey(s, paneKey);
+    if (!key) return {};
+    const cur = s.ideOverlays[key];
     if (!cur) return {};
     const next: Partial<GraphState> = {
       ideOverlays: {
         ...s.ideOverlays,
-        [proj]: { ...cur, activeSessionId: sessionId },
+        [key]: { ...cur, activeSessionId: sessionId },
       },
     };
     // sticky 선택 맵 동시 업데이트 — IDE 오버레이가 닫혀도 버블이 이 선택을 유지
@@ -4505,6 +4964,79 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       saveJSON(ACK_SUBAGENTS_KEY, next.acknowledgedSubAgents);
     }
     return next;
+  }),
+  // ─── §5.5 #17-34 창 안 화면 분할 ───
+  // 모든 변형은 순수 모듈(`splitLayout`)이 트리를 만들고 `commitIDESplit` 이 앉힌다 —
+  // "두 칸 이상일 때만 분할이 존재한다"는 규칙이 한 곳에만 있어야 화면이 어긋나지 않는다.
+  ideSplits: {},
+  dropSessionOnIDECell: (slotKey, cellId, side, sessionId, fromCellId) => set((s) => {
+    const slot = s.ideOverlays[slotKey];
+    if (!slot?.agentId) return {};
+    // **이 창의 세션인가.** 창이 여럿이면 옆 창의 탭이 끌려 들어올 수 있는데, 그 칸은 다음 정리
+    //   (`syncIDESplitCells`)에서 곧바로 걷혀 사용자 눈에는 "떨궜는데 사라졌다"로만 보인다.
+    //   화면이 그 사실을 미리 말하고(미리보기 호박색), 스토어가 여기서 한 번 더 막는다.
+    if (sessionId !== null && !(s.subAgents[slot.agentId] ?? []).some((x) => x.id === sessionId)) return {};
+    const cur = s.ideSplits[slotKey];
+    // 창이 다른 에이전트로 갈아 끼워졌으면 남아 있던 분할은 남의 것이다 — 새로 시작한다.
+    const existing = cur && cur.agentId === slot.agentId ? cur : null;
+    // 아직 안 나뉜 창이면 **지금 보고 있는 세션**이 첫 칸이 된다(떨군 세션이 그 옆에 선다).
+    const base: SplitNode = existing?.layout ?? makeCell(slot.activeSessionId);
+    const targetId = cellId ?? existing?.focusedCellId ?? listCells(base)[0]?.id ?? '';
+    // 이미 다른 칸에 떠 있는 세션을 떨구면 **복제가 아니라 옮기기**다. 같은 세션을 두 칸에 띄워
+    //   얻는 것은 없고(같은 스트림 두 벌), CMD 세션이면 한 PTY 에 두 화면이 붙어 입력이 갈린다.
+    //   아직 안 나뉜 창도 마찬가지다 — 지금 보고 있는 그 세션을 본문에 떨구면 같은 것이 두 칸에 뜬다.
+    const dupCellId = cellIdForSession(base, sessionId);
+    const from = fromCellId ?? dupCellId;
+    if (from && from === targetId) return {}; // 제자리 드롭 — 아무 일도 없다.
+    let layout = base;
+    if (from && side !== 'center') {
+      // 옮기기 — 원본을 **먼저** 닫아 칸 수가 늘지 않게 한다(상한에도 걸리지 않는다).
+      const without = closeCell(layout, from);
+      if (without && findCell(without, targetId)) layout = without;
+    }
+    const res = dropOnCell(layout, targetId, side, sessionId);
+    if (!res) return {}; // 칸 상한 도달 — 화면이 그 사실을 따로 알린다.
+    let next = res.layout;
+    if (from && side === 'center') {
+      const closed = closeCell(next, from);
+      if (closed) next = closed;
+    }
+    return commitIDESplit(s, slotKey, slot.agentId, next, res.focusCellId);
+  }),
+  closeIDESplitCell: (slotKey, cellId) => set((s) => {
+    const cur = s.ideSplits[slotKey];
+    if (!cur) return {};
+    const inherit = cur.focusedCellId === cellId ? adjacentCellId(cur.layout, cellId) : cur.focusedCellId;
+    return commitIDESplit(s, slotKey, cur.agentId, closeCell(cur.layout, cellId), inherit);
+  }),
+  focusIDESplitCell: (slotKey, cellId) => set((s) => {
+    const cur = s.ideSplits[slotKey];
+    if (!cur || cur.focusedCellId === cellId) return {};
+    if (!findCell(cur.layout, cellId)) return {};
+    return { ideSplits: { ...s.ideSplits, [slotKey]: { ...cur, focusedCellId: cellId } } };
+  }),
+  setIDESplitLayout: (slotKey, layout) => set((s) => {
+    const cur = s.ideSplits[slotKey];
+    if (!cur) return {};
+    return commitIDESplit(s, slotKey, cur.agentId, layout, cur.focusedCellId);
+  }),
+  syncIDESplitCells: (slotKey, validSessionIds) => set((s) => {
+    const cur = s.ideSplits[slotKey];
+    if (!cur) return {};
+    const valid = new Set(validSessionIds);
+    const pruned = pruneCells(cur.layout, (id) => valid.has(id));
+    // `pruneCells` 는 걷어낸 게 없어도 새 객체를 돌려준다 — 참조로 비교하면 effect 가 서로를 깨워
+    // 무한히 돈다. **무엇이 남았는가**로 비교한다.
+    const before = listCells(cur.layout).map((c) => c.id).join('|');
+    const after = pruned ? listCells(pruned).map((c) => c.id).join('|') : '';
+    if (before === after) return {};
+    return commitIDESplit(s, slotKey, cur.agentId, pruned, cur.focusedCellId);
+  }),
+  resetIDESplit: (slotKey) => set((s) => {
+    const cur = s.ideSplits[slotKey];
+    if (!cur) return {};
+    const keep = (cur.focusedCellId ? findCell(cur.layout, cur.focusedCellId) : null) ?? listCells(cur.layout)[0] ?? null;
+    return commitIDESplit(s, slotKey, cur.agentId, keep, keep?.id ?? null);
   }),
   selectedSubByAgent: {},
   selectSubForAgent: (agentId, subId) => set((s) => ({
@@ -4609,22 +5141,22 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     saveJSON(SESSION_SUMMARIES_KEY, next);
     return { sessionSummaries: next };
   }),
-  setIDEActiveView: (view) => set((s) => {
-    const proj = s.activeProject;
-    if (!proj) return {};
-    const cur = s.ideOverlays[proj];
+  setIDEActiveView: (view, paneKey) => set((s) => {
+    const key = resolvePaneKey(s, paneKey);
+    if (!key) return {};
+    const cur = s.ideOverlays[key];
     if (!cur) return {};
     return {
-      ideOverlays: { ...s.ideOverlays, [proj]: { ...cur, activeView: view } },
+      ideOverlays: { ...s.ideOverlays, [key]: { ...cur, activeView: view } },
     };
   }),
-  toggleIDESidebar: () => set((s) => {
-    const proj = s.activeProject;
-    if (!proj) return {};
-    const cur = s.ideOverlays[proj];
+  toggleIDESidebar: (paneKey) => set((s) => {
+    const key = resolvePaneKey(s, paneKey);
+    if (!key) return {};
+    const cur = s.ideOverlays[key];
     if (!cur) return {};
     return {
-      ideOverlays: { ...s.ideOverlays, [proj]: { ...cur, sidebarCollapsed: !cur.sidebarCollapsed } },
+      ideOverlays: { ...s.ideOverlays, [key]: { ...cur, sidebarCollapsed: !cur.sidebarCollapsed } },
     };
   }),
   uiLocale: DEFAULT_UI_LOCALE,

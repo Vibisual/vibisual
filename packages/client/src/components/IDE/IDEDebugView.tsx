@@ -10,7 +10,8 @@ import {
 import type { AgentConfig, ExternalDebuggerInfo, RunConfig, RunConfigSource } from '@vibisual/shared';
 import { isReadOnlyHookAgent } from '@vibisual/shared';
 
-import { useGraphStore, selectIDEOverlay } from '../../stores/graphStore.js';
+import { useGraphStore, selectIDEPane } from '../../stores/graphStore.js';
+import { useIDEPaneValue, useIDEPaneProjectName, useIDEPaneKey } from './idePane.js';
 import { ScrollFade } from '../ScrollFade.js';
 import {
   countRunning,
@@ -30,6 +31,8 @@ import {
   useDebugSessions,
 } from '../../stores/debugSessions.js';
 import { IDEDebugSessionPanel } from './IDEDebugSessionPanel.js';
+// §5.5 #17-27 ⑬ (h) — 본문에서 눌러 띄운 실행(구성 스캔에 없는 것)을 가려내는 접두사.
+import { ADHOC_RUN_PREFIX } from './runExecutableFile.js';
 
 /**
  * §5.5 #17-20 v4.74 — 활동바 **디버그**가 여는 사이드바.
@@ -42,8 +45,9 @@ import { IDEDebugSessionPanel } from './IDEDebugSessionPanel.js';
 
 /** 트리 루트와 같은 규칙 — 지금 IDE 가 열려 있는 프로젝트의 절대 경로. */
 function useProjectRoot(): string | null {
+  const paneKey = useIDEPaneKey();
   return useGraphStore((s) => {
-    const name = selectIDEOverlay(s).projectId ?? s.activeProject;
+    const name = selectIDEPane(s, paneKey).projectId ?? s.activeProject;
     if (!name) return null;
     return s.projects[name]?.path ?? s.stubProjects[name]?.project.path ?? null;
   });
@@ -90,7 +94,7 @@ export const IDEDebugView = memo(function IDEDebugView({ agentId }: { agentId: s
   const rootPath = useProjectRoot();
   const config = useGraphStore((s) => s.agentConfigs[agentId]) as AgentConfig | undefined;
   const addCommand = useGraphStore((s) => s.addCommand);
-  const activeSessionId = useGraphStore((s) => selectIDEOverlay(s).activeSessionId);
+  const activeSessionId = useIDEPaneValue((o) => o.activeSessionId);
 
   const sessions = useRunSessions((s) => s.sessions);
   const openOutput = useRunSessions((s) => s.openOutput);
@@ -110,7 +114,7 @@ export const IDEDebugView = memo(function IDEDebugView({ agentId }: { agentId: s
   /** runId → 붙기 실패 사유(그 자리에 그대로 적는다). */
   const [attachErrors, setAttachErrors] = useState<Record<string, string>>({});
   /** 지금 이 프로젝트에 찍힌 중단점 — 붙을 때 함께 실어 보낸다(붙기 절차 ②). */
-  const projectName = useGraphStore((s) => selectIDEOverlay(s).projectId ?? s.activeProject);
+  const projectName = useIDEPaneProjectName();
   const breakpointsForProject = useGraphStore((s) => (projectName ? s.debugBreakpoints[projectName] : undefined));
   const [debuggers, setDebuggers] = useState<ExternalDebuggerInfo[]>([]);
   const [sentRunIds, setSentRunIds] = useState<Record<string, boolean>>({});
@@ -320,6 +324,20 @@ export const IDEDebugView = memo(function IDEDebugView({ agentId }: { agentId: s
       }).catch(() => { /* 표시 전용 — 실패해도 목록은 그대로 */ });
     },
     [rootPath],
+  );
+
+  /**
+   * §5.5 #17-27 ⑬ (h) — **본문에서 눌러 띄운 실행**. 구성 스캔(A층)에 없으므로 그 목록에는 뜨지 않는다.
+   *
+   * 출력 패널을 닫고 나면 되돌아갈 자리가 없어 "돌고 있는데 멈출 손잡이가 없는" 프로세스가 되므로
+   * 여기 따로 세운다 — 새 상태를 만들지 않고 같은 실행 세션 스토어를 접두사로 거른다.
+   */
+  const adhocRuns = useMemo(
+    () =>
+      Object.values(sessions)
+        .filter((s) => s.agentId === agentId && s.configId.startsWith(ADHOC_RUN_PREFIX))
+        .sort((a, b) => b.startedAt - a.startedAt),
+    [sessions, agentId],
   );
 
   const runningCount = countRunning(sessions, agentId);
@@ -567,6 +585,60 @@ export const IDEDebugView = memo(function IDEDebugView({ agentId }: { agentId: s
               </p>
             )}
           </section>
+
+          {/* A층 곁 — 본문(⑬ (h))에서 눌러 띄운 실행. 하나도 없으면 자리 자체가 없다. */}
+          {adhocRuns.length > 0 && (
+            <section>
+              <h3 className="mb-1 text-[12px] font-semibold uppercase tracking-wide text-gray-500">
+                {t('ide.debug.adhocRuns')}
+              </h3>
+              <ul className="flex flex-col gap-1">
+                {adhocRuns.map((run) => {
+                  const running = run.status !== 'exited';
+                  const failed = !running && (run.exitCode ?? 0) !== 0;
+                  return (
+                    <li key={run.runId} className="rounded border border-gray-700/50 bg-gray-800/30 px-1.5 py-1">
+                      <div className="flex items-center gap-1">
+                        <span className="min-w-0 flex-1 truncate text-[12px] text-gray-200" title={run.command}>
+                          {run.name}
+                        </span>
+                        {running ? (
+                          <button
+                            type="button"
+                            onClick={() => void stopRun(run.runId)}
+                            className="rounded p-0.5 text-rose-400 transition-colors hover:bg-gray-700 hover:text-rose-300"
+                            title={t('ide.debug.stop')}
+                            aria-label={t('ide.debug.stop')}
+                          >
+                            <StopIcon />
+                          </button>
+                        ) : (
+                          <span className={`text-[12px] ${failed ? 'text-rose-400' : 'text-gray-500'}`}>
+                            {t('ide.debug.exitCode', { code: run.exitCode ?? 0 })}
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => openOutput(run.runId)}
+                          className="rounded bg-gray-700/60 px-1.5 py-0.5 text-[12px] text-gray-300 transition-colors hover:bg-gray-600"
+                        >
+                          {t('ide.debug.output')}
+                        </button>
+                        {running && (
+                          <span className="flex items-center gap-1 text-[12px] text-amber-300">
+                            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />
+                            {t('ide.debug.running')}
+                          </span>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          )}
 
           {/* B층 — 에이전트 디버그 도구(MCP) */}
           <section>

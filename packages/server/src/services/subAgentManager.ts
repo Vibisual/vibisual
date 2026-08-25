@@ -3,8 +3,8 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import type { ProjectInfo, SubAgent, SubAgentStatus, QueuedCommand, CommandError, AgentConfig, SubAgentStreamEvent, StreamEventType, AgentViewJobState, RunningSubagentTask, FinishedSubagentTask, StreamTaskInfo, StreamTaskStatus } from '@vibisual/shared';
-import { DEFAULT_AGENT_CONFIG, isOpusModel, resolveAliasToLatest, buildCmdCardProtocolRules, isNeverRenderedStreamEvent, formatSystemChip, normalizeBashTimeoutMs, TASK_CHIP_START_SUBTYPE, TASK_CHIP_END_SUBTYPE, parseSystemSubtype, parseSystemTaskInfo, capMapSize, SESSION_KEYED_MAP_MAX } from '@vibisual/shared';
+import type { ProjectInfo, SubAgent, SubAgentStatus, QueuedCommand, CommandError, AgentConfig, SubAgentStreamEvent, StreamEventType, AgentViewJobState, RunningSubagentTask, FinishedSubagentTask, StreamTaskInfo, StreamTaskStatus, CmdTerminalSignal, CmdTerminalState, CmdPaneNode, CmdCliKind } from '@vibisual/shared';
+import { CMD_PANE_SEPARATOR, CMD_BLOCK_REASON_MAX, collectCmdPaneIds, resolveCmdCliKind, DEFAULT_AGENT_CONFIG, isOpusModel, resolveAliasToLatest, buildCmdCardProtocolRules, isNeverRenderedStreamEvent, formatSystemChip, normalizeBashTimeoutMs, TASK_CHIP_START_SUBTYPE, TASK_CHIP_END_SUBTYPE, parseSystemSubtype, parseSystemTaskInfo, capMapSize, SESSION_KEYED_MAP_MAX, resolveLocalToolGate } from '@vibisual/shared';
 import {
   createTurnSealState, noteTaskChip, mayTurnResume, noteTurnResumed, noteTurnSealed,
   listDisplayableLiveTasks, turnIdOfLiveTask, takeOrphanLiveTasks, LIVE_TASK_ORPHAN_GRACE_MS,
@@ -12,7 +12,21 @@ import {
   type TurnSealState, type LiveTaskInfo,
 } from './turnSeal.js';
 import { logger } from '../logger.js';
-import { runLocalTurn, stopLocalTurn, type LocalTurnArgs } from './localRunner.js';
+import {
+  runLocalTurn,
+  stopLocalTurn,
+  isRenderableLocalEvent,
+  buildLocalSystemPrompt,
+  parseLocalSlash,
+  unsupportedSlashMessage,
+  clearLocalSession,
+  compactLocalSession,
+  describeLocalContext,
+  type LocalTurnArgs,
+  type LocalHookToolEvent,
+  type LocalToolVerdict,
+} from './localRunner.js';
+import { permissionBroker } from './permissionBroker.js';
 import { rescueSubagentResult } from './subagentResultRescue.js';
 import { modelRegistryService } from './modelRegistryService.js';
 import { readLastAssistantMessage, readSessionTokenData, getSessionJsonlPath } from './sessionDiscovery.js';
@@ -28,6 +42,30 @@ import { prepareAgentMemory } from './agentMemoryService.js';
 
 /** parentAgentId → 소속 ProjectInfo 해석. index.ts에서 graphManager 기반으로 주입. */
 export type AgentProjectResolver = (parentAgentId: string) => ProjectInfo | null;
+
+/**
+ * §5.19 (H) — 로컬 세션의 **호스트 도구** 한 건. 파일이 아니라 우리 화면·설정을 움직인다
+ * (`TodoWrite` → 목표창 · `AskUserQuestion` → 질문 카드 · `ExitPlanMode` → 권한 모드).
+ *
+ * 돌려주는 문자열이 그대로 도구 결과가 되어 모델에게 간다 — 실패도 던지지 말고 **말로** 돌려라
+ * (모델이 다른 수를 고를 수 있어야 한다).
+ */
+/**
+ * §5.19 (H) — 로컬 세션의 도구 호출 한 건을 **훅 이벤트로** 흘리는 자리. `index.ts` 가 그래프에
+ * 이어 준다(이 매니저는 그래프를 모른다 — `setProjectResolver` 와 같은 주입선).
+ *
+ * 도구 이벤트만이다. 생명주기는 로컬 턴이 이미 자기가 관리하므로 여기로 보내지 않는다.
+ */
+export type LocalHookEmitter = (
+  ctx: { agentId: string; subAgentId: string },
+  event: LocalHookToolEvent,
+) => void;
+
+export type LocalHostToolHandler = (
+  ctx: { agentId: string; subAgentId: string; agentLabel: string; config: AgentConfig },
+  toolName: string,
+  input: Record<string, unknown>,
+) => Promise<string>;
 
 /** 서버 기본 라벨 패턴(`Sub #N`) — 자동 이름은 이 기본값일 때만 덮는다. */
 const DEFAULT_SUB_LABEL_RE = /^Sub #\d+$/;
@@ -250,6 +288,51 @@ export function buildInteractiveClaudeArgs(
   return args;
 }
 
+/**
+ * §4 (CMD 터미널 업그레이드 ⑧) — CMD 터미널 셸에 **prefill 할 한 줄**을 조립한다.
+ *
+ * 종전에는 `claude` 가 코드에 박혀 있어 CMD 버블이 다른 에이전트 CLI 를 못 띄웠다. 이제
+ * `AgentConfig.cliKind` 가 `CMD_CLI_KINDS` 표의 어느 줄인지만 고르고, 실행 파일·훅 귀속 여부는
+ * 그 표가 정한다(§3.3 하드코딩 금지 — 새 CLI 는 표에 한 줄 추가로 끝난다).
+ *
+ * `managed === false`(claude 가 아닌 CLI)면 **우리 훅의 자식이 아니다** — `--resume`·rules
+ * `--add-dir`·우리가 조립한 claude 인자를 일절 붙이지 않는다(§5.5 #17-20 ④ v4.74 실행 런처와
+ * 같은 규율). `'shell'` 은 아무것도 넣지 않아 순수 셸이 된다.
+ *
+ * 개행은 **절대 붙이지 않는다** — 사람이 Enter 를 치는 것이 §4 v2.63 이 세운 ToS 합법선이다.
+ */
+export function buildInteractiveCliPrefill(opts: {
+  config: AgentConfig;
+  /** claude 실행본 절대경로(`getClaudeBin().binPath`). claude 갈래에서만 쓰인다. */
+  claudeBinPath: string;
+  /** rules 폴더(있으면 `--add-dir`). claude 갈래 전용. */
+  rulesDir?: string | null;
+  /** 직전 대화 sessionId(있으면 `--resume`). claude 갈래 전용. */
+  resumeId?: string | null;
+}): { prefill: string; managed: boolean; kind: CmdCliKind } {
+  const row = resolveCmdCliKind(opts.config.cliKind);
+  const kind = row.value as CmdCliKind;
+
+  if (!row.managed) {
+    // 순수 셸(`bin === ''`)이면 빈 prefill — 사용자가 직접 친다.
+    return { prefill: row.bin, managed: false, kind };
+  }
+
+  const args = buildInteractiveClaudeArgs(opts.config, { includeRules: false });
+  if (opts.rulesDir) args.push('--add-dir', opts.rulesDir);
+  const fullArgs = opts.resumeId ? ['--resume', opts.resumeId, ...args] : args;
+  return {
+    prefill: [opts.claudeBinPath, ...fullArgs].map(quoteInteractiveArg).join(' '),
+    managed: true,
+    kind,
+  };
+}
+
+/** 공백 포함 인자만 따옴표 — 셸 prefill 한 줄 구성용. */
+function quoteInteractiveArg(s: string): string {
+  return /\s/.test(s) ? `"${s}"` : s;
+}
+
 /** §4 v2.64 — CMD 에이전트 로컬 스토어 폴더(`~/.vibisual/cmd-agents/<agentId>/`). rules·세션맵 공용. */
 function cmdAgentDir(agentId: string): string {
   // agentId 는 `agent-<hash>`(콜론/슬래시 없음)지만 방어적으로 안전한 문자만 남긴다.
@@ -257,11 +340,37 @@ function cmdAgentDir(agentId: string): string {
   return path.join(os.homedir(), '.vibisual', 'cmd-agents', safeId);
 }
 
-/** termId(`term:<agentId>:<session>`) → { agentId, sessionToken }. 형식이 어긋나면 null. */
-function parseTermId(termId: string): { agentId: string; sessionToken: string } | null {
-  const parts = termId.split(':');
+/**
+ * termId → { agentId, sessionToken, paneId, resumeKey }. 형식이 어긋나면 null.
+ *
+ * §4 (CMD 터미널 업그레이드 ⑤) — pane 분할 termId 는 `term:<agentId>:<session>#<paneId>` 다.
+ * pane 토큰은 **세션 소유 해석과 무관**하므로 여기서 먼저 떼어 낸다 — 떼지 않으면
+ * `slice(2).join(':')` 이 sessionToken 에 pane 을 먹어 `index.get(sessionToken)`(소유 탭 해석)이
+ * 영영 빗나간다. 반대로 `--resume` 세션맵은 pane 마다 **다른 claude 대화**를 물므로 pane 을
+ * 포함한 `resumeKey` 로 키를 잡는다(pane `'0'` = 종전 키 그대로라 기존 sessions.json 과 호환).
+ */
+function parseTermId(termId: string): { agentId: string; sessionToken: string; paneId: string; resumeKey: string } | null {
+  const cut = termId.indexOf(CMD_PANE_SEPARATOR);
+  const base = cut >= 0 ? termId.slice(0, cut) : termId;
+  const paneId = cut >= 0 ? termId.slice(cut + 1) || '0' : '0';
+  const parts = base.split(':');
   if (parts.length < 3 || parts[0] !== 'term' || !parts[1]) return null;
-  return { agentId: parts[1], sessionToken: parts.slice(2).join(':') || 'main' };
+  const sessionToken = parts.slice(2).join(':') || 'main';
+  return {
+    agentId: parts[1],
+    sessionToken,
+    paneId,
+    resumeKey: paneId === '0' ? sessionToken : `${sessionToken}${CMD_PANE_SEPARATOR}${paneId}`,
+  };
+}
+
+/**
+ * §4 (CMD 터미널 업그레이드 ⑦) — desktop 의 터미널 매니저가 PTY env(카드 신고용 agentId/subAgentId)를
+ * 채우려면 termId 를 우리와 **같은 규칙**으로 풀어야 한다. 파서를 두 벌 두면 pane 구분자 규칙이
+ * 갈라지므로 이 하나를 내보낸다.
+ */
+export function parseCmdTermId(termId: string): { agentId: string; sessionToken: string; paneId: string; resumeKey: string } | null {
+  return parseTermId(termId);
 }
 
 /**
@@ -328,8 +437,8 @@ export function recordCmdTermSession(termId: string, claudeSessionId: string): v
     if (fs.existsSync(file)) {
       try { map = JSON.parse(fs.readFileSync(file, 'utf-8')) as Record<string, string>; } catch { map = {}; }
     }
-    if (map[parsed.sessionToken] === claudeSessionId) return; // 변화 없음 — disk write 생략
-    map[parsed.sessionToken] = claudeSessionId;
+    if (map[parsed.resumeKey] === claudeSessionId) return; // 변화 없음 — disk write 생략
+    map[parsed.resumeKey] = claudeSessionId;
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(file, JSON.stringify(map, null, 2), 'utf-8');
   } catch (err) {
@@ -345,7 +454,7 @@ export function getCmdResumeSession(termId: string): string | null {
   try {
     if (!fs.existsSync(file)) return null;
     const map = JSON.parse(fs.readFileSync(file, 'utf-8')) as Record<string, string>;
-    const id = map[parsed.sessionToken];
+    const id = map[parsed.resumeKey];
     return typeof id === 'string' && id ? id : null;
   } catch {
     return null;
@@ -833,11 +942,31 @@ export class SubAgentManager {
     maxTurns: number;
     parentCwd: string;
   }>();
+  /**
+   * §5.19 (D) — **로컬(All Model) 턴의 in-flight 표식.** `persistentInFlightCmd` 의 로컬 판본이다.
+   *
+   * 로컬 턴은 자식 프로세스도 워처도 없다. 그래서 "지금 도는가"를 묻는 술어들
+   * (`isSubRunning` · `isSubProcessingCommand`)이 **전부 false** 를 냈고, 5초마다 도는
+   * `reconcileDeadActiveSubs` 가 멀쩡히 돌던 세션을 "자식 없는 죽은 active" 로 읽어 idle 로
+   * 강등했다. 그 idle 을 `recomputeCustomAgentStatus` 가 부모 버블의 `completed` 로 세탁하고,
+   * 곧이어 러너의 다음 도구 이벤트가 `touchAgent` 로 버블을 다시 `active` 로 올린다 —
+   * 명령 한 번에 **완료 ↔ 동작이 5초마다 되풀이**되던 자리가 여기다(2026-08-25 사용자 보고;
+   * 체크포인트 실측: 25초 사이 도구 5건 + `fadeStartedAt` 재각인 2회).
+   *
+   * 러너에도 같은 사실을 아는 `isLocalTurnRunning` 이 있지만 **판정의 주인으로 쓰지 않는다** —
+   * 러너의 정리는 `finally` 라 `onDone` **뒤**에 돌고, 그러면 `finish()` 가 부르는 상태 재계산이
+   * 아직 "도는 중"을 보고 완료를 건너뛴다. 여기서 `finish()` 맨 앞에 지우면 순서가 정확하다.
+   */
+  private localInFlightCmd = new Map<string, QueuedCommand>();
   /** §5.5 #17-12 ③ — 자식 stderr 의 **마지막 꼬리**(sub 별). 종료 코드만으론 "왜 죽었는지"를
    *  말할 수 없어, 실패로 끝났을 때 사유로 실어 보낸다. 성공 경로에서는 쓰지 않고 spawn 마다 리셋. */
   private childStderrTails = new Map<string, string>();
   /** 부모 에이전트 → 프로젝트 해석 콜백 (영속화 경로 계산용) */
   private projectResolver: AgentProjectResolver | null = null;
+  /** §5.19 (H) — 호스트 도구 처리기. 없으면 그 도구들은 "이 세션에서는 못 쓴다"고 답한다. */
+  private localHostToolHandler: LocalHostToolHandler | null = null;
+  /** §5.19 (H) — 도구 이벤트를 훅으로 흘리는 곳. 없으면 아무 데도 안 간다(종전 동작). */
+  private localHookEmitter: LocalHookEmitter | null = null;
   /** 턴 봉인 대차대조(sub 별) — CLI 백그라운드 작업의 시작/끝 셈. `turnSeal.ts` 참조. */
   private turnSealStates = new Map<string, TurnSealState>();
   /** 잠정 종료로 붙들어 둔 봉인(sub 별). 타이머가 끝나거나 다른 마감 경로가 오면 사라진다. */
@@ -855,6 +984,13 @@ export class SubAgentManager {
    * (표식은 `markCmdSubActivity` 가 그 탭을 처음 만질 때 붙는다).
    */
   private cmdDrivenSubs = new Set<string>();
+
+  /**
+   * §4 (CMD ① QA) — **pane 별** 마지막 감지 상태(subId → paneId → 상태).
+   * 분할 탭에서 pane 마다 감지기가 따로 돌아 같은 sub 를 서로 덮어쓰던 것을 막는 자리다.
+   * 런타임 전용 — 영속하지 않는다(PTY 가 없는 부팅 직후엔 어차피 의미가 없다).
+   */
+  private cmdPaneStates = new Map<string, Map<string, { state: CmdTerminalState; reason?: string }>>();
 
   /**
    * **스폰이 진행 중인 sub.** `execute` 가 `sub.status='active'` 를 올린 뒤 자식/워처가 실제로
@@ -901,6 +1037,19 @@ export class SubAgentManager {
 
   setOnPersistNeeded(cb: () => void): void {
     this.onPersistNeeded = cb;
+  }
+
+  /**
+   * §5.19 (H) — 로컬 세션의 **호스트 도구** 처리기(목표·질문 카드·계획 종료). 이 매니저는
+   * 그래프도 목표 저장소도 모르므로 `index.ts` 가 주입한다 — `setProjectResolver` 와 같은 방식.
+   */
+  /** §5.19 (H) — 로컬 도구 이벤트를 훅 경로에 이어 준다(캔버스 파일 노드·감사 원장·포트 감지). */
+  setLocalHookEmitter(emitter: LocalHookEmitter): void {
+    this.localHookEmitter = emitter;
+  }
+
+  setLocalHostToolHandler(handler: LocalHostToolHandler): void {
+    this.localHostToolHandler = handler;
   }
 
   setProjectResolver(resolver: AgentProjectResolver): void {
@@ -1584,13 +1733,18 @@ export class SubAgentManager {
    *  idle sweep 의 확정 진실(ground truth). lastActivityAt staleness 같은 추측이 이걸 이길 수 없다:
    *  "동작 중인 sub 를 거짓 완료/idle 처리" 의 단일 차단막. */
   isSubRunning(subId: string): boolean {
-    return this.runningChildren.has(subId) || this.runningAgentViewWatchers.has(subId);
+    // 로컬(All Model) 턴은 자식이 없다 — 그 사실을 여기 함께 두지 않으면 "자식이 없으니 안 돈다"가
+    //   돌고 있는 세션을 걷어 낸다(§5.19 (D) `localInFlightCmd`).
+    return this.runningChildren.has(subId)
+      || this.runningAgentViewWatchers.has(subId)
+      || this.localInFlightCmd.has(subId);
   }
 
   /** 이 sub 가 **지금 한 턴(명령)을 실제로 처리 중**인가 — `isSubRunning` 보다 좁다.
    *  `isSubRunning` 은 idle 로 대기하는 persistent 자식(명령 사이 살아만 있는)도 true 라
    *  완료 판정 가드로 쓰면 부모가 영영 completed 로 못 간다. 이 술어는 "처리 중"만 잡는다:
    *   - persistent: in-flight 명령 보유(`persistentInFlightCmd`).
+   *   - local(All Model): in-flight 턴 보유(`localInFlightCmd`) — 자식이 없어 다른 근거가 없다.
    *   - legacy: 자식 생존 && persistent-ready 가 아님(legacy 자식은 명령 동안만 존재).
    *   - agent-view: watcher 보유.
    *  용도 — `recomputeCustomAgentStatus` 가 sub.status 가 순간 비활성으로 읽혀도(예: result 직후
@@ -1599,6 +1753,8 @@ export class SubAgentManager {
    *  진짜 끝났을 때는 정상적으로 완료된다. */
   isSubProcessingCommand(subId: string): boolean {
     if (this.persistentInFlightCmd.has(subId)) return true;
+    // 로컬(All Model): 러너가 한 턴을 도는 중. persistent 의 in-flight 와 **같은 뜻**이라 같은 자리에 둔다.
+    if (this.localInFlightCmd.has(subId)) return true;
     if (this.runningAgentViewWatchers.has(subId)) return true;
     if (this.runningChildren.has(subId) && this.persistentChildReady.get(subId) !== true) return true;
     return false;
@@ -2365,6 +2521,13 @@ export class SubAgentManager {
         //   (남겨 두면 프로세스가 없는 다른 세션들과 표시가 어긋난다).
         delete item.dormant;
         delete item.dormantSince;
+        // §4 (CMD ①②) — blocked·전경 프로세스도 **런타임 표식**이다. 부팅 직후엔 PTY 자체가
+        //   없으므로 남겨 두면 "막혀 있다"고 거짓말한다(dormant 와 같은 이유로 걷고 시작한다).
+        //   `paneTree` 는 그 탭의 **표시 상태**라 그대로 살린다.
+        delete item.blocked;
+        delete item.blockedSince;
+        delete item.blockedReason;
+        delete item.foregroundProcess;
         return item;
       });
       this.registry.set(agentId, items);
@@ -2572,6 +2735,121 @@ export class SubAgentManager {
     return sub.status !== prev;
   }
 
+  /**
+   * §4 (CMD 터미널 업그레이드 ①) — 터미널 출력에서 읽어 낸 상태 신호를 **서버가 확정**한다.
+   *
+   * 클라(터미널 뷰)는 바이트 흐름만 보고 `working|idle|blocked` 를 *감지*해 올릴 뿐이고,
+   * 무엇을 세울지는 여기서 정한다(§3.1 서버 = SSOT). `SubAgentStatus` 유니온은 늘리지 않는다 —
+   * blocked 는 §2.4 '잠듦'(dormant)과 같은 **직교 플래그**다.
+   *
+   * - `working` : 바이트가 흐르는 중 → `status='active'` + blocked 걷기(훅 판본과 같은 결론).
+   * - `blocked` : 사용자 입력을 기다리며 멈춤 → `status` 는 `active` 유지(세션은 살아 있다) +
+   *   `blocked=true`. 훅이 없는 CLI(codex·gemini 등)도 이 경로로 상태가 보인다.
+   * - `idle`    : 조용해진 지 오래 → `status='idle'`(단 `error` 는 보존 — 거짓 idle 세탁 금지).
+   *
+   * `cmdDrivenSubs` 표식은 `markCmdSubActivity` 와 **같은 이유**로 여기서도 붙인다(생존 대조·
+   * 잠듦 회수 제외). 다만 `lastActivityAt` 은 실제 출력이 있었던 `working` 에서만 밀어 — idle
+   * 판정이 자기 자신을 영원히 되살리는 것을 막는다.
+   *
+   * @returns 화면에 보이는 값이 하나라도 바뀌었으면 true(호출자 broadcast 판단용).
+   */
+  applyCmdTerminalSignal(signal: CmdTerminalSignal): boolean {
+    const parsed = parseTermId(signal.termId);
+    if (!parsed) return false;
+    const sub = this.index.get(parsed.sessionToken);
+    if (!sub) return false; // 'main' 탭 등 sub 없는 termId → no-op
+
+    this.cmdDrivenSubs.add(sub.id);
+
+    const prevStatus = sub.status;
+    const prevBlocked = sub.blocked === true;
+    const prevProcess = sub.foregroundProcess;
+
+    if (signal.foregroundProcess) {
+      sub.foregroundProcess = signal.foregroundProcess.slice(0, 64);
+    }
+
+    // ── pane 별 상태를 모아 **세션 하나의 결론**으로 합친다 ────────────────────
+    // 분할 탭에서는 pane 마다 감지기가 따로 돌아 같은 sub 를 서로 덮어썼다 — pane A 가 blocked,
+    // pane B 가 working 이면 탭 도트가 1초 간격으로 깜빡여 분할을 쓰는 순간 상태 표시가 무의미해졌다.
+    const perPane = this.cmdPaneStates.get(sub.id) ?? new Map<string, { state: CmdTerminalState; reason?: string }>();
+    perPane.set(parsed.paneId, signal.reason ? { state: signal.state, reason: signal.reason } : { state: signal.state });
+    // 닫힌 pane 의 유령이 세션 상태를 붙들지 않게 정리한다. 트리가 진실이고, 트리가 없으면 단일 pane 이다.
+    if (sub.paneTree) {
+      const live = new Set(collectCmdPaneIds(sub.paneTree));
+      for (const id of [...perPane.keys()]) if (!live.has(id)) perPane.delete(id);
+    } else {
+      for (const id of [...perPane.keys()]) if (id !== '0') perPane.delete(id);
+    }
+    this.cmdPaneStates.set(sub.id, perPane);
+
+    // 합의 규칙: 하나라도 돌면 working > 하나라도 막혔으면 blocked > 전부 조용하면 idle.
+    //   ("돌고 있는 pane 이 있는데 막혔다고 부르지 않는다" 가 사용자가 기대하는 순서다.)
+    let state: CmdTerminalState = 'idle';
+    let reason: string | undefined;
+    for (const v of perPane.values()) {
+      if (v.state === 'working') { state = 'working'; reason = undefined; break; }
+      if (v.state === 'blocked' && state !== 'blocked') { state = 'blocked'; reason = v.reason; }
+    }
+
+    if (state === 'working') {
+      sub.lastActivityAt = Date.now();
+      if (sub.blocked) {
+        delete sub.blocked;
+        delete sub.blockedSince;
+        delete sub.blockedReason;
+      }
+      if (sub.status !== 'active') sub.status = 'active';
+    } else if (state === 'blocked') {
+      // 멈춰 있지만 살아 있다 — 사용자를 부르는 상태라 `active` 를 유지한 채 플래그만 세운다.
+      if (!sub.blocked) {
+        sub.blocked = true;
+        sub.blockedSince = Date.now();
+      }
+      sub.blockedReason = reason ? reason.slice(0, CMD_BLOCK_REASON_MAX) : undefined;
+      if (sub.status !== 'active' && sub.status !== 'error') sub.status = 'active';
+    } else {
+      if (sub.blocked) {
+        delete sub.blocked;
+        delete sub.blockedSince;
+        delete sub.blockedReason;
+      }
+      // `error` 는 강등 대상이 아니다(§2.4 — 실패를 거짓 idle 로 세탁하지 않는다).
+      if (sub.status === 'active') sub.status = 'idle';
+    }
+
+    return sub.status !== prevStatus || (sub.blocked === true) !== prevBlocked || sub.foregroundProcess !== prevProcess;
+  }
+
+  /** §4 (CMD ① QA) — 이 세션의 pane 별 감지 상태를 버린다(탭 닫기·아카이브 정리용). */
+  forgetCmdPaneStates(subAgentId: string): void {
+    this.cmdPaneStates.delete(subAgentId);
+  }
+  /**
+   * §4 (CMD 터미널 업그레이드 ⑤) — 세션 탭의 pane 분할 트리를 갈아 끼운다.
+   * 그 탭의 **표시 상태**라 체크포인트에 그대로 실린다(`getSnapshot` 이 SubAgent 를 통째 복제).
+   * `null` 이면 단일 pane 으로 되돌린다.
+   * @returns 실제로 바뀌었으면 true.
+   */
+  setCmdPaneTree(subAgentId: string, tree: CmdPaneNode | null): boolean {
+    const sub = this.index.get(subAgentId);
+    if (!sub) return false;
+    const before = JSON.stringify(sub.paneTree ?? null);
+    if (tree) sub.paneTree = tree;
+    else delete sub.paneTree;
+    // 사라진 pane 의 감지 상태를 함께 버린다 — 남겨 두면 닫힌 pane 의 'working' 이 세션을
+    // 영원히 돌고 있는 것으로 붙든다(§4 CMD ① QA).
+    const live = new Set(collectCmdPaneIds(sub.paneTree ?? null));
+    const perPane = this.cmdPaneStates.get(subAgentId);
+    if (perPane) for (const id of [...perPane.keys()]) if (!live.has(id)) perPane.delete(id);
+    return JSON.stringify(sub.paneTree ?? null) !== before;
+  }
+
+  /** §4 (CMD ①) — 이 sub 가 지금 사용자 입력을 기다리며 막혀 있는가(알림·표시 판정용). */
+  isCmdBlocked(subAgentId: string): boolean {
+    return this.index.get(subAgentId)?.blocked === true;
+  }
+
   /** 전체 subagent 목록 (agentId → SubAgent[]) — 스냅샷용 */
   getSnapshot(): Record<string, SubAgent[]> {
     const result: Record<string, SubAgent[]> = {};
@@ -2616,6 +2894,8 @@ export class SubAgentManager {
     const sub = this.index.get(subAgentId);
     if (!sub) return false;
 
+    this.cmdPaneStates.delete(subAgentId);
+
     const child = this.runningChildren.get(subAgentId);
     if (child) {
       this.intentionalKill.add(subAgentId);
@@ -2634,6 +2914,8 @@ export class SubAgentManager {
     this.persistentChildReady.delete(subAgentId);
     this.persistentLineBuf.delete(subAgentId);
     this.persistentInFlightCmd.delete(subAgentId);
+    // 로컬 턴 표식도 같은 이유로 함께 — 남기면 사라진 탭이 부모 버블을 영영 "실행중"으로 붙든다.
+    this.localInFlightCmd.delete(subAgentId);
 
     // §5.7 #23-2 v1.60 — agent-view 정리: supervisor 의 worker + worktree 도 함께 제거.
     const av = this.runningAgentViewWatchers.get(subAgentId);
@@ -2996,17 +3278,24 @@ export class SubAgentManager {
     // 이 턴의 도장 — 지금부터 이 세션이 뱉는 줄은 전부 이 명령의 것이다.
     this.currentTurnId.set(sub.id, cmd.id);
 
-    // §5.19 — All Model(로컬 LLM) 갈림. **이 한 곳**이 이 기능이 기존 실행 경로에 내는 유일한 자국이다.
-    //   `provider` 가 없으면 아래 claude 스폰 경로가 지금까지와 한 줄도 다르지 않게 흐른다.
-    if (agentConfig?.provider) {
-      this.executeLocalProvider(sub, cmd, agentConfig);
-      return;
-    }
     // §5.5 #17-18 ⑥ — 이 명령이 **실제로 나간** 시각. 화면은 큐에 넣은 시각(`timestamp`)이 아니라
     //   이 값으로 말풍선 자리를 고정해 "여기서 턴이 끊겼다"를 그린다(대기·합치기는 둘 사이가
     //   몇 분씩 벌어진다). 흡수된 덧말은 이 명령에 실려 나가므로 base 의 이 값 하나가 그 턴의 시작이다.
+    //
+    // §5.19 (D) — **로컬 갈림보다 먼저** 둔다. 종전에는 아래 `return` 뒤에 있어서 로컬 턴만
+    //   시작 시각을 못 받고, 시작을 알리는 상태 통지도 못 나갔다 — 사용자가 명령을 보내도 버블이
+    //   곧바로 "실행중"으로 바뀌지 않고 러너의 첫 도구 이벤트를 기다렸다. 두 경로가 같은 순간에
+    //   같은 말을 하게 한다(실행 → 실행중).
     cmd.startedAt = Date.now();
     this.onSubStatusChange?.(sub.parentAgentId);
+
+    // §5.19 — All Model(로컬 LLM) 갈림. **이 한 곳**이 이 기능이 기존 실행 경로에 내는 유일한 자국이다.
+    //   `provider` 가 없으면 아래 claude 스폰 경로가 지금까지와 한 줄도 다르지 않게 흐른다.
+    if (agentConfig?.provider) {
+      // §5.19 (H) — 도구가 일할 자리는 이 세션의 프로젝트 루트다(클로드 스폰 cwd 와 같은 값).
+      this.executeLocalProvider(sub, cmd, agentConfig, parentCwd, contextSummary, livePreamble);
+      return;
+    }
 
     // 스테일 세션 자가복구 — 저장된 sessionId 에 해당하는 Claude CLI JSONL 이 사라졌으면
     // `--resume <id>` 가 exit 1 + "No conversation found" 로 확정 실패한다.
@@ -3763,10 +4052,21 @@ export class SubAgentManager {
    * 자식 프로세스가 없는 경로라 `runningChildren` 에 등록하지 않는다. 대신 스폰 진행 표식을
    * 즉시 걷어 "죽은 active" 대조가 이 세션을 오해하지 않게 한다.
    */
-  private executeLocalProvider(sub: SubAgent, cmd: QueuedCommand, config: AgentConfig): void {
+  private executeLocalProvider(
+    sub: SubAgent,
+    cmd: QueuedCommand,
+    config: AgentConfig,
+    parentCwd: string,
+    contextSummary: string,
+    livePreamble?: string,
+  ): void {
     const provider = config.provider;
     if (!provider) return;
     this.clearDispatching(sub.id);
+    // §5.19 (D) — 이 턴이 도는 동안의 **유일한 생존 근거**. 스폰 표식을 걷는 바로 그 자리에서
+    //   세운다(한 순간도 "아무 근거 없는 active" 가 되지 않게 — 그 틈이 5초 생존 대조에 걸려
+    //   돌고 있는 세션을 idle 로 강등하고 부모 버블을 거짓 완료로 만들던 자리다).
+    this.localInFlightCmd.set(sub.id, cmd);
 
     const emit = (eventType: StreamEventType, content: string): void => {
       this.emitStreamEvent({
@@ -3779,8 +4079,35 @@ export class SubAgentManager {
       });
     };
 
+    /**
+     * §5.19 (H) — 도구 카드용. `toolUseId` 를 함께 실어야 화면이 호출과 결과를 **짝으로** 그린다
+     * (§5.5 #17-27 ⑪ — 짝이 없으면 FIFO 로 밀려 직전 파일을 따라가는 사고가 난다).
+     */
+    const emitTool = (
+      eventType: 'tool_use' | 'tool_result',
+      content: string,
+      toolName: string,
+      toolUseId: string,
+    ): void => {
+      this.emitStreamEvent({
+        id: makeEventId(),
+        subAgentId: sub.id,
+        parentAgentId: sub.parentAgentId,
+        timestamp: Date.now(),
+        eventType,
+        content,
+        toolName,
+        toolUseId,
+      });
+    };
+
     /** 이 턴을 끝맺는다. 성공·실패·중지가 전부 여기로 모인다. */
     const finish = (error: string | undefined, finalText: string): void => {
+      // **맨 먼저** 내린다 — 아래 상태 통지가 부르는 `recomputeCustomAgentStatus` 는 이 표식을
+      //   "아직 도는 중"으로 읽으므로, 남겨 둔 채 통지하면 진짜 완료가 그 자리에서 묻힌다.
+      //   (러너의 `isLocalTurnRunning` 을 주인으로 못 쓰는 이유도 같다 — 그쪽 정리는 `finally` 라
+      //    `onDone` 뒤에 돈다.) 같은 턴이 두 번 끝맺어도 지우기는 멱등이다.
+      if (this.localInFlightCmd.get(sub.id) === cmd) this.localInFlightCmd.delete(sub.id);
       this.cancelDeferredSeal(sub.id);
       if (this.currentTurnId.get(sub.id) === cmd.id) this.currentTurnId.delete(sub.id);
       const userStopped = this.stoppedByUser.delete(sub.id);
@@ -3802,25 +4129,123 @@ export class SubAgentManager {
       this.onComplete?.();
     };
 
+    // §5.19 (D) ① — 클로드 세션이 받는 것을 로컬도 받는다. 종전에는 이 버블의 `rules` 한 칸이
+    //   전부라, 로컬 모델은 프로젝트 규칙도 카드 지시문도 목표도 기억도 한 글자를 못 봤다.
+    //   순서(안정 → 가변)는 `buildLocalSystemPrompt` 가 정한다 — 프리픽스 캐시가 걸린 문제다.
+    const systemPrompt = buildLocalSystemPrompt(contextSummary, livePreamble, config.rules);
+
     if (!provider.modelId) {
       // 모델을 아직 안 고른 버블. 조용히 아무 일도 안 일어나는 대신 사유를 남긴다.
       finish('no model selected', '');
       return;
     }
 
+    // §5.19 (D) ④ — 로컬에서 뜻이 있는 슬래시 명령은 **우리가** 처리한다. 종전에는 갈림이
+    //   `composeTurnPrompt` 앞이라 `/clear` 조차 사용자 말로 모델에게 갔다.
+    const slash = parseLocalSlash(cmd.text);
+    if (slash) {
+      void (async (): Promise<void> => {
+        let said: string;
+        if (slash.kind === 'clear') said = clearLocalSession(sub.id);
+        else if (slash.kind === 'context') said = describeLocalContext(sub.id, systemPrompt, provider.contextSize ?? 0);
+        else if (slash.kind === 'compact') {
+          said = await compactLocalSession(sub.id, provider.modelId, provider.contextSize ?? 0, slash.arg);
+        } else said = unsupportedSlashMessage(slash.name);
+        emit('system', said);
+        finish(undefined, said);
+      })();
+      return;
+    }
+
+    /**
+     * §5.19 (H) — 도구 실행 직전의 판정. **모드가 먼저, 사람이 그다음**이다.
+     *
+     * 판정 규칙은 `resolveLocalToolGate` 한 곳에 있고, 여기서는 `ask` 일 때만 **기존 권한
+     * 브로커**를 부른다 — 훅이 없는 로컬 경로에서도 같은 승인 팝업이 뜨는 이유가 이 한 줄이다.
+     * 거절 사유는 던지지 않고 **모델에게 돌려준다**(모델이 다른 수를 고를 수 있어야 한다).
+     */
+    const requestTool = async (
+      toolName: string,
+      toolInput: Record<string, unknown>,
+    ): Promise<LocalToolVerdict> => {
+      const gate = resolveLocalToolGate(config.permissionMode, toolName);
+      if (gate === 'allow') return { allowed: true };
+      if (gate === 'deny') {
+        const mode = config.permissionMode || 'default';
+        return { allowed: false, reason: `permission mode "${mode}" does not allow ${toolName}` };
+      }
+      const project = this.projectResolver?.(sub.parentAgentId);
+      const decision = await permissionBroker.request(
+        {
+          agentId: sub.parentAgentId,
+          subAgentId: sub.id,
+          agentLabel: sub.label,
+          agentColor: config.color ?? '#6b7280',
+          projectName: project?.name ?? '',
+          toolName,
+          toolInput,
+        },
+        config.permissionTimeoutPolicy === 'deny' ? 'deny' : 'allow',
+      );
+      if (decision.decision === 'allow') return { allowed: true };
+      return { allowed: false, reason: decision.reason || 'the user denied this tool call' };
+    };
+
     let finalText = '';
     const args: LocalTurnArgs = {
       subAgentId: sub.id,
       prompt: cmd.text,
       modelId: provider.modelId,
+      projectRoot: parentCwd,
+      onToolRequest: requestTool,
+      onToolEvent: emitTool,
+      onToolSupport: (support) => {
+        // 판정을 설정에 남긴다 — `getAgentConfig` 가 돌려주는 것이 **살아 있는 객체**라
+        //   여기 쓰면 스냅샷·체크포인트를 그대로 탄다(새 영속 필드 발명 ❌). 스냅샷 캐시가
+        //   한 박자 늦을 수 있으나 바로 아래 상태 통지가 방송을 끌어온다.
+        if (provider.toolSupport !== support) provider.toolSupport = support;
+        this.onSubStatusChange?.(sub.parentAgentId);
+      },
+      onUsage: (promptTokens, completionTokens, contextLimit) => {
+        // §5.19 (D) — 창이 얼마나 찼는지. 도구 판정과 **같은 자리·같은 방식**이다
+        //   (`getAgentConfig` 가 돌려주는 살아 있는 객체에 적으면 스냅샷·체크포인트를 그대로 탄다).
+        //   턴마다 값이 바뀌므로 방송은 아래 상태 통지에 얹어 보낸다 — 새 WS 메시지 ❌.
+        provider.contextUsed = promptTokens;
+        provider.contextLimit = contextLimit;
+        // 누적은 **왕복마다** 더한다 — 한 턴에 도구를 세 번 돌면 그 세 번이 다 들어가야 사실이다.
+        provider.tokensIn = (provider.tokensIn ?? 0) + promptTokens;
+        provider.tokensOut = (provider.tokensOut ?? 0) + completionTokens;
+        this.onSubStatusChange?.(sub.parentAgentId);
+      },
       onEvent: (eventType, content) => {
         if (eventType === 'result') finalText = content;
+        // 최종 본문은 화면에 **다시** 그리지 않는다 — 같은 답이 이미 `text` 델타로 흘렀다.
+        //   판정은 `isRenderableLocalEvent` 한 곳에 두고, 걸린 이벤트도 위에서 본문은 챙긴다.
+        if (!isRenderableLocalEvent(eventType)) return;
         emit(eventType, content);
       },
       onDone: (error) => finish(error, finalText),
     };
-    const rules = config.rules?.trim();
-    if (rules) args.systemPrompt = rules;
+    if (provider.toolSupport) args.toolSupport = provider.toolSupport;
+    if (systemPrompt) args.systemPrompt = systemPrompt;
+    // §5.19 (H) — 목표창·질문 카드·계획 종료는 러너가 아니라 여기서 넘어간 처리기가 맡는다.
+    args.onHookEvent = (event) => {
+      this.localHookEmitter?.({ agentId: sub.parentAgentId, subAgentId: sub.id }, event);
+    };
+    args.onHostTool = async (toolName, input) => {
+      const handler = this.localHostToolHandler;
+      if (!handler) return `${toolName} is not available in this session`;
+      try {
+        return await handler(
+          { agentId: sub.parentAgentId, subAgentId: sub.id, agentLabel: sub.label, config },
+          toolName,
+          input,
+        );
+      } catch (err) {
+        // 호스트 쪽 사고로 턴을 죽이지 않는다 — 모델에게 말로 돌려주면 다른 수를 고른다.
+        return `${toolName} failed: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    };
     if (provider.contextSize && provider.contextSize > 0) args.contextSize = provider.contextSize;
     if (typeof provider.temperature === 'number') args.temperature = provider.temperature;
 

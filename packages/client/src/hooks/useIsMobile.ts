@@ -26,8 +26,17 @@ export function useCoarsePointer(): boolean {
 }
 
 /** 좁은 뷰포트(폰 세로 폭) — 사이드 패널을 바텀시트로 전환하는 등 레이아웃 분기. */
+/** 좁은 뷰포트 기준 — 훅과 즉시 조회가 **같은 문자열**을 봐야 판정이 갈리지 않는다. */
+const NARROW_VIEWPORT_QUERY = '(max-width: 767px)';
+
 export function useIsNarrowViewport(): boolean {
-  return useMediaQuery('(max-width: 767px)');
+  return useMediaQuery(NARROW_VIEWPORT_QUERY);
+}
+
+/** `useIsNarrowViewport` 와 **같은 기준**을 훅 밖(이벤트 콜백 등)에서 한 번 읽을 때. */
+export function isNarrowViewportNow(): boolean {
+  if (typeof window === 'undefined' || !window.matchMedia) return false;
+  return window.matchMedia(NARROW_VIEWPORT_QUERY).matches;
 }
 
 /**

@@ -26,12 +26,52 @@ interface MainAppModule {
 
 interface MainAppEntry {
   readonly id: string;
-  /** **호출 전까지 로드되지 않는다.** */
-  readonly load: () => Promise<{ vibistudioApp: MainAppModule }>;
+  /** main 프로세스 몫이 있는 앱만. **호출 전까지 로드되지 않는다.** */
+  readonly load?: () => Promise<{ vibistudioApp: MainAppModule }>;
+  /**
+   * main 몫이 **없는** 앱(창만 있는 앱)의 창 규격.
+   *
+   * 화면이 렌더러에만 있는 앱까지 main 모듈 파일을 만들게 하면, 실제로 하는 일이 "창 크기 네 줄"
+   * 뿐인 파일이 앱 수만큼 생긴다. 그런 앱은 여기 한 줄로 끝낸다 — 코어가 앱 코드를 부르지 않는다는
+   * 성질은 그대로다(부를 모듈 자체가 없다).
+   */
+  readonly window?: (params: Record<string, string>) => AppWindowSpec;
+}
+
+/** 창 규격만 있는 앱의 hash 를 만든다 — 파라미터 이름이 앱마다 갈리지 않게 한 곳에서. */
+function simpleHash(appId: string, params: Record<string, string>): string {
+  const parts = [`app=${encodeURIComponent(appId)}`];
+  for (const key of ['projectId', 'file', 'clipId', 'modelId']) {
+    const value = params[key];
+    if (value !== undefined && value !== '') parts.push(`${key}=${encodeURIComponent(value)}`);
+  }
+  return parts.join('&');
 }
 
 const MAIN_APPS: readonly MainAppEntry[] = [
   { id: 'vibistudio', load: () => import('@vibisual/video/main') },
+  {
+    id: 'vibisound',
+    window: (params) => ({
+      title: 'Vibisual — Vibisound',
+      width: 1020,
+      height: 660,
+      minWidth: 720,
+      minHeight: 440,
+      hash: simpleHash('vibisound', params),
+    }),
+  },
+  {
+    id: 'vibi3d',
+    window: (params) => ({
+      title: 'Vibisual — Vibi3D',
+      width: 1120,
+      height: 780,
+      minWidth: 720,
+      minHeight: 520,
+      hash: simpleHash('vibi3d', params),
+    }),
+  },
 ];
 
 const attached = new Map<string, MainAppModule>();
@@ -44,6 +84,15 @@ async function moduleFor(appId: unknown): Promise<MainAppModule | null> {
 
   const entry = MAIN_APPS.find((a) => a.id === appId);
   if (!entry) return null;
+
+  // 창만 있는 앱 — 부를 모듈이 없으므로 여기서 그 자리에 맞는 모양을 세워 준다.
+  if (!entry.load) {
+    const windowFn = entry.window;
+    if (!windowFn) return null;
+    const simple: MainAppModule = { id: entry.id, attach: () => undefined, window: windowFn };
+    attached.set(appId, simple);
+    return simple;
+  }
 
   const mod = (await entry.load()).vibistudioApp;
   mod.attach({

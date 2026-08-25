@@ -242,6 +242,43 @@ export function openFile(absPath: string, line = 1, col = 1): void {
 }
 
 /**
+ * §5.13 (R-6) — **OS 연결 프로그램**으로 연다(에디터가 아니라).
+ *
+ * `openFile` 과 갈라 둔 이유가 이 함수의 존재 이유다 — 그쪽은 "코드를 고치러 간다"라서
+ * VS Code·Cursor 를 찾고, 못 찾으면 메모장으로 떨어진다. zip·폰트·xlsx 를 그 경로로 보내면
+ * 메모장에 이진 바이트가 쏟아진다. 여기서는 **확장자에 물려 있는 프로그램**을 그대로 부른다
+ * (Windows `Start-Process` · macOS `open` · 그 밖 `xdg-open`) — 사용자가 탐색기에서 더블클릭했을
+ * 때와 같은 일이 벌어져야 예측이 선다.
+ *
+ * 대체가 아니라 **병행**이다. 코드 파일을 외부 에디터로 여는 손잡이(`openFile`)는 그대로 둔다.
+ */
+export function openWithDefaultApp(absPath: string): void {
+  logger.info(`openWithDefaultApp: ${absPath}`);
+
+  if (IS_WIN) {
+    // `Start-Process <파일>` 은 확장자 연결(association)을 따른다. explorer.exe 에 인자로 넘기는
+    // 방식과 달리 공백·괄호가 든 경로에서도 인자 파싱이 어긋나지 않는다.
+    const target = absPath.replace(/'/g, "''");
+    const psCmd = `$ErrorActionPreference='Stop'; Start-Process -FilePath '${target}'`;
+    const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', psCmd], {
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+    child.unref();
+    child.on('error', (err) => logger.warn(`openWithDefaultApp failed: ${err.message}`));
+    return;
+  }
+
+  if (IS_MAC) {
+    // `-t`(텍스트 편집기로) 를 주지 않는다 — 그 플래그가 바로 `openFile` 쪽 규약이다.
+    spawnUnix('open', [absPath]);
+    return;
+  }
+
+  spawnUnix('xdg-open', [absPath]);
+}
+
+/**
  * 폴더를 시스템 탐색기에서 열기
  * @param absPath 절대 경로 (파일이면 상위 폴더를 염)
  */

@@ -46,6 +46,30 @@
     "setupBanner": {
       "text": "Claude Code no está instalado — los agentes todavía no pueden ejecutarse.",
       "action": "Instalar"
+    },
+    "ideWindows": {
+      "label": "Ventanas del IDE",
+      "tooltip": "Ventanas del IDE abiertas: traer al frente, contraer o abrir una burbuja en una ventana nueva",
+      "sectionTitle": "Ventanas y burbujas",
+      "empty": "No hay burbujas de agente en este proyecto",
+      "hint": "Contraer no es cerrar: la ventana solo sale de la pantalla y te devuelve el lienzo.",
+      "openNew": "Abrir en una ventana nueva",
+      "bringToFront": "Traer al frente",
+      "settings": "Ajustes del agente",
+      "expand": "Expandir",
+      "collapse": "Contraer",
+      "close": "Cerrar ventana",
+      "state": {
+        "floating": "flotante",
+        "collapsed": "contraída"
+      },
+      "side": {
+        "left": "izquierda",
+        "right": "derecha",
+        "top": "arriba",
+        "bottom": "abajo"
+      },
+      "orphan": "Ventana cuya burbuja ya no existe"
     }
   },
   "panel": {
@@ -853,6 +877,20 @@
         "latest": "Más reciente (alias)",
         "latestWith": "Más reciente ({{id}})",
         "custom": "Personalizado…"
+      },
+      "local": {
+        "noModel": "Aún no has elegido un modelo",
+        "modelTip": "El modelo local con el que habla esta burbuja. Si lo cambias, el siguiente turno lo responde ese modelo.",
+        "switchModel": "Cambiar modelo",
+        "pickModel": "Elegir modelo",
+        "temperature": "Temperatura",
+        "temperatureTip": "Un valor bajo mantiene respuestas estables y repetibles; uno alto las hace más libres. Déjalo vacío para usar el valor por defecto del motor.",
+        "temperatureDefault": "Valor por defecto del motor",
+        "toolsTip": "Un modelo local siempre recibe la lista completa de herramientas de abajo: no es una lista para elegir. Justo antes de ejecutar una herramienta se aplican el modo de permisos de arriba y la ventana de aprobación, igual que en las burbujas de Claude.",
+        "toolsOk": "Este modelo usa herramientas: puede leer y editar archivos.",
+        "toolsNone": "Este modelo no puede usar herramientas: solo conversa.",
+        "toolsUnknown": "Sin comprobar todavía: las herramientas irán en el próximo turno para averiguarlo.",
+        "toolsRecheck": "Comprobar de nuevo"
       }
     },
     "permissionPrompt": {
@@ -1273,6 +1311,18 @@
         "pinHint": "Cuando está activada, ni la tecla Delete ni las acciones de eliminar pueden quitarla.",
         "deleteBubble": "Eliminar esta burbuja",
         "deleteHint": "La tecla Delete también la elimina. La app en sí permanece instalada."
+      },
+      "vibistudio": {
+        "name": "Vibistudio",
+        "desc": "Edición de línea de tiempo de video y renderizado"
+      },
+      "vibisound": {
+        "name": "Vibisound",
+        "desc": "Editor de audio simple para recortar y ajustar"
+      },
+      "vibi3d": {
+        "name": "Vibi3D",
+        "desc": "Gira modelos 3D dentro de la app"
       }
     },
     "videoStudio": {
@@ -1367,6 +1417,63 @@
       "emptyHint": "Cada llamada a herramienta que hace un agent llega aquí — qué tocó y qué respondiste.",
       "promptRiskTitle": "Acción de riesgo",
       "promptEscalatedHint": "Tu modo de permisos habría permitido esto automáticamente — el límite de auditoría está preguntando primero."
+    },
+    "vibisound": {
+      "title": "Vibisound",
+      "noFile": "Haz clic en un archivo de audio para editarlo aquí: prueba un mp3 o wav en el explorador o en el chat.",
+      "decodeFailed": "El navegador no puede decodificar este formato. Ábrelo con la app predeterminada.",
+      "loading": "Leyendo el audio…",
+      "play": "Reproducir",
+      "stop": "Detener",
+      "toStart": "Al inicio",
+      "loop": "Repetir selección",
+      "cropSelection": "Conservar selección",
+      "deleteSelection": "Borrar selección",
+      "silence": "Silenciar selección",
+      "fadeIn": "Fundido de entrada",
+      "fadeOut": "Fundido de salida",
+      "louder": "Más alto +25%",
+      "quieter": "Más bajo −20%",
+      "undo": "Deshacer",
+      "exportWav": "Exportar WAV",
+      "saving": "Guardando…",
+      "saved": "Guardado — {{path}}",
+      "saveFailed": "No se pudo guardar.",
+      "needSelection": "Primero arrastra en la forma de onda para elegir un rango.",
+      "selectionInfo": "Selección {{from}} → {{to}} ({{len}})",
+      "selectHint": "Arrastra la forma de onda para elegir un rango y se activarán los botones de edición",
+      "openExternal": "Abrir con la app predeterminada"
+    },
+    "vibi3d": {
+      "title": "Vibi3D",
+      "noFile": "Haz clic en un archivo 3D para girarlo aquí: prueba un glb, obj o stl en el explorador o en el chat.",
+      "parseFailed": "No se pudo leer este archivo. Ábrelo con la app predeterminada.",
+      "loading": "Leyendo el modelo…",
+      "frame": "Ajustar a la vista",
+      "wireframe": "Estructura alámbrica",
+      "grid": "Cuadrícula",
+      "spin": "Rotación automática",
+      "background": "Fondo claro",
+      "openExternal": "Abrir con la app predeterminada",
+      "vertices": "{{n}} vértices",
+      "triangles": "{{n}} triángulos",
+      "dragHint": "Arrastra para girar, rueda para acercar",
+      "viewOnly": "Solo vista"
+    },
+    "mediaConvert": {
+      "videoIntro": "Este formato de video no se puede abrir directamente. Basta con cambiar el contenedor (sin pérdida de calidad) para abrirlo en nuestro editor.",
+      "audioIntro": "Este formato de audio no se puede abrir directamente. Al convertirlo a WAV se abre en nuestro editor.",
+      "needTool": "Se necesita un conversor (ffmpeg): instálalo una vez y luego se abrirá sin más.",
+      "needToolManual": "Se necesita un conversor (ffmpeg). Instálalo y vuelve a hacer clic.",
+      "convert": "Ver en la app",
+      "install": "Instalar conversor",
+      "openExternal": "Abrir con la app predeterminada",
+      "cancel": "Cerrar",
+      "converting": "Convirtiendo… {{percent}}%",
+      "convertingStart": "Conversión iniciada…",
+      "opening": "Abriendo en el editor…",
+      "installing": "Instalando el conversor… solo la primera vez tarda un poco.",
+      "failed": "No se pudo convertir. Ábrelo con la app predeterminada."
     }
   },
   "ide": {
@@ -1429,13 +1536,25 @@
       "maximizeLabel": "Maximizar",
       "restoreLabel": "Restaurar",
       "resizeDock": "Redimensionar panel",
+      "dockMenuLabel": "Acoplar ventana",
+      "dockLeft": "Acoplar a la izquierda",
+      "dockRight": "Acoplar a la derecha",
+      "dockTop": "Acoplar arriba",
+      "dockBottom": "Acoplar abajo",
+      "undockLabel": "Desacoplar",
       "customLabel": "Personalizado",
       "cmdLabel": "CMD",
       "hookLabel": "Hook",
       "renameHint": "Doble clic para renombrar (F2)",
       "renameInputLabel": "Nombre del agente",
       "localLabel": "All Model",
-      "localSwitchModel": "Cambiar el modelo que usa esta burbuja"
+      "localSwitchModel": "Cambiar el modelo que usa esta burbuja",
+      "localContextUsed": "Contexto {{used}} / {{limit}} tokens ({{percent}} %) — al llenarse se descartan los turnos más antiguos",
+      "agentSettings": "Ajustes del agente",
+      "collapseLabel": "Contraer",
+      "collapseHint": "Contraer: conserva la ventana y devuelve el lienzo (vuelve a expandirla desde la lista de ventanas de la cabecera)",
+      "resizeWindow": "Redimensionar ventana",
+      "resizeStack": "Ajustar la división"
     },
     "tabbar": {
       "newSession": "Nueva sesión",
@@ -1513,6 +1632,7 @@
       "slashEmpty": "No hay habilidades coincidentes",
       "slashLoading": "Cargando habilidades…",
       "ctxCopy": "Copiar",
+      "ctxSearchWeb": "Buscar en la web",
       "ctxBookmark": "Añadir marcador",
       "ctxQuoteReply": "Citar y responder",
       "ctxSendAsPrompt": "Enviar como nuevo prompt",
@@ -1609,6 +1729,7 @@
       "debugMode": "Modo de depuración",
       "debugModeHint": "Añade parámetros de depuración al mismo comando para poder adjuntar un depurador.",
       "configs": "Configuraciones de ejecución",
+      "adhocRuns": "Iniciado desde el chat",
       "noConfigs": "No se encontraron configuraciones de ejecución. Añade una en .vscode/launch.json, en los scripts de package.json o en .vibisual/run.json. Los proyectos de Unreal (.uproject) se detectan automáticamente.",
       "scanned": "Escaneado: {{files}}",
       "run": "Ejecutar",
@@ -1945,7 +2066,11 @@
       "showLess": "Mostrar menos",
       "pathLink": {
         "openFile": "Abrir en el editor — {{path}}",
-        "openFolder": "Abrir carpeta — {{path}}"
+        "openFolder": "Abrir carpeta — {{path}}",
+        "runProgram": "Ejecutar programa — {{path}}",
+        "runFailed": "No se pudo iniciar: esta ventana no tiene terminal.",
+        "openApp": "Abrir en {{app}} — {{path}}",
+        "openExternal": "Abrir con la app predeterminada — {{path}}"
       },
       "restartResumed": "Se interrumpió al cerrarse la app; se reanudó en la sesión guardada."
     },
@@ -2129,6 +2254,7 @@
       "exitUnknown": "La CLI de Claude terminó de forma inesperada",
       "crash": "El proceso de la sesión murió de forma inesperada (código {{code}})",
       "crashUnknown": "El proceso de la sesión murió de forma inesperada",
+      "local": "La ejecución del modelo local ha fallado",
       "cli": "La CLI de Claude informó de un fallo",
       "maxTurns": "Detenido al alcanzar el límite de turnos máximos",
       "agentView": "La ejecución del agente terminó con un fallo",
@@ -2637,6 +2763,18 @@
         "this-project": "Instalado solo para este proyecto — se cargan en las sesiones que ejecutes aquí.",
         "other-project": "Instalado, pero vinculado a otro proyecto, así que no se cargan en esta sesión."
       }
+    },
+    "split": {
+      "closeCell": "Cerrar vista",
+      "reset": "Quitar división",
+      "previewSplit": "Dividir aquí",
+      "previewReplace": "Abrir aquí",
+      "limit": "Hasta {{count}} vistas",
+      "dragHint": "Arrastra para mover esta vista",
+      "resizeHint": "Arrastra para ajustar · doble clic para igualar",
+      "foreignSession": "Esa sesión pertenece a otra burbuja",
+      "tooSmall": "Demasiado pequeño para dividir",
+      "alreadyHere": "Ya se muestra aquí"
     }
   },
   "bubbleMap": {
@@ -2879,7 +3017,9 @@
     "unsetDefault": "Quitar predeterminada",
     "defaultTooltip": "La pestaña predeterminada se abre automáticamente cuando no hay ninguna pestaña activa que restaurar.",
     "detach": "Separar a nueva ventana",
-    "rename": "Renombrar"
+    "rename": "Renombrar",
+    "splitRight": "Dividir a la derecha",
+    "splitDown": "Dividir abajo"
   },
   "overlay": {
     "sendToOverlay": "Saca esta burbuja como un widget de escritorio siempre encima",
@@ -3496,6 +3636,34 @@
     "stepModel": "Modelo",
     "stepIde": "IDE",
     "useModelStart": "Empezar con este modelo",
-    "opensIdeHint": "En cuanto termine la descarga se abrirá el IDE de esta burbuja."
+    "opensIdeHint": "En cuanto termine la descarga se abrirá el IDE de esta burbuja.",
+    "contextTitle": "Ventana de contexto",
+    "contextUnit": "tokens",
+    "contextApply": "Aplicar",
+    "contextHint": "Una ventana mayor recuerda más, pero usa más memoria y va más lenta. Si la fijas por encima de la longitud con la que se entrenó el modelo, se usará esa longitud. El nuevo valor se aplica la próxima vez que se cargue este modelo.",
+    "usageTitle": "Tokens usados en esta conversación",
+    "usageLine": "entrada {{in}} · salida {{out}}",
+    "fitGpu": "Rápido en la GPU",
+    "fitRam": "Lento en RAM",
+    "fitTooBig": "Demasiado grande para este PC",
+    "statDownloads": "Descargas",
+    "statLikes": "Me gusta",
+    "statTrending": "Tendencia",
+    "sortDownloads": "Más descargados",
+    "sortLikes": "Más valorados",
+    "sortTrending": "Tendencia ahora",
+    "sortRecent": "Actualizados recientemente",
+    "runnableOnly": "Solo lo que funciona aquí",
+    "topQuantHint": "Los más usados primero",
+    "showAllQuants": "Ver los otros {{count}}",
+    "showFewerQuants": "Ver solo los más usados",
+    "noRunnableFiles": "Nada de este repositorio funciona en este PC — desactiva el filtro de arriba para verlo todo.",
+    "partCount": "{{count}} partes",
+    "missingParts": "Faltan {{missing}} de {{total}} partes, no se puede usar — descárgalo de nuevo",
+    "companionFile": "Es un archivo complementario, no un modelo — no funciona por sí solo",
+    "outputBroken": "Este motor no obtuvo nada con sentido — prueba otro modelo",
+    "archUnsupported": "No compatible con este motor",
+    "hardwareGpu": "{{device}} · {{vram}} libres · {{ram}} de RAM",
+    "hardwareCpu": "Sin acelerador · {{ram}} de RAM"
   }
 }

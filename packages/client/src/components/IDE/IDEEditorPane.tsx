@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useGraphStore, selectIDEOverlay } from '../../stores/graphStore.js';
+import { useIDEPaneValue, useIDEPaneProjectName, useIDEPaneActions } from './idePane.js';
 import { CodeEditor, type FollowRange } from './CodeEditor.js';
 import { languageFromPath } from './codeLanguages.js';
 import { FOLLOW_SKIP_KEYS, findEditedLineRange, followSessionKey } from './editorFollow.js';
@@ -9,9 +10,11 @@ import { splitRelPath } from './explorerModel.js';
 import { useEditorDocs } from './useEditorDocs.js';
 import { useIDEProjectRoot } from './useIDEProjectRoot.js';
 import { openFileByPath, openFolderByPath } from './useWorkspaceExplorer.js';
+import { workspaceMediaUrl } from '../../utils/workspaceMedia.js';
 import { IDEEditorTabs } from './IDEEditorTabs.js';
 import { IDEContextMenu, type ContextMenuItem } from './IDEContextMenu.js';
 import { buildBodyMenuItems, buildGutterMenuItems, buildTabMenuItems } from './editorContextMenu.js';
+import { openWebSearch } from './webSearchUrl.js';
 import type { CodeEditorBodyMenuContext } from './CodeEditor.js';
 import { useDebugSessions } from '../../stores/debugSessions.js';
 import { sameWorkspaceFile } from './debugPaths.js';
@@ -42,13 +45,15 @@ interface IDEEditorPaneProps {
 export const IDEEditorPane = memo(function IDEEditorPane({ narrow }: IDEEditorPaneProps): React.JSX.Element | null {
   const { t } = useTranslation();
   const rootPath = useIDEProjectRoot();
-  const files = useGraphStore((s) => selectIDEOverlay(s).editorFiles);
-  const activePath = useGraphStore((s) => selectIDEOverlay(s).activeEditorPath);
+  const files = useIDEPaneValue((o) => o.editorFiles);
+  const activePath = useIDEPaneValue((o) => o.activeEditorPath);
   const width = useGraphStore((s) => s.ideEditorWidth);
   const setWidth = useGraphStore((s) => s.setIdeEditorWidth);
-  const setActive = useGraphStore((s) => s.setActiveIDEEditorFile);
-  const closeFile = useGraphStore((s) => s.closeIDEEditorFile);
-  const setDirty = useGraphStore((s) => s.setIDEEditorFileDirty);
+  const {
+    setActiveEditorFile: setActive,
+    closeEditorFile: closeFile,
+    setEditorFileDirty: setDirty,
+  } = useIDEPaneActions();
   const clearBreakpointsInFile = useGraphStore((s) => s.clearBreakpointsInFile);
 
   const { docs, ensureLoaded, reload, setDraft, save, drop } = useEditorDocs(rootPath);
@@ -63,6 +68,12 @@ export const IDEEditorPane = memo(function IDEEditorPane({ narrow }: IDEEditorPa
   const imageSavedAt = useGraphStore((s) => (activePath ? s.workspaceImageSavedAt[activePath] : undefined));
   /** 서버가 이미 판정해 보낸 값 — 클라이언트가 확장자를 다시 따지지 않는다. */
   const isImage = doc?.status === 'ready' && doc.image;
+  /** §5.13 (R) — PDF 는 텍스트도 그림도 아니라 세 번째 그리기다(내장 Chromium 뷰어). */
+  const isPdf = activePath !== null && activePath.toLowerCase().endsWith('.pdf');
+  const pdfUrl = useMemo(
+    () => (isPdf && rootPath !== null && activePath !== null ? workspaceMediaUrl(rootPath, activePath) : null),
+    [isPdf, rootPath, activePath],
+  );
   /** 맞춤(패널에 맞춰 축소) ↔ 원본 크기(1:1). 탭을 옮기면 기본(맞춤)으로 돌아온다. */
   const [imageFit, setImageFit] = useState(true);
   const [imageNatural, setImageNatural] = useState<{ w: number; h: number } | null>(null);
@@ -100,7 +111,7 @@ export const IDEEditorPane = memo(function IDEEditorPane({ narrow }: IDEEditorPa
   }, [imageBlob.url, rootPath, activePath, doc?.mtimeMs, openImageLightbox]);
 
   // ─── §5.5 #17-20 ⑩ v4.94 — 줄 번호 칸이 곧 중단점 gutter ─────────────────
-  const projectName = useGraphStore((s) => selectIDEOverlay(s).projectId ?? s.activeProject);
+  const projectName = useIDEPaneProjectName();
   const breakpoints = useGraphStore((s) => (projectName ? s.debugBreakpoints[projectName] : undefined));
   const toggleBreakpoint = useGraphStore((s) => s.toggleBreakpoint);
   const debugSessions = useDebugSessions((s) => s.sessions);
@@ -150,8 +161,8 @@ export const IDEEditorPane = memo(function IDEEditorPane({ narrow }: IDEEditorPa
   }, [activePath, doc, setDirty]);
 
   // ─── §5.5 #17-27 ⑪ [추종] — 편집 신호를 받아 다시 읽고 · 그 줄로 스크롤하고 · 잠깐 강조한다 ───
-  const agentId = useGraphStore((s) => selectIDEOverlay(s).agentId);
-  const activeSessionId = useGraphStore((s) => selectIDEOverlay(s).activeSessionId);
+  const agentId = useIDEPaneValue((o) => o.agentId);
+  const activeSessionId = useIDEPaneValue((o) => o.activeSessionId);
   const sessionKey = followSessionKey(agentId ?? '', activeSessionId);
   const followOn = useGraphStore((s) => s.ideEditorFollow[sessionKey] === true);
   const setFollowOn = useGraphStore((s) => s.setIdeEditorFollow);
@@ -350,6 +361,8 @@ export const IDEEditorPane = memo(function IDEEditorPane({ narrow }: IDEEditorPa
         copyPath: () => { if (active) copyText(active.absPath); },
         copyLineRef: () => { if (activePath) copyText(`${activePath}:${ctx.line}`); },
         openExternal: handleOpenExternal,
+        // §5.5 #17-3 (판올림 번호 발급 대기) — 편집창에서 고른 글자도 같은 함수로 검색한다.
+        searchWeb: () => { openWebSearch(ctx.selectedText); },
       },
       t,
     )
@@ -660,7 +673,7 @@ export const IDEEditorPane = memo(function IDEEditorPane({ narrow }: IDEEditorPa
           </button>
         </div>
       )}
-      {doc?.status === 'ready' && !doc.image && (doc.truncated || doc.binary) && (
+      {doc?.status === 'ready' && !doc.image && !isPdf && (doc.truncated || doc.binary) && (
         <div className="border-b border-gray-700 bg-gray-800/60 px-2 py-1 text-[12px] text-gray-400">
           {doc.binary ? t('ide.editor.binary') : t('ide.editor.truncated')}
         </div>
@@ -671,6 +684,19 @@ export const IDEEditorPane = memo(function IDEEditorPane({ narrow }: IDEEditorPa
         <p className="px-3 py-4 text-center text-[12px] text-gray-600">{t('ide.explorer.loading')}</p>
       ) : doc.status === 'error' ? (
         <p className="px-3 py-4 text-center text-[12px] text-gray-600">{t('ide.editor.readError')}</p>
+      ) : isPdf ? (
+        /**
+         * §5.13 (R) — PDF 는 **Chromium 이 이미 싣고 다니는 뷰어**로 그린다.
+         *
+         * 우리가 PDF 를 렌더하는 코드를 쓰지 않는다((C) 표의 판단과 같다 — 남이 끝낸 문제).
+         * 창 설정에서 `plugins` 를 켜 두면 이 iframe 하나로 열람·검색·인쇄가 전부 붙는다.
+         */
+        <iframe
+          key={activePath}
+          src={pdfUrl ?? ''}
+          title={activePath ?? 'pdf'}
+          className="min-h-0 flex-1 border-0 bg-gray-900"
+        />
       ) : isImage ? (
         <IDEImagePreview
           url={imageBlob.url}

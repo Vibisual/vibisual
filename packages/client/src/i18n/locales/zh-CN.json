@@ -46,6 +46,30 @@
     "setupBanner": {
       "text": "未安装 Claude Code — Agent 尚无法运行。",
       "action": "安装"
+    },
+    "ideWindows": {
+      "label": "IDE 窗口",
+      "tooltip": "已打开的 IDE 窗口 — 置于前面、折叠，或在新窗口中打开气泡",
+      "sectionTitle": "窗口与气泡",
+      "empty": "此项目中没有智能体气泡",
+      "hint": "折叠不是关闭 — 窗口只是离开屏幕，把画布还给你。",
+      "openNew": "在新窗口中打开",
+      "bringToFront": "置于前面",
+      "settings": "智能体设置",
+      "expand": "展开",
+      "collapse": "折叠",
+      "close": "关闭窗口",
+      "state": {
+        "floating": "浮动",
+        "collapsed": "已折叠"
+      },
+      "side": {
+        "left": "左侧",
+        "right": "右侧",
+        "top": "顶部",
+        "bottom": "底部"
+      },
+      "orphan": "气泡已消失的窗口"
     }
   },
   "panel": {
@@ -853,6 +877,20 @@
         "latest": "最新版（别名）",
         "latestWith": "最新（{{id}}）",
         "custom": "自定义…"
+      },
+      "local": {
+        "noModel": "还没有选择模型",
+        "modelTip": "这个气泡说话时使用的本地模型。更换后，从下一轮起由该模型作答。",
+        "switchModel": "更换模型",
+        "pickModel": "选择模型",
+        "temperature": "温度",
+        "temperatureTip": "数值越低回答越稳定、越可复现；越高则越自由。留空则使用引擎默认值。",
+        "temperatureDefault": "引擎默认值",
+        "toolsTip": "本地模型总会收到下面这整份工具清单——它不是一份可勾选的列表。工具执行前，上面的权限模式和批准弹窗与 Claude 气泡完全一样生效。",
+        "toolsOk": "该模型会使用工具——可以读取和修改文件。",
+        "toolsNone": "该模型无法使用工具——只能对话。",
+        "toolsUnknown": "尚未确认——下一轮会带上工具去试。",
+        "toolsRecheck": "重新确认"
       }
     },
     "permissionPrompt": {
@@ -1273,6 +1311,18 @@
         "pinHint": "开启后，Delete 键和删除操作都无法移除它。",
         "deleteBubble": "删除此气泡",
         "deleteHint": "Delete 键同样可以移除它，应用本身仍会保留安装。"
+      },
+      "vibistudio": {
+        "name": "Vibistudio",
+        "desc": "视频时间线编辑与渲染"
+      },
+      "vibisound": {
+        "name": "Vibisound",
+        "desc": "简单的音频剪辑与修整"
+      },
+      "vibi3d": {
+        "name": "Vibi3D",
+        "desc": "在应用内旋转查看 3D 模型"
       }
     },
     "videoStudio": {
@@ -1367,6 +1417,63 @@
       "emptyHint": "Agent 发起的每一次工具调用都会被记录在这里——它涉及了什么,你又是如何回应的。",
       "promptRiskTitle": "风险操作",
       "promptEscalatedHint": "按你的权限模式,这项操作本会被自动允许——但审计边界选择先询问。"
+    },
+    "vibisound": {
+      "title": "Vibisound",
+      "noFile": "点击音频文件即可在这里修整 — 试试资源管理器或对话中的 mp3、wav。",
+      "decodeFailed": "浏览器无法解码此格式，请用默认程序打开。",
+      "loading": "正在读取音频…",
+      "play": "播放",
+      "stop": "停止",
+      "toStart": "回到开头",
+      "loop": "循环选区",
+      "cropSelection": "只保留选区",
+      "deleteSelection": "删除选区",
+      "silence": "静音选区",
+      "fadeIn": "淡入",
+      "fadeOut": "淡出",
+      "louder": "调大 +25%",
+      "quieter": "调小 −20%",
+      "undo": "撤销",
+      "exportWav": "导出 WAV",
+      "saving": "保存中…",
+      "saved": "已保存 — {{path}}",
+      "saveFailed": "保存失败。",
+      "needSelection": "请先在波形上拖动选择一段区间。",
+      "selectionInfo": "选区 {{from}} → {{to}} ({{len}})",
+      "selectHint": "拖动波形选择区间后，编辑按钮将启用",
+      "openExternal": "用默认程序打开"
+    },
+    "vibi3d": {
+      "title": "Vibi3D",
+      "noFile": "点击 3D 文件即可在这里旋转查看 — 试试资源管理器或对话中的 glb、obj、stl。",
+      "parseFailed": "无法读取此文件，请用默认程序打开。",
+      "loading": "正在读取模型…",
+      "frame": "适应视图",
+      "wireframe": "线框",
+      "grid": "网格",
+      "spin": "自动旋转",
+      "background": "浅色背景",
+      "openExternal": "用默认程序打开",
+      "vertices": "顶点 {{n}}",
+      "triangles": "三角形 {{n}}",
+      "dragHint": "拖动旋转，滚轮缩放",
+      "viewOnly": "仅查看"
+    },
+    "mediaConvert": {
+      "videoIntro": "此视频格式无法在应用内直接打开。仅更换封装（画质不变）即可在我们的编辑器中打开。",
+      "audioIntro": "此音频格式无法在应用内直接打开。转换为 WAV 后即可在我们的编辑器中打开。",
+      "needTool": "需要转换器（ffmpeg）——安装一次，之后就能直接打开。",
+      "needToolManual": "需要转换器（ffmpeg）。安装后请再点击一次。",
+      "convert": "在应用内查看",
+      "install": "安装转换器",
+      "openExternal": "用默认程序打开",
+      "cancel": "关闭",
+      "converting": "转换中… {{percent}}%",
+      "convertingStart": "已开始转换…",
+      "opening": "正在编辑器中打开…",
+      "installing": "正在安装转换器… 只有第一次需要等待。",
+      "failed": "转换失败，请用默认程序打开。"
     }
   },
   "ide": {
@@ -1429,13 +1536,25 @@
       "maximizeLabel": "最大化",
       "restoreLabel": "还原",
       "resizeDock": "调整停靠大小",
+      "dockMenuLabel": "停靠窗口",
+      "dockLeft": "停靠到左侧",
+      "dockRight": "停靠到右侧",
+      "dockTop": "停靠到顶部",
+      "dockBottom": "停靠到底部",
+      "undockLabel": "取消停靠",
       "customLabel": "自定义",
       "cmdLabel": "CMD",
       "hookLabel": "Hook",
       "renameHint": "双击重命名 (F2)",
       "renameInputLabel": "Agent 名称",
       "localLabel": "All Model",
-      "localSwitchModel": "更换该气泡使用的模型"
+      "localSwitchModel": "更换该气泡使用的模型",
+      "localContextUsed": "上下文 {{used}} / {{limit}} 令牌（{{percent}}%）— 装满后会先丢弃最早的对话",
+      "agentSettings": "智能体设置",
+      "collapseLabel": "折叠",
+      "collapseHint": "折叠 — 保留窗口并归还画布（在标题栏窗口列表中重新展开）",
+      "resizeWindow": "调整窗口大小",
+      "resizeStack": "调整分割比例"
     },
     "tabbar": {
       "newSession": "新建 Session",
@@ -1513,6 +1632,7 @@
       "slashEmpty": "无匹配技能",
       "slashLoading": "加载技能中…",
       "ctxCopy": "复制",
+      "ctxSearchWeb": "在网页上搜索",
       "ctxBookmark": "书签",
       "ctxQuoteReply": "引用回复",
       "ctxSendAsPrompt": "作为新提示发送",
@@ -1609,6 +1729,7 @@
       "debugMode": "调试模式",
       "debugModeHint": "在同一命令中添加调试器参数，以便调试器可以附加。",
       "configs": "运行配置",
+      "adhocRuns": "从对话启动",
       "noConfigs": "未找到运行配置。请在 .vscode/launch.json、package.json 的 scripts 或 .vibisual/run.json 中添加一个。Unreal 项目（.uproject）会被自动检测。",
       "scanned": "已扫描：{{files}}",
       "run": "运行",
@@ -1945,7 +2066,11 @@
       "showLess": "收起",
       "pathLink": {
         "openFile": "在编辑器中打开 — {{path}}",
-        "openFolder": "打开文件夹 — {{path}}"
+        "openFolder": "打开文件夹 — {{path}}",
+        "runProgram": "运行程序 — {{path}}",
+        "runFailed": "无法启动 — 此窗口没有终端。",
+        "openApp": "在 {{app}} 中打开 — {{path}}",
+        "openExternal": "用默认程序打开 — {{path}}"
       },
       "restartResumed": "应用关闭导致中断，已在保存的会话上继续。"
     },
@@ -2129,6 +2254,7 @@
       "exitUnknown": "Claude CLI 意外退出",
       "crash": "Session 进程意外终止（代码 {{code}}）",
       "crashUnknown": "Session 进程意外终止",
+      "local": "本地模型运行失败",
       "cli": "Claude CLI 报告了一个失败",
       "maxTurns": "已达到最大轮次限制并停止",
       "agentView": "Agent 运行以失败告终",
@@ -2637,6 +2763,18 @@
         "this-project": "仅为此项目安装 — 它们会在你在此运行的会话中加载。",
         "other-project": "已安装，但绑定到另一个项目，因此不会在此会话中加载。"
       }
+    },
+    "split": {
+      "closeCell": "关闭视图",
+      "reset": "取消拆分",
+      "previewSplit": "在此拆分",
+      "previewReplace": "在此打开",
+      "limit": "最多 {{count}} 个视图",
+      "dragHint": "拖动以移动此视图",
+      "resizeHint": "拖动调整大小 · 双击均分",
+      "foreignSession": "该会话属于其他气泡",
+      "tooSmall": "空间太小，无法在此拆分",
+      "alreadyHere": "此视图中已显示"
     }
   },
   "bubbleMap": {
@@ -2879,7 +3017,9 @@
     "unsetDefault": "取消默认",
     "defaultTooltip": "无上次活跃标签时，默认标签将自动打开。",
     "detach": "分离到新窗口",
-    "rename": "重命名"
+    "rename": "重命名",
+    "splitRight": "向右拆分",
+    "splitDown": "向下拆分"
   },
   "overlay": {
     "sendToOverlay": "将此气泡弹出为始终置顶的桌面浮窗",
@@ -3496,6 +3636,34 @@
     "stepModel": "模型",
     "stepIde": "IDE",
     "useModelStart": "用此模型开始",
-    "opensIdeHint": "下载完成后会立即打开该气泡的 IDE。"
+    "opensIdeHint": "下载完成后会立即打开该气泡的 IDE。",
+    "contextTitle": "上下文窗口",
+    "contextUnit": "令牌",
+    "contextApply": "应用",
+    "contextHint": "窗口越大记忆越久，但占用更多内存且速度更慢。若设置超过模型训练时的长度，将改用该训练长度。新值将在下次加载此模型时生效。",
+    "usageTitle": "本次对话使用的令牌",
+    "usageLine": "输入 {{in}} · 输出 {{out}}",
+    "fitGpu": "GPU 高速运行",
+    "fitRam": "内存运行较慢",
+    "fitTooBig": "这台电脑装不下",
+    "statDownloads": "下载数",
+    "statLikes": "点赞数",
+    "statTrending": "热度",
+    "sortDownloads": "下载最多",
+    "sortLikes": "点赞最多",
+    "sortTrending": "当前热门",
+    "sortRecent": "最近更新",
+    "runnableOnly": "只看本机能跑的",
+    "topQuantHint": "按常用程度排序",
+    "showAllQuants": "显示其余 {{count}} 个",
+    "showFewerQuants": "只看常用的",
+    "noRunnableFiles": "这个仓库里没有本机能跑的版本 — 关掉上面的筛选就能看到全部。",
+    "partCount": "{{count}} 个分片",
+    "missingParts": "{{total}} 个分片中缺少 {{missing}} 个，无法使用 — 请重新下载",
+    "companionFile": "这是配套文件，不是模型本体 — 单独无法运行",
+    "outputBroken": "当前引擎无法从它得到有意义的输出 — 建议换一个模型",
+    "archUnsupported": "当前引擎不支持",
+    "hardwareGpu": "{{device}} · 可用 {{vram}} · 内存 {{ram}}",
+    "hardwareCpu": "无加速设备 · 内存 {{ram}}"
   }
 }

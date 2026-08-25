@@ -46,6 +46,30 @@
     "setupBanner": {
       "text": "O Claude Code não está instalado — os agentes ainda não podem ser executados.",
       "action": "Instalar"
+    },
+    "ideWindows": {
+      "label": "Janelas do IDE",
+      "tooltip": "Janelas do IDE abertas — trazer para a frente, recolher ou abrir uma bolha em uma nova janela",
+      "sectionTitle": "Janelas e bolhas",
+      "empty": "Nenhuma bolha de agente neste projeto",
+      "hint": "Recolher não é fechar — a janela apenas sai da tela e devolve a área de trabalho.",
+      "openNew": "Abrir em uma nova janela",
+      "bringToFront": "Trazer para a frente",
+      "settings": "Configurações do agente",
+      "expand": "Expandir",
+      "collapse": "Recolher",
+      "close": "Fechar janela",
+      "state": {
+        "floating": "flutuante",
+        "collapsed": "recolhida"
+      },
+      "side": {
+        "left": "esquerda",
+        "right": "direita",
+        "top": "topo",
+        "bottom": "base"
+      },
+      "orphan": "Janela cuja bolha desapareceu"
     }
   },
   "panel": {
@@ -853,6 +877,20 @@
         "latest": "Mais recente (alias)",
         "latestWith": "Mais recente ({{id}})",
         "custom": "Personalizado…"
+      },
+      "local": {
+        "noModel": "Nenhum modelo escolhido ainda",
+        "modelTip": "O modelo local com que esta bolha fala. Se trocar, o próximo turno é respondido por esse modelo.",
+        "switchModel": "Trocar modelo",
+        "pickModel": "Escolher modelo",
+        "temperature": "Temperatura",
+        "temperatureTip": "Valores baixos mantêm respostas estáveis e repetíveis; valores altos as deixam mais livres. Deixe vazio para usar o padrão do motor.",
+        "temperatureDefault": "Padrão do motor",
+        "toolsTip": "Um modelo local sempre recebe a lista de ferramentas abaixo por inteiro — não é uma lista de escolha. Logo antes de a ferramenta rodar, o modo de permissão acima e o pop-up de aprovação valem igual às bolhas do Claude.",
+        "toolsOk": "Este modelo usa ferramentas — consegue ler e editar arquivos.",
+        "toolsNone": "Este modelo não consegue usar ferramentas — só conversa.",
+        "toolsUnknown": "Ainda não verificado — as ferramentas vão no próximo turno para descobrir.",
+        "toolsRecheck": "Verificar de novo"
       }
     },
     "permissionPrompt": {
@@ -1273,6 +1311,18 @@
         "pinHint": "Quando ativado, nem a tecla Delete nem ações de exclusão podem removê-la.",
         "deleteBubble": "Excluir esta bolha",
         "deleteHint": "A tecla Delete também a remove. O aplicativo em si continua instalado."
+      },
+      "vibistudio": {
+        "name": "Vibistudio",
+        "desc": "Edição de linha do tempo de vídeo e renderização"
+      },
+      "vibisound": {
+        "name": "Vibisound",
+        "desc": "Editor de áudio simples para cortar e ajustar"
+      },
+      "vibi3d": {
+        "name": "Vibi3D",
+        "desc": "Gire modelos 3D dentro do app"
       }
     },
     "videoStudio": {
@@ -1367,6 +1417,63 @@
       "emptyHint": "Toda chamada de ferramenta que um agent faz chega aqui — o que ele tocou e o que você respondeu.",
       "promptRiskTitle": "Ação arriscada",
       "promptEscalatedHint": "Seu modo de permissão teria permitido isso automaticamente — o limite de auditoria está perguntando primeiro."
+    },
+    "vibisound": {
+      "title": "Vibisound",
+      "noFile": "Clique em um arquivo de áudio para ajustá-lo aqui — tente um mp3 ou wav no explorador ou no chat.",
+      "decodeFailed": "O navegador não consegue decodificar este formato. Abra com o app padrão.",
+      "loading": "Lendo o áudio…",
+      "play": "Reproduzir",
+      "stop": "Parar",
+      "toStart": "Ao início",
+      "loop": "Repetir seleção",
+      "cropSelection": "Manter seleção",
+      "deleteSelection": "Excluir seleção",
+      "silence": "Silenciar seleção",
+      "fadeIn": "Fade in",
+      "fadeOut": "Fade out",
+      "louder": "Mais alto +25%",
+      "quieter": "Mais baixo −20%",
+      "undo": "Desfazer",
+      "exportWav": "Exportar WAV",
+      "saving": "Salvando…",
+      "saved": "Salvo — {{path}}",
+      "saveFailed": "Não foi possível salvar.",
+      "needSelection": "Arraste na forma de onda para escolher um trecho primeiro.",
+      "selectionInfo": "Seleção {{from}} → {{to}} ({{len}})",
+      "selectHint": "Arraste a forma de onda para escolher um trecho — os botões de edição ficam ativos",
+      "openExternal": "Abrir com o app padrão"
+    },
+    "vibi3d": {
+      "title": "Vibi3D",
+      "noFile": "Clique em um arquivo 3D para girá-lo aqui — tente um glb, obj ou stl no explorador ou no chat.",
+      "parseFailed": "Não foi possível ler este arquivo. Abra com o app padrão.",
+      "loading": "Lendo o modelo…",
+      "frame": "Ajustar à vista",
+      "wireframe": "Aramado",
+      "grid": "Grade",
+      "spin": "Rotação automática",
+      "background": "Fundo claro",
+      "openExternal": "Abrir com o app padrão",
+      "vertices": "{{n}} vértices",
+      "triangles": "{{n}} triângulos",
+      "dragHint": "Arraste para girar, role para ampliar",
+      "viewOnly": "Somente visualização"
+    },
+    "mediaConvert": {
+      "videoIntro": "Este formato de vídeo não abre direto. Basta trocar o contêiner (sem perda de qualidade) para abrir no nosso editor.",
+      "audioIntro": "Este formato de áudio não abre direto. Convertido para WAV, abre no nosso editor.",
+      "needTool": "É preciso um conversor (ffmpeg) — instale uma vez e depois abre direto.",
+      "needToolManual": "É preciso um conversor (ffmpeg). Instale e clique novamente.",
+      "convert": "Abrir no app",
+      "install": "Instalar conversor",
+      "openExternal": "Abrir com o app padrão",
+      "cancel": "Fechar",
+      "converting": "Convertendo… {{percent}}%",
+      "convertingStart": "Conversão iniciada…",
+      "opening": "Abrindo no editor…",
+      "installing": "Instalando o conversor… só na primeira vez demora um pouco.",
+      "failed": "Não foi possível converter. Abra com o app padrão."
     }
   },
   "ide": {
@@ -1429,13 +1536,25 @@
       "maximizeLabel": "Maximizar",
       "restoreLabel": "Restaurar",
       "resizeDock": "Redimensionar painel",
+      "dockMenuLabel": "Encaixar janela",
+      "dockLeft": "Encaixar à esquerda",
+      "dockRight": "Encaixar à direita",
+      "dockTop": "Encaixar acima",
+      "dockBottom": "Encaixar abaixo",
+      "undockLabel": "Desencaixar",
       "customLabel": "Personalizado",
       "cmdLabel": "CMD",
       "hookLabel": "Hook",
       "renameHint": "Clique duas vezes para renomear (F2)",
       "renameInputLabel": "Nome do agente",
       "localLabel": "All Model",
-      "localSwitchModel": "Trocar o modelo que esta bolha usa"
+      "localSwitchModel": "Trocar o modelo que esta bolha usa",
+      "localContextUsed": "Contexto {{used}} / {{limit}} tokens ({{percent}}%) — quando enche, os turnos mais antigos são descartados",
+      "agentSettings": "Configurações do agente",
+      "collapseLabel": "Recolher",
+      "collapseHint": "Recolher — mantém a janela e devolve a área de trabalho (expanda de novo na lista de janelas do cabeçalho)",
+      "resizeWindow": "Redimensionar janela",
+      "resizeStack": "Ajustar a divisão"
     },
     "tabbar": {
       "newSession": "Nova sessão",
@@ -1513,6 +1632,7 @@
       "slashEmpty": "Nenhuma habilidade correspondente",
       "slashLoading": "Carregando habilidades…",
       "ctxCopy": "Copiar",
+      "ctxSearchWeb": "Pesquisar na web",
       "ctxBookmark": "Marcar",
       "ctxQuoteReply": "Citar resposta",
       "ctxSendAsPrompt": "Enviar como novo prompt",
@@ -1609,6 +1729,7 @@
       "debugMode": "Modo de depuração",
       "debugModeHint": "Adiciona flags de depurador ao mesmo comando para que um depurador possa se conectar.",
       "configs": "Configurações de execução",
+      "adhocRuns": "Iniciado pelo chat",
       "noConfigs": "Nenhuma configuração de execução encontrada. Adicione uma em .vscode/launch.json, nos scripts do package.json ou em .vibisual/run.json. Projetos Unreal (.uproject) são detectados automaticamente.",
       "scanned": "Verificados: {{files}}",
       "run": "Executar",
@@ -1945,7 +2066,11 @@
       "showLess": "Mostrar menos",
       "pathLink": {
         "openFile": "Abrir no editor — {{path}}",
-        "openFolder": "Abrir pasta — {{path}}"
+        "openFolder": "Abrir pasta — {{path}}",
+        "runProgram": "Executar programa — {{path}}",
+        "runFailed": "Não foi possível iniciar — esta janela não tem terminal.",
+        "openApp": "Abrir no {{app}} — {{path}}",
+        "openExternal": "Abrir com o app padrão — {{path}}"
       },
       "restartResumed": "Interrompido ao fechar o app — retomado na sessão salva."
     },
@@ -2129,6 +2254,7 @@
       "exitUnknown": "O Claude CLI foi encerrado inesperadamente",
       "crash": "O processo da sessão encerrou inesperadamente (código {{code}})",
       "crashUnknown": "O processo da sessão encerrou inesperadamente",
+      "local": "A execução do modelo local falhou",
       "cli": "O Claude CLI reportou uma falha",
       "maxTurns": "Interrompido no limite máximo de turnos",
       "agentView": "A execução do agente terminou em falha",
@@ -2637,6 +2763,18 @@
         "this-project": "Instalado somente para este projeto — carrega nas sessões executadas aqui.",
         "other-project": "Instalado, mas vinculado a outro projeto, então não carrega nesta sessão."
       }
+    },
+    "split": {
+      "closeCell": "Fechar visualização",
+      "reset": "Desfazer divisão",
+      "previewSplit": "Dividir aqui",
+      "previewReplace": "Abrir aqui",
+      "limit": "Até {{count}} visualizações",
+      "dragHint": "Arraste para mover esta visualização",
+      "resizeHint": "Arraste para redimensionar · clique duplo para igualar",
+      "foreignSession": "Essa sessão pertence a outra bolha",
+      "tooSmall": "Pequeno demais para dividir",
+      "alreadyHere": "Já exibido aqui"
     }
   },
   "bubbleMap": {
@@ -2879,7 +3017,9 @@
     "unsetDefault": "Remover padrão",
     "defaultTooltip": "A aba padrão abre automaticamente quando não há aba ativa anterior para restaurar.",
     "detach": "Abrir em nova janela",
-    "rename": "Renomear"
+    "rename": "Renomear",
+    "splitRight": "Dividir à direita",
+    "splitDown": "Dividir abaixo"
   },
   "overlay": {
     "sendToOverlay": "Destacar esta bolha como um widget de desktop sempre visível",
@@ -3496,6 +3636,34 @@
     "stepModel": "Modelo",
     "stepIde": "IDE",
     "useModelStart": "Começar com este modelo",
-    "opensIdeHint": "Assim que o download terminar, a IDE desta bolha abre."
+    "opensIdeHint": "Assim que o download terminar, a IDE desta bolha abre.",
+    "contextTitle": "Janela de contexto",
+    "contextUnit": "tokens",
+    "contextApply": "Aplicar",
+    "contextHint": "Uma janela maior lembra mais, mas usa mais memória e fica mais lenta. Se você definir acima do comprimento de treinamento do modelo, esse comprimento será usado. O novo valor vale a partir do próximo carregamento deste modelo.",
+    "usageTitle": "Tokens usados nesta conversa",
+    "usageLine": "entrada {{in}} · saída {{out}}",
+    "fitGpu": "Rápido na GPU",
+    "fitRam": "Lento na RAM",
+    "fitTooBig": "Grande demais para este PC",
+    "statDownloads": "Downloads",
+    "statLikes": "Curtidas",
+    "statTrending": "Em alta",
+    "sortDownloads": "Mais baixados",
+    "sortLikes": "Mais curtidos",
+    "sortTrending": "Em alta agora",
+    "sortRecent": "Atualizados recentemente",
+    "runnableOnly": "Só o que roda aqui",
+    "topQuantHint": "Mais usados primeiro",
+    "showAllQuants": "Ver os outros {{count}}",
+    "showFewerQuants": "Ver só os mais usados",
+    "noRunnableFiles": "Nada neste repositório roda neste PC — desligue o filtro acima para ver tudo.",
+    "partCount": "{{count}} partes",
+    "missingParts": "Faltam {{missing}} de {{total}} partes, não dá para usar — baixe novamente",
+    "companionFile": "É um arquivo complementar, não um modelo — não roda sozinho",
+    "outputBroken": "Este motor não conseguiu nada com sentido — tente outro modelo",
+    "archUnsupported": "Sem suporte neste motor",
+    "hardwareGpu": "{{device}} · {{vram}} livres · {{ram}} de RAM",
+    "hardwareCpu": "Sem acelerador · {{ram}} de RAM"
   }
 }

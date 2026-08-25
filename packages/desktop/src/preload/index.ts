@@ -299,6 +299,9 @@ const api = {
       ipcRenderer.invoke('vibisual:term:resize', { termId, cols, rows }),
     /** PTY 종료(컴포넌트 unmount / IDE 닫기 / 모드 전환). */
     kill: (termId: string): Promise<void> => ipcRenderer.invoke('vibisual:term:kill', termId),
+    /** §4 (CMD ②) — 전경 프로세스명·크기. 탭 라벨 보조 표기 + 상태 신고에 실린다. */
+    info: (termId: string): Promise<{ process?: string; cols: number; rows: number } | null> =>
+      ipcRenderer.invoke('vibisual:term:info', termId),
     /** main 이 PTY 출력 바이트를 푸시 — 해당 termId 만 골라 xterm.write. */
     onData: (cb: (payload: { termId: string; data: string }) => void): (() => void) => {
       const listener = (_e: unknown, payload: { termId: string; data: string }): void => cb(payload);

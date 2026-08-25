@@ -10,6 +10,7 @@ import { LanguageSwitcher } from './LanguageSwitcher.js';
 import { UpdateButton } from './UpdateButton.js';
 import { PluginHeaderSlot } from '../../plugins/host.js';
 import { OverlayToggleButton } from './OverlayToggleButton.js';
+import { IDEWindowsMenu } from './IDEWindowsMenu.js';
 import { UsagePill } from './UsagePill.js';
 import { AuditPill } from './AuditPill.js';
 import { ServerLogPopup } from '../Panel/ServerLogPopup.js';
@@ -152,6 +153,11 @@ export function Header({
 
         {/* §5.5 #17-6 — 데스크톱 오버레이 위젯 전역 토글. 빼낸 버블이 있을 때만 노출. */}
         <OverlayToggleButton />
+
+        {/* §5.5 #17-1 — IDE 창 목록. 창을 네 변에 붙이면 캔버스가 줄어드는데, 새 창을 여는 길과
+            에이전트 설정을 여는 길이 캔버스 하나뿐이라 도크가 화면을 채우면 손이 닿지 않았다.
+            헤더는 z-[100] 이라 어떤 도크도 못 가린다 — 그래서 그 두 진입로를 여기 둔다. */}
+        <IDEWindowsMenu />
 
         {/* §4 v3.60 — Claude.ai 현재 세션(5시간 창) 사용률. 에이전트 배지 바로 왼쪽에 두고,
             클릭하면 사용량 전체(5h/7d·리셋 카운트다운·수집기 스위치)를 팝업으로 연다.

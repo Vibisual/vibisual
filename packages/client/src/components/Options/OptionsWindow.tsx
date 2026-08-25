@@ -11,6 +11,7 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
+import { TERMINAL_SCROLLBACK_LINES, TERMINAL_SCROLLBACK_MIN, TERMINAL_SCROLLBACK_MAX, clampTerminalScrollback } from '@vibisual/shared';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 import type { AgentConfig, UserDefaults, ClaudeInstallsInfo, ClaudeInstall, UiLocale } from '@vibisual/shared';
 import {
@@ -110,6 +111,10 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
   const [bashDefaultTimeoutSec, setBashDefaultTimeoutSec] = useState(bashMsToSec(baseAgent.bashDefaultTimeoutMs));
   const [bashMaxTimeoutSec, setBashMaxTimeoutSec] = useState(bashMsToSec(baseAgent.bashMaxTimeoutMs));
   const [dirty, setDirty] = useState(false);
+  // §4 (CMD ③) — 임베디드 터미널 scrollback 줄 수. 이 한 값이 xterm 과 PTY 링버퍼를 **동시에** 정한다.
+  const [terminalScrollback, setTerminalScrollback] = useState<number>(TERMINAL_SCROLLBACK_LINES);
+  // §4 (CMD ④) — CMD 세션이 백그라운드에서 막혔을 때 OS 알림을 띄울지. 기본 켬.
+  const [cmdBlockedNotify, setCmdBlockedNotify] = useState(true);
   const [saving, setSaving] = useState(false);
   // §4 — Storage 탭은 자기 state 로 편집한다. 창의 나가기 가드가 그 미저장분까지 지키려면
   //   탭이 dirty 를 위로 올려 줘야 한다(탭을 떠나거나 창이 닫히면 언마운트 시 false 로 풀린다).
@@ -183,7 +188,9 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
     setBetas((baseAgent.betas ?? []).join(', '));
     setBashDefaultTimeoutSec(bashMsToSec(baseAgent.bashDefaultTimeoutMs));
     setBashMaxTimeoutSec(bashMsToSec(baseAgent.bashMaxTimeoutMs));
-  }, [baseAgent, dirty]);
+    setTerminalScrollback(clampTerminalScrollback(userDefaults?.advanced?.terminalScrollbackLines));
+    setCmdBlockedNotify(userDefaults?.notifications?.cmdBlocked !== false);
+  }, [baseAgent, dirty, userDefaults]);
 
   // §4 v3.71 가시성 LOD — 열려 있는 동안 캔버스를 전면으로 덮으므로 덮개로 등록한다.
   useEffect(() => {
@@ -318,6 +325,10 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
           bashDefaultTimeoutMs: bashSecToMs(bashDefaultTimeoutSec),
           bashMaxTimeoutMs: bashSecToMs(bashMaxTimeoutSec),
         },
+        // §4 (CMD ③④) — 이 창이 **모르는 키는 스프레드로 그대로 통과**시킨다(부분 페이로드가
+        //   남의 설정을 지우는 사고를 막는 규약 — agent-config PUT 과 같은 이유).
+        advanced: { ...(userDefaults?.advanced ?? {}), terminalScrollbackLines: clampTerminalScrollback(terminalScrollback) },
+        notifications: { ...(userDefaults?.notifications ?? {}), cmdBlocked: cmdBlockedNotify },
       };
       await fetch(`${API_BASE}/api/user-defaults`, {
         method: 'PUT',
@@ -327,7 +338,7 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
       setDirty(false);
     } catch { /* ignore */ }
     finally { setSaving(false); }
-  }, [model, modelVersion, permissionMode, permissionTimeoutPolicy, isOpus, effort, maxTurns, maxBudgetUsd, isolation, contextWindow, tools, disallowedTools, rules, color, userDefaults, fallbackModel, autoCompact, excludeDynamicSections, settingSources, safeMode, betas, bashDefaultTimeoutSec, bashMaxTimeoutSec]);
+  }, [model, modelVersion, permissionMode, permissionTimeoutPolicy, isOpus, effort, maxTurns, maxBudgetUsd, isolation, contextWindow, tools, disallowedTools, rules, color, userDefaults, fallbackModel, autoCompact, excludeDynamicSections, settingSources, safeMode, betas, bashDefaultTimeoutSec, bashMaxTimeoutSec, terminalScrollback, cmdBlockedNotify]);
 
   if (!open) return null;
 
@@ -771,7 +782,52 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
               />
             )}
 
-            {category !== 'agent' && category !== 'version' && category !== 'appearance' && category !== 'account' && category !== 'storage' && (
+            {/* §4 (CMD ③) — Advanced: 임베디드 터미널 scrollback. */}
+            {category === 'advanced' && (
+              <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-medium text-gray-400">
+                    {t('panel.options.advanced.terminalScrollback', { defaultValue: 'Terminal scrollback (lines)' })}
+                  </label>
+                  <input
+                    type="number"
+                    min={TERMINAL_SCROLLBACK_MIN}
+                    max={TERMINAL_SCROLLBACK_MAX}
+                    step={500}
+                    value={terminalScrollback}
+                    onChange={(e) => { setDirty(true); setTerminalScrollback(Number(e.target.value)); }}
+                    className="w-40 rounded border border-gray-700 bg-gray-900 px-2 py-1.5 text-sm text-gray-200 outline-none focus:border-blue-500 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                  />
+                  <p className="text-[12px] text-gray-500">
+                    {t('panel.options.advanced.terminalScrollbackDesc', { defaultValue: 'CMD 터미널이 보관하는 출력 줄 수입니다. 화면 스크롤과 Ctrl+F 검색이 같은 범위를 씁니다. 새로 여는 터미널부터 적용됩니다.' })}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* §4 (CMD ④) — Notifications: 백그라운드 blocked 알림. */}
+            {category === 'notifications' && (
+              <div className="flex flex-col gap-4">
+                <label className="flex cursor-pointer items-start gap-2.5 rounded border border-gray-700/60 bg-gray-900/40 px-3 py-2.5 hover:border-gray-600">
+                  <input
+                    type="checkbox"
+                    checked={cmdBlockedNotify}
+                    onChange={(e) => { setDirty(true); setCmdBlockedNotify(e.target.checked); }}
+                    className="mt-0.5 h-3.5 w-3.5 cursor-pointer accent-blue-500"
+                  />
+                  <span className="flex flex-col gap-0.5">
+                    <span className="text-xs text-gray-200">
+                      {t('panel.options.notifications.cmdBlocked', { defaultValue: 'CMD 세션이 입력을 기다리면 알림' })}
+                    </span>
+                    <span className="text-[12px] text-gray-500">
+                      {t('panel.options.notifications.cmdBlockedDesc', { defaultValue: '다른 탭·다른 창을 보고 있을 때만 알립니다. 창이 포커스돼 있으면 화면에 이미 보이므로 띄우지 않습니다.' })}
+                    </span>
+                  </span>
+                </label>
+              </div>
+            )}
+
+            {category !== 'agent' && category !== 'version' && category !== 'appearance' && category !== 'account' && category !== 'storage' && category !== 'advanced' && category !== 'notifications' && (
               <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
                 <svg className="h-10 w-10 text-gray-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>

@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import type { PipelineType } from '@vibisual/shared';
 import { PIPELINE_TYPE_INFO } from '@vibisual/shared';
 import { INTERNAL_APPS } from '../../apps/registry.js';
-import { useAppInstall } from '../../apps/useAppInstall.js';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 import { POPUP_DISMISS } from '../../hooks/popupDismiss.js';
@@ -62,7 +61,6 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
   const [appsOpen, setAppsOpen] = useState(false);
   // §5.13 (N) v4.47 — 설치도 여기서 한다. 별도 창을 띄우지 않고 **이 메뉴와 캔버스 버블이
   //   유일한 관리 지점**이다 — 무엇이 깔려 있는지 캔버스에서 바로 보이는 편이 낫다는 판단.
-  const { installed: installedApps, setInstalled, busy: installBusy } = useAppInstall();
   const createLocalAgent = useGraphStore((st) => st.createLocalAgent);
   // 노출 게이트 — 아래 네 항목(플레이·스펙·랩·선반)은 디버그 모드에서만 낸다(§7.7).
   const debugMode = useGraphStore((st) => st.debugMode);
@@ -383,48 +381,24 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
             <div className="absolute left-full top-0 ml-1 min-w-72 rounded-lg border border-gray-700 bg-gray-900 py-1 shadow-xl shadow-black/40">
               {INTERNAL_APPS.map((app) => {
                 const Icon = app.icon;
-                const on = installedApps.has(app.id);
                 return (
                   <div key={app.id} className="flex items-center gap-1 pr-1.5">
-                    {/* 행을 누르면 캔버스에 버블로 놓인다. 설치 전에도 놓을 수 있고, 그 버블이
-                        곧 "아직 안 깔림" 을 보여 주는 자리가 된다 — 캔버스에서 한눈에 보이게. */}
+                    {/* 행을 누르면 캔버스에 버블로 놓인다. 그 버블을 더블클릭하면 앱 창이 뜬다
+                        (§5.13 (H) 개정 — 설치라는 단계는 없다). */}
                     <button
                       type="button"
                       className="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2 text-left text-sm text-gray-200 transition-colors hover:bg-gray-800"
                       onClick={() => handleCreateApp(app.id)}
                     >
-                      <span style={{ color: app.color }} className={on ? undefined : 'opacity-45'}>
+                      <span style={{ color: app.color }}>
                         <Icon />
                       </span>
                       <div className="flex min-w-0 flex-col">
-                        <span className="flex items-center gap-1.5">
-                          <span className="truncate">{t(app.nameKey, { defaultValue: app.name })}</span>
-                          <span
-                            className={`h-1.5 w-1.5 shrink-0 rounded-full ${on ? 'bg-emerald-400' : 'bg-gray-600'}`}
-                            aria-hidden
-                          />
-                        </span>
+                        <span className="truncate">{t(app.nameKey, { defaultValue: app.name })}</span>
                         <span className="truncate text-xs text-gray-500">
                           {t(app.descKey, { defaultValue: '' })}
                         </span>
                       </div>
-                    </button>
-                    <button
-                      type="button"
-                      disabled={installBusy}
-                      onClick={() => {
-                        void setInstalled(app.id, !on);
-                      }}
-                      title={app.install.sizeHint}
-                      className={`shrink-0 rounded px-2 py-1 text-[12px] transition-colors disabled:opacity-40 ${
-                        on
-                          ? 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
-                          : 'bg-violet-600/90 text-white hover:bg-violet-500'
-                      }`}
-                    >
-                      {on
-                        ? t('canvas.contextMenu.appUninstall', { defaultValue: '삭제' })
-                        : t('canvas.contextMenu.appInstall', { defaultValue: '설치' })}
                     </button>
                   </div>
                 );

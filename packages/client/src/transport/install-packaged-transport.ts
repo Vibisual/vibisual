@@ -162,10 +162,17 @@ export interface PackagedTerminalApi {
     command?: string;
     autoRun?: boolean;
     env?: Record<string, string>;
+    /** §4 (CMD ③) — 이 터미널의 scrollback 줄 수(옵션창 Advanced). 미지정 시 기본값. */
+    scrollbackLines?: number;
   }): Promise<{ ok: boolean; error?: string }>;
   write(termId: string, data: string): Promise<void>;
   resize(termId: string, cols: number, rows: number): Promise<void>;
   kill(termId: string): Promise<void>;
+  /**
+   * §4 (CMD ②) — 전경 프로세스명·크기. **선택** — 모바일 /ws 브리지(§4 v3.16)와 구버전
+   * preload 에는 없다. 없으면 탭 라벨 보조 표기가 비는 것뿐이고 나머지는 그대로 동작한다.
+   */
+  info?(termId: string): Promise<{ process?: string; cols: number; rows: number } | null>;
   onData(cb: (payload: { termId: string; data: string }) => void): () => void;
   onExit(cb: (payload: { termId: string; exitCode: number }) => void): () => void;
 }

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { selectIDEOverlay, useGraphStore } from '../../stores/graphStore.js';
+import { useIDEPaneValue, useIDEPaneActions } from './idePane.js';
 import {
   followOpenSkipReason,
   followSessionKey,
@@ -31,11 +32,11 @@ export function useEditorFollow(agentId: string, activeSessionId: string | null,
   const enabled = useGraphStore((s) => s.ideEditorFollow[sessionKey] === true);
   const streams = useGraphStore((s) => s.subAgentStreams);
   const subAgents = useGraphStore((s) => (agentId ? s.subAgents[agentId] : undefined));
-  const openFile = useGraphStore((s) => s.openIDEEditorFile);
+  const { openEditorFile: openFile } = useIDEPaneActions();
   const setSignal = useGraphStore((s) => s.setIdeEditorFollowSignal);
   const setLast = useGraphStore((s) => s.setIdeEditorFollowLast);
   const setPending = useGraphStore((s) => s.setIdeEditorFollowPending);
-  const editorOpen = useGraphStore((s) => selectIDEOverlay(s).activeEditorPath !== null);
+  const editorOpen = useIDEPaneValue((o) => o.activeEditorPath !== null);
   const rootPath = useIDEProjectRoot();
 
   /**

@@ -9,6 +9,7 @@ import {
   SESSION_LOOP_PATH_MAX,
 } from '@vibisual/shared';
 import { useGraphStore, selectIDEOverlay, agentSessionInputKey } from '../../stores/graphStore.js';
+import { useIDEPaneValue } from './idePane.js';
 import { useSessionFormDraft } from '../../stores/sessionFormDrafts.js';
 import { ScrollFade } from '../ScrollFade.js';
 
@@ -89,7 +90,7 @@ interface Props {
 
 export const IDELoopView = memo(function IDELoopView({ agentId }: Props): React.JSX.Element {
   const { t } = useTranslation();
-  const activeSessionId = useGraphStore((s) => selectIDEOverlay(s).activeSessionId);
+  const activeSessionId = useIDEPaneValue((o) => o.activeSessionId);
   const loop: SessionLoop | undefined = useGraphStore((s) => (activeSessionId ? s.sessionLoops[activeSessionId] : undefined));
   const subs = useGraphStore((s) => s.subAgents[agentId]) ?? EMPTY_SUBS;
   const subLabels = useGraphStore((s) => s.subAgentLabels);

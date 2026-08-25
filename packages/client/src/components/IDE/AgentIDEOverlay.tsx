@@ -1,14 +1,40 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { SubAgent, SubAgentStreamEvent } from '@vibisual/shared';
-import { useGraphStore, selectIDEOverlay } from '../../stores/graphStore.js';
+import { createPortal } from 'react-dom';
+import { BUBBLE_COLORS } from '@vibisual/shared';
+import { useGraphStore, resolvePaneKey, selectIDEPane, selectRenderedIDEPanes, selectVisibleDockedPanes } from '../../stores/graphStore.js';
+import { AgentConfigPopup } from '../Panel/AgentConfigPopup.js';
+import { useIDEPaneScope, useIDEPaneValue } from './idePane.js';
+import {
+  IDE_DOCK,
+  IDE_DOCK_SIDES,
+  IDE_PANE_Z_BASE,
+  IDE_FLOAT,
+  clampDockSize,
+  clampFloatGeom,
+  defaultDockSize,
+  initialFloatGeom,
+  isHorizontalSide,
+  dockSizeFromDrag,
+  orderForInsert,
+  previewDockRect,
+  resolveDockDrop,
+  splitSpansFromDrag,
+  type DockDropTarget,
+  type DockedPane,
+  type FloatGeom,
+  type IDEDockSide,
+  type Rect,
+} from './ideDockLayout.js';
+import { useIDEDockLayout, useVisibleDockedPanes } from './useIDEDockLayout.js';
 import { setCanvasCover } from '../../stores/canvasVisibility.js';
 import { useIsNarrowViewport } from '../../hooks/useIsMobile.js';
-import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
+import { useBackdropDismiss, useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 import { IDEActivityBar } from './IDEActivityBar.js';
 import { IDETabBar } from './IDETabBar.js';
 import { IDESidebar } from './IDESidebar.js';
-import { IDEMainArea } from './IDEMainArea.js';
+import { IDESplitView } from './IDESplitView.js';
 import { IDEEditorPane } from './IDEEditorPane.js';
 import { useEditorFollow } from './useEditorFollow.js';
 import { IDEStatusBar } from './IDEStatusBar.js';
@@ -19,20 +45,71 @@ import { ReadingSettingsPopover } from './reading/ReadingSettingsPopover.js';
 
 const EMPTY_SUBS: SubAgent[] = [];
 
-type OverlayMode = 'modal' | 'floating' | 'docked-right';
-const HEADER_H = 36; // §3.7 v2.13 통합 타이틀바 h-9
-const DOCK_SNAP_RATIO = 0.12; // 도킹 인식 임계치 — 화면 폭의 12% (v2.20 또 2배 확대)
-const DOCK_SNAP_MIN_PX = 120; // 작은 창에서도 최소 120px 보장
-function getDockSnapPx(): number {
-  return Math.max(DOCK_SNAP_MIN_PX, Math.round(window.innerWidth * DOCK_SNAP_RATIO));
-}
+/**
+ * 창의 모양. 'docked' 는 **네 변 중 어디에 붙었는가**를 스토어의 `dockSide` 가 쥔다
+ * (종전 'docked-right' 는 우측 하나뿐이라 모양 이름에 방향이 박혀 있었다).
+ */
+type OverlayMode = 'modal' | 'floating' | 'docked';
+const HEADER_H = IDE_DOCK.HEADER_H; // §3.7 v2.13 통합 타이틀바 h-9
 const DRAG_THRESHOLD = 6;
-/** §4 v3.71 — 캔버스 덮개 등록 키(canvasVisibility). */
-const CANVAS_COVER_KEY = 'ide-overlay';
-const MIN_DOCK_WIDTH = 320;
-const DEFAULT_DOCK_WIDTH = 480;
-const MIN_FLOAT_W = 480;
-const MIN_FLOAT_H = 320;
+/** §4 v3.71 — 캔버스 덮개 등록 키(canvasVisibility). 창마다 따로 등록해야 서로의 덮개를 지우지 않는다. */
+const CANVAS_COVER_PREFIX = 'ide-overlay';
+const MIN_FLOAT_W = IDE_FLOAT.MIN_W;
+const MIN_FLOAT_H = IDE_FLOAT.MIN_H;
+
+/**
+ * 이 창이 앉을 자리 — **사용자가 옮겨 둔 자리가 있으면 그것**, 없으면 계단식 초기 자리.
+ * 첫 렌더의 상태 초기값으로도 쓰이므로 훅 밖(모듈 함수)에 둔다 — 0 크기로 한 프레임 깜빡이지 않게.
+ */
+function floatGeomFor(paneKey: string | null, paneIndex: number): FloatGeom {
+  const vp = { w: window.innerWidth, h: window.innerHeight };
+  const saved = selectIDEPane(useGraphStore.getState(), paneKey).float;
+  return saved ? clampFloatGeom(saved, vp) : initialFloatGeom(vp, paneIndex);
+}
+
+/** 도크 손잡이가 붙는 **안쪽** 모서리 — 오른쪽 도크는 왼쪽 모서리에 손잡이가 선다. */
+const DOCK_HANDLE_CLASS: Record<IDEDockSide, string> = {
+  left: 'right-0 top-0 bottom-0 w-1 cursor-col-resize',
+  right: 'left-0 top-0 bottom-0 w-1 cursor-col-resize',
+  top: 'bottom-0 left-0 right-0 h-1 cursor-row-resize',
+  bottom: 'top-0 left-0 right-0 h-1 cursor-row-resize',
+};
+
+/** 도크가 캔버스와 맞닿는 쪽만 테두리를 준다. */
+const DOCK_BORDER_CLASS: Record<IDEDockSide, string> = {
+  left: 'border-r',
+  right: 'border-l',
+  top: 'border-b',
+  bottom: 'border-t',
+};
+
+/** 붙이기 메뉴 글리프 — 네모 안의 칸막이가 붙을 변을 가리킨다(이모지 ❌ · lucide 톤 stroke SVG). */
+const DOCK_GLYPH_PATH: Record<IDEDockSide, string> = {
+  left: 'M9 3v18',
+  right: 'M15 3v18',
+  top: 'M3 9h18',
+  bottom: 'M3 15h18',
+};
+
+/**
+ * 레이아웃이 아직 그 창을 모르는 **한 프레임**(방금 붙인 직후) 버티는 자리 — 붙은 변 전체.
+ * 변마다 기준 모서리가 다르므로 우측 모양 하나로 때우면 좌·상·하 도크가 그 프레임에 튄다.
+ */
+function dockFallbackStyle(side: IDEDockSide, size: number): React.CSSProperties {
+  switch (side) {
+    case 'left': return { left: 0, top: IDE_DOCK.HEADER_H, bottom: 0, width: size };
+    case 'right': return { right: 0, top: IDE_DOCK.HEADER_H, bottom: 0, width: size };
+    case 'top': return { left: 0, right: 0, top: IDE_DOCK.HEADER_H, height: size };
+    case 'bottom': return { left: 0, right: 0, bottom: 0, height: size };
+  }
+}
+
+const DOCK_SIDE_LABEL_KEY: Record<IDEDockSide, string> = {
+  left: 'ide.overlay.dockLeft',
+  right: 'ide.overlay.dockRight',
+  top: 'ide.overlay.dockTop',
+  bottom: 'ide.overlay.dockBottom',
+};
 
 export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   // §5.5 #17-6 v2.73 — 오버레이 위젯 창에서 IDE 를 열 땐 우측 도킹(스냅) 기능을 끈다(사용자 요청).
@@ -43,20 +120,47 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   fullWindow = false,
 }: { disableDock?: boolean; fullWindow?: boolean }): React.JSX.Element | null {
   const { t } = useTranslation();
-  const agentId = useGraphStore((s) => selectIDEOverlay(s).agentId);
-  const overlayProjectId = useGraphStore((s) => selectIDEOverlay(s).projectId);
-  const activeSessionId = useGraphStore((s) => selectIDEOverlay(s).activeSessionId);
-  const closeOverlay = useGraphStore((s) => s.closeIDEOverlay);
-  const setSession = useGraphStore((s) => s.setIDEActiveSession);
+  // §5.5 #17-1 — 이 컴포넌트는 이제 **창 하나**다. 어느 슬롯을 보는지는 컨텍스트가 말해 준다
+  //   (컨텍스트 밖 = 오버레이 위젯 창이면 종전대로 활성 프로젝트의 주 창).
+  const { paneKey, index: paneIndex } = useIDEPaneScope();
+  const agentId = useIDEPaneValue((o) => o.agentId);
+  const overlayProjectId = useIDEPaneValue((o) => o.projectId);
+  const activeSessionId = useIDEPaneValue((o) => o.activeSessionId);
+  const closeOverlay = useCallback(() => {
+    useGraphStore.getState().closeIDEOverlay(paneKey);
+  }, [paneKey]);
+  const setSession = useCallback((sessionId: string | null) => {
+    useGraphStore.getState().setIDEActiveSession(sessionId, paneKey);
+  }, [paneKey]);
   // §5.5 #17-20 ④ v4.74 — 실행 출력 패널(런타임 스토어 — PTY 수명과 같은 축).
   const runOutputRunId = useRunSessions((s) => s.outputRunId);
   const openRunOutput = useRunSessions((s) => s.openOutput);
 
   // §5.5 #17-9 ③ v4.95 — 실행 중 서브에이전트도 사이드바 뷰('subagents')가 되어 덮개가 사라졌다.
   //   이제 IDE 에 남은 덮개는 #17-20 ④ 실행 출력 하나뿐이다.
-  const setIDEDocked = useGraphStore((s) => s.setIDEDocked);
-  const storeDockedRight = useGraphStore((s) => selectIDEOverlay(s).dockedRight);
-  const storeDockWidth = useGraphStore((s) => selectIDEOverlay(s).dockWidth);
+  const setPaneDock = useGraphStore((s) => s.setIDEPaneDock);
+  const setPaneDockSize = useGraphStore((s) => s.setIDEDockSize);
+  const focusPane = useGraphStore((s) => s.focusIDEPane);
+  const selfPaneKey = useIDEPaneValue((o) => o.paneKey);
+  const storeDockSide = useIDEPaneValue((o) => o.dockSide);
+  const storeDockSize = useIDEPaneValue((o) => o.dockSize);
+  const storeDockOrder = useIDEPaneValue((o) => o.dockOrder);
+  const storeDockSpan = useIDEPaneValue((o) => o.dockSpan);
+  const openModeHint = useIDEPaneValue((o) => o.openMode);
+  // 이 프로젝트에 열려 있는 창 수와 이 창의 앞뒤 순위 — 겹침 순서·Escape 주인·모달 강등 판정에 쓴다.
+  const paneCount = useGraphStore((s) => selectRenderedIDEPanes(s).length);
+  const zRank = useGraphStore((s) => {
+    const list = selectRenderedIDEPanes(s);
+    const key = resolvePaneKey(s, paneKey);
+    const i = list.findIndex((o) => o.paneKey === key);
+    return i < 0 ? 0 : i;
+  });
+  /** 맨 앞 창인가 — Escape 는 **맨 앞 한 창만** 먹는다(여러 창이 한 번에 닫히면 안 된다). */
+  const isFrontPane = paneCount === 0 || zRank === paneCount - 1;
+  // 네 변 도크의 자리 — 자리를 비우는 쪽(App·DetailPanel)과 **같은 함수**를 읽는다.
+  const dockLayout = useIDEDockLayout();
+  const dockedPanes = useVisibleDockedPanes();
+  const setDockSpans = useGraphStore((s) => s.setIDEDockSpans);
   const agent = useGraphStore((s) => agentId ? s.nodeMap[agentId] : undefined);
   // 낙관적 인텐트(닫기/복원)를 권위 스냅샷 위에 덮어 IDE 탭 즉시성 보장. 스냅샷이 반영하면 아래 useEffect 가 정리.
   const rawSubAgents = useGraphStore((s) => (agentId ? s.subAgents[agentId] : undefined) ?? EMPTY_SUBS);
@@ -91,9 +195,9 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   const isCmdAgent = isCustom && executionMode === 'interactive-terminal';
   // §5.19 (G) — All Model(로컬 LLM) 버블: 정체가 다르면 창의 얼굴도 달라야 한다.
   //   이 창은 클로드 CLI 의 것이 아니라 지금 문 로컬 모델의 것이다.
+  const agentConfig = useGraphStore((s) => (agentId ? s.agentConfigs[agentId] : undefined));
   const localProvider = useGraphStore((s) => (agentId ? s.agentConfigs[agentId]?.provider : undefined));
   const isLocalAgent = !!localProvider;
-  const openLocalModelWindow = useGraphStore((s) => s.openLocalModelWindow);
 
   const [maximized, setMaximized] = useState(false);
   const toggleMaximized = useCallback(() => setMaximized((v) => !v), []);
@@ -124,11 +228,11 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   // 열 때 사이드바가 접혀 있으면 함께 펼친다 — 활동바 48px 만 덜렁 뜨면 "버튼 눌렀는데 안 나온다"로 보인다.
   const handleToggleMobileNav = useCallback(() => {
     const next = !mobileNavOpen;
-    if (next && selectIDEOverlay(useGraphStore.getState()).sidebarCollapsed) {
-      useGraphStore.getState().toggleIDESidebar();
+    if (next && selectIDEPane(useGraphStore.getState(), paneKey).sidebarCollapsed) {
+      useGraphStore.getState().toggleIDESidebar(paneKey);
     }
     setMobileNavOpen(next);
-  }, [mobileNavOpen]);
+  }, [mobileNavOpen, paneKey]);
 
   // 폰 내비 스크림 — 스크림 자체를 눌렀다 뗐을 때만 닫는다(사이드바에서 시작한 드래그로는 ❌).
   const mobileNavBackdrop = useBackdropDismiss(() => setMobileNavOpen(false));
@@ -206,13 +310,33 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     toggleMaximized();
   }, [fullWindow, toggleMaximized, startNameEdit]);
 
-  // §5.5 #17-1 윈도우 모드 — 닫고 다시 열 때 modal 리셋 (휘발)
-  const [mode, setMode] = useState<OverlayMode>('modal');
-  const [floatPos, setFloatPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [floatSize, setFloatSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
-  const [dockWidth, setDockWidth] = useState<number>(DEFAULT_DOCK_WIDTH);
-  const [snapPreview, setSnapPreview] = useState<boolean>(false);
+  // §5.5 #17-1 윈도우 모드 — 닫고 다시 열 때 슬롯의 `openMode` 로 되돌아간다(휘발).
+  //
+  // ⚠ 초기값을 **스토어에서 바로** 잡는다. 종전처럼 항상 'modal' 로 시작하면, 붙어 있던 창이
+  //   (프로젝트 탭을 옮겼다 돌아와) 다시 마운트될 때 아래 sync 효과가 그 첫 프레임의 stale 한
+  //   mode 를 보고 **스스로 도크를 떼어 버린다**(붙여 둔 창이 저절로 떠다니는 회귀).
+  const [mode, setMode] = useState<OverlayMode>(() => {
+    if (fullWindow) return 'modal';
+    if (storeDockSide && !disableDock) return 'docked';
+    return openModeHint === 'floating' ? 'floating' : 'modal';
+  });
+  const [floatPos, setFloatPos] = useState<{ x: number; y: number }>(() => floatGeomFor(paneKey, paneIndex));
+  const [floatSize, setFloatSize] = useState<{ w: number; h: number }>(() => floatGeomFor(paneKey, paneIndex));
+  /**
+   * 드래그 중 미리보기가 그릴 **실제로 앉을 칸**(없으면 미리보기 ❌). 종전 불리언 한 비트를 대신한다.
+   * 좌표까지 여기 담아 두는 까닭은 그리는 쪽이 같은 계산을 두 번 하지 않게 하기 위함이다.
+   */
+  const [snapRect, setSnapRect] = useState<Rect | null>(null);
   const [flashKey, setFlashKey] = useState<number>(0);
+  /** 타이틀바 [붙이기] 메뉴 열림 — 이 창만의 UI 상태(전역 store 금지 규칙). */
+  const [dockMenuOpen, setDockMenuOpen] = useState(false);
+  /**
+   * 타이틀바 [설정] — 그 창의 **에이전트 설정창**을 캔버스를 거치지 않고 연다.
+   * 종전 진입로는 "캔버스에서 버블 클릭 → 상세 패널 → 톱니" 하나뿐이라, 창을 붙여 캔버스가
+   * 좁아지면 설정에 손이 닿지 않았다(사용자 지적).
+   */
+  const [configOpen, setConfigOpen] = useState(false);
+  const dockMenuRef = useRef<HTMLDivElement | null>(null);
   const windowRef = useRef<HTMLDivElement | null>(null);
   const prevRef = useRef<{ agentId: string | null; projectId: string | null }>({ agentId: null, projectId: null });
   // modal 백드롭(여백) 클릭으로 닫기 — 판정은 모든 팝업이 공유하는 규약(useBackdropDismiss)에 위임한다.
@@ -220,9 +344,56 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   // 백드롭이 되어 닫혀버리던 버그가 그 규약의 출발점이다.
   const backdrop = useBackdropDismiss(closeOverlay);
 
+  /** 지금 뷰포트 — 드래그 중에는 실측값을 그때그때 읽는다(구독 ❌). */
+  const viewportNow = useCallback(() => ({ w: window.innerWidth, h: window.innerHeight }), []);
+
+  /** **나를 뺀** 다른 창들의 도크 — 스냅 자리·두께 상한을 그것들 기준으로 잰다. */
+  const otherDockedPanes = useCallback((): DockedPane[] => {
+    const st = useGraphStore.getState();
+    const key = resolvePaneKey(st, paneKey);
+    return selectVisibleDockedPanes(st).filter((d) => d.paneKey !== key);
+  }, [paneKey]);
+
+  const setPaneFloat = useGraphStore((s) => s.setIDEPaneFloat);
+  // 지금 자리를 리스너가 읽을 수 있게 거울로 둔다(리스너를 매 이동마다 다시 달지 않기 위함).
+  const floatRef = useRef<FloatGeom>({ ...floatPos, ...floatSize });
+  floatRef.current = { ...floatPos, ...floatSize };
+
+  /** 지금 자리를 슬롯에 적어 둔다 — 접었다 펴거나 탭을 옮겼다 와도 그 자리로 돌아오게. */
+  const commitFloat = useCallback((geom: FloatGeom) => {
+    setPaneFloat(paneKey, geom);
+  }, [paneKey, setPaneFloat]);
+
+  const goFloating = useCallback(() => {
+    const g = floatGeomFor(paneKey, paneIndex);
+    setFloatSize({ w: g.w, h: g.h });
+    setFloatPos({ x: g.x, y: g.y });
+    setMode('floating');
+    commitFloat(g);
+  }, [paneKey, paneIndex, commitFloat]);
+
+  // 뷰포트가 줄면(앱 창 축소·회전) 떠 있는 창을 화면 안으로 되돌린다.
+  //   ⚠ 이게 없으면 오른쪽 끝에 놓아 둔 창이 화면 밖으로 나가고, 타이틀바가 안 보이니 끌어올 수도
+  //   없어 **닫는 것 말고는 되찾을 길이 없다**(창이 여럿이 되며 훨씬 쉽게 만나는 상태가 됐다).
+  useEffect(() => {
+    const onResize = (): void => {
+      if (mode === 'docked' || fullWindow) return;
+      const vp = { w: window.innerWidth, h: window.innerHeight };
+      const cur = floatRef.current;
+      const next = clampFloatGeom(cur, vp);
+      if (next.x === cur.x && next.y === cur.y && next.w === cur.w && next.h === cur.h) return;
+      setFloatPos({ x: next.x, y: next.y });
+      setFloatSize({ w: next.w, h: next.h });
+      commitFloat(next);
+    };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [mode, fullWindow, commitFloat]);
+
   // §5.5 #17-1 (v2.17) — agentId/projectId 전이 처리:
-  //   (a) null → truthy : 새로 열림 — store.dockedRight 가 true 면 docked-right 복원, 아니면 modal
-  //   (b) 프로젝트 전환 (overlayProjectId 변경) : 새 프로젝트 슬롯의 dockedRight 기준으로 mode 재초기화. flash 없음.
+  //   (a) null → truthy : 새로 열림 — 붙어 있던 변이 있으면 도킹 복원, 새로 선 둘째 창이면 플로팅,
+  //       그 밖(프로젝트의 첫 창)은 종전대로 모달.
+  //   (b) 프로젝트 전환 (overlayProjectId 변경) : 같은 규칙으로 mode 재초기화. flash 없음.
   //   (c) 같은 프로젝트에서 agentId 만 교체 : 모드 유지 + flash
   //   (d) truthy → null : 닫힘 — 로컬 mode 도 'modal' 리셋
   useEffect(() => {
@@ -230,11 +401,11 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     prevRef.current = { agentId: agentId ?? null, projectId: overlayProjectId };
     const projectChanged = prev.projectId !== overlayProjectId;
     if (agentId && (!prev.agentId || projectChanged)) {
-      // 새 열림 또는 프로젝트 전환 — 해당 프로젝트의 dockedRight 기준으로 mode 결정
-      // (오버레이 창에선 disableDock 이라 항상 modal 로 연다 — 우측 도킹 없음)
-      if (storeDockedRight && !disableDock) {
-        setMode('docked-right');
-        setDockWidth(storeDockWidth);
+      // (오버레이 창에선 disableDock 이라 항상 modal 로 연다 — 도킹 없음)
+      if (storeDockSide && !disableDock) {
+        setMode('docked');
+      } else if (openModeHint === 'floating' && !fullWindow) {
+        goFloating();
       } else {
         setMode('modal');
       }
@@ -249,31 +420,55 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentId, overlayProjectId]);
 
-  // §5.5 #17-1 (v2.18) — mode/dockWidth 를 store 에 sync. DetailPanel 이 좌/우 위치 판단에 사용.
-  // (v2.20) 닫힌 상태(agentId null) 에서는 sync 금지 — closeIDEOverlay 가 이미 dockedRight=false 로 리셋했는데
-  //         로컬 mode 가 stale 'docked-right' 라 다시 켜버리는 회귀 차단. 다음 open 에서 (a) 분기가 mode 를 재설정.
+  // §5.5 #17-1 — 창이 둘 이상이면 **모달로 남지 않는다**. 모달은 백드롭으로 화면 전체를 덮어
+  //   옆 창을 통째로 가리므로, "여러 창을 나란히 본다"는 목적과 정면으로 어긋난다.
   useEffect(() => {
-    if (!agentId) return;
-    const dockedNow = mode === 'docked-right';
-    if (dockedNow !== storeDockedRight || (dockedNow && dockWidth !== storeDockWidth)) {
-      setIDEDocked(dockedNow, dockedNow ? dockWidth : undefined);
-    }
-  }, [agentId, mode, dockWidth, storeDockedRight, storeDockWidth, setIDEDocked]);
+    if (fullWindow || !agentId || mode !== 'modal' || paneCount <= 1) return;
+    goFloating();
+  }, [fullWindow, agentId, mode, paneCount, goFloating]);
 
-  // Escape to close
+  // §5.5 #17-1 (v2.18) — 로컬 mode 와 스토어의 붙은 변을 맞춘다. 자리를 비우는 쪽(App 캔버스 여백·
+  //   DetailPanel 미러링)이 스토어를 읽으므로 둘이 어긋나면 "IDE 없는 빈 도크"가 남는다.
+  //   (v2.20) 닫힌 상태(agentId null)에서는 sync 금지 — 다음 open 이 mode 를 다시 정한다.
   useEffect(() => {
     if (!agentId) return;
+    const dockedNow = mode === 'docked';
+    if (dockedNow && !storeDockSide) {
+      // 붙을 변이 사라졌다(다른 경로로 뗌) — 창을 잃지 않게 플로팅으로 되돌린다.
+      goFloating();
+    } else if (!dockedNow && storeDockSide) {
+      setPaneDock(paneKey, null);
+    }
+  }, [agentId, mode, storeDockSide, paneKey, setPaneDock, goFloating]);
+
+  // Escape to close — **맨 앞 창 하나만** 먹는다(창이 여럿일 때 한 번에 다 닫히면 안 된다).
+  useEffect(() => {
+    if (!agentId || !isFrontPane) return;
     function handleKey(e: KeyboardEvent): void {
       if (e.key === 'Escape') closeOverlay();
     }
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [agentId, closeOverlay]);
+  }, [agentId, isFrontPane, closeOverlay]);
 
   // 누수 방지: 드래그 중(mousemove/mouseup 부착 상태)에 컴포넌트가 언마운트되면 handleUp 이 안 불려
   //   window 리스너가 영구 부착된다. 활성 드래그의 정리 함수를 ref 에 보관해 언마운트 시 강제 해제.
   const activeDragCleanupRef = useRef<(() => void) | null>(null);
   useEffect(() => () => { activeDragCleanupRef.current?.(); activeDragCleanupRef.current = null; }, []);
+
+  // 붙이기 메뉴 — 바깥을 누르면 닫는다. 문서 리스너를 직접 달지 않고 팝업 닫기 규약을 쓴다
+  //   (메뉴 안에서 시작한 제스처는 그 훅이 "안"으로 판정해 살려 준다).
+  useOutsidePressDismiss({
+    onDismiss: () => setDockMenuOpen(false),
+    enabled: dockMenuOpen,
+    refs: [dockMenuRef],
+    capture: false,
+  });
+
+  /** 이 창을 맨 앞으로 — 누르는 순간 겹침 순서가 바뀐다(창이 여럿일 때만 뜻이 있다). */
+  const bringToFront = useCallback(() => {
+    if (paneKey) focusPane(paneKey);
+  }, [paneKey, focusPane]);
 
   // 타이틀바 mousedown — 드래그 시작 / 임계치 초과 시 modal→floating 전이 + floating/docked 이동
   const handleTitleBarMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
@@ -283,6 +478,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     const target = e.target as HTMLElement;
     if (target.closest('button') || target.closest('[data-ide-agent-name]')) return;
     if (e.button !== 0) return;
+    bringToFront();
 
     const startX = e.clientX;
     const startY = e.clientY;
@@ -298,6 +494,10 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     let currentMaximized = maximized;
     let nextW = rect.width;
     let nextH = rect.height;
+    /** 지금 커서가 가리키는 도킹 자리 — mouseup 이 이 값 하나로 붙일지 말지를 정한다. */
+    let dropTarget: DockDropTarget | null = null;
+    /** 이동이 끝났을 때 슬롯에 적어 둘 자리 — 상태가 아니라 여기서 들고 있어야 mouseup 이 읽는다. */
+    let lastGeom: FloatGeom | null = null;
 
     function handleMove(ev: MouseEvent): void {
       const dx = ev.clientX - startX;
@@ -322,7 +522,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
           setFloatSize({ w: nextW, h: nextH });
           setMode('floating');
           currentMode = 'floating';
-        } else if (currentMode === 'docked-right') {
+        } else if (currentMode === 'docked') {
           // 도킹 → 플로팅. 마지막 floatSize 가 없으면 56vw×56vh 기본
           const w = floatSize.w > 0 ? floatSize.w : Math.max(MIN_FLOAT_W, Math.round(window.innerWidth * 0.56));
           const h = floatSize.h > 0 ? floatSize.h : Math.max(MIN_FLOAT_H, Math.round(window.innerHeight * 0.56));
@@ -336,23 +536,45 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
       // 클릭 비율을 유지하며 좌상단 좌표 계산
       const x = ev.clientX - grabRatioX * nextW;
       const y = ev.clientY - grabRatioY * nextH;
-      const clampedX = Math.min(Math.max(x, -nextW + 80), window.innerWidth - 80);
-      const clampedY = Math.min(Math.max(y, HEADER_H), window.innerHeight - 40);
-      setFloatPos({ x: clampedX, y: clampedY });
-      // 도킹 미리보기 — 마우스가 우측 가장자리 임계치 안에 있으면 표시 (오버레이 창은 도킹 없음).
-      setSnapPreview(!disableDock && ev.clientX >= window.innerWidth - getDockSnapPx());
+      const moved = clampFloatGeom({ x, y, w: nextW, h: nextH }, viewportNow());
+      lastGeom = moved;
+      setFloatPos({ x: moved.x, y: moved.y });
+      // 도킹 미리보기 — 네 변 + **이미 붙어 있는 변의 스택에 끼울 자리**까지 커서로 갈린다.
+      const vp = viewportNow();
+      const others = otherDockedPanes();
+      dropTarget = disableDock ? null : resolveDockDrop({ x: ev.clientX, y: ev.clientY }, vp, others);
+      if (!dropTarget) {
+        setSnapRect(null);
+        return;
+      }
+      const onSide = others.filter((d) => d.side === dropTarget!.side);
+      const wanted = onSide[0]?.size
+        ?? (storeDockSide === dropTarget.side ? storeDockSize : defaultDockSize(dropTarget.side));
+      setSnapRect(previewDockRect(dropTarget, vp, others, clampDockSize(dropTarget.side, wanted, vp, others)));
     }
 
-    function handleUp(ev: MouseEvent): void {
+    function handleUp(): void {
       window.removeEventListener('mousemove', handleMove);
       window.removeEventListener('mouseup', handleUp);
       activeDragCleanupRef.current = null;
-      setSnapPreview(false);
+      setSnapRect(null);
       if (!dragging) return;
-      // 우측 가장자리 임계치 안에서 놓으면 도킹 (오버레이 창은 disableDock 이라 도킹 안 함).
-      if (!disableDock && ev.clientX >= window.innerWidth - getDockSnapPx()) {
-        setMode('docked-right');
+      if (!dropTarget) {
+        // 붙이지 않고 놓았다 = 사용자가 정한 자리다. 접었다 펴거나 탭을 옮겨도 그대로여야 한다.
+        if (lastGeom) commitFloat(lastGeom);
+        return;
       }
+      const side = dropTarget.side;
+      const others = otherDockedPanes();
+      const onSide = others.filter((d) => d.side === side);
+      // 그 변에 이미 창이 있으면 **그 변의 두께를 그대로 물려받는다** — 한 칸을 나눠 쓰기 때문이다.
+      const wanted = onSide[0]?.size ?? (storeDockSide === side ? storeDockSize : defaultDockSize(side));
+      setPaneDock(paneKey, {
+        side,
+        size: clampDockSize(side, wanted, viewportNow(), others),
+        order: orderForInsert(onSide.map((d) => d.order), dropTarget.index),
+      });
+      setMode('docked');
     }
 
     window.addEventListener('mousemove', handleMove);
@@ -361,20 +583,77 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
       window.removeEventListener('mousemove', handleMove);
       window.removeEventListener('mouseup', handleUp);
     };
-  }, [fullWindow, mode, maximized, floatSize.w, floatSize.h, disableDock]);
+  }, [fullWindow, mode, maximized, floatSize.w, floatSize.h, disableDock, bringToFront, viewportNow, otherDockedPanes, paneKey, setPaneDock, storeDockSide, storeDockSize]);
 
-  // 도킹 좌측 리사이즈 핸들
-  const handleDockResize = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+  /**
+   * 떠 있는 창의 우하단 리사이즈. 종전에는 플로팅 창의 크기를 바꿀 방법이 **아예 없어**
+   * (최대화/복원뿐) 두 창을 나란히 놓고 비율을 맞출 수가 없었다.
+   */
+  const handleFloatResize = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
+    bringToFront();
     const startX = e.clientX;
-    const startWidth = dockWidth;
-    const maxW = window.innerWidth - 120;
+    const startY = e.clientY;
+    const start = { ...floatRef.current };
 
     function handleMove(ev: MouseEvent): void {
-      const dx = startX - ev.clientX; // 좌로 끌면 +
-      const next = Math.min(Math.max(startWidth + dx, MIN_DOCK_WIDTH), maxW);
-      setDockWidth(next);
+      const next = clampFloatGeom({
+        x: start.x,
+        y: start.y,
+        w: start.w + (ev.clientX - startX),
+        h: start.h + (ev.clientY - startY),
+      }, viewportNow());
+      setFloatSize({ w: next.w, h: next.h });
+      setFloatPos({ x: next.x, y: next.y });
+    }
+    function handleUp(): void {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+      activeDragCleanupRef.current = null;
+      commitFloat(floatRef.current);
+    }
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleUp);
+    activeDragCleanupRef.current = () => {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+    };
+  }, [bringToFront, viewportNow, commitFloat]);
+
+  /**
+   * 같은 변에서 **내 바로 뒤에 붙은 창** — 그 창과 나 사이에 분할 손잡이가 선다.
+   * 종전에는 같은 변의 창들이 무조건 균등 분할이라 "위는 길게, 아래 로그는 짧게"를 만들 수 없었다.
+   */
+  const stackNext = useMemo(() => {
+    if (!storeDockSide || !selfPaneKey) return null;
+    const onSide = dockedPanes.filter((d) => d.side === storeDockSide).sort((a, b) => a.order - b.order);
+    const i = onSide.findIndex((d) => d.paneKey === selfPaneKey);
+    return i >= 0 ? onSide[i + 1] ?? null : null;
+  }, [dockedPanes, storeDockSide, selfPaneKey]);
+
+  const handleStackSplit = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const side = storeDockSide;
+    const next = stackNext;
+    if (!side || !next) return;
+    const selfRect = dockLayout.rects[selfPaneKey];
+    const nextRect = dockLayout.rects[next.paneKey];
+    if (!selfRect || !nextRect) return;
+
+    // 좌/우 도크는 세로로 쌓이고(긴 축 = y), 상/하 도크는 가로로 쌓인다(긴 축 = x).
+    const vertical = isHorizontalSide(side);
+    const startPos = vertical ? e.clientY : e.clientX;
+    const lenA = vertical ? selfRect.h : selfRect.w;
+    const lenB = vertical ? nextRect.h : nextRect.w;
+    const spanA = storeDockSpan;
+    const spanB = next.span;
+
+    function handleMove(ev: MouseEvent): void {
+      const delta = (vertical ? ev.clientY : ev.clientX) - startPos;
+      const out = splitSpansFromDrag(spanA, spanB, lenA, lenB, delta, IDE_DOCK.MIN_SLOT);
+      setDockSpans({ [selfPaneKey]: out.a, [next!.paneKey]: out.b });
     }
     function handleUp(): void {
       window.removeEventListener('mousemove', handleMove);
@@ -387,7 +666,62 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
       window.removeEventListener('mousemove', handleMove);
       window.removeEventListener('mouseup', handleUp);
     };
-  }, [dockWidth]);
+  }, [storeDockSide, stackNext, dockLayout, selfPaneKey, storeDockSpan, setDockSpans]);
+
+  /** 타이틀바 도킹 버튼 — 끌지 않고도 원하는 변에 붙인다(끌어 붙이기와 **같은 계산**을 쓴다). */
+  const dockToSide = useCallback((side: IDEDockSide) => {
+    const others = otherDockedPanes();
+    const onSide = others.filter((d) => d.side === side);
+    const wanted = onSide[0]?.size ?? (storeDockSide === side ? storeDockSize : defaultDockSize(side));
+    setPaneDock(paneKey, {
+      side,
+      size: clampDockSize(side, wanted, viewportNow(), others),
+      // 버튼으로 붙일 때는 그 변의 **맨 뒤**에 선다(끼울 자리를 커서로 말할 수 없으므로).
+      order: orderForInsert(onSide.map((d) => d.order), onSide.length),
+    });
+    setMaximized(false);
+    setMode('docked');
+  }, [otherDockedPanes, storeDockSide, storeDockSize, paneKey, setPaneDock, viewportNow]);
+
+  /** 이 창을 접는다 — 닫지 않고 화면에서만 내린다(붙어 있던 변·열어 둔 파일 그대로). */
+  const collapsePane = useCallback(() => {
+    const st = useGraphStore.getState();
+    const key = resolvePaneKey(st, paneKey);
+    if (key) st.setIDEPaneCollapsed(key, true);
+  }, [paneKey]);
+
+  /** 도크에서 떼어 플로팅으로. */
+  const undock = useCallback(() => {
+    setPaneDock(paneKey, null);
+    goFloating();
+  }, [paneKey, setPaneDock, goFloating]);
+
+  // 도크 안쪽 모서리 리사이즈 핸들 — 붙은 변마다 방향이 반대다(우측 도크는 왼쪽으로 끌어야 넓어진다).
+  const handleDockResize = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const side = storeDockSide;
+    if (!side) return;
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startSize = storeDockSize;
+
+    function handleMove(ev: MouseEvent): void {
+      const raw = dockSizeFromDrag(side!, startSize, ev.clientX - startX, ev.clientY - startY);
+      setPaneDockSize(paneKey, clampDockSize(side!, raw, viewportNow(), otherDockedPanes()));
+    }
+    function handleUp(): void {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+      activeDragCleanupRef.current = null;
+    }
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleUp);
+    activeDragCleanupRef.current = () => {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+    };
+  }, [storeDockSide, storeDockSize, paneKey, setPaneDockSize, viewportNow, otherDockedPanes]);
 
   // Custom 에이전트: 열릴 때 첫 번째 Sub 세션 자동 선택
   useEffect(() => {
@@ -527,18 +861,20 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   //   fullWindow(오버레이 창=IDE 1:1) / maximized(풀스크린) / modal(전면 백드롭) 3종만 해당.
   //   floating 은 일부만 가리고, docked-right 는 캔버스가 옆으로 줄어들 뿐이라 계속 보인다.
   //   등록되면 BubbleMap 이 React Flow 페인트·물리 루프·주기 flush 를 통째로 멈춘다.
+  const coverKey = `${CANVAS_COVER_PREFIX}:${selfPaneKey || 'primary'}`;
   const coversCanvas = !!agentId && !!agent && (fullWindow || maximized || mode === 'modal');
   useEffect(() => {
-    setCanvasCover(CANVAS_COVER_KEY, coversCanvas);
-    return () => setCanvasCover(CANVAS_COVER_KEY, false);
-  }, [coversCanvas]);
+    setCanvasCover(coverKey, coversCanvas);
+    return () => setCanvasCover(coverKey, false);
+  }, [coverKey, coversCanvas]);
 
   if (!agentId || !agent) return null;
 
   // §5.5 #17-1 윈도우 모드 — mode 에 따라 컨테이너/윈도우 스타일 분기
   const isModal = mode === 'modal';
-  const isFloating = mode === 'floating';
-  const isDocked = mode === 'docked-right';
+  // 붙을 변이 없으면 도킹이 아니다 — 모드만 남고 변이 사라진 찰나에 창을 잃지 않게 한다.
+  const isDocked = mode === 'docked' && !!storeDockSide;
+  const dockRect = isDocked ? dockLayout.rects[selfPaneKey] ?? null : null;
 
   let windowClass = 'flex flex-col overflow-hidden border-gray-700 bg-gray-900 shadow-2xl shadow-black/60';
   let windowStyle: React.CSSProperties = {};
@@ -554,21 +890,21 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     // 단 Header(h-9, z-[100])가 IDE(z-50)보다 위라, inset-0 풀스크린이면 IDE 타이틀바(닫기 버튼)가
     // 헤더 밑에 깔려 터치가 안 먹는다 — maximized 분기처럼 top-9(헤더 아래)부터 시작한다.
     windowClass += ' h-[80vh] w-[80vw] rounded-lg border max-md:fixed max-md:left-0 max-md:right-0 max-md:top-9 max-md:bottom-0 max-md:h-auto max-md:w-auto max-md:rounded-none max-md:border-0';
-  } else if (isFloating) {
+  } else if (isDocked && storeDockSide) {
+    windowClass += ` fixed ${DOCK_BORDER_CLASS[storeDockSide]}`;
+    windowStyle = dockRect
+      // 자리를 비우는 쪽(App 캔버스 여백)과 **같은 함수**가 낸 칸에 그대로 앉는다.
+      ? { left: dockRect.x, top: dockRect.y, width: dockRect.w, height: dockRect.h }
+      : dockFallbackStyle(storeDockSide, storeDockSize);
+  } else {
+    // floating — 그리고 "모드는 도킹인데 붙을 변이 사라진" 찰나도 여기로 온다. 어느 갈래에도
+    //   안 걸리면 창이 자리 없이 문서 흐름에 떨어져 화면이 무너지므로 **마지막 갈래**로 둔다.
     windowClass += ' fixed rounded-lg border';
     windowStyle = {
       left: floatPos.x,
       top: floatPos.y,
       width: floatSize.w,
       height: floatSize.h,
-    };
-  } else if (isDocked) {
-    windowClass += ' fixed border-l';
-    windowStyle = {
-      right: 0,
-      top: HEADER_H,
-      bottom: 0,
-      width: dockWidth,
     };
   }
 
@@ -586,6 +922,10 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   return (
     <div
       className={outerClass}
+      // 겹침 순서 — 스토어의 앞뒤 도장으로 매긴 **순위**를 쓴다(도장 자체를 z-index 로 쓰면
+      //   세션이 길어질수록 자라 헤더(z-100)까지 덮는다). 바닥은 **모달 층(z-50) 아래**다 —
+      //   그러지 않으면 설정창·확인 대화상자가 창 뒤로 깔린다.
+      style={{ zIndex: IDE_PANE_Z_BASE + zRank }}
       onMouseDown={useBackdrop ? backdrop.onMouseDown : undefined}
       onClick={useBackdrop ? backdrop.onClick : undefined}
       // modal(백드롭 블러) 모드에선 뒤쪽 캔버스가 가려진 상태다 — 백드롭 우클릭이 rfContainer 까지
@@ -600,14 +940,14 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     >
       {/* §5.5 #17-1 — 드래그 중 우측 도킹 미리보기 (Windows Snap Assist 풍).
           파란 반투명 영역이 도킹될 자리를 미리 보여준다. pointer-events 없음. */}
-      {snapPreview && (
+      {snapRect && (
         <div
-          className="fixed border-2 border-blue-400/70 bg-blue-400/15 rounded-l-lg transition-opacity duration-100"
+          className="fixed rounded-lg border-2 border-blue-400/70 bg-blue-400/15 transition-opacity duration-100"
           style={{
-            right: 0,
-            top: HEADER_H,
-            bottom: 0,
-            width: dockWidth,
+            left: snapRect.x,
+            top: snapRect.y,
+            width: snapRect.w,
+            height: snapRect.h,
             pointerEvents: 'none',
             zIndex: 49,
           }}
@@ -622,6 +962,8 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
         data-ide-overlay=""
         className={windowClass}
         style={{ ...windowStyle, pointerEvents: 'auto' }}
+        // 창 아무 데나 누르면 맨 앞으로 — 뒤에 깔린 창을 꺼내는 유일한 손잡이다.
+        onMouseDownCapture={bringToFront}
         onClick={(e) => e.stopPropagation()}
         // IDE 오버레이는 BubbleMap 의 rfContainer(우클릭=캔버스 생성메뉴) 안에 렌더된다.
         // IDE 내부 우클릭 이벤트가 그 컨테이너까지 버블링되면 캔버스 메뉴(Create Worktree 등)가
@@ -648,15 +990,43 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
             />
           </div>
         )}
-        {/* 도킹 시 좌측 리사이즈 핸들 (4px) */}
-        {isDocked && (
+        {/* 도킹 시 안쪽 모서리 리사이즈 핸들 (4px) — 좌/우는 세로 손잡이, 상/하는 가로 손잡이. */}
+        {isDocked && storeDockSide && (
           <div
             onMouseDown={handleDockResize}
-            className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-400/60"
+            className={`absolute ${DOCK_HANDLE_CLASS[storeDockSide]} hover:bg-blue-400/60`}
             style={{ zIndex: 10 }}
             aria-label={t('ide.overlay.resizeDock')}
             role="separator"
           />
+        )}
+        {/* 같은 변에 쌓인 이웃과의 분할 손잡이 — 마지막 칸에는 뜨지 않는다(뒤에 나눌 상대가 없다). */}
+        {isDocked && storeDockSide && stackNext && (
+          <div
+            onMouseDown={handleStackSplit}
+            className={`absolute ${
+              isHorizontalSide(storeDockSide)
+                ? 'bottom-0 left-0 right-0 h-1 cursor-row-resize'
+                : 'right-0 top-0 bottom-0 w-1 cursor-col-resize'
+            } hover:bg-blue-400/60`}
+            style={{ zIndex: 11 }}
+            aria-label={t('ide.overlay.resizeStack')}
+            role="separator"
+          />
+        )}
+        {/* 떠 있는 창의 우하단 리사이즈 손잡이 — 붙어 있거나 최대화 중에는 뜻이 없다. */}
+        {!fullWindow && !maximized && !isDocked && mode !== 'modal' && (
+          <div
+            onMouseDown={handleFloatResize}
+            className="absolute bottom-0 right-0 h-3.5 w-3.5 cursor-nwse-resize"
+            style={{ zIndex: 10 }}
+            aria-label={t('ide.overlay.resizeWindow')}
+            role="separator"
+          >
+            <svg className="h-full w-full text-gray-500" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" aria-hidden="true">
+              <path d="M13 5L5 13M13 9l-4 4" />
+            </svg>
+          </div>
         )}
         {/* Title bar — §3.7 v2.14 명도 ramp 중간 톤 (v2.15: 상단 액센트 라인 제거 — 사용자 요청).
             §5.5 #17-1 — 타이틀바 드래그로 modal↔floating↔docked 전이.
@@ -721,20 +1091,10 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
               </span>
             )}
             {isLocalAgent ? (
-              /* §5.19 (G) — 로컬 버블은 `커스텀` 이 아니라 **All Model + 지금 문 모델명**을 단다.
-                 눌러서 그 모델을 바꾼다(설치 창의 모델 목록으로 — 바꾸는 입구가 창 안에 있어야
-                 "이 창은 이 모델의 것"이라는 말이 끝까지 성립한다). */
-              <button
-                type="button"
-                onClick={() => openLocalModelWindow(agentId)}
-                className="app-nodrag flex items-center gap-1.5 rounded bg-slate-500/15 px-1.5 py-0.5 text-[12px] font-semibold text-slate-300 transition-colors hover:bg-slate-500/25"
-                title={t('ide.overlay.localSwitchModel', { defaultValue: '이 버블이 쓸 모델 바꾸기' })}
-              >
-                <span>{t('ide.overlay.localLabel', { defaultValue: 'All Model' })}</span>
-                {localProvider?.modelName && (
-                  <span className="max-w-[180px] truncate font-normal text-slate-400">{localProvider.modelName}</span>
-                )}
-              </button>
+              /* §5.19 (G) — 로컬 버블의 정체 뱃지(All Model + 지금 문 모델명)는 이 자리를 떠나
+                 **하단 상태바의 밀도 토글 옆**(`StreamLocalModelButton`)으로 내려갔다(사용자 지시).
+                 여기에 `커스텀` 뱃지를 대신 달지는 않는다 — 정체를 거짓으로 말하게 된다. */
+              null
             ) : (
               <span className={`rounded px-1.5 py-0.5 text-[12px] font-semibold ${
                 isCmdAgent ? 'bg-teal-500/15 text-teal-300' : isCustom ? 'bg-blue-500/15 text-blue-400' : 'bg-gray-600/30 text-gray-500'
@@ -803,6 +1163,90 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
                 <path d="M3 21v-5h5" />
               </svg>
             </button>
+            {/* §5.5 #17-1 — 이 창의 **에이전트 설정**. 종전 진입로는 "캔버스에서 버블 클릭 →
+                상세 패널 → 톱니" 하나뿐이라, 창을 붙여 캔버스가 좁아지면 손이 닿지 않았다. */}
+            <button
+              type="button"
+              onClick={() => setConfigOpen(true)}
+              className="app-nodrag flex h-6 w-6 items-center justify-center rounded text-gray-400 transition-colors pointer-coarse:h-9 pointer-coarse:w-9 hover:bg-gray-700 hover:text-gray-200"
+              aria-label={t('ide.overlay.agentSettings')}
+              title={t('ide.overlay.agentSettings')}
+            >
+              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M20 7h-9" />
+                <path d="M14 17H5" />
+                <circle cx="17" cy="17" r="3" />
+                <circle cx="7" cy="7" r="3" />
+              </svg>
+            </button>
+            {/* §5.5 #17-1 — 붙이기/떼기. 끌어서 가장자리에 놓는 길과 **같은 계산**을 쓰되,
+                정확히 끌기 어려운 화면(트랙패드·터치)에서도 한 번에 붙일 수 있게 손잡이를 둔다. */}
+            {!fullWindow && !disableDock && (
+              <div className="relative" ref={dockMenuRef}>
+                <button
+                  type="button"
+                  onClick={() => setDockMenuOpen((v) => !v)}
+                  aria-expanded={dockMenuOpen}
+                  className={`app-nodrag flex h-6 w-6 items-center justify-center rounded transition-colors pointer-coarse:h-9 pointer-coarse:w-9 ${
+                    dockMenuOpen || isDocked ? 'bg-gray-700 text-blue-300' : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+                  }`}
+                  aria-label={t('ide.overlay.dockMenuLabel')}
+                  title={t('ide.overlay.dockMenuLabel')}
+                >
+                  <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="3" width="18" height="18" rx="2" />
+                    <path d="M15 3v18" />
+                  </svg>
+                </button>
+                {dockMenuOpen && (
+                  <div className="absolute right-0 top-7 z-30 w-36 rounded-md border border-gray-700 bg-gray-900 p-1 shadow-xl shadow-black/50">
+                    {IDE_DOCK_SIDES.map((side) => (
+                      <button
+                        key={side}
+                        type="button"
+                        onClick={() => { dockToSide(side); setDockMenuOpen(false); }}
+                        className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs transition-colors ${
+                          storeDockSide === side && isDocked ? 'bg-blue-500/15 text-blue-300' : 'text-gray-300 hover:bg-gray-800'
+                        }`}
+                      >
+                        <svg className="h-3.5 w-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+                          <rect x="3" y="3" width="18" height="18" rx="2" />
+                          <path d={DOCK_GLYPH_PATH[side]} />
+                        </svg>
+                        {t(DOCK_SIDE_LABEL_KEY[side])}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => { undock(); setDockMenuOpen(false); }}
+                      disabled={!isDocked}
+                      className="mt-0.5 flex w-full items-center gap-2 rounded border-t border-gray-800 px-2 py-1 pt-1.5 text-left text-xs text-gray-300 transition-colors hover:bg-gray-800 disabled:opacity-40 disabled:hover:bg-transparent"
+                    >
+                      <svg className="h-3.5 w-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="3" y="8" width="13" height="13" rx="2" />
+                        <path d="M8 3h13v13" />
+                      </svg>
+                      {t('ide.overlay.undockLabel')}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+            {/* §5.5 #17-1 — 접기. **닫기가 아니다** — 붙어 있던 변·열어 둔 파일을 그대로 둔 채
+                화면에서만 내려 캔버스를 그만큼 돌려준다(헤더 [창] 메뉴에서 다시 편다). */}
+            {!fullWindow && (
+            <button
+              type="button"
+              onClick={collapsePane}
+              className="app-nodrag flex h-6 w-6 items-center justify-center rounded text-gray-400 transition-colors pointer-coarse:h-9 pointer-coarse:w-9 hover:bg-gray-700 hover:text-gray-200"
+              aria-label={t('ide.overlay.collapseLabel')}
+              title={t('ide.overlay.collapseHint')}
+            >
+              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M5 12h14" />
+              </svg>
+            </button>
+            )}
             {/* fullWindow 는 창=IDE 1:1 — 확대축소는 OS 창 엣지 리사이즈로, in-window maximize 버튼 숨김. */}
             {!fullWindow && (
             <button
@@ -869,7 +1313,8 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
               <IDESidebar agentId={agentId} />
             </>
           )}
-          <IDEMainArea agentId={agentId} isCustom={isCustom} />
+          {/* §5.5 #17-34 — 창 안 화면 분할. 안 나눴으면 종전처럼 `IDEMainArea` 한 벌만 그린다. */}
+          <IDESplitView agentId={agentId} isCustom={isCustom} />
           {/* §5.5 #17-27 v4.87 — 내장 편집창. 대화를 덮지 않고 그 오른쪽에 선다(열린 파일이 없으면 렌더 ❌).
               폰 폭에서는 나란히 둘 자리가 없어 대화 위 오버레이로 뜬다. */}
           <IDEEditorPane narrow={isNarrow} />
@@ -880,6 +1325,17 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
             </div>
           )}
         </div>
+
+        {/* §5.5 #17-1 — 이 창의 에이전트 설정창. 여는 자리만 다를 뿐 상세 패널에서 여는 것과
+            **같은 컴포넌트·같은 저장 경로**다(설정이 두 벌이 되면 안 된다). */}
+        {configOpen && (
+          <AgentConfigPopup
+            agentId={agentId}
+            config={agentConfig ?? null}
+            currentColor={BUBBLE_COLORS[agent.bubbleType]}
+            onClose={() => setConfigOpen(false)}
+          />
+        )}
 
         {/* Status bar — §4 v3.25: 폰에선 기본 숨김, 타이틀바 토글 버튼으로만 표시. */}
         {(!isNarrow || mobileStatusOpen) && (

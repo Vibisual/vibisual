@@ -6,4 +6,3 @@
 
 export * from './registry.js';
 export * from './appHash.js';
-export { useAppInstall } from './useAppInstall.js';
