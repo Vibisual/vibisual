@@ -40,6 +40,14 @@ export interface InspectorSpec {
    * PluginsWindow 도 "표시 전용"이 아니라고 읽는다. 골격이 만드는 카드의 기본값은 여전히 표시 전용이다.
    */
   contributesAlso?: PluginContributionKind[];
+  /**
+   * §5.11 노출 게이트 — 이 카드의 집행이 **프로젝트를 실제로 훑는가**(기본 false).
+   *
+   * 같은 폴더의 `enforce.ts` 가 `probe`/`survey` 를 가졌으면 `true` 로 적는다. 적지 않으면 켜도
+   * **고정 문장**만 실리는 것으로 보고, Plugins 창 목록에는 §7.7 디버그 모드에서만 세운다.
+   * 이 값과 실제 집행 모듈이 어긋나면 `readiness.test.ts` 가 실패한다 — 한쪽만 고치는 것을 막는다.
+   */
+  enforcesProject?: boolean;
   /** 이 버블에 붙을지. 기본값 = 에이전트 버블이며 설정이 있는 것. */
   match?: (ctx: PluginBubbleContext) => boolean;
   /** 등급 — i18n: `.level.<key>` */
@@ -95,6 +103,8 @@ export function defineInspector(spec: InspectorSpec): { manifest: PluginManifest
       ...(spec.contributesAlso ?? []),
     ],
     clientOnly: false,
+    // 노출 게이트 판정 — 안 적은 카드는 "아직 고정 문장만 낸다"로 읽힌다(§5.11).
+    enforcesProject: spec.enforcesProject === true,
   };
 
   function Section({ ctx }: { ctx: PluginBubbleContext }): React.JSX.Element {

@@ -41,8 +41,9 @@
     },
     "usage": {
       "tooltip": "Sesi saat ini: {{percent}}% dari batas 5 jam terpakai — klik untuk detail",
-      "tooltipNoData": "Data penggunaan belum dikumpulkan — klik untuk mengaktifkan",
-      "tooltipWaiting": "Pengumpul penggunaan aktif — menunggu laporan pertama dari sesi Claude Code interaktif"
+      "tooltipNoData": "Belum ada data penggunaan — klik untuk detail",
+      "tooltipWaiting": "Mengambil penggunaan dari Claude Code — angkanya segera muncul",
+      "tooltipCliUnavailable": "Tidak dapat menjalankan Claude Code untuk membaca penggunaan — klik untuk detail"
     },
     "setupBanner": {
       "text": "Claude Code belum terinstal — agent belum bisa berjalan.",
@@ -192,7 +193,7 @@
         "inspectorT": "Inspector",
         "inspectorD": "Tahan Alt untuk menyorot elemen dan klik untuk menyalin; Shift-seret untuk memilih wilayah.",
         "copyT": "Salin & tempel",
-        "copyD": "Pilih agent kustom dan edge, lalu Ctrl+C / Ctrl+V untuk mengklonnya ke proyek lain."
+        "copyD": "Pilih agent kustom dan edge, lalu {{copy}} / {{paste}} untuk mengklonnya ke proyek lain."
       },
       "history": {
         "intro": "Vibisual mengingat proyek Anda setiap kali Anda membukanya kembali.",
@@ -206,7 +207,7 @@
         "bookmarkT": "Bookmark Bubble",
         "bookmarkD": "Alt+1…0 menyematkan bubble atau sesi ke sebuah slot; tekan 1…0 untuk kembali ke sana.",
         "copyT": "Salin / tempel",
-        "copyD": "Ctrl+C / Ctrl+V (Cmd di macOS) menyalin dan menempelkan agent, edge, dan kotak komentar yang dipilih.",
+        "copyD": "{{copy}} / {{paste}} menyalin dan menempelkan agent, edge, dan kotak komentar yang dipilih.",
         "inspectorT": "Inspector",
         "inspectorD": "Tahan Alt untuk menginspeksi dan klik untuk menyalin elemen; Shift-seret untuk memilih wilayah.",
         "closeT": "Tutup & batal",
@@ -555,7 +556,7 @@
       "editFrame": "Edit teks",
       "editTitlePrompt": "Judul frame:",
       "editActionPrompt": "Aksi frame:",
-      "zoomReset": "Ctrl+0 reset",
+      "zoomReset": "{{shortcut}} reset",
       "presetLabel": "Keluaran",
       "preset": {
         "landscape": "Lanskap 16:9",
@@ -600,7 +601,7 @@
       "newSessionBadge": "sesi baru",
       "session": "Sesi:",
       "change": "Ubah",
-      "placeholder": "Masukkan perintah... (tempel gambar dengan Ctrl+V)",
+      "placeholder": "Masukkan perintah... (tempel gambar dengan {{paste}})",
       "run": "Jalankan",
       "executing": "Mengeksekusi...",
       "delete": "Hapus",
@@ -921,7 +922,7 @@
       "deny": "Tolak",
       "denyReasonLabel": "Alasan penolakan (opsional)",
       "denyReasonPlaceholder": "mis. path salah, perintah tidak aman",
-      "shortcutHint": "Ctrl+Enter = Izinkan · Esc = Tolak",
+      "shortcutHint": "{{shortcut}} = Izinkan · Esc = Tolak",
       "stackCount": "{{current}} dari {{total}} tertunda",
       "emptyToolInput": "(kosong)"
     },
@@ -1163,13 +1164,13 @@
       "neverUpdated": "Belum ada data penggunaan yang diterima",
       "collectorTitle": "Pengumpul penggunaan",
       "collectorOnHint": "Claude Code sedang melaporkan batas Anda ke Vibisual",
-      "collectorOffHint": "Aktifkan untuk membaca batas paket Anda dari Claude Code",
+      "collectorOffHint": "Aktifkan untuk pembaruan lebih sering saat sesi interaktif berjalan",
       "collectorEnable": "Aktifkan",
       "collectorDisable": "Nonaktifkan",
       "collectorPassthrough": "Status line Anda yang sudah ada tetap dipertahankan — Vibisual menjalankannya dan menampilkan keluarannya apa adanya.",
       "collectorForeign": "Anda sudah punya status line sendiri. Mengaktifkan ini tidak menghapusnya: Vibisual membungkusnya dan tetap menampilkan keluarannya.",
       "collectorFailed": "Tidak dapat menjangkau pengaturan pengumpul penggunaan.",
-      "collectorRestartHint": "Nilai masuk saat sesi Claude Code interaktif menggambar status line-nya. Sesi yang sudah berjalan perlu dimulai ulang.",
+      "collectorRestartHint": "Vibisual tetap membaca penggunaan secara berkala meski ini dimatikan — kolektor hanya menyegarkannya lebih sering saat sesi interaktif berjalan.",
       "localTitle": "Proyek ini di Vibisual",
       "localAgents": "Agen",
       "localInput": "Token masukan",
@@ -1185,7 +1186,8 @@
       "creditsUsed": "{{percent}}% anggaran kredit terpakai",
       "creditsHint": "Kredit membuat Claude tetap jalan setelah batas paket tercapai. Kelola di aplikasi Claude.",
       "errNoCredentials": "Belum masuk ke Claude Code di komputer ini, jadi penggunaan tidak bisa dibaca langsung. Masuk dengan Claude Code, atau gunakan pengumpul status line di bawah.",
-      "errAwaitingStatusLine": "Pengumpul sudah aktif, tetapi belum ada nilai yang masuk. Batas masuk saat sesi Claude Code interaktif menggambar status line-nya.",
+      "errAwaitingStatusLine": "Belum ada nilai. Vibisual menanyakan /usage ke Claude Code secara berkala, jadi angkanya segera terisi — status line sesi interaktif mengisinya lebih cepat.",
+      "errCliUnavailable": "Perintah `claude` untuk membaca penggunaan tidak dapat dijalankan. Periksa jalur Claude Code di Opsi → Version, lalu segarkan.",
       "errUnauthorized": "Login Claude yang tersimpan sudah kedaluwarsa. Jalankan Claude Code sekali dan akan diperbarui sendiri — angkanya kembali otomatis.",
       "errNetwork": "Tidak dapat menghubungi Claude saat ini. Menampilkan nilai terakhir yang diterima.",
       "refreshFailed": "Gagal menyegarkan"
@@ -1231,6 +1233,10 @@
       "onlyEnabled": "Hanya yang aktif",
       "noMatch": "Tidak ada yang cocok. Coba satu kata dari apa yang Anda ingin ia lakukan.",
       "enabledCount": "{{on}} dari {{total}} aktif",
+      "draftBadge": "Dalam pengembangan",
+      "showDrafts": "Tampilkan {{n}} dalam pengembangan",
+      "hideDrafts": "Sembunyikan yang dalam pengembangan",
+      "draftNote": "Plugin ini belum memeriksa proyek Anda — mengaktifkannya hanya menyisipkan teks aturan tetap, tanpa data yang diukur dari proyek.",
       "usage": {
         "show": "Apa yang Anda dapat",
         "hide": "Tutup",
@@ -1502,7 +1508,7 @@
     "diff": {
       "addComment": "Beri komentar pada baris ini",
       "removeComment": "Hapus komentar",
-      "commentPlaceholder": "Apa yang perlu diubah di sini? (Ctrl+Enter untuk menyimpan)",
+      "commentPlaceholder": "Apa yang perlu diubah di sini? ({{shortcut}} untuk menyimpan)",
       "commentCancel": "Batal",
       "commentSave": "Simpan",
       "commentLimit": "Maksimal {{max}} komentar review per sesi — kirim atau hapus beberapa untuk menambah lagi.",
@@ -1528,8 +1534,8 @@
         "medium": "Sedang",
         "thick": "Tebal"
       },
-      "undo": "Undo (Ctrl+Z)",
-      "redo": "Redo (Ctrl+Shift+Z)",
+      "undo": "Undo ({{shortcut}})",
+      "redo": "Redo ({{shortcut}})",
       "clear": "Hapus semua tanda",
       "download": "Unduh PNG",
       "saveReplace": "Simpan",
@@ -1542,7 +1548,7 @@
       "fileConflictOverwrite": "Tetap simpan",
       "textPlaceholder": "Ketik, lalu tekan Enter",
       "hintPick": "Pilih tool untuk menandai gambar ini, lalu simpan sebagai lampiran.",
-      "hintDraw": "Seret pada gambar untuk menandainya. Ctrl+Z membatalkan tanda terakhir.",
+      "hintDraw": "Seret pada gambar untuk menandainya. {{shortcut}} membatalkan tanda terakhir.",
       "discardTitle": "Buang tanda Anda dan tutup?",
       "discardCancel": "Lanjutkan mengedit",
       "discardConfirm": "Buang dan tutup",
@@ -1965,7 +1971,7 @@
     },
     "editor": {
       "resize": "Ubah ukuran panel editor",
-      "save": "Simpan (Ctrl+S)",
+      "save": "Simpan ({{shortcut}})",
       "reload": "Muat ulang dari disk",
       "closeTab": "Tutup tab",
       "closePane": "Tutup panel editor",
@@ -3360,7 +3366,7 @@
       "deviceTip": "Render dengan lebar {{width}}px",
       "pickElement": "Pilih elemen",
       "pickHint": "Klik elemen di pratinjau untuk mendeskripsikan perubahan untuknya",
-      "pickPlaceholder": "Apa yang perlu diubah pada elemen ini? (Ctrl+Enter untuk mengirim)",
+      "pickPlaceholder": "Apa yang perlu diubah pada elemen ini? ({{shortcut}} untuk mengirim)",
       "pickSend": "Kirim",
       "pickCopy": "Salin selector",
       "pickCopied": "Disalin",

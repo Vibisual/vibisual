@@ -41,8 +41,9 @@
     },
     "usage": {
       "tooltip": "Aktuelle Sitzung: {{percent}} % des 5-Stunden-Limits verbraucht — für Details klicken",
-      "tooltipNoData": "Nutzungsdaten werden noch nicht erfasst — zum Aktivieren klicken",
-      "tooltipWaiting": "Nutzungssammler ist aktiv – wartet auf die erste Meldung einer interaktiven Claude-Code-Sitzung"
+      "tooltipNoData": "Noch keine Nutzungsdaten empfangen – für Details klicken",
+      "tooltipWaiting": "Nutzung wird von Claude Code abgerufen – die Zahl erscheint gleich",
+      "tooltipCliUnavailable": "Claude Code konnte zum Auslesen der Nutzung nicht ausgeführt werden – für Details klicken"
     },
     "setupBanner": {
       "text": "Claude Code ist nicht installiert — Agenten können noch nicht laufen.",
@@ -192,7 +193,7 @@
         "inspectorT": "Inspector",
         "inspectorD": "Alt gedrückt halten, um Elemente hervorzuheben, und klicken zum Kopieren; Shift-Ziehen zum Auswählen eines Bereichs.",
         "copyT": "Kopieren & Einfügen",
-        "copyD": "Benutzerdefinierte Agenten und Kanten auswählen, dann mit Strg+C / Strg+V in ein anderes Projekt klonen."
+        "copyD": "Benutzerdefinierte Agenten und Kanten auswählen, dann mit {{copy}} / {{paste}} in ein anderes Projekt klonen."
       },
       "history": {
         "intro": "Vibisual merkt sich Ihre Projekte über mehrere Sitzungen hinweg.",
@@ -206,7 +207,7 @@
         "bookmarkT": "Bubble-Lesezeichen",
         "bookmarkD": "Alt+1…0 heftet eine Bubble oder Session an einen Slot; 1…0 drücken, um dorthin zurückzuspringen.",
         "copyT": "Kopieren / Einfügen",
-        "copyD": "Strg+C / Strg+V (Cmd unter macOS) kopiert und fügt ausgewählte Agenten, Kanten und Kommentarfelder ein.",
+        "copyD": "{{copy}} / {{paste}} kopiert und fügt ausgewählte Agenten, Kanten und Kommentarfelder ein.",
         "inspectorT": "Inspector",
         "inspectorD": "Alt gedrückt halten zum Untersuchen und klicken, um ein Element zu kopieren; Shift-Ziehen für Bereichsauswahl.",
         "closeT": "Schließen & Abbrechen",
@@ -555,7 +556,7 @@
       "editFrame": "Text bearbeiten",
       "editTitlePrompt": "Frame-Titel:",
       "editActionPrompt": "Frame-Aktion:",
-      "zoomReset": "Ctrl+0 zurücksetzen",
+      "zoomReset": "{{shortcut}} zurücksetzen",
       "presetLabel": "Ausgabe",
       "preset": {
         "landscape": "Querformat 16:9",
@@ -600,7 +601,7 @@
       "newSessionBadge": "neue Session",
       "session": "Session:",
       "change": "Ändern",
-      "placeholder": "Befehl eingeben... (Bilder mit Strg+V einfügen)",
+      "placeholder": "Befehl eingeben... (Bilder mit {{paste}} einfügen)",
       "run": "Ausführen",
       "executing": "Wird ausgeführt...",
       "delete": "Löschen",
@@ -921,7 +922,7 @@
       "deny": "Ablehnen",
       "denyReasonLabel": "Ablehnungsgrund (optional)",
       "denyReasonPlaceholder": "z. B. falscher Pfad, unsicherer Befehl",
-      "shortcutHint": "Ctrl+Enter = Zulassen · Esc = Ablehnen",
+      "shortcutHint": "{{shortcut}} = Zulassen · Esc = Ablehnen",
       "stackCount": "{{current}} von {{total}} ausstehend",
       "emptyToolInput": "(leer)"
     },
@@ -1163,13 +1164,13 @@
       "neverUpdated": "Noch keine Nutzungsdaten empfangen",
       "collectorTitle": "Nutzungs-Collector",
       "collectorOnHint": "Claude Code meldet deine Limits an Vibisual",
-      "collectorOffHint": "Aktivieren, um die Limits deines Tarifs aus Claude Code zu lesen",
+      "collectorOffHint": "Einschalten für häufigere Aktualisierungen während einer interaktiven Sitzung",
       "collectorEnable": "Aktivieren",
       "collectorDisable": "Deaktivieren",
       "collectorPassthrough": "Deine vorhandene Statuszeile bleibt erhalten — Vibisual führt sie aus und zeigt ihre Ausgabe unverändert an.",
       "collectorForeign": "Du hast bereits eine eigene Statuszeile. Das Aktivieren löscht sie nicht: Vibisual umschließt sie und zeigt ihre Ausgabe weiterhin an.",
       "collectorFailed": "Die Einstellungen des Nutzungs-Collectors waren nicht erreichbar.",
-      "collectorRestartHint": "Werte kommen an, sobald eine interaktive Claude-Code-Sitzung ihre Statuszeile rendert. Bereits laufende Sitzungen müssen neu gestartet werden.",
+      "collectorRestartHint": "Vibisual liest die Nutzung auch bei ausgeschaltetem Schalter regelmäßig aus – der Kollektor aktualisiert sie nur häufiger, während eine interaktive Sitzung läuft.",
       "localTitle": "Dieses Projekt in Vibisual",
       "localAgents": "Agenten",
       "localInput": "Eingabe-Tokens",
@@ -1185,7 +1186,8 @@
       "creditsUsed": "{{percent}} % deines Guthabens verbraucht",
       "creditsHint": "Guthaben hält Claude am Laufen, wenn ein Tariflimit erreicht ist. Verwaltung in der Claude-App.",
       "errNoCredentials": "Auf diesem Rechner ist Claude Code nicht angemeldet, daher lässt sich die Nutzung nicht direkt lesen. Melde dich mit Claude Code an oder nutze unten den Statuszeilen-Collector.",
-      "errAwaitingStatusLine": "Der Sammler ist aktiv, es sind aber noch keine Werte eingegangen. Limits kommen an, sobald eine interaktive Claude-Code-Sitzung ihre Statuszeile rendert.",
+      "errAwaitingStatusLine": "Noch keine Werte. Vibisual fragt Claude Code regelmäßig nach /usage, die Zahlen erscheinen also bald – die Statusleiste einer interaktiven Sitzung füllt sie noch schneller.",
+      "errCliUnavailable": "Der Befehl `claude` konnte zum Auslesen der Nutzung nicht ausgeführt werden. Prüfen Sie den Claude-Code-Pfad unter Optionen → Version und aktualisieren Sie danach.",
       "errUnauthorized": "Die gespeicherte Claude-Anmeldung ist abgelaufen. Starte Claude Code einmal — sie erneuert sich selbst und die Zahlen kommen zurück.",
       "errNetwork": "Claude war gerade nicht erreichbar. Es werden die zuletzt empfangenen Werte angezeigt.",
       "refreshFailed": "Aktualisierung fehlgeschlagen"
@@ -1231,6 +1233,10 @@
       "onlyEnabled": "Nur aktive",
       "noMatch": "Dazu passt nichts. Suchen Sie mit einem Wort für das, was es tun soll.",
       "enabledCount": "{{on}} von {{total}} aktiv",
+      "draftBadge": "In Entwicklung",
+      "showDrafts": "{{n}} in Entwicklung anzeigen",
+      "hideDrafts": "In Entwicklung befindliche ausblenden",
+      "draftNote": "Dieses Plugin untersucht dein Projekt noch nicht — beim Aktivieren wird nur fester Regeltext eingefügt, ohne aus dem Projekt gemessene Belege.",
       "usage": {
         "show": "Was Sie damit sehen",
         "hide": "Einklappen",
@@ -1502,7 +1508,7 @@
     "diff": {
       "addComment": "Diese Zeile kommentieren",
       "removeComment": "Kommentar entfernen",
-      "commentPlaceholder": "Was soll hier geändert werden? (Strg+Enter zum Speichern)",
+      "commentPlaceholder": "Was soll hier geändert werden? ({{shortcut}} zum Speichern)",
       "commentCancel": "Abbrechen",
       "commentSave": "Speichern",
       "commentLimit": "Bis zu {{max}} Review-Kommentare pro Sitzung — senden oder entfernen Sie welche, um weitere hinzuzufügen.",
@@ -1528,8 +1534,8 @@
         "medium": "Mittel",
         "thick": "Dick"
       },
-      "undo": "Rückgängig (Strg+Z)",
-      "redo": "Wiederholen (Strg+Umschalt+Z)",
+      "undo": "Rückgängig ({{shortcut}})",
+      "redo": "Wiederholen ({{shortcut}})",
       "clear": "Alle Markierungen löschen",
       "download": "PNG herunterladen",
       "saveReplace": "Speichern",
@@ -1542,7 +1548,7 @@
       "fileConflictOverwrite": "Trotzdem speichern",
       "textPlaceholder": "Eingeben und Enter drücken",
       "hintPick": "Ein Tool wählen, um dieses Bild zu markieren, und dann als Anhang speichern.",
-      "hintDraw": "Auf dem Bild ziehen, um es zu markieren. Strg+Z macht die letzte Markierung rückgängig.",
+      "hintDraw": "Auf dem Bild ziehen, um es zu markieren. {{shortcut}} macht die letzte Markierung rückgängig.",
       "discardTitle": "Markierungen verwerfen und schließen?",
       "discardCancel": "Weiter bearbeiten",
       "discardConfirm": "Verwerfen und schließen",
@@ -1965,7 +1971,7 @@
     },
     "editor": {
       "resize": "Editor-Bereich anpassen",
-      "save": "Speichern (Strg+S)",
+      "save": "Speichern ({{shortcut}})",
       "reload": "Von der Festplatte neu laden",
       "closeTab": "Tab schließen",
       "closePane": "Editor-Bereich schließen",
@@ -3360,7 +3366,7 @@
       "deviceTip": "Mit {{width}}px Breite rendern",
       "pickElement": "Element auswählen",
       "pickHint": "Klicken Sie auf ein Element in der Vorschau, um eine Änderung dafür zu beschreiben",
-      "pickPlaceholder": "Was soll an diesem Element geändert werden? (Strg+Enter zum Senden)",
+      "pickPlaceholder": "Was soll an diesem Element geändert werden? ({{shortcut}} zum Senden)",
       "pickSend": "Senden",
       "pickCopy": "Selektor kopieren",
       "pickCopied": "Kopiert",

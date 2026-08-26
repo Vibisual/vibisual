@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { exec, spawn } from 'node:child_process';
 import { logger } from '../logger.js';
+import { killTree } from './processTree.js';
 
 const TCP_TIMEOUT = 1000;
 const HTTP_PROBE_TIMEOUT = 2500;
@@ -69,31 +70,221 @@ export function isUrlServing(rawUrl: string, timeoutMs = HTTP_PROBE_TIMEOUT): Pr
 
 const IS_WIN = process.platform === 'win32';
 
-/** 포트를 점유 중인 프로세스를 kill */
-export function killByPort(port: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    // 보안: port 는 셸 문자열에 보간되므로 정수가 아니면 즉시 거부(인젝션 차단).
-    if (!Number.isInteger(port) || port <= 0 || port > 65535) {
-      resolve(false);
-      return;
+/** 포트 점유자 조회 명령 1회당 상한. 넘으면 "못 봤다"로 보고 다음 후보로 넘어간다. */
+const PORT_LOOKUP_TIMEOUT_MS = 3000;
+
+/**
+ * {@link killByPortDetailed} 의 결과 구분.
+ *
+ * `not-listening`(포트가 비어 있다)과 `no-tool`(볼 도구가 없어서 못 봤다)을 **반드시 나눠야 한다** —
+ * 예전 구현은 POSIX 에서 `lsof` 하나만 쓰고 exec 에러를 통째로 삼켜 둘 다 `false` 로 뭉갰다.
+ * `lsof` 는 macOS 엔 항상 있지만 최소구성 Linux(컨테이너·서버 배포판)엔 없는 경우가 있어서,
+ * 그런 환경의 사용자는 "포트 킬이 그냥 안 먹는다"만 겪고 이유를 알 길이 없었다.
+ */
+export type KillByPortOutcome =
+  /** 점유 프로세스를 찾아 종료를 지시했다. */
+  | 'killed'
+  /** 조회는 성공했고 그 포트를 LISTEN 중인 프로세스가 없다. */
+  | 'not-listening'
+  /** 이 시스템에 포트 점유자를 조회할 도구가 하나도 없다(= 결과를 모른다, 비어 있다는 뜻이 아니다). */
+  | 'no-tool'
+  /** 포트 번호가 유효하지 않다. */
+  | 'invalid-port'
+  /** 우리 자신(또는 부모) 프로세스가 그 포트를 쥐고 있어 자살을 거부했다. */
+  | 'self';
+
+export interface KillByPortResult {
+  killed: boolean;
+  outcome: KillByPortOutcome;
+  /** 실제로 종료를 지시한 PID 들. */
+  pids: number[];
+  /** 점유자를 찾아낸 조회 수단(`netstat` · `lsof` · `ss` · `fuser` · `/proc/net/tcp`). */
+  via?: string;
+}
+
+// ─── 포트 점유자 조회 출력 파서 (순수 함수 — 플랫폼 무관하게 단위 테스트 가능) ───
+
+function uniquePositiveInts(values: number[]): number[] {
+  return [...new Set(values)].filter((n) => Number.isInteger(n) && n > 0);
+}
+
+/** Windows `netstat -ano -p TCP` 출력에서 해당 포트를 LISTENING 중인 PID 추출.
+ *  ⚠ 예전 구현의 `findstr :4800` 은 `127.0.0.1:48000` 도 매칭했다 — 포트를 정규식으로 못 박는다. */
+export function parseNetstatListeningPids(stdout: string, port: number): number[] {
+  const re = new RegExp(`^\\s*TCP\\s+\\S+:${port}\\s+\\S+\\s+LISTENING\\s+(\\d+)\\s*$`);
+  const out: number[] = [];
+  for (const line of stdout.split(/\r?\n/)) {
+    const m = line.match(re);
+    if (m?.[1]) out.push(Number(m[1]));
+  }
+  return uniquePositiveInts(out);
+}
+
+/** `lsof -t` 출력 = PID 한 줄에 하나. */
+export function parseLsofPids(stdout: string): number[] {
+  return uniquePositiveInts(
+    stdout.split(/\r?\n/).map((l) => Number(l.trim())).filter((n) => !Number.isNaN(n)),
+  );
+}
+
+/** `ss -lptn` 출력의 `users:(("node",pid=1234,fd=23))` 에서 PID 추출. */
+export function parseSsPids(stdout: string): number[] {
+  const out: number[] = [];
+  for (const m of stdout.matchAll(/pid=(\d+)/g)) out.push(Number(m[1]));
+  return uniquePositiveInts(out);
+}
+
+/** `fuser -n tcp <port>` 출력에서 PID 추출.
+ *  구버전은 `4800/tcp:` 머리표를 stderr 로, 신버전은 stdout 으로 보낸다 — 머리표를 먼저 걷어낸다
+ *  (안 걷으면 포트 번호 4800 자체를 PID 로 오독한다). */
+export function parseFuserPids(stdout: string): number[] {
+  const body = stdout.replace(/^\s*\d+\/\w+:\s*/gm, ' ');
+  return uniquePositiveInts(
+    body.split(/\s+/).map((t) => Number(t.trim())).filter((n) => !Number.isNaN(n)),
+  );
+}
+
+/**
+ * Linux `/proc/net/tcp`(+`tcp6`) 에서 해당 포트를 LISTEN(`st=0A`) 중인 소켓의 inode 목록 추출.
+ * 외부 도구가 하나도 없는 최소 컨테이너에서 쓰는 마지막 수단 — 커널이 직접 주는 진실이라
+ * "도구가 없어서 모름"을 "포트가 비었다"로 오인할 여지가 없다.
+ */
+export function parseProcNetTcpListenInodes(content: string, port: number): string[] {
+  const hex = port.toString(16).toUpperCase().padStart(4, '0');
+  const out: string[] = [];
+  for (const raw of content.split(/\r?\n/)) {
+    const f = raw.trim().split(/\s+/);
+    // sl local_address rem_address st tx rx tr tm retrnsmt uid timeout inode
+    if (f.length < 10) continue;
+    const local = f[1];
+    if (!local || !local.toUpperCase().endsWith(`:${hex}`)) continue;
+    if (f[3] !== '0A') continue; // 0A = TCP_LISTEN
+    const inode = f[9];
+    if (inode && /^\d+$/.test(inode)) out.push(inode);
+  }
+  return [...new Set(out)];
+}
+
+/** inode → PID 역매핑. `/proc/<pid>/fd/*` 심볼릭 링크가 `socket:[<inode>]` 를 가리킨다. */
+function findPidsBySocketInodes(inodes: Set<string>): number[] {
+  if (inodes.size === 0) return [];
+  const found: number[] = [];
+  let pidDirs: string[];
+  try { pidDirs = fs.readdirSync('/proc'); } catch { return []; }
+  for (const name of pidDirs) {
+    if (!/^\d+$/.test(name)) continue;
+    let fds: string[];
+    try { fds = fs.readdirSync(`/proc/${name}/fd`); } catch { continue; } // 남의 프로세스 = EACCES
+    for (const fd of fds) {
+      let link: string;
+      try { link = fs.readlinkSync(`/proc/${name}/fd/${fd}`); } catch { continue; }
+      const m = link.match(/^socket:\[(\d+)\]$/);
+      if (m?.[1] && inodes.has(m[1])) { found.push(Number(name)); break; }
     }
-    const findCmd = IS_WIN
-      ? `netstat -ano | findstr LISTENING | findstr :${port}`
-      : `lsof -iTCP:${port} -sTCP:LISTEN -P -n -t`;
+  }
+  return uniquePositiveInts(found);
+}
 
-    exec(findCmd, (err, stdout) => {
-      if (err || !stdout.trim()) { resolve(false); return; }
+/** 조회 1회의 결과. `available:false` = 그 도구가 이 시스템에 없거나 응답하지 않았다(≠ 포트가 비었다). */
+type LookupResult = { available: true; pids: number[] } | { available: false };
 
-      const pid = IS_WIN
-        ? stdout.match(/LISTENING\s+(\d+)/)?.[1]
-        : stdout.trim().split('\n')[0];
-
-      if (!pid) { resolve(false); return; }
-
-      const killCmd = IS_WIN ? `taskkill /PID ${pid} /F` : `kill ${pid}`;
-      exec(killCmd, (killErr) => resolve(!killErr));
+/** 셸 한 줄을 돌려 stdout 을 파서에 넘긴다. 명령 부재(exit 127)·타임아웃은 `available:false`. */
+function runLookup(cmd: string, parse: (stdout: string) => number[]): Promise<LookupResult> {
+  return new Promise((resolve) => {
+    exec(cmd, { timeout: PORT_LOOKUP_TIMEOUT_MS, windowsHide: true }, (err, stdout, stderr) => {
+      if (err) {
+        const e = err as Error & { code?: number | string; killed?: boolean };
+        // sh 는 명령을 못 찾으면 127 로 끝낸다. Windows 는 ENOENT. 둘 다 "결과 없음"이 아니라 "못 봤다".
+        const missing =
+          e.code === 127 ||
+          e.code === 'ENOENT' ||
+          e.killed === true ||
+          /not found|not recognized|No such file/i.test(String(stderr ?? ''));
+        if (missing) { resolve({ available: false }); return; }
+        // 그 외 비정상 종료(lsof/fuser 는 "찾은 게 없음"을 exit 1 로 알린다) = 조회 성공, 결과 0건.
+        resolve({ available: true, pids: parse(String(stdout ?? '')) });
+        return;
+      }
+      resolve({ available: true, pids: parse(stdout) });
     });
   });
+}
+
+/** Linux `/proc/net/tcp` 직접 읽기. 파일이 없으면(=macOS 등) `available:false`. */
+function lookupViaProc(port: number): LookupResult {
+  let content = '';
+  let any = false;
+  for (const p of ['/proc/net/tcp', '/proc/net/tcp6']) {
+    try { content += fs.readFileSync(p, 'utf8') + '\n'; any = true; } catch { /* 없으면 건너뜀 */ }
+  }
+  if (!any) return { available: false };
+  const inodes = new Set(parseProcNetTcpListenInodes(content, port));
+  if (inodes.size === 0) return { available: true, pids: [] };
+  return { available: true, pids: findPidsBySocketInodes(inodes) };
+}
+
+/**
+ * 포트를 LISTEN 중인 프로세스를 찾아 **트리째** 종료한다.
+ *
+ * 조회 수단은 플랫폼별 후보를 순서대로 시도하고, 하나라도 "동작했다"면 그 결과를 채택한다.
+ *   - Windows: `netstat -ano -p TCP`
+ *   - POSIX  : `lsof` → `ss` → `fuser` → `/proc/net/tcp`
+ * 전부 없으면 `no-tool` — 호출자가 "포트가 비었다"와 구분할 수 있다.
+ *
+ * 종료는 {@link killTree} 로 위임한다(이전엔 `taskkill /F`(트리 아님) / `kill`(SIGTERM, 손자 잔존)을
+ * 여기서 따로 재구현했다). `respawn` 이 띄운 dev 서버는 `shell:true` 라 최상단이 셸이고 실제 서버는
+ * 그 자식 — 단일 kill 로는 포트가 안 놓인다.
+ */
+export async function killByPortDetailed(port: number): Promise<KillByPortResult> {
+  // 보안: port 는 셸 문자열에 보간되므로 정수가 아니면 즉시 거부(인젝션 차단).
+  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+    return { killed: false, outcome: 'invalid-port', pids: [] };
+  }
+
+  const candidates: { via: string; run: () => Promise<LookupResult> | LookupResult }[] = IS_WIN
+    ? [
+        { via: 'netstat', run: () => runLookup('netstat -ano -p TCP', (o) => parseNetstatListeningPids(o, port)) },
+      ]
+    : [
+        { via: 'lsof', run: () => runLookup(`lsof -iTCP:${port} -sTCP:LISTEN -P -n -t`, parseLsofPids) },
+        { via: 'ss', run: () => runLookup(`ss -lptnH 'sport = :${port}'`, parseSsPids) },
+        { via: 'fuser', run: () => runLookup(`fuser -n tcp ${port} 2>/dev/null`, parseFuserPids) },
+        { via: '/proc/net/tcp', run: () => lookupViaProc(port) },
+      ];
+
+  let anyToolWorked = false;
+  for (const c of candidates) {
+    const res = await c.run();
+    if (!res.available) continue;
+    anyToolWorked = true;
+    // 이 도구는 못 찾음 — **여기서 멈추지 않는다.** 비특권 사용자의 `ss -p` 는 LISTEN 줄은 보여주되
+    //   `pid=` 를 감추고, `lsof` 는 남의 소유 프로세스를 아예 안 보여준다. 즉 "0건"은 "포트가 비었다"의
+    //   증거가 아니다. 다음 도구(최종적으로 커널의 /proc/net/tcp)까지 다 본 뒤에 판정한다.
+    if (res.pids.length === 0) continue;
+    // 자살 방지: 우리 자신/부모가 그 포트를 쥐고 있으면 죽이지 않는다(그룹 킬이면 앱 전체가 내려간다).
+    const targets = res.pids.filter((pid) => pid !== process.pid && pid !== process.ppid);
+    if (targets.length === 0) {
+      logger.warn(`killByPort(${port}): port is held by this process — refusing to kill self`);
+      return { killed: false, outcome: 'self', pids: res.pids, via: c.via };
+    }
+    for (const pid of targets) killTree(pid);
+    logger.info(`killByPort(${port}): killed tree(s) ${targets.join(', ')} via ${c.via}`);
+    return { killed: true, outcome: 'killed', pids: targets, via: c.via };
+  }
+
+  if (!anyToolWorked) {
+    logger.warn(
+      `killByPort(${port}): no way to inspect port owners on this system — ` +
+        `install one of lsof / iproute2(ss) / psmisc(fuser), or run on a kernel exposing /proc/net/tcp`,
+    );
+    return { killed: false, outcome: 'no-tool', pids: [] };
+  }
+  return { killed: false, outcome: 'not-listening', pids: [] };
+}
+
+/** 포트를 점유 중인 프로세스를 kill. 세부 사유가 필요하면 {@link killByPortDetailed} 를 쓸 것. */
+export function killByPort(port: number): Promise<boolean> {
+  return killByPortDetailed(port).then((r) => r.killed);
 }
 
 /**

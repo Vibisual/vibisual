@@ -14,6 +14,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { runLocalTool, resolveInRoot, globToRegExp, clipToolResult } from './localTools.js';
+import { augmentedPath } from './binLocator.js';
 
 let root: string;
 
@@ -166,5 +167,34 @@ describe('clipToolResult — 자를 때는 잘랐다고 말한다', () => {
     const out = clipToolResult('x'.repeat(50), 10);
     expect(out.startsWith('x'.repeat(10))).toBe(true);
     expect(out).toContain('truncated 40 more characters');
+  });
+});
+
+/**
+ * §5.19 (H) Bash 도구가 물려주는 PATH.
+ *
+ * 종전에는 `spawn('/bin/sh', ['-c', cmd], { cwd })` 처럼 **env 를 아예 안 넘겼다.** 그러면 셸이
+ * 우리 프로세스의 PATH 를 그대로 받는데, Finder/Dock 으로 띄운 macOS 앱의 PATH 는
+ * `/usr/bin:/bin:/usr/sbin:/sbin` 넉 줄뿐이다 — 모델이 부른 `git`·`node`·`pnpm`(전부 Homebrew
+ * 자리)이 죄다 `command not found` 로 돌아오고, 모델은 그걸 "이 프로젝트엔 그 도구가 없다"로
+ * 읽어 엉뚱한 우회를 시작한다. 이제 `augmentedEnv()` 를 명시로 넘긴다.
+ */
+describe('Bash 도구의 PATH 보강', () => {
+  it('자식 셸이 보는 PATH 가 보강된 PATH 와 같다', async () => {
+    const isWin = process.platform === 'win32';
+    const out = await runLocalTool('Bash', { command: isWin ? 'echo %PATH%' : 'echo "$PATH"' }, root);
+    expect(out.isError).toBe(false);
+    expect(out.content.trim()).toBe(augmentedPath());
+  });
+
+  it('알려진 설치 위치가 자식에게 실제로 보인다', async () => {
+    const isWin = process.platform === 'win32';
+    const out = await runLocalTool('Bash', { command: isWin ? 'echo %PATH%' : 'echo "$PATH"' }, root);
+    const expected = process.platform === 'darwin'
+      ? '/opt/homebrew/bin'
+      : process.platform === 'linux'
+        ? '/snap/bin'
+        : 'WinGet';
+    expect(out.content).toContain(expected);
   });
 });

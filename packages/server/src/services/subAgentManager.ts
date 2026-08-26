@@ -36,7 +36,7 @@ import { getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
 import { composeTurnPrompt, isSlashCommandText } from './turnPrompt.js';
 import { isAgentViewEnabled, spawnBackground, stopSession, rmSession } from './claudeAgentViewService.js';
 import { attach as attachWatcher, detach as detachWatcher, resumeWatch as resumeAgentViewWatch } from './claudeAgentViewWatcher.js';
-import { killTree, terminateChildTree, registerSpawnedPid, unregisterSpawnedPid } from './processTree.js';
+import { killTree, terminateChildTree, registerSpawnedPid, unregisterSpawnedPid, processGroupSpawnOptions } from './processTree.js';
 import { prepareMcpConfig } from './mcpConfigService.js';
 import { prepareAgentSettings } from './agentMemoryService.js';
 
@@ -1737,6 +1737,9 @@ export class SubAgentManager {
           cwd,
           stdio: ['pipe', 'pipe', 'pipe'],
           shell: false,
+          // POSIX 프로세스 그룹 리더로 — 아래 done() 이 killTree 로 회수하는데, detached 없이는
+          //   `-pid` 그룹 킬이 ESRCH 로 떨어져 claude 손자(MCP 서버·worker)가 mac/linux 에서 살아남는다.
+          ...processGroupSpawnOptions(),
           env: { ...process.env, LANG: 'en_US.UTF-8', LC_ALL: 'en_US.UTF-8', PYTHONIOENCODING: 'utf-8' },
         });
       } catch (err) {
@@ -1745,6 +1748,12 @@ export class SubAgentManager {
       }
       registerSpawnedPid(child.pid);
       child.once('exit', () => unregisterSpawnedPid(child.pid));
+      // §5.5 #17-18 과 같은 사유 — stdin 오류(`write-after-end`·`EPIPE`)는 write() 를 감싼 try/catch 를
+      //   지나쳐 stream 의 `error` 이벤트로 온다. 듣는 사람이 없으면 메인 프로세스 uncaughtException 이
+      //   되어 그 순간 돌던 체인을 끊는다. 여기서 받아 로그로만 남기고 마무리는 close/timeout 에 맡긴다.
+      child.stdin?.on('error', (err: Error) => {
+        logger.warn(`summarizeSession stdin error: ${err.message} — child is going down`);
+      });
 
       let stdout = '';
       let settled = false;
@@ -3775,6 +3784,11 @@ export class SubAgentManager {
         cwd: parentCwd,
         stdio: ['pipe', 'pipe', 'pipe'], // v1.33 — stdin 으로 prompt 주입하려 pipe.
         shell: false,
+        // POSIX 한정 detached — 이 자식은 우리가 `terminateChildTree`/`killTree` 로 회수하는데,
+        //   그룹 리더가 아니면 `-pid` 가 ESRCH 로 실패해 단일 pid 킬로 강등되고 claude 가 띄운
+        //   MCP 서버·node worker(손자)가 mac/linux 에서 고아로 남는다. detached 는 그룹만 만들 뿐
+        //   stdio 파이프(위 stdin prompt 주입)에는 영향이 없다. unref() 는 절대 붙이지 말 것.
+        ...processGroupSpawnOptions(),
         env: {
           ...process.env,
           LANG: 'en_US.UTF-8',

@@ -43,7 +43,8 @@ export function LoginTerminal({ termId, command }: LoginTerminalProps): React.JS
     if (!host || !transport) return;
 
     const term = new Terminal({
-      fontFamily: 'Consolas, "Courier New", monospace',
+      // IDETerminalView 와 같은 스택 — Consolas 만 앞세우면 mac·Linux 에는 없어 기본 산세리프로 떨어진다.
+      fontFamily: 'Menlo, Consolas, "DejaVu Sans Mono", monospace',
       fontSize: 12,
       cursorBlink: true,
       convertEol: false,

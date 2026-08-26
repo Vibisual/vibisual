@@ -81,7 +81,17 @@ export interface OverlayListWire {
   userVisible: boolean;
 }
 export interface PackagedOverlayApi {
-  open(payload: { agentId: string; projectId: string; cursor?: { x: number; y: number } }): Promise<{ windowId: number; reused: boolean }>;
+  /**
+   * (판올림 번호 발급 대기) `expanded` 면 버블이 아니라 **IDE 크기로 바로** 뜬다 —
+   * IDE 창을 앱 밖으로 끌어내 만든 독립 창이 그 경로다(`size` 는 끌던 창 크기).
+   */
+  open(payload: {
+    agentId: string;
+    projectId: string;
+    cursor?: { x: number; y: number };
+    expanded?: boolean;
+    size?: { width: number; height: number };
+  }): Promise<{ windowId: number; reused: boolean }>;
   close(agentId: string): Promise<boolean>;
   closeSelf(): Promise<boolean>;
   expandSelf(): Promise<boolean>;
@@ -95,10 +105,13 @@ export interface PackagedOverlayApi {
   hideSelf(): Promise<boolean>;
   /** §17-6 (G) v2.82 — 우클릭 불투명도(1/0.75/0.5). */
   setOpacitySelf(opacity: number): Promise<boolean>;
-  /** §17-6 (G) v2.82 — 우클릭 "본체에서 이 버블로 점프". */
-  revealInMain(payload: { agentId: string; projectId: string }): Promise<boolean>;
+  /**
+   * §17-6 (G) v2.82 — 우클릭 "본체에서 이 버블로 점프".
+   * (판올림 번호 발급 대기) `openIde` 면 점프에서 그치지 않고 앱 안에서 **IDE 창까지 다시 연다**.
+   */
+  revealInMain(payload: { agentId: string; projectId: string; openIde?: boolean }): Promise<boolean>;
   /** §17-6 (G) v2.82 — 메인 윈도우: 오버레이 점프 신호 구독. */
-  onReveal(cb: (payload: { agentId: string; projectId: string }) => void): () => void;
+  onReveal(cb: (payload: { agentId: string; projectId: string; openIde?: boolean }) => void): () => void;
   onList(cb: (payload: OverlayListWire) => void): () => void;
   /** §17-6 (G) v2.87 — 버블 창: 우클릭 → 커서 위치에 메뉴 팝업 창 열기. */
   openMenu(): Promise<boolean>;

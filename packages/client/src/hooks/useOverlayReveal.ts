@@ -14,10 +14,18 @@ export function useOverlayReveal(): void {
   useEffect(() => {
     const overlay = typeof window !== 'undefined' ? window.api?.overlay : undefined;
     if (!overlay?.onReveal) return;
-    const off = overlay.onReveal(({ agentId, projectId }) => {
+    const off = overlay.onReveal(({ agentId, projectId, openIde }) => {
       const store = useGraphStore.getState();
       const known = !!store.projects[projectId] || !!store.stubProjects[projectId];
       if (known) store.setActiveProject(projectId);
+      if (openIde) {
+        // (판올림 번호 발급 대기) 밖으로 끌어냈던 창을 **앱 안으로 되돌리는** 길 — 캔버스로 점프만
+        //   하면 되돌린 게 아니다(사용자는 그 IDE 를 계속 보려고 되돌린다). 그 자리에 창을 다시 연다.
+        store.focusOnNode(agentId);
+        store.selectNode(agentId);
+        store.openIDEOverlay(agentId, { pane: 'new' });
+        return;
+      }
       // 직전 세션 점프로 열린 IDE 가 캔버스를 가리지 않도록 닫고, 그 버블로 카메라 이동+선택.
       store.closeIDEOverlay();
       store.focusOnNode(agentId);

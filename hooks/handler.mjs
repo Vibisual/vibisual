@@ -452,6 +452,11 @@ async function runSubagentStatusLine(input) {
 }
 
 async function main() {
+  // §4 — 사용량 probe(`claude -p "/usage"`)가 띄운 세션의 훅은 **즉시 빠져나간다.**
+  // 그 실행은 사용량을 재려고 서버가 5분마다 도는 계측이라, 캔버스에 버블·활동으로 남으면
+  // 사용자가 자기 화면에서 유령 세션을 보게 된다. 서버가 그 세션에만 이 표시를 실어 보낸다.
+  if (process.env['VIBISUAL_USAGE_PROBE'] === '1') return;
+
   const input = await readStdin();
 
   // §4 v3.60 — statusLine 모드는 훅 이벤트가 아니라 세션 JSON 을 받는다. 완전히 별도 경로.

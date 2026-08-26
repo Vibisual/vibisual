@@ -10,8 +10,20 @@ import path from 'node:path';
 import { DEBUG_ADAPTERS } from '@vibisual/shared';
 import type { DebugBackendKind, RunRuntime } from '@vibisual/shared';
 
+import { resolveBinary } from '../binLocator.js';
+
 /** 외부 명령 조회는 짧게 — 없으면 없는 것이고, 오래 기다릴 이유가 없다. */
 const PROBE_TIMEOUT_MS = 3_000;
+
+/**
+ * `available: false` 의 사유. 불리언 하나만 주면 화면이 **"안 깔았다"와 "우리가 못 찾았다"를
+ * 구분하지 못한다** — 앞은 설치 안내가 맞고, 뒤는 "PATH 를 못 봤다"는 우리 쪽 사정이라
+ * 안내문이 달라야 한다(mac 에서 dlv/codelldb/debugpy 가 정확히 뒤쪽으로 오진됐다).
+ *
+ * - `not-installed` — 보강된 PATH + 알려진 설치 위치 어디에도 없다.
+ * - `no-adapter`    — 이 런타임엔 붙일 어댑터 자체가 없다(언리얼 `delegated` 등).
+ */
+export type DebugAdapterUnavailableReason = 'not-installed' | 'no-adapter';
 
 /** `GET /api/debug/adapters` 의 한 줄. */
 export interface DebugAdapterAvailability {
@@ -21,25 +33,23 @@ export interface DebugAdapterAvailability {
   available: boolean;
   /** 찾은 실행 파일 경로(있으면). */
   execPath?: string;
+  /** `available: false` 일 때만. 화면이 안내문을 가르는 근거. */
+  unavailableReason?: DebugAdapterUnavailableReason;
   licence: string;
   installKey: string;
   docsUrl: string;
 }
 
-/** PATH 에서 실행 파일을 찾는다(윈도우 `where`, 그 외 `which`). */
+/**
+ * 어댑터 실행 파일의 절대경로 — 없으면 null.
+ *
+ * 종전엔 `where`/`which` 한 번이었다. 그 둘은 **우리 프로세스의 PATH** 만 보는데, Finder 로 띄운
+ * macOS 앱의 PATH 는 `/usr/bin:/bin:/usr/sbin:/sbin` 넉 줄뿐이라 `~/go/bin/dlv`,
+ * `~/.cargo/bin/codelldb`, Homebrew 의 `debugpy` 가 **깔려 있어도 전부 "없음"** 으로 나왔다.
+ * `binLocator` 는 보강된 PATH + 알려진 설치 위치를 함께 본다.
+ */
 function resolveCommand(command: string): string | null {
-  try {
-    const finder = process.platform === 'win32' ? 'where' : 'which';
-    const out = execFileSync(finder, [command], {
-      encoding: 'utf8',
-      timeout: PROBE_TIMEOUT_MS,
-      windowsHide: true,
-    }).trim();
-    const first = out.split(/\r?\n/).find((l) => l.trim().length > 0)?.trim();
-    return first ?? null;
-  } catch {
-    return null;
-  }
+  return resolveBinary(command);
 }
 
 /**
@@ -63,6 +73,7 @@ export function listDebugAdapters(): DebugAdapterAvailability[] {
         runtime: spec.runtime,
         backend: spec.backend,
         available: false,
+        unavailableReason: 'no-adapter',
         licence: spec.licence,
         installKey: spec.installKey,
         docsUrl: spec.docsUrl,
@@ -73,7 +84,7 @@ export function listDebugAdapters(): DebugAdapterAvailability[] {
       runtime: spec.runtime,
       backend: spec.backend,
       available: !!execPath,
-      ...(execPath ? { execPath } : {}),
+      ...(execPath ? { execPath } : { unavailableReason: 'not-installed' as const }),
       licence: spec.licence,
       installKey: spec.installKey,
       docsUrl: spec.docsUrl,

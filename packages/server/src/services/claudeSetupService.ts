@@ -14,6 +14,7 @@ import { logger } from '../logger.js';
 import { broadcast } from '../broadcastBus.js';
 import { getClaudeBin, invalidateClaudeBinCache } from './claudeBin.js';
 import { probeClaudeBinVersion } from './claudeVersionService.js';
+import { killTree, processGroupSpawnOptions } from './processTree.js';
 
 /**
  * §4 (첫 실행 설치 온보딩) — `claude` CLI 가 아예 없는 사람에게 깔아 주는 서버 창구.
@@ -185,6 +186,10 @@ class ClaudeSetupService {
         shell: true,
         windowsHide: true,
         stdio: ['ignore', 'pipe', 'pipe'],
+        // POSIX 한정 detached — `shell:true` 라 child.pid 는 `/bin/sh` 이고 진짜 인스톨러는 그 아래
+        //   `curl … | bash` 파이프라인(손자)이다. 그룹 리더로 띄워 두지 않으면 아래 타임아웃이 sh 만
+        //   죽이고 인스톨러는 계속 돌아, 사용자가 다시 누르면 인스톨러 두 벌이 동시에 돈다.
+        ...processGroupSpawnOptions(),
       });
     } catch (err) {
       this.finishInstall(session, {
@@ -205,11 +210,9 @@ class ClaudeSetupService {
     child.stderr?.on('data', appendOutput);
 
     const timer = setTimeout(() => {
-      try {
-        child.kill();
-      } catch {
-        /* already gone */
-      }
+      // 이전엔 `child.kill()` — shell:true 라 sh 만 죽고 `curl … | bash` 인스톨러는 계속 돌았다.
+      //   "타임아웃 = 포기" 이므로 트리째 회수해야 재시도가 인스톨러를 겹쳐 돌리지 않는다.
+      killTree(child.pid);
       this.finishInstall(session, {
         status: 'error',
         error: `install timed out after ${CLAUDE_SETUP_INSTALL_TIMEOUT_MS}ms`,

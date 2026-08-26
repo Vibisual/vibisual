@@ -10,6 +10,9 @@ import { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
+// 단축키 라벨은 플랫폼이 정한다 — mac 에서 실제로 눌리는 키는 Ctrl 이 아니라 Command 다
+//   (핸들러는 이미 ctrlKey || metaKey 를 함께 보므로 **표시만** 어긋나 있었다).
+import { shortcutLabel } from '../../utils/platform.js';
 
 type CategoryKey =
   | 'start'
@@ -122,7 +125,7 @@ export function GuideWindow({ open, onClose }: GuideWindowProps): React.JSX.Elem
         { title: t('panel.guide.navigation.panT', { defaultValue: 'Pan & zoom' }), desc: t('panel.guide.navigation.panD', { defaultValue: 'Drag the canvas to pan and scroll to zoom; the minimap shows where you are.' }) },
         { title: t('panel.guide.navigation.tabsT', { defaultValue: 'Tabs & detach' }), desc: t('panel.guide.navigation.tabsD', { defaultValue: 'Each open folder is a tab; drag a tab out of the bar to pop it into its own window.' }) },
         { title: t('panel.guide.navigation.inspectorT', { defaultValue: 'Inspector' }), desc: t('panel.guide.navigation.inspectorD', { defaultValue: 'Hold Alt to highlight elements and click to copy; Shift-drag to select a region.' }) },
-        { title: t('panel.guide.navigation.copyT', { defaultValue: 'Copy & paste' }), desc: t('panel.guide.navigation.copyD', { defaultValue: 'Select custom agents and edges, then Ctrl+C / Ctrl+V to clone them into another project.' }) },
+        { title: t('panel.guide.navigation.copyT', { defaultValue: 'Copy & paste' }), desc: t('panel.guide.navigation.copyD', { copy: shortcutLabel('Ctrl+C'), paste: shortcutLabel('Ctrl+V'), defaultValue: 'Select custom agents and edges, then {{copy}} / {{paste}} to clone them into another project.' }) },
       ],
     },
     history: {
@@ -136,7 +139,7 @@ export function GuideWindow({ open, onClose }: GuideWindowProps): React.JSX.Elem
       intro: t('panel.guide.shortcuts.intro', { defaultValue: 'Keyboard shortcuts speed up navigation and editing. They pause while you type in an input or terminal.' }),
       entries: [
         { title: t('panel.guide.shortcuts.bookmarkT', { defaultValue: 'Bubble bookmarks' }), desc: t('panel.guide.shortcuts.bookmarkD', { defaultValue: 'Alt+1…0 pins a bubble or session to a slot; press 1…0 to jump back to it.' }) },
-        { title: t('panel.guide.shortcuts.copyT', { defaultValue: 'Copy / paste' }), desc: t('panel.guide.shortcuts.copyD', { defaultValue: 'Ctrl+C / Ctrl+V (Cmd on macOS) copies and pastes selected agents, edges and comment boxes.' }) },
+        { title: t('panel.guide.shortcuts.copyT', { defaultValue: 'Copy / paste' }), desc: t('panel.guide.shortcuts.copyD', { copy: shortcutLabel('Ctrl+C'), paste: shortcutLabel('Ctrl+V'), defaultValue: '{{copy}} / {{paste}} copies and pastes selected agents, edges and comment boxes.' }) },
         { title: t('panel.guide.shortcuts.inspectorT', { defaultValue: 'Inspector' }), desc: t('panel.guide.shortcuts.inspectorD', { defaultValue: 'Hold Alt to inspect and click to copy an element; Shift-drag for region select.' }) },
         { title: t('panel.guide.shortcuts.closeT', { defaultValue: 'Close & cancel' }), desc: t('panel.guide.shortcuts.closeD', { defaultValue: 'Esc closes menus, popups and the IDE overlay.' }) },
       ],

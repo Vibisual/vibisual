@@ -14,6 +14,7 @@
  * React 를 물지 않는다(카드 모듈 import 금지) — 서버가 프롬프트 한 줄 만들려고 렌더 트리를 끌어오면 안 된다.
  * 별칭에 `e` 접두사를 붙이는 이유는 id 중 `eval` 처럼 **식별자로 못 쓰는 낱말**이 있기 때문이다.
  */
+import type { PlatformName } from '@vibisual/shared';
 import type { PluginFactMap, PluginPromptContext, PluginPromptModule } from './types.js';
 import { getPluginManifest, resolveEnabledPluginsFor, type PluginEnablementSource } from './registry.js';
 import { enforcement as eA2a } from './a2a/enforce.js';
@@ -247,8 +248,11 @@ export const PLUGIN_PROMPT_MODULES: readonly PluginPromptModule[] = [
 export function activePromptModules(
   source: PluginEnablementSource | null | undefined,
   projectId: string | null | undefined,
+  // 프로젝트 키를 경로로 조회하므로 플랫폼이 필요하다 — 안 넘기면 Linux 에서도 소문자로 접혀
+  // 케이스만 다른 두 프로젝트가 **같은 집행문**을 받는다(서버는 process.platform 을 넘긴다).
+  platform?: PlatformName,
 ): PluginPromptModule[] {
-  const enabled = resolveEnabledPluginsFor(source, projectId);
+  const enabled = resolveEnabledPluginsFor(source, projectId, platform);
   return PLUGIN_PROMPT_MODULES.filter((m) => enabled.has(m.id) && getPluginManifest(m.id) !== undefined);
 }
 
@@ -261,8 +265,9 @@ export function buildPluginPromptBlocks(
   projectId: string | null | undefined,
   ctx: PluginPromptContext,
   onError?: (id: string, err: unknown) => void,
+  platform?: PlatformName,
 ): string {
-  return buildPluginPromptParts(source, projectId, ctx, onError).map((p) => p.block).join('');
+  return buildPluginPromptParts(source, projectId, ctx, onError, platform).map((p) => p.block).join('');
 }
 
 /**
@@ -277,9 +282,10 @@ export function buildPluginPromptParts(
   projectId: string | null | undefined,
   ctx: PluginPromptContext,
   onError?: (id: string, err: unknown) => void,
+  platform?: PlatformName,
 ): { id: string; block: string }[] {
   const out: { id: string; block: string }[] = [];
-  for (const mod of activePromptModules(source, projectId)) {
+  for (const mod of activePromptModules(source, projectId, platform)) {
     try {
       const block = mod.buildBlock(ctx);
       if (typeof block === 'string' && block.trim() !== '') out.push({ id: mod.id, block });
@@ -302,9 +308,10 @@ export function collectPluginFacts(
   projectId: string | null | undefined,
   ctx: PluginPromptContext,
   onError?: (id: string, err: unknown) => void,
+  platform?: PlatformName,
 ): Record<string, PluginFactMap> {
   const out: Record<string, PluginFactMap> = {};
-  for (const mod of activePromptModules(source, projectId)) {
+  for (const mod of activePromptModules(source, projectId, platform)) {
     if (!mod.survey) continue;
     try {
       const facts = mod.survey(ctx);

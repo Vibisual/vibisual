@@ -36,6 +36,8 @@ import { MCP_SERVER_PRESETS } from '@vibisual/shared';
 
 import { logger } from '../logger.js';
 
+import { resolveBinary } from './binLocator.js';
+import { pathKey } from './pathKey.js';
 import { parseJsonc } from './runConfigScanner.js';
 import { atomicWriteFileSync } from './statePersistence.js';
 
@@ -89,9 +91,15 @@ function managedSettingsPath(): string {
   return '/etc/claude-code/managed-settings.json';
 }
 
-/** 경로 비교용 정규화 — 대소문자·구분자·끝 구분자를 지운다(같은 폴더의 다른 표기를 하나로 본다). */
+/**
+ * 경로 비교용 정규화 — 구분자·끝 구분자를 지우고 **그 플랫폼이 실제로 무시할 때만** 대소문자를 접는다.
+ *
+ * 종전엔 무조건 `.toLowerCase()` 였다. Linux 는 대소문자를 가리는 파일시스템이라
+ * `~/Work/App` 과 `~/work/app` 이 한 키로 뭉개져 **다른 프로젝트의 MCP 설정이 섞였다**
+ * (그 상태로 토글하면 남의 프로젝트 `disabledMcpServers` 를 고친다). 정책은 `pathKey` 한 곳에서만.
+ */
 function normalizePathKey(p: string): string {
-  return p.replace(/[\\/]+/g, '/').replace(/\/+$/, '').toLowerCase();
+  return pathKey(p);
 }
 
 /**
@@ -121,43 +129,17 @@ function detectTransport(def: RawServerDef): McpServerTransport {
 }
 
 /**
- * 실행 파일이 PATH 에 있는가. Windows 는 확장자가 없으면 못 찾으므로 `PATHEXT` 까지 본다.
- * 경로가 들어 있는 명령(`./x`, `C:\x\y.exe`)은 PATH 를 훑지 않고 그 자리만 확인한다.
+ * 실행 파일이 이 컴퓨터에 있는가.
+ *
+ * 종전엔 `process.env['PATH']` 만 훑었다. Finder/Dock 으로 띄운 macOS 앱의 PATH 는
+ * `/usr/bin:/bin:/usr/sbin:/sbin` 넉 줄뿐이라, Homebrew·nvm·pipx 로 깐 `npx`·`uvx`·`docker` 가
+ * **전부 `missing-command`** 로 찍혔다 — 화면은 멀쩡히 돌아갈 MCP 서버들을 "실행 파일 없음"으로
+ * 줄줄이 세운다. `binLocator` 가 보강된 PATH + 알려진 설치 위치를 함께 본다(PATHEXT 포함).
  */
 function commandExists(command: string, memo: Map<string, boolean>): boolean {
   const cached = memo.get(command);
   if (cached !== undefined) return cached;
-
-  const exts = process.platform === 'win32'
-    ? (process.env['PATHEXT'] ?? '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)
-    : [''];
-
-  const hit = (base: string): boolean => {
-    try {
-      if (fs.existsSync(base) && fs.statSync(base).isFile()) return true;
-    } catch {
-      /* 접근 불가 경로는 없는 것으로 본다 */
-    }
-    return exts.some((ext) => fs.existsSync(base + ext.toLowerCase()) || fs.existsSync(base + ext));
-  };
-
-  let found = false;
-  try {
-    if (command.includes('/') || command.includes('\\')) {
-      found = hit(command);
-    } else {
-      const dirs = (process.env['PATH'] ?? process.env['Path'] ?? '').split(path.delimiter).filter(Boolean);
-      found = dirs.some((d) => {
-        try {
-          return hit(path.join(d, command));
-        } catch {
-          return false;
-        }
-      });
-    }
-  } catch {
-    found = false;
-  }
+  const found = resolveBinary(command) !== null;
   memo.set(command, found);
   return found;
 }

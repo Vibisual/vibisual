@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { shortcutLabel } from '../../utils/platform.js';
 import { useGraphStore, selectIDEOverlay } from '../../stores/graphStore.js';
 import { useIDEPaneValue, useIDEPaneProjectName, useIDEPaneActions } from './idePane.js';
 import { CodeEditor, type FollowRange } from './CodeEditor.js';
@@ -535,8 +536,8 @@ export const IDEEditorPane = memo(function IDEEditorPane({ narrow }: IDEEditorPa
           type="button"
           onClick={() => handleSave()}
           disabled={!dirty || doc?.saving}
-          title={t('ide.editor.save')}
-          aria-label={t('ide.editor.save')}
+          title={t('ide.editor.save', { shortcut: shortcutLabel('Ctrl+S') })}
+          aria-label={t('ide.editor.save', { shortcut: shortcutLabel('Ctrl+S') })}
           className={`rounded p-0.5 transition-colors hover:bg-gray-800 disabled:opacity-30 ${dirty ? 'text-emerald-400' : 'text-gray-500'}`}
         >
           <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">

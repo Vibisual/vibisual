@@ -11,6 +11,7 @@
 import { spawn } from 'child_process';
 import { AGENT_FEEDBACK_DISTILL_MAX, type AgentFeedback } from '@vibisual/shared';
 import { getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
+import { killTree, processGroupSpawnOptions } from './processTree.js';
 import { logger } from '../logger.js';
 
 const CLAUDE_BIN = (): string => getClaudeBin().binPath;
@@ -64,22 +65,21 @@ export function distillFeedbackToRules(feedbacks: AgentFeedback[]): Promise<stri
     const child = spawn(
       CLAUDE_BIN(),
       ['-p', prompt, '--model', 'haiku', '--output-format', 'text'],
-      { shell: false, windowsHide: true },
+      {
+        shell: false,
+        windowsHide: true,
+        // POSIX 한정 detached — 아래 finish() 가 killTree 로 회수한다. 그룹 리더가 아니면 `-pid` 가
+        //   ESRCH 로 실패해 haiku 세션이 띄운 손자(MCP 서버·worker)가 mac/linux 에서 남는다.
+        ...processGroupSpawnOptions(),
+      },
     );
     const finish = (result: string | null, reason: string): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      if (process.platform === 'win32') {
-        if (child.pid != null && child.exitCode === null) {
-          try {
-            const tk = spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true });
-            tk.on('error', () => { /* ignore */ });
-          } catch { /* ignore */ }
-        }
-      } else {
-        try { child.kill(); } catch { /* ignore */ }
-      }
+      // 이전엔 win32=taskkill / else=child.kill() 을 여기서 **재구현**했다. POSIX 쪽은 트리 킬을
+      //   시도조차 안 해 손자가 남았다 — 플랫폼 분기는 processTree.killTree 한 곳으로 통합한다.
+      if (child.exitCode === null && child.signalCode === null) killTree(child.pid);
       logger.info(`[feedback-distill] RESULT ok=${result != null} dur=${Date.now() - t0}ms via=${reason}`);
       resolve(result);
     };

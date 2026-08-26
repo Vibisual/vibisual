@@ -41,8 +41,9 @@
     },
     "usage": {
       "tooltip": "現在のセッション: 5時間の上限の{{percent}}%を使用 — クリックで詳細",
-      "tooltipNoData": "使用量はまだ収集されていません — クリックしてオンに",
-      "tooltipWaiting": "使用量コレクターは有効です — 対話型の Claude Code セッションからの最初の報告を待っています"
+      "tooltipNoData": "まだ使用量を受け取っていません — クリックで詳細",
+      "tooltipWaiting": "Claude Code から使用量を取得中です — まもなく数値が表示されます",
+      "tooltipCliUnavailable": "使用量を読み取るための Claude Code を実行できませんでした — クリックで詳細"
     },
     "setupBanner": {
       "text": "Claude Code がインストールされていません — エージェントはまだ実行できません。",
@@ -192,7 +193,7 @@
         "inspectorT": "インスペクター",
         "inspectorD": "Altキーを押しながら要素をハイライトし、クリックでコピーできます。Shift+ドラッグで範囲選択できます。",
         "copyT": "コピー＆ペースト",
-        "copyD": "カスタムエージェントとエッジを選択し、Ctrl+C / Ctrl+Vで別のプロジェクトに複製できます。"
+        "copyD": "カスタムエージェントとエッジを選択し、{{copy}} / {{paste}}で別のプロジェクトに複製できます。"
       },
       "history": {
         "intro": "Vibisualは起動のたびにプロジェクトを記憶します。",
@@ -206,7 +207,7 @@
         "bookmarkT": "バブルブックマーク",
         "bookmarkD": "Alt+1〜0でバブルやセッションをスロットに固定し、1〜0を押すとそこへジャンプできます。",
         "copyT": "コピー／ペースト",
-        "copyD": "Ctrl+C / Ctrl+V（macOSではCmd）で選択したエージェント・エッジ・コメントボックスをコピー＆ペーストできます。",
+        "copyD": "{{copy}} / {{paste}}で選択したエージェント・エッジ・コメントボックスをコピー＆ペーストできます。",
         "inspectorT": "インスペクター",
         "inspectorD": "Altキーを押しながら要素を検査し、クリックでコピーできます。Shift+ドラッグで範囲選択できます。",
         "closeT": "閉じる／キャンセル",
@@ -555,7 +556,7 @@
       "editFrame": "テキストを編集",
       "editTitlePrompt": "コマタイトル:",
       "editActionPrompt": "コマアクション:",
-      "zoomReset": "Ctrl+0 リセット",
+      "zoomReset": "{{shortcut}} リセット",
       "presetLabel": "出力",
       "preset": {
         "landscape": "横 16:9",
@@ -600,7 +601,7 @@
       "newSessionBadge": "新規セッション",
       "session": "セッション:",
       "change": "変更",
-      "placeholder": "コマンドを入力... (Ctrl+Vで画像を貼り付け)",
+      "placeholder": "コマンドを入力... ({{paste}}で画像を貼り付け)",
       "run": "実行",
       "executing": "実行中...",
       "delete": "削除",
@@ -921,7 +922,7 @@
       "deny": "拒否",
       "denyReasonLabel": "拒否理由（任意）",
       "denyReasonPlaceholder": "例: 誤ったパス、安全でないコマンド",
-      "shortcutHint": "Ctrl+Enter = 許可 · Esc = 拒否",
+      "shortcutHint": "{{shortcut}} = 許可 · Esc = 拒否",
       "stackCount": "{{total}}件中{{current}}件目",
       "emptyToolInput": "（空）"
     },
@@ -1163,13 +1164,13 @@
       "neverUpdated": "使用量データはまだ届いていません",
       "collectorTitle": "使用量コレクター",
       "collectorOnHint": "Claude Code が上限を Vibisual に報告しています",
-      "collectorOffHint": "オンにすると Claude Code からプランの上限を読み取ります",
+      "collectorOffHint": "オンにすると、対話型セッション中はより頻繁に更新されます",
       "collectorEnable": "オンにする",
       "collectorDisable": "オフにする",
       "collectorPassthrough": "既存のステータスラインはそのまま保持されます — Vibisual が代わりに実行し、同じ出力を表示します。",
       "collectorForeign": "独自のステータスラインが既にあります。オンにしても消えません — Vibisual がラップして同じ出力を表示します。",
       "collectorFailed": "使用量コレクターの設定に接続できませんでした。",
-      "collectorRestartHint": "値は対話型の Claude Code セッションがステータスラインを描画したときに届きます。実行中のセッションは再起動が必要です。",
+      "collectorRestartHint": "これをオフにしていても Vibisual は定期的に使用量を取得します — コレクターは対話型セッション中に更新頻度を上げるだけです。",
       "localTitle": "Vibisual のこのプロジェクト",
       "localAgents": "エージェント",
       "localInput": "入力トークン",
@@ -1185,7 +1186,8 @@
       "creditsUsed": "クレジット予算の{{percent}}%を使用",
       "creditsHint": "プランの上限に達しても使い続けるためのクレジットです。設定は Claude アプリで行います。",
       "errNoCredentials": "この PC に Claude Code のログイン情報がないため、使用量を直接読み取れません。Claude Code でサインインするか、下のステータスラインコレクターをご利用ください。",
-      "errAwaitingStatusLine": "コレクターは有効ですが、まだ値が届いていません。上限は対話型の Claude Code セッションがステータスラインを描画したときに届きます。",
+      "errAwaitingStatusLine": "まだ値が届いていません。Vibisual は定期的に Claude Code の /usage を確認しているのでまもなく表示されます — 対話型セッションのステータスラインがあればさらに早く入ります。",
+      "errCliUnavailable": "使用量を読み取る `claude` コマンドを実行できませんでした。オプションの Version タブで Claude Code のパスを確認してから再読み込みしてください。",
       "errUnauthorized": "保存された Claude のログインが期限切れです。Claude Code を一度実行すると自動的に更新され、数値も戻ります。",
       "errNetwork": "今は Claude に接続できませんでした。最後に受信した値を表示しています。",
       "refreshFailed": "更新に失敗"
@@ -1231,6 +1233,10 @@
       "onlyEnabled": "オンのみ",
       "noMatch": "一致するものがありません。やりたいことを表す言葉で探してみてください。",
       "enabledCount": "{{total}} 件中 {{on}} 件オン",
+      "draftBadge": "開発中",
+      "showDrafts": "開発中の {{n}} 件も表示",
+      "hideDrafts": "開発中のカードを隠す",
+      "draftNote": "このプラグインはまだプロジェクトを調べません — 有効にしても固定のルール文だけが渡され、プロジェクトから測った根拠は付きません。",
       "usage": {
         "show": "オンにすると何が見えるか",
         "hide": "閉じる",
@@ -1502,7 +1508,7 @@
     "diff": {
       "addComment": "この行にコメント",
       "removeComment": "コメントを削除",
-      "commentPlaceholder": "ここをどう変更しますか？（Ctrl+Enter で保存）",
+      "commentPlaceholder": "ここをどう変更しますか？（{{shortcut}} で保存）",
       "commentCancel": "キャンセル",
       "commentSave": "保存",
       "commentLimit": "1 セッションあたりレビューコメントは最大 {{max}} 件です — 追加するには送信するか削除してください。",
@@ -1528,8 +1534,8 @@
         "medium": "中",
         "thick": "太"
       },
-      "undo": "元に戻す (Ctrl+Z)",
-      "redo": "やり直し (Ctrl+Shift+Z)",
+      "undo": "元に戻す ({{shortcut}})",
+      "redo": "やり直し ({{shortcut}})",
       "clear": "すべてのマークを消去",
       "download": "PNGをダウンロード",
       "saveReplace": "保存",
@@ -1542,7 +1548,7 @@
       "fileConflictOverwrite": "それでも保存",
       "textPlaceholder": "入力してEnterを押してください",
       "hintPick": "ツールを選んでこの画像にマークし、添付として保存してください。",
-      "hintDraw": "画像上をドラッグしてマークします。Ctrl+Zで直前のマークを元に戻せます。",
+      "hintDraw": "画像上をドラッグしてマークします。{{shortcut}}で直前のマークを元に戻せます。",
       "discardTitle": "マークを破棄して閉じますか?",
       "discardCancel": "編集を続ける",
       "discardConfirm": "破棄して閉じる",
@@ -1965,7 +1971,7 @@
     },
     "editor": {
       "resize": "エディターペインをリサイズ",
-      "save": "保存 (Ctrl+S)",
+      "save": "保存 ({{shortcut}})",
       "reload": "ディスクから再読み込み",
       "closeTab": "タブを閉じる",
       "closePane": "エディターペインを閉じる",
@@ -3360,7 +3366,7 @@
       "deviceTip": "幅 {{width}}px で表示",
       "pickElement": "要素を選択",
       "pickHint": "プレビュー内の要素をクリックして変更内容を記述",
-      "pickPlaceholder": "この要素をどう変更しますか？（Ctrl+Enter で送信）",
+      "pickPlaceholder": "この要素をどう変更しますか？（{{shortcut}} で送信）",
       "pickSend": "送信",
       "pickCopy": "セレクタをコピー",
       "pickCopied": "コピー済み",

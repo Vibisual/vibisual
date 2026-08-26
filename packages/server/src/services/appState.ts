@@ -4,6 +4,8 @@ import path from 'node:path';
 import type { AppState, AppStatePatch, RetentionSettings } from '@vibisual/shared';
 import { APP_STATE_BACKUP_GENERATIONS, normalizeRetentionSettings } from '@vibisual/shared';
 import { atomicWriteFileSync, rotateBackups, loadFromBackups } from './statePersistence.js';
+// 경로 대소문자 정책 SSOT — win32/darwin 만 접고 linux 는 접지 않는다.
+import { pathKey } from './pathKey.js';
 import { logger } from '../logger.js';
 
 // v1.52: AppState = Vibisual 인스턴스 자체 상태 (어떤 프로젝트의 데이터도 아님 → 머신 단위 글로벌).
@@ -40,10 +42,12 @@ function emptyState(): AppState {
 
 // ─── 경로 식별 헬퍼 (projectId = 정규화 절대경로) ───
 
-/** projectId 정규화 — forward-slash + 소문자(Windows FS 대소문자 무시) + trailing slash 제거.
- *  projectGraph.normalize 와 동일 semantics (인스턴스 Map 키와 일치). 비교·중복제거 전용. */
+/** projectId 정규화 — forward-slash + trailing slash 제거 + **대소문자를 실제로 무시하는 FS 에서만** 소문자.
+ *  projectGraph.normalize 와 동일 semantics (인스턴스 Map 키와 일치). 비교·중복제거 전용.
+ *  linux 에서 무조건 접으면 `Feature-X` 와 `feature-x` 두 프로젝트가 한 탭으로 뭉개진다.
+ *  저장 포맷은 `toStorePath`(원본 케이스 유지)라 이 변경으로 잃는 저장분은 없다. */
 function normPath(p: string): string {
-  return p.replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '');
+  return pathKey(p);
 }
 
 /** 저장 포맷 정규화 — forward-slash + trailing slash 제거(원본 케이스 유지). */

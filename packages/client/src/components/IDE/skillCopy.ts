@@ -6,6 +6,7 @@
  */
 import type { ProjectInfo } from '@vibisual/shared';
 import type { SkillInfo, SkillCopyResult, SkillCopyStatus } from '../../hooks/useAvailableSkills.js';
+import { clientPathKey } from '../../utils/platform.js';
 
 /** 대상 목록에서 "전역(모든 프로젝트)" 을 가리키는 예약 ref — 서버 `resolveSkillTargetDir` 와 같은 약속 값. */
 export const SKILL_COPY_GLOBAL_TARGET = 'global';
@@ -37,9 +38,13 @@ const STATUS_FIELD: Record<SkillCopyStatus, keyof Omit<SkillCopySummary, 'exists
   error: 'failed',
 };
 
-/** 경로 비교용 정규화 — `ProjectInfo.path` 는 forward slash 규약이라 대소문자만 흡수하면 된다. */
+/**
+ * 경로 비교용 정규화 — `ProjectInfo.path` 는 forward slash 규약이라 케이스만 다루면 된다.
+ * 그 케이스도 **플랫폼이 실제로 무시할 때만** 접는다(utils/platform.ts) — Linux 에서 접으면
+ * 케이스만 다른 이웃 프로젝트가 "지금 프로젝트"로 읽혀 복사 대상에서 잘못 빠진다.
+ */
 function samePathKey(p: string): string {
-  return p.trim().replace(/\/+$/, '').toLowerCase();
+  return clientPathKey(p.trim());
 }
 
 /**

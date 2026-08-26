@@ -10,11 +10,13 @@
  */
 import { execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 import type { ExternalDebuggerId, ExternalDebuggerInfo } from '@vibisual/shared';
 
 import { logger } from '../logger.js';
+import { resolveBinary } from './binLocator.js';
 import { inspectUnrealProject } from './unrealProjectService.js';
 
 /** 프로젝트 안에서 이만큼 깊이까지만 `.sln`/`.uproject` 를 찾는다(대형 저장소 폭주 방지). */
@@ -79,36 +81,147 @@ function findVisualStudio(): string | null {
   }
 }
 
-/** JetBrains Rider — Toolbox 설치와 일반 설치 경로를 훑는다. */
+/**
+ * JetBrains Toolbox 가 채널별 폴더를 만드는 루트 + 그 안에서 실행본까지의 상대 경로.
+ *
+ * **왜 세 플랫폼 모두 훑어야 하는가**: JetBrains 가 지금 기본으로 미는 배포 창구가 Toolbox 다.
+ * 종전엔 Windows 만 채널 폴더를 순회하고 mac/Linux 는 `/Applications/Rider.app`,
+ * `/usr/local/bin/rider` 같은 **고정 경로 하나씩**만 봤다 — Toolbox 로 깐 사용자(대다수)는
+ * 멀쩡히 설치돼 있는데도 화면에 "설치되어 있지 않음"이 뜬다.
+ *
+ * 레이아웃(실측):
+ *  - win   `%LOCALAPPDATA%/JetBrains/Toolbox/apps/Rider/<채널>/bin/rider64.exe`
+ *  - mac   `~/Library/Application Support/JetBrains/Toolbox/apps/Rider/<채널>/Rider.app/Contents/MacOS/rider`
+ *  - linux `~/.local/share/JetBrains/Toolbox/apps/Rider/<채널>/bin/rider.sh`
+ *
+ * mac 이 한 겹 더 들어가는 이유는 채널 폴더 안에 `.app` **번들**이 통째로 놓이기 때문이다
+ * (`.app` 은 폴더라 그 자리를 실행 파일로 spawn 할 수 없다 — `Contents/MacOS/rider` 까지 가야 한다).
+ */
+export function riderToolboxRoots(
+  platform: NodeJS.Platform = process.platform,
+  home: string = os.homedir(),
+  env: NodeJS.ProcessEnv = process.env,
+): { root: string; relatives: string[][] }[] {
+  if (platform === 'win32') {
+    const localAppData = env['LOCALAPPDATA'];
+    if (!localAppData) return [];
+    return [
+      {
+        root: path.join(localAppData, 'JetBrains', 'Toolbox', 'apps', 'Rider'),
+        relatives: [['bin', 'rider64.exe']],
+      },
+    ];
+  }
+  if (platform === 'darwin') {
+    return [
+      {
+        root: path.join(home, 'Library', 'Application Support', 'JetBrains', 'Toolbox', 'apps', 'Rider'),
+        relatives: [
+          ['Rider.app', 'Contents', 'MacOS', 'rider'],
+          // Toolbox 판올림마다 채널 폴더 안 레이아웃이 달랐다 — 아래 두 깊이 스캔이 함께 받는다.
+          ['bin', 'rider.sh'],
+        ],
+      },
+    ];
+  }
+  return [
+    {
+      root: path.join(home, '.local', 'share', 'JetBrains', 'Toolbox', 'apps', 'Rider'),
+      relatives: [['bin', 'rider.sh'], ['bin', 'rider']],
+    },
+  ];
+}
+
+/**
+ * Toolbox 채널 폴더를 훑어 실행본 후보를 모은다.
+ *
+ * 채널 폴더(`ch-0`, `ch-1`, `Rider-2025.2` …) 아래에 실행본이 바로 있기도 하고, 버전 폴더가
+ * **한 겹 더** 들어가기도 한다(Toolbox 판올림마다 달랐다). 두 깊이를 모두 본다 — 한 깊이만
+ * 보면 그 시절 레이아웃을 쓰는 설치가 통째로 안 보인다.
+ */
+export function scanToolboxCandidates(
+  platform: NodeJS.Platform = process.platform,
+  home: string = os.homedir(),
+  env: NodeJS.ProcessEnv = process.env,
+): string[] {
+  const out: string[] = [];
+  for (const { root, relatives } of riderToolboxRoots(platform, home, env)) {
+    let channels: string[];
+    try {
+      channels = fs.readdirSync(root);
+    } catch {
+      continue; // Toolbox 미설치
+    }
+    for (const channel of channels) {
+      const channelDir = path.join(root, channel);
+      for (const rel of relatives) {
+        const direct = path.join(channelDir, ...rel);
+        if (exists(direct)) out.push(direct);
+      }
+      let versions: string[];
+      try {
+        versions = fs.readdirSync(channelDir);
+      } catch {
+        continue;
+      }
+      for (const version of versions) {
+        for (const rel of relatives) {
+          const nested = path.join(channelDir, version, ...rel);
+          if (exists(nested)) out.push(nested);
+        }
+      }
+    }
+  }
+  // 새 채널/버전 폴더가 사전순으로 뒤에 오므로 뒤집으면 대체로 최신이 앞에 선다.
+  return out.sort().reverse();
+}
+
+/** JetBrains Rider — Toolbox 설치와 일반 설치 경로를 훑는다(세 플랫폼 모두 Toolbox 우선). */
 function findRider(): string | null {
-  const candidates: string[] = [];
+  const home = os.homedir();
+  const candidates: string[] = [...scanToolboxCandidates()];
   if (process.platform === 'win32') {
     const localAppData = process.env['LOCALAPPDATA'] ?? '';
     const programFiles = process.env['ProgramFiles'] ?? 'C:\\Program Files';
     if (localAppData) candidates.push(path.join(localAppData, 'Programs', 'Rider', 'bin', 'rider64.exe'));
     candidates.push(path.join(programFiles, 'JetBrains', 'JetBrains Rider', 'bin', 'rider64.exe'));
-    // Toolbox 는 버전 폴더를 만든다 — 한 겹만 훑어 최신 것을 고른다.
-    if (localAppData) {
-      const toolboxRoot = path.join(localAppData, 'JetBrains', 'Toolbox', 'apps', 'Rider');
-      try {
-        for (const channel of fs.readdirSync(toolboxRoot)) {
-          const binDir = path.join(toolboxRoot, channel, 'bin', 'rider64.exe');
-          if (exists(binDir)) candidates.push(binDir);
-        }
-      } catch {
-        /* 설치 안 됨 */
-      }
-    }
   } else if (process.platform === 'darwin') {
-    candidates.push('/Applications/Rider.app/Contents/MacOS/rider');
+    candidates.push(
+      '/Applications/Rider.app/Contents/MacOS/rider',
+      path.join(home, 'Applications', 'Rider.app', 'Contents', 'MacOS', 'rider'),
+    );
   } else {
-    candidates.push('/usr/local/bin/rider', '/snap/bin/rider');
+    candidates.push(
+      '/opt/rider/bin/rider.sh',
+      '/usr/local/bin/rider',
+      '/snap/bin/rider',
+      path.join(home, '.local', 'bin', 'rider'),
+    );
   }
-  return candidates.find((c) => exists(c)) ?? null;
+  // Toolbox 가 만드는 CLI 스크립트(사용자가 "Shell scripts" 를 켰을 때 생긴다).
+  if (process.platform !== 'win32') {
+    candidates.push(
+      process.platform === 'darwin'
+        ? path.join(home, 'Library', 'Application Support', 'JetBrains', 'Toolbox', 'scripts', 'rider')
+        : path.join(home, '.local', 'share', 'JetBrains', 'Toolbox', 'scripts', 'rider'),
+    );
+  }
+  const known = candidates.find((c) => exists(c));
+  if (known) return known;
+  // Windows 는 PATH 폴백 ❌ — Toolbox 가 PATH 에 심는 `rider.cmd` 는 Node 18.20/20.12 이후
+  //   `shell:true` 없이 spawn 하면 EINVAL 이다(CVE-2024-27980 대응). 아래 launch 는 직접 spawn 이다.
+  if (process.platform === 'win32') return null;
+  return resolveBinary('rider');
 }
 
-/** VS Code — CLI 런처(`code`)가 PATH 에 있으면 그걸 쓰고, 없으면 알려진 설치 경로. */
+/**
+ * VS Code — 알려진 설치 경로를 먼저 보고, 없으면 보강된 PATH 의 `code` 런처.
+ *
+ * mac 에서 `~/Applications` 설치(관리자 권한 없이 깐 경우)와 Linux 의 배포판 패키지 자리를
+ * 종전엔 빼먹어서 "설치되어 있지 않음"이 떴다.
+ */
 function findVsCode(): string | null {
+  const home = os.homedir();
   const candidates: string[] = [];
   if (process.platform === 'win32') {
     const localAppData = process.env['LOCALAPPDATA'] ?? '';
@@ -116,11 +229,20 @@ function findVsCode(): string | null {
     if (localAppData) candidates.push(path.join(localAppData, 'Programs', 'Microsoft VS Code', 'Code.exe'));
     candidates.push(path.join(programFiles, 'Microsoft VS Code', 'Code.exe'));
   } else if (process.platform === 'darwin') {
-    candidates.push('/Applications/Visual Studio Code.app/Contents/MacOS/Electron');
+    candidates.push(
+      '/Applications/Visual Studio Code.app/Contents/MacOS/Electron',
+      path.join(home, 'Applications', 'Visual Studio Code.app', 'Contents', 'MacOS', 'Electron'),
+      '/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code',
+    );
   } else {
-    candidates.push('/usr/bin/code', '/usr/local/bin/code', '/snap/bin/code');
+    candidates.push('/usr/bin/code', '/usr/local/bin/code', '/snap/bin/code', '/usr/share/code/bin/code');
   }
-  return candidates.find((c) => exists(c)) ?? null;
+  const known = candidates.find((c) => exists(c));
+  if (known) return known;
+  // Windows 는 PATH 폴백을 하지 않는다 — 거기서 잡히는 `code.cmd` 는 Node 18.20/20.12 이후
+  //   `shell:true` 없이는 spawn 이 EINVAL 로 죽는다(CVE-2024-27980 대응). 아래 launch 는 직접 spawn 이다.
+  if (process.platform === 'win32') return null;
+  return resolveBinary('code');
 }
 
 /**

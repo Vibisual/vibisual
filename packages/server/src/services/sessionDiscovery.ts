@@ -15,6 +15,8 @@ import { dbg } from './debugLog.js';
 import { getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
 import { scanFileLines, scanWholeFileLines } from './jsonlChunkReader.js';
 import { registerEvictableCache } from './memoryMonitor.js';
+// 경로 대소문자 정책 SSOT — win32/darwin 만 접고 linux 는 접지 않는다.
+import { CASE_INSENSITIVE_FS, pathKey } from './pathKey.js';
 
 /**
  * §3.2.4 F축 — 세션 JSONL 파생 캐시가 **나눠 쓰는 예산**.
@@ -411,12 +413,20 @@ function cwdToSlug(cwd: string): string {
     cwd.replace(/:/g, '-').replace(/[\\/]/g, '-'),
   ];
 
-  // PROJECTS_DIR에서 case-insensitive 매칭
+  // PROJECTS_DIR 에서 매칭 — **정확 일치 먼저**, 대소문자 무시 매칭은 그 다음이다.
+  // slug 는 cwd 에서 만들어지므로 linux 에서 `Feature-X` 와 `feature-x` 는 서로 다른 슬러그를 낳는데,
+  // 곧바로 대소문자를 무시하면 두 프로젝트가 남의 세션 JSONL 폴더를 집어 든다.
   try {
     const dirs = fs.readdirSync(PROJECTS_DIR);
     for (const slug of simpleSlugs) {
-      const match = dirs.find((d) => d.toLowerCase() === slug.toLowerCase());
-      if (match) return match;
+      const exact = dirs.find((d) => d === slug);
+      if (exact) return exact;
+    }
+    if (CASE_INSENSITIVE_FS) {
+      for (const slug of simpleSlugs) {
+        const match = dirs.find((d) => d.toLowerCase() === slug.toLowerCase());
+        if (match) return match;
+      }
     }
   } catch { /* PROJECTS_DIR 없음 — fallback */ }
 
@@ -1714,9 +1724,10 @@ export function readSessionTokenData(cwd: string, sessionId: string): SessionTok
   }
 }
 
-/** cwd 정규화 (비교용) */
+/** cwd 정규화 (비교용) — 대소문자는 그 플랫폼이 실제로 무시할 때만 접는다.
+ *  linux 에서 접으면 케이스만 다른 두 프로젝트가 서로의 세션 목록을 가져간다. */
 function normalizeCwd(cwd: string): string {
-  return cwd.replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '');
+  return pathKey(cwd);
 }
 
 /** projectCwd → 직전 스캔 시그니처. 같은 결과면 로그를 재출력하지 않는다(ServerLogPopup 도배 방지). */

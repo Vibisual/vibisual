@@ -9,10 +9,13 @@ import {
   selectProjectIDEPanes,
   selectRenderedIDEPanes,
   type IDEOverlayState,
+  type IDEWindowLayoutKind,
 } from '../../stores/graphStore.js';
 import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 import { AgentConfigPopup } from '../Panel/AgentConfigPopup.js';
 import type { IDEDockSide } from '../IDE/ideDockLayout.js';
+import { useViewportSize } from '../IDE/useIDEDockLayout.js';
+import { shortcutLabel } from '../../utils/platform.js';
 
 // §5.5 #17-1 (판올림 번호 발급 대기) — **도크가 화면을 채워도 늘 닿는 자리**.
 //
@@ -75,6 +78,63 @@ function sideLabelKey(side: IDEDockSide): string {
   return `header.ideWindows.side.${side}`;
 }
 
+/**
+ * (판올림 번호 발급 대기) **레이아웃 프리셋**(언리얼 Window ▸ 레이아웃 관용).
+ *
+ * 창을 서넛 띄우면 겹쳐 쌓여 아래 것을 찾을 수 없고, 하나씩 끌어 맞추는 데 시간이 든다.
+ * 여기서 한 번에 늘어놓거나(바둑판·계단식) 한 칸에 모은다(탭·좌우). 실행은 스토어 액션 하나
+ * (`applyIDEWindowLayout`)가 맡고 이 표는 **무엇을 보여 줄지**만 정한다.
+ */
+const LAYOUT_ITEMS: ReadonlyArray<{ kind: IDEWindowLayoutKind; icon: React.JSX.Element }> = [
+  {
+    kind: 'tile',
+    icon: (
+      <>
+        <rect x="3" y="3" width="8" height="8" rx="1" />
+        <rect x="13" y="3" width="8" height="8" rx="1" />
+        <rect x="3" y="13" width="8" height="8" rx="1" />
+        <rect x="13" y="13" width="8" height="8" rx="1" />
+      </>
+    ),
+  },
+  {
+    kind: 'cascade',
+    icon: (
+      <>
+        <rect x="3" y="3" width="13" height="13" rx="2" />
+        <path d="M8 20h11a1 1 0 0 0 1-1V8" />
+      </>
+    ),
+  },
+  {
+    kind: 'tabRight',
+    icon: (
+      <>
+        <rect x="3" y="4" width="18" height="16" rx="2" />
+        <path d="M13 4v16M16 8h5" />
+      </>
+    ),
+  },
+  {
+    kind: 'splitLeftRight',
+    icon: (
+      <>
+        <rect x="3" y="4" width="18" height="16" rx="2" />
+        <path d="M9 4v16M15 4v16" />
+      </>
+    ),
+  },
+  {
+    kind: 'undockAll',
+    icon: (
+      <>
+        <rect x="3" y="8" width="13" height="13" rx="2" />
+        <path d="M8 3h13v13" />
+      </>
+    ),
+  },
+];
+
 export const IDEWindowsMenu = memo(function IDEWindowsMenu({
   badgeState,
   badgeRunning,
@@ -87,6 +147,8 @@ export const IDEWindowsMenu = memo(function IDEWindowsMenu({
   const [open, setOpen] = useState(false);
   const [configAgentId, setConfigAgentId] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  // 정렬 계산은 **지금 화면 크기**를 알아야 한다 — 자리를 비우는 쪽과 같은 훅에서 받는다.
+  const viewport = useViewportSize();
 
   // 닫혀 있는 동안에는 스냅샷마다 새로 오는 `agents` 배열을 구독하지 않는다 — 헤더가 매 스냅샷
   //   다시 그려질 이유가 없다. 열 때만 실제 목록을 구독한다.
@@ -146,6 +208,14 @@ export const IDEWindowsMenu = memo(function IDEWindowsMenu({
     [open, ideOverlays, activeProject, nodeMap],
   );
 
+  /**
+   * (판올림 번호 발급 대기) 레이아웃 프리셋 — 실행은 스토어 액션 하나가 맡는다.
+   * 메뉴는 **닫지 않는다**: 바둑판으로 봤다가 계단식으로 바꾸는 식으로 이어 눌러 보게 된다.
+   */
+  const applyLayout = useCallback((kind: IDEWindowLayoutKind) => {
+    useGraphStore.getState().applyIDEWindowLayout(kind, viewport);
+  }, [viewport]);
+
   const openWindow = useCallback((agentId: string) => {
     // 이미 창이 있으면 스토어가 새로 만들지 않고 펴서 앞으로 올린다(중복 창 ❌).
     useGraphStore.getState().openIDEOverlay(agentId, { pane: 'new' });
@@ -199,6 +269,38 @@ export const IDEWindowsMenu = memo(function IDEWindowsMenu({
           <div className="px-2 py-1 text-[12px] font-semibold uppercase tracking-wide text-gray-500">
             {t('header.ideWindows.sectionTitle')}
           </div>
+          {/* (판올림 번호 발급 대기) 레이아웃 — 창이 둘 이상일 때만 뜻이 있다(하나면 정리할 것이 없다). */}
+          {visibleCount + collapsedCount > 1 && (
+            <div className="mb-1 flex items-center gap-0.5 border-b border-white/[0.06] px-1 pb-1.5">
+              {LAYOUT_ITEMS.map((item) => (
+                <button
+                  key={item.kind}
+                  type="button"
+                  onClick={() => applyLayout(item.kind)}
+                  title={t(`header.ideWindows.layout.${item.kind}`)}
+                  aria-label={t(`header.ideWindows.layout.${item.kind}`)}
+                  className="flex h-7 w-7 items-center justify-center rounded text-gray-400 transition-colors hover:bg-white/[0.08] hover:text-gray-100"
+                >
+                  <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+                    {item.icon}
+                  </svg>
+                </button>
+              ))}
+              <span className="flex-1" />
+              {/* 접힌 창이 하나라도 있으면 **펴기**가 먼저다 — 안 보이는 창을 되찾는 것이 더 급하다. */}
+              <button
+                type="button"
+                onClick={() => applyLayout(collapsedCount > 0 ? 'expandAll' : 'collapseAll')}
+                title={t(collapsedCount > 0 ? 'header.ideWindows.layout.expandAll' : 'header.ideWindows.layout.collapseAll')}
+                aria-label={t(collapsedCount > 0 ? 'header.ideWindows.layout.expandAll' : 'header.ideWindows.layout.collapseAll')}
+                className="flex h-7 w-7 items-center justify-center rounded text-gray-400 transition-colors hover:bg-white/[0.08] hover:text-gray-100"
+              >
+                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+                  {collapsedCount > 0 ? <path d="M7 14l5-5 5 5" /> : <path d="M5 12h14" />}
+                </svg>
+              </button>
+            </div>
+          )}
           {rows.length === 0 && (
             <div className="px-2 py-2 text-[12px] text-gray-500">{t('header.ideWindows.empty')}</div>
           )}
@@ -316,6 +418,15 @@ export const IDEWindowsMenu = memo(function IDEWindowsMenu({
           )}
           <div className="mt-1 border-t border-white/[0.06] px-2 py-1.5 text-[12px] leading-snug text-gray-500">
             {t('header.ideWindows.hint')}
+            {visibleCount > 1 && (
+              <span className="mt-1 block text-gray-600">
+                {t('header.ideWindows.shortcutHint', {
+                  dock: shortcutLabel('Ctrl+Alt+←→↑↓'),
+                  max: shortcutLabel('Ctrl+Alt+Enter'),
+                  next: shortcutLabel('Ctrl+Alt+W'),
+                })}
+              </span>
+            )}
           </div>
         </div>
       )}

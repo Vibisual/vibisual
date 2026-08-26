@@ -1,4 +1,7 @@
 import type { ContextMenuItem } from './IDEContextMenu.js';
+// 단축키 라벨은 플랫폼이 정한다 — mac 에서 실제로 눌리는 키는 Ctrl 이 아니라 Command 다
+//   (핸들러는 이미 ctrlKey || metaKey 를 함께 보므로 **표시만** 어긋나 있었다).
+import { shortcutLabel } from '../../utils/platform.js';
 
 /**
  * editorContextMenu.ts — §5.5 #17-27 ⑨ v4.97 편집창 우클릭 **메뉴 항목 목록**(순수 로직).
@@ -83,7 +86,7 @@ export function buildBodyMenuItems(
     {
       id: 'cut',
       label: t('ide.editor.ctx.cut'),
-      hint: 'Ctrl+X',
+      hint: shortcutLabel('Ctrl+X'),
       disabled: !state.hasSelection || state.readOnly,
       disabledTitle: state.readOnly ? readOnlyWhy : needSelection,
       onClick: h.cut,
@@ -91,7 +94,7 @@ export function buildBodyMenuItems(
     {
       id: 'copy',
       label: t('ide.editor.ctx.copy'),
-      hint: 'Ctrl+C',
+      hint: shortcutLabel('Ctrl+C'),
       disabled: !state.hasSelection,
       disabledTitle: needSelection,
       onClick: h.copy,
@@ -107,16 +110,16 @@ export function buildBodyMenuItems(
     {
       id: 'paste',
       label: t('ide.editor.ctx.paste'),
-      hint: 'Ctrl+V',
+      hint: shortcutLabel('Ctrl+V'),
       disabled: state.readOnly,
       disabledTitle: readOnlyWhy,
       onClick: h.paste,
     },
-    { id: 'selectAll', label: t('ide.editor.ctx.selectAll'), hint: 'Ctrl+A', onClick: h.selectAll },
+    { id: 'selectAll', label: t('ide.editor.ctx.selectAll'), hint: shortcutLabel('Ctrl+A'), onClick: h.selectAll },
     {
       id: 'undo',
       label: t('ide.editor.ctx.undo'),
-      hint: 'Ctrl+Z',
+      hint: shortcutLabel('Ctrl+Z'),
       separatorBefore: true,
       disabled: state.readOnly,
       disabledTitle: readOnlyWhy,
@@ -125,7 +128,7 @@ export function buildBodyMenuItems(
     {
       id: 'redo',
       label: t('ide.editor.ctx.redo'),
-      hint: 'Ctrl+Y',
+      hint: shortcutLabel('Ctrl+Y'),
       disabled: state.readOnly,
       disabledTitle: readOnlyWhy,
       onClick: h.redo,
@@ -133,7 +136,7 @@ export function buildBodyMenuItems(
     {
       id: 'save',
       label: t('ide.editor.ctx.save'),
-      hint: 'Ctrl+S',
+      hint: shortcutLabel('Ctrl+S'),
       separatorBefore: true,
       disabled: !state.dirty,
       disabledTitle: t('ide.editor.ctx.nothingToSave'),

@@ -5,6 +5,9 @@ import { useGraphStore } from '../../stores/graphStore.js';
 import type { PermissionRequest } from '@vibisual/shared';
 // §5.22 — 위험 배지는 타임라인과 **같은 색·같은 라벨**을 쓴다(두 화면이 어긋나면 못 믿는다).
 import { riskLabelKey, riskToneClass } from '../../utils/auditLog.js';
+// 단축키 라벨은 플랫폼이 정한다 — mac 에서 실제로 눌리는 키는 Ctrl 이 아니라 Command 다
+//   (핸들러는 이미 ctrlKey || metaKey 를 함께 보므로 **표시만** 어긋나 있었다).
+import { shortcutLabel } from '../../utils/platform.js';
 
 /** §5.3 #12-1 v1.43 — 스택 모달 간 z-index 시작값. */
 const BASE_Z = 100_000;
@@ -237,7 +240,7 @@ function PermissionModal({
         {/* Footer — Allow / Deny */}
         <div className="flex items-center justify-between gap-2 border-t border-gray-700 px-4 py-3">
           <span className="text-[12px] text-gray-600">
-            {t('panel.permissionPrompt.shortcutHint', { defaultValue: 'Ctrl+Enter = Allow · Esc = Deny' })}
+            {t('panel.permissionPrompt.shortcutHint', { shortcut: shortcutLabel('Ctrl+Enter'), defaultValue: '{{shortcut}} = Allow · Esc = Deny' })}
           </span>
           <div className="flex gap-2">
             <button

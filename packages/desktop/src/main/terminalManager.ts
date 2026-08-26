@@ -126,11 +126,35 @@ export function setTerminalCardIdentity(next: { port: number; token: string; ide
   cardIdentity = next;
 }
 
-function pickShell(): { shell: string; shellArgs: string[] } {
-  if (process.platform === 'win32') {
-    return { shell: process.env['COMSPEC'] ?? 'cmd.exe', shellArgs: [] };
+/**
+ * 이 터미널에 띄울 셸 + 인자.
+ *
+ * **macOS 는 로그인 셸(`-l`)로 띄운다 — 지우지 말 것.**
+ * Finder/Dock 으로 실행한 앱은 사용자의 셸이 아니라 `launchd` 에서 나오므로 PATH 가
+ * `/usr/bin:/bin:/usr/sbin:/sbin` 넉 줄뿐이다. 그 PATH 를 그대로 물려받은 비로그인 셸에서는
+ * Homebrew 로만 깐 `node`·`git`·`python`·`claude` 가 전부 `command not found` 로 나온다
+ * (임베디드 터미널만 안 되고 사용자의 iTerm 에서는 되니, 원인을 우리 쪽으로 의심하기도 어렵다).
+ * Homebrew 의 `eval "$(brew shellenv)"` 는 관례상 `~/.zprofile` / `~/.bash_profile` 에 들어가는데
+ * **그 파일들은 로그인 셸일 때만** 읽힌다. VS Code 통합 터미널이 macOS 기본 프로필에만 `-l` 을
+ * 붙이는 이유가 정확히 이것이다.
+ *
+ * **Linux 는 일부러 그대로 둔다.** 리눅스 데스크톱 세션은 이미 `~/.profile` 을 태운 PATH 를
+ * 물려주므로 얻을 것이 없는 반면, bash 는 **로그인이 되는 순간 `~/.bashrc` 를 읽지 않는다** —
+ * `~/.bash_profile` 이 그것을 source 하지 않는 사용자(리눅스에선 흔하다)의 별칭·프롬프트가
+ * 통째로 사라진다. 잃는 쪽이 더 크다.
+ *
+ * prefill 규약에는 영향이 없다: 우리는 `-c` 로 명령을 주는 것이 아니라 대화형 셸을 띄운 뒤
+ * 350ms 후 stdin 에 문자열만 넣는다(Enter 는 사람이 친다 — §4 v2.63 ToS 합법선).
+ */
+export function pickShell(
+  platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
+): { shell: string; shellArgs: string[] } {
+  if (platform === 'win32') {
+    return { shell: env['COMSPEC'] ?? 'cmd.exe', shellArgs: [] };
   }
-  return { shell: process.env['SHELL'] ?? '/bin/bash', shellArgs: [] };
+  const shell = env['SHELL'] ?? '/bin/bash';
+  return { shell, shellArgs: platform === 'darwin' ? ['-l'] : [] };
 }
 
 /**

@@ -65,6 +65,9 @@ const inspector = defineInspector({
   // v4.65 — `brain` 을 뺐다. 카드가 세는 것이 **집행 실측**으로 바뀌면서 기억 수를 읽지 않게 됐고,
   //   안 읽는 축을 선언해 두면 버블마다 쓸모없는 구독이 붙는다(`needs.test.ts` 가 이것을 잡는다).
   needs: ['pluginFacts'],
+  // §5.11 노출 게이트 — 이 카드의 집행은 프로젝트를 실제로 훑는다(`ssot.ts` 의 `buildSsotPromptBlock`
+  //   이 SSOT 문서를 찾아 읽고, `surveySsotFacts` 가 그 근거를 돌려준다). 그래서 기본 목록에 선다.
+  enforcesProject: true,
   // v4.67 — 실측이 **프로젝트 단위**라 표시 조건도 프로젝트 단위여야 한다. 골격 기본값은 "설정이 있는
   //   에이전트 버블"이라, 설정 없는 버블(훅으로 붙은 세션)에서는 켜 두고도 카드가 안 보였다.
   match: (ctx) => ctx.bubbleType === 'agent',

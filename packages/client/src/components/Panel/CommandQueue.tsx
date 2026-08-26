@@ -1,5 +1,6 @@
 import { memo, useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { shortcutLabel } from '../../utils/platform.js';
 import { useGraphStore } from '../../stores/graphStore.js';
 import type { QueuedCommand, SubAgent } from '@vibisual/shared';
 // §5.5 #17-18 v4.68 — 덧말 처리 방식(대기/합치기/즉시).
@@ -373,7 +374,7 @@ function CommandInputPopup({ agentId, onSubmit, onClose }: CommandInputPopupProp
                 onPaste={handlePaste}
                 onKeyDown={handleTextareaKeyDown}
                 rows={3}
-                placeholder={t('panel.commandQueue.placeholder')}
+                placeholder={t('panel.commandQueue.placeholder', { paste: shortcutLabel('Ctrl+V') })}
                 className="scrollbar-thin min-h-[72px] flex-1 resize-none rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-200 placeholder-gray-500 outline-none focus:border-blue-500"
                 style={{ maxHeight: MAX_TEXTAREA_HEIGHT }}
               />

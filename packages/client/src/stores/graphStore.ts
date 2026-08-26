@@ -8,6 +8,7 @@ import { isReadOnlyHookAgent } from '@vibisual/shared';
 import { DEFAULT_UI_LOCALE, STREAM_EVENTS_MAX_PER_SESSION, STREAM_EVENTS_TRIM_SLACK, STREAM_EVENTS_MAX_PER_INACTIVE_SESSION, STREAM_INACTIVE_SESSIONS_MAX, DIAGNOSTIC_LOG_MAX, STREAM_DENSITIES, IDE_EDITOR_MAX_TABS, IDE_EDITOR_WIDTH, DIFF_COMMENT_MAX } from '@vibisual/shared';
 import { changeUiLocale } from '../i18n/index.js';
 import { calcFileSizeRange } from '../utils/sizeCalc.js';
+import { clientPathKey } from '../utils/platform.js';
 import { structuralShare } from './structuralShare.js';
 import { diffSubAcknowledgements } from './subAckDiff.js';
 import type { ReadingSettings } from '../components/IDE/reading/readingModel.js';
@@ -16,7 +17,19 @@ import {
 } from '../components/IDE/reading/readingModel.js';
 import { recordCommandHistory, dropSessionCommandHistory } from '../components/IDE/commandHistory.js';
 import { insertEventInTurnOrder } from '../components/IDE/turnOrder.js';
-import { IDE_DOCK, IDE_MAX_PANES, type DockedPane, type FloatGeom, type IDEDockSide } from '../components/IDE/ideDockLayout.js';
+import {
+  IDE_DOCK,
+  IDE_MAX_PANES,
+  cascadeFloatGeoms,
+  clampDockSize,
+  clampFloatGeom,
+  defaultDockSize,
+  tileFloatGeoms,
+  type DockedPane,
+  type FloatGeom,
+  type IDEDockSide,
+  type Viewport,
+} from '../components/IDE/ideDockLayout.js';
 // §5.5 #17-34 — 창 **안**의 화면 분할. 트리 연산은 전부 순수 모듈이 하고 스토어는 그 결과만 앉힌다.
 import {
   adjacentCellId, cellIdForSession, closeCell, dropOnCell, findCell, listCells, makeCell, pruneCells,
@@ -179,9 +192,13 @@ function saveActiveProject(name: string | null): void {
   } catch { /* noop */ }
 }
 
-/** projectId 정규화 — 서버 appState(경로키)와 동일 semantics (v1.63). */
+/**
+ * projectId 정규화 — 서버 appState(경로키)와 동일 semantics (v1.63).
+ * 대소문자는 **그 OS 의 파일시스템이 실제로 무시할 때만** 접는다 — Linux 에서 무조건 접으면
+ * 케이스만 다른 두 프로젝트가 한 탭 키로 뭉개진다(판정 utils/platform.ts · 규칙 shared pathCase).
+ */
 function npStore(p: string): string {
-  return p.replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '');
+  return clientPathKey(p);
 }
 
 function loadJSON<T>(key: string, fallback: T): T {
@@ -367,7 +384,8 @@ export function selectActivePluginFacts(state: {
 }): Record<string, PluginFactMap> | undefined {
   const path = selectActivePluginProjectPath(state);
   if (!path) return undefined;
-  const norm = (p: string): string => p.replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '');
+  // 케이스 접기는 플랫폼이 정한다 — Linux 에서 접으면 다른 폴더의 실측이 서로 섞인다.
+  const norm = clientPathKey;
   const want = norm(path);
   const direct = state.pluginFacts[path];
   if (direct) return direct;
@@ -481,6 +499,21 @@ export interface EditorFollowPending {
   /** 마지막 편집의 완료 시각(ms). */
   at: number;
 }
+
+/**
+ * (판올림 번호 발급 대기) 창 여러 개를 한 번에 정리하는 방식.
+ *
+ * `tile`·`cascade` 는 전부 떼어 늘어놓고, `tabRight`·`splitLeftRight` 는 붙여 모은다.
+ * `undockAll` 은 자리를 그대로 둔 채 떼기만 한다(사용자가 잡아 둔 배치를 지우지 않는다).
+ */
+export type IDEWindowLayoutKind =
+  | 'tile'
+  | 'cascade'
+  | 'tabRight'
+  | 'splitLeftRight'
+  | 'undockAll'
+  | 'collapseAll'
+  | 'expandAll';
 
 /**
  * IDE 창 하나의 상태 — **팬 키** 단위로 보관한다(`ideOverlays[paneKey]`).
@@ -815,6 +848,73 @@ export function selectDockSideOccupied(
   side: IDEDockSide,
 ): boolean {
   return selectVisibleDockedPanes(state).some((p) => p.side === side);
+}
+
+/**
+ * 팬 키에 박힌 **열린 순번** — 탭 줄에서 창 순서를 고정하는 데 쓴다.
+ *
+ * 앞뒤 도장(`z`)은 누를 때마다 바뀌므로 탭 순서로 쓰면 탭이 손 밑에서 자리를 옮긴다.
+ * 주 창(키=프로젝트명)은 늘 맨 앞(-1)이고, 나머지는 `::ide-N` 의 N 을 그대로 쓴다.
+ */
+export function idePaneKeySeq(paneKey: string): number {
+  const at = paneKey.lastIndexOf('::ide-');
+  if (at < 0) return -1;
+  const n = Number(paneKey.slice(at + 6));
+  return Number.isFinite(n) ? n : -1;
+}
+
+/**
+ * (판올림 번호 발급 대기) **한 칸을 나눠 쓰는 창들**(언리얼식 탭 도킹) — 같은 변 + 같은 `dockOrder`.
+ * 열린 순번으로 정렬해 돌려주므로 탭 줄이 앞뒤 도장 때문에 흔들리지 않는다.
+ */
+export function selectDockSlotPanes(
+  state: { ideOverlays: Record<string, IDEOverlayState>; activeProject: string | null; nodeMap: Record<string, BubbleData> },
+  paneKey: string,
+): IDEOverlayState[] {
+  const cur = state.ideOverlays[paneKey];
+  if (!cur?.dockSide) return cur ? [cur] : [];
+  return selectProjectIDEPanes(state)
+    .filter((o) => !o.collapsed
+      && o.dockSide === cur.dockSide
+      && o.dockOrder === cur.dockOrder
+      && !!o.agentId
+      && !!state.nodeMap[o.agentId])
+    .sort((a, b) => idePaneKeySeq(a.paneKey) - idePaneKeySeq(b.paneKey));
+}
+
+/**
+ * 그 창이 속한 칸에서 **지금 앞에 있는(=그려지는) 창**의 키.
+ *
+ * 한 칸에 여러 창이 겹치면 보이는 것은 하나다. 그리는 쪽과 탭 강조가 이 함수 하나를 읽어야
+ * "탭은 A 가 켜져 있는데 내용은 B" 같은 어긋남이 생기지 않는다.
+ */
+export function selectDockSlotFrontKey(
+  state: { ideOverlays: Record<string, IDEOverlayState>; activeProject: string | null; nodeMap: Record<string, BubbleData> },
+  paneKey: string,
+): string {
+  const mates = selectDockSlotPanes(state, paneKey);
+  if (mates.length <= 1) return paneKey;
+  let best = mates[0]!;
+  for (const o of mates) if (o.z > best.z) best = o;
+  return best.paneKey;
+}
+
+/** 그 칸의 탭 줄 **지문**(원시 문자열) — 배열을 직접 구독하지 않기 위한 규약(선택자 캐시 함정). */
+export function selectDockSlotSignature(
+  state: { ideOverlays: Record<string, IDEOverlayState>; activeProject: string | null; nodeMap: Record<string, BubbleData> },
+  paneKey: string,
+): string {
+  const mates = selectDockSlotPanes(state, paneKey);
+  if (mates.length <= 1) return '';
+  const front = selectDockSlotFrontKey(state, paneKey);
+  // 이름까지 지문에 실어 탭 줄이 `nodeMap` 을 따로 구독하지 않게 한다(그러면 스냅샷마다 창이 다시 그려진다).
+  //   구분자와 부딪히지 않도록 조각마다 인코딩한다 — 프로젝트명·버블 이름에는 무엇이든 들어올 수 있다.
+  return mates
+    .map((o) => {
+      const label = (o.agentId ? state.nodeMap[o.agentId]?.label : '') ?? '';
+      return `${encodeURIComponent(o.paneKey)}|${encodeURIComponent(label)}|${o.paneKey === front ? '1' : '0'}`;
+    })
+    .join(';');
 }
 
 // ─── 스트림 메모리 관리 (성능: 비활성 세션 차등 cap + 오래된 세션 pruning) ───
@@ -1880,6 +1980,19 @@ interface GraphState {
   toggleIDESidebar: (paneKey?: string | null) => void;
   /** §5.5 #17-1 — 그 창을 어느 변에 붙일지(null 이면 뗀다). 같은 변 안 자리는 `order` 로 정한다. */
   setIDEPaneDock: (paneKey: string | null | undefined, dock: { side: IDEDockSide; size: number; order: number } | null) => void;
+  /**
+   * (판올림 번호 발급 대기) **창 여러 개를 한 번에 정리한다**(언리얼 Window ▸ 레이아웃 관용).
+   * 창을 서넛 띄우면 겹쳐 쌓여 아래 것을 찾을 수 없다 — 그때 한 번에 늘어놓거나 한 칸에 모은다.
+   */
+  applyIDEWindowLayout: (kind: IDEWindowLayoutKind, viewport: Viewport) => void;
+  /**
+   * (판올림 번호 발급 대기) 레이아웃이 **밖에서** 바뀐 세대. 창 컴포넌트는 이 값이 오르면
+   * 자기 모양(도킹/플로팅/자리)을 스토어에서 다시 읽는다 — 모양은 컴포넌트 로컬 상태라
+   * 이 신호가 없으면 프리셋이 스토어만 바꾸고 화면은 그대로 있는다.
+   */
+  ideLayoutEpoch: number;
+  /** (판올림 번호 발급 대기) 다음(+1)/이전(-1) 창을 앞으로 — 겹쳐 쌓인 창을 키보드로 훑는 자리. */
+  cycleIDEPaneFocus: (dir: 1 | -1) => void;
   /** §5.5 #17-1 — 도크 두께. 같은 변에 붙은 창들은 한 칸을 나눠 쓰므로 **함께** 바뀐다. */
   setIDEDockSize: (paneKey: string | null | undefined, size: number) => void;
   /**
@@ -4595,6 +4708,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   }),
   ideOverlays: {},
   idePaneSeq: 0,
+  ideLayoutEpoch: 0,
   openIDEOverlay: (agentId, opts) => {
     // §5.19 (B) — All Model 버블은 **여기서** 준비됐는지 갈린다. 여는 손잡이(캔버스 더블클릭·
     //   북마크 점프·카드에서 열기)가 전부 이 함수로 모이므로, 갈림도 손잡이마다가 아니라 이 한 곳에.
@@ -4724,6 +4838,83 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     if (cur.z >= front) return {};
     const seq = s.idePaneSeq + 1;
     return { idePaneSeq: seq, ideOverlays: { ...s.ideOverlays, [paneKey]: { ...cur, z: seq } } };
+  }),
+  cycleIDEPaneFocus: (dir) => set((s) => {
+    // 순서는 **열린 순번**으로 고정한다 — 앞뒤 도장으로 돌면 누를 때마다 두 창 사이만 오간다.
+    const list = selectRenderedIDEPanes(s)
+      .filter((o) => !!o.agentId && !!s.nodeMap[o.agentId!])
+      .sort((a, b) => idePaneKeySeq(a.paneKey) - idePaneKeySeq(b.paneKey));
+    if (list.length <= 1) return {};
+    let frontIdx = 0;
+    let bestZ = Number.NEGATIVE_INFINITY;
+    list.forEach((o, i) => { if (o.z > bestZ) { bestZ = o.z; frontIdx = i; } });
+    const target = list[(frontIdx + (dir > 0 ? 1 : list.length - 1)) % list.length]!;
+    const seq = s.idePaneSeq + 1;
+    return { idePaneSeq: seq, ideOverlays: { ...s.ideOverlays, [target.paneKey]: { ...target, z: seq } } };
+  }),
+  applyIDEWindowLayout: (kind, vp) => set((state) => {
+    const all = selectProjectIDEPanes(state).filter((o) => !!o.agentId);
+    if (all.length === 0) return {};
+    const epoch = state.ideLayoutEpoch + 1;
+    const next = { ...state.ideOverlays };
+    const write = (paneKey: string, patch: Partial<IDEOverlayState>): void => {
+      const cur = next[paneKey];
+      if (cur) next[paneKey] = { ...cur, ...patch };
+    };
+
+    if (kind === 'collapseAll' || kind === 'expandAll') {
+      const collapsed = kind === 'collapseAll';
+      for (const o of all) write(o.paneKey, { collapsed });
+      return { ideOverlays: next, ideLayoutEpoch: epoch };
+    }
+
+    // 정리 대상은 **펴져 있는 창**뿐이다 — 접어 둔 창을 몰래 펴지 않는다(접기는 사용자의 뜻).
+    const open = all
+      .filter((o) => !o.collapsed)
+      .sort((a, b) => idePaneKeySeq(a.paneKey) - idePaneKeySeq(b.paneKey));
+    if (open.length === 0) return {};
+
+    if (kind === 'undockAll') {
+      // 자리는 그대로 두고 떼기만 한다 — 사용자가 잡아 둔 배치를 지우지 않는다.
+      for (const o of open) write(o.paneKey, { dockSide: null, openMode: 'floating' });
+      return { ideOverlays: next, ideLayoutEpoch: epoch };
+    }
+
+    if (kind === 'tile' || kind === 'cascade') {
+      const bounds = { x: 0, y: IDE_DOCK.HEADER_H, w: vp.w, h: Math.max(1, vp.h - IDE_DOCK.HEADER_H) };
+      const geoms = kind === 'tile'
+        ? tileFloatGeoms(open.length, bounds)
+        : cascadeFloatGeoms(open.length, bounds);
+      open.forEach((o, i) => {
+        const g = geoms[i];
+        if (!g) return;
+        write(o.paneKey, { dockSide: null, openMode: 'floating', float: clampFloatGeom(g, vp) });
+      });
+      return { ideOverlays: next, ideLayoutEpoch: epoch };
+    }
+
+    if (kind === 'tabRight') {
+      // 전부 오른쪽 **한 칸**에 겹친다(같은 order = 탭). 화면은 한 번만 잘리고 창은 탭으로 오간다.
+      const size = clampDockSize('right', open[0]!.dockSide === 'right' ? open[0]!.dockSize : defaultDockSize('right'), vp, []);
+      for (const o of open) write(o.paneKey, { dockSide: 'right', dockSize: size, dockOrder: 0, dockSpan: 1 });
+      return { ideOverlays: next, ideLayoutEpoch: epoch };
+    }
+
+    // splitLeftRight — 앞 절반은 왼쪽 한 칸, 뒤 절반은 오른쪽 한 칸(각 칸 안에서는 탭).
+    const each = Math.max(
+      IDE_DOCK.MIN_SIZE,
+      Math.min(defaultDockSize('left'), Math.floor((vp.w - IDE_DOCK.KEEP_CANVAS.w) / 2)),
+    );
+    const half = Math.ceil(open.length / 2);
+    open.forEach((o, i) => {
+      write(o.paneKey, {
+        dockSide: i < half ? 'left' : 'right',
+        dockSize: each,
+        dockOrder: 0,
+        dockSpan: 1,
+      });
+    });
+    return { ideOverlays: next, ideLayoutEpoch: epoch };
   }),
   setIDEPaneCollapsed: (paneKey, collapsed) => set((s) => {
     const cur = s.ideOverlays[paneKey];

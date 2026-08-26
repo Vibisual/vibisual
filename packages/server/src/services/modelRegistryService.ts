@@ -111,6 +111,8 @@ class ModelRegistryService {
       const finish = (text: string): void => { if (!done) { done = true; resolve(text); } };
       let child: ReturnType<typeof spawn>;
       try {
+        // detached 를 **일부러 안 붙인다** — `--help` 는 손자를 만들지 않고 즉시 끝나는 probe 다
+        //   (단일 kill 로 회수하므로 프로세스 그룹이 필요 없다).
         child = spawn(binPath, ['--help'], {
           shell: process.platform === 'win32',
           windowsHide: true,

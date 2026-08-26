@@ -573,20 +573,47 @@ export function openOverlay(opts: {
   agentId: string;
   projectId: string;
   cursor?: { x: number; y: number } | undefined;
+  /**
+   * (판올림 번호 발급 대기) **앱 창 밖으로 끌어내 만든 창** — 버블로 접힌 채가 아니라
+   * 처음부터 IDE 크기로 뜬다. 끌어낸 사람은 "이 창이 밖으로 나왔다"를 기대하지,
+   * 버블로 접혔다가 다시 더블클릭하기를 기대하지 않는다.
+   */
+  expanded?: boolean | undefined;
+  /** 끌고 있던 창의 크기(px). 그대로 물려받아 **빠져나온 그 창**으로 보이게 한다. */
+  size?: { width: number; height: number } | undefined;
 }): { windowId: number; reused: boolean } {
   const existing = overlaysByAgentId.get(opts.agentId);
   if (existing && !existing.window.isDestroyed()) {
     if (existing.window.isMinimized()) existing.window.restore();
     existing.window.show();
     existing.window.focus();
+    // 이미 버블로 떠 있는 창을 다시 끌어냈다면 그 창을 펼쳐 준다(창 두 개 ❌ — 한 에이전트 한 창).
+    if (opts.expanded && !existing.expanded) expandOverlayByWindowId(existing.id);
     keepOverlayOnTop(existing.window);
     return { windowId: existing.id, reused: true };
   }
 
+  // (판올림 번호 발급 대기) 끌어내서 만든 창은 **커서가 있는 화면**의 작업영역 안에, 끌던 크기로.
+  //   커서는 렌더러가 넘긴 값이 아니라 **여기서 직접** 읽는다 — DPI 배율이 다른 모니터에서
+  //   렌더러 좌표를 그대로 쓰면 창이 엉뚱한 화면에 앉는다.
+  const dropPoint = opts.expanded ? (opts.cursor ?? screen.getCursorScreenPoint()) : opts.cursor;
+  const dropDisp = screen.getDisplayNearestPoint(dropPoint ?? screen.getCursorScreenPoint());
+  const dropWa = dropDisp.workArea;
+  const winW = opts.expanded
+    ? Math.max(MIN_FLOAT_W_OVERLAY, Math.min(opts.size?.width ?? 840, dropWa.width))
+    : OVERLAY_BUBBLE_W;
+  const winH = opts.expanded
+    ? Math.max(MIN_FLOAT_H_OVERLAY, Math.min(opts.size?.height ?? 600, dropWa.height))
+    : OVERLAY_BUBBLE_H;
+
   // 위치: cursor 근처가 있으면 그 옆, 없으면 현재 디스플레이 우상단에서 캐스케이드.
   let x: number;
   let y: number;
-  if (opts.cursor) {
+  if (opts.expanded && dropPoint) {
+    // 뗀 자리에 **타이틀바가** 오게 앉힌다(끌던 손 아래에서 창이 이어지는 느낌).
+    x = Math.max(dropWa.x, Math.min(Math.round(dropPoint.x - winW / 2), dropWa.x + dropWa.width - winW));
+    y = Math.max(dropWa.y, Math.min(Math.round(dropPoint.y - 18), dropWa.y + dropWa.height - winH));
+  } else if (opts.cursor) {
     x = Math.round(opts.cursor.x - OVERLAY_BUBBLE_W / 2);
     y = Math.round(opts.cursor.y - 24);
   } else {
@@ -599,15 +626,15 @@ export function openOverlay(opts: {
   overlayCascade += 1;
 
   const win = new BrowserWindow({
-    width: OVERLAY_BUBBLE_W,
-    height: OVERLAY_BUBBLE_H,
+    width: winW,
+    height: winH,
     x,
     y,
     show: false,
     transparent: true,
     backgroundColor: '#00000000',
     frame: false,
-    resizable: false,
+    resizable: !!opts.expanded,
     skipTaskbar: true,
     alwaysOnTop: true,
     hasShadow: false,
@@ -626,13 +653,20 @@ export function openOverlay(opts: {
   // 다른 앱(전체화면 제외) 위에 떠 다른 PC 작업 옆에 보이도록.
   keepOverlayOnTop(win);
 
+  if (opts.expanded) {
+    // 펼친 채로 태어난 창 — 최소 크기를 IDE 기준으로 두고, 나중에 접으면 이 자리에 버블로 앉는다.
+    try { win.setMinimumSize(MIN_FLOAT_W_OVERLAY, MIN_FLOAT_H_OVERLAY); } catch { /* noop */ }
+  }
+
   const entry: OverlayEntry = {
     id: win.id,
     agentId: opts.agentId,
     projectId: opts.projectId,
     window: win,
-    expanded: false,
-    collapsedBounds: null,
+    expanded: !!opts.expanded,
+    collapsedBounds: opts.expanded
+      ? { x, y, width: OVERLAY_BUBBLE_W, height: OVERLAY_BUBBLE_H }
+      : null,
     opacity: 1,
   };
   overlaysByAgentId.set(opts.agentId, entry);
@@ -642,10 +676,15 @@ export function openOverlay(opts: {
   // 다른 어떤 프로그램이 선택돼 있어도 항상 위에 떠 있는다(alwaysOnTop 'screen-saver').
   win.on('ready-to-show', () => {
     if (win.isDestroyed()) return;
-    if (overlaysUserVisible) {
+    if (!overlaysUserVisible) return;
+    if (opts.expanded) {
+      // 방금 손으로 끌어낸 창이라 바로 쓰게 된다 — 뒤에 뜨면 "꺼냈는데 안 보인다"로 읽힌다.
+      win.show();
+      win.focus();
+    } else {
       win.showInactive();
-      keepOverlayOnTop(win);
     }
+    keepOverlayOnTop(win);
   });
 
   win.on('closed', () => {
@@ -657,7 +696,8 @@ export function openOverlay(opts: {
     broadcastOverlayList();
   });
 
-  const hash = `overlay=1&agentId=${encodeURIComponent(opts.agentId)}&projectId=${encodeURIComponent(opts.projectId)}`;
+  const hash = `overlay=1&agentId=${encodeURIComponent(opts.agentId)}&projectId=${encodeURIComponent(opts.projectId)}`
+    + (opts.expanded ? '&expanded=1' : '');
   void win.loadFile(join(__dirname, '../renderer/index.html'), { hash });
 
   win.webContents.once('did-finish-load', () => {
@@ -812,7 +852,7 @@ export function setOverlayOpacitySelfByWindowId(windowId: number, opacity: numbe
 
 // "본체에서 이 버블로 점프" — 메인 윈도우를 앞으로 끌어올리고, 그 렌더러에 점프 신호를 보낸다.
 // 실제 캔버스 이동·선택은 메인 App 의 onReveal 핸들러가 §5.4 #30 북마크 점프 로직으로 수행.
-export function revealOverlayInMain(payload: { agentId: string; projectId: string }): boolean {
+export function revealOverlayInMain(payload: { agentId: string; projectId: string; openIde?: boolean }): boolean {
   const main = getMainWindow();
   if (!main || main.isDestroyed()) return false;
   if (main.isMinimized()) main.restore();
@@ -821,6 +861,9 @@ export function revealOverlayInMain(payload: { agentId: string; projectId: strin
   main.webContents.send('vibisual:overlay:reveal', {
     agentId: payload.agentId,
     projectId: payload.projectId,
+    // (판올림 번호 발급 대기) 끌어냈던 창을 **앱 안으로 되돌리는** 길 — 캔버스로 점프만 하는
+    //   종전 동작과 달리 그 자리에서 IDE 창까지 다시 연다(되돌리기가 반쪽이면 되돌린 게 아니다).
+    openIde: !!payload.openIde,
   });
   return true;
 }

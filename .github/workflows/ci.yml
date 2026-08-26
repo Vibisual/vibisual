@@ -1,0 +1,73 @@
+# 플랫폼 동등성 검증 — Windows·macOS·Linux 에서 타입체크와 테스트를 모두 돌린다.
+#
+# ⚠️ 이 워크플로가 왜 생겼는지(2026-08-26 전수조사):
+#    이전까지 `.github/workflows/` 에는 release.yml 하나뿐이었다. 즉 **테스트 238개 파일이
+#    macOS·Linux 에서 단 한 번도 실행된 적이 없었다.** 개발도 릴리스 검증도 Windows 에서만
+#    이뤄지는 동안, POSIX 에서만 깨지는 결함들(경로 대소문자 접기, 프로세스 그룹 킬,
+#    PATH 미상속, Wayland 캡처)이 아무 저항 없이 쌓였다.
+#
+#    그러니 이 워크플로를 "빨갛다고 꺼 두는" 일만은 하지 마라. 빨간 것이 곧 정보다 —
+#    release.yml 머리말이 남긴 교훈 그대로, 실패를 "예상된 것"으로 적어 두면 그 실패는
+#    조사되지 않는다. 특정 케이스가 그 플랫폼에서 성립할 수 없다면 워크플로를 끄지 말고
+#    **그 테스트에 사유를 적어 skip** 하라.
+#
+# 러너는 셋 다 GitHub 공개 저장소 무료 표준 러너다.
+
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+# 같은 브랜치에 연속 푸시하면 앞선 런은 취소한다(러너 시간 절약).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      # 한 플랫폼이 넘어져도 나머지 결과를 봐야 한다 — "mac 만 깨졌나, 셋 다 깨졌나"가
+      # 원인 분류의 첫 갈림길이다.
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+    runs-on: ${{ matrix.os }}
+    name: verify (${{ matrix.os }})
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # shared/plugins/video 는 dist 를 내야 server·client 가 타입을 볼 수 있다.
+      # 데스크톱 패키징(electron-builder)은 여기서 돌리지 않는다 — 그건 release.yml 몫이고,
+      # 여기서 확인하려는 것은 "소스가 이 OS 에서 성립하는가"다.
+      - name: Build workspace packages
+        run: pnpm --filter=@vibisual/shared --filter=@vibisual/plugins --filter=@vibisual/video -r build
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test

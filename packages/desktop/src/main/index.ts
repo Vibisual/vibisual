@@ -36,6 +36,15 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'vibproxy', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
 ]);
 
+// §5.9 화면/프로그램 캡처 — Linux Wayland 세션에서 desktopCapturer 가 소스를 못 받는 것을 막는다.
+// Wayland 는 X11 처럼 아무 창이나 긁게 두지 않고 PipeWire 포털을 거치게 하는데,
+// Chromium 은 이 스위치가 있어야 그 경로를 쓴다. 없으면 X11 캡처러로 폴백해
+// 소스 목록이 비거나 검은 화면이 잡힌다(Ubuntu 22.04+·Fedora 는 기본이 Wayland).
+// ⚠️ app.whenReady() **이전**에 설정해야 먹는다 — 아래로 옮기지 마라.
+if (process.platform === 'linux') {
+  app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer');
+}
+
 let ipcHub: IpcHub | null = null;
 let hookListener: HttpServer | null = null;
 let primaryMainWindow: BrowserWindow | null = null;
@@ -95,10 +104,18 @@ function createWindow(): void {
     titleBarStyle: 'hidden',
     titleBarOverlay: {
       // §3.7 v2.15 — Header `bg-[#334155]` (slate-700) 와 컬러 매치.
+      // ⚠️ `color`/`symbolColor` 는 Windows·Linux 전용이다. macOS 는 이 값을 무시하고
+      //    대신 신호등(닫기/최소화/최대화)을 기본 위치에 그대로 띄운다 — 아래 참조.
       color: '#334155',
       symbolColor: '#cbd5e1',
       height: 36,
     },
+    // macOS 전용 — `titleBarStyle:'hidden'` 이면 신호등이 좌상단 기본 좌표에 그대로 뜨는데,
+    // 우리 Header 는 좌측 12px 부터 로고 + File 메뉴를 그린다. 위치를 안 잡아 주면
+    // 신호등이 File 버튼을 덮어 폴더 열기·설정·플러그인의 **유일한 진입로가 막힌다**
+    // (네이티브 앱 메뉴를 등록하지 않아 대체 경로가 없다).
+    // h-9(36px) 헤더의 세로 가운데에 오도록 y 를 잡고, Header 쪽은 mac 에서 좌측 여백을 예약한다.
+    ...(process.platform === 'darwin' ? { trafficLightPosition: { x: 12, y: 11 } } : {}),
     // out/main/index.cjs → ../icon.{ico,png} (staged by electron.vite.config copy plugin).
     // On Windows, PNG icons render blurry in the taskbar/title bar; use the multi-size
     // .ico instead. macOS/Linux keep the PNG (ICO not supported there).

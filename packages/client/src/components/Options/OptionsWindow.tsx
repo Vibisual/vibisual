@@ -39,6 +39,9 @@ import { AccountTab } from './AccountTab.js';
 import { StorageTab } from './StorageTab.js';
 import { BrainSettingsTab } from '../Panel/BrainActivationPanel.js';
 import { NumberStepper } from './NumberStepper.js';
+// 단축키 라벨은 플랫폼이 정한다 — mac 에서 실제로 눌리는 키는 Ctrl 이 아니라 Command 다
+//   (핸들러는 이미 ctrlKey || metaKey 를 함께 보므로 **표시만** 어긋나 있었다).
+import { shortcutLabel } from '../../utils/platform.js';
 import { UnsavedChangesDialog } from './UnsavedChangesDialog.js';
 
 const API_BASE = '';
@@ -832,7 +835,7 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
                     className="w-40 rounded border border-gray-700 bg-gray-900 px-2 py-1.5 text-sm text-gray-200 outline-none focus:border-blue-500 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                   />
                   <p className="text-[12px] text-gray-500">
-                    {t('panel.options.advanced.terminalScrollbackDesc', { defaultValue: 'CMD 터미널이 보관하는 출력 줄 수입니다. 화면 스크롤과 Ctrl+F 검색이 같은 범위를 씁니다. 새로 여는 터미널부터 적용됩니다.' })}
+                    {t('panel.options.advanced.terminalScrollbackDesc', { shortcut: shortcutLabel('Ctrl+F'), defaultValue: 'CMD 터미널이 보관하는 출력 줄 수입니다. 화면 스크롤과 {{shortcut}} 검색이 같은 범위를 씁니다. 새로 여는 터미널부터 적용됩니다.' })}
                   </p>
                 </div>
               </div>

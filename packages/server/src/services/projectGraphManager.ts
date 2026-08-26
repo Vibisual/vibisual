@@ -89,12 +89,17 @@ import { listLoadedModels } from './localRunner.js';
 import { userDefaultsService } from './userDefaultsService.js';
 import { logger } from '../logger.js';
 import { dbg, dbgOnChange } from './debugLog.js';
+// 경로 대소문자 정책 SSOT — win32/darwin 만 접고 linux 는 접지 않는다.
+import { pathKey } from './pathKey.js';
 
 // ─── 유틸 ───
 
-/** 경로 정규화 (대소문자 무시, 슬래시 통일, trailing slash 제거) — projectGraph.ts 49행과 동일 */
+/** 경로 정규화 (슬래시 통일, trailing slash 제거, **대소문자를 실제로 무시하는 FS 에서만** 소문자)
+ *  — projectGraph.ts 의 `normalize` 와 반드시 같은 규칙. 인스턴스/스텁 Map 키다.
+ *  linux 에서 무조건 접으면 케이스만 다른 두 워크트리·프로젝트가 한 인스턴스로 뭉개져
+ *  한쪽 등록이 다른 쪽을 에러 없이 덮어쓴다. */
 function normalize(filePath: string): string {
-  return filePath.replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '');
+  return pathKey(filePath);
 }
 
 /**
@@ -473,9 +478,10 @@ export function mergeSnapshots(a: GraphSnapshot, b: GraphSnapshot): GraphSnapsho
 
 // ─── v1.63 전역 유일 표시명 (식별=path, 이름=표시) ───
 
-/** projectId 정규화 — appState.normPath / projectGraph.normalize 와 동일 semantics. */
+/** projectId 정규화 — appState.normPath / projectGraph.normalize 와 동일 semantics.
+ *  대소문자는 그 플랫폼이 실제로 무시할 때만 접는다(linux 는 접지 않는다). */
 function normPathId(p: string): string {
-  return p.replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '');
+  return pathKey(p);
 }
 
 /** 같은 basename·다른 경로 충돌 시 최소 부모 세그먼트로 결정적·대칭 구분자 산출. */

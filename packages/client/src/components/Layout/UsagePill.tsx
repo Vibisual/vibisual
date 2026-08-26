@@ -14,6 +14,10 @@ import { UsagePopup } from '../Panel/UsagePopup.js';
 //
 // 데이터가 아직 없을 때도 **숨기지 않는다** — 필이 사라지면 수집기를 켤 입구도 같이
 // 사라지기 때문. 그 상태에선 dim 한 빈 링 + `-` 로 두고, 왜 비었는지는 팝업이 설명한다.
+//
+// §4 — 값은 이제 대화형 세션 없이도 들어온다. 서버가 `claude -p "/usage"` 를 주기적으로
+// 돌려(모델 호출 0턴 = 과금 없음) 받아 오고, statusLine 수집기는 대화형 세션이 떠 있는 동안
+// 그 사이를 더 촘촘히 메우는 보조가 됐다. 그래서 `-` 는 "켜라"가 아니라 대개 "곧 들어온다"다.
 
 /** 사용률 링 + 원 안 숫자. 이모지·이미지 ❌ — 순수 SVG. */
 function UsageRing({ pct }: { pct: number | null }): React.JSX.Element {
@@ -64,8 +68,8 @@ export function UsagePill(): React.JSX.Element {
   const rateLimits = useGraphStore((s) => s.rateLimits);
   const [open, setOpen] = useState(false);
 
-  // §4 v3.62 — 1차 = Claude 앱과 같은 원천(OAuth 직접 조회)의 세션 한도.
-  //   그 경로가 비면 statusLine 이 밀어준 §4 v1.50 값으로 폴백.
+  // §4 — 1차 = 서버가 조립한 세션 한도(`claude -p "/usage"` probe 와 statusLine 중 더 최근 것).
+  //   그마저 비면 statusLine 이 밀어준 §4 v1.50 원본 값으로 폴백.
   const session = claudeUsage?.limits.find((l) => l.kind === 'session' || l.group === 'session');
   const raw = session?.percent ?? rateLimits?.used5h;
   const pct = typeof raw === 'number' ? clampUsagePct(raw) : null;
@@ -75,9 +79,11 @@ export function UsagePill(): React.JSX.Element {
   // 켜기" 라고 하면 사용자가 켜진 스위치를 다시 누르게 된다(§4 v3.60 재설치 사고의 출발점).
   const title = pct !== null
     ? t('header.usage.tooltip', { percent: Math.round(pct) })
-    : claudeUsage?.error === 'awaiting-statusline'
-      ? t('header.usage.tooltipWaiting')
-      : t('header.usage.tooltipNoData');
+    : claudeUsage?.error === 'cli-unavailable'
+      ? t('header.usage.tooltipCliUnavailable')
+      : claudeUsage?.error === 'awaiting-statusline'
+        ? t('header.usage.tooltipWaiting')
+        : t('header.usage.tooltipNoData');
 
   return (
     <>

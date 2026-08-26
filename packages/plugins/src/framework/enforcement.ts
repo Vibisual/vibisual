@@ -17,7 +17,7 @@
  * (§5.10 에서 규칙 카드 전량 주입이 같은 이유로 문제가 됐다). 한 카드당 **규칙 6줄**이 상한이며
  * `enforcement.test.ts` 가 그것을 지킨다.
  */
-import type { PluginPromptContext, PluginPromptModule } from '../types.js';
+import type { PluginFactMap, PluginPromptContext, PluginPromptModule } from '../types.js';
 
 export interface EnforcementSpec {
   /** kebab-case 플러그인 id — 켬/끔 판정 키. */
@@ -41,6 +41,14 @@ export interface EnforcementSpec {
    * 기본값은 "커스텀/CMD 에이전트에만"이 아니라 **항상**이다(켠 것은 켠 이유가 있다).
    */
   applies?: (ctx: PluginPromptContext) => boolean;
+  /**
+   * 훑은 근거를 카드에 돌려준다(선택) — 프롬프트에 실은 판단을 화면이 같은 값으로 그리게 한다.
+   *
+   * `probe` 와 함께 **노출 게이트의 판정 재료**다(§5.11) — 둘 중 하나라도 있으면 이 플러그인은
+   * 프로젝트를 실제로 훑는 것으로 보고, 매니페스트에도 `enforcesProject: true` 를 적어야 한다
+   * (`readiness.test.ts` 가 둘을 대조한다).
+   */
+  survey?: (ctx: PluginPromptContext) => PluginFactMap | undefined;
 }
 
 /** 한 카드가 실을 수 있는 규칙 줄 수 상한. 늘리려면 이유를 SSOT 에 적고 테스트를 함께 고칠 것. */
@@ -49,6 +57,8 @@ export const ENFORCEMENT_RULE_MAX = 6;
 export function defineEnforcement(spec: EnforcementSpec): PluginPromptModule {
   return {
     id: spec.id,
+    // 실측을 낸 카드만 이 칸을 갖는다 — 없으면 배럴이 건너뛴다(빈 함수를 두면 빈 한 벌이 스냅샷에 뜬다).
+    ...(spec.survey ? { survey: spec.survey } : {}),
     buildBlock: (ctx) => {
       if (spec.applies && !spec.applies(ctx)) return undefined;
       let extra: string[] = [];

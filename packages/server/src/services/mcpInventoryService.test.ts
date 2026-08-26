@@ -24,6 +24,7 @@ vi.mock('node:os', async (importOriginal) => {
 });
 
 const { scanMcpInventory, setMcpServerEnabled } = await import('./mcpInventoryService.js');
+const { CASE_INSENSITIVE_FS } = await import('./pathKey.js');
 
 let projectPath = '';
 
@@ -218,5 +219,30 @@ describe('setMcpServerEnabled', () => {
     fs.writeFileSync(path.join(fakeHome, '.claude.json'), '{ this is not json', 'utf8');
     expect(setMcpServerEnabled(projectPath, 'global', 'x', false).ok).toBe(false);
     expect(fs.readFileSync(path.join(fakeHome, '.claude.json'), 'utf8')).toBe('{ this is not json');
+  });
+});
+
+/**
+ * 경로 키 정책 — 종전 `normalizePathKey` 는 **무조건 `.toLowerCase()`** 였다.
+ *
+ * Linux 는 대소문자를 가리는 파일시스템이라 `~/Work/App` 과 `~/work/app` 이 **실재하는 서로 다른
+ * 폴더**다. 무조건 접으면 두 프로젝트의 MCP 설정이 한 키로 뭉개져, 한쪽을 끄면 남의 프로젝트
+ * `disabledMcpServers` 가 함께 바뀐다. 이제 `pathKey`(플랫폼 정책 SSOT)를 쓴다.
+ */
+describe('프로젝트 키의 대소문자 — 플랫폼 정책을 따른다', () => {
+  it('케이스만 다른 두 경로는 그 파일시스템이 실제로 무시할 때만 같은 칸으로 본다', () => {
+    const upper = path.join(projectPath, 'Work');
+    const lower = path.join(projectPath, 'work');
+    writeClaudeJson({
+      mcpServers: { globalOne: { command: 'node' } },
+      projects: { [path.resolve(upper)]: { disabledMcpServers: ['globalOne'] } },
+    });
+
+    // 대문자 경로로 조회하면 언제나 그 엔트리를 본다.
+    expect(find(scanMcpInventory(upper), 'global:globalOne')?.state).toBe('disabled');
+
+    // 소문자 경로는 win/mac(대소문자 무시)에서만 같은 엔트리로 읽혀야 한다.
+    const asLower = find(scanMcpInventory(lower), 'global:globalOne')?.state;
+    expect(asLower).toBe(CASE_INSENSITIVE_FS ? 'disabled' : 'enabled');
   });
 });

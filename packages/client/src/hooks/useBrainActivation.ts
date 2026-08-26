@@ -18,11 +18,11 @@ import {
   isBrainAxisEnabled,
   isBrainEnabled,
   resolveBrainActivation,
-  shouldPromptBrainActivation,
   type BrainActivation,
   type BrainAxisId,
 } from '@vibisual/shared';
 import { selectActiveBrainProjectPath, useGraphStore } from '../stores/graphStore';
+import { clientPathPlatform } from '../utils/platform.js';
 
 export interface BrainActivationApi {
   /** 지금 프로젝트의 **루트 절대경로**(= 활성화 저장 키). 없으면 null. */
@@ -32,14 +32,10 @@ export interface BrainActivationApi {
   activation: BrainActivation | undefined;
   /** 축별 현재값(미지정 축은 권장 조합이 적용된 결과). */
   axes: { id: BrainAxisId; enabled: boolean }[];
-  /** 첫 실행 1회 안내를 띄울 때인가. */
-  shouldPrompt: boolean;
   /** 잠들어 있는 카드 수(꺼져 있어도 세어 둔 값). */
   sleepingCardCount: number;
   setEnabled: (next: boolean) => Promise<void>;
   setAxis: (axis: BrainAxisId, next: boolean) => Promise<void>;
-  /** 안내를 봤다고 기록 — **거절해도 부른다**(그래야 다시 묻지 않는다). */
-  markPrompted: () => Promise<void>;
 }
 
 async function put(body: Record<string, unknown>): Promise<void> {
@@ -62,12 +58,12 @@ export function useBrainActivation(): BrainActivationApi {
   const storePath = useGraphStore(selectActiveBrainProjectPath);
 
   /**
-   * 꺼져 있으면 스냅샷에 brain 요약이 실리지 않는다(게이트 ③) — 그런데 첫 실행 안내는
-   * "N장이 잠들어 있습니다"를 말해야 하므로 장수를 알아야 한다. 그 하나 때문에 게이트를
-   * 뚫지 않고, **게이트가 예외로 열어 둔 활성화 조회**에서 받아 온다.
+   * 꺼져 있으면 스냅샷에 brain 요약이 실리지 않는다(게이트 ③) — 그런데 켜는 두 입구(설정 창
+   * `Project Brain` 탭 · 캔버스 우클릭)는 "N장이 잠들어 있습니다"를 말해야 하므로 장수를 알아야 한다.
+   * 그 하나 때문에 게이트를 뚫지 않고, **게이트가 예외로 열어 둔 활성화 조회**에서 받아 온다.
    *
    * 같은 응답의 `root` 도 붙들어 둔다 — 스토어에 아직 프로젝트가 하이드레이트되기 전에는
-   * 경로를 알 수 없어, 그 짧은 사이에 "꺼짐"으로 보이며 배너가 번쩍이기 때문이다.
+   * 경로를 알 수 없어, 그 짧은 사이에 두뇌가 "꺼짐"으로 잘못 보이기 때문이다.
    */
   const [sleepingCardCount, setSleepingCardCount] = useState(0);
   const [serverRoot, setServerRoot] = useState<string | null>(null);
@@ -90,11 +86,11 @@ export function useBrainActivation(): BrainActivationApi {
   }, [projectName, byProject]);
 
   const projectPath = storePath ?? serverRoot;
-  const enabled = isBrainEnabled(byProject, projectPath);
-  const activation = resolveBrainActivation(byProject, projectPath);
+  const enabled = isBrainEnabled(byProject, projectPath, clientPathPlatform());
+  const activation = resolveBrainActivation(byProject, projectPath, clientPathPlatform());
 
   const axes = useMemo(
-    () => BRAIN_AXIS_IDS.map((id) => ({ id, enabled: isBrainAxisEnabled(byProject, projectPath, id) })),
+    () => BRAIN_AXIS_IDS.map((id) => ({ id, enabled: isBrainAxisEnabled(byProject, projectPath, id, clientPathPlatform()) })),
     [byProject, projectPath],
   );
 
@@ -108,20 +104,14 @@ export function useBrainActivation(): BrainActivationApi {
     await put({ project: projectName, axes: { [axis]: next } });
   }, [projectName]);
 
-  const markPrompted = useCallback(async () => {
-    if (!projectName) return;
-    await put({ project: projectName, prompted: true });
-  }, [projectName]);
 
   return {
     projectPath,
     enabled,
     activation,
     axes,
-    shouldPrompt: shouldPromptBrainActivation(byProject, projectPath, sleepingCardCount),
     sleepingCardCount,
     setEnabled,
     setAxis,
-    markPrompted,
   };
 }

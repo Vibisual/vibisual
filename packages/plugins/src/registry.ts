@@ -10,6 +10,8 @@
 import type { PluginManifest } from '@vibisual/shared';
 import type { PluginDataNeed } from './types.js';
 import { PLUGIN_ID_PATTERN, PLUGIN_SUPPORTED_CONTRIBUTIONS } from '@vibisual/shared';
+// 경로 대소문자 정책 SSOT(`shared/pathCase.ts`) — win32/darwin 만 접고 linux 는 접지 않는다.
+import { legacyLowerPathKey, pathKey, type PlatformName } from '@vibisual/shared';
 import { lethalTrifectaManifest } from './lethal-trifecta/manifest.js';
 import { leastPrivilegeManifest } from './least-privilege/index.js';
 import { blastRadiusManifest } from './blast-radius/index.js';
@@ -309,6 +311,7 @@ export interface PluginEnablementSource {
 export function selectProjectEnabledList(
   source: PluginEnablementSource | null | undefined,
   projectId: string | null | undefined,
+  platform?: PlatformName,
 ): string[] | undefined {
   const byProject = source?.enabledPluginsByProject;
   if (projectId && byProject) {
@@ -316,35 +319,70 @@ export function selectProjectEnabledList(
     // 같은 폴더인데 대소문자·역슬래시만 다른 경로가 들어오는 경우(Windows). 클라는 스냅샷의 `path` 를
     // 그대로 쓰지만 서버 관문은 appState 에서 온 경로를 쓰므로, 여기서 한 번 눅여 주지 않으면
     // **같은 프로젝트가 두 칸으로 갈려** 창에서 켠 것이 서버에서 꺼진 것으로 읽힌다.
-    const key = normalizeProjectKey(projectId);
+    const key = normalizeProjectKey(projectId, platform);
     for (const [k, v] of Object.entries(byProject)) {
-      if (normalizeProjectKey(k) === key) return v;
+      if (normalizeProjectKey(k, platform) === key) return v;
+    }
+    // 하위호환 — 예전 저장분은 플랫폼과 무관하게 **소문자 키**로 적혀 있다. 정확 일치가 없을 때만,
+    // 그리고 **그 칸 자체가 이미 소문자일 때만** 본다(대소문자 섞인 칸은 새 방식으로 적힌 남의 칸이다).
+    // 이게 없으면 업그레이드한 linux 사용자가 켜 둔 플러그인이 통째로 꺼진 것으로 읽힌다.
+    const legacy = legacyLowerPathKey(projectId);
+    for (const [k, v] of Object.entries(byProject)) {
+      if (isLegacyLowerKey(k) && k === legacy) return v;
     }
   }
   return source?.enabledPlugins;
 }
 
-/** 프로젝트 키 비교용 정규화 — forward slash + 소문자 + 끝 슬래시 제거(서버 `normPath` 와 같은 규칙). */
-function normalizeProjectKey(p: string): string {
+/**
+ * 프로젝트 키 비교용 정규화 — forward slash + 끝 슬래시 제거 + **그 플랫폼이 실제로 무시할 때만** 소문자.
+ *
+ * Linux 는 `Feature-X` 와 `feature-x` 가 실재하는 별개 폴더라 무조건 접으면 두 프로젝트가 플러그인
+ * 활성 상태를 공유한다. 이 패키지는 브라우저에서도 로드되므로 `process.platform` 을 읽을 수 없어
+ * **인자를 생략하면 예전대로 접는다**(기존 호출부 회귀 없음). 서버는 `process.platform` 을 넘긴다.
+ */
+
+/**
+ * 저장 키가 **예전 방식(플랫폼 무관 무조건 소문자)** 으로 적힌 것일 수 있는가 — 읽기 폴백 대상 판정.
+ *
+ * 대소문자가 섞인 키는 새 방식으로 적힌 것이므로 폴백에서 제외한다. 이 조건이 없으면 linux 에서
+ * `feature-x` 조회가 `Feature-X` 칸을 집어 들어, 케이스만 다른 두 프로젝트를 가르려던 수정이
+ * 원래 결함을 그대로 되살린다. 폴백은 "조회 경로에 대문자가 있는데 그 칸이 없을 때"만 의미가 있다.
+ */
+function isLegacyLowerKey(k: string): boolean {
+  return k === legacyLowerPathKey(k);
+}
+
+function normalizeProjectKey(p: string, platform?: PlatformName): string {
+  if (platform !== undefined) return pathKey(p, platform);
   return p.replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '');
 }
 
 /**
  * 저장할 때 쓸 **실제 키** — 이미 같은 폴더를 가리키는 칸이 있으면 그 이름을 그대로 쓴다.
  * 부분 저장(한 칸만 PUT)이 기존 칸을 갱신하지 않고 새 칸을 만드는 것을 막는다.
+ * 예전 소문자 키도 한 번 더 찾는다 — 못 찾으면 새 칸이 생겨 linux 사용자의 기존 설정이 통째로 밀린다.
  */
-export function resolveProjectKey(source: PluginEnablementSource | null | undefined, projectId: string): string {
-  const prev = source?.enabledPluginsByProject ?? {};
-  const key = normalizeProjectKey(projectId);
-  return Object.keys(prev).find((k) => normalizeProjectKey(k) === key) ?? projectId;
+export function resolveProjectKey(
+  source: PluginEnablementSource | null | undefined,
+  projectId: string,
+  platform?: PlatformName,
+): string {
+  const keys = Object.keys(source?.enabledPluginsByProject ?? {});
+  const key = normalizeProjectKey(projectId, platform);
+  const hit = keys.find((k) => normalizeProjectKey(k, platform) === key);
+  if (hit !== undefined) return hit;
+  const legacy = legacyLowerPathKey(projectId);
+  return keys.find((k) => isLegacyLowerKey(k) && k === legacy) ?? projectId;
 }
 
 /** 프로젝트 하나에 대한 활성 집합. 창·클라 호스트·서버 관문이 **모두** 이 함수를 통과한다. */
 export function resolveEnabledPluginsFor(
   source: PluginEnablementSource | null | undefined,
   projectId: string | null | undefined,
+  platform?: PlatformName,
 ): Set<string> {
-  return resolveEnabledPlugins(selectProjectEnabledList(source, projectId));
+  return resolveEnabledPlugins(selectProjectEnabledList(source, projectId, platform));
 }
 
 /** 프로젝트 하나에서 이 플러그인이 켜져 있는가. 서버 관문(409)이 쓰는 판정. */
@@ -352,8 +390,9 @@ export function isPluginEnabledFor(
   id: string,
   source: PluginEnablementSource | null | undefined,
   projectId: string | null | undefined,
+  platform?: PlatformName,
 ): boolean {
-  return resolveEnabledPluginsFor(source, projectId).has(id);
+  return resolveEnabledPluginsFor(source, projectId, platform).has(id);
 }
 
 /**
@@ -366,13 +405,12 @@ export function withProjectEnabled(
   source: PluginEnablementSource | null | undefined,
   projectId: string,
   enabled: string[],
+  platform?: PlatformName,
 ): Record<string, string[]> {
   const prev = source?.enabledPluginsByProject ?? {};
-  const key = normalizeProjectKey(projectId);
-  // 대소문자만 다른 칸이 이미 있으면 그 칸을 쓴다 — 안 그러면 같은 폴더가 두 줄로 남아
-  // 읽는 쪽(정규화 비교)과 쓰는 쪽이 다른 칸을 보게 된다.
-  const existing = Object.keys(prev).find((k) => normalizeProjectKey(k) === key);
-  return { ...prev, [existing ?? projectId]: enabled };
+  // 읽는 쪽과 **같은 함수**로 칸을 고른다 — 아니면 켠 것이 다른 칸에 적혀 안 켜진 것으로 읽힌다.
+  // (`resolveProjectKey` 안에 예전 소문자 키 폴백까지 들어 있다.)
+  return { ...prev, [resolveProjectKey(source, projectId, platform)]: enabled };
 }
 
 /** 매니페스트가 선언했지만 호스트가 아직 슬롯을 열지 않은 기여들 — PluginsWindow 가 "미지원"으로 표시. */

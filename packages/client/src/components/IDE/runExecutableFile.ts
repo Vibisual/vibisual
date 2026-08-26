@@ -17,6 +17,7 @@ import type { AgentConfig, RunConfig } from '@vibisual/shared';
 
 import { useGraphStore, selectIDEPane } from '../../stores/graphStore.js';
 import { noteRunLine, runIdFor, startRun, useRunSessions } from '../../stores/runSessions.js';
+import { clientPathKey } from '../../utils/platform.js';
 
 /** `C:\…` · `D:/…` — 윈도우 절대 경로. 명령을 어떻게 감쌀지가 여기서 갈린다. */
 const WIN_ABS = /^[A-Za-z]:[\\/]/;
@@ -31,7 +32,9 @@ export const ADHOC_RUN_PREFIX = 'exec:';
 
 /** 같은 파일을 다시 누르면 같은 id → ④ 의 규칙대로 **재시작**(먼저 죽이고 새로 띄운다). */
 export function executableConfigId(absPath: string): string {
-  return `${ADHOC_RUN_PREFIX}${absPath.replace(/\\/g, '/').toLowerCase()}`;
+  // 실행 구성 id = 경로. 대소문자 접기는 플랫폼이 정한다 — Linux 에서 접으면 케이스만 다른
+  //   두 실행 파일이 같은 구성으로 뭉개져 한쪽을 띄우면 다른 쪽이 죽는다.
+  return `${ADHOC_RUN_PREFIX}${clientPathKey(absPath)}`;
 }
 
 /** 경로의 마지막 조각(파일 이름) — 출력 패널·목록에 이 이름으로 선다. */

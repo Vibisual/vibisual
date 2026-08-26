@@ -299,7 +299,13 @@ export function setupIpc(expressApp: Express): IpcHub {
     'vibisual:overlay:open',
     (
       _event,
-      payload: { agentId: string; projectId: string; cursor?: { x: number; y: number } },
+      payload: {
+        agentId: string;
+        projectId: string;
+        cursor?: { x: number; y: number };
+        expanded?: boolean;
+        size?: { width: number; height: number };
+      },
     ): { windowId: number; reused: boolean } => {
       if (!payload || typeof payload.agentId !== 'string' || payload.agentId.length === 0) {
         throw new Error('vibisual:overlay:open — agentId required');
@@ -307,7 +313,19 @@ export function setupIpc(expressApp: Express): IpcHub {
       if (typeof payload.projectId !== 'string' || payload.projectId.length === 0) {
         throw new Error('vibisual:overlay:open — projectId required');
       }
-      return openOverlay({ agentId: payload.agentId, projectId: payload.projectId, cursor: payload.cursor });
+      // 크기는 **숫자일 때만** 넘긴다 — 렌더러가 보낸 값이 무엇이든 창 기하가 NaN 으로 무너지지 않게.
+      const size = payload.size
+        && Number.isFinite(payload.size.width)
+        && Number.isFinite(payload.size.height)
+        ? { width: Math.round(payload.size.width), height: Math.round(payload.size.height) }
+        : undefined;
+      return openOverlay({
+        agentId: payload.agentId,
+        projectId: payload.projectId,
+        cursor: payload.cursor,
+        expanded: !!payload.expanded,
+        size,
+      });
     },
   );
   ipcMain.handle('vibisual:overlay:close', (_event, agentId: string): boolean => {
@@ -331,9 +349,13 @@ export function setupIpc(expressApp: Express): IpcHub {
   );
   ipcMain.handle(
     'vibisual:overlay:reveal-in-main',
-    (_event, payload: { agentId: string; projectId: string }): boolean => {
+    (_event, payload: { agentId: string; projectId: string; openIde?: boolean }): boolean => {
       if (!payload || typeof payload.agentId !== 'string' || typeof payload.projectId !== 'string') return false;
-      return revealOverlayInMain({ agentId: payload.agentId, projectId: payload.projectId });
+      return revealOverlayInMain({
+        agentId: payload.agentId,
+        projectId: payload.projectId,
+        openIde: !!payload.openIde,
+      });
     },
   );
   // §17-6 (G) v2.87 — 우클릭 메뉴 = 커서 위치 독립 팝업 창.

@@ -16,6 +16,7 @@ import path from 'node:path';
 import type { MediaToolsInfo } from '@vibisual/shared';
 
 import { logger } from '../logger.js';
+import { augmentedEnv, resolveBinary as locateBinary } from './binLocator.js';
 
 const IS_WIN = process.platform === 'win32';
 const IS_MAC = process.platform === 'darwin';
@@ -23,20 +24,6 @@ const IS_MAC = process.platform === 'darwin';
 /** 실행 파일 이름 — 윈도우만 확장자가 붙는다. */
 function binName(base: string): string {
   return IS_WIN ? `${base}.exe` : base;
-}
-
-/**
- * PATH 에서 찾는다. `where`/`which` 는 여러 줄을 낼 수 있어 **첫 줄만** 쓴다.
- * 셸을 거치지 않으므로(execFile) 경로에 공백이 있어도 안전하다.
- */
-function fromPath(base: string): string | null {
-  try {
-    const out = execFileSync(IS_WIN ? 'where.exe' : 'which', [base], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-    const first = out.split(/\r?\n/).map((l) => l.trim()).find((l) => l.length > 0);
-    return first ?? null;
-  } catch {
-    return null;
-  }
 }
 
 /**
@@ -53,7 +40,9 @@ function knownLocations(base: string): string[] {
     const wingetPackages = path.join(localAppData, 'Microsoft', 'WinGet', 'Packages');
     const found: string[] = [
       path.join(localAppData, 'Microsoft', 'WinGet', 'Links', name),
-      path.join('C:', 'ffmpeg', 'bin', name),
+      // `path.join('C:', …)` 은 **드라이브 상대** 경로(`C:ffmpeg\…`)를 만든다 — 루트를 붙여야
+      //   `C:\ffmpeg\bin\ffmpeg.exe` 가 된다(수동 설치 관례 자리).
+      path.join(`${process.env['SystemDrive'] ?? 'C:'}${path.sep}`, 'ffmpeg', 'bin', name),
       path.join(process.env['ProgramFiles'] ?? 'C:\\Program Files', 'ffmpeg', 'bin', name),
     ];
     // winget 패키지 폴더는 `Gyan.FFmpeg_…/ffmpeg-8.1-full_build/bin/ffmpeg.exe` 처럼 한 겹 더 들어간다.
@@ -79,17 +68,16 @@ function knownLocations(base: string): string[] {
   ];
 }
 
+/**
+ * 변환기 하나의 절대경로.
+ *
+ * 종전엔 `where`/`which` 를 띄워 PATH 를 물었다. 그건 **우리 프로세스의 PATH** 를 볼 뿐이라
+ * Finder 로 띄운 macOS 앱(=PATH 넉 줄)에서는 Homebrew 로 깐 ffmpeg 을 못 찾는다.
+ * 이제 `binLocator` 가 보강된 PATH 를 훑고, 여기 `knownLocations`(winget 패키지 폴더 등)를
+ * 마지막 후보로 넘긴다 — 프로세스 두 개를 띄우던 비용도 함께 사라진다.
+ */
 function resolveBinary(base: string): string | null {
-  const onPath = fromPath(base);
-  if (onPath && fs.existsSync(onPath)) return onPath;
-  for (const candidate of knownLocations(base)) {
-    try {
-      if (fs.existsSync(candidate)) return candidate;
-    } catch {
-      /* 접근 불가 — 다음 후보 */
-    }
-  }
-  return null;
+  return locateBinary(binName(base), knownLocations(base));
 }
 
 /** `ffmpeg -version` 첫 줄에서 판올림만 뽑는다. 실패하면 null(있다는 사실은 경로가 이미 말했다). */
@@ -139,6 +127,13 @@ export function detectMediaTools(force = false): MediaToolsInfo {
  *
  * 우리가 바이너리를 나르지 않고 그 OS 의 표준 패키지 관리자에게 맡기는 이유는 (e) 의 라이선스·용량
  * 판단 그대로다. 설치가 끝나면 캐시를 버리고 다시 훑어 "이제 됩니다"를 그 자리에서 답한다.
+ *
+ * `message` 코드(화면이 i18n 문구로 매핑할 값):
+ *  - `installed`        — 실제로 깔렸다.
+ *  - `no-installer`     — 이 OS 에 우리가 아는 표준 설치 창구가 없다(Linux) → 공식 페이지 안내.
+ *  - `brew-not-found` / `winget-not-found` — 설치 창구 **자체**를 못 찾았다. 사용자가 할 일은
+ *    "ffmpeg 설치"가 아니라 "Homebrew 설치"라, `exit -1` 로 뭉뚱그리면 안내가 통째로 어긋난다.
+ *  - `exit <n>`         — 설치 명령이 그 코드로 끝났고 여전히 안 보인다.
  */
 export async function installMediaTools(): Promise<{ ok: boolean; message: string; info: MediaToolsInfo }> {
   const installer = detectMediaTools().installer;
@@ -146,15 +141,29 @@ export async function installMediaTools(): Promise<{ ok: boolean; message: strin
     return { ok: false, message: 'no-installer', info: detectMediaTools(true) };
   }
 
-  const [cmd, args] =
+  const [name, args] =
     installer === 'winget'
-      ? ['winget', ['install', '--id', 'Gyan.FFmpeg', '-e', '--accept-source-agreements', '--accept-package-agreements', '--disable-interactivity']]
-      : ['brew', ['install', 'ffmpeg']];
+      ? ['winget', ['install', '--id', 'Gyan.FFmpeg', '-e', '--accept-source-agreements', '--accept-package-agreements', '--disable-interactivity']] as const
+      : ['brew', ['install', 'ffmpeg']] as const;
+
+  // **패키지 관리자 자신도 PATH 로만 찾으면 안 된다.** `brew` 는 하필 `/opt/homebrew/bin` 에 있는데
+  //   Finder 로 띄운 우리 앱의 PATH 에는 그 폴더가 없다 — 종전에는 `spawn('brew')` 가 ENOENT 로
+  //   죽고 화면에는 `exit -1` 이라는 뜻 모를 숫자만 남았다(사용자가 할 수 있는 일이 없다).
+  const cmd = locateBinary(name);
+  if (!cmd) {
+    logger.warn(`[media-tools] 설치 대행 실패: ${name} 을(를) 찾을 수 없습니다`);
+    return {
+      ok: false,
+      message: installer === 'brew' ? 'brew-not-found' : 'winget-not-found',
+      info: detectMediaTools(true),
+    };
+  }
 
   logger.info(`[media-tools] 변환기 설치 시작: ${cmd} ${args.join(' ')}`);
 
   const code = await new Promise<number>((resolve) => {
-    const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    // 설치기 자신이 또 자식(curl·git·tar)을 부르므로 보강된 PATH 를 물려준다.
+    const child = spawn(cmd, [...args], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, env: augmentedEnv() });
     let tail = '';
     const keep = (chunk: Buffer): void => {
       tail = (tail + chunk.toString('utf8')).slice(-2000);

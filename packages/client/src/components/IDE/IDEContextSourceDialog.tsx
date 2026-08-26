@@ -24,15 +24,19 @@ import { formatTokens, CONTEXT_CATEGORY_LABEL_KEY } from './contextInventoryView
 import { controlExplainKey, CONTEXT_ABOUT_FIELDS } from './contextSourceAbout.js';
 import { useContextAbout } from './useContextAbout.js';
 import { useIDEPaneActions } from './idePane.js';
+import { clientPathKey } from '../../utils/platform.js';
 
 /** 본문 뷰어가 한 번에 그리는 줄 수 상한 — 그 위로는 브라우저가 아니라 사람이 못 읽는다. */
 const MAX_VIEWER_LINES = 4_000;
 
-/** 경로 비교 — Windows 는 대소문자를 가리지 않으므로 낮춰서 본다. */
+/**
+ * 경로 비교 — 대소문자는 **그 플랫폼이 실제로 무시할 때만** 접는다(utils/platform.ts).
+ * Linux 에서 무조건 접으면 케이스만 다른 이웃 폴더가 "루트 안"으로 잘못 읽힌다.
+ */
 function isInsideRoot(absPath: string, rootPath: string | null): boolean {
   if (!rootPath) return false;
-  const a = absPath.replace(/\\/g, '/').toLowerCase();
-  const r = rootPath.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+  const a = clientPathKey(absPath);
+  const r = clientPathKey(rootPath);
   return a === r || a.startsWith(`${r}/`);
 }
 
