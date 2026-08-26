@@ -48,6 +48,7 @@ import {
   BRAIN_CANONICAL_AREAS,
   BRAIN_CANONICAL_TYPES,
   buildBrainReflectionPrompt,
+  BRAIN_SKILL_DRAFT_MIN_TOOL_CALLS,
   type BrainCardScope,
   type BrainCardType,
 } from '@vibisual/shared';
@@ -56,6 +57,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
 import { getSessionJsonlPath } from './sessionDiscovery.js';
+import { brainAxisEnabledFor } from './brainActivation.js';
+import { applyGrounding, applySkillGrounding } from './brainGrounding.js';
+import { getBrainSkillService } from './brainSkillService.js';
 import { getBrainService } from './brainService.js';
 import { logger } from '../logger.js';
 
@@ -247,6 +251,11 @@ export interface SessionDigest {
   lineCount: number;
   /** 원본 문자 수(계측용). */
   rawChars: number;
+  /**
+   * §5.10 v2 (B) — 이 세션의 도구 호출 수.
+   * "복잡한 작업이었나"의 판정에 쓴다 — 절차로 굳힐 만한 일이었는지의 대리 지표다.
+   */
+  toolCalls: number;
 }
 
 /**
@@ -256,6 +265,7 @@ export interface SessionDigest {
 export function buildDigest(raw: string): SessionDigest {
   const lines = raw.split('\n').filter((l) => l.trim().length > 0);
   const parts: string[] = [];
+  let toolCalls = 0;
   for (const line of lines) {
     let j: unknown;
     try { j = JSON.parse(line); } catch { continue; }
@@ -264,6 +274,13 @@ export function buildDigest(raw: string): SessionDigest {
     if (e.type !== 'user' && e.type !== 'assistant') continue;
     const msg = e.message as Record<string, unknown> | undefined;
     if (!msg) continue;
+    // §5.10 v2 (B) — 도구 호출만 따로 센다. 다이제스트 본문에서는 도구 페이로드를 걷어내므로
+    //   여기서 세지 않으면 "복잡한 작업이었나"를 나중에 알 길이 없다.
+    if (Array.isArray(msg.content)) {
+      for (const block of msg.content) {
+        if (block && typeof block === 'object' && (block as Record<string, unknown>).type === 'tool_use') toolCalls++;
+      }
+    }
     const role = e.type === 'user' ? '사용자' : 'AI';
     for (const p of partsFromContent(msg.content, role)) parts.push(p.text);
   }
@@ -279,7 +296,7 @@ export function buildDigest(raw: string): SessionDigest {
     used += len;
   }
   kept.reverse();
-  return { text: kept.join('\n'), lineCount: lines.length, rawChars: raw.length };
+  return { text: kept.join('\n'), lineCount: lines.length, rawChars: raw.length, toolCalls };
 }
 
 function readDigest(cwd: string, sessionId: string): SessionDigest | null {
@@ -370,6 +387,71 @@ function validCanonicalKey(raw: string, type: BrainCardType): string | undefined
 const VALID_TOPICS: ReadonlySet<string> = new Set([...BRAIN_TOPICS.map((t) => t.slug), BRAIN_TOPIC_MISC]);
 
 /** 모델 출력에서 JSON 배열을 방어적으로 파싱. 실패 시 빈 배열. */
+/**
+ * §5.10 v2 (B) — 리플렉션 출력에서 **절차 초안 한 벌**을 꺼낸다.
+ *
+ * 카드와 같은 JSON 배열에 `type: "skill"` 로 섞여 온다(별도 호출을 만들지 않으려고 그렇게 뒀다).
+ * 이름·설명·본문 셋이 다 있어야 절차다 — 하나라도 비면 버린다(빈 껍데기 스킬이 검색을 오염시킨다).
+ */
+export function parseSkillDraft(out: string): {
+  name: string;
+  description: string;
+  body: string;
+  files: string[];
+  topic?: string;
+} | null {
+  const text = out.trim();
+  const start = text.indexOf('[');
+  const end = text.lastIndexOf(']');
+  if (start < 0 || end <= start) return null;
+  let arr: unknown;
+  try { arr = JSON.parse(text.slice(start, end + 1)); } catch { return null; }
+  if (!Array.isArray(arr)) return null;
+  for (const it of arr) {
+    if (!it || typeof it !== 'object') continue;
+    const o = it as Record<string, unknown>;
+    if (o.type !== 'skill') continue;
+    const name = typeof o.name === 'string' ? o.name.trim() : '';
+    const description = typeof o.description === 'string' ? o.description.trim() : '';
+    const body = typeof o.body === 'string' ? o.body.trim() : '';
+    if (!name || !description || !body) continue;
+    const topic = typeof o.topic === 'string' && VALID_TOPICS.has(o.topic.trim()) ? o.topic.trim() : undefined;
+    return {
+      name,
+      description,
+      body,
+      files: Array.isArray(o.files) ? o.files.filter((f): f is string => typeof f === 'string') : [],
+      ...(topic ? { topic } : {}),
+    };
+  }
+  return null;
+}
+
+/**
+ * §5.10 v2 (G) — 리플렉션 출력에서 **운영자 관찰 한 줄**을 꺼낸다.
+ *
+ * 카드와 같은 배열에 `type: "operator"` 로 섞여 온다. 제목이 없으면 관찰이 아니다.
+ * 이 결과는 `scope: 'user'` 카드로 저장되며 **로컬 파일 밖으로 나가지 않는다.**
+ */
+export function parseOperatorNote(out: string): { title: string; body: string } | null {
+  const text = out.trim();
+  const start = text.indexOf('[');
+  const end = text.lastIndexOf(']');
+  if (start < 0 || end <= start) return null;
+  let arr: unknown;
+  try { arr = JSON.parse(text.slice(start, end + 1)); } catch { return null; }
+  if (!Array.isArray(arr)) return null;
+  for (const it of arr) {
+    if (!it || typeof it !== 'object') continue;
+    const o = it as Record<string, unknown>;
+    if (o.type !== 'operator') continue;
+    const title = typeof o.title === 'string' ? o.title.trim() : '';
+    if (!title) continue;
+    return { title, body: typeof o.body === 'string' ? o.body.trim() : '' };
+  }
+  return null;
+}
+
 export function parseCandidates(out: string): ReflectionCandidate[] {
   const text = out.trim();
   if (!text) return [];
@@ -384,6 +466,11 @@ export function parseCandidates(out: string): ReflectionCandidate[] {
   for (const it of arr) {
     if (!it || typeof it !== 'object') continue;
     const o = it as Record<string, unknown>;
+    // §5.10 v2 (B) — 절차 초안은 카드가 아니다. `parseSkillDraft` 가 따로 가져가므로
+    //   여기서 걸러 내지 않으면 아래 폴백에 걸려 lesson 카드로 둔갑한다.
+    // §5.10 v2 (B)(G) — 절차 초안·운영자 관찰은 카드가 아니다. 각자 전용 파서가 가져가므로
+    //   여기서 걸러 내지 않으면 아래 폴백에 걸려 lesson 카드로 둔갑한다.
+    if (o.type === 'skill' || o.type === 'operator') continue;
     const type = typeof o.type === 'string' && VALID_TYPES.has(o.type) ? (o.type as BrainCardType) : 'lesson';
     const title = typeof o.title === 'string' ? o.title.trim() : '';
     if (!title) continue;
@@ -448,10 +535,20 @@ function runReflection(input: BrainReflectionInput): void {
   inFlight++;
 
   // v3.78 — 기존 카드 제목 목록을 함께 실어 "이미 아는 것"과 "뒤집는 것"을 모델이 추출 시점에 가른다.
+  // §5.10 v2 (B) — 절차 초안은 축이 켜져 있고 **복잡한 작업이었을 때만** 요구한다.
+  //   단순 질의응답 세션에까지 절차를 물으면 없는 절차를 지어내게 된다.
+  const wantSkill = brainAxisEnabledFor(root, 'skills')
+    && digest.toolCalls >= BRAIN_SKILL_DRAFT_MIN_TOOL_CALLS;
+  // §5.10 v2 (E) — 근거 검증 축. 스폰 시점에 한 번 읽어 두고 완료 핸들러에서 그대로 쓴다
+  //   (자식이 도는 동안 설정이 바뀌어도 한 턴 안에서는 판정이 흔들리지 않게).
+  const groundingOn = brainAxisEnabledFor(root, 'grounding');
+  const operatorOn = brainAxisEnabledFor(root, 'operator');
   const prompt = buildBrainReflectionPrompt({
     knownTitles: knownTitlesFor(root, scope, agentId),
     topicSlugs: [...BRAIN_TOPICS.map((t) => t.slug), BRAIN_TOPIC_MISC],
     areas: BRAIN_CANONICAL_AREAS,
+    ...(wantSkill ? { wantSkill: true } : {}),
+    ...(operatorOn ? { wantOperator: true } : {}),
   }) + digest.text;
   const t0 = Date.now();
   const saved = Math.max(0, digest.rawChars - digest.text.length);
@@ -501,6 +598,53 @@ function runReflection(input: BrainReflectionInput): void {
   child.on('close', (code) => {
     try {
       if (code === 0) {
+        // §5.10 v2 (B) — 절차 초안이 왔으면 스킬로 굳힌다. 카드보다 먼저 처리해서
+        //   카드 저장이 실패해도 절차는 남게 둔다(둘은 서로 독립 자산이다).
+        if (wantSkill) {
+          const draft = parseSkillDraft(outBuf);
+          if (draft) {
+            try {
+              const s = getBrainSkillService(root).createSkill({
+                name: draft.name,
+                description: draft.description,
+                body: draft.body,
+                files: draft.files,
+                scope,
+                ...(scope === 'agent' && agentId ? { agentId } : {}),
+                ...(draft.topic ? { topic: draft.topic } : {}),
+                sourceSessionId: sessionId,
+              });
+              logger.info(`[brain-reflect] 절차 초안 저장 skill=${s.id} v${s.version} session=${sessionId.slice(0, 8)}`);
+              // §5.10 v2 (E) — 절차도 같은 문을 지난다. 통과하면 초안에서 실제 절차로 올라간다.
+              if (groundingOn) {
+                try { applySkillGrounding(root, s.id); } catch { /* 실패해도 초안으로 남는다 */ }
+              }
+            } catch (e) {
+              logger.warn('[brain-reflect] 절차 초안 저장 실패', e as Error);
+            }
+          }
+        }
+        // §5.10 v2 (G) — 운영자 관찰. `scope: 'user'` 3층째에 `fact` 로 남는다.
+        //   권위는 리플렉션 산출물이므로 `session-summary`(랭크 1) — 자동으로 verified 가 되지 않는다.
+        //   사람에 대한 관찰이라 코드 대조로 올릴 수도 없고, 그게 맞다.
+        if (operatorOn) {
+          const note = parseOperatorNote(outBuf);
+          if (note) {
+            try {
+              getBrainService(root).saveCard({
+                type: 'fact',
+                scope: 'user',
+                title: note.title,
+                body: note.body,
+                sourceSessionId: sessionId,
+                seen: false,
+              });
+              logger.info(`[brain-reflect] 운영자 관찰 저장 session=${sessionId.slice(0, 8)}`);
+            } catch (e) {
+              logger.warn('[brain-reflect] 운영자 관찰 저장 실패', e as Error);
+            }
+          }
+        }
         const candidates = parseCandidates(outBuf);
         if (candidates.length > 0) {
           const svc = getBrainService(root);
@@ -528,6 +672,12 @@ function runReflection(input: BrainReflectionInput): void {
             });
             if (r.outcome !== 'same') fresh++;
             if (r.outcome === 'superseded') superseded += r.closedIds.length;
+            // §5.10 v2 (E) — 방금 저장한 카드를 **지금 코드와 대조**한다. 통과하면 기존 승격
+            //   관문이 `repository-source` 권위로 올려 준다. 여기가 없으면 리플렉션 카드는
+            //   영원히 `candidate` 로 고인다(실측 327장 중 verified 1장의 원인).
+            if (groundingOn && r.outcome !== 'same') {
+              try { applyGrounding(root, r.card.id); } catch { /* 실패해도 카드는 candidate 로 남는다 */ }
+            }
           }
           logger.info(
             `[brain-reflect] saved ${fresh}/${candidates.length} card(s)`

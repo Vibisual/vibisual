@@ -18,6 +18,7 @@ import {
   BRAIN_REF_FLUSH_MS,
   BRAIN_DEDUP_JACCARD_THRESHOLD,
   BRAIN_SEARCH_MAX_RESULTS,
+  BRAIN_BIGRAM_MIN_SCORE,
   BRAIN_STALE_THRESHOLD_MS,
   BRAIN_FEED_SECTION_SIZE,
   BRAIN_RANK_W_RELEVANCE,
@@ -44,6 +45,7 @@ import {
   BRAIN_TOPIC_CARD_BUDGET,
   BRAIN_PROJECT_CARD_BUDGET,
   BRAIN_AGENT_CARD_BUDGET,
+  BRAIN_OPERATOR_CARD_BUDGET,
   BRAIN_TOPIC_DOC_CORE_N,
   BRAIN_ARCHIVE_DIRNAME,
   BRAIN_ARCHIVE_LIST_MAX,
@@ -142,6 +144,21 @@ export function charBigrams(text: string): Set<string> {
     for (let i = 0; i + 1 < tok.length; i++) out.add(tok.slice(i, i + 2));
   }
   return out;
+}
+
+/**
+ * §5.10 v2 (C) — **질의 커버리지**: 물어본 것 중 몇 할이 그 문서에 들어 있는가.
+ *
+ * 중복 판정에는 Jaccard 가 맞지만(두 카드가 서로 얼마나 같은가), **검색에는 맞지 않는다** —
+ * 본문이 길수록 분모가 커져 **맞는 카드일수록 점수가 떨어지기** 때문이다. 검색에서 알고 싶은
+ * 것은 "이 문서가 내 질의를 다루는가"이므로 분모는 질의여야 한다.
+ * 스킬 집행 선택(`brainSkillService`)도 같은 함수를 쓴다 — 판정이 두 벌이 되지 않게.
+ */
+export function coverage(query: Set<string>, hay: Set<string>): number {
+  if (query.size === 0) return 0;
+  let hit = 0;
+  for (const t of query) if (hay.has(t)) hit++;
+  return hit / query.size;
 }
 
 /** 경로 정규화(소문자·forward-slash·후행 슬래시 제거). 파일 일치 비교용. */
@@ -460,6 +477,14 @@ export class BrainService {
       : path.join(this.brainRoot(), 'agents');
   }
   /**
+   * §5.10 v2 (G) — **운영자 프로필 층**(3층째). AI 가 관찰한 사용자 경향이 여기 산다.
+   * CLAUDE.md 는 사람이 쓴 규칙, 이쪽은 AI 가 본 것 — 둘을 한 파일에 섞지 않는다.
+   * **로컬 파일 뿐**이며 외부로 나가지 않는다(원격 사용자 모델링은 쓰지 않는다).
+   */
+  private userDir(): string {
+    return path.join(this.brainRoot(), 'user');
+  }
+  /**
    * §5.10 v3.74 — 주제 문서 디렉터리(읽기용 파생물). 원본은 어디까지나 카드 파일.
    * v3.75 — agentId 를 주면 그 에이전트 전용 하위 디렉터리(두 층 모두 주제 축을 갖는다).
    */
@@ -478,16 +503,20 @@ export class BrainService {
    * 충돌하지 않아야 한다(휴지통과 같은 문법).
    */
   private archiveDir(scope: BrainCardScope, agentId?: string): string {
-    return scope === 'agent' && agentId
-      ? path.join(this.brainRoot(), BRAIN_ARCHIVE_DIRNAME, 'agents', agentId)
-      : path.join(this.brainRoot(), BRAIN_ARCHIVE_DIRNAME, 'project');
+    if (scope === 'agent' && agentId) {
+      return path.join(this.brainRoot(), BRAIN_ARCHIVE_DIRNAME, 'agents', agentId);
+    }
+    if (scope === 'user') return path.join(this.brainRoot(), BRAIN_ARCHIVE_DIRNAME, 'user');
+    return path.join(this.brainRoot(), BRAIN_ARCHIVE_DIRNAME, 'project');
   }
 
   private cardFilePath(card: Pick<BrainCard, 'id' | 'scope' | 'agentId' | 'status'>): string {
     if (card.status === 'archived') return path.join(this.archiveDir(card.scope, card.agentId), `${card.id}.md`);
     const dir = card.scope === 'agent' && card.agentId
       ? this.agentsDir(card.agentId)
-      : this.projectDir();
+      : card.scope === 'user'
+        ? this.userDir()
+        : this.projectDir();
     return path.join(dir, `${card.id}.md`);
   }
 
@@ -503,8 +532,11 @@ export class BrainService {
           if (ent.isDirectory()) this.scanDir(path.join(agentsRoot, ent.name), 'agent', ent.name);
         }
       }
+      // §5.10 v2 (G) — 운영자 프로필 층. 폴더가 없으면 조용히 건너뛴다(축을 안 켠 사용자에겐 없다).
+      this.scanDir(this.userDir(), 'user', undefined);
       // v3.78 — 보관 카드도 인덱스에 싣는다(되돌리기·이력 조회 대상이라 안 실으면 "정리됨" 목록이 빈다).
       this.scanDir(this.archiveDir('project'), 'project', undefined, true);
+      this.scanDir(this.archiveDir('user'), 'user', undefined, true);
       const archAgents = path.join(this.brainRoot(), BRAIN_ARCHIVE_DIRNAME, 'agents');
       if (fs.existsSync(archAgents)) {
         for (const ent of fs.readdirSync(archAgents, { withFileTypes: true })) {
@@ -763,7 +795,7 @@ export class BrainService {
     } else if (inSlot.length > 0) {
       logger.info(`[brain] 슬롯 ${slot} 에 권위가 낮은 다른 값이 후보로 접수됨(현재 진실은 유지)`);
     }
-    this.enforceBudgets(card.scope === 'agent' ? card.agentId : undefined);
+    this.enforceBudgets(card.scope === 'agent' ? card.agentId : undefined, card.scope);
     this.rebuildTopicDocs(card.scope === 'agent' ? card.agentId : undefined);
     return { card, outcome: 'new', closedIds: [] };
   }
@@ -877,7 +909,7 @@ export class BrainService {
       this.writeCard(old);
     }
 
-    this.enforceBudgets(card.scope === 'agent' ? card.agentId : undefined);
+    this.enforceBudgets(card.scope === 'agent' ? card.agentId : undefined, card.scope);
     this.rebuildTopicDocs(card.scope === 'agent' ? card.agentId : undefined);
     return { card, outcome: closedIds.length > 0 ? 'superseded' : 'new', closedIds };
   }
@@ -1009,7 +1041,8 @@ export class BrainService {
   search(query: string, opts?: { scope?: BrainCardScope; agentId?: string; limit?: number }): BrainCard[] {
     this.ensureLoaded();
     const qTokens = tokenize(query);
-    if (qTokens.size === 0) return [];
+    const qBigrams = charBigrams(query);
+    if (qTokens.size === 0 && qBigrams.size === 0) return [];
     const limit = opts?.limit ?? BRAIN_SEARCH_MAX_RESULTS;
     const scored: { card: BrainCard; score: number }[] = [];
     for (const { card } of this.index.values()) {
@@ -1026,6 +1059,14 @@ export class BrainService {
         if (titleT.has(t)) score += 3;
         if (bodyT.has(t)) score += 1;
         if (fileT.has(t)) score += 2;
+      }
+      // §5.10 v2 (C) — 어절이 하나도 안 맞을 때만 문자 bigram 으로 한 번 더 본다.
+      //   한국어는 조사·어미가 붙어 "수집기"로 "수집기는"을 못 찾는데, 실측에서 카드 327장 중
+      //   263장(80%)이 한 번도 노출된 적 없던 것의 일부가 바로 이 미스였다.
+      //   어절이 맞은 카드의 순위는 건드리지 않으려고 **0점일 때만** 적용하고 최저 점수를 준다.
+      if (score === 0 && qBigrams.size > 0) {
+        const hayB = charBigrams(`${card.title} ${card.body} ${card.files.join(' ')}`);
+        if (coverage(qBigrams, hayB) >= BRAIN_BIGRAM_MIN_SCORE) score = 1;
       }
       if (score > 0) scored.push({ card, score });
     }
@@ -1576,13 +1617,17 @@ export class BrainService {
    * ③ 장기 미참조(`BRAIN_DEMOTE_UNREFERENCED_MS`) ④ 랭킹(도움률·신선도) 하위.
    * `pinned`·`always` 는 절대 강등하지 않는다. 반환 = 이번에 보관된 카드 수.
    */
-  enforceBudgets(agentId?: string): number {
+  enforceBudgets(agentId?: string, scopeOverride?: BrainCardScope): number {
     this.ensureLoaded();
     const now = Date.now();
-    const scope: BrainCardScope = agentId ? 'agent' : 'project';
+    // §5.10 v2 (G) — 층이 셋이 됐다. agentId 가 있으면 에이전트 층, 아니면 호출부가 지정한 층
+    //   (미지정이면 종전대로 프로젝트 층)이다.
+    const scope: BrainCardScope = agentId ? 'agent' : (scopeOverride ?? 'project');
     const pool = [...this.index.values()]
       .map((e) => e.card)
-      .filter((c) => isLiveCard(c) && (agentId ? (c.scope === 'agent' && c.agentId === agentId) : c.scope === 'project'));
+      .filter((c) => isLiveCard(c) && (agentId
+        ? (c.scope === 'agent' && c.agentId === agentId)
+        : c.scope === scope));
 
     /** 강등 후보 순서 — 앞이 먼저 내려간다. */
     const demoteOrder = (cards: BrainCard[]): BrainCard[] => {
@@ -1631,7 +1676,10 @@ export class BrainService {
 
     // ② 층별 총량(주제 정리 뒤 남은 것 기준).
     const remain = pool.filter((c) => !archived.includes(c.id));
-    const cap = scope === 'agent' ? BRAIN_AGENT_CARD_BUDGET : BRAIN_PROJECT_CARD_BUDGET;
+    const cap = scope === 'agent'
+      ? BRAIN_AGENT_CARD_BUDGET
+      // 운영자 프로필은 **사람 얘기**라 적게 유지한다 — 많아질수록 정확도가 아니라 잡음이 는다.
+      : scope === 'user' ? BRAIN_OPERATOR_CARD_BUDGET : BRAIN_PROJECT_CARD_BUDGET;
     const over = remain.length - cap;
     if (over > 0) archiveSome(remain, archived.length + over);
 

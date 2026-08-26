@@ -41,6 +41,7 @@ export const CONTEXT_ABOUT_KEY_BY_ID: Record<string, string> = {
   [CONTEXT_SOURCE_IDS.brainCards]: 'brainCards',
   [CONTEXT_SOURCE_IDS.brainTopics]: 'brainTopics',
   [CONTEXT_SOURCE_IDS.brainRules]: 'brainRules',
+  [CONTEXT_SOURCE_IDS.brainSkills]: 'brainSkills',
   [CONTEXT_SOURCE_IDS.hookEnforcement]: 'hookEnforcement',
   [CONTEXT_SOURCE_IDS.plugins]: 'plugins',
   [CONTEXT_SOURCE_IDS.claudeMd]: 'claudeMd',

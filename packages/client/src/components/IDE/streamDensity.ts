@@ -35,6 +35,11 @@ export interface StreamToolGroup {
   /** 런의 마지막 도구가 진행 중인가 — 접혀 있어도 그 한 줄은 스피너와 함께 항상 보인다. */
   active: boolean;
   timestamp: number;
+  /**
+   * §4 (스트림 3종 ①) — 이 묶음이 **중첩 서브에이전트(Task)** 가 부른 도구들이면 그 Task 호출의 id.
+   * 런은 주인이 같은 도구끼리만 묶이므로 묶음 하나의 주인은 항상 하나다.
+   */
+  nestedUnderToolUseId?: string;
 }
 
 /** 렌더러가 실제로 그리는 아이템 = 파싱 아이템 + 묶음. */
@@ -191,9 +196,15 @@ export function applyStreamDensity(items: StreamItemFull[], density: StreamDensi
       let j = i + 1;
       let lastToolEnd = i + 1; // 꼬리 잡음은 런에 넣지 않는다(다음 대화의 머리이므로).
       let toolCount = 1;
+      // §4 (스트림 3종 ①) — 런의 **주인**. 중첩 서브에이전트가 부른 도구와 부모가 부른 도구를 한 묶음에
+      //   넣으면 "누가 한 일인지"가 묶음 헤더 하나로 뭉개진다 — 주인이 다르면 거기서 런을 끊는다.
+      const runNest = item.nestedUnderToolUseId;
       while (j < marked.length) {
         const next = marked[j]!;
-        if (groupable(next)) { toolCount++; j++; lastToolEnd = j; continue; }
+        if (groupable(next)) {
+          if (next.nestedUnderToolUseId !== runNest) break;
+          toolCount++; j++; lastToolEnd = j; continue;
+        }
         if (runFiller(next)) { j++; continue; }
         break;
       }
@@ -212,6 +223,7 @@ export function applyStreamDensity(items: StreamItemFull[], density: StreamDensi
         // 묶음 id = 첫 도구 id 고정. 스트리밍 중 묶음이 자라도 id 가 그대로라 사용자가 펼쳐 둔 상태가 유지된다
         //   (개수를 id 에 넣으면 도구가 하나 늘 때마다 remount 돼 펼침이 풀린다).
         id: `toolgroup-${item.id}`,
+        ...(runNest ? { nestedUnderToolUseId: runNest } : {}),
         toolCount,
         toolNames,
         children,

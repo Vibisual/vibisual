@@ -19,6 +19,7 @@ import {
   isBrainReflectionCwd,
   scheduleBrainReflection,
   parseCandidates,
+  parseSkillDraft,
   __resetBrainReflectionStateForTest,
 } from './brainReflectionService.js';
 
@@ -274,5 +275,71 @@ describe('v3.78 F — 프롬프트에 기존 카드 제목 목록을 싣는다',
     const p = buildBrainReflectionPrompt({ knownTitles: [], topicSlugs: [] });
     expect(p).not.toContain('이미 저장된 기억');
     expect(p).toContain('세션 기록:');
+  });
+
+  // §5.10 v2 (B) — 절차 초안 지시문은 축이 켜지고 복잡한 세션일 때만 실린다.
+  it('wantSkill 이 아니면 절차 지시문 자체를 싣지 않는다(안 쓸 지시로 예산을 먹지 않는다)', () => {
+    const p = buildBrainReflectionPrompt({ knownTitles: [], topicSlugs: [] });
+    expect(p).not.toContain('절차 하나 더');
+  });
+
+  it('wantSkill 이면 절차 초안 형식을 지시한다', () => {
+    const p = buildBrainReflectionPrompt({ knownTitles: [], topicSlugs: [], wantSkill: true });
+    expect(p).toContain('절차 하나 더');
+    expect(p).toContain('"type":"skill"');
+  });
+});
+
+// ─── §5.10 v2 (B) 절차 초안 ───
+
+describe('parseSkillDraft — 카드 배열에 섞여 오는 절차 한 벌', () => {
+  it('type:skill 항목을 꺼낸다', () => {
+    const out = JSON.stringify([
+      { type: 'lesson', title: '교훈', body: '본문' },
+      { type: 'skill', name: '릴리스 절차', description: '새 버전을 낼 때 쓴다', body: '1. bump\n2. tag', files: ['x.ts'] },
+    ]);
+    const d = parseSkillDraft(out);
+    expect(d?.name).toBe('릴리스 절차');
+    expect(d?.description).toBe('새 버전을 낼 때 쓴다');
+    expect(d?.files).toEqual(['x.ts']);
+  });
+
+  it('세 필드 중 하나라도 비면 버린다 (빈 껍데기 스킬이 검색을 오염시킨다)', () => {
+    expect(parseSkillDraft(JSON.stringify([{ type: 'skill', name: 'x', description: '', body: 'b' }]))).toBeNull();
+    expect(parseSkillDraft(JSON.stringify([{ type: 'skill', name: '', description: 'd', body: 'b' }]))).toBeNull();
+    expect(parseSkillDraft(JSON.stringify([{ type: 'skill', name: 'x', description: 'd', body: '  ' }]))).toBeNull();
+  });
+
+  it('절차가 없으면 null 이다', () => {
+    expect(parseSkillDraft(JSON.stringify([{ type: 'lesson', title: 't', body: 'b' }]))).toBeNull();
+    expect(parseSkillDraft('설명만 있고 JSON 이 없음')).toBeNull();
+  });
+
+  it('절차 항목이 lesson 카드로 둔갑하지 않는다', () => {
+    const out = JSON.stringify([
+      { type: 'skill', name: '절차', description: '언제', body: '1. 한다' },
+      { type: 'lesson', title: '진짜 교훈', body: '본문' },
+    ]);
+    const cards = parseCandidates(out);
+    expect(cards.length).toBe(1);
+    expect(cards[0]?.title).toBe('진짜 교훈');
+  });
+});
+
+describe('buildDigest — 도구 호출 계수', () => {
+  const line = (content: unknown): string =>
+    JSON.stringify({ type: 'assistant', message: { content } });
+
+  it('tool_use 블록을 센다 (다이제스트 본문에선 걷어내므로 여기서 안 세면 알 길이 없다)', () => {
+    const raw = [
+      line([{ type: 'text', text: '해보겠습니다' }]),
+      line([{ type: 'tool_use', name: 'Read', input: { file_path: 'a.ts' } }]),
+      line([{ type: 'tool_use', name: 'Edit', input: { file_path: 'a.ts' } }]),
+    ].join('\n');
+    expect(buildDigest(raw).toolCalls).toBe(2);
+  });
+
+  it('도구를 안 쓴 세션은 0 이다 (단순 질의응답은 절차가 아니다)', () => {
+    expect(buildDigest(line([{ type: 'text', text: '네' }])).toolCalls).toBe(0);
   });
 });

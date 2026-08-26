@@ -868,6 +868,24 @@
         "label": "Safe mode (all customizations off)",
         "warn": "hooks off — this agent will not show activity on the map"
       },
+      "fastMode": {
+        "label": "Fast mode",
+        "hint": "same Opus, faster output",
+        "unsupported": "Opus 4.8 / Opus 5 only",
+        "tip": "Runs the same Opus model with faster output — it does not drop down to a smaller model. This is not a CLI flag: a headless agent is treated as an Agent SDK session, which accepts fast mode only as a settings opt-in, so Vibisual passes it in the settings file it already writes for this agent. Models that do not support it ignore the setting without any message."
+      },
+      "forwardSubagentText": {
+        "label": "Show subagent output",
+        "hint": "what nested Task agents say and think"
+      },
+      "replayUserMessages": {
+        "label": "Confirm command receipt",
+        "hint": "a chip when the CLI actually takes the command"
+      },
+      "promptSuggestions": {
+        "label": "Suggest the next prompt",
+        "hint": "predicted after each turn"
+      },
       "betas": {
         "label": "Beta headers",
         "tip": "Beta headers sent with API requests. API-key users only — subscription auth ignores them.",
@@ -1648,6 +1666,7 @@
       "historyHintPrev": "Press again for your last command",
       "historyHintNext": "Press again for your oldest command",
       "slashBuiltin": "built-in",
+      "slashNeedsTerminal": "terminal",
       "slashEmpty": "No matching skills",
       "slashLoading": "Loading skills…",
       "ctxCopy": "Copy",
@@ -2091,7 +2110,10 @@
         "openApp": "Open in {{app}} — {{path}}",
         "openExternal": "Open with the default app — {{path}}"
       },
-      "restartResumed": "Interrupted when the app went down — resumed on the saved session."
+      "restartResumed": "Interrupted when the app went down — resumed on the saved session.",
+      "nestedSubagent": "Subagent",
+      "commandReceived": "Command received",
+      "promptSuggestion": "Suggested next prompt"
     },
     "report": {
       "title": "Work report",
@@ -2440,7 +2462,8 @@
         "toolSchemas": "Tool definitions",
         "mcp": "MCP servers",
         "hooks": "Hooks",
-        "systemPrompt": "Claude Code system prompt"
+        "systemPrompt": "Claude Code system prompt",
+        "brainSkills": "Brain skills"
       },
       "hint": {
         "tools": "Pick the tool list in Agent Settings",
@@ -2619,6 +2642,11 @@
             "what": "The Claude Code hooks that let Vibisual see this session at all.",
             "more": "Registered in settings.json. They add almost no tokens, but every event travels through them.",
             "off": "Hooks are removed in settings.json, not here. Without them Vibisual stops seeing this session."
+          },
+          "brainSkills": {
+            "what": "Procedures this project learned, loaded when the task matches.",
+            "more": "Matched by each skill description, so only relevant ones load.",
+            "off": "The agent works out each procedure from scratch again."
           }
         },
         "cat": {
@@ -3503,7 +3531,15 @@
       "archived": "Tidied away",
       "archivedHint": "Memories archived over budget — not deleted, you can restore them",
       "review": "Awaiting review",
-      "reviewHint": "Candidates that are not current truth yet — confirm them to reach the AI"
+      "reviewHint": "Candidates that are not current truth yet — confirm them to reach the AI",
+      "skills": "Procedures",
+      "skillsHint": "Procedures shaped by doing the same work — loaded when that work starts",
+      "curator": "Needs tidying",
+      "curatorHint": "Memories with no topic, never read, or still only candidates",
+      "skillDraft": "Draft",
+      "skillVerified": "Confirmed",
+      "skillUsed": "loaded {{count}}x",
+      "skillHelpful": "helped {{count}}x"
     },
     "currentBadge": "Current truth",
     "contestedBadge": "Conflicting",
@@ -3514,7 +3550,44 @@
     "confirmPromptContested": "Values conflict at this address — pick the right one so the AI can use it.",
     "confirmCurrent": "Confirm as current",
     "reject": "No",
-    "rejectTip": "Nothing is deleted — it stays as a record and is only excluded from injection."
+    "rejectTip": "Nothing is deleted — it stays as a record and is only excluded from injection.",
+    "axis": {
+      "skills": {
+        "title": "Procedural memory",
+        "hint": "Turns finished work into a procedure and loads it next time"
+      },
+      "recall": {
+        "title": "Recall",
+        "hint": "Searches past session transcripts, not just saved cards"
+      },
+      "nudge": {
+        "title": "Nudge",
+        "hint": "Occasionally asks the agent to note what it learned"
+      },
+      "grounding": {
+        "title": "Evidence check",
+        "hint": "Checks claims against the code before marking them confirmed"
+      },
+      "curator": {
+        "title": "Curator",
+        "hint": "Collects unsorted and never-read memories in one place"
+      },
+      "operator": {
+        "title": "Operator profile",
+        "hint": "Records repeated working preferences on this machine only"
+      }
+    },
+    "activation": {
+      "sleeping": "{{count}} memories are asleep in this project’s brain. Turn it on?",
+      "hint": "The brain is off by default. Once on, it collects procedures learned at work and applies them to the next task. You can turn it off any time, and turning it off never deletes anything.",
+      "turnOn": "Turn on",
+      "notNow": "Not now",
+      "showAxes": "See what gets turned on",
+      "hideAxes": "Hide details",
+      "axesTitle": "What to keep on",
+      "turnOff": "Turn brain off",
+      "offKeepsData": "Turning it off keeps everything — switch it back on and it picks up where it left off."
+    }
   },
   "commandCenter": {
     "windowTitle": "Command Center — {{name}}",

@@ -6,7 +6,16 @@ import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { exec, execFile, spawn, type ChildProcess } from 'node:child_process';
 import multer from 'multer';
-import { DEFAULT_PORT, SESSION_SCAN_INTERVAL, FILE_EXISTENCE_CHECK_INTERVAL, SATELLITE_TYPES, IFRAME_PROXY_PATH, AGENT_IDLE_THRESHOLD_MS, AGENT_IDLE_SWEEP_INTERVAL_MS, INTERRUPT_RECONCILE_INTERVAL_MS, SUBAGENT_DORMANT_IDLE_MS, TASK_EDGE_DISPATCH_DEFAULT_TIMEOUT_MS, TASK_EDGE_CRITIQUE_MAX_REWORK_LIMIT, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, SUPPORTED_UI_LOCALES, CONTI_AGENT_RULES, RULES_HISTORY_MAX, CANVAS_CLIPBOARD_SCHEMA_VERSION, AGENT_INTENT_FIRST_RULES, buildAgentReportRules, buildAgentQuestionRules, buildAgentReviewRules, buildAgentListRules, buildAgentIframeRules, buildAgentFeedbackBlock, AGENT_FEEDBACK_SUMMARY_ITEM_MAX, CLAUDE_USAGE_POLL_INTERVAL_MS, CLAUDE_AUTH_POLL_INTERVAL_MS, CLAUDE_AUTO_UPDATE_BOOT_DELAY_MS, SESSION_GOAL_TEXT_MAX, buildSessionGoalRules, CONTEXT_SOURCE_IDS, CONTEXT_PLUGIN_ID_PREFIX, CONTEXT_PREVIEW_MAX_CHARS, estimateTokens, VERIFICATION_VERDICT_SCHEMA_GUIDE, COST_MAP_SWEEP_INTERVAL_MS, normalizeTodoStatus } from '@vibisual/shared';
+import { DEFAULT_PORT, SESSION_SCAN_INTERVAL, FILE_EXISTENCE_CHECK_INTERVAL, SATELLITE_TYPES, IFRAME_PROXY_PATH, AGENT_IDLE_THRESHOLD_MS, AGENT_IDLE_SWEEP_INTERVAL_MS, INTERRUPT_RECONCILE_INTERVAL_MS, SUBAGENT_DORMANT_IDLE_MS, TASK_EDGE_DISPATCH_DEFAULT_TIMEOUT_MS, TASK_EDGE_CRITIQUE_MAX_REWORK_LIMIT, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, SUPPORTED_UI_LOCALES, CONTI_AGENT_RULES, RULES_HISTORY_MAX, CANVAS_CLIPBOARD_SCHEMA_VERSION, AGENT_INTENT_FIRST_RULES, buildAgentReportRules, buildAgentQuestionRules, buildAgentReviewRules, buildAgentListRules, buildAgentIframeRules, buildAgentFeedbackBlock, AGENT_FEEDBACK_SUMMARY_ITEM_MAX, CLAUDE_USAGE_POLL_INTERVAL_MS, CLAUDE_AUTH_POLL_INTERVAL_MS, CLAUDE_AUTO_UPDATE_BOOT_DELAY_MS, SESSION_GOAL_TEXT_MAX, buildSessionGoalRules, CONTEXT_SOURCE_IDS, CONTEXT_PLUGIN_ID_PREFIX, CONTEXT_PREVIEW_MAX_CHARS, estimateTokens, VERIFICATION_VERDICT_SCHEMA_GUIDE, COST_MAP_SWEEP_INTERVAL_MS, normalizeTodoStatus, BUILTIN_SLASH_COMMANDS,
+  BRAIN_AXIS_IDS,
+  BRAIN_CURATOR_PAGE_SIZE,
+  BRAIN_TOPIC_MISC,
+  buildBrainSkillsSection,
+  buildBrainNudgeSection,
+  resolveBrainProjectKey,
+  type BrainActivation,
+  type BrainAxisId,
+} from '@vibisual/shared';
 import type { HookEventPayload, WSMessage, SubAgentStreamEvent, QueuedCommand, SessionTokenData, PipelineType, AgentConfig, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, SubAgentHistoryItem, UiLocale, PermissionDecision, RulesHistoryEntry, Conti, CanvasClipboardPayload, CanvasPasteResponse, AskUserQuestionDecision, AskUserQuestionAnswer, AskUserQuestionOption, AskUserQuestionItem, AskUserQuestionToolInput, AgentReport, AgentQuestions, AgentQuestionItem, AgentReview, AgentList, AgentFeedback, AgentFeedbackTargetType, AgentFeedbackVerdict, BrainCard, BrainCardInput, BrainCardType, BrainCardScope, BrainInjectionEvent, ClaudeUsageInfo, ClaudeAuthStatus, VerificationVerdict, VerificationKind, VerificationAttempt, EscalationReason, AutoAgentRun, ShelfItemKind } from '@vibisual/shared';
 import { LOCAL_MODEL_CATALOG_SORTS } from '@vibisual/shared';
 // §4 (CMD 터미널 업그레이드) — pane 트리 정합 + 임베디드 PTY 제어(⑤⑥).
@@ -62,8 +71,12 @@ import { BUBBLE_COLORS, READ_TOOLS, WS_BATCH_INTERVAL, WS_BATCH_INTERVAL_MAX, WS
 import { broadcast } from './broadcastBus.js';
 import { graphManager } from './services/projectGraphManager.js';
 import { modelRegistryService } from './services/modelRegistryService.js';
-import { builtinCommandsService } from './services/builtinCommandsService.js';
 import { userDefaultsService } from './services/userDefaultsService.js';
+import { brainActivationFor, brainAxisEnabledFor, brainEnabledFor } from './services/brainActivation.js';
+import { getBrainSkillService } from './services/brainSkillService.js';
+import { recallFromSessions } from './services/brainRecallService.js';
+import { applyGrounding } from './services/brainGrounding.js';
+import { claimNudgeSlot } from './services/brainNudge.js';
 import { mountPluginRoutes, buildPluginPromptSection, buildPluginPromptSectionParts, getPluginFactsForProjects } from './services/pluginHost.js';
 // §5.5 #17-28 — 컨텍스트 주입원: 계측(인벤토리) + 최종 게이트 + spawn 스위치.
 import type { ContextInventory } from '@vibisual/shared';
@@ -134,7 +147,7 @@ import {
   installStatusLine,
   uninstallStatusLine,
 } from './services/statusLineInstaller.js';
-import { claudeUsageService, pickPrimaryWindows } from './services/claudeUsageService.js';
+import { buildClaudeUsage } from './services/claudeUsageService.js';
 import { getMemoryDiagnostics, startMemoryMonitor, pressureLevelOf, sampleMemory } from './services/memoryMonitor.js';
 import { claudeAuthService } from './services/claudeAuthService.js';
 import { claudeSetupService } from './services/claudeSetupService.js';
@@ -398,10 +411,6 @@ export async function runServer(): Promise<RunServerHandle> {
     // 시드 → api-merged 전환 시 snapshot 의 modelRegistry 도 갱신해야 하므로 그래프 한 번 푸시.
     broadcastSnapshot();
   });
-
-  // §5.5 #17-2 v3.19 — CLI 내장 슬래시 명령 부팅 시 비동기 스캔(캐시 hit 면 즉시).
-  // 결과는 /api/available-skills 응답의 builtins 로만 소비 — push 불필요.
-  void builtinCommandsService.refreshIfStale();
 
   // §4 v2.42 — 사용자 옵션 갱신 broadcast (다른 창/탭 즉시 반영)
   userDefaultsService.subscribe((d) => {
@@ -940,7 +949,9 @@ export async function runServer(): Promise<RunServerHandle> {
         (k) => payload[k] !== undefined && payload[k] !== before?.[k],
       );
       graphManager.setRateLimits(payload);
-      if (changed) broadcastSnapshot();
+      // statusLine 이 원천이므로, 값이 바뀌면 표시용 사용량도 그 자리에서 다시 만든다
+      // (안에서 broadcastSnapshot 을 부르므로 여기서 또 부르지 않는다).
+      if (changed) refreshClaudeUsage();
       res.json({ ok: true, changed });
     } catch (err) {
       logger.error('POST /api/rate-limits failed', err);
@@ -987,48 +998,46 @@ export async function runServer(): Promise<RunServerHandle> {
     if (next === undefined) return;
     // 상한 6시간 — setTimeout 은 24.8일을 넘기면 즉시 발사되고, 주간 창(7일)이 그 범위다.
     const delay = Math.min(next - now + 10_000, 6 * 60 * 60 * 1000);
-    claudeUsageResetTimer = setTimeout(() => { void refreshClaudeUsage().catch(() => {}); }, delay);
+    claudeUsageResetTimer = setTimeout(() => { refreshClaudeUsage(); }, delay);
   }
 
-  async function refreshClaudeUsage(): Promise<ClaudeUsageInfo> {
-    const info = await claudeUsageService.refresh();
+  /**
+   * statusLine 이 보고한 창(`rateLimits`)에서 표시용 사용량을 다시 만든다.
+   *
+   * 네트워크 호출은 없다 — `rateLimits` 가 갱신됐을 때(그리고 리셋 시각이 지났을 때) 다시
+   * 부르면 되는 순수 파생이다. 그래서 `Promise` 도 필요 없지만, 호출부가 여럿이라 반환값만
+   * 돌려주고 호출부의 `void`·`await` 는 그대로 둔다.
+   */
+  function refreshClaudeUsage(): ClaudeUsageInfo {
+    const info = buildClaudeUsage(graphManager.getRateLimits(), Date.now());
     const before = graphManager.getClaudeUsage();
     graphManager.setClaudeUsage(info);
     scheduleResetRefresh(info);
 
-    const windows = pickPrimaryWindows(info.limits);
-    if (Object.keys(windows).length > 0) graphManager.setRateLimits(windows);
-
-    // 값이 그대로면 브로드캐스트하지 않는다(5분 폴링이 스냅샷을 흔들지 않게).
+    // 값이 그대로면 브로드캐스트하지 않는다(주기 재조립이 스냅샷을 흔들지 않게).
     const changed =
       before === undefined ||
       before.error !== info.error ||
-      JSON.stringify(before.limits) !== JSON.stringify(info.limits) ||
-      JSON.stringify(before.extraCredits) !== JSON.stringify(info.extraCredits);
+      before.plan !== info.plan ||
+      JSON.stringify(before.limits) !== JSON.stringify(info.limits);
     if (changed) broadcastSnapshot();
     return info;
   }
 
   app.get('/api/claude-usage', (_req, res) => {
     const cached = graphManager.getClaudeUsage();
-    if (cached) { res.json(cached); return; }
-    void refreshClaudeUsage()
-      .then((info) => res.json(info))
-      .catch(() => res.status(500).json({ error: 'Internal server error' }));
+    res.json(cached ?? refreshClaudeUsage());
   });
 
   app.post('/api/claude-usage/refresh', (_req, res) => {
-    void refreshClaudeUsage()
-      .then((info) => res.json(info))
-      .catch(() => res.status(500).json({ error: 'Internal server error' }));
+    res.json(refreshClaudeUsage());
   });
 
-  // 부팅 직후 1회 + 주기 폴링 + 리셋 시각 일회성(scheduleResetRefresh). 실패해도 기동엔 무관.
-  setTimeout(() => { void refreshClaudeUsage().catch(() => {}); }, 2_000);
-  setInterval(
-    () => { void refreshClaudeUsage().catch(() => {}); },
-    CLAUDE_USAGE_POLL_INTERVAL_MS,
-  );
+  // 부팅 직후 1회 + 주기 재조립 + 리셋 시각 일회성(scheduleResetRefresh).
+  // 네트워크 호출이 아니라 statusLine 값의 순수 파생이라 주기는 안전망 성격이다 —
+  // 실제 갱신은 `POST /api/rate-limits` 가 들어올 때마다 그 자리에서 일어난다.
+  setTimeout(() => { refreshClaudeUsage(); }, 2_000);
+  setInterval(() => { refreshClaudeUsage(); }, CLAUDE_USAGE_POLL_INTERVAL_MS);
 
   /**
    * §4 v4.82 — 앱 안 Claude 로그인.
@@ -1117,9 +1126,11 @@ export async function runServer(): Promise<RunServerHandle> {
    *  · `claudeAuth` — `claude auth status` 는 spawn 실패 시 `error: 'cli-missing'` 로 캐시되고
    *    재조회는 10분 주기다. 그런데 `LoginWindow` 는 `error` 가 있으면 뜨지 않으므로(§4 v4.82),
    *    **설치를 끝내도 로그인 창이 최대 10분간 안 뜬다** — 사슬이 여기서 끊긴다.
-   *  · `modelRegistry` — 모델 목록과 effort 등급을 `claude` 실행본/`--help` 에서 긁어 오므로
+   *  · `modelRegistry` — 모델 목록과 effort 등급을 `claude --help` 에서 긁어 오므로
    *    CLI 가 없던 부팅에서는 시드만 남는다(설정창 드롭다운이 빈약해진다).
-   *  · `builtinCommands` — 슬래시 내장 명령 목록이 빈 채로 남는다.
+   *
+   * (슬래시 내장 명령은 이제 공개 문서 기반 정적 목록 `BUILTIN_SLASH_COMMANDS` 라 CLI 설치
+   *  여부와 무관하다 — 다시 태울 것이 없다.)
    */
   let lastSetupPhase: string | null = null;
   async function reprimeClaudeDerivedCaches(reason: string): Promise<void> {
@@ -1127,7 +1138,6 @@ export async function runServer(): Promise<RunServerHandle> {
     await Promise.allSettled([
       refreshClaudeAuth(),
       modelRegistryService.refreshIfStale(),
-      builtinCommandsService.forceRefresh(),
     ]);
     broadcastSnapshot();
   }
@@ -1629,9 +1639,13 @@ export async function runServer(): Promise<RunServerHandle> {
     // §5.10 v3.81-G — **강제 필터가 랭킹보다 먼저 온다.** 후보 풀 자체가 "현재 진실"뿐이다:
     //   current 로 선택됨 ∧ verified ∧ 범위 일치 ∧ 유효기간 내 ∧ 충돌·확인필요 아님.
     //   pinned·always 도 이 필터를 우회하지 못하고, 도움률·최근성은 여기 관여하지 않는다.
+    // §5.10 v2 (G) — 운영자 프로필(`scope: 'user'`)은 그 축이 켜져 있을 때만 나간다.
+    //   사람에 대한 관찰이라 원하지 않는 사용자에게는 한 줄도 실리지 않아야 한다.
+    const operatorOn = brainAxisEnabledFor(root, 'operator');
     const pool = svc.selectCurrent({ agentId })
       // §H — 경험 계층(lesson/mistake)은 그 자체로 현재 진실이 아니다. 규칙으로 승격된 것만 나간다.
-      .filter((c) => !BRAIN_EXPERIENCE_TYPES.includes(c.type));
+      .filter((c) => !BRAIN_EXPERIENCE_TYPES.includes(c.type))
+      .filter((c) => operatorOn || c.scope !== 'user');
 
     const picked: BrainCard[] = [];
     const seen = new Set<string>();
@@ -1698,6 +1712,9 @@ export async function runServer(): Promise<RunServerHandle> {
         ?? undefined;
       const effCwd = graphManager.getAgentCwd(sessionId) ?? cwd ?? root;
       if (!root || !effCwd) return;
+      // §5.10 v2 (H) 게이트 ① 수집 — 두뇌가 꺼진 프로젝트는 리플렉션 자식 세션을 **아예 띄우지 않는다**.
+      //   기본 off 의 값어치가 여기서 나온다(끈 사용자에게 토큰 0).
+      if (!brainEnabledFor(root)) return;
       scheduleBrainReflection({ sessionId, cwd: effCwd, root, scope, agentId });
     } catch (e) {
       logger.warn('[brain] reflection trigger failed', e as Error);
@@ -1765,7 +1782,13 @@ export async function runServer(): Promise<RunServerHandle> {
     agentConfig?: AgentConfig;
     subAgentId?: string;
     commandText: string;
-  }): { parts: MeasuredPart[]; brief: { block: string; cards: { id: string; title: string }[] }; brainRoot: string } {
+  }): {
+    parts: MeasuredPart[];
+    brief: { block: string; cards: { id: string; title: string }[] };
+    brainRoot: string;
+    /** §5.10 v2 (B) — 이번 턴에 실린 스킬 id. 실제로 보냈을 때만 노출을 적기 위해 돌려준다. */
+    skillIds: string[];
+  } {
     const { agent, cwd, agentConfig, subAgentId } = input;
     const parts: MeasuredPart[] = [];
     const brainRoot = graphManager.getProjectPathForAgent(agent.id) ?? cwd;
@@ -1847,7 +1870,12 @@ export async function runServer(): Promise<RunServerHandle> {
     let cardsBlock = '';
     let topicIndexBlock = '';
     let brainFrame = '';
-    if (custom) {
+    // §5.10 v2 (B) — 스킬(절차적 기억) 줄. 카드가 "무엇이 사실인가"라면 이쪽은 "이럴 땐 이렇게 한다".
+    let skillsBlock = '';
+    let pickedSkillIds: string[] = [];
+    // §5.10 v2 (H) 게이트 ② 주입 — 꺼진 두뇌는 브리핑을 **조립조차 하지 않는다**.
+    //   조각을 안 만들면 §5.5 컨텍스트 목록에도 안 뜨고(꺼진 기능이 목록에 남지 않는다) 조립 비용도 0 이다.
+    if (custom && brainEnabledFor(brainRoot)) {
       try {
         brief = buildBrainBriefing(agent.id, brainRoot, input.commandText);
         cardsBlock = brief.block;
@@ -1856,21 +1884,37 @@ export async function runServer(): Promise<RunServerHandle> {
           project: brainSvc.listTopicIndex(),
           agent: brainSvc.listTopicIndex(agent.id),
         });
-        // 틀만의 크기 = 전체에서 두 내용물을 뺀 것 — 세 줄의 합이 실제 주입량과 정확히 같아진다.
+        // §5.10 v2 (B) — 축 'skills' 가 켜져 있을 때만 절차를 고른다. 지금 작업(commandText)과
+        //   맞는 것만 오므로 목록이 길어지지 않는다(카드 top-K 와 별개 예산).
+        if (brainAxisEnabledFor(brainRoot, 'skills')) {
+          const picked = getBrainSkillService(brainRoot)
+            .selectForTask(input.commandText, { agentId: agent.id });
+          pickedSkillIds = picked.map((s) => s.id);
+          skillsBlock = buildBrainSkillsSection(picked);
+        }
+        // §5.10 v2 (D) — 넛지는 축 + 세션 빈도 상한을 통과했을 때만 붙는다. 틀 안에 들어가므로
+        //   별도 컨텍스트 줄을 만들지 않는다(축 스위치가 이미 그 역할을 한다).
+        const nudgeBlock = claimNudgeSlot(brainRoot, subAgentId ?? agent.id)
+          ? buildBrainNudgeSection()
+          : '';
+        // 틀만의 크기 = 전체에서 내용물을 뺀 것 — 네 줄의 합이 실제 주입량과 정확히 같아진다.
         const whole = buildBrainRulesSection({
           serverBase: ruleArgs.serverBase,
           serverToken: ruleArgs.serverToken,
           cardsBlock,
           topicIndexBlock,
+          skillsBlock,
+          nudgeBlock,
           ...(hookListenerIdentityFile ? { identityFile: hookListenerIdentityFile } : {}),
         });
-        brainFrame = whole.replace(cardsBlock, '').replace(topicIndexBlock, '');
+        brainFrame = whole.replace(cardsBlock, '').replace(topicIndexBlock, '').replace(skillsBlock, '');
       } catch (e) {
         logger.warn('[brain] briefing assemble failed', e as Error);
       }
     }
     parts.push({ id: CONTEXT_SOURCE_IDS.brainCards, text: cardsBlock, detail: String(brief.cards.length) });
     parts.push({ id: CONTEXT_SOURCE_IDS.brainTopics, text: topicIndexBlock });
+    parts.push({ id: CONTEXT_SOURCE_IDS.brainSkills, text: skillsBlock, detail: String(pickedSkillIds.length) });
     parts.push({ id: CONTEXT_SOURCE_IDS.brainRules, text: brainFrame });
 
     // §5.11 v4.67 — 훅으로 붙은 외부 세션의 주입 통로. 글자 수로 잴 수 있는 블록이 아니라 **경로 스위치**라
@@ -1880,7 +1924,7 @@ export async function runServer(): Promise<RunServerHandle> {
       parts.push({ id: CONTEXT_SOURCE_IDS.hookEnforcement, text: '', defaultEnabled: true });
     }
 
-    return { parts, brief, brainRoot };
+    return { parts, brief, brainRoot, skillIds: pickedSkillIds };
   }
 
   /** 큐에서 dispatch 가능한 명령을 전부 실행.
@@ -1994,16 +2038,27 @@ export async function runServer(): Promise<RunServerHandle> {
       const brainFrame = take(CONTEXT_SOURCE_IDS.brainRules);
       const brainCards = take(CONTEXT_SOURCE_IDS.brainCards);
       const brainTopics = take(CONTEXT_SOURCE_IDS.brainTopics);
+      const brainSkills = take(CONTEXT_SOURCE_IDS.brainSkills);
       const brainBlock = brainFrame
         ? buildBrainRulesSection({
           serverBase: `http://127.0.0.1:${hookListenerPort ?? port}`,
           serverToken: hookListenerToken ?? '',
           cardsBlock: brainCards,
           topicIndexBlock: brainTopics,
+          skillsBlock: brainSkills,
           ...(hookListenerIdentityFile ? { identityFile: hookListenerIdentityFile } : {}),
         })
         : '';
       const dispatchContext = contextSummary + intentBlock + cardsRules + goalBlock + brainBlock;
+
+      // §5.10 v2 (B) — 스킬도 같은 규율. 실제로 실어 보냈을 때만 노출을 적는다.
+      if (brainSkills && assembled.skillIds.length > 0) {
+        try {
+          getBrainSkillService(assembled.brainRoot).touchReferences(assembled.skillIds);
+        } catch (e) {
+          logger.warn('[brain-skill] touchReferences failed', e as Error);
+        }
+      }
 
       // 실제로 카드를 실어 보냈을 때만 참조 기록·주입 이벤트를 남긴다(끈 턴을 "주입했다"고 기록하면
       // 랭킹이 거짓 신호를 먹는다 — 표시와 실측이 갈리는 그 지점).
@@ -3487,6 +3542,334 @@ export async function runServer(): Promise<RunServerHandle> {
 
   // ─── §5.10 Project Brain — 기억 카드 REST (CommentBox 관례 + 프로젝트 스코프) ───
 
+  /**
+   * §5.10 v2 (H) — **게이트 ④ REST.** 두뇌가 꺼진 프로젝트에서는 브레인 API 를 닫는다.
+   *
+   * 예외는 활성화 자체를 읽고 쓰는 `/api/brain/activation` 뿐이다 — 켜기 UI 가
+   * "몇 장이 잠들어 있는지"를 보여줘야 하므로 꺼진 상태에서도 답해야 한다.
+   * 이 미들웨어는 아래 브레인 라우트들보다 **먼저** 등록돼야 한다(Express 는 등록 순서로 매칭).
+   */
+  app.use('/api/brain', (req, res, next) => {
+    if (req.path === '/activation') { next(); return; }
+    const project = typeof req.query.project === 'string' ? req.query.project : undefined;
+    const root = graphManager.resolveBrainRoot(project);
+    if (brainEnabledFor(root)) { next(); return; }
+    res.status(403).json({ ok: false, error: 'brain-disabled' });
+  });
+
+  /**
+   * §5.10 v2 (H) — GET /api/brain/activation?project=
+   *
+   * 게이트를 통과하는 **유일한 예외**. 꺼져 있어도 답한다 — 응답의 `sleepingCardCount` 가
+   * 첫 실행 1회 안내("두뇌에 N장이 잠들어 있습니다 — 켤까요?")의 근거다.
+   * 카드 **본문은 싣지 않는다**(꺼진 두뇌의 내용이 새 나가지 않게).
+   */
+  app.get('/api/brain/activation', (req, res) => {
+    try {
+      const project = typeof req.query.project === 'string' ? req.query.project : undefined;
+      const root = graphManager.resolveBrainRoot(project);
+      if (!root) {
+        res.json({ root: null, enabled: false, activation: null, axes: [], sleepingCardCount: 0 });
+        return;
+      }
+      const activation = brainActivationFor(root);
+      let sleepingCardCount = 0;
+      try { sleepingCardCount = getBrainService(root).getSummary().cardCount; } catch { /* best effort */ }
+      res.json({
+        root,
+        enabled: activation?.enabled === true,
+        activation: activation ?? null,
+        axes: BRAIN_AXIS_IDS.map((id) => ({ id, enabled: brainAxisEnabledFor(root, id) })),
+        sleepingCardCount,
+      });
+    } catch (err) {
+      logger.error('GET /api/brain/activation failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * §5.10 v2 (H) — PUT /api/brain/activation — 마스터·축 켜고 끄기, 그리고 1회 안내 표시 기록.
+   *
+   * `prompted: true` 는 **거절했을 때도** 보낸다 — `promptedAt` 이 남아야 다시 묻지 않는다.
+   * 끄기는 동작 정지일 뿐이라 **카드 파일은 건드리지 않는다**(§5.11 "끄면 지우지 않는다" 승계).
+   */
+  app.put('/api/brain/activation', async (req, res) => {
+    try {
+      const body = (req.body ?? {}) as {
+        project?: string;
+        enabled?: boolean;
+        axes?: Record<string, unknown>;
+        prompted?: boolean;
+      };
+      const root = graphManager.resolveBrainRoot(typeof body.project === 'string' ? body.project : undefined);
+      if (!root) {
+        res.status(400).json({ ok: false, error: 'no project' });
+        return;
+      }
+      const prev = userDefaultsService.get().brainByProject ?? {};
+      const key = resolveBrainProjectKey(prev, root);
+      const cur: BrainActivation = prev[key] ?? { enabled: false };
+      const next: BrainActivation = { ...cur };
+      if (typeof body.enabled === 'boolean') {
+        next.enabled = body.enabled;
+        if (body.enabled) next.enabledAt = Date.now();
+      }
+      if (body.axes && typeof body.axes === 'object') {
+        // 모르는 축 이름은 버린다 — 오타가 조용히 저장돼 영영 안 읽히는 스위치가 되는 것을 막는다.
+        const axes: Partial<Record<BrainAxisId, boolean>> = { ...cur.axes };
+        for (const id of BRAIN_AXIS_IDS) {
+          const v = body.axes[id];
+          if (typeof v === 'boolean') axes[id] = v;
+        }
+        next.axes = axes;
+      }
+      if (body.prompted === true) next.promptedAt = Date.now();
+      await userDefaultsService.update({ brainByProject: { ...prev, [key]: next } });
+      // 켜짐이 바뀌면 표시(게이트 ③)가 달라지므로 스냅샷을 다시 보낸다.
+      broadcastSnapshot();
+      res.json({ ok: true, root, activation: next });
+    } catch (err) {
+      logger.error('PUT /api/brain/activation failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  // ── §5.10 v2 (B) 스킬 자산 ───────────────────────────────────────────────
+  // 카드와 나란한 자산이라 라우트도 카드 옆에 둔다. 전부 위 게이트 ④ 안쪽이다
+  // (두뇌가 꺼진 프로젝트에서는 403 — 스킬도 두뇌의 일부다).
+
+  /** GET /api/brain/skills?project=&scope=&agentId=&includeArchived= — 스킬 목록. */
+  app.get('/api/brain/skills', (req, res) => {
+    try {
+      const root = graphManager.resolveBrainRoot(
+        typeof req.query.project === 'string' ? req.query.project : undefined,
+      );
+      if (!root) { res.json({ skills: [] }); return; }
+      const scope = req.query.scope === 'agent' ? 'agent' : req.query.scope === 'user' ? 'user' : undefined;
+      const agentId = typeof req.query.agentId === 'string' ? req.query.agentId : undefined;
+      const skills = getBrainSkillService(root).listSkills({
+        ...(scope ? { scope } : {}),
+        ...(agentId ? { agentId } : {}),
+        ...(req.query.includeArchived === 'true' ? { includeArchived: true } : {}),
+      });
+      res.json({ skills });
+    } catch (err) {
+      logger.error('GET /api/brain/skills failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * POST /api/brain/skills — 절차를 굳힌다.
+   * 에이전트가 직접 부르는 자리이기도 하다(리플렉션이 뽑은 초안 · lesson 승급).
+   */
+  app.post('/api/brain/skills', (req, res) => {
+    try {
+      const b = (req.body ?? {}) as Record<string, unknown>;
+      const root = graphManager.resolveBrainRoot(typeof b.project === 'string' ? b.project : undefined);
+      if (!root) { res.status(400).json({ ok: false, error: 'no project' }); return; }
+      const name = typeof b.name === 'string' ? b.name.trim() : '';
+      const description = typeof b.description === 'string' ? b.description.trim() : '';
+      const body = typeof b.body === 'string' ? b.body : '';
+      // agentskills.io 필수 두 필드가 없으면 스킬이 아니다 — 빈 껍데기를 만들지 않는다.
+      if (!name || !description || !body.trim()) {
+        res.status(400).json({ ok: false, error: 'name, description, body are required' });
+        return;
+      }
+      const scope: BrainCardScope = b.scope === 'agent' ? 'agent' : b.scope === 'user' ? 'user' : 'project';
+      const skill = getBrainSkillService(root).createSkill({
+        name,
+        description,
+        body,
+        scope,
+        ...(typeof b.id === 'string' ? { id: b.id } : {}),
+        ...(typeof b.agentId === 'string' ? { agentId: b.agentId } : {}),
+        ...(typeof b.topic === 'string' ? { topic: b.topic } : {}),
+        ...(Array.isArray(b.files) ? { files: b.files.filter((f): f is string => typeof f === 'string') } : {}),
+        ...(typeof b.sourceSessionId === 'string' ? { sourceSessionId: b.sourceSessionId } : {}),
+        ...(Array.isArray(b.originCardIds)
+          ? { originCardIds: b.originCardIds.filter((f): f is string => typeof f === 'string') }
+          : {}),
+      });
+      broadcastSnapshot();
+      res.json({ ok: true, skill });
+    } catch (err) {
+      logger.error('POST /api/brain/skills failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /** PATCH /api/brain/skills/:id — 개정(옛 판은 보존된다). */
+  app.patch('/api/brain/skills/:id', (req, res) => {
+    try {
+      const b = (req.body ?? {}) as Record<string, unknown>;
+      const root = graphManager.resolveBrainRoot(typeof b.project === 'string' ? b.project : undefined);
+      if (!root) { res.status(400).json({ ok: false, error: 'no project' }); return; }
+      const skill = getBrainSkillService(root).reviseSkill(String(req.params.id ?? ''), {
+        ...(typeof b.name === 'string' ? { name: b.name } : {}),
+        ...(typeof b.description === 'string' ? { description: b.description } : {}),
+        ...(typeof b.body === 'string' ? { body: b.body } : {}),
+        ...(typeof b.topic === 'string' ? { topic: b.topic } : {}),
+        ...(Array.isArray(b.files) ? { files: b.files.filter((f): f is string => typeof f === 'string') } : {}),
+      });
+      if (!skill) { res.status(404).json({ ok: false, error: 'not found' }); return; }
+      broadcastSnapshot();
+      res.json({ ok: true, skill });
+    } catch (err) {
+      logger.error('PATCH /api/brain/skills/:id failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /** POST /api/brain/skills/:id/:action — activate | archive | helpful. */
+  app.post('/api/brain/skills/:id/:action', (req, res) => {
+    try {
+      const b = (req.body ?? {}) as Record<string, unknown>;
+      const root = graphManager.resolveBrainRoot(typeof b.project === 'string' ? b.project : undefined);
+      if (!root) { res.status(400).json({ ok: false, error: 'no project' }); return; }
+      const svc = getBrainSkillService(root);
+      const id = String(req.params.id ?? '');
+      const action = String(req.params.action ?? '');
+      const skill = action === 'activate' ? svc.activateSkill(id)
+        : action === 'archive' ? svc.archiveSkill(id)
+          : action === 'helpful' ? svc.markHelpful(id)
+            : undefined;
+      if (skill === undefined) { res.status(400).json({ ok: false, error: 'unknown action' }); return; }
+      if (skill === null) { res.status(404).json({ ok: false, error: 'not found' }); return; }
+      broadcastSnapshot();
+      res.json({ ok: true, skill });
+    } catch (err) {
+      logger.error('POST /api/brain/skills/:id/:action failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * GET /api/brain/skill-candidates?project= — lesson 승급 후보.
+   * "같은 주제 lesson 이 N장 모였다 = 한 절차를 여러 번 다시 배우고 있다"는 신호다.
+   */
+  app.get('/api/brain/skill-candidates', (req, res) => {
+    try {
+      const root = graphManager.resolveBrainRoot(
+        typeof req.query.project === 'string' ? req.query.project : undefined,
+      );
+      if (!root) { res.json({ candidates: [] }); return; }
+      const cards = getBrainService(root).listCards({});
+      const candidates = getBrainSkillService(root).promotionCandidates(cards);
+      // 카드 본문은 목록에 싣지 않는다(스냅샷·목록은 요약만 — §9 perf 와 같은 규율).
+      res.json({
+        candidates: candidates.map((c) => ({
+          topic: c.topic,
+          scope: c.scope,
+          ...(c.agentId ? { agentId: c.agentId } : {}),
+          count: c.cards.length,
+          cards: c.cards.map((k) => ({ id: k.id, title: k.title })),
+        })),
+      });
+    } catch (err) {
+      logger.error('GET /api/brain/skill-candidates failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * §5.10 v2 (F) — GET /api/brain/curator?project= — **입양 대기 레일.**
+   *
+   * 실측에서 새는 자리가 셋이었다: `topic: misc` 102장(31%) · `refCount: 0` 263장(80%) ·
+   * `verifyState: candidate` 234장. 셋 다 "쌓였지만 쓰이지 않는" 상태이고, 흩어져 있으면
+   * 아무도 손대지 않는다. 한 화면에 모아 **사유별로** 보여 준다.
+   */
+  app.get('/api/brain/curator', (req, res) => {
+    try {
+      const root = graphManager.resolveBrainRoot(
+        typeof req.query.project === 'string' ? req.query.project : undefined,
+      );
+      if (!root) { res.json({ cards: [], counts: { misc: 0, unreferenced: 0, candidate: 0 } }); return; }
+      if (!brainAxisEnabledFor(root, 'curator')) {
+        res.status(403).json({ ok: false, error: 'brain-axis-disabled', axis: 'curator' });
+        return;
+      }
+      const all = getBrainService(root).listCards({});
+      const counts = { misc: 0, unreferenced: 0, candidate: 0 };
+      const picked: { card: (typeof all)[number]; reasons: string[] }[] = [];
+      for (const c of all) {
+        const reasons: string[] = [];
+        if (!c.topic || c.topic === BRAIN_TOPIC_MISC) { reasons.push('misc'); counts.misc++; }
+        if ((c.refCount ?? 0) === 0) { reasons.push('unreferenced'); counts.unreferenced++; }
+        if ((c.verifyState ?? 'candidate') === 'candidate') { reasons.push('candidate'); counts.candidate++; }
+        if (reasons.length > 0) picked.push({ card: c, reasons });
+      }
+      // 사유가 많은 것부터 — 세 가지에 다 걸린 카드가 가장 먼저 손댈 자리다.
+      picked.sort((a, b) => b.reasons.length - a.reasons.length || b.card.updatedAt - a.card.updatedAt);
+      res.json({
+        counts,
+        cards: picked.slice(0, BRAIN_CURATOR_PAGE_SIZE).map((p) => ({ ...p.card, curatorReasons: p.reasons })),
+        total: picked.length,
+      });
+    } catch (err) {
+      logger.error('GET /api/brain/curator failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * §5.10 v2 (E) — POST /api/brain/cards/:id/ground — 이 카드를 **지금 코드와 대조**한다.
+   *
+   * 통과하면 기존 승격 관문(`confirmCard`)이 `repository-source` 권위로 올린다.
+   * 실패해도 강등하지 않는다 — 증거를 못 찾은 것과 틀린 것은 다르다.
+   */
+  app.post('/api/brain/cards/:id/ground', (req, res) => {
+    try {
+      const b = (req.body ?? {}) as Record<string, unknown>;
+      const root = graphManager.resolveBrainRoot(typeof b.project === 'string' ? b.project : undefined);
+      if (!root) { res.status(400).json({ ok: false, error: 'no project' }); return; }
+      if (!brainAxisEnabledFor(root, 'grounding')) {
+        res.status(403).json({ ok: false, error: 'brain-axis-disabled', axis: 'grounding' });
+        return;
+      }
+      const result = applyGrounding(root, String(req.params.id ?? ''));
+      if (!result) { res.status(404).json({ ok: false, error: 'not found' }); return; }
+      broadcastSnapshot();
+      res.json({ ok: true, result, card: getBrainService(root).getCard(String(req.params.id ?? '')) });
+    } catch (err) {
+      logger.error('POST /api/brain/cards/:id/ground failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * §5.10 v2 (C) — GET /api/brain/recall?q=&project= — **과거 세션 본문** 회상.
+   *
+   * 카드 검색(`/api/brain/search`)과 짝이지만 찾는 대상이 다르다: 카드는 리플렉션이 남길 만하다고
+   * 판단한 것만 있고, 이쪽은 **그때 실제로 오간 대화**다("그때 이거 어떻게 고쳤더라").
+   * 에이전트가 직접 부르는 자리라 loopback 화이트리스트에도 올라간다.
+   */
+  app.get('/api/brain/recall', (req, res) => {
+    try {
+      const project = typeof req.query.project === 'string' ? req.query.project : undefined;
+      const root = graphManager.resolveBrainRoot(project);
+      if (!root) { res.json({ hits: [] }); return; }
+      if (!brainAxisEnabledFor(root, 'recall')) {
+        // 조용히 빈 배열을 주면 "찾은 게 없다"와 구별이 안 된다 — 꺼져 있음을 말해 준다.
+        res.status(403).json({ ok: false, error: 'brain-axis-disabled', axis: 'recall' });
+        return;
+      }
+      const q = typeof req.query.q === 'string' ? req.query.q : '';
+      if (!q.trim()) { res.status(400).json({ ok: false, error: 'q is required' }); return; }
+      const limit = Number(req.query.limit);
+      const hits = recallFromSessions({
+        root,
+        cwd: root,
+        query: q,
+        ...(Number.isFinite(limit) && limit > 0 ? { options: { limit } } : {}),
+      });
+      res.json({ hits });
+    } catch (err) {
+      logger.error('GET /api/brain/recall failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
   /**
    * GET /api/brain/feed?project=&scope=&agentId=&q= — v3.49 유튜브식 피드(우더블클릭 오버레이).
    * ctx.text = q; agentId 가 있으면 그 에이전트가 최근 참조한 파일들을 ctx.files 로 실어 related 랭킹을 보정한다
@@ -5732,9 +6115,6 @@ export async function runServer(): Promise<RunServerHandle> {
    */
   app.get('/api/available-skills', async (req, res) => {
     try {
-      // §5.5 #17-2 v3.19 — 부팅 직후 첫 조회가 콜드 스캔과 경합해 builtins 가 비지 않도록 대기.
-      // 캐시 hit 부팅에선 즉시 resolve. 클라 훅은 키별 1회 fetch 후 캐시라 여기서 기다려야 한다.
-      await builtinCommandsService.whenReady();
       const skills: SkillInfo[] = [];
       const seen = new Set<string>();
 
@@ -5816,7 +6196,7 @@ export async function runServer(): Promise<RunServerHandle> {
       res.json({
         ok: true,
         skills,
-        builtins: builtinCommandsService.getCommands(),
+        builtins: BUILTIN_SLASH_COMMANDS,
         order: appStateGetSkillOrder(),
         favorites: appStateGetSkillFavorites(),
       });
@@ -6201,6 +6581,14 @@ export async function runServer(): Promise<RunServerHandle> {
             })()
           : undefined,
         safeMode: body.safeMode === true ? true : undefined,
+        // §4 (Fast 모드) — settings 키로만 켜지는 축(플래그 아님). 모델 지원 여부는 저장이 아니라
+        //   스폰부(`wantsFastMode`)가 판정한다 — 사용자가 모델을 Opus 로 되돌리면 값이 그대로 살아난다.
+        fastMode: body.fastMode === true ? true : undefined,
+        // §4 (스트림 3종) — ①은 **기본 켬**이라 저장 규약이 반대다: 명시 `false` 만 남기고
+        //   그 밖(미지정·true)은 undefined = 켬. ②③은 평범하게 true 만 저장한다.
+        forwardSubagentText: body.forwardSubagentText === false ? false : undefined,
+        replayUserMessages: body.replayUserMessages === true ? true : undefined,
+        promptSuggestions: body.promptSuggestions === true ? true : undefined,
         // §4 (CLI 사양 추종) — Bash 타임아웃(ms). 범위를 벗어나면 저장하지 않는다(= 미설정 = CLI 기본).
         bashDefaultTimeoutMs: normalizeBashTimeoutMs(body.bashDefaultTimeoutMs),
         bashMaxTimeoutMs: normalizeBashTimeoutMs(body.bashMaxTimeoutMs),

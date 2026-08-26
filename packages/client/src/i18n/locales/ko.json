@@ -868,6 +868,24 @@
         "label": "안전 모드 (모든 커스터마이즈 끄기)",
         "warn": "훅이 꺼져 이 에이전트 활동이 버블맵에 안 잡힙니다"
       },
+      "fastMode": {
+        "label": "Fast 모드",
+        "hint": "같은 Opus, 더 빠른 출력",
+        "unsupported": "Opus 4.8 / Opus 5 에서만",
+        "tip": "같은 Opus 모델을 출력 속도만 빠르게 돌립니다 — 더 작은 모델로 낮추는 게 아닙니다. CLI 플래그가 아닙니다: 헤드리스 에이전트는 Agent SDK 세션으로 취급돼 설정으로 켠 경우에만 Fast 를 받아들이므로, Vibisual 이 이 에이전트용으로 이미 쓰고 있는 설정 파일에 함께 실어 보냅니다. 지원하지 않는 모델은 아무 안내 없이 이 설정을 무시합니다."
+      },
+      "forwardSubagentText": {
+        "label": "서브에이전트 출력 보기",
+        "hint": "중첩 Task 에이전트가 하는 말과 사고"
+      },
+      "replayUserMessages": {
+        "label": "명령 접수 확인",
+        "hint": "CLI 가 실제로 명령을 받으면 칩 한 줄"
+      },
+      "promptSuggestions": {
+        "label": "다음 프롬프트 제안",
+        "hint": "턴마다 예측해 줍니다"
+      },
       "betas": {
         "label": "베타 헤더",
         "tip": "API 요청에 실을 베타 헤더입니다. API 키 사용자 전용 — 구독 인증에서는 무시됩니다.",
@@ -1648,6 +1666,7 @@
       "historyHintPrev": "한 번 더 누르면 최근 명령",
       "historyHintNext": "한 번 더 누르면 오래된 명령",
       "slashBuiltin": "내장",
+      "slashNeedsTerminal": "터미널 필요",
       "slashEmpty": "일치하는 스킬 없음",
       "slashLoading": "스킬 불러오는 중…",
       "ctxCopy": "복사",
@@ -2091,7 +2110,10 @@
         "openApp": "{{app}} 에서 열기 — {{path}}",
         "openExternal": "연결 프로그램으로 열기 — {{path}}"
       },
-      "restartResumed": "앱이 내려가며 끊겼고, 보존된 세션으로 이어서 재개했습니다."
+      "restartResumed": "앱이 내려가며 끊겼고, 보존된 세션으로 이어서 재개했습니다.",
+      "nestedSubagent": "서브에이전트",
+      "commandReceived": "명령 접수됨",
+      "promptSuggestion": "다음 프롬프트 제안"
     },
     "report": {
       "title": "작업 신고",
@@ -2440,7 +2462,8 @@
         "toolSchemas": "도구 정의",
         "mcp": "MCP 서버",
         "hooks": "훅",
-        "systemPrompt": "Claude Code 시스템 프롬프트"
+        "systemPrompt": "Claude Code 시스템 프롬프트",
+        "brainSkills": "두뇌 절차 기억"
       },
       "hint": {
         "tools": "도구 목록은 에이전트 설정에서 고릅니다",
@@ -2619,6 +2642,11 @@
             "what": "Vibisual 이 이 세션을 볼 수 있게 해 주는 Claude Code 훅입니다.",
             "more": "settings.json 에 등록돼 있습니다. 토큰은 거의 안 먹지만 모든 이벤트가 이 통로로 다닙니다.",
             "off": "훅은 여기가 아니라 settings.json 에서 뺍니다. 없으면 Vibisual 이 이 세션을 보지 못합니다."
+          },
+          "brainSkills": {
+            "what": "이 프로젝트에서 굳어진 절차 — 지금 작업과 맞으면 실립니다.",
+            "more": "스킬의 \"언제 쓰나\" 문장으로 골라 오므로 무관한 절차는 실리지 않습니다.",
+            "off": "에이전트가 매번 절차를 처음부터 다시 궁리합니다."
           }
         },
         "cat": {
@@ -3503,7 +3531,15 @@
       "archived": "정리됨",
       "archivedHint": "정원을 넘겨 보관된 기억 — 지워진 게 아니라 되돌릴 수 있습니다",
       "review": "검토 대기",
-      "reviewHint": "아직 현재 진실이 아닌 후보 — 확인해야 AI 에게 전달됩니다"
+      "reviewHint": "아직 현재 진실이 아닌 후보 — 확인해야 AI 에게 전달됩니다",
+      "skills": "절차 기억",
+      "skillsHint": "같은 일을 하며 굳어진 절차 — 그 작업을 시작할 때 자동으로 실립니다",
+      "curator": "손볼 것",
+      "curatorHint": "분류가 안 됐거나, 한 번도 안 읽혔거나, 아직 후보인 기억",
+      "skillDraft": "초안",
+      "skillVerified": "확인됨",
+      "skillUsed": "실림 {{count}}회",
+      "skillHelpful": "도움 {{count}}회"
     },
     "currentBadge": "현재 진실",
     "contestedBadge": "값 충돌",
@@ -3514,7 +3550,44 @@
     "confirmPromptContested": "같은 주소에 값이 갈렸습니다 — 맞는 쪽을 골라야 AI 에게 전달됩니다.",
     "confirmCurrent": "현재 진실로 확인",
     "reject": "아니오",
-    "rejectTip": "삭제되지 않습니다 — 기록으로 남고 주입에서만 빠집니다."
+    "rejectTip": "삭제되지 않습니다 — 기록으로 남고 주입에서만 빠집니다.",
+    "axis": {
+      "skills": {
+        "title": "절차 기억",
+        "hint": "복잡한 작업의 절차를 굳혀 다음에 자동으로 건다"
+      },
+      "recall": {
+        "title": "회상",
+        "hint": "카드에 없어도 과거 세션 본문에서 찾는다"
+      },
+      "nudge": {
+        "title": "넛지",
+        "hint": "작업 중에 배운 것을 남기도록 가끔 찔러 준다"
+      },
+      "grounding": {
+        "title": "근거 검증",
+        "hint": "저장할 때 코드와 대조해 통과하면 확인됨으로 올린다"
+      },
+      "curator": {
+        "title": "큐레이터",
+        "hint": "분류가 안 된 카드·안 읽히는 카드를 모아 보여준다"
+      },
+      "operator": {
+        "title": "운영자 프로필",
+        "hint": "반복해서 드러난 작업 방식을 이 기기에만 기록한다"
+      }
+    },
+    "activation": {
+      "sleeping": "이 프로젝트의 두뇌에 기억 {{count}}장이 잠들어 있습니다. 켤까요?",
+      "hint": "두뇌는 기본으로 꺼져 있습니다. 켜면 작업에서 배운 절차를 모아 다음 작업에 자동으로 겁니다. 언제든 다시 끌 수 있고, 꺼도 기록은 지워지지 않습니다.",
+      "turnOn": "켜기",
+      "notNow": "지금은 그만",
+      "showAxes": "무엇이 켜지는지 보기",
+      "hideAxes": "무엇이 켜지는지 접기",
+      "axesTitle": "무엇을 켜 둘까요",
+      "turnOff": "두뇌 끄기",
+      "offKeepsData": "꺼도 기록은 지워지지 않습니다 — 다시 켜면 그 자리에서 이어집니다."
+    }
   },
   "commandCenter": {
     "windowTitle": "지휘통제실 — {{name}}",

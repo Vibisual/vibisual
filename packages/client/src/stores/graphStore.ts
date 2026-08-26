@@ -337,6 +337,22 @@ export function selectActivePluginProjectPath(state: {
 }
 
 /**
+ * §5.10 v2 (H) — 두뇌 활성화(마스터·축·1회 안내 기록)를 매달 **프로젝트 키**(= 루트 절대경로).
+ *
+ * 플러그인 켬/끔과 **같은 규약**을 쓴다. `UserDefaults.brainByProject` 의 키는 서버가 적는 절대경로인데
+ * `activeProject` 는 표시명이라, 표시명으로 조회하면 서버가 적어 둔 `enabled`·`promptedAt` 을 화면이
+ * 영영 못 찾는다 — 켜도 두뇌 버블이 안 뜨고, "지금은 그만"으로 거절해도 안내 배너가 매번 다시 떴다.
+ * 판정 키는 여기 한 곳에서만 만든다.
+ */
+export function selectActiveBrainProjectPath(state: {
+  activeProject: string | null;
+  projects: Record<string, ProjectInfo>;
+  stubProjects: Record<string, ProjectMetaSnapshot>;
+}): string | null {
+  return selectActivePluginProjectPath(state);
+}
+
+/**
  * §5.11 v4.65 — 활성 프로젝트에서 집행이 실제로 측정한 값(pluginId → 실측 한 벌). 없으면 `undefined`.
  *
  * 키 비교를 정규화하는 이유: 켬/끔 키와 마찬가지로 같은 폴더가 대소문자·구분자만 달리 적힐 수 있고,

@@ -20,6 +20,10 @@ import type { UsageCollectorStatus } from '@vibisual/shared';
  * 사용자 설정이 사라진다. 설치 시 원본 객체를 `_vibisualPrevStatusLine` 에 통째로 보관하고
  * 핸들러가 그 명령을 같은 stdin 으로 대신 실행해 출력을 그대로 흘린다(passthrough).
  * 해제하면 원본 객체를 그 자리에 되돌린다.
+ *
+ * **마커는 지워질 수 있다** — `statusLine` 은 Claude Code 가 스키마를 아는 키라 그쪽이
+ * settings.json 을 다시 쓰면 `_vibisualManaged`·`_vibisualPrevStatusLine` 가 함께 날아간다.
+ * 그래서 "우리 항목인가" 판정은 마커가 아니라 **명령 내용**(`isOurEntry`)으로 한다.
  */
 
 const MARKER = '_vibisualManaged';
@@ -50,8 +54,44 @@ function buildStatusLineCommand(port: number, handlerPath: string, token: string
   return `node "${fwd}" --statusline --server "http://127.0.0.1:${port}" --token "${token}"`;
 }
 
-function isManaged(entry: unknown): entry is StatusLineEntry {
-  return !!entry && typeof entry === 'object' && (entry as StatusLineEntry)[MARKER] === true;
+/**
+ * 우리 명령인가 — **마커가 아니라 명령 내용**으로 판정한다.
+ *
+ * `statusLine` / `subagentStatusLine` 은 Claude Code 가 스키마를 아는 키라, 그쪽이 settings.json
+ * 을 다시 쓰면(테마 변경 등) 값 안의 미지 필드인 `_vibisualManaged`·`_vibisualPrevStatusLine`
+ * 가 **통째로 사라진다**(실측: 백업 파일에서 `statusLine` 이 `type`·`command` 두 키만 남음).
+ * 마커만 믿으면 그 순간 우리 수집기가 "꺼짐" 으로 읽혀 두 가지 사고가 난다 —
+ *   ① 부팅 시 `refreshStatusLineIfInstalled` 가 포트·토큰 갱신을 건너뛰어 값이 영영 안 들어옴,
+ *   ② 사용자가 팝업에서 다시 "켜기" 를 누르면 **우리 명령이 "사용자 원본" 으로 보관**되어
+ *      핸들러가 자기 자신을 passthrough 로 띄우는 무한 재귀 사슬이 된다(실측 사고).
+ * 그래서 명령 문자열로도 우리 것을 알아본다.
+ */
+function isOurCommand(command: unknown, mode: '--statusline' | '--subagent-statusline'): boolean {
+  if (typeof command !== 'string') return false;
+  if (!command.includes('handler.mjs')) return false;
+  return new RegExp(`(^|\\s)${mode}(\\s|$)`).test(command);
+}
+
+/** 마커 또는 명령 내용으로 "우리 항목" 판정. 마커 유실(위 주석) 이후에도 살아남는다. */
+function isOurEntry(entry: unknown, mode: '--statusline' | '--subagent-statusline'): entry is StatusLineEntry {
+  if (!entry || typeof entry !== 'object') return false;
+  const e = entry as StatusLineEntry;
+  return e[MARKER] === true || isOurCommand(e.command, mode);
+}
+
+/**
+ * 보관할 **사용자 원본** 을 고른다. 우리 항목이면 그 안의 `_vibisualPrevStatusLine` 로 파고들고,
+ * 그 안쪽도 우리 것이면 또 파고든다(자기 감쌈이 이미 여러 겹 쌓인 파일도 여기서 풀린다).
+ * 끝까지 우리 것뿐이면 undefined — 보관할 사용자 명령이 애초에 없었다는 뜻이다.
+ */
+function resolvePreserved(entry: unknown, mode: '--statusline' | '--subagent-statusline'): StatusLineEntry | undefined {
+  let cur: unknown = entry;
+  for (let depth = 0; depth < 8; depth++) {
+    if (!cur || typeof cur !== 'object') return undefined;
+    if (!isOurEntry(cur, mode)) return cur as StatusLineEntry;
+    cur = (cur as StatusLineEntry)[PREV_KEY];
+  }
+  return undefined;
 }
 
 /**
@@ -82,7 +122,7 @@ function applySubagentStatusLine(
   token: string,
 ): boolean {
   const current = settings.subagentStatusLine;
-  const preserved = isManaged(current) ? current[PREV_KEY] : current;
+  const preserved = resolvePreserved(current, '--subagent-statusline');
 
   const next: StatusLineEntry = {
     type: 'command',
@@ -99,11 +139,11 @@ function applySubagentStatusLine(
 /** 해제 — 보관해둔 사용자 값이 있으면 되돌리고, 없으면 키를 지운다. @returns 바뀌었으면 true. */
 function removeSubagentStatusLine(settings: ClaudeSettings): boolean {
   const current = settings.subagentStatusLine;
-  if (!isManaged(current)) return false;
+  if (!isOurEntry(current, '--subagent-statusline')) return false;
 
-  const preserved = current[PREV_KEY];
-  if (preserved && typeof preserved === 'object') {
-    settings.subagentStatusLine = preserved as StatusLineEntry;
+  const preserved = resolvePreserved(current, '--subagent-statusline');
+  if (preserved) {
+    settings.subagentStatusLine = preserved;
   } else {
     delete settings.subagentStatusLine;
   }
@@ -151,12 +191,10 @@ function writeSettings(settings: ClaudeSettings, raw: string | null): void {
 
 function toStatus(settings: ClaudeSettings, error?: string): UsageCollectorStatus {
   const entry = settings.statusLine;
-  const managed = isManaged(entry);
-  const prev = managed ? (entry as StatusLineEntry)[PREV_KEY] : undefined;
-  const prevCommand =
-    prev && typeof prev === 'object' && typeof (prev as StatusLineEntry).command === 'string'
-      ? (prev as StatusLineEntry).command
-      : undefined;
+  const managed = isOurEntry(entry, '--statusline');
+  // 보관된 원본 중 **우리 명령이 아닌 것** 만 passthrough 로 친다(자기 감쌈은 여기서 걸러진다).
+  const prev = managed ? resolvePreserved(entry, '--statusline') : undefined;
+  const prevCommand = typeof prev?.command === 'string' ? prev.command : undefined;
   return {
     installed: managed,
     // 관리 중이면 "감싼 사용자 명령이 있는가", 아니면 "사용자 statusLine 이 이미 있는가".
@@ -184,7 +222,9 @@ export function installStatusLine(port: number, handlerPath: string, token: stri
   try {
     const current = settings.statusLine;
     // 재설치(포트/토큰 갱신)면 이미 보관 중인 원본을 그대로 이어받는다.
-    const preserved = isManaged(current) ? current[PREV_KEY] : current;
+    // 마커가 지워진 뒤 다시 켜는 경우 `current` 는 **우리 명령**이므로 그대로 보관하면
+    // 자기 자신을 passthrough 로 띄우게 된다 — `resolvePreserved` 가 그 자리를 막는다.
+    const preserved = resolvePreserved(current, '--statusline');
 
     const next: StatusLineEntry = {
       type: 'command',
@@ -218,14 +258,14 @@ export function uninstallStatusLine(): UsageCollectorStatus {
     // 서브에이전트 쪽만 남아 있는 경우(옛 판본에서 넘어옴)도 함께 걷어내야 하므로 먼저 시도한다.
     const subChanged = removeSubagentStatusLine(settings);
 
-    if (!isManaged(current)) {
+    if (!isOurEntry(current, '--statusline')) {
       if (subChanged) writeSettings(settings, raw);
       return toStatus(settings);
     }
 
-    const preserved = current[PREV_KEY];
-    if (preserved && typeof preserved === 'object') {
-      settings.statusLine = preserved as StatusLineEntry;
+    const preserved = resolvePreserved(current, '--statusline');
+    if (preserved) {
+      settings.statusLine = preserved;
     } else {
       delete settings.statusLine;
     }

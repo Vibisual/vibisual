@@ -25,6 +25,8 @@ import {
   LOCAL_TOOL_READ_MAX_BYTES,
   LOCAL_TOOL_RESULT_MAX_CHARS,
   LOCAL_WEB_SEARCH_MAX_HITS,
+  LOCAL_WEB_SEARCH_API_URL,
+  LOCAL_WEB_SEARCH_TIMEOUT_MS,
   LOCAL_TOOL_LIST_MAX_ENTRIES,
   LOCAL_TOOL_COMMAND_TIMEOUT_MS,
 } from '@vibisual/shared';
@@ -380,24 +382,70 @@ async function toolWebFetch(args: Record<string, unknown>, signal?: AbortSignal)
   }
 }
 
+/** 여러 줄·연속 공백을 한 칸으로 접는다 — 모델에게 주는 한 줄 요약용. */
+function collapseSpaces(s: string): string {
+  return s.split(/\s+/).join(' ').trim();
+}
+
 /**
- * 열쇠 없이 쓸 수 있는 검색 창구를 쓴다 — API 키를 요구하면 **배포되는 제품에서** 아무도 못 쓴다
- * (사용자마다 키를 만들게 하는 순간 그 기능은 없는 것과 같다).
+ * 요약 자리에 실려 오는 페이지 본문을 읽을 수 있게 다듬는다.
  *
- * 그 대신 남의 화면을 읽는 방식이라 언제든 모양이 바뀔 수 있다. 그래서 **못 읽으면 못 읽었다고
- * 말하고 끝낸다** — 조용히 빈 결과를 주면 모델은 "검색해도 아무것도 없다"로 잘못 배운다.
+ * 검색 창구는 `description` 에 **긁어 온 마크다운**을 그대로 담아 준다(실측 — `# 제목`,
+ * `[Link for this heading](…)` 같은 것이 240자 중 절반을 먹는다). 모델이 볼 것은 "이 페이지가
+ * 무슨 내용인가" 한 줄이므로, 링크는 글자만 남기고 장식 기호는 걷어낸다.
+ */
+export function tidySnippet(raw: string): string {
+  let s = raw;
+  // [글자](주소) → 글자 · ![대체글](주소) → 대체글
+  s = s.replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1');
+  // 줄머리 장식(#, >, -, *, 숫자.)과 강조 기호
+  s = s.replace(/^[ \t]*(?:#{1,6}|>|[-*+]|\d+\.)[ \t]+/gm, ' ');
+  s = s.replace(/[*_`]+/g, '');
+  return collapseSpaces(s);
+}
+
+/**
+ * 웹 검색 — **공식 창구를 부른다**(선택 근거는 shared `LOCAL_WEB_SEARCH_API_URL` 주석).
+ *
+ * 종전에는 검색 결과 **화면**(`html.duckduckgo.com`)을 받아 HTML 을 파싱했다. 키가 필요 없다는
+ * 이유 하나로 골랐지만 그건 그 서비스 약관이 금지하는 자동 조회였고, 배포되는 제품이라
+ * 우리 사용자들이 차단 대상이 되는 자리였다. 지금은 공개된 검색 API 를 부른다 — 키 없이도
+ * 되고, 더 쓰려는 사용자는 `FIRECRAWL_API_KEY` 를 환경변수로 두면 자기 키로 올라간다.
+ *
+ * **못 읽으면 못 읽었다고 말하고 끝낸다** — 조용히 빈 결과를 주면 모델은 "검색해도 아무것도
+ * 없다"로 잘못 배운다. 특히 한도를 넘긴 429 는 그 사실을 그대로 알려야 사용자가 손을 쓴다.
  */
 async function toolWebSearch(args: Record<string, unknown>, signal?: AbortSignal): Promise<LocalToolOutcome> {
   const query = typeof args['query'] === 'string' ? args['query'].trim() : '';
   if (!query) return fail('WebSearch needs a "query"');
-  const endpoint = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+
+  const apiKey = process.env['FIRECRAWL_API_KEY'];
+  // 시간 상한과 바깥의 중지를 한 컨트롤러로 모은다 — 모델을 멈췄는데 요청만 남는 일이 없게.
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), LOCAL_WEB_SEARCH_TIMEOUT_MS);
+  if (signal?.aborted) ctl.abort();
+  else signal?.addEventListener('abort', () => ctl.abort(), { once: true });
+
   try {
-    const res = await fetch(endpoint, {
-      headers: { 'user-agent': WEB_UA, accept: 'text/html' },
-      ...(signal ? { signal } : {}),
+    const res = await fetch(LOCAL_WEB_SEARCH_API_URL, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'user-agent': WEB_UA,
+        ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
+      },
+      body: JSON.stringify({ query, limit: LOCAL_WEB_SEARCH_MAX_HITS }),
+      signal: ctl.signal,
     });
+
+    if (res.status === 429) {
+      return fail(apiKey
+        ? 'search is rate limited right now — wait a moment and try again, or use WebFetch on a URL you already know'
+        : "this machine's free daily search quota is used up — wait for it to reset, set FIRECRAWL_API_KEY to raise it, or use WebFetch on a URL you already know");
+    }
     if (!res.ok) return fail(`search is unavailable right now (HTTP ${String(res.status)})`);
-    const hits = parseSearchHits(await res.text());
+
+    const hits = parseSearchHits(await res.json());
     if (hits.length === 0) {
       return fail(`no results could be read for "${query}" — try different words, or use WebFetch on a URL you already know`);
     }
@@ -406,37 +454,30 @@ async function toolWebSearch(args: Record<string, unknown>, signal?: AbortSignal
       .map((h, i) => `${String(i + 1)}. ${h.title}\n   ${h.url}${h.snippet ? `\n   ${h.snippet}` : ''}`);
     return ok(`results for "${query}":\n\n${lines.join('\n')}`);
   } catch (err) {
+    if (ctl.signal.aborted) return fail('search timed out');
     return fail(`could not search: ${err instanceof Error ? err.message : String(err)}`);
+  } finally {
+    clearTimeout(timer);
   }
 }
 
-/** 검색 결과 화면에서 제목·주소·요약을 건진다. 모양이 바뀌면 빈 배열(거짓 결과보다 낫다). */
-export function parseSearchHits(html: string): Array<{ title: string; url: string; snippet: string }> {
+/**
+ * 검색 응답(`{ data: { web: [...] } }`)에서 제목·주소·요약을 건진다.
+ * 모양이 바뀌면 빈 배열 — 거짓 결과를 지어내느니 "못 읽었다"가 낫다.
+ */
+export function parseSearchHits(body: unknown): Array<{ title: string; url: string; snippet: string }> {
+  const web = (body as { data?: { web?: unknown } } | null | undefined)?.data?.web;
+  if (!Array.isArray(web)) return [];
   const out: Array<{ title: string; url: string; snippet: string }> = [];
-  const blocks = html.split(/<div[^>]*class="[^"]*\bresult\b[^"]*"/i).slice(1);
-  for (const block of blocks) {
-    const link = /<a[^>]*class="[^"]*result__a[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i.exec(block);
-    if (!link) continue;
-    const url = decodeSearchHref(link[1] ?? '');
-    const title = htmlToText(link[2] ?? '');
-    if (!url || !title) continue;
-    const snip = /<a[^>]*class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/a>/i.exec(block);
-    out.push({ title, url, snippet: snip ? htmlToText(snip[1] ?? '').slice(0, 240) : '' });
+  for (const item of web) {
+    const r = item as { url?: unknown; title?: unknown; description?: unknown };
+    if (typeof r?.url !== 'string' || !r.url) continue;
+    if (typeof r.title !== 'string' || !r.title) continue;
+    // 요약 자리에 페이지 본문이 통째로 실려 오기도 한다 — 한 줄로 접어 잘라 넣는다.
+    const snippet = typeof r.description === 'string' ? tidySnippet(r.description).slice(0, 240) : '';
+    out.push({ title: collapseSpaces(r.title), url: r.url, snippet });
   }
   return out;
-}
-
-/** 검색 화면은 실제 주소를 한 겹 감싸서 준다 — 그 껍질을 벗긴다. */
-export function decodeSearchHref(href: string): string {
-  const raw = href.startsWith('//') ? `https:${href}` : href;
-  try {
-    const u = new URL(raw, 'https://duckduckgo.com');
-    const wrapped = u.searchParams.get('uddg');
-    if (wrapped) return wrapped;
-    return u.protocol === 'http:' || u.protocol === 'https:' ? u.toString() : '';
-  } catch {
-    return '';
-  }
 }
 
 export async function runLocalTool(

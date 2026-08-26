@@ -13,7 +13,7 @@
 import { describe, it, expect } from 'vitest';
 import { resolveLocalToolGate, LOCAL_TOOL_NAMES, LOCAL_HOST_TOOLS, normalizeTodoStatus } from '@vibisual/shared';
 import { buildLocalSystemPrompt, parseLocalSlash, unsupportedSlashMessage } from './localRunner.js';
-import { htmlToText, parseSearchHits, decodeSearchHref } from './localTools.js';
+import { htmlToText, parseSearchHits } from './localTools.js';
 
 describe('buildLocalSystemPrompt — 안 변하는 것이 앞, 변하는 것이 뒤', () => {
   it('주입선이 있으면 contextSummary 다음에 livePreamble', () => {
@@ -131,34 +131,71 @@ describe('htmlToText — 받아 온 페이지를 읽을 수 있게 접는다', (
   });
 });
 
-describe('decodeSearchHref — 감싼 주소의 껍질을 벗긴다', () => {
-  it('감싸인 실제 주소를 꺼낸다', () => {
-    expect(decodeSearchHref('//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fa')).toBe('https://example.com/a');
-  });
-
-  it('그냥 주소면 그대로 둔다', () => {
-    expect(decodeSearchHref('https://example.com/b')).toBe('https://example.com/b');
-  });
-
-  it('http/https 가 아니면 버린다 — 모델에게 못 여는 주소를 주지 않는다', () => {
-    expect(decodeSearchHref('javascript:alert(1)')).toBe('');
-  });
-});
-
 describe('parseSearchHits — 못 읽으면 빈 배열(거짓 결과보다 낫다)', () => {
-  it('제목·주소·요약을 건진다', () => {
-    const html = `
-      <div class="result results_links">
-        <a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com">Example &amp; Co</a>
-        <a class="result__snippet">짧은 요약</a>
-      </div>`;
-    expect(parseSearchHits(html)).toEqual([
+  it('검색 응답에서 제목·주소·요약을 건진다', () => {
+    const body = {
+      data: {
+        web: [
+          { url: 'https://example.com', title: 'Example & Co', description: '짧은 요약' },
+        ],
+      },
+    };
+    expect(parseSearchHits(body)).toEqual([
       { title: 'Example & Co', url: 'https://example.com', snippet: '짧은 요약' },
     ]);
   });
 
+  it('여러 줄로 온 요약은 한 줄로 접는다 — 목록이 무너지지 않게', () => {
+    const body = {
+      data: { web: [{ url: 'https://a.dev', title: '  제목\n  둘째줄  ', description: '앞\n\n  뒤' }] },
+    };
+    expect(parseSearchHits(body)).toEqual([
+      { title: '제목 둘째줄', url: 'https://a.dev', snippet: '앞 뒤' },
+    ]);
+  });
+
+  it('요약에 섞여 오는 마크다운 장식을 걷는다 — 240자를 링크 문법에 쓰지 않게', () => {
+    const body = {
+      data: {
+        web: [{
+          url: 'https://react.dev',
+          title: 'useEffect',
+          description: '# useEffect [Link for this heading](https://react.dev/x#undefined) **호출** 뒤 `정리`',
+        }],
+      },
+    };
+    expect(parseSearchHits(body)[0]?.snippet).toBe('useEffect Link for this heading 호출 뒤 정리');
+  });
+
+  it('긴 요약은 240자에서 자른다', () => {
+    const body = { data: { web: [{ url: 'https://a.dev', title: 't', description: 'x'.repeat(500) }] } };
+    expect(parseSearchHits(body)[0]?.snippet).toHaveLength(240);
+  });
+
+  it('주소나 제목이 없는 항목은 버린다 — 모델에게 못 여는 줄을 주지 않는다', () => {
+    const body = {
+      data: {
+        web: [
+          { title: '주소 없음' },
+          { url: 'https://b.dev' },
+          { url: 'https://c.dev', title: '온전함' },
+        ],
+      },
+    };
+    expect(parseSearchHits(body).map((h) => h.url)).toEqual(['https://c.dev']);
+  });
+
+  it('요약이 없어도 제목·주소만으로 싣는다', () => {
+    const body = { data: { web: [{ url: 'https://d.dev', title: '요약 없음' }] } };
+    expect(parseSearchHits(body)).toEqual([{ title: '요약 없음', url: 'https://d.dev', snippet: '' }]);
+  });
+
   it('모양이 바뀌면 빈 배열 — 지어내지 않는다', () => {
-    expect(parseSearchHits('<div>완전히 다른 화면</div>')).toEqual([]);
+    expect(parseSearchHits({ results: ['완전히 다른 모양'] })).toEqual([]);
+    expect(parseSearchHits({ data: { web: 'not an array' } })).toEqual([]);
+    expect(parseSearchHits(null)).toEqual([]);
+    expect(parseSearchHits(undefined)).toEqual([]);
+    expect(parseSearchHits('<div>옛 HTML 화면</div>')).toEqual([]);
   });
 });
 

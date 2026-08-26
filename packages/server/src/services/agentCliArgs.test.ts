@@ -14,10 +14,36 @@
  * `buildConfigArgs` 는 모듈 내부 함수라 **헤드리스·CMD 두 경로가 공유하는 공개 입구**
  * `buildInteractiveClaudeArgs` 로 관찰한다(같은 조립 결과를 그대로 물려받는다).
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import type { AgentConfig } from '@vibisual/shared';
 import { DEFAULT_AGENT_CONFIG } from '@vibisual/shared';
+
+// Fast 모드·자기 기억은 `--settings` **파일**로 나간다 — 사용자 홈(`~/.vibisual`)에 쓰지 않도록
+// `os.homedir()` 만 임시 폴더로 돌린다(다른 테스트가 실제 app-state 를 더럽혔던 선례를 반복하지 않는다).
+let fakeHome: string;
+vi.mock('node:os', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:os')>();
+  return { ...actual, default: { ...actual, homedir: () => process.env.__VIBI_FAKE_HOME__ ?? actual.homedir() } };
+});
+
 import { buildInteractiveClaudeArgs, buildBashTimeoutEnv } from './subAgentManager.js';
+
+beforeAll(() => {
+  fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'vibi-cliargs-'));
+  process.env.__VIBI_FAKE_HOME__ = fakeHome;
+});
+
+afterAll(() => {
+  delete process.env.__VIBI_FAKE_HOME__;
+  try {
+    fs.rmSync(fakeHome, { recursive: true, force: true });
+  } catch {
+    /* 임시 폴더 정리 실패는 테스트 결과와 무관 */
+  }
+});
 
 const cfg = (over: Partial<AgentConfig> = {}): AgentConfig => ({ ...DEFAULT_AGENT_CONFIG, ...over });
 
@@ -97,6 +123,65 @@ describe('스폰 인자 — 신규 CLI 옵션', () => {
   });
 });
 
+/**
+ * §4 (Fast 모드) — **플래그가 아니라 설정 파일로 나가는 축.**
+ *
+ * 헤드리스 스폰은 CLI 가 Agent SDK 세션으로 분류해 Fast 를 스스로 막고
+ * (`fast_mode_disabled_reason: 'sdk_opt_in_required'`), `--settings` 가 만드는 `flagSettings` 층에
+ * 들어온 opt-in 만 인정한다. 그런데 그 `--settings` 는 **두 번 주면 앞엣것이 통째로 죽으므로**
+ * 기억 설정과 반드시 한 장으로 합쳐져야 한다 — 아래 마지막 검사가 그 자리를 지킨다.
+ */
+describe('스폰 인자 — Fast 모드', () => {
+  /** `--settings` 로 나간 파일의 본문. 플래그가 없으면 null. */
+  const settingsBody = (args: string[]): Record<string, unknown> | null => {
+    const i = args.indexOf('--settings');
+    if (i < 0) return null;
+    return JSON.parse(fs.readFileSync(args[i + 1]!, 'utf8')) as Record<string, unknown>;
+  };
+
+  it('미설정이면 설정 파일이 아예 안 붙는다 — 종전과 같은 인자로 뜬다', () => {
+    expect(buildInteractiveClaudeArgs(cfg())).not.toContain('--settings');
+  });
+
+  it('Opus + 켬 이면 `--settings` 파일에 `fastMode: true` 로 실린다', () => {
+    const args = buildInteractiveClaudeArgs(cfg({ model: 'opus', fastMode: true }));
+    expect(args).toContain('--settings');
+    expect(settingsBody(args)).toEqual({ fastMode: true });
+  });
+
+  it('`--fast` 같은 플래그는 절대 나가지 않는다 — 그런 플래그는 CLI 에 없다', () => {
+    const args = buildInteractiveClaudeArgs(cfg({ model: 'opus', fastMode: true }));
+    expect(args).not.toContain('--fast');
+    expect(args).not.toContain('--fast-mode');
+  });
+
+  it.each(['sonnet', 'haiku'])('%s 에서는 켜도 아무것도 안 붙는다 — CLI 가 사유도 없이 무시하는 조합', (model) => {
+    expect(buildInteractiveClaudeArgs(cfg({ model, fastMode: true }))).not.toContain('--settings');
+  });
+
+  it('풀ID 핀이 alias 를 이긴다 — 옛 Opus 를 핀하면 Fast 가 실리지 않는다', () => {
+    const args = buildInteractiveClaudeArgs(cfg({ model: 'opus', modelVersion: 'claude-opus-4-7', fastMode: true }));
+    expect(args).not.toContain('--settings');
+  });
+
+  it('1M 변형은 접미사일 뿐이라 그대로 실린다', () => {
+    const args = buildInteractiveClaudeArgs(cfg({ model: 'opus', modelVersion: 'claude-opus-5', fastMode: true }));
+    expect(settingsBody(args)).toEqual({ fastMode: true });
+  });
+
+  it('기억과 함께 켜도 `--settings` 는 **정확히 한 번** — 두 번이면 앞엣것이 죽는다', () => {
+    const args = buildInteractiveClaudeArgs(cfg({
+      model: 'opus',
+      fastMode: true,
+      memory: 'user',
+    }));
+    expect(args.filter((a) => a === '--settings')).toHaveLength(1);
+    const body = settingsBody(args);
+    expect(body?.fastMode).toBe(true);
+    expect(typeof body?.autoMemoryDirectory).toBe('string');
+  });
+});
+
 describe('스폰 인자 — 미지의 플래그 차단', () => {
   /**
    * 이 함수가 낼 수 있는 플래그 전부. **설치된 CLI 의 `--help` 로 실재를 확인한 것만** 올린다
@@ -122,6 +207,8 @@ describe('스폰 인자 — 미지의 플래그 차단', () => {
       safeMode: true,
       betas: ['b1'],
       excludeDynamicSystemPromptSections: true,
+      fastMode: true,
+      memory: 'user',
       rules: '규칙',
     }), { includeRules: true });
     const flags = args.filter((a) => a.startsWith('--'));

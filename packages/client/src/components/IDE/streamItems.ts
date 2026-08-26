@@ -138,6 +138,8 @@ export interface StreamGroup {
   output: string;
   timestamp: number;
   isActive: boolean;
+  /** §4 (스트림 3종 ①) — 중첩 서브에이전트가 부른 도구면 그 바깥 Task 호출의 id. */
+  nestedUnderToolUseId?: string;
 }
 
 /**
@@ -157,6 +159,11 @@ export interface StreamText {
   id: string;
   content: string;
   timestamp: number;
+  /**
+   * §4 (스트림 3종 ①) — 이 말풍선이 **중첩 서브에이전트(Task)** 가 한 말이면 그 Task 호출의 id.
+   * 미설정 = 이 에이전트 자신이 한 말(종전 그대로).
+   */
+  nestedUnderToolUseId?: string;
 }
 
 export interface StreamSystem {
@@ -305,24 +312,38 @@ export interface BaseItemsResult {
 export const PENDING_COMMAND_TS = Number.MAX_SAFE_INTEGER;
 
 /**
+ * §5.5 #17-18 ⑥-5 — 이 명령이 **한 번이라도 나갔는가**(= 시간축 위에 자기 자리가 있는가).
+ *
+ * 종전 판정은 `status !== 'queued'` 하나였다. 그런데 앱이 내려가 끊긴 명령은 부팅 reconcile 이
+ * 보존된 세션으로 재개하려고 **다시 `queued` 로 되돌린다**(§5.3 #12-1 `restartResumed`) — 이미
+ * 출력을 한참 뱉어 놓은 명령인데도 "아직 안 나간 글"로 읽혀 말풍선이 화면 꼬리로 끌려 내려갔다.
+ * `startedAt` 이 찍혀 있다는 것은 그 명령이 실제로 나간 적이 있다는 뜻이므로, 지금 큐에 되돌아가
+ * 있더라도 자리는 처음 나간 그 시각에 남는다.
+ */
+export function hasDispatched(cmd: QueuedCommand): boolean {
+  return cmd.status !== 'queued' || cmd.startedAt !== undefined;
+}
+
+/**
  * §5.5 #17-18 ⑥ — 이 명령의 말풍선이 설 자리.
- *  - `queued`: 아직 안 나갔다 → 꼬리(출력이 자라는 동안 계속 아래로 밀린다).
+ *  - 아직 안 나간 `queued`: 꼬리(출력이 자라는 동안 계속 아래로 밀린다).
  *  - 그 외: **나간 시각**(`startedAt`). 그 뒤 도착한 스트림이 전부 아래에 쌓여 턴 경계선이 된다.
  *  - `startedAt` 이 없는 옛 명령은 종전대로 큐 투입 시각(`timestamp`).
  */
 export function commandAnchorTs(cmd: QueuedCommand): number {
-  if (cmd.status === 'queued') return PENDING_COMMAND_TS;
+  if (!hasDispatched(cmd)) return PENDING_COMMAND_TS;
   return cmd.startedAt ?? cmd.timestamp;
 }
 
 /**
  * §5.5 #17-18 ⑥ — 턴 경계로 쓰이는 시각들(오름차순). **이미 나간 명령만** 경계가 된다 —
  * 대기 중 덧말은 아직 아무것도 끊지 않았으므로 본문 런도 카드 자리도 가르지 않는다.
+ * (재개 대기 중인 명령은 이미 한 번 끊었으므로 ⑥-5 규칙대로 경계에 남는다.)
  */
 function dispatchedAnchorsAsc(commands: QueuedCommand[] | undefined): number[] {
   const out: number[] = [];
   for (const c of commands ?? []) {
-    if (c.status === 'queued') continue;
+    if (!hasDispatched(c)) continue;
     out.push(commandAnchorTs(c));
   }
   return out.sort((a, b) => a - b);
@@ -415,11 +436,17 @@ export function buildBaseItems(events: SubAgentStreamEvent[], commands?: QueuedC
     return false;
   }
 
-  let textBuf: { ids: string[]; chunks: string[]; ts: number; lastTs: number } | null = null;
+  let textBuf: { ids: string[]; chunks: string[]; ts: number; lastTs: number; nested?: string } | null = null;
 
   function flushText(): void {
     if (!textBuf) return;
-    items.push({ kind: 'text', id: textBuf.ids[0]!, content: textBuf.chunks.join(''), timestamp: textBuf.ts });
+    items.push({
+      kind: 'text',
+      id: textBuf.ids[0]!,
+      content: textBuf.chunks.join(''),
+      timestamp: textBuf.ts,
+      ...(textBuf.nested ? { nestedUnderToolUseId: textBuf.nested } : {}),
+    });
     textBuf = null;
   }
 
@@ -436,8 +463,12 @@ export function buildBaseItems(events: SubAgentStreamEvent[], commands?: QueuedC
 
     if (evt.eventType === 'text') {
       if (textBuf && crossesCommand(textBuf.lastTs, evt.timestamp)) flushText();
-      if (!textBuf) textBuf = { ids: [evt.id], chunks: [evt.content], ts: evt.timestamp, lastTs: evt.timestamp };
-      else { textBuf.ids.push(evt.id); textBuf.chunks.push(evt.content); textBuf.lastTs = evt.timestamp; }
+      // §4 (스트림 3종 ①) — **주인이 바뀌면 말풍선을 끊는다.** 중첩 서브에이전트의 말과 부모의 말이
+      //   한 덩어리로 붙으면 누가 한 말인지 사라진다(전달을 켜는 순간 대화록이 섞이는 자리).
+      if (textBuf && textBuf.nested !== evt.nestedUnderToolUseId) flushText();
+      if (!textBuf) {
+        textBuf = { ids: [evt.id], chunks: [evt.content], ts: evt.timestamp, lastTs: evt.timestamp, nested: evt.nestedUnderToolUseId };
+      } else { textBuf.ids.push(evt.id); textBuf.chunks.push(evt.content); textBuf.lastTs = evt.timestamp; }
       i++;
       continue;
     }
@@ -455,9 +486,9 @@ export function buildBaseItems(events: SubAgentStreamEvent[], commands?: QueuedC
       const resultIdx = resultByToolIdx.get(i);
       if (resultIdx !== undefined) {
         const resultEvt = events[resultIdx]!;
-        items.push({ kind: 'tool', id: evt.id, toolName: evt.toolName ?? 'Tool', input: evt.content, output: resultEvt.content, timestamp: evt.timestamp, isActive: false });
+        items.push({ kind: 'tool', id: evt.id, toolName: evt.toolName ?? 'Tool', input: evt.content, output: resultEvt.content, timestamp: evt.timestamp, isActive: false, ...(evt.nestedUnderToolUseId ? { nestedUnderToolUseId: evt.nestedUnderToolUseId } : {}) });
       } else {
-        items.push({ kind: 'tool', id: evt.id, toolName: evt.toolName ?? 'Tool', input: evt.content, output: '', timestamp: evt.timestamp, isActive: agentBusy && i > lastNonToolIdx });
+        items.push({ kind: 'tool', id: evt.id, toolName: evt.toolName ?? 'Tool', input: evt.content, output: '', timestamp: evt.timestamp, isActive: agentBusy && i > lastNonToolIdx, ...(evt.nestedUnderToolUseId ? { nestedUnderToolUseId: evt.nestedUnderToolUseId } : {}) });
       }
       i++;
       continue;
@@ -565,6 +596,16 @@ export function dropCardEchoTexts(items: StreamItemFull[]): StreamItemFull[] {
 }
 
 /**
+ * §5.5 #17-18 ⑥-1·⑥-5 — 정렬 밖 **꼬리**로 뺄 말풍선인가(= 아직 한 번도 안 나간 명령).
+ * 판정을 `status === 'queued'` 가 아니라 앵커 값으로 하는 이유: 자리 계산은 `commandAnchorTs`
+ * 한 곳이 하고 있으므로, "꼬리인가"도 그 결과를 그대로 읽어야 두 판정이 어긋나지 않는다
+ * (재개 대기 중인 명령은 앵커가 제 시각이라 여기 걸리지 않고 제자리에 남는다).
+ */
+export function isPendingCommandItem(item: StreamItemFull): item is StreamCommand {
+  return item.kind === 'command' && item.timestamp === PENDING_COMMAND_TS;
+}
+
+/**
  * base 아이템에 카드(reports/questions/reviews/lists/ask)를 시간순 합류 + 정렬.
  * base.items 배열은 새로 복사(원본 mutate 방지). 항목 객체 참조는 그대로 유지(정렬은 포인터만).
  */
@@ -583,7 +624,7 @@ export function mergeCardsIntoItems(
   const items: StreamItemFull[] = [];
   const pendingCommands: StreamCommand[] = [];
   for (const it of base.items) {
-    if (it.kind === 'command' && it.status === 'queued') pendingCommands.push(it);
+    if (isPendingCommandItem(it)) pendingCommands.push(it);
     else items.push(it);
   }
 
@@ -730,6 +771,8 @@ interface OpenBuf {
   firstTs: number;
   lastTs: number;
   chunks: string[];
+  /** §4 (스트림 3종 ①) — 이 런의 주인(중첩 Task 호출 id). 값이 바뀌면 런을 끊는다. */
+  nested?: string;
 }
 
 /**
@@ -806,15 +849,19 @@ export class IncrementalStreamParser {
 
     if (type === 'text') {
       if (this.openText && this.crossesCommand(this.openText.lastTs, evt.timestamp)) this.sealText();
+      // §4 (스트림 3종 ①) — 주인이 바뀌면 말풍선을 끊는다(buildBaseItems 와 같은 규약 —
+      //   등가성 테스트가 이 대칭을 못박으므로 한쪽만 고치면 즉시 걸린다).
+      if (this.openText && this.openText.nested !== evt.nestedUnderToolUseId) this.sealText();
+      const nest = evt.nestedUnderToolUseId ? { nestedUnderToolUseId: evt.nestedUnderToolUseId } : {};
       if (!this.openText) {
         const idx = this.items.length;
-        this.items.push({ kind: 'text', id: evt.id, content: evt.content, timestamp: evt.timestamp });
-        this.openText = { idx, firstId: evt.id, firstTs: evt.timestamp, lastTs: evt.timestamp, chunks: [evt.content] };
+        this.items.push({ kind: 'text', id: evt.id, content: evt.content, timestamp: evt.timestamp, ...nest });
+        this.openText = { idx, firstId: evt.id, firstTs: evt.timestamp, lastTs: evt.timestamp, chunks: [evt.content], nested: evt.nestedUnderToolUseId };
       } else {
         const b = this.openText;
         b.chunks.push(evt.content);
         b.lastTs = evt.timestamp;
-        this.items[b.idx] = { kind: 'text', id: b.firstId, content: b.chunks.join(''), timestamp: b.firstTs };
+        this.items[b.idx] = { kind: 'text', id: b.firstId, content: b.chunks.join(''), timestamp: b.firstTs, ...nest };
       }
       return;
     }
@@ -827,7 +874,7 @@ export class IncrementalStreamParser {
       // §5.5 #17-12 — TodoWrite 는 계획 블록으로. 짝 tool_result 를 소비해야 하므로 pending 에는 그대로 올린다.
       const planTodos = evt.toolName === PLAN_TOOL_NAME ? parsePlanTodos(evt.content) : null;
       if (planTodos) this.items.push({ kind: 'plan', id: evt.id, todos: planTodos, timestamp: evt.timestamp });
-      else this.items.push({ kind: 'tool', id: evt.id, toolName: evt.toolName ?? 'Tool', input: evt.content, output: '', timestamp: evt.timestamp, isActive: this.agentBusy });
+      else this.items.push({ kind: 'tool', id: evt.id, toolName: evt.toolName ?? 'Tool', input: evt.content, output: '', timestamp: evt.timestamp, isActive: this.agentBusy, ...(evt.nestedUnderToolUseId ? { nestedUnderToolUseId: evt.nestedUnderToolUseId } : {}) });
       this.pending.push(idx);
       return;
     }

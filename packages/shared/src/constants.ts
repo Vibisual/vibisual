@@ -1,4 +1,4 @@
-import type { AgentProvider, LocalEngineBackend, BubbleType, BubbleStyleConfig, EdgeStyleConfig, AgentRole, PipelineChildConfig, PipelineType, AgentConfig, TaskEdgeTemplate, TaskEdgeKind, UiLocale, AutoAgentRole, AutoAgentTemplate, ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry, AgentFeedback, BrainTopicDef, BrainTopicIndexEntry, BrainCardType, BrainAuthority, StreamDensity, PluginContributionKind, SessionGoalStepStatus, CommandDispatchMode, CommandErrorCode, RunRuntime, RunConfig, McpServerPreset, AgentMemoryScope, DebugAdapterSpec, ProblemMatch, ProblemSeverity, RetentionSettings, PreviewDevicePreset, ShelfIconName, ShelfItemKind, CostPeriod, CostTotals, CostPeriodTotals, AuditRiskKind, AuditBoundaryConfig, AuditCounts, StoryboardPresetId, StoryboardPreset, LocalModelCatalogSort, WorkspacePathKind, CmdPaneNode } from './types.js';
+import type { AgentProvider, LocalEngineBackend, BubbleType, BubbleStyleConfig, EdgeStyleConfig, AgentRole, PipelineChildConfig, PipelineType, AgentConfig, TaskEdgeTemplate, TaskEdgeKind, UiLocale, AutoAgentRole, AutoAgentTemplate, ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry, AgentFeedback, BrainTopicDef, BrainTopicIndexEntry, BrainCardType, BrainAuthority, BrainAxisId, BrainActivation, BrainSkill, StreamDensity, PluginContributionKind, SessionGoalStepStatus, CommandDispatchMode, CommandErrorCode, RunRuntime, RunConfig, McpServerPreset, AgentMemoryScope, DebugAdapterSpec, ProblemMatch, ProblemSeverity, RetentionSettings, PreviewDevicePreset, ShelfIconName, ShelfItemKind, CostPeriod, CostTotals, CostPeriodTotals, AuditRiskKind, AuditBoundaryConfig, AuditCounts, StoryboardPresetId, StoryboardPreset, LocalModelCatalogSort, WorkspacePathKind, CmdPaneNode, BuiltinSlashCommand } from './types.js';
 export type { ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry } from './types.js';
 
 // ─── UI 다국어 (i18n) ───
@@ -927,12 +927,13 @@ export const USAGE_LIMIT_WARN_PCT = 70;
 export const USAGE_LIMIT_DANGER_PCT = 90;
 
 /**
- * §4 v3.62 — Claude 사용량 직접 조회(`/api/oauth/usage`) 설정.
- * Claude Code 자신도 5초 타임아웃으로 부른다. 폴링 간격은 한도 표시용이라 넉넉히 잡는다
- * (사용자가 팝업을 열거나 새로고침을 누르면 그 자리에서 즉시 다시 받는다).
+ * §4 — 사용량 표시값을 다시 조립하는 주기.
+ *
+ * 종전(구 v3.62)에는 이 자리에 `/api/oauth/usage` 직접 호출용 URL·타임아웃이 함께 있었다.
+ * 그 호출은 문서화되지 않은 내부 엔드포인트를 OAuth 토큰으로 자동 조회하는 것이라 약관에
+ * 걸려 걷어냈다(`claudeUsageService` 주석 참고). 지금 값의 원천은 statusLine 이고, 이 주기는
+ * "리셋 시각이 지났는데 화면이 그대로" 를 막는 **안전망**일 뿐 네트워크를 쓰지 않는다.
  */
-export const CLAUDE_USAGE_API_URL = 'https://api.anthropic.com/api/oauth/usage';
-export const CLAUDE_USAGE_FETCH_TIMEOUT_MS = 5_000;
 export const CLAUDE_USAGE_POLL_INTERVAL_MS = 5 * 60 * 1000;
 
 /**
@@ -956,6 +957,165 @@ export const CLAUDE_AUTH_LOGIN_POLL_INTERVAL_MS = 3_000;
 export const CLAUDE_AUTH_LOGIN_TERM_ID = 'term:auth:login';
 /** OAuth URL 을 이 시간 안에 못 찾으면 로그인 팝업이 터미널을 자동으로 펼친다(폴백). */
 export const CLAUDE_AUTH_TERMINAL_REVEAL_MS = 6_000;
+
+/**
+ * Claude Code CLI 내장(built-in) 슬래시 명령 목록 — `/` 자동완성 드롭다운(§5.5 #17-2)이 읽는다.
+ *
+ * **출처는 Anthropic 공개 문서**(`https://code.claude.com/docs/en/commands`)의 명령 표다.
+ * 종전에는 CLI 실행본을 latin1 로 읽어 minified 객체 리터럴을 정규식으로 뜯어냈는데(구 v3.19),
+ * 그 방식은 Anthropic 소비자 약관 §3 이 금지하는 "역설계 … 사람이 판독 가능한 형태로 축소"에
+ * 닿을 소지가 있어 공개 인터페이스로 옮겼다. 부수 효과로 **커버리지가 늘었다** — 스캔이
+ * 놓치던 `/init` `/login` `/memory` `/code-review` `/verify` 등 사용자가 실제로 치는 명령이
+ * 들어왔고(+29), 빠진 것은 대부분 문서에 없는 내부용(`/daemon` `/pro-trial-expired` 등)이다.
+ *
+ * **갱신 방법**: 위 문서의 표가 바뀌면 이 목록을 다시 뽑는다. CLI 업데이트만으로 자동
+ * 추종하던 성질은 잃었으므로, 없는 명령을 사용자가 치면 CLI 가 그대로 거절한다(표시 전용
+ * 목록이라 실행 경로는 불변 — 서버는 텍스트를 그대로 세션에 넘긴다).
+ */
+/**
+ * §4 (슬래시 명령 가용성) — **헤드리스 세션에서는 실행되지 않는 내장 명령**.
+ *
+ * Vibisual 의 기본 실행 경로(`executionMode: 'headless'`)는 화면이 없다. 이 목록의 명령은 CLI 안에서
+ * 대화형 패널을 여는 부류라, 헤드리스로 보내면 예외 없이 아래 한 줄만 돌아오고 턴이 끝난다:
+ *   `"/<name> isn't available in this environment."`  (실측: `turns=0`, `cost=$0` — API 호출도 없다)
+ *
+ * 종전에는 이 사실을 화면이 전혀 말해 주지 않아, 사용자가 `/` 드롭다운에서 고른 명령이 왜 죽는지
+ * 알 방법이 없었다(Fast 모드와 같은 뿌리 — 우리가 헤드리스라서 CLI 가 거절한다).
+ *
+ * **판정 근거는 공개 동작이다** — 그 명령을 한 번 쳐 보면 누구나 같은 답을 받는다. 목록이 낡아도
+ * 위험하지 않다: 여기 없는데 실제로는 안 되는 명령은 종전처럼 CLI 가 직접 거절하고, 여기 있는데
+ * 되는 명령은 배지 하나가 더 붙을 뿐 실행 경로는 손대지 않는다(§3.3 표시와 로직 분리).
+ *
+ * ⚠ `executionMode: 'interactive-terminal'`(CMD 버블)에서는 **전부 정상 동작한다** — 그쪽은 진짜
+ * REPL 이다. 그래서 판정은 명령 이름만으로 하지 않고 `slashCommandNeedsTerminal` 이 실행 모드와 함께 본다.
+ */
+const TERMINAL_ONLY_SLASH_COMMANDS: ReadonlySet<string> = new Set([
+  'add-dir', 'advisor', 'artifacts', 'autofix-pr', 'background', 'branch', 'btw', 'bug', 'cd',
+  'copy', 'design-login', 'desktop', 'diff', 'export', 'feedback', 'focus', 'fork', 'help',
+  'hooks', 'ide', 'install-github-app', 'login', 'logout', 'memory', 'mobile', 'passes',
+  'permissions', 'plan', 'plugin', 'powerup', 'privacy-settings', 'rate-limit-options',
+  'remote-control', 'remote-env', 'resume', 'scroll-speed', 'setup-bedrock', 'setup-vertex',
+  'skills', 'status', 'subtask', 'tasks', 'teleport', 'terminal-setup', 'theme', 'tui',
+  'upgrade', 'web-setup', 'workflows',
+]);
+
+/**
+ * §4 (슬래시 명령 가용성) — 이 명령을 **지금 이 에이전트에서** 보내면 실제로 도는가.
+ *
+ * `interactiveTerminal` 이 true 면 그 버블은 진짜 REPL 이라 무엇이든 된다 — 이름만 보고 배지를 달면
+ * CMD 버블에서 멀쩡히 되는 명령에 "안 된다"고 거짓말을 하게 된다.
+ */
+export function slashCommandNeedsTerminal(name: string, interactiveTerminal: boolean): boolean {
+  if (interactiveTerminal) return false;
+  return TERMINAL_ONLY_SLASH_COMMANDS.has(name.toLowerCase());
+}
+
+export const BUILTIN_SLASH_COMMANDS: readonly BuiltinSlashCommand[] = [
+  { name: "add-dir", description: "Add a working directory for file access during the current session", aliases: [] },
+  { name: "advisor", description: "Enable or disable the advisor tool, which consults a second model for guidance at key moments during a task", aliases: [] },
+  { name: "agents", description: "As of v2.1.198, running /agents prints a reminder to ask Claude to create or manage subagents, or to edit .claude/agents/ or ~/.claude/ag...", aliases: [] },
+  { name: "artifacts", description: "List the artifacts you own or that are shared with you, then attach one to the session, open it in your browser, or copy its link", aliases: [] },
+  { name: "auto-mode-setup", description: "Draft autoMode.environment entries from your project and recent sessions, then review the draft and save it to your user settings", aliases: [] },
+  { name: "autocompact", description: "Set the auto-compact window: how full the context window gets before Claude Code compacts automatically", aliases: [] },
+  { name: "autofix-pr", description: "Spawn a Claude Code on the web session that watches the current branch's PR and pushes fixes when CI fails or reviewers leave comments", aliases: [] },
+  { name: "background", description: "Detach the current session to run as a background agent and free this terminal", aliases: ["bg"] },
+  { name: "batch", description: "Orchestrate large-scale changes across a codebase in parallel", aliases: [] },
+  { name: "branch", description: "Create a branch of the current conversation at this point, so you can try a different direction without losing the conversation as it stands", aliases: [] },
+  { name: "btw", description: "Ask a side question about the current session without adding to the conversation", aliases: [] },
+  { name: "bug", description: "Report a bug or share your conversation", aliases: ["share"] },
+  { name: "cd", description: "Move this session to a new working directory, keeping the conversation and its prompt cache", aliases: [] },
+  { name: "chrome", description: "Configure Claude in Chrome settings", aliases: [] },
+  { name: "claude-api", description: "Load Claude API and Managed Agents reference material for your project's language", aliases: [] },
+  { name: "clear", description: "Start a new conversation with empty context", aliases: ["reset", "new"] },
+  { name: "code-review", description: "Review the current diff, or a PR number, branch, or path you pass, for correctness bugs and cleanup opportunities", aliases: ["review"] },
+  { name: "color", description: "Set the prompt bar color for the current session", aliases: [] },
+  { name: "compact", description: "Free up context by summarizing the conversation so far", aliases: [] },
+  { name: "config", description: "Open the Settings interface to adjust theme, model, output style, and other preferences", aliases: ["settings"] },
+  { name: "context", description: "Visualize current context usage as a colored grid", aliases: [] },
+  { name: "copy", description: "Copy the last assistant response to clipboard", aliases: [] },
+  { name: "dataviz", description: "Design guidance for charts, graphs, and dashboards", aliases: [] },
+  { name: "debug", description: "Enable debug logging for the current session and troubleshoot issues by reading the session debug log", aliases: [] },
+  { name: "deep-research", description: "Fan out web searches on a question, fetch and cross-check sources, and synthesize a cited report", aliases: [] },
+  { name: "design-login", description: "Authorize design-system access for /design-sync with your claude.ai account", aliases: [] },
+  { name: "design-sync", description: "Convert your repo's React design system and upload it to Claude Design, so designs it produces use your real components", aliases: [] },
+  { name: "desktop", description: "Continue the current session in the Claude Code Desktop app", aliases: ["app"] },
+  { name: "diff", description: "Open an interactive diff viewer showing uncommitted changes and per-turn diffs", aliases: [] },
+  { name: "doctor", description: "Run a setup checkup that diagnoses issues and can fix them", aliases: ["checkup"] },
+  { name: "effort", description: "Set the effort level: low to xhigh, max, ultracode, or auto; status prints it", aliases: [] },
+  { name: "exit", description: "Exit the CLI", aliases: ["quit"] },
+  { name: "export", description: "Export the current conversation as plain text", aliases: [] },
+  { name: "fast", description: "Toggle fast mode on or off", aliases: [] },
+  { name: "feedback", description: "Send product feedback about Claude Code", aliases: [] },
+  { name: "fewer-permission-prompts", description: "Scan your transcripts for common read-only Bash and MCP tool calls, then add a prioritized allowlist to project .claude/settings.json to...", aliases: [] },
+  { name: "focus", description: "Toggle the focus view, which shows only your last prompt, a one-line tool-call summary with edit diffstats, and the final response", aliases: [] },
+  { name: "fork", description: "Copy the current conversation into a new background session and keep working here", aliases: [] },
+  { name: "goal", description: "Set a goal: Claude keeps working across turns until the condition is met or the goal clears for another reason", aliases: [] },
+  { name: "heapdump", description: "Write a JavaScript heap snapshot and a memory breakdown to ~/Desktop, or your home directory on Linux without a Desktop folder, for diagn...", aliases: [] },
+  { name: "help", description: "Show help and available commands", aliases: [] },
+  { name: "hooks", description: "View hook configurations for tool events", aliases: [] },
+  { name: "ide", description: "Manage IDE integrations and show status", aliases: [] },
+  { name: "import", description: "Bring configuration from other coding agents on your machine, currently OpenAI Codex and Google Gemini CLI, into Claude Code, including i...", aliases: [] },
+  { name: "init", description: "Initialize project with a CLAUDE.md guide", aliases: [] },
+  { name: "insights", description: "Generate an HTML report analyzing your recent sessions on this machine: which projects you work in, how you use Claude Code, where things...", aliases: [] },
+  { name: "install-github-app", description: "Install the Claude GitHub App for a repository, with an optional step to set up GitHub Actions workflows and secrets", aliases: [] },
+  { name: "install-slack-app", description: "Install the Claude Slack app", aliases: [] },
+  { name: "keybindings", description: "Open your keyboard shortcuts file", aliases: [] },
+  { name: "list-agents", description: "List the subagents, agent team teammates, and other Claude Code sessions Claude can message, with the name to use for each", aliases: [] },
+  { name: "login", description: "Sign in to your Anthropic account", aliases: [] },
+  { name: "logout", description: "Sign out from your Anthropic account", aliases: [] },
+  { name: "loop", description: "Run a prompt repeatedly while the session stays open", aliases: ["proactive"] },
+  { name: "mcp", description: "Manage MCP server connections and OAuth authentication", aliases: [] },
+  { name: "memory", description: "Edit CLAUDE.md files, enable or disable auto memory, and view auto memory entries", aliases: [] },
+  { name: "mobile", description: "Show QR code to download the Claude mobile app", aliases: ["ios", "android"] },
+  { name: "model", description: "Switch the AI model and save it as your default for new sessions", aliases: [] },
+  { name: "passes", description: "Share a free week of Claude Code with friends", aliases: [] },
+  { name: "permissions", description: "Manage allow, ask, and deny rules for tool permissions", aliases: ["allowed-tools"] },
+  { name: "plan", description: "Enter plan mode directly from the prompt", aliases: [] },
+  { name: "plugin", description: "Manage Claude Code plugins", aliases: [] },
+  { name: "powerup", description: "Discover Claude Code features through quick interactive lessons with animated demos", aliases: [] },
+  { name: "privacy-settings", description: "View and update your privacy settings", aliases: [] },
+  { name: "radio", description: "Open Claude FM lo-fi radio in your browser", aliases: [] },
+  { name: "rate-limit-options", description: "Show ways to keep working when a claude.ai usage limit blocks a request: wait and continue automatically when the limit resets, add usage...", aliases: [] },
+  { name: "recap", description: "Generate a one-line summary of the current session on demand", aliases: [] },
+  { name: "release-notes", description: "View the changelog in an interactive version picker", aliases: [] },
+  { name: "reload-plugins", description: "Reload all active plugins to apply pending changes without restarting", aliases: [] },
+  { name: "reload-skills", description: "Re-scan skill and command directories so skills added or changed on disk during the session become available without restarting", aliases: [] },
+  { name: "remote-control", description: "Make this session available for Remote Control from claude.ai", aliases: ["rc"] },
+  { name: "remote-env", description: "Choose the default environment for cloud agents", aliases: [] },
+  { name: "rename", description: "Rename the current session and show the name on the prompt bar", aliases: [] },
+  { name: "resume", description: "Resume a conversation by ID or name, or open the session picker", aliases: ["continue"] },
+  { name: "rewind", description: "Rewind the conversation and/or code to a previous point, or summarize from a selected message", aliases: ["checkpoint", "undo"] },
+  { name: "run", description: "Launch and drive your project's app to see a change working, not only passing tests", aliases: [] },
+  { name: "run-skill-generator", description: "Teach /run and /verify how to build, launch, and drive your project's app from a clean environment by writing a per-project skill", aliases: [] },
+  { name: "sandbox", description: "Toggle sandbox mode", aliases: [] },
+  { name: "schedule", description: "Create, update, list, or run routines, which execute in the cloud", aliases: ["routines"] },
+  { name: "scroll-speed", description: "Adjust mouse wheel scroll speed interactively, with a ruler you can scroll while the dialog is open to preview the change", aliases: [] },
+  { name: "security-review", description: "Analyze the changes on your current branch for security vulnerabilities", aliases: [] },
+  { name: "setup-bedrock", description: "Configure Amazon Bedrock authentication, region, and model pins through an interactive wizard", aliases: [] },
+  { name: "setup-vertex", description: "Configure Google Cloud's Agent Platform authentication, project, region, and model pins through an interactive wizard", aliases: [] },
+  { name: "simplify", description: "Review the changed code for cleanup opportunities and apply the fixes", aliases: [] },
+  { name: "skills", description: "List available skills", aliases: [] },
+  { name: "status", description: "Open the Settings interface on the Status tab, showing version, model, account, and connectivity", aliases: [] },
+  { name: "statusline", description: "Configure Claude Code's status line", aliases: [] },
+  { name: "stickers", description: "Order Claude Code stickers", aliases: [] },
+  { name: "stop", description: "Stop the current background session", aliases: [] },
+  { name: "subtask", description: "Spawn a forked subagent: a background subagent that inherits the full conversation and works on the task while you keep working", aliases: [] },
+  { name: "tasks", description: "View and manage background work in the current session, including subagents that have finished", aliases: [] },
+  { name: "team-onboarding", description: "Generate a team onboarding guide from your Claude Code usage history", aliases: [] },
+  { name: "teleport", description: "Pull a Claude Code on the web session into this terminal", aliases: [] },
+  { name: "terminal-setup", description: "Configure terminal keybindings for Shift+Enter and other shortcuts", aliases: [] },
+  { name: "theme", description: "Change the color theme", aliases: [] },
+  { name: "tui", description: "Set the terminal UI renderer and relaunch into it with your conversation intact", aliases: [] },
+  { name: "ultrareview", description: "Run a deep, multi-agent code review in a cloud sandbox with ultrareview", aliases: [] },
+  { name: "upgrade", description: "Open the upgrade page in your browser to switch to a higher plan tier", aliases: [] },
+  { name: "usage", description: "Show session cost, plan usage limits, and activity stats", aliases: ["cost", "stats"] },
+  { name: "usage-credits", description: "Configure usage credits, or request them from your admin, when you hit a limit", aliases: [] },
+  { name: "verify", description: "Confirm a code change does what it should by building your project's app, running it, and observing the result, rather than relying on te...", aliases: [] },
+  { name: "voice", description: "Toggle voice dictation, or enable it in a specific mode", aliases: [] },
+  { name: "web-setup", description: "Connect your GitHub account to Claude Code on the web using your local gh CLI credentials", aliases: [] },
+  { name: "workflows", description: "Open the workflow progress view to watch, pause, resume, or save running and completed workflows", aliases: [] },
+];
+
 
 /**
  * 사용자 인터럽트 해소 판정 주기 (ms).
@@ -1230,16 +1390,36 @@ export function calculateTokenCost(
 
 /** 선택 가능한 모델 패밀리 (드롭다운 · JSONL ID 파싱 기준). CLI `--model`도 이 값을 그대로 받음. */
 export const AVAILABLE_AGENT_MODELS: readonly string[] = [
-  'opus', 'sonnet', 'haiku',
+  'opus', 'sonnet', 'haiku', 'fable',
 ];
 
 /**
- * @deprecated v2.40 — 정적 풀ID 시드 폐기.
- * 신규 모델 출시 시 코드 수정 불필요 — CLI 가 alias 를 latest 로 직접 해소하고(`opus[1m]` 가 alias 그대로 4.8+1M 작동 확인 — CLI 2.1.154),
- * 풀ID 핀이 필요한 사용자만 `ANTHROPIC_API_KEY` 설정 시 `/v1/models` 응답에서 버전 sub-드롭다운이 자동 채워짐.
- * 빈 배열 유지 — `AVAILABLE_AGENT_MODEL_IDS` 합집합도 alias 3종 만 남음.
+ * 버전 sub-드롭다운을 채우는 풀ID 시드.
+ *
+ * **출처는 Anthropic 공개 문서** — 현행 4종은 모델 개요표(`docs.claude.com/en/docs/about-claude/
+ * models/overview`)의 "Claude API ID / alias" 행, 이전 세대는 Claude Code 모델 설정 문서
+ * (`code.claude.com/docs/en/model-config`)가 `availableModels`·`/model` 값으로 문서화한 것들이다.
+ *
+ * 내력: v2.40 이 정적 시드를 비웠고(빈 배열), v2.41 이 그 자리를 **CLI 실행본 raw scan** 으로
+ * 메웠다. 그 스캔은 Anthropic 소비자 약관 §3 의 역설계 금지에 닿을 소지가 있어 걷어냈는데,
+ * 시드가 비어 있으면 **패밀리 목록과 버전 드롭다운이 통째로 빈다**(`ANTHROPIC_API_KEY` 를 둔
+ * 사용자만 `/v1/models` 로 채워졌다). 그래서 공개 문서를 출처로 시드를 되살린다.
+ *
+ * `ANTHROPIC_API_KEY` 가 있으면 `/v1/models`(공식 API)가 이 시드를 덮어써 최신을 따라간다.
+ * 없으면 여기가 목록의 전부이므로, 새 모델이 나오면 이 배열을 갱신한다.
+ * 날짜 붙은 변형(`…-20251001`)은 UI 노이즈라 넣지 않는다(구 cli-scan 의 필터와 같은 기준).
  */
-export const AVAILABLE_AGENT_MODEL_FULL_IDS: readonly string[] = [];
+export const AVAILABLE_AGENT_MODEL_FULL_IDS: readonly string[] = [
+  'claude-fable-5',
+  'claude-opus-5',
+  'claude-sonnet-5',
+  'claude-haiku-4-5',
+  'claude-opus-4-8',
+  'claude-opus-4-7',
+  'claude-opus-4-6',
+  'claude-sonnet-4-6',
+  'claude-sonnet-4-5',
+];
 
 /**
  * §4 v2.38 — 시드 풀ID 들을 `ModelRegistryEntry[]` 형태로 빌드.
@@ -1272,6 +1452,36 @@ export function isOpusModel(modelId: string | undefined | null): boolean {
   if (!modelId) return false;
   if (modelId === 'opus') return true;
   return /^claude-opus-/.test(modelId);
+}
+
+/**
+ * §4 (스트림 3종 ①) — 중첩 서브에이전트 텍스트 전달이 켜져 있는가.
+ *
+ * **기본이 켬**이라 판정이 단순 truthy 가 아니다 — `undefined`(한 번도 안 만짐)와 `true` 는 켬,
+ * 명시 `false` 만 끔이다. 서버 인자 조립과 클라 체크박스가 **같은 함수**를 봐야 화면과 실제가
+ * 어긋나지 않는다(§5.5 컨텍스트 주입원 통제에서 배운 규율).
+ */
+export function isForwardSubagentTextEnabled(value: boolean | undefined): boolean {
+  return value !== false;
+}
+
+/**
+ * §4 (Fast 모드) — 이 모델에서 Fast 모드가 실제로 켜지는가.
+ *
+ * 설치된 CLI 의 판정을 그대로 옮긴 것이다 — CLI 는 모델 capability 에 `fast_mode` 가 있거나
+ * 모델 ID 에 `opus-4-8`/`opus-5` 가 들어 있을 때만 Fast 를 허용하고, **그 밖에서는 사유 문자열도
+ * 없이 조용히 `off` 로 떨어뜨린다**(sonnet·haiku 실측). 우리 레지스트리에는 capability 필드가
+ * 없으므로 이름 규칙만 옮기고, 최종 판정권은 CLI 에 둔다.
+ *
+ * bare alias `'opus'` 는 CLI 가 현재 latest Opus 로 해소하므로 true(실측: `claude-opus-5` → on).
+ * 풀ID 를 핀했다면 그 ID 로 판정하므로 `claude-opus-4-7` 같은 옛 판은 false 가 된다.
+ * `[1m]` 변형은 접미사일 뿐이라 `claude-opus-5[1m]` 도 그대로 true(실측 확인).
+ */
+export function supportsFastMode(modelId: string | undefined | null): boolean {
+  if (!modelId) return false;
+  const id = modelId.toLowerCase();
+  if (id === 'opus') return true;
+  return id.includes('opus-4-8') || id.includes('opus-5');
 }
 
 /**
@@ -1603,6 +1813,16 @@ export const CMD_BLOCK_REASON_MAX = 120;
 
 /** §4 (CMD ②) — PTY 전경 프로세스명 표본 주기(ms). */
 export const CMD_PROCESS_POLL_MS = 5000;
+
+/**
+ * §4 (CMD 2차 0) — 훅이 그 CMD 탭의 `working`/`idle` 권위를 쥐는 시간(ms).
+ *
+ * 이 안에 훅이 그 탭을 한 번이라도 몰았으면 화면 감지는 `blocked` 만 기여한다. 훅이 없는
+ * CLI(codex·gemini·순수 셸)는 이 표에 오르지 않으므로 화면 감지가 단독 권위로 남는다.
+ * 값이 너무 짧으면 조용한 턴 사이에 권위가 풀려 도트가 다시 튀고, 너무 길면 claude 를 끄고
+ * 다른 CLI 를 띄운 탭이 한동안 상태를 못 받는다 — 세션 유휴 판정(5분)과 같은 눈금으로 맞춘다.
+ */
+export const CMD_HOOK_AUTHORITY_TTL_MS = 300000;
 
 /** §4 (CMD ⑥) — `/api/cmd/wait` 최대 대기(ms). 무한 대기 금지. */
 export const CMD_WAIT_MAX_MS = 120000;
@@ -2633,6 +2853,11 @@ export const CONTEXT_SOURCE_IDS = {
   brainCards: 'vibisual.brain.cards',
   brainTopics: 'vibisual.brain.topics',
   brainRules: 'vibisual.brain.rules',
+  /**
+   * §5.10 v2 (B) — 스킬(절차적 기억) 집행 줄. 카드·색인과 **같은 seam** 이며 새 주입 지점이 아니다
+   * — 브레인 블록이 세 줄에서 네 줄로 늘어난 것뿐이라 여기서도 따로 끌 수 있다.
+   */
+  brainSkills: 'vibisual.brain.skills',
   /** 훅으로 붙은 외부 세션에 매 턴 실리는 집행 블록(§5.11 v4.67). */
   hookEnforcement: 'vibisual.hook-enforcement',
   /** §5.11 집행 플러그인 전체 — 개별 플러그인은 `plugin:<id>` 로 따로 선다. */
@@ -4616,6 +4841,178 @@ export const BRAIN_CANONICAL_AREAS: readonly string[] = [
   'ops', 'testing', 'security', 'workflow', 'user-preference',
 ] as const;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// §5.10 v2 — 학습 루프 상수 + 활성화 판정.
+// **판정은 여기 한 곳**이다 — 서버(수집·주입·REST)와 클라(표시)가 같은 함수를 통과해야
+// 화면과 실제 동작이 어긋나지 않는다(§5.5 `resolveContextEnabled` 와 같은 문법).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** §5.10 v2 (H) — 축 목록. UI 나열 순서이기도 하다. */
+export const BRAIN_AXIS_IDS: readonly BrainAxisId[] = [
+  'skills',
+  'recall',
+  'nudge',
+  'grounding',
+  'curator',
+  'operator',
+] as const;
+
+/**
+ * §5.10 v2 (H) — 마스터를 켰을 때의 **권장 조합**. 사용자가 축을 따로 만지지 않으면 이 값이 쓰인다.
+ *
+ * `nudge` 만 기본 false 인 이유: 넛지는 매 턴 프롬프트에 문장을 얹으므로 켠 직후부터
+ * 체감되는 유일한 축이다. 나머지는 조용히 이득만 준다.
+ */
+export const DEFAULT_BRAIN_AXES: Readonly<Record<BrainAxisId, boolean>> = {
+  skills: true,
+  recall: true,
+  nudge: false,
+  grounding: true,
+  curator: true,
+  operator: true,
+};
+
+/** 프로젝트 키 정규화 — forward slash + 소문자 + 끝 슬래시 제거(서버 `normPath` 와 같은 규칙). */
+function normalizeBrainProjectKey(p: string): string {
+  return p.replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '');
+}
+
+/**
+ * §5.10 v2 (H) — 저장할 때 쓸 **실제 키**. 이미 같은 폴더를 가리키는 칸이 있으면 그 이름을 그대로 쓴다.
+ * 부분 저장이 기존 칸을 갱신하지 않고 새 칸을 만드는 것을 막는다(플러그인 `resolveProjectKey` 와 같은 규약).
+ */
+export function resolveBrainProjectKey(
+  byProject: Record<string, BrainActivation> | null | undefined,
+  projectPath: string,
+): string {
+  const key = normalizeBrainProjectKey(projectPath);
+  return Object.keys(byProject ?? {}).find((k) => normalizeBrainProjectKey(k) === key) ?? projectPath;
+}
+
+/** §5.10 v2 (H) — 프로젝트 한 곳의 활성화 레코드. **없으면 undefined**(= 아직 손댄 적 없음 = 꺼짐). */
+export function resolveBrainActivation(
+  byProject: Record<string, BrainActivation> | null | undefined,
+  projectPath: string | null | undefined,
+): BrainActivation | undefined {
+  if (!projectPath) return undefined;
+  const map = byProject ?? {};
+  const key = normalizeBrainProjectKey(projectPath);
+  for (const [k, v] of Object.entries(map)) {
+    if (normalizeBrainProjectKey(k) === key) return v;
+  }
+  return undefined;
+}
+
+/**
+ * §5.10 v2 (H) — **마스터 판정.** 게이트 4겹(수집·주입·표시·REST)이 전부 이 함수를 통과한다.
+ * 키가 없으면 꺼짐이다 — 기본 off 는 여기서 성립한다.
+ */
+export function isBrainEnabled(
+  byProject: Record<string, BrainActivation> | null | undefined,
+  projectPath: string | null | undefined,
+): boolean {
+  return resolveBrainActivation(byProject, projectPath)?.enabled === true;
+}
+
+/**
+ * §5.10 v2 (H) — **축 판정.** 마스터가 꺼져 있으면 축은 볼 것도 없이 false 다
+ * (축만 켜 두고 마스터를 끈 상태에서 뭔가 도는 구멍을 막는다).
+ */
+export function isBrainAxisEnabled(
+  byProject: Record<string, BrainActivation> | null | undefined,
+  projectPath: string | null | undefined,
+  axis: BrainAxisId,
+): boolean {
+  const act = resolveBrainActivation(byProject, projectPath);
+  if (act?.enabled !== true) return false;
+  const override = act.axes?.[axis];
+  return typeof override === 'boolean' ? override : DEFAULT_BRAIN_AXES[axis];
+}
+
+/**
+ * §5.10 v2 (H) — 첫 실행 1회 안내를 띄울 때인가.
+ * 아직 켜지 않았고, 물어본 적도 없고, 잠들어 있는 카드가 있을 때만 한 번 묻는다.
+ */
+export function shouldPromptBrainActivation(
+  byProject: Record<string, BrainActivation> | null | undefined,
+  projectPath: string | null | undefined,
+  sleepingCardCount: number,
+): boolean {
+  if (sleepingCardCount <= 0) return false;
+  // 어느 프로젝트인지 모르면 묻지 않는다 — 거절 기록이 어디 적혔는지도 모르는 상태라,
+  // 여기서 true 를 내면 "이미 거절한 안내"가 다시 뜨는 길이 열린다.
+  if (!projectPath) return false;
+  const act = resolveBrainActivation(byProject, projectPath);
+  if (act?.enabled === true) return false;
+  return act?.promptedAt === undefined;
+}
+
+/** §5.10 v2 (B) — 스킬 자산 폴더명(`.vibisual/brain/skills/<id>/SKILL.md`). */
+export const BRAIN_SKILLS_DIRNAME = 'skills';
+
+/** §5.10 v2 (B) — 스킬 파일명. agentskills.io 와 같은 이름을 쓴다. */
+export const BRAIN_SKILL_FILENAME = 'SKILL.md';
+
+/** §5.10 v2 (B) — 한 턴 프롬프트에 실을 스킬 최대 수. 카드 top-K 와 별개 예산이다. */
+export const BRAIN_SKILL_INJECTION_TOP_K = 2;
+
+/** §5.10 v2 (B) — 스킬 `description` 상한. 이 문장이 집행 매칭에 쓰이므로 길면 매칭이 흐려진다. */
+export const BRAIN_SKILL_DESCRIPTION_MAX_CHARS = 220;
+
+/** §5.10 v2 (B) — 스킬 본문 상한(프롬프트 예산 보호). */
+export const BRAIN_SKILL_BODY_MAX_CHARS = 4_000;
+
+/** §5.10 v2 (B) — 프로젝트 한 곳이 보유할 수 있는 활성 스킬 상한. */
+export const BRAIN_SKILL_BUDGET = 40;
+
+/**
+ * §5.10 v2 (B) — 같은 주제 `lesson` 이 이 수 이상 모이면 "스킬로 굳힐까요" 후보로 올린다.
+ * 실측에서 lesson 이 209장(64%)이었고 대부분이 절차였다 — 그것을 끌어올리는 문턱이다.
+ */
+export const BRAIN_SKILL_PROMOTE_MIN_LESSONS = 3;
+
+/**
+ * §5.10 v2 (B) — 스킬 초안을 뽑을 "복잡한 작업" 문턱(도구 호출 수).
+ * 이보다 적게 쓴 턴은 절차라고 부를 것이 없다.
+ */
+export const BRAIN_SKILL_DRAFT_MIN_TOOL_CALLS = 12;
+
+/** §5.10 v2 (C) — 회상 결과 최대 건수. */
+export const BRAIN_RECALL_MAX_RESULTS = 6;
+
+/** §5.10 v2 (C) — 회상 발췌 길이 상한(앞뒤 문맥 포함). */
+export const BRAIN_RECALL_EXCERPT_CHARS = 400;
+
+/** §5.10 v2 (C) — 회상이 훑는 최근 세션 수 상한(전량 재파싱 방지 — 느려짐의 알려진 원인). */
+export const BRAIN_RECALL_SESSION_SCAN_MAX = 40;
+
+/**
+ * §5.10 v2 (C) — **질의 커버리지** 최소 문턱(= 물어본 것 중 몇 할이 그 문서에 있는가).
+ *
+ * Jaccard(교집합/합집합)가 아니라 커버리지(교집합/질의)를 쓴다 — Jaccard 는 설명이 길수록
+ * 분모가 커져 **맞는 것일수록 점수가 떨어지고**, 실측에서 조사가 붙은 한국어 질의가 정확히
+ * 이 이유로 문턱을 못 넘었다.
+ */
+export const BRAIN_BIGRAM_MIN_SCORE = 0.25;
+
+/** §5.10 v2 (D) — 넛지 사이 최소 간격(같은 세션). */
+export const BRAIN_NUDGE_MIN_INTERVAL_MS = 15 * 60 * 1000;
+
+/** §5.10 v2 (D) — 한 세션에서 넛지를 얹을 최대 횟수. */
+export const BRAIN_NUDGE_MAX_PER_SESSION = 3;
+
+/** §5.10 v2 (E) — 근거 검증에서 앵커 파일을 읽을 최대 바이트(대용량 파일 회피). */
+export const BRAIN_GROUNDING_MAX_FILE_BYTES = 512 * 1024;
+
+/** §5.10 v2 (E) — 자동 `verified` 로 올리려면 앵커 중 이 비율 이상이 실재해야 한다. */
+export const BRAIN_GROUNDING_MIN_ANCHOR_HIT_RATIO = 0.5;
+
+/** §5.10 v2 (F) — 큐레이터 입양 대기 레일 한 화면 상한. */
+export const BRAIN_CURATOR_PAGE_SIZE = 50;
+
+/** §5.10 v2 (G) — 운영자 프로필 카드 상한. 사람 얘기라 적게 유지한다. */
+export const BRAIN_OPERATOR_CARD_BUDGET = 30;
+
 /**
  * §5.10 v3.81 — **`canonicalKey` 의 subject 마디를 뽑아도 되는 파일**(패키지 소스 모듈만).
  *
@@ -4721,14 +5118,56 @@ ${blocks.join('\n\n')}`;
  * 에이전트는 필요 시 loopback `GET /api/brain/search?q=...` 로 두 층 합산 검색을 직접 할 수 있다
  * (토큰 인증 — 작업 신고와 동일 인프라). Hook 에이전트는 spawn 통제 밖이라 이 블록이 안 들어간다.
  */
+/**
+ * §5.10 v2 (B) — **스킬 집행 블록.**
+ *
+ * 카드가 "무엇이 사실인가"를 싣는다면 이 블록은 **"이럴 땐 이렇게 한다"** 를 싣는다.
+ * 지금 작업과 맞는 것만 골라 오므로 목록이 길지 않고, 절차는 읽으라고 있는 게 아니라
+ * **따르라고** 있는 것이라 지시문도 그렇게 쓴다. 비면 빈 문자열이라 줄이 서지 않는다.
+ */
+export function buildBrainSkillsSection(skills: readonly BrainSkill[]): string {
+  if (skills.length === 0) return '';
+  const blocks = skills.map((s) => {
+    const head = `### ${s.name}${s.status === 'draft' ? ' (초안 — 아직 검증 전이라 참고 수준)' : ''}`;
+    return `${head}\n**언제 쓰나**: ${s.description}\n\n${s.body.trim()}`;
+  });
+  return `## 이 작업에 걸린 절차 (스킬)
+아래는 **이 프로젝트에서 같은 일을 하며 굳어진 절차**다. 처음부터 다시 궁리하지 말고 이대로 따르되,
+따라 하다 어긋나는 자리가 있으면 그곳을 작업 신고의 \`learned\` 로 알려라 — 그 신고가 절차를 고친다.
+
+${blocks.join('\n\n')}`;
+}
+
+/**
+ * §5.10 v2 (D) — **넛지.**
+ *
+ * 종전 수집은 Stop 훅 사후 리플렉션뿐이라 "세션이 끝난 뒤 남이 훑는" 방식이었다. 그 방식은
+ * 정작 배운 당사자(일하던 에이전트)의 판단을 못 쓴다 — 무엇이 함정이었는지는 그때 그 자리에서
+ * 가장 잘 안다. 그래서 **일하는 중에** 한 번 찔러 준다.
+ *
+ * 수신 배관은 새로 만들지 않는다 — 작업 신고의 `learned` 필드가 이미 그 자리다.
+ */
+export function buildBrainNudgeSection(): string {
+  return `
+## 기억 남기기 (짧게)
+이 작업에서 **다음 사람이 같은 자리에서 헤매지 않을 것**을 하나라도 배웠다면, 작업 신고의
+\`learned\` 에 한 줄로 남겨라(함정·되돌린 시도·사용자 교정이 특히 값지다).
+- 배운 게 없으면 **아무것도 남기지 마라** — 없는 교훈을 지어내면 다음 사람이 그것에 속는다.
+- 이건 표시 전용이며 작업 결과에 영향을 주지 않는다.`;
+}
+
 export function buildBrainRulesSection(args: {
   serverBase: string;
   serverToken: string;
   cardsBlock: string;
   topicIndexBlock?: string;
+  /** §5.10 v2 (B) — 스킬 집행 줄. 지금 작업과 맞는 절차만 실린다. */
+  skillsBlock?: string;
+  /** §5.10 v2 (D) — 넛지 줄. 축이 켜져 있고 이 세션의 빈도 상한 안일 때만 온다. */
+  nudgeBlock?: string;
   identityFile?: string;
 }): string {
-  const { serverBase, serverToken, cardsBlock, topicIndexBlock, identityFile } = args;
+  const { serverBase, serverToken, cardsBlock, topicIndexBlock, skillsBlock, nudgeBlock, identityFile } = args;
   const prelude = buildDynamicEndpointPrelude(identityFile, serverBase, serverToken);
   const base = prelude ? '$VIBI_BASE' : serverBase;
   const tokenHdr = prelude
@@ -4748,10 +5187,11 @@ export function buildBrainRulesSection(args: {
 ${cardsBlock.trim()}`
     : '';
   const topics = topicIndexBlock?.trim() ? `\n${topicIndexBlock.trim()}\n` : '';
+  const skills = skillsBlock?.trim() ? `\n${skillsBlock.trim()}\n` : '';
   return `
 
 # Project Brain (§5.10 장기 기억)${memory}
-${topics}
+${topics}${skills}
 
 ## 능동 검색
 작업 중 과거 결정·함정·규칙이 궁금하면 아래로 프로젝트 기억을 직접 검색할 수 있다(프로젝트+너 자신의 두 층 합산, 결과에 출처 층 표시). 실패해도 무시하고 작업은 계속한다.
@@ -4759,7 +5199,17 @@ ${topics}
 ${prelude}curl -s ${tokenHdr} "${base}/api/brain/search?q=검색어"
 \`\`\`
 - 이 검색은 표시/참고 전용이며, 호출 여부는 작업 결과에 영향을 주지 않는다.
-- 토큰 헤더(\`x-vibisual-hook-token\`)가 없으면 401 이다(위 예시에 포함).`;
+- 토큰 헤더(\`x-vibisual-hook-token\`)가 없으면 401 이다(위 예시에 포함).
+
+## 회상 — 그때 실제로 오간 대화
+카드로 남지 않은 것까지 찾고 싶으면(예: "그때 이거 어떻게 고쳤더라") **과거 세션 본문**을 직접 뒤질 수 있다.
+카드는 남길 만하다고 판단된 것만 있지만, 이쪽은 그때의 대화 자체다. 같은 토큰 헤더를 쓴다.
+\`\`\`bash
+curl -s ${tokenHdr} "${base}/api/brain/recall?q=검색어"
+\`\`\`
+- 결과는 세션당 한 대목씩(\`sessionId\`·\`excerpt\`), 최근 세션 위주로 온다.
+- 두뇌의 회상 축이 꺼져 있으면 403 이다 — 그때는 그냥 넘어가고 작업을 계속한다.
+${nudgeBlock?.trim() ? `\n${nudgeBlock.trim()}` : ''}`;
 }
 
 /**
@@ -4803,6 +5253,16 @@ export function buildBrainReflectionPrompt(args: {
   topicSlugs: readonly string[];
   /** §5.10 v3.81 — `canonicalKey` 의 허용 area 목록(없으면 프롬프트에 예시만 나간다). */
   areas?: readonly string[];
+  /**
+   * §5.10 v2 (B) — 축 `skills` 가 켜져 있고 이 세션이 "복잡한 작업"이었을 때만 true.
+   * 이때만 절차 초안 한 벌을 더 뽑으라고 지시한다 — 꺼져 있으면 그 지시문 자체를 안 싣는다.
+   */
+  wantSkill?: boolean;
+  /**
+   * §5.10 v2 (G) — 축 `operator` 가 켜져 있을 때만 true.
+   * 이때만 "이 사용자는 이렇게 일한다"는 관찰을 함께 뽑으라고 지시한다.
+   */
+  wantOperator?: boolean;
 }): string {
   const known = args.knownTitles.length > 0
     ? `
@@ -4817,6 +5277,31 @@ ${args.knownTitles.map((t) => `- ${t}`).join('\n')}
     : '';
   const topics = args.topicSlugs.length > 0
     ? `\n- topic: 다음 중 하나를 골라 넣어라(모르겠으면 생략) — ${args.topicSlugs.join(', ')}`
+    : '';
+  // §5.10 v2 (B) — 절차 초안. 카드가 "무엇이 사실인가"라면 이쪽은 "이럴 땐 이렇게 한다"이고,
+  //   다음에 같은 일을 할 때 **읽히기를 기다리지 않고 자동으로 걸리는** 자산이 된다.
+  const skill = args.wantSkill
+    ? `
+
+## 절차 하나 더 (선택)
+이 세션이 **여러 단계를 거쳐 하나의 일을 끝낸 것**이라면, 그 과정을 다음 사람이 그대로 따라 할 수 있는
+**절차**로 한 벌 적어라. 배열에 아래 형태의 항목을 **최대 1개** 더 넣으면 된다(해당 없으면 넣지 마라):
+- \`{"type":"skill","name":"짧은 이름","description":"언제 이 절차를 쓰는가(한 문장 — 이 문장으로 검색된다)","body":"1. …\\n2. …","files":["…"]}\`
+- \`description\` 은 **"언제"** 를 적는 자리다. 무엇을 하는지가 아니라 **어떤 상황에서 꺼내 쓰는지**를 적어라.
+- \`body\` 는 번호 매긴 단계로. 그 세션에서 **실제로 통한 순서**만 적고, 해 보지 않은 것은 넣지 마라.
+- 단순 질의응답·한 줄 수정이었으면 절차가 아니다 — 넣지 마라.`
+    : '';
+  // §5.10 v2 (G) — 운영자 프로필. **사람에 대한 관찰**이라 문턱을 카드보다 높게 둔다.
+  const operator = args.wantOperator
+    ? `
+
+## 이 사용자에 대한 관찰 (선택)
+사용자가 **반복해서** 드러낸 작업 방식·선호가 있으면 한 줄로 적어라. 배열에 아래 형태의 항목을
+**최대 1개** 더 넣으면 된다(해당 없으면 넣지 마라):
+- \`{"type":"operator","title":"한 줄 관찰","body":"무엇을 보고 그렇게 판단했는지"}\`
+- **한 번 있었던 일은 관찰이 아니다.** 같은 신호가 여러 번 반복됐을 때만 적어라.
+- 사람에 대한 평가·추측 ❌. **관찰된 작업 방식**만(예: "긴 목록보다 결론 먼저를 원한다").
+- 그 세션 한정의 기분·감정은 적지 마라.`
     : '';
   return `너는 아래 AI 코딩 세션 기록에서 **다음 세션에 도움이 될 장기 기억 카드**를 추출하는 분석기다.
 
@@ -4835,7 +5320,7 @@ ${known}
 - 경험담(mistake/lesson)에는 canonicalKey 를 붙이지 마라 — 그건 증거이지 현재 규칙이 아니다.
 - **files 를 최대한 채워라** — 그 지식이 매인 파일 경로가 있어야 코드가 바뀔 때 시스템이 이 카드를 "확인 필요"로 띄울 수 있다. 파일과 무관한 습관·취향이면 비워도 된다.
 - 최대 ${BRAIN_SESSION_CANDIDATE_MAX}개.
-- 출력은 **순수 JSON 배열만**(설명·마크다운·코드펜스 금지). 없으면 \`[]\`.
+- 출력은 **순수 JSON 배열만**(설명·마크다운·코드펜스 금지). 없으면 \`[]\`.${skill}${operator}
 
 출력 형식 예:
 [{"type":"lesson","title":"X 는 Y 로 처리해야 함","body":"...","files":["packages/server/src/foo.ts"],"topic":"misc","contradicts":"card-abc-1234"},
@@ -5742,6 +6227,31 @@ export const LOCAL_TOOL_LIST_MAX_ENTRIES = 400;
 
 /** §5.19 (H) — 검색 한 번이 모델에게 줄 최대 결과 수. 열 개를 넘겨도 고르는 일은 같다. */
 export const LOCAL_WEB_SEARCH_MAX_HITS = 8;
+
+/**
+ * §5.19 (H) — 로컬 모델의 `WebSearch` 가 쓰는 검색 창구.
+ *
+ * **왜 여기로 왔나**: 종전에는 `html.duckduckgo.com` 의 결과 화면을 받아 HTML 을 파싱했다.
+ * 키가 필요 없다는 장점 하나로 골랐지만, 그건 DDG 이용약관이 금지하는 자동 조회였다 —
+ * 배포되는 제품이라 우리 사용자들이 차단 대상이 된다.
+ *
+ * **왜 이것인가**: 대안을 실측으로 훑은 결과 조건(무료 · 키 불필요 · 약관이 허용 · 일반 웹
+ * 결과)을 다 만족하는 것은 이 하나였다.
+ *  · DDG 공식 Instant Answer API — 키는 필요 없으나 즉답 전용이라 웹 결과가 **0건**(실측).
+ *  · Mojeek — 자동 질의라며 **403** 으로 거절(실측).
+ *  · Marginalia 공개 API — 동작하지만 공개 키는 **상업적 사용 금지**이고 결과가
+ *    CC-BY-NC-SA 라, 제품에 실으면 지금보다 나쁜 자리로 간다.
+ *  · Brave · Serper · Exa · Google CSE — 품질은 되지만 **사용자마다 키 발급**이 필요하다.
+ *
+ * Firecrawl 은 2026-06-16 자로 **키 없는 접근을 공식 기능으로 열었다**(월 1,000 크레딧,
+ * IP 단위 일일 상한, 넘으면 429). 상한이 IP 단위라는 점이 배포 제품에 오히려 맞는다 —
+ * 사용자마다 자기 할당량을 쓰고 우리 쪽으로 몰리지 않는다.
+ *
+ * 더 쓰려는 사용자는 `FIRECRAWL_API_KEY` 를 환경변수로 두면 자기 키로 올라간다(선택).
+ */
+export const LOCAL_WEB_SEARCH_API_URL = 'https://api.firecrawl.dev/v2/search';
+/** 검색 한 번의 상한(ms). 모델이 기다리는 시간이라 길게 잡지 않는다. */
+export const LOCAL_WEB_SEARCH_TIMEOUT_MS = 20_000;
 
 /** 명령 실행 도구의 상한(ms). 넘으면 죽이고 그 사실을 결과로 알린다. */
 export const LOCAL_TOOL_COMMAND_TIMEOUT_MS = 120_000;

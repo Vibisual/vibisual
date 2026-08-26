@@ -16,7 +16,6 @@
  * - REST `GET /api/models` → 클라 즉시 페치(WS 도착 전 빈 화면 방지)
  */
 import fs from 'node:fs/promises';
-import fsSync from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawn } from 'node:child_process';
@@ -30,24 +29,9 @@ import {
 import { logger } from '../logger.js';
 import { getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
 
-const IS_WIN = process.platform === 'win32';
-const PLATFORM_BIN_NAME = IS_WIN ? 'claude.exe' : 'claude';
-
-/**
- * §4 v2.41 — Claude Code 바이너리에서 발견되는 정상 모델 ID 패턴.
- * `claude-<family>-X[-Y]` 형태만 채택. 변형(`-date`, `-v1`, `-fast`) 은 제외 — UI 노이즈.
- * X(-Y) 가 패밀리 내 semver(major, optional minor).
- *
- * §4 v2.77 — opus/sonnet/haiku 화이트리스트 제거 → 임의 패밀리(fable/mythos 등) 수용. minor 도 옵션화
- * (`claude-fable-5` 같은 단일 숫자 패밀리 + `claude-opus-4-8` 같은 major-minor 둘 다 매칭).
- * `[a-z]+` 다음에 숫자가 와야 하므로 `claude-code-…` 류 비모델 문자열은 자연 제외(2차 CLEAN 필터로도 차단).
- */
-const CLEAN_MODEL_RE = /^claude-[a-z]+-\d+(?:-\d{1,2})?$/;
-const ANY_MODEL_RE = /claude-[a-z]+-\d[0-9a-zA-Z\-]*/g;
-
 /**
  * §4 v2.77 — 패밀리 화이트리스트 해제로 잡힐 수 있는 **비모델** 토큰의 패밀리명.
- * `claude-code` 패키지/버전 문자열(`claude-code-2-1` 등)이 가짜 'code' 패밀리로 새지 않게 거른다.
+ * `/v1/models` 응답에 섞여 오는 비모델 id 가 가짜 패밀리로 새지 않게 거른다.
  * (모델 패밀리는 opus/sonnet/haiku/fable/mythos … 처럼 제품 라인명. 'code' 는 CLI 패키지명.)
  */
 const NON_MODEL_FAMILIES = new Set<string>(['code', 'cli', 'agent']);
@@ -97,7 +81,7 @@ class ModelRegistryService {
     this.registry = this.buildFromSeed();
   }
 
-  /** 시드만으로 빌드된 초기 레지스트리. (v2.40 이후 시드 빈 배열이라 entries=[]) */
+  /** 시드만으로 빌드된 초기 레지스트리 — 공개 문서에서 옮겨 둔 `MODEL_SEED_ENTRIES` 가 전부. */
   private buildFromSeed(): ModelRegistry {
     const entries: ModelRegistryEntry[] = MODEL_SEED_ENTRIES.map((e) => ({ ...e }));
     this.markLatestOfFamily(entries);
@@ -106,89 +90,6 @@ class ModelRegistryService {
       updatedAt: Date.now(),
       sourceMix: 'seed-only',
     };
-  }
-
-  /**
-   * §4 v2.41 — Claude Code 바이너리에서 모델 ID raw scan.
-   *
-   * 0 하드코딩·0 API 키·0 원격호출. 바이너리 내부 문자열 테이블에 박혀 있는 모델 ID 패턴을 정규식으로 추출.
-   * 사용자가 `npm i -g @anthropic-ai/claude-code@latest` 로 CLI 만 업데이트하면 신규 모델이 자동 발견됨.
-   *
-   * 후보 경로(빈 결과 시 다음 후보로):
-   *  (1) `getClaudeBin().binPath` — 네이티브/확장 번들/PATH 중 활성 실행본 `claude` 본체
-   *  (2) `<binPath>/../node_modules/@anthropic-ai/claude-code-{platform}/claude(.exe)` — 플랫폼 패키지
-   *  (3) `<global npm root>/@anthropic-ai/claude-code/node_modules/@anthropic-ai/claude-code-{platform}/claude(.exe)`
-   *
-   * 정상 ID 만 채택(`claude-X-N-M` 형태) — 날짜/v1/fast 변형은 UI 노이즈로 제외.
-   */
-  private scanClaudeBinaryForModels(): ModelRegistryEntry[] {
-    const candidates: string[] = [];
-    try {
-      const bin = getClaudeBin();
-      if (bin?.binPath) candidates.push(bin.binPath);
-    } catch { /* PATH 미발견 — 다른 후보 시도 */ }
-
-    // (2) 같은 트리 안의 플랫폼 패키지
-    for (const cand of [...candidates]) {
-      try {
-        const dir = path.dirname(cand);
-        const platRoot = path.join(dir, '..', 'node_modules', '@anthropic-ai');
-        if (fsSync.existsSync(platRoot)) {
-          for (const sub of fsSync.readdirSync(platRoot)) {
-            if (sub.startsWith('claude-code-') && sub !== 'claude-code') {
-              const subBin = path.join(platRoot, sub, PLATFORM_BIN_NAME);
-              if (fsSync.existsSync(subBin)) candidates.push(subBin);
-            }
-          }
-        }
-      } catch { /* ignore */ }
-    }
-
-    // (3) 글로벌 npm root 의 패키지
-    try {
-      const globalNpm = path.join(os.homedir(), 'AppData', 'Roaming', 'npm', 'node_modules', '@anthropic-ai', 'claude-code');
-      const platRoot = path.join(globalNpm, 'node_modules', '@anthropic-ai');
-      if (fsSync.existsSync(platRoot)) {
-        for (const sub of fsSync.readdirSync(platRoot)) {
-          if (sub.startsWith('claude-code-')) {
-            const subBin = path.join(platRoot, sub, PLATFORM_BIN_NAME);
-            if (fsSync.existsSync(subBin) && !candidates.includes(subBin)) candidates.push(subBin);
-          }
-        }
-      }
-    } catch { /* ignore */ }
-
-    const found = new Set<string>();
-    for (const candidate of candidates) {
-      try {
-        const buf = fsSync.readFileSync(candidate);
-        const text = buf.toString('latin1');
-        const matches = text.match(ANY_MODEL_RE);
-        if (!matches) continue;
-        for (const m of matches) {
-          if (!CLEAN_MODEL_RE.test(m)) continue;
-          // §4 v2.77 — 비모델 패밀리(claude-code 버전 문자열 등) 제외.
-          const fam = parseFamilyFromFullId(m);
-          if (fam && NON_MODEL_FAMILIES.has(fam)) continue;
-          found.add(m);
-        }
-        if (found.size > 0) {
-          logger.info(`[modelRegistry] cli-scan: ${found.size} clean model IDs from ${path.basename(candidate)}`);
-          break;
-        }
-      } catch (err) {
-        logger.warn(`[modelRegistry] cli-scan read failed for ${candidate}: ${err instanceof Error ? err.message : String(err)}`);
-      }
-    }
-
-    return [...found].map((id): ModelRegistryEntry => {
-      const family = parseFamilyFromFullId(id);
-      return {
-        id,
-        family: family ?? 'opus',
-        source: 'cli-scan',
-      };
-    });
   }
 
   /**
@@ -249,8 +150,8 @@ class ModelRegistryService {
 
   /**
    * 패밀리별 latest 표시.
-   * §4 v2.41 — semver(`A-B`) 비교를 1순위로. createdAt(API) 2순위. source 3순위(api > cli-scan > seed). id 4순위.
-   * cli-scan 으로 발견한 `claude-opus-4-8` 가 자동으로 latest 가 되도록.
+   * semver(`A-B`) 비교를 1순위로. createdAt(API) 2순위. source 3순위(api > seed). id 4순위.
+   * `claude-opus-5` 처럼 판올림이 높은 쪽이 자동으로 latest 가 되도록.
    *
    * §4 v2.77 — 패밀리 목록을 entries 에서 동적 수집(opus/sonnet/haiku 하드코딩 제거) → 신규 패밀리(fable/mythos)도
    * 각자 latest 가 셋됨.
@@ -258,7 +159,7 @@ class ModelRegistryService {
   private markLatestOfFamily(entries: ModelRegistryEntry[]): void {
     const families = [...new Set(entries.map((e) => e.family).filter(Boolean))];
     for (const e of entries) e.isLatestOfFamily = false;
-    const sourceRank: Record<ModelRegistryEntry['source'], number> = { api: 3, 'cli-scan': 2, seed: 1 };
+    const sourceRank: Record<ModelRegistryEntry['source'], number> = { api: 2, seed: 1 };
     for (const family of families) {
       const fams = entries.filter((e) => e.family === family);
       if (fams.length === 0) continue;
@@ -301,11 +202,8 @@ class ModelRegistryService {
    * fetch 는 비동기 — 호출자(서버 부트 시퀀스)는 await 없이 시작 가능. 완료 시 listener push.
    */
   async refreshIfStale(): Promise<void> {
-    // §4 v2.41 — 모든 부팅에서 CLI 바이너리 raw scan 실행 (빠르고 결정적, 캐시 무관).
-    // CLI 업데이트가 즉시 반영되도록 캐시 의존 ❌. API 결과만 캐시.
-    const cliEntries = this.scanClaudeBinaryForModels();
-
-    // §4 — effort 등급도 CLI(`claude --help`)에서 동적 파싱(하드코딩 폐기). 실패 시 undefined→클라 폴백.
+    // §4 — effort 등급은 CLI(`claude --help`)에서 동적 파싱(하드코딩 폐기). 실패 시 undefined→클라 폴백.
+    // `--help` 는 CLI 가 공개한 인터페이스라 그대로 둔다(실행본을 뜯어 읽던 모델 raw scan 과 다르다).
     try {
       this.cliEffortLevels = await this.scanEffortLevelsFromCli();
     } catch (err) {
@@ -313,7 +211,7 @@ class ModelRegistryService {
       this.cliEffortLevels = undefined;
     }
 
-    // 캐시에서 API 결과만 추출 (시드/cli-scan entry 는 매 부팅 재생성)
+    // 캐시에서 API 결과만 추출 (시드 entry 는 매 부팅 재생성)
     let cachedApiEntries: ModelRegistryEntry[] = [];
     try {
       const cached = await this.loadCache();
@@ -326,45 +224,40 @@ class ModelRegistryService {
       logger.warn(`[modelRegistry] cache load failed: ${err instanceof Error ? err.message : String(err)}`);
     }
 
-    // CLI scan + 캐시 API 결과 머지로 임시 레지스트리 구성
-    this.registry = this.buildMerged(cliEntries, cachedApiEntries);
+    // 공개 문서 시드 + 캐시 API 결과 머지로 임시 레지스트리 구성
+    this.registry = this.buildMerged(cachedApiEntries);
     this.markLatestOfFamily(this.registry.entries);
     this.emit();
-    logger.info(`[modelRegistry] initial: cli-scan=${cliEntries.length} cached-api=${cachedApiEntries.length} total=${this.registry.entries.length} mix=${this.registry.sourceMix}`);
+    logger.info(`[modelRegistry] initial: seed=${MODEL_SEED_ENTRIES.length} cached-api=${cachedApiEntries.length} total=${this.registry.entries.length} mix=${this.registry.sourceMix}`);
 
     // 캐시 fresh 면 API 재fetch 생략
     if (cachedApiEntries.length > 0) return;
 
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
-      logger.info('[modelRegistry] ANTHROPIC_API_KEY not set — cli-scan only mode (no api enrichment)');
+      logger.info('[modelRegistry] ANTHROPIC_API_KEY not set — seed only mode (no api enrichment)');
       return;
     }
 
     try {
       const apiEntries = await this.fetchFromApi(apiKey);
-      this.registry = this.buildMerged(cliEntries, apiEntries);
+      this.registry = this.buildMerged(apiEntries);
       this.markLatestOfFamily(this.registry.entries);
       await this.saveCache();
       this.emit();
-      logger.info(`[modelRegistry] api-fresh: cli-scan=${cliEntries.length} api=${apiEntries.length} total=${this.registry.entries.length} mix=${this.registry.sourceMix}`);
+      logger.info(`[modelRegistry] api-fresh: seed=${MODEL_SEED_ENTRIES.length} api=${apiEntries.length} total=${this.registry.entries.length} mix=${this.registry.sourceMix}`);
     } catch (err) {
-      logger.warn(`[modelRegistry] /v1/models fetch failed — staying on cli-scan: ${err instanceof Error ? err.message : String(err)}`);
+      logger.warn(`[modelRegistry] /v1/models fetch failed — staying on seed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
   /**
-   * §4 v2.41 — CLI scan + API entries 머지.
-   * 같은 id 는 API 가 displayName/createdAt 으로 enrich, source 우선순위는 API > cli-scan.
-   * 시드(`MODEL_SEED_ENTRIES`) 는 v2.40 이후 빈 배열이므로 사실상 미참여.
+   * 공개 문서 시드 + `/v1/models` API entries 머지.
+   * 같은 id 는 API 가 displayName/createdAt 으로 enrich, source 우선순위는 API > seed.
    */
-  private buildMerged(cliEntries: ModelRegistryEntry[], apiEntries: ModelRegistryEntry[]): ModelRegistry {
+  private buildMerged(apiEntries: ModelRegistryEntry[]): ModelRegistry {
     const byId = new Map<string, ModelRegistryEntry>();
     for (const seed of MODEL_SEED_ENTRIES) byId.set(seed.id, { ...seed });
-    for (const cli of cliEntries) {
-      const prev = byId.get(cli.id);
-      byId.set(cli.id, prev ? { ...prev, ...cli, source: 'cli-scan' } : { ...cli });
-    }
     for (const api of apiEntries) {
       const prev = byId.get(api.id);
       if (prev) {
@@ -379,10 +272,7 @@ class ModelRegistryService {
       }
     }
     const sourceMix: ModelRegistry['sourceMix'] =
-      apiEntries.length > 0 && cliEntries.length > 0 ? 'cli-scan+api'
-      : apiEntries.length > 0 ? 'api-merged'
-      : cliEntries.length > 0 ? 'cli-scan'
-      : 'seed-only';
+      apiEntries.length > 0 ? 'api-merged' : 'seed-only';
     return {
       entries: [...byId.values()],
       updatedAt: Date.now(),

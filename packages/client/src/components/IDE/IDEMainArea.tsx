@@ -3,11 +3,11 @@ import { Virtuoso, type VirtuosoHandle, type StateSnapshot } from 'react-virtuos
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import type { QueuedCommand, CommandError, SubAgent, SubAgentStreamEvent, AgentEvent, AgentReport, AgentQuestions, AgentReview, AgentList, AskUserQuestionRequest } from '@vibisual/shared';
-import { STREAM_DENSITIES, STREAM_COMPACT_TEXT_CLAMP_LINES, STREAM_COMPACT_TEXT_CLAMP_CHARS, type StreamDensity } from '@vibisual/shared';
+import { STREAM_DENSITIES, STREAM_COMPACT_TEXT_CLAMP_LINES, STREAM_COMPACT_TEXT_CLAMP_CHARS, slashCommandNeedsTerminal, type StreamDensity } from '@vibisual/shared';
 import { useSessionRunning } from '../../hooks/useSessionRunning.js';
 import { clampStreamText } from './streamDensity.js';
 import type { TodoItem } from '@vibisual/shared';
-import { latestPlanProgress, parsePlanTodos, isSystemSubtypeChip, isHiddenSystemSubtype, PLAN_TOOL_NAME, commandAnchorTs, PENDING_COMMAND_TS, isCardEchoText } from './streamItems.js';
+import { latestPlanProgress, parsePlanTodos, isSystemSubtypeChip, isHiddenSystemSubtype, PLAN_TOOL_NAME, commandAnchorTs, hasDispatched, PENDING_COMMAND_TS, isCardEchoText } from './streamItems.js';
 import { foldTaskChips } from './taskChips.js';
 import { describeCommandError, parseStreamErrorContent, joinCommandErrorLine } from './commandError.js';
 import { PlanBlock } from './PlanBlock.js';
@@ -1193,6 +1193,11 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
   // §5.19 (G) — 로컬 버블(All Model)에는 클로드 CLI 의 슬래시 명령·스킬이 없다. 목록을 띄우면
   //   고를 수 있는 것처럼 보이지만 실제로는 그 텍스트가 모델에게 그대로 흘러갈 뿐이다.
   const isLocalProviderAgent = useGraphStore((s) => (agentId ? !!s.agentConfigs[agentId]?.provider : false));
+  // §4 (슬래시 명령 가용성) — CMD 버블(`interactive-terminal`)은 진짜 REPL 이라 화면 있는 명령도 전부 된다.
+  //   헤드리스일 때만 "터미널 필요" 배지를 단다 — 되는 곳에서 안 된다고 하면 그게 더 나쁜 거짓말이다.
+  const isInteractiveTerminalAgent = useGraphStore(
+    (s) => (agentId ? s.agentConfigs[agentId]?.executionMode === 'interactive-terminal' : false),
+  );
   const slashState = useMemo(() => {
     if (isLocalProviderAgent) return null;
     if (!text.startsWith('/')) return null;
@@ -1565,6 +1570,26 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
                     {item.kind === 'builtin' && item.builtin.aliases.length > 0 && (
                       <span className="font-mono text-[12px] text-gray-600">
                         {item.builtin.aliases.map((a) => `/${a}`).join(' ')}
+                      </span>
+                    )}
+                    {/* §4 (슬래시 명령 가용성) — 헤드리스에서 CLI 가 거절하는 명령. 종전에는 화면이
+                        아무 말도 안 해 사용자가 고른 뒤에야 죽는 걸 알았다. */}
+                    {item.kind === 'builtin' && slashCommandNeedsTerminal(item.name, isInteractiveTerminalAgent) && (
+                      <span className="flex items-center gap-0.5 rounded bg-amber-500/15 px-1 py-0.5 text-[12px] tracking-wide text-amber-400/90">
+                        <svg
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.8"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          className="h-3 w-3"
+                          aria-hidden="true"
+                        >
+                          <rect x="3" y="4" width="18" height="16" rx="2" />
+                          <path d="m7 9 3 3-3 3M13 15h4" />
+                        </svg>
+                        {t('ide.mainArea.slashNeedsTerminal')}
                       </span>
                     )}
                   </div>
@@ -2786,8 +2811,10 @@ export const IDEMainArea = memo(function IDEMainArea({
   const mainTimeline = useMemo(() => {
     // §5.5 #17-18 ⑥-3 — 턴 경계는 **이미 나간 명령**의 dispatch 시각이다. 대기 중 덧말은 아직
     //   아무것도 끊지 않았으므로 경계에서 뺀다. Ask 의 "맨 끝" 폴백은 대기 말풍선(꼬리)보다 **위**여야 한다.
+    //   ⑥-5 — "나갔는가" 판정은 `hasDispatched` 한 곳(Sub 탭과 같은 함수). 앱이 내려가 재개 대기로
+    //   큐에 돌아간 명령은 이미 한 번 턴을 끊었으므로 경계에 남는다.
     const cmdTsAsc = commands
-      .filter((c) => c.status !== 'queued')
+      .filter(hasDispatched)
       .map((c) => commandAnchorTs(c))
       .sort((a, b) => a - b);
     // §5.3 #12-2 — 답을 기다리는 AskUserQuestion 만 종전대로 그 턴 끝(없으면 꼬리)에 둔다(60초 안에 답해야

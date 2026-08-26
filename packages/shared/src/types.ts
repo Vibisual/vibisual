@@ -140,15 +140,16 @@ export interface RateLimitInfo {
  * 그대로 유지된다(해제 시 원복).
  */
 /**
- * §4 v3.62 — Claude 앱 `/usage` 화면과 **동일한 원천**에서 받아온 사용량.
+ * §4 — 화면에 그리는 Claude 사용량.
  *
- * Claude Code 의 `/usage` 는 `GET https://api.anthropic.com/api/oauth/usage` 를 로컬 OAuth
- * 토큰(`~/.claude/.credentials.json`)으로 호출한다(CLI 바이너리의 `fetchUtilization` 확인).
- * statusLine(§4 v3.60)과 달리 **인터랙티브 세션이 없어도 즉시** 값이 오고, 플랜명·모델별 주간
- * 한도·사용 크레딧까지 전부 들어 있다. 그래서 이쪽이 1차 소스, statusLine 은 폴백이다.
+ * **원천은 statusLine 하나다**(§4 v3.60) — Claude Code 가 플랜 한도를 외부에 노출하는 공식
+ * 경로가 그것뿐이다. 서버 `claudeUsageService.buildClaudeUsage` 가 `RateLimitInfo` 를 이 모양으로
+ * 옮겨 담는다. 그래서 값을 받으려면 사용자가 수집기(statusLine)를 켜야 하고, 켜지 않았으면
+ * `error: 'no-credentials'` 로 와서 화면이 그 스위치를 노출한다.
  *
- * 읽기 전용 — Vibisual 은 토큰을 갱신하거나 자격증명 파일에 쓰지 않는다(만료 시 Claude Code
- * 자신이 갱신해 파일을 다시 쓰므로 다음 폴링에서 자연히 회복된다).
+ * 구 v3.62 는 `GET /api/oauth/usage` 를 OAuth 토큰으로 직접 불러 모델별 주간 한도와 사용
+ * 크레딧까지 담았으나, 문서화되지 않은 내부 엔드포인트에 대한 자동 접속이라 약관에 걸려
+ * 걷어냈다. 그 두 항목(`weekly_scoped`·`extraCredits`)은 지금 채워지지 않는다.
  */
 export interface ClaudeUsageLimit {
   /** session / weekly_all / weekly_scoped / seven_day_opus … (서버 원문 그대로) */
@@ -176,9 +177,17 @@ export interface ClaudeUsageExtraCredits {
   currency?: string;
 }
 
-export type ClaudeUsageSource = 'oauth' | 'statusline';
+/**
+ * 값의 원천. 지금은 statusLine 하나뿐이다 — 구 v3.62 의 `'oauth'`(내부 엔드포인트 직접 조회)는
+ * 약관 문제로 폐기했다. 유니온을 남겨 두는 것은 훗날 공식 창구가 생기면 그 자리에 붙이기 위함.
+ */
+export type ClaudeUsageSource = 'statusline';
 
-/** no-credentials = 로그인 정보 없음(mac 키체인 포함), unauthorized = 토큰 만료/거부 */
+/**
+ * no-credentials = 표시할 값이 없음(수집기 미설치 · 아직 첫 보고 전 · mac 키체인 환경).
+ * unauthorized / network 는 구 v3.62 직접 조회 시절의 코드라 지금은 발생하지 않지만,
+ * 화면이 이미 문구를 들고 있어 유니온에 남긴다.
+ */
 export type ClaudeUsageError = 'no-credentials' | 'unauthorized' | 'network';
 
 export interface ClaudeUsageInfo {
@@ -1941,6 +1950,10 @@ export interface QueuedCommand {
    * `timestamp`(= 큐에 넣은 시각)와 다르다: 실행 중에 넣은 덧말은 둘 사이가 몇 분씩 벌어진다.
    * 화면은 이 값으로 말풍선 자리를 고정해 **턴이 끊긴 자리**를 만든다 — 없으면(이 필드 이전의
    * 옛 명령) 종전대로 `timestamp` 로 정렬한다.
+   *
+   * ⑥-5 — **한 명령에 한 번만 찍는다.** 앱이 내려가 재개하거나(`restartResumed`) 창구가 닫혀 큐로
+   * 되돌린 재시도는 **같은 턴의 이어달리기**라, 다시 찍으면 말풍선이 자기가 이미 뱉어 놓은 출력
+   * 아래로 내려앉는다. 값이 있다는 것은 곧 "이 명령은 나간 적이 있다"는 뜻이다.
    */
   startedAt?: number;
   /** 실행 상태 */
@@ -1967,9 +1980,15 @@ export interface QueuedCommand {
    */
   attachments?: string[];
   /**
-   * v1.79 — 서버 재시작으로 끊긴 커스텀 에이전트 명령을 `[orphaned]` 에러로 봉합하지 않고
-   * 보존된 세션(sub.sessionId)으로 1회 자동 재개(re-queue)했음을 표시. 무한 재개 루프 방지용
-   * one-shot 가드 — 재개 후에도 또 끊기면 그때는 `[orphaned]` 에러로 마감한다.
+   * v1.79→v1.80 — 서버 재시작으로 끊긴 커스텀 에이전트 명령을 `[orphaned]` 에러로 봉합하지 않고
+   * 보존된 세션(sub.sessionId)으로 자동 재개(re-queue)했음을 표시. **게이트가 아니라 진단용
+   * 누적 표식이다** — v1.79 의 one-shot 가드는 서버를 두 번 재시작하면 2번째부터 무조건
+   * `[orphaned]` 로 떨어뜨려 잘못이었고, 재개는 사용자의 실제 재시작 1건에 대응하므로 횟수 캡이
+   * 없다(`projectGraph` reconcile 참조).
+   *
+   * §5.5 #17-18 ⑥-5 — 이 표식이 붙은 명령은 **이미 한 번 나간** 명령이다. 재개하려고 `status` 가
+   * `queued` 로 돌아가 있어도 말풍선 자리는 `startedAt`(처음 나간 시각) 그대로여야 한다 —
+   * 재개는 같은 턴의 이어달리기지 새 턴이 아니다.
    */
   restartResumed?: boolean;
   /**
@@ -3267,7 +3286,7 @@ export interface AgentReport {
 export type BrainCardType = 'decision' | 'mistake' | 'lesson' | 'rule' | 'fact';
 
 /** 기억 층 — 프로젝트 전체 공유 vs 특정 커스텀 에이전트 개별 기억. */
-export type BrainCardScope = 'project' | 'agent';
+export type BrainCardScope = 'project' | 'agent' | 'user';
 
 /** 카드 상태 — active(정상)/ghost(연결 파일 소실 → 재검토)/archived(보관). */
 export type BrainCardStatus = 'active' | 'ghost' | 'archived';
@@ -3752,6 +3771,112 @@ export interface BrainMigrationReport {
   };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// §5.10 v2 — 학습 루프(브레인 v2).
+// 카드(선언적 기억) **위에 얹히는 축**이며 카드를 대체하지 않는다(§5.10 v2 (J)).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * §5.10 v2 (H) — 두뇌 축 6개.
+ *
+ * 마스터(`BrainActivation.enabled`)가 켜진 뒤에도 축별로 다시 끌 수 있다 —
+ * 리플렉션만 끄고 스킬 집행은 쓰려는 사용자가 실제로 있기 때문이다.
+ */
+export type BrainAxisId =
+  /** 축 1 — 절차적 기억. 복잡한 작업의 절차를 SKILL.md 로 굳히고 쓰면서 개정한다. */
+  | 'skills'
+  /** 축 2 — 회상. 카드가 아니라 **과거 세션 본문**을 찾는다. */
+  | 'recall'
+  /** 축 3 — 넛지. 일하는 에이전트 자신에게 턴 중간에 기억을 남기도록 자극한다. */
+  | 'nudge'
+  /** 축 4 — 근거 검증. 저장 시 코드와 대조해 통과하면 자동 `verified`. */
+  | 'grounding'
+  /** 축 5 — 큐레이터. misc·미노출·후보 카드를 입양 대기 레일로 표면화한다. */
+  | 'curator'
+  /** 축 6 — 운영자 프로필. AI 가 관찰한 사용자 경향을 **로컬에만** 쌓는다. */
+  | 'operator';
+
+/**
+ * §5.10 v2 (H) — 프로젝트 한 곳의 두뇌 활성화 상태.
+ *
+ * **키가 없으면 꺼짐**이다(기본 off). 껐을 때 토큰이 0 이어야 의미가 있으므로
+ * 서버는 이 값을 **수집·주입·표시·REST 네 겹 모두**에서 관문으로 쓴다.
+ * 끄기는 **동작 정지이지 삭제가 아니다** — 카드 파일은 디스크에 그대로 남고
+ * 다시 켜면 그 자리에서 이어진다(§5.11 "끄면 지우지 않는다" 승계).
+ */
+export interface BrainActivation {
+  /** 마스터 스위치. 기본 false. */
+  enabled: boolean;
+  /** 축별 재정의. 미지정 축은 `DEFAULT_BRAIN_AXES` 를 따른다. */
+  axes?: Partial<Record<BrainAxisId, boolean>>;
+  /** 마지막으로 켠 시각. */
+  enabledAt?: number;
+  /**
+   * 첫 실행 1회 안내("두뇌에 N장이 잠들어 있습니다 — 켤까요?")를 띄운 시각.
+   * **값이 있으면 다시 묻지 않는다** — 거절해도 값이 남으므로 반복 질문이 없다.
+   */
+  promptedAt?: number;
+}
+
+/** §5.10 v2 (B) — 스킬 자산의 수명 상태. 카드의 `BrainCardStatus` 와 별개 축이다. */
+export type BrainSkillStatus = 'draft' | 'active' | 'superseded' | 'archived';
+
+/**
+ * §5.10 v2 (B) — **절차적 기억 한 벌.** 카드 6번째 종류가 아니라 **별도 자산**이다.
+ *
+ * 실물은 `<projectPath>/.vibisual/brain/skills/<id>/SKILL.md` 이고 frontmatter 는
+ * agentskills.io 호환(`name`·`description`)이라 `.claude/skills` 와 같은 문법으로
+ * 읽힌다 — 새 규격을 만들지 않는다.
+ */
+export interface BrainSkill {
+  /** 폴더명 = slug. */
+  id: string;
+  /** frontmatter `name` — 사람이 부르는 이름. */
+  name: string;
+  /** frontmatter `description` — **집행 매칭에 쓰이는 문장.** "언제 이 절차를 쓰는가"를 적는다. */
+  description: string;
+  /** SKILL.md 본문(절차 그 자체). */
+  body: string;
+  scope: BrainCardScope;
+  agentId?: string;
+  topic?: string;
+  /** 이 절차가 닿는 파일들. 근거 검증(축 4)과 파일 경고가 쓴다. */
+  files: string[];
+  status: BrainSkillStatus;
+  /** 개정 횟수. 1 부터 시작한다. */
+  version: number;
+  /** 이 스킬이 대체한 이전 판 id. §C 쓰기 순서 — **새 판을 먼저 쓴다.** */
+  supersedes?: string;
+  /** 이 스킬을 대체한 새 판 id. `status: 'superseded'` 와 항상 짝. */
+  supersededBy?: string;
+  /** 카드와 같은 검증 축을 쓴다 — 스킬도 근거 검증(축 4)을 통과해야 집행된다. */
+  verifyState: BrainVerifyState;
+  createdAt: number;
+  updatedAt: number;
+  lastReferencedAt?: number;
+  /** 프롬프트에 실린 누적 횟수(카드 `refCount` 와 같은 의미). */
+  refCount: number;
+  /** 도움됐다고 신고된 누적 횟수 — **스킬 집행 성과가 랭킹의 새 공급원**이다(§5.10 v2 (J)). */
+  helpfulCount?: number;
+  sourceSessionId?: string;
+  /** lesson 승급으로 만들어졌다면 그 출처 카드들 — 209장을 끌어올린 흔적. */
+  originCardIds?: string[];
+}
+
+/** §5.10 v2 (C) — 회상 결과 한 건. 카드가 아니라 **과거 세션 본문 조각**이다. */
+export interface BrainRecallHit {
+  sessionId: string;
+  /** 그 세션이 돌던 프로젝트 루트. */
+  root: string;
+  /** 맞은 대목(앞뒤 문맥 포함. 길이 상한은 `BRAIN_RECALL_EXCERPT_CHARS`). */
+  excerpt: string;
+  /** 세션 안에서의 대략 위치(이벤트 index) — 세션 점프용. */
+  index: number;
+  /** 그 대목의 시각. */
+  at: number;
+  score: number;
+}
+
 /**
  * §4 v2.60 — 에이전트 질문 카드의 개별 질문 항목.
  *
@@ -4057,7 +4182,7 @@ export interface GraphSnapshot {
   /** §4 v1.50 — Claude.ai 한도 사용률 (글로벌 1건, 외부 statusline 스크립트가 푸시). */
   rateLimits?: RateLimitInfo;
   /**
-   * §4 v3.62 — Claude 앱 `/usage` 와 같은 원천(OAuth `/api/oauth/usage`)의 사용량.
+   * §4 — 화면용 사용량. 바로 위 `rateLimits`(statusLine 원천)에서 파생한 표시 모양이다.
    * 글로벌 1건(한도는 사용자 단위). 영속화 ❌ — 런타임 캐시.
    */
   claudeUsage?: ClaudeUsageInfo;
@@ -4898,6 +5023,15 @@ export interface UserDefaults {
    */
   installedApps?: string[];
   /**
+   * §5.10 v2 (H) — **프로젝트별 두뇌 활성화.** 키 없음 = 꺼짐(기본 off).
+   *
+   * `enabledPluginsByProject` 와 **같은 모양**을 의도한 것이다 — 활성 단위가 프로젝트인 이유도
+   * 같다(두뇌 데이터가 `<projectPath>/.vibisual/brain` 에 있다). 다만 브레인은 플러그인이
+   * **아니다**: §5.11 v3.88 결정 ④(기존 기능은 플러그인으로 만들지 않는다)를 유지한 채
+   * 코어에 두고 게이트만 신설한 것이므로, 빌려온 것은 **UX 문법**뿐이다(§5.10 v2 (I)).
+   */
+  brainByProject?: Record<string, BrainActivation>;
+  /**
    * @deprecated v4.46 에서 `installedApps` 로 일반화됐다. 읽기 전용 하위호환 —
    * 이 값이 있으면 Vibistudio 가 설치된 것으로 본다. 새로 쓰지 않는다.
    */
@@ -5026,6 +5160,31 @@ export type KnownModelFamily = 'opus' | 'sonnet' | 'haiku';
 export type ModelFamily = KnownModelFamily | (string & {});
 
 /**
+ * Claude Code CLI 내장 슬래시 명령 한 개 — `/` 자동완성 드롭다운(§5.5 #17-2)의 표시 단위.
+ *
+ * 목록 자체는 constants.ts 의 `BUILTIN_SLASH_COMMANDS` 이며 출처는 Anthropic 공개 문서다.
+ * **표시 전용** — 서버는 사용자가 친 텍스트를 그대로 세션에 넘기므로, 이 목록에 없는 명령도
+ * 사용자가 직접 치면 CLI 가 처리한다(반대로 여기 있어도 CLI 가 모르면 CLI 가 거절한다).
+ */
+export interface BuiltinSlashCommand {
+  /** 슬래시를 뗀 이름 (예: `compact`). */
+  name: string;
+  /** 한 줄 설명 — 공개 문서 표의 첫 문장. */
+  description: string;
+  /** 같은 명령을 부르는 다른 이름들 (예: `clear` 의 `reset`·`new`). */
+  aliases: readonly string[];
+}
+
+/**
+ * §4 (슬래시 명령 가용성) — 이 명령이 **화면 있는 터미널을 요구하는가**.
+ *
+ * 판정 근거는 CLI 를 실제로 돌려 본 **공개 동작**이다: 헤드리스 세션에서 이런 명령을 보내면
+ * CLI 가 `"/X isn't available in this environment."` 한 줄로 답하고 턴을 끝낸다(API 호출 0).
+ * 누구든 그 명령을 한 번 쳐 보면 같은 답을 받는다.
+ */
+export type SlashCommandAvailability = 'anywhere' | 'terminal-only';
+
+/**
  * 단일 모델 풀ID 의 레지스트리 항목.
  *
  * source='seed' = constants.ts 의 시드 테이블에서 적재(오프라인 또는 부팅 시).
@@ -5050,11 +5209,13 @@ export interface ModelRegistryEntry {
   isLatestOfFamily?: boolean;
   /**
    * 출처:
-   * - 'cli-scan' = Claude Code CLI 바이너리에서 raw scan 으로 발견 (§4 v2.41 — 주 소스, 0 하드코딩).
-   * - 'api' = `/v1/models` API 응답 머지(키 있을 때).
-   * - 'seed' = (deprecated) 정적 시드 — v2.40 에서 빈 배열로 격하.
+   * - 'seed' = Anthropic 공개 문서에서 옮겨 둔 `AVAILABLE_AGENT_MODEL_FULL_IDS` (기본 소스).
+   * - 'api' = `/v1/models` API 응답 머지(`ANTHROPIC_API_KEY` 가 있을 때 — 최신을 자동 추종).
+   *
+   * (구 'cli-scan' = CLI 실행본 raw scan 은 폐기했다. 약관상 역설계에 닿을 소지가 있었고,
+   *  공개 문서 시드로 옮겨도 목록은 유지된다.)
    */
-  source: 'seed' | 'cli-scan' | 'api';
+  source: 'seed' | 'api';
 }
 
 /** 모델 가격표 (per 1M tokens, USD). */
@@ -5069,10 +5230,8 @@ export interface ModelPricing {
  * 서버가 부팅 시 빌드해 클라에 전달하는 전체 레지스트리.
  *
  * sourceMix:
- * - 'seed-only' = (legacy) v2.40 이후 시드 빈 배열이라 사실상 발생 안 함.
- * - 'cli-scan' = §4 v2.41 — Claude Code 바이너리 raw scan 만. API 키 없을 때 표준 경로.
- * - 'cli-scan+api' = CLI scan + `/v1/models` 머지.
- * - 'api-merged' = (legacy v2.38) API 만. 현재는 cli-scan 항상 우선 시도.
+ * - 'seed-only' = 공개 문서 시드만. `ANTHROPIC_API_KEY` 가 없을 때의 표준 경로.
+ * - 'api-merged' = 시드 + `/v1/models` 머지(키가 있을 때).
  *
  * 클라 AgentConfigPopup 버전 sub-드롭다운의 데이터 소스. WS `model_registry_updated` 로 갱신.
  * 영속화 ❌ (서버 측 `.vibisual/model-registry.json` 캐시는 별개 — TTL 기반).
@@ -5080,7 +5239,7 @@ export interface ModelPricing {
 export interface ModelRegistry {
   entries: ModelRegistryEntry[];
   updatedAt: number;
-  sourceMix: 'seed-only' | 'cli-scan' | 'cli-scan+api' | 'api-merged';
+  sourceMix: 'seed-only' | 'api-merged';
   /**
    * §4 — 설치된 `claude` CLI 가 실제로 받아들이는 `--effort` 값 목록(예: `['low','medium','high','xhigh','max']`).
    * 서버 `modelRegistryService` 가 부팅 시 `claude --help` 출력의 `--effort <level> (...)` 를 파싱해 채운다(0 하드코딩).
@@ -5261,6 +5420,41 @@ export interface AgentConfig {
    * 긴 빌드·테스트가 10분에서 잘리는 것을 푸는 축이며, `bashDefaultTimeoutMs` 와 직교.
    */
   bashMaxTimeoutMs?: number;
+  /**
+   * §4 (Fast 모드) — 같은 Opus 를 **출력 속도만 빠르게** 돌리는 모드. 작은 모델로 낮추는 게 아니다.
+   *
+   * ⚠ **CLI 플래그가 아니다.** 설치본에 `--fast` 계열은 없고, 실체는 대화형 REPL 의 `/fast` 와
+   * settings 키 `fastMode` 둘뿐이다. 게다가 우리 헤드리스 스폰은 CLI 가 **Agent SDK 세션으로 분류**해
+   * Fast 를 스스로 막는다(`fast_mode_disabled_reason: 'sdk_opt_in_required'`) — 유일한 해제 창구가
+   * `--settings` 가 만드는 `flagSettings` 층이라 이 값은 **인자가 아니라 설정 파일**로 나간다
+   * (`buildConfigArgs` → `prepareAgentSettings`). `userSettings` 에 같은 키를 넣어도 안 풀린다.
+   *
+   * Opus 계열(`supportsFastMode`)에서만 의미가 있고 그 밖에서는 CLI 가 사유도 없이 조용히 무시한다.
+   * undefined/false = 미설정(종전 동작과 바이트 단위로 같음).
+   */
+  fastMode?: boolean;
+  /**
+   * §4 (스트림 3종 ①) — `--forward-subagent-text`. 중첩 서브에이전트(Task)의 말·사고를
+   * `parent_tool_use_id` 를 달아 부모 스트림으로 흘려 준다.
+   *
+   * **기본 켬**(undefined = 켬). 끄려면 명시 `false` — 터미널에서는 보이던 것이 우리 화면에서만
+   * 안 보이는 쪽이 결함이므로 기본값을 그렇게 잡았다(`contextWindow` 의 "기본 1M, 명시 opt-out"과 같은 규율).
+   * `--print` 전용이라 인터랙티브 CMD 경로에는 붙지 않는다.
+   */
+  forwardSubagentText?: boolean;
+  /**
+   * §4 (스트림 3종 ②) — `--replay-user-messages`. 우리가 stdin 으로 보낸 사용자 메시지를
+   * `isReplay: true` 로 되돌려 준다. "명령이 실제로 CLI 에 접수됐다"는 **유일한 스트림 신호**다.
+   * undefined/false = 미설정(플래그 없음, 종전 동작).
+   */
+  replayUserMessages?: boolean;
+  /**
+   * §4 (스트림 3종 ③) — `--prompt-suggestions`. 턴마다 다음 사용자 프롬프트 예측을
+   * `prompt_suggestion` 메시지로 보낸다. undefined/false = 미설정.
+   * ⚠ 이 계정 probe 에서는 실제 메시지가 관측되지 않았다(서버 측 게이팅 추정) — 수신 쪽은
+   * payload 모양을 단정하지 않고 방어적으로 훑는다.
+   */
+  promptSuggestions?: boolean;
 }
 
 /**
@@ -5562,6 +5756,17 @@ export interface SubAgentStreamEvent {
    * 서버 재시작 전 버퍼나 훅 경로 이벤트에는 없을 수 있다(그때는 종전 시각 기준으로 폴백).
    */
   turnId?: string;
+  /**
+   * §4 (스트림 3종) — 이 줄이 **어느 Task 호출 아래에서 나온 것인지**.
+   *
+   * `--forward-subagent-text` 를 켜면 중첩 서브에이전트(Task)의 말·사고가 부모 스트림에 섞여 오는데,
+   * 원문이 `parent_tool_use_id` 로 소속을 알려 준다. 그 값을 그대로 실어 클라가 해당 `tool_use`
+   * 아래에 접어 그린다 — 없으면 부모가 한 말과 구분되지 않아 대화록이 뒤섞인다.
+   *
+   * `toolUseId` 와 **다른 축**이다: `toolUseId` 는 "이 줄이 가리키는 호출", 이 필드는 "이 줄을 낳은
+   * 바깥 호출". 미설정 = 부모 자신이 한 말(종전 그대로).
+   */
+  nestedUnderToolUseId?: string;
 }
 
 // ─── Canvas Clipboard (§5.4 #29 v1.51) ───

@@ -268,6 +268,9 @@ async function startHookListener(expressApp: Express, preferredPort: number): Pr
       path !== '/api/play-recipe' &&
       // §5.10 — Project Brain 능동 검색(에이전트가 과거 기억을 직접 조회). 토큰 인증 필수.
       path !== '/api/brain/search' &&
+      // §5.10 v2 (C) — 회상. 카드가 아니라 **과거 세션 본문**을 찾는다(검색과 짝이지만 대상이 다르다).
+      //   읽기 전용 + 토큰 인증 필수 + 두뇌가 꺼진 프로젝트에서는 서버가 403 으로 막는다.
+      path !== '/api/brain/recall' &&
       // §5.10 — Project Brain 파일 접근 경고(hook PostToolUse Edit/Write). 토큰 인증 필수.
       path !== '/api/brain/file-notes' &&
       // §5.10 v3.74 — 주제 색인/주제 문서 열람. 스폰 브리핑이 카드 전량 주입 대신 색인만 싣게

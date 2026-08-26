@@ -17,6 +17,17 @@ files:
 # its standard work.
 afterPack: ./build/after-pack.cjs
 
+# 우리 자신의 라이선스·고지를 설치본에 함께 보낸다.
+# 의존성 LICENSE 는 afterPack 이 node_modules 를 실물 복사하며 277개가 따라 들어가는데,
+# 정작 Vibisual 자신의 Apache-2.0 전문과 NOTICE(상표 조항 포함)만 빠져 있었다 — 설치본을
+# 받은 사람이 우리 코드의 라이선스를 확인할 방법이 없다는 뜻이라 재배포 조건이 성립하지 않는다.
+# `resources/LICENSE` · `resources/NOTICE` 로 앉는다(Electron 자신의 LICENSE.electron.txt 와 같은 층).
+extraResources:
+  - from: ../../LICENSE
+    to: LICENSE
+  - from: ../../NOTICE
+    to: NOTICE
+
 # Disable asar packaging entirely. The pnpm symlink layout doesn't play well
 # with electron-builder's asarUnpack matching — better_sqlite3.node ended up
 # inside the asar (dlopen unfriendly) and sqlite-vec's platform DLL was

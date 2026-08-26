@@ -860,6 +860,24 @@
         "label": "安全模式（关闭全部自定义）",
         "warn": "钩子已关 — 该代理的活动不会出现在图上"
       },
+      "fastMode": {
+        "label": "Fast 模式",
+        "hint": "同一个 Opus，输出更快",
+        "unsupported": "仅 Opus 4.8 / Opus 5",
+        "tip": "让同一个 Opus 模型以更快的速度输出 — 并不是降级到更小的模型。这不是 CLI 参数：无头代理会被当作 Agent SDK 会话，只接受以设置方式开启，因此 Vibisual 会把它写进本代理已有的设置文件里一起传过去。不支持的模型会静默忽略该设置。"
+      },
+      "forwardSubagentText": {
+        "label": "显示子代理输出",
+        "hint": "嵌套 Task 代理说了什么、想了什么"
+      },
+      "replayUserMessages": {
+        "label": "确认命令已接收",
+        "hint": "CLI 真正收到时给出一行提示"
+      },
+      "promptSuggestions": {
+        "label": "建议下一条提示",
+        "hint": "每轮结束后预测"
+      },
       "betas": {
         "label": "Beta 头",
         "tip": "随 API 请求发送的 beta 头。仅 API Key 用户有效 — 订阅认证会忽略。",
@@ -1629,6 +1647,7 @@
       "historyHintPrev": "再按一次调出最近的命令",
       "historyHintNext": "再按一次调出最早的命令",
       "slashBuiltin": "内置",
+      "slashNeedsTerminal": "需要终端",
       "slashEmpty": "无匹配技能",
       "slashLoading": "加载技能中…",
       "ctxCopy": "复制",
@@ -2072,7 +2091,10 @@
         "openApp": "在 {{app}} 中打开 — {{path}}",
         "openExternal": "用默认程序打开 — {{path}}"
       },
-      "restartResumed": "应用关闭导致中断，已在保存的会话上继续。"
+      "restartResumed": "应用关闭导致中断，已在保存的会话上继续。",
+      "nestedSubagent": "子代理",
+      "commandReceived": "命令已接收",
+      "promptSuggestion": "下一条提示建议"
     },
     "report": {
       "title": "工作报告",
@@ -2421,7 +2443,8 @@
         "toolSchemas": "工具定义",
         "mcp": "MCP 服务器",
         "hooks": "Hooks",
-        "systemPrompt": "Claude Code 系统提示词"
+        "systemPrompt": "Claude Code 系统提示词",
+        "brainSkills": "大脑流程记忆"
       },
       "hint": {
         "tools": "在 Agent Settings 中选择工具列表",
@@ -2600,6 +2623,11 @@
             "what": "使 Vibisual 得以看到此 Session 的 Claude Code Hooks。",
             "more": "注册在 settings.json 中。它们几乎不消耗 token，但每个事件都要经过它们。",
             "off": "Hooks 需要在 settings.json 中移除，而非在此处。没有它们，Vibisual 将无法再看到此 Session。"
+          },
+          "brainSkills": {
+            "what": "本项目沉淀下来的流程，与当前任务匹配时载入。",
+            "more": "按每条流程的“何时使用”筛选，无关的不会载入。",
+            "off": "代理每次都要从头摸索流程。"
           }
         },
         "cat": {
@@ -3484,7 +3512,15 @@
       "archived": "已归整",
       "archivedHint": "超出配额而归档的记忆 — 未被删除，可以还原",
       "review": "待审核",
-      "reviewHint": "尚未成为当前事实的候选 — 确认后才会提供给 AI"
+      "reviewHint": "尚未成为当前事实的候选 — 确认后才会提供给 AI",
+      "skills": "流程记忆",
+      "skillsHint": "在重复工作中沉淀的流程 — 开始该工作时自动载入",
+      "curator": "待整理",
+      "curatorHint": "未分类、从未被读取，或仍是候选的记忆",
+      "skillDraft": "草稿",
+      "skillVerified": "已确认",
+      "skillUsed": "载入 {{count}} 次",
+      "skillHelpful": "有帮助 {{count}} 次"
     },
     "currentBadge": "当前事实",
     "contestedBadge": "值冲突",
@@ -3495,7 +3531,44 @@
     "confirmPromptContested": "同一地址出现不同取值 — 选定正确的一项后才会提供给 AI。",
     "confirmCurrent": "确认为当前事实",
     "reject": "否",
-    "rejectTip": "不会删除 — 记录仍在，仅不再注入。"
+    "rejectTip": "不会删除 — 记录仍在，仅不再注入。",
+    "axis": {
+      "skills": {
+        "title": "流程记忆",
+        "hint": "把复杂工作的流程固化下来，下次自动载入"
+      },
+      "recall": {
+        "title": "回忆",
+        "hint": "即便卡片里没有，也能从过往会话正文中查找"
+      },
+      "nudge": {
+        "title": "提醒",
+        "hint": "工作中偶尔提醒记录学到的东西"
+      },
+      "grounding": {
+        "title": "证据校验",
+        "hint": "保存时与代码比对，通过则标为已确认"
+      },
+      "curator": {
+        "title": "整理员",
+        "hint": "把未分类、从未被读取的记忆集中呈现"
+      },
+      "operator": {
+        "title": "使用者画像",
+        "hint": "仅在本机记录反复出现的工作偏好"
+      }
+    },
+    "activation": {
+      "sleeping": "本项目的大脑中有 {{count}} 条记忆在沉睡。要开启吗？",
+      "hint": "大脑默认关闭。开启后会把工作中学到的流程沉淀下来，并自动用于下次任务。随时可以关闭，关闭也不会删除任何记录。",
+      "turnOn": "开启",
+      "notNow": "暂不",
+      "showAxes": "查看会开启什么",
+      "hideAxes": "收起详情",
+      "axesTitle": "保持开启的项目",
+      "turnOff": "关闭大脑",
+      "offKeepsData": "关闭不会删除记录 — 再次开启即可从原处继续。"
+    }
   },
   "commandCenter": {
     "windowTitle": "指挥中心 — {{name}}",

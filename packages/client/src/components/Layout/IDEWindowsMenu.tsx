@@ -25,6 +25,7 @@ import type { IDEDockSide } from '../IDE/ideDockLayout.js';
 
 const EMPTY_AGENTS: BubbleData[] = [];
 const EMPTY_PANES: IDEOverlayState[] = [];
+const EMPTY_NODE_MAP: Record<string, BubbleData> = {};
 
 /** 창 하나 + 그 창이 붙은 에이전트 — 목록 한 줄의 재료. */
 interface WindowRow {
@@ -86,7 +87,19 @@ export const IDEWindowsMenu = memo(function IDEWindowsMenu(): React.JSX.Element 
 
   // 슬롯은 살아 있는데 버블이 사라진 창 — 화면에는 아무것도 안 뜨는데 슬롯만 남아, 종전에는
   //   목록에도 안 나와 **닫을 방법이 없었다**(배지 숫자만 올랐다). 여기서 직접 닫게 한다.
-  const orphans = useGraphStore((s) => (open ? selectOrphanIDEPanes(s) : EMPTY_PANES));
+  //
+  // ⚠ 이 목록을 셀렉터로 **직접 구독하면 안 된다.** zustand v5 의 `useStore` 는 고른 값을 메모하지
+  //   않고 `selector(getState())` 를 그대로 `useSyncExternalStore` 의 스냅샷으로 넘긴다. 그런데
+  //   `selectOrphanIDEPanes` 는 호출마다 **새 배열**을 만든다(빈 배열도 새 리터럴이다) — React 는
+  //   매 커밋 뒤 스냅샷을 다시 읽어 이전 값과 `Object.is` 로 견주므로 "스토어가 또 바뀌었다"가
+  //   영원히 참이 되고, 강제 리렌더가 중첩 갱신 한도를 넘겨 예외가 난다. 전역 에러 경계가 없어
+  //   그 예외는 루트를 통째로 내린다 — 메뉴를 여는 순간 화면 전체가 사라졌다.
+  //   그래서 구독은 참조가 안정적인 스토어 필드만 하고, 배열은 위 `rows` 와 같이 `useMemo` 로 만든다.
+  const nodeMap = useGraphStore((s) => (open ? s.nodeMap : EMPTY_NODE_MAP));
+  const orphans = useMemo<IDEOverlayState[]>(
+    () => (open ? selectOrphanIDEPanes({ ideOverlays, activeProject, nodeMap }) : EMPTY_PANES),
+    [open, ideOverlays, activeProject, nodeMap],
+  );
 
   const openWindow = useCallback((agentId: string) => {
     // 이미 창이 있으면 스토어가 새로 만들지 않고 펴서 앞으로 올린다(중복 창 ❌).

@@ -21,6 +21,7 @@ import {
   AVAILABLE_SETTING_SOURCES,
   AVAILABLE_AUTOCOMPACT_VALUES,
   isOpusModel,
+  supportsFastMode,
   resolveAliasToLatest,
   listModelFamilies,
   listEffortLevels,
@@ -106,6 +107,8 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
   const [excludeDynamicSections, setExcludeDynamicSections] = useState(baseAgent.excludeDynamicSystemPromptSections === true);
   const [settingSources, setSettingSources] = useState<string[]>([...(baseAgent.settingSources ?? [])]);
   const [safeMode, setSafeMode] = useState(baseAgent.safeMode === true);
+  // §4 (Fast 모드) — 신규 에이전트 기본값. Opus 계열에서만 실제로 켜진다.
+  const [fastMode, setFastMode] = useState(baseAgent.fastMode === true);
   const [betas, setBetas] = useState((baseAgent.betas ?? []).join(', '));
   // §4 (CLI 사양 추종) — Bash 타임아웃 기본값(초). 0 = 미설정 = CLI 기본(기본 2분 / 상한 10분).
   const [bashDefaultTimeoutSec, setBashDefaultTimeoutSec] = useState(bashMsToSec(baseAgent.bashDefaultTimeoutMs));
@@ -185,6 +188,7 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
     setExcludeDynamicSections(baseAgent.excludeDynamicSystemPromptSections === true);
     setSettingSources([...(baseAgent.settingSources ?? [])]);
     setSafeMode(baseAgent.safeMode === true);
+    setFastMode(baseAgent.fastMode === true);
     setBetas((baseAgent.betas ?? []).join(', '));
     setBashDefaultTimeoutSec(bashMsToSec(baseAgent.bashDefaultTimeoutMs));
     setBashMaxTimeoutSec(bashMsToSec(baseAgent.bashMaxTimeoutMs));
@@ -237,6 +241,8 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
   const backdrop = useBackdropDismiss(requestClose);
 
   const isOpus = isOpusModel(model);
+  // §4 (Fast 모드) — `--model` 로 나가는 값과 같은 규칙으로 판정(서버 `wantsFastMode` 와 동일).
+  const fastModeSupported = supportsFastMode(modelVersion?.trim() || model);
   const oneMillionEnabled = contextWindow !== '200k';
 
   // 버전 sub-드롭다운 옵션 — CLI scan 결과에서 패밀리 필터, semver 내림차순 top 2 + Latest + Custom
@@ -320,6 +326,8 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
           excludeDynamicSystemPromptSections: excludeDynamicSections ? true : undefined,
           settingSources: settingSources.length > 0 ? settingSources : undefined,
           safeMode: safeMode ? true : undefined,
+          // §4 (Fast 모드) — 지원 모델일 때만 저장(모델을 바꿔 두고 나중에 되돌렸을 때의 부활 방지).
+          fastMode: fastMode && fastModeSupported ? true : undefined,
           betas: betas.split(',').map((b) => b.trim()).filter(Boolean).length > 0 ? betas.split(',').map((b) => b.trim()).filter(Boolean) : undefined,
           // §4 (CLI 사양 추종) — 초 → ms. 0/범위 밖은 undefined = 미설정(스폰 env 키 자체가 안 붙는다).
           bashDefaultTimeoutMs: bashSecToMs(bashDefaultTimeoutSec),
@@ -338,7 +346,7 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
       setDirty(false);
     } catch { /* ignore */ }
     finally { setSaving(false); }
-  }, [model, modelVersion, permissionMode, permissionTimeoutPolicy, isOpus, effort, maxTurns, maxBudgetUsd, isolation, contextWindow, tools, disallowedTools, rules, color, userDefaults, fallbackModel, autoCompact, excludeDynamicSections, settingSources, safeMode, betas, bashDefaultTimeoutSec, bashMaxTimeoutSec, terminalScrollback, cmdBlockedNotify]);
+  }, [model, modelVersion, permissionMode, permissionTimeoutPolicy, isOpus, effort, maxTurns, maxBudgetUsd, isolation, contextWindow, tools, disallowedTools, rules, color, userDefaults, fallbackModel, autoCompact, excludeDynamicSections, settingSources, safeMode, fastMode, fastModeSupported, betas, bashDefaultTimeoutSec, bashMaxTimeoutSec, terminalScrollback, cmdBlockedNotify]);
 
   if (!open) return null;
 
@@ -614,6 +622,22 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
                     <span>
                       {t('panel.agentConfig.safeMode.label')}
                       <span className="ml-1 text-amber-500/80">{t('panel.agentConfig.safeMode.warn')}</span>
+                    </span>
+                  </label>
+                  {/* §4 (Fast 모드) — 지원하지 않는 모델에서는 CLI 가 조용히 무시하므로 비활성 + 이유. */}
+                  <label className={`flex items-start gap-2 text-[12px] ${fastModeSupported ? 'text-gray-400' : 'text-gray-600'}`}>
+                    <input
+                      type="checkbox"
+                      checked={fastMode && fastModeSupported}
+                      disabled={!fastModeSupported}
+                      onChange={(e) => { setDirty(true); setFastMode(e.target.checked); }}
+                      className="mt-0.5 h-3.5 w-3.5 accent-blue-500 disabled:cursor-not-allowed"
+                    />
+                    <span>
+                      {t('panel.agentConfig.fastMode.label')}
+                      <span className="ml-1 text-gray-600">
+                        {fastModeSupported ? t('panel.agentConfig.fastMode.hint') : t('panel.agentConfig.fastMode.unsupported')}
+                      </span>
                     </span>
                   </label>
                   <div className="flex flex-col gap-1">
