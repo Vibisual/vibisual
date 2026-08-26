@@ -748,3 +748,71 @@ describe('v3.78 — 승격 시 원 에이전트 링크 잔류', () => {
     expect(new BrainService(root).getCard(c.id)?.promotedFrom).toBe('a1');
   });
 });
+
+// ─── §5.10 v2 (C) 한국어 검색 승격 ───
+
+describe('search — 한국어 조사·어미 (v2 커버리지 승격)', () => {
+  it('조사가 붙은 본문을 어간으로 찾는다 (종전 어절 Jaccard 로는 못 찾던 자리)', () => {
+    svc.saveCard({
+      type: 'fact', scope: 'project',
+      title: '사용량 수집기는 statusLine 으로 밀어 넣는다',
+      body: '수집기는 외부 프로세스라 loopback 이 유일한 도달 경로다',
+    });
+    expect(svc.search('수집기').length).toBe(1);
+  });
+
+  it('어미가 달라도 찾는다', () => {
+    svc.saveCard({
+      type: 'lesson', scope: 'project',
+      title: '체크포인트를 저장할 때 프리즈가 났다',
+      body: '훅 경로에서 동기 저장을 코얼레스했다',
+    });
+    expect(svc.search('체크포인트 저장').length).toBe(1);
+  });
+
+  it('그래도 무관한 질의는 안 걸린다 (느슨해진 만큼 오탐이 늘지 않았는가)', () => {
+    svc.saveCard({
+      type: 'fact', scope: 'project',
+      title: '사용량 수집기는 statusLine 으로 밀어 넣는다',
+      body: '수집기는 외부 프로세스다',
+    });
+    expect(svc.search('릴리스 태그 발행 절차')).toEqual([]);
+  });
+
+  it('어절이 정확히 맞는 카드가 bigram 으로만 걸린 카드보다 앞선다', () => {
+    svc.saveCard({ type: 'fact', scope: 'project', title: '수집기 정의', body: '수집기 라는 말의 뜻' });
+    svc.saveCard({ type: 'fact', scope: 'project', title: '수집기는 무엇인가', body: '수집기는 이런 것' });
+    const hits = svc.search('수집기');
+    expect(hits.length).toBe(2);
+    expect(hits[0]?.title).toBe('수집기 정의');
+  });
+});
+
+// ─── §5.10 v2 (G) 운영자 프로필 층 ───
+
+describe('user 층 — 3층째 저장·복원', () => {
+  it('user 카드는 전용 폴더에 쓰인다 (프로젝트 층과 섞이지 않는다)', () => {
+    const c = svc.saveCard({ type: 'fact', scope: 'user', title: '결론을 먼저 원한다', body: '근거' });
+    expect(fs.existsSync(path.join(root, '.vibisual/brain/user', `${c.id}.md`))).toBe(true);
+    expect(fs.existsSync(path.join(root, '.vibisual/brain/project', `${c.id}.md`))).toBe(false);
+  });
+
+  it('새 인스턴스가 user 층을 다시 읽어 온다', () => {
+    const c = svc.saveCard({ type: 'fact', scope: 'user', title: '높임말을 원한다', body: '근거' });
+    const fresh = new BrainService(root);
+    expect(fresh.getCard(c.id)?.scope).toBe('user');
+  });
+
+  it('층 필터가 user 를 갈라낸다', () => {
+    svc.saveCard({ type: 'fact', scope: 'project', title: '프로젝트 사실', body: '' });
+    svc.saveCard({ type: 'fact', scope: 'user', title: '사용자 관찰', body: '' });
+    expect(svc.listCards({ scope: 'user' }).map((c) => c.title)).toEqual(['사용자 관찰']);
+    expect(svc.listCards({ scope: 'project' }).map((c) => c.title)).toEqual(['프로젝트 사실']);
+  });
+
+  it('user 카드를 보관하면 전용 보관 폴더로 간다', () => {
+    const c = svc.saveCard({ type: 'fact', scope: 'user', title: '보관될 관찰', body: '' });
+    svc.archiveCard(c.id);
+    expect(fs.existsSync(path.join(root, '.vibisual/brain/archive/user', `${c.id}.md`))).toBe(true);
+  });
+});

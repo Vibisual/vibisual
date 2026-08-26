@@ -860,6 +860,24 @@
         "label": "Sicherer Modus (alle Anpassungen aus)",
         "warn": "Hooks aus — die Aktivität erscheint nicht auf der Karte"
       },
+      "fastMode": {
+        "label": "Fast-Modus",
+        "hint": "dasselbe Opus, schnellere Ausgabe",
+        "unsupported": "nur Opus 4.8 / Opus 5",
+        "tip": "Lässt dasselbe Opus-Modell mit schnellerer Ausgabe laufen — es wird nicht auf ein kleineres Modell heruntergestuft. Das ist kein CLI-Flag: Ein Headless-Agent gilt als Agent-SDK-Sitzung und akzeptiert den Fast-Modus nur als Opt-in über die Einstellungen, daher legt Vibisual ihn in die Einstellungsdatei, die es für diesen Agenten ohnehin schreibt. Modelle ohne Unterstützung ignorieren die Einstellung kommentarlos."
+      },
+      "forwardSubagentText": {
+        "label": "Subagenten-Ausgabe zeigen",
+        "hint": "was verschachtelte Task-Agenten sagen und denken"
+      },
+      "replayUserMessages": {
+        "label": "Befehlsempfang bestätigen",
+        "hint": "ein Chip, sobald die CLI den Befehl wirklich annimmt"
+      },
+      "promptSuggestions": {
+        "label": "Nächsten Prompt vorschlagen",
+        "hint": "nach jedem Zug vorhergesagt"
+      },
       "betas": {
         "label": "Beta-Header",
         "tip": "Beta-Header für API-Anfragen. Nur für API-Key-Nutzung — bei Abo-Anmeldung ignoriert.",
@@ -1629,6 +1647,7 @@
       "historyHintPrev": "Nochmal drücken für den letzten Befehl",
       "historyHintNext": "Nochmal drücken für den ältesten Befehl",
       "slashBuiltin": "integriert",
+      "slashNeedsTerminal": "Terminal nötig",
       "slashEmpty": "Keine passenden Skills",
       "slashLoading": "Skills werden geladen…",
       "ctxCopy": "Kopieren",
@@ -2072,7 +2091,10 @@
         "openApp": "In {{app}} öffnen — {{path}}",
         "openExternal": "Mit Standardprogramm öffnen — {{path}}"
       },
-      "restartResumed": "Beim Beenden der App unterbrochen — in der gespeicherten Sitzung fortgesetzt."
+      "restartResumed": "Beim Beenden der App unterbrochen — in der gespeicherten Sitzung fortgesetzt.",
+      "nestedSubagent": "Subagent",
+      "commandReceived": "Befehl angenommen",
+      "promptSuggestion": "Vorschlag für den nächsten Prompt"
     },
     "report": {
       "title": "Arbeitsbericht",
@@ -2421,7 +2443,8 @@
         "toolSchemas": "Tool-Definitionen",
         "mcp": "MCP-Server",
         "hooks": "Hooks",
-        "systemPrompt": "Claude Code System-Prompt"
+        "systemPrompt": "Claude Code System-Prompt",
+        "brainSkills": "Brain-Prozeduren"
       },
       "hint": {
         "tools": "Tool-Liste in den Agent-Einstellungen wählen",
@@ -2600,6 +2623,11 @@
             "what": "Die Claude-Code-Hooks, die Vibisual diese Session überhaupt sehen lassen.",
             "more": "In settings.json registriert. Sie fügen fast keine Tokens hinzu, aber jedes Ereignis läuft durch sie.",
             "off": "Hooks werden in settings.json entfernt, nicht hier. Ohne sie sieht Vibisual diese Session nicht mehr."
+          },
+          "brainSkills": {
+            "what": "In diesem Projekt gefestigte Abläufe, geladen wenn die Aufgabe passt.",
+            "more": "Ausgewählt über die Beschreibung, sodass nur Passendes geladen wird.",
+            "off": "Der Agent erarbeitet jeden Ablauf erneut von vorn."
           }
         },
         "cat": {
@@ -3484,7 +3512,15 @@
       "archived": "Aufgeräumt",
       "archivedHint": "Über das Budget hinaus archivierte Erinnerungen — nicht gelöscht, jederzeit wiederherstellbar",
       "review": "Prüfung ausstehend",
-      "reviewHint": "Kandidaten, die noch keine aktuelle Wahrheit sind – erst nach Bestätigung erreichen sie die KI"
+      "reviewHint": "Kandidaten, die noch keine aktuelle Wahrheit sind – erst nach Bestätigung erreichen sie die KI",
+      "skills": "Abläufe",
+      "skillsHint": "Durch wiederholte Arbeit geformte Abläufe — werden beim Start geladen",
+      "curator": "Zu ordnen",
+      "curatorHint": "Erinnerungen ohne Thema, nie gelesen oder noch Kandidat",
+      "skillDraft": "Entwurf",
+      "skillVerified": "Bestätigt",
+      "skillUsed": "{{count}}x geladen",
+      "skillHelpful": "{{count}}x geholfen"
     },
     "currentBadge": "Aktuelle Wahrheit",
     "contestedBadge": "Widersprüchlich",
@@ -3495,7 +3531,44 @@
     "confirmPromptContested": "An dieser Adresse widersprechen sich Werte – wählen Sie den richtigen aus.",
     "confirmCurrent": "Als aktuell bestätigen",
     "reject": "Nein",
-    "rejectTip": "Nichts wird gelöscht – es bleibt als Aufzeichnung und wird nur nicht mehr eingespeist."
+    "rejectTip": "Nichts wird gelöscht – es bleibt als Aufzeichnung und wird nur nicht mehr eingespeist.",
+    "axis": {
+      "skills": {
+        "title": "Prozedurales Gedächtnis",
+        "hint": "Verfestigt Abläufe und lädt sie beim nächsten Mal automatisch"
+      },
+      "recall": {
+        "title": "Rückruf",
+        "hint": "Durchsucht frühere Sitzungen, nicht nur gespeicherte Karten"
+      },
+      "nudge": {
+        "title": "Anstoß",
+        "hint": "Erinnert gelegentlich daran, Gelerntes festzuhalten"
+      },
+      "grounding": {
+        "title": "Belegprüfung",
+        "hint": "Gleicht Aussagen mit dem Code ab, bevor sie bestätigt werden"
+      },
+      "curator": {
+        "title": "Kurator",
+        "hint": "Sammelt unsortierte und nie gelesene Erinnerungen an einem Ort"
+      },
+      "operator": {
+        "title": "Betreiberprofil",
+        "hint": "Notiert wiederkehrende Arbeitsweisen nur auf diesem Gerät"
+      }
+    },
+    "activation": {
+      "sleeping": "Im Brain dieses Projekts schlafen {{count}} Erinnerungen. Einschalten?",
+      "hint": "Das Brain ist standardmäßig aus. Eingeschaltet sammelt es gelernte Abläufe und wendet sie beim nächsten Mal an. Jederzeit abschaltbar — Ausschalten löscht nichts.",
+      "turnOn": "Einschalten",
+      "notNow": "Jetzt nicht",
+      "showAxes": "Ansehen, was aktiviert wird",
+      "hideAxes": "Details ausblenden",
+      "axesTitle": "Was aktiviert bleiben soll",
+      "turnOff": "Brain ausschalten",
+      "offKeepsData": "Ausschalten löscht nichts — beim Einschalten geht es dort weiter."
+    }
   },
   "commandCenter": {
     "windowTitle": "Leitstand — {{name}}",

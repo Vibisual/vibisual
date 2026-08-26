@@ -39,6 +39,10 @@ const BRAIN_FILE_NOTES_URL = `${BASE}/api/brain/file-notes`;
 // §4 v3.60 — 사용량 수집기(statusLine). Claude Code 가 플랜 한도 사용률을 외부에 주는 유일한
 //   공식 경로가 statusLine stdin JSON 이라, `--statusline` 으로 불리면 그 값만 뽑아 푸시한다.
 const RATE_LIMITS_URL = `${BASE}/api/rate-limits`;
+// §4 v4.89 — 서브에이전트 행 수집기(`--subagent-statusline`)가 미는 토큰 사용량. 종전에는
+//   `${SERVER_URL}/api/subagent-statusline` 로 보내 `/api/hook-event/api/subagent-statusline` 이
+//   되는 바람에 전량 404 로 버려졌다. 경로는 BASE 에서 조립한다.
+const SUBAGENT_STATUSLINE_URL = `${BASE}/api/subagent-statusline`;
 
 // Per-launch auth token written by the installer into the hook command (--token <hex>).
 // If absent (stale settings.json from before this change), TOKEN is null and the header
@@ -297,13 +301,30 @@ function writeStatusLineState(state) {
   }
 }
 
+/**
+ * 우리 자신인가 — 보관된 "사용자 원본" 이 실은 **우리 명령**일 때가 있다.
+ *
+ * `statusLine` 은 Claude Code 가 스키마를 아는 키라 그쪽이 settings.json 을 다시 쓰면 우리가
+ * 넣어둔 `_vibisualManaged` 마커가 사라진다. 그 상태에서 사용자가 수집기를 다시 켜면 인스톨러가
+ * **우리 명령을 사용자 원본으로 오인해 보관**하고, 그 뒤로는 이 핸들러가 자기 자신을 passthrough
+ * 로 띄우는 무한 사슬이 된다(상태줄은 2초씩 멈추고 프로세스가 계속 쌓인다). 인스톨러 쪽도 함께
+ * 고쳤지만, 이미 그렇게 적힌 settings.json 을 만나도 여기서 끊는다.
+ */
+function isOwnStatusLineCommand(command) {
+  return typeof command === 'string'
+    && command.includes('handler.mjs')
+    && /(^|s)--(subagent-)?statusline(s|$)/.test(command);
+}
+
 /** `~/.claude/settings.json` 에 보관된 사용자 원래 statusLine 명령 (설치 시 인스톨러가 저장). */
 function readPassthroughCommand() {
   try {
     const p = path.join(os.homedir(), '.claude', 'settings.json');
     const parsed = JSON.parse(fs.readFileSync(p, 'utf-8'));
     const prev = parsed?.statusLine?._vibisualPrevStatusLine;
-    return typeof prev?.command === 'string' && prev.command ? prev.command : null;
+    if (typeof prev?.command !== 'string' || !prev.command) return null;
+    if (isOwnStatusLineCommand(prev.command)) return null; // 자기 자신 재귀 차단
+    return prev.command;
   } catch {
     return null;
   }
@@ -418,7 +439,7 @@ async function runSubagentStatusLine(input) {
   try {
     const controller = new AbortController();
     const tid = setTimeout(() => controller.abort(), 2000);
-    await fetch(`${SERVER_URL}/api/subagent-statusline`, {
+    await fetch(`${SUBAGENT_STATUSLINE_URL}`, {
       method: 'POST',
       headers: hookHeaders({}),
       body: JSON.stringify({ sessionId: payload.session_id, cwd: payload.cwd, tasks }),

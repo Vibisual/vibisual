@@ -274,6 +274,62 @@ describe('IncrementalStreamParser === buildBaseItems', () => {
     expect(idsOf(items)).toEqual(['a', 'cmd-old', 'b']);
   });
 
+  // ─── §5.5 #17-18 ⑥-5 — 앱이 내려갔다 재개한 명령 ───
+  //   2026-08-26 사용자 보고: "강제 종료 후 멈춰있던 에이전트를 다시 열었는데 내가 명령 내린 텍스트가
+  //   아래로 내려와 있다". 재개는 그 명령을 `queued` 로 되돌리므로, "queued = 아직 안 나갔다" 로만
+  //   읽으면 이미 출력을 한참 뱉어 놓은 말풍선이 화면 꼬리로 끌려간다.
+
+  /** 텍스트 런을 끊어 두 출력이 한 말풍선으로 합쳐지지 않게 하는 사이 줄. */
+  const sysLine = (id: string, ts: number, content: string): SubAgentStreamEvent =>
+    ({ id, subAgentId: 'S', parentAgentId: 'P', timestamp: ts, eventType: 'system', content });
+
+  it('§5.5 #17-18 ⑥-5 — 재개 대기(queued)로 돌아가도 이미 나간 말풍선은 꼬리로 끌려가지 않는다', () => {
+    const events = [txt('a', 100, '끊기기 전 출력'), sysLine('s', 300, '끊김')];
+    const commands = [
+      // 50 에 나가서 출력을 뱉다가 앱이 죽었고, 부팅 reconcile 이 재개하려고 큐로 되돌린 명령.
+      mkCmd({ id: 'resumed', status: 'queued', timestamp: 40, startedAt: 50, restartResumed: true }),
+    ];
+    const items = mergeCardsIntoItems(buildBaseItems(events, commands), commands);
+    // 종전에는 이 말풍선이 정렬 밖 꼬리로 빠져 자기 출력 **아래**에 섰다.
+    expect(idsOf(items.filter((i) => i.kind !== 'thinking-live')))
+      .toEqual(['cmd-resumed', 'a', 's']);
+  });
+
+  it('§5.5 #17-18 ⑥-5 — 재개된 뒤 새로 나오는 출력도 그 말풍선 아래에 이어 쌓인다', () => {
+    // 끊기기 전 출력(100)과 재개 후 출력(5000) 사이에 서버는 startedAt 을 다시 찍지 않는다.
+    const events = [txt('a', 100, '끊기기 전'), sysLine('s', 4_000, '재개'), txt('b', 5_000, '재개 후')];
+    const commands = [
+      mkCmd({ id: 'resumed', status: 'executing', timestamp: 40, startedAt: 50, restartResumed: true }),
+    ];
+    const items = mergeCardsIntoItems(buildBaseItems(events, commands), commands);
+    expect(idsOf(items.filter((i) => i.kind !== 'thinking-live')))
+      .toEqual(['cmd-resumed', 'a', 's', 'b']);
+  });
+
+  it('§5.5 #17-18 ⑥-5 — 재개 대기 명령도 턴 경계로 센다(본문 런이 그 자리에서 갈린다)', () => {
+    const events = [txt('a', 100, '앞 턴'), txt('b', 300, '재개된 턴')];
+    const commands = [
+      mkCmd({ id: 'prev', status: 'completed', timestamp: 50, startedAt: 50 }),
+      mkCmd({ id: 'resumed', status: 'queued', timestamp: 120, startedAt: 200, restartResumed: true }),
+    ];
+    const items = mergeCardsIntoItems(buildBaseItems(events, commands), commands);
+    expect(idsOf(items.filter((i) => i.kind !== 'thinking-live')))
+      .toEqual(['cmd-prev', 'a', 'cmd-resumed', 'b']);
+    expect(items.filter((i) => i.kind === 'text')).toHaveLength(2);
+  });
+
+  it('§5.5 #17-18 ⑥-5 — 한 번도 안 나간 덧말은 종전대로 꼬리다(재개 예외가 새 덧말까지 끌어올리지 않는다)', () => {
+    const events = [txt('a', 100, '출력')];
+    const commands = [
+      mkCmd({ id: 'resumed', status: 'queued', timestamp: 40, startedAt: 50, restartResumed: true }),
+      mkCmd({ id: 'fresh', status: 'queued', timestamp: 200 }), // startedAt 없음 = 아직 안 나갔다
+    ];
+    const items = mergeCardsIntoItems(buildBaseItems(events, commands), commands);
+    expect(items[items.length - 1]!.id).toBe('cmd-fresh');
+    expect(idsOf(items.filter((i) => i.kind !== 'thinking-live')))
+      .toEqual(['cmd-resumed', 'a', 'cmd-fresh']);
+  });
+
   it('§5.5 #17-18 ⑥-3 — 카드는 dispatch 시각을 턴 끝으로 삼고, 대기 말풍선보다 위에 선다', () => {
     const events = [txt('a', 100, '앞 턴')];
     const commands = [

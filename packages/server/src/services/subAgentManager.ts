@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import type { ProjectInfo, SubAgent, SubAgentStatus, QueuedCommand, CommandError, AgentConfig, SubAgentStreamEvent, StreamEventType, AgentViewJobState, RunningSubagentTask, FinishedSubagentTask, StreamTaskInfo, StreamTaskStatus, CmdTerminalSignal, CmdTerminalState, CmdPaneNode, CmdCliKind } from '@vibisual/shared';
-import { CMD_PANE_SEPARATOR, CMD_BLOCK_REASON_MAX, collectCmdPaneIds, resolveCmdCliKind, DEFAULT_AGENT_CONFIG, isOpusModel, resolveAliasToLatest, buildCmdCardProtocolRules, isNeverRenderedStreamEvent, formatSystemChip, normalizeBashTimeoutMs, TASK_CHIP_START_SUBTYPE, TASK_CHIP_END_SUBTYPE, parseSystemSubtype, parseSystemTaskInfo, capMapSize, SESSION_KEYED_MAP_MAX, resolveLocalToolGate } from '@vibisual/shared';
+import { CMD_PANE_SEPARATOR, CMD_BLOCK_REASON_MAX, collectCmdPaneIds, resolveCmdCliKind, DEFAULT_AGENT_CONFIG, isOpusModel, supportsFastMode, isForwardSubagentTextEnabled, resolveAliasToLatest, buildCmdCardProtocolRules, isNeverRenderedStreamEvent, formatSystemChip, normalizeBashTimeoutMs, TASK_CHIP_START_SUBTYPE, TASK_CHIP_END_SUBTYPE, parseSystemSubtype, parseSystemTaskInfo, capMapSize, SESSION_KEYED_MAP_MAX, resolveLocalToolGate } from '@vibisual/shared';
 import {
   createTurnSealState, noteTaskChip, mayTurnResume, noteTurnResumed, noteTurnSealed,
   listDisplayableLiveTasks, turnIdOfLiveTask, takeOrphanLiveTasks, LIVE_TASK_ORPHAN_GRACE_MS,
@@ -38,7 +38,7 @@ import { isAgentViewEnabled, spawnBackground, stopSession, rmSession } from './c
 import { attach as attachWatcher, detach as detachWatcher, resumeWatch as resumeAgentViewWatch } from './claudeAgentViewWatcher.js';
 import { killTree, terminateChildTree, registerSpawnedPid, unregisterSpawnedPid } from './processTree.js';
 import { prepareMcpConfig } from './mcpConfigService.js';
-import { prepareAgentMemory } from './agentMemoryService.js';
+import { prepareAgentSettings } from './agentMemoryService.js';
 
 /** parentAgentId → 소속 ProjectInfo 해석. index.ts에서 graphManager 기반으로 주입. */
 export type AgentProjectResolver = (parentAgentId: string) => ProjectInfo | null;
@@ -112,6 +112,18 @@ interface ConfigArgsContext {
   agentName?: string;
   /** 프로젝트 루트(= 스폰 cwd). 'project'/'local' 범위에서만 쓰인다. */
   projectRoot?: string;
+}
+
+/**
+ * §4 (Fast 모드) — 이 설정이 실제로 Fast 를 요청하는가.
+ *
+ * 사용자가 켜 뒀더라도 **Opus 계열이 아니면 CLI 가 사유도 없이 조용히 무시**하므로, 그런 조합에서는
+ * 애초에 키를 만들지 않는다 — 안 그러면 sonnet 에이전트가 아무 효과도 없는 `--settings` 를 달고 뜬다.
+ * 판정 대상은 `--model` 로 나가는 값과 같아야 하니 풀ID 핀(`modelVersion`)을 alias 보다 먼저 본다.
+ */
+function wantsFastMode(config: AgentConfig): boolean {
+  if (!config.fastMode) return false;
+  return supportsFastMode(config.modelVersion?.trim() || config.model);
 }
 
 function buildConfigArgs(config: AgentConfig, ctx?: ConfigArgsContext): string[] {
@@ -214,12 +226,20 @@ function buildConfigArgs(config: AgentConfig, ctx?: ConfigArgsContext): string[]
     args.push('--betas', ...betas);
   }
 
-  // §5.3 v4.89 — 자기 기억. `--settings` 는 계층 병합이라 사용자 설정을 지우지 않고
-  //   `autoMemoryDirectory` 만 이 에이전트 전용 폴더로 바꿔 끼운다.
-  //   `'off'` 는 파일이 아니라 환경변수 쪽이라 여기서는 인자가 늘지 않는다(스폰부가 처리).
-  const memoryPlan = prepareAgentMemory(config.memory, ctx?.agentName ?? 'agent', ctx?.projectRoot);
-  if (memoryPlan?.settingsPath) {
-    args.push('--settings', memoryPlan.settingsPath);
+  // §5.3 v4.89 자기 기억 + §4 Fast 모드 — **설정 파일 한 장**으로 나간다.
+  //   `--settings` 로 들어간 값은 사용자 설정 계층과 병합되므로 사용자 설정을 지우지 않고
+  //   필요한 키만 바꿔 끼운다. 기억 `'off'` 는 파일이 아니라 환경변수 쪽이라 여기서는 인자가
+  //   늘지 않는다(스폰부가 처리).
+  //   ⚠ `--settings` 를 **두 번 붙이면 병합이 아니라 뒤엣것이 앞엣것을 통째로 덮는다**(실측).
+  //   그래서 기억용·Fast 용을 따로 붙일 수 없고 `prepareAgentSettings` 가 한 장으로 조립한다.
+  const settingsPlan = prepareAgentSettings({
+    memory: config.memory,
+    fastMode: wantsFastMode(config),
+    agentName: ctx?.agentName ?? 'agent',
+    projectRoot: ctx?.projectRoot,
+  });
+  if (settingsPlan?.settingsPath) {
+    args.push('--settings', settingsPlan.settingsPath);
   }
 
   return args;
@@ -257,7 +277,12 @@ function buildConfigEnv(config: AgentConfig | undefined, ctx?: ConfigArgsContext
 
   Object.assign(env, buildBashTimeoutEnv(config));
 
-  const plan = prepareAgentMemory(config.memory, ctx?.agentName ?? 'agent', ctx?.projectRoot);
+  const plan = prepareAgentSettings({
+    memory: config.memory,
+    fastMode: wantsFastMode(config),
+    agentName: ctx?.agentName ?? 'agent',
+    projectRoot: ctx?.projectRoot,
+  });
   if (plan?.env) Object.assign(env, plan.env);
 
   return env;
@@ -670,6 +695,15 @@ export function parseStreamLine(
     const content = msg?.['content'];
     if (!Array.isArray(content)) return [];
     const events: SubAgentStreamEvent[] = [];
+    // §4 (스트림 3종 ①) — 중첩 서브에이전트(Task)가 한 말인가.
+    //   `--forward-subagent-text` 가 켜져 있으면 원문이 `parent_tool_use_id` 로 소속을 알려 준다.
+    //   ⚠ **이 줄들은 델타가 없다**(실측: 전달된 서브에이전트 텍스트는 완성 `assistant` 메시지로만 온다).
+    //   그래서 아래 partial 가드를 그대로 두면 켜도 화면에 아무것도 안 나온다 — 플래그만 붙이면
+    //   되는 줄 알기 쉬운 자리이고, 실제로 그렇게 하면 조용히 통째로 사라진다.
+    const nestedUnder = typeof obj['parent_tool_use_id'] === 'string' ? (obj['parent_tool_use_id'] as string) : undefined;
+    /** 중첩 줄은 델타가 없으므로 완성 블록을 반드시 방출해야 한다. */
+    const skipComplete = partial && !nestedUnder;
+    const nest = nestedUnder ? { nestedUnderToolUseId: nestedUnder } : {};
     for (const block of content) {
       if (!block || typeof block !== 'object') continue;
       const b = block as Record<string, unknown>;
@@ -677,15 +711,15 @@ export function parseStreamLine(
       // §4 v2.88 — partial 모드면 text/thinking 은 이미 델타로 흘렸으므로 완성 블록은 건너뛴다(중복 방지).
       //   tool_use 는 델타(input_json_delta)가 부분 JSON 이라 못 쓰므로 항상 완성 블록에서 방출.
       if (bt === 'text' && typeof b['text'] === 'string' && b['text']) {
-        if (!partial) events.push({ ...makeBase(), eventType: 'text', content: b['text'] as string });
+        if (!skipComplete) events.push({ ...makeBase(), ...nest, eventType: 'text', content: b['text'] as string });
       } else if (bt === 'thinking' && typeof b['thinking'] === 'string' && b['thinking']) {
-        if (!partial) events.push({ ...makeBase(), eventType: 'thinking', content: b['thinking'] as string });
+        if (!skipComplete) events.push({ ...makeBase(), ...nest, eventType: 'thinking', content: b['thinking'] as string });
       } else if (bt === 'tool_use') {
         const name = (b['name'] ?? 'unknown') as string;
         const input = b['input'];
         const summary = summarizeToolInput(name, input);
         const toolUseId = typeof b['id'] === 'string' ? (b['id'] as string) : undefined;
-        events.push({ ...makeBase(), eventType: 'tool_use', content: summary, toolName: name, toolUseId });
+        events.push({ ...makeBase(), ...nest, eventType: 'tool_use', content: summary, toolName: name, toolUseId });
       }
     }
     return events;
@@ -722,9 +756,18 @@ export function parseStreamLine(
 
   // 도구 결과 — user 메시지(content 배열) 또는 최상위 tool_result 모두 커버
   if (type === 'user') {
+    // §4 (스트림 3종 ②) — `--replay-user-messages` 가 되돌려 준 **접수 확인**.
+    //   원문 실측: `{"type":"user", …, "isReplay":true}`. 이 줄이 오면 "우리가 보낸 명령이 CLI 에
+    //   실제로 들어갔다"가 스트림으로 증명된다 — 본문은 우리가 이미 화면에 그려 둔 그 명령이므로
+    //   되풀이하지 않고 **칩 한 줄**로만 남긴다(대화록 중복 방지).
+    if (obj['isReplay'] === true) {
+      return [{ ...makeBase(), eventType: 'system', content: formatSystemChip('command_received') }];
+    }
     const msg = obj['message'] as Record<string, unknown> | undefined;
     const content = msg?.['content'];
     if (!Array.isArray(content)) return [];
+    const nestedUnder = typeof obj['parent_tool_use_id'] === 'string' ? (obj['parent_tool_use_id'] as string) : undefined;
+    const nest = nestedUnder ? { nestedUnderToolUseId: nestedUnder } : {};
     const events: SubAgentStreamEvent[] = [];
     for (const block of content) {
       if (!block || typeof block !== 'object') continue;
@@ -739,7 +782,7 @@ export function parseStreamLine(
         //   짐작할 수밖에 없었다 — 결과가 끝내 오지 않는 호출(중지·거부)이 하나만 있어도 그 뒤로 계속
         //   한 칸씩 밀려 **직전 파일을 따라가는** 사고가 났다. 원문에 이미 있는 값이라 새로 만들 것이 없다.
         const forId = typeof b['tool_use_id'] === 'string' ? (b['tool_use_id'] as string) : undefined;
-        events.push({ ...makeBase(), eventType: 'tool_result', content: text, toolUseId: forId });
+        events.push({ ...makeBase(), ...nest, eventType: 'tool_result', content: text, toolUseId: forId });
       }
     }
     return events;
@@ -774,6 +817,24 @@ export function parseStreamLine(
     // §5.5 #17-13 ⑤-3 (B) — 작업 칩은 payload 를 실어 보낸다(클라가 task_id 로 시작·끝을 한 줄로 접는다).
     const content = subtype ? formatSystemChip(subtype, readTaskInfo(subtype, obj)) : 'system';
     return [{ ...makeBase(), eventType: 'system', content }];
+  }
+
+  // §4 (스트림 3종 ③) — `--prompt-suggestions` 가 턴마다 보내는 "다음에 칠 만한 프롬프트" 예측.
+  //   ⚠ 이 계정 probe 에서는 실제 메시지가 오지 않아(서버 측 게이팅 추정) **payload 모양을 단정하지
+  //   않는다** — 흔한 이름 몇 개를 순서대로 훑고, 문자열을 못 찾으면 아무것도 만들지 않는다.
+  //   모양이 달라도 잘못된 본문을 지어내지 않고 조용히 넘어가는 쪽을 택했다.
+  if (type === 'prompt_suggestion') {
+    for (const key of ['suggestion', 'prompt', 'text', 'content']) {
+      const v = obj[key];
+      if (typeof v === 'string' && v.trim()) {
+        const base = makeBase();
+        // 제안 글은 칩 payload 의 `summary` 자리에 싣는다 — 이미 있는 그릇을 쓰면 클라가
+        //   자르기·복원 예산을 종전 규칙 그대로 적용한다(새 렌더 경로를 만들지 않는다).
+        //   `id` 는 이벤트 id — 제안끼리 시작·끝으로 잘못 묶이지 않게 매번 다르게 둔다.
+        return [{ ...base, eventType: 'system', content: formatSystemChip('prompt_suggestion', { id: base.id, summary: v }) }];
+      }
+    }
+    return [];
   }
 
   // 최종 결과 — UI에 다시 그리지 않는다(assistant text가 동일 본문을 이미 스트리밍으로 렌더).
@@ -3286,7 +3347,14 @@ export class SubAgentManager {
     //   시작 시각을 못 받고, 시작을 알리는 상태 통지도 못 나갔다 — 사용자가 명령을 보내도 버블이
     //   곧바로 "실행중"으로 바뀌지 않고 러너의 첫 도구 이벤트를 기다렸다. 두 경로가 같은 순간에
     //   같은 말을 하게 한다(실행 → 실행중).
-    cmd.startedAt = Date.now();
+    //
+    // §5.5 #17-18 ⑥-5 — **한 명령에 한 번만** 찍는다. 종전엔 dispatch 마다 덮어써서, 앱이 내려가
+    //   끊긴 명령을 부팅 reconcile 이 되살려 다시 보낼 때(§5.3 #12-1 `restartResumed`) 이 값이
+    //   **재개한 시각**으로 갈아 끼워졌다 — 말풍선이 그 명령이 이미 뱉어 놓은 출력보다 **아래**로
+    //   내려가, 사용자에겐 "내가 친 명령이 제 결과 밑에 있는" 뒤죽박죽 화면이 됐다(사용자 보고).
+    //   재개는 **같은 턴의 이어달리기**지 새 턴이 아니므로 자리는 처음 나간 그 시각이 옳다.
+    //   창구가 닫혀 큐로 되돌린 재시도(#17-18 ② 큐 되돌림)도 같은 이유로 첫 시각을 유지한다.
+    if (cmd.startedAt === undefined) cmd.startedAt = Date.now();
     this.onSubStatusChange?.(sub.parentAgentId);
 
     // §5.19 — All Model(로컬 LLM) 갈림. **이 한 곳**이 이 기능이 기존 실행 경로에 내는 유일한 자국이다.
@@ -3367,18 +3435,25 @@ export class SubAgentManager {
     // §4 (CLI 사양 추종) — 과부하 폴백 모델. `--print` 전용 플래그라 legacy 헤드리스 경로에만 실린다
     //   (Agent View `--bg` 경로에는 안 붙는다 — maxBudgetUsd 와 같은 제약).
     const fallbackModel = agentConfig?.fallbackModel?.trim() ?? '';
+    // §4 (스트림 3종) — `--print` 전용이 아니라 **비대화형이면 통하는** 축이라 persistent 경로에도 실린다
+    //   (`--include-partial-messages` 와 같은 성질 — 설치본 2.1.241 에서 `--print` 없이도 인자 검증 통과 확인).
+    //   그래서 `printFlags` 가 아니라 별도 묶음으로 넘겨 두 스폰 형태가 같은 것을 받게 한다.
+    const streamFlags: string[] = [];
+    if (isForwardSubagentTextEnabled(agentConfig?.forwardSubagentText)) streamFlags.push('--forward-subagent-text');
+    if (agentConfig?.replayUserMessages) streamFlags.push('--replay-user-messages');
+    if (agentConfig?.promptSuggestions) streamFlags.push('--prompt-suggestions', 'true');
 
     // v1.77 (Direction A) — 커스텀 에이전트는 Agent View 게이트를 건너뛰고 무조건 legacy.
     // (supervisor sessionId 회전 → 증식·연속성 상실. 위 docstring 참조.)
     if (opts?.customParent) {
-      this._executeViaLegacy(cmd, sub!, parentCwd, prompt, configArgs, maxTurns, maxBudgetUsd, fallbackModel);
+      this._executeViaLegacy(cmd, sub!, parentCwd, prompt, configArgs, maxTurns, maxBudgetUsd, fallbackModel, streamFlags);
       return;
     }
 
     // §4 v2.88 — 비용 상한이 걸린 에이전트는 Agent View(`--bg`, --print 아님)로 보내면 --max-budget-usd 가
     //   안 먹는다 → legacy fresh `--print` 스폰으로 강제해 상한이 매 턴 실제 적용되게 한다.
     if (maxBudgetUsd > 0) {
-      this._executeViaLegacy(cmd, sub!, parentCwd, prompt, configArgs, maxTurns, maxBudgetUsd, fallbackModel);
+      this._executeViaLegacy(cmd, sub!, parentCwd, prompt, configArgs, maxTurns, maxBudgetUsd, fallbackModel, streamFlags);
       return;
     }
 
@@ -3389,11 +3464,11 @@ export class SubAgentManager {
       if (gate.enabled) {
         void this._executeViaAgentView(cmd, sub!, parentCwd, prompt, configArgs, maxTurns);
       } else {
-        this._executeViaLegacy(cmd, sub!, parentCwd, prompt, configArgs, maxTurns, maxBudgetUsd, fallbackModel);
+        this._executeViaLegacy(cmd, sub!, parentCwd, prompt, configArgs, maxTurns, maxBudgetUsd, fallbackModel, streamFlags);
       }
     }).catch((err) => {
       logger.warn(`SubAgent ${sub!.id} agent-view gate check failed: ${err instanceof Error ? err.message : String(err)} — falling back to legacy`);
-      this._executeViaLegacy(cmd, sub!, parentCwd, prompt, configArgs, maxTurns, maxBudgetUsd, fallbackModel);
+      this._executeViaLegacy(cmd, sub!, parentCwd, prompt, configArgs, maxTurns, maxBudgetUsd, fallbackModel, streamFlags);
     });
   }
 
@@ -3583,6 +3658,8 @@ export class SubAgentManager {
     maxBudgetUsd = 0,
     /** §4 (CLI 사양 추종) — `--fallback-model` 값. 빈 문자열이면 미전달. */
     fallbackModel = '',
+    /** §4 (스트림 3종) — persistent·legacy **양쪽**에 실리는 스트림 확장 플래그. 빈 배열이면 종전과 같다. */
+    streamFlags: string[] = [],
   ): void {
     // §4 v2.88 — 비용 상한(maxBudgetUsd>0)이 걸리면 매 턴 fresh `--print` 스폰이어야 `--max-budget-usd` 가
     //   실제 적용된다(CLI 제약: --max-budget-usd 는 --print 전용). persistent 재사용은 --print 를 떼므로 끈다.
@@ -3651,7 +3728,7 @@ export class SubAgentManager {
     //   --max-budget-usd <n>: API 비용 상한(양수일 때만). persistent(no --print) 경로엔 못 붙으므로 위에서 끔.
     //   --fallback-model <m>: 기본 모델 과부하/불가 시 대체 모델(§4 CLI 사양 추종). 역시 --print 전용이라
     //     이 자리에서만 붙는다 — persistent 경로(--print 없음)에는 실리지 않는다.
-    const printFlags = ['--include-partial-messages'];
+    const printFlags = ['--include-partial-messages', ...streamFlags];
     if (maxBudgetUsd > 0) printFlags.push('--max-budget-usd', String(maxBudgetUsd));
     if (fallbackModel) printFlags.push('--fallback-model', fallbackModel);
 
@@ -3663,7 +3740,9 @@ export class SubAgentManager {
           // 토큰 단위 스트리밍은 persistent 에서도 실린다. CLI 의 "requires --print" 검사는 실제로는
           //   **비대화형 판정**(`!process.stdout.isTTY` 포함)이라, 파이프로 띄우는 우리 자식은 통과한다
           //   (2.1.228 실측). 이 줄이 없으면 첫 턴이 persistent 로 오면서 말풍선 실시간 누적을 잃는다.
-          '--include-partial-messages',
+          //   §4 (스트림 3종) 도 같은 성질이라 여기 함께 실린다 — persistent 가 기본 경로이므로
+          //   여기에 안 실으면 "켰는데 대부분의 턴에서 안 온다"가 된다.
+          '--include-partial-messages', ...streamFlags,
           '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose',
         ]
       : (sub.sessionId

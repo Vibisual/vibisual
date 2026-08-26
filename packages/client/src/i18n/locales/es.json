@@ -860,6 +860,24 @@
         "label": "Modo seguro (todas las personalizaciones desactivadas)",
         "warn": "hooks desactivados — la actividad no aparecerá en el mapa"
       },
+      "fastMode": {
+        "label": "Modo Fast",
+        "hint": "el mismo Opus, salida más rápida",
+        "unsupported": "solo Opus 4.8 / Opus 5",
+        "tip": "Ejecuta el mismo modelo Opus con una salida más rápida — no baja a un modelo más pequeño. No es una opción de la CLI: un agente headless se trata como una sesión del Agent SDK y solo acepta el modo Fast activado desde los ajustes, así que Vibisual lo incluye en el archivo de ajustes que ya escribe para este agente. Los modelos que no lo admiten ignoran el ajuste sin ningún aviso."
+      },
+      "forwardSubagentText": {
+        "label": "Mostrar la salida de los subagentes",
+        "hint": "lo que dicen y piensan los agentes Task anidados"
+      },
+      "replayUserMessages": {
+        "label": "Confirmar la recepción del comando",
+        "hint": "una etiqueta cuando la CLI recibe el comando de verdad"
+      },
+      "promptSuggestions": {
+        "label": "Sugerir el siguiente prompt",
+        "hint": "predicho después de cada turno"
+      },
       "betas": {
         "label": "Cabeceras beta",
         "tip": "Cabeceras beta enviadas con las peticiones a la API. Solo para usuarios con clave de API — la autenticación por suscripción las ignora.",
@@ -1629,6 +1647,7 @@
       "historyHintPrev": "Pulsa otra vez para el último comando",
       "historyHintNext": "Pulsa otra vez para el comando más antiguo",
       "slashBuiltin": "integrado",
+      "slashNeedsTerminal": "requiere terminal",
       "slashEmpty": "No hay habilidades coincidentes",
       "slashLoading": "Cargando habilidades…",
       "ctxCopy": "Copiar",
@@ -2072,7 +2091,10 @@
         "openApp": "Abrir en {{app}} — {{path}}",
         "openExternal": "Abrir con la app predeterminada — {{path}}"
       },
-      "restartResumed": "Se interrumpió al cerrarse la app; se reanudó en la sesión guardada."
+      "restartResumed": "Se interrumpió al cerrarse la app; se reanudó en la sesión guardada.",
+      "nestedSubagent": "Subagente",
+      "commandReceived": "Comando recibido",
+      "promptSuggestion": "Siguiente prompt sugerido"
     },
     "report": {
       "title": "Informe de trabajo",
@@ -2421,7 +2443,8 @@
         "toolSchemas": "Definiciones de herramientas",
         "mcp": "Servidores MCP",
         "hooks": "Hooks",
-        "systemPrompt": "Prompt del sistema de Claude Code"
+        "systemPrompt": "Prompt del sistema de Claude Code",
+        "brainSkills": "Procedimientos del cerebro"
       },
       "hint": {
         "tools": "Elige la lista de herramientas en Configuración del agente",
@@ -2600,6 +2623,11 @@
             "what": "Los hooks de Claude Code que permiten que Vibisual vea esta sesión.",
             "more": "Registrados en settings.json. Añaden casi ningún token, pero todo evento pasa por ellos.",
             "off": "Los hooks se quitan en settings.json, no aquí. Sin ellos, Vibisual deja de ver esta sesión."
+          },
+          "brainSkills": {
+            "what": "Procedimientos aprendidos en este proyecto, cargados si la tarea coincide.",
+            "more": "Se eligen por su descripción, así solo se cargan las pertinentes.",
+            "off": "El agente vuelve a deducir cada procedimiento desde cero."
           }
         },
         "cat": {
@@ -3484,7 +3512,15 @@
       "archived": "Archivadas",
       "archivedHint": "Memorias archivadas por exceder el cupo — no se han borrado, puedes restaurarlas",
       "review": "Pendiente de revisión",
-      "reviewHint": "Candidatos que aún no son la verdad actual: confírmalos para que lleguen a la IA"
+      "reviewHint": "Candidatos que aún no son la verdad actual: confírmalos para que lleguen a la IA",
+      "skills": "Procedimientos",
+      "skillsHint": "Procedimientos formados al repetir el trabajo: se cargan al empezarlo",
+      "curator": "Por ordenar",
+      "curatorHint": "Recuerdos sin tema, nunca leídos o aún candidatos",
+      "skillDraft": "Borrador",
+      "skillVerified": "Confirmado",
+      "skillUsed": "cargado {{count}} veces",
+      "skillHelpful": "útil {{count}} veces"
     },
     "currentBadge": "Verdad actual",
     "contestedBadge": "En conflicto",
@@ -3495,7 +3531,44 @@
     "confirmPromptContested": "Los valores entran en conflicto en esta dirección: elige el correcto para enviarlo a la IA.",
     "confirmCurrent": "Confirmar como actual",
     "reject": "No",
-    "rejectTip": "No se elimina nada: queda como registro y solo se excluye de la inyección."
+    "rejectTip": "No se elimina nada: queda como registro y solo se excluye de la inyección.",
+    "axis": {
+      "skills": {
+        "title": "Memoria de procedimientos",
+        "hint": "Fija el procedimiento y lo carga automáticamente la próxima vez"
+      },
+      "recall": {
+        "title": "Recuerdo",
+        "hint": "Busca en sesiones anteriores, no solo en las tarjetas"
+      },
+      "nudge": {
+        "title": "Empujón",
+        "hint": "De vez en cuando pide anotar lo aprendido"
+      },
+      "grounding": {
+        "title": "Verificación de evidencia",
+        "hint": "Contrasta con el código antes de marcar como confirmado"
+      },
+      "curator": {
+        "title": "Curador",
+        "hint": "Reúne los recuerdos sin clasificar y nunca leídos"
+      },
+      "operator": {
+        "title": "Perfil del operador",
+        "hint": "Anota preferencias recurrentes solo en este equipo"
+      }
+    },
+    "activation": {
+      "sleeping": "Hay {{count}} recuerdos dormidos en el cerebro de este proyecto. ¿Activar?",
+      "hint": "El cerebro está apagado por defecto. Al activarlo reúne los procedimientos aprendidos y los aplica a la siguiente tarea. Puedes apagarlo cuando quieras: apagarlo no borra nada.",
+      "turnOn": "Activar",
+      "notNow": "Ahora no",
+      "showAxes": "Ver qué se activa",
+      "hideAxes": "Ocultar detalles",
+      "axesTitle": "Qué dejar activado",
+      "turnOff": "Apagar el cerebro",
+      "offKeepsData": "Apagarlo no borra nada: al volver a activarlo, sigue donde lo dejaste."
+    }
   },
   "commandCenter": {
     "windowTitle": "Centro de mando — {{name}}",

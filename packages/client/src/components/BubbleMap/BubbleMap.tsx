@@ -42,6 +42,7 @@ import { toFlowNodes, findNonCollidingPosition, SPAWN_RADIUS, SPAWN_MIN_DIST, sh
 import { calcBubbleSize } from '../../utils/sizeCalc.js';
 import { usePhysicsLayout, type ExternalPhysicsNode, type PhysicsGroup, type PhysicsMove } from '../../hooks/usePhysicsLayout.js';
 import { useBubbleLayout, useFolderLayout, usePipelineLayout, useInteriorLayout } from '../../hooks/useBubbleLayout.js';
+import { useBrainActivation } from '../../hooks/useBrainActivation.js';
 import { useTrashedAgents } from '../../hooks/useTrashedAgents.js';
 import { CanvasContextMenu } from './CanvasContextMenu.js';
 import { DebugOverlay } from './DebugOverlay.js';
@@ -1237,7 +1238,10 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     return out;
   }, [storeSatellites, contiSatellites]);
 
-  // §5.10 — 최상위 캔버스 상주 버블: Brain(항상) + 휴지통(항상, 비면 dimmed).
+  // §5.10 v2 (H) — 두뇌 켜짐 여부. 서버와 **같은 판정 함수**를 쓰는 훅 하나에서만 온다.
+  const { enabled: brainEnabled } = useBrainActivation();
+
+  // §5.10 — 최상위 캔버스 상주 버블: Brain(두뇌가 켜졌을 때만) + 휴지통(항상, 비면 dimmed).
   const residentBubbles = useMemo<BubbleData[]>(() => {
     if (!activeProject) return [];
     const brain: BubbleData = {
@@ -1258,8 +1262,10 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       //   같은 배열에서 뽑아, 뚜껑(개수)과 속(목록)이 절대 어긋나지 않게 한다.
       activity: trashedAgents.length,
     };
-    return [brain, trash];
-  }, [activeProject, brainSummary?.cardCount, trashedAgents.length, t]);
+    // §5.10 v2 (H) 게이트 ③ 표시 — 두뇌가 꺼진 프로젝트에는 **버블 자체를 세우지 않는다**.
+    //   휴지통은 두뇌와 무관하므로 그대로 남는다. 켜는 자리는 `BrainActivationPanel` 배너다.
+    return brainEnabled ? [brain, trash] : [trash];
+  }, [activeProject, brainEnabled, brainSummary?.cardCount, trashedAgents.length, t]);
 
   // 메인 뷰 데이터
   const mainViewData = useBubbleLayout({

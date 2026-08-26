@@ -94,6 +94,7 @@ import type { ServerKind, UiLocale, ExecutionMode, AgentProvider, ModelRegistry 
 import type { AuditBoundaryConfig, AuditDecisionSource, ProjectAuditLog } from '@vibisual/shared';
 import { COST_MAP_ACTIVE_WINDOW_MS } from '@vibisual/shared';
 import { EdgeManager } from './edgeManager.js';
+import { extractBashReadPaths } from './bashReadPaths.js';
 import { extractPort, extractPortFromInlineEval, extractPortFromScriptFile, isPortAlive, isUrlServing, isProbeCommand, isVibisualLauncherCommand } from './processChecker.js';
 import { BackgroundShellWatcher, parseBackgroundShellResponse, scanActiveBackgroundShells } from './backgroundShellWatcher.js';
 import { subAgentManager, getCmdSessionIds } from './subAgentManager.js';
@@ -105,6 +106,7 @@ import { sanitizeContiOnLoad } from './contiManager.js';
 import { isShortAlive as isAgentViewShortAlive, isShortWorking as isAgentViewShortWorking, readRoster as readAgentViewRoster } from './claudeAgentViewService.js';
 import { pipelineManager } from './pipelineManager.js';
 import { getBrainService } from './brainService.js';
+import { brainEnabledFor } from './brainActivation.js';
 import type { LocalSession, AgentContextInfo } from './sessionDiscovery.js';
 import { resolveSessionTitle, readUserMessages, readLastAssistantMessage, readContextInfo, discoverSessions, findPidBySession, isSessionInUse, getSessionJsonlPath, listJsonlSessionIds, findEntrypointBySession, isSessionInterrupted, readSessionTokenData } from './sessionDiscovery.js';
 import { logger } from '../logger.js';
@@ -509,6 +511,9 @@ function extractDirToolFiles(
   }
   return out;
 }
+
+/** §2.1 #3 — Bash 로 읽은 경로에 붙일 도구 이름. `READ_TOOLS` 에 속해야 엣지가 읽기 방향으로 선다. */
+const BASH_READ_TOOL_NAME = 'Read';
 
 /** 파일 경로 없는 특수 도구 → BubbleType 매핑 */
 const SPECIAL_TOOL_TYPES: Record<string, BubbleType> = {
@@ -2136,6 +2141,9 @@ export class ProjectGraph {
    * 여러 프로젝트가 열렸을 때 Manager 병합에서 서로 덮어쓰거나 합산되지 않는다.
    */
   getBrainSummary(): Record<string, BrainSummary> | undefined {
+    // §5.10 v2 (H) 게이트 ③ 표시 — 꺼진 두뇌는 요약을 내지 않는다.
+    //   요약이 없으면 스냅샷에 brain 이 안 실리고, 클라가 Brain 버블을 그리지 않는다.
+    if (!brainEnabledFor(this.root)) return undefined;
     if (!this.root) return undefined;
     const name = this.getPrimaryProjectName();
     if (!name) return undefined;
@@ -3407,118 +3415,181 @@ export class ProjectGraph {
             }
           }
         }
+
+        // §2.1 #3 — Bash 로 읽은 파일도 같은 파일/폴더 버블 경로를 탄다(도구명은 `Read` 로 정규화).
+        // 이게 없으면 `sed`/`cat` 으로 읽는 동안 캔버스는 직전 Edit/Write 상태로 얼어붙는다.
+        if (specialType === 'bash') this.routeBashReadPaths(agent, payload);
         return result;
       }
 
-      let filePath = extractFilePath(payload.tool_input, payload.tool_name);
+      const filePath = extractFilePath(payload.tool_input, payload.tool_name);
       if (!filePath) return null;
-
-      let sessionCwd = this.sessionCwds.get(payload.session_id);
-      // Grep/Glob 등이 상대 경로(`packages`)로 호출되면 cwd 기준 절대 경로로 승격.
-      // 안 하면 isInternal이 false로 떨어져 `(ext) packages` 로 잘못 표시됨.
-      if (!isAbsoluteNormalized(filePath)) {
-        const cwdForResolve = payload.cwd ?? sessionCwd;
-        if (cwdForResolve) {
-          filePath = resolveRelative(cwdForResolve, filePath);
-        }
-      }
-      // 워크트리 이주 검사 — 에이전트가 워크트리 내부 파일을 건드리면 그 워크트리로 이주
-      // (부모→WT, 같은 repo면 WT A→WT B 재이주 포함, v1.76).
-      // write/edit 1회 즉시, read 누적 N회. 이주 후엔 sessionCwds 가 워크트리 path 라
-      // 후속 projectPath 계산이 워크트리 기준이 되어 외부(부모) 파일은 external 로 표시된다.
-      if (this.maybeMigrateAgentToWorktree(payload.session_id, agent.id, filePath, payload.tool_name)) {
-        sessionCwd = this.sessionCwds.get(payload.session_id);
-      }
-      const sessionProjectInfo = sessionCwd ? this.projects.get(normalize(sessionCwd)) ?? null : null;
-      const isHomeWorktree = !!sessionProjectInfo?.parentProjectPath;
-
-      // §5.7 #26 — 파일 경로가 미등록 워크트리 내부면 등록.
-      // 부모-cwd 에이전트가 워크트리 파일 작업 시 payload.cwd 기반 등록(위 블록)만으로는
-      // 워크트리 namespace/엣지가 성립하지 않으므로, 파일 경로에서 워크트리 루트를 추출해 보완 등록한다.
-      try {
-        const wtRootMatch = filePath.match(/^(.+?\/\.claude\/worktrees\/[^/]+)(?:\/|$)/);
-        if (wtRootMatch) {
-          const worktreeRoot = wtRootMatch[1]!;
-          const worktreeRootNorm = normalize(worktreeRoot);
-          if (
-            this.root &&
-            worktreeRootNorm !== normalize(this.root) &&
-            !this.projects.has(worktreeRootNorm) &&
-            detectWorktree(worktreeRootNorm)
-          ) {
-            this.registerProject(worktreeRoot);
-          }
-        }
-      } catch (err) {
-        logger.debug('worktree file-path registration skipped', err);
-      }
-
-      // 파일 라우팅의 핵심: "파일이 속한 프로젝트" 를 파일 경로 자체로 판정한다(세션 cwd 기준 ❌).
-      // 그래야 마스터 cwd 에이전트가 워크트리 파일을 만져도 처음부터 워크트리 namespace 로 정확히 들어가
-      // 마스터 캔버스에 `.claude/worktrees/...` 같은 잘못된 경로가 안 박힌다.
-      const fileProject = this.getProjectForCwd(filePath);
-      const isDirectoryPath = DIRECTORY_PATH_TOOLS.has(payload.tool_name);
-
-      let topFolderPath: string | null;
-      if (fileProject) {
-        // 파일이 알려진 프로젝트(마스터 또는 워크트리) 내부.
-        // 워크트리 home + 다른 프로젝트의 파일(부모 마스터 또는 다른 워크트리) → "내 워크트리에서 외부" 로 처리.
-        if (isHomeWorktree && fileProject.path !== sessionProjectInfo!.path) {
-          const wtKey = normalize(sessionProjectInfo!.path);
-          const wtPrefix = `wt${hashString(wtKey).toString(36)}__`;
-          topFolderPath = this.processExternalFile(
-            filePath, payload.tool_name, agent.id, isDirectoryPath,
-            wtKey, wtPrefix, sessionProjectInfo!.name,
-            payload.tool_response, payload.cwd ?? sessionCwd,
-          );
-        } else {
-          // 정상 internal 라우팅 — 파일의 owning project 기준
-          // (마스터 home + 워크트리 파일이면 자동으로 워크트리 namespace 로 들어감 — processInternalFile 의 isWorktree 분기)
-          topFolderPath = this.processInternalFile(
-            filePath, payload.tool_name, agent.id, fileProject.path, isDirectoryPath,
-          );
-        }
-      } else {
-        // 파일이 어떤 프로젝트에도 속하지 않음 → external. 워크트리 home 이면 워크트리 children scope.
-        const wtKey = isHomeWorktree ? normalize(sessionProjectInfo!.path) : null;
-        const wtPrefix = wtKey ? `wt${hashString(wtKey).toString(36)}__` : '';
-        const wtProjName = isHomeWorktree ? sessionProjectInfo!.name : null;
-        topFolderPath = this.processExternalFile(
-          filePath, payload.tool_name, agent.id, isDirectoryPath,
-          wtKey, wtPrefix, wtProjName,
-          payload.tool_response, payload.cwd ?? sessionCwd,
-        );
-      }
-
-      if (!topFolderPath) return null;
-
-      const topFolder = this.nodes.get(topFolderPath);
-      if (!topFolder) return null;
-
-      const edge = this.mainEdges.upsert(agent.id, agent, topFolder, payload.tool_name, agent.id);
-
-      // 부모 캔버스 가시 엣지: 파일이 워크트리에 라우팅됐고 에이전트가 그 워크트리에
-      // home 이 아니면(=마스터/부모 캔버스에서 워크트리로 작업) topFolder 는 wt-prefixed
-      // 자식이라 부모 캔버스에서 숨겨져 라인이 안 뜬다. 부모 캔버스에 함께 떠 있는
-      // **워크트리 버블 노드**로도 엣지를 걸어 "이 에이전트가 이 워크트리에서 작업 중"을
-      // 보이게 한다(드릴다운 시 기존 파일 단위 엣지로 자연 상세화).
-      // 무조건 생성 — 에이전트가 워크트리에 이주(home)했든 부모 캔버스에 남아있든,
-      // 워크트리 버블은 부모 탭 스코프(nodeProjects=parent)라 어느 캔버스에서든 렌더된다.
-      // 이주 케이스에 엣지를 스킵하면 부모 캔버스에서 커스텀 버블이 워크트리와 끊겨 보인다.
-      // (agent 는 결코 worktree 버블 자신이 아니므로 self-edge 없음.)
-      if (fileProject?.parentProjectPath) {
-        const wtBubble = this.nodes.get(normalize(fileProject.path));
-        if (wtBubble && wtBubble.bubbleType === 'worktree' && wtBubble.id !== agent.id) {
-          this.mainEdges.upsert(agent.id, agent, wtBubble, payload.tool_name, agent.id);
-        }
-      }
-
-      logger.debug(`${payload.tool_name} → ${filePath} (top: ${topFolderPath})`);
-      return { agent, topFolder, edge };
+      return this.routeToolFilePath(agent, payload, filePath, payload.tool_name);
     } catch (err) {
       logger.error('processHookEvent failed', err);
       return null;
     }
+  }
+
+  /** 도구가 만진 파일 경로 **1건**을 폴더/파일 버블 + 엣지로 라우팅한다.
+   *  `Read`/`Write`/`Edit`/`Grep`/`Glob` 훅 경로와 §2.1 #3 Bash 읽기 경로가 **같은 길**을 쓴다
+   *  (라우팅 규칙이 두 벌이 되면 한쪽만 고쳐져 어긋난다). `filePathIn` 은 이미 `normalize()` 된 경로. */
+  private routeToolFilePath(
+    agent: BubbleData,
+    payload: HookEventPayload,
+    filePathIn: string,
+    toolName: string,
+    opts?: { isDirectory?: boolean; allowWorktreeMigration?: boolean },
+  ): ProcessResult | null {
+    let filePath = filePathIn;
+
+    let sessionCwd = this.sessionCwds.get(payload.session_id);
+    // Grep/Glob 등이 상대 경로(`packages`)로 호출되면 cwd 기준 절대 경로로 승격.
+    // 안 하면 isInternal이 false로 떨어져 `(ext) packages` 로 잘못 표시됨.
+    if (!isAbsoluteNormalized(filePath)) {
+      const cwdForResolve = payload.cwd ?? sessionCwd;
+      if (cwdForResolve) {
+        filePath = resolveRelative(cwdForResolve, filePath);
+      }
+    }
+    // 워크트리 이주 검사 — 에이전트가 워크트리 내부 파일을 건드리면 그 워크트리로 이주
+    // (부모→WT, 같은 repo면 WT A→WT B 재이주 포함, v1.76).
+    // write/edit 1회 즉시, read 누적 N회. 이주 후엔 sessionCwds 가 워크트리 path 라
+    // 후속 projectPath 계산이 워크트리 기준이 되어 외부(부모) 파일은 external 로 표시된다.
+    // Bash 읽기(§2.1 #3)는 "그 워크트리로 옮겨 앉았다" 는 신호가 아니라 이주 판정을 태우지 않는다.
+    if ((opts?.allowWorktreeMigration ?? true)
+      && this.maybeMigrateAgentToWorktree(payload.session_id, agent.id, filePath, toolName)) {
+      sessionCwd = this.sessionCwds.get(payload.session_id);
+    }
+    const sessionProjectInfo = sessionCwd ? this.projects.get(normalize(sessionCwd)) ?? null : null;
+    const isHomeWorktree = !!sessionProjectInfo?.parentProjectPath;
+
+    // §5.7 #26 — 파일 경로가 미등록 워크트리 내부면 등록.
+    // 부모-cwd 에이전트가 워크트리 파일 작업 시 payload.cwd 기반 등록(위 블록)만으로는
+    // 워크트리 namespace/엣지가 성립하지 않으므로, 파일 경로에서 워크트리 루트를 추출해 보완 등록한다.
+    try {
+      const wtRootMatch = filePath.match(/^(.+?\/\.claude\/worktrees\/[^/]+)(?:\/|$)/);
+      if (wtRootMatch) {
+        const worktreeRoot = wtRootMatch[1]!;
+        const worktreeRootNorm = normalize(worktreeRoot);
+        if (
+          this.root &&
+          worktreeRootNorm !== normalize(this.root) &&
+          !this.projects.has(worktreeRootNorm) &&
+          detectWorktree(worktreeRootNorm)
+        ) {
+          this.registerProject(worktreeRoot);
+        }
+      }
+    } catch (err) {
+      logger.debug('worktree file-path registration skipped', err);
+    }
+
+    // 파일 라우팅의 핵심: "파일이 속한 프로젝트" 를 파일 경로 자체로 판정한다(세션 cwd 기준 ❌).
+    // 그래야 마스터 cwd 에이전트가 워크트리 파일을 만져도 처음부터 워크트리 namespace 로 정확히 들어가
+    // 마스터 캔버스에 `.claude/worktrees/...` 같은 잘못된 경로가 안 박힌다.
+    const fileProject = this.getProjectForCwd(filePath);
+    const isDirectoryPath = opts?.isDirectory ?? DIRECTORY_PATH_TOOLS.has(toolName);
+
+    let topFolderPath: string | null;
+    if (fileProject) {
+      // 파일이 알려진 프로젝트(마스터 또는 워크트리) 내부.
+      // 워크트리 home + 다른 프로젝트의 파일(부모 마스터 또는 다른 워크트리) → "내 워크트리에서 외부" 로 처리.
+      if (isHomeWorktree && fileProject.path !== sessionProjectInfo!.path) {
+        const wtKey = normalize(sessionProjectInfo!.path);
+        const wtPrefix = `wt${hashString(wtKey).toString(36)}__`;
+        topFolderPath = this.processExternalFile(
+          filePath, toolName, agent.id, isDirectoryPath,
+          wtKey, wtPrefix, sessionProjectInfo!.name,
+          payload.tool_response, payload.cwd ?? sessionCwd,
+        );
+      } else {
+        // 정상 internal 라우팅 — 파일의 owning project 기준
+        // (마스터 home + 워크트리 파일이면 자동으로 워크트리 namespace 로 들어감 — processInternalFile 의 isWorktree 분기)
+        topFolderPath = this.processInternalFile(
+          filePath, toolName, agent.id, fileProject.path, isDirectoryPath,
+        );
+      }
+    } else {
+      // 파일이 어떤 프로젝트에도 속하지 않음 → external. 워크트리 home 이면 워크트리 children scope.
+      const wtKey = isHomeWorktree ? normalize(sessionProjectInfo!.path) : null;
+      const wtPrefix = wtKey ? `wt${hashString(wtKey).toString(36)}__` : '';
+      // §2.1 #5 — 외부 폴더·위성도 **그 작업을 한 세션이 속한 탭 프로젝트**로 귀속시킨다.
+      //   종전엔 워크트리 home 이 아니면 null 을 넘겨 nodeProjectNames 에 안 실렸는데,
+      //   toProjectCheckpoint 의 노드 필터(getProjectNodePaths)가 그 기록으로만 소속을
+      //   판정하므로 external_folder 가 체크포인트에 0건 저장 → 재시작 시 통째로 사라졌다.
+      const extProjName = isHomeWorktree
+        ? sessionProjectInfo!.name
+        : this.resolveOwnerTabProjectName(sessionCwd ?? payload.cwd);
+      topFolderPath = this.processExternalFile(
+        filePath, toolName, agent.id, isDirectoryPath,
+        wtKey, wtPrefix, extProjName,
+        payload.tool_response, payload.cwd ?? sessionCwd,
+      );
+    }
+
+    if (!topFolderPath) return null;
+
+    const topFolder = this.nodes.get(topFolderPath);
+    if (!topFolder) return null;
+
+    const edge = this.mainEdges.upsert(agent.id, agent, topFolder, toolName, agent.id);
+
+    // 부모 캔버스 가시 엣지: 파일이 워크트리에 라우팅됐고 에이전트가 그 워크트리에
+    // home 이 아니면(=마스터/부모 캔버스에서 워크트리로 작업) topFolder 는 wt-prefixed
+    // 자식이라 부모 캔버스에서 숨겨져 라인이 안 뜬다. 부모 캔버스에 함께 떠 있는
+    // **워크트리 버블 노드**로도 엣지를 걸어 "이 에이전트가 이 워크트리에서 작업 중"을
+    // 보이게 한다(드릴다운 시 기존 파일 단위 엣지로 자연 상세화).
+    // 무조건 생성 — 에이전트가 워크트리에 이주(home)했든 부모 캔버스에 남아있든,
+    // 워크트리 버블은 부모 탭 스코프(nodeProjects=parent)라 어느 캔버스에서든 렌더된다.
+    // 이주 케이스에 엣지를 스킵하면 부모 캔버스에서 커스텀 버블이 워크트리와 끊겨 보인다.
+    // (agent 는 결코 worktree 버블 자신이 아니므로 self-edge 없음.)
+    if (fileProject?.parentProjectPath) {
+      const wtBubble = this.nodes.get(normalize(fileProject.path));
+      if (wtBubble && wtBubble.bubbleType === 'worktree' && wtBubble.id !== agent.id) {
+        this.mainEdges.upsert(agent.id, agent, wtBubble, toolName, agent.id);
+      }
+    }
+
+    logger.debug(`${toolName} → ${filePath} (top: ${topFolderPath})`);
+    return { agent, topFolder, edge };
+  }
+
+  /** §2.1 #3 — Bash 명령에서 **읽기로 확실한 경로만** 뽑아 같은 파일/폴더 버블 경로로 흘린다.
+   *  도구명을 `Read` 로 정규화해 기존 방향 규칙(`READ_TOOLS`)을 그대로 타게 한다.
+   *  디스크에 실재하는 **파일**만 채택 — 디렉터리는 `tool_response` 로 결과 파일을 뽑을 수 없어
+   *  §2.1 v2.28 invariant(외부 폴더 ↔ 위성 ≥ 1)를 못 지키고, 존재하지 않는 경로는 오탐이다. */
+  private routeBashReadPaths(agent: BubbleData, payload: HookEventPayload): void {
+    const cmd = typeof payload.tool_input?.['command'] === 'string' ? payload.tool_input['command'] : '';
+    if (!cmd) return;
+    let candidates: string[];
+    try {
+      candidates = extractBashReadPaths(cmd);
+    } catch (err) {
+      logger.debug('extractBashReadPaths failed', err);
+      return;
+    }
+    for (const rawPath of candidates) {
+      let isFile = false;
+      try {
+        isFile = fs.statSync(rawPath).isFile();
+      } catch {
+        isFile = false;
+      }
+      if (!isFile) continue;
+      this.routeToolFilePath(agent, payload, normalize(rawPath), BASH_READ_TOOL_NAME, {
+        isDirectory: false,
+        allowWorktreeMigration: false,
+      });
+    }
+  }
+
+  /** 세션 cwd → 그 세션이 속한 **탭** 프로젝트 이름(워크트리면 부모 탭). 못 찾으면 null. */
+  private resolveOwnerTabProjectName(sessionCwd: string | undefined): string | null {
+    if (!sessionCwd) return null;
+    const proj = this.projects.get(normalize(sessionCwd)) ?? this.getProjectForCwd(sessionCwd);
+    if (!proj) return null;
+    return this.resolveTabProjectName(proj, sessionCwd);
   }
 
   /** 노드에 activeAgentIds + absolutePath + fileSize + satelliteFileCount 부착한 복사본 반환 */

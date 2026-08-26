@@ -12,6 +12,7 @@ import { TrashToolbar } from './components/BubbleMap/TrashToolbar.js';
 import { IframeView } from './components/Layout/IframeView.js';
 import { DetailPanel } from './components/Panel/DetailPanel.js';
 import { BrainLibraryOverlay } from './components/Panel/BrainLibraryOverlay.js';
+import { BrainActivationPanel } from './components/Panel/BrainActivationPanel.js';
 import { DebugPanel } from './components/Panel/DebugPanel.js';
 import { WorktreeDeleteDialog } from './components/Panel/WorktreeDeleteDialog.js';
 import { MediaConvertDialog } from './components/IDE/MediaConvertDialog.js';
@@ -143,6 +144,7 @@ export function App(): React.JSX.Element {
         )}
       </div>
       <BrainLibraryOverlay />
+      <BrainActivationPanel />
       {/* InspectorOverlay 는 main.tsx 에서 전역 1회 마운트 — 여기서 또 그리면 복사가 두 번 일어난다. */}
       <WorktreeDeleteDialog />
       {/* §5.10 v4.84 — 휴지통 영구 삭제 확인. 트리거(툴바·Delete 키)와 같은 창의 스토어를 보므로

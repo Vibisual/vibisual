@@ -802,10 +802,42 @@ function CommandBlock({ item, agentId }: { item: StreamCommand; agentId?: string
 /** §5.5 #17-24 ② — 라이브 1줄의 두 라벨(모드로 고른다). */
 interface LiveLabels { thinking: string; working: string }
 
+/**
+ * §4 (스트림 3종 ①) — **중첩 서브에이전트(Task)가 한 말**을 감싸는 껍데기.
+ *
+ * `--forward-subagent-text` 를 켜면 자식이 한 말이 부모 스트림에 그대로 섞여 온다. 감싸지 않으면
+ * 부모가 한 말과 구분되지 않아 "누가 한 말인지" 사라진다 — 왼쪽 세로선 + 갈래 표식으로 한눈에 가른다.
+ */
+function NestedFrame({ label, children }: { label: string; children: React.ReactNode }): React.JSX.Element {
+  return (
+    <div className="border-l-2 border-violet-400/40 pl-3">
+      <div className="mb-1 flex items-center gap-1 text-[12px] text-violet-300/80">
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="h-3.5 w-3.5"
+          aria-hidden="true"
+        >
+          <path d="M6 3v12" />
+          <circle cx="6" cy="18" r="3" />
+          <circle cx="18" cy="6" r="3" />
+          <path d="M15 6H9a3 3 0 0 0-3 3v3" />
+        </svg>
+        <span>{label}</span>
+      </div>
+      {children}
+    </div>
+  );
+}
+
 /** 단일 스트림 아이템 → 블록 엘리먼트. 북마크 이동 앵커용 `data-stream-item-id` 래퍼로 감싼다.
  *  zoom — IDE 본문 텍스트 줌 배율. **스크롤러(가상 리스트 뷰포트)가 아니라 각 항목 래퍼**에 걸어,
  *  Virtuoso 가 zoom 반영된 실제 항목 높이를 그대로 측정(가상화·스크롤 계산과 일관)하게 한다. */
-function renderStreamItem(item: StreamDisplayItem, liveLabels: LiveLabels, zoom: number, density: StreamDensity, lastTextId: string | null, feedbackCtx?: StreamFeedbackCtx, reviewCtx?: DiffReviewCtx): React.JSX.Element {
+function renderStreamItem(item: StreamDisplayItem, liveLabels: LiveLabels, zoom: number, density: StreamDensity, lastTextId: string | null, nestedLabel: string, feedbackCtx?: StreamFeedbackCtx, reviewCtx?: DiffReviewCtx): React.JSX.Element {
   let inner: React.JSX.Element;
   switch (item.kind) {
     // §5.5 #17-21 ② — 마지막 본문(lastTextId)만 간결에서도 통째로 보인다(지금 하는 말 = 결론).
@@ -827,6 +859,12 @@ function renderStreamItem(item: StreamDisplayItem, liveLabels: LiveLabels, zoom:
     case 'list':     inner = <AgentListCard list={item.list} live={item.live} />; break;
     case 'ask':      inner = <AskQuestionCard request={item.request} />; break;
   }
+  // §4 (스트림 3종 ①) — 중첩 서브에이전트가 낳은 줄이면 감싼다. 표식이 없는 항목은 종전과 완전히 같다.
+  const nestedUnder =
+    item.kind === 'text' || item.kind === 'tool' || item.kind === 'toolgroup'
+      ? item.nestedUnderToolUseId
+      : undefined;
+  if (nestedUnder) inner = <NestedFrame label={nestedLabel}>{inner}</NestedFrame>;
   // §5.5 — 놓친 카드 pill 이 관측할 앵커. 카드류(신고/질문/검수/목록)에만 표식.
   //   ⚠ data-card-id 는 stream item.id(`question-${q.id}` 등 접두어 포함)가 아니라 **raw 카드 id** 여야 한다.
   //   pill 의 cards 프롭(unseenCandidateCards)과 메인 탭 앵커가 모두 raw id 라, 접두어 id 로 두면 seen 추적·클릭
@@ -898,6 +936,9 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
     () => ({ thinking: t('ide.streamRenderer.thinking'), working: t('ide.streamRenderer.working') }),
     [t],
   );
+  // §4 (스트림 3종 ①) — 중첩 서브에이전트 껍데기의 라벨. `renderStreamItem` 은 컴포넌트가 아니라
+  //   함수라 훅을 못 쓰므로 `liveLabels` 와 같은 방식으로 번역문을 받아 넘긴다.
+  const nestedLabel = t('ide.streamRenderer.nestedSubagent');
   // IDE 본문 텍스트 줌 — 각 항목 래퍼에 zoom 적용(아래 renderStreamItem). 변경 시 itemContent 정체성이
   //   바뀌어 Virtuoso 가 전 항목을 재측정 → 새 배율로 정착(줌 조작은 드물어 비용 무관).
   const ideTextZoom = useGraphStore((s) => s.ideTextZoom);
@@ -921,8 +962,8 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
   );
   const itemContent = useCallback(
     (_index: number, item: StreamDisplayItem) =>
-      renderStreamItem(item, liveLabels, ideTextZoom, density, lastTextId, agentId ? { agentId, ...(subAgentId ? { subAgentId } : {}) } : undefined, reviewCtx),
-    [liveLabels, ideTextZoom, density, lastTextId, agentId, subAgentId, reviewCtx],
+      renderStreamItem(item, liveLabels, ideTextZoom, density, lastTextId, nestedLabel, agentId ? { agentId, ...(subAgentId ? { subAgentId } : {}) } : undefined, reviewCtx),
+    [liveLabels, ideTextZoom, density, lastTextId, nestedLabel, agentId, subAgentId, reviewCtx],
   );
 
   // v2.99 — virtuoso 가 단독 소유한 내부 스크롤러 DOM. 북마크 이동의 "컨테이너 한정 스크롤" 이 이걸 쓴다

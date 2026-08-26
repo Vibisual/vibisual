@@ -20,15 +20,14 @@ export interface SkillOrder {
 }
 
 /**
- * §5.5 #17-2 v3.19 — CLI 내장(built-in) 슬래시 명령. 서버가 Claude Code CLI 바이너리를
- * raw scan 해 추출(builtinCommandsService). `/` 자동완성 전용 — Skills 사이드바엔 안 나온다.
+ * §5.5 #17-2 — CLI 내장(built-in) 슬래시 명령. 서버가 Anthropic 공개 문서에서 뽑아 둔
+ * 목록(`BUILTIN_SLASH_COMMANDS`)을 그대로 실어 보낸다. `/` 자동완성 전용 — Skills 사이드바엔
+ * 안 나온다.
  */
 export interface BuiltinCommandInfo {
   name: string;
   description: string;
   aliases: string[];
-  /** CLI 가 헤드리스(비인터랙티브) 모드에서도 처리하는 명령인지. */
-  supportsNonInteractive: boolean;
 }
 
 interface SkillsState {
@@ -99,13 +98,12 @@ function normalizeBuiltins(raw: unknown): BuiltinCommandInfo[] {
   if (!Array.isArray(raw)) return [];
   const out: BuiltinCommandInfo[] = [];
   for (const x of raw) {
-    const r = x as { name?: unknown; description?: unknown; aliases?: unknown; supportsNonInteractive?: unknown };
+    const r = x as { name?: unknown; description?: unknown; aliases?: unknown };
     if (typeof r?.name !== 'string' || !r.name) continue;
     out.push({
       name: r.name,
       description: typeof r.description === 'string' ? r.description : '',
       aliases: Array.isArray(r.aliases) ? r.aliases.filter((a): a is string => typeof a === 'string') : [],
-      supportsNonInteractive: r.supportsNonInteractive === true,
     });
   }
   return out;

@@ -11,12 +11,14 @@ import { ScrollFade } from '../ScrollFade.js';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 import { CostPill } from './CostPill.js';
 
-// SCENARIO.md §4 v1.50 / v3.60 / v3.62 — 사용량 팝업.
+// SCENARIO.md §4 v1.50 / v3.60 — 사용량 팝업.
 //
-// 헤더 사용량 필을 클릭하면 열린다. v3.62 부터 **Claude 앱 `/usage` 와 같은 원천**(서버가
-// `GET /api/oauth/usage` 를 로컬 OAuth 토큰으로 직접 조회)을 1차로 그린다 — 인터랙티브 세션
-// 없이 즉시 뜨고, 플랜명·모델별 주간 한도·사용 크레딧까지 전부 들어온다.
-// statusLine 수집기(§4 v3.60)는 그 경로가 막혔을 때(로그인 정보 없음 등)만 폴백으로 노출한다.
+// 헤더 사용량 필을 클릭하면 열린다. 값의 원천은 **statusLine 수집기 하나**다(§4 v3.60) —
+// Claude Code 가 플랜 한도를 외부에 주는 공식 경로가 그것뿐이라, 수집기를 켜지 않았으면
+// 서버가 오류를 실어 보내고 이 팝업이 그 자리에서 설치 스위치를 노출한다.
+//
+// 구 v3.62 의 OAuth 직접 조회(모델별 주간 한도·사용 크레딧까지 담았다)는 약관 문제로
+// 걷어냈다. 그래서 `claudeUsage.limits` 에는 세션(5시간)과 주간 전체 두 줄만 온다.
 
 const API_BASE = '';
 

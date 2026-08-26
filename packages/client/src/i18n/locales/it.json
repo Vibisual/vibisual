@@ -860,6 +860,24 @@
         "label": "Modalità sicura (tutte le personalizzazioni disattivate)",
         "warn": "hook disattivati — l’attività non comparirà sulla mappa"
       },
+      "fastMode": {
+        "label": "Modalità Fast",
+        "hint": "lo stesso Opus, output più veloce",
+        "unsupported": "solo Opus 4.8 / Opus 5",
+        "tip": "Esegue lo stesso modello Opus con un output più veloce — non scende a un modello più piccolo. Non è un flag della CLI: un agente headless viene trattato come una sessione dell’Agent SDK e accetta la modalità Fast solo come opt-in dalle impostazioni, quindi Vibisual la inserisce nel file di impostazioni che scrive già per questo agente. I modelli che non la supportano ignorano l’impostazione senza alcun messaggio."
+      },
+      "forwardSubagentText": {
+        "label": "Mostra l’output dei subagenti",
+        "hint": "ciò che dicono e pensano gli agenti Task annidati"
+      },
+      "replayUserMessages": {
+        "label": "Conferma la ricezione del comando",
+        "hint": "un chip quando la CLI prende davvero il comando"
+      },
+      "promptSuggestions": {
+        "label": "Suggerisci il prossimo prompt",
+        "hint": "previsto dopo ogni turno"
+      },
       "betas": {
         "label": "Header beta",
         "tip": "Header beta inviati con le richieste API. Solo per utenti con chiave API — l’autenticazione ad abbonamento li ignora.",
@@ -1629,6 +1647,7 @@
       "historyHintPrev": "Premi ancora per l'ultimo comando",
       "historyHintNext": "Premi ancora per il comando più vecchio",
       "slashBuiltin": "integrato",
+      "slashNeedsTerminal": "richiede terminale",
       "slashEmpty": "Nessuna skill corrispondente",
       "slashLoading": "Caricamento skill…",
       "ctxCopy": "Copia",
@@ -2072,7 +2091,10 @@
         "openApp": "Apri in {{app}} — {{path}}",
         "openExternal": "Apri con l’app predefinita — {{path}}"
       },
-      "restartResumed": "Interrotto alla chiusura dell’app — ripreso sulla sessione salvata."
+      "restartResumed": "Interrotto alla chiusura dell’app — ripreso sulla sessione salvata.",
+      "nestedSubagent": "Subagente",
+      "commandReceived": "Comando ricevuto",
+      "promptSuggestion": "Prossimo prompt suggerito"
     },
     "report": {
       "title": "Report di lavoro",
@@ -2421,7 +2443,8 @@
         "toolSchemas": "Definizioni strumenti",
         "mcp": "Server MCP",
         "hooks": "Hook",
-        "systemPrompt": "System prompt di Claude Code"
+        "systemPrompt": "System prompt di Claude Code",
+        "brainSkills": "Procedure del cervello"
       },
       "hint": {
         "tools": "Scegli l'elenco strumenti in Impostazioni Agent",
@@ -2600,6 +2623,11 @@
             "what": "Gli hook di Claude Code che permettono a Vibisual di vedere questa sessione.",
             "more": "Registrati in settings.json. Aggiungono quasi nessun token, ma ogni evento passa da loro.",
             "off": "Gli hook si rimuovono in settings.json, non qui. Senza di essi Vibisual smette di vedere questa sessione."
+          },
+          "brainSkills": {
+            "what": "Procedure apprese in questo progetto, caricate se il compito corrisponde.",
+            "more": "Scelte tramite la descrizione, così si caricano solo quelle pertinenti.",
+            "off": "L'agente ricava di nuovo ogni procedura da zero."
           }
         },
         "cat": {
@@ -3484,7 +3512,15 @@
       "archived": "Archiviate",
       "archivedHint": "Memorie archiviate oltre il limite — non eliminate, puoi ripristinarle",
       "review": "In attesa di revisione",
-      "reviewHint": "Candidati che non sono ancora verità attuale: confermali per inviarli all’IA"
+      "reviewHint": "Candidati che non sono ancora verità attuale: confermali per inviarli all’IA",
+      "skills": "Procedure",
+      "skillsHint": "Procedure formate ripetendo lo stesso lavoro — caricate all’avvio",
+      "curator": "Da sistemare",
+      "curatorHint": "Ricordi senza argomento, mai letti o ancora candidati",
+      "skillDraft": "Bozza",
+      "skillVerified": "Confermato",
+      "skillUsed": "caricata {{count}} volte",
+      "skillHelpful": "utile {{count}} volte"
     },
     "currentBadge": "Verità attuale",
     "contestedBadge": "In conflitto",
@@ -3495,7 +3531,44 @@
     "confirmPromptContested": "I valori sono in conflitto a questo indirizzo: scegli quello giusto per inviarlo all’IA.",
     "confirmCurrent": "Conferma come attuale",
     "reject": "No",
-    "rejectTip": "Non viene eliminato nulla: resta come traccia ed è solo escluso dall’iniezione."
+    "rejectTip": "Non viene eliminato nulla: resta come traccia ed è solo escluso dall’iniezione.",
+    "axis": {
+      "skills": {
+        "title": "Memoria procedurale",
+        "hint": "Consolida la procedura e la ricarica automaticamente"
+      },
+      "recall": {
+        "title": "Richiamo",
+        "hint": "Cerca nelle sessioni passate, non solo nelle schede"
+      },
+      "nudge": {
+        "title": "Spinta",
+        "hint": "Ogni tanto invita ad annotare ciò che ha imparato"
+      },
+      "grounding": {
+        "title": "Verifica delle prove",
+        "hint": "Confronta col codice prima di segnare come confermato"
+      },
+      "curator": {
+        "title": "Curatore",
+        "hint": "Raccoglie i ricordi non classificati e mai letti"
+      },
+      "operator": {
+        "title": "Profilo dell'operatore",
+        "hint": "Annota le abitudini ricorrenti solo su questo dispositivo"
+      }
+    },
+    "activation": {
+      "sleeping": "Nel cervello di questo progetto dormono {{count}} ricordi. Attivare?",
+      "hint": "Il cervello è spento di default. Acceso, raccoglie le procedure apprese e le applica al compito successivo. Puoi spegnerlo quando vuoi: spegnerlo non cancella nulla.",
+      "turnOn": "Attiva",
+      "notNow": "Non ora",
+      "showAxes": "Vedi cosa viene attivato",
+      "hideAxes": "Nascondi dettagli",
+      "axesTitle": "Cosa lasciare attivo",
+      "turnOff": "Spegni il cervello",
+      "offKeepsData": "Spegnerlo non cancella nulla: riaccendendolo riprende da dov’era."
+    }
   },
   "commandCenter": {
     "windowTitle": "Centro di comando — {{name}}",

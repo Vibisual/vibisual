@@ -860,6 +860,24 @@
         "label": "Mode sûr (toutes les personnalisations désactivées)",
         "warn": "hooks désactivés — l’activité n’apparaîtra pas sur la carte"
       },
+      "fastMode": {
+        "label": "Mode Fast",
+        "hint": "le même Opus, sortie plus rapide",
+        "unsupported": "Opus 4.8 / Opus 5 uniquement",
+        "tip": "Exécute le même modèle Opus avec une sortie plus rapide — sans redescendre vers un modèle plus petit. Ce n’est pas une option de la CLI : un agent headless est traité comme une session Agent SDK et n’accepte le mode Fast que via les réglages, donc Vibisual l’ajoute au fichier de réglages qu’il écrit déjà pour cet agent. Les modèles non compatibles ignorent ce réglage sans aucun message."
+      },
+      "forwardSubagentText": {
+        "label": "Afficher la sortie des sous-agents",
+        "hint": "ce que disent et pensent les agents Task imbriqués"
+      },
+      "replayUserMessages": {
+        "label": "Confirmer la réception de la commande",
+        "hint": "une pastille quand la CLI prend réellement la commande"
+      },
+      "promptSuggestions": {
+        "label": "Suggérer le prochain prompt",
+        "hint": "prédit après chaque tour"
+      },
       "betas": {
         "label": "En-têtes bêta",
         "tip": "En-têtes bêta envoyés avec les requêtes API. Réservé aux clés API — ignoré avec l’authentification par abonnement.",
@@ -1629,6 +1647,7 @@
       "historyHintPrev": "Appuyez encore pour la dernière commande",
       "historyHintNext": "Appuyez encore pour la commande la plus ancienne",
       "slashBuiltin": "intégré",
+      "slashNeedsTerminal": "terminal requis",
       "slashEmpty": "Aucune compétence correspondante",
       "slashLoading": "Chargement des compétences…",
       "ctxCopy": "Copier",
@@ -2072,7 +2091,10 @@
         "openApp": "Ouvrir dans {{app}} — {{path}}",
         "openExternal": "Ouvrir avec l’app par défaut — {{path}}"
       },
-      "restartResumed": "Interrompu à l’arrêt de l’app — repris sur la session enregistrée."
+      "restartResumed": "Interrompu à l’arrêt de l’app — repris sur la session enregistrée.",
+      "nestedSubagent": "Sous-agent",
+      "commandReceived": "Commande reçue",
+      "promptSuggestion": "Prochain prompt suggéré"
     },
     "report": {
       "title": "Rapport de travail",
@@ -2421,7 +2443,8 @@
         "toolSchemas": "Définitions des outils",
         "mcp": "Serveurs MCP",
         "hooks": "Hooks",
-        "systemPrompt": "Prompt système de Claude Code"
+        "systemPrompt": "Prompt système de Claude Code",
+        "brainSkills": "Procédures du cerveau"
       },
       "hint": {
         "tools": "Choisissez la liste d'outils dans Paramètres de l'agent",
@@ -2600,6 +2623,11 @@
             "what": "Les hooks Claude Code qui permettent à Vibisual de voir cette session.",
             "more": "Enregistrés dans settings.json. Ils ajoutent presque aucun token, mais chaque événement y transite.",
             "off": "Les hooks sont retirés dans settings.json, pas ici. Sans eux, Vibisual cesse de voir cette session."
+          },
+          "brainSkills": {
+            "what": "Procédures acquises dans ce projet, chargées si la tâche correspond.",
+            "more": "Sélectionnées via leur description, seules les pertinentes sont chargées.",
+            "off": "L'agent réinvente chaque procédure depuis le début."
           }
         },
         "cat": {
@@ -3484,7 +3512,15 @@
       "archived": "Rangées",
       "archivedHint": "Mémoires archivées au-delà du quota — non supprimées, restaurables à tout moment",
       "review": "En attente de revue",
-      "reviewHint": "Candidats qui ne sont pas encore la vérité actuelle — confirmez-les pour les transmettre à l’IA"
+      "reviewHint": "Candidats qui ne sont pas encore la vérité actuelle — confirmez-les pour les transmettre à l’IA",
+      "skills": "Procédures",
+      "skillsHint": "Procédures façonnées par la répétition — chargées au début de la tâche",
+      "curator": "À ranger",
+      "curatorHint": "Souvenirs sans sujet, jamais lus, ou encore candidats",
+      "skillDraft": "Brouillon",
+      "skillVerified": "Confirmé",
+      "skillUsed": "chargé {{count}} fois",
+      "skillHelpful": "utile {{count}} fois"
     },
     "currentBadge": "Vérité actuelle",
     "contestedBadge": "En conflit",
@@ -3495,7 +3531,44 @@
     "confirmPromptContested": "Les valeurs divergent à cette adresse — choisissez la bonne pour la transmettre à l’IA.",
     "confirmCurrent": "Confirmer comme actuel",
     "reject": "Non",
-    "rejectTip": "Rien n’est supprimé — conservé comme trace, simplement exclu de l’injection."
+    "rejectTip": "Rien n’est supprimé — conservé comme trace, simplement exclu de l’injection.",
+    "axis": {
+      "skills": {
+        "title": "Mémoire procédurale",
+        "hint": "Fige les procédures et les recharge automatiquement ensuite"
+      },
+      "recall": {
+        "title": "Rappel",
+        "hint": "Cherche dans les sessions passées, pas seulement les cartes"
+      },
+      "nudge": {
+        "title": "Rappel doux",
+        "hint": "Rappelle de temps en temps de noter ce qui a été appris"
+      },
+      "grounding": {
+        "title": "Vérification des preuves",
+        "hint": "Confronte au code avant de marquer comme confirmé"
+      },
+      "curator": {
+        "title": "Curateur",
+        "hint": "Regroupe les souvenirs non classés et jamais lus"
+      },
+      "operator": {
+        "title": "Profil de l'opérateur",
+        "hint": "Note les habitudes récurrentes, sur cet appareil uniquement"
+      }
+    },
+    "activation": {
+      "sleeping": "{{count}} souvenirs dorment dans le cerveau de ce projet. Activer ?",
+      "hint": "Le cerveau est désactivé par défaut. Activé, il rassemble les procédures apprises et les applique à la tâche suivante. Vous pouvez le désactiver à tout moment, sans rien perdre.",
+      "turnOn": "Activer",
+      "notNow": "Pas maintenant",
+      "showAxes": "Voir ce qui sera activé",
+      "hideAxes": "Masquer les détails",
+      "axesTitle": "Ce qui reste activé",
+      "turnOff": "Désactiver le cerveau",
+      "offKeepsData": "La désactivation ne supprime rien : à la réactivation, tout reprend."
+    }
   },
   "commandCenter": {
     "windowTitle": "Centre de commande — {{name}}",

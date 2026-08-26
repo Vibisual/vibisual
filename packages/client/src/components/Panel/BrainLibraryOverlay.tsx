@@ -21,7 +21,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import type { BrainCard, BrainCardType, BrainTopicIndexEntry } from '@vibisual/shared';
+import type { BrainCard, BrainCardType, BrainTopicIndexEntry , BrainSkill } from '@vibisual/shared';
 import { BUBBLE_STYLES } from '@vibisual/shared';
 import { useGraphStore, selectEffectiveProject } from '../../stores/graphStore.js';
 import { setCanvasCover } from '../../stores/canvasVisibility.js';
@@ -30,6 +30,7 @@ import { useFloatingWindow, type FloatingWindowSnapshot } from '../../hooks/useF
 import { useIsNarrowViewport } from '../../hooks/useIsMobile.js';
 import { ScrollFade } from '../ScrollFade.js';
 import { BRAIN_ACCENT, CARD_TYPES, DocEntry, TYPE_LABEL_KEY } from './BrainLibraryDocEntry.js';
+import { BrainAxisSettings } from './BrainActivationPanel.js';
 
 const API_BASE = '';
 
@@ -60,10 +61,20 @@ const SPECIAL_NEEDS_CHECK = '__needs-check';
 const SPECIAL_ARCHIVE = '__archive';
 /** §5.10 v3.81 — 사람의 판단을 기다리는 카드(후보·충돌). SSOT 로 올라가려면 여기를 거친다. */
 const SPECIAL_REVIEW = '__review';
-type SpecialSlug = typeof SPECIAL_NEEDS_CHECK | typeof SPECIAL_ARCHIVE | typeof SPECIAL_REVIEW;
+/** §5.10 v2 (F) — 입양 대기(미분류·안 읽힘·후보). */
+const SPECIAL_CURATOR = '__curator';
+/** §5.10 v2 (B) — 절차 기억(스킬). 카드가 아니라 별도 자산이라 목록도 따로 그린다. */
+const SPECIAL_SKILLS = '__skills';
+type SpecialSlug =
+  | typeof SPECIAL_NEEDS_CHECK
+  | typeof SPECIAL_ARCHIVE
+  | typeof SPECIAL_REVIEW
+  | typeof SPECIAL_CURATOR
+  | typeof SPECIAL_SKILLS;
 
 function isSpecial(slug: string | null): slug is SpecialSlug {
-  return slug === SPECIAL_NEEDS_CHECK || slug === SPECIAL_ARCHIVE || slug === SPECIAL_REVIEW;
+  return slug === SPECIAL_NEEDS_CHECK || slug === SPECIAL_ARCHIVE || slug === SPECIAL_REVIEW
+    || slug === SPECIAL_CURATOR || slug === SPECIAL_SKILLS;
 }
 
 export function BrainLibraryOverlay(): React.JSX.Element | null {
@@ -100,6 +111,10 @@ export function BrainLibraryOverlay(): React.JSX.Element | null {
   const [archived, setArchived] = useState<BrainCard[]>([]);
   /** §5.10 v3.81 — 검토 큐(후보·충돌·확인 필요 중 키가 있는 카드). */
   const [reviewQueue, setReviewQueue] = useState<BrainCard[]>([]);
+  /** §5.10 v2 (F) — 입양 대기(미분류·안 읽힘·후보). 축이 꺼져 있으면 빈 배열로 남는다. */
+  const [curator, setCurator] = useState<BrainCard[]>([]);
+  /** §5.10 v2 (B) — 절차 기억. 카드가 아니라 별도 자산이라 따로 담는다. */
+  const [skills, setSkills] = useState<BrainSkill[]>([]);
   /** 창 자기 폭 기준 좁은 레이아웃(뷰포트 미디어쿼리 ❌ — 창이 리사이즈된다). */
   const [compact, setCompact] = useState(false);
 
@@ -193,7 +208,10 @@ export function BrainLibraryOverlay(): React.JSX.Element | null {
 
   // §5.10 v3.78 — 특수 항목(확인 필요 · 정리됨) 조회. 주제 목록과 같은 주기로 새로 받는다.
   useEffect(() => {
-    if (!open || !project) { setNeedsCheck([]); setArchived([]); setReviewQueue([]); return undefined; }
+    if (!open || !project) {
+      setNeedsCheck([]); setArchived([]); setReviewQueue([]); setCurator([]); setSkills([]);
+      return undefined;
+    }
     let cancelled = false;
     void (async () => {
       const p = new URLSearchParams({ project });
@@ -206,11 +224,23 @@ export function BrainLibraryOverlay(): React.JSX.Element | null {
           return ((await res.json()) as { cards?: BrainCard[] }).cards ?? [];
         } catch { return []; }
       };
-      const [nc, ar, rv] = await Promise.all([grab('needs-check'), grab('archive'), grab('review-queue')]);
+      // §5.10 v2 — 큐레이터·스킬은 축이 꺼져 있으면 403 이라 빈 배열이 된다(그러면 레일도 안 선다).
+      const grabSkills = async (): Promise<BrainSkill[]> => {
+        try {
+          const res = await fetch(`${API_BASE}/api/brain/skills?${p.toString()}`);
+          if (!res.ok) return [];
+          return ((await res.json()) as { skills?: BrainSkill[] }).skills ?? [];
+        } catch { return []; }
+      };
+      const [nc, ar, rv, cu, sk] = await Promise.all([
+        grab('needs-check'), grab('archive'), grab('review-queue'), grab('curator'), grabSkills(),
+      ]);
       if (cancelled) return;
       setNeedsCheck(nc);
       setArchived(ar);
       setReviewQueue(rv);
+      setCurator(cu);
+      setSkills(sk);
     })();
     return () => { cancelled = true; };
   }, [open, project, scope, agentId, refetchNonce]);
@@ -260,9 +290,12 @@ export function BrainLibraryOverlay(): React.JSX.Element | null {
     else if (activeSlug === SPECIAL_NEEDS_CHECK) base = needsCheck;
     else if (activeSlug === SPECIAL_ARCHIVE) base = archived;
     else if (activeSlug === SPECIAL_REVIEW) base = reviewQueue;
+    else if (activeSlug === SPECIAL_CURATOR) base = curator;
+    // 스킬은 카드가 아니라 별도 자산이라 이 목록을 쓰지 않는다(아래에서 따로 그린다).
+    else if (activeSlug === SPECIAL_SKILLS) base = [];
     else base = cards ?? [];
     return typeFilter.size === 0 ? base : base.filter((c) => typeFilter.has(c.type));
-  }, [debouncedQuery, searchResults, cards, typeFilter, activeSlug, needsCheck, archived, reviewQueue]);
+  }, [debouncedQuery, searchResults, cards, typeFilter, activeSlug, needsCheck, archived, reviewQueue, curator]);
 
   // 화면에 보이는 미확인 카드 자동 seen 신고(디바운스 + 중복 방지). 셰이드 중엔 보이지 않으므로 ❌.
   useEffect(() => {
@@ -358,6 +391,26 @@ export function BrainLibraryOverlay(): React.JSX.Element | null {
       hint: t('brain.library.reviewHint', { defaultValue: '아직 현재 진실이 아닌 후보 — 확인해야 AI 에게 전달됩니다' }),
       count: reviewQueue.length,
       color: ACCENT,
+    });
+  }
+  // §5.10 v2 (B) — 절차 기억. 카드보다 먼저 보여 준다 — 이쪽이 작업 시점에 자동으로 걸리는 자산이다.
+  if (skills.length > 0) {
+    specials.push({
+      slug: SPECIAL_SKILLS,
+      title: t('brain.library.skills', { defaultValue: '절차 기억' }),
+      hint: t('brain.library.skillsHint', { defaultValue: '같은 일을 하며 굳어진 절차 — 그 작업을 시작할 때 자동으로 실립니다' }),
+      count: skills.length,
+      color: '#0EA5E9',
+    });
+  }
+  // §5.10 v2 (F) — 입양 대기. 흩어져 있으면 아무도 손대지 않으므로 한 자리에 모은다.
+  if (curator.length > 0) {
+    specials.push({
+      slug: SPECIAL_CURATOR,
+      title: t('brain.library.curator', { defaultValue: '손볼 것' }),
+      hint: t('brain.library.curatorHint', { defaultValue: '분류가 안 됐거나, 한 번도 안 읽혔거나, 아직 후보인 기억' }),
+      count: curator.length,
+      color: '#8B5CF6',
     });
   }
   if (archived.length > 0) {
@@ -609,6 +662,10 @@ export function BrainLibraryOverlay(): React.JSX.Element | null {
                     )}
                   </div>
                 </ScrollFade>
+                {/* §5.10 v2 (H) — 켠 뒤의 조정 자리. 두뇌를 끄는 것도 여기서 한다. */}
+                <div className="border-t border-zinc-800 px-2 py-2">
+                  <BrainAxisSettings />
+                </div>
               </nav>
             )}
 
@@ -641,7 +698,40 @@ export function BrainLibraryOverlay(): React.JSX.Element | null {
                   </div>
                 ) : null}
 
-                {loading && shown.length === 0 && (
+                {/* §5.10 v2 (B) — 절차 기억은 카드가 아니라 별도 자산이라 목록도 따로 그린다. */}
+                {activeSlug === SPECIAL_SKILLS && (
+                  <ul className="space-y-2">
+                    {skills.map((s) => (
+                      <li key={s.id} className="rounded border border-zinc-800 bg-zinc-900/60 p-3">
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-[15px] font-semibold text-zinc-100">{s.name}</span>
+                          <span className="font-mono text-[12px] text-zinc-600">v{s.version}</span>
+                          {s.status === 'draft' && (
+                            <span className="rounded bg-amber-900/40 px-1.5 py-0.5 text-[12px] text-amber-300">
+                              {t('brain.library.skillDraft', { defaultValue: '초안' })}
+                            </span>
+                          )}
+                          {s.verifyState === 'verified' && (
+                            <span className="rounded bg-emerald-900/40 px-1.5 py-0.5 text-[12px] text-emerald-300">
+                              {t('brain.library.skillVerified', { defaultValue: '확인됨' })}
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-1 text-xs leading-relaxed text-zinc-400">{s.description}</p>
+                        <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-zinc-950/60 p-2 text-[12px] leading-relaxed text-zinc-300">
+                          {s.body}
+                        </pre>
+                        <div className="mt-1.5 flex flex-wrap gap-3 font-mono text-[12px] text-zinc-600">
+                          <span>{t('brain.library.skillUsed', { count: s.refCount, defaultValue: '실림 {{count}}회' })}</span>
+                          <span>{t('brain.library.skillHelpful', { count: s.helpfulCount ?? 0, defaultValue: '도움 {{count}}회' })}</span>
+                          {s.topic && <span>{s.topic}</span>}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                {loading && shown.length === 0 && activeSlug !== SPECIAL_SKILLS && (
                   <p className="py-10 text-center text-xs text-zinc-600">{t('brain.library.loading', { defaultValue: '읽는 중…' })}</p>
                 )}
 

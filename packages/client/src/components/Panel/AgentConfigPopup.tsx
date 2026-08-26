@@ -17,6 +17,8 @@ import {
   LOCAL_DEFAULT_CONTEXT_SIZE,
   LOCAL_TOOL_NAMES,
   isOpusModel,
+  supportsFastMode,
+  isForwardSubagentTextEnabled,
   resolveAliasToLatest,
   listModelFamilies,
   listEffortLevels,
@@ -554,6 +556,13 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
   const [excludeDynamicSections, setExcludeDynamicSections] = useState(base.excludeDynamicSystemPromptSections === true);
   const [settingSources, setSettingSources] = useState<string[]>([...(base.settingSources ?? [])]);
   const [safeMode, setSafeMode] = useState(base.safeMode === true);
+  // §4 (Fast 모드) — 같은 Opus 를 출력 속도만 빠르게. 플래그가 아니라 settings 키라 서버가
+  //   `--settings` 파일 한 장에 실어 보낸다. 미설정(false) 이면 그 키 자체가 안 생긴다.
+  const [fastMode, setFastMode] = useState(base.fastMode === true);
+  // §4 (스트림 3종) — CLI 가 주는데 우리가 안 받던 것들. ①은 기본 켬이라 판정 함수를 거친다.
+  const [forwardSubagentText, setForwardSubagentText] = useState(isForwardSubagentTextEnabled(base.forwardSubagentText));
+  const [replayUserMessages, setReplayUserMessages] = useState(base.replayUserMessages === true);
+  const [promptSuggestions, setPromptSuggestions] = useState(base.promptSuggestions === true);
   const [betas, setBetas] = useState((base.betas ?? []).join(', '));
   // §4 (CLI 사양 추종) — Bash 타임아웃(초). 0 = 미설정. 상한 쪽이 "600초에서 걸린다"를 푸는 축.
   const [bashDefaultTimeoutSec, setBashDefaultTimeoutSec] = useState(bashMsToSec(base.bashDefaultTimeoutMs));
@@ -726,6 +735,13 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
     return base + suffix;
   }, [model, modelVersion, contextWindow]);
 
+  // §4 (Fast 모드) — Opus 계열에서만 실제로 켜진다. 판정 대상은 `--model` 로 나가는 값과 같아야
+  //   하므로 풀ID 핀을 alias 보다 먼저 본다(서버 `wantsFastMode` 와 같은 규칙).
+  const fastModeSupported = useMemo(
+    () => supportsFastMode(modelVersion?.trim() || model),
+    [model, modelVersion],
+  );
+
   const removeTool = useCallback((t: string) => setTools((p) => p.filter((x) => x !== t)), []);
   const removeSkill = useCallback((s: string) => setSkills((p) => p.filter((x) => x !== s)), []);
 
@@ -789,6 +805,13 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
     excludeDynamicSystemPromptSections: excludeDynamicSections ? true : undefined,
     settingSources: settingSources.length > 0 ? settingSources : undefined,
     safeMode: safeMode ? true : undefined,
+    // §4 (Fast 모드) — 지원 모델일 때만 저장한다. 모델을 바꾼 뒤에도 값이 남아 있으면
+    //   나중에 그 모델로 되돌렸을 때 사용자가 켠 적 없는 Fast 가 되살아난다.
+    fastMode: fastMode && fastModeSupported ? true : undefined,
+    // §4 (스트림 3종) — ①은 켬이 기본이라 **끌 때만** 값을 남긴다(undefined = 켬).
+    forwardSubagentText: forwardSubagentText ? undefined : false,
+    replayUserMessages: replayUserMessages ? true : undefined,
+    promptSuggestions: promptSuggestions ? true : undefined,
     betas: (() => {
       const parsed = betas.split(',').map((b) => b.trim()).filter(Boolean);
       return parsed.length > 0 ? parsed : undefined;
@@ -806,7 +829,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
     memory, subagentDepth,
     isOpus, disallowedTools, rules, customMode,
     contextWindow, presetId, modelVersion, mcpServers,
-    fallbackModel, autoCompact, excludeDynamicSections, settingSources, safeMode, betas,
+    fallbackModel, autoCompact, excludeDynamicSections, settingSources, safeMode, fastMode, fastModeSupported, forwardSubagentText, replayUserMessages, promptSuggestions, betas,
     bashDefaultTimeoutSec, bashMaxTimeoutSec,
     isLocal, buildLocalProvider,
   ]);
@@ -1018,6 +1041,43 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                   </span>
                 </label>
               )}
+
+              {/* §4 (Fast 모드) — 같은 Opus 를 출력 속도만 빠르게. 지원하지 않는 모델에서는 CLI 가
+                  사유도 없이 조용히 무시하므로, 숨기지 않고 **비활성 + 이유**로 보여 준다. */}
+              <label
+                className={`mt-1 flex items-center gap-2 rounded border px-2.5 py-1.5 ${
+                  fastModeSupported
+                    ? 'cursor-pointer border-gray-700/60 bg-gray-900/40 hover:border-gray-600'
+                    : 'cursor-not-allowed border-gray-800/60 bg-gray-900/20'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={fastMode && fastModeSupported}
+                  disabled={!fastModeSupported}
+                  onChange={(e) => setFastMode(e.target.checked)}
+                  className="h-3.5 w-3.5 accent-blue-500 disabled:cursor-not-allowed"
+                />
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className={`h-3.5 w-3.5 ${fastModeSupported ? 'text-sky-400' : 'text-gray-600'}`}
+                  aria-hidden="true"
+                >
+                  <path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z" />
+                </svg>
+                <span className={`text-xs ${fastModeSupported ? 'text-gray-300' : 'text-gray-600'}`}>
+                  {t('panel.agentConfig.fastMode.label')}
+                  <span className="ml-1 text-gray-600">
+                    {fastModeSupported ? t('panel.agentConfig.fastMode.hint') : t('panel.agentConfig.fastMode.unsupported')}
+                  </span>
+                </span>
+                <InfoTip text={t('panel.agentConfig.fastMode.tip')} />
+              </label>
             </div>
             )}
 
@@ -1546,6 +1606,43 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                 <span>
                   {t('panel.agentConfig.safeMode.label')}
                   <span className="ml-1 text-amber-500/80">{t('panel.agentConfig.safeMode.warn')}</span>
+                </span>
+              </label>
+              {/* §4 (스트림 3종) — CLI 가 주는데 우리가 안 받던 것들. ①만 기본 켬. */}
+              <label className="flex items-start gap-2 text-[12px] text-gray-400">
+                <input
+                  type="checkbox"
+                  checked={forwardSubagentText}
+                  onChange={(e) => setForwardSubagentText(e.target.checked)}
+                  className="mt-0.5 h-3.5 w-3.5 accent-violet-500"
+                />
+                <span>
+                  {t('panel.agentConfig.forwardSubagentText.label')}
+                  <span className="ml-1 text-gray-600">{t('panel.agentConfig.forwardSubagentText.hint')}</span>
+                </span>
+              </label>
+              <label className="flex items-start gap-2 text-[12px] text-gray-400">
+                <input
+                  type="checkbox"
+                  checked={replayUserMessages}
+                  onChange={(e) => setReplayUserMessages(e.target.checked)}
+                  className="mt-0.5 h-3.5 w-3.5 accent-blue-500"
+                />
+                <span>
+                  {t('panel.agentConfig.replayUserMessages.label')}
+                  <span className="ml-1 text-gray-600">{t('panel.agentConfig.replayUserMessages.hint')}</span>
+                </span>
+              </label>
+              <label className="flex items-start gap-2 text-[12px] text-gray-400">
+                <input
+                  type="checkbox"
+                  checked={promptSuggestions}
+                  onChange={(e) => setPromptSuggestions(e.target.checked)}
+                  className="mt-0.5 h-3.5 w-3.5 accent-blue-500"
+                />
+                <span>
+                  {t('panel.agentConfig.promptSuggestions.label')}
+                  <span className="ml-1 text-gray-600">{t('panel.agentConfig.promptSuggestions.hint')}</span>
                 </span>
               </label>
               <div className="flex flex-col gap-1">

@@ -860,6 +860,24 @@
         "label": "Modo seguro (todas as personalizações desligadas)",
         "warn": "hooks desligados — a atividade não aparecerá no mapa"
       },
+      "fastMode": {
+        "label": "Modo Fast",
+        "hint": "o mesmo Opus, saída mais rápida",
+        "unsupported": "somente Opus 4.8 / Opus 5",
+        "tip": "Executa o mesmo modelo Opus com saída mais rápida — não rebaixa para um modelo menor. Não é uma opção da CLI: um agente headless é tratado como uma sessão do Agent SDK e só aceita o modo Fast ativado pelas configurações, então o Vibisual o inclui no arquivo de configurações que já escreve para este agente. Modelos sem suporte ignoram a configuração sem nenhum aviso."
+      },
+      "forwardSubagentText": {
+        "label": "Mostrar a saída dos subagentes",
+        "hint": "o que os agentes Task aninhados dizem e pensam"
+      },
+      "replayUserMessages": {
+        "label": "Confirmar o recebimento do comando",
+        "hint": "um chip quando a CLI realmente recebe o comando"
+      },
+      "promptSuggestions": {
+        "label": "Sugerir o próximo prompt",
+        "hint": "previsto após cada turno"
+      },
       "betas": {
         "label": "Cabeçalhos beta",
         "tip": "Cabeçalhos beta enviados nas requisições de API. Apenas para usuários com chave de API — a autenticação por assinatura ignora.",
@@ -1629,6 +1647,7 @@
       "historyHintPrev": "Pressione de novo para o último comando",
       "historyHintNext": "Pressione de novo para o comando mais antigo",
       "slashBuiltin": "nativo",
+      "slashNeedsTerminal": "requer terminal",
       "slashEmpty": "Nenhuma habilidade correspondente",
       "slashLoading": "Carregando habilidades…",
       "ctxCopy": "Copiar",
@@ -2072,7 +2091,10 @@
         "openApp": "Abrir no {{app}} — {{path}}",
         "openExternal": "Abrir com o app padrão — {{path}}"
       },
-      "restartResumed": "Interrompido ao fechar o app — retomado na sessão salva."
+      "restartResumed": "Interrompido ao fechar o app — retomado na sessão salva.",
+      "nestedSubagent": "Subagente",
+      "commandReceived": "Comando recebido",
+      "promptSuggestion": "Próximo prompt sugerido"
     },
     "report": {
       "title": "Relatório de trabalho",
@@ -2421,7 +2443,8 @@
         "toolSchemas": "Definições de ferramentas",
         "mcp": "Servidores MCP",
         "hooks": "Hooks",
-        "systemPrompt": "Prompt de sistema do Claude Code"
+        "systemPrompt": "Prompt de sistema do Claude Code",
+        "brainSkills": "Procedimentos do cérebro"
       },
       "hint": {
         "tools": "Escolha a lista de ferramentas nas Configurações do agente",
@@ -2600,6 +2623,11 @@
             "what": "Os hooks do Claude Code que permitem ao Vibisual sequer enxergar esta sessão.",
             "more": "Registrados no settings.json. Eles quase não adicionam tokens, mas todo evento passa por eles.",
             "off": "Hooks são removidos no settings.json, não aqui. Sem eles, o Vibisual deixa de enxergar esta sessão."
+          },
+          "brainSkills": {
+            "what": "Procedimentos aprendidos neste projeto, carregados quando a tarefa combina.",
+            "more": "Selecionados pela descrição, então só os relevantes são carregados.",
+            "off": "O agente deduz cada procedimento do zero outra vez."
           }
         },
         "cat": {
@@ -3484,7 +3512,15 @@
       "archived": "Arquivadas",
       "archivedHint": "Memórias arquivadas por exceder o limite — não foram excluídas, você pode restaurá-las",
       "review": "Aguardando revisão",
-      "reviewHint": "Candidatos que ainda não são a verdade atual — confirme para que cheguem à IA"
+      "reviewHint": "Candidatos que ainda não são a verdade atual — confirme para que cheguem à IA",
+      "skills": "Procedimentos",
+      "skillsHint": "Procedimentos moldados pela repetição — carregados ao iniciar o trabalho",
+      "curator": "A organizar",
+      "curatorHint": "Memórias sem tema, nunca lidas ou ainda candidatas",
+      "skillDraft": "Rascunho",
+      "skillVerified": "Confirmado",
+      "skillUsed": "carregado {{count}}x",
+      "skillHelpful": "ajudou {{count}}x"
     },
     "currentBadge": "Verdade atual",
     "contestedBadge": "Em conflito",
@@ -3495,7 +3531,44 @@
     "confirmPromptContested": "Os valores conflitam neste endereço — escolha o correto para enviá-lo à IA.",
     "confirmCurrent": "Confirmar como atual",
     "reject": "Não",
-    "rejectTip": "Nada é excluído — permanece como registro e só fica fora da injeção."
+    "rejectTip": "Nada é excluído — permanece como registro e só fica fora da injeção.",
+    "axis": {
+      "skills": {
+        "title": "Memória de procedimentos",
+        "hint": "Fixa o procedimento e o carrega automaticamente na próxima vez"
+      },
+      "recall": {
+        "title": "Recordação",
+        "hint": "Procura em sessões anteriores, não só nos cartões"
+      },
+      "nudge": {
+        "title": "Cutucada",
+        "hint": "De vez em quando pede para anotar o que aprendeu"
+      },
+      "grounding": {
+        "title": "Verificação de evidência",
+        "hint": "Confere com o código antes de marcar como confirmado"
+      },
+      "curator": {
+        "title": "Curador",
+        "hint": "Reúne memórias sem classificação e nunca lidas"
+      },
+      "operator": {
+        "title": "Perfil do operador",
+        "hint": "Registra preferências recorrentes só nesta máquina"
+      }
+    },
+    "activation": {
+      "sleeping": "{{count}} memórias estão adormecidas no cérebro deste projeto. Ativar?",
+      "hint": "O cérebro vem desligado. Ligado, ele reúne os procedimentos aprendidos e os aplica na próxima tarefa. Você pode desligar quando quiser — desligar não apaga nada.",
+      "turnOn": "Ativar",
+      "notNow": "Agora não",
+      "showAxes": "Ver o que será ativado",
+      "hideAxes": "Ocultar detalhes",
+      "axesTitle": "O que manter ativo",
+      "turnOff": "Desligar o cérebro",
+      "offKeepsData": "Desligar não apaga nada — ao religar, continua de onde parou."
+    }
   },
   "commandCenter": {
     "windowTitle": "Centro de comando — {{name}}",

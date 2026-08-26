@@ -1,9 +1,10 @@
-import { memo, useCallback, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { AgentQuestions } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { CardLiveBadge } from './AgentCardParts.js';
 import { selectionTextWithin, useSelectionWithin } from './cardSelection.js';
+import { promptOverlayReserve, PROMPT_RESERVE_FALLBACK_PX } from './promptOverlayReserve.js';
 import { buildQuestionCardText, buildQuestionsOnlyText, buildSingleQuestionText } from './questionCardText.js';
 
 interface AgentQuestionCardProps {
@@ -246,6 +247,34 @@ const PromptBox = memo(function PromptBox({
   const getPromptText = useCallback(() => (inert ? '' : prompt), [prompt, inert]);
   const { copied, onCopy } = useCopyAction(getPromptText);
 
+  // 우상단 버튼 묶음이 실제로 먹는 폭을 재서 본문이 그만큼 비켜 가게 한다.
+  //
+  // 종전엔 `pr-20`(80px) 상수로 잡았는데 즉시 전송 버튼에는 번역되는 글자 라벨이 붙는다 — 라벨이
+  // 길면 묶음이 80px 을 넘어 프롬프트 **첫 줄이 버튼 밑으로 파고들어 글자가 가려졌다**. 폭을 흔드는
+  // 것은 언어만이 아니라 전송 뒤 라벨 교체·글꼴 뒤늦은 로드까지라 상수로는 못 맞춘다(→ 실측).
+  const boxRef = useRef<HTMLDivElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const [reserve, setReserve] = useState(PROMPT_RESERVE_FALLBACK_PX);
+  useLayoutEffect(() => {
+    const overlay = overlayRef.current;
+    const box = boxRef.current;
+    if (!overlay || !box) return undefined;
+    const apply = (): void => {
+      setReserve(promptOverlayReserve(
+        overlay.getBoundingClientRect().width,
+        box.getBoundingClientRect().width,
+      ));
+    };
+    apply(); // 라벨 교체(즉시 전송→전송됨)·언어 전환은 리렌더로 여기서 다시 잡힌다.
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    // 글꼴 로드·창/분할 폭 변화는 리렌더 없이 폭만 바꾸므로 관측이 따로 필요하다.
+    // (예약 폭이 바뀌면 상자 높이가 변해 관측이 한 번 더 돌지만, 같은 값이면 setState 가 멈춘다.)
+    const ro = new ResizeObserver(apply);
+    ro.observe(overlay);
+    ro.observe(box);
+    return () => ro.disconnect();
+  }, [copied, wasSent, inert, t]);
+
   return (
     <div className="group/prompt mt-1.5 flex items-start gap-2">
       {selectable && (
@@ -256,17 +285,20 @@ const PromptBox = memo(function PromptBox({
           label={t('ide.question.selectAnswer')}
         />
       )}
-      <div className="relative min-w-0 flex-1">
-        <pre className={`scrollbar-thin overflow-x-auto whitespace-pre-wrap break-words rounded border py-2 pl-2.5 pr-20 font-mono text-[12px] leading-relaxed transition-opacity ${
-          dimmed
-            ? 'border-gray-700/40 bg-gray-800/30 text-gray-500 opacity-50'
-            : checked
-              ? 'border-sky-500/40 bg-sky-500/10 text-gray-100'
-              : 'border-gray-700/60 bg-gray-800/60 text-gray-200'
-        }`}>
+      <div ref={boxRef} className="relative min-w-0 flex-1">
+        <pre
+          style={{ paddingRight: reserve }}
+          className={`scrollbar-thin overflow-x-auto whitespace-pre-wrap break-words rounded border py-2 pl-2.5 font-mono text-[12px] leading-relaxed transition-opacity ${
+            dimmed
+              ? 'border-gray-700/40 bg-gray-800/30 text-gray-500 opacity-50'
+              : checked
+                ? 'border-sky-500/40 bg-sky-500/10 text-gray-100'
+                : 'border-gray-700/60 bg-gray-800/60 text-gray-200'
+          }`}
+        >
           {prompt}
         </pre>
-        <div className="absolute right-1.5 top-1.5 flex items-center gap-1">
+        <div ref={overlayRef} className="absolute right-1.5 top-1.5 flex items-center gap-1">
           <button
             type="button"
             onClick={onCopy}

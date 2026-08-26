@@ -3,7 +3,10 @@ import { READ_TOOLS } from '@vibisual/shared';
 
 /**
  * 엣지 생명주기 관리.
- * - 버블 쌍당 최대 2개 (read 방향 / write 방향)
+ * - **버블 쌍당 방향은 하나** (§2.1 #3) — 방향이 뒤집히면 반대 방향 엣지를 **삭제**한다.
+ *   종전엔 `isActive=false` 로만 내려 읽고→고친 쌍에 회색 읽기 화살표와 컬러 쓰기 화살표가
+ *   동시에 걸린 채 남았다(실측: inner 1,228쌍 중 426쌍). 단 **다른 에이전트가 아직 그 방향을
+ *   쓰고 있으면(ref ≥ 1) 남긴다** — 여러 에이전트가 같은 파일을 읽고 쓰는 진실을 지우면 더 나쁘다.
  * - 버블과 운명 공동체 — 버블이 사라지기 전까진 유지
  * - 에이전트 ref 스택: ref >= 1 → active, ref == 0 → idle
  *
@@ -31,20 +34,16 @@ export class EdgeManager {
     const direction = isRead ? 'read' : 'write';
     const now = Date.now();
 
-    // 방향 기반 ID — 버블 쌍당 read 1개 + write 1개
+    // 방향 기반 ID — 같은 쌍의 반대 방향은 여기서 정리된다(한 쌍에 방향 하나).
     const edgeId = `${groupKey}-${source.id}-${target.id}-${direction}`;
     const oppositeId = `${groupKey}-${source.id}-${target.id}-${isRead ? 'write' : 'read'}`;
 
-    // 반대 방향 엣지에서 이 에이전트 ref 제거 → ref 0이면 idle
-    if (agentId) {
-      const oppositeRefs = this.agentRefs.get(oppositeId);
-      if (oppositeRefs) {
-        oppositeRefs.delete(agentId);
-        if (oppositeRefs.size === 0) {
-          const opp = this.edges.get(oppositeId);
-          if (opp) opp.isActive = false;
-        }
-      }
+    // 반대 방향 엣지에서 이 에이전트 ref 제거 → 남은 ref 가 없으면 그 방향은 **삭제**한다.
+    // (남겨 두면 회색 유령 화살표가 반대 방향으로 영구히 걸린 채 남는다.)
+    const oppositeRefs = this.agentRefs.get(oppositeId);
+    if (agentId) oppositeRefs?.delete(agentId);
+    if (this.edges.has(oppositeId) && (!oppositeRefs || oppositeRefs.size === 0)) {
+      this.deleteEdge(oppositeId);
     }
 
     const existing = this.edges.get(edgeId);
@@ -69,6 +68,51 @@ export class EdgeManager {
     this.groupMap.set(edgeId, groupKey);
     if (agentId) this.addRef(edgeId, agentId);
     return edge;
+  }
+
+  /** 엣지 1개를 장부 3곳(엣지·그룹·ref)에서 함께 지운다 — 한 곳만 지우면 유령 항목이 남는다. */
+  private deleteEdge(edgeId: string): void {
+    this.edges.delete(edgeId);
+    this.groupMap.delete(edgeId);
+    this.agentRefs.delete(edgeId);
+  }
+
+  /**
+   * §2.1 #3 — 한 쌍에 방향 하나. 같은 (group, 버블쌍)에 read·write 가 **둘 다** 남아 있으면
+   * 하나만 남긴다. 우선순위는 **활성 우선 → 그다음 최신 `timestamp`**.
+   *
+   * 이 규칙이 생기기 전 체크포인트에는 양방향 잔여쌍이 이미 쌓여 있어(실측 426쌍), 복원 직후
+   * 한 번 훑어 정리하지 않으면 옛 유령 화살표가 그대로 되살아난다.
+   *
+   * @returns 지운 엣지 수
+   */
+  pruneOppositePairs(): number {
+    const pairs = new Map<string, { read?: string; write?: string }>();
+    for (const id of this.edges.keys()) {
+      const m = id.match(/^(.*)-(read|write)$/);
+      if (!m) continue;
+      const entry = pairs.get(m[1]!) ?? {};
+      entry[m[2] as 'read' | 'write'] = id;
+      pairs.set(m[1]!, entry);
+    }
+
+    let removed = 0;
+    for (const { read, write } of pairs.values()) {
+      if (!read || !write) continue;
+      const a = this.edges.get(read);
+      const b = this.edges.get(write);
+      if (!a || !b) continue;
+      const loser = this.weakerEdge(a, b);
+      this.deleteEdge(loser.id);
+      removed++;
+    }
+    return removed;
+  }
+
+  /** 같은 쌍의 두 방향 중 **버릴 쪽** — 활성이 이기고, 둘 다 같으면 오래된 쪽이 진다. */
+  private weakerEdge(a: ActivityEdge, b: ActivityEdge): ActivityEdge {
+    if (a.isActive !== b.isActive) return a.isActive ? b : a;
+    return a.timestamp >= b.timestamp ? b : a;
   }
 
   /** 에이전트 ref 추가 */
@@ -158,6 +202,7 @@ export class EdgeManager {
     this.edges = new Map(data.edges);
     this.groupMap = new Map(data.groups);
     this.agentRefs = new Map(data.refs.map(([k, v]) => [k, new Set(v)]));
+    this.pruneOppositePairs();
   }
 
   /** 복원 (v2 — Record 기반) */
@@ -167,6 +212,7 @@ export class EdgeManager {
     this.agentRefs = new Map(
       Object.entries(data.refs).map(([k, v]) => [k, new Set(v)]),
     );
+    this.pruneOppositePairs();
   }
 
   /** 노드 id 재해싱 이후 엣지 source/target/edgeId/groupKey 를 일괄 remap.
@@ -212,5 +258,6 @@ export class EdgeManager {
         this.agentRefs.set(k, new Set(v));
       }
     }
+    this.pruneOppositePairs();
   }
 }

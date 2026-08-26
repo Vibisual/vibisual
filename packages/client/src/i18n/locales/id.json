@@ -860,6 +860,24 @@
         "label": "Mode aman (semua kustomisasi mati)",
         "warn": "hook mati — aktivitasnya tidak akan tampak di peta"
       },
+      "fastMode": {
+        "label": "Mode Fast",
+        "hint": "Opus yang sama, keluaran lebih cepat",
+        "unsupported": "hanya Opus 4.8 / Opus 5",
+        "tip": "Menjalankan model Opus yang sama dengan keluaran lebih cepat — bukan turun ke model yang lebih kecil. Ini bukan flag CLI: agen headless diperlakukan sebagai sesi Agent SDK dan hanya menerima mode Fast bila diaktifkan lewat setelan, jadi Vibisual menaruhnya di berkas setelan yang memang sudah ditulis untuk agen ini. Model yang tidak mendukungnya mengabaikan setelan itu tanpa pesan apa pun."
+      },
+      "forwardSubagentText": {
+        "label": "Tampilkan keluaran subagen",
+        "hint": "apa yang dikatakan dan dipikirkan agen Task bersarang"
+      },
+      "replayUserMessages": {
+        "label": "Konfirmasi perintah diterima",
+        "hint": "satu chip saat CLI benar-benar menerima perintah"
+      },
+      "promptSuggestions": {
+        "label": "Sarankan prompt berikutnya",
+        "hint": "diprediksi setiap akhir giliran"
+      },
       "betas": {
         "label": "Header beta",
         "tip": "Header beta yang dikirim bersama permintaan API. Hanya untuk pengguna kunci API — autentikasi langganan mengabaikannya.",
@@ -1629,6 +1647,7 @@
       "historyHintPrev": "Tekan lagi untuk perintah terakhir",
       "historyHintNext": "Tekan lagi untuk perintah terlama",
       "slashBuiltin": "bawaan",
+      "slashNeedsTerminal": "perlu terminal",
       "slashEmpty": "Tidak ada skill yang cocok",
       "slashLoading": "Memuat skill…",
       "ctxCopy": "Salin",
@@ -2072,7 +2091,10 @@
         "openApp": "Buka di {{app}} — {{path}}",
         "openExternal": "Buka dengan aplikasi bawaan — {{path}}"
       },
-      "restartResumed": "Terputus saat aplikasi ditutup — dilanjutkan pada sesi tersimpan."
+      "restartResumed": "Terputus saat aplikasi ditutup — dilanjutkan pada sesi tersimpan.",
+      "nestedSubagent": "Subagen",
+      "commandReceived": "Perintah diterima",
+      "promptSuggestion": "Saran prompt berikutnya"
     },
     "report": {
       "title": "Laporan kerja",
@@ -2421,7 +2443,8 @@
         "toolSchemas": "Definisi tool",
         "mcp": "Server MCP",
         "hooks": "Hooks",
-        "systemPrompt": "System prompt Claude Code"
+        "systemPrompt": "System prompt Claude Code",
+        "brainSkills": "Prosedur Brain"
       },
       "hint": {
         "tools": "Pilih daftar tool di Pengaturan Agent",
@@ -2600,6 +2623,11 @@
             "what": "Hooks Claude Code yang memungkinkan Vibisual melihat sesi ini sama sekali.",
             "more": "Terdaftar di settings.json. Hampir tidak menambah token, tapi setiap event melewatinya.",
             "off": "Hooks dihapus di settings.json, bukan di sini. Tanpanya, Vibisual berhenti melihat sesi ini."
+          },
+          "brainSkills": {
+            "what": "Prosedur yang dipelajari proyek ini, dimuat bila tugasnya cocok.",
+            "more": "Dipilih lewat deskripsinya, jadi hanya yang relevan yang dimuat.",
+            "off": "Agen menyusun ulang setiap prosedur dari nol."
           }
         },
         "cat": {
@@ -3484,7 +3512,15 @@
       "archived": "Dirapikan",
       "archivedHint": "Memori yang diarsipkan karena melebihi kuota — tidak dihapus, bisa dikembalikan",
       "review": "Menunggu tinjauan",
-      "reviewHint": "Kandidat yang belum menjadi kebenaran saat ini — konfirmasi agar sampai ke AI"
+      "reviewHint": "Kandidat yang belum menjadi kebenaran saat ini — konfirmasi agar sampai ke AI",
+      "skills": "Prosedur",
+      "skillsHint": "Prosedur yang terbentuk dari pekerjaan berulang — dimuat saat mulai",
+      "curator": "Perlu dirapikan",
+      "curatorHint": "Memori tanpa topik, belum pernah dibaca, atau masih kandidat",
+      "skillDraft": "Draf",
+      "skillVerified": "Terkonfirmasi",
+      "skillUsed": "dimuat {{count}}x",
+      "skillHelpful": "membantu {{count}}x"
     },
     "currentBadge": "Kebenaran saat ini",
     "contestedBadge": "Bertentangan",
@@ -3495,7 +3531,44 @@
     "confirmPromptContested": "Nilai bertentangan di alamat ini — pilih yang benar agar dikirim ke AI.",
     "confirmCurrent": "Konfirmasi sebagai saat ini",
     "reject": "Tidak",
-    "rejectTip": "Tidak ada yang dihapus — tetap sebagai catatan dan hanya dikecualikan dari injeksi."
+    "rejectTip": "Tidak ada yang dihapus — tetap sebagai catatan dan hanya dikecualikan dari injeksi.",
+    "axis": {
+      "skills": {
+        "title": "Memori prosedur",
+        "hint": "Membekukan prosedur dan memuatnya otomatis lain kali"
+      },
+      "recall": {
+        "title": "Pengingatan",
+        "hint": "Mencari di transkrip sesi lama, bukan hanya kartu"
+      },
+      "nudge": {
+        "title": "Dorongan",
+        "hint": "Sesekali mengingatkan mencatat yang dipelajari"
+      },
+      "grounding": {
+        "title": "Cek bukti",
+        "hint": "Mencocokkan dengan kode sebelum ditandai terkonfirmasi"
+      },
+      "curator": {
+        "title": "Kurator",
+        "hint": "Mengumpulkan memori tak terkelompok dan tak pernah dibaca"
+      },
+      "operator": {
+        "title": "Profil operator",
+        "hint": "Mencatat kebiasaan kerja berulang hanya di perangkat ini"
+      }
+    },
+    "activation": {
+      "sleeping": "Ada {{count}} memori tertidur di brain proyek ini. Aktifkan?",
+      "hint": "Brain mati secara bawaan. Saat aktif, ia mengumpulkan prosedur yang dipelajari dan menerapkannya di tugas berikutnya. Bisa dimatikan kapan saja, dan mematikannya tidak menghapus apa pun.",
+      "turnOn": "Aktifkan",
+      "notNow": "Nanti saja",
+      "showAxes": "Lihat apa yang diaktifkan",
+      "hideAxes": "Sembunyikan detail",
+      "axesTitle": "Apa yang tetap aktif",
+      "turnOff": "Matikan brain",
+      "offKeepsData": "Mematikannya tidak menghapus apa pun — nyalakan lagi dan lanjut dari titik terakhir."
+    }
   },
   "commandCenter": {
     "windowTitle": "Pusat Kendali — {{name}}",

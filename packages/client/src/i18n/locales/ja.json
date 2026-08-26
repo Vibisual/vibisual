@@ -860,6 +860,24 @@
         "label": "セーフモード（カスタマイズをすべて無効化）",
         "warn": "フックが無効 — このエージェントの活動はマップに出ません"
       },
+      "fastMode": {
+        "label": "Fast モード",
+        "hint": "同じ Opus のまま出力が速くなります",
+        "unsupported": "Opus 4.8 / Opus 5 のみ",
+        "tip": "同じ Opus モデルを出力速度だけ速くして動かします — 小さいモデルに落とすわけではありません。CLI フラグではありません: ヘッドレスのエージェントは Agent SDK セッションとして扱われ、設定によるオプトインしか受け付けないため、Vibisual がこのエージェント用にすでに書いている設定ファイルへ一緒に載せて渡します。対応していないモデルは、何のメッセージもなくこの設定を無視します。"
+      },
+      "forwardSubagentText": {
+        "label": "サブエージェントの出力を表示",
+        "hint": "ネストした Task エージェントの発話と思考"
+      },
+      "replayUserMessages": {
+        "label": "コマンド受付の確認",
+        "hint": "CLI が実際に受け取ったらチップ 1 行"
+      },
+      "promptSuggestions": {
+        "label": "次のプロンプトを提案",
+        "hint": "ターンごとに予測します"
+      },
       "betas": {
         "label": "ベータヘッダー",
         "tip": "API リクエストに付けるベータヘッダー。API キー利用者のみ — サブスクリプション認証では無視されます。",
@@ -1629,6 +1647,7 @@
       "historyHintPrev": "もう一度押すと直近のコマンド",
       "historyHintNext": "もう一度押すと最も古いコマンド",
       "slashBuiltin": "組み込み",
+      "slashNeedsTerminal": "ターミナル必須",
       "slashEmpty": "一致するスキルなし",
       "slashLoading": "スキルを読み込み中…",
       "ctxCopy": "コピー",
@@ -2072,7 +2091,10 @@
         "openApp": "{{app}} で開く — {{path}}",
         "openExternal": "既定のアプリで開く — {{path}}"
       },
-      "restartResumed": "アプリ終了で中断され、保存済みセッションで再開しました。"
+      "restartResumed": "アプリ終了で中断され、保存済みセッションで再開しました。",
+      "nestedSubagent": "サブエージェント",
+      "commandReceived": "コマンド受付",
+      "promptSuggestion": "次のプロンプト候補"
     },
     "report": {
       "title": "作業レポート",
@@ -2421,7 +2443,8 @@
         "toolSchemas": "ツール定義",
         "mcp": "MCPサーバー",
         "hooks": "フック",
-        "systemPrompt": "Claude Codeのシステムプロンプト"
+        "systemPrompt": "Claude Codeのシステムプロンプト",
+        "brainSkills": "ブレイン手順記憶"
       },
       "hint": {
         "tools": "エージェント設定でツール一覧を選んでください",
@@ -2600,6 +2623,11 @@
             "what": "Vibisualがこのセッションを認識できるようにするClaude Codeのフック。",
             "more": "settings.jsonに登録されています。トークンはほとんど追加しませんが、すべてのイベントがこれを経由します。",
             "off": "フックの削除はここではなくsettings.jsonで行います。フックがないとVibisualはこのセッションを認識できなくなります。"
+          },
+          "brainSkills": {
+            "what": "このプロジェクトで固まった手順。今の作業に合えば読み込まれます。",
+            "more": "各手順の「いつ使うか」で選ばれるため、無関係なものは載りません。",
+            "off": "エージェントは毎回、手順を一から考え直します。"
           }
         },
         "cat": {
@@ -3484,7 +3512,15 @@
       "archived": "整理済み",
       "archivedHint": "上限を超えて保管された記憶 — 削除ではなく元に戻せます",
       "review": "レビュー待ち",
-      "reviewHint": "まだ現在の真実ではない候補 — 確定すると AI に渡されます"
+      "reviewHint": "まだ現在の真実ではない候補 — 確定すると AI に渡されます",
+      "skills": "手順記憶",
+      "skillsHint": "同じ作業を重ねて固まった手順 — その作業を始めると自動で読み込まれます",
+      "curator": "手を入れるもの",
+      "curatorHint": "未分類・一度も読まれていない・まだ候補のままの記憶",
+      "skillDraft": "草案",
+      "skillVerified": "確認済み",
+      "skillUsed": "読込 {{count}}回",
+      "skillHelpful": "有用 {{count}}回"
     },
     "currentBadge": "現在の真実",
     "contestedBadge": "値の衝突",
@@ -3495,7 +3531,44 @@
     "confirmPromptContested": "同じアドレスで値が分かれています — 正しい方を選ぶと AI に渡されます。",
     "confirmCurrent": "現在の真実として確定",
     "reject": "いいえ",
-    "rejectTip": "削除されません — 記録として残り、注入から外れるだけです。"
+    "rejectTip": "削除されません — 記録として残り、注入から外れるだけです。",
+    "axis": {
+      "skills": {
+        "title": "手順記憶",
+        "hint": "複雑な作業の手順を固め、次回に自動で読み込む"
+      },
+      "recall": {
+        "title": "想起",
+        "hint": "カードに無くても過去セッション本文から探す"
+      },
+      "nudge": {
+        "title": "ナッジ",
+        "hint": "作業中に学んだことを残すよう時々促す"
+      },
+      "grounding": {
+        "title": "根拠検証",
+        "hint": "保存時にコードと照合し、通れば「確認済み」に上げる"
+      },
+      "curator": {
+        "title": "キュレーター",
+        "hint": "未分類・一度も読まれていない記憶をまとめて見せる"
+      },
+      "operator": {
+        "title": "操作者プロフィール",
+        "hint": "繰り返し現れた作業の好みをこの端末にのみ記録する"
+      }
+    },
+    "activation": {
+      "sleeping": "このプロジェクトの脳に記憶が {{count}} 件眠っています。有効にしますか？",
+      "hint": "脳は既定でオフです。有効にすると作業で学んだ手順を集め、次の作業に自動で適用します。いつでもオフにでき、オフにしても記録は消えません。",
+      "turnOn": "有効にする",
+      "notNow": "今はしない",
+      "showAxes": "何が有効になるか見る",
+      "hideAxes": "詳細を閉じる",
+      "axesTitle": "何を有効にしておくか",
+      "turnOff": "脳をオフにする",
+      "offKeepsData": "オフにしても記録は消えません — 再度オンにすればその続きから再開します。"
+    }
   },
   "commandCenter": {
     "windowTitle": "コマンドセンター — {{name}}",
