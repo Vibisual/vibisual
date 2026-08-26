@@ -19,14 +19,18 @@ import {
 } from '@vibisual/shared';
 import { userDefaultsService } from './userDefaultsService.js';
 
+// ⚠️ 아래 세 관문은 `brainByProject` 를 **경로 키**로 조회한다. `process.platform` 을 넘기지 않으면
+//    shared 가 예전처럼 무조건 소문자로 접어, Linux 에서 케이스만 다른 두 프로젝트가 같은 칸을 본다
+//    (= 한 프로젝트의 두뇌 카드가 다른 프로젝트 프롬프트에 주입된다). 인자를 빼지 마라.
+
 /** 이 프로젝트의 활성화 레코드. 없으면 `undefined`(= 손댄 적 없음 = 꺼짐). */
 export function brainActivationFor(root: string | null | undefined): BrainActivation | undefined {
-  return resolveBrainActivation(userDefaultsService.get().brainByProject, root);
+  return resolveBrainActivation(userDefaultsService.get().brainByProject, root, process.platform);
 }
 
 /** 마스터 판정 — 게이트 네 겹의 공통 관문. */
 export function brainEnabledFor(root: string | null | undefined): boolean {
-  return isBrainEnabled(userDefaultsService.get().brainByProject, root);
+  return isBrainEnabled(userDefaultsService.get().brainByProject, root, process.platform);
 }
 
 /**
@@ -34,5 +38,5 @@ export function brainEnabledFor(root: string | null | undefined): boolean {
  * 축 하나가 켜져 있다고 마스터를 우회하지 못한다.
  */
 export function brainAxisEnabledFor(root: string | null | undefined, axis: BrainAxisId): boolean {
-  return isBrainAxisEnabled(userDefaultsService.get().brainByProject, root, axis);
+  return isBrainAxisEnabled(userDefaultsService.get().brainByProject, root, axis, process.platform);
 }

@@ -31,6 +31,7 @@ import {
   LOCAL_TOOL_COMMAND_TIMEOUT_MS,
 } from '@vibisual/shared';
 import { logger } from '../logger.js';
+import { augmentedEnv } from './binLocator.js';
 
 /** 훑지 않는 폴더 — 여기까지 걸으면 목록·검색이 사실상 안 끝난다. */
 const SKIP_DIRS = new Set([
@@ -279,9 +280,14 @@ function toolBash(root: string, args: Record<string, unknown>, signal?: AbortSig
   if (!command.trim()) return Promise.resolve(fail('command is required'));
   return new Promise<LocalToolOutcome>((resolve) => {
     const isWin = process.platform === 'win32';
+    // §5.19 (H) — 셸에 **보강된 PATH** 를 물려준다. Finder/Dock 으로 띄운 macOS 앱은 launchd 의
+    //   최소 PATH(`/usr/bin:/bin:/usr/sbin:/sbin`)만 들고 있어, env 를 넘기지 않으면 모델이 부른
+    //   `git`·`node`·`pnpm`(전부 Homebrew 자리)이 죄다 `command not found` 로 돌아온다.
+    //   모델은 그걸 "이 프로젝트엔 그 도구가 없다"로 읽고 엉뚱한 우회를 시작한다.
+    const env = augmentedEnv();
     const child = isWin
-      ? spawn(process.env['COMSPEC'] ?? 'cmd.exe', ['/d', '/s', '/c', command], { cwd: root, windowsHide: true })
-      : spawn('/bin/sh', ['-c', command], { cwd: root });
+      ? spawn(process.env['COMSPEC'] ?? 'cmd.exe', ['/d', '/s', '/c', command], { cwd: root, windowsHide: true, env })
+      : spawn('/bin/sh', ['-c', command], { cwd: root, env });
     let out = '';
     let done = false;
     const finish = (body: string, isError: boolean): void => {

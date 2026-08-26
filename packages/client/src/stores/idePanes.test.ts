@@ -9,6 +9,8 @@ import {
   selectOrphanIDEPanes,
   selectIDEOverlay,
   selectIDEPane,
+  selectDockSlotFrontKey,
+  selectDockSlotSignature,
 } from './graphStore.js';
 import { IDE_MAX_PANES } from '../components/IDE/ideDockLayout.js';
 
@@ -228,5 +230,167 @@ describe('IDE 창 여러 개 (§5.5 #17-1)', () => {
     const st = useGraphStore.getState();
     expect(selectIDEPane(st, first!).dockSpan).toBe(1.6);
     expect(selectIDEPane(st, second!).dockSpan).toBe(0.4);
+  });
+});
+
+// ─── (판올림 번호 발급 대기) 언리얼식 탭 도킹 · 레이아웃 프리셋 · 창 순환 ───
+
+describe('한 칸에 여러 창 — 탭 도킹', () => {
+  beforeEach(reset);
+
+  /** 같은 변 + 같은 order 로 붙이면 한 칸을 나눠 쓴다(붙이기 커밋이 하는 일과 같은 모양). */
+  function dockAt(paneKey: string, side: 'left' | 'right' | 'top' | 'bottom', order: number): void {
+    useGraphStore.getState().setIDEPaneDock(paneKey, { side, size: 480, order });
+  }
+
+  it('같은 칸에 겹친 창 중 **마지막으로 앞에 온 하나**만 그린다', () => {
+    open(A1, 'new');
+    open(A2, 'new');
+    const [k1, k2] = panes();
+    dockAt(k1!, 'right', 0);
+    dockAt(k2!, 'right', 0);
+    const s = useGraphStore.getState();
+    // 나중에 연 창이 앞이다.
+    expect(selectDockSlotFrontKey(s, k1!)).toBe(k2);
+    expect(selectDockSlotFrontKey(s, k2!)).toBe(k2);
+    useGraphStore.getState().focusIDEPane(k1!);
+    expect(selectDockSlotFrontKey(useGraphStore.getState(), k1!)).toBe(k1);
+  });
+
+  it('탭 줄 지문에는 그 칸의 창들이 **열린 순서**로 들어간다(앞뒤 도장으로 흔들리지 않게)', () => {
+    open(A1, 'new');
+    open(A2, 'new');
+    const [k1, k2] = panes();
+    dockAt(k1!, 'right', 0);
+    dockAt(k2!, 'right', 0);
+    useGraphStore.getState().focusIDEPane(k1!);
+    const sig = selectDockSlotSignature(useGraphStore.getState(), k2!);
+    const keys = sig.split(';').map((raw) => decodeURIComponent(raw.split('|')[0] ?? ''));
+    expect(keys).toEqual([k1, k2]);
+    // 앞에 선 창은 지문에 표시된다 — 탭 강조와 본문이 같은 판정을 읽는다.
+    expect(sig.split(';').map((raw) => raw.split('|')[2])).toEqual(['1', '0']);
+  });
+
+  it('칸이 하나뿐이면 탭 줄을 그리지 않는다(빈 지문)', () => {
+    open(A1, 'new');
+    const [k1] = panes();
+    dockAt(k1!, 'right', 0);
+    expect(selectDockSlotSignature(useGraphStore.getState(), k1!)).toBe('');
+  });
+
+  it('접힌 창은 같은 칸이어도 탭 줄에서 빠진다(화면에 없는 것을 탭으로 세지 않는다)', () => {
+    open(A1, 'new');
+    open(A2, 'new');
+    const [k1, k2] = panes();
+    dockAt(k1!, 'right', 0);
+    dockAt(k2!, 'right', 0);
+    useGraphStore.getState().setIDEPaneCollapsed(k2!, true);
+    expect(selectDockSlotSignature(useGraphStore.getState(), k1!)).toBe('');
+    expect(selectDockSlotFrontKey(useGraphStore.getState(), k1!)).toBe(k1);
+  });
+});
+
+describe('레이아웃 프리셋 (applyIDEWindowLayout)', () => {
+  /** 뷰포트는 인자로 받는다 — 화면 크기를 바꿔 가며 검증할 수 있게(ideDockLayout 규약). */
+  const VP = { w: 1600, h: 900 };
+  beforeEach(reset);
+
+  function openThree(): string[] {
+    open(A1, 'new');
+    open(A2, 'new');
+    open(A3, 'new');
+    return panes();
+  }
+
+  it('바둑판 — 전부 떼어 서로 다른 자리에 늘어놓는다', () => {
+    const keys = openThree();
+    useGraphStore.getState().applyIDEWindowLayout('tile', VP);
+    const s = useGraphStore.getState();
+    const floats = keys.map((k) => s.ideOverlays[k]!.float!);
+    for (const k of keys) expect(s.ideOverlays[k]!.dockSide).toBeNull();
+    expect(new Set(floats.map((f) => `${f.x},${f.y}`)).size).toBe(keys.length);
+    // 밖에서 배치를 바꿨다는 신호가 올라야 창이 자기 모양을 다시 읽는다.
+    expect(s.ideLayoutEpoch).toBeGreaterThan(0);
+  });
+
+  it('오른쪽에 탭으로 모으기 — 전부 같은 변·같은 칸이 된다(화면은 한 번만 잘린다)', () => {
+    const keys = openThree();
+    useGraphStore.getState().applyIDEWindowLayout('tabRight', VP);
+    const s = useGraphStore.getState();
+    for (const k of keys) {
+      expect(s.ideOverlays[k]!.dockSide).toBe('right');
+      expect(s.ideOverlays[k]!.dockOrder).toBe(0);
+    }
+    // 붙은 창이 셋이어도 자리는 하나 — 세 창이 같은 칸을 받는다.
+    const docked = selectVisibleDockedPanes(s);
+    expect(docked).toHaveLength(3);
+    expect(new Set(docked.map((d) => d.order)).size).toBe(1);
+  });
+
+  it('좌우로 나눠 붙이기 — 앞 절반은 왼쪽, 뒤 절반은 오른쪽', () => {
+    const keys = openThree();
+    useGraphStore.getState().applyIDEWindowLayout('splitLeftRight', VP);
+    const s = useGraphStore.getState();
+    const sides = keys.map((k) => s.ideOverlays[k]!.dockSide);
+    expect(sides).toEqual(['left', 'left', 'right']);
+  });
+
+  it('전부 떼어 내기 — 붙은 변만 풀고 자리는 건드리지 않는다', () => {
+    const keys = openThree();
+    useGraphStore.getState().applyIDEWindowLayout('tile', VP);
+    const before = useGraphStore.getState().ideOverlays[keys[0]!]!.float;
+    useGraphStore.getState().applyIDEWindowLayout('tabRight', VP);
+    useGraphStore.getState().applyIDEWindowLayout('undockAll', VP);
+    const s = useGraphStore.getState();
+    for (const k of keys) expect(s.ideOverlays[k]!.dockSide).toBeNull();
+    expect(s.ideOverlays[keys[0]!]!.float).toEqual(before);
+  });
+
+  it('접어 둔 창은 정리 대상이 아니다 — 프리셋이 몰래 펴지 않는다', () => {
+    const keys = openThree();
+    useGraphStore.getState().setIDEPaneCollapsed(keys[2]!, true);
+    useGraphStore.getState().applyIDEWindowLayout('tabRight', VP);
+    const s = useGraphStore.getState();
+    expect(s.ideOverlays[keys[2]!]!.collapsed).toBe(true);
+    expect(s.ideOverlays[keys[2]!]!.dockSide).toBeNull();
+    expect(s.ideOverlays[keys[0]!]!.dockSide).toBe('right');
+  });
+
+  it('전부 접기/펴기는 접힌 창까지 함께 움직인다', () => {
+    const keys = openThree();
+    useGraphStore.getState().applyIDEWindowLayout('collapseAll', VP);
+    expect(panes().every((k) => useGraphStore.getState().ideOverlays[k]!.collapsed)).toBe(true);
+    expect(selectRenderedIDEPaneKeys(useGraphStore.getState())).toEqual([]);
+    useGraphStore.getState().applyIDEWindowLayout('expandAll', VP);
+    expect(selectRenderedIDEPaneKeys(useGraphStore.getState()).sort()).toEqual([...keys].sort());
+  });
+});
+
+describe('창 순환 (cycleIDEPaneFocus)', () => {
+  beforeEach(reset);
+
+  it('열린 순서대로 다음 창을 앞으로 — 두 창 사이만 오가지 않는다', () => {
+    open(A1, 'new');
+    open(A2, 'new');
+    open(A3, 'new');
+    const keys = panes();
+    const front = (): string => {
+      const s = useGraphStore.getState();
+      return [...keys].sort((a, b) => s.ideOverlays[b]!.z - s.ideOverlays[a]!.z)[0]!;
+    };
+    expect(front()).toBe(keys[2]);
+    useGraphStore.getState().cycleIDEPaneFocus(1);
+    expect(front()).toBe(keys[0]);
+    useGraphStore.getState().cycleIDEPaneFocus(1);
+    expect(front()).toBe(keys[1]);
+    useGraphStore.getState().cycleIDEPaneFocus(-1);
+    expect(front()).toBe(keys[0]);
+  });
+
+  it('창이 하나뿐이면 아무 일도 하지 않는다', () => {
+    open(A1, 'new');
+    const before = useGraphStore.getState().idePaneSeq;
+    useGraphStore.getState().cycleIDEPaneFocus(1);
+    expect(useGraphStore.getState().idePaneSeq).toBe(before);
   });
 });

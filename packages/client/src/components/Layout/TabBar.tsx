@@ -8,6 +8,7 @@ import { HoverTooltip } from './HoverTooltip.js';
 import { useTabPushAnimation } from '../../hooks/useTabPushAnimation.js';
 import { resolveTabReorder } from '../../hooks/tabPushGeom.js';
 import { resolveHeaderAgentCounts } from './headerAgentCounts.js';
+import { clientPathKey } from '../../utils/platform.js';
 
 type TabItem =
   | {
@@ -33,9 +34,13 @@ const PROJECT_DOT_STYLES: Record<ProjectDotState, string> = {
   active: 'bg-blue-400 animate-pulse',
 };
 
-/** projectId 정규화 — 서버 appState(경로키)와 동일 semantics. */
+/**
+ * projectId 정규화 — 서버 appState(경로키)와 동일 semantics.
+ * 대소문자 접기는 플랫폼이 정한다(utils/platform.ts) — Linux 에서 무조건 접으면 케이스만 다른
+ * 두 프로젝트가 같은 탭으로 뭉개진다.
+ */
 function npClient(p: string): string {
-  return p.replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '');
+  return clientPathKey(p);
 }
 
 type TabContextState = {

@@ -38,11 +38,18 @@ const nodeTypes: NodeTypes = { bubble: BubbleNode };
 export interface OverlayShellProps {
   agentId: string;
   projectId: string;
+  /**
+   * (판올림 번호 발급 대기) **앱 밖으로 끌어내 만들어진 창** — 버블이 아니라 IDE 로 시작한다.
+   * 창 크기는 main 이 이미 IDE 크기로 만들어 두므로 여기서 `expandSelf` 를 다시 부르지 않는다
+   * (부르면 그 IDE 크기를 "접었을 때 돌아갈 버블 자리"로 잘못 기억한다).
+   */
+  initiallyExpanded?: boolean;
 }
 
 interface ParsedOverlayHash {
   agentId: string;
   projectId: string;
+  initiallyExpanded: boolean;
 }
 
 /** main.tsx 가 부팅 시 호출 — `#overlay=1&agentId=…&projectId=…` 파싱. */
@@ -53,10 +60,10 @@ export function parseOverlayHash(hash: string): ParsedOverlayHash | null {
   const agentId = params.get('agentId');
   const projectId = params.get('projectId');
   if (!agentId || !projectId) return null;
-  return { agentId, projectId };
+  return { agentId, projectId, initiallyExpanded: params.get('expanded') === '1' };
 }
 
-export function OverlayShell({ agentId, projectId }: OverlayShellProps): React.JSX.Element {
+export function OverlayShell({ agentId, projectId, initiallyExpanded = false }: OverlayShellProps): React.JSX.Element {
   const { t } = useTranslation();
   // 같은 in-process 서버에 IPC WS 로 연결 — 초기 snapshot + 이후 broadcast 수신.
   useWebSocket(WS_URL);
@@ -97,6 +104,15 @@ export function OverlayShell({ agentId, projectId }: OverlayShellProps): React.J
       }];
     });
   }, [agent, agentId, setNodes]);
+
+  // (판올림 번호 발급 대기) 끌어내서 만든 창 — 스냅샷이 도착해 버블을 알게 된 **그때** IDE 를 연다.
+  //   더 일찍 열면 `nodeMap` 이 비어 IDE 가 null 을 돌려주고, 창은 잠깐 텅 빈 채로 뜬다.
+  const popOutOpenedRef = useRef(false);
+  useEffect(() => {
+    if (!initiallyExpanded || popOutOpenedRef.current || !agent) return;
+    popOutOpenedRef.current = true;
+    openIDEOverlay(agentId);
+  }, [initiallyExpanded, agent, agentId, openIDEOverlay]);
 
   const rfRef = useRef<ReactFlowInstance | null>(null);
   const handleInit = useCallback((inst: ReactFlowInstance) => {
@@ -170,7 +186,9 @@ export function OverlayShell({ agentId, projectId }: OverlayShellProps): React.J
   }, []);
 
   // expanded 전이를 OS 창 크기 변경으로 미러. 초기(collapsed) 마운트에선 호출 ❌.
-  const prevExpandedRef = useRef(false);
+  //   ⚠ 끌어내서 만든 창은 main 이 이미 IDE 크기다 — 첫 전이를 미러하면 그 크기를 "버블로 돌아갈
+  //     자리"로 기억해 접었을 때 창이 엉뚱한 곳에 앉는다. 그래서 시작값을 그 상태로 둔다.
+  const prevExpandedRef = useRef(initiallyExpanded);
   useEffect(() => {
     if (prevExpandedRef.current === expanded) return;
     prevExpandedRef.current = expanded;

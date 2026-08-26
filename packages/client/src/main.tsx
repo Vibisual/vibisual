@@ -72,7 +72,7 @@ createRoot(rootElement).render(
     {detached ? (
       <DetachedShell kind={detached.kind} tabKey={detached.tabKey} />
     ) : overlay ? (
-      <OverlayShell agentId={overlay.agentId} projectId={overlay.projectId} />
+      <OverlayShell agentId={overlay.agentId} projectId={overlay.projectId} initiallyExpanded={overlay.initiallyExpanded} />
     ) : overlayMenu ? (
       <OverlayMenuShell initialOpacity={overlayMenu.opacity} />
     ) : commandCenter ? (

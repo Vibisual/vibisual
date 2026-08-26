@@ -14,6 +14,8 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { atomicWriteFileSync } from './statePersistence.js';
+// 경로 대소문자 정책 SSOT — win32/darwin 만 접고 linux 는 접지 않는다.
+import { pathKey } from './pathKey.js';
 import {
   BRAIN_REF_FLUSH_MS,
   BRAIN_DEDUP_JACCARD_THRESHOLD,
@@ -161,9 +163,10 @@ export function coverage(query: Set<string>, hay: Set<string>): number {
   return hit / query.size;
 }
 
-/** 경로 정규화(소문자·forward-slash·후행 슬래시 제거). 파일 일치 비교용. */
+/** 경로 정규화(forward-slash·후행 슬래시 제거 + **대소문자를 실제로 무시하는 FS 에서만** 소문자).
+ *  파일 일치 비교용 — linux 에서 접으면 `src/Foo.ts` 카드가 `src/foo.ts` 에 붙는다. */
 function normPath(p: string): string {
-  return p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+  return pathKey(p);
 }
 
 /** 카드의 연결 파일들 중 대상 경로와 일치하는 게 있는가(절대 vs 상대 suffix 허용, 오탐 최소). */

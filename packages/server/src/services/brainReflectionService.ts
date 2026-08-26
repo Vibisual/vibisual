@@ -56,6 +56,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
+// 경로 대소문자 정책 SSOT — win32/darwin 만 접고 linux 는 접지 않는다.
+import { pathKey } from './pathKey.js';
 import { getSessionJsonlPath } from './sessionDiscovery.js';
 import { brainAxisEnabledFor } from './brainActivation.js';
 import { applyGrounding, applySkillGrounding } from './brainGrounding.js';
@@ -77,9 +79,10 @@ const VALID_TYPES: ReadonlySet<string> = new Set(['decision', 'mistake', 'lesson
  */
 const REFLECT_CWD = path.join(os.tmpdir(), BRAIN_REFLECTION_CWD_DIRNAME);
 
-/** 경로 비교용 정규화 — 구분자 통일 + 끝 슬래시 제거 + 소문자(Windows 대소문자 무시). */
+/** 경로 비교용 정규화 — 구분자 통일 + 끝 슬래시 제거 + **대소문자를 실제로 무시하는 FS 에서만** 소문자.
+ *  linux 에서 무조건 접으면 사용자 프로젝트가 리플렉션 전용 폴더로 오인될 수 있다. */
 function normPath(p: string): string {
-  return p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+  return pathKey(p);
 }
 
 const REFLECT_CWD_NORM = normPath(REFLECT_CWD);

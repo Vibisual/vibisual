@@ -29,6 +29,8 @@ import {
   flushPendingDiskWritesSync,
 } from './diskWriteQueue.js';
 import { isDeadWorktreeProject, isLiveWorktreeDir, isUnderDeadWorktree, shouldReportDeadWorktree } from './worktreeLiveness.js';
+// 경로 대소문자 정책 SSOT — win32/darwin 만 접고 linux 는 접지 않는다.
+import { pathKey } from './pathKey.js';
 
 // v1.52: 체크포인트 = 각 프로젝트 폴더 안의 `<projectPath>/.vibisual/save/`.
 // SCENARIO §3.2 / §3.5 — Vibisual 레포 안에는 다른 프로젝트의 데이터를 두지 않는다.
@@ -728,7 +730,9 @@ export function pruneOrphanWorktreeDirs(liveProjects: ProjectInfo[]): number {
 
   let removed = 0;
   for (const wtDir of candidates) {
-    const key = wtDir.replace(/\\/g, '/').toLowerCase();
+    // "죽은 워크트리 첫 목격" 맵의 키 — linux 에서 접으면 케이스만 다른 두 워크트리가 유예 시간을
+    // 공유해, 살아 있는 쪽 저장분이 유예 없이 삭제될 수 있다.
+    const key = pathKey(wtDir);
     if (isLiveWorktreeDir(wtDir)) { deadWorktreeFirstSeen.delete(key); continue; }
     const firstSeen = deadWorktreeFirstSeen.get(key);
     if (firstSeen === undefined) { deadWorktreeFirstSeen.set(key, now); continue; }
@@ -1014,7 +1018,8 @@ function buildCheckpointSkeletonFromIdentity(identity: ProjectIdentity): Project
       agentCounter: identity.agentCounter ?? 0,
       agents: liveAgents,
       nodes: {},
-      projects: { [identity.project.path.replace(/\\/g, '/').toLowerCase()]: identity.project },
+      // 체크포인트 `graph.projects` 키 — ProjectGraph.normalize 와 같은 규칙이어야 복원이 맞물린다.
+      projects: { [pathKey(identity.project.path)]: identity.project },
       hierarchy: { topLevelPaths: [], childrenMap: {}, satelliteMap: {} },
       refs: { nodeAgentRefs: {}, sessionCwds: { ...identity.sessionCwds } },
     },

@@ -7,6 +7,7 @@ import { useGraphStore } from '../../stores/graphStore.js';
 import { WindowControls } from '../Layout/WindowControls.js';
 import { CommandCenterBoard } from './CommandCenterBoard.js';
 import { elapsedParts } from './commandCenterModel.js';
+import { clientPathKey } from '../../utils/platform.js';
 import {
   loadCommandCenterSettings,
   saveCommandCenterSettings,
@@ -62,9 +63,13 @@ export function parseCommandCenterHash(hash: string): { projectId: string } | nu
   return { projectId };
 }
 
-/** 서버 appState 의 경로 키와 동일 semantics(v1.63) — 대소문자·구분자·끝 슬래시 무시. */
+/**
+ * 서버 appState 의 경로 키와 동일 semantics(v1.63) — 구분자·끝 슬래시를 무시한다.
+ * 대소문자는 **플랫폼이 실제로 무시할 때만** 접는다(utils/platform.ts) — Linux 에서 접으면
+ * 케이스만 다른 두 프로젝트가 한 명령 센터로 뭉개진다.
+ */
 function normalizePath(p: string): string {
-  return p.replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '');
+  return clientPathKey(p);
 }
 
 export function CommandCenterShell({ projectId: initialProjectId }: CommandCenterShellProps): React.JSX.Element {

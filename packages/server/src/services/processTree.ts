@@ -23,6 +23,31 @@ import { logger } from '../logger.js';
 
 const IS_WIN = process.platform === 'win32';
 
+/**
+ * POSIX 에서 자식을 **프로세스 그룹 리더**로 띄우기 위한 spawn 옵션 조각.
+ *
+ * 왜 필요한가 — {@link killTree} 의 POSIX 경로는 `process.kill(-pid)` 로 **프로세스 그룹**을 죽인다.
+ * 그런데 그룹 킬이 성립하려면 자식이 `detached: true` 로 떠서 스스로 그룹 리더(setsid/setpgid)여야 한다.
+ * 그렇지 않으면 자식은 우리 서버와 같은 그룹에 속하고, `-pid` 는 "그런 그룹 없음"(ESRCH)으로 **항상**
+ * 실패해 단일 pid 킬로 강등된다 → claude 가 띄운 MCP 서버·node worker(손자)가 조용히 살아남는다.
+ * mac/linux 에서 "종료했는데 프로세스가 남는다"의 근본 원인이었고, 예외도 로그도 안 남아 오래 안 보였다
+ * (CMD 경로만 멀쩡했던 이유는 node-pty 가 내부적으로 `setsid` 를 하기 때문 — 우연이지 설계가 아니다).
+ *
+ * Windows 에서는 켜지 않는다 — `detached: true` 가 새 콘솔 창을 띄울 수 있고, Windows 의 트리 종료는
+ * 애초에 `taskkill /T` 라 프로세스 그룹이 필요 없다.
+ *
+ * ⚠ 이 옵션에 `child.unref()` 를 딸려 보내지 말 것. unref 하면 부모가 자식을 기다리지 않게 되어
+ *   exit 수집·종료 순서가 달라진다. 여기서 필요한 건 "그룹 형성" 하나뿐이다.
+ * ⚠ stdio 와 직교한다 — `['pipe','pipe','pipe']` 로 stdin 프롬프트를 주입하는 경로도 그대로 동작한다.
+ *
+ * @param platform 테스트에서 win/mac/linux 세 경우를 다 고정하기 위한 주입점. 기본값은 현재 플랫폼.
+ */
+export function processGroupSpawnOptions(
+  platform: NodeJS.Platform = process.platform,
+): { detached?: true } {
+  return platform === 'win32' ? {} : { detached: true };
+}
+
 const APP_HOME_DIR = path.join(
   (process.env['VIBISUAL_HOME'] && process.env['VIBISUAL_HOME'].trim()) || os.homedir(),
   '.vibisual',
@@ -41,7 +66,9 @@ export function killTree(pid: number | undefined | null): void {
       tk.on('error', () => { /* taskkill 부재/이미 종료 — 무시 */ });
     } catch { /* ignore */ }
   } else {
-    // detached 로 스폰한 경우 -pid 가 그룹을 죽인다. 아니면 EPERM/ESRCH → 단일 pid 로 폴백.
+    // `-pid` = 프로세스 그룹 킬. **{@link processGroupSpawnOptions} 로 detached 스폰한 자식에서만**
+    //   성립한다 — 그게 아니면 ESRCH 로 떨어져 단일 pid 폴백이 되고 손자(MCP 서버·worker)가 남는다.
+    //   즉 이 폴백은 "안전망"이지 정상 경로가 아니다. 스폰 쪽에서 detached 를 빼면 여기가 조용히 무력화된다.
     try { process.kill(-pid, 'SIGKILL'); } catch {
       try { process.kill(pid, 'SIGKILL'); } catch { /* already dead */ }
     }

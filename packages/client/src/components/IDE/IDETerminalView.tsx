@@ -22,6 +22,9 @@ import {
 } from '@vibisual/shared';
 import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 import { openWebSearch } from './webSearchUrl.js';
+// 단축키 라벨은 플랫폼이 정한다 — mac 에서 실제로 눌리는 키는 Ctrl 이 아니라 Command 다
+//   (핸들러는 이미 ctrlKey || metaKey 를 함께 보므로 **표시만** 어긋나 있었다).
+import { shortcutLabel } from '../../utils/platform.js';
 
 // §4 v2.63 — 임베디드 인터랙티브 터미널 뷰. (편의성 보강 v2.65)
 //
@@ -539,7 +542,7 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
             <button
               type="button"
               onClick={() => openSearch()}
-              title={`${t('ide.terminal.find')} (Ctrl+F)`}
+              title={`${t('ide.terminal.find')} (${shortcutLabel('Ctrl+F')})`}
               aria-label={t('ide.terminal.find')}
               className="rounded p-1 text-teal-200/60 transition-colors hover:bg-teal-500/15 hover:text-teal-100"
             >
@@ -622,12 +625,12 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
           className="fixed z-[1000] min-w-[200px] rounded-md border border-gray-700 bg-gray-900 py-1 shadow-2xl"
           style={{ left: menu.x, top: menu.y }}
         >
-          <TerminalMenuItem label={t('ide.terminal.copy')} shortcut="Ctrl+C" disabled={!hasSelection()} onClick={() => { copySelection(); setMenu(null); }} />
+          <TerminalMenuItem label={t('ide.terminal.copy')} shortcut={shortcutLabel('Ctrl+C')} disabled={!hasSelection()} onClick={() => { copySelection(); setMenu(null); }} />
           <TerminalMenuItem label={t('ide.mainArea.ctxSearchWeb')} disabled={!hasSelection()} onClick={() => { searchWeb(); setMenu(null); }} />
-          <TerminalMenuItem label={t('ide.terminal.paste')} shortcut="Ctrl+V" onClick={() => { paste(); setMenu(null); }} />
-          <TerminalMenuItem label={t('ide.terminal.selectAll')} shortcut="Ctrl+A" onClick={() => { selectAll(); setMenu(null); }} />
+          <TerminalMenuItem label={t('ide.terminal.paste')} shortcut={shortcutLabel('Ctrl+V')} onClick={() => { paste(); setMenu(null); }} />
+          <TerminalMenuItem label={t('ide.terminal.selectAll')} shortcut={shortcutLabel('Ctrl+A')} onClick={() => { selectAll(); setMenu(null); }} />
           <div className="my-1 h-px bg-gray-700/70" />
-          <TerminalMenuItem label={t('ide.terminal.find')} shortcut="Ctrl+F" onClick={() => { setMenu(null); openSearch(); }} />
+          <TerminalMenuItem label={t('ide.terminal.find')} shortcut={shortcutLabel('Ctrl+F')} onClick={() => { setMenu(null); openSearch(); }} />
           <TerminalMenuItem label={t('ide.terminal.clear')} onClick={() => { clearTerminal(); setMenu(null); }} />
           {(onSplit || onToggleZoom || onClosePane) && <div className="my-1 h-px bg-gray-700/70" />}
           {onSplit && (

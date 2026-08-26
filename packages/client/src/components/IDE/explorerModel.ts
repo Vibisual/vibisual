@@ -1,4 +1,5 @@
 import type { WorkspaceEntry } from '@vibisual/shared';
+import { foldPathCase } from '../../utils/platform.js';
 
 /**
  * §5.5 #17-19 v4.71 — IDE 워크스페이스 탐색기의 순수 로직.
@@ -64,8 +65,10 @@ export function toRelativeFromRoot(absPath: string, root: string): string {
   const a = norm(absPath);
   const r = norm(root);
   if (r.length === 0) return a;
-  const lowerA = a.toLowerCase();
-  const lowerR = r.toLowerCase();
+  // 케이스 접기는 플랫폼이 정한다(utils/platform.ts) — Linux 에서 접으면 이웃 폴더가 루트 안으로
+  //   읽혀 엉뚱한 상대 경로가 나온다. 길이가 바뀌지 않는 foldPathCase 여야 아래 slice 가 맞다.
+  const lowerA = foldPathCase(a);
+  const lowerR = foldPathCase(r);
   if (lowerA === lowerR) return '';
   if (lowerA.startsWith(`${lowerR}/`)) return a.slice(r.length + 1);
   return a;

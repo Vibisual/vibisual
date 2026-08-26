@@ -2,6 +2,8 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { validatePathWithinRoot } from './pathValidator.js';
+// 경로 대소문자 정책 SSOT — win32/darwin 만 접고 linux 는 접지 않는다(`shared/pathCase.ts`).
+import { CASE_INSENSITIVE_FS, pathKey } from './pathKey.js';
 import type {
   BubbleData,
   BubbleType,
@@ -279,8 +281,23 @@ function hashString(str: string): number {
   return hash;
 }
 
+/**
+ * 노드/프로젝트 Map 키 — 슬래시 통일 + 끝 슬래시 제거 + **그 플랫폼이 실제로 무시할 때만** 소문자.
+ *
+ * 예전에는 무조건 소문자로 접었다. Windows 는 파일시스템이 대소문자를 안 가려 옳았지만 Linux 는
+ * `Feature-X` 와 `feature-x` 가 실재하는 별개 폴더라, 두 프로젝트·워크트리가 한 키로 뭉개져
+ * 한쪽 등록이 다른 쪽을 **에러 한 줄 없이** 덮어썼다. 정책은 `shared/pathCase.ts` 한 곳.
+ */
 function normalize(filePath: string): string {
-  return filePath.replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '');
+  return foldCase(filePath.replace(/\\/g, '/').replace(/\/+$/, ''));
+}
+
+/**
+ * 이미 정규화된 상대 경로를 `normalize()` 결과와 맞물리게 접는다.
+ * 노드 키를 만드는 자리에서만 쓴다(확장자·검색어 소문자화와 혼동 금지).
+ */
+function foldCase(s: string): string {
+  return CASE_INSENSITIVE_FS ? s.toLowerCase() : s;
 }
 
 /** cwd + 상대경로를 합쳐서 `..`/`.` 까지 collapse 한 정규화 경로.
@@ -289,12 +306,14 @@ function normalize(filePath: string): string {
  *  (사례: Grep `..\\TEST\\xxx` → `..` 폴더 + 자식 segment 들이 마스터 트리에 새겨짐) */
 function resolveRelative(cwd: string, relPath: string): string {
   const joined = `${cwd}/${relPath}`.replace(/\\/g, '/');
-  return path.posix.normalize(joined).toLowerCase().replace(/\/+$/, '');
+  return foldCase(path.posix.normalize(joined).replace(/\/+$/, ''));
 }
 
-/** normalize() 결과가 절대 경로인지 (Windows 드라이브 또는 POSIX root). */
+/** normalize() 결과가 절대 경로인지 (Windows 드라이브 또는 POSIX root).
+ *  드라이브 문자는 대소문자를 가리지 않는다 — `normalize()` 가 더 이상 무조건 소문자로 접지 않으므로
+ *  소문자만 보면 대소문자 구분 FS 에서 `C:/…` 를 상대경로로 오판한다. */
 function isAbsoluteNormalized(normalizedPath: string): boolean {
-  return /^[a-z]:\//.test(normalizedPath) || normalizedPath.startsWith('/');
+  return /^[a-zA-Z]:\//.test(normalizedPath) || normalizedPath.startsWith('/');
 }
 
 /** git 워크트리 → 메인 워크트리(부모 repo) 해석 결과 캐시. key=normalizedCwd, value=결과|null. */
@@ -1641,10 +1660,10 @@ export class ProjectGraph {
     return false;
   }
 
-  /** 경로 대조 키 — Windows 는 대소문자를 가리지 않는다. */
+  /** 경로 대조 키 — 대소문자를 실제로 무시하는 FS(win32/darwin)에서만 접는다(`shared/pathCase.ts`).
+   *  예전에는 win32 만 봤는데, mac 의 기본 APFS 볼륨도 대소문자를 가리지 않는다. */
   private static pathCompareKey(p: string): string {
-    const resolved = path.resolve(p);
-    return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+    return pathKey(path.resolve(p));
   }
 
   /** Manager용: 이 절대경로가 **지금 버블로 떠 있는 노드**의 경로인지.
@@ -4728,9 +4747,12 @@ export class ProjectGraph {
       this.nodes.set(k, v);
     }
 
-    // 프로젝트 병합
+    // 프로젝트 병합 — **키는 저장분을 믿지 않고 `normalize(v.path)` 로 다시 만든다.**
+    // 예전 체크포인트는 플랫폼과 무관하게 소문자 키로 적혀 있어, linux 에서 그대로 쓰면
+    // `this.projects.get(normalize(cwd))` 가 영영 못 찾아 프로젝트가 미등록으로 보인다(하위호환).
     for (const [k, v] of Object.entries(cp.graph.projects)) {
-      if (!this.projects.has(k)) this.projects.set(k, v);
+      const key = v?.path ? normalize(v.path) : k;
+      if (!this.projects.has(key)) this.projects.set(key, v);
     }
 
     // 계층 병합
@@ -5185,7 +5207,11 @@ export class ProjectGraph {
     this.agentCounter = cp.graph.agentCounter;
     this.agents = new Map(Object.entries(cp.graph.agents));
     this.nodes = new Map(Object.entries(cp.graph.nodes));
-    this.projects = new Map(Object.entries(cp.graph.projects));
+    // 키를 저장분에서 그대로 받지 않고 `normalize(info.path)` 로 다시 만든다 — 예전 저장분은
+    // 플랫폼과 무관하게 소문자 키라, linux 에서 그대로 실으면 조회가 전부 빗나간다(하위호환).
+    this.projects = new Map(
+      Object.entries(cp.graph.projects).map(([k, v]) => [v?.path ? normalize(v.path) : k, v] as const),
+    );
     this.topLevelPaths = new Set(cp.graph.hierarchy.topLevelPaths);
     this.childrenMap = new Map(
       Object.entries(cp.graph.hierarchy.childrenMap).map(([k, v]) => [k, new Set(v)]),
@@ -6945,8 +6971,8 @@ export class ProjectGraph {
       if (entry.name.startsWith('.') && entry.isDirectory()) continue;
       if (entry.isDirectory() && ProjectGraph.IGNORED_DIRS.has(entry.name)) continue;
 
-      // normalize로 소문자 변환된 경로와 매칭하기 위해 소문자 사용
-      const relPath = (relDir ? `${relDir}/${entry.name}` : entry.name).toLowerCase();
+      // `normalize()` 가 만든 노드 키와 맞물리도록 같은 규칙으로 접는다(linux 는 접지 않는다).
+      const relPath = foldCase(relDir ? `${relDir}/${entry.name}` : entry.name);
 
       if (entry.isDirectory()) {
         const children = this.readDirTree(path.join(absDir, entry.name), relPath, satSet);
@@ -6977,9 +7003,9 @@ export class ProjectGraph {
 
   /** 위성 토글 — show: true면 위성 등록, false면 제거. 파일/폴더 모두 지원 */
   toggleSatellite(folderPath: string, filePath: string, show: boolean): boolean {
-    // 내부 경로는 소문자로 정규화 (toRelative/normalize와 일치)
-    const normFolder = ProjectGraph.isRootKey(folderPath) ? folderPath : folderPath.toLowerCase();
-    const normFile = filePath.toLowerCase();
+    // 내부 경로는 toRelative/normalize 와 같은 규칙으로 접는다(linux 는 접지 않는다).
+    const normFolder = ProjectGraph.isRootKey(folderPath) ? folderPath : foldCase(folderPath);
+    const normFile = foldCase(filePath);
     // 폴더의 프로젝트 정보로 파일 경로 해석 (다중 프로젝트 대응)
     const folderProjectName = this.nodeProjectNames.get(normFolder);
     const projectRoot = folderProjectName
@@ -7080,7 +7106,7 @@ export class ProjectGraph {
   toggleRootChild(projectName: string, filePath: string, show: boolean): boolean {
     const proj = this.getProjectByName(projectName);
     if (!proj) return false;
-    const normFile = filePath.toLowerCase();
+    const normFile = foldCase(filePath);
     const absPath = proj.path + '/' + normFile;
     if (!fs.existsSync(absPath)) return false;
 
@@ -7111,7 +7137,7 @@ export class ProjectGraph {
     const parentNode = this.nodes.get(parentPath);
     if (!parentNode) return false;
     // filePath is already a full relative path from listFolderFiles (e.g., "packages/client/src/utils")
-    const childKey = filePath.toLowerCase();
+    const childKey = foldCase(filePath);
     const absChild = this.resolveAbsolutePath(childKey);
     if (!absChild || !fs.existsSync(absChild)) return false;
 
@@ -8719,7 +8745,7 @@ export class ProjectGraph {
    * 폴더 노드를 못 찾으면 false.
    */
   setFolderMaxSatellites(folderPath: string, max: number): boolean {
-    const normFolder = ProjectGraph.isRootKey(folderPath) ? folderPath : folderPath.toLowerCase();
+    const normFolder = ProjectGraph.isRootKey(folderPath) ? folderPath : foldCase(folderPath);
     const node = this.nodes.get(normFolder);
     if (!node || (node.bubbleType !== 'internal_folder' && node.bubbleType !== 'external_folder')) {
       return false;
@@ -8741,7 +8767,7 @@ export class ProjectGraph {
    * 파일 노드를 못 찾으면 false.
    */
   setFileEditsUnlimited(nodePath: string, unlimited: boolean): boolean {
-    const key = nodePath.toLowerCase();
+    const key = foldCase(nodePath);
     const node = this.nodes.get(key);
     if (!node || node.bubbleType !== 'file') return false;
     node.unlimitedFileEdits = unlimited;

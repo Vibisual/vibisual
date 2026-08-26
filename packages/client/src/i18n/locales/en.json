@@ -41,8 +41,9 @@
     },
     "usage": {
       "tooltip": "Current session: {{percent}}% of your 5-hour limit used — click for details",
-      "tooltipNoData": "Usage data is not being collected yet — click to turn it on",
-      "tooltipWaiting": "Usage collector is on — waiting for the first report from an interactive Claude Code session"
+      "tooltipNoData": "No usage received yet — click for details",
+      "tooltipWaiting": "Fetching usage from Claude Code — the number appears shortly",
+      "tooltipCliUnavailable": "Couldn't run Claude Code to read usage — click for details"
     },
     "setupBanner": {
       "text": "Claude Code is not installed — agents cannot run yet.",
@@ -71,7 +72,17 @@
         "top": "top",
         "bottom": "bottom"
       },
-      "orphan": "Window whose bubble is gone"
+      "orphan": "Window whose bubble is gone",
+      "layout": {
+        "tile": "Tile windows",
+        "cascade": "Cascade windows",
+        "tabRight": "Stack all as tabs on the right",
+        "splitLeftRight": "Split left / right",
+        "undockAll": "Undock all",
+        "collapseAll": "Collapse all",
+        "expandAll": "Expand all"
+      },
+      "shortcutHint": "{{dock}} dock · {{max}} maximize · {{next}} next window"
     }
   },
   "panel": {
@@ -192,7 +203,7 @@
         "inspectorT": "Inspector",
         "inspectorD": "Hold Alt to highlight elements and click to copy; Shift-drag to select a region.",
         "copyT": "Copy & paste",
-        "copyD": "Select custom agents and edges, then Ctrl+C / Ctrl+V to clone them into another project."
+        "copyD": "Select custom agents and edges, then {{copy}} / {{paste}} to clone them into another project."
       },
       "history": {
         "intro": "Vibisual remembers your projects between runs.",
@@ -206,7 +217,7 @@
         "bookmarkT": "Bubble bookmarks",
         "bookmarkD": "Alt+1…0 pins a bubble or session to a slot; press 1…0 to jump back to it.",
         "copyT": "Copy / paste",
-        "copyD": "Ctrl+C / Ctrl+V (Cmd on macOS) copies and pastes selected agents, edges and comment boxes.",
+        "copyD": "{{copy}} / {{paste}} copies and pastes selected agents, edges and comment boxes.",
         "inspectorT": "Inspector",
         "inspectorD": "Hold Alt to inspect and click to copy an element; Shift-drag for region select.",
         "closeT": "Close & cancel",
@@ -392,7 +403,7 @@
       },
       "advanced": {
         "terminalScrollback": "Terminal scrollback (lines)",
-        "terminalScrollbackDesc": "How many output lines a CMD terminal keeps. Scrolling and Ctrl+F search share this range. Applies to terminals opened from now on."
+        "terminalScrollbackDesc": "How many output lines a CMD terminal keeps. Scrolling and {{shortcut}} search share this range. Applies to terminals opened from now on."
       },
       "notifications": {
         "cmdBlocked": "Notify when a CMD session is waiting for input",
@@ -563,7 +574,7 @@
       "editFrame": "Edit text",
       "editTitlePrompt": "Frame title:",
       "editActionPrompt": "Frame action:",
-      "zoomReset": "Ctrl+0 reset",
+      "zoomReset": "{{shortcut}} reset",
       "presetLabel": "Output",
       "preset": {
         "landscape": "Landscape 16:9",
@@ -608,7 +619,7 @@
       "newSessionBadge": "new session",
       "session": "Session:",
       "change": "Change",
-      "placeholder": "Enter command... (paste images with Ctrl+V)",
+      "placeholder": "Enter command... (paste images with {{paste}})",
       "run": "Run",
       "executing": "Executing...",
       "delete": "Delete",
@@ -935,7 +946,7 @@
       "deny": "Deny",
       "denyReasonLabel": "Deny reason (optional)",
       "denyReasonPlaceholder": "e.g. wrong path, unsafe command",
-      "shortcutHint": "Ctrl+Enter = Allow · Esc = Deny",
+      "shortcutHint": "{{shortcut}} = Allow · Esc = Deny",
       "stackCount": "{{current}} of {{total}} pending",
       "emptyToolInput": "(empty)"
     },
@@ -1177,13 +1188,13 @@
       "neverUpdated": "No usage data received yet",
       "collectorTitle": "Usage collector",
       "collectorOnHint": "Claude Code is reporting your limits to Vibisual",
-      "collectorOffHint": "Turn on to read your plan limits from Claude Code",
+      "collectorOffHint": "Turn on for more frequent updates while an interactive session is running",
       "collectorEnable": "Turn on",
       "collectorDisable": "Turn off",
       "collectorPassthrough": "Your existing status line was kept — Vibisual runs it and shows its output unchanged.",
       "collectorForeign": "You already have a custom status line. Turning this on keeps it: Vibisual wraps it and still shows its output.",
       "collectorFailed": "Could not reach the usage collector settings.",
-      "collectorRestartHint": "Values arrive once an interactive Claude Code session renders its status line. Sessions already running need a restart.",
+      "collectorRestartHint": "Vibisual reads your usage on its own schedule even with this off — the collector just refreshes it more often while an interactive session runs.",
       "localTitle": "This project in Vibisual",
       "localAgents": "Agents",
       "localInput": "Input tokens",
@@ -1199,7 +1210,8 @@
       "creditsUsed": "{{percent}}% of your credit budget used",
       "creditsHint": "Credits keep Claude running after you hit a plan limit. Manage them in the Claude app.",
       "errNoCredentials": "Not signed in to Claude Code on this machine, so usage cannot be read directly. Sign in with Claude Code, or use the status line collector below.",
-      "errAwaitingStatusLine": "The collector is on, but no values have arrived yet. Limits arrive when an interactive Claude Code session renders its status line.",
+      "errAwaitingStatusLine": "No values yet. Vibisual asks Claude Code for /usage on a schedule, so the numbers should fill in shortly — an interactive session's status line fills them in even faster.",
+      "errCliUnavailable": "Vibisual could not run the `claude` command to read your usage. Check the Claude Code path in Options → Version, then refresh.",
       "errUnauthorized": "The saved Claude login has expired. Run Claude Code once and it refreshes itself — the numbers come back automatically.",
       "errNetwork": "Could not reach Claude just now. Showing the last values received.",
       "refreshFailed": "Refresh failed"
@@ -1245,6 +1257,10 @@
       "onlyEnabled": "Enabled only",
       "noMatch": "Nothing matches that. Try a word from what you want it to do.",
       "enabledCount": "{{on}} of {{total}} on",
+      "draftBadge": "In development",
+      "showDrafts": "Show {{n}} in development",
+      "hideDrafts": "Hide in-development plugins",
+      "draftNote": "This plugin does not inspect your project yet — turning it on only injects fixed rule text, with nothing measured from the project.",
       "usage": {
         "show": "What you get",
         "hide": "Hide",
@@ -1516,7 +1532,7 @@
     "diff": {
       "addComment": "Comment on this line",
       "removeComment": "Remove comment",
-      "commentPlaceholder": "What should change here? (Ctrl+Enter to save)",
+      "commentPlaceholder": "What should change here? ({{shortcut}} to save)",
       "commentCancel": "Cancel",
       "commentSave": "Save",
       "commentLimit": "Up to {{max}} review comments per session — send or remove some to add more.",
@@ -1542,8 +1558,8 @@
         "medium": "Medium",
         "thick": "Thick"
       },
-      "undo": "Undo (Ctrl+Z)",
-      "redo": "Redo (Ctrl+Shift+Z)",
+      "undo": "Undo ({{shortcut}})",
+      "redo": "Redo ({{shortcut}})",
       "clear": "Clear all marks",
       "download": "Download PNG",
       "saveReplace": "Save",
@@ -1556,7 +1572,7 @@
       "fileConflictOverwrite": "Save anyway",
       "textPlaceholder": "Type, then press Enter",
       "hintPick": "Pick a tool to mark this image, then save it as an attachment.",
-      "hintDraw": "Drag on the image to mark it. Ctrl+Z undoes the last mark.",
+      "hintDraw": "Drag on the image to mark it. {{shortcut}} undoes the last mark.",
       "discardTitle": "Discard your marks and close?",
       "discardCancel": "Keep editing",
       "discardConfirm": "Discard and close",
@@ -1590,7 +1606,12 @@
       "collapseLabel": "Collapse",
       "collapseHint": "Collapse — keeps the window and gives the canvas back (reopen it from the header window list)",
       "resizeWindow": "Resize window",
-      "resizeStack": "Resize split"
+      "resizeStack": "Resize split",
+      "slotTabHint": "Bring \"{{name}}\" to front (windows share this dock slot)",
+      "dockShortcutHint": "{{dock}} to dock · {{undock}} to undock",
+      "popOutHint": "Release to pop out as a separate window",
+      "popOutLabel": "Pop out as separate window",
+      "returnToApp": "Move back into the app"
     },
     "tabbar": {
       "newSession": "New Session",
@@ -1984,7 +2005,7 @@
     },
     "editor": {
       "resize": "Resize editor pane",
-      "save": "Save (Ctrl+S)",
+      "save": "Save ({{shortcut}})",
       "reload": "Reload from disk",
       "closeTab": "Close tab",
       "closePane": "Close editor pane",
@@ -3385,7 +3406,7 @@
       "deviceTip": "Render at {{width}}px wide",
       "pickElement": "Pick element",
       "pickHint": "Click an element in the preview to describe a change for it",
-      "pickPlaceholder": "What should change about this element? (Ctrl+Enter to send)",
+      "pickPlaceholder": "What should change about this element? ({{shortcut}} to send)",
       "pickSend": "Send",
       "pickCopy": "Copy selector",
       "pickCopied": "Copied",

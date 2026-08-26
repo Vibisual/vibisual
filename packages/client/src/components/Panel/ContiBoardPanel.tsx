@@ -7,6 +7,9 @@ import { useGraphStore } from '../../stores/graphStore.js';
 import { InlinePromptPopup } from './InlinePromptPopup.js';
 import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 import { StampSvg } from './ContiStamps.js';
+// 단축키 라벨은 플랫폼이 정한다 — mac 에서 실제로 눌리는 키는 Ctrl 이 아니라 Command 다
+//   (핸들러는 이미 ctrlKey || metaKey 를 함께 보므로 **표시만** 어긋나 있었다).
+import { shortcutLabel } from '../../utils/platform.js';
 
 /** §5.3 #28 v1.59 — 표준 16:9 스토리보드 viewBox. CONTI_DEFAULTS 와 동기화. */
 const VB_W = 320;
@@ -915,7 +918,7 @@ export function ContiBoardPanel(): React.JSX.Element | null {
         <div className="pointer-events-none absolute right-3 top-3 flex items-center gap-2 rounded border border-gray-700 bg-gray-900/80 px-2 py-1 font-mono text-[12px] text-gray-400 backdrop-blur-sm">
           <span>{Math.round(zoom * 100)}%</span>
           <span className="text-gray-600">·</span>
-          <span>{t('panel.contiBoard.zoomReset', { defaultValue: 'Ctrl+0 reset' })}</span>
+          <span>{t('panel.contiBoard.zoomReset', { shortcut: shortcutLabel('Ctrl+0'), defaultValue: '{{shortcut}} reset' })}</span>
         </div>
       </div>
 

@@ -18,6 +18,7 @@ import {
 } from '@vibisual/shared';
 import { logger } from '../logger.js';
 import { getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
+import { killTree, processGroupSpawnOptions } from './processTree.js';
 
 /** §5.3 #28 v1.62 — patch sub-agent 가 spawn 할 claude 바이너리 경로. */
 const CLAUDE_BIN_PATH = (): string => getClaudeBin().binPath;
@@ -211,11 +212,15 @@ function callClaude(
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
       cwd: opts.cwd,
+      // POSIX 한정 detached — 아래 타임아웃이 killTree 로 회수한다. 그룹 리더가 아니면 `-pid` 가
+      //   ESRCH 로 실패해 claude 손자(MCP 서버·worker)가 mac/linux 에서 그대로 살아남는다.
+      ...processGroupSpawnOptions(),
     });
 
     const timer = setTimeout(() => {
       logger.warn('contiManager.callClaude: timeout, killing claude process');
-      try { child.kill(); } catch { /* ignore */ }
+      // 이전엔 `child.kill()` — 직접 자식 1개만 죽어 claude 가 띄운 손자가 남았다. 트리째 회수.
+      killTree(child.pid);
       settle(null);
     }, TIMEOUT_MS);
 
@@ -544,10 +549,13 @@ function runPatchAgent(tmpdir: string, userPrompt: string, model: string): Promi
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
       cwd: tmpdir,
+      // callClaude 와 같은 사유 — POSIX 그룹 리더로 띄워야 아래 killTree 가 손자까지 회수한다.
+      ...processGroupSpawnOptions(),
     });
     const timer = setTimeout(() => {
       logger.warn(`contiManager.patch: timeout (model=${model}), killing claude`);
-      try { child.kill(); } catch { /* ignore */ }
+      // 이전엔 `child.kill()` — 손자(MCP 서버·worker)가 남아 tmpdir 을 붙잡고 살아있었다.
+      killTree(child.pid);
       settle({ ok: false, stdout, stderr });
     }, TIMEOUT_MS);
     child.stdout?.on('data', (buf: Buffer) => { stdout += buf.toString('utf8'); });

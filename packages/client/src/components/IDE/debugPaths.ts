@@ -6,12 +6,18 @@
  * 곳(멈춘 줄 강조 · 오류 줄 클릭해 열기)에서 똑같이 쓰이므로 흩어 두면 언젠가 어긋난다.
  */
 
+import { foldPathCase } from '../../utils/platform.js';
+
 /** 윈도우 경로 구분자. 소스에 리터럴로 적으면 이스케이프가 깨지기 쉬워 코드로 만든다. */
 const BACKSLASH = String.fromCharCode(92);
 
-/** 구분자를 `/` 로 통일하고 대소문자를 접는다(윈도우는 대소문자를 가리지 않는다). */
+/**
+ * 구분자를 `/` 로 통일하고, 대소문자는 **그 플랫폼이 실제로 무시할 때만** 접는다.
+ * Linux 에서 접으면 `App.ts` 와 `app.ts` 가 같은 파일로 읽혀 엉뚱한 파일에 멈춘 줄이 그려진다.
+ * 길이를 바꾸지 않는 foldPathCase 를 쓴다 — 아래 toWorkspaceRelative 가 이 결과 길이로 slice 한다.
+ */
 export function normalizePathKey(p: string): string {
-  return p.split(BACKSLASH).join('/').toLowerCase();
+  return foldPathCase(p.split(BACKSLASH).join('/'));
 }
 
 /**

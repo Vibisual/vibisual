@@ -29,6 +29,7 @@ import { resolveEnabledPluginsFor } from '@vibisual/plugins';
 import { PLUGIN_CLIENT_MODULES } from '@vibisual/plugins/client';
 import { useGraphStore, selectActiveBrainSummary, selectActivePluginFacts, selectActivePluginProjectPath } from '../stores/graphStore.js';
 import { orderPanelSections } from './panelOrder.js';
+import { clientPathPlatform } from '../utils/platform.js';
 import { PluginErrorBoundary } from './PluginErrorBoundary.js';
 import { tryBuild } from './isolate.js';
 import { modulesForSlot } from './slots.js';
@@ -68,6 +69,7 @@ export function useActivePluginModules(): PluginClientModule[] {
     const active = resolveEnabledPluginsFor(
       { enabledPluginsByProject: byProject, enabledPlugins: legacyGlobal },
       projectPath,
+      clientPathPlatform(),
     );
     return PLUGIN_CLIENT_MODULES.filter((m) => active.has(m.manifest.id));
   }, [byProject, legacyGlobal, projectPath]);

@@ -41,8 +41,9 @@
     },
     "usage": {
       "tooltip": "वर्तमान सत्र: 5-घंटे की सीमा का {{percent}}% उपयोग — विवरण के लिए क्लिक करें",
-      "tooltipNoData": "उपयोग डेटा अभी एकत्र नहीं हो रहा — चालू करने के लिए क्लिक करें",
-      "tooltipWaiting": "उपयोग संग्राहक चालू है — किसी इंटरैक्टिव Claude Code सत्र से पहली रिपोर्ट की प्रतीक्षा है"
+      "tooltipNoData": "अभी तक कोई उपयोग डेटा नहीं मिला — विवरण के लिए क्लिक करें",
+      "tooltipWaiting": "Claude Code से उपयोग लिया जा रहा है — संख्या जल्द दिखेगी",
+      "tooltipCliUnavailable": "उपयोग पढ़ने के लिए Claude Code नहीं चल सका — विवरण के लिए क्लिक करें"
     },
     "setupBanner": {
       "text": "Claude Code इंस्टॉल नहीं है — एजेंट अभी नहीं चल सकते।",
@@ -192,7 +193,7 @@
         "inspectorT": "Inspector",
         "inspectorD": "elements को हाइलाइट करने के लिए Alt दबाए रखें और कॉपी करने के लिए क्लिक करें; एक क्षेत्र चुनने के लिए Shift-drag करें।",
         "copyT": "Copy और paste",
-        "copyD": "Custom agents और edges चुनें, फिर उन्हें दूसरे प्रोजेक्ट में clone करने के लिए Ctrl+C / Ctrl+V दबाएं।"
+        "copyD": "Custom agents और edges चुनें, फिर उन्हें दूसरे प्रोजेक्ट में clone करने के लिए {{copy}} / {{paste}} दबाएं।"
       },
       "history": {
         "intro": "Vibisual आपके प्रोजेक्ट्स को हर बार चलाने के बीच याद रखता है।",
@@ -206,7 +207,7 @@
         "bookmarkT": "Bubble बुकमार्क",
         "bookmarkD": "Alt+1…0 किसी bubble या session को एक slot में पिन करता है; वापस जाने के लिए 1…0 दबाएं।",
         "copyT": "Copy / paste",
-        "copyD": "Ctrl+C / Ctrl+V (macOS पर Cmd) चुने गए agents, edges और comment boxes को कॉपी और पेस्ट करता है।",
+        "copyD": "{{copy}} / {{paste}} चुने गए agents, edges और comment boxes को कॉपी और पेस्ट करता है।",
         "inspectorT": "Inspector",
         "inspectorD": "inspect करने के लिए Alt दबाए रखें और किसी element को कॉपी करने के लिए क्लिक करें; region select के लिए Shift-drag करें।",
         "closeT": "बंद करें और रद्द करें",
@@ -555,7 +556,7 @@
       "editFrame": "टेक्स्ट संपादित करें",
       "editTitlePrompt": "Frame शीर्षक:",
       "editActionPrompt": "Frame क्रिया:",
-      "zoomReset": "Ctrl+0 रीसेट",
+      "zoomReset": "{{shortcut}} रीसेट",
       "presetLabel": "आउटपुट",
       "preset": {
         "landscape": "लैंडस्केप 16:9",
@@ -600,7 +601,7 @@
       "newSessionBadge": "नई session",
       "session": "Session:",
       "change": "बदलें",
-      "placeholder": "कमांड दर्ज करें... (Ctrl+V से इमेज पेस्ट करें)",
+      "placeholder": "कमांड दर्ज करें... ({{paste}} से इमेज पेस्ट करें)",
       "run": "चलाएं",
       "executing": "चल रहा है...",
       "delete": "हटाएं",
@@ -921,7 +922,7 @@
       "deny": "अस्वीकार करें",
       "denyReasonLabel": "अस्वीकार करने का कारण (वैकल्पिक)",
       "denyReasonPlaceholder": "जैसे: गलत पथ, असुरक्षित कमांड",
-      "shortcutHint": "Ctrl+Enter = अनुमति दें · Esc = अस्वीकार करें",
+      "shortcutHint": "{{shortcut}} = अनुमति दें · Esc = अस्वीकार करें",
       "stackCount": "{{total}} में से {{current}} लंबित",
       "emptyToolInput": "(खाली)"
     },
@@ -1163,13 +1164,13 @@
       "neverUpdated": "अभी तक कोई उपयोग डेटा नहीं मिला",
       "collectorTitle": "उपयोग कलेक्टर",
       "collectorOnHint": "Claude Code आपकी सीमाएं Vibisual को भेज रहा है",
-      "collectorOffHint": "Claude Code से अपने प्लान की सीमाएं पढ़ने के लिए चालू करें",
+      "collectorOffHint": "इंटरैक्टिव सत्र चलने के दौरान अधिक बार अपडेट पाने के लिए चालू करें",
       "collectorEnable": "चालू करें",
       "collectorDisable": "बंद करें",
       "collectorPassthrough": "आपकी मौजूदा स्टेटस लाइन सुरक्षित रखी गई — Vibisual उसे चलाकर वही आउटपुट दिखाता है।",
       "collectorForeign": "आपके पास पहले से अपनी स्टेटस लाइन है। चालू करने पर वह मिटती नहीं — Vibisual उसे लपेटकर उसका आउटपुट दिखाता रहता है।",
       "collectorFailed": "उपयोग कलेक्टर सेटिंग्स तक नहीं पहुंच सके।",
-      "collectorRestartHint": "मान तब आते हैं जब कोई इंटरैक्टिव Claude Code सत्र अपनी स्टेटस लाइन बनाता है। पहले से चल रहे सत्रों को दोबारा शुरू करना होगा।",
+      "collectorRestartHint": "यह बंद होने पर भी Vibisual नियमित रूप से उपयोग पढ़ता है — कलेक्टर सिर्फ़ इंटरैक्टिव सत्र के दौरान इसे अधिक बार ताज़ा करता है।",
       "localTitle": "Vibisual में यह प्रोजेक्ट",
       "localAgents": "एजेंट",
       "localInput": "इनपुट टोकन",
@@ -1185,7 +1186,8 @@
       "creditsUsed": "क्रेडिट बजट का {{percent}}% उपयोग",
       "creditsHint": "प्लान सीमा पर पहुंचने के बाद भी Claude चलाने के लिए क्रेडिट काम आते हैं। इन्हें Claude ऐप में प्रबंधित करें।",
       "errNoCredentials": "इस मशीन पर Claude Code में साइन इन नहीं है, इसलिए उपयोग सीधे नहीं पढ़ा जा सकता। Claude Code से साइन इन करें, या नीचे स्टेटस लाइन कलेक्टर का उपयोग करें।",
-      "errAwaitingStatusLine": "संग्राहक चालू है, लेकिन अभी तक कोई मान नहीं आया है। सीमाएँ तब आती हैं जब कोई इंटरैक्टिव Claude Code सत्र अपनी स्टेटस लाइन बनाता है।",
+      "errAwaitingStatusLine": "अभी कोई मान नहीं है। Vibisual नियमित रूप से Claude Code से /usage पूछता है, इसलिए संख्याएँ जल्द भर जाएँगी — इंटरैक्टिव सत्र की स्टेटस लाइन इन्हें और तेज़ी से भरती है।",
+      "errCliUnavailable": "उपयोग पढ़ने के लिए `claude` कमांड नहीं चल सका। विकल्प → Version में Claude Code का पथ जाँचें और फिर रीफ़्रेश करें।",
       "errUnauthorized": "सहेजा गया Claude लॉगिन समाप्त हो गया है। Claude Code एक बार चलाएं — यह खुद नवीनीकृत हो जाता है और आंकड़े वापस आ जाते हैं।",
       "errNetwork": "अभी Claude तक नहीं पहुंच सके। अंतिम प्राप्त मान दिखाए जा रहे हैं।",
       "refreshFailed": "ताज़ा करना विफल"
@@ -1231,6 +1233,10 @@
       "onlyEnabled": "केवल चालू",
       "noMatch": "कुछ मेल नहीं खाता। जो काम करवाना है, उसी का कोई शब्द आज़माइए।",
       "enabledCount": "{{total}} में से {{on}} चालू",
+      "draftBadge": "विकासाधीन",
+      "showDrafts": "विकासाधीन {{n}} भी दिखाएँ",
+      "hideDrafts": "विकासाधीन कार्ड छिपाएँ",
+      "draftNote": "यह प्लगइन अभी आपके प्रोजेक्ट की जाँच नहीं करता — चालू करने पर केवल तय नियम-पाठ जुड़ता है, प्रोजेक्ट से मापा गया आधार नहीं।",
       "usage": {
         "show": "चालू करने पर क्या दिखेगा",
         "hide": "बंद करें",
@@ -1502,7 +1508,7 @@
     "diff": {
       "addComment": "इस लाइन पर टिप्पणी करें",
       "removeComment": "टिप्पणी हटाएं",
-      "commentPlaceholder": "यहां क्या बदलना चाहिए? (सहेजने के लिए Ctrl+Enter)",
+      "commentPlaceholder": "यहां क्या बदलना चाहिए? (सहेजने के लिए {{shortcut}})",
       "commentCancel": "रद्द करें",
       "commentSave": "सहेजें",
       "commentLimit": "प्रति सेशन अधिकतम {{max}} रिव्यू टिप्पणियां — और जोड़ने के लिए कुछ भेजें या हटाएं।",
@@ -1528,8 +1534,8 @@
         "medium": "मध्यम",
         "thick": "मोटा"
       },
-      "undo": "पूर्ववत करें (Ctrl+Z)",
-      "redo": "फिर से करें (Ctrl+Shift+Z)",
+      "undo": "पूर्ववत करें ({{shortcut}})",
+      "redo": "फिर से करें ({{shortcut}})",
       "clear": "सभी निशान साफ़ करें",
       "download": "PNG डाउनलोड करें",
       "saveReplace": "सहेजें",
@@ -1542,7 +1548,7 @@
       "fileConflictOverwrite": "फिर भी सहेजें",
       "textPlaceholder": "टाइप करें, फिर Enter दबाएं",
       "hintPick": "इस इमेज पर निशान लगाने के लिए एक टूल चुनें, फिर इसे attachment के रूप में सहेजें।",
-      "hintDraw": "इमेज पर निशान लगाने के लिए उस पर खींचें। Ctrl+Z आखिरी निशान पूर्ववत करता है।",
+      "hintDraw": "इमेज पर निशान लगाने के लिए उस पर खींचें। {{shortcut}} आखिरी निशान पूर्ववत करता है।",
       "discardTitle": "अपने निशान छोड़कर बंद करें?",
       "discardCancel": "संपादन जारी रखें",
       "discardConfirm": "छोड़ें और बंद करें",
@@ -1965,7 +1971,7 @@
     },
     "editor": {
       "resize": "Editor pane का आकार बदलें",
-      "save": "सहेजें (Ctrl+S)",
+      "save": "सहेजें ({{shortcut}})",
       "reload": "डिस्क से फिर लोड करें",
       "closeTab": "टैब बंद करें",
       "closePane": "Editor pane बंद करें",
@@ -3360,7 +3366,7 @@
       "deviceTip": "{{width}}px चौड़ाई पर रेंडर करें",
       "pickElement": "एलिमेंट चुनें",
       "pickHint": "किसी बदलाव का वर्णन करने के लिए प्रीव्यू में कोई एलिमेंट क्लिक करें",
-      "pickPlaceholder": "इस एलिमेंट में क्या बदलना चाहिए? (भेजने के लिए Ctrl+Enter)",
+      "pickPlaceholder": "इस एलिमेंट में क्या बदलना चाहिए? (भेजने के लिए {{shortcut}})",
       "pickSend": "भेजें",
       "pickCopy": "सेलेक्टर कॉपी करें",
       "pickCopied": "कॉपी हो गया",

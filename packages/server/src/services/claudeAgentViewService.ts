@@ -23,6 +23,7 @@ import { logger } from '../logger.js';
 import { getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
 import { getClaudeVersionInfo } from './claudeVersionService.js';
 import { getSessionJsonlPath } from './sessionDiscovery.js';
+import { processGroupSpawnOptions } from './processTree.js';
 
 const CLAUDE_BIN = (): string => getClaudeBin().binPath;
 
@@ -184,6 +185,11 @@ export async function spawnBackground(
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
       shell: false,
+      // POSIX 한정 detached — `--bg` 런처는 금방 끝나지만 **뒤에 남기는 워커는 오래 산다.**
+      //   그룹을 따로 떼어 두면 우리 서버 프로세스 그룹에 가는 신호(터미널 Ctrl+C 등)에
+      //   백그라운드 워커가 휩쓸리지 않는다 — `--bg` 의 의미와 일치한다.
+      //   여기선 killTree 를 쓰지 않는다(정지 경로는 `claude stop <short>`). unref() 도 붙이지 않는다.
+      ...processGroupSpawnOptions(),
       env: {
         ...process.env,
         LANG: 'en_US.UTF-8',
@@ -309,6 +315,8 @@ export function readJobState(short: string): AgentViewJobState | null {
 /** fire-and-forget 헬퍼 — short subprocess 1회 발사. exitCode 만 promise. */
 function fireSubcommand(args: string[]): Promise<{ exitCode: number | null; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
+    // detached 를 **일부러 안 붙인다** — `claude stop|rm <short>` 는 손자를 만들지 않고 즉시 끝나는
+    //   하위명령이라 프로세스 그룹이 필요 없다(우리도 killTree 로 회수하지 않는다).
     const child = spawn(CLAUDE_BIN(), args, {
       stdio: ['ignore', 'pipe', 'pipe'],
       shell: false,

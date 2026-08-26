@@ -11,6 +11,8 @@
  *
  * 순수 함수 모듈(디스크 접근 ❌)이라 단위 테스트로 고정한다.
  */
+// 경로 대소문자 정책 SSOT — win32/darwin 만 접고 linux 는 접지 않는다(디스크 접근 없음).
+import { pathKey } from './pathKey.js';
 
 /** 한 Bash 명령에서 뽑는 경로 상한 — `find`/`ls` 류 대량 경로가 버블을 폭증시키지 않게. */
 export const BASH_READ_PATH_LIMIT = 4;
@@ -259,7 +261,8 @@ export function extractBashReadPaths(
     for (const p of pathsFromSegment(segment)) {
       const joined = isAbsolutePath(p) || !base ? p : `${base}/${p}`;
       const resolved = toNative(joined);
-      const key = resolved.replace(/\\/g, '/').toLowerCase();
+      // 중복 제거 키 — linux 에서 접으면 `src/Foo.ts` 와 `src/foo.ts` 중 하나가 조용히 사라진다.
+      const key = pathKey(resolved);
       if (seen.has(key)) continue;
       seen.add(key);
       out.push(resolved);

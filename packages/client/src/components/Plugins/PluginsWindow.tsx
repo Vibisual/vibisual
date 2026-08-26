@@ -28,7 +28,8 @@ import { getClientModule } from '@vibisual/plugins/client';
 import { useGraphStore, selectActivePluginProjectPath } from '../../stores/graphStore.js';
 import { setCanvasCover } from '../../stores/canvasVisibility.js';
 import { usePluginTranslate } from '../../plugins/host.js';
-import { groupPlugins, resolveSelection } from '../../plugins/pluginList.js';
+import { clientPathPlatform } from '../../utils/platform.js';
+import { groupPlugins, isProjectEnforcing, resolveSelection } from '../../plugins/pluginList.js';
 import { PluginErrorBoundary } from '../../plugins/PluginErrorBoundary.js';
 import { PluginUsage } from './PluginUsage.js';
 import { tryBuild } from '../../plugins/isolate.js';
@@ -48,6 +49,10 @@ export function PluginsWindow({ open, onClose }: PluginsWindowProps): React.JSX.
   // 이 창이 손대는 대상 = 지금 보고 있는 프로젝트 한 곳. 경로는 저장 키, 이름은 화면 표시용.
   const projectPath = useGraphStore(selectActivePluginProjectPath);
   const projectName = useGraphStore((s) => s.activeProject);
+  // §5.11 노출 게이트 — §5.14·§5.15·§5.18·§5.20 넷이 쓰는 그 디버그 모드를 **그대로** 쓴다.
+  //   여기에 별도 스위치를 두면 캔버스의 ` 키와 두 벌이 되어 어긋난다.
+  const debugMode = useGraphStore((s) => s.debugMode);
+  const toggleDebug = useGraphStore((s) => s.toggleDebug);
 
   const [selectedId, setSelectedId] = useState<string>(PLUGIN_MANIFESTS[0]?.id ?? '');
   const [saving, setSaving] = useState(false);
@@ -57,19 +62,34 @@ export function PluginsWindow({ open, onClose }: PluginsWindowProps): React.JSX.
   const [showUsage, setShowUsage] = useState(false);
 
   const enabledSet = useMemo(
-    () => resolveEnabledPluginsFor(userDefaults, projectPath),
+    () => resolveEnabledPluginsFor(userDefaults, projectPath, clientPathPlatform()),
     [userDefaults, projectPath],
   );
 
+  /**
+   * 지금 목록에 "설 수 있는" 카드들 — 찾기·"켠 것만" 보다 한 단계 앞의 노출 게이트다.
+   *
+   * 켠 것은 게이트와 무관하게 늘 포함한다. 그래서 "목록에 없는데 프롬프트에는 실리는" 카드가
+   * 원천적으로 생기지 않는다(끄려면 보여야 한다).
+   */
+  const gated = useMemo(
+    () => PLUGIN_MANIFESTS.filter((m) => debugMode || isProjectEnforcing(m) || enabledSet.has(m.id)),
+    [debugMode, enabledSet],
+  );
+  /** 아직 안 만들어져 지금 숨어 있는 카드 수 — 스위치에 그대로 세운다(몇 장이 잠겨 있는지 말한다). */
+  const hiddenCount = PLUGIN_MANIFESTS.length - gated.length;
+
   // 목록을 거르고 묶는 판단은 `pluginList.ts` 가 한다 — 여기서는 결과를 그리기만 한다.
   const groups = useMemo(
-    () => groupPlugins(PLUGIN_MANIFESTS, {
+    () => groupPlugins(gated, {
       query,
       onlyEnabled,
       enabled: enabledSet,
       describe: (manifest) => t(manifest.descriptionKey),
+      // `gated` 가 이미 게이트를 통과시켰으므로 여기서는 다시 거르지 않는다.
+      showDraft: true,
     }),
-    [query, onlyEnabled, enabledSet, t],
+    [gated, query, onlyEnabled, enabledSet, t],
   );
 
   // 찾다가 선택이 걸러져 사라지면 오른쪽이 빈 화면이 된다 — 첫 항목으로 옮긴다.
@@ -121,14 +141,14 @@ export function PluginsWindow({ open, onClose }: PluginsWindowProps): React.JSX.
     if (!projectPath) return;
 
     const prev = useGraphStore.getState().userDefaults;
-    const next = new Set(resolveEnabledPluginsFor(prev, projectPath));
+    const next = new Set(resolveEnabledPluginsFor(prev, projectPath, clientPathPlatform()));
     if (next.has(id)) next.delete(id); else next.add(id);
     const list = [...next];
 
     // 낙관적 반영 — 서버 broadcast 가 곧 같은 값으로 확정한다. 다른 프로젝트 칸은 건드리지 않는다.
     applyUserDefaults({
       ...(prev ?? {}),
-      enabledPluginsByProject: withProjectEnabled(prev, projectPath, list),
+      enabledPluginsByProject: withProjectEnabled(prev, projectPath, list, clientPathPlatform()),
       updatedAt: Date.now(),
     });
 
@@ -140,7 +160,7 @@ export function PluginsWindow({ open, onClose }: PluginsWindowProps): React.JSX.
         // **방금 바꾼 한 칸만** 보낸다 — 서버가 프로젝트 키 단위로 머지하므로, 맵 전체를 보내면
         // 그 사이 다른 창이 바꾼 프로젝트를 이 창의 옛 값으로 되돌려 놓는다.
         body: JSON.stringify({
-          enabledPluginsByProject: { [resolveProjectKey(prev, projectPath)]: list },
+          enabledPluginsByProject: { [resolveProjectKey(prev, projectPath, clientPathPlatform())]: list },
         }),
       });
       // fetch 는 4xx·5xx 에도 resolve 한다 — 상태를 안 보면 **저장에 실패했는데 화면만 켜진 채로 남고**,
@@ -180,7 +200,7 @@ export function PluginsWindow({ open, onClose }: PluginsWindowProps): React.JSX.
             {t('panel.plugins.title')}
             {/* 켠 수를 창 머리에 둔다 — 111종 중 무엇이 켜져 있는지가 가장 먼저 궁금한 정보다. */}
             <span className="text-[12px] font-normal text-gray-500">
-              {t('panel.plugins.enabledCount', { on: enabledSet.size, total: PLUGIN_MANIFESTS.length })}
+              {t('panel.plugins.enabledCount', { on: enabledSet.size, total: gated.length })}
             </span>
             {saving && <span className="text-xs font-normal text-gray-500">{t('panel.plugins.saving')}</span>}
           </h3>
@@ -263,6 +283,28 @@ export function PluginsWindow({ open, onClose }: PluginsWindowProps): React.JSX.
                 <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${onlyEnabled ? 'bg-emerald-400' : 'bg-gray-600'}`} />
                 {t('panel.plugins.onlyEnabled')}
               </button>
+              {/*
+                §5.11 노출 게이트 스위치 — 아직 프로젝트를 훑지 않는 카드를 함께 세운다.
+                이 창은 모달이라 캔버스의 ` 단축키를 모르면 갇힌다. 그래서 같은 칸을 뒤집는 버튼을
+                여기 둔다(§7.7 `debugMode` 그대로 — 새 상태가 아니다).
+                숨은 것이 하나도 없으면(전부 만들어졌으면) 이 줄 자체가 필요 없다.
+              */}
+              {(hiddenCount > 0 || debugMode) && (
+                <button
+                  type="button"
+                  onClick={toggleDebug}
+                  className={`mt-1 flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-[12px] ${
+                    debugMode ? 'bg-amber-500/15 text-amber-300' : 'text-gray-500 hover:bg-white/[0.04] hover:text-gray-300'
+                  }`}
+                >
+                  <svg className="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="16 18 22 12 16 6" /><polyline points="8 6 2 12 8 18" />
+                  </svg>
+                  <span className="min-w-0 truncate text-left">
+                    {debugMode ? t('panel.plugins.hideDrafts') : t('panel.plugins.showDrafts', { n: hiddenCount })}
+                  </span>
+                </button>
+              )}
             </div>
 
             <div className="flex-1 overflow-y-auto py-1">
@@ -298,6 +340,8 @@ export function PluginsWindow({ open, onClose }: PluginsWindowProps): React.JSX.
                     </button>
                     {!folded && group.items.map((m) => {
                       const on = enabledSet.has(m.id);
+                      // 디버그 모드에서만 함께 서는 카드 — 켠 것과 헷갈리지 않게 점 모양을 달리한다.
+                      const draft = !isProjectEnforcing(m);
                       return (
                         <button
                           key={m.id}
@@ -309,8 +353,13 @@ export function PluginsWindow({ open, onClose }: PluginsWindowProps): React.JSX.
                               : 'border-l-2 border-transparent text-gray-400 hover:bg-white/[0.04] hover:text-gray-200'
                           }`}
                         >
-                          <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${on ? 'bg-emerald-400' : 'bg-gray-600'}`} />
-                          <span className="truncate">{m.name}</span>
+                          <span
+                            className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                              on ? 'bg-emerald-400' : draft ? 'border border-gray-600 bg-transparent' : 'bg-gray-600'
+                            }`}
+                            title={draft ? t('panel.plugins.draftBadge') : undefined}
+                          />
+                          <span className={`truncate ${draft && !on ? 'text-gray-500' : ''}`}>{m.name}</span>
                         </button>
                       );
                     })}
@@ -349,6 +398,20 @@ export function PluginsWindow({ open, onClose }: PluginsWindowProps): React.JSX.
                     {selectedEnabled ? t('panel.plugins.enabled') : t('panel.plugins.disabled')}
                   </button>
                 </div>
+
+                {/*
+                  §5.11 노출 게이트 — 아직 프로젝트를 훑지 않는 카드에는 그 사실을 적는다.
+                  켤 수는 있다(개발 중에 시험해야 하므로). 다만 "켜도 고정 문장만 실린다"는 것을
+                  먼저 말해야 사용자가 "켰는데 왜 아무 일도 없냐"에 부딪히지 않는다.
+                */}
+                {!isProjectEnforcing(selected) && (
+                  <div className="flex items-start gap-2 rounded border border-amber-500/20 bg-amber-500/[0.07] px-3 py-2 text-[12px] leading-relaxed text-amber-300/90">
+                    <svg className="mt-0.5 h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="9" /><line x1="12" y1="8" x2="12" y2="13" /><line x1="12" y1="16" x2="12.01" y2="16" />
+                    </svg>
+                    <span className="min-w-0">{t('panel.plugins.draftNote')}</span>
+                  </div>
+                )}
 
                 {/* 설명을 누르면 "켜면 뭘 보게 되는가"가 펴진다. */}
                 <div>

@@ -80,7 +80,13 @@ mac:
   # 그래야 각 dmg 가 **그 아키텍처에서 설치된 네이티브 모듈**과 짝이 맞는다
   # (.github/workflows/release.yml 머리말의 koffi 항목 참고).
   target:
+    # ⚠️ `zip` 을 빼지 마라 — dmg 만 두면 자동 업데이트가 조용히 죽는다.
+    # Squirrel.Mac(= electron-updater 의 macOS 백엔드)은 zip 으로만 업데이트를 적용하고,
+    # electron-builder 는 zip 타깃이 있어야 `latest-mac.yml`(업데이트 피드)을 만든다.
+    # 이게 없으면 코드서명을 나중에 붙여도 `checkForUpdates()` 는 계속 실패한다
+    # (2026-08-26 조사 — mac 자동 업데이트가 막힌 원인은 서명 미배선 + 이 항목 두 겹이었다).
     - dmg
+    - zip
   # Point at a finished .icns rather than letting electron-builder derive one from
   # icon.png. Its converter (app-builder, Go) panics with "index out of range [-1]"
   # in icons.doConvertIcon on that path — an upstream bug open since 2018, and the

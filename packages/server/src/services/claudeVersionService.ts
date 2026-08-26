@@ -23,6 +23,7 @@ import {
   type ClaudeBinSource,
   type ClaudeBinInfo,
 } from './claudeBin.js';
+import { killTree, processGroupSpawnOptions } from './processTree.js';
 
 /** §5.7 #23-1 v1.59 — npm registry 조회 캐시 TTL */
 const REGISTRY_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -66,6 +67,8 @@ function detectCurrentVersion(
 ): Promise<{ version: string | null; error?: string }> {
   return new Promise((resolve) => {
     let resolved = false;
+    // detached 를 **일부러 안 붙인다** — `--version` 은 손자를 만들지 않고 즉시 끝나는 probe 다.
+    //   그룹을 새로 팔 이유가 없고, 우리도 killTree 가 아니라 단일 kill 로 회수한다.
     const child = spawn(binPath, ['--version'], {
       shell: process.platform === 'win32',
       windowsHide: true,
@@ -427,6 +430,10 @@ export function installLatestClaude(): ClaudeInstallProgress {
     shell: plan.useShell,
     windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe'],
+    // POSIX 한정 detached — `npm install -g` / `claude update` 는 자기 밑으로 손자를 잔뜩 판다
+    //   (node·tar·brew·winget). 그룹 리더로 안 띄우면 아래 타임아웃이 최상단 하나만 죽이고
+    //   설치 절차는 계속 돌아 반쯤 설치된 상태가 남는다. `--version` probe 와 달리 여기는 장수명이다.
+    ...processGroupSpawnOptions(),
     env: {
       ...process.env,
       // §4 (Claude Code CLI 자동 업데이트) — **패키지 매니저 설치본도 실제로 올라가게.**
@@ -455,7 +462,8 @@ export function installLatestClaude(): ClaudeInstallProgress {
     if (!inflightInstall) return;
     inflightInstall.error = `install timed out after ${INSTALL_TIMEOUT_MS}ms`;
     inflightInstall.status = 'error';
-    try { child.kill(); } catch { /* ignore */ }
+    // 이전엔 `child.kill()` — npm/셸 최상단만 죽고 실제 설치 손자는 계속 돌았다. 트리째 회수.
+    killTree(child.pid);
   }, INSTALL_TIMEOUT_MS);
 
   child.on('error', (err) => {

@@ -18,6 +18,8 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+// 경로 대소문자 정책 SSOT — win32/darwin 만 접고 linux 는 접지 않는다.
+import { pathKey } from './pathKey.js';
 
 /** `<parent>/.claude/worktrees/<name>` 경로 패턴(대소문자 무시, 정규화된 forward-slash 기준). */
 const WORKTREE_PATH_RE = /^(.*)\/\.claude\/worktrees\/([^/]+)(?:\/|$)/i;
@@ -53,7 +55,9 @@ const livenessCache = new Map<string, { live: boolean; at: number }>();
  */
 export function isLiveWorktreeDir(worktreeRoot: string): boolean {
   if (!worktreeRoot) return false;
-  const key = toSlash(worktreeRoot).toLowerCase();
+  // 캐시 키는 경로다 — linux 에서 접으면 케이스만 다른 두 워크트리가 서로의 생사 판정을 물려받아
+  // 살아 있는 폴더가 "죽음"으로 읽히고 저장분이 정리 대상이 된다.
+  const key = pathKey(worktreeRoot);
   const now = Date.now();
   const hit = livenessCache.get(key);
   if (hit && now - hit.at < LIVENESS_TTL_MS) return hit.live;
@@ -71,7 +75,7 @@ export function isLiveWorktreeDir(worktreeRoot: string): boolean {
 /** 판정 캐시 무효화(워크트리 생성·삭제 직후 즉시 반영용). 인자 없으면 전체. */
 export function invalidateWorktreeLiveness(worktreeRoot?: string): void {
   if (!worktreeRoot) { livenessCache.clear(); return; }
-  livenessCache.delete(toSlash(worktreeRoot).toLowerCase());
+  livenessCache.delete(pathKey(worktreeRoot));
 }
 
 /**

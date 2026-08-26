@@ -104,3 +104,64 @@ describe('buildClaudeUsage', () => {
     expect(info.limits).toEqual([]);
   });
 });
+
+// §4 — `/usage` probe 와 statusLine 두 원천의 병합. 이 규칙이 틀리면 화면에 **낡은 값이 박힌다**
+//   (헤드리스만 돌리는 사용자의 필이 계속 `-` 이던 것이 이 축의 부재였다).
+describe('buildClaudeUsage — probe 병합', () => {
+  const probeSnapshot = {
+    fetchedAt: NOW,
+    session: { percent: 12, resetsAt: NOW + 2 * HOUR },
+    weekly: { percent: 55, resetsAt: NOW + 48 * HOUR },
+    scoped: [{ label: 'Fable', percent: 7 }],
+    extraCredits: { enabled: false, utilization: 0 },
+  };
+
+  it('statusLine 이 한 번도 안 왔어도 probe 값만으로 채운다', () => {
+    const info = buildClaudeUsage(undefined, NOW, false, probeSnapshot);
+    expect(info.error).toBeUndefined();
+    expect(info.source).toBe('cli');
+    expect(info.limits.find((l) => l.kind === 'session')?.percent).toBe(12);
+    expect(info.limits.find((l) => l.kind === 'weekly_all')?.percent).toBe(55);
+  });
+
+  it('모델별 주간 한도는 표시명을 달고 들어온다', () => {
+    const info = buildClaudeUsage(undefined, NOW, false, probeSnapshot);
+    const scoped = info.limits.find((l) => l.kind === 'weekly_scoped');
+    expect(scoped?.scopeLabel).toBe('Fable');
+    expect(scoped?.percent).toBe(7);
+    expect(scoped?.group).toBe('weekly');
+  });
+
+  it('사용 크레딧도 함께 실어 보낸다', () => {
+    expect(buildClaudeUsage(undefined, NOW, false, probeSnapshot).extraCredits).toEqual({
+      enabled: false,
+      utilization: 0,
+    });
+  });
+
+  it('statusLine 이 더 최근이면 그쪽을 쓴다 — 대화형 세션이 떠 있는 동안은 그게 최신이다', () => {
+    const rate: RateLimitInfo = { used5h: 31, resetAt5h: NOW + HOUR, updatedAt: NOW + 60_000 };
+    const info = buildClaudeUsage(rate, NOW, true, probeSnapshot);
+    expect(info.limits.find((l) => l.kind === 'session')?.percent).toBe(31);
+    // 7일 창은 statusLine 이 안 줬으므로 probe 값이 남는다 → 원천 표시는 cli.
+    expect(info.limits.find((l) => l.kind === 'weekly_all')?.percent).toBe(55);
+    expect(info.source).toBe('cli');
+  });
+
+  it('probe 가 더 최근이면 낡은 statusLine 값을 덮는다', () => {
+    const rate: RateLimitInfo = { used5h: 99, resetAt5h: NOW - 5 * HOUR, updatedAt: NOW - 20 * HOUR };
+    const info = buildClaudeUsage(rate, NOW, true, probeSnapshot);
+    expect(info.limits.find((l) => l.kind === 'session')?.percent).toBe(12);
+    expect(info.source).toBe('cli');
+  });
+
+  it('probe 가 실패하고 받아 둔 값도 없으면 "실행 경로 문제" 로 말한다', () => {
+    const info = buildClaudeUsage(undefined, NOW, true, null, 'cli-missing');
+    expect(info.limits).toEqual([]);
+    expect(info.error).toBe('cli-unavailable');
+  });
+
+  it('probe 는 아직인데 수집기가 켜져 있으면 기다리는 중으로 남는다', () => {
+    expect(buildClaudeUsage(undefined, NOW, true, null).error).toBe('awaiting-statusline');
+  });
+});

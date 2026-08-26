@@ -1,10 +1,9 @@
-import { spawn } from 'node:child_process';
 import {
   CLAUDE_AUTH_PROBE_TIMEOUT_MS,
   CLAUDE_AUTH_LOGOUT_TIMEOUT_MS,
 } from '@vibisual/shared';
 import type { ClaudeAuthStatus, ClaudeAuthProbeError } from '@vibisual/shared';
-import { getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
+import { runClaudeCli } from './claudeCliRun.js';
 import { logger } from '../logger.js';
 
 /**
@@ -52,69 +51,6 @@ export function parseAuthStatus(raw: string, now: number): ClaudeAuthStatus | nu
   };
 }
 
-interface RunResult {
-  code: number | null;
-  out: string;
-  /** spawn 자체가 실패했거나(바이너리 없음) 타임아웃으로 죽였을 때. */
-  failure?: 'spawn' | 'timeout';
-}
-
-/** claude 하위명령 1회 실행 — stdout+stderr 합본. 실패해도 throw 하지 않는다. */
-function runClaude(args: string[], timeoutMs: number): Promise<RunResult> {
-  let binPath: string | undefined;
-  try {
-    binPath = getClaudeBin()?.binPath;
-  } catch {
-    /* PATH 미발견 */
-  }
-  if (!binPath) return Promise.resolve({ code: null, out: '', failure: 'spawn' });
-
-  return new Promise<RunResult>((resolve) => {
-    let done = false;
-    let out = '';
-    const finish = (r: RunResult): void => {
-      if (!done) {
-        done = true;
-        resolve(r);
-      }
-    };
-    let child: ReturnType<typeof spawn>;
-    try {
-      child = spawn(binPath, args, {
-        // Windows 의 claude 는 보통 `claude.cmd` shim 이라 셸 경유가 필요하다(terminalManager 주석과 동일 사유).
-        shell: process.platform === 'win32',
-        windowsHide: true,
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
-    } catch {
-      return finish({ code: null, out: '', failure: 'spawn' });
-    }
-    const timer = setTimeout(() => {
-      try {
-        child.kill();
-      } catch {
-        /* already gone */
-      }
-      finish({ code: null, out, failure: 'timeout' });
-    }, timeoutMs);
-    child.stdout?.on('data', (c) => {
-      out += String(c);
-    });
-    child.stderr?.on('data', (c) => {
-      out += String(c);
-    });
-    child.on('error', (err) => {
-      clearTimeout(timer);
-      noteClaudeSpawnFailure(err);
-      finish({ code: null, out, failure: 'spawn' });
-    });
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      finish({ code, out });
-    });
-  });
-}
-
 function unknownStatus(error: ClaudeAuthProbeError): ClaudeAuthStatus {
   return { loggedIn: false, error, checkedAt: Date.now() };
 }
@@ -138,7 +74,7 @@ class ClaudeAuthService {
   }
 
   private async probe(): Promise<ClaudeAuthStatus> {
-    const res = await runClaude(['auth', 'status', '--json'], CLAUDE_AUTH_PROBE_TIMEOUT_MS);
+    const res = await runClaudeCli(['auth', 'status', '--json'], CLAUDE_AUTH_PROBE_TIMEOUT_MS);
     if (res.failure === 'spawn') {
       this.cached = unknownStatus('cli-missing');
       return this.cached;
@@ -165,7 +101,7 @@ class ClaudeAuthService {
    * 재조회한 현재 상태를 그대로 돌려준다 — 화면이 실제 상태와 어긋나지 않게.
    */
   async logout(): Promise<{ ok: boolean; status: ClaudeAuthStatus; error?: string }> {
-    const res = await runClaude(['auth', 'logout'], CLAUDE_AUTH_LOGOUT_TIMEOUT_MS);
+    const res = await runClaudeCli(['auth', 'logout'], CLAUDE_AUTH_LOGOUT_TIMEOUT_MS);
     const status = await this.refresh();
     if (res.failure || (res.code !== null && res.code !== 0)) {
       const detail = res.failure ?? `exit ${String(res.code)}`;

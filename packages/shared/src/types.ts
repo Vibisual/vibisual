@@ -178,20 +178,36 @@ export interface ClaudeUsageExtraCredits {
 }
 
 /**
- * 값의 원천. 지금은 statusLine 하나뿐이다 — 구 v3.62 의 `'oauth'`(내부 엔드포인트 직접 조회)는
- * 약관 문제로 폐기했다. 유니온을 남겨 두는 것은 훗날 공식 창구가 생기면 그 자리에 붙이기 위함.
+ * 값의 원천.
+ *
+ * - `'cli'` — **공식 CLI 의 `/usage` 를 print 모드로 실행**해 받은 값(`claude -p "/usage"`).
+ *   모델 호출이 0턴이라 과금도 없고(실측 `num_turns:0` · `total_cost_usd:0`), 대화형 세션이
+ *   없어도 값이 들어온다. 실행 결과는 Claude Code 자신이 `~/.claude.json` 의
+ *   `cachedUsageUtilization` 에 적어 두므로 우리는 그 파일을 읽는다 — 남의 화면 긁기도,
+ *   문서에 없는 엔드포인트 호출도 아닌 **공개 인터페이스 + 로컬 파일** 경로다.
+ * - `'statusline'` — 대화형 세션이 상태줄을 그릴 때 밀어 주는 값(§4 v3.60). 더 빨리 도착하는
+ *   창이 있으므로 폐기하지 않고 **둘 중 더 최근 것**을 쓴다.
+ *
+ * 구 v3.62 의 `'oauth'`(내부 엔드포인트 직접 조회)는 약관 문제로 폐기했다.
  */
-export type ClaudeUsageSource = 'statusline';
+export type ClaudeUsageSource = 'statusline' | 'cli';
 
 /**
  * no-credentials = 수집기가 꺼져 있어 표시할 값이 없음(mac 키체인 환경 포함).
  * awaiting-statusline = **수집기는 켜져 있는데 아직 첫 값이 안 들어왔다.** 값의 원천이
  *   statusLine 이라 대화형 Claude Code 세션이 화면에 한 번 그려져야 들어온다 — 그때까지는
  *   "켜라" 가 아니라 "기다리는 중" 이라고 말해야 사용자가 스위치를 헛클릭하지 않는다.
+ * cli-unavailable = `claude` 실행본을 못 찾았거나 `/usage` probe 가 실패했다(타임아웃 포함).
+ *   "켜라" 도 "기다려라" 도 아닌 **실행 경로 문제**라 화면이 다르게 말해야 한다.
  * unauthorized / network 는 구 v3.62 직접 조회 시절의 코드라 지금은 발생하지 않지만,
  * 화면이 이미 문구를 들고 있어 유니온에 남긴다.
  */
-export type ClaudeUsageError = 'no-credentials' | 'awaiting-statusline' | 'unauthorized' | 'network';
+export type ClaudeUsageError =
+  | 'no-credentials'
+  | 'awaiting-statusline'
+  | 'cli-unavailable'
+  | 'unauthorized'
+  | 'network';
 
 export interface ClaudeUsageInfo {
   /** 예: "Max (20x)" — 자격증명의 subscriptionType + rateLimitTier 로 조립 */
@@ -5147,6 +5163,19 @@ export interface PluginManifest {
   contributes: PluginContributionKind[];
   /** true = 서버 기여 없음(라우트·훅 구독 0). */
   clientOnly: boolean;
+  /**
+   * §5.11 노출 게이트 — 이 플러그인의 집행이 **프로젝트를 실제로 훑는가**.
+   *
+   *  는 그 폴더의 `enforce.ts` 가 `probe`(프로젝트를 훑어 규칙을 보탠다) 또는 `survey`(훑은
+   * 근거를 카드에 돌려준다) 를 가졌다는 뜻이다. (기본)면 켜도 **고정 문장**만 실린다 — 아직
+   * 집행이 완성되지 않은 카드이므로 Plugins 창 목록에는 §7.7 디버그 모드에서만 선다.
+   *
+   * **켬/끔과는 다른 축이다** — 이 값은 "만들어졌는가", `enabledPluginsByProject` 는 "이 프로젝트에서
+   * 쓸 것인가". 숨겨져 있어도 켜져 있으면 집행은 종전대로 실린다(노출만 닫는다).
+   *
+   * 매니페스트와 실제 집행 모듈이 어긋나지 않도록 `readiness.test.ts` 가 둘을 대조한다.
+   */
+  enforcesProject?: boolean;
 }
 
 // ─── Model Registry (§4 v2.38) ───

@@ -148,6 +148,8 @@ import {
   uninstallStatusLine,
 } from './services/statusLineInstaller.js';
 import { buildClaudeUsage } from './services/claudeUsageService.js';
+import { probeClaudeUsage, readCachedUsageSnapshot } from './services/claudeUsageProbe.js';
+import type { UsageProbeFailure, UsageProbeSnapshot } from './services/claudeUsageProbe.js';
 import { getMemoryDiagnostics, startMemoryMonitor, pressureLevelOf, sampleMemory } from './services/memoryMonitor.js';
 import { claudeAuthService } from './services/claudeAuthService.js';
 import { claudeSetupService } from './services/claudeSetupService.js';
@@ -168,6 +170,8 @@ import { subAgentManager, recordCmdTermSession } from './services/subAgentManage
 import { describeToolTarget, extractTaskResultText } from './services/subagentActivity.js';
 import { reapOrphanedPidsFromPreviousRun, registerSpawnedPid, terminateChildTree, unregisterSpawnedPid } from './services/processTree.js';
 import { validatePathWithinRoot } from './services/pathValidator.js';
+// 경로 대소문자 정책 SSOT — win32/darwin 만 접고 linux 는 접지 않는다(`shared/pathCase.ts`).
+import { CASE_INSENSITIVE_FS, pathKey, samePath } from './services/pathKey.js';
 import { openFile, openFileAtSearch, openFolder, openWithDefaultApp } from './services/editorLauncher.js';
 // §5.13 (R-8) — 못 읽는 영상·소리를 우리 안에서 열기 위한 변환 레일.
 import { detectMediaTools, installMediaTools } from './services/mediaTools.js';
@@ -183,7 +187,8 @@ import { diagnosticService } from './services/diagnosticService.js';
 //   런타임 전용(영속 X). O(1) 조회 — LLM/스캔 없이 hook 동기 경로에서 즉답.
 const brainFileWarned = new Set<string>();
 function normPathForWarn(p: string): string {
-  return p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+  // 경고 1회 판정 키 — linux 에서 접으면 `src/Foo.ts` 경고가 `src/foo.ts` 를 삼킨다.
+  return pathKey(p);
 }
 
 
@@ -998,7 +1003,7 @@ export async function runServer(): Promise<RunServerHandle> {
     if (next === undefined) return;
     // 상한 6시간 — setTimeout 은 24.8일을 넘기면 즉시 발사되고, 주간 창(7일)이 그 범위다.
     const delay = Math.min(next - now + 10_000, 6 * 60 * 60 * 1000);
-    claudeUsageResetTimer = setTimeout(() => { refreshClaudeUsage(); }, delay);
+    claudeUsageResetTimer = setTimeout(() => { void probeAndRefreshClaudeUsage(); }, delay);
   }
 
   /**
@@ -1008,10 +1013,51 @@ export async function runServer(): Promise<RunServerHandle> {
    * 부르면 되는 순수 파생이다. 그래서 `Promise` 도 필요 없지만, 호출부가 여럿이라 반환값만
    * 돌려주고 호출부의 `void`·`await` 는 그대로 둔다.
    */
+  /**
+   * §4 — `/usage` probe 로 받아 둔 마지막 스냅샷과 그 실패 사유.
+   *
+   * 부팅 직후에는 CLI 를 돌리기 전에 **이미 디스크에 있는 캐시**(직전 실행분)를 먼저 집어
+   * 넣는다 — 그래야 앱을 켜자마자 헤더 필이 값을 들고 뜬다(probe 결과는 몇 초 뒤 덮어쓴다).
+   */
+  let usageProbeSnapshot: UsageProbeSnapshot | null = readCachedUsageSnapshot();
+  let usageProbeFailure: UsageProbeFailure | undefined;
+  /** 동시 호출 합류 — 주기·리셋 타이머·팝업 새로고침이 겹쳐도 CLI 는 한 번만 돈다. */
+  let usageProbeInflight: Promise<ClaudeUsageInfo> | null = null;
+
+  /**
+   * `claude -p "/usage"` 를 돌려 값을 새로 받고 표시값을 다시 조립한다.
+   *
+   * 모델 호출이 0턴이라 과금이 없다(§ claudeUsageProbe 주석의 실측). 실패해도 throw 하지 않고
+   * 마지막 성공값을 유지한 채 사유만 실어 보낸다.
+   */
+  function probeAndRefreshClaudeUsage(): Promise<ClaudeUsageInfo> {
+    if (usageProbeInflight) return usageProbeInflight;
+    usageProbeInflight = probeClaudeUsage()
+      .then((result) => {
+        if (result.snapshot) usageProbeSnapshot = result.snapshot;
+        usageProbeFailure = result.failure;
+        return refreshClaudeUsage();
+      })
+      .catch((err: unknown) => {
+        logger.warn(`[claudeUsage] probe 실패: ${err instanceof Error ? err.message : String(err)}`);
+        return refreshClaudeUsage();
+      })
+      .finally(() => {
+        usageProbeInflight = null;
+      });
+    return usageProbeInflight;
+  }
+
   function refreshClaudeUsage(): ClaudeUsageInfo {
     // 값이 비었을 때 "수집기를 켜라" 와 "켜져 있으니 첫 값을 기다리는 중" 을 화면이 구분해
     // 말하려면 설치 여부가 필요하다(settings.json 1회 읽기 — 이 함수는 갱신 때만 돈다).
-    const info = buildClaudeUsage(graphManager.getRateLimits(), Date.now(), readUsageCollectorStatus().installed);
+    const info = buildClaudeUsage(
+      graphManager.getRateLimits(),
+      Date.now(),
+      readUsageCollectorStatus().installed,
+      usageProbeSnapshot,
+      usageProbeFailure,
+    );
     const before = graphManager.getClaudeUsage();
     graphManager.setClaudeUsage(info);
     scheduleResetRefresh(info);
@@ -1032,14 +1078,16 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   app.post('/api/claude-usage/refresh', (_req, res) => {
-    res.json(refreshClaudeUsage());
+    void probeAndRefreshClaudeUsage()
+      .then((info) => res.json(info))
+      .catch(() => res.json(refreshClaudeUsage()));
   });
 
-  // 부팅 직후 1회 + 주기 재조립 + 리셋 시각 일회성(scheduleResetRefresh).
-  // 네트워크 호출이 아니라 statusLine 값의 순수 파생이라 주기는 안전망 성격이다 —
-  // 실제 갱신은 `POST /api/rate-limits` 가 들어올 때마다 그 자리에서 일어난다.
-  setTimeout(() => { refreshClaudeUsage(); }, 2_000);
-  setInterval(() => { refreshClaudeUsage(); }, CLAUDE_USAGE_POLL_INTERVAL_MS);
+  // 부팅 직후 1회 + 주기 probe + 리셋 시각 일회성(scheduleResetRefresh).
+  // probe 는 `claude -p "/usage"` 1회 실행이고 모델 호출이 0턴이라 과금이 없다(실측).
+  // statusLine 이 켜져 있으면 `POST /api/rate-limits` 가 그 사이사이를 더 촘촘히 메운다.
+  setTimeout(() => { void probeAndRefreshClaudeUsage(); }, 2_000);
+  setInterval(() => { void probeAndRefreshClaudeUsage(); }, CLAUDE_USAGE_POLL_INTERVAL_MS);
 
   /**
    * §4 v4.82 — 앱 안 Claude 로그인.
@@ -1367,11 +1415,12 @@ export async function runServer(): Promise<RunServerHandle> {
     for (const proj of Object.values(graphManager.getProjects())) {
       roots.push(path.resolve(proj.path));
     }
-    const isWin = process.platform === 'win32';
-    const rLower = isWin ? resolved.toLowerCase() : resolved;
+    // 대소문자는 그 플랫폼이 실제로 무시할 때만 접는다 — 예전에는 win32 만 봐서 mac(APFS)에서
+    // 같은 폴더가 다른 경로로 읽혀 열기가 거절됐고, linux 에서는 남의 폴더가 통과할 수 있었다.
+    const rKey = pathKey(resolved);
     return roots.some((r) => {
-      const rootLower = isWin ? r.toLowerCase() : r;
-      return rLower === rootLower || rLower.startsWith(rootLower + path.sep);
+      const rootKey = pathKey(r);
+      return rKey === rootKey || rKey.startsWith(rootKey + '/');
     });
   }
 
@@ -3641,7 +3690,9 @@ export async function runServer(): Promise<RunServerHandle> {
         return;
       }
       const prev = userDefaultsService.get().brainByProject ?? {};
-      const key = resolveBrainProjectKey(prev, root);
+      // 플랫폼을 넘겨 linux 에서 케이스만 다른 두 프로젝트가 한 칸을 공유하지 않게 한다.
+      // (`resolveBrainProjectKey` 는 못 찾으면 예전 소문자 키도 한 번 더 본다 — 기존 설정 보존.)
+      const key = resolveBrainProjectKey(prev, root, process.platform);
       const cur: BrainActivation = prev[key] ?? { enabled: false };
       const next: BrainActivation = { ...cur };
       if (typeof body.enabled === 'boolean') {
@@ -4783,7 +4834,8 @@ export async function runServer(): Promise<RunServerHandle> {
     graphManager.scanAllProjects();          // `.claude/worktrees/*` 재스캔 → ensureWorktreeNode
 
     // 6) 위치 부여 — ensureWorktreeNode 의 id 규칙: `worktree-${hashString(normalized)}`
-    const normalizedWt = targetDir.replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '');
+    // `ensureWorktreeNode` 의 키(= projectGraph.normalize) 와 **같은 규칙**이어야 id 가 맞는다.
+    const normalizedWt = pathKey(targetDir);
     let hash = 5381;
     for (let i = 0; i < normalizedWt.length; i++) {
       hash = ((hash << 5) + hash + normalizedWt.charCodeAt(i)) >>> 0;
@@ -4836,12 +4888,12 @@ export async function runServer(): Promise<RunServerHandle> {
   async function getWorktreeBranch(parentCwd: string, wtAbsolutePath: string): Promise<string | null> {
     const r = await runGit(parentCwd, ['worktree', 'list', '--porcelain']);
     if (r.code !== 0) return null;
-    const targetNorm = path.resolve(wtAbsolutePath).replace(/\\/g, '/').toLowerCase();
+    const targetNorm = pathKey(path.resolve(wtAbsolutePath));
     const blocks = r.stdout.split(/\r?\n\r?\n/);
     for (const block of blocks) {
       const m = block.match(/^worktree\s+(.+)$/m);
       if (!m) continue;
-      const wt = path.resolve(m[1]!.trim()).replace(/\\/g, '/').toLowerCase();
+      const wt = pathKey(path.resolve(m[1]!.trim()));
       if (wt !== targetNorm) continue;
       const b = block.match(/^branch\s+refs\/heads\/(.+)$/m);
       return b ? b[1]!.trim() : null;
@@ -5540,12 +5592,12 @@ export async function runServer(): Promise<RunServerHandle> {
   function listWorktreeInfo(projectName: string): WorktreeResolveInfo[] {
     const info = graphManager.getProjectByName(projectName);
     if (!info) return [];
-    const parentNorm = info.path.toLowerCase();
+    const parentNorm = pathKey(info.path);
     const snap = graphManager.getSnapshot();
     const out: WorktreeResolveInfo[] = [];
     for (const node of snap.topFolders) {
       if (node.bubbleType !== 'worktree') continue;
-      const p = (node.path ?? '').toLowerCase();
+      const p = pathKey(node.path ?? '');
       if (!p.startsWith(`${parentNorm}/.claude/worktrees/`)) continue;
       const absPath = (node.absolutePath ?? node.path).replace(/\//g, path.sep);
       out.push({ nodeId: node.id, name: node.label, absPath });
@@ -6380,9 +6432,8 @@ export async function runServer(): Promise<RunServerHandle> {
 
   /** 원본과 대상이 같은 자리인가 (Windows 는 대소문자 무시). */
   function isSameSkillPath(a: string, b: string): boolean {
-    const x = path.resolve(a);
-    const y = path.resolve(b);
-    return process.platform === 'win32' ? x.toLowerCase() === y.toLowerCase() : x === y;
+    // 대소문자를 실제로 무시하는 FS(win32/darwin)에서만 접는다 — mac 도 기본 APFS 는 무시한다.
+    return samePath(path.resolve(a), path.resolve(b));
   }
 
   /**
@@ -7923,9 +7974,13 @@ export async function runServer(): Promise<RunServerHandle> {
       for (const d of dirs) {
         const memDir = path.join(projectsBase, d, 'memory', 'MEMORY.md');
         if (fs.existsSync(memDir)) {
-          // 디렉토리 이름에 프로젝트 경로가 인코딩되어 있는지 확인
-          const normalized = projectRoot.replace(/[/\\:]/g, '-').toLowerCase();
-          if (d.toLowerCase().includes('vibisual') || d.toLowerCase().includes(normalized)) {
+          // 디렉토리 이름에 프로젝트 경로가 인코딩되어 있는지 확인.
+          // 슬러그 대조는 **대소문자를 실제로 무시하는 FS 에서만** 접는다 — linux 에서 접으면
+          // 케이스만 다른 다른 프로젝트의 MEMORY.md 를 집어 든다.
+          const slug = projectRoot.replace(/[/\\:]/g, '-');
+          const dKey = CASE_INSENSITIVE_FS ? d.toLowerCase() : d;
+          const slugKey = CASE_INSENSITIVE_FS ? slug.toLowerCase() : slug;
+          if (d.toLowerCase().includes('vibisual') || dKey.includes(slugKey)) {
             return memDir;
           }
         }
@@ -9508,8 +9563,9 @@ export async function runServer(): Promise<RunServerHandle> {
         res.status(400).json({ error: 'projectPath, trashRel required' });
         return;
       }
-      const target = path.resolve(projectPath).toLowerCase();
-      const info = allProjectInfosForStorage().find((p) => path.resolve(p.path).toLowerCase() === target);
+      // 경로 대조 — linux 에서 접으면 케이스만 다른 다른 프로젝트의 휴지통을 되살릴 수 있다.
+      const target = path.resolve(projectPath);
+      const info = allProjectInfosForStorage().find((p) => samePath(path.resolve(p.path), target));
       if (!info) {
         res.status(404).json({ error: 'project not found' });
         return;
@@ -11540,7 +11596,10 @@ export async function runServer(): Promise<RunServerHandle> {
 
       let child: ChildProcess;
       try {
-        child = spawn(command, { cwd, shell: true, windowsHide: true });
+        // POSIX 는 `detached: true` 로 자식을 프로세스 그룹 리더로 만든다 — 그래야 타임아웃 때
+        // `killTree` 의 `process.kill(-pid)` 가 셸이 낳은 손자까지 한 번에 정리한다(Windows 는
+        // `taskkill /T` 라 불필요하고, detached 는 콘솔 창이 따로 뜨는 부작용이 있어 켜지 않는다).
+        child = spawn(command, { cwd, shell: true, windowsHide: true, detached: process.platform !== 'win32' });
       } catch (err) {
         resolve({ output: '', outputTruncated: false, error: err instanceof Error ? err.message : String(err) });
         return;
@@ -12420,7 +12479,7 @@ export async function runServer(): Promise<RunServerHandle> {
   // path-array 로 1회 마이그레이션(구 projectPaths name→path 사용)하므로, 부팅은 openProjects(=경로)
   // 를 그대로 스캔 목록으로 쓴다. discoverProjectMetas 는 각 path 의 `.vibisual/save/` 만 읽는다.
   {
-    const np = (p: string): string => p.replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '');
+    const np = (p: string): string => pathKey(p);
     const appStateInitial = loadAppState();
     const scanPaths = appStateInitial.openProjects.filter((p): p is string => typeof p === 'string' && p.length > 0);
 

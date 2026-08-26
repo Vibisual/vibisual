@@ -34,6 +34,8 @@ import { isExpiredByDays, RETENTION_LOG_MAX } from '@vibisual/shared';
 import type { RetentionLogEntry } from '@vibisual/shared';
 import { appStateGetRetention } from './appState.js';
 import { projectDirForInfo } from './statePersistence.js';
+// 경로 대소문자 정책 SSOT — win32/darwin 만 접고 linux 는 접지 않는다.
+import { CASE_INSENSITIVE_FS, pathKey } from './pathKey.js';
 import { logger } from '../logger.js';
 
 /** 재귀 용량 합산. 접근 못 하는 항목은 조용히 건너뛴다(실측이 목적이라 실패가 치명적이지 않다). */
@@ -318,11 +320,17 @@ function collectReferencedAttachmentNames(saveDir: string): Set<string> | null {
     while ((m = re.exec(text)) !== null) {
       const seg = m[0].split('/');
       const last = seg[seg.length - 1];
-      if (last) names.add(last.toLowerCase());
+      if (last) names.add(foldAttachmentName(last));
     }
   }
   // 저장 데이터가 하나도 없으면 참조를 확정할 수 없다 — 이 경우도 건드리지 않는다.
   return readAny ? names : null;
+}
+
+/** 첨부 파일명 대조 키 — 대소문자를 실제로 무시하는 FS 에서만 접는다(linux 는 별개 파일이다).
+ *  참조 목록과 후보 목록이 **같은 함수**를 써야 "참조 중인데 지움"이 안 생긴다. */
+function foldAttachmentName(name: string): string {
+  return CASE_INSENSITIVE_FS ? name.toLowerCase() : name;
 }
 
 /** 프로젝트 하나의 `.vibisual` 사용량을 갈래별로 실측. */
@@ -384,7 +392,8 @@ export function scanWorktrees(projectPaths: string[]): WorktreeStorageUsage[] {
     }
     for (const name of names) {
       const p = path.join(wtRoot, name);
-      const key = path.resolve(p).toLowerCase();
+      // 중복 제거 키 — linux 에서 접으면 케이스만 다른 두 워크트리 중 하나가 보고에서 사라진다.
+      const key = pathKey(path.resolve(p));
       if (seen.has(key)) continue;
       seen.add(key);
       try {
@@ -408,7 +417,8 @@ export function scanWorktrees(projectPaths: string[]): WorktreeStorageUsage[] {
 export function scanStorageUsage(projects: ProjectInfo[]): StorageUsageReport {
   const seen = new Set<string>();
   const uniq = projects.filter((p) => {
-    const k = path.resolve(p.path).toLowerCase();
+    // 중복 제거 키 — linux 에서 접으면 케이스만 다른 두 프로젝트 중 하나가 사용량 보고에서 빠진다.
+    const k = pathKey(path.resolve(p.path));
     if (seen.has(k)) return false;
     seen.add(k);
     return true;
@@ -539,7 +549,7 @@ export function pruneAttachments(
             size: st.size,
             // `<세션키>/<서브에이전트id>/<파일>` — 서브가 없는 옛 구조면 빈 문자열.
             subId: seg.length >= 3 ? (seg[seg.length - 2] ?? '') : '',
-            name: (seg[seg.length - 1] ?? '').toLowerCase(),
+            name: foldAttachmentName(seg[seg.length - 1] ?? ''),
           });
         } catch { /* 사라짐 — 무시 */ }
       }

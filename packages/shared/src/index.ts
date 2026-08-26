@@ -797,6 +797,7 @@ export {
   ALL_MODEL_INSTALL_ID,
   LOCAL_AGENT_COLOR,
   LLAMA_RELEASE_LATEST_API,
+  LLAMA_RELEASES_LIST_API,
   LOCAL_ENGINE_DEFAULT_BACKENDS,
   LOCAL_MODEL_MAX_LOADED,
   LOCAL_MODEL_IDLE_UNLOAD_MS,
@@ -943,6 +944,7 @@ export {
   USAGE_LIMIT_WARN_PCT,
   USAGE_LIMIT_DANGER_PCT,
   CLAUDE_USAGE_POLL_INTERVAL_MS,
+  CLAUDE_USAGE_PROBE_TIMEOUT_MS,
   CLAUDE_AUTH_PROBE_TIMEOUT_MS,
   CLAUDE_AUTH_LOGOUT_TIMEOUT_MS,
   CLAUDE_AUTH_POLL_INTERVAL_MS,
@@ -1128,3 +1130,15 @@ export {
   resolveSessionRunState,
   agentBadgeShare,
 } from './sessionRunState.js';
+
+// 경로 대소문자 정책 SSOT — Linux 는 대소문자를 구분하므로 무조건 소문자로 접으면 안 된다.
+// shared 는 브라우저에서도 로드되므로 플랫폼은 인자로 받는다(pathCase.ts 머리말 참조).
+export type { PlatformName } from './pathCase.js';
+export {
+  isCaseInsensitiveFs,
+  normalizePathShape,
+  pathKey,
+  legacyLowerPathKey,
+  lookupByPath,
+  samePath,
+} from './pathCase.js';

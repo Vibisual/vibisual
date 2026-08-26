@@ -26,6 +26,8 @@ import {
 import { PLUGIN_SERVER_MODULES } from '@vibisual/plugins/server';
 import { buildPluginPromptParts, collectPluginFacts } from '@vibisual/plugins/prompt';
 import { atomicWriteFileSync } from './statePersistence.js';
+// 경로 대소문자 정책 SSOT — win32/darwin 만 접고 linux 는 접지 않는다.
+import { pathKey } from './pathKey.js';
 import { userDefaultsService } from './userDefaultsService.js';
 import { loadAppState } from './appState.js';
 import { graphManager } from './projectGraphManager.js';
@@ -201,11 +203,13 @@ export function buildPluginPromptSectionParts(req: PluginPromptRequest): { id: s
     const ctx: PluginPromptContext = { ...req, ...makeProjectProbe(req.projectPath) };
     const parts = buildPluginPromptParts(userDefaultsService.get(), req.projectPath, ctx, (id, err) =>
       logger.warn(`[plugins] prompt block failed: ${id} — ${err instanceof Error ? err.message : String(err)}`),
+      process.platform,
     );
     // v4.65 — 방금 판단한 근거를 그대로 남긴다(같은 탐침을 쓰므로 파일 재읽기 없음). 카드가 이 값을
     //   그리기 때문에, 화면은 "에이전트가 실제로 받은 것"과 어긋날 수 없다.
     recordPluginFacts(req.projectPath, collectPluginFacts(userDefaultsService.get(), req.projectPath, ctx, (id, err) =>
       logger.warn(`[plugins] survey failed: ${id} — ${err instanceof Error ? err.message : String(err)}`),
+      process.platform,
     ));
     return parts;
   } catch (err) {
@@ -231,12 +235,14 @@ const FACTS_TTL_MS = 30_000;
 
 /** 켬/끔 상태의 지문 — 이 값이 바뀌면 캐시를 버린다. */
 function enabledFingerprint(projectPath: string): string {
-  return [...resolveEnabledPluginsFor(userDefaultsService.get(), projectPath)].sort().join(',');
+  return [...resolveEnabledPluginsFor(userDefaultsService.get(), projectPath, process.platform)].sort().join(',');
 }
 
-/** 프로젝트 키 정규화 — 창·서버가 표기만 다른 같은 폴더를 두 칸으로 갈라 보지 않게 한다. */
+/** 프로젝트 키 정규화 — 창·서버가 표기만 다른 같은 폴더를 두 칸으로 갈라 보지 않게 한다.
+ *  대소문자는 그 플랫폼이 실제로 무시할 때만 접는다 — linux 에서 접으면 케이스만 다른 두
+ *  프로젝트가 서로의 집행 실측을 보게 된다. */
 function factsKey(projectPath: string): string {
-  return path.resolve(projectPath).replace(/\\/g, '/').toLowerCase();
+  return pathKey(path.resolve(projectPath));
 }
 
 /**
@@ -275,6 +281,7 @@ export function getPluginFactsFor(projectPath: string): Record<string, PluginFac
     };
     const facts = collectPluginFacts(userDefaultsService.get(), projectPath, ctx, (id, err) =>
       logger.warn(`[plugins] survey failed: ${id} — ${err instanceof Error ? err.message : String(err)}`),
+      process.platform,
     );
     factsStore.set(key, { facts, at: Date.now(), enabledKey });
     return facts;
@@ -335,9 +342,10 @@ export function buildInteractivePluginBlockForAgent(agentId: string): string {
  * 사용자가 지정을 바꾼 직후 최대 10초 동안 옛 답이 그대로 나온다. "저장했는데 안 바뀌네"가 거기서 난다.
  */
 function invalidateProjectCaches(projectPath: string): void {
-  const root = path.resolve(projectPath).replace(/\\/g, '/').toLowerCase();
+  // 경로 접두 비교 — linux 에서 접으면 남의 프로젝트 캐시까지 함께 지운다(불필요한 재읽기).
+  const root = pathKey(path.resolve(projectPath));
   for (const key of [...readCache.keys()]) {
-    if (key.replace(/\\/g, '/').toLowerCase().startsWith(root)) readCache.delete(key);
+    if (pathKey(key).startsWith(root)) readCache.delete(key);
   }
   factsStore.delete(factsKey(projectPath));
 }
@@ -413,7 +421,8 @@ export function mountPluginRoutes(app: Express): void {
   // v4.54: 켬/끔이 프로젝트별이라 "어느 프로젝트 기준인가"를 응답에 함께 실어야 호출자가 오해하지 않는다.
   app.get(PLUGIN_API_PREFIX, (req, res) => {
     const projectId = requestProjectId(req);
-    const enabled = resolveEnabledPluginsFor(userDefaultsService.get(), projectId);
+    // 플랫폼을 넘겨 linux 에서 케이스만 다른 두 프로젝트가 활성 목록을 공유하지 않게 한다.
+    const enabled = resolveEnabledPluginsFor(userDefaultsService.get(), projectId, process.platform);
     res.json({
       projectId,
       plugins: PLUGIN_MANIFESTS.map((m) => ({ ...m, enabled: enabled.has(m.id) })),

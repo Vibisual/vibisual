@@ -28,6 +28,17 @@
 #    macos-latest, x64 는 macos-15-intel 에서 각각 짓는다(둘 다 공개 저장소 무료 표준 러너).
 #    node-pty 는 모든 플랫폼 prebuild 를 한 패키지에 담아 이 문제가 없다 — 판단은 패키지마다.
 
+# ⚠️ mac 잡만 재시도로 감싼다 — `hdiutil: couldn't eject "diskN" - Resource busy` (2026-08-26).
+#    v0.1.12 의 x64 잡이 12분 15초를 빌드한 뒤 **마지막 단계**에서 이 오류로 죽었다(arm64 는 같은
+#    커밋으로 통과). dmg 를 다 만들고 디스크 이미지를 떼어내는 자리인데, 그 순간 볼륨을 붙들고 있는
+#    프로세스가 있으면 detach 가 거절된다. electron-builder 24.13.3 은 이미 `hdiutil detach -force`
+#    를 5회 재시도하지만(dmg-builder/out/dmgUtil.js) 그것을 다 소진하고도 실패했다.
+#    상류에 수정본이 없는 **간헐 실패**이고(electron-userland/electron-builder#7137 — "rerunning the
+#    build generally passes"), 원인이 우리 설정에 없으므로 고칠 자리는 워크플로다. 그래서 mac 잡만
+#    최대 3회 재시도하고, 시도 사이에 **붙어 있는 볼륨을 떼고 반쯤 쓰인 dmg 를 지운다** — 죽은 시도가
+#    볼륨을 남겨 두면 다음 시도는 같은 자리에서 또 막히므로 재시도 자체가 무의미해진다.
+#    win/linux 는 종전 스텝 그대로다(이번 변경으로 동작이 바뀌지 않는다).
+
 name: Release
 
 on:
@@ -77,10 +88,47 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # win/linux — 종전 그대로. 여기에 재시도를 걸지 않는 이유는, 이 두 잡의 실패는
+      # 지금까지 전부 **결정적 실패**(고쳐야 나가는 것)였기 때문이다. 재시도로 감싸면
+      # 같은 실패를 두 번 겪느라 시간만 배로 쓴다.
       - name: Build and publish
+        if: runner.os != 'macOS'
         run: pnpm run ${{ matrix.script }}
         env:
           # electron-builder 가 GitHub Releases 에 업로드할 때 쓰는 토큰.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # macOS 코드서명 자동 탐색 비활성(미서명 빌드를 실패시키지 않음).
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      # mac — hdiutil detach 간헐 실패를 재시도로 넘긴다(머리말의 hdiutil 항목 참고).
+      - name: Build and publish (macOS — hdiutil 재시도)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -u
+          attempts=3
+          for i in $(seq 1 "$attempts"); do
+            echo "--- attempt $i/$attempts — pnpm run ${{ matrix.script }}"
+            if pnpm run ${{ matrix.script }}; then
+              exit 0
+            fi
+            if [ "$i" -eq "$attempts" ]; then
+              echo "::error::${{ matrix.script }} failed after $attempts attempts"
+              exit 1
+            fi
+            echo "::warning::attempt $i failed — 붙어 있는 디스크 이미지를 떼고 재시도한다"
+            # 죽은 시도가 볼륨을 붙여 둔 채 끝나면 다음 시도는 같은 자리에서 또 막힌다.
+            # productName 은 electron-builder.yml 의 `Vibisual` — 볼륨 이름이 그것으로 시작한다.
+            for vol in /Volumes/Vibisual*; do
+              [ -d "$vol" ] || continue
+              echo "detaching $vol"
+              hdiutil detach -force "$vol" || diskutil unmount force "$vol" || true
+            done
+            # 반쯤 쓰인 산출물은 지운다 — 다음 시도가 새로 만든다.
+            rm -f packages/desktop/dist/*.dmg packages/desktop/dist/*.dmg.blockmap || true
+            # 붙들고 있던 쪽이 손을 뗄 틈을 준다("should go away soon" — #7137).
+            sleep 30
+          done
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: false

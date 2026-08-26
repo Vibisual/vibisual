@@ -10,10 +10,12 @@
  *   3. 플랫폼 기본 앱 (notepad / open / xdg-open)
  */
 
-import { spawn, execFileSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
+import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
 import { logger } from '../logger.js';
+import { resolveBinary } from './binLocator.js';
 
 // ─── 플랫폼 감지 ───
 
@@ -96,22 +98,77 @@ function resolveWinFullPath(cmd: string): string | null {
   return null;
 }
 
-/** 커맨드가 PATH에 존재하는지 확인 */
-function commandExists(cmd: string): boolean {
-  // Validate cmd contains only safe characters before passing as an argument.
-  if (!/^[a-zA-Z0-9_\-.]+$/.test(cmd)) return false;
-  try {
-    if (IS_WIN) {
-      // where.exe exits 0 when found, 1 when not found — no shell interpolation.
-      execFileSync('where.exe', [cmd], { stdio: 'ignore' });
-    } else {
-      // `which` is universally available on POSIX; no shell needed.
-      execFileSync('which', [cmd], { stdio: 'ignore' });
+/**
+ * mac/Linux 에서 **PATH 에 절대 안 들어가는** 에디터 CLI 런처 자리.
+ *
+ * 왜 필요한가: macOS 의 VS Code·Cursor 는 `code` 를 `.app` 번들 **안**에 넣어 두고, 사용자가
+ * "Shell Command: Install 'code' command in PATH" 를 눌러야 `/usr/local/bin` 에 심볼릭이 생긴다.
+ * 그걸 안 누른 사용자(대다수)는 `code` 가 어느 PATH 에도 없다. 게다가 Finder 로 띄운 우리 앱은
+ * PATH 자체가 launchd 최소값이라, 눌렀더라도 `/usr/local/bin` 이 안 보인다 —
+ * 두 사정이 겹쳐 "VS Code 로 열기"가 조용히 **TextEdit**(`open -t`) 폴백으로 떨어졌다.
+ */
+export function knownEditorPaths(
+  command: string,
+  platform: NodeJS.Platform = PLATFORM,
+  home: string = os.homedir(),
+): string[] {
+  const p = path.posix;
+  if (platform === 'darwin') {
+    const apps = ['/Applications', p.join(home, 'Applications')];
+    switch (command) {
+      case 'code':
+        return apps.map((a) => `${a}/Visual Studio Code.app/Contents/Resources/app/bin/code`);
+      case 'cursor':
+        return apps.map((a) => `${a}/Cursor.app/Contents/Resources/app/bin/cursor`);
+      case 'zed':
+        return apps.map((a) => `${a}/Zed.app/Contents/MacOS/cli`);
+      case 'subl':
+        return apps.map((a) => `${a}/Sublime Text.app/Contents/SharedSupport/bin/subl`);
+      case 'webstorm':
+      case 'idea':
+        return [
+          // JetBrains Toolbox 가 만드는 CLI 스크립트 폴더(PATH 등록은 사용자 선택).
+          p.join(home, 'Library', 'Application Support', 'JetBrains', 'Toolbox', 'scripts', command),
+          ...apps.map((a) => `${a}/${command === 'idea' ? 'IntelliJ IDEA' : 'WebStorm'}.app/Contents/MacOS/${command}`),
+        ];
+      default:
+        return [];
     }
-    return true;
-  } catch {
-    return false;
   }
+  // Windows 는 `resolveWinFullPath` 가 이미 고정 경로를 보고 있어 여기서 더할 것이 없다.
+  if (platform === 'win32') return [];
+  // Linux — 배포판 패키지 / snap / flatpak 설치 자리.
+  switch (command) {
+    case 'code':
+      return ['/snap/bin/code', '/usr/share/code/bin/code', '/opt/visual-studio-code/bin/code', '/usr/bin/code'];
+    case 'cursor':
+      return ['/opt/Cursor/resources/app/bin/cursor', '/usr/share/cursor/bin/cursor', p.join(home, '.local', 'bin', 'cursor')];
+    case 'zed':
+      return [p.join(home, '.local', 'bin', 'zed'), '/usr/bin/zed'];
+    case 'subl':
+      return ['/opt/sublime_text/subl', '/snap/bin/subl'];
+    case 'webstorm':
+    case 'idea':
+      return [
+        p.join(home, '.local', 'share', 'JetBrains', 'Toolbox', 'scripts', command),
+        `/snap/bin/${command === 'idea' ? 'intellij-idea-community' : 'webstorm'}`,
+      ];
+    default:
+      return [];
+  }
+}
+
+/**
+ * 커맨드의 **절대경로**를 찾는다(못 찾으면 null).
+ *
+ * 종전에는 `where`/`which` 를 불렀다. 그 두 명령은 우리 프로세스의 PATH 만 보므로, PATH 가
+ * 잘려 있는 바로 그 상황(Finder 로 띄운 macOS 앱)에서 똑같이 못 찾는다 — 고치려는 문제를
+ * 그대로 되풀이하는 판정이었다. 이제 `binLocator` 가 보강된 PATH + 알려진 위치까지 본다.
+ */
+function findEditorBin(cmd: string, command: string): string | null {
+  // 인자로 넘길 값이라 이름에 안전한 문자만 허용한다(종전 가드 유지).
+  if (!/^[a-zA-Z0-9_\-.]+$/.test(cmd)) return null;
+  return resolveBinary(cmd, knownEditorPaths(command));
 }
 
 /**
@@ -161,9 +218,12 @@ function detectEditor(): { bin: string; config: EditorConfig } | null {
       }
     }
 
-    if (commandExists(cmd)) {
-      cachedEditor = { bin: cmd, config };
-      logger.info(`Editor detected (PATH): ${cmd}`);
+    // mac/Linux 도 여기서 알려진 설치 위치까지 본다 — 종전엔 `which` 한 번뿐이라
+    //   `.app` 번들 안의 `code` 를 못 찾아 아래 `open -t`(TextEdit) 폴백으로 떨어졌다.
+    const found = findEditorBin(cmd, config.command);
+    if (found) {
+      cachedEditor = { bin: found, config };
+      logger.info(`Editor detected: ${found}`);
       return cachedEditor;
     }
   }

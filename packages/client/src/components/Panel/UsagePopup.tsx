@@ -13,12 +13,13 @@ import { CostPill } from './CostPill.js';
 
 // SCENARIO.md §4 v1.50 / v3.60 — 사용량 팝업.
 //
-// 헤더 사용량 필을 클릭하면 열린다. 값의 원천은 **statusLine 수집기 하나**다(§4 v3.60) —
-// Claude Code 가 플랜 한도를 외부에 주는 공식 경로가 그것뿐이라, 수집기를 켜지 않았으면
-// 서버가 오류를 실어 보내고 이 팝업이 그 자리에서 설치 스위치를 노출한다.
+// 헤더 사용량 필을 클릭하면 열린다. 값의 원천은 둘이다(§4) —
+//   ① 서버가 주기적으로 도는 `claude -p "/usage"` probe(대화형 세션이 없어도 들어온다),
+//   ② statusLine 수집기(대화형 세션이 떠 있는 동안 더 촘촘히 밀어 준다).
+// 서버가 둘 중 **더 최근 것**을 골라 `claudeUsage` 로 실어 보내므로 이 팝업은 고르지 않는다.
 //
-// 구 v3.62 의 OAuth 직접 조회(모델별 주간 한도·사용 크레딧까지 담았다)는 약관 문제로
-// 걷어냈다. 그래서 `claudeUsage.limits` 에는 세션(5시간)과 주간 전체 두 줄만 온다.
+// 구 v3.62 의 OAuth 직접 조회는 약관 문제로 걷어냈지만, 그때 잃었던 모델별 주간 한도와 사용
+// 크레딧은 ①이 공개 인터페이스로 되찾아 왔다(그래서 아래 두 블록이 다시 채워진다).
 
 const API_BASE = '';
 
@@ -91,8 +92,9 @@ function ErrorNotice({ error }: { error: string }): React.JSX.Element {
   const msg =
     error === 'no-credentials' ? t('panel.usage.errNoCredentials')
       : error === 'awaiting-statusline' ? t('panel.usage.errAwaitingStatusLine')
-        : error === 'unauthorized' ? t('panel.usage.errUnauthorized')
-          : t('panel.usage.errNetwork');
+        : error === 'cli-unavailable' ? t('panel.usage.errCliUnavailable')
+          : error === 'unauthorized' ? t('panel.usage.errUnauthorized')
+            : t('panel.usage.errNetwork');
   return (
     <div className="flex gap-2 rounded border border-amber-500/40 bg-amber-500/10 px-2.5 py-2 text-[12px] leading-relaxed text-amber-200">
       <svg className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

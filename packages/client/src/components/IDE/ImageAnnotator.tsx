@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { shortcutLabel } from '../../utils/platform.js';
 import { useGraphStore, agentSessionInputKey, type ImageLightboxState } from '../../stores/graphStore.js';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 import {
@@ -421,14 +422,14 @@ export function ImageLightboxView({
         </div>
         <Divider />
         <ToolbarButton
-          label={t('ide.imageAnnotate.undo')}
+          label={t('ide.imageAnnotate.undo', { shortcut: shortcutLabel('Ctrl+Z') })}
           disabled={!canUndo(history)}
           onClick={() => setHistory(undoAnnotations)}
         >
           <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7v6h6" /><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13" /></svg>
         </ToolbarButton>
         <ToolbarButton
-          label={t('ide.imageAnnotate.redo')}
+          label={t('ide.imageAnnotate.redo', { shortcut: shortcutLabel('Ctrl+Shift+Z') })}
           disabled={!canRedo(history)}
           onClick={() => setHistory(redoAnnotations)}
         >
@@ -552,7 +553,7 @@ export function ImageLightboxView({
       </div>
 
       <p className="text-[12px] text-gray-500" onClick={(e) => e.stopPropagation()}>
-        {annotating ? t('ide.imageAnnotate.hintDraw') : t('ide.imageAnnotate.hintPick')}
+        {annotating ? t('ide.imageAnnotate.hintDraw', { shortcut: shortcutLabel('Ctrl+Z') }) : t('ide.imageAnnotate.hintPick')}
       </p>
 
       {/* v2.94 — 닫기는 Windows 네이티브 타이틀바 오버레이(우상단 ~144×36px)를 피해 top-12. */}

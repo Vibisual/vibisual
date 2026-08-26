@@ -41,8 +41,9 @@
     },
     "usage": {
       "tooltip": "현재 세션: 5시간 한도의 {{percent}}% 사용 — 클릭하면 상세",
-      "tooltipNoData": "사용량을 아직 수집하지 않고 있습니다 — 클릭해서 켜기",
-      "tooltipWaiting": "사용량 수집기는 켜져 있습니다 — 인터랙티브 Claude Code 세션이 상태줄을 그리면 값이 들어옵니다"
+      "tooltipNoData": "아직 사용량을 받지 못했습니다 — 클릭하면 상세",
+      "tooltipWaiting": "Claude Code 에서 사용량을 받아오는 중입니다 — 곧 숫자가 표시됩니다",
+      "tooltipCliUnavailable": "사용량을 읽을 Claude Code 실행본을 실행하지 못했습니다 — 클릭하면 상세"
     },
     "setupBanner": {
       "text": "Claude Code가 설치되지 않아 아직 에이전트를 실행할 수 없습니다.",
@@ -71,7 +72,17 @@
         "top": "위",
         "bottom": "아래"
       },
-      "orphan": "버블이 사라진 창"
+      "orphan": "버블이 사라진 창",
+      "layout": {
+        "tile": "바둑판으로 늘어놓기",
+        "cascade": "계단식으로 겹쳐 놓기",
+        "tabRight": "오른쪽 한 칸에 탭으로 모으기",
+        "splitLeftRight": "좌우로 나눠 붙이기",
+        "undockAll": "전부 떼어 내기",
+        "collapseAll": "전부 접기",
+        "expandAll": "전부 펴기"
+      },
+      "shortcutHint": "{{dock}} 붙이기 · {{max}} 최대화 · {{next}} 다음 창"
     }
   },
   "panel": {
@@ -192,7 +203,7 @@
         "inspectorT": "인스펙터",
         "inspectorD": "Alt 키를 누른 채 요소를 강조 표시하고, 클릭하면 복사합니다. Shift+드래그로 영역을 선택할 수 있습니다.",
         "copyT": "복사 · 붙여넣기",
-        "copyD": "커스텀 에이전트와 엣지를 선택한 뒤 Ctrl+C / Ctrl+V 로 다른 프로젝트에 복제할 수 있습니다."
+        "copyD": "커스텀 에이전트와 엣지를 선택한 뒤 {{copy}} / {{paste}} 로 다른 프로젝트에 복제할 수 있습니다."
       },
       "history": {
         "intro": "Vibisual은 실행할 때마다 프로젝트를 기억합니다.",
@@ -206,7 +217,7 @@
         "bookmarkT": "버블 북마크",
         "bookmarkD": "Alt+1~0 으로 버블이나 세션을 슬롯에 고정하고, 1~0 을 누르면 다시 이동합니다.",
         "copyT": "복사 / 붙여넣기",
-        "copyD": "Ctrl+C / Ctrl+V(macOS 는 Cmd)로 선택한 에이전트, 엣지, 메모 상자를 복사·붙여넣기합니다.",
+        "copyD": "{{copy}} / {{paste}}로 선택한 에이전트, 엣지, 메모 상자를 복사·붙여넣기합니다.",
         "inspectorT": "인스펙터",
         "inspectorD": "Alt 키를 누른 채 검사하고, 클릭하면 요소를 복사합니다. Shift+드래그로 영역을 선택합니다.",
         "closeT": "닫기 · 취소",
@@ -392,7 +403,7 @@
       },
       "advanced": {
         "terminalScrollback": "터미널 스크롤백 (줄)",
-        "terminalScrollbackDesc": "CMD 터미널이 보관하는 출력 줄 수입니다. 화면 스크롤과 Ctrl+F 검색이 같은 범위를 씁니다. 새로 여는 터미널부터 적용됩니다."
+        "terminalScrollbackDesc": "CMD 터미널이 보관하는 출력 줄 수입니다. 화면 스크롤과 {{shortcut}} 검색이 같은 범위를 씁니다. 새로 여는 터미널부터 적용됩니다."
       },
       "notifications": {
         "cmdBlocked": "CMD 세션이 입력을 기다리면 알림",
@@ -563,7 +574,7 @@
       "editFrame": "텍스트 편집",
       "editTitlePrompt": "프레임 제목:",
       "editActionPrompt": "프레임 액션:",
-      "zoomReset": "Ctrl+0 초기화",
+      "zoomReset": "{{shortcut}} 초기화",
       "presetLabel": "출력",
       "preset": {
         "landscape": "가로 16:9",
@@ -608,7 +619,7 @@
       "newSessionBadge": "새 세션",
       "session": "세션:",
       "change": "변경",
-      "placeholder": "명령 입력... (Ctrl+V로 이미지 붙여넣기)",
+      "placeholder": "명령 입력... ({{paste}}로 이미지 붙여넣기)",
       "run": "실행",
       "executing": "실행 중...",
       "delete": "삭제",
@@ -935,7 +946,7 @@
       "deny": "거부",
       "denyReasonLabel": "거부 사유 (선택)",
       "denyReasonPlaceholder": "예: 잘못된 경로, 안전하지 않은 명령",
-      "shortcutHint": "Ctrl+Enter = 허용 · Esc = 거부",
+      "shortcutHint": "{{shortcut}} = 허용 · Esc = 거부",
       "stackCount": "{{total}}개 중 {{current}}번째",
       "emptyToolInput": "(없음)"
     },
@@ -1177,13 +1188,13 @@
       "neverUpdated": "아직 받은 사용량 데이터가 없습니다",
       "collectorTitle": "사용량 수집기",
       "collectorOnHint": "Claude Code 가 한도를 Vibisual 로 보고하고 있습니다",
-      "collectorOffHint": "켜면 Claude Code 에서 플랜 한도를 읽어옵니다",
+      "collectorOffHint": "켜면 대화형 세션이 도는 동안 값이 더 자주 갱신됩니다",
       "collectorEnable": "켜기",
       "collectorDisable": "끄기",
       "collectorPassthrough": "쓰시던 상태줄은 그대로 보존했습니다 — Vibisual 이 대신 실행해 같은 출력을 보여줍니다.",
       "collectorForeign": "이미 직접 만든 상태줄이 있습니다. 켜도 지워지지 않습니다 — Vibisual 이 감싸서 그 출력을 그대로 보여줍니다.",
       "collectorFailed": "사용량 수집기 설정에 연결하지 못했습니다.",
-      "collectorRestartHint": "값은 인터랙티브 Claude Code 세션이 상태줄을 그릴 때 들어옵니다. 이미 실행 중인 세션은 다시 시작해야 합니다.",
+      "collectorRestartHint": "이 스위치가 꺼져 있어도 Vibisual 이 주기적으로 사용량을 받아옵니다 — 수집기는 대화형 세션이 도는 동안 그 값을 더 자주 갱신해 줄 뿐입니다.",
       "localTitle": "Vibisual 의 이 프로젝트",
       "localAgents": "에이전트",
       "localInput": "입력 토큰",
@@ -1199,7 +1210,8 @@
       "creditsUsed": "크레딧 예산의 {{percent}}% 사용",
       "creditsHint": "플랜 한도에 도달해도 계속 쓰시려면 크레딧을 켜 두시면 됩니다. 설정은 Claude 앱에서 하십니다.",
       "errNoCredentials": "이 PC 에 Claude Code 로그인 정보가 없어 사용량을 직접 읽지 못했습니다. Claude Code 로 로그인하시거나, 아래 상태줄 수집기를 쓰시면 됩니다.",
-      "errAwaitingStatusLine": "수집기는 켜져 있지만 아직 값이 들어오지 않았습니다. 한도는 인터랙티브 Claude Code 세션이 상태줄을 그릴 때 들어옵니다.",
+      "errAwaitingStatusLine": "아직 값이 들어오지 않았습니다. Vibisual 이 주기적으로 Claude Code 에 `/usage` 를 물어보고 있으니 곧 채워집니다 — 대화형 세션의 상태줄이 켜져 있으면 더 빨리 들어옵니다.",
+      "errCliUnavailable": "사용량을 읽을 `claude` 명령을 실행하지 못했습니다. 옵션 창의 Version 탭에서 Claude Code 경로를 확인하신 뒤 새로고침해 주세요.",
       "errUnauthorized": "저장된 Claude 로그인이 만료됐습니다. Claude Code 를 한 번 실행하시면 자동으로 갱신되고 값도 돌아옵니다.",
       "errNetwork": "방금은 Claude 에 닿지 못했습니다. 마지막으로 받은 값을 보여드리는 중입니다.",
       "refreshFailed": "새로고침 실패"
@@ -1245,6 +1257,10 @@
       "onlyEnabled": "켠 것만",
       "noMatch": "맞는 것이 없습니다. 하려는 일을 나타내는 낱말로 찾아보세요.",
       "enabledCount": "{{total}}개 중 {{on}}개 켬",
+      "draftBadge": "개발 중",
+      "showDrafts": "개발 중 {{n}}종 함께 보기",
+      "hideDrafts": "개발 중인 카드 숨기기",
+      "draftNote": "이 플러그인은 아직 프로젝트를 훑지 않습니다 — 켜도 고정된 규칙 문장만 실리고 프로젝트에서 잰 근거는 붙지 않습니다.",
       "usage": {
         "show": "켜면 뭘 보게 되나",
         "hide": "접기",
@@ -1516,7 +1532,7 @@
     "diff": {
       "addComment": "이 줄에 코멘트",
       "removeComment": "코멘트 지우기",
-      "commentPlaceholder": "이 줄을 어떻게 고칠까요? (Ctrl+Enter 로 저장)",
+      "commentPlaceholder": "이 줄을 어떻게 고칠까요? ({{shortcut}} 로 저장)",
       "commentCancel": "취소",
       "commentSave": "저장",
       "commentLimit": "리뷰 코멘트는 세션당 {{max}}건까지입니다 — 보내거나 지워서 자리를 만들어 주세요.",
@@ -1542,8 +1558,8 @@
         "medium": "보통",
         "thick": "굵게"
       },
-      "undo": "되돌리기 (Ctrl+Z)",
-      "redo": "다시 하기 (Ctrl+Shift+Z)",
+      "undo": "되돌리기 ({{shortcut}})",
+      "redo": "다시 하기 ({{shortcut}})",
       "clear": "표시 전부 지우기",
       "download": "PNG 내려받기",
       "saveReplace": "저장",
@@ -1556,7 +1572,7 @@
       "fileConflictOverwrite": "그래도 저장",
       "textPlaceholder": "입력 후 Enter",
       "hintPick": "도구를 고르면 이미지에 표시할 수 있습니다. 표시한 그대로 첨부됩니다.",
-      "hintDraw": "이미지 위를 끌어 표시하세요. Ctrl+Z 로 마지막 표시를 되돌립니다.",
+      "hintDraw": "이미지 위를 끌어 표시하세요. {{shortcut}} 로 마지막 표시를 되돌립니다.",
       "discardTitle": "표시한 내용을 버리고 닫을까요?",
       "discardCancel": "계속 편집",
       "discardConfirm": "버리고 닫기",
@@ -1590,7 +1606,12 @@
       "collapseLabel": "접기",
       "collapseHint": "접기 — 창은 그대로 두고 캔버스를 돌려줍니다(헤더 [창] 목록에서 다시 펴기)",
       "resizeWindow": "창 크기 조절",
-      "resizeStack": "분할 비율 조절"
+      "resizeStack": "분할 비율 조절",
+      "slotTabHint": "\"{{name}}\" 창을 앞으로 (같은 칸을 나눠 쓰는 창)",
+      "dockShortcutHint": "{{dock}} 붙이기 · {{undock}} 떼어 내기",
+      "popOutHint": "놓으면 독립 창으로 꺼냅니다",
+      "popOutLabel": "독립 창으로 꺼내기",
+      "returnToApp": "앱 안으로 되돌리기"
     },
     "tabbar": {
       "newSession": "새 세션",
@@ -1984,7 +2005,7 @@
     },
     "editor": {
       "resize": "에디터 패널 크기 조절",
-      "save": "저장 (Ctrl+S)",
+      "save": "저장 ({{shortcut}})",
       "reload": "디스크에서 다시 불러오기",
       "closeTab": "탭 닫기",
       "closePane": "에디터 패널 닫기",
@@ -3385,7 +3406,7 @@
       "deviceTip": "{{width}}px 폭 그대로 렌더합니다",
       "pickElement": "요소 선택",
       "pickHint": "프리뷰에서 요소를 클릭하면 그 요소에 대해 고칠 것을 적을 수 있습니다",
-      "pickPlaceholder": "이 요소를 어떻게 고칠까요? (Ctrl+Enter 로 전송)",
+      "pickPlaceholder": "이 요소를 어떻게 고칠까요? ({{shortcut}} 로 전송)",
       "pickSend": "보내기",
       "pickCopy": "선택자 복사",
       "pickCopied": "복사됨",

@@ -6,16 +6,27 @@ import type {
   ClaudeUsageError,
   ClaudeUsageInfo,
   ClaudeUsageLimit,
+  ClaudeUsageSource,
   RateLimitInfo,
 } from '@vibisual/shared';
+import type {
+  UsageProbeFailure,
+  UsageProbeSnapshot,
+  UsageWindowSnapshot,
+} from './claudeUsageProbe.js';
 
 /**
  * §4 — Claude 사용량 표시값 조립.
  *
- * **원천은 statusLine 이다.** Claude Code 가 플랜 한도를 외부에 노출하는 공식 경로는 statusLine
- * 명령의 stdin JSON(`rate_limits.five_hour|seven_day` 의 `used_percentage`·`resets_at`) 하나뿐이고,
- * 그 값은 `hooks/handler.mjs --statusline` → `POST /api/rate-limits` → `graphManager.rateLimits`
- * 로 들어온다. 이 모듈은 그 값을 팝업이 쓰는 `ClaudeUsageInfo` 모양으로 **옮겨 담기만** 한다.
+ * **원천은 둘이고, 이 모듈은 둘 중 더 최근 것을 골라 담는다.**
+ *   ① `claude -p "/usage"` probe(`claudeUsageProbe`) — 대화형 세션이 없어도 값이 들어오는 1차
+ *      원천. 모델 호출 0턴이라 과금이 없다(실측). 5분 주기 + 부팅 직후 + 팝업 새로고침에 돈다.
+ *   ② statusLine(§4 v3.60) — 대화형 세션이 상태줄을 그릴 때 밀어 주는 값. `hooks/handler.mjs
+ *      --statusline` → `POST /api/rate-limits` → `graphManager.rateLimits`. 세션이 떠 있는
+ *      동안에는 probe 주기보다 빨리 도착하므로 폐기하지 않고 **최신성으로** 겨룬다.
+ *
+ * ②만 있던 시절에는 헤드리스 에이전트만 돌리는 사용자의 필이 영영 `-` 였다 — 수집기를 켜도
+ * 채워질 길이 없었기 때문이다. ①을 더해 그 구멍을 막는다.
  *
  * **왜 직접 조회를 걷어냈나** — 종전(구 v3.62)에는 `~/.claude/.credentials.json` 의 OAuth
  * accessToken 으로 `GET https://api.anthropic.com/api/oauth/usage` 를 5분마다 직접 호출했다.
@@ -104,37 +115,107 @@ function toLimit(
   };
 }
 
+
+/** 창 하나의 최종 채택값 — 어느 원천에서 왔는지까지 들고 다닌다(표시용 `source` 판정에 쓴다). */
+interface PickedWindow {
+  percent: number;
+  resetsAt?: number;
+  fromCli: boolean;
+}
+
 /**
- * statusLine 이 보고한 창들(`RateLimitInfo`) → 팝업이 읽는 `ClaudeUsageInfo`.
+ * 같은 창(5시간·7일)을 두 원천이 모두 보고했을 때 **더 최근 것**을 고른다.
+ *
+ * 우열을 고정하지 않는 이유 — 대화형 세션이 떠 있으면 statusLine 이 초 단위로 최신이고,
+ * 그런 세션이 없으면 probe 만 갱신된다. 어느 한쪽을 항상 이기게 하면 나머지 상황에서 낡은 값이
+ * 화면에 박힌다. 시각이 같으면 probe 를 택한다(리셋 시각까지 함께 오는 쪽).
+ */
+function pickWindow(
+  statusPercent: number | undefined,
+  statusResetsAt: number | undefined,
+  statusAt: number | undefined,
+  cli: UsageWindowSnapshot | undefined,
+  cliAt: number,
+): PickedWindow | null {
+  const hasStatus = typeof statusPercent === 'number' && Number.isFinite(statusPercent);
+  const hasCli = cli !== undefined;
+  if (!hasStatus && !hasCli) return null;
+  if (hasStatus && hasCli) {
+    const statusWins = (statusAt ?? 0) > cliAt;
+    if (statusWins) {
+      return {
+        percent: statusPercent,
+        ...(statusResetsAt !== undefined ? { resetsAt: statusResetsAt } : {}),
+        fromCli: false,
+      };
+    }
+  }
+  if (hasCli) {
+    return {
+      percent: cli.percent,
+      ...(cli.resetsAt !== undefined ? { resetsAt: cli.resetsAt } : {}),
+      fromCli: true,
+    };
+  }
+  return {
+    percent: statusPercent as number,
+    ...(statusResetsAt !== undefined ? { resetsAt: statusResetsAt } : {}),
+    fromCli: false,
+  };
+}
+
+/**
+ * 두 원천(`/usage` probe · statusLine)의 창들 → 팝업이 읽는 `ClaudeUsageInfo`.
  *
  * 값이 하나도 없을 때 **왜 없는지**를 구분해 실어 보낸다 —
- *   - 수집기가 꺼져 있으면 `no-credentials`: 화면은 설치 스위치를 노출한다("켜세요").
- *   - 수집기가 켜져 있으면 `awaiting-statusline`: 켤 것은 이미 켰고 값이 아직 안 왔을 뿐이다.
- *     statusLine 은 **대화형 Claude Code 세션이 화면에 그려질 때** 실행되므로, 앱만 켜 둔
- *     상태에서는 값이 들어오지 않는다. 이때 "클릭해서 켜기" 라고 말하면 이미 켜진 스위치를
- *     다시 누르게 만든다(실측: 그 재설치가 자기 감쌈 재귀를 만들던 사고의 출발점이었다).
+ *   - `cli-unavailable`: `claude` 실행본을 못 찾았거나 probe 가 실패/타임아웃. 켜고 끌 문제가
+ *     아니라 실행 경로 문제라 화면이 다르게 말해야 한다.
+ *   - `awaiting-statusline`: probe 는 아직인데 수집기는 켜져 있다 — 곧 들어온다.
+ *   - `no-credentials`: 아직 아무 경로로도 값을 받은 적이 없다.
  */
 export function buildClaudeUsage(
   rate: RateLimitInfo | undefined,
   now: number,
   collectorInstalled = false,
+  probe?: UsageProbeSnapshot | null,
+  probeFailure?: UsageProbeFailure,
 ): ClaudeUsageInfo {
   const limits: ClaudeUsageLimit[] = [];
-  const session = toLimit('session', 'session', rate?.used5h, rate?.resetAt5h, now);
+  const cliAt = probe?.fetchedAt ?? 0;
+
+  const sessionPick = pickWindow(rate?.used5h, rate?.resetAt5h, rate?.updatedAt, probe?.session, cliAt);
+  const weeklyPick = pickWindow(rate?.used7d, rate?.resetAt7d, rate?.updatedAt, probe?.weekly, cliAt);
+
+  const session = sessionPick ? toLimit('session', 'session', sessionPick.percent, sessionPick.resetsAt, now) : null;
   if (session) limits.push(session);
-  const weekly = toLimit('weekly_all', 'weekly', rate?.used7d, rate?.resetAt7d, now);
+  const weekly = weeklyPick ? toLimit('weekly_all', 'weekly', weeklyPick.percent, weeklyPick.resetsAt, now) : null;
   if (weekly) limits.push(weekly);
+
+  // 모델별 주간 한도 — probe 출력에만 있는 표시명이 붙는다(§ claudeUsageProbe 주석).
+  for (const row of probe?.scoped ?? []) {
+    const scoped = toLimit('weekly_scoped', 'weekly', row.percent, undefined, now);
+    if (scoped) limits.push({ ...scoped, scopeLabel: row.label });
+  }
 
   const hints = readPlanHints();
   const plan = buildPlanLabel(hints?.subscriptionType, hints?.rateLimitTier);
 
-  const emptyReason: ClaudeUsageError = collectorInstalled ? 'awaiting-statusline' : 'no-credentials';
+  const usedCli = Boolean(sessionPick?.fromCli || weeklyPick?.fromCli || (probe?.scoped.length ?? 0) > 0);
+  const source: ClaudeUsageSource = usedCli ? 'cli' : 'statusline';
+
+  const emptyReason: ClaudeUsageError = probeFailure
+    ? 'cli-unavailable'
+    : collectorInstalled
+      ? 'awaiting-statusline'
+      : 'no-credentials';
 
   return {
     ...(plan ? { plan } : {}),
     limits,
-    source: 'statusline',
-    fetchedAt: now,
+    ...(probe?.extraCredits ? { extraCredits: probe.extraCredits } : {}),
+    source,
+    // 값을 실제로 받아온 시각 — probe 가 이겼으면 그 시각, 아니면 statusLine 이 보고한 시각.
+    fetchedAt: usedCli ? (probe?.fetchedAt ?? now) : (rate?.updatedAt ?? now),
     ...(limits.length === 0 ? { error: emptyReason } : {}),
   };
 }

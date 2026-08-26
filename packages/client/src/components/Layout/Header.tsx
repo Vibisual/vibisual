@@ -4,6 +4,7 @@ import type { AgentPhase } from '@vibisual/shared';
 import { useTranslation } from 'react-i18next';
 import { selectEffectiveProject, useGraphStore } from '../../stores/graphStore.js';
 import { isPackagedDesktop } from '../../transport/index.js';
+import { isMac } from '../../utils/platform.js';
 import { FileMenu } from './FileMenu.js';
 import { TabBar } from './TabBar.js';
 import { LanguageSwitcher } from './LanguageSwitcher.js';
@@ -113,7 +114,22 @@ export function Header({
     // v2.13 — 한 줄 통합: h-9(36px), 로고 + File + (구분선) + 프로젝트 탭 + (드래그 spacer) + 우측 컨트롤.
     // §4 v3.16 — pr-36(윈도우 컨트롤 오버레이 자리)은 packaged Electron 에서만. 모바일/웹
     // 브라우저에는 네이티브 min/max/close 가 없어 144px 이 통째로 낭비돼 탭 영역을 짓눌렀다.
-    <header className={`app-drag relative z-[100] flex h-9 items-stretch bg-[#334155] ${isPackagedDesktop() ? 'pr-36' : 'pr-1'}`}>
+    //
+    // macOS 는 컨트롤이 **좌상단 신호등**이라 반대로 잡아야 한다(2026-08-26 조사).
+    //   - 좌측 `pl-20`(=80px): main 이 잡은 trafficLightPosition{x:12,y:11} 기준으로 신호등 3개가
+    //     대략 78px 까지 차지한다. 이 여백이 없으면 신호등이 로고와 **File 메뉴 버튼을 덮어**
+    //     폴더 열기·설정·플러그인의 유일한 진입로가 막힌다(네이티브 앱 메뉴가 없어 대안 없음).
+    //   - 우측 `pr-36` 은 mac 에서 불필요하다 — titleBarOverlay 의 min/max/close 는 Windows·Linux
+    //     전용이라, mac 에서 그대로 두면 144px 이 통째로 낭비돼 탭 영역만 짓눌린다.
+    <header
+      className={`app-drag relative z-[100] flex h-9 items-stretch bg-[#334155] ${
+        isPackagedDesktop()
+          ? isMac()
+            ? 'pl-20 pr-1'
+            : 'pr-36'
+          : 'pr-1'
+      }`}
+    >
       {/* 좌측: 로고 + File 메뉴 + 프로젝트 탭 — 탭이 많아지면 내부에서 가로 스크롤. */}
       <div className="flex min-w-0 flex-1 items-stretch">
         {/* 로고 — 드래그 영역에 포함 (텍스트라 클릭 불필요). 가운데 정렬되도록 별도 h-full 박스.

@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
+import { shortcutLabel } from '../../utils/platform.js';
 import { PREVIEW_DEVICE_PRESETS } from '@vibisual/shared';
 
 import { buildPickPrompt, describePickedElement } from './pickPrompt.js';
@@ -217,7 +218,7 @@ export function PreviewPickPanel({ picker, snip }: PreviewPickPanelProps): React
                 if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); handleSend(); }
               }}
               rows={2}
-              placeholder={t('common.preview.pickPlaceholder')}
+              placeholder={t('common.preview.pickPlaceholder', { shortcut: shortcutLabel('Ctrl+Enter') })}
               className="scrollbar-thin min-w-0 flex-1 resize-none rounded border border-white/[0.08] bg-gray-950/70 px-2 py-1 text-[12px] text-gray-200 outline-none focus:border-blue-500/60"
             />
             <button

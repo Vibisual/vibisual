@@ -1,5 +1,7 @@
 import type { AgentProvider, LocalEngineBackend, BubbleType, BubbleStyleConfig, EdgeStyleConfig, AgentRole, PipelineChildConfig, PipelineType, AgentConfig, TaskEdgeTemplate, TaskEdgeKind, UiLocale, AutoAgentRole, AutoAgentTemplate, ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry, AgentFeedback, BrainTopicDef, BrainTopicIndexEntry, BrainCardType, BrainAuthority, BrainAxisId, BrainActivation, BrainSkill, StreamDensity, PluginContributionKind, SessionGoalStepStatus, CommandDispatchMode, CommandErrorCode, RunRuntime, RunConfig, McpServerPreset, AgentMemoryScope, DebugAdapterSpec, ProblemMatch, ProblemSeverity, RetentionSettings, PreviewDevicePreset, ShelfIconName, ShelfItemKind, CostPeriod, CostTotals, CostPeriodTotals, AuditRiskKind, AuditBoundaryConfig, AuditCounts, StoryboardPresetId, StoryboardPreset, LocalModelCatalogSort, WorkspacePathKind, CmdPaneNode, BuiltinSlashCommand } from './types.js';
 export type { ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry } from './types.js';
+// 경로 대소문자 정책 SSOT — win32/darwin 만 접고 linux 는 접지 않는다(`pathCase.ts`).
+import { legacyLowerPathKey, pathKey, type PlatformName } from './pathCase.js';
 
 // ─── UI 다국어 (i18n) ───
 
@@ -931,10 +933,19 @@ export const USAGE_LIMIT_DANGER_PCT = 90;
  *
  * 종전(구 v3.62)에는 이 자리에 `/api/oauth/usage` 직접 호출용 URL·타임아웃이 함께 있었다.
  * 그 호출은 문서화되지 않은 내부 엔드포인트를 OAuth 토큰으로 자동 조회하는 것이라 약관에
- * 걸려 걷어냈다(`claudeUsageService` 주석 참고). 지금 값의 원천은 statusLine 이고, 이 주기는
- * "리셋 시각이 지났는데 화면이 그대로" 를 막는 **안전망**일 뿐 네트워크를 쓰지 않는다.
+ * 걸려 걷어냈다(`claudeUsageService` 주석 참고). 그 자리를 대신하는 지금의 1차 원천은 **공식
+ * CLI 의 `/usage` print 실행**(`claudeUsageProbe`)이라, 이 주기는 그 probe 를 도는 간격이기도
+ * 하다 — 모델 호출이 0턴이라 과금이 없고(실측), 부르는 것은 공개 인터페이스(CLI)뿐이다.
  */
 export const CLAUDE_USAGE_POLL_INTERVAL_MS = 5 * 60 * 1000;
+
+/**
+ * §4 — `claude -p "/usage"` probe 1회 타임아웃.
+ *
+ * 실측 2.3초(모델 호출 0턴)라 넉넉히 잡아도 안전하다. 값을 못 받으면 화면이 "실행 경로 문제"
+ * 라고 말해야 하므로(`ClaudeUsageError.cli-unavailable`) 무한정 기다리지 않는다.
+ */
+export const CLAUDE_USAGE_PROBE_TIMEOUT_MS = 30_000;
 
 /**
  * §4 v4.82 — 앱 안 Claude 로그인 설정.
@@ -4842,33 +4853,69 @@ export const DEFAULT_BRAIN_AXES: Readonly<Record<BrainAxisId, boolean>> = {
   operator: true,
 };
 
-/** 프로젝트 키 정규화 — forward slash + 소문자 + 끝 슬래시 제거(서버 `normPath` 와 같은 규칙). */
-function normalizeBrainProjectKey(p: string): string {
-  return p.replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '');
+/**
+ * 프로젝트 키 정규화 — forward slash + 끝 슬래시 제거 + **그 플랫폼이 실제로 무시할 때만** 소문자.
+ *
+ * Linux 는 `Feature-X` 와 `feature-x` 가 실재하는 별개 폴더라 무조건 접으면 한 프로젝트의 두뇌 설정이
+ * 다른 프로젝트에 적용된다(= 남의 두뇌 카드가 내 프롬프트에 실린다). 정책은 `pathCase.ts` 한 곳.
+ *
+ * shared 는 브라우저에서도 로드되므로 여기서 `process.platform` 을 읽을 수 없다 —
+ * **인자를 생략하면 예전대로 접는다**(기존 호출부 회귀 없음). 서버는 `process.platform` 을 넘긴다.
+ */
+function normalizeBrainProjectKey(p: string, platform?: PlatformName): string {
+  if (platform === undefined) return p.replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '');
+  return pathKey(p, platform);
 }
 
 /**
  * §5.10 v2 (H) — 저장할 때 쓸 **실제 키**. 이미 같은 폴더를 가리키는 칸이 있으면 그 이름을 그대로 쓴다.
  * 부분 저장이 기존 칸을 갱신하지 않고 새 칸을 만드는 것을 막는다(플러그인 `resolveProjectKey` 와 같은 규약).
+ *
+ * 대소문자를 가리는 FS 에서도 **예전 무조건-소문자 키**를 한 번 더 찾는다 — 그렇게 하지 않으면
+ * 업그레이드한 linux 사용자의 기존 두뇌 설정이 새 칸에 밀려 통째로 사라진다(하위호환).
  */
 export function resolveBrainProjectKey(
   byProject: Record<string, BrainActivation> | null | undefined,
   projectPath: string,
+  platform?: PlatformName,
 ): string {
-  const key = normalizeBrainProjectKey(projectPath);
-  return Object.keys(byProject ?? {}).find((k) => normalizeBrainProjectKey(k) === key) ?? projectPath;
+  const keys = Object.keys(byProject ?? {});
+  const key = normalizeBrainProjectKey(projectPath, platform);
+  const hit = keys.find((k) => normalizeBrainProjectKey(k, platform) === key);
+  if (hit !== undefined) return hit;
+  const legacy = legacyLowerPathKey(projectPath);
+  return keys.find((k) => isLegacyLowerKey(k) && k === legacy) ?? projectPath;
 }
+
+/**
+ * 저장 키가 **예전 방식(플랫폼 무관 무조건 소문자)** 으로 적힌 것일 수 있는가 — 읽기 폴백 대상 판정.
+ *
+ * 대소문자가 섞인 키는 새 방식으로 적힌 것이므로 폴백에서 제외한다. 이 조건이 없으면 linux 에서
+ * `feature-x` 조회가 `Feature-X` 칸을 집어 들어, 케이스만 다른 두 프로젝트를 가르려던 수정이
+ * 원래 결함을 그대로 되살린다. 폴백은 "조회 경로에 대문자가 있는데 그 칸이 없을 때"만 의미가 있다.
+ */
+function isLegacyLowerKey(k: string): boolean {
+  return k === legacyLowerPathKey(k);
+}
+
 
 /** §5.10 v2 (H) — 프로젝트 한 곳의 활성화 레코드. **없으면 undefined**(= 아직 손댄 적 없음 = 꺼짐). */
 export function resolveBrainActivation(
   byProject: Record<string, BrainActivation> | null | undefined,
   projectPath: string | null | undefined,
+  platform?: PlatformName,
 ): BrainActivation | undefined {
   if (!projectPath) return undefined;
   const map = byProject ?? {};
-  const key = normalizeBrainProjectKey(projectPath);
+  const key = normalizeBrainProjectKey(projectPath, platform);
   for (const [k, v] of Object.entries(map)) {
-    if (normalizeBrainProjectKey(k) === key) return v;
+    if (normalizeBrainProjectKey(k, platform) === key) return v;
+  }
+  // 하위호환 — 예전 저장분은 플랫폼과 무관하게 소문자 키로 적혀 있다. 정확 일치가 없을 때만,
+  // 그리고 **그 칸 자체가 이미 소문자일 때만** 본다(대소문자 섞인 칸은 새 방식으로 적힌 남의 칸이다).
+  const legacy = legacyLowerPathKey(projectPath);
+  for (const [k, v] of Object.entries(map)) {
+    if (isLegacyLowerKey(k) && k === legacy) return v;
   }
   return undefined;
 }
@@ -4880,8 +4927,9 @@ export function resolveBrainActivation(
 export function isBrainEnabled(
   byProject: Record<string, BrainActivation> | null | undefined,
   projectPath: string | null | undefined,
+  platform?: PlatformName,
 ): boolean {
-  return resolveBrainActivation(byProject, projectPath)?.enabled === true;
+  return resolveBrainActivation(byProject, projectPath, platform)?.enabled === true;
 }
 
 /**
@@ -4892,27 +4940,33 @@ export function isBrainAxisEnabled(
   byProject: Record<string, BrainActivation> | null | undefined,
   projectPath: string | null | undefined,
   axis: BrainAxisId,
+  platform?: PlatformName,
 ): boolean {
-  const act = resolveBrainActivation(byProject, projectPath);
+  const act = resolveBrainActivation(byProject, projectPath, platform);
   if (act?.enabled !== true) return false;
   const override = act.axes?.[axis];
   return typeof override === 'boolean' ? override : DEFAULT_BRAIN_AXES[axis];
 }
 
 /**
- * §5.10 v2 (H) — 첫 실행 1회 안내를 띄울 때인가.
+ * §5.10 (H) — 첫 실행 1회 안내를 띄울 때인가.
  * 아직 켜지 않았고, 물어본 적도 없고, 잠들어 있는 카드가 있을 때만 한 번 묻는다.
+ *
+ * **지금 이 값을 읽는 화면은 없다(사용자 결정 2026-08-26 — 첫 실행 안내 배너 폐기).**
+ * 남겨 둔 이유는 경로 키 규약(대소문자·표시명 혼동)을 붙잡아 두는 테스트가 이 함수를 관측창으로
+ * 쓰기 때문이다 — 배너를 되살리는 근거로 읽지 말 것.
  */
 export function shouldPromptBrainActivation(
   byProject: Record<string, BrainActivation> | null | undefined,
   projectPath: string | null | undefined,
   sleepingCardCount: number,
+  platform?: PlatformName,
 ): boolean {
   if (sleepingCardCount <= 0) return false;
   // 어느 프로젝트인지 모르면 묻지 않는다 — 거절 기록이 어디 적혔는지도 모르는 상태라,
   // 여기서 true 를 내면 "이미 거절한 안내"가 다시 뜨는 길이 열린다.
   if (!projectPath) return false;
-  const act = resolveBrainActivation(byProject, projectPath);
+  const act = resolveBrainActivation(byProject, projectPath, platform);
   if (act?.enabled === true) return false;
   return act?.promptedAt === undefined;
 }
@@ -5865,6 +5919,17 @@ export const ALL_MODEL_INSTALL_ID = 'allmodel';
 
 /** §5.19 (D) — llama.cpp 최신 릴리스 조회. **빌드 번호를 코드에 박지 않는다.** */
 export const LLAMA_RELEASE_LATEST_API = 'https://api.github.com/repos/ggml-org/llama.cpp/releases/latest';
+
+/**
+ * §5.19 (D) — 릴리스 **목록** 조회.
+ *
+ * `/releases/latest` 는 prerelease 가 아닌 것만 돌려주는데, llama.cpp 가 릴리스 체계를 바꿔
+ * 그 자리에 자산이 `nightly-tag.txt` 하나뿐인 태그(`v0.3.0`)가 앉았다. 플랫폼별 실제 바이너리
+ * (win/macos/ubuntu × cpu/vulkan/cuda)는 전부 `b#####` 형태의 **prerelease 태그**에만 붙는다.
+ * 그래서 목록을 받아 **자산을 실제로 가진 가장 최근 릴리스**를 골라야 한다.
+ * (2026-08-26 실측: `/releases/latest` → assets 1개(zip 0개) → 전 플랫폼 설치 실패.)
+ */
+export const LLAMA_RELEASES_LIST_API = 'https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=20';
 
 /**
  * §5.19 (D) — 기본 설치 백엔드.

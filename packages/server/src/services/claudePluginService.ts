@@ -161,7 +161,9 @@ function toEntry(raw: Record<string, unknown>, projectPath: string): ClaudePlugi
     marketplace,
     version: str(raw['version']) ?? 'unknown',
     scope,
-    placement: resolvePluginPlacement(scope, entryPath, projectPath),
+    // process.platform 을 넘겨야 Linux 에서 경로 키가 소문자로 접히지 않는다
+    // (접히면 케이스만 다른 남의 프로젝트 플러그인이 "이 프로젝트 것"으로 표시된다).
+    placement: resolvePluginPlacement(scope, entryPath, projectPath, process.platform),
     enabled: raw['enabled'] === true,
     ...(str(raw['installPath']) ? { installPath: str(raw['installPath']) as string } : {}),
     ...(entryPath ? { projectPath: entryPath } : {}),

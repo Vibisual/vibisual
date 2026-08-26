@@ -11,6 +11,7 @@
  */
 import { memo, useMemo, useCallback, useState, Fragment } from 'react';
 import { useTranslation } from 'react-i18next';
+import { shortcutLabel } from '../../utils/platform.js';
 import { DIFF_COMMENT_MAX } from '@vibisual/shared';
 import { ScrollFade } from '../ScrollFade.js';
 import { useGraphStore } from '../../stores/graphStore.js';
@@ -260,7 +261,7 @@ export const DiffView = memo(function DiffView({ parsed, review }: DiffViewProps
                             else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); submitDraft(row); }
                           }}
                           rows={2}
-                          placeholder={t('ide.diff.commentPlaceholder')}
+                          placeholder={t('ide.diff.commentPlaceholder', { shortcut: shortcutLabel('Ctrl+Enter') })}
                           className="scrollbar-thin w-full resize-none rounded border border-gray-700 bg-gray-950/80 px-2 py-1 font-sans text-[12px] text-gray-200 outline-none focus:border-blue-500/70"
                         />
                         <div className="mt-1 flex items-center justify-end gap-1.5">

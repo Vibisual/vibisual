@@ -136,8 +136,18 @@ const api = {
   },
   /** §5.5 #17-6 (v2.73) — 버블 오버레이 창 surface. */
   overlay: {
-    /** 에이전트 버블을 데스크톱 상시-위 위젯 창으로 분리. 이미 있으면 그 창 focus. */
-    open: (payload: { agentId: string; projectId: string; cursor?: { x: number; y: number } }): Promise<{ windowId: number; reused: boolean }> =>
+    /**
+     * 에이전트 버블을 데스크톱 상시-위 위젯 창으로 분리. 이미 있으면 그 창 focus.
+     * (판올림 번호 발급 대기) `expanded` 면 버블이 아니라 **IDE 크기로 바로** 뜬다 —
+     * IDE 창을 앱 밖으로 끌어내 만든 독립 창이 그 경로다(`size` 는 끌던 창 크기).
+     */
+    open: (payload: {
+      agentId: string;
+      projectId: string;
+      cursor?: { x: number; y: number };
+      expanded?: boolean;
+      size?: { width: number; height: number };
+    }): Promise<{ windowId: number; reused: boolean }> =>
       ipcRenderer.invoke('vibisual:overlay:open', payload),
     /** 특정 에이전트의 오버레이 창 닫기(메인에서 토글 해제 시). */
     close: (agentId: string): Promise<boolean> => ipcRenderer.invoke('vibisual:overlay:close', agentId),
@@ -159,12 +169,16 @@ const api = {
     hideSelf: (): Promise<boolean> => ipcRenderer.invoke('vibisual:overlay:hide-self'),
     /** §17-6 (G) v2.82 — 우클릭 불투명도(1/0.75/0.5) — 접힘 버블에 적용. */
     setOpacitySelf: (opacity: number): Promise<boolean> => ipcRenderer.invoke('vibisual:overlay:set-opacity-self', opacity),
-    /** §17-6 (G) v2.82 — 우클릭 "본체에서 이 버블로 점프" — 메인 창 포커스 + reveal 신호. */
-    revealInMain: (payload: { agentId: string; projectId: string }): Promise<boolean> =>
+    /**
+     * §17-6 (G) v2.82 — 우클릭 "본체에서 이 버블로 점프" — 메인 창 포커스 + reveal 신호.
+     * (판올림 번호 발급 대기) `openIde` 면 점프에서 그치지 않고 **앱 안에서 IDE 창까지 다시 연다**
+     * (밖으로 끌어냈던 창을 되돌리는 길).
+     */
+    revealInMain: (payload: { agentId: string; projectId: string; openIde?: boolean }): Promise<boolean> =>
       ipcRenderer.invoke('vibisual:overlay:reveal-in-main', payload),
     /** §17-6 (G) v2.82 — 메인 윈도우 한정: 오버레이가 보낸 캔버스 점프 신호 구독. */
-    onReveal: (cb: (payload: { agentId: string; projectId: string }) => void): (() => void) => {
-      const listener = (_e: unknown, payload: { agentId: string; projectId: string }): void => cb(payload);
+    onReveal: (cb: (payload: { agentId: string; projectId: string; openIde?: boolean }) => void): (() => void) => {
+      const listener = (_e: unknown, payload: { agentId: string; projectId: string; openIde?: boolean }): void => cb(payload);
       ipcRenderer.on('vibisual:overlay:reveal', listener);
       return () => ipcRenderer.removeListener('vibisual:overlay:reveal', listener);
     },

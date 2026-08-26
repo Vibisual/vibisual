@@ -41,8 +41,9 @@
     },
     "usage": {
       "tooltip": "Sessione corrente: {{percent}}% del limite di 5 ore usato — clicca per i dettagli",
-      "tooltipNoData": "I dati di utilizzo non vengono ancora raccolti — clicca per attivare",
-      "tooltipWaiting": "Il raccoglitore di utilizzo è attivo — in attesa del primo report da una sessione interattiva di Claude Code"
+      "tooltipNoData": "Nessun dato di utilizzo ricevuto finora — fai clic per i dettagli",
+      "tooltipWaiting": "Recupero dell'utilizzo da Claude Code — il numero comparirà a breve",
+      "tooltipCliUnavailable": "Impossibile eseguire Claude Code per leggere l'utilizzo — fai clic per i dettagli"
     },
     "setupBanner": {
       "text": "Claude Code non è installato — gli agenti non possono ancora essere eseguiti.",
@@ -192,7 +193,7 @@
         "inspectorT": "Inspector",
         "inspectorD": "Tieni premuto Alt per evidenziare gli elementi e fai clic per copiare; Shift+trascina per selezionare un'area.",
         "copyT": "Copia e incolla",
-        "copyD": "Seleziona agent personalizzati ed edge, poi usa Ctrl+C / Ctrl+V per clonarli in un altro progetto."
+        "copyD": "Seleziona agent personalizzati ed edge, poi usa {{copy}} / {{paste}} per clonarli in un altro progetto."
       },
       "history": {
         "intro": "Vibisual ricorda i tuoi progetti tra un avvio e l'altro.",
@@ -206,7 +207,7 @@
         "bookmarkT": "Segnalibri delle bolle",
         "bookmarkD": "Alt+1…0 fissa una bolla o una sessione in uno slot; premi 1…0 per tornarci direttamente.",
         "copyT": "Copia / incolla",
-        "copyD": "Ctrl+C / Ctrl+V (Cmd su macOS) copia e incolla gli agent, gli edge e i riquadri di commento selezionati.",
+        "copyD": "{{copy}} / {{paste}} copia e incolla gli agent, gli edge e i riquadri di commento selezionati.",
         "inspectorT": "Inspector",
         "inspectorD": "Tieni premuto Alt per ispezionare e fai clic per copiare un elemento; Shift+trascina per selezionare un'area.",
         "closeT": "Chiudi e annulla",
@@ -555,7 +556,7 @@
       "editFrame": "Modifica testo",
       "editTitlePrompt": "Titolo fotogramma:",
       "editActionPrompt": "Azione fotogramma:",
-      "zoomReset": "Ctrl+0 ripristina",
+      "zoomReset": "{{shortcut}} ripristina",
       "presetLabel": "Uscita",
       "preset": {
         "landscape": "Orizzontale 16:9",
@@ -600,7 +601,7 @@
       "newSessionBadge": "nuova sessione",
       "session": "Sessione:",
       "change": "Modifica",
-      "placeholder": "Inserisci comando... (incolla immagini con Ctrl+V)",
+      "placeholder": "Inserisci comando... (incolla immagini con {{paste}})",
       "run": "Esegui",
       "executing": "Esecuzione...",
       "delete": "Elimina",
@@ -921,7 +922,7 @@
       "deny": "Nega",
       "denyReasonLabel": "Motivo del rifiuto (opzionale)",
       "denyReasonPlaceholder": "es. percorso errato, comando non sicuro",
-      "shortcutHint": "Ctrl+Enter = Consenti · Esc = Nega",
+      "shortcutHint": "{{shortcut}} = Consenti · Esc = Nega",
       "stackCount": "{{current}} di {{total}} in attesa",
       "emptyToolInput": "(vuoto)"
     },
@@ -1163,13 +1164,13 @@
       "neverUpdated": "Nessun dato di utilizzo ricevuto finora",
       "collectorTitle": "Raccoglitore di utilizzo",
       "collectorOnHint": "Claude Code sta comunicando i tuoi limiti a Vibisual",
-      "collectorOffHint": "Attiva per leggere i limiti del tuo piano da Claude Code",
+      "collectorOffHint": "Attiva per aggiornamenti più frequenti durante una sessione interattiva",
       "collectorEnable": "Attiva",
       "collectorDisable": "Disattiva",
       "collectorPassthrough": "La tua barra di stato esistente è stata mantenuta: Vibisual la esegue e ne mostra l’output invariato.",
       "collectorForeign": "Hai già una barra di stato personalizzata. Attivarlo non la elimina: Vibisual la avvolge e continua a mostrarne l’output.",
       "collectorFailed": "Impossibile raggiungere le impostazioni del raccoglitore di utilizzo.",
-      "collectorRestartHint": "I valori arrivano quando una sessione interattiva di Claude Code disegna la sua barra di stato. Le sessioni già aperte vanno riavviate.",
+      "collectorRestartHint": "Vibisual legge l'utilizzo a intervalli regolari anche con questa opzione disattivata: il collettore lo aggiorna solo più spesso durante una sessione interattiva.",
       "localTitle": "Questo progetto in Vibisual",
       "localAgents": "Agenti",
       "localInput": "Token in ingresso",
@@ -1185,7 +1186,8 @@
       "creditsUsed": "{{percent}}% del budget di crediti usato",
       "creditsHint": "I crediti tengono Claude attivo dopo aver raggiunto un limite del piano. Gestiscili nell'app Claude.",
       "errNoCredentials": "Su questo computer non risulta l'accesso a Claude Code, quindi l'utilizzo non può essere letto direttamente. Accedi con Claude Code oppure usa il raccoglitore della barra di stato qui sotto.",
-      "errAwaitingStatusLine": "Il raccoglitore è attivo, ma non è ancora arrivato alcun valore. I limiti arrivano quando una sessione interattiva di Claude Code disegna la sua barra di stato.",
+      "errAwaitingStatusLine": "Ancora nessun valore. Vibisual chiede periodicamente /usage a Claude Code, quindi i numeri compariranno a breve — la status line di una sessione interattiva li riempie ancora prima.",
+      "errCliUnavailable": "Non è stato possibile eseguire il comando `claude` per leggere l'utilizzo. Controlla il percorso di Claude Code in Opzioni → Version e aggiorna.",
       "errUnauthorized": "L'accesso Claude salvato è scaduto. Avvia Claude Code una volta: si rinnova da solo e i numeri tornano.",
       "errNetwork": "Non è stato possibile raggiungere Claude in questo momento. Vengono mostrati gli ultimi valori ricevuti.",
       "refreshFailed": "Aggiornamento non riuscito"
@@ -1231,6 +1233,10 @@
       "onlyEnabled": "Solo attivi",
       "noMatch": "Nessuna corrispondenza. Provi con una parola di ciò che vuole ottenere.",
       "enabledCount": "{{on}} di {{total}} attivi",
+      "draftBadge": "In sviluppo",
+      "showDrafts": "Mostra {{n}} in sviluppo",
+      "hideDrafts": "Nascondi quelli in sviluppo",
+      "draftNote": "Questo plugin non ispeziona ancora il tuo progetto: attivarlo inserisce solo un testo di regole fisso, senza dati misurati dal progetto.",
       "usage": {
         "show": "Cosa vede attivandolo",
         "hide": "Richiudi",
@@ -1502,7 +1508,7 @@
     "diff": {
       "addComment": "Commenta questa riga",
       "removeComment": "Rimuovi commento",
-      "commentPlaceholder": "Cosa dovrebbe cambiare qui? (Ctrl+Invio per salvare)",
+      "commentPlaceholder": "Cosa dovrebbe cambiare qui? ({{shortcut}} per salvare)",
       "commentCancel": "Annulla",
       "commentSave": "Salva",
       "commentLimit": "Fino a {{max}} commenti di revisione per sessione — invia o rimuovine alcuni per aggiungerne altri.",
@@ -1528,8 +1534,8 @@
         "medium": "Medio",
         "thick": "Spesso"
       },
-      "undo": "Annulla (Ctrl+Z)",
-      "redo": "Ripeti (Ctrl+Shift+Z)",
+      "undo": "Annulla ({{shortcut}})",
+      "redo": "Ripeti ({{shortcut}})",
       "clear": "Cancella tutti i segni",
       "download": "Scarica PNG",
       "saveReplace": "Salva",
@@ -1542,7 +1548,7 @@
       "fileConflictOverwrite": "Salva comunque",
       "textPlaceholder": "Digita, poi premi Invio",
       "hintPick": "Scegli uno strumento per segnare questa immagine, poi salvala come allegato.",
-      "hintDraw": "Trascina sull'immagine per segnarla. Ctrl+Z annulla l'ultimo segno.",
+      "hintDraw": "Trascina sull'immagine per segnarla. {{shortcut}} annulla l'ultimo segno.",
       "discardTitle": "Eliminare le annotazioni e chiudere?",
       "discardCancel": "Continua a modificare",
       "discardConfirm": "Elimina e chiudi",
@@ -1965,7 +1971,7 @@
     },
     "editor": {
       "resize": "Ridimensiona pannello editor",
-      "save": "Salva (Ctrl+S)",
+      "save": "Salva ({{shortcut}})",
       "reload": "Ricarica dal disco",
       "closeTab": "Chiudi scheda",
       "closePane": "Chiudi pannello editor",
@@ -3360,7 +3366,7 @@
       "deviceTip": "Rendering a {{width}}px di larghezza",
       "pickElement": "Seleziona elemento",
       "pickHint": "Fai clic su un elemento nell'anteprima per descrivere una modifica da apportare.",
-      "pickPlaceholder": "Cosa dovrebbe cambiare in questo elemento? (Ctrl+Invio per inviare)",
+      "pickPlaceholder": "Cosa dovrebbe cambiare in questo elemento? ({{shortcut}} per inviare)",
       "pickSend": "Invia",
       "pickCopy": "Copia selettore",
       "pickCopied": "Copiato",
