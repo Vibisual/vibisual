@@ -6,7 +6,8 @@
 // packaged tree after electron-builder finishes.
 //
 // Source : <repo>/packages/server/{dist, node_modules}
-// Dest   : <appOutDir>/resources/app/node_modules/@vibisual/server/{dist, node_modules}
+// Dest   : <resourcesDir>/app/node_modules/@vibisual/server/{dist, node_modules}
+//          (resourcesDir = win/linux 는 <appOutDir>/resources, mac 은 <Product>.app/Contents/Resources)
 
 const { cpSync, existsSync, readdirSync, readlinkSync, realpathSync, rmSync, mkdirSync, lstatSync } = require('node:fs');
 const { join, dirname } = require('node:path');
@@ -72,12 +73,49 @@ function isBuildOnlyPath(src) {
   return false;
 }
 
+/**
+ * 패키징된 앱의 **리소스 디렉터리**를 플랫폼 규칙대로 돌려준다.
+ *
+ * `appOutDir` 아래에 `resources/` 가 있다고 못 박으면 **macOS 에서만 조용히 빗나간다** —
+ * mac 의 리소스는 `<appOutDir>/<Product>.app/Contents/Resources` 이고
+ * `<appOutDir>/resources` 는 .app 번들 **바깥**이라 dmg 에 담기지 않는다. 그 자리에 복사하면
+ * 빌드는 초록으로 끝나고(경로가 없으면 mkdir 로 만들어 버리므로 경고조차 없다) 정작 설치본에는
+ * 서버 dist·전이 의존성이 통째로 빠진 채 발행된다 — 열어 보기 전까지 아무도 모르는 실패다.
+ *
+ * 판정은 우리가 흉내 내지 않고 electron-builder 의 공개 API(`getResourcesDir`)에 맡긴다.
+ */
+function resolveResourcesDir(context) {
+  const { appOutDir, packager, electronPlatformName } = context;
+  if (packager && typeof packager.getResourcesDir === 'function') {
+    try {
+      return packager.getResourcesDir(appOutDir);
+    } catch (err) {
+      console.warn(`[afterPack] getResourcesDir failed (${err.message}) — 플랫폼 규칙으로 폴백`);
+    }
+  }
+  if (electronPlatformName === 'darwin') {
+    const product = (packager && packager.appInfo && packager.appInfo.productFilename) || 'Vibisual';
+    return join(appOutDir, `${product}.app`, 'Contents', 'Resources');
+  }
+  return join(appOutDir, 'resources');
+}
+
 exports.default = async function afterPack(context) {
   const { appOutDir } = context;
+  // 리소스 경로를 먼저 확정한다. 존재하지 않으면 **여기서 빌드를 세운다** — 조용히 mkdir 하면
+  // 알맹이 빠진 설치본이 그대로 발행된다(mac 이 정확히 그 경로로 10번 넘게 지나갔다).
+  const resourcesDir = resolveResourcesDir(context);
+  if (!existsSync(resourcesDir)) {
+    throw new Error(
+      `[afterPack] resources dir not found: ${resourcesDir} ` +
+      `(platform=${context.electronPlatformName}, appOutDir=${appOutDir}) — ` +
+      '서버 dist/의존성을 넣을 자리를 못 찾았다. 이대로 두면 알맹이 없는 설치본이 나간다.',
+    );
+  }
   const desktopDir = __dirname.replace(/[\\/]build$/, '');
   const serverDir = join(desktopDir, '..', 'server');
 
-  const appNodeModules = join(appOutDir, 'resources', 'app', 'node_modules', '@vibisual', 'server');
+  const appNodeModules = join(resourcesDir, 'app', 'node_modules', '@vibisual', 'server');
   if (!existsSync(appNodeModules)) {
     mkdirSync(appNodeModules, { recursive: true });
   }
@@ -186,7 +224,7 @@ exports.default = async function afterPack(context) {
   const desktopProdDeps = Object.keys(desktopPkg.dependencies || {})
     .filter((n) => !n.startsWith('@vibisual/'));
   if (desktopProdDeps.length) {
-    const seedDestNm = join(appOutDir, 'resources', 'app', 'node_modules');
+    const seedDestNm = join(resourcesDir, 'app', 'node_modules');
     const seedSrcNm = join(desktopDir, 'node_modules');
     const seedSeen = new Set();
     const seedQueue = [];

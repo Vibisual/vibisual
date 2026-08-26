@@ -10,7 +10,7 @@ import { LanguageSwitcher } from './LanguageSwitcher.js';
 import { UpdateButton } from './UpdateButton.js';
 import { PluginHeaderSlot } from '../../plugins/host.js';
 import { OverlayToggleButton } from './OverlayToggleButton.js';
-import { IDEWindowsMenu } from './IDEWindowsMenu.js';
+import { IDEWindowsMenu, type AgentDotState } from './IDEWindowsMenu.js';
 import { UsagePill } from './UsagePill.js';
 import { AuditPill } from './AuditPill.js';
 import { ServerLogPopup } from '../Panel/ServerLogPopup.js';
@@ -34,13 +34,9 @@ const CONN_DOT: Record<HeaderProps['connectionStatus'], string> = {
 //   completed > 0 only  → 녹색 깜빡
 //   전부 idle           → 회색 정적
 //   0개                 → 배지 자체를 숨김
-type AgentDotState = 'idle' | 'completed' | 'active';
-const DOT_STYLES: Record<AgentDotState, string> = {
-  idle: 'bg-gray-400',
-  completed: 'bg-emerald-400 animate-pulse',
-  active: 'bg-blue-400 animate-pulse',
-};
-const BADGE_STYLE = 'text-gray-300';
+// (판올림 번호 발급 대기) 그 dot/글자를 실제로 그리는 곳은 `IDEWindowsMenu` 의 트리거다 —
+//   배지가 [창과 버블] 메뉴를 여는 버튼을 겸하게 되면서 색표도 그쪽으로 옮겼다.
+//   여기서는 어떤 상태인지만 정하고, 표는 한 벌만 둔다(두 벌이면 색이 갈라진다).
 
 // agentLabel is now built inside the component using t() for i18n.
 
@@ -71,10 +67,12 @@ export function Header({
     projectAgentCounts, agents, agentProjects, effectiveProject, subAgents, queuedCommands, runningSubagentTasks,
   ]);
 
-  // §5.12 (A) — 이 배지가 지휘통제실의 **두 번째 입구**다. 프로젝트 root(home) 버블 좌더블클릭과
-  //   같은 호출이라 창 정체성(앱 전체 1창 · 이미 있으면 focus + 보는 프로젝트 교체)도 그대로다.
-  //   지휘통제실은 desktop IPC 전용이므로 그 채널이 없는 창(웹·모바일)에서는 종전처럼 순수
-  //   인디케이터로 남긴다 — `BubbleNode` 가 root 를 더블클릭 대상에서 빼는 것과 같은 가드.
+  // §5.12 (A) — 지휘통제실의 **두 번째 입구**. (판올림 번호 발급 대기) 이제 배지를 누르면 곧바로
+  //   열리는 게 아니라 [창과 버블] 메뉴가 열리고, 그 **맨 아래 항목**이 이것을 부른다.
+  //   프로젝트 root(home) 버블 좌더블클릭과 같은 호출이라 창 정체성(앱 전체 1창 · 이미 있으면
+  //   focus + 보는 프로젝트 교체)도 그대로다. 지휘통제실은 desktop IPC 전용이므로 그 채널이 없는
+  //   창(웹·모바일)에서는 그 항목만 안 그린다 — `BubbleNode` 가 root 를 더블클릭 대상에서 빼는 것과
+  //   같은 가드.
   const canOpenCommandCenter = typeof window !== 'undefined' && !!window.api?.command?.open && !!effectiveProject;
   const openCommandCenter = useCallback((): void => {
     if (!effectiveProject) return;
@@ -154,11 +152,6 @@ export function Header({
         {/* §5.5 #17-6 — 데스크톱 오버레이 위젯 전역 토글. 빼낸 버블이 있을 때만 노출. */}
         <OverlayToggleButton />
 
-        {/* §5.5 #17-1 — IDE 창 목록. 창을 네 변에 붙이면 캔버스가 줄어드는데, 새 창을 여는 길과
-            에이전트 설정을 여는 길이 캔버스 하나뿐이라 도크가 화면을 채우면 손이 닿지 않았다.
-            헤더는 z-[100] 이라 어떤 도크도 못 가린다 — 그래서 그 두 진입로를 여기 둔다. */}
-        <IDEWindowsMenu />
-
         {/* §4 v3.60 — Claude.ai 현재 세션(5시간 창) 사용률. 에이전트 배지 바로 왼쪽에 두고,
             클릭하면 사용량 전체(5h/7d·리셋 카운트다운·수집기 스위치)를 팝업으로 연다.
             §5.21 — 오늘 비용(비용 필)도 그 팝업 **하단**에 들어 있다. 헤더에는 두지 않는다. */}
@@ -167,36 +160,19 @@ export function Header({
         {/* §5.22 — 오늘 위험 호출 수. 사용량 필 오른쪽에 붙어 클릭하면 감사 타임라인(§7.20)을 연다. */}
         <AuditPill />
 
-        {/* Agent status — 에이전트가 1개라도 있을 때만 표시. 클릭하면 지휘통제실(§5.12 (A)).
-            §4 v3.24 — 폰(max-md)에선 숨김(탭 폭 확보, 상태는 IDE/캔버스에서 확인). */}
-        {badgeVisible && (() => {
-          const badgeBody = (
-            <>
-              <span className={`h-1.5 w-1.5 rounded-full ${DOT_STYLES[dotState]}`} />
-              <span>
-                {counts.running}/{counts.sessions}
-              </span>
-            </>
-          );
-          const badgeClass = `app-nodrag flex items-center gap-1.5 px-2.5 py-1 text-[12px] font-medium tabular-nums tracking-tight max-md:hidden ${BADGE_STYLE}`;
-          if (!canOpenCommandCenter) {
-            return (
-              <div title={phaseTooltip} className={badgeClass}>
-                {badgeBody}
-              </div>
-            );
-          }
-          return (
-            <button
-              type="button"
-              onClick={openCommandCenter}
-              title={t('header.agentStatus.tooltipCommand', { status: phaseTooltip })}
-              className={`${badgeClass} rounded-md transition-colors duration-150 hover:bg-white/[0.08]`}
-            >
-              {badgeBody}
-            </button>
-          );
-        })()}
+        {/* §5.5 #17-1 · §5.12 (A) — 에이전트 배지가 곧 [창과 버블] 메뉴의 트리거다.
+            창을 네 변에 붙이면 캔버스가 줄어드는데, 새 창을 여는 길과 에이전트 설정을 여는 길이
+            캔버스 하나뿐이라 도크가 화면을 채우면 손이 닿지 않았다. 헤더는 z-[100] 이라 어떤 도크도
+            못 가린다 — 그래서 그 진입로들을, 그리고 지휘통제실까지 여기 한 자리에 모은다.
+            §4 v3.24 — 폰(max-md)에선 숨김(메뉴 뿌리가 직접 가린다). */}
+        <IDEWindowsMenu
+          badgeState={badgeVisible ? dotState : null}
+          badgeRunning={counts.running}
+          badgeSessions={counts.sessions}
+          badgeTitle={t('header.agentStatus.tooltipMenu', { status: phaseTooltip })}
+          canOpenCommandCenter={canOpenCommandCenter}
+          onOpenCommandCenter={openCommandCenter}
+        />
 
         {/* Connection indicator — 클릭 시 서버 코어 로그 팝업 (§7.7 v1.99).
             §4 v3.24 — 폰(max-md)에선 인디케이터 자체를 숨긴다(연결 단절은 재접속 UX 로 드러남). */}

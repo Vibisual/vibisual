@@ -31,7 +31,7 @@
       "tooltipWaiting": "No agents in this project yet",
       "tooltipWorking": "This project: {{agents}} agents · {{running}} of {{sessions}} sessions running",
       "tooltipIdle": "This project: {{agents}} agents · {{sessions}} sessions — nothing running right now",
-      "tooltipCommand": "{{status}} · Click to open the Command Center"
+      "tooltipMenu": "{{status}} · Click to open Windows & bubbles"
     },
     "tab": {
       "closeProject": "Close project",
@@ -41,7 +41,8 @@
     },
     "usage": {
       "tooltip": "Current session: {{percent}}% of your 5-hour limit used — click for details",
-      "tooltipNoData": "Usage data is not being collected yet — click to turn it on"
+      "tooltipNoData": "Usage data is not being collected yet — click to turn it on",
+      "tooltipWaiting": "Usage collector is on — waiting for the first report from an interactive Claude Code session"
     },
     "setupBanner": {
       "text": "Claude Code is not installed — agents cannot run yet.",
@@ -53,6 +54,7 @@
       "sectionTitle": "Windows & bubbles",
       "empty": "No agent bubbles in this project",
       "hint": "Collapsing is not closing — the window just leaves the screen so the canvas comes back.",
+      "commandCenterHint": "Open the Command Center — see what is waiting for you in this project",
       "openNew": "Open in a new window",
       "bringToFront": "Bring to front",
       "settings": "Agent settings",
@@ -232,7 +234,8 @@
         "advanced": "Advanced",
         "version": "Version",
         "account": "Account",
-        "storage": "Storage"
+        "storage": "Storage",
+        "brain": "Project Brain"
       },
       "appearance": {
         "intro": "Personalize how Vibisual looks.",
@@ -1196,6 +1199,7 @@
       "creditsUsed": "{{percent}}% of your credit budget used",
       "creditsHint": "Credits keep Claude running after you hit a plan limit. Manage them in the Claude app.",
       "errNoCredentials": "Not signed in to Claude Code on this machine, so usage cannot be read directly. Sign in with Claude Code, or use the status line collector below.",
+      "errAwaitingStatusLine": "The collector is on, but no values have arrived yet. Limits arrive when an interactive Claude Code session renders its status line.",
       "errUnauthorized": "The saved Claude login has expired. Run Claude Code once and it refreshes itself — the numbers come back automatically.",
       "errNetwork": "Could not reach Claude just now. Showing the last values received.",
       "refreshFailed": "Refresh failed"
@@ -2441,6 +2445,7 @@
         "edges": "Outbound edge rules",
         "feedback": "Past user feedback",
         "intentFirst": "State intent first",
+        "cardCommon": "Card protocol (shared)",
         "cardReport": "Work report card protocol",
         "cardQuestion": "Question card protocol",
         "cardReview": "Review card protocol",
@@ -2526,7 +2531,12 @@
           "intentFirst": {
             "what": "The rule that makes the agent say what it is about to do before it touches any file.",
             "more": "A fixed Vibisual instruction. It exists so you can stop the agent early when it heads the wrong way.",
-            "off": "The agent may start editing files without announcing its plan first."
+            "off": "The agent may start editing files without announcing its plan first. This rule ships once in the system prompt at session start, so turning it off takes effect the next time this session spawns."
+          },
+          "cardCommon": {
+            "what": "The one set of rules every card report shares - where to post, when to post, and where the card sits relative to your text.",
+            "more": "Kept in one place so the same paragraph is not repeated in every card block. It is only included when at least one card is on.",
+            "off": "The agent no longer knows how to post a card, so the cards below may never appear."
           },
           "cardReport": {
             "what": "The recipe for the colored \"what I did / what you need to do\" card.",
@@ -2556,7 +2566,7 @@
           "goal": {
             "what": "This session's goal and its step list, as shown in the goal window.",
             "more": "Comes from the goal card so the agent knows where it stands in the plan.",
-            "off": "The agent stops seeing the goal and its progress list. The goal window itself stays."
+            "off": "The agent stops seeing the goal and its progress list. The goal window itself stays. The half that explains how to update it ships once at session start, so that part drops from the next spawn."
           },
           "brainCards": {
             "what": "Memory cards from Project Brain that match what you just asked.",
@@ -3140,7 +3150,12 @@
       "createLocalAgent": "All Model",
       "createLocalAgentHint": "Drops a bubble for a model that runs on this PC",
       "createShelf": "Script shelf",
-      "createShelfHint": "Keep the commands and prompts you use often one click away"
+      "createShelfHint": "Keep the commands and prompts you use often one click away",
+      "brainOn": "Turn on Project Brain",
+      "brainOff": "Turn off Project Brain",
+      "brainOnHint": "Collects the procedures it learns and loads them into your next task",
+      "brainOnHintSleeping": "{{count}} memories are asleep here",
+      "brainOffHint": "Turning it off never deletes anything"
     },
     "bounds": {
       "label": "Bubble Bounds",
@@ -3586,7 +3601,12 @@
       "hideAxes": "Hide details",
       "axesTitle": "What to keep on",
       "turnOff": "Turn brain off",
-      "offKeepsData": "Turning it off keeps everything — switch it back on and it picks up where it left off."
+      "offKeepsData": "Turning it off keeps everything — switch it back on and it picks up where it left off.",
+      "noProject": "No project is open",
+      "noProjectDesc": "The brain is switched on per project — open a project first.",
+      "stateOn": "This project's brain is on",
+      "stateOff": "This project's brain is off",
+      "sleepingCount": "{{count}} memories are asleep"
     }
   },
   "commandCenter": {

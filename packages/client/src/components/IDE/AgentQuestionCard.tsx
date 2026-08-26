@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { AgentQuestions } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { CardLiveBadge } from './AgentCardParts.js';
-import { selectionTextWithin, useSelectionWithin } from './cardSelection.js';
+import { useCardSelectionCopy } from './cardSelection.js';
 import { promptOverlayReserve, PROMPT_RESERVE_FALLBACK_PX } from './promptOverlayReserve.js';
 import { buildQuestionCardText, buildQuestionsOnlyText, buildSingleQuestionText } from './questionCardText.js';
 
@@ -485,9 +485,10 @@ export const AgentQuestionCard = memo(function AgentQuestionCard({ questions, on
   const buildQuestionsText = useCallback((): string => buildQuestionsOnlyText(questions), [questions]);
 
   // 선택 복사: 사용자가 이 카드 안에서 드래그로 고른 부분만(카드 경계에서 자름, 줄바꿈 보존).
+  //   고른 그 순간에 텍스트를 떠 두므로, 스트림이 다시 그려져 선택이 풀린 뒤에 눌러도 그때 고른
+  //   부분이 그대로 복사된다(선택이 살아 있을 때만 켜지던 종전 판정은 실제로 잠긴 채였다).
   const rootRef = useRef<HTMLDivElement>(null);
-  const hasSelection = useSelectionWithin(rootRef);
-  const buildSelectionText = useCallback((): string => selectionTextWithin(rootRef.current), []);
+  const { enabled: canCopySelection, getText: buildSelectionText } = useCardSelectionCopy(rootRef, questions.id);
 
   return (
     <div ref={rootRef} className="mx-2 my-1.5 overflow-hidden rounded-md border border-sky-500/40 bg-sky-500/5">
@@ -517,10 +518,10 @@ export const AgentQuestionCard = memo(function AgentQuestionCard({ questions, on
           {/* 선택 복사 — 고른 부분이 없으면 회색으로 남겨 "드래그하면 이걸 쓸 수 있다"를 알린다(숨기면 못 찾는다). */}
           <HeaderCopyButton
             label={t('ide.question.copySelection')}
-            title={hasSelection ? t('ide.question.copySelection') : t('ide.question.copySelectionHint')}
+            title={canCopySelection ? t('ide.question.copySelection') : t('ide.question.copySelectionHint')}
             icon={<SelectionIcon />}
             getText={buildSelectionText}
-            disabled={!hasSelection}
+            disabled={!canCopySelection}
           />
         </div>
         {live && <CardLiveBadge />}

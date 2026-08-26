@@ -311,9 +311,10 @@ function writeStatusLineState(state) {
  * 고쳤지만, 이미 그렇게 적힌 settings.json 을 만나도 여기서 끊는다.
  */
 function isOwnStatusLineCommand(command) {
-  return typeof command === 'string'
-    && command.includes('handler.mjs')
-    && /(^|s)--(subagent-)?statusline(s|$)/.test(command);
+  if (typeof command !== 'string') return false;
+  if (!command.includes('handler.mjs')) return false;
+  // 인스톨러가 조립하는 모양이 `node "…handler.mjs" --statusline …` 이라 앞 공백까지 함께 본다.
+  return command.includes(' --statusline') || command.includes(' --subagent-statusline');
 }
 
 /** `~/.claude/settings.json` 에 보관된 사용자 원래 statusLine 명령 (설치 시 인스톨러가 저장). */
@@ -439,7 +440,7 @@ async function runSubagentStatusLine(input) {
   try {
     const controller = new AbortController();
     const tid = setTimeout(() => controller.abort(), 2000);
-    await fetch(`${SUBAGENT_STATUSLINE_URL}`, {
+    await fetch(SUBAGENT_STATUSLINE_URL, {
       method: 'POST',
       headers: hookHeaders({}),
       body: JSON.stringify({ sessionId: payload.session_id, cwd: payload.cwd, tasks }),

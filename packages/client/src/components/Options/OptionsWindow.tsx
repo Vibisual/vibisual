@@ -37,6 +37,7 @@ import { useGraphStore } from '../../stores/graphStore.js';
 import { setCanvasCover } from '../../stores/canvasVisibility.js';
 import { AccountTab } from './AccountTab.js';
 import { StorageTab } from './StorageTab.js';
+import { BrainSettingsTab } from '../Panel/BrainActivationPanel.js';
 import { NumberStepper } from './NumberStepper.js';
 import { UnsavedChangesDialog } from './UnsavedChangesDialog.js';
 
@@ -47,7 +48,7 @@ const MAX_TURNS_STEP = 10;
 const BUDGET_USD_STEP = 1;
 const BASH_TIMEOUT_STEP_SEC = 10;
 
-type CategoryKey = 'account' | 'agent' | 'appearance' | 'storage' | 'notifications' | 'permissions' | 'advanced' | 'version';
+type CategoryKey = 'account' | 'agent' | 'appearance' | 'brain' | 'storage' | 'notifications' | 'permissions' | 'advanced' | 'version';
 
 const MARKETPLACE_URL = 'https://marketplace.visualstudio.com/items?itemName=anthropic.claude-code';
 const REPO_URL = 'https://github.com/Vibisual/vibisual';
@@ -360,6 +361,11 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
     ) },
     { key: 'appearance', label: t('panel.options.categories.appearance', { defaultValue: 'Appearance' }), icon: (
       <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"/></svg>
+    ) },
+    // §5.10 (H) — 프로젝트 두뇌 켜고 끄기. **꺼져 있을 때도 보이는 자리**여야 한다
+    //   (게이트 ③ 이 Brain 버블을 지우므로 두뇌 안에 두면 켤 방법이 사라진다).
+    { key: 'brain', label: t('panel.options.categories.brain', { defaultValue: 'Project Brain' }), icon: (
+      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5a3 3 0 0 0-3 3 3 3 0 0 0-3 3 3 3 0 0 0 1 2.2A3 3 0 0 0 9 19h6a3 3 0 0 0 2-5.8A3 3 0 0 0 18 11a3 3 0 0 0-3-3 3 3 0 0 0-3-3Z"/><path d="M12 5v14"/></svg>
     ) },
     // §3.2.3 — 보존 설정 + 저장소 사용량. "몰래 지우지 않는다"를 성립시키는 자리.
     { key: 'storage', label: t('panel.options.categories.storage', { defaultValue: 'Storage' }), icon: (
@@ -794,6 +800,9 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
 
             {category === 'storage' && <StorageTab onDirtyChange={setStorageDirty} />}
 
+            {/* §5.10 (H) — 즉시 반영이라 Apply/dirty 대상이 아니다(§5.11 플러그인 창과 같은 문법). */}
+            {category === 'brain' && <BrainSettingsTab />}
+
             {category === 'version' && (
               <VersionTab
                 info={installs}
@@ -851,7 +860,7 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
               </div>
             )}
 
-            {category !== 'agent' && category !== 'version' && category !== 'appearance' && category !== 'account' && category !== 'storage' && category !== 'advanced' && category !== 'notifications' && (
+            {category !== 'agent' && category !== 'version' && category !== 'appearance' && category !== 'account' && category !== 'storage' && category !== 'brain' && category !== 'advanced' && category !== 'notifications' && (
               <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
                 <svg className="h-10 w-10 text-gray-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>

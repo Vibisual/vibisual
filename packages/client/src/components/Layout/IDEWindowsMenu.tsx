@@ -22,10 +22,48 @@ import type { IDEDockSide } from '../IDE/ideDockLayout.js';
 //
 // 헤더는 `z-[100]` 이라 어떤 도크도 가리지 못한다 — 그래서 그 두 진입로를 여기 하나로 모은다.
 // 목록은 캔버스와 **같은 산식**(`selectCanvasAgentBubbles`)을 읽는다(두 곳이 갈라지면 안 된다).
+//
+// (판올림 번호 발급 대기) **헤더의 입구는 하나다.** 종전에는 같은 것을 가리키는 버튼이 헤더에 둘
+// 서 있었다 — 이 메뉴의 창 아이콘 트리거와, 그 옆의 에이전트 상태 배지(`0/36`, 좌클릭 = 지휘통제실).
+// 이제 **배지가 이 메뉴의 트리거**이고(창 아이콘 버튼 폐지), 지휘통제실은 메뉴 맨 아래 항목으로
+// 들어온다(§5.12 (A) 트리거 ②). 에이전트가 없어 배지가 안 뜨는 프로젝트에서도 **버블이 사라진 창**은
+// 남을 수 있으므로, 그때만 트리거가 종전 창 아이콘 모양으로 되돌아간다 — 그 창을 닫을 자리가 여기뿐이다.
 
 const EMPTY_AGENTS: BubbleData[] = [];
 const EMPTY_PANES: IDEOverlayState[] = [];
 const EMPTY_NODE_MAP: Record<string, BubbleData> = {};
+
+/**
+ * 배지 색 신호 — 좌측 dot 한 점이 전담하고 글자는 항상 같은 중성 톤(§3.7 v2.15 규약 그대로,
+ * 배지가 이 메뉴의 트리거가 되면서 자리만 `Header` 에서 옮겨 왔다).
+ */
+export type AgentDotState = 'idle' | 'completed' | 'active';
+
+const BADGE_DOT: Record<AgentDotState, string> = {
+  idle: 'bg-gray-400',
+  completed: 'bg-emerald-400 animate-pulse',
+  active: 'bg-blue-400 animate-pulse',
+};
+
+interface IDEWindowsMenuProps {
+  /**
+   * 에이전트 배지 상태 — `null` 이면 이 프로젝트에 셀 에이전트가 없다는 뜻이라 트리거가 종전
+   * 창 아이콘으로 되돌아간다(버블이 사라진 창을 닫을 자리는 남아 있어야 한다).
+   *
+   * ⚠ 배지 재료는 **원시값으로만** 받는다. 객체나 ReactNode 로 받으면 `Header` 가 스냅샷마다
+   *   새 참조를 만들어 아래 `memo` 가 통째로 무력해진다(닫힌 메뉴가 매 스냅샷 다시 그려진다).
+   */
+  badgeState: AgentDotState | null;
+  /** 지금 돌고 있는 세션 수 — 배지의 분자. */
+  badgeRunning: number;
+  /** 이 프로젝트의 세션 수 — 배지의 분모. */
+  badgeSessions: number;
+  /** 배지 툴팁 — 집계 문장 + "누르면 목록이 열린다" 안내. */
+  badgeTitle: string;
+  /** §5.12 (A) — 지휘통제실은 desktop IPC 전용이라 채널이 없는 창에서는 항목을 그리지 않는다. */
+  canOpenCommandCenter: boolean;
+  onOpenCommandCenter: () => void;
+}
 
 /** 창 하나 + 그 창이 붙은 에이전트 — 목록 한 줄의 재료. */
 interface WindowRow {
@@ -37,7 +75,14 @@ function sideLabelKey(side: IDEDockSide): string {
   return `header.ideWindows.side.${side}`;
 }
 
-export const IDEWindowsMenu = memo(function IDEWindowsMenu(): React.JSX.Element | null {
+export const IDEWindowsMenu = memo(function IDEWindowsMenu({
+  badgeState,
+  badgeRunning,
+  badgeSessions,
+  badgeTitle,
+  canOpenCommandCenter,
+  onOpenCommandCenter,
+}: IDEWindowsMenuProps): React.JSX.Element | null {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [configAgentId, setConfigAgentId] = useState<string | null>(null);
@@ -113,8 +158,8 @@ export const IDEWindowsMenu = memo(function IDEWindowsMenu(): React.JSX.Element 
     return t('header.ideWindows.state.floating');
   }, [t]);
 
-  // 에이전트 버블도 열린 창도 없으면 헤더에 자리만 차지한다 — 그때는 아무것도 그리지 않는다.
-  if (agentCount === 0 && openCount === 0) return null;
+  // 배지도 에이전트 버블도 열린 창도 없으면 헤더에 자리만 차지한다 — 그때는 아무것도 그리지 않는다.
+  if (badgeState === null && agentCount === 0 && openCount === 0) return null;
 
   return (
     <div className="app-nodrag relative max-md:hidden" ref={menuRef}>
@@ -122,20 +167,31 @@ export const IDEWindowsMenu = memo(function IDEWindowsMenu(): React.JSX.Element 
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        title={t('header.ideWindows.tooltip')}
+        title={badgeState ? badgeTitle : t('header.ideWindows.tooltip')}
         aria-label={t('header.ideWindows.label')}
         className={`flex items-center gap-1.5 rounded-md px-1.5 py-1 transition-colors duration-150 ${
           open ? 'bg-white/[0.12]' : 'hover:bg-white/[0.08]'
         }`}
       >
-        <svg className="h-3.5 w-3.5 text-gray-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
-          <rect x="3" y="4" width="18" height="16" rx="2" />
-          <path d="M14 4v16" />
-        </svg>
-        <span className="text-[12px] tabular-nums text-gray-300">
-          {visibleCount}
-          {collapsedCount > 0 ? ` +${collapsedCount}` : ''}
-        </span>
+        {badgeState ? (
+          <>
+            <span className={`h-1.5 w-1.5 rounded-full ${BADGE_DOT[badgeState]}`} />
+            <span className="text-[12px] font-medium tabular-nums tracking-tight text-gray-300">
+              {badgeRunning}/{badgeSessions}
+            </span>
+          </>
+        ) : (
+          <>
+            <svg className="h-3.5 w-3.5 text-gray-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="4" width="18" height="16" rx="2" />
+              <path d="M14 4v16" />
+            </svg>
+            <span className="text-[12px] tabular-nums text-gray-300">
+              {visibleCount}
+              {collapsedCount > 0 ? ` +${collapsedCount}` : ''}
+            </span>
+          </>
+        )}
       </button>
 
       {open && (
@@ -237,6 +293,25 @@ export const IDEWindowsMenu = memo(function IDEWindowsMenu(): React.JSX.Element 
                   </button>
                 </div>
               ))}
+            </div>
+          )}
+          {/* §5.12 (A) 트리거 ② — 지휘통제실 입구가 이 자리로 들어왔다. 부르는 것은 root 버블
+              좌더블클릭과 **같은 호출**이라 창 정체성(앱 전체 1창 · focus + show-project)이 그대로다. */}
+          {canOpenCommandCenter && (
+            <div className="mt-1 border-t border-white/[0.06] pt-1">
+              <button
+                type="button"
+                onClick={() => { onOpenCommandCenter(); setOpen(false); }}
+                title={t('header.ideWindows.commandCenterHint')}
+                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left transition-colors hover:bg-white/[0.06]"
+              >
+                {/* 통제실 타이틀바와 같은 글리프 — 같은 창을 가리키는 두 자리가 다른 모양이면 안 된다. */}
+                <svg className="h-3.5 w-3.5 flex-shrink-0 text-emerald-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 3v3M12 18v3M3 12h3M18 12h3" />
+                  <circle cx="12" cy="12" r="4" />
+                </svg>
+                <span className="min-w-0 flex-1 truncate text-[12px] text-gray-200">{t('commandCenter.title')}</span>
+              </button>
             </div>
           )}
           <div className="mt-1 border-t border-white/[0.06] px-2 py-1.5 text-[12px] leading-snug text-gray-500">

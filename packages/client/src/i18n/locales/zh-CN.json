@@ -31,7 +31,7 @@
       "tooltipWaiting": "此项目暂无 Agent",
       "tooltipWorking": "此项目：{{agents}} 个 Agent · {{sessions}} 个会话中 {{running}} 个运行中",
       "tooltipIdle": "此项目：{{agents}} 个 Agent · {{sessions}} 个会话 — 当前没有运行中的会话",
-      "tooltipCommand": "{{status}} · 点击打开指挥中心"
+      "tooltipMenu": "{{status}} · 点击打开窗口与气泡"
     },
     "tab": {
       "closeProject": "关闭项目",
@@ -41,7 +41,8 @@
     },
     "usage": {
       "tooltip": "当前会话：已用 5 小时额度的 {{percent}}% — 点击查看详情",
-      "tooltipNoData": "尚未收集用量数据 — 点击开启"
+      "tooltipNoData": "尚未收集用量数据 — 点击开启",
+      "tooltipWaiting": "用量收集器已开启 — 正在等待交互式 Claude Code 会话的首次上报"
     },
     "setupBanner": {
       "text": "未安装 Claude Code — Agent 尚无法运行。",
@@ -53,6 +54,7 @@
       "sectionTitle": "窗口与气泡",
       "empty": "此项目中没有智能体气泡",
       "hint": "折叠不是关闭 — 窗口只是离开屏幕，把画布还给你。",
+      "commandCenterHint": "打开指挥中心 — 查看这个项目里正在等你的事项",
       "openNew": "在新窗口中打开",
       "bringToFront": "置于前面",
       "settings": "智能体设置",
@@ -232,7 +234,8 @@
         "advanced": "高级",
         "version": "版本",
         "account": "账户",
-        "storage": "存储"
+        "storage": "存储",
+        "brain": "项目大脑"
       },
       "appearance": {
         "intro": "个性化 Vibisual 的外观。",
@@ -1182,6 +1185,7 @@
       "creditsUsed": "已使用积分预算的 {{percent}}%",
       "creditsHint": "达到套餐额度后，积分可让 Claude 继续运行。请在 Claude 应用中管理。",
       "errNoCredentials": "此电脑上没有 Claude Code 登录信息，无法直接读取用量。请用 Claude Code 登录，或使用下方的状态栏收集器。",
+      "errAwaitingStatusLine": "收集器已开启，但数值尚未到达。交互式 Claude Code 会话渲染状态栏后额度才会到达。",
       "errUnauthorized": "保存的 Claude 登录已过期。运行一次 Claude Code 即可自动刷新，数值也会恢复。",
       "errNetwork": "暂时无法连接 Claude。正在显示最后收到的数值。",
       "refreshFailed": "刷新失败"
@@ -3121,7 +3125,12 @@
       "createLocalAgent": "所有模型",
       "createLocalAgentHint": "放置一个用于本机模型的气泡",
       "createShelf": "脚本搁板",
-      "createShelfHint": "将常用命令和提示词放在一键可达之处"
+      "createShelfHint": "将常用命令和提示词放在一键可达之处",
+      "brainOn": "开启项目大脑",
+      "brainOff": "关闭项目大脑",
+      "brainOnHint": "把学到的流程存下来，下次任务自动加载",
+      "brainOnHintSleeping": "有 {{count}} 条记忆正在沉睡",
+      "brainOffHint": "关闭不会删除任何记录"
     },
     "bounds": {
       "label": "气泡边界",
@@ -3567,7 +3576,12 @@
       "hideAxes": "收起详情",
       "axesTitle": "保持开启的项目",
       "turnOff": "关闭大脑",
-      "offKeepsData": "关闭不会删除记录 — 再次开启即可从原处继续。"
+      "offKeepsData": "关闭不会删除记录 — 再次开启即可从原处继续。",
+      "noProject": "没有打开的项目",
+      "noProjectDesc": "大脑按项目单独开关 — 请先打开一个项目。",
+      "stateOn": "此项目的大脑已开启",
+      "stateOff": "此项目的大脑已关闭",
+      "sleepingCount": "有 {{count}} 条记忆正在沉睡"
     }
   },
   "commandCenter": {

@@ -31,7 +31,7 @@
       "tooltipWaiting": "Belum ada agent di proyek ini",
       "tooltipWorking": "Proyek ini: {{agents}} agent · {{running}} dari {{sessions}} sesi berjalan",
       "tooltipIdle": "Proyek ini: {{agents}} agent · {{sessions}} sesi — tidak ada yang berjalan sekarang",
-      "tooltipCommand": "{{status}} · Klik untuk membuka Pusat Kendali"
+      "tooltipMenu": "{{status}} · Klik untuk membuka Jendela & bubble"
     },
     "tab": {
       "closeProject": "Tutup proyek",
@@ -41,7 +41,8 @@
     },
     "usage": {
       "tooltip": "Sesi saat ini: {{percent}}% dari batas 5 jam terpakai — klik untuk detail",
-      "tooltipNoData": "Data penggunaan belum dikumpulkan — klik untuk mengaktifkan"
+      "tooltipNoData": "Data penggunaan belum dikumpulkan — klik untuk mengaktifkan",
+      "tooltipWaiting": "Pengumpul penggunaan aktif — menunggu laporan pertama dari sesi Claude Code interaktif"
     },
     "setupBanner": {
       "text": "Claude Code belum terinstal — agent belum bisa berjalan.",
@@ -53,6 +54,7 @@
       "sectionTitle": "Jendela & bubble",
       "empty": "Tidak ada bubble agen di proyek ini",
       "hint": "Menciutkan bukan menutup — jendela hanya turun dari layar agar kanvas kembali.",
+      "commandCenterHint": "Buka Pusat Komando — lihat apa yang menunggu Anda di proyek ini",
       "openNew": "Buka di jendela baru",
       "bringToFront": "Bawa ke depan",
       "settings": "Pengaturan agen",
@@ -232,7 +234,8 @@
         "advanced": "Lanjutan",
         "version": "Versi",
         "account": "Akun",
-        "storage": "Penyimpanan"
+        "storage": "Penyimpanan",
+        "brain": "Otak Proyek"
       },
       "appearance": {
         "intro": "Sesuaikan tampilan Vibisual.",
@@ -1182,6 +1185,7 @@
       "creditsUsed": "{{percent}}% anggaran kredit terpakai",
       "creditsHint": "Kredit membuat Claude tetap jalan setelah batas paket tercapai. Kelola di aplikasi Claude.",
       "errNoCredentials": "Belum masuk ke Claude Code di komputer ini, jadi penggunaan tidak bisa dibaca langsung. Masuk dengan Claude Code, atau gunakan pengumpul status line di bawah.",
+      "errAwaitingStatusLine": "Pengumpul sudah aktif, tetapi belum ada nilai yang masuk. Batas masuk saat sesi Claude Code interaktif menggambar status line-nya.",
       "errUnauthorized": "Login Claude yang tersimpan sudah kedaluwarsa. Jalankan Claude Code sekali dan akan diperbarui sendiri — angkanya kembali otomatis.",
       "errNetwork": "Tidak dapat menghubungi Claude saat ini. Menampilkan nilai terakhir yang diterima.",
       "refreshFailed": "Gagal menyegarkan"
@@ -3121,7 +3125,12 @@
       "createLocalAgent": "All Model",
       "createLocalAgentHint": "Menaruh bubble untuk model yang berjalan di PC ini",
       "createShelf": "Rak script",
-      "createShelfHint": "Menyimpan perintah dan prompt yang sering dipakai agar tetap satu klik jauhnya"
+      "createShelfHint": "Menyimpan perintah dan prompt yang sering dipakai agar tetap satu klik jauhnya",
+      "brainOn": "Aktifkan Otak Proyek",
+      "brainOff": "Matikan Otak Proyek",
+      "brainOnHint": "Menyimpan prosedur yang dipelajari dan memuatnya di tugas berikutnya",
+      "brainOnHintSleeping": "{{count}} memori sedang tertidur di sini",
+      "brainOffHint": "Mematikannya tidak menghapus apa pun"
     },
     "bounds": {
       "label": "Batas Bubble",
@@ -3567,7 +3576,12 @@
       "hideAxes": "Sembunyikan detail",
       "axesTitle": "Apa yang tetap aktif",
       "turnOff": "Matikan brain",
-      "offKeepsData": "Mematikannya tidak menghapus apa pun — nyalakan lagi dan lanjut dari titik terakhir."
+      "offKeepsData": "Mematikannya tidak menghapus apa pun — nyalakan lagi dan lanjut dari titik terakhir.",
+      "noProject": "Tidak ada proyek yang terbuka",
+      "noProjectDesc": "Otak diaktifkan per proyek — buka proyek terlebih dahulu.",
+      "stateOn": "Otak proyek ini aktif",
+      "stateOff": "Otak proyek ini nonaktif",
+      "sleepingCount": "{{count}} memori sedang tertidur"
     }
   },
   "commandCenter": {

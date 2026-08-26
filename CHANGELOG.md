@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.12] - 2026-08-26
+
+### Added
+- **The IDE is no longer one window.** A project had a single IDE slot, so opening a second agent from the canvas replaced whatever was already on screen — there was no way to watch two agents at once. You can now open as many IDE windows as you like, dock them to any of the four edges, and stack several along the same edge. The window you already had keeps its state untouched.
+- **Split a window into cells by dragging a session tab.** Drag a session tab — or a cell's header strip — to the edge of the window body and that area splits; drop it in the middle and only that cell's contents are swapped. The splitters have a wider grab band than they draw, the cursor holds still while you drag, and a tab belonging to another window is refused with a reason instead of landing and then disappearing.
+- **The CMD terminal grew up — state, panes, and a way in for the agent.** Terminal bubbles now report what they are actually doing (running, blocked at a prompt, idle) from the terminal's own output rather than from hooks alone, split into panes with zoom and drag-resize, show the foreground process beside the tab label, and can be read and pre-filled by the agent that owns them — you still press Enter. A background terminal that gets blocked raises one desktop notification, and scrollback depth is yours to set in Options.
+- **Search the web for whatever you've selected.** A new right-click entry in all four places text can be selected — stream output, the input box, the editor body, and the built-in terminal. It opens your default browser with the selection as the query, and greys out with the usual reason when nothing is selected.
+- **Click an executable in the conversation and it runs.** A path in the stream that points at an executable now opens a run session instead of trying to load the binary into the editor.
+- **Media the app couldn't play is converted rather than handed off.** Chromium ignores system codecs, so a codec pack was never going to help. Files it can't open are now converted with the bundled ffmpeg and opened here — and `.mkv` / `.3gp`, which were being pushed out to an external player by mistake, simply play.
+- **Internal apps stop asking to be installed.** The install gate is gone: an app belongs to the project from the start, and which app opens a given file is something each app declares rather than something the core hard-codes.
+- **The learning loop, rebuilt (Brain v2).** Skills — procedural memory kept as ordinary `SKILL.md` files rather than as a sixth kind of card — sit at the centre, with recall, nudges, grounding checks, a curator and an operator profile around them. The whole thing ships **off**, per project, behind four gates (collection, injection, display, API), and switching it off never deletes what was already learned.
+- **Two more places to switch the Brain on.** It was reachable from the first-run banner and nowhere else, so dismissing that banner once left no way back in. It is now in the canvas right-click menu and in a `brain` category in Options.
+- **Fast mode.** The CLI was refusing it for headless sessions rather than us having forgotten to pass it; the one channel that does unlock it is now wired to a per-agent setting.
+- **Local models: the three quantizations people actually use, first.** A repository used to unfold as every GGUF in filename order, so the first line was often a 51 GB `BF16` while the 15 GB build you wanted sat in the middle. Popular quantizations are ranked to the top, the rest fold away, and each row carries size, sort and filter.
+- **Local sessions leave marks on the canvas.** An All Model session could read, edit and run commands and still produce no file nodes, no audit entries and no bash history. Its tool calls now travel the same hook path a Claude session's do.
+- **One entrance in the top right.** The agent badge opens the windows-and-bubbles menu — bring to front, fold, close, open a new window from a bubble, per-bubble settings — with the Command Center at the bottom of it, instead of the header carrying two buttons that pointed at the same things.
+
+### Changed
+- **The agent settings window matches the provider.** On an All Model bubble it was still the Claude CLI argument sheet — model family, version pin, 1M window, effort, skills, isolation, max turns, budget — of which a local turn reads five fields. Settings that do nothing there are no longer offered, and the right-hand panel and the canvas bubble stop introducing a local bubble as `opus`.
+- **The slash-command dropdown stops advertising commands that can't run.** Of the 103 it listed, 49 are screen-panel commands inside the CLI and answered a headless session with a single line of refusal. Those are filtered out — and three things the CLI *was* offering that we never picked up (forwarded subagent text, replayed user messages, prompt suggestions) are now wired in.
+- **Less of your context window goes to our own boilerplate.** Measured across 249 sessions, 44 % of the protocol we inject was literal duplication. It is down 47 % (9,157 → 4,893 tokens): the unchanging prose moved to a once-per-session channel, and each turn now carries a few lines of state.
+- **Web search no longer scrapes anyone's results page.** The local `WebSearch` tool parsed a search engine's HTML — the very thing its terms forbid, with our users on the receiving end of any block. It now calls documented, keyless APIs.
+- **Our licences ship with the app.** A scan of all 768 installed dependencies found no GPL/AGPL/LGPL, and all 10 bundled font families are SIL OFL 1.1 with their licence files committed beside them; the distributed build now carries them.
+- **Every bubble fits its own text.** The space reserved at the bottom of a bubble was a fixed three lines, so a fourth or fifth line pushed badges over the model name. It is now measured from the lines actually being drawn, and overflow degrades in steps — tighten, merge, ellipsise, fold — instead of overlapping.
+- **macOS is built once per architecture, on that architecture's runner.** Producing both from one machine put Apple Silicon native modules in the Intel disk image, so it died on launch while the build stayed green.
+
+### Fixed
+- **The macOS disk image was missing the server.** Packaging wrote the server bundle to `resources/` beside the `.app` — outside the bundle, so it never reached the image — and created that folder when it wasn't there, which meant no warning either. The path now comes from electron-builder itself, and a missing one fails the build instead of publishing a hollow installer.
+- **The CMD window repeating the same banner over and over.** It looked like the CLI was stuck in a loop; it was Windows re-emitting the entire visible screen on every resize, with each copy piling up in the replay buffer.
+- **"Copy selection" on a question card was locked the moment you reached for it.** The card asked whether a selection existed *at that instant*, and the stream re-renders constantly — so the selection was gone by the time your cursor got to the button. It now remembers what you selected on that card.
+- **A command resumed after a force quit no longer sinks below its own output.** Restart recovery re-queues an interrupted command, and two ordering rules were reading that state as "not sent yet".
+- **The tab dot stops flickering green → blue → green every turn.** Hooks and on-screen detection both wrote the same status with nothing to arbitrate between them; the hook now owns the session's lifecycle and detection fills the gaps. With split panes, one pane's build no longer fights another pane's prompt over the same dot.
+- **The canvas shows what is being read right now.** Files opened through shell commands produced no bubble at all, a pair of nodes could carry two contradictory directions at once, and folders outside the project didn't survive a restart.
+- **One Esc closes one thing.** The agent settings popup wasn't stopping the key from travelling, so a single press closed the settings *and* the IDE window behind it — and that popup was being drawn inside a lower layer, which buried it under docked windows.
+- **The usage pill knows the difference between "switch this on" and "waiting for data".** With the collector already installed it still said *click to enable*, which invited people to reinstall something that was already running.
+
 ## [0.1.11] - 2026-08-20
 
 ### Added
@@ -250,7 +286,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - Dropped preset options from the custom agent settings.
 
-[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.1.11...HEAD
+[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.1.12...HEAD
+[0.1.12]: https://github.com/Vibisual/vibisual/compare/v0.1.11...v0.1.12
 [0.1.11]: https://github.com/Vibisual/vibisual/compare/v0.1.10...v0.1.11
 [0.1.10]: https://github.com/Vibisual/vibisual/compare/v0.1.9...v0.1.10
 [0.1.9]: https://github.com/Vibisual/vibisual/compare/v0.1.8...v0.1.9
