@@ -31,7 +31,7 @@
       "tooltipWaiting": "Aún no hay agentes en este proyecto",
       "tooltipWorking": "Este proyecto: {{agents}} agentes · {{running}} de {{sessions}} sesiones en ejecución",
       "tooltipIdle": "Este proyecto: {{agents}} agentes · {{sessions}} sesiones — nada en ejecución ahora",
-      "tooltipCommand": "{{status}} · Haz clic para abrir el Centro de mando"
+      "tooltipMenu": "{{status}} · Haz clic para abrir Ventanas y burbujas"
     },
     "tab": {
       "closeProject": "Cerrar proyecto",
@@ -41,7 +41,8 @@
     },
     "usage": {
       "tooltip": "Sesión actual: {{percent}}% del límite de 5 horas usado — haz clic para ver detalles",
-      "tooltipNoData": "Aún no se recopilan datos de uso — haz clic para activarlo"
+      "tooltipNoData": "Aún no se recopilan datos de uso — haz clic para activarlo",
+      "tooltipWaiting": "El recopilador de uso está activado: esperando el primer informe de una sesión interactiva de Claude Code"
     },
     "setupBanner": {
       "text": "Claude Code no está instalado — los agentes todavía no pueden ejecutarse.",
@@ -53,6 +54,7 @@
       "sectionTitle": "Ventanas y burbujas",
       "empty": "No hay burbujas de agente en este proyecto",
       "hint": "Contraer no es cerrar: la ventana solo sale de la pantalla y te devuelve el lienzo.",
+      "commandCenterHint": "Abrir el Centro de control — mira qué está esperando en este proyecto",
       "openNew": "Abrir en una ventana nueva",
       "bringToFront": "Traer al frente",
       "settings": "Ajustes del agente",
@@ -232,7 +234,8 @@
         "advanced": "Avanzado",
         "version": "Versión",
         "account": "Cuenta",
-        "storage": "Almacenamiento"
+        "storage": "Almacenamiento",
+        "brain": "Cerebro del proyecto"
       },
       "appearance": {
         "intro": "Personaliza el aspecto de Vibisual.",
@@ -1182,6 +1185,7 @@
       "creditsUsed": "{{percent}}% de tu presupuesto de créditos usado",
       "creditsHint": "Los créditos mantienen Claude funcionando tras alcanzar un límite del plan. Gestiónalos en la app de Claude.",
       "errNoCredentials": "No hay sesión de Claude Code en este equipo, así que no se puede leer el uso directamente. Inicia sesión con Claude Code o usa el recopilador de barra de estado de abajo.",
+      "errAwaitingStatusLine": "El recopilador está activado, pero aún no ha llegado ningún valor. Los límites llegan cuando una sesión interactiva de Claude Code dibuja su barra de estado.",
       "errUnauthorized": "La sesión guardada de Claude caducó. Ejecuta Claude Code una vez y se renueva solo: los números vuelven automáticamente.",
       "errNetwork": "No se pudo contactar con Claude ahora mismo. Se muestran los últimos valores recibidos.",
       "refreshFailed": "Error al actualizar"
@@ -3121,7 +3125,12 @@
       "createLocalAgent": "Todos los modelos",
       "createLocalAgentHint": "Coloca una burbuja para un modelo que se ejecuta en este PC",
       "createShelf": "Estante de scripts",
-      "createShelfHint": "Mantén a un clic de distancia los comandos y prompts que usas a menudo"
+      "createShelfHint": "Mantén a un clic de distancia los comandos y prompts que usas a menudo",
+      "brainOn": "Activar el cerebro del proyecto",
+      "brainOff": "Desactivar el cerebro del proyecto",
+      "brainOnHint": "Guarda los procedimientos que aprende y los carga en la siguiente tarea",
+      "brainOnHintSleeping": "{{count}} recuerdos duermen aquí",
+      "brainOffHint": "Desactivarlo no borra nada"
     },
     "bounds": {
       "label": "Límites del bubble",
@@ -3567,7 +3576,12 @@
       "hideAxes": "Ocultar detalles",
       "axesTitle": "Qué dejar activado",
       "turnOff": "Apagar el cerebro",
-      "offKeepsData": "Apagarlo no borra nada: al volver a activarlo, sigue donde lo dejaste."
+      "offKeepsData": "Apagarlo no borra nada: al volver a activarlo, sigue donde lo dejaste.",
+      "noProject": "No hay ningún proyecto abierto",
+      "noProjectDesc": "El cerebro se activa por proyecto: abre un proyecto primero.",
+      "stateOn": "El cerebro de este proyecto está activado",
+      "stateOff": "El cerebro de este proyecto está desactivado",
+      "sleepingCount": "{{count}} recuerdos duermen"
     }
   },
   "commandCenter": {

@@ -3308,6 +3308,12 @@ export class SubAgentManager {
       extraArgs?: string[];
       /** 같은 목적의 환경변수(예: `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1`). */
       extraEnv?: Record<string, string>;
+      /**
+       * §5.5 #17-28 ⑧(c) — 세션 내내 안 변하는 산문(의도 선언·목표 창 규약)을 **시스템 프롬프트로**
+       * 한 벌만 실어 보낸다. 매 턴 사용자 메시지에 쌓지 않으므로 턴이 늘어도 이력이 붇지 않고,
+       * 압축(compact)에도 쓸려 나가지 않는다. 지속 자식은 프로세스당 1회 = 세션 1회다.
+       */
+      appendSystemPrompt?: string;
     },
   ): void {
     let sub: SubAgent | undefined;
@@ -3413,6 +3419,13 @@ export class SubAgentManager {
     const configArgs = agentConfig ? buildConfigArgs(agentConfig, configCtx) : [];
     for (const extra of opts?.extraArgs ?? []) {
       if (!configArgs.includes(extra)) configArgs.push(extra);
+    }
+    // §5.5 #17-28 ⑧(c) — 안 변하는 규약은 프롬프트가 아니라 시스템 프롬프트로. `--append-system-prompt`
+    //   는 `--print` 전용이 아니라 일반 플래그라 지속 자식·매 턴 spawn 양쪽에 그대로 붙는다(설치본
+    //   2.1.246 `--help` 확인). 이미 붙어 있으면 덧붙이지 않는다(중복 주입 방지).
+    const appendSystemPrompt = opts?.appendSystemPrompt?.trim();
+    if (appendSystemPrompt && !configArgs.includes('--append-system-prompt')) {
+      configArgs.push('--append-system-prompt', appendSystemPrompt);
     }
     // 환경변수 축(중첩 깊이 · 자동 기억 끄기 · 주입원 창의 spawn 스위치) — 스폰부가 env 에 얹는다.
     this.pendingConfigEnv.set(sub!.id, { ...buildConfigEnv(agentConfig, configCtx), ...(opts?.extraEnv ?? {}) });

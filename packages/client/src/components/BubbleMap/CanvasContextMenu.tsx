@@ -6,6 +6,7 @@ import { INTERNAL_APPS } from '../../apps/registry.js';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 import { POPUP_DISMISS } from '../../hooks/popupDismiss.js';
+import { useBrainActivation } from '../../hooks/useBrainActivation.js';
 
 interface CanvasContextMenuProps {
   x: number;
@@ -64,6 +65,10 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
   const createLocalAgent = useGraphStore((st) => st.createLocalAgent);
   // 노출 게이트 — 아래 네 항목(플레이·스펙·랩·선반)은 디버그 모드에서만 낸다(§7.7).
   const debugMode = useGraphStore((st) => st.debugMode);
+  // §5.10 (H) — 두뇌 켜기/끄기. **꺼져 있을 때도 반드시 보이는 자리**여야 한다:
+  //   게이트 ③ 이 Brain 버블을 안 그리므로, 켜는 버튼을 두뇌 안에 두면 켤 방법 자체가 사라진다
+  //   (1회 안내 배너를 넘기면 `promptedAt` 이 남아 다시 뜨지 않는다 — 실제로 그렇게 막혔었다).
+  const brain = useBrainActivation();
 
   // 바깥 press 로 닫기(공통 규약 — 메뉴 안에서 시작한 드래그로는 안 닫힌다).
   //  - 좌클릭(0)/중간 휠(1) 만 닫기 사유. 우클릭(2)은 메뉴 재오픈용이라 무시한다.
@@ -147,6 +152,15 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
     onClose();
   }, [onCreatePipeline, onClose, canvasX, canvasY]);
 
+  /**
+   * §5.10 (H) — 두뇌 마스터 스위치. 켜면 그 자리에서 버블이 서고(게이트 ③), 끄면 동작만 멈춘다
+   * (카드 파일은 그대로 — "끄면 지우지 않는다"). 즉시 반영이라 재시작 ❌.
+   */
+  const handleToggleBrain = useCallback(() => {
+    void brain.setEnabled(!brain.enabled);
+    onClose();
+  }, [brain, onClose]);
+
   const info = hoveredType ? PIPELINE_TYPE_INFO[hoveredType] : null;
 
   // §4 v3.16 — 화면 밖으로 넘치지 않게 위치를 뷰포트 안으로 당긴다(폰 가장자리 롱프레스 대비).
@@ -154,7 +168,8 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
   const vh = typeof window !== 'undefined' ? window.innerHeight : 9999;
   const clampedX = Math.max(8, Math.min(x, vw - 244));
   // 메뉴 높이는 게이트로 넷이 빠지면 짧아지므로 클램프도 그 높이를 따라간다.
-  const clampedY = Math.max(8, Math.min(y, vh - (debugMode ? 380 : 240)));
+  //   §5.10 (H) 두뇌 행(구분선 + 2줄)도 있으면 그만큼 더 잡는다 — 없으면 종전 높이 그대로.
+  const clampedY = Math.max(8, Math.min(y, vh - (debugMode ? 380 : 240) - (brain.projectPath ? 56 : 0)));
 
   return (
     <div
@@ -412,6 +427,43 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
             </div>
           )}
         </div>
+
+        {/* §5.10 (H) — 프로젝트 두뇌 켜기/끄기. 생성 항목이 아니라 **이 프로젝트의 상태를 바꾸는 줄**이라
+            구분선 아래 따로 둔다. 꺼져 있을 때도 보여야 하는 자리이므로 활성 여부로 숨기지 않는다. */}
+        {brain.projectPath && (
+          <>
+            <div className="mx-2 my-1 border-t border-gray-700" />
+            <button
+              type="button"
+              className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-gray-200 transition-colors hover:bg-gray-800"
+              onClick={handleToggleBrain}
+            >
+              <svg className="h-4 w-4 shrink-0 text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 5a3 3 0 0 0-3 3 3 3 0 0 0-3 3 3 3 0 0 0 1 2.2A3 3 0 0 0 9 19h6a3 3 0 0 0 2-5.8A3 3 0 0 0 18 11a3 3 0 0 0-3-3 3 3 0 0 0-3-3Z" />
+                <path d="M12 5v14" />
+              </svg>
+              <div className="flex flex-col">
+                <span>
+                  {brain.enabled
+                    ? t('canvas.contextMenu.brainOff', { defaultValue: '프로젝트 두뇌 끄기' })
+                    : t('canvas.contextMenu.brainOn', { defaultValue: '프로젝트 두뇌 켜기' })}
+                </span>
+                <span className="text-xs text-gray-500">
+                  {brain.enabled
+                    ? t('canvas.contextMenu.brainOffHint', { defaultValue: '꺼도 기록은 지워지지 않습니다' })
+                    : brain.sleepingCardCount > 0
+                      ? t('canvas.contextMenu.brainOnHintSleeping', {
+                          count: brain.sleepingCardCount,
+                          defaultValue: '기억 {{count}}장이 잠들어 있습니다',
+                        })
+                      : t('canvas.contextMenu.brainOnHint', {
+                          defaultValue: '배운 절차를 모아 다음 작업에 자동으로 겁니다',
+                        })}
+                </span>
+              </div>
+            </button>
+          </>
+        )}
 
         {/* §5.10 — "지난 커스텀 에이전트 복구" 메뉴 제거됨(휴지통 버블이 그 경로의 후신). */}
 

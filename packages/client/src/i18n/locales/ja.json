@@ -31,7 +31,7 @@
       "tooltipWaiting": "このプロジェクトにはまだエージェントがいません",
       "tooltipWorking": "このプロジェクト: エージェント{{agents}}件 · セッション{{sessions}}件中{{running}}件が実行中",
       "tooltipIdle": "このプロジェクト: エージェント{{agents}}件 · セッション{{sessions}}件 — 実行中のセッションなし",
-      "tooltipCommand": "{{status}} · クリックでコマンドセンターを開きます"
+      "tooltipMenu": "{{status}} · クリックでウィンドウとバブルを開きます"
     },
     "tab": {
       "closeProject": "プロジェクトを閉じる",
@@ -41,7 +41,8 @@
     },
     "usage": {
       "tooltip": "現在のセッション: 5時間の上限の{{percent}}%を使用 — クリックで詳細",
-      "tooltipNoData": "使用量はまだ収集されていません — クリックしてオンに"
+      "tooltipNoData": "使用量はまだ収集されていません — クリックしてオンに",
+      "tooltipWaiting": "使用量コレクターは有効です — 対話型の Claude Code セッションからの最初の報告を待っています"
     },
     "setupBanner": {
       "text": "Claude Code がインストールされていません — エージェントはまだ実行できません。",
@@ -53,6 +54,7 @@
       "sectionTitle": "ウィンドウとバブル",
       "empty": "このプロジェクトにエージェントバブルがありません",
       "hint": "折りたたみは閉じることではありません — 画面から下ろしてキャンバスを取り戻すだけです。",
+      "commandCenterHint": "コマンドセンターを開く — このプロジェクトで待っているものを確認します",
       "openNew": "新しいウィンドウで開く",
       "bringToFront": "前面に出す",
       "settings": "エージェント設定",
@@ -232,7 +234,8 @@
         "advanced": "詳細",
         "version": "バージョン",
         "account": "アカウント",
-        "storage": "ストレージ"
+        "storage": "ストレージ",
+        "brain": "プロジェクトの頭脳"
       },
       "appearance": {
         "intro": "Vibisualの見た目をカスタマイズします。",
@@ -1182,6 +1185,7 @@
       "creditsUsed": "クレジット予算の{{percent}}%を使用",
       "creditsHint": "プランの上限に達しても使い続けるためのクレジットです。設定は Claude アプリで行います。",
       "errNoCredentials": "この PC に Claude Code のログイン情報がないため、使用量を直接読み取れません。Claude Code でサインインするか、下のステータスラインコレクターをご利用ください。",
+      "errAwaitingStatusLine": "コレクターは有効ですが、まだ値が届いていません。上限は対話型の Claude Code セッションがステータスラインを描画したときに届きます。",
       "errUnauthorized": "保存された Claude のログインが期限切れです。Claude Code を一度実行すると自動的に更新され、数値も戻ります。",
       "errNetwork": "今は Claude に接続できませんでした。最後に受信した値を表示しています。",
       "refreshFailed": "更新に失敗"
@@ -3121,7 +3125,12 @@
       "createLocalAgent": "モデル一覧",
       "createLocalAgentHint": "このPCで動作するモデル用のバブルを置きます",
       "createShelf": "スクリプトシェルフ",
-      "createShelfHint": "よく使うコマンドやプロンプトをワンクリックで呼び出せるようにします"
+      "createShelfHint": "よく使うコマンドやプロンプトをワンクリックで呼び出せるようにします",
+      "brainOn": "プロジェクトの頭脳をオンにする",
+      "brainOff": "プロジェクトの頭脳をオフにする",
+      "brainOnHint": "学んだ手順をためて次の作業に自動で適用します",
+      "brainOnHintSleeping": "記憶が{{count}}件眠っています",
+      "brainOffHint": "オフにしても記録は消えません"
     },
     "bounds": {
       "label": "バブル境界",
@@ -3567,7 +3576,12 @@
       "hideAxes": "詳細を閉じる",
       "axesTitle": "何を有効にしておくか",
       "turnOff": "脳をオフにする",
-      "offKeepsData": "オフにしても記録は消えません — 再度オンにすればその続きから再開します。"
+      "offKeepsData": "オフにしても記録は消えません — 再度オンにすればその続きから再開します。",
+      "noProject": "開いているプロジェクトがありません",
+      "noProjectDesc": "頭脳はプロジェクトごとに切り替えます — まずプロジェクトを開いてください。",
+      "stateOn": "このプロジェクトの頭脳はオンです",
+      "stateOff": "このプロジェクトの頭脳はオフです",
+      "sleepingCount": "記憶が{{count}}件眠っています"
     }
   },
   "commandCenter": {

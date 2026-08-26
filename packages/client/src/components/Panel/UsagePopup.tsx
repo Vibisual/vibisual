@@ -90,8 +90,9 @@ function ErrorNotice({ error }: { error: string }): React.JSX.Element {
   const { t } = useTranslation();
   const msg =
     error === 'no-credentials' ? t('panel.usage.errNoCredentials')
-      : error === 'unauthorized' ? t('panel.usage.errUnauthorized')
-        : t('panel.usage.errNetwork');
+      : error === 'awaiting-statusline' ? t('panel.usage.errAwaitingStatusLine')
+        : error === 'unauthorized' ? t('panel.usage.errUnauthorized')
+          : t('panel.usage.errNetwork');
   return (
     <div className="flex gap-2 rounded border border-amber-500/40 bg-amber-500/10 px-2.5 py-2 text-[12px] leading-relaxed text-amber-200">
       <svg className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

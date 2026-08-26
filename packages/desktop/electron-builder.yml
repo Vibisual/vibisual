@@ -73,9 +73,14 @@ nsis:
   installerHeaderIcon: resources/icons/icon.ico
 
 mac:
+  # ⚠️ 여기에 `arch:` 를 못 박지 마라. 못 박으면 electron-builder 의 arch 계산
+  # (computeArchToTargetNamesMap)이 **CLI 의 `--arm64`/`--x64` 보다 이 목록을 우선**해서,
+  # 아키텍처를 갈라 지으려고 러너를 나눠도 두 잡이 똑같이 두 아키텍처를 다 뽑는다.
+  # 비워 두면 CLI 플래그(릴리스) 또는 호스트 아키텍처(로컬 `dist:mac`)를 따른다 —
+  # 그래야 각 dmg 가 **그 아키텍처에서 설치된 네이티브 모듈**과 짝이 맞는다
+  # (.github/workflows/release.yml 머리말의 koffi 항목 참고).
   target:
-    - target: dmg
-      arch: [arm64, x64]
+    - dmg
   # Point at a finished .icns rather than letting electron-builder derive one from
   # icon.png. Its converter (app-builder, Go) panics with "index out of range [-1]"
   # in icons.doConvertIcon on that path — an upstream bug open since 2018, and the

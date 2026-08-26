@@ -10,7 +10,7 @@
  * 갱신 비용을 O(신규)로 낮춘다(VS Code 터미널처럼 길이 무관). 출력은 buildBaseItems 와 동일함이
  * streamItems.test.ts 로 못박혀 있어, 아래 카드 합류·정렬·identity 재조정·Virtuoso 배선은 불변.
  */
-import { memo, useState, useMemo, useRef, useCallback, useContext, createContext, forwardRef, useImperativeHandle } from 'react';
+import { memo, useState, useMemo, useRef, useCallback, useContext, createContext, forwardRef, useImperativeHandle, Children, isValidElement } from 'react';
 import { Virtuoso, type VirtuosoHandle, type StateSnapshot } from 'react-virtuoso';
 import { useTranslation } from 'react-i18next';
 import { findTextRangeInContainer, scrollRangeIntoCenter, scrollElementIntoCenter, flashElement, findItemElement, markRange } from './bookmarkScroll.js';
@@ -329,7 +329,37 @@ const MarkdownCode = memo(function MarkdownCode({ children, ...rest }: React.HTM
   );
 });
 
-const mdComponents: Components = { pre: CodeBlock, a: MarkdownLink, code: MarkdownCode };
+/**
+ * §5.5 #17-28 ⑧(d) — 번호 목록은 **앱이 알아서** 가지런히 세운다.
+ *
+ * 종전에는 "여러 항목을 나열할 땐 `/api/agent-list` 로 보내라"는 529 토큰짜리 규약을 매 세션 실어
+ * 정렬 카드를 얻었다(실측 발화 48/249). 그런데 정렬은 **표시의 문제**이고 우리는 이미 그 글을 다
+ * 받고 있다 — 에이전트가 평범한 마크다운 번호 목록만 써도 여기서 같은 모양으로 세우면 된다
+ * (번호 열 고정폭·우측정렬·`tabular-nums` + 본문 행잉 인덴트 = `AgentListCard` 와 같은 규칙).
+ *
+ * `start` 를 존중하므로 `3.` 부터 시작하는 목록도 그대로 이어진다. 중첩 목록은 자식이 다시 이
+ * 컴포넌트를 타므로 안쪽도 같은 규칙으로 선다.
+ */
+const MarkdownOrderedList = memo(function MarkdownOrderedList(
+  { children, start }: React.OlHTMLAttributes<HTMLOListElement>,
+): React.JSX.Element {
+  const items = Children.toArray(children).filter(isValidElement) as React.ReactElement<{ children?: React.ReactNode }>[];
+  const first = typeof start === 'number' && Number.isFinite(start) ? start : 1;
+  return (
+    <ol className="my-1 space-y-0.5">
+      {items.map((item, i) => (
+        <li key={i} className="flex items-start gap-2">
+          <span className="min-w-[1.5rem] flex-shrink-0 select-none text-right font-medium tabular-nums text-teal-300/70">
+            {first + i}.
+          </span>
+          <span className="min-w-0 flex-1 break-words">{item.props.children}</span>
+        </li>
+      ))}
+    </ol>
+  );
+});
+
+const mdComponents: Components = { pre: CodeBlock, a: MarkdownLink, code: MarkdownCode, ol: MarkdownOrderedList };
 
 /** v3.13 — 앞쪽 절단 shift 카운트용 안정 id 추출자(렌더 간 동일 참조 필요 → 모듈 상수).
  *  §5.5 #17-12 — 밀도 변환 뒤의 표시 아이템(묶음 포함)을 받는다. */

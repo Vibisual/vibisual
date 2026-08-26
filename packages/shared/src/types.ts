@@ -184,11 +184,14 @@ export interface ClaudeUsageExtraCredits {
 export type ClaudeUsageSource = 'statusline';
 
 /**
- * no-credentials = 표시할 값이 없음(수집기 미설치 · 아직 첫 보고 전 · mac 키체인 환경).
+ * no-credentials = 수집기가 꺼져 있어 표시할 값이 없음(mac 키체인 환경 포함).
+ * awaiting-statusline = **수집기는 켜져 있는데 아직 첫 값이 안 들어왔다.** 값의 원천이
+ *   statusLine 이라 대화형 Claude Code 세션이 화면에 한 번 그려져야 들어온다 — 그때까지는
+ *   "켜라" 가 아니라 "기다리는 중" 이라고 말해야 사용자가 스위치를 헛클릭하지 않는다.
  * unauthorized / network 는 구 v3.62 직접 조회 시절의 코드라 지금은 발생하지 않지만,
  * 화면이 이미 문구를 들고 있어 유니온에 남긴다.
  */
-export type ClaudeUsageError = 'no-credentials' | 'unauthorized' | 'network';
+export type ClaudeUsageError = 'no-credentials' | 'awaiting-statusline' | 'unauthorized' | 'network';
 
 export interface ClaudeUsageInfo {
   /** 예: "Max (20x)" — 자격증명의 subscriptionType + rateLimitTier 로 조립 */

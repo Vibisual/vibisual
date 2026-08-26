@@ -186,3 +186,93 @@ export function BrainAxisSettings(): React.JSX.Element | null {
     </div>
   );
 }
+
+/**
+ * §5.10 (H) — **설정 창 `brain` 카테고리 본문.**
+ *
+ * `BrainAxisSettings` 와 갈리는 점은 하나다: 저건 **켠 뒤**의 조정 자리라 꺼져 있으면 스스로 사라지지만,
+ * 여기는 **꺼져 있을 때 켜는 자리**라 마스터 스위치를 자기 안에 들고 있어야 한다. 두뇌가 꺼지면 버블도
+ * 라이브러리도 사라지므로, 이 화면과 캔버스 우클릭이 켜기의 **상시 입구**다.
+ *
+ * 즉시 반영이라 Apply/dirty 대상이 아니다(§5.11 플러그인 창과 같은 문법 — 같은 창에서 켜고 끄고, 재시작 ❌).
+ */
+export function BrainSettingsTab(): React.JSX.Element {
+  const { t } = useTranslation();
+  const brain = useBrainActivation();
+
+  if (!brain.projectPath) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
+        <span className="text-slate-500"><BrainIcon /></span>
+        <p className="text-sm text-gray-400">
+          {t('brain.activation.noProject', { defaultValue: '열려 있는 프로젝트가 없습니다' })}
+        </p>
+        <p className="text-[12px] text-gray-600">
+          {t('brain.activation.noProjectDesc', { defaultValue: '두뇌는 프로젝트마다 따로 켜고 끕니다 — 프로젝트를 먼저 여세요.' })}
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* 마스터 스위치 — 이 화면의 본체. 상태를 문장으로 먼저 말하고 버튼을 오른쪽에 둔다. */}
+      <div className="flex items-start justify-between gap-3 rounded border border-gray-700 bg-gray-800/40 p-3">
+        <div className="flex min-w-0 items-start gap-2.5">
+          <span className={`mt-0.5 ${brain.enabled ? 'text-indigo-400' : 'text-gray-500'}`}><BrainIcon /></span>
+          <div className="min-w-0">
+            <p className="text-sm text-gray-200">
+              {brain.enabled
+                ? t('brain.activation.stateOn', { defaultValue: '이 프로젝트의 두뇌가 켜져 있습니다' })
+                : t('brain.activation.stateOff', { defaultValue: '이 프로젝트의 두뇌가 꺼져 있습니다' })}
+            </p>
+            <p className="mt-0.5 break-all text-[12px] text-gray-500">{brain.projectPath}</p>
+            {brain.sleepingCardCount > 0 && !brain.enabled && (
+              <p className="mt-1 text-[12px] text-gray-400">
+                {t('brain.activation.sleepingCount', {
+                  count: brain.sleepingCardCount,
+                  defaultValue: '기억 {{count}}장이 잠들어 있습니다',
+                })}
+              </p>
+            )}
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => void brain.setEnabled(!brain.enabled)}
+          className={`shrink-0 rounded px-3 py-1.5 text-xs transition-colors ${
+            brain.enabled
+              ? 'border border-gray-600 text-gray-300 hover:bg-gray-700'
+              : 'bg-indigo-600 text-white hover:bg-indigo-500'
+          }`}
+        >
+          {brain.enabled
+            ? t('brain.activation.turnOff', { defaultValue: '두뇌 끄기' })
+            : t('brain.activation.turnOn', { defaultValue: '켜기' })}
+        </button>
+      </div>
+
+      {/* 축 6개 — 켜져 있을 때만 조정할 수 있다(마스터가 꺼지면 축은 볼 것도 없이 false 다). */}
+      {brain.enabled ? (
+        <div className="rounded border border-gray-700 bg-gray-800/20 p-1">
+          <p className="px-2 py-1 text-[12px] text-gray-400">
+            {t('brain.activation.axesTitle', { defaultValue: '무엇을 켜 둘까요' })}
+          </p>
+          {brain.axes.map((a) => (
+            <AxisRow key={a.id} id={a.id} enabled={a.enabled} onToggle={(next) => void brain.setAxis(a.id, next)} />
+          ))}
+        </div>
+      ) : (
+        <p className="text-[12px] leading-snug text-gray-500">
+          {t('brain.activation.hint', {
+            defaultValue: '두뇌는 기본으로 꺼져 있습니다. 켜면 작업에서 배운 절차를 모아 다음 작업에 자동으로 겁니다. 언제든 다시 끌 수 있고, 꺼도 기록은 지워지지 않습니다.',
+          })}
+        </p>
+      )}
+
+      <p className="text-[12px] leading-snug text-gray-500">
+        {t('brain.activation.offKeepsData', { defaultValue: '꺼도 기록은 지워지지 않습니다 — 다시 켜면 그 자리에서 이어집니다.' })}
+      </p>
+    </div>
+  );
+}

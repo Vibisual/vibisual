@@ -19,6 +19,15 @@
 #    아이콘을 1024×1024 로 재생성해 해소. 서명 탓으로 적어 둔 아래 주석 때문에 10번의 릴리스 동안
 #    아무도 로그를 열어보지 않았다 — 실패를 "예상된 것"으로 적어 두면 그 실패는 조사되지 않는다.
 
+# ⚠️ mac 은 **아키텍처마다 그 아키텍처의 러너에서** 짓는다(2026-08-26). 한 러너에서
+#    `--arm64 --x64` 를 함께 뽑으면 두 dmg 에 **같은 node_modules** 가 들어가는데, 네이티브
+#    모듈 중에는 설치 시점의 플랫폼·아키텍처 것만 깔리는 것이 있다 — `koffi` 가 그렇다
+#    (`@koromix/koffi-<platform>-<arch>` optionalDependency 라 arm64 러너에는 darwin-arm64 만
+#    깔린다). 그렇게 만든 x64 dmg 를 Intel Mac 에서 열면 `koffi` 가 제 바이너리를 못 찾아
+#    **main 프로세스가 뜨자마자 죽는다** — 빌드는 초록, 앱은 실행 불가. 그래서 arm64 는
+#    macos-latest, x64 는 macos-15-intel 에서 각각 짓는다(둘 다 공개 저장소 무료 표준 러너).
+#    node-pty 는 모든 플랫폼 prebuild 를 한 패키지에 담아 이 문제가 없다 — 판단은 패키지마다.
+
 name: Release
 
 on:
@@ -39,15 +48,17 @@ jobs:
         include:
           - os: windows-latest
             script: release:win
-          - os: macos-latest
-            script: release:mac
+          # mac 은 **아키텍처마다 그 아키텍처의 러너에서** 짓는다 — 아래 주석 참고.
+          - os: macos-latest        # Apple Silicon (arm64)
+            script: release:mac:arm64
+          - os: macos-15-intel      # Intel (x64)
+            script: release:mac:x64
           - os: ubuntu-latest
             script: release:linux
     runs-on: ${{ matrix.os }}
-    # mac 잡 실패가 win/linux 발행을 막지 않도록 열어 둔다. 다만 이 관용이 바로 아이콘 크기
-    # 하나짜리 실패를 10번의 릴리스 동안 덮어 준 장치였다 — mac 이 실제로 초록으로 도는 것을
-    # 한 번 확인하면 이 줄을 지워, 다음 번 mac 회귀가 조용히 지나가지 않게 할 것.
-    continue-on-error: ${{ matrix.os == 'macos-latest' }}
+    # continue-on-error 는 걷어냈다(2026-08-26). 이 줄이 걸어 둔 조건 — "mac 이 실제로 초록으로
+    # 도는 것을 한 번 확인하면" — 은 v0.1.11 에서 충족됐다(run 32344953534, mac 잡 success).
+    # fail-fast: false 라 mac 이 넘어져도 win/linux 발행은 그대로 끝나고, 다만 **런이 빨갛게** 남는다.
     steps:
       - name: Checkout
         uses: actions/checkout@v4

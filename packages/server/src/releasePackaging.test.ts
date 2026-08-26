@@ -1,0 +1,84 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { describe, expect, it } from 'vitest';
+
+/**
+ * 배포 산출물이 **Windows 밖에서도 돌아가는지**를 기계가 지킨다.
+ *
+ * 여기 담긴 것들은 전부 "빌드는 초록인데 앱은 안 뜨는" 부류다 — CI 가 성공으로 끝나고
+ * dmg/AppImage 까지 발행되지만, 정작 그것을 연 사람만 아는 실패다. 우리 개발기는 Windows 라
+ * 누가 mac 을 꺼내 열어 보기 전까지 아무도 모른다. 그래서 되돌아가면 **여기서** 넘어지게 둔다.
+ *
+ * 전례: mac 잡은 v0.1.0~v0.1.9 열 번을 연속으로 실패했는데 워크플로 주석이 그 실패를
+ * "서명이 없어서"라고 미리 설명해 둔 탓에 아무도 로그를 열지 않았다(실제 원인은 아이콘 크기).
+ * **실패를 예상된 것으로 적어 두면 그 실패는 조사되지 않는다** — 그래서 설명 대신 검사를 둔다.
+ */
+
+const REPO = path.resolve(__dirname, '../../..');
+const read = (rel: string): string => fs.readFileSync(path.join(REPO, rel), 'utf8');
+
+describe('release packaging — mac/linux', () => {
+  it('afterPack 은 리소스 경로를 electron-builder 에 물어본다 (mac 의 리소스는 .app 안이다)', () => {
+    const src = read('packages/desktop/build/after-pack.cjs');
+    // mac 의 리소스 디렉터리는 <appOutDir>/<Product>.app/Contents/Resources 다.
+    // appOutDir 아래 'resources' 를 하드코딩하면 **mac 에서만** .app 바깥에 복사되고,
+    // 그 경로가 없으면 mkdir 로 만들어 버려 경고조차 남지 않는다 → 서버 dist 와 전이
+    // 의존성이 통째로 빠진 dmg 가 초록 CI 를 달고 발행된다.
+    expect(src).toContain('getResourcesDir');
+    expect(src).not.toContain("join(appOutDir, 'resources', 'app'");
+  });
+
+  it('mac 타깃에 arch 를 못 박지 않는다 (못 박으면 CLI --arm64/--x64 가 무시된다)', () => {
+    const yml = read('packages/desktop/electron-builder.yml');
+    const macBlock = yml.slice(yml.indexOf('\nmac:'), yml.indexOf('\nlinux:'));
+    expect(macBlock).toContain('dmg');
+    // electron-builder 의 computeArchToTargetNamesMap 은 타깃에 적힌 arch 를 CLI 플래그보다
+    // 우선한다 — 여기에 arch 를 적어 두면 러너를 아키텍처별로 갈라도 두 잡이 똑같이
+    // 두 아키텍처를 다 뽑아, Intel 용 dmg 안에 arm64 네이티브가 들어간다.
+    const pinned = macBlock
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('#') && line.includes('arch:'));
+    expect(pinned).toEqual([]);
+  });
+
+  it('mac 은 아키텍처마다 그 아키텍처의 러너에서 짓는다', () => {
+    const wf = read('.github/workflows/release.yml');
+    // 한 러너에서 두 아키텍처를 뽑으면 두 dmg 가 **같은 node_modules** 를 쓰는데, koffi 처럼
+    // 설치 시점의 플랫폼·아키텍처 것만 깔리는(@koromix/koffi-<platform>-<arch>) 네이티브가
+    // 있어 반대편 아키텍처에서는 제 바이너리를 못 찾고 main 이 뜨자마자 죽는다.
+    const armIdx = wf.indexOf('- os: macos-latest');
+    const intelIdx = wf.indexOf('- os: macos-15-intel');
+    expect(armIdx).toBeGreaterThan(-1);
+    expect(intelIdx).toBeGreaterThan(-1);
+    expect(wf.slice(armIdx, armIdx + 200)).toContain('release:mac:arm64');
+    expect(wf.slice(intelIdx, intelIdx + 200)).toContain('release:mac:x64');
+  });
+
+  it('mac 잡 실패를 continue-on-error 로 덮지 않는다', () => {
+    const wf = read('.github/workflows/release.yml');
+    const live = wf.split('\n').filter((line) => !line.trim().startsWith('#'));
+    expect(live.some((line) => line.includes('continue-on-error'))).toBe(false);
+  });
+
+  it('아키텍처별 mac 릴리스 스크립트가 실제로 있다', () => {
+    const root = JSON.parse(read('package.json')) as { scripts: Record<string, string> };
+    const desktop = JSON.parse(read('packages/desktop/package.json')) as { scripts: Record<string, string> };
+    expect(root.scripts['release:mac:arm64']).toContain('publish:mac:arm64');
+    expect(root.scripts['release:mac:x64']).toContain('publish:mac:x64');
+    expect(desktop.scripts['publish:mac:arm64']).toContain('--arm64');
+    expect(desktop.scripts['publish:mac:x64']).toContain('--x64');
+  });
+
+  it('폴더 열기는 mac/Linux 에도 길이 있다', () => {
+    const src = read('packages/server/src/index.ts');
+    const start = src.indexOf("app.post('/api/projects/open-folder'");
+    expect(start).toBeGreaterThan(-1);
+    // Windows 경로(IFileDialog COM)가 유일한 구현이면 mac/Linux 에서는 powershell 이 없어
+    // 500 이 되고, 클라이언트가 그 실패를 조용히 삼켜 **아무 반응 없는 버튼**이 된다
+    // = 그 두 플랫폼에는 프로젝트를 추가할 수단이 UI 에 남지 않는다.
+    const head = src.slice(start, start + 6000);
+    expect(head).toContain('osascript'); // macOS 내장
+    expect(head).toContain('zenity'); // Linux — GNOME 계열
+    expect(head).toContain('kdialog'); // Linux — KDE 계열
+  });
+});

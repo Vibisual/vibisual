@@ -71,9 +71,13 @@ export function UsagePill(): React.JSX.Element {
   const pct = typeof raw === 'number' ? clampUsagePct(raw) : null;
 
   const tone = pct === null ? 'text-gray-500' : usageTextToneClass(pct);
-  const title = pct === null
-    ? t('header.usage.tooltipNoData')
-    : t('header.usage.tooltip', { percent: Math.round(pct) });
+  // 값이 없을 때 "켜라" 와 "기다리는 중" 을 구분한다 — 수집기가 이미 켜져 있는데 "클릭해서
+  // 켜기" 라고 하면 사용자가 켜진 스위치를 다시 누르게 된다(§4 v3.60 재설치 사고의 출발점).
+  const title = pct !== null
+    ? t('header.usage.tooltip', { percent: Math.round(pct) })
+    : claudeUsage?.error === 'awaiting-statusline'
+      ? t('header.usage.tooltipWaiting')
+      : t('header.usage.tooltipNoData');
 
   return (
     <>

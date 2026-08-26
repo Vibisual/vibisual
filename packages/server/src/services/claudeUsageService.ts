@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { USAGE_LIMIT_WARN_PCT, USAGE_LIMIT_DANGER_PCT } from '@vibisual/shared';
 import type {
+  ClaudeUsageError,
   ClaudeUsageInfo,
   ClaudeUsageLimit,
   RateLimitInfo,
@@ -106,10 +107,18 @@ function toLimit(
 /**
  * statusLine 이 보고한 창들(`RateLimitInfo`) → 팝업이 읽는 `ClaudeUsageInfo`.
  *
- * 값이 하나도 없으면 `error: 'no-credentials'` 로 돌려준다 — 화면은 이 오류를 보고 수집기
- * (statusLine) 설치 스위치를 노출하므로, 사용자가 값을 받으려면 무엇을 켜야 하는지 알게 된다.
+ * 값이 하나도 없을 때 **왜 없는지**를 구분해 실어 보낸다 —
+ *   - 수집기가 꺼져 있으면 `no-credentials`: 화면은 설치 스위치를 노출한다("켜세요").
+ *   - 수집기가 켜져 있으면 `awaiting-statusline`: 켤 것은 이미 켰고 값이 아직 안 왔을 뿐이다.
+ *     statusLine 은 **대화형 Claude Code 세션이 화면에 그려질 때** 실행되므로, 앱만 켜 둔
+ *     상태에서는 값이 들어오지 않는다. 이때 "클릭해서 켜기" 라고 말하면 이미 켜진 스위치를
+ *     다시 누르게 만든다(실측: 그 재설치가 자기 감쌈 재귀를 만들던 사고의 출발점이었다).
  */
-export function buildClaudeUsage(rate: RateLimitInfo | undefined, now: number): ClaudeUsageInfo {
+export function buildClaudeUsage(
+  rate: RateLimitInfo | undefined,
+  now: number,
+  collectorInstalled = false,
+): ClaudeUsageInfo {
   const limits: ClaudeUsageLimit[] = [];
   const session = toLimit('session', 'session', rate?.used5h, rate?.resetAt5h, now);
   if (session) limits.push(session);
@@ -119,11 +128,13 @@ export function buildClaudeUsage(rate: RateLimitInfo | undefined, now: number): 
   const hints = readPlanHints();
   const plan = buildPlanLabel(hints?.subscriptionType, hints?.rateLimitTier);
 
+  const emptyReason: ClaudeUsageError = collectorInstalled ? 'awaiting-statusline' : 'no-credentials';
+
   return {
     ...(plan ? { plan } : {}),
     limits,
     source: 'statusline',
     fetchedAt: now,
-    ...(limits.length === 0 ? { error: 'no-credentials' as const } : {}),
+    ...(limits.length === 0 ? { error: emptyReason } : {}),
   };
 }

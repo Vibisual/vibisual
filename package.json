@@ -1,6 +1,6 @@
 {
   "name": "vibisual",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "private": true,
   "description": "The first Visual Development Environment (VDE) for AI coding agents — design your agent team on a canvas, watch them work, and edit right there",
   "license": "Apache-2.0",
@@ -21,6 +21,8 @@
     "build:linux": "pnpm --filter=@vibisual/shared --filter=@vibisual/plugins --filter=@vibisual/video --filter=@vibisual/server --filter=@vibisual/client -r build && pnpm --filter @vibisual/desktop dist:linux",
     "release:win": "pnpm --filter=@vibisual/shared --filter=@vibisual/plugins --filter=@vibisual/video --filter=@vibisual/server --filter=@vibisual/client -r build && pnpm --filter @vibisual/desktop publish:win",
     "release:mac": "pnpm --filter=@vibisual/shared --filter=@vibisual/plugins --filter=@vibisual/video --filter=@vibisual/server --filter=@vibisual/client -r build && pnpm --filter @vibisual/desktop publish:mac",
+    "release:mac:arm64": "pnpm --filter=@vibisual/shared --filter=@vibisual/plugins --filter=@vibisual/video --filter=@vibisual/server --filter=@vibisual/client -r build && pnpm --filter @vibisual/desktop publish:mac:arm64",
+    "release:mac:x64": "pnpm --filter=@vibisual/shared --filter=@vibisual/plugins --filter=@vibisual/video --filter=@vibisual/server --filter=@vibisual/client -r build && pnpm --filter @vibisual/desktop publish:mac:x64",
     "release:linux": "pnpm --filter=@vibisual/shared --filter=@vibisual/plugins --filter=@vibisual/video --filter=@vibisual/server --filter=@vibisual/client -r build && pnpm --filter @vibisual/desktop publish:linux"
   },
   "engines": {

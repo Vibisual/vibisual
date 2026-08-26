@@ -2844,11 +2844,11 @@ export const CONTEXT_SOURCE_IDS = {
   edges: 'vibisual.edges',
   feedback: 'vibisual.feedback',
   intentFirst: 'vibisual.intent-first',
+  /** §5.5 #17-28 ⑧(a) — 카드 5종이 공유하는 규칙 한 벌. 카드가 하나라도 켜져 있을 때만 실린다. */
+  cardCommon: 'vibisual.card.common',
   cardReport: 'vibisual.card.report',
   cardQuestion: 'vibisual.card.question',
   cardReview: 'vibisual.card.review',
-  cardList: 'vibisual.card.list',
-  cardIframe: 'vibisual.card.iframe',
   goal: 'vibisual.goal',
   brainCards: 'vibisual.brain.cards',
   brainTopics: 'vibisual.brain.topics',
@@ -3567,34 +3567,31 @@ ${serializeRoleCatalog()}
 export const AGENT_REPORT_MAX_PER_AGENT = 50;
 
 /**
- * §4 v2.71 — 카드 엔드포인트(작업 신고/질문/검수) curl 의 "동적 베이스" 프렐류드.
+ * §5.5 #17-28 ⑧(b) — 카드 엔드포인트 curl 이 쓰는 **주소·토큰 참조**.
  *
- * 문제: 기존엔 serverBase(`http://127.0.0.1:<포트>`)·serverToken 을 dispatch 시점에 프롬프트에
- * **상수로 구워** 넣었다. 그래서 앱 재기동으로 hook 포트가 바뀌면(선호 포트 점유 → :0 폴백 등),
- * 이미 떠서 resume 으로 도는 옛 세션은 굳은 옛 포트에 영영 묶여 카드 curl 이 connection refused 로
- * 끊겼다("앱이 꺼져 있어 실패"의 정체).
+ * 종전에는 카드 블록마다 `hook-listener.json` 을 읽어 `$VIBI_BASE`/`$VIBI_TOKEN` 을 채우는 bash
+ * 두 줄(프렐류드)을 앞세웠다. 이유는 옳았다 — 앱 재기동으로 hook 포트가 바뀌면 dispatch 시점에 구워
+ * 둔 상수는 죽은 포트를 가리킨다. 그런데 그 두 줄은 **596 토큰**이고 카드 5종 + 목표 + 브레인 +
+ * 레시피 8벌에 통째로 복제돼 규약의 3분의 1을 먹었다(실측: 여분만 2,980 토큰).
  *
- * 해법: 포트·토큰을 굽지 말고, curl 직전에 **고정 경로의 신원 파일(hook-listener.json)** 에서 현재
- * 값을 읽어 `$VIBI_BASE`/`$VIBI_TOKEN` 에 담는다. desktop main 이 매 부팅마다 실제 바인드 포트·토큰으로
- * 그 파일을 갱신하므로, 재기동·포트변경 뒤(resume 세션 포함)에도 호출 시점에 항상 live 서버로 닿는다.
- * node 부재·파일 손상 시엔 dispatch 시점 상수로 폴백 → **절대 지금보다 나빠지지 않는다.**
+ * 같은 보장을 훨씬 싸게 얻는 길이 있다 — **그 값은 스폰하는 우리가 이미 알고 있다.** 서버가 자식
+ * 프로세스 환경에 `VIBISUAL_BASE`/`VIBISUAL_TOKEN` 을 넣어 주면(§5.5 #17-28 ③ spawn 스위치와 같은
+ * 통로) 그 자식이 띄우는 모든 Bash 호출이 그것을 물려받는다. 프렐류드도, 호출마다의 node 실행도
+ * 필요 없고, 환경은 **자식이 뜰 때** 정해지므로 `--resume` 재스폰마다 최신값이라 dispatch 시점에
+ * 구워 둔 상수보다 늘 새롭다.
  *
- * identityFile 이 없으면(서버 단독 모드 등) 빈 문자열을 반환하고 호출부가 상수를 그대로 쓴다.
- * 반환되는 두 bash 줄은 반드시 curl 과 **같은 한 번의 Bash 호출** 안에서 실행돼야 한다($VIBI_BASE 는
- * Bash 호출 간에 보존되지 않으므로) — 그래서 같은 ``` 블록 안에 curl 바로 위에 둔다.
+ * 환경이 비어 있을 때를 위해 bash 기본값(`${VAR:-<상수>}`)으로 종전 상수를 남긴다 — 옛 자식이 아직
+ * 살아 있는 동안에도 **절대 지금보다 나빠지지 않는다**(프렐류드가 갖고 있던 폴백과 같은 값).
  */
-function buildDynamicEndpointPrelude(
-  identityFile: string | undefined,
-  fallbackBase: string,
-  fallbackToken: string,
-): string {
-  if (!identityFile) return '';
-  // identityFile 은 forward-slash 정규화된 절대경로(서버가 주입). node 의 단일따옴표 JS 문자열로 읽는다.
-  // \${...} 는 bash 파라미터 확장이 되도록 TS 템플릿에서 이스케이프(여기서 치환되면 안 됨).
-  return `# ↓ 먼저 이 두 줄로 현재 포트·토큰을 읽는다(재기동/포트변경에도 안전 — 카드를 "또 못 받는" 일 방지). 아래 curl 과 한 번에 실행.
-VIBI_ID=$(node -e "try{const j=JSON.parse(require('fs').readFileSync('${identityFile}','utf8'));process.stdout.write('http://127.0.0.1:'+j.port+' '+j.token)}catch(e){process.stdout.write('${fallbackBase} ${fallbackToken}')}" 2>/dev/null || echo '${fallbackBase} ${fallbackToken}')
-VIBI_BASE="\${VIBI_ID%% *}"; VIBI_TOKEN="\${VIBI_ID##* }"
-`;
+export const AGENT_CARD_ENV_BASE = 'VIBISUAL_BASE';
+export const AGENT_CARD_ENV_TOKEN = 'VIBISUAL_TOKEN';
+
+/** 카드 curl 한 줄이 쓰는 베이스 주소 + 토큰 헤더. 환경변수 우선, 없으면 dispatch 시점 상수. */
+function cardEndpointRefs(serverBase: string, serverToken: string): { base: string; tokenHdr: string } {
+  return {
+    base: `\${${AGENT_CARD_ENV_BASE}:-${serverBase}}`,
+    tokenHdr: `-H "x-vibisual-hook-token: \${${AGENT_CARD_ENV_TOKEN}:-${serverToken}}"`,
+  };
 }
 
 /**
@@ -3616,6 +3613,58 @@ VIBI_BASE="\${VIBI_ID%% *}"; VIBI_TOKEN="\${VIBI_ID##* }"
  * (지시문만으로는 확률적이라 렌더 층에서도 같은 줄을 표시에서 뺀다 — 클라 `isCardEchoText`.)
  */
 const CARD_PUBLISH_ORDER_RULE = `**자연어 설명(짧은 결론·근거)을 먼저 쓴 다음**, 그 보고의 **맨 마지막 동작**으로 Bash 로 1회 호출한다 — 카드는 **신고된 그 시각의 자리**에 앉으므로 설명보다 먼저 보내면 **카드가 위, 그 카드를 설명하는 내용이 아래**로 뒤집힌다(읽는 순서는 늘 맥락 → 카드). 호출한 뒤에는 본문을 더 붙이지 마라 — 붙이면 카드가 다시 중간에 낀다. **특히 "검수 카드로 보냈습니다" · "작업 신고 카드로 정리해 보냈습니다" 같은 발송 사실 보고를 쓰지 마라** — 카드는 이미 화면에 떠 있어 그 한 줄은 아무것도 더 알려주지 않으면서 카드마다 똑같이 반복된다. 덧붙일 맥락이 없으면 **아무 말도 하지 말고 그대로 끝내라.** 작업 도중에 미리 보내면 사용자는 카드를 보고 **끝난 줄 안다**(실패해도 무시하고 자연어 보고는 그대로 진행):`;
+
+/**
+ * §5.5 #17-28 ⑧(a) — **카드 5종 전용** 짧은 참조. 이 블록들은 언제나 「카드 공통 규약」 뒤에 서고,
+ * 그 공통 블록이 폴백까지 갖춘 온전한 형태를 이미 한 벌 보여 준다. 그래서 여기서는 폴백을 다시
+ * 적지 않는다 — 같은 48자 토큰 상수를 카드마다 되풀이하면 그것만으로 카드당 50 토큰이 샌다.
+ */
+function cardEnvRefsShort(): { base: string; tokenHdr: string } {
+  return {
+    base: `$${AGENT_CARD_ENV_BASE}`,
+    tokenHdr: `-H "x-vibisual-hook-token: $${AGENT_CARD_ENV_TOKEN}"`,
+  };
+}
+
+/**
+ * §5.5 #17-28 ⑧(a) — 카드 5종이 **공유하는 규칙 한 벌**.
+ *
+ * 종전에는 카드마다 자기 블록 안에 (ⅰ) 포트·토큰을 읽는 프렐류드 · (ⅱ) 발행 순서 문장 ·
+ * (ⅲ) "표시 전용" · (ⅳ) 401 안내를 **각자 한 벌씩** 들고 있었다. 실측하면 규약 9,157 토큰 가운데
+ * **3,997 토큰이 이 넷의 재탕**이었다(프렐류드 596×6 여분 + 발행 순서 339×3 여분). 같은 말을 여섯 번
+ * 적는다고 여섯 배로 지켜지지 않는다 — 한 벌만 두고 각 카드는 **자기만의 것**(언제 보내는가·무엇을
+ * 담는가)만 말한다.
+ *
+ * 이 블록은 카드가 **하나라도 켜져 있을 때만** 실린다(§5.5 #17-28 의 조각 게이트). 전부 꺼 두면
+ * 공통 규약도 함께 빠지므로 "끈 기능의 설명이 남아 있는" 상태가 생기지 않는다.
+ */
+export function buildAgentCardCommonRules(args: {
+  serverBase: string;
+  serverToken: string;
+  agentId: string;
+  subAgentId?: string;
+}): string {
+  const { serverBase, serverToken, agentId, subAgentId } = args;
+  const subField = subAgentId ? `"${subAgentId}"` : 'null';
+  const { base, tokenHdr } = cardEndpointRefs(serverBase, serverToken);
+  return `
+
+# 카드 공통 규약 (Vibisual IDE — 아래 카드들이 함께 쓰는 규칙)
+아래 신고들은 전부 **같은 창구**를 쓴다. 주소·토큰은 이 세션의 환경변수에 이미 들어와 있으니 그대로 쓰면 된다(따로 읽을 필요 없음).
+
+\`\`\`bash
+curl -s -X POST "${base}/api/<엔드포인트>" \\
+  ${tokenHdr} \\
+  -H 'Content-Type: application/json' --data-binary @- <<'JSON'
+{"agentId":"${agentId}","subAgentId":${subField}, ...}
+JSON
+\`\`\`
+- \`agentId\`·\`subAgentId\` 는 위 두 값을 그대로 쓴다. 토큰 헤더가 없으면 401 이다.
+- **발행 순서** — ${CARD_PUBLISH_ORDER_RULE.replace(/:$/, '.')}
+- 전부 **표시 전용** — 실제 작업/판정 로직과 무관하며, 보내든 안 보내든 결과엔 영향이 없다. 실패해도 무시하고 자연어 보고는 그대로 진행한다.
+- **한 턴에 카드는 하나** — 작업 신고와 검수 요청은 둘 중 하나만 보낸다.
+- **카드에 담은 목록을 자연어 본문에 다시 나열하지 마라** — 사용자가 같은 것을 두 번 읽게 되어 "긴 글 안 읽어도 한눈에"라는 취지가 무너진다. 본문은 **1~2문장 결론**으로 최소화하고(카드에 안 담기는 짧은 근거·맥락만), 목록 자체는 카드에만 담는다.`;
+}
 
 /**
  * §5.5 #17-12 (v3.83) — "의도 먼저" 지시문 (시스템 프롬프트 꼬리표, 동적 값 없음).
@@ -3652,11 +3701,9 @@ export function buildAgentReportRules(args: {
   /** v2.71 — 있으면 curl 이 호출 시점에 이 파일에서 live 포트·토큰을 읽는다(없으면 serverBase/serverToken 상수). */
   identityFile?: string;
 }): string {
-  const { serverBase, serverToken, agentId, subAgentId, identityFile } = args;
+  const { agentId, subAgentId } = args;
   const subField = subAgentId ? `"${subAgentId}"` : 'null';
-  const prelude = buildDynamicEndpointPrelude(identityFile, serverBase, serverToken);
-  const base = prelude ? '$VIBI_BASE' : serverBase;
-  const tokenHdr = prelude ? `-H "x-vibisual-hook-token: $VIBI_TOKEN"` : `-H 'x-vibisual-hook-token: ${serverToken}'`;
+  const { base, tokenHdr } = cardEnvRefsShort();
   return `
 
 # 작업 신고 (Vibisual IDE 색 구분)
@@ -3672,18 +3719,15 @@ export function buildAgentReportRules(args: {
 - \`helpfulMemoryIds\`: 브리핑/주입으로 받은 기억 카드 중 실제로 작업에 도움이 된 카드의 id 목록(브리핑에 \`[card-xxxx]\` 로 표기됨). 도움된 것만, 없으면 생략. **"확인 필요"로 표시돼 온 카드가 지금 코드에도 맞았다면 여기에 넣어라** — 시스템이 그 카드를 다시 유효로 되돌린다.
 - \`staleMemoryIds\`: 브리핑으로 받은 카드 중 **지금 코드와 어긋나 낡은 것**의 id 목록. 확실히 틀린 것만(애매하면 넣지 마라). 시스템이 그 카드를 "확인 필요"로 표시하고 반복 신고되면 자동 보관한다 — 삭제되지 않으니 안심하고 신고해도 된다. 없으면 생략.
 
-**그 일을 다 끝낸 뒤**, \`userActions\` 가 있는 완료 보고에서만 — ${CARD_PUBLISH_ORDER_RULE}
+**그 일을 다 끝낸 뒤**, \`userActions\` 가 있는 완료 보고에서만 — **위 「카드 공통 규약」의 발행 순서**대로, 그 보고의 **맨 마지막 동작**으로 Bash 로 1회 호출한다:
 \`\`\`bash
-${prelude}curl -s -X POST "${base}/api/agent-report" \\
+curl -s -X POST "${base}/api/agent-report" \\
   ${tokenHdr} \\
   -H 'Content-Type: application/json' --data-binary @- <<'JSON'
 {"agentId":"${agentId}","subAgentId":${subField},"did":["완료한 일 1","완료한 일 2"],"userActions":["사용자가 직접 해야 할 일 1"],"nextSteps":["다음 단계 1"],"learned":["이번에 배운 교훈 1"],"helpfulMemoryIds":["card-도움된-id"],"staleMemoryIds":["card-낡은-id"]}
 JSON
 \`\`\`
-- **\`userActions\` 가 비어 있으면 신고 자체를 보내지 마라** — 빈 신고는 카드만 늘려 신호를 묻는다.
-- **신고로 보낸 내용(\`did\`/\`userActions\`/\`nextSteps\`)을 자연어 보고 본문에 목록·헤딩으로 다시 나열하지 마라.** 그 목록은 이 신고가 만드는 **색 카드**가 보여준다 — "한 일", "사용자가 할 일", "다음 단계", "원인/수정/확인" 같은 섹션을 본문에 또 풀어 쓰면 사용자가 **같은 내용을 두 번 읽게 돼**("중첩된다 / 버그 같다"고 느낀다) "긴 글 안 읽어도 색으로 구분"이라는 취지가 무너진다. **신고를 보낼 때 자연어 본문은 1~2문장 결론으로 최소화**하고(카드에 안 담기는 짧은 근거·맥락만), 한 일·할 일·다음 단계의 목록 자체는 카드(did/userActions/nextSteps)에만 담는다.
-- 이 신고는 **표시 전용** — 실제 작업/판정 로직과 무관하며, 보내든 안 보내든 결과엔 영향이 없다.
-- 토큰 헤더(\`x-vibisual-hook-token\`)가 없으면 401 이다. 위 예시에 이미 포함돼 있다.`;
+- **\`userActions\` 가 비어 있으면 신고 자체를 보내지 마라** — 빈 신고는 카드만 늘려 신호를 묻는다.`;
 }
 
 /** agentId 당 보관하는 질문 카드 최대 개수 (ring buffer 캡, 초과 시 오래된 것부터 제거). */
@@ -3705,11 +3749,9 @@ export function buildAgentQuestionRules(args: {
   /** v2.71 — 있으면 curl 이 호출 시점에 이 파일에서 live 포트·토큰을 읽는다(없으면 serverBase/serverToken 상수). */
   identityFile?: string;
 }): string {
-  const { serverBase, serverToken, agentId, subAgentId, identityFile } = args;
+  const { agentId, subAgentId } = args;
   const subField = subAgentId ? `"${subAgentId}"` : 'null';
-  const prelude = buildDynamicEndpointPrelude(identityFile, serverBase, serverToken);
-  const base = prelude ? '$VIBI_BASE' : serverBase;
-  const tokenHdr = prelude ? `-H "x-vibisual-hook-token: $VIBI_TOKEN"` : `-H 'x-vibisual-hook-token: ${serverToken}'`;
+  const { base, tokenHdr } = cardEnvRefsShort();
   return `
 
 # 사용자 질문 (Vibisual IDE 질문 카드)
@@ -3720,18 +3762,15 @@ export function buildAgentQuestionRules(args: {
   - \`header\`: 질문 요지 한 줄(선택).
   - \`prompts\`: 사용자가 그대로 보내면 되는 **제안 응답 프롬프트** 목록(0~N). 사용자가 고를 만한 답을 그가 1인칭으로 말하듯 적어라(예: "네, A1 계측 → 1차(A1+B1) → 측정 후 판단 순으로 0차부터 착수해 주세요."). 선택지가 갈리면 여러 개 넣어라.
 
-**지금 할 수 있는 일을 끝낸 뒤**, 질문이 있는 보고에서만 — ${CARD_PUBLISH_ORDER_RULE}
+**지금 할 수 있는 일을 끝낸 뒤**, 질문이 있는 보고에서만 — **위 「카드 공통 규약」의 발행 순서**대로, 그 보고의 **맨 마지막 동작**으로 Bash 로 1회 호출한다:
 \`\`\`bash
-${prelude}curl -s -X POST "${base}/api/agent-questions" \\
+curl -s -X POST "${base}/api/agent-questions" \\
   ${tokenHdr} \\
   -H 'Content-Type: application/json' --data-binary @- <<'JSON'
 {"agentId":"${agentId}","subAgentId":${subField},"items":[{"question":"이 순서로 진행할까요?","header":"진행 순서 확인","prompts":["네, 그 순서로 진행해 주세요.","아니요, B안으로 가 주세요."]}]}
 JSON
 \`\`\`
-- **질문이 없으면(단순 완료·일상 대화) 호출하지 마라.** 질문 카드는 "사용자 답이 필요할 때만" 뜨는 게 목적이다.
-- 자연어 본문에 같은 질문·제안 답을 목록으로 다시 나열하지 마라 — 그건 이 카드가 보여준다. 본문은 짧은 맥락만.
-- 이 신고는 **표시 전용** — 실제 작업/판정 로직과 무관하다.
-- 토큰 헤더(\`x-vibisual-hook-token\`)가 없으면 401 이다. 위 예시에 이미 포함돼 있다.`;
+- **질문이 없으면(단순 완료·일상 대화) 호출하지 마라.** 질문 카드는 "사용자 답이 필요할 때만" 뜨는 게 목적이다.`;
 }
 
 /** agentId 당 보관하는 검수 요청 카드 최대 개수 (ring buffer 캡, 초과 시 오래된 것부터 제거). */
@@ -3791,11 +3830,9 @@ export function buildAgentReviewRules(args: {
   /** v2.71 — 있으면 curl 이 호출 시점에 이 파일에서 live 포트·토큰을 읽는다(없으면 serverBase/serverToken 상수). */
   identityFile?: string;
 }): string {
-  const { serverBase, serverToken, agentId, subAgentId, identityFile } = args;
+  const { agentId, subAgentId } = args;
   const subField = subAgentId ? `"${subAgentId}"` : 'null';
-  const prelude = buildDynamicEndpointPrelude(identityFile, serverBase, serverToken);
-  const base = prelude ? '$VIBI_BASE' : serverBase;
-  const tokenHdr = prelude ? `-H "x-vibisual-hook-token: $VIBI_TOKEN"` : `-H 'x-vibisual-hook-token: ${serverToken}'`;
+  const { base, tokenHdr } = cardEnvRefsShort();
   return `
 
 # 검수 요청 (Vibisual IDE 검수 카드)
@@ -3809,111 +3846,21 @@ export function buildAgentReviewRules(args: {
 - \`changes\`: 무슨 동작을 어떻게 고쳤는지 (1~N). **이게 비면 검수 요청 자체를 보내지 마라.**
 - \`checkpoints\`: 사용자가 확인할 검수 포인트·방법 (0~N, 예: "그 버튼을 다시 눌러 정상 동작 확인").
 
-**단순 완료·일상 대화·질문 답변·조사 보고에서는 호출하지 마라.** 사용자가 지시→완료→검수가 필요한 흐름일 때만 보낸다. **고칠 것을 다 고친 뒤**, 검수 요청이 있는 완료 보고에서만 — ${CARD_PUBLISH_ORDER_RULE}
+**단순 완료·일상 대화·질문 답변·조사 보고에서는 호출하지 마라.** 사용자가 지시→완료→검수가 필요한 흐름일 때만 보낸다. **고칠 것을 다 고친 뒤**, 검수 요청이 있는 완료 보고에서만 — **위 「카드 공통 규약」의 발행 순서**대로, 그 보고의 **맨 마지막 동작**으로 Bash 로 1회 호출한다:
 \`\`\`bash
-${prelude}curl -s -X POST "${base}/api/agent-review" \\
+curl -s -X POST "${base}/api/agent-review" \\
   ${tokenHdr} \\
   -H 'Content-Type: application/json' --data-binary @- <<'JSON'
 {"agentId":"${agentId}","subAgentId":${subField},"instruction":"받은 지시 한 줄","changes":["무슨 동작을 이렇게 고쳤다 1","고친 내용 2"],"checkpoints":["사용자가 확인할 검수 포인트 1"]}
 JSON
 \`\`\`
-- **\`changes\` 가 비어 있으면 검수 요청 자체를 보내지 마라** — 빈 신고는 카드만 늘려 신호를 묻는다.
-- **검수 요청으로 보낸 내용(\`instruction\`/\`changes\`/\`checkpoints\`)을 자연어 보고 본문에 목록·헤딩으로 다시 나열하지 마라.** 그 목록은 이 카드가 보여준다 — 본문에 또 풀어 쓰면 사용자가 같은 내용을 두 번 읽게 돼 취지가 무너진다. **검수 요청을 보낼 때 자연어 본문은 1~2문장 결론으로 최소화**하고, 한 일·검수 포인트의 목록 자체는 카드(changes/checkpoints)에만 담는다.
-- 이 신고는 **표시 전용** — 실제 작업/판정 로직과 무관하며, 보내든 안 보내든 결과엔 영향이 없다.
-- 토큰 헤더(\`x-vibisual-hook-token\`)가 없으면 401 이다. 위 예시에 이미 포함돼 있다.`;
+- **\`changes\` 가 비어 있으면 검수 요청 자체를 보내지 마라** — 빈 신고는 카드만 늘려 신호를 묻는다.`;
 }
 
 /** agentId 당 보관하는 번호 목록 정렬 카드 최대 개수 (ring buffer 캡, 초과 시 오래된 것부터 제거). */
 export const AGENT_LISTS_MAX_PER_AGENT = 50;
 
-/**
- * §4 v2.84 — 커스텀/스폰 에이전트에게 주입할 "번호 목록 정렬 카드" 지시문 (시스템 프롬프트 꼬리표).
- *
- * 작업 신고·질문·검수 카드와 동일 인프라(토큰 인증 loopback). 에이전트가 답변에 **여러 항목의
- * 번호/순서 목록**을 담을 때, 본문 텍스트로 길게 나열하지 말고 `POST /api/agent-list` 로 items 배열을
- * 보내면 IDE 가 번호를 자동으로 매겨 가지런히 정렬된 카드로 렌더한다. 번호 매김은 IDE 가 하므로
- * 에이전트는 항목 텍스트만 보낸다. Hook 에이전트는 spawn/rules 통제 밖이라 이 지시문이 안 들어간다.
- */
-export function buildAgentListRules(args: {
-  serverBase: string;
-  serverToken: string;
-  agentId: string;
-  subAgentId?: string;
-  /** v2.71 — 있으면 curl 이 호출 시점에 이 파일에서 live 포트·토큰을 읽는다(없으면 serverBase/serverToken 상수). */
-  identityFile?: string;
-}): string {
-  const { serverBase, serverToken, agentId, subAgentId, identityFile } = args;
-  const subField = subAgentId ? `"${subAgentId}"` : 'null';
-  const prelude = buildDynamicEndpointPrelude(identityFile, serverBase, serverToken);
-  const base = prelude ? '$VIBI_BASE' : serverBase;
-  const tokenHdr = prelude ? `-H "x-vibisual-hook-token: $VIBI_TOKEN"` : `-H 'x-vibisual-hook-token: ${serverToken}'`;
-  return `
 
-# 번호 목록 카드 (Vibisual IDE 정렬 카드)
-답변에 **여러 항목의 번호/순서 목록**(나열, 체크리스트, 단계 목록 등)을 담을 때는, 그 목록을 본문 텍스트로 길게 나열하지 말고 아래 엔드포인트로 \`items\` 배열을 보낸다. Vibisual IDE 가 **번호를 자동으로 매겨** 가지런히 정렬된 카드로 보여준다(사용자가 한눈에 파악, 번호·줄바꿈 어긋남 없음).
-
-- \`title\`: 목록 제목 / 머리말 (선택, 예: "플레이어에게 표시할 것 전부").
-- \`items\`: 목록 항목들 (2개 이상). **번호는 IDE 가 매기니 항목 텍스트만** 넣어라("1." 같은 번호를 직접 붙이지 마라). **비거나 1개면 보내지 마라.**
-- \`note\`: 맥락 한 줄 (선택).
-
-**그 목록이 확정된 뒤**(= 더 조사·수정할 게 남지 않았을 때), 번호 목록이 있는 보고에서만 — ${CARD_PUBLISH_ORDER_RULE}
-\`\`\`bash
-${prelude}curl -s -X POST "${base}/api/agent-list" \\
-  ${tokenHdr} \\
-  -H 'Content-Type: application/json' --data-binary @- <<'JSON'
-{"agentId":"${agentId}","subAgentId":${subField},"title":"플레이어에게 표시할 것","items":["크로스헤어 (중앙 점)","인벤토리 바 (3슬롯)","현장 위험도 FieldRisk"]}
-JSON
-\`\`\`
-- **\`items\` 가 비거나 1개면 보내지 마라** — 카드만 늘려 신호를 묻는다.
-- **같은 목록을 자연어 본문에 또 번호로 나열하지 마라** — 그 목록은 이 카드가 보여준다. 본문은 짧은 맥락만.
-- 이 신고는 **표시 전용** — 실제 작업/판정 로직과 무관하며, 보내든 안 보내든 결과엔 영향이 없다.
-- 토큰 헤더(\`x-vibisual-hook-token\`)가 없으면 401 이다. 위 예시에 이미 포함돼 있다.`;
-}
-
-/**
- * §7.11 v2.29 — 커스텀/스폰 에이전트에게 주입할 "서버 iframe 신고" 지시문 (시스템 프롬프트 꼬리표).
- *
- * 작업 신고·질문·검수·목록 카드와 동일 인프라(토큰 인증 loopback)이지만 **표시 대상이 다르다**:
- * 에이전트가 사용자가 열어볼 서버(dev/정적/게임 프리뷰 등)를 띄웠을 때 그 URL 을 `POST /api/agent-iframe`
- * 로 신고하면, Vibisual 이 그 세션에 **iframe 위성 버블을 정확한 URL 로 직접 생성**한다(캔버스에서 클릭 →
- * 앱 안 프리뷰). 종전엔 서버를 명령어·로그에서 정규식으로 "추측"해 잡았는데, 위치 인자 포트·버퍼링된 배너 등
- * 새 기동 방식마다 놓쳤다(§7.11 v2.28). 신고는 URL 이 그대로 오므로 추측이 사라진다 — 이게 **주 경로**,
- * 정규식 감지는 외부(우리가 spawn 안 한 vscode 등) 세션용 폴백으로 남는다. Hook 에이전트는 spawn/rules
- * 통제 밖이라 이 지시문이 안 들어간다(하이브리드 경계).
- */
-export function buildAgentIframeRules(args: {
-  serverBase: string;
-  serverToken: string;
-  agentId: string;
-  subAgentId?: string;
-  /** v2.71 — 있으면 curl 이 호출 시점에 이 파일에서 live 포트·토큰을 읽는다(없으면 serverBase/serverToken 상수). */
-  identityFile?: string;
-}): string {
-  const { serverBase, serverToken, agentId, subAgentId, identityFile } = args;
-  const subField = subAgentId ? `"${subAgentId}"` : 'null';
-  const prelude = buildDynamicEndpointPrelude(identityFile, serverBase, serverToken);
-  const base = prelude ? '$VIBI_BASE' : serverBase;
-  const tokenHdr = prelude ? `-H "x-vibisual-hook-token: $VIBI_TOKEN"` : `-H 'x-vibisual-hook-token: ${serverToken}'`;
-  return `
-
-# 서버 iframe 신고 (Vibisual IDE 프리뷰 버블)
-**전제 — 사용자가 직접 "서버를 띄워라 / 프리뷰를 보여줘" 라고 요청했을 때만 이 신고를 한다.** 미리보기를 보여주려고 **네 판단으로 서버를 새로 기동하지 마라** — 사용자가 시키지도 않았는데 dev/정적 서버를 자발적으로 띄우는 것은 금지다(사용자가 "왜 안 시켰는데 서버가 켜졌냐"고 문제 삼은 바로 그 지점). 사용자가 **명시적으로 요청해서 띄운**(또는 작업상 반드시 실행해야 해서 이미 돌고 있는) **브라우저로 열어볼 로컬 서버**만, 그 URL 을 아래 엔드포인트로 **1회 신고**한다. Vibisual 이 그 URL 로 **iframe 프리뷰 버블**을 캔버스에 직접 띄워 사용자가 링크를 복사해 열 필요 없이 앱 안에서 바로 본다.
-
-- \`url\`: 사용자가 열 **정확한 URL**(포트 + 경로 포함). 특정 페이지를 보여주려면 그 경로까지 넣어라(예: \`http://127.0.0.1:8777/index.html\`).
-
-**서버가 실제로 응답하는 걸 확인한 뒤**(예: curl 로 200 확인) 신고하라 — 살아있는 서버만 버블이 뜬다. 같은 URL 을 다시 신고해도 **중복 버블은 안 생긴다**(같은 포트는 하나로 합쳐짐) — 안심하고 보내도 된다.
-\`\`\`bash
-${prelude}curl -s -X POST "${base}/api/agent-iframe" \\
-  ${tokenHdr} \\
-  -H 'Content-Type: application/json' --data-binary @- <<'JSON'
-{"agentId":"${agentId}","subAgentId":${subField},"url":"http://127.0.0.1:8777/index.html"}
-JSON
-\`\`\`
-- **사용자가 서버·프리뷰를 요청하지 않았으면 보내지 마라.** 일회성 명령·probe(curl/wget)·빌드, 그리고 요청 없이 네가 임의로 띄운 서버는 신고 대상이 아니다 — 사용자가 명시적으로 원한 실제 서버가 있을 때만.
-- 신고 후 자연어 본문에서 "링크를 브라우저에서 여세요" 식 안내를 길게 반복하지 마라 — 버블이 그 역할을 한다. 짧은 맥락 한 줄이면 충분.
-- 이 신고는 **표시 전용** — 실제 작업/판정 로직과 무관하며, 보내든 안 보내든 결과엔 영향이 없다.
-- 토큰 헤더(\`x-vibisual-hook-token\`)가 없으면 401 이다. 위 예시에 이미 포함돼 있다.`;
-}
 
 // ─── §5.14 v4.62 — 플레이 버블 (이 프로젝트를 켜는 버튼) ───
 
@@ -3957,10 +3904,8 @@ export function buildPlayRecipeAskPrompt(args: {
   projectPath: string;
   identityFile?: string;
 }): string {
-  const { serverBase, serverToken, bubbleId, projectPath, identityFile } = args;
-  const prelude = buildDynamicEndpointPrelude(identityFile, serverBase, serverToken);
-  const base = prelude ? '$VIBI_BASE' : serverBase;
-  const tokenHdr = prelude ? `-H "x-vibisual-hook-token: $VIBI_TOKEN"` : `-H 'x-vibisual-hook-token: ${serverToken}'`;
+  const { serverBase, serverToken, bubbleId, projectPath } = args;
+  const { base, tokenHdr } = cardEndpointRefs(serverBase, serverToken);
   return `이 프로젝트(\`${projectPath}\`)를 **어떻게 실행하는지**만 알아내서 아래 엔드포인트로 등록해 주세요.
 
 **서버를 띄우지 마세요.** 실행은 사용자가 캔버스의 플레이 버튼을 누를 때 Vibisual 이 합니다. 당신이 할 일은 조사와 등록뿐입니다.
@@ -3978,7 +3923,7 @@ export function buildPlayRecipeAskPrompt(args: {
 - \`label\`: 사람이 읽을 한 줄(예: \`pnpm dev (vite)\`).
 
 \`\`\`bash
-${prelude}curl -s -X POST "${base}/api/play-recipe" \\
+curl -s -X POST "${base}/api/play-recipe" \\
   ${tokenHdr} \\
   -H 'Content-Type: application/json' --data-binary @- <<'JSON'
 {"bubbleId":"${bubbleId}","kind":"command","command":"pnpm dev","cwd":"${projectPath.replace(/\\/g, '/')}","port":5173,"openPath":"/","label":"pnpm dev"}
@@ -4234,18 +4179,13 @@ export const SESSION_GOAL_STEPS_MAX = 30;
 export const SESSION_GOAL_STEP_TEXT_MAX = 200;
 
 /**
- * §5.5 #17-17 v4.46 — 목표를 향해 달리게 하는 주입 블록 + 진행률 신고 지시문.
+ * §5.5 #17-28 ⑧(c) — 목표 블록의 **변하는 절반**(상태). 매 턴 새로 조립돼 프롬프트 앞에 선다.
  *
- * `processNextCommand` 가 **매 턴** 다시 조립하므로, 사용자가 작업 도중 목표를 고쳐도
- * 다음 턴부터 새 문장이 들어간다(재스폰·재시작 불필요 = "수시로 바꿔도 상관없다").
- * 커스텀/스폰 에이전트에만 주입된다(훅 에이전트는 우리가 spawn 하지 않아 경로 자체가 없다).
- * 목표가 없거나 `status !== 'active'` 면 호출자가 아예 붙이지 않는다.
+ * 종전에는 상태와 규약(아래 `buildSessionGoalProtocol`)이 한 덩어리라 **매 턴 1,600 토큰**이 통째로
+ * 사용자 메시지에 다시 쌓였다. 실제로 턴마다 달라지는 것은 이 함수가 만드는 몇 줄뿐이고(실측 69 토큰),
+ * 나머지는 세션 내내 한 글자도 바뀌지 않는 산문이었다.
  */
-export function buildSessionGoalRules(args: {
-  serverBase: string;
-  serverToken: string;
-  agentId: string;
-  subAgentId: string;
+export function buildSessionGoalState(args: {
   /** 최종 목표 한 문장. */
   goalText: string;
   /** 지금까지의 진행률 (0~100). 단계가 있으면 `done/전체` 파생값이다. */
@@ -4258,13 +4198,8 @@ export function buildSessionGoalRules(args: {
   note?: string;
   /** 목표 문장이 바뀐 횟수 — 바뀌었다는 사실 자체가 모델에게 신호다. */
   revision: number;
-  /** v2.71 — 있으면 curl 이 호출 시점에 이 파일에서 live 포트·토큰을 읽는다. */
-  identityFile?: string;
 }): string {
-  const { serverBase, serverToken, agentId, subAgentId, goalText, percent, steps, authoredBy, note, revision, identityFile } = args;
-  const prelude = buildDynamicEndpointPrelude(identityFile, serverBase, serverToken);
-  const base = prelude ? '$VIBI_BASE' : serverBase;
-  const tokenHdr = prelude ? `-H "x-vibisual-hook-token: $VIBI_TOKEN"` : `-H 'x-vibisual-hook-token: ${serverToken}'`;
+  const { goalText, percent, steps, authoredBy, note, revision } = args;
   const revLine = revision > 0
     ? `\n(이 목표는 지금까지 ${revision}번 수정됐다 — **위에 적힌 지금 문장만이 유효**하다. 예전 판본은 잊어라.)`
     : '';
@@ -4272,40 +4207,75 @@ export function buildSessionGoalRules(args: {
   const mark: Record<SessionGoalStepStatus, string> = { done: '[x]', in_progress: '[~]', pending: '[ ]' };
   const stepsBlock = steps && steps.length > 0
     ? `\n\n**지금 목록** (퍼센트는 여기서 나온다 — 끝낸 것만 \`done\`):\n${steps.map((s) => `- ${mark[s.status]} ${s.text}`).join('\n')}`
-    : `\n\n**아직 목록이 없다 — 이 턴에 목록부터 세워라.** \`TodoWrite\` 가 도구 목록에 있으면 그것으로 계획을 세우면 되고(그게 곧 이 목록이 된다, 따로 신고 ❌), **없으면 아래 신고의 \`steps\` 로 직접 세워라.** 목록이 비어 있는 동안 사용자는 네가 무엇을 하려는지 화면에서 볼 수 없다.`;
+    : `\n\n**아직 목록이 없다 — 이 턴에 목록부터 세워라.**`;
   const authorLine = authoredBy === 'user'
     ? '\n(이 목표 문장은 **사용자가 직접 고친 것**이다 — 바꾸지 말고 그대로 따르라.)'
     : '';
   return `
 
-# 이 세션의 목표 (Vibisual IDE 목표 창 — 네가 쓰는 진행 목록)
+# 이 세션의 목표 (진행 목록 — 갱신 방법은 시스템 프롬프트의 「목표 창 규약」)
 **목표**: ${goalText}${authorLine}${revLine}
-**현재 진행률**: ${percent}%${noteLine}${stepsBlock}
+**현재 진행률**: ${percent}%${noteLine}${stepsBlock}`;
+}
 
-이 목표 창은 **네가 지금 무엇을 향해 가는지**를 사용자에게 보여주는 자리다. 사용자가 채워 주는 칸이 아니라 **네가 쓰는 칸**이다 — 사용자는 이걸 보고 "이 세션이 이 일을 하고 있고, 여기까지 왔고, 다 되면 끝나는구나"를 파악한다.
+/**
+ * §5.5 #17-28 ⑧(c) — 목표 블록의 **안 변하는 절반**(규약). `--append-system-prompt` 로 세션에 한 벌만
+ * 실린다.
+ *
+ * 시스템 프롬프트에 두는 이유는 토큰만이 아니다 — 사용자 메시지에 있는 규칙은 **압축(compact)에
+ * 쓸려 나갈 수 있고**, 그러면 세션 중반부터 목록을 갱신하는 방법을 아무도 말해 주지 않는 상태가 된다.
+ * 시스템 프롬프트는 압축을 넘어 살아남고, 캐시 프리픽스의 맨 앞이라 재열람 비용도 가장 싸다.
+ */
+export function buildSessionGoalProtocol(args: {
+  serverBase: string;
+  serverToken: string;
+  agentId: string;
+  subAgentId: string;
+}): string {
+  const { serverBase, serverToken, agentId, subAgentId } = args;
+  const { base, tokenHdr } = cardEndpointRefs(serverBase, serverToken);
+  return `
 
-**규칙은 두 줄이다: ① 지금 할 일을 이 목록에 넣는다. ② 하나 끝낼 때마다 그 항목을 \`done\` 으로 옮긴다**(화면에서 그 줄에 취소선이 그어지고 퍼센트가 오른다). 목록이 비어 있으면 사용자 화면에는 아무것도 안 뜬다 — 그건 이 세션이 무엇을 하는지 말하지 않는 것과 같다.
+# 목표 창 규약 (Vibisual IDE — 진행 목록은 네가 쓴다)
+이 세션에는 **목표 창**이 있고, 그 목록을 채우고 갱신하는 것은 네 일이다 — 사용자는 그것을 보고 "이 세션이 무엇을 하고 있고, 여기까지 왔구나"를 판단한다. 지금 상태는 매 턴 프롬프트 앞에 붙어 온다.
 
-- **목록을 채우고 갱신하는 것은 네 일이다 — 비워 두지 마라.** \`TodoWrite\` 로 계획을 세우거나 갱신하면 그것이 그대로 이 체크리스트가 되고, 끝낸 항목을 \`completed\` 로 옮기는 순간 퍼센트가 오른다(별도 신고 ❌). **그 도구가 네 도구 목록에 없으면 아래 신고의 \`steps\` 로 같은 일을 하라** — 수단이 무엇이든 화면의 목록은 항상 지금 상태여야 한다.
-- **사용자가 방금 보낸 명령이 목표보다 우선이다.** 목표는 방향이고 명령은 지금 할 일이다 — 둘이 어긋나면 명령을 따르고, 목표 쪽을 아래 신고로 고쳐 맞춰라.
-- 위 목표 문장이 지금 하는 일과 다르면 **네가 고쳐라**(아래 \`goal\`). 사용자가 직접 고친 문장이라고 표시돼 있으면 건드리지 마라.
+**규칙은 두 줄이다: ① 지금 할 일을 목록에 넣는다. ② 하나 끝낼 때마다 그 항목을 \`done\` 으로 옮긴다**(그 줄에 취소선이 그어지고 퍼센트가 오른다). 목록이 비어 있으면 사용자 화면에는 아무것도 안 뜬다.
 
-${steps && steps.length > 0
-    ? `**목표·진행 신고** — 단계를 하나 끝냈거나(→ \`done\`), 목록 자체가 바뀌었거나, 목표 문장을 다듬을 때 Bash 로 1회 호출한다(실패해도 무시하고 보고는 그대로 진행):`
-    : `**목표·진행 신고 — 이번 턴에 목록부터 세워라.** \`TodoWrite\` 를 쓸 수 있으면 그것으로 충분하고(자동 반영), 없으면 아래 호출의 \`steps\` 로 지금 할 일을 넣어라. 이후 하나 끝낼 때마다 같은 호출로 그 항목을 \`done\` 으로 옮긴다:`}
+- \`TodoWrite\` 가 도구 목록에 있으면 그것으로 계획을 세우면 된다(그게 곧 이 목록이 된다, 따로 신고 ❌). **없으면 아래 신고의 \`steps\` 로 같은 일을 하라.**
+- **사용자가 방금 보낸 명령이 목표보다 우선이다.** 둘이 어긋나면 명령을 따르고 목표 쪽을 아래 신고로 고쳐 맞춰라. 목표 문장이 지금 하는 일과 다르면 네가 고쳐라(\`goal\`) — 단, 사용자가 직접 고친 문장이라고 표시돼 있으면 건드리지 마라.
+
+단계를 하나 끝냈거나, 목록 자체가 바뀌었거나, 목표 문장을 다듬을 때 Bash 로 1회 호출한다(실패해도 무시하고 보고는 그대로 진행):
 \`\`\`bash
-${prelude}curl -s -X POST "${base}/api/session-goal/${agentId}/${subAgentId}/progress" \\
+curl -s -X POST "${base}/api/session-goal/${agentId}/${subAgentId}/progress" \\
   ${tokenHdr} \\
   -H 'Content-Type: application/json' --data-binary @- <<'JSON'
 {"goal":"로그인 화면을 테스트까지 붙여 끝낸다","steps":[{"text":"스키마 정의","status":"done"},{"text":"서버 배선","status":"in_progress"}],"note":"스키마 끝, 서버 배선 중"}
 JSON
 \`\`\`
-- \`goal\`: 이 세션이 향하는 목표 한 문장(네가 정한다). 안 보내면 그대로 유지된다.
-- \`steps\`: **목록 전체**를 통째로. 본문이 같은 단계는 화면에서 같은 항목으로 이어지니 본문은 되도록 그대로 두고 \`status\` 만 옮겨라. \`done\` 개수가 곧 퍼센트다 — **실제로 끝난 것만** \`done\` 으로.
-- \`note\`: 지금 상황 한 줄. \`percent\`: 단계로 표현할 수 없을 때만 쓰는 대안(0~100, \`steps\` 를 보내면 무시).
-- **바뀐 게 없으면 보내지 마라.** 마지막 단계까지 끝나면 100% 가 되고, 목표를 닫는 것은 사용자가 한다.
-- 이 신고는 **표시 전용** — 실제 작업/판정 로직과 무관하다.
-- 토큰 헤더(\`x-vibisual-hook-token\`)가 없으면 401 이다. 위 예시에 이미 포함돼 있다.`;
+- \`steps\`: **목록 전체**를 통째로. 본문이 같은 단계는 화면에서 같은 항목으로 이어지니 본문은 그대로 두고 \`status\` 만 옮겨라. \`done\` 개수가 곧 퍼센트다 — **실제로 끝난 것만** \`done\` 으로.
+- \`goal\`: 목표 한 문장(안 보내면 유지). \`note\`: 지금 상황 한 줄. \`percent\`: 단계로 표현 못 할 때만 쓰는 대안.
+- **바뀐 게 없으면 보내지 마라.** 마지막 단계까지 끝나면 100% 가 되고, 목표를 닫는 것은 사용자가 한다. 표시 전용이라 결과엔 영향이 없다.`;
+}
+
+/**
+ * §5.5 #17-17 — 목표 블록 **전량**(상태 + 규약). §5.5 #17-28 의 주입원 표가 "이 세션에 목표 때문에
+ * 얼마가 실리는가"를 한 줄로 재는 데 쓴다. 실제 발송은 둘로 갈라 나간다 — 상태는 매 턴 프롬프트로,
+ * 규약은 스폰의 `--append-system-prompt` 로.
+ */
+export function buildSessionGoalRules(args: {
+  serverBase: string;
+  serverToken: string;
+  agentId: string;
+  subAgentId: string;
+  goalText: string;
+  percent: number;
+  steps?: { text: string; status: SessionGoalStepStatus }[];
+  authoredBy?: 'session' | 'user';
+  note?: string;
+  revision: number;
+  identityFile?: string;
+}): string {
+  return buildSessionGoalState(args) + buildSessionGoalProtocol(args);
 }
 
 /**
@@ -5167,12 +5137,8 @@ export function buildBrainRulesSection(args: {
   nudgeBlock?: string;
   identityFile?: string;
 }): string {
-  const { serverBase, serverToken, cardsBlock, topicIndexBlock, skillsBlock, nudgeBlock, identityFile } = args;
-  const prelude = buildDynamicEndpointPrelude(identityFile, serverBase, serverToken);
-  const base = prelude ? '$VIBI_BASE' : serverBase;
-  const tokenHdr = prelude
-    ? `-H "x-vibisual-hook-token: $VIBI_TOKEN"`
-    : `-H 'x-vibisual-hook-token: ${serverToken}'`;
+  const { serverBase, serverToken, cardsBlock, topicIndexBlock, skillsBlock, nudgeBlock } = args;
+  const { base, tokenHdr } = cardEndpointRefs(serverBase, serverToken);
   const memory = cardsBlock.trim()
     ? `
 
@@ -5196,7 +5162,7 @@ ${topics}${skills}
 ## 능동 검색
 작업 중 과거 결정·함정·규칙이 궁금하면 아래로 프로젝트 기억을 직접 검색할 수 있다(프로젝트+너 자신의 두 층 합산, 결과에 출처 층 표시). 실패해도 무시하고 작업은 계속한다.
 \`\`\`bash
-${prelude}curl -s ${tokenHdr} "${base}/api/brain/search?q=검색어"
+curl -s ${tokenHdr} "${base}/api/brain/search?q=검색어"
 \`\`\`
 - 이 검색은 표시/참고 전용이며, 호출 여부는 작업 결과에 영향을 주지 않는다.
 - 토큰 헤더(\`x-vibisual-hook-token\`)가 없으면 401 이다(위 예시에 포함).

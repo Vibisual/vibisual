@@ -31,7 +31,7 @@
       "tooltipWaiting": "Noch keine Agenten in diesem Projekt",
       "tooltipWorking": "Dieses Projekt: {{agents}} Agenten · {{running}} von {{sessions}} Sessions laufen",
       "tooltipIdle": "Dieses Projekt: {{agents}} Agenten · {{sessions}} Sessions — derzeit läuft nichts",
-      "tooltipCommand": "{{status}} · Klicken, um den Leitstand zu öffnen"
+      "tooltipMenu": "{{status}} · Klicken, um Fenster & Bubbles zu öffnen"
     },
     "tab": {
       "closeProject": "Projekt schließen",
@@ -41,7 +41,8 @@
     },
     "usage": {
       "tooltip": "Aktuelle Sitzung: {{percent}} % des 5-Stunden-Limits verbraucht — für Details klicken",
-      "tooltipNoData": "Nutzungsdaten werden noch nicht erfasst — zum Aktivieren klicken"
+      "tooltipNoData": "Nutzungsdaten werden noch nicht erfasst — zum Aktivieren klicken",
+      "tooltipWaiting": "Nutzungssammler ist aktiv – wartet auf die erste Meldung einer interaktiven Claude-Code-Sitzung"
     },
     "setupBanner": {
       "text": "Claude Code ist nicht installiert — Agenten können noch nicht laufen.",
@@ -53,6 +54,7 @@
       "sectionTitle": "Fenster & Bubbles",
       "empty": "Keine Agent-Bubbles in diesem Projekt",
       "hint": "Einklappen ist kein Schließen — das Fenster verlässt nur den Bildschirm, damit die Canvas zurückkommt.",
+      "commandCenterHint": "Kommandozentrale öffnen — sehen, was in diesem Projekt auf Sie wartet",
       "openNew": "In neuem Fenster öffnen",
       "bringToFront": "Nach vorn holen",
       "settings": "Agent-Einstellungen",
@@ -232,7 +234,8 @@
         "advanced": "Erweitert",
         "version": "Version",
         "account": "Konto",
-        "storage": "Speicher"
+        "storage": "Speicher",
+        "brain": "Projekt-Brain"
       },
       "appearance": {
         "intro": "Passen Sie das Erscheinungsbild von Vibisual an.",
@@ -1182,6 +1185,7 @@
       "creditsUsed": "{{percent}} % deines Guthabens verbraucht",
       "creditsHint": "Guthaben hält Claude am Laufen, wenn ein Tariflimit erreicht ist. Verwaltung in der Claude-App.",
       "errNoCredentials": "Auf diesem Rechner ist Claude Code nicht angemeldet, daher lässt sich die Nutzung nicht direkt lesen. Melde dich mit Claude Code an oder nutze unten den Statuszeilen-Collector.",
+      "errAwaitingStatusLine": "Der Sammler ist aktiv, es sind aber noch keine Werte eingegangen. Limits kommen an, sobald eine interaktive Claude-Code-Sitzung ihre Statuszeile rendert.",
       "errUnauthorized": "Die gespeicherte Claude-Anmeldung ist abgelaufen. Starte Claude Code einmal — sie erneuert sich selbst und die Zahlen kommen zurück.",
       "errNetwork": "Claude war gerade nicht erreichbar. Es werden die zuletzt empfangenen Werte angezeigt.",
       "refreshFailed": "Aktualisierung fehlgeschlagen"
@@ -3121,7 +3125,12 @@
       "createLocalAgent": "Alle Modelle",
       "createLocalAgentHint": "Legt eine Bubble für ein Modell ab, das auf diesem PC läuft",
       "createShelf": "Skript-Ablage",
-      "createShelfHint": "Halte die Befehle und Prompts, die du oft verwendest, einen Klick entfernt"
+      "createShelfHint": "Halte die Befehle und Prompts, die du oft verwendest, einen Klick entfernt",
+      "brainOn": "Projekt-Brain einschalten",
+      "brainOff": "Projekt-Brain ausschalten",
+      "brainOnHint": "Sammelt gelernte Abläufe und lädt sie in die nächste Aufgabe",
+      "brainOnHintSleeping": "{{count}} Erinnerungen schlummern hier",
+      "brainOffHint": "Ausschalten löscht nichts"
     },
     "bounds": {
       "label": "Blasenrahmen",
@@ -3567,7 +3576,12 @@
       "hideAxes": "Details ausblenden",
       "axesTitle": "Was aktiviert bleiben soll",
       "turnOff": "Brain ausschalten",
-      "offKeepsData": "Ausschalten löscht nichts — beim Einschalten geht es dort weiter."
+      "offKeepsData": "Ausschalten löscht nichts — beim Einschalten geht es dort weiter.",
+      "noProject": "Kein Projekt geöffnet",
+      "noProjectDesc": "Das Brain wird pro Projekt eingeschaltet — öffne zuerst ein Projekt.",
+      "stateOn": "Das Brain dieses Projekts ist an",
+      "stateOff": "Das Brain dieses Projekts ist aus",
+      "sleepingCount": "{{count}} Erinnerungen schlummern"
     }
   },
   "commandCenter": {

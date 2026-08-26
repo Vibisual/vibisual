@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { exec, execFile, spawn, type ChildProcess } from 'node:child_process';
 import multer from 'multer';
-import { DEFAULT_PORT, SESSION_SCAN_INTERVAL, FILE_EXISTENCE_CHECK_INTERVAL, SATELLITE_TYPES, IFRAME_PROXY_PATH, AGENT_IDLE_THRESHOLD_MS, AGENT_IDLE_SWEEP_INTERVAL_MS, INTERRUPT_RECONCILE_INTERVAL_MS, SUBAGENT_DORMANT_IDLE_MS, TASK_EDGE_DISPATCH_DEFAULT_TIMEOUT_MS, TASK_EDGE_CRITIQUE_MAX_REWORK_LIMIT, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, SUPPORTED_UI_LOCALES, CONTI_AGENT_RULES, RULES_HISTORY_MAX, CANVAS_CLIPBOARD_SCHEMA_VERSION, AGENT_INTENT_FIRST_RULES, buildAgentReportRules, buildAgentQuestionRules, buildAgentReviewRules, buildAgentListRules, buildAgentIframeRules, buildAgentFeedbackBlock, AGENT_FEEDBACK_SUMMARY_ITEM_MAX, CLAUDE_USAGE_POLL_INTERVAL_MS, CLAUDE_AUTH_POLL_INTERVAL_MS, CLAUDE_AUTO_UPDATE_BOOT_DELAY_MS, SESSION_GOAL_TEXT_MAX, buildSessionGoalRules, CONTEXT_SOURCE_IDS, CONTEXT_PLUGIN_ID_PREFIX, CONTEXT_PREVIEW_MAX_CHARS, estimateTokens, VERIFICATION_VERDICT_SCHEMA_GUIDE, COST_MAP_SWEEP_INTERVAL_MS, normalizeTodoStatus, BUILTIN_SLASH_COMMANDS,
+import { DEFAULT_PORT, SESSION_SCAN_INTERVAL, FILE_EXISTENCE_CHECK_INTERVAL, SATELLITE_TYPES, IFRAME_PROXY_PATH, AGENT_IDLE_THRESHOLD_MS, AGENT_IDLE_SWEEP_INTERVAL_MS, INTERRUPT_RECONCILE_INTERVAL_MS, SUBAGENT_DORMANT_IDLE_MS, TASK_EDGE_DISPATCH_DEFAULT_TIMEOUT_MS, TASK_EDGE_CRITIQUE_MAX_REWORK_LIMIT, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, SUPPORTED_UI_LOCALES, CONTI_AGENT_RULES, RULES_HISTORY_MAX, CANVAS_CLIPBOARD_SCHEMA_VERSION, AGENT_INTENT_FIRST_RULES, buildAgentCardCommonRules, AGENT_CARD_ENV_BASE, AGENT_CARD_ENV_TOKEN, buildAgentReportRules, buildAgentQuestionRules, buildAgentReviewRules, buildAgentFeedbackBlock, AGENT_FEEDBACK_SUMMARY_ITEM_MAX, CLAUDE_USAGE_POLL_INTERVAL_MS, CLAUDE_AUTH_POLL_INTERVAL_MS, CLAUDE_AUTO_UPDATE_BOOT_DELAY_MS, SESSION_GOAL_TEXT_MAX, buildSessionGoalRules, buildSessionGoalState, buildSessionGoalProtocol, CONTEXT_SOURCE_IDS, CONTEXT_PLUGIN_ID_PREFIX, CONTEXT_PREVIEW_MAX_CHARS, estimateTokens, VERIFICATION_VERDICT_SCHEMA_GUIDE, COST_MAP_SWEEP_INTERVAL_MS, normalizeTodoStatus, BUILTIN_SLASH_COMMANDS,
   BRAIN_AXIS_IDS,
   BRAIN_CURATOR_PAGE_SIZE,
   BRAIN_TOPIC_MISC,
@@ -1009,7 +1009,9 @@ export async function runServer(): Promise<RunServerHandle> {
    * 돌려주고 호출부의 `void`·`await` 는 그대로 둔다.
    */
   function refreshClaudeUsage(): ClaudeUsageInfo {
-    const info = buildClaudeUsage(graphManager.getRateLimits(), Date.now());
+    // 값이 비었을 때 "수집기를 켜라" 와 "켜져 있으니 첫 값을 기다리는 중" 을 화면이 구분해
+    // 말하려면 설치 여부가 필요하다(settings.json 1회 읽기 — 이 함수는 갱신 때만 돈다).
+    const info = buildClaudeUsage(graphManager.getRateLimits(), Date.now(), readUsageCollectorStatus().installed);
     const before = graphManager.getClaudeUsage();
     graphManager.setClaudeUsage(info);
     scheduleResetRefresh(info);
@@ -1788,6 +1790,11 @@ export async function runServer(): Promise<RunServerHandle> {
     brainRoot: string;
     /** §5.10 v2 (B) — 이번 턴에 실린 스킬 id. 실제로 보냈을 때만 노출을 적기 위해 돌려준다. */
     skillIds: string[];
+    /**
+     * §5.5 #17-28 ⑧(c) — 목표 블록의 두 절반. 표(인벤토리)는 둘을 합쳐 한 줄로 재지만, 실제 발송은
+     * 갈라진다 — 상태는 매 턴 프롬프트로, 규약은 스폰의 `--append-system-prompt` 로.
+     */
+    goalParts: { state: string; protocol: string };
   } {
     const { agent, cwd, agentConfig, subAgentId } = input;
     const parts: MeasuredPart[] = [];
@@ -1839,18 +1846,19 @@ export async function runServer(): Promise<RunServerHandle> {
     };
     const custom = Boolean(agent.customCreated);
     parts.push({ id: CONTEXT_SOURCE_IDS.intentFirst, text: custom ? AGENT_INTENT_FIRST_RULES : '' });
+    // §5.5 #17-28 ⑧(a) — 카드 5종이 공유하는 규칙 한 벌. 카드 블록들보다 **앞**에 선다(가리키는 쪽이 뒤).
+    parts.push({ id: CONTEXT_SOURCE_IDS.cardCommon, text: custom ? buildAgentCardCommonRules(ruleArgs) : '' });
     parts.push({ id: CONTEXT_SOURCE_IDS.cardReport, text: custom ? buildAgentReportRules(ruleArgs) : '' });
     parts.push({ id: CONTEXT_SOURCE_IDS.cardQuestion, text: custom ? buildAgentQuestionRules(ruleArgs) : '' });
     parts.push({ id: CONTEXT_SOURCE_IDS.cardReview, text: custom ? buildAgentReviewRules(ruleArgs) : '' });
-    parts.push({ id: CONTEXT_SOURCE_IDS.cardList, text: custom ? buildAgentListRules(ruleArgs) : '' });
-    parts.push({ id: CONTEXT_SOURCE_IDS.cardIframe, text: custom ? buildAgentIframeRules(ruleArgs) : '' });
 
     // 세션 목표 — 그 탭에 active 목표가 있을 때만 실린다(없으면 빈 줄 = "해당 없음").
     let goalText = '';
+    const goalParts = { state: '', protocol: '' };
     if (custom && subAgentId) {
       const goal = graphManager.getSessionGoal(subAgentId);
       if (goal && goal.status === 'active' && goal.text.trim()) {
-        goalText = buildSessionGoalRules({
+        const goalArgs = {
           ...ruleArgs,
           subAgentId,
           goalText: goal.text.trim(),
@@ -1861,7 +1869,10 @@ export async function runServer(): Promise<RunServerHandle> {
           authoredBy: goal.authoredBy,
           ...(goal.note ? { note: goal.note } : {}),
           revision: goal.revision,
-        });
+        };
+        goalParts.state = buildSessionGoalState(goalArgs);
+        goalParts.protocol = buildSessionGoalProtocol(goalArgs);
+        goalText = goalParts.state + goalParts.protocol;
       }
     }
     parts.push({ id: CONTEXT_SOURCE_IDS.goal, text: goalText });
@@ -1924,7 +1935,7 @@ export async function runServer(): Promise<RunServerHandle> {
       parts.push({ id: CONTEXT_SOURCE_IDS.hookEnforcement, text: '', defaultEnabled: true });
     }
 
-    return { parts, brief, brainRoot, skillIds: pickedSkillIds };
+    return { parts, brief, brainRoot, skillIds: pickedSkillIds, goalParts };
   }
 
   /** 큐에서 dispatch 가능한 명령을 전부 실행.
@@ -2028,11 +2039,25 @@ export async function runServer(): Promise<RunServerHandle> {
       //   첫 스폰에서만 쓰이므로(이어지는 턴은 preamble 만 간다), 여기에만 넣으면 "매 턴 재조립"이
       //   실제로는 **세션 첫 턴 1회**가 된다 — 세션이 목록을 유지할 지시를 받지 못해 목표창의 단계가
       //   영영 비어 있던 진짜 원인(실측: 목표 5건 전부 steps=0). 집행 블록(§5.11 v4.65)과 같은 자리.
+      // §5.5 #17-28 ⑧(c) — 의도 선언과 목표 **규약**은 세션 내내 한 글자도 안 변한다. 종전에는 둘 다
+      //   `livePreamble` 을 타고 **매 턴 사용자 메시지에 새로 쌓여** 턴이 늘수록 같은 문장이 이력에
+      //   N벌 남았다(실측 249 세션에서 4.6M 토큰 노출). 이제 `--append-system-prompt` 로 프로세스당
+      //   한 벌만 실어 보낸다 — 캐시 프리픽스의 맨 앞이고, **압축(compact)에도 쓸려 나가지 않는다**
+      //   (사용자 메시지에 있던 규칙은 쓸려 나가면 세션 중반부터 아무도 그 방법을 말해 주지 않는다).
+      //   매 턴 남는 것은 목표의 **상태**(문장·진행률·단계)뿐 — 실측 154 토큰.
       const intentBlock = take(CONTEXT_SOURCE_IDS.intentFirst);
-      const goalBlock = take(CONTEXT_SOURCE_IDS.goal);
-      const cardsRules = take(CONTEXT_SOURCE_IDS.cardReport) + take(CONTEXT_SOURCE_IDS.cardQuestion)
-        + take(CONTEXT_SOURCE_IDS.cardReview) + take(CONTEXT_SOURCE_IDS.cardList)
-        + take(CONTEXT_SOURCE_IDS.cardIframe);
+      const goalOn = !!take(CONTEXT_SOURCE_IDS.goal);
+      const goalBlock = goalOn ? assembled.goalParts.state : '';
+      const goalProtocolBlock = goalOn ? assembled.goalParts.protocol : '';
+      const appendSystemPrompt = intentBlock + goalProtocolBlock;
+      // §5.5 #17-28 ⑧(a) — 공통 규약은 **카드가 하나라도 켜져 있을 때만** 앞세운다. 전부 꺼 두면
+      //   공통 규약도 함께 빠져 "끈 기능의 설명만 남는" 상태가 생기지 않는다.
+      // §5.5 #17-28 ⑧(d) — 번호 목록·서버 iframe 규약은 걷었다. 목록 정렬은 클라의 마크다운 렌더가,
+      //   서버 프리뷰는 백그라운드 셸 포트 감지(§7.11 v2.29)가 **에이전트 없이** 이미 해내던 일이다.
+      //   엔드포인트(`/api/agent-list`·`/api/agent-iframe`)와 카드 렌더는 그대로 살아 있다.
+      const cardBodies = take(CONTEXT_SOURCE_IDS.cardReport) + take(CONTEXT_SOURCE_IDS.cardQuestion)
+        + take(CONTEXT_SOURCE_IDS.cardReview);
+      const cardsRules = cardBodies ? take(CONTEXT_SOURCE_IDS.cardCommon) + cardBodies : '';
       // §5.10 v3.74 스폰 브리핑 — 상시 규칙 + 태스크 top-K + 자기 카드 + **주제 색인** + 능동 검색 안내.
       //   틀(brainRules)을 끄면 안에 들 것이 없으므로 카드·색인도 함께 빠진다.
       const brainFrame = take(CONTEXT_SOURCE_IDS.brainRules);
@@ -2049,7 +2074,7 @@ export async function runServer(): Promise<RunServerHandle> {
           ...(hookListenerIdentityFile ? { identityFile: hookListenerIdentityFile } : {}),
         })
         : '';
-      const dispatchContext = contextSummary + intentBlock + cardsRules + goalBlock + brainBlock;
+      const dispatchContext = contextSummary + cardsRules + goalBlock + brainBlock;
 
       // §5.10 v2 (B) — 스킬도 같은 규율. 실제로 실어 보냈을 때만 노출을 적는다.
       if (brainSkills && assembled.skillIds.length > 0) {
@@ -2086,14 +2111,22 @@ export async function runServer(): Promise<RunServerHandle> {
       //   (첫 스폰 경로는 preamble 을 쓰지 않으니 중복되지 않는다 — `execute` 가 sessionId 유무로 갈라 쓴다.)
       // §5.5 #17-17 ②-2 v4.72 — "의도 먼저 + 계획을 세워라"도 같은 함정 위에 있었다(첫 스폰에만 실리면
       //   두 번째 턴부터는 계획을 세우라는 말을 아무도 안 한다). 짧은 블록이라 매 턴 실어도 비용이 미미하다.
-      const livePreamble = edgesBlock + pluginBlock + intentBlock + goalBlock;
+      const livePreamble = edgesBlock + pluginBlock + goalBlock;
       // §5.5 #17-28 — `control: 'spawn'` 으로 끈 줄(CLAUDE.md·자동 기억·스킬 등)은 CLI 인자·환경변수로
       //   나간다. 헤드리스는 매 턴 새 프로세스라 다음 프롬프트부터 그대로 먹는다.
       const spawnSwitches = buildSpawnContextSwitches(contextOverrides, ctxScope);
+      // §5.5 #17-28 ⑧(b) — 카드 curl 이 쓸 주소·토큰을 **환경변수로** 자식에게 넘긴다. 종전에는 이
+      //   두 값을 프롬프트 안 bash 프렐류드(596 토큰 × 8벌)가 매번 파일에서 읽어 왔다. 환경은 자식이
+      //   뜰 때 정해지므로 `--resume` 재스폰마다 최신값이고, 프롬프트에는 한 글자도 실리지 않는다.
+      const cardEnv: Record<string, string> = {
+        [AGENT_CARD_ENV_BASE]: `http://127.0.0.1:${hookListenerPort ?? port}`,
+        [AGENT_CARD_ENV_TOKEN]: hookListenerToken ?? '',
+      };
       subAgentManager.execute(next, cwd, dispatchContext, effectiveConfig, livePreamble, {
         customParent: !!agent.customCreated,
         ...(spawnSwitches.args.length > 0 ? { extraArgs: spawnSwitches.args } : {}),
-        ...(Object.keys(spawnSwitches.env).length > 0 ? { extraEnv: spawnSwitches.env } : {}),
+        extraEnv: { ...cardEnv, ...spawnSwitches.env },
+        ...(appendSystemPrompt.trim() ? { appendSystemPrompt } : {}),
       });
       dispatched = true;
     }
@@ -9552,6 +9585,69 @@ export async function runServer(): Promise<RunServerHandle> {
 
   /** POST /api/projects/open-folder — 모던 폴더 선택 다이얼로그 (IFileDialog COM) → 프로젝트 등록 */
   app.post('/api/projects/open-folder', (_req, res) => {
+    /** 고른 경로를 프로젝트로 등록하고 응답까지 끝낸다 — 플랫폼별 선택기가 공유하는 꼬리. */
+    const registerPicked = (selected: string): void => {
+      try {
+        const info = graphManager.registerProject(selected);
+        // SSOT §5.4 #14 (v1.34): 사용자가 명시적으로 폴더를 선택해서 "열기" 한 경로 —
+        // 과거에 닫아서 hidden 상태였다면 여기서만 복구한다.
+        graphManager.showProject(info.name);
+        broadcastSnapshot();
+        saveCheckpoint();
+        res.json({ ok: true, project: info });
+      } catch (regErr) {
+        logger.error('Project registration failed', regErr);
+        res.status(500).json({ ok: false, error: String(regErr) });
+      }
+    };
+
+    // ─── macOS / Linux ───
+    // 아래 Windows 경로(IFileDialog COM)가 **유일한 구현이면** mac·Linux 에서는 `powershell` 이
+    // 없어 ENOENT → 500 이 되고, 클라이언트(FileMenu)는 그 실패를 catch 로 삼켜 **File → 폴더
+    // 열기가 눌러도 아무 일도 없는 버튼**이 된다 — 그 두 플랫폼에는 프로젝트를 추가할 수단이
+    // UI 에 하나도 남지 않는다는 뜻이다. 새 의존성 없이 OS 가 이미 들고 있는 대화상자를 부른다:
+    // macOS 는 내장 `osascript`, Linux 는 데스크톱 환경 표준인 `zenity` → `kdialog` 순.
+    if (process.platform !== 'win32') {
+      const attempts = process.platform === 'darwin'
+        ? [{ cmd: 'osascript', args: ['-e', 'POSIX path of (choose folder with prompt "Select project folder")'] }]
+        : [
+            { cmd: 'zenity', args: ['--file-selection', '--directory', '--title=Select project folder'] },
+            { cmd: 'kdialog', args: ['--getexistingdirectory', os.homedir()] },
+          ];
+      const runPicker = (i: number): void => {
+        const a = attempts[i];
+        if (!a) {
+          // 셋 다 없다 — 여기서만은 조용히 삼키지 않는다(설치 안내를 그대로 올려 보낸다).
+          logger.error('Folder picker unavailable: install zenity or kdialog');
+          res.status(501).json({ ok: false, error: 'no folder picker available (install zenity or kdialog)' });
+          return;
+        }
+        execFile(a.cmd, a.args, { timeout: 300000, encoding: 'utf-8' }, (err, stdout) => {
+          // 그 도구 자체가 없으면 다음 후보로. (execFile 은 셸을 안 거치므로 ENOENT 로 온다.)
+          if (err && (err.code === 'ENOENT' || err.code === 127)) {
+            runPicker(i + 1);
+            return;
+          }
+          // 취소는 실패가 아니다 — osascript 는 -128, zenity/kdialog 는 exit 1 로 나간다.
+          if (err) {
+            logger.info(`Folder picker (${a.cmd}) returned ${String(err.code)} — 취소로 처리`);
+            res.json({ ok: false, cancelled: true });
+            return;
+          }
+          // osascript 의 POSIX path 는 끝에 슬래시를 붙인다 — 그대로 두면 프로젝트 이름이 빈다.
+          const selected = stdout.trim().replace(/\/+$/, '');
+          if (!selected) {
+            res.json({ ok: false, cancelled: true });
+            return;
+          }
+          registerPicked(selected);
+        });
+      };
+      runPicker(0);
+      return;
+    }
+
+    // ─── Windows ───
     // IFileDialog COM 인터페이스로 모던 파일 탐색기 스타일 폴더 선택
     const csSource = `
   using System;
@@ -9727,18 +9823,7 @@ export async function runServer(): Promise<RunServerHandle> {
         res.json({ ok: false, cancelled: true });
         return;
       }
-      try {
-        const info = graphManager.registerProject(selected);
-        // SSOT §5.4 #14 (v1.34): 사용자가 명시적으로 폴더를 선택해서 "열기" 한 경로 —
-        // 과거에 닫아서 hidden 상태였다면 여기서만 복구한다.
-        graphManager.showProject(info.name);
-        broadcastSnapshot();
-        saveCheckpoint();
-        res.json({ ok: true, project: info });
-      } catch (regErr) {
-        logger.error('Project registration failed', regErr);
-        res.status(500).json({ ok: false, error: String(regErr) });
-      }
+      registerPicked(selected);
     });
   });
 

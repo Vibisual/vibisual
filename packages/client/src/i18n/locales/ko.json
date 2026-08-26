@@ -31,7 +31,7 @@
       "tooltipWaiting": "이 프로젝트에 아직 에이전트가 없습니다",
       "tooltipWorking": "이 프로젝트: 에이전트 {{agents}}개 · 세션 {{sessions}}개 중 {{running}}개 실행 중",
       "tooltipIdle": "이 프로젝트: 에이전트 {{agents}}개 · 세션 {{sessions}}개 — 지금 실행 중인 세션 없음",
-      "tooltipCommand": "{{status}} · 클릭하면 지휘통제실이 열립니다"
+      "tooltipMenu": "{{status}} · 클릭하면 창과 버블 목록이 열립니다"
     },
     "tab": {
       "closeProject": "프로젝트 닫기",
@@ -41,7 +41,8 @@
     },
     "usage": {
       "tooltip": "현재 세션: 5시간 한도의 {{percent}}% 사용 — 클릭하면 상세",
-      "tooltipNoData": "사용량을 아직 수집하지 않고 있습니다 — 클릭해서 켜기"
+      "tooltipNoData": "사용량을 아직 수집하지 않고 있습니다 — 클릭해서 켜기",
+      "tooltipWaiting": "사용량 수집기는 켜져 있습니다 — 인터랙티브 Claude Code 세션이 상태줄을 그리면 값이 들어옵니다"
     },
     "setupBanner": {
       "text": "Claude Code가 설치되지 않아 아직 에이전트를 실행할 수 없습니다.",
@@ -53,6 +54,7 @@
       "sectionTitle": "창과 버블",
       "empty": "이 프로젝트에 에이전트 버블이 없습니다",
       "hint": "접기는 닫기가 아닙니다 — 화면에서만 내려 캔버스를 돌려줍니다.",
+      "commandCenterHint": "커맨드 센터 열기 — 이 프로젝트에서 지금 나를 기다리는 것 보기",
       "openNew": "새 창으로 열기",
       "bringToFront": "앞으로 가져오기",
       "settings": "에이전트 설정",
@@ -232,7 +234,8 @@
         "advanced": "고급",
         "version": "버전",
         "account": "계정",
-        "storage": "저장소"
+        "storage": "저장소",
+        "brain": "프로젝트 두뇌"
       },
       "appearance": {
         "intro": "Vibisual 의 화면 표시를 개인화합니다.",
@@ -1196,6 +1199,7 @@
       "creditsUsed": "크레딧 예산의 {{percent}}% 사용",
       "creditsHint": "플랜 한도에 도달해도 계속 쓰시려면 크레딧을 켜 두시면 됩니다. 설정은 Claude 앱에서 하십니다.",
       "errNoCredentials": "이 PC 에 Claude Code 로그인 정보가 없어 사용량을 직접 읽지 못했습니다. Claude Code 로 로그인하시거나, 아래 상태줄 수집기를 쓰시면 됩니다.",
+      "errAwaitingStatusLine": "수집기는 켜져 있지만 아직 값이 들어오지 않았습니다. 한도는 인터랙티브 Claude Code 세션이 상태줄을 그릴 때 들어옵니다.",
       "errUnauthorized": "저장된 Claude 로그인이 만료됐습니다. Claude Code 를 한 번 실행하시면 자동으로 갱신되고 값도 돌아옵니다.",
       "errNetwork": "방금은 Claude 에 닿지 못했습니다. 마지막으로 받은 값을 보여드리는 중입니다.",
       "refreshFailed": "새로고침 실패"
@@ -2441,6 +2445,7 @@
         "edges": "나가는 엣지 지시",
         "feedback": "지난 사용자 피드백",
         "intentFirst": "의도 먼저 말하기",
+        "cardCommon": "카드 공통 규약",
         "cardReport": "작업 신고 카드 규약",
         "cardQuestion": "질문 카드 규약",
         "cardReview": "검수 카드 규약",
@@ -2526,7 +2531,12 @@
           "intentFirst": {
             "what": "파일을 건드리기 전에 무엇을 할 것인지 먼저 말하게 하는 규칙입니다.",
             "more": "Vibisual 이 항상 넣는 고정 지시입니다. 엉뚱한 방향으로 갈 때 사용자가 일찍 멈출 수 있게 하려고 있습니다.",
-            "off": "계획을 말하지 않고 곧바로 파일을 고치기 시작할 수 있습니다."
+            "off": "계획을 말하지 않고 곧바로 파일을 고치기 시작할 수 있습니다. 이 규칙은 세션 시작 때 시스템 프롬프트로 한 번 실리므로, 끄면 이 세션이 다시 뜰 때부터 빠집니다."
+          },
+          "cardCommon": {
+            "what": "카드 신고들이 함께 쓰는 규칙 한 벌입니다 — 어디로 보내는지, 언제 보내는지, 본문과 어떤 순서로 놓는지.",
+            "more": "카드마다 같은 말을 반복하지 않으려고 한곳에 모았습니다. 카드가 하나라도 켜져 있을 때만 실립니다.",
+            "off": "카드를 보내는 방법을 모르게 되어 아래 카드들이 실제로는 뜨지 않을 수 있습니다."
           },
           "cardReport": {
             "what": "AI 가 한 일과 사용자가 할 일을 색으로 가르는 카드의 사용법입니다.",
@@ -2556,7 +2566,7 @@
           "goal": {
             "what": "목표 창에 떠 있는 이 세션의 목표와 단계 목록입니다.",
             "more": "목표 카드에서 옵니다. 에이전트가 지금 계획의 어디쯤인지 알게 해 줍니다.",
-            "off": "에이전트가 목표와 진행 목록을 못 보게 됩니다. 화면의 목표 창은 그대로 남습니다."
+            "off": "에이전트가 목표와 진행 목록을 못 보게 됩니다. 화면의 목표 창은 그대로 남습니다. 갱신 방법을 알려 주는 규약은 세션 시작 때 한 번 실리므로, 그 절반은 이 세션이 다시 뜰 때부터 빠집니다."
           },
           "brainCards": {
             "what": "방금 사용자가 한 말과 맞아떨어지는 Project Brain 기억 카드입니다.",
@@ -3140,7 +3150,12 @@
       "createLocalAgent": "All Model 만들기",
       "createLocalAgentHint": "내 PC 에서 도는 모델용 버블을 놓습니다",
       "createShelf": "스크립트 선반",
-      "createShelfHint": "자주 쓰는 명령어와 프롬프트를 클릭 한 번으로 꺼내 쓰기"
+      "createShelfHint": "자주 쓰는 명령어와 프롬프트를 클릭 한 번으로 꺼내 쓰기",
+      "brainOn": "프로젝트 두뇌 켜기",
+      "brainOff": "프로젝트 두뇌 끄기",
+      "brainOnHint": "배운 절차를 모아 다음 작업에 자동으로 겁니다",
+      "brainOnHintSleeping": "기억 {{count}}장이 잠들어 있습니다",
+      "brainOffHint": "꺼도 기록은 지워지지 않습니다"
     },
     "bounds": {
       "label": "버블 영역",
@@ -3586,7 +3601,12 @@
       "hideAxes": "무엇이 켜지는지 접기",
       "axesTitle": "무엇을 켜 둘까요",
       "turnOff": "두뇌 끄기",
-      "offKeepsData": "꺼도 기록은 지워지지 않습니다 — 다시 켜면 그 자리에서 이어집니다."
+      "offKeepsData": "꺼도 기록은 지워지지 않습니다 — 다시 켜면 그 자리에서 이어집니다.",
+      "noProject": "열려 있는 프로젝트가 없습니다",
+      "noProjectDesc": "두뇌는 프로젝트마다 따로 켜고 끕니다 — 프로젝트를 먼저 여세요.",
+      "stateOn": "이 프로젝트의 두뇌가 켜져 있습니다",
+      "stateOff": "이 프로젝트의 두뇌가 꺼져 있습니다",
+      "sleepingCount": "기억 {{count}}장이 잠들어 있습니다"
     }
   },
   "commandCenter": {
