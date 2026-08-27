@@ -7,6 +7,7 @@ import { useGraphStore } from '../../stores/graphStore.js';
 import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 import { POPUP_DISMISS } from '../../hooks/popupDismiss.js';
 import { useBrainActivation } from '../../hooks/useBrainActivation.js';
+import { isMainCanvasView } from './canvasScope.js';
 
 interface CanvasContextMenuProps {
   x: number;
@@ -69,6 +70,13 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
   //   게이트 ③ 이 Brain 버블을 안 그리므로, 켜는 버튼을 두뇌 안에 두면 켤 방법 자체가 사라진다
   //   (1회 안내 배너를 넘기면 `promptedAt` 이 남아 다시 뜨지 않는다 — 실제로 그렇게 막혔었다).
   const brain = useBrainActivation();
+  /**
+   * §5.7 #26 — **그릴 수 없는 자리에서는 메뉴에도 내지 않는다.**
+   * 캡처·플레이·스펙·랩·선반·앱 버블은 메인 뷰에서만 렌더되므로(각 노드 산식의 첫 줄),
+   * 워크트리·폴더 안에서 이 항목을 누르면 부모 캔버스에 유령이 앉고 이 화면엔 아무 일도 안 일어난다.
+   * 판정은 `canvasScope` 한 곳 — 여기(감추기)와 생성 손잡이(막기)가 같은 답을 써야 한다.
+   */
+  const mainView = useGraphStore((st) => isMainCanvasView(st));
 
   // 바깥 press 로 닫기(공통 규약 — 메뉴 안에서 시작한 드래그로는 안 닫힌다).
   //  - 좌클릭(0)/중간 휠(1) 만 닫기 사유. 우클릭(2)은 메뉴 재오픈용이라 무시한다.
@@ -271,7 +279,8 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
           </div>
         </button>
 
-        {/* §5.9 — 화면/프로그램 캡처 버블 (라이브 스트림, rose 톤). */}
+        {/* §5.9 — 화면/프로그램 캡처 버블 (라이브 스트림, rose 톤). 메인 뷰 전용(§5.7 #26). */}
+        {mainView && (
         <button
           type="button"
           className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-800 transition-colors"
@@ -285,11 +294,12 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
             <span className="text-xs text-gray-500">{t('canvas.contextMenu.createCaptureHint', { defaultValue: '화면이나 프로그램 창을 라이브로 버블에 띄우기' })}</span>
           </div>
         </button>
+        )}
 
         {/* 노출 게이트 — 아래 넷(플레이 버블·스펙 보드·에이전트 랩·스크립트 선반)은 §7.7 디버그
             모드를 켰을 때만 나온다. 일반 사용에서는 우클릭해도 보이지 않고, 이미 놓인 버블도
             캔버스에서 함께 숨는다 — 레코드·서버·영속은 그대로라 다시 켜면 있던 자리로 돌아온다. */}
-        {debugMode && (
+        {debugMode && mainView && (
           <>
           {/* §5.14 v4.62 — 플레이 버블 (이 프로젝트를 켜는 버튼, emerald 톤). */}
           <button
@@ -362,7 +372,10 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
         )}
 
         {/* §5.13 v4.45 — 앱 카테고리. 마우스를 올리면 등록된 내부 앱이 옆으로 펼쳐진다.
-            앱을 계속 늘릴 것이므로 메뉴에 항목을 하나씩 쌓지 않고 한 칸으로 묶는다. */}
+            앱을 계속 늘릴 것이므로 메뉴에 항목을 하나씩 쌓지 않고 한 칸으로 묶는다.
+            §5.7 #26 — 앱 버블도 메인 뷰에서만 그려지므로 폴더·워크트리 안에서는 이 칸을 내지 않는다. */}
+        {mainView && (
+        <>
         <div className="mx-2 my-1 border-t border-gray-700" />
         <div
           className="relative"
@@ -427,6 +440,8 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
             </div>
           )}
         </div>
+        </>
+        )}
 
         {/* §5.10 (H) — 프로젝트 두뇌 켜기/끄기. 생성 항목이 아니라 **이 프로젝트의 상태를 바꾸는 줄**이라
             구분선 아래 따로 둔다. 꺼져 있을 때도 보여야 하는 자리이므로 활성 여부로 숨기지 않는다. */}
@@ -445,8 +460,8 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
               <div className="flex flex-col">
                 <span>
                   {brain.enabled
-                    ? t('canvas.contextMenu.brainOff', { defaultValue: '프로젝트 두뇌 끄기' })
-                    : t('canvas.contextMenu.brainOn', { defaultValue: '프로젝트 두뇌 켜기' })}
+                    ? t('canvas.contextMenu.brainOff', { defaultValue: '프로젝트 메모리 끄기' })
+                    : t('canvas.contextMenu.brainOn', { defaultValue: '프로젝트 메모리 켜기' })}
                 </span>
                 <span className="text-xs text-gray-500">
                   {brain.enabled

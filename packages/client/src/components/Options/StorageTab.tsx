@@ -34,7 +34,11 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
-/** 설정 6축의 표시 순서 + 단위. `0` 의 뜻이 축마다 달라 문구를 따로 준다. */
+/**
+ * 보존 설정 축의 표시 순서 + 단위. `0` 의 뜻이 축마다 달라 문구를 따로 준다.
+ * 감사 원장 축(`auditEntryMaxPerProject`)은 §5.22 타임라인 팝업에도 같은 값이 걸려 있다 —
+ * 두 화면이 한 값을 보므로 여기서 고치면 그쪽도 다음에 열 때 따라온다.
+ */
 const FIELDS: { key: keyof RetentionSettings; unit: 'days' | 'count' | 'seconds' }[] = [
   { key: 'fileEditRetentionDays', unit: 'days' },
   { key: 'maxFileEditPaths', unit: 'count' },
@@ -42,6 +46,7 @@ const FIELDS: { key: keyof RetentionSettings; unit: 'days' | 'count' | 'seconds'
   { key: 'completedCommandMaxPerSession', unit: 'count' },
   { key: 'subStreamRetentionDays', unit: 'days' },
   { key: 'attachmentRetentionDays', unit: 'days' },
+  { key: 'auditEntryMaxPerProject', unit: 'count' },
   { key: 'trashRetentionDays', unit: 'days' },
 ];
 

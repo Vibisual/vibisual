@@ -7,6 +7,7 @@ import type { IDEViewType } from '../../stores/graphStore.js';
 import { useAvailableSkills, deleteSkill, persistSkillOrder, persistSkillFavorites, refreshAvailableSkills, type SkillInfo } from '../../hooks/useAvailableSkills.js';
 import { IDESkillCopyPanel } from './IDESkillCopyPanel.js';
 import { IDELoopView } from './IDELoopView.js';
+import { IDEVerifyView } from './IDEVerifyView.js';
 import { IDEExplorerView } from './IDEExplorerView.js';
 import { IDEMcpView } from './IDEMcpView.js';
 import { IDEHooksView } from './IDEHooksView.js';
@@ -739,6 +740,8 @@ const VIEW_MAP: Record<IDEViewType, React.FC<{ agentId: string }>> = {
   goal: GoalView,
   // §5.5 #17-11 ⑨ v4.51 — 루프도 목표와 같은 곁눈 자리로. 뷰 본체는 자기 파일에 산다.
   loop: IDELoopView,
+  // §5.5 #17-35 — 검증(Verify): `/verify` 를 우리 레시피·판정·이력에 물린 자리. 루프 바로 뒤.
+  verify: IDEVerifyView,
   // §5.5 #17-20 v4.74 — 디버그·실행 런처(실행 구성 · MCP 연결 · 외부 디버거 위임).
   debug: IDEDebugView,
   // §5.5 #17-7·#17-8 v4.93 — 북마크·세션 요약도 덮개 패널을 벗고 루프와 같은 곁눈 자리로 왔다.

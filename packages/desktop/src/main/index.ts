@@ -12,6 +12,8 @@ import { loadSecrets } from './secrets';
 import { loadHookIdentity, saveHookIdentity, hookIdentityPath } from './hookIdentity';
 import { configureWindowManager, closeAll as closeAllDetachedWindows, closeAllOverlays, closeAllCommandCenters } from './windowManager';
 import { initMobileAccess, mobileBroadcast, stopMobileAccess } from './mobileAccess';
+// §4 메신저 원격제어 브리지 — 아웃바운드 전용(우리는 포트를 열지 않는다). 기본 OFF.
+import { chatBroadcast, initChatBridge, stopChatBridge } from './chat';
 import { initAutoUpdater, stopAutoUpdater } from './updaterManager';
 import { killAllTerminals, terminalController, setTerminalCardIdentity } from './terminalManager';
 import { appendCrashLine, logAppStart, logCleanExit, startCrashReporter } from './crashLog';
@@ -457,6 +459,9 @@ async function bootBackend(): Promise<void> {
     // §4 v3.16 — 모바일 웹 접속 모드가 켜져 있으면 LAN WebSocket 클라이언트에도 팬아웃.
     // 위에서 이미 직렬화했으면 그 문자열을 재사용(스냅샷 재직렬화 방지).
     mobileBroadcast(msg, typeof wire === 'string' ? wire : undefined);
+    // §4 메신저 브리지 — 페어링된 대화가 하나도 없으면 즉시 반환하므로 꺼져 있을 때 비용 0.
+    //   하행은 이 한 줄이 전부다(새 브로드캐스트 레일 ❌).
+    chatBroadcast(msg);
   });
 
   // server 코어를 in-process 구동 — HTTP listen / ws 없이 Express app 만 받는다.
@@ -549,6 +554,10 @@ async function bootBackend(): Promise<void> {
   // §4 v3.16 — 모바일 웹 접속 모드(opt-in). 꺼져 있으면 소켓을 열지 않는다.
   // 이전 실행에서 켜져 있었으면(userData mobile-access.json) 자동 재기동.
   initMobileAccess(handle.app);
+
+  // §4 메신저 원격제어 브리지(opt-in). 켜 둔 채널이 있을 때만 바깥으로 나간다 —
+  //   꺼져 있으면 네트워크를 한 번도 건드리지 않는다.
+  initChatBridge(handle.app);
 }
 
 // 단일 인스턴스 락 — 2번째 실행이 백엔드를 또 부팅해 ~/.claude/settings.json 의 hook 포트를
@@ -683,6 +692,11 @@ app.on('before-quit', (event) => {
     : Promise.resolve();
   hookListener = null;
 
+  // §4 메신저 브리지 — 아웃바운드 연결·재시도 타이머 정리(닫을 리스너 소켓은 없다).
+  const chatClose = stopChatBridge().catch((err: unknown) => {
+    console.warn('[main] stopChatBridge failed:', err);
+  });
+
   // §4 v3.16 — 모바일 웹 접속 리스너 정리(켜져 있던 경우만 실 소켓 close).
   const mobileClose = stopMobileAccess().catch((err: unknown) => {
     console.warn('[main] stopMobileAccess failed:', err);
@@ -722,5 +736,5 @@ app.on('before-quit', (event) => {
     console.warn('[main] shutdownDiskWriteQueue failed:', err);
   }
 
-  Promise.all([listenerClose, mobileClose, subShutdown, playShutdown]).finally(() => app.exit(0));
+  Promise.all([listenerClose, mobileClose, chatClose, subShutdown, playShutdown]).finally(() => app.exit(0));
 });

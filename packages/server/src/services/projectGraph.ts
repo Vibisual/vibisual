@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { validatePathWithinRoot } from './pathValidator.js';
 // 경로 대소문자 정책 SSOT — win32/darwin 만 접고 linux 는 접지 않는다(`shared/pathCase.ts`).
-import { CASE_INSENSITIVE_FS, pathKey } from './pathKey.js';
+import { CASE_INSENSITIVE_FS, pathKey, samePath } from './pathKey.js';
 import type {
   BubbleData,
   BubbleType,
@@ -80,6 +80,8 @@ import type {
   BrainInjectionEvent,
   BrainSummary,
   SessionLoop,
+  VerificationRun,
+  VerifyVerdict,
   SessionLoopContextMode,
   SessionGoal,
   SessionGoalStatus,
@@ -90,15 +92,22 @@ import type {
   ContextOverrides,
   ContextOverrideMap,
 } from '@vibisual/shared';
-import { LOCAL_AGENT_COLOR, ALL_MODEL_DEFAULT_LABEL_RE, MAX_BASH_HISTORY, MAX_FILE_EDITS, MAX_WRITE_DIFF_BYTES, DEFAULT_MAX_SATELLITES, SATELLITE_MAX_BOUNDS, MAX_AGENTS, SATELLITE_TYPES, AGENT_FADE_DURATION, BUBBLE_TTL, GHOST_FADE_DURATION, FILE_EXISTENCE_MISS_THRESHOLD, FRONTEND_SERVER_PATTERNS, IFRAME_DEAD_GRACE_MS, parseModelFamily, DEFAULT_AGENT_CONFIG, AVAILABLE_AGENT_TOOLS, BACKFILL_AGENT_TOOLS, DEFAULT_UI_LOCALE, COMMENT_BOX_DEFAULTS, READ_TOOLS, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, AGENT_REPORT_MAX_PER_AGENT, AGENT_QUESTIONS_MAX_PER_AGENT, AGENT_REVIEWS_MAX_PER_AGENT, AGENT_LISTS_MAX_PER_AGENT, AGENT_FEEDBACK_MAX_PER_AGENT, DELETED_AGENT_TOMBSTONE_MAX, CMD_AGENT_COLOR, MAX_AGENT_EVENTS, BRAIN_INJECTIONS_MAX_PER_AGENT, SESSION_GOAL_NOTE_MAX, SESSION_GOAL_HISTORY_MAX, SESSION_GOAL_STEPS_MAX, SESSION_GOAL_STEP_TEXT_MAX, SESSION_GOAL_TEXT_MAX, AUTO_AGENT_RUN_MAX_PER_AGENT, AUTO_AGENT_RUN_DEFAULT_REWORK_BUDGET, isExpiredByDays, capMapSize, SESSION_KEYED_MAP_MAX, ROOT_NODE_KEY_PREFIX, LEGACY_ROOT_NODE_KEY, SPEC_TITLE_MAX, SPEC_BODY_MAX, SPEC_MAX_ITEMS, SPEC_ITEM_TEXT_MAX, REVIEW_FILES_MAX, REVIEW_DIFF_MAX_BYTES, REVIEW_REQUESTS_MAX_PER_PROJECT, REVIEW_DECISIONS_MAX, REVIEW_REASON_MAX, LAB_TITLE_MAX, LAB_TASK_MAX, LAB_VARIANT_LABEL_MAX, LAB_RULES_APPEND_MAX, LAB_SUMMARY_MAX, LAB_MAX_VARIANTS, LAB_RUNS_MAX_PER_PROJECT, SHELF_TITLE_MAX, SHELF_LABEL_MAX, SHELF_COMMAND_MAX, SHELF_PROMPT_MAX, SHELF_MAX_ITEMS, SHELF_BUBBLES_MAX_PER_PROJECT, SHELF_RUN_OUTPUT_MAX_CHARS, normalizeShelfIcon, normalizeShelfColor, isSessionRunning, agentBadgeShare } from '@vibisual/shared';
+import { LOCAL_AGENT_COLOR, ALL_MODEL_DEFAULT_LABEL_RE, MAX_BASH_HISTORY, MAX_FILE_EDITS, MAX_WRITE_DIFF_BYTES, DEFAULT_MAX_SATELLITES, SATELLITE_MAX_BOUNDS, MAX_AGENTS, SATELLITE_TYPES, AGENT_FADE_DURATION, BUBBLE_TTL, GHOST_FADE_DURATION, FILE_EXISTENCE_MISS_THRESHOLD, FRONTEND_SERVER_PATTERNS, IFRAME_DEAD_GRACE_MS, parseModelFamily, DEFAULT_AGENT_CONFIG, AVAILABLE_AGENT_TOOLS, BACKFILL_AGENT_TOOLS, DEFAULT_UI_LOCALE, COMMENT_BOX_DEFAULTS, READ_TOOLS, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, AGENT_REPORT_MAX_PER_AGENT, AGENT_QUESTIONS_MAX_PER_AGENT, AGENT_REVIEWS_MAX_PER_AGENT, AGENT_LISTS_MAX_PER_AGENT, AGENT_FEEDBACK_MAX_PER_AGENT, DELETED_AGENT_TOMBSTONE_MAX, CMD_AGENT_COLOR, MAX_AGENT_EVENTS, BRAIN_INJECTIONS_MAX_PER_AGENT, SESSION_GOAL_NOTE_MAX, SESSION_GOAL_HISTORY_MAX, SESSION_GOAL_STEPS_MAX, SESSION_GOAL_STEP_TEXT_MAX, SESSION_GOAL_TEXT_MAX, AUTO_AGENT_RUN_MAX_PER_AGENT, AUTO_AGENT_RUN_DEFAULT_REWORK_BUDGET, isExpiredByDays, capMapSize, SESSION_KEYED_MAP_MAX, ROOT_NODE_KEY_PREFIX, LEGACY_ROOT_NODE_KEY, SPEC_TITLE_MAX, SPEC_BODY_MAX, SPEC_MAX_ITEMS, SPEC_ITEM_TEXT_MAX, REVIEW_FILES_MAX, REVIEW_DIFF_MAX_BYTES, REVIEW_REQUESTS_MAX_PER_PROJECT, REVIEW_DECISIONS_MAX, REVIEW_REASON_MAX, LAB_TITLE_MAX, LAB_TASK_MAX, LAB_VARIANT_LABEL_MAX, LAB_RULES_APPEND_MAX, LAB_SUMMARY_MAX, LAB_MAX_VARIANTS, LAB_RUNS_MAX_PER_PROJECT, SHELF_TITLE_MAX, SHELF_LABEL_MAX, SHELF_COMMAND_MAX, SHELF_PROMPT_MAX, SHELF_MAX_ITEMS, SHELF_BUBBLES_MAX_PER_PROJECT, SHELF_RUN_OUTPUT_MAX_CHARS, normalizeShelfIcon, normalizeShelfColor, isSessionRunning, agentBadgeShare, VERIFICATION_RUNS_MAX_PER_SESSION, VERIFICATION_ATTEMPTS_MAX, VERIFICATION_REASON_MAX } from '@vibisual/shared';
 import type { ServerKind, UiLocale, ExecutionMode, AgentProvider, ModelRegistry } from '@vibisual/shared';
 // §5.22 — 권한·감사 경계.
 import type { AuditBoundaryConfig, AuditDecisionSource, ProjectAuditLog } from '@vibisual/shared';
 import { COST_MAP_ACTIVE_WINDOW_MS } from '@vibisual/shared';
+// §7.11 — 루프백 주소 판정·추출(감지 폴백이 background 셸 밖의 서버도 회수하는 자리).
+import {
+  extractLoopbackUrls,
+  parseLoopbackUrl,
+  LOOPBACK_SNIFF_URLS_PER_BASH,
+  LOOPBACK_SNIFF_PROBE_TTL_MS,
+} from '@vibisual/shared';
 import { EdgeManager } from './edgeManager.js';
 import { extractBashReadPaths } from './bashReadPaths.js';
-import { extractPort, extractPortFromInlineEval, extractPortFromScriptFile, isPortAlive, isUrlServing, isProbeCommand, isVibisualLauncherCommand } from './processChecker.js';
-import { BackgroundShellWatcher, parseBackgroundShellResponse, scanActiveBackgroundShells } from './backgroundShellWatcher.js';
+import { extractPort, extractPortFromInlineEval, extractPortFromScriptFile, isPortAlive, resolveServingUrl, isProbeCommand, isVibisualLauncherCommand, isVibisualOwnPort } from './processChecker.js';
+import { BackgroundShellWatcher, parseBackgroundShellResponse, scanActiveBackgroundShells, stripAnsi } from './backgroundShellWatcher.js';
 import { subAgentManager, getCmdSessionIds } from './subAgentManager.js';
 import { CostMapService } from './costMap.js';
 import type { CostSweepSession } from './costMap.js';
@@ -113,7 +122,7 @@ import type { LocalSession, AgentContextInfo } from './sessionDiscovery.js';
 import { resolveSessionTitle, readUserMessages, readLastAssistantMessage, readContextInfo, discoverSessions, findPidBySession, isSessionInUse, getSessionJsonlPath, listJsonlSessionIds, findEntrypointBySession, isSessionInterrupted, readSessionTokenData } from './sessionDiscovery.js';
 import { logger } from '../logger.js';
 import { appStateGetRetention } from './appState.js';
-import { isLiveWorktreeDir } from './worktreeLiveness.js';
+import { isLiveWorktreeDir, isWorktreeUnderConstruction } from './worktreeLiveness.js';
 import { dbg } from './debugLog.js';
 import { userDefaultsService } from './userDefaultsService.js';
 
@@ -696,6 +705,28 @@ function readDevServerMarker(
  * "꺼짐 = 종전 동작" 으로 채우고, ⑪ 이 잠깐 썼던 `autoCompact: boolean` 은 `contextMode` 로 승계한다.
  * 순수 함수 — 입력을 건드리지 않고 새 객체를 돌려준다(테스트가 이 승계를 지킨다).
  */
+/**
+ * §5.5 #17-35 — 디스크에서 올라온 검증 한 건을 안전한 모양으로 되돌린다.
+ *
+ * 구버전 체크포인트엔 이 필드 자체가 없고, 손상된 파일에서 배열이 아닌 것이 올라올 수도 있다.
+ * 여기서 막지 않으면 화면이 아니라 **복원 자체가** 터진다(§3.2 로드 게이트 완화 규율).
+ */
+export function normalizeVerificationRun(run: VerificationRun): VerificationRun {
+  const attempts = Array.isArray(run.attempts)
+    ? run.attempts
+        .filter((a) => a && typeof a === 'object' && typeof a.command === 'string')
+        .slice(0, VERIFICATION_ATTEMPTS_MAX)
+    : [];
+  const verdict: VerifyVerdict =
+    run.verdict === 'pass' || run.verdict === 'fail' || run.verdict === 'held' ? run.verdict : 'unknown';
+  return {
+    ...run,
+    attempts,
+    verdict,
+    reason: typeof run.reason === 'string' ? run.reason.slice(0, VERIFICATION_REASON_MAX) : undefined,
+  };
+}
+
 export function normalizeSessionLoop(loop: SessionLoop): SessionLoop {
   const legacyAutoCompact = (loop as SessionLoop & { autoCompact?: boolean }).autoCompact === true;
   const mode = loop.contextMode;
@@ -878,6 +909,12 @@ export class ProjectGraph {
    */
   private dismissedIframes = new Map<string, Set<number>>();
   /**
+   * §7.11 — `sniffLoopbackServers` 의 probe 문. 키 `"{세션}|{포트}"` → 마지막으로 찔러 본 시각.
+   * 에이전트는 한 세션에서 Bash 를 수백 번 돌리므로 문이 없으면 같은 주소에 매번 TCP+HTTP 를
+   * 날린다. 영속 대상 ❌ — 재기동하면 다시 한 번 확인하는 편이 옳다.
+   */
+  private loopbackSniffProbedAt = new Map<string, number>();
+  /**
    * §7.11 — 오너 에이전트 키 → {실제 워커 claude 세션 → 그 워커 cwd} 매핑.
    * 커스텀/서브 에이전트는 agents 맵·sessionCwds 에 커스텀 키(`custom-…`)로 저장되지만,
    * background shell(dev 서버)의 JSONL 은 **실제 claude 워커 세션 이름**으로 디스크에 있다.
@@ -973,6 +1010,14 @@ export class ProjectGraph {
    */
   private sessionLoops = new Map<string, SessionLoop>();
   /**
+   * §5.5 #17-35 — 검증 실행 이력 (subAgentId → VerificationRun[], **최신이 앞**).
+   * 루프·목표와 같은 키 축(세션 탭)이다. 세션당 `VERIFICATION_RUNS_MAX_PER_SESSION` 건에서 자른다 —
+   * 값 길이만 자르고 개수를 안 막으면 체크포인트가 무한히 자란다(§9).
+   * 영속화 대상 (ProjectCheckpoint.verificationRuns) — "무엇이 언제 실제로 돌아서 통과했는가" 는
+   * 세션이 끝나도 남아야 할 근거다. identity.json 은 아니다(실행 기록 ≠ 정체성 — §5.16 과 같은 판단).
+   */
+  private verificationRuns = new Map<string, VerificationRun[]>();
+  /**
    * §5.5 #17-17 v4.46 — 세션 목표 (subAgentId → SessionGoal).
    * 루프와 같은 키 축(세션 탭)이지만 실행 주체가 아니라 **방향**이다 — 명령을 발사하지 않고
    * 매 턴 dispatchContext 에 다시 실려 세션을 조향하고, 진행률 퍼센트를 사용자에게 답한다.
@@ -1051,7 +1096,11 @@ export class ProjectGraph {
    * §5.22 — 권한·감사 원장. 훅 이벤트가 지나가는 자리에서 한 줄씩 적고, 승인 창구의 결정도
    * **같은 줄**에 적힌다(요청 원장·결정 원장을 따로 두지 않는다).
    */
-  private auditLogService = new AuditLogService();
+  /**
+   * §3.2.3 B축 — 보관 줄 수는 **사용자 설정**에서 온다(`0`=무제한). 서비스가 앱 상태를 직접
+   * 읽지 않고 여기서 물려 주는 이유는 그 서비스의 단위 테스트를 사용자 파일에서 떼기 위해서다.
+   */
+  private auditLogService = new AuditLogService(() => appStateGetRetention().auditEntryMaxPerProject);
   /** §5.3 #28 v1.47 — 콘티 (contiId → Conti). 에이전트 cascade 삭제. */
   private contis = new Map<string, Conti>();
 
@@ -1270,6 +1319,11 @@ export class ProjectGraph {
       // 남은 디렉토리)는 워크트리로 등록하지 않는다. 등록하면 그 인스턴스의 오토세이브가
       // 사용자가 지운 폴더를 다시 만들어내는 고리가 된다.
       if (!isLiveWorktreeDir(wtCwd)) continue;
+      // 지금 `git worktree add` 가 돌고 있는 폴더는 아직 발견 대상이 아니다. `.git` 은 체크아웃이
+      // 끝나기 전에 이미 붙으므로 살아있음 판정만으로는 반쯤 만들어진 워크트리를 걸러내지 못한다.
+      // 여기서 주워 버리면 **좌표 없는** 버블이 먼저 태어나, 사용자가 고른 자리 대신 방사형
+      // 레이아웃 자리에 앉은 채로 굳는다(뒤늦게 오는 진짜 좌표는 클라 캐시에 막혀 무시된다).
+      if (isWorktreeUnderConstruction(wtCwd)) continue;
       const normalizedWt = normalize(wtCwd);
       // 사용자가 명시적으로 삭제한 worktree 버블이 `ghost` 로 남아있다면 부활시키지 않는다.
       const existingNode = this.nodes.get(normalizedWt);
@@ -2333,6 +2387,89 @@ export class ProjectGraph {
     if (this.sessionLoops.size === 0) return undefined;
     const out: Record<string, SessionLoop> = {};
     for (const [k, v] of this.sessionLoops) out[k] = { ...v };
+    return out;
+  }
+
+  // ─── §5.5 #17-35 — 검증(Verify) ───
+
+  /** 한 세션 탭의 검증 이력(최신 우선). 없으면 빈 배열. */
+  getVerificationRuns(subAgentId: string): VerificationRun[] {
+    return this.verificationRuns.get(subAgentId) ?? [];
+  }
+
+  /**
+   * 그 탭에서 아직 안 끝난 검증(있으면).
+   * 겹쳐 쏘지 않기 위한 판정 — 루프의 "큐에 안 끝난 명령이 있으면 쏘지 않는다"와 같은 규율.
+   */
+  getActiveVerificationRun(subAgentId: string): VerificationRun | undefined {
+    return this.getVerificationRuns(subAgentId).find((r) => r.status === 'queued' || r.status === 'running');
+  }
+
+  /** 검증 한 건 추가(최신이 앞). 세션당 상한을 넘으면 오래된 것부터 잘린다. */
+  addVerificationRun(run: VerificationRun): VerificationRun {
+    const list = this.verificationRuns.get(run.subAgentId) ?? [];
+    const next = [run, ...list].slice(0, VERIFICATION_RUNS_MAX_PER_SESSION);
+    this.verificationRuns.set(run.subAgentId, next);
+    this.bumpMutationVersion();
+    return run;
+  }
+
+  /** id 로 찾기 — REST 는 subAgentId 를 모르고 들어온다. */
+  findVerificationRun(runId: string): VerificationRun | undefined {
+    for (const list of this.verificationRuns.values()) {
+      const hit = list.find((r) => r.id === runId);
+      if (hit) return hit;
+    }
+    return undefined;
+  }
+
+  /** 검증 부분 갱신(상태·판정·증거). 대상이 없으면 undefined. */
+  updateVerificationRun(runId: string, patch: Partial<VerificationRun>): VerificationRun | undefined {
+    for (const [subId, list] of this.verificationRuns) {
+      const idx = list.findIndex((r) => r.id === runId);
+      if (idx < 0) continue;
+      const next: VerificationRun = { ...list[idx]!, ...patch };
+      const copy = [...list];
+      copy[idx] = next;
+      this.verificationRuns.set(subId, copy);
+      this.bumpMutationVersion();
+      return next;
+    }
+    return undefined;
+  }
+
+  /** 검증 한 줄 삭제(사용자가 목록에서 지움). 지웠으면 true. */
+  deleteVerificationRun(runId: string): boolean {
+    for (const [subId, list] of this.verificationRuns) {
+      const next = list.filter((r) => r.id !== runId);
+      if (next.length === list.length) continue;
+      if (next.length === 0) this.verificationRuns.delete(subId);
+      else this.verificationRuns.set(subId, next);
+      this.bumpMutationVersion();
+      return true;
+    }
+    return false;
+  }
+
+  /** 한 에이전트의 검증 전부 삭제(에이전트 영구 제거). 지운 건수. */
+  deleteVerificationRunsForAgent(agentId: string): number {
+    let removed = 0;
+    for (const [subId, list] of [...this.verificationRuns]) {
+      const next = list.filter((r) => r.agentId !== agentId);
+      if (next.length === list.length) continue;
+      removed += list.length - next.length;
+      if (next.length === 0) this.verificationRuns.delete(subId);
+      else this.verificationRuns.set(subId, next);
+    }
+    if (removed > 0) this.bumpMutationVersion();
+    return removed;
+  }
+
+  /** 검증 전체 맵 (broadcast 스냅샷/체크포인트용). 빈 맵이면 undefined. */
+  getVerificationRunsRecord(): Record<string, VerificationRun[]> | undefined {
+    if (this.verificationRuns.size === 0) return undefined;
+    const out: Record<string, VerificationRun[]> = {};
+    for (const [k, v] of this.verificationRuns) out[k] = v.map((r) => ({ ...r, attempts: [...r.attempts] }));
     return out;
   }
 
@@ -4059,6 +4196,8 @@ export class ProjectGraph {
       agentLists: this.getAgentListsRecord(),
       agentFeedbacks: this.getAgentFeedbacksRecord(),
       sessionLoops: this.getSessionLoopsRecord(),
+      // §5.5 #17-35 — 검증 이력(세션 탭 키). 루프와 같은 자리에 나란히 실린다.
+      verificationRuns: this.getVerificationRunsRecord(),
       sessionGoals: this.getSessionGoalsRecord(),
       // §5.5 #17-28 — 주입원 오버라이드. 화면이 "무엇이 꺼져 있는지"를 스냅샷만으로도 알 수 있게.
       contextOverrides: this.getContextOverrides(),
@@ -4216,6 +4355,8 @@ export class ProjectGraph {
       agentLists: this.getAgentListsRecord(),
       agentFeedbacks: this.getAgentFeedbacksRecord(),
       sessionLoops: this.getSessionLoopsRecord(),
+      // §5.5 #17-35 — 검증 이력(세션 탭 키). 루프와 같은 자리에 나란히 실린다.
+      verificationRuns: this.getVerificationRunsRecord(),
       sessionGoals: this.getSessionGoalsRecord(),
       contextOverrides: this.getContextOverrides(),
     };
@@ -4701,6 +4842,16 @@ export class ProjectGraph {
         }
         return Object.keys(out).length > 0 ? out : undefined;
       })(),
+      // §5.5 #17-35 — 검증 이력: 루프와 동형(키는 세션 탭, 소속 판정은 run.agentId).
+      //   **디스크 포맷이라 여기 빠뜨리면 껐다 켜면 검증 이력이 통째로 사라진다**(v2.55 함정).
+      verificationRuns: (() => {
+        const out: Record<string, VerificationRun[]> = {};
+        for (const [subId, list] of this.verificationRuns) {
+          const mine = list.filter((r) => projectBubbleIds.has(r.agentId));
+          if (mine.length > 0) out[subId] = mine.map((r) => ({ ...r, attempts: [...r.attempts] }));
+        }
+        return Object.keys(out).length > 0 ? out : undefined;
+      })(),
       // §5.5 #17-17 v4.46 — 세션 목표: 루프와 동형(키는 세션 탭, 소속 판정은 goal.agentId).
       //   디스크 포맷이라 여기 빠뜨리면 껐다 켜면 목표가 통째로 사라진다(v2.55 함정).
       sessionGoals: (() => {
@@ -4954,6 +5105,19 @@ export class ProjectGraph {
         if (!loop || typeof loop !== 'object') continue;
         // §5.5 #17-11 ⑪·⑫ — 구버전 체크포인트 보정(없으면 새 옵션 전부 꺼짐 = 기존 동작).
         if (!this.sessionLoops.has(subId)) this.sessionLoops.set(subId, normalizeSessionLoop(loop));
+      }
+    }
+
+    // §5.5 #17-35 — 검증 이력 병합. 루프와 같은 규칙 — 키(subAgentId)가 세션 단위로 유일하므로
+    // 이미 메모리에 있는 쪽(지금 도는 검증)을 이기지 않게 **없는 탭만** 채운다.
+    if (cp.verificationRuns) {
+      for (const [subId, list] of Object.entries(cp.verificationRuns)) {
+        if (!Array.isArray(list) || list.length === 0) continue;
+        if (this.verificationRuns.has(subId)) continue;
+        this.verificationRuns.set(
+          subId,
+          list.filter((r) => r && typeof r === 'object').map(normalizeVerificationRun).slice(0, VERIFICATION_RUNS_MAX_PER_SESSION),
+        );
       }
     }
 
@@ -5522,6 +5686,27 @@ export class ProjectGraph {
     //   `running` 은 `waiting` 으로 되돌리고 대조용 `pendingCommandId` 를 비운다 —
     //   그래야 부팅 후 스윕이 "실행 중인 회차 없음"으로 보고 다음 회차를 정상 발사한다
     //   (이걸 안 하면 죽은 명령 id 를 영원히 기다려 루프가 멈춘 채로 살아 있는 것처럼 보인다).
+    // §5.5 #17-35 — 검증 이력 복원. 서버가 죽는 동안 돌던 검증은 이어받을 수 없으므로
+    //   `queued`/`running` 은 `stopped` 로 내리고 대조용 `pendingCommandId` 를 비운다 —
+    //   그래야 그 탭에서 새 검증을 바로 시작할 수 있다(죽은 명령 id 를 영원히 기다리지 않는다).
+    this.verificationRuns.clear();
+    if (cp.verificationRuns) {
+      for (const [subId, list] of Object.entries(cp.verificationRuns)) {
+        if (!Array.isArray(list) || list.length === 0) continue;
+        const restored = list
+          .filter((r) => r && typeof r === 'object')
+          .map((r) => {
+            const run = normalizeVerificationRun(r);
+            if (run.status === 'queued' || run.status === 'running') {
+              return { ...run, status: 'stopped' as const, pendingCommandId: undefined };
+            }
+            return run;
+          })
+          .slice(0, VERIFICATION_RUNS_MAX_PER_SESSION);
+        if (restored.length > 0) this.verificationRuns.set(subId, restored);
+      }
+    }
+
     this.sessionLoops.clear();
     if (cp.sessionLoops) {
       for (const [subId, loop] of Object.entries(cp.sessionLoops)) {
@@ -7657,17 +7842,20 @@ export class ProjectGraph {
     const toolUseId = payload.tool_use_id;
 
     if (isPost) {
+      const output = extractBashOutput(payload.tool_response);
       // PostToolUse → 기존 엔트리에 output 매칭
       if (toolUseId) {
         const existing = this.bashEntryIndex.get(toolUseId);
         if (existing) {
-          existing.output = extractBashOutput(payload.tool_response);
+          existing.output = output;
         }
       }
       // run_in_background 응답에서 shell_id + output 경로 파싱 → 파일 감시 시작
       if (payload.tool_input['run_in_background'] === true) {
         this.attachBackgroundShell(payload);
       }
+      // §7.11 — 끝난 Bash 의 명령어·출력에 찍힌 루프백 주소도 훑는다(background 밖의 서버 회수).
+      this.sniffLoopbackServers(payload, output);
       return;
     }
 
@@ -7710,6 +7898,73 @@ export class ProjectGraph {
       } else {
         logger.info(`Server registration deferred (no inline port; watcher will probe): "${command.slice(0, 80)}"`);
       }
+    }
+  }
+
+  /**
+   * §7.11 감지 폴백 확장 — **끝난 Bash 의 명령어와 출력에 찍힌 루프백 주소**로 프리뷰를 만든다.
+   *
+   * 종전 감지는 `run_in_background: true` 한 갈래에서만 출발했다. 그래서 에이전트가
+   * **이미 떠 있던 서버를 그대로 쓴 경우**(사용자 보고: "Vite 는 이미 떠 있던 것을 그대로
+   * 썼습니다 — 새로 띄우지 않았습니다")에는 붙을 셸이 없어 프리뷰가 영영 안 생겼다. 그런데
+   * 그런 세션에도 단서는 넘친다 — 에이전트는 살아있는지 확인하려고 그 주소를 반드시 한 번은
+   * 친다(`curl http://localhost:8080`). **그 주소야말로 "방금 응답한 것을 확인한 서버"** 다.
+   *
+   * 그래서 v2.20 의 probe 명령 제외(`isProbeCommand`)를 여기에는 적용하지 않는다 — 그 가드는
+   * "이 **셸**을 서버로 등록하지 마라"는 뜻이지 "이 **주소**는 서버가 아니다"가 아니기 때문이다.
+   * 대신 여기서는 위성만 만들고 `registerServerPort`(셸=서버 등록)는 하지 않는다. 기동 명령을
+   * 모르니 ServerEntry 는 `ensureReportedServerEntry` 의 "신고 전용"(Restart 불가, Stop 가능)
+   * 자리로 등록한다 — 나중에 진짜 셸이 같은 포트를 잡으면 v3.85 승격 경로가 덮어쓴다.
+   *
+   * 오탐은 세 문으로 막는다: ① 우리 자신의 포트 제외(에이전트는 카드 엔드포인트를 계속 친다)
+   * ② `isPortAlive` + `resolveServingUrl` 실응답 게이트 ③ (세션,포트)당 TTL probe 문.
+   * 사용자가 지운 프리뷰는 되살리지 않는다(`fromNewBash=false` → `dismissedIframes` 존중).
+   */
+  private sniffLoopbackServers(payload: HookEventPayload, output: string): void {
+    const sessionId = payload.session_id;
+    if (!this.agents.has(sessionId)) return;
+    const command = typeof payload.tool_input?.['command'] === 'string' ? payload.tool_input['command'] : '';
+    // 우리 자신을 띄우는 명령(runapp 등)이 연 포트는 사용자의 서버가 아니다.
+    if (isVibisualLauncherCommand(command)) return;
+
+    // 출력이 먼저다 — 명령어에 적힌 주소보다 "실제로 응답을 받아 찍힌 주소"가 더 믿을 만하다.
+    const candidates = [
+      ...extractLoopbackUrls(stripAnsi(output), LOOPBACK_SNIFF_URLS_PER_BASH),
+      ...extractLoopbackUrls(command, LOOPBACK_SNIFF_URLS_PER_BASH),
+    ];
+    if (candidates.length === 0) return;
+
+    const now = Date.now();
+    let picked = 0;
+    const seenPorts = new Set<number>();
+    for (const rawUrl of candidates) {
+      if (picked >= LOOPBACK_SNIFF_URLS_PER_BASH) break;
+      const parsed = parseLoopbackUrl(rawUrl);
+      if (!parsed) continue;
+      const { port } = parsed;
+      if (seenPorts.has(port)) continue;
+      seenPorts.add(port);
+      if (isVibisualOwnPort(port)) continue;
+
+      // (세션,포트) TTL 문 — 에이전트는 Bash 를 수백 번 돌린다. 이 문이 없으면 같은 주소에
+      // 매번 TCP+HTTP probe 를 날려 세션이 길수록 조용히 느려진다.
+      const gateKey = `${sessionId}|${String(port)}`;
+      const last = this.loopbackSniffProbedAt.get(gateKey);
+      if (last !== undefined && now - last < LOOPBACK_SNIFF_PROBE_TTL_MS) continue;
+      this.loopbackSniffProbedAt.set(gateKey, now);
+      capMapSize(this.loopbackSniffProbedAt, SESSION_KEYED_MAP_MAX);
+      picked += 1;
+
+      void isPortAlive(port).then(async (alive) => {
+        if (!alive || !this.agents.has(sessionId)) return;
+        const servingUrl = await resolveServingUrl(rawUrl);
+        if (!servingUrl || !this.agents.has(sessionId)) return;
+        // fromNewBash=false — 이건 "새로 띄웠다"는 신호가 아니라 "여기 서버가 있더라"는 관찰이다.
+        // 사용자가 지운 프리뷰가 그 다음 curl 한 번에 되살아나면 지운 의미가 없다.
+        this.createIframeSatellite(sessionId, command, port, undefined, output || undefined, false, servingUrl);
+        this.ensureReportedServerEntry(sessionId, servingUrl, port);
+        this.onSnapshotChange?.();
+      }).catch(() => { /* probe 실패 — 표시 전용이라 조용히 무시 */ });
     }
   }
 
@@ -7851,13 +8106,17 @@ export class ProjectGraph {
         // 포트 listen 만으론 부족 — 신고된 정확한 URL 이 실제로 비-에러 응답(2xx/3xx)을
         // 주는지까지 확인한다. `python -m http.server` 처럼 포트는 살아있어도 그 경로가
         // 404 면 위성을 만들지 않는다(사용자 보고: "iframe 접속도 안 되는데 왜 켜지냐").
-        const serving = alive && await isUrlServing(rawUrl);
+        // 그리고 **접속되는 이름**으로 바꿔 가며 묻는다 — `127.0.0.1` 로 신고됐는데 서버가
+        // IPv6(`::1`) 에만 바인딩된 경우(Windows 의 Vite 가 그렇다) 한 이름만 묻고 접으면
+        // 살아있는 서버를 죽었다고 판정한다. 응답한 그 주소를 그대로 위성에 실어, 확인한
+        // 주소와 화면에 여는 주소가 갈리지 않게 한다.
+        const servingUrl = alive ? await resolveServingUrl(rawUrl) : null;
         if (!this.agents.has(sessionId)) return; // HTTP probe await 사이 재확인
-        if (serving) {
-          this.createIframeSatellite(sessionId, rawUrl, port, undefined, undefined, true, rawUrl);
+        if (servingUrl) {
+          this.createIframeSatellite(sessionId, servingUrl, port, undefined, undefined, true, servingUrl);
           // §7.11 v3.85 — 위성만 만들고 끝내면 매칭 ServerEntry 가 없어 IframeServerCard 의
           // Restart/Stop 이 통째로 disabled 된다(v2.21 strict 1:1 의 반대 방향 orphan).
-          this.ensureReportedServerEntry(sessionId, rawUrl, port);
+          this.ensureReportedServerEntry(sessionId, servingUrl, port);
           this.onSnapshotChange?.();
         } else if (retriesLeft > 0) {
           setTimeout(() => tryCreate(retriesLeft - 1), 1500);
@@ -10791,10 +11050,27 @@ export class ProjectGraph {
         toolName: payload.tool_name,
         toolInput: payload.tool_input ?? null,
         ...(payload.tool_use_id ? { toolUseId: payload.tool_use_id } : {}),
+        roots: this.getAuditRoots(projectName, payload.cwd ?? this.sessionCwds.get(payload.session_id)),
       });
     } catch (err) {
       logger.debug('[audit] hook record skipped', err);
     }
+  }
+
+  /**
+   * §5.22 `outside` — 이 호출이 머물러야 할 경계.
+   *
+   * **프로젝트 루트와 그 세션의 cwd 둘 다** 돌려준다(어느 하나에라도 들어가면 안이다).
+   * 승인 창구와 훅 경로가 **같은 이 함수**를 써야 한 호출이 두 화면에서 다르게 판정되지 않는다.
+   * 루트를 못 찾으면 빈 배열 — 그때는 `outside` 판정 자체가 열리지 않는다(없는 근거로 위험을
+   * 지어내면 프로젝트 등록 전 몇 초의 호출이 전부 밖으로 찍힌다).
+   */
+  getAuditRoots(projectName: string, cwd?: string | null): string[] {
+    const roots: string[] = [];
+    const projectPath = projectName ? this.getProjectByName(projectName)?.path : undefined;
+    if (projectPath) roots.push(projectPath);
+    if (cwd && cwd.trim() && !roots.some((r) => samePath(r, cwd))) roots.push(cwd.trim());
+    return roots;
   }
 
   /**
@@ -10831,6 +11107,16 @@ export class ProjectGraph {
     const ok = this.auditLogService.recordDecision(projectName, entryId, decision, source, reason);
     if (ok) this.bumpMutationVersion();
     return ok;
+  }
+
+  /**
+   * §3.2.3 — 보존 설정이 바뀐 직후 지금 들고 있는 원장 전부에 새 상한을 적용한다.
+   * 잘린 줄이 있으면 true(호출부가 브로드캐스트·저장을 결정한다).
+   */
+  applyAuditRetention(): boolean {
+    const changed = this.auditLogService.applyRetention();
+    if (changed) this.bumpMutationVersion();
+    return changed;
   }
 
   /** 그 프로젝트의 경계 스위치(없으면 기본 = 전부 묻는다). */

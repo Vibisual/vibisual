@@ -1,7 +1,7 @@
 # Trademark Policy
 
-The name **"Vibisual"** and the Vibisual logo are trademarks of the
-Vibisual project maintainers.
+The name **"Vibisual"** and the Vibisual logo are trademarks of 길근오,
+the copyright holder and owner of the Vibisual project.
 
 ## What the Apache 2.0 license grants you
 

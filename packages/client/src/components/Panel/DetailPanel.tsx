@@ -689,7 +689,7 @@ export function DetailPanel({
         <div className="flex items-center justify-between border-b border-gray-800 px-4 py-3">
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <div className="h-3 w-3 flex-shrink-0 rounded-full" style={{ backgroundColor: '#6366F1' }} />
-            <span className="truncate text-sm font-bold text-gray-100">{t('brain.bubbleLabel', { defaultValue: '두뇌' })}</span>
+            <span className="truncate text-sm font-bold text-gray-100">{t('brain.bubbleLabel', { defaultValue: '메모리' })}</span>
           </div>
           <button type="button" onClick={onClose} className="rounded p-1 text-gray-400 hover:bg-gray-800 hover:text-white" aria-label={t('panel.detailPanel.close')}>
             <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>

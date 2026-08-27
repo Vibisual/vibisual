@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { WORKSPACE_DIR_ENTRY_MAX } from '@vibisual/shared';
 import type { WorkspaceEntry, WorkspaceDirListing, WorkspacePathInfo } from '@vibisual/shared';
+import { isWithinRoot } from './pathKey.js';
 
 /**
  * §5.5 #17-19 v4.71 — IDE 워크스페이스 탐색기의 디스크 조회.
@@ -33,11 +34,9 @@ export function resolveWorkspacePath(root: string, relPath: string): { abs: stri
   const rel = normalizeRel(relPath);
   const abs = rel ? path.resolve(rootAbs, rel) : rootAbs;
 
-  // path traversal 방지 — 대소문자 무시 비교(Windows).
-  const isWin = process.platform === 'win32';
-  const a = isWin ? abs.toLowerCase() : abs;
-  const r = isWin ? rootAbs.toLowerCase() : rootAbs;
-  if (a !== r && !a.startsWith(r + path.sep)) return null;
+  // path traversal 방지 — 접을지 말지는 플랫폼이 정한다(win/mac 은 무시, linux 는 구분).
+  //   예전에는 win32 만 접어 **mac 에서 케이스만 다른 정상 경로가 조용히 null** 이 됐다.
+  if (!isWithinRoot(abs, rootAbs)) return null;
 
   return { abs, rel };
 }

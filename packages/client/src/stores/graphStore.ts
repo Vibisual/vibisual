@@ -2,7 +2,7 @@ import { create } from 'zustand';
 // §5.5 #17-20 ⑩ v4.94 — 중단점을 켜고 끄면 붙어 있는 세션에도 바로 밀어 넣는다(단방향: graphStore → debugSessions).
 import { useDebugSessions, pushBreakpointsToSession } from './debugSessions.js';
 import type { BubbleData, ActivityEdge, BashEntry, ServerEntry, AgentEvent, FileEdit, AgentPhase, ProjectInfo, QueuedCommand, SubAgent, RunningSubagentTask, FinishedSubagentTask, ServerKind, PipelineType, PipelineState, AgentConfig, SubAgentStreamEvent, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, UiLocale, ProjectMetaSnapshot, AppState, AppStatePatch, CommentBox, CaptureBubble, DebugBreakpoint, AppBubble, PlayBubble, PlayRecipeCandidate, SpecDoc, LabRun, LabVariantConfig, ShelfBubble, ShelfItem, ShelfItemKind, ProjectCostMap, ProjectAuditLog, AuditBoundaryConfig, Conti, ActiveContiWork, ContiRenderStatus, StoryboardPresetId, ToolDurationEntry, CompactCount, RateLimitInfo,
-  ClaudeUsageInfo, ClaudeAuthStatus, ClaudeSetupState, ClaudeSetupProgress, DiagnosticEntry, AutoAgentSummary, AutoAgentRun, ModelRegistry, LocalLlmState, LocalEngineProgress, LocalModelDownloadProgress, UserDefaults, AgentReport, AgentQuestions, AgentReview, ReviewRequest, AgentList, AgentFeedback, AgentFeedbackTargetType, AgentFeedbackVerdict, BrainSummary, BrainInjectionEvent, BrainCard, BrainCardType, BrainCardScope, BrainCardStatus, PluginFactMap, SessionLoop, SessionLoopMode, SessionLoopContextMode, SessionGoal, SessionGoalStatus, SessionGoalStepStatus } from '@vibisual/shared';
+  ClaudeUsageInfo, ClaudeAuthStatus, ClaudeSetupState, ClaudeSetupProgress, DiagnosticEntry, AutoAgentSummary, AutoAgentRun, ModelRegistry, LocalLlmState, LocalEngineProgress, LocalModelDownloadProgress, UserDefaults, AgentReport, AgentQuestions, AgentReview, ReviewRequest, AgentList, AgentFeedback, AgentFeedbackTargetType, AgentFeedbackVerdict, BrainSummary, BrainInjectionEvent, BrainCard, BrainCardType, BrainCardScope, BrainCardStatus, PluginFactMap, VerificationRun, SessionLoop, SessionLoopMode, SessionLoopContextMode, SessionGoal, SessionGoalStatus, SessionGoalStepStatus } from '@vibisual/shared';
 import type { StreamDensity, CommandDispatchMode, ProjectAgentCounts } from '@vibisual/shared';
 import { isReadOnlyHookAgent } from '@vibisual/shared';
 import { DEFAULT_UI_LOCALE, STREAM_EVENTS_MAX_PER_SESSION, STREAM_EVENTS_TRIM_SLACK, STREAM_EVENTS_MAX_PER_INACTIVE_SESSION, STREAM_INACTIVE_SESSIONS_MAX, DIAGNOSTIC_LOG_MAX, STREAM_DENSITIES, IDE_EDITOR_MAX_TABS, IDE_EDITOR_WIDTH, DIFF_COMMENT_MAX } from '@vibisual/shared';
@@ -30,6 +30,8 @@ import {
   type IDEDockSide,
   type Viewport,
 } from '../components/IDE/ideDockLayout.js';
+// §5.5 #17-6 (H) — 앱 안 ↔ 독립 창을 오갈 때 창이 들고 가는 짐(순수 함수·타입만).
+import { handoffPanePatch, type HandoffTarget, type IDEPaneHandoff } from './idePaneHandoff.js';
 // §5.5 #17-34 — 창 **안**의 화면 분할. 트리 연산은 전부 순수 모듈이 하고 스토어는 그 결과만 앉힌다.
 import {
   adjacentCellId, cellIdForSession, closeCell, dropOnCell, findCell, listCells, makeCell, pruneCells,
@@ -415,14 +417,14 @@ export interface IframeTab {
 // §5.5 #17-31 — 'terminal'(세션 목록) 은 **'mcp'(이 프로젝트에서 쓸 수 있는 MCP)** 로 대체됐다.
 //   세션 목록은 탭 바(#17-5)·세션 요약(#17-8)이 이미 두 벌로 보여 주고 있었고, 앱 안에서 볼 길이
 //   전혀 없던 것은 "무엇이 붙어 있고 무엇이 켜져 있는가" 였다. 저장된 옛 값('terminal')은 이관한다.
-export type IDEViewType = 'mcp' | 'hooks' | 'plugins' | 'files' | 'context' | 'skills' | 'goal' | 'loop' | 'debug' | 'bookmarks' | 'summary' | 'subagents';
+export type IDEViewType = 'mcp' | 'hooks' | 'plugins' | 'files' | 'context' | 'skills' | 'goal' | 'loop' | 'verify' | 'debug' | 'bookmarks' | 'summary' | 'subagents';
 
 /** §5.5 #17-28 v4.96 · #17-31 — localStorage 에 남은 옛 뷰 id 를 지금 쓰는 것으로 옮긴다(모르는 값은 mcp). */
 export function migrateIDEViewType(v: unknown): IDEViewType {
   if (v === 'events') return 'context';
   // #17-31 — 세션 목록 자리가 MCP 인벤토리로 바뀌었다. 이미 열려 있던 IDE 도 같은 칸을 본다.
   if (v === 'terminal') return 'mcp';
-  const known: IDEViewType[] = ['mcp', 'hooks', 'plugins', 'files', 'context', 'skills', 'goal', 'loop', 'debug', 'bookmarks', 'summary', 'subagents'];
+  const known: IDEViewType[] = ['mcp', 'hooks', 'plugins', 'files', 'context', 'skills', 'goal', 'loop', 'verify', 'debug', 'bookmarks', 'summary', 'subagents'];
   return known.includes(v as IDEViewType) ? (v as IDEViewType) : 'mcp';
 }
 
@@ -710,6 +712,53 @@ export function selectIDEPane(
   if (!cur) return DEFAULT_IDE_OVERLAY;
   const migrated = migrateIDEViewType(cur.activeView);
   return migrated === cur.activeView ? cur : { ...cur, activeView: migrated };
+}
+
+/**
+ * §5.7 #26 — 이 IDE 창의 **내용이 딛고 선 프로젝트**(= 그 안 에이전트의 소속 프로젝트).
+ *
+ * `IDEOverlayState.projectId` 와 **뜻이 다르다**. `projectId` 는 창이 어느 탭의 캔버스에 매달려
+ * 그려지는가(슬롯 주소)이고, 워크트리로 드릴다운해도 `activeProject` 는 부모 그대로이므로
+ * `openIDEOverlay` 는 그 자리를 일부러 부모로 잡는다(안 그러면 창이 아예 안 보인다).
+ * 그런데 탐색기 뿌리·실행 구성 스캔·실행 cwd·중단점 키까지 그 값을 쓰면, **워크트리 안에서 만든
+ * 버블이 워크트리 밖 부모 트리를 읽고 그 트리에서 명령을 돌린다** — 격리가 통째로 무너진다.
+ *
+ * 그래서 "어디에 그리는가"(`projectId`)와 "무엇을 다루는가"(이 함수)를 갈라 둔다. 판정 기준은
+ * 터미널(`IDETerminalView` 의 cwd)·사이드바가 이미 쓰는 것과 같은 `agentProjects[agentId]` 하나다.
+ * 그 프로젝트를 아직 모르면(스냅샷 공백) 종전 산식으로 떨어져 화면이 비지 않게 한다.
+ */
+export function selectPaneProjectName(
+  state: {
+    ideOverlays: Record<string, IDEOverlayState>;
+    activeProject: string | null;
+    agentProjects: Record<string, string>;
+    projects: Record<string, ProjectInfo>;
+    stubProjects: Record<string, ProjectMetaSnapshot>;
+  },
+  paneKey: string | null | undefined,
+): string | null {
+  const pane = selectIDEPane(state, paneKey);
+  const own = pane.agentId ? state.agentProjects[pane.agentId] : undefined;
+  // 경로를 아는 프로젝트일 때만 채택한다 — 이름만 있고 경로가 없으면 뿌리를 못 만들어
+  //   탐색기·편집창이 통째로 빈 화면이 된다(종전 폴백이 그 자리를 메운다).
+  if (own && (state.projects[own] || state.stubProjects[own])) return own;
+  return pane.projectId ?? state.activeProject;
+}
+
+/** 위 프로젝트의 **절대 경로**. 탐색기 뿌리·실행 cwd·파일 열기의 `root` 가 전부 이 값 하나를 쓴다. */
+export function selectPaneProjectPath(
+  state: {
+    ideOverlays: Record<string, IDEOverlayState>;
+    activeProject: string | null;
+    agentProjects: Record<string, string>;
+    projects: Record<string, ProjectInfo>;
+    stubProjects: Record<string, ProjectMetaSnapshot>;
+  },
+  paneKey: string | null | undefined,
+): string | null {
+  const name = selectPaneProjectName(state, paneKey);
+  if (!name) return null;
+  return state.projects[name]?.path ?? state.stubProjects[name]?.project.path ?? null;
 }
 
 /** 지금 보고 있는 프로젝트에 열려 있는 IDE 창들 — 앞에 온 순서(z 오름차순, 마지막이 맨 앞). */
@@ -1266,6 +1315,11 @@ interface GraphState {
   agentFeedbacks: Record<string, AgentFeedback[]>;
   /** §5.5 #17-11 v3.79 — 세션 반복 실행(루프) 설정 (subAgentId → SessionLoop). 서버 SSOT, 클라는 표시·전송만. */
   sessionLoops: Record<string, SessionLoop>;
+  /**
+   * §5.5 #17-35 — 검증 실행 이력 (subAgentId → VerificationRun[], 최신 우선).
+   * 서버가 매 스냅샷에 전량을 싣는다 — 클라는 그대로 그릴 뿐 판정도 정리도 하지 않는다(§3.1).
+   */
+  verificationRuns: Record<string, VerificationRun[]>;
   /** §5.5 #17-17 v4.46 — 세션 목표 (subAgentId → SessionGoal). 서버 SSOT, 클라는 표시·전송만. */
   sessionGoals: Record<string, SessionGoal>;
   /** §4 v2.38 — 동적 모델 레지스트리 (서버 modelRegistryService 가 시드+/v1/models 머지 후 push). */
@@ -1439,6 +1493,23 @@ interface GraphState {
   projectAgentCounts: Record<string, ProjectAgentCounts>;
   /** 스냅샷에서 받은 프로젝트별 집계를 반영(별도 액션 — loadSnapshot 위치 인자 ❌). */
   applyProjectAgentCounts: (counts: Record<string, ProjectAgentCounts>) => void;
+  /**
+   * §9 — **마지막 스냅샷이 실어 온 구독 범위**(표시명 배열). `null` = 범위 미적용(전량).
+   *
+   * "지금 탭의 버블이 아직 안 온 것"과 "원래 비어 있는 것"을 가르는 값 — 판정은
+   * `components/BubbleMap/canvasLoading.ts` 가 단독 소유한다.
+   */
+  snapshotScope: string[] | null;
+  /** 이 창이 서버 스냅샷을 한 번이라도 받았는가. 부팅 첫 화면과 "빈 프로젝트"를 구분한다. */
+  snapshotReceived: boolean;
+  /** 스냅샷에서 받은 구독 범위를 반영(별도 액션 — loadSnapshot 위치 인자 ❌). */
+  applySnapshotScope: (scope: string[] | undefined) => void;
+  /**
+   * WebSocket 연결 상태. `useWebSocket` 이 소유하지만 **캔버스도 읽어야** "연결이 끊겨 비어
+   * 있는 것"을 "불러오는 중"으로 잘못 말하지 않는다(헤더 인디케이터와 같은 값).
+   */
+  connectionStatus: 'connecting' | 'connected' | 'disconnected';
+  setConnectionStatus: (status: 'connecting' | 'connected' | 'disconnected') => void;
   /** §5.13 v4.45 — 내부 앱 버블(범용). 앱이 늘어도 이 배열 하나. */
   appBubbles: AppBubble[];
   /** 스냅샷에서 받은 앱 버블을 반영. loadSnapshot 의 긴 인자 목록을 더 늘리지 않는다. */
@@ -1756,10 +1827,20 @@ interface GraphState {
    * 피드 데이터(sections/검색/로딩)는 오버레이 컴포넌트가 자체 fetch(BrainFeed) 로 보유 — 스토어엔 여는 스코프만.
    */
   brainFeed: { scope: BrainCardScope; agentId?: string } | null;
+  /**
+   * §5.10 — 사용법 가이드(File > Guide) 를 **어느 화면에서든** 여는 자리.
+   * 값이 곧 열 항목( 의 카테고리 키)이고 null 이면 닫힘이다 — 가이드를 여는 문이
+   * File 메뉴 하나뿐이면 정작 그 기능을 보고 있는 사람이 설명을 못 찾는다.
+   */
+  guideCategory: string | null;
   /** DetailPanel 에서 선택된 기억 카드 id(다른 선택과 배타). */
   selectedBrainCardId: string | null;
   /** 선택된 기억 카드 본문(REST 로 fetch — 본문은 스냅샷에 없음). */
   selectedBrainCard: BrainCard | null;
+  /** §5.10 — 가이드를 그 항목으로 연다(인자 없으면 첫 항목). */
+  openGuide: (category?: string) => void;
+  /** 가이드 닫기. */
+  closeGuide: () => void;
   /** 휴지통 내부 진입 — 선택 초기화(카드 fetch 없음). */
   enterInterior: (view: { kind: 'trash' }) => void;
   /** 내부 뷰 종료(캔버스 복귀). */
@@ -1880,6 +1961,13 @@ interface GraphState {
   enterFolderDeep: (folderId: string) => void;
   goBack: () => void;
   selectNode: (id: string | null) => void;
+  /**
+   * store 채널 선택(앱·캡처·플레이·스펙·랩·선반 버블, 메모 상자, 작업 엣지)만 내린다.
+   * `selectedNodeId`(일반 버블 선택)는 **건드리지 않는다** — 캔버스에서 버블을 박스로 다중
+   * 선택했을 때, 방금 켜진 버블 선택은 남기고 반대편 채널만 비우는 자리이기 때문이다
+   * (`canvasSelectionChannel` 참고).
+   */
+  clearElementSelection: () => void;
   /** 선택 링 의도만 즉시 갱신(패널 지연과 무관). 클릭 확정 시 호출. */
   setSelectIntent: (id: string | null) => void;
   setAgentPhase: (phase: AgentPhase) => void;
@@ -1921,10 +2009,12 @@ interface GraphState {
   ) => void;
   createPipeline: (type: PipelineType, canvasX: number, canvasY: number) => void;
   createWorktree: (canvasX: number, canvasY: number) => void;
-  /** 서버 응답 대기 중 낙관적 worktree 버블 — 클라이언트 전용 placeholder */
-  pendingWorktrees: BubbleData[];
-  removePendingWorktree: (id: string) => void;
-  setPendingWorktreeError: (id: string) => void;
+  /**
+   * §5.7 #26 — 워크트리 **생성 실패** 표식(클라이언트 전용, 2.2초 뒤 자동 소멸).
+   * 성공 경로엔 아무 표식도 없다 — 다 만들어진 실물 버블이 그냥 나타난다(생성 연출 폐기).
+   */
+  failedWorktrees: BubbleData[];
+  reportWorktreeCreateFailure: (canvasX: number, canvasY: number) => void;
   /** worktree 삭제 확인 모달 — nodeId 가 설정되면 모달이 떠서 merge 상태 조회 + 사용자 선택 대기 */
   worktreeDeleteTarget: { nodeId: string; label: string } | null;
   requestWorktreeDelete: (nodeId: string, label: string) => void;
@@ -1960,7 +2050,20 @@ interface GraphState {
    * 그 밖(기본)은 종전대로 열려 있는 창의 **자리를 재사용**한다(북마크 점프처럼 창이 쌓이면 안 되는 곳).
    * 어느 쪽이든 그 에이전트를 이미 띄운 창이 있으면 새로 만들지 않고 그 창을 앞으로 올린다.
    */
-  openIDEOverlay: (agentId: string, opts?: { pane?: 'new' | 'reuse' }) => void;
+  openIDEOverlay: (
+    agentId: string,
+    opts?: {
+      pane?: 'new' | 'reuse';
+      /**
+       * §5.5 #17-6 (H) — 다른 창에서 **건너온 창 상태**(열어 둔 편집 탭·보던 뷰·고른 세션·
+       * 붙어 있던 변). 있으면 첫 화면이 아니라 그 상태로 연다 — 앱 안 ↔ 독립 창을 오갈 때
+       * 같은 창이 자리만 옮긴 것처럼 이어지게 하는 값이다.
+       */
+      handoff?: IDEPaneHandoff | null;
+      /** 그 짐 중 무엇을 물려받을지 — 독립 창은 붙은 변·창 안 좌표를 물려받지 않는다. */
+      handoffTarget?: HandoffTarget;
+    },
+  ) => void;
   /** 창 하나를 닫는다. 키를 안 주면 종전대로 활성 프로젝트의 주 창. */
   closeIDEOverlay: (paneKey?: string | null) => void;
   /** 그 창을 맨 앞으로(겹칠 때 앞뒤 + 상한 초과 시 재사용 대상 판정에 함께 쓰인다). */
@@ -1968,6 +2071,9 @@ interface GraphState {
   /**
    * §5.5 #17-1 — 창 접기/펴기. 접으면 안 그리고 자리도 안 먹는다(캔버스가 돌아온다).
    * 펴면 붙어 있던 변으로 그대로 돌아오고, 펴는 김에 맨 앞으로 올린다.
+   *
+   * 접을 때는 **돌려받은 캔버스에서 그 창의 버블로 카메라도 함께 옮긴다**(focusNodeId) —
+   * 접기는 "이 창을 내리고 캔버스로 돌아간다"는 손짓이라, 어디로 돌아가는지까지가 한 동작이다.
    */
   setIDEPaneCollapsed: (paneKey: string, collapsed: boolean) => void;
   /**
@@ -2183,6 +2289,16 @@ interface GraphState {
   }) => void;
   /** §5.5 #17-11 v3.79 — graph_snapshot 의 세션 루프 설정 반영. */
   applySessionLoops: (loops: Record<string, SessionLoop> | undefined) => void;
+  /** §5.5 #17-35 — 스냅샷의 검증 이력을 통째로 받는다. */
+  applyVerificationRuns: (runs: Record<string, VerificationRun[]> | undefined) => void;
+  /** 검증 시작 — 그 탭 큐에 `/verify` 한 건이 나간다. 실패 사유 문자열(성공이면 null). */
+  startVerification: (input: { agentId: string; subAgentId: string; focus?: string }) => Promise<string | null>;
+  /** 도는 검증을 목록에서 닫는다(그 턴 자체의 중지는 기존 [중지] 버튼). */
+  stopVerification: (runId: string) => Promise<void>;
+  /** 실패·보류 사유를 그대로 그 탭의 다음 프롬프트로 보낸다. */
+  reworkVerification: (runId: string) => Promise<void>;
+  /** 검증 한 줄 삭제. */
+  deleteVerificationRun: (runId: string) => Promise<void>;
   /**
    * §5.5 #17-11 v3.79 — 세션 루프 저장 (PUT). `enabled:true` 면 서버가 즉시 1회차를 발사한다.
    * 결과는 서버 broadcast(graph_snapshot)가 SSOT — 클라는 낙관적 갱신 ❌.
@@ -2607,6 +2723,23 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     // 헛되이 다시 그리지 않게 한다.
     projectAgentCounts: structuralShare(s.projectAgentCounts, counts),
   })),
+
+  snapshotScope: null,
+  snapshotReceived: false,
+  applySnapshotScope: (scope) => set((s) => {
+    const next = scope ?? null;
+    // 같은 범위면 참조를 유지한다 — 이 값을 구독하는 쪽이 스냅샷 주기마다 깨어나지 않게.
+    const same = next === null
+      ? s.snapshotScope === null
+      : s.snapshotScope !== null
+        && s.snapshotScope.length === next.length
+        && s.snapshotScope.every((n, i) => n === next[i]);
+    if (same && s.snapshotReceived) return {};
+    return { ...(same ? {} : { snapshotScope: next }), snapshotReceived: true };
+  }),
+
+  connectionStatus: 'connecting',
+  setConnectionStatus: (status) => set((s) => (s.connectionStatus === status ? {} : { connectionStatus: status })),
   applyAppBubbles: (list) => set((s) => {
     // 드래그 중인 버블의 geometry 는 서버 값으로 덮지 않는다(CommentBox·CaptureBubble 과 동일 규칙).
     // 손이 움직이는 도중 WS 스냅샷이 도착하면 옛 좌표로 회귀해 버블이 마우스 뒤로 튄다.
@@ -3437,6 +3570,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   pluginFacts: {},
   interiorView: null,
   brainFeed: null,
+  guideCategory: null,
   selectedBrainCardId: null,
   selectedBrainCard: null,
   recentToolDurations: {},
@@ -3453,6 +3587,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   agentLists: {},
   agentFeedbacks: {},
   sessionLoops: {},
+  verificationRuns: {},
   sessionGoals: {},
   modelRegistry: null,
   localLlm: null,
@@ -4069,6 +4204,18 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   // §5.13 (M) v4.61 — 앱 버블 선택. 다른 선택(노드·엣지·코멘트·캡처)과 배타 — 캔버스에서
   //   선택은 언제나 하나이고, 그래야 Delete 키가 무엇을 지울지 헷갈리지 않는다.
   selectAppBubble: (id) => set({ selectedAppBubbleId: id, selectedNodeId: null, selectIntentId: null, selectedTaskEdgeId: null, selectedCommentBoxId: null, selectedCaptureBubbleId: null, selectedPlayBubbleId: null, selectedSpecDocId: null, selectedLabRunId: null, selectedShelfBubbleId: null }),
+  // 선택 채널 조정용 — store 채널만 비운다(`selectedNodeId` 는 그대로 둔다). 위 selectXxx 들과
+  //   달리 "무엇을 골랐다"가 아니라 "반대편 채널을 내린다"는 뜻이라 selectIntentId 도 안 건드린다.
+  clearElementSelection: () => set({
+    selectedTaskEdgeId: null,
+    selectedCommentBoxId: null,
+    selectedCaptureBubbleId: null,
+    selectedAppBubbleId: null,
+    selectedPlayBubbleId: null,
+    selectedSpecDocId: null,
+    selectedLabRunId: null,
+    selectedShelfBubbleId: null,
+  }),
   setAgentPhase: (phase) => set({ agentPhase: phase }),
 
   // 상태는 서버 스냅샷이 관리 — 클라이언트에서 덮어쓰지 않음
@@ -4255,6 +4402,8 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     set({ brainFeed: view, interiorView: null, selectedBrainCardId: null, selectedBrainCard: null, selectedNodeId: null, selectIntentId: null });
   },
   closeBrainFeed: () => set({ brainFeed: null, selectedBrainCardId: null, selectedBrainCard: null }),
+  openGuide: (category) => set({ guideCategory: category ?? 'start' }),
+  closeGuide: () => set({ guideCategory: null }),
   selectBrainCard: (id, opts) => {
     if (!id) { set({ selectedBrainCardId: null, selectedBrainCard: null }); return; }
     // 노드/코멘트박스/캡처/태스크엣지 선택과 배타.
@@ -4553,70 +4702,39 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   },
   createWorktree: (canvasX, canvasY) => {
     const project = selectEffectiveProject(get());
-    const tempId = `pending-wt-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-    // 실제 worktree 노드(activity=0, status='idle', childCount=0)와 동일한 파라미터로
-    // calcBubbleSize 결과를 일치시켜 placeholder↔real 전환 시 크기 점프 방지
-    const placeholder: BubbleData = {
-      id: tempId,
-      label: 'Creating...',
-      bubbleType: 'worktree',
-      path: tempId,
-      status: 'idle',
-      activity: 0,
-      childCount: 0,
-      position: { x: canvasX, y: canvasY },
-      creatingStatus: 'creating',
-    };
-    set((s) => ({ pendingWorktrees: [...s.pendingWorktrees, placeholder] }));
-
+    // §5.7 #26 — **생성 연출 없음.** 예전에는 요청과 동시에 `Creating...` 물결 버블(스탠드인)을 그
+    //   자리에 세워 두고 실물이 오면 바꿔치웠는데, 스탠드인과 실물이 같은 좌표를 두고 잠시
+    //   공존하는 구간이 구조적으로 남아 새 버블이 옆으로 튀어 보였다. 이제 만드는 동안 캔버스는
+    //   그대로 있고, 다 만들어진 워크트리 버블이 우클릭한 그 자리에 그냥 나타난다 —
+    //   좌표는 서버가 실어 준다(`createWorktreeUnder` → `updateBubblePosition`).
     fetch(`${API_BASE}/api/create-worktree`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ x: canvasX, y: canvasY, project }),
     })
-      .then(async (res) => {
-        if (!res.ok) throw new Error('create-worktree failed');
-        const body = await res.json().catch(() => ({})) as { nodeId?: string };
-        const realId = body.nodeId;
-        // 실제 worktree 노드가 스냅샷에 등장할 때까지 placeholder 유지 → 도착 즉시 제거 (seamless)
-        // 5초 타임아웃: 그래도 안 오면 강제 제거 (네트워크 장애 등 안전망)
-        if (realId) {
-          set((s) => ({
-            pendingWorktrees: s.pendingWorktrees.map((p) =>
-              p.id === tempId ? { ...p, path: realId } : p,
-            ),
-          }));
-          const deadline = Date.now() + 5000;
-          const poll = (): void => {
-            const topFolders = get().topFolders;
-            if (topFolders.some((f) => f.id === realId)) {
-              get().removePendingWorktree(tempId);
-              return;
-            }
-            if (Date.now() > deadline) { get().removePendingWorktree(tempId); return; }
-            setTimeout(poll, 80);
-          };
-          poll();
-        } else {
-          // 구버전 서버 호환 — nodeId 없으면 기존 delay 방식
-          setTimeout(() => get().removePendingWorktree(tempId), 400);
-        }
-      })
-      .catch(() => {
-        get().setPendingWorktreeError(tempId);
-      });
+      .then((res) => { if (!res.ok) throw new Error('create-worktree failed'); })
+      .catch(() => { get().reportWorktreeCreateFailure(canvasX, canvasY); });
   },
-  pendingWorktrees: [],
-  removePendingWorktree: (id) => set((s) => ({
-    pendingWorktrees: s.pendingWorktrees.filter((p) => p.id !== id),
-  })),
-  setPendingWorktreeError: (id) => {
-    set((s) => ({
-      pendingWorktrees: s.pendingWorktrees.map((p) =>
-        p.id === id ? { ...p, label: 'Failed', creatingStatus: 'error' as const } : p,
-      ),
-    }));
-    setTimeout(() => get().removePendingWorktree(id), 2200);
+  failedWorktrees: [],
+  reportWorktreeCreateFailure: (canvasX, canvasY) => {
+    // 성공 경로엔 아무것도 안 뜨지만 **실패는 반드시 보여야 한다** — 아무 반응이 없으면 사용자는
+    // 만들어졌는지 아닌지 알 길이 없다. 그 자리에 붉은 표식 하나가 2.2초 떴다 사라진다.
+    const id = `failed-wt-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    const marker: BubbleData = {
+      id,
+      label: 'Failed',
+      bubbleType: 'worktree',
+      path: id,
+      status: 'idle',
+      activity: 0,
+      childCount: 0,
+      position: { x: canvasX, y: canvasY },
+      creatingStatus: 'error',
+    };
+    set((s) => ({ failedWorktrees: [...s.failedWorktrees, marker] }));
+    setTimeout(() => {
+      set((s) => ({ failedWorktrees: s.failedWorktrees.filter((p) => p.id !== id) }));
+    }, 2200);
   },
   worktreeDeleteTarget: null,
   requestWorktreeDelete: (nodeId, label) => set({ worktreeDeleteTarget: { nodeId, label } }),
@@ -4727,6 +4845,13 @@ export const useGraphStore = create<GraphState>((set, get) => ({
         return;
       }
     }
+    // §5.5 #17-6 (H) — 다른 창에서 건너온 짐을 **슬롯을 세우기 전에** 조각으로 편다.
+    //   뷰 이름은 여기서 한 번 가린다(`migrateIDEViewType`) — 건너온 값이라 아는 뷰라는 보장이 없고,
+    //   모르는 뷰를 그대로 넣으면 활동바가 아무것도 안 고른 빈 화면이 된다.
+    const handoffPatch = opts?.handoff
+      ? handoffPanePatch(opts.handoff, opts.handoffTarget ?? 'app')
+      : null;
+    const handoffView = opts?.handoff ? migrateIDEViewType(opts.handoff.activeView) : null;
     set((state) => {
       // 우선순위: (1) 마지막 활성 서브에이전트 → (2) Default 서브에이전트 → (3) null
       const subAgents = state.subAgents[agentId] ?? [];
@@ -4756,9 +4881,20 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       const already = panes.find((o) => o.agentId === agentId);
       if (already) {
         // 접혀 있던 창이면 펴서 보여 준다 — 안 그러면 눌렀는데 아무 일도 안 일어난 것처럼 보인다.
+        //   §5.5 #17-6 (H) — 짐을 지고 왔으면 **그 자리에서** 이어 붙인다(밖에서 돌아온 창이
+        //   이미 서 있던 슬롯을 만났을 때. 안 그러면 되돌아온 창만 옛 상태로 남는다).
         return {
           idePaneSeq: seq,
-          ideOverlays: { ...state.ideOverlays, [already.paneKey]: { ...already, z: seq, collapsed: false } },
+          ideOverlays: {
+            ...state.ideOverlays,
+            [already.paneKey]: {
+              ...already,
+              ...(handoffPatch ?? {}),
+              ...(handoffView ? { activeView: handoffView } : {}),
+              z: seq,
+              collapsed: false,
+            },
+          },
         };
       }
 
@@ -4816,6 +4952,10 @@ export const useGraphStore = create<GraphState>((set, get) => ({
             // §5.5 #17-27 — 편집창은 IDE 를 새로 열 때(=에이전트 교체) 빈 상태에서 시작한다.
             editorFiles: [],
             activeEditorPath: null,
+            // §5.5 #17-6 (H) — 짐을 지고 온 창은 **위 초기값 대신** 그 상태로 선다(맨 끝에 덮는다).
+            //   창을 연 다음에 고치면 첫 프레임에 빈 창이 한 번 보였다가 바뀐다.
+            ...(handoffPatch ?? {}),
+            ...(handoffView ? { activeView: handoffView } : {}),
           },
         },
       };
@@ -4863,6 +5003,8 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     };
 
     if (kind === 'collapseAll' || kind === 'expandAll') {
+      // 여기서는 카메라를 옮기지 않는다(창 하나를 접는 setIDEPaneCollapsed 와 다른 점) —
+      //   한꺼번에 접는 창이 여럿이면 "그 창의 버블"이 하나로 정해지지 않는다.
       const collapsed = kind === 'collapseAll';
       for (const o of all) write(o.paneKey, { collapsed });
       return { ideOverlays: next, ideLayoutEpoch: epoch };
@@ -4921,9 +5063,21 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     if (!cur || cur.collapsed === collapsed) return {};
     // 펴는 김에 맨 앞으로 — 접었다 편 창이 다른 창 뒤에 숨어 "안 펴졌다"로 보이지 않게.
     const seq = collapsed ? s.idePaneSeq : s.idePaneSeq + 1;
+    // 접기 = **캔버스를 돌려주는 것**이다. 그런데 창이 화면을 덮고 있던 동안 카메라는 딴 데
+    //   가 있을 수 있어, 자리만 비워 주면 방금 접은 것이 어느 버블이었는지 화면에서 찾을 수가
+    //   없다(사용자 지시 — "접기 누르면 창은 내려가고 캔버스의 버블에 포커싱"). 그래서 접는
+    //   동작에 **그 창의 버블로 카메라 이동**을 한 벌로 묶는다. 고르는 것은 카메라뿐 —
+    //   선택(selectNode)까지 하면 상세 패널이 열려 방금 돌려준 캔버스를 도로 덮는다.
+    //   던지는 대상은 **지금 살아 있는 버블**뿐이다: 삭제·휴지통으로 사라진 버블(유령 창 —
+    //   selectOrphanIDEPanes)로 보내면 캔버스가 못 찾아 focusNodeId 만 남고, 나중에 엉뚱한
+    //   순간(그 id 가 다시 그려질 때) 카메라가 튄다.
+    const focusTarget = collapsed ? cur.agentId : null;
+    const focusNode = focusTarget ? s.nodeMap[focusTarget] : undefined;
+    const focus = focusNode && !focusNode.trashed ? focusTarget : null;
     return {
       idePaneSeq: seq,
       ideOverlays: { ...s.ideOverlays, [paneKey]: { ...cur, collapsed, z: collapsed ? cur.z : seq } },
+      ...(focus ? { focusNodeId: focus } : {}),
     };
   }),
   setIDEPaneFloat: (paneKey, geom) => set((s) => {
@@ -5456,6 +5610,38 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   applyAgentFeedbacks: (feedbacks) => set({ agentFeedbacks: feedbacks ?? {} }),
   // §5.5 #17-11 v3.79 — 서버가 매 스냅샷에 전량을 싣는다(삭제도 곧 사라짐으로 반영).
   applySessionLoops: (loops) => set({ sessionLoops: loops ?? {} }),
+  // §5.5 #17-35 — 검증 이력도 서버가 매 스냅샷에 전량을 싣는다(삭제도 곧 사라짐으로 반영).
+  applyVerificationRuns: (runs) => set({ verificationRuns: runs ?? {} }),
+  startVerification: async (input) => {
+    // §5.5 #17-29 — 검증은 그 탭 큐에 명령을 넣는 입력구다. 훅 버블에는 걸지 않는다
+    //   (서버도 같은 술어로 거절 — 화면이 앞서가 "시작된 것처럼" 보이지 않게 여기서 먼저 끊는다).
+    if (isReadOnlyHookAgent(get().agents.find((a) => a.id === input.agentId))) return 'read-only';
+    try {
+      const res = await fetch(`${API_BASE}/api/verification-runs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agentId: input.agentId,
+          subAgentId: input.subAgentId,
+          ...(input.focus ? { focus: input.focus } : {}),
+        }),
+      });
+      const data = (await res.json()) as { ok?: boolean; error?: string };
+      // 조용한 무동작 ❌ — 왜 안 됐는지를 호출자가 화면에 적을 수 있게 사유를 돌려준다.
+      return data.ok ? null : (data.error ?? 'failed');
+    } catch {
+      return 'network';
+    }
+  },
+  stopVerification: async (runId) => {
+    await fetch(`${API_BASE}/api/verification-runs/${encodeURIComponent(runId)}/stop`, { method: 'POST' }).catch(() => {});
+  },
+  reworkVerification: async (runId) => {
+    await fetch(`${API_BASE}/api/verification-runs/${encodeURIComponent(runId)}/rework`, { method: 'POST' }).catch(() => {});
+  },
+  deleteVerificationRun: async (runId) => {
+    await fetch(`${API_BASE}/api/verification-runs/${encodeURIComponent(runId)}`, { method: 'DELETE' }).catch(() => {});
+  },
   saveSessionLoop: async (input) => {
     // §5.5 #17-29 — 루프는 회차마다 큐에 명령을 넣는 또 하나의 입력구다. 훅 버블에는 걸지 않는다
     //   (서버도 같은 술어로 403 — 화면이 앞서가 "켜진 것처럼" 보이지 않게 여기서 먼저 끊는다).

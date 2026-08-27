@@ -1,7 +1,14 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { AuditEntry, AuditRiskKind } from '@vibisual/shared';
-import { AUDIT_RISK_KINDS, AUDIT_TIMELINE_PAGE_SIZE, DEFAULT_AUDIT_BOUNDARY } from '@vibisual/shared';
+import type { AuditEntry, AuditRiskKind, RetentionSettings } from '@vibisual/shared';
+import {
+  AUDIT_RISK_KINDS,
+  AUDIT_TIMELINE_PAGE_SIZE,
+  DEFAULT_AUDIT_BOUNDARY,
+  DEFAULT_RETENTION_SETTINGS,
+  RETENTION_LIMITS,
+} from '@vibisual/shared';
+import { NumberStepper } from '../Options/NumberStepper.js';
 import { useGraphStore } from '../../stores/graphStore.js';
 import {
   decisionToneClass,
@@ -33,6 +40,28 @@ interface AuditTimelinePopupProps {
 type AuditFilter = 'all' | 'risky' | 'denied';
 
 const FILTERS: readonly AuditFilter[] = ['all', 'risky', 'denied'] as const;
+
+/**
+ * §3.2.3 B축 — 감사 원장 보관 줄 수.
+ *
+ * 값은 이 팝업이 따로 들고 있지 않고 **머신 단위 보존 설정 한 곳**(`AppState.retention`)에 산다.
+ * 저장소 탭과 이 팝업은 같은 값을 서로 다른 자리에서 보여 줄 뿐이라, 한쪽에서 고치면 다른 쪽도
+ * 다음에 열 때 그 값을 본다(설정을 두 벌로 두면 어느 쪽이 진실인지 알 수 없게 된다).
+ */
+const RETENTION_KEY = 'auditEntryMaxPerProject' as const;
+
+/**
+ * 스테퍼 연타마다 PUT 을 쏘지 않기 위한 유예(ms).
+ * 이 값은 화면이 아니라 **디스크에 남는 줄 수**를 정하므로, 손이 멈춘 뒤에 한 번만 보낸다.
+ */
+const RETENTION_PUT_DEBOUNCE_MS = 500;
+
+/**
+ * 체크박스가 "무제한(0)"을 소유하고 숫자는 "얼마나"만 소유한다.
+ * 그래서 스테퍼의 하한은 `0` 이 아니라 `1` 이다 — 숫자로도 0 을 만들 수 있으면 체크는 켜져 있는데
+ * 뜻은 무제한인 상태가 생긴다.
+ */
+const RETENTION_STEPPER_MIN = 1;
 
 /**
  * 관계 설명의 세 줄 — 켜면 / 끄면(기본) / 붙잡히는 범위.
@@ -112,6 +141,49 @@ export function AuditTimelinePopup({ onClose }: AuditTimelinePopupProps): React.
   const setBoundary = useGraphStore((s) => s.setAuditBoundary);
   const [filter, setFilter] = useState<AuditFilter>('all');
   const [limit, setLimit] = useState(AUDIT_TIMELINE_PAGE_SIZE);
+
+  // §3.2.3 — 보관 상한. `null` 은 "아직 못 읽음"이고 `0` 은 무제한이다(둘을 같은 값으로 두면
+  //   설정을 못 읽은 화면이 "무제한"이라고 거짓말한다).
+  const [retentionMax, setRetentionMax] = useState<number | null>(null);
+  /** 체크를 껐다가 다시 켤 때 되돌릴 값 — 껐다고 사용자가 정한 숫자를 잊지 않는다. */
+  const lastLimitRef = useRef<number>(DEFAULT_RETENTION_SETTINGS[RETENTION_KEY]);
+  const putTimerRef = useRef<number | undefined>(undefined);
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const res = await fetch('/api/retention-settings');
+        if (!res.ok) return;
+        const data = await res.json() as { settings: RetentionSettings };
+        if (!alive) return;
+        const value = data.settings[RETENTION_KEY];
+        if (typeof value !== 'number') return;
+        setRetentionMax(value);
+        if (value > 0) lastLimitRef.current = value;
+      } catch {
+        // 설정을 못 읽어도 타임라인은 그대로 보여 준다 — 원장과 보존 설정은 다른 축이다.
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  useEffect(() => () => {
+    if (putTimerRef.current !== undefined) window.clearTimeout(putTimerRef.current);
+  }, []);
+
+  const pushRetention = useCallback((next: number): void => {
+    setRetentionMax(next);
+    if (next > 0) lastLimitRef.current = next;
+    if (putTimerRef.current !== undefined) window.clearTimeout(putTimerRef.current);
+    putTimerRef.current = window.setTimeout(() => {
+      void fetch('/api/retention-settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [RETENTION_KEY]: next }),
+      }).catch(() => undefined);
+    }, RETENTION_PUT_DEBOUNCE_MS);
+  }, []);
 
   const log = findAuditLog(auditLogs, activeProject);
   const boundary = log?.boundary;
@@ -234,8 +306,8 @@ export function AuditTimelinePopup({ onClose }: AuditTimelinePopupProps): React.
           </div>
         </div>
 
-        {/* 필터 탭 */}
-        <div className="flex items-center gap-1 border-b border-gray-700 px-4 py-2">
+        {/* 필터 탭 + 보관 상한 — 집계 숫자가 "계속 쌓이나"를 묻게 만드는 자리라 그 답을 옆에 둔다(§7.20). */}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-gray-700 px-4 py-2">
           {FILTERS.map((f) => (
             <button
               key={f}
@@ -251,6 +323,39 @@ export function AuditTimelinePopup({ onClose }: AuditTimelinePopupProps): React.
             </button>
           ))}
           <div className="flex-1" />
+
+          {/* §3.2.3 B축 — 체크박스가 "무제한(0)"을, 숫자가 "얼마나"를 소유한다. */}
+          {retentionMax !== null && (
+            <label
+              className="flex items-center gap-1.5"
+              title={t('panel.audit.retentionHint')}
+            >
+              <input
+                type="checkbox"
+                checked={retentionMax > 0}
+                onChange={(e) => pushRetention(e.target.checked ? lastLimitRef.current : 0)}
+                className="h-3.5 w-3.5 accent-amber-500"
+              />
+              <span className="text-[12px] text-gray-400">{t('panel.audit.retentionLabel')}</span>
+              {retentionMax > 0 ? (
+                <>
+                  <NumberStepper
+                    value={retentionMax}
+                    onChange={pushRetention}
+                    min={RETENTION_STEPPER_MIN}
+                    max={RETENTION_LIMITS[RETENTION_KEY].max}
+                    step={RETENTION_LIMITS[RETENTION_KEY].step}
+                    widthClassName="w-16"
+                    ariaLabel={t('panel.audit.retentionLabel')}
+                  />
+                  <span className="text-[12px] text-gray-500">{t('panel.audit.retentionUnit')}</span>
+                </>
+              ) : (
+                <span className="text-[12px] text-gray-500">{t('panel.audit.retentionUnlimited')}</span>
+              )}
+            </label>
+          )}
+
           {log && (
             <span className="font-mono text-[12px] tabular-nums text-gray-500">
               {t('panel.audit.countSummary', {

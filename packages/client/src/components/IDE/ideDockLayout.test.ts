@@ -6,6 +6,7 @@ import {
   clampFloatGeom,
   initialFloatGeom,
   isOutsideViewport,
+  isPinnedToViewportEdge,
   splitSpansFromDrag,
   cascadeFloatGeoms,
   computeDockLayout,
@@ -382,5 +383,36 @@ describe('앱 밖으로 꺼내기(isOutsideViewport)', () => {
     expect(isOutsideViewport({ x: -m - 1, y: 400 }, VP)).toBe(true);
     expect(isOutsideViewport({ x: 800, y: -m - 1 }, VP)).toBe(true);
     expect(isOutsideViewport({ x: 800, y: VP.h + m + 1 }, VP)).toBe(true);
+  });
+});
+
+describe('가장자리에 막혔을 때도 꺼내진다(isPinnedToViewportEdge)', () => {
+  it('네 변 어디든 끝에 닿으면 막힌 것으로 읽는다', () => {
+    expect(isPinnedToViewportEdge({ x: 0, y: 400 }, VP)).toBe(true);
+    expect(isPinnedToViewportEdge({ x: 800, y: 0 }, VP)).toBe(true);
+    // 브라우저가 주는 최대 좌표는 w-1 / h-1 — 끝까지 민 손이 띠 밖으로 새면 안 된다.
+    expect(isPinnedToViewportEdge({ x: VP.w - 1, y: 400 }, VP)).toBe(true);
+    expect(isPinnedToViewportEdge({ x: 800, y: VP.h - 1 }, VP)).toBe(true);
+  });
+
+  it('띠(3px) 안까지만 막힌 것으로 본다 — 가운데는 아니다', () => {
+    const e = IDE_FLOAT.POP_OUT_EDGE_PX;
+    expect(isPinnedToViewportEdge({ x: e, y: 400 }, VP)).toBe(true);
+    expect(isPinnedToViewportEdge({ x: e + 1, y: 400 }, VP)).toBe(false);
+    expect(isPinnedToViewportEdge({ x: VP.w - 1 - e, y: 400 }, VP)).toBe(true);
+    expect(isPinnedToViewportEdge({ x: VP.w - 2 - e, y: 400 }, VP)).toBe(false);
+    expect(isPinnedToViewportEdge({ x: VP.w / 2, y: VP.h / 2 }, VP)).toBe(false);
+  });
+
+  it('앱이 최대화된 단일 모니터 — 밖으로는 못 나가도 막힘 판정은 선다', () => {
+    // 커서가 뷰포트를 한 픽셀도 못 벗어나는 자리: `isOutsideViewport` 는 끝내 거짓,
+    // 그래도 손짓이 닿아야 하므로 막힘 판정이 참이어야 한다(이 둘이 함께 거짓이면 기능이 없는 것).
+    const edgeCursor = { x: VP.w - 1, y: VP.h - 1 };
+    expect(isOutsideViewport(edgeCursor, VP)).toBe(false);
+    expect(isPinnedToViewportEdge(edgeCursor, VP)).toBe(true);
+  });
+
+  it('버팀 시간이 있어야 한다 — 0 이면 스치기만 해도 창이 튀어나간다', () => {
+    expect(IDE_FLOAT.POP_OUT_EDGE_DWELL_MS).toBeGreaterThan(0);
   });
 });

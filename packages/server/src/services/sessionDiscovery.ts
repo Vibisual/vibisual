@@ -15,6 +15,7 @@ import { dbg } from './debugLog.js';
 import { getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
 import { scanFileLines, scanWholeFileLines } from './jsonlChunkReader.js';
 import { registerEvictableCache } from './memoryMonitor.js';
+import { killTree, processGroupSpawnOptions } from './processTree.js';
 // 경로 대소문자 정책 SSOT — win32/darwin 만 접고 linux 는 접지 않는다.
 import { CASE_INSENSITIVE_FS, pathKey } from './pathKey.js';
 
@@ -233,27 +234,70 @@ export function readAliveSessionIds(): Set<string> {
 }
 
 /**
- * Windows 한정: 현재 실행 중인 claude.exe PID 집합.
- * Claude Code CLI/VSCode는 claude.exe로 돌아가므로, 세션 PID가 이 집합에 없으면
- * 원래 프로세스는 죽었고 PID가 재사용됐거나 비활성 상태.
+ * 이 플랫폼에서 "지금 도는 claude 프로세스" 목록을 뽑는 명령.
+ *
+ * Windows 는 `tasklist`(claude.exe), POSIX 는 `ps` 다. 예전에는 win32 가 아니면 **빈 집합을 즉시
+ * 돌려줬다** — 조용한 열화라 mac/linux 에서는 이 판정이 늘 "아무것도 안 돈다"였고, 호출부는
+ * `isProcessAlive` 폴백만으로 버텼다(죽은 PID 가 재사용된 경우를 못 가른다).
+ *
+ * **플랫폼을 인자로 받는다** — 함수 안에서 `process.platform` 을 읽으면 개발기 한 대에서
+ * POSIX 가지가 영영 실행되지 않는다(멀티플랫폼 규칙).
+ */
+export function aliveClaudePidsCommand(platform: NodeJS.Platform): string {
+  if (platform === 'win32') return 'tasklist /NH /FO CSV /FI "IMAGENAME eq claude.exe"';
+  // `comm` 은 실행 파일 이름만 준다(경로·인자 없음) — 다른 사용자의 프로세스까지 보려면 `-A`.
+  return 'ps -Ao pid=,comm=';
+}
+
+/** `tasklist /FO CSV` 한 줄에서 PID 를 뽑는 모양. */
+const WIN_TASKLIST_PID = /^"claude\.exe","(\d+)"/;
+/** `ps -Ao pid=,comm=` 한 줄 — 앞이 PID, 뒤가 실행 파일 이름. */
+const POSIX_PS_LINE = /^\s*(\d+)\s+(\S.*?)\s*$/;
+
+/**
+ * 프로세스 목록 출력 → claude PID 집합.
+ *
+ * 파싱을 실행에서 떼어 놓은 이유는 하나다 — **세 OS 의 출력 모양을 개발기 한 대에서 다 시험**하기
+ * 위해서다. 실기가 없는 우리에게는 이게 POSIX 가지가 맞는지 확인하는 유일한 방법이다.
+ */
+export function parseAliveClaudePids(output: string, platform: NodeJS.Platform): Set<number> {
+  const pids = new Set<number>();
+  for (const raw of output.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    if (platform === 'win32') {
+      const m = WIN_TASKLIST_PID.exec(line);
+      if (m?.[1]) pids.add(parseInt(m[1], 10));
+      continue;
+    }
+    const m = POSIX_PS_LINE.exec(line);
+    if (!m?.[1] || !m[2]) continue;
+    // mac 의 `comm` 은 경로가 붙어 오는 경우가 있다(`/opt/homebrew/bin/claude`) — 마지막 조각만 본다.
+    const comm = m[2];
+    const base = comm.slice(comm.lastIndexOf('/') + 1);
+    // `claude` 본체와 `claude-code` 류를 함께 받는다. `claude.exe` 는 POSIX 에 오지 않는다.
+    if (base === 'claude' || base.startsWith('claude-')) pids.add(parseInt(m[1], 10));
+  }
+  return pids;
+}
+
+/**
+ * 현재 실행 중인 claude 프로세스 PID 집합.
+ * 세션 PID 가 이 집합에 없으면 원래 프로세스는 죽었고 PID 가 재사용됐거나 비활성이다.
  * 10초에 한 번 호출되는 용도라 성능 부담 없음.
  */
 export function getAliveNodePids(): Set<number> {
-  const pids = new Set<number>();
-  if (process.platform !== 'win32') return pids; // non-Windows: 빈 집합 → isProcessAlive로 폴백
   try {
-    const out = execSync('tasklist /NH /FO CSV /FI "IMAGENAME eq claude.exe"', {
+    const out = execSync(aliveClaudePidsCommand(process.platform), {
       encoding: 'utf8',
       timeout: 5000,
     });
-    for (const line of out.split(/\r?\n/)) {
-      const m = /^"claude\.exe","(\d+)"/.exec(line.trim());
-      if (m) pids.add(parseInt(m[1]!, 10));
-    }
+    return parseAliveClaudePids(out, process.platform);
   } catch (err) {
+    // `ps`/`tasklist` 가 없거나 막힌 환경 — 빈 집합이면 호출부가 `isProcessAlive` 폴백으로 간다.
     logger.warn('getAliveNodePids failed', err);
+    return new Set<number>();
   }
-  return pids;
 }
 
 /**
@@ -294,28 +338,22 @@ export function isSessionInUse(sessionId: string, cwd: string, timeoutMs = 1500)
   return new Promise((resolve) => {
     // 보안: shell:false + 해석된 CLAUDE_BIN. shell:true 는 win32 cmd.exe 가
     // sessionId 를 재파싱해 인젝션 가능했음 — SAFE_SESSION_ID 검증과 함께 차단.
+    // POSIX 는 프로세스 그룹을 만들어 둬야 timeout kill 때 손자(MCP 서버 등)까지 회수된다 —
+    //   detached 없이 죽이면 `process.kill(-pid)` 가 ESRCH 로 떨어져 자식만 죽고 손자가 남는다.
     const child = spawn(
       CLAUDE_BIN(),
       args,
-      { shell: false, windowsHide: true, cwd },
+      { shell: false, windowsHide: true, cwd, ...processGroupSpawnOptions() },
     );
     let buf = '';
     let settled = false;
     const finish = (result: boolean, reason: string): void => {
       if (settled) return;
       settled = true;
-      // Windows: child.kill()은 직접 자식만 신호하고 하위 프로세스 트리를
-      // 종료하지 않는다. taskkill /T /F 로 트리 전체를 강제 종료한다.
-      if (process.platform === 'win32') {
-        if (child.pid != null && child.exitCode === null) {
-          try {
-            const tk = spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true });
-            tk.on('error', () => { /* ignore */ });
-          } catch { /* ignore */ }
-        }
-      } else {
-        try { child.kill(); } catch { /* ignore */ }
-      }
+      // 종료는 `processTree.killTree` 한 곳에 맡긴다 — Windows 는 taskkill /T /F, POSIX 는 프로세스
+      //   그룹 킬이다. 여기에 손으로 taskkill 을 적어 두면 POSIX 가지가 `child.kill()` 하나로 남아
+      //   손자를 회수하지 못하고, 고칠 일이 생겨도 두 곳이 갈린다.
+      if (child.exitCode === null) killTree(child.pid);
       const dur = Date.now() - t0;
       logger.info(
         `[isSessionInUse] RESULT sess=${shortId} inUse=${result} dur=${dur}ms via=${reason} ` +

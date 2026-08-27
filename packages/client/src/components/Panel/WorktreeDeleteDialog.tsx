@@ -13,6 +13,14 @@ interface StatusResponse {
   isMerged: boolean;
   wtPath: string;
   parentPath: string;
+  /**
+   * §7.10 — 지금 지우면 **강제 종료될 것들**. 서버가 죽이지 않고 세어 실어 보낸다.
+   *
+   * 이 예고가 없으면 사용자는 워크트리를 지웠다가 자기 dev 서버가 왜 꺼졌는지 모른다.
+   * 반대로 예고만 하고 안 죽이면 폴더가 반만 지워져 `node_modules` 만 남은 좀비가 된다 —
+   * 그래서 "미리 알리고, 확인을 받았으면 망설이지 않는다" 가 이 팝업의 규약이다.
+   */
+  running?: { agents: number; terminals: number };
 }
 
 export const WorktreeDeleteDialog = memo(function WorktreeDeleteDialog(): React.JSX.Element | null {
@@ -154,6 +162,33 @@ export const WorktreeDeleteDialog = memo(function WorktreeDeleteDialog(): React.
             {!status?.branch && (
               <div className="mb-4 text-sm text-amber-300">
                 {t('panel.worktreeDelete.branchUnresolved')}
+              </div>
+            )}
+            {/* §7.10 — 안에서 도는 것이 있을 때만 뜬다. 없는데 늘 떠 있으면 아무도 안 읽는다. */}
+            {!!status?.running && (status.running.agents > 0 || status.running.terminals > 0) && (
+              <div className="mb-4 flex items-start gap-2 rounded border border-amber-700/50 bg-amber-950/30 px-3 py-2 text-sm text-amber-200">
+                <svg
+                  className="mt-0.5 h-4 w-4 shrink-0"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M12 9v4" />
+                  <path d="M12 17h.01" />
+                  <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
+                </svg>
+                <div>
+                  <div className="font-semibold">{t('panel.worktreeDelete.forceStopTitle')}</div>
+                  <div className="mt-0.5 text-amber-300/90">
+                    {t('panel.worktreeDelete.forceStopDesc', {
+                      terminals: status.running.terminals,
+                      agents: status.running.agents,
+                    })}
+                  </div>
+                </div>
               </div>
             )}
             <div className="flex flex-wrap justify-end gap-2">

@@ -17,6 +17,7 @@ import { shortcutLabel } from '../../utils/platform.js';
 type CategoryKey =
   | 'start'
   | 'bubbleMap'
+  | 'memory'
   | 'agents'
   | 'taskEdges'
   | 'ide'
@@ -32,11 +33,18 @@ interface GuideEntry {
 interface GuideWindowProps {
   open: boolean;
   onClose: () => void;
+  /** §5.10 — 특정 항목으로 곧장 여는 입구(메모리 라이브러리의 [사용법] 버튼). 없으면 첫 항목. */
+  initialCategory?: CategoryKey;
 }
 
-export function GuideWindow({ open, onClose }: GuideWindowProps): React.JSX.Element | null {
+export function GuideWindow({ open, onClose, initialCategory }: GuideWindowProps): React.JSX.Element | null {
   const { t } = useTranslation();
-  const [category, setCategory] = useState<CategoryKey>('start');
+  const [category, setCategory] = useState<CategoryKey>(initialCategory ?? 'start');
+  // 다른 화면이 특정 항목을 지목해 열면 그때마다 그 항목으로 옮겨 앉는다
+  //   (창이 이미 열려 있던 뒤에 다시 지목되는 경우까지 포함).
+  useEffect(() => {
+    if (open && initialCategory) setCategory(initialCategory);
+  }, [open, initialCategory]);
 
   // ESC 닫기
   useEffect(() => {
@@ -54,6 +62,9 @@ export function GuideWindow({ open, onClose }: GuideWindowProps): React.JSX.Elem
     ) },
     { key: 'bubbleMap', label: t('panel.guide.cat.bubbleMap', { defaultValue: 'Bubble Map' }), icon: (
       <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="7" cy="8" r="3"/><circle cx="17" cy="7" r="2"/><circle cx="15" cy="17" r="3.5"/><path d="M9.5 9.7l3.7 5M9.7 7.4l5.4-.3"/></svg>
+    ) },
+    { key: 'memory', label: t('panel.guide.cat.memory', { defaultValue: 'Project Memory' }), icon: (
+      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 10h9a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2Z"/><path d="M7 7.5V6a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-1.5"/><path d="M5 14h7M5 17h4.5"/></svg>
     ) },
     { key: 'agents', label: t('panel.guide.cat.agents', { defaultValue: 'Agents' }), icon: (
       <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="8" width="16" height="11" rx="2"/><path d="M12 8V5M9 13h.01M15 13h.01"/><circle cx="12" cy="4" r="1"/></svg>
@@ -133,6 +144,20 @@ export function GuideWindow({ open, onClose }: GuideWindowProps): React.JSX.Elem
       entries: [
         { title: t('panel.guide.history.saveT', { defaultValue: 'Automatic saving' }), desc: t('panel.guide.history.saveD', { defaultValue: 'The whole graph is checkpointed to disk and restored the next time you open Vibisual.' }) },
         { title: t('panel.guide.history.replayT', { defaultValue: 'History replay' }), desc: t('panel.guide.history.replayD', { defaultValue: 'Scrub a timeline to replay how the map grew over a session.' }) },
+      ],
+    },
+    memory: {
+      intro: t('panel.guide.memory.intro', { defaultValue: "Project Memory keeps what worked and loads it back into your next task. It ships turned off — you switch it on per project, and switching it off never deletes anything." }),
+      entries: [
+        { title: t('panel.guide.memory.turnOnT', { defaultValue: "Turning it on" }), desc: t('panel.guide.memory.turnOnD', { defaultValue: "Right-click empty canvas and pick \"Turn on Project Memory\", or open File > Options > Project Memory. It applies immediately — no restart." }) },
+        { title: t('panel.guide.memory.bubbleT', { defaultValue: "The memory bubble" }), desc: t('panel.guide.memory.bubbleD', { defaultValue: "Once on, an indigo bubble sits on the canvas with the number of stored cards. Double-click it to open the library; hover for a summary." }) },
+        { title: t('panel.guide.memory.skillsT', { defaultValue: "Procedural memory" }), desc: t('panel.guide.memory.skillsD', { defaultValue: "When a complex job finishes, the steps are distilled into a procedure. Next time a similar task starts, that procedure is loaded into the prompt automatically." }) },
+        { title: t('panel.guide.memory.recallT', { defaultValue: "Recall" }), desc: t('panel.guide.memory.recallD', { defaultValue: "Searches the text of past sessions, not just saved cards — for the answer that was never written down as a card." }) },
+        { title: t('panel.guide.memory.groundingT', { defaultValue: "Grounding" }), desc: t('panel.guide.memory.groundingD', { defaultValue: "A card is only treated as current truth after the files it points at are checked against the code that exists right now." }) },
+        { title: t('panel.guide.memory.curatorT', { defaultValue: "Curator" }), desc: t('panel.guide.memory.curatorD', { defaultValue: "Cards that were never read, never classified, or are still candidates collect in one rail so you can sort or promote them in a batch." }) },
+        { title: t('panel.guide.memory.operatorT', { defaultValue: "Operator profile" }), desc: t('panel.guide.memory.operatorD', { defaultValue: "Working habits it notices are stored on this machine only. Nothing is sent anywhere." }) },
+        { title: t('panel.guide.memory.railsT', { defaultValue: "The five rails" }), desc: t('panel.guide.memory.railsD', { defaultValue: "The library\\u2019s left column: Needs check, Pending review, Procedures, To sort, Archived." }) },
+        { title: t('panel.guide.memory.keepsT', { defaultValue: "Nothing is thrown away" }), desc: t('panel.guide.memory.keepsD', { defaultValue: "Turning memory off stops the work, not the storage. Cards stay on disk under .vibisual/brain and pick up where they left off when you switch it back on." }) },
       ],
     },
     shortcuts: {

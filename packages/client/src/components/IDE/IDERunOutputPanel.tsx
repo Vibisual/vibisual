@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 
 import { RUN_OUTPUT_BUFFER_LINES, matchProblemLine } from '@vibisual/shared';
 
-import { useGraphStore, selectIDEPane } from '../../stores/graphStore.js';
+import { useGraphStore, selectPaneProjectPath } from '../../stores/graphStore.js';
 import { useIDEPaneKey } from './idePane.js';
 import { toWorkspaceRelative } from './debugPaths.js';
 
@@ -72,11 +72,7 @@ export const IDERunOutputPanel = memo(function IDERunOutputPanel({ onClose }: { 
 
   // ⑪ — 오류 줄을 눌렀을 때 열 파일의 기준(프로젝트 루트). 없으면 줄은 색만 얻고 클릭은 없다.
   const paneKey = useIDEPaneKey();
-  const rootPath = useGraphStore((s) => {
-    const name = selectIDEPane(s, paneKey).projectId ?? s.activeProject;
-    if (!name) return null;
-    return s.projects[name]?.path ?? s.stubProjects[name]?.project.path ?? null;
-  });
+  const rootPath = useGraphStore((s) => selectPaneProjectPath(s, paneKey));
   const openEditorFile = useGraphStore((s) => s.openIDEEditorFile);
 
   const handleOpenProblemFile = useCallback(

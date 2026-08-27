@@ -96,7 +96,7 @@ export function BrainAxisSettings(): React.JSX.Element | null {
           onClick={() => void brain.setEnabled(false)}
           className="rounded px-2 py-0.5 text-[12px] text-slate-500 hover:bg-slate-800 hover:text-slate-300"
         >
-          {t('brain.activation.turnOff', { defaultValue: '두뇌 끄기' })}
+          {t('brain.activation.turnOff', { defaultValue: '메모리 끄기' })}
         </button>
       </div>
       {brain.axes.map((a) => (
@@ -130,7 +130,7 @@ export function BrainSettingsTab(): React.JSX.Element {
           {t('brain.activation.noProject', { defaultValue: '열려 있는 프로젝트가 없습니다' })}
         </p>
         <p className="text-[12px] text-gray-600">
-          {t('brain.activation.noProjectDesc', { defaultValue: '두뇌는 프로젝트마다 따로 켜고 끕니다 — 프로젝트를 먼저 여세요.' })}
+          {t('brain.activation.noProjectDesc', { defaultValue: '메모리는 프로젝트마다 따로 켜고 끕니다 — 프로젝트를 먼저 여세요.' })}
         </p>
       </div>
     );
@@ -145,8 +145,8 @@ export function BrainSettingsTab(): React.JSX.Element {
           <div className="min-w-0">
             <p className="text-sm text-gray-200">
               {brain.enabled
-                ? t('brain.activation.stateOn', { defaultValue: '이 프로젝트의 두뇌가 켜져 있습니다' })
-                : t('brain.activation.stateOff', { defaultValue: '이 프로젝트의 두뇌가 꺼져 있습니다' })}
+                ? t('brain.activation.stateOn', { defaultValue: '이 프로젝트의 메모리가 켜져 있습니다' })
+                : t('brain.activation.stateOff', { defaultValue: '이 프로젝트의 메모리가 꺼져 있습니다' })}
             </p>
             <p className="mt-0.5 break-all text-[12px] text-gray-500">{brain.projectPath}</p>
             {brain.sleepingCardCount > 0 && !brain.enabled && (
@@ -169,7 +169,7 @@ export function BrainSettingsTab(): React.JSX.Element {
           }`}
         >
           {brain.enabled
-            ? t('brain.activation.turnOff', { defaultValue: '두뇌 끄기' })
+            ? t('brain.activation.turnOff', { defaultValue: '메모리 끄기' })
             : t('brain.activation.turnOn', { defaultValue: '켜기' })}
         </button>
       </div>
@@ -187,7 +187,7 @@ export function BrainSettingsTab(): React.JSX.Element {
       ) : (
         <p className="text-[12px] leading-snug text-gray-500">
           {t('brain.activation.hint', {
-            defaultValue: '두뇌는 기본으로 꺼져 있습니다. 켜면 작업에서 배운 절차를 모아 다음 작업에 자동으로 겁니다. 언제든 다시 끌 수 있고, 꺼도 기록은 지워지지 않습니다.',
+            defaultValue: '메모리는 기본으로 꺼져 있습니다. 켜면 작업에서 배운 절차를 모아 다음 작업에 자동으로 겁니다. 언제든 다시 끌 수 있고, 꺼도 기록은 지워지지 않습니다.',
           })}
         </p>
       )}

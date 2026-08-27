@@ -546,7 +546,7 @@ export const IDETabBar = memo(function IDETabBar({
           }`}
         >
           <span className="h-1.5 w-1.5 rounded-full bg-gray-400" />
-          <HoverTooltip className="max-w-[100px] truncate" label={t('ide.tabbar.agentTabLabel')} />
+          <HoverTooltip className="max-w-[100px] truncate max-md:max-w-[4.5rem]" label={t('ide.tabbar.agentTabLabel')} />
         </button>
       )}
 
@@ -639,16 +639,25 @@ export const IDETabBar = memo(function IDETabBar({
                   else if (e.key === 'Escape') cancelRename();
                 }}
                 onBlur={() => commitRename(sub.id)}
-                className="w-[120px] rounded border border-blue-400/60 bg-gray-900 px-1 py-0.5 text-xs text-gray-100 outline-none"
+                className="w-[120px] rounded border border-blue-400/60 bg-gray-900 px-1 py-0.5 text-xs text-gray-100 outline-none max-md:w-[6.5rem]"
               />
             ) : (
               // 탭 크기 고정 — 이름이 길면 ...(truncate). HoverTooltip 으로 전체 라벨 빠르게 호버 표시.
-              <HoverTooltip className="w-[120px] truncate" label={displayLabel(sub)} />
+              //   폰(max-md)에서는 120px 탭 두 개면 화면이 찬다 — **지금 보고 있는 탭만** 넓게 두고
+              //   나머지는 좁혀, 세션이 여럿일 때 옆 탭이 화면 밖으로 밀리지 않게 한다.
+              <HoverTooltip
+                className={`w-[120px] truncate ${isActive ? 'max-md:w-[6.5rem]' : 'max-md:w-[4rem]'}`}
+                label={displayLabel(sub)}
+              />
             )}
             <button
               type="button"
               onClick={(e) => handleClose(e, sub.id)}
-              className="flex h-4 w-4 items-center justify-center rounded text-gray-500 opacity-0 transition-all hover:bg-gray-600/50 hover:text-gray-200 group-hover:opacity-100"
+              className={`flex h-4 w-4 flex-shrink-0 items-center justify-center rounded text-gray-500 opacity-0 transition-all hover:bg-gray-600/50 hover:text-gray-200 group-hover:opacity-100 ${
+                // 터치엔 hover 가 없다 — 폰에서 세션을 닫을 유일한 길. 좁은 탭이 X 로 덮이지 않게
+                // **지금 보고 있는 탭**에만 띄우고, 손가락 크기에 맞춰 조금 키운다.
+                isActive ? 'pointer-coarse:h-5 pointer-coarse:w-5 pointer-coarse:opacity-100' : ''
+              }`}
               aria-label={`Close ${sub.label}`}
               title={t('ide.tabbar.closeTab')}
             >

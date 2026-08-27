@@ -1,5 +1,5 @@
 import { createContext, useContext, useMemo } from 'react';
-import { useGraphStore, selectIDEPane, type IDEEditorFile, type IDEOverlayState, type IDEViewType } from '../../stores/graphStore.js';
+import { useGraphStore, selectIDEPane, selectPaneProjectName, type IDEEditorFile, type IDEOverlayState, type IDEViewType } from '../../stores/graphStore.js';
 
 // §5.5 #17-1 (판올림 번호 발급 대기) — **이 창이 누구인가**를 IDE 컴포넌트 나무에 흘리는 통로.
 //
@@ -50,12 +50,15 @@ export function useIDEPaneValue<T>(pick: (pane: IDEOverlayState) => T): T {
 }
 
 /**
- * 이 창이 보고 있는 프로젝트 이름. 슬롯에 프로젝트가 없으면(닫힌 창 등) 활성 탭으로 떨어진다 —
- * 종전 `selectIDEOverlay(s).projectId ?? s.activeProject` 관용구를 한 곳에 모은 것.
+ * 이 창이 보고 있는 프로젝트 이름 — **그 안 에이전트의 소속 프로젝트**다(§5.7 #26).
+ *
+ * 창이 앉은 슬롯(`pane.projectId`)이 아니다: 워크트리로 드릴다운해도 슬롯은 부모 탭에 남으므로,
+ * 슬롯을 그대로 쓰면 워크트리 버블의 중단점·실행이 워크트리 밖 부모 트리에 매인다.
+ * 판정은 `selectPaneProjectName` 한 곳(슬롯·활성 탭 폴백까지 그 안에 있다).
  */
 export function useIDEPaneProjectName(): string | null {
   const paneKey = useIDEPaneKey();
-  return useGraphStore((s) => selectIDEPane(s, paneKey).projectId ?? s.activeProject);
+  return useGraphStore((s) => selectPaneProjectName(s, paneKey));
 }
 
 /** 콜백 안에서 지금 값을 한 번 읽을 때(구독 ❌). */

@@ -28,6 +28,7 @@ import {
 } from '@vibisual/shared';
 import { logger } from '../logger.js';
 import { getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
+import { buildCliInvocation } from './claudeCliRun.js';
 
 /**
  * §4 v2.77 — 패밀리 화이트리스트 해제로 잡힐 수 있는 **비모델** 토큰의 패밀리명.
@@ -113,8 +114,10 @@ class ModelRegistryService {
       try {
         // detached 를 **일부러 안 붙인다** — `--help` 는 손자를 만들지 않고 즉시 끝나는 probe 다
         //   (단일 kill 로 회수하므로 프로세스 그룹이 필요 없다).
-        child = spawn(binPath, ['--help'], {
-          shell: process.platform === 'win32',
+        // 셸 경유 여부는 공용 창구가 정한다(공백 든 설치 경로 대응).
+        const invocation = buildCliInvocation(binPath, ['--help'], process.platform);
+        child = spawn(invocation.file, invocation.args, {
+          shell: invocation.shell,
           windowsHide: true,
           stdio: ['ignore', 'pipe', 'pipe'],
         });

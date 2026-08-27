@@ -127,6 +127,15 @@ export const IDE_FLOAT = {
   TILE_GAP: 8,
   /** 커서가 앱 창 밖으로 이만큼 더 나가야 "독립 창으로 꺼낸다"로 읽는다. */
   POP_OUT_MARGIN: 24,
+  /**
+   * 화면 끝에 **막혀** 더 나갈 수 없을 때 "밖으로 밀고 있다"로 읽어 주는 안쪽 띠(px).
+   *
+   * 단일 모니터에 앱이 최대화돼 있으면 커서는 뷰포트를 한 픽셀도 벗어나지 못한다 — 그 사람에게
+   * `POP_OUT_MARGIN` 은 영영 닿지 않는 문턱이라 끌어내기라는 손짓 자체가 없는 것과 같다.
+   */
+  POP_OUT_EDGE_PX: 3,
+  /** 그 띠에 이만큼 버티면 밖으로 나간 것과 **같이** 본다(ms). 스치기만 한 손은 걸리지 않게. */
+  POP_OUT_EDGE_DWELL_MS: 500,
 } as const;
 
 /**
@@ -597,6 +606,29 @@ export function isOutsideViewport(
     || cursor.y < -margin
     || cursor.x > vp.w + margin
     || cursor.y > vp.h + margin;
+}
+
+/**
+ * (판올림 번호 발급 대기) 커서가 뷰포트 **가장자리에 막혀** 있는가 — 밖으로 더 밀고 싶어도
+ * 화면이 없어서 못 미는 자리.
+ *
+ * 단일 모니터에 앱을 최대화해 쓰는 사람은 커서를 앱 밖으로 낼 수 없다. 그에게는
+ * `isOutsideViewport` 가 영영 참이 되지 않아 "끌어내면 독립 창"이라는 손짓이 **없는 기능**과
+ * 같았다. 가장자리에 닿은 채 잠깐 버티는 것을 같은 뜻으로 읽어, 화면 수와 창 상태에 관계없이
+ * 같은 손짓이 닿게 한다(무장 여부는 부르는 쪽이 시간으로 가른다 — 이 함수는 자리만 본다).
+ *
+ * 오른쪽·아래 경계에서 `-1` 을 빼는 까닭: 브라우저가 주는 `clientX/Y` 의 최대값은 `w-1`/`h-1`
+ * 이라, `w` 를 그대로 견주면 끝까지 밀어도 띠 안에 들어오지 않는다.
+ */
+export function isPinnedToViewportEdge(
+  cursor: { x: number; y: number },
+  vp: Viewport,
+  edge: number = IDE_FLOAT.POP_OUT_EDGE_PX,
+): boolean {
+  return cursor.x <= edge
+    || cursor.y <= edge
+    || cursor.x >= vp.w - 1 - edge
+    || cursor.y >= vp.h - 1 - edge;
 }
 
 /** 두 자리가 같은 곳을 가리키는가 — 십자 버튼 강조가 판정과 어긋나지 않게 한 곳에서 견준다. */

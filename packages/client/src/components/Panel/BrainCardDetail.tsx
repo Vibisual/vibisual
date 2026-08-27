@@ -101,7 +101,7 @@ export function BrainCardDetail({ card }: BrainCardDetailProps): React.JSX.Eleme
         </span>
         <span className="rounded bg-gray-800 px-2 py-0.5 text-xs text-gray-400">
           {card.scope === 'project'
-            ? t('brain.scopeProject', { defaultValue: '프로젝트 두뇌' })
+            ? t('brain.scopeProject', { defaultValue: '프로젝트 메모리' })
             : t('brain.scopeAgent', { defaultValue: '개별 기억' })}
         </span>
         {card.pinned && (
@@ -260,7 +260,7 @@ export function BrainCardDetail({ card }: BrainCardDetailProps): React.JSX.Eleme
             onClick={() => void promoteBrainCard(card.id)}
             className="rounded bg-indigo-600/80 px-3 py-1 text-xs font-semibold text-white hover:bg-indigo-500"
           >
-            {t('brain.promote', { defaultValue: '프로젝트 두뇌로 승격' })}
+            {t('brain.promote', { defaultValue: '프로젝트 메모리로 승격' })}
           </button>
         )}
         <button

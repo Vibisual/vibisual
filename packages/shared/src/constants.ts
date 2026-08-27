@@ -1,7 +1,7 @@
 import type { AgentProvider, LocalEngineBackend, BubbleType, BubbleStyleConfig, EdgeStyleConfig, AgentRole, PipelineChildConfig, PipelineType, AgentConfig, TaskEdgeTemplate, TaskEdgeKind, UiLocale, AutoAgentRole, AutoAgentTemplate, ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry, AgentFeedback, BrainTopicDef, BrainTopicIndexEntry, BrainCardType, BrainAuthority, BrainAxisId, BrainActivation, BrainSkill, StreamDensity, PluginContributionKind, SessionGoalStepStatus, CommandDispatchMode, CommandErrorCode, RunRuntime, RunConfig, McpServerPreset, AgentMemoryScope, DebugAdapterSpec, ProblemMatch, ProblemSeverity, RetentionSettings, PreviewDevicePreset, ShelfIconName, ShelfItemKind, CostPeriod, CostTotals, CostPeriodTotals, AuditRiskKind, AuditBoundaryConfig, AuditCounts, StoryboardPresetId, StoryboardPreset, LocalModelCatalogSort, WorkspacePathKind, CmdPaneNode, BuiltinSlashCommand } from './types.js';
 export type { ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry } from './types.js';
 // 경로 대소문자 정책 SSOT — win32/darwin 만 접고 linux 는 접지 않는다(`pathCase.ts`).
-import { legacyLowerPathKey, pathKey, type PlatformName } from './pathCase.js';
+import { legacyLowerPathKey, normalizePathShape, pathKey, type PlatformName } from './pathCase.js';
 
 // ─── UI 다국어 (i18n) ───
 
@@ -376,6 +376,17 @@ export const ATTACHMENT_RETENTION_DAYS = 30;
  */
 export const TRASH_RETENTION_DAYS = 14;
 
+/**
+ * 프로젝트당 원장 상한(§3.2.3 B축 = 키 개수 캡). 밀려난 줄의 몫은 `retired` 합계로 접힌다.
+ *
+ * ⚠ 이것은 못박힌 상한이 아니라 **`RetentionSettings.auditEntryMaxPerProject` 의 기본값**이다.
+ * 사용자가 설정에서 올리거나 `0`(무제한)으로 끌 수 있다 — 실제 판정은 항상 그 설정을 통과한 값으로.
+ *
+ * 500 → 200 으로 내린 근거: 전선에 싣는 몫이 `AUDIT_SNAPSHOT_ENTRIES`(120)라 화면이 도달하는
+ * 범위보다 여전히 넉넉하다(§3.2.3 — 읽는 쪽 상한보다 남기는 쪽이 크면 소비자에게 no-op).
+ */
+export const AUDIT_ENTRIES_MAX_PER_PROJECT = 200;
+
 /** 정리 기록(`RetentionLogEntry`) 보관 상한 — 링버퍼. 값이 아니라 **개수**에 건 캡(§3.2.3 E축). */
 export const RETENTION_LOG_MAX = 500;
 
@@ -390,6 +401,7 @@ export const DEFAULT_RETENTION_SETTINGS: RetentionSettings = {
   completedCommandMaxPerSession: COMPLETED_COMMAND_MAX_PER_SESSION,
   subStreamRetentionDays: SUB_STREAM_RETENTION_DAYS,
   attachmentRetentionDays: ATTACHMENT_RETENTION_DAYS,
+  auditEntryMaxPerProject: AUDIT_ENTRIES_MAX_PER_PROJECT,
   trashRetentionDays: TRASH_RETENTION_DAYS,
 };
 
@@ -404,6 +416,7 @@ export const RETENTION_LIMITS: Record<keyof RetentionSettings, { min: number; ma
   completedCommandMaxPerSession: { min: 0, max: 100_000, step: 10 },
   subStreamRetentionDays: { min: 0, max: 3650, step: 1 },
   attachmentRetentionDays: { min: 0, max: 3650, step: 1 },
+  auditEntryMaxPerProject: { min: 0, max: 100_000, step: 50 },
   trashRetentionDays: { min: 0, max: 3650, step: 1 },
 };
 
@@ -920,6 +933,24 @@ export const PROJECT_IDLE_UNLOAD_SWEEP_MS = 60_000;
  * `PROJECT_IDLE_UNLOAD_MS` 가 0(끔)이면 이 값도 적용하지 않는다 — 끈 것은 끈 것이다.
  */
 export const PROJECT_IDLE_UNLOAD_PRESSURE_MS = 3 * 60 * 1000;
+
+/**
+ * §9 "탭을 옮긴 직후의 빈 캔버스는 빈 프로젝트가 아니다" — **불러오는 중 표시를 띄우기까지 기다리는 시간(ms)**.
+ *
+ * 탭 전환은 `set-project-scope` 선언 → 서버가 그 자리에서 스냅샷 1벌 회신, 이라는 **왕복**이다.
+ * 같은 기기에서는 눈에 띄지 않지만 원격(느린 회선)에서는 몇 초씩 걸리고 그동안 캔버스가 비어
+ * 보인다. 그렇다고 즉시 띄우면 빠른 전환마다 표시가 깜빡여 오히려 거슬리므로, **이 시간을
+ * 넘겨 기다릴 때만** 조용히 나타난다(도착하면 사라진다).
+ */
+export const PROJECT_LOAD_HINT_DELAY_MS = 400;
+
+/**
+ * §9 — 이 시간을 넘겨서도 스냅샷이 안 오면 **문구를 바꾼다**("불러오는 중" → "회선이 느립니다").
+ *
+ * 같은 말을 계속 띄우면 멈춘 것처럼 보이고, 사용자는 앱이 죽었는지 회선이 느린지 알 길이 없다
+ * (원격 접속에서 실제로 나온 신고다). 상태는 그대로이고 **말만 정확해진다.**
+ */
+export const PROJECT_LOAD_HINT_SLOW_MS = 6_000;
 
 /**
  * §4 v1.50/v3.60 — Claude.ai 한도 사용률 경고 임계(%).
@@ -1809,6 +1840,33 @@ export function isConsoleRepaintChunk(data: string): boolean {
 export function shouldBufferPtyChunk(data: string, resizedAt: number, now: number): boolean {
   if (!resizedAt || now - resizedAt > CMD_RESIZE_REPAINT_MS) return true;
   return !isConsoleRepaintChunk(data);
+}
+
+/**
+ * §4 (CMD) — 셸이 프롬프트를 그릴 틈을 준 뒤 입력줄에 명령을 채우기까지의 시간(ms).
+ * 0 이면 배너보다 먼저 써 넣어 글자가 배너 사이에 끼어 보인다.
+ */
+export const CMD_PREFILL_DELAY_MS = 350;
+
+/**
+ * §4 (CMD) — 입력줄 채우기를 리사이즈 때문에 미룰 수 있는 **총 한도**(ms).
+ *
+ * ConPTY 는 리사이즈마다 보이는 화면을 통째로 다시 그리는데(`CMD_RESIZE_REPAINT_MS`), 그때 셸
+ * 입력줄에 글자가 들어 있으면 새 폭에 맞춰 다시 배치되며 잘려 나간다 — 사용자 눈에는 "자동으로
+ * 적어 둔 명령이 지워진다"로 보인다. 그래서 크기가 멎은 뒤에 채우되, 창을 계속 끌고 있는 동안
+ * 영영 안 채워지지는 않게 이 한도에서 끊는다.
+ */
+export const CMD_PREFILL_MAX_DEFER_MS = 2000;
+
+/**
+ * 지금 예약할 입력줄 채우기 지연(ms). 평소에는 `CMD_PREFILL_DELAY_MS`, 위 한도가 가까우면 그
+ * 남은 시간만큼만(음수면 0 = 지금 당장).
+ *
+ * @param now 현재 시각(ms)
+ * @param deadline 최초 예약 때 정해진 한도 시각(ms)
+ */
+export function cmdPrefillDelay(now: number, deadline: number): number {
+  return Math.max(0, Math.min(CMD_PREFILL_DELAY_MS, deadline - now));
 }
 
 /** §4 (CMD ①) — 상태 판정 타이머 주기(ms). */
@@ -2760,6 +2818,14 @@ export const FRONTEND_SERVER_PATTERNS: readonly string[] = [
   'parcel', 'snowpack dev', 'turbopack',
 ];
 
+/** §7.11 — 끝난 Bash 하나에서 프리뷰 후보로 삼을 루프백 주소의 상한. 한 명령이 주소를 수십 개
+ *  뱉어도(테스트 로그·접근로그) 그만큼 probe 를 날리지 않게 막는다. */
+export const LOOPBACK_SNIFF_URLS_PER_BASH = 4;
+
+/** §7.11 — 같은 (세션, 포트)를 다시 probe 하기까지의 최소 간격(ms). 에이전트는 Bash 를 수백 번
+ *  돌리므로 이 문이 없으면 같은 주소에 매번 TCP+HTTP 를 날린다. */
+export const LOOPBACK_SNIFF_PROBE_TTL_MS = 60_000;
+
 // ─── §7.11 v1.44 iframe 서버 로그 스트리밍 ───
 
 /** 서버 측 port 당 ring buffer 최대 라인 수 */
@@ -3605,25 +3671,6 @@ function cardEndpointRefs(serverBase: string, serverToken: string): { base: stri
   };
 }
 
-/**
- * §5.5 #17-18 ⑦-4 — 카드 4종(작업 신고·질문·검수·목록)이 **공유하는 발행 순서 문장**.
- *
- * ⑦-1 이 카드를 신고 시각(`createdAt`)의 자리에 못 박은 뒤로, "완료 보고 **직전**에 호출" 이라는 옛 문구는
- * 카드를 결론 본문보다 **위**에 앉히고 그 카드를 설명하는 내용을 아래로 밀어냈다("카드가 위에 나오고 내용이
- * 아래에 나와 버린다"). 읽는 순서는 늘 **맥락 → 카드**이므로 설명을 먼저 쓰고 그 보고의 **마지막 동작**으로
- * 카드를 발행한다. 네 판본에 복제하지 않고 여기 한 곳에 두는 이유 — 판본마다 다르게 적히면 화면에 뜨는
- * 순서가 에이전트 종류에 따라 갈린다(CMD 터미널 마커 판본 `buildCmdCardProtocolRules` 의 공통 절도 같은 규칙).
- *
- * 각 블록은 "언제 보낼 자격이 되는가"(그 일을 다 끝낸 뒤 / 목록이 확정된 뒤 …)를 자기 문장으로 적고,
- * 그 뒤에 이 상수를 이어 붙여 "그 1회를 어디에 놓는가"를 말한다. 끝의 콜론은 바로 아래 bash 블록으로 이어진다.
- *
- * §5.5 #17-18 ⑦-5 — "발행한 뒤 본문을 더 붙이지 마라"만으로는 부족했다. 카드 curl 이 그 턴의 **마지막 도구**라
- * 그 결과를 받은 에이전트는 무언가 말해야 턴이 닫히고, 그때 가장 무해해 보이는 말이 곧 **발송 사실 보고**다
- * ("검수 카드로 확인 지점을 정리해 보냈습니다"). 이미 화면에 뜬 카드를 다시 말할 뿐이라 정보량이 0 인데
- * 카드마다 반복돼 마지막 본문 자리(#17-21 ②)를 잡아먹었다 — 그래서 그 한 줄을 **이름 대어** 금지한다.
- * (지시문만으로는 확률적이라 렌더 층에서도 같은 줄을 표시에서 뺀다 — 클라 `isCardEchoText`.)
- */
-const CARD_PUBLISH_ORDER_RULE = `**자연어 설명(짧은 결론·근거)을 먼저 쓴 다음**, 그 보고의 **맨 마지막 동작**으로 Bash 로 1회 호출한다 — 카드는 **신고된 그 시각의 자리**에 앉으므로 설명보다 먼저 보내면 **카드가 위, 그 카드를 설명하는 내용이 아래**로 뒤집힌다(읽는 순서는 늘 맥락 → 카드). 호출한 뒤에는 본문을 더 붙이지 마라 — 붙이면 카드가 다시 중간에 낀다. **특히 "검수 카드로 보냈습니다" · "작업 신고 카드로 정리해 보냈습니다" 같은 발송 사실 보고를 쓰지 마라** — 카드는 이미 화면에 떠 있어 그 한 줄은 아무것도 더 알려주지 않으면서 카드마다 똑같이 반복된다. 덧붙일 맥락이 없으면 **아무 말도 하지 말고 그대로 끝내라.** 작업 도중에 미리 보내면 사용자는 카드를 보고 **끝난 줄 안다**(실패해도 무시하고 자연어 보고는 그대로 진행):`;
 
 /**
  * §5.5 #17-28 ⑧(a) — **카드 5종 전용** 짧은 참조. 이 블록들은 언제나 「카드 공통 규약」 뒤에 서고,
@@ -3638,43 +3685,174 @@ function cardEnvRefsShort(): { base: string; tokenHdr: string } {
 }
 
 /**
- * §5.5 #17-28 ⑧(a) — 카드 5종이 **공유하는 규칙 한 벌**.
+ * §5.5 #17-28 ⑧(f) — 카드 규약의 **이유**를 담는 문서. 서버가 부팅 때 `~/.vibisual/rules/cards.md`
+ * 로 한 장 써 두고, 프롬프트의 요약은 그 경로만 가리킨다.
  *
- * 종전에는 카드마다 자기 블록 안에 (ⅰ) 포트·토큰을 읽는 프렐류드 · (ⅱ) 발행 순서 문장 ·
- * (ⅲ) "표시 전용" · (ⅳ) 401 안내를 **각자 한 벌씩** 들고 있었다. 실측하면 규약 9,157 토큰 가운데
- * **3,997 토큰이 이 넷의 재탕**이었다(프렐류드 596×6 여분 + 발행 순서 339×3 여분). 같은 말을 여섯 번
- * 적는다고 여섯 배로 지켜지지 않는다 — 한 벌만 두고 각 카드는 **자기만의 것**(언제 보내는가·무엇을
- * 담는가)만 말한다.
+ * 프롬프트에는 **결론만** 남는다(언제 보내는가·무엇을 담는가·언제 보내지 마라). 그 결론이 왜 그렇게
+ * 정해졌는지는 여기 있다 — 읽지 않아도 규약은 성립하고, 판단이 애매할 때만 읽으면 된다. 강제하지
+ * 않는 이유는 실측이다: 규약이 실린 271 세션 중 255(94%)가 카드를 쓰므로 "필요할 때 읽어라"를 강제하면
+ * 거의 모든 세션이 문서를 읽고, 읽어 온 내용은 도구 결과로 대화에 남아 **주입한 것과 똑같이 재열람된다**
+ * (3,408 → 3,729 토큰, 게다가 읽을지 판단하는 모델 턴이 하나 더 붙는다).
+ */
+export const CARD_RULES_DOCUMENT = `# Vibisual 규약 — 그 결론들이 왜 그렇게 정해졌는가
+
+프롬프트에는 결론만 실린다. 이 문서는 그 결론의 **근거**다. 판단이 애매할 때만 읽으면 된다.
+
+## 왜 "사용자가 할 일이 있을 때만" 작업 신고인가
+카드는 사용자가 긴 글을 다 읽지 않아도 "AI 가 한 일"과 "사용자가 할 일"을 색으로 가려 보라고 있는 장치다.
+매 완료마다 보내면 카드가 도배돼 **오히려 신호가 묻힌다** — 그래서 "이건 직접 해주세요"(빌드 실행·에디터
+조작·외부 승인) 류가 실제로 생긴 보고에서만 뜨는 것이 목적이다. \`userActions\` 가 비었는데 보낸 카드는
+정보량이 0 이면서 자리만 차지한다.
+
+## 왜 한 턴에 카드 한 장인가
+작업 신고의 \`userActions\` 는 "AI 가 못 하니 **네가 직접 해**"이고, 검수 요청은 "AI 가 이미 끝냈으니
+**결과를 확인해**"다. 성격이 달라 둘 다 뜨면 사용자가 읽을 것이 두 배가 되고 무엇이 중요한지 묻힌다.
+직접 손댈 일이 있으면 작업 신고(고친 내용은 \`did\` 에 담는다), 확인만 필요하면 검수 요청.
+
+## 왜 본문을 먼저 쓰고 카드를 마지막에 보내는가
+카드는 **신고된 그 시각의 자리**에 앉는다. 설명보다 먼저 보내면 카드가 위, 그 카드를 설명하는 내용이
+아래로 뒤집힌다. 읽는 순서는 늘 맥락 → 카드다. 작업 도중에 미리 보내면 사용자는 카드를 보고 **끝난 줄
+안다**.
+
+## 왜 "카드로 보냈습니다"를 쓰지 말라는가
+카드 curl 이 그 턴의 마지막 도구라, 결과를 받은 뒤 무언가 말해야 턴이 닫힌다. 그때 가장 무해해 보이는
+말이 발송 사실 보고인데("검수 카드로 정리해 보냈습니다"), 이미 화면에 뜬 카드를 다시 말할 뿐이라 정보량이
+0 이면서 카드마다 똑같이 반복돼 **마지막 본문 자리**를 잡아먹는다. 덧붙일 맥락이 없으면 아무 말도 하지
+말고 끝내라. (렌더 층도 같은 줄을 표시에서 뺀다.)
+
+## 왜 카드에 담은 목록을 본문에 다시 쓰지 말라는가
+"한 일 / 사용자가 할 일 / 다음 단계" 같은 섹션을 본문에도 풀어 쓰면 사용자가 **같은 내용을 두 번 읽게
+된다**("중첩된다 / 버그 같다"고 느낀다). 본문은 카드에 안 담기는 짧은 근거·맥락만 1~2문장으로.
+
+## \`learned\` · \`helpfulMemoryIds\` · \`staleMemoryIds\` 는 왜 있는가
+\`learned\` 는 다음 사람이 같은 자리에서 헤매지 않게 하는 교훈이고 Project Brain 기억 카드로 저장된다.
+브리핑으로 받은 카드 중 실제로 도움이 된 것은 \`helpfulMemoryIds\`, 지금 코드와 어긋난 것은
+\`staleMemoryIds\` 에 넣는다 — 그 1비트가 다음 사람이 낡은 기억에 속지 않게 한다. "확인 필요"로 표시돼 온
+카드가 지금 코드에도 맞았다면 \`helpfulMemoryIds\` 에 넣어라(시스템이 다시 유효로 되돌린다).
+\`staleMemoryIds\` 로 신고해도 **삭제되지 않는다**(표시만 바뀌고 반복되면 보관된다) — 안심하고 신고하라.
+
+## 질문 카드의 \`prompts\` 는 어떻게 쓰는가
+사용자가 **그대로 보내면 되는 답**을 그가 1인칭으로 말하듯 적는다(예: "네, A1 계측 → 1차 → 측정 후 판단
+순으로 착수해 주세요."). IDE 가 각 프롬프트를 복사 박스로 감싸 **복사 / 즉시 전송** 버튼을 단다.
+선택지가 갈리면 여러 개 넣어라. 질문은 비차단이다 — 지금 할 수 있는 일을 끝낸 뒤 묻고, 사용자는 다음
+메시지로 답한다.
+
+## 검수 카드의 \`checkpoints\` 는 무엇인가
+사용자가 결과가 맞는지 **어떻게 확인하면 되는지**다(예: "그 버튼을 다시 눌러 정상 동작 확인").
+\`changes\` 는 무슨 동작을 어떻게 고쳤는지. 조사 보고·질문 답변처럼 확인할 것이 없는 보고에는 보내지 않는다.
+
+## 왜 도구를 쓰기 전에 의도를 먼저 말하는가
+실행 초반에 "무엇을 하려는지"가 화면에 없으면, 사용자는 잘못된 방향으로 가는 것을 보고도 **멈추게 할 수가
+없다**(하단 상태바가 보여 주던 것은 "실행 중 + 사용자가 친 프롬프트"뿐이었다). 사용자는 네가 파일을 읽기
+시작한 뒤에야 화면을 보는 일이 많다. 계획을 \`TodoWrite\` 로 세우라는 것도 같은 이유다 — 화면에 뜨는 계획이
+곧 네가 실제로 들고 도는 계획이어야 "겉치레 미리보기"가 되지 않는다. 그래서 말한 계획과 실제로 하는 일이
+달라지면 안 된다.
+
+## 왜 목표 목록을 비워 두면 안 되는가
+목표 창이 비어 있으면 사용자 화면에는 **아무것도 안 뜬다** — 그건 이 세션이 무엇을 하는지 말하지 않는 것과
+같다. 이 칸은 사용자가 채워 주는 자리가 아니라 네가 쓰는 자리다. 끝낸 항목을 \`done\` 으로 옮기는 순간 그
+줄에 취소선이 그어지고 퍼센트가 오르므로, **실제로 끝난 것만** \`done\` 으로 옮겨야 그 숫자가 뜻을 갖는다.
+\`steps\` 를 목록 전체로 보내는 이유는 본문이 같은 단계가 화면에서 같은 항목으로 이어지기 때문이다 —
+본문을 그대로 두고 \`status\` 만 옮기면 항목이 새로 생기지 않는다. 목표는 방향이고 사용자의 방금 명령은 지금
+할 일이라, 둘이 어긋나면 **명령이 이긴다**.
+
+## 표시 전용이라는 말의 뜻
+카드 신고는 화면 표시만 바꾼다 — 실제 작업·판정 로직과 무관하고, 보내든 안 보내든 결과가 달라지지 않는다.
+그러니 실패(401·연결 거부)해도 무시하고 자연어 보고는 그대로 진행하라.
+`;
+
+/**
+ * §5.5 #17-28 ⑧(a)(f) — 카드들이 **공유하는 결론 한 벌**.
  *
- * 이 블록은 카드가 **하나라도 켜져 있을 때만** 실린다(§5.5 #17-28 의 조각 게이트). 전부 꺼 두면
- * 공통 규약도 함께 빠지므로 "끈 기능의 설명이 남아 있는" 상태가 생기지 않는다.
+ * 종전 판본은 같은 규칙을 카드마다 되풀이했고(⑧(a) 에서 한 벌로 모았다), 그 위에 **왜 그런가**를
+ * 문단으로 달고 있었다. 이제 이유는 `CARD_RULES_DOCUMENT` 로 내리고 여기에는 결론만 남긴다 —
+ * 줄인 것은 문장의 길이이지 규칙의 수가 아니다(결론이 하나라도 빠지면 실패다).
  */
 export function buildAgentCardCommonRules(args: {
   serverBase: string;
   serverToken: string;
   agentId: string;
   subAgentId?: string;
+  /** §5.5 #17-28 ⑧(f) — 이유를 적어 둔 문서의 절대경로. 없으면 "애매하면 읽어라" 줄을 걸지 않는다. */
+  docPath?: string;
 }): string {
-  const { serverBase, serverToken, agentId, subAgentId } = args;
+  const { serverBase, serverToken, agentId, subAgentId, docPath } = args;
   const subField = subAgentId ? `"${subAgentId}"` : 'null';
   const { base, tokenHdr } = cardEndpointRefs(serverBase, serverToken);
+  const docLine = docPath ? `\n- 판단이 애매하면(보낼까 말까, 어느 카드인가) \`${docPath}\` 를 Read 하라 — 그 결론들의 근거가 있다.` : '';
   return `
 
-# 카드 공통 규약 (Vibisual IDE — 아래 카드들이 함께 쓰는 규칙)
-아래 신고들은 전부 **같은 창구**를 쓴다. 주소·토큰은 이 세션의 환경변수에 이미 들어와 있으니 그대로 쓰면 된다(따로 읽을 필요 없음).
-
+# 카드 (Vibisual IDE) — 공통
+아래 카드들은 같은 창구를 쓴다. 주소·토큰은 환경변수에 이미 있다.
 \`\`\`bash
-curl -s -X POST "${base}/api/<엔드포인트>" \\
-  ${tokenHdr} \\
+curl -s -X POST "${base}/api/<엔드포인트>" ${tokenHdr} \\
   -H 'Content-Type: application/json' --data-binary @- <<'JSON'
 {"agentId":"${agentId}","subAgentId":${subField}, ...}
 JSON
 \`\`\`
-- \`agentId\`·\`subAgentId\` 는 위 두 값을 그대로 쓴다. 토큰 헤더가 없으면 401 이다.
-- **발행 순서** — ${CARD_PUBLISH_ORDER_RULE.replace(/:$/, '.')}
-- 전부 **표시 전용** — 실제 작업/판정 로직과 무관하며, 보내든 안 보내든 결과엔 영향이 없다. 실패해도 무시하고 자연어 보고는 그대로 진행한다.
-- **한 턴에 카드는 하나** — 작업 신고와 검수 요청은 둘 중 하나만 보낸다.
-- **카드에 담은 목록을 자연어 본문에 다시 나열하지 마라** — 사용자가 같은 것을 두 번 읽게 되어 "긴 글 안 읽어도 한눈에"라는 취지가 무너진다. 본문은 **1~2문장 결론**으로 최소화하고(카드에 안 담기는 짧은 근거·맥락만), 목록 자체는 카드에만 담는다.`;
+- **본문(짧은 결론)을 먼저 쓰고, 그 보고의 맨 마지막 동작으로 1회 호출**한다. 호출 뒤에는 본문을 더 붙이지 마라. **"카드로 보냈습니다" 같은 발송 사실 보고 금지** — 덧붙일 맥락이 없으면 아무 말 없이 끝내라. 작업 도중에 미리 보내지 마라.
+- **한 턴에 카드는 하나** — 작업 신고와 검수 요청은 둘 중 하나만.
+- **카드에 담은 목록을 본문에 다시 나열하지 마라.** 본문은 1~2문장 결론만.
+- 전부 **표시 전용** — 결과에 영향이 없다. 실패해도 무시하고 보고는 그대로 진행.${docLine}`;
+}
+
+/**
+ * §4 v2.52 · §5.5 #17-28 ⑧(f) — "작업 신고" 결론.
+ * 이유(왜 도배가 문제인가·`learned` 는 무엇인가)는 `CARD_RULES_DOCUMENT` 에 있다.
+ */
+export function buildAgentReportRules(_args: {
+  serverBase: string;
+  serverToken: string;
+  agentId: string;
+  subAgentId?: string;
+  identityFile?: string;
+}): string {
+  const { base, tokenHdr } = cardEnvRefsShort();
+  return `
+
+## \`POST ${base}/api/agent-report\` — 작업 신고 (색 구분 카드)
+**사용자가 직접 해야 할 일이 실제로 생긴 완료 보고에서만.** 단순 완료·일상 대화·질문 답변·조사 보고에는 보내지 마라.
+- \`did[]\` 내가 끝낸 일 · \`userActions[]\` 내가 대신 못 해 **사용자가 직접 해야 하는 일**(빌드 실행·에디터 조작·외부 승인 등) — **이게 비면 보내지 마라** · \`nextSteps[]\` 다음 차례(선택).
+- \`learned[]\` 이번에 배운 교훈·함정(확실한 것만 최대 3, 없으면 생략) · \`helpfulMemoryIds[]\` 도움된 브리핑 카드 id · \`staleMemoryIds[]\` 지금 코드와 어긋난 카드 id(삭제되지 않으니 확실한 것만 신고).
+- 인증 헤더: \`${tokenHdr}\``;
+}
+
+/**
+ * §4 v2.60 · §5.5 #17-28 ⑧(f) — "사용자 질문" 결론.
+ * `prompts` 를 어떻게 쓰는가는 `CARD_RULES_DOCUMENT` 에 있다.
+ */
+export function buildAgentQuestionRules(_args: {
+  serverBase: string;
+  serverToken: string;
+  agentId: string;
+  subAgentId?: string;
+  identityFile?: string;
+}): string {
+  const { base } = cardEnvRefsShort();
+  return `
+
+## \`POST ${base}/api/agent-questions\` — 질문 카드
+**사용자 답을 기다리는 질문이 있을 때만**(예: "A안과 B안 중 무엇으로 갈까요?"). 질문이 없으면 보내지 마라. 비차단 — 지금 할 수 있는 일을 끝낸 뒤 묻는다.
+- \`items[{question, header?, prompts[]}]\` — \`prompts\` 는 사용자가 **그대로 보내면 되는 답**을 1인칭으로(선택지가 갈리면 여러 개). IDE 가 복사·즉시 전송 버튼을 단다.`;
+}
+
+/**
+ * §4 v2.70 · §5.5 #17-28 ⑧(f) — "검수 요청" 결론.
+ * 작업 신고와의 성격 차이는 `CARD_RULES_DOCUMENT` 에 있다.
+ */
+export function buildAgentReviewRules(_args: {
+  serverBase: string;
+  serverToken: string;
+  agentId: string;
+  subAgentId?: string;
+  identityFile?: string;
+}): string {
+  const { base } = cardEnvRefsShort();
+  return `
+
+## \`POST ${base}/api/agent-review\` — 검수 카드
+**지시받은 수정·기능 변경을 끝내 사용자가 결과를 확인해야 할 때만.** 단순 완료·일상 대화·질문 답변·조사 보고에는 보내지 마라. (직접 손댈 일이 있으면 검수 대신 작업 신고 — 고친 내용은 \`did\` 에.)
+- \`instruction?\` 받은 지시 한 줄 · \`changes[]\` 무슨 동작을 어떻게 고쳤나 — **이게 비면 보내지 마라** · \`checkpoints[]\` 사용자가 확인할 방법.`;
 }
 
 /**
@@ -3687,102 +3865,15 @@ JSON
  */
 export const AGENT_INTENT_FIRST_RULES = `
 
-# 의도 먼저 말하기 (Vibisual IDE — 사용자가 중지할 수 있게)
-**도구를 쓰기 전에, 그 턴에서 처음 내는 말로 "내가 이해한 사용자 의도 + 지금부터 할 일"을 1~2문장으로 먼저 말하라.**
-사용자는 네가 파일을 읽기 시작한 뒤에야 화면을 보는 경우가 많다 — 그때 "무엇을 하려는지"가 없으면 잘못 가고 있어도 멈추게 할 수가 없다.
+# 의도 먼저 말하기
+**도구를 쓰기 전에, 그 턴의 첫 말로 "내가 이해한 사용자 의도 + 지금부터 할 일"을 1~2문장 말하라.** 사용자는 네가 파일을 읽기 시작한 뒤에야 화면을 보는 일이 많다 — 그때 무엇을 하려는지가 없으면 잘못 가고 있어도 멈출 수가 없다.
+- 여러 단계면 \`TodoWrite\` 로 계획을 세워라(없으면 아래 목표 창의 \`steps\`). 계획이 바뀌면 갱신하고, **말한 계획과 실제로 하는 일이 달라지면 안 된다.**
+- 한 줄로 끝나는 질문·일상 대화에서는 생략해도 된다.`;
 
-- 형식은 자유롭되 **의도 해석 + 첫 행동**이 들어가야 한다. 예: "요청은 이 버튼의 오류 수정으로 이해했습니다. 먼저 해당 핸들러와 그 호출부를 읽겠습니다."
-- **단계가 여럿인 작업이면 \`TodoWrite\` 로 계획을 세워라.** Vibisual IDE 는 그 계획을 전용 **계획 블록**으로 띄우고, 실행 중에는 진행 단계를 하단 상태바에 [중지] 버튼과 나란히 보여준다 — 사용자가 계획을 보고 멈출지 말지 정한다.
-- 계획이 바뀌면 \`TodoWrite\` 를 갱신하라(옛 계획은 화면에서 자동으로 한 줄로 접힌다). **말한 계획과 실제로 하는 일이 달라지면 안 된다.**
-- 한 줄 답변이면 되는 단순 질문·일상 대화에서는 이 선언을 생략해도 된다(도구를 쓰지 않으니 멈출 일도 없다).`;
-
-/**
- * §4 v2.52 — 커스텀/스폰 에이전트에게 주입할 "작업 신고" 지시문 (시스템 프롬프트 꼬리표).
- *
- * 서버 `processNextCommand` 가 커스텀 에이전트(customCreated) spawn 시점에 contextSummary 끝에
- * append 한다. 동적 값(serverBase=hook loopback 포트, 토큰, agentId, subAgentId)은 서버가 주입 —
- * 하네스 빌더(`buildHarnessBuilderRules`) 의 curl 패턴과 동일 인프라(토큰 인증 loopback) 재사용.
- * Hook 에이전트는 우리가 spawn 하지 않으므로 이 지시문이 안 들어가 신고도 안 함(하이브리드 경계).
- */
-export function buildAgentReportRules(args: {
-  serverBase: string;
-  serverToken: string;
-  agentId: string;
-  subAgentId?: string;
-  /** v2.71 — 있으면 curl 이 호출 시점에 이 파일에서 live 포트·토큰을 읽는다(없으면 serverBase/serverToken 상수). */
-  identityFile?: string;
-}): string {
-  const { agentId, subAgentId } = args;
-  const subField = subAgentId ? `"${subAgentId}"` : 'null';
-  const { base, tokenHdr } = cardEnvRefsShort();
-  return `
-
-# 작업 신고 (Vibisual IDE 색 구분)
-**사용자가 직접 해야 할 일(\`userActions\`)이 실제로 생긴 완료 보고에서만** 아래 엔드포인트로 **구조화 신고**를 함께 보낸다 — "이건 직접 해주세요"(빌드 실행, 에디터 조작, 외부 승인 등) 류 안내가 보고에 섞였을 때가 그 경우다. Vibisual IDE 가 이 신고를 받아 "AI 가 한 일" 과 "사용자가 할 일" 을 **색으로 구분**해 보여준다(사용자가 긴 글을 다 안 읽어도 한눈에 파악).
-
-**단순 완료·일상 대화·질문 답변·사용자 손이 필요 없는 보고에서는 호출하지 마라.** 매번 보내면 카드가 도배돼 오히려 신호가 묻힌다 — 신고는 "사용자가 할 일이 있을 때만" 자연스럽게 뜨는 게 목적이다.
-**한 턴에 카드는 하나** — 이 작업 신고를 보냈으면 검수 요청(\`/api/agent-review\`)은 보내지 마라(고친 내용은 \`did\` 에 담으면 된다).
-
-- \`did\`: 네가(=AI) 실제로 끝낸 일(사용자 액션의 맥락으로 함께 첨부).
-- \`userActions\`: 네가 대신 할 수 없어 **사용자가 직접 해야 하는 일**(빌드 실행, 에디터 조작, 외부 승인 등). **이게 비면 신고 자체를 보내지 마라.**
-- \`nextSteps\`: 다음 차례 작업(선택).
-- \`learned\`: 이 작업에서 배운 것 — 다음에 같은 실수를 반복하지 않기 위한 교훈/결정/함정(§5.10 Project Brain 기억 카드로 저장됨). 확실한 것만, 최대 3개. 없으면 생략.
-- \`helpfulMemoryIds\`: 브리핑/주입으로 받은 기억 카드 중 실제로 작업에 도움이 된 카드의 id 목록(브리핑에 \`[card-xxxx]\` 로 표기됨). 도움된 것만, 없으면 생략. **"확인 필요"로 표시돼 온 카드가 지금 코드에도 맞았다면 여기에 넣어라** — 시스템이 그 카드를 다시 유효로 되돌린다.
-- \`staleMemoryIds\`: 브리핑으로 받은 카드 중 **지금 코드와 어긋나 낡은 것**의 id 목록. 확실히 틀린 것만(애매하면 넣지 마라). 시스템이 그 카드를 "확인 필요"로 표시하고 반복 신고되면 자동 보관한다 — 삭제되지 않으니 안심하고 신고해도 된다. 없으면 생략.
-
-**그 일을 다 끝낸 뒤**, \`userActions\` 가 있는 완료 보고에서만 — **위 「카드 공통 규약」의 발행 순서**대로, 그 보고의 **맨 마지막 동작**으로 Bash 로 1회 호출한다:
-\`\`\`bash
-curl -s -X POST "${base}/api/agent-report" \\
-  ${tokenHdr} \\
-  -H 'Content-Type: application/json' --data-binary @- <<'JSON'
-{"agentId":"${agentId}","subAgentId":${subField},"did":["완료한 일 1","완료한 일 2"],"userActions":["사용자가 직접 해야 할 일 1"],"nextSteps":["다음 단계 1"],"learned":["이번에 배운 교훈 1"],"helpfulMemoryIds":["card-도움된-id"],"staleMemoryIds":["card-낡은-id"]}
-JSON
-\`\`\`
-- **\`userActions\` 가 비어 있으면 신고 자체를 보내지 마라** — 빈 신고는 카드만 늘려 신호를 묻는다.`;
-}
 
 /** agentId 당 보관하는 질문 카드 최대 개수 (ring buffer 캡, 초과 시 오래된 것부터 제거). */
 export const AGENT_QUESTIONS_MAX_PER_AGENT = 50;
 
-/**
- * §4 v2.60 — 커스텀/스폰 에이전트에게 주입할 "사용자 질문" 지시문 (시스템 프롬프트 꼬리표).
- *
- * 작업 신고(`buildAgentReportRules`)와 동일 인프라(토큰 인증 loopback). 에이전트가 사용자에게 자연어로
- * 질문을 던질 때, 그 질문(1~N개)과 각 질문의 제안 응답 프롬프트를 구조화해 `POST /api/agent-questions`
- * 로 보낸다 → IDE 가 눈에 띄는 질문 카드 + 각 프롬프트마다 복사/즉시전송 버튼을 렌더. 비차단.
- * Hook 에이전트는 spawn/rules 통제 밖이라 이 지시문이 안 들어가 호출하지 않는다.
- */
-export function buildAgentQuestionRules(args: {
-  serverBase: string;
-  serverToken: string;
-  agentId: string;
-  subAgentId?: string;
-  /** v2.71 — 있으면 curl 이 호출 시점에 이 파일에서 live 포트·토큰을 읽는다(없으면 serverBase/serverToken 상수). */
-  identityFile?: string;
-}): string {
-  const { agentId, subAgentId } = args;
-  const subField = subAgentId ? `"${subAgentId}"` : 'null';
-  const { base, tokenHdr } = cardEnvRefsShort();
-  return `
-
-# 사용자 질문 (Vibisual IDE 질문 카드)
-사용자에게 **질문을 던지며 답을 기다리는 보고**(예: "~순으로 할까요?", "A안과 B안 중 무엇으로 갈까요?")를 할 때는, 그 질문이 본문 텍스트에 묻히지 않도록 아래 엔드포인트로 **구조화 질문 신고**도 함께 보낸다. Vibisual IDE 가 이를 **눈에 띄는 질문 카드**로 띄우고, 각 질문 아래 **제안 응답 프롬프트**를 복사 박스로 감싸 **복사 / 즉시 전송** 버튼을 단다(즉시 = 그 프롬프트를 새 명령으로 바로 전송).
-
-- \`items\`: 질문 배열. 질문이 1개면 1개, 여러 개면 그대로 N개.
-  - \`question\`: 질문 본문(자연어).
-  - \`header\`: 질문 요지 한 줄(선택).
-  - \`prompts\`: 사용자가 그대로 보내면 되는 **제안 응답 프롬프트** 목록(0~N). 사용자가 고를 만한 답을 그가 1인칭으로 말하듯 적어라(예: "네, A1 계측 → 1차(A1+B1) → 측정 후 판단 순으로 0차부터 착수해 주세요."). 선택지가 갈리면 여러 개 넣어라.
-
-**지금 할 수 있는 일을 끝낸 뒤**, 질문이 있는 보고에서만 — **위 「카드 공통 규약」의 발행 순서**대로, 그 보고의 **맨 마지막 동작**으로 Bash 로 1회 호출한다:
-\`\`\`bash
-curl -s -X POST "${base}/api/agent-questions" \\
-  ${tokenHdr} \\
-  -H 'Content-Type: application/json' --data-binary @- <<'JSON'
-{"agentId":"${agentId}","subAgentId":${subField},"items":[{"question":"이 순서로 진행할까요?","header":"진행 순서 확인","prompts":["네, 그 순서로 진행해 주세요.","아니요, B안으로 가 주세요."]}]}
-JSON
-\`\`\`
-- **질문이 없으면(단순 완료·일상 대화) 호출하지 마라.** 질문 카드는 "사용자 답이 필요할 때만" 뜨는 게 목적이다.`;
-}
 
 /** agentId 당 보관하는 검수 요청 카드 최대 개수 (ring buffer 캡, 초과 시 오래된 것부터 제거). */
 export const AGENT_REVIEWS_MAX_PER_AGENT = 50;
@@ -3825,48 +3916,6 @@ export const STREAM_COMPACT_LIST_PREVIEW = 3;
 /** 간결에서 접힌 카드/본문 요약 한 줄의 최대 글자 수(넘으면 말줄임). */
 export const STREAM_COMPACT_SUMMARY_CHARS = 90;
 
-/**
- * §4 v2.70 — 커스텀/스폰 에이전트에게 주입할 "검수 요청" 지시문 (시스템 프롬프트 꼬리표).
- *
- * 작업 신고(`buildAgentReportRules`)·질문 카드(`buildAgentQuestionRules`)와 동일 인프라(토큰 인증 loopback)이지만
- * **성격이 다르다**: 사용자가 **지시한 작업**(특히 버그 수정·기능 변경)을 끝낸 뒤, 사용자가 직접 해야 할 일
- * (`userActions`)이 아니라 **결과가 맞는지 확인(검수)**해 달라고 요청하는 카드. IDE 가 보라색 검수 카드로 렌더.
- * Hook 에이전트는 spawn/rules 통제 밖이라 이 지시문이 안 들어가 호출하지 않는다.
- */
-export function buildAgentReviewRules(args: {
-  serverBase: string;
-  serverToken: string;
-  agentId: string;
-  subAgentId?: string;
-  /** v2.71 — 있으면 curl 이 호출 시점에 이 파일에서 live 포트·토큰을 읽는다(없으면 serverBase/serverToken 상수). */
-  identityFile?: string;
-}): string {
-  const { agentId, subAgentId } = args;
-  const subField = subAgentId ? `"${subAgentId}"` : 'null';
-  const { base, tokenHdr } = cardEnvRefsShort();
-  return `
-
-# 검수 요청 (Vibisual IDE 검수 카드)
-사용자가 **지시한 작업**(특히 "이 버튼 오류 고쳐라" 같은 버그 수정·기능 변경)을 끝내, 사용자가 **결과가 맞는지 확인(검수)**해야 의미가 있는 완료 보고에서만 아래 엔드포인트로 **검수 요청**을 함께 보낸다. Vibisual IDE 가 이를 **보라색 검수 카드**로 띄워, 사용자가 "무슨 동작을 어떻게 고쳤는지 + 무엇을 확인하면 되는지"를 한눈에 보게 한다.
-
-작업 신고(\`/api/agent-report\` 의 \`userActions\`)와 **성격이 다르다**: 작업 신고의 \`userActions\` 는 "AI 가 못 하니 **네가 직접 해**"(빌드 실행·에디터 조작·외부 승인)인 반면, 검수 요청은 **AI 가 이미 완료한 작업의 결과를 사용자가 확인**하는 것이다.
-
-**한 턴에 카드는 하나 — 작업 신고와 검수 요청 중 하나만 보내라(둘 다 ❌).** 사용자가 직접 손대야 할 일이 있으면 **작업 신고**(그 안에 고친 내용도 \`did\` 로 담는다), 직접 할 일 없이 결과 확인만 필요하면 **검수 요청**. 두 장이 함께 뜨면 사용자가 읽을 게 두 배로 늘고 무엇이 중요한지 묻힌다.
-
-- \`instruction\`: 어떤 지시였는지 한 줄 맥락 (선택, 예: "이 버튼 클릭 시 X 오류 고쳐라").
-- \`changes\`: 무슨 동작을 어떻게 고쳤는지 (1~N). **이게 비면 검수 요청 자체를 보내지 마라.**
-- \`checkpoints\`: 사용자가 확인할 검수 포인트·방법 (0~N, 예: "그 버튼을 다시 눌러 정상 동작 확인").
-
-**단순 완료·일상 대화·질문 답변·조사 보고에서는 호출하지 마라.** 사용자가 지시→완료→검수가 필요한 흐름일 때만 보낸다. **고칠 것을 다 고친 뒤**, 검수 요청이 있는 완료 보고에서만 — **위 「카드 공통 규약」의 발행 순서**대로, 그 보고의 **맨 마지막 동작**으로 Bash 로 1회 호출한다:
-\`\`\`bash
-curl -s -X POST "${base}/api/agent-review" \\
-  ${tokenHdr} \\
-  -H 'Content-Type: application/json' --data-binary @- <<'JSON'
-{"agentId":"${agentId}","subAgentId":${subField},"instruction":"받은 지시 한 줄","changes":["무슨 동작을 이렇게 고쳤다 1","고친 내용 2"],"checkpoints":["사용자가 확인할 검수 포인트 1"]}
-JSON
-\`\`\`
-- **\`changes\` 가 비어 있으면 검수 요청 자체를 보내지 마라** — 빈 신고는 카드만 늘려 신호를 묻는다.`;
-}
 
 /** agentId 당 보관하는 번호 목록 정렬 카드 최대 개수 (ring buffer 캡, 초과 시 오래된 것부터 제거). */
 export const AGENT_LISTS_MAX_PER_AGENT = 50;
@@ -4067,6 +4116,15 @@ export const LAB_RUNS_MAX_PER_PROJECT = 20;
 /** 변형 워크트리 이름 앞머리 — `.claude/worktrees/lab-<랩id끝자리>-<변형순번>`. */
 export const LAB_WORKTREE_PREFIX = 'lab';
 
+/**
+ * §7.10 — 워크트리 안 프로세스를 트리째 죽인 뒤 **폴더를 지우기 전에 기다리는 시간(ms)**.
+ *
+ * `taskkill /T /F`(Windows)·`kill(-pgid)`(POSIX)는 신호를 보내고 바로 돌아온다 — 그 순간에는
+ * 아직 열린 파일 핸들이 남아 있어, 곧바로 `rmSync` 하면 방금 죽인 프로세스 탓에 폴더가 또
+ * 반만 지워진다. 사람이 기다렸다고 느끼지 않으면서 핸들이 풀리기에 충분한 값으로 잡았다.
+ */
+export const WORKTREE_REAP_SETTLE_MS = 700;
+
 /** 변형 카드를 놓을 자리 — 랩 표지 오른쪽으로 이만큼 띄우고, 세로로 이 간격씩 쌓는다. */
 export const LAB_CARD_OFFSET_X = 320;
 export const LAB_CARD_GAP_Y = 150;
@@ -4172,6 +4230,39 @@ export const SESSION_LOOP_MAX_COST_USD_LIMIT = 10_000;
 /** §5.5 #17-11 ⑫(a) — 벽시계 상한의 상한(ms) — 7일. */
 export const SESSION_LOOP_MAX_DURATION_LIMIT_MS = 7 * 24 * 60 * 60 * 1000;
 
+// ─── §5.5 #17-35 — 검증(Verify) ───
+
+/**
+ * 세션 탭 하나가 보관하는 검증 이력의 최대 건수.
+ * 값 길이만 자르고 **개수를 안 막으면 체크포인트가 무한히 자란다**(§9).
+ */
+export const VERIFICATION_RUNS_MAX_PER_SESSION = 20;
+
+/** "무엇을 확인할지" 한 줄의 최대 길이 (프롬프트·체크포인트 비대 방지). */
+export const VERIFICATION_FOCUS_MAX = 2000;
+
+/** 한 검증이 보관하는 시도(attempts) 최대 건수. */
+export const VERIFICATION_ATTEMPTS_MAX = 12;
+
+/** 판정 사유 한 줄의 최대 길이. */
+export const VERIFICATION_REASON_MAX = 500;
+
+/** 시도 한 줄의 `command`/`detail` 최대 길이. */
+export const VERIFICATION_ATTEMPT_TEXT_MAX = 300;
+
+/**
+ * §5.5 #17-35 ③ — 그 탭 큐에 실제로 나가는 명령의 머리.
+ * Claude Code 번들 스킬이라 우리가 실행 로직을 갖지 않는다 — 부르기만 한다.
+ */
+export const VERIFY_SLASH_COMMAND = '/verify';
+
+/**
+ * §5.5 #17-35 ④(b) — `/verify` 가 스스로 적어 두는 레시피 파일(리포 루트 기준 상대 경로).
+ * 있으면 "그대로 따르라"고 알릴 뿐 **우리가 쓰지도 고치지도 않는다** — 그건 `/verify` 자신의 자리다.
+ */
+export const VERIFY_RECORDED_SKILL_PATH = '.claude/skills/verify/SKILL.md';
+
+
 // ─── §5.5 #17-17 v4.46 — 세션 목표(Goal) ───
 
 /** 목표 본문 최대 길이 (체크포인트·프롬프트 비대 방지). */
@@ -4230,12 +4321,12 @@ export function buildSessionGoalState(args: {
 }
 
 /**
- * §5.5 #17-28 ⑧(c) — 목표 블록의 **안 변하는 절반**(규약). `--append-system-prompt` 로 세션에 한 벌만
+ * §5.5 #17-28 ⑧(c)(f) — 목표 블록의 **안 변하는 절반**(규약). `--append-system-prompt` 로 세션에 한 벌만
  * 실린다.
  *
  * 시스템 프롬프트에 두는 이유는 토큰만이 아니다 — 사용자 메시지에 있는 규칙은 **압축(compact)에
  * 쓸려 나갈 수 있고**, 그러면 세션 중반부터 목록을 갱신하는 방법을 아무도 말해 주지 않는 상태가 된다.
- * 시스템 프롬프트는 압축을 넘어 살아남고, 캐시 프리픽스의 맨 앞이라 재열람 비용도 가장 싸다.
+ * ⑧(f) 로 결론만 남기고 그 근거(왜 목록이 비면 안 되는가 등)는 카드 규약 문서로 함께 내렸다.
  */
 export function buildSessionGoalProtocol(args: {
   serverBase: string;
@@ -4247,25 +4338,19 @@ export function buildSessionGoalProtocol(args: {
   const { base, tokenHdr } = cardEndpointRefs(serverBase, serverToken);
   return `
 
-# 목표 창 규약 (Vibisual IDE — 진행 목록은 네가 쓴다)
-이 세션에는 **목표 창**이 있고, 그 목록을 채우고 갱신하는 것은 네 일이다 — 사용자는 그것을 보고 "이 세션이 무엇을 하고 있고, 여기까지 왔구나"를 판단한다. 지금 상태는 매 턴 프롬프트 앞에 붙어 온다.
-
-**규칙은 두 줄이다: ① 지금 할 일을 목록에 넣는다. ② 하나 끝낼 때마다 그 항목을 \`done\` 으로 옮긴다**(그 줄에 취소선이 그어지고 퍼센트가 오른다). 목록이 비어 있으면 사용자 화면에는 아무것도 안 뜬다.
-
-- \`TodoWrite\` 가 도구 목록에 있으면 그것으로 계획을 세우면 된다(그게 곧 이 목록이 된다, 따로 신고 ❌). **없으면 아래 신고의 \`steps\` 로 같은 일을 하라.**
-- **사용자가 방금 보낸 명령이 목표보다 우선이다.** 둘이 어긋나면 명령을 따르고 목표 쪽을 아래 신고로 고쳐 맞춰라. 목표 문장이 지금 하는 일과 다르면 네가 고쳐라(\`goal\`) — 단, 사용자가 직접 고친 문장이라고 표시돼 있으면 건드리지 마라.
-
-단계를 하나 끝냈거나, 목록 자체가 바뀌었거나, 목표 문장을 다듬을 때 Bash 로 1회 호출한다(실패해도 무시하고 보고는 그대로 진행):
+# 목표 창 규약 — 진행 목록은 네가 쓴다
+사용자는 이 목록을 보고 "이 세션이 무엇을 하고 있고 여기까지 왔구나"를 판단한다. **비워 두지 마라.** 지금 상태는 매 턴 프롬프트 앞에 붙어 온다.
+**① 지금 할 일을 목록에 넣는다. ② 하나 끝낼 때마다 \`done\` 으로 옮긴다**(\`done\` 개수가 곧 퍼센트다 — 실제로 끝난 것만).
+- \`TodoWrite\` 가 있으면 그것으로 계획을 세우면 된다(그게 곧 이 목록, 따로 신고 ❌). **없으면 아래 \`steps\` 로 같은 일을 하라.**
+- **사용자가 방금 보낸 명령이 목표보다 우선이다.** 어긋나면 명령을 따르고 목표 쪽을 \`goal\` 로 고쳐 맞춰라 — 단, 사용자가 직접 고친 문장이라고 표시돼 있으면 건드리지 마라.
+- 단계를 끝냈거나·목록이 바뀌었거나·목표 문장을 다듬을 때만 호출한다. **바뀐 게 없으면 보내지 마라.** 표시 전용이라 결과엔 영향이 없다.
 \`\`\`bash
-curl -s -X POST "${base}/api/session-goal/${agentId}/${subAgentId}/progress" \\
-  ${tokenHdr} \\
+curl -s -X POST "${base}/api/session-goal/${agentId}/${subAgentId}/progress" ${tokenHdr} \\
   -H 'Content-Type: application/json' --data-binary @- <<'JSON'
-{"goal":"로그인 화면을 테스트까지 붙여 끝낸다","steps":[{"text":"스키마 정의","status":"done"},{"text":"서버 배선","status":"in_progress"}],"note":"스키마 끝, 서버 배선 중"}
+{"goal":"목표 한 문장(안 보내면 유지)","steps":[{"text":"스키마 정의","status":"done"},{"text":"서버 배선","status":"in_progress"}],"note":"지금 상황 한 줄"}
 JSON
 \`\`\`
-- \`steps\`: **목록 전체**를 통째로. 본문이 같은 단계는 화면에서 같은 항목으로 이어지니 본문은 그대로 두고 \`status\` 만 옮겨라. \`done\` 개수가 곧 퍼센트다 — **실제로 끝난 것만** \`done\` 으로.
-- \`goal\`: 목표 한 문장(안 보내면 유지). \`note\`: 지금 상황 한 줄. \`percent\`: 단계로 표현 못 할 때만 쓰는 대안.
-- **바뀐 게 없으면 보내지 마라.** 마지막 단계까지 끝나면 100% 가 되고, 목표를 닫는 것은 사용자가 한다. 표시 전용이라 결과엔 영향이 없다.`;
+\`steps\` 는 **목록 전체**를 통째로 보낸다(본문은 그대로 두고 \`status\` 만 옮겨라 — 같은 본문이 같은 항목으로 이어진다).`;
 }
 
 /**
@@ -6950,10 +7035,11 @@ export function formatTokenCount(tokens: number): string {
 // 패턴은 전부 아래 테이블에서만 오고 분류 함수 안에 정규식을 박아 넣지 않는다(§3.3).
 
 /** 위험 종류 표시 순서(배지·스위치 공용). */
-export const AUDIT_RISK_KINDS: readonly AuditRiskKind[] = ['delete', 'network', 'config'] as const;
+export const AUDIT_RISK_KINDS: readonly AuditRiskKind[] = ['delete', 'network', 'config', 'outside'] as const;
 
-/** 프로젝트당 원장 상한(키 개수 캡 — §9). 밀려난 줄의 몫은 `retired` 합계로 접힌다. */
-export const AUDIT_ENTRIES_MAX_PER_PROJECT = 500;
+// 프로젝트당 원장 상한(`AUDIT_ENTRIES_MAX_PER_PROJECT`)은 이 파일 위쪽 **보존 정책(§3.2.3)** 블록에
+// 산다 — 못박힌 상한이 아니라 `RetentionSettings.auditEntryMaxPerProject` 의 기본값이라
+// `DEFAULT_RETENTION_SETTINGS` 가 초기화되는 시점에 이미 선언돼 있어야 한다.
 
 /** 요약 한 줄 길이 상한 — 원장이 두 번째 트랜스크립트가 되지 않게. */
 export const AUDIT_SUMMARY_MAX_CHARS = 200;
@@ -7065,6 +7151,68 @@ export const AUDIT_CONFIG_MUTATION_PATTERNS: readonly RegExp[] = [
 ];
 
 /**
+ * 경로를 입력으로 받는 도구 — `outside` 는 **읽기도 본다**(§5.22).
+ *
+ * `AUDIT_WRITE_TOOLS`(설정 파일 수정 판정용)와 일부러 따로 둔다. `config` 가 묻는 것은
+ * "고쳤는가"이고 `outside` 가 묻는 것은 "사용자가 그은 선을 넘었는가"라, 고른 폴더 밖은
+ * 읽기만 해도 대상이다.
+ *
+ * 이름을 아는 도구로 한정한다 — 아무 도구의 `path` 나 집으면 그 칸이 파일 경로가 아닌
+ * 도구(예: 요청 경로 `/api/x` 를 `path` 로 받는 MCP 도구)에서 없는 위험을 지어낸다.
+ */
+export const AUDIT_PATH_INPUT_TOOLS: ReadonlySet<string> = new Set([
+  'Read', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'NotebookRead', 'Glob', 'Grep', 'LS',
+]);
+
+/** 경로가 담겨 오는 입력 칸(도구마다 이름이 다르다). 요약·판정이 같은 목록을 본다. */
+export const AUDIT_PATH_INPUT_KEYS: readonly string[] = [
+  'file_path', 'notebook_path', 'path', 'target_file',
+];
+
+/** 절대경로처럼 생긴 낱말(명령에서 뽑은 토큰 하나를 검사한다). */
+export const AUDIT_ABSOLUTE_PATH_PATTERNS: readonly RegExp[] = [
+  /^[A-Za-z]:[\\/]/,   // C:\… · C:/…
+  /^[\\/]{2}[^\\/]/,   // \\server\share (UNC)
+  /^[\\/][^\\/]/,      // /etc/hosts
+  /^~[\\/]/,           // ~/.claude/… (홈을 모르면 밖으로 본다)
+];
+
+/** `~` 앞머리 — 홈으로 편다(`homeDir` 를 받았을 때만). */
+export const AUDIT_HOME_PREFIX_PATTERN = /^~[\\/]/;
+
+/**
+ * win32 의 msys 경로(`/c/Users/…`)를 드라이브 경로로 되돌린다.
+ * Git Bash 로 도는 Bash 도구가 이 모양을 쓰므로, 안 되돌리면 프로젝트 안 경로가 전부 밖으로 찍힌다.
+ */
+export const AUDIT_MSYS_PATH_PATTERN = /^\/([A-Za-z])(\/|$)/;
+
+/** `..` 로 위를 향하는 상대경로(`cd ..` · `../../other/x`). 절대경로가 아니어도 밖일 수 있다. */
+export const AUDIT_RELATIVE_ESCAPE_PATTERN = /(^|[\\/])\.\.([\\/]|$)/;
+
+/**
+ * 파일이 아니라 장치·의사 경로 — 밖으로 세지 않는다.
+ * `> /dev/null` 이 매번 걸리면 배지가 뜻을 잃는다(믿을 수 없는 화면이 되는 첫 걸음).
+ */
+export const AUDIT_OUTSIDE_IGNORE_PATTERNS: readonly RegExp[] = [
+  /^\/dev\//i,
+  /^\/proc\//i,
+  /^\/sys\//i,
+];
+
+/** 명령 낱말에서 경로만 남기려고 걷어내는 껍데기(리다이렉션 앞머리·따옴표·꼬리 문장부호). */
+export const AUDIT_TOKEN_WRAPPER_PATTERNS: readonly RegExp[] = [
+  /^[0-9]*[<>|&;(]+/,
+  /^["'`]+/,
+  /["'`,;)]+$/,
+];
+
+/** `--out=/tmp/x` 처럼 플래그 값으로 붙어 온 경로. */
+export const AUDIT_TOKEN_FLAG_VALUE_PATTERN = /^-[^\s=]*=(.+)$/;
+
+/** 플랫폼을 모를 때 경로 비교에 쓰는 값 — **접는 쪽**이다(`pathCase.ts` 규약: 모르면 안전하게 접는다). */
+export const AUDIT_FALLBACK_PATH_PLATFORM: PlatformName = 'win32';
+
+/**
  * 스위치가 없을 때의 기본 — **꺼짐**이다(§5.22).
  *
  * 묻는 쪽이 더 안전해 보이지만 이 경계가 되무르는 것은 **사용자가 직접 고른 권한 모드**다.
@@ -7072,14 +7220,14 @@ export const AUDIT_CONFIG_MUTATION_PATTERNS: readonly RegExp[] = [
  * 설명 없이 무효가 되고, 그 카드는 원인을 알 수 없는 팝업으로만 보인다. 되무를지는
  * **사용자가 켜서** 정하고, 꺼져 있는 동안에도 기록은 계속된다(기록을 끄는 스위치는 없다).
  *
- * 종류별 `kinds` 는 켬 그대로 둔다 — 전체를 켠 사용자가 셋을 다시 켜야 하는 일은 만들지 않는다.
+ * 종류별 `kinds` 는 켬 그대로 둔다 — 전체를 켠 사용자가 넷을 다시 켜야 하는 일은 만들지 않는다.
  *
  * **기본값은 이 상수 하나에서만 읽는다**: 서버 fallback·체크포인트 "저장할 것 없음" 판정·
  * 클라 두 화면이 저마다 기본을 하드코딩하면, 켠 적 없는 프로젝트가 화면마다 다른 상태로 보인다.
  */
 export const DEFAULT_AUDIT_BOUNDARY: AuditBoundaryConfig = {
   escalateRisky: false,
-  kinds: { delete: true, network: true, config: true },
+  kinds: { delete: true, network: true, config: true, outside: true },
 };
 
 function auditClip(value: string, max: number): string {
@@ -7115,6 +7263,137 @@ function auditLoopbackOnly(command: string): boolean {
   return urls.every((u) => isAuditLoopbackTarget(u));
 }
 
+// ─── `outside` — 고른 폴더 밖인가 (§5.22) ───
+//
+// 여기의 정규식은 전부 위 테이블에서 오고(§3.3), **플랫폼은 인자로 받는다** — shared 는
+// 브라우저에서도 로드되므로 `process.platform` 을 읽을 수 없고, 인자로 받아야 개발기 한 대에서
+// 세 OS 를 다 시험할 수 있다(멀티플랫폼 1축).
+
+/** 경로의 앞머리(드라이브 루트·UNC·POSIX 루트)를 가려내는 모양 — 위험 패턴이 아니라 경로 구조다. */
+const AUDIT_DRIVE_ROOT_SHAPE = /^[A-Za-z]:\//;
+
+/** 절대경로인가(플랫폼 무관 — 세 OS 의 모양을 전부 안다). */
+function auditIsAbsolutePath(p: string): boolean {
+  return auditMatches(p, AUDIT_ABSOLUTE_PATH_PATTERNS);
+}
+
+/** `~` 를 홈으로 편다. 홈을 모르면 그대로 두어 밖으로 남는다(모르는 값을 지어내지 않는다). */
+function auditExpandHome(p: string, homeDir?: string): string {
+  if (!homeDir) return p;
+  if (p === '~') return homeDir;
+  if (AUDIT_HOME_PREFIX_PATTERN.test(p)) return `${homeDir}/${p.slice(2)}`;
+  return p;
+}
+
+/** win32 에서만 msys 경로(`/c/Users/…`)를 드라이브 경로로 되돌린다. */
+function auditFromMsysPath(p: string, platform: PlatformName): string {
+  if (platform !== 'win32') return p;
+  const m = p.match(AUDIT_MSYS_PATH_PATTERN);
+  if (!m || !m[1]) return p;
+  return `${m[1]}:/${p.slice(3)}`;
+}
+
+/** `.`/`..` 를 접어 비교할 수 있는 한 모양으로 만든다. 루트 위로는 올라가지 않는다. */
+function auditCollapsePath(p: string): string {
+  const shaped = normalizePathShape(p);
+  let prefix = '';
+  let rest = shaped;
+  const drive = shaped.match(AUDIT_DRIVE_ROOT_SHAPE);
+  if (drive) {
+    prefix = drive[0];
+    rest = shaped.slice(drive[0].length);
+  } else if (shaped.startsWith('//')) {
+    prefix = '//';
+    rest = shaped.slice(2);
+  } else if (shaped.startsWith('/')) {
+    prefix = '/';
+    rest = shaped.slice(1);
+  }
+  const out: string[] = [];
+  for (const seg of rest.split('/')) {
+    if (!seg || seg === '.') continue;
+    if (seg === '..') {
+      out.pop();
+      continue;
+    }
+    out.push(seg);
+  }
+  return `${prefix}${out.join('/')}`;
+}
+
+/**
+ * §5.22 — 이 경로가 경계 **전부**의 밖인가.
+ *
+ * `roots` 가 비면 **항상 false** — 근거가 없을 때 위험을 지어내면 프로젝트 등록 전 몇 초의
+ * 호출이 전부 밖으로 찍힌다. 여러 root 중 **하나에라도 들어가면 안**이다(우리가 띄운 워크트리·
+ * 별도 cwd 세션이 통째로 빨개지지 않게).
+ *
+ * 상대경로는 각 root 에 붙여 접은 뒤 판정하므로 `src/a.ts` 는 안, `../../other/x` 는 밖이다.
+ */
+export function isAuditPathOutside(
+  rawPath: string,
+  roots: readonly string[],
+  platform: PlatformName,
+  homeDir?: string,
+): boolean {
+  if (roots.length === 0) return false;
+  const trimmed = rawPath.trim();
+  if (!trimmed) return false;
+  const expanded = auditFromMsysPath(auditExpandHome(trimmed, homeDir), platform);
+  const shaped = normalizePathShape(expanded);
+  if (!shaped) return false;
+  if (auditMatches(shaped, AUDIT_OUTSIDE_IGNORE_PATTERNS)) return false;
+
+  const absolute = auditIsAbsolutePath(shaped);
+  for (const root of roots) {
+    if (!root || !root.trim()) continue;
+    const rootShaped = normalizePathShape(auditFromMsysPath(root.trim(), platform));
+    const rootKey = pathKey(auditCollapsePath(rootShaped), platform);
+    if (!rootKey) continue;
+    const resolved = absolute ? shaped : `${rootShaped}/${shaped}`;
+    const key = pathKey(auditCollapsePath(resolved), platform);
+    const prefix = rootKey.endsWith('/') ? rootKey : `${rootKey}/`;
+    if (key === rootKey || key.startsWith(prefix)) return false;
+  }
+  return true;
+}
+
+/** 명령 낱말 하나에서 껍데기를 걷어내 경로만 남긴다. */
+function auditStripToken(raw: string): string {
+  let s = raw.trim();
+  const flagValue = s.match(AUDIT_TOKEN_FLAG_VALUE_PATTERN);
+  if (flagValue && flagValue[1]) s = flagValue[1];
+  for (const re of AUDIT_TOKEN_WRAPPER_PATTERNS) s = s.replace(re, '');
+  return s.trim();
+}
+
+/**
+ * 명령 문자열에서 경로 후보를 뽑는다.
+ *
+ * **URL 을 먼저 걷어낸다** — 그 자리는 `network` 가 이미 보고 있고, 안 걷어내면 `https://` 의
+ * `//` 가 POSIX 절대경로로 오독되어 모든 curl 이 "폴더 밖"이 된다.
+ */
+function auditCommandPathCandidates(command: string): string[] {
+  const withoutUrls = command.replace(AUDIT_URL_PATTERN, ' ');
+  const out: string[] = [];
+  for (const raw of withoutUrls.split(/\s+/)) {
+    const token = auditStripToken(raw);
+    if (!token) continue;
+    if (auditIsAbsolutePath(token) || AUDIT_RELATIVE_ESCAPE_PATTERN.test(token)) out.push(token);
+  }
+  return out;
+}
+
+/** §5.22 — `outside` 판정에 넘기는 경계. 서버가 프로젝트 루트와 세션 cwd 를 실어 준다. */
+export interface AuditRiskOptions {
+  /** 이 호출이 머물러야 할 경계들. 비면 `outside` 를 판정하지 않는다. */
+  roots?: readonly string[];
+  /** 경로 대소문자 규칙을 정하는 플랫폼(shared 는 `process.platform` 을 읽지 않는다). */
+  platform?: PlatformName;
+  /** `~` 를 펴는 홈 디렉터리. 없으면 `~` 로 시작하는 경로는 밖으로 본다. */
+  homeDir?: string;
+}
+
 /**
  * §5.22 — 위험 판정. 빈 배열이면 평범한 호출이다.
  * 서버(사전 승인)와 클라(배지)가 **같은 이 함수**를 쓴다.
@@ -7122,11 +7401,12 @@ function auditLoopbackOnly(command: string): boolean {
 export function classifyToolRisk(
   toolName: string,
   toolInput?: Record<string, unknown> | null,
+  options?: AuditRiskOptions,
 ): AuditRiskKind[] {
   const input = toolInput ?? {};
   const command = typeof input['command'] === 'string' ? input['command'] : '';
   const url = auditFirstString(input, ['url', 'endpoint']);
-  const filePath = auditFirstString(input, ['file_path', 'notebook_path', 'path', 'target_file']);
+  const filePath = auditFirstString(input, AUDIT_PATH_INPUT_KEYS);
   const found = new Set<AuditRiskKind>();
 
   // ① 바깥과 말하는가 — 루프백(우리 자신)은 바깥이 아니다.
@@ -7149,6 +7429,23 @@ export function classifyToolRisk(
     found.add('config');
   }
 
+  // ④ 고른 폴더 **밖**인가 — `config` 와 달리 **읽기도 본다**(§5.22).
+  //    경계를 모르면(roots 가 비면) 판정 자체를 하지 않는다 — 없는 근거로 위험을 지어내지 않는다.
+  const roots = options?.roots ?? [];
+  if (roots.length > 0) {
+    const platform = options?.platform ?? AUDIT_FALLBACK_PATH_PLATFORM;
+    const home = options?.homeDir;
+    const candidates: string[] = [];
+    if (AUDIT_PATH_INPUT_TOOLS.has(toolName)) {
+      for (const k of AUDIT_PATH_INPUT_KEYS) {
+        const v = input[k];
+        if (typeof v === 'string' && v.trim()) candidates.push(v.trim());
+      }
+    }
+    if (command) candidates.push(...auditCommandPathCandidates(command));
+    if (candidates.some((p) => isAuditPathOutside(p, roots, platform, home))) found.add('outside');
+  }
+
   return AUDIT_RISK_KINDS.filter((k) => found.has(k));
 }
 
@@ -7162,7 +7459,7 @@ export function summarizeToolCall(
   const input = toolInput ?? {};
   const command = typeof input['command'] === 'string' ? input['command'] : '';
   const url = auditFirstString(input, ['url', 'endpoint']);
-  const filePath = auditFirstString(input, ['file_path', 'notebook_path', 'path', 'target_file']);
+  const filePath = auditFirstString(input, AUDIT_PATH_INPUT_KEYS);
 
   if (command) {
     const urls = command.match(AUDIT_URL_PATTERN);
@@ -7237,3 +7534,73 @@ export function isDefaultAuditBoundary(boundary: AuditBoundaryConfig | undefined
 export function emptyAuditCounts(): AuditCounts {
   return { total: 0, risky: 0, denied: 0, escalated: 0, todayRisky: 0 };
 }
+
+// ─── §4 메신저 원격제어 브리지 (판올림 번호 발급 대기) ─────────────────────────
+//
+// 아웃바운드 전용이라 여기 상수에는 "우리가 여는 포트" 가 없다 — 전부 **우리가 나가서
+// 부르는 주소**와 그 왕복의 상한이다. 인바운드(§4 v3.16)와 대비되는 지점이 이 목록이다.
+
+/** 딥링크 페어링 티켓 수명(ms). §4 v3.66 QR 티켓과 같은 근거로 짧게 — 사진에 찍혀도 곧 죽는다. */
+export const CHAT_PAIR_TICKET_TTL_MS = 3 * 60 * 1000;
+
+/** 페어링 티켓 토큰 바이트 수(hex 인코딩 전) — 3분 안에 맞힐 수 없는 수준. */
+export const CHAT_PAIR_TOKEN_BYTES = 24;
+
+/** 페어링 시도 실패 허용 횟수 — 초과 시 `CHAT_PAIR_BAN_MS` 동안 그 발신자를 차단. */
+export const CHAT_PAIR_MAX_ATTEMPTS = 10;
+
+/** 페어링 실패 한도를 넘긴 발신자를 격리하는 시간(ms). 소유자 lockout 없이 공격자만 막는다. */
+export const CHAT_PAIR_BAN_MS = 10 * 60 * 1000;
+
+/** 동시에 페어링해 둘 수 있는 대화(기기) 수 상한 — 초과 시 가장 오래된 것부터 밀어낸다. */
+export const CHAT_PEER_MAX = 5;
+
+/** 텔레그램 Bot API 베이스. 토큰은 경로에 실리므로 로그에 URL 을 그대로 남기지 않는다. */
+export const CHAT_TELEGRAM_API_BASE = 'https://api.telegram.org';
+
+/** 텔레그램 `getUpdates` long-poll 대기 시간(초). 이 시간만큼 서버가 붙잡고 있다가 응답한다. */
+export const CHAT_TELEGRAM_POLL_S = 30;
+
+/** 텔레그램 한 메시지 최대 길이(공식 4096) — 여유를 두고 자른다. */
+export const CHAT_TELEGRAM_MESSAGE_MAX = 3800;
+
+/** 디스코드 REST 베이스(v10). */
+export const CHAT_DISCORD_API_BASE = 'https://discord.com/api/v10';
+
+/**
+ * 디스코드 Gateway intents — GUILD_MESSAGES(1<<9) + DIRECT_MESSAGES(1<<12) +
+ * MESSAGE_CONTENT(1<<15). 평문 명령을 읽어야 하므로 MESSAGE_CONTENT 가 필요하다
+ * (Developer Portal 에서 "Message Content Intent" 를 켜야 IDENTIFY 가 통과한다).
+ */
+export const CHAT_DISCORD_INTENTS = (1 << 9) | (1 << 12) | (1 << 15);
+
+/** 디스코드 한 메시지 최대 길이(공식 2000) — 여유를 두고 자른다. */
+export const CHAT_DISCORD_MESSAGE_MAX = 1900;
+
+/** 디스코드 페어링 명령 접두어. DM 딥링크가 없어 평문 한 줄로 같은 결과를 만든다. */
+export const CHAT_DISCORD_PAIR_COMMAND = '!vibisual pair';
+
+/** 연결 실패 후 재시도 간격(ms) — 최소/최대. 지수 백오프로 이 사이를 오간다. */
+export const CHAT_RECONNECT_MIN_MS = 2_000;
+export const CHAT_RECONNECT_MAX_MS = 60_000;
+
+/** 버튼(승인/거부 등) 하나가 유효한 시간(ms). 지나면 눌러도 "만료됨" 으로 답한다. */
+export const CHAT_ACTION_TTL_MS = 10 * 60 * 1000;
+
+/** `/log` 가 인자 없이 왔을 때 보내는 줄 수. */
+export const CHAT_LOG_DEFAULT_LINES = 30;
+
+/** `/log n` 으로 요청할 수 있는 줄 수 상한 — 제3자 서버로 나가는 양의 하드 캡. */
+export const CHAT_LOG_MAX_LINES = 200;
+
+/** 원문 버퍼에 붙들어 두는 스트림 줄 수(peer 무관, 세션별). `/log` 가 여기서 잘라 간다. */
+export const CHAT_LOG_BUFFER_LINES = 400;
+
+/** 브리지 설정·페어링 목록을 담는 userData 파일 이름(봇 토큰 포함 — 체크포인트 미관여). */
+export const CHAT_BRIDGE_FILE = 'chat-bridge.json';
+
+/**
+ * 기본 전송량. `'cards'` = 카드/요약만 나간다(스트림 원문·diff·bash 출력 ❌).
+ * 메신저는 제3자 서버를 통과하는 경로라 기본값을 좁게 잡고, 원문은 `/log` 로 명시 요청할 때만.
+ */
+export const DEFAULT_CHAT_VERBOSITY = 'cards';

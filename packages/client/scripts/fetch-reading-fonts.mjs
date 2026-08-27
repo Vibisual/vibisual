@@ -45,6 +45,19 @@ const SUBSET_RANGE = { latin: RANGE_LATIN, 'latin-ext': RANGE_LATIN_EXT };
  */
 const FONTSOURCE = [
   {
+    // §4 (CMD) — 읽기용이 아니라 **터미널 전용** 고정폭. xterm 은 열 정렬이 글꼴 폭에 직결되는데
+    //   OS 것(Consolas/Menlo)에 기대면 그 폭이 기계마다 다르고, 애초에 그 둘은 재배포가 안 된다.
+    //   JetBrains Mono 는 OFL 이라 동봉할 수 있어 세 OS 에서 같은 화면이 나온다.
+    dir: 'jetbrains-mono', id: 'jetbrains-mono', pkg: '@fontsource/jetbrains-mono@5.3.0',
+    family: 'JetBrains Mono', subsets: ['latin', 'latin-ext'], weights: [400, 700],
+  },
+  {
+    // 한글 고정폭 — 라틴 폭의 정확히 2배로 설계돼 한국어가 섞여도 터미널 열이 밀리지 않는다.
+    //   (맑은 고딕 같은 가변폭으로 폴백되면 CLI 가 그리는 상자·상태줄이 그 줄부터 어긋난다.)
+    dir: 'nanum-gothic-coding', id: 'nanum-gothic-coding', pkg: '@fontsource/nanum-gothic-coding@5.3.0',
+    family: 'Nanum Gothic Coding', subsets: ['korean', 'latin'], weights: [400, 700],
+  },
+  {
     dir: 'noto-sans-kr', id: 'noto-sans-kr', pkg: '@fontsource/noto-sans-kr@5.3.0',
     family: 'Noto Sans KR', subsets: ['korean', 'latin', 'latin-ext'], weights: [400, 700],
   },

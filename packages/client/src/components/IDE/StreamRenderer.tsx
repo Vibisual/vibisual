@@ -30,6 +30,7 @@ import { AgentListCard } from './AgentListCard.js';
 import { AskQuestionCard } from './AskQuestionCard.js';
 import { CollapsiblePrompt, AiSpeakerGlyph, type PromptCommandState } from './CollapsiblePrompt.js';
 import { DiffView, type DiffReviewCtx } from './DiffView.js';
+import { reportPreviewUrlIfLoopback } from './reportPreviewUrl.js';
 import { followSessionKey } from './editorFollow.js';
 import { PlanBlock } from './PlanBlock.js';
 import { parseEditToolInput, editSizeLines } from './diffTool.js';
@@ -191,15 +192,29 @@ function CodeBlock({ children, ...rest }: React.HTMLAttributes<HTMLPreElement>):
   );
 }
 
+/** §7.11 — 이 스트림이 누구의 화면인지. 본문 링크를 눌렀을 때 **그 에이전트에** 프리뷰를 매달려면
+ *  링크 컴포넌트까지 agentId 가 닿아야 하는데, 마크다운 컴포넌트 표(`mdComponents`)는 모듈 상수라
+ *  props 로는 못 내려간다(`InCodeBlock` 과 같은 규약). */
+const StreamOwnerAgentId = createContext<string | undefined>(undefined);
+
 /** 본문 링크 — 밑줄 + sky 색으로 "클릭 가능한 주소"임을 표식. 클릭 시 앱 안 iframe(느림) 대신
  *  외부 브라우저로 연다(window.open → Electron main 이 shell.openExternal 로 가로챔).
- *  드래그 선택은 그대로 가능(텍스트 선택을 막지 않음). */
+ *  드래그 선택은 그대로 가능(텍스트 선택을 막지 않음).
+ *
+ *  §7.11 — 그 주소가 **내 기계의 서버**(`http://localhost:8080` 등)면 브라우저와 **함께** 캔버스
+ *  프리뷰 버블도 세운다. 누른 행위 자체가 "이건 내가 보려는 서버다"라는 가장 확실한 신고라,
+ *  감지 폴백이 놓친 서버를 프롬프트 토큰 한 자 없이 회수한다. 진짜 살아있는지는 서버가 판정한다. */
 const MarkdownLink = memo(function MarkdownLink({ href, children }: React.AnchorHTMLAttributes<HTMLAnchorElement>): React.JSX.Element {
+  const ownerAgentId = useContext(StreamOwnerAgentId);
   if (!href) return <span>{children}</span>;
   return (
     <a
       href={href}
-      onClick={(e) => { e.preventDefault(); try { window.open(href, '_blank', 'noopener,noreferrer'); } catch { /* blocked */ } }}
+      onClick={(e) => {
+        e.preventDefault();
+        reportPreviewUrlIfLoopback(href, ownerAgentId);
+        try { window.open(href, '_blank', 'noopener,noreferrer'); } catch { /* blocked */ }
+      }}
       className="cursor-pointer break-all text-sky-400 underline decoration-sky-400/40 underline-offset-2 transition-colors hover:text-sky-300 hover:decoration-sky-300"
     >
       {children}
@@ -1073,6 +1088,8 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
   //   v3.14 — 바닥 추종 집행은 부모(IDEMainArea)의 DOM 워치독 단일 권한(followOutput 위임 제거 —
   //   모델 좌표 역주행 차단). atBottomStateChange 로 추종 의도 통지, restoreStateFrom 으로 세션 복원.
   return (
+    // §7.11 — 본문 링크를 누르면 **이 스트림의 에이전트**에 프리뷰가 매달리게 소유자를 내려 준다.
+    <StreamOwnerAgentId.Provider value={agentId}>
     <Virtuoso
       ref={virtuosoRef}
       className="scrollbar-thin"
@@ -1099,5 +1116,6 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
       //   스크롤에서도 같은 높이 불일치로 떨렸다. 자리표시자를 빼고 항상 실제 본문을 그려 떨림을 없앤다(빠른 드래그
       //   시 약간 무겁지만 안정성 우선).
     />
+    </StreamOwnerAgentId.Provider>
   );
 }));

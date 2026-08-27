@@ -20,6 +20,19 @@ export interface CmdTerminalController {
   write(termId: string, data: string): boolean;
   /** scrollback 버퍼 원문(ANSI 포함). 없으면 null. */
   readBuffer(termId: string): string | null;
+  /**
+   * §7.10 — 그 폴더(하위 포함) 안에서 도는 PTY 를 **전부 강제 종료**하고 그 개수를 돌려준다.
+   *
+   * 워크트리 삭제가 쓴다. 여기서 다시 확인을 묻지 않는 것은 사용자가 이미 삭제 팝업에서
+   * 확인했기 때문이고, 남겨 두면 그 프로세스가 파일을 잡고 있어 폴더가 반만 지워진다.
+   * 주입이 없는 환경(웹·테스트)에서는 이 다리 자체가 없으므로 호출부가 0 으로 취급한다.
+   */
+  killUnder(rootPath: string): number;
+  /**
+   * §7.10 — 죽이지 않고 **세기만** 한다(삭제 팝업의 예고용). 죽이는 쪽과 같은 판정을 쓴다 —
+   * 예고한 숫자와 실제로 죽는 것이 어긋나면 그 예고는 없느니만 못하다.
+   */
+  listUnder(rootPath: string): string[];
 }
 
 let controller: CmdTerminalController | null = null;

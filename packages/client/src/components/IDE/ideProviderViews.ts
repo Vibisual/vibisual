@@ -9,6 +9,9 @@ import type { IDEViewType } from '../../stores/graphStore.js';
  *
  * 남는 것은 프로바이더와 무관하게 뜻이 통하는 것들뿐이다:
  * 파일(폴더) · 디버그/실행 · 북마크 · 세션 요약 · 목표 · 루프.
+ *
+ * §5.5 #17-35 검증(`verify`)도 같은 이유로 빠져 있다 — `/verify` 는 **Claude Code 번들 스킬**이라
+ * 로컬 프로바이더에는 그 스킬 자체가 없다(입구만 두면 눌러 본 사용자가 빈 검증만 받는다).
  */
 export const LOCAL_PROVIDER_VIEWS: readonly IDEViewType[] = [
   'files', 'debug', 'bookmarks', 'summary', 'goal', 'loop',

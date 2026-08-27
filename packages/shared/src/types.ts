@@ -1115,13 +1115,15 @@ export interface ProjectCostMap {
 // ─── 권한·감사 경계 (§5.22) ───
 
 /**
- * §5.22 — 위험 동작 3종.
+ * §5.22 — 위험 동작 4종.
  *  - `delete`  지우는 명령·도구
  *  - `network` 바깥으로 나가거나 바깥에서 받아 오는 호출(루프백은 바깥이 아니다)
  *  - `config`  설정 파일 수정
- * 넷째를 늘리기 전에 그것이 정말 "실행 전에 사람을 세울 일"인지 먼저 묻는다.
+ *  - `outside` 고른 프로젝트 폴더 **밖**을 읽거나 고치는 호출 — `config` 와 달리 **읽기도 본다**
+ *              (밖의 파일은 고치는 것뿐 아니라 읽는 것 자체가 사용자가 그은 선을 넘는 일이다)
+ * 다섯째를 늘리기 전에 그것이 정말 "실행 전에 사람을 세울 일"인지 먼저 묻는다.
  */
-export type AuditRiskKind = 'delete' | 'network' | 'config';
+export type AuditRiskKind = 'delete' | 'network' | 'config' | 'outside';
 
 /** §5.22 — 그 줄의 결정이 어디서 왔는가. `policy` = 모드가 사람 없이 답한 것. */
 export type AuditDecisionSource = 'user' | 'timeout' | 'policy';
@@ -1585,8 +1587,13 @@ export interface BubbleData {
   iframeDeadAt?: number;
   /** 에이전트 영구 위성 (bash/iframe) — 에이전트와 함께 체크포인트 저장/복원 */
   persistSatellites?: BubbleData[];
-  /** 클라이언트 전용 placeholder 상태 — worktree 생성 연출. 서버는 이 필드를 설정하지 않는다. */
-  creatingStatus?: 'creating' | 'error';
+  /**
+   * §5.7 #26 — worktree **생성 실패** 표식(클라이언트 전용, 2.2초 뒤 스스로 사라짐).
+   * 서버는 이 필드를 설정하지 않는다. 성공 경로엔 아무 표식도 없다 — 진행 연출(`'creating'` +
+   * 불확정 물결)은 폐기됐다. 스탠드인과 실물이 같은 좌표를 두고 겹치는 구간이 남아,
+   * 새 버블이 옆으로 튀어 보였기 때문이다.
+   */
+  creatingStatus?: 'error';
   /** 파이프라인 부모 버블: 실행 전략 타입 — bubbleType='pipeline'일 때만 */
   pipelineType?: PipelineType;
   /** 파이프라인 자식 에이전트: 역할 — pipelineParentId가 있을 때만 */
@@ -2185,6 +2192,84 @@ export interface SessionGoalProgress {
   note?: string;
   /** 출처 — 화면에 배지로 그대로 보인다(사용자가 "누가 매긴 숫자냐"를 알 수 있게). */
   source: SessionGoalProgressSource;
+}
+
+/**
+ * §5.5 #17-35 — 검증 한 건의 진행 상태.
+ *
+ * `queued` 큐에 넣었고 아직 그 턴이 시작되지 않음 · `running` 도는 중 ·
+ * `done` 판정까지 끝남 · `stopped` 사람이 중지 · `error` 애초에 보낼 수 없었다.
+ * 상태 전이는 **서버만** 한다(§3.1) — 클라는 이 값을 그리기만 한다.
+ */
+export type VerificationRunStatus = 'queued' | 'running' | 'done' | 'stopped' | 'error';
+
+/**
+ * §5.5 #17-35 ⑤ — 검증 결론. **fail-closed** 다.
+ *
+ * `pass` 는 에이전트가 **실제로 돌린 시도(attempts)** 를 하나라도 내놓았을 때만 나온다.
+ * 증거 없는 approve 도, 해석 자체가 안 되는 응답도 `held`(보류)로 떨어진다 —
+ * "봤더니 괜찮다"는 증거가 아니다(§5.3 #10-3 이 세운 규율의 재사용).
+ */
+export type VerifyVerdict = 'pass' | 'fail' | 'held' | 'unknown';
+
+/**
+ * §5.5 #17-35 ④ — 실행법(레시피)을 어디서 얻어 프롬프트에 실었나.
+ *
+ * `play-recipe` 우리 §5.14 플레이 버블의 확정 레시피 · `recorded-skill` 리포에 이미 기록된
+ * `.claude/skills/verify/SKILL.md` · `none` 둘 다 없어 `/verify` 에게 맡김.
+ */
+export type VerificationRecipeSource = 'play-recipe' | 'recorded-skill' | 'none';
+
+/** §5.5 #17-35 ⑤ — 에이전트가 "실제로 돌린 것" 한 줄. exitCode 가 곧 증거다. */
+export interface VerificationAttemptRecord {
+  /** build | typecheck | test | run | custom — 자유 문자열(모르는 값도 그대로 보관). */
+  kind: string;
+  /** 실제로 실행한 명령 원문. */
+  command: string;
+  /** 실제 프로세스 종료 코드. 없으면 "돌렸다고 말했지만 코드가 없다"는 뜻이라 증거로 세지 않는다. */
+  exitCode?: number;
+  /** 한 줄 부연(선택). */
+  detail?: string;
+}
+
+/**
+ * §5.5 #17-35 — 검증 한 건.
+ *
+ * 소유 단위가 **에이전트가 아니라 세션 탭(subAgentId)** 인 것은 루프(`SessionLoop`)·목표
+ * (`SessionGoal`)와 같은 축이다. 실행은 그 탭의 **기존 명령 큐**에 `QueuedCommand` 한 건을
+ * 넣는 것이 전부이고(새 스폰 레일 ❌), 이 레코드는 그 한 건의 시작·판정·증거를 붙잡는다.
+ */
+export interface VerificationRun {
+  /** 이 검증 한 건의 ID(`ver-<ts>-<rand>`). */
+  id: string;
+  /** 소유 (부모) 에이전트 버블 ID — 프로젝트 필터·영속 분류 키. */
+  agentId: string;
+  /** 이 검증이 붙은 IDE 내부 세션(탭) ID. 맵의 키와 동일. */
+  subAgentId: string;
+  /** 이 검증이 속한 프로젝트 이름(표시명). */
+  projectName: string;
+  /** 사용자가 적어 넣은 "무엇을 확인할지" 한 줄(선택). */
+  focus?: string;
+  /** 실행법을 어디서 얻었나 — 사용자가 보내기 전에 화면에서 먼저 읽는다. */
+  recipeSource: VerificationRecipeSource;
+  /** 그 레시피를 한 줄로 요약한 표시용 문자열(예: `pnpm dev · http://127.0.0.1:5173`). */
+  recipeLabel?: string;
+  /** 진행 상태. */
+  status: VerificationRunStatus;
+  /** 결론. `status !== 'done'` 이면 `unknown`. */
+  verdict: VerifyVerdict;
+  /** 판정 사유 한 줄(에이전트가 적은 것 그대로, 상한 `VERIFICATION_REASON_MAX`). */
+  reason?: string;
+  /** 실제로 돌린 시도 목록(상한 `VERIFICATION_ATTEMPTS_MAX`). */
+  attempts: VerificationAttemptRecord[];
+  /** 이 검증이 큐에 넣은 명령 ID — 완료 대조용(루프의 같은 이름 필드와 같은 규약). */
+  pendingCommandId?: string;
+  /** 큐에 넣은 시각. */
+  startedAt: number;
+  /** 판정이 난 시각. */
+  finishedAt?: number;
+  /** 소요(ms) — `finishedAt - startedAt`. 서버가 계산해 실어 보낸다(클라 계산 ❌). */
+  durationMs?: number;
 }
 
 /**
@@ -3103,6 +3188,14 @@ export interface RetentionSettings {
    * 무기한으로 둔다(붙여넣은 스크린샷은 클립보드가 사라진 뒤라 유일본이다).
    */
   attachmentRetentionDays: number;
+  /**
+   * §5.22 감사 원장이 프로젝트당 보관하는 줄 수. 0=무제한.
+   *
+   * 잘린 줄은 사라지는 것이 아니라 `retired` 합계로 접히므로 **집계 숫자는 줄지 않는다** —
+   * 없어지는 것은 "어느 호출이었나"라는 내역뿐이다. 전선 몫(`AUDIT_SNAPSHOT_ENTRIES`)보다
+   * 크게 두면 화면에는 아무 변화가 없다(§3.2.3 판단 기준).
+   */
+  auditEntryMaxPerProject: number;
   /**
    * 휴지통 보존 일수 — 정리로 옮겨진 파일을 여기 며칠 두고 나서 실제로 지운다. 0=무제한(안 지움).
    *
@@ -4071,6 +4164,19 @@ export interface GraphSnapshot {
    * 미설정(구버전 스냅샷)이면 클라가 `agents` 로 직접 세던 종전 경로로 폴백한다.
    */
   projectAgentCounts?: Record<string, ProjectAgentCounts>;
+  /**
+   * §9 — **이 스냅샷이 실제로 실어 온 구독 범위**(표시명 배열). 서버가 `buildSnapshot` 에서
+   * 적용한 범위를 그대로 되돌려 준다.
+   *
+   * 없으면(`undefined`) 범위를 적용하지 않은 **전량 스냅샷**이라는 뜻이다(선언한 창이 하나도
+   * 없을 때 · 구버전 서버). 있으면 그 안에 든 프로젝트만 무거운 슬라이스(노드·에이전트·엣지·
+   * 위성·활동)를 갖는다.
+   *
+   * 쓰임: 클라이언트가 **"지금 보는 탭의 버블이 아직 안 온 것"과 "원래 비어 있는 것"을 구분**한다.
+   * 이 구분이 없으면 탭을 옮긴 직후의 빈 캔버스가 느린 회선에서 그냥 "빈 프로젝트"로 보인다.
+   * 판정 규칙은 클라 `components/BubbleMap/canvasLoading.ts` 단일 소유.
+   */
+  scopedProjects?: string[];
   /** boot 시 stub 상태인 프로젝트 메타 (projectName → ProjectMetaSnapshot). hydrate 완료 시 projects로 이동 */
   stubProjects?: Record<string, ProjectMetaSnapshot>;
   /** 앱 전역 탭 라이프사이클 상태 (openProjects / lastActive / default / pinned). 서버가 authoritative. */
@@ -4291,6 +4397,13 @@ export interface GraphSnapshot {
    * 키가 세션 탭 ID 라 IDE 가 활성 탭 하나만 바로 집어 쓴다. 미설정 시 빈 맵.
    */
   sessionLoops?: Record<string, SessionLoop>;
+
+  /**
+   * §5.5 #17-35 — 검증 실행 이력 (subAgentId → VerificationRun[], 최신 우선).
+   * 루프·목표와 같은 키 축(세션 탭)이라 활동바가 활성 탭 하나의 마지막 판정을 바로 집어 쓴다.
+   * 세션당 `VERIFICATION_RUNS_MAX_PER_SESSION` 건에서 잘린다. 미설정 시 빈 맵.
+   */
+  verificationRuns?: Record<string, VerificationRun[]>;
 
   /**
    * §5.5 #17-17 v4.46 — 세션 목표 (subAgentId → SessionGoal).
@@ -4836,6 +4949,14 @@ export interface ProjectCheckpoint {
    * 사용자가 직접 짜 넣은 설정 + 진행 카운트라 재시작 후에도 이어져야 한다.
    */
   sessionLoops?: Record<string, SessionLoop>;
+
+  /**
+   * §5.5 #17-35 — 검증 실행 이력 (subAgentId → VerificationRun[]) 영속화.
+   * optional — 구버전 체크포인트 하위 호환. 미설정이면 빈 맵으로 복원.
+   * "무엇이 언제 실제로 돌아서 통과했는가" 는 세션이 끝나도 남아야 할 근거다.
+   * identity.json 에는 넣지 않는다 — 실행 기록이지 사람이 만든 정체성이 아니다(§5.16 과 같은 판단).
+   */
+  verificationRuns?: Record<string, VerificationRun[]>;
 
   /**
    * §5.5 #17-17 v4.46 — 세션 목표 (subAgentId → SessionGoal) 영속화.
@@ -7162,4 +7283,141 @@ export interface LocalLlmState {
   loaded: string[];
   /** 이 PC 의 실측 사양 — 목록이 "이건 돌아갑니다/느립니다/무리입니다"를 말하는 근거. */
   hardware?: LocalHardwareInfo;
+}
+
+// ─── §4 메신저 원격제어 브리지 (판올림 번호 발급 대기) ─────────────────────────
+//
+// 메신저는 **아키텍처가 아니라 드라이버**다. 아래 타입은 그 드라이버 축의 계약이며,
+// 텔레그램·디스코드가 같은 모양으로 붙는다. 새 메신저를 더할 때 건드리는 것은
+// `ChatChannelKind` 한 줄과 드라이버 파일 하나뿐이고, 페어링·라우팅·전송량 정책은 공용이다.
+//
+// 방향이 §4 v3.16 모바일 웹과 정반대라는 점이 이 축의 존재 이유다 — 우리는 포트를 열지
+// 않고 **나가서 받아온다**(텔레그램 long-poll · 디스코드 Gateway WS). 그래서 공유기 설정·
+// 인증서·CGNAT 이 전부 무관하고, 노출면은 0이다.
+
+/** 지원 메신저 종류. 새 드라이버는 여기 한 줄 + 드라이버 파일 하나. */
+export type ChatChannelKind = 'telegram' | 'discord';
+
+/**
+ * 폰으로 나가는 전송량 정책.
+ * - `cards` (기본) : 카드/요약만. 스트림 원문·파일 diff·bash 출력은 **보내지 않는다**.
+ * - `full`         : 스트림 텍스트까지. 사용자가 모달에서 직접 올릴 때만.
+ *
+ * 기본을 좁게 잡는 이유는 제3자(메신저) 서버를 우리 코드·경로가 통과하기 때문이다.
+ * `cards` 에서도 원문이 필요하면 사용자가 `/log [n]` 로 **명시 요청**해 그때만 가져간다.
+ */
+export type ChatVerbosity = 'cards' | 'full';
+
+/** 채널 연결 상태. `error` 의 사유는 `ChatChannelError` 가 나눈다. */
+export type ChatChannelStatus = 'off' | 'connecting' | 'online' | 'error';
+
+/**
+ * 연결 실패 사유 — UI 가 원인별 안내를 고른다.
+ * - `token`      : 토큰이 틀렸거나 폐기됨(텔레그램 401 / 디스코드 4004).
+ * - `intent`     : 디스코드에서 Message Content Intent 가 꺼져 IDENTIFY 거부(4014).
+ * - `network`    : 인터넷이 없거나 메신저 API 에 닿지 못함(재시도 중).
+ * - `rate-limit` : 메신저가 우리를 잠시 제한함(백오프 중).
+ */
+export type ChatChannelError = 'token' | 'intent' | 'network' | 'rate-limit' | null;
+
+/**
+ * 페어링을 마친 대화 하나. **여기 없는 발신자는 조용히 무시**한다(응답조차 하지 않아
+ * 봇의 존재를 알리지 않는다 — 화이트리스트가 봇 토큰 유출에 대한 2차 방어선이다).
+ */
+export interface ChatPeer {
+  /** 어느 메신저의 대화인지. */
+  kind: ChatChannelKind;
+  /** 그 메신저 안의 대화 식별자(텔레그램 chat.id / 디스코드 channel.id). 문자열로 통일. */
+  chatId: string;
+  /** 화면에 보여줄 이름(사용자명·채널명). 표시 전용이라 없으면 chatId 를 쓴다. */
+  label: string;
+  /** 페어링 시각(epoch ms). */
+  pairedAt: number;
+  /** 마지막으로 이 대화에서 명령이 온 시각(epoch ms). */
+  lastSeenAt: number;
+  /**
+   * 이 대화가 지금 겨누고 있는 에이전트. `/agents` 로 고르면 정해지고, 이후 평문은
+   * 이 에이전트의 명령 큐로 간다. 없으면 평문을 무시하고 `/agents` 를 안내한다.
+   */
+  targetAgentId?: string;
+}
+
+/**
+ * 딥링크 페어링 티켓(메모리 전용·미영속 — 앱을 끄면 사라진다).
+ * 이 축의 설계 목적은 하나다: **사용자가 chat id 를 손으로 알아내지 않게 하는 것.**
+ */
+export interface ChatPairTicket {
+  /** 어느 채널용 티켓인지. */
+  kind: ChatChannelKind;
+  /**
+   * QR 로 그릴 원문. 텔레그램은 `https://t.me/<botname>?start=<token>` 딥링크,
+   * 디스코드는 봇 초대 URL(스캔 후 `!vibisual pair <token>` 한 줄로 마무리).
+   */
+  url: string;
+  /** 디스코드처럼 URL 만으로 끝나지 않는 채널이 화면에 함께 띄울 명령문(없으면 null). */
+  command: string | null;
+  /** 만료 시각(epoch ms) — 남은 시간 카운트다운에 사용. */
+  expiresAt: number;
+  /** 이 티켓으로 페어링을 마친 대화 수(표시용). */
+  usedCount: number;
+}
+
+/** 채널 하나의 현재 상태(모달의 탭 하나에 대응). */
+export interface ChatChannelState {
+  kind: ChatChannelKind;
+  /** 이 채널 on/off (opt-in — 기본 false, userData 영속). */
+  enabled: boolean;
+  /** 봇 토큰이 저장돼 있는지. **토큰 자체는 renderer 로 절대 보내지 않는다.** */
+  hasToken: boolean;
+  status: ChatChannelStatus;
+  error: ChatChannelError;
+  /** 토큰 검증(`getMe`/`users/@me`)으로 확인한 봇 표시 이름 — 성공을 눈으로 확인시키는 값. */
+  botName: string | null;
+  /** 봇 username(텔레그램 딥링크 조립에 필요, 디스코드는 표시용). */
+  botUsername: string | null;
+  /** 디스코드 봇 초대 URL 조립에 필요한 application id(텔레그램은 null). */
+  appId: string | null;
+  /** 이 채널로 페어링된 대화 수. */
+  peerCount: number;
+  /** 현재 살아 있는 페어링 티켓(없거나 만료면 null). */
+  pairTicket: ChatPairTicket | null;
+}
+
+/** 메신저 브리지 전체 상태 (`vibisual:chat:*` IPC 페이로드). */
+export interface ChatBridgeState {
+  /** 채널별 상태(현재 telegram·discord 둘). */
+  channels: ChatChannelState[];
+  /** 페어링된 대화 목록(모든 채널 합산). */
+  peers: ChatPeer[];
+  /** 폰으로 나가는 전송량 정책(채널 공통). */
+  verbosity: ChatVerbosity;
+  /** 페어링 실패 누적으로 차단된 발신자가 하나라도 있는지(티켓 재발급으로 해제). */
+  pairLocked: boolean;
+}
+
+/** 카드에 붙는 버튼 하나. 누르면 `actionId` 가 그대로 돌아온다. */
+export interface ChatAction {
+  /** 이 버튼의 식별자 — 브리지가 대기 중인 동작(권한 요청 등)과 짝짓는 열쇠. */
+  actionId: string;
+  /** 버튼에 쓸 글자. */
+  label: string;
+  /** 강조(디스코드 버튼 style / 텔레그램은 글자만). */
+  style?: 'primary' | 'danger' | 'default';
+}
+
+/**
+ * 폰으로 나가는 한 장. WSMessage 를 이 모양으로 **줄여서** 보낸다 —
+ * 줄이는 지점이 한 곳이라 전송량 정책(`ChatVerbosity`)이 새는 구멍이 생기지 않는다.
+ */
+export interface ChatCard {
+  /** 카드 종류 — 아이콘/머리글 선택과 `cards` 정책 통과 여부를 함께 결정한다. */
+  kind: 'report' | 'question' | 'review' | 'permission' | 'goal' | 'stream' | 'text';
+  /** 머리글 한 줄. */
+  title: string;
+  /** 본문 줄들(이미 상한 안으로 잘린 상태). */
+  lines: string[];
+  /** 버튼(없으면 생략). */
+  actions?: ChatAction[];
+  /** 어느 에이전트의 일인지(있으면 머리글에 함께 적는다). */
+  agentLabel?: string;
 }

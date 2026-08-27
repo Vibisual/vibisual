@@ -222,8 +222,10 @@ function PaneNode({ node, renderLeaf, onResize, onResizeEnd }: PaneNodeProps): R
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
-        className={`shrink-0 bg-gray-800 transition-colors hover:bg-teal-500/60 ${
-          isRow ? 'w-1 cursor-col-resize' : 'h-1 cursor-row-resize'
+        // §4 (CMD) — 종전에는 이 자리가 회색 실선이었다. 이제 pane 마다 자기 테두리가 있어
+        //   실선을 그대로 두면 경계에 선이 두 겹으로 겹친다 → 평소엔 비우고 **잡을 때만** 보인다.
+        className={`shrink-0 bg-transparent transition-colors hover:bg-teal-500/50 ${
+          isRow ? 'w-1.5 cursor-col-resize' : 'h-1.5 cursor-row-resize'
         }`}
       />
       <div className="flex min-h-0 min-w-0 flex-col" style={{ flex: `${1 - node.ratio} 1 0%` }}>

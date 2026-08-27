@@ -56,6 +56,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
+import { killTree, processGroupSpawnOptions } from './processTree.js';
 // 경로 대소문자 정책 SSOT — win32/darwin 만 접고 linux 는 접지 않는다.
 import { pathKey } from './pathKey.js';
 import { getSessionJsonlPath } from './sessionDiscovery.js';
@@ -576,23 +577,16 @@ function runReflection(input: BrainReflectionInput): void {
       '--disallowed-tools', BRAIN_REFLECTION_DISALLOWED_TOOLS,
       '--strict-mcp-config',
     ],
-    { shell: false, windowsHide: true, cwd: REFLECT_CWD },
+    // POSIX 는 그룹을 만들어 둬야 timeout kill 이 손자까지 회수한다(detached 없으면 자식만 죽는다).
+    { shell: false, windowsHide: true, cwd: REFLECT_CWD, ...processGroupSpawnOptions() },
   );
   const finish = (reason: string): void => {
     if (settled) return;
     settled = true;
     inFlight = Math.max(0, inFlight - 1);
     clearTimeout(timer);
-    if (process.platform === 'win32') {
-      if (child.pid != null && child.exitCode === null) {
-        try {
-          const tk = spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true });
-          tk.on('error', () => { /* ignore */ });
-        } catch { /* ignore */ }
-      }
-    } else {
-      try { child.kill(); } catch { /* ignore */ }
-    }
+    // 종료는 `processTree.killTree` 한 곳으로 — win 은 taskkill /T /F, POSIX 는 프로세스 그룹 킬.
+    if (child.exitCode === null) killTree(child.pid);
     logger.info(`[brain-reflect] DONE session=${sessionId.slice(0, 8)} dur=${Date.now() - t0}ms via=${reason}`);
   };
   const timer = setTimeout(() => finish('timeout'), REFLECT_TIMEOUT_MS);

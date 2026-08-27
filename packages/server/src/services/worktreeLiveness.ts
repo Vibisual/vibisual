@@ -15,6 +15,9 @@
  *
  * 쓰기(statePersistence·streamBufferStore)·발견(discoverWorktrees)·존재검사(checkFileExistence)가
  * 모두 이 모듈의 같은 판정을 공유한다 — 한쪽만 알면 "지워도 되살아나는" 고리가 다시 생긴다.
+ *
+ * 같은 이유로 **"아직 만들어지는 중인가"(생성 유예)도 여기 있다** — "이 폴더가 버블이 될 자격이
+ * 있는가"를 두 모듈이 나눠 쥐면 한쪽만 아는 상태가 다시 생긴다.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -76,6 +79,37 @@ export function isLiveWorktreeDir(worktreeRoot: string): boolean {
 export function invalidateWorktreeLiveness(worktreeRoot?: string): void {
   if (!worktreeRoot) { livenessCache.clear(); return; }
   livenessCache.delete(pathKey(worktreeRoot));
+}
+
+// ─── 만들어지는 중 (발견 유예) ───
+
+/**
+ * 지금 `git worktree add` 가 돌고 있는 워크트리 루트들.
+ *
+ * 살아있음 판정(`.git` 존재)은 **체크아웃이 끝나기 한참 전에 이미 true** 가 된다 — git 은 관리
+ * 디렉토리를 먼저 연결하고 파일을 나중에 푼다. 그래서 10초 세션 스윕(`scanAllProjects` →
+ * `discoverWorktrees`)이 반쯤 만들어진 폴더를 주워 **좌표 없는 버블**을 먼저 만들어 버렸고,
+ * 클라이언트는 그것을 방사형 레이아웃 자리에 앉힌 뒤 캐시해 정작 뒤늦게 도착하는 진짜 좌표를
+ * 무시했다(사용자가 고른 자리가 아닌 곳에 새 워크트리 버블이 서던 원인).
+ *
+ * 만드는 쪽이 시작·끝을 알려 주면 그동안은 아무도 그 폴더를 발견하지 않는다. 해제는 반드시
+ * `finally` 에서 — 실패해서 남으면 그 이름은 영영 발견되지 않는다.
+ */
+const underConstruction = new Set<string>();
+
+/** 이 워크트리 루트를 만드는 중이라고 표시. */
+export function beginWorktreeCreation(worktreeRoot: string): void {
+  underConstruction.add(pathKey(worktreeRoot));
+}
+
+/** 생성 유예 해제 — 성공·실패 무관하게 `finally` 에서 부른다. */
+export function endWorktreeCreation(worktreeRoot: string): void {
+  underConstruction.delete(pathKey(worktreeRoot));
+}
+
+/** 지금 만들어지는 중인 워크트리인가(발견·이름 중복 회피가 함께 본다). */
+export function isWorktreeUnderConstruction(worktreeRoot: string): boolean {
+  return underConstruction.has(pathKey(worktreeRoot));
 }
 
 /**

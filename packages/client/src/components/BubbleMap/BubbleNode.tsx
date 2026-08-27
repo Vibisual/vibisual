@@ -80,10 +80,11 @@ const ICON_PATHS: Record<BubbleStyleConfig['icon'], { viewBox: string; d: string
     d: 'M12 2l1.5 4.5L18 8l-4.5 1.5L12 14l-1.5-4.5L6 8l4.5-1.5L12 2z M19 16l.7 1.8L21.5 19l-1.8.7L19 22l-.7-1.8L16.5 19l1.8-.7L19 16z',
     fill: false,
   },
-  // §5.10 — Project Brain 버블(두뇌 lobes)
+  // §5.10 — 메모리 버블. **두뇌 lobes 폐기** — 이름이 메모리인데 뇌를 그리면 은유가 두 벌이 된다.
+  //   쌓인 카드 두 장 + 본문 줄: 이 버블이 들고 있는 것(기억 카드)을 그대로 그린 것이다.
   brain: {
     viewBox: '0 0 24 24',
-    d: 'M12 5a3 3 0 0 0-5.6-1.5A2.5 2.5 0 0 0 4 6a2.5 2.5 0 0 0 0 5 2.5 2.5 0 0 0 2 4 3 3 0 0 0 6 .5 3 3 0 0 0 6-.5 2.5 2.5 0 0 0 2-4 2.5 2.5 0 0 0 0-5 2.5 2.5 0 0 0-2.4-2.5A3 3 0 0 0 12 5Z M12 5v14',
+    d: 'M4 10h9a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2Z M7 7.5V6a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-1.5 M5 14h7 M5 17h4.5',
     fill: false,
   },
   // §5.10 — 커스텀 에이전트 휴지통 버블(trash-2)
@@ -145,7 +146,9 @@ function formatModelName(model: string): string {
 
 // ─── 물결 채움 SVG — 컨텍스트 비율로 높이 결정 ───
 
-function WaveFill({ ratio, color, indeterminate }: { ratio: number; color: string; indeterminate?: boolean }): React.JSX.Element {
+// (§5.7 #26 에서 `indeterminate` 모드 제거 — 수위가 위아래로 진동하던 "작업 중" 물결은 워크트리
+//  생성 연출 전용이었고, 그 연출 자체가 폐기됐다. 여기 남은 물결은 **실측 컨텍스트 비율**뿐이다.)
+function WaveFill({ ratio, color }: { ratio: number; color: string }): React.JSX.Element {
   // ratio 0~1 → 물 높이 (0 = 바닥, 1 = 꼭대기)
   const clamped = Math.max(0, Math.min(1, ratio));
   // SVG viewBox 100x100, 물결 y위치: 100(빈) → 0(가득)
@@ -163,18 +166,6 @@ function WaveFill({ ratio, color, indeterminate }: { ratio: number; color: strin
         </clipPath>
       </defs>
       <g clipPath="url(#wave-clip)">
-        {/* indeterminate 모드: 수위 자체가 위아래로 느리게 진동 — "작업 중" 시각화 */}
-        {indeterminate && (
-          <animateTransform
-            attributeName="transform"
-            type="translate"
-            dur="2.4s"
-            repeatCount="indefinite"
-            values="0 18; 0 -18; 0 18"
-            calcMode="spline"
-            keySplines="0.45 0 0.55 1; 0.45 0 0.55 1"
-          />
-        )}
         {/* 뒤쪽 물결 (느린 반투명) */}
         <path opacity={0.3} fill={color}>
           <animate
@@ -512,7 +503,7 @@ export const BubbleNode = memo(function BubbleNode({
 
   const contextRatio = isAgent && effectiveContextMax ? (effectiveContextUsed ?? 0) / effectiveContextMax : 0;
 
-  const isCreating = data.creatingStatus === 'creating';
+  // §5.7 #26 — 워크트리 생성 연출은 폐기됐다. 남은 표식은 **실패** 하나뿐이다.
   const isCreatingError = data.creatingStatus === 'error';
 
   // 범용 disappearing fade: disappearStartedAt ~ disappearAt 사이에서 opacity 1→0.15
@@ -832,7 +823,7 @@ export const BubbleNode = memo(function BubbleNode({
       // §5.19 (G) — 로컬 버블은 모델명이 설정에서 곧장 오므로 아래 idle empty-state 분기를 타지
       //   않는다. 그 분기가 하던 "대기" 한 줄을 여기서 이어 받는다 — 정체를 바로잡으면서 상태를
       //   잃으면 사용자는 이 버블이 쉬는 중인지 죽은 것인지 구분할 수 없다.
-      if (localModelLabel && !isDormant && !isActive && !isCreating && !isCreatingError) {
+      if (localModelLabel && !isDormant && !isActive && !isCreatingError) {
         lines.push({
           key: 'idle',
           text: t('common.bubble.idle'),
@@ -857,7 +848,7 @@ export const BubbleNode = memo(function BubbleNode({
     }
     // §2.4 v1.67/v1.69 — 라이브 세션 전 에이전트 idle empty-state (커스텀+훅 공통).
     //   configModel(AgentConfig)이 있으면(커스텀) 모델명도, 없으면(훅) 상태 줄만.
-    if (isAgent && !isActive && contextRatio === 0 && !isCreating && !isCreatingError) {
+    if (isAgent && !isActive && contextRatio === 0 && !isCreatingError) {
       if (configModel) {
         lines.push({
           key: 'model',
@@ -900,7 +891,7 @@ export const BubbleNode = memo(function BubbleNode({
     return lines;
   }, [
     ts, isAgent, isFolder, isIframe, localModelLabel, effectiveModelName, modelLineText,
-    effectiveContextMax, effectiveContextUsed, isDormant, isActive, isCreating, isCreatingError,
+    effectiveContextMax, effectiveContextUsed, isDormant, isActive, isCreatingError,
     lineInputTokens, lineOutputTokens, localProvider, contextRatio, configModel, t,
     data.totalInputTokens, data.ownInputTokens, data.bubbleType, data.satelliteFileCount,
     data.childCount, data.serverKind,
@@ -910,7 +901,9 @@ export const BubbleNode = memo(function BubbleNode({
   const centerExtras = useMemo<BubbleCenterExtra[]>(() => {
     const extras: BubbleCenterExtra[] = [];
     if (data.lastTool && isActive && size >= 55) extras.push({ fontSize: Math.max(6, Math.round(11 * ts)) });
-    if (isBrainBubble) extras.push({ fontSize: Math.max(13, Math.round(19 * ts)) });
+    // §5.10 — 메모리 버블의 카드 수 줄. 중앙 열에서 아이콘이 빠지고 이 숫자가 주인공이 됐으므로
+    //   예약도 그 크기(26*ts)로 잡는다 — 이 값이 실제 렌더 폰트와 어긋나면 라벨이 잘린다.
+    if (isBrainBubble) extras.push({ fontSize: Math.max(15, Math.round(26 * ts)) });
     if (isTrashBubble && trashedCount > 0) extras.push({ fontSize: Math.max(6, Math.round(9 * ts)) });
     return extras;
   }, [data.lastTool, isActive, size, ts, isBrainBubble, isTrashBubble, trashedCount]);
@@ -1065,18 +1058,16 @@ export const BubbleNode = memo(function BubbleNode({
           //   아래 그라디언트는 가장자리 비네트. 색은 전부 style 에서 파생하므로 §2.2 팔레트를 벗어나지 않는다.
           background: isCreatingError
             ? 'radial-gradient(circle at 35% 35%, #fca5a5, #ef4444)'
-            : isCreating
+            : isAgent && contextRatio > 0
               ? `radial-gradient(circle at 35% 35%, ${style.color}40, ${style.color}20)`
-              : isAgent && contextRatio > 0
+              : isAgent
+                // §2.4 v1.68/v1.69 — 모든 에이전트(커스텀+훅)는 컨텍스트 물결과 동일한 반투명 배경으로 시작
                 ? `radial-gradient(circle at 35% 35%, ${style.color}40, ${style.color}20)`
-                : isAgent
-                  // §2.4 v1.68/v1.69 — 모든 에이전트(커스텀+훅)는 컨텍스트 물결과 동일한 반투명 배경으로 시작
-                  ? `radial-gradient(circle at 35% 35%, ${style.color}40, ${style.color}20)`
-                  : isBrainBubble
-                    ? `radial-gradient(circle at 50% 50%, rgba(0,0,0,0) 44%, rgba(0,0,0,0.5) 100%), radial-gradient(circle at 33% 27%, ${style.glow} 0%, ${style.color} 50%, ${style.color}D9 100%)`
-                    : isActive
-                      ? `radial-gradient(circle at 35% 35%, ${style.glow}, ${style.color})`
-                      : `radial-gradient(circle at 35% 35%, ${style.glow}90, ${style.color}CC)`,
+                : isBrainBubble
+                  ? `radial-gradient(circle at 50% 50%, rgba(0,0,0,0) 44%, rgba(0,0,0,0.5) 100%), radial-gradient(circle at 33% 27%, ${style.glow} 0%, ${style.color} 50%, ${style.color}D9 100%)`
+                  : isActive
+                    ? `radial-gradient(circle at 35% 35%, ${style.glow}, ${style.color})`
+                    : `radial-gradient(circle at 35% 35%, ${style.glow}90, ${style.color}CC)`,
           // 구면감을 만드는 림라이트(위) + 바닥 그림자(아래). 테두리 하이라이트 상태에서는
           // 그쪽 shadow 클래스를 덮지 않도록 비운다.
           boxShadow: isBrainBubble && !nearBorder && !isConnectTarget
@@ -1091,22 +1082,48 @@ export const BubbleNode = memo(function BubbleNode({
         )}
         {/* §2.4 v1.68 — 커스텀 에이전트는 컨텍스트 전엔 물결 ❌, 반투명 배경만(빈 상태).
             컨텍스트가 쌓이면 위 contextRatio>0 분기의 실측 물결로 자연 등장. */}
-        {/* Worktree 생성 중 — 불확정 진행 물결 (수위가 느리게 오르내림) */}
-        {isCreating && (
-          <WaveFill ratio={0.5} color={style.color} indeterminate />
-        )}
+        {/* §5.7 #26 — 워크트리 생성 연출(불확정 물결) 폐기. 만드는 동안 캔버스엔 아무것도 뜨지 않고
+            다 만들어진 실물 버블이 그냥 나타난다. 실패했을 때의 붉은 표식만 남아 있다(아래 배경). */}
 
         {/* §2.4 오토핏 — gap·라벨 줄 수·배지 표시 여부는 fit 이 정한다(원 안에 들어갈 때까지 단계적으로).
             maxHeight 는 마지막 안전망 — 사다리를 다 내려가고도 안 들어가는 아주 작은 버블에서
             중앙 열이 예약 영역(하단 블록 자리)으로 흘러드는 것을 막는다(겹침 대신 잘림). */}
+        {/* §5.10 — 메모리 버블 **배경 워터마크**. 종전에는 아이콘·라벨·숫자·단위 네 요소가
+            중앙 열에 세로로 쌓여 116px 원 안에서 서로 크기를 다퉜다("디자인이 구리다"의 실체).
+            아이콘을 배경으로 내리면 전경에는 숫자와 이름 둘만 남고, 무엇이 담긴 버블인지는
+            이 카드 실루엣이 말한다. 버블 지름에 비례하므로 축소 배율에서도 같은 인상. */}
+        {isBrainBubble && (
+          <span
+            aria-hidden
+            className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center opacity-[0.17]"
+          >
+            <BubbleIcon icon={style.icon} px={Math.max(24, Math.round(size * 0.5))} />
+          </span>
+        )}
         <div
           className="z-10 flex flex-col items-center justify-center overflow-hidden"
           style={{ gap: fit.centerGap, maxHeight: fit.centerMaxHeight }}
         >
-          <BubbleIcon icon={style.icon} px={Math.max(12, Math.round(32 * ts))} />
+          {!isBrainBubble && <BubbleIcon icon={style.icon} px={Math.max(12, Math.round(32 * ts))} />}
+          {/* §5.10 — 카드 수는 이 버블의 주인공이라 라벨보다 **먼저·크게** 온다.
+              단위("장")는 뺐다 — 숫자 옆 작은 글자 한 벌이 축소 배율에서 가장 먼저 뭉갠다. */}
+          {isBrainBubble && (
+            <span
+              className="font-bold tabular-nums leading-none text-white drop-shadow-sm"
+              style={{ fontSize: Math.max(15, Math.round(26 * ts)) }}
+            >
+              {brainSummary?.cardCount ?? 0}
+            </span>
+          )}
           <span
-            className={`${fit.labelLines > 1 ? 'line-clamp-2 break-words' : 'truncate'} leading-tight text-center font-bold text-white drop-shadow-sm ${isDisappearing ? 'bubble-ghost-label' : ''}`}
-            style={{ maxWidth: fit.labelMaxWidth, fontSize: Math.max(7, Math.round(13 * ts)) }}
+            className={`${fit.labelLines > 1 ? 'line-clamp-2 break-words' : 'truncate'} leading-tight text-center drop-shadow-sm ${isDisappearing ? 'bubble-ghost-label' : ''} ${
+              // 메모리 버블에서 이름은 숫자를 받쳐 주는 줄이다 — 굵기·크기를 낮춰 주인공을 가리지 않게.
+              isBrainBubble ? 'font-medium text-white/70' : 'font-bold text-white'
+            }`}
+            style={{
+              maxWidth: fit.labelMaxWidth,
+              fontSize: isBrainBubble ? Math.max(8, Math.round(11 * ts)) : Math.max(7, Math.round(13 * ts)),
+            }}
             title={isFolder
               ? (data.absolutePath ?? data.label)
               : (isAgent || fit.labelText !== data.label) ? data.label : undefined}
@@ -1130,19 +1147,7 @@ export const BubbleNode = memo(function BubbleNode({
               {data.lastTool}
             </span>
           )}
-          {/* §5.10 v3.82 — Brain 상주 버블: 카드 수 한 줄만. 종전엔 여기에 최근 카드 제목까지
-              얹어 8px·6px 두 줄이 겹쳐 있었는데, 축소 배율을 거치면 읽히지 않아 노이즈였다.
-              최근 제목은 버블 툴팁·DetailPanel·기억 라이브러리가 담당한다. */}
-          {isBrainBubble && (
-            <span className="flex items-baseline text-white drop-shadow-sm" style={{ gap: Math.max(1, Math.round(2 * ts)) }}>
-              <span className="font-bold tabular-nums" style={{ fontSize: Math.max(13, Math.round(19 * ts)) }}>
-                {brainSummary?.cardCount ?? 0}
-              </span>
-              <span className="font-medium text-white/55" style={{ fontSize: Math.max(10, Math.round(11 * ts)) }}>
-                {t('brain.cardCountUnit', { defaultValue: '장' })}
-              </span>
-            </span>
-          )}
+          {/* §5.10 — 카드 수는 위(라벨 앞)로 올라갔다. 최근 제목·단위는 툴팁·DetailPanel·라이브러리 담당. */}
           {/* §5.10 — 휴지통 버블: 버려진 에이전트 수 */}
           {isTrashBubble && trashedCount > 0 && (
             <span className="font-semibold text-white/80" style={{ fontSize: Math.max(6, Math.round(9 * ts)) }}>

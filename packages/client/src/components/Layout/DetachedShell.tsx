@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { BubbleMap } from '../BubbleMap/BubbleMap.js';
 import { CanvasBreadcrumb } from '../BubbleMap/CanvasBreadcrumb.js';
+import { CanvasLoadingHint } from '../BubbleMap/CanvasLoadingHint.js';
 import { TrashToolbar } from '../BubbleMap/TrashToolbar.js';
 import { IframeView } from './IframeView.js';
 import { WindowControls } from './WindowControls.js';
@@ -91,6 +92,8 @@ export function DetachedShell({ kind, tabKey }: DetachedShellProps): React.JSX.E
             <>
               <BubbleMap />
               <CanvasBreadcrumb />
+              {/* §9 — 별창도 자기 몫의 구독을 선언하므로 기다리는 시간이 똑같이 생긴다(본 창과 같은 표시). */}
+              <CanvasLoadingHint />
               {/* §5.10 v4.84 — 별창 캔버스에서도 휴지통 조작은 같아야 한다(본 창에만 넣으면 창마다 동작이 갈린다). */}
               <TrashToolbar />
             </>

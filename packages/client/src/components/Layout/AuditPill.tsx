@@ -47,7 +47,7 @@ export function AuditPill(): React.JSX.Element {
         onClick={() => setOpen(true)}
         title={title}
         aria-label={title}
-        className={`app-nodrag flex items-center gap-1 rounded-md px-1.5 py-1 text-[12px] font-semibold tabular-nums transition-colors duration-150 max-md:hidden hover:bg-white/[0.08] ${tone}`}
+        className={`app-nodrag flex items-center gap-1 rounded-md px-1.5 py-1 text-[12px] font-semibold tabular-nums transition-colors duration-150 hover:bg-white/[0.08] ${tone}`}
       >
         <AuditShieldGlyph off={boundaryOff} />
         <span>{label}</span>

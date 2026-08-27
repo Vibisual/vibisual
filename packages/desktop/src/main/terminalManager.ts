@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import * as pty from 'node-pty';
 import { getClaudeBin, buildInteractiveCliPrefill, buildBashTimeoutEnv, prepareInteractiveRulesDir, buildInteractivePluginBlockForAgent, getCmdResumeSession, parseCmdTermId, recordDiagnostic, killTree, type CmdTerminalController } from '@vibisual/server';
+import { isPathWithin } from '@vibisual/shared';
 import type { AgentConfig } from '@vibisual/shared';
 import {
   TERMINAL_SCROLLBACK_LINES,
@@ -9,6 +10,8 @@ import {
   clampTerminalScrollback,
   CMD_PROCESS_POLL_MS,
   shouldBufferPtyChunk,
+  CMD_PREFILL_MAX_DEFER_MS,
+  cmdPrefillDelay,
 } from '@vibisual/shared';
 
 // 임베디드 인터랙티브 터미널 매니저 — SCENARIO.md §4 v2.63.
@@ -50,6 +53,12 @@ export interface TermSink {
 
 interface TermSession {
   pty: pty.IPty;
+  /**
+   * §7.10 — 이 PTY 가 **어느 폴더에서 도는가**. 워크트리를 지울 때 "그 안에서 돌던 것"을 골라
+   * 강제 종료하는 유일한 단서다(dev 서버·빌드가 살아 있으면 Windows 는 폴더를 반만 지운다).
+   * `spec.cwd` 가 없거나 사라진 폴더면 홈으로 떨어지므로, **실제로 넘긴 값**을 그대로 적는다.
+   */
+  cwd: string;
   /** 현재 붙어있는 출력 대상. IDE 를 닫았다 열거나 다른 뷰어가 붙으면 같은 termId 로 reattach 하며 갱신. */
   sink: TermSink;
   /** scrollback 링버퍼 — reattach 시 새 xterm 에 한 번에 replay 해 이전 출력을 복원(§4 v2.63). */
@@ -70,9 +79,49 @@ interface TermSession {
   process?: string;
   /** §4 (②) 표본 시각(ms) — `CMD_PROCESS_POLL_MS` 스로틀. */
   processAt: number;
+  /**
+   * §4 (CMD) — 아직 입력줄에 넣지 않은 prefill(명령 한 줄)과 그 예약.
+   *
+   * 셸이 프롬프트를 그릴 틈을 준 뒤 채우는데, **그 사이에 리사이즈가 오면 다시 미룬다** —
+   * ConPTY 는 리사이즈마다 보이는 화면을 통째로 다시 그리고, 그때 입력줄에 글자가 들어 있으면
+   * 새 폭에 맞춰 재배치되며 잘려 나간다(사용자 눈에는 "적어 둔 명령이 지워진다"). 크기가 멎은
+   * 뒤에 넣으면 그 재배치 자체가 일어나지 않는다. `deadline` 은 창을 계속 끌고 있어도 영영
+   * 안 채워지지는 않게 하는 한도 시각이다.
+   */
+  pendingPrefill?: { text: string; deadline: number; timer: ReturnType<typeof setTimeout> };
 }
 
 const sessions = new Map<string, TermSession>();
+
+/**
+ * §4 (CMD) — 셸 입력줄 채우기를 예약(또는 **재예약**)한다.
+ *
+ * 크기가 멎은 뒤에 한 번만 넣기 위한 단일 창구다: `resizeTerminal` 이 아직 안 쓴 prefill 을
+ * 발견하면 이 함수를 다시 불러 타이머를 되감는다. 되감기는 최초 예약 때 정해진 `deadline`
+ * 안에서만 일어나므로(`cmdPrefillDelay`), 창을 계속 끌고 있어도 명령은 결국 채워진다.
+ *
+ * @param deadline 되감기 한도 시각. 처음 예약할 때는 생략(지금부터 `CMD_PREFILL_MAX_DEFER_MS`).
+ */
+function schedulePrefill(termId: string, text: string, deadline?: number): void {
+  const s = sessions.get(termId);
+  if (!s) return;
+  if (s.pendingPrefill) clearTimeout(s.pendingPrefill.timer);
+  const limit = deadline ?? Date.now() + CMD_PREFILL_MAX_DEFER_MS;
+  const timer = setTimeout(() => {
+    const cur = sessions.get(termId);
+    if (!cur) return;
+    cur.pendingPrefill = undefined;
+    try { cur.pty.write(text); } catch { /* PTY already gone */ }
+  }, cmdPrefillDelay(Date.now(), limit));
+  s.pendingPrefill = { text, deadline: limit, timer };
+}
+
+/** 예약해 둔 입력줄 채우기를 취소한다(세션 종료·회수 시 — 죽은 PTY 에 쓰면 예외가 난다). */
+function cancelPrefill(s: TermSession): void {
+  if (!s.pendingPrefill) return;
+  clearTimeout(s.pendingPrefill.timer);
+  s.pendingPrefill = undefined;
+}
 
 /**
  * §4 (② QA) — node-pty 의 `process` 는 플랫폼에 따라 콘솔 제목/전체 경로를 준다
@@ -182,13 +231,7 @@ export function createTerminal(sink: TermSink, spec: CreateTerminalSpec): { ok: 
       // 크기는 **측정된 값이 왔을 때만** 반영한다. 클라가 아직 레이아웃되지 않아 xterm 기본
       // 80x24 를 보내면 그대로 PTY 를 줄였다 늘리며 리페인트가 두 번 난다 → 클라는 fit 성공 시에만
       // cols/rows 를 싣고(IDETerminalView), 여기서는 온 값만 신뢰한다.
-      if (spec.cols && spec.rows && spec.cols > 0 && spec.rows > 0 &&
-          (spec.cols !== existing.cols || spec.rows !== existing.rows)) {
-        existing.cols = spec.cols;
-        existing.rows = spec.rows;
-        existing.resizedAt = Date.now();
-        try { existing.pty.resize(spec.cols, spec.rows); } catch { /* gone */ }
-      }
+      resizeTerminal(spec.termId, spec.cols ?? 0, spec.rows ?? 0);
       return { ok: true };
     }
 
@@ -271,6 +314,7 @@ export function createTerminal(sink: TermSink, spec: CreateTerminalSpec): { ok: 
 
     const session: TermSession = {
       pty: child,
+      cwd,
       sink,
       buffer: '',
       bufferMax: bufferMaxFor(spec.scrollbackLines),
@@ -297,6 +341,7 @@ export function createTerminal(sink: TermSink, spec: CreateTerminalSpec): { ok: 
       if (session.sink.isAlive()) session.sink.sendData(spec.termId, data);
     });
     child.onExit(({ exitCode }) => {
+      cancelPrefill(session);
       if (session.sink.isAlive()) session.sink.sendExit(spec.termId, exitCode);
       sessions.delete(spec.termId);
     });
@@ -305,10 +350,7 @@ export function createTerminal(sink: TermSink, spec: CreateTerminalSpec): { ok: 
     //   `autoRun` 이면 개행까지 붙여 바로 실행하고(사용자가 [실행]을 이미 눌렀으므로),
     //   아니면 CLI prefill 과 같은 규약으로 입력만 채워 둔다.
     if (isRunLauncher && runCommand) {
-      setTimeout(() => {
-        const s = sessions.get(spec.termId);
-        if (s) s.pty.write(spec.autoRun === false ? runCommand : `${runCommand}\r`);
-      }, 350);
+      schedulePrefill(spec.termId, spec.autoRun === false ? runCommand : `${runCommand}\r`);
       return { ok: true };
     }
 
@@ -324,12 +366,7 @@ export function createTerminal(sink: TermSink, spec: CreateTerminalSpec): { ok: 
       rulesDir,
       resumeId,
     });
-    if (prefill) {
-      setTimeout(() => {
-        const s = sessions.get(spec.termId);
-        if (s) s.pty.write(prefill);
-      }, 350);
-    }
+    if (prefill) schedulePrefill(spec.termId, prefill);
 
     return { ok: true };
   } catch (err) {
@@ -356,6 +393,9 @@ export function resizeTerminal(termId: string, cols: number, rows: number): void
     // §4 (CMD ③) — 이 뒤에 오는 ConPTY 리페인트를 링버퍼에서 걸러 내기 위한 표식.
     s.resizedAt = Date.now();
     try { s.pty.resize(cols, rows); } catch { /* PTY already gone */ }
+    // §4 (CMD) — 아직 입력줄을 채우지 않았다면 그 시각을 뒤로 미룬다. 지금 채우면 방금 부른
+    //   리사이즈의 ConPTY 리페인트가 그 글자를 새 폭으로 재배치하며 잘라 낸다(pendingPrefill 주석).
+    if (s.pendingPrefill) schedulePrefill(termId, s.pendingPrefill.text, s.pendingPrefill.deadline);
   }
 }
 
@@ -386,6 +426,7 @@ export function getTerminalInfo(termId: string): { process?: string; cols: numbe
 export function killTerminal(termId: string): void {
   const s = sessions.get(termId);
   if (!s) return;
+  cancelPrefill(s);
   sessions.delete(termId);
   const pid = s.pty.pid;
   try { s.pty.kill(); } catch { /* already exited */ }
@@ -399,6 +440,34 @@ export function killTerminalsForSink(sinkId: string): void {
   for (const [termId, s] of sessions) {
     if (s.sink.id === sinkId) killTerminal(termId);
   }
+}
+
+/**
+ * §7.10 — **그 폴더 안에서 도는 터미널을 전부 강제 종료한다.** 종료한 개수를 돌려준다.
+ *
+ * 워크트리 삭제의 앞단이다. 사용자는 이미 팝업에서 삭제를 확인했으므로 여기서 다시 묻지 않고
+ * 트리째 회수한다(`killTerminal` → `killTree`). 이 단계가 없으면 워크트리 안에서 띄운 dev 서버·
+ * 빌드가 파일을 잡고 있어 `git worktree remove` 와 폴더 삭제가 **반만 성공**하고, 사용자에게는
+ * `node_modules` 만 남은 좀비 폴더가 돌아온다(v3.71 부분 삭제의 직접 원인).
+ *
+ * 포함 판정은 `isPathWithin` 한 곳 — 대소문자를 접을지는 플랫폼이 정한다(linux 에서 접으면
+ * 케이스만 다른 남의 폴더의 터미널까지 죽인다).
+ */
+export function killTerminalsUnder(rootPath: string): number {
+  const ids = listTerminalsUnder(rootPath);
+  for (const termId of ids) killTerminal(termId);
+  return ids.length;
+}
+
+/**
+ * §7.10 — 죽이지 않고 **세기만** 한다. 삭제 팝업이 "무엇이 강제 종료되는지" 를 미리 말할 때 쓴다.
+ * 죽이는 쪽과 같은 판정을 써야 예고한 숫자와 실제로 죽는 것이 어긋나지 않는다.
+ */
+export function listTerminalsUnder(rootPath: string): string[] {
+  if (!rootPath) return [];
+  return [...sessions]
+    .filter(([, s]) => isPathWithin(s.cwd, rootPath, process.platform))
+    .map(([termId]) => termId);
 }
 
 /** before-quit 정리 — 살아있는 모든 PTY 종료. */
@@ -422,4 +491,6 @@ export const terminalController: CmdTerminalController = {
     try { s.pty.write(data); return true; } catch { return false; }
   },
   readBuffer: (termId) => sessions.get(termId)?.buffer ?? null,
+  killUnder: (rootPath) => killTerminalsUnder(rootPath),
+  listUnder: (rootPath) => listTerminalsUnder(rootPath),
 };

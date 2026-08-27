@@ -13,6 +13,10 @@
       "disconnected": "Disconnected",
       "viewLogs": "View server logs"
     },
+    "rightTools": {
+      "expand": "Show header tools",
+      "collapse": "Hide header tools"
+    },
     "update": {
       "available": "Update {{version}}",
       "availableTooltip": "Version {{version}} is available and downloading in the background",
@@ -92,7 +96,8 @@
       "options": "Options…",
       "guide": "Guide",
       "mobileAccess": "Mobile Access…",
-      "plugins": "Plugins…"
+      "plugins": "Plugins…",
+      "remoteControl": "Remote Control…"
     },
     "mobileAccess": {
       "title": "Mobile Access",
@@ -129,6 +134,62 @@
       "qrExpiresIn": "Valid for {{time}}",
       "qrExpired": "Expired — issue a new QR.",
       "qrPairedCount": "Paired with this QR: {{count}}"
+    },
+    "remoteControl": {
+      "title": "Remote Control",
+      "subtitle": "Drive Vibisual from a messenger. The app dials out, so there is no port to open and no certificate to trust — it works behind CGNAT too.",
+      "channel": {
+        "telegram": "Telegram",
+        "discord": "Discord"
+      },
+      "step1": "Create a bot",
+      "step2": "Paste its token",
+      "step3": "Connect your chat",
+      "open": {
+        "telegram": "Open @BotFather",
+        "discord": "Open Developer Portal"
+      },
+      "step1Hint": {
+        "telegram": "Send /newbot to @BotFather, pick a name, and it replies with a token.",
+        "discord": "New Application → Bot → Reset Token. Turn on \"Message Content Intent\" on the same page."
+      },
+      "copied": "Copied",
+      "tokenPlaceholder": "Paste the bot token",
+      "verify": "Check",
+      "verifying": "Checking…",
+      "tokenSaved": "Connected to {{name}}",
+      "clearToken": "Remove",
+      "error": {
+        "token": "That token was rejected. Copy it again from the bot page.",
+        "intent": "Discord refused the connection because \"Message Content Intent\" is off. Turn it on in the Developer Portal and try again.",
+        "network": "Could not reach the messenger. Retrying.",
+        "rate-limit": "The messenger is rate-limiting us. Retrying shortly."
+      },
+      "status": {
+        "off": "Off",
+        "connecting": "Connecting…",
+        "online": "Online",
+        "error": "Disconnected"
+      },
+      "enable": "Turn on",
+      "disable": "Turn off",
+      "issueQr": "Show pairing QR ({{minutes}} min)",
+      "revokeQr": "Revoke QR now",
+      "expiresIn": "Expires in",
+      "savePng": "Save PNG",
+      "discordPairHint": "Scan to invite the bot, then send this line in any channel it can see:",
+      "pairedChats": "Connected chats",
+      "unpair": "Disconnect",
+      "verbosityTitle": "What gets sent",
+      "verbosity": {
+        "cards": "Cards only",
+        "full": "Include stream"
+      },
+      "verbosityHint": {
+        "cards": "Only cards and summaries leave this machine. Ask for raw output with /log when you need it.",
+        "full": "Replies and thinking are relayed as they arrive. Tool output and diffs are still withheld."
+      },
+      "securityNote": "Only chats you paired are answered; everything else is ignored. Terminal access is never available over a messenger."
     },
     "guide": {
       "title": "Guide",
@@ -246,7 +307,7 @@
         "version": "Version",
         "account": "Account",
         "storage": "Storage",
-        "brain": "Project Brain"
+        "brain": "Project Memory"
       },
       "appearance": {
         "intro": "Personalize how Vibisual looks.",
@@ -366,6 +427,10 @@
           "attachmentRetentionDays": {
             "label": "Attached files",
             "desc": "Images you pasted into commands. Files a conversation still points to are kept regardless of age — only orphans expire. 0 = keep forever."
+          },
+          "auditEntryMaxPerProject": {
+            "label": "Audit calls per project",
+            "desc": "Tool calls kept in the audit timeline. Dropped calls still count toward the totals — only their details go. 0 = unlimited."
           },
           "trashRetentionDays": {
             "label": "Trash",
@@ -690,6 +755,8 @@
       "notMerged": "Branch {{branch}} has commits not yet in {{base}}. Merge into {{base}} before deleting?",
       "notYetIn": "not yet in {{base}}",
       "branchUnresolved": "Could not resolve branch via git worktree list. Deleting anyway will just remove the folder + bubble.",
+      "forceStopTitle": "Anything running inside will be force-stopped",
+      "forceStopDesc": "{{terminals}} terminal(s) will be killed with their process trees, and {{agents}} agent(s) from this worktree will be moved to the trash. Leaving them alive locks files and the folder is only half deleted.",
       "cancel": "Cancel",
       "mergeAndDelete": "Merge & Delete",
       "delete": "Delete",
@@ -1246,7 +1313,7 @@
         "restRoute": "REST route",
         "wsMessage": "WS message",
         "agentConfigField": "Agent setting",
-        "brainCardKind": "Brain card type",
+        "brainCardKind": "Memory card type",
         "bubbleType": "Bubble type",
         "edgeKind": "Edge kind"
       },
@@ -1442,7 +1509,7 @@
       "boundaryHint": "Recording never stops — this only decides whether we stop the agent first.",
       "routeTitle": "A second checkpoint, separate from permission mode",
       "routeBody": "This boundary runs separately from the permission mode in agent settings — it takes a second look at tool calls that permission mode already let through.",
-      "routeOn": "When on — even an agent set to “allow everything (bypassPermissions)” gets an approval card for delete, network and config calls.",
+      "routeOn": "When on — even an agent set to “allow everything (bypassPermissions)” gets an approval card for delete, network, config and outside-folder calls.",
       "routeOff": "When off (default) — every call runs exactly as permission mode decided, and is only recorded.",
       "routeScope": "Only custom agents Vibisual launched are held here. Claude Code sessions you run yourself are recorded, never stopped.",
       "routeStateOn": "On now — risky calls are asked about before permission mode applies.",
@@ -1450,11 +1517,16 @@
       "risk": {
         "delete": "Delete",
         "network": "Network",
-        "config": "Config"
+        "config": "Config",
+        "outside": "Outside folder (read/edit)"
       },
       "filterAll": "All",
       "filterRisky": "Risky",
       "filterDenied": "Denied",
+      "retentionLabel": "Keep",
+      "retentionUnit": "calls",
+      "retentionUnlimited": "Unlimited",
+      "retentionHint": "How many calls each project keeps on disk. Older calls still count toward the totals — only their details are dropped. Uncheck for no limit.",
       "escalated": "Asked first",
       "decisionAllow": "Allowed",
       "decisionDeny": "Denied",
@@ -1610,8 +1682,13 @@
       "slotTabHint": "Bring \"{{name}}\" to front (windows share this dock slot)",
       "dockShortcutHint": "{{dock}} to dock · {{undock}} to undock",
       "popOutHint": "Release to pop out as a separate window",
+      "popOutEdgeHint": "Keep pushing against the edge to pop it out as a separate window",
       "popOutLabel": "Pop out as separate window",
-      "returnToApp": "Move back into the app"
+      "returnToApp": "Move back into the app",
+      "popOutHintButton": "Pop out as a separate window (or drag the title bar out of the app — or push it against the edge)",
+      "returnToAppHint": "Click to move it back into the app · drag it onto the app window to merge",
+      "redockDropHint": "Drop here to merge back into the app",
+      "redockKeepHint": "Release elsewhere to keep it separate"
     },
     "tabbar": {
       "newSession": "New Session",
@@ -1706,7 +1783,7 @@
       "inputCtxCopy": "Copy",
       "inputCtxPaste": "Paste",
       "inputCtxSelectAll": "Select all",
-      "ctxSaveToBrain": "Save to Brain",
+      "ctxSaveToBrain": "Save to Memory",
       "stopAll": "Stop all",
       "stopAllTitle": "Stop everything this agent is running (other tabs + background subagents)",
       "stopSessionTitle": "Stop this session and the subagents it started (other session tabs keep running)"
@@ -1740,7 +1817,8 @@
       "goal": "Goal",
       "debug": "Run and debug",
       "hooks": "Session hooks",
-      "plugins": "Claude Code plugins"
+      "plugins": "Claude Code plugins",
+      "verify": "Verify"
     },
     "mcp": {
       "title": "MCP servers",
@@ -2473,9 +2551,9 @@
         "cardList": "Numbered list card protocol",
         "cardIframe": "Server preview protocol",
         "goal": "Session goal",
-        "brainCards": "Project Brain briefing",
-        "brainTopics": "Brain topic index",
-        "brainRules": "Brain rules frame",
+        "brainCards": "Project Memory briefing",
+        "brainTopics": "Memory topic index",
+        "brainRules": "Memory rules frame",
         "hookEnforcement": "Hook session injection",
         "plugins": "All enforcement plugins",
         "claudeMd": "CLAUDE.md files",
@@ -2489,7 +2567,7 @@
         "mcp": "MCP servers",
         "hooks": "Hooks",
         "systemPrompt": "Claude Code system prompt",
-        "brainSkills": "Brain skills"
+        "brainSkills": "Memory skills"
       },
       "hint": {
         "tools": "Pick the tool list in Agent Settings",
@@ -2590,7 +2668,7 @@
             "off": "The agent stops seeing the goal and its progress list. The goal window itself stays. The half that explains how to update it ships once at session start, so that part drops from the next spawn."
           },
           "brainCards": {
-            "what": "Memory cards from Project Brain that match what you just asked.",
+            "what": "Memory cards from Project Memory that match what you just asked.",
             "more": "Ranked against your message, plus the rules marked always-on. Stored in .vibisual/brain in this project.",
             "off": "The agent starts without the lessons this project has already learned."
           },
@@ -2853,6 +2931,39 @@
       "foreignSession": "That session belongs to another bubble",
       "tooSmall": "Too small to split here",
       "alreadyHere": "Already shown here"
+    },
+    "verify": {
+      "title": "Verify",
+      "about": "Runs /verify in this tab: builds and launches your app, then reports what it actually saw.",
+      "pickSession": "Open a session tab to run a verification.",
+      "focusLabel": "What to check (optional)",
+      "focusPlaceholder": "e.g. the login button actually opens the dialog",
+      "start": "Run verification",
+      "running": "Running",
+      "readOnly": "Hook bubbles are read-only, so verification cannot be started here.",
+      "empty": "No verification has been run in this tab yet.",
+      "stop": "Close",
+      "rework": "Send for rework",
+      "delete": "Delete",
+      "recipe": {
+        "playRecipe": "Sends the run recipe Vibisual already knows",
+        "recordedSkill": "Follows the recipe already recorded in this repo",
+        "none": "No recipe registered — /verify will work it out"
+      },
+      "verdict": {
+        "pass": "Passed",
+        "fail": "Failed",
+        "held": "Held",
+        "unknown": "Unknown"
+      },
+      "error": {
+        "alreadyRunning": "A verification is already running in this tab.",
+        "sessionBusy": "This tab still has an unfinished command.",
+        "sessionNotFound": "That session could not be found.",
+        "readOnly": "Hook bubbles are read-only.",
+        "network": "Could not reach the server.",
+        "failed": "Could not start the verification."
+      }
     }
   },
   "bubbleMap": {
@@ -3137,6 +3248,11 @@
   },
   "canvas": {
     "stubPlaceholder": "This project is on disk only. Click the tab to load.",
+    "loading": {
+      "project": "Loading project…",
+      "connecting": "Connecting to server…",
+      "slow": "Slow connection — still loading…"
+    },
     "controls": {
       "zoomIn": "Zoom in",
       "zoomOut": "Zoom out",
@@ -3172,8 +3288,8 @@
       "createLocalAgentHint": "Drops a bubble for a model that runs on this PC",
       "createShelf": "Script shelf",
       "createShelfHint": "Keep the commands and prompts you use often one click away",
-      "brainOn": "Turn on Project Brain",
-      "brainOff": "Turn off Project Brain",
+      "brainOn": "Turn on Project Memory",
+      "brainOff": "Turn off Project Memory",
       "brainOnHint": "Collects the procedures it learns and loads them into your next task",
       "brainOnHintSleeping": "{{count}} memories are asleep here",
       "brainOffHint": "Turning it off never deletes anything"
@@ -3429,7 +3545,7 @@
     "close": "Close"
   },
   "brain": {
-    "bubbleLabel": "Brain",
+    "bubbleLabel": "Memory",
     "trashBubbleLabel": "Trash",
     "trashCountShort": "{{n}}",
     "unseenBadge": "{{n}} unseen",
@@ -3446,7 +3562,7 @@
       "rule": "Rule",
       "fact": "Fact"
     },
-    "scopeProject": "Project Brain",
+    "scopeProject": "Project Memory",
     "scopeAgent": "Agent Memory",
     "statusGhost": "Needs review",
     "supersededNote": "Previous content",
@@ -3468,7 +3584,7 @@
     "lastReferenced": "Last referenced",
     "createdAt": "Created",
     "sourceSession": "Source session",
-    "promote": "Promote to Project Brain",
+    "promote": "Promote to Project Memory",
     "pin": "Pin",
     "unpin": "Unpin",
     "edit": "Edit",
@@ -3502,7 +3618,7 @@
     "trashItemsMore": "+{{n}} more",
     "cardCountUnitSuffix": "",
     "feed": {
-      "title": "Project Brain",
+      "title": "Project Memory",
       "agentTitle": "This Agent's Memory",
       "searchPlaceholder": "Search memories…",
       "sectionRelated": "Related to current work",
@@ -3614,19 +3730,19 @@
       }
     },
     "activation": {
-      "sleeping": "{{count}} memories are asleep in this project’s brain. Turn it on?",
-      "hint": "The brain is off by default. Once on, it collects procedures learned at work and applies them to the next task. You can turn it off any time, and turning it off never deletes anything.",
+      "sleeping": "{{count}} memories are asleep in this project’s memory. Turn it on?",
+      "hint": "The memory is off by default. Once on, it collects procedures learned at work and applies them to the next task. You can turn it off any time, and turning it off never deletes anything.",
       "turnOn": "Turn on",
       "notNow": "Not now",
       "showAxes": "See what gets turned on",
       "hideAxes": "Hide details",
       "axesTitle": "What to keep on",
-      "turnOff": "Turn brain off",
+      "turnOff": "Turn memory off",
       "offKeepsData": "Turning it off keeps everything — switch it back on and it picks up where it left off.",
       "noProject": "No project is open",
-      "noProjectDesc": "The brain is switched on per project — open a project first.",
-      "stateOn": "This project's brain is on",
-      "stateOff": "This project's brain is off",
+      "noProjectDesc": "The memory is switched on per project — open a project first.",
+      "stateOn": "This project's memory is on",
+      "stateOff": "This project's memory is off",
       "sleepingCount": "{{count}} memories are asleep"
     }
   },
