@@ -202,7 +202,8 @@
         "ide": "Overlay IDE",
         "navigation": "Navigazione",
         "history": "Cronologia e salvataggio",
-        "shortcuts": "Scorciatoie"
+        "shortcuts": "Scorciatoie",
+        "memory": "Memoria del progetto"
       },
       "start": {
         "intro": "Vibisual visualizza in tempo reale cosa stanno facendo i tuoi agent AI, sotto forma di mappa a bolle.",
@@ -283,6 +284,27 @@
         "inspectorD": "Tieni premuto Alt per ispezionare e fai clic per copiare un elemento; Shift+trascina per selezionare un'area.",
         "closeT": "Chiudi e annulla",
         "closeD": "Esc chiude i menu, i popup e l'overlay IDE."
+      },
+      "memory": {
+        "intro": "La memoria del progetto conserva ciò che ha funzionato e lo ricarica nel lavoro successivo. Di base è spenta — la accendi progetto per progetto, e spegnerla non cancella mai nulla.",
+        "turnOnT": "Come accenderla",
+        "turnOnD": "Clic destro sulla tela vuota e «Attiva la memoria del progetto», oppure File > Options > Memoria del progetto. Ha effetto subito — nessun riavvio.",
+        "bubbleT": "La bolla della memoria",
+        "bubbleD": "Una volta accesa, sulla tela compare una bolla indaco con il numero di schede conservate. Doppio clic apre la libreria; il passaggio del mouse mostra un riepilogo.",
+        "skillsT": "Memoria procedurale",
+        "skillsD": "Quando un lavoro complesso finisce, i passaggi vengono distillati in una procedura. Alla prossima attività simile quella procedura entra da sola nel prompt.",
+        "recallT": "Richiamo",
+        "recallD": "Cerca nel testo delle sessioni passate, non solo nelle schede — per la risposta che non è mai stata scritta come scheda.",
+        "groundingT": "Verifica delle prove",
+        "groundingD": "Una scheda vale come verità corrente solo dopo che i file citati sono stati confrontati con il codice che esiste ora.",
+        "curatorT": "Curatela",
+        "curatorD": "Le schede mai lette, non classificate o ancora candidate si raccolgono in una colonna: le ordini, promuovi o scarti in blocco.",
+        "operatorT": "Profilo dell'operatore",
+        "operatorD": "Le abitudini di lavoro rilevate restano solo su questa macchina. Non viene inviato nulla altrove.",
+        "railsT": "Le cinque colonne",
+        "railsD": "Colonna sinistra della libreria: Da verificare, In attesa di revisione, Procedure, Da sistemare, Archiviate.",
+        "keepsT": "Niente viene buttato",
+        "keepsD": "Spegnerla ferma il lavoro, non l'archivio. Le schede restano in .vibisual/brain e riprendono da dove erano rimaste."
       }
     },
     "options": {
@@ -3691,7 +3713,8 @@
       "skillDraft": "Bozza",
       "skillVerified": "Confermato",
       "skillUsed": "caricata {{count}} volte",
-      "skillHelpful": "utile {{count}} volte"
+      "skillHelpful": "utile {{count}} volte",
+      "howTo": "Come si usa"
     },
     "currentBadge": "Verità attuale",
     "contestedBadge": "In conflitto",

@@ -202,7 +202,8 @@
         "ide": "Superposition IDE",
         "navigation": "Navigation",
         "history": "Historique et enregistrement",
-        "shortcuts": "Raccourcis"
+        "shortcuts": "Raccourcis",
+        "memory": "Mémoire du projet"
       },
       "start": {
         "intro": "Vibisual visualise en temps réel ce que font vos agents IA, sous forme de carte de bulles.",
@@ -283,6 +284,27 @@
         "inspectorD": "Maintenez Alt pour inspecter et cliquez pour copier un élément ; Maj+glisser pour une sélection de région.",
         "closeT": "Fermer et annuler",
         "closeD": "Échap ferme les menus, les fenêtres contextuelles et la superposition IDE."
+      },
+      "memory": {
+        "intro": "La mémoire du projet retient ce qui a marché et le recharge dans la tâche suivante. Désactivée par défaut — vous l'activez projet par projet, et la désactiver n'efface jamais rien.",
+        "turnOnT": "L'activer",
+        "turnOnD": "Clic droit sur le canevas vide puis « Activer la mémoire du projet », ou File > Options > Mémoire du projet. Effet immédiat — aucun redémarrage.",
+        "bubbleT": "La bulle mémoire",
+        "bubbleD": "Une fois active, une bulle indigo apparaît sur le canevas avec le nombre de fiches stockées. Double-clic pour ouvrir la bibliothèque, survol pour un résumé.",
+        "skillsT": "Mémoire procédurale",
+        "skillsD": "Quand un travail complexe se termine, ses étapes sont condensées en procédure. À la prochaine tâche similaire, cette procédure est chargée automatiquement dans le prompt.",
+        "recallT": "Rappel",
+        "recallD": "Cherche dans le texte des sessions passées, pas seulement dans les fiches — pour la réponse qui n'a jamais été écrite sous forme de fiche.",
+        "groundingT": "Vérification des preuves",
+        "groundingD": "Une fiche ne devient vérité courante qu'après confrontation des fichiers qu'elle cite avec le code tel qu'il existe maintenant.",
+        "curatorT": "Curation",
+        "curatorD": "Les fiches jamais lues, non classées ou encore candidates se rassemblent dans une colonne — vous les classez, promouvez ou écartez d'un bloc.",
+        "operatorT": "Profil de l'opérateur",
+        "operatorD": "Les habitudes de travail repérées restent sur cette machine uniquement. Rien n'est envoyé ailleurs.",
+        "railsT": "Les cinq colonnes",
+        "railsD": "Colonne de gauche de la bibliothèque : À vérifier, En attente de revue, Procédures, À trier, Archivé.",
+        "keepsT": "Rien n'est jeté",
+        "keepsD": "Désactiver arrête le travail, pas le stockage. Les fiches restent dans .vibisual/brain et reprennent là où elles s'étaient arrêtées."
       }
     },
     "options": {
@@ -3691,7 +3713,8 @@
       "skillDraft": "Brouillon",
       "skillVerified": "Confirmé",
       "skillUsed": "chargé {{count}} fois",
-      "skillHelpful": "utile {{count}} fois"
+      "skillHelpful": "utile {{count}} fois",
+      "howTo": "Mode d'emploi"
     },
     "currentBadge": "Vérité actuelle",
     "contestedBadge": "En conflit",

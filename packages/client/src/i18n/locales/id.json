@@ -202,7 +202,8 @@
         "ide": "IDE Overlay",
         "navigation": "Navigasi",
         "history": "Riwayat & Penyimpanan",
-        "shortcuts": "Pintasan"
+        "shortcuts": "Pintasan",
+        "memory": "Memori Proyek"
       },
       "start": {
         "intro": "Vibisual memvisualisasikan apa yang sedang dilakukan agent AI Anda, secara real-time, sebagai bubble map.",
@@ -283,6 +284,27 @@
         "inspectorD": "Tahan Alt untuk menginspeksi dan klik untuk menyalin elemen; Shift-seret untuk memilih wilayah.",
         "closeT": "Tutup & batal",
         "closeD": "Esc menutup menu, popup, dan IDE overlay."
+      },
+      "memory": {
+        "intro": "Memori Proyek menyimpan cara yang berhasil dan memuatnya kembali di tugas berikutnya. Bawaannya mati — Anda menyalakannya per proyek, dan mematikannya tidak pernah menghapus apa pun.",
+        "turnOnT": "Cara menyalakan",
+        "turnOnD": "Klik kanan kanvas kosong lalu pilih «Aktifkan Memori Proyek», atau buka File > Options > Memori Proyek. Langsung berlaku — tanpa mulai ulang.",
+        "bubbleT": "Gelembung memori",
+        "bubbleD": "Setelah aktif, gelembung indigo muncul di kanvas dengan jumlah kartu tersimpan. Klik ganda membuka pustaka; arahkan kursor untuk ringkasan.",
+        "skillsT": "Memori prosedur",
+        "skillsD": "Saat pekerjaan rumit selesai, langkah-langkahnya disarikan jadi prosedur. Lain kali tugas serupa dimulai, prosedur itu otomatis masuk ke prompt.",
+        "recallT": "Pengingatan",
+        "recallD": "Mencari di teks sesi lampau, bukan hanya kartu tersimpan — untuk jawaban yang tidak pernah ditulis jadi kartu.",
+        "groundingT": "Verifikasi bukti",
+        "groundingD": "Kartu baru dianggap kebenaran terkini setelah berkas yang dirujuknya dicocokkan dengan kode yang ada sekarang.",
+        "curatorT": "Kurator",
+        "curatorD": "Kartu yang belum pernah dibaca, belum diklasifikasi, atau masih kandidat berkumpul di satu kolom untuk ditata, dinaikkan, atau dibuang sekaligus.",
+        "operatorT": "Profil operator",
+        "operatorD": "Kebiasaan kerja yang terlihat hanya dicatat di mesin ini. Tidak ada yang dikirim ke mana pun.",
+        "railsT": "Lima kolom",
+        "railsD": "Kolom kiri pustaka: Perlu dicek, Menunggu tinjauan, Prosedur, Perlu ditata, Diarsipkan.",
+        "keepsT": "Tidak ada yang dibuang",
+        "keepsD": "Mematikannya menghentikan kerjanya, bukan penyimpanannya. Kartu tetap di .vibisual/brain dan lanjut dari tempat terakhir saat dinyalakan lagi."
       }
     },
     "options": {
@@ -3691,7 +3713,8 @@
       "skillDraft": "Draf",
       "skillVerified": "Terkonfirmasi",
       "skillUsed": "dimuat {{count}}x",
-      "skillHelpful": "membantu {{count}}x"
+      "skillHelpful": "membantu {{count}}x",
+      "howTo": "Cara pakai"
     },
     "currentBadge": "Kebenaran saat ini",
     "contestedBadge": "Bertentangan",

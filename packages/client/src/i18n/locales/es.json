@@ -202,7 +202,8 @@
         "ide": "Overlay del IDE",
         "navigation": "Navegación",
         "history": "Historial y guardado",
-        "shortcuts": "Atajos"
+        "shortcuts": "Atajos",
+        "memory": "Memoria del proyecto"
       },
       "start": {
         "intro": "Vibisual visualiza lo que hacen tus agentes de IA, en tiempo real, como un Bubble Map.",
@@ -283,6 +284,27 @@
         "inspectorD": "Mantén pulsada Alt para inspeccionar y haz clic para copiar un elemento; Shift+arrastrar para seleccionar una región.",
         "closeT": "Cerrar y cancelar",
         "closeD": "Esc cierra menús, ventanas emergentes y el overlay del IDE."
+      },
+      "memory": {
+        "intro": "La memoria del proyecto guarda lo que funcionó y lo vuelve a cargar en la siguiente tarea. Viene desactivada — se activa por proyecto, y desactivarla nunca borra nada.",
+        "turnOnT": "Cómo activarla",
+        "turnOnD": "Clic derecho en el lienzo vacío y «Activar la memoria del proyecto», o File > Options > Memoria del proyecto. Se aplica al instante — sin reiniciar.",
+        "bubbleT": "La burbuja de memoria",
+        "bubbleD": "Al activarla aparece una burbuja índigo en el lienzo con el número de tarjetas guardadas. Doble clic abre la biblioteca; al pasar el cursor muestra un resumen.",
+        "skillsT": "Memoria de procedimientos",
+        "skillsD": "Cuando termina un trabajo complejo, sus pasos se condensan en un procedimiento. La próxima vez que empiece algo parecido, ese procedimiento se carga solo en el prompt.",
+        "recallT": "Recuerdo",
+        "recallD": "Busca en el texto de sesiones pasadas, no solo en las tarjetas — para la respuesta que nunca se anotó como tarjeta.",
+        "groundingT": "Verificación de evidencia",
+        "groundingD": "Una tarjeta solo cuenta como verdad actual después de contrastar los archivos que cita con el código que existe ahora.",
+        "curatorT": "Curaduría",
+        "curatorD": "Las tarjetas nunca leídas, sin clasificar o aún candidatas se reúnen en una columna para clasificarlas, promoverlas o descartarlas en bloque.",
+        "operatorT": "Perfil del operador",
+        "operatorD": "Los hábitos de trabajo detectados se guardan solo en este equipo. No se envía nada a ninguna parte.",
+        "railsT": "Las cinco columnas",
+        "railsD": "Columna izquierda de la biblioteca: Por revisar, Pendiente de revisión, Procedimientos, Por ordenar, Archivado.",
+        "keepsT": "No se tira nada",
+        "keepsD": "Desactivarla detiene el trabajo, no el almacenamiento. Las tarjetas siguen en .vibisual/brain y retoman donde quedaron."
       }
     },
     "options": {
@@ -3691,7 +3713,8 @@
       "skillDraft": "Borrador",
       "skillVerified": "Confirmado",
       "skillUsed": "cargado {{count}} veces",
-      "skillHelpful": "útil {{count}} veces"
+      "skillHelpful": "útil {{count}} veces",
+      "howTo": "Cómo se usa"
     },
     "currentBadge": "Verdad actual",
     "contestedBadge": "En conflicto",

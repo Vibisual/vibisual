@@ -202,7 +202,8 @@
         "ide": "IDE 面板",
         "navigation": "导航",
         "history": "历史与保存",
-        "shortcuts": "快捷键"
+        "shortcuts": "快捷键",
+        "memory": "项目记忆"
       },
       "start": {
         "intro": "Vibisual 会将 AI Agent 的实时活动可视化为气泡图。",
@@ -283,6 +284,27 @@
         "inspectorD": "按住 Alt 可检查元素，点击即可复制；按住 Shift 拖动可进行区域选择。",
         "closeT": "关闭与取消",
         "closeD": "Esc 可关闭菜单、弹窗和 IDE 面板。"
+      },
+      "memory": {
+        "intro": "项目记忆会把有效的做法存下来，并在下次任务时重新载入。默认关闭，按项目开启；关闭不会删除任何内容。",
+        "turnOnT": "如何开启",
+        "turnOnD": "在画布空白处右键选择“开启项目记忆”，或打开 File > Options > 项目记忆。立即生效，无需重启。",
+        "bubbleT": "记忆气泡",
+        "bubbleD": "开启后画布上会出现靛蓝气泡，显示已存卡片数量。双击打开资料库，悬停查看摘要。",
+        "skillsT": "流程记忆",
+        "skillsD": "复杂任务完成后会被提炼成流程。下次开始类似任务时，该流程会自动加载到提示词中。",
+        "recallT": "回想",
+        "recallD": "不只搜索卡片，也搜索过往会话正文 — 用来找回没写成卡片的答案。",
+        "groundingT": "证据校验",
+        "groundingD": "只有把卡片指向的文件与当前代码核对通过后，它才会被当作现在的事实。",
+        "curatorT": "策展",
+        "curatorD": "把从未被读取、未分类或仍是候选的卡片集中到一列，便于批量归类、升级为流程或废弃。",
+        "operatorT": "操作者画像",
+        "operatorD": "观察到的工作习惯只记录在本机，不会发送到任何地方。",
+        "railsT": "五个栏目",
+        "railsD": "资料库左栏 — 待确认、待审阅、流程记忆、待整理、已归档。",
+        "keepsT": "不会丢弃",
+        "keepsD": "关闭只是停止运作，存储照旧。卡片保留在 .vibisual/brain，重新开启后从原处继续。"
       }
     },
     "options": {
@@ -3691,7 +3713,8 @@
       "skillDraft": "草稿",
       "skillVerified": "已确认",
       "skillUsed": "载入 {{count}} 次",
-      "skillHelpful": "有帮助 {{count}} 次"
+      "skillHelpful": "有帮助 {{count}} 次",
+      "howTo": "使用方法"
     },
     "currentBadge": "当前事实",
     "contestedBadge": "值冲突",

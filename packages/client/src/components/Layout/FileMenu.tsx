@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { OptionsWindow } from '../Options/OptionsWindow.js';
 import { PluginsWindow } from '../Plugins/PluginsWindow.js';
-import { GuideWindow } from '../Guide/GuideWindow.js';
 import { MobileAccessWindow } from './MobileAccessWindow.js';
 import { RemoteControlWindow } from './RemoteControlWindow.js';
 import { isPackagedDesktop } from '../../transport/index.js';
@@ -14,10 +13,11 @@ const API_BASE = '';
 export function FileMenu(): React.JSX.Element {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
+  /** §5.10 — 가이드는 스토어 문 하나로 연다(메모리 라이브러리 [사용법] 과 같은 문). */
+  const openGuide = useGraphStore((st) => st.openGuide);
   const [loading, setLoading] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [pluginsOpen, setPluginsOpen] = useState(false);
-  const [guideOpen, setGuideOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [remoteOpen, setRemoteOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -138,7 +138,7 @@ export function FileMenu(): React.JSX.Element {
           <div className="my-1 border-t border-white/[0.05]" />
           <button
             type="button"
-            onClick={() => { setOpen(false); setGuideOpen(true); }}
+            onClick={() => { setOpen(false); openGuide('start'); }}
             className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-[13px] text-gray-300 transition-colors hover:bg-white/[0.08] hover:text-white"
           >
             <svg className="h-4 w-4 shrink-0 text-gray-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -150,7 +150,6 @@ export function FileMenu(): React.JSX.Element {
       )}
       <OptionsWindow open={optionsOpen} onClose={() => setOptionsOpen(false)} />
       <PluginsWindow open={pluginsOpen} onClose={() => setPluginsOpen(false)} />
-      <GuideWindow open={guideOpen} onClose={() => setGuideOpen(false)} />
       <MobileAccessWindow open={mobileOpen} onClose={() => setMobileOpen(false)} />
       <RemoteControlWindow open={remoteOpen} onClose={() => setRemoteOpen(false)} />
     </div>

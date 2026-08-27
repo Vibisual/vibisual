@@ -1829,7 +1829,7 @@ interface GraphState {
   brainFeed: { scope: BrainCardScope; agentId?: string } | null;
   /**
    * §5.10 — 사용법 가이드(File > Guide) 를 **어느 화면에서든** 여는 자리.
-   * 값이 곧 열 항목( 의 카테고리 키)이고 null 이면 닫힘이다 — 가이드를 여는 문이
+   * 값이 곧 열 항목(GuideWindow 의 카테고리 키)이고 null 이면 닫힘이다 — 가이드를 여는 문이
    * File 메뉴 하나뿐이면 정작 그 기능을 보고 있는 사람이 설명을 못 찾는다.
    */
   guideCategory: string | null;

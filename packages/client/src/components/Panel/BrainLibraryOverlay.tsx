@@ -81,6 +81,8 @@ export function BrainLibraryOverlay(): React.JSX.Element | null {
   const { t } = useTranslation();
   const view = useGraphStore((s) => s.brainFeed);
   const closeLibrary = useGraphStore((s) => s.closeBrainFeed);
+  /** §5.10 — [사용법] 이 여는 문. 가이드 창 자체는 App 이 전역 1회 마운트한다. */
+  const openGuide = useGraphStore((s) => s.openGuide);
   const markBrainCardSeen = useGraphStore((s) => s.markBrainCardSeen);
   const verifyBrainCard = useGraphStore((s) => s.verifyBrainCard);
   const markBrainCardStale = useGraphStore((s) => s.markBrainCardStale);
@@ -439,8 +441,10 @@ export function BrainLibraryOverlay(): React.JSX.Element | null {
       >
         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg" style={{ backgroundColor: `${ACCENT}1F` }}>
           <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke={ACCENT} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" />
-            <path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z" />
+            {/* §5.10 — 두뇌 lobes 폐기. 이름이 메모리이므로 이 창이 들고 있는 것(쌓인 카드)을 그린다. */}
+            <path d="M4 10h9a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2Z" />
+            <path d="M7 7.5V6a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-1.5" />
+            <path d="M5 14h7M5 17h4.5" />
           </svg>
         </span>
         <h2 className="shrink-0 text-[14px] font-semibold tracking-tight text-zinc-100">
@@ -459,6 +463,22 @@ export function BrainLibraryOverlay(): React.JSX.Element | null {
         </div>
 
         <span className="flex-1" />
+
+        {/* §5.10 — [사용법]. 가이드를 여는 문이 File 메뉴 하나뿐이면 정작 이 화면을 보고 있는
+            사람이 설명을 못 찾는다. 메모리 항목으로 곧장 연다. */}
+        <button
+          type="button"
+          onClick={() => openGuide('memory')}
+          className="flex h-6 items-center gap-1 rounded-md px-1.5 text-[12px] text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+          title={t('brain.library.howTo', { defaultValue: '사용법' })}
+        >
+          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="10" />
+            <path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3" />
+            <path d="M12 17h.01" />
+          </svg>
+          <span className="hidden sm:inline">{t('brain.library.howTo', { defaultValue: '사용법' })}</span>
+        </button>
 
         {/* 창 버튼 — 최소화(셰이드) · 최대화/복원 · 닫기. 좁은 뷰포트에선 닫기만. */}
         {movable && (

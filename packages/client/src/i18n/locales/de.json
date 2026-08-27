@@ -202,7 +202,8 @@
         "ide": "IDE-Overlay",
         "navigation": "Navigation",
         "history": "Verlauf & Speichern",
-        "shortcuts": "Tastenkürzel"
+        "shortcuts": "Tastenkürzel",
+        "memory": "Projekt-Memory"
       },
       "start": {
         "intro": "Vibisual visualisiert in Echtzeit, was Ihre KI-Agenten tun — als Bubble Map.",
@@ -283,6 +284,27 @@
         "inspectorD": "Alt gedrückt halten zum Untersuchen und klicken, um ein Element zu kopieren; Shift-Ziehen für Bereichsauswahl.",
         "closeT": "Schließen & Abbrechen",
         "closeD": "Esc schließt Menüs, Popups und das IDE-Overlay."
+      },
+      "memory": {
+        "intro": "Projekt-Memory behält, was funktioniert hat, und lädt es in die nächste Aufgabe. Standardmäßig aus — du schaltest es pro Projekt ein, und Ausschalten löscht nie etwas.",
+        "turnOnT": "Einschalten",
+        "turnOnD": "Rechtsklick auf leere Canvas und „Projekt-Memory einschalten“, oder File > Options > Projekt-Memory. Gilt sofort — kein Neustart.",
+        "bubbleT": "Die Memory-Blase",
+        "bubbleD": "Eingeschaltet steht eine indigofarbene Blase auf der Canvas mit der Zahl gespeicherter Karten. Doppelklick öffnet die Bibliothek, Hover zeigt eine Zusammenfassung.",
+        "skillsT": "Prozedurales Gedächtnis",
+        "skillsD": "Nach einer komplexen Aufgabe werden die Schritte zu einem Ablauf verdichtet. Beim nächsten ähnlichen Auftrag wird dieser Ablauf automatisch in den Prompt geladen.",
+        "recallT": "Rückruf",
+        "recallD": "Durchsucht den Text vergangener Sitzungen, nicht nur gespeicherte Karten — für die Antwort, die nie als Karte festgehalten wurde.",
+        "groundingT": "Belegprüfung",
+        "groundingD": "Eine Karte gilt erst als gegenwärtige Wahrheit, wenn die Dateien, auf die sie zeigt, gegen den jetzigen Code geprüft wurden.",
+        "curatorT": "Kurator",
+        "curatorD": "Karten, die nie gelesen, nie eingeordnet oder noch Kandidaten sind, sammeln sich in einer Spalte — dort ordnest, beförderst oder verwirfst du sie gebündelt.",
+        "operatorT": "Betreiberprofil",
+        "operatorD": "Beobachtete Arbeitsgewohnheiten bleiben nur auf diesem Gerät. Nichts wird irgendwohin gesendet.",
+        "railsT": "Die fünf Spalten",
+        "railsD": "Linke Spalte der Bibliothek: Prüfen, Wartet auf Review, Abläufe, Zu sortieren, Archiviert.",
+        "keepsT": "Nichts wird weggeworfen",
+        "keepsD": "Ausschalten stoppt die Arbeit, nicht den Speicher. Karten bleiben unter .vibisual/brain und machen weiter, wo sie aufgehört haben."
       }
     },
     "options": {
@@ -3691,7 +3713,8 @@
       "skillDraft": "Entwurf",
       "skillVerified": "Bestätigt",
       "skillUsed": "{{count}}x geladen",
-      "skillHelpful": "{{count}}x geholfen"
+      "skillHelpful": "{{count}}x geholfen",
+      "howTo": "Anleitung"
     },
     "currentBadge": "Aktuelle Wahrheit",
     "contestedBadge": "Widersprüchlich",
