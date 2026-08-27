@@ -13,6 +13,10 @@
       "disconnected": "Terputus",
       "viewLogs": "Lihat log server"
     },
+    "rightTools": {
+      "expand": "Tampilkan alat header",
+      "collapse": "Sembunyikan alat header"
+    },
     "update": {
       "available": "Perbarui {{version}}",
       "availableTooltip": "Versi {{version}} tersedia dan sedang diunduh di latar belakang",
@@ -72,7 +76,17 @@
         "top": "atas",
         "bottom": "bawah"
       },
-      "orphan": "Jendela yang bubble-nya sudah hilang"
+      "orphan": "Jendela yang bubble-nya sudah hilang",
+      "layout": {
+        "tile": "Susun sebagai ubin",
+        "cascade": "Susun sebagai kaskade",
+        "tabRight": "Tumpuk semua sebagai tab di kanan",
+        "splitLeftRight": "Bagi kiri / kanan",
+        "undockAll": "Lepaskan semua dari dock",
+        "collapseAll": "Ciutkan semua",
+        "expandAll": "Perluas semua"
+      },
+      "shortcutHint": "{{dock}} dock · {{max}} maksimalkan · {{next}} jendela berikutnya"
     }
   },
   "panel": {
@@ -82,7 +96,8 @@
       "options": "Opsi…",
       "guide": "Panduan",
       "mobileAccess": "Akses Seluler…",
-      "plugins": "Plugin…"
+      "plugins": "Plugin…",
+      "remoteControl": "Kendali Jarak Jauh…"
     },
     "mobileAccess": {
       "title": "Akses Seluler",
@@ -119,6 +134,62 @@
       "qrExpiresIn": "Berlaku selama {{time}}",
       "qrExpired": "Kedaluwarsa — terbitkan QR baru.",
       "qrPairedCount": "Dipasangkan dengan QR ini: {{count}}"
+    },
+    "remoteControl": {
+      "title": "Kendali Jarak Jauh",
+      "subtitle": "Kendalikan Vibisual dari aplikasi perpesanan. Aplikasi ini yang menghubungi keluar, jadi tidak ada port yang perlu dibuka dan tidak ada sertifikat yang perlu dipercaya — bahkan bekerja di balik CGNAT.",
+      "channel": {
+        "telegram": "Telegram",
+        "discord": "Discord"
+      },
+      "step1": "Buat bot",
+      "step2": "Tempel tokennya",
+      "step3": "Hubungkan chat Anda",
+      "open": {
+        "telegram": "Buka @BotFather",
+        "discord": "Buka Developer Portal"
+      },
+      "step1Hint": {
+        "telegram": "Kirim /newbot ke @BotFather, pilih nama, dan Anda akan mendapatkan balasan berisi token.",
+        "discord": "New Application → Bot → Reset Token. Nyalakan \"Message Content Intent\" di halaman yang sama."
+      },
+      "copied": "Disalin",
+      "tokenPlaceholder": "Tempel token bot",
+      "verify": "Periksa",
+      "verifying": "Memeriksa…",
+      "tokenSaved": "Terhubung ke {{name}}",
+      "clearToken": "Hapus",
+      "error": {
+        "token": "Token tersebut ditolak. Salin lagi dari halaman bot.",
+        "intent": "Discord menolak koneksi karena \"Message Content Intent\" nonaktif. Nyalakan di Developer Portal, lalu coba lagi.",
+        "network": "Tidak dapat menjangkau aplikasi perpesanan. Mencoba lagi.",
+        "rate-limit": "Aplikasi perpesanan sedang membatasi laju permintaan kami. Akan mencoba lagi sebentar lagi."
+      },
+      "status": {
+        "off": "Nonaktif",
+        "connecting": "Menghubungkan…",
+        "online": "Online",
+        "error": "Terputus"
+      },
+      "enable": "Nyalakan",
+      "disable": "Matikan",
+      "issueQr": "Tampilkan QR pairing ({{minutes}} mnt)",
+      "revokeQr": "Cabut QR sekarang",
+      "expiresIn": "Kedaluwarsa dalam",
+      "savePng": "Simpan PNG",
+      "discordPairHint": "Pindai untuk mengundang bot, lalu kirim baris ini di channel mana pun yang bisa dilihatnya:",
+      "pairedChats": "Chat yang terhubung",
+      "unpair": "Putuskan",
+      "verbosityTitle": "Apa yang dikirim",
+      "verbosity": {
+        "cards": "Kartu saja",
+        "full": "Sertakan stream"
+      },
+      "verbosityHint": {
+        "cards": "Hanya kartu dan ringkasan yang meninggalkan mesin ini. Minta output mentah dengan /log saat diperlukan.",
+        "full": "Balasan dan thinking diteruskan saat tiba. Output tool dan diff tetap ditahan."
+      },
+      "securityNote": "Hanya chat yang sudah Anda pasangkan yang akan dijawab; selain itu diabaikan. Akses terminal tidak pernah tersedia lewat aplikasi perpesanan."
     },
     "guide": {
       "title": "Panduan",
@@ -236,7 +307,7 @@
         "version": "Versi",
         "account": "Akun",
         "storage": "Penyimpanan",
-        "brain": "Otak Proyek"
+        "brain": "Memori Proyek"
       },
       "appearance": {
         "intro": "Sesuaikan tampilan Vibisual.",
@@ -357,6 +428,10 @@
             "label": "Berkas lampiran",
             "desc": "Gambar yang Anda tempelkan ke perintah. Berkas yang masih dirujuk sebuah percakapan tetap disimpan berapa pun usianya; hanya yang tak terpakai yang kedaluwarsa. 0 = simpan selamanya."
           },
+          "auditEntryMaxPerProject": {
+            "label": "Panggilan audit per proyek",
+            "desc": "Panggilan alat yang disimpan di lini masa audit. Panggilan yang tergeser tetap dihitung dalam total — hanya rinciannya yang hilang. 0 = tanpa batas."
+          },
           "trashRetentionDays": {
             "label": "Tempat sampah",
             "desc": "Berapa hari berkas yang dibersihkan tetap dapat dipulihkan sebelum dihapus permanen. 0 = simpan selamanya."
@@ -390,6 +465,14 @@
         "trashEmpty": "Tempat sampah kosong — belum ada yang dibersihkan.",
         "restore": "Pulihkan",
         "restoring": "Memulihkan…"
+      },
+      "advanced": {
+        "terminalScrollback": "Scrollback terminal (baris)",
+        "terminalScrollbackDesc": "Berapa banyak baris output yang disimpan terminal CMD. Scroll dan pencarian {{shortcut}} berbagi rentang ini. Berlaku untuk terminal yang dibuka mulai sekarang."
+      },
+      "notifications": {
+        "cmdBlocked": "Beri tahu saat sesi CMD menunggu input",
+        "cmdBlockedDesc": "Hanya memberi tahu saat Anda sedang melihat tab atau jendela lain — jika jendela sedang fokus, itu sudah terlihat di layar."
       }
     },
     "autoAgent": {
@@ -672,6 +755,8 @@
       "notMerged": "Branch {{branch}} memiliki commit yang belum ada di {{base}}. Merge ke {{base}} sebelum menghapus?",
       "notYetIn": "belum ada di {{base}}",
       "branchUnresolved": "Tidak dapat menentukan branch via git worktree list. Menghapus tetap saja akan menghapus folder + bubble.",
+      "forceStopTitle": "Apa pun yang berjalan di dalamnya akan dihentikan paksa",
+      "forceStopDesc": "{{terminals}} terminal akan dimatikan beserta pohon prosesnya, dan {{agents}} agen dari worktree ini dipindahkan ke tempat sampah. Jika dibiarkan hidup, berkas terkunci dan folder hanya terhapus separuh.",
       "cancel": "Batal",
       "mergeAndDelete": "Merge & Hapus",
       "delete": "Hapus",
@@ -913,6 +998,12 @@
         "toolsNone": "Model ini tidak bisa memakai tools — hanya mengobrol.",
         "toolsUnknown": "Belum dicek — tools akan ikut dikirim pada giliran berikutnya untuk memastikannya.",
         "toolsRecheck": "Cek lagi"
+      },
+      "cliKind": {
+        "label": "CLI",
+        "tip": "CLI agent mana yang diluncurkan oleh terminal CMD ini. Selain Claude Code, CLI lain bukan anak dari hook kami, sehingga resume percakapan dan injeksi rule tidak terpasang — statusnya dibaca dari output terminal sebagai gantinya.",
+        "nonClaudeNote": "CLI ini bukan Claude Code, jadi pengaturan di bawah (model, izin, tool, rule) tidak diteruskan ke sana. Statusnya dibaca dari output terminal sebagai gantinya. Perubahan berlaku untuk sesi baru yang dibuka dengan \"+\".",
+        "applyNote": "CLI yang diubah berlaku untuk sesi baru yang dibuka dengan \"+\" — terminal yang sudah berjalan tetap memakai CLI yang dipakai sejak semula."
       }
     },
     "permissionPrompt": {
@@ -1418,7 +1509,7 @@
       "boundaryHint": "Pencatatan tidak pernah berhenti — ini hanya menentukan apakah agent dihentikan lebih dulu.",
       "routeTitle": "Pos pemeriksaan kedua, terpisah dari mode izin",
       "routeBody": "Batas ini berjalan terpisah dari mode izin (Permission Mode) agen — panggilan alat yang sudah diloloskan mode izin akan diperiksa sekali lagi di sini.",
-      "routeOn": "Saat aktif — agen yang disetel ke “izinkan semua (bypassPermissions)” pun tetap mendapat kartu persetujuan untuk panggilan hapus, jaringan, dan konfigurasi.",
+      "routeOn": "Saat aktif — agen yang disetel ke “izinkan semua (bypassPermissions)” pun tetap mendapat kartu persetujuan untuk panggilan hapus, jaringan, konfigurasi, dan folder di luar proyek.",
       "routeOff": "Saat nonaktif (bawaan) — semua panggilan berjalan sesuai keputusan mode izin dan hanya dicatat.",
       "routeScope": "Yang ditahan di sini hanya agen khusus yang dijalankan Vibisual. Sesi Claude Code yang Anda jalankan sendiri hanya dicatat.",
       "routeStateOn": "Sekarang aktif — panggilan berisiko ditanyakan lebih dulu, sebelum mode izin berlaku.",
@@ -1426,11 +1517,16 @@
       "risk": {
         "delete": "Hapus",
         "network": "Jaringan",
-        "config": "Config"
+        "config": "Config",
+        "outside": "Folder di luar proyek (baca/ubah)"
       },
       "filterAll": "Semua",
       "filterRisky": "Berisiko",
       "filterDenied": "Ditolak",
+      "retentionLabel": "Simpan",
+      "retentionUnit": "panggilan",
+      "retentionUnlimited": "Tanpa batas",
+      "retentionHint": "Berapa banyak panggilan yang disimpan di disk per proyek. Panggilan yang tergeser tetap dihitung dalam total — hanya rinciannya yang hilang. Hapus centang untuk tanpa batas.",
       "escalated": "Ditanya dulu",
       "decisionAllow": "Diizinkan",
       "decisionDeny": "Ditolak",
@@ -1582,7 +1678,17 @@
       "collapseLabel": "Ciutkan",
       "collapseHint": "Ciutkan — jendela tetap ada dan kanvas kembali (bentangkan lagi dari daftar jendela di header)",
       "resizeWindow": "Ubah ukuran jendela",
-      "resizeStack": "Atur pembagian"
+      "resizeStack": "Atur pembagian",
+      "slotTabHint": "Bawa \"{{name}}\" ke depan (jendela berbagi slot dock ini)",
+      "dockShortcutHint": "{{dock}} untuk dock · {{undock}} untuk undock",
+      "popOutHint": "Lepaskan untuk memisahkan ke jendela tersendiri",
+      "popOutEdgeHint": "Terus dorong ke tepi untuk memisahkannya ke jendela tersendiri",
+      "popOutLabel": "Pisahkan ke jendela tersendiri",
+      "returnToApp": "Kembalikan ke dalam aplikasi",
+      "popOutHintButton": "Pisahkan ke jendela tersendiri (atau seret bilah judul ke luar aplikasi, atau dorong ke tepi layar)",
+      "returnToAppHint": "Klik untuk mengembalikannya ke aplikasi · seret ke jendela aplikasi untuk menggabungkan",
+      "redockDropHint": "Lepaskan di sini untuk menggabungkan kembali ke aplikasi",
+      "redockKeepHint": "Lepaskan di tempat lain untuk membiarkannya terpisah"
     },
     "tabbar": {
       "newSession": "Sesi Baru",
@@ -1622,7 +1728,12 @@
         "clear": "Hapus kartu",
         "collapse": "Ciutkan kartu",
         "expand": "Tampilkan kartu"
-      }
+      },
+      "splitRight": "Bagi kanan",
+      "splitDown": "Bagi bawah",
+      "zoom": "Perbesar panel",
+      "unzoom": "Pulihkan tata letak",
+      "closePane": "Tutup panel"
     },
     "mainArea": {
       "scrollPrompt": "Gulir ke prompt",
@@ -1672,7 +1783,7 @@
       "inputCtxCopy": "Salin",
       "inputCtxPaste": "Tempel",
       "inputCtxSelectAll": "Pilih semua",
-      "ctxSaveToBrain": "Simpan ke Brain",
+      "ctxSaveToBrain": "Simpan ke Memori",
       "stopAll": "Hentikan semua",
       "stopAllTitle": "Hentikan semua yang dijalankan agent ini (tab lain + sub-agent di latar belakang)",
       "stopSessionTitle": "Hentikan sesi ini beserta sub-agent yang dimulainya (tab sesi lain tetap berjalan)"
@@ -1706,7 +1817,8 @@
       "goal": "Sasaran",
       "debug": "Jalankan dan debug",
       "hooks": "Hook sesi",
-      "plugins": "Plugin Claude Code"
+      "plugins": "Plugin Claude Code",
+      "verify": "Verifikasi"
     },
     "mcp": {
       "title": "Server MCP",
@@ -2432,15 +2544,16 @@
         "edges": "Aturan edge keluar",
         "feedback": "Feedback pengguna sebelumnya",
         "intentFirst": "Nyatakan niat lebih dulu",
+        "cardCommon": "Protokol kartu (bersama)",
         "cardReport": "Protokol kartu laporan kerja",
         "cardQuestion": "Protokol kartu pertanyaan",
         "cardReview": "Protokol kartu review",
         "cardList": "Protokol kartu daftar bernomor",
         "cardIframe": "Protokol pratinjau server",
         "goal": "Sasaran sesi",
-        "brainCards": "Briefing Project Brain",
-        "brainTopics": "Indeks topik Brain",
-        "brainRules": "Kerangka aturan Brain",
+        "brainCards": "Briefing Memori Proyek",
+        "brainTopics": "Indeks topik Memori",
+        "brainRules": "Kerangka aturan Memori",
         "hookEnforcement": "Injeksi sesi hook",
         "plugins": "Semua plugin penegakan",
         "claudeMd": "File CLAUDE.md",
@@ -2454,7 +2567,7 @@
         "mcp": "Server MCP",
         "hooks": "Hooks",
         "systemPrompt": "System prompt Claude Code",
-        "brainSkills": "Prosedur Brain"
+        "brainSkills": "Prosedur Memori"
       },
       "hint": {
         "tools": "Pilih daftar tool di Pengaturan Agent",
@@ -2519,6 +2632,11 @@
             "more": "Instruksi tetap Vibisual. Ada agar Anda bisa menghentikan agent lebih awal saat arahnya salah.",
             "off": "Agent bisa mulai mengedit file tanpa mengumumkan rencananya lebih dulu."
           },
+          "cardCommon": {
+            "what": "Satu set rule yang dipakai bersama oleh semua laporan kartu - ke mana harus diposting, kapan harus diposting, dan di mana posisi kartu relatif terhadap teks Anda.",
+            "more": "Disimpan di satu tempat agar paragraf yang sama tidak diulang di setiap blok kartu. Ini hanya disertakan saat setidaknya satu kartu aktif.",
+            "off": "Agent tidak lagi tahu cara memposting kartu, sehingga kartu di bawah mungkin tidak akan pernah muncul."
+          },
           "cardReport": {
             "what": "Resep untuk kartu berwarna \"apa yang saya lakukan / apa yang perlu Anda lakukan\".",
             "more": "Memberi tahu agent untuk melaporkan hasilnya lewat API Vibisual sehingga kedua daftar bisa dipisah berdasarkan warna.",
@@ -2550,7 +2668,7 @@
             "off": "Agent berhenti melihat sasaran dan daftar progresnya. Jendela sasaran itu sendiri tetap ada."
           },
           "brainCards": {
-            "what": "Kartu memori dari Project Brain yang cocok dengan yang baru saja Anda tanyakan.",
+            "what": "Kartu memori dari Memori Proyek yang cocok dengan yang baru saja Anda tanyakan.",
             "more": "Diurutkan berdasarkan pesan Anda, ditambah aturan yang ditandai selalu-aktif. Disimpan di .vibisual/brain dalam proyek ini.",
             "off": "Agent mulai tanpa pelajaran yang sudah dipelajari proyek ini."
           },
@@ -2813,6 +2931,39 @@
       "foreignSession": "Sesi itu milik bubble lain",
       "tooSmall": "Terlalu kecil untuk dibagi",
       "alreadyHere": "Sudah ditampilkan di sini"
+    },
+    "verify": {
+      "title": "Verifikasi",
+      "about": "Menjalankan /verify di tab ini: membangun dan menjalankan aplikasi Anda, lalu melaporkan apa yang benar-benar terlihat.",
+      "pickSession": "Buka tab sesi untuk menjalankan verifikasi.",
+      "focusLabel": "Yang perlu diperiksa (opsional)",
+      "focusPlaceholder": "mis. tombol login benar-benar membuka dialognya",
+      "start": "Jalankan verifikasi",
+      "running": "Berjalan",
+      "readOnly": "Bubble Hook hanya-baca, verifikasi tidak bisa dimulai di sini.",
+      "empty": "Belum ada verifikasi yang dijalankan di tab ini.",
+      "stop": "Tutup",
+      "rework": "Kirim untuk perbaikan",
+      "delete": "Hapus",
+      "recipe": {
+        "playRecipe": "Mengirim resep menjalankan yang sudah diketahui Vibisual",
+        "recordedSkill": "Mengikuti resep yang sudah tercatat di repo ini",
+        "none": "Tidak ada resep terdaftar — /verify akan mencari tahu sendiri"
+      },
+      "verdict": {
+        "pass": "Lulus",
+        "fail": "Gagal",
+        "held": "Ditahan",
+        "unknown": "Tidak diketahui"
+      },
+      "error": {
+        "alreadyRunning": "Sudah ada verifikasi yang berjalan di tab ini.",
+        "sessionBusy": "Tab ini masih punya perintah yang belum selesai.",
+        "sessionNotFound": "Sesi itu tidak ditemukan.",
+        "readOnly": "Bubble Hook hanya-baca.",
+        "network": "Tidak dapat menghubungi server.",
+        "failed": "Tidak dapat memulai verifikasi."
+      }
     }
   },
   "bubbleMap": {
@@ -3097,6 +3248,11 @@
   },
   "canvas": {
     "stubPlaceholder": "Proyek ini hanya ada di disk. Klik tab untuk muat.",
+    "loading": {
+      "project": "Memuat proyek…",
+      "connecting": "Menghubungkan ke server…",
+      "slow": "Koneksi lambat — masih memuat…"
+    },
     "controls": {
       "zoomIn": "Perbesar",
       "zoomOut": "Perkecil",
@@ -3132,8 +3288,8 @@
       "createLocalAgentHint": "Menaruh bubble untuk model yang berjalan di PC ini",
       "createShelf": "Rak script",
       "createShelfHint": "Menyimpan perintah dan prompt yang sering dipakai agar tetap satu klik jauhnya",
-      "brainOn": "Aktifkan Otak Proyek",
-      "brainOff": "Matikan Otak Proyek",
+      "brainOn": "Aktifkan Memori Proyek",
+      "brainOff": "Matikan Memori Proyek",
       "brainOnHint": "Menyimpan prosedur yang dipelajari dan memuatnya di tugas berikutnya",
       "brainOnHintSleeping": "{{count}} memori sedang tertidur di sini",
       "brainOffHint": "Mematikannya tidak menghapus apa pun"
@@ -3389,7 +3545,7 @@
     "close": "Tutup"
   },
   "brain": {
-    "bubbleLabel": "Brain",
+    "bubbleLabel": "Memori",
     "trashBubbleLabel": "Sampah",
     "trashCountShort": "{{n}}",
     "unseenBadge": "{{n}} belum dilihat",
@@ -3406,7 +3562,7 @@
       "rule": "Aturan",
       "fact": "Fakta"
     },
-    "scopeProject": "Brain Proyek",
+    "scopeProject": "Memori Proyek",
     "scopeAgent": "Memori Agent",
     "statusGhost": "Perlu ditinjau",
     "supersededNote": "Konten sebelumnya",
@@ -3428,7 +3584,7 @@
     "lastReferenced": "Terakhir direferensikan",
     "createdAt": "Dibuat",
     "sourceSession": "Sesi sumber",
-    "promote": "Promosikan ke Brain Proyek",
+    "promote": "Promosikan ke Memori Proyek",
     "pin": "Pin",
     "unpin": "Unpin",
     "edit": "Edit",
@@ -3462,7 +3618,7 @@
     "trashItemsMore": "+{{n}} lainnya",
     "cardCountUnitSuffix": "",
     "feed": {
-      "title": "Brain Proyek",
+      "title": "Memori Proyek",
       "agentTitle": "Memori Agent Ini",
       "searchPlaceholder": "Cari memori…",
       "sectionRelated": "Terkait pekerjaan saat ini",
@@ -3575,7 +3731,7 @@
     },
     "activation": {
       "sleeping": "Ada {{count}} memori tertidur di brain proyek ini. Aktifkan?",
-      "hint": "Brain mati secara bawaan. Saat aktif, ia mengumpulkan prosedur yang dipelajari dan menerapkannya di tugas berikutnya. Bisa dimatikan kapan saja, dan mematikannya tidak menghapus apa pun.",
+      "hint": "Memori mati secara bawaan. Saat aktif, ia mengumpulkan prosedur yang dipelajari dan menerapkannya di tugas berikutnya. Bisa dimatikan kapan saja, dan mematikannya tidak menghapus apa pun.",
       "turnOn": "Aktifkan",
       "notNow": "Nanti saja",
       "showAxes": "Lihat apa yang diaktifkan",
@@ -3584,9 +3740,9 @@
       "turnOff": "Matikan brain",
       "offKeepsData": "Mematikannya tidak menghapus apa pun — nyalakan lagi dan lanjut dari titik terakhir.",
       "noProject": "Tidak ada proyek yang terbuka",
-      "noProjectDesc": "Otak diaktifkan per proyek — buka proyek terlebih dahulu.",
-      "stateOn": "Otak proyek ini aktif",
-      "stateOff": "Otak proyek ini nonaktif",
+      "noProjectDesc": "Memori diaktifkan per proyek — buka proyek terlebih dahulu.",
+      "stateOn": "Memori proyek ini aktif",
+      "stateOff": "Memori proyek ini nonaktif",
       "sleepingCount": "{{count}} memori sedang tertidur"
     }
   },

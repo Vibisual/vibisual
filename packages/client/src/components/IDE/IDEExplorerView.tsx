@@ -29,7 +29,8 @@ export const IDEExplorerView = memo(function IDEExplorerView({ agentId }: { agen
   const { openEditorFile: openInEditor } = useIDEPaneActions();
   const { cache, expanded, loading, truncated, failed, rootError, toggleDir, collapseAll, refresh } = useWorkspaceExplorer(rootPath);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  /** §5.5 #17-19 ③(c) — 복사 표시는 **행 단위**다(바닥 줄 버튼 하나였을 때의 boolean 이 아니다). */
+  const [copiedPath, setCopiedPath] = useState<string | null>(null);
 
   const rows = useMemo(() => flattenExplorerRows(cache, expanded), [cache, expanded]);
   const rootName = useMemo(() => {
@@ -72,14 +73,19 @@ export const IDEExplorerView = memo(function IDEExplorerView({ agentId }: { agen
     openInEditor(editorFileFromAbsPath(absPath, rootPath));
   }, [rootPath, openInEditor]);
 
-  const handleCopyPath = useCallback(() => {
-    const value = selectedPath ?? rootPath;
-    if (!value) return;
-    void navigator.clipboard?.writeText(value).then(() => {
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1200);
+  /**
+   * §5.5 #17-19 ③(c) — 경로 복사는 **그 행의 손잡이**다(바닥 줄 ❌ — 고른 행 옆에서 바로 집는다).
+   *
+   * 되돌림 타이머는 "그 사이 다른 행을 복사했으면 건드리지 않는다" — 그러지 않으면 앞 행의
+   * 타이머가 방금 복사한 뒷 행의 체크 표시를 지운다.
+   */
+  const handleCopyPath = useCallback((relPath: string) => {
+    if (!relPath) return;
+    void navigator.clipboard?.writeText(relPath).then(() => {
+      setCopiedPath(relPath);
+      window.setTimeout(() => setCopiedPath((prev) => (prev === relPath ? null : prev)), 1200);
     }).catch(() => { /* 클립보드 거부는 조용히 무시 */ });
-  }, [selectedPath, rootPath]);
+  }, []);
 
   const rootLoading = loading.has('');
 
@@ -150,15 +156,20 @@ export const IDEExplorerView = memo(function IDEExplorerView({ agentId }: { agen
               truncated={truncated}
               failed={failed}
               selectedPath={selectedPath}
+              copiedPath={copiedPath}
               onToggleDir={toggleDir}
               onSelectFile={handleSelectFile}
               onOpenFile={handleOpenFile}
+              onCopyPath={handleCopyPath}
             />
           </>
         )}
       </ScrollFade>
 
-      {/* 바닥 경로 줄 — 고른 파일의 루트 기준 경로(없으면 루트 경로). 클릭 한 번으로 복사. */}
+      {/*
+        바닥 경로 줄 — 고른 파일의 루트 기준 경로(없으면 루트 경로)를 **보여 주기만** 한다.
+        복사 버튼은 여기 있지 않다 — 고른 행 옆으로 옮겼다(§5.5 #17-19 ③(c), 트리 행 손잡이).
+      */}
       <div className="flex items-center gap-1 border-t border-gray-800 bg-gray-900/60 px-1.5 py-1">
         <span
           className={`min-w-0 flex-1 truncate text-[12px] ${selectedPath ? 'text-gray-300' : 'text-gray-600'}`}
@@ -166,24 +177,6 @@ export const IDEExplorerView = memo(function IDEExplorerView({ agentId }: { agen
         >
           {selectedPath ?? rootPath ?? ''}
         </span>
-        <button
-          type="button"
-          onClick={handleCopyPath}
-          title={copied ? t('ide.explorer.copied') : t('ide.explorer.copyPath')}
-          aria-label={t('ide.explorer.copyPath')}
-          className={`rounded p-0.5 transition-colors hover:bg-gray-800 ${copied ? 'text-emerald-400' : 'text-gray-500 hover:text-gray-200'}`}
-        >
-          {copied ? (
-            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="20 6 9 17 4 12" />
-            </svg>
-          ) : (
-            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
-              <rect x="9" y="9" width="13" height="13" rx="2" />
-              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-            </svg>
-          )}
-        </button>
       </div>
     </div>
   );

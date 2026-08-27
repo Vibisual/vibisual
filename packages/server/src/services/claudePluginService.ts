@@ -29,6 +29,7 @@ import { resolvePluginPlacement, splitPluginId } from '@vibisual/shared';
 import { logger } from '../logger.js';
 
 import { getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
+import { buildCliInvocation } from './claudeCliRun.js';
 
 /** 조회 타임아웃 — 실측 461ms 라 넉넉하다(마켓 캐시가 비어 네트워크를 타면 더 걸릴 수 있다). */
 const LIST_TIMEOUT_MS = 20_000;
@@ -74,10 +75,13 @@ function execClaude(args: string[], cwd: string, timeoutMs: number): Promise<Exe
 
     let child: ReturnType<typeof spawn>;
     try {
-      child = spawn(binPath, args, {
+      // 셸 경유 여부는 공용 창구(`claudeCliRun.buildCliInvocation`) 한 곳이 정한다.
+      //   무조건 `shell: win32` 로 두면 네이티브 `claude.exe` 까지 셸을 타는데, 그때 설치 경로에
+      //   공백이 있으면(Program Files 아래 설치 등) 명령이 두 동강 난다. shim(.cmd/.bat)일 때만 셸 + 따옴표.
+      const invocation = buildCliInvocation(binPath, args, process.platform);
+      child = spawn(invocation.file, invocation.args, {
         cwd,
-        // §4 — 다른 CLI 스폰 지점과 같은 규약(Windows 는 shim 을 타야 하므로 shell).
-        shell: process.platform === 'win32',
+        shell: invocation.shell,
         windowsHide: true,
         stdio: ['ignore', 'pipe', 'pipe'],
       });

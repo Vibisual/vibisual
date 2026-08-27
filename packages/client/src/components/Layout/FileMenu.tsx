@@ -5,6 +5,7 @@ import { OptionsWindow } from '../Options/OptionsWindow.js';
 import { PluginsWindow } from '../Plugins/PluginsWindow.js';
 import { GuideWindow } from '../Guide/GuideWindow.js';
 import { MobileAccessWindow } from './MobileAccessWindow.js';
+import { RemoteControlWindow } from './RemoteControlWindow.js';
 import { isPackagedDesktop } from '../../transport/index.js';
 import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 
@@ -18,6 +19,7 @@ export function FileMenu(): React.JSX.Element {
   const [pluginsOpen, setPluginsOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [remoteOpen, setRemoteOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   // 외부 press → 닫기(공통 규약 — 메뉴 안에서 시작한 드래그로는 안 닫힌다).
@@ -117,6 +119,21 @@ export function FileMenu(): React.JSX.Element {
               {t('panel.fileMenu.mobileAccess', { defaultValue: 'Mobile Access…' })}
             </button>
           )}
+          {/* §4 — Remote Control(메신저 브리지). 모바일 웹과 나란히 두되 방향이 반대다:
+              저쪽은 우리가 포트를 열고, 이쪽은 우리가 나가서 붙는다. packaged Electron 한정. */}
+          {isPackagedDesktop() && (
+            <button
+              type="button"
+              onClick={() => { setOpen(false); setRemoteOpen(true); }}
+              className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-[13px] text-gray-300 transition-colors hover:bg-white/[0.08] hover:text-white"
+            >
+              <svg className="h-4 w-4 shrink-0 text-gray-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M8 12h.01" /><path d="M12 12h.01" /><path d="M16 12h.01" />
+                <path d="M21 12c0 4.418-4.03 8-9 8a9.9 9.9 0 0 1-4.2-.9L3 21l1.9-4.8A7.6 7.6 0 0 1 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+              </svg>
+              {t('panel.fileMenu.remoteControl', { defaultValue: 'Remote Control…' })}
+            </button>
+          )}
           {/* Guide — 기능 안내 / 만든 기능 인벤토리 */}
           <div className="my-1 border-t border-white/[0.05]" />
           <button
@@ -135,6 +152,7 @@ export function FileMenu(): React.JSX.Element {
       <PluginsWindow open={pluginsOpen} onClose={() => setPluginsOpen(false)} />
       <GuideWindow open={guideOpen} onClose={() => setGuideOpen(false)} />
       <MobileAccessWindow open={mobileOpen} onClose={() => setMobileOpen(false)} />
+      <RemoteControlWindow open={remoteOpen} onClose={() => setRemoteOpen(false)} />
     </div>
   );
 }

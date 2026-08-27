@@ -21,7 +21,9 @@ import { LOCAL_MODEL_CATALOG_SORTS } from '@vibisual/shared';
 // §4 (CMD 터미널 업그레이드) — pane 트리 정합 + 임베디드 PTY 제어(⑤⑥).
 import { sanitizeCmdPaneTree, CMD_CLI_KINDS } from '@vibisual/shared';
 import type { CmdTerminalSignal, CmdCliKind } from '@vibisual/shared';
-import { readCmdTerminal, sendCmdTerminal, waitCmdTerminal } from './services/cmdTerminalController.js';
+import { readCmdTerminal, sendCmdTerminal, waitCmdTerminal, getCmdTerminalController } from './services/cmdTerminalController.js';
+// §7.10 — 워크트리 삭제 직전 회수(그 안에서 돌던 프로세스·에이전트).
+import { reapWorktree, selectWorktreeAgents, EMPTY_REAP, type WorktreeReapResult } from './services/worktreeReaper.js';
 
 /**
  * §4 (CMD ⑥ QA) — loopback 으로 들어온 termId 가 **우리가 발급하는 모양**인지 검사한다.
@@ -51,6 +53,16 @@ import type { SessionLoop, SessionLoopMode, SessionLoopContextMode, SessionGoalS
 import { SESSION_LOOP_MAX_ITERATIONS, SESSION_LOOP_DEFAULT_TOTAL, SESSION_LOOP_DEFAULT_INTERVAL_MS, SESSION_LOOP_MAX_INTERVAL_MS, SESSION_LOOP_COMMAND_MAX, SESSION_LOOP_COMPACT_COMMAND, SESSION_LOOP_CLEAR_COMMAND, SESSION_LOOP_PATH_MAX, SESSION_LOOP_MAX_COST_USD_LIMIT, SESSION_LOOP_MAX_DURATION_LIMIT_MS } from '@vibisual/shared';
 // §5.5 #17-11 ⑫(a)(g) — 루프 회차 프롬프트 합성(순수 모듈) + 누적 비용 추정(모델 레지스트리 가격).
 import { composeLoopRoundText } from './services/sessionLoopPrompt.js';
+// §5.5 #17-35 — 검증(Verify): 프롬프트 조립·판정 해석은 화면 없이 시험되는 순수 모듈에 있다.
+import {
+  buildVerifyPrompt,
+  buildVerifyReworkPrompt,
+  parseVerificationVerdict,
+  recordedSkillRecipe,
+  summarizePlayRecipe,
+  NO_RECIPE,
+} from './services/verificationPrompt.js';
+import type { VerifyRecipeInfo } from './services/verificationPrompt.js';
 import { calculateTokenCost, resolveAliasToLatest } from '@vibisual/shared';
 // §5.5 #17-18 v4.68 — 덧말 처리 방식(대기/합치기/즉시).
 import type { CommandDispatchMode } from '@vibisual/shared';
@@ -59,11 +71,17 @@ import {
   normalizeCommandDispatchMode,
   isReadOnlyHookAgent,
   READ_ONLY_HOOK_AGENT_ERROR,
+  VERIFICATION_FOCUS_MAX,
+  VERIFICATION_REASON_MAX,
+  VERIFY_RECORDED_SKILL_PATH,
 } from '@vibisual/shared';
+import type { VerificationRun } from '@vibisual/shared';
 import { absorbMergeFollowUps } from './services/followUpMerge.js';
 import { permissionBroker } from './services/permissionBroker.js';
 // §5.22 — 권한·감사 경계. 위험 판정은 shared 순수 함수 한 곳(서버·클라 같은 답).
-import { classifyToolRisk, shouldEscalateRisk, normalizeAuditBoundary } from '@vibisual/shared';
+import { shouldEscalateRisk, normalizeAuditBoundary } from '@vibisual/shared';
+// §5.22 — 위험 판정은 호스트 값(플랫폼·홈)을 물린 이 창구 하나로. 승인 카드와 타임라인이 같은 답을 본다.
+import { classifyToolRiskOnHost } from './services/auditLog.js';
 import type { AuditDecisionSource, AuditBoundaryConfig } from '@vibisual/shared';
 import { askUserQuestionBroker } from './services/askUserQuestionBroker.js';
 import { AutoAgentRuntime } from './services/autoAgentRuntime.js';
@@ -89,6 +107,7 @@ import {
   CONTEXT_UNREADABLE_SOURCE_IDS,
   type MeasuredPart,
 } from './services/contextInventory.js';
+import { ensureCardRulesDoc } from './services/cardRulesDoc.js';
 // §5.11 v4.67 훅 세션 집행 판정 — 라우트 클로저 밖으로 빼 두어야 그 행동을 테스트가 잡는다.
 import { buildHookEnforcementBlock as buildHookBlock } from './services/hookEnforcement.js';
 import {
@@ -106,18 +125,23 @@ import { distillFeedbackToRules } from './services/feedbackDistillService.js';
 import { getBrainService, sweepAllBrainStaleCards } from './services/brainService.js';
 import { analyzeBrainMigration, applyBrainMigration } from './services/brainMigration.js';
 import { scheduleBrainReflection, isBrainReflectionCwd } from './services/brainReflectionService.js';
-import { isPortAlive, killByPort, respawn } from './services/processChecker.js';
+import { isPortAlive, killByPort, respawn, setVibisualOwnPorts } from './services/processChecker.js';
 // §5.14 v4.62 — 플레이 버블(이 프로젝트를 켜는 버튼).
 import type { PlayBubble, PlayRecipe, SpecDoc } from '@vibisual/shared';
 import type { ReviewFileChange, ReviewFileChangeType } from '@vibisual/shared';
 import { SPEC_BUBBLE_DEFAULT_HEIGHT, SPEC_BUBBLE_DEFAULT_WIDTH, SPEC_ITEM_TEXT_MAX, SPEC_RULES_BEGIN, SPEC_RULES_END, SPEC_TASK_GAP_Y, SPEC_TASK_LABEL_MAX, SPEC_TASK_OFFSET_X, buildSpecTaskRules } from '@vibisual/shared';
-import { LAB_BUBBLE_DEFAULT_HEIGHT, LAB_BUBBLE_DEFAULT_WIDTH, LAB_CARD_GAP_Y, LAB_CARD_OFFSET_X, LAB_RULES_BEGIN, LAB_RULES_END, LAB_VARIANT_LABEL_MAX, LAB_WORKTREE_PREFIX, buildLabVariantRules, estimateLabCostUsd, getModelPricing, DEFAULT_AGENT_CONFIG, SHELF_BUBBLE_DEFAULT_WIDTH, SHELF_BUBBLE_DEFAULT_HEIGHT, SHELF_CARD_OFFSET_X, SHELF_LABEL_MAX, SHELF_RUN_OUTPUT_MAX_CHARS, SHELF_RUN_TIMEOUT_MS, normalizeShelfIcon, normalizeShelfColor, normalizeShelfImport } from '@vibisual/shared';
+import { LAB_BUBBLE_DEFAULT_HEIGHT, LAB_BUBBLE_DEFAULT_WIDTH, LAB_CARD_GAP_Y, LAB_CARD_OFFSET_X, LAB_RULES_BEGIN, LAB_RULES_END, LAB_VARIANT_LABEL_MAX, LAB_WORKTREE_PREFIX, WORKTREE_REAP_SETTLE_MS, buildLabVariantRules, estimateLabCostUsd, getModelPricing, DEFAULT_AGENT_CONFIG, SHELF_BUBBLE_DEFAULT_WIDTH, SHELF_BUBBLE_DEFAULT_HEIGHT, SHELF_CARD_OFFSET_X, SHELF_LABEL_MAX, SHELF_RUN_OUTPUT_MAX_CHARS, SHELF_RUN_TIMEOUT_MS, normalizeShelfIcon, normalizeShelfColor, normalizeShelfImport } from '@vibisual/shared';
 import type { LabResultStatus, LabVariant, LabVariantConfig } from '@vibisual/shared';
 import { PLAY_ALIVE_SWEEP_MS, PLAY_BUBBLE_DEFAULT_HEIGHT, PLAY_BUBBLE_DEFAULT_WIDTH, PLAY_PREVIEW_DEFAULT_HEIGHT, PLAY_PREVIEW_DEFAULT_WIDTH, PLAY_PREVIEW_GAP, buildPlayRecipeAskPrompt } from '@vibisual/shared';
 import { detectPlayRecipes } from './services/playRecipeDetector.js';
 import { isPlayAlive, startPlay, stopAllPlays, stopPlay } from './services/playRunner.js';
 import { discoverProjectMetas, hasProjectSaveData, migrateLegacy, migrateLegacySaveRootToProjectDirs, pruneOrphanWorktreeDirs, SaveScheduler, writeCheckpoint } from './services/statePersistence.js';
-import { invalidateWorktreeLiveness } from './services/worktreeLiveness.js';
+import {
+  invalidateWorktreeLiveness,
+  beginWorktreeCreation,
+  endWorktreeCreation,
+  isWorktreeUnderConstruction,
+} from './services/worktreeLiveness.js';
 import { listWorkspaceDir, resolveWorkspacePath, statWorkspacePath } from './services/workspaceExplorer.js';
 import { readWorkspaceFile, readWorkspaceImage, writeWorkspaceFile, writeWorkspaceImage } from './services/workspaceFile.js';
 // §5.5 #17-20 v4.74 — 디버그·실행 런처(실행 구성 스캔 + 외부 디버거 위임).
@@ -249,6 +273,10 @@ export type { CmdTerminalController } from './services/cmdTerminalController.js'
 let hookListenerPort: number | null = null;
 export function setHookListenerPort(port: number): void {
   hookListenerPort = port;
+  // §7.11 — 감지 폴백이 **우리 자신**을 "에이전트가 띄운 서버"로 오인하지 않게 알려 둔다.
+  //   에이전트는 카드 엔드포인트를 `curl http://127.0.0.1:<이 포트>` 로 수시로 치므로, 걸러 두지
+  //   않으면 세션마다 Vibisual 자신의 프리뷰 버블이 생긴다.
+  setVibisualOwnPorts([port, DEFAULT_PORT]);
 }
 
 // §5.3 #10-2 v2.47 — loopback 리스너 per-launch 토큰. desktop main 의 hookToken 을 주입받아
@@ -1896,7 +1924,13 @@ export async function runServer(): Promise<RunServerHandle> {
     const custom = Boolean(agent.customCreated);
     parts.push({ id: CONTEXT_SOURCE_IDS.intentFirst, text: custom ? AGENT_INTENT_FIRST_RULES : '' });
     // §5.5 #17-28 ⑧(a) — 카드 5종이 공유하는 규칙 한 벌. 카드 블록들보다 **앞**에 선다(가리키는 쪽이 뒤).
-    parts.push({ id: CONTEXT_SOURCE_IDS.cardCommon, text: custom ? buildAgentCardCommonRules(ruleArgs) : '' });
+    // §5.5 #17-28 ⑧(f) — 결론의 근거는 디스크 문서 한 장으로 내렸다. 경로가 없으면(쓰기 실패)
+    //   "애매하면 읽어라" 줄 자체가 빠진다 — 없는 파일을 가리키면 그 턴을 헛되이 태운다.
+    const cardDocPath = custom ? ensureCardRulesDoc() : undefined;
+    parts.push({
+      id: CONTEXT_SOURCE_IDS.cardCommon,
+      text: custom ? buildAgentCardCommonRules({ ...ruleArgs, ...(cardDocPath ? { docPath: cardDocPath } : {}) }) : '',
+    });
     parts.push({ id: CONTEXT_SOURCE_IDS.cardReport, text: custom ? buildAgentReportRules(ruleArgs) : '' });
     parts.push({ id: CONTEXT_SOURCE_IDS.cardQuestion, text: custom ? buildAgentQuestionRules(ruleArgs) : '' });
     parts.push({ id: CONTEXT_SOURCE_IDS.cardReview, text: custom ? buildAgentReviewRules(ruleArgs) : '' });
@@ -2452,6 +2486,160 @@ export async function runServer(): Promise<RunServerHandle> {
    * `pendingCommandId` 가 일치하는 회차만 인정 — 사용자가 중간에 직접 보낸 명령이 회차로
    * 오인 계수되지 않는다.
    */
+  // ─── §5.5 #17-35 — 검증(Verify) ───
+  //
+  // `/verify` 는 Claude Code 번들 스킬이라 **실행 로직이 우리에게 없다.** 우리가 하는 일은 셋뿐이다:
+  // ① 실행법(레시피)을 먼저 쥐여 주고, ② 결과를 구조화 판정으로 받아, ③ 이력으로 남긴다.
+  // 실행 자체는 **기존 명령 큐** 그대로다(새 스폰 레일 ❌ — #17-11 ② 와 같은 골격).
+
+  /**
+   * 이 에이전트에 실어 보낼 실행법을 고른다: 우리 레시피 → 기록된 스킬 → 없음.
+   *
+   * 순서에 뜻이 있다 — 우리가 **구조화해 들고 있는** `PlayRecipe` 가 가장 정확하고(포트·URL까지 안다),
+   * 그다음이 `/verify` 자신이 적어 둔 파일이며, 둘 다 없을 때만 스킬에게 맡긴다.
+   */
+  function resolveVerifyRecipe(agentId: string, projectName: string): VerifyRecipeInfo {
+    try {
+      const bubbles = (graphManager.getSnapshot().playBubbles ?? []).filter((b) => b.projectName === projectName);
+      // 지금 실제로 떠 있는 것(주소를 아는 것)을 먼저 본다 — 가장 확실한 사실이다.
+      const ranked = [...bubbles].sort((a, b) => {
+        const score = (x: typeof a): number => (x.status === 'running' && x.url ? 2 : x.recipe ? 1 : 0);
+        return score(b) - score(a);
+      });
+      for (const b of ranked) {
+        const r = b.recipe;
+        if (!r && !b.url) continue;
+        const info = summarizePlayRecipe({
+          kind: r?.kind === 'static' ? 'static' : 'command',
+          ...(r?.command ? { command: r.command } : {}),
+          ...(r?.cwd ? { cwd: r.cwd } : {}),
+          ...(r?.root ? { root: r.root } : {}),
+          ...(b.port ?? r?.port ? { port: (b.port ?? r?.port) as number } : {}),
+          ...(b.url ? { url: b.url } : {}),
+          ...(r?.openPath ? { openPath: r.openPath } : {}),
+          ...(r?.label ? { label: r.label } : {}),
+        });
+        if (info.source === 'play-recipe') return info;
+      }
+    } catch (err) {
+      logger.warn(`[verify] play recipe lookup failed agent=${agentId}`, err);
+    }
+
+    // `/verify` 가 스스로 적어 둔 레시피가 이미 있으면 **존재만 알린다** — 읽지도 고치지도 않는다.
+    const root = graphManager.getProjectPathForAgent(agentId);
+    if (root) {
+      try {
+        if (fs.existsSync(path.join(root, ...VERIFY_RECORDED_SKILL_PATH.split('/')))) return recordedSkillRecipe();
+      } catch { /* 접근 불가면 없는 것으로 본다 — 검증을 막을 이유가 아니다 */ }
+    }
+    return NO_RECIPE;
+  }
+
+  /**
+   * 검증 한 건을 그 탭 큐에 넣는다. 실패 사유는 호출자(REST)가 사용자에게 그대로 돌려준다.
+   *
+   * 겹쳐 쏘지 않는다 — 그 탭에 안 끝난 명령(사용자가 직접 보낸 것 포함)이 있으면 거절한다.
+   * 검증은 앱을 띄우는 일이라 같은 탭에서 둘이 동시에 돌면 서로의 포트를 밟는다.
+   */
+  function startVerificationRun(
+    agentId: string,
+    subAgentId: string,
+    focus?: string,
+  ): { ok: true; run: VerificationRun } | { ok: false; error: string } {
+    if (!subAgentManager.getSub(subAgentId)) return { ok: false, error: 'session-not-found' };
+    if (graphManager.getActiveVerificationRun(subAgentId)) return { ok: false, error: 'already-running' };
+
+    const sessionId = graphManager.findSessionByAgentId(agentId);
+    if (!sessionId) return { ok: false, error: 'session-not-found' };
+
+    let queue = commandQueues.get(sessionId);
+    if (!queue) { queue = []; commandQueues.set(sessionId, queue); }
+    if (queue.some((c) => c.subAgentId === subAgentId && (c.status === 'queued' || c.status === 'executing'))) {
+      return { ok: false, error: 'session-busy' };
+    }
+
+    const projectName = graphManager.getAgentProjectName(agentId) ?? '';
+    const recipe = resolveVerifyRecipe(agentId, projectName);
+    const trimmedFocus = focus?.trim().slice(0, VERIFICATION_FOCUS_MAX);
+    const text = buildVerifyPrompt({ recipe, ...(trimmedFocus ? { focus: trimmedFocus } : {}) });
+
+    const cmd: QueuedCommand = {
+      id: `cmd-${Date.now()}-verify`,
+      text,
+      timestamp: Date.now(),
+      subAgentId,
+      status: 'queued',
+    };
+    queue.push(cmd);
+    graphManager.recordSkillUsageFromCommandText(sessionId, cmd.text);
+
+    const run: VerificationRun = {
+      id: `ver-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      agentId,
+      subAgentId,
+      projectName,
+      ...(trimmedFocus ? { focus: trimmedFocus } : {}),
+      recipeSource: recipe.source,
+      ...(recipe.label ? { recipeLabel: recipe.label } : {}),
+      // 위에서 "안 끝난 명령 없음"을 이미 확인했으므로 이 건은 곧바로 나간다(`queued` 는 옛 저장분 복원용).
+      status: 'running',
+      verdict: 'unknown',
+      attempts: [],
+      pendingCommandId: cmd.id,
+      startedAt: cmd.timestamp,
+    };
+    graphManager.addVerificationRun(run);
+    logger.info(`[verify] start agent=${agentId} sub=${subAgentId} recipe=${recipe.source}`);
+    processNextCommand(sessionId);
+    return { ok: true, run };
+  }
+
+  /**
+   * 완료된 명령 1건을 검증에 반영. `setOnComplete` 가 아카이브로 옮기기 전에 호출한다.
+   *
+   * `pendingCommandId` 대조로 **그 검증이 낸 명령만** 인정한다 — 사용자가 중간에 직접 보낸 명령이
+   * 검증 결과로 오인되지 않는다(루프의 같은 규약).
+   */
+  function advanceVerificationRun(cmd: QueuedCommand): void {
+    if (!cmd.subAgentId) return;
+    const run = graphManager.getVerificationRuns(cmd.subAgentId).find((r) => r.pendingCommandId === cmd.id);
+    if (!run) return;
+
+    const finishedAt = Date.now();
+    const base = {
+      pendingCommandId: undefined,
+      finishedAt,
+      durationMs: Math.max(0, finishedAt - run.startedAt),
+    };
+
+    // 사람이 [중지]로 끊은 턴은 통과도 실패도 아니다 — 판정을 지어내지 않는다.
+    if (typeof cmd.result === 'string' && cmd.result.startsWith('[Stopped by user]')) {
+      graphManager.updateVerificationRun(run.id, { ...base, status: 'stopped', verdict: 'unknown' });
+      return;
+    }
+    if (cmd.status === 'error') {
+      graphManager.updateVerificationRun(run.id, {
+        ...base,
+        status: 'error',
+        verdict: 'unknown',
+        ...(typeof cmd.result === 'string' ? { reason: cmd.result.slice(0, VERIFICATION_REASON_MAX) } : {}),
+      });
+      return;
+    }
+
+    const parsed = parseVerificationVerdict(typeof cmd.result === 'string' ? cmd.result : '');
+    graphManager.updateVerificationRun(run.id, {
+      ...base,
+      status: 'done',
+      verdict: parsed.verdict,
+      ...(parsed.reason ? { reason: parsed.reason } : {}),
+      attempts: parsed.attempts,
+    });
+    logger.info(
+      `[verify] ${parsed.verdict} agent=${run.agentId} sub=${cmd.subAgentId} attempts=${parsed.attempts.length}`,
+    );
+  }
+
   function advanceSessionLoop(cmd: QueuedCommand): void {
     if (!cmd.subAgentId) return;
     const subAgentId = cmd.subAgentId;
@@ -4800,19 +4988,26 @@ export async function runServer(): Promise<RunServerHandle> {
     const wtRoot = path.join(parentCwd, '.claude', 'worktrees');
     try { fs.mkdirSync(wtRoot, { recursive: true }); } catch { /* ignore */ }
 
-    // 3) 중복 회피 — 같은 이름 존재 시 `-2`, `-3`... 접미어
+    // 3) 중복 회피 — 같은 이름 존재 시 `-2`, `-3`... 접미어.
+    //    디스크에 아직 없어도 **지금 만들어지는 중**인 이름은 피한다 — 랩(§5.18)이 변형 N개를
+    //    연달아 만들 때 앞 건의 폴더가 생기기 전에 뒤 건이 같은 이름을 집는 것을 막는다.
     let targetDir = path.join(wtRoot, wtName);
     let attempt = 1;
-    while (fs.existsSync(targetDir)) {
+    while (fs.existsSync(targetDir) || isWorktreeUnderConstruction(targetDir)) {
       attempt += 1;
       targetDir = path.join(wtRoot, `${wtName}-${attempt}`);
     }
     const finalName = path.basename(targetDir);
     const branch = `wt/${finalName}`;
 
-    // 4) `git worktree add -b <branch> <target> <base>` — base 후보: 사용자 지정 → master → main
+    // 4) `git worktree add -b <branch> <target> <base>` — base 후보: 사용자 지정 → master → main.
+    //    도는 동안은 이 폴더를 아무도 발견하지 못하게 막는다(생성 유예). git 은 `.git` 을 먼저
+    //    붙이고 파일을 나중에 푸는데, 그 사이 10초 세션 스윕이 폴더를 주우면 **좌표가 정해지기
+    //    전에** 버블이 태어나 사용자가 고른 자리가 아닌 곳에 앉는다. 해제는 반드시 `finally`.
     const baseCandidates = input.base ? [input.base, 'master', 'main'] : ['master', 'main'];
-    const result = await runGitWorktreeAdd(parentCwd, targetDir, branch, baseCandidates);
+    beginWorktreeCreation(targetDir);
+    const result = await runGitWorktreeAdd(parentCwd, targetDir, branch, baseCandidates)
+      .finally(() => endWorktreeCreation(targetDir));
     if (!result.ok) {
       logger.warn(`create-worktree git failed: ${result.error}`);
       return { ok: false, status: 500, error: `git worktree add failed: ${result.error}` };
@@ -4936,6 +5131,68 @@ export async function runServer(): Promise<RunServerHandle> {
     return best?.id;
   }
 
+  /**
+   * §7.10 — 워크트리를 지우기 **직전에** 그 안에서 돌던 것을 강제로 끝낸다.
+   *
+   * 사용자는 삭제 팝업에서 이미 확인했다 — 여기서 다시 묻지 않는다. 고르는 규칙은
+   * `worktreeReaper` 가 쥐고(시험 가능), 여기서는 그래프·PTY 다리를 물려 주기만 한다.
+   * 반드시 `removeBubble` **전에** 불러야 한다 — 워크트리 프로젝트 등록이 사라지면
+   * 소유 판정에 쓸 `agentProjects` 가 부모로 접혀 아무도 못 고른다.
+   */
+  /** 그 워크트리 경로의 **프로젝트 표시명**. 예고(status)와 실행(delete)이 같은 답을 써야 한다. */
+  function resolveWorktreeProjectName(wtAbs: string): string {
+    const snap = graphManager.getSnapshot();
+    return Object.values(snap.worktreeProjects ?? {}).find(
+      (name) => samePath(graphManager.getProjectByName(name)?.path ?? '', wtAbs),
+    ) ?? path.basename(wtAbs);
+  }
+
+  /**
+   * §7.10 — 지금 지우면 **무엇이 강제 종료되는가**(죽이지 않고 세기만 한다).
+   * 팝업이 확인을 받기 전에 이 숫자를 보여 준다 — 모르고 눌러 dev 서버가 꺼지면 그건 사고다.
+   */
+  function countWorktreeReapTargets(wtAbs: string): { agents: number; terminals: number } {
+    try {
+      const snap = graphManager.getSnapshot();
+      const agents = selectWorktreeAgents(
+        snap.agents.map((a) => ({
+          id: a.id,
+          project: snap.agentProjects[a.id],
+          customCreated: a.customCreated,
+          trashed: a.trashed,
+        })),
+        resolveWorktreeProjectName(wtAbs),
+      ).length;
+      const terminals = getCmdTerminalController()?.listUnder(wtAbs).length ?? 0;
+      return { agents, terminals };
+    } catch {
+      return { agents: 0, terminals: 0 };
+    }
+  }
+
+  function reapWorktreeBeforeDelete(wtAbs: string): WorktreeReapResult {
+    try {
+      const snap = graphManager.getSnapshot();
+      return reapWorktree({
+        worktreePath: wtAbs,
+        worktreeProjectName: resolveWorktreeProjectName(wtAbs),
+        agents: snap.agents.map((a) => ({
+          id: a.id,
+          project: snap.agentProjects[a.id],
+          customCreated: a.customCreated,
+          trashed: a.trashed,
+        })),
+        stopAllSessions: (agentId) => subAgentManager.stopAll(agentId),
+        trashAgent: (agentId) => graphManager.tryTrashCustomAgentByBubbleId(agentId),
+        killTerminalsUnder: getCmdTerminalController()?.killUnder ?? null,
+      });
+    } catch (err) {
+      // 회수가 실패해도 삭제는 진행한다 — 남은 잠금은 아래 부분 삭제 보고로 사용자에게 간다.
+      logger.warn(`reapWorktreeBeforeDelete failed: ${err instanceof Error ? err.message : String(err)}`);
+      return EMPTY_REAP;
+    }
+  }
+
   /** 삭제 후에도 남아 있는 파일 경로(디렉토리 기준 상대경로)를 최대 `max`개 수집.
    *  v3.71 — 잠금 파일로 인한 부분 삭제를 사용자에게 그대로 보여주기 위한 진단용. */
   function listRemainingFiles(dir: string, max: number): string[] {
@@ -4982,7 +5239,8 @@ export async function runServer(): Promise<RunServerHandle> {
           const anc = await runGit(info.parentAbs, ['merge-base', '--is-ancestor', branch, baseBranch]);
           isMerged = anc.code === 0;
         }
-        res.json({ branch, baseBranch, isMerged, wtPath: info.wtAbs, parentPath: info.parentAbs });
+        // §7.10 — 삭제 시 강제 종료될 것들. 팝업이 확인 버튼 위에 그대로 적는다.
+        res.json({ branch, baseBranch, isMerged, wtPath: info.wtAbs, parentPath: info.parentAbs, running: countWorktreeReapTargets(info.wtAbs) });
       } catch (err) {
         logger.error('GET /api/worktree/:id/status failed', err);
         res.status(500).json({ error: err instanceof Error ? err.message : 'Internal server error' });
@@ -5014,7 +5272,18 @@ export async function runServer(): Promise<RunServerHandle> {
           }
         }
 
-        // 2) worktree 제거 (force — dirty tree 도 강제 삭제, "그냥 삭제" 경로 커버)
+        // 2) §7.10 — **여기서 강제 종료한다.** 사용자는 팝업에서 이미 확인했고, 이 폴더 안에서
+        //    도는 dev 서버·빌드·CLI 가 파일을 잡고 있으면 아래 삭제가 반만 성공해 좀비 폴더가 남는다.
+        //    합치기가 실패하면 위에서 이미 돌아갔으므로(삭제 안 함) **아무것도 죽이지 않는다** —
+        //    "합치다 실패했는데 내 dev 서버만 죽었다" 가 되지 않도록 순서를 이렇게 둔다.
+        const reaped = reapWorktreeBeforeDelete(info.wtAbs);
+        // 트리째 죽인 직후에는 OS 가 아직 핸들을 놓지 않았을 수 있다(Windows). 한 박자 기다린 뒤
+        //   지운다 — 이 대기 없이 바로 rmSync 하면 방금 죽인 프로세스 탓에 또 반만 지워진다.
+        if (reaped.terminals > 0 || reaped.sessions > 0) {
+          await new Promise((resolve) => setTimeout(resolve, WORKTREE_REAP_SETTLE_MS));
+        }
+
+        // 3) worktree 제거 (force — dirty tree 도 강제 삭제, "그냥 삭제" 경로 커버)
         const rm = await runGit(info.parentAbs, ['worktree', 'remove', '--force', info.wtAbs]);
         if (rm.code !== 0) {
           // 폴더가 이미 사라졌으면 prune 으로 정리 후 계속 진행
@@ -5022,13 +5291,13 @@ export async function runServer(): Promise<RunServerHandle> {
           logger.warn(`worktree remove failed, pruned: rmStderr=${rm.stderr} pruneStderr=${prune.stderr}`);
         }
 
-        // 3) 브랜치 강제 삭제 (best-effort)
+        // 4) 브랜치 강제 삭제 (best-effort)
         if (branch) {
           const br = await runGit(info.parentAbs, ['branch', '-D', branch]);
           if (br.code !== 0) logger.warn(`branch -D ${branch} failed: ${br.stderr}`);
         }
 
-        // 4) 버블 제거 + 디스크 폴더가 남아 있으면 정리 (worktree remove 가 실패한 경우)
+        // 5) 버블 제거 + 디스크 폴더가 남아 있으면 정리 (worktree remove 가 실패한 경우)
         graphManager.removeBubble(nodeId);
         let cleanupError = '';
         try {
@@ -5050,6 +5319,9 @@ export async function runServer(): Promise<RunServerHandle> {
         res.json({
           ok: true,
           branch,
+          // §7.10 — 무엇을 강제로 끝냈는지 그대로 보고한다. 조용히 죽이면 사용자는 자기 dev 서버가
+          //   왜 꺼졌는지 영영 모른다(팝업이 이 숫자를 그대로 읽는다).
+          reaped,
           partial: stillExists,
           remainingPath: stillExists ? info.wtAbs : undefined,
           remaining,
@@ -5076,21 +5348,34 @@ export async function runServer(): Promise<RunServerHandle> {
         res.status(400).json({ error: 'not a worktree folder path' });
         return;
       }
-      let cleanupError = '';
+      // §7.10 — 재시도가 첫 삭제와 다른 점은 **여기서도 잠금을 먼저 끊는다**는 것이다.
+      //   버블은 이미 사라진 뒤라 에이전트는 없지만, 그 폴더에서 띄운 터미널(dev 서버·빌드)은
+      //   그대로 살아 있을 수 있고 그것이 바로 첫 삭제가 반만 성공한 이유다.
+      let terminals = 0;
       try {
-        if (fs.existsSync(target)) fs.rmSync(target, { recursive: true, force: true });
+        terminals = getCmdTerminalController()?.killUnder(target) ?? 0;
       } catch (err) {
-        cleanupError = err instanceof Error ? err.message : String(err);
+        logger.warn(`cleanup-folder: killUnder failed — ${err instanceof Error ? err.message : String(err)}`);
       }
-      invalidateWorktreeLiveness(target);
-      const stillExists = ((): boolean => { try { return fs.existsSync(target); } catch { return false; } })();
-      res.json({
-        ok: true,
-        partial: stillExists,
-        remainingPath: stillExists ? target : undefined,
-        remaining: stillExists ? listRemainingFiles(target, 30) : [],
-        cleanupError: cleanupError || undefined,
-      });
+      void (async () => {
+        if (terminals > 0) await new Promise((resolve) => setTimeout(resolve, WORKTREE_REAP_SETTLE_MS));
+        let cleanupError = '';
+        try {
+          if (fs.existsSync(target)) fs.rmSync(target, { recursive: true, force: true });
+        } catch (err) {
+          cleanupError = err instanceof Error ? err.message : String(err);
+        }
+        invalidateWorktreeLiveness(target);
+        const stillExists = ((): boolean => { try { return fs.existsSync(target); } catch { return false; } })();
+        res.json({
+          ok: true,
+          reaped: { agents: 0, sessions: 0, terminals, trashed: 0 },
+          partial: stillExists,
+          remainingPath: stillExists ? target : undefined,
+          remaining: stillExists ? listRemainingFiles(target, 30) : [],
+          cleanupError: cleanupError || undefined,
+        });
+      })();
     } catch (err) {
       logger.error('POST /api/worktree/cleanup-folder failed', err);
       res.status(500).json({ error: err instanceof Error ? err.message : 'Internal server error' });
@@ -6770,7 +7055,10 @@ export async function runServer(): Promise<RunServerHandle> {
        *  이 창구가 커스텀 에이전트 전용이라는 기존 경계는 그대로 둔다.)
        */
       const auditProject = graphManager.getAgentProjectName(agentId) ?? '';
-      const riskKinds = classifyToolRisk(toolName, toolInput);
+      // §5.22 `outside` — 이 호출이 머물러야 할 경계(프로젝트 루트 + 이 세션의 cwd).
+      //   훅 경로와 **같은 헬퍼**를 써야 한 호출이 카드와 타임라인에서 다르게 판정되지 않는다.
+      const auditRoots = graphManager.getAuditRoots(auditProject, body.cwd ?? null);
+      const riskKinds = classifyToolRiskOnHost(toolName, toolInput, auditRoots);
       const escalate = riskKinds.length > 0
         && shouldEscalateRisk(graphManager.getAuditBoundary(auditProject), riskKinds);
       const auditEntryId = graphManager.recordAuditCall({
@@ -6782,6 +7070,7 @@ export async function runServer(): Promise<RunServerHandle> {
         ...(config.color ? { agentColor: config.color } : {}),
         toolName,
         toolInput,
+        roots: auditRoots,
         awaitHookEvent: true,
       });
       const noteAuditDecision = (
@@ -9487,6 +9776,8 @@ export async function runServer(): Promise<RunServerHandle> {
       const settings = appStateSetRetention(patch as Partial<typeof DEFAULT_RETENTION_SETTINGS>);
       // 상한이 내려갔으면 즉시 반영해야 "적용했는데 그대로다"로 보이지 않는다.
       for (const inst of graphManager.getInstancesForRetention()) inst.pruneFileEditRetention();
+      // §5.22 감사 원장도 같은 자리에서 — 조용한 프로젝트는 다음 도구 호출까지 옛 크기 그대로다.
+      graphManager.applyAuditRetention();
       broadcastSnapshot();
       res.json({ settings, limits: RETENTION_LIMITS, defaults: DEFAULT_RETENTION_SETTINGS });
     } catch (err) {
@@ -10889,6 +11180,110 @@ export async function runServer(): Promise<RunServerHandle> {
    * `/api/agent-iframe` 과 **같은 인프라**를 쓴다(새 통신 레이어 ❌). 등록만 가능하고 기동은
    * 불가능하다 — start 는 화이트리스트 밖이라 렌더러(사용자)만 부를 수 있다.
    */
+  // ─── §5.5 #17-35 — 검증(Verify) REST ───
+
+  /**
+   * GET /api/verification-recipe/:agentId — 지금 보내면 **무엇이 실릴지** 미리 알려 준다.
+   *
+   * 판정은 서버가 한다(§3.1) — 클라가 플레이 버블을 뒤져 스스로 답을 만들면 실제로 나가는 것과
+   * 어긋난다. 사용자는 보내기 전에 이 한 줄을 먼저 읽는다(#17-35 ⑦).
+   */
+  app.get('/api/verification-recipe/:agentId', (req, res) => {
+    const agentId = req.params.agentId;
+    const projectName = graphManager.getAgentProjectName(agentId) ?? '';
+    const recipe = resolveVerifyRecipe(agentId, projectName);
+    res.json({ ok: true, source: recipe.source, ...(recipe.label ? { label: recipe.label } : {}) });
+  });
+
+  /** POST /api/verification-runs — 검증 시작(그 탭 큐에 `/verify` 한 건). */
+  app.post('/api/verification-runs', (req, res) => {
+    const body = (req.body ?? {}) as { agentId?: unknown; subAgentId?: unknown; focus?: unknown };
+    const agentId = typeof body.agentId === 'string' ? body.agentId : '';
+    const subAgentId = typeof body.subAgentId === 'string' ? body.subAgentId : '';
+    if (!agentId || !subAgentId) {
+      res.status(400).json({ ok: false, error: 'agentId and subAgentId required' });
+      return;
+    }
+    // #17-29 — 훅 버블은 전면 읽기 전용이라 명령을 보내지 않는다.
+    if (isReadOnlyHookAgentId(agentId)) {
+      res.status(400).json({ ok: false, error: READ_ONLY_HOOK_AGENT_ERROR });
+      return;
+    }
+    const focus = typeof body.focus === 'string' ? body.focus : undefined;
+    const result = startVerificationRun(agentId, subAgentId, focus);
+    if (!result.ok) {
+      res.status(409).json({ ok: false, error: result.error });
+      return;
+    }
+    broadcastSnapshot();
+    saveCheckpoint();
+    res.json({ ok: true, run: result.run });
+  });
+
+  /** POST /api/verification-runs/:id/stop — 도는 검증을 목록에서 닫는다(그 턴 자체 중지는 기존 [중지]). */
+  app.post('/api/verification-runs/:id/stop', (req, res) => {
+    const run = graphManager.findVerificationRun(req.params.id);
+    if (!run) { res.status(404).json({ ok: false, error: 'not found' }); return; }
+    const finishedAt = Date.now();
+    const next = graphManager.updateVerificationRun(run.id, {
+      status: 'stopped',
+      verdict: 'unknown',
+      pendingCommandId: undefined,
+      finishedAt,
+      durationMs: Math.max(0, finishedAt - run.startedAt),
+    });
+    broadcastSnapshot();
+    saveCheckpoint();
+    res.json({ ok: true, run: next });
+  });
+
+  /** POST /api/verification-runs/:id/rework — 실패·보류 사유를 그대로 그 탭의 다음 프롬프트로. */
+  app.post('/api/verification-runs/:id/rework', (req, res) => {
+    const run = graphManager.findVerificationRun(req.params.id);
+    if (!run) { res.status(404).json({ ok: false, error: 'not found' }); return; }
+    if (run.verdict !== 'fail' && run.verdict !== 'held') {
+      res.status(409).json({ ok: false, error: 'nothing-to-rework' });
+      return;
+    }
+    if (isReadOnlyHookAgentId(run.agentId)) {
+      res.status(400).json({ ok: false, error: READ_ONLY_HOOK_AGENT_ERROR });
+      return;
+    }
+    const sessionId = graphManager.findSessionByAgentId(run.agentId);
+    if (!sessionId) { res.status(409).json({ ok: false, error: 'session-not-found' }); return; }
+
+    // 새 통신 레이어 ❌ — 사용자가 입력창에 친 것과 똑같은 명령 한 건이다.
+    let queue = commandQueues.get(sessionId);
+    if (!queue) { queue = []; commandQueues.set(sessionId, queue); }
+    const cmd: QueuedCommand = {
+      id: `cmd-${Date.now()}-verify-rework`,
+      text: buildVerifyReworkPrompt({
+        verdict: run.verdict,
+        ...(run.focus ? { focus: run.focus } : {}),
+        ...(run.reason ? { reason: run.reason } : {}),
+        attempts: run.attempts,
+      }),
+      timestamp: Date.now(),
+      subAgentId: run.subAgentId,
+      status: 'queued',
+    };
+    queue.push(cmd);
+    processNextCommand(sessionId);
+    broadcastSnapshot();
+    res.json({ ok: true, commandId: cmd.id });
+  });
+
+  /** DELETE /api/verification-runs/:id — 목록에서 한 줄 지운다(사람이 지운다, 서버가 스스로 ❌). */
+  app.delete('/api/verification-runs/:id', (req, res) => {
+    if (!graphManager.deleteVerificationRun(req.params.id)) {
+      res.status(404).json({ ok: false, error: 'not found' });
+      return;
+    }
+    broadcastSnapshot();
+    saveCheckpoint();
+    res.json({ ok: true });
+  });
+
   app.post('/api/play-recipe', (req, res) => {
     try {
       const body = (req.body ?? {}) as {
@@ -13373,6 +13768,8 @@ export async function runServer(): Promise<RunServerHandle> {
       // §5.5 #17-11 v3.79 — 루프 회차 전진. 아카이브로 옮기기 전에 `pendingCommandId` 대조로
       //   "이번 회차가 끝났다"를 확정하고 다음 회차를 예약한다(중지·오류·목표 도달이면 정지).
       for (const cmd of done) advanceSessionLoop(cmd);
+      // §5.5 #17-35 — 검증 닫기. 루프와 같은 자리에서 `pendingCommandId` 대조로 판정을 읽는다.
+      for (const cmd of done) advanceVerificationRun(cmd);
 
       archiveCompletedCommands(sessionId, done);
       const remaining = queue.filter((c) => c.status === 'queued' || c.status === 'executing');

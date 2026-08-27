@@ -232,7 +232,7 @@ export const IDEWindowsMenu = memo(function IDEWindowsMenu({
   if (badgeState === null && agentCount === 0 && openCount === 0) return null;
 
   return (
-    <div className="app-nodrag relative max-md:hidden" ref={menuRef}>
+    <div className="app-nodrag relative" ref={menuRef}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}

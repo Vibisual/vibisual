@@ -13,6 +13,10 @@
       "disconnected": "切断",
       "viewLogs": "サーバーログを表示"
     },
+    "rightTools": {
+      "expand": "ヘッダーのツールを表示",
+      "collapse": "ヘッダーのツールを隠す"
+    },
     "update": {
       "available": "アップデート {{version}}",
       "availableTooltip": "バージョン {{version}} が利用可能で、バックグラウンドでダウンロード中です",
@@ -72,7 +76,17 @@
         "top": "上",
         "bottom": "下"
       },
-      "orphan": "バブルが消えたウィンドウ"
+      "orphan": "バブルが消えたウィンドウ",
+      "layout": {
+        "tile": "ウィンドウをタイル表示",
+        "cascade": "ウィンドウをカスケード表示",
+        "tabRight": "すべて右側にタブでまとめる",
+        "splitLeftRight": "左右に分割",
+        "undockAll": "すべてドック解除",
+        "collapseAll": "すべて折りたたむ",
+        "expandAll": "すべて展開"
+      },
+      "shortcutHint": "{{dock}}でドック・{{max}}で最大化・{{next}}で次のウィンドウ"
     }
   },
   "panel": {
@@ -82,7 +96,8 @@
       "options": "オプション…",
       "guide": "ガイド",
       "mobileAccess": "モバイルアクセス…",
-      "plugins": "プラグイン…"
+      "plugins": "プラグイン…",
+      "remoteControl": "リモートコントロール…"
     },
     "mobileAccess": {
       "title": "モバイルアクセス",
@@ -119,6 +134,62 @@
       "qrExpiresIn": "有効期限: {{time}}",
       "qrExpired": "期限切れ — 新しいQRを発行してください。",
       "qrPairedCount": "このQRでペアリング済み: {{count}}"
+    },
+    "remoteControl": {
+      "title": "リモートコントロール",
+      "subtitle": "メッセンジャーからVibisualを操作します。アプリ側から接続を発信するため、開放するポートも信頼する証明書も必要ありません。CGNAT環境でも動作します。",
+      "channel": {
+        "telegram": "Telegram",
+        "discord": "Discord"
+      },
+      "step1": "ボットを作成",
+      "step2": "トークンを貼り付け",
+      "step3": "チャットを接続",
+      "open": {
+        "telegram": "@BotFatherを開く",
+        "discord": "Developer Portalを開く"
+      },
+      "step1Hint": {
+        "telegram": "@BotFatherに「/newbot」を送信し、名前を選ぶとトークンが返信されます。",
+        "discord": "「New Application」→「Bot」→「Reset Token」の順に進みます。同じページで「Message Content Intent」を有効にしてください。"
+      },
+      "copied": "コピーしました",
+      "tokenPlaceholder": "ボットのトークンを貼り付け",
+      "verify": "確認",
+      "verifying": "確認中…",
+      "tokenSaved": "{{name}}に接続しました",
+      "clearToken": "削除",
+      "error": {
+        "token": "そのトークンは拒否されました。ボットのページからもう一度コピーしてください。",
+        "intent": "「Message Content Intent」がオフになっているため、Discordが接続を拒否しました。Developer Portalでオンにしてから、もう一度お試しください。",
+        "network": "メッセンジャーに接続できませんでした。再試行しています。",
+        "rate-limit": "メッセンジャー側でレート制限がかかっています。まもなく再試行します。"
+      },
+      "status": {
+        "off": "オフ",
+        "connecting": "接続中…",
+        "online": "オンライン",
+        "error": "切断済み"
+      },
+      "enable": "有効化",
+      "disable": "無効化",
+      "issueQr": "ペアリング用QRコードを表示（{{minutes}}分）",
+      "revokeQr": "今すぐQRコードを無効化",
+      "expiresIn": "有効期限まで残り",
+      "savePng": "PNGを保存",
+      "discordPairHint": "スキャンしてボットを招待し、ボットから見えるチャンネルで次の一行を送信してください：",
+      "pairedChats": "接続済みのチャット",
+      "unpair": "切断",
+      "verbosityTitle": "送信される内容",
+      "verbosity": {
+        "cards": "カードのみ",
+        "full": "ストリームを含む"
+      },
+      "verbosityHint": {
+        "cards": "カードと要約だけがこのマシンの外に送信されます。必要なときは「/log」で生の出力を取得できます。",
+        "full": "返信と思考内容は届き次第そのまま転送されます。ツールの出力や差分は引き続き送信されません。"
+      },
+      "securityNote": "ペアリング済みのチャットにのみ応答し、それ以外はすべて無視されます。メッセンジャー経由でのターミナルアクセスは一切利用できません。"
     },
     "guide": {
       "title": "ガイド",
@@ -236,7 +307,7 @@
         "version": "バージョン",
         "account": "アカウント",
         "storage": "ストレージ",
-        "brain": "プロジェクトの頭脳"
+        "brain": "プロジェクトのメモリー"
       },
       "appearance": {
         "intro": "Vibisualの見た目をカスタマイズします。",
@@ -357,6 +428,10 @@
             "label": "添付ファイルの保存",
             "desc": "コマンドに貼り付けた画像です。会話がまだ参照しているものは古さに関係なく残し、孤立したものだけが期限切れになります。0 = ずっと保存。"
           },
+          "auditEntryMaxPerProject": {
+            "label": "プロジェクトごとの監査呼び出し",
+            "desc": "監査タイムラインに残すツール呼び出し数です。あふれた呼び出しも合計には残り、内訳だけが消えます。0 = 無制限。"
+          },
           "trashRetentionDays": {
             "label": "ゴミ箱の保存",
             "desc": "整理されたファイルを何日間、元に戻せる状態で置くかです。0 = ずっと保存。"
@@ -390,6 +465,14 @@
         "trashEmpty": "ゴミ箱は空です — 整理されたものはありません。",
         "restore": "元に戻す",
         "restoring": "復元中…"
+      },
+      "advanced": {
+        "terminalScrollback": "ターミナルのスクロールバック（行数）",
+        "terminalScrollbackDesc": "CMDターミナルが保持する出力行数です。スクロールと{{shortcut}}検索はこの範囲を共有します。今後開くターミナルから適用されます。"
+      },
+      "notifications": {
+        "cmdBlocked": "CMDセッションが入力待ちのときに通知",
+        "cmdBlockedDesc": "他のタブやウィンドウを見ているときだけ通知します。ウィンドウがフォーカスされていれば、すでに画面に表示されているので通知は不要です。"
       }
     },
     "autoAgent": {
@@ -672,6 +755,8 @@
       "notMerged": "ブランチ{{branch}}には{{base}}にない未マージのコミットがあります。削除前に{{base}}へマージしますか?",
       "notYetIn": "{{base}}にまだなし",
       "branchUnresolved": "git worktree listでブランチを解決できませんでした。強制削除するとフォルダーとバブルのみ削除されます。",
+      "forceStopTitle": "この中で動いているものは強制終了されます",
+      "forceStopDesc": "ターミナル {{terminals}} 個をプロセスツリーごと終了し、このワークツリーのエージェント {{agents}} 個をゴミ箱へ移します。残すとファイルがロックされ、フォルダが半分しか削除されません。",
       "cancel": "キャンセル",
       "mergeAndDelete": "マージして削除",
       "delete": "削除",
@@ -913,6 +998,12 @@
         "toolsNone": "このモデルはツールを使えません — 会話だけです。",
         "toolsUnknown": "まだ確認していません — 次のターンでツールを渡して確かめます。",
         "toolsRecheck": "もう一度確認"
+      },
+      "cliKind": {
+        "label": "CLI",
+        "tip": "このCMDターミナルがどのagent CLIを起動するかの設定です。Claude Code以外を選択すると、アプリのフックの子プロセスにはならないため、会話の再開やルールの注入は行われません。代わりに、状態はターミナルの出力から読み取られます。",
+        "nonClaudeNote": "このCLIはClaude Codeではないため、以下の設定（モデル、権限、ツール、ルール）は渡されません。代わりに、状態はターミナルの出力から読み取られます。変更は「+」で開く新しいセッションから適用されます。",
+        "applyNote": "CLIを変更すると、「+」で新しく開くセッションから適用されます。すでに実行中のターミナルは、起動時の設定のまま変わりません。"
       }
     },
     "permissionPrompt": {
@@ -1418,7 +1509,7 @@
       "boundaryHint": "記録は常に続きます。ここで決まるのは、Agentを事前に止めるかどうかだけです。",
       "routeTitle": "権限モードとは別に動く、2つ目の検問所",
       "routeBody": "この境界はAgent設定の権限モード（Permission Mode）とは別に動きます。権限モードが通したツール呼び出しを、監査境界がもう一度確認します。",
-      "routeOn": "オンの場合 — 権限モードを「すべて許可（bypassPermissions）」にしたAgentでも、削除・ネットワーク・設定の3種類では承認カードが表示されます。",
+      "routeOn": "オンの場合 — 権限モードを「すべて許可（bypassPermissions）」にしたAgentでも、削除・ネットワーク・設定・外部フォルダの4種類では承認カードが表示されます。",
       "routeOff": "オフの場合（既定） — すべての呼び出しは権限モードの判断どおりに実行され、記録だけが残ります。",
       "routeScope": "ここで止まるのはVibisualが起動したカスタムAgentだけです。ご自身で実行されたClaude Codeセッションは記録のみです。",
       "routeStateOn": "現在オン — 危険な3種類は権限モードより先に確認します。",
@@ -1426,11 +1517,16 @@
       "risk": {
         "delete": "削除",
         "network": "ネットワーク",
-        "config": "設定"
+        "config": "設定",
+        "outside": "外部フォルダの読み書き"
       },
       "filterAll": "すべて",
       "filterRisky": "危険",
       "filterDenied": "拒否",
+      "retentionLabel": "保持",
+      "retentionUnit": "件",
+      "retentionUnlimited": "無制限",
+      "retentionHint": "プロジェクトごとにディスクへ残す呼び出し数です。あふれた呼び出しも合計には残り、内訳だけが消えます。チェックを外すと無制限です。",
       "escalated": "事前確認",
       "decisionAllow": "許可",
       "decisionDeny": "拒否",
@@ -1582,7 +1678,17 @@
       "collapseLabel": "折りたたむ",
       "collapseHint": "折りたたみ — ウィンドウは残したままキャンバスを取り戻します（ヘッダーのウィンドウ一覧から再表示）",
       "resizeWindow": "ウィンドウのサイズ変更",
-      "resizeStack": "分割比を調整"
+      "resizeStack": "分割比を調整",
+      "slotTabHint": "「{{name}}」を最前面に表示（このドックスロットは複数のウィンドウで共有されています）",
+      "dockShortcutHint": "{{dock}}でドック・{{undock}}でドック解除",
+      "popOutHint": "離すと独立ウィンドウとして切り離します",
+      "popOutEdgeHint": "画面の端に少し押し当て続けると独立ウィンドウとして切り離します",
+      "popOutLabel": "独立ウィンドウとして切り離す",
+      "returnToApp": "アプリ内に戻す",
+      "popOutHintButton": "独立ウィンドウとして切り離す（タイトルバーをアプリの外へドラッグ、または画面の端へ押し当てても同じです）",
+      "returnToAppHint": "クリックでアプリ内に戻します · ドラッグしてアプリのウィンドウ上で離すと統合されます",
+      "redockDropHint": "ここで離すとアプリ内に統合されます",
+      "redockKeepHint": "別の場所で離すと独立したままです"
     },
     "tabbar": {
       "newSession": "新しいセッション",
@@ -1622,7 +1728,12 @@
         "clear": "カードをクリア",
         "collapse": "カードを折りたたむ",
         "expand": "カードを表示"
-      }
+      },
+      "splitRight": "右に分割",
+      "splitDown": "下に分割",
+      "zoom": "ペインを最大化",
+      "unzoom": "レイアウトを復元",
+      "closePane": "ペインを閉じる"
     },
     "mainArea": {
       "scrollPrompt": "プロンプトへスクロール",
@@ -1672,7 +1783,7 @@
       "inputCtxCopy": "コピー",
       "inputCtxPaste": "貼り付け",
       "inputCtxSelectAll": "すべて選択",
-      "ctxSaveToBrain": "ブレインに保存",
+      "ctxSaveToBrain": "メモリーに保存",
       "stopAll": "すべて停止",
       "stopAllTitle": "このエージェントが実行中のすべてを停止（他のタブ＋バックグラウンドのサブエージェント）",
       "stopSessionTitle": "このセッションと、それが開始したサブエージェントを停止（他のセッションタブは実行を継続）"
@@ -1706,7 +1817,8 @@
       "goal": "目標",
       "debug": "実行とデバッグ",
       "hooks": "セッションフック",
-      "plugins": "Claude Code プラグイン"
+      "plugins": "Claude Code プラグイン",
+      "verify": "検証"
     },
     "mcp": {
       "title": "MCP サーバー",
@@ -2432,15 +2544,16 @@
         "edges": "送信元エッジのルール",
         "feedback": "過去のユーザーフィードバック",
         "intentFirst": "先に意図を述べる",
+        "cardCommon": "カードプロトコル（共通）",
         "cardReport": "作業レポートカードのプロトコル",
         "cardQuestion": "質問カードのプロトコル",
         "cardReview": "レビューカードのプロトコル",
         "cardList": "番号付きリストカードのプロトコル",
         "cardIframe": "サーバープレビューのプロトコル",
         "goal": "セッション目標",
-        "brainCards": "プロジェクトブレインのブリーフィング",
-        "brainTopics": "ブレインのトピック索引",
-        "brainRules": "ブレインルールの枠組み",
+        "brainCards": "プロジェクトメモリーのブリーフィング",
+        "brainTopics": "メモリーのトピック索引",
+        "brainRules": "メモリールールの枠組み",
         "hookEnforcement": "フックセッション注入",
         "plugins": "すべての強制プラグイン",
         "claudeMd": "CLAUDE.mdファイル",
@@ -2454,7 +2567,7 @@
         "mcp": "MCPサーバー",
         "hooks": "フック",
         "systemPrompt": "Claude Codeのシステムプロンプト",
-        "brainSkills": "ブレイン手順記憶"
+        "brainSkills": "メモリー手順記憶"
       },
       "hint": {
         "tools": "エージェント設定でツール一覧を選んでください",
@@ -2519,6 +2632,11 @@
             "more": "Vibisual固定の指示です。エージェントが誤った方向に進んだときに早めに止められるようにするためのものです。",
             "off": "エージェントは計画を告げずにファイルの編集を始める場合があります。"
           },
+          "cardCommon": {
+            "what": "すべてのカードレポートが共有する唯一のルールセットです。どこに投稿するか、いつ投稿するか、そして本文に対してカードをどこに配置するかを定めます。",
+            "more": "同じ段落がすべてのカードブロックで繰り返されないよう、一箇所にまとめて保持されています。含まれるのは、少なくとも1つのカードが有効になっている場合のみです。",
+            "off": "agentはカードの投稿方法がわからなくなるため、以下のカードは表示されなくなる可能性があります。"
+          },
           "cardReport": {
             "what": "色分けされた「やったこと／あなたがやること」カードのレシピ。",
             "more": "エージェントにVibisualのAPI経由で結果を報告させ、2つのリストを色で分けられるようにします。",
@@ -2550,7 +2668,7 @@
             "off": "エージェントは目標と進捗一覧を見なくなります。目標ウィンドウ自体は残ります。"
           },
           "brainCards": {
-            "what": "たった今の質問に一致するプロジェクトブレインの記憶カード。",
+            "what": "たった今の質問に一致するプロジェクトメモリーの記憶カード。",
             "more": "あなたのメッセージに対してランク付けされ、常時オンとマークされたルールも加わります。このプロジェクトの.vibisual/brainに保存されています。",
             "off": "エージェントはこのプロジェクトが既に学んだ教訓なしで始まります。"
           },
@@ -2813,6 +2931,39 @@
       "foreignSession": "別のバブルのセッションです",
       "tooSmall": "分割するには狭すぎます",
       "alreadyHere": "すでにこのビューに表示中"
+    },
+    "verify": {
+      "title": "検証",
+      "about": "このタブで /verify を実行します — アプリをビルドして起動し、実際に見た結果を報告します。",
+      "pickSession": "検証はセッションタブ単位です。まずセッションタブを開いてください。",
+      "focusLabel": "確認したいこと（任意）",
+      "focusPlaceholder": "例: ログインボタンで実際にダイアログが開くか",
+      "start": "検証を実行",
+      "running": "実行中",
+      "readOnly": "フックバブルは読み取り専用のため、ここから検証は開始できません。",
+      "empty": "このタブではまだ検証を実行していません。",
+      "stop": "閉じる",
+      "rework": "修正を依頼",
+      "delete": "削除",
+      "recipe": {
+        "playRecipe": "Vibisual が既に知っている実行レシピを送ります",
+        "recordedSkill": "このリポジトリに記録済みのレシピに従います",
+        "none": "登録されたレシピがないため /verify が自分で調べます"
+      },
+      "verdict": {
+        "pass": "合格",
+        "fail": "失敗",
+        "held": "保留",
+        "unknown": "不明"
+      },
+      "error": {
+        "alreadyRunning": "このタブでは既に検証が実行中です。",
+        "sessionBusy": "このタブに未完了のコマンドが残っています。",
+        "sessionNotFound": "そのセッションが見つかりません。",
+        "readOnly": "フックバブルは読み取り専用です。",
+        "network": "サーバーに接続できませんでした。",
+        "failed": "検証を開始できませんでした。"
+      }
     }
   },
   "bubbleMap": {
@@ -3097,6 +3248,11 @@
   },
   "canvas": {
     "stubPlaceholder": "このプロジェクトはディスク上のみです。タブをクリックして読み込んでください。",
+    "loading": {
+      "project": "プロジェクトを読み込み中…",
+      "connecting": "サーバーに接続中…",
+      "slow": "回線が遅いようです — まだ受信中…"
+    },
     "controls": {
       "zoomIn": "ズームイン",
       "zoomOut": "ズームアウト",
@@ -3132,8 +3288,8 @@
       "createLocalAgentHint": "このPCで動作するモデル用のバブルを置きます",
       "createShelf": "スクリプトシェルフ",
       "createShelfHint": "よく使うコマンドやプロンプトをワンクリックで呼び出せるようにします",
-      "brainOn": "プロジェクトの頭脳をオンにする",
-      "brainOff": "プロジェクトの頭脳をオフにする",
+      "brainOn": "プロジェクトのメモリーをオンにする",
+      "brainOff": "プロジェクトのメモリーをオフにする",
       "brainOnHint": "学んだ手順をためて次の作業に自動で適用します",
       "brainOnHintSleeping": "記憶が{{count}}件眠っています",
       "brainOffHint": "オフにしても記録は消えません"
@@ -3389,7 +3545,7 @@
     "close": "閉じる"
   },
   "brain": {
-    "bubbleLabel": "ブレイン",
+    "bubbleLabel": "メモリー",
     "trashBubbleLabel": "ゴミ箱",
     "trashCountShort": "{{n}}",
     "unseenBadge": "未読{{n}}件",
@@ -3406,7 +3562,7 @@
       "rule": "ルール",
       "fact": "事実"
     },
-    "scopeProject": "プロジェクトブレイン",
+    "scopeProject": "プロジェクトメモリー",
     "scopeAgent": "エージェントメモリー",
     "statusGhost": "要確認",
     "supersededNote": "以前の内容",
@@ -3428,7 +3584,7 @@
     "lastReferenced": "最終参照",
     "createdAt": "作成日時",
     "sourceSession": "元セッション",
-    "promote": "プロジェクトブレインへ昇格",
+    "promote": "プロジェクトメモリーへ昇格",
     "pin": "固定",
     "unpin": "固定解除",
     "edit": "編集",
@@ -3462,7 +3618,7 @@
     "trashItemsMore": "ほか {{n}}件",
     "cardCountUnitSuffix": "",
     "feed": {
-      "title": "プロジェクトブレイン",
+      "title": "プロジェクトメモリー",
       "agentTitle": "このエージェントのメモリー",
       "searchPlaceholder": "メモリーを検索…",
       "sectionRelated": "現在の作業に関連",
@@ -3584,9 +3740,9 @@
       "turnOff": "脳をオフにする",
       "offKeepsData": "オフにしても記録は消えません — 再度オンにすればその続きから再開します。",
       "noProject": "開いているプロジェクトがありません",
-      "noProjectDesc": "頭脳はプロジェクトごとに切り替えます — まずプロジェクトを開いてください。",
-      "stateOn": "このプロジェクトの頭脳はオンです",
-      "stateOff": "このプロジェクトの頭脳はオフです",
+      "noProjectDesc": "メモリーはプロジェクトごとに切り替えます — まずプロジェクトを開いてください。",
+      "stateOn": "このプロジェクトのメモリーはオンです",
+      "stateOff": "このプロジェクトのメモリーはオフです",
       "sleepingCount": "記憶が{{count}}件眠っています"
     }
   },

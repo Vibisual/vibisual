@@ -13,6 +13,10 @@
       "disconnected": "Desconectado",
       "viewLogs": "Ver logs do servidor"
     },
+    "rightTools": {
+      "expand": "Mostrar ferramentas do cabeçalho",
+      "collapse": "Ocultar ferramentas do cabeçalho"
+    },
     "update": {
       "available": "Atualizar {{version}}",
       "availableTooltip": "A versão {{version}} está disponível e sendo baixada em segundo plano",
@@ -72,7 +76,17 @@
         "top": "topo",
         "bottom": "base"
       },
-      "orphan": "Janela cuja bolha desapareceu"
+      "orphan": "Janela cuja bolha desapareceu",
+      "layout": {
+        "tile": "Janelas lado a lado",
+        "cascade": "Janelas em cascata",
+        "tabRight": "Empilhar tudo como abas à direita",
+        "splitLeftRight": "Dividir esquerda / direita",
+        "undockAll": "Desancorar tudo",
+        "collapseAll": "Recolher tudo",
+        "expandAll": "Expandir tudo"
+      },
+      "shortcutHint": "{{dock}} ancorar · {{max}} maximizar · {{next}} próxima janela"
     }
   },
   "panel": {
@@ -82,7 +96,8 @@
       "options": "Opções…",
       "guide": "Guia",
       "mobileAccess": "Acesso móvel…",
-      "plugins": "Plugins…"
+      "plugins": "Plugins…",
+      "remoteControl": "Controle Remoto…"
     },
     "mobileAccess": {
       "title": "Acesso móvel",
@@ -119,6 +134,62 @@
       "qrExpiresIn": "Válido por {{time}}",
       "qrExpired": "Expirado — gere um novo QR.",
       "qrPairedCount": "Pareados com este QR: {{count}}"
+    },
+    "remoteControl": {
+      "title": "Controle Remoto",
+      "subtitle": "Controle o Vibisual a partir de um mensageiro. O aplicativo faz a conexão de saída, então não há porta para abrir nem certificado para confiar — funciona até atrás de CGNAT.",
+      "channel": {
+        "telegram": "Telegram",
+        "discord": "Discord"
+      },
+      "step1": "Criar um bot",
+      "step2": "Colar o token dele",
+      "step3": "Conectar seu chat",
+      "open": {
+        "telegram": "Abrir @BotFather",
+        "discord": "Abrir Portal do Desenvolvedor"
+      },
+      "step1Hint": {
+        "telegram": "Envie /newbot para o @BotFather, escolha um nome, e ele responde com um token.",
+        "discord": "Novo Aplicativo → Bot → Redefinir Token. Ative \"Message Content Intent\" na mesma página."
+      },
+      "copied": "Copiado",
+      "tokenPlaceholder": "Cole o token do bot",
+      "verify": "Verificar",
+      "verifying": "Verificando…",
+      "tokenSaved": "Conectado a {{name}}",
+      "clearToken": "Remover",
+      "error": {
+        "token": "Esse token foi rejeitado. Copie-o novamente na página do bot.",
+        "intent": "O Discord recusou a conexão porque \"Message Content Intent\" está desativada. Ative-o no Portal do Desenvolvedor e tente novamente.",
+        "network": "Não foi possível acessar o mensageiro. Tentando novamente.",
+        "rate-limit": "O mensageiro está limitando nossas requisições. Tentando novamente em breve."
+      },
+      "status": {
+        "off": "Desativado",
+        "connecting": "Conectando…",
+        "online": "Online",
+        "error": "Desconectado"
+      },
+      "enable": "Ativar",
+      "disable": "Desativar",
+      "issueQr": "Mostrar QR de pareamento ({{minutes}} min)",
+      "revokeQr": "Revogar QR agora",
+      "expiresIn": "Expira em",
+      "savePng": "Salvar PNG",
+      "discordPairHint": "Escaneie para convidar o bot, depois envie esta linha em qualquer canal que ele possa ver:",
+      "pairedChats": "Chats conectados",
+      "unpair": "Desconectar",
+      "verbosityTitle": "O que é enviado",
+      "verbosity": {
+        "cards": "Somente cartões",
+        "full": "Incluir stream"
+      },
+      "verbosityHint": {
+        "cards": "Somente cartões e resumos saem desta máquina. Peça a saída bruta com /log quando precisar.",
+        "full": "As respostas e o raciocínio são retransmitidos assim que chegam. A saída de ferramentas e os diffs continuam sendo retidos."
+      },
+      "securityNote": "Somente os chats pareados por você recebem resposta; todo o restante é ignorado. O acesso ao terminal nunca fica disponível por um mensageiro."
     },
     "guide": {
       "title": "Guia",
@@ -236,7 +307,7 @@
         "version": "Versão",
         "account": "Conta",
         "storage": "Armazenamento",
-        "brain": "Cérebro do projeto"
+        "brain": "Memória do Projeto"
       },
       "appearance": {
         "intro": "Personalize a aparência do Vibisual.",
@@ -357,6 +428,10 @@
             "label": "Arquivos anexados",
             "desc": "Imagens que você colou nos comandos. Arquivos que uma conversa ainda referencia são mantidos independentemente da idade; só os órfãos expiram. 0 = manter para sempre."
           },
+          "auditEntryMaxPerProject": {
+            "label": "Chamadas de auditoria por projeto",
+            "desc": "Chamadas de ferramentas mantidas na linha do tempo de auditoria. As descartadas continuam contando nos totais — só o detalhe se perde. 0 = sem limite."
+          },
           "trashRetentionDays": {
             "label": "Lixeira",
             "desc": "Por quantos dias os arquivos limpos permanecem restauráveis antes de serem excluídos de vez. 0 = manter para sempre."
@@ -390,6 +465,14 @@
         "trashEmpty": "A lixeira está vazia — nada foi limpo.",
         "restore": "Restaurar",
         "restoring": "Restaurando…"
+      },
+      "advanced": {
+        "terminalScrollback": "Rolagem do terminal (linhas)",
+        "terminalScrollbackDesc": "Quantas linhas de saída um terminal CMD mantém. A rolagem e a busca com {{shortcut}} compartilham esse intervalo. Aplica-se aos terminais abertos a partir de agora."
+      },
+      "notifications": {
+        "cmdBlocked": "Notificar quando uma sessão CMD estiver aguardando entrada",
+        "cmdBlockedDesc": "Só notifica enquanto você está olhando para outra aba ou janela — se a janela estiver em foco, ela já está na tela."
       }
     },
     "autoAgent": {
@@ -672,6 +755,8 @@
       "notMerged": "O branch {{branch}} tem commits ainda não em {{base}}. Fazer merge em {{base}} antes de excluir?",
       "notYetIn": "ainda não em {{base}}",
       "branchUnresolved": "Não foi possível resolver o branch via git worktree list. Excluir mesmo assim apenas removerá a pasta + bubble.",
+      "forceStopTitle": "Tudo o que estiver rodando dentro será encerrado à força",
+      "forceStopDesc": "{{terminals}} terminal(is) serão encerrados junto com a árvore de processos e {{agents}} agente(s) deste worktree irão para a lixeira. Se continuarem ativos, travam arquivos e a pasta é apagada só pela metade.",
       "cancel": "Cancelar",
       "mergeAndDelete": "Merge e excluir",
       "delete": "Excluir",
@@ -913,6 +998,12 @@
         "toolsNone": "Este modelo não consegue usar ferramentas — só conversa.",
         "toolsUnknown": "Ainda não verificado — as ferramentas vão no próximo turno para descobrir.",
         "toolsRecheck": "Verificar de novo"
+      },
+      "cliKind": {
+        "label": "CLI",
+        "tip": "Qual CLI de agent este terminal CMD inicia. Qualquer coisa além do Claude Code não é filha dos nossos hooks, então a retomada da conversa e a injeção de regras não são anexadas — em vez disso, o status dela é lido a partir da saída do terminal.",
+        "nonClaudeNote": "Esta CLI não é o Claude Code, então as configurações abaixo (modelo, permissões, ferramentas, regras) não são passadas a ela. Em vez disso, o status dela é lido a partir da saída do terminal. As alterações se aplicam a novas sessões abertas com \"+\".",
+        "applyNote": "Uma CLI alterada se aplica a novas sessões abertas com \"+\" — os terminais já em execução mantêm o que tinham ao iniciar."
       }
     },
     "permissionPrompt": {
@@ -1413,12 +1504,12 @@
       "close": "Fechar linha do tempo de auditoria",
       "pillLabel": "Chamadas arriscadas hoje",
       "pillEmpty": "Nenhuma chamada de ferramenta arriscada hoje",
-      "pillOff": "O limite de auditoria está desativado — ações arriscadas são executadas sem perguntar (ainda são registradas)",
+      "pillOff": "O limite de auditoria está desativada — ações arriscadas são executadas sem perguntar (ainda são registradas)",
       "boundaryOn": "Perguntar antes de ações arriscadas",
       "boundaryHint": "O registro nunca para — isso só decide se paramos o agent primeiro.",
       "routeTitle": "Um segundo posto de verificação, separado do modo de permissão",
       "routeBody": "Este limite funciona separadamente do modo de permissão do agente: ele revisa mais uma vez as chamadas de ferramenta que o modo de permissão já liberou.",
-      "routeOn": "Quando ligado — mesmo um agente definido como “permitir tudo (bypassPermissions)” recebe um cartão de aprovação em chamadas de exclusão, rede e configuração.",
+      "routeOn": "Quando ligado — mesmo um agente definido como “permitir tudo (bypassPermissions)” recebe um cartão de aprovação em chamadas de exclusão, rede, configuração e de pastas externas.",
       "routeOff": "Quando desligado (padrão) — cada chamada é executada exatamente como o modo de permissão decidiu e apenas fica registrada.",
       "routeScope": "Aqui só são retidos os agentes personalizados iniciados pelo Vibisual. As sessões do Claude Code que você mesmo executa apenas ficam registradas.",
       "routeStateOn": "Ligado agora — chamadas arriscadas são confirmadas antes do modo de permissão.",
@@ -1426,11 +1517,16 @@
       "risk": {
         "delete": "Exclusão",
         "network": "Rede",
-        "config": "Config"
+        "config": "Config",
+        "outside": "Pasta externa (ler/editar)"
       },
       "filterAll": "Todos",
       "filterRisky": "Arriscados",
       "filterDenied": "Negados",
+      "retentionLabel": "Manter",
+      "retentionUnit": "chamadas",
+      "retentionUnlimited": "Sem limite",
+      "retentionHint": "Quantas chamadas ficam no disco por projeto. As chamadas descartadas continuam contando nos totais — só o detalhe se perde. Desmarque para não limitar.",
       "escalated": "Perguntado primeiro",
       "decisionAllow": "Permitido",
       "decisionDeny": "Negado",
@@ -1582,7 +1678,17 @@
       "collapseLabel": "Recolher",
       "collapseHint": "Recolher — mantém a janela e devolve a área de trabalho (expanda de novo na lista de janelas do cabeçalho)",
       "resizeWindow": "Redimensionar janela",
-      "resizeStack": "Ajustar a divisão"
+      "resizeStack": "Ajustar a divisão",
+      "slotTabHint": "Trazer \"{{name}}\" para frente (as janelas compartilham este slot de ancoragem)",
+      "dockShortcutHint": "{{dock}} para ancorar · {{undock}} para desancorar",
+      "popOutHint": "Solte para destacar em uma janela separada",
+      "popOutEdgeHint": "Continue empurrando contra a borda para destacá-la em uma janela separada",
+      "popOutLabel": "Destacar em janela separada",
+      "returnToApp": "Trazer de volta para o app",
+      "popOutHintButton": "Destacar em janela separada (ou arraste a barra de título para fora do app, ou empurre-a contra a borda)",
+      "returnToAppHint": "Clique para trazê-la de volta ao app · arraste sobre a janela do app para mesclar",
+      "redockDropHint": "Solte aqui para mesclar de volta no app",
+      "redockKeepHint": "Solte em outro lugar para mantê-la separada"
     },
     "tabbar": {
       "newSession": "Nova sessão",
@@ -1622,7 +1728,12 @@
         "clear": "Limpar cartões",
         "collapse": "Recolher cartões",
         "expand": "Mostrar cartões"
-      }
+      },
+      "splitRight": "Dividir para a direita",
+      "splitDown": "Dividir para baixo",
+      "zoom": "Ampliar painel",
+      "unzoom": "Restaurar layout",
+      "closePane": "Fechar painel"
     },
     "mainArea": {
       "scrollPrompt": "Rolar até o prompt",
@@ -1672,7 +1783,7 @@
       "inputCtxCopy": "Copiar",
       "inputCtxPaste": "Colar",
       "inputCtxSelectAll": "Selecionar tudo",
-      "ctxSaveToBrain": "Salvar no Cérebro",
+      "ctxSaveToBrain": "Salvar no Memória",
       "stopAll": "Parar tudo",
       "stopAllTitle": "Para tudo que este agente está executando (outras abas + subagentes em segundo plano)",
       "stopSessionTitle": "Para esta sessão e os subagentes que ela iniciou (as outras abas de sessão continuam em execução)"
@@ -1706,7 +1817,8 @@
       "goal": "Objetivo",
       "debug": "Executar e depurar",
       "hooks": "Hooks da sessão",
-      "plugins": "Plugins do Claude Code"
+      "plugins": "Plugins do Claude Code",
+      "verify": "Verificar"
     },
     "mcp": {
       "title": "Servidores MCP",
@@ -2432,15 +2544,16 @@
         "edges": "Regras de edges de saída",
         "feedback": "Feedback anterior do usuário",
         "intentFirst": "Declarar intenção primeiro",
+        "cardCommon": "Protocolo de cartão (compartilhado)",
         "cardReport": "Protocolo do cartão de relatório de trabalho",
         "cardQuestion": "Protocolo do cartão de pergunta",
         "cardReview": "Protocolo do cartão de revisão",
         "cardList": "Protocolo do cartão de lista numerada",
         "cardIframe": "Protocolo de pré-visualização de servidor",
         "goal": "Objetivo da sessão",
-        "brainCards": "Briefing do Cérebro do Projeto",
-        "brainTopics": "Índice de tópicos do Cérebro",
-        "brainRules": "Moldura de regras do Cérebro",
+        "brainCards": "Briefing do Memória do Projeto",
+        "brainTopics": "Índice de tópicos do Memória",
+        "brainRules": "Moldura de regras do Memória",
         "hookEnforcement": "Injeção de sessão via hook",
         "plugins": "Todos os plugins de aplicação",
         "claudeMd": "Arquivos CLAUDE.md",
@@ -2454,7 +2567,7 @@
         "mcp": "Servidores MCP",
         "hooks": "Hooks",
         "systemPrompt": "Prompt de sistema do Claude Code",
-        "brainSkills": "Procedimentos do cérebro"
+        "brainSkills": "Procedimentos da memória"
       },
       "hint": {
         "tools": "Escolha a lista de ferramentas nas Configurações do agente",
@@ -2478,7 +2591,7 @@
         "sizeLine": "{{chars}} caracteres · ~{{tokens}} tokens",
         "loading": "Lendo…",
         "error": "Não foi possível ler esta fonte.",
-        "emptyBody": "Este não adiciona nada neste turno — está ativado, mas não há conteúdo para ele no momento.",
+        "emptyBody": "Este não adiciona nada neste turno — está ativada, mas não há conteúdo para ele no momento.",
         "unreadable": "Este vive dentro do próprio Claude Code, então não há arquivo para abrir. O número ao lado é uma estimativa, não uma medição.",
         "truncated": "Mostrando os primeiros {{count}} caracteres.",
         "openInEditor": "Abrir no editor integrado",
@@ -2519,6 +2632,11 @@
             "more": "Uma instrução fixa do Vibisual. Existe para que você possa parar o agente cedo quando ele for na direção errada.",
             "off": "O agente pode começar a editar arquivos sem anunciar o plano antes."
           },
+          "cardCommon": {
+            "what": "O único conjunto de regras que todo relatório de cartão compartilha - onde postar, quando postar e onde o cartão fica em relação ao seu texto.",
+            "more": "Mantido em um único lugar para que o mesmo parágrafo não seja repetido em cada bloco de cartão. Só é incluído quando pelo menos um cartão está ativada.",
+            "off": "O agent não sabe mais como postar um cartão, então os cartões abaixo podem nunca aparecer."
+          },
           "cardReport": {
             "what": "A receita do cartão colorido \"o que eu fiz / o que você precisa fazer\".",
             "more": "Diz ao agente para reportar seu resultado pela API do Vibisual, para que as duas listas sejam separadas por cor.",
@@ -2550,7 +2668,7 @@
             "off": "O agente deixa de ver o objetivo e sua lista de progresso. A janela de objetivo em si permanece."
           },
           "brainCards": {
-            "what": "Cartões de memória do Cérebro do Projeto que correspondem ao que você acabou de pedir.",
+            "what": "Cartões de memória do Memória do Projeto que correspondem ao que você acabou de pedir.",
             "more": "Ranqueados contra sua mensagem, mais as regras marcadas como sempre ativas. Armazenados em .vibisual/brain neste projeto.",
             "off": "O agente começa sem as lições que este projeto já aprendeu."
           },
@@ -2813,6 +2931,39 @@
       "foreignSession": "Essa sessão pertence a outra bolha",
       "tooSmall": "Pequeno demais para dividir",
       "alreadyHere": "Já exibido aqui"
+    },
+    "verify": {
+      "title": "Verificar",
+      "about": "Executa /verify nesta aba: compila e inicia seu app e relata o que realmente viu.",
+      "pickSession": "Abra uma aba de sessão para executar uma verificação.",
+      "focusLabel": "O que conferir (opcional)",
+      "focusPlaceholder": "ex.: se o botão de login abre mesmo a caixa de diálogo",
+      "start": "Executar verificação",
+      "running": "Em execução",
+      "readOnly": "Bolhas de Hook são somente leitura; não dá para iniciar uma verificação aqui.",
+      "empty": "Nenhuma verificação foi executada nesta aba ainda.",
+      "stop": "Fechar",
+      "rework": "Enviar para retrabalho",
+      "delete": "Excluir",
+      "recipe": {
+        "playRecipe": "Envia a receita de execução que o Vibisual já conhece",
+        "recordedSkill": "Segue a receita já registrada neste repositório",
+        "none": "Nenhuma receita registrada — o /verify vai descobrir"
+      },
+      "verdict": {
+        "pass": "Aprovado",
+        "fail": "Falhou",
+        "held": "Em espera",
+        "unknown": "Desconhecido"
+      },
+      "error": {
+        "alreadyRunning": "Já há uma verificação em execução nesta aba.",
+        "sessionBusy": "Esta aba ainda tem um comando não finalizado.",
+        "sessionNotFound": "Sessão não encontrada.",
+        "readOnly": "Bolhas de Hook são somente leitura.",
+        "network": "Não foi possível falar com o servidor.",
+        "failed": "Não foi possível iniciar a verificação."
+      }
     }
   },
   "bubbleMap": {
@@ -3097,6 +3248,11 @@
   },
   "canvas": {
     "stubPlaceholder": "Este projeto está somente no disco. Clique na aba para carregar.",
+    "loading": {
+      "project": "Carregando projeto…",
+      "connecting": "Conectando ao servidor…",
+      "slow": "Conexão lenta — ainda carregando…"
+    },
     "controls": {
       "zoomIn": "Aproximar",
       "zoomOut": "Afastar",
@@ -3132,8 +3288,8 @@
       "createLocalAgentHint": "Coloca uma bolha para um modelo que roda neste PC",
       "createShelf": "Prateleira de scripts",
       "createShelfHint": "Mantenha os comandos e prompts que você usa com frequência a um clique de distância",
-      "brainOn": "Ativar o cérebro do projeto",
-      "brainOff": "Desativar o cérebro do projeto",
+      "brainOn": "Ativar a memória do projeto",
+      "brainOff": "Desativar a memória do projeto",
       "brainOnHint": "Guarda os procedimentos que aprende e os carrega na próxima tarefa",
       "brainOnHintSleeping": "{{count}} memórias estão dormindo aqui",
       "brainOffHint": "Desativar não apaga nada"
@@ -3389,7 +3545,7 @@
     "close": "Fechar"
   },
   "brain": {
-    "bubbleLabel": "Cérebro",
+    "bubbleLabel": "Memória",
     "trashBubbleLabel": "Lixeira",
     "trashCountShort": "{{n}}",
     "unseenBadge": "{{n}} não vistos",
@@ -3406,7 +3562,7 @@
       "rule": "Regra",
       "fact": "Fato"
     },
-    "scopeProject": "Cérebro do Projeto",
+    "scopeProject": "Memória do Projeto",
     "scopeAgent": "Memória do Agente",
     "statusGhost": "Precisa de revisão",
     "supersededNote": "Conteúdo anterior",
@@ -3428,7 +3584,7 @@
     "lastReferenced": "Última referência",
     "createdAt": "Criado",
     "sourceSession": "Sessão de origem",
-    "promote": "Promover para o Cérebro do Projeto",
+    "promote": "Promover para o Memória do Projeto",
     "pin": "Fixar",
     "unpin": "Desafixar",
     "edit": "Editar",
@@ -3462,7 +3618,7 @@
     "trashItemsMore": "+{{n}} outros",
     "cardCountUnitSuffix": "",
     "feed": {
-      "title": "Cérebro do Projeto",
+      "title": "Memória do Projeto",
       "agentTitle": "Memória deste Agente",
       "searchPlaceholder": "Buscar memórias…",
       "sectionRelated": "Relacionado ao trabalho atual",
@@ -3574,19 +3730,19 @@
       }
     },
     "activation": {
-      "sleeping": "{{count}} memórias estão adormecidas no cérebro deste projeto. Ativar?",
-      "hint": "O cérebro vem desligado. Ligado, ele reúne os procedimentos aprendidos e os aplica na próxima tarefa. Você pode desligar quando quiser — desligar não apaga nada.",
+      "sleeping": "{{count}} memórias estão adormecidas na memória deste projeto. Ativar?",
+      "hint": "A memória vem desligado. Ligado, ele reúne os procedimentos aprendidos e os aplica na próxima tarefa. Você pode desligar quando quiser — desligar não apaga nada.",
       "turnOn": "Ativar",
       "notNow": "Agora não",
       "showAxes": "Ver o que será ativado",
       "hideAxes": "Ocultar detalhes",
       "axesTitle": "O que manter ativo",
-      "turnOff": "Desligar o cérebro",
+      "turnOff": "Desligar a memória",
       "offKeepsData": "Desligar não apaga nada — ao religar, continua de onde parou.",
       "noProject": "Nenhum projeto aberto",
-      "noProjectDesc": "O cérebro é ativado por projeto — abra um projeto primeiro.",
-      "stateOn": "O cérebro deste projeto está ativado",
-      "stateOff": "O cérebro deste projeto está desativado",
+      "noProjectDesc": "A memória é ativada por projeto — abra um projeto primeiro.",
+      "stateOn": "A memória deste projeto está ativada",
+      "stateOff": "A memória deste projeto está desativada",
       "sleepingCount": "{{count}} memórias estão dormindo"
     }
   },

@@ -11,6 +11,7 @@ import '@xyflow/react/dist/style.css';
 import type { BubbleData } from '@vibisual/shared';
 import { WS_PATH } from '@vibisual/shared';
 import { useGraphStore, selectIDEOverlay } from '../../stores/graphStore.js';
+import { coerceIDEPaneHandoff } from '../../stores/idePaneHandoff.js';
 import { useWebSocket } from '../../hooks/useWebSocket.js';
 import { useOverlaySync } from '../../hooks/useOverlaySync.js';
 import { BubbleNode } from '../BubbleMap/BubbleNode.js';
@@ -107,12 +108,42 @@ export function OverlayShell({ agentId, projectId, initiallyExpanded = false }: 
 
   // (판올림 번호 발급 대기) 끌어내서 만든 창 — 스냅샷이 도착해 버블을 알게 된 **그때** IDE 를 연다.
   //   더 일찍 열면 `nodeMap` 이 비어 IDE 가 null 을 돌려주고, 창은 잠깐 텅 빈 채로 뜬다.
+  //
+  // §5.5 #17-6 (H) — 앱 안에서 지고 온 **짐**이 있으면 그 상태로 연다(열어 둔 편집 탭·보던 뷰·
+  //   고른 세션). 짐은 main 이 맡아 두고 있으며 **한 번 꺼내면 사라진다** — 없으면(직접 만든
+  //   버블 창이거나 이미 꺼내 갔거나) 종전대로 첫 화면에서 시작한다.
   const popOutOpenedRef = useRef(false);
   useEffect(() => {
     if (!initiallyExpanded || popOutOpenedRef.current || !agent) return;
     popOutOpenedRef.current = true;
-    openIDEOverlay(agentId);
+    const ov = window.api?.overlay;
+    if (!ov?.takeHandoff) {
+      openIDEOverlay(agentId);
+      return;
+    }
+    void ov.takeHandoff(agentId).then((raw) => {
+      openIDEOverlay(agentId, {
+        // 독립 창은 붙은 변·창 안 좌표를 물려받지 않는다(창 자체가 IDE 라 앉을 변이 없다).
+        //   그 값은 짐 안에 남아 되돌아갈 때 원래 자리로 복귀하는 데 쓰인다.
+        handoff: coerceIDEPaneHandoff(raw),
+        handoffTarget: 'detached',
+      });
+    });
   }, [initiallyExpanded, agent, agentId, openIDEOverlay]);
+
+  // §5.5 #17-6 (H) — 이미 서 있던 창에 짐이 **뒤늦게** 도착하는 길(그 창은 부팅을 다시 하지 않아
+  //   위 pull 이 돌지 않는다 — 꺼내 둔 창이 있는 채로 앱 안에서 또 꺼냈을 때).
+  useEffect(() => {
+    const ov = window.api?.overlay;
+    if (!ov?.onPaneHandoff) return;
+    const off = ov.onPaneHandoff((payload) => {
+      if (payload.agentId !== agentId) return;
+      const handoff = coerceIDEPaneHandoff(payload.handoff);
+      if (!handoff) return;
+      openIDEOverlay(agentId, { handoff, handoffTarget: 'detached' });
+    });
+    return () => { off(); };
+  }, [agentId, openIDEOverlay]);
 
   const rfRef = useRef<ReactFlowInstance | null>(null);
   const handleInit = useCallback((inst: ReactFlowInstance) => {

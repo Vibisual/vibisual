@@ -11,7 +11,7 @@
 // Rationale: "renderer fetch/WS → window.api 일괄 교체" (Stage 4) at a single
 // chokepoint instead of editing every call site. UI source stays untouched.
 
-import type { UpdateState, AgentConfig, MobileAccessState, CaptureSourceInfo, CaptureInputEvent, CaptureSourceKind, CaptureTargetRect, CaptureInjectResult, PreviewSnipRect, PageRegionCapture } from '@vibisual/shared';
+import type { UpdateState, AgentConfig, MobileAccessState, ChatBridgeState, ChatChannelKind, ChatVerbosity, CaptureSourceInfo, CaptureInputEvent, CaptureSourceKind, CaptureTargetRect, CaptureInjectResult, PreviewSnipRect, PageRegionCapture } from '@vibisual/shared';
 
 interface FetchInitWire {
   method?: string;
@@ -91,7 +91,15 @@ export interface PackagedOverlayApi {
     cursor?: { x: number; y: number };
     expanded?: boolean;
     size?: { width: number; height: number };
+    /**
+     * §17-6 (H) — 그 창이 들고 가는 짐(열어 둔 편집 탭·보던 뷰·고른 세션·붙어 있던 변).
+     * main 은 뜻을 모르고 맡아만 두므로 여기서도 `unknown` 이다 — 모양을 아는 곳은
+     * 넣고 꺼내는 `components/IDE/paneHandoff.ts` 한 곳뿐이다.
+     */
+    handoff?: unknown;
   }): Promise<{ windowId: number; reused: boolean }>;
+  /** §17-6 (H) — 새로 뜬 창이 자기 짐을 꺼낸다(한 번 꺼내면 사라진다. 없으면 null). */
+  takeHandoff(agentId: string): Promise<unknown>;
   close(agentId: string): Promise<boolean>;
   closeSelf(): Promise<boolean>;
   expandSelf(): Promise<boolean>;
@@ -99,6 +107,16 @@ export interface PackagedOverlayApi {
   /** §17-6 v2.81 — 버블 드래그 = OS 창 이동(메인 프로세스 커서 폴링) 시작/종료. */
   dragStart(): Promise<boolean>;
   dragEnd(): Promise<boolean>;
+  /**
+   * §17-6 (H) — 꺼낸 IDE 창을 **끌어다 앱 안으로 합치기**. 잡으면 창이 칩으로 줄어 커서를
+   * 따라오고, 메인 창 위에서 놓으면 합쳐진다(밖에서 놓으면 원래 자리로 되돌아온다).
+   */
+  redockDragStart(): Promise<boolean>;
+  redockDragEnd(payload: { commit: boolean; handoff?: unknown }): Promise<boolean>;
+  /** §17-6 (H) — 합치기 드래그 상태(칩 모양 전환·놓을 자리 강조) 구독. */
+  onRedockDragState(cb: (payload: { dragging: boolean; hovering: boolean }) => void): () => void;
+  /** §17-6 (H) — 이미 서 있던 창에 짐이 뒤늦게 도착했을 때. */
+  onPaneHandoff(cb: (payload: { agentId: string; handoff: unknown }) => void): () => void;
   list(): Promise<OverlayListWire>;
   setVisible(visible: boolean): Promise<boolean>;
   /** §17-6 (G) v2.82 — 우클릭 "숨기기(이 버블만)". */
@@ -109,9 +127,17 @@ export interface PackagedOverlayApi {
    * §17-6 (G) v2.82 — 우클릭 "본체에서 이 버블로 점프".
    * (판올림 번호 발급 대기) `openIde` 면 점프에서 그치지 않고 앱 안에서 **IDE 창까지 다시 연다**.
    */
-  revealInMain(payload: { agentId: string; projectId: string; openIde?: boolean }): Promise<boolean>;
+  revealInMain(payload: {
+    agentId: string;
+    projectId: string;
+    openIde?: boolean;
+    /** §17-6 (H) — 되돌아가며 들고 가는 짐. 메인 창이 꺼내 그 창을 이어 세운다. */
+    handoff?: unknown;
+  }): Promise<boolean>;
   /** §17-6 (G) v2.82 — 메인 윈도우: 오버레이 점프 신호 구독. */
-  onReveal(cb: (payload: { agentId: string; projectId: string; openIde?: boolean }) => void): () => void;
+  onReveal(
+    cb: (payload: { agentId: string; projectId: string; openIde?: boolean; hasHandoff?: boolean }) => void,
+  ): () => void;
   onList(cb: (payload: OverlayListWire) => void): () => void;
   /** §17-6 (G) v2.87 — 버블 창: 우클릭 → 커서 위치에 메뉴 팝업 창 열기. */
   openMenu(): Promise<boolean>;
@@ -161,6 +187,24 @@ export interface PackagedMobileApi {
   issueQr(): Promise<MobileAccessState>;
   revokeQr(): Promise<MobileAccessState>;
   onStatus(cb: (state: MobileAccessState) => void): () => void;
+}
+
+/**
+ * §4 메신저 원격제어 브리지 surface (판올림 번호 발급 대기).
+ * 모바일 웹(위)과 **방향이 반대**다 — 포트를 열지 않고 우리가 나가서 붙는다.
+ * 봇 토큰은 되돌아 나오지 않는다(상태에는 `hasToken` 만 있다).
+ */
+export interface PackagedChatApi {
+  getState(): Promise<ChatBridgeState>;
+  verifyToken(kind: ChatChannelKind, token: string): Promise<{ ok: boolean; botName?: string; error?: string }>;
+  setToken(kind: ChatChannelKind, token: string): Promise<ChatBridgeState>;
+  enable(kind: ChatChannelKind): Promise<ChatBridgeState>;
+  disable(kind: ChatChannelKind): Promise<ChatBridgeState>;
+  issuePair(kind: ChatChannelKind): Promise<ChatBridgeState>;
+  revokePair(kind: ChatChannelKind): Promise<ChatBridgeState>;
+  unpair(kind: ChatChannelKind, chatId: string): Promise<ChatBridgeState>;
+  setVerbosity(verbosity: ChatVerbosity): Promise<ChatBridgeState>;
+  onStatus(cb: (state: ChatBridgeState) => void): () => void;
 }
 
 // §4 v2.63 임베디드 인터랙티브 터미널 surface — IDE 창 안 PTY.
@@ -216,6 +260,8 @@ export interface PackagedApi {
   terminal?: PackagedTerminalApi;
   /** §4 v3.16 — 모바일 웹 접속 모드. 모바일 브라우저(web 모드)에선 부재. */
   mobile?: PackagedMobileApi;
+  /** §4 — 메신저 원격제어 브리지. 모바일 브라우저(web 모드)·구버전 preload 에선 부재. */
+  chat?: PackagedChatApi;
   /** §5.5 #17-6 — 버블 오버레이 창. dev/web 모드에선 부재. */
   overlay?: PackagedOverlayApi;
   /** §5.12 — 지휘통제실 창. dev/web 모드(window.api 없음)·구버전 preload 에선 부재. */

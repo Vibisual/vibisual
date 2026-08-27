@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import { electronAPI } from '@electron-toolkit/preload';
-import type { UpdateState, AgentConfig, MobileAccessState, CaptureSourceInfo, CaptureInputEvent, CaptureSourceKind, CaptureTargetRect, CaptureInjectResult, PreviewSnipRect, PageRegionCapture } from '@vibisual/shared';
+import type { UpdateState, AgentConfig, MobileAccessState, ChatBridgeState, ChatChannelKind, ChatVerbosity, CaptureSourceInfo, CaptureInputEvent, CaptureSourceKind, CaptureTargetRect, CaptureInjectResult, PreviewSnipRect, PageRegionCapture } from '@vibisual/shared';
 
 // Preload — SCENARIO.md §3.7 / §3.4 contextBridge surface.
 //
@@ -147,8 +147,16 @@ const api = {
       cursor?: { x: number; y: number };
       expanded?: boolean;
       size?: { width: number; height: number };
+      /** §17-6 (H) — 앱 안에서 그 창이 들고 있던 것(열어 둔 편집 탭·보던 뷰·붙어 있던 변). */
+      handoff?: unknown;
     }): Promise<{ windowId: number; reused: boolean }> =>
       ipcRenderer.invoke('vibisual:overlay:open', payload),
+    /**
+     * §17-6 (H) — 새로 뜬 창이 **자기 짐**을 꺼낸다. 한 번 꺼내면 사라지고, 없으면 null 이다
+     * (그때는 종전대로 첫 화면에서 시작한다 — 짐이 없다고 창이 안 뜨지는 않는다).
+     */
+    takeHandoff: (agentId: string): Promise<unknown> =>
+      ipcRenderer.invoke('vibisual:overlay:take-handoff', agentId),
     /** 특정 에이전트의 오버레이 창 닫기(메인에서 토글 해제 시). */
     close: (agentId: string): Promise<boolean> => ipcRenderer.invoke('vibisual:overlay:close', agentId),
     /** 오버레이 창이 자기 자신을 닫기. */
@@ -161,6 +169,26 @@ const api = {
     dragStart: (): Promise<boolean> => ipcRenderer.invoke('vibisual:overlay:drag-start'),
     /** 버블 드래그 종료(window mouseup) — 커서 폴링 해제. */
     dragEnd: (): Promise<boolean> => ipcRenderer.invoke('vibisual:overlay:drag-end'),
+    /**
+     * §17-6 (H) — 꺼낸 IDE 창을 **끌어다 앱 안으로 합치기**. 잡으면 창이 칩으로 줄어 커서를 따라오고,
+     * 메인 창 위에서 놓으면 합쳐진다(밖에서 놓으면 원래 자리로 되돌아온다).
+     */
+    redockDragStart: (): Promise<boolean> => ipcRenderer.invoke('vibisual:overlay:redock-drag-start'),
+    /** 합치기 드래그 종료(window mouseup). `commit` 이면 합치고, 그때 들고 갈 짐도 함께 넘긴다. */
+    redockDragEnd: (payload: { commit: boolean; handoff?: unknown }): Promise<boolean> =>
+      ipcRenderer.invoke('vibisual:overlay:redock-drag-end', payload),
+    /** §17-6 (H) — main 의 폴링이 이 창에 알리는 합치기 드래그 상태(칩 모양 전환·놓을 자리 강조). */
+    onRedockDragState: (cb: (payload: { dragging: boolean; hovering: boolean }) => void): (() => void) => {
+      const listener = (_e: unknown, payload: { dragging: boolean; hovering: boolean }): void => cb(payload);
+      ipcRenderer.on('vibisual:overlay:redock-drag-state', listener);
+      return () => ipcRenderer.removeListener('vibisual:overlay:redock-drag-state', listener);
+    },
+    /** §17-6 (H) — 이미 서 있던 창에 짐이 뒤늦게 도착했을 때(부팅을 다시 하지 않으므로 push 로 온다). */
+    onPaneHandoff: (cb: (payload: { agentId: string; handoff: unknown }) => void): (() => void) => {
+      const listener = (_e: unknown, payload: { agentId: string; handoff: unknown }): void => cb(payload);
+      ipcRenderer.on('vibisual:overlay:pane-handoff', listener);
+      return () => ipcRenderer.removeListener('vibisual:overlay:pane-handoff', listener);
+    },
     /** 현재 오버레이 목록 + 전역 토글 상태 조회(초기 동기화용). */
     list: (): Promise<OverlayListWire> => ipcRenderer.invoke('vibisual:overlay:list'),
     /** Header 전역 토글 — 모든 오버레이 창 show/hide. */
@@ -174,11 +202,22 @@ const api = {
      * (판올림 번호 발급 대기) `openIde` 면 점프에서 그치지 않고 **앱 안에서 IDE 창까지 다시 연다**
      * (밖으로 끌어냈던 창을 되돌리는 길).
      */
-    revealInMain: (payload: { agentId: string; projectId: string; openIde?: boolean }): Promise<boolean> =>
+    revealInMain: (payload: {
+      agentId: string;
+      projectId: string;
+      openIde?: boolean;
+      /** §17-6 (H) — 되돌아가며 들고 가는 짐. 메인 창이 `takeHandoff` 로 꺼내 그 창을 이어 세운다. */
+      handoff?: unknown;
+    }): Promise<boolean> =>
       ipcRenderer.invoke('vibisual:overlay:reveal-in-main', payload),
     /** §17-6 (G) v2.82 — 메인 윈도우 한정: 오버레이가 보낸 캔버스 점프 신호 구독. */
-    onReveal: (cb: (payload: { agentId: string; projectId: string; openIde?: boolean }) => void): (() => void) => {
-      const listener = (_e: unknown, payload: { agentId: string; projectId: string; openIde?: boolean }): void => cb(payload);
+    onReveal: (
+      cb: (payload: { agentId: string; projectId: string; openIde?: boolean; hasHandoff?: boolean }) => void,
+    ): (() => void) => {
+      const listener = (
+        _e: unknown,
+        payload: { agentId: string; projectId: string; openIde?: boolean; hasHandoff?: boolean },
+      ): void => cb(payload);
       ipcRenderer.on('vibisual:overlay:reveal', listener);
       return () => ipcRenderer.removeListener('vibisual:overlay:reveal', listener);
     },
@@ -286,6 +325,41 @@ const api = {
       const listener = (_e: unknown, state: MobileAccessState): void => cb(state);
       ipcRenderer.on('vibisual:mobile:status', listener);
       return () => ipcRenderer.removeListener('vibisual:mobile:status', listener);
+    },
+  },
+  /**
+   * §4 메신저 원격제어 브리지 surface — File 메뉴 Remote Control 모달.
+   * 모바일 웹(위)과 **방향이 반대**다: 여기서는 우리가 포트를 열지 않고 바깥으로 나가서 붙는다.
+   * 봇 토큰은 이 문으로 **되돌아 나오지 않는다**(상태에는 hasToken 만 실린다).
+   */
+  chat: {
+    /** 현재 상태 1회 조회(모달 오픈 시 초기값). */
+    getState: (): Promise<ChatBridgeState> => ipcRenderer.invoke('vibisual:chat:get-state'),
+    /** 저장 전 토큰 검증 — 봇 이름을 돌려줘 사용자가 성공을 눈으로 확인한다. */
+    verifyToken: (kind: ChatChannelKind, token: string): Promise<{ ok: boolean; botName?: string; error?: string }> =>
+      ipcRenderer.invoke('vibisual:chat:verify-token', kind, token),
+    /** 토큰 저장(빈 문자열이면 지우고 채널을 끈다). */
+    setToken: (kind: ChatChannelKind, token: string): Promise<ChatBridgeState> =>
+      ipcRenderer.invoke('vibisual:chat:set-token', kind, token),
+    /** 채널 켜기 — 그때 처음 바깥으로 나간다. */
+    enable: (kind: ChatChannelKind): Promise<ChatBridgeState> => ipcRenderer.invoke('vibisual:chat:enable', kind),
+    /** 채널 끄기(재시도 타이머까지 정리). */
+    disable: (kind: ChatChannelKind): Promise<ChatBridgeState> => ipcRenderer.invoke('vibisual:chat:disable', kind),
+    /** 딥링크 페어링 티켓 발급(3분). 채널당 살아 있는 티켓은 항상 한 장. */
+    issuePair: (kind: ChatChannelKind): Promise<ChatBridgeState> => ipcRenderer.invoke('vibisual:chat:issue-pair', kind),
+    /** 티켓 즉시 폐기(이미 페어링된 대화는 유지). */
+    revokePair: (kind: ChatChannelKind): Promise<ChatBridgeState> => ipcRenderer.invoke('vibisual:chat:revoke-pair', kind),
+    /** 페어링된 대화 하나 끊기. */
+    unpair: (kind: ChatChannelKind, chatId: string): Promise<ChatBridgeState> =>
+      ipcRenderer.invoke('vibisual:chat:unpair', kind, chatId),
+    /** 폰으로 나가는 전송량 정책(기본 cards). */
+    setVerbosity: (verbosity: ChatVerbosity): Promise<ChatBridgeState> =>
+      ipcRenderer.invoke('vibisual:chat:set-verbosity', verbosity),
+    /** main 이 푸시하는 상태 변경 구독(연결/페어링/티켓 만료 등). */
+    onStatus: (cb: (state: ChatBridgeState) => void): (() => void) => {
+      const listener = (_e: unknown, state: ChatBridgeState): void => cb(state);
+      ipcRenderer.on('vibisual:chat:status', listener);
+      return () => ipcRenderer.removeListener('vibisual:chat:status', listener);
     },
   },
   /** §4 v2.63 임베디드 인터랙티브 터미널 surface — IDE 창 안 PTY. */

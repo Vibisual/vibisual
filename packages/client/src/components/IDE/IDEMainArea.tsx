@@ -2631,7 +2631,7 @@ export const IDEMainArea = memo(function IDEMainArea({
         },
       },
       {
-        label: t('ide.mainArea.ctxSaveToBrain', { defaultValue: '두뇌에 기억' }),
+        label: t('ide.mainArea.ctxSaveToBrain', { defaultValue: '메모리에 기억' }),
         disabled: !hasSel,
         disabledTitle: selectionRequired,
         onClick: () => {
@@ -3294,13 +3294,25 @@ export const IDEMainArea = memo(function IDEMainArea({
   //   key=termId 라 탭 전환 시 그 세션 터미널로 교체(PTY 는 main 에서 보존 → reattach).
   //   모든 hook 은 위에서 이미 호출됐으므로 여기서 조기 return 해도 Rules of Hooks 안전.
   if (showInteractiveTerminal) {
+    // §4 (CMD) — 세션 탭이 아직 정해지지 않았으면(창을 연 직후의 찰나) **터미널을 세우지 않는다**.
+    //   CMD 는 커스텀이라 탭바에 메인 탭 자체가 없고(IDETabBar 의 `!isCustom` 조건), 세션은 곧
+    //   자동으로 골라지거나 새로 열린다(AgentIDEOverlay 의 자동 선택·자동 생성). 그 찰나에
+    //   `'main'` 으로 터미널을 한 벌 세우면 `term:<agent>:main` PTY 가 실제로 떠서 셸 배너와
+    //   prefill 명령까지 그린 뒤, 세션이 정해지는 순간 key 가 바뀌며 통째로 갈아엎힌다 —
+    //   사용자 눈에는 "처음 열면 자동으로 적힌 명령이 지워진다"로 보인다. 게다가 버려진 PTY 는
+    //   회수되지도 않는다(unmount 는 reattach 를 위해 PTY 를 살려 두는 것이 규약이라, 아무도
+    //   보지 않는 셸이 그대로 남는다).
+    if (!activeSessionId) {
+      // 배경색은 터미널과 같은 값 — 이 찰나의 자리바꿈이 깜빡임으로 드러나지 않게.
+      return <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-[#11111b]" />;
+    }
     // §4 v2.83 — CMD 카드는 외부 레일이 아니라 **터미널 안 ANSI 색 박스**로 인라인 렌더된다
     //   (IDETerminalView 의 TerminalCardSniffer 가 마커 줄을 박스로 대체). 여기선 터미널만 렌더.
     return (
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {/* §4 (CMD ⑤) — 탭 하나가 pane 트리를 갖는다. 분할이 없으면 pane '0' 단일 렌더라
             종전(IDETerminalView 직접 렌더)과 화면·termId 가 바이트 단위로 같다. */}
-        <IDETerminalPanes key={activeSessionId ?? 'main'} agentId={agentId} sessionId={activeSessionId} />
+        <IDETerminalPanes key={activeSessionId} agentId={agentId} sessionId={activeSessionId} />
       </div>
     );
   }

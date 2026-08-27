@@ -69,7 +69,7 @@ describe('필터 — 고르기만 하고 판정하지 않는다', () => {
 });
 
 describe('색과 라벨 — 세 화면이 같은 값을 본다', () => {
-  it('위험 3종이 서로 다른 색을 갖는다', () => {
+  it('위험 4종이 서로 다른 색을 갖는다', () => {
     const tones = AUDIT_RISK_KINDS.map((k) => riskToneClass(k));
     expect(new Set(tones).size).toBe(AUDIT_RISK_KINDS.length);
   });
@@ -79,7 +79,13 @@ describe('색과 라벨 — 세 화면이 같은 값을 본다', () => {
       'panel.audit.risk.delete',
       'panel.audit.risk.network',
       'panel.audit.risk.config',
+      'panel.audit.risk.outside',
     ]);
+  });
+
+  it('`outside` 배지는 초록계가 아니다 — 같은 줄의 "허용" 배지로 오독되면 위험이 안전해 보인다', () => {
+    const tone = riskToneClass('outside');
+    for (const green of ['emerald', 'teal', 'lime', 'green']) expect(tone).not.toContain(green);
   });
 
   it('허용과 거부는 눈에 띄게 다른 색이다', () => {

@@ -1737,6 +1737,72 @@ export class ProjectGraphManager {
     return out;
   }
 
+  // ─── §5.5 #17-35 — 검증(Verify) ───
+  //
+  // 루프와 같은 규약 — 키가 subAgentId(세션 탭)라 조회는 인스턴스를 순회한다(열린 탭 수 수준).
+
+  /** 세션 탭 하나의 검증 이력(최신 우선). */
+  getVerificationRuns(subAgentId: string): import('@vibisual/shared').VerificationRun[] {
+    for (const inst of this.instances.values()) {
+      const list = inst.getVerificationRuns(subAgentId);
+      if (list.length > 0) return list;
+    }
+    return [];
+  }
+
+  /** 그 탭에서 아직 안 끝난 검증(겹쳐 쏘지 않기 위한 판정). */
+  getActiveVerificationRun(subAgentId: string): import('@vibisual/shared').VerificationRun | undefined {
+    for (const inst of this.instances.values()) {
+      const run = inst.getActiveVerificationRun(subAgentId);
+      if (run) return run;
+    }
+    return undefined;
+  }
+
+  /** 검증 한 건 추가. run.agentId 소속 인스턴스로 라우팅, 없으면 primary 폴백(루프와 같은 규칙). */
+  addVerificationRun(run: import('@vibisual/shared').VerificationRun): boolean {
+    const inst = this.findInstanceByAgentId(run.agentId) ?? this.primaryInstance();
+    if (!inst) return false;
+    inst.addVerificationRun(run);
+    return true;
+  }
+
+  /** id 로 찾기 — REST 는 subAgentId 를 모르고 들어온다. */
+  findVerificationRun(runId: string): import('@vibisual/shared').VerificationRun | undefined {
+    for (const inst of this.instances.values()) {
+      const hit = inst.findVerificationRun(runId);
+      if (hit) return hit;
+    }
+    return undefined;
+  }
+
+  /** 검증 부분 갱신(상태·판정·증거). 대상이 없으면 undefined. */
+  updateVerificationRun(
+    runId: string,
+    patch: Partial<import('@vibisual/shared').VerificationRun>,
+  ): import('@vibisual/shared').VerificationRun | undefined {
+    for (const inst of this.instances.values()) {
+      const next = inst.updateVerificationRun(runId, patch);
+      if (next) return next;
+    }
+    return undefined;
+  }
+
+  /** 검증 한 줄 삭제. */
+  deleteVerificationRun(runId: string): boolean {
+    for (const inst of this.instances.values()) {
+      if (inst.deleteVerificationRun(runId)) return true;
+    }
+    return false;
+  }
+
+  /** 한 에이전트의 검증 전부 삭제(에이전트 영구 제거). 지운 건수. */
+  deleteVerificationRunsForAgent(agentId: string): number {
+    let removed = 0;
+    for (const inst of this.instances.values()) removed += inst.deleteVerificationRunsForAgent(agentId);
+    return removed;
+  }
+
   // ─── §5.5 #17-28 — 컨텍스트 주입원 오버라이드 ───
   //
   // 주입 게이트가 **매 턴** 부르는 자리라 조회는 싸야 한다. 인스턴스 순회는 열린 프로젝트 수(보통 1~3)
@@ -2557,6 +2623,14 @@ export class ProjectGraphManager {
         projectAgentCounts: agentCounts,
         activeAgentCount: activeAgentCountAll,
       };
+    }
+
+    // §9 — **이 스냅샷에 실제로 적용한 범위를 그대로 되돌려 준다.**
+    //   클라가 "탭을 옮겨 아직 안 온 것"과 "원래 비어 있는 프로젝트"를 구분할 유일한 근거다 —
+    //   둘 다 화면에서는 똑같이 빈 캔버스라, 이 한 줄이 없으면 느린 회선에서 전자가 후자로 읽힌다.
+    //   범위를 적용하지 않았으면(= 전량) 싣지 않는다(구버전 클라에게도 종전과 같은 스냅샷).
+    if (scope !== null) {
+      snapshot = { ...snapshot, scopedProjects: [...scope] };
     }
 
     // Manager 레벨 task edges 는 fallback(인스턴스 없을 때) 용도만 — overlay 하되
@@ -3511,6 +3585,18 @@ export class ProjectGraphManager {
     return inst.recordAuditCall(input);
   }
 
+  /**
+   * §5.22 `outside` — 이 호출이 머물러야 할 경계(프로젝트 루트 + 세션 cwd).
+   *
+   * 인스턴스를 못 찾아도 **cwd 하나만이라도** 돌려준다 — 워크트리 인스턴스가 아직 안 선
+   * 첫 호출에서 경계가 통째로 비면 그동안의 호출은 `outside` 판정을 아예 못 받는다.
+   */
+  getAuditRoots(projectName: string, cwd?: string | null): string[] {
+    const inst = this.getInstanceByName(projectName) ?? this.primaryInstance();
+    if (inst) return inst.getAuditRoots(projectName, cwd ?? null);
+    return cwd && cwd.trim() ? [cwd.trim()] : [];
+  }
+
   /** 승인 카드가 뜬 줄에 "물었다"는 표식(어느 인스턴스가 들고 있든 찾아 적는다). */
   markAuditEscalated(projectName: string, entryId: string): void {
     for (const inst of this.instances.values()) inst.markAuditEscalated(projectName, entryId);
@@ -3543,6 +3629,18 @@ export class ProjectGraphManager {
     const inst = this.getInstanceByName(projectName) ?? this.primaryInstance();
     if (!inst) return null;
     return inst.setAuditBoundary(projectName, patch);
+  }
+
+  /**
+   * §3.2.3 — 보존 설정이 바뀐 직후 **전 인스턴스**의 원장에 새 상한을 적용한다.
+   * 한 인스턴스라도 잘렸으면 true(호출부가 브로드캐스트·저장을 결정한다).
+   */
+  applyAuditRetention(): boolean {
+    let changed = false;
+    for (const inst of this.instances.values()) {
+      if (inst.applyAuditRetention()) changed = true;
+    }
+    return changed;
   }
 
   /** 조회용 원장 한 장(REST). */

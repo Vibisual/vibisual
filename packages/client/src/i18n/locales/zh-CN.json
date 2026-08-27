@@ -13,6 +13,10 @@
       "disconnected": "已断开",
       "viewLogs": "查看服务器日志"
     },
+    "rightTools": {
+      "expand": "显示顶栏工具",
+      "collapse": "隐藏顶栏工具"
+    },
     "update": {
       "available": "更新 {{version}}",
       "availableTooltip": "版本 {{version}} 可用，正在后台下载",
@@ -72,7 +76,17 @@
         "top": "顶部",
         "bottom": "底部"
       },
-      "orphan": "气泡已消失的窗口"
+      "orphan": "气泡已消失的窗口",
+      "layout": {
+        "tile": "平铺窗口",
+        "cascade": "层叠窗口",
+        "tabRight": "全部堆叠为右侧标签页",
+        "splitLeftRight": "左右分屏",
+        "undockAll": "全部取消停靠",
+        "collapseAll": "全部折叠",
+        "expandAll": "全部展开"
+      },
+      "shortcutHint": "{{dock}} 停靠 · {{max}} 最大化 · {{next}} 下一个窗口"
     }
   },
   "panel": {
@@ -82,7 +96,8 @@
       "options": "选项…",
       "guide": "指南",
       "mobileAccess": "移动访问…",
-      "plugins": "插件…"
+      "plugins": "插件…",
+      "remoteControl": "远程控制…"
     },
     "mobileAccess": {
       "title": "移动访问",
@@ -119,6 +134,62 @@
       "qrExpiresIn": "有效期 {{time}}",
       "qrExpired": "已过期 — 请生成新二维码。",
       "qrPairedCount": "已通过此二维码配对：{{count}}"
+    },
+    "remoteControl": {
+      "title": "远程控制",
+      "subtitle": "通过消息应用远程操控 Vibisual。应用会主动向外连接，因此无需开放端口，也无需信任证书——即使在 CGNAT 环境下也能正常使用。",
+      "channel": {
+        "telegram": "Telegram",
+        "discord": "Discord"
+      },
+      "step1": "创建机器人",
+      "step2": "粘贴 Token",
+      "step3": "连接聊天",
+      "open": {
+        "telegram": "打开 @BotFather",
+        "discord": "打开开发者门户"
+      },
+      "step1Hint": {
+        "telegram": "向 @BotFather 发送 /newbot，选择一个名称，它就会回复一个 Token。",
+        "discord": "New Application → Bot → Reset Token。在同一页面开启“Message Content Intent”。"
+      },
+      "copied": "已复制",
+      "tokenPlaceholder": "粘贴机器人 Token",
+      "verify": "验证",
+      "verifying": "正在验证…",
+      "tokenSaved": "已连接到 {{name}}",
+      "clearToken": "移除",
+      "error": {
+        "token": "该 Token 被拒绝，请从机器人页面重新复制。",
+        "intent": "Discord 拒绝了此次连接，因为“Message Content Intent”未开启。请在开发者门户中开启后重试。",
+        "network": "无法连接到消息应用，正在重试。",
+        "rate-limit": "消息应用正在限制我们的请求频率，稍后将重试。"
+      },
+      "status": {
+        "off": "未开启",
+        "connecting": "连接中…",
+        "online": "在线",
+        "error": "已断开"
+      },
+      "enable": "开启",
+      "disable": "关闭",
+      "issueQr": "显示配对 QR 码({{minutes}} 分钟)",
+      "revokeQr": "立即撤销 QR 码",
+      "expiresIn": "剩余有效期",
+      "savePng": "保存 PNG",
+      "discordPairHint": "扫描以邀请机器人，然后在它可见的任意频道发送以下内容：",
+      "pairedChats": "已连接的聊天",
+      "unpair": "断开",
+      "verbosityTitle": "发送内容",
+      "verbosity": {
+        "cards": "仅卡片",
+        "full": "包含流式内容"
+      },
+      "verbosityHint": {
+        "cards": "只有卡片和摘要会离开本机，需要原始输出时可使用 /log 获取。",
+        "full": "回复和思考过程会随时转发，工具输出和差异内容仍不会离开本机。"
+      },
+      "securityNote": "只有已配对的聊天会收到回复，其余一律忽略。终端访问权限绝不会通过消息应用开放。"
     },
     "guide": {
       "title": "指南",
@@ -236,7 +307,7 @@
         "version": "版本",
         "account": "账户",
         "storage": "存储",
-        "brain": "项目大脑"
+        "brain": "项目记忆"
       },
       "appearance": {
         "intro": "个性化 Vibisual 的外观。",
@@ -357,6 +428,10 @@
             "label": "附件保留",
             "desc": "你粘贴到命令中的图片。会话仍指向的文件无论多旧都会保留，只有孤立文件会过期。0 = 永久保留。"
           },
+          "auditEntryMaxPerProject": {
+            "label": "每个项目的审计调用",
+            "desc": "审计时间线保留的工具调用条数。被挤掉的调用仍计入总数，只是明细不再保留。0 = 不限。"
+          },
           "trashRetentionDays": {
             "label": "回收站保留",
             "desc": "已清理的文件保持可还原状态多少天，之后才彻底删除。0 = 永久保留。"
@@ -390,6 +465,14 @@
         "trashEmpty": "回收站是空的——没有清理过任何东西。",
         "restore": "还原",
         "restoring": "正在还原…"
+      },
+      "advanced": {
+        "terminalScrollback": "终端回滚行数",
+        "terminalScrollbackDesc": "CMD 终端保留的输出行数。滚动和 {{shortcut}} 搜索共用此范围。仅对此后新打开的终端生效。"
+      },
+      "notifications": {
+        "cmdBlocked": "CMD 会话等待输入时通知我",
+        "cmdBlockedDesc": "仅在你正查看其他标签页或窗口时通知——如果该窗口已聚焦，说明内容已经显示在屏幕上。"
       }
     },
     "autoAgent": {
@@ -672,6 +755,8 @@
       "notMerged": "分支 {{branch}} 有尚未合并到 {{base}} 的提交。是否先合并到 {{base}} 再删除？",
       "notYetIn": "尚未合并到 {{base}}",
       "branchUnresolved": "无法通过 git worktree list 解析分支。强制删除只会移除文件夹和气泡。",
+      "forceStopTitle": "其中正在运行的内容将被强制终止",
+      "forceStopDesc": "将连同进程树终止 {{terminals}} 个终端，并把该工作树的 {{agents}} 个智能体移入回收站。若保留，文件会被占用，文件夹只能删除一半。",
       "cancel": "取消",
       "mergeAndDelete": "合并并删除",
       "delete": "删除",
@@ -913,6 +998,12 @@
         "toolsNone": "该模型无法使用工具——只能对话。",
         "toolsUnknown": "尚未确认——下一轮会带上工具去试。",
         "toolsRecheck": "重新确认"
+      },
+      "cliKind": {
+        "label": "CLI",
+        "tip": "该 CMD 终端启动的 Agent CLI。除 Claude Code 以外，其他 CLI 都不是我们的 Hooks 系统的子进程，因此无法接入对话续接与规则注入——其状态会改为从终端输出中读取。",
+        "nonClaudeNote": "该 CLI 并非 Claude Code，因此下方设置(模型、权限、工具、规则)不会传递给它。其状态改为从终端输出中读取。更改仅对通过“+”新开的会话生效。",
+        "applyNote": "更改 CLI 后仅对通过“+”新开的会话生效——已在运行的终端将保留其启动时的设置。"
       }
     },
     "permissionPrompt": {
@@ -1418,7 +1509,7 @@
       "boundaryHint": "记录不会停止——这只决定是否先暂停 Agent。",
       "routeTitle": "与权限模式分开运行的第二道关卡",
       "routeBody": "此边界与智能体设置中的权限模式（Permission Mode）分开运行，会对权限模式已放行的工具调用再检查一次。",
-      "routeOn": "开启时 — 即使智能体设为“全部允许（bypassPermissions）”，删除、网络、配置这三类仍会弹出审批卡片。",
+      "routeOn": "开启时 — 即使智能体设为“全部允许（bypassPermissions）”，删除、网络、配置、外部文件夹这四类仍会弹出审批卡片。",
       "routeOff": "关闭时（默认）— 所有调用都按权限模式的决定执行，只做记录。",
       "routeScope": "这里只会拦下 Vibisual 启动的自定义智能体。您自己运行的 Claude Code 会话只会被记录。",
       "routeStateOn": "当前开启 — 三类风险调用会先于权限模式进行确认。",
@@ -1426,11 +1517,16 @@
       "risk": {
         "delete": "删除",
         "network": "网络",
-        "config": "配置"
+        "config": "配置",
+        "outside": "外部文件夹读写"
       },
       "filterAll": "全部",
       "filterRisky": "风险",
       "filterDenied": "拒绝",
+      "retentionLabel": "保留",
+      "retentionUnit": "条",
+      "retentionUnlimited": "不限",
+      "retentionHint": "每个项目在磁盘上保留的调用条数。被挤掉的调用仍计入总数，只是明细不再保留。取消勾选即不限制。",
       "escalated": "已先询问",
       "decisionAllow": "已允许",
       "decisionDeny": "已拒绝",
@@ -1582,7 +1678,17 @@
       "collapseLabel": "折叠",
       "collapseHint": "折叠 — 保留窗口并归还画布（在标题栏窗口列表中重新展开）",
       "resizeWindow": "调整窗口大小",
-      "resizeStack": "调整分割比例"
+      "resizeStack": "调整分割比例",
+      "slotTabHint": "将“{{name}}”置于最前(多个窗口共用此停靠位)",
+      "dockShortcutHint": "{{dock}} 停靠 · {{undock}} 取消停靠",
+      "popOutHint": "松开即可弹出为独立窗口",
+      "popOutEdgeHint": "继续抵住边缘片刻即可弹出为独立窗口",
+      "popOutLabel": "弹出为独立窗口",
+      "returnToApp": "移回应用内",
+      "popOutHintButton": "弹出为独立窗口（也可将标题栏拖到应用外，或抵住屏幕边缘）",
+      "returnToAppHint": "点击可移回应用内 · 拖到应用窗口上松开即可合并",
+      "redockDropHint": "在此松开即可合并回应用内",
+      "redockKeepHint": "在其他位置松开则保持独立窗口"
     },
     "tabbar": {
       "newSession": "新建 Session",
@@ -1622,7 +1728,12 @@
         "clear": "清除卡片",
         "collapse": "折叠卡片",
         "expand": "显示卡片"
-      }
+      },
+      "splitRight": "向右分屏",
+      "splitDown": "向下分屏",
+      "zoom": "最大化面板",
+      "unzoom": "还原布局",
+      "closePane": "关闭面板"
     },
     "mainArea": {
       "scrollPrompt": "滚动到提示词",
@@ -1672,7 +1783,7 @@
       "inputCtxCopy": "复制",
       "inputCtxPaste": "粘贴",
       "inputCtxSelectAll": "全选",
-      "ctxSaveToBrain": "保存到大脑",
+      "ctxSaveToBrain": "保存到记忆",
       "stopAll": "全部停止",
       "stopAllTitle": "停止此 Agent 正在运行的所有内容（其他标签页 + 后台子 Agent）",
       "stopSessionTitle": "停止此 Session 及其启动的子 Agent（其他 Session 标签页继续运行）"
@@ -1706,7 +1817,8 @@
       "goal": "目标",
       "debug": "运行与调试",
       "hooks": "会话 Hooks",
-      "plugins": "Claude Code 插件"
+      "plugins": "Claude Code 插件",
+      "verify": "验证"
     },
     "mcp": {
       "title": "MCP 服务器",
@@ -2432,15 +2544,16 @@
         "edges": "出站边规则",
         "feedback": "过往用户反馈",
         "intentFirst": "先说明意图",
+        "cardCommon": "卡片协议(共用)",
         "cardReport": "工作报告卡片协议",
         "cardQuestion": "问题卡片协议",
         "cardReview": "评审卡片协议",
         "cardList": "编号列表卡片协议",
         "cardIframe": "服务器预览协议",
         "goal": "Session 目标",
-        "brainCards": "项目大脑简报",
-        "brainTopics": "大脑主题索引",
-        "brainRules": "大脑规则框架",
+        "brainCards": "项目记忆简报",
+        "brainTopics": "记忆主题索引",
+        "brainRules": "记忆规则框架",
         "hookEnforcement": "Hook Session 注入",
         "plugins": "全部强制执行插件",
         "claudeMd": "CLAUDE.md 文件",
@@ -2454,7 +2567,7 @@
         "mcp": "MCP 服务器",
         "hooks": "Hooks",
         "systemPrompt": "Claude Code 系统提示词",
-        "brainSkills": "大脑流程记忆"
+        "brainSkills": "记忆流程记忆"
       },
       "hint": {
         "tools": "在 Agent Settings 中选择工具列表",
@@ -2519,6 +2632,11 @@
             "more": "固定的 Vibisual 内置指令，目的是让您能在 Agent 走偏时及早叫停。",
             "off": "该 Agent 可能在未先宣布计划的情况下就开始编辑文件。"
           },
+          "cardCommon": {
+            "what": "所有卡片报告共用的一套规则——发布位置、发布时机，以及卡片相对于你文字的位置。",
+            "more": "集中放在一处，避免同一段文字在每个卡片模块中重复出现。仅当至少启用一种卡片时才会包含此内容。",
+            "off": "Agent 将不再知道如何发布卡片，因此下方的卡片可能永远不会出现。"
+          },
           "cardReport": {
             "what": "彩色“我做了什么 / 您需要做什么”卡片的生成规则。",
             "more": "告知 Agent 通过 Vibisual 的 API 上报结果，以便按颜色拆分这两份清单。",
@@ -2550,7 +2668,7 @@
             "off": "该 Agent 将不再看到目标及其进度列表。目标窗口本身仍会保留。"
           },
           "brainCards": {
-            "what": "与您刚提出的问题匹配的项目大脑记忆卡片。",
+            "what": "与您刚提出的问题匹配的项目记忆记忆卡片。",
             "more": "按您的消息排序，并加上标记为常驻的规则。存储在此项目的 .vibisual/brain 中。",
             "off": "该 Agent 将不再具备此项目已经积累的经验。"
           },
@@ -2813,6 +2931,39 @@
       "foreignSession": "该会话属于其他气泡",
       "tooSmall": "空间太小，无法在此拆分",
       "alreadyHere": "此视图中已显示"
+    },
+    "verify": {
+      "title": "验证",
+      "about": "在此标签页运行 /verify — 构建并启动应用，然后报告实际看到的结果。",
+      "pickSession": "验证以会话标签页为单位。请先打开一个会话标签页。",
+      "focusLabel": "要确认什么（可选）",
+      "focusPlaceholder": "例如：点击登录按钮是否真的打开对话框",
+      "start": "运行验证",
+      "running": "运行中",
+      "readOnly": "Hook 气泡为只读，无法在此启动验证。",
+      "empty": "此标签页尚未运行过验证。",
+      "stop": "关闭",
+      "rework": "发送返工",
+      "delete": "删除",
+      "recipe": {
+        "playRecipe": "发送 Vibisual 已经掌握的运行配方",
+        "recordedSkill": "沿用此仓库中已记录的验证配方",
+        "none": "没有已登记的配方 — 由 /verify 自行判断"
+      },
+      "verdict": {
+        "pass": "通过",
+        "fail": "失败",
+        "held": "待定",
+        "unknown": "未知"
+      },
+      "error": {
+        "alreadyRunning": "此标签页已有验证在运行。",
+        "sessionBusy": "此标签页仍有未完成的命令。",
+        "sessionNotFound": "找不到该会话。",
+        "readOnly": "Hook 气泡为只读。",
+        "network": "无法连接到服务器。",
+        "failed": "无法启动验证。"
+      }
     }
   },
   "bubbleMap": {
@@ -3097,6 +3248,11 @@
   },
   "canvas": {
     "stubPlaceholder": "此项目仅在磁盘上。点击标签以加载。",
+    "loading": {
+      "project": "正在加载项目…",
+      "connecting": "正在连接服务器…",
+      "slow": "网络较慢 — 仍在接收…"
+    },
     "controls": {
       "zoomIn": "放大",
       "zoomOut": "缩小",
@@ -3132,8 +3288,8 @@
       "createLocalAgentHint": "放置一个用于本机模型的气泡",
       "createShelf": "脚本搁板",
       "createShelfHint": "将常用命令和提示词放在一键可达之处",
-      "brainOn": "开启项目大脑",
-      "brainOff": "关闭项目大脑",
+      "brainOn": "开启项目记忆",
+      "brainOff": "关闭项目记忆",
       "brainOnHint": "把学到的流程存下来，下次任务自动加载",
       "brainOnHintSleeping": "有 {{count}} 条记忆正在沉睡",
       "brainOffHint": "关闭不会删除任何记录"
@@ -3389,7 +3545,7 @@
     "close": "关闭"
   },
   "brain": {
-    "bubbleLabel": "大脑",
+    "bubbleLabel": "记忆",
     "trashBubbleLabel": "回收站",
     "trashCountShort": "{{n}}",
     "unseenBadge": "{{n}} 条未读",
@@ -3406,7 +3562,7 @@
       "rule": "规则",
       "fact": "事实"
     },
-    "scopeProject": "项目大脑",
+    "scopeProject": "项目记忆",
     "scopeAgent": "Agent 记忆",
     "statusGhost": "待审核",
     "supersededNote": "先前内容",
@@ -3428,7 +3584,7 @@
     "lastReferenced": "最近引用",
     "createdAt": "创建时间",
     "sourceSession": "来源 Session",
-    "promote": "提升为项目大脑",
+    "promote": "提升为项目记忆",
     "pin": "固定",
     "unpin": "取消固定",
     "edit": "编辑",
@@ -3462,7 +3618,7 @@
     "trashItemsMore": "另有 {{n}} 个",
     "cardCountUnitSuffix": "",
     "feed": {
-      "title": "项目大脑",
+      "title": "项目记忆",
       "agentTitle": "此 Agent 的记忆",
       "searchPlaceholder": "搜索记忆…",
       "sectionRelated": "与当前工作相关",
@@ -3574,19 +3730,19 @@
       }
     },
     "activation": {
-      "sleeping": "本项目的大脑中有 {{count}} 条记忆在沉睡。要开启吗？",
-      "hint": "大脑默认关闭。开启后会把工作中学到的流程沉淀下来，并自动用于下次任务。随时可以关闭，关闭也不会删除任何记录。",
+      "sleeping": "本项目的记忆中有 {{count}} 条记忆在沉睡。要开启吗？",
+      "hint": "记忆默认关闭。开启后会把工作中学到的流程沉淀下来，并自动用于下次任务。随时可以关闭，关闭也不会删除任何记录。",
       "turnOn": "开启",
       "notNow": "暂不",
       "showAxes": "查看会开启什么",
       "hideAxes": "收起详情",
       "axesTitle": "保持开启的项目",
-      "turnOff": "关闭大脑",
+      "turnOff": "关闭记忆",
       "offKeepsData": "关闭不会删除记录 — 再次开启即可从原处继续。",
       "noProject": "没有打开的项目",
-      "noProjectDesc": "大脑按项目单独开关 — 请先打开一个项目。",
-      "stateOn": "此项目的大脑已开启",
-      "stateOff": "此项目的大脑已关闭",
+      "noProjectDesc": "记忆按项目单独开关 — 请先打开一个项目。",
+      "stateOn": "此项目的记忆已开启",
+      "stateOff": "此项目的记忆已关闭",
       "sleepingCount": "有 {{count}} 条记忆正在沉睡"
     }
   },

@@ -24,6 +24,18 @@ import {
   type ClaudeBinInfo,
 } from './claudeBin.js';
 import { killTree, processGroupSpawnOptions } from './processTree.js';
+import { buildCliInvocation } from './claudeCliRun.js';
+import { normalizePathShape, samePath } from './pathKey.js';
+
+/**
+ * 이 플랫폼에서 npm 을 부르는 이름.
+ *
+ * Windows 의 전역 npm 은 `npm.cmd` shim 이라 이름부터 다르다. **플랫폼을 인자로 받아** 세 OS 를
+ * 다 단위 테스트한다 — 함수 안에서 읽으면 POSIX 가지가 개발기에서 영영 실행되지 않는다.
+ */
+export function npmCommand(platform: NodeJS.Platform): string {
+  return platform === 'win32' ? 'npm.cmd' : 'npm';
+}
 
 /** §5.7 #23-1 v1.59 — npm registry 조회 캐시 TTL */
 const REGISTRY_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -69,8 +81,10 @@ function detectCurrentVersion(
     let resolved = false;
     // detached 를 **일부러 안 붙인다** — `--version` 은 손자를 만들지 않고 즉시 끝나는 probe 다.
     //   그룹을 새로 팔 이유가 없고, 우리도 killTree 가 아니라 단일 kill 로 회수한다.
-    const child = spawn(binPath, ['--version'], {
-      shell: process.platform === 'win32',
+    // 셸 경유 여부는 공용 창구가 정한다 — 네이티브 실행본까지 셸을 태우면 공백 든 설치 경로에서 깨진다.
+    const invocation = buildCliInvocation(binPath, ['--version'], process.platform);
+    const child = spawn(invocation.file, invocation.args, {
+      shell: invocation.shell,
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -270,8 +284,10 @@ export async function getClaudeInstallsInfo(forceRefresh = false): Promise<Claud
 
   // 발견 + 상한. active 바이너리가 후보에 없으면(예: bare 'claude' 폴백) 앞에 보강.
   const candidates = discoverAllClaudeBins().slice(0, CLAUDE_INSTALL_SCAN_MAX);
-  const norm = (p: string): string => (process.platform === 'win32' ? p.toLowerCase() : p);
-  const hasActive = candidates.some((c) => norm(c.binPath) === norm(active.binPath));
+  // 같은 실행본을 두 줄로 보여 주지 않기 위한 대조 — 대소문자는 **그 플랫폼이 무시할 때만** 접는다.
+  //   예전에는 win32 만 접어, mac(기본 APFS 도 대소문자 무시)에서 표기만 다른 같은 바이너리가
+  //   활성본과 별개 후보로 한 줄 더 실렸다. 정책은 pathKey 한 곳.
+  const hasActive = candidates.some((c) => samePath(c.binPath, active.binPath));
   if (!hasActive && active.binPath) {
     candidates.unshift({
       binPath: active.binPath,
@@ -290,8 +306,8 @@ export async function getClaudeInstallsInfo(forceRefresh = false): Promise<Claud
           source: c.source,
           version: det.version,
           detectError: det.error,
-          active: norm(c.binPath) === norm(active.binPath),
-          selected: override != null && norm(c.binPath) === norm(override),
+          active: samePath(c.binPath, active.binPath),
+          selected: override != null && samePath(c.binPath, override),
         };
       }),
     ),
@@ -347,23 +363,24 @@ function pushProgress(): void {
  * - npm-global 흔적(node_modules/.bin/npm-global/.cmd) 또는 bare 'claude' → `npm install -g`.
  * `manualHint` = 자동 실패 시 사용자에게 노출할 수동 명령.
  */
-function buildInstallPlan(bin: ClaudeBinInfo): {
+function buildInstallPlan(bin: ClaudeBinInfo, platform: NodeJS.Platform = process.platform): {
   command: string;
   args: string[];
   useShell: boolean;
   kind: 'self-update' | 'npm';
   manualHint: string;
 } {
-  const lower = bin.binPath.toLowerCase();
-  const sep = path.sep;
+  // 구분자를 forward slash 로 접고 나서 본다 — `path.sep` 으로 맞추면 같은 문자열이 OS 마다 다른
+  //   뜻이 되고, Windows 에서 forward slash 로 적힌 경로(우리 저장 포맷)가 통째로 안 걸린다.
+  const lower = normalizePathShape(bin.binPath).toLowerCase();
   const looksNpmGlobal =
-    lower.includes(`${sep}node_modules${sep}`) ||
-    lower.includes(`${sep}.bin${sep}`) ||
+    lower.includes('/node_modules/') ||
+    lower.includes('/.bin/') ||
     lower.includes('npm-global') ||
-    lower.includes(`${sep}npm${sep}`) ||
+    lower.includes('/npm/') ||
     lower.endsWith('.cmd');
 
-  const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  const npmCmd = npmCommand(platform);
   const npmManual = `${npmCmd} install -g ${NPM_PACKAGE}`;
 
   if (path.isAbsolute(bin.binPath) && !looksNpmGlobal) {
@@ -378,7 +395,8 @@ function buildInstallPlan(bin: ClaudeBinInfo): {
   return {
     command: npmCmd,
     args: ['install', '-g', NPM_PACKAGE],
-    useShell: process.platform === 'win32',
+    // npm 은 Windows 에서 `.cmd` shim 이라 셸을 타야 한다(POSIX 실행본은 셸이 필요 없다).
+    useShell: platform === 'win32',
     kind: 'npm',
     manualHint: npmManual,
   };

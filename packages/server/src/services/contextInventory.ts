@@ -16,6 +16,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { pathKey } from './pathKey.js';
 import type {
   AgentConfig,
   ContextInventory,
@@ -570,10 +571,14 @@ export const CONTEXT_UNREADABLE_SOURCE_IDS: ReadonlySet<string> = new Set<string
   CONTEXT_SOURCE_IDS.mcp,
 ]);
 
-/** 경로 대조 키 — Windows 는 대소문자를 가리지 않으므로 그쪽에서만 낮춘다. */
+/**
+ * 경로 대조 키 — 대소문자는 **그 플랫폼의 파일시스템이 실제로 무시할 때만** 접는다.
+ *
+ * 예전에는 win32 에서만 접어, mac(기본 APFS 도 대소문자 무시)에서 같은 파일이 표기만 다른 두 칸으로
+ * 갈려 인벤토리에 중복으로 실렸다. 정책은 pathKey 한 곳(경로 대소문자 SSOT).
+ */
 export function normalizeFsPath(p: string): string {
-  const resolved = path.resolve(p);
-  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+  return pathKey(path.resolve(p));
 }
 
 /**

@@ -152,6 +152,10 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     // §9 스코프드 구독 — 프로젝트별 에이전트 집계(탭 배지). **구독 범위 밖 프로젝트도 들어 있다.**
     //   같은 이유로 별도 액션(loadSnapshot 위치 인자 ❌).
     useGraphStore.getState().applyProjectAgentCounts(snap.projectAgentCounts ?? {});
+    // §9 스코프드 구독 — **이 스냅샷이 어느 프로젝트를 실어 왔는지**. 없으면(구버전 서버 · 선언한
+    //   창이 없을 때) 전량이라는 뜻이라 `undefined` 를 그대로 넘긴다. 캔버스의 "불러오는 중"
+    //   표시가 이 값 하나로 켜지고 꺼진다.
+    useGraphStore.getState().applySnapshotScope(snap.scopedProjects);
     // §5.13 v4.45 — 앱 버블은 별도 액션으로 반영한다(loadSnapshot 의 위치 인자를 늘리면
     //   호출부 한 곳만 어긋나도 조용히 다른 값이 들어간다).
     useGraphStore.getState().applyAppBubbles(snap.appBubbles ?? []);
@@ -194,6 +198,7 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     store.applyAgentLists(snap.agentLists);
     store.applyAgentFeedbacks(snap.agentFeedbacks);
     store.applySessionLoops(snap.sessionLoops);
+    store.applyVerificationRuns(snap.verificationRuns);
     // §5.5 #17-17 v4.46 — 세션 목표(활동바 퍼센트 배지 + 목표 패널의 원본).
     store.applySessionGoals(snap.sessionGoals);
     store.applyDiagnosticLog(snap.diagnosticLog);
@@ -617,6 +622,13 @@ export function useWebSocket(url: string): UseWebSocketReturn {
   //   서버는 "선언한 창이 하나도 없으면 전부 보낸다"가 기본값이라, 침묵이 곧 안전 쪽이다.
   //   여기서 성급히 `[]` 를 보내면 활성 프로젝트를 정하기도 전에 데이터가 끊긴다.
   const activeProject = useGraphStore((s) => s.activeProject);
+
+  // 연결 상태를 스토어에도 실어 둔다 — 헤더 인디케이터만 알고 있으면 캔버스가 "끊겨서 비어 있는
+  // 것"을 "불러오는 중"이라고 잘못 말한다. 값 하나를 두 화면이 같이 본다(설정은 여기 한 곳).
+  useEffect(() => {
+    useGraphStore.getState().setConnectionStatus(status);
+  }, [status]);
+
   const declaredScopeRef = useRef<string | null>(null);
   useEffect(() => {
     if (status !== 'connected') {

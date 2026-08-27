@@ -33,6 +33,9 @@ import {
   collapseOverlayByWindowId,
   startOverlayDragByWindowId,
   endOverlayDragByWindowId,
+  startOverlayRedockDragByWindowId,
+  endOverlayRedockDragByWindowId,
+  takePaneHandoff,
   listOverlays,
   getOverlaysVisible,
   setOverlaysVisible,
@@ -60,6 +63,17 @@ import {
   revokeMobileQrTicket,
 } from './mobileAccess';
 import {
+  getChatBridgeState,
+  verifyChatToken,
+  setChatToken,
+  enableChatChannel,
+  disableChatChannel,
+  issueChatPairTicket,
+  revokeChatPairTicket,
+  unpairChat,
+  setChatVerbosity,
+} from './chat';
+import {
   createTerminal,
   getTerminalInfo,
   writeTerminal,
@@ -71,7 +85,7 @@ import {
 } from './terminalManager';
 import { listCaptureSources } from './captureManager';
 import { injectCaptureInput, resolveCaptureTargetRect } from './captureInputManager';
-import type { UpdateState, MobileAccessState, CaptureSourceInfo, CaptureInputEvent, CaptureSourceKind, CaptureTargetRect, CaptureInjectResult, PreviewSnipRect, PageRegionCapture } from '@vibisual/shared';
+import type { ChatBridgeState, ChatChannelKind, ChatVerbosity, UpdateState, MobileAccessState, CaptureSourceInfo, CaptureInputEvent, CaptureSourceKind, CaptureTargetRect, CaptureInjectResult, PreviewSnipRect, PageRegionCapture } from '@vibisual/shared';
 
 // IPC hub — SCENARIO.md §3.7 (in-process 통합).
 //
@@ -305,6 +319,7 @@ export function setupIpc(expressApp: Express): IpcHub {
         cursor?: { x: number; y: number };
         expanded?: boolean;
         size?: { width: number; height: number };
+        handoff?: unknown;
       },
     ): { windowId: number; reused: boolean } => {
       if (!payload || typeof payload.agentId !== 'string' || payload.agentId.length === 0) {
@@ -325,9 +340,15 @@ export function setupIpc(expressApp: Express): IpcHub {
         cursor: payload.cursor,
         expanded: !!payload.expanded,
         size,
+        // §17-6 (H) — 그 창이 들고 가는 짐. main 은 뜻을 모르고 맡아만 둔다(렌더러끼리의 약속).
+        handoff: payload.handoff,
       });
     },
   );
+  // §17-6 (H) — 새로 뜬 창이 자기 짐을 꺼낸다(한 번 꺼내면 사라진다).
+  ipcMain.handle('vibisual:overlay:take-handoff', (_event, agentId: string): unknown => {
+    return typeof agentId === 'string' && agentId.length > 0 ? takePaneHandoff(agentId) : null;
+  });
   ipcMain.handle('vibisual:overlay:close', (_event, agentId: string): boolean => {
     return typeof agentId === 'string' ? closeOverlayByAgentId(agentId) : false;
   });
@@ -337,6 +358,15 @@ export function setupIpc(expressApp: Express): IpcHub {
   // §17-6 v2.81 — 버블 드래그 = OS 창 이동(메인 프로세스 커서 폴링).
   ipcMain.handle('vibisual:overlay:drag-start', (event): boolean => startOverlayDragByWindowId(event.sender.id));
   ipcMain.handle('vibisual:overlay:drag-end', (event): boolean => endOverlayDragByWindowId(event.sender.id));
+  // §17-6 (H) — 꺼낸 창을 **끌어다 앱 안으로 합치기**(칩으로 줄여 커서 따라가기 + 메인 창 위 판정).
+  ipcMain.handle('vibisual:overlay:redock-drag-start', (event): boolean =>
+    startOverlayRedockDragByWindowId(event.sender.id),
+  );
+  ipcMain.handle(
+    'vibisual:overlay:redock-drag-end',
+    (event, payload: { commit?: boolean; handoff?: unknown }): boolean =>
+      endOverlayRedockDragByWindowId(event.sender.id, !!payload?.commit, payload?.handoff),
+  );
   ipcMain.handle('vibisual:overlay:list', () => ({ overlays: listOverlays(), userVisible: getOverlaysVisible() }));
   ipcMain.handle('vibisual:overlay:set-visible', (_event, visible: boolean): boolean => {
     setOverlaysVisible(!!visible);
@@ -349,12 +379,13 @@ export function setupIpc(expressApp: Express): IpcHub {
   );
   ipcMain.handle(
     'vibisual:overlay:reveal-in-main',
-    (_event, payload: { agentId: string; projectId: string; openIde?: boolean }): boolean => {
+    (_event, payload: { agentId: string; projectId: string; openIde?: boolean; handoff?: unknown }): boolean => {
       if (!payload || typeof payload.agentId !== 'string' || typeof payload.projectId !== 'string') return false;
       return revealOverlayInMain({
         agentId: payload.agentId,
         projectId: payload.projectId,
         openIde: !!payload.openIde,
+        handoff: payload.handoff,
       });
     },
   );
@@ -421,6 +452,19 @@ export function setupIpc(expressApp: Express): IpcHub {
   // §4 v3.66 — QR 페어링 티켓(3분) 발급/폐기.
   ipcMain.handle('vibisual:mobile:issue-qr', (): MobileAccessState => issueMobileQrTicket());
   ipcMain.handle('vibisual:mobile:revoke-qr', (): MobileAccessState => revokeMobileQrTicket());
+
+  // ─── §4 메신저 원격제어 브리지 채널 (판올림 번호 발급 대기) ───────────────
+  // 상태 push 는 chat 브리지가 직접 webContents 로 보낸다(vibisual:chat:status).
+  // **봇 토큰은 이 문을 통해 renderer 로 나가지 않는다** — 상태에는 hasToken 만 실린다.
+  ipcMain.handle('vibisual:chat:get-state', (): ChatBridgeState => getChatBridgeState());
+  ipcMain.handle('vibisual:chat:verify-token', (_e, kind: ChatChannelKind, token: string) => verifyChatToken(kind, token));
+  ipcMain.handle('vibisual:chat:set-token', (_e, kind: ChatChannelKind, token: string): Promise<ChatBridgeState> => setChatToken(kind, token));
+  ipcMain.handle('vibisual:chat:enable', (_e, kind: ChatChannelKind): Promise<ChatBridgeState> => enableChatChannel(kind));
+  ipcMain.handle('vibisual:chat:disable', (_e, kind: ChatChannelKind): Promise<ChatBridgeState> => disableChatChannel(kind));
+  ipcMain.handle('vibisual:chat:issue-pair', (_e, kind: ChatChannelKind): ChatBridgeState => issueChatPairTicket(kind));
+  ipcMain.handle('vibisual:chat:revoke-pair', (_e, kind: ChatChannelKind): ChatBridgeState => revokeChatPairTicket(kind));
+  ipcMain.handle('vibisual:chat:unpair', (_e, kind: ChatChannelKind, chatId: string): ChatBridgeState => unpairChat(kind, chatId));
+  ipcMain.handle('vibisual:chat:set-verbosity', (_e, verbosity: ChatVerbosity): ChatBridgeState => setChatVerbosity(verbosity));
 
   // ─── §4 v2.63 임베디드 인터랙티브 터미널 채널 ─────────────────────────────
   // §4 v3.33 — 출력 대상은 TermSink 추상화. 데스크톱 IPC 는 아래 webContents 싱크로
@@ -529,6 +573,9 @@ export function setupIpc(expressApp: Express): IpcHub {
       ipcMain.removeHandler('vibisual:overlay:collapse-self');
       ipcMain.removeHandler('vibisual:overlay:drag-start');
       ipcMain.removeHandler('vibisual:overlay:drag-end');
+      ipcMain.removeHandler('vibisual:overlay:redock-drag-start');
+      ipcMain.removeHandler('vibisual:overlay:redock-drag-end');
+      ipcMain.removeHandler('vibisual:overlay:take-handoff');
       ipcMain.removeHandler('vibisual:overlay:list');
       ipcMain.removeHandler('vibisual:overlay:set-visible');
       ipcMain.removeHandler('vibisual:overlay:hide-self');
@@ -553,6 +600,15 @@ export function setupIpc(expressApp: Express): IpcHub {
       ipcMain.removeHandler('vibisual:mobile:disable-external');
       ipcMain.removeHandler('vibisual:mobile:issue-qr');
       ipcMain.removeHandler('vibisual:mobile:revoke-qr');
+      ipcMain.removeHandler('vibisual:chat:get-state');
+      ipcMain.removeHandler('vibisual:chat:verify-token');
+      ipcMain.removeHandler('vibisual:chat:set-token');
+      ipcMain.removeHandler('vibisual:chat:enable');
+      ipcMain.removeHandler('vibisual:chat:disable');
+      ipcMain.removeHandler('vibisual:chat:issue-pair');
+      ipcMain.removeHandler('vibisual:chat:revoke-pair');
+      ipcMain.removeHandler('vibisual:chat:unpair');
+      ipcMain.removeHandler('vibisual:chat:set-verbosity');
       ipcMain.removeHandler('vibisual:term:create');
       ipcMain.removeHandler('vibisual:term:write');
       ipcMain.removeHandler('vibisual:term:resize');

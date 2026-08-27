@@ -8,6 +8,7 @@ import { useLowPowerMode } from './hooks/useIsMobile.js';
 import { Header } from './components/Layout/Header.js';
 import { BubbleMap } from './components/BubbleMap/BubbleMap.js';
 import { CanvasBreadcrumb } from './components/BubbleMap/CanvasBreadcrumb.js';
+import { CanvasLoadingHint } from './components/BubbleMap/CanvasLoadingHint.js';
 import { TrashToolbar } from './components/BubbleMap/TrashToolbar.js';
 import { IframeView } from './components/Layout/IframeView.js';
 import { DetailPanel } from './components/Panel/DetailPanel.js';
@@ -123,6 +124,8 @@ export function App(): React.JSX.Element {
             <>
               <BubbleMap />
               <CanvasBreadcrumb />
+              {/* §9 — 탭을 옮긴 직후 스냅샷이 아직 안 왔을 때 뜨는 조용한 "불러오는 중"(오면 사라진다). */}
+              <CanvasLoadingHint />
               {/* §5.10 v4.84 — 휴지통 내부에서만 뜨는 [모두 삭제] 툴바(경로 표시 바로 아래). */}
               <TrashToolbar />
             </>

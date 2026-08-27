@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { isWithinRoot } from './pathKey.js';
 
 /**
  * Validate that a resolved absolute path is within an allowed root directory.
@@ -13,14 +14,10 @@ export function validatePathWithinRoot(filePath: string, allowedRoot: string): s
   const resolved = path.resolve(allowedRoot, filePath);
   const normalizedRoot = path.resolve(allowedRoot);
 
-  // Windows 파일 경로는 대소문자 무시 (root가 normalize()로 소문자화되어 있으므로)
-  const isWin = process.platform === 'win32';
-  const r = isWin ? resolved.toLowerCase() : resolved;
-  const nr = isWin ? normalizedRoot.toLowerCase() : normalizedRoot;
-
-  // Ensure the resolved path starts with the root directory
-  // Add path.sep to prevent prefix matching (e.g., /root-other matching /root)
-  if (r === nr || r.startsWith(nr + path.sep)) {
+  // 대소문자를 접을지는 플랫폼이 정한다 — win/mac 은 파일시스템이 무시하고 linux 는 구분한다.
+  //   예전에는 여기서 win32 만 접어, **mac 에서 케이스만 다른 정상 경로가 사유 없이 거부**됐다.
+  //   판정은 pathKey 규칙 한 곳(isWithinRoot)에만 맡기고, 돌려주는 값은 원본 케이스 그대로 둔다.
+  if (isWithinRoot(resolved, normalizedRoot)) {
     return resolved;
   }
 

@@ -10,7 +10,10 @@
 
 @theme {
   --font-sans: 'Pretendard', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', ui-sans-serif, system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', 'D2Coding', ui-monospace, monospace;
+  /* 앞의 둘은 앱에 **동봉**한 글꼴(src/assets/fonts) — 라틴은 JetBrains Mono, 한글은 그 폭의
+     정확히 2배인 나눔고딕코딩이 맡아 한국어가 섞여도 터미널 열이 밀리지 않는다. 뒤의 OS 글꼴은
+     동봉본이 아직 안 실렸을 때만 잠깐 쓰이는 자리다(Consolas/Menlo 는 재배포 불가라 동봉 ❌). */
+  --font-mono: 'JetBrains Mono', 'Nanum Gothic Coding', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 /* §3.7 v2.10 — 통합 타이틀바 드래그 영역. Electron `titleBarStyle: 'hidden'` +

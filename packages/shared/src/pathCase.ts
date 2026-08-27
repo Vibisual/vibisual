@@ -95,3 +95,28 @@ export function lookupByPath<T>(
 export function samePath(a: string, b: string, platform: PlatformName): boolean {
   return pathKey(a, platform) === pathKey(b, platform);
 }
+
+/**
+ * `child` 가 `root` 안(또는 root 자신)인가 — 경로 탈출(`..`) 방어의 공통 판정.
+ *
+ * 서버의 세 곳(REST 경로 검증·워크스페이스 탐색기·내장 편집창)이 각자
+ * "win32 면 소문자로 접고 아니면 그대로" 를 손으로 적고 있었다. 그 방식은 **mac 에서 틀린다** —
+ * mac 기본 APFS 는 대소문자를 무시하므로 아래 두 예시 경로는 같은 폴더인데,
+ *   `/Users/me/Proj` · `/users/me/proj` — 가상의 예시다(privacy-ok).
+ * 접지 않으면 정상 요청이 사유 없이 거부된다(= 조용한 실패). 반대로 linux 에서 접으면 케이스만
+ * 다른 남의 폴더가 안쪽으로 통과한다. 그래서 접을지 말지는 `pathKey` 한 곳에만 맡긴다.
+ *
+ * ⚠ `pathKey` 는 구분자를 forward slash 로 접는다 — **경계 비교도 forward slash 로 해야 한다.**
+ *   `path.sep` 으로 비교하면 Windows 에서 백슬래시를 찾다가 언제나 어긋나, 루트 자신을 뺀
+ *   모든 하위 경로가 거부된다.
+ *
+ * 판정에만 쓰고, **호출부가 돌려주는 경로는 원본 대소문자 그대로** 써야 한다(표시·열기에 쓰이므로).
+ */
+export function isPathWithin(child: string, root: string, platform: PlatformName): boolean {
+  const c = pathKey(child, platform);
+  const r = pathKey(root, platform);
+  if (c === r) return true;
+  // 드라이브 루트(`c:/`)와 POSIX 루트(`/`)는 이미 끝에 슬래시가 있다 — 하나 더 붙이면 못 맞춘다.
+  const prefix = r.endsWith('/') ? r : `${r}/`;
+  return c.startsWith(prefix);
+}

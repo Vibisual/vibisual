@@ -5,6 +5,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
 import { WebLinksAddon } from '@xterm/addon-web-links';
+import { WebglAddon } from '@xterm/addon-webgl';
 import '@xterm/xterm/css/xterm.css';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { TerminalCardSniffer, type TerminalCard } from './terminalCardSniffer.js';
@@ -22,9 +23,11 @@ import {
 } from '@vibisual/shared';
 import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 import { openWebSearch } from './webSearchUrl.js';
+import { reportPreviewUrlIfLoopback } from './reportPreviewUrl.js';
 // 단축키 라벨은 플랫폼이 정한다 — mac 에서 실제로 눌리는 키는 Ctrl 이 아니라 Command 다
 //   (핸들러는 이미 ctrlKey || metaKey 를 함께 보므로 **표시만** 어긋나 있었다).
 import { shortcutLabel } from '../../utils/platform.js';
+import { TERMINAL_FONT_STACK, ensureTerminalFonts } from '../../utils/terminalFont.js';
 
 // §4 v2.63 — 임베디드 인터랙티브 터미널 뷰. (편의성 보강 v2.65)
 //
@@ -77,6 +80,17 @@ function hostMeasurable(el: HTMLElement | null): el is HTMLElement {
   return !!el && el.clientWidth > 0 && el.clientHeight > 0 && el.isConnected;
 }
 
+// §4 (CMD) — 글꼴이 뒤늦게 실린 뒤 xterm 이 **셀 폭을 다시 재게** 만든다.
+//
+// xterm 의 CharSizeService 는 `fontFamily`/`fontSize` 옵션이 **바뀔 때만** 다시 잰다(5.5.0 확인:
+// 셀 폭 측정은 open() 1회 · 화면비 변경 · 이 두 옵션 변경뿐이고, `document.fonts` 는 보지 않는다).
+// 그런데 옵션은 값이 실제로 달라질 때만 변경을 알리므로 **같은 값 재대입은 조용히 무시된다** —
+// 그래서 한 번 다른 값을 거쳐 되돌린다. 같은 실행 흐름 안이라 중간 값이 화면에 드러나지 않는다.
+function remeasureCells(term: Terminal): void {
+  term.options.fontFamily = `${TERMINAL_FONT_STACK}, monospace`;
+  term.options.fontFamily = TERMINAL_FONT_STACK;
+}
+
 function readStoredFontSize(): number {
   try {
     const raw = window.localStorage.getItem(FONT_SIZE_KEY);
@@ -87,30 +101,46 @@ function readStoredFontSize(): number {
   }
 }
 
-// IDE 본문(gray-950)과 통일한 프로젝트 톤 + 완전한 ANSI 16색 팔레트(tailwind 색 기반 — 다크 배경 가독).
+// §4 (CMD) — 터미널 팔레트. 종전에는 tailwind 400 번대를 손으로 골라 세웠는데, 그 색들은 서로
+// 어울리라고 만든 조합이 아니라 한 화면에 여럿이 뜨면 채도가 제각각으로 튀었다(빨강·초록·보라가
+// 저마다 제일 밝다고 우긴다). 지금은 **터미널용으로 대비까지 맞춰 검증된 스킴**(Catppuccin Mocha,
+// MIT — 색값 사용 자유)의 ANSI 16색을 그대로 쓴다. 색을 새로 발명하지 않는 것이 요점이다.
+//
+// 배경만 스킴 기본(#1e1e2e)이 아니라 한 단 어두운 crust(#11111b)를 쓴다 — IDE 본문(gray-950)
+// 위에 얹히는 패널이라 본문보다 밝으면 터미널이 붕 떠 보인다.
 const TERMINAL_THEME = {
-  background: '#030712', // gray-950
-  foreground: '#e5e7eb', // gray-200
-  cursor: '#2dd4bf', // teal-400 (터미널 액센트)
-  cursorAccent: '#030712',
-  selectionBackground: 'rgba(139, 92, 246, 0.35)', // violet-500 (IDE 액센트)
-  black: '#1f2937',
-  red: '#f87171',
-  green: '#4ade80',
-  yellow: '#fbbf24',
-  blue: '#60a5fa',
-  magenta: '#c084fc',
-  cyan: '#22d3ee',
-  white: '#e5e7eb',
-  brightBlack: '#4b5563',
-  brightRed: '#fca5a5',
-  brightGreen: '#86efac',
-  brightYellow: '#fcd34d',
-  brightBlue: '#93c5fd',
-  brightMagenta: '#d8b4fe',
-  brightCyan: '#67e8f9',
-  brightWhite: '#f9fafb',
+  background: '#11111b', // crust — IDE 본문(gray-950)보다 반 단 밝아 '패널'로 읽힌다
+  foreground: '#cdd6f4', // text
+  cursor: '#94e2d5', // teal — 우리 CMD 액센트와 같은 계열
+  cursorAccent: '#11111b',
+  selectionBackground: 'rgba(203, 166, 247, 0.30)', // mauve — 선택은 IDE 액센트(보라)와 이어진다
+  black: '#45475a', // surface1
+  red: '#f38ba8',
+  green: '#a6e3a1',
+  yellow: '#f9e2af',
+  blue: '#89b4fa',
+  magenta: '#f5c2e7', // pink
+  cyan: '#94e2d5', // teal
+  white: '#bac2de', // subtext1
+  brightBlack: '#585b70', // surface2
+  brightRed: '#f38ba8',
+  brightGreen: '#a6e3a1',
+  brightYellow: '#f9e2af',
+  brightBlue: '#89b4fa',
+  brightMagenta: '#f5c2e7',
+  brightCyan: '#94e2d5',
+  brightWhite: '#a6adc8', // subtext0
 } as const;
+
+/**
+ * §4 (CMD) — 행간. 글꼴 크기와 달리 이 값은 사용자가 만지는 축이 아니라 **판독성의 기본선**이라
+ * 상수로 둔다. 1.0(xterm 기본)은 줄이 위아래로 맞붙어 로그가 벽처럼 보이고, 반대로 1.6 을 넘기면
+ * 한 화면에 들어가는 줄이 눈에 띄게 줄어 CLI 가 그리는 상자가 세로로 늘어진다. 1.38 은 같은 일을
+ * 하는 화면(herdr.dev 의 터미널 목업)에서 실측한 값이다.
+ */
+const TERMINAL_LINE_HEIGHT = 1.38;
+
+// 글꼴 스택은 로그인 화면의 터미널 연출과 **같은 값을 써야** 해서 공용 모듈에 둔다.
 
 export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onClosePane, onToggleZoom, zoomed = false, paneCount = 1 }: IDETerminalViewProps): React.JSX.Element {
   const { t } = useTranslation();
@@ -141,6 +171,8 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const searchRef = useRef<SearchAddon | null>(null);
+  // GPU 렌더러 — 컨텍스트 손실 시 스스로 물러나므로 null 이 될 수 있다(그때는 DOM 렌더러).
+  const webglRef = useRef<WebglAddon | null>(null);
   // §4 (CMD ①) — 이 pane 의 상태 감지기. 스니퍼 콜백·cleanup 에서 접근하려고 ref 로 보관.
   const trackerRef = useRef<TerminalStateTracker | null>(null);
   // §4 (CMD ③) — 크기 동기화(fit + PTY resize)를 예약하는 **단일 창구**. 아래 effect 가 채운다.
@@ -152,6 +184,12 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
   const [fontSize, setFontSize] = useState<number>(fontSizeRef.current);
   // §4 v2.89 — CMD 카드(작업 신고/질문/검수/목록). 마커 줄은 터미널에서 숨기고, 카드는 우측 DOM 패널이 렌더.
   const [cards, setCards] = useState<TerminalCard[]>([]);
+  // §4 (CMD) — pane 이름표에 쓰는 값들. 창을 여럿 쪼개 놓으면 **어느 창이 무엇인지**가 화면에
+  //   전혀 없었다(경계선 한 줄이 전부라 넷으로 나누면 어디가 어디인지 세어 봐야 했다).
+  //   프로세스명은 이미 상태 신고에 싣고 있던 값을 그대로 쓴다 — 새로 캐지 않는다.
+  const [fgProcess, setFgProcess] = useState<string | undefined>(undefined);
+  const [paneState, setPaneState] = useState<CmdTerminalState | undefined>(undefined);
+  const [focused, setFocused] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -253,10 +291,22 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
     setCards([]);
 
     const term = new Terminal({
-      fontFamily: 'Menlo, Consolas, "DejaVu Sans Mono", monospace',
+      fontFamily: TERMINAL_FONT_STACK,
       fontSize: fontSizeRef.current,
+      lineHeight: TERMINAL_LINE_HEIGHT,
       cursorBlink: true,
-      cursorStyle: 'bar',
+      // 터미널의 커서는 블록이다. 'bar'(얇은 세로 막대)는 텍스트 에디터의 관습이라, 셸 앞에 서면
+      // "여기가 입력 자리"라는 신호가 눈에 덜 걸린다 — 특히 출력이 흐르는 중에는 거의 안 보인다.
+      cursorStyle: 'block',
+      // 포커스를 잃으면 속을 비운 테두리로. 창을 여럿 띄웠을 때 **지금 타이핑이 가는 곳**이 하나로 보인다.
+      cursorInactiveStyle: 'outline',
+      // 상자·블록 문자(U+2500~259F)를 글꼴이 아니라 xterm 이 직접 그린다. 동봉 글꼴의 서브셋에는
+      // 이 범위가 없고, 있더라도 행간을 1 보다 키우면 글리프 사이가 벌어져 세로선이 끊어진다.
+      // (WebGL/Canvas 렌더러에서만 동작 — 아래에서 WebGL 을 붙이는 이유이기도 하다.)
+      customGlyphs: true,
+      // 굵은 글자를 밝은 색으로 바꿔치지 않는다. 스킴이 이미 대비를 맞춰 뒀는데 여기서 색을 한 단
+      // 올리면 굵기와 색이 같은 뜻을 두 번 말하면서 팔레트가 어긋난다.
+      drawBoldTextInBrightColors: false,
       theme: { ...TERMINAL_THEME },
       scrollback: scrollbackRef.current,
       allowProposedApi: true,
@@ -264,7 +314,9 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
     const fit = new FitAddon();
     const search = new SearchAddon();
     // 출력 속 URL 클릭 → 새 창/외부 브라우저로 열기(Electron shell.openExternal 폴백).
+    //   §7.11 — 그 주소가 내 기계의 서버면 캔버스 프리뷰 버블도 함께 세운다(스트림 본문 링크와 같은 규약).
     const links = new WebLinksAddon((_event, uri) => {
+      reportPreviewUrlIfLoopback(uri, agentId);
       try { window.open(uri, '_blank', 'noopener,noreferrer'); } catch { /* blocked */ }
     });
     term.loadAddon(fit);
@@ -286,7 +338,28 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
     };
 
     term.open(host);
-    const measured = safeFit();
+
+    // §4 (CMD) — GPU 렌더러. 기본 DOM 렌더러는 글자마다 span 을 쌓아 긴 출력에서 느려지는데,
+    // 그보다 중요한 건 위 `customGlyphs` 가 **DOM 에서는 아예 동작하지 않는다**는 점이다. 그대로
+    // 두면 행간을 키운 순간 CLI 가 그리는 상자의 세로선이 줄마다 끊어져 보인다.
+    // GPU 를 못 잡는 환경(원격 데스크톱·구형 드라이버·가상머신)에서는 생성이나 컨텍스트 확보가
+    // 실패하는데, 그때는 조용히 DOM 렌더러로 남는다 — 화면이 안 뜨는 것보다 흐린 편이 낫다.
+    try {
+      const webgl = new WebglAddon();
+      // 컨텍스트를 잃으면(드라이버 재시작·GPU 전환) 애드온을 버리고 DOM 으로 되돌아간다.
+      webgl.onContextLoss(() => {
+        webgl.dispose();
+        webglRef.current = null;
+      });
+      term.loadAddon(webgl);
+      webglRef.current = webgl;
+    } catch {
+      webglRef.current = null;
+    }
+
+    // 첫 측정은 여기서 하지 않는다 — **글꼴이 실린 뒤** attachPty 안에서 한 번만 잰다.
+    //   동봉 글꼴은 font-display: swap 이라 지금 재면 OS 폴백(좁은 글꼴)의 폭으로 열 수가 잡히고,
+    //   그 값이 그대로 셸에 실려 가 줄이 창을 넘어간다(ensureTerminalFonts 주석).
 
     // 커스텀 키 핸들러 — 복붙/검색/폰트 단축키. return false = xterm 이 PTY stdin 으로 보내지 않음.
     term.attachCustomKeyEventHandler((e) => {
@@ -311,10 +384,6 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
       if (e.code === 'Digit0' || e.code === 'Numpad0') { a.applyFontSize(FONT_SIZE_DEFAULT); return false; }
       return true;
     });
-
-    // 측정에 성공했을 때만 크기를 싣는다 — 미측정(숨은 탭·미배치)이면 생략해 **재부착 PTY 를
-    //   80x24 로 건드리지 않는다**(생략 시 새 셸은 main 의 기본 크기로 뜨고, 첫 fit 뒤 한 번만 맞춰진다).
-    const initialSize = measured ? { cols: term.cols, rows: term.rows } : {};
 
     // §4 v2.89 — CMD 카드 스니퍼. PTY 출력 중 `::VIBISUAL-CARD::{…}` 마커 줄을 **터미널에서 숨기고**(feed 가
     //   그 줄을 뺀 문자열을 돌려줌 → claude TUI 무간섭), 파싱한 카드는 onCard 로 받아 우측 DOM 패널이 렌더.
@@ -342,6 +411,7 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
     let lastProcess: string | undefined;
     let lastProcessAt = 0;
     const postState = (payload: { state: CmdTerminalState; reason?: string }): void => {
+      setPaneState(payload.state); // 이름표 색 — 서버 신고와 같은 신호를 화면에도 쓴다.
       void fetch('/api/cmd-terminal-state', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -361,6 +431,7 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
         void transport.info(termId).then((info) => {
           if (disposed || !info?.process || info.process === lastProcess) return;
           lastProcess = info.process;
+          setFgProcess(info.process); // 이름표용 — 신고 페이로드와 같은 값이다.
           const cur = tracker.current;
           if (cur) postState({ state: cur }); // 프로세스명만 바뀐 경우도 한 번 실어 보낸다.
         }).catch(() => { /* 선택 기능 — 없으면 탭 라벨 보조 표기만 빈다 */ });
@@ -386,15 +457,6 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
     // renderer → main 입력.
     const onDataDisposable = term.onData((data) => {
       void transport.write(termId, data);
-    });
-
-    // 셸+claude prefill PTY 생성. §4 v3.33 — 외부(인터넷) 접속은 서버가 셸을 막고 external-blocked 회신.
-    void transport.create({ termId, cwd: cwd ?? '', config, ...initialSize, scrollbackLines: scrollbackRef.current }).then((r) => {
-      if (r.ok || disposed) return;
-      const msg = r.error === 'external-blocked'
-        ? t('ide.terminal.unavailableExternal')
-        : t('ide.terminal.createFailed', { error: r.error ?? '' });
-      term.write(`\r\n\x1b[31m[${msg}]\x1b[0m\r\n`);
     });
 
     // 리사이즈 — xterm fit 과 PTY resize 를 **항상 함께, 리사이즈가 멎은 뒤 1회만**(트레일링 디바운스)
@@ -431,7 +493,43 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
     };
     scheduleSizeSyncRef.current = scheduleSizeSync;
     const ro = new ResizeObserver(() => { scheduleSizeSync(); });
-    ro.observe(host);
+
+    // §4 (CMD) — PTY 부착. **글꼴이 실린 뒤에** 크기를 재고, 그 크기로 셸을 띄운다.
+    //   여기서 재는 값이 곧 PTY 의 cols/rows 이므로 리사이즈 감시의 기준선(lastCols/lastRows)도
+    //   같은 자리에서 맞춘다 — 어긋나면 부착 직후 같은 크기로 한 번 더 통지해 ConPTY 가 화면을
+    //   통째로 다시 그린다(그 리페인트가 셸 입력줄에 채워 둔 prefill 을 새 폭으로 재배치하며 깨뜨린다).
+    const attachPty = (): void => {
+      if (disposed) return;
+      // 측정에 성공했을 때만 크기를 싣는다 — 미측정(숨은 탭·미배치)이면 생략해 **재부착 PTY 를
+      //   80x24 로 건드리지 않는다**(생략 시 새 셸은 main 의 기본 크기로 뜨고, 첫 fit 뒤 한 번만 맞춰진다).
+      const measured = safeFit();
+      const initialSize = measured ? { cols: term.cols, rows: term.rows } : {};
+      lastCols = term.cols;
+      lastRows = term.rows;
+      // 셸+claude prefill PTY 생성. §4 v3.33 — 외부(인터넷) 접속은 서버가 셸을 막고 external-blocked 회신.
+      void transport.create({ termId, cwd: cwd ?? '', config, ...initialSize, scrollbackLines: scrollbackRef.current }).then((r) => {
+        if (r.ok || disposed) return;
+        const msg = r.error === 'external-blocked'
+          ? t('ide.terminal.unavailableExternal')
+          : t('ide.terminal.createFailed', { error: r.error ?? '' });
+        term.write(`\r\n\x1b[31m[${msg}]\x1b[0m\r\n`);
+      });
+      // 감시는 부착 뒤부터 — 글꼴을 기다리는 동안의 크기 변화는 어차피 위 safeFit 이 흡수한다.
+      ro.observe(host);
+    };
+
+    // 글꼴이 아직 안 실렸으면 기다렸다가 **다시 재고** 붙는다. 이미 실려 있으면(두 번째 터미널부터가
+    //   보통 그렇다) 기다릴 것이 없으므로 종전과 같은 흐름으로 곧장 붙는다.
+    const fontsPending = ensureTerminalFonts(fontSizeRef.current);
+    if (fontsPending) {
+      void fontsPending.then(() => {
+        if (disposed) return;
+        remeasureCells(term);
+        attachPty();
+      });
+    } else {
+      attachPty();
+    }
 
     term.focus();
 
@@ -448,6 +546,9 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
       offData();
       offExit();
       onDataDisposable.dispose();
+      // 터미널보다 **먼저** 버린다 — GPU 자원은 term.dispose() 가 대신 거둬 주지 않는다.
+      webglRef.current?.dispose();
+      webglRef.current = null;
       term.dispose();
       termRef.current = null;
       fitRef.current = null;
@@ -500,16 +601,23 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
 
   const hasSelection = () => !!termRef.current?.hasSelection();
 
+  // §4 (CMD) — pane 이 하나뿐이면 크롬을 그리지 않는다. 창이 하나인데 테두리와 이름표를 두르면
+  //   IDE 프레임과 선이 겹쳐 두 번 둘러친 모양이 된다(쪼갰을 때만 "어느 창"이 질문이 된다).
+  const showPaneChrome = paneCount > 1;
+  // 이름표는 그 창에서 실제로 도는 프로그램 이름. 아직 표본되지 않았으면(모바일 브리지엔 info 가
+  //   없다) 창 번호로 대신한다 — 빈 라벨을 그려 놓고 이름인 척하지 않는다.
+  const paneLabel = fgProcess ?? `pane ${paneId}`;
+
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-[#030712]">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-[#11111b]">
       {/* §4 v2.63 — 권한 경계 고지 + v2.65 폰트/검색 컨트롤. */}
-      <div className="flex items-center gap-1.5 border-b border-teal-500/20 bg-teal-500/5 px-3 py-1">
+      <div className="flex items-center gap-1.5 border-b border-gray-800/80 bg-[#11111b] px-3 py-1">
         <svg className="h-3 w-3 shrink-0 text-teal-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <rect x="2.5" y="4" width="19" height="16" rx="2" />
           <path d="M6 9l3 3-3 3" />
           <line x1="12" y1="15" x2="16" y2="15" />
         </svg>
-        <span className="min-w-0 flex-1 truncate text-[12px] leading-snug text-teal-200/70">{t('ide.terminal.harnessNote')}</span>
+        <span className="min-w-0 flex-1 truncate text-[12px] leading-snug text-gray-500">{t('ide.terminal.harnessNote')}</span>
         {hasTerminalApi && (
           <div className="flex shrink-0 items-center gap-0.5">
             <button
@@ -517,7 +625,7 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
               onClick={() => applyFontSize(fontSize - 1)}
               title={t('ide.terminal.fontDecrease')}
               aria-label={t('ide.terminal.fontDecrease')}
-              className="rounded p-1 text-teal-200/60 transition-colors hover:bg-teal-500/15 hover:text-teal-100"
+              className="rounded p-1 text-gray-500 transition-colors hover:bg-gray-700/50 hover:text-teal-200"
             >
               <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12" /></svg>
             </button>
@@ -526,7 +634,7 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
               onClick={() => applyFontSize(FONT_SIZE_DEFAULT)}
               title={t('ide.terminal.fontReset')}
               aria-label={t('ide.terminal.fontReset')}
-              className="min-w-[28px] rounded px-1 py-0.5 text-center text-[12px] tabular-nums text-teal-200/60 transition-colors hover:bg-teal-500/15 hover:text-teal-100"
+              className="min-w-[28px] rounded px-1 py-0.5 text-center text-[12px] tabular-nums text-gray-500 transition-colors hover:bg-gray-700/50 hover:text-teal-200"
             >
               {fontSize}
             </button>
@@ -535,7 +643,7 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
               onClick={() => applyFontSize(fontSize + 1)}
               title={t('ide.terminal.fontIncrease')}
               aria-label={t('ide.terminal.fontIncrease')}
-              className="rounded p-1 text-teal-200/60 transition-colors hover:bg-teal-500/15 hover:text-teal-100"
+              className="rounded p-1 text-gray-500 transition-colors hover:bg-gray-700/50 hover:text-teal-200"
             >
               <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
             </button>
@@ -544,7 +652,7 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
               onClick={() => openSearch()}
               title={`${t('ide.terminal.find')} (${shortcutLabel('Ctrl+F')})`}
               aria-label={t('ide.terminal.find')}
-              className="rounded p-1 text-teal-200/60 transition-colors hover:bg-teal-500/15 hover:text-teal-100"
+              className="rounded p-1 text-gray-500 transition-colors hover:bg-gray-700/50 hover:text-teal-200"
             >
               <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
             </button>
@@ -557,11 +665,41 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
           <span className="text-[12px] text-gray-500">{t('ide.terminal.unavailable')}</span>
         </div>
       ) : (
-        <div className="relative flex min-h-0 flex-1">
-          <div className="relative min-h-0 flex-1">
+        <div className={`relative flex min-h-0 flex-1 ${showPaneChrome ? 'px-[3px] pb-[3px] pt-[9px]' : ''}`}>
+          {showPaneChrome && (
+            <>
+              {/* §4 (CMD) — pane 테두리. 지금 타이핑이 가는 창만 액센트로 서고 나머지는 물러난다. */}
+              <div
+                className={`pointer-events-none absolute inset-x-[3px] bottom-[3px] top-[9px] rounded-[3px] border transition-colors ${
+                  focused ? 'border-teal-400/60' : 'border-gray-700/70'
+                }`}
+              />
+              {/* 이름표 — 테두리 **선 위에 걸터앉아** 배경색으로 그 선을 덮는다(칸을 따로 파지 않고도
+                  라벨이 테두리를 뚫고 나온 모양이 된다). 글자는 그 창에서 도는 프로그램 이름이라
+                  "저 창이 claude, 이 창이 dev 서버"가 한눈에 갈린다. */}
+              <span
+                className={`pointer-events-none absolute left-4 top-[9px] z-10 -translate-y-1/2 bg-[#11111b] px-1.5 font-mono text-[12px] leading-[1.1] tracking-wide transition-colors ${
+                  paneState === 'blocked'
+                    ? 'text-amber-300'
+                    : focused
+                      ? 'font-semibold text-teal-300'
+                      : paneState === 'working'
+                        ? 'text-gray-300'
+                        : 'text-gray-500'
+                }`}
+              >
+                {paneLabel}
+              </span>
+            </>
+          )}
+          <div
+            className="relative min-h-0 flex-1"
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+          >
           {/* 인앱 검색바 — Ctrl+F. */}
           {searchOpen && (
-            <div className="absolute right-2 top-2 z-20 flex items-center gap-1 rounded-md border border-gray-700 bg-gray-900/95 px-1.5 py-1 shadow-xl backdrop-blur">
+            <div className="absolute right-2 top-2 z-20 flex items-center gap-1 rounded-md border border-gray-700 bg-[#181825]/95 px-1.5 py-1 shadow-xl backdrop-blur">
               <svg className="h-3.5 w-3.5 shrink-0 text-gray-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
               <input
                 ref={searchInputRef}
@@ -604,7 +742,9 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
               </button>
             </div>
           )}
-          <div ref={hostRef} onContextMenu={onContextMenu} className="h-full min-h-0 w-full overflow-hidden p-1.5" />
+          {/* 안쪽 여백 — 종전 6px 은 글자가 창 모서리에 붙어 답답했다. 같은 일을 하는 화면들이
+              쓰는 비율(가로보다 세로가 조금 더 넓게)을 따른다. */}
+          <div ref={hostRef} onContextMenu={onContextMenu} className="h-full min-h-0 w-full overflow-hidden px-3 py-2.5" />
           </div>
           {cards.length > 0 && (
             <IDETerminalCardRail

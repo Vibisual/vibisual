@@ -198,6 +198,50 @@ describe('IDE 창 여러 개 (§5.5 #17-1)', () => {
     expect(selectIDEOverlay(st).agentId).toBe(A1); // 맨 앞이다
   });
 
+  // ── 접기 = 캔버스를 돌려주는 것 → 돌려받은 캔버스에서 그 버블을 가리킨다 ─────────
+  it('접으면 캔버스 카메라가 그 창의 버블로 간다', () => {
+    open(A1, 'new');
+    useGraphStore.setState({ focusNodeId: null });
+    useGraphStore.getState().setIDEPaneCollapsed(PROJ, true);
+    expect(useGraphStore.getState().focusNodeId).toBe(A1);
+  });
+
+  it('창이 여럿이어도 방금 접은 그 창의 버블을 가리킨다', () => {
+    open(A1, 'new');
+    open(A2, 'new');
+    const [, k2] = panes();
+    useGraphStore.setState({ focusNodeId: null });
+    useGraphStore.getState().setIDEPaneCollapsed(k2!, true);
+    expect(useGraphStore.getState().focusNodeId).toBe(A2);
+  });
+
+  it('펴는 것은 카메라를 건드리지 않는다(접었던 자리로 돌아올 뿐)', () => {
+    open(A1, 'new');
+    useGraphStore.getState().setIDEPaneCollapsed(PROJ, true);
+    useGraphStore.setState({ focusNodeId: null });
+    useGraphStore.getState().setIDEPaneCollapsed(PROJ, false);
+    expect(useGraphStore.getState().focusNodeId).toBeNull();
+  });
+
+  it('버블이 사라진 유령 창을 접어도 카메라를 던지지 않는다', () => {
+    open(A1, 'new');
+    // 그 에이전트가 스냅샷에서 빠졌다(삭제·휴지통) — 캔버스가 못 찾을 곳으로 보내면
+    //   focusNodeId 만 남아 나중에 엉뚱한 순간 카메라가 튄다.
+    useGraphStore.setState({ nodeMap: {}, focusNodeId: null });
+    useGraphStore.getState().setIDEPaneCollapsed(PROJ, true);
+    expect(useGraphStore.getState().focusNodeId).toBeNull();
+  });
+
+  it('휴지통으로 간 버블이면 접어도 카메라를 던지지 않는다', () => {
+    open(A1, 'new');
+    useGraphStore.setState({
+      nodeMap: { ...useGraphStore.getState().nodeMap, [A1]: { ...agentNode(A1), trashed: true } },
+      focusNodeId: null,
+    });
+    useGraphStore.getState().setIDEPaneCollapsed(PROJ, true);
+    expect(useGraphStore.getState().focusNodeId).toBeNull();
+  });
+
   // ── 사용자가 만든 배치를 앱이 지우지 않는다 ────────────────────────────
   it('떠 있는 창의 자리는 슬롯이 들고 있다(접었다 펴도·탭을 옮겨도 그 자리)', () => {
     open(A1, 'new');

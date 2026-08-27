@@ -13,6 +13,10 @@
       "disconnected": "Getrennt",
       "viewLogs": "Server-Logs anzeigen"
     },
+    "rightTools": {
+      "expand": "Kopfzeilen-Werkzeuge einblenden",
+      "collapse": "Kopfzeilen-Werkzeuge ausblenden"
+    },
     "update": {
       "available": "Update {{version}}",
       "availableTooltip": "Version {{version}} ist verfügbar und wird im Hintergrund heruntergeladen",
@@ -72,7 +76,17 @@
         "top": "oben",
         "bottom": "unten"
       },
-      "orphan": "Fenster ohne Bubble"
+      "orphan": "Fenster ohne Bubble",
+      "layout": {
+        "tile": "Fenster kacheln",
+        "cascade": "Fenster kaskadieren",
+        "tabRight": "Alle als Tabs rechts stapeln",
+        "splitLeftRight": "Links / rechts teilen",
+        "undockAll": "Alle lösen",
+        "collapseAll": "Alle einklappen",
+        "expandAll": "Alle ausklappen"
+      },
+      "shortcutHint": "{{dock}} Andocken · {{max}} Maximieren · {{next}} Nächstes Fenster"
     }
   },
   "panel": {
@@ -82,7 +96,8 @@
       "options": "Optionen…",
       "guide": "Anleitung",
       "mobileAccess": "Mobiler Zugriff…",
-      "plugins": "Plugins…"
+      "plugins": "Plugins…",
+      "remoteControl": "Fernsteuerung…"
     },
     "mobileAccess": {
       "title": "Mobiler Zugriff",
@@ -119,6 +134,62 @@
       "qrExpiresIn": "Gültig für {{time}}",
       "qrExpired": "Abgelaufen — neuen QR-Code erzeugen.",
       "qrPairedCount": "Mit diesem QR-Code gekoppelt: {{count}}"
+    },
+    "remoteControl": {
+      "title": "Fernsteuerung",
+      "subtitle": "Steuere Vibisual über einen Messenger. Die App baut die Verbindung selbst auf, daher muss kein Port geöffnet und keinem Zertifikat vertraut werden – das funktioniert auch hinter CGNAT.",
+      "channel": {
+        "telegram": "Telegram",
+        "discord": "Discord"
+      },
+      "step1": "Bot erstellen",
+      "step2": "Token einfügen",
+      "step3": "Chat verbinden",
+      "open": {
+        "telegram": "@BotFather öffnen",
+        "discord": "Entwicklerportal öffnen"
+      },
+      "step1Hint": {
+        "telegram": "Sende /newbot an @BotFather, wähle einen Namen, und du erhältst ein Token.",
+        "discord": "New Application → Bot → Reset Token. Aktiviere „Message Content Intent“ auf derselben Seite."
+      },
+      "copied": "Kopiert",
+      "tokenPlaceholder": "Bot-Token einfügen",
+      "verify": "Prüfen",
+      "verifying": "Wird geprüft…",
+      "tokenSaved": "Verbunden mit {{name}}",
+      "clearToken": "Entfernen",
+      "error": {
+        "token": "Dieses Token wurde abgelehnt. Kopiere es erneut von der Bot-Seite.",
+        "intent": "Discord hat die Verbindung abgelehnt, weil „Message Content Intent“ deaktiviert ist. Aktiviere es im Entwicklerportal und versuche es erneut.",
+        "network": "Der Messenger war nicht erreichbar. Erneuter Versuch läuft.",
+        "rate-limit": "Der Messenger drosselt unsere Anfragen. Erneuter Versuch in Kürze."
+      },
+      "status": {
+        "off": "Aus",
+        "connecting": "Verbindung wird hergestellt…",
+        "online": "Online",
+        "error": "Getrennt"
+      },
+      "enable": "Einschalten",
+      "disable": "Ausschalten",
+      "issueQr": "Kopplungs-QR anzeigen ({{minutes}} Min.)",
+      "revokeQr": "QR jetzt widerrufen",
+      "expiresIn": "Läuft ab in",
+      "savePng": "PNG speichern",
+      "discordPairHint": "Scanne, um den Bot einzuladen, und sende dann diese Zeile in einem beliebigen Kanal, den er sehen kann:",
+      "pairedChats": "Verbundene Chats",
+      "unpair": "Trennen",
+      "verbosityTitle": "Was gesendet wird",
+      "verbosity": {
+        "cards": "Nur Karten",
+        "full": "Stream einschließen"
+      },
+      "verbosityHint": {
+        "cards": "Nur Karten und Zusammenfassungen verlassen diesen Rechner. Frage bei Bedarf mit /log nach der Rohausgabe.",
+        "full": "Antworten und Denkprozesse werden übermittelt, sobald sie eintreffen. Tool-Ausgaben und Diffs werden weiterhin zurückgehalten."
+      },
+      "securityNote": "Es werden nur gekoppelte Chats beantwortet; alles andere wird ignoriert. Terminalzugriff ist über einen Messenger nie verfügbar."
     },
     "guide": {
       "title": "Anleitung",
@@ -236,7 +307,7 @@
         "version": "Version",
         "account": "Konto",
         "storage": "Speicher",
-        "brain": "Projekt-Brain"
+        "brain": "Projekt-Memory"
       },
       "appearance": {
         "intro": "Passen Sie das Erscheinungsbild von Vibisual an.",
@@ -357,6 +428,10 @@
             "label": "Angehängte Dateien",
             "desc": "Bilder, die du in Befehle eingefügt hast. Dateien, auf die ein Gespräch noch verweist, bleiben unabhängig vom Alter; nur Verwaiste laufen ab. 0 = dauerhaft behalten."
           },
+          "auditEntryMaxPerProject": {
+            "label": "Audit-Aufrufe pro Projekt",
+            "desc": "Werkzeugaufrufe, die in der Audit-Zeitleiste bleiben. Verdrängte Aufrufe zählen weiter zur Gesamtzahl — nur ihre Details entfallen. 0 = unbegrenzt."
+          },
           "trashRetentionDays": {
             "label": "Papierkorb",
             "desc": "Wie viele Tage bereinigte Dateien wiederherstellbar bleiben, bevor sie endgültig gelöscht werden. 0 = dauerhaft behalten."
@@ -390,6 +465,14 @@
         "trashEmpty": "Der Papierkorb ist leer — es wurde nichts bereinigt.",
         "restore": "Wiederherstellen",
         "restoring": "Wird wiederhergestellt…"
+      },
+      "advanced": {
+        "terminalScrollback": "Terminal-Scrollback (Zeilen)",
+        "terminalScrollbackDesc": "Wie viele Ausgabezeilen ein CMD-Terminal behält. Scrollen und die Suche mit {{shortcut}} teilen sich diesen Bereich. Gilt für Terminals, die ab jetzt geöffnet werden."
+      },
+      "notifications": {
+        "cmdBlocked": "Benachrichtigen, wenn eine CMD-Sitzung auf eine Eingabe wartet",
+        "cmdBlockedDesc": "Benachrichtigt nur, wenn du gerade einen anderen Tab oder ein anderes Fenster betrachtest – ist das Fenster fokussiert, ist es ohnehin schon zu sehen."
       }
     },
     "autoAgent": {
@@ -672,6 +755,8 @@
       "notMerged": "Branch {{branch}} hat Commits, die noch nicht in {{base}} sind. Vor dem Löschen in {{base}} mergen?",
       "notYetIn": "noch nicht in {{base}}",
       "branchUnresolved": "Branch konnte via git worktree list nicht aufgelöst werden. Löschen entfernt nur den Ordner und die Blase.",
+      "forceStopTitle": "Alles, was darin läuft, wird zwangsweise beendet",
+      "forceStopDesc": "{{terminals}} Terminal(s) werden samt Prozessbaum beendet und {{agents}} Agent(en) dieses Worktrees in den Papierkorb verschoben. Bleiben sie aktiv, sperren sie Dateien und der Ordner wird nur halb gelöscht.",
       "cancel": "Abbrechen",
       "mergeAndDelete": "Mergen & Löschen",
       "delete": "Löschen",
@@ -913,6 +998,12 @@
         "toolsNone": "Dieses Modell kann keine Tools nutzen — es spricht nur.",
         "toolsUnknown": "Noch nicht geprüft — beim nächsten Zug gehen Tools mit, um es herauszufinden.",
         "toolsRecheck": "Erneut prüfen"
+      },
+      "cliKind": {
+        "label": "CLI",
+        "tip": "Welche Agent-CLI dieses CMD-Terminal startet. Alles außer Claude Code ist kein Kindprozess unserer Hooks, daher sind Gesprächs-Wiederaufnahme und Regel-Injektion nicht angebunden – der Status wird stattdessen aus der Terminalausgabe gelesen.",
+        "nonClaudeNote": "Diese CLI ist nicht Claude Code, daher werden die folgenden Einstellungen (Modell, Berechtigungen, Tools, Regeln) nicht an sie übergeben. Der Status wird stattdessen aus der Terminalausgabe gelesen. Änderungen gelten für neue Sitzungen, die mit „+“ geöffnet werden.",
+        "applyNote": "Eine geänderte CLI gilt für neue Sitzungen, die mit „+“ geöffnet werden – bereits laufende Terminals behalten das, womit sie gestartet wurden."
       }
     },
     "permissionPrompt": {
@@ -1418,7 +1509,7 @@
       "boundaryHint": "Die Aufzeichnung wird nie gestoppt – das entscheidet nur, ob wir den Agenten vorher anhalten.",
       "routeTitle": "Ein zweiter Kontrollpunkt, unabhängig vom Berechtigungsmodus",
       "routeBody": "Diese Grenze arbeitet unabhängig vom Berechtigungsmodus des Agenten — sie prüft Tool-Aufrufe erneut, die der Berechtigungsmodus bereits durchgelassen hat.",
-      "routeOn": "Eingeschaltet — selbst ein Agent mit „alles erlauben (bypassPermissions)“ erhält bei Lösch-, Netzwerk- und Konfigurationsaufrufen eine Freigabekarte.",
+      "routeOn": "Eingeschaltet — selbst ein Agent mit „alles erlauben (bypassPermissions)“ erhält bei Lösch-, Netzwerk-, Konfigurations- und Ordner-außerhalb-Aufrufen eine Freigabekarte.",
       "routeOff": "Ausgeschaltet (Standard) — jeder Aufruf läuft genau so, wie der Berechtigungsmodus entschieden hat, und wird nur aufgezeichnet.",
       "routeScope": "Angehalten werden hier nur benutzerdefinierte Agenten, die Vibisual gestartet hat. Selbst gestartete Claude-Code-Sitzungen werden nur aufgezeichnet.",
       "routeStateOn": "Jetzt an — riskante Aufrufe werden vor dem Berechtigungsmodus abgefragt.",
@@ -1426,11 +1517,16 @@
       "risk": {
         "delete": "Löschen",
         "network": "Netzwerk",
-        "config": "Konfiguration"
+        "config": "Konfiguration",
+        "outside": "Ordner außerhalb (Lesen/Ändern)"
       },
       "filterAll": "Alle",
       "filterRisky": "Riskant",
       "filterDenied": "Abgelehnt",
+      "retentionLabel": "Behalten",
+      "retentionUnit": "Aufrufe",
+      "retentionUnlimited": "Unbegrenzt",
+      "retentionHint": "Wie viele Aufrufe pro Projekt auf der Festplatte bleiben. Ältere Aufrufe zählen weiterhin zur Gesamtzahl — nur ihre Details entfallen. Ohne Häkchen: unbegrenzt.",
       "escalated": "Zuerst nachgefragt",
       "decisionAllow": "Erlaubt",
       "decisionDeny": "Abgelehnt",
@@ -1582,7 +1678,17 @@
       "collapseLabel": "Einklappen",
       "collapseHint": "Einklappen — Fenster bleibt erhalten, Canvas kommt zurück (in der Fensterliste oben wieder ausklappen)",
       "resizeWindow": "Fenstergröße ändern",
-      "resizeStack": "Aufteilung ändern"
+      "resizeStack": "Aufteilung ändern",
+      "slotTabHint": "„{{name}}“ nach vorne bringen (Fenster teilen sich diesen Andockplatz)",
+      "dockShortcutHint": "{{dock}} Andocken · {{undock}} Lösen",
+      "popOutHint": "Loslassen, um als eigenes Fenster abzukoppeln",
+      "popOutEdgeHint": "Weiter an den Rand drücken, um es als eigenes Fenster abzukoppeln",
+      "popOutLabel": "Als eigenes Fenster abkoppeln",
+      "returnToApp": "Zurück in die App holen",
+      "popOutHintButton": "Als eigenes Fenster abkoppeln (oder die Titelleiste aus der App ziehen bzw. an den Rand drücken)",
+      "returnToAppHint": "Klicken, um es zurück in die App zu holen · auf das App-Fenster ziehen zum Zusammenführen",
+      "redockDropHint": "Hier loslassen, um es wieder in die App zu führen",
+      "redockKeepHint": "Woanders loslassen, um es eigenständig zu lassen"
     },
     "tabbar": {
       "newSession": "Neue Session",
@@ -1622,7 +1728,12 @@
         "clear": "Karten leeren",
         "collapse": "Karten einklappen",
         "expand": "Karten anzeigen"
-      }
+      },
+      "splitRight": "Rechts teilen",
+      "splitDown": "Unten teilen",
+      "zoom": "Bereich maximieren",
+      "unzoom": "Layout wiederherstellen",
+      "closePane": "Bereich schließen"
     },
     "mainArea": {
       "scrollPrompt": "Zum Prompt scrollen",
@@ -1672,7 +1783,7 @@
       "inputCtxCopy": "Kopieren",
       "inputCtxPaste": "Einfügen",
       "inputCtxSelectAll": "Alles auswählen",
-      "ctxSaveToBrain": "Im Gehirn speichern",
+      "ctxSaveToBrain": "Im Memory speichern",
       "stopAll": "Alles stoppen",
       "stopAllTitle": "Alles stoppen, was dieser Agent ausführt (andere Tabs + Hintergrund-Unteragenten)",
       "stopSessionTitle": "Diese Session und die von ihr gestarteten Unteragenten stoppen (andere Session-Tabs laufen weiter)"
@@ -1706,7 +1817,8 @@
       "goal": "Ziel",
       "debug": "Ausführen und Debuggen",
       "hooks": "Sitzungs-Hooks",
-      "plugins": "Claude Code-Plugins"
+      "plugins": "Claude Code-Plugins",
+      "verify": "Prüfen"
     },
     "mcp": {
       "title": "MCP-Server",
@@ -2432,15 +2544,16 @@
         "edges": "Ausgehende Kantenregeln",
         "feedback": "Bisheriges Nutzer-Feedback",
         "intentFirst": "Absicht zuerst nennen",
+        "cardCommon": "Karten-Protokoll (gemeinsam)",
         "cardReport": "Protokoll für Arbeitsbericht-Karte",
         "cardQuestion": "Protokoll für Fragekarte",
         "cardReview": "Protokoll für Review-Karte",
         "cardList": "Protokoll für nummerierte Listenkarte",
         "cardIframe": "Protokoll für Server-Vorschau",
         "goal": "Session-Ziel",
-        "brainCards": "Project-Brain-Briefing",
-        "brainTopics": "Brain-Themenindex",
-        "brainRules": "Brain-Regelrahmen",
+        "brainCards": "Project-Memory-Briefing",
+        "brainTopics": "Memory-Themenindex",
+        "brainRules": "Memory-Regelrahmen",
         "hookEnforcement": "Hook-Session-Injektion",
         "plugins": "Alle Durchsetzungs-Plugins",
         "claudeMd": "CLAUDE.md-Dateien",
@@ -2454,7 +2567,7 @@
         "mcp": "MCP-Server",
         "hooks": "Hooks",
         "systemPrompt": "Claude Code System-Prompt",
-        "brainSkills": "Brain-Prozeduren"
+        "brainSkills": "Memory-Prozeduren"
       },
       "hint": {
         "tools": "Tool-Liste in den Agent-Einstellungen wählen",
@@ -2519,6 +2632,11 @@
             "more": "Eine feste Vibisual-Anweisung. Sie existiert, damit Sie den Agenten frühzeitig stoppen können, wenn er in die falsche Richtung geht.",
             "off": "Der Agent kann Dateien bearbeiten, ohne vorher seinen Plan anzukündigen."
           },
+          "cardCommon": {
+            "what": "Der eine Regelsatz, den sich alle Kartenberichte teilen – wo gepostet wird, wann gepostet wird und wo die Karte relativ zu deinem Text sitzt.",
+            "more": "Wird an einer Stelle gehalten, damit derselbe Absatz nicht in jedem Kartenblock wiederholt wird. Er wird nur einbezogen, wenn mindestens eine Karte aktiv ist.",
+            "off": "Der Agent weiß dann nicht mehr, wie er eine Karte postet, sodass die Karten unten möglicherweise nie erscheinen."
+          },
           "cardReport": {
             "what": "Das Rezept für die farbige Karte „was ich getan habe / was Sie tun müssen“.",
             "more": "Weist den Agenten an, sein Ergebnis über die API von Vibisual zu melden, damit die beiden Listen farblich getrennt werden können.",
@@ -2550,7 +2668,7 @@
             "off": "Der Agent sieht das Ziel und seine Fortschrittsliste nicht mehr. Das Zielfenster selbst bleibt bestehen."
           },
           "brainCards": {
-            "what": "Erinnerungskarten aus dem Project Brain, die zu Ihrer aktuellen Frage passen.",
+            "what": "Erinnerungskarten aus dem Project Memory, die zu Ihrer aktuellen Frage passen.",
             "more": "Nach Relevanz zu Ihrer Nachricht sortiert, plus die als Dauerregel markierten Regeln. Gespeichert unter .vibisual/brain in diesem Projekt.",
             "off": "Der Agent startet ohne die Lektionen, die dieses Projekt bereits gelernt hat."
           },
@@ -2813,6 +2931,39 @@
       "foreignSession": "Diese Sitzung gehört zu einer anderen Bubble",
       "tooSmall": "Zu klein zum Teilen",
       "alreadyHere": "Wird hier bereits angezeigt"
+    },
+    "verify": {
+      "title": "Prüfen",
+      "about": "Führt /verify in diesem Tab aus: baut und startet deine App und berichtet, was tatsächlich zu sehen war.",
+      "pickSession": "Öffne einen Sitzungs-Tab, um eine Prüfung zu starten.",
+      "focusLabel": "Was geprüft werden soll (optional)",
+      "focusPlaceholder": "z. B. ob der Login-Button den Dialog wirklich öffnet",
+      "start": "Prüfung starten",
+      "running": "Läuft",
+      "readOnly": "Hook-Bubbles sind schreibgeschützt, hier lässt sich keine Prüfung starten.",
+      "empty": "In diesem Tab wurde noch keine Prüfung ausgeführt.",
+      "stop": "Schließen",
+      "rework": "Zur Überarbeitung senden",
+      "delete": "Löschen",
+      "recipe": {
+        "playRecipe": "Sendet das Startrezept, das Vibisual bereits kennt",
+        "recordedSkill": "Folgt dem in diesem Repo bereits aufgezeichneten Rezept",
+        "none": "Kein Rezept hinterlegt — /verify findet es selbst heraus"
+      },
+      "verdict": {
+        "pass": "Bestanden",
+        "fail": "Fehlgeschlagen",
+        "held": "Zurückgestellt",
+        "unknown": "Unbekannt"
+      },
+      "error": {
+        "alreadyRunning": "In diesem Tab läuft bereits eine Prüfung.",
+        "sessionBusy": "In diesem Tab läuft noch ein Befehl.",
+        "sessionNotFound": "Diese Sitzung wurde nicht gefunden.",
+        "readOnly": "Hook-Bubbles sind schreibgeschützt.",
+        "network": "Server nicht erreichbar.",
+        "failed": "Prüfung konnte nicht gestartet werden."
+      }
     }
   },
   "bubbleMap": {
@@ -3097,6 +3248,11 @@
   },
   "canvas": {
     "stubPlaceholder": "Dieses Projekt liegt nur auf der Festplatte. Tab anklicken zum Laden.",
+    "loading": {
+      "project": "Projekt wird geladen…",
+      "connecting": "Verbindung zum Server…",
+      "slow": "Langsame Verbindung – wird noch geladen…"
+    },
     "controls": {
       "zoomIn": "Hineinzoomen",
       "zoomOut": "Herauszoomen",
@@ -3132,8 +3288,8 @@
       "createLocalAgentHint": "Legt eine Bubble für ein Modell ab, das auf diesem PC läuft",
       "createShelf": "Skript-Ablage",
       "createShelfHint": "Halte die Befehle und Prompts, die du oft verwendest, einen Klick entfernt",
-      "brainOn": "Projekt-Brain einschalten",
-      "brainOff": "Projekt-Brain ausschalten",
+      "brainOn": "Projekt-Memory einschalten",
+      "brainOff": "Projekt-Memory ausschalten",
       "brainOnHint": "Sammelt gelernte Abläufe und lädt sie in die nächste Aufgabe",
       "brainOnHintSleeping": "{{count}} Erinnerungen schlummern hier",
       "brainOffHint": "Ausschalten löscht nichts"
@@ -3389,7 +3545,7 @@
     "close": "Schließen"
   },
   "brain": {
-    "bubbleLabel": "Gehirn",
+    "bubbleLabel": "Memory",
     "trashBubbleLabel": "Papierkorb",
     "trashCountShort": "{{n}}",
     "unseenBadge": "{{n}} ungesehen",
@@ -3406,7 +3562,7 @@
       "rule": "Regel",
       "fact": "Fakt"
     },
-    "scopeProject": "Projekt-Gehirn",
+    "scopeProject": "Projekt-Memory",
     "scopeAgent": "Agentenspeicher",
     "statusGhost": "Prüfung erforderlich",
     "supersededNote": "Vorheriger Inhalt",
@@ -3428,7 +3584,7 @@
     "lastReferenced": "Zuletzt referenziert",
     "createdAt": "Erstellt",
     "sourceSession": "Quell-Session",
-    "promote": "Zum Projekt-Gehirn befördern",
+    "promote": "Zum Projekt-Memory befördern",
     "pin": "Anheften",
     "unpin": "Lösen",
     "edit": "Bearbeiten",
@@ -3462,7 +3618,7 @@
     "trashItemsMore": "+{{n}} weitere",
     "cardCountUnitSuffix": "",
     "feed": {
-      "title": "Projekt-Gehirn",
+      "title": "Projekt-Memory",
       "agentTitle": "Erinnerungen dieses Agents",
       "searchPlaceholder": "Erinnerungen durchsuchen…",
       "sectionRelated": "Bezug zur aktuellen Arbeit",
@@ -3574,19 +3730,19 @@
       }
     },
     "activation": {
-      "sleeping": "Im Brain dieses Projekts schlafen {{count}} Erinnerungen. Einschalten?",
-      "hint": "Das Brain ist standardmäßig aus. Eingeschaltet sammelt es gelernte Abläufe und wendet sie beim nächsten Mal an. Jederzeit abschaltbar — Ausschalten löscht nichts.",
+      "sleeping": "Im Memory dieses Projekts schlafen {{count}} Erinnerungen. Einschalten?",
+      "hint": "Das Memory ist standardmäßig aus. Eingeschaltet sammelt es gelernte Abläufe und wendet sie beim nächsten Mal an. Jederzeit abschaltbar — Ausschalten löscht nichts.",
       "turnOn": "Einschalten",
       "notNow": "Jetzt nicht",
       "showAxes": "Ansehen, was aktiviert wird",
       "hideAxes": "Details ausblenden",
       "axesTitle": "Was aktiviert bleiben soll",
-      "turnOff": "Brain ausschalten",
+      "turnOff": "Memory ausschalten",
       "offKeepsData": "Ausschalten löscht nichts — beim Einschalten geht es dort weiter.",
       "noProject": "Kein Projekt geöffnet",
-      "noProjectDesc": "Das Brain wird pro Projekt eingeschaltet — öffne zuerst ein Projekt.",
-      "stateOn": "Das Brain dieses Projekts ist an",
-      "stateOff": "Das Brain dieses Projekts ist aus",
+      "noProjectDesc": "Das Memory wird pro Projekt eingeschaltet — öffne zuerst ein Projekt.",
+      "stateOn": "Das Memory dieses Projekts ist an",
+      "stateOff": "Das Memory dieses Projekts ist aus",
       "sleepingCount": "{{count}} Erinnerungen schlummern"
     }
   },

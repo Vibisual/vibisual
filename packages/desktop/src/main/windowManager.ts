@@ -12,6 +12,17 @@ import { BrowserWindow, screen } from 'electron';
 // opacity 0.85, alwaysOnTop)로 축소되어 cursor 를 따라다닌다. 메인 헤더 영역 위에서
 // 떼면 redock, 그 외 위치에서 떼면 원본 bounds/opacity 복원.
 
+/**
+ * 창 아이콘 경로 — Windows 만 `.ico`, mac/linux 는 `.png`.
+ *
+ * 다섯 군데의 `BrowserWindow` 생성이 같은 삼항식을 각자 적고 있었다. 하나를 고치고 넷을 빠뜨리면
+ * 창마다 아이콘이 갈리는데, 그건 그 OS 에서 띄워 보기 전에는 드러나지 않는다.
+ * **플랫폼을 인자로 받아** 세 경우를 단위 테스트로 고정한다(mac 은 실제로는 앱 번들 아이콘을 쓰므로
+ * 이 값이 쓰이지 않지만, 넘겨도 해가 없고 linux 와 같은 가지로 두는 편이 규칙이 단순하다).
+ */
+export function windowIconPath(baseDir: string, platform: NodeJS.Platform): string {
+  return join(baseDir, '..', platform === 'win32' ? 'icon.ico' : 'icon.png');
+}
 export type DetachKind = 'project' | 'iframe';
 
 export interface DetachOptions {
@@ -123,7 +134,7 @@ export function openDetached(opts: DetachOptions): { windowId: number; reused: b
     // §5.4 #14-1 (v2.30) — 별창은 OS titlebar 를 통째로 우리 UI 가 대신한다. titleBarOverlay 를 쓰면
     // 우상단 컨트롤 영역이 OS 가 그려 우리 미니 타이틀바와 시각 충돌하므로 frame:false 로 전환.
     frame: false,
-    icon: join(__dirname, '..', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
+    icon: windowIconPath(__dirname, process.platform),
     webPreferences: {
       preload: join(__dirname, '../preload/index.cjs'),
       sandbox: false,
@@ -497,6 +508,22 @@ interface OverlayEntry {
   collapsedBounds: { x: number; y: number; width: number; height: number } | null;
   /** §17-6 (G) v2.82 — 우클릭 메뉴 불투명도(1/0.75/0.5). 접힘 버블에만 적용, 펼침 시 1로 보고 접으면 이 값 복원. */
   opacity: number;
+  /**
+   * §17-6 (H) — **앱 안으로 끌어다 합치는 중**인가. 별창(#14-1)의 mini ghost 드래그와 같은 물리로,
+   * 끌 동안 창을 칩 크기로 줄여 어디에 놓는지 보이게 하고 놓은 자리로 합칠지 말지를 가른다.
+   */
+  redock: OverlayRedockDrag | null;
+}
+
+/** 합치기 드래그 한 판의 상태 — 끝나면 통째로 버린다(창에 남는 값은 없다). */
+interface OverlayRedockDrag {
+  timer: NodeJS.Timeout | null;
+  /** 줄이기 전 창 자리 — 합치지 않고 놓으면 여기로 되돌린다. */
+  originalBounds: { x: number; y: number; width: number; height: number };
+  originalOpacity: number;
+  originalResizable: boolean;
+  /** 마지막으로 알린 hover — 바뀔 때만 렌더러에 보낸다(매 틱 IPC ❌). */
+  lastHover: boolean;
 }
 
 // 실제 BubbleNode 한 개(+선택 코로나/라벨)가 여유 있게 들어가고 살짝 드래그할 공간이 있는 컴팩트 창.
@@ -512,6 +539,52 @@ const overlaysByAgentId = new Map<string, OverlayEntry>();
 const overlaysByWindowId = new Map<number, OverlayEntry>();
 // 사용자 전역 토글(Header). 기본 표시.
 let overlaysUserVisible = true;
+
+// ─── §17-6 (H) — 창이 자리를 옮길 때 들고 가는 상자 ────────────────────────
+//
+// 앱 안 IDE 창을 밖으로 꺼내거나 다시 합칠 때, 종전에는 받는 쪽이 `openIDEOverlay` 로 창을
+// **새로** 만들었다. 그 함수는 열어 둔 편집 탭을 비우고 뷰를 첫 화면으로 되돌리므로, 꺼내고
+// 나면 보던 파일이 전부 닫힌 채 다른 창이 서 있었다 — 같은 창이 밖으로 나온 것이 아니었다.
+//
+// 그래서 보내는 쪽이 그 창의 상태를 이 상자에 넣고, 받는 쪽이 꺼내 쓴다. **한 번 꺼내면
+// 사라진다**(같은 상자를 두 창이 나눠 쓰면 어느 쪽이 진짜인지 알 수 없다). 내용은 main 이
+// 해석하지 않는다 — 렌더러끼리 주고받는 짐이고 여기는 맡아 두는 자리일 뿐이다.
+//
+// 창 사이를 건너는 동안에만 살아 있으면 되므로 디스크에 쓰지 않는다(영속화 ❌ — 별창 선례).
+interface PaneHandoffBox {
+  handoff: unknown;
+  at: number;
+}
+/** 늦게 꺼낸 상자는 이미 뜻이 없다 — 창이 뜨는 데 걸리는 시간보다 넉넉히 준 상한. */
+const PANE_HANDOFF_TTL_MS = 60_000;
+const paneHandoffs = new Map<string, PaneHandoffBox>();
+
+/** 오래된 상자를 걷어낸다 — 받는 창이 끝내 안 뜨면(취소·크래시) 그대로 남기 때문. */
+function prunePaneHandoffs(): void {
+  const now = Date.now();
+  for (const [key, box] of paneHandoffs) {
+    if (now - box.at > PANE_HANDOFF_TTL_MS) paneHandoffs.delete(key);
+  }
+}
+
+/** 보내는 쪽이 짐을 맡긴다(같은 에이전트의 옛 상자는 덮어쓴다 — 마지막 것이 진짜다). */
+export function putPaneHandoff(agentId: string, handoff: unknown): void {
+  prunePaneHandoffs();
+  if (handoff === undefined || handoff === null) {
+    paneHandoffs.delete(agentId);
+    return;
+  }
+  paneHandoffs.set(agentId, { handoff, at: Date.now() });
+}
+
+/** 받는 쪽이 꺼낸다 — **꺼내면 사라진다**. 없으면 null(받는 쪽은 종전대로 새 창을 만든다). */
+export function takePaneHandoff(agentId: string): unknown {
+  prunePaneHandoffs();
+  const box = paneHandoffs.get(agentId);
+  if (!box) return null;
+  paneHandoffs.delete(agentId);
+  return box.handoff;
+}
 
 export interface OverlayInfo {
   windowId: number;
@@ -581,7 +654,23 @@ export function openOverlay(opts: {
   expanded?: boolean | undefined;
   /** 끌고 있던 창의 크기(px). 그대로 물려받아 **빠져나온 그 창**으로 보이게 한다. */
   size?: { width: number; height: number } | undefined;
+  /**
+   * §17-6 (H) — 앱 안에서 그 창이 들고 있던 것(열어 둔 편집 탭·보던 뷰·고른 세션·붙어 있던 변).
+   * 새로 뜨는 창이 부팅하면서 꺼내 그대로 이어 간다 — 없으면 종전대로 첫 화면에서 시작한다.
+   */
+  handoff?: unknown;
 }): { windowId: number; reused: boolean } {
+  // (판올림 번호 발급 대기) **손으로 끌어낸 창은 반드시 보여야 한다.** 전역 표시(Header 토글)가
+  //   꺼진 채로 이 길을 타면 앱 안 창은 닫히는데 밖에도 아무것도 뜨지 않아, 사용자에게는 창이
+  //   통째로 사라진 것으로 읽힌다. 숨김 스위치는 하나뿐이므로(그것이 유일 스위치라는 규약, §17-6 (D))
+  //   그 스위치를 켜서 화면과 스위치가 어긋나지 않게 한다 — 창만 몰래 보이면 토글은 계속 "숨김"이다.
+  if (opts.expanded && !overlaysUserVisible) {
+    overlaysUserVisible = true;
+    applyAllOverlayVisibility();
+    broadcastOverlayList();
+  }
+  // 짐은 창을 만들기 **전에** 맡긴다 — 창이 뜨면서 곧바로 꺼내 가므로 순서가 뒤집히면 빈손으로 시작한다.
+  if (opts.handoff) putPaneHandoff(opts.agentId, opts.handoff);
   const existing = overlaysByAgentId.get(opts.agentId);
   if (existing && !existing.window.isDestroyed()) {
     if (existing.window.isMinimized()) existing.window.restore();
@@ -590,6 +679,13 @@ export function openOverlay(opts: {
     // 이미 버블로 떠 있는 창을 다시 끌어냈다면 그 창을 펼쳐 준다(창 두 개 ❌ — 한 에이전트 한 창).
     if (opts.expanded && !existing.expanded) expandOverlayByWindowId(existing.id);
     keepOverlayOnTop(existing.window);
+    // 이미 서 있는 창은 부팅을 다시 하지 않는다 — 짐이 있으면 그 창에 직접 건네야 도착한다.
+    if (opts.handoff && !existing.window.webContents.isDestroyed()) {
+      existing.window.webContents.send('vibisual:overlay:pane-handoff', {
+        agentId: opts.agentId,
+        handoff: takePaneHandoff(opts.agentId),
+      });
+    }
     return { windowId: existing.id, reused: true };
   }
 
@@ -640,7 +736,7 @@ export function openOverlay(opts: {
     hasShadow: false,
     autoHideMenuBar: true,
     title: 'Vibisual',
-    icon: join(__dirname, '..', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
+    icon: windowIconPath(__dirname, process.platform),
     webPreferences: {
       preload: join(__dirname, '../preload/index.cjs'),
       sandbox: false,
@@ -668,6 +764,7 @@ export function openOverlay(opts: {
       ? { x, y, width: OVERLAY_BUBBLE_W, height: OVERLAY_BUBBLE_H }
       : null,
     opacity: 1,
+    redock: null,
   };
   overlaysByAgentId.set(opts.agentId, entry);
   overlaysByWindowId.set(win.id, entry);
@@ -689,6 +786,8 @@ export function openOverlay(opts: {
 
   win.on('closed', () => {
     stopOverlayDrag(win.id);
+    // §17-6 (H) — 합치기 드래그 중 창이 사라져도 폴링이 남지 않게(고아 타이머 방지).
+    stopOverlayRedockDrag(entry);
     // 이 버블의 우클릭 메뉴가 떠 있으면 함께 닫는다(고아 메뉴 방지).
     if (overlayMenu && overlayMenu.targetWindowId === win.id) closeOverlayMenu();
     overlaysByAgentId.delete(opts.agentId);
@@ -750,6 +849,140 @@ export function endOverlayDragByWindowId(windowId: number): boolean {
   stopOverlayDrag(windowId);
   const entry = overlaysByWindowId.get(windowId);
   if (entry && !entry.window.isDestroyed()) keepOverlayOnTop(entry.window);
+  return true;
+}
+
+// ─── §17-6 (H) — 끌어다 앱 안으로 합치기 (별창 mini ghost 드래그와 같은 물리) ──
+//
+// 꺼내는 길은 제스처(타이틀바를 앱 밖으로)인데 돌아오는 길만 버튼이면 두 방향이 대칭이 아니다.
+// 그래서 꺼낸 창의 [앱 안으로 되돌리기] 손잡이를 **잡아 끌 수도** 있게 한다:
+//   - 누르고 그대로 떼면 → 종전대로 즉시 되돌리기(클릭 판정은 렌더러가 한다)
+//   - 끌면 → 창이 칩 크기로 줄어 커서를 따라오고, 메인 창 위에서 놓으면 그 자리로 합쳐진다
+//   - 메인 창 밖에서 놓으면 → 줄이기 전 자리·크기로 되돌린다(아무 일도 없던 것처럼)
+//
+// 창을 줄이는 까닭은 IDE 창이 크기 때문이다 — 줄이지 않으면 메인 창을 통째로 가려 **어디에
+// 놓는지 보이지 않는다**(별창이 mini ghost 를 쓰는 것과 같은 이유).
+const OVERLAY_REDOCK_MINI_W = 240;
+const OVERLAY_REDOCK_MINI_H = 52;
+
+function stopOverlayRedockDrag(entry: OverlayEntry): void {
+  const d = entry.redock;
+  if (!d) return;
+  if (d.timer) clearInterval(d.timer);
+  d.timer = null;
+}
+
+/** 커서가 메인 창 위에 있는가 — 여기서 놓으면 합친다. */
+function cursorOverMainWindow(): boolean {
+  const main = getMainWindow();
+  if (!main || main.isDestroyed()) return false;
+  if (!main.isVisible() || main.isMinimized()) return false;
+  const cur = screen.getCursorScreenPoint();
+  const mb = main.getContentBounds();
+  return cur.x >= mb.x && cur.x <= mb.x + mb.width && cur.y >= mb.y && cur.y <= mb.y + mb.height;
+}
+
+function sendRedockDragState(entry: OverlayEntry, dragging: boolean, hovering: boolean): void {
+  const win = entry.window;
+  if (win.isDestroyed() || win.webContents.isDestroyed()) return;
+  win.webContents.send('vibisual:overlay:redock-drag-state', { dragging, hovering });
+}
+
+export function startOverlayRedockDragByWindowId(windowId: number): boolean {
+  const entry = overlaysByWindowId.get(windowId);
+  if (!entry || entry.window.isDestroyed()) return false;
+  if (entry.redock?.timer) return true; // 이미 끄는 중(중복 mousedown)
+  const win = entry.window;
+  const b = win.getBounds();
+  let opacity = 1;
+  try { opacity = win.getOpacity(); } catch { /* noop */ }
+  let resizable = true;
+  try { resizable = win.isResizable(); } catch { /* noop */ }
+  const drag: OverlayRedockDrag = {
+    timer: null,
+    originalBounds: { x: b.x, y: b.y, width: b.width, height: b.height },
+    originalOpacity: opacity,
+    originalResizable: resizable,
+    lastHover: false,
+  };
+  entry.redock = drag;
+
+  // 칩 크기로 줄이기 — 최소 크기가 IDE 기준(460×340)이라 먼저 풀지 않으면 setBounds 가 클램프된다.
+  try { win.setMinimumSize(OVERLAY_REDOCK_MINI_W, OVERLAY_REDOCK_MINI_H); } catch { /* noop */ }
+  try { win.setResizable(true); } catch { /* noop */ }
+  try { win.setOpacity(0.9); } catch { /* noop */ }
+  const cur0 = screen.getCursorScreenPoint();
+  win.setBounds(
+    { x: Math.round(cur0.x - 28), y: Math.round(cur0.y - 18), width: OVERLAY_REDOCK_MINI_W, height: OVERLAY_REDOCK_MINI_H },
+    false,
+  );
+  // 줄어든 창 안에 IDE 를 그대로 그리면 글자만 잘려 보인다 — 렌더러가 칩 모양으로 갈아입도록 먼저 알린다.
+  sendRedockDragState(entry, true, false);
+
+  drag.timer = setInterval(() => {
+    if (win.isDestroyed()) {
+      stopOverlayRedockDrag(entry);
+      return;
+    }
+    const p = screen.getCursorScreenPoint();
+    win.setBounds(
+      { x: Math.round(p.x - 28), y: Math.round(p.y - 18), width: OVERLAY_REDOCK_MINI_W, height: OVERLAY_REDOCK_MINI_H },
+      false,
+    );
+    const hover = cursorOverMainWindow();
+    if (hover !== drag.lastHover) {
+      drag.lastHover = hover;
+      sendRedockDragState(entry, true, hover);
+    }
+  }, DRAG_POLL_MS);
+  keepOverlayOnTop(win);
+  return true;
+}
+
+/**
+ * 손을 뗐다. `commit` 이면 앱 안 그 자리로 합치고(창은 닫힌다), 아니면 줄이기 전 모습으로 되돌린다.
+ * 합칠 때 넘어온 짐(`handoff`)은 메인 창이 꺼내 쓴다 — 없으면 종전대로 새 창이 열린다.
+ */
+export function endOverlayRedockDragByWindowId(windowId: number, commit: boolean, handoff?: unknown): boolean {
+  const entry = overlaysByWindowId.get(windowId);
+  if (!entry) return false;
+  const drag = entry.redock;
+  stopOverlayRedockDrag(entry);
+  entry.redock = null;
+  const win = entry.window;
+  if (win.isDestroyed()) return false;
+
+  if (commit) {
+    // 앱 안으로 — 되돌리기 버튼과 **같은 길**을 탄다(합치는 방법이 두 벌이 되면 안 된다).
+    const ok = revealOverlayInMain({
+      agentId: entry.agentId,
+      projectId: entry.projectId,
+      openIde: true,
+      handoff,
+    });
+    if (ok) {
+      win.close();
+      return true;
+    }
+    // 메인 창을 못 찾았다(닫혔다) — 합칠 곳이 없으므로 아래 복원으로 떨어진다.
+  }
+
+  sendRedockDragState(entry, false, false);
+  if (drag) {
+    try { win.setMinimumSize(MIN_FLOAT_W_OVERLAY, MIN_FLOAT_H_OVERLAY); } catch { /* noop */ }
+    // 뗀 자리에 타이틀바가 오게 앉힌다 — 꺼내기와 같은 손버릇(창이 손 아래에서 이어진다).
+    const cur = screen.getCursorScreenPoint();
+    const w = drag.originalBounds.width;
+    const h = drag.originalBounds.height;
+    win.setBounds(
+      { x: Math.round(cur.x - w / 2), y: Math.round(cur.y - 18), width: w, height: h },
+      false,
+    );
+    try { win.setResizable(drag.originalResizable); } catch { /* noop */ }
+    try { win.setOpacity(drag.originalOpacity); } catch { /* noop */ }
+  }
+  // setBounds/setResizable 이 topmost 를 푸는 회귀(§17-6 (E) v2.80) — 되돌린 뒤 다시 박는다.
+  keepOverlayOnTop(win);
   return true;
 }
 
@@ -852,9 +1085,17 @@ export function setOverlayOpacitySelfByWindowId(windowId: number, opacity: numbe
 
 // "본체에서 이 버블로 점프" — 메인 윈도우를 앞으로 끌어올리고, 그 렌더러에 점프 신호를 보낸다.
 // 실제 캔버스 이동·선택은 메인 App 의 onReveal 핸들러가 §5.4 #30 북마크 점프 로직으로 수행.
-export function revealOverlayInMain(payload: { agentId: string; projectId: string; openIde?: boolean }): boolean {
+export function revealOverlayInMain(payload: {
+  agentId: string;
+  projectId: string;
+  openIde?: boolean;
+  /** §17-6 (H) — 그 창이 들고 오던 것(열어 둔 편집 탭·보던 뷰·붙어 있던 변). 메인 창이 꺼내 쓴다. */
+  handoff?: unknown;
+}): boolean {
   const main = getMainWindow();
   if (!main || main.isDestroyed()) return false;
+  // 짐은 **신호보다 먼저** 맡긴다 — 받는 쪽이 신호를 받자마자 꺼내므로 순서가 뒤집히면 빈손이 된다.
+  if (payload.handoff) putPaneHandoff(payload.agentId, payload.handoff);
   if (main.isMinimized()) main.restore();
   main.show();
   main.focus();
@@ -864,6 +1105,8 @@ export function revealOverlayInMain(payload: { agentId: string; projectId: strin
     // (판올림 번호 발급 대기) 끌어냈던 창을 **앱 안으로 되돌리는** 길 — 캔버스로 점프만 하는
     //   종전 동작과 달리 그 자리에서 IDE 창까지 다시 연다(되돌리기가 반쪽이면 되돌린 게 아니다).
     openIde: !!payload.openIde,
+    // 짐이 있다는 사실만 알린다 — 내용은 받는 쪽이 `take-handoff` 로 꺼낸다(한 번만 꺼내지도록).
+    hasHandoff: !!payload.handoff,
   });
   return true;
 }
@@ -915,7 +1158,7 @@ export function openOverlayMenuByWindowId(windowId: number): boolean {
     hasShadow: false,
     autoHideMenuBar: true,
     title: 'Vibisual',
-    icon: join(__dirname, '..', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
+    icon: windowIconPath(__dirname, process.platform),
     webPreferences: {
       preload: join(__dirname, '../preload/index.cjs'),
       sandbox: false,
@@ -1017,10 +1260,14 @@ export function closeAllOverlays(): void {
   closeOverlayMenu();
   for (const entry of [...overlaysByAgentId.values()]) {
     stopOverlayDrag(entry.id);
+    // §17-6 (H) — 합치기 드래그 폴링도 함께 걷는다(앱 종료 후 살아남는 타이머 ❌).
+    stopOverlayRedockDrag(entry);
     if (!entry.window.isDestroyed()) entry.window.destroy();
   }
   overlaysByAgentId.clear();
   overlaysByWindowId.clear();
+  // 건너가던 짐도 함께 버린다 — 받을 창이 사라졌으므로 남겨 둘 뜻이 없다.
+  paneHandoffs.clear();
 }
 
 // ─── §5.12 (v4.43, v4.44 개정) Command Center — 지휘통제실 창 ──────────────
@@ -1080,7 +1327,7 @@ export function openCommandCenter(opts: {
     title: 'Vibisual — Command Center',
     // 별창과 동일하게 OS 타이틀바를 우리 미니 타이틀바가 대신한다.
     frame: false,
-    icon: join(__dirname, '..', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
+    icon: windowIconPath(__dirname, process.platform),
     webPreferences: {
       preload: join(__dirname, '../preload/index.cjs'),
       sandbox: false,
@@ -1197,7 +1444,7 @@ export function openAppWindow(appId: string, spec: AppWindowSpec): { windowId: n
     autoHideMenuBar: true,
     title: spec.title,
     frame: false,
-    icon: join(__dirname, '..', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
+    icon: windowIconPath(__dirname, process.platform),
     webPreferences: {
       preload: join(__dirname, '../preload/index.cjs'),
       sandbox: false,

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { Terminal } from '@xterm/xterm';
+import { TERMINAL_FONT_STACK } from '../../utils/terminalFont.js';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import { DEFAULT_AGENT_CONFIG } from '@vibisual/shared';
@@ -43,8 +44,9 @@ export function LoginTerminal({ termId, command }: LoginTerminalProps): React.JS
     if (!host || !transport) return;
 
     const term = new Terminal({
-      // IDETerminalView 와 같은 스택 — Consolas 만 앞세우면 mac·Linux 에는 없어 기본 산세리프로 떨어진다.
-      fontFamily: 'Menlo, Consolas, "DejaVu Sans Mono", monospace',
+      // IDETerminalView 와 **같은 값**(utils/terminalFont.ts). 앞의 둘은 앱에 동봉한 글꼴이라
+      // OS 설치와 무관하게 세 플랫폼에서 같은 글자가 나온다.
+      fontFamily: TERMINAL_FONT_STACK,
       fontSize: 12,
       cursorBlink: true,
       convertEol: false,

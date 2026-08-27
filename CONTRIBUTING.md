@@ -70,7 +70,7 @@ You can do this automatically with `git commit -s`.
 ## Additional License Grant (Trademark and Future Licensing)
 
 In addition to the Apache 2.0 grant, by submitting a contribution you
-also grant the project maintainers a **perpetual, worldwide,
+also grant 길근오 (the project owner) a **perpetual, worldwide,
 non-exclusive, royalty-free, irrevocable license** to:
 
   1. Relicense your contribution under any OSI-approved open source

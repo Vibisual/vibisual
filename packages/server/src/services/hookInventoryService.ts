@@ -69,12 +69,21 @@ function readJsonObject(file: string): Record<string, unknown> | null {
   }
 }
 
-/** 관리자(managed) 설정 — 플랫폼별 고정 위치. 없으면 없는 대로 둔다. */
-function managedSettingsPath(): string {
-  if (process.platform === 'win32') {
-    return path.join(process.env['PROGRAMDATA'] ?? 'C:\\ProgramData', 'ClaudeCode', 'managed-settings.json');
+/**
+ * 관리자(managed) 설정 — 플랫폼별 고정 위치. 없으면 없는 대로 둔다.
+ *
+ * 플랫폼·환경변수를 **인자로 받는다**(기본값은 이 프로세스의 것). 그래야 win/mac/linux 세 경로를
+ * 개발기 한 대에서 다 시험할 수 있다 — 함수 안에서 `process.platform` 을 읽으면 그 두 가지는
+ * 영영 실행되지 않는다.
+ */
+export function managedSettingsPath(
+  platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  if (platform === 'win32') {
+    return path.join(env['PROGRAMDATA'] ?? 'C:\\ProgramData', 'ClaudeCode', 'managed-settings.json');
   }
-  if (process.platform === 'darwin') {
+  if (platform === 'darwin') {
     return '/Library/Application Support/ClaudeCode/managed-settings.json';
   }
   return '/etc/claude-code/managed-settings.json';

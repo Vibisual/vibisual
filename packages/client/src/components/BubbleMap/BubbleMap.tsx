@@ -31,6 +31,7 @@ import { useCapturePrefsStore } from '../../stores/captureBubblePrefs.js';
 import { useCaptureSnapGuideStore } from '../../stores/captureSnapGuides.js';
 import { useCanvasCovered } from '../../stores/canvasVisibility.js';
 import { computeCaptureDragSnap, type SnapRect } from './captureSnap.js';
+import { resolveCanvasSelectionConflict, nativeSelectionKey, nativeSelectionCount } from './canvasSelectionChannel.js';
 import { CaptureSnapGuides } from './CaptureSnapGuides.js';
 import { CaptureSourcePicker } from './CaptureSourcePicker.js';
 import { PlaytestClipWindows } from './PlaytestClipWindow.js';
@@ -45,6 +46,7 @@ import { useBubbleLayout, useFolderLayout, usePipelineLayout, useInteriorLayout 
 import { useBrainActivation } from '../../hooks/useBrainActivation.js';
 import { useTrashedAgents } from '../../hooks/useTrashedAgents.js';
 import { CanvasContextMenu } from './CanvasContextMenu.js';
+import { canCreateMainViewBubble } from './canvasScope.js';
 import { DebugOverlay } from './DebugOverlay.js';
 import { LayoutBoundsBox } from './LayoutBoundsBox.js';
 import { CanvasControls } from './CanvasControls.js';
@@ -61,6 +63,7 @@ import { computeAngularOffsets, computeParallelOffsets } from './taskEdgeOffsets
 import { useCanvasClipboard } from '../../hooks/useCanvasClipboard.js';
 import { useBookmarks } from '../../hooks/useBookmarks.js';
 import { useCoarsePointer, useIsNarrowViewport, useLongPress, isNarrowViewportNow } from '../../hooks/useIsMobile.js';
+import { isCanvasSurfaceTarget } from './canvasSurface.js';
 import { useTranslation } from 'react-i18next';
 
 const nodeTypes: NodeTypes = { bubble: BubbleNode, commentBox: CommentBoxNode, captureNode: CaptureNode, appNode: AppBubbleNode, playNode: PlayNode, playPreviewNode: PlayPreviewNode, specNode: SpecNode, labNode: LabNode, shelfNode: ShelfNode };
@@ -414,8 +417,10 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
   const createAutoAgent = useGraphStore((s) => s.createAutoAgent);
   const createPipeline = useGraphStore((s) => s.createPipeline);
   const createWorktree = useGraphStore((s) => s.createWorktree);
-  const pendingWorktrees = useGraphStore((s) => s.pendingWorktrees);
-  const pendingNodes = useMemo<Node[]>(() => pendingWorktrees.map((p) => ({
+  // §5.7 #26 — 워크트리 **생성 실패** 표식만 여기서 그린다(2.2초 뒤 스스로 사라짐).
+  //   성공 경로엔 아무것도 안 뜬다 — 다 만들어진 실물 버블이 그냥 나타난다(생성 연출 폐기).
+  const failedWorktrees = useGraphStore((s) => s.failedWorktrees);
+  const failedWorktreeNodes = useMemo<Node[]>(() => failedWorktrees.map((p) => ({
     id: p.id,
     type: 'bubble' as const,
     position: p.position ?? { x: 0, y: 0 },
@@ -423,7 +428,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     draggable: false,
     selectable: false,
     deletable: false,
-  })), [pendingWorktrees]);
+  })), [failedWorktrees]);
   // ── Comment Box (v1.45) — 메인 뷰에서만 렌더, 현재 프로젝트만 필터 ──
   const allCommentBoxes = useGraphStore((s) => s.commentBoxes);
   const selectedCommentBoxId = useGraphStore((s) => s.selectedCommentBoxId);
@@ -714,11 +719,50 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
   }, [allShelfBubbles, selectedShelfBubbleId, activeProject, currentFolderId, interiorView, debugMode]);
 
   const displayNodes = useMemo<Node[]>(() => {
-    const base = pendingNodes.length === 0 ? flowNodes : [...flowNodes, ...pendingNodes];
+    const base = failedWorktreeNodes.length === 0 ? flowNodes : [...flowNodes, ...failedWorktreeNodes];
     if (commentBoxNodes.length === 0 && captureBubbleNodes.length === 0 && appBubbleNodes.length === 0 && playNodes.length === 0 && specNodes.length === 0 && labNodes.length === 0 && shelfNodes.length === 0) return base;
-    // CommentBox·Capture 먼저(뒤로), 그 다음 일반 버블/pending (앞으로)
+    // CommentBox·Capture 먼저(뒤로), 그 다음 일반 버블/실패 표식 (앞으로)
     return [...commentBoxNodes, ...captureBubbleNodes, ...appBubbleNodes, ...playNodes, ...specNodes, ...labNodes, ...shelfNodes, ...base];
-  }, [flowNodes, pendingNodes, commentBoxNodes, captureBubbleNodes, appBubbleNodes, playNodes, specNodes, labNodes, shelfNodes]);
+  }, [flowNodes, failedWorktreeNodes, commentBoxNodes, captureBubbleNodes, appBubbleNodes, playNodes, specNodes, labNodes, shelfNodes]);
+
+  /**
+   * 선택 채널 조정 — 두 채널이 동시에 선택을 들고 있지 않게 지킨다.
+   *
+   * 규칙과 근거는 `canvasSelectionChannel.ts` 한 곳에 적어 뒀다. 요지는 이렇다: React Flow 는
+   * 드래그할 때 `selectable` 을 보지 않고 **`selected` 인 draggable 노드를 전부 함께 끌고 간다.**
+   * 앱·캡처·플레이·스펙·랩·선반 버블과 메모 상자는 `selectable:false` + store 선택이라, 일반
+   * 버블을 클릭해 네이티브 선택이 켜진 상태에서 이들을 클릭하면 **두 선택이 나란히 살아남아
+   * 하나만 끌어도 둘이 같이 움직였다**(사용자 보고 — 동시 선택한 적이 없는데 같이 움직임).
+   *
+   * 여기서 반대편 채널을 내려 주면 드래그가 시작되기 전에 선택이 하나로 정리된다.
+   */
+  const selectedTaskEdgeId = useGraphStore((s) => s.selectedTaskEdgeId);
+  const storeSelectedElementId = selectedCommentBoxId ?? selectedCaptureBubbleId ?? selectedAppBubbleId
+    ?? selectedPlayBubbleId ?? selectedSpecDocId ?? selectedLabRunId ?? selectedShelfBubbleId ?? selectedTaskEdgeId ?? null;
+  // 좌표가 아니라 **선택 집합**만 보는 지문 — 물리 엔진이 매 프레임 노드를 갱신해도 값이 안 변한다.
+  const nativeSelKey = useMemo(() => nativeSelectionKey(flowNodes, edges), [flowNodes, edges]);
+  const prevStoreSelRef = useRef<string | null>(storeSelectedElementId);
+  const prevNativeSelRef = useRef<string>(nativeSelKey);
+  useEffect(() => {
+    const storeChanged = prevStoreSelRef.current !== storeSelectedElementId;
+    const nativeChanged = prevNativeSelRef.current !== nativeSelKey;
+    prevStoreSelRef.current = storeSelectedElementId;
+    prevNativeSelRef.current = nativeSelKey;
+    const action = resolveCanvasSelectionConflict({
+      storeSelectedId: storeSelectedElementId,
+      nativeSelectedCount: nativeSelectionCount(nativeSelKey),
+      storeChanged,
+      nativeChanged,
+    });
+    if (action === 'clear-native') {
+      // 같은 배열을 그대로 돌려주면 React 가 렌더를 건너뛴다(선택이 없을 때 헛돌지 않게).
+      setFlowNodes((cur) => (cur.some((n) => n.selected) ? cur.map((n) => (n.selected ? { ...n, selected: false } : n)) : cur));
+      setEdges((cur) => (cur.some((e) => e.selected) ? cur.map((e) => (e.selected ? { ...e, selected: false } : e)) : cur));
+    } else if (action === 'clear-store') {
+      // 방금 켜진 네이티브 선택은 남긴다 — `selectedNodeId` 를 건드리지 않는 전용 액션을 쓰는 이유.
+      useGraphStore.getState().clearElementSelection();
+    }
+  }, [storeSelectedElementId, nativeSelKey, setFlowNodes, setEdges]);
 
   // §5.9 캡처 소스 picker — 생성(canvas 좌표) 또는 다시 선택(repickId) 두 모드.
   const [capturePicker, setCapturePicker] = useState<{ canvasX: number; canvasY: number; repickId?: string } | null>(null);
@@ -742,9 +786,12 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
 
   const handleCreateAppBubble = useCallback((appId: string, cx: number, cy: number) => {
 
-    const project = useGraphStore.getState().activeProject;
+    const store = useGraphStore.getState();
 
-    if (!project) return;
+    // §5.7 #26 — 앱 버블도 메인 뷰 전용이다(폴더·워크트리 안에서는 그려지지 않는다).
+    if (!canCreateMainViewBubble(store)) return;
+
+    const project = store.activeProject!;
 
     const app = getInternalApp(appId);
 
@@ -789,9 +836,12 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
    * "실행법 모름"으로 뜨고, 그때 누르면 탐지 → 에이전트 위임으로 이어진다.
    */
   const handleCreatePlay = useCallback((canvasX: number, canvasY: number) => {
-    const project = useGraphStore.getState().activeProject;
-    if (!project) return;
-    void useGraphStore.getState().createPlayBubble({
+    const store = useGraphStore.getState();
+    // §5.7 #26 — 메인 뷰 전용 버블이다. 폴더·워크트리 안에서 만들면 지금 화면에는 그려지지 않고
+    //   부모 캔버스에 유령이 앉는다(누른 사람에게는 "아무 일도 안 일어남"으로 읽힌다).
+    if (!canCreateMainViewBubble(store)) return;
+    const project = store.activeProject!;
+    void store.createPlayBubble({
       projectName: project,
       x: canvasX - PLAY_BUBBLE_DEFAULT_WIDTH / 2,
       y: canvasY - PLAY_BUBBLE_DEFAULT_HEIGHT / 2,
@@ -804,8 +854,10 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
    */
   const handleCreateSpec = useCallback((canvasX: number, canvasY: number) => {
     const store = useGraphStore.getState();
-    const project = store.activeProject;
-    if (!project) return;
+    // §5.7 #26 — 메인 뷰 전용 버블이다. 폴더·워크트리 안에서 만들면 지금 화면에는 그려지지 않고
+    //   부모 캔버스에 유령이 앉는다(누른 사람에게는 "아무 일도 안 일어남"으로 읽힌다).
+    if (!canCreateMainViewBubble(store)) return;
+    const project = store.activeProject!;
     void (async () => {
       const doc = await store.createSpecDoc({
         projectName: project,
@@ -822,8 +874,10 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
    */
   const handleCreateLab = useCallback((canvasX: number, canvasY: number) => {
     const store = useGraphStore.getState();
-    const project = store.activeProject;
-    if (!project) return;
+    // §5.7 #26 — 메인 뷰 전용 버블이다. 폴더·워크트리 안에서 만들면 지금 화면에는 그려지지 않고
+    //   부모 캔버스에 유령이 앉는다(누른 사람에게는 "아무 일도 안 일어남"으로 읽힌다).
+    if (!canCreateMainViewBubble(store)) return;
+    const project = store.activeProject!;
     void (async () => {
       const run = await store.createLabRun({
         projectName: project,
@@ -840,8 +894,10 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
    */
   const handleCreateShelf = useCallback((canvasX: number, canvasY: number) => {
     const store = useGraphStore.getState();
-    const project = store.activeProject;
-    if (!project) return;
+    // §5.7 #26 — 메인 뷰 전용 버블이다. 폴더·워크트리 안에서 만들면 지금 화면에는 그려지지 않고
+    //   부모 캔버스에 유령이 앉는다(누른 사람에게는 "아무 일도 안 일어남"으로 읽힌다).
+    if (!canCreateMainViewBubble(store)) return;
+    const project = store.activeProject!;
     void (async () => {
       const bubble = await store.createShelfBubble({
         projectName: project,
@@ -875,8 +931,10 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       });
       return;
     }
-    const project = store.activeProject;
-    if (!project) return;
+    // §5.7 #26 — 메인 뷰 전용 버블이다. 폴더·워크트리 안에서 만들면 지금 화면에는 그려지지 않고
+    //   부모 캔버스에 유령이 앉는다(누른 사람에게는 "아무 일도 안 일어남"으로 읽힌다).
+    if (!canCreateMainViewBubble(store)) return;
+    const project = store.activeProject!;
     void store.createCaptureBubble({
       projectName: project,
       // picker 는 버블 중심을 클릭 지점에 맞추도록 half-size 만큼 당겨 배치.
@@ -891,9 +949,10 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
   }, [capturePicker]);
 
   // 화면 좌표에서 캔버스 생성 메뉴를 연다 — 우클릭(handlePaneContextMenu)과 터치 롱프레스가 공유.
+  //   "여기가 캔버스인가"는 `canvasSurface` 한 곳이 답한다 — IDE 창·보드 패널은 화면에서는 캔버스를
+  //   덮지만 DOM 으로는 이 컨테이너의 자식이라, 그 안의 손짓이 여기까지 거슬러 올라온다.
   const openCanvasMenuAt = useCallback((clientX: number, clientY: number, target: EventTarget | null) => {
-    const el = target as HTMLElement | null;
-    if (el?.closest?.('.react-flow__node') || el?.closest?.('.react-flow__controls')) return;
+    if (!isCanvasSurfaceTarget(target)) return;
     if (!rfRef.current) return;
     const canvasPos = rfRef.current.screenToFlowPosition({ x: clientX, y: clientY });
     setCtxMenu({ screenX: clientX, screenY: clientY, canvasX: canvasPos.x, canvasY: canvasPos.y });
@@ -901,14 +960,16 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
   }, []);
 
   const handlePaneContextMenu = useCallback((e: MouseEvent | React.MouseEvent) => {
-    // Ignore right-click on nodes (bubble-body) or context menu itself
-    const target = e.target as HTMLElement;
-    if (target.closest('.react-flow__node') || target.closest('.react-flow__controls')) return;
+    // 버블 위·캔버스 조작 패널 위, 그리고 캔버스를 덮고 선 창 안이면 여기서 손을 뗀다.
+    //   막지 못하면 그 창의 자기 메뉴 대신 캔버스 생성 메뉴가 뜬다(preventDefault 도 하지 않는다).
+    if (!isCanvasSurfaceTarget(e.target)) return;
     e.preventDefault();
     openCanvasMenuAt(e.clientX, e.clientY, e.target);
   }, [openCanvasMenuAt]);
 
   // §4 v3.16 — 터치엔 우클릭이 없어 폰에선 이 "생성 메뉴"에 닿을 수 없었다. 롱프레스로 대체.
+  //   ⚠ 이 손짓은 컨테이너 전체에서 받는다 — 캔버스인지 아닌지는 `openCanvasMenuAt` 이 가린다.
+  //   (폰에서 IDE 글자를 꾹 눌러 선택하려던 손짓이 이 메뉴를 열던 사고를 그 판정이 막는다.)
   const canvasLongPress = useLongPress(openCanvasMenuAt);
 
   const handleCtxClose = useCallback(() => {
@@ -995,22 +1056,14 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     pushRects(labNodes, 'panel');
     pushRects(shelfNodes, 'panel');
 
-    // 워크트리 생성 대기 버블 — 좌표를 되돌려 줄 store 가 없으므로 "밀리지 않는 장애물"로만 참여.
-    for (const n of pendingNodes) {
-      const size = calcBubbleSize(n.data as unknown as BubbleData);
-      out.push({
-        id: n.id,
-        x: n.position.x,
-        y: n.position.y,
-        width: size,
-        height: size,
-        shape: 'circle',
-        group: 'bubble',
-        movable: false,
-      });
-    }
+    // 워크트리 생성 **실패 표식**은 물리에 태우지 않는다 — 2.2초 떴다 사라지는 알림이라,
+    // 그 잠깐 때문에 사용자가 정리해 둔 배치를 밀어 놓고 가면 안 된다.
+    //
+    // (v4.70 은 옛 `Creating...` 대기 버블을 "되돌릴 store 가 없으니 밀리지 않는 고정 장애물"로
+    //  실었는데, 그 자리에 태어나는 것이 하필 **자기 후임**인 진짜 워크트리 버블이라 후임만
+    //  옆으로 튀었다. 그 대기 버블 자체가 폐기됐으므로 규약도 여기서 끝난다.)
     return out;
-  }, [commentBoxNodes, captureBubbleNodes, appBubbleNodes, playNodes, specNodes, labNodes, shelfNodes, pendingNodes, scopedCommentBoxes, capturePrefsMap]);
+  }, [commentBoxNodes, captureBubbleNodes, appBubbleNodes, playNodes, specNodes, labNodes, shelfNodes, scopedCommentBoxes, capturePrefsMap]);
 
   /** 물리로 움직인 store 요소 — 정착 시점에 한 번씩 PATCH 하고 락을 푼다. */
   const physicsMovedRef = useRef<Map<string, PhysicsExternalKind>>(new Map());
@@ -1246,7 +1299,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     if (!activeProject) return [];
     const brain: BubbleData = {
       id: '__brain__',
-      label: t('brain.bubbleLabel', { defaultValue: '두뇌' }),
+      label: t('brain.bubbleLabel', { defaultValue: '메모리' }),
       bubbleType: 'brain',
       path: '',
       status: 'idle',
@@ -1263,7 +1316,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       activity: trashedAgents.length,
     };
     // §5.10 v2 (H) 게이트 ③ 표시 — 두뇌가 꺼진 프로젝트에는 **버블 자체를 세우지 않는다**.
-    //   휴지통은 두뇌와 무관하므로 그대로 남는다. 켜는 자리는 `BrainActivationPanel` 배너다.
+    //   휴지통은 두뇌와 무관하므로 그대로 남는다. 켜는 자리는 캔버스 우클릭 메뉴와 설정 창 `Project Brain` 탭 둘이다.
     return brainEnabled ? [brain, trash] : [trash];
   }, [activeProject, brainEnabled, brainSummary?.cardCount, trashedAgents.length, t]);
 
@@ -2292,14 +2345,36 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
 
   // 특정 버블로 공간 점프 — 렌더된 flowNodes에 존재할 때만 centering.
   // 뷰 전환(goToMain 등)이 선행되는 경우를 위해 flowNodes 변화도 watch.
+  //
+  // §5.5 #17-1 — 가운데를 잡는 것은 **두 프레임 뒤**다. 점프를 부르는 쪽은 대개 같은 순간에 IDE
+  //   창을 접거나 닫는다(창 접기 · 버블 북마크 점프의 closeIDEOverlay). 그러면 App 의 도크 여백이
+  //   걷히며 캔버스 컨테이너가 그만큼 넓어지는데, setCenter 는 ReactFlow 가 **재 둔 크기**로
+  //   중심을 계산하므로 그 전에 부르면 사라진 도크 폭의 절반만큼 버블이 옆으로 밀린다(§5.5 #17-6
+  //   v2.83 에서 fitView 가 같은 함정에 빠졌다). 한 프레임으로는 모자라다 — rAF 콜백은 그 프레임의
+  //   ResizeObserver 보다 **먼저** 돌아 아직 옛 크기를 본다.
+  //   요청은 종전대로 **즉시 소비**한다(clearFocusNode) — 예약을 물고 있는 동안 flowNodes 가
+  //   바뀌면(물리 엔진은 매 프레임 바꾼다) 이펙트가 다시 돌아 예약을 계속 미루기 때문이다.
+  const focusRafRef = useRef<{ outer: number; inner: number }>({ outer: 0, inner: 0 });
+  useEffect(() => () => {
+    cancelAnimationFrame(focusRafRef.current.outer);
+    cancelAnimationFrame(focusRafRef.current.inner);
+  }, []);
   useEffect(() => {
     if (!focusNodeId || !rfRef.current) return;
     const target = flowNodes.find((n) => n.id === focusNodeId);
     if (!target) return;
     const w = target.measured?.width ?? (target.width ?? 0);
     const h = target.measured?.height ?? (target.height ?? 0);
-    rfRef.current.setCenter(target.position.x + w / 2, target.position.y + h / 2, { duration: 500, zoom: 1 });
+    const cx = target.position.x + w / 2;
+    const cy = target.position.y + h / 2;
     useGraphStore.getState().clearFocusNode();
+    cancelAnimationFrame(focusRafRef.current.outer);
+    cancelAnimationFrame(focusRafRef.current.inner);
+    focusRafRef.current.outer = requestAnimationFrame(() => {
+      focusRafRef.current.inner = requestAnimationFrame(() => {
+        rfRef.current?.setCenter(cx, cy, { duration: 500, zoom: 1 });
+      });
+    });
   }, [focusNodeId, flowNodes]);
 
   // Delete 키 → 선택된 버블/엣지/코멘트 삭제 (단일 + Shift-드래그 다중 선택 모두 지원)

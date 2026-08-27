@@ -13,7 +13,8 @@ import {
   selectVisibleDockedPanes,
 } from '../../stores/graphStore.js';
 import { AgentConfigPopup } from '../Panel/AgentConfigPopup.js';
-import { useIDEPaneScope, useIDEPaneValue } from './idePane.js';
+import { captureIDEPaneHandoff, type IDEPaneHandoff } from '../../stores/idePaneHandoff.js';
+import { readIDEPane, useIDEPaneScope, useIDEPaneValue } from './idePane.js';
 import {
   IDE_DOCK,
   IDE_DOCK_SIDES,
@@ -32,6 +33,7 @@ import {
   initialFloatGeom,
   isHorizontalSide,
   isOutsideViewport,
+  isPinnedToViewportEdge,
   dockSizeFromDrag,
   magnetFloatGeom,
   previewDockRect,
@@ -51,6 +53,7 @@ import {
 import { useIDEDockLayout, useVisibleDockedPanes } from './useIDEDockLayout.js';
 import { setCanvasCover } from '../../stores/canvasVisibility.js';
 import { useIsNarrowViewport } from '../../hooks/useIsMobile.js';
+import { resolveTitleBarChrome } from './titleBarChrome.js';
 import { useBackdropDismiss, useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 import { IDEActivityBar } from './IDEActivityBar.js';
 import { IDETabBar } from './IDETabBar.js';
@@ -310,6 +313,11 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   const { mobileAdapted, fontAvailability } = useReadingSettings();
   const [readingOpen, setReadingOpen] = useState(false);
   const closeReading = useCallback(() => setReadingOpen(false), []);
+  // §4 (CMD) — 버튼을 감추는 것만으로는 모자라다. 일반 버블에서 패널을 **열어 둔 채** CMD 버블로
+  //   옮겨 오면 버튼만 사라지고 팝오버는 그대로 떠서, 닫을 손잡이가 없는 창이 화면에 남는다.
+  useEffect(() => {
+    if (isCmdAgent) setReadingOpen(false);
+  }, [isCmdAgent]);
   // 열 때 사이드바가 접혀 있으면 함께 펼친다 — 활동바 48px 만 덜렁 뜨면 "버튼 눌렀는데 안 나온다"로 보인다.
   const handleToggleMobileNav = useCallback(() => {
     const next = !mobileNavOpen;
@@ -425,6 +433,25 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
    * 독립 OS 창으로 빠진다. 화면에 그 사실을 먼저 보여 줘야 사고로 튀어나가지 않는다.
    */
   const [popOutArmed, setPopOutArmed] = useState(false);
+  /**
+   * (판올림 번호 발급 대기) 커서가 화면 끝에 **막혀** 더 못 나가는 채로 밀고 있다 — 조금만 더
+   * 버티면 위 무장으로 넘어간다. 아무 말 없이 기다리게 하면 "안 되는 기능"으로 읽히므로,
+   * 넘어가기 **전에** 무엇을 기다리는 중인지 먼저 말한다.
+   */
+  const [popOutPushing, setPopOutPushing] = useState(false);
+  /**
+   * §5.5 #17-6 (H) — **끌어다 앱 안으로 합치는 중**(독립 창 한정). main 이 창을 칩으로 줄여
+   * 커서를 따라가게 하고, 그동안 이 창은 IDE 대신 칩 UI 를 그린다(줄어든 창에 IDE 를 그대로
+   * 그리면 글자만 잘려 보인다). `hovering` 은 커서가 앱 창 위에 있다 = 놓으면 합쳐진다.
+   */
+  const [redockDrag, setRedockDrag] = useState<{ dragging: boolean; hovering: boolean }>({
+    dragging: false,
+    hovering: false,
+  });
+  /** 손을 뗀 순간의 hover 를 읽는 거울 — 리스너 closure 가 옛 값을 보지 않게. */
+  const redockHoverRef = useRef(false);
+  /** 이번 누름이 드래그가 됐는가 — 그랬다면 뒤따르는 click(=즉시 되돌리기)을 삼킨다. */
+  const redockDraggedRef = useRef(false);
   const [flashKey, setFlashKey] = useState<number>(0);
   /** 타이틀바 [붙이기] 메뉴 열림 — 이 창만의 UI 상태(전역 store 금지 규칙). */
   const [dockMenuOpen, setDockMenuOpen] = useState(false);
@@ -530,6 +557,12 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   //   (v2.20) 닫힌 상태(agentId null)에서는 sync 금지 — 다음 open 이 mode 를 다시 정한다.
   useEffect(() => {
     if (!agentId) return;
+    // §5.5 #17-6 (H) — 도킹이 없는 창(독립 창·오버레이 창)은 **붙은 변을 지우지 않는다**.
+    //   그 창의 슬롯이 들고 있는 변은 "밖으로 나오기 전 앱 안에서 붙어 있던 자리"이고, 되돌아갈 때
+    //   그 자리로 복귀하는 데 쓰인다. 종전에는 이 줄이 그 값을 마운트 즉시 지워, 밖에 나갔다
+    //   돌아온 창이 늘 붙지 않은 채로 떠 있었다(어디에 있던 창인지 잊는다).
+    //   도킹 자체가 불가능한 창이라 지우지 않아도 화면에는 아무 영향이 없다.
+    if (fullWindow || disableDock) return;
     const dockedNow = mode === 'docked';
     if (dockedNow && !storeDockSide) {
       // 붙을 변이 사라졌다(다른 경로로 뗌) — 창을 잃지 않게 플로팅으로 되돌린다.
@@ -537,7 +570,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     } else if (!dockedNow && storeDockSide) {
       setPaneDock(paneKey, null);
     }
-  }, [agentId, mode, storeDockSide, paneKey, setPaneDock, goFloating]);
+  }, [agentId, mode, storeDockSide, paneKey, setPaneDock, goFloating, fullWindow, disableDock]);
 
   // Escape to close — **맨 앞 창 하나만** 먹는다(창이 여럿일 때 한 번에 다 닫히면 안 된다).
   useEffect(() => {
@@ -576,6 +609,17 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   }, [overlayProjectId, agentId]);
 
   /**
+   * §5.5 #17-6 (H) — 자리를 옮길 때 **들고 갈 짐**을 지금 상태에서 뜬다.
+   *
+   * 이것이 없으면 받는 쪽이 창을 새로 만들어(`openIDEOverlay` 의 초기값) 열어 둔 편집 탭이
+   * 전부 닫히고 뷰가 첫 화면으로 돌아간다 — 같은 창이 자리를 옮긴 것이 아니라 비슷한 창이
+   * 새로 뜬 것이 되어, 오갈수록 하던 일을 잃는다.
+   */
+  const captureHandoff = useCallback((): IDEPaneHandoff | null => {
+    return captureIDEPaneHandoff(readIDEPane(paneKey));
+  }, [paneKey]);
+
+  /**
    * 앱 밖 **독립 창**으로 꺼낸다(§5.5 #17-6 오버레이 창을 IDE 크기로 바로 띄운다).
    * 앱 안 창은 함께 닫는다 — 같은 IDE 가 두 곳에 뜨면 어느 쪽이 진짜인지 알 수 없다.
    */
@@ -584,9 +628,11 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     if (!ov || !agentId) return;
     const projectId = resolveProjectId();
     if (!projectId) return;
-    void ov.open({ agentId, projectId, expanded: true, size });
+    // 짐은 **닫기 전에** 뜬다 — 닫고 나면 읽을 슬롯이 없다.
+    const handoff = captureHandoff();
+    void ov.open({ agentId, projectId, expanded: true, size, handoff });
     closeOverlay();
-  }, [agentId, resolveProjectId, closeOverlay]);
+  }, [agentId, resolveProjectId, closeOverlay, captureHandoff]);
 
   /**
    * 꺼내 둔 창을 **앱 안으로 되돌린다**(독립 창에서만 뜬다). 메인 창을 앞으로 끌어올려
@@ -597,9 +643,75 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     if (!ov?.revealInMain || !agentId) return;
     const projectId = resolveProjectId();
     if (!projectId) return;
-    void ov.revealInMain({ agentId, projectId, openIde: true });
+    void ov.revealInMain({ agentId, projectId, openIde: true, handoff: captureHandoff() });
     void ov.closeSelf?.();
-  }, [agentId, resolveProjectId]);
+  }, [agentId, resolveProjectId, captureHandoff]);
+
+  /**
+   * §5.5 #17-6 (H) — main 의 폴링이 알려 주는 합치기 드래그 상태(칩 모양·놓을 자리 강조).
+   * 독립 창에서만 온다 — 앱 안 창은 이 채널을 쓰지 않는다.
+   */
+  useEffect(() => {
+    const ov = window.api?.overlay;
+    if (!ov?.onRedockDragState) return;
+    const off = ov.onRedockDragState((s) => {
+      redockHoverRef.current = s.hovering;
+      setRedockDrag({ dragging: s.dragging, hovering: s.hovering });
+    });
+    return () => { off(); };
+  }, []);
+
+  /**
+   * 되돌리기 손잡이를 **잡아 끌면** 합치기 드래그가 된다 — 누르고 바로 떼면 종전대로 즉시 되돌리기.
+   *
+   * 꺼내는 길은 제스처(타이틀바를 앱 밖으로)인데 돌아오는 길만 버튼이면 두 방향이 대칭이 아니다.
+   * 임계(`DRAG_THRESHOLD`)를 넘겨야 드래그로 보는 까닭은, 누르는 손이 몇 픽셀 흔들렸다고 창이
+   * 칩으로 줄었다 돌아오면 누른 사람에게는 고장으로 읽히기 때문이다.
+   *
+   * 좌표는 **화면 좌표**(`screenX/Y`)로 잰다 — 드래그가 시작되면 창 자체가 커서를 따라 움직여
+   * 창 안 좌표(`clientX/Y`)는 거의 제자리에 머문다(임계를 영영 못 넘는다).
+   */
+  const handleReturnPointerDown = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
+    if (e.button !== 0) return;
+    const ov = window.api?.overlay;
+    // 드래그를 모르는 판(구버전 preload)에서는 아무 것도 걸지 않는다 — 클릭 되돌리기는 그대로 산다.
+    if (!ov?.redockDragStart || !ov.redockDragEnd) return;
+    const sx = e.screenX;
+    const sy = e.screenY;
+    redockDraggedRef.current = false;
+    redockHoverRef.current = false;
+    let started = false;
+    const onMove = (ev: MouseEvent): void => {
+      if (started) return;
+      if (Math.abs(ev.screenX - sx) < DRAG_THRESHOLD && Math.abs(ev.screenY - sy) < DRAG_THRESHOLD) return;
+      started = true;
+      redockDraggedRef.current = true;
+      void ov.redockDragStart();
+    };
+    // 종료는 window `mouseup` — 창이 칩으로 줄며 이 버튼이 화면에서 사라지므로 엘리먼트 이벤트에
+    //   기대면 신호를 놓친다(칩이 커서를 따라다니므로 mouseup 은 이 창에 온다).
+    const onUp = (): void => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      if (!started) return; // 안 움직였다 = 클릭 — 뒤따르는 onClick 이 즉시 되돌리기를 한다.
+      void ov.redockDragEnd({ commit: redockHoverRef.current, handoff: captureHandoff() });
+      // 끌고 놓았을 때 click 이 **오지 않는 경우도 있다**(칩으로 줄며 버튼이 DOM 에서 빠져
+      //   mousedown/mouseup 대상이 갈린다). 표식을 그대로 두면 다음 클릭 한 번이 통째로 먹히므로,
+      //   click 이 올 자리(같은 틱)를 지나면 스스로 내린다.
+      setTimeout(() => { redockDraggedRef.current = false; }, 0);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, [captureHandoff]);
+
+  /** 끌어서 놓은 뒤 따라오는 click 은 삼킨다 — 안 그러면 합치기와 즉시 되돌리기가 겹쳐 두 번 일어난다. */
+  const handleReturnClick = useCallback(() => {
+    if (redockDraggedRef.current) {
+      redockDraggedRef.current = false;
+      return;
+    }
+    returnToApp();
+  }, [returnToApp]);
 
   /** 이 창을 맨 앞으로 — 누르는 순간 겹침 순서가 바뀐다(창이 여럿일 때만 뜻이 있다). */
   const bringToFront = useCallback(() => {
@@ -666,6 +778,19 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     let lastGuides: { x: number | null; y: number | null } = { x: null, y: null };
     /** 커서가 앱 창 밖인가 — mouseup 이 이 값 하나로 "꺼낼지"를 정한다. */
     let outside = false;
+    /**
+     * (판올림 번호 발급 대기) 화면 끝에 **막혀** 밖으로 못 나가는 사람을 위한 버팀 시계.
+     * 가장자리를 떠나는 순간 되돌린다 — 스쳐 지나간 손이 창을 밖으로 던지면 안 된다.
+     */
+    let edgeTimer: number | null = null;
+    /** 버팀으로 무장했는가 — 커서는 아직 앱 안이라 `outside`(진짜 밖) 와 이유가 다르다. */
+    let edgeArmed = false;
+    /** 지금 가장자리를 밀고 있는가 — 무장 전 예고 문구를 띄우는 동안만 참. */
+    let edgePushing = false;
+    function clearEdgeWatch(): void {
+      if (edgeTimer !== null) { window.clearTimeout(edgeTimer); edgeTimer = null; }
+      if (edgePushing) { edgePushing = false; setPopOutPushing(false); }
+    }
 
     function handleMove(ev: MouseEvent): void {
       const dx = ev.clientX - startX;
@@ -711,7 +836,35 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
 
       // (판올림 번호 발급 대기) 커서가 앱 창 **밖**이면 지금 정해진 것은 "밖으로 나간다" 하나다 —
       //   도킹 판정도 자석도 통째로 쉰다(안에서의 자리를 계속 계산해 봐야 쓰지 않는다).
-      const outsideNow = canPopOut && isOutsideViewport({ x: ev.clientX, y: ev.clientY }, vp);
+      const cursorNow = { x: ev.clientX, y: ev.clientY };
+      const trulyOutside = canPopOut && isOutsideViewport(cursorNow, vp);
+      // 단일 모니터에 앱이 최대화돼 있으면 커서는 한 픽셀도 밖으로 못 나간다 — 그 사람에게는 위 판정이
+      //   영영 참이 되지 않아 끌어내기가 **없는 기능**이었다. 화면 끝에 막힌 채 잠깐 버티는 것을
+      //   같은 뜻으로 읽어, 화면 수와 창 상태에 관계없이 같은 손짓이 닿게 한다.
+      const pinned = canPopOut && !trulyOutside && isPinnedToViewportEdge(cursorNow, vp);
+      if (!pinned) {
+        clearEdgeWatch();
+        edgeArmed = false;
+      } else if (!edgeArmed && edgeTimer === null) {
+        edgePushing = true;
+        setPopOutPushing(true);
+        edgeTimer = window.setTimeout(() => {
+          edgeTimer = null;
+          edgeArmed = true;
+          edgePushing = false;
+          setPopOutPushing(false);
+          outside = true;
+          setPopOutArmed(true);
+          // 무장은 커서가 멈춘 채 일어난다 — 다음 이동을 기다렸다 지우면 그동안 파란 도킹 미리보기와
+          //   보라 꺼내기 알림이 **동시에** 떠 무엇이 일어날지 말이 갈린다. 여기서 바로 걷는다.
+          dropAt = null;
+          setDropTarget(null);
+          setSnapRect(null);
+          lastGuides = { x: null, y: null };
+          setMagnetGuides(lastGuides);
+        }, IDE_FLOAT.POP_OUT_EDGE_DWELL_MS);
+      }
+      const outsideNow = trulyOutside || edgeArmed;
       if (outsideNow !== outside) {
         outside = outsideNow;
         setPopOutArmed(outsideNow);
@@ -748,12 +901,14 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     function handleUp(): void {
       window.removeEventListener('mousemove', handleMove);
       window.removeEventListener('mouseup', handleUp);
+      clearEdgeWatch();
       activeDragCleanupRef.current = null;
       setSnapRect(null);
       setZoneButtons([]);
       setDropTarget(null);
       setMagnetGuides({ x: null, y: null });
       setPopOutArmed(false);
+      setPopOutPushing(false);
       if (!dragging) return;
       if (outside) {
         // 앱 밖에서 놓았다 = 독립 창으로 꺼낸다. 끌던 크기를 그대로 물려줘 "그 창이 나온" 것처럼 이어진다.
@@ -779,6 +934,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     activeDragCleanupRef.current = () => {
       window.removeEventListener('mousemove', handleMove);
       window.removeEventListener('mouseup', handleUp);
+      clearEdgeWatch();
     };
   }, [fullWindow, mode, maximized, floatSize.w, floatSize.h, disableDock, bringToFront, viewportNow, otherDockedPanes, paneKey, setPaneDock, dockSizeAtDrop, commitFloat, canPopOut, popOutToWindow]);
 
@@ -894,7 +1050,10 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     setMode('docked');
   }, [otherDockedPanes, paneKey, setPaneDock, viewportNow, dockSizeAtDrop]);
 
-  /** 이 창을 접는다 — 닫지 않고 화면에서만 내린다(붙어 있던 변·열어 둔 파일 그대로). */
+  /**
+   * 이 창을 접는다 — 닫지 않고 화면에서만 내린다(붙어 있던 변·열어 둔 파일 그대로).
+   * 내려가는 것과 **한 동작**으로 캔버스 카메라가 이 창의 버블로 간다(스토어 setIDEPaneCollapsed).
+   */
   const collapsePane = useCallback(() => {
     const st = useGraphStore.getState();
     const key = resolvePaneKey(st, paneKey);
@@ -1004,8 +1163,11 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     if (!agentId) return;
     setRefreshing(true);
     // 캔버스 버블/에이전트 상태도 함께 최신화 — 소속 프로젝트 스냅샷 재요청.
-    const proj = useGraphStore.getState().activeProject;
-    if (proj) useGraphStore.getState().hydrateProject(proj);
+    //   §5.7 #26 — **그 버블의 소속 프로젝트**를 다시 받는다. 워크트리 버블에서 활성 탭(=부모)을
+    //   다시 받아 봐야 그 버블의 스냅샷은 한 줄도 안 온다(워크트리는 독립 프로젝트로 등록된다).
+    const st = useGraphStore.getState();
+    const proj = st.agentProjects[agentId] ?? st.activeProject;
+    if (proj) st.hydrateProject(proj);
     fetch(`/api/subagent-streams/${agentId}`)
       .then((r) => r.json())
       .then((data: { streams?: Record<string, SubAgentStreamEvent[]> }) => {
@@ -1142,11 +1304,42 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   //   메인 창에서 뒤 탭이 됐다는 이유로 통째로 비면 사용자는 빈 창을 보게 된다.
   if (!fullWindow && !disableDock && storeDockSide && selfPaneKey && slotFrontKey !== selfPaneKey) return null;
 
+  // §5.5 #17-6 (H) — **끌어다 합치는 중**: 창이 칩 크기로 줄어 커서를 따라온다. 그 안에 IDE 를
+  //   그대로 그리면 글자만 잘려 보이므로, 무엇을 들고 있고 지금 놓으면 어떻게 되는지만 말한다
+  //   (별창 mini ghost(§5.4 #14-1)와 같은 모양 — 두 기능이 같은 손버릇이면 배울 것이 하나다).
+  if (fullWindow && redockDrag.dragging) {
+    return (
+      <div
+        data-ide-redock-ghost="1"
+        className={`flex h-screen w-screen select-none flex-col items-stretch justify-center gap-0.5 rounded-md px-3 py-1 ${
+          redockDrag.hovering
+            ? 'bg-blue-600/90 ring-2 ring-blue-300/80'
+            : 'bg-[#1f2937] shadow-lg shadow-black/60 ring-1 ring-amber-400/50'
+        }`}
+      >
+        <div className="flex items-center gap-1.5">
+          <svg className="h-3 w-3 flex-shrink-0 text-blue-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6ZM12 2v4m0 12v4M2 12h4m12 0h4" />
+          </svg>
+          <span className="truncate text-[12px] font-semibold text-white">{agent.label}</span>
+        </div>
+        <span className={`truncate text-[12px] font-medium ${redockDrag.hovering ? 'text-blue-100' : 'text-amber-200/90'}`}>
+          {redockDrag.hovering ? t('ide.overlay.redockDropHint') : t('ide.overlay.redockKeepHint')}
+        </span>
+      </div>
+    );
+  }
+
   // §5.5 #17-1 윈도우 모드 — mode 에 따라 컨테이너/윈도우 스타일 분기
   const isModal = mode === 'modal';
   // 붙을 변이 없으면 도킹이 아니다 — 모드만 남고 변이 사라진 찰나에 창을 잃지 않게 한다.
   const isDocked = mode === 'docked' && !!storeDockSide;
   const dockRect = isDocked ? dockLayout.rects[selfPaneKey] ?? null : null;
+
+  // 폰 폭에서 타이틀바 한 줄이 넘쳐 **맨 오른쪽 [닫기]가 화면 밖으로 밀려나던** 것을 막는다.
+  //   무엇을 접을지는 순수 함수 한 곳에서만 정한다(titleBarChrome + 단위 테스트) — 조건을 JSX 에
+  //   흩어 두면 "붙어 있는데 [떼기]가 사라진" 조합이 생겨 폰에서 창에 갇힌다.
+  const chrome = resolveTitleBarChrome({ narrow: isNarrow, isModal, isDocked, fullWindow, disableDock });
 
   let windowClass = 'flex flex-col overflow-hidden border-gray-700 bg-gray-900 shadow-2xl shadow-black/60';
   let windowStyle: React.CSSProperties = {};
@@ -1300,14 +1493,19 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
         )}
         {/* (판올림 번호 발급 대기) 커서가 앱 밖으로 나갔다 — 지금 놓으면 독립 창으로 빠진다.
             사고로 튀어나가지 않도록 **놓기 전에** 무슨 일이 일어날지 먼저 말한다. */}
-        {popOutArmed && (
-          <div className="pointer-events-none absolute inset-0 z-30 rounded-lg border-2 border-violet-400/80 bg-violet-500/10" aria-hidden="true">
+        {(popOutArmed || popOutPushing) && (
+          <div
+            className={`pointer-events-none absolute inset-0 z-30 rounded-lg border-2 ${
+              popOutArmed ? 'border-violet-400/80 bg-violet-500/10' : 'border-violet-400/40 bg-violet-500/[0.04]'
+            }`}
+            aria-hidden="true"
+          >
             <div className="absolute left-1/2 top-3 flex -translate-x-1/2 items-center gap-1.5 rounded-md border border-violet-400/60 bg-gray-900/90 px-2.5 py-1 text-[12px] text-violet-100 shadow-lg shadow-black/50">
               <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
                 <rect x="3" y="8" width="13" height="13" rx="2" />
                 <path d="M8 3h13v13" />
               </svg>
-              {t('ide.overlay.popOutHint')}
+              {popOutArmed ? t('ide.overlay.popOutHint') : t('ide.overlay.popOutEdgeHint')}
             </div>
           </div>
         )}
@@ -1365,7 +1563,9 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
             fullWindow ? 'app-drag cursor-default' : 'cursor-grab active:cursor-grabbing'
           }`}
         >
-          <div className="flex items-center gap-2">
+          {/* 좌측 묶음은 **줄어들 수 있어야** 한다(min-w-0) — 이게 없으면 긴 에이전트 이름이
+              우측 버튼 묶음을 통째로 화면 밖으로 밀어 [닫기]가 사라진다(폰 실사용 보고). */}
+          <div className="flex min-w-0 items-center gap-2">
             {/* §4 v3.24 — 폰 전용 좌측 내비 토글(md:hidden). 활동바+사이드바 오버레이 열기/닫기. */}
             <button
               type="button"
@@ -1384,6 +1584,8 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
             <svg className="h-4 w-4 text-blue-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
               <path d="M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6ZM12 2v4m0 12v4M2 12h4m12 0h4" />
             </svg>
+            {/* 이름은 **자리에 맞춰 스스로 줄어든다**(min-w-0 + truncate) — 폰에서 긴 이름이
+                우측 손잡이를 밀어내지 않게. 잘린 전체 이름은 툴팁(title)이 되돌려준다. */}
             {editingName ? (
               <input
                 ref={nameInputRef}
@@ -1394,7 +1596,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
                 onKeyDown={handleNameKeyDown}
                 onMouseDown={(e) => e.stopPropagation()}
                 aria-label={t('ide.overlay.renameInputLabel')}
-                className="app-nodrag w-40 min-w-0 rounded border border-blue-500 bg-gray-800 px-1.5 py-0.5 text-sm font-semibold text-gray-100 outline-none"
+                className="app-nodrag w-40 min-w-0 rounded border border-blue-500 bg-gray-800 px-1.5 py-0.5 text-sm font-semibold text-gray-100 outline-none max-md:w-28"
               />
             ) : (
               <span
@@ -1409,15 +1611,15 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
                   e.stopPropagation();
                   startNameEdit();
                 }}
-                title={t('ide.overlay.renameHint')}
-                className="app-nodrag cursor-pointer rounded text-sm font-semibold text-gray-200 outline-none hover:text-blue-400 focus-visible:ring-1 focus-visible:ring-blue-500"
+                title={`${agent.label} — ${t('ide.overlay.renameHint')}`}
+                className="app-nodrag min-w-0 cursor-pointer truncate rounded text-sm font-semibold text-gray-200 outline-none hover:text-blue-400 focus-visible:ring-1 focus-visible:ring-blue-500"
               >
                 {agent.label}
               </span>
             )}
             {/* (판올림 번호 발급 대기) 한 칸을 나눠 쓰는 **다른 창들**(언리얼식 탭 도킹) —
                 눌러 앞으로 꺼낸다. 겹쳐 있어도 무엇이 함께 있는지 이 줄로 알 수 있다. */}
-            {slotTabs.length > 1 && (
+            {chrome.showSlotTabs && slotTabs.length > 1 && (
               <div className="ml-1 flex min-w-0 items-center gap-0.5 border-l border-gray-700 pl-2">
                 {slotTabs.filter((tab) => !tab.front).map((tab) => (
                   <button
@@ -1434,20 +1636,24 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
                 ))}
               </div>
             )}
-            {isLocalAgent ? (
-              /* §5.19 (G) — 로컬 버블의 정체 뱃지(All Model + 지금 문 모델명)는 이 자리를 떠나
+            {isLocalAgent || !chrome.showTypeBadge ? (
+              /* 폰(chrome.showTypeBadge=false)에서도 이 자리를 비운다 — `커스텀/훅/CMD` 는 같은 사실이
+                 하단 상태바에 있고, 좁은 줄에서는 이름과 [닫기]가 먼저다.
+                 §5.19 (G) — 로컬 버블의 정체 뱃지(All Model + 지금 문 모델명)는 이 자리를 떠나
                  **하단 상태바의 밀도 토글 옆**(`StreamLocalModelButton`)으로 내려갔다(사용자 지시).
                  여기에 `커스텀` 뱃지를 대신 달지는 않는다 — 정체를 거짓으로 말하게 된다. */
               null
             ) : (
-              <span className={`rounded px-1.5 py-0.5 text-[12px] font-semibold ${
+              <span className={`flex-shrink-0 rounded px-1.5 py-0.5 text-[12px] font-semibold ${
                 isCmdAgent ? 'bg-teal-500/15 text-teal-300' : isCustom ? 'bg-blue-500/15 text-blue-400' : 'bg-gray-600/30 text-gray-500'
               }`}>
                 {isCmdAgent ? t('ide.overlay.cmdLabel') : isCustom ? t('ide.overlay.customLabel') : t('ide.overlay.hookLabel')}
               </span>
             )}
           </div>
-          <div className={`flex items-center gap-1 ${fullWindow ? 'app-nodrag' : ''}`}>
+          {/* 우측 손잡이 묶음은 **줄어들지 않는다**(flex-shrink-0) — 이름이 아무리 길어도
+              [닫기]까지 한 줄 안에 남아야 한다. */}
+          <div className={`flex flex-shrink-0 items-center gap-1 ${fullWindow ? 'app-nodrag' : ''}`}>
             {/* §4 v3.25 — 폰 전용 하단 상태바 토글(md:hidden). 기본 숨김인 IDEStatusBar 표시/숨김. */}
             <button
               type="button"
@@ -1464,32 +1670,39 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
               </svg>
             </button>
             {/* §5.5 읽기 설정 — 폭 안(A~D)·읽기 폭·행간/자간/어간·글꼴·모바일 자동 변형.
-                초광폭 창에서 한 줄이 길어져 읽기 어려운 문제를 사용자가 직접 조절하는 자리. */}
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setReadingOpen((v) => !v)}
-                aria-expanded={readingOpen}
-                className={`app-nodrag flex h-6 w-6 items-center justify-center rounded transition-colors pointer-coarse:h-9 pointer-coarse:w-9 ${
-                  readingOpen ? 'bg-gray-700 text-gray-100' : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
-                }`}
-                aria-label={t('ide.reading.buttonLabel')}
-                title={t('ide.reading.buttonLabel')}
-              >
-                <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M4 7V4h16v3" />
-                  <path d="M9 20h6" />
-                  <path d="M12 4v16" />
-                </svg>
-              </button>
-              {readingOpen && (
-                <ReadingSettingsPopover
-                  onClose={closeReading}
-                  mobileAdapted={mobileAdapted}
-                  fontAvailability={fontAvailability}
-                />
-              )}
-            </div>
+                초광폭 창에서 한 줄이 길어져 읽기 어려운 문제를 사용자가 직접 조절하는 자리.
+                §4 (CMD) — **CMD 버블에서는 그리지 않는다.** 이 설정이 먹는 표면은 `.ide-md`(IDE 본문
+                마크다운) 하나인데 CMD 버블은 모든 탭이 PTY 터미널이라 그 표면이 없다 — 터미널 글자는
+                xterm 이 셀 폭을 직접 재서 그리므로 CSS 변수가 닿지 않는다(카드 레일도 `.ide-md` 를
+                쓰지 않는다). 눌러도 아무 일이 없는 버튼은 "고장난 것"으로 읽히므로 자리를 비운다.
+                터미널 쪽 글자 크기는 터미널 자신의 컨트롤(Ctrl +/- · 툴바)이 이미 맡고 있다. */}
+            {!isCmdAgent && (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setReadingOpen((v) => !v)}
+                  aria-expanded={readingOpen}
+                  className={`app-nodrag flex h-6 w-6 items-center justify-center rounded transition-colors pointer-coarse:h-9 pointer-coarse:w-9 ${
+                    readingOpen ? 'bg-gray-700 text-gray-100' : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+                  }`}
+                  aria-label={t('ide.reading.buttonLabel')}
+                  title={t('ide.reading.buttonLabel')}
+                >
+                  <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M4 7V4h16v3" />
+                    <path d="M9 20h6" />
+                    <path d="M12 4v16" />
+                  </svg>
+                </button>
+                {readingOpen && (
+                  <ReadingSettingsPopover
+                    onClose={closeReading}
+                    mobileAdapted={mobileAdapted}
+                    fontAvailability={fontAvailability}
+                  />
+                )}
+              </div>
+            )}
             {/* 새로고침 — 디스크의 세션 스트림(sub-streams/*.jsonl) + 캔버스 스냅샷을 재요청.
                 크래시/미hydrate 로 "No activity" 인데 데이터는 살아있는 경우 앱 재시작 없이 복구. */}
             <button
@@ -1525,7 +1738,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
             </button>
             {/* §5.5 #17-1 — 붙이기/떼기. 끌어서 가장자리에 놓는 길과 **같은 계산**을 쓰되,
                 정확히 끌기 어려운 화면(트랙패드·터치)에서도 한 번에 붙일 수 있게 손잡이를 둔다. */}
-            {!fullWindow && !disableDock && (
+            {chrome.showDockMenu && (
               <div className="relative" ref={dockMenuRef}>
                 <button
                   type="button"
@@ -1606,7 +1819,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
             )}
             {/* §5.5 #17-1 — 접기. **닫기가 아니다** — 붙어 있던 변·열어 둔 파일을 그대로 둔 채
                 화면에서만 내려 캔버스를 그만큼 돌려준다(헤더 [창] 메뉴에서 다시 편다). */}
-            {!fullWindow && (
+            {chrome.showCollapse && (
             <button
               type="button"
               onClick={collapsePane}
@@ -1619,15 +1832,36 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
               </svg>
             </button>
             )}
+            {/* §5.5 #17-6 (H) — **독립 창으로 꺼내기**. 돌아오는 손잡이가 타이틀바에 있는데
+                나가는 손잡이만 [붙이기] 메뉴 세 단계 안에 있으면 두 방향이 대칭이 아니다
+                (게다가 도킹이 꺼진 창에서는 그 메뉴 자체가 없어 나갈 길이 사라졌다).
+                끌어내기와 **같은 일**을 하며, 붙이기 메뉴의 같은 항목도 그대로 남는다. */}
+            {canPopOut && (
+              <button
+                type="button"
+                onClick={() => popOutToWindow({ width: Math.round(floatSize.w), height: Math.round(floatSize.h) })}
+                className="app-nodrag flex h-6 w-6 items-center justify-center rounded text-gray-400 transition-colors pointer-coarse:h-9 pointer-coarse:w-9 hover:bg-gray-700 hover:text-gray-200"
+                aria-label={t('ide.overlay.popOutLabel')}
+                title={t('ide.overlay.popOutHintButton')}
+              >
+                <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M15 3h6v6" />
+                  <path d="M10 14 21 3" />
+                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                </svg>
+              </button>
+            )}
             {/* (판올림 번호 발급 대기) 꺼내 둔 창에서만 뜨는 **되돌리기** — 메인 창의 그 자리로
                 IDE 를 다시 열고 이 창은 닫는다. 꺼내는 길만 있고 돌아오는 길이 없으면 함정이다. */}
             {fullWindow && !!window.api?.overlay?.revealInMain && (
               <button
                 type="button"
-                onClick={returnToApp}
-                className="app-nodrag flex h-6 w-6 items-center justify-center rounded text-gray-400 transition-colors pointer-coarse:h-9 pointer-coarse:w-9 hover:bg-gray-700 hover:text-gray-200"
+                onClick={handleReturnClick}
+                // (H) 잡아 끌면 합치기 드래그 — 누르고 바로 떼면 종전대로 즉시 되돌리기.
+                onPointerDown={handleReturnPointerDown}
+                className="app-nodrag flex h-6 w-6 cursor-grab items-center justify-center rounded text-gray-400 transition-colors pointer-coarse:h-9 pointer-coarse:w-9 hover:bg-gray-700 hover:text-gray-200 active:cursor-grabbing"
                 aria-label={t('ide.overlay.returnToApp')}
-                title={t('ide.overlay.returnToApp')}
+                title={t('ide.overlay.returnToAppHint')}
               >
                 <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
                   <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
@@ -1637,7 +1871,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
               </button>
             )}
             {/* fullWindow 는 창=IDE 1:1 — 확대축소는 OS 창 엣지 리사이즈로, in-window maximize 버튼 숨김. */}
-            {!fullWindow && (
+            {chrome.showMaximize && (
             <button
               type="button"
               onClick={toggleMaximized}
@@ -1665,7 +1899,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
             <button
               type="button"
               onClick={closeOverlay}
-              className="flex h-6 w-6 items-center justify-center rounded text-gray-400 transition-colors pointer-coarse:h-9 pointer-coarse:w-9 hover:bg-gray-700 hover:text-gray-200"
+              className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded text-gray-400 transition-colors pointer-coarse:h-9 pointer-coarse:w-9 hover:bg-gray-700 hover:text-gray-200"
               aria-label={t('ide.overlay.closeLabel')}
             >
               <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>

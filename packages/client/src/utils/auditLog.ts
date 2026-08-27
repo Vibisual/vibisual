@@ -18,11 +18,17 @@ export function findAuditLog(
   return logs.find((l) => l.projectName === projectName);
 }
 
-/** 위험 배지 색. 셋을 서로 다른 색으로 두어 배지만 보고도 종류가 갈린다. */
+/**
+ * 위험 배지 색. 넷을 서로 다른 색으로 두어 배지만 보고도 종류가 갈린다.
+ *
+ * `outside` 에 초록계(emerald·teal·lime)를 쓰지 않는다 — 같은 줄에 앉는 결정 배지의 "허용"이
+ * emerald 라 위험 배지가 **안전해 보이는** 역효과가 난다. violet 도 피한다("먼저 물었다" 배지).
+ */
 export function riskToneClass(kind: AuditRiskKind): string {
   switch (kind) {
     case 'delete': return 'border-rose-500/50 bg-rose-500/15 text-rose-300';
     case 'network': return 'border-sky-500/50 bg-sky-500/15 text-sky-300';
+    case 'outside': return 'border-fuchsia-500/50 bg-fuchsia-500/15 text-fuchsia-300';
     default: return 'border-amber-500/50 bg-amber-500/15 text-amber-300';
   }
 }

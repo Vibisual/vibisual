@@ -155,11 +155,11 @@ account. Only install and run hooks from code you trust.
 
 ## License
 
-Apache License 2.0 — see [LICENSE](LICENSE). "Vibisual" and the Vibisual logo are trademarks of the project maintainers; see [TRADEMARK.md](TRADEMARK.md) for the policy.
+Apache License 2.0 — see [LICENSE](LICENSE). "Vibisual" and the Vibisual logo are trademarks of 길근오 (the project owner); see [TRADEMARK.md](TRADEMARK.md) for the policy.
 
 ## Contributing
 
-By contributing, you agree to the DCO sign-off requirement and the additional contribution terms described in [CONTRIBUTING.md](CONTRIBUTING.md), including permission for project maintainers to relicense contributions for future commercial offerings.
+By contributing, you agree to the DCO sign-off requirement and the additional contribution terms described in [CONTRIBUTING.md](CONTRIBUTING.md), including permission for the project owner to relicense contributions for future commercial offerings.
 
 ## Disclaimer
 

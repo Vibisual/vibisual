@@ -103,6 +103,24 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
     if (next !== activeView) setActiveView(next);
   }, [activeView, isLocalProvider, setActiveView]);
 
+  // §5.5 #17-35 — 이 탭이 지금 검증 중인가 / 마지막 판정은 무엇인가. 원시값만 구독해
+  //   스냅샷마다 새로 만들어지는 배열을 그대로 물지 않는다(zustand 파생 선택자 함정).
+  const verifyState = useGraphStore((s) => {
+    const runs = activeSessionId ? s.verificationRuns[activeSessionId] : undefined;
+    if (!runs || runs.length === 0) return '';
+    const live = runs.some((r) => r.status === 'running' || r.status === 'queued');
+    const last = runs.find((r) => r.status === 'done');
+    return `${live ? '1' : '0'}:${last?.verdict ?? ''}`;
+  });
+  const verifyRunning = verifyState.startsWith('1');
+  const verifyDotTone = ((): string | null => {
+    const verdict = verifyState.slice(2);
+    if (verdict === 'pass') return 'bg-emerald-400';
+    if (verdict === 'fail') return 'bg-rose-400';
+    if (verdict === 'held') return 'bg-amber-400';
+    return null;
+  })();
+
   const handleClick = useCallback((view: IDEViewType) => {
     // v4.93·v4.95 — 북마크·세션 요약·실행 중 서브에이전트가 차례로 덮개를 벗어, 활동바의 모든 항목이
     // 이 한 함수를 탄다(같은 항목 재클릭 = 접힘). 상호 배타로 닫아 줄 덮개는 더 이상 없다.
@@ -341,6 +359,33 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
             >
               {loopBadge}
             </span>
+          )}
+        </button>
+      )}
+
+      {/* §5.5 #17-35 — 검증(Verify). `/verify` 를 우리 레시피·구조화 판정·영속 이력에 물린 자리.
+          도는 동안 아이콘이 amber 로 켜지고(루프와 같은 규약), 배지는 그 탭 **마지막 판정**의 색 점 하나다.
+          자동 실행은 없다 — 길고 비싼 검사라 언제 태울지는 사람이 정한다(#17-35 ⑧). */}
+      {show('verify') && (
+        <button
+          type="button"
+          onClick={() => handleClick('verify')}
+          className={`relative flex h-10 w-10 items-center justify-center rounded transition-colors ${
+            activeView === 'verify' && !sidebarCollapsed
+              ? 'border-l-2 border-sky-400 bg-gray-800 text-white'
+              : verifyRunning
+                ? 'text-amber-400 hover:bg-gray-800 hover:text-amber-300'
+                : 'text-gray-500 hover:bg-gray-800 hover:text-gray-300'
+          }`}
+          title={t('ide.activityBar.verify')}
+          aria-label={t('ide.activityBar.verify')}
+        >
+          <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+            <path d="M9 11l3 3L22 4" />
+            <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+          </svg>
+          {verifyDotTone && (
+            <span className={`absolute right-1 top-1.5 h-2 w-2 rounded-full ${verifyDotTone}`} />
           )}
         </button>
       )}

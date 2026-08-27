@@ -92,7 +92,7 @@ export function UsagePill(): React.JSX.Element {
         onClick={() => setOpen(true)}
         title={title}
         aria-label={title}
-        className={`app-nodrag flex items-center justify-center rounded-md p-1 transition-colors duration-150 max-md:hidden hover:bg-white/[0.08] ${tone}`}
+        className={`app-nodrag flex items-center justify-center rounded-md p-1 transition-colors duration-150 hover:bg-white/[0.08] ${tone}`}
       >
         <UsageRing pct={pct} />
       </button>

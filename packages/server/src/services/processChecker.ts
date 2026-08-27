@@ -4,6 +4,7 @@ import https from 'node:https';
 import fs from 'node:fs';
 import path from 'node:path';
 import { exec, spawn } from 'node:child_process';
+import { loopbackUrlVariants } from '@vibisual/shared';
 import { logger } from '../logger.js';
 import { killTree } from './processTree.js';
 
@@ -43,6 +44,32 @@ export function isPortAlive(port: number): Promise<boolean> {
  * status < 400 이면 serving, 4xx/5xx·연결 실패·타임아웃은 not serving. 본문은 안 읽고 즉시 파기.
  */
 export function isUrlServing(rawUrl: string, timeoutMs = HTTP_PROBE_TIMEOUT): Promise<boolean> {
+  return probeUrlServing(rawUrl, timeoutMs);
+}
+
+/**
+ * §7.11 — **접속되는 이름**으로 바꿔 가며 물어, 실제로 응답한 주소를 돌려준다(없으면 null).
+ *
+ * 같은 서버라도 이름에 따라 붙고 안 붙고가 갈린다: Vite 를 `localhost` 로 열면 Windows 에서는
+ * IPv6(`::1`)에만 바인딩돼 `http://127.0.0.1:8080` 은 ECONNREFUSED 다. 한 이름만 묻고 접었던
+ * 예전 게이트는 그 서버를 "죽었다"고 판정해 프리뷰를 영영 안 만들었다(실측: `127.0.0.1` 거절,
+ * `localhost`·`[::1]` 200). 그래서 루프백 주소는 별칭을 차례로 물어본다.
+ *
+ * 돌려준 주소를 그대로 iframe 에 실으면 **화면에서도 확실히 열린다** — "확인한 주소"와
+ * "보여 주는 주소"가 갈리지 않는다. 루프백이 아닌 주소는 별칭이 없으므로 자기 자신만 시도한다.
+ */
+export async function resolveServingUrl(
+  rawUrl: string,
+  timeoutMs = HTTP_PROBE_TIMEOUT,
+): Promise<string | null> {
+  const candidates = loopbackUrlVariants(rawUrl);
+  for (const candidate of candidates.length > 0 ? candidates : [rawUrl]) {
+    if (await probeUrlServing(candidate, timeoutMs)) return candidate;
+  }
+  return null;
+}
+
+function probeUrlServing(rawUrl: string, timeoutMs: number): Promise<boolean> {
   return new Promise((resolve) => {
     let parsed: URL;
     try { parsed = new URL(rawUrl); } catch { resolve(false); return; }
@@ -390,6 +417,27 @@ const PROBE_COMMAND_PATTERNS: readonly RegExp[] = [
 
 export function isProbeCommand(text: string): boolean {
   return PROBE_COMMAND_PATTERNS.some((p) => p.test(text));
+}
+
+/**
+ * §7.11 — **우리 자신이 듣고 있는 포트들**. 감지가 Vibisual 을 "에이전트가 띄운 서버"로
+ * 오인하지 않게 막는 유일한 자리다.
+ *
+ * 스폰된 에이전트는 카드 엔드포인트(`/api/agent-report` 등)를 `curl http://127.0.0.1:<포트>` 로
+ * 수시로 친다. 그 주소는 당연히 살아 있으므로, 걸러내지 않으면 **모든 세션에서 Vibisual 자신의
+ * 프리뷰 버블**이 생긴다. 프로세스 전역 사실이라 모듈 상태로 두고 부팅 때 한 번 채운다.
+ */
+const vibisualOwnPorts = new Set<number>();
+
+export function setVibisualOwnPorts(ports: readonly (number | null | undefined)[]): void {
+  vibisualOwnPorts.clear();
+  for (const p of ports) {
+    if (typeof p === 'number' && Number.isInteger(p) && p > 0 && p <= 65535) vibisualOwnPorts.add(p);
+  }
+}
+
+export function isVibisualOwnPort(port: number): boolean {
+  return vibisualOwnPorts.has(port);
 }
 
 /** §7.11 v2.24 — JS/TS 코드 텍스트에서 흔한 listen 선언 패턴을 sniff. file·inline-eval 공용 헬퍼. */

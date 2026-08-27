@@ -44,6 +44,18 @@ function readTextFile(file: string): string | null {
  * 주석이 들어 있다. `JSON.parse` 를 그대로 쓰면 사용자의 진짜 구성이 통째로 "없음" 이 된다.
  * 문자열 안의 `//` 와 이스케이프를 건너뛰며 훑는 상태 기계라 경로(`https://`)를 잘라먹지 않는다.
  */
+/**
+ * Unreal Build Tool 이 받는 이 플랫폼의 타깃 이름.
+ *
+ * UBT 는 OS 이름을 자기 어휘(`Win64`/`Mac`/`Linux`)로 받는다 — `process.platform` 문자열을
+ * 그대로 넘기면 빌드가 통째로 실패한다. **플랫폼을 인자로 받아** 세 경우를 다 단위 테스트한다.
+ */
+export function unrealBuildPlatform(platform: NodeJS.Platform): 'Win64' | 'Mac' | 'Linux' {
+  if (platform === 'win32') return 'Win64';
+  if (platform === 'darwin') return 'Mac';
+  return 'Linux';
+}
+
 export function parseJsonc(raw: string): unknown {
   let out = '';
   let i = 0;
@@ -403,7 +415,7 @@ function scanUnreal(projectPath: string, scanned: string[]): RunConfig[] {
 
   // ② 에디터 타깃 빌드 — 중단점이 걸리려면 먼저 이 타깃이 최신이어야 한다.
   if (info.buildScript) {
-    const platform = process.platform === 'win32' ? 'Win64' : process.platform === 'darwin' ? 'Mac' : 'Linux';
+    const platform = unrealBuildPlatform(process.platform);
     out.push(
       finish({
         name: `${info.projectName}Editor — Build (${platform} Development)`,

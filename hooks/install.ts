@@ -10,6 +10,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { fileURLToPath } from 'node:url';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -47,14 +48,13 @@ const SESSION_START_EVENT = 'SessionStart' as const;
 
 function getProjectRoot(): string {
   // This script lives at <PROJECT_ROOT>/hooks/install.ts
-  const scriptDir = path.dirname(new URL(import.meta.url).pathname);
-
-  // On Windows, URL pathname starts with /C:/... — strip leading slash
-  const normalised = process.platform === 'win32'
-    ? scriptDir.replace(/^\/([A-Za-z]:)/, '$1')
-    : scriptDir;
-
-  return path.resolve(normalised, '..');
+  //
+  // `new URL(...).pathname` 을 쓰면 안 된다 — (a) Windows 에서 앞에 슬래시가 하나 더 붙고,
+  // (b) **퍼센트 인코딩이 풀리지 않아** 공백 든 경로가 `My%20Projects` 로 남는다.
+  //     (b) 는 세 OS 에서 모두 깨지는데, 개발 경로에 공백이 없으면 드러나지 않아 오래 살아남는다.
+  // `fileURLToPath` 가 둘 다 처리하는 표준 창구다 — 그래서 플랫폼 분기 자체가 사라진다.
+  const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+  return path.resolve(scriptDir, '..');
 }
 
 function toForwardSlashes(p: string): string {

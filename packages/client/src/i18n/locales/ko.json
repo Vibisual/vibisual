@@ -13,6 +13,10 @@
       "disconnected": "연결 끊김",
       "viewLogs": "서버 로그 보기"
     },
+    "rightTools": {
+      "expand": "상단 우측 도구 펼치기",
+      "collapse": "상단 우측 도구 접기"
+    },
     "update": {
       "available": "업데이트 {{version}}",
       "availableTooltip": "{{version}} 버전이 있어 백그라운드에서 다운로드 중입니다",
@@ -92,7 +96,8 @@
       "options": "옵션…",
       "guide": "가이드",
       "mobileAccess": "모바일 접속…",
-      "plugins": "플러그인…"
+      "plugins": "플러그인…",
+      "remoteControl": "원격 제어…"
     },
     "mobileAccess": {
       "title": "모바일 접속",
@@ -129,6 +134,62 @@
       "qrExpiresIn": "{{time}} 남음",
       "qrExpired": "만료됨 — QR 을 새로 발급해 주세요.",
       "qrPairedCount": "이 QR 로 페어링된 기기: {{count}}대"
+    },
+    "remoteControl": {
+      "title": "원격 제어",
+      "subtitle": "메신저로 Vibisual 을 조작합니다. 앱이 바깥으로 나가서 붙기 때문에 열 포트도, 믿어야 할 인증서도 없습니다 — CGNAT 뒤에서도 그대로 됩니다.",
+      "channel": {
+        "telegram": "텔레그램",
+        "discord": "디스코드"
+      },
+      "step1": "봇 만들기",
+      "step2": "토큰 붙여넣기",
+      "step3": "대화 연결하기",
+      "open": {
+        "telegram": "@BotFather 열기",
+        "discord": "개발자 포털 열기"
+      },
+      "step1Hint": {
+        "telegram": "@BotFather 에게 /newbot 을 보내고 이름을 정하면 토큰을 답으로 줍니다.",
+        "discord": "New Application → Bot → Reset Token. 같은 화면에서 \"Message Content Intent\" 를 켜 주세요."
+      },
+      "copied": "복사됨",
+      "tokenPlaceholder": "봇 토큰을 붙여넣으세요",
+      "verify": "확인",
+      "verifying": "확인 중…",
+      "tokenSaved": "{{name}} 에 연결되었습니다",
+      "clearToken": "지우기",
+      "error": {
+        "token": "토큰이 거부되었습니다. 봇 화면에서 다시 복사해 주세요.",
+        "intent": "\"Message Content Intent\" 가 꺼져 있어 디스코드가 연결을 거부했습니다. 개발자 포털에서 켠 뒤 다시 시도해 주세요.",
+        "network": "메신저에 닿지 못했습니다. 다시 시도하는 중입니다.",
+        "rate-limit": "메신저가 잠시 요청을 제한하고 있습니다. 곧 다시 시도합니다."
+      },
+      "status": {
+        "off": "꺼짐",
+        "connecting": "연결 중…",
+        "online": "연결됨",
+        "error": "끊김"
+      },
+      "enable": "켜기",
+      "disable": "끄기",
+      "issueQr": "연결 QR 발급 ({{minutes}}분)",
+      "revokeQr": "QR 지금 폐기",
+      "expiresIn": "남은 시간",
+      "savePng": "PNG 저장",
+      "discordPairHint": "QR 로 봇을 초대한 뒤, 봇이 보이는 아무 채널에서 이 줄을 보내 주세요:",
+      "pairedChats": "연결된 대화",
+      "unpair": "연결 끊기",
+      "verbosityTitle": "무엇을 보낼지",
+      "verbosity": {
+        "cards": "카드·요약만",
+        "full": "스트림까지"
+      },
+      "verbosityHint": {
+        "cards": "카드와 요약만 이 PC 를 떠납니다. 원문이 필요하면 /log 로 그때만 가져오세요.",
+        "full": "응답과 생각이 오는 대로 전달됩니다. 도구 출력과 diff 는 여전히 보내지 않습니다."
+      },
+      "securityNote": "연결한 대화에만 답하고 그 밖의 발신자는 무시합니다. 메신저로는 터미널을 열 수 없습니다."
     },
     "guide": {
       "title": "가이드",
@@ -246,7 +307,7 @@
         "version": "버전",
         "account": "계정",
         "storage": "저장소",
-        "brain": "프로젝트 두뇌"
+        "brain": "프로젝트 메모리"
       },
       "appearance": {
         "intro": "Vibisual 의 화면 표시를 개인화합니다.",
@@ -366,6 +427,10 @@
           "attachmentRetentionDays": {
             "label": "첨부 파일 보존",
             "desc": "명령에 붙여 넣은 이미지입니다. 대화가 아직 가리키는 파일은 나이와 무관하게 남기고, 고아만 만료됩니다. 0 = 계속 보존."
+          },
+          "auditEntryMaxPerProject": {
+            "label": "프로젝트당 감사 호출",
+            "desc": "감사 타임라인에 남기는 도구 호출 수입니다. 밀려난 호출도 합계에는 남고 내역만 사라집니다. 0 = 무제한."
           },
           "trashRetentionDays": {
             "label": "휴지통 보존",
@@ -690,6 +755,8 @@
       "notMerged": "브랜치 {{branch}}에 {{base}}에 없는 커밋이 있습니다. 삭제 전에 {{base}}로 병합하시겠습니까?",
       "notYetIn": "{{base}}에 아직 없음",
       "branchUnresolved": "git worktree list로 브랜치를 확인할 수 없습니다. 그래도 삭제하면 폴더와 버블만 제거됩니다.",
+      "forceStopTitle": "이 안에서 도는 것은 강제 종료됩니다",
+      "forceStopDesc": "터미널 {{terminals}}개를 트리째 종료하고, 이 워크트리의 에이전트 {{agents}}개를 휴지통으로 옮깁니다. 살려 두면 파일이 잠겨 폴더가 반만 지워집니다.",
       "cancel": "취소",
       "mergeAndDelete": "병합 후 삭제",
       "delete": "삭제",
@@ -1442,7 +1509,7 @@
       "boundaryHint": "기록은 항상 계속됩니다 — 이 설정은 에이전트를 먼저 멈출지 여부만 결정합니다.",
       "routeTitle": "권한 모드와 별개로 도는 두 번째 검문소",
       "routeBody": "이 경계는 에이전트 설정의 권한 모드(Permission Mode)와 따로 돕니다 — 권한 모드가 통과시킨 도구 호출을 감사 경계가 한 번 더 봅니다.",
-      "routeOn": "켜면 — 권한 모드를 “전부 허용(bypassPermissions)”으로 두신 에이전트도 삭제·네트워크·설정 3종에서는 승인 카드를 만납니다.",
+      "routeOn": "켜면 — 권한 모드를 “전부 허용(bypassPermissions)”으로 두신 에이전트도 삭제·네트워크·설정·외부 폴더 4종에서는 승인 카드를 만납니다.",
       "routeOff": "끄면(기본) — 모든 호출이 권한 모드가 정한 대로 실행되고, 기록만 남습니다.",
       "routeScope": "여기서 붙잡히는 것은 Vibisual 이 띄운 커스텀 에이전트뿐입니다. 직접 실행하신 Claude Code 세션은 기록만 됩니다.",
       "routeStateOn": "지금 켜짐 — 위험 3종은 권한 모드보다 먼저 확인합니다.",
@@ -1450,11 +1517,16 @@
       "risk": {
         "delete": "삭제",
         "network": "네트워크",
-        "config": "설정"
+        "config": "설정",
+        "outside": "외부 폴더 읽기·편집"
       },
       "filterAll": "전체",
       "filterRisky": "위험",
       "filterDenied": "거부",
+      "retentionLabel": "보관",
+      "retentionUnit": "건",
+      "retentionUnlimited": "무제한",
+      "retentionHint": "프로젝트마다 디스크에 남길 호출 수입니다. 밀려난 호출도 합계에는 그대로 남고 내역만 사라집니다. 체크를 끄면 제한 없이 보관합니다.",
       "escalated": "사전 확인",
       "decisionAllow": "허용됨",
       "decisionDeny": "거부됨",
@@ -1610,8 +1682,13 @@
       "slotTabHint": "\"{{name}}\" 창을 앞으로 (같은 칸을 나눠 쓰는 창)",
       "dockShortcutHint": "{{dock}} 붙이기 · {{undock}} 떼어 내기",
       "popOutHint": "놓으면 독립 창으로 꺼냅니다",
+      "popOutEdgeHint": "가장자리에 잠깐 더 밀고 있으면 독립 창으로 꺼냅니다",
       "popOutLabel": "독립 창으로 꺼내기",
-      "returnToApp": "앱 안으로 되돌리기"
+      "returnToApp": "앱 안으로 되돌리기",
+      "popOutHintButton": "독립 창으로 꺼내기 (타이틀바를 앱 밖으로 끌거나 화면 가장자리로 밀어도 같습니다)",
+      "returnToAppHint": "누르면 앱 안으로 되돌립니다 · 끌어서 앱 창 위에 놓으면 합쳐집니다",
+      "redockDropHint": "여기에 놓으면 앱 안으로 합쳐집니다",
+      "redockKeepHint": "다른 곳에 놓으면 독립 창으로 그대로 둡니다"
     },
     "tabbar": {
       "newSession": "새 세션",
@@ -1706,7 +1783,7 @@
       "inputCtxCopy": "복사",
       "inputCtxPaste": "붙여넣기",
       "inputCtxSelectAll": "전체 선택",
-      "ctxSaveToBrain": "두뇌에 기억",
+      "ctxSaveToBrain": "메모리에 기억",
       "stopAll": "전체 중지",
       "stopAllTitle": "이 에이전트가 돌리는 것 전부 중지(다른 탭 + 백그라운드 서브에이전트)",
       "stopSessionTitle": "이 세션과 여기서 시작된 서브 에이전트를 중지합니다 (다른 세션 탭은 계속 실행됩니다)"
@@ -1740,7 +1817,8 @@
       "goal": "목표",
       "debug": "실행·디버그",
       "hooks": "세션 훅",
-      "plugins": "Claude Code 플러그인"
+      "plugins": "Claude Code 플러그인",
+      "verify": "검증"
     },
     "mcp": {
       "title": "MCP 서버",
@@ -2489,7 +2567,7 @@
         "mcp": "MCP 서버",
         "hooks": "훅",
         "systemPrompt": "Claude Code 시스템 프롬프트",
-        "brainSkills": "두뇌 절차 기억"
+        "brainSkills": "메모리 절차 기억"
       },
       "hint": {
         "tools": "도구 목록은 에이전트 설정에서 고릅니다",
@@ -2853,6 +2931,39 @@
       "foreignSession": "다른 버블의 세션입니다",
       "tooSmall": "더 나누기엔 너무 좁습니다",
       "alreadyHere": "이미 이 칸에 있습니다"
+    },
+    "verify": {
+      "title": "검증",
+      "about": "이 탭에서 /verify 를 돌립니다 — 앱을 빌드·실행해 실제로 본 결과를 보고합니다.",
+      "pickSession": "검증은 세션 탭 하나에 붙습니다. 먼저 세션 탭을 열어 주세요.",
+      "focusLabel": "무엇을 확인할지 (선택)",
+      "focusPlaceholder": "예: 로그인 버튼을 누르면 실제로 창이 열리는지",
+      "start": "검증 실행",
+      "running": "실행 중",
+      "readOnly": "훅 버블은 읽기 전용이라 여기서 검증을 시작할 수 없습니다.",
+      "empty": "이 탭에서 아직 검증을 돌린 적이 없습니다.",
+      "stop": "닫기",
+      "rework": "재작업 보내기",
+      "delete": "삭제",
+      "recipe": {
+        "playRecipe": "Vibisual 이 이미 아는 실행 레시피를 실어 보냅니다",
+        "recordedSkill": "이 리포에 기록된 검증 레시피를 그대로 따릅니다",
+        "none": "등록된 레시피가 없어 /verify 가 스스로 알아냅니다"
+      },
+      "verdict": {
+        "pass": "통과",
+        "fail": "실패",
+        "held": "보류",
+        "unknown": "모름"
+      },
+      "error": {
+        "alreadyRunning": "이 탭에서 이미 검증이 돌고 있습니다.",
+        "sessionBusy": "이 탭에 아직 끝나지 않은 명령이 있습니다.",
+        "sessionNotFound": "그 세션을 찾을 수 없습니다.",
+        "readOnly": "훅 버블은 읽기 전용입니다.",
+        "network": "서버에 닿지 못했습니다.",
+        "failed": "검증을 시작하지 못했습니다."
+      }
     }
   },
   "bubbleMap": {
@@ -3137,6 +3248,11 @@
   },
   "canvas": {
     "stubPlaceholder": "이 프로젝트는 디스크에만 있습니다. 탭을 클릭하여 로드하세요.",
+    "loading": {
+      "project": "프로젝트를 불러오는 중…",
+      "connecting": "서버에 연결하는 중…",
+      "slow": "회선이 느립니다 — 아직 받는 중…"
+    },
     "controls": {
       "zoomIn": "확대",
       "zoomOut": "축소",
@@ -3172,8 +3288,8 @@
       "createLocalAgentHint": "내 PC 에서 도는 모델용 버블을 놓습니다",
       "createShelf": "스크립트 선반",
       "createShelfHint": "자주 쓰는 명령어와 프롬프트를 클릭 한 번으로 꺼내 쓰기",
-      "brainOn": "프로젝트 두뇌 켜기",
-      "brainOff": "프로젝트 두뇌 끄기",
+      "brainOn": "프로젝트 메모리 켜기",
+      "brainOff": "프로젝트 메모리 끄기",
       "brainOnHint": "배운 절차를 모아 다음 작업에 자동으로 겁니다",
       "brainOnHintSleeping": "기억 {{count}}장이 잠들어 있습니다",
       "brainOffHint": "꺼도 기록은 지워지지 않습니다"
@@ -3429,7 +3545,7 @@
     "close": "닫기"
   },
   "brain": {
-    "bubbleLabel": "두뇌",
+    "bubbleLabel": "메모리",
     "trashBubbleLabel": "휴지통",
     "trashCountShort": "{{n}}개",
     "unseenBadge": "미확인 {{n}}장",
@@ -3446,7 +3562,7 @@
       "rule": "규칙",
       "fact": "사실"
     },
-    "scopeProject": "프로젝트 두뇌",
+    "scopeProject": "프로젝트 메모리",
     "scopeAgent": "개별 기억",
     "statusGhost": "재검토 필요",
     "supersededNote": "이전 내용 이력",
@@ -3468,7 +3584,7 @@
     "lastReferenced": "마지막 참조",
     "createdAt": "생성",
     "sourceSession": "출처 세션",
-    "promote": "프로젝트 두뇌로 승격",
+    "promote": "프로젝트 메모리로 승격",
     "pin": "고정",
     "unpin": "고정 해제",
     "edit": "편집",
@@ -3502,7 +3618,7 @@
     "trashItemsMore": "외 {{n}}개",
     "cardCountUnitSuffix": "",
     "feed": {
-      "title": "프로젝트 두뇌",
+      "title": "프로젝트 메모리",
       "agentTitle": "이 에이전트의 기억",
       "searchPlaceholder": "기억 검색…",
       "sectionRelated": "지금 작업과 관련",
@@ -3614,19 +3730,19 @@
       }
     },
     "activation": {
-      "sleeping": "이 프로젝트의 두뇌에 기억 {{count}}장이 잠들어 있습니다. 켤까요?",
-      "hint": "두뇌는 기본으로 꺼져 있습니다. 켜면 작업에서 배운 절차를 모아 다음 작업에 자동으로 겁니다. 언제든 다시 끌 수 있고, 꺼도 기록은 지워지지 않습니다.",
+      "sleeping": "이 프로젝트의 메모리에 기억 {{count}}장이 잠들어 있습니다. 켤까요?",
+      "hint": "메모리는 기본으로 꺼져 있습니다. 켜면 작업에서 배운 절차를 모아 다음 작업에 자동으로 겁니다. 언제든 다시 끌 수 있고, 꺼도 기록은 지워지지 않습니다.",
       "turnOn": "켜기",
       "notNow": "지금은 그만",
       "showAxes": "무엇이 켜지는지 보기",
       "hideAxes": "무엇이 켜지는지 접기",
       "axesTitle": "무엇을 켜 둘까요",
-      "turnOff": "두뇌 끄기",
+      "turnOff": "메모리 끄기",
       "offKeepsData": "꺼도 기록은 지워지지 않습니다 — 다시 켜면 그 자리에서 이어집니다.",
       "noProject": "열려 있는 프로젝트가 없습니다",
-      "noProjectDesc": "두뇌는 프로젝트마다 따로 켜고 끕니다 — 프로젝트를 먼저 여세요.",
-      "stateOn": "이 프로젝트의 두뇌가 켜져 있습니다",
-      "stateOff": "이 프로젝트의 두뇌가 꺼져 있습니다",
+      "noProjectDesc": "메모리는 프로젝트마다 따로 켜고 끕니다 — 프로젝트를 먼저 여세요.",
+      "stateOn": "이 프로젝트의 메모리가 켜져 있습니다",
+      "stateOff": "이 프로젝트의 메모리가 꺼져 있습니다",
       "sleepingCount": "기억 {{count}}장이 잠들어 있습니다"
     }
   },

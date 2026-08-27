@@ -77,6 +77,33 @@ describe('§9 스코프드 스냅샷 구독', () => {
     expect(labels).toContain(agentB.label);
   });
 
+  // ⑥ — 클라가 "아직 안 온 탭"과 "빈 프로젝트"를 구별할 유일한 근거. 이 필드가 빠지면 느린
+  //     회선에서 전자가 후자로 보이고(불러오는 중 표시가 영영 안 뜬다) 증상은 조용하다.
+  it('적용한 범위를 scopedProjects 로 되돌려 준다', () => {
+    const { manager, nameA } = makeTwoProjects();
+    manager.setClientProjectScope({}, [nameA]);
+
+    expect(manager.getBroadcastSnapshot().scopedProjects).toEqual([nameA]);
+  });
+
+  it('범위 미적용(전량)이면 scopedProjects 를 아예 싣지 않는다 — 없음 = 전부 왔다', () => {
+    const { manager } = makeTwoProjects();
+    expect(manager.getEffectiveProjectScope()).toBeNull();
+
+    expect(manager.getBroadcastSnapshot().scopedProjects).toBeUndefined();
+    // 내부 조회용 스냅샷도 범위를 적용하지 않으므로 같은 규칙이다.
+    expect(manager.getSnapshot().scopedProjects).toBeUndefined();
+  });
+
+  it('창이 여럿이면 합집합이 실린다 — 다른 창이 보고 있는 탭도 "왔다"로 읽혀야 한다', () => {
+    const { manager, nameA, nameB } = makeTwoProjects();
+    manager.setClientProjectScope({}, [nameA]);
+    manager.setClientProjectScope({}, [nameB]);
+
+    const scoped = manager.getBroadcastSnapshot().scopedProjects ?? [];
+    expect([...scoped].sort()).toEqual([nameA, nameB].sort());
+  });
+
   it('선언한 프로젝트의 에이전트만 무거운 슬라이스에 실린다', () => {
     const { manager, nameA, agentA, agentB } = makeTwoProjects();
     const win = {};

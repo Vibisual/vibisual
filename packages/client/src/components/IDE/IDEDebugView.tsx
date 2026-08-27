@@ -10,8 +10,9 @@ import {
 import type { AgentConfig, ExternalDebuggerInfo, RunConfig, RunConfigSource } from '@vibisual/shared';
 import { isReadOnlyHookAgent } from '@vibisual/shared';
 
-import { useGraphStore, selectIDEPane } from '../../stores/graphStore.js';
-import { useIDEPaneValue, useIDEPaneProjectName, useIDEPaneKey } from './idePane.js';
+import { useGraphStore } from '../../stores/graphStore.js';
+import { useIDEPaneValue, useIDEPaneProjectName } from './idePane.js';
+import { useIDEProjectRoot } from './useIDEProjectRoot.js';
 import { ScrollFade } from '../ScrollFade.js';
 import {
   countRunning,
@@ -42,16 +43,6 @@ import { ADHOC_RUN_PREFIX } from './runExecutableFile.js';
  *   B) 에이전트 디버그 도구 — 남이 만든 MCP 서버를 이 에이전트에 꽂는다(디버거 본체는 안 만든다).
  *   C) 외부 디버거 — 우리가 라이선스상 못 하는 네이티브 디버깅은 설치된 IDE 로 넘긴다.
  */
-
-/** 트리 루트와 같은 규칙 — 지금 IDE 가 열려 있는 프로젝트의 절대 경로. */
-function useProjectRoot(): string | null {
-  const paneKey = useIDEPaneKey();
-  return useGraphStore((s) => {
-    const name = selectIDEPane(s, paneKey).projectId ?? s.activeProject;
-    if (!name) return null;
-    return s.projects[name]?.path ?? s.stubProjects[name]?.project.path ?? null;
-  });
-}
 
 const SOURCE_LABEL_KEY: Record<RunConfigSource, string> = {
   'launch.json': 'ide.debug.source.launchJson',
@@ -91,7 +82,7 @@ function StopIcon(): React.JSX.Element {
 
 export const IDEDebugView = memo(function IDEDebugView({ agentId }: { agentId: string }): React.JSX.Element {
   const { t } = useTranslation();
-  const rootPath = useProjectRoot();
+  const rootPath = useIDEProjectRoot();
   const config = useGraphStore((s) => s.agentConfigs[agentId]) as AgentConfig | undefined;
   const addCommand = useGraphStore((s) => s.addCommand);
   const activeSessionId = useIDEPaneValue((o) => o.activeSessionId);

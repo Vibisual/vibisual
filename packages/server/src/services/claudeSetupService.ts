@@ -39,11 +39,14 @@ import { killTree, processGroupSpawnOptions } from './processTree.js';
  * `ProjectCheckpoint` 에 넣지 않는다(런타임 캐시 + `GraphSnapshot.claudeSetup` 전달).
  */
 
-const IS_WIN = process.platform === 'win32';
-
-/** 자동 설치를 시도할 수 있는 플랫폼인가. 그 밖(예: 미지원 OS)이면 수동 명령만 안내한다. */
-export function isAutoInstallSupported(): boolean {
-  return process.platform === 'win32' || process.platform === 'darwin' || process.platform === 'linux';
+/**
+ * 자동 설치를 시도할 수 있는 플랫폼인가. 그 밖(예: 미지원 OS)이면 수동 명령만 안내한다.
+ *
+ * **플랫폼을 인자로 받는다** — 함수 안에서 `process.platform` 을 읽으면 그 분기는 개발기 한 대에서
+ * 영영 실행되지 않아 검증되지 않는다(멀티플랫폼 규칙).
+ */
+export function isAutoInstallSupported(platform: NodeJS.Platform = process.platform): boolean {
+  return platform === 'win32' || platform === 'darwin' || platform === 'linux';
 }
 
 /**
@@ -51,8 +54,8 @@ export function isAutoInstallSupported(): boolean {
  * **화면의 "직접 설치" 안내와 서버가 실제로 spawn 하는 명령이 같은 문자열**이어야 안내와 동작이
  * 어긋나지 않으므로, 조립은 여기 한 곳에서만 한다.
  */
-export function buildSetupInstallCommand(): string {
-  return IS_WIN ? CLAUDE_SETUP_INSTALL_COMMAND_WIN : CLAUDE_SETUP_INSTALL_COMMAND_POSIX;
+export function buildSetupInstallCommand(platform: NodeJS.Platform = process.platform): string {
+  return platform === 'win32' ? CLAUDE_SETUP_INSTALL_COMMAND_WIN : CLAUDE_SETUP_INSTALL_COMMAND_POSIX;
 }
 
 interface SetupSession {

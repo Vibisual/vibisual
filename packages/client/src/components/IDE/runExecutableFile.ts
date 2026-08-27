@@ -15,7 +15,7 @@
 import { DEFAULT_AGENT_CONFIG } from '@vibisual/shared';
 import type { AgentConfig, RunConfig } from '@vibisual/shared';
 
-import { useGraphStore, selectIDEPane } from '../../stores/graphStore.js';
+import { useGraphStore, selectIDEPane, selectPaneProjectPath } from '../../stores/graphStore.js';
 import { noteRunLine, runIdFor, startRun, useRunSessions } from '../../stores/runSessions.js';
 import { clientPathKey } from '../../utils/platform.js';
 
@@ -121,10 +121,9 @@ export async function runExecutableFile(
   // 기본 설정으로도 프로그램은 그대로 돈다(여기서 조용히 아무 일도 안 하면 "눌러도 반응 없음"이 된다).
   const config = (state.agentConfigs[agentId] as AgentConfig | undefined) ?? DEFAULT_AGENT_CONFIG;
 
-  const projectName = overlay.projectId ?? state.activeProject;
-  const projectRoot = projectName
-    ? state.projects[projectName]?.path ?? state.stubProjects[projectName]?.project.path ?? null
-    : null;
+  // §5.7 #26 — cwd 는 **그 버블의 소속 프로젝트**다. 창이 앉은 슬롯(`overlay.projectId`)은 워크트리로
+  //   들어가도 부모 탭에 남으므로, 그 값을 쓰면 워크트리 버블에서 누른 실행이 부모 트리에서 돌았다.
+  const projectRoot = selectPaneProjectPath(state, opts.paneKey ?? null);
 
   const runConfig = buildExecutableRunConfig(absPath);
   const runId = runIdFor(agentId, runConfig.id);

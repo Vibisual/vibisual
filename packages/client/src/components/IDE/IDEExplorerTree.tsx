@@ -18,10 +18,13 @@ interface IDEExplorerTreeProps {
   truncated: ReadonlySet<string>;
   failed: ReadonlySet<string>;
   selectedPath: string | null;
+  /** §5.5 #17-19 ③(c) — 방금 복사한 행의 상대 경로(체크 표시가 그 행에만 뜨도록). */
+  copiedPath: string | null;
   onToggleDir: (relPath: string) => void;
   /** §5.13 (R-7) — 실행 여부까지 넘긴다(목록이 서버에게 받아 둔 값). 여는 곳은 호출부가 정한다. */
   onSelectFile: (relPath: string, executable?: boolean) => void;
   onOpenFile: (relPath: string) => void;
+  onCopyPath: (relPath: string) => void;
 }
 
 /** 깊이 → 들여쓰기 px. 사이드바가 좁아(w-52) VS Code 보다 한 단계를 짧게 잡는다. */
@@ -36,9 +39,11 @@ export const IDEExplorerTree = memo(function IDEExplorerTree({
   truncated,
   failed,
   selectedPath,
+  copiedPath,
   onToggleDir,
   onSelectFile,
   onOpenFile,
+  onCopyPath,
 }: IDEExplorerTreeProps): React.JSX.Element {
   const { t } = useTranslation();
 
@@ -95,6 +100,8 @@ export const IDEExplorerTree = memo(function IDEExplorerTree({
           );
         }
 
+        const isCopied = copiedPath === entry.relPath;
+
         return (
           <li key={entry.relPath} className="group/row relative">
             <button
@@ -102,7 +109,7 @@ export const IDEExplorerTree = memo(function IDEExplorerTree({
               onClick={() => onSelectFile(entry.relPath, entry.executable === true)}
               onDoubleClick={() => onOpenFile(entry.relPath)}
               title={entry.relPath}
-              className={`flex w-full items-center gap-1 py-[3px] pr-6 text-left text-[12px] transition-colors ${
+              className={`flex w-full items-center gap-1 py-[3px] pr-9 text-left text-[12px] transition-colors ${
                 isSelected
                   ? 'bg-blue-500/20 text-blue-100'
                   : 'text-gray-400 hover:bg-gray-700/50 hover:text-gray-200'
@@ -117,22 +124,59 @@ export const IDEExplorerTree = memo(function IDEExplorerTree({
               </svg>
               <span className="truncate">{entry.name}</span>
             </button>
-            <button
-              type="button"
-              onClick={() => onOpenFile(entry.relPath)}
-              title={t('ide.explorer.openFile')}
-              aria-label={t('ide.explorer.openFile')}
-              className="absolute right-0.5 top-1/2 hidden -translate-y-1/2 rounded p-0.5 text-gray-500 transition-colors hover:bg-gray-700 hover:text-blue-300 group-hover/row:block"
+            {/*
+              §5.5 #17-19 ③(c) — 행 손잡이 묶음. **고른 행에서는 늘 보이고**(지금 만질 행이라 손잡이가
+              사라지면 안 된다), 고르지 않은 행에서는 마우스를 올렸을 때만 뜬다.
+              왼쪽이 경로 복사, 오른쪽이 앱 밖 편집기로 열기.
+            */}
+            <div
+              className={`absolute right-0.5 top-1/2 -translate-y-1/2 items-center gap-0.5 ${
+                isSelected ? 'flex' : 'hidden group-hover/row:flex'
+              }`}
             >
-              <svg
-                className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"
+              <button
+                type="button"
+                onClick={() => onCopyPath(entry.relPath)}
+                title={isCopied ? t('ide.explorer.copied') : t('ide.explorer.copyPath')}
+                aria-label={t('ide.explorer.copyPath')}
+                className={`rounded p-0.5 transition-colors hover:bg-gray-700 ${
+                  isCopied ? 'text-emerald-400' : 'text-gray-500 hover:text-blue-300'
+                }`}
               >
-                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                <polyline points="15 3 21 3 21 9" />
-                <line x1="10" y1="14" x2="21" y2="3" />
-              </svg>
-            </button>
+                {isCopied ? (
+                  <svg
+                    className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"
+                  >
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                ) : (
+                  <svg
+                    className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"
+                  >
+                    <rect x="9" y="9" width="13" height="13" rx="2" />
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                  </svg>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => onOpenFile(entry.relPath)}
+                title={t('ide.explorer.openFile')}
+                aria-label={t('ide.explorer.openFile')}
+                className="rounded p-0.5 text-gray-500 transition-colors hover:bg-gray-700 hover:text-blue-300"
+              >
+                <svg
+                  className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"
+                >
+                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                  <polyline points="15 3 21 3 21 9" />
+                  <line x1="10" y1="14" x2="21" y2="3" />
+                </svg>
+              </button>
+            </div>
           </li>
         );
       })}
