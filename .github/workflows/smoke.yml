@@ -97,13 +97,21 @@ jobs:
           sleep 20
           if kill -0 "$DPID" 2>/dev/null; then
             echo "RESULT: FUSE 를 따로 깔지 않아도 AppImage 가 그대로 실행된다 — 사용자는 chmod +x 만 하면 된다."
-            kill "$DPID" 2>/dev/null || true
             echo "APPIMAGE_NEEDS_FUSE=no" >> "$GITHUB_ENV"
           else
             echo "RESULT: 그대로는 실행되지 않는다 — 아래가 사용자가 보게 되는 것이다."
             tail -25 direct.log || true
             echo "APPIMAGE_NEEDS_FUSE=yes" >> "$GITHUB_ENV"
           fi
+          # ⚠️ `kill $DPID` 만으로는 부족하다 — 그건 `xvfb-run` 의 PID 이고 **앱은 그 자식**이라 살아남는다.
+          #    그리고 이 앱은 단일 인스턴스 락을 쓰므로, 남은 인스턴스가 있으면 **다음 스텝이 띄우는
+          #    두 번째 인스턴스는 즉시 종료된다** — run #4 의 "Linux — run" 실패가 정확히 이것이었다
+          #    (Complete job 로그에 @vibisualdesktop·AppImage 가 고아로 남아 있었다).
+          kill "$DPID" 2>/dev/null || true
+          pkill -f "@vibisualdesktop" 2>/dev/null || true
+          pkill -f "[.]AppImage" 2>/dev/null || true
+          pkill -f "chrome_crashpad_handler" 2>/dev/null || true
+          sleep 3
           # ⚠️ 여기서 실패해도 잡을 죽이지 않는다. 이건 앱 결함이 아니라 **포장 형식의 전제**이고,
           #    우리가 알아야 하는 것은 "그래서 README 에 무엇을 적어야 하는가"다. 다음 스텝이 답한다.
 
@@ -120,14 +128,21 @@ jobs:
           xvfb-run -a ./*.AppImage --no-sandbox > fuse.log 2>&1 &
           FPID=$!
           sleep 20
+          RC=0
           if kill -0 "$FPID" 2>/dev/null; then
             echo "RESULT: libfuse2 를 깔면 정상 실행된다 — 그 안내는 유효하다."
-            kill "$FPID" 2>/dev/null || true
           else
             echo "::error::libfuse2 를 깔아도 실행되지 않는다 — README 안내를 그대로 쓰면 안 된다"
             tail -30 fuse.log || true
-            exit 1
+            RC=1
           fi
+          # 다음 스텝이 두 번째 인스턴스로 튕기지 않게 트리째 회수한다(위 스텝 주석 참고).
+          kill "$FPID" 2>/dev/null || true
+          pkill -f "@vibisualdesktop" 2>/dev/null || true
+          pkill -f "[.]AppImage" 2>/dev/null || true
+          pkill -f "chrome_crashpad_handler" 2>/dev/null || true
+          sleep 3
+          exit $RC
 
       # ── ② 앱 자체 검증: 포장 변수를 없애고 실행 ─────────────────────────
       - name: Linux — run
@@ -138,6 +153,12 @@ jobs:
           # 위 ①이 포장(FUSE)까지 포함한 사용자 경로라면, 이 스텝은 그 변수를 걷어내고
           # **앱 자신이 도는가**만 격리해서 잰다. 둘이 갈리면 원인이 어느 쪽인지 바로 안다.
           # (xvfb 는 ① 에서 설치했다.)
+          # 앞 스텝의 인스턴스가 남아 있으면 이 스텝은 단일 인스턴스 락에 걸려 **앱 결함이 아닌
+          # 이유로** 즉사한다. 들어오면서 한 번 더 쓸어낸다(앞 스텝이 실패로 끝났을 수도 있다).
+          pkill -f "@vibisualdesktop" 2>/dev/null || true
+          pkill -f "[.]AppImage" 2>/dev/null || true
+          pkill -f "chrome_crashpad_handler" 2>/dev/null || true
+          sleep 3
           cd artifact
           chmod +x ./*.AppImage
           ./*.AppImage --appimage-extract >/dev/null
@@ -233,20 +254,39 @@ jobs:
           echo "== spctl 평가 =="
           spctl -a -t exec -vv "$WORK/Vibisual.app" 2>&1 | head -5 || true
           echo "== open 으로 열기 (사용자가 하는 방식) =="
-          OPENED=no
-          if open "$WORK/Vibisual.app" 2> open.err; then
-            sleep 15
-            if pgrep -f "qtest/Vibisual.app/Contents/MacOS" >/dev/null 2>&1; then OPENED=yes; fi
-          fi
+          # ⚠️ `open` 을 앞에 두고 그냥 기다리면 **영영 돌아오지 않을 수 있다** — quarantine 이 붙은
+          #    미서명 앱은 macOS 가 경고 다이얼로그를 띄우고, `open` 은 사람이 그것을 누를 때까지
+          #    기다린다. CI 에는 누를 사람이 없다(run #4 의 mac 잡이 12분을 그렇게 서 있었다).
+          #    그리고 **반환하지 않는 것 자체가 결론이다** — 사용자에게는 "경고창이 떠서 그냥은
+          #    못 연다"로 나타나므로, 대기 상태를 차단으로 판정한다.
+          OPENED=no; STALLED=no
+          open "$WORK/Vibisual.app" >/dev/null 2> open.err &
+          OPID=$!
+          for _ in $(seq 1 15); do
+            kill -0 "$OPID" 2>/dev/null || break
+            sleep 2
+          done
+          if kill -0 "$OPID" 2>/dev/null; then STALLED=yes; kill "$OPID" 2>/dev/null || true; fi
+          sleep 3
+          if pgrep -f "qtest/Vibisual.app/Contents/MacOS" >/dev/null 2>&1; then OPENED=yes; fi
+
           if [ "$OPENED" = "yes" ]; then
             echo "RESULT: quarantine 이 붙어도 열린다 — 사용자는 우회 없이 실행할 수 있다."
-            pkill -f "qtest/Vibisual.app/Contents/MacOS" 2>/dev/null || true
             echo "MAC_QUARANTINE_BLOCKS=no" >> "$GITHUB_ENV"
+          elif [ "$STALLED" = "yes" ]; then
+            echo "RESULT: open 이 30초간 돌아오지 않았다 — **경고 다이얼로그가 떠서 클릭을 기다리는 상태**다."
+            echo "        실사용자에게는 '경고창이 뜨고 그냥은 못 연다'로 나타난다."
+            cat open.err 2>/dev/null || true
+            echo "MAC_QUARANTINE_BLOCKS=yes" >> "$GITHUB_ENV"
           else
-            echo "RESULT: 막힌다 — 아래가 사용자가 보게 되는 것이다."
+            echo "RESULT: 거부됐다 — 아래가 사용자가 보게 되는 것이다."
             cat open.err 2>/dev/null || true
             echo "MAC_QUARANTINE_BLOCKS=yes" >> "$GITHUB_ENV"
           fi
+          # 다음 스텝을 깨끗하게 — 떠 있는 앱과 남은 다이얼로그를 정리한다.
+          pkill -f "qtest/Vibisual.app" 2>/dev/null || true
+          osascript -e 'tell application "System Events" to keystroke return' >/dev/null 2>&1 || true
+          sleep 2
           # 여기서 잡을 죽이지 않는다 — 미서명은 **이미 아는 상태**이고, 재려는 것은 그 결과다.
           # "그래서 무엇을 안내할 것인가"는 다음 스텝이 확정한다.
 
@@ -260,17 +300,24 @@ jobs:
           xattr -cr "$WORK/Vibisual.app"
           echo "== 속성 제거 후 =="
           xattr -l "$WORK/Vibisual.app" 2>/dev/null | head -3 || echo "   (남은 속성 없음)"
-          OPENED=no
-          if open "$WORK/Vibisual.app" 2> open2.err; then
-            sleep 15
-            if pgrep -f "qtest/Vibisual.app/Contents/MacOS" >/dev/null 2>&1; then OPENED=yes; fi
-          fi
+          # 위 스텝과 같은 이유로 `open` 은 백그라운드 + 폴링으로 다룬다(다이얼로그 무한 대기 방지).
+          OPENED=no; STALLED=no
+          open "$WORK/Vibisual.app" >/dev/null 2> open2.err &
+          OPID=$!
+          for _ in $(seq 1 15); do
+            kill -0 "$OPID" 2>/dev/null || break
+            sleep 2
+          done
+          if kill -0 "$OPID" 2>/dev/null; then STALLED=yes; kill "$OPID" 2>/dev/null || true; fi
+          sleep 3
+          if pgrep -f "qtest/Vibisual.app/Contents/MacOS" >/dev/null 2>&1; then OPENED=yes; fi
+          pkill -f "qtest/Vibisual.app" 2>/dev/null || true
+
           if [ "$OPENED" = "yes" ]; then
             echo "RESULT: xattr -cr 후 정상 실행 — 이 안내는 유효하다."
-            pkill -f "qtest/Vibisual.app/Contents/MacOS" 2>/dev/null || true
             exit 0
           fi
-          echo "::error::xattr -cr 로도 열리지 않는다 — README 에 그 안내를 쓰면 안 된다"
+          echo "::error::xattr -cr 로도 열리지 않는다 (stalled=$STALLED) — README 에 그 안내를 쓰면 안 된다"
           cat open2.err 2>/dev/null || true
           exit 1
 
