@@ -26,7 +26,9 @@
       "confirmTitle": "Restart to update?",
       "confirmBody": "Updating will close and reinstall the app. Any in-progress agent work or unsaved changes may be lost.",
       "confirmHint": "If you have important custom agent work, finish it first, then update.",
-      "confirmCancel": "Cancel"
+      "confirmCancel": "Cancel",
+      "openReleases": "Download {{version}}",
+      "openReleasesTooltip": "Version {{version}} is available. Automatic install needs code signing on macOS, so this opens the releases page."
     },
     "agentStatus": {
       "waiting": "Waiting for agent",
@@ -202,7 +204,8 @@
         "ide": "IDE Overlay",
         "navigation": "Navigation",
         "history": "History & Saving",
-        "shortcuts": "Shortcuts"
+        "shortcuts": "Shortcuts",
+        "memory": "Project Memory"
       },
       "start": {
         "intro": "Vibisual visualizes what your AI agents are doing, in real time, as a bubble map.",
@@ -283,6 +286,27 @@
         "inspectorD": "Hold Alt to inspect and click to copy an element; Shift-drag for region select.",
         "closeT": "Close & cancel",
         "closeD": "Esc closes menus, popups and the IDE overlay."
+      },
+      "memory": {
+        "intro": "Project Memory keeps what worked and loads it back into your next task. It ships turned off — you switch it on per project, and switching it off never deletes anything.",
+        "turnOnT": "Turning it on",
+        "turnOnD": "Right-click empty canvas and pick \"Turn on Project Memory\", or open File > Options > Project Memory. It applies immediately — no restart.",
+        "bubbleT": "The memory bubble",
+        "bubbleD": "Once on, an indigo bubble sits on the canvas with the number of stored cards. Double-click it to open the library; hover for a summary.",
+        "skillsT": "Procedural memory",
+        "skillsD": "When a complex job finishes, the steps are distilled into a procedure. Next time a similar task starts, that procedure is loaded into the prompt automatically.",
+        "recallT": "Recall",
+        "recallD": "Searches the text of past sessions, not just saved cards — for the answer that was never written down as a card.",
+        "groundingT": "Grounding",
+        "groundingD": "A card is only treated as current truth after the files it points at are checked against the code that exists right now.",
+        "curatorT": "Curator",
+        "curatorD": "Cards that were never read, never classified, or are still candidates collect in one rail so you can sort or promote them in a batch.",
+        "operatorT": "Operator profile",
+        "operatorD": "Working habits it notices are stored on this machine only. Nothing is sent anywhere.",
+        "railsT": "The five rails",
+        "railsD": "The library's left column: Needs check, Pending review, Procedures, To sort, Archived.",
+        "keepsT": "Nothing is thrown away",
+        "keepsD": "Turning memory off stops the work, not the storage. Cards stay on disk under .vibisual/brain and pick up where they left off when you switch it back on."
       }
     },
     "options": {
@@ -3691,7 +3715,8 @@
       "skillDraft": "Draft",
       "skillVerified": "Confirmed",
       "skillUsed": "loaded {{count}}x",
-      "skillHelpful": "helped {{count}}x"
+      "skillHelpful": "helped {{count}}x",
+      "howTo": "How to use"
     },
     "currentBadge": "Current truth",
     "contestedBadge": "Conflicting",

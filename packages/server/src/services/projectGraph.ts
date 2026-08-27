@@ -8598,14 +8598,29 @@ export class ProjectGraph {
 
   /**
    * fileEdits 맵 키를 사용자가 클릭하는 노드 키와 동일하게 산출한다.
-   * processInternalFile 의 키 규칙(파일의 owning project 기준 상대경로 + worktree namespace prefix)을
-   * 그대로 미러 — recordFileEdit 가 세션 cwd 프로젝트 기준으로 키를 따로 계산해서
-   * scan(`manual`) 노드/워크트리 노드와 키가 어긋나 diff 가 안 붙던 문제 차단.
+   * `routeToolFilePath` 의 **세 갈래를 모두** 미러한다 —
+   *   ① internal: 파일의 owning project 기준 상대경로(+ worktree namespace prefix, processInternalFile)
+   *   ② external: 어느 프로젝트에도 없는 파일 → `__ext__<부모폴더>/<파일명>` (processExternalFile)
+   *   ③ 워크트리 home 세션이 다른 프로젝트 파일을 만진 경우 → ② 에 워크트리 prefix
+   * recordFileEdit 가 키를 따로 계산해서 scan(`manual`) 노드/워크트리 노드/외부 위성과 키가
+   * 어긋나 diff 가 안 붙던 문제 차단.
    */
-  private canonicalFileKey(absPath: string): string {
+  private canonicalFileKey(absPath: string, sessionCwd?: string): string {
     const norm = normalize(absPath);
+    const sessionProject = sessionCwd ? this.projects.get(normalize(sessionCwd)) ?? null : null;
+    const isHomeWorktree = !!sessionProject?.parentProjectPath;
     const fileProject = this.getProjectForCwd(norm);
-    if (fileProject) {
+
+    // 라우팅(routeToolFilePath)의 갈림을 **그대로** 따라간다.
+    //  - 파일이 어느 등록 프로젝트에도 없다 → external
+    //  - 워크트리 home 세션이 **다른** 프로젝트 파일을 만졌다(= 내 워크트리에서 외부) → external
+    // 이 두 갈래를 안 따라가면 노드 키는 `__ext__…` 인데 diff 키는 절대경로라 서로 못 만난다 —
+    // 파일 버블은 떠 있는데 내용이 비고(buildFileEditsRecord 의 node 조회 실패),
+    // toProjectCheckpoint 의 노드 필터에서도 통째로 버려져 껐다 켜면 흔적조차 없다.
+    const routedExternal = !fileProject
+      || (isHomeWorktree && fileProject.path !== sessionProject!.path);
+
+    if (fileProject && !routedExternal) {
       const rel = this.toRelative(norm, fileProject.path);
       if (rel) {
         // worktree 파일은 부모와 격리하는 네임스페이스 prefix (processInternalFile 5197행과 동일 규칙)
@@ -8615,7 +8630,28 @@ export class ProjectGraph {
         return rel;
       }
     }
-    return norm;
+
+    const wtPrefix = isHomeWorktree
+      ? `wt${hashString(normalize(sessionProject!.path)).toString(36)}__`
+      : '';
+    return this.externalFileNodeKey(norm, wtPrefix);
+  }
+
+  /**
+   * 외부 파일의 **직속 부모 폴더** 절대경로 (§2.1 v1.55 평탄화 규칙).
+   * `processExternalFile` 과 `canonicalFileKey` 가 이 한 곳을 공유한다 — 규칙이 두 벌이 되면
+   * 한쪽만 고쳐져 파일 버블 키와 diff 키가 어긋난다.
+   */
+  private externalParentFolder(normAbs: string): string {
+    const folderAbs = path.dirname(normAbs).replace(/\\/g, '/');
+    // 의미있는 부모 없음 → 경로 자체를 폴더로 폴백
+    if (!folderAbs || folderAbs === '.' || folderAbs === '/') return normAbs;
+    return folderAbs;
+  }
+
+  /** 외부 파일 위성의 노드 키 — `registerExternalSatellite` 가 실제로 쓰는 키와 같아야 한다. */
+  private externalFileNodeKey(normAbs: string, wtPrefix = ''): string {
+    return `${wtPrefix}__ext__${this.externalParentFolder(normAbs)}/${path.basename(normAbs)}`;
   }
 
   /** Write diff 한 쪽 본문 대용량 가드 — 초과분은 잘라 표식 추가(스냅샷/메모리 폭증 방지) */
@@ -8643,7 +8679,8 @@ export class ProjectGraph {
     const rawPath = payload.tool_input['file_path'];
     if (typeof rawPath !== 'string') return;
     const absPath = normalize(rawPath);
-    const key = this.canonicalFileKey(absPath);
+    // 라우팅과 **같은** 세션 cwd 를 쓴다(routeToolFilePath 와 동일 — payload.cwd 폴백 ❌).
+    const key = this.canonicalFileKey(absPath, this.sessionCwds.get(payload.session_id));
 
     let oldStr: string;
     let newStr: string;
@@ -8836,8 +8873,13 @@ export class ProjectGraph {
     for (const [relPath, edits] of this.fileEdits) {
       const node = this.nodes.get(relPath);
       if (!node) continue;
-      // filePath 누락된 기존 엔트리 보정 (root + 상대경로)
-      const absPath = this.root ? `${this.root}/${relPath}` : relPath;
+      // filePath 누락된 기존 엔트리 보정 (root + 상대경로).
+      // 외부 위성 키는 그 자체가 절대경로를 품고 있어(`[wt…]__ext__<abs>`) root 를 앞에 붙이면
+      // 존재하지 않는 경로가 된다 — 접두사를 걷어 낸 뒤쪽이 곧 절대경로다.
+      const extAt = relPath.indexOf('__ext__');
+      const absPath = extAt >= 0
+        ? relPath.slice(extAt + '__ext__'.length)
+        : this.root ? `${this.root}/${relPath}` : relPath;
       const memo = this.fileEditsViewCache.get(edits);
       if (
         memo !== undefined &&
@@ -9338,11 +9380,7 @@ export class ProjectGraph {
   ): string | null {
     const normAbs = absolutePath.replace(/\\/g, '/');
     // 파일이면 부모 폴더가 외부 폴더, 디렉토리면 그 디렉토리 자체가 외부 폴더
-    let folderAbs = isDirectory ? normAbs : path.dirname(normAbs).replace(/\\/g, '/');
-    if (!folderAbs || folderAbs === '.' || folderAbs === '/') {
-      // 의미있는 부모 없음 → absolutePath 자체를 폴더로 폴백
-      folderAbs = normAbs;
-    }
+    const folderAbs = isDirectory ? normAbs : this.externalParentFolder(normAbs);
 
     const folderKey = `${wtPrefix}__ext__${folderAbs}`;
 
@@ -9370,8 +9408,8 @@ export class ProjectGraph {
     // 파일 노드 + satellite 등록
     if (!isDirectory) {
       // Read/Edit/Write — 만진 파일 1개를 폴더 위성으로 (§2.1 v1.55)
-      const fileName = path.basename(normAbs);
-      const fileKey = `${folderKey}/${fileName}`;
+      // 키 산출은 canonicalFileKey 와 같은 헬퍼로 — 두 벌이 되면 diff 가 이 버블에 안 붙는다.
+      const fileKey = this.externalFileNodeKey(normAbs, wtPrefix);
       this.registerExternalSatellite(folderKey, fileKey, toolName, agentId, projectName);
     } else {
       // Grep/Glob — tool_response 의 매치 결과 파일을 폴더 위성으로 (§2.1 v2.7).

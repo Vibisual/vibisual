@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
+import { readUpdateDelivery } from '@vibisual/shared';
 import { useAppUpdate } from '../../hooks/useAppUpdate.js';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 
@@ -13,6 +14,12 @@ import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 //                    사용자가 확인하면 install()(quitAndInstall). 즉시 재설치 ❌ — 진행 중
 //                    작업·미저장 변경 손실 우려를 재시작 직전에 명시 경고(§3.2.1 인프라 위 안전망).
 //   - idle/checking/up-to-date/error/null : 렌더 없음(숨김) — VS Code 처럼 할 일 있을 때만 노출.
+//
+// ⚠️ **notify-only(무서명 macOS)** 는 위 흐름을 타지 않는다. Squirrel.Mac 이 서명 검증을
+// 강제해 적용이 반드시 실패하므로 main 이 다운로드 자체를 하지 않고(autoDownload=false),
+// 상태는 'available' 에서 멈춘다. 그래서 이 모드에서는 'available' 이 곧 액션 단계다 —
+// 클릭하면 재시작이 아니라 **릴리스 페이지가 열린다**(그래서 손실 경고 모달도 띄우지 않는다:
+// 앱이 종료되지 않으므로 경고할 손실이 없다). 판정은 shared readUpdateDelivery 한 곳.
 //
 // 아이콘은 이모지 금지(CLAUDE.md) — Lucide 톤 인라인 stroke SVG.
 
@@ -55,6 +62,27 @@ function RestartIcon({ className }: { className?: string }): React.JSX.Element {
     >
       <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
       <path d="M3 3v5h5" />
+    </svg>
+  );
+}
+
+function ExternalLinkIcon({ className }: { className?: string }): React.JSX.Element {
+  return (
+    <svg
+      className={className}
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+      <polyline points="15 3 21 3 21 9" />
+      <line x1="10" y1="14" x2="21" y2="3" />
     </svg>
   );
 }
@@ -167,6 +195,23 @@ export function UpdateButton(): React.JSX.Element | null {
   if (!state) return null;
   const { phase } = state;
   if (phase !== 'available' && phase !== 'downloading' && phase !== 'downloaded') return null;
+
+  // notify-only(무서명 macOS) — main 이 다운로드하지 않으므로 'available' 이 곧 액션 단계다.
+  // install() 은 이 모드에서 quitAndInstall 이 아니라 릴리스 페이지 열기로 동작한다(updaterManager).
+  if (readUpdateDelivery(state.delivery) === 'notify-only') {
+    if (phase !== 'available') return null;
+    return (
+      <button
+        type="button"
+        onClick={() => install()}
+        title={t('header.update.openReleasesTooltip', { version: state.newVersion ?? '' })}
+        className="app-nodrag flex items-center gap-1.5 rounded-md bg-blue-600 px-2.5 py-1 text-[12px] font-medium text-white transition-colors duration-150 hover:bg-blue-500"
+      >
+        <ExternalLinkIcon />
+        <span>{t('header.update.openReleases', { version: state.newVersion ?? '' })}</span>
+      </button>
+    );
+  }
 
   if (phase === 'downloaded') {
     return (

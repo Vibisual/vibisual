@@ -6243,6 +6243,18 @@ export interface AutoAgentRun {
  * - `up-to-date`  : 현재가 최신.
  * - `error`       : 체크/다운로드 실패 (`error` 메시지).
  */
+/**
+ * §4 — 업데이트 **전달 방식**. 플랫폼마다 서명 요건이 달라 갈라진 축이다.
+ * - `auto-install` : 백그라운드 다운로드 후 재시작 시 적용(Windows·Linux).
+ * - `notify-only`  : 새 버전을 **알리기만** 하고 적용은 사용자가 직접(무서명 macOS).
+ *
+ * macOS 의 electron-updater 백엔드인 Squirrel.Mac 은 코드 서명 검증을 **강제**한다
+ * (Windows 의 publisherName 검증은 선택인 것과 대비). 서명 없는 빌드는 다운로드까지
+ * 성공한 뒤 적용 단계에서 반드시 실패하므로, 헛다운로드 후 에러를 띄우는 대신
+ * 릴리스 페이지로 안내한다. 서명을 붙이면 그때 `auto-install` 로 승격한다.
+ */
+export type UpdateDelivery = 'auto-install' | 'notify-only';
+
 export type UpdatePhase =
   | 'idle'
   | 'checking'
@@ -6269,6 +6281,11 @@ export interface UpdateState {
   error?: string;
   /** 마지막 체크 완료 시각 (ms). */
   checkedAt?: number;
+  /**
+   * 이 플랫폼에서 업데이트가 어떻게 적용되는지. **미설정이면 `'auto-install'` 로 읽는다**
+   * — 신규 전송 필드는 항상 optional + 기본값 폴백(§3 하위 호환 규칙).
+   */
+  delivery?: UpdateDelivery;
 }
 
 // ─── §4 v3.16 모바일 웹 접속 모드 ────────────────────────────────────────────

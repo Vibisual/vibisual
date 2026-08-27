@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.13] - 2026-08-27
+
+### Added
+- **Drive a session from Telegram or Discord.** The app already knew how to ask you things — reports, questions, permission prompts — but only while you were sitting in front of it. Those same cards now arrive in a chat you already have open, and you answer by tapping a button on the card or typing a command. Setup is the part people give up on, so it is three gated steps: the link that creates the bot, a token that is checked the moment you paste it (**it shows the bot's name back to you**), and a QR code that pairs the chat without anyone having to look up a numeric chat id. How much it says is yours to set, per channel.
+- **A Verify view in the IDE sidebar.** It sits beside skills, goals and loops rather than taking over the screen — the unit is the session tab you are looking at, so switching tabs shows that session's verification history. The server runs and judges; the panel draws the verdict it is given and never paints "passed" ahead of the answer. It does not start on its own — you start it.
+- **The reading fonts ship with the app.** Terminals were falling back to whatever the OS had, and a line of Korean was drawn in a *proportional* face — from that line on, every box and status bar the CLI drew was misaligned. JetBrains Mono (Latin) and Nanum Gothic Coding (Korean, exactly double the Latin width) are now bundled, so the same screen appears on Windows, macOS and Linux. Both are SIL OFL 1.1, with their licence files committed beside them.
+- **A quiet marker while a project is still arriving.** Over a remote or slow link, moving to a project tab left the canvas completely empty with nothing to say whether the bubbles were still coming or the project was simply empty. A small pill now appears — but only if the wait is long enough to notice, with different wording once it gets slow, gone the moment the data lands, and never blocking right-click, pan or zoom.
+- **The usage figure fills in without an interactive session.** Its only source was the CLI status line, which exists only when a human-facing Claude Code window is drawing it — every agent this app launches is headless, so the pill sat at `-` no matter how much you worked. It now asks the CLI directly through its own published usage command, using your own login.
+- **A how-to for Project Memory, one click from the library.** The guide was reachable from the File menu and nowhere else, so the person actually looking at the memory library had no way to ask what any of it meant. There is now a How-to button in the library header that opens the guide at a new Project Memory chapter — what the rails are, what gets stored, and that switching it off never deletes anything.
+- **Tests run on all three operating systems now.** Until this release the repository had exactly one workflow — the release build — which means 238 test files had never once executed on macOS or Linux. Every push now type-checks and tests on all three.
+
+### Changed
+- **An IDE window keeps its contents when you pull it out of the app or put it back.** The receiving side used to build a *new* window: open editor tabs cleared, the view reset to the first screen, the sidebar folded. It looked like the same window had moved, but you lost a little more of your working state every time you moved it.
+- **The IDE title bar keeps its close button on a phone.** Nine handles in one row overflowed a 390px screen and pushed the rightmost one off the edge. Which handles fold is now decided per window mode by one rule with tests behind it, and nothing is actually removed — everything that folds is still reachable from the status bar or the session tabs.
+- **Canvas menu entries that cannot draw here are no longer offered.** Capture, app, play, spec, lab and shelf bubbles only render on the main view, but the right-click menu offered them while you were drilled into a worktree or a folder. Clicking one looked like nothing happened — and left a bubble sitting on the parent canvas.
+- **Deleting a worktree stops what is running inside it first.** The confirmation dialog is where you agree; hesitating after that only produces a half-deleted folder. Processes holding files open are ended, and the agents that lived in that worktree go to the trash with it instead of quietly falling back to the parent project and carrying on against the main tree.
+- **Tools are found even when the app was opened from the Dock or Finder.** A macOS app launched that way inherits a four-entry PATH with no Homebrew in it, so ffmpeg, debug adapters, editors, MCP executables and brew itself read as "not installed" — silently, with no error to show for it. Lookup now also consults your login shell (at most once) and the known install locations, in one place shared by everything that spawns a binary.
+- **Two files whose names differ only in case are two files on Linux.** Paths were folded to lowercase everywhere for use as keys, which is correct on Windows and standard macOS and wrong on ext4 — two projects or worktrees could merge into one entry, taking their graph, tabs and memory settings with them. Folding is now decided by the platform the app is actually running on.
+- **Shortcut hints show the key your keyboard has.** The client had no OS detection at all, so every hint read `Ctrl+…`, including on Macs. The shortcuts themselves were always right — only the labels were wrong.
+- **The plugin list stops taking a card's word for it.** Whether a card actually reads your project was a hand-written flag in its manifest, and hand-written flags drift. It is now confirmed by running that card against a full context and an empty one and checking that what it produces changes.
+
+### Fixed
+- **Installing a local model engine failed on every platform.** llama.cpp moved its release scheme, and the release tagged `latest` now carries a single text file — the 33 platform binaries live on prerelease tags. Every download therefore found no usable asset and ended at "llama-server not found after extract". The most recent release that actually has the file is now chosen instead of trusting the label.
+- **A half-extracted engine no longer installs "successfully" on macOS and Linux.** The truncation check read Windows executable headers only, so on the other two systems it always answered "nothing wrong" — a partially written library passed installation and surfaced later as an unexplained loader error. Mach-O (including universal binaries) and ELF are now read too.
+- **A file edited outside the project showed an empty bubble — and was gone after a restart.** The bubble and its diff were filed under two different keys, so the two never met: the node existed with nothing in it, and the checkpoint discarded it entirely.
+- **Clicking one bubble and then another no longer drags both.** The canvas has two selection channels and neither cleared the other, so an ordinary bubble and an app bubble could be selected at the same time — and moving either one took the other with it.
+- **macOS stops downloading updates it can never install.** The updater treated all platforms alike, but macOS requires a code signature to apply an update and this build has none — so it downloaded the new version in full and then failed at the last step, leaving nothing but "update error". On unsigned macOS it now announces the new version and the button opens the releases page instead. Windows and Linux are unchanged, and macOS returns to automatic updates the moment signing is in place.
+
 ## [0.1.12] - 2026-08-26
 
 ### Added
@@ -286,7 +314,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - Dropped preset options from the custom agent settings.
 
-[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.1.12...HEAD
+[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.1.13...HEAD
+[0.1.13]: https://github.com/Vibisual/vibisual/compare/v0.1.12...v0.1.13
 [0.1.12]: https://github.com/Vibisual/vibisual/compare/v0.1.11...v0.1.12
 [0.1.11]: https://github.com/Vibisual/vibisual/compare/v0.1.10...v0.1.11
 [0.1.10]: https://github.com/Vibisual/vibisual/compare/v0.1.9...v0.1.10

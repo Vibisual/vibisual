@@ -169,3 +169,53 @@ describe('① Bash 로 읽어도 파일 버블이 뜨고 방향이 읽기로 선
     expect(externalFolders(graph.toProjectCheckpoint(projName))).toHaveLength(0);
   });
 });
+
+describe('④ 외부 파일에 쓴 내용이 그 파일 버블에 붙는다', () => {
+  it('Edit diff 가 외부 파일 버블(node.id) 로 스냅샷에 실린다', () => {
+    const graph = makeGraph();
+    editExternalFile(graph);
+
+    const cp = graph.toProjectCheckpoint(projName);
+    const fileNodeId = externalFileNodes(cp)[0]!.id;
+
+    const edits = graph.getSnapshot().fileEdits[fileNodeId] ?? [];
+    expect(edits).toHaveLength(1);
+    expect(edits[0]!.oldString).toBe('return 0');
+    expect(edits[0]!.newString).toBe('return 1');
+  });
+
+  it('Write 로 만든 외부 파일의 본문도 그 버블에 붙는다', () => {
+    const graph = makeGraph();
+    const newFile = path.join(extRoot, 'cards_new.txt');
+    graph.processHookEvent({
+      session_id: SESSION,
+      hook_event_name: 'PostToolUse',
+      tool_name: 'Write',
+      tool_use_id: 'toolu-write-1',
+      tool_input: { file_path: newFile, content: 'hello card\n' },
+      cwd: projRoot,
+    });
+
+    const cp = graph.toProjectCheckpoint(projName);
+    const fileNodeId = externalFileNodes(cp)[0]!.id;
+
+    const edits = graph.getSnapshot().fileEdits[fileNodeId] ?? [];
+    expect(edits).toHaveLength(1);
+    expect(edits[0]!.newString).toBe('hello card\n');
+  });
+
+  it('껐다 켜도 외부 파일의 diff 가 살아 있다 — 체크포인트 왕복', () => {
+    const graph = makeGraph();
+    editExternalFile(graph);
+    const cp = graph.toProjectCheckpoint(projName);
+
+    // 노드 필터를 통과해 실제로 저장돼야 한다(키가 어긋나면 여기서 0건으로 버려진다).
+    expect(Object.keys(cp.activity.fileEdits)).toHaveLength(1);
+
+    const revived = makeGraph();
+    revived.mergeFromCheckpoint(cp);
+    const after = revived.toProjectCheckpoint(projName);
+    const fileNodeId = externalFileNodes(after)[0]!.id;
+    expect(revived.getSnapshot().fileEdits[fileNodeId] ?? []).toHaveLength(1);
+  });
+});

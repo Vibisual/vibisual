@@ -322,6 +322,7 @@ export type {
   VerificationVerdict,
   EscalationReason,
   UpdatePhase,
+  UpdateDelivery,
   UpdateState,
   MobileAccessState,
   MobileQrTicket,
@@ -1199,6 +1200,15 @@ export {
 // 경로 대소문자 정책 SSOT — Linux 는 대소문자를 구분하므로 무조건 소문자로 접으면 안 된다.
 // shared 는 브라우저에서도 로드되므로 플랫폼은 인자로 받는다(pathCase.ts 머리말 참조).
 export type { PlatformName } from './pathCase.js';
+
+// §4 — 업데이트 전달 방식 판정(무서명 macOS 는 notify-only). 플랫폼은 인자로 받는다.
+export type { UpdateDeliveryInput } from './updateDelivery.js';
+export {
+  RELEASES_PAGE_BASE,
+  resolveUpdateDelivery,
+  releasesPageUrl,
+  readUpdateDelivery,
+} from './updateDelivery.js';
 export {
   isCaseInsensitiveFs,
   isPathWithin,

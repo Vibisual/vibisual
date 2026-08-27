@@ -202,7 +202,8 @@
         "ide": "Sobreposição do IDE",
         "navigation": "Navegação",
         "history": "Histórico e salvamento",
-        "shortcuts": "Atalhos"
+        "shortcuts": "Atalhos",
+        "memory": "Memória do Projeto"
       },
       "start": {
         "intro": "O Vibisual visualiza o que seus agentes de IA estão fazendo, em tempo real, como um mapa de bolhas.",
@@ -283,6 +284,27 @@
         "inspectorD": "Segure Alt para inspecionar e clique para copiar um elemento; Shift+arraste para selecionar uma região.",
         "closeT": "Fechar e cancelar",
         "closeD": "Esc fecha menus, pop-ups e a sobreposição do IDE."
+      },
+      "memory": {
+        "intro": "A memória do projeto guarda o que deu certo e recarrega isso na próxima tarefa. Vem desligada — você liga por projeto, e desligar nunca apaga nada.",
+        "turnOnT": "Como ligar",
+        "turnOnD": "Clique com o botão direito no canvas vazio e escolha «Ativar a memória do projeto», ou abra File > Options > Memória do Projeto. Vale na hora — sem reiniciar.",
+        "bubbleT": "A bolha de memória",
+        "bubbleD": "Ligada, uma bolha índigo fica no canvas com o número de cartões guardados. Clique duplo abre a biblioteca; passar o mouse mostra um resumo.",
+        "skillsT": "Memória de procedimentos",
+        "skillsD": "Quando um trabalho complexo termina, os passos viram um procedimento. Na próxima tarefa parecida, esse procedimento entra sozinho no prompt.",
+        "recallT": "Recordação",
+        "recallD": "Procura no texto de sessões passadas, não só nos cartões — para a resposta que nunca virou cartão.",
+        "groundingT": "Verificação de evidência",
+        "groundingD": "Um cartão só vira verdade atual depois que os arquivos citados são conferidos com o código que existe agora.",
+        "curatorT": "Curadoria",
+        "curatorD": "Cartões nunca lidos, não classificados ou ainda candidatos se juntam numa coluna para você classificar, promover ou descartar em lote.",
+        "operatorT": "Perfil do operador",
+        "operatorD": "Os hábitos de trabalho observados ficam só nesta máquina. Nada é enviado para lugar nenhum.",
+        "railsT": "As cinco colunas",
+        "railsD": "Coluna esquerda da biblioteca: A conferir, Aguardando revisão, Procedimentos, A organizar, Arquivado.",
+        "keepsT": "Nada é jogado fora",
+        "keepsD": "Desligar para o trabalho, não o armazenamento. Os cartões ficam em .vibisual/brain e retomam de onde pararam."
       }
     },
     "options": {
@@ -3691,7 +3713,8 @@
       "skillDraft": "Rascunho",
       "skillVerified": "Confirmado",
       "skillUsed": "carregado {{count}}x",
-      "skillHelpful": "ajudou {{count}}x"
+      "skillHelpful": "ajudou {{count}}x",
+      "howTo": "Como usar"
     },
     "currentBadge": "Verdade atual",
     "contestedBadge": "Em conflito",

@@ -13,6 +13,7 @@ import { TrashToolbar } from './components/BubbleMap/TrashToolbar.js';
 import { IframeView } from './components/Layout/IframeView.js';
 import { DetailPanel } from './components/Panel/DetailPanel.js';
 import { BrainLibraryOverlay } from './components/Panel/BrainLibraryOverlay.js';
+import { GuideWindow } from './components/Guide/GuideWindow.js';
 import { DebugPanel } from './components/Panel/DebugPanel.js';
 import { WorktreeDeleteDialog } from './components/Panel/WorktreeDeleteDialog.js';
 import { MediaConvertDialog } from './components/IDE/MediaConvertDialog.js';
@@ -29,6 +30,18 @@ import { useIDEDockLayout } from './components/IDE/useIDEDockLayout.js';
 import { WS_PATH } from '@vibisual/shared';
 
 const WS_URL = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}${WS_PATH}`;
+
+/**
+ * §5.10 — 사용법 가이드 창의 **유일한 마운트 지점**. 여는 쪽은 둘이다(File 메뉴 · 메모리
+ * 라이브러리의 [사용법]). 각자 창을 들면 두 벌이 겹쳐 뜨므로, 열림 여부는 스토어
+ * (`guideCategory`)가 들고 창은 여기서만 그린다.
+ */
+function GuideWindowHost(): React.JSX.Element | null {
+  const category = useGraphStore((s) => s.guideCategory);
+  const closeGuide = useGraphStore((s) => s.closeGuide);
+  if (!category) return null;
+  return <GuideWindow open onClose={closeGuide} initialCategory={category as never} />;
+}
 
 export function App(): React.JSX.Element {
   const { status } = useWebSocket(WS_URL);
@@ -146,6 +159,9 @@ export function App(): React.JSX.Element {
         )}
       </div>
       <BrainLibraryOverlay />
+      {/* §5.10 — 사용법 가이드. 여는 문이 여럿(File 메뉴 · 메모리 라이브러리 [사용법])이라
+          창은 여기서 전역 1회만 마운트하고 열림 여부는 스토어가 들고 있다. */}
+      <GuideWindowHost />
       {/* §5.10 (H) — 첫 실행 두뇌 안내 배너는 폐기됐다(사용자 결정 2026-08-26). 켜는 자리는 설정 창 `Project Brain` 탭과 캔버스 우클릭. */}
       {/* InspectorOverlay 는 main.tsx 에서 전역 1회 마운트 — 여기서 또 그리면 복사가 두 번 일어난다. */}
       <WorktreeDeleteDialog />
