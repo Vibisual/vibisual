@@ -14,7 +14,7 @@ import { configureWindowManager, closeAll as closeAllDetachedWindows, closeAllOv
 import { initMobileAccess, mobileBroadcast, stopMobileAccess } from './mobileAccess';
 // §4 메신저 원격제어 브리지 — 아웃바운드 전용(우리는 포트를 열지 않는다). 기본 OFF.
 import { chatBroadcast, initChatBridge, stopChatBridge } from './chat';
-import { initAutoUpdater, stopAutoUpdater } from './updaterManager';
+import { initAutoUpdater, stopAutoUpdater, isUpdateInstallPending, runPendingUpdateInstall } from './updaterManager';
 import { killAllTerminals, terminalController, setTerminalCardIdentity } from './terminalManager';
 import { appendCrashLine, logAppStart, logCleanExit, startCrashReporter } from './crashLog';
 
@@ -636,6 +636,16 @@ function safeRunningWorkSummary(): { sessions: number; backgroundTasks: number; 
   }
 }
 
+/**
+ * 종료 정리의 **시간 상한**. 소켓 `close()` 는 열려 있던 연결이 전부 끝나야 콜백이 오므로
+ * (폰이 붙어 있거나 keep-alive 가 살아 있으면 분 단위로 끌린다) 상한이 없으면 프로세스가
+ * 언제 사라지는지 아무도 모른다. 2026-08-27 실측 68초 — 그 사이 업데이트 설치기가 포기했다.
+ * 여기까지 기다렸으면 남은 것은 버리고 나간다(디스크 flush 는 이 앞에서 동기로 끝나 있다).
+ */
+const QUIT_CLEANUP_TIMEOUT_MS = 4000;
+/** 설치기 spawn 직후 프로세스를 내리기까지의 여유 — detached 자식이 완전히 뜨는 시간. */
+const UPDATE_INSTALL_SPAWN_GRACE_MS = 200;
+
 let quitting = false;
 app.on('before-quit', (event) => {
   if (quitting) return;
@@ -644,7 +654,11 @@ app.on('before-quit', (event) => {
   //   다음 턴이 `--resume` 으로 잇지만(부팅 reconcile 이 자동으로 재개한다), 그 턴이 만들던
   //   **커밋 전 편집은 돌아오지 않는다.** 닫기 전에 한 번 묻는 것이 유일한 예방이다.
   //   물음은 사용자가 실수로 닫는 경우만 막는다 — [닫기] 를 고르면 종전과 똑같이 진행한다.
-  const work = safeRunningWorkSummary();
+  // ⚠️ 업데이트 설치로 인한 종료는 **묻지 않는다** — 렌더러의 §4 v2.63 확인 모달이 이미
+  //   같은 손실을 경고하고 확인까지 받았다(SSOT 2026-08-12 항목도 "업데이트 쪽은 이미 같은
+  //   경고를 하고 있었다"를 근거로 이 물음을 평범한 닫기에만 추가한 것이다). 여기서 또 물으면
+  //   같은 경고가 두 번 뜨고, 사용자가 답하는 동안 종료가 늦어져 설치기가 포기한다.
+  const work = isUpdateInstallPending() ? null : safeRunningWorkSummary();
   if (work && (work.sessions > 0 || work.backgroundTasks > 0)) {
     const detail = [
       work.sessions > 0 ? `세션 ${work.sessions}개 실행 중${work.labels.length > 0 ? `: ${work.labels.slice(0, 4).join(', ')}` : ''}` : '',
@@ -688,7 +702,12 @@ app.on('before-quit', (event) => {
   ipcHub = null;
 
   const listenerClose = hookListener
-    ? new Promise<void>((resolve) => { hookListener!.close(() => resolve()); })
+    ? new Promise<void>((resolve) => {
+        // close() 는 **열려 있는 연결이 다 끝나야** 콜백이 온다. 훅 curl 이 물고 있으면
+        // 그만큼 종료가 밀리므로 소켓을 먼저 끊는다(node 18.2+, 없으면 조용히 건너뜀).
+        try { hookListener!.closeAllConnections?.(); } catch { /* 이미 닫힘/미지원 */ }
+        hookListener!.close(() => resolve());
+      })
     : Promise.resolve();
   hookListener = null;
 
@@ -736,5 +755,26 @@ app.on('before-quit', (event) => {
     console.warn('[main] shutdownDiskWriteQueue failed:', err);
   }
 
-  Promise.all([listenerClose, mobileClose, chatClose, subShutdown, playShutdown]).finally(() => app.exit(0));
+  // 정리가 끝나면(또는 상한을 넘기면) **한 번만** 실제 종료한다.
+  // §4 v2.44 — 업데이트 설치기는 바로 여기, 프로세스가 사라지기 직전에 띄운다. 설치기의
+  //   파일 교체(언인스톨러의 rename)는 살아 있는 `Vibisual.exe` 를 만나면 그대로 실패하므로,
+  //   "설치기 먼저 → 정리" 순서였던 종전 경로에서는 정리가 조금만 길어져도 업데이트가 깨졌다.
+  let quitWatchdog: NodeJS.Timeout | null = null;
+  let finished = false;
+  const finishQuit = (): void => {
+    if (finished) return;
+    finished = true;
+    if (quitWatchdog) { clearTimeout(quitWatchdog); quitWatchdog = null; }
+    if (runPendingUpdateInstall()) {
+      setTimeout(() => app.exit(0), UPDATE_INSTALL_SPAWN_GRACE_MS);
+      return;
+    }
+    app.exit(0);
+  };
+  quitWatchdog = setTimeout(() => {
+    console.warn(`[main] shutdown cleanup exceeded ${QUIT_CLEANUP_TIMEOUT_MS}ms — exiting anyway`);
+    finishQuit();
+  }, QUIT_CLEANUP_TIMEOUT_MS);
+
+  Promise.all([listenerClose, mobileClose, chatClose, subShutdown, playShutdown]).finally(finishQuit);
 });

@@ -928,6 +928,17 @@ async function listenWithFallback(
   });
 }
 
+/**
+ * `server.close()` 는 **이미 열려 있는 연결이 전부 끝나야** 콜백이 온다 — 폰이 붙어 있거나
+ * keep-alive 소켓이 살아 있으면 몇 분씩 끌린다(2026-08-27 앱 종료 68초의 원인이자, 그 사이
+ * 업데이트 설치기가 파일 교체를 포기해 자동 업데이트가 통째로 실패한 원인). 닫기로 마음먹은
+ * 뒤에는 응답을 기다릴 이유가 없으므로 소켓을 먼저 끊는다. node 18.2+ 에만 있는 메서드라
+ * 없으면 조용히 건너뛴다(종전 동작으로 되돌아갈 뿐 — 새 실패 경로를 만들지 않는다).
+ */
+function destroySockets(server: { closeAllConnections?: () => void }): void {
+  try { server.closeAllConnections?.(); } catch { /* 이미 닫혔거나 미지원 */ }
+}
+
 async function stopHttpListener(): Promise<void> {
   const s = httpServer;
   httpServer = null;
@@ -936,6 +947,7 @@ async function stopHttpListener(): Promise<void> {
   wss?.close();
   wss = null;
   if (s) {
+    destroySockets(s);
     await new Promise<void>((r) => s.close(() => r()));
     console.log('[mobile-access] LAN http stopped');
   }
@@ -959,6 +971,9 @@ async function stopHttpsListener(): Promise<void> {
   const s = httpsServer;
   httpsServer = null;
   if (s) {
+    // 외부(HTTPS)는 공인 포트라 스캐너·폰의 연결이 특히 잘 남는다. WS 업그레이드 소켓은
+    // `wsClients` 정리(stopHttpListener)보다 **먼저** 이 경로를 타므로 여기서 끊어 준다.
+    destroySockets(s);
     await new Promise<void>((r) => s.close(() => r()));
     console.log('[mobile-access] external https stopped');
   }
