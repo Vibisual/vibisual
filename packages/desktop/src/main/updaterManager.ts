@@ -162,10 +162,57 @@ export async function checkForUpdates(): Promise<UpdateState> {
 }
 
 /**
+ * 설치기를 아직 띄우지 않은 **예약** 상태인가. `before-quit` 정리 경로가 읽는다.
+ *
+ * ⚠️ **왜 예약이 필요한가 — 설치기를 먼저 띄우면 업데이트가 실패한다.**
+ * `autoUpdater.quitAndInstall()` 은 NSIS 설치기를 **먼저 spawn 하고** 그 다음에 `app.quit()`
+ * 을 건다. 그런데 electron-builder 의 업데이트용 언인스톨러는 설치 폴더의 파일을 하나씩
+ * **rename 해서 들어내는** 방식이라(`un.atomicRMDir`), 그 시점에 `Vibisual.exe` 가 아직 살아
+ * 있으면 첫 파일에서 막히고 → 1초 간격 5회 재시도 후 포기 → "Failed to uninstall old
+ * application files" 대화상자 → `SetErrorLevel 2; Quit` 으로 **설치도 재기동도 하지 않는다.**
+ * 사용자에게는 "눌렀는데 앱만 닫히고 그대로"로 보인다.
+ *
+ * 2026-08-27 실측(v0.1.12 → 0.1.13): 정리 시작 12:39:04 → 설치기 첫 rename 시도 12:39:11 →
+ * **프로세스가 실제로 사라진 시각 12:40:12**. 우리 종료 정리가 68초 걸려 설치기는 한참 전에
+ * 포기한 뒤였다. 그래서 이제 여기서는 **예약만** 하고, 실제 발사는 정리가 끝나 프로세스가
+ * 죽기 직전(`runPendingUpdateInstall`)에 한다 — 설치기가 보는 앱은 이미 없다.
+ */
+let installPending = false;
+
+/** `before-quit` 가 "이번 종료는 업데이트 설치용인가" 를 판정할 때 쓴다. */
+export function isUpdateInstallPending(): boolean {
+  return installPending;
+}
+
+/**
+ * 예약된 설치기를 **지금** 띄운다. 종료 정리를 모두 마치고 `app.exit()` 직전에 한 번만 부른다.
+ * 예약이 없으면 아무것도 하지 않고 `false`.
+ *
+ * spawn 은 동기(자식 pid 가 즉시 잡힌다) + `detached` 라 곧바로 프로세스를 내려도 살아남는다.
+ * 다만 호출부는 spawn 직후 한 틱 정도 여유를 주고 나가는 편이 안전하다.
+ */
+export function runPendingUpdateInstall(): boolean {
+  if (!installPending) return false;
+  installPending = false;
+  try {
+    // isSilent=true — 마법사 없이 무인 설치(oneClick 인스톨러와 짝). isForceRunAfter=true — 설치 후 앱 재기동.
+    autoUpdater.quitAndInstall(true, true);
+    console.log('[updater] installer spawned after shutdown cleanup');
+    return true;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn('[updater] quitAndInstall failed:', message);
+    recordDiagnostic('main', 'warn', `auto-update: quitAndInstall failed: ${message}`);
+    return false;
+  }
+}
+
+/**
  * 업데이트 **적용 액션**. renderer 의 `api.update.install()`(IPC `vibisual:update:install`)이
  * 부른다. 전달 방식에 따라 하는 일이 다르다:
  *
- * - `auto-install` : 다운로드 완료 상태에서만 재시작+설치. 그 외에는 no-op.
+ * - `auto-install` : 다운로드 완료 상태에서만 설치를 예약하고 종료를 건다(설치기 발사는
+ *                    정리 후 `runPendingUpdateInstall`). 그 외에는 no-op.
  * - `notify-only`  : 설치할 수 없으므로 **릴리스 페이지를 기본 브라우저로 연다.**
  *                    새 버전을 아직 못 찾았으면(=알릴 게 없으면) 아무것도 하지 않는다.
  *
@@ -186,8 +233,9 @@ export function quitAndInstall(): boolean {
   }
 
   if (state.phase !== 'downloaded') return false;
-  // isSilent=true — 마법사 없이 무인 설치(oneClick 인스톨러와 짝). isForceRunAfter=true — 설치 후 앱 재기동.
-  autoUpdater.quitAndInstall(true, true);
+  installPending = true;
+  // 평소 닫기와 **같은** 정리 경로를 탄다(체크포인트 flush·자식 회수). 설치기는 그 끝에서 뜬다.
+  app.quit();
   return true;
 }
 

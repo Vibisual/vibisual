@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.14] - 2026-08-27
+
+### Fixed
+- **Pressing "Update" now actually installs the update.** The installer was launched *before* the app finished shutting down, and it replaces the installed files by renaming them one at a time — which fails outright while `Vibisual.exe` is still running. After five one-second retries it gave up with "Failed to uninstall old application files" and installed nothing, so from your side the app just closed and came back on the old version. The installer is now launched at the very last moment, once cleanup is done and the process is about to disappear.
+- **Closing the app takes a moment instead of a minute.** Shutdown waited for every open network connection to finish on its own — a phone still connected over LAN access, or an idle keep-alive socket, could hold it for over a minute (68 seconds, measured). Sockets are now cut when we have decided to close, and cleanup has a hard four-second ceiling after which the app exits regardless. Everything written to disk is flushed before that point.
+- **No second "work is still running" prompt when you update.** The update button already warns you and asks for confirmation; the ordinary close-confirmation was then asking again about the same thing — and the time spent answering it was enough for the installer to give up.
+
 ## [0.1.13] - 2026-08-27
 
 ### Added
@@ -314,7 +321,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - Dropped preset options from the custom agent settings.
 
-[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.1.13...HEAD
+[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.1.14...HEAD
+[0.1.14]: https://github.com/Vibisual/vibisual/compare/v0.1.13...v0.1.14
 [0.1.13]: https://github.com/Vibisual/vibisual/compare/v0.1.12...v0.1.13
 [0.1.12]: https://github.com/Vibisual/vibisual/compare/v0.1.11...v0.1.12
 [0.1.11]: https://github.com/Vibisual/vibisual/compare/v0.1.10...v0.1.11
