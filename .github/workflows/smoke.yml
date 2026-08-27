@@ -170,25 +170,60 @@ jobs:
           gh release download $env:TAG --repo $env:GITHUB_REPOSITORY --pattern '*-setup.exe' --dir artifact
           $setup = (Get-ChildItem artifact\*-setup.exe)[0].FullName
           # oneClick + perMachine:false → 사용자 폴더에 무인 설치(관리자 권한 불필요).
-          Start-Process -FilePath $setup -ArgumentList '/S' -Wait
-          # ⚠️ NSIS oneClick 은 `/S` 가 반환된 뒤에도 파일 배치가 잠깐 이어진다 — 곧바로 조회하면
-          #    설치본이 "없는 것"으로 보인다(1차 실측 run #1 의 win 실패가 이것이었다).
-          #    또 설치 경로를 한 곳으로 못 박으면 그 가정이 틀렸을 때 원인을 알 수 없으므로,
-          #    후보를 훑고 그래도 없으면 **무엇이 깔렸는지 찍어서** 다음 조사를 짧게 만든다.
-          Start-Sleep -Seconds 20
-          $exe = @(
-            (Join-Path $env:LOCALAPPDATA 'Programs\Vibisual\Vibisual.exe'),
-            (Join-Path $env:ProgramFiles   'Vibisual\Vibisual.exe'),
-            (Join-Path ${env:ProgramFiles(x86)} 'Vibisual\Vibisual.exe')
-          ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
-          if (-not $exe) {
-            $found = Get-ChildItem -Path $env:LOCALAPPDATA -Filter 'Vibisual.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-            if ($found) { $exe = $found.FullName }
+          # ⚠️ `-Wait` 을 믿고 곧바로 조회하면 안 된다. NSIS 는 자신을 임시 폴더로 복제해 이어서
+          #    실행하는 일이 있어 **원본 프로세스가 먼저 반환**되고, 파일 배치는 그 뒤에 끝난다.
+          #    run #1·#2 의 win 실패가 이 자리였다(고정 20초 대기로도 모자랐다) — 그래서 시간이
+          #    아니라 **결과가 나타날 때까지** 기다린다. 종료 코드도 남긴다(0 이 아니면 설치 자체가
+          #    거절된 것이라 그 뒤 탐색은 의미가 없다).
+          $p = Start-Process -FilePath $setup -ArgumentList '/S' -Wait -PassThru
+          Write-Host "installer exit code: $($p.ExitCode)"
+
+          function Find-VibisualExe {
+            # ① 관례 경로 → ② 레지스트리(가장 확실: NSIS 가 UninstallString 에 설치 폴더를 적는다)
+            foreach ($c in @(
+              (Join-Path $env:LOCALAPPDATA 'Programs\Vibisual\Vibisual.exe'),
+              (Join-Path $env:ProgramFiles 'Vibisual\Vibisual.exe'),
+              (Join-Path ${env:ProgramFiles(x86)} 'Vibisual\Vibisual.exe')
+            )) { if ($c -and (Test-Path $c)) { return $c } }
+            foreach ($root in @('HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',
+                                'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*')) {
+              $reg = Get-ItemProperty $root -ErrorAction SilentlyContinue |
+                     Where-Object { $_.DisplayName -like '*Vibisual*' } | Select-Object -First 1
+              if ($reg) {
+                # InstallLocation 은 비어 있을 수 있다(실측). UninstallString 의 폴더가 곧 설치 폴더다.
+                $dir = $reg.InstallLocation
+                if (-not $dir -and $reg.UninstallString) {
+                  $dir = Split-Path -Parent ($reg.UninstallString -replace '^"' -replace '"\s.*$' -replace '"$')
+                }
+                if ($dir) {
+                  $cand = Join-Path $dir 'Vibisual.exe'
+                  if (Test-Path $cand) { return $cand }
+                }
+              }
+            }
+            return $null
           }
+
+          $exe = $null
+          for ($i = 0; $i -lt 60; $i++) {
+            $exe = Find-VibisualExe
+            if ($exe) { break }
+            Start-Sleep -Seconds 2
+          }
+
           if (-not $exe) {
-            Write-Host "::error::설치본을 못 찾았다 — 아래는 %LOCALAPPDATA%\Programs 목록"
+            Write-Host "::error::설치본을 못 찾았다 (installer exit=$($p.ExitCode)) — 아래는 진단이다"
+            Write-Host "== %LOCALAPPDATA%\Programs =="
             Get-ChildItem (Join-Path $env:LOCALAPPDATA 'Programs') -ErrorAction SilentlyContinue |
-              Select-Object -ExpandProperty Name | ForEach-Object { Write-Host "  $_" }
+              Select-Object -ExpandProperty Name | ForEach-Object { Write-Host "   $_" }
+            Write-Host "== Uninstall 레지스트리(Vibisual) =="
+            Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',
+                             'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue |
+              Where-Object { $_.DisplayName -like '*Vibisual*' } |
+              Select-Object DisplayName, InstallLocation, UninstallString | Format-List | Out-String | Write-Host
+            Write-Host "== Vibisual.exe 탐색(사용자 폴더) =="
+            Get-ChildItem $env:USERPROFILE -Filter 'Vibisual.exe' -Recurse -Depth 6 -ErrorAction SilentlyContinue |
+              Select-Object -First 5 -ExpandProperty FullName | ForEach-Object { Write-Host "   $_" }
             exit 1
           }
           Write-Host "설치 위치: $exe"
