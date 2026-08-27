@@ -76,17 +76,68 @@ jobs:
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*.AppImage' --dir artifact
           ls -la artifact
 
+      # ── ① 실사용자 경로: AppImage 를 **그대로** 실행 ────────────────────
+      # 사용자는 `--appimage-extract` 를 하지 않는다. 받아서 실행 권한 주고 더블클릭한다.
+      # 그 경로는 AppImage type2 런타임이 FUSE 를 요구하는데, 요즘 우분투에는 기본으로 없다.
+      # 아래 두 스텝이 재는 것은 앱이 아니라 **사용자가 그 앱을 열 수 있는가**다.
+      - name: Linux — 실사용자 재현 (AppImage 를 그대로 실행)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -uo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb >/dev/null   # 러너에 디스플레이가 없다
+          echo "== FUSE 관련 패키지 설치 상태(러너 기본) =="
+          dpkg -l | grep -iE "libfuse|fuse3?" | awk '{print "   " $2 " " $3}' | head -5 || echo "   (없음)"
+          cd artifact
+          chmod +x ./*.AppImage
+          echo "== 그대로 실행 =="
+          xvfb-run -a ./*.AppImage --no-sandbox > direct.log 2>&1 &
+          DPID=$!
+          sleep 20
+          if kill -0 "$DPID" 2>/dev/null; then
+            echo "RESULT: FUSE 를 따로 깔지 않아도 AppImage 가 그대로 실행된다 — 사용자는 chmod +x 만 하면 된다."
+            kill "$DPID" 2>/dev/null || true
+            echo "APPIMAGE_NEEDS_FUSE=no" >> "$GITHUB_ENV"
+          else
+            echo "RESULT: 그대로는 실행되지 않는다 — 아래가 사용자가 보게 되는 것이다."
+            tail -25 direct.log || true
+            echo "APPIMAGE_NEEDS_FUSE=yes" >> "$GITHUB_ENV"
+          fi
+          # ⚠️ 여기서 실패해도 잡을 죽이지 않는다. 이건 앱 결함이 아니라 **포장 형식의 전제**이고,
+          #    우리가 알아야 하는 것은 "그래서 README 에 무엇을 적어야 하는가"다. 다음 스텝이 답한다.
+
+      - name: Linux — 안내가 통하는지 (libfuse2 설치 후 재시도)
+        if: runner.os == 'Linux' && env.APPIMAGE_NEEDS_FUSE == 'yes'
+        shell: bash
+        run: |
+          set -uo pipefail
+          # 우분투 24.04 는 패키지명이 libfuse2t64, 22.04 는 libfuse2 다. 둘 다 시도한다 —
+          # README 에 적을 안내가 **실제로 통하는지** 확인하는 자리이므로 여기서 실패하면 진짜 문제다.
+          sudo apt-get install -y -qq libfuse2t64 >/dev/null 2>&1 || sudo apt-get install -y -qq libfuse2 >/dev/null 2>&1 || true
+          dpkg -l | grep -iE "libfuse2" | awk '{print "   설치됨: " $2 " " $3}' | head -3
+          cd artifact
+          xvfb-run -a ./*.AppImage --no-sandbox > fuse.log 2>&1 &
+          FPID=$!
+          sleep 20
+          if kill -0 "$FPID" 2>/dev/null; then
+            echo "RESULT: libfuse2 를 깔면 정상 실행된다 — 그 안내는 유효하다."
+            kill "$FPID" 2>/dev/null || true
+          else
+            echo "::error::libfuse2 를 깔아도 실행되지 않는다 — README 안내를 그대로 쓰면 안 된다"
+            tail -30 fuse.log || true
+            exit 1
+          fi
+
+      # ── ② 앱 자체 검증: 포장 변수를 없애고 실행 ─────────────────────────
       - name: Linux — run
         if: runner.os == 'Linux'
         shell: bash
         run: |
           set -uo pipefail
-          # 러너에는 디스플레이가 없다 → xvfb. AppImage 를 그냥 실행하지 않고 --appimage-extract 로
-          # 풀어서 AppRun 을 직접 부르는 이유는, AppImage type2 가 요구하는 libfuse2 가 요즘 우분투에
-          # 기본으로 없어서다. FUSE 부재는 **앱의 결함이 아니라 포장 형식의 문제**이므로, 여기서는
-          # 그 변수를 없애고 앱 자신의 실행 가능 여부만 잰다(포장 쪽 안내는 README 몫).
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq xvfb >/dev/null
+          # 위 ①이 포장(FUSE)까지 포함한 사용자 경로라면, 이 스텝은 그 변수를 걷어내고
+          # **앱 자신이 도는가**만 격리해서 잰다. 둘이 갈리면 원인이 어느 쪽인지 바로 안다.
+          # (xvfb 는 ① 에서 설치했다.)
           cd artifact
           chmod +x ./*.AppImage
           ./*.AppImage --appimage-extract >/dev/null
@@ -159,6 +210,69 @@ jobs:
             echo "── run.log ──"; tail -80 run.log || true
             exit 1
           fi
+
+      # ── 실사용자 재현: quarantine 이 붙은 채로 여는 것 ──────────────────
+      # ⚠️ 위 launch 는 두 가지 이유로 **사용자 경험이 아니다**:
+      #    ① 터미널에서 바이너리를 직접 부르면 Gatekeeper 가 개입하지 않는다(LaunchServices 를 안 탄다).
+      #    ② 러너는 `gh`(=curl)로 받아 **quarantine 속성이 안 붙는다** — 그 속성은 브라우저가 붙인다.
+      #    실제 사용자는 브라우저로 받아 Finder 로 여니 두 조건이 동시에 성립한다. 그래서 여기서는
+      #    속성을 직접 붙이고 `open` 으로 연다. 이 스텝이 답하는 질문은 "앱이 도는가"가 아니라
+      #    **"사용자가 이 앱을 열 수 있는가"** 다.
+      - name: macOS — 실사용자 재현 (quarantine 부착 후 open)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -uo pipefail
+          WORK="$RUNNER_TEMP/qtest"
+          rm -rf "$WORK"; mkdir -p "$WORK"
+          cp -R "$APP" "$WORK/Vibisual.app"
+          # Safari 가 붙이는 것과 같은 형식: 플래그;시각(hex);에이전트;UUID
+          xattr -w com.apple.quarantine "0081;$(printf '%x' "$(date +%s)");Safari;$(uuidgen)" "$WORK/Vibisual.app"
+          echo "== 부착된 quarantine =="
+          xattr -p com.apple.quarantine "$WORK/Vibisual.app" 2>&1 || true
+          echo "== spctl 평가 =="
+          spctl -a -t exec -vv "$WORK/Vibisual.app" 2>&1 | head -5 || true
+          echo "== open 으로 열기 (사용자가 하는 방식) =="
+          OPENED=no
+          if open "$WORK/Vibisual.app" 2> open.err; then
+            sleep 15
+            if pgrep -f "qtest/Vibisual.app/Contents/MacOS" >/dev/null 2>&1; then OPENED=yes; fi
+          fi
+          if [ "$OPENED" = "yes" ]; then
+            echo "RESULT: quarantine 이 붙어도 열린다 — 사용자는 우회 없이 실행할 수 있다."
+            pkill -f "qtest/Vibisual.app/Contents/MacOS" 2>/dev/null || true
+            echo "MAC_QUARANTINE_BLOCKS=no" >> "$GITHUB_ENV"
+          else
+            echo "RESULT: 막힌다 — 아래가 사용자가 보게 되는 것이다."
+            cat open.err 2>/dev/null || true
+            echo "MAC_QUARANTINE_BLOCKS=yes" >> "$GITHUB_ENV"
+          fi
+          # 여기서 잡을 죽이지 않는다 — 미서명은 **이미 아는 상태**이고, 재려는 것은 그 결과다.
+          # "그래서 무엇을 안내할 것인가"는 다음 스텝이 확정한다.
+
+      - name: macOS — 안내가 통하는지 (xattr -cr 후 다시 open)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -uo pipefail
+          WORK="$RUNNER_TEMP/qtest"
+          # README 에 적을 우회법이 **실제로 통하는지** 확인하는 자리다. 통하지 않는 안내는 안내가 아니다.
+          xattr -cr "$WORK/Vibisual.app"
+          echo "== 속성 제거 후 =="
+          xattr -l "$WORK/Vibisual.app" 2>/dev/null | head -3 || echo "   (남은 속성 없음)"
+          OPENED=no
+          if open "$WORK/Vibisual.app" 2> open2.err; then
+            sleep 15
+            if pgrep -f "qtest/Vibisual.app/Contents/MacOS" >/dev/null 2>&1; then OPENED=yes; fi
+          fi
+          if [ "$OPENED" = "yes" ]; then
+            echo "RESULT: xattr -cr 후 정상 실행 — 이 안내는 유효하다."
+            pkill -f "qtest/Vibisual.app/Contents/MacOS" 2>/dev/null || true
+            exit 0
+          fi
+          echo "::error::xattr -cr 로도 열리지 않는다 — README 에 그 안내를 쓰면 안 된다"
+          cat open2.err 2>/dev/null || true
+          exit 1
 
       # ── Windows (기준선) ───────────────────────────────────────────────
       # 넷 중 셋이 죽고 win 만 산다면 산출물 문제, 넷 다 죽으면 앱 자체 문제 — 해석의 기준점이다.
