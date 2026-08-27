@@ -1,0 +1,178 @@
+# 발행된 **릴리스 산출물이 그 OS 에서 실제로 실행되는가**를 재는 워크플로.
+#
+# ⚠️ ci.yml 과 재는 것이 다르다. ci.yml 은 "소스가 이 OS 에서 성립하는가"(typecheck + test)만 본다.
+#    그게 초록이어도 사용자에게는 안 되는 앱일 수 있다 — dmg 가 Gatekeeper 에 막히거나, 네이티브
+#    모듈이 아키텍처와 어긋나 창이 뜨기도 전에 죽으면 소스는 아무 잘못이 없는데 앱은 실행 불가다.
+#    그 구간은 **빌드가 아니라 실행으로만** 드러난다.
+#
+#    실제로 겪은 일이다(멀티플랫폼 정본 §2.4): 한 러너에서 두 아키텍처를 함께 뽑은 x64 dmg 는
+#    `koffi` 가 제 바이너리를 못 찾아 main 프로세스가 뜨자마자 죽었다 — **빌드는 초록, 앱은 실행 불가.**
+#    그런 것을 잡으라고 있는 워크플로다.
+#
+# 수동 실행 전용(workflow_dispatch)이다. 태그마다 자동으로 돌리지 않는 이유는 이 워크플로가 재는 것이
+# 소스가 아니라 **그 순간 발행된 파일**이라, 어떤 릴리스를 볼지 골라서 돌리는 편이 쓸모 있기 때문이다.
+#
+# 판정 신호는 "25초 뒤에도 살아 있는가" 하나다. 위의 즉사류 결함은 전부 기동 직후에 드러나므로
+# 이 한 줄로 충분하고, 죽었으면 stdout/stderr 를 그대로 뱉어 원인을 남긴다.
+
+name: Smoke (installed app)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '검증할 릴리스 태그 (비우면 최신 릴리스)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    strategy:
+      # 한 OS 가 넘어져도 나머지를 봐야 한다 — "mac 만 죽나, 넷 다 죽나"가 원인 분류의 첫 갈림길이다.
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            label: linux-x64 (AppImage)
+          # mac 은 아키텍처마다 그 아키텍처의 러너에서 **실행까지** 해 봐야 의미가 있다.
+          # arm64 러너에서 x64 dmg 를 돌리면 Rosetta 가 덮어 주어 Intel 실기의 진실이 가려진다.
+          - os: macos-latest
+            label: mac-arm64 (dmg)
+          - os: macos-15-intel
+            label: mac-x64 (dmg)
+          - os: windows-latest
+            label: win-x64 (nsis)
+    runs-on: ${{ matrix.os }}
+    name: smoke (${{ matrix.label }})
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # 러너의 ~/.claude/settings.json 을 건드리지 않는다(README 의 opt-out). 우리가 재려는 것은
+      # "앱이 뜨고 살아 있는가"이지 훅 설치가 아니다 — 부작용을 줄여 실패 원인을 좁힌다.
+      VIBISUAL_SKIP_HOOK_INSTALL: '1'
+
+    steps:
+      # ── 검증할 태그 확정 ────────────────────────────────────────────────
+      - name: Resolve tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.tag }}"
+          if [ -z "$TAG" ]; then
+            TAG=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName)
+          fi
+          echo "검증 대상 태그: $TAG"
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+
+      # ── Linux ──────────────────────────────────────────────────────────
+      - name: Linux — download AppImage
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*.AppImage' --dir artifact
+          ls -la artifact
+
+      - name: Linux — run
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -uo pipefail
+          # 러너에는 디스플레이가 없다 → xvfb. AppImage 를 그냥 실행하지 않고 --appimage-extract 로
+          # 풀어서 AppRun 을 직접 부르는 이유는, AppImage type2 가 요구하는 libfuse2 가 요즘 우분투에
+          # 기본으로 없어서다. FUSE 부재는 **앱의 결함이 아니라 포장 형식의 문제**이므로, 여기서는
+          # 그 변수를 없애고 앱 자신의 실행 가능 여부만 잰다(포장 쪽 안내는 README 몫).
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb >/dev/null
+          cd artifact
+          chmod +x ./*.AppImage
+          ./*.AppImage --appimage-extract >/dev/null
+          # Electron 의 SUID 샌드박스는 CI 러너에서 자주 막힌다 — 앱 결함과 뒤섞이지 않게 끈다.
+          xvfb-run -a ./squashfs-root/AppRun --no-sandbox > run.log 2>&1 &
+          APP_PID=$!
+          sleep 25
+          if kill -0 "$APP_PID" 2>/dev/null; then
+            echo "OK — 25초 생존. 앱이 떴다."
+            kill "$APP_PID" 2>/dev/null || true
+          else
+            echo "::error::앱이 25초 안에 죽었다"
+            echo "── run.log ──"; tail -80 run.log || true
+            exit 1
+          fi
+
+      # ── macOS ──────────────────────────────────────────────────────────
+      - name: macOS — download dmg (아키텍처에 맞는 것만)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # 파일명 규약: arm64 는 `-arm64.dmg`, Intel 은 접미사 없는 `.dmg`.
+          # 아키텍처가 어긋난 dmg 를 집으면 그것이야말로 이 워크플로가 잡으려는 즉사 사고다.
+          if [ "$(uname -m)" = "arm64" ]; then
+            gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*-arm64.dmg' --dir artifact
+          else
+            gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*.dmg' --dir artifact
+            rm -f artifact/*-arm64.dmg
+          fi
+          ls -la artifact
+
+      - name: macOS — 서명·Gatekeeper 실측 (정보 수집, 실패시키지 않음)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -uo pipefail
+          hdiutil attach -nobrowse -quiet artifact/*.dmg
+          APP=$(ls -d /Volumes/Vibisual*/Vibisual.app 2>/dev/null | head -1)
+          if [ -z "$APP" ]; then echo "::error::dmg 안에서 Vibisual.app 을 못 찾았다"; ls -la /Volumes || true; exit 1; fi
+          echo "APP=$APP" >> "$GITHUB_ENV"
+          echo "== codesign =="
+          codesign -dv --verbose=4 "$APP" 2>&1 | head -25 || true
+          echo "== spctl (Gatekeeper 평가) =="
+          # 미서명이면 여기서 rejected 가 난다. 그건 이미 아는 사실이라 잡을 실패로 삼지 않고
+          # **문구를 그대로 남긴다** — 사용자가 첫 실행에서 무엇을 보게 되는지가 이 줄에 있다.
+          spctl -a -t exec -vv "$APP" 2>&1 | head -10 || true
+
+      - name: macOS — launch
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -uo pipefail
+          arch -"$(uname -m)" "$APP/Contents/MacOS/Vibisual" > run.log 2>&1 &
+          APP_PID=$!
+          sleep 25
+          if kill -0 "$APP_PID" 2>/dev/null; then
+            echo "OK — 25초 생존. 앱이 떴다."
+            kill "$APP_PID" 2>/dev/null || true
+          else
+            echo "::error::앱이 25초 안에 죽었다 (아키텍처 불일치·네이티브 모듈·서명 거부 등)"
+            echo "── run.log ──"; tail -80 run.log || true
+            exit 1
+          fi
+
+      # ── Windows (기준선) ───────────────────────────────────────────────
+      # 넷 중 셋이 죽고 win 만 산다면 산출물 문제, 넷 다 죽으면 앱 자체 문제 — 해석의 기준점이다.
+      - name: Windows — download, install, run
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          gh release download $env:TAG --repo $env:GITHUB_REPOSITORY --pattern '*-setup.exe' --dir artifact
+          $setup = (Get-ChildItem artifact\*-setup.exe)[0].FullName
+          # oneClick + perMachine:false → 사용자 폴더에 무인 설치(관리자 권한 불필요).
+          Start-Process -FilePath $setup -ArgumentList '/S' -Wait
+          $exe = Join-Path $env:LOCALAPPDATA 'Programs\Vibisual\Vibisual.exe'
+          if (-not (Test-Path $exe)) { Write-Error "설치본이 없다: $exe" }
+          # 인스톨러가 앱을 자동 실행(runAfterFinish)했을 수 있으므로 먼저 정리하고 우리가 띄운다.
+          Get-Process Vibisual -ErrorAction SilentlyContinue | Stop-Process -Force
+          Start-Sleep -Seconds 2
+          $p = Start-Process -FilePath $exe -PassThru
+          Start-Sleep -Seconds 25
+          if ($p.HasExited) {
+            Write-Host "::error::앱이 25초 안에 죽었다 (exit=$($p.ExitCode))"
+            exit 1
+          }
+          Write-Host "OK — 25초 생존. 앱이 떴다."
+          Stop-Process -Id $p.Id -Force

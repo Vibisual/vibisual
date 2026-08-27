@@ -60,11 +60,15 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # shared/plugins/video 는 dist 를 내야 server·client 가 타입을 볼 수 있다.
+      # shared/plugins/video/server 는 dist 를 내야 다른 패키지가 타입을 볼 수 있다.
+      # ⚠️ server 를 빠뜨리면 desktop typecheck 가 `Cannot find module '@vibisual/server'` 로 죽는다
+      #    — 2026-08-27 첫 실측에서 세 OS 가 동시에 같은 8건으로 넘어졌다. desktop/main 의 7개 파일
+      #    (index·ipc·terminalManager·mobileAccess·updaterManager·captureInputManager·backgroundClick)이
+      #    server 를 import 하므로 그 dist 가 없으면 타입이 성립하지 않는다.
       # 데스크톱 패키징(electron-builder)은 여기서 돌리지 않는다 — 그건 release.yml 몫이고,
       # 여기서 확인하려는 것은 "소스가 이 OS 에서 성립하는가"다.
       - name: Build workspace packages
-        run: pnpm --filter=@vibisual/shared --filter=@vibisual/plugins --filter=@vibisual/video -r build
+        run: pnpm --filter=@vibisual/shared --filter=@vibisual/plugins --filter=@vibisual/video --filter=@vibisual/server -r build
 
       - name: Typecheck
         run: pnpm typecheck
