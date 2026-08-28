@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  macOS Hardened Runtime entitlements.
+
+  Only used when a Developer ID certificate is present (release.yml passes
+  `--config.mac.entitlements` in that case). Without a certificate electron-builder
+  skips signing entirely and this file is never read.
+
+  Every key below is required by something we actually ship — do not trim it to
+  "look safer". A missing entitlement here does not produce a warning; it produces
+  an app that launches and then dies the first time it touches that capability,
+  which is the hardest kind of failure to trace back to this file.
+
+  - allow-jit / allow-unsigned-executable-memory
+      V8 compiles JavaScript at runtime. Without these the renderer crashes on start.
+  - disable-library-validation
+      We ship `asar: false` with prebuilt native modules (koffi, node-pty,
+      better_sqlite3, sqlite-vec) that are not signed with our team ID. Hardened
+      Runtime refuses to dlopen those unless library validation is off.
+  - allow-dyld-environment-variables
+      The packaged app spawns a child Node process for the server and sets library
+      paths for it.
+  - network.client / network.server
+      The app runs a loopback HTTP + WebSocket server and talks to model providers.
+  - files.user-selected.read-write
+      Opening a project folder through the system picker.
+  - automation.apple-events
+      Spawning and controlling the Claude CLI through the shell.
+  - device.audio-input
+      Screen/program capture recording (SCENARIO §5.9).
+-->
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+  <true/>
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+  <key>com.apple.security.automation.apple-events</key>
+  <true/>
+  <key>com.apple.security.device.audio-input</key>
+  <true/>
+  <key>com.apple.security.files.user-selected.read-write</key>
+  <true/>
+  <key>com.apple.security.network.client</key>
+  <true/>
+  <key>com.apple.security.network.server</key>
+  <true/>
+</dict>
+</plist>
