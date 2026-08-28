@@ -89,20 +89,72 @@ fix it on the spot instead of switching to another app.
 
 ## Quick Start
 
-### Install on Windows
+### Install
 
 Vibisual runs on top of the [Claude CLI](https://claude.com/claude-code),
 which must already be installed and available on your PATH.
 
-1. Download the latest installer from the
-   [Releases page](https://github.com/Vibisual/vibisual/releases/latest)
-   and run it:
+Download the build for your platform from the
+[Releases page](https://github.com/Vibisual/vibisual/releases/latest):
 
-   ```
-   Vibisual-0.1.9-setup.exe
-   ```
+| Platform | File | First launch |
+|---|---|---|
+| Windows (x64) | `Vibisual-<version>-setup.exe` | Run it. Installs without a wizard, then launches. |
+| Debian / Ubuntu / Mint | `vibisual_<version>_amd64.deb` | Open it, or `sudo apt install ./vibisual_<version>_amd64.deb`. Dependencies are resolved for you. |
+| Fedora / RHEL / openSUSE | `vibisual-<version>.x86_64.rpm` | Open it, or `sudo dnf install ./vibisual-<version>.x86_64.rpm`. |
+| Other Linux | `Vibisual-<version>.AppImage` | Needs `libfuse2` — see below. Prefer the .deb/.rpm if your distro takes one. |
+| macOS (Apple Silicon) | `Vibisual-<version>-arm64.dmg` | One extra command — see below. |
+| macOS (Intel) | `Vibisual-<version>.dmg` | One extra command — see below. |
 
-2. Launch Vibisual.
+#### macOS — the app is not code-signed yet
+
+macOS builds are unsigned, so Gatekeeper blocks the first launch: you get a
+warning dialog instead of the app. Move `Vibisual.app` into
+`/Applications`, then clear the quarantine attribute once:
+
+```bash
+xattr -cr /Applications/Vibisual.app
+```
+
+It opens normally after that, and you never need to repeat it. This is not
+guesswork — CI downloads the published dmg on a real macOS runner, attaches a
+browser-style quarantine attribute, confirms the app is blocked, and confirms
+that the command above unblocks it, on both Apple Silicon and Intel.
+
+macOS also receives updates as a notification rather than installing them in
+place, for the same reason: the in-place updater requires a signature.
+
+#### Linux — take the .deb or .rpm if you can
+
+They install like any other package and need nothing else from you: your package
+manager pulls the libraries in, and Vibisual shows up in the application menu.
+
+```bash
+sudo apt install ./vibisual_<version>_amd64.deb     # Debian, Ubuntu, Mint
+sudo dnf install ./vibisual-<version>.x86_64.rpm    # Fedora, RHEL, openSUSE
+```
+
+#### Linux — the AppImage needs libfuse2
+
+The AppImage is there for distributions that take neither format (Arch, NixOS,
+and friends). AppImages use FUSE 2, which recent distributions no longer ship —
+Ubuntu 24.04 carries FUSE 3 only, and without FUSE 2 the file exits immediately
+with `dlopen(): error loading libfuse.so.2`. Install it once:
+
+```bash
+sudo apt install libfuse2t64      # Ubuntu 24.04+ — "libfuse2" on 22.04 and older
+chmod +x Vibisual-<version>.AppImage
+./Vibisual-<version>.AppImage
+```
+
+If you would rather not install anything, unpack it instead. `AppRun` reads
+its own location from `APPDIR`, which the AppImage runtime normally fills in,
+so set it yourself when running the unpacked copy:
+
+```bash
+./Vibisual-<version>.AppImage --appimage-extract
+APPDIR="$PWD/squashfs-root" ./squashfs-root/AppRun
+```
 
 ### Build from source (contributors)
 
@@ -126,7 +178,9 @@ bubble map. A timestamped backup is kept next to it
 (`.bak-vibisual-*`). If you'd rather wire hooks yourself, set
 `VIBISUAL_SKIP_HOOK_INSTALL=1` before first launch.
 
-Tested on Windows. macOS and Linux builds are available but not extensively tested.
+The published installers for Windows, macOS (Apple Silicon and Intel) and Linux
+are each downloaded, installed and launched on a real runner of that OS, so all
+three are known to start. Day-to-day development happens on Windows.
 
 ## Status
 
