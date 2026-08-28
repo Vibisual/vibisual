@@ -9,8 +9,14 @@
 #    `koffi` 가 제 바이너리를 못 찾아 main 프로세스가 뜨자마자 죽었다 — **빌드는 초록, 앱은 실행 불가.**
 #    그런 것을 잡으라고 있는 워크플로다.
 #
-# 수동 실행 전용(workflow_dispatch)이다. 태그마다 자동으로 돌리지 않는 이유는 이 워크플로가 재는 것이
-# 소스가 아니라 **그 순간 발행된 파일**이라, 어떤 릴리스를 볼지 골라서 돌리는 편이 쓸모 있기 때문이다.
+# **릴리스가 끝나면 자동으로 한 번 돈다**(workflow_run) + 아무 때나 수동으로도 돈다(workflow_dispatch).
+# 처음에는 수동 전용이었는데, 그러면 결국 아무도 누르지 않는다 — 실제로 v0.1.13·v0.1.14 가 발행된 뒤
+# 한참 지나서야 처음 돌렸고, 그때 mac Gatekeeper 차단과 linux FUSE 차단이 **둘 다 이미 배포된 상태**로
+# 발견됐다. 발행과 검증 사이에 사람의 기억이 끼면 그 틈으로 결함이 사용자에게 먼저 도착한다.
+#
+# ⚠️ `workflow_run` 을 쓰는 이유: release.yml 안에서 `gh workflow run` 으로 부르는 방법은 **동작하지
+#    않는다** — GITHUB_TOKEN 이 일으킨 이벤트는 새 워크플로를 띄우지 않는다(무한 재귀 방지 규칙).
+#    `workflow_run` 은 그 제약을 받지 않는 정규 경로다.
 #
 # 판정 신호는 "25초 뒤에도 살아 있는가" 하나다. 위의 즉사류 결함은 전부 기동 직후에 드러나므로
 # 이 한 줄로 충분하고, 죽었으면 stdout/stderr 를 그대로 뱉어 원인을 남긴다.
@@ -24,6 +30,11 @@ on:
         description: '검증할 릴리스 태그 (비우면 최신 릴리스)'
         required: false
         default: ''
+  # 릴리스 빌드가 **끝난 뒤**에 돈다. `release: [published]` 는 쓸 수 없다 — 4개 잡 중 처음 끝난
+  # 하나가 릴리스를 만드는 순간 발화하므로, 나머지 셋의 자산이 아직 안 올라온 상태를 재게 된다.
+  workflow_run:
+    workflows: ['Release']
+    types: [completed]
 
 permissions:
   contents: read
@@ -61,13 +72,62 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${{ inputs.tag }}"
+          # 릴리스가 끝나서 자동으로 불려 온 경우, 그 런이 빌드한 **바로 그 태그**를 쓴다.
+          # 태그 push 로 돈 워크플로의 `head_branch` 에는 태그 이름이 들어 있다.
+          # (release.yml 을 손으로 dispatch 한 경우엔 브랜치 이름이 오므로 v 로 시작하는지 본다.)
+          if [ -z "$TAG" ]; then TAG="${{ github.event.workflow_run.head_branch }}"; fi
+          case "$TAG" in v*) ;; *) TAG="" ;; esac
           if [ -z "$TAG" ]; then
             TAG=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName)
+            echo "태그를 못 받아 최신 릴리스로 떨어졌다."
           fi
           echo "검증 대상 태그: $TAG"
           echo "TAG=$TAG" >> "$GITHUB_ENV"
 
       # ── Linux ──────────────────────────────────────────────────────────
+      # ⓪ **권장 경로부터 잰다** — deb 를 설치해서 실행. 여기가 통하면 사용자에게
+      #    "libfuse2 를 까세요" 같은 말을 할 필요가 아예 없어진다. 안내문을 쓰는 것보다
+      #    포장을 바꾸는 편이 낫다는 판단(2026-08-28)이 실제로 성립하는지를 재는 자리다.
+      - name: Linux — 실사용자 재현 (deb 설치 → 그냥 실행)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -uo pipefail
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "*.deb" --dir debpkg || true
+          if ! ls debpkg/*.deb >/dev/null 2>&1; then
+            echo "::warning::이 릴리스에는 .deb 가 없다(deb 타깃 추가 이전 버전) — 건너뛴다"
+            exit 0
+          fi
+          ls -la debpkg
+          # 사용자가 하는 것과 같다: 받은 파일을 apt 에 넘기면 **의존성은 apt 가 끌어온다.**
+          sudo apt-get update -qq
+          if ! sudo apt-get install -y ./debpkg/*.deb; then
+            echo "::error::deb 설치 실패 — depends 목록이 이 배포판과 안 맞는다(t64 전환 등)"
+            dpkg -I ./debpkg/*.deb | sed -n "1,40p"
+            exit 1
+          fi
+          echo "== 설치 결과 =="
+          command -v vibisual || { echo "::error::vibisual 이 PATH 에 없다"; dpkg -L vibisual | head -40; exit 1; }
+          sudo apt-get install -y -qq xvfb >/dev/null 2>&1 || true
+          xvfb-run -a vibisual > deb-run.log 2>&1 &
+          DPID=$!
+          sleep 25
+          if kill -0 "$DPID" 2>/dev/null; then
+            echo "RESULT: deb 는 **아무 것도 따로 깔지 않고** 그대로 실행된다 — 안내문이 필요 없다."
+          else
+            echo "::error::deb 설치본이 25초 안에 죽었다"
+            tail -80 deb-run.log || true
+            exit 1
+          fi
+          # 다음 스텝이 단일 인스턴스 락에 걸리지 않도록 트리째 회수한다.
+          # 설치 경로로 좁혀 죽인다 — 이름만으로 `pkill -f vibisual` 하면 러너의 작업 디렉터리가
+          # 저장소 이름과 같아서, 그 경로를 cmdline 에 가진 남의 프로세스까지 잡아 잡 자체가 죽는다.
+          kill "$DPID" 2>/dev/null || true
+          pkill -f "/opt/Vibisual" 2>/dev/null || true
+          pkill -f "chrome_crashpad_handler" 2>/dev/null || true
+          sleep 3
+
+      # ① 아래부터는 **AppImage** 경로 — deb/rpm 이 안 통하는 배포판(Arch·NixOS)용 대체재다.
       - name: Linux — download AppImage
         if: runner.os == 'Linux'
         shell: bash
