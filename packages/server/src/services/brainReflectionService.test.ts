@@ -12,6 +12,7 @@ import {
   BRAIN_REFLECTION_INPUT_MAX_CHARS,
   BRAIN_REFLECTION_CWD_DIRNAME,
   buildBrainReflectionPrompt,
+  isCaseInsensitiveFs,
 } from '@vibisual/shared';
 import {
   buildDigest,
@@ -171,10 +172,23 @@ describe('isBrainReflectionCwd — 자가 증식 차단 판정', () => {
     expect(isBrainReflectionCwd(reflectCwd)).toBe(true);
   });
 
-  it('구분자·대소문자·끝 슬래시가 달라도 같은 폴더로 본다', () => {
+  it('구분자·끝 슬래시가 달라도 같은 폴더로 본다', () => {
     expect(isBrainReflectionCwd(reflectCwd.replace(/\\/g, '/'))).toBe(true);
-    expect(isBrainReflectionCwd(reflectCwd.toUpperCase())).toBe(true);
     expect(isBrainReflectionCwd(`${reflectCwd}\\`)).toBe(true);
+  });
+
+  /**
+   * 대소문자는 **그 OS 파일시스템이 실제로 무시할 때만** 접는다.
+   *
+   * 예전 이 자리는 `toUpperCase()` 도 무조건 `true` 라고 못박고 있었다 — Windows 규칙을
+   * 세 OS 에 강요한 것이고, linux CI 가 그것을 잡았다(2026-08-28). linux 에서 접으면
+   * `/tmp/VIBISUAL-REFLECT` 라는 **실재하는 남의 폴더**가 리플렉션 전용으로 오인돼
+   * 그 세션의 두뇌 리플렉션이 통째로 차단된다. 판정은 `pathKey` 정본 하나가 들고 있으니
+   * 이 테스트도 기대값을 그 정본에게 묻는다 — 상수로 박으면 또 한 OS 만 맞는다.
+   */
+  it('대소문자는 그 OS 가 무시할 때만 접는다', () => {
+    expect(isBrainReflectionCwd(reflectCwd.toUpperCase()))
+      .toBe(isCaseInsensitiveFs(process.platform));
   });
 
   it('tmpdir 표기가 달라도 마지막 구간으로 잡는다(8.3 단축 경로 대비)', () => {

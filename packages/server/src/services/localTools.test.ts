@@ -49,6 +49,60 @@ describe('resolveInRoot — 프로젝트 밖은 없다', () => {
   it('아직 없는 파일도 부모가 루트 안이면 허용한다 — 새로 쓰는 경우', () => {
     expect(resolveInRoot(root, 'src/new-file.ts')).not.toBeNull();
   });
+
+  /**
+   * 루트가 **링크 위에 놓여 있어도** 그 안의 파일은 안이다.
+   *
+   * mac 의 `/tmp`·`/var` 는 `/private/…` 로 가는 링크다. 대상만 realpath 하고 루트는 안 풀면
+   * 루트(`/var/…`)와 대상(`/private/var/…`)이 어긋나 **루트 안의 파일이 전부 거부된다** —
+   * 2026-08-28 CI 에서 mac 러너만 이 파일 8건이 죽고 win 은 초록이었다(win 의 tmp 는 링크가
+   * 아니라서). 개발기 한 대로는 영영 안 보이는 종류라, 여기서 링크를 직접 만들어 세 OS 에서 잰다.
+   * (Windows 는 디렉터리 junction 이라 관리자 권한이 필요 없다.)
+   */
+  it('루트가 링크 위에 있어도 안쪽 파일을 연다', () => {
+    const linkParent = fs.mkdtempSync(path.join(os.tmpdir(), 'vibi-link-'));
+    const linkRoot = path.join(linkParent, 'root-link');
+    fs.symlinkSync(root, linkRoot, process.platform === 'win32' ? 'junction' : 'dir');
+    try {
+      const hit = resolveInRoot(linkRoot, 'src/a.ts');
+      expect(hit).not.toBeNull();
+      expect(fs.readFileSync(hit as string, 'utf8')).toContain('const x = 1;');
+    } finally {
+      try { fs.unlinkSync(linkRoot); } catch { /* best effort */ }
+      try { fs.rmSync(linkParent, { recursive: true, force: true }); } catch { /* best effort */ }
+    }
+  });
+
+  /**
+   * 반대쪽 — 링크가 루트 **밖**을 가리키면 여전히 막는다. 위 완화가 경계를 뚫지 않았는지
+   * 같은 자리에서 함께 잰다. 한쪽만 두면 다음 사람이 realpath 를 통째로 걷어낸다.
+   */
+  it('루트 안의 링크가 밖을 가리키면 거절한다', () => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'vibi-out-'));
+    fs.writeFileSync(path.join(outside, 'secret.txt'), 'nope\n', 'utf8');
+    const escape = path.join(root, 'escape');
+    fs.symlinkSync(outside, escape, process.platform === 'win32' ? 'junction' : 'dir');
+    try {
+      expect(resolveInRoot(root, 'escape/secret.txt')).toBeNull();
+    } finally {
+      try { fs.unlinkSync(escape); } catch { /* best effort */ }
+      try { fs.rmSync(outside, { recursive: true, force: true }); } catch { /* best effort */ }
+    }
+  });
+
+  /**
+   * 대소문자를 접을지는 **그 OS 파일시스템이 실제로 무시할 때만**. `platform` 을 인자로 받게
+   * 만든 이유가 이것이다 — 실기 없이 세 OS 를 여기서 전부 잰다(CLAUDE.md 멀티플랫폼 규칙).
+   * 없는 경로를 쓰는 것은 의도적이다: realpath 가 성공하면 Windows 가 디스크의 실제 케이스로
+   * 되돌려 놓아 케이스 판정 자체가 사라진다.
+   */
+  it('대소문자 판정은 플랫폼을 따른다', () => {
+    const real = fs.realpathSync(root);
+    const ghost = path.join(real, 'no-such-dir', 'ghost.ts').toUpperCase();
+    expect(resolveInRoot(real, ghost, 'win32')).not.toBeNull();
+    expect(resolveInRoot(real, ghost, 'darwin')).not.toBeNull();
+    expect(resolveInRoot(real, ghost, 'linux')).toBeNull();
+  });
 });
 
 describe('runLocalTool — 경계를 넘으면 결과로 알린다(던지지 않는다)', () => {
