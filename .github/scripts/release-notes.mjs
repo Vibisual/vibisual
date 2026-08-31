@@ -266,6 +266,14 @@ export function renderNotes({ version, assets, changelog }) {
   );
   out.push('');
 
+  // ── 어디서 테스트했는지 ────────────────────────────────────────────────────
+  // 받는 사람이 기대치를 맞출 수 있어야 한다 — mac/linux 에서 깨졌을 때 "원래 이런가 보다"
+  // 하고 조용히 지우는 대신 이슈로 오게 만드는 줄이다.
+  out.push(
+    `Day-to-day development and testing happen on Windows, so macOS and Linux get far less hands-on use. If a build is broken there, [open an issue](https://github.com/${OWNER}/${REPO}/issues/new) — we will fix it quickly.`,
+  );
+  out.push('');
+
   // ── 변경 내역 ──────────────────────────────────────────────────────────────
   if (changelog) {
     out.push('---');

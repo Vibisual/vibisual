@@ -184,6 +184,10 @@ pnpm build:win     # 也可以是 build:mac、build:linux
 Vibisual 目前是早期预览版。这条 0.1.x 线适合用来尝试、演示和提反馈：请预期会遇到 bug、
 未完成的功能、粗糙的边角，以及偶尔的破坏性变更。需要一个不再变动的版本，就把版本号钉住。
 
+**主要在 Windows 上测试。** 日常开发都在 Windows 上进行，所以 macOS 和 Linux 上手实测的
+机会少得多。如果在这两个平台上遇到问题，请
+[提一个 issue](https://github.com/Vibisual/vibisual/issues/new) —— 我们会尽快修。
+
 它完全跑在你自己的机器上 —— 没有账号，没有遥测，也不会把任何东西发给我们 —— 所以拿它
 对着什么由你决定，你的代码不会因为试用它而离开这台机器。
 

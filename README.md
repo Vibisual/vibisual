@@ -209,6 +209,11 @@ Vibisual is an early preview. This 0.1.x line is meant for experimentation,
 demos, and feedback: expect bugs, incomplete features, rough edges, and
 occasional breaking changes. Pin a version if you need one that holds still.
 
+**Tested mostly on Windows.** Day-to-day development happens on Windows, so
+macOS and Linux get far less hands-on use. If something is broken on either,
+please [open an issue](https://github.com/Vibisual/vibisual/issues/new) — we'll
+fix it quickly.
+
 It runs entirely on your own machine — no account, no telemetry, nothing sent
 to us — so what you point it at is your call, and nothing about your code
 leaves the room because you tried it.
