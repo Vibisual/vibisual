@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  WINDOW_PULL_OUT,
   centeredGeom,
   clampGeom,
   clampPosition,
   defaultFloatSize,
+  isCursorOutsideViewport,
+  isCursorPinnedToViewportEdge,
   resolveFloatingWindowConfig,
   windowStyle,
   type FloatingWindowConfig,
@@ -21,6 +24,24 @@ import {
 
 export type { FloatingWindowGeom, FloatingWindowMode, FloatingWindowSnapshot } from './floatingWindowGeom.js';
 
+/**
+ * §5.13 (S-3) — 타이틀바로 창을 **앱 밖으로 끌어내는** 손짓.
+ *
+ * 이 훅은 손짓의 **판정과 시점**만 맡는다 — 밖에 무엇을 띄울지는 창마다 다르므로 부르는 쪽 몫이다
+ * (내부 앱 창은 `InternalApp.open()` 으로 OS 창을 연다). 옵션을 주지 않으면 종전과 완전히 같다.
+ */
+export interface FloatingWindowPullOut {
+  /**
+   * 끌어내기가 가능한 환경인가. false 면 손짓 자체가 없다 — 창을 못 여는 판(웹·구버전 preload)에서
+   * 무장 표시만 뜨고 아무 일도 안 일어나면, 그건 고장으로 읽힌다.
+   */
+  enabled: boolean;
+  /** 무장 상태가 바뀔 때 — 화면에 "놓으면 밖으로 나갑니다"를 보여 주는 자리. */
+  onArmedChange?: (armed: boolean) => void;
+  /** 무장된 채 손을 뗐다. 창을 밖으로 꺼내고 이 창을 닫는 것은 부르는 쪽이 한다. */
+  onRelease: (info: { geom: FloatingWindowGeom }) => void;
+}
+
 export interface FloatingWindowOptions extends Partial<FloatingWindowConfig> {
   /** 초기 위치 계단식 오프셋(px) — 여러 창을 동시에 열 때 겹침 방지. */
   cascade?: number;
@@ -32,6 +53,8 @@ export interface FloatingWindowOptions extends Partial<FloatingWindowConfig> {
   onInteractStart?: () => void;
   /** geom·mode 가 바뀔 때마다 통지(자리 기억 저장). */
   onChange?: (snapshot: FloatingWindowSnapshot) => void;
+  /** §5.13 (S-3) 앱 밖으로 끌어내기 — 주지 않으면 종전과 같다(창은 화면 안에 머문다). */
+  pullOut?: FloatingWindowPullOut;
 }
 
 export interface FloatingWindowApi {
@@ -66,7 +89,7 @@ function viewport(): { w: number; h: number } {
 }
 
 export function useFloatingWindow(options: FloatingWindowOptions = {}): FloatingWindowApi {
-  const { cascade = 0, initial = null, lockFullScreen = false, onInteractStart, onChange, ...configPartial } = options;
+  const { cascade = 0, initial = null, lockFullScreen = false, onInteractStart, onChange, pullOut, ...configPartial } = options;
 
   // 설정은 매 렌더 재계산하되 핸들러는 ref 로 최신값을 본다(콜백 재생성으로 리스너가 흔들리지 않게).
   const cfg = resolveFloatingWindowConfig(configPartial);
@@ -78,6 +101,8 @@ export function useFloatingWindow(options: FloatingWindowOptions = {}): Floating
   onInteractStartRef.current = onInteractStart;
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  const pullOutRef = useRef(pullOut);
+  pullOutRef.current = pullOut;
 
   const [geom, setGeom] = useState<FloatingWindowGeom>(() => (
     initial?.geom ? clampGeom(initial.geom, viewport(), cfg) : centeredGeom(viewport(), cfg, cascade)
@@ -108,19 +133,28 @@ export function useFloatingWindow(options: FloatingWindowOptions = {}): Floating
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
-  /** 진행 중 드래그의 window 리스너를 등록하고 정리 함수를 기억해 둔다. */
-  const bindDrag = useCallback((onMove: (ev: MouseEvent) => void) => {
-    function handleUp(): void {
+  /**
+   * 진행 중 드래그의 window 리스너를 등록하고 정리 함수를 기억해 둔다.
+   *
+   * `onEnd` 는 **손을 떼든 언마운트로 강제 정리되든 반드시 한 번** 불린다 — 끌어내기 손짓이
+   * 걸어 둔 시계를 여기서 거두지 않으면, 창이 사라진 뒤에 타이머가 깨어나 무장 상태를 알린다.
+   */
+  const bindDrag = useCallback((onMove: (ev: MouseEvent) => void, onEnd?: (committed: boolean) => void) => {
+    let ended = false;
+    function finish(committed: boolean): void {
+      if (ended) return;
+      ended = true;
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', handleUp);
+      onEnd?.(committed);
+    }
+    function handleUp(): void {
+      finish(true);
       activeDragCleanupRef.current = null;
     }
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', handleUp);
-    activeDragCleanupRef.current = () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', handleUp);
-    };
+    activeDragCleanupRef.current = () => { finish(false); };
   }, []);
 
   // 타이틀바 드래그 — 창 이동. 최대화 상태에서 끌면 먼저 복원하고 커서 기준으로 이어 옮긴다(IDE 톤).
@@ -145,6 +179,50 @@ export function useFloatingWindow(options: FloatingWindowOptions = {}): Floating
     let posW = rect.width;
     let posH = rect.height;
 
+    /**
+     * §5.13 (S-3) — **앱 밖으로 끌어내는** 손짓. 두 갈래를 함께 본다.
+     *
+     * ① 커서가 창 밖으로 나갔다 ② 화면 끝에 막힌 채 버틴다. 하나만 두면 그 손짓은 어떤 사용자에게
+     * 통째로 **없는 기능**이 된다 — 단일 모니터에 앱을 최대화해 쓰면 커서는 뷰포트를 한 픽셀도
+     * 벗어나지 못하고, 반대로 시간만으로 판정하면 창을 화면 끝에 붙여 두려던 손도 걸린다.
+     */
+    let armed = false;
+    let edgeTimer: number | null = null;
+    function setArmed(next: boolean): void {
+      if (armed === next) return;
+      armed = next;
+      pullOutRef.current?.onArmedChange?.(next);
+    }
+    function clearEdgeWatch(): void {
+      if (edgeTimer === null) return;
+      window.clearTimeout(edgeTimer);
+      edgeTimer = null;
+    }
+    function trackPullOut(ev: MouseEvent): void {
+      const po = pullOutRef.current;
+      if (!po?.enabled) return;
+      const vp = viewport();
+      const cursor = { x: ev.clientX, y: ev.clientY };
+      if (isCursorOutsideViewport(cursor, vp)) {
+        clearEdgeWatch();
+        setArmed(true);
+        return;
+      }
+      if (isCursorPinnedToViewportEdge(cursor, vp)) {
+        // 띠 안에서 버티는 중 — 이미 무장했으면 그대로 둔다(시계를 다시 걸면 영영 안 걸린다).
+        if (!armed && edgeTimer === null) {
+          edgeTimer = window.setTimeout(() => {
+            edgeTimer = null;
+            setArmed(true);
+          }, WINDOW_PULL_OUT.EDGE_DWELL_MS);
+        }
+        return;
+      }
+      // 가장자리를 떠났다 — 스쳐 지나간 손이 창을 밖으로 던지면 안 된다.
+      clearEdgeWatch();
+      setArmed(false);
+    }
+
     function handleMove(ev: MouseEvent): void {
       const cfgNow = cfgRef.current;
       const dx = ev.clientX - startX;
@@ -160,6 +238,7 @@ export function useFloatingWindow(options: FloatingWindowOptions = {}): Floating
           setMode('floating');
         }
       }
+      trackPullOut(ev);
       const x = ev.clientX - grabRatioX * posW;
       const y = ev.clientY - grabRatioY * posH;
       const pos = clampPosition(x, y, { w: posW, h: posH }, viewport(), cfgNow);
@@ -170,7 +249,13 @@ export function useFloatingWindow(options: FloatingWindowOptions = {}): Floating
         h: curMode === 'minimized' ? g.h : posH,
       }));
     }
-    bindDrag(handleMove);
+    bindDrag(handleMove, (committed) => {
+      clearEdgeWatch();
+      const wasArmed = armed;
+      setArmed(false);
+      // 언마운트로 강제 정리된 판(committed=false)에서는 꺼내지 않는다 — 사람이 손을 뗀 것이 아니다.
+      if (committed && wasArmed) pullOutRef.current?.onRelease({ geom: geomRef.current });
+    });
   }, [bindDrag]);
 
   // 우하단 리사이즈 핸들.

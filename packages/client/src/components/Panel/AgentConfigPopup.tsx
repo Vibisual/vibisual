@@ -35,6 +35,10 @@ import {
   BASH_TIMEOUT_MS_MAX,
   BASH_DEFAULT_TIMEOUT_MS_CLI_DEFAULT,
   BASH_MAX_TIMEOUT_MS_CLI_DEFAULT,
+  AGENT_MAX_TURNS_UI_FALLBACK,
+  resolveAgentDefaults,
+  diffAgentConfigFromDefaults,
+  type AgentConfigComparedField,
 } from '@vibisual/shared';
 import { HexColorPicker } from 'react-colorful';
 import { ScrollFade } from '../ScrollFade.js';
@@ -105,6 +109,18 @@ function InfoTip({ text }: { text: string }): React.JSX.Element {
         <circle cx="8" cy="4.5" r="0.8" />
         <rect x="7.2" y="6.5" width="1.6" height="5" rx="0.5" />
       </svg>
+    </HoverTip>
+  );
+}
+
+/**
+ * §4 — 이 칸이 **설정 창의 전역 기본값과 다르다**는 표식. 점 하나가 전부다 — 테두리·배경·글자를
+ * 더하면 설정 창 자체가 어지러워져 정작 값이 안 읽힌다. 무엇으로 되돌려야 하는지는 hover 에 있다.
+ */
+function DiffMark({ text }: { text: string }): React.JSX.Element {
+  return (
+    <HoverTip text={text} className="ml-1 inline-flex cursor-help items-center">
+      <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-indigo-400" role="img" aria-label={text} />
     </HoverTip>
   );
 }
@@ -473,7 +489,9 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
     description: t(`panel.agentConfig.permissionMode.${v}`),
   })), [t]);
   const ISOLATION_OPTIONS: SelectOption[] = useMemo(() => ISOLATION_VALUES.map((v) => ({ value: v, description: t(`panel.agentConfig.isolation.${v}`) })), [t]);
-  // §4 (CLI 사양 추종) — `--autocompact`. 맨 앞 빈 값은 "미설정"(플래그 없음).
+  // §4 (CLI 사양 추종) — `--autocompact`. 맨 앞 빈 값은 "미설정" = **설정 창의 전역 기본을 따름**
+  //   (플래그 없음 ❌ — 그 뜻이었다면 CLI 기본인 창 전체가 되어 사실상 압축이 사라진다).
+  //   종전처럼 CLI 판단에 맡기려면 `'auto'` 를 고른다.
   const AUTOCOMPACT_OPTIONS: SelectOption[] = useMemo(() => AVAILABLE_AUTOCOMPACT_VALUES.map((v) => ({
     value: v,
     label: v === '' ? t('panel.agentConfig.autoCompact.unsetLabel') : v === 'auto' ? 'auto' : `${Number(v) / 1000}k`,
@@ -552,10 +570,20 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
   // §4 (CLI 사양 추종) — 설치된 CLI 가 받는 신규 옵션들. 전부 "미설정"이 기본이고, 미설정이면
   //   해당 플래그를 아예 붙이지 않아 종전과 같은 인자로 스폰된다.
   const [fallbackModel, setFallbackModel] = useState(base.fallbackModel ?? '');
+  // §4 (CLI 사양 추종) — 폴백 모델은 드롭다운이 기본이고, 목록에 없는 값(정확한 버전 id·콤마
+  //   목록·구버전 저장분)일 때만 '직접 입력'으로 연다. 목록에 없다고 값을 버리면 사용자가 넣어
+  //   둔 설정이 창을 여는 것만으로 사라진다.
+  const [fallbackCustom, setFallbackCustom] = useState(() => {
+    const v = (base.fallbackModel ?? '').trim();
+    return v !== '' && !listModelFamilies(modelRegistry).includes(v);
+  });
   const [autoCompact, setAutoCompact] = useState(base.autoCompact ?? '');
   const [excludeDynamicSections, setExcludeDynamicSections] = useState(base.excludeDynamicSystemPromptSections === true);
   const [settingSources, setSettingSources] = useState<string[]>([...(base.settingSources ?? [])]);
   const [safeMode, setSafeMode] = useState(base.safeMode === true);
+  // §4 (CLI 사양 추종) — 압축 축 둘. `autoCompact`(창 임계)와 직교라 함께 켤 수 있다.
+  const [compactAfterTurn, setCompactAfterTurn] = useState(base.compactAfterTurn === true);
+  const [agentCanCompact, setAgentCanCompact] = useState(base.agentCanCompact === true);
   // §4 (Fast 모드) — 같은 Opus 를 출력 속도만 빠르게. 플래그가 아니라 settings 키라 서버가
   //   `--settings` 파일 한 장에 실어 보낸다. 미설정(false) 이면 그 키 자체가 안 생긴다.
   const [fastMode, setFastMode] = useState(base.fastMode === true);
@@ -727,6 +755,32 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
     else setModelVersion(v);
   }, [model]);
 
+  // §4 (CLI 사양 추종) — `--fallback-model` 선택지. 종전에는 자유 입력이라 모델 이름을 외워
+  //   타이핑해야 했고, 오타는 스폰이 죽고 나서야 드러났다. 목록은 Model 드롭다운과 **같은
+  //   레지스트리**(`MODEL_OPTIONS` = `listModelFamilies`)를 그대로 쓴다 — 이 파일에 모델 이름을
+  //   박지 않으므로 CLI/`/v1/models` 가 새 패밀리를 내면 여기에도 저절로 생긴다.
+  //   맨 끝 '직접 입력'은 종전 자유 입력을 잃지 않기 위한 자리다(콤마 목록·정확한 버전 id).
+  const FALLBACK_MODEL_OPTIONS: SelectOption[] = useMemo(() => ([
+    {
+      value: '',
+      label: t('panel.agentConfig.fallbackModel.unsetLabel'),
+      description: t('panel.agentConfig.fallbackModel.unset'),
+    },
+    ...MODEL_OPTIONS,
+    {
+      value: '__custom__',
+      label: t('panel.agentConfig.fallbackModel.customLabel'),
+      description: t('panel.agentConfig.fallbackModel.custom'),
+    },
+  ]), [t, MODEL_OPTIONS]);
+  const effectiveFallbackValue = fallbackCustom ? '__custom__' : fallbackModel.trim();
+  const handleFallbackChange = useCallback((v: string) => {
+    // '직접 입력'은 지금 값을 그대로 둔 채 입력칸만 연다 — 고른 순간 값이 지워지면 안 된다.
+    if (v === '__custom__') { setFallbackCustom(true); return; }
+    setFallbackCustom(false);
+    setFallbackModel(v);
+  }, []);
+
   // §4 v2.41 — Model 셀렉트 바로 아래 작은 글씨 라벨: CLI 에 실제로 전달될 모델 인자.
   // alias 모드면 "opus[1m]" 식, 풀ID 핀이면 "claude-opus-4-7[1m]" 식.
   const effectiveCliArg = useMemo(() => {
@@ -805,6 +859,8 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
     excludeDynamicSystemPromptSections: excludeDynamicSections ? true : undefined,
     settingSources: settingSources.length > 0 ? settingSources : undefined,
     safeMode: safeMode ? true : undefined,
+    compactAfterTurn: compactAfterTurn ? true : undefined,
+    agentCanCompact: agentCanCompact ? true : undefined,
     // §4 (Fast 모드) — 지원 모델일 때만 저장한다. 모델을 바꾼 뒤에도 값이 남아 있으면
     //   나중에 그 모델로 되돌렸을 때 사용자가 켠 적 없는 Fast 가 되살아난다.
     fastMode: fastMode && fastModeSupported ? true : undefined,
@@ -829,10 +885,107 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
     memory, subagentDepth,
     isOpus, disallowedTools, rules, customMode,
     contextWindow, presetId, modelVersion, mcpServers,
-    fallbackModel, autoCompact, excludeDynamicSections, settingSources, safeMode, fastMode, fastModeSupported, forwardSubagentText, replayUserMessages, promptSuggestions, betas,
+    fallbackModel, autoCompact, compactAfterTurn, agentCanCompact, excludeDynamicSections, settingSources, safeMode, fastMode, fastModeSupported, forwardSubagentText, replayUserMessages, promptSuggestions, betas,
     bashDefaultTimeoutSec, bashMaxTimeoutSec,
     isLocal, buildLocalProvider,
   ]);
+
+  // §4 — 이 창의 값이 **설정 창(Options › Agent Defaults)의 전역 기본값**과 어디서 갈라지는가.
+  //   두 화면이 같은 모양이라 표식이 없으면 어느 칸이 이 버블만의 값인지 알 길이 없다(전역을 바꾼
+  //   뒤에도 옛 값을 쥔 에이전트가 똑같이 보인다). 저장분이 아니라 **지금 폼이 저장하려는 값**으로
+  //   재므로 고르는 즉시 붙고 되돌리면 사라진다.
+  const userDefaults = useGraphStore((st) => st.userDefaults);
+  const agentDefaults = useMemo(() => resolveAgentDefaults(userDefaults), [userDefaults]);
+  // 이 창이 **지금 그리지 않는** 축은 세지 않는다 — 화면의 점이 3개인데 머리의 숫자가 5 면
+  //   그 숫자는 설명이 아니라 수수께끼가 된다.
+  const hiddenDiffFields = useMemo(() => {
+    const hidden: string[] = [];
+    if (isLocal) {
+      hidden.push(
+        'model', 'modelVersion', 'contextWindow', 'fastMode', 'customMode', 'tools', 'disallowedTools',
+        'maxTurns', 'isolation', 'effort', 'memory', 'subagentDepth', 'maxBudgetUsd', 'fallbackModel',
+        'autoCompact', 'compactAfterTurn', 'agentCanCompact', 'settingSources',
+        'excludeDynamicSystemPromptSections', 'safeMode', 'forwardSubagentText', 'replayUserMessages',
+        'promptSuggestions', 'betas', 'bashDefaultTimeoutMs', 'bashMaxTimeoutMs', 'skills',
+      );
+    }
+    if (isShellOnly) hidden.push('model', 'modelVersion', 'contextWindow', 'fastMode');
+    if (PERMISSION_MODES_WITHOUT_PROMPT.includes(permissionMode)) hidden.push('permissionTimeoutPolicy');
+    return hidden;
+  }, [isLocal, isShellOnly, permissionMode]);
+  const diffFields = useMemo(
+    () => diffAgentConfigFromDefaults(buildPayload(), agentDefaults, { skip: hiddenDiffFields }),
+    [buildPayload, agentDefaults, hiddenDiffFields],
+  );
+  const diffSet = useMemo(() => new Set<string>(diffFields), [diffFields]);
+  /** 요약이 부르는 이름 — 각 칸의 라벨을 그대로 쓴다(창과 다른 이름을 지어내면 찾아갈 수 없다). */
+  const DIFF_FIELD_LABELS = useMemo((): Record<AgentConfigComparedField, string> => ({
+    model: t('panel.agentConfig.model.label'),
+    modelVersion: t('panel.agentConfig.modelVersion.label', { defaultValue: 'Version' }),
+    contextWindow: t('panel.agentConfig.contextWindow.oneMillion', { defaultValue: '1M context window' }),
+    fastMode: t('panel.agentConfig.fastMode.label'),
+    permissionMode: t('panel.agentConfig.permissionMode.label'),
+    permissionTimeoutPolicy: t('panel.agentConfig.permissionTimeoutPolicy.label', { defaultValue: 'On no response (60s)' }),
+    customMode: t('panel.agentConfig.customMode.label', { defaultValue: 'Custom Mode' }),
+    rules: t('panel.agentConfig.agentRules'),
+    tools: t('panel.agentConfig.tools.label'),
+    disallowedTools: t('panel.agentConfig.disallowedTools.label', { defaultValue: 'Disallowed Tools' }),
+    maxTurns: t('panel.agentConfig.maxTurns'),
+    isolation: t('panel.agentConfig.isolation.label'),
+    effort: t('panel.agentConfig.effort.label'),
+    memory: t('panel.agentConfig.memory.label'),
+    subagentDepth: t('panel.agentConfig.subagentDepth.label'),
+    maxBudgetUsd: t('panel.agentConfig.maxBudgetUsd', { defaultValue: 'Budget ($, 0=Inf)' }),
+    fallbackModel: t('panel.agentConfig.fallbackModel.label'),
+    autoCompact: t('panel.agentConfig.autoCompact.label'),
+    compactAfterTurn: t('panel.agentConfig.compactAfterTurn.label'),
+    agentCanCompact: t('panel.agentConfig.agentCanCompact.label'),
+    settingSources: t('panel.agentConfig.settingSources.label'),
+    excludeDynamicSystemPromptSections: t('panel.agentConfig.excludeDynamicSections.label'),
+    safeMode: t('panel.agentConfig.safeMode.label'),
+    forwardSubagentText: t('panel.agentConfig.forwardSubagentText.label'),
+    replayUserMessages: t('panel.agentConfig.replayUserMessages.label'),
+    promptSuggestions: t('panel.agentConfig.promptSuggestions.label'),
+    betas: t('panel.agentConfig.betas.label'),
+    bashDefaultTimeoutMs: t('panel.agentConfig.bashTimeout.defaultLabel'),
+    bashMaxTimeoutMs: t('panel.agentConfig.bashTimeout.maxLabel'),
+    skills: t('panel.agentConfig.defaultSkills'),
+  }), [t]);
+  /** hover 에 띄울 **기본값 자체**. "다르다"만 알려 주면 무엇으로 되돌려야 할지 알 수 없다. */
+  const defaultValueText = useCallback((field: AgentConfigComparedField): string => {
+    const raw = (agentDefaults as unknown as Record<string, unknown>)[field];
+    const unset = t('panel.agentConfig.diff.unset');
+    const on = t('panel.agentConfig.diff.on');
+    const off = t('panel.agentConfig.diff.off');
+    if (Array.isArray(raw)) {
+      if (raw.length === 0) return unset;
+      const head = raw.slice(0, 4).join(', ');
+      return raw.length > 4 ? head + ' +' + (raw.length - 4) : head;
+    }
+    switch (field) {
+      // 저장분에 값이 없을 때의 **뜻이 축마다 다르다** — 전부 "미설정"이라 적으면 거짓말이 된다.
+      case 'contextWindow': return raw === '200k' ? '200k' : '1M';
+      case 'permissionTimeoutPolicy': return raw === 'deny' ? 'deny' : 'allow';
+      case 'forwardSubagentText': return raw === false ? off : on;
+      case 'maxTurns': return String(typeof raw === 'number' && raw > 0 ? raw : AGENT_MAX_TURNS_UI_FALLBACK);
+      case 'rules': {
+        const body = typeof raw === 'string' ? raw.trim() : '';
+        return body ? t('panel.agentConfig.lines', { count: body.split('\n').length }) : unset;
+      }
+      default: break;
+    }
+    if (typeof raw === 'boolean') return raw ? on : off;
+    if (typeof raw === 'number') return Number.isFinite(raw) && raw > 0 ? String(raw) : unset;
+    const text = typeof raw === 'string' ? raw.trim() : '';
+    if (!text) return unset;
+    return text.length > 48 ? text.slice(0, 48) + '...' : text;
+  }, [agentDefaults, t]);
+  /** 다른 칸에만 붙는 점. 같은 칸에는 아무것도 그리지 않는다 — 그게 심플함의 전부다. */
+  const diffDot = (field: AgentConfigComparedField): React.JSX.Element | null => (
+    diffSet.has(field)
+      ? <DiffMark text={t('panel.agentConfig.diff.tip', { value: defaultValueText(field) })} />
+      : null
+  );
 
   const handleSave = useCallback(async () => {
     setSaving(true);
@@ -867,6 +1020,16 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                 </svg>
               </HoverTip>
             </h3>
+            {/* §4 — 이 에이전트만 다르게 설정된 칸이 몇 개인가. 아래 점들과 **같은 수**를 센다. */}
+            {diffFields.length > 0 && (
+              <HoverTip
+                text={t('panel.agentConfig.diff.summaryTip', { list: diffFields.map((f) => DIFF_FIELD_LABELS[f]).join(', ') })}
+                className="inline-flex w-fit cursor-help items-center gap-1 rounded bg-indigo-500/10 px-1.5 py-0.5 text-[12px] font-medium text-indigo-300"
+              >
+                <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-indigo-400" aria-hidden="true" />
+                {t('panel.agentConfig.diff.badge', { count: diffFields.length })}
+              </HoverTip>
+            )}
             {/* §5.19 (G) — 정체를 창이 스스로 말한다. 이 한 줄이 없으면 **왜 칸이 적은지**를
                 설명할 것이 없어 빈자리가 고장으로 읽힌다. */}
             {isLocal && (
@@ -996,13 +1159,13 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
             {/* Model */}
             {!isLocal && !isShellOnly && (
             <div className="flex flex-col gap-1">
-              <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.model.label')}<InfoTip text={FIELD_TIPS.model} /></label>
+              <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.model.label')}<InfoTip text={FIELD_TIPS.model} />{diffDot('model')}</label>
               <CustomSelect value={model} onChange={handleModelChange} options={MODEL_OPTIONS} />
 
               {/* §4 v2.41 — 작은 인라인 버전 라인. `version: claude-opus-4-8 ▾` 식.
                   native <select> 로 컴팩트 + 옵션 4개 이내 (Latest / 최신 / 직전 / Custom…) */}
               <div className="mt-0.5 flex items-center gap-1 px-0.5 text-[12px] text-gray-500">
-                <span className="uppercase tracking-wider">{t('panel.agentConfig.modelVersion.label', { defaultValue: 'Version' })}:</span>
+                <span className="uppercase tracking-wider">{t('panel.agentConfig.modelVersion.label', { defaultValue: 'Version' })}:</span>{diffDot('modelVersion')}
                 <select
                   value={effectiveVersionValue}
                   onChange={(e) => handleVersionChange(e.target.value)}
@@ -1037,7 +1200,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                     className="h-3.5 w-3.5 cursor-pointer accent-blue-500"
                   />
                   <span className="text-xs text-gray-300">
-                    {t('panel.agentConfig.contextWindow.oneMillion', { defaultValue: '1M context window' })}
+                    {t('panel.agentConfig.contextWindow.oneMillion', { defaultValue: '1M context window' })}{diffDot('contextWindow')}
                   </span>
                 </label>
               )}
@@ -1071,7 +1234,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                   <path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z" />
                 </svg>
                 <span className={`text-xs ${fastModeSupported ? 'text-gray-300' : 'text-gray-600'}`}>
-                  {t('panel.agentConfig.fastMode.label')}
+                  {t('panel.agentConfig.fastMode.label')}{diffDot('fastMode')}
                   <span className="ml-1 text-gray-600">
                     {fastModeSupported ? t('panel.agentConfig.fastMode.hint') : t('panel.agentConfig.fastMode.unsupported')}
                   </span>
@@ -1083,7 +1246,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
 
             {/* Permission Mode */}
             <div className="flex flex-col gap-1">
-              <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.permissionMode.label')}<InfoTip text={FIELD_TIPS.permissionMode} /></label>
+              <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.permissionMode.label')}<InfoTip text={FIELD_TIPS.permissionMode} />{diffDot('permissionMode')}</label>
               <CustomSelect value={permissionMode} onChange={setPermissionMode} options={PERMISSION_OPTIONS} />
             </div>
 
@@ -1093,7 +1256,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
             {!PERMISSION_MODES_WITHOUT_PROMPT.includes(permissionMode) && (
               <div className="flex flex-col gap-1.5">
                 <label className="flex items-center text-xs font-medium text-gray-400">
-                  {t('panel.agentConfig.permissionTimeoutPolicy.label', { defaultValue: 'On no response (60s)' })}
+                  {t('panel.agentConfig.permissionTimeoutPolicy.label', { defaultValue: 'On no response (60s)' })}{diffDot('permissionTimeoutPolicy')}
                   <InfoTip text={t('panel.agentConfig.permissionTimeoutPolicy.tip', {
                     defaultValue: 'If the approval popup is not answered within 60s — Allow: auto-approve so the agent keeps working while you are away. Deny: auto-block (safe). Only applies when Permission Mode actually pops a dialog.',
                   })} />
@@ -1148,7 +1311,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
             {!isLocal && (
             <div className="flex flex-col gap-1">
               <label className="flex items-center text-xs font-medium text-gray-400">
-                {t('panel.agentConfig.customMode.label', { defaultValue: 'Custom Mode' })}
+                {t('panel.agentConfig.customMode.label', { defaultValue: 'Custom Mode' })}{diffDot('customMode')}
                 <InfoTip text={t('panel.agentConfig.customMode.tip', {
                   defaultValue: 'Vibisual 자체 모드. 콘티모드 ON 저장 시 에이전트 규칙이 콘티 전용 룰로 덮어쓰여집니다 (이전 규칙은 히스토리에 보관). 리뷰/디버그는 추후 지원.',
                 })} />
@@ -1225,7 +1388,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
 
             {/* Agent Rules */}
             <div className="flex flex-col gap-1.5">
-              <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.agentRules')}<InfoTip text={FIELD_TIPS.rules} /></label>
+              <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.agentRules')}<InfoTip text={FIELD_TIPS.rules} />{diffDot('rules')}</label>
               <button type="button" onClick={() => setShowRulesEditor(true)} className="flex items-center gap-2 rounded border border-gray-700 bg-gray-800 px-2.5 py-1.5 text-left transition-colors hover:border-blue-500/50">
                 <svg className="h-3.5 w-3.5 flex-shrink-0 text-gray-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                   <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" />
@@ -1352,7 +1515,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
             {/* Tools */}
             {!isLocal && (
             <div className="flex flex-col gap-1.5">
-              <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.tools.label')}<InfoTip text={FIELD_TIPS.tools} /></label>
+              <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.tools.label')}<InfoTip text={FIELD_TIPS.tools} />{diffDot('tools')}</label>
               <div className="flex flex-wrap gap-1.5">
                 {tools.map((tool) => {
                   const stripped = strictStripSet.has(tool);
@@ -1407,7 +1570,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
             {!isLocal && (
             <div className="flex flex-col gap-1.5">
               <label className="flex items-center text-xs font-medium text-gray-400">
-                {t('panel.agentConfig.disallowedTools.label', { defaultValue: 'Disallowed Tools' })}
+                {t('panel.agentConfig.disallowedTools.label', { defaultValue: 'Disallowed Tools' })}{diffDot('disallowedTools')}
                 <InfoTip text={t('panel.agentConfig.disallowedTools.tip', {
                   defaultValue: 'CLI --disallowedTools 로 강제 차단. Tools(allow) 에 포함되어 있어도 우선됩니다. 모든 도구를 사용자 책임으로 두되, 특정 도구만 한 번에 금지하고 싶을 때 사용.',
                 })} />
@@ -1465,7 +1628,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
             {!isLocal && (
             <div className="grid grid-cols-2 gap-2">
               <div className="flex flex-col gap-1">
-                <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.maxTurns')}<InfoTip text={FIELD_TIPS.maxTurns} /></label>
+                <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.maxTurns')}<InfoTip text={FIELD_TIPS.maxTurns} />{diffDot('maxTurns')}</label>
                 <div className="flex items-stretch rounded border border-gray-700 bg-gray-800 focus-within:border-blue-500">
                   <button type="button" onClick={() => setMaxTurns((v) => { const step = v <= 100 ? 10 : v <= 1000 ? 50 : 100; return Math.max(1, v - step); })} className="flex w-7 items-center justify-center text-gray-500 transition-colors hover:bg-gray-700 hover:text-gray-200">
                     <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth={2}><line x1="2" y1="6" x2="10" y2="6" /></svg>
@@ -1477,21 +1640,21 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                 </div>
               </div>
               <div className="flex flex-col gap-1">
-                <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.isolation.label')}<InfoTip text={FIELD_TIPS.isolation} /></label>
+                <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.isolation.label')}<InfoTip text={FIELD_TIPS.isolation} />{diffDot('isolation')}</label>
                 <CustomSelect value={isolation} onChange={setIsolation} options={ISOLATION_OPTIONS} />
               </div>
               <div className="flex flex-col gap-1">
-                <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.effort.label')}<InfoTip text={FIELD_TIPS.effort} /></label>
+                <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.effort.label')}<InfoTip text={FIELD_TIPS.effort} />{diffDot('effort')}</label>
                 <CustomSelect value={isOpus ? effort : 'default'} onChange={setEffort} options={EFFORT_OPTIONS} disabled={!isOpus} />
               </div>
               {/* §5.3 v4.89 — 자기 기억 범위. 이 에이전트가 세션을 넘어 무엇을 기억할지 정한다. */}
               <div className="flex flex-col gap-1">
-                <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.memory.label')}<InfoTip text={FIELD_TIPS.memory} /></label>
+                <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.memory.label')}<InfoTip text={FIELD_TIPS.memory} />{diffDot('memory')}</label>
                 <CustomSelect value={memory} onChange={setMemory} options={MEMORY_OPTIONS} />
               </div>
               {/* §5.3 v4.89 — 서브에이전트 중첩 깊이. 0 = 미지정(CLI 기본 3층). */}
               <div className="flex flex-col gap-1">
-                <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.subagentDepth.label')}<InfoTip text={FIELD_TIPS.subagentDepth} /></label>
+                <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.subagentDepth.label')}<InfoTip text={FIELD_TIPS.subagentDepth} />{diffDot('subagentDepth')}</label>
                 <div className="flex items-stretch rounded border border-gray-700 bg-gray-800 focus-within:border-blue-500">
                   <button type="button" onClick={() => setSubagentDepth((v) => Math.max(0, v - 1))} className="flex w-7 items-center justify-center text-gray-500 transition-colors hover:bg-gray-700 hover:text-gray-200">
                     <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth={2}><line x1="2" y1="6" x2="10" y2="6" /></svg>
@@ -1511,7 +1674,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
               </div>
               {/* §4 v2.88 — API 비용 상한($). 0 = 무제한. 양수면 헤드리스 스폰에 --max-budget-usd 전달. */}
               <div className="flex flex-col gap-1">
-                <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.maxBudgetUsd', { defaultValue: 'Budget ($, 0=∞)' })}<InfoTip text={FIELD_TIPS.maxBudgetUsd} /></label>
+                <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.maxBudgetUsd', { defaultValue: 'Budget ($, 0=∞)' })}<InfoTip text={FIELD_TIPS.maxBudgetUsd} />{diffDot('maxBudgetUsd')}</label>
                 <div className="flex items-stretch rounded border border-gray-700 bg-gray-800 focus-within:border-blue-500">
                   <span className="flex w-7 items-center justify-center text-sm text-gray-500">$</span>
                   <input
@@ -1539,28 +1702,57 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
               <div className="grid grid-cols-2 gap-2.5">
                 <div className="flex flex-col gap-1">
                   <label className="flex items-center text-[12px] font-medium text-gray-500">
-                    {t('panel.agentConfig.fallbackModel.label')}
+                    {t('panel.agentConfig.fallbackModel.label')}{diffDot('fallbackModel')}
                     <InfoTip text={t('panel.agentConfig.fallbackModel.tip')} />
                   </label>
-                  <input
-                    type="text"
-                    value={fallbackModel}
-                    onChange={(e) => setFallbackModel(e.target.value)}
-                    placeholder={t('panel.agentConfig.fallbackModel.placeholder')}
-                    className="min-w-0 rounded border border-gray-700 bg-gray-800 px-2 py-1.5 text-sm text-gray-200 outline-none focus:border-blue-500"
-                  />
+                  <CustomSelect value={effectiveFallbackValue} onChange={handleFallbackChange} options={FALLBACK_MODEL_OPTIONS} />
+                  {fallbackCustom && (
+                    <input
+                      type="text"
+                      value={fallbackModel}
+                      onChange={(e) => setFallbackModel(e.target.value)}
+                      placeholder={t('panel.agentConfig.fallbackModel.placeholder')}
+                      className="mt-0.5 min-w-0 rounded border border-gray-700 bg-gray-800 px-2 py-1.5 font-mono text-[12px] text-gray-200 outline-none focus:border-blue-500"
+                    />
+                  )}
                 </div>
                 <div className="flex flex-col gap-1">
                   <label className="flex items-center text-[12px] font-medium text-gray-500">
-                    {t('panel.agentConfig.autoCompact.label')}
+                    {t('panel.agentConfig.autoCompact.label')}{diffDot('autoCompact')}
                     <InfoTip text={t('panel.agentConfig.autoCompact.tip')} />
                   </label>
                   <CustomSelect value={autoCompact} onChange={setAutoCompact} options={AUTOCOMPACT_OPTIONS} />
+                  {/* §4 (CLI 사양 추종) — 위 드롭다운은 "얼마나 차면 접는가"(창 임계)이고, 아래 둘은
+                      "언제 접는가"(턴 경계 / 에이전트 판단)다. 축이 달라 함께 켤 수 있다. */}
+                  <label className="mt-2 flex items-start gap-2 text-[12px] text-gray-400">
+                    <input
+                      type="checkbox"
+                      checked={compactAfterTurn}
+                      onChange={(e) => setCompactAfterTurn(e.target.checked)}
+                      className="mt-0.5 h-3.5 w-3.5 accent-blue-500"
+                    />
+                    <span>
+                      {t('panel.agentConfig.compactAfterTurn.label')}{diffDot('compactAfterTurn')}
+                      <span className="ml-1 text-gray-600">{t('panel.agentConfig.compactAfterTurn.hint')}</span>
+                    </span>
+                  </label>
+                  <label className="flex items-start gap-2 text-[12px] text-gray-400">
+                    <input
+                      type="checkbox"
+                      checked={agentCanCompact}
+                      onChange={(e) => setAgentCanCompact(e.target.checked)}
+                      className="mt-0.5 h-3.5 w-3.5 accent-blue-500"
+                    />
+                    <span>
+                      {t('panel.agentConfig.agentCanCompact.label')}{diffDot('agentCanCompact')}
+                      <span className="ml-1 text-gray-600">{t('panel.agentConfig.agentCanCompact.hint')}</span>
+                    </span>
+                  </label>
                 </div>
               </div>
               <div className="flex flex-col gap-1">
                 <label className="flex items-center text-[12px] font-medium text-gray-500">
-                  {t('panel.agentConfig.settingSources.label')}
+                  {t('panel.agentConfig.settingSources.label')}{diffDot('settingSources')}
                   <InfoTip text={t('panel.agentConfig.settingSources.tip')} />
                 </label>
                 <div className="flex flex-wrap gap-1.5">
@@ -1592,7 +1784,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                   className="mt-0.5 h-3.5 w-3.5 accent-blue-500"
                 />
                 <span>
-                  {t('panel.agentConfig.excludeDynamicSections.label')}
+                  {t('panel.agentConfig.excludeDynamicSections.label')}{diffDot('excludeDynamicSystemPromptSections')}
                   <span className="ml-1 text-gray-600">{t('panel.agentConfig.excludeDynamicSections.hint')}</span>
                 </span>
               </label>
@@ -1604,7 +1796,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                   className="mt-0.5 h-3.5 w-3.5 accent-amber-500"
                 />
                 <span>
-                  {t('panel.agentConfig.safeMode.label')}
+                  {t('panel.agentConfig.safeMode.label')}{diffDot('safeMode')}
                   <span className="ml-1 text-amber-500/80">{t('panel.agentConfig.safeMode.warn')}</span>
                 </span>
               </label>
@@ -1617,7 +1809,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                   className="mt-0.5 h-3.5 w-3.5 accent-violet-500"
                 />
                 <span>
-                  {t('panel.agentConfig.forwardSubagentText.label')}
+                  {t('panel.agentConfig.forwardSubagentText.label')}{diffDot('forwardSubagentText')}
                   <span className="ml-1 text-gray-600">{t('panel.agentConfig.forwardSubagentText.hint')}</span>
                 </span>
               </label>
@@ -1629,7 +1821,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                   className="mt-0.5 h-3.5 w-3.5 accent-blue-500"
                 />
                 <span>
-                  {t('panel.agentConfig.replayUserMessages.label')}
+                  {t('panel.agentConfig.replayUserMessages.label')}{diffDot('replayUserMessages')}
                   <span className="ml-1 text-gray-600">{t('panel.agentConfig.replayUserMessages.hint')}</span>
                 </span>
               </label>
@@ -1641,13 +1833,13 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                   className="mt-0.5 h-3.5 w-3.5 accent-blue-500"
                 />
                 <span>
-                  {t('panel.agentConfig.promptSuggestions.label')}
+                  {t('panel.agentConfig.promptSuggestions.label')}{diffDot('promptSuggestions')}
                   <span className="ml-1 text-gray-600">{t('panel.agentConfig.promptSuggestions.hint')}</span>
                 </span>
               </label>
               <div className="flex flex-col gap-1">
                 <label className="flex items-center text-[12px] font-medium text-gray-500">
-                  {t('panel.agentConfig.betas.label')}
+                  {t('panel.agentConfig.betas.label')}{diffDot('betas')}
                   <InfoTip text={t('panel.agentConfig.betas.tip')} />
                 </label>
                 <input
@@ -1667,7 +1859,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                 </span>
                 <div className="grid grid-cols-2 gap-2.5">
                   <div className="flex flex-col gap-1">
-                    <label className="text-[12px] text-gray-500">{t('panel.agentConfig.bashTimeout.defaultLabel')}</label>
+                    <label className="text-[12px] text-gray-500">{t('panel.agentConfig.bashTimeout.defaultLabel')}{diffDot('bashDefaultTimeoutMs')}</label>
                     <div className="flex items-stretch rounded border border-gray-700 bg-gray-800 focus-within:border-blue-500">
                       <input
                         type="number"
@@ -1681,7 +1873,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                     </div>
                   </div>
                   <div className="flex flex-col gap-1">
-                    <label className="text-[12px] text-gray-500">{t('panel.agentConfig.bashTimeout.maxLabel')}</label>
+                    <label className="text-[12px] text-gray-500">{t('panel.agentConfig.bashTimeout.maxLabel')}{diffDot('bashMaxTimeoutMs')}</label>
                     <div className="flex items-stretch rounded border border-gray-700 bg-gray-800 focus-within:border-blue-500">
                       <input
                         type="number"
@@ -1710,7 +1902,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                 IDE 입력창의 스킬 드롭다운을 로컬에서 감춘 것과 같은 이유로 여기서도 뜨지 않는다. */}
             {!isLocal && (
             <div className="flex flex-col gap-1.5">
-              <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.defaultSkills')}<InfoTip text={FIELD_TIPS.skills} /></label>
+              <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.defaultSkills')}<InfoTip text={FIELD_TIPS.skills} />{diffDot('skills')}</label>
               <div className="flex flex-wrap gap-1.5">
                 {skills.map((s) => {
                   const info = availableSkills.find((a) => a.name === s);

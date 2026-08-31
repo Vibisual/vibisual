@@ -15,12 +15,13 @@
  *     (§3.1 서버 = SSOT, 클라 = View).
  */
 
-import { agentBadgeShare, isSessionRunning } from '@vibisual/shared';
+import { agentBadgeShare, isSessionRunning, resolveSessionRunState } from '@vibisual/shared';
 import type {
   BubbleData,
   ProjectAgentCounts,
   QueuedCommand,
   RunningSubagentTask,
+  SessionRunState,
   SubAgent,
 } from '@vibisual/shared';
 import { NODE_STATUS_RUN_STATE, buildSessionRunInputs } from '../../utils/sessionStatus.js';
@@ -127,4 +128,78 @@ export function resolveHeaderAgentCounts(
     return headerCountsFromServed(served);
   }
   return computeHeaderAgentCounts(src);
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * 에이전트 **한 줄**의 실행 요약 — [창과 버블] 메뉴 목록이 쓰는 값.
+ *
+ * 배지(위 집계)는 프로젝트 전체를 하나의 숫자로 접는다. 그런데 그 배지를 눌러 열리는 목록은
+ * 종전에 **실행 상태를 아예 그리지 않았다** — 왼쪽 도트가 "이 에이전트에 IDE 창이 떠 있는가"만
+ * 말했고, 하필 그 색이 세션 도트의 "도는 중"과 **같은 파랑**이었다. 그래서 세션이 파랗게 도는
+ * 에이전트라도 창이 없으면 목록에서는 불이 꺼진 것으로 보였다(사용자 보고: "분명 파란불로 세션
+ * 동작중인게 있는데 여기선 불이 꺼져있어").
+ *
+ * 판정은 **배지와 같은 입력·같은 함수**를 쓴다. 목록이 자기 식으로 다시 세면 배지가 `4/52` 인데
+ * 목록에는 도는 줄이 하나도 없는 식으로 둘이 갈라진다.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/** 목록 한 줄이 그리는 값 — 색은 `state`, 숫자는 `running/sessions`. */
+export interface AgentRunSummary {
+  /** 도트 색·라벨 어휘(세션 탭·사이드바와 **같은 표**를 쓴다). */
+  state: SessionRunState;
+  /** 이 에이전트의 세션 수(세션이 없으면 자기 자신을 1로 친다 — 배지와 같은 규칙). */
+  sessions: number;
+  /** 그중 지금 도는 수. */
+  running: number;
+}
+
+/** `resolveAgentRunSummary` 가 store 에서 집어 오는 조각들. */
+export interface AgentRunSummarySources {
+  subAgents: Record<string, SubAgent[]>;
+  queuedCommands: Record<string, QueuedCommand[]>;
+  runningSubagentTasks: Record<string, RunningSubagentTask[]>;
+  /** 사용자가 완료를 확인한 세션들(`acknowledgedSubAgents`) — 초록(미확인)/회색(확인)을 가른다. */
+  acknowledged: Record<string, true>;
+}
+
+/**
+ * 에이전트 버블 하나의 표시 상태를 접는다.
+ *
+ * 우선순위는 **도는 것이 먼저**다 — 지난 턴이 실패했든 예전에 끝났든, 지금 도는 세션이 하나라도
+ * 있으면 사용자에게 그 줄은 "도는 중"이다(배지의 `running > 0 → 파랑` 과 같은 감각). 그다음이
+ * 실패, 그다음이 "끝났는데 아직 안 봤다", 마지막이 조용함이다.
+ *
+ * ⚠ `running` 숫자는 `isSessionRunning` 으로, 색은 `resolveSessionRunState` 로 각각 낸다 —
+ *   후자는 `error` 를 먼저 보므로(실패한 턴이 자식 때문에 "도는 중"으로 세탁되면 안 된다) 그것으로
+ *   숫자까지 세면 배지와 목록의 분자가 갈라진다. 입력(`buildSessionRunInputs`)은 한 번만 만든다.
+ */
+export function resolveAgentRunSummary(
+  agent: BubbleData,
+  src: AgentRunSummarySources,
+): AgentRunSummary {
+  const subs = src.subAgents[agent.id] ?? [];
+  const commands = src.queuedCommands[agent.id];
+  const runningTasks = src.runningSubagentTasks[agent.id];
+  const inputs = subs.map((sub) => buildSessionRunInputs({
+    sub,
+    commands,
+    runningTasks,
+    acknowledged: src.acknowledged[sub.id] === true,
+  }));
+  const share = agentBadgeShare({
+    bubbleRunning: bubbleRunning(agent),
+    sessionRunning: inputs.map(isSessionRunning),
+  });
+  const sessionStates = inputs.map(resolveSessionRunState);
+  const bubbleState = NODE_STATUS_RUN_STATE[agent.status];
+
+  const state: SessionRunState = share.running > 0
+    ? 'running'
+    : bubbleState === 'error' || sessionStates.includes('error')
+      ? 'error'
+      : agent.status === 'completed' || sessionStates.includes('doneUnseen')
+        ? 'doneUnseen'
+        : 'done';
+
+  return { state, sessions: share.sessions, running: share.running };
 }

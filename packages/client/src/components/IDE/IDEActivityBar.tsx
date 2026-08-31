@@ -1,13 +1,18 @@
-import { memo, useCallback, useEffect } from 'react';
+import { memo, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useGraphStore, selectIDEOverlay, countProjectBookmarks } from '../../stores/graphStore.js';
 import { useIDEPaneValue, useIDEPaneActions } from './idePane.js';
 import type { IDEViewType } from '../../stores/graphStore.js';
+import { IDEContextMenu, type ContextMenuItem } from './IDEContextMenu.js';
+import { buildExplorerActivityMenuItems } from './explorerContextMenu.js';
+import { useIDEProjectRoot } from './useIDEProjectRoot.js';
+import { openFolderByPath } from './useWorkspaceExplorer.js';
 import { useRunningSubagentCount } from './IDERunningSubagentsView.js';
 import { useHookFiring } from './IDEHooksView.js';
 import { computeGoalIndicator } from './goalIndicator.js';
 import { countRunning, useRunSessions } from '../../stores/runSessions.js';
 import { fallbackViewForProvider, isViewAllowedForProvider } from './ideProviderViews.js';
+import { useIDEBodyLayout } from './ideBodyLayoutContext.js';
 
 interface ActivityItem {
   view: IDEViewType;
@@ -33,6 +38,9 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
   const activeView = useIDEPaneValue((o) => o.activeView);
   const { setActiveView, toggleSidebar } = useIDEPaneActions();
   const sidebarCollapsed = useIDEPaneValue((o) => o.sidebarCollapsed);
+  // 창이 좁아 사이드바가 서랍인가 — 그렇다면 항목을 누를 때 그 서랍까지 펴 줘야 한다
+  //   (안 그러면 뷰만 조용히 바뀌고 화면에는 아무 일도 안 일어난 것처럼 보인다).
+  const { navDrawer, sidebarDrawer, setNavOpen } = useIDEBodyLayout();
 
   // §5.5 #17-7 v4.93 — 북마크는 덮개 패널이 아니라 사이드바 뷰('bookmarks')다. 배지 = 보관 개수.
   //   (프로젝트별로 갈라 담기) 개수는 **지금 보고 있는 프로젝트 칸**만 센다 — 목록(IDEBookmarkView)과
@@ -121,21 +129,55 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
     return null;
   })();
 
+  /**
+   * §5.5 #17-19 ⑦ — 활동바 **파일** 우클릭 = 이 프로젝트 폴더를 OS 탐색기에서 연다.
+   *
+   * 사이드바를 열지 않아도 늘 떠 있는 자리라 여기서 답할 물음은 하나다 — "그 폴더를 열어 달라".
+   * 만들기·이름 바꾸기·삭제는 **트리 안**(탐색기 행 우클릭)에 산다: 화면에 트리가 없는 채로
+   * 파일을 만들면 만들어진 것이 어디 갔는지 보이지 않는다.
+   */
+  const filesRoot = useIDEProjectRoot();
+  const [filesMenu, setFilesMenu] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(null);
+  const handleFilesContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    // IDE 창은 DOM 상 캔버스의 자식이라(§5.5 #17-6) 손짓을 여기서 멈춰 세운다.
+    e.stopPropagation();
+    setFilesMenu({
+      x: e.clientX,
+      y: e.clientY,
+      items: buildExplorerActivityMenuItems(
+        { hasProject: !!filesRoot },
+        {
+          revealFolder: () => { if (filesRoot) openFolderByPath(filesRoot, ''); },
+          copyPath: () => { if (filesRoot) void navigator.clipboard?.writeText(filesRoot).catch(() => { /* 거부는 무시 */ }); },
+        },
+        t,
+      ),
+    });
+  }, [filesRoot, t]);
+
   const handleClick = useCallback((view: IDEViewType) => {
     // v4.93·v4.95 — 북마크·세션 요약·실행 중 서브에이전트가 차례로 덮개를 벗어, 활동바의 모든 항목이
     // 이 한 함수를 탄다(같은 항목 재클릭 = 접힘). 상호 배타로 닫아 줄 덮개는 더 이상 없다.
     if (activeView === view && !sidebarCollapsed) {
       toggleSidebar();
+      // 서랍이었다면 접는 쪽도 서랍을 함께 닫는다 — 접힌 사이드바 자리에 빈 서랍만 남지 않게.
+      if (sidebarDrawer) setNavOpen(false);
     } else {
       setActiveView(view);
       if (sidebarCollapsed) toggleSidebar();
+      if (sidebarDrawer) setNavOpen(true);
     }
-  }, [activeView, sidebarCollapsed, setActiveView, toggleSidebar]);
+  }, [activeView, sidebarCollapsed, sidebarDrawer, setNavOpen, setActiveView, toggleSidebar]);
 
   return (
-    // §4 v3.24 — 폰(max-md)에선 타이틀바 토글로 열리는 오버레이(본문을 상시 짓누르지 않게).
-    //   사이드바(v3.18 max-md 오버레이, left-12)와 나란히 뜨도록 좌측 고정 + 불투명 배경.
-    <div className="flex w-12 flex-shrink-0 flex-col items-center gap-1 border-r border-gray-700 bg-gray-900/80 py-2 max-md:absolute max-md:inset-y-0 max-md:left-0 max-md:z-30 max-md:bg-gray-900">
+    // §4 v3.24 — 서랍일 때는 타이틀바 토글로 열리는 오버레이(본문을 상시 짓누르지 않게).
+    //   사이드바(v3.18 오버레이, left-12)와 나란히 뜨도록 좌측 고정 + 불투명 배경.
+    //   판정은 뷰포트 미디어 쿼리가 아니라 **이 창의 폭**이다(`ideResponsive`) — 넓은 화면에서
+    //   창만 좁힌 경우에도 접혀야 하고, 그 조건은 `max-md` 가 모른다.
+    <div className={`flex w-12 flex-shrink-0 flex-col items-center gap-1 border-r border-gray-700 py-2 ${
+      navDrawer ? 'absolute inset-y-0 left-0 z-40 bg-gray-900' : 'bg-gray-900/80'
+    }`}>
       {ACTIVITIES.filter((item) => show(item.view)).map((item) => {
         const isActive = activeView === item.view && !sidebarCollapsed;
         return (
@@ -143,6 +185,7 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
             key={item.view}
             type="button"
             onClick={() => handleClick(item.view)}
+            {...(item.view === 'files' ? { onContextMenu: handleFilesContextMenu } : {})}
             className={`flex h-10 w-10 items-center justify-center rounded transition-colors ${
               isActive
                 ? 'border-l-2 border-blue-400 bg-gray-800 text-white'
@@ -428,6 +471,11 @@ export const IDEActivityBar = memo(function IDEActivityBar(): React.JSX.Element 
             </span>
           )}
         </button>
+      )}
+
+      {/* §5.5 #17-19 ⑦ — 활동바 **파일** 우클릭 메뉴. 위젯은 IDE 공용 하나를 그대로 쓴다. */}
+      {filesMenu && (
+        <IDEContextMenu x={filesMenu.x} y={filesMenu.y} items={filesMenu.items} onClose={() => setFilesMenu(null)} />
       )}
     </div>
   );

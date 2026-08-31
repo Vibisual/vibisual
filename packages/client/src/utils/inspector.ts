@@ -1,5 +1,9 @@
 /** DOM Inspector utilities — element info extraction & AI-friendly clipboard format */
 
+import { WORKSPACE_SITE_SOURCE_ATTR } from '@vibisual/shared';
+
+import { siteRelPathFromUrl } from './inspectorSite.js';
+
 export const INSPECTOR_OVERLAY_ID = 'vibisual-inspector-overlay';
 
 /**
@@ -229,6 +233,9 @@ function buildAttrs(el: Element, skipKeys: Set<string>): string {
       if (idx >= 0) rank = 10 + idx;
     }
 
+    // 우리가 심어 둔 원본 위치는 `[Source]` 줄이 이미 말한다 — 속성 목록에 또 나오면 잡음이다.
+    if (n === WORKSPACE_SITE_SOURCE_ATTR) continue;
+
     let v = attr.value;
     if (v.length > 60) v = v.substring(0, 60) + '…';
     items.push({ rank, out: v === '' ? n : `${n}="${v}"` });
@@ -275,6 +282,24 @@ function buildShortPath(el: Element): string {
   return segStrs.join(' > ');
 }
 
+/**
+ * §5.5 #17-27 ⑮ (i) — 워크스페이스 페이지의 요소가 들고 있는 **원본 줄:칸**.
+ *
+ * 스크립트가 만든 요소에는 자기 자리가 없으므로 가장 가까운 조상까지 거슬러 올라가고, 몇 단계
+ * 위였는지 함께 돌려준다 — "정확하지 않다"를 숨기는 것보다 그 편이 쓸모 있다.
+ */
+function siteSourceOf(el: Element): { at: string; hops: number } | null {
+  let cur: Element | null = el;
+  let hops = 0;
+  while (cur) {
+    const at = cur.getAttribute(WORKSPACE_SITE_SOURCE_ATTR);
+    if (at) return { at, hops };
+    cur = cur.parentElement;
+    hops += 1;
+  }
+  return null;
+}
+
 /** Build a tier-aware, AI-friendly representation of a DOM element. */
 export function buildClipboardText(el: Element, iframeSrc?: string): string {
   // Tier D: cross-origin iframe — only the src is accessible.
@@ -288,7 +313,26 @@ export function buildClipboardText(el: Element, iframeSrc?: string): string {
   }
 
   const lines: string[] = [];
-  if (iframeSrc) lines.push(`[IFrame] ${iframeSrc}`);
+
+  /**
+   * ⑮ (i) — 같은 오리진(개발 서버)에서 미리보기 페이지를 집었을 때. 패키지 앱에서는 오리진이
+   * 달라 `inspectorSite` 의 왕복이 이 자리를 대신하는데, **두 갈래가 다른 글을 내면 안 된다** —
+   * 개발에서 본 형식과 배포에서 본 형식이 다르면 받는 쪽이 두 가지를 배워야 한다.
+   */
+  const siteRel = iframeSrc ? siteRelPathFromUrl(iframeSrc) : null;
+  if (siteRel !== null) {
+    const src = siteSourceOf(el);
+    if (src) {
+      const suffix = src.hops > 0
+        ? ` (ancestor +${src.hops} — this element was created at runtime)`
+        : '';
+      lines.push(`[Source] ${siteRel}:${src.at}${suffix}`);
+    } else {
+      lines.push(`[Page] ${siteRel}`);
+    }
+  } else if (iframeSrc) {
+    lines.push(`[IFrame] ${iframeSrc}`);
+  }
 
   const rx = getReactInfo(el);
   const text = getInnerText(el);
@@ -332,6 +376,7 @@ export function buildClipboardText(el: Element, iframeSrc?: string): string {
   const attrs = buildAttrs(el, new Set(['id']));
   if (attrs) lines.push(`[Attrs] ${attrs}`);
   lines.push(`[Path] ${buildShortPath(el)}`);
+  if (siteRel !== null) lines.push('[Hint] Read source file for full context.');
   return lines.join('\n');
 }
 

@@ -237,11 +237,8 @@ report a vulnerability privately.
 The desktop app — the canvas, the IDE, the agents, the plugins — installs and
 runs with no account, no license key, and no usage cap, under Apache-2.0.
 
-> **Using Vibisual is free, and stays free.**
-
-Paid add-ons will come later, built **on top of** the free app rather than
-carved out of it: extra capacity, work that runs somewhere other than your own
-machine, features built for teams. The app you install stays free to use.
+Paid add-ons may come later — extra capacity, work that runs somewhere other than
+your own machine, features built for teams.
 
 ## Star history
 

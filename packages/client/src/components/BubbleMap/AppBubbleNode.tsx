@@ -5,8 +5,10 @@ import type { NodeProps } from '@xyflow/react';
 
 import type { AppBubbleShape } from '../../apps/registry.js';
 import { getInternalApp } from '../../apps/registry.js';
+import { openAppWindow } from '../../apps/appWindows.js';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
+import { isInteractiveTarget, useBubbleSelectGesture } from './bubbleSelectGesture.js';
 
 /**
  * §5.13 v4.45 — 내부 앱 버블 노드.
@@ -85,7 +87,16 @@ export const AppBubbleNode = memo(function AppBubbleNode({
    * 캡처·플레이 버블이 같은 이유로 둘을 함께 본다(v4.68).
    */
   const selectedAppBubbleId = useGraphStore((s) => s.selectedAppBubbleId);
-  const isSelected = selected === true || selectedAppBubbleId === data.appBubbleId;
+  /**
+   * 선택 링은 `selectIntentId`(캔버스가 나눠 쓰는 "지금 고른 것 한 칸")도 함께 본다.
+   *
+   * 더블클릭이 있는 버블은 실제 선택을 240ms 미루므로(`bubbleSelectGesture`), 그 사이 눈에 보이는
+   * 반응은 이 한 칸이 낸다. 에이전트 버블이 원래 쓰던 것과 **같은 칸**이라 링은 언제나 하나다.
+   */
+  const selectIntentId = useGraphStore((s) => s.selectIntentId);
+  const isSelected = selected === true
+    || selectedAppBubbleId === data.appBubbleId
+    || selectIntentId === data.appBubbleId;
 
   const [menu, setMenu] = useState<MenuPos | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -109,51 +120,56 @@ export const AppBubbleNode = memo(function AppBubbleNode({
     if (!app) return;
     const info = Object.values(projects).find((p) => p.name === data.projectName);
     const projectId = info?.path ?? data.projectName;
-    void app.open({ projectId, ref: data.refKey });
-  }, [app, projects, data.projectName, data.refKey]);
+    // §5.13 (S-1) — **앱 안 창**으로 연다. 밖으로 나가는 것은 그 창을 끌어냈을 때뿐이다.
+    openAppWindow({ appId: data.appId, projectId, ref: data.refKey, title: data.title });
+  }, [app, projects, data.projectName, data.refKey, data.appId, data.title]);
 
   /**
-   * 더블클릭 — 그 앱의 창을 연다.
+   * 선택 — 에이전트(IDE) 버블과 **같은 상태기계**를 쓴다(`bubbleSelectGesture`).
+   *
+   * 종전에는 이 버블만 "누르는 순간 곧바로 선택" 이었다. 그래서 더블클릭으로 앱을 열 때마다
+   * 1타에서 선택이 발동해 우측 옵션 패널이 함께 열렸다 — 에이전트 버블에는 없는 동작이다.
+   * 이제 규칙이 한 벌이다: 움직임 없이 뗐을 때만 선택하고, 더블클릭 창(240ms) 안에 두 번째
+   * 누름이 오면 선택을 접는다. 링은 지연 없이 켜지므로 손끝 반응은 그대로다.
+   *
+   * 핸들러 묶음이 **캡처 단계 pointerdown** 을 쓰는 이유는 `bubbleSelectGesture` 에 적어 두었다
+   * (React Flow 의 `d3-drag` 가 버블 단계 누름을 통째로 삼킨다 — v4.69 에서 실제로 겪은 자리).
+   */
+  const gesture = useBubbleSelectGesture({
+    // 미등록 앱 버블에는 열 창이 없다 — 더블클릭할 일이 없으니 지연도 붙이지 않는다.
+    doubleClickable: app !== undefined,
+    select: () => selectAppBubble(data.appBubbleId),
+    setIntent: (active) => {
+      useGraphStore.getState().setSelectIntent(active ? data.appBubbleId : null);
+    },
+    ignore: (e) => isInteractiveTarget(e.target),
+  });
+
+  /**
+   * 더블클릭 — 그 앱의 창을 연다. **선택은 하지 않는다.**
    *
    * §5.13 (H) 개정 전에는 "안 깔렸으면 설치" 라는 두 번째 뜻이 있었다. 설치라는 단계가
    * 사라졌으므로 더블클릭의 뜻은 이제 하나다.
+   *
+   * (S-1) 그 창은 **앱 안 창**이다 — 종전처럼 곧바로 OS 창이 뜨지 않는다.
    */
   const handleDoubleClick = useCallback(
     (e: React.MouseEvent): void => {
       e.stopPropagation();
+      gesture.cancelPendingSelect();
       open();
     },
-    [open],
+    [gesture, open],
   );
-
-  /**
-   * 선택 — 누르는 순간 선택된다. **반드시 캡처 단계(`onPointerDownCapture`)로 받는다.**
-   *
-   * 누르는 순간인 이유: 기존 버블은 React Flow 가 누를 때 선택하고 그대로 드래그가 이어진다.
-   * 앱 버블만 손을 뗀 뒤에 선택되면 "끌고 갔는데 선택은 안 된" 상태가 되어 감각이 어긋난다.
-   *
-   * ⚠ 캡처 단계인 이유(v4.69 — v4.61·v4.68 두 번의 수정이 화면에서 안 먹던 진짜 원인):
-   * 드래그 가능한 노드에는 React Flow 가 `d3-drag` 를 **노드 래퍼**에 걸어 두는데, d3-drag 는
-   * mousedown 을 받자마자 `stopImmediatePropagation()` 을 호출한다. React 18 은 핸들러를
-   * 루트 컨테이너에 위임(delegate)하므로, 버블 단계의 `onMouseDown` 은 루트까지 올라가지
-   * 못하고 **통째로 삼켜진다** — 스토어 배선과 패널 조건이 다 맞아도 "눌러도 선택이 안 되는"
-   * 버블이 되는 지점이 여기였다(우클릭·더블클릭만 살아 있던 이유도 같다: 그 둘은 d3-drag 가
-   * 막지 않는 이벤트다). 캡처 단계 리스너는 이벤트가 래퍼에 닿기 **전에** 루트에서 먼저
-   * 발화하므로 이 차단을 타지 않는다. pointerdown 으로 받아 마우스·터치를 함께 커버한다.
-   * 이벤트는 막지 않는다 — 드래그가 그대로 이어져야 한다.
-   */
-  const handleSelect = useCallback((e: React.PointerEvent): void => {
-    if (e.button !== 0) return;
-    selectAppBubble(data.appBubbleId);
-  }, [selectAppBubble, data.appBubbleId]);
 
   const handleContextMenu = useCallback((e: React.MouseEvent): void => {
     e.preventDefault();
     e.stopPropagation();
     // 우클릭도 선택으로 친다 — 메뉴가 뜬 대상이 무엇인지 화면에 보여야 한다.
-    selectAppBubble(data.appBubbleId);
+    // 대상이 이미 확정된 길이라 더블클릭 지연을 태우지 않는다.
+    gesture.selectNow();
     setMenu({ x: e.clientX, y: e.clientY });
-  }, [selectAppBubble, data.appBubbleId]);
+  }, [gesture]);
 
   // 이름·핀·삭제는 전부 store 한 경로로 — 우클릭 메뉴와 우측 옵션 패널이 같은 함수를 쓴다(v4.68).
   const rename = useCallback((): void => {
@@ -260,7 +276,7 @@ export const AppBubbleNode = memo(function AppBubbleNode({
     return (
       <>
         <div
-          onPointerDownCapture={handleSelect}
+          {...gesture.handlers}
           onContextMenu={handleContextMenu}
           className={`bubble-press flex cursor-pointer select-none items-center justify-center overflow-hidden border-dashed bg-gray-900/70 text-center leading-tight text-amber-300 ${
             dense ? 'rounded-md border px-1 text-[12px]' : 'rounded-lg border-2 px-2 text-[12px]'
@@ -351,7 +367,7 @@ export const AppBubbleNode = memo(function AppBubbleNode({
   return (
     <>
       <div
-        onPointerDownCapture={handleSelect}
+        {...gesture.handlers}
         onDoubleClick={handleDoubleClick}
         onContextMenu={handleContextMenu}
         title={t('panel.apps.openHint', { defaultValue: '더블클릭하면 열립니다.' })}

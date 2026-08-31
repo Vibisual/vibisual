@@ -1,5 +1,6 @@
-import { existsSync } from 'node:fs';
+import { existsSync, statSync, chmodSync } from 'node:fs';
 import { homedir } from 'node:os';
+import { join, dirname } from 'node:path';
 import * as pty from 'node-pty';
 import { getClaudeBin, buildInteractiveCliPrefill, buildBashTimeoutEnv, prepareInteractiveRulesDir, buildInteractivePluginBlockForAgent, getCmdResumeSession, parseCmdTermId, recordDiagnostic, killTree, type CmdTerminalController } from '@vibisual/server';
 import { isPathWithin } from '@vibisual/shared';
@@ -195,6 +196,49 @@ export function setTerminalCardIdentity(next: { port: number; token: string; ide
  * prefill 규약에는 영향이 없다: 우리는 `-c` 로 명령을 주는 것이 아니라 대화형 셸을 띄운 뒤
  * 350ms 후 stdin 에 문자열만 넣는다(Enter 는 사람이 친다 — §4 v2.63 ToS 합법선).
  */
+/** 실행 권한 확인은 프로세스당 한 번이면 된다(파일은 그 사이에 바뀌지 않는다). */
+let spawnHelperChecked = false;
+
+/**
+ * node-pty 의 `spawn-helper` 에 실행 권한이 없으면 돌려준다 — **macOS 에서 터미널이 하나도
+ * 안 뜨는 것**을 막는 마지막 방벽(2026-08-29 실기: v0.1.14 mac 설치본에서 로그인 창이
+ * "로그인 절차를 시작하지 못했습니다" 로 끝났고, 실제 오류는 `posix_spawnp failed.` 였다).
+ *
+ * npm 은 배포 tarball 을 만들 때 파일 모드를 644 로 눌러 버리는데, node-pty 는 그것을 되돌리는
+ * 스크립트가 없다. macOS 의 node-pty 는 이 helper 를 실행해 제어 터미널을 얻으므로 권한이
+ * 없으면 모든 `pty.spawn` 이 실패한다. 정본 수리는 패키징(after-pack.cjs)에서 하고, 여기서는
+ * 그 그물을 빠져나온 배치(로컬 `pnpm install` 직후 · 손으로 옮긴 설치본)를 구한다.
+ *
+ * 실패해도 던지지 않는다 — 권한을 못 고치는 자리(읽기 전용 설치)라면 spawn 이 원래 오류를
+ * 내게 두고, 진단에는 남긴다.
+ */
+function ensureSpawnHelperExecutable(platform: NodeJS.Platform = process.platform): void {
+  if (platform === 'win32' || spawnHelperChecked) return;
+  spawnHelperChecked = true;
+  const roots: string[] = [];
+  try {
+    // 번들 출력이 CJS 라 require.resolve 가 그대로 산다(node-pty 는 외부 의존성으로 남는다).
+    roots.push(dirname(dirname(require.resolve('node-pty'))));
+  } catch { /* 해석 실패 — 아래 패키지 경로로 폴백 */ }
+  if (process.resourcesPath) roots.push(join(process.resourcesPath, 'app', 'node_modules', 'node-pty'));
+
+  for (const root of roots) {
+    for (const helper of [
+      join(root, 'prebuilds', `${platform}-${process.arch}`, 'spawn-helper'),
+      join(root, 'build', 'Release', 'spawn-helper'),
+    ]) {
+      try {
+        if (!existsSync(helper)) continue;
+        if (statSync(helper).mode & 0o111) continue;
+        chmodSync(helper, 0o755);
+        recordDiagnostic('main', 'warn', `node-pty spawn-helper 에 실행 권한이 없어 755 로 복구했다: ${helper}`);
+      } catch (err) {
+        recordDiagnostic('main', 'error', `spawn-helper 권한 복구 실패: ${helper} — ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  }
+}
+
 export function pickShell(
   platform: NodeJS.Platform = process.platform,
   env: NodeJS.ProcessEnv = process.env,
@@ -234,6 +278,9 @@ export function createTerminal(sink: TermSink, spec: CreateTerminalSpec): { ok: 
       resizeTerminal(spec.termId, spec.cols ?? 0, spec.rows ?? 0);
       return { ok: true };
     }
+
+    // mac/linux — 첫 spawn 전에 node-pty 의 spawn-helper 실행 권한을 확인한다(위 주석 참고).
+    ensureSpawnHelperExecutable();
 
     const cwd = spec.cwd && existsSync(spec.cwd) ? spec.cwd : homedir();
     const { shell, shellArgs } = pickShell();

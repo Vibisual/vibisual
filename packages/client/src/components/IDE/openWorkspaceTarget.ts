@@ -14,7 +14,8 @@
  */
 import { resolveWorkspaceOpen, type WorkspaceOpenPlan, type WorkspacePathKind } from '@vibisual/shared';
 
-import { getInternalApp, workspaceOpenClaims } from '../../apps/registry.js';
+import { workspaceOpenClaims } from '../../apps/registry.js';
+import { openAppWindow } from '../../apps/appWindows.js';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { fetchCachedConversion, useMediaConvert } from '../../stores/mediaConvert.js';
 import { editorFileFromAbsPath } from './editorModel.js';
@@ -69,10 +70,11 @@ export async function openWorkspaceTarget(
       break;
 
     case 'app': {
-      const app = plan.appId === undefined ? undefined : getInternalApp(plan.appId);
-      // 창을 못 여는 환경(웹·구버전 preload)에서는 앱 대신 연결 프로그램으로 떨어진다 —
-      // 눌렀는데 아무 일도 안 일어나는 것보다 낫다.
-      const opened = app ? await app.open({ projectId: rootPath, file: target.relPath }) : false;
+      // §5.13 (S-6) — 버블 더블클릭과 **같은 문**으로 연다(앱 안 창). 밖으로 나가는 것은 그 창을
+      //   끌어냈을 때뿐이다 — 같은 파일이 누른 자리에 따라 다른 곳에서 열리면 안 된다.
+      const opened = plan.appId !== undefined
+        && openAppWindow({ appId: plan.appId, projectId: rootPath, file: target.relPath });
+      // 등록되지 않은 앱이면 연결 프로그램으로 떨어진다 — 눌렀는데 아무 일도 안 일어나는 것보다 낫다.
       if (!opened) await openExternally(target.absPath);
       break;
     }
@@ -109,8 +111,13 @@ export async function openWorkspaceTarget(
   return plan;
 }
 
-/** OS 연결 프로그램으로 넘긴다(§5.13 (R-6)). 실패해도 화면을 막지 않는다. */
-async function openExternally(absPath: string): Promise<void> {
+/**
+ * OS 연결 프로그램으로 넘긴다(§5.13 (R-6)). 실패해도 화면을 막지 않는다.
+ *
+ * 편집창의 페이지 미리보기(#17-27 ⑮ (b) [바깥 브라우저])도 이 함수를 부른다 — .html 의 연결
+ * 프로그램이 곧 기본 브라우저다(새 레일 ❌). `openFileByPath`(외부 **에디터**)와 헷갈리지 말 것.
+ */
+export async function openExternally(absPath: string): Promise<void> {
   try {
     await fetch('/api/open-external', {
       method: 'POST',

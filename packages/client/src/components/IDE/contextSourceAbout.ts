@@ -32,6 +32,7 @@ export const CONTEXT_ABOUT_KEY_BY_ID: Record<string, string> = {
   [CONTEXT_SOURCE_IDS.edges]: 'edges',
   [CONTEXT_SOURCE_IDS.feedback]: 'feedback',
   [CONTEXT_SOURCE_IDS.intentFirst]: 'intentFirst',
+  [CONTEXT_SOURCE_IDS.compactSelf]: 'compactSelf',
   [CONTEXT_SOURCE_IDS.cardCommon]: 'cardCommon',
   [CONTEXT_SOURCE_IDS.cardReport]: 'cardReport',
   [CONTEXT_SOURCE_IDS.cardQuestion]: 'cardQuestion',

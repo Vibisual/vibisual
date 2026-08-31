@@ -42,15 +42,18 @@ interface PreviewControlsProps {
 export function PreviewControls({ picker, snip }: PreviewControlsProps): React.JSX.Element {
   const { t } = useTranslation();
   return (
-    <div className="flex items-center gap-1">
+    // 이 줄은 **되돌아오는 유일한 문**이다(§7.16 — 조작은 헤더 한 곳). 그래서 좁아져도 줄지 않고
+    // (`shrink-0`), 자리가 모자라면 잘리는 대신 아랫줄로 접힌다(`flex-wrap`) — 한 번 잘려 나가면
+    // 폭 프리셋을 되돌릴 방법이 화면에서 사라진다.
+    <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
       {/* 폭 프리셋 — 실제 폭으로 렌더한다(축소 ❌). `compare` 는 폭 하나가 아니라 여러 폭을 나란히. */}
-      <div className="flex items-center overflow-hidden rounded border border-white/[0.08]">
+      <div className="flex shrink-0 items-center overflow-hidden rounded border border-white/[0.08]">
         {PREVIEW_DEVICE_PRESETS.map((preset) => (
           <button
             key={preset.id}
             type="button"
             onClick={() => picker.setDevice(preset.id)}
-            className={`px-1.5 py-0.5 text-[12px] transition-colors ${
+            className={`shrink-0 whitespace-nowrap px-1.5 py-0.5 text-[12px] transition-colors ${
               picker.device === preset.id
                 ? 'bg-sky-500/20 text-sky-300'
                 : 'text-gray-400 hover:bg-white/[0.06] hover:text-gray-200'
@@ -71,7 +74,7 @@ export function PreviewControls({ picker, snip }: PreviewControlsProps): React.J
       <button
         type="button"
         onClick={picker.togglePickMode}
-        className={`flex items-center gap-1 rounded border px-1.5 py-0.5 text-[12px] transition-colors ${
+        className={`flex shrink-0 items-center gap-1 whitespace-nowrap rounded border px-1.5 py-0.5 text-[12px] transition-colors ${
           picker.pickMode
             ? 'border-blue-400/60 bg-blue-500/20 text-blue-200'
             : 'border-white/[0.08] text-gray-400 hover:bg-white/[0.06] hover:text-gray-200'
@@ -87,7 +90,7 @@ export function PreviewControls({ picker, snip }: PreviewControlsProps): React.J
           type="button"
           onClick={snip.toggle}
           disabled={snip.busy}
-          className={`flex items-center gap-1 rounded border px-1.5 py-0.5 text-[12px] transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+          className={`flex shrink-0 items-center gap-1 whitespace-nowrap rounded border px-1.5 py-0.5 text-[12px] transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
             snip.snipMode
               ? 'border-sky-400/60 bg-sky-500/20 text-sky-200'
               : 'border-white/[0.08] text-gray-400 hover:bg-white/[0.06] hover:text-gray-200'

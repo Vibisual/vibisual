@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { WORKSPACE_DIR_ENTRY_MAX } from '@vibisual/shared';
-import type { WorkspaceEntry, WorkspaceDirListing, WorkspacePathInfo } from '@vibisual/shared';
+import type { WorkspaceEntry, WorkspaceDirListing, WorkspacePathInfo, ExternalPathInfo } from '@vibisual/shared';
 import { isWithinRoot } from './pathKey.js';
 
 /**
@@ -119,6 +119,30 @@ export function statWorkspacePath(root: string, relPath: string): WorkspacePathI
     };
   } catch {
     // 없음·권한 없음·끊긴 링크 — 셋 다 "열 수 없다" 로 같다(호출부가 404 로 옮긴다).
+    return null;
+  }
+}
+
+/**
+ * §5.5 #17-27 ⑬ (d) — 프로젝트 루트 **밖** 절대 경로 한 개의 정체를 잰다. 없으면 null.
+ *
+ * `statWorkspacePath` 와 갈라 둔 이유는 **답에 담기는 것이 다르기 때문**이다. 여기서 잰 경로가 갈 수 있는
+ * 곳은 시스템 탐색기 하나뿐이라(⑬ (d)), `executable` 을 재지 않는다 — 재서 실어 보내면 화면이 "실행할 수
+ * 있나" 를 묻게 되고, 그 순간 본문 글자로 임의 경로를 실행하는 길이 열린다. **재지 않는 것이 그 갈래를 막는
+ * 방법**이다. 루트 검사도 하지 않는다(루트 밖인 것이 전제) — 대신 이 함수를 부르는 라우트가
+ * loopback 화이트리스트 밖이라 **렌더러(사용자 창)만** 닿는다(§3.7).
+ *
+ * 상대 경로는 받지 않는다. 기준 없는 상대 경로는 서버의 cwd 를 뿌리로 삼아 엉뚱한 곳을 가리키므로,
+ * 절대 경로가 아니면 그 자리에서 null 이다.
+ */
+export function statExternalPath(absPath: string): ExternalPathInfo | null {
+  if (!path.isAbsolute(absPath)) return null;
+  const resolved = path.resolve(absPath);
+
+  try {
+    const st = fs.statSync(resolved);
+    return { absPath: resolved, kind: st.isDirectory() ? 'directory' : 'file' };
+  } catch {
     return null;
   }
 }

@@ -18,9 +18,29 @@ export function basenameOf(p: string): string {
   return parts[parts.length - 1] ?? '';
 }
 
-/** 첨부 절대경로에서 `.vibisual/attachments/<sessionId>/<rel...>` 을 파싱해 server GET URL 구성. */
-function buildAttachmentFetchUrl(p: string): string | null {
+/**
+ * 첨부 절대경로 → server GET URL. 두 갈래를 모두 푼다.
+ *
+ *  · `.vibisual/attachments/<sessionId>/<rel...>` — paste 첨부(원래 경로).
+ *  · `.vibisual/verify-demos/<demoId>/<file>` — §5.5 #17-35 ⑨ 시연 프레임. 검증 명령은 사본을
+ *    뜨지 않고 **원본을 그대로 가리키므로**(검증마다 쌓이던 사본 제거) 이 갈래가 없으면 명령 카드에
+ *    그림이 한 장도 뜨지 않는다. 서빙은 이미 있는 시연 프레임 라우트를 그대로 쓴다.
+ */
+export function buildAttachmentFetchUrl(p: string): string | null {
   const norm = p.replace(/\\/g, '/');
+
+  const demoMarker = '/.vibisual/verify-demos/';
+  const demoIdx = norm.indexOf(demoMarker);
+  if (demoIdx >= 0) {
+    const parts = norm.slice(demoIdx + demoMarker.length).split('/').filter(Boolean);
+    const demoId = parts[0];
+    const file = parts[1];
+    if (!demoId || !file) return null;
+    // 서버가 `rel` 을 `<demoId>/<file>` 꼴로 대조한다(레코드에 적힌 그대로여야 통과).
+    const rel = `${demoId}/${file}`;
+    return `${API_BASE}/api/verification-demos/${encodeURIComponent(demoId)}/frame?rel=${encodeURIComponent(rel)}`;
+  }
+
   const marker = '/.vibisual/attachments/';
   const idx = norm.indexOf(marker);
   if (idx < 0) return null;
@@ -39,7 +59,11 @@ export interface AttachmentThumb {
 
 /**
  * 첨부 경로 배열 → 렌더 가능한 썸네일 목록. blob preview 우선, 없으면 server 라우트로 폴백 blob.
- * 각 basename 은 인스턴스당 1회만 폴백 fetch(`doneRef`), 폴백 blob 은 언마운트 시 일괄 revoke.
+ * 각 경로는 인스턴스당 1회만 폴백 fetch(`doneRef`), 폴백 blob 은 언마운트 시 일괄 revoke.
+ *
+ * 폴백 캐시의 키는 basename 이 아니라 **전체 경로**다 — 시연 프레임은 `<demoId>/0.png` 처럼
+ * 파일명이 시연마다 겹친다(`0.png`). basename 으로 캐시하면 한 화면에 두 시연이 있을 때
+ * 나중 것이 앞 것의 그림을 그대로 보여 준다.
  */
 export function useAttachmentThumbs(paths: string[] | undefined): AttachmentThumb[] {
   const previews = useGraphStore((s) => s.attachmentPreviews);
@@ -53,8 +77,8 @@ export function useAttachmentThumbs(paths: string[] | undefined): AttachmentThum
     void (async () => {
       for (const p of paths ?? []) {
         const bn = basenameOf(p);
-        if (previews[bn] || doneRef.current.has(bn)) continue;
-        doneRef.current.add(bn);
+        if (previews[bn] || doneRef.current.has(p)) continue;
+        doneRef.current.add(p);
         const url = buildAttachmentFetchUrl(p);
         if (!url) continue;
         try {
@@ -64,7 +88,7 @@ export function useAttachmentThumbs(paths: string[] | undefined): AttachmentThum
           if (cancelled) return;
           const obj = URL.createObjectURL(blob);
           createdRef.current.push(obj);
-          setFetched((prev) => (prev[bn] ? prev : { ...prev, [bn]: obj }));
+          setFetched((prev) => (prev[p] ? prev : { ...prev, [p]: obj }));
         } catch {
           /* 폴백 실패 — 썸네일 없이 진행 */
         }
@@ -81,7 +105,7 @@ export function useAttachmentThumbs(paths: string[] | undefined): AttachmentThum
   return (paths ?? [])
     .map((p) => {
       const bn = basenameOf(p);
-      return { basename: bn, url: previews[bn] ?? fetched[bn] };
+      return { basename: bn, url: previews[bn] ?? fetched[p] };
     })
     .filter((a): a is AttachmentThumb => !!a.url);
 }

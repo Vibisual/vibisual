@@ -1,5 +1,8 @@
 <!doctype html>
-<html lang="ko">
+<!-- lang 은 부팅 기본값(shared `DEFAULT_UI_LOCALE`)이고, 이후 UI 언어를 따라 i18n 이 갱신한다
+     (§5.5 #17-22 ⑤-3 — CSS `:lang()` 문자 폴백 차례 · 크로미움 글꼴 폴백 · 스크린리더가 읽는 값).
+     여기 값을 손으로 바꾸지 말 것: 종전에 `ko` 가 박혀 있어 기본 로케일(en)과 어긋나 있었다. -->
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <!-- §4 v3.16 모바일 웹 접속 — maximum-scale=1 로 iOS 의 입력 포커스 자동 확대(레이아웃 붕괴 원인) 차단.

@@ -1,5 +1,7 @@
 import { join } from 'node:path';
 import { BrowserWindow, screen } from 'electron';
+import { isCursorDeepInside, stepAppEntry } from '@vibisual/shared';
+import { hidePopOutGhost } from './ghostFrame';
 
 // SCENARIO.md §5.4 #14-1 (v2.29) — 탭 Detach/Redock 별창 매니저.
 //
@@ -513,6 +515,14 @@ interface OverlayEntry {
    * 끌 동안 창을 칩 크기로 줄여 어디에 놓는지 보이게 하고 놓은 자리로 합칠지 말지를 가른다.
    */
   redock: OverlayRedockDrag | null;
+  /**
+   * §17-6 (H-5) — **최대화 상태를 우리가 쥔다.** `isMaximized()` 는 테두리 없는 창에서
+   * `unmaximize()` 뒤에도 참으로 남고(§5.4 #14-1 회귀), 투명 창의 네이티브 최대화는 플랫폼마다
+   * 되고 안 되고가 갈린다. 그래서 "지금 최대화인가"는 OS 가 아니라 이 값이 답한다.
+   */
+  maximized: boolean;
+  /** 최대화 직전의 자리 — 되돌릴 때 **정확히** 여기로 온다(어디로 갈지 OS 에 묻지 않는다). */
+  restoreBounds: { x: number; y: number; width: number; height: number } | null;
 }
 
 /** 합치기 드래그 한 판의 상태 — 끝나면 통째로 버린다(창에 남는 값은 없다). */
@@ -659,6 +669,12 @@ export function openOverlay(opts: {
    * 새로 뜨는 창이 부팅하면서 꺼내 그대로 이어 간다 — 없으면 종전대로 첫 화면에서 시작한다.
    */
   handoff?: unknown;
+  /**
+   * §17-6 (H-4) — **끌던 손 아래에서 그대로 이어지는 창.** 커서가 앱 경계를 넘는 그 순간
+   * 만들어지는 창이라, 뜨자마자 커서에 매달려 따라와야 "이 창이 밖으로 나왔다"가 된다.
+   * `grab` 은 창 좌상단에서 커서까지의 거리(px) — 앱 안에서 잡고 있던 그 지점을 물려받는다.
+   */
+  follow?: { grabX: number; grabY: number } | undefined;
 }): { windowId: number; reused: boolean } {
   // (판올림 번호 발급 대기) **손으로 끌어낸 창은 반드시 보여야 한다.** 전역 표시(Header 토글)가
   //   꺼진 채로 이 길을 타면 앱 안 창은 닫히는데 밖에도 아무것도 뜨지 않아, 사용자에게는 창이
@@ -679,6 +695,18 @@ export function openOverlay(opts: {
     // 이미 버블로 떠 있는 창을 다시 끌어냈다면 그 창을 펼쳐 준다(창 두 개 ❌ — 한 에이전트 한 창).
     if (opts.expanded && !existing.expanded) expandOverlayByWindowId(existing.id);
     keepOverlayOnTop(existing.window);
+    // (H-4) 이미 서 있던 창을 앱에서 다시 끌어냈다 — 그 창도 커서에 매달려야 "이 창이 나왔다"가
+    //   된다(안 매달면 창은 제자리에 있고 손만 움직여, 끌어낸 것이 아니라 그냥 켜진 것으로 보인다).
+    if (opts.follow && !overlayDrags.has(existing.id)) {
+      startOverlayFollow(existing, {
+        offX: opts.follow.grabX,
+        offY: opts.follow.grabY,
+        redockOnEnter: true,
+        handoff: opts.handoff,
+      });
+      // (H-6) ⑤ 이 창은 이미 서 있으므로 기다릴 것이 없다 — 윤곽선을 지금 걷는다(선이 창이 됐다).
+      hidePopOutGhost();
+    }
     // 이미 서 있는 창은 부팅을 다시 하지 않는다 — 짐이 있으면 그 창에 직접 건네야 도착한다.
     if (opts.handoff && !existing.window.webContents.isDestroyed()) {
       existing.window.webContents.send('vibisual:overlay:pane-handoff', {
@@ -705,7 +733,13 @@ export function openOverlay(opts: {
   // 위치: cursor 근처가 있으면 그 옆, 없으면 현재 디스플레이 우상단에서 캐스케이드.
   let x: number;
   let y: number;
-  if (opts.expanded && dropPoint) {
+  if (opts.follow) {
+    // (H-4) 커서에 매달릴 창 — **잡은 지점 그대로** 앉힌다. 작업영역으로 클램프하면 창이 손에서
+    //   어긋난 채 태어나고, 어차피 다음 틱부터 커서를 따라 움직이므로 가둘 이유도 없다.
+    const cur = dropPoint ?? screen.getCursorScreenPoint();
+    x = Math.round(cur.x - opts.follow.grabX);
+    y = Math.round(cur.y - opts.follow.grabY);
+  } else if (opts.expanded && dropPoint) {
     // 뗀 자리에 **타이틀바가** 오게 앉힌다(끌던 손 아래에서 창이 이어지는 느낌).
     x = Math.max(dropWa.x, Math.min(Math.round(dropPoint.x - winW / 2), dropWa.x + dropWa.width - winW));
     y = Math.max(dropWa.y, Math.min(Math.round(dropPoint.y - 18), dropWa.y + dropWa.height - winH));
@@ -765,6 +799,8 @@ export function openOverlay(opts: {
       : null,
     opacity: 1,
     redock: null,
+    maximized: false,
+    restoreBounds: null,
   };
   overlaysByAgentId.set(opts.agentId, entry);
   overlaysByWindowId.set(win.id, entry);
@@ -774,7 +810,17 @@ export function openOverlay(opts: {
   win.on('ready-to-show', () => {
     if (win.isDestroyed()) return;
     if (!overlaysUserVisible) return;
-    if (opts.expanded) {
+    if (opts.follow) {
+      // (H-4) ⑥ **활성화하지 않고** 띄운다 — 지금 이 순간 사용자의 손은 아직 눌려 있고, 그
+      //   손짓은 메인 창이 잡고 있다. 새 창이 활성화되면 OS 가 그 캡처를 걷어 이동·뗌이
+      //   어디에도 도착하지 않는다(창이 영영 커서를 따라다닌다). 손을 뗄 때 앞으로 올린다.
+      win.showInactive();
+      // (H-6) ⑤ **선이 창이 되는 지점.** 밖으로 빼는 동안 커서를 따라오던 윤곽선은 여기까지
+      //   살아 있다가, 그 자리를 진짜 창이 이어받는 이 순간 꺼진다. 팝아웃 시점에 껐다면
+      //   창을 만들고 띄우는 동안 커서 아래에 **아무것도 없는 구간**이 생긴다(= "사라졌다
+      //   나타난다"). 둘 다 이 프로세스가 쥐고 있으므로 신호를 주고받을 필요가 없다.
+      hidePopOutGhost();
+    } else if (opts.expanded) {
       // 방금 손으로 끌어낸 창이라 바로 쓰게 된다 — 뒤에 뜨면 "꺼냈는데 안 보인다"로 읽힌다.
       win.show();
       win.focus();
@@ -800,10 +846,25 @@ export function openOverlay(opts: {
   void win.loadFile(join(__dirname, '../renderer/index.html'), { hash });
 
   win.webContents.once('did-finish-load', () => {
-    if (!win.isDestroyed()) {
-      win.webContents.send('vibisual:overlay:list', { overlays: listOverlays(), userVisible: overlaysUserVisible });
-    }
+    if (win.isDestroyed()) return;
+    win.webContents.send('vibisual:overlay:list', { overlays: listOverlays(), userVisible: overlaysUserVisible });
+    // (H-4) 창이 부팅을 마치기 **전에** 이미 끌리고 있다 — 그동안 보낸 상태를 못 받았으므로
+    //   지금 다시 알린다(이 창도 뗌을 함께 들어야 한다).
+    if (overlayDrags.has(win.id)) sendFollowDragState(entry, true);
+    // (H-5) 아이콘이 실제와 어긋나지 않게 지금 상태를 알린다(렌더러는 push 값만 믿는다).
+    sendOverlayMaximizeState(entry);
   });
+
+  // (H-4) 매다는 것은 **지금** 시작한다(ready-to-show 를 기다리면 그 100ms 동안 창이 태어난
+  //   자리에 멈춰 있다가 갑자기 커서로 튄다). 아직 안 보이는 창이어도 자리는 옮길 수 있다.
+  if (opts.follow) {
+    startOverlayFollow(entry, {
+      offX: opts.follow.grabX,
+      offY: opts.follow.grabY,
+      redockOnEnter: true,
+      handoff: opts.handoff,
+    });
+  }
 
   broadcastOverlayList();
   return { windowId: win.id, reused: false };
@@ -813,43 +874,184 @@ export function openOverlay(opts: {
 // 보내면, 별창 mini-ghost 드래그(§5.4 #14-1)와 동일하게 메인 프로세스가 커서를 폴링해 창째
 // 따라가게 한다(잡은 지점 오프셋 유지). 창이 통째로 움직이므로 버블이 창 경계에서 잘리지
 // 않고 모니터·앱 경계 어디든 넘는다. mouseup 시 drag-end 로 해제.
-const overlayDragTimers = new Map<number, NodeJS.Timeout>();
+//
+// (H-4) 같은 폴링이 **꺼낸 IDE 창**도 끌고 다닌다 — 앱 밖으로 나가는 순간 태어난 창이 그대로
+// 커서를 따라오고(`follow`), 그 창의 타이틀바를 끌다 앱 안으로 들어오면 그 자리에서 앱 안
+// IDE 로 돌아간다(`redockOnEnter`). 두 방향이 같은 물리를 쓰므로 배울 손버릇이 하나다.
 
-function stopOverlayDrag(windowId: number): void {
-  const timer = overlayDragTimers.get(windowId);
-  if (timer) {
-    clearInterval(timer);
-    overlayDragTimers.delete(windowId);
-  }
+/** 창 하나를 커서에 매달아 둔 한 판. 끝나면 통째로 버린다(창에 남는 값은 없다). */
+interface OverlayFollowDrag {
+  timer: NodeJS.Timeout;
+  /** 잡은 지점 — 커서가 안 움직이면 창도 안 움직인다(클릭 판정 무손상). */
+  offX: number;
+  offY: number;
+  /** 끌다 앱 안으로 들어오면 그 자리에서 앱 안 IDE 로 되돌아가는가(버블 드래그는 거짓). */
+  redockOnEnter: boolean;
+  /** 지난 틱에 커서가 앱 **깊숙이** 있었는가 — 밖→안 전이에서만 되돌린다(stepAppEntry). */
+  insideApp: boolean;
+  /**
+   * 되돌아갈 때 그대로 실어 보낼 짐. **드래그 시작에 한 번** 받는다 — 손이 눌린 동안에는 그
+   * 창의 상태가 바뀌지 않으므로 그 값이 곧 마지막 값이고, 되돌리는 순간 렌더러에 물어보면
+   * 왕복이 한 번 더 드는 데다 창이 아직 부팅 중이면 대답이 오지 않는다.
+   */
+  handoff: unknown;
 }
 
-export function startOverlayDragByWindowId(windowId: number): boolean {
+const overlayDrags = new Map<number, OverlayFollowDrag>();
+
+function stopOverlayDrag(windowId: number): void {
+  const drag = overlayDrags.get(windowId);
+  if (!drag) return;
+  clearInterval(drag.timer);
+  overlayDrags.delete(windowId);
+}
+
+/** 커서가 메인 창 **깊숙이**(경계에서 48px 안쪽) 들어와 있는가 — 규칙은 shared 순수 함수. */
+function cursorDeepInsideMain(): boolean {
+  const main = getMainWindow();
+  if (!main || main.isDestroyed()) return false;
+  if (!main.isVisible() || main.isMinimized()) return false;
+  return isCursorDeepInside(screen.getCursorScreenPoint(), main.getContentBounds());
+}
+
+/** 이 창이 지금 커서에 매달려 있다고 렌더러에 알린다 — 뗌(mouseup)을 그 창도 함께 듣게. */
+function sendFollowDragState(entry: OverlayEntry, following: boolean): void {
+  const win = entry.window;
+  if (win.isDestroyed() || win.webContents.isDestroyed()) return;
+  win.webContents.send('vibisual:overlay:follow-drag-state', { following });
+}
+
+/**
+ * (H-4) 끌던 독립 창이 **앱 안으로 들어왔다** — 그 자리에서 앱 안 IDE 로 되돌린다.
+ *
+ * 되돌리기 버튼·칩 드래그와 **같은 길**(`revealOverlayInMain` + `openIde`)을 탄다. 다른 점은
+ * `resumeDrag` 하나 — 손은 아직 눌려 있으므로, 앱 안에 다시 선 창이 **끌던 드래그를 그대로
+ * 이어받아야** 한 손짓이 끊기지 않는다(잡은 지점과 창 크기를 그대로 넘긴다).
+ */
+function redockFollowedOverlay(entry: OverlayEntry, drag: OverlayFollowDrag): void {
+  const win = entry.window;
+  const b = win.isDestroyed() ? null : win.getBounds();
+  stopOverlayDrag(entry.id);
+  const ok = revealOverlayInMain({
+    agentId: entry.agentId,
+    projectId: entry.projectId,
+    openIde: true,
+    handoff: drag.handoff,
+    resumeDrag: {
+      grabX: drag.offX,
+      grabY: drag.offY,
+      width: b?.width ?? 0,
+      height: b?.height ?? 0,
+      // 커서의 **화면 좌표** — 받는 창이 첫 이벤트를 기다리지 않고 곧바로 손 아래에 앉는다
+      //   (기다리면 한 프레임 동안 옛 자리에 떴다가 튀어, 창이 깜빡인 것처럼 보인다).
+      cursor: screen.getCursorScreenPoint(),
+    },
+  });
+  // 메인 창이 없으면(닫혔다) 합칠 곳이 없다 — 창을 그대로 두고 드래그만 끝낸다.
+  if (!ok) {
+    sendFollowDragState(entry, false);
+    return;
+  }
+  if (!win.isDestroyed()) win.close();
+}
+
+export function startOverlayDragByWindowId(
+  windowId: number,
+  opts?: { redockOnEnter?: boolean; handoff?: unknown },
+): boolean {
   const entry = overlaysByWindowId.get(windowId);
   if (!entry || entry.window.isDestroyed()) return false;
-  if (overlayDragTimers.has(windowId)) return true; // 이미 드래그 중(더블클릭 2번째 mousedown 등)
+  if (overlayDrags.has(windowId)) return true; // 이미 드래그 중(더블클릭 2번째 mousedown 등)
   const win = entry.window;
   const cur = screen.getCursorScreenPoint();
   const b = win.getBounds();
-  // 잡은 지점(커서)과 창 좌상단의 오프셋을 고정 — 커서가 안 움직이면 창도 안 움직인다(클릭 무손상).
-  const offX = cur.x - b.x;
+  let offX = cur.x - b.x;
   const offY = cur.y - b.y;
-  const timer = setInterval(() => {
+  if (entry.maximized) {
+    // §17-6 (H-5) ② 최대화된 창을 끌면 Windows 처럼 **먼저 원래 크기로 돌아온 뒤** 손을 따라온다.
+    //   잡은 지점은 가로 **비율**로 옮긴다 — 픽셀 그대로 두면 오른쪽 끝을 잡았던 손에서 줄어든
+    //   창이 빠져나간다. 세로는 타이틀바 높이가 같으므로 그대로 둔다(여전히 타이틀바를 잡고 있다).
+    const ratioX = b.width > 0 ? offX / b.width : 0.5;
+    const restored = restoreOverlayMaximize(entry);
+    offX = Math.round(ratioX * (restored?.width ?? win.getBounds().width));
+  }
+  startOverlayFollow(entry, {
+    offX,
+    offY,
+    redockOnEnter: !!opts?.redockOnEnter,
+    handoff: opts?.handoff,
+  });
+  return true;
+}
+
+/**
+ * 커서 폴링 시작 — 창을 잡은 지점 그대로 매달고, 필요하면 "앱 안으로 들어왔는가"까지 본다.
+ *
+ * 첫 `insideApp` 은 **지금 실측**으로 채운다. `false` 로 두면 ⓐ 가장자리 버팀으로 꺼낸 창(커서가
+ * 아직 앱 안이다)이 태어나자마자 도로 합쳐지고 ⓑ 앱 위에 겹쳐 둔 창을 잡기만 해도 합쳐진다.
+ */
+function startOverlayFollow(
+  entry: OverlayEntry,
+  init: { offX: number; offY: number; redockOnEnter: boolean; handoff: unknown },
+): void {
+  const win = entry.window;
+  const tick = (): void => {
     if (win.isDestroyed()) {
-      stopOverlayDrag(windowId);
+      stopOverlayDrag(entry.id);
       return;
     }
+    const drag = overlayDrags.get(entry.id);
+    if (!drag) return;
     const p = screen.getCursorScreenPoint();
-    win.setPosition(p.x - offX, p.y - offY, false);
-  }, 16);
-  overlayDragTimers.set(windowId, timer);
+    win.setPosition(p.x - drag.offX, p.y - drag.offY, false);
+    if (!drag.redockOnEnter) return;
+    const step = stepAppEntry(drag.insideApp, cursorDeepInsideMain());
+    drag.insideApp = step.inside;
+    if (step.entered) redockFollowedOverlay(entry, drag);
+  };
+  overlayDrags.set(entry.id, {
+    timer: setInterval(tick, DRAG_POLL_MS),
+    offX: init.offX,
+    offY: init.offY,
+    redockOnEnter: init.redockOnEnter,
+    insideApp: init.redockOnEnter ? cursorDeepInsideMain() : false,
+    handoff: init.handoff,
+  });
+  sendFollowDragState(entry, true);
+  // 첫 자리는 **지금** 잡는다 — 한 틱(16ms)을 기다리면 최대화를 푼 그 자리에 한 프레임 머물렀다
+  //   손 아래로 튄다(창이 깜빡인 것처럼 보인다).
+  tick();
+}
+
+function finishOverlayFollow(entry: OverlayEntry | undefined): boolean {
+  if (!entry) return false;
+  const wasDragging = overlayDrags.has(entry.id);
+  stopOverlayDrag(entry.id);
+  if (entry.window.isDestroyed()) return true;
+  sendFollowDragState(entry, false);
+  if (wasDragging) {
+    // 손을 뗀 자리에 창이 섰다 — 이제 앞으로 올린다. 끄는 **동안**에는 일부러 활성화하지
+    //   않았다(§17-6 (H-4) ⑥ — 새 창이 활성화되면 OS 가 메인 창의 마우스 캡처를 걷어 아직
+    //   눌려 있는 그 손짓의 나머지가 어디에도 도착하지 않는다).
+    try { entry.window.focus(); } catch { /* noop */ }
+  }
+  keepOverlayOnTop(entry.window);
   return true;
 }
 
 export function endOverlayDragByWindowId(windowId: number): boolean {
-  stopOverlayDrag(windowId);
-  const entry = overlaysByWindowId.get(windowId);
-  if (entry && !entry.window.isDestroyed()) keepOverlayOnTop(entry.window);
-  return true;
+  return finishOverlayFollow(overlaysByWindowId.get(windowId));
+}
+
+/**
+ * (H-4) **다른 창이** 끝내는 길 — 앱 안에서 끌어내 만든 창은 손이 메인 창에 있다.
+ *
+ * 뗌 신호를 두 창이 함께 듣는 까닭: 마우스 캡처가 어디에 있는지는 OS 가 정한다(창이 활성화되며
+ * 캡처가 옮겨 가는 경우가 있다). 놓쳤을 때의 대가가 "창이 영영 커서를 따라다닌다"라, 한쪽만
+ * 듣게 두지 않는다. 두 번 불려도 안전하다(이미 끝난 판은 조용히 지나간다).
+ */
+export function endOverlayDragByAgentId(agentId: string): boolean {
+  return finishOverlayFollow(overlaysByAgentId.get(agentId));
 }
 
 // ─── §17-6 (H) — 끌어다 앱 안으로 합치기 (별창 mini ghost 드래그와 같은 물리) ──
@@ -986,6 +1188,70 @@ export function endOverlayRedockDragByWindowId(windowId: number, commit: boolean
   return true;
 }
 
+// ─── §17-6 (H-5) — 독립 창의 [최대화/복원] ────────────────────────────────
+//
+// 이 창은 `frame:false + transparent` 라 OS 타이틀바도 시스템 메뉴도 없다(Windows 는 투명 창의
+// 시스템 최대화를 아예 막는다). 그래서 최대화를 **우리가 한다**: 그 창이 걸쳐 있는 화면의
+// 작업영역으로 bounds 를 옮기고, 직전 자리를 적어 뒀다 그대로 되돌린다.
+//
+// `win.maximize()`/`isMaximized()` 를 쓰지 않는 까닭은 §5.4 #14-1 에서 이미 데인 자리이기 때문이다 —
+// 테두리 없는 창에서 그 값은 `unmaximize()` 뒤에도 참으로 남아, 상태를 물어보는 코드가 영영
+// 빠져나오지 못한다. 우리가 옮긴 자리는 우리가 안다.
+
+/** 지금 최대화 상태를 그 창에 알린다 — 렌더러는 **이 값만** 믿는다(짐작 ❌). */
+function sendOverlayMaximizeState(entry: OverlayEntry): void {
+  const win = entry.window;
+  if (win.isDestroyed() || win.webContents.isDestroyed()) return;
+  win.webContents.send('vibisual:overlay:maximize-state', { maximized: entry.maximized });
+}
+
+/**
+ * 최대화를 **푼다**(이미 아니면 아무 일도 하지 않는다). 되돌린 자리를 돌려준다 —
+ * 끌기 시작할 때 잡은 지점을 새 크기에 맞춰 다시 잡아야 하기 때문이다.
+ */
+function restoreOverlayMaximize(entry: OverlayEntry): Electron.Rectangle | null {
+  if (!entry.maximized) return null;
+  const win = entry.window;
+  entry.maximized = false;
+  const target = entry.restoreBounds;
+  entry.restoreBounds = null;
+  if (win.isDestroyed()) return null;
+  if (target) win.setBounds(target, false);
+  // setBounds 가 topmost 를 푸는 회귀(§17-6 (E) v2.80) — 자리를 옮길 때마다 다시 박는다.
+  keepOverlayOnTop(win);
+  sendOverlayMaximizeState(entry);
+  return target ?? win.getBounds();
+}
+
+/** 접기·펼치기처럼 **창 크기를 스스로 정하는** 전이에서 최대화 기억을 지운다. */
+function forgetOverlayMaximize(entry: OverlayEntry): void {
+  if (!entry.maximized && !entry.restoreBounds) return;
+  entry.maximized = false;
+  entry.restoreBounds = null;
+  sendOverlayMaximizeState(entry);
+}
+
+export function toggleMaximizeOverlaySelfByWindowId(windowId: number): boolean {
+  const entry = overlaysByWindowId.get(windowId);
+  if (!entry || entry.window.isDestroyed()) return false;
+  // 버블(접힘)은 최대화할 창이 아니다 — 크기가 그 창의 정체다.
+  if (!entry.expanded) return false;
+  if (entry.maximized) {
+    restoreOverlayMaximize(entry);
+    return true;
+  }
+  const win = entry.window;
+  const cur = win.getBounds();
+  entry.restoreBounds = { x: cur.x, y: cur.y, width: cur.width, height: cur.height };
+  entry.maximized = true;
+  // **커서가 아니라 그 창이 걸쳐 있는 화면**을 채운다 — 다른 모니터의 커서를 따라가면 창이 순간이동한다.
+  const wa = screen.getDisplayMatching(cur).workArea;
+  win.setBounds({ x: wa.x, y: wa.y, width: wa.width, height: wa.height }, false);
+  keepOverlayOnTop(win);
+  sendOverlayMaximizeState(entry);
+  return true;
+}
+
 export function closeOverlayByAgentId(agentId: string): boolean {
   const entry = overlaysByAgentId.get(agentId);
   if (!entry) return false;
@@ -1018,6 +1284,8 @@ export function expandOverlayByWindowId(windowId: number): boolean {
   const nx = Math.max(wa.x, Math.min(Math.round(cx - w / 2), wa.x + wa.width - w));
   const ny = Math.max(wa.y, Math.min(Math.round(cy - h / 2), wa.y + wa.height - h));
   entry.expanded = true;
+  // (H-5) 이 전이는 창 크기를 스스로 정한다 — 최대화 기억을 들고 가면 복원이 엉뚱한 자리로 간다.
+  forgetOverlayMaximize(entry);
   try { win.setResizable(true); } catch { /* noop */ }
   try { win.setMinimumSize(MIN_FLOAT_W_OVERLAY, MIN_FLOAT_H_OVERLAY); } catch { /* noop */ }
   win.setBounds({ x: nx, y: ny, width: w, height: h }, false);
@@ -1037,6 +1305,8 @@ export function collapseOverlayByWindowId(windowId: number): boolean {
   if (!entry || entry.window.isDestroyed()) return false;
   const win = entry.window;
   entry.expanded = false;
+  // (H-5) 버블로 접히는 창이 "최대화 상태"라고 우기면, 복원 버튼이 버블을 엉뚱한 크기로 되돌린다.
+  forgetOverlayMaximize(entry);
   const b = entry.collapsedBounds;
   try { win.setMinimumSize(OVERLAY_BUBBLE_W, OVERLAY_BUBBLE_H); } catch { /* noop */ }
   try { win.setResizable(false); } catch { /* noop */ }
@@ -1091,6 +1361,18 @@ export function revealOverlayInMain(payload: {
   openIde?: boolean;
   /** §17-6 (H) — 그 창이 들고 오던 것(열어 둔 편집 탭·보던 뷰·붙어 있던 변). 메인 창이 꺼내 쓴다. */
   handoff?: unknown;
+  /**
+   * §17-6 (H-4) — **끌던 도중에** 돌아온 창(손이 아직 눌려 있다). 앱 안에 다시 선 창이 그
+   * 드래그를 그대로 이어받게 잡은 지점·크기를 넘긴다 — 이어받지 않으면 창은 돌아왔는데 손은
+   * 눌린 채라, 한 번 놓았다 다시 잡아야 움직인다.
+   */
+  resumeDrag?: {
+    grabX: number;
+    grabY: number;
+    width: number;
+    height: number;
+    cursor?: { x: number; y: number };
+  } | undefined;
 }): boolean {
   const main = getMainWindow();
   if (!main || main.isDestroyed()) return false;
@@ -1107,6 +1389,8 @@ export function revealOverlayInMain(payload: {
     openIde: !!payload.openIde,
     // 짐이 있다는 사실만 알린다 — 내용은 받는 쪽이 `take-handoff` 로 꺼낸다(한 번만 꺼내지도록).
     hasHandoff: !!payload.handoff,
+    // (H-4) 끌던 도중이면 앱 안 창이 그 드래그를 이어받는다(없으면 종전대로 그냥 열린다).
+    resumeDrag: payload.resumeDrag,
   });
   return true;
 }
@@ -1258,6 +1542,8 @@ export function closeOverlayMenuByWindowId(senderWindowId: number): boolean {
 
 export function closeAllOverlays(): void {
   closeOverlayMenu();
+  // (H-6) 밖으로 빼는 중이던 윤곽선도 함께 걷는다 — 클릭통과 창이라 남으면 사용자가 없앨 수 없다.
+  hidePopOutGhost();
   for (const entry of [...overlaysByAgentId.values()]) {
     stopOverlayDrag(entry.id);
     // §17-6 (H) — 합치기 드래그 폴링도 함께 걷는다(앱 종료 후 살아남는 타이머 ❌).

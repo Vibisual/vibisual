@@ -12,6 +12,7 @@ import { useEditorDocs } from './useEditorDocs.js';
 import { useIDEProjectRoot } from './useIDEProjectRoot.js';
 import { openFileByPath, openFolderByPath } from './useWorkspaceExplorer.js';
 import { workspaceMediaUrl } from '../../utils/workspaceMedia.js';
+import { isWorkspaceHtmlPath } from '@vibisual/shared';
 import { IDEEditorTabs } from './IDEEditorTabs.js';
 import { IDEContextMenu, type ContextMenuItem } from './IDEContextMenu.js';
 import { buildBodyMenuItems, buildGutterMenuItems, buildTabMenuItems } from './editorContextMenu.js';
@@ -20,9 +21,13 @@ import type { CodeEditorBodyMenuContext } from './CodeEditor.js';
 import { useDebugSessions } from '../../stores/debugSessions.js';
 import { sameWorkspaceFile } from './debugPaths.js';
 import { IDEImagePreview } from './IDEImagePreview.js';
+import { IDEHtmlPreview } from './IDEHtmlPreview.js';
+import { openExternally } from './openWorkspaceTarget.js';
 import { useWorkspaceImage } from './useWorkspaceImage.js';
 import { bakeMimeFor, canOverwriteWorkspaceImage } from './workspaceImageSave.js';
 import { imageMetaLabel } from './editorImageMeta.js';
+import { useIDEBodyLayout } from './ideBodyLayoutContext.js';
+import { dragEditorWidth, type EditorResizeDrag } from './ideResponsive.js';
 
 /**
  * IDEEditorPane.tsx — §5.5 #17-27 v4.87 메인 영역 **오른쪽에 붙는 편집창**.
@@ -32,29 +37,53 @@ import { imageMetaLabel } from './editorImageMeta.js';
  * 본문(`CodeEditor`). 읽기·저장은 `useEditorDocs` 가, 색 구분은 `codeHighlight` 가 맡는다.
  */
 
-/** 폭 조절 손잡이의 두께(px) — IDE 도킹 손잡이(#17-1)와 같은 결. */
-const RESIZE_HANDLE_CLASS = 'absolute inset-y-0 left-0 z-10 w-1 cursor-col-resize hover:bg-blue-400/60';
+/**
+ * 폭 조절 손잡이의 **잡히는 여유**(px). 보이는 띠는 4px 그대로 두고 양옆으로만 넓힌다.
+ *
+ * 4px 짜리 표적을 정확히 겨누게 하는 것은 눈에 안 보이는 마찰이고(피츠의 법칙) 사용자는
+ * "손잡이가 잘 안 잡힌다"로만 느낀다 — 분할 손잡이(§5.5 #17-27 ⑪ (a))가 같은 이유로 이미
+ * 이 모양이고, 여기만 종전 4px 로 남아 있었다. 바깥 띠가 배경·강조를 그리고, 안쪽의 넓은
+ * 절대배치 자식이 포인터를 받는다(부모의 `:hover` 는 자식 위에서도 켜지므로 강조도 함께 넓어진다).
+ */
+const RESIZE_HIT_PAD = {
+  /** 대화 쪽(바깥)으로 넓히는 여유 — 그 자리에는 겹칠 손잡이가 없어 넉넉히 준다. */
+  OUT: 8,
+  /**
+   * 본문 쪽(안쪽) 여유는 **작게**. 이 띠는 편집창 왼쪽 끝을 가리는데, 그 자리에는 탭의 왼쪽 끝과
+   * 코드 편집기의 여백(줄 번호·중단점을 찍는 곳)이 있다 — 넓게 잡으면 중단점이 안 찍힌다.
+   */
+  IN: 2,
+} as const;
 
 /** §5.5 #17-27 ⑪ — 강조가 머무는 시간(ms). `index.css` 의 `edit-follow-flash` 길이와 맞춘다. */
 const FOLLOW_FLASH_MS = 1800;
 
-interface IDEEditorPaneProps {
-  /** 폰 폭 — 나란히 둘 자리가 없어 대화 위를 덮는 오버레이로 뜬다. */
-  narrow: boolean;
-}
-
-export const IDEEditorPane = memo(function IDEEditorPane({ narrow }: IDEEditorPaneProps): React.JSX.Element | null {
+export const IDEEditorPane = memo(function IDEEditorPane(): React.JSX.Element | null {
   const { t } = useTranslation();
   const rootPath = useIDEProjectRoot();
   const files = useIDEPaneValue((o) => o.editorFiles);
   const activePath = useIDEPaneValue((o) => o.activeEditorPath);
-  const width = useGraphStore((s) => s.ideEditorWidth);
+  /**
+   * 나란히 설 자리가 없으면(`editorDrawer`) 대화 위를 덮는 오버레이로 뜬다 — 폰뿐 아니라
+   * **창을 좁힌 데스크톱**도 여기로 온다(§5.5 #17-27 ① 의 `max-md` 판정을 창 폭 판정으로 넓혔다).
+   *
+   * `width` 는 사용자가 저장해 둔 폭이 아니라 **이 창에서 실제로 쓸 폭**이다 — 저장값(기본 520px)을
+   * 그대로 그리면 창보다 넓은 패널이 대화를 0px 로 밀어낸다(사용자 스크린샷의 그 상태). 저장값
+   * 자체는 손대지 않으므로 창을 다시 넓히면 끌어 둔 폭이 그대로 돌아온다.
+   */
+  const { editorDrawer: narrow, editorWidth: width, editorMaxWidth, navDrawer } = useIDEBodyLayout();
   const setWidth = useGraphStore((s) => s.setIdeEditorWidth);
   const {
     setActiveEditorFile: setActive,
     closeEditorFile: closeFile,
     setEditorFileDirty: setDirty,
+    setEditorTabsPinned,
   } = useIDEPaneActions();
+  /** §5.5 #17-27 ⑯ — 탭 줄이 세션을 따라 바뀌지 않게 붙들어 두었는가. */
+  const tabsPinned = useIDEPaneValue((o) => o.editorPinned);
+  const toggleTabsPinned = useCallback((): void => {
+    setEditorTabsPinned(!tabsPinned);
+  }, [setEditorTabsPinned, tabsPinned]);
   const clearBreakpointsInFile = useGraphStore((s) => s.clearBreakpointsInFile);
 
   const { docs, ensureLoaded, reload, setDraft, save, drop } = useEditorDocs(rootPath);
@@ -71,6 +100,41 @@ export const IDEEditorPane = memo(function IDEEditorPane({ narrow }: IDEEditorPa
   const isImage = doc?.status === 'ready' && doc.image;
   /** §5.13 (R) — PDF 는 텍스트도 그림도 아니라 세 번째 그리기다(내장 Chromium 뷰어). */
   const isPdf = activePath !== null && activePath.toLowerCase().endsWith('.pdf');
+
+  // ─── §5.5 #17-27 ⑮ — HTML 은 글자가 아니라 페이지로 연다 ────────────────
+  /**
+   * 기본은 **그려진 페이지**이고, [소스] 를 누르면 ⑤ 의 편집창이 그대로 돌아온다(대체 ❌ 병행).
+   *
+   * 어느 쪽을 보고 있었는지는 **탭마다** 기억한다 — 한 벌로 두면 소스를 보다 다른 탭에 다녀온
+   * 순간 페이지로 되돌아가, 고치던 자리를 매번 다시 찾게 된다. 영속화 ❌(⑦ 그대로 — 그 창의 화면 상태).
+   */
+  const isHtml = activePath !== null && doc?.status === 'ready' && !doc.binary && isWorkspaceHtmlPath(activePath);
+  const [htmlSourceTabs, setHtmlSourceTabs] = useState<ReadonlySet<string>>(new Set<string>());
+  const showHtmlSource = activePath !== null && htmlSourceTabs.has(activePath);
+  const toggleHtmlSource = useCallback((): void => {
+    if (activePath === null) return;
+    setHtmlSourceTabs((prev) => {
+      const next = new Set(prev);
+      if (next.has(activePath)) next.delete(activePath);
+      else next.add(activePath);
+      return next;
+    });
+  }, [activePath]);
+
+  /** 닫힌 탭의 보기 모드는 들고 있지 않는다 — 열려 있는 탭만 남긴다. */
+  useEffect(() => {
+    setHtmlSourceTabs((prev) => {
+      if (prev.size === 0) return prev;
+      const open = new Set(files.map((f) => f.relPath));
+      const next = new Set([...prev].filter((k) => open.has(k)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [files]);
+
+  /** ⑮ (b) [바깥 브라우저] — .html 의 OS 연결 프로그램이 곧 기본 브라우저다(새 레일 ❌). */
+  const handleOpenInBrowser = useCallback((): void => {
+    if (active) void openExternally(active.absPath);
+  }, [active]);
   const pdfUrl = useMemo(
     () => (isPdf && rootPath !== null && activePath !== null ? workspaceMediaUrl(rootPath, activePath) : null),
     [isPdf, rootPath, activePath],
@@ -413,40 +477,142 @@ export const IDEEditorPane = memo(function IDEEditorPane({ narrow }: IDEEditorPa
     });
   }, [files, handleCloseTab, closeTabs, handleCloseAll, copyText, t]);
 
-  // 좌측 손잡이 드래그 — 왼쪽으로 끌면 넓어진다(패널이 오른쪽에 붙어 있으므로).
-  const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
-  const handleResizeDown = useCallback((e: React.MouseEvent): void => {
+  // ─── 좌측 손잡이 드래그 — 왼쪽으로 끌면 넓어진다(패널이 오른쪽에 붙어 있으므로) ──────────
+  /**
+   * 종전 구현은 세 가지 이유로 손을 따라오지 못했다(사용자 보고 — "잘 조절이 안돼 뭔가 버벅여").
+   *
+   * ⓐ **iframe 이 손짓을 삼켰다.** 편집창 안에는 미리보기 iframe 이 산다(HTML ⑮ · PDF §5.13 (R)).
+   *    `window` 의 `mousemove` 로 듣고 있으면 커서가 그 위로 들어가는 순간 이벤트가 **iframe 문서**로
+   *    가 버려 드래그가 그 자리에서 멎는다. 좁히는 방향은 패널 가장자리가 손보다 늘 반 박자 뒤라
+   *    커서가 곧바로 패널 **안쪽**(=iframe 위)에 들어가므로, 이 경로에서는 거의 매번 걸린다.
+   *    → 캡처를 **손잡이 자신**에 건다(`setPointerCapture`). 그러면 커서가 무엇 위에 있든 이 요소가
+   *      받는다(CMD 패널 경계선이 xterm 을 상대로 이미 쓰는 그 방법).
+   * ⓑ **매 이동마다 디스크에 썼다.** `setIdeEditorWidth` 는 값이 바뀔 때마다 `localStorage` 에
+   *    **동기로** 쓴다. 마우스 이동은 초당 수백 번 오므로 그 동기 쓰기가 프레임을 통째로 먹었다.
+   *    → 끄는 동안에는 스토어를 건드리지 않고, 손을 뗄 때 **한 번만** 저장한다.
+   * ⓒ **매 이동마다 창을 다시 그렸다.** 폭이 스토어 값이라 이동마다 편집창(색 구분이 붙은
+   *    `CodeEditor`)과 창 레이아웃 판정이 전부 다시 돌았다.
+   *    → 끄는 동안 폭은 **DOM 에 직접** 쓴다(프레임당 한 번, `requestAnimationFrame` 로 묶어서).
+   *      리렌더가 나도 화면이 튀지 않게, 그때의 `style` 은 같은 값을 들고 있는 ref 를 읽는다.
+   */
+  const shellRef = useRef<HTMLDivElement | null>(null);
+  const dragRef = useRef<EditorResizeDrag | null>(null);
+  /** 끄는 동안의 폭 — 렌더도 이 값을 읽어, 도중에 리렌더가 나도 옛 폭으로 되돌아가지 않는다. */
+  const liveWidthRef = useRef<number | null>(null);
+  const rafRef = useRef<number | null>(null);
+  /** 끄는 중인가 — 커서·글자선택 잠금과 본문 손짓 차단에만 쓴다(폭은 위 ref 가 나른다). */
+  const [resizing, setResizing] = useState(false);
+
+  const applyLiveWidth = useCallback((): void => {
+    rafRef.current = null;
+    const el = shellRef.current;
+    const w = liveWidthRef.current;
+    if (el && w !== null) el.style.width = `${String(w)}px`;
+  }, []);
+
+  const handleResizeDown = useCallback((e: React.PointerEvent<HTMLDivElement>): void => {
+    // 오른쪽·가운데 버튼으로는 크기를 조절하지 않는다(우클릭이 드래그로 둔갑하던 자리).
+    if (e.button !== 0) return;
     e.preventDefault();
-    dragRef.current = { startX: e.clientX, startWidth: width };
-    const onMove = (ev: MouseEvent): void => {
-      const drag = dragRef.current;
-      if (!drag) return;
-      setWidth(drag.startWidth + (drag.startX - ev.clientX));
+    // 캡처는 **손잡이 엘리먼트 자신**에 건다 — `e.target` 은 캡처 중에 바뀔 수 있다.
+    e.currentTarget.setPointerCapture(e.pointerId);
+    // 상한은 **이 창에서 대화 하한을 지키는 폭**이다. 없으면 손잡이는 계속 끌리는데 화면은
+    //   안 넓어지는(판정이 다시 잘라내는) 상태가 되어 "고장난 손잡이"로 읽힌다.
+    //   시작할 때 한 번 붙잡아 둔다 — 끄는 동안 창 폭·사이드바는 바뀌지 않는다.
+    dragRef.current = { startX: e.clientX, startWidth: width, max: editorMaxWidth };
+    liveWidthRef.current = width;
+    setResizing(true);
+  }, [width, editorMaxWidth]);
+
+  const handleResizeMove = useCallback((e: React.PointerEvent<HTMLDivElement>): void => {
+    const drag = dragRef.current;
+    if (!drag || !e.currentTarget.hasPointerCapture(e.pointerId)) return;
+    const next = dragEditorWidth(drag, e.clientX);
+    if (next === liveWidthRef.current) return;
+    liveWidthRef.current = next;
+    if (rafRef.current === null) rafRef.current = requestAnimationFrame(applyLiveWidth);
+  }, [applyLiveWidth]);
+
+  const handleResizeUp = useCallback((e: React.PointerEvent<HTMLDivElement>): void => {
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+    if (dragRef.current === null) return;
+    dragRef.current = null;
+    if (rafRef.current !== null) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
+    const final = liveWidthRef.current;
+    liveWidthRef.current = null;
+    setResizing(false);
+    // 저장(= localStorage 쓰기)은 여기 한 번뿐. 이 줄이 끝나면 React 가 같은 폭으로 다시 그리므로
+    //   드래그 중 DOM 에 직접 쓴 값과 어긋나지 않는다.
+    if (final !== null) setWidth(final);
+  }, [setWidth]);
+
+  /**
+   * 끄는 동안 손끝을 붙잡아 둔다 — 지나간 자리의 글자가 선택되고 커서가 본문 것으로 바뀌면
+   * "지금 크기를 조절하는 중"이라는 감각이 끊긴다(분할 손잡이 ⑪ (b) 와 같은 처리).
+   */
+  useEffect(() => {
+    if (!resizing) return;
+    const { body } = document;
+    const prevCursor = body.style.cursor;
+    const prevSelect = body.style.userSelect;
+    body.style.cursor = 'col-resize';
+    body.style.userSelect = 'none';
+    return () => {
+      body.style.cursor = prevCursor;
+      body.style.userSelect = prevSelect;
     };
-    const onUp = (): void => {
-      dragRef.current = null;
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-    };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-  }, [width, setWidth]);
+  }, [resizing]);
+
+  /** 창이 사라지는데 rAF 가 남아 있으면 언마운트된 노드에 쓴다. */
+  useEffect(() => () => {
+    if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+  }, []);
 
   if (files.length === 0 || !activePath) return null;
 
-  const shellClass = narrow
-    ? 'absolute inset-0 z-20 flex flex-col border-l border-gray-700 bg-gray-950'
+  // 덮개로 뜰 때도 **활동바까지 먹지는 않는다** — 활동바가 아직 자리에 서 있는 폭(창만 좁힌
+  //   데스크톱)에서 `inset-0` 으로 덮으면 사이드바를 되부를 유일한 손잡이가 가려진다. 활동바가
+  //   함께 서랍인 폰에서는 종전대로 화면 전체를 덮는다.
+  const shellBase = narrow
+    ? `absolute inset-y-0 right-0 z-20 flex flex-col border-l border-gray-700 bg-gray-950 ${navDrawer ? 'left-0' : 'left-12'}`
     : 'relative flex flex-shrink-0 flex-col border-l border-gray-700 bg-gray-950';
+  // 끄는 동안에는 **이 패널 안의 iframe 만** 손짓을 받지 않는다(미리보기 HTML·PDF). 포인터 캡처가
+  //   이미 막지만 iframe 은 별도 문서라, 캡처가 걷히는 어떤 찰나에도 커서를 뺏기지 않게 한 겹 더 둔다.
+  //   본문 전체가 아니라 iframe 만 끊으므로 편집·선택 같은 나머지 동작에는 영향이 없다.
+  const shellClass = resizing ? `${shellBase} [&_iframe]:pointer-events-none` : shellBase;
 
   return (
-    <div className={shellClass} style={narrow ? undefined : { width }}>
+    <div
+      ref={shellRef}
+      className={shellClass}
+      // 끄는 동안에는 rAF 가 DOM 에 직접 쓴 폭이 진실이다 — 그 사이 다른 이유로 리렌더가 나도
+      //   같은 값을 다시 써서 화면이 옛 폭으로 튀지 않게 한다.
+      style={narrow ? undefined : { width: liveWidthRef.current ?? width }}
+    >
       {!narrow && (
         <div
-          onMouseDown={handleResizeDown}
-          className={RESIZE_HANDLE_CLASS}
-          role="separator"
-          aria-label={t('ide.editor.resize')}
-        />
+          className={`absolute inset-y-0 left-0 z-10 w-1 transition-colors ${
+            resizing ? 'bg-blue-400/70' : 'hover:bg-blue-400/60'
+          }`}
+        >
+          {/* 보이는 띠는 바깥 4px, **잡히는 띠**는 이 절대배치 자식이다 — 대화 쪽으로 8px 더
+              나가고 본문 쪽으로는 2px 만 나간다(줄 번호·중단점 자리를 가리지 않게). */}
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label={t('ide.editor.resize')}
+            title={t('ide.editor.resize')}
+            onPointerDown={handleResizeDown}
+            onPointerMove={handleResizeMove}
+            onPointerUp={handleResizeUp}
+            onPointerCancel={handleResizeUp}
+            // 캡처를 잃으면(브라우저가 걷어가는 경우) 조용히 멎는 대신 정상 종료로 접는다 —
+            //   안 그러면 `body` 의 커서 잠금이 화면에 남는다.
+            onLostPointerCapture={handleResizeUp}
+            className="absolute inset-y-0 cursor-col-resize touch-none"
+            style={{ left: -RESIZE_HIT_PAD.OUT, right: -RESIZE_HIT_PAD.IN }}
+          />
+        </div>
       )}
 
       <IDEEditorTabs
@@ -457,6 +623,8 @@ export const IDEEditorPane = memo(function IDEEditorPane({ narrow }: IDEEditorPa
         onClose={handleCloseTab}
         onCloseAll={handleCloseAll}
         onTabContextMenu={handleTabContextMenu}
+        pinned={tabsPinned}
+        onTogglePinned={toggleTabsPinned}
       />
 
       {/* §5.5 #17-27 ⑪ (h) ③ — 추종 띠. 켜져 있는 동안만 서고, 방금 무엇을 했는지(자동으로 다시 읽었다는
@@ -571,6 +739,28 @@ export const IDEEditorPane = memo(function IDEEditorPane({ narrow }: IDEEditorPa
             <line x1="10" y1="14" x2="21" y2="3" />
           </svg>
         </button>
+        {/* ⑮ HTML 일 때만 서는 손잡이 — 그려진 페이지 ↔ 태그 원문. 기본은 페이지다. */}
+        {isHtml && (
+          <button
+            type="button"
+            onClick={toggleHtmlSource}
+            title={t(showHtmlSource ? 'ide.editor.html.viewPageHint' : 'ide.editor.html.viewSourceHint')}
+            className="flex flex-shrink-0 items-center gap-1 rounded border border-sky-400/40 px-1.5 py-0.5 text-[12px] text-sky-300 transition-colors hover:bg-sky-500/20"
+          >
+            {showHtmlSource ? (
+              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M3 12h18M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18z" />
+              </svg>
+            ) : (
+              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="16 18 22 12 16 6" />
+                <polyline points="8 6 2 12 8 18" />
+              </svg>
+            )}
+            {t(showHtmlSource ? 'ide.editor.html.viewPage' : 'ide.editor.html.viewSource')}
+          </button>
+        )}
         {/* ⑭ 이미지일 때만 서는 두 손잡이 — 보는 배율과, #17-25 주석 팝업으로 가는 문. */}
         {isImage && (
           <button
@@ -674,7 +864,7 @@ export const IDEEditorPane = memo(function IDEEditorPane({ narrow }: IDEEditorPa
           </button>
         </div>
       )}
-      {doc?.status === 'ready' && !doc.image && !isPdf && (doc.truncated || doc.binary) && (
+      {doc?.status === 'ready' && !doc.image && !isPdf && !(isHtml && !showHtmlSource) && (doc.truncated || doc.binary) && (
         <div className="border-b border-gray-700 bg-gray-800/60 px-2 py-1 text-[12px] text-gray-400">
           {doc.binary ? t('ide.editor.binary') : t('ide.editor.truncated')}
         </div>
@@ -705,6 +895,19 @@ export const IDEEditorPane = memo(function IDEEditorPane({ narrow }: IDEEditorPa
           fit={imageFit}
           onNatural={setImageNatural}
           onOpen={handleOpenImageEditor}
+        />
+      ) : isHtml && !showHtmlSource && rootPath !== null && activePath !== null ? (
+        /**
+         * §5.5 #17-27 ⑮ — HTML 은 **그려진 페이지**로 연다. 렌더링은 Chromium 이 하고
+         * (PDF 를 내장 뷰어에 맡긴 §5.13 (R) 과 같은 판단), 우리는 그 위에 브라우저 줄만 얹는다.
+         * 태그 원문이 필요하면 손잡이 줄의 [소스] 로 ⑤ 의 편집창이 그대로 돌아온다.
+         */
+        <IDEHtmlPreview
+          key={activePath}
+          root={rootPath}
+          relPath={activePath}
+          mtimeMs={doc.mtimeMs ?? 0}
+          onOpenExternal={handleOpenInBrowser}
         />
       ) : (
         <CodeEditor

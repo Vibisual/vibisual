@@ -272,6 +272,8 @@ function deriveIdentity(cp: ProjectCheckpoint): ProjectIdentity {
     contis: cp.contis ?? {},
     // §5.5 #17-17 v4.46 — 세션 목표는 사용자가 직접 쓴 문장이라 잃으면 복구할 길이 없다(정체성).
     sessionGoals: cp.sessionGoals ?? {},
+    // §5.5 #17-36 — 메인 탭 스티키 메모도 사람이 쓴 글이다(세션 탭 메모는 세션과 함께 산다).
+    agentMemos: cp.agentMemos ?? {},
     deletedSessionIds: cp.deletedCustomAgentIds ?? [],
   };
 }
@@ -829,6 +831,13 @@ export function discoverProjectMetas(projectPaths: string[]): ProjectMetaSnapsho
 
   function upsert(snap: ProjectMetaSnapshot): void {
     const key = snap.project.path.replace(/\\/g, '/');
+    // §4 온보딩 ③ — **이름이 빈 프로젝트는 되살리지 않는다.** 예전에 폴더를 고르기 전 버블을
+    //   만들면 `process.cwd()`(Finder 로 띄운 mac 앱에서는 `/`)가 임시 등록됐고,
+    //   `path.basename('/') === ''` 이라 글자 하나 없는 탭이 남았다. 만드는 쪽은 막았지만,
+    //   그때 이미 저장된 메타를 든 설치본은 다시 켤 때마다 그 탭을 되살린다 — 여기서 고친다.
+    if (!snap.project.name) {
+      snap = { ...snap, project: { ...snap.project, name: path.basename(key) || key } };
+    }
     const prev = byPath.get(key);
     if (!prev || snap.lastSavedAt > prev.lastSavedAt) {
       byPath.set(key, snap);
@@ -976,6 +985,17 @@ function mergeIdentityIntoCheckpoint(cp: ProjectCheckpoint, identity: ProjectIde
       if (!(subId in cp.sessionGoals)) cp.sessionGoals[subId] = goal;
     }
   }
+  // §5.5 #17-36 agentMemos 보충 — 에이전트 키가 없으면 통째로, 있으면 memo id 기준 합집합.
+  //   사용자가 쓴 글이라 "이미 있으니 건너뛴다"로 한 장이라도 흘리지 않는다.
+  if (identity.agentMemos && Object.keys(identity.agentMemos).length > 0) {
+    cp.agentMemos = cp.agentMemos ?? {};
+    for (const [agentId, memos] of Object.entries(identity.agentMemos)) {
+      const existing = cp.agentMemos[agentId];
+      if (!existing) { cp.agentMemos[agentId] = memos; continue; }
+      const seen = new Set(existing.map((m) => m.id));
+      cp.agentMemos[agentId] = [...existing, ...memos.filter((m) => !seen.has(m.id))];
+    }
+  }
   // agentCounter 는 최대값 유지(라벨 번호 역행 방지).
   cp.graph.agentCounter = Math.max(cp.graph.agentCounter ?? 0, identity.agentCounter ?? 0);
 }
@@ -1039,6 +1059,7 @@ function buildCheckpointSkeletonFromIdentity(identity: ProjectIdentity): Project
     labRuns: [...(identity.labRuns ?? [])],
     shelfBubbles: [...(identity.shelfBubbles ?? [])],
     contis: { ...identity.contis },
+    agentMemos: { ...(identity.agentMemos ?? {}) },
     deletedCustomAgentIds: identity.deletedSessionIds ?? [],
   };
 }
@@ -1057,6 +1078,31 @@ function buildCheckpointSkeletonFromIdentity(identity: ProjectIdentity): Project
  */
 function contentFingerprint(json: string): string {
   return `${json.length}:${crypto.createHash('sha1').update(json).digest('hex')}`;
+}
+
+/** 지문에서 지워야 할 휘발 필드. 중첩된 `savedAt`(identity 등)도 같은 성격이라 함께 고정한다. */
+const VOLATILE_STAMP_RE = /"savedAt":\d+/g;
+
+/**
+ * 지문 계산 전 **내용과 무관하게 매번 달라지는 값**을 고정한다.
+ *
+ * `activity.json` 은 처음부터 이 규율을 지켰지만(`ActivityFileData` 에 저장 시각 필드가 없다),
+ * `checkpoint.json` 의 core 에는 `savedAt: Date.now()` 가 들어 있다. 그래서 그래프가 한 톨도
+ * 안 바뀐 저장에서도 직렬화 결과가 매번 달라졌고, §3.2.4 가 세운 "내용이 같으면 디스크 쓰기를
+ * 스킵한다"가 **한 번도 발동하지 못했다**(실측 2026-08-31: 가동 6.1시간 메인 프로세스 누적 쓰기
+ * 15.2GB = 2.5GB/h. 저장 1회가 3MB 백업 복사 + 3MB 원자적 쓰기라, 조용한 순간에도 몇 초마다
+ * 그 왕복을 지불했다. 서버가 메인 프로세스와 한 몸이라 그 동기 I/O 가 곧 UI 멈칫이다).
+ *
+ * 2026-08-19 라운드가 같은 이유로 `seq` 를 "저장 대상만 올린다"로 고쳤을 때 `savedAt` 은 함께
+ * 잡히지 않았다 — 그래서 지문은 여전히 매번 달라졌다. 여기서 그 짝을 맞춘다.
+ *
+ * **디스크에 쓰는 값은 손대지 않는다** — 정규화는 비교용 사본에만 적용하므로 파일의 `savedAt` 은
+ * 진짜 저장 시각 그대로다. 내용이 안 바뀌어 쓰기를 건너뛴 동안 파일의 `savedAt` 이 과거에
+ * 머무는 것은 의도된 결과다(그 값을 읽는 소비자는 서버·클라·desktop 어디에도 없다 —
+ * 신선도 판정은 `project.json` 의 `lastSavedAt` 이 따로 맡는다).
+ */
+export function fingerprintSource(json: string): string {
+  return json.replace(VOLATILE_STAMP_RE, '"savedAt":0');
 }
 
 /** 체크포인트 저장 스케줄러 */
@@ -1094,7 +1140,9 @@ export class SaveScheduler {
     const coreJson = JSON.stringify(core);
     const activityJson = JSON.stringify(activity);
     // §3.2.4 — 비교는 지문으로. 직렬화 결과 자체를 들고 있으면 프로젝트마다 수십 MB 가 상주한다.
-    const coreFp = contentFingerprint(coreJson);
+    // core 는 `savedAt` 을 고정한 사본으로 비교한다 — 안 그러면 저장 시각 하나 때문에 매번
+    // "변경됨"이 되어 이 스킵이 영영 발동하지 않는다(`fingerprintSource` 주석).
+    const coreFp = contentFingerprint(fingerprintSource(coreJson));
     const activityFp = contentFingerprint(activityJson);
     const coreChanged = !key || this.lastWritten.get(key) !== coreFp;
     const activityChanged = !key || this.lastWrittenActivity.get(key) !== activityFp;

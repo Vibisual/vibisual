@@ -1,5 +1,6 @@
-import type { WorkspaceEntry } from '@vibisual/shared';
+import type { WorkspaceEntry, WorkspaceEntryNameError, WorkspacePathKind } from '@vibisual/shared';
 import { foldPathCase } from '../../utils/platform.js';
+import type { WorkspaceMutateFailure } from './useWorkspaceExplorer.js';
 
 /**
  * §5.5 #17-19 v4.71 — IDE 워크스페이스 탐색기의 순수 로직.
@@ -85,4 +86,45 @@ export function ancestorDirs(relPath: string): string[] {
     result.push(parts.slice(0, i + 1).join('/'));
   }
   return result;
+}
+
+// ─── §5.5 #17-19 ⑦ 우클릭이 내는 쓰기 — 그 자리에서 치는 이름과 실패 문구 ───────────────
+
+/**
+ * 지금 트리 안에서 **이름을 치고 있는 자리**.
+ *
+ * 새 창을 띄우지 않는 이유는 VS Code 와 같다 — 만들어질 곳이 눈에 보이는 채로 이름을 정해야
+ * "어느 폴더에 만드는지"를 다시 확인할 필요가 없다. 그래서 입력칸은 트리의 한 행으로 산다.
+ */
+export type ExplorerDraft =
+  /** 있는 항목의 이름을 고친다 — 그 행이 통째로 입력칸이 된다. */
+  | { mode: 'rename'; relPath: string; parent: string; initial: string; isDirectory: boolean }
+  /** 새로 만든다 — `parent` 의 첫 자식 자리에 빈 입력칸 한 줄이 끼어든다('' = 루트). */
+  | { mode: 'create'; parent: string; kind: WorkspacePathKind };
+
+/** 이름 규칙 위반 → i18n 키. 규칙 자체는 shared(`workspaceEntryNameError`)가 쥔다. */
+export function workspaceNameErrorKey(error: WorkspaceEntryNameError): string {
+  switch (error) {
+    case 'empty': return 'ide.explorer.ctx.err.nameEmpty';
+    case 'separator': return 'ide.explorer.ctx.err.nameSeparator';
+    case 'traversal': return 'ide.explorer.ctx.err.nameTraversal';
+    case 'invalid-char': return 'ide.explorer.ctx.err.nameInvalidChar';
+    case 'trailing': return 'ide.explorer.ctx.err.nameTrailing';
+    case 'reserved': return 'ide.explorer.ctx.err.nameReserved';
+    default: return 'ide.explorer.ctx.err.nameTooLong';
+  }
+}
+
+/** 서버가 준 실패 사유 → i18n 키. 사유마다 사용자가 할 일이 다르므로 한 문구로 뭉개지 않는다. */
+export function workspaceMutateErrorKey(error: WorkspaceMutateFailure): string {
+  switch (error) {
+    case 'exists': return 'ide.explorer.ctx.err.exists';
+    case 'not-found': return 'ide.explorer.ctx.err.notFound';
+    case 'denied': return 'ide.explorer.ctx.err.denied';
+    case 'offline': return 'ide.explorer.ctx.err.offline';
+    case 'root': return 'ide.explorer.ctx.err.root';
+    case 'outside': return 'ide.explorer.ctx.err.outside';
+    case 'invalid-name': return 'ide.explorer.ctx.err.nameInvalidChar';
+    default: return 'ide.explorer.ctx.err.failed';
+  }
 }

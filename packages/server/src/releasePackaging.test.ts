@@ -1,5 +1,7 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -67,6 +69,66 @@ describe('release packaging — mac/linux', () => {
     expect(root.scripts['release:mac:x64']).toContain('publish:mac:x64');
     expect(desktop.scripts['publish:mac:arm64']).toContain('--arm64');
     expect(desktop.scripts['publish:mac:x64']).toContain('--x64');
+  });
+
+  it('afterPack 이 node-pty spawn-helper 의 실행 권한을 되돌린다 (mac 터미널 전체가 여기 걸린다)', () => {
+    const src = read('packages/desktop/build/after-pack.cjs');
+    // npm 은 배포 tarball 의 파일 모드를 644 로 눌러 버리고, node-pty 는 그것을 되돌리는
+    // 스크립트가 없다. macOS 의 node-pty 는 이 helper 를 실행해 제어 터미널을 얻으므로
+    // 권한이 없으면 **모든 pty.spawn 이 `posix_spawnp failed.` 로 죽는다** —
+    // 로그인 창·CMD 버블·실행 런처가 통째로 안 뜬다(v0.1.14 실기 확인).
+    expect(src).toContain('spawn-helper');
+    expect(src).toContain('0o755');
+    // 실패를 삼키면 알맹이 빠진 dmg 가 초록 CI 를 달고 나간다 — 못 고치면 빌드를 세운다.
+    const fn = src.slice(src.indexOf('function restoreSpawnHelperExecBit'));
+    expect(fn).toContain('throw new Error');
+  });
+
+  // 파일 모드는 Windows 에 없다 — 실제 권한 확인은 CI 의 ubuntu/macOS 잡에서 돈다.
+  const itPosix = process.platform === 'win32' ? it.skip : it;
+  itPosix('644 로 들어온 spawn-helper 를 (중첩 사본까지) 755 로 고친다', () => {
+    const requireCjs = createRequire(import.meta.url);
+    const { restoreSpawnHelperExecBit } = requireCjs(
+      path.join(REPO, 'packages/desktop/build/after-pack.cjs'),
+    ) as { restoreSpawnHelperExecBit: (resourcesDir: string, platform: string) => void };
+
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vib-afterpack-'));
+    const put = (rel: string): string => {
+      const p = path.join(tmp, rel);
+      fs.mkdirSync(path.dirname(p), { recursive: true });
+      fs.writeFileSync(p, 'x');
+      fs.chmodSync(p, 0o644);
+      return p;
+    };
+    const top = put('app/node_modules/node-pty/prebuilds/darwin-x64/spawn-helper');
+    // @vibisual/server 아래로도 한 벌 더 들어온다 — 한 곳만 고치면 나머지가 남는다.
+    const nested = put('app/node_modules/@vibisual/server/node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper');
+    const untouched = put('app/node_modules/node-pty/prebuilds/win32-x64/pty.node');
+
+    try {
+      restoreSpawnHelperExecBit(tmp, 'darwin');
+      expect(fs.statSync(top).mode & 0o111).toBeGreaterThan(0);
+      expect(fs.statSync(nested).mode & 0o111).toBeGreaterThan(0);
+      // helper 가 아닌 것은 건드리지 않는다(실행 권한을 무차별로 뿌리지 않는다).
+      expect(fs.statSync(untouched).mode & 0o111).toBe(0);
+
+      // Windows 빌드에는 helper 자체가 없다 — 헛일하지 않는다.
+      fs.chmodSync(top, 0o644);
+      restoreSpawnHelperExecBit(tmp, 'win32');
+      expect(fs.statSync(top).mode & 0o111).toBe(0);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('터미널 생성 경로에 spawn-helper 권한 방벽이 있다', () => {
+    const src = read('packages/desktop/src/main/terminalManager.ts');
+    // 패키징을 빠져나온 배치(로컬 설치·손으로 옮긴 앱)까지 구하는 마지막 그물.
+    expect(src).toContain('ensureSpawnHelperExecutable');
+    // 반드시 spawn **앞**에서 불려야 한다 — 뒤면 첫 터미널은 그대로 실패한다.
+    expect(src.indexOf('ensureSpawnHelperExecutable();')).toBeLessThan(src.indexOf('pty.spawn('));
+    // win32 는 helper 자체가 없다(ConPTY) — 헛일하지 않게 갈라져 있어야 한다.
+    expect(src).toContain("platform === 'win32' || spawnHelperChecked");
   });
 
   it('폴더 열기는 mac/Linux 에도 길이 있다', () => {

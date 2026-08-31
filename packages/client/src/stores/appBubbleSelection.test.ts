@@ -209,27 +209,58 @@ describe('app bubble detail panel wiring', () => {
  * React 18 은 핸들러를 루트 컨테이너에 위임하므로 **버블 단계 `onMouseDown` 은 발화 자체를
  * 못 한다**(우클릭·더블클릭만 살아 있던 이유이기도 하다). 캡처 단계로 받아야 뚫린다.
  * 되돌리면 세 증상(선택·선택 이펙트·Delete 삭제·패널)이 한꺼번에 다시 죽으므로 못 박는다.
- * 캔버스의 다른 store 기반 버블(플레이 버튼·프리뷰)도 같은 규칙을 쓴다.
+ *
+ * ⚠ 그 규칙은 이제 **캔버스 공용 상태기계 한 벌**(`bubbleSelectGesture`)에 들어 있고, 캔버스의
+ * 모든 버블이 그것을 펼쳐 쓴다(`{...gesture.handlers}`). 그래서 가드도 두 겹이다 — ① 공용
+ * 모듈이 캡처 단계로 받는가, ② 각 버블이 그 묶음을 실제로 펼쳐 쓰는가. 어느 버블 하나가
+ * 자기만의 핸들러로 되돌아가면 손버릇이 다시 갈린다(사용자 지적: "더블클릭할 때 선택 동작도
+ * 같이 일어난다" — 자기만의 즉시 선택이 남아 있던 버블들이 그랬다).
  */
 describe('canvas store-driven bubbles — 선택은 캡처 단계에서 받는다', () => {
+  const NODE_PATHS = [
+    '/src/components/BubbleMap/AppBubbleNode.tsx',
+    '/src/components/BubbleMap/PlayNode.tsx',
+    '/src/components/BubbleMap/PlayPreviewNode.tsx',
+    '/src/components/BubbleMap/SpecNode.tsx',
+    '/src/components/BubbleMap/LabNode.tsx',
+    '/src/components/BubbleMap/ShelfNode.tsx',
+    '/src/components/BubbleMap/CaptureNode.tsx',
+    '/src/components/BubbleMap/CommentBoxNode.tsx',
+    // 에이전트(IDE) 버블 — 이 규칙의 기준이자, 나머지가 맞춰야 할 대상.
+    '/src/components/BubbleMap/BubbleNode.tsx',
+  ];
+
   const NODE_SOURCES = import.meta.glob<string>(
     [
       '/src/components/BubbleMap/AppBubbleNode.tsx',
       '/src/components/BubbleMap/PlayNode.tsx',
       '/src/components/BubbleMap/PlayPreviewNode.tsx',
+      '/src/components/BubbleMap/SpecNode.tsx',
+      '/src/components/BubbleMap/LabNode.tsx',
+      '/src/components/BubbleMap/ShelfNode.tsx',
+      '/src/components/BubbleMap/CaptureNode.tsx',
+      '/src/components/BubbleMap/CommentBoxNode.tsx',
+      '/src/components/BubbleMap/BubbleNode.tsx',
+      '/src/components/BubbleMap/bubbleSelectGesture.ts',
     ],
     { query: '?raw', import: 'default', eager: true },
   );
 
-  for (const path of [
-    '/src/components/BubbleMap/AppBubbleNode.tsx',
-    '/src/components/BubbleMap/PlayNode.tsx',
-    '/src/components/BubbleMap/PlayPreviewNode.tsx',
-  ]) {
-    it(`${path} — onPointerDownCapture 로 선택하고 버블 단계 onMouseDown 은 쓰지 않는다`, () => {
+  it('공용 상태기계가 누름을 캡처 단계로 받는다', () => {
+    const src = NODE_SOURCES['/src/components/BubbleMap/bubbleSelectGesture.ts'] ?? '';
+    expect(src).not.toBe('');
+    expect(src).toContain('onPointerDownCapture');
+    expect(src).not.toContain('onMouseDown');
+  });
+
+  for (const path of NODE_PATHS) {
+    it(`${path} — 공용 선택 제스처를 펼쳐 쓰고 자기만의 즉시 선택을 들지 않는다`, () => {
       const src = NODE_SOURCES[path] ?? '';
       expect(src).not.toBe('');
-      expect(src).toContain('onPointerDownCapture={handleSelect}');
+      expect(src).toContain("from './bubbleSelectGesture.js'");
+      expect(src).toContain('{...gesture.handlers}');
+      // 자기만의 누름 핸들러로 되돌아가면 더블클릭 1타가 다시 선택을 발동한다.
+      expect(src).not.toContain('onPointerDownCapture={handleSelect}');
       expect(src).not.toContain('onMouseDown={handleSelect}');
     });
   }
@@ -238,5 +269,20 @@ describe('canvas store-driven bubbles — 선택은 캡처 단계에서 받는�
     const src = NODE_SOURCES['/src/components/BubbleMap/AppBubbleNode.tsx'] ?? '';
     expect(src).toContain('boxShadow: isSelected');
     expect(src).toContain('const isSelected =');
+  });
+
+  it('더블클릭 핸들러는 첫 줄에서 보류 단일선택을 접는다(선택이 함께 발동하지 않게)', () => {
+    for (const path of [
+      '/src/components/BubbleMap/AppBubbleNode.tsx',
+      '/src/components/BubbleMap/SpecNode.tsx',
+      '/src/components/BubbleMap/LabNode.tsx',
+      '/src/components/BubbleMap/ShelfNode.tsx',
+      '/src/components/BubbleMap/CaptureNode.tsx',
+      '/src/components/BubbleMap/CommentBoxNode.tsx',
+      '/src/components/BubbleMap/BubbleNode.tsx',
+    ]) {
+      const src = NODE_SOURCES[path] ?? '';
+      expect(src, path).toContain('gesture.cancelPendingSelect()');
+    }
   });
 });

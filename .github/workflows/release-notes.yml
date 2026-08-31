@@ -1,0 +1,53 @@
+# SCENARIO.md §4 v2.44 — 이미 발행된 릴리스의 본문을 다시 쓴다.
+#
+# `release.yml` 의 `notes` 잡이 앞으로 나갈 릴리스를 맡는다면, 이 워크플로는 **이미 나간**
+# 릴리스를 맡는다. v0.1.14 까지의 릴리스는 본문이 통째로 비어 있어(electron-builder 는 자산만
+# 올린다) 페이지에 파일 목록밖에 없다 — 그 페이지들은 태그를 다시 밀지 않는 한 영영 그대로다.
+#
+# Actions → "Release notes" → Run workflow → 태그 입력(예: v0.1.14) → Run.
+# 태그를 비우면 **최신 릴리스**를 고친다.
+#
+# ⚠️ 사람이 손으로 제목을 붙여 둔 릴리스의 제목은 덮어쓰지 않는다(.github/scripts/release-notes.mjs
+#    의 `applyNotes` 참고). 본문은 매번 다시 쓴다 — 자산 목록에서 만들어지므로 항상 현행이다.
+
+name: Release notes
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '본문을 다시 쓸 태그 (예: v0.1.14). 비우면 최신 릴리스.'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  notes:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Rewrite release notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          node .github/scripts/release-notes.mjs --selftest
+          TAG="${INPUT_TAG}"
+          if [ -z "$TAG" ]; then
+            # 최신 릴리스의 태그를 API 에서 읽는다 — 여기서 draft/prerelease 는 제외된다.
+            TAG=$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
+              https://api.github.com/repos/${{ github.repository }}/releases/latest \
+              | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).tag_name))")
+            echo "태그를 안 줬다 — 최신 릴리스 $TAG 를 고친다."
+          fi
+          node .github/scripts/release-notes.mjs "${TAG#v}" --apply

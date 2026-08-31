@@ -73,6 +73,52 @@ export function frameTimesFor(range: ClipRange, count: number): number[] {
   return out;
 }
 
+/**
+ * §5.5 #17-35 ⑨-4 — **시연 저장**이 쓰는 프레임 시각. 등간격이 아니라 **사람이 표시한 순간** 우선.
+ *
+ * 왜 다른가: 검증 프롬프트는 단계를 `1. (0:03) …` 처럼 시각과 함께 적고, 그림도 시각과 함께 적는다.
+ * 그런데 그림을 등간격으로 뽑으면 그 둘이 **같은 순간을 가리키지 않는다** — 0:03 에 무엇을 눌렀다고
+ * 써 놓고 붙는 그림은 0:03 이 아닌 화면이라, 모델이 단계와 그림을 짝지을 수 없다.
+ * 단계가 하나도 없을 때만 종전대로 구간을 등분한다(그때는 대표 장면 말고 기댈 것이 없다).
+ *
+ * @param stepTimes 구간 시작을 0 으로 본 단계 시각들(ms). 비어 있으면 등간격.
+ */
+export function demoFrameTimes(
+  range: ClipRange,
+  count: number,
+  stepTimes: readonly number[] = [],
+): number[] {
+  const n = Math.max(0, Math.min(Math.floor(count), CAPTURE_PLAYTEST.MAX_FRAME_COUNT));
+  if (n === 0) return [];
+  if (stepTimes.length === 0) return frameTimesFor(range, n);
+
+  const start = Math.min(range.startMs, range.endMs);
+  const span = Math.abs(range.endMs - range.startMs);
+  // 단계 시각은 구간 상대값이다 — 클립 절대 시각으로 옮기고 구간 밖으로 나가지 않게 접는다.
+  const picked = [...stepTimes]
+    .map((t) => start + Math.min(Math.max(0, t), span))
+    .sort((a, b) => a - b)
+    .slice(0, n);
+
+  // 장수가 단계보다 많으면 남는 자리는 등간격으로 채운다. 먼저 이미 고른 순간과 **너무 가까운
+  // 것을 건너뛰며** 채우고(같은 화면 두 장은 장수만 늘고 근거는 그대로다), 그래도 모자라면 간격을
+  // 풀어서 마저 채운다 — 사용자가 고른 장수는 지켜야 한다(UI 와 프롬프트가 그 숫자를 말한다).
+  if (picked.length < n) {
+    const candidates = frameTimesFor(range, n);
+    const minGap = span / (n * 2);
+    for (const t of candidates) {
+      if (picked.length >= n) break;
+      if (picked.every((p) => Math.abs(p - t) > minGap)) picked.push(t);
+    }
+    for (const t of candidates) {
+      if (picked.length >= n) break;
+      if (!picked.includes(t)) picked.push(t);
+    }
+    picked.sort((a, b) => a - b);
+  }
+  return picked;
+}
+
 /** 새 클립을 목록 앞에 얹고 상한을 넘긴 오래된 클립을 골라낸다(호출부가 Blob URL 을 되돌린다). */
 export function applyClipCap<T>(
   clips: readonly T[],

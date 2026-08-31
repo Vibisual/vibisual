@@ -9,11 +9,39 @@
 @source "../../plugins/src/**/*.{ts,tsx}";
 
 @theme {
-  --font-sans: 'Pretendard', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', ui-sans-serif, system-ui, sans-serif;
+  /* 끝에서 셋째 무리(Noto Sans SC·JP·Devanagari)가 §5.5 #17-22 ⑤-3 **문자 폴백**이다.
+     앞의 동봉본은 전부 라틴+한글이라 中文·日本語·हिन्दी 는 걸리는 글꼴이 하나도 없었고,
+     OS 가 메워 주는 윈도우·맥과 달리 최소 설치 리눅스에서는 화면이 통째로 두부가 됐다. */
+  --font-sans: 'Pretendard', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', 'Noto Sans SC', 'Noto Sans JP', 'Noto Sans Devanagari', ui-sans-serif, system-ui, sans-serif;
   /* 앞의 둘은 앱에 **동봉**한 글꼴(src/assets/fonts) — 라틴은 JetBrains Mono, 한글은 그 폭의
      정확히 2배인 나눔고딕코딩이 맡아 한국어가 섞여도 터미널 열이 밀리지 않는다. 뒤의 OS 글꼴은
-     동봉본이 아직 안 실렸을 때만 잠깐 쓰이는 자리다(Consolas/Menlo 는 재배포 불가라 동봉 ❌). */
-  --font-mono: 'JetBrains Mono', 'Nanum Gothic Coding', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+     동봉본이 아직 안 실렸을 때만 잠깐 쓰이는 자리다(Consolas/Menlo 는 재배포 불가라 동봉 ❌).
+     Noto 세 벌은 **맨 끝**에만 둔다 — 고정폭이 아니라 열이 밀리지만, 앞의 둘이 못 그리는
+     글자에서만 도달하므로 라틴·한글 정렬은 그대로이고 두부만 사라진다.
+     ⚠ 이 줄은 `utils/terminalFont.ts` 의 `TERMINAL_FONT_STACK` 과 **글자 그대로 같아야 한다**
+     (xterm 은 CSS 변수를 못 받아 실제 이름이 필요하다). `i18n/localeFontCoverage.test.ts` 가 대조한다. */
+  --font-mono: 'JetBrains Mono', 'Nanum Gothic Coding', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Noto Sans SC', 'Noto Sans JP', 'Noto Sans Devanagari', monospace;
+}
+
+/* §5.5 #17-22 ⑤-3 — **한자 통합**: 같은 코드포인트라도 나라마다 자형이 다르다.
+   스택을 고정하면 Pretendard 가 가진 한자만 한국식으로 먼저 그려지고 없는 것만 Noto 로 떨어져
+   한 문장 안에서 자형이 섞인다. 그래서 UI 언어(`<html lang>` — i18n 이 갱신한다)에 맞춰
+   그 언어의 글꼴을 맨 앞에 세운다. 나머지 둘은 뒤에 그대로 남으므로 섞인 문장도 안 깨진다.
+   `:lang()` 은 접두 일치라 `lang="zh-CN"` 이 `:lang(zh)` 에 걸리고, `html` + `:lang()` 이
+   `:root` 보다 특정도가 높아 @theme 의 값을 덮는다. */
+html:lang(zh) {
+  --font-sans: 'Noto Sans SC', 'Pretendard', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans Devanagari', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Nanum Gothic Coding', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Noto Sans SC', 'Noto Sans JP', 'Noto Sans Devanagari', monospace;
+}
+
+html:lang(ja) {
+  --font-sans: 'Noto Sans JP', 'Pretendard', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', 'Noto Sans SC', 'Noto Sans Devanagari', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Nanum Gothic Coding', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Noto Sans JP', 'Noto Sans SC', 'Noto Sans Devanagari', monospace;
+}
+
+html:lang(hi) {
+  --font-sans: 'Noto Sans Devanagari', 'Pretendard', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', 'Noto Sans SC', 'Noto Sans JP', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Nanum Gothic Coding', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Noto Sans Devanagari', 'Noto Sans SC', 'Noto Sans JP', monospace;
 }
 
 /* §3.7 v2.10 — 통합 타이틀바 드래그 영역. Electron `titleBarStyle: 'hidden'` +
@@ -273,6 +301,15 @@
 
 @utility animate-brain-inject-bloom {
   animation: brain-inject-bloom 1.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* §5.10 — 메모리 버블의 카드 수.
+ * 배경 워터마크(카드 실루엣) 위에 놓이는 큰 흰 숫자라, 획과 배경을 가르는 그림자가 필요하다.
+ * Tailwind 의 `drop-shadow-*` 는 필터라 이 크기에서는 번지기만 하고 경계를 세우지 못했다 —
+ * 글리프 바로 아래 짙은 인디고 그림자 + 넓은 번짐 하나로 표면에서 떠 보이게 한다. */
+@utility bubble-brain-count {
+  /* 평면 표면 — 엠보싱 text-shadow 없음. 단색 틴트 위 흰 글자로 대비가 이미 선다. */
+  text-shadow: none;
 }
 
 /* ─── 말풍선 페이드인 ─── */

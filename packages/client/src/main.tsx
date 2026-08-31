@@ -9,6 +9,8 @@ import { CommandCenterShell, parseCommandCenterHash } from './components/Command
 import { parseAppHash } from './apps/appHash.js';
 import { AppShellHost } from './apps/AppShellHost.js';
 import { InspectorOverlay } from './components/Inspector/InspectorOverlay.js';
+import { GlobalTextFieldContextMenu } from './components/Layout/GlobalTextFieldContextMenu.js';
+import { ExternalOpenNotice } from './components/Layout/ExternalOpenNotice.js';
 import { installRendererDiagnostics } from './utils/diagnostics.js';
 // §5.5 — 읽기 설정 글꼴은 OS 설치에 기대지 않고 앱에 동봉해 싣는다(`scripts/fetch-reading-fonts.mjs`).
 // index.css 보다 먼저 실어야 `--font-sans` 첫 후보(Pretendard)가 첫 페인트부터 잡힌다.
@@ -69,6 +71,15 @@ if (overlay || overlayMenu) document.documentElement.classList.add('overlay-wind
 createRoot(rootElement).render(
   <StrictMode>
     <InspectorOverlay />
+    {/* 입력칸 우클릭 메뉴(잘라내기·복사·붙여넣기·전체 선택) — Electron 에는 브라우저 기본 메뉴가
+        없어 직접 메뉴를 그려 둔 세 자리(IDE 입력창·편집창·터미널) 말고는 우클릭이 통째로 무반응이었다.
+        InspectorOverlay 와 같은 이유로 **부팅 지점에서 한 번만** 마운트한다 — 별창·오버레이 창·
+        지휘통제실 창·내부 앱 창에도 입력칸이 있고, shell 안에 두면 그 창들에서 또 죽는다. */}
+    <GlobalTextFieldContextMenu />
+    {/* §3.7 — 바깥 브라우저 열기가 실패했을 때의 안내(폴백 ❌). 링크는 어느 창에서든 눌리고
+        (로그인 창·IDE 별창·내부 앱 창 …) 리눅스에서는 shell.openExternal 이 실패해도 resolve 해
+        renderer 가 스스로는 알 수 없다 — main 이 알려 준다. 위 둘과 같은 이유로 부팅 지점에 둔다. */}
+    <ExternalOpenNotice />
     {detached ? (
       <DetachedShell kind={detached.kind} tabKey={detached.tabKey} />
     ) : overlay ? (

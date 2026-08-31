@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { exec, execFile, spawn, type ChildProcess } from 'node:child_process';
 import multer from 'multer';
-import { DEFAULT_PORT, SESSION_SCAN_INTERVAL, FILE_EXISTENCE_CHECK_INTERVAL, SATELLITE_TYPES, IFRAME_PROXY_PATH, AGENT_IDLE_THRESHOLD_MS, AGENT_IDLE_SWEEP_INTERVAL_MS, INTERRUPT_RECONCILE_INTERVAL_MS, SUBAGENT_DORMANT_IDLE_MS, TASK_EDGE_DISPATCH_DEFAULT_TIMEOUT_MS, TASK_EDGE_CRITIQUE_MAX_REWORK_LIMIT, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, SUPPORTED_UI_LOCALES, CONTI_AGENT_RULES, RULES_HISTORY_MAX, CANVAS_CLIPBOARD_SCHEMA_VERSION, AGENT_INTENT_FIRST_RULES, buildAgentCardCommonRules, AGENT_CARD_ENV_BASE, AGENT_CARD_ENV_TOKEN, buildAgentReportRules, buildAgentQuestionRules, buildAgentReviewRules, buildAgentFeedbackBlock, AGENT_FEEDBACK_SUMMARY_ITEM_MAX, CLAUDE_USAGE_POLL_INTERVAL_MS, CLAUDE_AUTH_POLL_INTERVAL_MS, CLAUDE_AUTO_UPDATE_BOOT_DELAY_MS, SESSION_GOAL_TEXT_MAX, buildSessionGoalRules, buildSessionGoalState, buildSessionGoalProtocol, CONTEXT_SOURCE_IDS, CONTEXT_PLUGIN_ID_PREFIX, CONTEXT_PREVIEW_MAX_CHARS, estimateTokens, VERIFICATION_VERDICT_SCHEMA_GUIDE, COST_MAP_SWEEP_INTERVAL_MS, normalizeTodoStatus, BUILTIN_SLASH_COMMANDS,
+import { DEFAULT_PORT, SESSION_SCAN_INTERVAL, FILE_EXISTENCE_CHECK_INTERVAL, SATELLITE_TYPES, IFRAME_PROXY_PATH, AGENT_IDLE_THRESHOLD_MS, AGENT_IDLE_SWEEP_INTERVAL_MS, INTERRUPT_RECONCILE_INTERVAL_MS, ZOMBIE_EXECUTING_GRACE_MS, SUBAGENT_DORMANT_IDLE_MS, TASK_EDGE_DISPATCH_DEFAULT_TIMEOUT_MS, TASK_EDGE_CRITIQUE_MAX_REWORK_LIMIT, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, SUPPORTED_UI_LOCALES, CONTI_AGENT_RULES, RULES_HISTORY_MAX, CANVAS_CLIPBOARD_SCHEMA_VERSION, AGENT_INTENT_FIRST_RULES, buildAgentCardCommonRules, AGENT_CARD_ENV_BASE, AGENT_CARD_ENV_TOKEN, buildAgentReportRules, buildAgentQuestionRules, buildAgentReviewRules, buildAgentFeedbackBlock, AGENT_FEEDBACK_SUMMARY_ITEM_MAX, CLAUDE_USAGE_POLL_INTERVAL_MS, CLAUDE_AUTH_POLL_INTERVAL_MS, CLAUDE_AUTO_UPDATE_BOOT_DELAY_MS, SESSION_GOAL_TEXT_MAX, buildSessionGoalRules, buildSessionGoalState, buildSessionGoalProtocol, CONTEXT_SOURCE_IDS, CONTEXT_PLUGIN_ID_PREFIX, CONTEXT_PREVIEW_MAX_CHARS, estimateTokens, VERIFICATION_VERDICT_SCHEMA_GUIDE, COST_MAP_SWEEP_INTERVAL_MS, normalizeTodoStatus, BUILTIN_SLASH_COMMANDS,
   BRAIN_AXIS_IDS,
   BRAIN_CURATOR_PAGE_SIZE,
   BRAIN_TOPIC_MISC,
@@ -18,8 +18,10 @@ import { DEFAULT_PORT, SESSION_SCAN_INTERVAL, FILE_EXISTENCE_CHECK_INTERVAL, SAT
 } from '@vibisual/shared';
 import type { HookEventPayload, WSMessage, SubAgentStreamEvent, QueuedCommand, SessionTokenData, PipelineType, AgentConfig, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, SubAgentHistoryItem, UiLocale, PermissionDecision, RulesHistoryEntry, Conti, CanvasClipboardPayload, CanvasPasteResponse, AskUserQuestionDecision, AskUserQuestionAnswer, AskUserQuestionOption, AskUserQuestionItem, AskUserQuestionToolInput, AgentReport, AgentQuestions, AgentQuestionItem, AgentReview, AgentList, AgentFeedback, AgentFeedbackTargetType, AgentFeedbackVerdict, BrainCard, BrainCardInput, BrainCardType, BrainCardScope, BrainInjectionEvent, ClaudeUsageInfo, ClaudeAuthStatus, VerificationVerdict, VerificationKind, VerificationAttempt, EscalationReason, AutoAgentRun, ShelfItemKind } from '@vibisual/shared';
 import { LOCAL_MODEL_CATALOG_SORTS } from '@vibisual/shared';
+// §4 (첫 실행 온보딩) ③ — 폴더를 고르기 전 생성 요청을 서버도 같은 코드로 거절한다.
+import { NO_PROJECT_FOLDER_ERROR } from '@vibisual/shared';
 // §4 (CMD 터미널 업그레이드) — pane 트리 정합 + 임베디드 PTY 제어(⑤⑥).
-import { sanitizeCmdPaneTree, CMD_CLI_KINDS } from '@vibisual/shared';
+import { sanitizeCmdPaneTree, CMD_CLI_KINDS, sanitizeSessionMemos } from '@vibisual/shared';
 import type { CmdTerminalSignal, CmdCliKind } from '@vibisual/shared';
 import { readCmdTerminal, sendCmdTerminal, waitCmdTerminal, getCmdTerminalController } from './services/cmdTerminalController.js';
 // §7.10 — 워크트리 삭제 직전 회수(그 안에서 돌던 프로세스·에이전트).
@@ -34,7 +36,7 @@ import { reapWorktree, selectWorktreeAgents, EMPTY_REAP, type WorktreeReapResult
 function isCmdTermId(v: string): boolean {
   return /^(?:term|run):[\w.-]{1,64}:[\w.-]{1,64}(?:#[\w-]{1,32})?$/.test(v);
 }
-import { WORKSPACE_IMAGE_MAX_BYTES, WORKSPACE_MEDIA_MAX_BYTES, workspaceMediaMime, BRAIN_INJECTION_TOP_K, BRAIN_INJECTION_TOKEN_BUDGET, BRAIN_FILE_WARN_ONCE_PER_SESSION, BRAIN_EXPERIENCE_TYPES, buildBrainRulesSection, buildBrainTopicIndexSection } from '@vibisual/shared';
+import { WORKSPACE_SITE_PATH, WORKSPACE_SITE_REWRITE_MAX_BYTES, workspaceSiteMime, workspaceSiteBase, parseWorkspaceSitePath, rewriteWorkspaceSiteHtml, rewriteWorkspaceSiteCss, injectWorkspaceSiteAgents, annotateWorkspaceSiteSource, workspaceSiteRewriteKind, WORKSPACE_IMAGE_MAX_BYTES, WORKSPACE_MEDIA_MAX_BYTES, workspaceMediaMime, BRAIN_INJECTION_TOP_K, BRAIN_INJECTION_TOKEN_BUDGET, BRAIN_FILE_WARN_ONCE_PER_SESSION, BRAIN_EXPERIENCE_TYPES, buildBrainRulesSection, buildBrainTopicIndexSection } from '@vibisual/shared';
 // §3.2.3 보존 정책 — 상한·기본값은 shared 한 곳, 파일 정리·실측은 storageRetention.
 import { RETENTION_LIMITS, DEFAULT_RETENTION_SETTINGS } from '@vibisual/shared';
 // §5.13 (Q) 대본 → 콘티 → 렌더.
@@ -50,7 +52,7 @@ import { REVIEW_FILES_MAX, REVIEW_DIFF_MAX_BYTES, REVIEW_REASON_MAX } from '@vib
 import { serializeAppliesTo } from './services/brainCanonical.js';
 // §5.5 #17-11 v3.79 — 세션 반복 실행(루프).
 import type { SessionLoop, SessionLoopMode, SessionLoopContextMode, SessionGoalStatus, SessionGoalProgressSource, SessionGoalStepStatus } from '@vibisual/shared';
-import { SESSION_LOOP_MAX_ITERATIONS, SESSION_LOOP_DEFAULT_TOTAL, SESSION_LOOP_DEFAULT_INTERVAL_MS, SESSION_LOOP_MAX_INTERVAL_MS, SESSION_LOOP_COMMAND_MAX, SESSION_LOOP_COMPACT_COMMAND, SESSION_LOOP_CLEAR_COMMAND, SESSION_LOOP_PATH_MAX, SESSION_LOOP_MAX_COST_USD_LIMIT, SESSION_LOOP_MAX_DURATION_LIMIT_MS } from '@vibisual/shared';
+import { SESSION_LOOP_MAX_ITERATIONS, SESSION_LOOP_DEFAULT_TOTAL, SESSION_LOOP_DEFAULT_INTERVAL_MS, SESSION_LOOP_MAX_INTERVAL_MS, SESSION_LOOP_COMMAND_MAX, SESSION_LOOP_COMPACT_COMMAND, SESSION_LOOP_CLEAR_COMMAND, SESSION_LOOP_PATH_MAX, SESSION_LOOP_MAX_COST_USD_LIMIT, SESSION_LOOP_MAX_DURATION_LIMIT_MS, AGENT_COMPACT_COMMAND, buildAgentSelfCompactRule } from '@vibisual/shared';
 // §5.5 #17-11 ⑫(a)(g) — 루프 회차 프롬프트 합성(순수 모듈) + 누적 비용 추정(모델 레지스트리 가격).
 import { composeLoopRoundText } from './services/sessionLoopPrompt.js';
 // §5.5 #17-35 — 검증(Verify): 프롬프트 조립·판정 해석은 화면 없이 시험되는 순수 모듈에 있다.
@@ -74,8 +76,14 @@ import {
   VERIFICATION_FOCUS_MAX,
   VERIFICATION_REASON_MAX,
   VERIFY_RECORDED_SKILL_PATH,
+  VERIFICATION_DEMO_DIR,
+  VERIFICATION_DEMO_FRAMES_MAX,
+  VERIFICATION_DEMO_LABEL_MAX,
+  VERIFICATION_DEMO_EXPECTED_MAX,
+  VERIFICATION_DEMO_STEPS_MAX,
+  VERIFICATION_DEMO_STEP_TEXT_MAX,
 } from '@vibisual/shared';
-import type { VerificationRun } from '@vibisual/shared';
+import type { VerificationRun, VerificationDemo, VerificationDemoStep } from '@vibisual/shared';
 import { absorbMergeFollowUps } from './services/followUpMerge.js';
 import { permissionBroker } from './services/permissionBroker.js';
 // §5.22 — 권한·감사 경계. 위험 판정은 shared 순수 함수 한 곳(서버·클라 같은 답).
@@ -142,8 +150,21 @@ import {
   endWorktreeCreation,
   isWorktreeUnderConstruction,
 } from './services/worktreeLiveness.js';
-import { listWorkspaceDir, resolveWorkspacePath, statWorkspacePath } from './services/workspaceExplorer.js';
+import { listWorkspaceDir, resolveWorkspacePath, statExternalPath, statWorkspacePath } from './services/workspaceExplorer.js';
 import { readWorkspaceFile, readWorkspaceImage, writeWorkspaceFile, writeWorkspaceImage } from './services/workspaceFile.js';
+// §5.5 #17-19 ⑦ — 탐색기 우클릭의 쓰기 셋(만들기·이름 바꾸기·삭제). 가드는 조회 쪽과 같은 것 하나.
+import {
+  createWorkspaceEntry,
+  deleteWorkspaceEntry,
+  isWorkspaceTrashAvailable,
+  renameWorkspaceEntry,
+  type WorkspaceMutateError,
+} from './services/workspaceMutate.js';
+import type {
+  WorkspaceEntryCreateRequest,
+  WorkspaceEntryDeleteRequest,
+  WorkspaceEntryRenameRequest,
+} from '@vibisual/shared';
 // §5.5 #17-20 v4.74 — 디버그·실행 런처(실행 구성 스캔 + 외부 디버거 위임).
 import { scanRunConfigs } from './services/runConfigScanner.js';
 import { listExternalDebuggers, launchExternalDebugger } from './services/externalDebuggerService.js';
@@ -250,6 +271,10 @@ export { debugSessionManager } from './services/debug/debugSessionManager.js';
 // §3.5 v4.67 — 버블 생명주기 진단 로그 위치. 프로젝트 데이터가 아니라 앱 진단이므로 desktop main 이
 // 부팅 시 userData/logs 로 고정한다(미주입 시 cwd 상대 폴백 — 서버 단독 실행 호환).
 export { setDebugLogDir } from './services/debugLog.js';
+
+// §5.5 #17-19 ⑦ — 탐색기 삭제가 쓸 **OS 휴지통** 통로. 세 OS 의 휴지통 규약이 전부 다르므로
+// 이미 옳게 다루는 Electron `shell.trashItem` 을 desktop main 이 부팅 때 꽂는다(주입 없으면 영구 삭제).
+export { setWorkspaceTrash, isWorkspaceTrashAvailable, type WorkspaceTrashItem } from './services/workspaceMutate.js';
 
 // §5.14 v4.62 — 앱 종료 시 플레이 버블이 띄운 서버·정적 호스트 정리(main 이 before-quit 에서 호출).
 export { stopAllPlays } from './services/playRunner.js';
@@ -510,7 +535,12 @@ export async function runServer(): Promise<RunServerHandle> {
       return;
     }
     const changed = graphManager.setUiLocale(locale as UiLocale);
-    if (changed) broadcastSnapshot();
+    if (changed) {
+      broadcastSnapshot();
+      // §4 (첫 실행 온보딩) — 고른 언어를 그 자리에서 디스크에 앉힌다. 예전에는 다음 저장 때까지
+      //   메모리에만 있어, 온보딩 중에 고르고 앱이 죽으면 흔적 없이 사라졌다.
+      saveCheckpoint();
+    }
     res.json({ ok: true, uiLocale: locale });
   });
 
@@ -1889,6 +1919,15 @@ export async function runServer(): Promise<RunServerHandle> {
       id: CONTEXT_SOURCE_IDS.agentRules,
       text: agentConfig?.rules?.trim() ? `\n\n# Agent Rules\n${agentConfig.rules.trim()}` : '',
     });
+    // §4 (CLI 사양 추종) — 에이전트 자율 압축 창구. 켠 에이전트에게만 실리므로 끄면 바이트 0.
+    //   `subAgentId` 가 없는 경로(첫 스폰 전 등)에서는 신고할 대상이 없으니 안내도 넣지 않는다
+    //   — 부를 수 없는 창구를 알려 주는 것은 없는 손잡이를 그리는 것과 같다.
+    parts.push({
+      id: CONTEXT_SOURCE_IDS.compactSelf,
+      text: (agentConfig?.agentCanCompact === true && subAgentId)
+        ? buildAgentSelfCompactRule(agent.id, subAgentId)
+        : '',
+    });
     parts.push({ id: CONTEXT_SOURCE_IDS.edges, text: buildOutboundEdgesRulesSection(agent.id) });
     parts.push({
       id: CONTEXT_SOURCE_IDS.feedback,
@@ -2431,6 +2470,65 @@ export async function runServer(): Promise<RunServerHandle> {
     return true;
   }
 
+  /**
+   * §4 (CLI 사양 추종) — **에이전트가 스스로 요청한 압축**의 대기표.
+   *
+   * `POST /api/agent-compact` 는 턴이 도는 **도중에** 들어온다(에이전트가 일하다 부른다). 그때는
+   * 그 세션에 실행 중 명령이 있어 압축을 겹쳐 쏠 수 없으므로, 여기 적어 두었다가 그 턴이 끝나는
+   * 자리에서 `maybeCompactAfterTurn` 이 소비한다. 여러 번 불러도 Set 이라 한 번만 돈다.
+   * 런타임 전용(재시작하면 사라짐) — 못 돈 요청은 다음 턴에 에이전트가 다시 부르면 그만이다.
+   */
+  const compactRequestedSubs = new Set<string>();
+
+  /**
+   * §4 (CLI 사양 추종) — 턴이 끝났다. 압축을 걸어야 하면 그 세션 큐에 `/compact` 한 건을 얹는다.
+   *
+   * 발동 조건은 둘 — 설정 `compactAfterTurn`(항상) 또는 에이전트가 이번 턴에 요청(`agentCanCompact`).
+   * 새 실행 레일이 아니라 §5.5 #17-11 ⑪ 이 쓰는 그 명령 큐다(사용자가 입력창에 치는 것과 같은 길).
+   *
+   * 안 쏘는 자리를 분명히 한다:
+   *  - 방금 끝난 것이 **압축 자신**이면 ❌ — 압축이 압축을 부르는 무한 고리가 된다.
+   *  - 그 세션에 **루프가 `contextMode` 로 이미 압축을 담당**하면 ❌ — 회차 경계에서 두 번 돈다.
+   *  - 큐에 아직 안 끝난 명령이 있으면 ❌ — 직렬 보장(루프 압축과 같은 규약). 다음 턴 끝에 다시 본다.
+   */
+  function maybeCompactAfterTurn(cmd: QueuedCommand, sessionId: string): boolean {
+    const subAgentId = cmd.subAgentId;
+    if (!subAgentId) return false;
+
+    const requested = compactRequestedSubs.delete(subAgentId);
+    const sub = subAgentManager.getSub(subAgentId);
+    if (!sub) return false;
+
+    const agentId = graphManager.findAgentIdBySession(sessionId) ?? sub.parentAgentId;
+    const config = agentId ? graphManager.getAgentConfig(agentId) : undefined;
+    if (!requested && config?.compactAfterTurn !== true) return false;
+
+    // 압축이 압축을 부르지 않게. 사용자가 직접 친 `/compact` 뒤에도 또 쏘지 않는다.
+    const text = cmd.text.trim();
+    if (text === AGENT_COMPACT_COMMAND || text === SESSION_LOOP_CLEAR_COMMAND) return false;
+
+    // 루프가 이미 회차 경계 정리를 맡고 있으면 그쪽에 양보한다(두 벌 압축 방지).
+    const loop = graphManager.getSessionLoop(subAgentId);
+    if (loop?.enabled && loop.contextMode !== 'none') return false;
+
+    let queue = commandQueues.get(sessionId);
+    if (!queue) { queue = []; commandQueues.set(sessionId, queue); }
+    if (queue.some((c) => c.subAgentId === subAgentId && (c.status === 'queued' || c.status === 'executing'))) {
+      return false;
+    }
+
+    queue.push({
+      id: `cmd-${Date.now()}-turncompact`,
+      text: AGENT_COMPACT_COMMAND,
+      timestamp: Date.now(),
+      subAgentId,
+      status: 'queued',
+    });
+    logger.info(`[turn-compact] queued ${AGENT_COMPACT_COMMAND} sub=${subAgentId} by=${requested ? 'agent' : 'config'}`);
+    processNextCommand(sessionId);
+    return true;
+  }
+
   /** 다음 회차 예약. delay 0 이면 즉시 발사, 아니면 타이머 + `nextRunAt` 표기(스윕이 안전망). */
   function scheduleSessionLoop(subAgentId: string, delayMs: number): void {
     clearSessionLoopTimer(subAgentId);
@@ -2535,6 +2633,60 @@ export async function runServer(): Promise<RunServerHandle> {
     return NO_RECIPE;
   }
 
+  // ─── §5.5 #17-35 ⑨ — 시연 프레임 파일 (디스크는 여기서만 만진다) ───
+
+  /**
+   * 그 시연의 프레임 폴더 절대 경로. 프로젝트를 못 찾으면 null(=그림 없이 절차만 실린다).
+   *
+   * 레코드에는 상대 경로만 담는다(⑨-3) — 절대 경로를 박아 두면 프로젝트를 다른 경로로 옮긴
+   * 순간 전부 깨지고, 그 사실이 검증을 실제로 보낼 때까지 드러나지 않는다.
+   */
+  function demoFramesDir(agentId: string, demoId: string): string | null {
+    const root = graphManager.getProjectPathForAgent(agentId);
+    if (!root) return null;
+    return path.join(root, '.vibisual', VERIFICATION_DEMO_DIR, demoId);
+  }
+
+  /**
+   * 시연의 프레임을 **있는 자리 그대로** 가리킨다(⑨-4) — 경로 + 클립 안 시각.
+   *
+   * 종전엔 검증할 때마다 첨부 폴더로 사본을 떴다. 그때는 완료 시 첨부 파일을 지웠기 때문에(v1.35/
+   * v1.38) 원본을 보호할 유일한 방법이 사본이었다. 그러나 v2.61 이후 첨부는 **지워지지 않고**,
+   * 프레임 경로는 이제 첨부 레일이 아니라 프롬프트 본문으로 나간다 — 사본을 쓸 곳이 하나도 없다.
+   * 그대로 두면 검증 한 번마다 못 쓰는 그림 N 장이 순수하게 쌓인다(§9).
+   *
+   * 원본은 시연 레코드와 수명이 같다(`removeDemoFrames` 가 유일한 회수 지점). 두 번째 검증에도
+   * 같은 파일이 그 자리에 있으므로 사본이 지키려던 것이 저절로 지켜진다.
+   * 실제로 없는 파일은 빼고 돌려준다 — 프롬프트에 열 수 없는 경로를 적으면 모델이 거기서 멈춘다.
+   */
+  function demoFrameRefsForCommand(demo: VerificationDemo): { path: string; atMs: number }[] {
+    if (demo.frames.length === 0) return [];
+    const srcDir = demoFramesDir(demo.agentId, demo.id);
+    if (!srcDir) return [];
+    const out: { path: string; atMs: number }[] = [];
+    for (const frame of demo.frames.slice(0, VERIFICATION_DEMO_FRAMES_MAX)) {
+      const abs = path.join(srcDir, path.basename(frame.rel));
+      if (!fs.existsSync(abs)) {
+        logger.warn(`[verify] demo frame missing, skipped: ${abs}`);
+        continue;
+      }
+      out.push({ path: abs, atMs: frame.atMs });
+    }
+    return out;
+  }
+
+  /** 시연 하나의 프레임 폴더를 통째로 지운다(레코드가 사라지면 그림도 함께 사라진다). */
+  function removeDemoFrames(demo: VerificationDemo): void {
+    const dir = demoFramesDir(demo.agentId, demo.id);
+    if (!dir) return;
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch (err) {
+      // 실패해도 레코드는 이미 지워졌다 — 남은 폴더는 고아 파일일 뿐 화면에 영향이 없다.
+      logger.warn(`[verify] demo frames rm failed (${demo.id}): ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   /**
    * 검증 한 건을 그 탭 큐에 넣는다. 실패 사유는 호출자(REST)가 사용자에게 그대로 돌려준다.
    *
@@ -2545,6 +2697,7 @@ export async function runServer(): Promise<RunServerHandle> {
     agentId: string,
     subAgentId: string,
     focus?: string,
+    demoId?: string,
   ): { ok: true; run: VerificationRun } | { ok: false; error: string } {
     if (!subAgentManager.getSub(subAgentId)) return { ok: false, error: 'session-not-found' };
     if (graphManager.getActiveVerificationRun(subAgentId)) return { ok: false, error: 'already-running' };
@@ -2561,7 +2714,21 @@ export async function runServer(): Promise<RunServerHandle> {
     const projectName = graphManager.getAgentProjectName(agentId) ?? '';
     const recipe = resolveVerifyRecipe(agentId, projectName);
     const trimmedFocus = focus?.trim().slice(0, VERIFICATION_FOCUS_MAX);
-    const text = buildVerifyPrompt({ recipe, ...(trimmedFocus ? { focus: trimmedFocus } : {}) });
+
+    // §5.5 #17-35 ⑨-4 — 고른 시연이 있으면 절차를 프롬프트에, 그림을 **기존 첨부 레일**에 싣는다.
+    //   원본을 그대로 넘기지 않고 **사본**을 이 명령의 첨부 폴더로 복사한다 — 완료 시 unlink 되는
+    //   것은 사본이고, 시연은 다음 검증에도 그대로 남는다(⑨-3 이 폴더를 가른 이유).
+    const demo = demoId ? graphManager.findVerificationDemo(demoId) : undefined;
+    const demoAttachments = demo ? demoFrameRefsForCommand(demo) : [];
+
+    // 경로는 **프롬프트 본문 안에** 실린다 — `/verify` 는 슬래시 명령이라 `composeTurnPrompt` 가
+    // 꼬리 첨부를 붙이지 않기 때문이다(`DemoFrameRef` 주석). `attachments` 는 사용자 쪽 명령 카드
+    // 썸네일 용도로만 함께 둔다(같은 원본 파일을 가리키는 목록일 뿐, 복사도 중복 전송도 아니다).
+    const text = buildVerifyPrompt({
+      recipe,
+      ...(trimmedFocus ? { focus: trimmedFocus } : {}),
+      ...(demo ? { demo, demoFrames: demoAttachments } : {}),
+    });
 
     const cmd: QueuedCommand = {
       id: `cmd-${Date.now()}-verify`,
@@ -2569,6 +2736,7 @@ export async function runServer(): Promise<RunServerHandle> {
       timestamp: Date.now(),
       subAgentId,
       status: 'queued',
+      ...(demoAttachments.length > 0 ? { attachments: demoAttachments.map((f) => f.path) } : {}),
     };
     queue.push(cmd);
     graphManager.recordSkillUsageFromCommandText(sessionId, cmd.text);
@@ -2581,6 +2749,7 @@ export async function runServer(): Promise<RunServerHandle> {
       ...(trimmedFocus ? { focus: trimmedFocus } : {}),
       recipeSource: recipe.source,
       ...(recipe.label ? { recipeLabel: recipe.label } : {}),
+      ...(demo ? { demoId: demo.id, demoLabel: demo.label } : {}),
       // 위에서 "안 끝난 명령 없음"을 이미 확인했으므로 이 건은 곧바로 나간다(`queued` 는 옛 저장분 복원용).
       status: 'running',
       verdict: 'unknown',
@@ -2589,7 +2758,10 @@ export async function runServer(): Promise<RunServerHandle> {
       startedAt: cmd.timestamp,
     };
     graphManager.addVerificationRun(run);
-    logger.info(`[verify] start agent=${agentId} sub=${subAgentId} recipe=${recipe.source}`);
+    logger.info(
+      `[verify] start agent=${agentId} sub=${subAgentId} recipe=${recipe.source}` +
+      (demo ? ` demo=${demo.id} steps=${demo.steps.length} frames=${demoAttachments.length}` : ''),
+    );
     processNextCommand(sessionId);
     return { ok: true, run };
   }
@@ -2776,6 +2948,20 @@ export async function runServer(): Promise<RunServerHandle> {
   // getSnapshot()+직렬화 비용이 그대로 창 입력 스레드를 잡는다. 전수조사 다중 세션에서 이 값이
   // 프레임 예산(16ms)을 잡아먹는지 확인하기 위한 임시 계측(델타/utilityProcess 착수 전 범인 확정용).
   const PERF_SNAPSHOT = process.env.VIBISUAL_PERF === '1';
+
+  /**
+   * §4 (첫 실행 온보딩) ③ — "고른 프로젝트 폴더가 없다" 로 생성 요청을 돌려보낸다.
+   *
+   * **화면에서만 막으면 절반만 사실이 된다** — 캔버스 우클릭 말고도 이 REST 로 들어오는 길이
+   * 있고(모바일 웹·원격조작·바깥 도구), 그 길로 들어오면 종전처럼 임시로 지어낸 작업 폴더에
+   * 매인 유령 버블이 다시 생긴다. 코드는 shared 한 곳(`NO_PROJECT_FOLDER_ERROR`)에서 오고,
+   * 클라 생성 손잡이는 그 코드를 보고 폴더 선택 게이트를 연다.
+   */
+  function respondNoProjectFolder(res: express.Response, where: string): void {
+    logger.info(`${where}: 열린 프로젝트 폴더가 없어 생성을 거절 — 폴더 선택으로 유도`);
+    res.status(409).json({ ok: false, error: NO_PROJECT_FOLDER_ERROR });
+  }
+
   function broadcastSnapshot(): void {
     if (snapshotBroadcastTimer !== null) return; // 이미 예약됨 — trailing flush 가 최신 스냅샷을 읽는다
     snapshotBroadcastTimer = setTimeout(() => {
@@ -3728,7 +3914,9 @@ export async function runServer(): Promise<RunServerHandle> {
           : provider
             ? { provider }
             : undefined;
+      if (!graphManager.hasOpenProject()) return respondNoProjectFolder(res, 'create-custom-agent');
       const agent = graphManager.createCustomAgent(label ?? '', position, project ?? null, options);
+      if (!agent) return respondNoProjectFolder(res, 'create-custom-agent');
       broadcastSnapshot();
       saveCheckpoint();
       res.json({ ok: true, agent });
@@ -4709,7 +4897,9 @@ export async function runServer(): Promise<RunServerHandle> {
     try {
       const { label, x, y, project } = req.body as { label?: string; x?: number; y?: number; project?: string };
       const position = typeof x === 'number' && typeof y === 'number' ? { x, y } : undefined;
+      if (!graphManager.hasOpenProject()) return respondNoProjectFolder(res, 'create-auto-agent');
       const agent = graphManager.createAutoAgent(label ?? '', position, project ?? null);
+      if (!agent) return respondNoProjectFolder(res, 'create-auto-agent');
       broadcastSnapshot();
       saveCheckpoint();
       res.json({ ok: true, agent });
@@ -4897,7 +5087,9 @@ export async function runServer(): Promise<RunServerHandle> {
         return;
       }
       const position = typeof x === 'number' && typeof y === 'number' ? { x, y } : undefined;
+      if (!graphManager.hasOpenProject()) return respondNoProjectFolder(res, 'create-pipeline');
       const pipeline = graphManager.createPipeline(type as PipelineType, label ?? '', position, project ?? null);
+      if (!pipeline) return respondNoProjectFolder(res, 'create-pipeline');
       broadcastSnapshot();
       saveCheckpoint();
       res.json({ ok: true, pipeline });
@@ -5052,6 +5244,8 @@ export async function runServer(): Promise<RunServerHandle> {
         const { project, x, y, name, base } = req.body as {
           project?: string; x?: number; y?: number; name?: string; base?: string;
         };
+        // §4 온보딩 ③ — 워크트리는 **부모 프로젝트의 사본**이라, 부모가 없으면 만들 것 자체가 없다.
+        if (!graphManager.hasOpenProject()) { respondNoProjectFolder(res, 'create-worktree'); return; }
         const created = await createWorktreeUnder({ project, x, y, name, base });
         if (!created.ok) {
           res.status(created.status).json({ error: created.error });
@@ -6942,6 +7136,9 @@ export async function runServer(): Promise<RunServerHandle> {
           ? body.fallbackModel.trim() : undefined,
         autoCompact: typeof body.autoCompact === 'string' && AVAILABLE_AUTOCOMPACT_VALUES.includes(body.autoCompact.trim()) && body.autoCompact.trim()
           ? body.autoCompact.trim() : undefined,
+        // §4 (CLI 사양 추종) — 압축 축 둘. `autoCompact`(창 임계)와 직교하므로 함께 켤 수 있다.
+        compactAfterTurn: body.compactAfterTurn === true ? true : undefined,
+        agentCanCompact: body.agentCanCompact === true ? true : undefined,
         excludeDynamicSystemPromptSections: body.excludeDynamicSystemPromptSections === true ? true : undefined,
         settingSources: Array.isArray(body.settingSources)
           ? (() => {
@@ -7648,6 +7845,48 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
+   * §4 (CLI 사양 추종) — POST /api/agent-compact
+   *
+   * `agentCanCompact` 를 켠 에이전트가 **일하는 도중** "이제 접자"고 신고하는 창구. 지금은 그
+   * 세션에 실행 중 명령(자기 턴)이 있어 압축을 바로 못 쏘므로 대기표에만 적고, 그 턴이 끝나는
+   * 자리에서 `maybeCompactAfterTurn` 이 큐에 `/compact` 를 얹는다 — 작업이 도중에 잘리지 않는
+   * 이유가 이것이다. 여러 번 불러도 Set 이라 한 번만 돈다.
+   *
+   * 카드 5경로와 **같은 규율**의 loopback ingress(127.0.0.1 바인드 + 토큰)이며 §10 의
+   * 'HTTP/REST API 외부 노출' 이 아니다. 표시 전용은 아니지만(실제로 압축이 돈다) 실패해도
+   * 에이전트의 일에는 영향이 없다.
+   */
+  app.post('/api/agent-compact', (req, res) => {
+    try {
+      const body = (req.body ?? {}) as { agentId?: unknown; subAgentId?: unknown; reason?: unknown };
+      const subAgentId = typeof body.subAgentId === 'string' ? body.subAgentId.trim() : '';
+      if (!subAgentId) {
+        res.status(400).json({ ok: false, error: 'subAgentId required' });
+        return;
+      }
+      const sub = subAgentManager.getSub(subAgentId);
+      if (!sub) {
+        res.status(404).json({ ok: false, error: 'unknown subAgentId' });
+        return;
+      }
+      // 켜지 않은 에이전트의 요청은 받지 않는다 — 안내를 안 실은 에이전트가 부를 리 없고,
+      //   설정을 끈 뒤에도 듣고 있으면 "껐는데 압축된다"가 된다.
+      const agentId = sub.parentAgentId;
+      if (graphManager.getAgentConfig(agentId)?.agentCanCompact !== true) {
+        res.status(409).json({ ok: false, error: 'agentCanCompact is off' });
+        return;
+      }
+      compactRequestedSubs.add(subAgentId);
+      const reason = typeof body.reason === 'string' ? body.reason.slice(0, 200) : '';
+      logger.info(`[turn-compact] requested by agent sub=${subAgentId}${reason ? ` reason="${reason}"` : ''}`);
+      res.json({ ok: true, scheduled: 'end-of-turn' });
+    } catch (err) {
+      logger.error('POST /api/agent-compact failed', err);
+      res.status(500).json({ ok: false });
+    }
+  });
+
+  /**
    * §4 v2.52 — POST /api/agent-report
    * 커스텀/스폰 에이전트가 작업 완료 시 did/userActions 를 구조화 신고(loopback curl, 토큰 인증).
    * 서버는 id/createdAt 을 stamp 해 ProjectGraph 에 적재하고 broadcast → IDE 가 색 구분 카드 렌더.
@@ -7964,6 +8203,55 @@ export async function runServer(): Promise<RunServerHandle> {
       res.json({ ok: true, changed, tree });
     } catch (err) {
       logger.error('PUT /api/cmd-pane-tree failed', err);
+      res.status(500).json({ ok: false, error: 'internal error' });
+    }
+  });
+
+  /**
+   * §5.5 #17-36 — PUT /api/session-memos
+   *
+   * 그 화면(세션 탭 또는 메인 탭)에 붙여 둔 **스티키 메모 목록 전량**을 저장한다. 부분 갱신을
+   * 받지 않는 것은 의도다 — 한 필드만 보내면 나머지가 빈 값으로 강등되는 사고를 규약으로 막는다.
+   *
+   * 자리는 둘로 갈린다: `subAgentId` 가 오면 **그 세션의 소지품**(`SubAgent.memos`)이라 세션이
+   * 사라질 때 함께 사라지고, 없으면(메인 탭) 에이전트 쪽(`ProjectGraph.agentMemos`)에 둔다.
+   * 신뢰할 수 없는 입력이므로 `sanitizeSessionMemos` 로 걸러 넣는다(장수·크기·색·좌표 상한).
+   */
+  app.put('/api/session-memos', (req, res) => {
+    try {
+      const body = (req.body ?? {}) as { agentId?: unknown; subAgentId?: unknown; memos?: unknown };
+      const agentId = typeof body.agentId === 'string' ? body.agentId.trim() : '';
+      const subAgentId = typeof body.subAgentId === 'string' && body.subAgentId.trim()
+        ? body.subAgentId.trim()
+        : null;
+      if (!agentId && !subAgentId) {
+        res.status(400).json({ ok: false, error: 'agentId or subAgentId required' });
+        return;
+      }
+      const memos = sanitizeSessionMemos(body.memos);
+      let changed = false;
+      if (subAgentId) {
+        if (!subAgentManager.getSub(subAgentId)) {
+          res.status(404).json({ ok: false, error: 'session not found' });
+          return;
+        }
+        changed = subAgentManager.setSessionMemos(subAgentId, memos);
+      } else {
+        if (!graphManager.setAgentMemos(agentId, memos)) {
+          // false 는 "안 바뀜"이거나 "그런 에이전트 없음" 둘 다 — 화면은 어느 쪽이든 낙관 표시를
+          //   들고 있으므로 200 으로 돌려주고 changed=false 만 알린다(사용자 글을 잃지 않는다).
+          res.json({ ok: true, changed: false, memos });
+          return;
+        }
+        changed = true;
+      }
+      if (changed) {
+        broadcastSnapshot();
+        saveCheckpoint();
+      }
+      res.json({ ok: true, changed, memos });
+    } catch (err) {
+      logger.error('PUT /api/session-memos failed', err);
       res.status(500).json({ ok: false, error: 'internal error' });
     }
   });
@@ -8577,6 +8865,75 @@ export async function runServer(): Promise<RunServerHandle> {
   });
 
   /**
+   * GET /api/external-path — §5.5 #17-27 ⑬ (d) 프로젝트 루트 **밖** 경로의 존재·정체 조회.
+   *
+   * `?path=<절대경로>` → `{ absPath, kind: 'file' | 'directory' }`, 없으면 404(화면은 그 조각을
+   * 종전과 같은 평문 인라인 코드로 둔다 — (b) 의 "가짜 손잡이를 만들지 않는다" 그대로).
+   *
+   * **`isWithinOpenableRoots` 를 쓰지 않는다** — 루트 밖인 것이 이 라우트의 전제다. 그 대신 경계는
+   * **닿을 수 있는 자가 누구인가**로 세운다: 이 경로는 loopback 리스너 화이트리스트에 **올리지 않으므로**
+   * 외부 `claude` 프로세스는 404 를 받고, 페어링된 기기는 REST 가 아니라 채팅 명령 파서로만 들어온다.
+   * 즉 부를 수 있는 것은 렌더러(사용자 자신의 창)뿐이다(§3.7 경계 유지).
+   *
+   * 답에 `executable` 이 없는 것은 누락이 아니라 **설계**다 — 루트 밖은 탐색기 한 갈래로만 가고,
+   * 실행 여부를 알려 주는 순간 그 갈래가 늘어난다. 조회 전용이라 broadcast·checkpoint 미관여.
+   */
+  app.get('/api/external-path', (req, res) => {
+    try {
+      const abs = req.query['path'];
+      if (typeof abs !== 'string' || abs.length === 0) {
+        res.status(400).json({ error: 'path query required' });
+        return;
+      }
+
+      const info = statExternalPath(abs);
+      if (!info) {
+        res.status(404).json({ error: 'Path not found' });
+        return;
+      }
+      res.json(info);
+    } catch (err) {
+      logger.error('GET /api/external-path failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * POST /api/reveal-path — §5.5 #17-27 ⑬ (d) 루트 밖 경로를 **시스템 탐색기에 보여준다**.
+   *
+   * 여는 실행부는 이미 있는 `editorLauncher.openFolder` 하나다(**새 열기 레일 ❌**) — Windows 는
+   * `explorer` + 포그라운드 보정, macOS 는 `open`, 그 밖은 `xdg-open` 이고 **파일을 주면 그 파일이 든
+   * 상위 폴더**를 연다. 그래서 이 라우트가 하는 일은 "있는가"를 한 번 더 확인하고 넘기는 것뿐이다.
+   *
+   * 경계는 위 `GET /api/external-path` 와 같다 — 화이트리스트 밖이라 렌더러만 닿는다. 그리고 여기서
+   * **여는 갈래를 늘리지 않는다**: 연결 프로그램(`openWithDefaultApp`)·실행(`startRun`)으로는 가지 않는다.
+   * 본문 글자를 눌러 임의 경로가 실행되는 길을 만들지 않는 것이 ⑬ (d) 개정의 조건이었다.
+   */
+  app.post('/api/reveal-path', (req, res) => {
+    try {
+      const { absPath } = req.body as { absPath?: string };
+      if (typeof absPath !== 'string' || absPath.length === 0) {
+        res.status(400).json({ error: 'absPath required' });
+        return;
+      }
+
+      // 있는 것만 연다 — 없는 경로를 넘기면 탐색기가 제 나름의 오류 창을 띄우는데,
+      // 그 창은 우리가 문구도 위치도 통제할 수 없다.
+      const info = statExternalPath(absPath);
+      if (!info) {
+        res.status(404).json({ error: 'Path not found' });
+        return;
+      }
+
+      openFolder(info.absPath);
+      res.json({ ok: true });
+    } catch (err) {
+      logger.error('POST /api/reveal-path failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /**
    * GET /api/workspace-file — §5.5 #17-27 v4.87 IDE 내장 편집창: 파일 **한 개** 읽기.
    *
    * 가드는 탐색기(`/api/workspace-dir`)와 같은 `isWithinOpenableRoots` + `resolveWorkspacePath` 하나다.
@@ -8903,6 +9260,247 @@ export async function runServer(): Promise<RunServerHandle> {
       }
     },
   );
+
+  /**
+   * GET /api/workspace-site/<루트>/<파일…> — §5.5 #17-27 ⑮ HTML 을 **페이지로** 내보내는 창구.
+   *
+   * 이 앱의 다른 파일 창구는 전부 질의형(`?root=&path=`)인데 여기만 **경로형**인 이유는
+   * 하나다 — 페이지는 자기 옆의 파일을 상대 경로로 부른다. 질의형에서는
+   * `<link href="style.css">` 가 `/api/style.css` 로 풀려 CSS·그림·스크립트가 전멸한다.
+   * 경로형이면 `./`·`../` 가 브라우저의 규칙 그대로 풀린다(규약·왕복 검증은 shared
+   * `workspaceSite.ts` — 조립하는 쪽과 해석하는 쪽이 갈라지지 않게 한 파일에 있다).
+   *
+   * 가드는 탐색기·편집창·미디어와 **같은 `isWithinOpenableRoots` + `resolveWorkspacePath`**
+   * 하나 그대로다(새 가드 발명 ❌). 열린 프로젝트 밖은 어떤 경로로도 나가지 못한다.
+   */
+  app.get(`${WORKSPACE_SITE_PATH}/*`, (req, res) => {
+    try {
+      // req.path 는 아직 퍼센트 인코딩된 원본이다 — 세그먼트별 디코딩은 파서가 한다.
+      const parsed = parseWorkspaceSitePath(req.path);
+      if (!parsed) {
+        res.status(400).json({ error: 'usage: /api/workspace-site/<root>/<path>' });
+        return;
+      }
+
+      const resolvedRoot = path.resolve(parsed.root);
+      if (!isWithinOpenableRoots(resolvedRoot)) {
+        logger.warn(`workspace-site blocked (outside project root): "${parsed.root}"`);
+        res.status(403).json({ error: 'Path outside project root' });
+        return;
+      }
+
+      const resolved = resolveWorkspacePath(resolvedRoot, parsed.relPath);
+      if (!resolved) {
+        res.status(403).json({ error: 'Path outside project root' });
+        return;
+      }
+
+      let abs = resolved.abs;
+      let rel = resolved.rel;
+      let size: number;
+      try {
+        const st = fs.statSync(abs);
+        if (st.isDirectory()) {
+          // 폴더를 가리키면 그 안의 index.html — 브라우저에 폴더 주소를 넣었을 때와 같은 기대.
+          const indexRel = rel === '' ? 'index.html' : `${rel}/index.html`;
+          const indexResolved = resolveWorkspacePath(resolvedRoot, indexRel);
+          const indexStat = indexResolved ? fs.statSync(indexResolved.abs) : null;
+          if (!indexResolved || !indexStat?.isFile()) {
+            res.status(404).json({ error: 'Not found' });
+            return;
+          }
+          abs = indexResolved.abs;
+          rel = indexResolved.rel;
+          size = indexStat.size;
+        } else if (!st.isFile()) {
+          res.status(404).json({ error: 'Not found' });
+          return;
+        } else {
+          size = st.size;
+        }
+      } catch {
+        res.status(404).json({ error: 'Not found' });
+        return;
+      }
+
+      res.setHeader('Content-Type', workspaceSiteMime(rel));
+      // 저장하면 그 자리에서 다시 그려져야 한다(⑮ (e)) — 캐시가 남으면 방금 고친 화면이 안 뜬다.
+      res.setHeader('Cache-Control', 'no-store');
+      // 우리가 정한 MIME 을 브라우저가 다시 추측하지 않게 한다(스니핑으로 갈리면 자산이 조용히 죽는다).
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+
+      // 손으로 쓴 페이지만 다시 쓴다(⑮ (c)). 그 외(그림·폰트·JS·wasm)와 거대한 생성물은
+      // 바이트 그대로 흘린다 — 정규식으로 훑을 이유도, 메모리에 통째로 올릴 이유도 없다.
+      const rewriteKind = size <= WORKSPACE_SITE_REWRITE_MAX_BYTES ? workspaceSiteRewriteKind(rel) : null;
+      if (rewriteKind !== null) {
+        const text = fs.readFileSync(abs, 'utf8');
+        const base = workspaceSiteBase(parsed.root);
+        if (rewriteKind === 'css') {
+          res.send(rewriteWorkspaceSiteCss(text, base));
+          return;
+        }
+        // 순서가 규칙이다. ① **원본 그대로** 시작 태그마다 줄:칸을 적는다(⑮ (i)) — 재작성이
+        // 먼저 돌면 늘어난 글자만큼 위치가 밀려 엉뚱한 줄을 가리킨다. ② 루트 절대 경로 재작성.
+        // ③ 부모와 말하는 조각((b) 위치 신고 · (i) 요소 집기)은 **맨 마지막** — 먼저 얹으면 그
+        // 안의 문자열이 재작성 정규식에 걸린다.
+        const annotated = annotateWorkspaceSiteSource(text);
+        res.send(injectWorkspaceSiteAgents(rewriteWorkspaceSiteHtml(annotated, base)));
+        return;
+      }
+
+      // 페이지 안의 <video>·<audio> 는 구간 요청으로 집어 간다 — 없으면 되감기가 죽는다
+      // (§5.13 (R) 미디어 창구와 같은 규칙).
+      res.setHeader('Accept-Ranges', 'bytes');
+      const range = req.headers.range;
+      const match = typeof range === 'string' ? /^bytes=(\d*)-(\d*)$/.exec(range.trim()) : null;
+      if (!match) {
+        res.setHeader('Content-Length', String(size));
+        fs.createReadStream(abs).on('error', () => res.end()).pipe(res);
+        return;
+      }
+      const startRaw = match[1] ?? '';
+      const endRaw = match[2] ?? '';
+      let start = startRaw === '' ? size - Number(endRaw || 0) : Number(startRaw);
+      let end = startRaw === '' || endRaw === '' ? size - 1 : Number(endRaw);
+      if (!Number.isFinite(start) || !Number.isFinite(end)) {
+        res.status(416).setHeader('Content-Range', `bytes */${size}`);
+        res.end();
+        return;
+      }
+      start = Math.max(0, Math.min(start, size === 0 ? 0 : size - 1));
+      end = Math.max(start, Math.min(end, size === 0 ? 0 : size - 1));
+      res.status(206);
+      res.setHeader('Content-Range', `bytes ${start}-${end}/${size}`);
+      res.setHeader('Content-Length', String(end - start + 1));
+      fs.createReadStream(abs, { start, end }).on('error', () => res.end()).pipe(res);
+    } catch (err) {
+      logger.error('GET /api/workspace-site failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * §5.5 #17-19 ⑦ — 탐색기 우클릭이 디스크에 내는 세 변경(만들기 · 이름 바꾸기 · 삭제)의 공용 앞단.
+   *
+   * `root` 는 조회 창구(`/api/workspace-dir`)와 **같은 규약**으로 클라가 아는 프로젝트 루트를 그대로
+   * 받고, 등록된 루트 안인지 여기서 검사한다(루트를 벗어나는 `path` 는 서비스가 한 번 더 막는다).
+   * 디스크가 SSOT 라 broadcast·checkpoint 미관여(#17-19 ⑥ 그대로).
+   */
+  function readWorkspaceMutateRoot(
+    body: { root?: unknown },
+    res: express.Response,
+  ): string | null {
+    const { root } = body;
+    if (typeof root !== 'string' || root.length === 0) {
+      res.status(400).json({ error: 'root required' });
+      return null;
+    }
+    const resolvedRoot = path.resolve(root);
+    if (!isWithinOpenableRoots(resolvedRoot)) {
+      logger.warn(`workspace-entry blocked (outside project root): "${root}"`);
+      res.status(403).json({ error: 'Path outside project root' });
+      return null;
+    }
+    return resolvedRoot;
+  }
+
+  /** 실패 사유 → HTTP 코드. 화면은 코드가 아니라 `error` 문자열을 보고 문구를 고른다. */
+  function workspaceMutateStatus(error: WorkspaceMutateError): number {
+    switch (error) {
+      case 'not-found': return 404;
+      case 'exists': return 409;
+      case 'denied': return 403;
+      case 'outside':
+      case 'root':
+      case 'invalid-name': return 400;
+      default: return 500;
+    }
+  }
+
+  /** POST /api/workspace-entry — §5.5 #17-19 ⑦ 새 파일·새 폴더. */
+  app.post('/api/workspace-entry', (req, res) => {
+    try {
+      const body = req.body as Partial<WorkspaceEntryCreateRequest>;
+      const resolvedRoot = readWorkspaceMutateRoot(body, res);
+      if (resolvedRoot === null) return;
+
+      const relPath = typeof body.path === 'string' ? body.path : '';
+      const name = typeof body.name === 'string' ? body.name : '';
+      const kind = body.kind === 'directory' ? 'directory' : 'file';
+
+      const outcome = createWorkspaceEntry(resolvedRoot, relPath, name, kind);
+      if (!outcome.ok) {
+        res.status(workspaceMutateStatus(outcome.error)).json({ error: outcome.error });
+        return;
+      }
+      logger.info(`workspace-entry created (${kind}): ${outcome.result.path}`);
+      res.json(outcome.result);
+    } catch (err) {
+      logger.error('POST /api/workspace-entry failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /** PATCH /api/workspace-entry — §5.5 #17-19 ⑦ 이름 바꾸기(같은 폴더 안에서만). */
+  app.patch('/api/workspace-entry', (req, res) => {
+    try {
+      const body = req.body as Partial<WorkspaceEntryRenameRequest>;
+      const resolvedRoot = readWorkspaceMutateRoot(body, res);
+      if (resolvedRoot === null) return;
+
+      const relPath = typeof body.path === 'string' ? body.path : '';
+      const name = typeof body.name === 'string' ? body.name : '';
+
+      const outcome = renameWorkspaceEntry(resolvedRoot, relPath, name);
+      if (!outcome.ok) {
+        res.status(workspaceMutateStatus(outcome.error)).json({ error: outcome.error });
+        return;
+      }
+      logger.info(`workspace-entry renamed: ${relPath} → ${outcome.result.path}`);
+      res.json(outcome.result);
+    } catch (err) {
+      logger.error('PATCH /api/workspace-entry failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * DELETE /api/workspace-entry — §5.5 #17-19 ⑦ 삭제.
+   *
+   * 데스크톱 앱에서는 **OS 휴지통**으로 간다(Electron `shell.trashItem` 주입 — `setWorkspaceTrash`).
+   * 그 통로가 없는 실행 형태에서는 영구 삭제이고, 어느 쪽이었는지는 `trashed` 로 화면까지 전해진다.
+   */
+  app.delete('/api/workspace-entry', (req, res) => {
+    void (async () => {
+      try {
+        const body = req.body as Partial<WorkspaceEntryDeleteRequest>;
+        const resolvedRoot = readWorkspaceMutateRoot(body, res);
+        if (resolvedRoot === null) return;
+
+        const relPath = typeof body.path === 'string' ? body.path : '';
+        const outcome = await deleteWorkspaceEntry(resolvedRoot, relPath);
+        if (!outcome.ok) {
+          res.status(workspaceMutateStatus(outcome.error)).json({ error: outcome.error });
+          return;
+        }
+        logger.info(`workspace-entry deleted (${outcome.result.trashed ? 'trash' : 'permanent'}): ${outcome.result.path}`);
+        res.json(outcome.result);
+      } catch (err) {
+        logger.error('DELETE /api/workspace-entry failed', err);
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    })();
+  });
+
+  /**
+   * GET /api/workspace-trash — §5.5 #17-19 ⑦ 이 실행 형태가 **휴지통을 쓸 수 있는가**.
+   *
+   * 되물음 문구가 갈리는 자리라 화면이 미리 알아야 한다 — "휴지통으로 보냅니다"와 "영구히
+   * 지웁니다"는 사용자가 다른 결정을 내리는 문장이다. 조회 전용.
+   */
+  app.get('/api/workspace-trash', (_req, res) => {
+    res.json({ available: isWorkspaceTrashAvailable() });
+  });
 
   /**
    * POST /api/open-external — §5.13 (R-6) 그 파일을 **OS 연결 프로그램**으로 연다.
@@ -11197,7 +11795,7 @@ export async function runServer(): Promise<RunServerHandle> {
 
   /** POST /api/verification-runs — 검증 시작(그 탭 큐에 `/verify` 한 건). */
   app.post('/api/verification-runs', (req, res) => {
-    const body = (req.body ?? {}) as { agentId?: unknown; subAgentId?: unknown; focus?: unknown };
+    const body = (req.body ?? {}) as { agentId?: unknown; subAgentId?: unknown; focus?: unknown; demoId?: unknown };
     const agentId = typeof body.agentId === 'string' ? body.agentId : '';
     const subAgentId = typeof body.subAgentId === 'string' ? body.subAgentId : '';
     if (!agentId || !subAgentId) {
@@ -11210,7 +11808,8 @@ export async function runServer(): Promise<RunServerHandle> {
       return;
     }
     const focus = typeof body.focus === 'string' ? body.focus : undefined;
-    const result = startVerificationRun(agentId, subAgentId, focus);
+    const demoId = typeof body.demoId === 'string' && body.demoId ? body.demoId : undefined;
+    const result = startVerificationRun(agentId, subAgentId, focus, demoId);
     if (!result.ok) {
       res.status(409).json({ ok: false, error: result.error });
       return;
@@ -11282,6 +11881,189 @@ export async function runServer(): Promise<RunServerHandle> {
     broadcastSnapshot();
     saveCheckpoint();
     res.json({ ok: true });
+  });
+
+  // ─── §5.5 #17-35 ⑨ — 시연(재현 절차) REST ───
+  //
+  // 만드는 순서는 **레코드 먼저, 그림 나중**이다: 그림은 몇 장이 될지 클라가 뽑아 봐야 알고,
+  // 한 장씩 올라오는 동안 사용자는 진행을 봐야 한다. 중간에 끊기면 그림이 덜 붙은 시연이 남는데,
+  // 그건 목록에 그대로 보이고 지울 수 있다 — 조용히 사라지는 것보다 낫다.
+
+  /** 시연에서 사람이 적은 단계 배열을 안전한 모양으로. 잘못된 항목은 조용히 버린다. */
+  function sanitizeDemoSteps(raw: unknown): VerificationDemoStep[] {
+    if (!Array.isArray(raw)) return [];
+    const out: VerificationDemoStep[] = [];
+    for (const item of raw) {
+      if (!item || typeof item !== 'object') continue;
+      const o = item as Record<string, unknown>;
+      const text = typeof o.text === 'string' ? o.text.trim().slice(0, VERIFICATION_DEMO_STEP_TEXT_MAX) : '';
+      if (!text) continue;
+      const atMs = typeof o.atMs === 'number' && Number.isFinite(o.atMs) && o.atMs > 0 ? Math.round(o.atMs) : 0;
+      out.push({ atMs, text });
+      if (out.length >= VERIFICATION_DEMO_STEPS_MAX) break;
+    }
+    return out;
+  }
+
+  /** POST /api/verification-demos — 시연 레코드 생성(그림은 아직 없다). */
+  app.post('/api/verification-demos', (req, res) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const agentId = typeof body.agentId === 'string' ? body.agentId : '';
+    const subAgentId = typeof body.subAgentId === 'string' ? body.subAgentId : '';
+    if (!agentId || !subAgentId) {
+      res.status(400).json({ ok: false, error: 'agentId and subAgentId required' });
+      return;
+    }
+    // #17-29 — 훅 버블은 전면 읽기 전용. 시연은 그 버블에 명령을 실어 보내기 위한 재료다.
+    if (isReadOnlyHookAgentId(agentId)) {
+      res.status(400).json({ ok: false, error: READ_ONLY_HOOK_AGENT_ERROR });
+      return;
+    }
+    const sourceName = typeof body.sourceName === 'string' ? body.sourceName.slice(0, VERIFICATION_DEMO_LABEL_MAX) : '';
+    const label = (typeof body.label === 'string' && body.label.trim()
+      ? body.label.trim()
+      : sourceName || 'demo').slice(0, VERIFICATION_DEMO_LABEL_MAX);
+    const expected = typeof body.expected === 'string' && body.expected.trim()
+      ? body.expected.trim().slice(0, VERIFICATION_DEMO_EXPECTED_MAX)
+      : undefined;
+    const durationMs = typeof body.durationMs === 'number' && body.durationMs > 0 ? Math.round(body.durationMs) : 0;
+
+    const demo: VerificationDemo = {
+      id: `demo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      agentId,
+      subAgentId,
+      projectName: graphManager.getAgentProjectName(agentId) ?? '',
+      label,
+      sourceName,
+      steps: sanitizeDemoSteps(body.steps),
+      ...(expected ? { expected } : {}),
+      frames: [],
+      durationMs,
+      recordedAt: Date.now(),
+    };
+
+    const evicted = graphManager.addVerificationDemo(demo);
+    if (evicted === null) {
+      res.status(409).json({ ok: false, error: 'project-not-found' });
+      return;
+    }
+    // 상한에 밀려난 시연의 그림은 여기서 회수한다 — 레코드만 지우면 폴더가 영원히 남는다(§9).
+    for (const gone of evicted) removeDemoFrames(gone);
+
+    broadcastSnapshot();
+    saveCheckpoint();
+    res.json({ ok: true, demo });
+  });
+
+  /** 프레임 업로드 — 한 번에 한 장(붙여넣기 첨부와 같은 규약). 저장은 시연 전용 폴더. */
+  const demoFrameUpload = multer({
+    storage: multer.diskStorage({
+      destination: (req, _file, cb) => {
+        const rawId = req.params['demoId'];
+        const demoId = typeof rawId === 'string' ? rawId : '';
+        if (!demoId || demoId.includes('..') || demoId.includes('/') || demoId.includes('\\\\')) {
+          return cb(new Error('invalid demoId'), '');
+        }
+        const demo = graphManager.findVerificationDemo(demoId);
+        if (!demo) return cb(new Error('demo not found'), '');
+        const dir = demoFramesDir(demo.agentId, demo.id);
+        if (!dir) return cb(new Error('project not found'), '');
+        try {
+          fs.mkdirSync(dir, { recursive: true });
+        } catch (err) {
+          return cb(err instanceof Error ? err : new Error('mkdir failed'), '');
+        }
+        cb(null, dir);
+      },
+      filename: (req, _file, cb) => {
+        // 순번 = 지금까지 붙은 장수. 시간 순서가 곧 파일 이름 순서라 나중에 정렬이 필요 없다.
+        const demoId = typeof req.params['demoId'] === 'string' ? req.params['demoId'] : '';
+        const demo = graphManager.findVerificationDemo(demoId);
+        cb(null, `${demo ? demo.frames.length : 0}.png`);
+      },
+    }),
+    limits: { fileSize: 8 * 1024 * 1024, files: 1 },
+    fileFilter: (_req, file, cb) => {
+      if (!file.mimetype.startsWith('image/')) { cb(new Error('only image/* mime types allowed')); return; }
+      cb(null, true);
+    },
+  });
+
+  /** POST /api/verification-demos/:demoId/frames — 프레임 한 장 추가(순서대로). */
+  app.post('/api/verification-demos/:demoId/frames', (req, res) => {
+    const demo = graphManager.findVerificationDemo(req.params.demoId);
+    if (!demo) { res.status(404).json({ ok: false, error: 'not found' }); return; }
+    if (demo.frames.length >= VERIFICATION_DEMO_FRAMES_MAX) {
+      res.status(409).json({ ok: false, error: 'frames-full' });
+      return;
+    }
+    demoFrameUpload.single('image')(req, res, (err?: unknown) => {
+      if (err) { res.status(400).json({ ok: false, error: err instanceof Error ? err.message : String(err) }); return; }
+      if (!req.file) { res.status(400).json({ ok: false, error: 'no file uploaded (field name must be "image")' }); return; }
+      const fields = (req.body ?? {}) as Record<string, unknown>;
+      const atMs = typeof fields.atMs === 'string' && Number.isFinite(Number(fields.atMs))
+        ? Math.max(0, Math.round(Number(fields.atMs)))
+        : 0;
+      // 파일이 저장되는 동안 다른 요청이 목록을 바꿨을 수 있다 — 붙일 때는 지금 값을 다시 읽는다.
+      const fresh = graphManager.findVerificationDemo(demo.id);
+      if (!fresh) { res.status(404).json({ ok: false, error: 'not found' }); return; }
+      const next = graphManager.updateVerificationDemo(demo.id, {
+        frames: [...fresh.frames, { rel: `${demo.id}/${path.basename(req.file.path)}`, atMs }],
+      });
+      broadcastSnapshot();
+      saveCheckpoint();
+      res.json({ ok: true, demo: next });
+    });
+  });
+
+  /** PATCH /api/verification-demos/:demoId — 이름·단계·기대 결과 고치기(그림은 그대로). */
+  app.patch('/api/verification-demos/:demoId', (req, res) => {
+    const demo = graphManager.findVerificationDemo(req.params.demoId);
+    if (!demo) { res.status(404).json({ ok: false, error: 'not found' }); return; }
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const patch: Partial<VerificationDemo> = {};
+    if (typeof body.label === 'string' && body.label.trim()) {
+      patch.label = body.label.trim().slice(0, VERIFICATION_DEMO_LABEL_MAX);
+    }
+    if (typeof body.expected === 'string') {
+      const v = body.expected.trim().slice(0, VERIFICATION_DEMO_EXPECTED_MAX);
+      patch.expected = v ? v : undefined;
+    }
+    if (Array.isArray(body.steps)) patch.steps = sanitizeDemoSteps(body.steps);
+    const next = graphManager.updateVerificationDemo(demo.id, patch);
+    broadcastSnapshot();
+    saveCheckpoint();
+    res.json({ ok: true, demo: next });
+  });
+
+  /** DELETE /api/verification-demos/:demoId — 레코드와 그림을 함께 지운다. */
+  app.delete('/api/verification-demos/:demoId', (req, res) => {
+    const gone = graphManager.deleteVerificationDemo(req.params.demoId);
+    if (!gone) { res.status(404).json({ ok: false, error: 'not found' }); return; }
+    removeDemoFrames(gone);
+    broadcastSnapshot();
+    saveCheckpoint();
+    res.json({ ok: true });
+  });
+
+  /**
+   * GET /api/verification-demos/:demoId/frame?rel=<demoId/0.png> — 저장된 프레임 서빙.
+   *
+   * 녹화 직후에는 렌더러에 blob 이 있지만 앱을 다시 켜면 없다 — 그때 목록의 썸네일이 이 길로 온다.
+   * 경로 검증: 그 시연의 폴더 안 파일만(트래버설 차단, 첨부 서빙과 같은 규약).
+   */
+  app.get('/api/verification-demos/:demoId/frame', (req, res) => {
+    const demo = graphManager.findVerificationDemo(req.params.demoId);
+    if (!demo) { res.status(404).json({ error: 'not found' }); return; }
+    const rel = typeof req.query.rel === 'string' ? req.query.rel : '';
+    if (!rel || !demo.frames.some((f) => f.rel === rel)) { res.status(404).json({ error: 'frame not found' }); return; }
+    const dir = demoFramesDir(demo.agentId, demo.id);
+    if (!dir) { res.status(404).json({ error: 'project not found' }); return; }
+    const resolved = path.resolve(path.join(dir, path.basename(rel)));
+    if (!resolved.startsWith(path.resolve(dir) + path.sep)) { res.status(403).json({ error: 'path outside demo dir' }); return; }
+    if (!fs.existsSync(resolved)) { res.status(404).json({ error: 'file missing' }); return; }
+    res.type('image/png');
+    fs.createReadStream(resolved).pipe(res);
   });
 
   app.post('/api/play-recipe', (req, res) => {
@@ -11501,6 +12283,9 @@ export async function runServer(): Promise<RunServerHandle> {
           { x: doc.x + doc.width + SPEC_TASK_OFFSET_X, y: doc.y + index * SPEC_TASK_GAP_Y },
           doc.projectName,
         );
+        // 스펙 보드는 프로젝트 안에서만 사니 여기서 폴더가 없을 일은 없다 — 그래도 임시 폴더를
+        // 지어내지 않는 규약(§4 온보딩 ③)이라 없으면 이 항목만 건너뛴다.
+        if (!agent) continue;
         // 카드가 무엇을 만족시켜야 하는지는 rules 자동 섹션으로 얹는다(§7.9 v1.33 과 같은 문법).
         const cfg = graphManager.getAgentConfig(agent.id);
         if (cfg) {
@@ -11841,6 +12626,17 @@ export async function runServer(): Promise<RunServerHandle> {
             { x: run.x + run.width + LAB_CARD_OFFSET_X, y: run.y + index * LAB_CARD_GAP_Y },
             wtProjectName,
           );
+          // 방금 만든 워크트리가 인스턴스로 안 잡히면 카드를 만들 자리가 없다 — 바로 위 워크트리
+          // 실패와 **같은 모양으로** 신고한다(조용히 건너뛰면 변형 하나가 이유 없이 빠진다).
+          if (!agent) {
+            graphManager.finishLabVariant(run.id, variant.id, {
+              status: 'failed',
+              finishedAt: Date.now(),
+              error: NO_PROJECT_FOLDER_ERROR,
+            });
+            failed.push({ variantId: variant.id, error: NO_PROJECT_FOLDER_ERROR });
+            continue;
+          }
 
           // 설정 — 기준 config 전량 스프레드 위에 변형 축만. 부분 페이로드 저장 ❌(실측된 함정).
           const current = graphManager.getAgentConfig(agent.id);
@@ -12304,6 +13100,7 @@ export async function runServer(): Promise<RunServerHandle> {
               { x: bubble.x + bubble.width + SHELF_CARD_OFFSET_X, y: bubble.y },
               bubble.projectName,
             );
+            if (!agent) { respondNoProjectFolder(res, 'shelf-run'); return; }
             targetId = agent.id;
             sessionId = agent.path;
           }
@@ -12453,6 +13250,9 @@ export async function runServer(): Promise<RunServerHandle> {
           y: anchorY + (typeof rel.y === 'number' ? rel.y : 0),
         };
         const created = graphManager.createCustomAgent(entry.label ?? '', position, projectName);
+        // 붙여넣기는 프로젝트를 고른 캔버스에서만 일어나지만, 임시 폴더를 지어내는 대신
+        // 그 항목만 건너뛴다(§4 온보딩 ③) — idMap 에 안 들어가면 뒤 단계도 알아서 빠진다.
+        if (!created) continue;
         idMap.agents[entry.oldId] = created.id;
 
         // AgentConfig 적용 — 클라이언트가 strip 했지만 서버에서도 rulesHistory 방어 제거.
@@ -13770,6 +14570,9 @@ export async function runServer(): Promise<RunServerHandle> {
       for (const cmd of done) advanceSessionLoop(cmd);
       // §5.5 #17-35 — 검증 닫기. 루프와 같은 자리에서 `pendingCommandId` 대조로 판정을 읽는다.
       for (const cmd of done) advanceVerificationRun(cmd);
+      // §4 (CLI 사양 추종) — 턴 경계 압축. 루프 전진 **뒤**에 본다 — 루프가 이 회차로 `contextMode`
+      //   정리를 걸었으면 그쪽이 이미 큐에 있어 직렬 가드에 막히므로 두 벌로 쏘지 않는다.
+      for (const cmd of done) maybeCompactAfterTurn(cmd, sessionId);
 
       archiveCompletedCommands(sessionId, done);
       const remaining = queue.filter((c) => c.status === 'queued' || c.status === 'executing');
@@ -14025,6 +14828,27 @@ export async function runServer(): Promise<RunServerHandle> {
       //   순서가 뒤집히면 유령이 세션·버블을 계속 활동 중으로 붙든다.
       const orphanParents = subAgentManager.sweepOrphanedBackgroundTasks();
       const deadActive = subAgentManager.reconcileDeadActiveSubs();
+      // 턴은 끝났는데 `executing` 으로 굳은 명령을 걷는다. 굳어 있는 동안 그 탭은 `busy` 로 잠겨
+      //   **새 명령을 영영 못 받으므로**(앞 명령이 안 끝났으니 다음이 안 나간다), 종전에는 사용자가
+      //   앱을 재기동하거나 [중지]를 눌러야만 풀렸다. 아래 잠듦 판정이 `executing` 을 "곧 쓸 자식"
+      //   으로 읽으므로 **그보다 먼저** 걷어야 재우기까지 함께 막히지 않는다.
+      const zombieCmds = subAgentManager.sealZombieExecutingCommands(
+        commandQueues,
+        ZOMBIE_EXECUTING_GRACE_MS,
+      );
+      const zombieBySession = new Map<string, QueuedCommand[]>();
+      for (const { sessionId, cmd } of zombieCmds) {
+        const list = zombieBySession.get(sessionId);
+        if (list) list.push(cmd);
+        else zombieBySession.set(sessionId, [cmd]);
+      }
+      for (const [sessionId, sealed] of zombieBySession) {
+        // 봉합분은 큐에서 빼 결과 아카이브로 옮긴다 — 정지 라우트가 하는 처리와 같은 자리라야
+        //   사용자가 "왜 사라졌지"를 겪지 않고 실패 사유를 평소 자리에서 본다.
+        const queue = commandQueues.get(sessionId);
+        if (queue) commandQueues.set(sessionId, queue.filter((c) => !sealed.includes(c)));
+        archiveCompletedCommands(sessionId, sealed);
+      }
       // §2.4 (잠듦) — 대화가 끝난 지 오래된 세션의 자식 프로세스를 회수해 메모리를 돌려준다.
       //   다음 명령이 오면 `--resume` fresh spawn 으로 그대로 이어지므로 사용자가 잃는 것은 없다.
       //   큐에 아직 나가지 않은 명령이 남은 세션은 곧 그 자식을 쓸 자리라 건너뛴다.
@@ -14040,9 +14864,12 @@ export async function runServer(): Promise<RunServerHandle> {
         }
         return false;
       });
-      if (deadActive.length > 0 || orphanParents.length > 0 || slept.length > 0) {
+      if (deadActive.length > 0 || orphanParents.length > 0 || slept.length > 0 || zombieCmds.length > 0) {
         const parents = new Set(orphanParents);
-        for (const id of [...deadActive, ...slept]) {
+        const zombieSubIds = zombieCmds
+          .map(({ cmd }) => cmd.subAgentId)
+          .filter((id): id is string => id !== null);
+        for (const id of [...deadActive, ...slept, ...zombieSubIds]) {
           const parentId = subAgentManager.getSub(id)?.parentAgentId;
           if (parentId) parents.add(parentId);
         }

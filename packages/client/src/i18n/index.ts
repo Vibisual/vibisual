@@ -55,6 +55,26 @@ void i18n.use(initReactI18next).init({
   returnEmptyString: false,
 });
 
+/**
+ * §5.5 #17-22 ⑤-3 — **`<html lang>` 은 UI 언어를 따라간다.**
+ *
+ * 종전에는 `index.html` 에 `lang="ko"` 가 박혀 있고 언어를 바꿔도 그대로였다(기본 로케일은
+ * `en` 이라 첫 화면부터 어긋나 있었다). 이 값은 표시용 표식이 아니라 실제로 읽히는 값이다 —
+ * ① CSS `:lang()` 이 문자 폴백 글꼴의 차례를 정하고(한자 통합: 같은 코드포인트라도 나라마다
+ * 자형이 다르다), ② 크로미움이 글꼴 스택으로 못 그린 글자를 OS 에서 찾을 때 이 언어로 묻고,
+ * ③ 스크린리더의 발음과 브라우저 번역 도구가 이것을 본다.
+ *
+ * `changeUiLocale` 이 아니라 `languageChanged` 이벤트에 거는 이유는, 서버 설정 복원처럼
+ * 다른 경로로 언어가 바뀌어도 따라오게 하기 위해서다(입구가 하나라는 보장은 없다).
+ */
+function syncDocumentLang(locale: string): void {
+  if (typeof document === 'undefined') return;
+  document.documentElement.lang = locale;
+}
+
+i18n.on('languageChanged', syncDocumentLang);
+syncDocumentLang(i18n.language || DEFAULT_UI_LOCALE);
+
 export function changeUiLocale(locale: UiLocale): void {
   if (!SUPPORTED_UI_LOCALES.includes(locale)) return;
   void i18n.changeLanguage(locale);

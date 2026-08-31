@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { isExecutableWorkspacePath, listWorkspaceDir, resolveWorkspacePath, statWorkspacePath } from './workspaceExplorer.js';
+import { isExecutableWorkspacePath, listWorkspaceDir, resolveWorkspacePath, statExternalPath, statWorkspacePath } from './workspaceExplorer.js';
 
 /**
  * §5.5 #17-19 v4.71 — 탐색기 디렉터리 조회 테스트.
@@ -184,5 +184,36 @@ describe('isExecutableWorkspacePath', () => {
     expect(isExecutableWorkspacePath('/g/scripts/run.sh', file(0o755), 'linux')).toBe(true);
     expect(isExecutableWorkspacePath('/g/dist/Game.AppImage', file(0o755), 'linux')).toBe(true);
     expect(isExecutableWorkspacePath('/g/scripts/run.sh', file(0o644), 'linux')).toBe(false);
+  });
+});
+
+/**
+ * §5.5 #17-27 ⑬ (d) — 루트 **밖** 절대 경로의 정체. 여기서 지키는 것은 둘이다 —
+ * (a) 상대 경로를 받지 않는다(기준이 없는 값은 서버의 cwd 를 뿌리로 삼아 엉뚱한 곳을 가리킨다),
+ * (b) 답에 실행 여부를 담지 않는다(담는 순간 루트 밖이 실행 갈래를 얻는다).
+ */
+describe('statExternalPath', () => {
+  it('루트 밖이어도 파일과 폴더를 갈라 답한다', () => {
+    expect(statExternalPath(path.join(root, 'README.md'))?.kind).toBe('file');
+    expect(statExternalPath(root)?.kind).toBe('directory');
+  });
+
+  it('절대 경로를 정규화해 돌려준다 — 탐색기에 그대로 넘길 수 있게', () => {
+    const info = statExternalPath(path.join(root, 'packages', '..', 'README.md'));
+    expect(info?.absPath).toBe(path.resolve(root, 'README.md'));
+  });
+
+  it('없는 경로는 null — 호출부가 404 로 옮긴다', () => {
+    expect(statExternalPath(path.join(root, 'nope.txt'))).toBeNull();
+  });
+
+  it('[보안] 상대 경로는 받지 않는다 — 기준 없는 값이 서버 cwd 를 뿌리로 삼는 것을 막는다', () => {
+    expect(statExternalPath('README.md')).toBeNull();
+    expect(statExternalPath('../etc/passwd')).toBeNull();
+    expect(statExternalPath('')).toBeNull();
+  });
+
+  it('답에는 absPath 와 kind 뿐이다 — 실행 여부를 알려 주면 갈래가 늘어난다', () => {
+    expect(Object.keys(statExternalPath(root) ?? {}).sort()).toEqual(['absPath', 'kind']);
   });
 });

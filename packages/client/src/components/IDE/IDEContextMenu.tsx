@@ -27,14 +27,22 @@ export interface ContextMenuItem {
   separatorBefore?: boolean;
 }
 
+/** 기본 z-index. 모달 위에서 열릴 때는 호출부가 그 창보다 높은 값을 준다. */
+const DEFAULT_Z = 9999;
+
 interface IDEContextMenuProps {
   x: number;
   y: number;
   items: ContextMenuItem[];
+  /**
+   * 겹침 순서. **모달 위의 메뉴는 반드시 줘야 한다** — 기본값은 IDE 안(9999) 기준이라
+   * 로그인 창(100_600) 같은 상위 레이어에서는 메뉴가 창 **뒤로** 숨는다(= 우클릭 무반응으로 보인다).
+   */
+  zIndex?: number;
   onClose: () => void;
 }
 
-export function IDEContextMenu({ x, y, items, onClose }: IDEContextMenuProps): React.JSX.Element {
+export function IDEContextMenu({ x, y, items, zIndex, onClose }: IDEContextMenuProps): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ left: number; top: number }>({ left: x, top: y });
 
@@ -67,9 +75,14 @@ export function IDEContextMenu({ x, y, items, onClose }: IDEContextMenuProps): R
   return createPortal(
     <div
       ref={ref}
-      style={{ position: 'fixed', left: pos.left, top: pos.top, zIndex: 9999 }}
+      style={{ position: 'fixed', left: pos.left, top: pos.top, zIndex: zIndex ?? DEFAULT_Z }}
       className="min-w-[180px] rounded border border-gray-700 bg-gray-900 py-1 shadow-xl"
       onContextMenu={(e) => e.preventDefault()}
+      // **초점을 빼앗지 않는다.** 항목이 `<button>` 이라 누르는 순간 초점이 옮겨가는데, 그러면
+      // 대상 입력칸에 `blur` 가 먼저 떨어진다 — 탐색기 이름 바꾸기 칸처럼 `onBlur` 로 확정하는
+      // 자리에서는 메뉴를 누른 순간 칸이 사라져 [붙여넣기] 가 갈 곳을 잃는다. mousedown 기본동작만
+      // 막으면 클릭은 그대로 오면서 초점은 원래 자리에 남는다.
+      onMouseDown={(e) => e.preventDefault()}
     >
       {items.map((it, i) => (
         <div key={it.id ?? i}>

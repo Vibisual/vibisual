@@ -379,6 +379,9 @@ export const CodeEditor = memo(function CodeEditor({
             onKeyUp={updateCaretLine}
             onClick={updateCaretLine}
             onContextMenu={handleBodyContextMenu}
+            // 전역 입력칸 메뉴(`GlobalTextFieldContextMenu`)에게 "여긴 내가 맡는다"고 알린다 —
+            // 전역이 가로채면 이 메뉴의 되돌리기·저장·다시 읽기가 통째로 죽는다.
+            data-text-menu="own"
             className={`${LAYER_TEXT} ${LAYER_PAD} absolute inset-0 h-full w-full resize-none overflow-hidden whitespace-pre border-0 bg-transparent text-transparent caret-gray-100 outline-none selection:bg-blue-500/30`}
           />
         </div>

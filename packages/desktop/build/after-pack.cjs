@@ -9,7 +9,7 @@
 // Dest   : <resourcesDir>/app/node_modules/@vibisual/server/{dist, node_modules}
 //          (resourcesDir = win/linux 는 <appOutDir>/resources, mac 은 <Product>.app/Contents/Resources)
 
-const { cpSync, existsSync, readdirSync, readlinkSync, realpathSync, rmSync, mkdirSync, lstatSync } = require('node:fs');
+const { cpSync, existsSync, readdirSync, readlinkSync, realpathSync, rmSync, mkdirSync, lstatSync, statSync, chmodSync } = require('node:fs');
 const { join, dirname } = require('node:path');
 const { spawnSync } = require('node:child_process');
 const os = require('node:os');
@@ -329,7 +329,74 @@ exports.default = async function afterPack(context) {
       }
     }
   }
+
+  restoreSpawnHelperExecBit(resourcesDir, context.electronPlatformName);
 };
+
+/**
+ * node-pty 의 `spawn-helper` 에 실행 권한을 돌려준다 (mac/linux 패키징).
+ *
+ * ⚠ 이걸 빼면 **macOS 에서 터미널이 하나도 안 뜬다** — 로그인 창("로그인 절차를 시작하지
+ * 못했습니다") · CMD 버블 · 실행 런처가 전부 죽는다(2026-08-29 실기 확인, v0.1.14).
+ *
+ * 원인은 우리 복사가 아니라 **npm 이 배포 tarball 을 만들 때 파일 모드를 644 로 평평하게
+ * 눌러 버리는 것**이다. node-pty 1.1.0 의 tarball 안 `prebuilds/darwin-<arch>/spawn-helper` 는
+ * `-rw-r--r--` 로 들어 있고, 그 패키지의 install/postinstall 스크립트도 권한을 되돌리지
+ * 않는다(우리가 확인 — post-install.js 는 Release 폴더 청소와 Windows conpty 복사만 한다).
+ * macOS 의 node-pty 는 이 helper 를 `posix_spawnp` 로 실행해 제어 터미널을 얻으므로,
+ * 실행 권한이 없으면 `pty.spawn` 이 **"posix_spawnp failed."** 하나만 남기고 실패한다.
+ * (리눅스 prebuild 는 아예 없어 소스 빌드로 만들어지므로 이 문제가 없다 — 그래도 같이 훑는다.)
+ *
+ * 빌드는 초록이고 dmg 도 발행되므로, 이 자리를 놓치면 **연 사람만 아는 실패**가 된다.
+ */
+function restoreSpawnHelperExecBit(resourcesDir, electronPlatformName) {
+  if (electronPlatformName === 'win32') return;
+  const appModules = join(resourcesDir, 'app', 'node_modules');
+  if (!existsSync(appModules)) return;
+
+  // 사본이 여러 벌일 수 있다(@vibisual/server/node_modules 아래에도 들어온다) — 이름이
+  //   `node-pty` 인 폴더를 깊이를 묶어 찾고, 그 안의 helper 를 전부 손본다.
+  const ptyDirs = [];
+  const findPtyDirs = (dir, depth) => {
+    if (depth > 6) return;
+    let entries;
+    try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      if (!e.isDirectory()) continue;
+      const full = join(dir, e.name);
+      if (e.name === 'node-pty') { ptyDirs.push(full); continue; }
+      // 스코프 폴더(@vibisual 등)와 중첩 node_modules 만 더 들어간다 — 전체 트리를 훑으면
+      //   수천 폴더를 헛돈다.
+      if (e.name.startsWith('@') || e.name === 'node_modules') findPtyDirs(full, depth + 1);
+      else findPtyDirs(join(full, 'node_modules'), depth + 1);
+    }
+  };
+  findPtyDirs(appModules, 0);
+
+  let fixed = 0;
+  for (const ptyDir of ptyDirs) {
+    const candidates = [join(ptyDir, 'build', 'Release', 'spawn-helper')];
+    const prebuilds = join(ptyDir, 'prebuilds');
+    try {
+      for (const e of readdirSync(prebuilds, { withFileTypes: true })) {
+        if (e.isDirectory()) candidates.push(join(prebuilds, e.name, 'spawn-helper'));
+      }
+    } catch { /* prebuilds 가 없는 배치(소스 빌드) — build/Release 만 본다 */ }
+    for (const helper of candidates) {
+      if (!existsSync(helper)) continue;
+      try {
+        if (statSync(helper).mode & 0o111) continue;
+        chmodSync(helper, 0o755);
+        fixed += 1;
+        console.log(`[afterPack] chmod 755 ${helper} (npm tarball 이 644 로 눌러 놓은 것)`);
+      } catch (err) {
+        // 여기서 조용히 지나가면 mac 설치본의 터미널이 통째로 죽는다 — 빌드를 세운다.
+        throw new Error(`[afterPack] spawn-helper 실행 권한 복구 실패: ${helper} — ${err.message}`);
+      }
+    }
+  }
+  console.log(`[afterPack] spawn-helper: node-pty ${ptyDirs.length}곳 확인, ${fixed}개 실행 권한 복구`);
+}
 
 // Locate an rcedit binary. Priority:
 //   1. RCEDIT_PATH env override (manual install)
@@ -359,3 +426,6 @@ function findRcedit() {
   }
   return null;
 }
+
+// 테스트에서 실제 파일 모드로 확인할 수 있게 내보낸다(electron-builder 는 `.default` 만 본다).
+exports.restoreSpawnHelperExecBit = restoreSpawnHelperExecBit;

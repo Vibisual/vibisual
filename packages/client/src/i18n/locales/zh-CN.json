@@ -26,7 +26,17 @@
       "confirmTitle": "要重启以更新吗？",
       "confirmBody": "更新将关闭并重新安装应用。进行中的 Agent 工作或未保存的更改可能会丢失。",
       "confirmHint": "如果有重要的自定义 Agent 工作，请先完成后再更新。",
-      "confirmCancel": "取消"
+      "confirmCancel": "取消",
+      "openReleases": "下载 {{version}}",
+      "openReleasesTooltip": "此 Mac 上的自动更新未能完成。点击将打开发布页面，可自行下载。",
+      "failed": {
+        "download-failed": "下载未完成。",
+        "checksum-mismatch": "下载的文件与已发布的校验和不一致，已丢弃。",
+        "arch-mismatch": "下载的版本面向的处理器与此 Mac 不同，因此未安装。",
+        "mount-failed": "无法打开下载的磁盘映像。",
+        "not-writable": "Vibisual 没有权限在其安装位置替换自身。",
+        "install-failed": "无法替换应用。"
+      }
     },
     "agentStatus": {
       "waiting": "等待 Agent",
@@ -87,6 +97,10 @@
         "expandAll": "全部展开"
       },
       "shortcutHint": "{{dock}} 停靠 · {{max}} 最大化 · {{next}} 下一个窗口"
+    },
+    "projectFolderBanner": {
+      "text": "没有打开的项目文件夹 — Agent 尚无工作位置。",
+      "action": "选择文件夹"
     }
   },
   "panel": {
@@ -948,15 +962,21 @@
       "fallbackModel": {
         "label": "回退模型",
         "tip": "主模型过载或不可用时改用的模型。用逗号分隔可按顺序尝试。仅用于无头运行。",
-        "placeholder": "例如 sonnet"
+        "placeholder": "例如 sonnet",
+        "unsetLabel": "未设置",
+        "unset": "未设置 — 无备用模型。主模型不可用时运行将失败。",
+        "customLabel": "手动输入…",
+        "custom": "自行输入数值 — 可以是精确的版本 ID，也可以是按顺序尝试的逗号分隔列表。"
       },
       "autoCompact": {
         "label": "自动压缩",
-        "tip": "CLI 自动压缩对话的上下文大小。",
-        "unset": "未设置 — 交给 CLI 判断（默认）。",
+        "tip": "CLI 开始自动压缩对话的上下文大小。数值越小，压缩越早、越频繁。",
+        "unset": "未设置 — 沿用设置窗口中的默认值。",
         "unsetLabel": "未设置",
         "auto": "auto — 由 CLI 选择窗口。",
-        "tokens": "约 {{tokens}} 个 token 时压缩。"
+        "tokens": "约 {{tokens}} 个 token 时压缩。",
+        "unsetDefaultLabel": "未设置 ({{tokens}})",
+        "globalTip": "适用于所有未单独设置自动压缩的智能体，包括已在运行的。留空则使用内置默认值。"
       },
       "settingSources": {
         "label": "设置来源",
@@ -1026,6 +1046,22 @@
         "tip": "该 CMD 终端启动的 Agent CLI。除 Claude Code 以外，其他 CLI 都不是我们的 Hooks 系统的子进程，因此无法接入对话续接与规则注入——其状态会改为从终端输出中读取。",
         "nonClaudeNote": "该 CLI 并非 Claude Code，因此下方设置(模型、权限、工具、规则)不会传递给它。其状态改为从终端输出中读取。更改仅对通过“+”新开的会话生效。",
         "applyNote": "更改 CLI 后仅对通过“+”新开的会话生效——已在运行的终端将保留其启动时的设置。"
+      },
+      "compactAfterTurn": {
+        "label": "一轮结束后压缩",
+        "hint": "在每轮边界把对话折叠为摘要——绝不在任务中途截断。"
+      },
+      "agentCanCompact": {
+        "label": "允许智能体在工作中自行压缩",
+        "hint": "智能体判断上下文过重时提出请求，在该轮结束后执行。"
+      },
+      "diff": {
+        "badge": "与默认值不同 {{count}} 项",
+        "summaryTip": "与选项中的智能体默认设置不同 — {{list}}",
+        "tip": "仅此智能体的设置。默认值：{{value}}",
+        "unset": "未设置",
+        "on": "开",
+        "off": "关"
       }
     },
     "permissionPrompt": {
@@ -1400,7 +1436,8 @@
       "recheck": "重新检查",
       "later": "稍后",
       "stop": "停止",
-      "start": "登录"
+      "start": "登录",
+      "successNext": "下一步：选择 Agent 的工作项目文件夹。"
     },
     "setup": {
       "title": "安装 Claude Code",
@@ -1414,6 +1451,8 @@
       "installFailed": "安装失败",
       "retry": "重试",
       "ready": "Claude Code 已就绪，继续中…",
+      "readyNext": "下一步：登录你的 Claude 账号。",
+      "continue": "继续",
       "failed": "安装未完成。请在终端运行上方命令，然后选择“重新检查”。",
       "manualOnly": "此平台不支持自动安装。请在终端运行上方命令，然后选择“重新检查”。",
       "recheck": "重新检查",
@@ -1464,6 +1503,14 @@
       "vibi3d": {
         "name": "Vibi3D",
         "desc": "在应用内旋转查看 3D 模型"
+      },
+      "window": {
+        "popOut": "在单独窗口中打开",
+        "maximize": "最大化",
+        "restore": "还原",
+        "close": "关闭 (Esc)",
+        "dragHint": "拖到应用外即可变成单独窗口。",
+        "pullOutArmed": "松开即可在单独窗口中打开"
       }
     },
     "videoStudio": {
@@ -1620,6 +1667,16 @@
       "opening": "正在编辑器中打开…",
       "installing": "正在安装转换器… 只有第一次需要等待。",
       "failed": "转换失败，请用默认程序打开。"
+    },
+    "projectFolder": {
+      "title": "选择项目文件夹",
+      "intro": "Claude Code 已安装并登录。最后一步是选择 Agent 的工作文件夹 — 通常是项目或代码仓库的根目录。",
+      "blocked": "尚未创建任何内容 — 当前没有打开的项目文件夹。Agent 在你选择的文件夹中工作，请先选择一个。",
+      "detail": "Vibisual 为项目保存的所有内容都在该文件夹内，Agent 也只能读取和修改该文件夹下的文件。之后可通过 文件 → 打开文件夹 添加更多文件夹。",
+      "cancelled": "尚未选择文件夹。请选择一个以继续。",
+      "choose": "选择文件夹",
+      "picking": "选择中…",
+      "later": "稍后"
     }
   },
   "ide": {
@@ -1703,11 +1760,10 @@
       "resizeStack": "调整分割比例",
       "slotTabHint": "将“{{name}}”置于最前(多个窗口共用此停靠位)",
       "dockShortcutHint": "{{dock}} 停靠 · {{undock}} 取消停靠",
-      "popOutHint": "松开即可弹出为独立窗口",
-      "popOutEdgeHint": "继续抵住边缘片刻即可弹出为独立窗口",
+      "popOutGhostHint": "继续拖出即可变成独立窗口",
+      "popOutGhostArmedHint": "松开即可变成独立窗口",
       "popOutLabel": "弹出为独立窗口",
       "returnToApp": "移回应用内",
-      "popOutHintButton": "弹出为独立窗口（也可将标题栏拖到应用外，或抵住屏幕边缘）",
       "returnToAppHint": "点击可移回应用内 · 拖到应用窗口上松开即可合并",
       "redockDropHint": "在此松开即可合并回应用内",
       "redockKeepHint": "在其他位置松开则保持独立窗口"
@@ -1799,6 +1855,7 @@
       "ctxQuoteReply": "引用回复",
       "ctxSendAsPrompt": "作为新提示发送",
       "ctxSelectAll": "全选",
+      "ctxAddMemo": "添加便签",
       "jumpToBottom": "滚动到底部",
       "ctxSelectionRequired": "请先选择文本",
       "inputCtxCut": "剪切",
@@ -1809,6 +1866,16 @@
       "stopAll": "全部停止",
       "stopAllTitle": "停止此 Agent 正在运行的所有内容（其他标签页 + 后台子 Agent）",
       "stopSessionTitle": "停止此 Session 及其启动的子 Agent（其他 Session 标签页继续运行）"
+    },
+    "memo": {
+      "title": "便签",
+      "placeholder": "输入备注…",
+      "color": "颜色",
+      "collapse": "折叠",
+      "expand": "展开",
+      "delete": "删除便签",
+      "resize": "调整大小",
+      "limitReached": "每个会话最多 {{max}} 个便签"
     },
     "askQuestion": {
       "title": "问题",
@@ -2101,13 +2168,47 @@
       "openFile": "在编辑器中打开",
       "copyPath": "复制路径",
       "copied": "已复制",
-      "truncated": "仅显示前 {{count}} 项"
+      "truncated": "仅显示前 {{count}} 项",
+      "ctx": {
+        "open": "打开",
+        "openExternal": "用外部编辑器打开",
+        "revealFolder": "打开文件夹",
+        "newFile": "新建文件",
+        "newFolder": "新建文件夹",
+        "rename": "重命名",
+        "delete": "删除",
+        "newFileName": "新文件名",
+        "newFolderName": "新文件夹名",
+        "newName": "新名称",
+        "confirmTrash": "将“{{name}}”移到回收站？",
+        "confirmDelete": "永久删除“{{name}}”？此操作无法撤销。",
+        "trashed": "已将“{{name}}”移到回收站",
+        "deleted": "已删除“{{name}}”",
+        "err": {
+          "nameEmpty": "请输入名称",
+          "nameSeparator": "名称不能包含 / 或 \\",
+          "nameTraversal": "不能使用该名称",
+          "nameInvalidChar": "名称不能包含 < > : \" | ? *",
+          "nameTrailing": "名称的开头和结尾不能是空格或句点",
+          "nameReserved": "这是 Windows 保留的名称",
+          "nameTooLong": "名称过长（最多 255 个字符）",
+          "exists": "这里已经有同名项目",
+          "notFound": "该项目已不存在",
+          "denied": "没有权限或正在使用，系统已拒绝",
+          "offline": "无法连接到应用",
+          "root": "无法在这里更改项目根目录",
+          "outside": "该路径在项目之外",
+          "failed": "操作失败"
+        }
+      }
     },
     "editor": {
       "resize": "调整编辑器面板大小",
       "save": "保存（{{shortcut}}）",
       "reload": "从磁盘重新加载",
       "closeTab": "关闭标签页",
+      "pinTabs": "固定标签页 — 切换会话后仍保持打开",
+      "unpinTabs": "取消固定 — 每个会话使用各自的标签页",
       "closePane": "关闭编辑器面板",
       "closeDirtyConfirm": "此文件有未保存的更改。仍要关闭吗？",
       "conflict": "此文件在您打开后已在磁盘上发生更改。",
@@ -2135,6 +2236,18 @@
         "failed": "无法保存此文件"
       },
       "closeDirtyConfirmMany": "其中 {{count}} 个文件有未保存的更改。仍要关闭吗？",
+      "html": {
+        "back": "后退",
+        "forward": "前进",
+        "reload": "重新加载此页面",
+        "home": "回到最初打开的文件 — {{path}}",
+        "openExternal": "在外部浏览器中打开",
+        "address": "页面位置 — {{path}}",
+        "viewPage": "页面",
+        "viewSource": "源码",
+        "viewPageHint": "将此文件显示为渲染后的页面",
+        "viewSourceHint": "显示 HTML 源码并进行编辑"
+      },
       "ctx": {
         "cut": "剪切",
         "copy": "复制",
@@ -2168,7 +2281,9 @@
       "context": "上下文：{{used}}/{{max}}",
       "tokens": "{{in}} 输入 / {{out}} 输出",
       "sessionOne": "{{count}} 个 Session",
-      "sessionMany": "{{count}} 个 Session"
+      "sessionMany": "{{count}} 个 Session",
+      "autoCompact": "自动压缩 {{value}}",
+      "autoCompactTip": "当上下文达到该大小时，CLI 会自动总结并压缩对话。可在智能体设置中单独修改，或在 File > Options > Agent Defaults 中修改全局默认值。"
     },
     "search": {
       "placeholder": "在对话中查找",
@@ -2233,7 +2348,9 @@
         "runProgram": "运行程序 — {{path}}",
         "runFailed": "无法启动 — 此窗口没有终端。",
         "openApp": "在 {{app}} 中打开 — {{path}}",
-        "openExternal": "用默认程序打开 — {{path}}"
+        "openExternal": "用默认程序打开 — {{path}}",
+        "revealOutsideFolder": "在文件管理器中打开 — {{path}}",
+        "revealOutsideFile": "在文件管理器中显示（打开上级文件夹）— {{path}}"
       },
       "restartResumed": "应用关闭导致中断，已在保存的会话上继续。",
       "nestedSubagent": "子代理",
@@ -2257,6 +2374,8 @@
       "copyQuestions": "复制问题",
       "copySelection": "复制所选内容",
       "copySelectionHint": "先拖动选择需要的部分，再点击复制",
+      "copySelectionHintCheckable": "勾选答案，或拖动选择需要的部分，再点击复制",
+      "copySelectionChecked": "复制已选的 {{n}} 项",
       "copyOne": "仅复制此问题",
       "selectAnswer": "选择此答案",
       "selectNone": "清除",
@@ -2589,7 +2708,8 @@
         "mcp": "MCP 服务器",
         "hooks": "Hooks",
         "systemPrompt": "Claude Code 系统提示词",
-        "brainSkills": "记忆流程记忆"
+        "brainSkills": "记忆流程记忆",
+        "compactSelf": "智能体自主压缩"
       },
       "hint": {
         "tools": "在 Agent Settings 中选择工具列表",
@@ -2778,6 +2898,11 @@
             "what": "本项目沉淀下来的流程，与当前任务匹配时载入。",
             "more": "按每条流程的“何时使用”筛选，无关的不会载入。",
             "off": "代理每次都要从头摸索流程。"
+          },
+          "compactSelf": {
+            "what": "智能体自行请求压缩对话的通道。",
+            "more": "仅对开启了「允许智能体在工作中自行压缩」的智能体注入。实际压缩在该轮结束后执行，不会在任务中途截断。",
+            "off": "智能体不能再请求，只剩窗口阈值与轮次边界压缩。关闭时不注入任何内容，令牌开销为 0。"
           }
         },
         "cat": {
@@ -2985,6 +3110,46 @@
         "readOnly": "Hook 气泡为只读。",
         "network": "无法连接到服务器。",
         "failed": "无法启动验证。"
+      },
+      "demo": {
+        "sectionTitle": "演示",
+        "about": "演示一次，这些步骤此后会随每次验证一起发送。",
+        "record": "录制演示",
+        "stopRecording": "停止 · {{time}}",
+        "summary": "步骤 {{steps}} · 画面 {{frames}}",
+        "willSend": "同时发送演示：{{name}}",
+        "willNotSend": "未选择演示 — 不会附带步骤",
+        "emptyDemo": "所选演示为空（无步骤、预期结果或图片）— 不会附带步骤",
+        "recordRun": "录制本次验证运行期间的画面",
+        "recordRunNeedsSource": "先录一次演示，以确定要捕获什么",
+        "watch": "查看画面",
+        "windowTitle": "保存为验证步骤",
+        "evidenceTitle": "验证期间的画面",
+        "autoStopped": "已达时长上限，录制已停止。",
+        "stepsLabel": "步骤",
+        "stepsEmpty": "回放并写下你在每个时间点做了什么。",
+        "stepPlaceholder": "例如：点击工具栏的保存",
+        "addStep": "在 {{at}} 添加",
+        "stepsFull": "最多 {{max}} 个步骤。",
+        "expectedLabel": "预期结果（可选）",
+        "expectedPlaceholder": "例如：出现绿色的“已保存”提示",
+        "nameLabel": "名称",
+        "frameCount": "画面",
+        "noFrames": "无",
+        "extracting": "正在提取帧 {{done}}/{{total}}",
+        "save": "保存为步骤",
+        "discard": "丢弃",
+        "error": {
+          "noFrames": "无法从该片段中提取任何帧。",
+          "noStream": "捕获流已中断，请重新选择来源。",
+          "uploadFailed": "步骤已保存，但画面上传失败。",
+          "saveFailed": "无法保存演示。",
+          "readOnly": "钩子气泡为只读。",
+          "network": "无法连接服务器。",
+          "failed": "无法保存演示。",
+          "projectNotFound": "找不到该项目。",
+          "framesFull": "该演示的画面数量已达上限。"
+        }
       }
     }
   },
@@ -3564,7 +3729,18 @@
       "snipUnavailable": "此界面不支持区域截取。",
       "snipFailed": "截取失败：{{error}}"
     },
-    "close": "关闭"
+    "close": "关闭",
+    "minimize": "最小化",
+    "maximize": "最大化",
+    "play": "播放",
+    "pause": "暂停",
+    "delete": "删除",
+    "externalOpen": {
+      "noBrowser": "未找到浏览器 — 请复制链接后自行打开",
+      "openFailed": "无法打开链接 — 请复制后自行打开",
+      "copy": "复制",
+      "copied": "已复制"
+    }
   },
   "brain": {
     "bubbleLabel": "记忆",

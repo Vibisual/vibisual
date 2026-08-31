@@ -216,6 +216,33 @@ export function OverlayShell({ agentId, projectId, initiallyExpanded = false }: 
     window.addEventListener('mouseup', end);
   }, []);
 
+  // §17-6 (H-4) ⑥ — 이 창이 **커서에 매달려 있는 동안**에는 뗌을 여기서도 듣는다.
+  //
+  // 매다는 손짓은 두 곳에서 시작한다: 앱 안에서 끌어내는 순간(손은 메인 창에 있다)과 이 창의
+  // 타이틀바를 잡는 순간(손은 여기 있다). 마우스 캡처가 어느 창에 있는지는 OS 가 정하므로,
+  // 한쪽만 듣게 두면 놓치는 조합이 생긴다 — 그 대가가 "창이 영영 커서를 따라다닌다"라 크다.
+  // 두 번 불려도 안전하다(이미 끝난 판은 main 이 조용히 지나간다).
+  useEffect(() => {
+    const ov = window.api?.overlay;
+    if (!ov?.onFollowDragState) return;
+    let armed = false;
+    const onUp = (): void => {
+      armed = false;
+      window.removeEventListener('mouseup', onUp, true);
+      void ov.dragEnd();
+    };
+    const off = ov.onFollowDragState(({ following }) => {
+      if (following === armed) return;
+      armed = following;
+      if (following) window.addEventListener('mouseup', onUp, true);
+      else window.removeEventListener('mouseup', onUp, true);
+    });
+    return () => {
+      off();
+      window.removeEventListener('mouseup', onUp, true);
+    };
+  }, []);
+
   // expanded 전이를 OS 창 크기 변경으로 미러. 초기(collapsed) 마운트에선 호출 ❌.
   //   ⚠ 끌어내서 만든 창은 main 이 이미 IDE 크기다 — 첫 전이를 미러하면 그 크기를 "버블로 돌아갈
   //     자리"로 기억해 접었을 때 창이 엉뚱한 곳에 앉는다. 그래서 시작값을 그 상태로 둔다.

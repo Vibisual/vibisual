@@ -5,6 +5,27 @@ This product includes software developed by the Vibisual project
 (https://github.com/Vibisual/vibisual).
 
 ------------------------------------------------------------------------
+Authorship Notice
+------------------------------------------------------------------------
+
+All commits in this repository were authored by a single individual,
+길근오, the sole copyright holder named above. The GitHub contributor
+graph lists more than one account; this does NOT indicate multiple
+authors:
+
+  - "Vibisual" and "ggo-ggo" are two GitHub accounts belonging to that
+    same individual. The split reflects two Git commit email addresses
+    used over time, not two people.
+
+  - "Claude" (noreply@anthropic.com) appears because some commit messages
+    carry a "Co-Authored-By: Claude" trailer, which records the use of an
+    AI coding assistant (Claude Code). That trailer is an attribution of
+    tooling only. It conveys no copyright, authorship, or ownership
+    interest to Anthropic PBC or to any AI system, and none is claimed.
+
+Copyright in all contributions to this project remains solely with 길근오.
+
+------------------------------------------------------------------------
 Trademark Notice
 ------------------------------------------------------------------------
 

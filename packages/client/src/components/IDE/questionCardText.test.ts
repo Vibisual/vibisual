@@ -11,6 +11,8 @@ import {
   buildSingleQuestionText,
   buildQuestionCardText,
   buildQuestionsOnlyText,
+  collectCheckedAnswers,
+  formatCheckedAnswers,
 } from './questionCardText.js';
 
 const MULTI: AgentQuestions = {
@@ -88,5 +90,52 @@ describe('buildSingleQuestionText', () => {
 
   it('답지가 없으면 질문 한 줄만', () => {
     expect(buildSingleQuestionText(SINGLE.items[0]!, 0, false)).toBe('이대로 진행할까요?');
+  });
+});
+
+/**
+ * 체크박스로 고른 답 — `선택 복사` 와 `선택한 N개 전송` 이 **같은 것**을 내놓아야 한다.
+ * 사용자 보고: 답지에 체크를 해 놨는데 `선택 복사` 버튼이 회색이라 누를 수 없었다(원천이 드래그 선택
+ * 하나뿐이었다). 여기서는 그 "고른 것"의 조립 규칙을 못 박는다.
+ */
+describe('collectCheckedAnswers', () => {
+  it('고른 답만 질문/답 순서대로 모은다', () => {
+    const selected = { 0: new Set([1]), 1: new Set([0]) };
+    expect(collectCheckedAnswers(MULTI, selected, {}).prompts).toEqual(['다음 턴에 하죠.', 'Public/ 아래로.']);
+  });
+
+  it('한 질문에서 여러 개를 골라도 그 질문의 답지 순서를 지킨다', () => {
+    const selected = { 0: new Set([1, 0]) }; // 넣은 순서가 뒤집혀 있어도 화면 순서대로.
+    expect(collectCheckedAnswers(MULTI, selected, {}).prompts).toEqual(['지금 옮겨 주세요.', '다음 턴에 하죠.']);
+  });
+
+  it('이미 답한 질문의 체크는 세지 않는다 — 그 질문은 잠겨 다시 답할 수 없다', () => {
+    const selected = { 0: new Set([0]), 1: new Set([0]) };
+    expect(collectCheckedAnswers(MULTI, selected, { 0: 1 }).prompts).toEqual(['Public/ 아래로.']);
+  });
+
+  it('질문 잠금은 그 질문에서 첫 번째로 고른 답 기준', () => {
+    const selected = { 0: new Set([1, 0]) };
+    expect(collectCheckedAnswers(MULTI, selected, {}).lockNext).toEqual({ 0: 0 });
+  });
+
+  it('아무것도 안 골랐으면 빈 벌', () => {
+    expect(collectCheckedAnswers(MULTI, {}, {})).toEqual({ prompts: [], lockNext: {} });
+    expect(collectCheckedAnswers(MULTI, { 0: new Set() }, {})).toEqual({ prompts: [], lockNext: {} });
+  });
+});
+
+describe('formatCheckedAnswers', () => {
+  it('답 사이는 빈 줄, 질문 줄은 얹지 않는다 — 전송도 이 함수를 지나므로 붙여넣은 것과 보낸 것이 같다', () => {
+    const selected = { 0: new Set([0]), 1: new Set([0]) };
+    expect(formatCheckedAnswers(collectCheckedAnswers(MULTI, selected, {}))).toBe('지금 옮겨 주세요.\n\nPublic/ 아래로.');
+  });
+
+  it('하나만 고르면 그 답 한 벌 그대로', () => {
+    expect(formatCheckedAnswers(collectCheckedAnswers(MULTI, { 1: new Set([0]) }, {}))).toBe('Public/ 아래로.');
+  });
+
+  it('고른 게 없으면 빈 문자열 — 버튼이 헛된 복사 피드백을 내지 않는다', () => {
+    expect(formatCheckedAnswers(collectCheckedAnswers(MULTI, {}, {}))).toBe('');
   });
 });

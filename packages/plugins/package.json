@@ -1,6 +1,7 @@
 {
   "name": "@vibisual/plugins",
   "version": "0.1.0",
+  "license": "Apache-2.0",
   "private": true,
   "type": "module",
   "description": "Vibisual 플러그인 커널 (§5.11) — 플러그인 하나 = 하위 폴더 하나",

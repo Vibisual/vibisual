@@ -2384,6 +2384,7 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       const target = e.target as HTMLElement;
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
       if (target.closest?.('[data-capture-control="on"]')) return; // §5.9 제어 중 캡처 버블은 전역 단축키 제외
+      if (target.closest?.('[data-app-window]')) return; // §5.13 (S) 앱 안 창 안에서 누른 키는 캔버스 것이 아니다
       const state = useGraphStore.getState();
 
       // React Flow native 다중 선택 — flowNodes/flowEdges 의 selected:true 를 진실의 원천으로

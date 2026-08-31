@@ -39,7 +39,8 @@ describe('프로젝트별 에이전트/세션 집계', () => {
   it('휴지통에 넣은 에이전트는 전체 수에서 빠진다 — 캔버스가 안 그리는 것을 숫자만 세면 안 된다', () => {
     const { manager, name } = makeProject('trash');
     manager.createCustomAgent('Keep', undefined, name);
-    const trashed = manager.createCustomAgent('Trash', undefined, name);
+    // 위 makeProject 가 폴더를 등록해 두므로 생성은 항상 성공한다(§4 온보딩 ③: 폴더가 없으면 null).
+    const trashed = manager.createCustomAgent('Trash', undefined, name)!;
     expect(manager.getBroadcastSnapshot().projectAgentCounts?.[name]?.total).toBe(2);
 
     expect(manager.tryTrashCustomAgentByBubbleId(trashed.id)).toBe(true);
@@ -50,7 +51,7 @@ describe('프로젝트별 에이전트/세션 집계', () => {
 
   it('한 버블 안에서 도는 세션이 여럿이면 그 수만큼 센다 — 버블 축이면 영원히 1 이었다', () => {
     const { manager, name } = makeProject('sessions');
-    const agent = manager.createCustomAgent('Runner', undefined, name);
+    const agent = manager.createCustomAgent('Runner', undefined, name)!;
 
     const subs = [0, 1, 2, 3, 4].map(() => subAgentManager.create(agent.id));
     for (const sub of subs) sub.status = 'active';
@@ -67,7 +68,7 @@ describe('프로젝트별 에이전트/세션 집계', () => {
 
   it('세션이 하나도 없는 버블은 자기 자신이 한 단위다', () => {
     const { manager, name } = makeProject('nosub');
-    const fresh = manager.createCustomAgent('Fresh', undefined, name);
+    const fresh = manager.createCustomAgent('Fresh', undefined, name)!;
     fresh.status = 'active';
 
     const counts = manager.getBroadcastSnapshot().projectAgentCounts?.[name];

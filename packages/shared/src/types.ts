@@ -1716,6 +1716,35 @@ export interface ServerEntry {
   reportedOnly?: boolean;
 }
 
+/**
+ * §5.5 #17-36 — 스트림 본문 위에 붙이는 **스티키 메모** 1장.
+ *
+ * 이 메모는 **그것을 만든 세션 탭의 소지품**이다. 그래서 자리도 `SubAgent` 안이다(별도 맵 ❌) —
+ * 세션이 사라지는 어떤 경로(탭 닫기·아카이브·프로젝트 정리)로도 메모가 뒤에 남을 수 없다.
+ * 메인 탭(세션 미선택)에서 만든 메모만 예외로 에이전트 쪽(`ProjectGraph.agentMemos`)에 산다.
+ *
+ * 좌표계는 **스트림 본문 컨테이너의 좌상단(px)** 이다. 대화 내용과 함께 스크롤되지 않는다 —
+ * 모니터 가장자리에 붙여 둔 포스트잇처럼 그 자리에 머무는 것이 이 기능의 요점이다.
+ */
+export interface SessionMemo {
+  /** 메모 고유 id (예: `memo-lz3k9-a1b2`). 낙관 표시를 위해 클라이언트가 발급한다. */
+  id: string;
+  /** 본문. 상한 `SESSION_MEMO.TEXT_MAX`. */
+  text: string;
+  /** 컨테이너 좌상단 기준 위치(px). */
+  x: number;
+  y: number;
+  /** 크기(px). `SESSION_MEMO.MIN_*` ~ `MAX_*` 로 clamp 된다. */
+  w: number;
+  h: number;
+  /** 배경색 hex(`#RRGGBB`). 글자색은 대비로 자동 결정(`pickReadableTextColor`). */
+  color: string;
+  /** 제목줄만 남기고 접은 상태. */
+  collapsed?: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
 /** SubAgent 상태 */
 export type SubAgentStatus = 'idle' | 'active' | 'completed' | 'error';
 
@@ -1782,6 +1811,11 @@ export interface SubAgent {
   /** §5.7 #23-2 v1.60 — Agent View 가 할당한 풀 sessionId (UUID) — `sessionId` 와 일치하지만
    *  발급 주체 구분 위해 별도 필드. legacy `-p` 경로에선 undefined. */
   agentViewSessionId?: string;
+  /**
+   * §5.5 #17-36 — 이 세션 탭에 붙여 둔 스티키 메모들. 그 탭의 **표시 상태**라 `paneTree` 와 같이
+   * 체크포인트에 그대로 실리고, 세션이 제거되면 이 객체와 함께 사라진다(별도 정리 경로 ❌).
+   */
+  memos?: SessionMemo[];
 }
 
 /**
@@ -2262,6 +2296,13 @@ export interface VerificationRun {
   reason?: string;
   /** 실제로 돌린 시도 목록(상한 `VERIFICATION_ATTEMPTS_MAX`). */
   attempts: VerificationAttemptRecord[];
+  /**
+   * §5.5 #17-35 ⑨-4 — 이 검증에 실어 보낸 시연(`VerificationDemo.id`). 없으면 안 실었다는 뜻이고,
+   * 그때의 프롬프트는 ⑨ 이전과 완전히 같다.
+   */
+  demoId?: string;
+  /** 그 시연의 이름 한 줄(시연이 나중에 지워져도 "무엇을 실어 보냈는지"는 이 줄로 남는다). */
+  demoLabel?: string;
   /** 이 검증이 큐에 넣은 명령 ID — 완료 대조용(루프의 같은 이름 필드와 같은 규약). */
   pendingCommandId?: string;
   /** 큐에 넣은 시각. */
@@ -2270,6 +2311,67 @@ export interface VerificationRun {
   finishedAt?: number;
   /** 소요(ms) — `finishedAt - startedAt`. 서버가 계산해 실어 보낸다(클라 계산 ❌). */
   durationMs?: number;
+}
+
+/**
+ * §5.5 #17-35 ⑨-3 — 시연 한 단계.
+ *
+ * `atMs` 는 **클립 안에서의 시각**이다(벽시계 ❌). 프롬프트에 `(0:03)` 로 찍혀 나가, 함께 붙는
+ * 프레임 그림과 단계 문장이 같은 순간을 가리키게 한다.
+ */
+export interface VerificationDemoStep {
+  /** 클립 시작으로부터의 경과(ms). */
+  atMs: number;
+  /** 그 순간 사람이 무엇을 했는지 한 줄(상한 `VERIFICATION_DEMO_STEP_TEXT_MAX`). */
+  text: string;
+}
+
+/**
+ * §5.5 #17-35 ⑨-3 — 시연에서 뽑아 **디스크에 남긴** 프레임 한 장.
+ *
+ * 영상 자체는 렌더러 메모리에만 살지만(⑨-2) 그림은 다음 검증에도 실려야 하므로 파일로 남는다.
+ * `rel` 은 `.vibisual/verify-demos/` 기준 상대 경로 — 절대 경로를 레코드에 박으면 앱을 다른
+ * 컴퓨터·다른 경로에서 열었을 때 그대로 깨진다.
+ */
+export interface VerificationDemoFrame {
+  /** `.vibisual/verify-demos/` 기준 상대 경로(`<demoId>/0.png`). */
+  rel: string;
+  /** 이 그림을 뽑은 클립 안 시각(ms). */
+  atMs: number;
+}
+
+/**
+ * §5.5 #17-35 ⑨ — 사람이 한 번 해 보인 **재현 절차** 한 벌.
+ *
+ * `/verify` 는 "앱을 어떻게 켜는가"(④ `PlayRecipe`)는 받아도 "그 다음 무엇을 어떤 순서로 눌러
+ * 보는가"는 매번 다시 추론한다. 그 지식은 사람 머릿속에만 있으므로, 한 번 화면을 녹화하며
+ * 해 보이면 그것이 **다음 검증부터 계속 실리는 절차**가 된다.
+ *
+ * 소유 단위는 실행 이력(`VerificationRun`)과 같은 **세션 탭(subAgentId)** 이다.
+ */
+export interface VerificationDemo {
+  /** 이 시연의 ID(`demo-<ts>-<rand>`). 프레임 폴더 이름이기도 하다. */
+  id: string;
+  /** 소유 (부모) 에이전트 버블 ID — 프로젝트 필터·영속 분류 키. */
+  agentId: string;
+  /** 이 시연이 붙은 IDE 내부 세션(탭) ID. 맵의 키와 동일. */
+  subAgentId: string;
+  /** 이 시연이 속한 프로젝트 이름(표시명). */
+  projectName: string;
+  /** 사람이 읽는 이름 한 줄(상한 `VERIFICATION_DEMO_LABEL_MAX`). */
+  label: string;
+  /** 무엇을 찍었나 — 캡처 소스 이름(창 제목·화면 이름). */
+  sourceName: string;
+  /** 재현 절차(상한 `VERIFICATION_DEMO_STEPS_MAX`). 비어 있어도 저장은 된다(그림만 있는 시연). */
+  steps: VerificationDemoStep[];
+  /** 기대 결과 한 줄(상한 `VERIFICATION_DEMO_EXPECTED_MAX`) — "무엇이 보이면 통과인가". */
+  expected?: string;
+  /** 남긴 프레임(상한 `VERIFICATION_DEMO_FRAMES_MAX`). */
+  frames: VerificationDemoFrame[];
+  /** 고른 구간의 길이(ms) — 표시·단계 시각 검증용. */
+  durationMs: number;
+  /** 녹화를 마친 시각(목록 정렬). */
+  recordedAt: number;
 }
 
 /**
@@ -4373,6 +4475,13 @@ export interface GraphSnapshot {
   agentReports?: Record<string, AgentReport[]>;
 
   /**
+   * §5.5 #17-36 — **메인 탭**(세션 미선택)에서 만든 스티키 메모 (agentId → SessionMemo[]).
+   * 세션 탭의 메모는 그 세션 소지품이라 `subAgents[].memos` 에 있고, 붙일 세션이 없는 메인 탭
+   * 메모만 여기 산다(에이전트가 사라지면 함께 정리 — `removeAgent`).
+   */
+  agentMemos?: Record<string, SessionMemo[]>;
+
+  /**
    * §4 v2.60 — 에이전트 질문 카드 (agentId → AgentQuestions[], 최신순 append).
    * 커스텀/스폰 에이전트가 `POST /api/agent-questions` 로 보낸 질문 + 제안 프롬프트.
    * 클라 IDE 가 agentId/subAgentId 로 필터해 질문 카드로 렌더. 미설정 시 빈 맵.
@@ -4404,6 +4513,13 @@ export interface GraphSnapshot {
    * 세션당 `VERIFICATION_RUNS_MAX_PER_SESSION` 건에서 잘린다. 미설정 시 빈 맵.
    */
   verificationRuns?: Record<string, VerificationRun[]>;
+
+  /**
+   * §5.5 #17-35 ⑨ — 시연(재현 절차) 목록 (subAgentId → VerificationDemo[], 최신 우선).
+   * 실행 이력과 같은 키 축이다. 세션당 `VERIFICATION_DEMO_MAX_PER_SESSION` 건에서 잘린다.
+   * 영상은 여기 없다 — 단계 문장과 프레임 경로만 온다(⑨-2).
+   */
+  verificationDemos?: Record<string, VerificationDemo[]>;
 
   /**
    * §5.5 #17-17 v4.46 — 세션 목표 (subAgentId → SessionGoal).
@@ -4589,6 +4705,21 @@ export interface WorkspacePathInfo {
   executable: boolean;
 }
 
+/**
+ * §5.5 #17-27 ⑬ (d) — 프로젝트 루트 **밖** 절대 경로 하나의 정체 (`GET /api/external-path`).
+ *
+ * `WorkspacePathInfo` 와 갈라 둔 이유는 **열리는 곳이 다르기 때문**이다. 루트 안 경로는 여덟 갈래로
+ * 갈리지만(§5.13 (R-7)), 루트 밖은 **시스템 탐색기 하나**뿐이라 `executable` 도 `root`/`path` 도 뜻이 없다 —
+ * 있으면 화면이 "실행할 수 있나" 를 묻게 되고, 그 순간 본문 글자로 임의 경로를 실행하는 길이 열린다.
+ * 필드를 두지 않는 것이 곧 그 갈래를 막는 방법이다.
+ */
+export interface ExternalPathInfo {
+  /** 해석된 절대 경로 — `POST /api/reveal-path` 에 그대로 실어 보낸다. */
+  absPath: string;
+  /** 파일인가 폴더인가 (심볼릭 링크는 실제 대상 기준). 파일이면 **상위 폴더**가 열린다. */
+  kind: WorkspacePathKind;
+}
+
 
 // ─── §5.13 (R-8) — 변환기 상태와 변환 작업 ──────────────────────────────────────
 
@@ -4719,6 +4850,64 @@ export interface WorkspaceImageSaveRequest {
   path: string;
   /** 읽을 때 받은 `mtimeMs`. 디스크가 그 사이 바뀌었으면 서버가 409 로 막는다. `0` 이면 대조 생략. */
   baseMtimeMs: number;
+}
+
+/**
+ * §5.5 #17-19 ⑦ — 탐색기 우클릭이 디스크에 내는 **세 가지 변경**(만들기 · 이름 바꾸기 · 삭제).
+ *
+ * 읽기 창구(`WorkspaceDirListing`·`WorkspaceFileContent`)와 갈라 두는 이유는 성격이 다르기
+ * 때문이다 — 이쪽은 되돌릴 수 없는 쓰기라 이름 판정(`workspaceEntryNameError`)과 겹침 검사를
+ * 반드시 지나야 한다. 경로 가드는 읽기 쪽과 **같은 것 하나**(`isWithinOpenableRoots` +
+ * `resolveWorkspacePath`)를 그대로 쓴다.
+ */
+export interface WorkspaceEntryCreateRequest {
+  root: string;
+  /** **부모 폴더**의 루트 기준 상대 경로('' = 루트 바로 아래) */
+  path: string;
+  /** 새로 만들 이름 한 조각(경로 ❌) */
+  name: string;
+  kind: WorkspacePathKind;
+}
+
+/** §5.5 #17-19 ⑦ — 이름 바꾸기(`PATCH /api/workspace-entry`). 옮기지 않는다 — 부모 폴더는 그대로다. */
+export interface WorkspaceEntryRenameRequest {
+  root: string;
+  /** 바꿀 대상의 루트 기준 상대 경로(루트 자신 ❌) */
+  path: string;
+  /** 새 이름 한 조각(경로 ❌) */
+  name: string;
+}
+
+/** §5.5 #17-19 ⑦ — 삭제(`DELETE /api/workspace-entry`). 폴더는 안의 것까지 함께 사라진다. */
+export interface WorkspaceEntryDeleteRequest {
+  root: string;
+  path: string;
+}
+
+/** §5.5 #17-19 ⑦ — 만들기·이름 바꾸기의 결과(그 자리에서 화면을 갱신할 수 있게 새 좌표를 그대로 돌려준다). */
+export interface WorkspaceEntryResult {
+  root: string;
+  /** 만들어졌거나 새 이름을 받은 항목의 루트 기준 상대 경로 */
+  path: string;
+  /** 그 항목의 부모 폴더 상대 경로('' = 루트) — 탐색기가 **이 한 겹만** 다시 읽는다 */
+  parent: string;
+  name: string;
+  isDirectory: boolean;
+}
+
+/** §5.5 #17-19 ⑦ — 삭제 결과. */
+export interface WorkspaceEntryDeleteResult {
+  root: string;
+  path: string;
+  parent: string;
+  /**
+   * 휴지통으로 보냈는가(true) 아니면 영구 삭제했는가(false).
+   *
+   * 데스크톱 앱에서는 OS 휴지통(Electron `shell.trashItem`)을 쓰므로 늘 true 다. 그 통로가 없는
+   * 실행 형태(브라우저에서 띄운 개발 서버)에서는 영구 삭제라 **화면이 그 사실을 다르게 말한다** —
+   * 되돌릴 수 있는지 없는지는 사용자가 알아야 하는 차이다.
+   */
+  trashed: boolean;
 }
 
 /**
@@ -4918,6 +5107,12 @@ export interface ProjectCheckpoint {
   agentReports?: Record<string, AgentReport[]>;
 
   /**
+   * §5.5 #17-36 — 메인 탭 스티키 메모 (agentId → SessionMemo[]) 영속화.
+   * optional — 구버전 체크포인트 하위 호환. 사용자가 직접 쓴 글이라 복구 불가 자산이다.
+   */
+  agentMemos?: Record<string, SessionMemo[]>;
+
+  /**
    * §4 v2.60 — 에이전트 질문 카드 (agentId → AgentQuestions[]) 영속화.
    * optional — 구버전 체크포인트 하위 호환. 미설정이면 빈 맵으로 복원.
    */
@@ -4957,6 +5152,16 @@ export interface ProjectCheckpoint {
    * identity.json 에는 넣지 않는다 — 실행 기록이지 사람이 만든 정체성이 아니다(§5.16 과 같은 판단).
    */
   verificationRuns?: Record<string, VerificationRun[]>;
+
+  /**
+   * §5.5 #17-35 ⑨ — 시연(재현 절차) 영속화 (subAgentId → VerificationDemo[]).
+   * optional — 구버전 체크포인트 하위 호환. 미설정이면 빈 맵으로 복원.
+   *
+   * 실행 이력과 달리 이쪽은 **사람이 직접 만든 것**이지만 identity.json 에는 넣지 않는다 —
+   * 레코드만 살아나고 프레임 PNG(`.vibisual/verify-demos/`)가 없으면 반쪽짜리 부활이 되기 때문이다.
+   * 그림과 레코드는 같은 `.vibisual` 아래에서 함께 살고 함께 사라진다.
+   */
+  verificationDemos?: Record<string, VerificationDemo[]>;
 
   /**
    * §5.5 #17-17 v4.46 — 세션 목표 (subAgentId → SessionGoal) 영속화.
@@ -5057,6 +5262,13 @@ export interface ProjectIdentity {
    * optional — 구버전 identity.json 하위호환. 미설정이면 빈 맵으로 취급.
    */
   sessionGoals?: Record<string, SessionGoal>;
+  /**
+   * §5.5 #17-36 — 메인 탭 스티키 메모 (agentId → SessionMemo[]).
+   * 손으로 쓴 글이라 코드에서 되살릴 길이 없다(§3.2.2 정체성).
+   * **세션 탭 메모는 여기 없다** — 그것은 세션의 소지품이라 세션(`subAgents`)과 운명을 같이한다.
+   * optional — 구버전 identity.json 하위호환. 미설정이면 빈 맵으로 취급.
+   */
+  agentMemos?: Record<string, SessionMemo[]>;
   /**
    * §3.2.1-3 v2.63 — 사용자가 **명시적으로 삭제**한 커스텀 에이전트의 sessionId 묘비.
    * shrink guard 가 "정상 삭제(여기 기록됨)"와 "복원 실패(미기록 소멸)"를 구분하는 신호.
@@ -5538,6 +5750,25 @@ export interface AgentConfig {
    * undefined = 미설정(플래그 없음 = CLI 기본).
    */
   autoCompact?: string;
+  /**
+   * §4 (CLI 사양 추종) — **턴이 끝나면 컨텍스트를 자동 압축**한다(`/compact` 1건을 그 세션 큐에).
+   *
+   * `autoCompact`(창 크기 임계)와 **축이 다르다** — 그건 "얼마나 차면 CLI 가 스스로 접는가"이고
+   * 이건 "일이 한 번 끝날 때마다 접는가"다. 임계는 작업 도중에도 터지지만 이쪽은 **항상 턴 경계**라
+   * 잘리는 자리가 안전하다(§5.5 #17-11 ⑪ 이 루프 회차 경계에서 세운 것과 같은 규율·같은 레일).
+   * `undefined`/`false` = 끔(기존 동작 그대로).
+   */
+  compactAfterTurn?: boolean;
+  /**
+   * §4 (CLI 사양 추종) — **작업 중 에이전트가 스스로 압축을 요청**할 수 있게 한다.
+   *
+   * 켜면 매 턴 프롬프트에 창구(`POST /api/agent-compact`) 안내가 실려, 에이전트가 컨텍스트가
+   * 무거워졌다고 판단한 순간 스스로 신고한다. 실제 압축은 **그 턴이 끝난 뒤** 큐에서 돌므로
+   * 작업이 도중에 잘리지 않는다(CLI 의 `SlashCommand` 도구는 헤드리스에 나오지 않아 —
+   * 실측 2.1.247 — 에이전트가 `/compact` 를 직접 부를 방법이 없다. 그래서 서버 경유다).
+   * `undefined`/`false` = 끔(안내가 실리지 않으므로 프롬프트 바이트도 늘지 않는다).
+   */
+  agentCanCompact?: boolean;
   /**
    * §4 (CLI 사양 추종) — `--exclude-dynamic-system-prompt-sections`.
    * cwd·환경·기억 경로·git 상태 같은 **기기마다 다른 절**을 시스템 프롬프트에서 첫 사용자 메시지로
@@ -6245,15 +6476,34 @@ export interface AutoAgentRun {
  */
 /**
  * §4 — 업데이트 **전달 방식**. 플랫폼마다 서명 요건이 달라 갈라진 축이다.
- * - `auto-install` : 백그라운드 다운로드 후 재시작 시 적용(Windows·Linux).
- * - `notify-only`  : 새 버전을 **알리기만** 하고 적용은 사용자가 직접(무서명 macOS).
+ * - `auto-install` : electron-updater 가 받아 두고 재시작 시 적용(Windows·Linux·서명된 macOS).
+ * - `self-install` : **우리가 직접 받아 직접 교체**(무서명 macOS).
  *
  * macOS 의 electron-updater 백엔드인 Squirrel.Mac 은 코드 서명 검증을 **강제**한다
- * (Windows 의 publisherName 검증은 선택인 것과 대비). 서명 없는 빌드는 다운로드까지
- * 성공한 뒤 적용 단계에서 반드시 실패하므로, 헛다운로드 후 에러를 띄우는 대신
- * 릴리스 페이지로 안내한다. 서명을 붙이면 그때 `auto-install` 로 승격한다.
+ * (Windows 의 publisherName 검증이 선택인 것과 대비) — 무서명 빌드는 다운로드까지 성공한 뒤
+ * 적용 단계에서 반드시 실패한다. 그런데 그 검증은 **Squirrel 의 적용 경로 안에** 있고,
+ * Gatekeeper 의 첫 실행 차단을 발동시키는 것은 서명이 아니라 `com.apple.quarantine`
+ * **속성**이며 그 속성은 **파일을 받은 프로그램이 붙인다**(브라우저는 붙이고 CLI·Node 는 안 붙인다).
+ * 그래서 받는 것도 적용하는 것도 우리가 하면 둘 다 발동하지 않는다 — 그것이 `self-install` 이다.
+ *
+ * ⚠️ 종전의 `notify-only`(알리기만 하고 릴리스 페이지를 여는 방식)는 **걷어냈다**(사용자 명시
+ * 결정 — 대체). 릴리스 페이지 열기는 전달 방식이 아니라 **실패했을 때의 복구 손잡이**로 남는다.
+ * 서명을 붙여 `macCodeSigned` 를 켜면 종전대로 `auto-install` 로 승격한다.
  */
-export type UpdateDelivery = 'auto-install' | 'notify-only';
+export type UpdateDelivery = 'auto-install' | 'self-install';
+
+/**
+ * `self-install` 이 중단된 이유. **화면 문구는 이 코드로 고른다** — main 이 만든 영어
+ * 문장을 그대로 그리면 12개 로케일이 한꺼번에 영어가 된다(i18n `header.update.failed.*`).
+ * 사람이 읽을 원문은 `UpdateState.error` 에 따로 남아 진단 로그로 간다.
+ */
+export type UpdateErrorCode =
+  | 'download-failed'
+  | 'checksum-mismatch'
+  | 'arch-mismatch'
+  | 'mount-failed'
+  | 'not-writable'
+  | 'install-failed';
 
 export type UpdatePhase =
   | 'idle'
@@ -6279,6 +6529,11 @@ export interface UpdateState {
   releaseNotes?: string;
   /** 에러 메시지 (phase==='error' 일 때). */
   error?: string;
+  /**
+   * 실패 사유 코드 (phase==='error' 이고 self-install 경로일 때). optional —
+   * 구버전 main 이 보낸 상태에는 없다(§3 하위 호환). 없으면 UI 는 일반 실패 문구를 쓴다.
+   */
+  errorCode?: UpdateErrorCode;
   /** 마지막 체크 완료 시각 (ms). */
   checkedAt?: number;
   /**

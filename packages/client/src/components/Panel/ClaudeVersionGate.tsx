@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { useGraphStore } from '../../stores/graphStore.js';
+import { useOnboardingGate } from '../../stores/onboardingGates.js';
 
 const Z = 100_500;
 
@@ -39,6 +40,10 @@ export function ClaudeVersionGate(): React.JSX.Element | null {
       return () => clearTimeout(id);
     }
   }, [progress?.status, progress?.newVersion]);
+
+  // §4 (첫 실행 온보딩) — 이 창도 화면 전체를 덮는 백드롭을 깔아 헤더 언어 전환기를 가린다.
+  //   떠 있는 동안 헤더가 전환기를 창 위로 띄우도록 알린다(HeaderLanguageSlot).
+  useOnboardingGate('version', open && info != null);
 
   if (!open || !info) return null;
 

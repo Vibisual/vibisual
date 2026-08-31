@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import { electronAPI } from '@electron-toolkit/preload';
-import type { UpdateState, AgentConfig, MobileAccessState, ChatBridgeState, ChatChannelKind, ChatVerbosity, CaptureSourceInfo, CaptureInputEvent, CaptureSourceKind, CaptureTargetRect, CaptureInjectResult, PreviewSnipRect, PageRegionCapture } from '@vibisual/shared';
+import type { UpdateState, AgentConfig, MobileAccessState, ChatBridgeState, ChatChannelKind, ChatVerbosity, CaptureSourceInfo, CaptureInputEvent, CaptureSourceKind, CaptureTargetRect, CaptureInjectResult, PreviewSnipRect, PageRegionCapture, ExternalOpenFailure } from '@vibisual/shared';
 
 // Preload — SCENARIO.md §3.7 / §3.4 contextBridge surface.
 //
@@ -149,6 +149,11 @@ const api = {
       size?: { width: number; height: number };
       /** §17-6 (H) — 앱 안에서 그 창이 들고 있던 것(열어 둔 편집 탭·보던 뷰·붙어 있던 변). */
       handoff?: unknown;
+      /**
+       * §17-6 (H-4) — 앱 경계를 넘는 **그 순간** 만들어지는 창. 잡고 있던 지점(창 좌상단에서
+       * 커서까지의 거리)을 그대로 물려받아 커서에 매달린 채 뜬다 — 끌던 손 아래에서 창이 이어진다.
+       */
+      follow?: { grabX: number; grabY: number };
     }): Promise<{ windowId: number; reused: boolean }> =>
       ipcRenderer.invoke('vibisual:overlay:open', payload),
     /**
@@ -165,10 +170,57 @@ const api = {
     expandSelf: (): Promise<boolean> => ipcRenderer.invoke('vibisual:overlay:expand-self'),
     /** IDE 닫기 → 자기 창을 버블 크기로 축소. */
     collapseSelf: (): Promise<boolean> => ipcRenderer.invoke('vibisual:overlay:collapse-self'),
-    /** §17-6 v2.81 — 버블 드래그 = OS 창 이동. mousedown 시 시작(메인이 커서 폴링으로 창을 따라가게). */
-    dragStart: (): Promise<boolean> => ipcRenderer.invoke('vibisual:overlay:drag-start'),
+    /**
+     * §17-6 (H-5) — 독립 창의 [최대화/복원] 토글. 이 창은 `frame:false + transparent` 라 OS
+     * 타이틀바도 시스템 최대화도 없어, main 이 작업영역으로 bounds 를 옮겨 직접 한다.
+     */
+    toggleMaximizeSelf: (): Promise<boolean> => ipcRenderer.invoke('vibisual:overlay:toggle-maximize-self'),
+    /** §17-6 (H-5) — main 이 밀어 주는 자기 창의 최대화 상태(아이콘은 **이 값만** 따른다). */
+    onMaximizeState: (cb: (payload: { maximized: boolean }) => void): (() => void) => {
+      const listener = (_e: unknown, payload: { maximized: boolean }): void => cb(payload);
+      ipcRenderer.on('vibisual:overlay:maximize-state', listener);
+      return () => ipcRenderer.removeListener('vibisual:overlay:maximize-state', listener);
+    },
+    /**
+     * §17-6 v2.81 — 버블 드래그 = OS 창 이동. mousedown 시 시작(메인이 커서 폴링으로 창을 따라가게).
+     * (H-4) 펼친 IDE 창의 타이틀바는 `redockOnEnter` 를 켜서 부른다 — 끌다 앱 안으로 들어오면
+     * 그 자리에서 앱 안 IDE 로 돌아간다(그때 실어 보낼 짐도 **시작할 때** 함께 맡긴다).
+     */
+    dragStart: (payload?: { redockOnEnter?: boolean; handoff?: unknown }): Promise<boolean> =>
+      ipcRenderer.invoke('vibisual:overlay:drag-start', payload),
     /** 버블 드래그 종료(window mouseup) — 커서 폴링 해제. */
     dragEnd: (): Promise<boolean> => ipcRenderer.invoke('vibisual:overlay:drag-end'),
+    /**
+     * §17-6 (H-4) — **다른 창의** 매달림을 끝낸다(앱에서 끌어내 만든 창은 손이 메인 창에 있다).
+     * 뗌은 두 창이 함께 듣는다 — 캡처가 어디에 있든 한쪽은 반드시 듣게(두 번 불려도 안전).
+     */
+    dragEndFor: (agentId: string): Promise<boolean> =>
+      ipcRenderer.invoke('vibisual:overlay:drag-end-for', agentId),
+    /**
+     * §17-6 (H-6) — 밖으로 빼는 동안 그리는 **가상 창 윤곽선**. 앱 창 밖은 렌더러가 그릴 수 없어
+     * main 이 클릭통과 투명 창으로 대신 그린다. 자리는 main 이 커서를 폴링해 정하므로(= `follow` 와
+     * 같은 물리) 윤곽선과 곧 태어날 창이 같은 자리를 그린다. 거짓이면 앱 안 윤곽선으로 폴백한다.
+     */
+    ghostShow: (payload: {
+      width: number;
+      height: number;
+      grabX: number;
+      grabY: number;
+      label?: string;
+      /** 지금 손을 떼도 그대로 나가는가 — 선이 밝아져 놓기 **전에** 그것을 말한다. */
+      armed?: boolean;
+    }): Promise<boolean> => ipcRenderer.invoke('vibisual:overlay:ghost-show', payload),
+    /** §17-6 (H-6) — 가장자리 버팀 동안 윤곽선을 그 변 밖으로 밀어 낸다(어디에 설지 미리 보여 주기). */
+    ghostNudge: (payload: { dx: number; dy: number }): Promise<boolean> =>
+      ipcRenderer.invoke('vibisual:overlay:ghost-nudge', payload),
+    /** §17-6 (H-6) — 윤곽선 걷기(도로 앱 안 · 손 뗌). 밖으로 나간 경우는 main 이 스스로 걷는다. */
+    ghostHide: (): Promise<boolean> => ipcRenderer.invoke('vibisual:overlay:ghost-hide'),
+    /** §17-6 (H-4) — 이 창이 지금 커서에 매달려 있는가(그렇다면 이 창도 뗌을 듣는다). */
+    onFollowDragState: (cb: (payload: { following: boolean }) => void): (() => void) => {
+      const listener = (_e: unknown, payload: { following: boolean }): void => cb(payload);
+      ipcRenderer.on('vibisual:overlay:follow-drag-state', listener);
+      return () => ipcRenderer.removeListener('vibisual:overlay:follow-drag-state', listener);
+    },
     /**
      * §17-6 (H) — 꺼낸 IDE 창을 **끌어다 앱 안으로 합치기**. 잡으면 창이 칩으로 줄어 커서를 따라오고,
      * 메인 창 위에서 놓으면 합쳐진다(밖에서 놓으면 원래 자리로 되돌아온다).
@@ -415,6 +467,20 @@ const api = {
     /** §5.17 (B) — 프리뷰에서 그은 사각형을 이 창에서 그대로 찍는다(프리뷰 → 입력창 첨부). */
     pageRegion: (rect: PreviewSnipRect): Promise<PageRegionCapture> =>
       ipcRenderer.invoke('vibisual:capture:page-region', rect),
+  },
+  /**
+   * §3.7 — 바깥 브라우저 열기 실패 알림.
+   *
+   * 여는 길은 종전 그대로 renderer 의 `window.open(url, '_blank')` 하나다(새 여는 길 ❌).
+   * 이건 그 반대 방향 — main 이 "안 열렸다"를 알려 주는 길이다. 리눅스에서는
+   * `shell.openExternal` 이 실패해도 resolve 하므로 renderer 는 스스로 알 방법이 없다.
+   */
+  externalOpen: {
+    onFailed: (cb: (payload: ExternalOpenFailure) => void): (() => void) => {
+      const listener = (_e: unknown, payload: ExternalOpenFailure): void => cb(payload);
+      ipcRenderer.on('vibisual:external-open-failed', listener);
+      return () => ipcRenderer.removeListener('vibisual:external-open-failed', listener);
+    },
   },
 };
 

@@ -8,6 +8,7 @@ import {
   formatClipTime,
   frameFileName,
   frameTargetSize,
+  demoFrameTimes,
   frameTimesFor,
   pickRecorderMime,
 } from './playtestClip.js';
@@ -77,6 +78,40 @@ describe('frameTimesFor', () => {
 
   it('구간이 뒤집혀 들어와도 앞에서부터 오름차순으로 나온다', () => {
     expect(frameTimesFor({ startMs: 3_000, endMs: 1_000 }, 2)).toEqual([1_500, 2_500]);
+  });
+});
+
+describe('demoFrameTimes — 시연 저장(⑨-4)', () => {
+  it('단계가 없으면 종전 등간격과 한 값도 다르지 않다', () => {
+    const range = { startMs: 0, endMs: 4_000 };
+    expect(demoFrameTimes(range, 4)).toEqual(frameTimesFor(range, 4));
+  });
+
+  it('단계가 있으면 **그 순간**을 찍는다 — 프롬프트가 단계와 그림을 시각으로 짝짓기 때문', () => {
+    // 단계 시각은 구간 시작을 0 으로 본 상대값이다.
+    expect(demoFrameTimes({ startMs: 10_000, endMs: 40_000 }, 3, [1_000, 5_000, 20_000]))
+      .toEqual([11_000, 15_000, 30_000]);
+  });
+
+  it('장수가 단계보다 많으면 남는 자리만 등간격으로 채운다(가까운 중복은 버린다)', () => {
+    const times = demoFrameTimes({ startMs: 0, endMs: 40_000 }, 4, [5_000, 30_000]);
+    expect(times).toHaveLength(4);
+    expect(times).toContain(5_000);
+    expect(times).toContain(30_000);
+    expect([...times].sort((a, b) => a - b)).toEqual(times);
+  });
+
+  it('단계가 장수보다 많으면 앞에서부터 장수만큼만 쓴다', () => {
+    expect(demoFrameTimes({ startMs: 0, endMs: 40_000 }, 2, [30_000, 1_000, 20_000]))
+      .toEqual([1_000, 20_000]);
+  });
+
+  it('구간 밖 단계는 구간 안으로 접는다(밖으로 seek 하면 빈 장이 된다)', () => {
+    expect(demoFrameTimes({ startMs: 5_000, endMs: 10_000 }, 1, [99_000])).toEqual([10_000]);
+  });
+
+  it('0장이면 빈 배열이다(등간격과 달리 억지로 한 장을 만들지 않는다)', () => {
+    expect(demoFrameTimes({ startMs: 0, endMs: 4_000 }, 0, [1_000])).toEqual([]);
   });
 });
 

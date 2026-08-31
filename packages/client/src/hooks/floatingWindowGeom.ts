@@ -55,6 +55,65 @@ export const FLOATING_WINDOW_DEFAULTS = {
   VIEWPORT_MARGIN: 16,
 } as const;
 
+/**
+ * §5.13 (S-3) — 창을 **앱 밖으로 끌어내는** 손짓의 문턱.
+ *
+ * 앱 안 창은 IDE 창(§5.5 #17-6)·내부 앱 창 둘 다 같은 손짓으로 밖에 나가야 한다. 기준이 두 벌이면
+ * 같은 동작이 창 종류마다 다르게 반응하므로 수치도 판정도 여기 한 곳에 둔다(IDE 의 `IDE_FLOAT` 는
+ * 이 값을 그대로 받아 쓴다).
+ */
+export const WINDOW_PULL_OUT = {
+  /** 커서가 앱 창 밖으로 이만큼 더 나가야 "밖으로 꺼낸다"로 읽는다(px). */
+  MARGIN: 24,
+  /**
+   * 화면 끝에 **막혀** 더 나갈 수 없을 때 "밖으로 밀고 있다"로 읽어 주는 안쪽 띠(px).
+   *
+   * 단일 모니터에 앱이 최대화돼 있으면 커서는 뷰포트를 한 픽셀도 벗어나지 못한다 — 그 사람에게
+   * `MARGIN` 은 영영 닿지 않는 문턱이라 끌어내기라는 손짓 자체가 없는 것과 같다.
+   */
+  EDGE_PX: 3,
+  /** 그 띠에 이만큼 버티면 밖으로 나간 것과 **같이** 본다(ms). 스치기만 한 손은 걸리지 않게. */
+  EDGE_DWELL_MS: 500,
+} as const;
+
+/**
+ * 커서가 앱 창 **밖으로** 나갔는가 — 그 자리에서 손을 떼면 이 창은 독립 OS 창이 된다.
+ *
+ * 여유(margin)를 두는 까닭: 0 이면 창을 화면 가장자리까지 끌기만 해도 튀어나가고, 너무 크면
+ * 모니터가 하나이고 앱이 최대화된 사용자는 커서를 그만큼 밖으로 낼 수 없어 손이 닿지 않는다
+ * (그 사람은 아래 `isCursorPinnedToViewportEdge` 가 받는다).
+ */
+export function isCursorOutsideViewport(
+  cursor: { x: number; y: number },
+  vp: Viewport,
+  margin: number = WINDOW_PULL_OUT.MARGIN,
+): boolean {
+  return cursor.x < -margin
+    || cursor.y < -margin
+    || cursor.x > vp.w + margin
+    || cursor.y > vp.h + margin;
+}
+
+/**
+ * 커서가 뷰포트 **가장자리에 막혀** 있는가 — 밖으로 더 밀고 싶어도 화면이 없어서 못 미는 자리.
+ *
+ * 무장 여부는 부르는 쪽이 **시간**으로 가른다(이 함수는 자리만 본다) — 스쳐 지나간 손이 창을
+ * 밖으로 던지면 안 되기 때문이다.
+ *
+ * 오른쪽·아래 경계에서 `-1` 을 빼는 까닭: 브라우저가 주는 `clientX/Y` 의 최대값은 `w-1`/`h-1`
+ * 이라, `w` 를 그대로 견주면 끝까지 밀어도 띠 안에 들어오지 않는다.
+ */
+export function isCursorPinnedToViewportEdge(
+  cursor: { x: number; y: number },
+  vp: Viewport,
+  edge: number = WINDOW_PULL_OUT.EDGE_PX,
+): boolean {
+  return cursor.x <= edge
+    || cursor.y <= edge
+    || cursor.x >= vp.w - 1 - edge
+    || cursor.y >= vp.h - 1 - edge;
+}
+
 /** 훅·순수 함수가 함께 쓰는 확정 설정(기본값이 모두 채워진 형태). */
 export interface FloatingWindowConfig {
   sizeRatio: Size;

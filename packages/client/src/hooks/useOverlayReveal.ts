@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useGraphStore } from '../stores/graphStore.js';
 import { coerceIDEPaneHandoff } from '../stores/idePaneHandoff.js';
+import { putPaneDragResume } from '../stores/idePaneDragResume.js';
 
 // SCENARIO.md §5.5 #17-6 (G) v2.82 — 메인 윈도우 한정.
 //
@@ -15,7 +16,7 @@ export function useOverlayReveal(): void {
   useEffect(() => {
     const overlay = typeof window !== 'undefined' ? window.api?.overlay : undefined;
     if (!overlay?.onReveal) return;
-    const off = overlay.onReveal(({ agentId, projectId, openIde, hasHandoff }) => {
+    const off = overlay.onReveal(({ agentId, projectId, openIde, hasHandoff, resumeDrag }) => {
       const store = useGraphStore.getState();
       const known = !!store.projects[projectId] || !!store.stubProjects[projectId];
       if (known) store.setActiveProject(projectId);
@@ -24,6 +25,19 @@ export function useOverlayReveal(): void {
         //   하면 되돌린 게 아니다(사용자는 그 IDE 를 계속 보려고 되돌린다). 그 자리에 창을 다시 연다.
         store.focusOnNode(agentId);
         store.selectNode(agentId);
+        // §5.5 #17-6 (H-4) ③ — 끌던 **도중에** 돌아온 창이면(손이 아직 눌려 있다) 앱 안에 서는
+        //   창이 그 드래그를 그대로 이어받는다. 짐은 창이 서기 **전에** 맡겨야 한다 — 창이 선
+        //   뒤에 맡기면 그 창은 이미 "이어받을 것 없음"으로 마운트를 마친 뒤다.
+        if (resumeDrag) {
+          putPaneDragResume({
+            agentId,
+            grabX: resumeDrag.grabX,
+            grabY: resumeDrag.grabY,
+            width: resumeDrag.width,
+            height: resumeDrag.height,
+            cursor: resumeDrag.cursor,
+          });
+        }
         // §5.5 #17-6 (H) — 그 창이 **지고 온 짐**이 있으면 그대로 이어 세운다: 열어 둔 편집 탭·
         //   보던 뷰·고른 세션은 물론 **밖으로 나가기 전 붙어 있던 변**까지 되살아나, 되돌리기가
         //   "그 창이 원래 자리로 돌아온 것"이 된다(종전에는 늘 새 창이 떠 하던 일을 잃었다).

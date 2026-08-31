@@ -7,6 +7,7 @@ import type { LabRunStatus, LabVariant } from '@vibisual/shared';
 
 import { useGraphStore } from '../../stores/graphStore.js';
 import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
+import { isInteractiveTarget, useBubbleSelectGesture } from './bubbleSelectGesture.js';
 
 /**
  * §5.18 / §7.17 — 에이전트 랩 표지 버블.
@@ -81,7 +82,12 @@ export const LabNode = memo(function LabNode({
   const menuRef = useRef<HTMLDivElement>(null);
   const [busy, setBusy] = useState(false);
 
-  const isSelected = selected === true || selectedLabRunId === data.labRunId;
+  // 선택 링은 `selectIntentId`(캔버스가 나눠 쓰는 "지금 고른 것 한 칸")도 함께 본다 —
+  // 더블클릭 지연(`bubbleSelectGesture`) 동안 눈에 보이는 반응을 내는 것이 그 칸이다.
+  const selectIntentId = useGraphStore((s) => s.selectIntentId);
+  const isSelected = selected === true
+    || selectedLabRunId === data.labRunId
+    || selectIntentId === data.labRunId;
   const isPinned = data.preservePinned === true;
 
   // 바깥 press 로 닫기(공통 규약 — capture 단계에서 React Flow 선점 전에 처리).
@@ -118,24 +124,31 @@ export const LabNode = memo(function LabNode({
     return { total, finished, running, success, best };
   }, [data.variants]);
 
-  const handleSelect = useCallback((e: React.PointerEvent): void => {
-    if (e.button !== 0) return;
-    if ((e.target as HTMLElement | null)?.closest?.('button')) return;
-    selectLabRun(data.labRunId);
-  }, [selectLabRun, data.labRunId]);
+  // 선택·더블클릭은 에이전트(IDE) 버블과 같은 상태기계 한 벌을 쓴다 — 더블클릭으로 랩을 열 때
+  // 1타의 선택(우측 패널)이 함께 발동하지 않는다.
+  const gesture = useBubbleSelectGesture({
+    doubleClickable: true,
+    select: () => selectLabRun(data.labRunId),
+    setIntent: (active) => {
+      useGraphStore.getState().setSelectIntent(active ? data.labRunId : null);
+    },
+    ignore: (e) => isInteractiveTarget(e.target),
+  });
 
   const handleContextMenu = useCallback((e: React.MouseEvent): void => {
     e.preventDefault();
     e.stopPropagation();
-    selectLabRun(data.labRunId);
+    gesture.selectNow();
     setMenu({ x: e.clientX, y: e.clientY });
-  }, [selectLabRun, data.labRunId]);
+  }, [gesture]);
 
+  // 더블클릭 = 랩 패널 열기. **선택은 하지 않는다** — 패널은 id 를 직접 받으므로 선택이 필요 없고,
+  // 여는 동작이 선택까지 끌고 오면 에이전트 버블과 손버릇이 갈린다.
   const handleOpen = useCallback((e: React.MouseEvent): void => {
     e.stopPropagation();
-    selectLabRun(data.labRunId);
+    gesture.cancelPendingSelect();
     openLabPanel(data.labRunId);
-  }, [openLabPanel, selectLabRun, data.labRunId]);
+  }, [gesture, openLabPanel, data.labRunId]);
 
   const rename = useCallback((): void => {
     setMenu(null);
@@ -232,7 +245,7 @@ export const LabNode = memo(function LabNode({
   return (
     <>
       <div
-        onPointerDownCapture={handleSelect}
+        {...gesture.handlers}
         onContextMenu={handleContextMenu}
         onDoubleClick={handleOpen}
         title={title}

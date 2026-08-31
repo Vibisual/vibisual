@@ -57,6 +57,13 @@ jobs:
           node-version: 20
           cache: pnpm
 
+      # 릴리스 페이지 본문을 짓는 분류 규칙(win/mac-arm64/mac-x64/deb/rpm/AppImage)을 여기서 잰다.
+      # 의존성이 필요 없는 순수 JS 라 설치 앞에 둔다 — 실패하면 30초 안에 안다.
+      # ⚠️ 이 규칙이 뒤집히면 Apple Silicon dmg 가 Intel 줄에 실리는데 표는 멀쩡해 보인다.
+      #    릴리스 워크플로도 --apply 앞에서 같은 점검을 돌리지만, 그때는 이미 자산이 나간 뒤다.
+      - name: Release notes classifier selftest
+        run: node .github/scripts/release-notes.mjs --selftest
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 

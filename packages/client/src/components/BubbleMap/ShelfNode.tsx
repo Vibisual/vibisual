@@ -7,6 +7,7 @@ import type { ShelfItem } from '@vibisual/shared';
 
 import { useGraphStore } from '../../stores/graphStore.js';
 import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
+import { isInteractiveTarget, useBubbleSelectGesture } from './bubbleSelectGesture.js';
 import { ShelfGlyph, ShelfItemGlyph } from './shelfIcons.js';
 import { exportShelfFile, pickShelfFile } from './shelfTransfer.js';
 
@@ -65,7 +66,12 @@ export const ShelfNode = memo(function ShelfNode({
   const [menu, setMenu] = useState<MenuPos | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  const isSelected = selected === true || selectedShelfBubbleId === data.shelfBubbleId;
+  // 선택 링은 `selectIntentId`(캔버스가 나눠 쓰는 "지금 고른 것 한 칸")도 함께 본다 —
+  // 더블클릭 지연(`bubbleSelectGesture`) 동안 눈에 보이는 반응을 내는 것이 그 칸이다.
+  const selectIntentId = useGraphStore((s) => s.selectIntentId);
+  const isSelected = selected === true
+    || selectedShelfBubbleId === data.shelfBubbleId
+    || selectIntentId === data.shelfBubbleId;
   const isPinned = data.preservePinned === true;
 
   // 바깥 press 로 닫기(공통 규약 — capture 단계에서 React Flow 선점 전에 처리).
@@ -82,24 +88,30 @@ export const ShelfNode = memo(function ShelfNode({
     return () => document.removeEventListener('keydown', close);
   }, [menu]);
 
-  const handleSelect = useCallback((e: React.PointerEvent): void => {
-    if (e.button !== 0) return;
-    if ((e.target as HTMLElement | null)?.closest?.('button')) return;
-    selectShelfBubble(data.shelfBubbleId);
-  }, [selectShelfBubble, data.shelfBubbleId]);
+  // 선택·더블클릭은 에이전트(IDE) 버블과 같은 상태기계 한 벌을 쓴다.
+  // `ignore` 로 실행 줄(버튼)에서 시작한 누름을 걸러 낸다 — 줄 클릭은 선택이 아니라 실행이다.
+  const gesture = useBubbleSelectGesture({
+    doubleClickable: true,
+    select: () => selectShelfBubble(data.shelfBubbleId),
+    setIntent: (active) => {
+      useGraphStore.getState().setSelectIntent(active ? data.shelfBubbleId : null);
+    },
+    ignore: (e) => isInteractiveTarget(e.target),
+  });
 
   const handleContextMenu = useCallback((e: React.MouseEvent): void => {
     e.preventDefault();
     e.stopPropagation();
-    selectShelfBubble(data.shelfBubbleId);
+    gesture.selectNow();
     setMenu({ x: e.clientX, y: e.clientY });
-  }, [selectShelfBubble, data.shelfBubbleId]);
+  }, [gesture]);
 
+  // 더블클릭 = 선반 패널 열기. **선택은 하지 않는다**(패널은 id 를 직접 받는다).
   const handleOpen = useCallback((e: React.MouseEvent): void => {
     e.stopPropagation();
-    selectShelfBubble(data.shelfBubbleId);
+    gesture.cancelPendingSelect();
     openShelfPanel(data.shelfBubbleId);
-  }, [openShelfPanel, selectShelfBubble, data.shelfBubbleId]);
+  }, [gesture, openShelfPanel, data.shelfBubbleId]);
 
   /** 줄 클릭 = 즉시 실행. 도는 줄은 다시 쏘지 않는다(서버도 409 로 막지만 손끝에서 먼저 막는다). */
   const runItem = useCallback((item: ShelfItem): void => {
@@ -212,7 +224,7 @@ export const ShelfNode = memo(function ShelfNode({
   return (
     <>
       <div
-        onPointerDownCapture={handleSelect}
+        {...gesture.handlers}
         onContextMenu={handleContextMenu}
         onDoubleClick={handleOpen}
         title={title}

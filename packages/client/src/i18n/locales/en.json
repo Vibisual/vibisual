@@ -28,7 +28,15 @@
       "confirmHint": "If you have important custom agent work, finish it first, then update.",
       "confirmCancel": "Cancel",
       "openReleases": "Download {{version}}",
-      "openReleasesTooltip": "Version {{version}} is available. Automatic install needs code signing on macOS, so this opens the releases page."
+      "openReleasesTooltip": "The automatic update could not finish on this Mac. This opens the releases page so you can download it yourself.",
+      "failed": {
+        "download-failed": "The download did not finish.",
+        "checksum-mismatch": "The downloaded file did not match its published checksum, so it was discarded.",
+        "arch-mismatch": "The downloaded build is for a different processor than this Mac, so it was not installed.",
+        "mount-failed": "The downloaded disk image could not be opened.",
+        "not-writable": "Vibisual does not have permission to replace itself where it is installed.",
+        "install-failed": "The app could not be replaced."
+      }
     },
     "agentStatus": {
       "waiting": "Waiting for agent",
@@ -89,6 +97,10 @@
         "expandAll": "Expand all"
       },
       "shortcutHint": "{{dock}} dock · {{max}} maximize · {{next}} next window"
+    },
+    "projectFolderBanner": {
+      "text": "No project folder is open — agents have nowhere to work yet.",
+      "action": "Choose folder"
     }
   },
   "panel": {
@@ -950,15 +962,21 @@
       "fallbackModel": {
         "label": "Fallback model",
         "tip": "Model to use when the main one is overloaded or unavailable. A comma-separated list is tried in order. Headless runs only.",
-        "placeholder": "e.g. sonnet"
+        "placeholder": "e.g. sonnet",
+        "unsetLabel": "unset",
+        "unset": "Not set — no fallback. The run fails when the main model is unavailable.",
+        "customLabel": "Enter manually…",
+        "custom": "Type the value yourself — an exact version id, or a comma-separated list tried in order."
       },
       "autoCompact": {
         "label": "Auto-compact",
-        "tip": "Context size at which the CLI compacts the conversation by itself.",
-        "unset": "Not set — the CLI decides (default).",
+        "tip": "Context size at which the CLI starts compacting on its own. A smaller value compacts earlier and more often.",
+        "unset": "Not set — follows the default in Settings.",
         "unsetLabel": "unset",
         "auto": "auto — the CLI picks the window.",
-        "tokens": "Compact at about {{tokens}} tokens."
+        "tokens": "Compact at about {{tokens}} tokens.",
+        "unsetDefaultLabel": "unset ({{tokens}})",
+        "globalTip": "Applies to every agent that has no auto-compact value of its own — including ones already running. Leave it unset to use the built-in default."
       },
       "settingSources": {
         "label": "Setting sources",
@@ -1028,6 +1046,22 @@
         "tip": "Which agent CLI this CMD terminal launches. Anything other than Claude Code is not a child of our hooks, so conversation resume and rule injection are not attached — its status is read from terminal output instead.",
         "nonClaudeNote": "This CLI is not Claude Code, so the settings below (model, permissions, tools, rules) are not passed to it. Its status is read from terminal output instead. Changes apply to new sessions opened with \"+\".",
         "applyNote": "A changed CLI applies to new sessions opened with \"+\" — terminals already running keep what they started with."
+      },
+      "compactAfterTurn": {
+        "label": "Compact when a turn ends",
+        "hint": "Folds the conversation into a summary at every turn boundary — never mid-task."
+      },
+      "agentCanCompact": {
+        "label": "Let the agent compact during work",
+        "hint": "The agent asks when context feels heavy; it runs at the end of that turn."
+      },
+      "diff": {
+        "badge": "{{count}} differ from defaults",
+        "summaryTip": "Differs from the agent defaults in Options — {{list}}",
+        "tip": "Set only for this agent. Default: {{value}}",
+        "unset": "not set",
+        "on": "on",
+        "off": "off"
       }
     },
     "permissionPrompt": {
@@ -1402,7 +1436,8 @@
       "recheck": "Check again",
       "later": "Later",
       "stop": "Stop",
-      "start": "Sign in"
+      "start": "Sign in",
+      "successNext": "Next: choose the project folder your agents will work in."
     },
     "setup": {
       "title": "Install Claude Code",
@@ -1416,6 +1451,8 @@
       "installFailed": "Install failed",
       "retry": "Try again",
       "ready": "Claude Code is ready. Continuing…",
+      "readyNext": "Next: sign in to your Claude account.",
+      "continue": "Continue",
       "failed": "The install did not complete. Run the command above in a terminal, then choose \"Check again\".",
       "manualOnly": "Automatic install is not available on this platform. Run the command above in a terminal, then choose \"Check again\".",
       "recheck": "Check again",
@@ -1466,6 +1503,14 @@
       "vibi3d": {
         "name": "Vibi3D",
         "desc": "Spin 3D models inside the app"
+      },
+      "window": {
+        "popOut": "Open in a separate window",
+        "maximize": "Maximize",
+        "restore": "Restore",
+        "close": "Close (Esc)",
+        "dragHint": "Drag it outside the app to make it a separate window.",
+        "pullOutArmed": "Release to open in a separate window"
       }
     },
     "videoStudio": {
@@ -1622,6 +1667,16 @@
       "opening": "Opening in the editor…",
       "installing": "Installing the converter… only the first time takes a moment.",
       "failed": "Couldn’t convert it. Open it with the default app."
+    },
+    "projectFolder": {
+      "title": "Choose a project folder",
+      "intro": "Claude Code is installed and signed in. The last step is choosing the folder your agents will work in — usually the root of a project or repository.",
+      "blocked": "Nothing was created — no project folder is open yet. Agents work inside a folder you choose, so pick one first.",
+      "detail": "Everything Vibisual saves for a project lives inside that folder, and agents may only read and edit files under it. You can open more folders later from File → Open Folder.",
+      "cancelled": "No folder was chosen yet. Choose one to continue.",
+      "choose": "Choose Folder",
+      "picking": "Choosing…",
+      "later": "Later"
     }
   },
   "ide": {
@@ -1705,11 +1760,10 @@
       "resizeStack": "Resize split",
       "slotTabHint": "Bring \"{{name}}\" to front (windows share this dock slot)",
       "dockShortcutHint": "{{dock}} to dock · {{undock}} to undock",
-      "popOutHint": "Release to pop out as a separate window",
-      "popOutEdgeHint": "Keep pushing against the edge to pop it out as a separate window",
+      "popOutGhostHint": "Keep pulling to make this a separate window",
+      "popOutGhostArmedHint": "Release to make this a separate window",
       "popOutLabel": "Pop out as separate window",
       "returnToApp": "Move back into the app",
-      "popOutHintButton": "Pop out as a separate window (or drag the title bar out of the app — or push it against the edge)",
       "returnToAppHint": "Click to move it back into the app · drag it onto the app window to merge",
       "redockDropHint": "Drop here to merge back into the app",
       "redockKeepHint": "Release elsewhere to keep it separate"
@@ -1801,6 +1855,7 @@
       "ctxQuoteReply": "Quote reply",
       "ctxSendAsPrompt": "Send as new prompt",
       "ctxSelectAll": "Select all",
+      "ctxAddMemo": "Add sticky memo",
       "jumpToBottom": "Scroll to bottom",
       "ctxSelectionRequired": "Select text first",
       "inputCtxCut": "Cut",
@@ -1811,6 +1866,16 @@
       "stopAll": "Stop all",
       "stopAllTitle": "Stop everything this agent is running (other tabs + background subagents)",
       "stopSessionTitle": "Stop this session and the subagents it started (other session tabs keep running)"
+    },
+    "memo": {
+      "title": "Memo",
+      "placeholder": "Type a note…",
+      "color": "Color",
+      "collapse": "Collapse",
+      "expand": "Expand",
+      "delete": "Delete memo",
+      "resize": "Resize",
+      "limitReached": "Up to {{max}} memos per session"
     },
     "askQuestion": {
       "title": "Question",
@@ -2103,13 +2168,47 @@
       "openFile": "Open in editor",
       "copyPath": "Copy path",
       "copied": "Copied",
-      "truncated": "First {{count}} items only"
+      "truncated": "First {{count}} items only",
+      "ctx": {
+        "open": "Open",
+        "openExternal": "Open in external editor",
+        "revealFolder": "Open in file explorer",
+        "newFile": "New file",
+        "newFolder": "New folder",
+        "rename": "Rename",
+        "delete": "Delete",
+        "newFileName": "New file name",
+        "newFolderName": "New folder name",
+        "newName": "New name",
+        "confirmTrash": "Move \"{{name}}\" to the trash?",
+        "confirmDelete": "Delete \"{{name}}\" permanently? This cannot be undone.",
+        "trashed": "Moved \"{{name}}\" to the trash",
+        "deleted": "Deleted \"{{name}}\"",
+        "err": {
+          "nameEmpty": "Enter a name",
+          "nameSeparator": "A name cannot contain / or \\",
+          "nameTraversal": "That name is not allowed",
+          "nameInvalidChar": "A name cannot contain < > : \" | ? *",
+          "nameTrailing": "A name cannot start or end with a space or a dot",
+          "nameReserved": "That name is reserved by Windows",
+          "nameTooLong": "That name is too long (255 characters max)",
+          "exists": "Something with that name is already here",
+          "notFound": "That item is no longer there",
+          "denied": "The system refused — no permission, or the item is in use",
+          "offline": "Could not reach the app",
+          "root": "The project root cannot be changed here",
+          "outside": "That path is outside the project",
+          "failed": "That did not work"
+        }
+      }
     },
     "editor": {
       "resize": "Resize editor pane",
       "save": "Save ({{shortcut}})",
       "reload": "Reload from disk",
       "closeTab": "Close tab",
+      "pinTabs": "Pin tabs — keep them open when you switch sessions",
+      "unpinTabs": "Unpin tabs — each session keeps its own tabs",
       "closePane": "Close editor pane",
       "closeDirtyConfirm": "This file has unsaved changes. Close it anyway?",
       "conflict": "This file changed on disk after you opened it.",
@@ -2137,6 +2236,18 @@
         "failed": "Could not save this file"
       },
       "closeDirtyConfirmMany": "{{count}} of these files have unsaved changes. Close them anyway?",
+      "html": {
+        "back": "Back",
+        "forward": "Forward",
+        "reload": "Reload this page",
+        "home": "Back to the file you opened — {{path}}",
+        "openExternal": "Open in your browser",
+        "address": "Page location — {{path}}",
+        "viewPage": "Page",
+        "viewSource": "Source",
+        "viewPageHint": "Show this file as a rendered page",
+        "viewSourceHint": "Show the HTML source and edit it"
+      },
       "ctx": {
         "cut": "Cut",
         "copy": "Copy",
@@ -2170,7 +2281,9 @@
       "context": "ctx: {{used}}/{{max}}",
       "tokens": "{{in}} in / {{out}} out",
       "sessionOne": "{{count}} session",
-      "sessionMany": "{{count}} sessions"
+      "sessionMany": "{{count}} sessions",
+      "autoCompact": "auto-compact {{value}}",
+      "autoCompactTip": "The CLI summarizes the conversation by itself once context reaches this size. Change it per agent in Agent Settings, or for all agents in File > Options > Agent Defaults."
     },
     "search": {
       "placeholder": "Find in conversation",
@@ -2235,7 +2348,9 @@
         "runProgram": "Run program — {{path}}",
         "runFailed": "Could not start — this window has no terminal.",
         "openApp": "Open in {{app}} — {{path}}",
-        "openExternal": "Open with the default app — {{path}}"
+        "openExternal": "Open with the default app — {{path}}",
+        "revealOutsideFolder": "Show in file manager — {{path}}",
+        "revealOutsideFile": "Show in file manager (opens the containing folder) — {{path}}"
       },
       "restartResumed": "Interrupted when the app went down — resumed on the saved session.",
       "nestedSubagent": "Subagent",
@@ -2259,6 +2374,8 @@
       "copyQuestions": "Copy questions",
       "copySelection": "Copy selection",
       "copySelectionHint": "Drag to select the part you want, then copy",
+      "copySelectionHintCheckable": "Tick answers or drag to select, then copy",
+      "copySelectionChecked": "Copy {{n}} selected",
       "copyOne": "Copy this question",
       "selectAnswer": "Select this answer",
       "selectNone": "Clear",
@@ -2591,7 +2708,8 @@
         "mcp": "MCP servers",
         "hooks": "Hooks",
         "systemPrompt": "Claude Code system prompt",
-        "brainSkills": "Memory skills"
+        "brainSkills": "Memory skills",
+        "compactSelf": "Agent self-compaction"
       },
       "hint": {
         "tools": "Pick the tool list in Agent Settings",
@@ -2780,6 +2898,11 @@
             "what": "Procedures this project learned, loaded when the task matches.",
             "more": "Matched by each skill description, so only relevant ones load.",
             "off": "The agent works out each procedure from scratch again."
+          },
+          "compactSelf": {
+            "what": "The window through which the agent itself asks to compact the conversation.",
+            "more": "Shipped only to agents with “Let the agent compact during work” turned on. The compaction runs at the end of that turn, never mid-task.",
+            "off": "The agent can no longer ask; only the window threshold and turn-boundary compaction remain. Nothing is injected, so this line costs zero tokens when off."
           }
         },
         "cat": {
@@ -2987,6 +3110,46 @@
         "readOnly": "Hook bubbles are read-only.",
         "network": "Could not reach the server.",
         "failed": "Could not start the verification."
+      },
+      "demo": {
+        "sectionTitle": "Demonstration",
+        "about": "Show it once and those steps ride along with every verification from then on.",
+        "record": "Record a demo",
+        "stopRecording": "Stop · {{time}}",
+        "summary": "{{steps}} steps · {{frames}} frames",
+        "willSend": "Also sends the demo: {{name}}",
+        "willNotSend": "No demo selected — nothing extra is sent",
+        "emptyDemo": "Selected demo is empty (no steps, expected result, or images) — nothing extra will be sent",
+        "recordRun": "Record the screen during this verification",
+        "recordRunNeedsSource": "Record a demo once to choose what to capture",
+        "watch": "Watch",
+        "windowTitle": "Save as a verification procedure",
+        "evidenceTitle": "Screen during verification",
+        "autoStopped": "Recording stopped at the length limit.",
+        "stepsLabel": "Steps",
+        "stepsEmpty": "Play it back and write down what you did at each point.",
+        "stepPlaceholder": "e.g. click Save in the toolbar",
+        "addStep": "Add at {{at}}",
+        "stepsFull": "Up to {{max}} steps.",
+        "expectedLabel": "Expected result (optional)",
+        "expectedPlaceholder": "e.g. a green Saved toast appears",
+        "nameLabel": "Name",
+        "frameCount": "Frames",
+        "noFrames": "None",
+        "extracting": "Extracting frames {{done}}/{{total}}",
+        "save": "Save as procedure",
+        "discard": "Discard",
+        "error": {
+          "noFrames": "Could not extract any frame from this clip.",
+          "noStream": "Lost the capture stream. Pick the source again.",
+          "uploadFailed": "The procedure was saved but the frames could not be uploaded.",
+          "saveFailed": "Could not save the demo.",
+          "readOnly": "Hook bubbles are read-only.",
+          "network": "Could not reach the server.",
+          "failed": "Could not save the demo.",
+          "projectNotFound": "That project could not be found.",
+          "framesFull": "This demo already has the maximum number of frames."
+        }
       }
     }
   },
@@ -3566,7 +3729,18 @@
       "snipUnavailable": "Area capture is not available on this screen.",
       "snipFailed": "Capture failed: {{error}}"
     },
-    "close": "Close"
+    "close": "Close",
+    "minimize": "Minimize",
+    "maximize": "Maximize",
+    "play": "Play",
+    "pause": "Pause",
+    "delete": "Delete",
+    "externalOpen": {
+      "noBrowser": "No browser found — copy the link and open it yourself",
+      "openFailed": "Couldn't open the link — copy it and open it yourself",
+      "copy": "Copy",
+      "copied": "Copied"
+    }
   },
   "brain": {
     "bubbleLabel": "Memory",

@@ -1,5 +1,7 @@
 import { ipcMain, type WebContents } from 'electron';
 import { mountAppIpc, removeAppIpc } from './apps/index';
+// §5.5 #17-6 (H-6) — 밖으로 빼는 동안 앱 밖까지 이어지는 가상 창 윤곽선.
+import { showPopOutGhost, nudgePopOutGhost, hidePopOutGhost } from './ghostFrame';
 import { inject, type DispatchFunc } from 'light-my-request';
 import type { Express } from 'express';
 import {
@@ -31,8 +33,10 @@ import {
   closeOverlayByWindowId,
   expandOverlayByWindowId,
   collapseOverlayByWindowId,
+  toggleMaximizeOverlaySelfByWindowId,
   startOverlayDragByWindowId,
   endOverlayDragByWindowId,
+  endOverlayDragByAgentId,
   startOverlayRedockDragByWindowId,
   endOverlayRedockDragByWindowId,
   takePaneHandoff,
@@ -320,6 +324,7 @@ export function setupIpc(expressApp: Express): IpcHub {
         expanded?: boolean;
         size?: { width: number; height: number };
         handoff?: unknown;
+        follow?: { grabX: number; grabY: number };
       },
     ): { windowId: number; reused: boolean } => {
       if (!payload || typeof payload.agentId !== 'string' || payload.agentId.length === 0) {
@@ -342,6 +347,13 @@ export function setupIpc(expressApp: Express): IpcHub {
         size,
         // §17-6 (H) — 그 창이 들고 가는 짐. main 은 뜻을 모르고 맡아만 둔다(렌더러끼리의 약속).
         handoff: payload.handoff,
+        // §17-6 (H-4) — 앱 경계를 넘는 그 순간 태어난 창. 잡은 지점 그대로 커서에 매달아 띄운다
+        //   (숫자가 아니면 무시한다 — 창 기하가 NaN 으로 무너지지 않게).
+        follow: payload.follow
+          && Number.isFinite(payload.follow.grabX)
+          && Number.isFinite(payload.follow.grabY)
+          ? { grabX: Math.round(payload.follow.grabX), grabY: Math.round(payload.follow.grabY) }
+          : undefined,
       });
     },
   );
@@ -355,9 +367,52 @@ export function setupIpc(expressApp: Express): IpcHub {
   ipcMain.handle('vibisual:overlay:close-self', (event): boolean => closeOverlayByWindowId(event.sender.id));
   ipcMain.handle('vibisual:overlay:expand-self', (event): boolean => expandOverlayByWindowId(event.sender.id));
   ipcMain.handle('vibisual:overlay:collapse-self', (event): boolean => collapseOverlayByWindowId(event.sender.id));
+  // §17-6 (H-5) — 독립 창의 [최대화/복원]. 이 창은 frame:false + transparent 라 OS 타이틀바도
+  //   시스템 최대화도 없다 — 최대화는 main 이 작업영역으로 bounds 를 옮겨 직접 한다.
+  ipcMain.handle('vibisual:overlay:toggle-maximize-self', (event): boolean =>
+    toggleMaximizeOverlaySelfByWindowId(event.sender.id),
+  );
   // §17-6 v2.81 — 버블 드래그 = OS 창 이동(메인 프로세스 커서 폴링).
-  ipcMain.handle('vibisual:overlay:drag-start', (event): boolean => startOverlayDragByWindowId(event.sender.id));
+  ipcMain.handle(
+    'vibisual:overlay:drag-start',
+    (event, payload?: { redockOnEnter?: boolean; handoff?: unknown }): boolean =>
+      // §17-6 (H-4) — 펼친 IDE 창의 타이틀바 드래그는 `redockOnEnter` 를 켜서 온다: 끌다 앱 안으로
+      //   들어오면 그 자리에서 앱 안 IDE 로 돌아간다. 버블 드래그는 안 켜므로 종전 그대로 움직인다.
+      startOverlayDragByWindowId(event.sender.id, {
+        redockOnEnter: !!payload?.redockOnEnter,
+        handoff: payload?.handoff,
+      }),
+  );
   ipcMain.handle('vibisual:overlay:drag-end', (event): boolean => endOverlayDragByWindowId(event.sender.id));
+  // §17-6 (H-4) — **다른 창이** 끝내는 길(앱에서 끌어내 만든 창은 손이 메인 창에 있다).
+  //   뗌을 두 창이 함께 듣는다 — 캡처가 어디에 있든 한쪽은 반드시 듣게(두 번 불려도 안전).
+  ipcMain.handle('vibisual:overlay:drag-end-for', (_event, agentId: string): boolean =>
+    typeof agentId === 'string' && agentId.length > 0 ? endOverlayDragByAgentId(agentId) : false,
+  );
+  // §17-6 (H-6) — 밖으로 빼는 동안 그리는 **가상 창 윤곽선**(클릭통과 투명 창).
+  //   자리는 렌더러가 프레임마다 보내는 것이 아니라 main 이 커서를 폴링해 정한다 — (v2.81) 버블
+  //   드래그·(H-4) `follow` 와 같은 물리라, 윤곽선과 곧 태어날 창이 정확히 같은 자리를 그린다.
+  ipcMain.handle(
+    'vibisual:overlay:ghost-show',
+    (_event, payload: { width?: number; height?: number; grabX?: number; grabY?: number; label?: string; armed?: boolean }): boolean => {
+      // 숫자일 때만 받는다 — 렌더러가 무엇을 보내든 창 기하가 NaN 으로 무너지지 않게(open 과 같은 규약).
+      if (!payload
+        || !Number.isFinite(payload.width) || !Number.isFinite(payload.height)
+        || !Number.isFinite(payload.grabX) || !Number.isFinite(payload.grabY)) return false;
+      return showPopOutGhost({
+        width: payload.width as number,
+        height: payload.height as number,
+        grabX: payload.grabX as number,
+        grabY: payload.grabY as number,
+        label: typeof payload.label === 'string' ? payload.label.slice(0, 120) : undefined,
+        armed: !!payload.armed,
+      });
+    },
+  );
+  ipcMain.handle('vibisual:overlay:ghost-nudge', (_event, payload: { dx?: number; dy?: number }): boolean =>
+    nudgePopOutGhost({ dx: Number(payload?.dx) || 0, dy: Number(payload?.dy) || 0 }),
+  );
+  ipcMain.handle('vibisual:overlay:ghost-hide', (): boolean => hidePopOutGhost());
   // §17-6 (H) — 꺼낸 창을 **끌어다 앱 안으로 합치기**(칩으로 줄여 커서 따라가기 + 메인 창 위 판정).
   ipcMain.handle('vibisual:overlay:redock-drag-start', (event): boolean =>
     startOverlayRedockDragByWindowId(event.sender.id),
@@ -571,8 +626,10 @@ export function setupIpc(expressApp: Express): IpcHub {
       ipcMain.removeHandler('vibisual:overlay:close-self');
       ipcMain.removeHandler('vibisual:overlay:expand-self');
       ipcMain.removeHandler('vibisual:overlay:collapse-self');
+      ipcMain.removeHandler('vibisual:overlay:toggle-maximize-self');
       ipcMain.removeHandler('vibisual:overlay:drag-start');
       ipcMain.removeHandler('vibisual:overlay:drag-end');
+      ipcMain.removeHandler('vibisual:overlay:drag-end-for');
       ipcMain.removeHandler('vibisual:overlay:redock-drag-start');
       ipcMain.removeHandler('vibisual:overlay:redock-drag-end');
       ipcMain.removeHandler('vibisual:overlay:take-handoff');

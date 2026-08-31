@@ -14,7 +14,9 @@ import type {
 } from '@vibisual/shared';
 import {
   computeHeaderAgentCounts,
+  resolveAgentRunSummary,
   resolveHeaderAgentCounts,
+  type AgentRunSummarySources,
   type HeaderAgentCountSources,
 } from './headerAgentCounts.js';
 
@@ -202,5 +204,101 @@ describe('resolveHeaderAgentCounts — 서버 집계 우선', () => {
       agentProjects: { a1: PROJECT },
     }));
     expect(counts.agents).toBe(1);
+  });
+});
+
+/**
+ * [창과 버블] 목록 한 줄의 실행 요약 — **"창이 없으면 불이 꺼진다"를 끝낸다.**
+ *
+ * 실제 사고 재현: 배지는 `4/52`(파랑)인데 그 배지를 눌러 연 목록에서는 도는 에이전트의 도트가
+ * 꺼져 있었다. 목록 도트가 실행 상태가 아니라 **IDE 창 유무**를 그렸고, 하필 그 색이 세션 도트의
+ * "도는 중"과 같은 파랑이었기 때문이다.
+ */
+function runSources(patch: Partial<AgentRunSummarySources> = {}): AgentRunSummarySources {
+  return {
+    subAgents: {},
+    queuedCommands: {},
+    runningSubagentTasks: {},
+    acknowledged: {},
+    ...patch,
+  };
+}
+
+describe('resolveAgentRunSummary — 목록 한 줄의 실행 상태', () => {
+  it('창이 하나도 없어도 세션이 돌면 도는 중이다 — 창 유무는 실행 여부와 다른 축', () => {
+    const a = agent('a1');
+    const summary = resolveAgentRunSummary(a, runSources({
+      subAgents: { a1: [sub('s0', 'a1', 'active'), sub('s1', 'a1', 'idle')] },
+    }));
+    expect(summary.state).toBe('running');
+    expect(summary).toMatchObject({ running: 1, sessions: 2 });
+  });
+
+  it('세션이 전부 조용해도 버블이 도는 중이면 1 — 권한 대기·자식 기다리는 감독관', () => {
+    const summary = resolveAgentRunSummary(agent('a1', { status: 'awaiting_permission' }), runSources({
+      subAgents: { a1: [sub('s0', 'a1', 'idle')] },
+    }));
+    expect(summary.state).toBe('running');
+    expect(summary.running).toBe(1);
+  });
+
+  it('이 세션이 띄운 백그라운드 Task 가 살아 있으면 도는 중 — sub.status 만 믿지 않는다', () => {
+    const summary = resolveAgentRunSummary(agent('a1'), runSources({
+      subAgents: { a1: [sub('s0', 'a1', 'idle')] },
+      runningSubagentTasks: { a1: [task('t1', 'a1', 's0')] },
+    }));
+    expect(summary.state).toBe('running');
+  });
+
+  it('실패한 세션이 있어도 도는 세션이 하나 있으면 도는 중으로 보인다', () => {
+    const summary = resolveAgentRunSummary(agent('a1'), runSources({
+      subAgents: { a1: [sub('s0', 'a1', 'error'), sub('s1', 'a1', 'active')] },
+    }));
+    expect(summary.state).toBe('running');
+    expect(summary.running).toBe(1);
+  });
+
+  it('아무것도 안 돌고 실패만 남았으면 오류', () => {
+    const summary = resolveAgentRunSummary(agent('a1'), runSources({
+      subAgents: { a1: [sub('s0', 'a1', 'error')] },
+    }));
+    expect(summary.state).toBe('error');
+    expect(summary.running).toBe(0);
+  });
+
+  it('끝났는데 아직 안 봤으면 초록, 확인하면 회색으로 물러난다', () => {
+    const src = { subAgents: { a1: [sub('s0', 'a1', 'idle')] } };
+    expect(resolveAgentRunSummary(agent('a1'), runSources(src)).state).toBe('doneUnseen');
+    expect(resolveAgentRunSummary(agent('a1'), runSources({
+      ...src, acknowledged: { s0: true as const },
+    })).state).toBe('done');
+  });
+
+  it('세션이 없는 버블은 자기 자신이 한 단위 — 배지와 같은 규칙', () => {
+    expect(resolveAgentRunSummary(agent('a1', { status: 'active' }), runSources()))
+      .toMatchObject({ sessions: 1, running: 1 });
+    expect(resolveAgentRunSummary(agent('a1'), runSources()))
+      .toMatchObject({ sessions: 1, running: 0 });
+  });
+
+  it('줄들의 합이 배지 숫자와 같다 — 목록과 배지가 다른 말을 하면 안 된다', () => {
+    const agents = [
+      agent('a1', { status: 'active' }),
+      agent('a2'),
+      agent('a3', { status: 'completed' }),
+    ];
+    const agentProjects = { a1: PROJECT, a2: PROJECT, a3: PROJECT };
+    const subAgents = {
+      a1: [sub('s0', 'a1', 'active'), sub('s1', 'a1', 'idle')],
+      a2: [sub('s2', 'a2', 'idle')],
+      a3: [sub('s3', 'a3', 'idle'), sub('s4', 'a3', 'active')],
+    };
+    const queuedCommands = { a2: [cmd('c1', 's2', 'executing')] };
+    const counts = computeHeaderAgentCounts(sources({
+      agents, agentProjects, subAgents, queuedCommands,
+    }));
+    const rows = agents.map((a) => resolveAgentRunSummary(a, runSources({ subAgents, queuedCommands })));
+    expect(rows.reduce((n, r) => n + r.running, 0)).toBe(counts.running);
+    expect(rows.reduce((n, r) => n + r.sessions, 0)).toBe(counts.sessions);
   });
 });

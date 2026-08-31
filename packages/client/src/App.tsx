@@ -19,11 +19,13 @@ import { WorktreeDeleteDialog } from './components/Panel/WorktreeDeleteDialog.js
 import { MediaConvertDialog } from './components/IDE/MediaConvertDialog.js';
 import { TrashPurgeDialog } from './components/Panel/TrashPurgeDialog.js';
 import { LocalModelWindow } from './components/LocalModel/LocalModelWindow.js';
+import { AppWindowHost } from './apps/AppWindow.js';
 import { StubProjectPlaceholder } from './components/Layout/StubProjectPlaceholder.js';
 import { PermissionPromptStack } from './components/PermissionPrompt/PermissionPromptStack.js';
 import { ClaudeVersionGate } from './components/Panel/ClaudeVersionGate.js';
 import { LoginWindow } from './components/Auth/LoginWindow.js';
 import { ClaudeSetupGate, ClaudeSetupBanner } from './components/Auth/ClaudeSetupGate.js';
+import { ProjectFolderGate, ProjectFolderBanner } from './components/Auth/ProjectFolderGate.js';
 import { useWebSocket } from './hooks/useWebSocket.js';
 import { useGraphStore } from './stores/graphStore.js';
 import { useIDEDockLayout } from './components/IDE/useIDEDockLayout.js';
@@ -111,13 +113,21 @@ export function App(): React.JSX.Element {
       {/* §4 (첫 실행 설치 온보딩) — 게이트를 [나중에]로 닫았을 때 남는 배너. 헤더보다 위에 둬야
           "에이전트를 아직 못 돌린다"는 사실이 화면 맨 처음에 읽힌다. */}
       <ClaudeSetupBanner />
+      {/* §4 (첫 실행 온보딩) ③ — 설치 배너와 같은 자리. 순서 판정이 한 번에 한 칸만 내주므로
+          둘이 동시에 뜨지 않는다. */}
+      <ProjectFolderBanner />
       <Header connectionStatus={status} agentPhase={agentPhase} />
       <div className="relative flex flex-1 overflow-hidden">
         {/* DebugPanel — 평소엔 숨김, `~`/` 키로 debugMode 토글 시에만 마운트(꺼지면 비용 0).
             켜져 있을 때의 잦은 리렌더는 DebugPanel 내부 React.memo + 안정 onClose 로 완화. */}
         {debugMode && <DebugPanel onClose={closeDebug} />}
+        {/* ⚠ `min-w-0` 은 장식이 아니다 — 없으면 이 칸이 **자기 안에서 가장 넓은 것만큼** 넓어진다
+            (가로 flex 의 `min-width:auto` = 콘텐츠 최소폭). 프리뷰 탭의 폭 프리셋을 데스크톱(1280px)이나
+            비교(390+820+1280)로 바꾸면 이 칸이 그 폭까지 부풀고, 바로 위 `overflow-hidden` 이 넘친 부분을
+            **스크롤바 없이** 잘라 낸다 — 프리셋을 되돌릴 조작 줄이 화면 밖으로 밀려나 돌아올 길이 사라진다
+            (§5.17). 0 으로 못 박아 두면 넘치는 쪽은 프리뷰 본체의 가로 스크롤이 받는다(§7.16 의 그 동작). */}
         <main
-          className="relative flex-1"
+          className="relative min-w-0 flex-1"
           style={shrinkForDock ? {
             marginLeft: dockInsets.left,
             marginRight: dockInsets.right,
@@ -172,6 +182,9 @@ export function App(): React.JSX.Element {
       <MediaConvertDialog />
       {/* §5.19 — All Model 창(엔진 설치 + 모델 고르기). 캔버스 우클릭이 여는 유일한 진입이다. */}
       <LocalModelWindow />
+      {/* §5.13 (S) — 앱 안 창(내부 앱). 여는 문이 넷(버블 더블클릭·우클릭 메뉴·옵션 패널·파일
+          클릭)이라 창은 여기서만 그리고 열림 여부는 store 가 든다. 캔버스가 있는 셸마다 하나. */}
+      <AppWindowHost />
       <PermissionPromptStack />
       <ClaudeVersionGate />
       {/* §4 (첫 실행 설치 온보딩) — 설치 게이트. 로그인보다 **앞** 단계라 z-index 도 위다
@@ -180,6 +193,9 @@ export function App(): React.JSX.Element {
       {/* §4 v4.82 — 로그인 게이트. main.tsx(공통 부팅 지점)가 아니라 여기 — 별창마다 같은 모달이
           겹쳐 뜨면 안 되고, 로그인은 메인 창에서 한 번만 물으면 되는 일이다. */}
       <LoginWindow />
+      {/* §4 (첫 실행 온보딩) ③ — 폴더 선택 게이트. 설치·로그인 **다음** 칸이라 z-index 도 아래다.
+          로그인과 같은 이유로 메인 창에만 마운트한다(별창마다 겹쳐 뜨면 안 된다). */}
+      <ProjectFolderGate />
     </div>
   );
 }

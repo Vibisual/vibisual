@@ -4,9 +4,12 @@ import {
   IDE_FLOAT,
   clampDockSize,
   clampFloatGeom,
+  dragFloatGeom,
   initialFloatGeom,
   isOutsideViewport,
   isPinnedToViewportEdge,
+  isPulledFullyOut,
+  overflowPastClamp,
   splitSpansFromDrag,
   cascadeFloatGeoms,
   computeDockLayout,
@@ -16,6 +19,9 @@ import {
   dockSlotsOf,
   dockZoneButtons,
   magnetFloatGeom,
+  pushFloatGeoms,
+  pushDockSize,
+  easeFloatPushOffset,
   resizeFloatGeom,
   sameDockTarget,
   tileFloatGeoms,
@@ -414,5 +420,220 @@ describe('가장자리에 막혔을 때도 꺼내진다(isPinnedToViewportEdge)'
 
   it('버팀 시간이 있어야 한다 — 0 이면 스치기만 해도 창이 튀어나간다', () => {
     expect(IDE_FLOAT.POP_OUT_EDGE_DWELL_MS).toBeGreaterThan(0);
+  });
+
+  it('(H-6) 선이 떠 있을 때의 버팀은 더 짧다 — 같은 시간을 두 번 기다리지 않는다', () => {
+    expect(IDE_FLOAT.POP_OUT_EDGE_DWELL_ARMED_MS).toBeGreaterThan(0);
+    expect(IDE_FLOAT.POP_OUT_EDGE_DWELL_ARMED_MS).toBeLessThan(IDE_FLOAT.POP_OUT_EDGE_DWELL_MS);
+  });
+});
+
+// §5.5 #17-6 (H-6) — 밖으로 빼는 **구간**. 종전에는 끄는 내내 `clampFloatGeom` 이 걸려 창이
+// 화면 가장자리에서 멎었고(손과 어긋남), 밖으로 나가는 과정을 보여 줄 방법이 없었다.
+describe('밖으로 빼는 구간(H-6)', () => {
+  const W = 700;
+  const H = 500;
+
+  describe('끄는 동안은 가두지 않는다(dragFloatGeom)', () => {
+    it('좌표를 그대로 통과시킨다 — 안전망은 손을 뗄 때만 건다', () => {
+      const far = { x: VP.w + 400, y: -300, w: W, h: H };
+      const dragged = dragFloatGeom(far, VP);
+      expect(dragged.x).toBe(far.x);
+      expect(dragged.y).toBe(far.y);
+      // 같은 값을 `clampFloatGeom` 에 넣으면 되돌아온다 — 그것이 종전에 창이 멎던 자리다.
+      const clamped = clampFloatGeom(far, VP);
+      expect(clamped.x).toBeLessThan(far.x);
+      expect(clamped.y).toBeGreaterThan(far.y);
+    });
+
+    it('크기는 정상화한다 — 자리를 안 가둔다고 크기까지 무너지면 안 된다', () => {
+      const tiny = dragFloatGeom({ x: 10, y: 10, w: 10, h: 10 }, VP);
+      expect(tiny.w).toBe(IDE_FLOAT.MIN_W);
+      expect(tiny.h).toBe(IDE_FLOAT.MIN_H);
+      const huge = dragFloatGeom({ x: 0, y: 0, w: VP.w * 3, h: VP.h * 3 }, VP);
+      expect(huge.w).toBe(VP.w);
+      expect(huge.h).toBe(VP.h - HEADER);
+    });
+  });
+
+  describe('선을 켜는 문턱은 뷰포트가 아니라 클램프 한계다(overflowPastClamp)', () => {
+    it('화면 끝에 바짝 붙여 두는 평범한 파킹은 0 이다 — 그 손짓마다 선이 번쩍이면 안 된다', () => {
+      // `clampFloatGeom` 이 허락하는 가장 오른쪽 자리 = 최소 가시 폭만 남긴 자리.
+      const parked = { x: VP.w - IDE_FLOAT.KEEP_VISIBLE.x, y: HEADER, w: W, h: H };
+      expect(overflowPastClamp(parked, VP)).toBe(0);
+      // 뷰포트 기준으로 쟀다면 이 자리는 이미 창의 대부분이 "밖"이다(그래서 그 기준을 쓰지 않는다).
+      expect(parked.x + parked.w).toBeGreaterThan(VP.w);
+    });
+
+    it('그 자리를 넘어선 만큼만 센다 — 두 축 중 큰 쪽', () => {
+      const parkedX = VP.w - IDE_FLOAT.KEEP_VISIBLE.x;
+      expect(overflowPastClamp({ x: parkedX + 40, y: HEADER, w: W, h: H }, VP)).toBe(40);
+      // 위쪽 한계는 헤더 아래 — 헤더 위로 민 만큼이 그대로 잡힌다(타이틀바가 깔리면 잡을 수 없다).
+      expect(overflowPastClamp({ x: 100, y: HEADER - 30, w: W, h: H }, VP)).toBe(30);
+      expect(overflowPastClamp({ x: 100, y: HEADER + 100, w: W, h: H }, VP)).toBe(0);
+    });
+
+    it('선이 뜨는 문턱(24px)이 손 뗌 문턱보다 낮다 — 보여 준 뒤에 내보낸다', () => {
+      expect(IDE_FLOAT.POP_OUT_GHOST_ENTER_PX).toBeGreaterThan(0);
+    });
+  });
+
+  describe('완전히 빼냈는가(isPulledFullyOut)', () => {
+    it('앱 화면과 조금이라도 겹치면 아직 아니다', () => {
+      expect(isPulledFullyOut({ x: VP.w - 1, y: 300, w: W, h: H }, VP)).toBe(false);
+      expect(isPulledFullyOut({ x: 1 - W, y: 300, w: W, h: H }, VP)).toBe(false);
+      expect(isPulledFullyOut({ x: 300, y: VP.h - 1, w: W, h: H }, VP)).toBe(false);
+      expect(isPulledFullyOut({ x: 300, y: 1 - H, w: W, h: H }, VP)).toBe(false);
+    });
+
+    it('네 방향 어디로든 완전히 빠지면 참이다', () => {
+      expect(isPulledFullyOut({ x: VP.w, y: 300, w: W, h: H }, VP)).toBe(true);
+      expect(isPulledFullyOut({ x: -W, y: 300, w: W, h: H }, VP)).toBe(true);
+      expect(isPulledFullyOut({ x: 300, y: VP.h, w: W, h: H }, VP)).toBe(true);
+      expect(isPulledFullyOut({ x: 300, y: -H, w: W, h: H }, VP)).toBe(true);
+    });
+
+    it('커서는 앱 안인데 창만 빠져나간 경우도 잡는다 — 커서 판정만으로는 놓치던 자리', () => {
+      // 타이틀바의 **왼쪽 끝**을 잡고 오른쪽으로 민 손: 커서는 아직 뷰포트 안이다.
+      const cursor = { x: VP.w - 2, y: 300 };
+      const rect = { x: cursor.x + 4, y: 300, w: W, h: H };
+      expect(isOutsideViewport(cursor, VP)).toBe(false);
+      expect(isPulledFullyOut(rect, VP)).toBe(true);
+    });
+  });
+});
+
+// (판올림 번호 발급 대기) §5.5 #17-1 — **자석 밀기.** 종전에는 창끼리 부딪히면 자석이 선에 붙여
+//   멈춰 세웠다(그리고 문턱을 넘기면 그대로 겹쳤다). 이제 상대가 밀려나고 미는 창은 안 멎는다.
+describe('자석 밀기(pushFloatGeoms)', () => {
+  const G = IDE_FLOAT.PUSH_GAP;
+  /** 떠 있는 창 하나 — 하한(480×320)을 넘겨야 clampFloatGeom 이 크기를 바꾸지 않는다. */
+  function win(key: string, x: number, y: number, w = 500, h = 340) {
+    return { key, geom: { x, y, w, h } };
+  }
+
+  it('여유 안으로 들어오면 가장 얕게 빠지는 축으로 밀어낸다 — 옆에서 밀면 옆으로', () => {
+    const other = win('b', 700, 200);
+    // 왼쪽에서 다가온 창이 상대 왼쪽 변을 파고든다.
+    const out = pushFloatGeoms({ x: 300, y: 200, w: 500, h: 340 }, [other], VP);
+    expect(out.dirs.b).toBe('right');
+    // 밀린 뒤 두 창 사이에는 정확히 여유만큼이 남는다(딱 붙이지 않는다).
+    expect(out.geoms.b!.x).toBe(300 + 500 + G);
+    expect(out.geoms.b!.y).toBe(200); // 축이 아닌 쪽은 건드리지 않는다
+  });
+
+  it('여유 밖이면 아무 일도 없다 — 앱이 배치를 함부로 흔들지 않는다', () => {
+    const other = win('b', 700, 200);
+    const out = pushFloatGeoms({ x: 700 - 500 - G - 1, y: 200, w: 500, h: 340 }, [other], VP);
+    expect(out.geoms).toEqual({});
+  });
+
+  it('세로로 겹치면 위아래로 민다(축은 손이 민 방향을 따른다)', () => {
+    const other = win('b', 300, 500);
+    const out = pushFloatGeoms({ x: 300, y: 260, w: 500, h: 340 }, [other], VP);
+    expect(out.dirs.b).toBe('down');
+    expect(out.geoms.b!.y).toBe(260 + 340 + G);
+    expect(out.geoms.b!.x).toBe(300);
+  });
+
+  it('밀린 창이 다음 창을 또 민다 — 사슬로 이어진다', () => {
+    const b = win('b', 560, 200);
+    const c = win('c', 1000, 200);
+    const out = pushFloatGeoms({ x: 100, y: 200, w: 500, h: 340 }, [b, c], VP);
+    expect(out.geoms.b).toBeDefined();
+    expect(out.geoms.c).toBeDefined();
+    // b 는 미는 창 옆에, c 는 밀린 b 옆에 — 셋이 여유를 두고 줄지어 선다.
+    expect(out.geoms.b!.x).toBe(100 + 500 + G);
+    expect(out.geoms.c!.x).toBe(out.geoms.b!.x + 500 + G);
+  });
+
+  it('한 번 정한 방향은 지킨다 — 축이 도중에 뒤집히면 창이 손 앞에서 튄다', () => {
+    const other = win('b', 700, 200);
+    // 아주 조금만 파고든 자리 — 그대로 두면 더 얕은 축(위/아래)으로 갈아탈 만한 상황이다.
+    // 오른쪽으로 40px, 위로 22px 만 빠지면 되는 자리 — 그대로 두면 더 얕은 'up' 으로 갈아탄다.
+    const mover = { x: 228, y: 530, w: 500, h: 340 };
+    const kept = pushFloatGeoms(mover, [other], VP, { b: 'right' });
+    expect(kept.dirs.b).toBe('right');
+    const fresh = pushFloatGeoms(mover, [other], VP);
+    expect(fresh.dirs.b).toBe('up');
+  });
+
+  it('밀려도 화면 밖으로 잃지 않는다 — 끝에 닿으면 거기서 버틴다', () => {
+    const other = win('b', VP.w - 500, 200);
+    const out = pushFloatGeoms({ x: VP.w - 500 - 200, y: 200, w: 500, h: 340 }, [other], VP);
+    const landed = out.geoms.b;
+    expect(landed).toBeDefined();
+    // 오른쪽으로 밀려도 최소 가시 폭은 화면 안에 남는다(그 자락을 잡아 끌어온다).
+    expect(landed!.x).toBeLessThanOrEqual(VP.w - IDE_FLOAT.KEEP_VISIBLE.x);
+  });
+
+  it('여유는 붙는 자석보다 넓다 — 그래서 창끼리는 선에 붙어 멎지 않는다', () => {
+    expect(IDE_FLOAT.PUSH_GAP).toBeGreaterThan(IDE_FLOAT.MAGNET_PX);
+  });
+});
+
+describe('밀림 따라붙기(easeFloatPushOffset)', () => {
+  it('한 프레임에 다 가지 않는다 — 이 지연이 자석처럼 보이게 한다', () => {
+    const step = easeFloatPushOffset({ dx: 0, dy: 0 }, { dx: 100, dy: 0 });
+    expect(step.done).toBe(false);
+    expect(step.dx).toBeGreaterThan(0);
+    expect(step.dx).toBeLessThan(100);
+  });
+
+  it('반 픽셀 안이면 목표에 정확히 앉힌다 — 소수점이 영영 수렴해 rAF 가 안 멎는 것을 막는다', () => {
+    const step = easeFloatPushOffset({ dx: 99.9, dy: 0 }, { dx: 100, dy: 0 });
+    expect(step.done).toBe(true);
+    expect(step.dx).toBe(100);
+  });
+
+  it('밀림이 없으면 곧바로 다 온 것으로 본다', () => {
+    expect(easeFloatPushOffset({ dx: 0, dy: 0 }, { dx: 0, dy: 0 }).done).toBe(true);
+  });
+});
+
+// (판올림 번호 발급 대기) §5.5 #17-1 — 도크 손잡이도 같은 규칙이다: 부딪히면 멈추는 것이 아니라
+//   마주 보는 도크가 비켜 준다. 다만 **캔버스 여유는 끝까지 지킨다**(밀기는 남의 자리를 얻는 일이지
+//   캔버스를 없애는 일이 아니다).
+describe('도크 밀기(pushDockSize)', () => {
+  it('반대편이 없으면 종전과 같다 — 캔버스 최소치에서 멎는다', () => {
+    const out = pushDockSize('left', 99999, VP, []);
+    expect(out.opposite).toBeNull();
+    expect(out.size).toBe(VP.w - IDE_DOCK.KEEP_CANVAS.w);
+  });
+
+  it('반대편을 안 건드리고 갈 수 있는 데까지는 밀지 않는다', () => {
+    const docked = [pane('r', 'right', 480)];
+    const room = VP.w - 480 - IDE_DOCK.KEEP_CANVAS.w;
+    const out = pushDockSize('left', room - 40, VP, docked);
+    expect(out.opposite).toBeNull();
+    expect(out.size).toBe(room - 40);
+  });
+
+  it('그 문턱을 넘기면 마주 보는 도크가 밀려난다 — 손잡이가 멎지 않는다', () => {
+    const docked = [pane('r', 'right', 480)];
+    const room = VP.w - 480 - IDE_DOCK.KEEP_CANVAS.w;
+    const out = pushDockSize('left', room + 120, VP, docked);
+    expect(out.opposite).toEqual({ side: 'right', size: 480 - 120 });
+    expect(out.size).toBe(room + 120);
+  });
+
+  it('반대편도 자기 하한까지만 양보한다 — 0 으로 접으면 그 창을 읽을 수 없다', () => {
+    const docked = [pane('r', 'right', 480)];
+    const out = pushDockSize('left', 99999, VP, docked);
+    expect(out.opposite!.size).toBe(IDE_DOCK.MIN_SIZE);
+    // 밀 만큼 밀어도 캔버스 여유는 남는다.
+    expect(out.size + out.opposite!.size).toBe(VP.w - IDE_DOCK.KEEP_CANVAS.w);
+  });
+
+  it('상/하 도크는 헤더 아래 높이를 기준으로 민다', () => {
+    const docked = [pane('b', 'bottom', 320)];
+    const band = VP.h - HEADER;
+    const room = band - 320 - IDE_DOCK.KEEP_CANVAS.h;
+    const out = pushDockSize('top', room + 30, VP, docked);
+    expect(out.opposite).toEqual({ side: 'bottom', size: 320 - 30 });
+  });
+
+  it('밀어도 자기 하한 아래로는 안 내려간다', () => {
+    expect(pushDockSize('left', 10, VP, []).size).toBe(IDE_DOCK.MIN_SIZE);
   });
 });

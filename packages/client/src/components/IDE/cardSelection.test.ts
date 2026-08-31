@@ -42,6 +42,26 @@ describe('decideSelectionCopy — 버튼을 켜도 되는가', () => {
   });
 });
 
+describe('decideSelectionCopy — 체크박스로 고른 것', () => {
+  it('체크한 답이 있으면 드래그를 한 적 없어도 켠다 — 사용자가 막혔던 자리', () => {
+    // 화면에는 체크가 보이는데 버튼은 "고른 게 없다"며 회색이던 상태.
+    expect(decideSelectionCopy({ live: false, elsewhere: false, remembered: false, checked: true })).toBe(true);
+  });
+
+  it('체크가 살아 있으면 다른 곳 드래그가 있어도 켠다 — 체크는 이 카드 몫이 확실하다', () => {
+    expect(decideSelectionCopy({ live: false, elsewhere: true, remembered: false, checked: true })).toBe(true);
+  });
+
+  it('체크를 전부 풀면 다시 잠긴다', () => {
+    expect(decideSelectionCopy({ live: false, elsewhere: false, remembered: false, checked: false })).toBe(false);
+  });
+
+  it('체크 축을 주지 않는 카드는 종전 판정 그대로', () => {
+    expect(decideSelectionCopy({ live: false, elsewhere: false, remembered: true })).toBe(true);
+    expect(decideSelectionCopy({ live: false, elsewhere: true, remembered: true })).toBe(false);
+  });
+});
+
 describe('떠 둔 선택 저장고', () => {
   beforeEach(() => {
     forgetRememberedSelections();

@@ -11,7 +11,7 @@
 // Rationale: "renderer fetch/WS → window.api 일괄 교체" (Stage 4) at a single
 // chokepoint instead of editing every call site. UI source stays untouched.
 
-import type { UpdateState, AgentConfig, MobileAccessState, ChatBridgeState, ChatChannelKind, ChatVerbosity, CaptureSourceInfo, CaptureInputEvent, CaptureSourceKind, CaptureTargetRect, CaptureInjectResult, PreviewSnipRect, PageRegionCapture } from '@vibisual/shared';
+import type { UpdateState, AgentConfig, MobileAccessState, ChatBridgeState, ChatChannelKind, ChatVerbosity, CaptureSourceInfo, CaptureInputEvent, CaptureSourceKind, CaptureTargetRect, CaptureInjectResult, PreviewSnipRect, PageRegionCapture, ExternalOpenFailure } from '@vibisual/shared';
 
 interface FetchInitWire {
   method?: string;
@@ -97,6 +97,11 @@ export interface PackagedOverlayApi {
      * 넣고 꺼내는 `components/IDE/paneHandoff.ts` 한 곳뿐이다.
      */
     handoff?: unknown;
+    /**
+     * §17-6 (H-4) — 앱 경계를 넘는 **그 순간** 만들어지는 창. 잡고 있던 지점을 그대로 물려받아
+     * 커서에 매달린 채 뜬다(끌던 손 아래에서 창이 이어진다).
+     */
+    follow?: { grabX: number; grabY: number };
   }): Promise<{ windowId: number; reused: boolean }>;
   /** §17-6 (H) — 새로 뜬 창이 자기 짐을 꺼낸다(한 번 꺼내면 사라진다. 없으면 null). */
   takeHandoff(agentId: string): Promise<unknown>;
@@ -104,9 +109,42 @@ export interface PackagedOverlayApi {
   closeSelf(): Promise<boolean>;
   expandSelf(): Promise<boolean>;
   collapseSelf(): Promise<boolean>;
-  /** §17-6 v2.81 — 버블 드래그 = OS 창 이동(메인 프로세스 커서 폴링) 시작/종료. */
-  dragStart(): Promise<boolean>;
+  /**
+   * §17-6 (H-5) — 독립 창의 [최대화/복원] 토글. `frame:false + transparent` 창이라 OS 타이틀바도
+   * 시스템 최대화도 없어 main 이 직접 한다. 구버전 preload 에는 없을 수 있어 선택 속성이다.
+   */
+  toggleMaximizeSelf?(): Promise<boolean>;
+  /** §17-6 (H-5) — main 이 밀어 주는 최대화 상태. 아이콘은 **이 값만** 따른다(짐작 ❌). */
+  onMaximizeState?(cb: (payload: { maximized: boolean }) => void): () => void;
+  /**
+   * §17-6 v2.81 — 버블 드래그 = OS 창 이동(메인 프로세스 커서 폴링) 시작/종료.
+   * (H-4) 펼친 IDE 창의 타이틀바는 `redockOnEnter` 를 켜서 부른다 — 끌다 앱 안으로 들어오면
+   * 그 자리에서 앱 안 IDE 로 돌아간다.
+   */
+  dragStart(payload?: { redockOnEnter?: boolean; handoff?: unknown }): Promise<boolean>;
   dragEnd(): Promise<boolean>;
+  /** §17-6 (H-4) — **다른 창의** 매달림 끝내기(앱에서 끌어낸 창은 손이 메인 창에 있다). */
+  dragEndFor?(agentId: string): Promise<boolean>;
+  /**
+   * §17-6 (H-6) — 밖으로 빼는 동안의 **가상 창 윤곽선**(앱 밖까지 이어진다). 자리는 main 이 커서를
+   * 폴링해 정한다(`follow` 와 같은 물리 — 윤곽선과 곧 태어날 창이 같은 자리를 그린다).
+   * 구버전 preload 에는 없으므로 **선택 속성**이다 — 없으면 앱 안 윤곽선으로 폴백한다.
+   */
+  ghostShow?(payload: {
+    width: number;
+    height: number;
+    grabX: number;
+    grabY: number;
+    label?: string;
+    /** 지금 손을 떼도 그대로 나가는가 — 선이 밝아져 놓기 전에 그것을 말한다. */
+    armed?: boolean;
+  }): Promise<boolean>;
+  /** §17-6 (H-6) — 가장자리 버팀 동안 윤곽선을 그 변 밖으로 밀어 낸다. */
+  ghostNudge?(payload: { dx: number; dy: number }): Promise<boolean>;
+  /** §17-6 (H-6) — 윤곽선 걷기(도로 앱 안 · 손 뗌). 밖으로 나간 경우는 main 이 스스로 걷는다. */
+  ghostHide?(): Promise<boolean>;
+  /** §17-6 (H-4) — 이 창이 커서에 매달려 있는가(매달린 창도 뗌을 함께 듣는다). */
+  onFollowDragState?(cb: (payload: { following: boolean }) => void): () => void;
   /**
    * §17-6 (H) — 꺼낸 IDE 창을 **끌어다 앱 안으로 합치기**. 잡으면 창이 칩으로 줄어 커서를
    * 따라오고, 메인 창 위에서 놓으면 합쳐진다(밖에서 놓으면 원래 자리로 되돌아온다).
@@ -136,7 +174,24 @@ export interface PackagedOverlayApi {
   }): Promise<boolean>;
   /** §17-6 (G) v2.82 — 메인 윈도우: 오버레이 점프 신호 구독. */
   onReveal(
-    cb: (payload: { agentId: string; projectId: string; openIde?: boolean; hasHandoff?: boolean }) => void,
+    cb: (payload: {
+      agentId: string;
+      projectId: string;
+      openIde?: boolean;
+      hasHandoff?: boolean;
+      /**
+       * §17-6 (H-4) — 끌던 **도중에** 돌아온 창. 앱 안에 다시 선 창이 그 드래그를 이어받는다
+       * (이어받지 않으면 창은 돌아왔는데 손은 눌린 채라 한 번 놓았다 다시 잡아야 움직인다).
+       */
+      resumeDrag?: {
+        grabX: number;
+        grabY: number;
+        width: number;
+        height: number;
+        /** 커서의 화면 좌표 — 받는 창이 첫 이벤트를 기다리지 않고 곧바로 손 아래에 앉는다. */
+        cursor?: { x: number; y: number };
+      };
+    }) => void,
   ): () => void;
   onList(cb: (payload: OverlayListWire) => void): () => void;
   /** §17-6 (G) v2.87 — 버블 창: 우클릭 → 커서 위치에 메뉴 팝업 창 열기. */
@@ -270,6 +325,19 @@ export interface PackagedApi {
   capture?: PackagedCaptureApi;
   /** §5.13 (O) — 내부 앱 창. dev/web 모드·구버전 preload 에선 부재. */
   app?: PackagedAppApi;
+  /** §3.7 — 바깥 브라우저 열기 실패 알림. web 모드·구버전 preload 에선 부재. */
+  externalOpen?: PackagedExternalOpenApi;
+}
+
+/**
+ * §3.7 — 바깥 브라우저 열기 실패 알림 surface.
+ *
+ * 여는 길은 종전 그대로 `window.open(url,'_blank')` 하나이고(새 여는 길 ❌) 이건 그 **반대
+ * 방향**이다. 리눅스에서는 `shell.openExternal` 이 실패해도 resolve 하므로 renderer 는
+ * 스스로 실패를 알 방법이 없다 — main 이 알려 준다.
+ */
+export interface PackagedExternalOpenApi {
+  onFailed(cb: (payload: ExternalOpenFailure) => void): () => void;
 }
 
 /**

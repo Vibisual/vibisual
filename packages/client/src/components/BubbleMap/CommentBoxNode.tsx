@@ -4,6 +4,7 @@ import { NodeResizer, useViewport, type NodeProps } from '@xyflow/react';
 import { COMMENT_BOX_DEFAULTS, COMMENT_BOX_LOD } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { pickReadableTextColor } from '../../utils/commentBoxStyle.js';
+import { isInteractiveTarget, useBubbleSelectGesture } from './bubbleSelectGesture.js';
 
 export interface CommentBoxNodeData {
   /** Comment Box id (store 조회용, Node.id 와 동일 값이지만 명시적으로 data 에도 둠) */
@@ -38,6 +39,7 @@ export const CommentBoxNode = memo(function CommentBoxNode({
   const patchCommentBoxLocal = useGraphStore((s) => s.patchCommentBoxLocal);
   const selectCommentBox = useGraphStore((s) => s.selectCommentBox);
   const selectedCommentBoxId = useGraphStore((s) => s.selectedCommentBoxId);
+  const selectIntentId = useGraphStore((s) => s.selectIntentId);
 
   // 실측 — store(d.width/d.height) → React Flow live(node.width/node.height) 순으로 fallback.
   // 리사이즈 중에는 store 가 아직 갱신되기 전에 React Flow 내부 dimension 이 먼저 바뀌므로
@@ -80,22 +82,28 @@ export const CommentBoxNode = memo(function CommentBoxNode({
     setDraft(d.text);
   }, [d.text]);
 
+  /**
+   * 선택 — 상단 헤더에서만(본문 클릭은 선택을 트리거하지 않는다). 에이전트(IDE) 버블과 **같은
+   * 상태기계 한 벌**(`bubbleSelectGesture`)이라, 더블클릭으로 글을 고칠 때 1타의 선택이 함께
+   * 발동하지 않는다.
+   */
+  const gesture = useBubbleSelectGesture({
+    doubleClickable: true,
+    select: () => selectCommentBox(d.commentBoxId),
+    setIntent: (active) => {
+      useGraphStore.getState().setSelectIntent(active ? d.commentBoxId : null);
+    },
+    ignore: (e) => isInteractiveTarget(e.target),
+  });
+
   const handleHeaderDoubleClick = useCallback(
     (e: React.MouseEvent) => {
       // React Flow 의 기본 더블클릭 포커스 등과 충돌 방지
       e.stopPropagation();
+      gesture.cancelPendingSelect();
       setEditing(true);
     },
-    [],
-  );
-
-  const handleHeaderClick = useCallback(
-    (e: React.MouseEvent) => {
-      // 선택은 상단 헤더 클릭에서만 — 본문(body) 클릭은 선택을 트리거하지 않는다.
-      e.stopPropagation();
-      selectCommentBox(d.commentBoxId);
-    },
-    [d.commentBoxId, selectCommentBox],
+    [gesture],
   );
 
   const handleKeyDown = useCallback(
@@ -143,7 +151,11 @@ export const CommentBoxNode = memo(function CommentBoxNode({
     })();
   };
 
-  const isSelected = selected || selectedCommentBoxId === d.commentBoxId;
+  // 선택 표시는 `selectIntentId`(캔버스가 나눠 쓰는 "지금 고른 것 한 칸")도 함께 본다 —
+  // 더블클릭(인라인 편집) 지연 동안 눈에 보이는 반응을 내는 것이 그 칸이다.
+  const isSelected = selected
+    || selectedCommentBoxId === d.commentBoxId
+    || selectIntentId === d.commentBoxId;
   const borderColor = d.color;
   const background = `${d.color}${Math.round(opacity * 255).toString(16).padStart(2, '0')}`;
 
@@ -188,7 +200,9 @@ export const CommentBoxNode = memo(function CommentBoxNode({
           선택(클릭)·인라인 편집(더블클릭) 도 헤더에서만 처리. 본문 클릭은 무반응. */}
       <div
         className="comment-box-header"
-        onClick={handleHeaderClick}
+        {...gesture.handlers}
+        // 헤더에서 시작한 클릭이 캔버스까지 흘러가지 않게 한다(선택 자체는 위 제스처가 맡는다).
+        onClick={(e) => e.stopPropagation()}
         onDoubleClick={handleHeaderDoubleClick}
         style={{
           position: 'absolute',

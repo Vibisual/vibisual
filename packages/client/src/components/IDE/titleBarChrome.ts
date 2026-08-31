@@ -36,7 +36,14 @@ export interface TitleBarChrome {
   showDockMenu: boolean;
   /** [접기]. 폰의 풀스크린 모달에서는 [닫기]와 생김새·결과가 겹쳐 오히려 헷갈린다. */
   showCollapse: boolean;
-  /** [최대화]. 폰의 풀스크린 모달에서는 눌러도 달라지는 것이 없다. */
+  /**
+   * [최대화]. 폰의 풀스크린 모달에서는 눌러도 달라지는 것이 없다.
+   *
+   * §17-6 (H-5) — **독립 창에서는 남긴다.** 종전에는 "창 조작은 OS 몫"이라며 접었는데, 그 창은
+   * `frame:false + transparent` 라 OS 타이틀바도 시스템 최대화도 없다(Windows 는 투명 창의
+   * 시스템 최대화를 막는다). 접어 두면 창을 키우는 길이 **네 변을 손으로 끄는 것뿐**이 된다.
+   * 그 창에서 이 버튼이 다루는 것은 in-window 크기가 아니라 **OS 창**이다.
+   */
   showMaximize: boolean;
 }
 
@@ -57,6 +64,7 @@ export function resolveTitleBarChrome({
     // 붙어 있으면 폰에서도 남긴다 — 이 메뉴가 유일한 [떼기] 진입로다.
     showDockMenu: !fullWindow && !disableDock && (!narrow || isDocked),
     showCollapse: !fullWindow && !phoneFullScreen,
-    showMaximize: !fullWindow && !phoneFullScreen,
+    // 독립 창은 폭과 무관하게 남긴다 — 그 창에는 이것 말고 창을 키우는 길이 없다(H-5).
+    showMaximize: fullWindow || !phoneFullScreen,
   };
 }

@@ -1,0 +1,230 @@
+# macOS 실기 없이 **맥에서 앱이 실제로 어떻게 보이는지** 확인하는 워크플로.
+#
+# 왜 이것이 필요한가:
+#   개발기는 Windows 한 대뿐이다. 리눅스는 WSL2+WSLg 로 그 자리에서 띄울 수 있지만(scripts/try-linux.mjs)
+#   **macOS 는 그럴 수 없다** — Apple 소프트웨어 사용권 계약은 macOS 가상화를 Apple 상표 하드웨어
+#   위에서만 허용한다. 즉 Windows PC 에 맥을 얹는 길은 (되든 안 되든) 우리가 택할 수 있는 길이 아니다.
+#   무료로 배포하는 제품이라 라이선스 다툼을 감당할 여력이 없다(CLAUDE.md 「법적 안전선」).
+#
+#   그래서 맥은 **빌린다.** GitHub 이 공개 저장소에 무료로 주는 macOS 러너가 그 대여물이고,
+#   이 워크플로는 거기서 앱을 띄운 뒤 **화면을 주기적으로 찍어 아티팩트로 돌려준다.**
+#   내 PC 디스크 사용량은 0 바이트다.
+#
+# smoke.yml 과 재는 것이 다르다:
+#   · smoke.yml — "25초 뒤에도 살아 있는가" (죽었나/살았나 한 비트)
+#   · 이 워크플로 — "떠서 **어떻게 보이는가**" (창이 뜨는지, 레이아웃이 무너지는지, 폰트·여백·
+#     타이틀바 신호등·메뉴가 맥에서 어떤지). 눈으로 봐야만 알 수 있는 것들이다.
+#
+# 손으로 직접 클릭해 봐야 할 때는 `tmate` 입력을 켜라 — 러너에 SSH 로 붙는다(접속은 실행한
+# 본인 GitHub 계정의 SSH 키로 제한된다). 다만 SSH 는 화면이 아니라 셸이다. 화면은 여전히
+# 스크린샷으로 본다(붙은 상태에서 `screencapture -x /tmp/now.png` 를 직접 칠 수 있다).
+
+name: Try on macOS (screenshots)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '릴리스 태그 (비우면 최신 릴리스)'
+        required: false
+        default: ''
+      arch:
+        description: '어느 맥에서 볼까'
+        required: true
+        default: 'arm64'
+        type: choice
+        options:
+          - arm64
+          - x64
+          - both
+      minutes:
+        description: '앱을 몇 분 띄워 둘까 (스크린샷을 찍는 구간)'
+        required: false
+        default: '3'
+      interval:
+        description: '스크린샷 간격(초)'
+        required: false
+        default: '15'
+      tmate:
+        description: '러너에 SSH 로 붙어 직접 만져 보기 (최대 6시간, 본인 키만 허용)'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  look:
+    strategy:
+      fail-fast: false
+      matrix:
+        # 입력에서 고른 아키텍처만 돈다. arm64 는 macos-latest, Intel 은 macos-15-intel —
+        # 릴리스와 같은 짝을 쓴다(다른 러너에서 돌리면 Rosetta 가 덮어 실기의 진실이 가려진다).
+        include:
+          - arch: arm64
+            os: macos-latest
+          - arch: x64
+            os: macos-15-intel
+    runs-on: ${{ matrix.os }}
+    name: look (${{ matrix.arch }})
+    # `both` 가 아니면 한쪽 잡은 첫 스텝에서 스스로 비켜선다(matrix 는 입력으로 못 줄이므로
+    # 잡을 띄우되 아무 일도 하지 않게 한다 — 빈 잡은 몇 초 만에 끝난다).
+    # tmate 를 켰을 때 SSH 세션이 잘리지 않게 넉넉히 둔다(GitHub 호스트 러너 상한은 360분).
+    # 평소(tmate 꺼짐)에는 5분 안에 끝난다.
+    timeout-minutes: 350
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # 러너의 ~/.claude/settings.json 을 건드리지 않는다. 우리가 보려는 것은 화면이지 훅이 아니다.
+      VIBISUAL_SKIP_HOOK_INSTALL: '1'
+
+    steps:
+      - name: 이 아키텍처를 돌릴지 판단
+        id: gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          WANT="${{ inputs.arch }}"
+          MINE="${{ matrix.arch }}"
+          if [ "$WANT" = "both" ] || [ "$WANT" = "$MINE" ]; then
+            echo "run=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=no" >> "$GITHUB_OUTPUT"
+            echo "이 잡은 건너뛴다 (요청: $WANT / 이 러너: $MINE)"
+          fi
+
+      - name: 태그 확정
+        if: steps.gate.outputs.run == 'yes'
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.tag }}"
+          if [ -z "$TAG" ]; then
+            TAG=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName)
+          fi
+          echo "대상 태그: $TAG"
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+
+      - name: dmg 내려받기 (이 아키텍처 것만)
+        if: steps.gate.outputs.run == 'yes'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # 파일명 규약: arm64 는 `-arm64.dmg`, Intel 은 접미사 없는 `.dmg`.
+          if [ "${{ matrix.arch }}" = "arm64" ]; then
+            gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*-arm64.dmg' --dir artifact
+          else
+            gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*.dmg' --dir artifact
+            rm -f artifact/*-arm64.dmg
+          fi
+          ls -la artifact
+
+      - name: 설치 (dmg → ~/Applications)
+        if: steps.gate.outputs.run == 'yes'
+        shell: bash
+        run: |
+          set -euo pipefail
+          hdiutil attach -nobrowse -quiet artifact/*.dmg
+          SRC=$(ls -d /Volumes/Vibisual*/Vibisual.app 2>/dev/null | head -1)
+          if [ -z "$SRC" ]; then echo "::error::dmg 안에서 Vibisual.app 을 못 찾았다"; ls -la /Volumes || true; exit 1; fi
+          # dmg 볼륨은 읽기 전용이다. 앱이 자기 옆에 무언가를 쓰려 하면 거기서 막히므로
+          # 실제 사용자와 같은 조건(설치된 앱)으로 맞춰 놓고 본다.
+          mkdir -p "$HOME/Applications"
+          ditto "$SRC" "$HOME/Applications/Vibisual.app"
+          hdiutil detach -force "$(dirname "$SRC")" >/dev/null 2>&1 || true
+          # gh(curl 경유) 로 받은 파일에는 격리 속성이 붙지 않는 것이 보통이지만, 붙어 있으면
+          # 미서명이라 Gatekeeper 가 막는다 — 우리가 보려는 것은 화면이므로 그 변수를 없앤다.
+          xattr -dr com.apple.quarantine "$HOME/Applications/Vibisual.app" 2>/dev/null || true
+          echo "APP=$HOME/Applications/Vibisual.app" >> "$GITHUB_ENV"
+
+      - name: 서명·Gatekeeper 실측 (정보 수집)
+        if: steps.gate.outputs.run == 'yes'
+        shell: bash
+        run: |
+          set -uo pipefail
+          echo "== codesign =="; codesign -dv --verbose=4 "$APP" 2>&1 | head -20 || true
+          echo "== spctl =="; spctl -a -t exec -vv "$APP" 2>&1 | head -10 || true
+
+      - name: 앱 띄우고 화면 찍기
+        if: steps.gate.outputs.run == 'yes'
+        shell: bash
+        run: |
+          set -uo pipefail
+          MINUTES="${{ inputs.minutes }}"
+          INTERVAL="${{ inputs.interval }}"
+          mkdir -p shots
+          # `open` 이 아니라 실행 파일을 직접 부른다 — 죽었을 때 stdout/stderr 를 그대로 잡기 위해서다.
+          arch -"$(uname -m)" "$APP/Contents/MacOS/Vibisual" > shots/run.log 2>&1 &
+          APP_PID=$!
+          # 첫 창이 그려질 때까지의 여유. 우리 앱은 main 에서 서버를 함께 띄운다.
+          sleep 20
+
+          TOTAL=$(( MINUTES * 60 ))
+          ELAPSED=0
+          N=0
+          ALIVE=1
+          while [ "$ELAPSED" -lt "$TOTAL" ]; do
+            if ! kill -0 "$APP_PID" 2>/dev/null; then
+              echo "::error::앱이 ${ELAPSED}초 만에 죽었다"
+              ALIVE=0
+              break
+            fi
+            N=$((N + 1))
+            LABEL=$(printf '%03d' "$N")
+            # -x 는 촬영음 없음. 실패해도(러너에 화면이 없다면) 흐름을 끊지 않는다 —
+            # 그 사실 자체가 다음 조사의 단서라 로그에 남기고 계속 간다.
+            if screencapture -x "shots/${LABEL}-t${ELAPSED}s.png" 2>>shots/capture.log; then
+              echo "찍음: ${LABEL} (t=${ELAPSED}s)"
+            else
+              echo "::warning::screencapture 실패 (t=${ELAPSED}s) — shots/capture.log 참고"
+            fi
+            # 창 목록도 남긴다. 접근성 권한이 없으면 비는데, 그때는 스크린샷이 유일한 근거가 된다.
+            osascript -e 'tell application "System Events" to get name of every window of (every process whose name is "Vibisual")' \
+              >> shots/windows.txt 2>/dev/null || true
+            sleep "$INTERVAL"
+            ELAPSED=$((ELAPSED + INTERVAL))
+          done
+
+          if [ "$ALIVE" = "1" ]; then
+            echo "OK — ${TOTAL}초 동안 살아 있었다. 스크린샷 ${N}장."
+          fi
+          # 마지막 한 장은 죽었든 살았든 남긴다.
+          screencapture -x "shots/999-final.png" 2>>shots/capture.log || true
+          kill "$APP_PID" 2>/dev/null || true
+          {
+            echo "### macOS ${{ matrix.arch }} — \`$TAG\`"
+            echo ""
+            echo "- 스크린샷 ${N}장 (간격 ${INTERVAL}초 / ${MINUTES}분)"
+            echo "- 앱 생존: $([ "$ALIVE" = "1" ] && echo 예 || echo '아니오 — run.log 확인')"
+            echo ""
+            echo '<details><summary>run.log 마지막 40줄</summary>'
+            echo ''
+            echo '```'
+            tail -40 shots/run.log 2>/dev/null || true
+            echo '```'
+            echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"
+          [ "$ALIVE" = "1" ]
+
+      # ⚠️ `always() && …` 로 쓰지 마라 — always() 는 조건식 전체여야 뜻대로 돌고, 그렇게 쓰면
+      #    취소된 런에서도 스텝이 돈다. 앞 스텝이 실패해도(앱이 죽어도) 찍힌 것은 봐야 하므로
+      #    `!cancelled()` 를 쓴다 — **앱이 죽은 그 순간의 화면**이야말로 가장 볼 값어치가 있다.
+      - name: 스크린샷 올리기
+        if: ${{ !cancelled() && steps.gate.outputs.run == 'yes' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-${{ matrix.arch }}-screens
+          path: shots
+          # 눈으로 한 번 보고 버리는 것이다 — 저장소를 오래 먹지 않게 짧게 둔다.
+          retention-days: 3
+          if-no-files-found: warn
+
+      # ── 직접 만져 보기 (opt-in) ────────────────────────────────────────────
+      # 스크린샷으로 부족할 때만 켠다. 켜면 잡이 SSH 접속을 기다리며 최대 6시간 머문다.
+      # `limit-access-to-actor: true` — 워크플로를 실행한 본인의 GitHub SSH 키로만 붙을 수 있다.
+      # ⚠️ 제3자 액션이다. 상시 CI 가 아니라 **수동 실행 + 기본 꺼짐**이라 상시 노출면이 아니다.
+      - name: SSH 접속 열기 (tmate)
+        if: steps.gate.outputs.run == 'yes' && inputs.tmate
+        uses: mxschmitt/action-tmate@v3
+        with:
+          limit-access-to-actor: true

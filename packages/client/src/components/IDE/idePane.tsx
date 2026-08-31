@@ -71,6 +71,8 @@ export interface IDEPaneActions {
   closeEditorFile: (relPath: string) => void;
   setActiveEditorFile: (relPath: string | null) => void;
   setEditorFileDirty: (relPath: string, dirty: boolean) => void;
+  /** §5.5 #17-27 ⑯ — 탭 줄 [고정] 토글(켜면 세션을 옮겨도 지금 탭이 따라간다). */
+  setEditorTabsPinned: (pinned: boolean) => void;
   setSession: (sessionId: string | null) => void;
   setActiveView: (view: IDEViewType) => void;
   toggleSidebar: () => void;
@@ -90,6 +92,7 @@ export function useIDEPaneActions(): IDEPaneActions {
     closeEditorFile: (relPath) => useGraphStore.getState().closeIDEEditorFile(relPath, paneKey),
     setActiveEditorFile: (relPath) => useGraphStore.getState().setActiveIDEEditorFile(relPath, paneKey),
     setEditorFileDirty: (relPath, dirty) => useGraphStore.getState().setIDEEditorFileDirty(relPath, dirty, paneKey),
+    setEditorTabsPinned: (pinned) => useGraphStore.getState().setIDEEditorTabsPinned(pinned, paneKey),
     setSession: (sessionId) => useGraphStore.getState().setIDEActiveSession(sessionId, paneKey),
     setActiveView: (view) => useGraphStore.getState().setIDEActiveView(view, paneKey),
     toggleSidebar: () => useGraphStore.getState().toggleIDESidebar(paneKey),

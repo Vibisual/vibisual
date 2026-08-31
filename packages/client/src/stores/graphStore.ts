@@ -2,9 +2,11 @@ import { create } from 'zustand';
 // §5.5 #17-20 ⑩ v4.94 — 중단점을 켜고 끄면 붙어 있는 세션에도 바로 밀어 넣는다(단방향: graphStore → debugSessions).
 import { useDebugSessions, pushBreakpointsToSession } from './debugSessions.js';
 import type { BubbleData, ActivityEdge, BashEntry, ServerEntry, AgentEvent, FileEdit, AgentPhase, ProjectInfo, QueuedCommand, SubAgent, RunningSubagentTask, FinishedSubagentTask, ServerKind, PipelineType, PipelineState, AgentConfig, SubAgentStreamEvent, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, UiLocale, ProjectMetaSnapshot, AppState, AppStatePatch, CommentBox, CaptureBubble, DebugBreakpoint, AppBubble, PlayBubble, PlayRecipeCandidate, SpecDoc, LabRun, LabVariantConfig, ShelfBubble, ShelfItem, ShelfItemKind, ProjectCostMap, ProjectAuditLog, AuditBoundaryConfig, Conti, ActiveContiWork, ContiRenderStatus, StoryboardPresetId, ToolDurationEntry, CompactCount, RateLimitInfo,
-  ClaudeUsageInfo, ClaudeAuthStatus, ClaudeSetupState, ClaudeSetupProgress, DiagnosticEntry, AutoAgentSummary, AutoAgentRun, ModelRegistry, LocalLlmState, LocalEngineProgress, LocalModelDownloadProgress, UserDefaults, AgentReport, AgentQuestions, AgentReview, ReviewRequest, AgentList, AgentFeedback, AgentFeedbackTargetType, AgentFeedbackVerdict, BrainSummary, BrainInjectionEvent, BrainCard, BrainCardType, BrainCardScope, BrainCardStatus, PluginFactMap, VerificationRun, SessionLoop, SessionLoopMode, SessionLoopContextMode, SessionGoal, SessionGoalStatus, SessionGoalStepStatus } from '@vibisual/shared';
-import type { StreamDensity, CommandDispatchMode, ProjectAgentCounts } from '@vibisual/shared';
+  ClaudeUsageInfo, ClaudeAuthStatus, ClaudeSetupState, ClaudeSetupProgress, DiagnosticEntry, AutoAgentSummary, AutoAgentRun, ModelRegistry, LocalLlmState, LocalEngineProgress, LocalModelDownloadProgress, UserDefaults, AgentReport, AgentQuestions, AgentReview, ReviewRequest, AgentList, AgentFeedback, AgentFeedbackTargetType, AgentFeedbackVerdict, BrainSummary, BrainInjectionEvent, BrainCard, BrainCardType, BrainCardScope, BrainCardStatus, PluginFactMap, VerificationRun, VerificationDemo, SessionLoop, SessionLoopMode, SessionLoopContextMode, SessionGoal, SessionGoalStatus, SessionGoalStepStatus } from '@vibisual/shared';
+import type { StreamDensity, CommandDispatchMode, ProjectAgentCounts, SessionMemo } from '@vibisual/shared';
 import { isReadOnlyHookAgent } from '@vibisual/shared';
+// §4 (첫 실행 온보딩) ③ — 서버가 "고른 폴더가 없다"로 돌려보낸 409 를 알아본다.
+import { isNoProjectFolderError } from '@vibisual/shared';
 import { DEFAULT_UI_LOCALE, STREAM_EVENTS_MAX_PER_SESSION, STREAM_EVENTS_TRIM_SLACK, STREAM_EVENTS_MAX_PER_INACTIVE_SESSION, STREAM_INACTIVE_SESSIONS_MAX, DIAGNOSTIC_LOG_MAX, STREAM_DENSITIES, IDE_EDITOR_MAX_TABS, IDE_EDITOR_WIDTH, DIFF_COMMENT_MAX } from '@vibisual/shared';
 import { changeUiLocale } from '../i18n/index.js';
 import { calcFileSizeRange } from '../utils/sizeCalc.js';
@@ -32,6 +34,12 @@ import {
 } from '../components/IDE/ideDockLayout.js';
 // §5.5 #17-6 (H) — 앱 안 ↔ 독립 창을 오갈 때 창이 들고 가는 짐(순수 함수·타입만).
 import { handoffPanePatch, type HandoffTarget, type IDEPaneHandoff } from './idePaneHandoff.js';
+import {
+  switchEditorTabScope,
+  setEditorTabsPinned,
+  pruneEditorTabScopes,
+  type EditorTabStash,
+} from './editorTabScope.js';
 // §5.5 #17-34 — 창 **안**의 화면 분할. 트리 연산은 전부 순수 모듈이 하고 스토어는 그 결과만 앉힌다.
 import {
   adjacentCellId, cellIdForSession, closeCell, dropOnCell, findCell, listCells, makeCell, pruneCells,
@@ -326,6 +334,51 @@ export function selectEffectiveProject(state: { currentFolderId: string | null; 
 }
 
 /**
+ * §4 (첫 실행 온보딩) ③ — 캔버스에서 무언가를 **만들기 전에** 프로젝트 폴더를 확인한다.
+ *
+ * 폴더가 없으면 요청을 보내지 않고 그 자리에서 폴더 선택 게이트를 연다. 예전에는 그냥 보냈고,
+ * 서버는 `process.cwd()` 를 임시 프로젝트로 등록해 **이름이 빈 탭 하나와 파일시스템 루트에 매인
+ * 에이전트**를 만들어 줬다 — 사용자에게는 "폴더를 고른 적도 없는데 빈 것이 생성됐다" 로 보인다.
+ *
+ * 화면 쪽 확인은 **왕복 없이 즉시 안내하기 위한 것**이고, 진짜 방어는 서버의 409 다(아래 `postCreate`).
+ * 둘 다 있어야 캔버스 밖 경로(모바일 웹·원격조작)로 들어와도 같은 답을 본다.
+ */
+function requireProjectFolder(get: () => GraphState): boolean {
+  const s = get();
+  if (Object.keys(s.projects).length > 0 || Object.keys(s.stubProjects).length > 0) return true;
+  s.setProjectGate({ forced: true, dismissed: false, reason: 'create-blocked' });
+  return false;
+}
+
+/**
+ * 생성 REST 공통 전송 — 서버가 "폴더부터 고르라"(409)로 돌려보내면 폴더 게이트를 연다.
+ *
+ * 화면 판정(`requireProjectFolder`)을 통과하고도 여기서 막힐 수 있다: 클라의 프로젝트 목록은
+ * 스냅샷이라 방금 닫은 탭이 아직 남아 있을 수 있고, 그 사이 서버는 이미 비어 있다. 그 어긋남을
+ * 사용자에게 "아무 일도 안 일어남" 으로 보여 주지 않으려면 실패도 같은 창으로 데려가야 한다.
+ */
+async function postCreate(path: string, body: unknown, get: () => GraphState): Promise<Response | null> {
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (res.status === 409) {
+      const data = await res.json().catch(() => null);
+      if (isNoProjectFolderError(data)) {
+        get().setProjectGate({ forced: true, dismissed: false, reason: 'create-blocked' });
+      }
+      return res;
+    }
+    return res;
+  } catch {
+    // 서버 끊김 — 종전처럼 조용히 넘긴다(연결 상태는 헤더가 이미 보여 준다).
+    return null;
+  }
+}
+
+/**
  * §5.10 v3.70 — 활성 프로젝트의 두뇌 요약(없으면 null).
  * 카드는 `<projectPath>/.vibisual/brain/` 로 프로젝트별로 갈라져 저장되고 Brain 버블은 최상위 캔버스에
  * 활성 프로젝트 것 1개만 상주하므로(폴더 내부 표시 ❌), 요약도 activeProject 키로만 읽는다.
@@ -585,6 +638,16 @@ export interface IDEOverlayState {
   editorFiles: IDEEditorFile[];
   /** §5.5 #17-27 — 지금 보고 있는 탭의 relPath. null 이면 편집창이 닫혀 있다. */
   activeEditorPath: string | null;
+  /**
+   * §5.5 #17-27 ⑯ — [고정]. 켜져 있는 동안 탭 줄은 **세션을 따라 바뀌지 않는다**(지금 탭이 따라간다).
+   * 꺼져 있으면 탭 묶음은 그 세션의 것이라 세션을 옮길 때마다 접히고 펴진다.
+   */
+  editorPinned: boolean;
+  /**
+   * §5.5 #17-27 ⑯ — 세션별로 **접어 둔** 탭 묶음(키 = 세션 id, 전체 보기는 `'main'`).
+   * 지금 보고 있는 세션 것은 여기 없다 — 그것은 `editorFiles`/`activeEditorPath` 다.
+   */
+  editorTabsBySession: Record<string, EditorTabStash>;
 }
 
 /** IDE 닫힘/없음 상태 기본값. selectIDEOverlay 가 미보유 프로젝트에 대해 반환. */
@@ -605,6 +668,8 @@ export const DEFAULT_IDE_OVERLAY: IDEOverlayState = {
   openMode: 'modal',
   editorFiles: [],
   activeEditorPath: null,
+  editorPinned: false,
+  editorTabsBySession: {},
 };
 
 /**
@@ -640,9 +705,15 @@ function commitIDESplit(
     const slot = state.ideOverlays[slotKey];
     const only = cells[0];
     if (slot && only) {
+      // §5.5 #17-27 ⑯ — 창의 세션이 바뀌는 자리는 여기도 마찬가지다. 탭 줄을 함께 갈지 않으면
+      //   분할을 접는 순간 **남의 세션 탭**이 그대로 남는다(세션 탭으로 옮길 때와 다른 화면이 된다).
+      const scoped = switchEditorTabScope(slot, slot.activeSessionId, only.sessionId);
       return {
         ideSplits: splits,
-        ideOverlays: { ...state.ideOverlays, [slotKey]: { ...slot, activeSessionId: only.sessionId } },
+        ideOverlays: {
+          ...state.ideOverlays,
+          [slotKey]: { ...slot, ...scoped, activeSessionId: only.sessionId },
+        },
       };
     }
     return { ideSplits: splits };
@@ -1300,6 +1371,12 @@ interface GraphState {
   finishedSubagentTasks: Record<string, FinishedSubagentTask[]>;
   /** §4 v2.52 — 에이전트 작업 신고 (agentId → AgentReport[]). IDE 색 구분 카드. */
   agentReports: Record<string, AgentReport[]>;
+  /**
+   * §5.5 #17-36 — **메인 탭** 스티키 메모 (agentId → SessionMemo[]).
+   * 세션 탭 메모는 그 세션의 소지품이라 `subAgents[].memos` 로 온다 — 여기 있는 것은 붙일 세션이
+   * 없는 메인 탭 몫뿐이다. 서버가 SSOT 라 클라는 그대로 그린다(가공 ❌).
+   */
+  agentMemos: Record<string, SessionMemo[]>;
   /** §4 v2.60 — 에이전트 질문 카드 (agentId → AgentQuestions[]). IDE 질문 카드. */
   agentQuestions: Record<string, AgentQuestions[]>;
   /** §4 v2.70 — 에이전트 검수 요청 카드 (agentId → AgentReview[]). IDE 검수 카드. */
@@ -1320,6 +1397,12 @@ interface GraphState {
    * 서버가 매 스냅샷에 전량을 싣는다 — 클라는 그대로 그릴 뿐 판정도 정리도 하지 않는다(§3.1).
    */
   verificationRuns: Record<string, VerificationRun[]>;
+  /**
+   * §5.5 #17-35 ⑨ — 시연(재현 절차) 목록 (subAgentId → VerificationDemo[], 최신 우선).
+   * 검증 이력과 같은 규약 — 서버가 매 스냅샷에 전량을 싣고 클라는 그리기만 한다.
+   * 영상은 여기 없다(⑨-2) — 단계 문장과 프레임 경로뿐이고, 클립 Blob 은 `capturePlaytest` 에 산다.
+   */
+  verificationDemos: Record<string, VerificationDemo[]>;
   /** §5.5 #17-17 v4.46 — 세션 목표 (subAgentId → SessionGoal). 서버 SSOT, 클라는 표시·전송만. */
   sessionGoals: Record<string, SessionGoal>;
   /** §4 v2.38 — 동적 모델 레지스트리 (서버 modelRegistryService 가 시드+/v1/models 머지 후 push). */
@@ -1339,6 +1422,12 @@ interface GraphState {
   claudeAuth: ClaudeAuthStatus | null;
   /** 서버 스냅샷/REST 응답으로 받은 로그인 상태 반영. */
   applyClaudeAuth: (auth: ClaudeAuthStatus | undefined) => void;
+  /**
+   * 로그인 상태 즉시 재조회(`POST /api/auth/status/refresh`) + 반영.
+   * 서버 폴링은 10분 주기라, 상태가 방금 바뀐 것을 아는 자리(설치 완료·로그인 진행 중·[다시 확인])
+   * 에서는 기다리지 않고 이 창구로 확인한다. 실패하면 `null` — 다음 스냅샷이 따라온다.
+   */
+  refreshClaudeAuth: () => Promise<ClaudeAuthStatus | null>;
   /** 사용자가 로그인 팝업을 "나중에"로 닫았는가 — 이 앱 실행 동안 다시 자동으로 뜨지 않게. */
   loginGateDismissed: boolean;
   /** 팝업 강제 열기(옵션창 Account 의 [로그인]) / 닫기. null = 사용자 요청 없음(자동 판정에 맡김). */
@@ -1366,6 +1455,31 @@ interface GraphState {
   installClaudeSetup: () => Promise<void>;
   /** 설치 판정 재조회(수동 설치한 뒤 [다시 확인]). */
   refreshClaudeSetup: () => Promise<void>;
+  /**
+   * §4 (첫 실행 온보딩) ③ — 프로젝트 폴더 게이트. 설치·로그인 다음 **마지막 칸**이다.
+   *
+   * 이 칸이 없던 동안, 폴더를 한 번도 고르지 않은 사용자가 캔버스 우클릭으로 커스텀 에이전트를
+   * 만들면 서버가 `process.cwd()` 를 임시 프로젝트로 등록해 **이름이 빈 탭 하나와 파일시스템
+   * 루트에 매인 에이전트**가 조용히 생겼다. 이제 서버는 그 요청을 409 로 돌려보내고, 클라는
+   * 그 자리에서 이 게이트를 열어 폴더 선택으로 데려간다.
+   */
+  projectGateForced: boolean;
+  /** [나중에] 로 닫았는가 — 자동으로는 다시 뜨지 않고 상단 배너만 남는다(권장형). */
+  projectGateDismissed: boolean;
+  /**
+   * 게이트가 왜 떠 있는가 — 창의 첫 문장이 갈린다.
+   *  - `'onboarding'` = 순서상 이 칸(설치·로그인 다음).
+   *  - `'create-blocked'` = 무언가를 만들려다 막혔다. 그 사람에게는 "폴더부터"가 답이므로
+   *    안내문이 그 사정을 그대로 말해야 한다("폴더를 고르지 않아 만들지 않았습니다").
+   */
+  projectGateReason: 'onboarding' | 'create-blocked';
+  setProjectGate: (state: { forced?: boolean; dismissed?: boolean; reason?: 'onboarding' | 'create-blocked' }) => void;
+  /**
+   * 폴더 선택 대화상자를 연다(`POST /api/projects/open-folder`) — **창구는 이 하나뿐**이다.
+   * File 메뉴와 폴더 게이트가 각자 fetch 를 들면 "고른 뒤에 무엇을 하는가"(탭 활성화·게이트
+   * 닫기)가 두 벌로 갈라진다. 고르면 true, 취소·실패면 false.
+   */
+  openProjectFolder: () => Promise<boolean>;
   /** §4 v1.98 — 진단 에러 로그 (글로벌 ring buffer, append 순). DebugPanel 에러 뷰어용. */
   diagnosticLog: DiagnosticEntry[];
   /**
@@ -2117,6 +2231,11 @@ interface GraphState {
   /** §5.5 #17-27 — 그 탭에 저장하지 않은 편집이 있는지 신고(탭 점 + 밀어내기 예외). */
   setIDEEditorFileDirty: (relPath: string, dirty: boolean, paneKey?: string | null) => void;
   /**
+   * §5.5 #17-27 ⑯ — [고정] 토글. 켜면 세션을 옮겨도 지금 탭 줄이 그대로 따라간다.
+   * 끄면 지금 탭이 **그 세션의 것**이 되고(입양), 그 세션이 접어 두고 있던 탭은 뒤에 이어 붙는다.
+   */
+  setIDEEditorTabsPinned: (pinned: boolean, paneKey?: string | null) => void;
+  /**
    * §5.5 #17-34 — 창 **안**의 화면 분할. 키 = 그 IDE 창의 슬롯 키(= `ideOverlays` 의 키라 창마다 따로 선다).
    * 항목이 없으면 분할이 없다는 뜻이며, 그때 본문은 종전 그대로 한 화면이다.
    */
@@ -2264,6 +2383,8 @@ interface GraphState {
   applyFinishedSubagentTasks: (tasks: Record<string, FinishedSubagentTask[]> | undefined) => void;
   /** §4 v2.52 — graph_snapshot 의 에이전트 작업 신고 반영. */
   applyAgentReports: (reports: Record<string, AgentReport[]> | undefined) => void;
+  /** §5.5 #17-36 — graph_snapshot 의 메인 탭 스티키 메모 반영. */
+  applyAgentMemos: (memos: Record<string, SessionMemo[]> | undefined) => void;
   /** §4 v2.60 — graph_snapshot 의 에이전트 질문 카드 반영. */
   applyAgentQuestions: (questions: Record<string, AgentQuestions[]> | undefined) => void;
   /** §4 v2.70 — graph_snapshot 의 에이전트 검수 요청 카드 반영. */
@@ -2292,7 +2413,30 @@ interface GraphState {
   /** §5.5 #17-35 — 스냅샷의 검증 이력을 통째로 받는다. */
   applyVerificationRuns: (runs: Record<string, VerificationRun[]> | undefined) => void;
   /** 검증 시작 — 그 탭 큐에 `/verify` 한 건이 나간다. 실패 사유 문자열(성공이면 null). */
-  startVerification: (input: { agentId: string; subAgentId: string; focus?: string }) => Promise<string | null>;
+  /**
+   * §5.5 #17-35 — 검증 시작. 성공하면 그 검증의 id 를 함께 돌려준다 — ⑩ 화면 녹화가 **어느 줄에**
+   * 붙을지를 그 id 로 정하기 때문이다(실패는 사유 문자열).
+   */
+  startVerification: (input: { agentId: string; subAgentId: string; focus?: string; demoId?: string }) => Promise<{ ok: true; runId: string } | { ok: false; error: string }>;
+  /** §5.5 #17-35 ⑨ — 스냅샷의 시연 목록을 그대로 받는다(전량 교체 — 삭제도 곧 사라짐으로 반영). */
+  applyVerificationDemos: (demos: Record<string, VerificationDemo[]> | undefined) => void;
+  /**
+   * 시연 레코드를 만든다(그림 없이). 성공하면 그 시연, 실패하면 사유 문자열.
+   * 그림은 이어서 `uploadVerificationDemoFrame` 이 한 장씩 붙인다(⑨ REST 규약).
+   */
+  createVerificationDemo: (input: {
+    agentId: string;
+    subAgentId: string;
+    label: string;
+    sourceName: string;
+    steps: { atMs: number; text: string }[];
+    expected?: string;
+    durationMs: number;
+  }) => Promise<VerificationDemo | string>;
+  /** 시연에 프레임 한 장 추가. 붙었으면 true. */
+  uploadVerificationDemoFrame: (demoId: string, file: File, atMs: number) => Promise<boolean>;
+  /** 시연 한 건 삭제(레코드+그림). */
+  deleteVerificationDemo: (demoId: string) => Promise<void>;
   /** 도는 검증을 목록에서 닫는다(그 턴 자체의 중지는 기존 [중지] 버튼). */
   stopVerification: (runId: string) => Promise<void>;
   /** 실패·보류 사유를 그대로 그 탭의 다음 프롬프트로 보낸다. */
@@ -2458,6 +2602,34 @@ export function pruneClosingProjects(
     next[key] = at;
   }
   return changed ? next : closing;
+}
+
+/**
+ * 이 id 가 **store 채널**(앱·캡처·플레이·스펙·랩·선반 버블 + 메모 상자 + 작업 엣지) 선택인가.
+ *
+ * `selectIntentId`(=선택 링 한 칸)는 네이티브 버블과 store 채널이 함께 쓴다. "지금 링을 들고
+ * 있는 것이 어느 채널이냐"를 물어야 하는 자리가 한 곳 있어서(`clearElementSelection`) 그 판정을
+ * 여기 한 번만 적어 둔다 — 채널이 늘면 이 배열에 한 줄 더한다.
+ */
+export function isStoreChannelSelection(
+  state: Pick<
+    GraphState,
+    | 'selectedTaskEdgeId' | 'selectedCommentBoxId' | 'selectedCaptureBubbleId' | 'selectedAppBubbleId'
+    | 'selectedPlayBubbleId' | 'selectedSpecDocId' | 'selectedLabRunId' | 'selectedShelfBubbleId'
+  >,
+  id: string | null,
+): boolean {
+  if (id === null) return false;
+  return (
+    state.selectedTaskEdgeId === id
+    || state.selectedCommentBoxId === id
+    || state.selectedCaptureBubbleId === id
+    || state.selectedAppBubbleId === id
+    || state.selectedPlayBubbleId === id
+    || state.selectedSpecDocId === id
+    || state.selectedLabRunId === id
+    || state.selectedShelfBubbleId === id
+  );
 }
 
 export const useGraphStore = create<GraphState>((set, get) => ({
@@ -2911,7 +3083,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   selectPlayBubble: (id) => set({
     selectedPlayBubbleId: id,
     selectedNodeId: null,
-    selectIntentId: null,
+    selectIntentId: id,
     selectedTaskEdgeId: null,
     selectedCommentBoxId: null,
     selectedCaptureBubbleId: null,
@@ -3051,7 +3223,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   selectSpecDoc: (id) => set({
     selectedSpecDocId: id,
     selectedNodeId: null,
-    selectIntentId: null,
+    selectIntentId: id,
     selectedTaskEdgeId: null,
     selectedCommentBoxId: null,
     selectedCaptureBubbleId: null,
@@ -3207,7 +3379,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   selectLabRun: (id) => set({
     selectedLabRunId: id,
     selectedNodeId: null,
-    selectIntentId: null,
+    selectIntentId: id,
     selectedTaskEdgeId: null,
     selectedCommentBoxId: null,
     selectedCaptureBubbleId: null,
@@ -3413,7 +3585,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   selectShelfBubble: (id) => set({
     selectedShelfBubbleId: id,
     selectedNodeId: null,
-    selectIntentId: null,
+    selectIntentId: id,
     selectedTaskEdgeId: null,
     selectedCommentBoxId: null,
     selectedCaptureBubbleId: null,
@@ -3581,6 +3753,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   runningSubagentTasks: {},
   finishedSubagentTasks: {},
   agentReports: {},
+  agentMemos: {},
   agentQuestions: {},
   agentReviews: {},
   reviewRequests: [],
@@ -3588,6 +3761,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   agentFeedbacks: {},
   sessionLoops: {},
   verificationRuns: {},
+  verificationDemos: {},
   sessionGoals: {},
   modelRegistry: null,
   localLlm: null,
@@ -4198,15 +4372,23 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   setRunningServers: (servers: Record<string, ServerEntry[]>) => set({ runningServers: servers }),
   selectNode: (id) => set({ selectedNodeId: id, selectIntentId: id, selectedTaskEdgeId: null, selectedCommentBoxId: null, selectedCaptureBubbleId: null, selectedAppBubbleId: null, selectedPlayBubbleId: null, selectedSpecDocId: null, selectedLabRunId: null, selectedShelfBubbleId: null, selectedBrainCardId: null, selectedBrainCard: null }),
   setSelectIntent: (id) => set({ selectIntentId: id }),
+  // 작업 엣지는 버블이 아니라 선(線)이라 선택 링을 쓰지 않는다 — 고른 순간 버블 쪽 링은 내려간다.
   selectTaskEdge: (id) => set({ selectedTaskEdgeId: id, selectedNodeId: null, selectIntentId: null, selectedCommentBoxId: null, selectedCaptureBubbleId: null, selectedAppBubbleId: null, selectedPlayBubbleId: null, selectedSpecDocId: null, selectedLabRunId: null, selectedShelfBubbleId: null }),
-  selectCommentBox: (id) => set({ selectedCommentBoxId: id, selectedNodeId: null, selectIntentId: null, selectedTaskEdgeId: null, selectedCaptureBubbleId: null, selectedAppBubbleId: null, selectedPlayBubbleId: null, selectedSpecDocId: null, selectedLabRunId: null, selectedShelfBubbleId: null }),
-  selectCaptureBubble: (id) => set({ selectedCaptureBubbleId: id, selectedNodeId: null, selectIntentId: null, selectedTaskEdgeId: null, selectedCommentBoxId: null, selectedAppBubbleId: null, selectedPlayBubbleId: null, selectedSpecDocId: null, selectedLabRunId: null, selectedShelfBubbleId: null }),
+  // ⚠ 아래 store 채널 선택들은 `selectIntentId` 를 **자기 id 로 채운다**(종전에는 null 이었다).
+  //   `selectIntentId` 는 캔버스 전체가 나눠 쓰는 "지금 고른 것 한 칸"이고, 그 한 칸이 곧 선택 링이다.
+  //   비워 두면 더블클릭 지연(`bubbleSelectGesture`) 동안 링이 안 뜨고, 지연이 끝난 뒤에도 이 버블의
+  //   링만 다른 규칙(자기 `selectedXxxId`)으로 켜져 에이전트 버블과 손버릇이 갈린다.
+  selectCommentBox: (id) => set({ selectedCommentBoxId: id, selectedNodeId: null, selectIntentId: id, selectedTaskEdgeId: null, selectedCaptureBubbleId: null, selectedAppBubbleId: null, selectedPlayBubbleId: null, selectedSpecDocId: null, selectedLabRunId: null, selectedShelfBubbleId: null }),
+  selectCaptureBubble: (id) => set({ selectedCaptureBubbleId: id, selectedNodeId: null, selectIntentId: id, selectedTaskEdgeId: null, selectedCommentBoxId: null, selectedAppBubbleId: null, selectedPlayBubbleId: null, selectedSpecDocId: null, selectedLabRunId: null, selectedShelfBubbleId: null }),
   // §5.13 (M) v4.61 — 앱 버블 선택. 다른 선택(노드·엣지·코멘트·캡처)과 배타 — 캔버스에서
   //   선택은 언제나 하나이고, 그래야 Delete 키가 무엇을 지울지 헷갈리지 않는다.
-  selectAppBubble: (id) => set({ selectedAppBubbleId: id, selectedNodeId: null, selectIntentId: null, selectedTaskEdgeId: null, selectedCommentBoxId: null, selectedCaptureBubbleId: null, selectedPlayBubbleId: null, selectedSpecDocId: null, selectedLabRunId: null, selectedShelfBubbleId: null }),
+  selectAppBubble: (id) => set({ selectedAppBubbleId: id, selectedNodeId: null, selectIntentId: id, selectedTaskEdgeId: null, selectedCommentBoxId: null, selectedCaptureBubbleId: null, selectedPlayBubbleId: null, selectedSpecDocId: null, selectedLabRunId: null, selectedShelfBubbleId: null }),
   // 선택 채널 조정용 — store 채널만 비운다(`selectedNodeId` 는 그대로 둔다). 위 selectXxx 들과
-  //   달리 "무엇을 골랐다"가 아니라 "반대편 채널을 내린다"는 뜻이라 selectIntentId 도 안 건드린다.
-  clearElementSelection: () => set({
+  //   달리 "무엇을 골랐다"가 아니라 "반대편 채널을 내린다"는 뜻이라, 네이티브 버블이 들고 있는
+  //   `selectIntentId` 는 건드리지 않는다. 다만 **지금 내리는 store 채널 자신이 그 한 칸을 들고
+  //   있었다면** 함께 비운다 — 안 그러면 선택이 사라진 버블에 링만 남는다(박스 드래그 선택 때 실제로).
+  clearElementSelection: () => set((s) => ({
+    selectIntentId: isStoreChannelSelection(s, s.selectIntentId) ? null : s.selectIntentId,
     selectedTaskEdgeId: null,
     selectedCommentBoxId: null,
     selectedCaptureBubbleId: null,
@@ -4215,7 +4397,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     selectedSpecDocId: null,
     selectedLabRunId: null,
     selectedShelfBubbleId: null,
-  }),
+  })),
   setAgentPhase: (phase) => set({ agentPhase: phase }),
 
   // 상태는 서버 스냅샷이 관리 — 클라이언트에서 덮어쓰지 않음
@@ -4384,12 +4566,9 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   focusOnNode: (id) => set({ focusNodeId: id }),
   clearFocusNode: () => set({ focusNodeId: null }),
   createCustomAgent: (canvasX, canvasY) => {
+    if (!requireProjectFolder(get)) return;
     const project = selectEffectiveProject(get());
-    fetch(`${API_BASE}/api/create-custom-agent`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ label: '', x: canvasX, y: canvasY, project }),
-    }).catch(() => {});
+    void postCreate('/api/create-custom-agent', { label: '', x: canvasX, y: canvasY, project }, get);
   },
   // ─── §5.10 Project Brain 액션 ───
   enterInterior: (view) => {
@@ -4596,18 +4775,15 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   // §5.19 (B) — All Model. CMD 와 같은 엔드포인트에 provider 만 실어 보낸다(새 REST 발명 ❌).
   //   모델은 아직 없다 — 빈 modelId 가 "아직 준비 중인 버블"이라는 정상 상태다.
   createLocalAgent: (canvasX, canvasY) => {
+    if (!requireProjectFolder(get)) return;
     const project = selectEffectiveProject(get());
-    fetch(`${API_BASE}/api/create-custom-agent`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        label: '',
-        x: canvasX,
-        y: canvasY,
-        project,
-        provider: { kind: 'local-llama', modelId: '' },
-      }),
-    }).catch(() => {});
+    void postCreate('/api/create-custom-agent', {
+      label: '',
+      x: canvasX,
+      y: canvasY,
+      project,
+      provider: { kind: 'local-llama', modelId: '' },
+    }, get);
   },
   // §5.19 (B) — 모델 매기. 기존 `PUT /api/agent-config` 를 그대로 탄다(새 REST ❌).
   //   ⚠ 이 PUT 은 body 로 config **전량을 재구축**한다 — 한 필드만 보내면 tools 가 [] 로 날아간다.
@@ -4655,21 +4831,15 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       .catch(() => set({ localModelWindow: { agentId } }));
   },
   createCmdAgent: (canvasX, canvasY) => {
+    if (!requireProjectFolder(get)) return;
     const project = selectEffectiveProject(get());
-    fetch(`${API_BASE}/api/create-custom-agent`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ label: '', x: canvasX, y: canvasY, project, executionMode: 'interactive-terminal' }),
-    }).catch(() => {});
+    void postCreate('/api/create-custom-agent', { label: '', x: canvasX, y: canvasY, project, executionMode: 'interactive-terminal' }, get);
   },
   // §5.3 #10-2 v2.37 — Auto Agent
   createAutoAgent: (canvasX, canvasY) => {
+    if (!requireProjectFolder(get)) return;
     const project = selectEffectiveProject(get());
-    fetch(`${API_BASE}/api/create-auto-agent`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ label: '', x: canvasX, y: canvasY, project }),
-    }).catch(() => {});
+    void postCreate('/api/create-auto-agent', { label: '', x: canvasX, y: canvasY, project }, get);
   },
   sendMessageToAutoAgent: (autoAgentSessionId, text) => {
     fetch(`${API_BASE}/api/auto-agent/${encodeURIComponent(autoAgentSessionId)}/message`, {
@@ -4693,26 +4863,26 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     }).catch(() => {});
   },
   createPipeline: (type, canvasX, canvasY) => {
+    if (!requireProjectFolder(get)) return;
     const project = selectEffectiveProject(get());
-    fetch(`${API_BASE}/api/create-pipeline`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type, label: '', x: canvasX, y: canvasY, project }),
-    }).catch(() => {});
+    void postCreate('/api/create-pipeline', { type, label: '', x: canvasX, y: canvasY, project }, get);
   },
   createWorktree: (canvasX, canvasY) => {
+    // 워크트리는 **부모 프로젝트의 사본**이라, 부모가 없으면 만들 것 자체가 없다(§4 온보딩 ③).
+    if (!requireProjectFolder(get)) return;
     const project = selectEffectiveProject(get());
     // §5.7 #26 — **생성 연출 없음.** 예전에는 요청과 동시에 `Creating...` 물결 버블(스탠드인)을 그
     //   자리에 세워 두고 실물이 오면 바꿔치웠는데, 스탠드인과 실물이 같은 좌표를 두고 잠시
     //   공존하는 구간이 구조적으로 남아 새 버블이 옆으로 튀어 보였다. 이제 만드는 동안 캔버스는
     //   그대로 있고, 다 만들어진 워크트리 버블이 우클릭한 그 자리에 그냥 나타난다 —
     //   좌표는 서버가 실어 준다(`createWorktreeUnder` → `updateBubblePosition`).
-    fetch(`${API_BASE}/api/create-worktree`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ x: canvasX, y: canvasY, project }),
-    })
-      .then((res) => { if (!res.ok) throw new Error('create-worktree failed'); })
+    void postCreate('/api/create-worktree', { x: canvasX, y: canvasY, project }, get)
+      // 폴더가 없어 막힌 것(409)은 게이트가 이미 설명하고 있다 — 그 위에 붉은 실패 표식까지
+      // 겹치면 "무언가 고장났다"로 읽힌다. 그때는 표식을 내지 않는다.
+      .then((res) => {
+        if (!res || res.ok || res.status === 409) return;
+        get().reportWorktreeCreateFailure(canvasX, canvasY);
+      })
       .catch(() => { get().reportWorktreeCreateFailure(canvasX, canvasY); });
   },
   failedWorktrees: [],
@@ -4952,6 +5122,10 @@ export const useGraphStore = create<GraphState>((set, get) => ({
             // §5.5 #17-27 — 편집창은 IDE 를 새로 열 때(=에이전트 교체) 빈 상태에서 시작한다.
             editorFiles: [],
             activeEditorPath: null,
+            // §5.5 #17-27 ⑯ — 접어 둔 탭 묶음은 **그 에이전트의 세션들** 것이다. 버블이 갈리면 남의
+            //   것이므로 함께 비운다(고정도 그 탭 묶음에 대한 결정이라 같이 풀린다).
+            editorPinned: false,
+            editorTabsBySession: {},
             // §5.5 #17-6 (H) — 짐을 지고 온 창은 **위 초기값 대신** 그 상태로 선다(맨 끝에 덮는다).
             //   창을 연 다음에 고치면 첫 프레임에 빈 창이 한 번 보였다가 바뀐다.
             ...(handoffPatch ?? {}),
@@ -5205,6 +5379,15 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       },
     };
   }),
+  setIDEEditorTabsPinned: (pinned, paneKey) => set((s) => {
+    const key = resolvePaneKey(s, paneKey);
+    if (!key) return {};
+    const cur = s.ideOverlays[key];
+    if (!cur) return {};
+    const scoped = setEditorTabsPinned(cur, pinned, cur.activeSessionId);
+    if (scoped === cur) return {};
+    return { ideOverlays: { ...s.ideOverlays, [key]: { ...cur, ...scoped } } };
+  }),
   ideEditorWidth: clampIdeEditorWidth(loadJSON<number>(IDE_EDITOR_WIDTH_KEY, IDE_EDITOR_WIDTH.DEFAULT)),
   setIdeEditorWidth: (w) => set((s) => {
     const next = clampIdeEditorWidth(w);
@@ -5309,10 +5492,19 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     if (!key) return {};
     const cur = s.ideOverlays[key];
     if (!cur) return {};
+    // §5.5 #17-27 ⑯ — 세션이 바뀌면 탭 줄도 함께 간다(고정이 켜져 있으면 지금 탭이 따라간다).
+    //   여는 손잡이가 사이드바·스트림·북마크로 여럿이라 여기 한 곳에서 갈아야 어긋나지 않는다.
+    const scoped = switchEditorTabScope(cur, cur.activeSessionId, sessionId);
+    // 사라진 세션이 접어 둔 탭은 다시는 펴지지 않는다 — 세션 목록을 아는 이 자리에서 걷는다.
+    //   목록이 아직 안 온 찰나(빈 배열)에는 손대지 않는다(멀쩡한 묶음을 통째로 날리지 않게).
+    const live = cur.agentId ? (s.subAgents[cur.agentId] ?? []) : [];
+    const editorTabsBySession = live.length > 0
+      ? pruneEditorTabScopes(scoped.editorTabsBySession, live.map((x) => x.id))
+      : scoped.editorTabsBySession;
     const next: Partial<GraphState> = {
       ideOverlays: {
         ...s.ideOverlays,
-        [key]: { ...cur, activeSessionId: sessionId },
+        [key]: { ...cur, ...scoped, editorTabsBySession, activeSessionId: sessionId },
       },
     };
     // sticky 선택 맵 동시 업데이트 — IDE 오버레이가 닫혀도 버블이 이 선택을 유지
@@ -5539,6 +5731,18 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     const dismissed = prev?.loggedIn === false && auth.loggedIn ? false : s.loginGateDismissed;
     return { claudeAuth: auth, loginGateDismissed: dismissed, ...(auth.loggedIn ? { loginGateForced: false } : {}) };
   }),
+  refreshClaudeAuth: async () => {
+    try {
+      const r = await fetch(`${API_BASE}/api/auth/status/refresh`, { method: 'POST' });
+      if (!r.ok) return null;
+      const next = await r.json() as ClaudeAuthStatus;
+      if (typeof next?.loggedIn !== 'boolean') return null;
+      get().applyClaudeAuth(next);
+      return next;
+    } catch {
+      return null;
+    }
+  },
   loginGateDismissed: false,
   loginGateForced: false,
   setLoginGate: (state) => set((s) => ({
@@ -5585,6 +5789,32 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       // 서버 끊김 — 다음 스냅샷에서 따라온다.
     }
   },
+
+  // §4 (첫 실행 온보딩) ③ — 프로젝트 폴더 게이트.
+  projectGateForced: false,
+  projectGateDismissed: false,
+  projectGateReason: 'onboarding',
+  setProjectGate: (state) => set((s) => ({
+    projectGateForced: state.forced ?? s.projectGateForced,
+    projectGateDismissed: state.dismissed ?? s.projectGateDismissed,
+    projectGateReason: state.reason ?? s.projectGateReason,
+  })),
+  openProjectFolder: async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/projects/open-folder`, { method: 'POST' });
+      const data = await res.json() as { ok?: boolean; cancelled?: boolean; project?: { name: string } };
+      if (!data.ok || !data.project) return false;
+      // 스냅샷 broadcast 로 프로젝트가 등록된다 — 여기서는 그 탭을 활성으로 세우고(탭 전환의
+      // 부수 효과까지 같이 타도록 `setActiveProject` 를 그대로 쓴다), 게이트가 열려 있었다면
+      // 목적을 이뤘으니 닫는다(다음 스냅샷을 기다리지 않는다).
+      get().setActiveProject(data.project.name);
+      set({ projectGateForced: false, projectGateDismissed: false });
+      return true;
+    } catch {
+      // 서버 연결 실패 — 게이트는 그대로 두어 사용자가 다시 시도할 수 있게 한다.
+      return false;
+    }
+  },
   applySkillUsageCounts: (counts) => set({ skillUsageCounts: counts ?? {} }),
   applyAutoAgentSummaries: (summaries) => set({ autoAgentSummaries: summaries ?? {} }),
   applyAutoAgentRuns: (runs) => set({ autoAgentRuns: runs ?? {} }),
@@ -5603,6 +5833,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     return { finishedSubagentTasks: next };
   }),
   applyAgentReports: (reports) => set({ agentReports: reports ?? {} }),
+  applyAgentMemos: (memos) => set({ agentMemos: memos ?? {} }),
   applyAgentQuestions: (questions) => set({ agentQuestions: questions ?? {} }),
   applyAgentReviews: (reviews) => set({ agentReviews: reviews ?? {} }),
   applyReviewRequests: (list) => set({ reviewRequests: list ?? [] }),
@@ -5612,10 +5843,46 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   applySessionLoops: (loops) => set({ sessionLoops: loops ?? {} }),
   // §5.5 #17-35 — 검증 이력도 서버가 매 스냅샷에 전량을 싣는다(삭제도 곧 사라짐으로 반영).
   applyVerificationRuns: (runs) => set({ verificationRuns: runs ?? {} }),
+  applyVerificationDemos: (demos) => set({ verificationDemos: demos ?? {} }),
+  createVerificationDemo: async (input) => {
+    // §5.5 #17-29 — 시연은 그 버블에 명령을 실어 보내기 위한 재료다. 훅 버블에는 만들지 않는다.
+    if (isReadOnlyHookAgent(get().agents.find((a) => a.id === input.agentId))) return 'read-only';
+    try {
+      const res = await fetch(`${API_BASE}/api/verification-demos`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+      const data = (await res.json()) as { ok?: boolean; error?: string; demo?: VerificationDemo };
+      if (!data.ok || !data.demo) return data.error ?? 'failed';
+      return data.demo;
+    } catch {
+      return 'network';
+    }
+  },
+  uploadVerificationDemoFrame: async (demoId, file, atMs) => {
+    try {
+      const fd = new FormData();
+      fd.append('image', file);
+      // multer 는 파일 뒤의 텍스트 필드를 문자열로 준다 — 서버가 Number() 로 되돌린다.
+      fd.append('atMs', String(Math.max(0, Math.round(atMs))));
+      const res = await fetch(`${API_BASE}/api/verification-demos/${encodeURIComponent(demoId)}/frames`, {
+        method: 'POST',
+        body: fd,
+      });
+      const data = (await res.json()) as { ok?: boolean };
+      return data.ok === true;
+    } catch {
+      return false;
+    }
+  },
+  deleteVerificationDemo: async (demoId) => {
+    await fetch(`${API_BASE}/api/verification-demos/${encodeURIComponent(demoId)}`, { method: 'DELETE' }).catch(() => {});
+  },
   startVerification: async (input) => {
     // §5.5 #17-29 — 검증은 그 탭 큐에 명령을 넣는 입력구다. 훅 버블에는 걸지 않는다
     //   (서버도 같은 술어로 거절 — 화면이 앞서가 "시작된 것처럼" 보이지 않게 여기서 먼저 끊는다).
-    if (isReadOnlyHookAgent(get().agents.find((a) => a.id === input.agentId))) return 'read-only';
+    if (isReadOnlyHookAgent(get().agents.find((a) => a.id === input.agentId))) return { ok: false, error: 'read-only' };
     try {
       const res = await fetch(`${API_BASE}/api/verification-runs`, {
         method: 'POST',
@@ -5624,13 +5891,15 @@ export const useGraphStore = create<GraphState>((set, get) => ({
           agentId: input.agentId,
           subAgentId: input.subAgentId,
           ...(input.focus ? { focus: input.focus } : {}),
+          ...(input.demoId ? { demoId: input.demoId } : {}),
         }),
       });
-      const data = (await res.json()) as { ok?: boolean; error?: string };
+      const data = (await res.json()) as { ok?: boolean; error?: string; run?: { id?: string } };
       // 조용한 무동작 ❌ — 왜 안 됐는지를 호출자가 화면에 적을 수 있게 사유를 돌려준다.
-      return data.ok ? null : (data.error ?? 'failed');
+      if (!data.ok || !data.run?.id) return { ok: false, error: data.error ?? 'failed' };
+      return { ok: true, runId: data.run.id };
     } catch {
-      return 'network';
+      return { ok: false, error: 'network' };
     }
   },
   stopVerification: async (runId) => {

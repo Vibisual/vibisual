@@ -26,7 +26,17 @@
       "confirmTitle": "¿Reiniciar para actualizar?",
       "confirmBody": "Actualizar cerrará y reinstalará la app. El trabajo de los agentes en curso o los cambios sin guardar podrían perderse.",
       "confirmHint": "Si tienes trabajo importante de un agente personalizado, termínalo primero y luego actualiza.",
-      "confirmCancel": "Cancelar"
+      "confirmCancel": "Cancelar",
+      "openReleases": "Descargar {{version}}",
+      "openReleasesTooltip": "La actualización automática no pudo completarse en esta Mac. Esto abre la página de versiones para que la descargues tú mismo.",
+      "failed": {
+        "download-failed": "La descarga no se completó.",
+        "checksum-mismatch": "El archivo descargado no coincidía con su suma de verificación publicada, así que se descartó.",
+        "arch-mismatch": "La compilación descargada es para un procesador distinto al de esta Mac, así que no se instaló.",
+        "mount-failed": "No se pudo abrir la imagen de disco descargada.",
+        "not-writable": "Vibisual no tiene permiso para reemplazarse a sí mismo donde está instalado.",
+        "install-failed": "No se pudo reemplazar la app."
+      }
     },
     "agentStatus": {
       "waiting": "Esperando agente",
@@ -87,6 +97,10 @@
         "expandAll": "Expandir todas"
       },
       "shortcutHint": "{{dock}} anclar · {{max}} maximizar · {{next}} siguiente ventana"
+    },
+    "projectFolderBanner": {
+      "text": "No hay ninguna carpeta de proyecto abierta — los agentes aún no tienen dónde trabajar.",
+      "action": "Elegir carpeta"
     }
   },
   "panel": {
@@ -948,15 +962,21 @@
       "fallbackModel": {
         "label": "Modelo de reserva",
         "tip": "Modelo que se usa cuando el principal está saturado o no disponible. Una lista separada por comas se prueba en orden. Solo en ejecuciones headless.",
-        "placeholder": "p. ej. sonnet"
+        "placeholder": "p. ej. sonnet",
+        "unsetLabel": "sin configurar",
+        "unset": "Sin configurar — no hay modelo de respaldo. La ejecución falla cuando el modelo principal no está disponible.",
+        "customLabel": "Ingresar manualmente…",
+        "custom": "Escribe tú mismo el valor — un id de versión exacto, o una lista separada por comas que se intenta en orden."
       },
       "autoCompact": {
         "label": "Compactado automático",
-        "tip": "Tamaño de contexto a partir del cual la CLI compacta la conversación.",
-        "unset": "Sin definir — decide la CLI (predeterminado).",
+        "tip": "Tamaño de contexto a partir del cual la CLI compacta por sí sola. Un valor menor compacta antes y con más frecuencia.",
+        "unset": "Sin definir — sigue el valor predeterminado de la ventana de Ajustes.",
         "unsetLabel": "sin definir",
         "auto": "auto — la CLI elige la ventana.",
-        "tokens": "Compacta en torno a {{tokens}} tokens."
+        "tokens": "Compacta en torno a {{tokens}} tokens.",
+        "unsetDefaultLabel": "sin definir ({{tokens}})",
+        "globalTip": "Se aplica a todos los agentes que no tengan su propio valor de compactación automática, incluidos los que ya están en marcha. Déjalo sin definir para usar el valor predeterminado integrado."
       },
       "settingSources": {
         "label": "Fuentes de ajustes",
@@ -1026,6 +1046,22 @@
         "tip": "Qué CLI de agent inicia esta terminal de CMD. Todo lo que no sea Claude Code no es un hijo de nuestros hooks, así que no tiene reanudación de conversación ni inyección de reglas: en su lugar, su estado se lee de la salida de la terminal.",
         "nonClaudeNote": "Este CLI no es Claude Code, así que la configuración de abajo (modelo, permisos, herramientas, reglas) no se le pasa. En su lugar, su estado se lee de la salida de la terminal. Los cambios se aplican a las sesiones nuevas que abras con «+».",
         "applyNote": "Un cambio de CLI se aplica a las sesiones nuevas que abras con «+»; las terminales que ya están en ejecución conservan lo que tenían al iniciar."
+      },
+      "compactAfterTurn": {
+        "label": "Compactar al terminar un turno",
+        "hint": "Pliega la conversación en un resumen en cada límite de turno, nunca a mitad de tarea."
+      },
+      "agentCanCompact": {
+        "label": "Permitir que el agente compacte durante el trabajo",
+        "hint": "El agente lo pide cuando el contexto pesa; se ejecuta al final de ese turno."
+      },
+      "diff": {
+        "badge": "{{count}} distintos del valor predeterminado",
+        "summaryTip": "Difiere de los valores predeterminados del agente en Opciones — {{list}}",
+        "tip": "Configurado solo para este agente. Predeterminado: {{value}}",
+        "unset": "sin configurar",
+        "on": "activado",
+        "off": "desactivado"
       }
     },
     "permissionPrompt": {
@@ -1400,7 +1436,8 @@
       "recheck": "Comprobar de nuevo",
       "later": "Más tarde",
       "stop": "Detener",
-      "start": "Iniciar sesión"
+      "start": "Iniciar sesión",
+      "successNext": "Siguiente: elige la carpeta de proyecto en la que trabajarán tus agentes."
     },
     "setup": {
       "title": "Instalar Claude Code",
@@ -1414,6 +1451,8 @@
       "installFailed": "Instalación fallida",
       "retry": "Reintentar",
       "ready": "Claude Code está listo. Continuando…",
+      "readyNext": "Siguiente: inicia sesión en tu cuenta de Claude.",
+      "continue": "Continuar",
       "failed": "La instalación no se completó. Ejecuta el comando de arriba en una terminal y luego elige \"Comprobar de nuevo\".",
       "manualOnly": "La instalación automática no está disponible en esta plataforma. Ejecuta el comando de arriba en una terminal y luego elige \"Comprobar de nuevo\".",
       "recheck": "Comprobar de nuevo",
@@ -1464,6 +1503,14 @@
       "vibi3d": {
         "name": "Vibi3D",
         "desc": "Gira modelos 3D dentro de la app"
+      },
+      "window": {
+        "popOut": "Abrir en una ventana aparte",
+        "maximize": "Maximizar",
+        "restore": "Restaurar",
+        "close": "Cerrar (Esc)",
+        "dragHint": "Arrástrala fuera de la aplicación para convertirla en una ventana aparte.",
+        "pullOutArmed": "Suelta para abrir en una ventana aparte"
       }
     },
     "videoStudio": {
@@ -1620,6 +1667,16 @@
       "opening": "Abriendo en el editor…",
       "installing": "Instalando el conversor… solo la primera vez tarda un poco.",
       "failed": "No se pudo convertir. Ábrelo con la app predeterminada."
+    },
+    "projectFolder": {
+      "title": "Elige una carpeta de proyecto",
+      "intro": "Claude Code está instalado y con la sesión iniciada. El último paso es elegir la carpeta en la que trabajarán tus agentes — normalmente la raíz de un proyecto o repositorio.",
+      "blocked": "No se creó nada — todavía no hay ninguna carpeta de proyecto abierta. Los agentes trabajan dentro de la carpeta que elijas, así que elige una primero.",
+      "detail": "Todo lo que Vibisual guarda de un proyecto vive dentro de esa carpeta, y los agentes solo pueden leer y editar archivos que estén debajo de ella. Más adelante puedes abrir más carpetas desde Archivo → Abrir carpeta.",
+      "cancelled": "Todavía no se eligió ninguna carpeta. Elige una para continuar.",
+      "choose": "Elegir carpeta",
+      "picking": "Eligiendo…",
+      "later": "Más tarde"
     }
   },
   "ide": {
@@ -1703,11 +1760,10 @@
       "resizeStack": "Ajustar la división",
       "slotTabHint": "Traer «{{name}}» al frente (las ventanas comparten esta ranura de anclaje)",
       "dockShortcutHint": "{{dock}} para anclar · {{undock}} para desanclar",
-      "popOutHint": "Suelta para desacoplar en una ventana aparte",
-      "popOutEdgeHint": "Sigue empujando contra el borde para desacoplarla en una ventana aparte",
+      "popOutGhostHint": "Sigue arrastrando para convertirla en una ventana aparte",
+      "popOutGhostArmedHint": "Suelta para convertirla en una ventana aparte",
       "popOutLabel": "Desacoplar en una ventana aparte",
       "returnToApp": "Devolver a la aplicación",
-      "popOutHintButton": "Desacoplar en una ventana aparte (o arrastra la barra de título fuera de la aplicación, o empújala contra el borde)",
       "returnToAppHint": "Haz clic para devolverla a la aplicación · arrástrala sobre la ventana de la aplicación para combinarla",
       "redockDropHint": "Suelta aquí para combinarla con la aplicación",
       "redockKeepHint": "Suelta en otro lugar para dejarla aparte"
@@ -1799,6 +1855,7 @@
       "ctxQuoteReply": "Citar respuesta",
       "ctxSendAsPrompt": "Enviar como nuevo prompt",
       "ctxSelectAll": "Seleccionar todo",
+      "ctxAddMemo": "Agregar nota adhesiva",
       "jumpToBottom": "Ir al final",
       "ctxSelectionRequired": "Selecciona texto primero",
       "inputCtxCut": "Cortar",
@@ -1809,6 +1866,16 @@
       "stopAll": "Detener todo",
       "stopAllTitle": "Detiene todo lo que este agente está ejecutando (otras pestañas + subagentes en segundo plano)",
       "stopSessionTitle": "Detiene esta sesión y los subagentes que inició (las demás pestañas de sesión siguen ejecutándose)"
+    },
+    "memo": {
+      "title": "Nota",
+      "placeholder": "Escribe una nota…",
+      "color": "Color",
+      "collapse": "Contraer",
+      "expand": "Expandir",
+      "delete": "Eliminar nota",
+      "resize": "Redimensionar",
+      "limitReached": "Hasta {{max}} notas por sesión"
     },
     "askQuestion": {
       "title": "Pregunta",
@@ -2101,13 +2168,47 @@
       "openFile": "Abrir en el editor",
       "copyPath": "Copiar ruta",
       "copied": "Copiado",
-      "truncated": "Solo los primeros {{count}} elementos"
+      "truncated": "Solo los primeros {{count}} elementos",
+      "ctx": {
+        "open": "Abrir",
+        "openExternal": "Abrir en un editor externo",
+        "revealFolder": "Abrir la carpeta",
+        "newFile": "Nuevo archivo",
+        "newFolder": "Nueva carpeta",
+        "rename": "Cambiar nombre",
+        "delete": "Eliminar",
+        "newFileName": "Nombre del nuevo archivo",
+        "newFolderName": "Nombre de la nueva carpeta",
+        "newName": "Nombre nuevo",
+        "confirmTrash": "¿Mover \"{{name}}\" a la papelera?",
+        "confirmDelete": "¿Eliminar \"{{name}}\" de forma permanente? No se puede deshacer.",
+        "trashed": "Se movió \"{{name}}\" a la papelera",
+        "deleted": "Se eliminó \"{{name}}\"",
+        "err": {
+          "nameEmpty": "Escribe un nombre",
+          "nameSeparator": "Un nombre no puede contener / ni \\",
+          "nameTraversal": "Ese nombre no se permite",
+          "nameInvalidChar": "Un nombre no puede contener < > : \" | ? *",
+          "nameTrailing": "Un nombre no puede empezar ni terminar con espacio o punto",
+          "nameReserved": "Ese nombre está reservado por Windows",
+          "nameTooLong": "Ese nombre es demasiado largo (máximo 255 caracteres)",
+          "exists": "Ya hay algo con ese nombre aquí",
+          "notFound": "Ese elemento ya no está",
+          "denied": "El sistema lo rechazó: sin permisos o el elemento está en uso",
+          "offline": "No se pudo contactar con la aplicación",
+          "root": "La raíz del proyecto no se cambia desde aquí",
+          "outside": "Esa ruta está fuera del proyecto",
+          "failed": "No funcionó"
+        }
+      }
     },
     "editor": {
       "resize": "Redimensionar panel del editor",
       "save": "Guardar ({{shortcut}})",
       "reload": "Recargar desde el disco",
       "closeTab": "Cerrar pestaña",
+      "pinTabs": "Fijar pestañas: siguen abiertas al cambiar de sesión",
+      "unpinTabs": "Dejar de fijar: cada sesión tiene sus propias pestañas",
       "closePane": "Cerrar panel del editor",
       "closeDirtyConfirm": "Este archivo tiene cambios sin guardar. ¿Cerrarlo de todos modos?",
       "conflict": "Este archivo cambió en el disco después de que lo abriste.",
@@ -2135,6 +2236,18 @@
         "failed": "No se pudo guardar este archivo"
       },
       "closeDirtyConfirmMany": "{{count}} de estos archivos tienen cambios sin guardar. ¿Cerrarlos de todos modos?",
+      "html": {
+        "back": "Atrás",
+        "forward": "Adelante",
+        "reload": "Recargar esta página",
+        "home": "Volver al archivo que abriste — {{path}}",
+        "openExternal": "Abrir en el navegador",
+        "address": "Ubicación de la página — {{path}}",
+        "viewPage": "Página",
+        "viewSource": "Código",
+        "viewPageHint": "Mostrar este archivo como una página renderizada",
+        "viewSourceHint": "Mostrar el código HTML y editarlo"
+      },
       "ctx": {
         "cut": "Cortar",
         "copy": "Copiar",
@@ -2168,7 +2281,9 @@
       "context": "ctx: {{used}}/{{max}}",
       "tokens": "{{in}} entrada / {{out}} salida",
       "sessionOne": "{{count}} sesión",
-      "sessionMany": "{{count}} sesiones"
+      "sessionMany": "{{count}} sesiones",
+      "autoCompact": "compactación auto {{value}}",
+      "autoCompactTip": "Cuando el contexto alcanza este tamaño, la CLI resume la conversación por sí sola. Cámbialo por agente en Ajustes del agente, o para todos en File > Options > Agent Defaults."
     },
     "search": {
       "placeholder": "Buscar en la conversación",
@@ -2233,7 +2348,9 @@
         "runProgram": "Ejecutar programa — {{path}}",
         "runFailed": "No se pudo iniciar: esta ventana no tiene terminal.",
         "openApp": "Abrir en {{app}} — {{path}}",
-        "openExternal": "Abrir con la app predeterminada — {{path}}"
+        "openExternal": "Abrir con la app predeterminada — {{path}}",
+        "revealOutsideFolder": "Abrir en el explorador de archivos — {{path}}",
+        "revealOutsideFile": "Mostrar en el explorador de archivos (abre la carpeta contenedora) — {{path}}"
       },
       "restartResumed": "Se interrumpió al cerrarse la app; se reanudó en la sesión guardada.",
       "nestedSubagent": "Subagente",
@@ -2257,6 +2374,8 @@
       "copyQuestions": "Copiar preguntas",
       "copySelection": "Copiar selección",
       "copySelectionHint": "Arrastra para seleccionar la parte que quieras y luego cópiala",
+      "copySelectionHintCheckable": "Marca respuestas o arrastra para seleccionar, y luego copia",
+      "copySelectionChecked": "Copiar {{n}} seleccionadas",
       "copyOne": "Copiar esta pregunta",
       "selectAnswer": "Seleccionar esta respuesta",
       "selectNone": "Borrar",
@@ -2589,7 +2708,8 @@
         "mcp": "Servidores MCP",
         "hooks": "Hooks",
         "systemPrompt": "Prompt del sistema de Claude Code",
-        "brainSkills": "Procedimientos dla memoria"
+        "brainSkills": "Procedimientos dla memoria",
+        "compactSelf": "Autocompactación del agente"
       },
       "hint": {
         "tools": "Elige la lista de herramientas en Configuración del agente",
@@ -2778,6 +2898,11 @@
             "what": "Procedimientos aprendidos en este proyecto, cargados si la tarea coincide.",
             "more": "Se eligen por su descripción, así solo se cargan las pertinentes.",
             "off": "El agente vuelve a deducir cada procedimiento desde cero."
+          },
+          "compactSelf": {
+            "what": "La ventanilla por la que el propio agente pide compactar la conversación.",
+            "more": "Solo se envía a agentes con «Permitir que el agente compacte durante el trabajo» activado. La compactación se ejecuta al final de ese turno, nunca a mitad de tarea.",
+            "off": "El agente ya no puede pedirlo; solo quedan el umbral de ventana y la compactación en el límite del turno. Desactivado no se inyecta nada, así que cuesta cero tokens."
           }
         },
         "cat": {
@@ -2985,6 +3110,46 @@
         "readOnly": "Las burbujas Hook son de solo lectura.",
         "network": "No se pudo contactar con el servidor.",
         "failed": "No se pudo iniciar la verificación."
+      },
+      "demo": {
+        "sectionTitle": "Demostración",
+        "about": "Muéstralo una vez y esos pasos viajarán con cada verificación a partir de entonces.",
+        "record": "Grabar demostración",
+        "stopRecording": "Detener · {{time}}",
+        "summary": "{{steps}} pasos · {{frames}} imágenes",
+        "willSend": "También envía la demostración: {{name}}",
+        "willNotSend": "Ninguna demostración elegida: no se envía nada extra",
+        "emptyDemo": "La demostración elegida está vacía (sin pasos, resultado esperado ni imágenes): no se envía nada extra",
+        "recordRun": "Grabar la pantalla durante esta verificación",
+        "recordRunNeedsSource": "Graba una demostración una vez para elegir qué capturar",
+        "watch": "Ver pantalla",
+        "windowTitle": "Guardar como procedimiento de verificación",
+        "evidenceTitle": "Pantalla durante la verificación",
+        "autoStopped": "La grabación se detuvo al llegar al límite de duración.",
+        "stepsLabel": "Pasos",
+        "stepsEmpty": "Reprodúcelo y anota qué hiciste en cada momento.",
+        "stepPlaceholder": "p. ej. pulsar Guardar en la barra de herramientas",
+        "addStep": "Añadir en {{at}}",
+        "stepsFull": "Hasta {{max}} pasos.",
+        "expectedLabel": "Resultado esperado (opcional)",
+        "expectedPlaceholder": "p. ej. aparece un aviso verde de Guardado",
+        "nameLabel": "Nombre",
+        "frameCount": "Imágenes",
+        "noFrames": "Ninguna",
+        "extracting": "Extrayendo fotogramas {{done}}/{{total}}",
+        "save": "Guardar como procedimiento",
+        "discard": "Descartar",
+        "error": {
+          "noFrames": "No se pudo extraer ningún fotograma de este clip.",
+          "noStream": "Se perdió el flujo de captura. Vuelve a elegir la fuente.",
+          "uploadFailed": "El procedimiento se guardó, pero no se pudieron subir las imágenes.",
+          "saveFailed": "No se pudo guardar la demostración.",
+          "readOnly": "Las burbujas de hook son de solo lectura.",
+          "network": "No se pudo contactar con el servidor.",
+          "failed": "No se pudo guardar la demostración.",
+          "projectNotFound": "No se encontró ese proyecto.",
+          "framesFull": "Esta demostración ya tiene el máximo de imágenes."
+        }
       }
     }
   },
@@ -3564,7 +3729,18 @@
       "snipUnavailable": "La captura de área no está disponible en esta pantalla.",
       "snipFailed": "Error al capturar: {{error}}"
     },
-    "close": "Cerrar"
+    "close": "Cerrar",
+    "minimize": "Minimizar",
+    "maximize": "Maximizar",
+    "play": "Reproducir",
+    "pause": "Pausar",
+    "delete": "Eliminar",
+    "externalOpen": {
+      "noBrowser": "No se encontró ningún navegador: copia el enlace y ábrelo tú mismo",
+      "openFailed": "No se pudo abrir el enlace: cópialo y ábrelo tú mismo",
+      "copy": "Copiar",
+      "copied": "Copiado"
+    }
   },
   "brain": {
     "bubbleLabel": "Memoria",

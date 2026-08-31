@@ -7,14 +7,16 @@ import {
   CLAUDE_AUTH_TERMINAL_REVEAL_MS,
   DEFAULT_AGENT_CONFIG,
 } from '@vibisual/shared';
-import type { ClaudeAuthLoginMode, ClaudeAuthStatus } from '@vibisual/shared';
+import type { ClaudeAuthLoginMode } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { getTerminalTransport } from '../../transport/terminalTransport.js';
 import { LoginTerminal } from './LoginTerminal.js';
 import { scanLoginOutput, type LoginScan } from './loginOutput.js';
+import { hasProjectFolder, shouldSummonProjectFolder } from './projectFolderGateFlow.js';
+import { LanguageSwitcher } from '../Layout/LanguageSwitcher.js';
+import { useOnboardingGate } from '../../stores/onboardingGates.js';
 
 const Z = 100_600; // ClaudeVersionGate(100_500) 보다 위 — 로그인이 안 되면 버전 갱신도 의미가 없다.
-const API_BASE = '';
 
 /**
  * §4 v4.82 — 앱 안 Claude 로그인 팝업.
@@ -26,6 +28,8 @@ const API_BASE = '';
  * 화면 규칙:
  *  - `loggedIn === false && !error` 일 때만 자동으로 뜬다. `error`(CLI 미발견·타임아웃·파싱실패)는
  *    "로그아웃"이 아니라 **"모름"** 이라 모달로 앱을 막지 않는다.
+ *  - 예외는 **설치 게이트의 인계**(`ClaudeSetupGate` → `setLoginGate({ forced: true })`) 하나다.
+ *    갓 설치한 실행본에 자격증명이 있을 리 없어, 그 자리에서만은 "모름"도 불러 세운다.
  *  - PTY 출력을 훑어 **OAuth URL → 버튼**, **코드 요구 → 입력칸**으로 바꿔 보여준다.
  *  - 성공 판정의 1차 근거는 출력 문구가 아니라 **`auth status` 재조회**(로그인 중 3초 폴링)다.
  *    CLI 출력 포맷이 바뀌어도 안 깨지게 하기 위함.
@@ -37,10 +41,15 @@ export function LoginWindow(): React.JSX.Element | null {
   const dismissed = useGraphStore((s) => s.loginGateDismissed);
   const forced = useGraphStore((s) => s.loginGateForced);
   const setLoginGate = useGraphStore((s) => s.setLoginGate);
-  const applyClaudeAuth = useGraphStore((s) => s.applyClaudeAuth);
+  const refreshAuth = useGraphStore((s) => s.refreshClaudeAuth);
   // PATH 의 `claude` 가 아니라 **앱이 실제로 쓰는 바이너리**로 로그인해야 자격증명이 같은 곳에 남는다
   // (VS Code 확장 번들 등 PATH 밖 설치 — §5.7 #23-1 resolveClaudeBin 이 고른 경로).
-  const claudeBinPath = useGraphStore((s) => s.claudeVersion?.binPath);
+  //
+  // 폴백이 `claudeSetup.binPath` 인 이유: `claudeVersion` 은 옵션창/명령 전송이 한 번은 돌아야
+  // 채워져 **갓 설치한 사람에게는 비어 있다.** 그때 이름만(`claude`) 던지면 PTY 가 못 찾는다 —
+  // 네이티브 인스톨러가 넣은 PATH 는 **이미 떠 있는 앱의 환경에는 반영되지 않기 때문**이다
+  // (§4 첫 실행 설치 온보딩의 마지막 칸이 여기서 끊긴다). 설치 판정은 절대경로를 들고 있다.
+  const claudeBinPath = useGraphStore((s) => s.claudeVersion?.binPath ?? s.claudeSetup?.binPath);
 
   const [mode, setMode] = useState<ClaudeAuthLoginMode>('claudeai');
   const [email, setEmail] = useState('');
@@ -58,19 +67,15 @@ export function LoginWindow(): React.JSX.Element | null {
 
   const transport = useMemo(() => getTerminalTransport(), []);
   const shouldOpen = forced || (auth !== null && !auth.loggedIn && !auth.error && !dismissed);
+  // §4 (첫 실행 온보딩) — 백드롭이 헤더를 덮는 동안 헤더 언어 전환기를 창 위로 띄우게 알린다.
+  useOnboardingGate('login', shouldOpen);
+  // §4 (첫 실행 온보딩) — 성공 표시에 "다음은 폴더" 를 덧붙일지. 이미 폴더가 있으면 안내할 다음 칸이 없다.
+  const projects = useGraphStore((s) => s.projects);
+  const stubProjects = useGraphStore((s) => s.stubProjects);
+  const needsProjectFolder = !hasProjectFolder({ projects, stubProjects });
 
-  /** 상태 재조회 — 로그인 성공의 진짜 판정. */
-  const refreshStatus = useCallback(async (): Promise<ClaudeAuthStatus | null> => {
-    try {
-      const res = await fetch(`${API_BASE}/api/auth/status/refresh`, { method: 'POST' });
-      if (!res.ok) return null;
-      const next = await res.json() as ClaudeAuthStatus;
-      applyClaudeAuth(next);
-      return next;
-    } catch {
-      return null;
-    }
-  }, [applyClaudeAuth]);
+  /** 상태 재조회 — 로그인 성공의 진짜 판정. 창구는 스토어 하나(설치 게이트도 같은 것을 쓴다). */
+  const refreshStatus = refreshAuth;
 
   /** 로그인 PTY 종료 + 로컬 진행 상태 초기화. */
   const stopLogin = useCallback(() => {
@@ -101,15 +106,33 @@ export function LoginWindow(): React.JSX.Element | null {
     return () => clearInterval(id);
   }, [running, succeeded, refreshStatus, stopLogin]);
 
+  /**
+   * §4 (첫 실행 온보딩) — 이 창이 닫히며 **다음 칸(프로젝트 폴더)으로 넘긴다.**
+   *
+   * `ClaudeSetupGate` 가 이 창을 불러 준 것(설치 → 로그인)의 뒷짝이다. 폴더 게이트는 스스로도
+   * 뜨지만, 방금 로그인을 마친 이 순간에는 `claudeSetup`·`claudeAuth` 스냅샷이 아직 한 박자
+   * 옛것일 수 있어 순서 판정이 'pending' 으로 떨어진다 — 그러면 온보딩이 로그인에서 끝난 것처럼
+   * 보이고, 사용자는 다음에 무엇을 해야 하는지 모른 채 빈 캔버스와 마주한다.
+   *
+   * 판정은 렌더 시점이 아니라 **그 순간의 스토어 값**으로 한다(오래된 클로저 값에 매이면 안 된다).
+   */
+  const handOffToProjectFolder = useCallback(() => {
+    const now = useGraphStore.getState();
+    const hasFolder = hasProjectFolder({ projects: now.projects, stubProjects: now.stubProjects });
+    if (!shouldSummonProjectFolder({ hasFolder })) return;
+    now.setProjectGate({ forced: true, dismissed: false, reason: 'onboarding' });
+  }, []);
+
   // 성공 표시 후 잠깐 뒤 자동 닫기(ClaudeVersionGate 의 설치 완료 처리와 같은 결).
   useEffect(() => {
     if (!succeeded) return;
     const id = setTimeout(() => {
       setSucceeded(false);
       setLoginGate({ forced: false });
+      handOffToProjectFolder();
     }, 1_200);
     return () => clearTimeout(id);
-  }, [succeeded, setLoginGate]);
+  }, [succeeded, setLoginGate, handOffToProjectFolder]);
 
   // URL 을 제때 못 찾으면 터미널을 펼친다 — 우리가 모르는 프롬프트가 떠도 사용자가 직접 응답 가능.
   useEffect(() => {
@@ -185,6 +208,10 @@ export function LoginWindow(): React.JSX.Element | null {
     }).catch(() => {});
   }, [scan.url]);
 
+  // 이 창의 입력칸(인증 코드·이메일) 우클릭 메뉴는 **부팅 지점의 전역 메뉴**가 맡는다
+  // (`GlobalTextFieldContextMenu`) — 여기 개별 배선을 두면 전역과 두 벌이 되고, 전역이 capture
+  // 단계에서 먼저 가로채므로 그 배선은 영영 불리지 않는 죽은 코드가 된다.
+
   if (!shouldOpen) return null;
 
   return createPortal(
@@ -202,7 +229,7 @@ export function LoginWindow(): React.JSX.Element | null {
               <path d="M10 17l5-5-5-5" />
               <path d="M15 12H3" />
             </svg>
-            <h3 className="flex-1 text-sm font-bold text-gray-100">
+            <h3 className="min-w-0 flex-1 truncate text-sm font-bold text-gray-100">
               {t('panel.login.title', { defaultValue: 'Sign in to Claude' })}
             </h3>
             {auth?.error && (
@@ -210,15 +237,29 @@ export function LoginWindow(): React.JSX.Element | null {
                 {auth.error}
               </span>
             )}
+            {/* §4 (첫 실행 온보딩) — **폰 전용**. 데스크톱에서는 헤더 전환기가 이 창 위로 떠 오르므로
+                (HeaderLanguageSlot) 여기에도 두면 같은 것이 두 개 보인다. 폰(max-md)은 헤더 우측
+                묶음이 접혀 있어 그 띄우기가 일어나지 않아(liftedSlotPosition → null) 이 자리가
+                모국어로 바꿀 유일한 입구다 — 그래서 지우지 않고 `md:hidden` 으로 접는다. */}
+            <div className="shrink-0 md:hidden"><LanguageSwitcher portalMenu menuZIndex={Z + 100} /></div>
           </div>
 
           <div className="flex flex-col gap-3 overflow-y-auto px-4 py-3.5">
             {succeeded ? (
-              <div className="flex items-center gap-2.5 rounded-lg border border-emerald-500/40 bg-emerald-500/5 px-3.5 py-3 text-sm text-emerald-200">
-                <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M20 6L9 17l-5-5" />
-                </svg>
-                {t('panel.login.success', { defaultValue: 'Signed in. Closing…' })}
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-2.5 rounded-lg border border-emerald-500/40 bg-emerald-500/5 px-3.5 py-3 text-sm text-emerald-200">
+                  <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M20 6L9 17l-5-5" />
+                  </svg>
+                  {t('panel.login.success', { defaultValue: 'Signed in. Closing…' })}
+                </div>
+                {/* §4 (첫 실행 온보딩) — 다음 칸이 무엇인지 먼저 알려 준다(설치 게이트의 `readyNext`
+                    와 같은 규약). 이 창은 폴더 선택 창에 자리를 넘기며 닫힌다. */}
+                {needsProjectFolder && (
+                  <p className="px-0.5 text-[12px] text-gray-500">
+                    {t('panel.login.successNext', { defaultValue: 'Next: choose the project folder your agents will work in.' })}
+                  </p>
+                )}
               </div>
             ) : (
               <>
@@ -333,6 +374,12 @@ export function LoginWindow(): React.JSX.Element | null {
                         defaultValue: 'This window cannot run a terminal here. Open Vibisual on the desktop app to sign in.',
                       })
                       : t('panel.login.startFailed', { defaultValue: 'Could not start the sign-in process.' })}
+                    {/* 실제 실패 사유를 함께 보인다 — 이 줄이 없어서 mac 의 `posix_spawnp failed.`
+                        (node-pty spawn-helper 실행 권한 없음)이 "시작하지 못했습니다" 한 줄로만
+                        보였고, 원인을 찾는 데 실기 조사가 필요했다(2026-08-29). */}
+                    {startError !== 'no-transport' && (
+                      <span className="mt-1.5 block break-all font-mono text-[12px] text-red-300/70">{startError}</span>
+                    )}
                   </div>
                 )}
 

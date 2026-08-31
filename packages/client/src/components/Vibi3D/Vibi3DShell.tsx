@@ -335,7 +335,9 @@ export function Vibi3DShell({ params }: AppShellProps): React.JSX.Element {
   }, [root, filePath]);
 
   return (
-    <div className="flex h-screen flex-col bg-gray-950 text-gray-100">
+    // §5.13 (S-7) — 높이는 **호스트가 준다**(OS 창은 AppShellHost, 앱 안 창은 창 본문).
+    //   여기서 h-screen 을 쓰면 앱 안 창에서 화면 높이만큼 자라 창을 뚫는다.
+    <div className="flex h-full flex-col bg-gray-950 text-gray-100">
       <header className="app-drag flex h-11 shrink-0 items-center gap-3 border-b border-white/10 px-3">
         <span className="text-sm font-semibold">{t('panel.vibi3d.title', { defaultValue: 'Vibi3D' })}</span>
         <span className="truncate text-xs text-white/45">{fileName}</span>

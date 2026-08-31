@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { WorkspaceDirListing } from '@vibisual/shared';
+import type {
+  WorkspaceDirListing,
+  WorkspaceEntryDeleteResult,
+  WorkspaceEntryResult,
+  WorkspacePathKind,
+} from '@vibisual/shared';
 import type { ExplorerDirCache } from './explorerModel.js';
 
 /**
@@ -30,6 +35,14 @@ export interface WorkspaceExplorerApi {
   toggleDir: (relPath: string) => void;
   collapseAll: () => void;
   refresh: () => void;
+  /**
+   * §5.5 #17-19 ⑦ — **그 한 겹만** 다시 읽는다(만들기·이름 바꾸기·삭제 뒤).
+   * 트리 전체를 다시 걷지 않는 이유는 ② 와 같다 — 바뀐 것은 그 폴더 하나뿐이고,
+   * 통째 새로고침은 펼쳐 둔 폴더 전부를 다시 요청한다.
+   */
+  refreshDir: (relPath: string) => void;
+  /** 접혀 있으면 펼친다(새 항목을 만들기 전에 부모 폴더를 열어 두는 자리). */
+  expandDir: (relPath: string) => void;
 }
 
 /** 절대 경로로 파일을 에디터에서 연다 — 기존 열기 경로 재사용(새 열기 레일 ❌). */
@@ -54,6 +67,88 @@ export function openFolderByPath(absolutePath: string, nodePath: string): void {
 export function openWorkspaceFile(rootPath: string, relPath: string): void {
   const base = rootPath.replace(/\\/g, '/').replace(/\/+$/, '');
   openFileByPath(`${base}/${relPath}`, relPath);
+}
+
+/** 루트 기준 상대 경로를 절대 경로로 — 열기·복사 손잡이가 쓰는 것과 같은 조립. */
+export function workspaceAbsPath(rootPath: string, relPath: string): string {
+  const base = rootPath.replace(/\\/g, '/').replace(/\/+$/, '');
+  return relPath ? `${base}/${relPath}` : base;
+}
+
+/**
+ * §5.5 #17-19 ⑦ — 탐색기 우클릭이 내는 **쓰기 셋**(만들기 · 이름 바꾸기 · 삭제).
+ *
+ * 조회(`fetchDir`)와 같은 모듈에 두는 이유는 담당이 같아서다 — 이 파일이 "서버와 하는 말" 전부다.
+ * 실패는 서버가 준 사유 코드를 **그대로** 올려 보낸다(화면이 번역문을 고른다 — 여기서 문구를 만들면
+ * 언어 전환이 따라오지 않는다).
+ */
+export type WorkspaceMutateFailure =
+  | 'outside' | 'root' | 'invalid-name' | 'exists' | 'not-found' | 'denied' | 'failed'
+  /** 서버에 닿지 못했다(앱이 잠깐 끊긴 경우) */
+  | 'offline';
+
+export type WorkspaceMutateReply<T> = { ok: true; result: T } | { ok: false; error: WorkspaceMutateFailure };
+
+const MUTATE_FAILURES = new Set<string>(['outside', 'root', 'invalid-name', 'exists', 'not-found', 'denied', 'failed']);
+
+async function mutateEntry<T>(method: 'POST' | 'PATCH' | 'DELETE', body: unknown): Promise<WorkspaceMutateReply<T>> {
+  try {
+    const res = await fetch('/api/workspace-entry', {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const payload = (await res.json().catch(() => null)) as { error?: unknown } | null;
+      const code = typeof payload?.error === 'string' && MUTATE_FAILURES.has(payload.error) ? payload.error : 'failed';
+      return { ok: false, error: code as WorkspaceMutateFailure };
+    }
+    return { ok: true, result: (await res.json()) as T };
+  } catch {
+    return { ok: false, error: 'offline' };
+  }
+}
+
+/** 새 파일·새 폴더 — `parent` 는 부모 폴더의 상대 경로('' = 루트 바로 아래). */
+export function createWorkspaceEntry(
+  root: string,
+  parent: string,
+  name: string,
+  kind: WorkspacePathKind,
+): Promise<WorkspaceMutateReply<WorkspaceEntryResult>> {
+  return mutateEntry<WorkspaceEntryResult>('POST', { root, path: parent, name, kind });
+}
+
+/** 이름 바꾸기 — 같은 폴더 안에서만(옮기기 ❌). */
+export function renameWorkspaceEntry(
+  root: string,
+  relPath: string,
+  name: string,
+): Promise<WorkspaceMutateReply<WorkspaceEntryResult>> {
+  return mutateEntry<WorkspaceEntryResult>('PATCH', { root, path: relPath, name });
+}
+
+/** 삭제 — 데스크톱 앱에서는 OS 휴지통으로 간다(`trashed` 가 어느 쪽이었는지 말해 준다). */
+export function deleteWorkspaceEntry(
+  root: string,
+  relPath: string,
+): Promise<WorkspaceMutateReply<WorkspaceEntryDeleteResult>> {
+  return mutateEntry<WorkspaceEntryDeleteResult>('DELETE', { root, path: relPath });
+}
+
+/**
+ * 이 실행 형태가 **휴지통을 쓸 수 있는가** — 되물음 문구가 갈리는 자리라 미리 물어 둔다.
+ * 못 물어봤으면 `false`(= 영구 삭제라고 말한다) — 되돌릴 수 없는 쪽으로 보수적으로 겁준다.
+ */
+export async function fetchWorkspaceTrashAvailable(): Promise<boolean> {
+  try {
+    const res = await fetch('/api/workspace-trash');
+    if (!res.ok) return false;
+    const payload = (await res.json()) as { available?: unknown };
+    return payload.available === true;
+  } catch {
+    return false;
+  }
 }
 
 async function fetchDir(root: string, relPath: string): Promise<WorkspaceDirListing | null> {
@@ -141,6 +236,21 @@ export function useWorkspaceExplorer(rootPath: string | null): WorkspaceExplorer
     setExpanded(new Set<string>());
   }, []);
 
+  // §5.5 #17-19 ⑦ — 쓰기 뒤 그 폴더 한 겹만 다시 읽는다(세대 번호는 그대로 — 루트가 바뀐 게 아니다).
+  const refreshDir = useCallback((relPath: string): void => {
+    if (!rootPath) return;
+    load(rootPath, relPath, generationRef.current);
+  }, [rootPath, load]);
+
+  const expandDir = useCallback((relPath: string): void => {
+    if (!rootPath || relPath === ROOT_KEY) return;
+    setExpanded((prev) => {
+      if (prev.has(relPath)) return prev;
+      return new Set(prev).add(relPath);
+    });
+    if (!cache[relPath] && !loading.has(relPath)) load(rootPath, relPath, generationRef.current);
+  }, [rootPath, cache, loading, load]);
+
   const refresh = useCallback((): void => {
     if (!rootPath) return;
     generationRef.current += 1;
@@ -155,5 +265,5 @@ export function useWorkspaceExplorer(rootPath: string | null): WorkspaceExplorer
     for (const relPath of stillOpen) load(rootPath, relPath, generation);
   }, [rootPath, expanded, load]);
 
-  return { cache, expanded, loading, truncated, failed, rootError, toggleDir, collapseAll, refresh };
+  return { cache, expanded, loading, truncated, failed, rootError, toggleDir, collapseAll, refresh, refreshDir, expandDir };
 }

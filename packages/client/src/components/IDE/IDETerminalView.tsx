@@ -665,7 +665,7 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
           <span className="text-[12px] text-gray-500">{t('ide.terminal.unavailable')}</span>
         </div>
       ) : (
-        <div className={`relative flex min-h-0 flex-1 ${showPaneChrome ? 'px-[3px] pb-[3px] pt-[9px]' : ''}`}>
+        <div className={`relative flex min-h-0 min-w-0 flex-1 ${showPaneChrome ? 'px-[3px] pb-[3px] pt-[9px]' : ''}`}>
           {showPaneChrome && (
             <>
               {/* §4 (CMD) — pane 테두리. 지금 타이핑이 가는 창만 액센트로 서고 나머지는 물러난다. */}
@@ -692,8 +692,19 @@ export function IDETerminalView({ agentId, sessionId, paneId = '0', onSplit, onC
               </span>
             </>
           )}
+          {/* §4 (CMD) — `min-w-0` 이 **이 칸의 존재 이유의 절반**이다. 가로 flex 항목의 기본
+              `min-width:auto` 는 **콘텐츠 최소폭**으로 풀리는데, xterm 은 `.xterm-screen` 에
+              `width: <cols x 셀폭>px` 를 **인라인으로 박는다** — 즉 이 칸의 최소폭이 "지금 터미널
+              폭"으로 고정된다. 그러면 창을 좁히거나 옆에 카드 레일(360px)이 서도 이 칸은 줄지 못하고
+              **터미널이 창 밖으로 밀려 나간다.** 게다가 줄지 않으니 아래 ResizeObserver 가 볼 크기
+              변화 자체가 없어(호스트 폭이 그대로다) 다시 재는 일도 영영 일어나지 않는다.
+              더 나쁜 것은 그 상태에서 fit 이 한 번 돌면 **폭이 한 칸씩 늘어난다**(호스트가 옛 화면
+              폭에 고정돼 있어 fit 이 그 값을 다시 available width 로 읽는다 — 헤드리스 실측:
+              900→500px 로 좁혔을 때 cols 123→124, 화면 오른쪽 끝이 창 밖 892px). `min-w-0` 하나로
+              바닥이 0 이 되어 칸이 창을 따라 줄고, 그 변화를 ResizeObserver 가 받아 다시 맞춘다.
+              (같은 함정의 다른 자리: previewViewportEscape.test.ts 의 `<main>`) */}
           <div
-            className="relative min-h-0 flex-1"
+            className="relative min-h-0 min-w-0 flex-1"
             onFocus={() => setFocused(true)}
             onBlur={() => setFocused(false)}
           >

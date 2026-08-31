@@ -144,6 +144,9 @@ export type {
   VerificationRecipeSource,
   VerificationAttemptRecord,
   VerifyVerdict,
+  VerificationDemo,
+  VerificationDemoStep,
+  VerificationDemoFrame,
   SessionGoal,
   SessionGoalStatus,
   SessionGoalStep,
@@ -160,6 +163,7 @@ export type {
   ContextSourcePreview,
   SubAgent,
   SubAgentStatus,
+  SessionMemo,
   SubAgentHistoryItem,
   RunningSubagentTask,
   FinishedSubagentTask,
@@ -172,11 +176,17 @@ export type {
   WorkspaceDirListing,
   WorkspacePathKind,
   WorkspacePathInfo,
+  ExternalPathInfo,
   WorkspaceEol,
   WorkspaceFileContent,
   WorkspaceFileSaveRequest,
   WorkspaceFileSaveResult,
   WorkspaceImageSaveRequest,
+  WorkspaceEntryCreateRequest,
+  WorkspaceEntryRenameRequest,
+  WorkspaceEntryDeleteRequest,
+  WorkspaceEntryResult,
+  WorkspaceEntryDeleteResult,
   ProjectCheckpoint,
   ProjectIdentity,
   GhostChangeType,
@@ -324,6 +334,7 @@ export type {
   UpdatePhase,
   UpdateDelivery,
   UpdateState,
+  UpdateErrorCode,
   MobileAccessState,
   MobileQrTicket,
   MobileExternalStatus,
@@ -405,6 +416,7 @@ export {
   WORKSPACE_DIR_ENTRY_MAX,
   WORKSPACE_FILE_MAX_BYTES,
   IDE_EDITOR_MAX_TABS,
+  IDE_EDITOR_TAB_SCOPE_MAX,
   IDE_EDITOR_WIDTH,
   WORKSPACE_IMAGE_EXTENSIONS,
   WORKSPACE_IMAGE_BAKEABLE_EXTENSIONS,
@@ -439,6 +451,7 @@ export {
   PROJECT_LOAD_HINT_DELAY_MS,
   PROJECT_LOAD_HINT_SLOW_MS,
   INTERRUPT_RECONCILE_INTERVAL_MS,
+  ZOMBIE_EXECUTING_GRACE_MS,
   FILE_EXISTENCE_CHECK_INTERVAL,
   FILE_EXISTENCE_MISS_THRESHOLD,
   AGENT_CLUSTER_BASE_RADIUS,
@@ -539,12 +552,17 @@ export {
   CLAUDE_SETUP_VERIFY_RETRY_INTERVAL_MS,
   CLAUDE_SETUP_VERIFY_RETRY_MAX,
   CLAUDE_SETUP_OUTPUT_MAX_CHARS,
+  CLAUDE_SETUP_READY_HOLD_MS,
   CLAUDE_AUTO_UPDATE_BOOT_DELAY_MS,
   LOCKED_AGENT_TOOLS,
   AVAILABLE_PERMISSION_MODES,
   PERMISSION_MODES_WITHOUT_PROMPT,
   AVAILABLE_SETTING_SOURCES,
   AVAILABLE_AUTOCOMPACT_VALUES,
+  DEFAULT_AUTOCOMPACT_TOKENS,
+  resolveAutoCompact,
+  AGENT_COMPACT_COMMAND,
+  buildAgentSelfCompactRule,
   DEFAULT_AGENT_CONFIG,
   AGENT_MEMORY_SCOPES,
   normalizeAgentMemoryScope,
@@ -574,6 +592,9 @@ export {
   COMMENT_BOX_LOD,
   CANVAS_LOD,
   COMMENT_BOX_PALETTE,
+  SESSION_MEMO,
+  SESSION_MEMO_PALETTE,
+  SESSION_MEMO_DEFAULT_COLOR,
   CAPTURE_BUBBLE_DEFAULTS,
   CAPTURE_SNAP,
   CAPTURE_PLAYTEST,
@@ -612,6 +633,8 @@ export {
   CMD_PANE_MAX,
   CMD_PANE_SEPARATOR,
   sanitizeCmdPaneTree,
+  sanitizeSessionMemo,
+  sanitizeSessionMemos,
   collectCmdPaneIds,
   cmdPaneTermId,
   splitCmdPane,
@@ -820,6 +843,13 @@ export {
   VERIFICATION_ATTEMPTS_MAX,
   VERIFICATION_REASON_MAX,
   VERIFICATION_ATTEMPT_TEXT_MAX,
+  VERIFICATION_DEMO_MAX_PER_SESSION,
+  VERIFICATION_DEMO_STEPS_MAX,
+  VERIFICATION_DEMO_STEP_TEXT_MAX,
+  VERIFICATION_DEMO_LABEL_MAX,
+  VERIFICATION_DEMO_EXPECTED_MAX,
+  VERIFICATION_DEMO_FRAMES_MAX,
+  VERIFICATION_DEMO_DIR,
   VERIFY_SLASH_COMMAND,
   VERIFY_RECORDED_SKILL_PATH,
   SESSION_LOOP_COMPACT_COMMAND,
@@ -1201,14 +1231,40 @@ export {
 // shared 는 브라우저에서도 로드되므로 플랫폼은 인자로 받는다(pathCase.ts 머리말 참조).
 export type { PlatformName } from './pathCase.js';
 
-// §4 — 업데이트 전달 방식 판정(무서명 macOS 는 notify-only). 플랫폼은 인자로 받는다.
+// §4 — 업데이트 전달 방식 판정(무서명 macOS 는 self-install). 플랫폼은 인자로 받는다.
 export type { UpdateDeliveryInput } from './updateDelivery.js';
+// §4 self-install — 받은 번들이 정말 이 아키텍처의 것인가. 파일 이름·피드를 믿지 않고
+// Mach-O 헤더를 직접 읽는다. 아키텍처도 인자로 받는다(실기 없이 세 경우를 다 재기 위해).
+export type { ProcessArch, MachoArch } from './machoArch.js';
+export {
+  MACHO_HEADER_PROBE_BYTES,
+  readMachoArchs,
+  isArchCompatible,
+  toProcessArch,
+} from './machoArch.js';
 export {
   RELEASES_PAGE_BASE,
   resolveUpdateDelivery,
   releasesPageUrl,
   readUpdateDelivery,
+  RELEASES_DOWNLOAD_BASE,
+  macUpdateAssetName,
+  macUpdateAssetUrl,
 } from './updateDelivery.js';
+// §3.7 — 바깥 브라우저 열기 실패 판정. 리눅스의 `shell.openExternal` 은 실패해도 resolve 하므로
+// (xdg-open 을 wait=false 로 띄운다) 프라미스 대신 "열어 줄 프로그램이 있는가"를 잰다. 폴백 ❌.
+export type {
+  ExternalOpenFailureReason,
+  ExternalOpenFailure,
+  LinuxBrowserProbe,
+  ExternalOpenNoticeInput,
+} from './externalOpen.js';
+export {
+  LINUX_BROWSER_BINARIES,
+  needsBrowserProbe,
+  hasLinuxBrowserHandler,
+  resolveExternalOpenNotice,
+} from './externalOpen.js';
 export {
   isCaseInsensitiveFs,
   isPathWithin,
@@ -1219,6 +1275,63 @@ export {
   samePath,
 } from './pathCase.js';
 
+// §4 — 개별 에이전트 설정이 설정 창의 전역 기본값과 어디서 갈라지는지. "미설정"의 표기가 필드마다
+// 달라서(effort:'default' · isolation:'none' · maxTurns:0 · forwardSubagentText:undefined=켬)
+// 접힘 규칙을 화면이 아니라 한 곳에 둔다.
+export type { AgentConfigComparedField } from './agentConfigDiff.js';
+export {
+  AGENT_CONFIG_IDENTITY_FIELDS,
+  AGENT_CONFIG_COMPARED_FIELDS,
+  AGENT_MAX_TURNS_UI_FALLBACK,
+  resolveAgentDefaults,
+  normalizeAgentFieldForCompare,
+  agentFieldDiffers,
+  diffAgentConfigFromDefaults,
+} from './agentConfigDiff.js';
+
+// §5.5 #17-6 (H-4) — 끌고 다니는 창의 "앱 안/밖" 판정. 창을 움직이는 쪽(Electron main)과
+// 규칙이 갈라지지 않게 순수 함수 한 곳에 둔다(화면 API ❌ — 숫자만 본다).
+export type { ScreenRect, AppEntryStep } from './windowDragRegion.js';
+export {
+  DETACHED_REDOCK_INSET_PX,
+  isCursorDeepInside,
+  stepAppEntry,
+} from './windowDragRegion.js';
+
+// §5.5 #17-27 ⑮ — HTML 을 페이지로 여는 **경로형** 창구의 규약. 조립(클라 iframe src)과
+// 해석(서버 라우트)이 갈라지면 화면에는 흰 사각형만 남으므로 한 파일에 둔다.
+export type { WorkspaceSiteRequest, WorkspaceSiteInspectHit } from './workspaceSite.js';
+export {
+  WORKSPACE_SITE_PATH,
+  WORKSPACE_HTML_EXTENSIONS,
+  WORKSPACE_SITE_MIME_BY_EXT,
+  WORKSPACE_SITE_REWRITE_MAX_BYTES,
+  isWorkspaceHtmlPath,
+  workspaceSiteMime,
+  workspaceSiteBase,
+  workspaceSiteUrl,
+  parseWorkspaceSitePath,
+  rewriteWorkspaceSiteHtml,
+  rewriteWorkspaceSiteCss,
+  workspaceSiteRewriteKind,
+  WORKSPACE_SITE_REPORT_MESSAGE,
+  workspaceSiteReporterScript,
+  injectWorkspaceSiteAgents,
+  WORKSPACE_SITE_SOURCE_ATTR,
+  WORKSPACE_SITE_INSPECT_REQUEST,
+  WORKSPACE_SITE_INSPECT_RESULT,
+  annotateWorkspaceSiteSource,
+  workspaceSiteInspectorScript,
+} from './workspaceSite.js';
+
+// §5.5 #17-19 ⑦ — 탐색기가 만들거나 바꿔 다는 **이름**의 판정. 입력창(클라)과 디스크(서버)가
+// 같은 규칙 하나를 봐야 "화면은 받아 줬는데 서버가 거절"이 생기지 않는다.
+export type { WorkspaceEntryNameError } from './workspaceEntryName.js';
+export {
+  WORKSPACE_ENTRY_NAME_MAX,
+  workspaceEntryNameError,
+} from './workspaceEntryName.js';
+
 // §7.11 — 루프백 주소 판정·별칭. 감지 폴백(서버)과 "눌러서 프리뷰"(클라)가 같은 규칙을 쓴다.
 export {
   LOOPBACK_HOST_ALIASES,
@@ -1228,3 +1341,12 @@ export {
   loopbackUrlVariants,
   extractLoopbackUrls,
 } from './loopbackUrl.js';
+
+// §4 (첫 실행 온보딩) — ①설치 → ②로그인 → ③프로젝트 폴더. 세 게이트와 생성 REST 가 같은
+// 순서 판정 하나를 봐야 "화면은 막았는데 서버는 만들어 준다"가 생기지 않는다.
+export type { OnboardingStep, OnboardingInput } from './onboarding.js';
+export {
+  NO_PROJECT_FOLDER_ERROR,
+  resolveOnboardingStep,
+  isNoProjectFolderError,
+} from './onboarding.js';

@@ -5,6 +5,7 @@ import { useGraphStore } from '../../stores/graphStore.js';
 import { useCaptureSnapGuideStore } from '../../stores/captureSnapGuides.js';
 import { useCanvasCovered } from '../../stores/canvasVisibility.js';
 import { computeCaptureResizeSnap, type SnapRect } from './captureSnap.js';
+import { isInteractiveTarget, useBubbleSelectGesture } from './bubbleSelectGesture.js';
 import { useCaptureStream, type CaptureQuality } from '../../hooks/useCaptureStream.js';
 import { useCaptureRemoteControl } from '../../hooks/useCaptureRemoteControl.js';
 import { useCaptureRecorder } from '../../hooks/useCaptureRecorder.js';
@@ -92,10 +93,15 @@ export const CaptureNode = memo(function CaptureNode({
   const setCaptureBubbleDragLock = useGraphStore((s) => s.setCaptureBubbleDragLock);
   const selectCaptureBubble = useGraphStore((s) => s.selectCaptureBubble);
   const selectedCaptureBubbleId = useGraphStore((s) => s.selectedCaptureBubbleId);
+  // 선택 링은 `selectIntentId`(캔버스가 나눠 쓰는 "지금 고른 것 한 칸")도 함께 본다 —
+  // 더블클릭 지연(`bubbleSelectGesture`) 동안 눈에 보이는 반응을 내는 것이 그 칸이다.
+  const selectIntentId = useGraphStore((s) => s.selectIntentId);
 
   const liveWidth = nodeWidth ?? d.width;
   const liveHeight = nodeHeight ?? d.height;
-  const isSelected = selected || selectedCaptureBubbleId === d.captureBubbleId;
+  const isSelected = selected
+    || selectedCaptureBubbleId === d.captureBubbleId
+    || selectIntentId === d.captureBubbleId;
 
   // §5.9 뷰/조작 환경설정(localStorage 영속) — 화질모드·핀·불투명도·정지절전·읽기전용·타임아웃·배지.
   // 설정 편집 UI 는 DetailPanel(CaptureBubbleDetail)이 본진이고, 자주 쓰는 몇 개만 헤더 툴바에 둔다.
@@ -290,18 +296,30 @@ export const CaptureNode = memo(function CaptureNode({
     return () => window.removeEventListener(CAPTURE_RECORD_EVENT, onRecord);
   }, [d.captureBubbleId, recorder]);
 
-  const handleHeaderClick = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    selectCaptureBubble(d.captureBubbleId);
-  }, [d.captureBubbleId, selectCaptureBubble]);
+  /**
+   * 헤더의 선택·더블클릭 — 에이전트(IDE) 버블과 **같은 상태기계 한 벌**(`bubbleSelectGesture`).
+   *
+   * 종전에는 헤더 `onClick` 이 곧바로 선택해서, 창을 열려고 더블클릭하면 1타에서 우측 설정
+   * 패널이 함께 열렸다. 이제 실제 선택은 240ms 뒤이고, 그 안에 두 번째 누름이 오면 접힌다.
+   * 헤더의 아이콘 툴바(일시정지·스냅샷·크게 보기…)에서 시작한 누름은 `ignore` 로 걸러 낸다.
+   */
+  const gesture = useBubbleSelectGesture({
+    doubleClickable: true,
+    select: () => selectCaptureBubble(d.captureBubbleId),
+    setIntent: (active) => {
+      useGraphStore.getState().setSelectIntent(active ? d.captureBubbleId : null);
+    },
+    ignore: (e) => isInteractiveTarget(e.target),
+  });
 
   // 헤더 더블클릭 → 앱 내부 IDE식 창 열기(CaptureWindow). React Flow 의 더블클릭 줌과 충돌 방지.
   // 창은 닫기(X)/Escape 로 닫으므로 여기선 열기만(이미 열려 있으면 no-op — 버블당 창 하나).
   const handleHeaderDoubleClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
+    gesture.cancelPendingSelect();
     setRuntime({ expanded: true });
-  }, [setRuntime]);
+  }, [gesture, setRuntime]);
 
   const requestRepick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -433,7 +451,9 @@ export const CaptureNode = memo(function CaptureNode({
         className={`capture-bubble-header absolute inset-x-0 top-0 z-[2] flex select-none items-center gap-1.5 px-2 transition-opacity duration-150 ${
           seam ? 'opacity-0 group-hover/capture:opacity-100' : ''
         }`}
-        onClick={handleHeaderClick}
+        {...gesture.handlers}
+        // 헤더에서 시작한 클릭이 캔버스까지 흘러가지 않게 한다(선택 자체는 위 제스처가 맡는다).
+        onClick={(e) => e.stopPropagation()}
         onDoubleClick={handleHeaderDoubleClick}
         title={t('bubbleMap.capture.expandHint', { defaultValue: '더블클릭하면 창으로 엽니다' })}
         style={{

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 
 /**
  * 카드 안에서 **드래그로 고른 부분만** 뽑아내는 유틸("선택 복사").
@@ -27,6 +27,12 @@ import { useCallback, useEffect, useState, type RefObject } from 'react';
  *   드래그를 했는데 버튼이 잠겨 있거나, 눌러도 아무 일도 안 일어난다. 그래서 **고른 그 순간에
  *   텍스트를 떠 두고**(`rememberSelection`) 그 기억을 카드 밖(모듈 스코프 Map)에 둔다 — 카드가
  *   잠깐 언마운트됐다 돌아와도 방금 고른 것은 그대로 복사할 수 있어야 한다.
+ *
+ * ⚠⚠⚠ "고른 것"은 드래그만이 아니다 (판올림 번호 발급 대기) — 질문 카드는 답지마다 **체크박스**를
+ *   달아 여러 답을 고르게 해 놓고, 정작 `선택 복사` 는 드래그 선택 하나만 보고 있었다. 사용자가
+ *   체크를 해 두고 그 옆의 `선택 복사` 를 누르려 하면 버튼은 회색인 채였다 — 화면에서 고른 것이
+ *   버젓이 보이는데 "고른 게 없다"고 말하는 셈이다. 그래서 판정(`decideSelectionCopy`)과
+ *   텍스트(`getText`) 양쪽에 **두 번째 원천**(`CheckedSelection`)을 둔다.
  */
 
 /** 화면에서 보이는 "덩어리" — 앞뒤로 줄을 바꿔야 붙여넣은 텍스트가 화면과 같은 모양이 된다. */
@@ -162,6 +168,8 @@ export function forgetRememberedSelections(): void {
  * 선택 복사 버튼을 켜도 되는가 — 순수 판정(DOM 없이 검증한다).
  *
  * - `live`      : 지금 이 카드 안에 살아 있는 선택이 있다 → 당연히 켠다.
+ * - `checked`   : 이 카드 안에서 **체크박스로 고른 것**이 있다 → 켠다. 드래그와 달리 화면에 남아
+ *   있는 선택이고 이 카드 몫인 것이 확실하므로, 다른 곳의 드래그(`elsewhere`)보다 앞선다.
  * - `elsewhere` : 살아 있는 선택이 **다른 곳** 몫이다 → 잠근다(엉뚱한 대목을 복사하지 않게).
  * - `remembered`: 살아 있는 선택은 없지만 이 카드에서 고른 것을 떠 뒀다 → 켠다.
  *   리렌더·재마운트로 선택이 풀린 뒤에도 방금 고른 것을 가져갈 수 있어야 하기 때문이다.
@@ -170,8 +178,11 @@ export function decideSelectionCopy(input: {
   live: boolean;
   elsewhere: boolean;
   remembered: boolean;
+  /** 체크박스 선택(질문 카드의 답지 체크). 없는 카드도 있어 선택 인자. */
+  checked?: boolean;
 }): boolean {
   if (input.live) return true;
+  if (input.checked === true) return true;
   if (input.elsewhere) return false;
   return input.remembered;
 }
@@ -179,7 +190,18 @@ export function decideSelectionCopy(input: {
 export interface CardSelectionCopy {
   /** 버튼을 켜도 되는가. */
   enabled: boolean;
-  /** 지금 복사할 텍스트 — 살아 있는 선택이 우선, 없으면 떠 둔 것. */
+  /** 지금 복사할 텍스트 — 살아 있는 선택 → 체크박스 선택 → 떠 둔 것 순. */
+  getText: () => string;
+}
+
+/**
+ * 드래그 말고 **다른 방식으로 고른 것**(질문 카드의 답지 체크박스). 같은 버튼이 두 종류의 "고른 것"을
+ * 다루게 하되, 조립 방법은 카드가 알고 이 훅은 있고 없음만 본다.
+ */
+export interface CheckedSelection {
+  /** 지금 고른 것이 있는가(0개면 false). */
+  present: boolean;
+  /** 그 선택을 복사할 텍스트로. */
   getText: () => string;
 }
 
@@ -190,11 +212,22 @@ export interface CardSelectionCopy {
  * - **텍스트 뜨기는 프레임당 한 번**으로 묶는다(rAF) — 드래그 한 번에 selectionchange 가 수십 번
  *   오지만 직렬화는 그 프레임의 마지막 상태 한 벌이면 된다.
  * - 값이 안 바뀌면 setState 가 리렌더를 만들지 않는다.
+ *
+ * `checked` 를 주면 **드래그 말고 체크박스로 고른 것**도 같은 버튼이 다룬다(질문 카드의 답지 체크).
+ * 이쪽은 selection API 와 무관한 리액트 상태라 구독할 것이 없다 — 값이 바뀌면 카드가 다시 그려지며
+ * 이 훅도 새 값으로 다시 계산된다. 최신 값을 ref 로 들고 있어야 `getText` 의 정체성을 흔들지 않는다
+ * (매 렌더 새 함수를 내려보내면 헤더 복사 버튼의 `memo` 가 매번 깨진다).
  */
-export function useCardSelectionCopy(ref: RefObject<HTMLElement | null>, key: string): CardSelectionCopy {
+export function useCardSelectionCopy(
+  ref: RefObject<HTMLElement | null>,
+  key: string,
+  checked?: CheckedSelection,
+): CardSelectionCopy {
   const [state, setState] = useState<{ live: boolean; elsewhere: boolean; remembered: boolean }>(
     () => ({ live: false, elsewhere: false, remembered: recallSelection(key) !== '' }),
   );
+  const checkedRef = useRef<CheckedSelection | undefined>(checked);
+  checkedRef.current = checked;
 
   useEffect(() => {
     const doc = ref.current?.ownerDocument ?? document;
@@ -243,8 +276,15 @@ export function useCardSelectionCopy(ref: RefObject<HTMLElement | null>, key: st
       rememberSelection(key, liveText);
       return liveText;
     }
+    // 체크박스로 고른 것은 **화면에 그대로 남아 있는 선택**이라, 이미 풀려 보이지 않는 드래그
+    // 기억보다 먼저다(사용자가 보고 있는 것과 붙여넣은 것이 어긋나면 안 된다).
+    const checkedText = checkedRef.current?.present === true ? checkedRef.current.getText() : '';
+    if (checkedText !== '') return checkedText;
     return recallSelection(key);
   }, [ref, key]);
 
-  return { enabled: decideSelectionCopy(state), getText };
+  return {
+    enabled: decideSelectionCopy({ ...state, checked: checked?.present === true }),
+    getText,
+  };
 }
