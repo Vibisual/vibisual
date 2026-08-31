@@ -20,6 +20,13 @@ This document exists so you can verify that rather than take it on faith.
 - **Crash diagnostics** — a local `crash.log` and, when the process dies hard,
   minidumps under the same user-data directory. These are written for you to
   read. There is no upload server configured, and none is planned.
+- **Screen capture** — a capture bubble mirrors a screen or a window you picked
+  onto the canvas. The picture is a live stream inside the app's own window; what
+  gets written down is the bubble's position, size, and the name of the source you
+  chose. No frame of it is stored by the app or sent anywhere. Saving a snapshot
+  or a recording writes an ordinary file to your downloads folder. The one way a
+  frame leaves is the way any file does — you attach it to an agent and send it,
+  which is item 2 above. Attaching alone does not send it.
 
 Deleting those directories deletes the data. Nothing is mirrored anywhere.
 
@@ -30,13 +37,20 @@ outside address this code can contact. The first five happen while the app simpl
 runs, or through tools you were already using; the ones after that stay unused
 until you switch on the feature that needs them.
 
-**1. Update checks — to GitHub.** While the app runs it asks the GitHub Releases
-API whether a newer version exists, on start and then every four hours. GitHub
-sees what any web request shows: your IP address and user agent. On Windows and
-Linux a new version downloads and installs when you quit; on macOS it only
-notifies you, because installing in place requires a code signature we do not
-have yet. There is no in-app switch for this today — block the app at your
-firewall if you need it silent.
+**1. Update checks, and the update itself — to GitHub.** While the app runs it
+asks the GitHub Releases API whether a newer version exists, on start and then
+every four hours. GitHub sees what any web request shows: your IP address and
+user agent. When a newer version does exist, the app downloads it from GitHub as
+well, and how it is applied depends on your platform. On Windows and Linux the
+downloaded installer runs when you quit. On macOS the app fetches the release
+asset itself, checks it against the SHA-256 digest GitHub publishes for that
+asset, confirms the binary matches your processor architecture, and swaps the
+installed bundle after you press install and the app closes — Apple's updater
+refuses an unsigned build outright, so that path is ours rather than theirs, and
+the digest check is what stands in for the signature we do not have yet. If any
+of it fails, the app opens the release page instead of retrying silently. There
+is no in-app switch for update checking today — block the app at your firewall
+if you need it silent.
 
 **2. Your prompts — to Anthropic, through the Claude CLI you installed.**
 Vibisual does not talk to model APIs on your behalf and does not proxy or copy
@@ -60,14 +74,18 @@ anywhere else.
 
 **4. Whatever you point the app at.** Preview panes load the URLs your dev server
 serves. Agents run the commands you approve, and those commands can reach the
-internet. Optionally, Claude Code's own updater can be allowed to keep the CLI
-current, which contacts its own distribution channel; you can turn that off in
-Options.
+internet.
 
-**5. The Claude CLI's version number — to the npm registry.** So the app can tell
-you when the `claude` on your machine is behind, it asks `registry.npmjs.org`
-which version of `@anthropic-ai/claude-code` is newest and caches the answer for
-five minutes. The request says nothing about you that any web request would not.
+**5. The Claude CLI's version — to the npm registry, and an upgrade unless you
+turn it off.** The app asks `registry.npmjs.org` which version of
+`@anthropic-ai/claude-code` is newest and caches the answer for five minutes. The
+request says nothing about you that any web request would not. If the `claude` on
+your machine turns out to be behind, the app then installs the newer one — once
+per launch, and **on unless you turn it off in Options**. It upgrades only a CLI
+you installed yourself through npm or Anthropic's native installer: a Claude Code
+that came from the VS Code extension is left alone, because it cannot be updated
+from outside the marketplace, and a machine without the CLI is a setup question
+rather than an upgrade one.
 
 ### Only if you switch it on
 

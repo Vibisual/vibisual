@@ -43,10 +43,15 @@ not guarantees about future versions.
   permanent. Neither step happens on its own.
 
 - **macOS builds are not code-signed yet.** Gatekeeper blocks the first launch
-  and the README documents the `xattr -cr` workaround. Because in-place updates
-  require a signature, macOS receives updates as a notification instead. Treat
-  an unsigned build as a build whose origin you are trusting on the strength of
-  the download URL alone.
+  and the README documents the `xattr -cr` workaround. Apple's updater refuses
+  an unsigned build outright, so macOS updates run on a path of our own: the app
+  downloads the release asset, verifies it against the SHA-256 digest GitHub
+  publishes for that asset, checks that the binary's architecture matches the
+  machine, and replaces the bundle only after you press install. That digest is
+  doing the job a signature would — it catches a download that was corrupted or
+  tampered with in transit, but not a release that was replaced at the source.
+  Treat an unsigned build as a build whose origin you are trusting on the
+  strength of the download URL alone.
 
 - **Nothing is uploaded to us.** There is no telemetry, no analytics, and no
   crash-report server — crash minidumps are collected locally and never sent
