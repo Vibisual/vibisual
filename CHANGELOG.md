@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.16] - 2026-08-31
+
+### Fixed
+- **The macOS builds are back.** Version 0.1.15 shipped with no macOS files at all — not a broken download, simply nothing to download, and because the release page builds its table from the files that actually exist, the macOS row disappeared rather than pointing at something that was not there. The cause was the code-signing slot: when the signing certificate is not configured, the build system supplies an *empty* value rather than no value, and the packager treats an empty path as a real one and stops on it. Both macOS builds spent all three of their retries on that and produced nothing, while Windows and Linux published normally — so the release looked like it had succeeded. Signing values are now kept under names the packager does not read, and are handed over only once a certificate is actually present.
+
+### Changed
+- **A release is titled with its version and nothing else.** The list of releases is where you compare one version against the next, and a product name repeated down every row is not information — it pushes the number your eye is looking for to the right. Every release up to 0.1.14 was titled with the bare number; 0.1.15 arrived as "Vibisual 0.1.15" and broke the column. Titles are back to the number, past releases we titled ourselves are corrected as they are regenerated, and a title someone wrote by hand is still left alone.
+
 ## [0.1.15] - 2026-08-31
 
 ### Added
@@ -362,7 +370,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - Dropped preset options from the custom agent settings.
 
-[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.1.15...HEAD
+[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.1.16...HEAD
+[0.1.16]: https://github.com/Vibisual/vibisual/compare/v0.1.15...v0.1.16
 [0.1.15]: https://github.com/Vibisual/vibisual/compare/v0.1.14...v0.1.15
 [0.1.14]: https://github.com/Vibisual/vibisual/compare/v0.1.13...v0.1.14
 [0.1.13]: https://github.com/Vibisual/vibisual/compare/v0.1.12...v0.1.13

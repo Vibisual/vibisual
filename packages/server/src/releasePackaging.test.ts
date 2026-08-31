@@ -56,6 +56,24 @@ describe('release packaging — mac/linux', () => {
     expect(wf.slice(intelIdx, intelIdx + 200)).toContain('release:mac:x64');
   });
 
+  it('mac 서명 값을 electron-builder 가 읽는 이름으로 env 에 두지 않는다', () => {
+    const wf = read('.github/workflows/release.yml');
+    const live = wf.split('\n').filter((line) => !line.trim().startsWith('#'));
+    // 없는 시크릿을 GitHub 은 "정의 안 됨"이 아니라 **빈 문자열**로 넣는다. electron-builder 는
+    // `cscLink == null` 로만 걸러서 그 빈 문자열을 진짜 경로로 받아들이고 projectDir 로 풀어
+    // `⨯ <projectDir> not a file` 로 죽는다 — v0.1.15 의 mac 두 잡이 3회 재시도를 다 쓰고
+    // 그렇게 전멸했고, win·linux 는 발행됐으므로 릴리스는 "성공"으로 보였다(mac 자산 5종 실종).
+    // 셸 가드(`[ -n "${MAC_CSC_LINK:-}" ]`)는 옳게 걸렀지만, env 에 이름이 있는 한
+    // electron-builder 는 그 가드를 거치지 않고 제 손으로 읽는다.
+    for (const name of ['CSC_LINK', 'CSC_KEY_PASSWORD', 'APPLE_ID', 'APPLE_APP_SPECIFIC_PASSWORD', 'APPLE_TEAM_ID']) {
+      const leaked = live.some((line) => new RegExp(`^\\s{2,}${name}:`).test(line));
+      expect(leaked, `${name} 을 env: 에 직접 두면 빈 시크릿이 빈 문자열로 새어 들어간다`).toBe(false);
+    }
+    // 대신 MAC_ 접두사로 받아 두고, 비어 있지 않을 때만 electron-builder 의 이름으로 넘긴다.
+    expect(wf).toContain('MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}');
+    expect(wf).toContain('export CSC_LINK="$MAC_CSC_LINK"');
+  });
+
   it('mac 잡 실패를 continue-on-error 로 덮지 않는다', () => {
     const wf = read('.github/workflows/release.yml');
     const live = wf.split('\n').filter((line) => !line.trim().startsWith('#'));

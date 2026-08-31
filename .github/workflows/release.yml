@@ -121,14 +121,20 @@ jobs:
           # 필요한 시크릿 넷: MAC_CSC_LINK(base64 .p12) · MAC_CSC_KEY_PASSWORD
           #                 · APPLE_ID · APPLE_APP_SPECIFIC_PASSWORD · APPLE_TEAM_ID
           EXTRA=""
-          if [ -n "${CSC_LINK:-}" ]; then
+          if [ -n "${MAC_CSC_LINK:-}" ]; then
             echo "코드 서명 인증서 감지 — 서명해서 짓는다."
+            # 여기서**만** electron-builder 가 읽는 이름으로 옮긴다(아래 env 주석 참고).
+            export CSC_LINK="$MAC_CSC_LINK"
+            export CSC_KEY_PASSWORD="${MAC_CSC_KEY_PASSWORD:-}"
             export CSC_IDENTITY_AUTO_DISCOVERY=true
             EXTRA="--config.mac.hardenedRuntime=true --config.mac.gatekeeperAssess=false"
             EXTRA="$EXTRA --config.mac.entitlements=build/entitlements.mac.plist"
             EXTRA="$EXTRA --config.mac.entitlementsInherit=build/entitlements.mac.plist"
-            if [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_TEAM_ID:-}" ]; then
+            if [ -n "${MAC_APPLE_ID:-}" ] && [ -n "${MAC_APPLE_TEAM_ID:-}" ]; then
               echo "공증 자격증명도 있다 — notarize 까지 간다."
+              export APPLE_ID="$MAC_APPLE_ID"
+              export APPLE_TEAM_ID="$MAC_APPLE_TEAM_ID"
+              export APPLE_APP_SPECIFIC_PASSWORD="${MAC_APPLE_APP_SPECIFIC_PASSWORD:-}"
               EXTRA="$EXTRA --config.mac.notarize=true"
             else
               echo "::warning::서명은 되지만 공증 자격증명이 없다 — Gatekeeper 가 여전히 막을 수 있다."
@@ -161,13 +167,22 @@ jobs:
           done
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # 기본은 미서명. 위 스크립트가 CSC_LINK 를 보면 true 로 덮어쓴다.
+          # 기본은 미서명. 위 스크립트가 인증서를 확인하면 true 로 덮어쓴다.
           CSC_IDENTITY_AUTO_DISCOVERY: false
-          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # ⚠️ 서명 값을 **electron-builder 가 읽는 이름(CSC_*·APPLE_*)으로 여기 두지 마라.**
+          #    없는 시크릿을 GitHub 은 "정의 안 됨"이 아니라 **빈 문자열**로 넣는다. 그런데
+          #    electron-builder 는 `cscLink == null` 로만 걸러서 그 빈 문자열을 진짜 경로로
+          #    받아들이고 projectDir 로 풀어 버린다 — v0.1.15 의 mac 두 잡이 실제로
+          #    `⨯ …/packages/desktop not a file` 로 3회 재시도를 다 쓰고 전멸했고, 자산이
+          #    통째로 빠진 채 릴리스가 "성공"으로 보였다(win·linux 는 발행됐으므로).
+          #    셸의 `[ -n ... ]` 가드는 옳게 걸렀지만, env 에 이름이 있는 한 electron-builder 는
+          #    가드를 거치지 않고 직접 읽는다. 그래서 **MAC_ 접두사로 받아 두고**, 위 스크립트가
+          #    비어 있지 않을 때만 CSC_*/APPLE_* 로 export 한다.
+          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          MAC_APPLE_ID: ${{ secrets.APPLE_ID }}
+          MAC_APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          MAC_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
   # ── 릴리스 본문 ───────────────────────────────────────────────────────────────
   # electron-builder 는 자산만 올리고 **본문을 쓰지 않는다.** 그대로 두면 릴리스 페이지는
