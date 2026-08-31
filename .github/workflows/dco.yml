@@ -1,0 +1,88 @@
+# DCO 서명 검사 — 기여물 재라이선스 동의가 "기록"으로 남는지 확인한다.
+#
+# ⚠️ 이 워크플로가 왜 생겼는지(2026-08-28):
+#    CONTRIBUTING.md 는 이미 기여자에게서 세 가지 권한을 받아 두고 있다 — OSI 승인
+#    라이선스로의 재라이선스, 공식 클라우드·상용 라이선스에서의 사용, 서브라이선스.
+#    그런데 그 동의를 **기록하는 장치가 없었다.** DCO 는 커밋 메시지의 `Signed-off-by:`
+#    한 줄로만 성립하는데, 그 줄이 빠진 PR 이 한 건이라도 병합되면 그 코드의 저작권자는
+#    조항에 동의한 적 없는 사람이 되고, 그 파일을 품은 모듈은 듀얼 라이선스도 유료
+#    호스팅도 할 수 없게 된다. 되돌리는 길은 그 사람을 찾아 사후 동의를 받거나 코드를
+#    들어내는 것뿐이고, 둘 다 몇 년 뒤에 청구서로 온다.
+#
+#    지금은 외부 기여자가 0명이라 이 검사를 세우는 비용이 0이다. 나중에는 아니다.
+#    문서에만 적힌 규칙은 규칙이 아니라 희망이다.
+#
+# 판정 방식: 병합 커밋을 뺀 모든 커밋에 대해, 커밋 **작성자 주소**와 같은 주소로 된
+# `Signed-off-by:` 줄이 그 커밋 메시지에 있는지 본다(대소문자 무시). 정규식 이스케이프
+# 사고를 피하려고 주소는 `<>` 안에서 뽑아 **문자열 그대로** 비교한다.
+
+name: DCO
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dco-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  signoff:
+    name: Signed-off-by
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 범위 계산에 base..head 가 필요하므로 전체 이력을 받는다.
+          fetch-depth: 0
+
+      - name: 커밋마다 서명 확인
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          missing=0
+          checked=0
+
+          # 병합 커밋은 제외한다 — 서명의 주체가 없고, 서명은 원 커밋에 이미 붙어 있다.
+          for sha in $(git rev-list --no-merges "$BASE_SHA..$HEAD_SHA"); do
+            checked=$((checked + 1))
+            author_email="$(git log -1 --format='%ae' "$sha" | tr '[:upper:]' '[:lower:]')"
+            subject="$(git log -1 --format='%s' "$sha")"
+            signed="$(git log -1 --format='%B' "$sha" \
+              | sed -n 's/^[Ss]igned-off-by:.*<\(.*\)>.*$/\1/p' \
+              | tr '[:upper:]' '[:lower:]')"
+
+            if printf '%s\n' $signed | grep -qxF "$author_email"; then
+              echo "  ok    ${sha} — ${subject}"
+            else
+              echo "  MISS  ${sha} — ${subject}"
+              echo "        author <${author_email}> has no matching Signed-off-by line."
+              missing=$((missing + 1))
+            fi
+          done
+
+          echo ""
+          echo "commits checked: ${checked} / missing sign-off: ${missing}"
+
+          if [ "$missing" -gt 0 ]; then
+            echo ""
+            echo "----------------------------------------------------------------"
+            echo "Every commit needs a Developer Certificate of Origin sign-off."
+            echo "See CONTRIBUTING.md for the full text and why it matters here."
+            echo ""
+            echo "Fix the most recent commit:"
+            echo "    git commit --amend --signoff"
+            echo ""
+            echo "Fix every commit in this pull request:"
+            echo "    git rebase --signoff ${BASE_SHA}"
+            echo ""
+            echo "Then force-push the branch."
+            echo "----------------------------------------------------------------"
+            exit 1
+          fi
