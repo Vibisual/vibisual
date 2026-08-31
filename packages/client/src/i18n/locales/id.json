@@ -191,7 +191,10 @@
       "revokeQr": "Cabut QR sekarang",
       "expiresIn": "Kedaluwarsa dalam",
       "savePng": "Simpan PNG",
-      "discordPairHint": "Pindai untuk mengundang bot, lalu kirim baris ini di channel mana pun yang bisa dilihatnya:",
+      "discordPairHint": "Pindai untuk mengundang bot, lalu kirim baris ini ke bot lewat pesan langsung:",
+      "dmOnlyHint": "Pemasangan hanya diterima lewat pesan langsung satu lawan satu dengan bot. Di kanal bersama, semua orang di sana bisa mengendalikan agenmu.",
+      "sharedChatBadge": "Bersama",
+      "sharedChatWarning": "Obrolan ini dipasangkan sebelum ada aturan hanya-pesan-langsung. Siapa pun di sana bisa mengirim perintah dan menyetujui izin. Putuskan lalu pasangkan lagi lewat DM.",
       "pairedChats": "Chat yang terhubung",
       "unpair": "Putuskan",
       "verbosityTitle": "Apa yang dikirim",
@@ -203,7 +206,7 @@
         "cards": "Hanya kartu dan ringkasan yang meninggalkan mesin ini. Minta output mentah dengan /log saat diperlukan.",
         "full": "Balasan dan thinking diteruskan saat tiba. Output tool dan diff tetap ditahan."
       },
-      "securityNote": "Hanya chat yang sudah Anda pasangkan yang akan dijawab; selain itu diabaikan. Akses terminal tidak pernah tersedia lewat aplikasi perpesanan."
+      "securityNote": "Hanya obrolan yang kamu pasangkan yang bisa mengirim perintah. Selain itu paling banyak dapat satu baris \"belum terhubung\". Terminal tidak pernah bisa dibuka lewat messenger."
     },
     "guide": {
       "title": "Panduan",
@@ -921,6 +924,32 @@
         "MultiEdit": "Menerapkan beberapa suntingan pada satu berkas sekaligus.",
         "SendMessage": "Mengirim pesan lanjutan ke subagen yang sedang berjalan.",
         "Artifact": "Membuat artefak (dokumen, aplikasi).",
+        "PowerShell": "Menjalankan perintah PowerShell secara native di Windows.",
+        "LSP": "Melompat ke definisi, menemukan referensi, dan membaca type error melalui language server.",
+        "Workflow": "Mengoordinasikan banyak subagent dari script yang ditulis oleh agent.",
+        "ListAgents": "Menampilkan sesi Claude Code lain yang bisa dikirimi pesan.",
+        "TaskCreate": "Membuat tugas di daftar tugas bersama.",
+        "TaskGet": "Membaca satu tugas dari daftar tugas bersama.",
+        "TaskList": "Menampilkan tugas di daftar tugas bersama.",
+        "TaskUpdate": "Memperbarui status atau detail tugas.",
+        "EnterPlanMode": "Beralih ke mode plan untuk merancang sebelum bertindak.",
+        "EnterWorktree": "Memindahkan sesi ke git worktree baru.",
+        "ExitWorktree": "Keluar dari git worktree saat ini.",
+        "PushNotification": "Mengirim notifikasi desktop, dan push ke ponsel saat Kendali Jarak Jauh terhubung.",
+        "SendUserFile": "Mengirim file ke pengguna.",
+        "RemoteTrigger": "Memicu tindakan pada perangkat jarak jauh yang terhubung.",
+        "SendFeedback": "Mengirim masukan tentang Claude Code ke Anthropic.",
+        "ShareOnboardingGuide": "Membagikan panduan penyiapan untuk proyek ini kepada rekan tim.",
+        "ReportFindings": "Melaporkan temuan terstruktur, seperti pada code review.",
+        "EndConversation": "Mengakhiri sesi ini dari dalam sesi tersebut.",
+        "ScheduleWakeup": "Menjadwalkan sesi untuk membangunkan dirinya sendiri nanti.",
+        "CronCreate": "Membuat proses terjadwal yang berulang.",
+        "CronList": "Menampilkan proses terjadwal yang berulang.",
+        "CronDelete": "Menghapus proses terjadwal yang berulang.",
+        "ToolSearch": "Menemukan alat yang tepat sesuai kebutuhan saat banyak alat terhubung.",
+        "ListMcpResourcesTool": "Menampilkan sumber daya yang diekspos oleh server MCP yang terhubung.",
+        "ReadMcpResourceTool": "Membaca satu sumber daya dari server MCP yang terhubung.",
+        "WaitForMcpServers": "Menunggu hingga server MCP yang sedang tersambung siap.",
         "strippedByEdgeHint": "Didelegasikan melalui edge STRICT — agent ini tidak bisa memakainya saat runtime (dipulihkan saat edge dihapus)"
       },
       "maxTurns": "Maks Giliran",
@@ -1009,10 +1038,29 @@
         "label": "Sarankan prompt berikutnya",
         "hint": "diprediksi setiap akhir giliran"
       },
+      "includeHookEvents": {
+        "label": "Menampilkan event hook di transkrip",
+        "hint": "saat setiap hook dipicu, inline"
+      },
       "betas": {
         "label": "Header beta",
         "tip": "Header beta yang dikirim bersama permintaan API. Hanya untuk pengguna kunci API — autentikasi langganan mengabaikannya.",
         "placeholder": "dipisah koma"
+      },
+      "agentDefinitions": {
+        "label": "Subagent sesi",
+        "tip": "Jenis subagent yang bisa didelegasikan oleh sesi ini, didefinisikan di sini, bukan sebagai file. Tidak ada yang ditulis ke disk, jadi tidak akan bocor ke proyek lain. Nama, deskripsi, dan prompt semuanya wajib diisi — entri yang tidak memiliki salah satunya akan diabaikan.",
+        "namePlaceholder": "nama (huruf kecil, tanda hubung)",
+        "descPlaceholder": "kapan didelegasikan ke sini",
+        "promptPlaceholder": "system prompt",
+        "add": "+ Subagent",
+        "remove": "Hapus",
+        "needsTaskTool": "Alat Task nonaktif, jadi tidak ada yang bisa memanggilnya."
+      },
+      "pluginDirs": {
+        "label": "Plugin sesi",
+        "tip": "Folder plugin Claude Code atau file .zip yang dimuat khusus untuk sesi ini, satu path per baris. Ini adalah plugin Claude Code, bukan plugin Vibisual.",
+        "placeholder": "satu path per baris"
       },
       "bashTimeout": {
         "label": "Timeout Bash",
@@ -2168,6 +2216,8 @@
       "openFile": "Buka di editor",
       "copyPath": "Salin path",
       "copied": "Tersalin",
+      "pathToInput": "Sisipkan path ke kolom input · salin",
+      "pathInserted": "Ditambahkan ke kolom input · tersalin",
       "truncated": "Hanya {{count}} item pertama",
       "ctx": {
         "open": "Buka",
@@ -2182,8 +2232,10 @@
         "newName": "Nama baru",
         "confirmTrash": "Pindahkan \"{{name}}\" ke tempat sampah?",
         "confirmDelete": "Hapus \"{{name}}\" secara permanen? Ini tidak bisa dibatalkan.",
+        "confirmMove": "Pindahkan \"{{name}}\" ke \"{{folder}}\"?",
         "trashed": "\"{{name}}\" dipindahkan ke tempat sampah",
         "deleted": "\"{{name}}\" dihapus",
+        "moved": "\"{{name}}\" dipindahkan ke \"{{folder}}\"",
         "err": {
           "nameEmpty": "Isi namanya",
           "nameSeparator": "Nama tidak boleh memuat / atau \\",
@@ -2198,8 +2250,15 @@
           "offline": "Tidak bisa menghubungi aplikasi",
           "root": "Akar proyek tidak diubah dari sini",
           "outside": "Jalur itu di luar proyek",
+          "intoSelf": "Folder tidak bisa dipindahkan ke dalam dirinya sendiri",
+          "crossDevice": "Tidak bisa dipindahkan ke drive lain",
           "failed": "Tidak berhasil"
         }
+      },
+      "drop": {
+        "input": "Sisipkan path ke kolom input",
+        "editor": "Buka di editor",
+        "folderBlocked": "Folder tidak bisa dibuka di editor"
       }
     },
     "editor": {

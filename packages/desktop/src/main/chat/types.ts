@@ -20,6 +20,8 @@ export interface ChatInboundText {
   chatId: string;
   /** 표시용 이름(사용자명·채널명). 없으면 드라이버가 chatId 를 넣는다. */
   label: string;
+  /** 1:1 DM 인가(§4 ④ — 페어링은 이것만 받는다). 판정은 드라이버가, 사용은 상위가. */
+  direct: boolean;
   text: string;
 }
 
@@ -28,6 +30,8 @@ export interface ChatInboundAction {
   type: 'action';
   chatId: string;
   label: string;
+  /** 1:1 DM 인가. 버튼은 이미 페어링된 대화에서만 오지만 계약을 두 종류가 나눠 갖지 않게 함께 싣는다. */
+  direct: boolean;
   /** 우리가 `ChatAction.actionId` 로 실어 보냈던 값 그대로. */
   actionId: string;
   /**

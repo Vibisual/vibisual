@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import { BrowserWindow, screen } from 'electron';
-import { isCursorDeepInside, stepAppEntry } from '@vibisual/shared';
+import { isCursorDeepInside, isCursorOutsideRect, stepAppEntry } from '@vibisual/shared';
 import { hidePopOutGhost } from './ghostFrame';
 
 // SCENARIO.md §5.4 #14-1 (v2.29) — 탭 Detach/Redock 별창 매니저.
@@ -652,6 +652,114 @@ function applyAllOverlayVisibility(): void {
   for (const e of overlaysByAgentId.values()) applyOverlayVisibility(e, false);
 }
 
+// ─── (판올림 번호 발급 대기) §5.5 #17-6 (H-7) 선 → 창 인계 ────────────────────
+//
+// (H-6) ⑤ 는 윤곽선을 `ready-to-show` 까지 살려 두면 빈 구간이 없다고 봤다. 그런데 이 창은
+// `transparent:true` 라 그 신호가 **투명한 빈 문서의 첫 페인트**에 떨어지고, 끌어내서 만든
+// 창은 그 뒤로도 부팅(번들 파싱 → WS 연결 → 스냅샷 → `takeHandoff` → IDE 마운트)을 더 간다.
+// 그동안 커서 아래에는 보이지 않는 창만 있다 — 사용자에게는 창이 사라진 것과 같다.
+//
+// 그래서 인계 시점을 **렌더러가 다 그렸다고 말하는 순간**으로 옮긴다. 대답이 없는 판(렌더러
+// 실패·구버전)에서도 선이 얹힌 채 남지 않게 그물을 하나 둔다 — 선 없이 잠깐 비는 편이,
+// 클릭통과 선이 창 위에 영영 얹혀 있는 것보다 낫다.
+
+/** 렌더러가 "다 그렸다"를 말하지 못할 때 선을 걷어 주는 상한(ms). */
+const GHOST_HANDOFF_FALLBACK_MS = 4_000;
+
+/** 지금 선을 이어받기로 되어 있는 창과 그 그물. 선이 하나뿐이라 이 판도 하나뿐이다. */
+let ghostHandoff: { windowId: number; timer: NodeJS.Timeout } | null = null;
+
+/** 이 창이 지금 선을 이어받기로 되어 있는가. */
+function isGhostHandoffTarget(windowId: number): boolean {
+  return ghostHandoff?.windowId === windowId;
+}
+
+/** 인계 끝 — 선을 걷고 그물을 푼다(여러 번 불려도 안전). */
+function finishGhostHandoff(): void {
+  if (ghostHandoff) {
+    clearTimeout(ghostHandoff.timer);
+    ghostHandoff = null;
+  }
+  hidePopOutGhost();
+}
+
+/** 이 창이 다 그릴 때까지 선을 살려 둔다(앞 판이 남아 있으면 그것부터 끝낸다). */
+function armGhostHandoff(windowId: number): void {
+  if (ghostHandoff) clearTimeout(ghostHandoff.timer);
+  ghostHandoff = {
+    windowId,
+    timer: setTimeout(() => { ghostHandoff = null; hidePopOutGhost(); }, GHOST_HANDOFF_FALLBACK_MS),
+  };
+}
+
+/**
+ * (H-7) 끌어내서 만든 창이 **자기 IDE 를 다 그렸다**고 알려 왔다 — 선이 서 있던 자리를 창이
+ * 이어받은 그 순간이다. 다른 창(그냥 켠 버블 창 등)이 말해도 조용히 넘어간다.
+ */
+export function overlayShellReady(senderWindowId: number): boolean {
+  if (!isGhostHandoffTarget(senderWindowId)) return false;
+  finishGhostHandoff();
+  return true;
+}
+
+// ─── (판올림 번호 발급 대기) §5.5 #17-6 (H-8) 앱 안 드래그의 **눈** ──────────────
+//
+// 앱 안 IDE 창을 끄는 일은 렌더러의 `mousemove` 로 한다. 그것이 창 밖에서도 오는 까닭은
+// **마우스 캡처** 하나뿐이다 — 그 창에서 `mousedown` 이 일어났기 때문에 OS 가 버튼을 뗄 때까지
+// 이벤트를 그 창으로 보내 준다.
+//
+// 그런데 (H-4) ③ 으로 **밖에서 끌던 드래그를 이어받은 판**에는 그 `mousedown` 이 없다. 손은
+// 눌려 있지만 눌린 곳은 이미 닫힌 창이다 — 커서가 앱 밖으로 나가는 순간 렌더러는 눈이 멀고,
+// "밖으로 나갔다"가 영영 서지 않는다(사용자 보고 — "한 번 나갔다 되돌린 뒤 다시 밖으로 빼려는데
+// 막힌다"). 가장자리 버팀이 받아 주기를 기대할 수도 없다: 손이 빠르면 마지막으로 본 커서가
+// 가장자리 띠(3px) 안이 아니라 한참 안쪽이다.
+//
+// 그래서 그동안 main 이 커서를 대신 본다. 새 물리가 아니라 **이미 세 곳이 쓰는 같은 폴링**이고,
+// 판정은 shared 순수 함수(`isCursorOutsideRect`)라 렌더러의 창 안 좌표 판정과 갈라지지 않는다.
+// 알리는 것은 **한 번뿐**이다 — 나갔다고 말하는 순간 렌더러가 창을 꺼내고, 그 뒤는 (H-4) 의
+// 검증된 매달림·뗌 그물이 받는다.
+
+/** 감시가 스스로 멎는 상한(ms) — 렌더러가 끝을 말하지 못해도 타이머가 남지 않게. */
+const PANE_ESCAPE_TTL_MS = 30_000;
+/** 커서가 창 경계에서 이만큼 더 나가야 "밖"으로 읽는다(px) — 렌더러 `POP_OUT_MARGIN` 과 같은 값. */
+const PANE_ESCAPE_MARGIN_PX = 24;
+
+/** 지금 앱 안 드래그를 지켜보는 판. 한 번에 한 손짓뿐이라 이 판도 하나뿐이다. */
+let paneEscape: { windowId: number; timer: NodeJS.Timeout } | null = null;
+
+/** 감시를 끝낸다(여러 번 불려도 안전). */
+export function stopPaneDragEscapeWatch(senderWindowId?: number): boolean {
+  if (!paneEscape) return false;
+  if (senderWindowId !== undefined && paneEscape.windowId !== senderWindowId) return false;
+  clearInterval(paneEscape.timer);
+  paneEscape = null;
+  return true;
+}
+
+/**
+ * 이 창에서 앱 안 IDE 창을 끄는 동안 커서를 지켜본다 — 창 밖으로 나가면 렌더러에 한 번 알린다.
+ *
+ * 어느 창인지는 **부른 쪽**(`event.sender`)이 정한다 — 메인 창일 수도 별창일 수도 있고, 그
+ * 창의 콘텐츠 경계로 재야 "이 앱 밖"이 그 사람이 보는 화면과 맞는다.
+ */
+export function startPaneDragEscapeWatch(senderWindowId: number): boolean {
+  const win = BrowserWindow.fromId(senderWindowId);
+  if (!win || win.isDestroyed()) return false;
+  stopPaneDragEscapeWatch();
+  const deadline = Date.now() + PANE_ESCAPE_TTL_MS;
+  const timer = setInterval(() => {
+    if (win.isDestroyed() || Date.now() > deadline) { stopPaneDragEscapeWatch(senderWindowId); return; }
+    const cursor = screen.getCursorScreenPoint();
+    if (!isCursorOutsideRect(cursor, win.getContentBounds(), PANE_ESCAPE_MARGIN_PX)) return;
+    // 나갔다 — 한 번만 말하고 감시를 끝낸다(두 번 말하면 렌더러가 같은 판을 두 번 꺼내려 든다).
+    stopPaneDragEscapeWatch(senderWindowId);
+    if (win.webContents.isDestroyed()) return;
+    win.webContents.send('vibisual:ide:pane-drag-escape', { cursor });
+  }, DRAG_POLL_MS);
+  paneEscape = { windowId: senderWindowId, timer };
+  return true;
+}
+
 export function openOverlay(opts: {
   agentId: string;
   projectId: string;
@@ -705,7 +813,7 @@ export function openOverlay(opts: {
         handoff: opts.handoff,
       });
       // (H-6) ⑤ 이 창은 이미 서 있으므로 기다릴 것이 없다 — 윤곽선을 지금 걷는다(선이 창이 됐다).
-      hidePopOutGhost();
+      finishGhostHandoff();
     }
     // 이미 서 있는 창은 부팅을 다시 하지 않는다 — 짐이 있으면 그 창에 직접 건네야 도착한다.
     if (opts.handoff && !existing.window.webContents.isDestroyed()) {
@@ -819,7 +927,13 @@ export function openOverlay(opts: {
       //   살아 있다가, 그 자리를 진짜 창이 이어받는 이 순간 꺼진다. 팝아웃 시점에 껐다면
       //   창을 만들고 띄우는 동안 커서 아래에 **아무것도 없는 구간**이 생긴다(= "사라졌다
       //   나타난다"). 둘 다 이 프로세스가 쥐고 있으므로 신호를 주고받을 필요가 없다.
-      hidePopOutGhost();
+      //
+      // (H-7) 다만 **이 순간은 아직 창이 아니다.** `ready-to-show` 는 문서의 첫 페인트라,
+      //   `transparent:true` 인 이 창에서는 React 가 마운트되기 전의 **투명한 빈 창**이다.
+      //   게다가 끌어내서 만든 창은 WS 스냅샷이 와 자기 버블을 알게 된 뒤에야 IDE 를 연다
+      //   (`OverlayShell`) — 여기서 선을 걷으면 그 부팅 내내 커서 아래가 비고, ⑤ 가 없애기로
+      //   한 구간이 자리만 옮겨 되살아난다. 선은 **렌더러가 다 그렸다고 알려올 때** 걷는다.
+      armGhostHandoff(win.id);
     } else if (opts.expanded) {
       // 방금 손으로 끌어낸 창이라 바로 쓰게 된다 — 뒤에 뜨면 "꺼냈는데 안 보인다"로 읽힌다.
       win.show();
@@ -832,6 +946,9 @@ export function openOverlay(opts: {
 
   win.on('closed', () => {
     stopOverlayDrag(win.id);
+    // (H-7) 이 창이 이어받기로 한 선이 있었다면 여기서 걷는다 — 받을 창이 사라졌으므로
+    //   기다릴 것이 없다(클릭통과 선이라 남으면 사용자가 없앨 수 없다).
+    if (isGhostHandoffTarget(win.id)) finishGhostHandoff();
     // §17-6 (H) — 합치기 드래그 중 창이 사라져도 폴링이 남지 않게(고아 타이머 방지).
     stopOverlayRedockDrag(entry);
     // 이 버블의 우클릭 메뉴가 떠 있으면 함께 닫는다(고아 메뉴 방지).
@@ -1543,7 +1660,8 @@ export function closeOverlayMenuByWindowId(senderWindowId: number): boolean {
 export function closeAllOverlays(): void {
   closeOverlayMenu();
   // (H-6) 밖으로 빼는 중이던 윤곽선도 함께 걷는다 — 클릭통과 창이라 남으면 사용자가 없앨 수 없다.
-  hidePopOutGhost();
+  //   (H-7) 인계를 기다리던 그물도 함께 푼다(앱이 닫힌 뒤 도는 타이머 ❌).
+  finishGhostHandoff();
   for (const entry of [...overlaysByAgentId.values()]) {
     stopOverlayDrag(entry.id);
     // §17-6 (H) — 합치기 드래그 폴링도 함께 걷는다(앱 종료 후 살아남는 타이머 ❌).

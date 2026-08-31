@@ -1,4 +1,6 @@
 import { CHAT_DISCORD_PAIR_COMMAND, CHAT_LOG_DEFAULT_LINES, CHAT_LOG_MAX_LINES } from '@vibisual/shared';
+import { fmt } from './strings';
+import type { ChatStrings } from './strings';
 
 // §4 메신저 원격제어 브리지 — 들어온 한 줄을 무엇으로 볼 것인가 (판올림 번호 발급 대기)
 //
@@ -70,20 +72,20 @@ export function clampLogLines(arg: string): number {
   return Math.min(n, CHAT_LOG_MAX_LINES);
 }
 
-/** 페어링 전 발신자에게도, 페어링 뒤 `/help` 에도 쓰는 안내문. */
-export function helpLines(paired: boolean): string[] {
-  if (!paired) {
-    return [
-      '이 대화는 아직 연결되지 않았습니다.',
-      'Vibisual 의 File → Remote Control 에서 QR 을 발급해 스캔해 주세요.',
-    ];
-  }
+/**
+ * 페어링 전 발신자에게도, 페어링 뒤 `/help` 에도 쓰는 안내문.
+ *
+ * 슬래시 명령 이름(`/agents` 등)은 **번역하지 않는다** — 그 글자를 그대로 쳐야 동작하기
+ * 때문이다. 번역되는 것은 그 옆의 설명뿐이다.
+ */
+export function helpLines(paired: boolean, s: ChatStrings): string[] {
+  if (!paired) return [s.helpNotPaired1, s.helpNotPaired2];
   return [
-    '/agents — 에이전트를 골라 이 대화의 상대로 지정',
-    '/status — 지금 하는 일과 진행률',
-    '/log [n] — 원문 마지막 n 줄 (기본 ' + String(CHAT_LOG_DEFAULT_LINES) + ', 최대 ' + String(CHAT_LOG_MAX_LINES) + ')',
-    '/stop — 지금 턴 중지',
-    '/unpair — 이 대화 연결 끊기',
-    '그 밖의 글은 고른 에이전트에게 명령으로 전달됩니다.',
+    s.helpAgents,
+    s.helpStatus,
+    fmt(s.helpLog, { default: CHAT_LOG_DEFAULT_LINES, max: CHAT_LOG_MAX_LINES }),
+    s.helpStop,
+    s.helpUnpair,
+    s.helpPlain,
   ];
 }

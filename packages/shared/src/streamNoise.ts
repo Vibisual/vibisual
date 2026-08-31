@@ -144,6 +144,24 @@ export function foldTaskBookend(start: StreamTaskInfo, end: StreamTaskInfo): Str
 export const TASK_CHIP_START_SUBTYPE = 'task_started';
 export const TASK_CHIP_END_SUBTYPE = 'task_notification';
 
+/**
+ * §4 (CLI 사양 추종) — `--include-hook-events` 가 스트림에 흘리는 훅 줄의 subtype.
+ *
+ * 공식 문서가 이름을 셋으로 못 박았다: `hook_started`(훅 시작) · `hook_progress`(1초 넘게 도는
+ * command 훅이 뱉는 중간 출력) · `hook_response`(배경 훅이 끝났을 때). `hook_completed` 는
+ * 실행본이 함께 흘리던 이름이라 같이 든다 — 이름이 하나 늘어도 여기 한 줄이면 된다.
+ *
+ * **기본은 소음이다.** 플래그를 안 켠 세션에서도 일부가 흘러들어와 대화록을 채우던 자리라
+ * 종전부터 버려 왔고, 사용자가 `includeHookEvents` 로 **일부러 켰을 때만** 화면에 세운다.
+ */
+export const HOOK_STREAM_SUBTYPES: ReadonlySet<string> = new Set([
+  'hook_started', 'hook_progress', 'hook_response', 'hook_completed',
+]);
+
+/** 그 줄이 훅 줄인가. 화면 표시 판정(SystemNode `^hook_` 패턴)과 같은 갈래를 서버가 재사용한다. */
+export function isHookStreamSubtype(subtype: string): boolean {
+  return HOOK_STREAM_SUBTYPES.has(subtype);
+}
 /** 이벤트가 "내용 없는 SDK 상태 칩"인가 — 판정에 필요한 최소 모양만 받는다(타입 결합 회피). */
 export interface StreamNoiseProbe {
   eventType: string;

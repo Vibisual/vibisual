@@ -191,7 +191,10 @@
       "revokeQr": "立即撤销 QR 码",
       "expiresIn": "剩余有效期",
       "savePng": "保存 PNG",
-      "discordPairHint": "扫描以邀请机器人，然后在它可见的任意频道发送以下内容：",
+      "discordPairHint": "扫码邀请机器人后，请私聊机器人并发送这一行：",
+      "dmOnlyHint": "仅在与机器人的一对一私聊中接受配对。若在公共频道配对，该频道里的所有人都能操作你的代理。",
+      "sharedChatBadge": "公共",
+      "sharedChatWarning": "这是在「仅限私聊」规则之前配对的对话。该频道里任何人都能发命令并批准授权。请断开后在私聊中重新配对。",
       "pairedChats": "已连接的聊天",
       "unpair": "断开",
       "verbosityTitle": "发送内容",
@@ -203,7 +206,7 @@
         "cards": "只有卡片和摘要会离开本机，需要原始输出时可使用 /log 获取。",
         "full": "回复和思考过程会随时转发，工具输出和差异内容仍不会离开本机。"
       },
-      "securityNote": "只有已配对的聊天会收到回复，其余一律忽略。终端访问权限绝不会通过消息应用开放。"
+      "securityNote": "只有你配对过的对话才能发命令。其余最多只会收到一行「尚未连接」的提示。通过即时通讯永远无法打开终端。"
     },
     "guide": {
       "title": "指南",
@@ -921,6 +924,32 @@
         "MultiEdit": "一次对同一文件应用多处编辑。",
         "SendMessage": "向运行中的子代理发送后续消息。",
         "Artifact": "创建文档、应用等制品。",
+        "PowerShell": "在 Windows 上原生运行 PowerShell 命令。",
+        "LSP": "通过语言服务器跳转到定义、查找引用并读取类型错误。",
+        "Workflow": "根据 Agent 编写的脚本编排多个子 Agent。",
+        "ListAgents": "列出可发送消息的其他 Claude Code 会话。",
+        "TaskCreate": "在共享任务列表中创建任务。",
+        "TaskGet": "从共享任务列表中读取一个任务。",
+        "TaskList": "列出共享任务列表中的任务。",
+        "TaskUpdate": "更新任务的状态或详情。",
+        "EnterPlanMode": "切换到计划模式，先设计后行动。",
+        "EnterWorktree": "将会话移入新的 git worktree。",
+        "ExitWorktree": "离开当前的 git worktree。",
+        "PushNotification": "发送桌面通知，并在已连接远程控制时推送至手机。",
+        "SendUserFile": "向用户发送文件。",
+        "RemoteTrigger": "在已连接的远程设备上触发操作。",
+        "SendFeedback": "向 Anthropic 发送关于 Claude Code 的反馈。",
+        "ShareOnboardingGuide": "与队友分享该项目的设置指南。",
+        "ReportFindings": "以代码评审的方式报告结构化的发现。",
+        "EndConversation": "从会话内部结束本次会话。",
+        "ScheduleWakeup": "安排会话稍后自行唤醒。",
+        "CronCreate": "创建一个定时重复运行。",
+        "CronList": "列出定时重复运行。",
+        "CronDelete": "删除一个定时重复运行。",
+        "ToolSearch": "当连接了大量工具时，按需查找合适的工具。",
+        "ListMcpResourcesTool": "列出已连接 MCP 服务器暴露的资源。",
+        "ReadMcpResourceTool": "从已连接的 MCP 服务器读取一个资源。",
+        "WaitForMcpServers": "等待正在连接的 MCP 服务器就绪。",
         "strippedByEdgeHint": "通过 STRICT 边委派——该 Agent 在运行时无法使用此工具（移除该边后将恢复）"
       },
       "maxTurns": "最大轮次",
@@ -1009,10 +1038,29 @@
         "label": "建议下一条提示",
         "hint": "每轮结束后预测"
       },
+      "includeHookEvents": {
+        "label": "在会话记录中显示 Hook 事件",
+        "hint": "每次 Hook 触发时以内嵌形式显示"
+      },
       "betas": {
         "label": "Beta 头",
         "tip": "随 API 请求发送的 beta 头。仅 API Key 用户有效 — 订阅认证会忽略。",
         "placeholder": "用逗号分隔"
+      },
+      "agentDefinitions": {
+        "label": "会话子 Agent",
+        "tip": "本会话可委派给的子 Agent 类型，在此处定义，而不是以文件形式存在。不会写入磁盘，因此不会泄露到其他项目中。名称、描述和提示词均为必填项——缺少任意一项的条目会被丢弃。",
+        "namePlaceholder": "名称（小写字母、连字符）",
+        "descPlaceholder": "何时委派给它",
+        "promptPlaceholder": "系统提示词",
+        "add": "+ 子 Agent",
+        "remove": "移除",
+        "needsTaskTool": "Task 工具已关闭，因此无法调用这些子 Agent。"
+      },
+      "pluginDirs": {
+        "label": "会话插件",
+        "tip": "Claude Code 插件文件夹或 .zip 文件，仅在本会话中加载，每行一个路径。这些是 Claude Code 插件，不是 Vibisual 插件。",
+        "placeholder": "每行一个路径"
       },
       "bashTimeout": {
         "label": "Bash 超时",
@@ -2168,6 +2216,8 @@
       "openFile": "在编辑器中打开",
       "copyPath": "复制路径",
       "copied": "已复制",
+      "pathToInput": "将路径插入输入框 · 复制",
+      "pathInserted": "已插入输入框 · 已复制",
       "truncated": "仅显示前 {{count}} 项",
       "ctx": {
         "open": "打开",
@@ -2182,8 +2232,10 @@
         "newName": "新名称",
         "confirmTrash": "将“{{name}}”移到回收站？",
         "confirmDelete": "永久删除“{{name}}”？此操作无法撤销。",
+        "confirmMove": "将“{{name}}”移动到“{{folder}}”？",
         "trashed": "已将“{{name}}”移到回收站",
         "deleted": "已删除“{{name}}”",
+        "moved": "已将“{{name}}”移动到“{{folder}}”",
         "err": {
           "nameEmpty": "请输入名称",
           "nameSeparator": "名称不能包含 / 或 \\",
@@ -2198,8 +2250,15 @@
           "offline": "无法连接到应用",
           "root": "无法在这里更改项目根目录",
           "outside": "该路径在项目之外",
+          "intoSelf": "无法将文件夹移动到自身内部",
+          "crossDevice": "无法移动到其他驱动器",
           "failed": "操作失败"
         }
+      },
+      "drop": {
+        "input": "将路径插入输入框",
+        "editor": "在编辑器中打开",
+        "folderBlocked": "文件夹无法在编辑器中打开"
       }
     },
     "editor": {

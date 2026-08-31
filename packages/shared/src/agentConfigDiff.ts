@@ -11,8 +11,8 @@
  * 한쪽은 "다름", 다른 쪽은 "같음"이라 답하는 날이 온다.
  */
 
-import type { AgentConfig, UserDefaults } from './types.js';
-import { DEFAULT_AGENT_CONFIG } from './constants.js';
+import type { AgentConfig, AgentDefinition, UserDefaults } from './types.js';
+import { DEFAULT_AGENT_CONFIG, buildAgentsFlagJson } from './constants.js';
 
 /**
  * 비교에서 빼는 축 — **버블마다 다른 게 정상**인 정체성과, 이 창이 만지지 않는 통과용 필드.
@@ -59,7 +59,10 @@ export const AGENT_CONFIG_COMPARED_FIELDS = [
   'forwardSubagentText',
   'replayUserMessages',
   'promptSuggestions',
+  'includeHookEvents',
   'betas',
+  'agentDefinitions',
+  'pluginDirs',
   'bashDefaultTimeoutMs',
   'bashMaxTimeoutMs',
   'skills',
@@ -106,6 +109,13 @@ export function resolveAgentDefaults(userDefaults?: AgentDefaultsSource): AgentC
  * ① 미설정의 여러 표기를 하나로, ② 배열은 **집합**으로(순서는 뜻이 없다), ③ 나머지는 문자열로.
  */
 export function normalizeAgentFieldForCompare(field: AgentConfigComparedField, value: unknown): string {
+  // §4 (CLI 사양 추종) — 서브에이전트 정의는 **객체 배열**이라 아래 `String(v)` 접기가 통하지 않는다
+  //   (전부 `[object Object]` 가 되어 서로 다른 정의가 같아 보인다). 대신 **CLI 로 나가는 그 JSON**
+  //   을 정본으로 삼는다 — 같은 인자를 만들어 내는 두 설정은 실제로 같은 설정이다(빈 항목·이름
+  //   다듬기·중복 제거가 이미 그 안에서 접힌다).
+  if (field === 'agentDefinitions') {
+    return buildAgentsFlagJson(value as AgentDefinition[] | undefined) ?? '';
+  }
   if (Array.isArray(value)) {
     // 빈 목록은 **미설정과 같은 뜻**이다 — 창이 그렇게 저장한다(빈 칩 목록은 undefined 로 나간다).
     return value.length === 0 ? '' : JSON.stringify([...value].map((v) => String(v)).sort());

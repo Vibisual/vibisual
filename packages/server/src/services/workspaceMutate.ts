@@ -6,11 +6,11 @@ import type {
   WorkspaceEntryResult,
   WorkspacePathKind,
 } from '@vibisual/shared';
-import { pathKey } from './pathKey.js';
+import { isWithinRoot, pathKey } from './pathKey.js';
 import { resolveWorkspacePath } from './workspaceExplorer.js';
 
 /**
- * §5.5 #17-19 ⑦ — IDE 탐색기 우클릭이 디스크에 내는 **세 가지 변경**(만들기 · 이름 바꾸기 · 삭제).
+ * §5.5 #17-19 ⑦⑧ — IDE 탐색기가 디스크에 내는 **네 가지 변경**(만들기 · 이름 바꾸기 · 삭제 · 옮기기).
  *
  * 조회(`workspaceExplorer.ts`)·파일 한 개 읽고 쓰기(`workspaceFile.ts`)와 같은 결로 갈라 둔 담당이다.
  * 경로 가드는 **새로 만들지 않는다** — 탐색기의 `resolveWorkspacePath` 를 그대로 쓴다(두 개의
@@ -35,6 +35,10 @@ export type WorkspaceMutateError =
   | 'not-found'
   /** 권한·잠금으로 디스크가 거절했다 */
   | 'denied'
+  /** 폴더를 자기 자신(또는 자기 하위)으로 옮기려 했다 — 트리가 스스로를 삼킨다 */
+  | 'into-self'
+  /** 다른 볼륨이라 `rename` 이 안 된다(정션·심볼릭 링크로 물린 경우) */
+  | 'cross-device'
   /** 그 밖의 실패 */
   | 'failed';
 
@@ -177,6 +181,80 @@ export function renameWorkspaceEntry(
   return {
     ok: true,
     result: { root: path.resolve(root), path: to.rel, parent: parentRel, name, isDirectory },
+  };
+}
+
+/**
+ * 옮긴다 — **이름은 그대로 두고 사는 폴더만 바꾼다**(이름 바꾸기와 갈라 둔 이유는 위 주석 그대로다:
+ * 다른 되물음이 필요한 다른 기능이다).
+ *
+ * 막아야 하는 세 가지가 있고, 셋 다 사용자가 손으로 끌다 자연스럽게 만드는 상황이다.
+ *  ⓐ **제자리** — 이미 그 폴더에 살고 있으면 디스크를 건드리지 않고 성공으로 답한다(rename no-op 과 같은 결).
+ *  ⓑ **자기 자신 안으로** — 폴더를 자기 하위로 옮기면 트리가 스스로를 삼킨다. `fs.renameSync` 는
+ *     플랫폼마다 다른 오류를 내므로(win `EPERM`·linux `EINVAL`) **우리가 먼저** 판정한다.
+ *  ⓒ **겹침** — 목적지에 같은 이름이 이미 있으면 덮어쓰지 않고 `exists` 로 답한다. 검사는 경로 문자열이
+ *     아니라 플랫폼이 정한 경로 키(`pathKey`)로 — 대소문자만 다른 이웃은 win/mac 에서 같은 파일이다.
+ */
+export function moveWorkspaceEntry(
+  root: string,
+  relPath: string,
+  toDirRel: string,
+): WorkspaceMutateOutcome<WorkspaceEntryResult> {
+  const from = resolveWorkspacePath(root, relPath);
+  if (!from) return { ok: false, error: 'outside' };
+  if (from.rel === '') return { ok: false, error: 'root' };
+
+  const toDir = resolveWorkspacePath(root, toDirRel);
+  if (!toDir) return { ok: false, error: 'outside' };
+
+  let isDirectory: boolean;
+  try {
+    isDirectory = fs.statSync(from.abs).isDirectory();
+  } catch {
+    return { ok: false, error: 'not-found' };
+  }
+
+  try {
+    if (!fs.statSync(toDir.abs).isDirectory()) return { ok: false, error: 'not-found' };
+  } catch {
+    return { ok: false, error: 'not-found' };
+  }
+
+  // ⓑ 자기 자신(또는 자기 하위)으로는 못 간다. 판정은 루트 가드와 **같은 함수**(`isWithinRoot`)로 한다 —
+  //    직접 접두사를 비교하면 이웃(`src` vs `srcery`)을 하위로 오인하고, 대소문자 접기도 손으로 정하게 된다.
+  const fromKey = pathKey(from.abs);
+  if (isDirectory && isWithinRoot(toDir.abs, from.abs)) return { ok: false, error: 'into-self' };
+
+  const name = from.rel.slice(from.rel.lastIndexOf('/') + 1);
+  const target = resolveWorkspacePath(root, toDir.rel ? `${toDir.rel}/${name}` : name);
+  if (!target || target.rel === '') return { ok: false, error: 'outside' };
+
+  // ⓐ 제자리 — 이미 그 폴더의 그 이름이다. 디스크를 건드리지 않는다.
+  if (pathKey(target.abs) === fromKey) {
+    return {
+      ok: true,
+      result: { root: path.resolve(root), path: from.rel, parent: parentRelOf(from.rel), name, isDirectory },
+    };
+  }
+
+  // ⓒ 겹침 — 덮어쓰지 않는다(`fs.renameSync` 는 파일 위에 파일을 조용히 덮어쓴다).
+  if (fs.existsSync(target.abs)) return { ok: false, error: 'exists' };
+
+  try {
+    fs.renameSync(from.abs, target.abs);
+  } catch (err) {
+    const code = (err as { code?: unknown } | null)?.code;
+    if (code === 'ENOENT') return { ok: false, error: 'not-found' };
+    // 드라이브·마운트가 다르면 rename 이 안 된다 — 루트 안 이동이라 정상 경로에서는 나지 않지만,
+    // 정션·심볼릭 링크로 다른 볼륨이 물려 있으면 실제로 난다. 사유를 뭉개지 않고 그대로 답한다.
+    if (code === 'EXDEV') return { ok: false, error: 'cross-device' };
+    if (isPermissionError(err)) return { ok: false, error: 'denied' };
+    return { ok: false, error: 'failed' };
+  }
+
+  return {
+    ok: true,
+    result: { root: path.resolve(root), path: target.rel, parent: toDir.rel, name, isDirectory },
   };
 }
 

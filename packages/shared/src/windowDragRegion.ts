@@ -55,6 +55,29 @@ export function isCursorDeepInside(
     && cursor.y <= rect.y + rect.height - insetY;
 }
 
+/**
+ * (판올림 번호 발급 대기) (H-8) 커서가 그 네모 **밖으로** 나갔는가 — 화면 좌표로 재는 이탈 판정.
+ *
+ * 렌더러에는 이미 같은 뜻의 함수가 있다(`isCursorOutsideViewport` — 창 안 좌표로 잰다). 그런데
+ * **끌던 손을 이어받은 판**은 그 창에서 `mousedown` 이 일어난 적이 없어 마우스 캡처가 없다 —
+ * 커서가 창을 벗어나는 순간 렌더러에 이벤트가 끊겨, 창 안 좌표로는 이탈을 **영영 볼 수 없다**
+ * (사용자 보고 — "되돌렸다가 다시 밖으로 빼려는데 막힌다"). 그 판은 main 이 커서를 폴링해
+ * 대신 봐 주어야 하고, 그러면 판정이 두 벌이 된다 — 여기 한 곳에 둬야 두 눈이 같은 자리에서
+ * 같은 말을 한다.
+ *
+ * 여백(margin)의 뜻도 렌더러 쪽과 같다: 0 이면 창을 화면 끝까지 끌기만 해도 튀어나간다.
+ */
+export function isCursorOutsideRect(
+  cursor: { x: number; y: number },
+  rect: ScreenRect,
+  margin: number,
+): boolean {
+  return cursor.x < rect.x - margin
+    || cursor.y < rect.y - margin
+    || cursor.x > rect.x + rect.width + margin
+    || cursor.y > rect.y + rect.height + margin;
+}
+
 /** 한 틱의 판정 결과 — 다음 틱에 넘길 기억(`inside`)과 지금 되돌릴지(`entered`). */
 export interface AppEntryStep {
   /** 다음 틱이 견줄 값. 되돌렸든 아니든 **지금 상태 그대로** 넘긴다. */

@@ -175,6 +175,15 @@ export const IDE_FLOAT = {
    */
   POP_OUT_GHOST_ENTER_PX: 24,
   /**
+   * (H-6) 손을 뗐을 때 **그대로 내보낼** 문턱(px, 놓을 수 있는 자리 기준).
+   *
+   * 윤곽선이 뜨는 문턱(`POP_OUT_GHOST_ENTER_PX`=24)과 벌려 둔다: 창을 화면 끝에 바짝 붙여 두려다
+   * 몇 십 픽셀 더 간 손이 창을 밖으로 던지면 안 된다. 여기까지 끌었다면 "밖으로 뺀다" 말고 달리
+   * 읽을 여지가 없다. (H-7) 로 `popOutGhostDecision` 이 함께 쥐게 되면서 이 곳으로 왔다 —
+   * 선을 켜는 문턱과 무장 문턱이 떨어져 있으면 둘이 어긋나는지 한눈에 보이지 않는다.
+   */
+  POP_OUT_GHOST_COMMIT_PX: 120,
+  /**
    * (H-6) 윤곽선이 **이미 떠 있을 때**의 가장자리 버팀(ms) — 밖으로 밀어냈다는 신호가 화면에
    * 이미 있는데 `POP_OUT_EDGE_DWELL_MS` 를 처음부터 다시 기다릴 이유가 없다.
    */
@@ -711,6 +720,46 @@ export function isPulledFullyOut(geom: FloatGeom, vp: Viewport): boolean {
     || geom.y >= vp.h
     || geom.x + geom.w <= 0
     || geom.y + geom.h <= 0;
+}
+
+/** (H-7) 지금 윤곽선을 그려야 하는가 — 그리고 지금 손을 떼도 그대로 나가는가. */
+export interface PopOutGhostDecision {
+  show: boolean;
+  armed: boolean;
+}
+
+/**
+ * (판올림 번호 발급 대기) (H-7) **윤곽선을 켜는 이유는 셋이고, 판정은 한 곳이다.**
+ *
+ * (H-6) 은 이유를 둘만 알았다 — 창이 `clampFloatGeom` 한계를 `POP_OUT_GHOST_ENTER_PX` 넘게
+ * 벗어났거나, 가장자리에 막힌 채 버티고 있거나. 그런데 **창 자리로만 재면 잡은 지점에 따라
+ * 선이 아예 뜨지 않는다**: 창 좌상단은 `cursor - grab` 이므로, 타이틀바를 가운데쯤 잡으면
+ * (`grab.x > KEEP_VISIBLE.x`=80) 커서가 오른쪽 변을 넘어 나가는 순간에도 창 좌상단은 아직
+ * 클램프 한계 안이다. 실제로 오른쪽으로 뺄 때는 `grab.x < 80`, 왼쪽으로 뺄 때는
+ * `w - grab.x < 80` 인 손만 선을 봤다 — 나머지 손에게는 (H-6) ⑤ 가 지키기로 한 "빈 화면 없는
+ * 인계"가 **인계할 선 자체가 없는** 상태로 돌아갔다(창이 커서에서 사라진다).
+ *
+ * 그래서 이유를 하나 더 둔다: **커서가 앱 창 밖으로 나갔다.** 이 신호는 잡은 지점과 무관하고,
+ * 창을 화면 가장자리에 파킹하는 평범한 손짓과도 섞이지 않는다(파킹하는 손은 앱 안에 있다) —
+ * (H-6) 이 문턱을 뷰포트가 아니라 클램프 한계로 잡은 그 이유를 그대로 지킨다. 나가는 판정은
+ * 커서가 `POP_OUT_MARGIN`(24px) 더 가야 서므로, 그 사이가 선이 먼저 서 있을 구간이 된다.
+ */
+export function popOutGhostDecision(input: {
+  /** 가두지 않은 **지금** 창 자리(`dragFloatGeom` 결과). */
+  geom: FloatGeom;
+  /** 앱 창 안 좌표의 커서(`clientX/Y`) — 밖으로 나가면 음수·뷰포트 초과가 된다. */
+  cursor: { x: number; y: number };
+  vp: Viewport;
+  /** 가장자리 버팀이 선을 띄울 만큼 진행됐는가(시간 판정은 부르는 쪽 몫). */
+  edgeDwell: boolean;
+}): PopOutGhostDecision {
+  const beyond = overflowPastClamp(input.geom, input.vp);
+  // 커서가 앱 밖이면 **무장**이다 — 그 자리에서 손을 떼는 것은 "여기 놓겠다"는 뜻 말고 없다.
+  const outside = isOutsideViewport(input.cursor, input.vp, 0);
+  return {
+    show: outside || beyond > IDE_FLOAT.POP_OUT_GHOST_ENTER_PX || input.edgeDwell,
+    armed: outside || beyond >= IDE_FLOAT.POP_OUT_GHOST_COMMIT_PX,
+  };
 }
 
 /** 두 자리가 같은 곳을 가리키는가 — 십자 버튼 강조가 판정과 어긋나지 않게 한 곳에서 견준다. */

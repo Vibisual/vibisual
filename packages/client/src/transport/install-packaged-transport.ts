@@ -143,6 +143,21 @@ export interface PackagedOverlayApi {
   ghostNudge?(payload: { dx: number; dy: number }): Promise<boolean>;
   /** §17-6 (H-6) — 윤곽선 걷기(도로 앱 안 · 손 뗌). 밖으로 나간 경우는 main 이 스스로 걷는다. */
   ghostHide?(): Promise<boolean>;
+  /**
+   * §17-6 (H-7) — **이 창이 다 그려졌다**(끌어내서 만든 창 한정). main 은 이 신호를 받고서야
+   * 윤곽선을 걷는다 — `ready-to-show` 는 아직 React 가 마운트되기 전의 투명한 빈 창이다.
+   * 구버전 preload 에는 없으므로 **선택 속성**(없으면 main 의 그물이 시간으로 걷는다).
+   */
+  shellReady?(): Promise<boolean>;
+  /**
+   * §17-6 (H-8) — 앱 안 IDE 창을 끄는 동안 **커서를 main 이 대신 본다**. 밖에서 끌던 손을
+   * 이어받은 판에는 이 창의 `mousedown` 이 없어 마우스 캡처가 없고, 그러면 커서가 창을
+   * 벗어나는 순간 렌더러가 눈이 멀어 "밖으로 빼기"가 영영 서지 않는다.
+   * 구버전 preload 에는 없으므로 **선택 속성**(없으면 종전대로 캡처에만 기댄다).
+   */
+  paneDragWatch?(on: boolean): Promise<boolean>;
+  /** §17-6 (H-8) — 커서가 이 창 밖으로 나갔다(한 판에 한 번, **화면 좌표**). */
+  onPaneDragEscape?(cb: (payload: { cursor: { x: number; y: number } }) => void): () => void;
   /** §17-6 (H-4) — 이 창이 커서에 매달려 있는가(매달린 창도 뗌을 함께 듣는다). */
   onFollowDragState?(cb: (payload: { following: boolean }) => void): () => void;
   /**

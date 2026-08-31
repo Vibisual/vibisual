@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import type { ProjectInfo, SubAgent, SubAgentStatus, QueuedCommand, CommandError, AgentConfig, SubAgentStreamEvent, StreamEventType, AgentViewJobState, RunningSubagentTask, FinishedSubagentTask, StreamTaskInfo, StreamTaskStatus, CmdTerminalSignal, CmdTerminalState, CmdPaneNode, CmdCliKind, SessionMemo } from '@vibisual/shared';
-import { CMD_PANE_SEPARATOR, CMD_BLOCK_REASON_MAX, collectCmdPaneIds, resolveCmdCliKind, DEFAULT_AGENT_CONFIG, isOpusModel, supportsFastMode, isForwardSubagentTextEnabled, resolveAliasToLatest, buildCmdCardProtocolRules, isNeverRenderedStreamEvent, formatSystemChip, normalizeBashTimeoutMs, TASK_CHIP_START_SUBTYPE, TASK_CHIP_END_SUBTYPE, parseSystemSubtype, parseSystemTaskInfo, capMapSize, SESSION_KEYED_MAP_MAX, resolveLocalToolGate, resolveAutoCompact } from '@vibisual/shared';
+import { CMD_PANE_SEPARATOR, CMD_BLOCK_REASON_MAX, collectCmdPaneIds, resolveCmdCliKind, DEFAULT_AGENT_CONFIG, isOpusModel, supportsFastMode, isForwardSubagentTextEnabled, resolveAliasToLatest, buildCmdCardProtocolRules, isNeverRenderedStreamEvent, formatSystemChip, normalizeBashTimeoutMs, TASK_CHIP_START_SUBTYPE, TASK_CHIP_END_SUBTYPE, parseSystemSubtype, parseSystemTaskInfo, capMapSize, SESSION_KEYED_MAP_MAX, resolveLocalToolGate, resolveAutoCompact, toCliPermissionMode, buildAgentsFlagJson, normalizePluginDirs, isHookStreamSubtype, HOOK_STREAM_SUBTYPES } from '@vibisual/shared';
 import {
   createTurnSealState, noteTaskChip, mayTurnResume, noteTurnResumed, noteTurnSealed,
   listDisplayableLiveTasks, turnIdOfLiveTask, takeOrphanLiveTasks, LIVE_TASK_ORPHAN_GRACE_MS,
@@ -161,18 +161,19 @@ function buildConfigArgs(config: AgentConfig, ctx?: ConfigArgsContext): string[]
     args.push('--model', modelArg);
   }
 
-  // 퍼미션 모드 — CLI 내부 enum 6종(`default`=표시명 Manual / acceptEdits / auto / dontAsk / plan /
-  //   bypassPermissions). `'default'` 는 CLI 기본값이라 플래그를 붙이지 않는다(종전 동작 유지).
-  //   `auto`·`dontAsk` 는 그대로 통과 — 판정 의미는 CLI 가 갖고, 우리 승인 게이트의 대응 매핑은
-  //   §5.3 #12-1(`/api/permission-check`)에 있다.
-  if (config.permissionMode && config.permissionMode !== 'default') {
-    if (config.permissionMode === 'bypassPermissions') {
-      args.push('--dangerously-skip-permissions');
-    } else {
-      args.push('--permission-mode', config.permissionMode);
-    }
+  // 퍼미션 모드 — **항상 명시한다.** 종전에는 `'default'`(표시명 Manual)일 때 플래그를 생략하고
+  //   "CLI 기본값이 곧 Manual" 이라고 가정했는데, 2026-08-14 부터 **CLI 무플래그 기본이 `auto`**
+  //   (분류기가 스스로 승인)로 바뀌면서 그 가정이 깨졌다 — 화면에 "Manual — 위험한 동작마다 확인"
+  //   이라고 적힌 에이전트가 실제로는 자동 승인으로 돌 수 있었다. 표시 오류가 아니라 안전 문제라
+  //   무플래그 자리를 없앤다. 변환표는 `toCliPermissionMode`(shared) 한 곳이고,
+  //   `bypassPermissions` 만 전용 플래그로 빠진다. 판정 의미는 CLI 가 갖고, 우리 승인 게이트의
+  //   대응 매핑은 §5.3 #12-1(`/api/permission-check`)에 있다.
+  if (config.permissionMode === 'bypassPermissions') {
+    args.push('--dangerously-skip-permissions');
+  } else {
+    const cliPermissionMode = toCliPermissionMode(config.permissionMode);
+    if (cliPermissionMode) args.push('--permission-mode', cliPermissionMode);
   }
-
   // 사고 깊이 (effort)
   if (config.effort && config.effort !== 'default') {
     args.push('--effort', config.effort);
@@ -235,6 +236,20 @@ function buildConfigArgs(config: AgentConfig, ctx?: ConfigArgsContext): string[]
     args.push('--betas', ...betas);
   }
 
+  // §4 (CLI 사양 추종) — 이 세션에만 존재하는 서브에이전트 정의. 배열(우리) → 객체(CLI) 변환은
+  //   `buildAgentsFlagJson`(shared) 한 곳이고, 넘길 게 없으면 **플래그 자체를 안 붙인다**.
+  //   ⚠ argv 로 나가는 JSON 이라 셸을 거치지 않는 spawn(배열 인자)이라야 안전하다 — 우리 스폰이
+  //   그렇다(문자열 명령줄로 조립하는 경로가 생기면 여기가 먼저 깨진다).
+  const agentsJson = buildAgentsFlagJson(config.agentDefinitions);
+  if (agentsJson) {
+    args.push('--agents', agentsJson);
+  }
+
+  // §4 (CLI 사양 추종) — 세션 한정 플러그인. `--plugin-dir` 는 **반복 플래그**라 경로마다 한 번씩
+  //   붙는다(쉼표 연결이 아니다 — 경로에 쉼표가 들어갈 수 있어 CLI 가 그 형식을 안 쓴다).
+  for (const dir of normalizePluginDirs(config.pluginDirs)) {
+    args.push('--plugin-dir', dir);
+  }
   // §5.3 v4.89 자기 기억 + §4 Fast 모드 — **설정 파일 한 장**으로 나간다.
   //   `--settings` 로 들어간 값은 사용자 설정 계층과 병합되므로 사용자 설정을 지우지 않고
   //   필요한 키만 바꿔 끼운다. 기억 `'off'` 는 파일이 아니라 환경변수 쪽이라 여기서는 인자가
@@ -680,15 +695,45 @@ function readTaskInfo(subtype: string, obj: Record<string, unknown>): StreamTask
   return { id, status, summary: text('summary'), durationMs };
 }
 
-/** stream-json 라인 → SubAgentStreamEvent 배열 변환.
- *  하나의 assistant 메시지는 thinking + text + tool_use 블록을 동시에 담을 수 있어 배열로 반환.
+/**
+ * §4 (CLI 사양 추종) — `--include-hook-events` 로 흘러든 훅 줄에서 **화면이 그리는 것만** 추린다.
+ *
+ * ⚠ 공식 문서가 이름을 셋(`hook_started`/`hook_progress`/`hook_response`)까지만 못 박았고 **본문
+ *   필드는 문서화돼 있지 않다.** 그래서 `prompt_suggestion` 과 같은 자세를 취한다 — 흔한 이름을
+ *   순서대로 훑고, 아무것도 못 찾으면 **줄을 만들지 않는다**(모양이 달라도 잘못된 본문을 지어내지
+ *   않는 쪽). 판본이 바뀌어 필드 이름이 달라져도 앱이 이상한 글자를 그리지 않는다.
+ *
+ * 라벨 자리에는 **어떤 훅이 떴는지**(`hook_event_name`)를 세운다 — 사용자가 이 플래그를 켜는 이유가
+ * 정확히 그것이다. `id` 는 훅 이름 + 자리표라 같은 훅의 시작·응답이 한 이름으로 묶여 보인다.
+ */
+function readHookChipInfo(obj: Record<string, unknown>): StreamTaskInfo | null {
+  const text = (key: string): string | undefined => {
+    const v = obj[key];
+    return typeof v === 'string' && v.trim() !== '' ? v.trim() : undefined;
+  };
+  const eventName = text('hook_event_name') ?? text('event') ?? text('hook_event');
+  // 어떤 훅이 떴는지도 모르면 남길 뜻이 없다 — 민 칩 `[hook_started]` 은 종전에 버리던 그 줄이다.
+  if (!eventName) return null;
+  const command = text('hook_name') ?? text('command') ?? text('matcher');
+  const summary = text('output') ?? text('stdout') ?? text('message') ?? text('reason');
+  const durationRaw = obj['duration_ms'] ?? obj['durationMs'];
+  const durationMs = typeof durationRaw === 'number' && Number.isFinite(durationRaw) ? durationRaw : undefined;
+  return {
+    id: `hook:${eventName}`,
+    description: command ? `${eventName} — ${command}` : eventName,
+    summary,
+    durationMs,
+  };
+}
+
+/** stream-json 라인 → SubAgentStreamEvent 배열 변환. *  하나의 assistant 메시지는 thinking + text + tool_use 블록을 동시에 담을 수 있어 배열로 반환.
  *  §5.7 #23-2 v1.60 — Agent View JSONL tail 경로(`claudeAgentViewWatcher`)에서도 동일 함수 재사용
  *  하려고 export. JSONL 은 stream-json 의 상위셋(메타 라인 추가)이라 모르는 type 은 자연스럽게 [] 반환. */
 export function parseStreamLine(
   obj: Record<string, unknown>,
   subAgentId: string,
   parentAgentId: string,
-  opts: { partialMessages?: boolean } = {},
+  opts: { partialMessages?: boolean; hookEvents?: boolean } = {},
 ): SubAgentStreamEvent[] {
   const type = obj['type'] as string | undefined;
   if (!type) return [];
@@ -824,9 +869,18 @@ export function parseStreamLine(
   // 나머지 subtype(task_started 등)은 [subtype] 형태로 보내고, 클라가 왼쪽 레일 노드로 렌더한다(SystemNode).
   if (type === 'system') {
     const subtype = obj['subtype'] as string | undefined;
-    const noisy = new Set(['hook_started', 'hook_response', 'hook_completed', 'init', 'notification', 'turn_duration']);
+    // §4 (CLI 사양 추종) — 훅 줄은 **기본 소음**이지만 `--include-hook-events` 로 일부러 켠 세션에서는
+    //   그게 곧 사용자가 보려던 것이다. 켠 세션에서만 소음 목록에서 빼고, 아래에서 훅 payload 칩으로
+    //   세운다. 나머지 넷(`init`·`notification`·`turn_duration`)은 종전 그대로 항상 버린다.
+    const noisy = new Set(['init', 'notification', 'turn_duration']);
+    if (!opts.hookEvents) {
+      for (const s of HOOK_STREAM_SUBTYPES) noisy.add(s);
+    }
     if (subtype && noisy.has(subtype)) return [];
-    // §5.5 #17-13 ⑤-3 (A) — CLI 가 직접 "인라인 대화록에서는 숨기라"고 표시한 살림성 작업
+    if (subtype && opts.hookEvents && isHookStreamSubtype(subtype)) {
+      const info = readHookChipInfo(obj);
+      return info ? [{ ...makeBase(), eventType: 'system', content: formatSystemChip(subtype, info) }] : [];
+    }    // §5.5 #17-13 ⑤-3 (A) — CLI 가 직접 "인라인 대화록에서는 숨기라"고 표시한 살림성 작업
     //   (`skip_transcript` 필드 설명: "Ambient/housekeeping task. Consumers should hide this from
     //   the inline transcript; it may still appear in a tasks panel."). 우리 스트림이 곧 그 대화록이므로
     //   이벤트 자체를 만들지 않는다 — 버퍼·디스크·복원 예산에서 함께 빠진다.
@@ -1004,7 +1058,15 @@ export class SubAgentManager {
   /** Persistent child — 자식이 turn 사이 idle(다음 stdin write 대기) 인가. true 면 reuse 가능.
    *  result 라인 도착 시 true, 새 stdin write 직전 false. */
   private persistentChildReady = new Map<string, boolean>();
-  /** Persistent child — 의도적 종료 마킹(stop/remove/shutdownAll). close 핸들러에서 crash 와 구분하기 위함.
+  /**
+   * §4 (CLI 사양 추종) — 이 sub 의 자식이 `--include-hook-events` 로 떴는가.
+   *
+   * 파서는 훅 줄을 **기본적으로 버린다**(플래그를 안 켠 세션에도 일부가 흘러들어와 대화록을
+   * 채우던 자리다). 그래서 "사용자가 일부러 켰는가"를 파싱 시점에 알아야 하는데, 지속 자식
+   * 경로의 라인 처리기는 설정을 손에 들고 있지 않다 — 스폰 때 정한 값을 여기에 적어 둔다.
+   * sub.id 가 키라 스폰할수록 늘므로 `SESSION_KEYED_MAP_MAX` 로 캡한다(§3.2.4 F축).
+   */
+  private streamHookEventsOn = new Map<string, boolean>();  /** Persistent child — 의도적 종료 마킹(stop/remove/shutdownAll). close 핸들러에서 crash 와 구분하기 위함.
    *  마킹 없이 close 되면 crash 경로로 sub.sessionId 보존(다음 execute 가 --resume 으로 복구). */
   private intentionalKill = new Set<string>();
   /** Persistent child — 턴 사이에 살아남는 stdout line buffer. fresh spawn 에선 매번 새로 만들지만
@@ -3614,7 +3676,13 @@ export class SubAgentManager {
     if (isForwardSubagentTextEnabled(agentConfig?.forwardSubagentText)) streamFlags.push('--forward-subagent-text');
     if (agentConfig?.replayUserMessages) streamFlags.push('--replay-user-messages');
     if (agentConfig?.promptSuggestions) streamFlags.push('--prompt-suggestions', 'true');
-
+    // §4 (CLI 사양 추종) — 훅 생명주기를 스트림에도 싣는다. `--output-format stream-json` 에서만
+    //   동작하는데 우리 두 스폰 형태가 모두 그 형식이라 여기(공용 묶음)가 자리다.
+    //   ⚠ 플래그만 붙이면 화면은 그대로다 — 파서가 훅 줄을 소음으로 버려 왔다. 아래 `hookEvents`
+    //   기억과 한 쌍으로 움직인다.
+    if (agentConfig?.includeHookEvents) streamFlags.push('--include-hook-events');
+    this.streamHookEventsOn.set(sub!.id, agentConfig?.includeHookEvents === true);
+    capMapSize(this.streamHookEventsOn, SESSION_KEYED_MAP_MAX);
     // v1.77 (Direction A) — 커스텀 에이전트는 Agent View 게이트를 건너뛰고 무조건 legacy.
     // (supervisor sessionId 회전 → 증식·연속성 상실. 위 docstring 참조.)
     if (opts?.customParent) {
@@ -4056,7 +4124,7 @@ export class SubAgentManager {
             }
             // 스트림 이벤트 파싱 + 클라이언트 중계 (한 라인이 여러 블록 가능)
             // §4 v2.88 — legacy --print 스폰은 `--include-partial-messages` 가 붙어 토큰 델타가 온다 → partialMessages:true.
-            const streamEvts = parseStreamLine(obj, sub!.id, sub!.parentAgentId, { partialMessages: true });
+            const streamEvts = parseStreamLine(obj, sub!.id, sub!.parentAgentId, { partialMessages: true, hookEvents: this.streamHookEventsOn.get(sub!.id) === true });
             for (const evt of streamEvts) this.emitStreamEvent(evt);
           } catch { /* 불완전 JSON — 다음 라인에서 처리 */ }
         }
@@ -4233,7 +4301,7 @@ export class SubAgentManager {
     }
 
     // 스트림 이벤트 — 클라 중계.
-    const streamEvts = parseStreamLine(obj, sub.id, sub.parentAgentId);
+    const streamEvts = parseStreamLine(obj, sub.id, sub.parentAgentId, { hookEvents: this.streamHookEventsOn.get(sub.id) === true });
     for (const evt of streamEvts) this.emitStreamEvent(evt);
 
     // ── CRITICAL: result 라인 = turn 종료. child 는 살려둔다. ──

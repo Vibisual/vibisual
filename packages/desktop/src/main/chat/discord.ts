@@ -1,7 +1,8 @@
 import { WebSocket } from 'ws';
 import {
-  CHAT_DISCORD_API_BASE, CHAT_DISCORD_INTENTS, CHAT_DISCORD_MESSAGE_MAX,
-  CHAT_DISCORD_PAIR_COMMAND, CHAT_RECONNECT_MAX_MS, CHAT_RECONNECT_MIN_MS,
+  CHAT_DISCORD_API_BASE, CHAT_DISCORD_HEARTBEAT_MISS_MAX, CHAT_DISCORD_INTENTS,
+  CHAT_DISCORD_MESSAGE_MAX, CHAT_DISCORD_PAIR_COMMAND, CHAT_DISCORD_ZOMBIE_CLOSE_CODE,
+  CHAT_RECONNECT_MAX_MS, CHAT_RECONNECT_MIN_MS,
 } from '@vibisual/shared';
 import type { ChatCard } from '@vibisual/shared';
 import { chunk, renderCard } from './cards';
@@ -12,10 +13,11 @@ import type { ChatChannel, ChatChannelContext, ChatPairLink, ChatVerifyResult } 
 // 텔레그램과 방식은 다르지만(long-poll vs Gateway WebSocket) **방향은 같다** — 우리가 나가서
 // 붙는다. 그래서 이 축의 이점(포트 개방 0·인증서 0·CGNAT 무관)이 그대로 유지된다.
 //
-// 텔레그램과 다른 두 가지만 여기서 흡수한다:
+// 텔레그램과 다른 셋만 여기서 흡수한다:
 //   ① DM 딥링크가 없다 → 초대 URL 을 QR 로 주고 `!vibisual pair <token>` 한 줄로 마무리한다.
 //   ② Message Content Intent 를 포털에서 켜야 평문을 읽을 수 있다 → 4014 를 별도 사유로 올려
 //      UI 가 "포털에서 스위치를 켜세요"라고 정확히 말하게 한다(그냥 '연결 실패'로 묶으면 못 고친다).
+//   ③ 상호작용(버튼)에는 **3초 응답 창**이 있고 빈 본문을 거부한다 → `ackAction` 이 분기한다.
 //
 // 공개 문서 API 만 쓴다(https://discord.com/developers/docs). 의존성은 이미 있는 `ws` 하나.
 
@@ -35,14 +37,24 @@ export class DiscordChannel implements ChatChannel {
   private generation = 0;
   private seq: number | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  /**
+   * 보낸 뒤 ACK(op 11)을 못 받은 하트비트 수.
+   *
+   * 이걸 안 세면 소켓이 `close` 이벤트 없이 반쯤 죽었을 때 상태는 `online` 인 채
+   * **영원히 아무것도 받지 않는다** — 밖에서 권한 승인을 기다리다 60초 자동 결정을 맞는,
+   * 이 축이 막으려던 바로 그 상황이다. 디스코드 문서도 "ACK 이 없으면 비정상 코드로 끊고
+   * 재연결" 을 요구한다.
+   */
+  private missedAcks = 0;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private backoff = CHAT_RECONNECT_MIN_MS;
 
-  private async rest<T>(path: string, init?: RequestInit): Promise<{ status: number; body: T | null }> {
+  /** 토큰은 **인자로 받는다** — `verify()` 가 돌고 있는 세션의 토큰을 갈아끼우지 않게(telegram 과 동일). */
+  private async rest<T>(token: string, path: string, init?: RequestInit): Promise<{ status: number; body: T | null }> {
     const res = await fetch(`${CHAT_DISCORD_API_BASE}${path}`, {
       ...init,
       headers: {
-        Authorization: `Bot ${this.token ?? ''}`,
+        Authorization: `Bot ${token}`,
         'Content-Type': 'application/json',
         ...(init?.headers ?? {}),
       },
@@ -51,11 +63,10 @@ export class DiscordChannel implements ChatChannel {
     return { status: res.status, body };
   }
 
+  /** 토큰만 확인하고 끊는다 — 인스턴스 상태를 **한 글자도** 건드리지 않는다. */
   async verify(token: string): Promise<ChatVerifyResult> {
-    const previous = this.token;
-    this.token = token;
     try {
-      const { status, body } = await this.rest<DiscordUser>('/users/@me');
+      const { status, body } = await this.rest<DiscordUser>(token, '/users/@me');
       if (status === 401) return { ok: false, error: 'token' };
       if (status !== 200 || !body) return { ok: false, error: status === 429 ? 'rate-limit' : 'network' };
       return {
@@ -67,8 +78,6 @@ export class DiscordChannel implements ChatChannel {
       };
     } catch {
       return { ok: false, error: 'network' };
-    } finally {
-      if (previous !== null) this.token = previous;
     }
   }
 
@@ -108,13 +117,14 @@ export class DiscordChannel implements ChatChannel {
   private async connectGateway(generation: number, token: string, ctx: ChatChannelContext): Promise<void> {
     let gatewayUrl = 'wss://gateway.discord.gg';
     try {
-      const { status, body } = await this.rest<{ url?: string }>('/gateway/bot');
+      const { status, body } = await this.rest<{ url?: string }>(token, '/gateway/bot');
       if (status === 200 && body?.url) gatewayUrl = body.url;
     } catch { /* 기본 주소로 시도한다 — 조회 실패가 곧 연결 실패는 아니다. */ }
     if (generation !== this.generation) return;
 
     const ws = new WebSocket(`${gatewayUrl}/?v=10&encoding=json`);
     this.ws = ws;
+    this.missedAcks = 0;
 
     ws.on('message', (raw: Buffer | string) => {
       if (generation !== this.generation) return;
@@ -148,8 +158,17 @@ export class DiscordChannel implements ChatChannel {
       const hello = payload.d as { heartbeat_interval?: number } | undefined;
       const interval = hello?.heartbeat_interval ?? 41_250;
       this.clearHeartbeat();
+      this.missedAcks = 0;
       this.heartbeatTimer = setInterval(() => {
-        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ op: 1, d: this.seq }));
+        if (ws.readyState !== WebSocket.OPEN) return;
+        // 지난 하트비트의 ACK 이 아직 안 왔다 = 반쯤 죽은 소켓. 끊어야 `close` 가 재연결을 부른다.
+        if (this.missedAcks > CHAT_DISCORD_HEARTBEAT_MISS_MAX) {
+          ctx.log('discord heartbeat unacknowledged — reconnecting');
+          try { ws.close(CHAT_DISCORD_ZOMBIE_CLOSE_CODE); } catch { /* 이미 닫힘 */ }
+          return;
+        }
+        this.missedAcks += 1;
+        ws.send(JSON.stringify({ op: 1, d: this.seq }));
       }, interval);
       ws.send(JSON.stringify({
         op: 2,
@@ -161,6 +180,7 @@ export class DiscordChannel implements ChatChannel {
       }));
       return;
     }
+    if (payload.op === 11) { this.missedAcks = 0; return; } // 하트비트 ACK — 소켓이 살아 있다.
     if (payload.op === 7 || payload.op === 9) {
       // 재연결/세션 무효 — 끊고 백오프 재시도(RESUME 은 쓰지 않는다. 놓친 이벤트는
       // 표시용 카드라 다음 것부터 받아도 되고, 명령은 사용자가 다시 보내면 된다).
@@ -179,7 +199,7 @@ export class DiscordChannel implements ChatChannel {
     }
     if (payload.t === 'MESSAGE_CREATE') {
       const msg = payload.d as {
-        channel_id?: string; content?: string; author?: DiscordUser;
+        channel_id?: string; guild_id?: string; content?: string; author?: DiscordUser;
       } | undefined;
       if (!msg?.channel_id || typeof msg.content !== 'string') return;
       if (msg.author?.bot) return; // 우리 자신·다른 봇의 말은 명령이 아니다.
@@ -187,13 +207,16 @@ export class DiscordChannel implements ChatChannel {
         type: 'text',
         chatId: msg.channel_id,
         label: msg.author?.global_name ?? msg.author?.username ?? msg.channel_id,
+        // `guild_id` 가 없으면 봇과의 1:1 DM 이다. 길드 채널은 여럿이 보는 방이라
+        // peer 키(= channel id)가 사람이 아니라 **그 방 전체**를 뜻하게 된다(§4 ④).
+        direct: msg.guild_id === undefined,
         text: msg.content,
       });
       return;
     }
     if (payload.t === 'INTERACTION_CREATE') {
       const it = payload.d as {
-        id?: string; token?: string; channel_id?: string; type?: number;
+        id?: string; token?: string; channel_id?: string; guild_id?: string; type?: number;
         data?: { custom_id?: string };
         member?: { user?: DiscordUser }; user?: DiscordUser;
       } | undefined;
@@ -206,6 +229,7 @@ export class DiscordChannel implements ChatChannel {
         type: 'action',
         chatId: it.channel_id,
         label: user?.global_name ?? user?.username ?? it.channel_id,
+        direct: it.guild_id === undefined,
         actionId: customId,
         ackToken: `${it.id}:${it.token}`,
       });
@@ -214,6 +238,7 @@ export class DiscordChannel implements ChatChannel {
 
   private clearHeartbeat(): void {
     if (this.heartbeatTimer) { clearInterval(this.heartbeatTimer); this.heartbeatTimer = null; }
+    this.missedAcks = 0;
   }
 
   async stop(): Promise<void> {
@@ -225,10 +250,13 @@ export class DiscordChannel implements ChatChannel {
       this.ws = null;
     }
     this.ctx = null;
+    // 토큰은 남긴다(telegram 과 같은 이유). **끄기 판정은 chat/index.ts `sendTo` 에서 한다.**
     return Promise.resolve();
   }
 
   async sendCard(chatId: string, card: ChatCard): Promise<void> {
+    const token = this.token;
+    if (!token) return;
     const content = renderCard(card, CHAT_DISCORD_MESSAGE_MAX);
     const body: Record<string, unknown> = { content };
     if (card.actions && card.actions.length > 0) {
@@ -244,7 +272,7 @@ export class DiscordChannel implements ChatChannel {
       }));
     }
     try {
-      const { status } = await this.rest(`/channels/${chatId}/messages`, {
+      const { status } = await this.rest(token, `/channels/${chatId}/messages`, {
         method: 'POST',
         body: JSON.stringify(body),
       });
@@ -254,22 +282,32 @@ export class DiscordChannel implements ChatChannel {
     }
   }
 
+  /**
+   * 버튼이 눌렸음을 3초 안에 회신한다. **본문이 비면 type 4 를 쓸 수 없다** —
+   * 디스코드는 빈 `content` 를 400 으로 거부하고, 그러면 회신이 없는 것과 같아져
+   * 누른 사람 화면에 "이 상호작용에 실패했습니다" 가 뜬다(실제로는 처리됐는데도).
+   * 할 말이 없을 때는 **type 6**(DEFERRED_UPDATE_MESSAGE)로 조용히 스피너만 푼다.
+   */
   async ackAction(ackToken: string, text: string): Promise<void> {
     const [id, token] = ackToken.split(':');
     if (!id || !token) return;
+    const payload = text.trim()
+      ? { type: 4, data: { content: text } } // CHANNEL_MESSAGE_WITH_SOURCE — 결과 한 줄을 붙인다.
+      : { type: 6 };                         // DEFERRED_UPDATE_MESSAGE — 아무것도 안 띄우고 확인만.
     try {
-      // type 4 = CHANNEL_MESSAGE_WITH_SOURCE — 누른 사람에게 결과 한 줄을 붙여 준다.
       await fetch(`${CHAT_DISCORD_API_BASE}/interactions/${id}/${token}/callback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 4, data: { content: text } }),
+        body: JSON.stringify(payload),
       });
     } catch { /* 버튼 회신은 표시 전용 — 결정 자체는 이미 적용됐다. */ }
   }
 
   /**
    * 디스코드는 "이 토큰을 든 사람에게 DM" 이라는 딥링크가 없다. 대신 **초대 URL** 을 QR 로 주고,
-   * 봇이 들어온 아무 채널에서 명령 한 줄로 마무리한다 — 사용자가 channel id 를 볼 일은 없다.
+   * 봇이 보이는 곳에서 명령 한 줄로 마무리한다 — 사용자가 channel id 를 볼 일은 없다.
+   * **다만 그 한 줄은 봇과의 1:1 DM 에서 보내야 한다**(§4 ④). 초대가 여전히 필요한 이유는
+   * 디스코드가 공통 서버가 없는 봇에게 DM 을 보내지 못하게 막기 때문이다.
    */
   buildPairLink(token: string): ChatPairLink | null {
     if (!this.appId) return null;
