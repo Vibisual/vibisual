@@ -280,15 +280,34 @@ async function fetchRelease(version) {
   return res.json();
 }
 
+/**
+ * 릴리스 제목 — **버전 숫자만**.
+ *
+ * 저장소 이름 아래에 놓인 릴리스 목록에서 모든 줄이 같은 제품명으로 시작하면 그 낱말은
+ * 정보가 아니라 잡음이고, 눈이 실제로 비교하는 숫자를 오른쪽으로 밀어낸다. v0.1.6~v0.1.14 는
+ * electron-builder 가 넣은 숫자 그대로였는데 `Vibisual 0.1.15` 한 줄만 그 대열에서 튀었다.
+ *
+ * 사람이 손으로 붙인 제목은 건드리지 않는다 — 자동화가 사람의 글을 덮어쓰면 안 된다.
+ * 다만 **우리가 예전에 찍어 둔 `Vibisual <버전>` 은 사람의 글이 아니므로** 같이 정규화한다.
+ * 그 갈래가 없으면 이미 발행된 릴리스는 영영 옛 형태로 남는다(다시 태그를 밀 수는 없다).
+ *
+ * @param {string|null|undefined} currentName 지금 붙어 있는 제목
+ * @param {string} version `0.1.15` 형태
+ * @returns {string|null} 새로 쓸 제목, 또는 사람의 글이라 손대지 말아야 하면 null
+ */
+export function releaseTitle(currentName, version) {
+  const now = (currentName ?? '').trim();
+  const ours = ['', version, `v${version}`, `Vibisual ${version}`, `Vibisual v${version}`];
+  return ours.includes(now) ? version : null;
+}
+
 async function applyNotes(release, version, body) {
   const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
   if (!token) throw new Error('--apply 에는 GH_TOKEN(또는 GITHUB_TOKEN)이 필요하다.');
 
-  // 제목은 electron-builder 가 버전 숫자만 넣어 둔다. 사람이 손으로 제목을 붙여 둔
-  // 릴리스는 건드리지 않는다 — 자동화가 사람의 글을 덮어쓰는 일이 없어야 한다.
-  const autoTitle = !release.name || release.name.trim() === version || release.name.trim() === `v${version}`;
+  const nextTitle = releaseTitle(release.name, version);
   const payload = { body };
-  if (autoTitle) payload.name = `Vibisual ${version}`;
+  if (nextTitle !== null) payload.name = nextTitle;
 
   const res = await fetch(
     `https://api.github.com/repos/${OWNER}/${REPO}/releases/${release.id}`,
@@ -353,11 +372,32 @@ function selftest() {
     failed++;
   }
 
+  // 제목 — 우리가 찍은 것은 숫자로 정규화하고, 사람이 쓴 것은 건드리지 않는다.
+  const titleCases = [
+    [null, V],
+    [undefined, V],
+    ['', V],
+    [V, V],
+    [`  ${V}  `, V],
+    [`v${V}`, V],
+    [`Vibisual ${V}`, V],
+    [`Vibisual v${V}`, V],
+    ['0.1.14 — 큰 개편', null],
+    [`Vibisual 0.1.13`, null],
+  ];
+  for (const [name, want] of titleCases) {
+    const got = releaseTitle(name, V);
+    if (got !== want) {
+      console.error(`  ✗ releaseTitle(${JSON.stringify(name)}) → ${JSON.stringify(got)} (기대: ${JSON.stringify(want)})`);
+      failed++;
+    }
+  }
+
   if (failed > 0) {
     console.error(`selftest 실패 ${failed}건`);
     process.exit(1);
   }
-  console.log(`selftest 통과 — 분류 ${cases.length}건 + 렌더 3건`);
+  console.log(`selftest 통과 — 분류 ${cases.length}건 + 렌더 3건 + 제목 ${titleCases.length}건`);
 }
 
 // ── main ─────────────────────────────────────────────────────────────────────

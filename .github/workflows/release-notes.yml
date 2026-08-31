@@ -7,8 +7,10 @@
 # Actions → "Release notes" → Run workflow → 태그 입력(예: v0.1.14) → Run.
 # 태그를 비우면 **최신 릴리스**를 고친다.
 #
-# ⚠️ 사람이 손으로 제목을 붙여 둔 릴리스의 제목은 덮어쓰지 않는다(.github/scripts/release-notes.mjs
-#    의 `applyNotes` 참고). 본문은 매번 다시 쓴다 — 자산 목록에서 만들어지므로 항상 현행이다.
+# ⚠️ 제목은 **버전 숫자만** 남긴다. 사람이 손으로 붙여 둔 제목은 덮어쓰지 않고, 우리가 예전에
+#    찍어 둔 `Vibisual <버전>` 만 숫자로 정규화한다(.github/scripts/release-notes.mjs 의
+#    `releaseTitle` 참고 — 판정은 거기 한 곳이고 `--selftest` 가 10건으로 고정한다).
+#    본문은 매번 다시 쓴다 — 자산 목록에서 만들어지므로 항상 현행이다.
 
 name: Release notes
 
