@@ -3,8 +3,8 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import type { ProjectInfo, SubAgent, SubAgentStatus, QueuedCommand, CommandError, AgentConfig, SubAgentStreamEvent, StreamEventType, AgentViewJobState, RunningSubagentTask, FinishedSubagentTask, StreamTaskInfo, StreamTaskStatus, CmdTerminalSignal, CmdTerminalState, CmdPaneNode, CmdCliKind } from '@vibisual/shared';
-import { CMD_PANE_SEPARATOR, CMD_BLOCK_REASON_MAX, collectCmdPaneIds, resolveCmdCliKind, DEFAULT_AGENT_CONFIG, isOpusModel, supportsFastMode, isForwardSubagentTextEnabled, resolveAliasToLatest, buildCmdCardProtocolRules, isNeverRenderedStreamEvent, formatSystemChip, normalizeBashTimeoutMs, TASK_CHIP_START_SUBTYPE, TASK_CHIP_END_SUBTYPE, parseSystemSubtype, parseSystemTaskInfo, capMapSize, SESSION_KEYED_MAP_MAX, resolveLocalToolGate } from '@vibisual/shared';
+import type { ProjectInfo, SubAgent, SubAgentStatus, QueuedCommand, CommandError, AgentConfig, SubAgentStreamEvent, StreamEventType, AgentViewJobState, RunningSubagentTask, FinishedSubagentTask, StreamTaskInfo, StreamTaskStatus, CmdTerminalSignal, CmdTerminalState, CmdPaneNode, CmdCliKind, SessionMemo } from '@vibisual/shared';
+import { CMD_PANE_SEPARATOR, CMD_BLOCK_REASON_MAX, collectCmdPaneIds, resolveCmdCliKind, DEFAULT_AGENT_CONFIG, isOpusModel, supportsFastMode, isForwardSubagentTextEnabled, resolveAliasToLatest, buildCmdCardProtocolRules, isNeverRenderedStreamEvent, formatSystemChip, normalizeBashTimeoutMs, TASK_CHIP_START_SUBTYPE, TASK_CHIP_END_SUBTYPE, parseSystemSubtype, parseSystemTaskInfo, capMapSize, SESSION_KEYED_MAP_MAX, resolveLocalToolGate, resolveAutoCompact } from '@vibisual/shared';
 import {
   createTurnSealState, noteTaskChip, mayTurnResume, noteTurnResumed, noteTurnSealed,
   listDisplayableLiveTasks, turnIdOfLiveTask, takeOrphanLiveTasks, LIVE_TASK_ORPHAN_GRACE_MS,
@@ -27,6 +27,7 @@ import {
   type LocalToolVerdict,
 } from './localRunner.js';
 import { permissionBroker } from './permissionBroker.js';
+import { userDefaultsService } from './userDefaultsService.js';
 import { rescueSubagentResult } from './subagentResultRescue.js';
 import { modelRegistryService } from './modelRegistryService.js';
 import { readLastAssistantMessage, readSessionTokenData, getSessionJsonlPath } from './sessionDiscovery.js';
@@ -112,6 +113,13 @@ interface ConfigArgsContext {
   agentName?: string;
   /** 프로젝트 루트(= 스폰 cwd). 'project'/'local' 범위에서만 쓰인다. */
   projectRoot?: string;
+  /**
+   * §4 (CLI 사양 추종) — 설정 창(Agent Defaults)이 정한 `--autocompact` 전역 기본값.
+   *
+   * 이 조립 함수를 **순수하게** 두려고 서비스를 직접 읽지 않고 인자로 받는다(그래야 3층 해소를
+   * 단위 테스트로 고정할 수 있다). 넘기지 않으면 에이전트 설정 → 내장 기본 2층만 본다.
+   */
+  userAutoCompact?: string;
 }
 
 /**
@@ -207,10 +215,11 @@ function buildConfigArgs(config: AgentConfig, ctx?: ConfigArgsContext): string[]
 
   // §4 (CLI 사양 추종) — 아래 넷은 인터랙티브·헤드리스 양쪽에서 유효한 일반 플래그라 여기서 붙인다.
   //   (`--fallback-model` 은 `--print` 전용이라 여기가 아니라 스폰부 printFlags 에 있다.)
-  const autoCompact = config.autoCompact?.trim();
-  if (autoCompact) {
-    args.push('--autocompact', autoCompact);
-  }
+  // §4 (CLI 사양 추종) — `--autocompact` 는 **항상 실린다**. 값은 3층(에이전트 → 설정 창 →
+  //   내장 기본)에서 `resolveAutoCompact` 한 곳이 정한다. 종전처럼 "미설정이면 플래그 없음"으로
+  //   두면 CLI 기본이 모델 창 전체라, `[1m]` 을 붙이는 우리 스폰에서 압축이 100만 토큰에서야
+  //   걸린다(= 실질적으로 압축 없음). CLI 판단에 맡기고 싶은 사람은 `'auto'` 를 고른다.
+  args.push('--autocompact', resolveAutoCompact(config.autoCompact, ctx?.userAutoCompact));
   if (config.excludeDynamicSystemPromptSections) {
     args.push('--exclude-dynamic-system-prompt-sections');
   }
@@ -300,9 +309,9 @@ function buildConfigEnv(config: AgentConfig | undefined, ctx?: ConfigArgsContext
  */
 export function buildInteractiveClaudeArgs(
   config: AgentConfig,
-  opts: { includeRules?: boolean } = {},
+  opts: { includeRules?: boolean; userAutoCompact?: string } = {},
 ): string[] {
-  const args = buildConfigArgs(config);
+  const args = buildConfigArgs(config, { userAutoCompact: opts.userAutoCompact });
   // includeRules 기본 false — 임베디드 터미널은 셸 프롬프트에 명령을 prefill 하는데
   // 멀티라인 rules 를 한 줄 명령에 넣으면 셸 파싱이 깨진다(데스크톱 터미널 매니저 경로).
   // 직접 spawn(argv 배열) 경로에서만 includeRules:true 로 rules 를 안전히 주입.
@@ -343,7 +352,12 @@ export function buildInteractiveCliPrefill(opts: {
     return { prefill: row.bin, managed: false, kind };
   }
 
-  const args = buildInteractiveClaudeArgs(opts.config, { includeRules: false });
+  // §4 (CLI 사양 추종) — CMD 인터랙티브도 헤드리스와 같은 자동 압축 기본값을 받아야 한다.
+  //   여기는 순수 조립부가 아니라 런타임 진입점이라 전역 기본을 이 자리에서 읽어 넘긴다.
+  const args = buildInteractiveClaudeArgs(opts.config, {
+    includeRules: false,
+    userAutoCompact: userDefaultsService.get().agentConfig?.autoCompact,
+  });
   if (opts.rulesDir) args.push('--add-dir', opts.rulesDir);
   const fullArgs = opts.resumeId ? ['--resume', opts.resumeId, ...args] : args;
   return {
@@ -573,6 +587,9 @@ export function isChildStdinWritable(child: StdinBearingChild | null | undefined
 
 /** subagent 카운터 (라벨 생성용) */
 let subCounter = 0;
+
+/** 세션 id 를 다시 뽑아 보는 횟수 상한 — 난수 꼬리가 겹치는 것은 사실상 없지만 무한 루프는 만들지 않는다. */
+const SUB_ID_MINT_ATTEMPTS = 50;
 
 /**
  * SubAgent 매니저 — 부모 에이전트별 독립 실행 세션 관리.
@@ -2628,11 +2645,7 @@ export class SubAgentManager {
    * 여기서는 **사실**로 판정한다 — 자식도 워처도 없고, 처리 중인 턴도, 붙들어 둔 봉인도, 이 탭이
    * 띄운 백그라운드 자식도 없으면 그 세션은 끝난 것이다.
    *
-   * 잘못 강등하지 않기 위한 제외가 셋이다:
-   *  - **PTY(CMD) 세션** — 우리가 띄운 자식이 아니라 사용자가 치는 터미널이다(`cmdDrivenSubs`).
-   *    이 탭들의 상태는 훅이 몰고 가므로(`markCmdSubActivity`) 자식 유무로 판단할 수 없다.
-   *  - **스폰 진행 중** — `active` 를 올린 직후 자식/워처 등록 전의 창(`dispatchingSubs`).
-   *  - **붙들어 둔 잠정 봉인** — 곧 이어질 수 있는 턴이라 우리가 일부러 끝을 미뤄 둔 것이다.
+   * 잘못 강등하지 않기 위한 제외 목록은 `hasLivingWork` 이 들고 있다(명령 봉합과 공유).
    *
    * @returns 강등된 sub.id 목록(호출자 broadcast 판단용).
    */
@@ -2640,17 +2653,7 @@ export class SubAgentManager {
     const demoted: string[] = [];
     for (const sub of this.index.values()) {
       if (sub.status !== 'active') continue;
-      if (this.cmdDrivenSubs.has(sub.id)) continue;
-      if (this.dispatchingSubs.has(sub.id)) continue;
-      if (this.deferredSeals.has(sub.id)) continue;
-      // 자식·워처가 살아 있거나 한 턴을 처리 중이면 진짜로 도는 중이다.
-      if (this.isSubRunning(sub.id) || this.isSubProcessingCommand(sub.id)) continue;
-      // 자기 턴은 끝났어도 이 탭이 띄운 백그라운드 Task 가 남아 있으면 여전히 활동 중이다
-      // (`syncBgSubStatus` 가 올려 둔 그 active 를 여기서 도로 내리면 도트가 깜빡인다).
-      if (this.bgPromotedSubs.has(sub.id)) continue;
-      // 스트림으로만 보이는 백그라운드 작업도 같은 자격 — 끝나면 이 세션이 다시 깨어난다.
-      const seal = this.turnSealStates.get(sub.id);
-      if (seal && listDisplayableLiveTasks(seal).length > 0) continue;
+      if (this.hasLivingWork(sub.id)) continue;
 
       sub.status = 'idle';
       sub.lastActivityAt = Date.now();
@@ -2658,6 +2661,85 @@ export class SubAgentManager {
       logger.info(`SubAgent ${sub.id} was 'active' with no live process — reconciled to idle`);
     }
     return demoted;
+  }
+
+  /**
+   * 이 sub 에 **살아 있는 일감**이 하나라도 있는가 — "자식이 붙어 있나"보다 넓다.
+   *
+   * `reconcileDeadActiveSubs`(상태 강등)와 `sealZombieExecutingCommands`(명령 봉합)가 반드시
+   * 같은 답을 써야 한다. 두 곳이 갈리면 한쪽이 거짓말한다 — 상태는 idle 로 내려갔는데 명령은
+   * `executing` 으로 붙들려 있으면, 그 탭은 "쉬는 중"으로 보이면서 새 명령은 못 받는 자리에 갇힌다.
+   * (`sweepOrphanedBackgroundTasks` 의 제외 목록도 같은 이유로 이 목록에 맞춰져 있다.)
+   */
+  private hasLivingWork(subId: string): boolean {
+    // PTY(CMD) 세션 — 우리가 띄운 자식이 아니라 사용자가 치는 터미널이다. 상태는 훅이 몰고 가므로
+    //   (`markCmdSubActivity`) 자식 유무로 판단할 수 없다.
+    if (this.cmdDrivenSubs.has(subId)) return true;
+    // 스폰 진행 중 — `active` 를 올린 직후 자식/워처 등록 전의 창.
+    if (this.dispatchingSubs.has(subId)) return true;
+    // 붙들어 둔 잠정 봉인 — 곧 이어질 수 있는 턴이라 우리가 일부러 끝을 미뤄 둔 것이다.
+    if (this.deferredSeals.has(subId)) return true;
+    // 자식·워처가 살아 있거나 한 턴을 처리 중이면 진짜로 도는 중이다.
+    if (this.isSubRunning(subId) || this.isSubProcessingCommand(subId)) return true;
+    // 자기 턴은 끝났어도 이 탭이 띄운 백그라운드 Task 가 남아 있으면 여전히 활동 중이다
+    // (`syncBgSubStatus` 가 올려 둔 그 active 를 여기서 도로 내리면 도트가 깜빡인다).
+    if (this.bgPromotedSubs.has(subId)) return true;
+    // 스트림으로만 보이는 백그라운드 작업도 같은 자격 — 끝나면 이 세션이 다시 깨어난다.
+    const seal = this.turnSealStates.get(subId);
+    if (seal && listDisplayableLiveTasks(seal).length > 0) return true;
+    return false;
+  }
+
+  /**
+   * **좀비 `executing` 봉합** — 턴은 끝났는데 명령만 실행 중으로 굳은 것을 런타임에 되돌린다.
+   *
+   * 이 굳음이 왜 치명적인가: dispatch 는 같은 sub 에 두 명령을 동시에 보내지 않으려고 `executing`
+   * 인 subAgentId 를 `busy` 로 잠근다. 그래서 완료 신호가 한 번 유실되면 그 탭은 **영구히** 새
+   * 명령을 못 받는다 — 사용자에게는 "입력해도 아무 반응이 없는 탭"으로 보인다.
+   *
+   * 종전에 이걸 푸는 길은 둘뿐이었다: 앱 재기동(restore reconcile)이나 사용자가 [중지]를 누르는 것.
+   * 둘 다 사용자가 이상을 눈치채고 행동해야 한다. 여기서 5초 스윕이 스스로 걷는다.
+   *
+   * 안전 3중 — 정상 명령을 죽이는 쪽이 굳는 것보다 나쁘다:
+   *  1. `executing` 이고 소유 탭이 분명할 것,
+   *  2. 실제로 나간 지 `graceMs` 가 지났을 것(`dispatch → spawn` 창에서 걷지 않는다),
+   *  3. `hasLivingWork` 이 전부 false 일 것(PTY·백그라운드·봉인 유예까지 살아있음으로 친다).
+   *
+   * @param queues 세션별 명령 큐(호출자 소유 — 이 클래스는 큐를 들고 있지 않다).
+   * @returns 봉합한 명령들. 큐에서 빼내 아카이브로 옮기는 것은 **호출자 몫**이라 세션 id 를 함께
+   *   돌려준다(정지 라우트가 `archiveCompletedCommands` 로 하는 처리와 같은 자리).
+   */
+  sealZombieExecutingCommands(
+    queues: Map<string, QueuedCommand[]>,
+    graceMs: number,
+    now: number = Date.now(),
+  ): Array<{ sessionId: string; cmd: QueuedCommand }> {
+    const sealed: Array<{ sessionId: string; cmd: QueuedCommand }> = [];
+    for (const [sessionId, queue] of queues) {
+      for (const cmd of queue) {
+        if (cmd.status !== 'executing') continue;
+        const subId = cmd.subAgentId;
+        if (!subId) continue;
+        // 나간 적이 없는 명령(`startedAt` 없음)은 애초에 이 상태로 굳을 수 없다 — 건드리지 않는다.
+        if (!cmd.startedAt || now - cmd.startedAt < graceMs) continue;
+        if (this.hasLivingWork(subId)) continue;
+
+        cmd.status = 'error';
+        cmd.result = '[orphaned] 실행이 끊긴 뒤 완료 신호가 오지 않아 자동 종료 처리됨.';
+        this.markCommandError(subId, cmd, { code: 'orphaned', detail: 'no live work after grace' });
+        const sub = this.index.get(subId);
+        if (sub && sub.status === 'active') {
+          sub.status = 'idle';
+          sub.lastActivityAt = now;
+        }
+        sealed.push({ sessionId, cmd });
+        logger.warn(
+          `Zombie executing sealed: cmd=${cmd.id} sub=${subId} `
+          + `(stuck ${Math.round((now - cmd.startedAt) / 1000)}s with no live work)`,
+        );
+      }
+    }
+    return sealed;
   }
 
   /**
@@ -2915,6 +2997,30 @@ export class SubAgentManager {
     return JSON.stringify(sub.paneTree ?? null) !== before;
   }
 
+  /**
+   * §5.5 #17-36 — 이 세션 탭에 붙은 **스티키 메모 전체를 갈아 끼운다**(부분 갱신 ❌).
+   *
+   * 부분 페이로드를 받지 않는 것은 의도다 — 필드 하나만 보내면 나머지가 빈 값으로 강등되는
+   * 사고(`PUT /api/agent-config` 에서 실제로 겪었다)를 규약으로 차단한다. 호출자는 언제나
+   * **그 탭의 메모 목록 전량**을 보낸다.
+   *
+   * 메모는 `sub` 객체 안에 살기 때문에 세션이 사라지는 어떤 경로로도 뒤에 남지 않는다
+   * (별도 정리 코드가 필요 없다 = 지우는 것을 잊을 자리가 없다).
+   */
+  setSessionMemos(subAgentId: string, memos: SessionMemo[]): boolean {
+    const sub = this.index.get(subAgentId);
+    if (!sub) return false;
+    const before = JSON.stringify(sub.memos ?? []);
+    if (memos.length > 0) sub.memos = memos;
+    else delete sub.memos;
+    return JSON.stringify(sub.memos ?? []) !== before;
+  }
+
+  /** §5.5 #17-36 — 이 세션 탭의 메모 목록(없으면 빈 배열). */
+  getSessionMemos(subAgentId: string): SessionMemo[] {
+    return this.index.get(subAgentId)?.memos ?? [];
+  }
+
   /** §4 (CMD ①) — 이 sub 가 지금 사용자 입력을 기다리며 막혀 있는가(알림·표시 판정용). */
   isCmdBlocked(subAgentId: string): boolean {
     return this.index.get(subAgentId)?.blocked === true;
@@ -2929,12 +3035,49 @@ export class SubAgentManager {
     return result;
   }
 
+  /**
+   * 이 id 를 이미 누가 쓰고 있는가 — **살아 있는 세션과 아카이브를 모두** 본다.
+   *
+   * 종전 판정은 `index`(살아 있는 세션)만 봤다. 그런데 닫힌 세션은 지워지지 않고 아카이브로
+   * 옮겨 가며(`remove`), 그 세션의 대화는 여전히 디스크에 `sub-streams/<agentId>/<subId>.jsonl`
+   * 로 남아 있다. 그래서 아카이브를 안 보면 새 세션이 **닫힌 세션의 id 를 물려받아** 남의
+   * 대화 파일에 이어 쓰고, 나중에 그 세션을 되살리면 두 세션이 한 파일을 다툰다.
+   */
+  private isSubIdTaken(id: string): boolean {
+    if (this.index.has(id)) return true;
+    for (const list of this.archive.values()) {
+      if (list.some((s) => s.id === id)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * 아직 아무도 쓰지 않는 세션 id 하나.
+   *
+   * 종전 발급식은 `sub-<밀리초>` **하나뿐**이라 같은 밀리초에 만든 두 세션이 **같은 id** 를 받았다.
+   * 그러면 뒤에 만든 쪽이 `index` 에서 앞의 것을 덮어써 탭 하나가 조용히 사라지고, 대화 파일·명령
+   * 큐·메모(#17-36)까지 둘이 뒤섞인다. 사람이 손으로 두 번 누르기는 어렵지만 **코드가 연달아
+   * 만드는 자리**(파이프라인 워커·워처·dispatch 자동 생성)는 실제로 같은 밀리초에 들어간다.
+   *
+   * 고침은 `projectGraph` 의 다른 id 들이 이미 물고 있던 그 조각과 같다 — 시각 뒤에 **난수 꼬리**를
+   * 붙이고, 그래도 겹치면 다시 뽑는다. id 의 **모양**을 파싱하는 코드는 없으므로(세션 판별은 전부
+   * 맵 조회다) 꼬리를 덧붙여도 안전하고, 이미 저장된 옛 id 도 그대로 유효하다.
+   */
+  private mintSubId(): string {
+    for (let i = 0; i < SUB_ID_MINT_ATTEMPTS; i += 1) {
+      const id = `sub-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+      if (!this.isSubIdTaken(id)) return id;
+    }
+    // 여기까지 왔으면 난수가 아니라 다른 것이 고장 난 것이다 — 그래도 겹칠 수 없는 값으로 끝낸다.
+    return `sub-${Date.now().toString(36)}-${subCounter}-${randomUUID().slice(0, 8)}`;
+  }
+
   /** subagent 생성. preferredId 가 주어지면(클라이언트 optimistic create) 그 id 를 쓴다 — 충돌 시 무시. */
   create(parentAgentId: string, preferredId?: string): SubAgent {
     subCounter++;
-    const id = preferredId && !this.index.has(preferredId)
+    const id = preferredId && !this.isSubIdTaken(preferredId)
       ? preferredId
-      : `sub-${Date.now().toString(36)}`;
+      : this.mintSubId();
     const sub: SubAgent = {
       id,
       sessionId: '', // 첫 실행 시 Claude가 세션 생성
@@ -3423,7 +3566,14 @@ export class SubAgentManager {
 
     // AgentConfig → CLI 인자 변환
     // §5.3 v4.89 — 기억 폴더는 "어느 에이전트가, 어느 프로젝트에서" 로 갈리므로 맥락을 함께 넘긴다.
-    const configCtx: ConfigArgsContext = { agentName: sub!.parentAgentId, projectRoot: parentCwd };
+    //   §4 (CLI 사양 추종) — 자동 압축은 3층 해소라 설정 창 전역 기본을 함께 넘긴다. 이 값이
+    //   여기서 실려야 **이미 만들어져 돌던 에이전트**도 설정 창에서 바꾼 값을 따른다(신규
+    //   에이전트에만 걸리는 `createCustomAgent` 의 userDefaults 머지와 별개의 경로다).
+    const configCtx: ConfigArgsContext = {
+      agentName: sub!.parentAgentId,
+      projectRoot: parentCwd,
+      userAutoCompact: userDefaultsService.get().agentConfig?.autoCompact,
+    };
     // §5.5 #17-28 — 주입원 창이 끈 줄의 CLI 인자를 뒤에 얹는다. 같은 인자가 이미 있으면 넣지 않는다.
     const configArgs = agentConfig ? buildConfigArgs(agentConfig, configCtx) : [];
     for (const extra of opts?.extraArgs ?? []) {

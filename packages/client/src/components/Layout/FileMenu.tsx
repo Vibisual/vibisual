@@ -8,7 +8,6 @@ import { RemoteControlWindow } from './RemoteControlWindow.js';
 import { isPackagedDesktop } from '../../transport/index.js';
 import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 
-const API_BASE = '';
 
 export function FileMenu(): React.JSX.Element {
   const { t } = useTranslation();
@@ -37,18 +36,14 @@ export function FileMenu(): React.JSX.Element {
     return () => document.removeEventListener('keydown', handleKey);
   }, [open]);
 
+  // §4 (첫 실행 온보딩) ③ — 폴더 선택의 창구는 스토어 하나다(`openProjectFolder`). 여기와
+  //   폴더 게이트가 각자 fetch 를 들면 "고른 뒤에 무엇을 하는가"(탭 활성화·게이트 닫기)가
+  //   두 벌로 갈라진다.
   const handleOpenFolder = useCallback(async () => {
     setLoading(true);
     setOpen(false);
     try {
-      const res = await fetch(`${API_BASE}/api/projects/open-folder`, { method: 'POST' });
-      const data = await res.json() as { ok: boolean; cancelled?: boolean; project?: { name: string } };
-      if (data.ok && data.project) {
-        // 스냅샷 broadcast로 프로젝트 등록됨 → 해당 탭 활성화
-        useGraphStore.getState().setActiveProject(data.project.name);
-      }
-    } catch {
-      // 서버 연결 실패 시 무시
+      await useGraphStore.getState().openProjectFolder();
     } finally {
       setLoading(false);
     }

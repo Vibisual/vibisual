@@ -81,6 +81,9 @@ import type {
   BrainSummary,
   SessionLoop,
   VerificationRun,
+  VerificationDemo,
+  VerificationDemoStep,
+  VerificationDemoFrame,
   VerifyVerdict,
   SessionLoopContextMode,
   SessionGoal,
@@ -91,12 +94,15 @@ import type {
   SessionGoalStepStatus,
   ContextOverrides,
   ContextOverrideMap,
+  SessionMemo,
 } from '@vibisual/shared';
-import { LOCAL_AGENT_COLOR, ALL_MODEL_DEFAULT_LABEL_RE, MAX_BASH_HISTORY, MAX_FILE_EDITS, MAX_WRITE_DIFF_BYTES, DEFAULT_MAX_SATELLITES, SATELLITE_MAX_BOUNDS, MAX_AGENTS, SATELLITE_TYPES, AGENT_FADE_DURATION, BUBBLE_TTL, GHOST_FADE_DURATION, FILE_EXISTENCE_MISS_THRESHOLD, FRONTEND_SERVER_PATTERNS, IFRAME_DEAD_GRACE_MS, parseModelFamily, DEFAULT_AGENT_CONFIG, AVAILABLE_AGENT_TOOLS, BACKFILL_AGENT_TOOLS, DEFAULT_UI_LOCALE, COMMENT_BOX_DEFAULTS, READ_TOOLS, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, AGENT_REPORT_MAX_PER_AGENT, AGENT_QUESTIONS_MAX_PER_AGENT, AGENT_REVIEWS_MAX_PER_AGENT, AGENT_LISTS_MAX_PER_AGENT, AGENT_FEEDBACK_MAX_PER_AGENT, DELETED_AGENT_TOMBSTONE_MAX, CMD_AGENT_COLOR, MAX_AGENT_EVENTS, BRAIN_INJECTIONS_MAX_PER_AGENT, SESSION_GOAL_NOTE_MAX, SESSION_GOAL_HISTORY_MAX, SESSION_GOAL_STEPS_MAX, SESSION_GOAL_STEP_TEXT_MAX, SESSION_GOAL_TEXT_MAX, AUTO_AGENT_RUN_MAX_PER_AGENT, AUTO_AGENT_RUN_DEFAULT_REWORK_BUDGET, isExpiredByDays, capMapSize, SESSION_KEYED_MAP_MAX, ROOT_NODE_KEY_PREFIX, LEGACY_ROOT_NODE_KEY, SPEC_TITLE_MAX, SPEC_BODY_MAX, SPEC_MAX_ITEMS, SPEC_ITEM_TEXT_MAX, REVIEW_FILES_MAX, REVIEW_DIFF_MAX_BYTES, REVIEW_REQUESTS_MAX_PER_PROJECT, REVIEW_DECISIONS_MAX, REVIEW_REASON_MAX, LAB_TITLE_MAX, LAB_TASK_MAX, LAB_VARIANT_LABEL_MAX, LAB_RULES_APPEND_MAX, LAB_SUMMARY_MAX, LAB_MAX_VARIANTS, LAB_RUNS_MAX_PER_PROJECT, SHELF_TITLE_MAX, SHELF_LABEL_MAX, SHELF_COMMAND_MAX, SHELF_PROMPT_MAX, SHELF_MAX_ITEMS, SHELF_BUBBLES_MAX_PER_PROJECT, SHELF_RUN_OUTPUT_MAX_CHARS, normalizeShelfIcon, normalizeShelfColor, isSessionRunning, agentBadgeShare, VERIFICATION_RUNS_MAX_PER_SESSION, VERIFICATION_ATTEMPTS_MAX, VERIFICATION_REASON_MAX } from '@vibisual/shared';
+import { LOCAL_AGENT_COLOR, ALL_MODEL_DEFAULT_LABEL_RE, MAX_BASH_HISTORY, MAX_FILE_EDITS, MAX_WRITE_DIFF_BYTES, DEFAULT_MAX_SATELLITES, SATELLITE_MAX_BOUNDS, MAX_AGENTS, SATELLITE_TYPES, AGENT_FADE_DURATION, BUBBLE_TTL, GHOST_FADE_DURATION, FILE_EXISTENCE_MISS_THRESHOLD, FRONTEND_SERVER_PATTERNS, IFRAME_DEAD_GRACE_MS, parseModelFamily, DEFAULT_AGENT_CONFIG, AVAILABLE_AGENT_TOOLS, BACKFILL_AGENT_TOOLS, DEFAULT_UI_LOCALE, COMMENT_BOX_DEFAULTS, READ_TOOLS, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, AGENT_REPORT_MAX_PER_AGENT, AGENT_QUESTIONS_MAX_PER_AGENT, AGENT_REVIEWS_MAX_PER_AGENT, AGENT_LISTS_MAX_PER_AGENT, AGENT_FEEDBACK_MAX_PER_AGENT, DELETED_AGENT_TOMBSTONE_MAX, CMD_AGENT_COLOR, MAX_AGENT_EVENTS, BRAIN_INJECTIONS_MAX_PER_AGENT, SESSION_GOAL_NOTE_MAX, SESSION_GOAL_HISTORY_MAX, SESSION_GOAL_STEPS_MAX, SESSION_GOAL_STEP_TEXT_MAX, SESSION_GOAL_TEXT_MAX, AUTO_AGENT_RUN_MAX_PER_AGENT, AUTO_AGENT_RUN_DEFAULT_REWORK_BUDGET, isExpiredByDays, capMapSize, SESSION_KEYED_MAP_MAX, ROOT_NODE_KEY_PREFIX, LEGACY_ROOT_NODE_KEY, SPEC_TITLE_MAX, SPEC_BODY_MAX, SPEC_MAX_ITEMS, SPEC_ITEM_TEXT_MAX, REVIEW_FILES_MAX, REVIEW_DIFF_MAX_BYTES, REVIEW_REQUESTS_MAX_PER_PROJECT, REVIEW_DECISIONS_MAX, REVIEW_REASON_MAX, LAB_TITLE_MAX, LAB_TASK_MAX, LAB_VARIANT_LABEL_MAX, LAB_RULES_APPEND_MAX, LAB_SUMMARY_MAX, LAB_MAX_VARIANTS, LAB_RUNS_MAX_PER_PROJECT, SHELF_TITLE_MAX, SHELF_LABEL_MAX, SHELF_COMMAND_MAX, SHELF_PROMPT_MAX, SHELF_MAX_ITEMS, SHELF_BUBBLES_MAX_PER_PROJECT, SHELF_RUN_OUTPUT_MAX_CHARS, normalizeShelfIcon, normalizeShelfColor, isSessionRunning, agentBadgeShare, VERIFICATION_RUNS_MAX_PER_SESSION, VERIFICATION_ATTEMPTS_MAX, VERIFICATION_REASON_MAX, VERIFICATION_DEMO_MAX_PER_SESSION, VERIFICATION_DEMO_STEPS_MAX, VERIFICATION_DEMO_STEP_TEXT_MAX, VERIFICATION_DEMO_LABEL_MAX, VERIFICATION_DEMO_EXPECTED_MAX, VERIFICATION_DEMO_FRAMES_MAX } from '@vibisual/shared';
 import type { ServerKind, UiLocale, ExecutionMode, AgentProvider, ModelRegistry } from '@vibisual/shared';
 // §5.22 — 권한·감사 경계.
 import type { AuditBoundaryConfig, AuditDecisionSource, ProjectAuditLog } from '@vibisual/shared';
 import { COST_MAP_ACTIVE_WINDOW_MS } from '@vibisual/shared';
+// §5.5 #17-36 — 스티키 메모 상한/정화(디스크·REST 에서 온 값을 그대로 믿지 않는다).
+import { SESSION_MEMO, sanitizeSessionMemos } from '@vibisual/shared';
 // §7.11 — 루프백 주소 판정·추출(감지 폴백이 background 셸 밖의 서버도 회수하는 자리).
 import {
   extractLoopbackUrls,
@@ -318,6 +324,18 @@ function hashString(str: string): number {
  */
 function normalize(filePath: string): string {
   return foldCase(filePath.replace(/\\/g, '/').replace(/\/+$/, ''));
+}
+
+/**
+ * 프로젝트 탭에 적힐 이름 — `path.basename` 이 **빈 문자열을 돌려주는 경로**의 안전망.
+ *
+ * `path.basename('/')` 도 `path.basename('C:/')` 도 `''` 다. 이름이 빈 프로젝트는 탭에 아무
+ * 글자도 없이 배지만 뜨고, 그게 어느 폴더인지 알 길이 사라진다(실측: mac 에서 이름 없는 탭 하나).
+ * 그 자리에는 경로 자체를 적는다 — 짧고 이상해 보여도 "무엇인지 읽을 수는 있는" 쪽이 낫다.
+ */
+function projectDisplayName(cwd: string): string {
+  const slashed = cwd.replace(/\\/g, '/');
+  return path.basename(slashed) || slashed || cwd;
 }
 
 /**
@@ -746,6 +764,44 @@ export function normalizeVerificationRun(run: VerificationRun): VerificationRun 
   };
 }
 
+/**
+ * §5.5 #17-35 ⑧ — 디스크에서 올라온 시연 한 건을 안전한 모양으로 되돌린다.
+ *
+ * 검증 이력과 같은 이유로(복원 자체가 터지지 않게) 배열이 아닌 것·때가 아닌 것을 전부 걸러낸다.
+ * 프레임은 **경로가 문자열인 것만** 남긴다 — 그림 파일이 지워졌는지는 여기서 보지 않는다(그건 실릴 때
+ * 서버가 확인한다) — 로드 경로에서 디스크를 뒤지면 복원이 느려지고, 잠시 안 보이는 드라이브가
+ * 사용자의 시연을 지워 버리게 된다.
+ */
+export function normalizeVerificationDemo(demo: VerificationDemo): VerificationDemo {
+  const steps: VerificationDemoStep[] = Array.isArray(demo.steps)
+    ? demo.steps
+        .filter((st) => st && typeof st === 'object' && typeof st.text === 'string')
+        .map((st) => ({
+          atMs: typeof st.atMs === 'number' && st.atMs >= 0 ? st.atMs : 0,
+          text: st.text.slice(0, VERIFICATION_DEMO_STEP_TEXT_MAX),
+        }))
+        .slice(0, VERIFICATION_DEMO_STEPS_MAX)
+    : [];
+  const frames: VerificationDemoFrame[] = Array.isArray(demo.frames)
+    ? demo.frames
+        .filter((f) => f && typeof f === 'object' && typeof f.rel === 'string' && f.rel.length > 0)
+        .map((f) => ({ rel: f.rel, atMs: typeof f.atMs === 'number' && f.atMs >= 0 ? f.atMs : 0 }))
+        .slice(0, VERIFICATION_DEMO_FRAMES_MAX)
+    : [];
+  return {
+    ...demo,
+    label: typeof demo.label === 'string' ? demo.label.slice(0, VERIFICATION_DEMO_LABEL_MAX) : '',
+    sourceName: typeof demo.sourceName === 'string' ? demo.sourceName : '',
+    steps,
+    frames,
+    expected: typeof demo.expected === 'string'
+      ? demo.expected.slice(0, VERIFICATION_DEMO_EXPECTED_MAX)
+      : undefined,
+    durationMs: typeof demo.durationMs === 'number' && demo.durationMs > 0 ? demo.durationMs : 0,
+    recordedAt: typeof demo.recordedAt === 'number' && demo.recordedAt > 0 ? demo.recordedAt : Date.now(),
+  };
+}
+
 export function normalizeSessionLoop(loop: SessionLoop): SessionLoop {
   const legacyAutoCompact = (loop as SessionLoop & { autoCompact?: boolean }).autoCompact === true;
   const mode = loop.contextMode;
@@ -996,6 +1052,12 @@ export class ProjectGraph {
    */
   private agentReports = new Map<string, AgentReport[]>();
   /**
+   * §5.5 #17-36 — **메인 탭**(세션 미선택)에서 만든 스티키 메모 (agentId → SessionMemo[]).
+   * 세션 탭 메모는 그 세션의 소지품이라 `SubAgent.memos` 에 있고, 붙일 세션이 없는 메인 탭
+   * 메모만 여기 산다. 영속화 대상 (ProjectCheckpoint.agentMemos). 장수 상한 = SESSION_MEMO.MAX_PER_OWNER.
+   */
+  private agentMemos = new Map<string, SessionMemo[]>();
+  /**
    * §5.10 Project Brain — 주입 이벤트 (agentId → BrainInjectionEvent[]). "기억 N장 참조" 칩 +
    * Brain→에이전트 일시 엣지 연출용 신호(카드 id/title 만). **런타임 전용 — 체크포인트 미영속**
    * (재시작 시 자연 비움; 주입 이력은 카드 refCount 로 남는다). ring buffer 캡 = BRAIN_INJECTIONS_MAX_PER_AGENT.
@@ -1036,6 +1098,13 @@ export class ProjectGraph {
    * 세션이 끝나도 남아야 할 근거다. identity.json 은 아니다(실행 기록 ≠ 정체성 — §5.16 과 같은 판단).
    */
   private verificationRuns = new Map<string, VerificationRun[]>();
+  /**
+   * §5.5 #17-35 ⑧ — 시연(재현 절차) 목록 (subAgentId → VerificationDemo[], **최신이 앞**).
+   * 실행 이력과 같은 키 축(세션 탭)이고 세션당 `VERIFICATION_DEMO_MAX_PER_SESSION` 건에서 자른다.
+   * 영상은 여기 없다 — 단계 문장과 프레임 경로만 산다(⑧-2). 그림 파일 자체는 `.vibisual/verify-demos/`
+   * 에 있고, 그 폴더를 지우는 것은 삭제 경로의 일이다(이 맵은 경로만 든다).
+   */
+  private verificationDemos = new Map<string, VerificationDemo[]>();
   /**
    * §5.5 #17-17 v4.46 — 세션 목표 (subAgentId → SessionGoal).
    * 루프와 같은 키 축(세션 탭)이지만 실행 주체가 아니라 **방향**이다 — 명령을 발사하지 않고
@@ -1265,7 +1334,7 @@ export class ProjectGraph {
       const existingWt = this.projects.get(normalized);
       if (!existingWt) {
         const wtInfo: ProjectInfo = {
-          name: path.basename(cwd),
+          name: projectDisplayName(cwd),
           path: cwd.replace(/\\/g, '/'),
           parentProjectPath: parentInfo.path,
           worktreeName: wt.worktreeName,
@@ -1294,7 +1363,7 @@ export class ProjectGraph {
     }
 
     const info: ProjectInfo = {
-      name: path.basename(cwd),
+      name: projectDisplayName(cwd),
       path: cwd.replace(/\\/g, '/'),
     };
     this.projects.set(normalized, info);
@@ -2178,6 +2247,33 @@ export class ProjectGraph {
   }
 
   /**
+   * §5.5 #17-36 — 메인 탭 스티키 메모 **전체 교체**(부분 갱신 ❌ — `setSessionMemos` 와 같은 규약).
+   * 빈 목록이면 항목 자체를 지운다(빈 배열만 남은 좀비 키를 만들지 않는다).
+   */
+  setAgentMemos(agentId: string, memos: SessionMemo[]): boolean {
+    const before = JSON.stringify(this.agentMemos.get(agentId) ?? []);
+    if (memos.length > 0) this.agentMemos.set(agentId, memos);
+    else this.agentMemos.delete(agentId);
+    const after = JSON.stringify(this.agentMemos.get(agentId) ?? []);
+    if (after === before) return false;
+    this.bumpMutationVersion();
+    return true;
+  }
+
+  /** §5.5 #17-36 — 이 에이전트 메인 탭의 메모 목록(없으면 빈 배열). */
+  getAgentMemos(agentId: string): SessionMemo[] {
+    return this.agentMemos.get(agentId) ?? [];
+  }
+
+  /** §5.5 #17-36 — 메모 전체 맵 (broadcast 스냅샷/체크포인트용). 빈 맵이면 undefined. */
+  getAgentMemosRecord(): Record<string, SessionMemo[]> | undefined {
+    if (this.agentMemos.size === 0) return undefined;
+    const out: Record<string, SessionMemo[]> = {};
+    for (const [k, v] of this.agentMemos) out[k] = [...v];
+    return out;
+  }
+
+  /**
    * §5.10 Project Brain — 주입 이벤트 추가 (agentId → BrainInjectionEvent[], append + ring buffer 캡).
    * 스폰 브리핑/파일 경고/능동 검색이 카드를 주입한 순간에 호출. 런타임 전용(체크포인트 미영속).
    *
@@ -2489,6 +2585,88 @@ export class ProjectGraph {
     if (this.verificationRuns.size === 0) return undefined;
     const out: Record<string, VerificationRun[]> = {};
     for (const [k, v] of this.verificationRuns) out[k] = v.map((r) => ({ ...r, attempts: [...r.attempts] }));
+    return out;
+  }
+
+  // ─── §5.5 #17-35 ⑨ — 시연(재현 절차) ───
+  //
+  // 검증 이력과 같은 모양·같은 키 축이다. 다른 것은 하나뿐 — **이 레코드에는 디스크에 남은 그림이
+  // 딸려 있다.** 그래서 잘리거나 지워지는 경로는 전부 "지워진 레코드"를 돌려주고, 그 프레임 폴더를
+  // 실제로 지우는 것은 호출자(서버)가 한다. 이 클래스는 파일시스템을 만지지 않는다(§3.1 경계).
+
+  /** 한 세션 탭의 시연 목록(최신 우선). 없으면 빈 배열. */
+  getVerificationDemos(subAgentId: string): VerificationDemo[] {
+    return this.verificationDemos.get(subAgentId) ?? [];
+  }
+
+  /** 시연 한 건 추가(최신이 앞). 상한을 넘겨 **밀려난 것들**을 돌려준다(그림 정리는 호출자 몫). */
+  addVerificationDemo(demo: VerificationDemo): VerificationDemo[] {
+    const list = this.verificationDemos.get(demo.subAgentId) ?? [];
+    const all = [demo, ...list];
+    this.verificationDemos.set(demo.subAgentId, all.slice(0, VERIFICATION_DEMO_MAX_PER_SESSION));
+    this.bumpMutationVersion();
+    return all.slice(VERIFICATION_DEMO_MAX_PER_SESSION);
+  }
+
+  /** id 로 찾기 — REST 는 subAgentId 를 모르고 들어온다. */
+  findVerificationDemo(demoId: string): VerificationDemo | undefined {
+    for (const list of this.verificationDemos.values()) {
+      const hit = list.find((d) => d.id === demoId);
+      if (hit) return hit;
+    }
+    return undefined;
+  }
+
+  /** 시연 부분 갱신(이름·단계·기대 결과 고치기). 대상이 없으면 undefined. */
+  updateVerificationDemo(demoId: string, patch: Partial<VerificationDemo>): VerificationDemo | undefined {
+    for (const [subId, list] of this.verificationDemos) {
+      const idx = list.findIndex((d) => d.id === demoId);
+      if (idx < 0) continue;
+      const next = normalizeVerificationDemo({ ...list[idx]!, ...patch });
+      const copy = [...list];
+      copy[idx] = next;
+      this.verificationDemos.set(subId, copy);
+      this.bumpMutationVersion();
+      return next;
+    }
+    return undefined;
+  }
+
+  /** 시연 한 건 삭제. **지운 레코드**를 돌려준다(호출자가 그 프레임 폴더를 지운다). */
+  deleteVerificationDemo(demoId: string): VerificationDemo | undefined {
+    for (const [subId, list] of this.verificationDemos) {
+      const hit = list.find((d) => d.id === demoId);
+      if (!hit) continue;
+      const next = list.filter((d) => d.id !== demoId);
+      if (next.length === 0) this.verificationDemos.delete(subId);
+      else this.verificationDemos.set(subId, next);
+      this.bumpMutationVersion();
+      return hit;
+    }
+    return undefined;
+  }
+
+  /** 한 에이전트의 시연 전부 삭제(에이전트 영구 제거). 지운 레코드들. */
+  deleteVerificationDemosForAgent(agentId: string): VerificationDemo[] {
+    const removed: VerificationDemo[] = [];
+    for (const [subId, list] of [...this.verificationDemos]) {
+      const next = list.filter((d) => d.agentId !== agentId);
+      if (next.length === list.length) continue;
+      for (const d of list) if (d.agentId === agentId) removed.push(d);
+      if (next.length === 0) this.verificationDemos.delete(subId);
+      else this.verificationDemos.set(subId, next);
+    }
+    if (removed.length > 0) this.bumpMutationVersion();
+    return removed;
+  }
+
+  /** 시연 전체 맵 (broadcast 스냅샷/체크포인트용). 빈 맵이면 undefined. */
+  getVerificationDemosRecord(): Record<string, VerificationDemo[]> | undefined {
+    if (this.verificationDemos.size === 0) return undefined;
+    const out: Record<string, VerificationDemo[]> = {};
+    for (const [k, v] of this.verificationDemos) {
+      out[k] = v.map((d) => ({ ...d, steps: [...d.steps], frames: [...d.frames] }));
+    }
     return out;
   }
 
@@ -3112,6 +3290,7 @@ export class ProjectGraph {
         // 메모리 누수 방지 — 사용자 명시 삭제 시 per-agent Map/Set 정리(좀비 카드 누적 차단)
         this.agentConfigs.delete(agent.id);
         this.agentReports.delete(agent.id);
+        this.agentMemos.delete(agent.id);
         this.agentQuestions.delete(agent.id);
         this.agentReviews.delete(agent.id);
         this.agentLists.delete(agent.id);
@@ -4210,6 +4389,7 @@ export class ProjectGraph {
       autoAgentSummaries: this.autoAgentSummaries.size > 0 ? this.getAutoAgentSummaries() : undefined,
       autoAgentRuns: this.getAutoAgentRunsRecord(),
       agentReports: this.getAgentReportsRecord(),
+      agentMemos: this.getAgentMemosRecord(),
       agentQuestions: this.getAgentQuestionsRecord(),
       agentReviews: this.getAgentReviewsRecord(),
       agentLists: this.getAgentListsRecord(),
@@ -4217,6 +4397,8 @@ export class ProjectGraph {
       sessionLoops: this.getSessionLoopsRecord(),
       // §5.5 #17-35 — 검증 이력(세션 탭 키). 루프와 같은 자리에 나란히 실린다.
       verificationRuns: this.getVerificationRunsRecord(),
+      // §5.5 #17-35 ⑨ — 시연 목록. 실행 폼이 "무엇을 실어 보낼 수 있는지" 를 이걸로 그린다.
+      verificationDemos: this.getVerificationDemosRecord(),
       sessionGoals: this.getSessionGoalsRecord(),
       // §5.5 #17-28 — 주입원 오버라이드. 화면이 "무엇이 꺼져 있는지"를 스냅샷만으로도 알 수 있게.
       contextOverrides: this.getContextOverrides(),
@@ -4369,6 +4551,7 @@ export class ProjectGraph {
       autoAgentSummaries: this.autoAgentSummaries.size > 0 ? this.getAutoAgentSummaries() : undefined,
       autoAgentRuns: this.getAutoAgentRunsRecord(),
       agentReports: this.getAgentReportsRecord(),
+      agentMemos: this.getAgentMemosRecord(),
       agentQuestions: this.getAgentQuestionsRecord(),
       agentReviews: this.getAgentReviewsRecord(),
       agentLists: this.getAgentListsRecord(),
@@ -4376,6 +4559,8 @@ export class ProjectGraph {
       sessionLoops: this.getSessionLoopsRecord(),
       // §5.5 #17-35 — 검증 이력(세션 탭 키). 루프와 같은 자리에 나란히 실린다.
       verificationRuns: this.getVerificationRunsRecord(),
+      // §5.5 #17-35 ⑨ — 시연 목록. 실행 폼이 "무엇을 실어 보낼 수 있는지" 를 이걸로 그린다.
+      verificationDemos: this.getVerificationDemosRecord(),
       sessionGoals: this.getSessionGoalsRecord(),
       contextOverrides: this.getContextOverrides(),
     };
@@ -4818,6 +5003,15 @@ export class ProjectGraph {
         }
         return Object.keys(out).length > 0 ? out : undefined;
       })(),
+      // §5.5 #17-36 — 메인 탭 스티키 메모: 이 프로젝트 소속 에이전트분만 필터해 영속(agentReports 와 동형).
+      //   사용자가 손으로 쓴 글이라 복구 불가 자산이다 — 여기 빠뜨리면 껐다 켜면 사라진다.
+      agentMemos: (() => {
+        const out: Record<string, SessionMemo[]> = {};
+        for (const [agentId, memos] of this.agentMemos) {
+          if (projectBubbleIds.has(agentId) && memos.length > 0) out[agentId] = [...memos];
+        }
+        return Object.keys(out).length > 0 ? out : undefined;
+      })(),
       // §4 v2.60 — 질문 카드: 이 프로젝트 소속 에이전트(버블 id)분만 필터해 영속(agentReports 와 동형).
       agentQuestions: (() => {
         const out: Record<string, AgentQuestions[]> = {};
@@ -4868,6 +5062,16 @@ export class ProjectGraph {
         for (const [subId, list] of this.verificationRuns) {
           const mine = list.filter((r) => projectBubbleIds.has(r.agentId));
           if (mine.length > 0) out[subId] = mine.map((r) => ({ ...r, attempts: [...r.attempts] }));
+        }
+        return Object.keys(out).length > 0 ? out : undefined;
+      })(),
+      // §5.5 #17-35 ⑨ — 시연: 검증 이력과 동형. **디스크 포맷이라 여기 빠뜨리면 껐다 켜면 사람이
+      //   직접 녹화한 절차가 통째로 사라진다**(그림 파일은 `.vibisual/verify-demos/` 에 남은 채 고아가 된다).
+      verificationDemos: (() => {
+        const out: Record<string, VerificationDemo[]> = {};
+        for (const [subId, list] of this.verificationDemos) {
+          const mine = list.filter((d) => projectBubbleIds.has(d.agentId));
+          if (mine.length > 0) out[subId] = mine.map((d) => ({ ...d, steps: [...d.steps], frames: [...d.frames] }));
         }
         return Object.keys(out).length > 0 ? out : undefined;
       })(),
@@ -5044,7 +5248,26 @@ export class ProjectGraph {
       }
     }
 
-    // §4 v2.60 — 질문 카드 병합 (agentReports 와 동형).
+// §5.5 #17-36 — 메인 탭 메모 병합 (agentId 키). 같은 에이전트가 이미 있으면 **기존 것을 살리고**
+    //   저쪽에만 있는 id 만 얹는다(사용자가 쓴 글이라 덮어쓰지 않는다). 장수 상한은 그대로 지킨다.
+    if (cp.agentMemos) {
+      for (const [agentId, memos] of Object.entries(cp.agentMemos)) {
+        const clean = sanitizeSessionMemos(memos);
+        if (clean.length === 0) continue;
+        const existing = this.agentMemos.get(agentId);
+        if (!existing) {
+          this.agentMemos.set(agentId, clean);
+        } else {
+          const seen = new Set(existing.map((m) => m.id));
+          for (const m of clean) if (!seen.has(m.id)) existing.push(m);
+          if (existing.length > SESSION_MEMO.MAX_PER_OWNER) {
+            existing.splice(SESSION_MEMO.MAX_PER_OWNER);
+          }
+        }
+      }
+    }
+
+        // §4 v2.60 — 질문 카드 병합 (agentReports 와 동형).
     if (cp.agentQuestions) {
       for (const [agentId, qs] of Object.entries(cp.agentQuestions)) {
         if (!Array.isArray(qs) || qs.length === 0) continue;
@@ -5136,6 +5359,18 @@ export class ProjectGraph {
         this.verificationRuns.set(
           subId,
           list.filter((r) => r && typeof r === 'object').map(normalizeVerificationRun).slice(0, VERIFICATION_RUNS_MAX_PER_SESSION),
+        );
+      }
+    }
+
+    // §5.5 #17-35 ⑨ — 시연 병합. 검증 이력과 같은 규칙 — 이미 메모리에 있는 탭은 건드리지 않는다.
+    if (cp.verificationDemos) {
+      for (const [subId, list] of Object.entries(cp.verificationDemos)) {
+        if (!Array.isArray(list) || list.length === 0) continue;
+        if (this.verificationDemos.has(subId)) continue;
+        this.verificationDemos.set(
+          subId,
+          list.filter((d) => d && typeof d === 'object').map(normalizeVerificationDemo).slice(0, VERIFICATION_DEMO_MAX_PER_SESSION),
         );
       }
     }
@@ -5386,7 +5621,10 @@ export class ProjectGraph {
     this.bumpMutationVersion();
     this.root = normalize(cp.project.path);
     this.seq = cp.seq;
-    this.uiLocale = cp.uiLocale ?? DEFAULT_UI_LOCALE;
+    // §4 (첫 실행 온보딩) — 저장된 값이 없으면 **기본값이 아니라 지금 쓰던 언어**를 유지한다.
+    //   예전에는 `?? DEFAULT_UI_LOCALE` 이라, 언어 칸이 없는 옛 체크포인트를 하나 여는 것만으로
+    //   방금 고른 한국어가 영어로 되돌아갔다(온보딩 중에 고르면 반드시 이 경로를 지난다).
+    this.uiLocale = cp.uiLocale ?? this.uiLocale;
     this.agentCounter = cp.graph.agentCounter;
     this.agents = new Map(Object.entries(cp.graph.agents));
     this.nodes = new Map(Object.entries(cp.graph.nodes));
@@ -5661,7 +5899,17 @@ export class ProjectGraph {
       }
     }
 
-    // §4 v2.60 — 에이전트 질문 카드 복원
+// §5.5 #17-36 — 메인 탭 스티키 메모 복원. 디스크에서 온 값이라 정화해서 넣는다
+    //   (옛 포맷·손상 값이 그대로 화면 좌표로 나가지 않게).
+    this.agentMemos.clear();
+    if (cp.agentMemos) {
+      for (const [agentId, memos] of Object.entries(cp.agentMemos)) {
+        const clean = sanitizeSessionMemos(memos);
+        if (clean.length > 0) this.agentMemos.set(agentId, clean);
+      }
+    }
+
+        // §4 v2.60 — 에이전트 질문 카드 복원
     this.agentQuestions.clear();
     if (cp.agentQuestions) {
       for (const [agentId, qs] of Object.entries(cp.agentQuestions)) {
@@ -5723,6 +5971,20 @@ export class ProjectGraph {
           })
           .slice(0, VERIFICATION_RUNS_MAX_PER_SESSION);
         if (restored.length > 0) this.verificationRuns.set(subId, restored);
+      }
+    }
+
+    // §5.5 #17-35 ⑨ — 시연 복원. 실행 이력과 달리 **상태가 없다**(사람이 만들어 둔 절차라
+    //   서버가 죽는 동안 무엇도 진행되지 않았다) — 그래서 강등 규칙 없이 그대로 되살린다.
+    this.verificationDemos.clear();
+    if (cp.verificationDemos) {
+      for (const [subId, list] of Object.entries(cp.verificationDemos)) {
+        if (!Array.isArray(list) || list.length === 0) continue;
+        const restored = list
+          .filter((d) => d && typeof d === 'object')
+          .map(normalizeVerificationDemo)
+          .slice(0, VERIFICATION_DEMO_MAX_PER_SESSION);
+        if (restored.length > 0) this.verificationDemos.set(subId, restored);
       }
     }
 
@@ -6686,6 +6948,8 @@ export class ProjectGraph {
     // 메모리 누수 방지 — 에이전트 영구 제거 시 per-agent Map/Set 정리(좀비 카드 누적 차단)
     this.agentConfigs.delete(agent.id);
     this.agentReports.delete(agent.id);
+    // §5.5 #17-36 — 메인 탭 메모도 이 에이전트의 소지품이다(세션 메모는 sub 객체와 함께 사라진다).
+    this.agentMemos.delete(agent.id);
     this.agentQuestions.delete(agent.id);
     this.agentReviews.delete(agent.id);
     this.agentLists.delete(agent.id);

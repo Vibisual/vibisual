@@ -399,7 +399,15 @@ export function mergeSnapshots(a: GraphSnapshot, b: GraphSnapshot): GraphSnapsho
       if (!av && !bv) return undefined;
       return { ...(av ?? {}), ...(bv ?? {}) };
     })(),
-    // §4 v2.60 — 에이전트 질문 카드 (agentReports 와 동형).
+// §5.5 #17-36 — 메인 탭 스티키 메모 (agentId 1차 키 → 단순 spread 안전, b 우선).
+    //   여기 빠지면 **프로젝트를 2개 이상 열었을 때만** 메모가 사라진다(단일 프로젝트 테스트로는 안 잡힌다).
+    agentMemos: (() => {
+      const av = a.agentMemos;
+      const bv = b.agentMemos;
+      if (!av && !bv) return undefined;
+      return { ...(av ?? {}), ...(bv ?? {}) };
+    })(),
+        // §4 v2.60 — 에이전트 질문 카드 (agentReports 와 동형).
     agentQuestions: (() => {
       const av = a.agentQuestions;
       const bv = b.agentQuestions;
@@ -725,17 +733,35 @@ export class ProjectGraphManager {
     return first.done ? null : first.value;
   }
 
+  /**
+   * §4 (첫 실행 온보딩) — **인스턴스가 없을 때도 사는 UI 언어.**
+   *
+   * 종전에는 언어가 인스턴스(=프로젝트)에만 있었다. 그런데 온보딩 창(설치·로그인·폴더)은
+   * **프로젝트가 하나도 없는 상태**에서 뜨므로, 거기서 한국어를 골라도 `setUiLocale` 이
+   * 0개 인스턴스를 돌아 아무 데도 안 남았다. 그러다 폴더를 고르는 순간 새 인스턴스가
+   * 기본값 `'en'` 으로 서고 그 값이 스냅샷으로 밀려와 **방금 고른 언어를 영어로 되돌렸다**.
+   * 그래서 매니저가 런타임 값을 하나 들고, 새로 서는 인스턴스에 씨앗으로 넘긴다.
+   *
+   * ⚠ 영속 SSOT 는 종전대로 `ProjectCheckpoint.uiLocale`(프로젝트별)이다 — 이 값은 그것을
+   *   **대체하지 않고**, 아직 자기 값이 없는 인스턴스에만 실린다(`restoreFromCheckpoint` 는
+   *   저장된 값이 있으면 그것을 쓴다).
+   */
+  private uiLocale: UiLocale = DEFAULT_UI_LOCALE;
+
   getUiLocale(): UiLocale {
-    return this.primaryInstance()?.getUiLocale() ?? DEFAULT_UI_LOCALE;
+    return this.primaryInstance()?.getUiLocale() ?? this.uiLocale;
   }
 
   /** primary 인스턴스에 저장 + 전 인스턴스에 전파(스냅샷 일관성). 변경이 있었으면 true. */
   setUiLocale(locale: UiLocale): boolean {
+    // 인스턴스가 0개여도 **여기서는 반드시 남는다** — 온보딩 중에 고른 언어가 사는 자리.
+    const seedChanged = this.uiLocale !== locale;
+    this.uiLocale = locale;
     let changed = false;
     for (const inst of this.instances.values()) {
       if (inst.setUiLocale(locale)) changed = true;
     }
-    return changed;
+    return changed || seedChanged;
   }
 
   // ─── 새 인스턴스 생성 헬퍼 ───
@@ -745,6 +771,10 @@ export class ProjectGraphManager {
 
   private createInstance(cwd: string): ProjectGraph {
     const inst = new ProjectGraph();
+    // §4 (첫 실행 온보딩) — 지금 쓰고 있는 UI 언어를 물려준다. 이 한 줄이 없으면 온보딩 중에
+    //   고른 언어가, 폴더를 고르는 순간 서는 이 인스턴스의 기본값 'en' 에 덮여 되돌아간다.
+    //   저장된 값이 있는 프로젝트는 `restoreFromCheckpoint` 가 곧바로 자기 값으로 바꾼다.
+    inst.setUiLocale(this.uiLocale);
     inst.setPoppedCommandsRef(this.poppedCommandsRef);
     inst.setCommandQueuesRef(this.commandQueuesRef);
     inst.setCompletedCommandArchiveRef(this.completedCommandArchiveRef);
@@ -1385,36 +1415,52 @@ export class ProjectGraphManager {
 
   // ─── 라우팅: 프로젝트 이름 기반 ───
 
+  /**
+   * §4 (첫 실행 온보딩) ③ — 사용자가 연 프로젝트 폴더가 **하나라도** 있는가.
+   *
+   * 판정 기준은 탭바에 뜨는 것과 같아야 한다(`getVisibleTopLevelProjects` = 스냅샷의
+   * `visibleProjects`). 워크트리는 부모 탭 안에서만 보이므로 "폴더를 골랐다"의 근거가 아니고,
+   * × 로 닫은 탭도 사용자에게는 없는 것이다 — 그 상태에서 버블을 만들면 보이지도 않는 탭에
+   * 매인 에이전트가 생겨 "만들었는데 아무 일도 안 일어났다"가 된다.
+   */
+  hasOpenProject(): boolean {
+    return this.getVisibleTopLevelProjects().length > 0;
+  }
+
+  /**
+   * 커스텀 에이전트 생성 위임.
+   *
+   * ⚠ 인스턴스가 없으면(= 폴더를 한 번도 고르지 않았으면) **`null`** 이다. 예전에는 이 자리에서
+   *   `registerProject(process.cwd())` 로 "임시 등록"을 했는데, Finder 로 띄운 mac 앱의
+   *   `process.cwd()` 는 `/` 라 `path.basename('/') === ''` → **이름이 빈 프로젝트 탭**과
+   *   **파일시스템 루트에 매인 에이전트**가 조용히 생겼다(사용자 눈에는 "폴더를 고른 적도 없는데
+   *   빈 것이 생성됐다"). 임시로 지어낸 작업 폴더는 어떤 경우에도 사용자가 그은 선이 아니다 —
+   *   여기서는 만들지 않고, 부른 쪽이 폴더 선택으로 되돌린다(§4 온보딩 ③).
+   */
   createCustomAgent(
     label: string,
     position?: { x: number; y: number },
     projectName?: string | null,
     options?: { executionMode?: ExecutionMode; provider?: AgentProvider },
-  ): BubbleData {
+  ): BubbleData | null {
     const inst = projectName
       ? (this.getInstanceByName(projectName) ?? this.primaryInstance())
       : this.primaryInstance();
-    if (!inst) {
-      // 인스턴스가 없으면 임시 등록
-      this.registerProject(process.cwd());
-      return this.primaryInstance()!.createCustomAgent(label, position, projectName, options);
-    }
+    if (!inst) return null;
     return inst.createCustomAgent(label, position, projectName, options);
   }
 
-  /** §5.3 #10-2 v2.37 — Auto Agent 메타 버블 생성 위임. createCustomAgent 와 동일한 인스턴스 라우팅. */
+  /** §5.3 #10-2 v2.37 — Auto Agent 메타 버블 생성 위임. createCustomAgent 와 동일한 인스턴스 라우팅
+   *  (인스턴스가 없으면 `null` — 임시 등록 ❌, 사유는 바로 위 머리말). */
   createAutoAgent(
     label: string,
     position?: { x: number; y: number },
     projectName?: string | null,
-  ): BubbleData {
+  ): BubbleData | null {
     const inst = projectName
       ? (this.getInstanceByName(projectName) ?? this.primaryInstance())
       : this.primaryInstance();
-    if (!inst) {
-      this.registerProject(process.cwd());
-      return this.primaryInstance()!.createAutoAgent(label, position, projectName);
-    }
+    if (!inst) return null;
     return inst.createAutoAgent(label, position, projectName);
   }
 
@@ -1546,19 +1592,17 @@ export class ProjectGraphManager {
     return null;
   }
 
+  /** 파이프라인 버블 생성 위임 — 인스턴스가 없으면 `null`(임시 등록 ❌, 사유는 `createCustomAgent` 머리말). */
   createPipeline(
     type: import('@vibisual/shared').PipelineType,
     label: string,
     position?: { x: number; y: number },
     projectName?: string | null,
-  ): BubbleData {
+  ): BubbleData | null {
     const inst = projectName
       ? (this.getInstanceByName(projectName) ?? this.primaryInstance())
       : this.primaryInstance();
-    if (!inst) {
-      this.registerProject(process.cwd());
-      return this.primaryInstance()!.createPipeline(type, label, position, projectName);
-    }
+    if (!inst) return null;
     return inst.createPipeline(type, label, position, projectName);
   }
 
@@ -1619,7 +1663,23 @@ export class ProjectGraphManager {
     return true;
   }
 
-  /** §5.10 — Brain 주입 이벤트 적재. ev.agentId 소속 인스턴스로 라우팅(addAgentReport 와 동형). */
+/**
+   * §5.5 #17-36 — 메인 탭 스티키 메모 저장. agentId 소속 인스턴스로 라우팅(addAgentReport 와 동형).
+   * @returns 실제로 내용이 바뀌었으면 true(= 브로드캐스트·저장할 값어치가 있다).
+   */
+  setAgentMemos(agentId: string, memos: import('@vibisual/shared').SessionMemo[]): boolean {
+    const inst = this.findInstanceByAgentId(agentId) ?? this.primaryInstance();
+    if (!inst) return false;
+    return inst.setAgentMemos(agentId, memos);
+  }
+
+  /** §5.5 #17-36 — 메인 탭 메모 조회(없으면 빈 배열). */
+  getAgentMemos(agentId: string): import('@vibisual/shared').SessionMemo[] {
+    const inst = this.findInstanceByAgentId(agentId) ?? this.primaryInstance();
+    return inst ? inst.getAgentMemos(agentId) : [];
+  }
+
+    /** §5.10 — Brain 주입 이벤트 적재. ev.agentId 소속 인스턴스로 라우팅(addAgentReport 와 동형). */
   addBrainInjection(ev: import('@vibisual/shared').BrainInjectionEvent): boolean {
     const inst = this.findInstanceByAgentId(ev.agentId) ?? this.primaryInstance();
     if (!inst) return false;
@@ -1800,6 +1860,66 @@ export class ProjectGraphManager {
   deleteVerificationRunsForAgent(agentId: string): number {
     let removed = 0;
     for (const inst of this.instances.values()) removed += inst.deleteVerificationRunsForAgent(agentId);
+    return removed;
+  }
+
+  // ─── §5.5 #17-35 ⑨ — 시연(재현 절차) ───
+  //
+  // 검증 이력과 같은 라우팅 규약. 다만 **지워진 레코드를 돌려주는** 경로가 있다 — 그 시연의 프레임
+  // 폴더를 실제로 지우는 것은 서버(index.ts)이기 때문이다(그래프 클래스는 디스크를 만지지 않는다).
+
+  /** 세션 탭 하나의 시연 목록(최신 우선). */
+  getVerificationDemos(subAgentId: string): import('@vibisual/shared').VerificationDemo[] {
+    for (const inst of this.instances.values()) {
+      const list = inst.getVerificationDemos(subAgentId);
+      if (list.length > 0) return list;
+    }
+    return [];
+  }
+
+  /** 시연 한 건 추가. 상한에 밀려난 것들을 돌려준다(그림 정리 대상). 인스턴스가 없으면 null. */
+  addVerificationDemo(
+    demo: import('@vibisual/shared').VerificationDemo,
+  ): import('@vibisual/shared').VerificationDemo[] | null {
+    const inst = this.findInstanceByAgentId(demo.agentId) ?? this.primaryInstance();
+    if (!inst) return null;
+    return inst.addVerificationDemo(demo);
+  }
+
+  /** id 로 찾기 — REST 는 subAgentId 를 모르고 들어온다. */
+  findVerificationDemo(demoId: string): import('@vibisual/shared').VerificationDemo | undefined {
+    for (const inst of this.instances.values()) {
+      const hit = inst.findVerificationDemo(demoId);
+      if (hit) return hit;
+    }
+    return undefined;
+  }
+
+  /** 시연 부분 갱신(이름·단계·기대 결과). 대상이 없으면 undefined. */
+  updateVerificationDemo(
+    demoId: string,
+    patch: Partial<import('@vibisual/shared').VerificationDemo>,
+  ): import('@vibisual/shared').VerificationDemo | undefined {
+    for (const inst of this.instances.values()) {
+      const next = inst.updateVerificationDemo(demoId, patch);
+      if (next) return next;
+    }
+    return undefined;
+  }
+
+  /** 시연 한 건 삭제. 지운 레코드(그림 정리 대상) 또는 undefined. */
+  deleteVerificationDemo(demoId: string): import('@vibisual/shared').VerificationDemo | undefined {
+    for (const inst of this.instances.values()) {
+      const gone = inst.deleteVerificationDemo(demoId);
+      if (gone) return gone;
+    }
+    return undefined;
+  }
+
+  /** 한 에이전트의 시연 전부 삭제(에이전트 영구 제거). 지운 레코드들. */
+  deleteVerificationDemosForAgent(agentId: string): import('@vibisual/shared').VerificationDemo[] {
+    const removed: import('@vibisual/shared').VerificationDemo[] = [];
+    for (const inst of this.instances.values()) removed.push(...inst.deleteVerificationDemosForAgent(agentId));
     return removed;
   }
 

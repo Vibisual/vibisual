@@ -15,11 +15,16 @@ import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 //                    작업·미저장 변경 손실 우려를 재시작 직전에 명시 경고(§3.2.1 인프라 위 안전망).
 //   - idle/checking/up-to-date/error/null : 렌더 없음(숨김) — VS Code 처럼 할 일 있을 때만 노출.
 //
-// ⚠️ **notify-only(무서명 macOS)** 는 위 흐름을 타지 않는다. Squirrel.Mac 이 서명 검증을
-// 강제해 적용이 반드시 실패하므로 main 이 다운로드 자체를 하지 않고(autoDownload=false),
-// 상태는 'available' 에서 멈춘다. 그래서 이 모드에서는 'available' 이 곧 액션 단계다 —
-// 클릭하면 재시작이 아니라 **릴리스 페이지가 열린다**(그래서 손실 경고 모달도 띄우지 않는다:
-// 앱이 종료되지 않으므로 경고할 손실이 없다). 판정은 shared readUpdateDelivery 한 곳.
+// ⚠️ **self-install(무서명 macOS)도 위 흐름을 그대로 탄다.** 받는 주체만 다르다 —
+// electron-updater 가 아니라 main 의 `macSelfInstall` 이 받고, 검사하고, 종료 직후 번들을
+// 교체한다. 사용자가 보는 것은 Windows 와 **똑같다**(available → downloading% → 재시작 버튼
+// → v2.63 확인 모달). 종전 notify-only 처럼 "페이지를 열어 주고 끝"이 아니다.
+//
+// 다만 이 모드에는 **막힐 수 있는 자리**가 있다(해시 불일치·아키텍처 불일치·마운트 실패·
+// 쓰기 권한 없음). 그때는 `phase:'error'` + `errorCode` 가 오고, 이 버튼이 **복구 손잡이**로
+// 바뀐다 — 눌러서 릴리스 페이지를 연다. auto-install 의 error 는 종전대로 숨긴다(그쪽은
+// electron-updater 가 알아서 재시도하고, 사용자가 할 수 있는 일이 없다).
+// 판정은 shared readUpdateDelivery 한 곳.
 //
 // 아이콘은 이모지 금지(CLAUDE.md) — Lucide 톤 인라인 stroke SVG.
 
@@ -194,24 +199,28 @@ export function UpdateButton(): React.JSX.Element | null {
 
   if (!state) return null;
   const { phase } = state;
-  if (phase !== 'available' && phase !== 'downloading' && phase !== 'downloaded') return null;
+  const selfInstall = readUpdateDelivery(state.delivery) === 'self-install';
 
-  // notify-only(무서명 macOS) — main 이 다운로드하지 않으므로 'available' 이 곧 액션 단계다.
-  // install() 은 이 모드에서 quitAndInstall 이 아니라 릴리스 페이지 열기로 동작한다(updaterManager).
-  if (readUpdateDelivery(state.delivery) === 'notify-only') {
-    if (phase !== 'available') return null;
+  // self-install 이 막힌 상태 — 버튼이 **복구 손잡이**가 된다(누르면 릴리스 페이지).
+  // 사유는 errorCode 로 고른다. main 이 만든 영어 원문을 그리면 12개 로케일이 한꺼번에 영어가 된다.
+  if (selfInstall && phase === 'error') {
+    const reason = state.errorCode
+      ? t(`header.update.failed.${state.errorCode}`, { defaultValue: '' })
+      : '';
     return (
       <button
         type="button"
         onClick={() => install()}
-        title={t('header.update.openReleasesTooltip', { version: state.newVersion ?? '' })}
-        className="app-nodrag flex items-center gap-1.5 rounded-md bg-blue-600 px-2.5 py-1 text-[12px] font-medium text-white transition-colors duration-150 hover:bg-blue-500"
+        title={[reason, t('header.update.openReleasesTooltip')].filter(Boolean).join(' ')}
+        className="app-nodrag flex items-center gap-1.5 rounded-md bg-amber-600 px-2.5 py-1 text-[12px] font-medium text-white transition-colors duration-150 hover:bg-amber-500"
       >
         <ExternalLinkIcon />
         <span>{t('header.update.openReleases', { version: state.newVersion ?? '' })}</span>
       </button>
     );
   }
+
+  if (phase !== 'available' && phase !== 'downloading' && phase !== 'downloaded') return null;
 
   if (phase === 'downloaded') {
     return (

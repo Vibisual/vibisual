@@ -6,6 +6,7 @@ import type { PlayBubbleStatus, PlayRecipe } from '@vibisual/shared';
 
 import { useGraphStore } from '../../stores/graphStore.js';
 import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
+import { isInteractiveTarget, useBubbleSelectGesture } from './bubbleSelectGesture.js';
 
 /**
  * §5.14 v4.62 — 플레이 버튼 버블.
@@ -96,7 +97,12 @@ export const PlayNode = memo(function PlayNode({
   const menuRef = useRef<HTMLDivElement>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const isSelected = selected === true || selectedPlayBubbleId === data.playBubbleId;
+  // 선택 링은 `selectIntentId`(캔버스가 나눠 쓰는 "지금 고른 것 한 칸")도 함께 본다 —
+  // 다른 버블을 고르는 순간 이 링이 곧바로 내려가는 것도 그 한 칸 덕이다.
+  const selectIntentId = useGraphStore((s) => s.selectIntentId);
+  const isSelected = selected === true
+    || selectedPlayBubbleId === data.playBubbleId
+    || selectIntentId === data.playBubbleId;
   const status = data.status;
   const hasRecipe = data.recipe !== undefined;
   const style = STATUS_STYLE[status];
@@ -124,26 +130,30 @@ export const PlayNode = memo(function PlayNode({
   }, [notice]);
 
   /**
-   * 선택 — 앱 버블과 같은 규칙, 같은 함정(v4.69).
+   * 선택 — 캔버스 공용 상태기계(`bubbleSelectGesture`) 한 벌. 앱·스펙·랩·선반 버블과 같은 규칙.
    *
-   * ⚠ 버블 단계의 `onMouseDown` 으로 받으면 안 된다: 드래그 가능한 노드의 래퍼에 걸린
-   * `d3-drag` 가 mousedown 에서 `stopImmediatePropagation()` 을 불러, 루트로 위임된 React
-   * 핸들러가 아예 발화하지 못한다(= 눌러도 선택이 안 된다). 캡처 단계로 받아 그 차단을 피한다.
-   * 대신 캡처 단계는 자식보다 먼저 뛰므로, 안쪽 버튼(재생/정지)에서는 선택을 건너뛴다 —
-   * 그 버튼의 `stopPropagation` 은 캡처 단계를 막지 못한다.
+   * 플레이 버튼에는 더블클릭 동작이 없으므로 `doubleClickable:false` — 지연 없이 손 뗀 자리에서
+   * 바로 선택된다(에이전트 버블에서 더블클릭 대상이 아닌 버블이 그렇듯이). 다만 **끌고 간 뒤에는
+   * 선택되지 않는다** — 드래그와 클릭을 가르는 것도 그 상태기계의 몫이다.
+   *
+   * ⚠ 누름을 캡처 단계로 받는 이유(v4.69)와 안쪽 버튼(재생/정지) 위에서 선택을 건너뛰는 이유는
+   * 그 파일에 함께 적어 두었다.
    */
-  const handleSelect = useCallback((e: React.PointerEvent): void => {
-    if (e.button !== 0) return;
-    if ((e.target as HTMLElement | null)?.closest?.('button')) return;
-    selectPlayBubble(data.playBubbleId);
-  }, [selectPlayBubble, data.playBubbleId]);
+  const gesture = useBubbleSelectGesture({
+    doubleClickable: false,
+    select: () => selectPlayBubble(data.playBubbleId),
+    setIntent: (active) => {
+      useGraphStore.getState().setSelectIntent(active ? data.playBubbleId : null);
+    },
+    ignore: (e) => isInteractiveTarget(e.target),
+  });
 
   const handleContextMenu = useCallback((e: React.MouseEvent): void => {
     e.preventDefault();
     e.stopPropagation();
-    selectPlayBubble(data.playBubbleId);
+    gesture.selectNow();
     setMenu({ x: e.clientX, y: e.clientY });
-  }, [selectPlayBubble, data.playBubbleId]);
+  }, [gesture]);
 
   /** 4단 계단 ④ — 이 프로젝트의 커스텀 에이전트에게 조사를 맡긴다. */
   const askAgent = useCallback(async (): Promise<void> => {
@@ -317,7 +327,7 @@ export const PlayNode = memo(function PlayNode({
   return (
     <>
       <div
-        onPointerDownCapture={handleSelect}
+        {...gesture.handlers}
         onContextMenu={handleContextMenu}
         title={data.recipe?.command ?? data.recipe?.root ?? label}
         className="bubble-press relative flex cursor-pointer select-none flex-col items-center justify-center overflow-hidden rounded-2xl text-white"

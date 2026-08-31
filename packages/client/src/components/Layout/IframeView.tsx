@@ -64,13 +64,14 @@ export function IframeView({ url, tabId }: IframeViewProps): React.JSX.Element {
 
   return (
     <div className="flex h-full w-full flex-col bg-gray-950">
-      {/* URL bar */}
-      <div className="flex items-center gap-2 border-b border-white/[0.06] bg-gray-900/60 px-3 py-1.5">
+      {/* URL bar — `flex-wrap`: 창이 좁아지면 조작 줄을 잘라 내지 않고 **아랫줄로 접는다**.
+          폭 프리셋을 되돌릴 유일한 자리라, 여기가 잘리는 순간 그 프리뷰는 빠져나올 수 없게 된다. */}
+      <div className="flex flex-wrap items-center gap-2 border-b border-white/[0.06] bg-gray-900/60 px-3 py-1.5">
         {/* Reload button */}
         <button
           type="button"
           onClick={handleReload}
-          className="flex h-6 w-6 items-center justify-center rounded transition-colors hover:bg-white/[0.08]"
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded transition-colors hover:bg-white/[0.08]"
           title={t('common.iframe.reload')}
         >
           <svg className="h-3.5 w-3.5 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
@@ -80,7 +81,9 @@ export function IframeView({ url, tabId }: IframeViewProps): React.JSX.Element {
         </button>
 
         {/* URL input */}
-        <form onSubmit={handleNavigate} className="flex-1">
+        {/* 좁아질 때 먼저 양보하는 쪽. `min-w-0` 이 없으면 input 이 자기 기본 폭을 고집해
+            옆의 조작 줄을 밀어낸다(§5.17 — 되돌릴 버튼이 밀려나면 끝이다). */}
+        <form onSubmit={handleNavigate} className="min-w-0 flex-1">
           <input
             type="text"
             value={inputUrl}

@@ -3,7 +3,7 @@ import { Virtuoso, type VirtuosoHandle, type StateSnapshot } from 'react-virtuos
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import type { QueuedCommand, CommandError, SubAgent, SubAgentStreamEvent, AgentEvent, AgentReport, AgentQuestions, AgentReview, AgentList, AskUserQuestionRequest } from '@vibisual/shared';
-import { STREAM_DENSITIES, STREAM_COMPACT_TEXT_CLAMP_LINES, STREAM_COMPACT_TEXT_CLAMP_CHARS, slashCommandNeedsTerminal, type StreamDensity } from '@vibisual/shared';
+import { STREAM_DENSITIES, STREAM_COMPACT_TEXT_CLAMP_LINES, STREAM_COMPACT_TEXT_CLAMP_CHARS, slashCommandNeedsTerminal, SESSION_MEMO, type StreamDensity } from '@vibisual/shared';
 import { useSessionRunning } from '../../hooks/useSessionRunning.js';
 import { clampStreamText } from './streamDensity.js';
 import type { TodoItem } from '@vibisual/shared';
@@ -39,6 +39,8 @@ import { AgentReviewCard } from './AgentReviewCard.js';
 import { AgentListCard } from './AgentListCard.js';
 import { UnseenCardPills, type UnseenCardMeta } from './UnseenCardPills.js';
 import { IDETerminalPanes } from './IDETerminalPanes.js';
+import { SessionMemoLayer } from './SessionMemoLayer.js';
+import { canAddMemoCount } from './sessionMemo.js';
 import { SystemNode, parseSystemSubtype, parseSystemTaskInfo } from './SystemNode.js';
 import { ThinkingLiveLine } from './ThinkingIndicator.js';
 // §5.5 #17-18 ⑤ v4.77 — 대기 중 덧말의 상태·컨트롤은 이 말풍선이 갖는다(옛 대기 줄 대체).
@@ -1669,6 +1671,9 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
             onBlur={() => setHint(null)} // 포커스를 잃으면 히스토리 힌트도 내린다
             onPaste={handlePaste}
             onContextMenu={handleInputContextMenu}
+            // 전역 입력칸 메뉴(`GlobalTextFieldContextMenu`)에게 "여긴 내가 맡는다"고 알린다 —
+            // 전역이 가로채면 이 메뉴의 [웹에서 검색] 이 통째로 죽는다.
+            data-text-menu="own"
             rows={1}
             placeholder={activeSessionId === null ? t('ide.mainArea.inputPlaceholderNew') : t('ide.mainArea.inputPlaceholder')}
             className="scrollbar-thin block min-h-[28px] w-full resize-none bg-transparent text-[13px] leading-7 text-gray-200 placeholder-gray-500 outline-none"
@@ -1859,7 +1864,7 @@ function StreamLocalModelButton(): React.JSX.Element | null {
     <button
       type="button"
       onClick={(e) => { e.stopPropagation(); openLocalModelWindow(agentId); }}
-      className="flex min-w-0 flex-shrink-0 items-center gap-1.5 rounded bg-slate-500/15 px-1.5 py-0.5 text-[12px] font-semibold text-slate-300 transition-colors hover:bg-slate-500/25"
+      className="flex min-w-0 items-center gap-1.5 rounded bg-slate-500/15 px-1.5 py-0.5 text-[12px] font-semibold text-slate-300 transition-colors hover:bg-slate-500/25"
       title={t('ide.overlay.localSwitchModel', { defaultValue: '이 버블이 쓸 모델 바꾸기' })}
     >
       <span className="flex-shrink-0">{t('ide.overlay.localLabel', { defaultValue: 'All Model' })}</span>
@@ -2007,6 +2012,40 @@ function StreamFollowToggle(): React.JSX.Element {
   );
 }
 
+/**
+ * 하단 상태바 한 줄의 뼈대 — **넘치지 않고 접힌다.**
+ *
+ * 종전에는 `flex ... gap-2` 한 줄에 손잡이 셋이 전부 `flex-shrink-0` 으로 서 있었다. 창을 좁혀
+ * 대화가 얇아지면 그 셋이 줄 밖으로 밀려났는데, 대상 없음 줄은 `justify-end` 라 넘친 만큼이
+ * **왼쪽으로** 흘러 옆 사이드바 위를 덮었다(사용자 스크린샷 아래쪽 표시). 이제 줄이 `flex-wrap`
+ * 이라 자리가 모자라면 손잡이 묶음이 **다음 줄로 내려간다** — 아무것도 잘리지 않고, 밖으로도
+ * 나가지 않는다. 넓은 창에서는 한 줄에 다 들어가므로 종전 화면과 같다.
+ */
+const STATUS_ROW_CLASS = 'flex w-full flex-shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-t border-gray-800 bg-gray-900/70 px-4';
+
+/**
+ * 요약 글줄 — `min-w-*` 가 있어야 **손잡이보다 먼저 사라지지 않는다.** `flex-1` 만 두면 기준 폭이
+ * 0 이라 줄바꿈 셈에서 없는 것으로 쳐, 좁은 칸에서 글줄이 0px 로 접히고 손잡이만 남는다.
+ */
+const STATUS_SUMMARY_CLASS = 'min-w-[6rem] flex-1 truncate text-[12px]';
+
+/**
+ * 밀도·추종·(로컬이면) 모델 — 한 묶음으로 움직인다. 줄이 모자라면 이 묶음째 다음 줄로 내려가고,
+ * 묶음 자신도 `flex-wrap` 이라 분할 칸(하한 280px)처럼 좁은 자리에서도 밖으로 나가지 않는다.
+ */
+function StreamControls({ jumpHint = false }: { jumpHint?: boolean }): React.JSX.Element {
+  return (
+    <div className="ml-auto flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
+      <StreamLocalModelButton />
+      <StreamDensityToggle />
+      <StreamFollowToggle />
+      {jumpHint && (
+        <span className="flex-shrink-0 text-[12px] text-gray-600 group-hover:text-gray-300">{'↑'}</span>
+      )}
+    </div>
+  );
+}
+
 function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, sessionRunning }: StreamStatusBarProps): React.JSX.Element | null {
   const { t } = useTranslation();
   const openImageLightbox = useGraphStore((s) => s.openImageLightbox);
@@ -2101,10 +2140,8 @@ function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, sessi
   // §5.5 #17-12 — 보여줄 명령이 없어도 **밀도 토글만 있는 얇은 줄**은 남긴다 — 어느 화면에서든 밀도를 바꿀 수 있어야 한다.
   if (!target) {
     return (
-      <div className="flex w-full flex-shrink-0 items-center justify-end gap-2 border-t border-gray-800 bg-gray-900/70 px-4 py-1">
-        <StreamLocalModelButton />
-        <StreamDensityToggle />
-        <StreamFollowToggle />
+      <div className={`${STATUS_ROW_CLASS} py-1`}>
+        <StreamControls />
       </div>
     );
   }
@@ -2147,7 +2184,7 @@ function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, sessi
         onClick={handleJump}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleJump(); } }}
         title={t('ide.mainArea.scrollPrompt')}
-        className="group flex w-full flex-shrink-0 cursor-pointer items-center gap-2 border-t border-gray-800 bg-gray-900/70 px-4 py-1.5 text-left transition-colors hover:bg-gray-800/70"
+        className={`group cursor-pointer text-left transition-colors hover:bg-gray-800/70 ${STATUS_ROW_CLASS} py-1.5`}
       >
         <span className="inline-block h-3 w-3 flex-shrink-0 animate-spin rounded-full border-[1.5px] border-blue-400 border-t-transparent" />
         <span className="flex-shrink-0 text-[12px] text-blue-300">{t('ide.mainArea.executing')}</span>
@@ -2165,19 +2202,16 @@ function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, sessi
             ))}
           </div>
         )}
-        <span className={`min-w-0 flex-1 truncate text-[12px] ${plan ? 'text-gray-200' : 'font-mono text-gray-400 group-hover:text-gray-200'}`}>{preview}</span>
+        <span className={`${STATUS_SUMMARY_CLASS} ${plan ? 'text-gray-200' : 'font-mono text-gray-400 group-hover:text-gray-200'}`}>{preview}</span>
         {/* 계획이 있으면 완료/전체 — "얼마나 남았나"가 중지 판단의 재료가 된다. */}
         {plan && (
           <span className="flex-shrink-0 tabular-nums text-[12px] text-gray-500">
             {t('ide.plan.progress', { done: plan.done, total: plan.total })}
           </span>
         )}
-        <StreamLocalModelButton />
-        <StreamDensityToggle />
-        <StreamFollowToggle />
         {/* §5.5 #17-12 ③ v4.64 — 이 줄에는 [중지]를 두지 않는다. 실행 중이면 바로 아래 입력창에 같은 동작의
             [중지]가 뜨므로 버튼이 둘로 보였다("왜 중지가 2개냐"). 중지 창구는 입력창 하나(#17-10). */}
-        <span className="flex-shrink-0 text-[12px] text-gray-600 group-hover:text-gray-300">{'↑'}</span>
+        <StreamControls jumpHint />
       </div>
     );
   }
@@ -2189,7 +2223,7 @@ function StreamStatusBar({ commands, scrollRef, streamRef, onJump, events, sessi
       tabIndex={0}
       onClick={handleJump}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleJump(); } }}
-      className="group flex w-full flex-shrink-0 cursor-pointer items-center gap-2 border-t border-gray-800 bg-gray-900/70 px-4 py-1.5 text-left transition-colors hover:bg-gray-800/70"
+      className={`group cursor-pointer text-left transition-colors hover:bg-gray-800/70 ${STATUS_ROW_CLASS} py-1.5`}
       // §5.5 #17-12 ③ — 한 줄이라 80자에서 잘린다. 잘린 사유 전문은 툴팁이 받는다(잘려서 못 읽는 일 방지).
       title={errorLine ? `${errorLine}
 
@@ -2205,17 +2239,12 @@ ${t('ide.mainArea.scrollPrompt')}` : t('ide.mainArea.scrollPrompt')}
       <span className={`flex-shrink-0 text-[12px] ${isError ? 'text-red-400' : 'text-emerald-400'}`}>
         {isError ? t('ide.mainArea.statusError') : t('ide.mainArea.statusCompleted')}
       </span>
-      <span className={`min-w-0 flex-1 truncate text-[12px] ${
+      <span className={`${STATUS_SUMMARY_CLASS} ${
         isError ? 'text-red-200/90 group-hover:text-red-100' : 'text-gray-300 group-hover:text-gray-100'
       }`}>
         {preview}
       </span>
-      <StreamLocalModelButton />
-      <StreamDensityToggle />
-      <StreamFollowToggle />
-      <span className="flex-shrink-0 text-[12px] text-gray-600 group-hover:text-gray-300">
-        {'↑'}
-      </span>
+      <StreamControls jumpHint />
     </div>
   );
 }
@@ -2522,6 +2551,14 @@ export const IDEMainArea = memo(function IDEMainArea({
 
   // §5.5 #17-3 v2.31 — 우클릭 컨텍스트 메뉴. anchorId = 선택 출처 항목(§17-7 북마크 이동용).
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; selection: string; anchorId?: string } | null>(null);
+  // §5.5 #17-36 — 우클릭 메뉴가 찍은 스티키 메모 생성 지점(화면 좌표). 판(SessionMemoLayer)이 소비하고 비운다.
+  const [memoSpawn, setMemoSpawn] = useState<{ x: number; y: number } | null>(null);
+  // 이 화면(세션 탭 또는 메인 탭)에 붙은 메모 장수 — 상한에 닿으면 메뉴 항목을 흐린다.
+  const memoCount = useGraphStore((s) => (
+    activeSessionId
+      ? (s.subAgents[agentId]?.find((x) => x.id === activeSessionId)?.memos?.length ?? 0)
+      : (s.agentMemos[agentId]?.length ?? 0)
+  ));
   const setAgentSessionInputText = useGraphStore((s) => s.setAgentSessionInputText);
   const addCommand = useGraphStore((s) => s.addCommand);
 
@@ -2594,6 +2631,7 @@ export const IDEMainArea = memo(function IDEMainArea({
   }, []);
 
   const closeCtxMenu = useCallback(() => setCtxMenu(null), []);
+  const clearMemoSpawn = useCallback(() => setMemoSpawn(null), []);
 
   const ctxItems = useMemo<ContextMenuItem[]>(() => {
     const sel = ctxMenu?.selection ?? '';
@@ -2684,8 +2722,21 @@ export const IDEMainArea = memo(function IDEMainArea({
           }
         },
       },
+      {
+        // §5.5 #17-36 — 누른 그 자리에 스티키 메모 한 장. 고른 글자가 없어도 되는 유일한 항목이라
+        //   구분선으로 위 묶음(선택 텍스트를 다루는 것들)과 가른다.
+        id: 'add-memo',
+        label: t('ide.mainArea.ctxAddMemo'),
+        separatorBefore: true,
+        disabled: !canAddMemoCount(memoCount),
+        disabledTitle: t('ide.memo.limitReached', { max: SESSION_MEMO.MAX_PER_OWNER }),
+        onClick: () => {
+          if (!ctxMenu) return;
+          setMemoSpawn({ x: ctxMenu.x, y: ctxMenu.y });
+        },
+      },
     ];
-  }, [ctxMenu, isReadOnly, t, agentId, activeSessionId, setAgentSessionInputText, addCommand]);
+  }, [ctxMenu, isReadOnly, t, agentId, activeSessionId, setAgentSessionInputText, addCommand, memoCount]);
 
   // 스트림 데이터 조립: 서브 탭이면 해당 스트림만, 메인이면 전체
   const streams = useMemo<Record<string, SubAgentStreamEvent[]>>(() => {
@@ -3347,6 +3398,15 @@ export const IDEMainArea = memo(function IDEMainArea({
         onContextMenu={handleContextMenu}
         className="relative flex min-h-0 flex-1 flex-col bg-gray-950"
       >
+        {/* §5.5 #17-36 — 이 화면에 붙여 둔 스티키 메모. 대화 위에 떠 있고 함께 스크롤되지 않는다.
+            좌표는 이 컨테이너(ideBodyRef) 기준이라 창을 좁혀도 판 안에 남는다. */}
+        <SessionMemoLayer
+          agentId={agentId}
+          sessionId={activeSessionId}
+          containerRef={ideBodyRef}
+          spawnAt={memoSpawn}
+          onSpawnConsumed={clearMemoSpawn}
+        />
         {/* 본문 텍스트 줌 배율 표시 — Ctrl+휠/Ctrl±/핀치로 배율이 바뀐 직후에만 우측 상단에 떠 "지금 몇 배인지"
             기준을 잡아주고, 손을 떼면 잠시 뒤 스르륵 사라진다(zoomBadgeVisible). 페이드 전환을 위해 항상
             마운트해 두고 opacity 만 굴린다(조건부 마운트면 나타날 때 전환이 없음). 검색바(같은 코너)와

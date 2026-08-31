@@ -20,9 +20,15 @@
  *
  * 뒤쪽 OS 글꼴은 동봉본이 아직 안 실렸을 때(첫 페인트 직전)만 잠깐 쓰이는 자리다. Consolas·Menlo
  * 는 각각 Microsoft·Apple 소유라 동봉할 수 없어 이름으로만 부른다.
+ *
+ * 맨 끝 세 벌(Noto Sans SC·JP·Devanagari)은 §5.5 #17-22 ⑤-3 **문자 폴백**이다. 고정폭이 아니라
+ * 그 글자에서는 열이 밀리지만, 앞의 둘이 못 그리는 글자에서만 도달하므로 라틴·한글 정렬은 그대로다.
+ * 두부(□)로 아무것도 안 보이는 것보다 낫다는 판단이며(최소 설치 리눅스에는 CJK 글꼴이 아예 없다),
+ * 그래서 **맨 끝**이지 중간이 아니다.
  */
 export const TERMINAL_FONT_STACK =
-  "'JetBrains Mono', 'Nanum Gothic Coding', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+  "'JetBrains Mono', 'Nanum Gothic Coding', ui-monospace, SFMono-Regular, Menlo, Consolas, "
+  + "'Noto Sans SC', 'Noto Sans JP', 'Noto Sans Devanagari', monospace";
 
 /**
  * §4 (CMD) — 터미널 글꼴 확인에 쓸 최소 인터페이스. `document.fonts` 가 이 모양이다.

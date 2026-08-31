@@ -26,7 +26,17 @@
       "confirmTitle": "Neu starten zum Aktualisieren?",
       "confirmBody": "Die Aktualisierung schließt die App und installiert sie neu. Laufende Agent-Arbeiten oder ungespeicherte Änderungen können verloren gehen.",
       "confirmHint": "Falls wichtige Arbeiten benutzerdefinierter Agenten laufen, diese zuerst abschließen und dann aktualisieren.",
-      "confirmCancel": "Abbrechen"
+      "confirmCancel": "Abbrechen",
+      "openReleases": "{{version}} herunterladen",
+      "openReleasesTooltip": "Das automatische Update konnte auf diesem Mac nicht abgeschlossen werden. Dies öffnet die Releases-Seite, damit Sie es selbst herunterladen können.",
+      "failed": {
+        "download-failed": "Der Download wurde nicht abgeschlossen.",
+        "checksum-mismatch": "Die heruntergeladene Datei stimmte nicht mit ihrer veröffentlichten Prüfsumme überein und wurde verworfen.",
+        "arch-mismatch": "Der heruntergeladene Build ist für einen anderen Prozessor als diesen Mac und wurde daher nicht installiert.",
+        "mount-failed": "Das heruntergeladene Disk-Image konnte nicht geöffnet werden.",
+        "not-writable": "Vibisual hat keine Berechtigung, sich an seinem Installationsort selbst zu ersetzen.",
+        "install-failed": "Die App konnte nicht ersetzt werden."
+      }
     },
     "agentStatus": {
       "waiting": "Warte auf Agent",
@@ -87,6 +97,10 @@
         "expandAll": "Alle ausklappen"
       },
       "shortcutHint": "{{dock}} Andocken · {{max}} Maximieren · {{next}} Nächstes Fenster"
+    },
+    "projectFolderBanner": {
+      "text": "Es ist kein Projektordner geöffnet — Agenten haben noch keinen Arbeitsort.",
+      "action": "Ordner auswählen"
     }
   },
   "panel": {
@@ -948,15 +962,21 @@
       "fallbackModel": {
         "label": "Ausweichmodell",
         "tip": "Modell für den Fall, dass das Hauptmodell überlastet oder nicht verfügbar ist. Eine kommagetrennte Liste wird der Reihe nach versucht. Nur bei Headless-Läufen.",
-        "placeholder": "z. B. sonnet"
+        "placeholder": "z. B. sonnet",
+        "unsetLabel": "nicht gesetzt",
+        "unset": "Nicht gesetzt – kein Fallback. Die Ausführung schlägt fehl, wenn das Hauptmodell nicht verfügbar ist.",
+        "customLabel": "Manuell eingeben…",
+        "custom": "Geben Sie den Wert selbst ein – eine exakte Versions-ID oder eine kommagetrennte Liste, die der Reihe nach ausprobiert wird."
       },
       "autoCompact": {
         "label": "Auto-Verdichtung",
-        "tip": "Kontextgröße, ab der die CLI das Gespräch selbst verdichtet.",
-        "unset": "Nicht gesetzt — die CLI entscheidet (Standard).",
+        "tip": "Kontextgröße, ab der die CLI von selbst verdichtet. Ein kleinerer Wert verdichtet früher und häufiger.",
+        "unset": "Nicht gesetzt — folgt dem Standard in den Einstellungen.",
         "unsetLabel": "nicht gesetzt",
         "auto": "auto — die CLI wählt das Fenster.",
-        "tokens": "Verdichtet bei etwa {{tokens}} Token."
+        "tokens": "Verdichtet bei etwa {{tokens}} Token.",
+        "unsetDefaultLabel": "nicht gesetzt ({{tokens}})",
+        "globalTip": "Gilt für jeden Agenten ohne eigenen Wert für die automatische Verdichtung — auch für bereits laufende. Nicht gesetzt bedeutet: Standardwert wird verwendet."
       },
       "settingSources": {
         "label": "Einstellungsquellen",
@@ -1026,6 +1046,22 @@
         "tip": "Welche Agent-CLI dieses CMD-Terminal startet. Alles außer Claude Code ist kein Kindprozess unserer Hooks, daher sind Gesprächs-Wiederaufnahme und Regel-Injektion nicht angebunden – der Status wird stattdessen aus der Terminalausgabe gelesen.",
         "nonClaudeNote": "Diese CLI ist nicht Claude Code, daher werden die folgenden Einstellungen (Modell, Berechtigungen, Tools, Regeln) nicht an sie übergeben. Der Status wird stattdessen aus der Terminalausgabe gelesen. Änderungen gelten für neue Sitzungen, die mit „+“ geöffnet werden.",
         "applyNote": "Eine geänderte CLI gilt für neue Sitzungen, die mit „+“ geöffnet werden – bereits laufende Terminals behalten das, womit sie gestartet wurden."
+      },
+      "compactAfterTurn": {
+        "label": "Nach Abschluss einer Runde verdichten",
+        "hint": "Faltet das Gespräch an jeder Rundengrenze zu einer Zusammenfassung — nie mitten in der Arbeit."
+      },
+      "agentCanCompact": {
+        "label": "Agent darf während der Arbeit verdichten",
+        "hint": "Der Agent meldet sich, wenn der Kontext schwer wird; ausgeführt wird es am Ende dieser Runde."
+      },
+      "diff": {
+        "badge": "{{count}} weichen vom Standard ab",
+        "summaryTip": "Weicht von den Agenten-Standardwerten in den Optionen ab — {{list}}",
+        "tip": "Nur für diesen Agenten gesetzt. Standard: {{value}}",
+        "unset": "nicht gesetzt",
+        "on": "an",
+        "off": "aus"
       }
     },
     "permissionPrompt": {
@@ -1400,7 +1436,8 @@
       "recheck": "Erneut prüfen",
       "later": "Später",
       "stop": "Stoppen",
-      "start": "Anmelden"
+      "start": "Anmelden",
+      "successNext": "Als Nächstes: Wählen Sie den Projektordner, in dem Ihre Agenten arbeiten."
     },
     "setup": {
       "title": "Claude Code installieren",
@@ -1414,6 +1451,8 @@
       "installFailed": "Installation fehlgeschlagen",
       "retry": "Erneut versuchen",
       "ready": "Claude Code ist bereit. Wird fortgesetzt…",
+      "readyNext": "Als Nächstes: bei deinem Claude-Konto anmelden.",
+      "continue": "Weiter",
       "failed": "Die Installation wurde nicht abgeschlossen. Führen Sie den obigen Befehl in einem Terminal aus und wählen Sie dann \"Erneut prüfen\".",
       "manualOnly": "Die automatische Installation ist auf dieser Plattform nicht verfügbar. Führen Sie den obigen Befehl in einem Terminal aus und wählen Sie dann \"Erneut prüfen\".",
       "recheck": "Erneut prüfen",
@@ -1464,6 +1503,14 @@
       "vibi3d": {
         "name": "Vibi3D",
         "desc": "3D-Modelle in der App drehen"
+      },
+      "window": {
+        "popOut": "In separatem Fenster öffnen",
+        "maximize": "Maximieren",
+        "restore": "Wiederherstellen",
+        "close": "Schließen (Esc)",
+        "dragHint": "Aus der App herausziehen, um ein separates Fenster zu erhalten.",
+        "pullOutArmed": "Loslassen, um in separatem Fenster zu öffnen"
       }
     },
     "videoStudio": {
@@ -1620,6 +1667,16 @@
       "opening": "Wird im Editor geöffnet…",
       "installing": "Konverter wird installiert… nur beim ersten Mal dauert es kurz.",
       "failed": "Konvertierung fehlgeschlagen. Bitte mit dem Standardprogramm öffnen."
+    },
+    "projectFolder": {
+      "title": "Projektordner auswählen",
+      "intro": "Claude Code ist installiert und angemeldet. Als Letztes wählen Sie den Ordner, in dem Ihre Agenten arbeiten — meist das Stammverzeichnis eines Projekts oder Repositorys.",
+      "blocked": "Es wurde nichts erstellt — es ist noch kein Projektordner geöffnet. Agenten arbeiten innerhalb des von Ihnen gewählten Ordners, wählen Sie also zuerst einen aus.",
+      "detail": "Alles, was Vibisual zu einem Projekt speichert, liegt in diesem Ordner, und Agenten dürfen nur Dateien darunter lesen und bearbeiten. Weitere Ordner können Sie später über Datei → Ordner öffnen hinzufügen.",
+      "cancelled": "Es wurde noch kein Ordner ausgewählt. Wählen Sie einen aus, um fortzufahren.",
+      "choose": "Ordner auswählen",
+      "picking": "Wird ausgewählt…",
+      "later": "Später"
     }
   },
   "ide": {
@@ -1703,11 +1760,10 @@
       "resizeStack": "Aufteilung ändern",
       "slotTabHint": "„{{name}}“ nach vorne bringen (Fenster teilen sich diesen Andockplatz)",
       "dockShortcutHint": "{{dock}} Andocken · {{undock}} Lösen",
-      "popOutHint": "Loslassen, um als eigenes Fenster abzukoppeln",
-      "popOutEdgeHint": "Weiter an den Rand drücken, um es als eigenes Fenster abzukoppeln",
+      "popOutGhostHint": "Weiter herausziehen, um daraus ein eigenes Fenster zu machen",
+      "popOutGhostArmedHint": "Loslassen, um daraus ein eigenes Fenster zu machen",
       "popOutLabel": "Als eigenes Fenster abkoppeln",
       "returnToApp": "Zurück in die App holen",
-      "popOutHintButton": "Als eigenes Fenster abkoppeln (oder die Titelleiste aus der App ziehen bzw. an den Rand drücken)",
       "returnToAppHint": "Klicken, um es zurück in die App zu holen · auf das App-Fenster ziehen zum Zusammenführen",
       "redockDropHint": "Hier loslassen, um es wieder in die App zu führen",
       "redockKeepHint": "Woanders loslassen, um es eigenständig zu lassen"
@@ -1799,6 +1855,7 @@
       "ctxQuoteReply": "Als Zitat antworten",
       "ctxSendAsPrompt": "Als neuen Prompt senden",
       "ctxSelectAll": "Alles auswählen",
+      "ctxAddMemo": "Memo hinzufügen",
       "jumpToBottom": "Zum Ende scrollen",
       "ctxSelectionRequired": "Zuerst Text auswählen",
       "inputCtxCut": "Ausschneiden",
@@ -1809,6 +1866,16 @@
       "stopAll": "Alles stoppen",
       "stopAllTitle": "Alles stoppen, was dieser Agent ausführt (andere Tabs + Hintergrund-Unteragenten)",
       "stopSessionTitle": "Diese Session und die von ihr gestarteten Unteragenten stoppen (andere Session-Tabs laufen weiter)"
+    },
+    "memo": {
+      "title": "Memo",
+      "placeholder": "Notiz eingeben…",
+      "color": "Farbe",
+      "collapse": "Einklappen",
+      "expand": "Ausklappen",
+      "delete": "Memo löschen",
+      "resize": "Größe ändern",
+      "limitReached": "Bis zu {{max}} Memos pro Sitzung"
     },
     "askQuestion": {
       "title": "Frage",
@@ -2101,13 +2168,47 @@
       "openFile": "Im Editor öffnen",
       "copyPath": "Pfad kopieren",
       "copied": "Kopiert",
-      "truncated": "Nur die ersten {{count}} Einträge"
+      "truncated": "Nur die ersten {{count}} Einträge",
+      "ctx": {
+        "open": "Öffnen",
+        "openExternal": "In externem Editor öffnen",
+        "revealFolder": "Ordner öffnen",
+        "newFile": "Neue Datei",
+        "newFolder": "Neuer Ordner",
+        "rename": "Umbenennen",
+        "delete": "Löschen",
+        "newFileName": "Name der neuen Datei",
+        "newFolderName": "Name des neuen Ordners",
+        "newName": "Neuer Name",
+        "confirmTrash": "„{{name}}“ in den Papierkorb verschieben?",
+        "confirmDelete": "„{{name}}“ endgültig löschen? Das lässt sich nicht rückgängig machen.",
+        "trashed": "„{{name}}“ in den Papierkorb verschoben",
+        "deleted": "„{{name}}“ gelöscht",
+        "err": {
+          "nameEmpty": "Bitte einen Namen eingeben",
+          "nameSeparator": "Ein Name darf kein / oder \\ enthalten",
+          "nameTraversal": "Dieser Name ist nicht erlaubt",
+          "nameInvalidChar": "Ein Name darf kein < > : \" | ? * enthalten",
+          "nameTrailing": "Ein Name darf nicht mit Leerzeichen oder Punkt beginnen oder enden",
+          "nameReserved": "Dieser Name ist unter Windows reserviert",
+          "nameTooLong": "Der Name ist zu lang (max. 255 Zeichen)",
+          "exists": "Hier gibt es bereits etwas mit diesem Namen",
+          "notFound": "Dieses Element existiert nicht mehr",
+          "denied": "Das System hat abgelehnt — keine Berechtigung oder in Benutzung",
+          "offline": "Die App war nicht erreichbar",
+          "root": "Das Projektstammverzeichnis lässt sich hier nicht ändern",
+          "outside": "Dieser Pfad liegt außerhalb des Projekts",
+          "failed": "Das hat nicht geklappt"
+        }
+      }
     },
     "editor": {
       "resize": "Editor-Bereich anpassen",
       "save": "Speichern ({{shortcut}})",
       "reload": "Von der Festplatte neu laden",
       "closeTab": "Tab schließen",
+      "pinTabs": "Tabs anheften – bleiben beim Sitzungswechsel geöffnet",
+      "unpinTabs": "Anheften aufheben – jede Sitzung hat eigene Tabs",
       "closePane": "Editor-Bereich schließen",
       "closeDirtyConfirm": "Diese Datei hat ungespeicherte Änderungen. Trotzdem schließen?",
       "conflict": "Diese Datei wurde auf der Festplatte geändert, nachdem Sie sie geöffnet haben.",
@@ -2135,6 +2236,18 @@
         "failed": "Diese Datei konnte nicht gespeichert werden"
       },
       "closeDirtyConfirmMany": "{{count}} dieser Dateien haben ungespeicherte Änderungen. Trotzdem schließen?",
+      "html": {
+        "back": "Zurück",
+        "forward": "Vorwärts",
+        "reload": "Diese Seite neu laden",
+        "home": "Zurück zur geöffneten Datei — {{path}}",
+        "openExternal": "Im Browser öffnen",
+        "address": "Seitenadresse — {{path}}",
+        "viewPage": "Seite",
+        "viewSource": "Quelltext",
+        "viewPageHint": "Diese Datei als gerenderte Seite anzeigen",
+        "viewSourceHint": "HTML-Quelltext anzeigen und bearbeiten"
+      },
       "ctx": {
         "cut": "Ausschneiden",
         "copy": "Kopieren",
@@ -2168,7 +2281,9 @@
       "context": "Kontext: {{used}}/{{max}}",
       "tokens": "{{in}} ein / {{out}} aus",
       "sessionOne": "{{count}} Session",
-      "sessionMany": "{{count}} Sessions"
+      "sessionMany": "{{count}} Sessions",
+      "autoCompact": "Auto-Verdichtung {{value}}",
+      "autoCompactTip": "Sobald der Kontext diese Größe erreicht, fasst die CLI das Gespräch von selbst zusammen. Pro Agent in den Agent-Einstellungen änderbar, global unter File > Options > Agent Defaults."
     },
     "search": {
       "placeholder": "Im Gespräch suchen",
@@ -2233,7 +2348,9 @@
         "runProgram": "Programm ausführen — {{path}}",
         "runFailed": "Start nicht möglich — dieses Fenster hat kein Terminal.",
         "openApp": "In {{app}} öffnen — {{path}}",
-        "openExternal": "Mit Standardprogramm öffnen — {{path}}"
+        "openExternal": "Mit Standardprogramm öffnen — {{path}}",
+        "revealOutsideFolder": "Im Dateimanager öffnen — {{path}}",
+        "revealOutsideFile": "Im Dateimanager anzeigen (öffnet den übergeordneten Ordner) — {{path}}"
       },
       "restartResumed": "Beim Beenden der App unterbrochen — in der gespeicherten Sitzung fortgesetzt.",
       "nestedSubagent": "Subagent",
@@ -2257,6 +2374,8 @@
       "copyQuestions": "Fragen kopieren",
       "copySelection": "Auswahl kopieren",
       "copySelectionHint": "Den gewünschten Teil mit der Maus markieren, dann kopieren",
+      "copySelectionHintCheckable": "Antworten ankreuzen oder den gewünschten Teil markieren, dann kopieren",
+      "copySelectionChecked": "{{n}} Ausgewählte kopieren",
       "copyOne": "Diese Frage kopieren",
       "selectAnswer": "Diese Antwort auswählen",
       "selectNone": "Leeren",
@@ -2589,7 +2708,8 @@
         "mcp": "MCP-Server",
         "hooks": "Hooks",
         "systemPrompt": "Claude Code System-Prompt",
-        "brainSkills": "Memory-Prozeduren"
+        "brainSkills": "Memory-Prozeduren",
+        "compactSelf": "Selbstverdichtung des Agenten"
       },
       "hint": {
         "tools": "Tool-Liste in den Agent-Einstellungen wählen",
@@ -2778,6 +2898,11 @@
             "what": "In diesem Projekt gefestigte Abläufe, geladen wenn die Aufgabe passt.",
             "more": "Ausgewählt über die Beschreibung, sodass nur Passendes geladen wird.",
             "off": "Der Agent erarbeitet jeden Ablauf erneut von vorn."
+          },
+          "compactSelf": {
+            "what": "Das Fenster, über das der Agent selbst um eine Verdichtung des Gesprächs bittet.",
+            "more": "Wird nur an Agenten geliefert, bei denen „Agent darf während der Arbeit verdichten“ aktiv ist. Die Verdichtung läuft am Ende dieser Runde, nie mitten in der Arbeit.",
+            "off": "Der Agent kann nicht mehr fragen; es bleiben nur Fenster-Schwelle und Rundengrenzen-Verdichtung. Ausgeschaltet wird nichts eingefügt, die Zeile kostet dann null Tokens."
           }
         },
         "cat": {
@@ -2985,6 +3110,46 @@
         "readOnly": "Hook-Bubbles sind schreibgeschützt.",
         "network": "Server nicht erreichbar.",
         "failed": "Prüfung konnte nicht gestartet werden."
+      },
+      "demo": {
+        "sectionTitle": "Vorführung",
+        "about": "Führe es einmal vor — diese Schritte gehen danach bei jeder Prüfung mit.",
+        "record": "Vorführung aufnehmen",
+        "stopRecording": "Stopp · {{time}}",
+        "summary": "{{steps}} Schritte · {{frames}} Bilder",
+        "willSend": "Sendet auch die Vorführung: {{name}}",
+        "willNotSend": "Keine Vorführung gewählt — es wird nichts zusätzlich gesendet",
+        "emptyDemo": "Gewählte Vorführung ist leer (keine Schritte, kein erwartetes Ergebnis, keine Bilder) — es wird nichts zusätzlich gesendet",
+        "recordRun": "Bildschirm während dieser Prüfung aufnehmen",
+        "recordRunNeedsSource": "Nimm einmal eine Vorführung auf, um die Quelle festzulegen",
+        "watch": "Ansehen",
+        "windowTitle": "Als Prüfablauf speichern",
+        "evidenceTitle": "Bildschirm während der Prüfung",
+        "autoStopped": "Aufnahme wurde bei der Längenbegrenzung gestoppt.",
+        "stepsLabel": "Schritte",
+        "stepsEmpty": "Spiele es ab und notiere, was du an jeder Stelle getan hast.",
+        "stepPlaceholder": "z. B. in der Werkzeugleiste auf Speichern klicken",
+        "addStep": "Bei {{at}} hinzufügen",
+        "stepsFull": "Höchstens {{max}} Schritte.",
+        "expectedLabel": "Erwartetes Ergebnis (optional)",
+        "expectedPlaceholder": "z. B. es erscheint ein grüner Hinweis „Gespeichert“",
+        "nameLabel": "Name",
+        "frameCount": "Bilder",
+        "noFrames": "Keine",
+        "extracting": "Bilder werden entnommen {{done}}/{{total}}",
+        "save": "Als Ablauf speichern",
+        "discard": "Verwerfen",
+        "error": {
+          "noFrames": "Aus diesem Clip konnte kein einziges Bild entnommen werden.",
+          "noStream": "Der Aufnahmestream ist abgerissen. Wähle die Quelle erneut.",
+          "uploadFailed": "Der Ablauf wurde gespeichert, die Bilder konnten aber nicht hochgeladen werden.",
+          "saveFailed": "Die Vorführung konnte nicht gespeichert werden.",
+          "readOnly": "Hook-Blasen sind schreibgeschützt.",
+          "network": "Der Server war nicht erreichbar.",
+          "failed": "Die Vorführung konnte nicht gespeichert werden.",
+          "projectNotFound": "Dieses Projekt wurde nicht gefunden.",
+          "framesFull": "Diese Vorführung hat bereits die maximale Bildanzahl."
+        }
       }
     }
   },
@@ -3564,7 +3729,18 @@
       "snipUnavailable": "Die Bereichsaufnahme ist auf diesem Bildschirm nicht verfügbar.",
       "snipFailed": "Aufnahme fehlgeschlagen: {{error}}"
     },
-    "close": "Schließen"
+    "close": "Schließen",
+    "minimize": "Minimieren",
+    "maximize": "Maximieren",
+    "play": "Abspielen",
+    "pause": "Pause",
+    "delete": "Löschen",
+    "externalOpen": {
+      "noBrowser": "Kein Browser gefunden — kopieren Sie den Link und öffnen Sie ihn selbst",
+      "openFailed": "Link konnte nicht geöffnet werden — kopieren Sie ihn und öffnen Sie ihn selbst",
+      "copy": "Kopieren",
+      "copied": "Kopiert"
+    }
   },
   "brain": {
     "bubbleLabel": "Memory",

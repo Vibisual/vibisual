@@ -137,7 +137,14 @@ export function useBookmarks({ onToast, messages }: Params): void {
     function assign(slotKey: string, inIDE: boolean): void {
       const st = useGraphStore.getState();
       const ide = selectIDEOverlay(st);
-      const nodeId = st.selectedNodeId ?? st.selectIntentId;
+      // `selectIntentId` 는 선택 링 한 칸이라 **앱·캡처 같은 store 채널 버블 id 도 들어온다**
+      //   (더블클릭 지연 창 동안 링만 먼저 켜지는 구간 — `bubbleSelectGesture`).
+      //   버블 북마크가 가리킬 수 있는 것은 노드 버블뿐이므로, 폴백은 `nodeMap` 에 있는 id 만 받는다.
+      //   `selectedNodeId` 는 그대로 통과시킨다 — `__brain__`·`__trash__` 처럼 캔버스가 합성한
+      //   버블은 `nodeMap` 에 없지만 정당한 북마크 대상이다.
+      const intentId = st.selectIntentId;
+      const nodeId = st.selectedNodeId
+        ?? (intentId !== null && st.nodeMap[intentId] !== undefined ? intentId : null);
       let bm: Bookmark | null = null;
 
       const sessionBookmark = (): SessionBookmark | null => {

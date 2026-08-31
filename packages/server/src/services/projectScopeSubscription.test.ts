@@ -47,8 +47,9 @@ function makeTwoProjects(): Fixture {
   // 반환값은 인스턴스가 들고 있는 **그 객체**다 — 테스트는 여기서 status 를 직접 세운다.
   // ⚠ 상태를 직접 바꾼 뒤에는 `getSnapshot()` 을 처음 부르는 것이 순서다(스냅샷 캐시는
   //   mutationVersion 으로만 무효화되므로, 먼저 부르면 캐시가 옛 상태를 돌려준다).
-  const agentA = manager.createCustomAgent('Agent A', undefined, nameA);
-  const agentB = manager.createCustomAgent('Agent B', undefined, nameB);
+  // 바로 위에서 두 폴더를 등록했으니 생성은 성공한다(§4 온보딩 ③: 폴더가 없으면 null).
+  const agentA = manager.createCustomAgent('Agent A', undefined, nameA)!;
+  const agentB = manager.createCustomAgent('Agent B', undefined, nameB)!;
   return { manager, nameA, nameB, agentA, agentB };
 }
 

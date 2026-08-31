@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { AppBubble } from '@vibisual/shared';
 
 import { getInternalApp } from '../../apps/registry.js';
+import { openAppWindow } from '../../apps/appWindows.js';
 import { useGraphStore } from '../../stores/graphStore.js';
 
 interface Props {
@@ -43,8 +44,9 @@ export function AppBubbleDetail({ bubble }: Props): React.JSX.Element {
     if (!app) return;
     const info = Object.values(projects).find((p) => p.name === bubble.projectName);
     const projectId = info?.path ?? bubble.projectName;
-    void app.open({ projectId, ref: bubble.ref });
-  }, [app, projects, bubble.projectName, bubble.ref]);
+    // §5.13 (S-6) — 버블 더블클릭·우클릭 메뉴와 **같은 문**. 여는 곳마다 판단이 갈리지 않게.
+    openAppWindow({ appId: bubble.appId, projectId, ref: bubble.ref, title: bubble.title });
+  }, [app, projects, bubble.projectName, bubble.ref, bubble.appId, bubble.title]);
 
   const appName = app ? t(app.nameKey, { defaultValue: app.name }) : bubble.appId;
 

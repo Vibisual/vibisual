@@ -19,7 +19,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { AgentConfig } from '@vibisual/shared';
-import { DEFAULT_AGENT_CONFIG } from '@vibisual/shared';
+import { DEFAULT_AGENT_CONFIG, DEFAULT_AUTOCOMPACT_TOKENS, AVAILABLE_AUTOCOMPACT_VALUES } from '@vibisual/shared';
 
 // Fast 모드·자기 기억은 `--settings` **파일**로 나간다 — 사용자 홈(`~/.vibisual`)에 쓰지 않도록
 // `os.homedir()` 만 임시 폴더로 돌린다(다른 테스트가 실제 app-state 를 더럽혔던 선례를 반복하지 않는다).
@@ -90,9 +90,15 @@ describe('스폰 인자 — 권한 모드', () => {
 describe('스폰 인자 — 신규 CLI 옵션', () => {
   it('전부 미설정이면 해당 플래그가 하나도 붙지 않는다 — 종전과 같은 인자로 뜬다', () => {
     const args = buildInteractiveClaudeArgs(cfg());
-    for (const flag of ['--autocompact', '--setting-sources', '--safe-mode', '--betas', '--exclude-dynamic-system-prompt-sections']) {
+    for (const flag of ['--setting-sources', '--safe-mode', '--betas', '--exclude-dynamic-system-prompt-sections']) {
       expect(args).not.toContain(flag);
     }
+  });
+
+  // §4 (CLI 사양 추종) — `--autocompact` 만 예외다. 미설정을 "플래그 없음"으로 두면 CLI 기본이
+  //   모델 창 전체라 `[1m]` 스폰에서 압축이 100만 토큰에서야 걸린다(= 실질적으로 압축 없음).
+  it('자동 압축은 미설정이어도 내장 기본값으로 항상 실린다', () => {
+    expect(valueOf(buildInteractiveClaudeArgs(cfg()), '--autocompact')).toBe(DEFAULT_AUTOCOMPACT_TOKENS);
   });
 
   it('설정하면 그대로 실린다', () => {
@@ -113,9 +119,43 @@ describe('스폰 인자 — 신규 CLI 옵션', () => {
 
   it('빈 값·빈 배열은 미설정과 같다 — 빈 플래그를 흘리지 않는다', () => {
     const args = buildInteractiveClaudeArgs(cfg({ autoCompact: '   ', settingSources: [], betas: ['', '  '] }));
-    expect(args).not.toContain('--autocompact');
+    // 공백뿐인 자동 압축은 "미설정"이므로 빈 플래그를 흘리지 않고 내장 기본으로 떨어진다.
+    expect(valueOf(args, '--autocompact')).toBe(DEFAULT_AUTOCOMPACT_TOKENS);
     expect(args).not.toContain('--setting-sources');
     expect(args).not.toContain('--betas');
+  });
+
+  describe('자동 압축 3층 해소 — 에이전트 → 설정 창 → 내장 기본', () => {
+    it('에이전트 설정이 있으면 그것이 이긴다', () => {
+      const args = buildInteractiveClaudeArgs(cfg({ autoCompact: '500000' }), { userAutoCompact: '100000' });
+      expect(valueOf(args, '--autocompact')).toBe('500000');
+    });
+
+    it('에이전트가 미설정이면 설정 창 전역 기본을 따른다 — 이미 만들어진 에이전트도 함께 바뀐다', () => {
+      const args = buildInteractiveClaudeArgs(cfg(), { userAutoCompact: '1000000' });
+      expect(valueOf(args, '--autocompact')).toBe('1000000');
+    });
+
+    it('둘 다 미설정이면 내장 기본 400k', () => {
+      expect(valueOf(buildInteractiveClaudeArgs(cfg(), {}), '--autocompact')).toBe('400000');
+    });
+
+    // 드롭다운에 400k 가 실제로 서 있어야 사용자가 기본값을 되돌릴 수 있다.
+    it('내장 기본값은 선택 목록 안의 값이다', () => {
+      expect(AVAILABLE_AUTOCOMPACT_VALUES).toContain(DEFAULT_AUTOCOMPACT_TOKENS);
+    });
+
+    it("'auto' 는 명시값이라 그대로 실린다 — 종전처럼 CLI 판단에 맡기는 자리", () => {
+      const args = buildInteractiveClaudeArgs(cfg({ autoCompact: 'auto' }), { userAutoCompact: '100000' });
+      expect(valueOf(args, '--autocompact')).toBe('auto');
+    });
+
+    // CLI 는 범위 밖 값을 무시하지 않고 `argument … is invalid` 로 즉시 종료한다(실측 2.1.247).
+    //   저장분이 오염돼도 그 에이전트가 영영 못 뜨는 일이 없도록 내장 기본으로 떨어뜨린다.
+    it.each(['50000', '2000000', 'abc'])('CLI 가 거부할 값(%s)은 스폰을 죽이지 않고 내장 기본으로 떨어진다', (bad) => {
+      const args = buildInteractiveClaudeArgs(cfg({ autoCompact: bad }), { userAutoCompact: bad });
+      expect(valueOf(args, '--autocompact')).toBe(DEFAULT_AUTOCOMPACT_TOKENS);
+    });
   });
 
   it('`--fallback-model` 은 여기서 나가지 않는다 — `--print` 전용이라 헤드리스 스폰부가 붙인다', () => {

@@ -6,7 +6,8 @@ import { app, shell, BrowserWindow, protocol, screen, dialog, Notification } fro
 import { electronApp, optimizer } from '@electron-toolkit/utils';
 import { inject, type DispatchFunc } from 'light-my-request';
 import type { Express } from 'express';
-import { unloadAllLocalModels, runServer, shutdownDiskWriteQueue, setBroadcastSink, setHookListenerPort, setHookListenerToken, setHookListenerIdentityFile, setHookHandlerPath, setDebugLogDir, ensureClaudeHooksInstalled, refreshStatusLineIfInstalled, recordDiagnostic, subAgentManager, stopAllPlays, closeStaticHost, setCmdTerminalController, setCmdBlockedNotifier } from '@vibisual/server';
+import { unloadAllLocalModels, runServer, shutdownDiskWriteQueue, setBroadcastSink, setHookListenerPort, setHookListenerToken, setHookListenerIdentityFile, setHookHandlerPath, setDebugLogDir, ensureClaudeHooksInstalled, refreshStatusLineIfInstalled, recordDiagnostic, subAgentManager, stopAllPlays, closeStaticHost, setCmdTerminalController, setCmdBlockedNotifier, setWorkspaceTrash } from '@vibisual/server';
+import { IFRAME_PROXY_PATH, WORKSPACE_SITE_PATH } from '@vibisual/shared';
 import { setupIpc, type IpcHub } from './ipc';
 import { loadSecrets } from './secrets';
 import { loadHookIdentity, saveHookIdentity, hookIdentityPath } from './hookIdentity';
@@ -15,6 +16,7 @@ import { initMobileAccess, mobileBroadcast, stopMobileAccess } from './mobileAcc
 // §4 메신저 원격제어 브리지 — 아웃바운드 전용(우리는 포트를 열지 않는다). 기본 OFF.
 import { chatBroadcast, initChatBridge, stopChatBridge } from './chat';
 import { initAutoUpdater, stopAutoUpdater, isUpdateInstallPending, runPendingUpdateInstall } from './updaterManager';
+import { openExternalWithNotice } from './externalOpen';
 import { killAllTerminals, terminalController, setTerminalCardIdentity } from './terminalManager';
 import { appendCrashLine, logAppStart, logCleanExit, startCrashReporter } from './crashLog';
 
@@ -178,15 +180,17 @@ function createWindow(): void {
     );
   });
 
+  // §3.7 — 여는 길은 종전 그대로 하나(`shell.openExternal`). 달라진 것은 **실패를 말한다**는 것뿐이다.
+  // 리눅스에서는 그 프라미스가 실패해도 resolve 하므로 `openExternalWithNotice` 가 따로 잰다(폴백 ❌).
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url);
+    openExternalWithNotice(url, mainWindow.webContents);
     return { action: 'deny' };
   });
   mainWindow.webContents.on('will-navigate', (event, url) => {
     const current = mainWindow.webContents.getURL();
     if (url !== current) {
       event.preventDefault();
-      void shell.openExternal(url);
+      openExternalWithNotice(url, mainWindow.webContents);
     }
   });
 
@@ -267,6 +271,9 @@ async function startHookListener(expressApp: Express, preferredPort: number): Pr
       path !== '/api/task-edges/dispatch' &&
       // §4 v2.52 — 커스텀/스폰 에이전트의 작업 신고(did/userActions). 토큰 인증 필수(아래 분기).
       path !== '/api/agent-report' &&
+      // §4 (CLI 사양 추종) — 에이전트 자율 컨텍스트 압축 요청. 큐에 얹는 시점은 그 턴이 끝난 뒤라
+      //   여기서 여는 것은 "대기표에 적기"까지다. 토큰 인증 필수.
+      path !== '/api/agent-compact' &&
       // §4 v2.60 — 커스텀/스폰 에이전트의 사용자 질문 카드(question + prompts). 토큰 인증 필수.
       path !== '/api/agent-questions' &&
       // §4 v2.70 — 커스텀/스폰 에이전트의 검수 요청 카드(changes + checkpoints). 토큰 인증 필수.
@@ -384,6 +391,8 @@ async function startHookListener(expressApp: Express, preferredPort: number): Pr
  * - 실제 IncomingMessage 가 아니라 light-my-request `inject`(plain 옵션)로 디스패치하므로
  *   startHookListener 주석의 req.destroy 크래시 경로와 무관하다.
  */
+const ALLOWED_PROTOCOL_PREFIXES = [IFRAME_PROXY_PATH, WORKSPACE_SITE_PATH] as const;
+
 function registerIframeProxyProtocol(expressApp: Express): void {
   protocol.handle('vibproxy', async (request) => {
     let pathname: string;
@@ -395,7 +404,15 @@ function registerIframeProxyProtocol(expressApp: Express): void {
     } catch {
       return new Response('bad vibproxy url', { status: 400 });
     }
-    if (pathname !== '/iframe-proxy' && !pathname.startsWith('/iframe-proxy/')) {
+    // 이 스킴으로 들어올 수 있는 경로는 **화이트리스트 두 갈래**뿐이다.
+    //   /iframe-proxy/…       — dev 서버 프리뷰(프록시된 페이지가 재작성한 root-relative 링크)
+    //   /api/workspace-site/… — §5.5 #17-27 ⑮ 워크스페이스 HTML 을 페이지로. 그 페이지가 부르는
+    //                           상대 경로 자산(css·js·그림)이 같은 오리진으로 다시 들어온다.
+    // 그 외는 404 — 이 스킴이 in-process Express 전체로 가는 우회로가 되어서는 안 된다.
+    const allowed = ALLOWED_PROTOCOL_PREFIXES.some(
+      (prefix) => pathname === prefix || pathname.startsWith(prefix + '/'),
+    );
+    if (!allowed) {
       return new Response('not found', { status: 404 });
     }
     try {
@@ -490,6 +507,11 @@ async function bootBackend(): Promise<void> {
   // §4 (CMD 터미널 업그레이드 ⑥) — loopback REST(`/api/cmd/*`)가 임베디드 PTY 를 만질 수 있게
   //   terminalManager 를 server 코어에 주입한다(§3.4 — server 는 desktop 을 import 하지 않는다).
   setCmdTerminalController(terminalController);
+  // §5.5 #17-19 ⑦ — 탐색기에서 지운 파일은 **OS 휴지통**으로 간다(영구 삭제 ❌ — 되돌릴 수 있어야 한다).
+  //   Windows 재활용·macOS ~/.Trash·Linux freedesktop 규약을 이미 옳게 다루는 물건이 `shell.trashItem`
+  //   하나뿐이라 세 OS 분기를 우리가 다시 쓰지 않는다. 주입이 없는 실행 형태에서는 서버가 영구 삭제로
+  //   떨어지고, 그 사실은 응답의 `trashed:false` 로 화면까지 전해진다.
+  setWorkspaceTrash((absPath) => shell.trashItem(absPath));
   // §4 (⑦) — PTY 안의 에이전트가 헤드리스와 **같은** 카드 엔드포인트를 curl 로 부를 수 있도록
   //   loopback 신원을 터미널 env 로 실어 보낸다(없으면 종전 `::VIBISUAL-CARD::` 마커 폴백).
   setTerminalCardIdentity({ port: hookPort, token: hookToken, identityFile: hookIdentityPath().replace(/\\/g, '/') });

@@ -28,7 +28,15 @@
       "confirmHint": "중요한 커스텀 에이전트 작업이 있다면 먼저 마무리한 뒤 업데이트해 주세요.",
       "confirmCancel": "취소",
       "openReleases": "{{version}} 받기",
-      "openReleasesTooltip": "{{version}} 이(가) 나왔습니다. macOS 는 코드 서명이 있어야 자동 설치가 되므로 릴리스 페이지를 엽니다."
+      "openReleasesTooltip": "이 맥에서 자동 업데이트를 끝내지 못했습니다. 누르면 릴리스 페이지가 열려 직접 받으실 수 있습니다.",
+      "failed": {
+        "download-failed": "다운로드를 끝내지 못했습니다.",
+        "checksum-mismatch": "받은 파일이 게시된 체크섬과 달라 버렸습니다.",
+        "arch-mismatch": "받은 빌드가 이 맥의 프로세서와 달라서 설치하지 않았습니다.",
+        "mount-failed": "받은 디스크 이미지를 열지 못했습니다.",
+        "not-writable": "설치된 자리에 자기 자신을 교체할 권한이 없습니다.",
+        "install-failed": "앱을 교체하지 못했습니다."
+      }
     },
     "agentStatus": {
       "waiting": "에이전트 대기 중",
@@ -89,6 +97,10 @@
         "expandAll": "전부 펴기"
       },
       "shortcutHint": "{{dock}} 붙이기 · {{max}} 최대화 · {{next}} 다음 창"
+    },
+    "projectFolderBanner": {
+      "text": "열려 있는 프로젝트 폴더가 없어 에이전트가 작업할 곳이 없습니다.",
+      "action": "폴더 선택"
     }
   },
   "panel": {
@@ -950,15 +962,21 @@
       "fallbackModel": {
         "label": "폴백 모델",
         "tip": "기본 모델이 과부하이거나 쓸 수 없을 때 대신 쓸 모델입니다. 콤마로 여러 개를 적으면 순서대로 시도합니다. 헤드리스 실행에만 적용됩니다.",
-        "placeholder": "예: sonnet"
+        "placeholder": "예: sonnet",
+        "unsetLabel": "미설정",
+        "unset": "미설정 — 폴백 없음. 메인 모델을 사용할 수 없으면 실행이 실패합니다.",
+        "customLabel": "직접 입력…",
+        "custom": "직접 입력하는 값입니다 — 정확한 버전 ID 또는 순서대로 시도할 쉼표로 구분된 목록을 사용할 수 있습니다."
       },
       "autoCompact": {
         "label": "자동 압축",
-        "tip": "CLI 가 대화를 스스로 압축하기 시작하는 컨텍스트 크기입니다.",
-        "unset": "미설정 — CLI 판단에 맡깁니다(기본).",
+        "tip": "CLI 가 대화를 스스로 압축하기 시작하는 기준 창 크기입니다. 값이 작을수록 더 이르게, 더 자주 압축합니다.",
+        "unset": "미설정 — 설정 창의 기본값을 따릅니다.",
         "unsetLabel": "미설정",
         "auto": "auto — CLI 가 창 크기를 정합니다.",
-        "tokens": "약 {{tokens}} 토큰에서 압축합니다."
+        "tokens": "약 {{tokens}} 토큰에서 압축합니다.",
+        "unsetDefaultLabel": "미설정 ({{tokens}})",
+        "globalTip": "자동 압축을 따로 정하지 않은 모든 에이전트에 적용됩니다 — 이미 돌고 있는 에이전트도 포함입니다. 비워 두면 내장 기본값을 씁니다."
       },
       "settingSources": {
         "label": "설정 계층",
@@ -1028,6 +1046,22 @@
         "tip": "이 CMD 터미널이 띄울 에이전트 CLI 입니다. Claude Code 외에는 우리 훅의 자식이 아니라 대화 이어받기·규칙 주입이 붙지 않고, 상태는 터미널 출력에서 읽습니다.",
         "nonClaudeNote": "이 CLI 는 Claude Code 가 아니라 아래 설정(모델·권한·도구·규칙)이 전달되지 않습니다. 상태는 터미널 출력으로 읽습니다. 바꾼 값은 \"+\" 로 연 새 세션부터 적용됩니다.",
         "applyNote": "바꾼 CLI 는 \"+\" 로 연 새 세션부터 적용됩니다(이미 떠 있는 터미널은 그대로)."
+      },
+      "compactAfterTurn": {
+        "label": "턴이 끝나면 압축",
+        "hint": "매 턴 경계에서 대화를 요약으로 접습니다 — 작업 도중에는 절대 자르지 않습니다."
+      },
+      "agentCanCompact": {
+        "label": "작업 중 에이전트가 스스로 압축",
+        "hint": "에이전트가 컨텍스트가 무겁다고 판단하면 요청하고, 그 턴이 끝난 뒤 실행됩니다."
+      },
+      "diff": {
+        "badge": "기본값과 다름 {{count}}",
+        "summaryTip": "설정 창의 에이전트 기본값과 다른 항목입니다 — {{list}}",
+        "tip": "이 에이전트만의 값입니다. 기본값: {{value}}",
+        "unset": "미설정",
+        "on": "켬",
+        "off": "끔"
       }
     },
     "permissionPrompt": {
@@ -1402,7 +1436,8 @@
       "recheck": "다시 확인",
       "later": "나중에",
       "stop": "중지",
-      "start": "로그인"
+      "start": "로그인",
+      "successNext": "다음: 에이전트가 작업할 프로젝트 폴더를 선택하세요."
     },
     "setup": {
       "title": "Claude Code 설치",
@@ -1416,6 +1451,8 @@
       "installFailed": "설치 실패",
       "retry": "다시 시도",
       "ready": "Claude Code 준비 완료. 이어서 진행합니다…",
+      "readyNext": "다음: Claude 계정으로 로그인합니다.",
+      "continue": "계속",
       "failed": "설치가 끝나지 않았습니다. 위 명령을 터미널에서 실행한 뒤 [다시 확인]을 눌러 주세요.",
       "manualOnly": "이 플랫폼에서는 자동 설치를 쓸 수 없습니다. 위 명령을 터미널에서 실행한 뒤 [다시 확인]을 눌러 주세요.",
       "recheck": "다시 확인",
@@ -1466,6 +1503,14 @@
       "vibi3d": {
         "name": "Vibi3D",
         "desc": "3D 모델을 앱 안에서 돌려 보기"
+      },
+      "window": {
+        "popOut": "별도 창으로",
+        "maximize": "최대화",
+        "restore": "원래 크기로",
+        "close": "닫기 (Esc)",
+        "dragHint": "앱 밖으로 끌어내면 별도 창이 됩니다.",
+        "pullOutArmed": "놓으면 별도 창으로 나갑니다"
       }
     },
     "videoStudio": {
@@ -1622,6 +1667,16 @@
       "opening": "편집기에서 여는 중…",
       "installing": "변환기를 설치하는 중… 처음 한 번만 걸립니다.",
       "failed": "변환하지 못했습니다. 연결 프로그램으로 열어 주세요."
+    },
+    "projectFolder": {
+      "title": "프로젝트 폴더 선택",
+      "intro": "Claude Code 설치와 로그인이 끝났습니다. 마지막으로 에이전트가 작업할 폴더를 선택하세요 — 보통 프로젝트나 저장소의 루트입니다.",
+      "blocked": "아직 아무것도 만들지 않았습니다 — 열려 있는 프로젝트 폴더가 없습니다. 에이전트는 선택한 폴더 안에서 작업하므로 폴더부터 선택하세요.",
+      "detail": "Vibisual이 프로젝트에 대해 저장하는 모든 것은 그 폴더 안에 있으며, 에이전트도 그 폴더 아래의 파일만 읽고 수정할 수 있습니다. 폴더는 나중에 파일 → 폴더 열기에서 더 추가할 수 있습니다.",
+      "cancelled": "아직 폴더를 선택하지 않았습니다. 계속하려면 폴더를 선택하세요.",
+      "choose": "폴더 선택",
+      "picking": "선택하는 중…",
+      "later": "나중에"
     }
   },
   "ide": {
@@ -1705,11 +1760,10 @@
       "resizeStack": "분할 비율 조절",
       "slotTabHint": "\"{{name}}\" 창을 앞으로 (같은 칸을 나눠 쓰는 창)",
       "dockShortcutHint": "{{dock}} 붙이기 · {{undock}} 떼어 내기",
-      "popOutHint": "놓으면 독립 창으로 꺼냅니다",
-      "popOutEdgeHint": "가장자리에 잠깐 더 밀고 있으면 독립 창으로 꺼냅니다",
+      "popOutGhostHint": "조금 더 끌면 독립 창으로 빠집니다",
+      "popOutGhostArmedHint": "놓으면 독립 창이 됩니다",
       "popOutLabel": "독립 창으로 꺼내기",
       "returnToApp": "앱 안으로 되돌리기",
-      "popOutHintButton": "독립 창으로 꺼내기 (타이틀바를 앱 밖으로 끌거나 화면 가장자리로 밀어도 같습니다)",
       "returnToAppHint": "누르면 앱 안으로 되돌립니다 · 끌어서 앱 창 위에 놓으면 합쳐집니다",
       "redockDropHint": "여기에 놓으면 앱 안으로 합쳐집니다",
       "redockKeepHint": "다른 곳에 놓으면 독립 창으로 그대로 둡니다"
@@ -1801,6 +1855,7 @@
       "ctxQuoteReply": "인용 답글",
       "ctxSendAsPrompt": "새 명령으로 전송",
       "ctxSelectAll": "전체 선택",
+      "ctxAddMemo": "메모지 붙이기",
       "jumpToBottom": "맨 아래로",
       "ctxSelectionRequired": "텍스트를 먼저 선택하세요",
       "inputCtxCut": "잘라내기",
@@ -1811,6 +1866,16 @@
       "stopAll": "전체 중지",
       "stopAllTitle": "이 에이전트가 돌리는 것 전부 중지(다른 탭 + 백그라운드 서브에이전트)",
       "stopSessionTitle": "이 세션과 여기서 시작된 서브 에이전트를 중지합니다 (다른 세션 탭은 계속 실행됩니다)"
+    },
+    "memo": {
+      "title": "메모",
+      "placeholder": "메모를 적으세요…",
+      "color": "색",
+      "collapse": "접기",
+      "expand": "펼치기",
+      "delete": "메모 삭제",
+      "resize": "크기 조절",
+      "limitReached": "메모는 한 화면에 {{max}}장까지"
     },
     "askQuestion": {
       "title": "질문",
@@ -2103,13 +2168,47 @@
       "openFile": "에디터에서 열기",
       "copyPath": "경로 복사",
       "copied": "복사됨",
-      "truncated": "처음 {{count}}개만 표시"
+      "truncated": "처음 {{count}}개만 표시",
+      "ctx": {
+        "open": "열기",
+        "openExternal": "앱 밖 편집기로 열기",
+        "revealFolder": "폴더 열기",
+        "newFile": "새 파일",
+        "newFolder": "새 폴더",
+        "rename": "이름 바꾸기",
+        "delete": "삭제",
+        "newFileName": "새 파일 이름",
+        "newFolderName": "새 폴더 이름",
+        "newName": "새 이름",
+        "confirmTrash": "\"{{name}}\" 을(를) 휴지통으로 보낼까요?",
+        "confirmDelete": "\"{{name}}\" 을(를) 영구히 지울까요? 되돌릴 수 없습니다.",
+        "trashed": "\"{{name}}\" 을(를) 휴지통으로 보냈습니다",
+        "deleted": "\"{{name}}\" 을(를) 지웠습니다",
+        "err": {
+          "nameEmpty": "이름을 입력하세요",
+          "nameSeparator": "이름에 / 나 \\ 는 쓸 수 없습니다",
+          "nameTraversal": "쓸 수 없는 이름입니다",
+          "nameInvalidChar": "이름에 < > : \" | ? * 는 쓸 수 없습니다",
+          "nameTrailing": "이름의 처음·끝에 공백이나 마침표는 쓸 수 없습니다",
+          "nameReserved": "Windows 가 예약해 둔 이름입니다",
+          "nameTooLong": "이름이 너무 깁니다(최대 255자)",
+          "exists": "같은 이름이 이미 있습니다",
+          "notFound": "그 항목이 더 이상 없습니다",
+          "denied": "권한이 없거나 사용 중이라 시스템이 거절했습니다",
+          "offline": "앱에 닿지 못했습니다",
+          "root": "프로젝트 루트는 여기서 바꿀 수 없습니다",
+          "outside": "프로젝트 밖 경로입니다",
+          "failed": "실패했습니다"
+        }
+      }
     },
     "editor": {
       "resize": "에디터 패널 크기 조절",
       "save": "저장 ({{shortcut}})",
       "reload": "디스크에서 다시 불러오기",
       "closeTab": "탭 닫기",
+      "pinTabs": "탭 고정 — 다른 세션으로 옮겨도 이 탭들이 그대로 열려 있습니다",
+      "unpinTabs": "고정 해제 — 세션마다 탭이 따로 열립니다",
       "closePane": "에디터 패널 닫기",
       "closeDirtyConfirm": "이 파일에 저장하지 않은 변경 사항이 있습니다. 그래도 닫을까요?",
       "conflict": "이 파일을 연 뒤 디스크에서 내용이 변경되었습니다.",
@@ -2137,6 +2236,18 @@
         "failed": "이 파일을 저장하지 못했습니다"
       },
       "closeDirtyConfirmMany": "이 중 {{count}}개 파일에 저장하지 않은 변경 사항이 있습니다. 그래도 닫을까요?",
+      "html": {
+        "back": "뒤로",
+        "forward": "앞으로",
+        "reload": "이 페이지 새로고침",
+        "home": "처음 열었던 파일로 — {{path}}",
+        "openExternal": "바깥 브라우저에서 열기",
+        "address": "페이지 위치 — {{path}}",
+        "viewPage": "페이지",
+        "viewSource": "소스",
+        "viewPageHint": "이 파일을 그려진 페이지로 봅니다",
+        "viewSourceHint": "HTML 원문을 보고 고칩니다"
+      },
       "ctx": {
         "cut": "잘라내기",
         "copy": "복사",
@@ -2170,7 +2281,9 @@
       "context": "컨텍스트: {{used}}/{{max}}",
       "tokens": "입력 {{in}} / 출력 {{out}}",
       "sessionOne": "{{count}}개 세션",
-      "sessionMany": "{{count}}개 세션"
+      "sessionMany": "{{count}}개 세션",
+      "autoCompact": "자동 압축 {{value}}",
+      "autoCompactTip": "컨텍스트가 이 크기에 이르면 CLI 가 대화를 스스로 요약해 줄입니다. 에이전트별로는 에이전트 설정 창에서, 전체 기본값은 File > Options > Agent Defaults 에서 바꿀 수 있습니다."
     },
     "search": {
       "placeholder": "대화에서 검색",
@@ -2235,7 +2348,9 @@
         "runProgram": "프로그램 실행 — {{path}}",
         "runFailed": "실행을 시작하지 못했습니다 — 이 창에는 터미널이 없습니다.",
         "openApp": "{{app}} 에서 열기 — {{path}}",
-        "openExternal": "연결 프로그램으로 열기 — {{path}}"
+        "openExternal": "연결 프로그램으로 열기 — {{path}}",
+        "revealOutsideFolder": "탐색기에서 열기 — {{path}}",
+        "revealOutsideFile": "탐색기에서 보기 (상위 폴더가 열립니다) — {{path}}"
       },
       "restartResumed": "앱이 내려가며 끊겼고, 보존된 세션으로 이어서 재개했습니다.",
       "nestedSubagent": "서브에이전트",
@@ -2259,6 +2374,8 @@
       "copyQuestions": "질문만 복사",
       "copySelection": "선택 복사",
       "copySelectionHint": "복사할 부분을 드래그로 선택한 뒤 누르세요",
+      "copySelectionHintCheckable": "답지를 체크하거나 복사할 부분을 드래그한 뒤 누르세요",
+      "copySelectionChecked": "선택한 {{n}}개 복사",
       "copyOne": "이 질문만 복사",
       "selectAnswer": "이 답 선택",
       "selectNone": "선택 해제",
@@ -2575,7 +2692,7 @@
         "cardList": "번호 목록 카드 규약",
         "cardIframe": "서버 프리뷰 규약",
         "goal": "세션 목표",
-        "brainCards": "Project Brain 브리핑",
+        "brainCards": "프로젝트 메모리 브리핑",
         "brainTopics": "기억 주제 색인",
         "brainRules": "기억 규칙 틀",
         "hookEnforcement": "훅 세션 주입",
@@ -2591,7 +2708,8 @@
         "mcp": "MCP 서버",
         "hooks": "훅",
         "systemPrompt": "Claude Code 시스템 프롬프트",
-        "brainSkills": "메모리 절차 기억"
+        "brainSkills": "메모리 절차 기억",
+        "compactSelf": "에이전트 자율 압축"
       },
       "hint": {
         "tools": "도구 목록은 에이전트 설정에서 고릅니다",
@@ -2692,7 +2810,7 @@
             "off": "에이전트가 목표와 진행 목록을 못 보게 됩니다. 화면의 목표 창은 그대로 남습니다. 갱신 방법을 알려 주는 규약은 세션 시작 때 한 번 실리므로, 그 절반은 이 세션이 다시 뜰 때부터 빠집니다."
           },
           "brainCards": {
-            "what": "방금 사용자가 한 말과 맞아떨어지는 Project Brain 기억 카드입니다.",
+            "what": "방금 사용자가 한 말과 맞아떨어지는 프로젝트 메모리 기억 카드입니다.",
             "more": "명령 본문으로 순위를 매겨 고르고, 상시 규칙은 항상 함께 실립니다. 이 프로젝트의 .vibisual/brain 에 저장돼 있습니다.",
             "off": "이 프로젝트가 이미 배운 교훈 없이 맨몸으로 시작합니다."
           },
@@ -2780,6 +2898,11 @@
             "what": "이 프로젝트에서 굳어진 절차 — 지금 작업과 맞으면 실립니다.",
             "more": "스킬의 \"언제 쓰나\" 문장으로 골라 오므로 무관한 절차는 실리지 않습니다.",
             "off": "에이전트가 매번 절차를 처음부터 다시 궁리합니다."
+          },
+          "compactSelf": {
+            "what": "에이전트가 스스로 대화를 압축해 달라고 요청하는 창구입니다.",
+            "more": "“작업 중 에이전트가 스스로 압축”을 켠 에이전트에게만 실립니다. 실제 압축은 그 턴이 끝난 뒤에 돌아 작업 도중에 잘리지 않습니다.",
+            "off": "에이전트가 더 이상 요청할 수 없고, 창 임계와 턴 경계 압축만 남습니다. 끄면 아무것도 주입되지 않아 토큰도 0 입니다."
           }
         },
         "cat": {
@@ -2987,6 +3110,46 @@
         "readOnly": "훅 버블은 읽기 전용입니다.",
         "network": "서버에 닿지 못했습니다.",
         "failed": "검증을 시작하지 못했습니다."
+      },
+      "demo": {
+        "sectionTitle": "시연",
+        "about": "한 번 해 보이면 그 절차가 이후 모든 검증에 함께 실립니다.",
+        "record": "시연 녹화",
+        "stopRecording": "정지 · {{time}}",
+        "summary": "단계 {{steps}} · 그림 {{frames}}",
+        "willSend": "시연도 함께 보냅니다: {{name}}",
+        "willNotSend": "고른 시연 없음 — 절차는 실리지 않습니다",
+        "emptyDemo": "고른 시연이 비어 있습니다(단계·기대 결과·그림 없음) — 절차는 실리지 않습니다",
+        "recordRun": "이번 검증이 도는 동안 화면을 녹화",
+        "recordRunNeedsSource": "무엇을 찍을지 정하려면 시연을 한 번 녹화하세요",
+        "watch": "화면 보기",
+        "windowTitle": "검증 절차로 저장",
+        "evidenceTitle": "검증 중 화면",
+        "autoStopped": "길이 상한에 걸려 녹화가 멈췄습니다.",
+        "stepsLabel": "단계",
+        "stepsEmpty": "되돌려 보며 각 지점에서 무엇을 했는지 적어 주세요.",
+        "stepPlaceholder": "예: 도구모음에서 저장을 누른다",
+        "addStep": "{{at}} 에 추가",
+        "stepsFull": "단계는 {{max}}개까지입니다.",
+        "expectedLabel": "기대 결과 (선택)",
+        "expectedPlaceholder": "예: 초록색 저장됨 알림이 뜬다",
+        "nameLabel": "이름",
+        "frameCount": "그림",
+        "noFrames": "없음",
+        "extracting": "프레임 뽑는 중 {{done}}/{{total}}",
+        "save": "검증 절차로 저장",
+        "discard": "버리기",
+        "error": {
+          "noFrames": "이 클립에서 프레임을 한 장도 뽑지 못했습니다.",
+          "noStream": "캡처 스트림이 끊겼습니다. 소스를 다시 골라 주세요.",
+          "uploadFailed": "절차는 저장됐지만 그림을 올리지 못했습니다.",
+          "saveFailed": "시연을 저장하지 못했습니다.",
+          "readOnly": "훅 버블은 읽기 전용입니다.",
+          "network": "서버에 닿지 못했습니다.",
+          "failed": "시연을 저장하지 못했습니다.",
+          "projectNotFound": "그 프로젝트를 찾지 못했습니다.",
+          "framesFull": "이 시연에는 이미 그림이 가득 찼습니다."
+        }
       }
     }
   },
@@ -3566,7 +3729,18 @@
       "snipUnavailable": "이 화면에서는 영역 캡처를 쓸 수 없습니다.",
       "snipFailed": "캡처 실패: {{error}}"
     },
-    "close": "닫기"
+    "close": "닫기",
+    "minimize": "최소화",
+    "maximize": "최대화",
+    "play": "재생",
+    "pause": "일시정지",
+    "delete": "삭제",
+    "externalOpen": {
+      "noBrowser": "브라우저를 찾지 못했습니다 — 링크를 복사해 여세요",
+      "openFailed": "링크를 열지 못했습니다 — 링크를 복사해 여세요",
+      "copy": "복사",
+      "copied": "복사함"
+    }
   },
   "brain": {
     "bubbleLabel": "메모리",
@@ -3680,7 +3854,7 @@
       "runapp-build": "실행 · 빌드 · 데스크톱 번들",
       "usage-statusline": "사용량 · statusLine · 비용",
       "persistence-checkpoint": "영속화 · 체크포인트 · 앱 상태",
-      "brain-memory": "기억 시스템(Project Brain) 자체",
+      "brain-memory": "기억 시스템 자체",
       "dead-code-wiring": "죽은 코드 · 미배선 점검",
       "tooling-pitfalls": "도구 · 문법 함정",
       "misc": "기타(미분류)"

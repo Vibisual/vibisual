@@ -9,6 +9,12 @@
 // 창에서 **슬롯**으로 바뀌었다: 같은 변에서 `order` 가 같은 창들은 한 칸을 탭으로 겹쳐 쓴다.
 // 창이 여섯이어도 화면은 슬롯 수만큼만 잘리므로 "여러 개 띄우면 다 좁아진다"가 사라진다.
 
+import {
+  WINDOW_PULL_OUT,
+  isCursorOutsideViewport,
+  isCursorPinnedToViewportEdge,
+} from '../../hooks/floatingWindowGeom.js';
+
 /**
  * IDE 창이 사는 겹침 층의 바닥. 창은 여기서부터 `IDE_MAX_PANES` 개까지 한 칸씩 올라간다(40~45).
  *
@@ -125,17 +131,54 @@ export const IDE_FLOAT = {
   MAGNET_PX: 10,
   /** 바둑판·계단식 정렬에서 창 사이 여백(px). */
   TILE_GAP: 8,
-  /** 커서가 앱 창 밖으로 이만큼 더 나가야 "독립 창으로 꺼낸다"로 읽는다. */
-  POP_OUT_MARGIN: 24,
+  /**
+   * (판올림 번호 발급 대기) 미는 창이 상대 창에게 남겨 주는 **여유**(px) — 자석 밀기의 사이 간격.
+   *
+   * `MAGNET_PX`(10)보다 **커야 한다**. 그래야 창끼리는 붙는 자석보다 **미는 자석이 먼저** 걸려,
+   * 선에 붙어 멎었다가 문턱을 넘기며 겹치는 종전 거동이 아예 생기지 않는다(사용자 지적 — "멈추지 말고").
+   */
+  PUSH_GAP: 12,
+  /**
+   * 밀린 창이 목표 자리로 따라붙는 비율(프레임당). 1 이면 순간이동이라 "밀렸다"로 읽히지 않는다 —
+   * 손보다 반 박자 늦게 미끄러지는 이 지연이 자석처럼 보이게 하는 실체다.
+   */
+  PUSH_EASE: 0.3,
+  /** 목표까지 이만큼 안이면 다 온 것으로 본다(px) — 소수점이 영영 수렴하며 rAF 가 안 멎는 것을 막는다. */
+  PUSH_SETTLE_PX: 0.5,
+  /**
+   * 한 번 정해진 밀림 방향을 지키는 여유(px). 더 얕게 빠지는 축이 생겨도 이 차이 안에서는 갈아타지
+   * 않는다 — 축이 도중에 뒤집히면 밀리던 창이 손 앞에서 직각으로 튄다(끌던 사람이 가장 놀라는 순간).
+   */
+  PUSH_KEEP_DIR_PX: 64,
+  /**
+   * 커서가 앱 창 밖으로 이만큼 더 나가야 "독립 창으로 꺼낸다"로 읽는다.
+   *
+   * §5.13 (S-3) — 수치는 공용 한 곳(`WINDOW_PULL_OUT`)에서 온다. 내부 앱 창도 같은 손짓으로
+   * 밖에 나가므로, 값이 두 벌이면 창 종류마다 다른 거리에서 반응한다.
+   */
+  POP_OUT_MARGIN: WINDOW_PULL_OUT.MARGIN,
   /**
    * 화면 끝에 **막혀** 더 나갈 수 없을 때 "밖으로 밀고 있다"로 읽어 주는 안쪽 띠(px).
    *
    * 단일 모니터에 앱이 최대화돼 있으면 커서는 뷰포트를 한 픽셀도 벗어나지 못한다 — 그 사람에게
    * `POP_OUT_MARGIN` 은 영영 닿지 않는 문턱이라 끌어내기라는 손짓 자체가 없는 것과 같다.
    */
-  POP_OUT_EDGE_PX: 3,
+  POP_OUT_EDGE_PX: WINDOW_PULL_OUT.EDGE_PX,
   /** 그 띠에 이만큼 버티면 밖으로 나간 것과 **같이** 본다(ms). 스치기만 한 손은 걸리지 않게. */
-  POP_OUT_EDGE_DWELL_MS: 500,
+  POP_OUT_EDGE_DWELL_MS: WINDOW_PULL_OUT.EDGE_DWELL_MS,
+  /**
+   * (판올림 번호 발급 대기) (H-6) **놓을 수 있는 자리를 이만큼 넘어서면** 가상 창 윤곽선을 켠다(px).
+   *
+   * 문턱을 뷰포트가 아니라 **클램프 한계**(`clampFloatGeom`)로 잡는 까닭: 창을 화면 오른쪽에
+   * 바짝 붙여 두는 것(80px 만 남기고 파킹)은 종전부터 정상 동작이라, 뷰포트를 기준으로 재면
+   * 그 평범한 손짓마다 윤곽선이 번쩍인다.
+   */
+  POP_OUT_GHOST_ENTER_PX: 24,
+  /**
+   * (H-6) 윤곽선이 **이미 떠 있을 때**의 가장자리 버팀(ms) — 밖으로 밀어냈다는 신호가 화면에
+   * 이미 있는데 `POP_OUT_EDGE_DWELL_MS` 를 처음부터 다시 기다릴 이유가 없다.
+   */
+  POP_OUT_EDGE_DWELL_ARMED_MS: 220,
 } as const;
 
 /**
@@ -602,10 +645,9 @@ export function isOutsideViewport(
   vp: Viewport,
   margin: number = IDE_FLOAT.POP_OUT_MARGIN,
 ): boolean {
-  return cursor.x < -margin
-    || cursor.y < -margin
-    || cursor.x > vp.w + margin
-    || cursor.y > vp.h + margin;
+  // §5.13 (S-3) — 판정은 공용 한 곳. 내부 앱 창도 같은 손짓으로 밖에 나가므로, 여기서 따로 재면
+  //   두 창이 다른 자리에서 반응하기 시작한다(그 어긋남은 화면에서 "가끔 안 된다"로만 보인다).
+  return isCursorOutsideViewport(cursor, vp, margin);
 }
 
 /**
@@ -625,10 +667,50 @@ export function isPinnedToViewportEdge(
   vp: Viewport,
   edge: number = IDE_FLOAT.POP_OUT_EDGE_PX,
 ): boolean {
-  return cursor.x <= edge
-    || cursor.y <= edge
-    || cursor.x >= vp.w - 1 - edge
-    || cursor.y >= vp.h - 1 - edge;
+  return isCursorPinnedToViewportEdge(cursor, vp, edge);
+}
+
+/**
+ * (판올림 번호 발급 대기) (H-6) **끄는 동안**의 자리 — 크기만 정상화하고 좌표는 가두지 않는다.
+ *
+ * `clampFloatGeom` 은 **결과**를 위한 안전망이다(창을 화면 밖에 두고 잃지 않게). 그것을 끄는
+ * **과정**에 걸어 두면 커서는 계속 가는데 창은 `KEEP_VISIBLE` 선에서 멈춰, 밖으로 빼려는 손에
+ * 벽으로 잡힌다 — 그 벽을 넘는 순간 창이 독립 창으로 사라지므로 "버벅이다 튄다"가 된다.
+ * 안전망은 손을 뗄 때 한 번만 건다.
+ */
+export function dragFloatGeom(geom: FloatGeom, vp: Viewport): FloatGeom {
+  return {
+    x: geom.x,
+    y: geom.y,
+    w: Math.min(Math.max(geom.w, IDE_FLOAT.MIN_W), Math.max(1, vp.w)),
+    h: Math.min(Math.max(geom.h, IDE_FLOAT.MIN_H), Math.max(1, vp.h - IDE_DOCK.HEADER_H)),
+  };
+}
+
+/**
+ * (H-6) 이 자리가 **놓을 수 있는 자리**를 몇 px 넘어섰는가 — 두 축 중 큰 쪽(0 이면 안 넘었다).
+ *
+ * "밖으로 빼고 있다"의 기준이다. 뷰포트 밖으로 얼마나 나갔는지가 아니라 `clampFloatGeom` 이
+ * 허락하는 자리에서 얼마나 더 갔는지를 재야, 화면 가장자리에 창을 붙여 두는 평범한 손짓과
+ * 밖으로 빼내려는 손짓이 갈린다.
+ */
+export function overflowPastClamp(geom: FloatGeom, vp: Viewport): number {
+  const c = clampFloatGeom(geom, vp);
+  return Math.max(Math.abs(geom.x - c.x), Math.abs(geom.y - c.y));
+}
+
+/**
+ * (H-6) 창이 앱 화면과 **더는 겹치지 않는가** = 사용자가 완전히 빼냈다.
+ *
+ * 종전 이탈 판정은 커서 기준 둘(밖 `POP_OUT_MARGIN` · 가장자리 `POP_OUT_EDGE_PX` 버팀)뿐이라,
+ * 최대화된 단일 모니터에서는 **기다리는 것** 말고 길이 없었다. 사용자가 실제로 한 일(창을
+ * 밖으로 밀어냈다)을 그대로 읽는 판정을 하나 더 둔다.
+ */
+export function isPulledFullyOut(geom: FloatGeom, vp: Viewport): boolean {
+  return geom.x >= vp.w
+    || geom.y >= vp.h
+    || geom.x + geom.w <= 0
+    || geom.y + geom.h <= 0;
 }
 
 /** 두 자리가 같은 곳을 가리키는가 — 십자 버튼 강조가 판정과 어긋나지 않게 한 곳에서 견준다. */
@@ -688,6 +770,153 @@ export function magnetFloatGeom(geom: FloatGeom, targets: Rect[], vp: Viewport):
   };
 }
 
+// ─── 자석 밀기 — 창끼리 부딪혀도 멈추지 않는다 ───
+
+/**
+ * (판올림 번호 발급 대기) 밀려나는 방향. **한 판 동안 유지**한다 — 더 얕게 빠지는 축이 생겼다고
+ * 도중에 갈아타면 밀리던 창이 손 앞에서 직각으로 튄다(끄는 사람이 가장 놀라는 순간).
+ */
+export type FloatPushDir = 'left' | 'right' | 'up' | 'down';
+
+/** 밀기 계산에 넣는 창 하나 — 누구인지와 **지금** 자리. */
+export interface FloatPushPaneGeom {
+  key: string;
+  geom: FloatGeom;
+}
+
+export interface FloatPushResult {
+  /** 이번에 **실제로 움직인** 창들의 새 자리(안 밀린 창은 아예 없다). */
+  geoms: Record<string, FloatGeom>;
+  /** 그 창들이 밀려난 방향 — 다음 프레임에 되먹여 축이 도중에 뒤집히지 않게 한다. */
+  dirs: Record<string, FloatPushDir>;
+}
+
+const FLOAT_PUSH_DIRS: readonly FloatPushDir[] = ['left', 'right', 'up', 'down'] as const;
+
+/** 그 방향으로 빠져나가려면 얼마나 가야 하는가(px). 0 이하면 그 축으로는 이미 떨어져 있다. */
+function floatPushDepth(target: FloatGeom, pusher: Rect, dir: FloatPushDir, gap: number): number {
+  switch (dir) {
+    case 'left': return (target.x + target.w) - (pusher.x - gap);
+    case 'right': return (pusher.x + pusher.w + gap) - target.x;
+    case 'up': return (target.y + target.h) - (pusher.y - gap);
+    case 'down': return (pusher.y + pusher.h + gap) - target.y;
+  }
+}
+
+/** 그 방향으로 `depth` 만큼 민 자리(크기는 그대로 — 미는 것은 옮기는 것이지 줄이는 것이 아니다). */
+function shoveFloatGeom(target: FloatGeom, dir: FloatPushDir, depth: number): FloatGeom {
+  switch (dir) {
+    case 'left': return { ...target, x: target.x - depth };
+    case 'right': return { ...target, x: target.x + depth };
+    case 'up': return { ...target, y: target.y - depth };
+    case 'down': return { ...target, y: target.y + depth };
+  }
+}
+
+/**
+ * 미는 창 하나에 대해 이 창이 **어디로 얼마나** 빠져야 하는가 — 안 걸리면 null.
+ *
+ * 축은 `가장 얕게 빠지는 쪽`이다(옆에서 밀면 옆으로, 위에서 밀면 위아래로 — 손이 민 방향과 같다).
+ * `prefer` 가 있으면 그 축을 지킨다 — 더 나은 축이 생겨도 `PUSH_KEEP_DIR_PX` 안에서는 갈아타지 않는다.
+ */
+function resolveFloatPush(
+  target: FloatGeom,
+  pusher: Rect,
+  gap: number,
+  prefer: FloatPushDir | undefined,
+): { geom: FloatGeom; dir: FloatPushDir } | null {
+  const depths = FLOAT_PUSH_DIRS.map((d) => ({ dir: d, depth: floatPushDepth(target, pusher, d, gap) }));
+  // 네 방향이 **전부** 양수여야 여유까지 먹고 겹친 것이다 — 하나라도 0 이하면 그 축으로 이미 떨어져 있다.
+  if (depths.some((x) => x.depth <= 0)) return null;
+  let best = depths[0]!;
+  for (const x of depths) if (x.depth < best.depth) best = x;
+  if (prefer) {
+    const kept = depths.find((x) => x.dir === prefer);
+    if (kept && kept.depth <= best.depth + IDE_FLOAT.PUSH_KEEP_DIR_PX) best = kept;
+  }
+  return { geom: shoveFloatGeom(target, best.dir, best.depth), dir: best.dir };
+}
+
+/**
+ * (판올림 번호 발급 대기) **미는 창 → 밀려나는 창들.** 종전 자석(`magnetFloatGeom`)이 선에 붙여
+ * **멈춰 세우던** 자리를, 상대를 밀어 **계속 가게** 하는 물리로 바꾼다.
+ *
+ * - 여유(`gap`)까지 먹고 겹친 창만 민다 — 딱 붙이지 않아 두 창의 테두리가 각각 보인다.
+ * - **사슬**: 밀려난 창은 그 자신이 미는 쪽이 되어 다음 창을 민다(창이 셋이어도 줄줄이 밀린다).
+ * - **되밀림 금지**: 자기를 민 창(또는 그보다 뒤 사슬)에게는 밀리지 않는다 — 되밀리면 두 창이
+ *   서로를 밀며 제자리에서 떤다.
+ * - 밀린 자리는 `clampFloatGeom` 안이라 화면 밖으로 창을 잃지 않는다. 더 갈 데가 없으면 **거기서
+ *   버틴다** — 그래도 미는 창은 멎지 않는다(겹칠 뿐이다). "멈추지 말라"가 이 규칙이다.
+ *
+ * 뷰포트는 인자다(전역 `window` 참조 ❌ — 이 모듈의 규약). 순수 함수라 세 OS 에서 같은 값이 나온다.
+ */
+export function pushFloatGeoms(
+  mover: FloatGeom,
+  others: FloatPushPaneGeom[],
+  vp: Viewport,
+  prevDirs: Record<string, FloatPushDir> = {},
+  gap: number = IDE_FLOAT.PUSH_GAP,
+): FloatPushResult {
+  const cur = new Map<string, FloatGeom>();
+  for (const o of others) cur.set(o.key, o.geom);
+  const dirs: Record<string, FloatPushDir> = {};
+  /** 사슬에서의 깊이 — 끌고 있는 창이 0, 그것이 민 창이 1, 그 창이 민 창이 2 … */
+  const rank = new Map<string, number>();
+
+  // 미는 쪽부터 차례로 꺼내 본다(너비 우선). `key: null` 이 끌고 있는 창 자신이다.
+  const queue: { key: string | null; rank: number }[] = [{ key: null, rank: 0 }];
+  let guard = (others.length + 1) * 4 + 4;
+  while (queue.length > 0 && guard > 0) {
+    guard -= 1;
+    const head = queue.shift()!;
+    const pusher: Rect = head.key === null ? mover : cur.get(head.key)!;
+    for (const o of others) {
+      if (o.key === head.key) continue;
+      const already = rank.get(o.key);
+      // 되밀림 금지 — 나를 민 창과 같은 줄이거나 그 뒤라면 무시한다(진동의 원인).
+      if (already !== undefined && already <= head.rank) continue;
+      const self = cur.get(o.key)!;
+      const hit = resolveFloatPush(self, pusher, gap, dirs[o.key] ?? prevDirs[o.key]);
+      if (!hit) continue;
+      const next = clampFloatGeom(hit.geom, vp);
+      // 화면 끝에 막혀 한 픽셀도 못 간다 — 거기서 버틴다(미는 창을 세우지는 않는다).
+      if (next.x === self.x && next.y === self.y) continue;
+      cur.set(o.key, next);
+      dirs[o.key] = hit.dir;
+      rank.set(o.key, head.rank + 1);
+      queue.push({ key: o.key, rank: head.rank + 1 });
+    }
+  }
+
+  const geoms: Record<string, FloatGeom> = {};
+  for (const o of others) {
+    if (!rank.has(o.key)) continue;
+    const g = cur.get(o.key)!;
+    if (g.x === o.geom.x && g.y === o.geom.y) continue;
+    geoms[o.key] = g;
+  }
+  return { geoms, dirs };
+}
+
+/**
+ * 밀림 한 프레임 — 지금 보이는 값에서 목표로 `PUSH_EASE` 만큼 다가간다(0 이면 아직 멀었다는 뜻이 아니라
+ * **다 왔다**는 뜻으로 `done` 을 함께 돌려준다). 이 지연이 "자석처럼 밀린다"의 실체다.
+ */
+export function easeFloatPushOffset(
+  now: { dx: number; dy: number },
+  want: { dx: number; dy: number },
+  ease: number = IDE_FLOAT.PUSH_EASE,
+  settle: number = IDE_FLOAT.PUSH_SETTLE_PX,
+): { dx: number; dy: number; done: boolean } {
+  const dx = now.dx + (want.dx - now.dx) * ease;
+  const dy = now.dy + (want.dy - now.dy) * ease;
+  // 남은 거리가 반 픽셀 안이면 목표에 **정확히** 앉힌다 — 아니면 소수점이 영영 수렴하며 rAF 가 안 멎는다.
+  if (Math.abs(want.dx - dx) < settle && Math.abs(want.dy - dy) < settle) {
+    return { dx: want.dx, dy: want.dy, done: true };
+  }
+  return { dx, dy, done: false };
+}
+
 // ─── 여러 창 한 번에 정렬 ───
 
 /**
@@ -735,10 +964,45 @@ export function cascadeFloatGeoms(count: number, bounds: Rect, step = 28): Float
   return out;
 }
 
+/** 마주 보는 변 — 밀기·상한 계산이 같은 표를 읽는다(두 곳에 적으면 언젠가 갈린다). */
+export const OPPOSITE_DOCK_SIDE: Record<IDEDockSide, IDEDockSide> = { left: 'right', right: 'left', top: 'bottom', bottom: 'top' };
+
+export interface DockPushResult {
+  /** 끄는 변의 새 두께. */
+  size: number;
+  /** **밀려난** 마주 보는 변 — 안 밀렸으면 null. */
+  opposite: { side: IDEDockSide; size: number } | null;
+}
+
+/**
+ * (판올림 번호 발급 대기) §5.5 #17-1 — 도크 손잡이를 끝까지 밀면 **마주 보는 도크가 밀려난다.**
+ *
+ * 종전(`clampDockSize`)에는 "반대편 도크 + 캔버스 최소치"에서 손잡이가 **그대로 멎었다** — 화면을 다
+ * 쓰고 있는데도 더 못 넓히는 이유가 화면에 없어서, 끄는 사람에게는 손잡이가 고장 난 것처럼 읽혔다.
+ * 이제 그 문턱을 넘기면 반대편이 자기 하한(`MIN_SIZE`)까지 **양보한다**. 창끼리 밀리는 것(`pushFloatGeoms`)과
+ * 같은 규칙이다 — 부딪히면 멈추는 것이 아니라 상대가 비켜 준다.
+ *
+ * **캔버스 여유(`KEEP_CANVAS`)는 끝까지 지킨다** — 밀기는 남의 자리를 얻는 일이지 캔버스를 없애는 일이 아니다.
+ */
+export function pushDockSize(side: IDEDockSide, wanted: number, vp: Viewport, docked: DockedPane[]): DockPushResult {
+  const opp = OPPOSITE_DOCK_SIDE[side];
+  const other = dockedThicknessOf(docked.filter((p) => p.side !== side), opp);
+  const total = isHorizontalSide(side) ? vp.w : Math.max(0, vp.h - IDE_DOCK.HEADER_H);
+  const keep = isHorizontalSide(side) ? IDE_DOCK.KEEP_CANVAS.w : IDE_DOCK.KEEP_CANVAS.h;
+  const want = Math.round(Math.max(wanted, IDE_DOCK.MIN_SIZE));
+  // 반대편을 건드리지 않고 갈 수 있는 데까지.
+  const room = Math.max(IDE_DOCK.MIN_SIZE, total - other - keep);
+  if (other <= 0 || want <= room) {
+    return { size: Math.round(Math.min(want, room)), opposite: null };
+  }
+  // 여기서부터가 밀기 — 반대편은 자기 하한까지만 양보한다(0 으로 접지 않는다: 그 창도 읽혀야 한다).
+  const pushedOther = Math.round(Math.min(other, Math.max(IDE_DOCK.MIN_SIZE, total - keep - want)));
+  const size = Math.round(Math.max(IDE_DOCK.MIN_SIZE, Math.min(want, total - keep - pushedOther)));
+  return { size, opposite: pushedOther === other ? null : { side: opp, size: pushedOther } };
+}
 /** 도크 두께를 하한·상한(반대편 도크 + 캔버스 최소치) 안으로 자른다. */
 export function clampDockSize(side: IDEDockSide, size: number, vp: Viewport, docked: DockedPane[]): number {
-  const opposite: Record<IDEDockSide, IDEDockSide> = { left: 'right', right: 'left', top: 'bottom', bottom: 'top' };
-  const other = dockedThicknessOf(docked.filter((p) => p.side !== side), opposite[side]);
+  const other = dockedThicknessOf(docked.filter((p) => p.side !== side), OPPOSITE_DOCK_SIDE[side]);
   const total = isHorizontalSide(side) ? vp.w : Math.max(0, vp.h - IDE_DOCK.HEADER_H);
   const keep = isHorizontalSide(side) ? IDE_DOCK.KEEP_CANVAS.w : IDE_DOCK.KEEP_CANVAS.h;
   const max = Math.max(IDE_DOCK.MIN_SIZE, total - other - keep);

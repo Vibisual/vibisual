@@ -4,6 +4,7 @@ import { Handle, NodeResizer, Position, type NodeProps } from '@xyflow/react';
 
 import { useGraphStore } from '../../stores/graphStore.js';
 import { toProxyUrl } from '../../utils/iframeProxyUrl.js';
+import { isInteractiveTarget, useBubbleSelectGesture } from './bubbleSelectGesture.js';
 import { usePreviewPicker } from '../Preview/usePreviewPicker.js';
 import { usePreviewSnip } from '../Preview/usePreviewSnip.js';
 import { PreviewFrames } from '../Preview/PreviewFrames.js';
@@ -67,20 +68,27 @@ export const PlayPreviewNode = memo(function PlayPreviewNode({
   const updatePlayBubble = useGraphStore((s) => s.updatePlayBubble);
   const setDragLock = useGraphStore((s) => s.setPlayBubbleDragLock);
 
-  const isSelected = selected === true || selectedPlayBubbleId === data.playBubbleId;
+  // 선택 링은 `selectIntentId`(캔버스가 나눠 쓰는 "지금 고른 것 한 칸")도 함께 본다.
+  const selectIntentId = useGraphStore((s) => s.selectIntentId);
+  const isSelected = selected === true
+    || selectedPlayBubbleId === data.playBubbleId
+    || selectIntentId === data.playBubbleId;
 
   /**
-   * 선택 — 앱·플레이 버블과 같은 규칙, 같은 함정(v4.69).
+   * 선택 — 캔버스 공용 상태기계(`bubbleSelectGesture`) 한 벌. 프리뷰에는 더블클릭 동작이 없어
+   * 지연 없이 손 뗀 자리에서 바로 선택된다. 끌고 간 뒤에는 선택되지 않는다(클릭과 드래그를 가른다).
    *
-   * ⚠ 캡처 단계로 받는다. 드래그 가능한 노드의 래퍼에 걸린 `d3-drag` 가 mousedown 에서
-   * `stopImmediatePropagation()` 을 불러, 루트로 위임된 React 의 버블 단계 핸들러는 아예
-   * 발화하지 못한다. 헤더의 아이콘 버튼(닫기·새로고침)에서는 선택을 건너뛴다.
+   * ⚠ 캡처 단계로 받는 이유(v4.69)와 헤더의 아이콘 버튼(닫기·새로고침)에서 선택을 건너뛰는
+   * 이유는 그 파일에 함께 적어 두었다.
    */
-  const handleSelect = useCallback((e: React.PointerEvent): void => {
-    if (e.button !== 0) return;
-    if ((e.target as HTMLElement | null)?.closest?.('button')) return;
-    selectPlayBubble(data.playBubbleId);
-  }, [selectPlayBubble, data.playBubbleId]);
+  const gesture = useBubbleSelectGesture({
+    doubleClickable: false,
+    select: () => selectPlayBubble(data.playBubbleId),
+    setIntent: (active) => {
+      useGraphStore.getState().setSelectIntent(active ? data.playBubbleId : null);
+    },
+    ignore: (e) => isInteractiveTarget(e.target),
+  });
 
   const close = useCallback((e: React.MouseEvent): void => {
     e.stopPropagation();
@@ -123,7 +131,9 @@ export const PlayPreviewNode = memo(function PlayPreviewNode({
     })();
   };
 
-  const iconBtn = 'flex h-5 w-5 items-center justify-center rounded text-white/70 transition-colors hover:bg-white/10 hover:text-white';
+  // `shrink-0` — 새로고침·브라우저로 열기·**닫기**는 자리가 모자라도 0 폭으로 눌려 사라지면 안 된다.
+  //   프리뷰를 접는 유일한 손잡이가 [닫기] 라서, 눌려 없어지는 순간 그 버블에서 빠져나올 길이 사라진다.
+  const iconBtn = 'flex h-5 w-5 shrink-0 items-center justify-center rounded text-white/70 transition-colors hover:bg-white/10 hover:text-white';
 
   return (
     <>
@@ -138,7 +148,7 @@ export const PlayPreviewNode = memo(function PlayPreviewNode({
         handleClassName="!h-2 !w-2 !rounded-sm !border-emerald-300 !bg-emerald-400"
       />
       <div
-        onPointerDownCapture={handleSelect}
+        {...gesture.handlers}
         className="flex flex-col overflow-hidden rounded-lg"
         style={{
           width: data.width,
@@ -152,8 +162,11 @@ export const PlayPreviewNode = memo(function PlayPreviewNode({
         <Handle type="source" id="src" position={Position.Top} style={HANDLE_STYLE} isConnectable={false} />
         <Handle type="target" id="tgt" position={Position.Top} style={HANDLE_STYLE} isConnectable={false} />
 
-        {/* 헤더 — 여기만 드래그 손잡이다(본체는 페이지 조작에 내준다). */}
-        <div className="drag-handle flex h-7 shrink-0 cursor-grab items-center gap-1.5 border-b px-2" style={{ borderColor: CHROME_BORDER }}>
+        {/* 헤더 — 여기만 드래그 손잡이다(본체는 페이지 조작에 내준다).
+            버블이 좁으면 `h-7` 고정 높이 + 한 줄 배치가 조작 줄과 [닫기] 를 밖으로 밀어내 잘라 버렸다.
+            `min-h-7` + `flex-wrap` 으로 바꿔 **잘리는 대신 아랫줄로 접히게** 한다(§5.17 — 되돌릴 자리는
+            언제나 화면 안에 있어야 한다). */}
+        <div className="drag-handle flex min-h-7 shrink-0 cursor-grab flex-wrap items-center gap-1.5 border-b px-2 py-0.5" style={{ borderColor: CHROME_BORDER }}>
           <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-emerald-400" aria-hidden />
           <span className="min-w-0 flex-1 truncate text-[12px] text-white/70">
             {data.title ?? data.url.replace(/^https?:\/\//, '')}

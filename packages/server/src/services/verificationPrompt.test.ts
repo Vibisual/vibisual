@@ -11,14 +11,17 @@ import {
   VERIFY_RECORDED_SKILL_PATH,
   VERIFICATION_ATTEMPTS_MAX,
 } from '@vibisual/shared';
+import type { VerificationDemo } from '@vibisual/shared';
 import {
   buildVerifyPrompt,
   buildVerifyReworkPrompt,
+  formatDemoTime,
   parseVerificationVerdict,
   recordedSkillRecipe,
   summarizePlayRecipe,
   NO_RECIPE,
 } from './verificationPrompt.js';
+import { composeTurnPrompt } from './turnPrompt.js';
 
 describe('summarizePlayRecipe', () => {
   it('명령 실행 레시피는 명령·작업 폴더·주소를 사실로 옮긴다', () => {
@@ -155,5 +158,154 @@ describe('buildVerifyReworkPrompt', () => {
     const text = buildVerifyReworkPrompt({ verdict: 'held', attempts: [] });
     expect(text).toContain('보류');
     expect(text).toContain('실제로 돌린 기록이 남지 않았습니다');
+  });
+});
+
+// ─── §5.5 #17-35 ⑨-4 — 시연(재현 절차)이 실릴 때 ───
+//
+// 여기서 지키는 것은 둘이다: **안 고르면 ⑨ 이전과 완전히 같은 프롬프트**(회귀 0)와,
+// **고르면 재현하라고 분명히 말한다**(추론하지 말라는 그 문장이 빠지면 시연을 실은 뜻이 사라진다).
+
+const demoFixture = (over: Partial<VerificationDemo> = {}): VerificationDemo => ({
+  id: 'demo-1',
+  agentId: 'agent-1',
+  subAgentId: 'sub-1',
+  projectName: 'app',
+  label: '로그인 후 저장',
+  sourceName: 'MyApp',
+  steps: [
+    { atMs: 3_000, text: '좌측에서 로그인을 누른다' },
+    { atMs: 11_000, text: '저장을 누른다' },
+  ],
+  expected: '초록색 저장됨 알림이 뜬다',
+  frames: [{ rel: 'demo-1/0.png', atMs: 3_000 }],
+  durationMs: 15_000,
+  recordedAt: 1,
+  ...over,
+});
+
+/** 프레임 N 장 — 10초 간격(0:03, 0:13, 0:23, 0:33)으로 시각이 겹치지 않게 둔다. */
+const frameRefs = (n: number): { path: string; atMs: number }[] =>
+  Array.from({ length: n }, (_, i) => ({ path: `C:/att/demo-${i}.png`, atMs: 3_000 + i * 10_000 }));
+
+describe('buildVerifyPrompt — 시연 승격(⑨)', () => {
+  it('시연을 안 실으면 프롬프트가 종전과 **한 글자도 다르지 않다**', () => {
+    const base = { recipe: NO_RECIPE, focus: '저장이 되는지' };
+    expect(buildVerifyPrompt(base)).toBe(buildVerifyPrompt({ ...base, demo: undefined }));
+  });
+
+  it('단계는 번호 + 시각으로 나가고, 시각 표기는 0:03 꼴이다', () => {
+    const text = buildVerifyPrompt({ recipe: NO_RECIPE, demo: demoFixture(), demoFrames: frameRefs(1) });
+    expect(text).toContain('1. (0:03) 좌측에서 로그인을 누른다');
+    expect(text).toContain('2. (0:11) 저장을 누른다');
+  });
+
+  it('추론하지 말고 그대로 재현하라고 말한다 — 이 문장이 시연을 실은 이유다', () => {
+    const text = buildVerifyPrompt({ recipe: NO_RECIPE, demo: demoFixture() });
+    expect(text).toContain('추론하지 말고');
+    expect(text).toContain('재현');
+  });
+
+  it('기대 결과와 시연 이름·소스가 함께 실린다', () => {
+    const text = buildVerifyPrompt({ recipe: NO_RECIPE, demo: demoFixture() });
+    expect(text).toContain('초록색 저장됨 알림이 뜬다');
+    expect(text).toContain('로그인 후 저장');
+    expect(text).toContain('MyApp');
+  });
+
+  it('그림이 0장이면 그림 얘기를 꺼내지 않는다(없는 첨부를 찾게 두지 않는다)', () => {
+    const text = buildVerifyPrompt({ recipe: NO_RECIPE, demo: demoFixture({ frames: [] }), demoFrames: [] });
+    expect(text).not.toContain('아래 경로에 있다');
+  });
+
+  it('그림은 장수만이 아니라 **경로와 시각**이 실린다 — 첨부 레일은 슬래시 프롬프트에 닿지 않는다', () => {
+    const text = buildVerifyPrompt({ recipe: NO_RECIPE, demo: demoFixture(), demoFrames: frameRefs(4) });
+    expect(text).toContain('화면 4장이 아래 경로에 있다');
+    expect(text).toContain('1) 0:03 — C:/att/demo-0.png');
+    expect(text).toContain('4) 0:33 — C:/att/demo-3.png');
+  });
+
+  it('그림은 "이미 실려 있는 것이 아니다" 라고 못 박고 Read 를 시킨다', () => {
+    // 종전엔 "첨부된 그림 N장" 이라고만 해서, 경로가 통째로 잘려 나간 줄 모른 채
+    // 모델이 없는 이미지를 찾다 멈췄다(실측). 그 문장이 다시 들어오면 이 테스트가 잡는다.
+    const text = buildVerifyPrompt({ recipe: NO_RECIPE, demo: demoFixture(), demoFrames: frameRefs(2) });
+    expect(text).toContain('파일 경로일 뿐 이미 실려 있는 그림이 아니다');
+    expect(text).toContain('Read 도구로');
+    expect(text).not.toContain('첨부된 그림');
+  });
+
+  it('단계가 없으면 "위 순서를 그대로 재현하라"고 하지 않는다 — 없는 목록을 찾게 두지 않는다', () => {
+    const noSteps = demoFixture({ steps: [] });
+    const text = buildVerifyPrompt({ recipe: NO_RECIPE, demo: noSteps, demoFrames: frameRefs(4) });
+    expect(text).not.toContain('위 순서를 그대로 재현');
+    expect(text).toContain('글로 적어 둔 단계는 없다');
+  });
+
+  it('무엇을 찍은 화면인지 말한다 — 시연은 이 리포의 앱이 아닐 수 있다', () => {
+    const text = buildVerifyPrompt({ recipe: NO_RECIPE, demo: demoFixture(), demoFrames: frameRefs(1) });
+    expect(text).toContain('녹화한 화면: MyApp');
+    expect(text).toContain('구간 길이: 0:15');
+  });
+
+  it('이름이 이미 소스명을 담고 있으면 같은 말을 두 줄 쓰지 않는다', () => {
+    // `defaultDemoLabel` 이 `<소스명> · <시각>` 을 만들므로 기본 이름은 항상 이 경우다.
+    const text = buildVerifyPrompt({
+      recipe: NO_RECIPE,
+      demo: demoFixture({ label: 'MyApp · 오전 11:05' }),
+      demoFrames: frameRefs(1),
+    });
+    expect(text).toContain('시연: MyApp · 오전 11:05');
+    expect(text).not.toContain('녹화한 화면:');
+  });
+
+  it('내용이 하나도 없는 시연은 블록 자체를 만들지 않는다', () => {
+    const empty = demoFixture({ steps: [], frames: [] });
+    delete (empty as { expected?: string }).expected;
+    const text = buildVerifyPrompt({ recipe: NO_RECIPE, demo: empty, demoFrames: [] });
+    expect(text).not.toContain('사람이 직접 해 보인 재현 절차');
+  });
+
+  it('시연 블록은 실행법(레시피) **뒤**에 온다 — 켜는 법 다음이 곧 무엇을 누르는가다', () => {
+    const text = buildVerifyPrompt({
+      recipe: summarizePlayRecipe({ kind: 'command', command: 'pnpm dev' }),
+      demo: demoFixture(),
+    });
+    expect(text.indexOf('pnpm dev')).toBeLessThan(text.indexOf('사람이 직접 해 보인 재현 절차'));
+  });
+
+  it('판정 형식 안내는 여전히 맨 끝이다(시연이 그 자리를 밀어내지 않는다)', () => {
+    const text = buildVerifyPrompt({ recipe: NO_RECIPE, demo: demoFixture(), demoFrames: frameRefs(2) });
+    expect(text.indexOf('사람이 직접 해 보인 재현 절차')).toBeLessThan(text.lastIndexOf('approve'));
+  });
+});
+
+// 이 검증 하나가 없어서 그림이 한 번도 에이전트에 닿지 않았다 — 두 모듈은 각자 맞았는데
+// **이어 붙인 결과**가 틀렸다(프롬프트는 그림이 있다고 말하고, 조립은 그 경로를 버렸다).
+describe('시연 그림은 실제로 턴 프롬프트까지 살아 남는다(⑨-4 ↔ #17-2 이음매)', () => {
+  const demo = demoFixture();
+  const frames = frameRefs(4);
+
+  it('`/verify` 는 여전히 맨 앞이다 — CLI 가 내장 명령으로 집을 수 있어야 한다', () => {
+    const text = buildVerifyPrompt({ recipe: NO_RECIPE, demo, demoFrames: frames });
+    expect(text.startsWith(VERIFY_SLASH_COMMAND)).toBe(true);
+    expect(composeTurnPrompt({
+      text, attachments: frames.map((f) => f.path), contextSummary: 'S', hasSession: true,
+    }).slashPassthrough).toBe(true);
+  });
+
+  it('슬래시 통과 경로가 꼬리 첨부를 버려도 경로는 본문에 남아 있다', () => {
+    const text = buildVerifyPrompt({ recipe: NO_RECIPE, demo, demoFrames: frames });
+    const turn = composeTurnPrompt({
+      text, attachments: frames.map((f) => f.path), contextSummary: 'S', hasSession: true,
+    });
+    for (const f of frames) expect(turn.prompt).toContain(f.path);
+  });
+});
+
+describe('formatDemoTime', () => {
+  it('초를 두 자리로 채워 단계와 그림이 같은 순간을 가리키게 한다', () => {
+    expect(formatDemoTime(0)).toBe('0:00');
+    expect(formatDemoTime(3_400)).toBe('0:03');
+    expect(formatDemoTime(125_000)).toBe('2:05');
   });
 });

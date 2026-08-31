@@ -4,6 +4,9 @@ import {
   releasesPageUrl,
   readUpdateDelivery,
   RELEASES_PAGE_BASE,
+  macUpdateAssetName,
+  macUpdateAssetUrl,
+  RELEASES_DOWNLOAD_BASE,
 } from '@vibisual/shared';
 
 // shared 의 순수 판정 로직은 server 테스트에서 검증한다(pathCase.test.ts·keyedSliceDelta.test.ts 선례).
@@ -13,9 +16,9 @@ import {
 // 세 OS 판정을 전부 확인할 수 있다(CLAUDE.md 멀티플랫폼 규칙).
 
 describe('resolveUpdateDelivery — 플랫폼별 업데이트 전달 방식', () => {
-  it('무서명 macOS 는 notify-only (Squirrel.Mac 이 서명 검증을 강제해 적용이 반드시 실패한다)', () => {
-    expect(resolveUpdateDelivery({ platform: 'darwin' })).toBe('notify-only');
-    expect(resolveUpdateDelivery({ platform: 'darwin', macCodeSigned: false })).toBe('notify-only');
+  it('무서명 macOS 는 self-install (Squirrel 을 타지 않고 우리가 직접 받아 직접 교체한다)', () => {
+    expect(resolveUpdateDelivery({ platform: 'darwin' })).toBe('self-install');
+    expect(resolveUpdateDelivery({ platform: 'darwin', macCodeSigned: false })).toBe('self-install');
   });
 
   it('서명·공증을 붙인 macOS 는 auto-install 로 승격된다', () => {
@@ -45,7 +48,7 @@ describe('resolveUpdateDelivery — 플랫폼별 업데이트 전달 방식', ()
   });
 });
 
-describe('releasesPageUrl — notify-only 에서 열 주소', () => {
+describe('releasesPageUrl — self-install 이 실패했을 때 복구 손잡이가 열 주소', () => {
   it('버전이 없으면 latest 로 보낸다', () => {
     expect(releasesPageUrl()).toBe(`${RELEASES_PAGE_BASE}/latest`);
     expect(releasesPageUrl(undefined)).toBe(`${RELEASES_PAGE_BASE}/latest`);
@@ -72,7 +75,40 @@ describe('readUpdateDelivery — 하위 호환 폴백', () => {
   });
 
   it('실린 값은 그대로 존중한다', () => {
-    expect(readUpdateDelivery('notify-only')).toBe('notify-only');
+    expect(readUpdateDelivery('self-install')).toBe('self-install');
     expect(readUpdateDelivery('auto-install')).toBe('auto-install');
+  });
+});
+
+// ── 받을 파일은 우리가 고른다 ───────────────────────────────────────────────
+// `latest-mac.yml` 을 쓰지 않는 이유가 여기 걸려 있다: 두 mac 잡이 같은 이름의 피드를 각자
+// 올려 서로 덮으므로 발행된 피드에는 한쪽 아키텍처만 남는다(실측: v0.1.14 에 arm64 없음).
+describe('macUpdateAssetName — 아키텍처별 dmg 이름 규약', () => {
+  it('arm64 는 -arm64 접미사, x64 는 접미사가 없다 (electron-builder 기본값과 짝)', () => {
+    expect(macUpdateAssetName('0.1.15', 'arm64')).toBe('Vibisual-0.1.15-arm64.dmg');
+    expect(macUpdateAssetName('0.1.15', 'x64')).toBe('Vibisual-0.1.15.dmg');
+  });
+
+  it('앞의 v 와 공백을 다듬는다 (태그 이름을 그대로 넘겨도 된다)', () => {
+    expect(macUpdateAssetName('v0.1.15', 'arm64')).toBe('Vibisual-0.1.15-arm64.dmg');
+    expect(macUpdateAssetName('  0.1.15 ', 'x64')).toBe('Vibisual-0.1.15.dmg');
+  });
+
+  it('두 아키텍처의 이름이 절대 같아질 수 없다 (같으면 한쪽이 다른 쪽을 받는다)', () => {
+    expect(macUpdateAssetName('0.1.15', 'arm64')).not.toBe(macUpdateAssetName('0.1.15', 'x64'));
+  });
+});
+
+describe('macUpdateAssetUrl — 그 dmg 의 다운로드 주소', () => {
+  it('릴리스 태그 경로 아래로 간다', () => {
+    expect(macUpdateAssetUrl('0.1.15', 'arm64')).toBe(
+      `${RELEASES_DOWNLOAD_BASE}/v0.1.15/Vibisual-0.1.15-arm64.dmg`,
+    );
+  });
+
+  it('v 를 겹쳐 붙이지 않는다', () => {
+    expect(macUpdateAssetUrl('v0.1.15', 'x64')).toBe(
+      `${RELEASES_DOWNLOAD_BASE}/v0.1.15/Vibisual-0.1.15.dmg`,
+    );
   });
 });

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { WorkspacePathInfo, WorkspacePathKind } from '@vibisual/shared';
+import type { ExternalPathInfo, WorkspacePathInfo, WorkspacePathKind } from '@vibisual/shared';
 
 /**
  * useWorkspacePathKind.ts — §5.5 #17-27 ⑬ 본문 속 경로의 **정체를 디스크에 묻는 자리**.
@@ -105,4 +105,85 @@ export function useWorkspacePathKind(root: string | null, relPath: string | null
 export function clearWorkspacePathCache(): void {
   cache.clear();
   inflight.clear();
+}
+
+// ─── ⑬ (d) 루트 밖 절대 경로 ────────────────────────────────────────────────
+//
+// 아래는 위와 같은 일을 **루트 밖 경로**에 하는 짝이다. 캐시·요청 합치기 규약을 그대로 잇되
+// 창구가 `GET /api/external-path` 이고, 답에 `executable` 이 **없다** — 루트 밖은 탐색기 한 갈래로만
+// 가므로 실행 여부를 알 필요가 없고, 알면 그 갈래가 늘어난다(⑬ (d)).
+
+/** 루트 밖 경로 판정 결과. `'missing'` 은 "디스크에 없다"를 캐시에 남기기 위한 값이다. */
+export interface ResolvedExternalPath {
+  kind: ResolvedPathKind;
+  /** `POST /api/reveal-path` 에 그대로 실어 보낼 절대 경로. `'missing'` 이면 빈 문자열. */
+  absPath: string;
+}
+
+const EXTERNAL_MISSING: ResolvedExternalPath = { kind: 'missing', absPath: '' };
+
+const externalCache = new Map<string, ResolvedExternalPath>();
+const externalInflight = new Map<string, Promise<ResolvedExternalPath>>();
+
+async function fetchExternalPathKind(absPath: string): Promise<ResolvedExternalPath> {
+  try {
+    const res = await fetch(`/api/external-path?path=${encodeURIComponent(absPath)}`);
+    if (!res.ok) return EXTERNAL_MISSING;
+    const info = (await res.json()) as ExternalPathInfo;
+    if (info.kind !== 'file' && info.kind !== 'directory') return EXTERNAL_MISSING;
+    return { kind: info.kind, absPath: info.absPath };
+  } catch {
+    return EXTERNAL_MISSING;
+  }
+}
+
+/** 이미 알고 있으면 그 값을, 모르면 한 번 물어보고 캐시에 넣는다(위 `resolveWorkspacePath` 와 같은 규약). */
+export function resolveExternalPath(absPath: string): Promise<ResolvedExternalPath> {
+  const known = externalCache.get(absPath);
+  if (known) return Promise.resolve(known);
+
+  const running = externalInflight.get(absPath);
+  if (running) return running;
+
+  const promise = fetchExternalPathKind(absPath).then((resolved) => {
+    if (externalCache.size >= CACHE_MAX) externalCache.clear();
+    externalCache.set(absPath, resolved);
+    externalInflight.delete(absPath);
+    return resolved;
+  });
+  externalInflight.set(absPath, promise);
+  return promise;
+}
+
+/** 루트 밖 경로 후보 하나의 정체. 아직 모르면 `null`(그 사이 화면은 평문 그대로 — 깜빡임이 없다). */
+export function useExternalPathKind(absPath: string | null): ResolvedExternalPath | null {
+  const [, bump] = useState(0);
+
+  useEffect(() => {
+    if (absPath === null) return undefined;
+    if (externalCache.has(absPath)) return undefined;
+
+    let alive = true;
+    void resolveExternalPath(absPath).then(() => {
+      if (alive) bump((n) => n + 1);
+    });
+    return () => { alive = false; };
+  }, [absPath]);
+
+  return absPath === null ? null : externalCache.get(absPath) ?? null;
+}
+
+/** 루트 밖 경로를 **시스템 탐색기에 보여준다**(파일이면 그 파일이 든 폴더). 실패는 화면을 막지 않는다. */
+export function revealExternalPath(absPath: string): void {
+  void fetch('/api/reveal-path', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ absPath }),
+  }).catch(() => { /* 열기 실패는 화면을 막지 않는다 — `openFolderByPath` 와 같은 규약. */ });
+}
+
+/** 테스트 전용 — 루트 밖 경로 캐시를 비운다. */
+export function clearExternalPathCache(): void {
+  externalCache.clear();
+  externalInflight.clear();
 }

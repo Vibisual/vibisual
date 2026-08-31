@@ -99,6 +99,14 @@ export interface InternalApp {
    */
   readonly opens?: readonly string[];
   /**
+   * §5.13 (S-6) — 이 앱이 `ref` 를 받는 **이름**(창 hash·shell params 의 키).
+   *
+   * 영상 앱이면 `docId`, 소리면 `clipId` 처럼 뜻이 앱마다 다르므로 앱이 선언한다. 종전에는
+   * `open()` 안에만 문자열로 적혀 있어서, **앱 안 창**이 같은 앱을 열려 해도 그 이름을 알 길이
+   * 없었다(코어가 앱마다 표를 드는 순간 (P-4) 가 깨진다).
+   */
+  readonly refKey: string;
+  /**
    * 이 앱의 화면들. 키는 `mode`(기본 `main`)이고 값은 늦게 부르는 로더다.
    *
    * **코어의 `main.tsx` 는 앱 이름을 모른다** — `#app=<id>&mode=<mode>` 를 보고 여기서
@@ -106,7 +114,7 @@ export interface InternalApp {
    */
   readonly shells: Readonly<Record<string, AppShellLoader>>;
   /**
-   * 이 앱의 창을 연다.
+   * 이 앱의 **독립 OS 창**을 연다(§5.13 (S-5) — 끌어내기·[별도 창으로] 가 부르는 길).
    *
    * `ref` 는 앱이 해석하는 열쇠(영상 앱이면 문서 id)이고, `file` 은 **프로젝트 루트 기준
    * 상대 경로**다(§5.13 (R-2)). 코어는 둘 다 뜻을 모르고 그대로 넘긴다.
@@ -174,19 +182,39 @@ function CubeIcon(): JSX.Element {
   );
 }
 
+/** 앱 화면이 받는 값. 앱이 해석하는 열쇠 이름(`refKey`)은 앱 선언에서 온다. */
+export interface AppOpenArgs {
+  projectId: string;
+  ref?: string | undefined;
+  file?: string | undefined;
+}
+
 /**
- * 앱 창을 여는 공통 경로.
+ * §5.13 (S-6) — 앱 화면에 넘길 파라미터 한 벌.
+ *
+ * **OS 창과 앱 안 창이 같은 것을 받아야 한다.** 두 곳에서 따로 만들면 `docId` 를 한쪽만 실어
+ * "밖에서 열면 그 문서, 안에서 열면 빈 화면" 같은 어긋남이 생긴다.
+ */
+export function appShellParams(app: Pick<InternalApp, 'refKey'>, args: AppOpenArgs): Record<string, string> {
+  const params: Record<string, string> = { projectId: args.projectId };
+  if (args.ref !== undefined && args.ref !== '') params[app.refKey] = args.ref;
+  if (args.file !== undefined && args.file !== '') params['file'] = args.file;
+  return params;
+}
+
+/**
+ * 앱의 **독립 OS 창**을 여는 공통 경로(§5.13 (O) 세 통로 중 "창").
  *
  * 앱마다 이 여덟 줄을 베끼면 파라미터 이름이 앱마다 갈린다(`docId` 냐 `doc` 이냐). 여는 방법은
- * 하나여야 하므로 여기 모으고, 앱이 해석하는 열쇠 이름만 인자로 받는다.
+ * 하나여야 하므로 여기 모은다.
+ *
+ * §5.13 (S-1) — 이제 이 길은 **더블클릭이 아니라 끌어내기**가 부른다. 앱은 앱 안 창으로 먼저
+ * 열리고(`apps/appWindows.ts`), 밖이 필요한 사람만 이 문을 지난다.
  */
-async function openAppWindow(appId: string, refKey: string, args: { projectId: string; ref?: string | undefined; file?: string | undefined }): Promise<boolean> {
+async function openAppOsWindow(appId: string, refKey: string, args: AppOpenArgs): Promise<boolean> {
   const api = window.api?.app;
   if (!api) return false;
-  const params: Record<string, string> = { projectId: args.projectId };
-  if (args.ref !== undefined && args.ref !== '') params[refKey] = args.ref;
-  if (args.file !== undefined && args.file !== '') params['file'] = args.file;
-  await api.open(appId, params);
+  await api.open(appId, appShellParams({ refKey }, args));
   return true;
 }
 
@@ -217,13 +245,14 @@ export const INTERNAL_APPS: readonly InternalApp[] = [
     // 동봉 ffmpeg 에 데먹서가 있어 **그냥 열리는** 것들(H.264-in-MKV 재생 실측 확인).
     //   여기 없는 avi·wmv·flv 등은 (R-8) 변환 갈래가 받는다 — 바깥으로 내보내지 않는다.
     opens: ['.mp4', '.m4v', '.mov', '.webm', '.ogv', '.mkv', '.3gp', '.3g2'],
+    refKey: 'docId',
     shells: {
       // 편집 창.
       main: async () => (await import('../components/VideoStudio/VideoStudioShell.js')).VideoStudioShell,
       // 보이지 않는 오프스크린 렌더 무대(§5.13 (F)) — 사람이 보는 화면이 아니다.
       render: async () => (await import('../components/VideoStudio/VideoRenderShell.js')).VideoRenderShell,
     },
-    open: async (args) => openAppWindow('vibistudio', 'docId', args),
+    open: async (args) => openAppOsWindow('vibistudio', 'docId', args),
     // §5.13 (Q) — 콘티를 받아 타임라인 문서로 옮긴다. 늦은 로더라 안 부르면 안 실린다.
     storyboard: {
       accept: async (args) => (await import('../components/VideoStudio/contiHandoff.js')).acceptStoryboard(args),
@@ -241,10 +270,11 @@ export const INTERNAL_APPS: readonly InternalApp[] = [
     icon: WaveIcon,
     defaultSize: { width: 80, height: 50 },
     opens: ['.mp3', '.wav', '.flac', '.m4a', '.aac', '.ogg', '.oga', '.opus', '.weba'],
+    refKey: 'clipId',
     shells: {
       main: async () => (await import('../components/Vibisound/VibisoundShell.js')).VibisoundShell,
     },
-    open: async (args) => openAppWindow('vibisound', 'clipId', args),
+    open: async (args) => openAppOsWindow('vibisound', 'clipId', args),
   },
   {
     id: 'vibi3d',
@@ -257,10 +287,11 @@ export const INTERNAL_APPS: readonly InternalApp[] = [
     icon: CubeIcon,
     defaultSize: { width: 80, height: 50 },
     opens: ['.glb', '.gltf', '.obj', '.stl', '.ply', '.fbx', '.dae', '.3mf'],
+    refKey: 'modelId',
     shells: {
       main: async () => (await import('../components/Vibi3D/Vibi3DShell.js')).Vibi3DShell,
     },
-    open: async (args) => openAppWindow('vibi3d', 'modelId', args),
+    open: async (args) => openAppOsWindow('vibi3d', 'modelId', args),
   },
 ];
 

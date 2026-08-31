@@ -1,13 +1,16 @@
-import { app, BrowserWindow, shell } from 'electron';
+import { app, BrowserWindow } from 'electron';
 import pkg from 'electron-updater';
 import {
   UPDATE_CHECK_INTERVAL_MS,
   resolveUpdateDelivery,
   releasesPageUrl,
+  toProcessArch,
   type UpdateDelivery,
   type UpdateState,
 } from '@vibisual/shared';
 import { recordDiagnostic } from '@vibisual/server';
+import { openExternalWithNotice } from './externalOpen';
+import { prepareSelfInstall, runSwap, type StagedUpdate } from './macSelfInstall';
 
 // 자동 업데이트 매니저 — SCENARIO.md §4 v2.44 (electron-updater + GitHub Releases).
 //
@@ -17,13 +20,17 @@ import { recordDiagnostic } from '@vibisual/server';
 // (windowManager.broadcastList) 선례대로 전용 IPC 채널(`vibisual:update:status`)로 모든
 // renderer 에 직접 푸시한다. invoke 핸들러(check/install/get-state)는 ipc.ts 가 등록한다.
 //
-// ⚠️ **전달 방식은 플랫폼마다 다르다** — 종전에는 전 플랫폼이 같은 경로를 탔으나,
-// 무서명 macOS 는 Squirrel.Mac 이 서명 검증을 강제해 **다운로드까지 해놓고 적용 단계에서
-// 반드시 실패**했다(사용자에게는 "업데이트 오류"만 남았다). 이제 `resolveUpdateDelivery`
-// (shared, 플랫폼을 인자로 받는 순수 판정)로 갈라:
-//   - `auto-install`(Windows·Linux·서명된 mac) : 종전 그대로 자동 다운로드 + 재시작 적용
-//   - `notify-only`(무서명 mac)                 : 다운로드하지 않고 **알리기만** 하고,
-//                                                 액션은 릴리스 페이지 열기로 대체
+// ⚠️ **전달 방식은 플랫폼마다 다르다.** `resolveUpdateDelivery`(shared, 플랫폼을 인자로 받는
+// 순수 판정)로 갈라진다:
+//   - `auto-install`(Windows·Linux·서명된 mac) : 종전 그대로 electron-updater 가 받고 적용
+//   - `self-install`(무서명 mac)                : **우리가 직접 받아 직접 교체**(macSelfInstall.ts)
+//
+// 무서명 macOS 에서 Squirrel.Mac 이 서명 검증을 **강제**하는 것은 사실이지만, 그 검증은
+// **Squirrel 의 적용 경로 안**에 있다 — 우리가 적용하면 그 코드가 아예 돌지 않는다. Gatekeeper
+// 의 첫 실행 차단도 서명이 아니라 `com.apple.quarantine` **속성**이 발동시키고, 그 속성은
+// **파일을 받은 프로그램이 붙인다**(브라우저는 붙이고 CLI·Node 는 안 붙인다). 그래서 받는 것도
+// 적용하는 것도 우리가 하면 둘 다 발동하지 않는다. 종전 `notify-only`(알리고 릴리스 페이지 열기)
+// 는 걷어냈다 — 사용자에게 업데이트마다 첫 설치를 통째로 반복시키는 방식이었다.
 // 판정 근거와 승격 조건은 shared `updateDelivery.ts` 머리말에 있다.
 //
 // 중요 — `app.isPackaged === false`(=`electron-vite preview` = /runapp) 면 no-op.
@@ -74,6 +81,75 @@ export function getUpdateDelivery(): UpdateDelivery {
   return delivery;
 }
 
+// ── self-install 경로 ───────────────────────────────────────────────────────
+/** 받아서 검사까지 끝내 놓은 새 번들. 교체는 종료 직전에 한다. */
+let staged: StagedUpdate | null = null;
+/** 같은 버전을 두 번 받지 않도록 — 주기 체크가 10분마다 같은 `update-available` 을 준다. */
+let preparing = false;
+
+/**
+ * 새 버전을 우리 손으로 받아 검사하고 임시 위치에 꺼내 둔다(`macSelfInstall.prepareSelfInstall`).
+ * 성공하면 `phase:'downloaded'` 로 올라가 종전과 **같은 버튼 흐름**을 탄다 — 사용자가
+ * "재시작하여 업데이트" 를 누르면 v2.63 확인 모달을 거쳐 교체가 일어난다.
+ *
+ * 실패는 조용히 넘어가지 않는다. `errorCode` 로 사유를 실어 보내 화면이 제 나라 말로 말하게 하고,
+ * 원문은 진단 로그에 남긴다. **어느 실패 경로에서도 설치는 시작되지 않으므로** 앱은 종전 버전
+ * 그대로 산다.
+ */
+async function beginSelfInstall(version: string): Promise<void> {
+  if (preparing) return;
+  if (staged?.version === version) return; // 이미 받아 뒀다
+  preparing = true;
+  try {
+    const arch = toProcessArch(process.arch);
+    if (!arch) {
+      patchState({
+        phase: 'error',
+        error: `unsupported architecture: ${process.arch}`,
+        errorCode: 'arch-mismatch',
+      });
+      return;
+    }
+
+    patchState({ phase: 'downloading', percent: 0, newVersion: version });
+    const result = await prepareSelfInstall({
+      version,
+      arch,
+      exePath: app.getPath('exe'),
+      onProgress: (percent, bytesPerSecond) => {
+        patchState({ phase: 'downloading', percent, bytesPerSecond });
+      },
+    });
+
+    if (!result.ok) {
+      console.warn(`[updater] self-install prepare failed (${result.code}):`, result.message);
+      recordDiagnostic('main', 'warn', `self-install ${result.code}: ${result.message}`);
+      patchState({
+        phase: 'error',
+        error: result.message,
+        errorCode: result.code,
+        percent: undefined,
+        bytesPerSecond: undefined,
+        checkedAt: Date.now(),
+      });
+      return;
+    }
+
+    staged = result.staged;
+    console.log(`[updater] self-install staged ${version} at ${staged.stagedAppPath}`);
+    patchState({
+      phase: 'downloaded',
+      newVersion: version,
+      percent: 100,
+      bytesPerSecond: undefined,
+      error: undefined,
+      errorCode: undefined,
+    });
+  } finally {
+    preparing = false;
+  }
+}
+
 /**
  * autoUpdater 이벤트 → UpdateState 정규화 + 주기 체크 타이머 기동.
  * app.whenReady 이후(윈도우 생성 후 근처)에서 1회 호출. 비패키지 경로면 즉시 반환.
@@ -91,20 +167,20 @@ export function initAutoUpdater(): void {
   if (initialized) return;
   initialized = true;
 
-  const notifyOnly = delivery === 'notify-only';
-  if (notifyOnly) {
+  const selfInstall = delivery === 'self-install';
+  if (selfInstall) {
     console.log(
-      '[updater] notify-only mode (unsigned macOS) — new versions are announced but not ' +
-        'downloaded. Squirrel.Mac requires a code signature to apply updates; the button ' +
-        'opens the releases page instead.',
+      '[updater] self-install mode (unsigned macOS) — we download and swap the bundle ' +
+        'ourselves. Squirrel.Mac is not used, so its mandatory signature check never runs, ' +
+        'and files we download carry no com.apple.quarantine attribute.',
     );
   }
 
-  // auto-install: 새 버전 발견 즉시 백그라운드 다운로드 + 종료 시 자동 적용(종전 동작).
-  // notify-only : 둘 다 끈다 — 어차피 적용이 거부되므로 받아봐야 헛수고이고, 종료 시
-  //               자동 설치를 켜두면 매 종료마다 실패를 반복한다.
-  autoUpdater.autoDownload = !notifyOnly;
-  autoUpdater.autoInstallOnAppQuit = !notifyOnly;
+  // auto-install: 새 버전 발견 즉시 electron-updater 가 받고 종료 시 적용(종전 동작).
+  // self-install: **둘 다 끈다** — Squirrel 이 받아 봐야 적용 단계에서 거부되고, 종료 시
+  //               자동 설치를 켜 두면 매 종료마다 그 실패를 반복한다. 받는 일은 우리가 한다.
+  autoUpdater.autoDownload = !selfInstall;
+  autoUpdater.autoInstallOnAppQuit = !selfInstall;
 
   autoUpdater.on('checking-for-update', () => {
     patchState({ phase: 'checking', error: undefined });
@@ -115,7 +191,10 @@ export function initAutoUpdater(): void {
       newVersion: info.version,
       releaseNotes: typeof info.releaseNotes === 'string' ? info.releaseNotes : undefined,
       error: undefined,
+      errorCode: undefined,
     });
+    // self-install 은 여기서부터 우리 경로다 — electron-updater 는 "새 버전이 있다"까지만 한다.
+    if (selfInstall) void beginSelfInstall(info.version);
   });
   autoUpdater.on('update-not-available', () => {
     patchState({ phase: 'up-to-date', newVersion: undefined, checkedAt: Date.now(), error: undefined });
@@ -138,8 +217,9 @@ export function initAutoUpdater(): void {
   });
 
   // 첫 체크는 윈도우가 뜬 직후(~10s)에 1회 — 부팅 직후 새 버전을 빨리 알린다.
-  // 이후 UPDATE_CHECK_INTERVAL_MS 주기로 반복 체크. notify-only 도 체크는 그대로 한다
-  // (알리는 것이 이 모드의 전부이므로 체크를 끄면 아무것도 남지 않는다).
+  // 이후 UPDATE_CHECK_INTERVAL_MS 주기로 반복 체크. self-install 도 체크 경로는 **같다** —
+  // 갈리는 것은 `update-available` 이후(누가 받는가)뿐이고, 주기 체크가 같은 버전을 다시
+  // 물어와도 `beginSelfInstall` 의 `preparing`·`staged.version` 가 재다운로드를 막는다.
   initialTimer = setTimeout(() => {
     void checkForUpdates();
   }, 10_000);
@@ -194,6 +274,23 @@ export function isUpdateInstallPending(): boolean {
 export function runPendingUpdateInstall(): boolean {
   if (!installPending) return false;
   installPending = false;
+
+  // self-install — Squirrel 대신 우리 교체 셸을 띄운다. 구조는 Windows 와 같다:
+  // 여기서 **분리된 자식만 띄우고** 우리는 곧장 사라진다. 자식이 우리 pid 의 소멸을 기다렸다가
+  // 번들을 바꾼다(살아 있는 자기 자신을 덮어쓰지 않기 위해).
+  if (delivery === 'self-install') {
+    if (!staged) return false;
+    const ok = runSwap(staged, process.pid);
+    console.log(
+      ok
+        ? `[updater] self-install swap spawned for ${staged.version}`
+        : '[updater] self-install swap spawn failed',
+    );
+    if (!ok) recordDiagnostic('main', 'warn', 'self-install: swap spawn failed');
+    staged = null;
+    return ok;
+  }
+
   try {
     // isSilent=true — 마법사 없이 무인 설치(oneClick 인스톨러와 짝). isForceRunAfter=true — 설치 후 앱 재기동.
     autoUpdater.quitAndInstall(true, true);
@@ -213,26 +310,28 @@ export function runPendingUpdateInstall(): boolean {
  *
  * - `auto-install` : 다운로드 완료 상태에서만 설치를 예약하고 종료를 건다(설치기 발사는
  *                    정리 후 `runPendingUpdateInstall`). 그 외에는 no-op.
- * - `notify-only`  : 설치할 수 없으므로 **릴리스 페이지를 기본 브라우저로 연다.**
- *                    새 버전을 아직 못 찾았으면(=알릴 게 없으면) 아무것도 하지 않는다.
+ * - `self-install` : 우리가 꺼내 둔 번들이 있을 때만 같은 방식으로 예약한다(교체는 정리 후).
+ *                    준비가 실패해 `phase:'error'` 인 상태에서는 **릴리스 페이지를 연다** —
+ *                    전달 방식이 아니라 막혔을 때의 **복구 손잡이**다.
  *
  * 반환값은 "액션을 실제로 수행했는가" — 채널 계약(boolean)은 종전과 같다.
  */
 export function quitAndInstall(): boolean {
   if (!app.isPackaged) return false;
 
-  if (delivery === 'notify-only') {
-    if (state.phase !== 'available') return false;
+  // self-install 이 막힌 상태에서 누른 것 — 손으로 받을 길이라도 열어 준다.
+  if (delivery === 'self-install' && state.phase === 'error') {
     const url = releasesPageUrl(state.newVersion);
-    void shell.openExternal(url).catch((err: unknown) => {
-      const message = err instanceof Error ? err.message : String(err);
-      console.warn('[updater] openExternal failed:', message);
-      recordDiagnostic('main', 'warn', `auto-update: open releases page failed: ${message}`);
+    // §3.7 — 열기가 실패하면 화면에도 안내가 뜬다(종전에는 로그에만 남아 버튼이 죽은 것처럼 보였다).
+    // 누른 창을 특정할 수 없는 자리라 sender 를 주지 않는다 → 전 창 broadcast.
+    openExternalWithNotice(url, null, ({ reason }) => {
+      recordDiagnostic('main', 'warn', `auto-update: open releases page failed (${reason}): ${url}`);
     });
     return true;
   }
 
   if (state.phase !== 'downloaded') return false;
+  if (delivery === 'self-install' && !staged) return false;
   installPending = true;
   // 평소 닫기와 **같은** 정리 경로를 탄다(체크포인트 flush·자식 회수). 설치기는 그 끝에서 뜬다.
   app.quit();

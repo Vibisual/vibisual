@@ -1,6 +1,11 @@
 import { memo, useCallback, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { BubbleData } from '@vibisual/shared';
+import type {
+  BubbleData,
+  QueuedCommand,
+  RunningSubagentTask,
+  SubAgent,
+} from '@vibisual/shared';
 import { BUBBLE_COLORS } from '@vibisual/shared';
 import {
   useGraphStore,
@@ -16,6 +21,8 @@ import { AgentConfigPopup } from '../Panel/AgentConfigPopup.js';
 import type { IDEDockSide } from '../IDE/ideDockLayout.js';
 import { useViewportSize } from '../IDE/useIDEDockLayout.js';
 import { shortcutLabel } from '../../utils/platform.js';
+import { SESSION_STATUS_DOT, SESSION_STATUS_LABEL_KEY } from '../../utils/sessionStatus.js';
+import { resolveAgentRunSummary, type AgentRunSummary } from './headerAgentCounts.js';
 
 // §5.5 #17-1 (판올림 번호 발급 대기) — **도크가 화면을 채워도 늘 닿는 자리**.
 //
@@ -35,6 +42,11 @@ import { shortcutLabel } from '../../utils/platform.js';
 const EMPTY_AGENTS: BubbleData[] = [];
 const EMPTY_PANES: IDEOverlayState[] = [];
 const EMPTY_NODE_MAP: Record<string, BubbleData> = {};
+// 실행 상태 재료 — 메뉴가 닫혀 있는 동안에는 이 빈 것들을 구독해 스냅샷마다 다시 그리지 않는다.
+const EMPTY_SUBS: Record<string, SubAgent[]> = {};
+const EMPTY_COMMANDS: Record<string, QueuedCommand[]> = {};
+const EMPTY_TASKS: Record<string, RunningSubagentTask[]> = {};
+const EMPTY_ACK: Record<string, true> = {};
 
 /**
  * 배지 색 신호 — 좌측 dot 한 점이 전담하고 글자는 항상 같은 중성 톤(§3.7 v2.15 규약 그대로,
@@ -72,6 +84,11 @@ interface IDEWindowsMenuProps {
 interface WindowRow {
   agent: BubbleData;
   pane: IDEOverlayState | null;
+  /**
+   * 이 에이전트가 **지금 도는가** — 배지와 같은 산식(`resolveAgentRunSummary`).
+   * 창 유무와는 다른 축이다: 창이 없어도 도는 에이전트가 있고, 창만 띄워 둔 채 조용한 것도 있다.
+   */
+  run: AgentRunSummary;
 }
 
 function sideLabelKey(side: IDEDockSide): string {
@@ -159,6 +176,12 @@ export const IDEWindowsMenu = memo(function IDEWindowsMenu({
   const activeProject = useGraphStore((s) => s.activeProject);
   const ideOverlays = useGraphStore((s) => s.ideOverlays);
   const agentConfigs = useGraphStore((s) => s.agentConfigs);
+  // 실행 상태 재료 — 열려 있을 때만 진짜를 구독한다. 전부 스토어 필드라 참조가 안정적이다
+  //   (여기서 배열·객체를 새로 만들어 고르면 zustand v5 가 매 커밋 "또 바뀌었다"로 읽는다).
+  const subAgents = useGraphStore((s) => (open ? s.subAgents : EMPTY_SUBS));
+  const queuedCommands = useGraphStore((s) => (open ? s.queuedCommands : EMPTY_COMMANDS));
+  const runningSubagentTasks = useGraphStore((s) => (open ? s.runningSubagentTasks : EMPTY_TASKS));
+  const acknowledgedSubAgents = useGraphStore((s) => (open ? s.acknowledgedSubAgents : EMPTY_ACK));
 
   // 배지 숫자는 늘 필요하다 — 원시값이라 싸다. **실제로 그려지는 창**만 앞 숫자로 센다
   //   (접힌 창·버블이 사라진 유령 창까지 세면 화면에 없는 것이 숫자로만 남아 헷갈린다).
@@ -186,11 +209,30 @@ export const IDEWindowsMenu = memo(function IDEWindowsMenu({
     const panes = selectProjectIDEPanes({ ideOverlays, activeProject });
     const paneByAgent = new Map<string, IDEOverlayState>();
     for (const p of panes) if (p.agentId) paneByAgent.set(p.agentId, p);
+    const runSrc = {
+      subAgents,
+      queuedCommands,
+      runningSubagentTasks,
+      acknowledged: acknowledgedSubAgents,
+    };
     const list = selectCanvasAgentBubbles({ agents, agentProjects, currentFolderId, worktreeProjects, activeProject })
-      .map<WindowRow>((agent) => ({ agent, pane: paneByAgent.get(agent.id) ?? null }));
+      .map<WindowRow>((agent) => ({
+        agent,
+        pane: paneByAgent.get(agent.id) ?? null,
+        run: resolveAgentRunSummary(agent, runSrc),
+      }));
     // 창이 있는 것부터(맨 앞 창이 위) — 지금 보고 있는 것이 목록에서도 위에 있어야 한다.
-    return list.sort((a, b) => (b.pane?.z ?? -1) - (a.pane?.z ?? -1));
-  }, [open, agents, agentProjects, currentFolderId, worktreeProjects, activeProject, ideOverlays]);
+    // 창이 없는 것들 사이에서는 **도는 것이 먼저**다 — 에이전트가 열댓 개면 도는 줄이 목록
+    //   한참 아래에 묻혀, 배지가 "4개 실행 중"이라고 말해도 그 넷을 찾을 수 없다.
+    return list.sort((a, b) => {
+      const byPane = (b.pane?.z ?? -1) - (a.pane?.z ?? -1);
+      if (byPane !== 0) return byPane;
+      return (b.run.running > 0 ? 1 : 0) - (a.run.running > 0 ? 1 : 0);
+    });
+  }, [
+    open, agents, agentProjects, currentFolderId, worktreeProjects, activeProject, ideOverlays,
+    subAgents, queuedCommands, runningSubagentTasks, acknowledgedSubAgents,
+  ]);
 
   // 슬롯은 살아 있는데 버블이 사라진 창 — 화면에는 아무것도 안 뜨는데 슬롯만 남아, 종전에는
   //   목록에도 안 나와 **닫을 방법이 없었다**(배지 숫자만 올랐다). 여기서 직접 닫게 한다.
@@ -304,7 +346,7 @@ export const IDEWindowsMenu = memo(function IDEWindowsMenu({
           {rows.length === 0 && (
             <div className="px-2 py-2 text-[12px] text-gray-500">{t('header.ideWindows.empty')}</div>
           )}
-          {rows.map(({ agent, pane }) => (
+          {rows.map(({ agent, pane, run }) => (
             <div
               key={agent.id}
               className="group flex items-center gap-1 rounded px-1 transition-colors hover:bg-white/[0.06]"
@@ -312,15 +354,24 @@ export const IDEWindowsMenu = memo(function IDEWindowsMenu({
               <button
                 type="button"
                 onClick={() => openWindow(agent.id)}
-                title={pane ? t('header.ideWindows.bringToFront') : t('header.ideWindows.openNew')}
+                title={`${t(SESSION_STATUS_LABEL_KEY[run.state])} · ${
+                  pane ? t('header.ideWindows.bringToFront') : t('header.ideWindows.openNew')
+                }`}
                 className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pl-1 text-left"
               >
-                <span
-                  className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${
-                    pane ? (pane.collapsed ? 'bg-gray-500' : 'bg-blue-400') : 'bg-gray-700'
-                  }`}
-                />
+                {/* 도트는 **실행 상태**다 — 세션 탭·사이드바와 같은 표(`SESSION_STATUS_DOT`)를 쓴다.
+                    종전에는 이 자리가 "창이 떠 있는가"를 세션 도트와 같은 파랑으로 그려, 도는 중인데
+                    창이 없는 에이전트는 불이 꺼진 것으로 보였다. 창 유무는 오른쪽 상태 낱말
+                    (`stateLabel`)과 접기/닫기 손잡이가 이미 말한다. */}
+                <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${SESSION_STATUS_DOT[run.state]}`} />
                 <span className="min-w-0 flex-1 truncate text-[12px] text-gray-200">{agent.label}</span>
+                {/* 도는 세션 수 — 배지의 분자를 이 줄로 쪼갠 것이다(합이 배지와 같아야 한다).
+                    조용한 줄에는 그리지 않는다(폭도 시선도 도는 줄에 쓴다). */}
+                {run.running > 0 && (
+                  <span className="flex-shrink-0 text-[12px] font-medium tabular-nums text-blue-300">
+                    {run.running}/{run.sessions}
+                  </span>
+                )}
                 {pane && (
                   <span className="flex-shrink-0 text-[12px] text-gray-500">{stateLabel(pane)}</span>
                 )}

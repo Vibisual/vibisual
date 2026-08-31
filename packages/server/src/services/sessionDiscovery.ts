@@ -11,7 +11,7 @@ import {
 import { modelRegistryService } from './modelRegistryService.js';
 import type { AgentEvent, TodoItem, TurnTokenUsage, TokenCategoryEstimate, SessionTokenData } from '@vibisual/shared';
 import { logger } from '../logger.js';
-import { dbg } from './debugLog.js';
+import { dbgOnChange } from './debugLog.js';
 import { getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
 import { scanFileLines, scanWholeFileLines } from './jsonlChunkReader.js';
 import { registerEvictableCache } from './memoryMonitor.js';
@@ -218,19 +218,41 @@ export function scanSessionLiveness(): SessionLiveness[] {
  * 살아있는(=Hook 에이전트 버블로 노출 가능한) 세션 ID 집합.
  * 훅 에이전트 버블 lifecycle 판정 소스(마스터) — `scanSessionLiveness` 의 얇은 래퍼.
  */
-let lastAliveDiagKey = '';
 export function readAliveSessionIds(): Set<string> {
   const scan = scanSessionLiveness();
   const result = new Set<string>();
   for (const s of scan) {
     if (s.live) result.add(s.sessionId);
   }
-  const curKey = JSON.stringify(scan);
-  if (curKey !== lastAliveDiagKey) {
-    lastAliveDiagKey = curKey;
-    dbg('readAliveSessionIds.diff', scan);
-  }
+  // 찍을지 말지는 **버블이 될 수 있는 세션**만 보고 정한다(`aliveDiagSignature`).
+  // 찍기로 했으면 그 순간의 전체 그림이 필요하므로 scan 은 통째로 남긴다.
+  dbgOnChange(ALIVE_DIAG_KEY, aliveDiagSignature(scan), 'readAliveSessionIds.diff', scan);
   return result;
+}
+
+/** `dbgOnChange` 키 — 이 호출부는 하나뿐이라 고정 문자열. */
+const ALIVE_DIAG_KEY = 'readAliveSessionIds';
+
+/**
+ * 진단 로그를 남길지 가르는 지문 — **훅 에이전트 버블 후보의 상태**만 담는다.
+ *
+ * 종전엔 `JSON.stringify(scan)` 전체가 지문이었는데, `~/.claude/sessions/` 에는 몇 초 살다
+ * 사라지는 CLI 세션(리플렉션·훅 워커 등)이 끊임없이 들락거린다. 그것들은 `entrypoint!=='vscode'`
+ * 라 **애초에 버블이 될 수 없는데도** 목록에 들고 나는 것만으로 지문을 바꿔, "변화 지점만
+ * 남긴다"는 규약을 무력화했다(실측 2026-08-31: 2초마다 약 2.5KB 전량 덤프 — 최근 2,000줄 중
+ * 344줄이 이 태그 하나였고 로그가 3일 만에 2MB 회전 상한에 닿았다. 정작 봐야 할 `removeAgent`·
+ * `pollOnce.remove` 가 그 홍수에 묻힌다).
+ *
+ * 그래서 지문은 vscode 진입점 세션의 `sessionId:판정` 만 정렬해 담는다 — 버블이 생기거나
+ * 사라지거나 탈락 사유가 바뀌면 그대로 잡히고, 나머지 잡음에는 침묵한다. CLI 세션의 개수조차
+ * 넣지 않는다(그 개수야말로 매 폴링 흔들리는 값이다).
+ */
+export function aliveDiagSignature(scan: SessionLiveness[]): string {
+  return scan
+    .filter((s) => s.entrypoint === 'vscode')
+    .map((s) => `${s.sessionId}:${s.live ? 'ok' : s.reason}`)
+    .sort()
+    .join('|');
 }
 
 /**

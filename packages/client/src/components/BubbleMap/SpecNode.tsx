@@ -7,6 +7,7 @@ import type { SpecItem } from '@vibisual/shared';
 
 import { useGraphStore } from '../../stores/graphStore.js';
 import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
+import { isInteractiveTarget, useBubbleSelectGesture } from './bubbleSelectGesture.js';
 
 /**
  * §5.15 — 스펙 표지 버블.
@@ -73,7 +74,12 @@ export const SpecNode = memo(function SpecNode({
   const menuRef = useRef<HTMLDivElement>(null);
   const [busy, setBusy] = useState(false);
 
-  const isSelected = selected === true || selectedSpecDocId === data.specDocId;
+  // 선택 링은 `selectIntentId`(캔버스가 나눠 쓰는 "지금 고른 것 한 칸")도 함께 본다 —
+  // 더블클릭 지연(`bubbleSelectGesture`) 동안 눈에 보이는 반응을 내는 것이 그 칸이다.
+  const selectIntentId = useGraphStore((s) => s.selectIntentId);
+  const isSelected = selected === true
+    || selectedSpecDocId === data.specDocId
+    || selectIntentId === data.specDocId;
   const isPinned = data.preservePinned === true;
 
   // 바깥 press 로 닫기(공통 규약 — capture 단계에서 React Flow 선점 전에 처리).
@@ -107,27 +113,31 @@ export const SpecNode = memo(function SpecNode({
   }, [data.items, data.bodyRevision]);
 
   /**
-   * 선택 — 플레이·앱 버블과 같은 규칙, 같은 함정.
-   * 드래그 래퍼의 `d3-drag` 가 mousedown 에서 전파를 끊으므로 캡처 단계로 받는다.
+   * 선택·더블클릭 — 에이전트(IDE) 버블과 **같은 상태기계 한 벌**(`bubbleSelectGesture`).
+   * 드래그 래퍼의 `d3-drag` 가 누름의 전파를 끊는 함정도 그 안에서 함께 다룬다.
    */
-  const handleSelect = useCallback((e: React.PointerEvent): void => {
-    if (e.button !== 0) return;
-    if ((e.target as HTMLElement | null)?.closest?.('button')) return;
-    selectSpecDoc(data.specDocId);
-  }, [selectSpecDoc, data.specDocId]);
+  const gesture = useBubbleSelectGesture({
+    doubleClickable: true,
+    select: () => selectSpecDoc(data.specDocId),
+    setIntent: (active) => {
+      useGraphStore.getState().setSelectIntent(active ? data.specDocId : null);
+    },
+    ignore: (e) => isInteractiveTarget(e.target),
+  });
 
   const handleContextMenu = useCallback((e: React.MouseEvent): void => {
     e.preventDefault();
     e.stopPropagation();
-    selectSpecDoc(data.specDocId);
+    gesture.selectNow();
     setMenu({ x: e.clientX, y: e.clientY });
-  }, [selectSpecDoc, data.specDocId]);
+  }, [gesture]);
 
+  // 더블클릭 = 스펙 보드 열기. **선택은 하지 않는다**(보드는 id 를 직접 받는다).
   const handleOpen = useCallback((e: React.MouseEvent): void => {
     e.stopPropagation();
-    selectSpecDoc(data.specDocId);
+    gesture.cancelPendingSelect();
     openSpecBoard(data.specDocId);
-  }, [openSpecBoard, selectSpecDoc, data.specDocId]);
+  }, [gesture, openSpecBoard, data.specDocId]);
 
   const rename = useCallback((): void => {
     setMenu(null);
@@ -227,7 +237,7 @@ export const SpecNode = memo(function SpecNode({
   return (
     <>
       <div
-        onPointerDownCapture={handleSelect}
+        {...gesture.handlers}
         onContextMenu={handleContextMenu}
         onDoubleClick={handleOpen}
         title={title}

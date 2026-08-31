@@ -6,3 +6,4 @@
 
 export * from './registry.js';
 export * from './appHash.js';
+export * from './appWindows.js';

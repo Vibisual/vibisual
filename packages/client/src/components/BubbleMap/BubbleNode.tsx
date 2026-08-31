@@ -11,6 +11,9 @@ import { PluginBubbleBadgeSlot } from '../../plugins/host.js';
 import { localProviderOf, localModelLabelOf } from '../LocalModel/localModelEntry.js';
 // §2.4 버블 타이포 오토핏 — 하단 블록 예약·요약·현(chord) 폭 계산은 전부 이 순수 모듈이 한다.
 import { planBubbleText, BUBBLE_LINE_HEIGHT, type BubbleBottomLine, type BubbleCenterExtra } from './bubbleTextFit.js';
+// 클릭=선택 / 더블클릭=열기 를 가르는 상태기계는 캔버스 **공용 한 벌**이다 — 이 버블이 그 기준이고,
+// 앱·캡처·스펙·랩·선반·플레이·메모 버블이 같은 것을 쓴다(따로 두면 손버릇이 갈린다).
+import { SELECT_DEFER_MS, useBubbleSelectGesture } from './bubbleSelectGesture.js';
 
 type BubbleNodeData = BubbleData & Record<string, unknown>;
 
@@ -220,14 +223,6 @@ const BORDER_HIT_MIN = 5;
 const BORDER_HIT_MAX = 20;
 /** 테두리 하이라이트 반응까지 머물러야 하는 시간 (ms) — 스쳐 지나갈 때 깜빡임 방지 */
 const BORDER_HOVER_DELAY_MS = 300;
-/**
- * 더블클릭 가능한 버블(폴더/에이전트/iframe/conti/pipeline/위성/nav)은
- * 단일선택(=DetailPanel 열림)을 이만큼 늦춰 더블클릭 의도를 먼저 확인한다.
- * 이 창 안에 두 번째 클릭이 오면 단일선택을 취소하고 더블클릭 동작만 수행 → 패널 깜빡임 제거.
- */
-const SELECT_DEFER_MS = 240;
-/** 이 픽셀 이상 움직이면 클릭이 아니라 드래그 — 선택/DetailPanel 이벤트로 새지 않음 */
-const DRAG_MOVE_THRESHOLD_PX = 5;
 /** 선택 하이라이트 퇴장 페이드 길이 (ms) — 언마운트 타이밍도 이 값 */
 const SELECT_FADE_MS = 240;
 /** 등장 페이드는 ~30% 빠르게 (반응성) */
@@ -534,27 +529,10 @@ export const BubbleNode = memo(function BubbleNode({
     return () => clearTimeout(t);
   }, []);
 
-  // 단일선택 지연 타이머 — 더블클릭 가능한 버블에서 첫 클릭의 selectNode 를 보류.
-  const pendingSelectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const cancelPendingSelect = useCallback(() => {
-    if (pendingSelectRef.current) {
-      clearTimeout(pendingSelectRef.current);
-      pendingSelectRef.current = null;
-    }
-  }, []);
-  useEffect(() => () => cancelPendingSelect(), [cancelPendingSelect]);
-
-  // 더블클릭 — 열림 애니메이션 (선택과 분리된 순수 시각 효과)
+  // 더블클릭 — 열림 애니메이션 (선택과 분리된 순수 시각 효과).
+  // 핸들러 자체는 선택 제스처(`gesture`)가 만들어진 뒤에 정의된다 — 아래 `handleDoubleClick`.
   const [opening, setOpening] = useState(false);
   const openTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const handleDoubleClick = useCallback(() => {
-    // 더블클릭 확정 → 보류 단일선택 취소 + 1타에서 떴던 하이라이트 즉시 해제.
-    cancelPendingSelect();
-    useGraphStore.getState().setSelectIntent(null);
-    if (openTimer.current) clearTimeout(openTimer.current);
-    setOpening(true);
-    openTimer.current = setTimeout(() => { setOpening(false); openTimer.current = null; }, 500);
-  }, [cancelPendingSelect]);
 
   // 에이전트 테두리 근접 감지 — 마우스가 테두리 근처면 두꺼워짐
   const [nearBorder, setNearBorder] = useState(false);
@@ -639,72 +617,54 @@ export const BubbleNode = memo(function BubbleNode({
     }
   }, [data.id, data.bubbleType, data.status]);
 
-  // press 추적 — 눌렀다 "움직임 없이" 뗐을 때만 클릭(=선택)으로 인정.
-  // 임계 초과 이동 = 드래그 → 선택/DetailPanel 이벤트로 새지 않음.
-  const pressRef = useRef<{ x: number; y: number; moved: boolean } | null>(null);
+  /**
+   * 선택 제스처 — 캔버스 공용 상태기계 한 벌(`bubbleSelectGesture`).
+   *
+   * 이 버블이 그 규칙의 기준이다: 움직임 없이 뗐을 때만 클릭(=선택)으로 인정하고, 더블클릭
+   * 동작이 있는 버블이면 실제 선택을 {@link SELECT_DEFER_MS} 만큼 미뤄 2타를 먼저 확인한다.
+   * 링(`selectIntentId`)은 미루지 않는다 — 손끝 반응과 패널 열림은 별개다.
+   *
+   * `ignore` 가 맡는 두 갈래는 이 버블에만 있는 것이다.
+   *  - **커스텀 에이전트 테두리 누름** → 선택이 아니라 Task Edge 연결 드래그(노드 이동도 막는다).
+   *  - **Back 버블** → 네비게이션 전용이라 선택 대상이 아니다.
+   *
+   * `leftButtonOnly:false` 인 이유: 이 버블은 우클릭도 "그 버블을 골랐다"로 쳐 왔다(메뉴가 뜬
+   * 대상이 화면에 보여야 한다). 정리하면서 그 손버릇을 바꾸지 않는다.
+   */
+  const gesture = useBubbleSelectGesture({
+    doubleClickable: isDoubleClickable,
+    leftButtonOnly: false,
+    select: performSelect,
+    setIntent: (active) => {
+      const store = useGraphStore.getState();
+      if (!active) { store.setSelectIntent(null); return; }
+      // selectNode/setSelectIntent 는 'sat-' 프리픽스를 떼고 저장 → 링 비교 규칙과 같은 모양으로.
+      const intentId = data.id === '__root_home__'
+        ? store.currentFolderId
+        : (data.id.startsWith('sat-') ? data.id.slice(4) : data.id);
+      store.setSelectIntent(intentId);
+    },
+    ignore: (e) => {
+      // 커스텀 에이전트 테두리 클릭 → 연결 모드 진입 (노드 이동 차단).
+      // Hook 에이전트/파이프라인/서브에이전트는 Task Edge 소스가 될 수 없다.
+      if (isAgent && data.customCreated && !overlayMode && isOnBorder(e)) {
+        e.stopPropagation?.();
+        e.preventDefault?.();
+        startTaskEdgeDrag(data.id, e.clientX, e.clientY);
+        return true;
+      }
+      // Back 버블은 네비게이션 전용 — 선택 불가 (폴더 back + §5.10 기억 내부 back)
+      return data.id === '__root_back__' || data.id === '__interior_back__';
+    },
+  });
 
-  // pointerdown: 테두리 클릭 → 연결 드래그. 그 외엔 press 시작만 기록(선택은 up 에서).
-  const handlePointerDown = useCallback((e: React.PointerEvent) => {
-    // 커스텀 에이전트 테두리 클릭 → 연결 모드 진입 (노드 이동 차단).
-    // Hook 에이전트/파이프라인/서브에이전트는 Task Edge 소스가 될 수 없다.
-    if (isAgent && data.customCreated && !overlayMode && isOnBorder(e)) {
-      e.stopPropagation();
-      e.preventDefault();
-      startTaskEdgeDrag(data.id, e.clientX, e.clientY);
-      pressRef.current = null;
-      return;
-    }
-
-    // Back 버블은 네비게이션 전용 — 선택 불가 (폴더 back + §5.10 기억 내부 back)
-    if (data.id === '__root_back__' || data.id === '__interior_back__') { pressRef.current = null; return; }
-
-    // 더블클릭 가능 버블에서 보류 중 단일선택이 있는데 다시 눌렀다 = 더블클릭 의도.
-    // 보류 취소 + 이번 press 는 선택으로 잇지 않도록 moved 로 마킹.
-    if (pendingSelectRef.current) {
-      cancelPendingSelect();
-      useGraphStore.getState().setSelectIntent(null);
-      pressRef.current = { x: e.clientX, y: e.clientY, moved: true };
-      return;
-    }
-
-    pressRef.current = { x: e.clientX, y: e.clientY, moved: false };
-  }, [data.id, data.customCreated, isAgent, isOnBorder, startTaskEdgeDrag, cancelPendingSelect]);
-
-  // 임계 초과 이동 → 드래그로 확정. 이후 up 에서 선택 안 함.
-  const handlePointerMove = useCallback((e: React.PointerEvent) => {
-    const p = pressRef.current;
-    if (!p || p.moved) return;
-    if (Math.hypot(e.clientX - p.x, e.clientY - p.y) > DRAG_MOVE_THRESHOLD_PX) {
-      p.moved = true;
-      cancelPendingSelect();
-    }
-  }, [cancelPendingSelect]);
-
-  // pointerup: 움직임 없이 뗐을 때만 클릭 → 선택. 더블클릭 가능 버블은 지연 선택.
-  const handlePointerUp = useCallback(() => {
-    const p = pressRef.current;
-    pressRef.current = null;
-    if (!p || p.moved) return; // 드래그였거나 더블클릭 2타 → 선택 없음
-
-    // 링 의도를 즉시 갱신 — 이전 선택 링은 지연 없이 바로 페이드아웃, 이 버블은 바로 페이드인.
-    // (DetailPanel=selectedNodeId 는 performSelect 가 더블클릭 지연 후 갱신, 분리됨)
-    const store = useGraphStore.getState();
-    const intentId = data.id === '__root_home__'
-      ? store.currentFolderId
-      : (data.id.startsWith('sat-') ? data.id.slice(4) : data.id);
-    store.setSelectIntent(intentId);
-
-    if (!isDoubleClickable) { performSelect(); return; }
-    cancelPendingSelect();
-    pendingSelectRef.current = setTimeout(() => {
-      pendingSelectRef.current = null;
-      performSelect();
-    }, SELECT_DEFER_MS);
-  }, [data.id, isDoubleClickable, performSelect, cancelPendingSelect]);
-
-  const handlePointerCancel = useCallback(() => {
-    pressRef.current = null;
-  }, []);
+  // 더블클릭 — 열림 애니메이션. 첫 줄에서 보류 단일선택 + 1타 하이라이트를 함께 접는다.
+  const handleDoubleClick = useCallback(() => {
+    gesture.cancelPendingSelect();
+    if (openTimer.current) clearTimeout(openTimer.current);
+    setOpening(true);
+    openTimer.current = setTimeout(() => { setOpening(false); openTimer.current = null; }, 500);
+  }, [gesture]);
 
   // §5.10 — 우측 더블클릭 = 기억(머릿속) 내부 진입. 우클릭 1회는 브라우저 메뉴만 억제하고 통과,
   //   350ms 내 2번째 우클릭이면 내부 진입. 좌클릭 SELECT_DEFER_MS 상태기계는 건드리지 않는다.
@@ -718,7 +678,8 @@ export const BubbleNode = memo(function BubbleNode({
     if (now - lastRightClickRef.current <= RIGHT_DBLCLICK_MS) {
       lastRightClickRef.current = 0;
       e.stopPropagation();
-      cancelPendingSelect();
+      // 보류 중 단일선택 + 1타에서 떴던 링을 함께 접는다(좌더블클릭과 같은 처리).
+      gesture.cancelPendingSelect();
       const store = useGraphStore.getState();
       store.setSelectIntent(null);
       // §5.10 v3.49 — 좌더블클릭=IDE(작업) / 우더블클릭=기억(머릿속) 대칭.
@@ -728,7 +689,7 @@ export const BubbleNode = memo(function BubbleNode({
       return;
     }
     lastRightClickRef.current = now;
-  }, [data, cancelPendingSelect]);
+  }, [data, gesture]);
 
   // 모든 버블은 원형 (size = 지름)
   const bubbleWidth = size;
@@ -748,7 +709,21 @@ export const BubbleNode = memo(function BubbleNode({
   const brainSweepBox = size + BRAIN_SWEEP_MARGIN * 2;
   // 배지는 어떤 배율에서도 두 자리 숫자가 읽히도록 하한을 둔다(종전 14px·7px 은 판독 불가였다).
   const brainBadgeSize = Math.max(18, Math.round(21 * ts));
-  const brainBadgeFont = Math.max(10, Math.round(12 * ts));
+  const brainBadgeFont = Math.max(11, Math.round(13 * ts));
+  /**
+   * §5.10 — 배지를 **원의 45° 림 위**에 앉히는 오프셋.
+   * 종전 `top/left: -1` 은 감싸는 사각형의 모서리 기준이라, 원형 버블에서는 배지가 림에서
+   * 떨어져 허공에 뜬 것처럼 보였다(127px 실측 약 6px). 배지 중심을 `r·cos45°` 지점에 두면
+   * 림에 반쯤 걸쳐 버블에 붙은 표식으로 읽힌다.
+   */
+  const brainBadgeInset = Math.max(0, Math.round((size / 2) * (1 - Math.SQRT1_2) - brainBadgeSize / 2));
+  /**
+   * §5.10 — 메모리 버블 중앙 열은 **카드 수 하나**다(이름은 아래 하단 블록이 맡는다).
+   * 예약(`centerExtras`)과 실제 렌더가 같은 값을 써야 숫자가 잘리지 않으므로 여기서 한 번만 센다.
+   */
+  const brainCountFont = Math.max(20, Math.round(34 * ts));
+  /** §5.10 — 메모리 버블 이름 줄(하단 블록). §9 한글 가독 하한 12px 아래로 내려가지 않는다. */
+  const brainLabelFont = Math.max(12, Math.round(12 * ts));
 
   // 테두리 두께: 기본 2px → 근접 시 4px, 연결 타겟 시 4px + 색상 변경
   const borderWidth = nearBorder || isConnectTarget ? 4 : 2;
@@ -784,6 +759,20 @@ export const BubbleNode = memo(function BubbleNode({
   const bottomLines = useMemo<BubbleBottomLine[]>(() => {
     const px = (n: number, floor: number) => Math.max(floor, Math.round(n * ts));
     const lines: BubbleBottomLine[] = [];
+    // §5.10 — 메모리 버블의 이름 줄. 규칙은 "중앙에 두는 것은 둘까지(쌓인 카드 실루엣 + 카드 수)"
+    //   이므로 이름은 중앙 열이 아니라 이 하단 블록이 맡는다. 중앙에 두던 종전 구현은 127px 원에서
+    //   11×ts = **9px 한글**로 렌더돼 획이 제 색에 도달하지 못했다(§9 실측 7.7%) — 색이 아니라
+    //   크기 문제라, 자리를 옮기면서 하한을 12px 로 못 박는다.
+    if (isBrainBubble) {
+      lines.push({
+        key: 'brainLabel',
+        text: data.label,
+        fontSize: brainLabelFont,
+        cls: 'font-medium tracking-wide text-white/80',
+        priority: 100,
+      });
+      return lines;
+    }
     // 에이전트: 모델명 + 컨텍스트 + 상태 + 토큰 합산.
     // 버블 본체에는 세션 라벨(서브에이전트 이름)을 표시하지 않는다 — 자동 주제명(첫 프롬프트)이
     // 긴 문장이라 작은 버블에 노이즈가 된다. 어느 세션 컨텍스트인지는 IDE 탭에서 확인.
@@ -894,19 +883,20 @@ export const BubbleNode = memo(function BubbleNode({
     effectiveContextMax, effectiveContextUsed, isDormant, isActive, isCreatingError,
     lineInputTokens, lineOutputTokens, localProvider, contextRatio, configModel, t,
     data.totalInputTokens, data.ownInputTokens, data.bubbleType, data.satelliteFileCount,
-    data.childCount, data.serverKind,
+    data.childCount, data.serverKind, isBrainBubble, brainLabelFont, data.label,
   ]);
 
   /** 중앙 열에 라벨·배지 말고 더 얹히는 줄 — 예약 계산에 함께 들어가야 라벨이 잘리지 않는다. */
   const centerExtras = useMemo<BubbleCenterExtra[]>(() => {
     const extras: BubbleCenterExtra[] = [];
     if (data.lastTool && isActive && size >= 55) extras.push({ fontSize: Math.max(6, Math.round(11 * ts)) });
-    // §5.10 — 메모리 버블의 카드 수 줄. 중앙 열에서 아이콘이 빠지고 이 숫자가 주인공이 됐으므로
-    //   예약도 그 크기(26*ts)로 잡는다 — 이 값이 실제 렌더 폰트와 어긋나면 라벨이 잘린다.
-    if (isBrainBubble) extras.push({ fontSize: Math.max(15, Math.round(26 * ts)) });
+    // §5.10 — 메모리 버블의 카드 수 줄. 중앙 열에 남은 유일한 요소이므로 예약도 이 숫자 하나다.
+    //   `leading-none` 으로 그리므로 행 높이 배수도 1 을 준다 — 기본값(1.5)으로 두면 실제보다
+    //   절반이 더 잡혀 오토핏이 공연히 사다리를 내려간다.
+    if (isBrainBubble) extras.push({ fontSize: brainCountFont, lineHeight: 1 });
     if (isTrashBubble && trashedCount > 0) extras.push({ fontSize: Math.max(6, Math.round(9 * ts)) });
     return extras;
-  }, [data.lastTool, isActive, size, ts, isBrainBubble, isTrashBubble, trashedCount]);
+  }, [data.lastTool, isActive, size, ts, isBrainBubble, brainCountFont, isTrashBubble, trashedCount]);
 
   /** 하단 블록 바닥 여백 — 폴더만 종전 값(8·ts)을 그대로 지킨다(보이던 자리를 옮기지 않는다). */
   const bottomOffset = isFolder ? Math.max(4, Math.round(8 * ts)) : Math.max(3, Math.round(6 * ts));
@@ -920,16 +910,19 @@ export const BubbleNode = memo(function BubbleNode({
     size,
     ts,
     borderWidth,
-    iconPx: Math.max(12, Math.round(32 * ts)),
-    label: data.label,
-    labelFontSize: Math.max(7, Math.round(13 * ts)),
+    // §5.10 — 메모리 버블의 아이콘은 중앙 열이 아니라 **배경 워터마크**이고, 이름도 하단 블록으로
+    //   내려갔다. 둘 다 0 으로 넘겨야 예약이 실제 렌더와 맞는다(종전에는 없는 아이콘 27px + 없는
+    //   라벨 한 줄이 유령으로 잡혀 오토핏이 사다리를 한 칸 더 내려갔다).
+    iconPx: isBrainBubble ? 0 : Math.max(12, Math.round(32 * ts)),
+    label: isBrainBubble ? '' : data.label,
+    labelFontSize: isBrainBubble ? 0 : Math.max(7, Math.round(13 * ts)),
     labelMaxLines: isAgent ? 2 : 1,
     labelWidthRatio: BUBBLE_TEXT_WIDTH_RATIO,
     badge: agentBadge ? { text: agentBadge.text, fontSize: Math.max(5, Math.round(8 * ts)) } : null,
     centerExtras,
     bottomLines,
     bottomOffset,
-  }), [size, ts, borderWidth, data.label, isAgent, agentBadge?.text, centerExtras, bottomLines, bottomOffset]);
+  }), [size, ts, borderWidth, data.label, isAgent, isBrainBubble, agentBadge?.text, centerExtras, bottomLines, bottomOffset]);
 
   return (
     <div
@@ -989,25 +982,31 @@ export const BubbleNode = memo(function BubbleNode({
       )}
 
       {/* §5.10 v3.82 — 검토 대기 배지(우상단, 앰버): 사용자가 확인해야 AI 에게 전달되는 카드 수.
-          Brain 에서 사람 손이 필요한 유일한 수라 가장 눈에 띄는 자리에 둔다. */}
+          Brain 에서 사람 손이 필요한 유일한 수라 가장 눈에 띄는 자리에 둔다.
+          자리는 사각 모서리가 아니라 **원의 45° 림 위**(`brainBadgeInset`). */}
       {isBrainBubble && brainReview > 0 && (
         <span
-          className="pointer-events-none absolute z-20 flex items-center justify-center rounded-full bg-amber-400 font-bold text-gray-950 ring-2 ring-gray-950"
-          style={{ top: -1, right: -1, minWidth: brainBadgeSize, height: brainBadgeSize, fontSize: brainBadgeFont, padding: '0 4px' }}
+          className="pointer-events-none absolute z-20 flex items-center justify-center rounded-full bg-amber-400 font-bold tabular-nums text-gray-950 ring-2 ring-gray-950"
+          style={{ top: brainBadgeInset, right: brainBadgeInset, minWidth: brainBadgeSize, height: brainBadgeSize, fontSize: brainBadgeFont, padding: '0 5px' }}
           title={t('brain.reviewBadge', { defaultValue: '검토 대기 {{n}}장', n: brainReview })}
         >
           {brainReview > 99 ? '99+' : brainReview}
         </span>
       )}
 
-      {/* §5.10 v3.82 — 새 기억 배지(좌상단, 인디고): 자동 저장돼 아직 사용자가 안 본 카드 수. */}
+      {/* §5.10 — 새 기억 배지(좌상단): 자동 저장돼 아직 사용자가 안 본 카드 수. 두 가지를 고쳤다.
+          ① **밝은 바탕 + 인디고 글자** — 인디고 본체 위의 인디고 배지(구 `bg-indigo-400`)는 대비가
+             서지 않아 배지인지 얼룩인지 구분되지 않았다.
+          ② **`+N` 표기** — 아직 아무것도 안 본 흔한 상태에서는 `unseenCount === cardCount` 라
+             중앙의 총합과 **같은 숫자**가 두 번 나온다(실측 32/32/2 — 원 하나에 숫자 셋).
+             `+` 를 붙이면 총합이 아니라 **증분**으로 읽혀 중복 인상이 사라진다. */}
       {isBrainBubble && brainUnseen > 0 && (
         <span
-          className="pointer-events-none absolute z-20 flex items-center justify-center rounded-full bg-indigo-400 font-bold text-gray-950 ring-2 ring-gray-950"
-          style={{ top: -1, left: -1, minWidth: brainBadgeSize, height: brainBadgeSize, fontSize: brainBadgeFont, padding: '0 4px' }}
+          className="pointer-events-none absolute z-20 flex items-center justify-center rounded-full bg-indigo-300 font-bold tabular-nums text-indigo-950 ring-2 ring-gray-950"
+          style={{ top: brainBadgeInset, left: brainBadgeInset, minWidth: brainBadgeSize, height: brainBadgeSize, fontSize: brainBadgeFont, padding: '0 5px' }}
           title={t('brain.unseenBadge', { defaultValue: '미확인 {{n}}장', n: brainUnseen })}
         >
-          {brainUnseen > 99 ? '99+' : brainUnseen}
+          {brainUnseen > 99 ? '99+' : `+${brainUnseen}`}
         </span>
       )}
 
@@ -1040,22 +1039,27 @@ export const BubbleNode = memo(function BubbleNode({
       {/* 바디 — 드래그 핸들 (원/네모 영역만 잡아끌기 가능) */}
       <div
         className={`bubble-body bubble-press absolute inset-0 flex flex-col items-center justify-center overflow-hidden rounded-full ${borderHighlight || ringClass} ${isDisappearing ? 'bubble-ghost' : ''} ${isTrashBubble && trashedCount === 0 ? 'opacity-50' : ''}`}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerCancel}
+        {...gesture.handlers}
         onDoubleClick={handleDoubleClick}
         onContextMenu={handleContextMenu}
         style={{
           borderWidth,
           borderStyle: 'solid',
+          // §5.10 — 메모리 버블 테두리는 **인라인**으로 준다. `style.ringIdle` 의 `border-*` 유틸리티는
+          //   `packages/shared` 에 문자열로만 있어 Tailwind 소스 스캔에 잡히지 않는다(실측: 빌드 CSS 에
+          //   `border-stone-400`·`border-indigo-*` 없음). 클래스가 없으면 `border-color` 가 `currentColor`
+          //   로 떨어져 **흰 링**이 그려졌다 — 스크린샷의 두꺼운 흰 테두리가 그것이었다.
+          //   연결 손짓 중(`nearBorder`/`isConnectTarget`)에는 비워 강조 클래스(클라 소스라 스캔됨)에 넘긴다.
+          borderColor: isBrainBubble && !nearBorder && !isConnectTarget ? `${style.color}99` : undefined,
           // §2.4 오토핏 — 하단 블록 높이만큼 바닥 예약. 값은 **그릴 줄에서 계산**한다(고정 3줄치 ❌).
           // justify-center 가 이 영역 위에서만 일어나 2줄 라벨이 길어져도 위로 밀려 겹치지 않음.
           // absolute 하단 블록은 padding box 기준이라 이 padding 에 안 밀리고 바닥 유지.
           paddingBottom: fit.paddingBottom || undefined,
           transition: 'border-width 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease',
-          // §5.10 v3.82 — Brain 만 원반이 아니라 구(orb)로: 위 그라디언트는 하이라이트→본색,
-          //   아래 그라디언트는 가장자리 비네트. 색은 전부 style 에서 파생하므로 §2.2 팔레트를 벗어나지 않는다.
+          // §5.10 — 메모리 버블은 **평면**이다. 구 orb(좌상단 하이라이트 그라디언트 + 가장자리 검은
+          //   비네트)는 광택 나는 구슬처럼 보여 걷어냈다(사용자 지적 — "볼록 튀어나온 구시대 디자인").
+          //   남은 것은 단색 틴트 하나뿐이라 원이 표면으로 읽히고, 무엇이 담겼는지는 색이 아니라
+          //   워터마크 아이콘·카드 수·이름이 말한다. 색은 여전히 style 파생(§2.2 팔레트).
           background: isCreatingError
             ? 'radial-gradient(circle at 35% 35%, #fca5a5, #ef4444)'
             : isAgent && contextRatio > 0
@@ -1064,15 +1068,10 @@ export const BubbleNode = memo(function BubbleNode({
                 // §2.4 v1.68/v1.69 — 모든 에이전트(커스텀+훅)는 컨텍스트 물결과 동일한 반투명 배경으로 시작
                 ? `radial-gradient(circle at 35% 35%, ${style.color}40, ${style.color}20)`
                 : isBrainBubble
-                  ? `radial-gradient(circle at 50% 50%, rgba(0,0,0,0) 44%, rgba(0,0,0,0.5) 100%), radial-gradient(circle at 33% 27%, ${style.glow} 0%, ${style.color} 50%, ${style.color}D9 100%)`
+                  ? `${style.color}66`
                   : isActive
                     ? `radial-gradient(circle at 35% 35%, ${style.glow}, ${style.color})`
                     : `radial-gradient(circle at 35% 35%, ${style.glow}90, ${style.color}CC)`,
-          // 구면감을 만드는 림라이트(위) + 바닥 그림자(아래). 테두리 하이라이트 상태에서는
-          // 그쪽 shadow 클래스를 덮지 않도록 비운다.
-          boxShadow: isBrainBubble && !nearBorder && !isConnectTarget
-            ? 'inset 0 1px 1px rgba(255,255,255,0.4), inset 0 -13px 20px rgba(30,27,75,0.45)'
-            : undefined,
         }}
         title={isBrainBubble ? brainBubbleTip : undefined}
       >
@@ -1090,14 +1089,17 @@ export const BubbleNode = memo(function BubbleNode({
             중앙 열이 예약 영역(하단 블록 자리)으로 흘러드는 것을 막는다(겹침 대신 잘림). */}
         {/* §5.10 — 메모리 버블 **배경 워터마크**. 종전에는 아이콘·라벨·숫자·단위 네 요소가
             중앙 열에 세로로 쌓여 116px 원 안에서 서로 크기를 다퉜다("디자인이 구리다"의 실체).
-            아이콘을 배경으로 내리면 전경에는 숫자와 이름 둘만 남고, 무엇이 담긴 버블인지는
-            이 카드 실루엣이 말한다. 버블 지름에 비례하므로 축소 배율에서도 같은 인상. */}
+            아이콘을 배경으로 내리면 전경에는 카드 수 하나만 남고, 무엇이 담긴 버블인지는
+            이 카드 실루엣이 말한다. 버블 지름에 비례하므로 축소 배율에서도 같은 인상.
+            더 크게·더 옅게(0.17 → 0.12) 두어 요소가 아니라 **질감**으로 읽히게 하고, 숫자와
+            같은 상자에서 중앙정렬한다(하단 블록 예약을 함께 받아 숫자와 축이 어긋나지 않게). */}
         {isBrainBubble && (
           <span
             aria-hidden
-            className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center opacity-[0.17]"
+            className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center opacity-[0.12]"
+            style={{ paddingBottom: fit.paddingBottom || undefined }}
           >
-            <BubbleIcon icon={style.icon} px={Math.max(24, Math.round(size * 0.5))} />
+            <BubbleIcon icon={style.icon} px={Math.max(28, Math.round(size * 0.58))} />
           </span>
         )}
         <div
@@ -1105,31 +1107,34 @@ export const BubbleNode = memo(function BubbleNode({
           style={{ gap: fit.centerGap, maxHeight: fit.centerMaxHeight }}
         >
           {!isBrainBubble && <BubbleIcon icon={style.icon} px={Math.max(12, Math.round(32 * ts))} />}
-          {/* §5.10 — 카드 수는 이 버블의 주인공이라 라벨보다 **먼저·크게** 온다.
-              단위("장")는 뺐다 — 숫자 옆 작은 글자 한 벌이 축소 배율에서 가장 먼저 뭉갠다. */}
+          {/* §5.10 — 카드 수는 이 버블의 주인공이고, 중앙 열에 남은 **유일한** 요소다.
+              단위("장")도 이름도 여기 없다 — 단위는 축소 배율에서 가장 먼저 뭉개지고, 이름은
+              하단 블록으로 내려가 12px 하한을 받는다. 비운 만큼 숫자를 키운다(26×ts → 34×ts).
+              0 장이면 흐리게 — 아직 아무것도 안 쌓인 버블이 가득 찬 버블처럼 보이지 않게. */}
           {isBrainBubble && (
             <span
-              className="font-bold tabular-nums leading-none text-white drop-shadow-sm"
-              style={{ fontSize: Math.max(15, Math.round(26 * ts)) }}
+              className={`bubble-brain-count font-semibold tabular-nums leading-none tracking-tight ${
+                (brainSummary?.cardCount ?? 0) > 0 ? 'text-white' : 'text-white/45'
+              }`}
+              style={{ fontSize: brainCountFont }}
             >
               {brainSummary?.cardCount ?? 0}
             </span>
           )}
-          <span
-            className={`${fit.labelLines > 1 ? 'line-clamp-2 break-words' : 'truncate'} leading-tight text-center drop-shadow-sm ${isDisappearing ? 'bubble-ghost-label' : ''} ${
-              // 메모리 버블에서 이름은 숫자를 받쳐 주는 줄이다 — 굵기·크기를 낮춰 주인공을 가리지 않게.
-              isBrainBubble ? 'font-medium text-white/70' : 'font-bold text-white'
-            }`}
-            style={{
-              maxWidth: fit.labelMaxWidth,
-              fontSize: isBrainBubble ? Math.max(8, Math.round(11 * ts)) : Math.max(7, Math.round(13 * ts)),
-            }}
-            title={isFolder
-              ? (data.absolutePath ?? data.label)
-              : (isAgent || fit.labelText !== data.label) ? data.label : undefined}
-          >
-            {fit.labelText}
-          </span>
+          {!isBrainBubble && (
+            <span
+              className={`${fit.labelLines > 1 ? 'line-clamp-2 break-words' : 'truncate'} leading-tight text-center font-bold text-white drop-shadow-sm ${isDisappearing ? 'bubble-ghost-label' : ''}`}
+              style={{
+                maxWidth: fit.labelMaxWidth,
+                fontSize: Math.max(7, Math.round(13 * ts)),
+              }}
+              title={isFolder
+                ? (data.absolutePath ?? data.label)
+                : (isAgent || fit.labelText !== data.label) ? data.label : undefined}
+            >
+              {fit.labelText}
+            </span>
+          )}
           {fit.showBadge && agentBadge && (
             <span
               className={`rounded px-1 font-bold uppercase tracking-wide ${agentBadge.cls}`}

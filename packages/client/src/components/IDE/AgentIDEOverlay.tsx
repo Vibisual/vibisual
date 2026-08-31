@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { SubAgent, SubAgentStreamEvent } from '@vibisual/shared';
 import { createPortal } from 'react-dom';
@@ -14,6 +14,7 @@ import {
 } from '../../stores/graphStore.js';
 import { AgentConfigPopup } from '../Panel/AgentConfigPopup.js';
 import { captureIDEPaneHandoff, type IDEPaneHandoff } from '../../stores/idePaneHandoff.js';
+import { takePaneDragResume } from '../../stores/idePaneDragResume.js';
 import { readIDEPane, useIDEPaneScope, useIDEPaneValue } from './idePane.js';
 import {
   IDE_DOCK,
@@ -35,7 +36,13 @@ import {
   isOutsideViewport,
   isPinnedToViewportEdge,
   dockSizeFromDrag,
+  dragFloatGeom,
+  isPulledFullyOut,
   magnetFloatGeom,
+  easeFloatPushOffset,
+  pushFloatGeoms,
+  pushDockSize,
+  overflowPastClamp,
   previewDockRect,
   resizeFloatGeom,
   resolveDockDrop,
@@ -45,14 +52,24 @@ import {
   type DockZoneButton,
   type DockedPane,
   type FloatGeom,
+  type FloatPushDir,
   type FloatResizeEdge,
   type IDEDockSide,
   type Rect,
   type Viewport,
 } from './ideDockLayout.js';
+import {
+  listFloatPushPanes,
+  moveFloatPushPane,
+  registerFloatPushPane,
+  settleFloatPushPane,
+} from './ideFloatPush.js';
 import { useIDEDockLayout, useVisibleDockedPanes } from './useIDEDockLayout.js';
 import { setCanvasCover } from '../../stores/canvasVisibility.js';
 import { useIsNarrowViewport } from '../../hooks/useIsMobile.js';
+import { useElementWidth } from '../../hooks/useElementWidth.js';
+import { ideSidebarWidth, resolveIDEBodyLayout } from './ideResponsive.js';
+import { IDEBodyLayoutContext, type IDEBodyLayoutValue } from './ideBodyLayoutContext.js';
 import { resolveTitleBarChrome } from './titleBarChrome.js';
 import { useBackdropDismiss, useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 import { IDEActivityBar } from './IDEActivityBar.js';
@@ -62,6 +79,7 @@ import { IDESplitView } from './IDESplitView.js';
 import { IDEEditorPane } from './IDEEditorPane.js';
 import { useEditorFollow } from './useEditorFollow.js';
 import { IDEStatusBar } from './IDEStatusBar.js';
+import { VerifyDemoLayer } from './VerifyDemoLayer.js';
 import { IDERunOutputPanel } from './IDERunOutputPanel.js';
 import { useRunSessions } from '../../stores/runSessions.js';
 import { useReadingSettings } from './reading/useReadingSettings.js';
@@ -69,6 +87,30 @@ import { shortcutLabel } from '../../utils/platform.js';
 import { ReadingSettingsPopover } from './reading/ReadingSettingsPopover.js';
 
 const EMPTY_SUBS: SubAgent[] = [];
+
+/**
+ * §5.5 #17-6 (H-4) ⑥ — 앱 밖으로 꺼낸 창이 커서에 매달린 동안, **손을 뗀 순간을 앱 쪽에서도 듣는다.**
+ *
+ * 꺼내는 순간 이 창(앱 안 IDE)은 닫히므로 컴포넌트는 사라진다 — 그래서 리스너를 컴포넌트가
+ * 아니라 **모듈**에 단다. 뗌을 놓쳤을 때의 대가가 "창이 영영 커서를 따라다닌다"라, 매달린 창
+ * 쪽에서도 같은 신호를 듣게 해 두었다(둘 중 어느 쪽이 마우스 캡처를 쥐고 있든 한쪽은 듣는다).
+ * 두 번 불려도 안전하다 — 이미 끝난 판은 main 이 조용히 지나간다.
+ */
+function watchDetachedFollowRelease(agentId: string): void {
+  const end = (): void => {
+    window.removeEventListener('mouseup', end, true);
+    window.removeEventListener('mousemove', onMove, true);
+    window.removeEventListener('blur', end);
+    void window.api?.overlay?.dragEndFor?.(agentId);
+  };
+  // 뗌 자체를 놓쳤을 때의 그물 — 버튼이 눌리지 않은 채 움직이면 이미 놓은 것이다.
+  const onMove = (ev: MouseEvent): void => {
+    if (ev.buttons === 0) end();
+  };
+  window.addEventListener('mouseup', end, true);
+  window.addEventListener('mousemove', onMove, true);
+  window.addEventListener('blur', end);
+}
 
 /**
  * 창의 모양. 'docked' 는 **네 변 중 어디에 붙었는가**를 스토어의 `dockSide` 가 쥔다
@@ -81,6 +123,33 @@ const DRAG_THRESHOLD = 6;
 const CANVAS_COVER_PREFIX = 'ide-overlay';
 const MIN_FLOAT_W = IDE_FLOAT.MIN_W;
 const MIN_FLOAT_H = IDE_FLOAT.MIN_H;
+
+/**
+ * §5.5 #17-6 (H-6) — 가장자리에 **막힌 채** 버티는 동안의 타임라인(ms).
+ *
+ * 커서를 앱 밖으로 낼 수 없는 화면(단일 모니터 + 최대화)에서는 "밖으로 밀고 있다"가 시간으로만
+ * 표현된다. 그 시간을 **두 마디**로 나눈다 — 먼저 선으로 된 가상 창을 띄워 무슨 일이 일어나는지
+ * 보여 주고(`EDGE_GHOST_MS`), 그 다음에 실제로 내보낸다. 아무 것도 안 보이는 채로 기다리게 하면
+ * "안 되는 기능"으로 읽힌다(H-3 이 예고 문구를 둔 까닭과 같다 — 이제는 문구가 아니라 그림이다).
+ */
+const EDGE_GHOST_MS = 120;
+/** 그 타임라인을 재는 시계의 결 — 윤곽선이 밖으로 밀려 나가는 것이 끊겨 보이지 않을 만큼만 잦게. */
+const EDGE_TICK_MS = 32;
+/**
+ * (H-6) 버티는 동안 윤곽선이 그 변 밖으로 밀려 나가는 거리(px).
+ *
+ * **완전히** 밀어내지 않는 까닭: 단일 모니터에 앱이 최대화돼 있으면 앱 밖에 보일 자리가 없어,
+ * 다 밀면 선이 화면에서 사라져 버린다(보여 주려던 것을 감추는 셈). 어디로 빠지는지만 말한다.
+ */
+const EDGE_NUDGE_PX = 72;
+/**
+ * (H-6) 손을 뗐을 때 **그대로 내보낼** 문턱(px, 놓을 수 있는 자리 기준).
+ *
+ * 윤곽선이 뜨는 문턱(`POP_OUT_GHOST_ENTER_PX`=24)과 벌려 둔다: 창을 화면 끝에 바짝 붙여 두려다
+ * 몇 십 픽셀 더 간 손이 창을 밖으로 던지면 안 된다. 여기까지 끌었다면 "밖으로 뺀다" 말고 달리
+ * 읽을 여지가 없다.
+ */
+const POP_OUT_COMMIT_PX = 120;
 
 /**
  * 이 창이 앉을 자리 — **사용자가 옮겨 둔 자리가 있으면 그것**, 없으면 계단식 초기 자리.
@@ -288,24 +357,89 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   const isLocalAgent = !!localProvider;
 
   const [maximized, setMaximized] = useState(false);
-  const toggleMaximized = useCallback(() => setMaximized((v) => !v), []);
+  /**
+   * §5.5 #17-6 (H-5) — **독립 창의 OS 최대화 상태.** 앱 안 창의 `maximized`(창 안 레이아웃)와는
+   * 다루는 대상이 다르다 — 이쪽은 OS 창 자체다.
+   *
+   * 값은 main 이 밀어 주는 것 **하나만** 믿는다. 누르는 순간 낙관적으로 뒤집어 두면, 실제 창이
+   * (버블로 접히는 등 다른 경로로) 최대화를 잃었을 때 아이콘만 최대화로 남아 실제와 어긋난다.
+   */
+  const [osMaximized, setOsMaximized] = useState(false);
+  useEffect(() => {
+    if (!fullWindow) return;
+    const ov = window.api?.overlay;
+    if (!ov?.onMaximizeState) return;
+    const off = ov.onMaximizeState(({ maximized: m }) => setOsMaximized(m));
+    return () => { off(); };
+  }, [fullWindow]);
+  const toggleMaximized = useCallback(() => {
+    if (fullWindow) {
+      // 이 창은 `frame:false + transparent` 라 OS 타이틀바도 시스템 최대화도 없다 — main 이
+      //   작업영역으로 bounds 를 옮겨 대신 해 준다(상태는 그쪽이 밀어 준다).
+      void window.api?.overlay?.toggleMaximizeSelf?.();
+      return;
+    }
+    setMaximized((v) => !v);
+  }, [fullWindow]);
 
   // §4 v3.24 — 폰(max-md)에선 좌측 내비(활동바+사이드바)를 기본 숨기고, 타이틀바 토글 버튼으로만 연다
-  //   (좁은 화면에서 활동바 48px 가 본문을 상시 짓누르지 않게). 데스크톱은 isNarrow=false 라 항상 표시.
+  //   (좁은 화면에서 활동바 48px 가 본문을 상시 짓누르지 않게). 이 값은 이제 **판정의 입력 하나**일 뿐이고,
+  //   무엇을 접을지는 아래 `bodyLayout` 이 창 폭까지 함께 보고 정한다.
   const isNarrow = useIsNarrowViewport();
+
+  // ─── 창 안 반응형 — 기준은 뷰포트가 아니라 **이 창 자신의 폭**이다 ────────────────────
+  // 종전에는 위 `isNarrow`(뷰포트 max-md) 하나가 창 안 배치까지 결정했다. 그런데 IDE 창은 화면이
+  //   아니라 앱 안의 창이라, 1920px 뷰포트에서 창만 700px 로 줄이면 아무것도 접히지 않은 채
+  //   활동바·사이드바·편집창이 자리를 다 가져가고 **대화만** 0 까지 찌부러졌다(글자가 세로로 서고
+  //   그 안 상태바가 사이드바 위로 넘쳤다 — 사용자 스크린샷). 이제 본문 행의 실제 폭을 재서
+  //   순수 판정(`resolveIDEBodyLayout`)에 넘기고, 접힘은 컨텍스트로 자식들에게 흘린다.
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  const bodyWidth = useElementWidth(bodyRef);
+  const sidebarCollapsed = useIDEPaneValue((o) => o.sidebarCollapsed);
+  const sidebarView = useIDEPaneValue((o) => o.activeView);
+  const editorOpenCount = useIDEPaneValue((o) => o.editorFiles.length);
+  const storedEditorWidth = useGraphStore((s) => s.ideEditorWidth);
+  const bodyLayout = useMemo(() => resolveIDEBodyLayout({
+    width: bodyWidth,
+    viewportNarrow: isNarrow,
+    sidebarCollapsed,
+    sidebarWidth: ideSidebarWidth(sidebarView),
+    editorOpen: editorOpenCount > 0,
+    editorWidth: storedEditorWidth,
+  }), [bodyWidth, isNarrow, sidebarCollapsed, sidebarView, editorOpenCount, storedEditorWidth]);
+
   // §5.5 #17-27 ⑪ — [추종] 이 켜져 있으면 그 **세션**이 고치는 파일을 편집창이 따라 연다.
   //   편집창은 열린 파일이 없으면 렌더되지 않으므로, 여는 판단은 그 밖(여기)에 있어야 한다.
-  useEditorFollow(agentId ?? '', activeSessionId, isNarrow);
+  //   좁아서 편집창이 대화를 덮는 상태도 폰과 같은 "덮개" 라 같은 건너뛰기 규칙을 탄다. 다만
+  //   물어야 할 것은 지금이 아니라 **열었을 때** 덮개가 되는가다 — 지금은 닫혀 있어서 안 덮는다는
+  //   답을 받아 열고 나면, 사용자가 보고 있던 대화가 그 순간 통째로 가려진다.
+  const editorWouldCover = useMemo(() => resolveIDEBodyLayout({
+    width: bodyWidth,
+    viewportNarrow: isNarrow,
+    sidebarCollapsed,
+    sidebarWidth: ideSidebarWidth(sidebarView),
+    editorOpen: true,
+    editorWidth: storedEditorWidth,
+  }).editorDrawer, [bodyWidth, isNarrow, sidebarCollapsed, sidebarView, storedEditorWidth]);
+  useEditorFollow(agentId ?? '', activeSessionId, editorWouldCover);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  /** 좌측 내비(활동바·사이드바) 중 하나라도 서랍인가 — 타이틀바 토글이 그 손잡이가 된다. */
+  const navDrawerMode = bodyLayout.navDrawer || bodyLayout.sidebarDrawer;
+  /**
+   * 하단 상태바도 서랍인가. 이 바는 좁아지면 **줄바꿈으로 접히므로** 밖으로 넘치지는 않지만,
+   * 활동바까지 접히는 폭(≈370px 이하)에서는 서너 줄이 되어 안 그래도 없는 세로 자리를 먹는다 —
+   * 그 구간에서는 폰과 똑같이 감추고 타이틀바 토글로만 부른다(§4 v3.25 와 같은 손잡이).
+   */
+  const statusDrawerMode = isNarrow || bodyLayout.navDrawer;
   // 사이드바에서 세션을 고르면(activeSessionId 변경) 내비를 닫아 목적지 화면이 바로 보이게 한다.
   //   v4.93 — 북마크·세션 요약은 여기서 빠졌다: 이제 목적지가 **사이드바 자신**이라 내비를 닫으면
   //   방금 연 목록까지 함께 사라진다(폰에서 사이드바는 내비와 한 몸으로 뜬다).
   //   v4.95 — 실행 중 서브에이전트도 같은 이유로 빠졌다(사이드바 뷰가 됐다).
   useEffect(() => {
-    if (isNarrow) setMobileNavOpen(false);
-  }, [isNarrow, activeSessionId]);
-  // §4 v3.25 — 폰에선 하단 상태바(IDEStatusBar)도 기본 숨김 — 타이틀바 우측 토글 버튼으로만 연다
-  //   (h-6 한 줄이지만 폰에선 본문 세로 공간이 더 귀하다). 데스크톱은 isNarrow=false 라 항상 표시.
+    if (navDrawerMode) setMobileNavOpen(false);
+  }, [navDrawerMode, activeSessionId]);
+  // §4 v3.25 — 서랍 폭에선 하단 상태바(IDEStatusBar)도 기본 숨김 — 타이틀바 우측 토글 버튼으로만 연다
+  //   (한 줄이지만 그 폭에선 줄바꿈으로 서너 줄이 되어 세로 자리를 먹는다 — `statusDrawerMode`).
   const [mobileStatusOpen, setMobileStatusOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   // §5.5 읽기 설정 — 훅이 <html> 에 CSS 변수를 실어 IDE 본문 폭·타이포그래피를 결정한다.
@@ -326,6 +460,14 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     }
     setMobileNavOpen(next);
   }, [mobileNavOpen, paneKey]);
+
+  // 접힘 판정 + 서랍 손잡이를 자식들(활동바·사이드바·편집창·본문)에게 흘린다. 각자 자기 폭을
+  //   재게 두면 같은 창을 두고 서로 다른 답을 내 층이 어긋난다 — 재는 곳은 이 창 하나다.
+  const bodyLayoutValue = useMemo<IDEBodyLayoutValue>(() => ({
+    ...bodyLayout,
+    navOpen: mobileNavOpen,
+    setNavOpen: setMobileNavOpen,
+  }), [bodyLayout, mobileNavOpen]);
 
   // 폰 내비 스크림 — 스크림 자체를 눌렀다 뗐을 때만 닫는다(사이드바에서 시작한 드래그로는 ❌).
   const mobileNavBackdrop = useBackdropDismiss(() => setMobileNavOpen(false));
@@ -393,15 +535,17 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   }, [commitNameEdit]);
 
   // 타이틀바 더블클릭 — 최대화 버튼과 동일 효과 (버튼 자손에서 시작된 더블클릭은 제외)
-  // fullWindow 에선 in-window maximize 미사용(창=IDE 1:1, OS 가 드래그 영역 더블클릭을 처리).
+  //
+  // §5.5 #17-6 (H-5) — **독립 창에서도 같다.** 종전에는 "OS 가 드래그 영역 더블클릭을 처리한다"고
+  //   보고 넘겼는데, 그 창은 투명 창이라 Windows 가 시스템 최대화를 막고 (H-4) 가 `app-drag` 마저
+  //   걷어냈다 — 아무도 처리하지 않아 더블클릭이 그냥 죽어 있었다.
   const handleTitleBarDoubleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement;
     // 이름 더블클릭은 리네임 진입 — 최대화 토글과 겹치지 않게 여기서 가로챈다(fullWindow 에서도 동작).
     if (target.closest('[data-ide-agent-name]')) { startNameEdit(); return; }
-    if (fullWindow) return;
     if (target.closest('button')) return;
     toggleMaximized();
-  }, [fullWindow, toggleMaximized, startNameEdit]);
+  }, [toggleMaximized, startNameEdit]);
 
   // §5.5 #17-1 윈도우 모드 — 닫고 다시 열 때 슬롯의 `openMode` 로 되돌아간다(휘발).
   //
@@ -429,16 +573,44 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   /** 자석이 붙은 선 — 왜 창이 살짝 튀었는지 눈으로 보이게 한다. */
   const [magnetGuides, setMagnetGuides] = useState<{ x: number | null; y: number | null }>({ x: null, y: null });
   /**
-   * (판올림 번호 발급 대기) 커서가 앱 창 **밖으로** 나갔다 — 지금 손을 떼면 이 창이
-   * 독립 OS 창으로 빠진다. 화면에 그 사실을 먼저 보여 줘야 사고로 튀어나가지 않는다.
-   */
-  const [popOutArmed, setPopOutArmed] = useState(false);
-  /**
-   * (판올림 번호 발급 대기) 커서가 화면 끝에 **막혀** 더 못 나가는 채로 밀고 있다 — 조금만 더
-   * 버티면 위 무장으로 넘어간다. 아무 말 없이 기다리게 하면 "안 되는 기능"으로 읽히므로,
+   * §5.5 #17-6 (H-3) 커서가 화면 끝에 **막혀** 더 못 나가는 채로 밀고 있다 — 조금만 더 버티면
+   * 그 자리에서 독립 창으로 빠진다. 아무 말 없이 기다리게 하면 "안 되는 기능"으로 읽히므로,
    * 넘어가기 **전에** 무엇을 기다리는 중인지 먼저 말한다.
+   *
+   * (H-4) 나가는 판정이 참이 되는 순간 창은 **곧바로** 밖으로 나간다 — 그래서 "놓으면 꺼냅니다"
+   * 쪽 예고는 사라지고, 기다림이 남는 이 하나만 말한다.
    */
-  const [popOutPushing, setPopOutPushing] = useState(false);
+  /**
+   * §5.5 #17-6 (H-6) — **밖으로 빼는 중**: 본체는 그 자리에 멎고, 커서를 따라가는 것은 창 크기
+   * 그대로의 **윤곽선**이다.
+   *
+   * `kind` 는 그 선을 **누가 그리는가** — `os` 면 main 의 클릭통과 투명 창이라 앱 밖까지 이어지고,
+   * `inapp` 은 그것을 만들지 못한 환경의 폴백이라 앱 경계에서 잘린다(기능이 사라지는 것이 아니라
+   * 덜 보이게 된다). `armed` 면 지금 손을 떼도 그대로 나간다 — 색과 문구가 그것을 미리 말한다.
+   *
+   * 이 상태는 **모드가 바뀔 때만** 바뀐다. 자리는 상태가 아니라 `ghostRectRef` 가 쥐고 rAF 가
+   * DOM 에 직접 쓴다(끄는 동안 리렌더 ❌ — 그 리렌더가 곧 버벅임이었다).
+   */
+  const [popOutGhost, setPopOutGhost] = useState<{ kind: 'os' | 'inapp'; armed: boolean } | null>(null);
+  /** 윤곽선이 지금 있어야 할 자리 — rAF 가 읽어 DOM 에 쓴다(`inapp` 일 때만 그린다). */
+  const ghostRectRef = useRef<Rect | null>(null);
+  const ghostElRef = useRef<HTMLDivElement | null>(null);
+  /**
+   * (H-6) 끄는 동안 창을 옮기는 값 — **상태가 아니다**. 종전에는 `mousemove` 마다 `setFloatPos` 로
+   * 상태를 바꿔 그 창 전체(타이틀바·사이드바·편집기·스트림)가 다시 그려졌다(버벅임의 실체).
+   * 이제 자리는 여기 있고 `requestAnimationFrame` 이 `transform` 으로 DOM 에 직접 쓴다.
+   * 렌더 함수도 **같은 ref 를 읽으므로**, 다른 이유로 리렌더가 나도 창이 옛 자리로 튀지 않는다.
+   */
+  const dragOffsetRef = useRef<{ dx: number; dy: number }>({ dx: 0, dy: 0 });
+  /**
+   * (판올림 번호 발급 대기) §5.5 #17-1 — **남이 나를 민 만큼**(px). `dragOffsetRef` 와 축이 다르다:
+   * 저쪽은 내가 끄는 이동, 이쪽은 다른 창이 부딪혀 와 밀려난 이동이다. 둘은 같은 `transform` 한 줄로
+   * 합쳐 쓴다 — 따로 쓰면 나중에 쓴 쪽이 앞의 것을 지운다. 여기도 **상태가 아니다**(리렌더 ❌).
+   */
+  const pushOffsetRef = useRef<{ dx: number; dy: number }>({ dx: 0, dy: 0 });
+  /** 지금 남이 나를 밀 수 있는 상태인가 — 떠 있는 창일 때만(렌더마다 갱신되는 거울). */
+  const pushableRef = useRef(false);
+  const dragRafRef = useRef<number | null>(null);
   /**
    * §5.5 #17-6 (H) — **끌어다 앱 안으로 합치는 중**(독립 창 한정). main 이 창을 칩으로 줄여
    * 커서를 따라가게 하고, 그동안 이 창은 IDE 대신 칩 UI 를 그린다(줄어든 창에 IDE 를 그대로
@@ -483,6 +655,12 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   // 지금 자리를 리스너가 읽을 수 있게 거울로 둔다(리스너를 매 이동마다 다시 달지 않기 위함).
   const floatRef = useRef<FloatGeom>({ ...floatPos, ...floatSize });
   floatRef.current = { ...floatPos, ...floatSize };
+  /**
+   * §5.5 #17-6 (H-6) — 가상 창 윤곽선에 적을 이름. 드래그 리스너가 `agent` 를 직접 물면 이름이
+   * 바뀔 때마다 리스너가 다시 만들어져 **끄는 도중에 판이 갈린다** — 거울로 둔다.
+   */
+  const agentLabelRef = useRef<string>('');
+  agentLabelRef.current = agent?.label ?? '';
 
   /** 지금 자리를 슬롯에 적어 둔다 — 접었다 펴거나 탭을 옮겼다 와도 그 자리로 돌아오게. */
   const commitFloat = useCallback((geom: FloatGeom) => {
@@ -587,6 +765,86 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   const activeDragCleanupRef = useRef<(() => void) | null>(null);
   useEffect(() => () => { activeDragCleanupRef.current?.(); activeDragCleanupRef.current = null; }, []);
 
+  /**
+   * §5.5 #17-6 (H-6) — 끄는 동안의 **한 프레임**. 창은 `transform` 으로(레이아웃 없는 합성),
+   * 윤곽선은 자기 자리로. 값은 전부 ref 에서 읽으므로 이 함수는 리렌더를 일으키지 않는다.
+   */
+  const flushDragFrame = useCallback(() => {
+    dragRafRef.current = null;
+    const win = windowRef.current;
+    if (win) {
+      // 내가 끄는 이동과 **남이 나를 민 이동**은 한 줄로 합친다 — 따로 쓰면 뒤엣것이 앞엣것을 지운다.
+      const dx = dragOffsetRef.current.dx + pushOffsetRef.current.dx;
+      const dy = dragOffsetRef.current.dy + pushOffsetRef.current.dy;
+      win.style.transform = dx === 0 && dy === 0 ? '' : `translate3d(${dx}px, ${dy}px, 0)`;
+      win.style.willChange = dx === 0 && dy === 0 ? '' : 'transform';
+    }
+    const el = ghostElRef.current;
+    const r = ghostRectRef.current;
+    if (el && r) {
+      el.style.transform = `translate3d(${Math.round(r.x)}px, ${Math.round(r.y)}px, 0)`;
+      el.style.width = `${Math.round(r.w)}px`;
+      el.style.height = `${Math.round(r.h)}px`;
+    }
+  }, []);
+  /** 한 프레임에 한 번만 쓴다 — `mousemove` 는 프레임보다 자주 온다(같은 프레임에 여러 번 쓰면 헛일). */
+  const scheduleDragFrame = useCallback(() => {
+    if (dragRafRef.current !== null) return;
+    dragRafRef.current = window.requestAnimationFrame(flushDragFrame);
+  }, [flushDragFrame]);
+  useEffect(() => () => {
+    if (dragRafRef.current !== null) {
+      window.cancelAnimationFrame(dragRafRef.current);
+      dragRafRef.current = null;
+    }
+  }, []);
+  /**
+   * (H-6) 폴백 윤곽선이 **막 붙은 프레임**에는 아직 자리가 없다(ref 가 그때 채워진다).
+   * 페인트 전에 한 번 맞춰 준다 — 아니면 좌상단에 한 프레임 번쩍인다.
+   */
+  useLayoutEffect(() => {
+    if (popOutGhost?.kind === 'inapp') flushDragFrame();
+  }, [popOutGhost, flushDragFrame]);
+
+  /**
+   * (판올림 번호 발급 대기) §5.5 #17-1 — **자석 밀기를 받는 쪽.** 이 창을 등록소에 걸어 두면,
+   * 다른 창을 끌던 사람이 나를 밀 수 있다.
+   *
+   * 왜 store 가 아니라 등록소인가: 미는 창이 매 프레임 store 에 쓰면 그 프로젝트의 창 전원이 다시
+   * 그려진다(#17-6 (H-6) ② 가 걷어낸 바로 그 버벅임). 끄는 동안은 `transform` 한 줄만 오가고,
+   * **손을 뗀 순간에만** 그 자리를 상태·슬롯에 적는다.
+   *
+   * `rect()` 가 null 을 돌려주면 셈에서 통째로 빠진다 — 밀 수 있는지는 창 자신만 안다(최대화는
+   * 로컬 상태라 밖에서는 보이지 않는다).
+   */
+  useEffect(() => {
+    if (!paneKey) return;
+    return registerFloatPushPane(paneKey, {
+      rect: () => (pushableRef.current ? { ...floatRef.current } : null),
+      move: (dx, dy) => {
+        const cur = pushOffsetRef.current;
+        if (cur.dx === dx && cur.dy === dy) return;
+        pushOffsetRef.current = { dx, dy };
+        scheduleDragFrame();
+      },
+      settle: (dx, dy) => {
+        pushOffsetRef.current = { dx: 0, dy: 0 };
+        // 밀림을 **먼저 지우고** 같은 일감에서 자리를 옮긴다 — 순서가 바뀌면 한 프레임 옛 자리로 튄다.
+        const win = windowRef.current;
+        if (win && dragOffsetRef.current.dx === 0 && dragOffsetRef.current.dy === 0) {
+          win.style.transform = '';
+          win.style.willChange = '';
+        }
+        if (dx === 0 && dy === 0) return;
+        const cur = floatRef.current;
+        // 안전망은 여기서 한 번 — 밀려 나간 창도 `KEEP_VISIBLE` 만큼은 화면에 남는다(되찾을 자락).
+        const landed = clampFloatGeom({ ...cur, x: cur.x + dx, y: cur.y + dy }, viewportNow());
+        setFloatPos({ x: landed.x, y: landed.y });
+        commitFloat(landed);
+      },
+    });
+  }, [paneKey, viewportNow, commitFloat, scheduleDragFrame]);
+
   // 붙이기 메뉴 — 바깥을 누르면 닫는다. 문서 리스너를 직접 달지 않고 팝업 닫기 규약을 쓴다
   //   (메뉴 안에서 시작한 제스처는 그 훅이 "안"으로 판정해 살려 준다).
   useOutsidePressDismiss({
@@ -623,14 +881,24 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
    * 앱 밖 **독립 창**으로 꺼낸다(§5.5 #17-6 오버레이 창을 IDE 크기로 바로 띄운다).
    * 앱 안 창은 함께 닫는다 — 같은 IDE 가 두 곳에 뜨면 어느 쪽이 진짜인지 알 수 없다.
    */
-  const popOutToWindow = useCallback((size?: { width: number; height: number }) => {
+  const popOutToWindow = useCallback((opts?: {
+    size?: { width: number; height: number };
+    /**
+     * §5.5 #17-6 (H-4) — 끌던 **도중에** 꺼내는 자리. 새 창이 잡은 지점 그대로 커서에 매달려
+     * 뜬다(`grab` = 창 좌상단에서 커서까지의 거리) — 끌던 손 아래에서 창이 이어진다.
+     */
+    follow?: { grabX: number; grabY: number };
+  }) => {
     const ov = window.api?.overlay;
     if (!ov || !agentId) return;
     const projectId = resolveProjectId();
     if (!projectId) return;
     // 짐은 **닫기 전에** 뜬다 — 닫고 나면 읽을 슬롯이 없다.
     const handoff = captureHandoff();
-    void ov.open({ agentId, projectId, expanded: true, size, handoff });
+    void ov.open({ agentId, projectId, expanded: true, size: opts?.size, handoff, follow: opts?.follow });
+    // 매달린 채 뜬 창은 손을 뗄 때 풀어 줘야 한다. 이 컴포넌트는 곧 닫히므로(아래) 리스너는
+    //   모듈에 단다 — 컴포넌트에 달면 언마운트와 함께 사라져 창이 커서를 계속 따라다닌다.
+    if (opts?.follow) watchDetachedFollowRelease(agentId);
     closeOverlay();
   }, [agentId, resolveProjectId, closeOverlay, captureHandoff]);
 
@@ -728,151 +996,441 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   }, [storeDockSide, storeDockSize]);
 
   /**
-   * 타이틀바 mousedown — 드래그 시작 / 임계치 초과 시 modal→floating 전이 + floating/docked 이동.
+   * 타이틀바 드래그 **한 판** — 마우스로 시작하기도 하고, 밖에서 끌던 드래그를 **이어받기도** 한다.
+   *
+   * §5.5 #17-6 (H-4) ③ — 독립 창을 끌다 앱 안으로 들어오면 그 순간 앱 안 IDE 로 돌아오는데, 그때
+   * 사용자의 손은 아직 눌려 있다. 돌아온 창이 이 함수로 **끌던 드래그를 그대로 이어받아야** 한
+   * 손짓이 두 동강 나지 않는다(이어받지 않으면 창은 돌아왔는데 움직이지 않는다).
    *
    * ⚠ **본문을 Alt 로 끌어 옮기는 길은 두지 않는다.** Alt 는 전역 인스펙터(§5.5 v4.52 — 모든 창)가
    *   `pointerdown` 을 capture 단계에서 `stopImmediatePropagation` 으로 삼키는 키라, 여기서 받으려
    *   해도 오지 않고 받아도 두 기능이 같은 제스처를 두고 다툰다.
    */
-  const handleTitleBarMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    // fullWindow(오버레이 창)에선 in-window 이동 ❌ — 타이틀바 app-drag 가 OS 창째로 옮긴다.
-    if (fullWindow) return;
-    if (e.button !== 0) return;
-    // 버튼·인터랙티브 자손(이름 리네임 포함)에서 시작된 mousedown 은 드래그 ❌
-    const target = e.target as HTMLElement;
-    if (target.closest('button') || target.closest('[data-ide-agent-name]')) return;
-    bringToFront();
-
-    const startX = e.clientX;
-    const startY = e.clientY;
-    const win = windowRef.current;
-    if (!win) return;
-    const rect = win.getBoundingClientRect();
-    // 클릭 지점이 윈도우 좌상단에서 얼마나 떨어졌는지 — 분리 후에도 그 비율을 유지
-    const grabRatioX = (startX - rect.left) / rect.width;
-    const grabRatioY = (startY - rect.top) / rect.height;
-
+  const beginTitleDrag = useCallback((init: {
+    /** 임계 판정의 기준점(마우스로 시작할 때). 이어받기에는 뜻이 없다. */
+    startX: number;
+    startY: number;
+    /** 잡은 지점이 창 좌상단에서 얼마나 떨어졌는지 — 창 크기가 바뀌어도 그 비율을 유지한다. */
+    grabRatioX: number;
+    grabRatioY: number;
+    /** 지금 창 크기(px). */
+    width: number;
+    height: number;
+    /** 이미 손이 눌린 채 시작하는가 — 임계 6px 을 기다리지 않고 곧바로 커서를 따라간다. */
+    resumed?: boolean;
+    /**
+     * 이어받는 순간의 커서 자리(창 안 좌표). 첫 `mousemove` 를 기다리면 그 한 프레임 동안 창이
+     * **옛 자리**에 떴다가 손 아래로 튄다 — 깜빡인 것처럼 보인다.
+     */
+    cursor?: { x: number; y: number } | undefined;
+  }) => {
     // 붙을 수 있는 자리는 다른 창이 드래그 중 움직이지 않으므로 **여기서 한 번만** 잰다 —
     //   십자 위젯·미리보기·커밋이 모두 이 한 스냅샷을 읽어야 셋이 갈라지지 않는다.
     const dragVp = viewportNow();
     const others = otherDockedPanes();
-    // 자석이 붙을 선 — 붙은 창은 그 칸, 떠 있는 창은 그 자리.
-    const magnetTargets: Rect[] = [];
     const st = useGraphStore.getState();
     const selfKey = resolvePaneKey(st, paneKey);
-    for (const r of Object.values(computeDockLayout(others, dragVp).rects)) magnetTargets.push(r);
-    for (const o of selectRenderedIDEPanes(st)) {
-      if (o.paneKey === selfKey || o.dockSide || !o.float) continue;
-      magnetTargets.push({ x: o.float.x, y: o.float.y, w: o.float.w, h: o.float.h });
+    // 자석이 붙을 선 중 **끄는 동안 안 움직이는** 것 — 붙어 있는 창의 칸. 화면 가장자리는
+    //   `magnetFloatGeom` 이 스스로 넣는다. 떠 있는 창은 이제 밀리므로 그 선은 매 프레임 다시 잰다.
+    const dockMagnetRects: Rect[] = Object.values(computeDockLayout(others, dragVp).rects);
+
+    // ── (판올림 번호 발급 대기) §5.5 #17-1 자석 밀기 ──
+    //   창끼리 부딪히면 선에 붙어 멎는 것이 아니라(종전) 상대가 밀려난다. 미는 창은 안 멎는다.
+    /** 이 판이 시작될 때 그 창들이 있던 자리 — 밀림 offset 의 기준점. */
+    const pushBase = new Map<string, FloatGeom>();
+    /** 그 창들이 **지금 있어야 할** 자리(목표). 화면은 여기로 한 박자 늦게 따라붙는다. */
+    const pushGoal = new Map<string, FloatGeom>();
+    /** 화면에 실제로 반영된 밀림(px). 목표와 다르면 rAF 가 계속 따라간다. */
+    const pushShown = new Map<string, { dx: number; dy: number }>();
+    /** 지난 프레임에 정한 밀림 방향 — 되먹여 축이 도중에 뒤집히지 않게 한다. */
+    let pushDirs: Record<string, FloatPushDir> = {};
+    let pushRaf: number | null = null;
+    for (const p of listFloatPushPanes(selfKey)) {
+      pushBase.set(p.key, p.geom);
+      pushGoal.set(p.key, p.geom);
+    }
+
+    /** 그 창이 아직 가야 할 거리 — 이 값이 곧 그 창에 걸린 밀림 offset 이다. */
+    function pushWant(key: string): { dx: number; dy: number } {
+      const base = pushBase.get(key);
+      if (!base) return { dx: 0, dy: 0 };
+      const goal = pushGoal.get(key) ?? base;
+      return { dx: goal.x - base.x, dy: goal.y - base.y };
+    }
+
+    /** 한 프레임 — 밀린 창들을 목표 쪽으로 `PUSH_EASE` 만큼 옮긴다(즉시 이동은 순간이동으로 읽힌다). */
+    function pushFrame(): void {
+      pushRaf = null;
+      let busy = false;
+      for (const key of pushBase.keys()) {
+        const want = pushWant(key);
+        const now = pushShown.get(key) ?? { dx: 0, dy: 0 };
+        const step = easeFloatPushOffset(now, want);
+        if (step.dx !== now.dx || step.dy !== now.dy) {
+          pushShown.set(key, { dx: step.dx, dy: step.dy });
+          moveFloatPushPane(key, step.dx, step.dy);
+        }
+        if (!step.done) busy = true;
+      }
+      if (busy) pushRaf = window.requestAnimationFrame(pushFrame);
+    }
+
+    /** 이 자리로 끌면 어느 창이 밀리는가 — 목표만 갱신하고 화면은 rAF 가 따라간다. */
+    function applyPush(geom: FloatGeom, vp: Viewport): Set<string> {
+      if (pushGoal.size === 0) return new Set();
+      const res = pushFloatGeoms(geom, [...pushGoal].map(([key, g]) => ({ key, geom: g })), vp, pushDirs);
+      pushDirs = res.dirs;
+      const hit = new Set<string>();
+      for (const [key, next] of Object.entries(res.geoms)) {
+        pushGoal.set(key, next);
+        hit.add(key);
+      }
+      if (hit.size > 0 && pushRaf === null) pushRaf = window.requestAnimationFrame(pushFrame);
+      return hit;
+    }
+
+    /** 지금 자석이 붙을 선 — **밀고 있는 창은 뺀다**(밀면서 동시에 그 창에 붙을 수는 없다). */
+    function magnetRectsNow(pushing: Set<string>): Rect[] {
+      const out: Rect[] = [...dockMagnetRects];
+      for (const [key, g] of pushGoal) {
+        if (pushing.has(key)) continue;
+        out.push({ x: g.x, y: g.y, w: g.w, h: g.h });
+      }
+      return out;
+    }
+
+    /** 판이 끝났다 — 밀어 둔 만큼을 그 창들의 **제 자리**로 굳힌다(밀린 배치도 사용자가 만든 배치다). */
+    function settlePush(): void {
+      if (pushRaf !== null) { window.cancelAnimationFrame(pushRaf); pushRaf = null; }
+      for (const key of pushBase.keys()) {
+        const want = pushWant(key);
+        settleFloatPushPane(key, want.dx, want.dy);
+      }
+      pushBase.clear();
+      pushGoal.clear();
+      pushShown.clear();
+      pushDirs = {};
     }
 
     let dragging = false;
     let currentMode = mode;
     let currentMaximized = maximized;
-    let nextW = rect.width;
-    let nextH = rect.height;
+    let nextW = init.width;
+    let nextH = init.height;
     /** 지금 커서가 가리키는 도킹 자리 — mouseup 이 이 값 하나로 붙일지 말지를 정한다. */
     let dropAt: DockDropTarget | null = null;
     /** 이동이 끝났을 때 슬롯에 적어 둘 자리 — 상태가 아니라 여기서 들고 있어야 mouseup 이 읽는다. */
     let lastGeom: FloatGeom | null = null;
     let lastGuides: { x: number | null; y: number | null } = { x: null, y: null };
-    /** 커서가 앱 창 밖인가 — mouseup 이 이 값 하나로 "꺼낼지"를 정한다. */
-    let outside = false;
+    /** 이 판이 이미 앱 밖으로 나갔는가 — 나가면 이 창은 닫히므로 뒤따르는 신호를 전부 무시한다. */
+    let poppedOut = false;
     /**
-     * (판올림 번호 발급 대기) 화면 끝에 **막혀** 밖으로 못 나가는 사람을 위한 버팀 시계.
-     * 가장자리를 떠나는 순간 되돌린다 — 스쳐 지나간 손이 창을 밖으로 던지면 안 된다.
+     * §5.5 #17-6 (H-6) — **밖으로 빼는 중**: 본체는 그 자리에 멎고, 커서를 따라가는 것은 창 크기
+     * 그대로의 윤곽선이다. 움직이는 것이 하나뿐이라 두 그림이 어긋날 수 없다.
+     *
+     * `ghostKind` 는 그 선을 누가 그리는가 — `os` 면 main 의 클릭통과 투명 창이라 **앱 밖까지**
+     * 이어지고, `inapp` 은 그것을 만들지 못한 환경의 폴백이라 앱 경계에서 잘린다.
+     */
+    let ghostOn = false;
+    let ghostKind: 'os' | 'inapp' = 'inapp';
+    let ghostArmed = false;
+    /** 윤곽선을 그 변 밖으로 밀어 낸 여분(px) — 가장자리 버팀 동안 자란다(H-6 ④). */
+    let ghostPush = { dx: 0, dy: 0 };
+
+    /** main 이 그리는 윤곽선의 크기·잡은 지점·무장 여부를 갈아 끼운다(여러 번 불러도 안전). */
+    function syncOsGhost(): void {
+      if (ghostKind !== 'os') return;
+      void window.api?.overlay?.ghostShow?.({
+        width: Math.round(nextW),
+        height: Math.round(nextH),
+        grabX: Math.round(init.grabRatioX * nextW),
+        grabY: Math.round(init.grabRatioY * nextH),
+        label: agentLabelRef.current,
+        armed: ghostArmed,
+      });
+    }
+
+    function showGhost(rect: FloatGeom, armed: boolean): void {
+      ghostRectRef.current = { x: rect.x, y: rect.y, w: rect.w, h: rect.h };
+      const armChanged = ghostOn && armed !== ghostArmed;
+      ghostArmed = armed;
+      if (!ghostOn) {
+        ghostOn = true;
+        // 선은 **지금 이 프레임에** 떠야 한다. 본체는 이미 멎었으므로, OS 창이 서기를 기다리면
+        //   (창 하나를 만들고 띄우는 데 백 밀리초 남짓) 그동안 손을 따라오는 것이 아무것도 없다 —
+        //   고치려던 바로 그 구간이 다시 생긴다. 그래서 **앱 안 윤곽선으로 먼저 그리고**, main 의
+        //   창이 서면 그쪽으로 넘긴다(둘 다 같은 자리를 그리므로 넘어가는 순간이 보이지 않는다).
+        ghostKind = 'inapp';
+        setPopOutGhost({ kind: 'inapp', armed });
+        const ov = window.api?.overlay;
+        if (ov?.ghostShow) {
+          void ov.ghostShow({
+            width: Math.round(nextW),
+            height: Math.round(nextH),
+            grabX: Math.round(init.grabRatioX * nextW),
+            grabY: Math.round(init.grabRatioY * nextH),
+            label: agentLabelRef.current,
+            armed,
+          }).then((ok) => {
+            // 못 만들었거나(컴포지터 없는 환경 등) 그 사이 판이 끝났으면 앱 안 윤곽선 그대로 둔다.
+            if (!ok || !ghostOn) return;
+            ghostKind = 'os';
+            setPopOutGhost({ kind: 'os', armed: ghostArmed });
+          }).catch(() => { /* 앱 안 윤곽선으로 계속 간다 */ });
+        }
+      } else if (armChanged) {
+        setPopOutGhost({ kind: ghostKind, armed });
+        syncOsGhost();
+      }
+      if (ghostKind === 'inapp') scheduleDragFrame();
+    }
+
+    /** 도로 앱 안으로 들어왔거나 손을 뗐다 — 선을 걷는다(밖으로 나간 경우는 main 이 스스로 걷는다). */
+    function hideGhost(): void {
+      if (!ghostOn) return;
+      ghostOn = false;
+      ghostArmed = false;
+      ghostPush = { dx: 0, dy: 0 };
+      ghostRectRef.current = null;
+      setPopOutGhost(null);
+      void window.api?.overlay?.ghostHide?.();
+    }
+
+    /**
+     * §5.5 #17-6 (H-3)+(H-6) 화면 끝에 **막혀** 밖으로 못 나가는 사람을 위한 버팀 시계.
+     *
+     * 가장자리를 떠나는 순간 되돌린다 — 스쳐 지나간 손이 창을 밖으로 던지면 안 된다. 시간은 두
+     * 마디다: 먼저 선으로 된 가상 창을 띄워 무슨 일이 일어나는지 **보여 주고**(`EDGE_GHOST_MS`),
+     * 남은 동안 그 선을 변 밖으로 밀어 내다가, 끝나면 그 자리에서 내보낸다.
      */
     let edgeTimer: number | null = null;
-    /** 버팀으로 무장했는가 — 커서는 아직 앱 안이라 `outside`(진짜 밖) 와 이유가 다르다. */
-    let edgeArmed = false;
-    /** 지금 가장자리를 밀고 있는가 — 무장 전 예고 문구를 띄우는 동안만 참. */
-    let edgePushing = false;
+    let edgeStartedAt = 0;
+    /** 이 판의 버팀 길이 — 선이 **이미** 떠 있었다면 처음부터 다시 기다리지 않는다. */
+    let edgeSpan: number = IDE_FLOAT.POP_OUT_EDGE_DWELL_MS;
+    /** 그 변 밖으로 완전히 나가려면 얼마나 밀어야 하는가(px). */
+    let edgeTarget = { dx: 0, dy: 0 };
+
     function clearEdgeWatch(): void {
-      if (edgeTimer !== null) { window.clearTimeout(edgeTimer); edgeTimer = null; }
-      if (edgePushing) { edgePushing = false; setPopOutPushing(false); }
+      if (edgeTimer !== null) { window.clearInterval(edgeTimer); edgeTimer = null; }
+      edgeStartedAt = 0;
+      // 가장자리를 떠났으면 밀어 냈던 만큼도 되돌린다 — 안 되돌리면 선이 그 자리에 어긋난 채 남는다.
+      if (ghostPush.dx !== 0 || ghostPush.dy !== 0) {
+        ghostPush = { dx: 0, dy: 0 };
+        if (ghostKind === 'os') void window.api?.overlay?.ghostNudge?.({ dx: 0, dy: 0 });
+      }
+    }
+    function detach(): void {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+      clearEdgeWatch();
+      // 밀어 둔 창들을 여기서 굳힌다 — 손을 떼든 밖으로 빠져나가든 이 자리는 반드시 지난다.
+      settlePush();
+      activeDragCleanupRef.current = null;
+    }
+    /** 끌면서 띄웠던 안내(도킹 십자·미리보기·자석선)를 한꺼번에 걷는다. */
+    function clearDragVisuals(): void {
+      setSnapRect(null);
+      setZoneButtons([]);
+      setDropTarget(null);
+      setMagnetGuides({ x: null, y: null });
+    }
+
+    /**
+     * §5.5 #17-6 (H-4) ① — **경계를 넘는 그 순간** 독립 창으로 바꾼다(놓을 때가 아니라).
+     *
+     * 종전에는 밖으로 나가도 창이 앱 안에 남아 뷰포트 경계에서 잘린 채 멈춰 있었다(밖은 그릴
+     * 수가 없다) — 끌고 있는 사람 눈에는 "안 나간다"로 읽혔다. 이제 그 자리에서 OS 창이 되어
+     * 잡은 지점 그대로 커서를 따라온다(`follow`). 앱 안 창은 함께 닫힌다 — 같은 IDE 가 두 곳에
+     * 뜨면 어느 쪽이 진짜인지 알 수 없다.
+     *
+     * (H-6) ⑤ **윤곽선은 여기서 끄지 않는다.** 창을 만들고 띄우는 동안 커서 아래가 비면 "사라졌다
+     * 나타난다"가 된다 — 새 창이 실제로 보이는 순간 main 이 스스로 걷는다(같은 프로세스가 둘 다
+     * 쥐고 있으므로 신호를 주고받을 필요가 없다). 잡은 지점에서 **밀어 낸 만큼을 빼** 넘기므로,
+     * 새 창은 선이 서 있던 바로 그 자리에 선다.
+     */
+    function popOutNow(): void {
+      if (poppedOut) return;
+      poppedOut = true;
+      // 밀어 냈던 만큼을 **먼저** 뜬다 — `detach()` 안의 시계 정리가 그 값을 0 으로 되돌린다.
+      const push = { dx: ghostPush.dx, dy: ghostPush.dy };
+      detach();
+      clearDragVisuals();
+      // 선은 main 이 걷는다 — 우리 쪽 표시만 내린다(여기서 ghostHide 를 부르면 빈 화면이 생긴다).
+      ghostOn = false;
+      setPopOutGhost(null);
+      popOutToWindow({
+        size: { width: Math.round(nextW), height: Math.round(nextH) },
+        follow: {
+          grabX: Math.round(init.grabRatioX * nextW - push.dx),
+          grabY: Math.round(init.grabRatioY * nextH - push.dy),
+        },
+      });
+    }
+
+    /** 끌기 시작(또는 이어받기)에 딱 한 번 — 붙어 있거나 최대화·모달이던 창을 떠 있는 창으로. */
+    function enterFloating(): void {
+      // 붙을 수 있는 자리를 **실제로 끌기 시작한 뒤**에 띄운다 — 그냥 눌렀다 뗀 클릭에 번쩍이지 않게.
+      if (!disableDock) setZoneButtons(dockZoneButtons(dragVp, others));
+      if (currentMaximized) {
+        // 최대화 상태에서 끌면 자동 복원 → floating 으로 전이 후 이동 (Windows 스냅 해제와 동일)
+        const w = floatSize.w > 0 ? floatSize.w : Math.max(MIN_FLOAT_W, Math.round(window.innerWidth * 0.56));
+        const h = floatSize.h > 0 ? floatSize.h : Math.max(MIN_FLOAT_H, Math.round(window.innerHeight * 0.56));
+        nextW = w;
+        nextH = h;
+        setFloatSize({ w, h });
+        setMaximized(false);
+        setMode('floating');
+        currentMode = 'floating';
+        currentMaximized = false;
+      } else if (currentMode === 'modal') {
+        nextW = Math.max(MIN_FLOAT_W, Math.round(window.innerWidth * 0.56)); // 56vw (80vw * 0.7)
+        nextH = Math.max(MIN_FLOAT_H, Math.round(window.innerHeight * 0.56));
+        setFloatSize({ w: nextW, h: nextH });
+        setMode('floating');
+        currentMode = 'floating';
+      } else if (currentMode === 'docked') {
+        // 도킹 → 플로팅. 마지막 floatSize 가 없으면 56vw×56vh 기본
+        const w = floatSize.w > 0 ? floatSize.w : Math.max(MIN_FLOAT_W, Math.round(window.innerWidth * 0.56));
+        const h = floatSize.h > 0 ? floatSize.h : Math.max(MIN_FLOAT_H, Math.round(window.innerHeight * 0.56));
+        nextW = w;
+        nextH = h;
+        setFloatSize({ w, h });
+        setMode('floating');
+        currentMode = 'floating';
+      }
+    }
+
+    /** 가두지 않은 **지금** 자리 — 윤곽선 판정과 버팀 시계가 함께 읽는다(둘이 갈리면 말이 달라진다). */
+    let lastRaw: FloatGeom | null = null;
+    /**
+     * (H-6) ② 이 판의 **기준점**. 상태(`floatPos`)는 여기 한 번만 쓰고, 그 뒤의 이동은 전부
+     * `dragOffsetRef` + `transform` 이다 — `mousemove` 마다 상태를 바꾸면 창 전체가 다시 그려진다.
+     */
+    let dragBase: { x: number; y: number } | null = null;
+
+    /** 가장자리 버팀 동안 윤곽선을 그 변 밖으로 밀어 낼 방향(px) — 어디로 빠지는지만 말하면 된다. */
+    function edgeNudgeTarget(cursor: { x: number; y: number }, vp: Viewport): { dx: number; dy: number } {
+      const e = IDE_FLOAT.POP_OUT_EDGE_PX;
+      if (cursor.x >= vp.w - 1 - e) return { dx: EDGE_NUDGE_PX, dy: 0 };
+      if (cursor.x <= e) return { dx: -EDGE_NUDGE_PX, dy: 0 };
+      if (cursor.y >= vp.h - 1 - e) return { dx: 0, dy: EDGE_NUDGE_PX };
+      if (cursor.y <= e) return { dx: 0, dy: -EDGE_NUDGE_PX };
+      return { dx: 0, dy: 0 };
+    }
+
+    /**
+     * (H-6) ③ 지금 선을 그려야 하는가 — **한 곳에서만** 정한다.
+     *
+     * 켜는 이유가 둘(놓을 수 있는 자리를 넘어섰다 · 가장자리에 막힌 채 버티고 있다)인데 판정이
+     * 두 곳에 있으면 한쪽이 켜고 다른 쪽이 끄는 깜빡임이 생긴다.
+     */
+    function refreshGhost(): void {
+      if (poppedOut || !lastRaw) return;
+      const vp = viewportNow();
+      const beyond = overflowPastClamp(lastRaw, vp);
+      const byEdge = edgeTimer !== null && Date.now() - edgeStartedAt >= EDGE_GHOST_MS;
+      if (canPopOut && (beyond > IDE_FLOAT.POP_OUT_GHOST_ENTER_PX || byEdge)) {
+        showGhost(lastRaw, beyond >= POP_OUT_COMMIT_PX);
+      } else {
+        hideGhost();
+      }
+    }
+
+    function startEdgeWatch(cursor: { x: number; y: number }, vp: Viewport): void {
+      edgeStartedAt = Date.now();
+      // 선이 **이미** 떠 있으면 처음부터 다시 기다리지 않는다 — 밖으로 밀어냈다는 신호가 화면에 있다.
+      edgeSpan = ghostOn ? IDE_FLOAT.POP_OUT_EDGE_DWELL_ARMED_MS : IDE_FLOAT.POP_OUT_EDGE_DWELL_MS;
+      edgeTarget = edgeNudgeTarget(cursor, vp);
+      edgeTimer = window.setInterval(() => {
+        if (poppedOut) { clearEdgeWatch(); return; }
+        const elapsed = Date.now() - edgeStartedAt;
+        refreshGhost();
+        if (ghostOn) {
+          // 버팀이 진행된 만큼 선을 그 변 밖으로 밀어 낸다 — 커서가 화면 끝에 막힌 사람에게도
+          //   "지금 밖으로 빠지고 있다"가 눈에 보인다(기다리는 동안 보이는 것이 약속뿐이면 안 된다).
+          const from = Math.min(EDGE_GHOST_MS, edgeSpan);
+          const p = Math.max(0, Math.min(1, (elapsed - from) / Math.max(1, edgeSpan - from)));
+          ghostPush = { dx: edgeTarget.dx * p, dy: edgeTarget.dy * p };
+          if (ghostKind === 'os') {
+            void window.api?.overlay?.ghostNudge?.({
+              dx: Math.round(ghostPush.dx),
+              dy: Math.round(ghostPush.dy),
+            });
+          } else if (lastRaw) {
+            ghostRectRef.current = {
+              x: lastRaw.x + ghostPush.dx,
+              y: lastRaw.y + ghostPush.dy,
+              w: lastRaw.w,
+              h: lastRaw.h,
+            };
+            scheduleDragFrame();
+          }
+        }
+        if (elapsed >= edgeSpan) {
+          clearEdgeWatch();
+          // 버팀이 끝나는 그 순간 = 나가는 순간. 선이 서 있던 그 자리를 창이 그대로 이어받는다.
+          popOutNow();
+        }
+      }, EDGE_TICK_MS);
     }
 
     function handleMove(ev: MouseEvent): void {
-      const dx = ev.clientX - startX;
-      const dy = ev.clientY - startY;
+      if (poppedOut) return;
+      // 이어받은 판은 **손이 이미 눌린 채** 시작한다 — 창이 바뀌는 그 찰나에 손을 놓았다면 뗌
+      //   신호는 사라진 창으로 갔다. 눌리지 않은 채 움직이면 이미 놓은 것이다(유령 드래그 ❌).
+      if (init.resumed && ev.buttons === 0) { handleUp(); return; }
+      const dx = ev.clientX - init.startX;
+      const dy = ev.clientY - init.startY;
       if (!dragging) {
         if (Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) return;
         dragging = true;
-        // 붙을 수 있는 자리를 **실제로 끌기 시작한 뒤**에 띄운다 — 그냥 눌렀다 뗀 클릭에 번쩍이지 않게.
-        if (!disableDock) setZoneButtons(dockZoneButtons(dragVp, others));
-        if (currentMaximized) {
-          // 최대화 상태에서 끌면 자동 복원 → floating 으로 전이 후 이동 (Windows 스냅 해제와 동일)
-          const w = floatSize.w > 0 ? floatSize.w : Math.max(MIN_FLOAT_W, Math.round(window.innerWidth * 0.56));
-          const h = floatSize.h > 0 ? floatSize.h : Math.max(MIN_FLOAT_H, Math.round(window.innerHeight * 0.56));
-          nextW = w;
-          nextH = h;
-          setFloatSize({ w, h });
-          setMaximized(false);
-          setMode('floating');
-          currentMode = 'floating';
-          currentMaximized = false;
-        } else if (currentMode === 'modal') {
-          nextW = Math.max(MIN_FLOAT_W, Math.round(window.innerWidth * 0.56)); // 56vw (80vw * 0.7)
-          nextH = Math.max(MIN_FLOAT_H, Math.round(window.innerHeight * 0.56));
-          setFloatSize({ w: nextW, h: nextH });
-          setMode('floating');
-          currentMode = 'floating';
-        } else if (currentMode === 'docked') {
-          // 도킹 → 플로팅. 마지막 floatSize 가 없으면 56vw×56vh 기본
-          const w = floatSize.w > 0 ? floatSize.w : Math.max(MIN_FLOAT_W, Math.round(window.innerWidth * 0.56));
-          const h = floatSize.h > 0 ? floatSize.h : Math.max(MIN_FLOAT_H, Math.round(window.innerHeight * 0.56));
-          nextW = w;
-          nextH = h;
-          setFloatSize({ w, h });
-          setMode('floating');
-          currentMode = 'floating';
-        }
+        enterFloating();
       }
-      // 클릭 비율을 유지하며 좌상단 좌표 계산
-      const x = ev.clientX - grabRatioX * nextW;
-      const y = ev.clientY - grabRatioY * nextH;
       const vp = viewportNow();
-      let moved = clampFloatGeom({ x, y, w: nextW, h: nextH }, vp);
+      // (H-6) ① **끄는 동안에는 가두지 않는다.** `clampFloatGeom` 은 결과를 위한 안전망이라
+      //   손을 뗄 때만 건다 — 과정에 걸면 창이 `KEEP_VISIBLE` 선에서 멎어 손과 어긋난다.
+      const raw = dragFloatGeom({
+        x: ev.clientX - init.grabRatioX * nextW,
+        y: ev.clientY - init.grabRatioY * nextH,
+        w: nextW,
+        h: nextH,
+      }, vp);
+      lastRaw = raw;
+      if (!dragBase) {
+        // 이 판의 기준점 — 상태 쓰기는 여기 한 번뿐이다(모달에서 막 떠 온 창의 옛 좌표도 여기서 맞는다).
+        dragBase = { x: raw.x, y: raw.y };
+        dragOffsetRef.current = { dx: 0, dy: 0 };
+        lastGeom = raw;
+        setFloatPos({ x: raw.x, y: raw.y });
+      }
 
-      // (판올림 번호 발급 대기) 커서가 앱 창 **밖**이면 지금 정해진 것은 "밖으로 나간다" 하나다 —
-      //   도킹 판정도 자석도 통째로 쉰다(안에서의 자리를 계속 계산해 봐야 쓰지 않는다).
+      // §5.5 #17-6 (H-4)+(H-6) ④ **완전히 나갔다** — 커서가 앱 밖(다중 모니터)이거나, 창이 앱
+      //   화면과 더는 겹치지 않는다. 그 자리에서 곧바로 독립 창이 되므로 도킹·자석은 볼 것도 없다.
       const cursorNow = { x: ev.clientX, y: ev.clientY };
-      const trulyOutside = canPopOut && isOutsideViewport(cursorNow, vp);
+      if (canPopOut && (isOutsideViewport(cursorNow, vp) || isPulledFullyOut(raw, vp))) { popOutNow(); return; }
       // 단일 모니터에 앱이 최대화돼 있으면 커서는 한 픽셀도 밖으로 못 나간다 — 그 사람에게는 위 판정이
-      //   영영 참이 되지 않아 끌어내기가 **없는 기능**이었다. 화면 끝에 막힌 채 잠깐 버티는 것을
+      //   영영 참이 되지 않아 끌어내기가 **없는 기능**이었다(H-3). 화면 끝에 막힌 채 잠깐 버티는 것을
       //   같은 뜻으로 읽어, 화면 수와 창 상태에 관계없이 같은 손짓이 닿게 한다.
-      const pinned = canPopOut && !trulyOutside && isPinnedToViewportEdge(cursorNow, vp);
-      if (!pinned) {
-        clearEdgeWatch();
-        edgeArmed = false;
-      } else if (!edgeArmed && edgeTimer === null) {
-        edgePushing = true;
-        setPopOutPushing(true);
-        edgeTimer = window.setTimeout(() => {
-          edgeTimer = null;
-          edgeArmed = true;
-          edgePushing = false;
-          setPopOutPushing(false);
-          outside = true;
-          setPopOutArmed(true);
-          // 무장은 커서가 멈춘 채 일어난다 — 다음 이동을 기다렸다 지우면 그동안 파란 도킹 미리보기와
-          //   보라 꺼내기 알림이 **동시에** 떠 무엇이 일어날지 말이 갈린다. 여기서 바로 걷는다.
-          dropAt = null;
-          setDropTarget(null);
-          setSnapRect(null);
+      const pinned = canPopOut && isPinnedToViewportEdge(cursorNow, vp);
+      if (!pinned) clearEdgeWatch();
+      else if (edgeTimer === null) startEdgeWatch(cursorNow, vp);
+
+      refreshGhost();
+      if (ghostOn) {
+        // (H-6) ③ 밖으로 빼는 중 — 본체는 멎고 선이 따라간다. 도킹·자석은 쉰다(그때 정해진 것은
+        //   "밖으로 나간다" 하나다 — 파란 도킹 미리보기와 함께 뜨면 무엇이 일어날지 말이 갈린다).
+        if (dropAt) { dropAt = null; setDropTarget(null); setSnapRect(null); }
+        if (lastGuides.x !== null || lastGuides.y !== null) {
           lastGuides = { x: null, y: null };
           setMagnetGuides(lastGuides);
-        }, IDE_FLOAT.POP_OUT_EDGE_DWELL_MS);
-      }
-      const outsideNow = trulyOutside || edgeArmed;
-      if (outsideNow !== outside) {
-        outside = outsideNow;
-        setPopOutArmed(outsideNow);
+        }
+        return;
       }
 
+      let moved = raw;
       // 도킹 자리 — 네 변 + **붙어 있는 칸 위**(가운데는 탭 합류, 앞뒤 띠는 새 칸).
       //   자리가 바뀔 때만 미리보기를 다시 잰다(매 프레임 새 객체를 넣으면 드래그 내내 리렌더가 붙는다).
-      const nextTarget = outside || disableDock
+      const nextTarget = disableDock
         ? null
         : resolveDockDrop({ x: ev.clientX, y: ev.clientY }, vp, others);
       if (!sameDockTarget(nextTarget, dropAt)) {
@@ -882,10 +1440,16 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
           ? previewDockRect(nextTarget, vp, others, dockSizeAtDrop(nextTarget, others, vp))
           : null);
       }
-      // 붙을 자리를 겨누는 동안(또는 밖으로 나간 동안)에는 자석을 끈다 — 미리보기가 이미 자리를 말한다.
-      if (!dropAt && !outside) {
-        const magnet = magnetFloatGeom(moved, magnetTargets, vp);
+      // 붙을 자리를 겨누는 동안에는 밀기·자석을 함께 끈다 — 미리보기가 이미 자리를 말한다.
+      if (!dropAt) {
+        // (판올림 번호 발급 대기) **밀기가 자석보다 먼저다.** 여유(`PUSH_GAP`=12px) 안에 든 창은
+        //   붙잡히는 것이 아니라 밀려나고, 미는 창은 그 뒤로도 멎지 않는다(사용자 지적 — "멈추지 말고").
+        //   `PUSH_GAP` > `MAGNET_PX` 라 떠 있는 창끼리는 붙이는 자석이 아예 걸리지 않는다.
+        const pushing = applyPush(moved, vp);
+        const magnet = magnetFloatGeom(moved, magnetRectsNow(pushing), vp);
         moved = magnet.geom;
+        // 자석이 마지막 몇 px 을 옮겼으면 그만큼 더 민다 — 한 프레임 늦게 따라오면 창이 겹쳐 보인다.
+        if (moved.x !== raw.x || moved.y !== raw.y) applyPush(moved, vp);
         if (magnet.guideX !== lastGuides.x || magnet.guideY !== lastGuides.y) {
           lastGuides = { x: magnet.guideX, y: magnet.guideY };
           setMagnetGuides(lastGuides);
@@ -895,25 +1459,26 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
         setMagnetGuides(lastGuides);
       }
       lastGeom = moved;
-      setFloatPos({ x: moved.x, y: moved.y });
+      // (H-6) ② 자리는 상태가 아니라 ref 에 적고 rAF 가 `transform` 으로 DOM 에 직접 쓴다.
+      dragOffsetRef.current = { dx: moved.x - dragBase.x, dy: moved.y - dragBase.y };
+      scheduleDragFrame();
     }
 
     function handleUp(): void {
-      window.removeEventListener('mousemove', handleMove);
-      window.removeEventListener('mouseup', handleUp);
-      clearEdgeWatch();
-      activeDragCleanupRef.current = null;
-      setSnapRect(null);
-      setZoneButtons([]);
-      setDropTarget(null);
-      setMagnetGuides({ x: null, y: null });
-      setPopOutArmed(false);
-      setPopOutPushing(false);
-      if (!dragging) return;
-      if (outside) {
-        // 앱 밖에서 놓았다 = 독립 창으로 꺼낸다. 끌던 크기를 그대로 물려줘 "그 창이 나온" 것처럼 이어진다.
-        popOutToWindow({ width: Math.round(nextW), height: Math.round(nextH) });
-        return;
+      if (poppedOut) return; // 이미 밖으로 나갔다 — 이 창은 닫히는 중이다.
+      const wasArmed = ghostOn && ghostArmed;
+      detach();
+      clearDragVisuals();
+      if (!dragging) { hideGhost(); return; }
+      // (H-6) ④ 선이 **무장한 채** 손을 뗐다 = 여기까지 끌었으면 밖으로 뺀다는 뜻 말고 없다.
+      if (wasArmed && canPopOut) { popOutNow(); return; }
+      hideGhost();
+      // (H-6) ① 안전망은 **여기서** 한 번 건다 — 끄는 동안 가두지 않았으므로 놓인 자리를 되돌린다.
+      if (lastGeom) {
+        const landed = clampFloatGeom(lastGeom, viewportNow());
+        lastGeom = landed;
+        dragOffsetRef.current = { dx: 0, dy: 0 };
+        setFloatPos({ x: landed.x, y: landed.y });
       }
       if (!dropAt) {
         // 붙이지 않고 놓았다 = 사용자가 정한 자리다. 접었다 펴거나 탭을 옮겨도 그대로여야 한다.
@@ -929,14 +1494,115 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
       setMode('docked');
     }
 
+    if (init.resumed) {
+      // 이어받기 — 손은 이미 눌린 채다. 임계 6px 을 기다리면 그동안 창이 커서에서 떨어져 있다.
+      dragging = true;
+      enterFloating();
+      // 알고 있으면 **지금** 손 아래에 앉힌다(화면 밖 좌표면 손대지 않는다 — 첫 이동이 잡아 준다).
+      const vp = viewportNow();
+      if (init.cursor && init.cursor.x >= 0 && init.cursor.y >= 0
+        && init.cursor.x <= vp.w && init.cursor.y <= vp.h) {
+        const geom = clampFloatGeom({
+          x: init.cursor.x - init.grabRatioX * nextW,
+          y: init.cursor.y - init.grabRatioY * nextH,
+          w: nextW,
+          h: nextH,
+        }, vp);
+        lastGeom = geom;
+        lastRaw = geom;
+        // (H-6) ② 이어받은 판의 기준점도 여기서 정해진다 — 그 뒤 이동은 전부 `transform` 이다.
+        dragBase = { x: geom.x, y: geom.y };
+        dragOffsetRef.current = { dx: 0, dy: 0 };
+        setFloatPos({ x: geom.x, y: geom.y });
+      }
+    }
     window.addEventListener('mousemove', handleMove);
     window.addEventListener('mouseup', handleUp);
     activeDragCleanupRef.current = () => {
       window.removeEventListener('mousemove', handleMove);
       window.removeEventListener('mouseup', handleUp);
       clearEdgeWatch();
+      // (H-6) 언마운트로 판이 끊겨도 선은 남지 않는다 — 클릭통과 창이라 사용자가 없앨 수 없다.
+      if (!poppedOut) hideGhost();
+      // 밀어 둔 창들도 여기서 굳힌다 — 안 그러면 남의 창에 transform 만 남아 영영 어긋난다.
+      settlePush();
+      dragOffsetRef.current = { dx: 0, dy: 0 };
     };
-  }, [fullWindow, mode, maximized, floatSize.w, floatSize.h, disableDock, bringToFront, viewportNow, otherDockedPanes, paneKey, setPaneDock, dockSizeAtDrop, commitFloat, canPopOut, popOutToWindow]);
+  }, [mode, maximized, floatSize.w, floatSize.h, disableDock, viewportNow, otherDockedPanes, paneKey, setPaneDock, dockSizeAtDrop, commitFloat, canPopOut, popOutToWindow, scheduleDragFrame]);
+
+  /**
+   * 타이틀바 mousedown.
+   *
+   * 앱 안 창은 in-window 이동(위 `beginTitleDrag`)이고, **독립 창은 OS 창째** 움직인다 —
+   * 그쪽은 main 이 커서를 폴링해 창을 끌고 다니며(§17-6 v2.81 버블 드래그와 같은 물리),
+   * 끌다 앱 안으로 들어오면 그 자리에서 앱 안 IDE 로 돌아간다(H-4 ②).
+   *
+   * ⚠ 독립 창 타이틀바에 OS `app-drag` 를 쓰지 않는 까닭: OS 가 창을 끄는 동안에는 렌더러에
+   *   아무 신호도 오지 않아 "앱 안으로 들어왔다"를 알 길이 없다.
+   */
+  const handleTitleBarMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    // 버튼·인터랙티브 자손(이름 리네임 포함)에서 시작된 mousedown 은 드래그 ❌
+    const target = e.target as HTMLElement;
+    if (target.closest('button') || target.closest('[data-ide-agent-name]')) return;
+
+    if (fullWindow) {
+      const ov = window.api?.overlay;
+      if (!ov?.dragStart) return;
+      // 짐은 **시작할 때** 맡긴다 — 손이 눌린 동안에는 이 창의 상태가 바뀌지 않으므로 그 값이 곧
+      //   마지막 값이고, 돌아가는 순간에 뜨려 하면 창이 이미 닫히는 중일 수 있다.
+      void ov.dragStart({ redockOnEnter: true, handoff: captureHandoff() });
+      const end = (): void => {
+        window.removeEventListener('mouseup', end);
+        void ov.dragEnd();
+      };
+      window.addEventListener('mouseup', end);
+      return;
+    }
+
+    bringToFront();
+    const win = windowRef.current;
+    if (!win) return;
+    const rect = win.getBoundingClientRect();
+    beginTitleDrag({
+      startX: e.clientX,
+      startY: e.clientY,
+      // 클릭 지점이 윈도우 좌상단에서 얼마나 떨어졌는지 — 분리 후에도 그 비율을 유지
+      grabRatioX: (e.clientX - rect.left) / rect.width,
+      grabRatioY: (e.clientY - rect.top) / rect.height,
+      width: rect.width,
+      height: rect.height,
+    });
+  }, [fullWindow, captureHandoff, bringToFront, beginTitleDrag]);
+
+  /**
+   * §5.5 #17-6 (H-4) ③ — 밖에서 끌던 창이 앱 안으로 돌아왔다: **그 드래그를 이어받는다.**
+   *
+   * 손은 아직 눌려 있으므로, 이어받지 않으면 창은 돌아왔는데 움직이지 않는다(한 번 놓았다 다시
+   * 잡아야 한다 = 한 손짓이 두 동강 난다). 짐은 창이 서기 전에 맡겨져 있고 **한 번 꺼내면
+   * 사라진다** — 창이 아직 그려지지 않았으면(`windowRef` 없음) 꺼내지 않고 다음 렌더를 기다린다.
+   */
+  useEffect(() => {
+    if (!agentId || fullWindow) return;
+    if (!windowRef.current) return;
+    const resume = takePaneDragResume(agentId);
+    if (!resume) return;
+    const rect = windowRef.current.getBoundingClientRect();
+    beginTitleDrag({
+      startX: 0,
+      startY: 0,
+      grabRatioX: resume.grabRatioX,
+      grabRatioY: resume.grabRatioY,
+      width: rect.width > 0 ? rect.width : resume.width,
+      height: rect.height > 0 ? rect.height : resume.height,
+      resumed: true,
+      // 커서의 화면 좌표를 창 안 좌표로 옮긴다(`window.screenX/Y` = 이 창의 콘텐츠 좌상단).
+      //   없거나 화면 밖으로 나오면 넘기지 않는다 — 첫 mousemove 가 곧 자리를 잡아 준다.
+      cursor: resume.cursor
+        ? { x: resume.cursor.x - window.screenX, y: resume.cursor.y - window.screenY }
+        : undefined,
+    });
+  }, [agentId, agent, fullWindow, beginTitleDrag]);
 
   /**
    * 떠 있는 창의 **여덟 방향** 리사이즈. 종전에는 우하단 한 곳뿐이라 왼쪽·위로 넓히려면
@@ -1077,8 +1743,18 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     const startSize = storeDockSize;
 
     function handleMove(ev: MouseEvent): void {
-      const raw = dockSizeFromDrag(side!, startSize, ev.clientX - startX, ev.clientY - startY);
-      setPaneDockSize(paneKey, clampDockSize(side!, raw, viewportNow(), otherDockedPanes()));
+      const wanted = dockSizeFromDrag(side!, startSize, ev.clientX - startX, ev.clientY - startY);
+      const others = otherDockedPanes();
+      // (판올림 번호 발급 대기) §5.5 #17-1 — 종전에는 "반대편 도크 + 캔버스 최소치"에서 손잡이가
+      //   그대로 멎었다. 이제 그 문턱을 넘기면 **마주 보는 도크가 밀려난다**(창끼리 밀리는 것과 같은
+      //   규칙 — 부딪히면 멈추는 것이 아니라 상대가 비켜 준다). 캔버스 여유는 끝까지 지킨다.
+      const push = pushDockSize(side!, wanted, viewportNow(), others);
+      if (push.opposite) {
+        // 같은 변의 창들은 두께를 함께 쓴다 — 그 변의 창 하나에만 적어도 스토어가 변 전체에 편다.
+        const victim = others.find((p) => p.side === push.opposite!.side);
+        if (victim) setPaneDockSize(victim.paneKey, push.opposite.size);
+      }
+      setPaneDockSize(paneKey, push.size);
     }
     function handleUp(): void {
       window.removeEventListener('mousemove', handleMove);
@@ -1117,8 +1793,11 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
    * `+W` 다음 창 앞으로. 판정은 자판 배열과 무관한 `e.code` 로 하고, 글자를 치는 중에는
    * 통째로 비켜선다 — 일부 유럽 자판에서 AltGr 이 곧 Ctrl+Alt 라 입력을 가로챌 수 있다.
    */
+  //
+  // §5.5 #17-6 (H-5) — 독립 창에서는 **최대화(+Enter) 하나만** 받는다. 붙이기·떼기·다음 창은 그
+  //   창에 뜻이 없지만, 최대화는 이제 그 창에서도 하는 일이 있다(버튼·더블클릭과 같은 일).
   useEffect(() => {
-    if (!agentId || !isFrontPane || fullWindow) return;
+    if (!agentId || !isFrontPane) return;
     function onKey(e: KeyboardEvent): void {
       // mac 에서 실제로 눌리는 것은 ⌘⌥ 다 — 이 저장소의 단축키는 전부 `ctrlKey || metaKey` 를 함께 본다.
       if (!(e.ctrlKey || e.metaKey) || !e.altKey || e.shiftKey) return;
@@ -1131,14 +1810,15 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
         : e.code === 'ArrowDown' ? 'bottom'
         : null;
       if (side) {
-        if (disableDock) return;
+        if (fullWindow || disableDock) return;
         dockToSide(side);
       } else if (e.code === 'Enter' || e.code === 'NumpadEnter') {
         toggleMaximized();
       } else if (e.code === 'KeyD') {
-        if (disableDock) return;
+        if (fullWindow || disableDock) return;
         undock();
       } else if (e.code === 'KeyW') {
+        if (fullWindow) return;
         cyclePaneFocus(1);
       } else {
         return;
@@ -1334,12 +2014,26 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   const isModal = mode === 'modal';
   // 붙을 변이 없으면 도킹이 아니다 — 모드만 남고 변이 사라진 찰나에 창을 잃지 않게 한다.
   const isDocked = mode === 'docked' && !!storeDockSide;
+  // (판올림 번호 발급 대기) 남이 나를 밀 수 있는가 — **떠 있는 창일 때만**. 붙어 있거나·최대화·모달·
+  //   독립 창은 옮길 자리가 아니다(store 의 `float` 만 보고 판정하면 최대화된 창을 옮기려 든다).
+  //   그리고 **실제로 그려지는** 창이어야 한다 — 에이전트가 스냅샷에 없으면 화면에 아무것도 없는데
+  //   자리만 남으므로, 없는 창을 밀어 그 자리를 슬롯에 적는 일이 생긴다.
+  pushableRef.current = !!agentId && !!agent
+    && mode === 'floating' && !maximized && !isModal && !isDocked && !fullWindow;
   const dockRect = isDocked ? dockLayout.rects[selfPaneKey] ?? null : null;
+
+  // §5.5 #17-6 (H-5) — 지금 이 창이 최대화 상태인가. 앱 안 창은 창 안 레이아웃(`maximized`),
+  //   독립 창은 **OS 창**(main 이 밀어 준 `osMaximized`) — 아이콘·툴팁이 그 하나만 본다.
+  const isMaximized = fullWindow ? osMaximized : maximized;
 
   // 폰 폭에서 타이틀바 한 줄이 넘쳐 **맨 오른쪽 [닫기]가 화면 밖으로 밀려나던** 것을 막는다.
   //   무엇을 접을지는 순수 함수 한 곳에서만 정한다(titleBarChrome + 단위 테스트) — 조건을 JSX 에
   //   흩어 두면 "붙어 있는데 [떼기]가 사라진" 조합이 생겨 폰에서 창에 갇힌다.
-  const chrome = resolveTitleBarChrome({ narrow: isNarrow, isModal, isDocked, fullWindow, disableDock });
+  //   접는 기준은 이제 뷰포트가 아니라 **이 창의 폭**이다 — 같은 넘침이 넓은 화면에서 창만 좁혀도
+  //   똑같이 일어나는데, `max-md` 는 그 경우를 모른다(`bodyLayout.titleBarNarrow`).
+  const chrome = resolveTitleBarChrome({
+    narrow: bodyLayout.titleBarNarrow, isModal, isDocked, fullWindow, disableDock,
+  });
 
   let windowClass = 'flex flex-col overflow-hidden border-gray-700 bg-gray-900 shadow-2xl shadow-black/60';
   let windowStyle: React.CSSProperties = {};
@@ -1365,11 +2059,24 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     // floating — 그리고 "모드는 도킹인데 붙을 변이 사라진" 찰나도 여기로 온다. 어느 갈래에도
     //   안 걸리면 창이 자리 없이 문서 흐름에 떨어져 화면이 무너지므로 **마지막 갈래**로 둔다.
     windowClass += ' fixed rounded-lg border';
+    // §5.5 #17-6 (H-6) ② 끄는 동안의 이동은 `left/top` 이 아니라 `transform` 이다(레이아웃 없는
+    //   합성). 값은 `dragOffsetRef` — rAF 가 DOM 에 직접 쓰는 것과 **같은 곳**을 읽으므로, 끄는
+    //   도중에 다른 이유로 리렌더가 나도 창이 옛 자리로 튀지 않는다.
+    // 끄는 이동 + 밀린 이동 — rAF 가 DOM 에 쓰는 것과 **같은 합**이라 리렌더가 나도 창이 안 튄다.
+    const off = {
+      dx: dragOffsetRef.current.dx + pushOffsetRef.current.dx,
+      dy: dragOffsetRef.current.dy + pushOffsetRef.current.dy,
+    };
     windowStyle = {
       left: floatPos.x,
       top: floatPos.y,
       width: floatSize.w,
       height: floatSize.h,
+      transform: off.dx === 0 && off.dy === 0 ? undefined : `translate3d(${off.dx}px, ${off.dy}px, 0)`,
+      willChange: off.dx === 0 && off.dy === 0 ? undefined : 'transform',
+      // (H-6) ③ 밖으로 빼는 중에는 본체가 그 자리에 **멎는다** — 지금 손을 따라가는 것은 선이다.
+      opacity: popOutGhost ? 0.35 : undefined,
+      transition: popOutGhost ? 'opacity 120ms ease-out' : undefined,
     };
   }
 
@@ -1385,6 +2092,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
       : 'fixed inset-0 z-50 pointer-events-none';
 
   return (
+    <IDEBodyLayoutContext.Provider value={bodyLayoutValue}>
     <div
       className={outerClass}
       // 겹침 순서 — 스토어의 앞뒤 도장으로 매긴 **순위**를 쓴다(도장 자체를 z-index 로 쓰면
@@ -1448,6 +2156,23 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
           </div>
         );
       })}
+      {/* §5.5 #17-6 (H-6) ③ **선으로 그린 가상 창** — 앱 밖까지 이어지는 정본은 main 의 클릭통과
+          투명 창이고(`ghostFrame.ts`), 이것은 그 창을 만들지 못한 환경의 폴백이라 앱 경계에서
+          잘린다. 선이 아예 없는 것보다 잘린 선이 낫다(무엇이 어디로 빠지는지는 여전히 보인다).
+          자리는 상태가 아니라 rAF 가 DOM 에 직접 쓴다 — 끄는 동안 리렌더 ❌. */}
+      {popOutGhost?.kind === 'inapp' && (
+        <div
+          ref={ghostElRef}
+          data-ide-popout-ghost="1"
+          className={`fixed left-0 top-0 rounded-lg border-2 ${
+            popOutGhost.armed
+              ? 'border-violet-300/90 bg-violet-500/[0.12]'
+              : 'border-violet-400/70 bg-violet-500/[0.06]'
+          }`}
+          style={{ pointerEvents: 'none', zIndex: 49, willChange: 'transform' }}
+          aria-hidden="true"
+        />
+      )}
       {/* 자석 안내선 — 왜 창이 마지막 몇 px 을 알아서 맞췄는지 눈으로 보이게 한다. */}
       {magnetGuides.x !== null && (
         <div className="fixed bottom-0 top-0 w-px bg-sky-400/70" style={{ left: magnetGuides.x, pointerEvents: 'none', zIndex: 49 }} aria-hidden="true" />
@@ -1491,21 +2216,27 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
             />
           </div>
         )}
-        {/* (판올림 번호 발급 대기) 커서가 앱 밖으로 나갔다 — 지금 놓으면 독립 창으로 빠진다.
-            사고로 튀어나가지 않도록 **놓기 전에** 무슨 일이 일어날지 먼저 말한다. */}
-        {(popOutArmed || popOutPushing) && (
+        {/* §5.5 #17-6 (H-6) ③ 밖으로 빼는 중 — 본체는 여기 멎어 있고 손을 따라가는 것은 선이다.
+            그 자리에 남는 이 창은 **무슨 일이 일어나는지**만 말한다: 조금 더 끌면 나간다(연보라),
+            여기까지 왔으면 놓기만 해도 나간다(무장 — 밝은 보라). 종전 (H-3) 의 예고 문구가
+            문구뿐이었던 자리를, 이제는 문구와 **그림**(가상 창)이 함께 채운다. */}
+        {popOutGhost && (
           <div
             className={`pointer-events-none absolute inset-0 z-30 rounded-lg border-2 ${
-              popOutArmed ? 'border-violet-400/80 bg-violet-500/10' : 'border-violet-400/40 bg-violet-500/[0.04]'
+              popOutGhost.armed
+                ? 'border-violet-300/80 bg-violet-500/[0.10]'
+                : 'border-violet-400/40 bg-violet-500/[0.04]'
             }`}
             aria-hidden="true"
           >
-            <div className="absolute left-1/2 top-3 flex -translate-x-1/2 items-center gap-1.5 rounded-md border border-violet-400/60 bg-gray-900/90 px-2.5 py-1 text-[12px] text-violet-100 shadow-lg shadow-black/50">
+            <div className={`absolute left-1/2 top-3 flex -translate-x-1/2 items-center gap-1.5 rounded-md border bg-gray-900/90 px-2.5 py-1 text-[12px] shadow-lg shadow-black/50 ${
+              popOutGhost.armed ? 'border-violet-300/80 text-violet-50' : 'border-violet-400/60 text-violet-100'
+            }`}>
               <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
                 <rect x="3" y="8" width="13" height="13" rx="2" />
                 <path d="M8 3h13v13" />
               </svg>
-              {popOutArmed ? t('ide.overlay.popOutHint') : t('ide.overlay.popOutEdgeHint')}
+              {popOutGhost.armed ? t('ide.overlay.popOutGhostArmedHint') : t('ide.overlay.popOutGhostHint')}
             </div>
           </div>
         )}
@@ -1553,24 +2284,26 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
         ))}
         {/* Title bar — §3.7 v2.14 명도 ramp 중간 톤 (v2.15: 상단 액센트 라인 제거 — 사용자 요청).
             §5.5 #17-1 — 타이틀바 드래그로 modal↔floating↔docked 전이.
-            §5.5 #17-6 v2.80 — fullWindow(오버레이 창)에선 app-drag 로 OS 창째 이동(버튼은 app-nodrag). */}
+            §5.5 #17-6 (H-4) — fullWindow(독립 창)도 **우리 드래그**로 OS 창째 옮긴다(종전 app-drag ❌).
+            OS 가 창을 끄는 동안에는 렌더러에 아무 신호도 오지 않아 "앱 안으로 들어왔다"를 알 수 없다. */}
         <div
           onMouseDown={handleTitleBarMouseDown}
           onDoubleClick={handleTitleBarDoubleClick}
           onMouseEnter={() => { titleBarHoveredRef.current = true; }}
           onMouseLeave={() => { titleBarHoveredRef.current = false; }}
-          className={`flex h-10 flex-shrink-0 items-center justify-between border-b border-gray-700 bg-[#1a2236] px-4 select-none ${
-            fullWindow ? 'app-drag cursor-default' : 'cursor-grab active:cursor-grabbing'
-          }`}
+          className="flex h-10 flex-shrink-0 cursor-grab items-center justify-between border-b border-gray-700 bg-[#1a2236] px-4 select-none active:cursor-grabbing"
         >
           {/* 좌측 묶음은 **줄어들 수 있어야** 한다(min-w-0) — 이게 없으면 긴 에이전트 이름이
               우측 버튼 묶음을 통째로 화면 밖으로 밀어 [닫기]가 사라진다(폰 실사용 보고). */}
           <div className="flex min-w-0 items-center gap-2">
-            {/* §4 v3.24 — 폰 전용 좌측 내비 토글(md:hidden). 활동바+사이드바 오버레이 열기/닫기. */}
+            {/* §4 v3.24 — 좌측 내비 서랍 토글. 활동바·사이드바가 자리를 비운 동안 그것을 되부르는
+                유일한 손잡이라, **서랍인 동안에만** 뜬다(넓은 창에서는 종전처럼 없다). */}
             <button
               type="button"
               onClick={handleToggleMobileNav}
-              className={`app-nodrag hidden h-8 w-8 flex-shrink-0 items-center justify-center rounded transition-colors max-md:flex ${
+              className={`app-nodrag h-8 w-8 flex-shrink-0 items-center justify-center rounded transition-colors ${
+                navDrawerMode ? 'flex' : 'hidden'
+              } ${
                 mobileNavOpen ? 'bg-gray-700 text-gray-100' : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
               }`}
               aria-label={t('ide.overlay.toggleNav', { defaultValue: 'Toggle navigation' })}
@@ -1658,7 +2391,9 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
             <button
               type="button"
               onClick={() => setMobileStatusOpen((v) => !v)}
-              className={`app-nodrag hidden h-8 w-8 items-center justify-center rounded transition-colors max-md:flex ${
+              className={`app-nodrag h-8 w-8 items-center justify-center rounded transition-colors ${
+                statusDrawerMode ? 'flex' : 'hidden'
+              } ${
                 mobileStatusOpen ? 'bg-gray-700 text-gray-100' : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
               }`}
               aria-label={t('ide.overlay.toggleStatusBar', { defaultValue: 'Toggle status bar' })}
@@ -1793,7 +2528,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
                         type="button"
                         onClick={() => {
                           setDockMenuOpen(false);
-                          popOutToWindow({ width: Math.round(floatSize.w), height: Math.round(floatSize.h) });
+                          popOutToWindow({ size: { width: Math.round(floatSize.w), height: Math.round(floatSize.h) } });
                         }}
                         className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs text-gray-300 transition-colors hover:bg-gray-800"
                       >
@@ -1832,25 +2567,9 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
               </svg>
             </button>
             )}
-            {/* §5.5 #17-6 (H) — **독립 창으로 꺼내기**. 돌아오는 손잡이가 타이틀바에 있는데
-                나가는 손잡이만 [붙이기] 메뉴 세 단계 안에 있으면 두 방향이 대칭이 아니다
-                (게다가 도킹이 꺼진 창에서는 그 메뉴 자체가 없어 나갈 길이 사라졌다).
-                끌어내기와 **같은 일**을 하며, 붙이기 메뉴의 같은 항목도 그대로 남는다. */}
-            {canPopOut && (
-              <button
-                type="button"
-                onClick={() => popOutToWindow({ width: Math.round(floatSize.w), height: Math.round(floatSize.h) })}
-                className="app-nodrag flex h-6 w-6 items-center justify-center rounded text-gray-400 transition-colors pointer-coarse:h-9 pointer-coarse:w-9 hover:bg-gray-700 hover:text-gray-200"
-                aria-label={t('ide.overlay.popOutLabel')}
-                title={t('ide.overlay.popOutHintButton')}
-              >
-                <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M15 3h6v6" />
-                  <path d="M10 14 21 3" />
-                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                </svg>
-              </button>
-            )}
+            {/* §5.5 #17-6 (H-4) ⑤ — 종전의 [독립 창으로 꺼내기] 버튼은 **없앴다.** 타이틀바를 잡고
+                앱 밖으로 끌면 경계를 넘는 그 순간 창이 밖으로 나가므로, 같은 일을 하는 두 번째
+                손잡이가 됐다(끌기가 어려운 트랙패드·터치를 위해 [붙이기] 메뉴 항목은 남아 있다). */}
             {/* (판올림 번호 발급 대기) 꺼내 둔 창에서만 뜨는 **되돌리기** — 메인 창의 그 자리로
                 IDE 를 다시 열고 이 창은 닫는다. 꺼내는 길만 있고 돌아오는 길이 없으면 함정이다. */}
             {fullWindow && !!window.api?.overlay?.revealInMain && (
@@ -1870,16 +2589,17 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
                 </svg>
               </button>
             )}
-            {/* fullWindow 는 창=IDE 1:1 — 확대축소는 OS 창 엣지 리사이즈로, in-window maximize 버튼 숨김. */}
+            {/* §5.5 #17-6 (H-5) — 독립 창에서는 이 버튼이 **OS 창**을 최대화한다(앱 안 창은 종전대로
+                창 안 레이아웃). 같은 자리·같은 아이콘이라 두 창에서 배울 손버릇이 하나다. */}
             {chrome.showMaximize && (
             <button
               type="button"
               onClick={toggleMaximized}
-              className="flex h-6 w-6 items-center justify-center rounded text-gray-400 transition-colors hover:bg-gray-700 hover:text-gray-200"
-              aria-label={maximized ? t('ide.overlay.restoreLabel') : t('ide.overlay.maximizeLabel')}
-              title={maximized ? t('ide.overlay.restoreLabel') : t('ide.overlay.maximizeLabel')}
+              className="app-nodrag flex h-6 w-6 items-center justify-center rounded text-gray-400 transition-colors pointer-coarse:h-9 pointer-coarse:w-9 hover:bg-gray-700 hover:text-gray-200"
+              aria-label={isMaximized ? t('ide.overlay.restoreLabel') : t('ide.overlay.maximizeLabel')}
+              title={isMaximized ? t('ide.overlay.restoreLabel') : t('ide.overlay.maximizeLabel')}
             >
-              {maximized ? (
+              {isMaximized ? (
                 <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
                   <path d="M8 3v3a2 2 0 0 1-2 2H3" />
                   <path d="M21 8h-3a2 2 0 0 1-2-2V3" />
@@ -1920,30 +2640,31 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
         {/* Body: Activity bar + Sidebar + Main area.
             §5.5 #17-20 ④ — 활동바 우측 영역 전체를 덮는 별도 "세션창"은 이제 실행 출력 하나뿐이다
             (북마크·세션 요약은 v4.93, 실행 중 서브에이전트는 #17-9 ③ v4.95 부터 사이드바 뷰). */}
-        <div className="relative flex min-h-0 flex-1">
-          {/* §4 v3.24 — 폰에선 좌측 내비(활동바+사이드바)를 타이틀바 토글로만 연다. 열리면 본문 위
-              오버레이(활동바 max-md:absolute + 사이드바 v3.18 오버레이)로 뜨고, backdrop 탭으로 닫는다. */}
-          {isNarrow && mobileNavOpen && (
+        <div ref={bodyRef} className="relative flex min-h-0 flex-1">
+          {/* §4 v3.24 — 좌측 내비(활동바+사이드바)가 서랍이면 타이틀바 토글로만 연다. 열리면 본문 위
+              오버레이로 뜨고, backdrop 탭으로 닫는다. 서랍이 되는 조건이 폰 폭에서 **창 폭**으로
+              넓어졌을 뿐(#17-1 확장), 여는 손잡이와 거동은 종전 그대로다. */}
+          {navDrawerMode && mobileNavOpen && (
             <div
-              className="absolute inset-0 z-20 bg-black/40"
+              className="absolute inset-0 z-30 bg-black/40"
               {...mobileNavBackdrop}
               aria-hidden="true"
             />
           )}
-          {(!isNarrow || mobileNavOpen) && (
-            <>
-              <IDEActivityBar />
-              <IDESidebar agentId={agentId} />
-            </>
-          )}
+          {/* 활동바는 **마지막에** 접힌다 — 사이드바가 서랍인 동안에도 자리에 남아, 사라진 목록을
+              되부르는 손잡이가 된다(항목을 누르면 서랍이 그 뷰로 열린다). */}
+          {(!bodyLayout.navDrawer || mobileNavOpen) && <IDEActivityBar />}
+          {(!bodyLayout.sidebarDrawer || mobileNavOpen) && <IDESidebar agentId={agentId} />}
           {/* §5.5 #17-34 — 창 안 화면 분할. 안 나눴으면 종전처럼 `IDEMainArea` 한 벌만 그린다. */}
           <IDESplitView agentId={agentId} isCustom={isCustom} />
           {/* §5.5 #17-27 v4.87 — 내장 편집창. 대화를 덮지 않고 그 오른쪽에 선다(열린 파일이 없으면 렌더 ❌).
-              폰 폭에서는 나란히 둘 자리가 없어 대화 위 오버레이로 뜬다. */}
-          <IDEEditorPane narrow={isNarrow} />
-          {/* §5.5 #17-20 ④ v4.74 — 실행 출력. 디버그 뷰에서 [출력]을 누르면 열린다(같은 덮개 자리). */}
+              나란히 세울 폭이 안 남으면(폰이거나 창이 좁으면) 대화 위 오버레이로 뜬다. */}
+          <IDEEditorPane />
+          {/* §5.5 #17-20 ④ v4.74 — 실행 출력. 디버그 뷰에서 [출력]을 누르면 열린다(같은 덮개 자리).
+              활동바가 서랍이면 화면 전체, 자리에 서 있으면 그 오른쪽부터 — 덮개가 활동바를 가리면
+              사이드바를 되부를 손잡이가 사라진다(편집창 덮개와 같은 규칙). */}
           {runOutputRunId && (
-            <div className="absolute inset-y-0 left-12 right-0 z-20 max-md:left-0">
+            <div className={`absolute inset-y-0 right-0 z-20 ${bodyLayout.navDrawer ? 'left-0' : 'left-12'}`}>
               <IDERunOutputPanel onClose={() => openRunOutput(null)} />
             </div>
           )}
@@ -1960,8 +2681,12 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
           />
         )}
 
-        {/* Status bar — §4 v3.25: 폰에선 기본 숨김, 타이틀바 토글 버튼으로만 표시. */}
-        {(!isNarrow || mobileStatusOpen) && (
+        {/* §5.5 #17-35 ⑨⑩ — 시연 녹화 상시 마운트 층(스트림·녹화기·소스 피커·시연 창).
+            검증 뷰가 아니라 여기 사는 이유는 하나다 — 사이드바가 접혀도 녹화가 끊기면 안 된다. */}
+        <VerifyDemoLayer />
+
+        {/* Status bar — §4 v3.25: 서랍 폭에서는 기본 숨김, 타이틀바 토글 버튼으로만 표시. */}
+        {(!statusDrawerMode || mobileStatusOpen) && (
           <IDEStatusBar
             agent={agent}
             activeSession={activeSession}
@@ -1971,5 +2696,6 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
         )}
       </div>
     </div>
+    </IDEBodyLayoutContext.Provider>
   );
 });

@@ -5,7 +5,13 @@ import { useGraphStore } from '../../stores/graphStore.js';
 import { CardLiveBadge } from './AgentCardParts.js';
 import { useCardSelectionCopy } from './cardSelection.js';
 import { promptOverlayReserve, PROMPT_RESERVE_FALLBACK_PX } from './promptOverlayReserve.js';
-import { buildQuestionCardText, buildQuestionsOnlyText, buildSingleQuestionText } from './questionCardText.js';
+import {
+  buildQuestionCardText,
+  buildQuestionsOnlyText,
+  buildSingleQuestionText,
+  collectCheckedAnswers,
+  formatCheckedAnswers,
+} from './questionCardText.js';
 
 interface AgentQuestionCardProps {
   questions: AgentQuestions;
@@ -446,35 +452,21 @@ export const AgentQuestionCard = memo(function AgentQuestionCard({ questions, on
     });
   }, []);
 
-  // 아직 답하지 않은 질문에 대해 선택된 답의 총 개수.
-  const selectedCount = useMemo(() => {
-    let n = 0;
-    for (const [qiStr, set] of Object.entries(selected)) {
-      if (answered[Number(qiStr)] !== undefined) continue;
-      n += set.size;
-    }
-    return n;
-  }, [selected, answered]);
+  // 체크박스로 고른 답 한 벌 — **개수도 전송도 복사도 이 하나를 본다.** 따로 세면 `선택한 N개 전송` 이
+  // 말하는 수와 실제로 가는 답이 어긋난다(이미 답한 질문에 남은 체크가 그 자리다).
+  const checkedAnswers = useMemo(
+    () => collectCheckedAnswers(questions, selected, answered),
+    [questions, selected, answered],
+  );
+  const selectedCount = checkedAnswers.prompts.length;
 
-  // 종합 전송: 아직 답 안 한 질문들의 선택된 답을 질문/답 순서대로 모아 한 번에 새 명령으로 전송.
+  // 종합 전송: 고른 답들을 질문/답 순서대로 한 번에 새 명령으로 전송(질문 잠금은 질문마다 첫 선택 답 기준).
   const handleSendSelected = useCallback(() => {
-    const chosen: string[] = [];
-    const lockNext: Record<number, number> = {};
-    questions.items.forEach((item, qi) => {
-      if (answered[qi] !== undefined) return;
-      const set = selected[qi];
-      if (!set || set.size === 0) return;
-      item.prompts.forEach((p, pi) => {
-        if (!set.has(pi)) return;
-        chosen.push(p);
-        if (lockNext[qi] === undefined) lockNext[qi] = pi; // 질문 잠금은 첫 선택 답 기준.
-      });
-    });
-    if (chosen.length === 0) return;
-    sendPrompt(chosen.join('\n\n'));
-    setAnswered((prev) => ({ ...lockNext, ...prev }));
+    if (checkedAnswers.prompts.length === 0) return;
+    sendPrompt(formatCheckedAnswers(checkedAnswers));
+    setAnswered((prev) => ({ ...checkedAnswers.lockNext, ...prev }));
     setSelected({});
-  }, [questions.items, answered, selected, sendPrompt]);
+  }, [checkedAnswers, sendPrompt]);
 
   const clearSelection = useCallback(() => setSelected({}), []);
 
@@ -484,11 +476,25 @@ export const AgentQuestionCard = memo(function AgentQuestionCard({ questions, on
   // 질문만 복사: 제안 답 없이 질문 텍스트(헤더 포함)만.
   const buildQuestionsText = useCallback((): string => buildQuestionsOnlyText(questions), [questions]);
 
-  // 선택 복사: 사용자가 이 카드 안에서 드래그로 고른 부분만(카드 경계에서 자름, 줄바꿈 보존).
-  //   고른 그 순간에 텍스트를 떠 두므로, 스트림이 다시 그려져 선택이 풀린 뒤에 눌러도 그때 고른
-  //   부분이 그대로 복사된다(선택이 살아 있을 때만 켜지던 종전 판정은 실제로 잠긴 채였다).
+  // 선택 복사: 사용자가 이 카드 안에서 **고른 것**. 원천이 둘이다 —
+  //   ① 드래그 선택(카드 경계에서 자름, 줄바꿈 보존). 고른 그 순간에 텍스트를 떠 두므로, 스트림이
+  //      다시 그려져 선택이 풀린 뒤에 눌러도 그때 고른 부분이 그대로 복사된다.
+  //   ② 답지 체크박스. 체크는 화면에 그대로 남아 있는 선택인데도 이 버튼의 사정권 밖이라, 체크를
+  //      해 놓고도 버튼이 회색이었다 — 전송과 **같은 함수**로 찍어 붙여넣은 것과 보낸 것을 일치시킨다.
   const rootRef = useRef<HTMLDivElement>(null);
-  const { enabled: canCopySelection, getText: buildSelectionText } = useCardSelectionCopy(rootRef, questions.id);
+  const buildCheckedText = useCallback(() => formatCheckedAnswers(checkedAnswers), [checkedAnswers]);
+  const { enabled: canCopySelection, getText: buildSelectionText } = useCardSelectionCopy(
+    rootRef,
+    questions.id,
+    { present: selectedCount > 0, getText: buildCheckedText },
+  );
+
+  // 버튼이 잠겨 있을 때는 **켜는 방법**을, 켜져 있을 때는 **무엇이 복사되는지**를 말한다.
+  const selectionTitle = selectedCount > 0
+    ? t('ide.question.copySelectionChecked', { n: selectedCount })
+    : canCopySelection
+      ? t('ide.question.copySelection')
+      : t(multi ? 'ide.question.copySelectionHintCheckable' : 'ide.question.copySelectionHint');
 
   return (
     <div ref={rootRef} className="mx-2 my-1.5 overflow-hidden rounded-md border border-sky-500/40 bg-sky-500/5">
@@ -515,10 +521,10 @@ export const AgentQuestionCard = memo(function AgentQuestionCard({ questions, on
             icon={<QuestionsIcon />}
             getText={buildQuestionsText}
           />
-          {/* 선택 복사 — 고른 부분이 없으면 회색으로 남겨 "드래그하면 이걸 쓸 수 있다"를 알린다(숨기면 못 찾는다). */}
+          {/* 선택 복사 — 고른 것이 없으면 회색으로 남겨 "고르면 이걸 쓸 수 있다"를 알린다(숨기면 못 찾는다). */}
           <HeaderCopyButton
             label={t('ide.question.copySelection')}
-            title={canCopySelection ? t('ide.question.copySelection') : t('ide.question.copySelectionHint')}
+            title={selectionTitle}
             icon={<SelectionIcon />}
             getText={buildSelectionText}
             disabled={!canCopySelection}

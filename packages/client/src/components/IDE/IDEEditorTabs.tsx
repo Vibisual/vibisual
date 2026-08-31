@@ -7,6 +7,9 @@ import type { IDEEditorFile } from '../../stores/graphStore.js';
  *
  * 탭 하나 = 파일 하나. 저장할 것이 남아 있으면 닫기 자리에 **점**이 뜨고(마우스를 올리면 X 로 바뀐다),
  * 같은 이름의 파일이 여럿이면 라벨에 상위 폴더 한 겹이 붙는다(`tabLabels`).
+ *
+ * §5.5 #17-27 ⑯ — 이 줄은 **그 세션의 것**이다. 세션 탭을 옮기면 탭 줄도 함께 바뀌고, 오른쪽 끝의
+ * [고정] 을 켜 두면 그때만 지금 탭이 세션을 따라다닌다(참고 파일을 띄워 두고 여러 세션을 볼 때).
  */
 
 interface IDEEditorTabsProps {
@@ -19,6 +22,9 @@ interface IDEEditorTabsProps {
   onCloseAll: () => void;
   /** §5.5 #17-27 ⑨ v4.97 — 탭 우클릭(누른 그 탭이 대상 — 활성 탭이 아닐 수도 있다). */
   onTabContextMenu?: (e: React.MouseEvent, relPath: string) => void;
+  /** §5.5 #17-27 ⑯ — [고정]이 켜져 있는가(켜져 있으면 세션을 옮겨도 이 탭들이 그대로 있다). */
+  pinned: boolean;
+  onTogglePinned: () => void;
 }
 
 export const IDEEditorTabs = memo(function IDEEditorTabs({
@@ -29,6 +35,8 @@ export const IDEEditorTabs = memo(function IDEEditorTabs({
   onClose,
   onCloseAll,
   onTabContextMenu,
+  pinned,
+  onTogglePinned,
 }: IDEEditorTabsProps): React.JSX.Element {
   const { t } = useTranslation();
 
@@ -74,6 +82,28 @@ export const IDEEditorTabs = memo(function IDEEditorTabs({
           );
         })}
       </div>
+      {/* §5.5 #17-27 ⑯ — [고정]. 켜져 있으면 세션을 옮겨도 이 탭 줄이 따라간다. 켜짐은 색으로
+          말한다(파랑) — 눌린 버튼이 회색으로만 어두워지면 켜졌는지 꺼졌는지 알 수 없다. */}
+      <button
+        type="button"
+        onClick={onTogglePinned}
+        aria-pressed={pinned}
+        title={t(pinned ? 'ide.editor.unpinTabs' : 'ide.editor.pinTabs')}
+        aria-label={t(pinned ? 'ide.editor.unpinTabs' : 'ide.editor.pinTabs')}
+        className={`flex flex-shrink-0 items-center border-l border-gray-800 px-1.5 transition-colors ${
+          pinned ? 'bg-blue-500/15 text-blue-300 hover:bg-blue-500/25' : 'text-gray-500 hover:bg-gray-800 hover:text-gray-200'
+        }`}
+      >
+        <svg
+          className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden
+        >
+          <path d="M12 17v5" />
+          <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" />
+          {/* 꺼져 있을 때만 빗금 — 아이콘 하나로 "지금 안 걸려 있다"까지 말한다(lucide `pin-off`). */}
+          {!pinned && <path d="m2 2 20 20" />}
+        </svg>
+      </button>
       <button
         type="button"
         onClick={onCloseAll}

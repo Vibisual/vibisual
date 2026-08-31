@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { QueuedCommand, ActivityEdge, SessionGoalStepStatus } from '@vibisual/shared';
 import { useGraphStore, selectIDEOverlay, agentSessionInputKey } from '../../stores/graphStore.js';
 import { useIDEPaneValue } from './idePane.js';
+import { useIDEBodyLayout } from './ideBodyLayoutContext.js';
 import type { IDEViewType } from '../../stores/graphStore.js';
 import { useAvailableSkills, deleteSkill, persistSkillOrder, persistSkillFavorites, refreshAvailableSkills, type SkillInfo } from '../../hooks/useAvailableSkills.js';
 import { IDESkillCopyPanel } from './IDESkillCopyPanel.js';
@@ -755,14 +756,24 @@ const VIEW_MAP: Record<IDEViewType, React.FC<{ agentId: string }>> = {
 export const IDESidebar = memo(function IDESidebar({ agentId }: IDESidebarProps): React.JSX.Element {
   const activeView = useIDEPaneValue((o) => o.activeView);
   const collapsed = useIDEPaneValue((o) => o.sidebarCollapsed);
+  // §4 v3.16 확장 — 자리를 뺏지 않고 **떠서** 뜰지의 판정. 종전에는 뷰포트 미디어 쿼리(`max-md`)
+  //   하나였는데, IDE 창은 화면이 아니라 앱 안의 창이라 넓은 화면에서도 창만 좁을 수 있다
+  //   (`ideResponsive` — 그 조합에서 종전 규칙은 아무것도 접지 않아 대화가 0px 로 찌부러졌다).
+  const { sidebarDrawer } = useIDEBodyLayout();
   const View = VIEW_MAP[activeView];
 
   if (collapsed) return <></>;
 
   return (
-    // §4 v3.16 — 좁은 화면(폰)에선 사이드바가 본문을 짓누르지 않게 활동바 옆 오버레이로 뜬다.
     // §5.5 #17-28 v4.96 — 주입원 뷰에서만 한 칸 넓어진다(줄마다 토큰·통제 배지·토글이 함께 선다).
-    <div className={`flex ${activeView === 'context' ? 'w-72' : 'w-52'} min-h-0 flex-shrink-0 flex-col border-r border-gray-700 bg-gray-900/50 max-md:absolute max-md:inset-y-0 max-md:left-12 max-md:z-30 max-md:w-64 max-md:max-w-[75vw] max-md:bg-gray-900 max-md:shadow-2xl max-md:shadow-black/60`}>
+    //   서랍일 때는 활동바(48px) 옆에 떠서, 아래 대화의 폭을 건드리지 않는다. 폭 상한은 뷰포트가
+    //   아니라 **이 창** 기준이다 — 좁은 창에서 서랍이 오른쪽 끝까지 차면 backdrop 을 눌러 닫을
+    //   자리가 사라진다(활동바 3rem + 누를 자리 2rem 을 남긴다).
+    <div className={`flex min-h-0 flex-shrink-0 flex-col border-r border-gray-700 ${
+      sidebarDrawer
+        ? 'absolute inset-y-0 left-12 z-40 w-64 max-w-[calc(100%-5rem)] bg-gray-900 shadow-2xl shadow-black/60'
+        : `${activeView === 'context' ? 'w-72' : 'w-52'} bg-gray-900/50`
+    }`}>
       <View agentId={agentId} />
     </div>
   );

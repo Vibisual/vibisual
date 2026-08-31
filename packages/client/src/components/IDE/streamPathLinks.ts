@@ -16,16 +16,33 @@ import { toRelativeFromRoot } from './explorerModel.js';
  * "무엇이 경로로 읽히는가" 는 앱을 띄워 눈으로 확인하기 어렵고, 단위 테스트가 훨씬 촘촘히 잡는다.
  */
 
-/** 인라인 코드 한 조각에서 뽑아낸 경로 후보. */
-export interface StreamPathCandidate {
-  /** 루트 기준 상대 경로(forward slash, 앞뒤 구분자 제거). `''` = 프로젝트 루트 자신. */
-  relPath: string;
-  /**
-   * 원문에서 떼어 낸 줄 번호(`경로:42` / `경로:42:7`). 없으면 null.
-   * **여는 데는 쓰지 않는다**(⑬ (g) — 줄로 스크롤하는 일은 #17-20 ⑪ 담당). 툴팁에만 쓴다.
-   */
-  line: number | null;
-}
+/**
+ * 인라인 코드 한 조각에서 뽑아낸 경로 후보.
+ *
+ * `scope` 로 갈라 둔 이유는 **열리는 곳이 다르기 때문**이다(⑬ (d)). 루트 안(`inside`)은 여덟 갈래로
+ * 갈리지만(§5.13 (R-7) — 편집창·그림·PDF·내부 앱·실행·변환·연결 프로그램·탐색기), 루트 밖(`outside`)은
+ * **시스템 탐색기 하나**뿐이다. 둘을 한 모양으로 두면 화면이 자리마다 "이게 루트 안이었나" 를 다시
+ * 따져야 하고, 그 따짐이 한 군데라도 빠지는 순간 본문 글자로 임의 경로를 실행하는 길이 열린다.
+ * 타입으로 갈라 두면 그 실수를 컴파일러가 막는다.
+ */
+export type StreamPathCandidate =
+  | {
+      readonly scope: 'inside';
+      /** 루트 기준 상대 경로(forward slash, 앞뒤 구분자 제거). `''` = 프로젝트 루트 자신. */
+      readonly relPath: string;
+      /**
+       * 원문에서 떼어 낸 줄 번호(`경로:42` / `경로:42:7`). 없으면 null.
+       * **여는 데는 쓰지 않는다**(⑬ (g) — 줄로 스크롤하는 일은 #17-20 ⑪ 담당). 툴팁에만 쓴다.
+       */
+      readonly line: number | null;
+    }
+  | {
+      readonly scope: 'outside';
+      /** 루트 밖 절대 경로(forward slash 로 정규화, 뒤 구분자 제거). 탐색기에 그대로 넘긴다. */
+      readonly absPath: string;
+      /** `inside` 쪽과 같은 뜻 — 툴팁 전용이다. */
+      readonly line: number | null;
+    };
 
 /** 경로로 보기엔 너무 긴 조각(Windows MAX_PATH). 이보다 길면 본문 문장이지 위치가 아니다. */
 const MAX_PATH_LEN = 260;
@@ -38,6 +55,20 @@ const MAX_PATH_LEN = 260;
  * 경로에 공백이 든 경우를 잃지만, 그 대가로 본문의 모든 명령 조각이 파란 밑줄을 얻는 일을 막는다.
  */
 const NON_PATH_CHARS = /[\s"'`<>|*?()[\]{}=;,!$&^~+]/;
+
+/**
+ * 절대 경로에만 쓰는 느슨한 체 — 위와 같되 **보통 공백 하나만** 허용한다(탭·줄바꿈은 여전히 제외).
+ *
+ * `C:\games\Unreal Projects\…` 처럼 **공백이 든 폴더는 흔한데**, 위 체를 그대로 적용하면
+ * 그런 경로는 영영 손잡이가 되지 못한다. 그렇다고 공백을 전면 허용하면 본문의 명령 조각(`pnpm build`)이
+ * 전부 후보가 된다 — 그래서 **드라이브 머리나 앞 슬래시로 시작하는 조각에만** 이 체를 쓴다.
+ * `C:\` 로 시작하는 명령은 사실상 없고, 그러고도 남는 오탐(`/usr/bin/env node`)은 **디스크가 걸러 낸다**
+ * ((b) — 없는 경로는 종전과 같은 평문이다).
+ */
+const NON_PATH_CHARS_ABS = /[\t\n\r\v\f"'`<>|*?()[\]{}=;,!$&^~+]/;
+
+/** 원문(역슬래시 그대로) 기준으로 "절대 경로처럼 시작하는가". 공백 허용 여부를 이걸로 가른다. */
+const ABS_HEAD = /^(?:[A-Za-z]:[\\/]|\/)/;
 
 /** `경로:42` · `경로:42:7` — 뒤에 붙은 줄(열) 번호. */
 const LINE_SUFFIX = /^(.*?):(\d+)(?::\d+)?$/;
@@ -59,7 +90,7 @@ export function parseStreamPathCandidate(raw: string, rootPath: string | null): 
 
   const text = raw.trim();
   if (!text || text.length > MAX_PATH_LEN) return null;
-  if (NON_PATH_CHARS.test(text)) return null;
+  if ((ABS_HEAD.test(text) ? NON_PATH_CHARS_ABS : NON_PATH_CHARS).test(text)) return null;
   // CLI 플래그(`--effort`) · npm 스코프(`@vibisual/shared`) · 앵커(`#17-27`) — 셋 다 경로가 아니다.
   if (text.startsWith('-') || text.startsWith('@') || text.startsWith('#')) return null;
   if (text.includes('://')) return null;
@@ -84,18 +115,20 @@ export function parseStreamPathCandidate(raw: string, rootPath: string | null): 
   // 경로로 읽히려면 구분자가 있거나, 확장자로 끝나는 이름이어야 한다.
   if (!norm.includes('/') && !FILE_EXT.test(norm)) return null;
 
-  let relPath: string;
   if (isWinAbs || isPosixAbs) {
-    // 루트 밖 절대 경로는 손잡이가 되지 않는다(⑬ (d) — 서버 가드가 어차피 막는다).
-    // `toRelativeFromRoot` 는 루트 밖이면 절대 경로를 **그대로** 돌려주므로 그것이 곧 판정이다.
-    relPath = toRelativeFromRoot(norm, rootPath);
-    if (relPath === norm && relPath !== '') return null;
-  } else {
-    relPath = norm.replace(/^\.\//, '');
-    // 상위로 거슬러 오르는 표기는 루트 밖을 가리킬 수 있어 여기서 끊는다.
-    if (relPath === '..' || relPath.startsWith('../')) return null;
-    if (relPath === '.') return null;
+    // `toRelativeFromRoot` 는 루트 밖이면 절대 경로를 **그대로** 돌려주므로 그것이 곧 안/밖 판정이다.
+    const rel = toRelativeFromRoot(norm, rootPath);
+    // ⑬ (d) — 루트 밖도 후보가 된다(종전에는 여기서 null 이었다). 다만 갈 수 있는 곳은 탐색기 하나뿐이라
+    // 상대 경로가 아니라 **절대 경로 그대로** 들고 간다 — 기준이 없는 값을 상대처럼 쓰면 엉뚱한 곳이 열린다.
+    if (rel === norm && rel !== '') return { scope: 'outside', absPath: norm, line };
+    return { scope: 'inside', relPath: rel, line };
   }
 
-  return { relPath, line };
+  const relPath = norm.replace(/^\.\//, '');
+  // 상위로 거슬러 오르는 표기는 여기서 끊는다 — 기준이 되는 루트가 어디인지에 따라 가리키는 곳이
+  // 달라지므로, "루트 밖"으로 넘겨도 어느 절대 경로인지 확정할 수 없다.
+  if (relPath === '..' || relPath.startsWith('../')) return null;
+  if (relPath === '.') return null;
+
+  return { scope: 'inside', relPath, line };
 }

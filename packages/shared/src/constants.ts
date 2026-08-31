@@ -1,4 +1,4 @@
-import type { AgentProvider, LocalEngineBackend, BubbleType, BubbleStyleConfig, EdgeStyleConfig, AgentRole, PipelineChildConfig, PipelineType, AgentConfig, TaskEdgeTemplate, TaskEdgeKind, UiLocale, AutoAgentRole, AutoAgentTemplate, ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry, AgentFeedback, BrainTopicDef, BrainTopicIndexEntry, BrainCardType, BrainAuthority, BrainAxisId, BrainActivation, BrainSkill, StreamDensity, PluginContributionKind, SessionGoalStepStatus, CommandDispatchMode, CommandErrorCode, RunRuntime, RunConfig, McpServerPreset, AgentMemoryScope, DebugAdapterSpec, ProblemMatch, ProblemSeverity, RetentionSettings, PreviewDevicePreset, ShelfIconName, ShelfItemKind, CostPeriod, CostTotals, CostPeriodTotals, AuditRiskKind, AuditBoundaryConfig, AuditCounts, StoryboardPresetId, StoryboardPreset, LocalModelCatalogSort, WorkspacePathKind, CmdPaneNode, BuiltinSlashCommand } from './types.js';
+import type { AgentProvider, LocalEngineBackend, BubbleType, BubbleStyleConfig, EdgeStyleConfig, AgentRole, PipelineChildConfig, PipelineType, AgentConfig, TaskEdgeTemplate, TaskEdgeKind, UiLocale, AutoAgentRole, AutoAgentTemplate, ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry, AgentFeedback, BrainTopicDef, BrainTopicIndexEntry, BrainCardType, BrainAuthority, BrainAxisId, BrainActivation, BrainSkill, StreamDensity, PluginContributionKind, SessionGoalStepStatus, CommandDispatchMode, CommandErrorCode, RunRuntime, RunConfig, McpServerPreset, AgentMemoryScope, DebugAdapterSpec, ProblemMatch, ProblemSeverity, RetentionSettings, PreviewDevicePreset, ShelfIconName, ShelfItemKind, CostPeriod, CostTotals, CostPeriodTotals, AuditRiskKind, AuditBoundaryConfig, AuditCounts, StoryboardPresetId, StoryboardPreset, LocalModelCatalogSort, WorkspacePathKind, CmdPaneNode, BuiltinSlashCommand, SessionMemo } from './types.js';
 export type { ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry } from './types.js';
 // 경로 대소문자 정책 SSOT — win32/darwin 만 접고 linux 는 접지 않는다(`pathCase.ts`).
 import { legacyLowerPathKey, normalizePathShape, pathKey, type PlatformName } from './pathCase.js';
@@ -215,8 +215,8 @@ export const BUBBLE_STYLES: Record<BubbleType, BubbleStyleConfig> = {
     color: '#6366F1',
     glow: '#A5B4FC',
     icon: 'brain',
-    ringIdle: 'border-indigo-300',
-    ringActive: 'border-indigo-500 shadow-lg shadow-indigo-500/30',
+    ringIdle: 'border-indigo-400/45',
+    ringActive: 'border-indigo-400/80',
   },
   // §5.10 v3.46 — 커스텀 에이전트 휴지통 버블 (홈 버블 위성). 스톤 그레이.
   trash: {
@@ -551,6 +551,14 @@ export const WORKSPACE_FILE_MAX_BYTES = 2_000_000;
  * 넘으면 **저장할 것이 없는(= 안 고친) 가장 오래된 탭**부터 밀어낸다(고치던 파일은 밀리지 않는다).
  */
 export const IDE_EDITOR_MAX_TABS = 12;
+
+/**
+ * §5.5 #17-27 ⑯ — 그 창이 **접어 두는 세션 수** 상한(지금 보고 있는 세션은 여기 안 든다).
+ *
+ * 탭 묶음은 세션마다 따로 서므로 세션을 오갈수록 키가 는다 — 값 길이만 재고 키 개수는 안 재는 캡은
+ * 캡이 아니다. 넘으면 **가장 오래전에 떠난 세션**부터 버린다(그 세션으로 돌아가면 빈 편집창이다).
+ */
+export const IDE_EDITOR_TAB_SCOPE_MAX = 12;
 
 /** 편집창 폭(px) — 기본값과 드래그 허용 범위. */
 export const IDE_EDITOR_WIDTH = { DEFAULT: 520, MIN: 280, MAX: 1400 } as const;
@@ -1168,6 +1176,21 @@ export const BUILTIN_SLASH_COMMANDS: readonly BuiltinSlashCommand[] = [
  */
 export const INTERRUPT_RECONCILE_INTERVAL_MS = 5_000;
 
+/**
+ * 좀비 `executing` 봉합 유예 (ms) — 이 시간이 지나도 살아 있는 일감이 하나도 없으면 끊긴 것으로 본다.
+ *
+ * 턴이 실제로 끝났는데 완료 신호가 유실되면 명령이 `executing` 에 굳고, 그 탭은 `busy` 로 잠겨
+ * **새 명령을 영영 못 받는다**(앞 명령이 안 끝났으니 다음이 안 나간다). 종전에 이 굳음을 푸는 길은
+ * 앱 재기동(restore reconcile)이나 사용자가 [중지]를 누르는 것뿐이었다 — 런타임 자동 회수가 없었다.
+ *
+ * 유예를 넉넉히 두는 이유: `dispatch → 자식 spawn` 사이에는 "아직 아무것도 안 도는" 짧은 창이 있고,
+ * 그 창에서 걷어 내면 **정상 명령을 죽인다.** 과거에 자식 없는 실행 경로를 죽은 것으로 읽어 버블이
+ * 완료↔동작을 되풀이한 사고가 있었으므로(2026-08-25), 오탐보다 늦게 걷는 쪽을 택한다.
+ * 판정 자체도 자식 유무만 보지 않는다 — PTY 탭·백그라운드 작업·봉인 유예까지 전부 살아있음으로 친다
+ * (`SubAgentManager.sealZombieExecutingCommands`).
+ */
+export const ZOMBIE_EXECUTING_GRACE_MS = 60_000;
+
 /** 파일 존재 확인 주기 (ms) — 삭제된 파일 버블 자동 제거 */
 export const FILE_EXISTENCE_CHECK_INTERVAL = 30_000;
 
@@ -1649,6 +1672,14 @@ export const CLAUDE_SETUP_VERIFY_RETRY_MAX = 4;
 export const CLAUDE_SETUP_OUTPUT_MAX_CHARS = 20_000;
 
 /**
+ * 설치가 끝난 뒤 게이트가 "준비 완료" 를 보여주고 스스로 닫히기까지의 시간.
+ *
+ * 게이트를 **보고 있던 사람**에게만 확인을 남기기 위한 값이라 짧다 — 이 시간이 지나면 게이트는
+ * 닫히고 다음 단계(로그인)로 넘어간다. 사용자가 [계속]을 누르면 기다리지 않고 즉시 넘어간다.
+ */
+export const CLAUDE_SETUP_READY_HOLD_MS = 1_600;
+
+/**
  * §4 (Claude Code CLI 자동 업데이트) — 앱을 켠 뒤 CLI 최신화를 시도하기까지의 지연.
  *
  * 설치 판정(1.2s)·로그인 판정(1.5s)보다 **뒤**여야 한다: 아직 안 깔린 사람은 설치 온보딩이
@@ -1699,8 +1730,76 @@ export const AVAILABLE_SETTING_SOURCES: readonly string[] = ['user', 'project', 
  * 맨 앞 `''` 는 "미설정"(플래그 없음), `'auto'` 는 CLI 판단, 나머지는 토큰 수(CLI 허용 100k~1M).
  */
 export const AVAILABLE_AUTOCOMPACT_VALUES: readonly string[] = [
-  '', 'auto', '100000', '200000', '500000', '1000000',
+  '', 'auto', '100000', '200000', '400000', '500000', '1000000',
 ];
+
+/**
+ * §4 (CLI 사양 추종) — 아무도 정하지 않았을 때 실릴 `--autocompact` 내장 기본값.
+ *
+ * CLI 기본은 "모델 창 전체"다. 우리는 Opus 에 `[1m]` 을 붙여 띄우므로 그 기본을 그대로 두면
+ * 압축이 **100만 토큰에서야** 걸리는데, 실측상 세션 대부분은 그 근처도 못 가고 끝난다
+ * (= 사실상 압축이 없다).
+ *
+ * 400k 로 두는 이유 — 실측한 세션 최고점이 213k·231k·255k·349k 였다. 200k 면 **웬만한 세션이
+ * 작업 도중 한 번은 잘리고**, 1M 이면 아무 일도 일어나지 않는다. 400k 는 그 분포 바로 위라
+ * 평범한 세션은 끝까지 온전히 가고 길어지는 세션만 걸린다. 도중에 잘리는 것이 싫으면 임계가
+ * 아니라 `compactAfterTurn`(턴 경계 압축)을 쓰는 것이 맞는 축이다.
+ */
+export const DEFAULT_AUTOCOMPACT_TOKENS = '400000';
+
+/**
+ * §4 (CLI 사양 추종) — 턴 경계·에이전트 요청으로 보내는 압축 명령.
+ *
+ * 문자열은 `SESSION_LOOP_COMPACT_COMMAND` 와 같지만 **축이 다르다**(그건 루프 회차 경계,
+ * 이건 일반 턴 경계·에이전트 자율 요청). 사용자가 입력창에 직접 치는 것과 완전히 같은 길이며
+ * 새 실행 레일이 아니다 — 그 세션 명령 큐에 `QueuedCommand` 한 건으로 얹힌다.
+ */
+export const AGENT_COMPACT_COMMAND = '/compact';
+
+/**
+ * §4 (CLI 사양 추종) — `agentCanCompact` 가 켜진 에이전트에게 매 턴 실리는 창구 안내.
+ *
+ * CLI 의 `SlashCommand` 도구는 `--tools` 로 켜도 헤드리스 세션에 나오지 않는다(실측 2.1.247)
+ * — 그래서 에이전트가 `/compact` 를 직접 부를 방법이 없고, 서버에 신고하면 서버가 **턴이 끝난
+ * 뒤** 큐에서 돌린다. 토큰·주소는 스폰 env 에 이미 있으므로 여기에 비밀을 박지 않는다.
+ */
+export function buildAgentSelfCompactRule(agentId: string, subAgentId: string): string {
+  return `
+
+# 컨텍스트 압축 요청 (네가 판단해서 부른다)
+대화가 길어져 컨텍스트가 무겁다고 느끼면, **일이 한 단락 끝난 안전한 자리에서** 아래를 1회 호출해라.
+서버가 **이번 턴이 끝난 직후** \`${AGENT_COMPACT_COMMAND}\` 를 돌려 대화를 요약으로 접는다 — 작업 도중에 잘리지 않는다.
+
+\`\`\`bash
+curl -s -X POST "\${VIBISUAL_BASE}/api/agent-compact" -H "x-vibisual-hook-token: \${VIBISUAL_TOKEN}" \\
+  -H 'Content-Type: application/json' --data-binary @- <<'JSON'
+{"agentId":"${agentId}","subAgentId":"${subAgentId}","reason":"왜 지금인지 한 줄"}
+JSON
+\`\`\`
+- **압축은 세부를 잃는다.** 파일·git 에 남지 않은 결정은 부르기 전에 적어 둬라.
+- 한 턴에 한 번이면 충분하다(여러 번 불러도 한 번만 돈다). 호출 사실은 사용자에게 보고하지 마라.
+- 실패해도 무시하고 하던 일을 계속해라 — 표시·편의용이라 결과에 영향이 없다.`;
+}
+
+/**
+ * §4 (CLI 사양 추종) — 실제로 `--autocompact` 에 실을 값을 정하는 **단 하나의 판정**.
+ *
+ * 3층으로 내려온다: **에이전트 설정 → 설정 창(Agent Defaults) 전역 기본 → 내장 기본**.
+ * 그래서 `''`(미설정)은 "플래그 없음"이 아니라 **"위층을 따름"** 이다 — 종전처럼 CLI 판단에
+ * 맡기려면 `'auto'` 를 고른다(명시값이라 그대로 실린다). 이 계층이 있어야 **이미 만들어져
+ * 돌던 에이전트**도 설정 창에서 바꾼 값을 따른다.
+ *
+ * ⚠ 목록 밖의 값은 내장 기본으로 떨어뜨린다. CLI 는 범위 밖 값을 무시하지 않고
+ * `argument … is invalid` 로 **즉시 종료**하므로(실측 2.1.247 — `--autocompact 50000`),
+ * 저장분이 오염돼 있으면 그 에이전트는 영영 뜨지 못한다.
+ */
+export function resolveAutoCompact(agentValue?: string, userDefaultValue?: string): string {
+  for (const raw of [agentValue, userDefaultValue]) {
+    const v = raw?.trim();
+    if (v && AVAILABLE_AUTOCOMPACT_VALUES.includes(v)) return v;
+  }
+  return DEFAULT_AUTOCOMPACT_TOKENS;
+}
 
 /**
  * 선택 가능한 사고 깊이 (effort) — **폴백 전용**.
@@ -2921,6 +3020,11 @@ export const CONTEXT_SOURCE_IDS = {
   edges: 'vibisual.edges',
   feedback: 'vibisual.feedback',
   intentFirst: 'vibisual.intent-first',
+  /**
+   * §4 (CLI 사양 추종) — 에이전트가 스스로 압축을 요청하는 창구 안내.
+   * `AgentConfig.agentCanCompact` 를 켠 에이전트에게만 실리므로, 끄면 이 줄의 바이트도 0 이다.
+   */
+  compactSelf: 'vibisual.compact-self',
   /** §5.5 #17-28 ⑧(a) — 카드 5종이 공유하는 규칙 한 벌. 카드가 하나라도 켜져 있을 때만 실린다. */
   cardCommon: 'vibisual.card.common',
   cardReport: 'vibisual.card.report',
@@ -3194,6 +3298,113 @@ export const COMMENT_BOX_PALETTE: readonly { id: string; label: string; color: s
   { id: 'teal', label: 'Teal', color: '#14B8A6' },
   { id: 'slate', label: 'Slate', color: '#64748B' },
 ] as const;
+
+
+// ─── 세션 스티키 메모 (§5.5 #17-36) ───
+
+/**
+ * 스티키 메모 기본값 / 상한. SSOT §3.3 — 매직넘버 금지. 크기·글자수·장수는 여기서만.
+ *
+ * 상한이 둘인 이유(§3.2.3 "쓸수록 커지는 것에 상한") — **글자 길이**(`TEXT_MAX`)만 막으면 장수로,
+ * **장수**(`MAX_PER_OWNER`)만 막으면 길이로 무한히 자란다. 두 축을 함께 막아야 체크포인트가 붓지 않는다.
+ */
+export const SESSION_MEMO = {
+  /** 새 메모 기본 크기 (px). */
+  DEFAULT_W: 260,
+  DEFAULT_H: 190,
+  /** 리사이즈 하한/상한 (px). */
+  MIN_W: 168,
+  MIN_H: 96,
+  MAX_W: 1200,
+  MAX_H: 900,
+  /** 제목줄 높이 (px) — 접으면 이만큼만 남는다. 12px 글자 + 손잡이가 들어가는 최소치(§9). */
+  HEADER_H: 28,
+  /** 본문 상한 (자). 넘치면 잘라 저장한다. */
+  TEXT_MAX: 4000,
+  /** 한 세션(또는 메인 탭)이 가질 수 있는 메모 장수 상한. */
+  MAX_PER_OWNER: 24,
+  /** 좌표 상한 (px) — 창 밖 좌표가 들어와도 여기서 멈춘다(복원 시 화면 밖 실종 방지). */
+  MAX_COORD: 20000,
+  /** 같은 자리에 겹쳐 만들 때 계단식으로 밀어 놓는 간격 (px). */
+  CASCADE_STEP: 18,
+  /** 컨테이너 밖으로 나가지 않게 남겨 두는 최소 여백 (px) — 제목줄은 항상 잡을 수 있어야 한다. */
+  EDGE_KEEP: 24,
+} as const;
+
+/**
+ * 스티키 메모 팔레트 — 종이 색이라 **밝은 파스텔**이다(글자색은 대비로 자동 결정 —
+ * `pickReadableTextColor`). `COMMENT_BOX_PALETTE`(캔버스 태그용 진한 색)와는 쓰임이 달라
+ * 재사용하지 않는다 — 진한 배경에 검은 글씨는 메모지로 읽히지 않는다.
+ */
+export const SESSION_MEMO_PALETTE: readonly { id: string; label: string; color: string }[] = [
+  { id: 'yellow', label: 'Yellow', color: '#FDE68A' },
+  { id: 'orange', label: 'Orange', color: '#FED7AA' },
+  { id: 'pink', label: 'Pink', color: '#FBCFE8' },
+  { id: 'green', label: 'Green', color: '#BBF7D0' },
+  { id: 'teal', label: 'Teal', color: '#99F6E4' },
+  { id: 'blue', label: 'Blue', color: '#BFDBFE' },
+  { id: 'violet', label: 'Violet', color: '#DDD6FE' },
+  { id: 'white', label: 'White', color: '#F1F5F9' },
+] as const;
+
+/** 새 메모의 기본색 — 팔레트 첫 칸(노랑)과 같아야 한다(`sessionMemo.test.ts` 가 지킨다). */
+export const SESSION_MEMO_DEFAULT_COLOR = '#FDE68A';
+
+/** `#RRGGBB` 만 통과. 임의 문자열이 style 속성으로 새어 들어가는 것을 막는다. */
+const SESSION_MEMO_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
+
+function clampNumber(v: unknown, min: number, max: number, fallback: number): number {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return fallback;
+  return Math.round(Math.max(min, Math.min(max, v)));
+}
+
+/**
+ * §5.5 #17-36 — 신뢰할 수 없는 입력(REST body·옛 체크포인트)에서 메모 1장을 안전하게 복원한다.
+ * 모양이 어긋나면 `null`(= 그 장은 버린다). `sanitizeCmdPaneTree` 와 같은 자리·같은 규약이다.
+ */
+export function sanitizeSessionMemo(input: unknown): SessionMemo | null {
+  if (!input || typeof input !== 'object') return null;
+  const n = input as Record<string, unknown>;
+  const id = typeof n['id'] === 'string' ? n['id'].trim() : '';
+  if (!id || !/^[\w-]{1,64}$/.test(id)) return null;
+  const rawText = typeof n['text'] === 'string' ? n['text'] : '';
+  const text = rawText.length > SESSION_MEMO.TEXT_MAX ? rawText.slice(0, SESSION_MEMO.TEXT_MAX) : rawText;
+  const color = typeof n['color'] === 'string' && SESSION_MEMO_COLOR_RE.test(n['color'])
+    ? n['color']
+    : SESSION_MEMO_DEFAULT_COLOR;
+  const now = Date.now();
+  const createdAt = clampNumber(n['createdAt'], 0, Number.MAX_SAFE_INTEGER, now);
+  return {
+    id,
+    text,
+    x: clampNumber(n['x'], 0, SESSION_MEMO.MAX_COORD, 0),
+    y: clampNumber(n['y'], 0, SESSION_MEMO.MAX_COORD, 0),
+    w: clampNumber(n['w'], SESSION_MEMO.MIN_W, SESSION_MEMO.MAX_W, SESSION_MEMO.DEFAULT_W),
+    h: clampNumber(n['h'], SESSION_MEMO.MIN_H, SESSION_MEMO.MAX_H, SESSION_MEMO.DEFAULT_H),
+    color,
+    ...(n['collapsed'] === true ? { collapsed: true } : {}),
+    createdAt,
+    updatedAt: clampNumber(n['updatedAt'], 0, Number.MAX_SAFE_INTEGER, createdAt),
+  };
+}
+
+/**
+ * 메모 목록 정화 — 장수 상한 + id 중복 제거. 배열이 아니면 빈 목록.
+ * 중복 id 를 남기면 한 장을 지웠는데 다른 장이 사라지는 것처럼 보인다(React key 충돌).
+ */
+export function sanitizeSessionMemos(input: unknown): SessionMemo[] {
+  if (!Array.isArray(input)) return [];
+  const seen = new Set<string>();
+  const out: SessionMemo[] = [];
+  for (const raw of input) {
+    const memo = sanitizeSessionMemo(raw);
+    if (!memo || seen.has(memo.id)) continue;
+    seen.add(memo.id);
+    out.push(memo);
+    if (out.length >= SESSION_MEMO.MAX_PER_OWNER) break;
+  }
+  return out;
+}
 
 
 // ─── Canvas Clipboard (§5.4 #29 v1.51) ───
@@ -4249,6 +4460,36 @@ export const VERIFICATION_REASON_MAX = 500;
 
 /** 시도 한 줄의 `command`/`detail` 최대 길이. */
 export const VERIFICATION_ATTEMPT_TEXT_MAX = 300;
+
+// ─── §5.5 #17-35 ⑨ — 시연(재현 절차) 상한 ───
+//
+// 값 길이만이 아니라 **개수에도** 캡을 둔다(§9). 시연은 디스크에 PNG 를 남기는 유일한 검증
+// 데이터라, 개수 상한이 곧 그 폴더의 크기 상한이다.
+
+/** 세션 탭 하나가 보관하는 시연 최대 건수. 넘치면 가장 오래된 것부터 지운다(프레임 폴더째). */
+export const VERIFICATION_DEMO_MAX_PER_SESSION = 6;
+
+/** 시연 하나의 단계 최대 개수. */
+export const VERIFICATION_DEMO_STEPS_MAX = 20;
+
+/** 단계 한 줄의 최대 길이. */
+export const VERIFICATION_DEMO_STEP_TEXT_MAX = 200;
+
+/** 시연 이름 한 줄의 최대 길이. */
+export const VERIFICATION_DEMO_LABEL_MAX = 80;
+
+/** 기대 결과 한 줄의 최대 길이. */
+export const VERIFICATION_DEMO_EXPECTED_MAX = 300;
+
+/**
+ * 시연 하나가 남기는 프레임 최대 장수.
+ * §5.9 플레이테스트 첨부 상한(`CAPTURE_PLAYTEST.MAX_FRAME_COUNT`)과 같은 수 — 같은 이유(입력창을
+ * 그림으로 덮지 않는다)이고, 여기서는 매 검증마다 다시 실리므로 토큰에도 그대로 영향을 준다.
+ */
+export const VERIFICATION_DEMO_FRAMES_MAX = 9;
+
+/** 시연 프레임이 사는 곳 — 프로젝트 `.vibisual/` 아래 폴더 이름(첨부 폴더와 **다른** 자리). */
+export const VERIFICATION_DEMO_DIR = 'verify-demos';
 
 /**
  * §5.5 #17-35 ③ — 그 탭 큐에 실제로 나가는 명령의 머리.

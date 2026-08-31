@@ -1,0 +1,149 @@
+# **지금 작업 중인 브랜치**를 리눅스·맥 설치본으로 지어 아티팩트로 돌려주는 워크플로.
+#
+# 왜 필요한가:
+#   scripts/try-linux.mjs 는 기본적으로 **발행된 릴리스**의 AppImage 를 띄운다. 그런데 정작
+#   확인하고 싶은 것은 대개 "방금 고친 것이 리눅스에서 어떻게 되나"다. 그렇다고 릴리스를
+#   낼 수는 없다(태그·버전·자동 업데이트가 전부 딸려 온다).
+#
+#   그리고 **윈도우에서 리눅스/맥 설치본을 짓는 길은 없다.** 우리는 네이티브 모듈
+#   (node-pty · koffi · better_sqlite3)을 싣는데, 이들은 설치된 플랫폼·아키텍처의 바이너리만
+#   들어온다. 윈도우에서 `--linux` 로 지으면 윈도우용 .node 가 든 AppImage 가 나와 리눅스에서
+#   기동 즉시 죽는다 — 빌드는 초록, 앱은 실행 불가(release.yml 머리말의 koffi 사고와 같은 종류다).
+#
+#   그래서 짓는 일은 그 OS 의 러너에게 맡기고, 결과물만 받아 온다. 내 PC 디스크 사용량 0.
+#
+# 받은 뒤:
+#   · 리눅스 — 아티팩트를 풀어 `node scripts/try-linux.mjs --file <풀린 .AppImage>` 로 WSLg 창에 띄운다.
+#   · 맥     — 손에 맥이 없으면 dmg 파일을 받아도 열 수 없다. 이 잡에서 얻는 것은 파일이 아니라
+#             **"그 브랜치가 맥에서 패키징까지 되는가"라는 초록/빨강**이다. 맥 화면을 눈으로 보려면
+#             try-mac.yml 을 쓴다(그쪽은 발행된 릴리스를 띄워 스크린샷을 돌려준다).
+#
+# release.yml 과 다른 점: 여기서는 GitHub Releases 에 **발행하지 않는다.** 태그도, latest.yml 도,
+# 자동 업데이트 신호도 만들지 않는다. 순수하게 "지어서 파일만 준다".
+
+name: Try build (branch artifacts)
+
+on:
+  workflow_dispatch:
+    inputs:
+      targets:
+        description: '무엇을 지을까'
+        required: true
+        default: 'linux'
+        type: choice
+        options:
+          - linux
+          - mac-arm64
+          - mac-x64
+          - linux+mac
+      retention:
+        description: '아티팩트 보관 일수'
+        required: false
+        default: '3'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux
+            os: ubuntu-latest
+            script: build:linux
+            # AppImage 만 올리면 받는 쪽이 libfuse2 를 따로 깔아야 한다(electron-builder.yml 의
+            # linux 주석 참고). deb/rpm 은 의존성을 패키지 매니저가 끌어오므로 같이 올린다 —
+            # `/reinstall-linux` 는 이 deb 를 받아 진짜 설치를 한다.
+            glob: |
+              packages/desktop/dist/*.AppImage
+              packages/desktop/dist/*.deb
+              packages/desktop/dist/*.rpm
+          - target: mac-arm64
+            os: macos-latest
+            script: build:mac
+            glob: |
+              packages/desktop/dist/*.dmg
+          - target: mac-x64
+            os: macos-15-intel
+            script: build:mac
+            glob: |
+              packages/desktop/dist/*.dmg
+    runs-on: ${{ matrix.os }}
+    name: build (${{ matrix.target }})
+    timeout-minutes: 40
+
+    steps:
+      - name: 이 타깃을 지을지 판단
+        id: gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          WANT="${{ inputs.targets }}"
+          MINE="${{ matrix.target }}"
+          RUN=no
+          case "$WANT" in
+            linux)      [ "$MINE" = "linux" ] && RUN=yes ;;
+            mac-arm64)  [ "$MINE" = "mac-arm64" ] && RUN=yes ;;
+            mac-x64)    [ "$MINE" = "mac-x64" ] && RUN=yes ;;
+            linux+mac)  RUN=yes ;;
+          esac
+          echo "run=$RUN" >> "$GITHUB_OUTPUT"
+          [ "$RUN" = "yes" ] || echo "건너뛴다 (요청: $WANT / 이 잡: $MINE)"
+
+      - name: Checkout
+        if: steps.gate.outputs.run == 'yes'
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        if: steps.gate.outputs.run == 'yes'
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        if: steps.gate.outputs.run == 'yes'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        if: steps.gate.outputs.run == 'yes'
+        run: pnpm install --frozen-lockfile
+
+      # `build:*` 는 `release:*` 와 달리 --publish 를 붙이지 않는다 — 파일만 나온다.
+      # mac 은 아키텍처 플래그를 주지 않는다: electron-builder.yml 의 `mac.arch` 를 비워 두었기 때문에
+      # **호스트 아키텍처**를 따르고, 잡마다 그 아키텍처의 러너를 쓰므로 네이티브 모듈과 짝이 맞는다.
+      - name: Build installer
+        if: steps.gate.outputs.run == 'yes'
+        run: pnpm run ${{ matrix.script }}
+        env:
+          # 미서명 빌드를 실패시키지 않는다(코드서명 슬롯 미배선 — release.yml 과 동일).
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - name: 결과 확인
+        if: steps.gate.outputs.run == 'yes'
+        shell: bash
+        run: |
+          set -uo pipefail
+          ls -la packages/desktop/dist || true
+          {
+            echo "### ${{ matrix.target }} — \`${{ github.ref_name }}\` (${GITHUB_SHA:0:8})"
+            echo ""
+            echo '```'
+            ls -la packages/desktop/dist 2>/dev/null | tail -20
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 설치본 올리기
+        if: ${{ !cancelled() && steps.gate.outputs.run == 'yes' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: vibisual-${{ matrix.target }}-${{ github.sha }}
+          path: ${{ matrix.glob }}
+          retention-days: ${{ fromJSON(inputs.retention) }}
+          if-no-files-found: error
+          # 이미 압축된 설치본이다 — 다시 압축해 봐야 시간만 쓴다.
+          compression-level: 0

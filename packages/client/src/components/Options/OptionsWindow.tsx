@@ -20,6 +20,7 @@ import {
   AVAILABLE_PERMISSION_MODES,
   AVAILABLE_SETTING_SOURCES,
   AVAILABLE_AUTOCOMPACT_VALUES,
+  DEFAULT_AUTOCOMPACT_TOKENS,
   isOpusModel,
   supportsFastMode,
   resolveAliasToLatest,
@@ -57,6 +58,12 @@ const MARKETPLACE_URL = 'https://marketplace.visualstudio.com/items?itemName=ant
 const REPO_URL = 'https://github.com/Vibisual/vibisual';
 
 // §4 v2.77 — Model 목록은 레지스트리 기반 동적(`listModelFamilies`). 폴백 alias 만 상수.
+// §4 (CLI 사양 추종) — 저장된 폴백 모델이 드롭다운 목록 밖의 값인가(= '직접 입력'으로 열 값인가).
+//   콤마 목록·정확한 버전 id·구버전 저장분이 여기 걸린다. 초기값과 재적용이 같은 판정을 쓰게 한 곳에 둔다.
+function isOffListFallback(value: string | undefined, registry: Parameters<typeof listModelFamilies>[0]): boolean {
+  const v = (value ?? '').trim();
+  return v !== '' && !listModelFamilies(registry).includes(v);
+}
 // §4 (CLI 사양 추종) — 권한 모드 6종은 shared 한 곳(설치된 CLI 내부 enum 과 동일 집합).
 const PERMISSION_VALUES = AVAILABLE_PERMISSION_MODES;
 const ISOLATION_VALUES = ['none', 'worktree'] as const;
@@ -107,7 +114,13 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
   const [color, setColor] = useState(baseAgent.color ?? '');
   // §4 (CLI 사양 추종) — 설치된 CLI 신규 옵션의 전역 기본값. 미설정이면 플래그를 붙이지 않는다.
   const [fallbackModel, setFallbackModel] = useState(baseAgent.fallbackModel ?? '');
+  // §4 (CLI 사양 추종) — 폴백 모델은 드롭다운이 기본. 저장값이 목록에 없을 때만(정확한 버전
+  //   id·콤마 목록·구버전 저장분) '직접 입력'으로 연다 — 목록에 없다고 값을 버리지 않는다.
+  const [fallbackCustom, setFallbackCustom] = useState(() => isOffListFallback(baseAgent.fallbackModel, modelRegistry));
   const [autoCompact, setAutoCompact] = useState(baseAgent.autoCompact ?? '');
+  // §4 (CLI 사양 추종) — 압축 '언제' 축 둘의 전역 기본값. 위 드롭다운('얼마나')과 직교한다.
+  const [compactAfterTurn, setCompactAfterTurn] = useState(baseAgent.compactAfterTurn === true);
+  const [agentCanCompact, setAgentCanCompact] = useState(baseAgent.agentCanCompact === true);
   const [excludeDynamicSections, setExcludeDynamicSections] = useState(baseAgent.excludeDynamicSystemPromptSections === true);
   const [settingSources, setSettingSources] = useState<string[]>([...(baseAgent.settingSources ?? [])]);
   const [safeMode, setSafeMode] = useState(baseAgent.safeMode === true);
@@ -188,7 +201,10 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
     setRules(baseAgent.rules ?? '');
     setColor(baseAgent.color ?? '');
     setFallbackModel(baseAgent.fallbackModel ?? '');
+    setFallbackCustom(isOffListFallback(baseAgent.fallbackModel, modelRegistry));
     setAutoCompact(baseAgent.autoCompact ?? '');
+    setCompactAfterTurn(baseAgent.compactAfterTurn === true);
+    setAgentCanCompact(baseAgent.agentCanCompact === true);
     setExcludeDynamicSections(baseAgent.excludeDynamicSystemPromptSections === true);
     setSettingSources([...(baseAgent.settingSources ?? [])]);
     setSafeMode(baseAgent.safeMode === true);
@@ -198,7 +214,7 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
     setBashMaxTimeoutSec(bashMsToSec(baseAgent.bashMaxTimeoutMs));
     setTerminalScrollback(clampTerminalScrollback(userDefaults?.advanced?.terminalScrollbackLines));
     setCmdBlockedNotify(userDefaults?.notifications?.cmdBlocked !== false);
-  }, [baseAgent, dirty, userDefaults]);
+  }, [baseAgent, dirty, userDefaults, modelRegistry]);
 
   // §4 v3.71 가시성 LOD — 열려 있는 동안 캔버스를 전면으로 덮으므로 덮개로 등록한다.
   useEffect(() => {
@@ -327,6 +343,8 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
           // §4 (CLI 사양 추종) — 미설정은 undefined 로 보내 플래그가 붙지 않게 한다.
           fallbackModel: fallbackModel.trim() || undefined,
           autoCompact: autoCompact.trim() || undefined,
+          compactAfterTurn: compactAfterTurn ? true : undefined,
+          agentCanCompact: agentCanCompact ? true : undefined,
           excludeDynamicSystemPromptSections: excludeDynamicSections ? true : undefined,
           settingSources: settingSources.length > 0 ? settingSources : undefined,
           safeMode: safeMode ? true : undefined,
@@ -350,7 +368,7 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
       setDirty(false);
     } catch { /* ignore */ }
     finally { setSaving(false); }
-  }, [model, modelVersion, permissionMode, permissionTimeoutPolicy, isOpus, effort, maxTurns, maxBudgetUsd, isolation, contextWindow, tools, disallowedTools, rules, color, userDefaults, fallbackModel, autoCompact, excludeDynamicSections, settingSources, safeMode, fastMode, fastModeSupported, betas, bashDefaultTimeoutSec, bashMaxTimeoutSec, terminalScrollback, cmdBlockedNotify]);
+  }, [model, modelVersion, permissionMode, permissionTimeoutPolicy, isOpus, effort, maxTurns, maxBudgetUsd, isolation, contextWindow, tools, disallowedTools, rules, color, userDefaults, fallbackModel, autoCompact, compactAfterTurn, agentCanCompact, excludeDynamicSections, settingSources, safeMode, fastMode, fastModeSupported, betas, bashDefaultTimeoutSec, bashMaxTimeoutSec, terminalScrollback, cmdBlockedNotify]);
 
   if (!open) return null;
 
@@ -566,14 +584,37 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
                   <div className="flex gap-3">
                     <div className="flex flex-1 flex-col gap-1">
                       <label className="text-[12px] font-medium text-gray-500">{t('panel.agentConfig.fallbackModel.label')}</label>
-                      <input
-                        type="text"
-                        value={fallbackModel}
-                        onChange={(e) => { setDirty(true); setFallbackModel(e.target.value); }}
-                        placeholder={t('panel.agentConfig.fallbackModel.placeholder')}
-                        className="rounded border border-gray-700 bg-gray-900 px-2 py-1.5 text-xs text-gray-200 outline-none focus:border-blue-500"
-                      />
+                      {/* §4 (CLI 사양 추종) — 목록은 위 Model 과 **같은 레지스트리**(`listModelFamilies`)라
+                          새 패밀리가 나오면 여기에도 저절로 들어온다(모델 이름 하드코딩 ❌).
+                          맨 끝 '직접 입력'은 콤마 목록·정확한 버전 id 를 쓰던 길을 남겨 둔 자리다. */}
+                      <select
+                        value={fallbackCustom ? '__custom__' : fallbackModel.trim()}
+                        onChange={(e) => {
+                          setDirty(true);
+                          if (e.target.value === '__custom__') { setFallbackCustom(true); return; }
+                          setFallbackCustom(false);
+                          setFallbackModel(e.target.value);
+                        }}
+                        className="rounded border border-gray-700 bg-gray-900 px-2 py-1.5 text-xs text-gray-200 outline-none hover:border-gray-600 focus:border-blue-500"
+                      >
+                        <option value="">{t('panel.agentConfig.fallbackModel.unsetLabel')}</option>
+                        {listModelFamilies(modelRegistry).map((v) => <option key={v} value={v}>{v}</option>)}
+                        <option value="__custom__">{t('panel.agentConfig.fallbackModel.customLabel')}</option>
+                      </select>
+                      {fallbackCustom && (
+                        <input
+                          type="text"
+                          value={fallbackModel}
+                          onChange={(e) => { setDirty(true); setFallbackModel(e.target.value); }}
+                          placeholder={t('panel.agentConfig.fallbackModel.placeholder')}
+                          className="rounded border border-gray-700 bg-gray-900 px-2 py-1.5 font-mono text-[12px] text-gray-200 outline-none focus:border-blue-500"
+                        />
+                      )}
                     </div>
+                    {/* §4 (CLI 사양 추종) — 자동 압축의 **전역 기본값**. 에이전트 설정이 미설정인
+                        모든 버블이 이 값을 따르므로, 이미 만들어져 돌던 에이전트도 함께 바뀐다.
+                        여기서도 미설정이면 내장 기본(200k)으로 떨어진다 — 그 사실을 라벨이 직접 말한다
+                        (CLI 기본에 맡기면 창 전체라 압축이 사실상 사라지기 때문). */}
                     <div className="flex flex-1 flex-col gap-1">
                       <label className="text-[12px] font-medium text-gray-500">{t('panel.agentConfig.autoCompact.label')}</label>
                       <select
@@ -583,10 +624,39 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
                       >
                         {AVAILABLE_AUTOCOMPACT_VALUES.map((v) => (
                           <option key={v} value={v}>
-                            {v === '' ? t('panel.agentConfig.autoCompact.unsetLabel') : v === 'auto' ? 'auto' : `${Number(v) / 1000}k`}
+                            {v === ''
+                              ? t('panel.agentConfig.autoCompact.unsetDefaultLabel', { tokens: `${Number(DEFAULT_AUTOCOMPACT_TOKENS) / 1000}k` })
+                              : v === 'auto' ? 'auto' : `${Number(v) / 1000}k`}
                           </option>
                         ))}
                       </select>
+                      {/* §9 — 설명문도 가독 하한 12px. 위계는 크기가 아니라 색으로 낮춘다. */}
+                      <span className="text-[12px] leading-snug text-gray-600">{t('panel.agentConfig.autoCompact.globalTip')}</span>
+                      {/* §4 (CLI 사양 추종) — '얼마나 차면'(위 드롭다운) 과 '언제'(아래 둘)는 직교한다. */}
+                      <label className="mt-1 flex items-start gap-2 text-[12px] text-gray-400">
+                        <input
+                          type="checkbox"
+                          checked={compactAfterTurn}
+                          onChange={(e) => { setDirty(true); setCompactAfterTurn(e.target.checked); }}
+                          className="mt-0.5 h-3.5 w-3.5 accent-blue-500"
+                        />
+                        <span>
+                          {t('panel.agentConfig.compactAfterTurn.label')}
+                          <span className="ml-1 text-gray-600">{t('panel.agentConfig.compactAfterTurn.hint')}</span>
+                        </span>
+                      </label>
+                      <label className="flex items-start gap-2 text-[12px] text-gray-400">
+                        <input
+                          type="checkbox"
+                          checked={agentCanCompact}
+                          onChange={(e) => { setDirty(true); setAgentCanCompact(e.target.checked); }}
+                          className="mt-0.5 h-3.5 w-3.5 accent-blue-500"
+                        />
+                        <span>
+                          {t('panel.agentConfig.agentCanCompact.label')}
+                          <span className="ml-1 text-gray-600">{t('panel.agentConfig.agentCanCompact.hint')}</span>
+                        </span>
+                      </label>
                     </div>
                   </div>
                   <div className="flex flex-col gap-1">

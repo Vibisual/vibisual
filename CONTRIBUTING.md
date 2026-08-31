@@ -67,6 +67,11 @@ Signed-off-by: Your Name <your.email@example.com>
 
 You can do this automatically with `git commit -s`.
 
+Every commit in a pull request is checked for that line by the `DCO`
+workflow, matched against the commit author's address. If one is
+missing, fix the most recent commit with `git commit --amend --signoff`,
+or the whole branch with `git rebase --signoff <base>`, then force-push.
+
 ## Additional License Grant (Trademark and Future Licensing)
 
 In addition to the Apache 2.0 grant, by submitting a contribution you
@@ -91,10 +96,12 @@ You retain full copyright in your contribution. You also retain the
 right to use, distribute, and license your contribution independently
 under any other terms.
 
-If you do not agree to this additional grant, please open a
-discussion before submitting — we will work with you to find an
-acceptable arrangement (e.g., keep the contribution under pure
-Apache 2.0 without the additional grant).
+This additional grant is not optional. A contribution that does not
+carry it cannot be merged, because a single exception would bind every
+future version of the module it touches. If that is a problem for you —
+an employer IP policy, for example — please open a discussion first. We
+would rather build the idea ourselves from your issue than leave part of
+the project unable to move.
 
 ## Code of Conduct
 

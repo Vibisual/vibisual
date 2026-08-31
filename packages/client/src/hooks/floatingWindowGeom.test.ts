@@ -1,9 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import {
+  WINDOW_PULL_OUT,
   centeredGeom,
   clampGeom,
   clampPosition,
   defaultFloatSize,
+  isCursorOutsideViewport,
+  isCursorPinnedToViewportEdge,
   resolveFloatingWindowConfig,
   windowStyle,
 } from './floatingWindowGeom.js';
@@ -92,5 +95,46 @@ describe('windowStyle', () => {
 
   it('잠긴 전체화면은 mode 와 무관하게 전면', () => {
     expect(windowStyle(geom, 'floating', cfg, true)).toEqual({ left: 0, top: cfg.headerH, right: 0, bottom: 0 });
+  });
+});
+
+// §5.13 (S-3) — 창을 앱 밖으로 끌어내는 손짓. IDE 창(§5.5 #17-6)과 내부 앱 창이 **같은 기준**을
+// 쓰는지가 여기서 지켜진다(기준이 두 벌이면 창 종류마다 다른 자리에서 반응한다).
+describe('끌어내기 판정 — 커서가 앱 밖으로', () => {
+  const vp = { w: 1280, h: 800 };
+
+  it('창 안에서는 아무리 가장자리에 붙어도 밖이 아니다', () => {
+    expect(isCursorOutsideViewport({ x: 0, y: 0 }, vp)).toBe(false);
+    expect(isCursorOutsideViewport({ x: 1279, y: 799 }, vp)).toBe(false);
+  });
+
+  it('여유(MARGIN)만큼 더 나가야 밖으로 친다 — 경계에 걸친 손은 걸리지 않는다', () => {
+    expect(isCursorOutsideViewport({ x: vp.w + WINDOW_PULL_OUT.MARGIN, y: 400 }, vp)).toBe(false);
+    expect(isCursorOutsideViewport({ x: vp.w + WINDOW_PULL_OUT.MARGIN + 1, y: 400 }, vp)).toBe(true);
+    expect(isCursorOutsideViewport({ x: 400, y: -WINDOW_PULL_OUT.MARGIN - 1 }, vp)).toBe(true);
+  });
+});
+
+describe('끌어내기 판정 — 화면 끝에 막힌 손', () => {
+  const vp = { w: 1280, h: 800 };
+
+  it('가운데에서는 걸리지 않는다', () => {
+    expect(isCursorPinnedToViewportEdge({ x: 640, y: 400 }, vp)).toBe(false);
+  });
+
+  it('오른쪽·아래 끝은 w-1 / h-1 이 최대값이라 그 자리도 띠 안이다', () => {
+    // 이 -1 이 없으면 단일 모니터 최대화 사용자는 끝까지 밀어도 영영 띠에 들어오지 못한다.
+    expect(isCursorPinnedToViewportEdge({ x: vp.w - 1, y: 400 }, vp)).toBe(true);
+    expect(isCursorPinnedToViewportEdge({ x: 640, y: vp.h - 1 }, vp)).toBe(true);
+  });
+
+  it('왼쪽·위 끝도 같은 띠', () => {
+    expect(isCursorPinnedToViewportEdge({ x: 0, y: 400 }, vp)).toBe(true);
+    expect(isCursorPinnedToViewportEdge({ x: 640, y: 0 }, vp)).toBe(true);
+  });
+
+  it('띠 바로 안쪽은 아직 아니다', () => {
+    const inside = WINDOW_PULL_OUT.EDGE_PX + 1;
+    expect(isCursorPinnedToViewportEdge({ x: inside, y: 400 }, vp)).toBe(false);
   });
 });

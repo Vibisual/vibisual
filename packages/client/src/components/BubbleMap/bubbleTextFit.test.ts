@@ -278,3 +278,64 @@ describe('bubbleTextFit — 가로(현) 와 요약', () => {
     expect(long.labelText).toContain('…');
   });
 });
+
+/**
+ * §5.10 **메모리 버블** — 중앙 열은 카드 수 **하나**이고 이름은 하단 블록이 맡는다.
+ *
+ * 이름이 중앙에 있던 종전 구현은 127px 원에서 `11×ts` = **9px 한글**로 렌더돼 획이 제 색에
+ * 도달하지 못했다(§9 실측 7.7%). 자리를 옮기면서 하한을 12px 로 못 박았으므로, 그 줄이
+ * 오토핏 사다리에 접혀 사라지지 않는다는 것을 여기서 고정한다.
+ *
+ * 값은 `BubbleNode` 가 넘기는 것을 그대로 옮겨 적는다(그쪽이 바뀌면 이쪽도 같이).
+ */
+function memoryBubbleInput(size: number): BubbleFitInput {
+  const { ts } = scaled(size);
+  return {
+    size,
+    ts,
+    borderWidth: 2,
+    iconPx: 0,        // 카드 실루엣은 배경 워터마크라 중앙 열에 없다
+    label: '',        // 이름은 하단 블록으로 내려갔다
+    labelFontSize: 0,
+    labelMaxLines: 1,
+    labelWidthRatio: 0.7,
+    badge: null,
+    centerExtras: [{ fontSize: Math.max(20, Math.round(34 * ts)), lineHeight: 1 }],
+    bottomLines: [
+      { key: 'brainLabel', text: '메모리', fontSize: Math.max(12, Math.round(12 * ts)), cls: '', priority: 100 },
+    ],
+    bottomOffset: Math.max(3, Math.round(6 * ts)),
+  };
+}
+
+describe('§5.10 메모리 버블 배치', () => {
+  /** `calcBubbleSize` 의 brain 분기(`NODE_MIN + (MAX-MIN)×0.52`)와 같은 지름. */
+  const MEMORY_SIZE = Math.round(70 + (180 - 70) * 0.52);
+
+  it('이름 줄이 접히지 않고 하단에 남는다 — 12px 하한 그대로', () => {
+    const plan = planBubbleText(memoryBubbleInput(MEMORY_SIZE));
+    expect(plan.bottomLines).toHaveLength(1);
+    expect(plan.bottomLines[0]?.text).toBe('메모리');
+    expect(plan.bottomLines[0]?.fontSize).toBeGreaterThanOrEqual(12);
+    expect(plan.foldedText).toBe('');
+  });
+
+  it('이름 줄이 그 높이의 현 안에 들어간다(원 밖으로 삐져나가지 않는다)', () => {
+    const plan = planBubbleText(memoryBubbleInput(MEMORY_SIZE));
+    const fontSize = plan.bottomLines[0]?.fontSize ?? 0;
+    expect(estimateTextWidth('메모리', fontSize)).toBeLessThanOrEqual(plan.bottomMaxWidths[0] ?? 0);
+  });
+
+  it('중앙에 남은 카드 수가 예약된 세로 안에 들어간다 — 사다리를 내려갈 일이 없다', () => {
+    const { ts } = scaled(MEMORY_SIZE);
+    const plan = planBubbleText(memoryBubbleInput(MEMORY_SIZE));
+    expect(plan.centerMaxHeight).toBeGreaterThanOrEqual(Math.max(20, Math.round(34 * ts)));
+    expect(plan.step).toBe(0);
+  });
+
+  it('예약이 실제 하단 높이보다 작지 않다(겹침 불변식은 메모리 버블에도 그대로)', () => {
+    const input = memoryBubbleInput(MEMORY_SIZE);
+    const plan = planBubbleText(input);
+    expect(plan.paddingBottom).toBeGreaterThanOrEqual(bottomBlockHeight(plan.bottomLines) + input.bottomOffset);
+  });
+});

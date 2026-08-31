@@ -84,13 +84,25 @@ describe('resolveTitleBarChrome — 폰 폭에서 접는 것들', () => {
 });
 
 describe('resolveTitleBarChrome — 오버레이 창·도킹 끔', () => {
-  it('오버레이 창(fullWindow)은 폭과 무관하게 창 조작 손잡이를 안 그린다', () => {
+  it('독립 창(fullWindow)은 붙이기·접기를 안 그린다 — 그 창에 뜻이 없는 손잡이들', () => {
     for (const narrow of [false, true]) {
       const chrome = resolveTitleBarChrome({ ...base, narrow, fullWindow: true, disableDock: true });
       expect(chrome.showDockMenu).toBe(false);
       expect(chrome.showCollapse).toBe(false);
-      expect(chrome.showMaximize).toBe(false);
     }
+  });
+
+  // §17-6 (H-5) — 독립 창은 `frame:false + transparent` 라 OS 타이틀바도 시스템 최대화도 없다.
+  //   여기서 접으면 그 창을 키우는 길이 **네 변을 손으로 끄는 것뿐**이 된다(사용자 보고).
+  it('독립 창에서는 [최대화]를 남긴다 — 폭과 무관하게', () => {
+    for (const narrow of [false, true]) {
+      const chrome = resolveTitleBarChrome({ ...base, narrow, fullWindow: true, disableDock: true });
+      expect(chrome.showMaximize).toBe(true);
+    }
+  });
+
+  it('독립 창이 아닌 폰 풀스크린 모달에서는 종전대로 [최대화]도 접는다', () => {
+    expect(at({ narrow: true }).showMaximize).toBe(false);
   });
 
   it('도킹이 꺼진 창은 데스크톱에서도 붙이기 메뉴가 없다', () => {

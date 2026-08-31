@@ -96,6 +96,15 @@ mac:
   icon: resources/icons/icon.icns
   category: public.app-category.developer-tools
 
+# deb/rpm 은 **homepage 가 없으면 포장 단계에서 죽는다**(fpm 의 --url).
+# 이 값은 루트 package.json 에만 있는데 electron-builder 는 앱 디렉터리(packages/desktop)의
+# package.json 만 본다. 리눅스 사정으로 앱 package.json 을 고치는 대신 여기서 얹는다.
+extraMetadata:
+  homepage: https://github.com/Vibisual/vibisual
+
+# ⚠️ deb·rpm 타깃은 이 파일에 뒤늦게 들어왔고(커밋 a22a0ea) **아직 한 번도 발행된 적이 없다** —
+#    v0.1.14 자산은 AppImage 뿐이다. 실제로 지어 보니 아래 maintainer/artifactName/homepage
+#    세 값이 없어 포장 단계에서 죽었다(2026-08-29 WSL Ubuntu 실측). 셋 다 여기서 못 박아 둔다.
 linux:
   # ⚠️ AppImage 만으로는 **받아서 그냥 실행할 수 없다.** AppImage type2 는 `libfuse.so.2` 를
   # dlopen 하는데 요즘 배포판에는 FUSE 3 만 있다 — Ubuntu 24.04 러너 실측으로
@@ -129,13 +138,26 @@ linux:
 # 그 값이 `Vibisual`(대문자 V)이라 dpkg 규칙(`^[a-z0-9][a-z0-9+.-]+$`)에 걸린다. 그래서 못 박는다.
 deb:
   packageName: vibisual
+  # ⚠️ maintainer 가 없으면 포장이 죽는다 — package.json 의 author 가 이메일 없는 문자열이라
+  #    electron-builder 가 Debian 규격의 "이름 <메일>" 을 만들지 못한다. 여기서 못 박는다.
+  #    (개인 주소가 아니라 프로젝트 주소를 쓴다 — 모든 deb 의 control 에 공개로 박힌다.)
+  maintainer: Vibisual <noreply@vibisual.pro>
+  # ⚠️ 기본 artifactName 은 `${name}` = npm 이름(@vibisual/desktop)이라 슬래시가 경로로 해석돼
+  #    `dist/@vibisual/desktop_0.1.14_amd64.deb` 를 쓰려다 "Parent directory does not exist" 로
+  #    죽는다. Debian 관례대로 packageName 을 쓴다.
+  artifactName: vibisual_${version}_${arch}.${ext}
   # `depends` 는 **일부러 비워 둔다.** 손으로 적으면 Ubuntu 24.04 의 t64 전환
   # (`libgtk-3-0` → `libgtk-3-0t64`) 같은 배포판별 이름 차이를 우리가 떠안게 된다.
   # electron-builder 기본값이 실제로 통하는지는 스모크가 `apt install ./*.deb` 로 잰다 —
   # 추측하지 말고 재는 자리를 만들어 두는 편이 낫다.
 
+# rpm 은 **rpmbuild 가 있어야** 지어진다(fpm 이 부른다). release.yml 의 ubuntu-latest 러너에는
+# rpm 4.18 이 기본으로 깔려 있어 그대로 통하고, 손으로 지을 때만 `sudo apt install rpm` 이 필요하다.
 rpm:
   packageName: vibisual
+  # deb 와 같은 이유(위 주석 참고). rpm 관례는 `이름-버전.아키.rpm`.
+  maintainer: Vibisual <noreply@vibisual.pro>
+  artifactName: vibisual-${version}.${arch}.${ext}
 
 # electron-updater feed — SCENARIO.md §4 v2.44 자동 업데이트.
 # 이 publish 설정이 있어야 electron-builder 가 빌드 산출물에 app-update.yml 을 베이킹하고,

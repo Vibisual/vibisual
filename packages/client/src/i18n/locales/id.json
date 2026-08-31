@@ -26,7 +26,17 @@
       "confirmTitle": "Mulai ulang untuk memperbarui?",
       "confirmBody": "Memperbarui akan menutup dan menginstal ulang aplikasi. Pekerjaan agent yang sedang berlangsung atau perubahan yang belum disimpan mungkin akan hilang.",
       "confirmHint": "Jika Anda memiliki pekerjaan agent kustom yang penting, selesaikan dulu, lalu perbarui.",
-      "confirmCancel": "Batal"
+      "confirmCancel": "Batal",
+      "openReleases": "Unduh {{version}}",
+      "openReleasesTooltip": "Pembaruan otomatis tidak dapat diselesaikan di Mac ini. Ini membuka halaman rilis agar Anda bisa mengunduhnya sendiri.",
+      "failed": {
+        "download-failed": "Unduhan tidak selesai.",
+        "checksum-mismatch": "Berkas yang diunduh tidak cocok dengan checksum yang dipublikasikan, sehingga dibuang.",
+        "arch-mismatch": "Build yang diunduh ditujukan untuk prosesor yang berbeda dari Mac ini, sehingga tidak dipasang.",
+        "mount-failed": "Disk image yang diunduh tidak dapat dibuka.",
+        "not-writable": "Vibisual tidak memiliki izin untuk mengganti dirinya sendiri di lokasi pemasangannya.",
+        "install-failed": "Aplikasi tidak dapat diganti."
+      }
     },
     "agentStatus": {
       "waiting": "Menunggu agent",
@@ -87,6 +97,10 @@
         "expandAll": "Perluas semua"
       },
       "shortcutHint": "{{dock}} dock · {{max}} maksimalkan · {{next}} jendela berikutnya"
+    },
+    "projectFolderBanner": {
+      "text": "Belum ada folder proyek yang terbuka — agent belum punya tempat untuk bekerja.",
+      "action": "Pilih folder"
     }
   },
   "panel": {
@@ -948,15 +962,21 @@
       "fallbackModel": {
         "label": "Model cadangan",
         "tip": "Model yang dipakai saat model utama kelebihan beban atau tidak tersedia. Daftar dipisah koma dicoba berurutan. Hanya untuk jalur headless.",
-        "placeholder": "mis. sonnet"
+        "placeholder": "mis. sonnet",
+        "unsetLabel": "tidak diatur",
+        "unset": "Tidak diatur — tidak ada fallback. Proses gagal saat model utama tidak tersedia.",
+        "customLabel": "Masukkan manual…",
+        "custom": "Ketik nilainya sendiri — id versi yang tepat, atau daftar dipisah koma yang dicoba berurutan."
       },
       "autoCompact": {
         "label": "Pemadatan otomatis",
-        "tip": "Ukuran konteks saat CLI memadatkan percakapan sendiri.",
-        "unset": "Tidak disetel — CLI yang menentukan (bawaan).",
+        "tip": "Ukuran konteks saat CLI mulai memadatkan sendiri. Nilai lebih kecil memadatkan lebih awal dan lebih sering.",
+        "unset": "Belum diatur — mengikuti nilai bawaan di jendela Pengaturan.",
         "unsetLabel": "tidak disetel",
         "auto": "auto — CLI memilih jendelanya.",
-        "tokens": "Padatkan sekitar {{tokens}} token."
+        "tokens": "Padatkan sekitar {{tokens}} token.",
+        "unsetDefaultLabel": "belum diatur ({{tokens}})",
+        "globalTip": "Berlaku untuk semua agen yang tidak punya nilai auto-compact sendiri — termasuk yang sedang berjalan. Biarkan kosong untuk memakai nilai bawaan."
       },
       "settingSources": {
         "label": "Sumber setelan",
@@ -1026,6 +1046,22 @@
         "tip": "CLI agent mana yang diluncurkan oleh terminal CMD ini. Selain Claude Code, CLI lain bukan anak dari hook kami, sehingga resume percakapan dan injeksi rule tidak terpasang — statusnya dibaca dari output terminal sebagai gantinya.",
         "nonClaudeNote": "CLI ini bukan Claude Code, jadi pengaturan di bawah (model, izin, tool, rule) tidak diteruskan ke sana. Statusnya dibaca dari output terminal sebagai gantinya. Perubahan berlaku untuk sesi baru yang dibuka dengan \"+\".",
         "applyNote": "CLI yang diubah berlaku untuk sesi baru yang dibuka dengan \"+\" — terminal yang sudah berjalan tetap memakai CLI yang dipakai sejak semula."
+      },
+      "compactAfterTurn": {
+        "label": "Padatkan saat giliran selesai",
+        "hint": "Melipat percakapan menjadi ringkasan di setiap batas giliran — tidak pernah di tengah tugas."
+      },
+      "agentCanCompact": {
+        "label": "Izinkan agen memadatkan saat bekerja",
+        "hint": "Agen meminta saat konteks terasa berat; dijalankan di akhir giliran itu."
+      },
+      "diff": {
+        "badge": "{{count}} berbeda dari default",
+        "summaryTip": "Berbeda dari default agen di Opsi — {{list}}",
+        "tip": "Disetel khusus untuk agen ini. Default: {{value}}",
+        "unset": "tidak disetel",
+        "on": "aktif",
+        "off": "nonaktif"
       }
     },
     "permissionPrompt": {
@@ -1400,7 +1436,8 @@
       "recheck": "Periksa lagi",
       "later": "Nanti",
       "stop": "Hentikan",
-      "start": "Masuk"
+      "start": "Masuk",
+      "successNext": "Berikutnya: pilih folder proyek tempat agent Anda bekerja."
     },
     "setup": {
       "title": "Instal Claude Code",
@@ -1414,6 +1451,8 @@
       "installFailed": "Instalasi gagal",
       "retry": "Coba lagi",
       "ready": "Claude Code siap. Melanjutkan…",
+      "readyNext": "Berikutnya: masuk ke akun Claude Anda.",
+      "continue": "Lanjutkan",
       "failed": "Instalasi belum selesai. Jalankan perintah di atas di terminal, lalu pilih \"Periksa lagi\".",
       "manualOnly": "Instalasi otomatis tidak tersedia di platform ini. Jalankan perintah di atas di terminal, lalu pilih \"Periksa lagi\".",
       "recheck": "Periksa lagi",
@@ -1464,6 +1503,14 @@
       "vibi3d": {
         "name": "Vibi3D",
         "desc": "Putar model 3D di dalam aplikasi"
+      },
+      "window": {
+        "popOut": "Buka di jendela terpisah",
+        "maximize": "Maksimalkan",
+        "restore": "Pulihkan",
+        "close": "Tutup (Esc)",
+        "dragHint": "Seret ke luar aplikasi untuk menjadikannya jendela terpisah.",
+        "pullOutArmed": "Lepaskan untuk membuka di jendela terpisah"
       }
     },
     "videoStudio": {
@@ -1620,6 +1667,16 @@
       "opening": "Membuka di editor…",
       "installing": "Memasang pengonversi… hanya pertama kali yang butuh waktu.",
       "failed": "Gagal mengonversi. Buka dengan aplikasi bawaan."
+    },
+    "projectFolder": {
+      "title": "Pilih folder proyek",
+      "intro": "Claude Code sudah terinstal dan sudah masuk. Langkah terakhir adalah memilih folder tempat agent Anda bekerja — biasanya root dari sebuah proyek atau repositori.",
+      "blocked": "Tidak ada yang dibuat — belum ada folder proyek yang terbuka. Agent bekerja di dalam folder yang Anda pilih, jadi pilih satu dulu.",
+      "detail": "Semua yang disimpan Vibisual untuk sebuah proyek berada di dalam folder itu, dan agent hanya boleh membaca serta mengubah berkas di bawahnya. Anda bisa membuka folder lain nanti lewat File → Buka Folder.",
+      "cancelled": "Belum ada folder yang dipilih. Pilih satu untuk melanjutkan.",
+      "choose": "Pilih Folder",
+      "picking": "Memilih…",
+      "later": "Nanti"
     }
   },
   "ide": {
@@ -1703,11 +1760,10 @@
       "resizeStack": "Atur pembagian",
       "slotTabHint": "Bawa \"{{name}}\" ke depan (jendela berbagi slot dock ini)",
       "dockShortcutHint": "{{dock}} untuk dock · {{undock}} untuk undock",
-      "popOutHint": "Lepaskan untuk memisahkan ke jendela tersendiri",
-      "popOutEdgeHint": "Terus dorong ke tepi untuk memisahkannya ke jendela tersendiri",
+      "popOutGhostHint": "Tarik lebih jauh untuk menjadikannya jendela tersendiri",
+      "popOutGhostArmedHint": "Lepaskan untuk menjadikannya jendela tersendiri",
       "popOutLabel": "Pisahkan ke jendela tersendiri",
       "returnToApp": "Kembalikan ke dalam aplikasi",
-      "popOutHintButton": "Pisahkan ke jendela tersendiri (atau seret bilah judul ke luar aplikasi, atau dorong ke tepi layar)",
       "returnToAppHint": "Klik untuk mengembalikannya ke aplikasi · seret ke jendela aplikasi untuk menggabungkan",
       "redockDropHint": "Lepaskan di sini untuk menggabungkan kembali ke aplikasi",
       "redockKeepHint": "Lepaskan di tempat lain untuk membiarkannya terpisah"
@@ -1799,6 +1855,7 @@
       "ctxQuoteReply": "Kutip balasan",
       "ctxSendAsPrompt": "Kirim sebagai prompt baru",
       "ctxSelectAll": "Pilih semua",
+      "ctxAddMemo": "Tambah memo tempel",
       "jumpToBottom": "Gulir ke bawah",
       "ctxSelectionRequired": "Pilih teks terlebih dahulu",
       "inputCtxCut": "Potong",
@@ -1809,6 +1866,16 @@
       "stopAll": "Hentikan semua",
       "stopAllTitle": "Hentikan semua yang dijalankan agent ini (tab lain + sub-agent di latar belakang)",
       "stopSessionTitle": "Hentikan sesi ini beserta sub-agent yang dimulainya (tab sesi lain tetap berjalan)"
+    },
+    "memo": {
+      "title": "Memo",
+      "placeholder": "Ketik catatan…",
+      "color": "Warna",
+      "collapse": "Ciutkan",
+      "expand": "Perluas",
+      "delete": "Hapus memo",
+      "resize": "Ubah Ukuran",
+      "limitReached": "Maksimal {{max}} memo per sesi"
     },
     "askQuestion": {
       "title": "Pertanyaan",
@@ -2101,13 +2168,47 @@
       "openFile": "Buka di editor",
       "copyPath": "Salin path",
       "copied": "Tersalin",
-      "truncated": "Hanya {{count}} item pertama"
+      "truncated": "Hanya {{count}} item pertama",
+      "ctx": {
+        "open": "Buka",
+        "openExternal": "Buka di editor luar",
+        "revealFolder": "Buka foldernya",
+        "newFile": "Berkas baru",
+        "newFolder": "Folder baru",
+        "rename": "Ganti nama",
+        "delete": "Hapus",
+        "newFileName": "Nama berkas baru",
+        "newFolderName": "Nama folder baru",
+        "newName": "Nama baru",
+        "confirmTrash": "Pindahkan \"{{name}}\" ke tempat sampah?",
+        "confirmDelete": "Hapus \"{{name}}\" secara permanen? Ini tidak bisa dibatalkan.",
+        "trashed": "\"{{name}}\" dipindahkan ke tempat sampah",
+        "deleted": "\"{{name}}\" dihapus",
+        "err": {
+          "nameEmpty": "Isi namanya",
+          "nameSeparator": "Nama tidak boleh memuat / atau \\",
+          "nameTraversal": "Nama itu tidak boleh dipakai",
+          "nameInvalidChar": "Nama tidak boleh memuat < > : \" | ? *",
+          "nameTrailing": "Nama tidak boleh diawali atau diakhiri spasi maupun titik",
+          "nameReserved": "Nama itu dicadangkan oleh Windows",
+          "nameTooLong": "Namanya terlalu panjang (maksimal 255 karakter)",
+          "exists": "Sudah ada yang bernama sama di sini",
+          "notFound": "Item itu sudah tidak ada",
+          "denied": "Sistem menolak — tidak ada izin, atau item sedang dipakai",
+          "offline": "Tidak bisa menghubungi aplikasi",
+          "root": "Akar proyek tidak diubah dari sini",
+          "outside": "Jalur itu di luar proyek",
+          "failed": "Tidak berhasil"
+        }
+      }
     },
     "editor": {
       "resize": "Ubah ukuran panel editor",
       "save": "Simpan ({{shortcut}})",
       "reload": "Muat ulang dari disk",
       "closeTab": "Tutup tab",
+      "pinTabs": "Sematkan tab — tetap terbuka saat berpindah sesi",
+      "unpinTabs": "Lepas sematan — tiap sesi punya tabnya sendiri",
       "closePane": "Tutup panel editor",
       "closeDirtyConfirm": "File ini memiliki perubahan yang belum disimpan. Tetap tutup?",
       "conflict": "File ini berubah di disk setelah Anda membukanya.",
@@ -2135,6 +2236,18 @@
         "failed": "Tidak dapat menyimpan file ini"
       },
       "closeDirtyConfirmMany": "{{count}} dari file ini memiliki perubahan yang belum disimpan. Tetap tutup?",
+      "html": {
+        "back": "Kembali",
+        "forward": "Maju",
+        "reload": "Muat ulang halaman ini",
+        "home": "Kembali ke berkas yang kamu buka — {{path}}",
+        "openExternal": "Buka di peramban",
+        "address": "Lokasi halaman — {{path}}",
+        "viewPage": "Halaman",
+        "viewSource": "Sumber",
+        "viewPageHint": "Tampilkan berkas ini sebagai halaman yang dirender",
+        "viewSourceHint": "Tampilkan sumber HTML dan sunting"
+      },
       "ctx": {
         "cut": "Potong",
         "copy": "Salin",
@@ -2168,7 +2281,9 @@
       "context": "ctx: {{used}}/{{max}}",
       "tokens": "{{in}} masuk / {{out}} keluar",
       "sessionOne": "{{count}} sesi",
-      "sessionMany": "{{count}} sesi"
+      "sessionMany": "{{count}} sesi",
+      "autoCompact": "auto-compact {{value}}",
+      "autoCompactTip": "Saat konteks mencapai ukuran ini, CLI meringkas percakapan dengan sendirinya. Ubah per agen di Pengaturan Agen, atau untuk semua di File > Options > Agent Defaults."
     },
     "search": {
       "placeholder": "Cari dalam percakapan",
@@ -2233,7 +2348,9 @@
         "runProgram": "Jalankan program — {{path}}",
         "runFailed": "Tidak dapat dijalankan — jendela ini tidak punya terminal.",
         "openApp": "Buka di {{app}} — {{path}}",
-        "openExternal": "Buka dengan aplikasi bawaan — {{path}}"
+        "openExternal": "Buka dengan aplikasi bawaan — {{path}}",
+        "revealOutsideFolder": "Buka di pengelola berkas — {{path}}",
+        "revealOutsideFile": "Tampilkan di pengelola berkas (membuka folder induk) — {{path}}"
       },
       "restartResumed": "Terputus saat aplikasi ditutup — dilanjutkan pada sesi tersimpan.",
       "nestedSubagent": "Subagen",
@@ -2257,6 +2374,8 @@
       "copyQuestions": "Salin pertanyaan",
       "copySelection": "Salin pilihan",
       "copySelectionHint": "Seret untuk memilih bagian yang diinginkan, lalu salin",
+      "copySelectionHintCheckable": "Centang jawaban atau seret untuk memilih, lalu salin",
+      "copySelectionChecked": "Salin {{n}} terpilih",
       "copyOne": "Salin pertanyaan ini",
       "selectAnswer": "Pilih jawaban ini",
       "selectNone": "Bersihkan",
@@ -2589,7 +2708,8 @@
         "mcp": "Server MCP",
         "hooks": "Hooks",
         "systemPrompt": "System prompt Claude Code",
-        "brainSkills": "Prosedur Memori"
+        "brainSkills": "Prosedur Memori",
+        "compactSelf": "Pemadatan mandiri agen"
       },
       "hint": {
         "tools": "Pilih daftar tool di Pengaturan Agent",
@@ -2778,6 +2898,11 @@
             "what": "Prosedur yang dipelajari proyek ini, dimuat bila tugasnya cocok.",
             "more": "Dipilih lewat deskripsinya, jadi hanya yang relevan yang dimuat.",
             "off": "Agen menyusun ulang setiap prosedur dari nol."
+          },
+          "compactSelf": {
+            "what": "Saluran tempat agen sendiri meminta percakapan dipadatkan.",
+            "more": "Hanya dikirim ke agen dengan «Izinkan agen memadatkan saat bekerja» aktif. Pemadatan berjalan di akhir giliran itu, tidak pernah di tengah tugas.",
+            "off": "Agen tidak bisa lagi meminta; hanya ambang jendela dan pemadatan batas giliran yang tersisa. Saat mati tidak ada yang disuntikkan, jadi biaya tokennya nol."
           }
         },
         "cat": {
@@ -2985,6 +3110,46 @@
         "readOnly": "Bubble Hook hanya-baca.",
         "network": "Tidak dapat menghubungi server.",
         "failed": "Tidak dapat memulai verifikasi."
+      },
+      "demo": {
+        "sectionTitle": "Demonstrasi",
+        "about": "Tunjukkan sekali, dan langkah-langkah itu akan ikut pada setiap verifikasi berikutnya.",
+        "record": "Rekam demonstrasi",
+        "stopRecording": "Berhenti · {{time}}",
+        "summary": "{{steps}} langkah · {{frames}} gambar",
+        "willSend": "Juga mengirim demonstrasi: {{name}}",
+        "willNotSend": "Tidak ada demonstrasi dipilih — tidak ada tambahan yang dikirim",
+        "emptyDemo": "Demonstrasi yang dipilih kosong (tanpa langkah, hasil yang diharapkan, atau gambar) — tidak ada tambahan yang dikirim",
+        "recordRun": "Rekam layar selama verifikasi ini berjalan",
+        "recordRunNeedsSource": "Rekam demonstrasi sekali untuk memilih apa yang ditangkap",
+        "watch": "Lihat layar",
+        "windowTitle": "Simpan sebagai prosedur verifikasi",
+        "evidenceTitle": "Layar selama verifikasi",
+        "autoStopped": "Perekaman berhenti pada batas durasi.",
+        "stepsLabel": "Langkah",
+        "stepsEmpty": "Putar ulang dan tulis apa yang Anda lakukan di setiap titik.",
+        "stepPlaceholder": "mis. klik Simpan di bilah alat",
+        "addStep": "Tambahkan di {{at}}",
+        "stepsFull": "Maksimal {{max}} langkah.",
+        "expectedLabel": "Hasil yang diharapkan (opsional)",
+        "expectedPlaceholder": "mis. muncul notifikasi hijau Tersimpan",
+        "nameLabel": "Nama",
+        "frameCount": "Gambar",
+        "noFrames": "Tidak ada",
+        "extracting": "Mengambil bingkai {{done}}/{{total}}",
+        "save": "Simpan sebagai prosedur",
+        "discard": "Buang",
+        "error": {
+          "noFrames": "Tidak ada bingkai yang bisa diambil dari klip ini.",
+          "noStream": "Aliran tangkapan terputus. Pilih sumbernya lagi.",
+          "uploadFailed": "Prosedur tersimpan, tetapi gambar gagal diunggah.",
+          "saveFailed": "Tidak dapat menyimpan demonstrasi.",
+          "readOnly": "Gelembung hook bersifat baca-saja.",
+          "network": "Tidak dapat menghubungi server.",
+          "failed": "Tidak dapat menyimpan demonstrasi.",
+          "projectNotFound": "Proyek itu tidak ditemukan.",
+          "framesFull": "Demonstrasi ini sudah mencapai jumlah gambar maksimum."
+        }
       }
     }
   },
@@ -3564,7 +3729,18 @@
       "snipUnavailable": "Tangkap area tidak tersedia di layar ini.",
       "snipFailed": "Gagal menangkap: {{error}}"
     },
-    "close": "Tutup"
+    "close": "Tutup",
+    "minimize": "Perkecil",
+    "maximize": "Perbesar",
+    "play": "Putar",
+    "pause": "Jeda",
+    "delete": "Hapus",
+    "externalOpen": {
+      "noBrowser": "Peramban tidak ditemukan — salin tautannya dan buka sendiri",
+      "openFailed": "Tidak dapat membuka tautan — salin dan buka sendiri",
+      "copy": "Salin",
+      "copied": "Tersalin"
+    }
   },
   "brain": {
     "bubbleLabel": "Memori",

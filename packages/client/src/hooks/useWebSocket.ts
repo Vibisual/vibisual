@@ -193,12 +193,15 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     store.applyRunningSubagentTasks(snap.runningSubagentTasks);
     store.applyFinishedSubagentTasks(snap.finishedSubagentTasks);
     store.applyAgentReports(snap.agentReports);
+    store.applyAgentMemos(snap.agentMemos);
     store.applyAgentQuestions(snap.agentQuestions);
     store.applyAgentReviews(snap.agentReviews);
     store.applyAgentLists(snap.agentLists);
     store.applyAgentFeedbacks(snap.agentFeedbacks);
     store.applySessionLoops(snap.sessionLoops);
     store.applyVerificationRuns(snap.verificationRuns);
+    // §5.5 #17-35 ⑨ — 시연 목록도 검증 이력 바로 옆자리에서 전량 교체한다.
+    store.applyVerificationDemos(snap.verificationDemos);
     // §5.5 #17-17 v4.46 — 세션 목표(활동바 퍼센트 배지 + 목표 패널의 원본).
     store.applySessionGoals(snap.sessionGoals);
     store.applyDiagnosticLog(snap.diagnosticLog);

@@ -22,6 +22,7 @@ import {
 } from '@vibisual/shared';
 import type {
   VerificationAttemptRecord,
+  VerificationDemo,
   VerificationRecipeSource,
   VerifyVerdict,
 } from '@vibisual/shared';
@@ -106,12 +107,43 @@ export function recordedSkillRecipe(relPath: string = VERIFY_RECORDED_SKILL_PATH
 /** 레시피가 하나도 없을 때 — `/verify` 에게 그대로 맡긴다. */
 export const NO_RECIPE: VerifyRecipeInfo = { source: 'none', lines: [] };
 
+/**
+ * 시연 프레임 한 장 — 에이전트가 **직접 열 수 있는 절대 경로** + 클립 안 시각.
+ *
+ * 장수(`number`)가 아니라 경로를 받는 이유: `/verify` 프롬프트는 슬래시 명령이라 `composeTurnPrompt`
+ * 가 **첨부 경로를 붙이지 않는다**(맨 앞 한 글자라도 앞서면 CLI 가 명령으로 집지 못한다는 규칙의
+ * 일부로 꼬리 첨부까지 함께 잘린다). 그래서 "첨부된 그림 4장" 이라고 **말만 하고** 그림은 한 장도
+ * 가지 않았다(실측: 에이전트가 "제 컨텍스트에는 이미지가 없습니다" 라고 되물었다).
+ * 경로를 프롬프트 본문 안에 실으면 `/verify` 는 여전히 맨 앞이면서 그림이 실제로 도달한다.
+ */
+export interface DemoFrameRef {
+  /** 그 명령의 첨부 자리에 복사된 PNG 의 절대 경로. */
+  path: string;
+  /** 구간 시작을 0 으로 본 클립 안 시각(ms) — 단계 시각과 같은 축. */
+  atMs: number;
+}
+
 /** 검증 한 건을 보내기 위해 필요한 입력. */
 export interface VerifyPromptInput {
   /** 사용자가 적은 "무엇을 확인할지" 한 줄(선택). */
   focus?: string;
   /** 실어 보낼 실행법. */
   recipe: VerifyRecipeInfo;
+  /**
+   * §5.5 #17-35 ⑨-4 — 사람이 직접 해 보인 재현 절차(선택).
+   * 없으면 이 함수가 만드는 텍스트는 ⑨ 이전과 **완전히 같다**(회귀 테스트가 그 동일성을 지킨다).
+   */
+  demo?: VerificationDemo;
+  /** 그 시연의 프레임들(빈 배열이면 그림 얘기를 아예 꺼내지 않는다). */
+  demoFrames?: DemoFrameRef[];
+}
+
+/** 클립 안 시각을 `0:03` 로 — 단계 문장과 붙는 그림이 같은 순간을 가리키게 하는 표시. */
+export function formatDemoTime(ms: number): string {
+  const total = Math.max(0, Math.round(ms / 1000));
+  const m = Math.floor(total / 60);
+  const sec = total % 60;
+  return `${m}:${String(sec).padStart(2, '0')}`;
 }
 
 /**
@@ -146,6 +178,65 @@ export function buildVerifyPrompt(input: VerifyPromptInput): string {
       '',
       '그 절차를 그대로 따라라. 그 파일은 네가 관리하는 것이니 이번 실행이 그 절차를 벗어났을 때만 손대라.',
     );
+  }
+
+  // §5.5 #17-35 ⑨-4 — 사람이 해 보인 절차. 레시피(앱 켜는 법) **바로 뒤**에 온다 —
+  // 켜는 법 다음에 오는 것이 곧 "그 다음 무엇을 누르는가" 이기 때문이다.
+  const demo = input.demo;
+  const frames = input.demoFrames ?? [];
+  if (demo && (demo.steps.length > 0 || demo.expected || frames.length > 0)) {
+    parts.push('', '=== 사람이 직접 해 보인 재현 절차 ===');
+    if (demo.label) parts.push(`시연: ${demo.label}`);
+    // 무엇을 찍은 화면인지 말한다 — 시연은 이 리포의 앱이 아닐 수 있다(다른 프로그램을 녹화한
+    // 시연이 실제로 온다). 그걸 안 알려 주면 모델은 그림 속 화면을 이 리포의 화면으로 착각한다.
+    //
+    // 다만 기본 이름(`defaultDemoLabel`)이 이미 `<소스명> · <시각>` 이라 그대로 또 적으면
+    // 같은 문자열이 두 줄 연속으로 선다. 이름이 이미 소스명을 담고 있으면 이 줄은 생략한다.
+    if (demo.sourceName && !demo.label.includes(demo.sourceName)) {
+      parts.push(`녹화한 화면: ${demo.sourceName}`);
+    }
+    if (demo.durationMs > 0) parts.push(`구간 길이: ${formatDemoTime(demo.durationMs)} (아래 시각은 구간 시작이 0:00)`);
+    if (demo.steps.length > 0) {
+      parts.push('');
+      demo.steps.forEach((st, i) => {
+        parts.push(`${i + 1}. (${formatDemoTime(st.atMs)}) ${st.text}`);
+      });
+    }
+    if (demo.expected) parts.push('', `기대 결과: ${demo.expected}`);
+    if (frames.length > 0) {
+      // 경로만 덩그러니 두지 않는다. 첨부 레일은 이 프롬프트에 닿지 않으므로(위 `DemoFrameRef` 주석)
+      // **네가 열어야 보인다**는 것을 명시해야 한다 — "첨부됐다" 고만 하면 모델은 이미 봤다고 여기고
+      // 그림 없이 판정하거나, 없는 첨부를 찾다 멈춘다.
+      parts.push(
+        '',
+        `그 시연에서 뽑은 화면 ${frames.length}장이 아래 경로에 있다(시간 순서). 이것은 **파일 경로일 뿐 이미 실려 있는 그림이 아니다** —`,
+        'Read 도구로 한 장씩 직접 열어 본 다음에 판단하라. 열지 않으면 무엇이 어떻게 보여야 하는지 알 수 없다.',
+      );
+      frames.forEach((f, i) => {
+        parts.push(`${i + 1}) ${formatDemoTime(f.atMs)} — ${f.path}`);
+      });
+    }
+
+    parts.push('');
+    if (demo.steps.length > 0) {
+      parts.push(
+        '이 절차는 이 앱의 사용자가 화면을 녹화하며 **직접 조작해 보인 것**이다. 무엇을 눌러야 할지 추론하지 말고',
+        '위 순서를 그대로 재현해 확인하라. 재현할 수 없는 단계가 있으면 임의로 건너뛰지 말고 무엇이 막았는지를 판정 사유에 적어라.',
+      );
+    } else if (frames.length > 0) {
+      // 단계가 비었는데 "위 순서를 그대로 재현하라" 고 하면 없는 목록을 찾게 된다(실측: 단계 0개인
+      // 시연에서 모델이 절차도 그림도 못 찾겠다고 되물었다). 있는 것만 말한다.
+      parts.push(
+        '이 화면은 이 앱의 사용자가 **직접 조작하며 녹화한 것**이다. 다만 글로 적어 둔 단계는 없다 —',
+        '위 그림들이 절차의 전부이니 순서대로 열어 보고 무엇을 하고 있었는지 읽어 내라. 단계를 지어내지 말고,',
+        '그림만으로 무엇을 확인해야 할지 정할 수 없으면 무엇이 부족했는지를 판정 사유에 적어라.',
+      );
+    } else {
+      parts.push(
+        '사용자가 남긴 것은 위 기대 결과 한 줄뿐이다(적어 둔 단계도 화면도 없다). 그것을 확인 기준으로 삼되,',
+        '어떻게 재현할지는 앞의 실행법에서 찾고, 그래도 정할 수 없으면 무엇이 부족했는지를 판정 사유에 적어라.',
+      );
+    }
   }
 
   parts.push(

@@ -7,6 +7,12 @@ import {
   buildRegionClipboardText,
   type RegionInfo,
 } from '../utils/inspector.js';
+import {
+  buildSiteClipboardText,
+  probeWorkspaceSite,
+  siteHitSummary,
+  type SiteProbeResult,
+} from '../utils/inspectorSite.js';
 
 export interface InspectorInfo {
   rect: DOMRect;
@@ -31,28 +37,39 @@ interface Target {
   depthOffset: number;
   /** depthOffset 적용 전, hover로 결정된 가장 안쪽 요소 (offset 기준점) */
   innermost: Element | null;
+  /**
+   * §5.5 #17-27 ⑮ (i) — **다른 오리진** iframe(편집창의 페이지 미리보기)이 답해 준 요소.
+   * 그 문서는 우리가 못 읽으므로 `el` 이 없다 — 대신 페이지에 물어 받은 이 값이 그 자리를 대신한다.
+   */
+  remote: SiteProbeResult | null;
 }
 
 /**
  * 마우스 좌표가 iframe 영역 안에 있으면 contentDocument에서 요소를 찾는다.
  * pointer-events: none 상태이므로 elementFromPoint가 iframe을 반환하지 않아
  * bounding rect로 수동 판별한다.
+ *
+ * §5.5 #17-27 ⑮ (i) — 문서를 못 읽는(다른 오리진) iframe 도 **건너뛰지 않고** `el: null` 로
+ * 돌려준다. 종전에는 여기서 조용히 넘겨, 커서가 미리보기 페이지 위에 있어도 인스펙터는 그
+ * 페이지를 못 본 척하고 뒤에 있는 우리 컴포넌트를 집었다(사용자 보고). 페이지에 직접 물어보는
+ * 길은 부르는 쪽이 잇는다 — 여기서는 "그 iframe 위다"까지만 말한다.
  */
 function probeIframes(
   cx: number,
   cy: number,
-): { el: Element; iframeEl: HTMLIFrameElement } | null {
+): { el: Element | null; iframeEl: HTMLIFrameElement } | null {
   const iframes = document.querySelectorAll('iframe');
   for (const iframe of iframes) {
     const ir = iframe.getBoundingClientRect();
     if (cx < ir.left || cx > ir.right || cy < ir.top || cy > ir.bottom) continue;
     try {
       const doc = iframe.contentDocument;
-      if (!doc) continue;
+      if (!doc) return { el: null, iframeEl: iframe };
       const inner = doc.elementFromPoint(cx - ir.left, cy - ir.top);
-      if (inner) return { el: inner, iframeEl: iframe };
+      return { el: inner, iframeEl: iframe };
     } catch {
-      // cross-origin — skip
+      // cross-origin — 문서는 못 읽지만 자리는 안다. 부르는 쪽이 페이지에 물어본다.
+      return { el: null, iframeEl: iframe };
     }
   }
   return null;
@@ -191,9 +208,15 @@ export function useInspector(): {
   useEffect(() => {
     if (!active) return;
 
-    const target: Target = { el: null, iframeEl: null, depthOffset: 0, innermost: null };
+    const target: Target = { el: null, iframeEl: null, depthOffset: 0, innermost: null, remote: null };
     const prevRect = { top: 0, left: 0, width: 0, height: 0 };
     let rafId = 0;
+    /** 마지막 커서 자리 — 휠로 부모를 올라갈 때 **같은 자리**를 다시 묻기 위해 들고 있는다. */
+    let lastPoint = { x: 0, y: 0 };
+    /** 페이지에 물어본 답을 기다리는 중인가(한 번에 하나만 묻는다). */
+    let remoteBusy = false;
+    /** 기다리는 동안 커서가 움직였다면 그 마지막 자리 — 답이 오면 곧바로 다시 묻는다. */
+    let remotePending: { x: number; y: number } | null = null;
 
     // 영역 드래그 상태
     let dragStart: { x: number; y: number; iframeEl: HTMLIFrameElement | null } | null = null;
@@ -209,6 +232,41 @@ export function useInspector(): {
       prevRect.width = newInfo.rect.width;
       prevRect.height = newInfo.rect.height;
       setInfo(newInfo);
+    };
+
+    /**
+     * ⑮ (i) — 다른 오리진 페이지에 좌표를 묻고, 온 답으로 강조 상자를 그린다.
+     *
+     * 한 번에 하나만 묻는다 — 마우스 이동은 초당 수백 번이라 그대로 흘려보내면 답이 순서를
+     * 잃고 상자가 뒤로 튄다. 기다리는 동안 온 이동은 **마지막 자리 하나**로 접어 두었다가
+     * 답이 오는 즉시 다시 묻는다(사람 눈에는 그대로 따라오는 것으로 보인다).
+     */
+    const askPage = (iframeEl: HTMLIFrameElement, cx: number, cy: number): void => {
+      if (remoteBusy) { remotePending = { x: cx, y: cy }; return; }
+      remoteBusy = true;
+      const ir = iframeEl.getBoundingClientRect();
+      void probeWorkspaceSite(iframeEl, cx - ir.left, cy - ir.top, target.depthOffset).then((res) => {
+        remoteBusy = false;
+        // 그 사이 Alt 를 떼었거나 다른 곳으로 갔으면 옛 답이다 — 버린다.
+        if (res && target.iframeEl === iframeEl) {
+          target.remote = res;
+          const now = iframeEl.getBoundingClientRect();
+          const rect = new DOMRect(
+            now.left + res.hit.rect.x,
+            now.top + res.hit.rect.y,
+            res.hit.rect.width,
+            res.hit.rect.height,
+          );
+          const w = Math.round(rect.width);
+          const h = Math.round(rect.height);
+          let text = res.hit.text;
+          if (text.length > 30) text = text.substring(0, 30) + '\u2026';
+          setInfo({ rect, tag: res.hit.tag, id: res.hit.id, classStr: res.hit.cls, size: `${w}\u00d7${h}`, text });
+        }
+        const next = remotePending;
+        remotePending = null;
+        if (next && target.iframeEl === iframeEl) askPage(iframeEl, next.x, next.y);
+      });
     };
 
     const syncRect = (): void => {
@@ -244,13 +302,29 @@ export function useInspector(): {
         return;
       }
 
+      lastPoint = { x: e.clientX, y: e.clientY };
+
       // 1) iframe 영역 안인지 수동 체크
       const iframeHit = probeIframes(e.clientX, e.clientY);
       if (iframeHit) {
+        // 1-a) 문서를 못 읽는 iframe(미리보기 페이지) — 페이지에 물어본다(⑮ (i)).
+        if (iframeHit.el === null) {
+          if (target.iframeEl !== iframeHit.iframeEl) {
+            target.iframeEl = iframeHit.iframeEl;
+            target.depthOffset = 0;
+            target.remote = null;
+            target.el = null;
+            target.innermost = null;
+            lastElRef.current = null;
+          }
+          askPage(iframeHit.iframeEl, e.clientX, e.clientY);
+          return;
+        }
         if (iframeHit.el === lastElRef.current) return;
         lastElRef.current = iframeHit.el;
         target.innermost = iframeHit.el;
         target.iframeEl = iframeHit.iframeEl;
+        target.remote = null;
         target.depthOffset = 0;  // 새 요소로 이동 시 offset 리셋
         refreshTargetFromInnermost();
         return;
@@ -263,6 +337,7 @@ export function useInspector(): {
         target.el = null;
         target.iframeEl = null;
         target.innermost = null;
+        target.remote = null;
         target.depthOffset = 0;
         lastElRef.current = null;
         return;
@@ -272,16 +347,29 @@ export function useInspector(): {
       lastElRef.current = el;
       target.innermost = el;
       target.iframeEl = null;
+      target.remote = null;
       target.depthOffset = 0;
       refreshTargetFromInnermost();
     };
 
     // 스크롤 휠 → 부모/자식 체인 이동 (A 기능)
     const handleWheel = (e: WheelEvent): void => {
+      const direction = e.deltaY > 0 ? -1 : 1;  // 휠 위로 = 부모로 (+1)
+
+      // ⑮ (i) — 페이지 요소도 같은 손짓으로 부모를 거슬러 올라간다. 더 올라갈 조상이 없다고
+      //   페이지가 말했으면 거기서 멈춘다(헛도는 휠 ❌).
+      if (target.remote && target.iframeEl) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (direction > 0 && !target.remote.hit.hasParent) return;
+        target.depthOffset = Math.max(0, target.depthOffset + direction);
+        askPage(target.iframeEl, lastPoint.x, lastPoint.y);
+        return;
+      }
+
       if (!target.innermost) return;
       e.preventDefault();
       e.stopPropagation();
-      const direction = e.deltaY > 0 ? -1 : 1;  // 휠 위로 = 부모로 (+1)
       target.depthOffset = Math.max(0, target.depthOffset + direction);
       refreshTargetFromInnermost();
     };
@@ -303,10 +391,29 @@ export function useInspector(): {
         return;
       }
 
+      // ⑮ (i) — 페이지 요소를 이미 집어 두었으면 그 답을 그대로 쓴다(왕복 없이 즉시 복사).
+      if (target.remote) {
+        void copyAndFlash(
+          buildSiteClipboardText(target.remote.hit, target.remote.url),
+          siteHitSummary(target.remote.hit),
+        );
+        return;
+      }
+
       // 기존: 요소 클릭 → 복사
       if (!target.el) {
         const iframeHit = probeIframes(e.clientX, e.clientY);
-        if (iframeHit) {
+        if (iframeHit && iframeHit.el === null) {
+          // Alt 를 누르자마자 움직이지 않고 눌렀다 — 답을 받고 나서 복사한다(⑮ (i)).
+          const ir = iframeHit.iframeEl.getBoundingClientRect();
+          void probeWorkspaceSite(iframeHit.iframeEl, e.clientX - ir.left, e.clientY - ir.top, 0)
+            .then((res) => {
+              if (!res) return;
+              void copyAndFlash(buildSiteClipboardText(res.hit, res.url), siteHitSummary(res.hit));
+            });
+          return;
+        }
+        if (iframeHit?.el) {
           target.innermost = iframeHit.el;
           target.iframeEl = iframeHit.iframeEl;
           target.depthOffset = 0;
@@ -315,7 +422,13 @@ export function useInspector(): {
       }
       if (!target.el) return;
 
-      const iframeSrc = target.iframeEl?.src;
+      // 페이지가 링크를 타고 옮겨 갔으면 첫 `src` 는 옛 파일을 가리킨다 — 읽을 수 있으면
+      //   **지금 보고 있는 주소**를 쓴다(⑮ (i) 의 원격 갈래도 답에 실려 온 주소를 쓴다).
+      let iframeSrc = target.iframeEl?.src;
+      try {
+        const here = target.iframeEl?.contentWindow?.location.href;
+        if (here) iframeSrc = here;
+      } catch { /* cross-origin — 첫 src 로 둔다 */ }
       const clipText = buildClipboardText(target.el, iframeSrc);
       // Token-budget telemetry — Tier A should be ≤200 chars, Tier C ≤400.
       // Anything over ~800 means a list is exploding somewhere.

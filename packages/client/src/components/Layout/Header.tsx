@@ -7,7 +7,7 @@ import { isPackagedDesktop } from '../../transport/index.js';
 import { isMac } from '../../utils/platform.js';
 import { FileMenu } from './FileMenu.js';
 import { TabBar } from './TabBar.js';
-import { LanguageSwitcher } from './LanguageSwitcher.js';
+import { HeaderLanguageSlot } from './HeaderLanguageSlot.js';
 import { UpdateButton } from './UpdateButton.js';
 import { PluginHeaderSlot } from '../../plugins/host.js';
 import { OverlayToggleButton } from './OverlayToggleButton.js';
@@ -218,10 +218,10 @@ export function Header({
             <span className="text-[12px] text-gray-300 max-md:hidden">{connLabel[connectionStatus]}</span>
           </button>
 
-          {/* Language switcher — 옵션창 Appearance › Language 와 같은 값을 만진다(§4 v3.24). */}
-          <div className="app-nodrag">
-            <LanguageSwitcher />
-          </div>
+          {/* Language switcher — 옵션창 Appearance › Language 와 같은 값을 만진다(§4 v3.24).
+              §4 (첫 실행 온보딩) — 설치·로그인·폴더·버전 창이 떠 있으면 백드롭이 이 자리를 덮어
+              눌리지 않는다. 슬롯이 그 동안만 같은 전환기를 창 위로 띄운다(자리·크기는 그대로). */}
+          <HeaderLanguageSlot />
         </div>
 
         {/* 폰 전용 — 위 묶음을 펼치고 다시 접는 손잡이. md 이상에서는 그리지 않는다. */}

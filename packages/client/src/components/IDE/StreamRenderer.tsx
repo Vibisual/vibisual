@@ -38,7 +38,7 @@ import { editorFileFromAbsPath } from './editorModel.js';
 import { useIDEProjectRoot } from './useIDEProjectRoot.js';
 import { useIDEPaneActions, useIDEPaneKey } from './idePane.js';
 import { parseStreamPathCandidate } from './streamPathLinks.js';
-import { useWorkspacePathKind } from './useWorkspacePathKind.js';
+import { revealExternalPath, useExternalPathKind, useWorkspacePathKind } from './useWorkspacePathKind.js';
 import { openWorkspaceTarget, planWorkspaceOpen } from './openWorkspaceTarget.js';
 import { getInternalApp } from '../../apps/registry.js';
 import { toolPreview } from './toolPreview.js';
@@ -251,9 +251,15 @@ const MarkdownCode = memo(function MarkdownCode({ children, ...rest }: React.HTM
     () => (inBlock || raw === null ? null : parseStreamPathCandidate(raw, rootPath)),
     [inBlock, raw, rootPath],
   );
-  const resolved = useWorkspacePathKind(rootPath, candidate?.relPath ?? null);
+  // ⑬ (d) — 루트 안/밖은 **묻는 창구도 열리는 곳도** 다르다. 후보의 `scope` 가 그 갈림이고,
+  //   훅은 둘 다 무조건 부르되(리액트 규칙) 해당 없는 쪽에 null 을 넘겨 아무것도 묻지 않게 한다.
+  const insideRel = candidate?.scope === 'inside' ? candidate.relPath : null;
+  const outsideAbs = candidate?.scope === 'outside' ? candidate.absPath : null;
+  const resolved = useWorkspacePathKind(rootPath, insideRel);
+  const external = useExternalPathKind(outsideAbs);
 
   const linked = resolved !== null && resolved.kind !== 'missing' ? resolved : null;
+  const linkedOutside = external !== null && external.kind !== 'missing' ? external : null;
 
   /**
    * ⑬ (i) — 어디로 갈지는 **한 곳**(§5.13 (R-1))이 정한다. 화면은 그 답을 받아 아이콘·툴팁만 고르므로,
@@ -261,23 +267,23 @@ const MarkdownCode = memo(function MarkdownCode({ children, ...rest }: React.HTM
    */
   const plan = useMemo(
     () =>
-      linked && candidate
+      linked && insideRel !== null
         ? planWorkspaceOpen({
-            relPath: candidate.relPath,
+            relPath: insideRel,
             kind: linked.kind === 'directory' ? 'directory' : 'file',
             ...(linked.executable ? { executable: true } : {}),
           })
         : null,
-    [linked, candidate],
+    [linked, insideRel],
   );
 
   const onOpen = useCallback((e: React.MouseEvent): void => {
-    if (!linked || !candidate || rootPath === null) return;
+    if (!linked || insideRel === null || rootPath === null) return;
     e.preventDefault();
     e.stopPropagation();
     void openWorkspaceTarget(
       {
-        relPath: candidate.relPath,
+        relPath: insideRel,
         absPath: linked.absPath,
         kind: linked.kind === 'directory' ? 'directory' : 'file',
         ...(linked.executable ? { executable: true } : {}),
@@ -286,7 +292,42 @@ const MarkdownCode = memo(function MarkdownCode({ children, ...rest }: React.HTM
       t('ide.streamRenderer.pathLink.runFailed'),
       paneKey,
     );
-  }, [linked, candidate, rootPath, t, paneKey]);
+  }, [linked, insideRel, rootPath, t, paneKey]);
+
+  /**
+   * ⑬ (d) — 루트 **밖** 경로를 누르면 벌어지는 일은 하나뿐이다: 시스템 탐색기가 그 자리를 보여 준다.
+   * 편집창·실행·연결 프로그램으로는 가지 않으므로 `planWorkspaceOpen` 을 거치지 않는다 — 갈래가 없는
+   * 곳에서 갈림을 묻지 않는 것이 (d) 개정의 조건이었다.
+   */
+  const onReveal = useCallback((e: React.MouseEvent): void => {
+    if (!linkedOutside) return;
+    e.preventDefault();
+    e.stopPropagation();
+    revealExternalPath(linkedOutside.absPath);
+  }, [linkedOutside]);
+
+  if (linkedOutside) {
+    // 툴팁은 (f) 의 규약 그대로 "전체 경로 + 벌어질 일". 파일이면 그 파일이 든 폴더가 열린다는 것까지
+    // 누르기 전에 말한다 — 문서가 열릴 것으로 기대하고 눌렀다가 탐색기가 뜨면 그건 고장으로 읽힌다.
+    const outsideTitle =
+      linkedOutside.kind === 'directory'
+        ? t('ide.streamRenderer.pathLink.revealOutsideFolder', { path: linkedOutside.absPath })
+        : t('ide.streamRenderer.pathLink.revealOutsideFile', { path: linkedOutside.absPath });
+    return (
+      <code {...rest}>
+        <button type="button" onClick={onReveal} title={outsideTitle} aria-label={outsideTitle} className="ide-path-link">
+          {/* 루트 밖은 갈래가 하나라 아이콘도 하나 — 폴더에서 나가는 화살표(우리 창이 아니라 탐색기에서 열린다) */}
+          <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M3 7a2 2 0 0 1 2-2h4l2 2h4a2 2 0 0 1 2 2v2" />
+            <path d="M5 19a2 2 0 0 1-2-2V7" />
+            <path d="M14 19h7v-7" />
+            <path d="M21 12l-7 7" />
+          </svg>
+          {children}
+        </button>
+      </code>
+    );
+  }
 
   if (!linked || !plan) return <code {...rest}>{children}</code>;
 

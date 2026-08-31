@@ -26,7 +26,17 @@
       "confirmTitle": "再起動して更新しますか?",
       "confirmBody": "更新するとアプリが終了し、再インストールされます。進行中のエージェント作業や未保存の変更が失われる場合があります。",
       "confirmHint": "重要なカスタムエージェントの作業がある場合は、先に完了させてから更新してください。",
-      "confirmCancel": "キャンセル"
+      "confirmCancel": "キャンセル",
+      "openReleases": "{{version}} をダウンロード",
+      "openReleasesTooltip": "この Mac では自動更新を完了できませんでした。押すとリリースページが開き、ご自身でダウンロードできます。",
+      "failed": {
+        "download-failed": "ダウンロードが完了しませんでした。",
+        "checksum-mismatch": "ダウンロードしたファイルが公開されているチェックサムと一致しなかったため、破棄しました。",
+        "arch-mismatch": "ダウンロードしたビルドはこの Mac とは別のプロセッサ向けのため、インストールしませんでした。",
+        "mount-failed": "ダウンロードしたディスクイメージを開けませんでした。",
+        "not-writable": "Vibisual にはインストール先で自身を置き換える権限がありません。",
+        "install-failed": "アプリを置き換えられませんでした。"
+      }
     },
     "agentStatus": {
       "waiting": "エージェント待機中",
@@ -87,6 +97,10 @@
         "expandAll": "すべて展開"
       },
       "shortcutHint": "{{dock}}でドック・{{max}}で最大化・{{next}}で次のウィンドウ"
+    },
+    "projectFolderBanner": {
+      "text": "開いているプロジェクトフォルダーがありません — エージェントの作業場所がまだありません。",
+      "action": "フォルダーを選択"
     }
   },
   "panel": {
@@ -948,15 +962,21 @@
       "fallbackModel": {
         "label": "フォールバックモデル",
         "tip": "主モデルが過負荷・利用不可のときに使うモデル。カンマ区切りで順に試します。ヘッドレス実行のみ。",
-        "placeholder": "例: sonnet"
+        "placeholder": "例: sonnet",
+        "unsetLabel": "未設定",
+        "unset": "未設定 — フォールバックなし。メインモデルが利用できない場合、実行は失敗します。",
+        "customLabel": "手動で入力…",
+        "custom": "値を直接入力 — 正確なバージョンID、またはカンマ区切りで順に試行するリストを指定します。"
       },
       "autoCompact": {
         "label": "自動圧縮",
-        "tip": "CLI が会話を自動的に圧縮するコンテキストサイズです。",
-        "unset": "未設定 — CLI に任せます（既定）。",
+        "tip": "CLI が会話を自動的に圧縮し始める基準のコンテキストサイズです。小さいほど早く、頻繁に圧縮します。",
+        "unset": "未設定 — 設定画面の既定値に従います。",
         "unsetLabel": "未設定",
         "auto": "auto — CLI が幅を決めます。",
-        "tokens": "約 {{tokens}} トークンで圧縮します。"
+        "tokens": "約 {{tokens}} トークンで圧縮します。",
+        "unsetDefaultLabel": "未設定 ({{tokens}})",
+        "globalTip": "自動圧縮を個別に設定していないすべてのエージェントに適用されます — すでに実行中のものも含みます。未設定のままなら組み込みの既定値を使います。"
       },
       "settingSources": {
         "label": "設定ソース",
@@ -1026,6 +1046,22 @@
         "tip": "このCMDターミナルがどのagent CLIを起動するかの設定です。Claude Code以外を選択すると、アプリのフックの子プロセスにはならないため、会話の再開やルールの注入は行われません。代わりに、状態はターミナルの出力から読み取られます。",
         "nonClaudeNote": "このCLIはClaude Codeではないため、以下の設定（モデル、権限、ツール、ルール）は渡されません。代わりに、状態はターミナルの出力から読み取られます。変更は「+」で開く新しいセッションから適用されます。",
         "applyNote": "CLIを変更すると、「+」で新しく開くセッションから適用されます。すでに実行中のターミナルは、起動時の設定のまま変わりません。"
+      },
+      "compactAfterTurn": {
+        "label": "ターンが終わったら圧縮",
+        "hint": "毎ターンの境界で会話を要約に畳みます — 作業の途中では絶対に切りません。"
+      },
+      "agentCanCompact": {
+        "label": "作業中にエージェントが自分で圧縮",
+        "hint": "エージェントがコンテキストを重いと判断すると要求し、そのターンの終了後に実行されます。"
+      },
+      "diff": {
+        "badge": "既定値と異なる {{count}} 件",
+        "summaryTip": "オプションのエージェント既定値と異なる項目です — {{list}}",
+        "tip": "このエージェントだけの値です。既定値: {{value}}",
+        "unset": "未設定",
+        "on": "オン",
+        "off": "オフ"
       }
     },
     "permissionPrompt": {
@@ -1400,7 +1436,8 @@
       "recheck": "再確認",
       "later": "後で",
       "stop": "停止",
-      "start": "サインイン"
+      "start": "サインイン",
+      "successNext": "次は、エージェントが作業するプロジェクトフォルダーを選びます。"
     },
     "setup": {
       "title": "Claude Code をインストール",
@@ -1414,6 +1451,8 @@
       "installFailed": "インストールに失敗しました",
       "retry": "再試行",
       "ready": "Claude Code の準備ができました。続行しています…",
+      "readyNext": "次は Claude アカウントへのサインインです。",
+      "continue": "続ける",
       "failed": "インストールが完了しませんでした。上記のコマンドをターミナルで実行してから「再確認」を選択してください。",
       "manualOnly": "このプラットフォームでは自動インストールを利用できません。上記のコマンドをターミナルで実行してから「再確認」を選択してください。",
       "recheck": "再確認",
@@ -1464,6 +1503,14 @@
       "vibi3d": {
         "name": "Vibi3D",
         "desc": "3Dモデルをアプリ内で回して見る"
+      },
+      "window": {
+        "popOut": "別ウィンドウで開く",
+        "maximize": "最大化",
+        "restore": "元のサイズに戻す",
+        "close": "閉じる (Esc)",
+        "dragHint": "アプリの外へドラッグすると別ウィンドウになります。",
+        "pullOutArmed": "離すと別ウィンドウで開きます"
       }
     },
     "videoStudio": {
@@ -1620,6 +1667,16 @@
       "opening": "編集画面で開いています…",
       "installing": "変換ツールを入れています… 最初の一度だけ時間がかかります。",
       "failed": "変換できませんでした。既定のアプリで開いてください。"
+    },
+    "projectFolder": {
+      "title": "プロジェクトフォルダーを選択",
+      "intro": "Claude Code のインストールとサインインが完了しました。最後に、エージェントが作業するフォルダーを選んでください — 通常はプロジェクトまたはリポジトリのルートです。",
+      "blocked": "まだ何も作成していません — 開いているプロジェクトフォルダーがありません。エージェントは選んだフォルダーの中で作業するため、先にフォルダーを選んでください。",
+      "detail": "Vibisual がプロジェクトについて保存するものはすべてそのフォルダーの中にあり、エージェントもその配下のファイルだけを読み書きできます。フォルダーは後から ファイル → フォルダーを開く で追加できます。",
+      "cancelled": "まだフォルダーが選ばれていません。続けるにはフォルダーを選んでください。",
+      "choose": "フォルダーを選択",
+      "picking": "選択中…",
+      "later": "後で"
     }
   },
   "ide": {
@@ -1703,11 +1760,10 @@
       "resizeStack": "分割比を調整",
       "slotTabHint": "「{{name}}」を最前面に表示（このドックスロットは複数のウィンドウで共有されています）",
       "dockShortcutHint": "{{dock}}でドック・{{undock}}でドック解除",
-      "popOutHint": "離すと独立ウィンドウとして切り離します",
-      "popOutEdgeHint": "画面の端に少し押し当て続けると独立ウィンドウとして切り離します",
+      "popOutGhostHint": "もう少し引き出すと独立ウィンドウになります",
+      "popOutGhostArmedHint": "離すと独立ウィンドウになります",
       "popOutLabel": "独立ウィンドウとして切り離す",
       "returnToApp": "アプリ内に戻す",
-      "popOutHintButton": "独立ウィンドウとして切り離す（タイトルバーをアプリの外へドラッグ、または画面の端へ押し当てても同じです）",
       "returnToAppHint": "クリックでアプリ内に戻します · ドラッグしてアプリのウィンドウ上で離すと統合されます",
       "redockDropHint": "ここで離すとアプリ内に統合されます",
       "redockKeepHint": "別の場所で離すと独立したままです"
@@ -1799,6 +1855,7 @@
       "ctxQuoteReply": "引用返信",
       "ctxSendAsPrompt": "新しいプロンプトとして送信",
       "ctxSelectAll": "すべて選択",
+      "ctxAddMemo": "付箋メモを追加",
       "jumpToBottom": "最下部へスクロール",
       "ctxSelectionRequired": "先にテキストを選択してください",
       "inputCtxCut": "切り取り",
@@ -1809,6 +1866,16 @@
       "stopAll": "すべて停止",
       "stopAllTitle": "このエージェントが実行中のすべてを停止（他のタブ＋バックグラウンドのサブエージェント）",
       "stopSessionTitle": "このセッションと、それが開始したサブエージェントを停止（他のセッションタブは実行を継続）"
+    },
+    "memo": {
+      "title": "メモ",
+      "placeholder": "メモを入力…",
+      "color": "カラー",
+      "collapse": "折りたたみ",
+      "expand": "展開",
+      "delete": "メモを削除",
+      "resize": "サイズ変更",
+      "limitReached": "1セッションあたり最大{{max}}件のメモ"
     },
     "askQuestion": {
       "title": "質問",
@@ -2101,13 +2168,47 @@
       "openFile": "エディターで開く",
       "copyPath": "パスをコピー",
       "copied": "コピー済み",
-      "truncated": "先頭{{count}}件のみ表示"
+      "truncated": "先頭{{count}}件のみ表示",
+      "ctx": {
+        "open": "開く",
+        "openExternal": "外部エディタで開く",
+        "revealFolder": "フォルダを開く",
+        "newFile": "新しいファイル",
+        "newFolder": "新しいフォルダ",
+        "rename": "名前の変更",
+        "delete": "削除",
+        "newFileName": "新しいファイル名",
+        "newFolderName": "新しいフォルダ名",
+        "newName": "新しい名前",
+        "confirmTrash": "「{{name}}」をゴミ箱に移動しますか？",
+        "confirmDelete": "「{{name}}」を完全に削除しますか？元に戻せません。",
+        "trashed": "「{{name}}」をゴミ箱に移動しました",
+        "deleted": "「{{name}}」を削除しました",
+        "err": {
+          "nameEmpty": "名前を入力してください",
+          "nameSeparator": "名前に / や \\ は使えません",
+          "nameTraversal": "この名前は使えません",
+          "nameInvalidChar": "名前に < > : \" | ? * は使えません",
+          "nameTrailing": "名前の先頭と末尾にスペースやピリオドは使えません",
+          "nameReserved": "Windows の予約名です",
+          "nameTooLong": "名前が長すぎます（最大255文字）",
+          "exists": "同じ名前がすでにあります",
+          "notFound": "その項目はもうありません",
+          "denied": "権限がないか使用中のため、システムに拒否されました",
+          "offline": "アプリに接続できませんでした",
+          "root": "プロジェクトのルートはここでは変更できません",
+          "outside": "プロジェクトの外のパスです",
+          "failed": "失敗しました"
+        }
+      }
     },
     "editor": {
       "resize": "エディターペインをリサイズ",
       "save": "保存 ({{shortcut}})",
       "reload": "ディスクから再読み込み",
       "closeTab": "タブを閉じる",
+      "pinTabs": "タブを固定 — セッションを切り替えても開いたままにします",
+      "unpinTabs": "固定を解除 — セッションごとに別のタブになります",
       "closePane": "エディターペインを閉じる",
       "closeDirtyConfirm": "このファイルには未保存の変更があります。それでも閉じますか?",
       "conflict": "このファイルは開いた後にディスク上で変更されました。",
@@ -2135,6 +2236,18 @@
         "failed": "このファイルを保存できませんでした"
       },
       "closeDirtyConfirmMany": "これらのファイルのうち{{count}}件に未保存の変更があります。それでも閉じますか?",
+      "html": {
+        "back": "戻る",
+        "forward": "進む",
+        "reload": "このページを再読み込み",
+        "home": "最初に開いたファイルへ — {{path}}",
+        "openExternal": "外部ブラウザで開く",
+        "address": "ページの場所 — {{path}}",
+        "viewPage": "ページ",
+        "viewSource": "ソース",
+        "viewPageHint": "このファイルを描画されたページとして表示します",
+        "viewSourceHint": "HTML のソースを表示して編集します"
+      },
       "ctx": {
         "cut": "切り取り",
         "copy": "コピー",
@@ -2168,7 +2281,9 @@
       "context": "ctx: {{used}}/{{max}}",
       "tokens": "{{in}}入力 / {{out}}出力",
       "sessionOne": "{{count}}セッション",
-      "sessionMany": "{{count}}セッション"
+      "sessionMany": "{{count}}セッション",
+      "autoCompact": "自動圧縮 {{value}}",
+      "autoCompactTip": "コンテキストがこのサイズに達すると CLI が会話を自動で要約して縮めます。エージェントごとはエージェント設定画面で、全体の既定値は File > Options > Agent Defaults で変更できます。"
     },
     "search": {
       "placeholder": "会話内を検索",
@@ -2233,7 +2348,9 @@
         "runProgram": "プログラムを実行 — {{path}}",
         "runFailed": "起動できませんでした — このウィンドウにはターミナルがありません。",
         "openApp": "{{app}} で開く — {{path}}",
-        "openExternal": "既定のアプリで開く — {{path}}"
+        "openExternal": "既定のアプリで開く — {{path}}",
+        "revealOutsideFolder": "エクスプローラーで開く — {{path}}",
+        "revealOutsideFile": "エクスプローラーで表示 (親フォルダーが開きます) — {{path}}"
       },
       "restartResumed": "アプリ終了で中断され、保存済みセッションで再開しました。",
       "nestedSubagent": "サブエージェント",
@@ -2257,6 +2374,8 @@
       "copyQuestions": "質問をコピー",
       "copySelection": "選択範囲をコピー",
       "copySelectionHint": "コピーしたい部分をドラッグで選択してから押してください",
+      "copySelectionHintCheckable": "回答をチェックするか、コピーしたい部分をドラッグしてから押してください",
+      "copySelectionChecked": "選択した{{n}}件をコピー",
       "copyOne": "この質問だけコピー",
       "selectAnswer": "この回答を選択",
       "selectNone": "クリア",
@@ -2589,7 +2708,8 @@
         "mcp": "MCPサーバー",
         "hooks": "フック",
         "systemPrompt": "Claude Codeのシステムプロンプト",
-        "brainSkills": "メモリー手順記憶"
+        "brainSkills": "メモリー手順記憶",
+        "compactSelf": "エージェント自律圧縮"
       },
       "hint": {
         "tools": "エージェント設定でツール一覧を選んでください",
@@ -2778,6 +2898,11 @@
             "what": "このプロジェクトで固まった手順。今の作業に合えば読み込まれます。",
             "more": "各手順の「いつ使うか」で選ばれるため、無関係なものは載りません。",
             "off": "エージェントは毎回、手順を一から考え直します。"
+          },
+          "compactSelf": {
+            "what": "エージェントが自分で会話の圧縮を要求する窓口です。",
+            "more": "「作業中にエージェントが自分で圧縮」を有効にしたエージェントにのみ載ります。実際の圧縮はそのターンの終了後に走るため、作業の途中で切れません。",
+            "off": "エージェントは要求できなくなり、ウィンドウしきい値とターン境界の圧縮だけが残ります。オフなら何も注入されずトークンも 0 です。"
           }
         },
         "cat": {
@@ -2985,6 +3110,46 @@
         "readOnly": "フックバブルは読み取り専用です。",
         "network": "サーバーに接続できませんでした。",
         "failed": "検証を開始できませんでした。"
+      },
+      "demo": {
+        "sectionTitle": "デモ",
+        "about": "一度やって見せれば、その手順が以降のすべての検証に一緒に載ります。",
+        "record": "デモを録画",
+        "stopRecording": "停止 · {{time}}",
+        "summary": "手順 {{steps}} · 画像 {{frames}}",
+        "willSend": "デモも一緒に送ります: {{name}}",
+        "willNotSend": "デモ未選択 — 手順は送られません",
+        "emptyDemo": "選んだデモが空です(手順・期待結果・画像なし) — 手順は送られません",
+        "recordRun": "この検証の実行中の画面を録画する",
+        "recordRunNeedsSource": "何を録るか決めるには、一度デモを録画してください",
+        "watch": "画面を見る",
+        "windowTitle": "検証手順として保存",
+        "evidenceTitle": "検証中の画面",
+        "autoStopped": "長さの上限に達したため録画を停止しました。",
+        "stepsLabel": "手順",
+        "stepsEmpty": "再生しながら、各時点で何をしたかを書いてください。",
+        "stepPlaceholder": "例: ツールバーの保存を押す",
+        "addStep": "{{at}} に追加",
+        "stepsFull": "手順は最大 {{max}} 件です。",
+        "expectedLabel": "期待する結果 (任意)",
+        "expectedPlaceholder": "例: 緑の「保存しました」が表示される",
+        "nameLabel": "名前",
+        "frameCount": "画像",
+        "noFrames": "なし",
+        "extracting": "フレーム抽出中 {{done}}/{{total}}",
+        "save": "手順として保存",
+        "discard": "破棄",
+        "error": {
+          "noFrames": "このクリップからフレームを 1 枚も抽出できませんでした。",
+          "noStream": "キャプチャストリームが切れました。ソースを選び直してください。",
+          "uploadFailed": "手順は保存しましたが、画像をアップロードできませんでした。",
+          "saveFailed": "デモを保存できませんでした。",
+          "readOnly": "フックバブルは読み取り専用です。",
+          "network": "サーバーに接続できませんでした。",
+          "failed": "デモを保存できませんでした。",
+          "projectNotFound": "そのプロジェクトが見つかりません。",
+          "framesFull": "このデモの画像は既に上限に達しています。"
+        }
       }
     }
   },
@@ -3564,7 +3729,18 @@
       "snipUnavailable": "この画面では範囲キャプチャを利用できません。",
       "snipFailed": "キャプチャに失敗しました: {{error}}"
     },
-    "close": "閉じる"
+    "close": "閉じる",
+    "minimize": "最小化",
+    "maximize": "最大化",
+    "play": "再生",
+    "pause": "一時停止",
+    "delete": "削除",
+    "externalOpen": {
+      "noBrowser": "ブラウザが見つかりません — リンクをコピーして開いてください",
+      "openFailed": "リンクを開けませんでした — コピーして開いてください",
+      "copy": "コピー",
+      "copied": "コピーしました"
+    }
   },
   "brain": {
     "bubbleLabel": "メモリー",
