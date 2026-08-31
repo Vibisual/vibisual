@@ -378,8 +378,20 @@ export function RemoteControlWindow({ open, onClose }: RemoteControlWindowProps)
                       </button>
                     </div>
                   </div>
+                  {/*
+                    §4 ④ — 페어링은 두 채널 모두 **1:1 DM 에서만** 받는다. 길드 채널·그룹에서
+                    묶으면 화이트리스트의 단위가 사람이 아니라 그 방의 구성원 전원이 되는데,
+                    아래 목록에는 명령을 친 한 사람 이름만 떠서 화면이 범위를 잘못 말한다.
+                  */}
+                  <p className="mt-3 flex items-start gap-1.5 border-t border-white/[0.06] pt-3 text-[12px] leading-relaxed text-amber-300/90">
+                    <svg className="mt-0.5 h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 9v4" /><path d="M12 17h.01" />
+                      <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                    </svg>
+                    <span>{t('panel.remoteControl.dmOnlyHint')}</span>
+                  </p>
                   {ticket.command && (
-                    <div className="mt-3 border-t border-white/[0.06] pt-3">
+                    <div className="mt-3">
                       <p className="mb-1.5 text-[12px] leading-relaxed text-gray-400">
                         {t('panel.remoteControl.discordPairHint')}
                       </p>
@@ -406,7 +418,27 @@ export function RemoteControlWindow({ open, onClose }: RemoteControlWindowProps)
               <div className="space-y-1">
                 {peers.map((p) => (
                   <div key={`${p.kind}:${p.chatId}`} className="flex items-center justify-between rounded-md border border-white/[0.06] bg-white/[0.03] px-3 py-2">
-                    <span className="truncate text-[12px] text-gray-200">{p.label}</span>
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <span className="truncate text-[12px] text-gray-200">{p.label}</span>
+                      {/*
+                        DM 전용 규칙이 생기기 전에 묶인 대화는 방 전체가 조작할 수 있다.
+                        끊지 않고 남기되(사용자의 것이다) **그렇다고 말은 해 준다** —
+                        이름 하나만 보여 주면 화면이 범위를 잘못 말하게 된다.
+                      */}
+                      {p.direct !== true && (
+                        <span
+                          title={t('panel.remoteControl.sharedChatWarning')}
+                          className="inline-flex shrink-0 items-center gap-1 rounded border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 text-[12px] font-medium text-amber-300"
+                        >
+                          <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                            <circle cx="9" cy="7" r="4" />
+                            <path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                          </svg>
+                          {t('panel.remoteControl.sharedChatBadge')}
+                        </span>
+                      )}
+                    </span>
                     <button
                       type="button"
                       onClick={() => void handleUnpair(p.kind, p.chatId)}

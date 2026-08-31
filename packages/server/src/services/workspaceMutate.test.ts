@@ -7,6 +7,7 @@ import {
   createWorkspaceEntry,
   deleteWorkspaceEntry,
   isWorkspaceTrashAvailable,
+  moveWorkspaceEntry,
   renameWorkspaceEntry,
   setWorkspaceTrash,
 } from './workspaceMutate.js';
@@ -166,6 +167,76 @@ describe('deleteWorkspaceEntry', () => {
 
   it('없는 대상은 not-found', async () => {
     expect(await deleteWorkspaceEntry(root, 'nope.txt')).toEqual({ ok: false, error: 'not-found' });
+  });
+});
+
+describe('moveWorkspaceEntry — §5.5 #17-19 ⑧ 끌어다 폴더에 놓기', () => {
+  it('파일을 다른 폴더로 옮긴다 — 이름은 그대로', () => {
+    const outcome = moveWorkspaceEntry(root, 'README.md', 'src');
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.result.path).toBe('src/README.md');
+    expect(outcome.result.parent).toBe('src');
+    expect(outcome.result.name).toBe('README.md');
+    expect(fs.existsSync(path.join(root, 'src', 'README.md'))).toBe(true);
+    expect(fs.existsSync(path.join(root, 'README.md'))).toBe(false);
+  });
+
+  it('루트로도 옮긴다(toDir = 빈 문자열)', () => {
+    const outcome = moveWorkspaceEntry(root, 'src/App.tsx', '');
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.result.path).toBe('App.tsx');
+    expect(outcome.result.parent).toBe('');
+  });
+
+  it('폴더도 통째로 옮긴다 — 안의 것이 함께 간다', () => {
+    fs.mkdirSync(path.join(root, 'pkg'));
+    const outcome = moveWorkspaceEntry(root, 'src', 'pkg');
+    expect(outcome.ok).toBe(true);
+    expect(fs.existsSync(path.join(root, 'pkg', 'src', 'App.tsx'))).toBe(true);
+  });
+
+  it('제자리로 놓으면 디스크를 건드리지 않고 성공 — 헛손질은 실패가 아니다', () => {
+    const before = fs.statSync(path.join(root, 'src', 'App.tsx')).mtimeMs;
+    const outcome = moveWorkspaceEntry(root, 'src/App.tsx', 'src');
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.result.path).toBe('src/App.tsx');
+    expect(fs.statSync(path.join(root, 'src', 'App.tsx')).mtimeMs).toBe(before);
+  });
+
+  it('폴더를 자기 자신·자기 하위로는 못 옮긴다 — 트리가 스스로를 삼킨다', () => {
+    fs.mkdirSync(path.join(root, 'src', 'deep'), { recursive: true });
+    expect(moveWorkspaceEntry(root, 'src', 'src')).toEqual({ ok: false, error: 'into-self' });
+    expect(moveWorkspaceEntry(root, 'src', 'src/deep')).toEqual({ ok: false, error: 'into-self' });
+  });
+
+  it('이름이 접두사만 같은 이웃 폴더는 "자기 하위"가 아니다', () => {
+    fs.mkdirSync(path.join(root, 'srcery'));
+    const outcome = moveWorkspaceEntry(root, 'src', 'srcery');
+    expect(outcome.ok).toBe(true);
+    expect(fs.existsSync(path.join(root, 'srcery', 'src', 'App.tsx'))).toBe(true);
+  });
+
+  it('목적지에 같은 이름이 있으면 덮어쓰지 않고 exists', () => {
+    fs.writeFileSync(path.join(root, 'src', 'README.md'), '# 먼저 있던 것\n');
+    expect(moveWorkspaceEntry(root, 'README.md', 'src')).toEqual({ ok: false, error: 'exists' });
+    expect(fs.readFileSync(path.join(root, 'src', 'README.md'), 'utf8')).toBe('# 먼저 있던 것\n');
+  });
+
+  it('[보안] 루트 밖으로는 못 내보내고, 루트 밖에서 못 끌어온다', () => {
+    expect(moveWorkspaceEntry(root, 'README.md', '../')).toEqual({ ok: false, error: 'outside' });
+    expect(moveWorkspaceEntry(root, '../secret.txt', 'src')).toEqual({ ok: false, error: 'outside' });
+  });
+
+  it('루트 자신은 옮길 수 없다 — 탐색기가 서 있는 땅이다', () => {
+    expect(moveWorkspaceEntry(root, '', 'src')).toEqual({ ok: false, error: 'root' });
+  });
+
+  it('없는 대상·폴더가 아닌 목적지는 not-found', () => {
+    expect(moveWorkspaceEntry(root, 'nope.txt', 'src')).toEqual({ ok: false, error: 'not-found' });
+    expect(moveWorkspaceEntry(root, 'README.md', 'src/App.tsx')).toEqual({ ok: false, error: 'not-found' });
   });
 });
 

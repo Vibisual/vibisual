@@ -1,12 +1,12 @@
 /**
- * §3.6 / §3.6-1 / §4 v4.89 — 훅 이벤트 확장에 딸린 신규 서비스 테스트.
+ * §3.6 / §3.6-1 / §4 — 훅 이벤트 확장에 딸린 서비스 테스트.
  *
  * 회귀 방지 대상 셋:
- *  1) 인스톨러가 신규 7종을 실제로 등록하는가(등록 안 되면 이벤트가 아예 안 온다).
+ *  1) 인스톨러가 CLI 이벤트 전수(33종)를 실제로 등록하는가(등록 안 되면 이벤트가 아예 안 온다).
+ *     **등록 목록이 곧 기능 목록이다** — 빠뜨린 이벤트는 화면에서 "그 일이 일어나지 않은 것"이 된다.
  *  2) `InstructionsLoaded` 계측이 판본마다 다른 필드 이름을 견디는가.
  *  3) `subagentStatusLine` 수집이 쓰레기 행을 걸러내고 마지막 틱만 남기는가.
- */
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+ */import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -31,10 +31,10 @@ vi.mock('node:os', async (importOriginal) => {
   return { ...actual, default: { ...actual, homedir: () => process.env.__VIBI_FAKE_HOME__ ?? actual.homedir() } };
 });
 
-const { ensureClaudeHooksInstalled } = await import('./hookInstaller.js');
+const { ensureClaudeHooksInstalled, HOOK_EVENTS } = await import('./hookInstaller.js');
 
 // ─────────────────────────────────────────────────────────────
-describe('§3.6 v4.89 — 신규 훅 이벤트 등록', () => {
+describe('§3.6 — 훅 이벤트 등록 전수', () => {
   beforeEach(() => {
     fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'vibi-hookexp-'));
     process.env.__VIBI_FAKE_HOME__ = fakeHome;
@@ -44,24 +44,42 @@ describe('§3.6 v4.89 — 신규 훅 이벤트 등록', () => {
     try { fs.rmSync(fakeHome, { recursive: true, force: true }); } catch { /* best effort */ }
   });
 
-  it('신규 7종이 모두 등록된다', () => {
+  function installed(): Record<string, unknown[]> {
     ensureClaudeHooksInstalled(51360, 'C:/app/out/hooks/handler.mjs', 'tok');
-
     const settings = JSON.parse(
       fs.readFileSync(path.join(fakeHome, '.claude', 'settings.json'), 'utf-8'),
     ) as { hooks: Record<string, unknown[]> };
+    return settings.hooks;
+  }
 
+  it('v4.89 신규 7종이 그대로 남아 있다', () => {
+    const hooks = installed();
     for (const ev of [
       'StopFailure', 'PostToolUseFailure', 'SubagentStart',
       'PermissionRequest', 'PermissionDenied', 'PostCompact', 'InstructionsLoaded',
     ]) {
-      expect(settings.hooks[ev], `${ev} 미등록`).toHaveLength(1);
+      expect(hooks[ev], `${ev} 미등록`).toHaveLength(1);
     }
-    // 기존 8종도 그대로 있어야 한다.
-    expect(Object.keys(settings.hooks)).toHaveLength(15);
+  });
+
+  it('CLI 2.1.251 추종으로 늘린 18종도 모두 등록된다', () => {
+    const hooks = installed();
+    for (const ev of [
+      'SessionEnd', 'Setup', 'UserPromptExpansion', 'PostToolBatch', 'MessageDisplay',
+      'TeammateIdle', 'TaskCreated', 'TaskCompleted', 'PreModelSwitch', 'PostModelSwitch',
+      'Elicitation', 'ElicitationResult', 'ConfigChange', 'WorktreeCreate', 'WorktreeRemove',
+      'CwdChanged', 'DirectoryAdded', 'FileChanged',
+    ]) {
+      expect(hooks[ev], `${ev} 미등록`).toHaveLength(1);
+    }
+  });
+
+  it('설치되는 이벤트 수 = HOOK_EVENTS 길이(33종). 남거나 모자라면 실패', () => {
+    const hooks = installed();
+    expect(HOOK_EVENTS).toHaveLength(33);
+    expect(Object.keys(hooks).sort()).toEqual([...HOOK_EVENTS].sort());
   });
 });
-
 // ─────────────────────────────────────────────────────────────
 describe('§3.6-1 InstructionsLoaded 계측', () => {
   beforeEach(() => resetInstructionsLoaded());

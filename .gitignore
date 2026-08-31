@@ -131,3 +131,9 @@ dev/
 # 붙여넣기마다 쌓는 PNG 가 앱 저장소 히스토리에 영구 누적되는 걸 막기 위함.
 # ⚠ 이 폴더 안에 독립 .git 이 있으므로 이 트리에서 `git clean -xfd` 를 돌리지 말 것.
 /html/
+
+# 커뮤니티 유통(시딩) 작업 폴더 — 마케팅처별 초안·백업·링크.
+# 공개 저장소에 나가면 안 되는 전략 자산이라 폴더 단위로 차단(새 파일도 자동 보호).
+/seeding/
+
+# === Auto-added by gitignore-guard (private dev assets) ===

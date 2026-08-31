@@ -4878,6 +4878,18 @@ export interface WorkspaceEntryRenameRequest {
   name: string;
 }
 
+/**
+ * §5.5 #17-19 ⑧ — 옮기기(`POST /api/workspace-entry/move`). 이름 바꾸기(같은 폴더 안)와 **다른 창구**다
+ * — 이름은 그대로 두고 **사는 곳**만 바뀌며, 되물음도 다르다("옮길까요?").
+ */
+export interface WorkspaceEntryMoveRequest {
+  root: string;
+  /** 옮길 대상의 루트 기준 상대 경로(루트 자신 ❌) */
+  path: string;
+  /** 새로 들어갈 **폴더**의 루트 기준 상대 경로('' = 루트 바로 아래) */
+  toDir: string;
+}
+
 /** §5.5 #17-19 ⑦ — 삭제(`DELETE /api/workspace-entry`). 폴더는 안의 것까지 함께 사라진다. */
 export interface WorkspaceEntryDeleteRequest {
   root: string;
@@ -5615,19 +5627,50 @@ export interface ModelRegistry {
   effortLevels?: string[];
 }
 
+/**
+ * §4 (CLI 사양 추종) — `--agents` 로 나가는 **세션 한정 서브에이전트 정의** 한 벌.
+ *
+ * CLI 가 받는 모양은 `{ "<이름>": { description, prompt, ... } }` 라는 **객체**인데, 그대로 두면
+ * 화면에서 순서가 없고 이름을 고칠 때 키를 갈아 끼워야 한다. 그래서 우리 쪽은 이름을 필드로 든
+ * **배열**로 들고, CLI 로 나가는 순간에만 객체로 뒤집는다(`buildAgentsFlagJson`).
+ *
+ * `description`·`prompt` 는 CLI 가 **둘 다 요구**한다 — 하나라도 비면 그 항목은 통째로 버린다
+ * (반쯤 채운 정의를 넘겨 스폰이 죽는 것보다 그 정의가 없는 편이 낫다).
+ */
+export interface AgentDefinition {
+  /** 서브에이전트 이름 = `--agents` JSON 의 키. 소문자·하이픈만(CLI 규칙). */
+  name: string;
+  /** 언제 이 서브에이전트에게 맡길지 — 모델이 위임을 판단하는 근거다. 필수. */
+  description: string;
+  /** 시스템 프롬프트. 필수. */
+  prompt: string;
+  /** 쓸 수 있는 도구. 비우면 부모 도구를 물려받는다. */
+  tools?: string[];
+  /** 모델 — alias(`opus`/`sonnet`/`haiku`/`fable`)·풀ID·`inherit`. 비우면 CLI 기본 해소 순서. */
+  model?: string;
+}
+
 /** 에이전트 설정 — 디테일 패널에서 편집, ProjectCheckpoint에 저장 */
-export interface AgentConfig {
-  /** 사용 모델 (예: "sonnet", "opus", "haiku") */
+export interface AgentConfig {  /** 사용 모델 (예: "sonnet", "opus", "haiku") */
   model: string;
   /** 허용 도구 목록 (예: ["Read", "Write", "Edit", "Bash"]) */
   tools: string[];
   /**
-   * 퍼미션 모드 (claude CLI `--permission-mode` 전달값: default/acceptEdits/plan/bypassPermissions).
+   * §4 (CLI 사양 추종) — 이 설정에 **도구 백필이 어느 세대까지 적용됐는지**.
+   *
+   * 없으면 세대 0(백필을 한 번도 안 받은 옛 설정). `AGENT_TOOLS_BACKFILL_GEN` 보다 낮으면
+   * 복원·병합 때 새로 생긴 내장 도구를 한 번 채우고 이 값을 올린다. 이 도장이 없던 시절의 백필은
+   * **매 복원마다** 돌아서, 사용자가 끈 도구가 재시작마다 되살아났다.
+   */
+  toolsBackfillGen?: number;  /**
+   * 퍼미션 모드 — **우리 저장값**(default/acceptEdits/auto/dontAsk/plan/bypassPermissions).
+   * CLI 로 나갈 때는 `toCliPermissionMode` 를 거친다(`default` → `--permission-mode manual`).
+   * 저장값을 그대로 CLI 에 넘기지 마라 — 2026-08-14 부터 무플래그 기본이 `auto` 라 "Manual" 이
+   * 자동 승인으로 둔갑한다(§4 CLI 사양 추종 규약 2).
    * §5.3 #12-1 v1.87 — 권한 승인의 **유일 축**. 서버 `/api/permission-check` 게이트가 이 값+도구타입으로
    * Vibisual 승인 팝업 발동을 결정(default=가변도구 확인 / bypassPermissions=무확인 / acceptEdits=편집자동 / plan=실행없음).
    */
-  permissionMode: string;
-  /**
+  permissionMode: string;  /**
    * §5.3 #12-1 v1.90 — 승인 팝업이 떴는데 **60초 무응답**일 때의 fallback.
    * `'allow'`(기본, undefined 취급)=자동 허용(자리 비워도 작업 계속) / `'deny'`=자동 차단(안전측).
    * 팝업 *발동 여부*엔 영향 ❌ (그건 `permissionMode` 전담). `permissionMode∈{bypassPermissions,plan}`
@@ -5793,6 +5836,37 @@ export interface AgentConfig {
    */
   betas?: string[];
   /**
+   * §4 (CLI 사양 추종) — `--include-hook-events`. 훅 생명주기를 **출력 스트림에도** 실어 준다.
+   *
+   * 우리는 훅을 이미 `~/.claude/settings.json` 으로 받고 있지만(§3.6), 그건 **다른 통로**라
+   * 대화록의 어느 자리에서 그 훅이 떴는지는 알 수 없다. 이 플래그를 켜면 같은 사건이 스트림
+   * 안에 시간순으로 끼어 들어와 "이 도구 호출 직전에 승인 게이트가 돌았다"가 한눈에 보인다.
+   *
+   * 스트림에는 `system` 줄의 `hook_started`·`hook_progress`·`hook_response` 로 온다 —
+   * **종전에는 이 셋을 소음으로 버렸다.** 그래서 플래그만 붙이면 아무 변화도 없다(파서의
+   * `hookEvents` 옵션과 한 쌍이다). 끄면 종전과 바이트 단위로 같다.
+   * `--output-format stream-json` 에서만 동작하는데 우리 두 스폰 경로가 모두 그 형식이다.
+   */
+  includeHookEvents?: boolean;
+  /**
+   * §4 (CLI 사양 추종) — `--agents`. **이 세션에만** 존재하는 서브에이전트 정의.
+   *
+   * `~/.claude/agents/*.md` 파일을 만들지 않고도 `Task` 도구가 부를 수 있는 종류를 그 자리에서
+   * 준다. 디스크에 남지 않으므로 다른 프로젝트·다른 에이전트에 새지 않는다.
+   * 빈 배열/undefined = 미설정(플래그 없음).
+   *
+   * ⚠ `Task` 도구가 `tools` 목록에 없으면 정의해 봐야 부를 방법이 없다(§4 규약 (3) 과 한 쌍).
+   */
+  agentDefinitions?: AgentDefinition[];
+  /**
+   * §4 (CLI 사양 추종) — `--plugin-dir`. 폴더나 `.zip` 을 **이 세션에만** 플러그인으로 얹는다.
+   * 반복 가능하므로 배열 그대로 여러 번 붙는다. 빈 배열/undefined = 미설정.
+   *
+   * ⚠ **Vibisual 플러그인(§5.11)과 다른 것이다** — 이쪽은 Claude Code 자신의 플러그인 형식
+   * (`.claude-plugin/plugin.json` + commands/agents/skills/hooks)이고, 우리 플러그인은 매 턴
+   * 프롬프트에 집행 블록을 얹는 우리 레일이다. 이름이 같을 뿐 서로 아무 관계가 없다.
+   */
+  pluginDirs?: string[];  /**
    * §4 (CLI 사양 추종) — Bash 도구가 `timeout` 을 지정하지 않은 명령에 쓰는 기본 제한(ms).
    * 스폰 env `BASH_DEFAULT_TIMEOUT_MS` 로 전달. undefined = 미설정(CLI 기본 2분).
    * 인자가 아니라 환경변수 축이라 헤드리스·인터랙티브 두 스폰 경로에 동시에 실린다.
@@ -7612,6 +7686,17 @@ export interface ChatPeer {
    * 이 에이전트의 명령 큐로 간다. 없으면 평문을 무시하고 `/agents` 를 안내한다.
    */
   targetAgentId?: string;
+  /**
+   * 1:1 DM 인가(텔레그램 `chat.type === 'private'` / 디스코드 `guild_id` 부재).
+   *
+   * **새 페어링은 이것이 `true` 인 대화에서만 받는다**(§4 ④). 길드 채널·그룹에서 묶으면
+   * 화이트리스트의 단위가 사람이 아니라 그 방의 구성원 전원이 되는데(디스코드 peer 키가
+   * channel id 다) 목록에는 명령을 친 한 사람 이름만 떠서 **화면이 범위를 잘못 말한다**.
+   *
+   * optional 인 이유는 하위호환 하나뿐 — DM 전용 규칙이 생기기 전에 저장된 peer 는 이 값이
+   * 없다. 그런 peer 는 끊지 않고 유지하되 `false` 로 읽어 UI 가 경고를 붙인다.
+   */
+  direct?: boolean;
 }
 
 /**

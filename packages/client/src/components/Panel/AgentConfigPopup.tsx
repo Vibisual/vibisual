@@ -7,7 +7,7 @@ import { CMD_CLI_KINDS, type CmdCliKind } from '@vibisual/shared';
 function cliKindIsShell(kind: CmdCliKind | undefined): boolean {
   return (CMD_CLI_KINDS.find((k) => k.value === (kind ?? 'claude'))?.bin ?? 'claude') === '';
 }
-import type { AgentConfig, AgentProvider } from '@vibisual/shared';
+import type { AgentConfig, AgentDefinition, AgentProvider } from '@vibisual/shared';
 import {
   AVAILABLE_AGENT_TOOLS,
   DEFAULT_AGENT_CONFIG,
@@ -591,7 +591,16 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
   const [forwardSubagentText, setForwardSubagentText] = useState(isForwardSubagentTextEnabled(base.forwardSubagentText));
   const [replayUserMessages, setReplayUserMessages] = useState(base.replayUserMessages === true);
   const [promptSuggestions, setPromptSuggestions] = useState(base.promptSuggestions === true);
+  // §4 (CLI 사양 추종) — 훅 생명주기를 스트림에도. 켜면 대화록에 훅 줄이 시간순으로 끼어든다.
+  const [includeHookEvents, setIncludeHookEvents] = useState(base.includeHookEvents === true);
   const [betas, setBetas] = useState((base.betas ?? []).join(', '));
+  // §4 (CLI 사양 추종) — 이 세션에만 존재하는 서브에이전트 정의(`--agents`). 파일을 만들지 않는다.
+  const [agentDefinitions, setAgentDefinitions] = useState<AgentDefinition[]>(
+    () => (base.agentDefinitions ?? []).map((d) => ({ ...d })),
+  );
+  // §4 (CLI 사양 추종) — 세션 한정 플러그인 폴더(`--plugin-dir`). **줄 단위**로 받는다 —
+  //   경로에 쉼표가 들어갈 수 있어 쉼표 구분(betas 방식)을 쓰면 그 경로가 두 조각으로 잘린다.
+  const [pluginDirs, setPluginDirs] = useState((base.pluginDirs ?? []).join('\n'));
   // §4 (CLI 사양 추종) — Bash 타임아웃(초). 0 = 미설정. 상한 쪽이 "600초에서 걸린다"를 푸는 축.
   const [bashDefaultTimeoutSec, setBashDefaultTimeoutSec] = useState(bashMsToSec(base.bashDefaultTimeoutMs));
   const [bashMaxTimeoutSec, setBashMaxTimeoutSec] = useState(bashMsToSec(base.bashMaxTimeoutMs));
@@ -868,6 +877,19 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
     forwardSubagentText: forwardSubagentText ? undefined : false,
     replayUserMessages: replayUserMessages ? true : undefined,
     promptSuggestions: promptSuggestions ? true : undefined,
+    includeHookEvents: includeHookEvents ? true : undefined,
+    // §4 (CLI 사양 추종) — 필수 칸이 빈 정의는 저장하지 않는다. 반쯤 채운 채로 나가면 CLI 가
+    //   인자 파싱에서 거부해 **그 에이전트가 통째로 못 뜬다**(서버도 같은 규칙으로 한 번 더 접는다).
+    agentDefinitions: (() => {
+      const kept = agentDefinitions.filter(
+        (d) => d.name.trim() !== '' && d.description.trim() !== '' && d.prompt.trim() !== '',
+      );
+      return kept.length > 0 ? kept : undefined;
+    })(),
+    pluginDirs: (() => {
+      const parsed = pluginDirs.split('\n').map((d) => d.trim()).filter(Boolean);
+      return parsed.length > 0 ? parsed : undefined;
+    })(),
     betas: (() => {
       const parsed = betas.split(',').map((b) => b.trim()).filter(Boolean);
       return parsed.length > 0 ? parsed : undefined;
@@ -885,7 +907,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
     memory, subagentDepth,
     isOpus, disallowedTools, rules, customMode,
     contextWindow, presetId, modelVersion, mcpServers,
-    fallbackModel, autoCompact, compactAfterTurn, agentCanCompact, excludeDynamicSections, settingSources, safeMode, fastMode, fastModeSupported, forwardSubagentText, replayUserMessages, promptSuggestions, betas,
+    fallbackModel, autoCompact, compactAfterTurn, agentCanCompact, excludeDynamicSections, settingSources, safeMode, fastMode, fastModeSupported, forwardSubagentText, replayUserMessages, promptSuggestions, includeHookEvents, betas, agentDefinitions, pluginDirs,
     bashDefaultTimeoutSec, bashMaxTimeoutSec,
     isLocal, buildLocalProvider,
   ]);
@@ -906,7 +928,8 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
         'maxTurns', 'isolation', 'effort', 'memory', 'subagentDepth', 'maxBudgetUsd', 'fallbackModel',
         'autoCompact', 'compactAfterTurn', 'agentCanCompact', 'settingSources',
         'excludeDynamicSystemPromptSections', 'safeMode', 'forwardSubagentText', 'replayUserMessages',
-        'promptSuggestions', 'betas', 'bashDefaultTimeoutMs', 'bashMaxTimeoutMs', 'skills',
+        'promptSuggestions', 'includeHookEvents', 'betas', 'agentDefinitions', 'pluginDirs',
+        'bashDefaultTimeoutMs', 'bashMaxTimeoutMs', 'skills',
       );
     }
     if (isShellOnly) hidden.push('model', 'modelVersion', 'contextWindow', 'fastMode');
@@ -946,7 +969,10 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
     forwardSubagentText: t('panel.agentConfig.forwardSubagentText.label'),
     replayUserMessages: t('panel.agentConfig.replayUserMessages.label'),
     promptSuggestions: t('panel.agentConfig.promptSuggestions.label'),
+    includeHookEvents: t('panel.agentConfig.includeHookEvents.label'),
     betas: t('panel.agentConfig.betas.label'),
+    agentDefinitions: t('panel.agentConfig.agentDefinitions.label'),
+    pluginDirs: t('panel.agentConfig.pluginDirs.label'),
     bashDefaultTimeoutMs: t('panel.agentConfig.bashTimeout.defaultLabel'),
     bashMaxTimeoutMs: t('panel.agentConfig.bashTimeout.maxLabel'),
     skills: t('panel.agentConfig.defaultSkills'),
@@ -1837,6 +1863,21 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                   <span className="ml-1 text-gray-600">{t('panel.agentConfig.promptSuggestions.hint')}</span>
                 </span>
               </label>
+              {/* §4 (CLI 사양 추종) — 훅 생명주기를 스트림에도. 훅은 이미 다른 통로로 받고 있지만,
+                  그건 대화록 **바깥**이라 어느 자리에서 떴는지는 알 수 없다. 켜면 그 사건이 대화록
+                  안에 시간순으로 끼어든다(끄면 종전과 완전히 같다). */}
+              <label className="flex items-start gap-2 text-[12px] text-gray-400">
+                <input
+                  type="checkbox"
+                  checked={includeHookEvents}
+                  onChange={(e) => setIncludeHookEvents(e.target.checked)}
+                  className="mt-0.5 h-3.5 w-3.5 accent-blue-500"
+                />
+                <span>
+                  {t('panel.agentConfig.includeHookEvents.label')}{diffDot('includeHookEvents')}
+                  <span className="ml-1 text-gray-600">{t('panel.agentConfig.includeHookEvents.hint')}</span>
+                </span>
+              </label>
               <div className="flex flex-col gap-1">
                 <label className="flex items-center text-[12px] font-medium text-gray-500">
                   {t('panel.agentConfig.betas.label')}{diffDot('betas')}
@@ -1848,6 +1889,80 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                   onChange={(e) => setBetas(e.target.value)}
                   placeholder={t('panel.agentConfig.betas.placeholder')}
                   className="min-w-0 rounded border border-gray-700 bg-gray-800 px-2 py-1.5 text-sm text-gray-200 outline-none focus:border-blue-500"
+                />
+              </div>
+
+              {/* §4 (CLI 사양 추종) — 이 세션에만 존재하는 서브에이전트 정의(`--agents`).
+                  파일(`~/.claude/agents/*.md`)을 만들지 않으므로 다른 프로젝트로 새지 않는다.
+                  ⚠ `Task` 도구가 목록에 없으면 정의해도 부를 방법이 없다 — 그 경고를 함께 띄운다. */}
+              <div className="flex flex-col gap-1.5">
+                <label className="flex items-center text-[12px] font-medium text-gray-500">
+                  {t('panel.agentConfig.agentDefinitions.label')}{diffDot('agentDefinitions')}
+                  <InfoTip text={t('panel.agentConfig.agentDefinitions.tip')} />
+                </label>
+                {agentDefinitions.length > 0 && !tools.includes('Task') && (
+                  <span className="text-[12px] text-amber-500/80">{t('panel.agentConfig.agentDefinitions.needsTaskTool')}</span>
+                )}
+                {agentDefinitions.map((def, i) => (
+                  <div key={i} className="flex flex-col gap-1 rounded border border-gray-700/70 bg-gray-800/40 p-2">
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="text"
+                        value={def.name}
+                        onChange={(e) => setAgentDefinitions(agentDefinitions.map((d, j) => (j === i ? { ...d, name: e.target.value } : d)))}
+                        placeholder={t('panel.agentConfig.agentDefinitions.namePlaceholder')}
+                        className="min-w-0 flex-1 rounded border border-gray-700 bg-gray-800 px-2 py-1 text-[12px] text-gray-200 outline-none focus:border-blue-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setAgentDefinitions(agentDefinitions.filter((_, j) => j !== i))}
+                        title={t('panel.agentConfig.agentDefinitions.remove')}
+                        aria-label={t('panel.agentConfig.agentDefinitions.remove')}
+                        className="flex-shrink-0 rounded p-1 text-gray-500 hover:bg-gray-700/60 hover:text-red-400"
+                      >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5">
+                          <path d="M18 6 6 18M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                    <input
+                      type="text"
+                      value={def.description}
+                      onChange={(e) => setAgentDefinitions(agentDefinitions.map((d, j) => (j === i ? { ...d, description: e.target.value } : d)))}
+                      placeholder={t('panel.agentConfig.agentDefinitions.descPlaceholder')}
+                      className="min-w-0 rounded border border-gray-700 bg-gray-800 px-2 py-1 text-[12px] text-gray-200 outline-none focus:border-blue-500"
+                    />
+                    <textarea
+                      value={def.prompt}
+                      onChange={(e) => setAgentDefinitions(agentDefinitions.map((d, j) => (j === i ? { ...d, prompt: e.target.value } : d)))}
+                      placeholder={t('panel.agentConfig.agentDefinitions.promptPlaceholder')}
+                      rows={2}
+                      className="min-w-0 resize-y rounded border border-gray-700 bg-gray-800 px-2 py-1 text-[12px] text-gray-200 outline-none focus:border-blue-500"
+                    />
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setAgentDefinitions([...agentDefinitions, { name: '', description: '', prompt: '' }])}
+                  className="self-start rounded border border-dashed border-gray-600 px-2.5 py-1 text-xs text-gray-500 hover:border-emerald-500 hover:text-emerald-400"
+                >
+                  {t('panel.agentConfig.agentDefinitions.add')}
+                </button>
+              </div>
+
+              {/* §4 (CLI 사양 추종) — 세션 한정 플러그인 폴더(`--plugin-dir`). **줄 단위**로 받는다 —
+                  경로에 쉼표가 들어갈 수 있어 쉼표 구분이면 그 경로가 두 조각으로 잘린다. */}
+              <div className="flex flex-col gap-1">
+                <label className="flex items-center text-[12px] font-medium text-gray-500">
+                  {t('panel.agentConfig.pluginDirs.label')}{diffDot('pluginDirs')}
+                  <InfoTip text={t('panel.agentConfig.pluginDirs.tip')} />
+                </label>
+                <textarea
+                  value={pluginDirs}
+                  onChange={(e) => setPluginDirs(e.target.value)}
+                  placeholder={t('panel.agentConfig.pluginDirs.placeholder')}
+                  rows={2}
+                  className="min-w-0 resize-y rounded border border-gray-700 bg-gray-800 px-2 py-1.5 font-mono text-[12px] text-gray-200 outline-none focus:border-blue-500"
                 />
               </div>
               {/* §4 (CLI 사양 추종) — Bash 타임아웃(초). 0 = 미설정(CLI 기본 유지).

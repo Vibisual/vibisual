@@ -1,4 +1,4 @@
-import type { AgentProvider, LocalEngineBackend, BubbleType, BubbleStyleConfig, EdgeStyleConfig, AgentRole, PipelineChildConfig, PipelineType, AgentConfig, TaskEdgeTemplate, TaskEdgeKind, UiLocale, AutoAgentRole, AutoAgentTemplate, ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry, AgentFeedback, BrainTopicDef, BrainTopicIndexEntry, BrainCardType, BrainAuthority, BrainAxisId, BrainActivation, BrainSkill, StreamDensity, PluginContributionKind, SessionGoalStepStatus, CommandDispatchMode, CommandErrorCode, RunRuntime, RunConfig, McpServerPreset, AgentMemoryScope, DebugAdapterSpec, ProblemMatch, ProblemSeverity, RetentionSettings, PreviewDevicePreset, ShelfIconName, ShelfItemKind, CostPeriod, CostTotals, CostPeriodTotals, AuditRiskKind, AuditBoundaryConfig, AuditCounts, StoryboardPresetId, StoryboardPreset, LocalModelCatalogSort, WorkspacePathKind, CmdPaneNode, BuiltinSlashCommand, SessionMemo } from './types.js';
+import type { AgentProvider, LocalEngineBackend, BubbleType, BubbleStyleConfig, EdgeStyleConfig, AgentRole, PipelineChildConfig, PipelineType, AgentConfig, AgentDefinition, TaskEdgeTemplate, TaskEdgeKind, UiLocale, AutoAgentRole, AutoAgentTemplate, ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry, AgentFeedback, BrainTopicDef, BrainTopicIndexEntry, BrainCardType, BrainAuthority, BrainAxisId, BrainActivation, BrainSkill, StreamDensity, PluginContributionKind, SessionGoalStepStatus, CommandDispatchMode, CommandErrorCode, RunRuntime, RunConfig, McpServerPreset, AgentMemoryScope, DebugAdapterSpec, ProblemMatch, ProblemSeverity, RetentionSettings, PreviewDevicePreset, ShelfIconName, ShelfItemKind, CostPeriod, CostTotals, CostPeriodTotals, AuditRiskKind, AuditBoundaryConfig, AuditCounts, StoryboardPresetId, StoryboardPreset, LocalModelCatalogSort, WorkspacePathKind, CmdPaneNode, BuiltinSlashCommand, SessionMemo } from './types.js';
 export type { ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry } from './types.js';
 // 경로 대소문자 정책 SSOT — win32/darwin 만 접고 linux 는 접지 않는다(`pathCase.ts`).
 import { legacyLowerPathKey, normalizePathShape, pathKey, type PlatformName } from './pathCase.js';
@@ -1576,57 +1576,118 @@ export function listModelFamilies(registry?: ModelRegistry | null): string[] {
   return [...known, ...extra];
 }
 
-/** 선택 가능한 도구 목록 (추가/삭제용) */
+/**
+ * §4 (CLI 사양 추종) — 공식 도구 표(`code.claude.com/docs/en/tools-reference`, 2.1.251) 그대로 45종.
+ *
+ * `AVAILABLE_AGENT_TOOLS` 가 이 표를 **전부 담고 있는지** 회귀로 고정하기 위한 대조본이다.
+ * 목록에 넣는 것을 잊으면 그 도구는 우리 에이전트에게 존재하지 않게 되는데, 화면·타입·저장은
+ * 전부 멀쩡해서 어느 검사에도 걸리지 않는다 — 그래서 대조본을 따로 둔다.
+ */
+export const CLI_BUILTIN_TOOLS: readonly string[] = [
+  'Agent', 'Artifact', 'AskUserQuestion', 'Bash', 'CronCreate', 'CronDelete', 'CronList',
+  'Edit', 'EndConversation', 'EnterPlanMode', 'EnterWorktree', 'ExitPlanMode', 'ExitWorktree',
+  'Glob', 'Grep', 'ListAgents', 'ListMcpResourcesTool', 'LSP', 'Monitor', 'NotebookEdit',
+  'PowerShell', 'PushNotification', 'Read', 'ReadMcpResourceTool', 'RemoteTrigger',
+  'ReportFindings', 'ScheduleWakeup', 'SendFeedback', 'SendMessage', 'SendUserFile',
+  'ShareOnboardingGuide', 'Skill', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput',
+  'TaskStop', 'TaskUpdate', 'TodoWrite', 'ToolSearch', 'WaitForMcpServers', 'WebFetch',
+  'WebSearch', 'Workflow', 'Write',
+];
+
+/**
+ * §4 (CLI 사양 추종) — **공식 도구 표에서 사라졌지만 우리가 계속 실어 보내는 이름.**
+ *
+ * `BashOutput`·`KillShell` 은 백그라운드 Bash 의 결과 회수·종료였고 지금은 `Bash`(백그라운드 실행)
+ * + `Monitor` + `TaskOutput`/`TaskStop` 으로 갈렸다. `MultiEdit` 은 `Edit` 에 흡수됐다.
+ * 셋 다 2.1.251 공식 표에도 설정 스키마에도 없다.
+ *
+ * **그래도 지우지 않는다** — CLI 는 모르는 도구 이름을 인자 파싱 단계에서 거부하지 않으므로
+ * (실측: `--tools NotAToolXyz` 가 플래그 오류를 내지 않는다) 남겨서 잃는 것이 없고, 반대로 이
+ * 이름들이 아직 살아 있는 별칭이라면 지우는 순간 그 능력을 조용히 뺏는다. 문서에서 사라진 사실만
+ * 여기 적어 두고, 실제로 제거된 것이 확인되면 그때 이 배열만 비우면 된다.
+ */
+export const LEGACY_AGENT_TOOLS: readonly string[] = ['BashOutput', 'KillShell', 'MultiEdit'];
+
+/**
+ * §4 (CLI 사양 추종) 규약 (3) — **선택 가능한 내장 도구 목록.**
+ *
+ * `buildConfigArgs` 가 `--tools` 를 **항상 명시**하므로 이 목록에 없는 내장 도구는 그 에이전트에게
+ * **존재하지 않는다.** 즉 이 배열은 UI 체크박스 목록이기 전에 **에이전트가 가질 수 있는 능력의 상한**이다.
+ *
+ * 종전에는 22종만 올라 있어 **공식 표 45종 중 26종이 우리 에이전트에게 아예 없었다** — IDE 를
+ * 표방하면서 코드 인텔리전스(`LSP`)가 없었고, 목표 창을 REST 로 흉내 내면서 정작 그 원본인 작업
+ * 도구(`Task*`)가 없었으며, 윈도우가 주력인데 네이티브 셸(`PowerShell`)이 없었다.
+ *
+ * ⚠ 새 도구를 넣을 때는 `BACKFILL_AGENT_TOOLS` 에도 넣어라 — 판올림 전에 만들어진 에이전트는
+ *   "사용자가 끈 것"이 아니라 "화면에 존재한 적이 없어서" 빠진 상태라 복원 1회 백필이 필요하다.
+ */
 export const AVAILABLE_AGENT_TOOLS: readonly string[] = [
-  'Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob',
-  'Agent', 'WebSearch', 'WebFetch', 'NotebookEdit',
-  // §5.3 #12-2 v2.26 — IDE 인라인 옵션 카드로 사용자에게 질문
-  'AskUserQuestion',
-  // §5.5 #17-17 ⑨ v4.59 — 계획 도구. 이게 목록에 없으면 `--tools` 에서도 빠져 모델이 계획을 세울
-  //   수단 자체가 없다 — 매 턴 "TodoWrite 로 계획을 세워라"라고 지시하면서 도구를 주지 않아
-  //   목표창(#17-17)·계획 블록(#17-12 ②)이 실측 279 세션 중 1 세션에서만 뜨던 원인.
-  'TodoWrite',
-  // §4 (CLI 사양 추종) — 설치본 실측으로 존재를 확인한 내장 도구들. `buildConfigArgs` 가 `--tools` 를
-  //   **항상 명시**하므로 이 목록에 없는 도구는 그 에이전트에게 아예 존재하지 않는다. 아래는 없어서
-  //   실제로 기능이 막히던 것들:
-  //   - ExitPlanMode : permissionMode='plan' 로 들어간 에이전트가 계획을 끝내고 나올 수단.
-  //   - Skill        : `AgentConfig.skills` 를 설정해 두고 정작 호출 도구를 안 주던 모순.
-  //   - Monitor / BashOutput / KillShell : 백그라운드 Bash 의 결과 회수·종료.
-  //   - TaskOutput / TaskStop : 백그라운드 **Task/Agent 자식**의 진행 회수·중지. 위 셋이 백그라운드
-  //     *Bash* 를 다루는 손잡이라면 이 둘은 *자식 에이전트* 를 다루는 손잡이인데, 짝이 빠져 있었다.
-  //     그래서 자식이 응답 없이 멈추면 **에이전트 자신도 확인하거나 끊을 수단이 없어** 그냥 기다렸고
-  //     (실측 18분), 호스트인 우리도 밖에서 장부만 들고 있어 개별 항목을 건드릴 수 없었다.
-  //     대화형 CLI 가 이 지경까지 가지 않는 이유가 이 둘(+ 사용자용 `/tasks`)이다.
-  //     실행본 2.1.228 바이너리에서 두 이름 모두 확인.
-  'ExitPlanMode',
+  // ── 파일·검색 ──
+  'Read', 'Write', 'Edit', 'Glob', 'Grep', 'NotebookEdit',
+  // ── 실행 ──
+  //   `PowerShell` 은 Windows 네이티브 셸 도구다. 우리 주력 플랫폼인데 목록에 없어서, 윈도우
+  //   에이전트가 PowerShell 을 쓰려면 `Bash` 안에서 우회하는 수밖에 없었다.
+  'Bash', 'PowerShell',
+  // ── 코드 인텔리전스 ──
+  //   정의로 점프·참조 찾기·타입 오류 보고. IDE(§5.5)를 얹어 놓고 정작 에이전트에게는 이 도구가
+  //   없어서, 우리 에이전트는 텍스트 검색으로만 코드를 읽었다.
+  'LSP',
+  // ── 위임·오케스트레이션 ──
+  //   `Workflow` 는 서브에이전트를 스크립트로 대량 지휘하는 축이라 캔버스 모델과 정면으로 맞는다.
+  //   `ListAgents` 는 세션 간 발견(§5.12 Command Center 와 같은 갈래).
+  'Agent', 'Workflow', 'ListAgents', 'SendMessage', 'TaskOutput', 'TaskStop',
+  // ── 작업(Task) 장부 ──
+  //   `TaskCreated`/`TaskCompleted` 훅이 발화하는 바로 그 도구들이다(§3.6). 이게 없으면 훅을
+  //   등록해도 영영 한 건도 오지 않는다 — 목표 창(§5.5 #17-17)과 한 쌍으로 다룬다.
+  'TaskCreate', 'TaskGet', 'TaskList', 'TaskUpdate', 'TodoWrite',
+  // ── 모드·워크트리 ──
+  //   종전에는 나가는 쪽(`ExitPlanMode`)만 있고 들어가는 쪽이 없었다. 워크트리도 마찬가지로,
+  //   `isolation: 'worktree'` 는 스폰 시점에만 정해지고 세션 도중에는 손댈 수단이 없었다.
+  'EnterPlanMode', 'ExitPlanMode', 'EnterWorktree', 'ExitWorktree',
+  // ── 사용자에게 닿는 것 ──
+  //   `PushNotification` 은 데스크톱 알림 + Remote Control 연결 시 폰 푸시까지 간다.
+  'AskUserQuestion', 'PushNotification', 'SendUserFile', 'RemoteTrigger',
+  'SendFeedback', 'ShareOnboardingGuide', 'ReportFindings', 'EndConversation',
+  // ── 예약 실행 ──
+  'ScheduleWakeup', 'CronCreate', 'CronList', 'CronDelete',
+  // ── 웹·산출물 ──
+  'WebSearch', 'WebFetch', 'Artifact',
+  // ── 스킬 ──
   'Skill',
+  // ── 배경 관찰 ──
   'Monitor',
-  'BashOutput',
-  'KillShell',
-  'TaskOutput',
-  'TaskStop',
-  'MultiEdit',
-  'SendMessage',
-  'Artifact',
+  // ── MCP ──
+  'ToolSearch', 'ListMcpResourcesTool', 'ReadMcpResourceTool', 'WaitForMcpServers',
+  // ── 공식 표에서 내려갔지만 계속 실어 보내는 이름 (위 주석 참고) ──
+  ...LEGACY_AGENT_TOOLS,
 ];
 
 /**
  * §5.5 #17-17 ⑨ v4.59 — 옛 설정에 없던 도구 중 "사용자가 끈 것이 아니라 화면에 존재한 적이
  * 없어서" 빠진 항목. 체크포인트 복원 시 1회 백필해 판올림 전에 만든 에이전트도 계획을 세울 수
  * 있게 한다. 복원 경로에서만 채우므로 사용자가 이후 직접 해제한 선택은 되살아나지 않는다.
+ *
+ * §4 (CLI 사양 추종) — 공식 표 45종을 통째로 받은 뒤로는 **`AVAILABLE_AGENT_TOOLS` 전체**가
+ * 백필 대상이다. 항목을 손으로 다시 나열하면 새 도구를 넣을 때마다 여기를 잊게 되고, 그러면
+ * 판올림 전에 만든 에이전트만 영영 그 도구를 못 갖는다(화면·타입·저장은 멀쩡해 아무 데도 안 걸린다).
  */
-export const BACKFILL_AGENT_TOOLS: readonly string[] = [
-  'TodoWrite',
-  // §4 (CLI 사양 추종) — 위 목록에 새로 들어온 내장 도구들도 같은 이유로 백필한다.
-  //   사용자가 끈 적이 없고 화면에 뜬 적도 없던 항목이라, 안 넣으면 판올림 전에 만든 에이전트만
-  //   영구히 plan 모드를 못 빠져나오고 스킬도 못 부른다.
-  'ExitPlanMode', 'Skill', 'Monitor', 'BashOutput', 'KillShell', 'MultiEdit', 'SendMessage', 'Artifact',
-  // 백그라운드 자식이 멈췄을 때 에이전트가 스스로 확인·중지할 유일한 수단 — 안 넣으면 판올림 전에
-  //   만든 에이전트만 영영 자기 자식에게 손을 못 댄다(그 자식이 걸리면 세션 전체를 끊는 수밖에 없다).
-  'TaskOutput', 'TaskStop',
-];
+export const BACKFILL_AGENT_TOOLS: readonly string[] = [...AVAILABLE_AGENT_TOOLS];
 
-/** §5.3 #12-2 v2.26 — AskUserQuestion 요청 타임아웃 (60s, permissionBroker 와 동일 윈도우) */
+/**
+ * §4 (CLI 사양 추종) — **백필 세대.** 이 숫자보다 낮은(또는 없는) 설정에만 백필이 한 번 돈다.
+ *
+ * 종전 백필은 세대 표식이 없어 **복원·병합 때마다** 돌았다. 목록이 `TodoWrite` 하나뿐일 때는
+ * 티가 안 났지만 실제로는 그때도 "사용자가 끈 도구가 재시작마다 되살아나는" 동작이었고, 목록이
+ * 공식 표 45종으로 커지는 순간 그것이 **모든 해제 선택을 매번 되돌리는** 동작이 된다.
+ * 세대 표식을 두면 "화면에 존재한 적 없어서 빠진 것"은 한 번 채우고, 그 뒤의 해제는 사용자 뜻으로 남는다.
+ *
+ * 새 도구를 `AVAILABLE_AGENT_TOOLS` 에 넣을 때 이 숫자를 **1 올려라** — 안 올리면 이미 백필을
+ * 받은 설정(= 지금 쓰는 거의 모든 에이전트)은 새 도구를 영영 못 갖는다.
+ *
+ * - 세대 1 — v4.59 `TodoWrite` 외 (세대 표식이 없던 시절. 표식 없는 설정 = 세대 0 취급)
+ * - 세대 2 — 공식 도구 표 45종 전체 수용
+ */
+export const AGENT_TOOLS_BACKFILL_GEN = 2;/** §5.3 #12-2 v2.26 — AskUserQuestion 요청 타임아웃 (60s, permissionBroker 와 동일 윈도우) */
 export const ASK_USER_QUESTION_TIMEOUT_MS = 60_000;
 
 /** §4 v2.43 — 옵션창 Version 탭: 설치본 하나당 `--version` probe 타임아웃 (정상 응답 수십 ms) */
@@ -1688,6 +1749,14 @@ export const CLAUDE_SETUP_READY_HOLD_MS = 1_600;
  */
 export const CLAUDE_AUTO_UPDATE_BOOT_DELAY_MS = 20_000;
 
+/**
+ * §3.6 (판올림 번호 발급 대기) — 부팅 후 **훅 전송 경로(HTTP 승격)** 를 다시 판정하기까지의 지연.
+ *
+ * 설치 판정(1.2s)보다 뒤여야 갓 설치된 실행본의 판올림이 잡힌다. 자동 업데이트(20s)보다는
+ * **앞**이다 — 지금 깔려 있는 판올림으로 먼저 승격해 두고, 업데이트가 끝나면
+ * `onClaudeInstallSettled` 가 한 번 더 판정한다(인스톨러가 idempotent 라 헛일이 아니다).
+ */
+export const HOOK_TRANSPORT_REFRESH_DELAY_MS = 4_000;
 /** v1.36 — STRICT delegation enforcement 경로(dispatch curl)가 Bash 에 의존하므로
  *  사용자가 UI 에서 제거할 수 없고, STRICT strip 계산에서도 항상 보존된다.
  *  서버 PUT /api/agent-config/:id 가 payload.tools 에서 빠져 있으면 자동 포함, UI 는 × 잠금. */
@@ -1696,16 +1765,115 @@ export const LOCKED_AGENT_TOOLS: readonly string[] = ['Bash'];
 /**
  * 선택 가능한 퍼미션 모드 — 설치된 CLI 내부 enum 과 같은 6종(§4 CLI 사양 추종).
  *
- * `'default'` 는 CLI 안에서도 여전히 정식 값이고 표시명만 **Manual** 이다(그래서 저장값을
- * 바꾸지 않는다 — 마이그레이션 ❌). `'auto'`/`'dontAsk'` 는 CLI 2.1.223 에서 열린 값이며
- * 판정 의미는 CLI 실측 기준으로 `auto → classify`(모델 분류기) · `dontAsk → deny`(사전 승인 없으면 거부).
+ * `'default'` 는 **우리 저장값**이고 표시명은 **Manual** 이다(마이그레이션 ❌ — 옛 체크포인트가
+ * 그대로 읽힌다). `'auto'`/`'dontAsk'` 는 CLI 2.1.223 에서 열린 값이며 판정 의미는 CLI 실측 기준으로
+ * `auto → classify`(모델 분류기) · `dontAsk → deny`(사전 승인 없으면 거부).
  * 서버 승인 게이트(`/api/permission-check`)의 매핑은 §5.3 #12-1 참조.
+ *
+ * ⚠ 저장값을 그대로 CLI 에 넘기지 마라 — 변환은 아래 `toCliPermissionMode` 한 곳이다.
  */
 export const AVAILABLE_PERMISSION_MODES: readonly string[] = [
   'default', 'acceptEdits', 'auto', 'dontAsk', 'plan', 'bypassPermissions',
 ];
 
 /**
+ * §4 (CLI 사양 추종) — 우리 저장값 → CLI `--permission-mode` 값.
+ *
+ * **왜 표가 필요한가**: 종전에는 `'default'` 일 때 플래그를 아예 붙이지 않고 "CLI 기본이 곧 Manual"
+ * 이라고 가정했다. 그 가정이 2026-08-14 에 깨졌다 — 그날부터 **CLI 무플래그 기본은 `auto`**(모델
+ * 분류기가 스스로 승인) 이고, Pro/Max/Team 새 세션에 순차 적용된다. 그래서 화면에는 "Manual —
+ * 위험한 동작마다 확인" 이라고 적혀 있는 에이전트가 **실제로는 자동 승인으로 돌 수 있었다.**
+ * 사용자가 고른 승인 강도가 조용히 약해지는 것이라 표시 오류가 아니라 안전 문제다.
+ *
+ * CLI 2.1.251 `--help` 의 `--permission-mode` 선택지에 `manual` 이 실재하므로, 이제 **모든 모드를
+ * 명시**한다(무플래그 = CLI 기본에 맡기는 자리를 없앤다). 플랜·조직 정책·판올림으로 기본값이 또
+ * 바뀌어도 우리가 고른 값은 그대로 간다.
+ *
+ * `bypassPermissions` 만 예외다 — 전용 플래그(`--dangerously-skip-permissions`)로 나가므로
+ * 이 표에 넣지 않는다(넣으면 두 경로가 같은 뜻을 두 벌로 들게 된다).
+ */
+export const PERMISSION_MODE_CLI_VALUES: Readonly<Record<string, string>> = {
+  default: 'manual',
+  acceptEdits: 'acceptEdits',
+  auto: 'auto',
+  dontAsk: 'dontAsk',
+  plan: 'plan',
+};
+
+/**
+ * 저장값을 CLI `--permission-mode` 값으로 옮긴다. 표에 없으면 `null`
+ * (= `bypassPermissions` 전용 플래그 경로, 또는 우리가 모르는 값이라 플래그를 흘리지 않는다).
+ */
+export function toCliPermissionMode(mode: string | undefined | null): string | null {
+  if (!mode) return PERMISSION_MODE_CLI_VALUES['default'] ?? null;
+  return PERMISSION_MODE_CLI_VALUES[mode] ?? null;
+}
+
+/**
+ * §4 (CLI 사양 추종) — 서브에이전트 **이름** 규칙: 소문자 영문·숫자·하이픈만, 하이픈으로 시작 ❌,
+ * `:` 금지. 공식 문서가 못 박은 규칙이라 우리가 먼저 다듬어 보낸다 — CLI 가 거부하면 그 에이전트가
+ * 통째로 못 뜨기 때문이다(`--isolation` 이 그렇게 죽었던 자리와 같은 성질).
+ */
+export function normalizeAgentDefinitionName(raw: string | undefined | null): string {
+  if (!raw) return '';
+  return raw
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')   // 공백·언더스코어·콜론·한글 전부 하이픈으로
+    .replace(/-{2,}/g, '-')          // 연달아 생긴 하이픈은 하나로
+    .replace(/^-+|-+$/g, '');        // 앞뒤 하이픈 제거(선두 하이픈은 CLI 가 거부)
+}
+
+/**
+ * §4 (CLI 사양 추종) — `AgentDefinition[]` → `--agents` 가 받는 **JSON 문자열**.
+ *
+ * 우리는 순서 있는 배열로 들고 CLI 는 이름을 키로 하는 객체를 받으므로 여기서 뒤집는다.
+ * 넘길 게 없으면 `null` — 그래야 호출부가 **플래그 자체를 안 붙인다**(빈 객체 `{}` 를 넘기면
+ * "정의 0개"가 아니라 "정의를 준다"는 뜻이 되어 CLI 판본에 따라 파일 기반 에이전트를 가릴 수 있다).
+ *
+ * 버리는 것: 이름/설명/프롬프트 중 하나라도 빈 항목, 그리고 **먼저 나온 것과 이름이 겹치는 항목**
+ * (객체 키라 뒤엣것이 앞엣것을 조용히 덮어써 사용자가 적은 정의 하나가 사라진다).
+ */
+export function buildAgentsFlagJson(defs: readonly AgentDefinition[] | undefined | null): string | null {
+  if (!Array.isArray(defs) || defs.length === 0) return null;
+  const out: Record<string, Record<string, unknown>> = {};
+  for (const def of defs) {
+    if (!def || typeof def !== 'object') continue;
+    const name = normalizeAgentDefinitionName(def.name);
+    const description = typeof def.description === 'string' ? def.description.trim() : '';
+    const prompt = typeof def.prompt === 'string' ? def.prompt.trim() : '';
+    if (!name || !description || !prompt) continue;
+    if (Object.prototype.hasOwnProperty.call(out, name)) continue;
+    const entry: Record<string, unknown> = { description, prompt };
+    const tools = def.tools?.filter((t: string) => typeof t === 'string' && t.trim().length > 0);
+    if (tools && tools.length > 0) entry['tools'] = tools;
+    const model = typeof def.model === 'string' ? def.model.trim() : '';
+    if (model) entry['model'] = model;
+    out[name] = entry;
+  }
+  return Object.keys(out).length > 0 ? JSON.stringify(out) : null;
+}
+
+/**
+ * §4 (CLI 사양 추종) — `--plugin-dir` 로 나갈 경로 목록 정리.
+ *
+ * 줄 단위로 받은 입력을 다듬는다: 앞뒤 공백 제거, 빈 줄 제거, **중복 제거**(같은 폴더를 두 번
+ * 얹으면 CLI 가 같은 플러그인을 두 번 로드한다). 경로 문자열은 손대지 않는다 — 대소문자를
+ * 접거나 구분자를 바꾸면 리눅스에서 다른 폴더가 되기 때문이다(멀티플랫폼 규칙 1).
+ */
+export function normalizePluginDirs(dirs: readonly string[] | undefined | null): string[] {
+  if (!Array.isArray(dirs)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of dirs) {
+    if (typeof raw !== 'string') continue;
+    const dir = raw.trim();
+    if (!dir || seen.has(dir)) continue;
+    seen.add(dir);
+    out.push(dir);
+  }
+  return out;
+}/**
  * §5.3 #12-1 — 승인 팝업이 원천적으로 안 뜨는 모드. 이 모드에서는 "60초 무응답 정책"
  * (`permissionTimeoutPolicy`) 이 무의미하므로 UI 가 그 토글을 숨긴다.
  * `dontAsk` 는 팝업 대신 즉시 거부라 여기에 함께 들어간다.
@@ -2535,8 +2703,10 @@ export const DEFAULT_AGENT_CONFIG: AgentConfig = {
   permissionMode: 'default',
   skills: [],
   maxTurns: 0,
+  // 갓 만든 설정은 이미 현행 목록 전체를 갖고 있으므로 백필이 다시 돌 이유가 없다.
+  //   도장을 안 찍으면, 사용자가 도구 하나를 끄고 앱을 다시 켰을 때 백필이 그 선택을 되돌린다.
+  toolsBackfillGen: AGENT_TOOLS_BACKFILL_GEN,
 };
-
 // ─── §5.3 v4.89 자기 기억 범위 · 중첩 깊이 ───
 
 /** 드롭다운이 그리는 순서. 맨 앞이 "지정 안 함"(= 레포 공용 기억). */
@@ -7796,6 +7966,31 @@ export const CHAT_PAIR_BAN_MS = 10 * 60 * 1000;
 /** 동시에 페어링해 둘 수 있는 대화(기기) 수 상한 — 초과 시 가장 오래된 것부터 밀어낸다. */
 export const CHAT_PEER_MAX = 5;
 
+/**
+ * 페어링 안 된 발신자에게 안내를 보낼 수 있는 간격(ms).
+ *
+ * 화이트리스트 밖은 원칙적으로 침묵이지만(§4 ⑤) 예외가 둘 있다 — 텔레그램이 봇을 처음 열 때
+ * 자동으로 보내는 `/start`, 그리고 티켓이 만료된 뒤 도착한 페어링 시도. 여기까지 침묵하면
+ * 사용자는 봇이 고장난 줄 안다. **다만 상한이 없으면 그 친절이 곧 무제한 답장**이 된다 —
+ * 아무나 `/start` 를 반복해 봇의 존재를 확인하고 메신저 rate limit 을 소진시킬 수 있다.
+ */
+export const CHAT_UNPAIRED_NOTICE_MS = 10 * 60 * 1000;
+
+/**
+ * 대기 중인 버튼(권한·질문) 레지스트리의 키 개수 상한.
+ *
+ * 권한 요청 하나가 [허용]/[거부] 두 건을 넣는데, **폰에서 누르지 않으면 지워지지 않는다**
+ * (누른 순간에만 짝을 거둔다). 만료돼도 남으므로 오래 켜 둔 앱에서 계속 자란다.
+ * 값이 아니라 **키 개수**에 걸리는 상한이다 — 넘으면 만료된 것부터, 그래도 넘으면 오래된 것부터.
+ */
+export const CHAT_PENDING_ACTION_MAX = 500;
+
+/** `/log` 원문 버퍼를 들고 있을 에이전트 수 상한. 줄 수(`CHAT_LOG_BUFFER_LINES`)와 짝이다. */
+export const CHAT_LOG_AGENT_MAX = 32;
+
+/** 페어링 실패 누적 맵의 키 개수 상한 — 미페어링 발신자가 많아져도 무한히 자라지 않게. */
+export const CHAT_PAIR_ATTEMPT_MAX = 200;
+
 /** 텔레그램 Bot API 베이스. 토큰은 경로에 실리므로 로그에 URL 을 그대로 남기지 않는다. */
 export const CHAT_TELEGRAM_API_BASE = 'https://api.telegram.org';
 
@@ -7814,6 +8009,19 @@ export const CHAT_DISCORD_API_BASE = 'https://discord.com/api/v10';
  * (Developer Portal 에서 "Message Content Intent" 를 켜야 IDENTIFY 가 통과한다).
  */
 export const CHAT_DISCORD_INTENTS = (1 << 9) | (1 << 12) | (1 << 15);
+
+/**
+ * 하트비트를 보내고 ACK(op 11) 없이 넘어가도 되는 횟수.
+ *
+ * 디스코드 문서는 "ACK 이 안 오면 비정상 코드로 끊고 재연결" 을 요구한다. 이걸 안 보면
+ * 소켓이 `close` 이벤트 없이 반쯤 죽었을 때 상태는 `online` 인 채 **영원히 아무것도 받지
+ * 않는다** — 밖에서 권한 승인을 기다리다 60초 자동 결정을 맞게 되는, 이 축이 막으려던 바로
+ * 그 상황이다. 1 = 한 번 놓치면 바로 끊고 다시 붙는다.
+ */
+export const CHAT_DISCORD_HEARTBEAT_MISS_MAX = 1;
+
+/** 좀비 커넥션을 우리가 끊을 때 쓰는 close code(1000 이 아니어야 RESUME 가능 범위로 다뤄진다). */
+export const CHAT_DISCORD_ZOMBIE_CLOSE_CODE = 4009;
 
 /** 디스코드 한 메시지 최대 길이(공식 2000) — 여유를 두고 자른다. */
 export const CHAT_DISCORD_MESSAGE_MAX = 1900;

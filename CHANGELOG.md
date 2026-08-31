@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.17] - 2026-09-01
+
+### Added
+- **Your agents can now use every tool Claude Code has.** The list of tools an agent may use was 22 names long; the CLI's published table has 45. That gap was not a set of features we had decided against — it was the list falling behind while the CLI grew, and because the app always states the tool list explicitly when it starts an agent, a name missing from the list meant the tool **did not exist** for that agent. An IDE with no code intelligence (`LSP`), a goal panel imitating over HTTP the very task tools (`TaskCreate`/`TaskGet`/`TaskList`/`TaskUpdate`) it could have been reading, and no native shell on the platform most of this is written on (`PowerShell`) all trace back to that one array. Also newly available: `Workflow` for directing many subagents from a script, `EnterPlanMode` and the worktree pair, `PushNotification`, `SendUserFile`, `ScheduleWakeup` and the cron trio, and the MCP resource tools. Agents you already have are filled in once — and a tool you switch **off** now stays off, which was not previously true (see Fixed).
+- **Subagents that exist only for one session.** Defining a subagent type meant writing a file into the project, where it stays and follows you into every future session there. An agent's settings now take a name, a description and a prompt directly; nothing is written to disk, so nothing leaks into other projects. Entries missing any of the three are dropped rather than failing the launch, and the window says so when the `Task` tool is off and nothing could call them anyway.
+- **Claude Code plugin folders can be loaded for a single session** — folders or `.zip` files, one path per line, without installing anything.
+- **Drag a file out of the explorer.** Dropping it on the conversation puts its path into the input box; dropping it on the editor side opens it. Which of the two will happen is shown as a band while you drag rather than after you let go, and folders are marked as unopenable before you try. Each row also has a handle that does the same insertion in one click and copies the path at the same time — on a read-only hook bubble, where there is no input box to insert into, it says "copied" instead of pretending.
+- **Files and folders can be moved by dragging them within the tree.** Creating, renaming and deleting were already there; moving was the one that still meant leaving for a file manager. It asks before moving, refuses to put a folder inside itself, and says plainly that another drive is not a move.
+- **Hook events can be shown in the transcript** — a switch, off by default, because they arrive constantly and are noise until the moment you are trying to work out why a hook did or did not fire.
+
+### Changed
+- **The app now listens for 33 kinds of hook event instead of 15.** The other 18 were not events we had chosen to ignore; they are the ones the CLI added while we were not looking. Some of them are why the canvas could look wrong: nothing reported a **session ending**, so a session that had finished stayed lit as "running" until something else happened to it; nothing reported a model switch, a worktree being created, a change of working directory or a configuration change, so a bubble kept showing the old value **until the next tool call**. MCP servers that stop mid-tool to ask you something now surface the same way any other waiting-for-you state does, rather than looking like a session that had simply stopped.
+- **Hooks report over a local HTTP call instead of starting a program each time.** Every hook event used to launch a small Node process, which is a poor trade at 15 event types and a worse one at 33. The app now checks what the installed CLI supports and moves to the direct path once it is safe to — a first install stays on the old path, because installing the new kind of hook against a CLI that does not understand it would silently discard **every** event, which on screen is indistinguishable from the app being dead. Memory-card injection is the one thing that still starts a process, and only on file edits.
+- **The goal panel reads the session's own task list.** It had been reconstructing something similar over HTTP, because the tools that produce that list were missing from the tool list and the hooks they fire were not registered — so a session could keep a perfectly good task list and the panel would show nothing.
+- **Pairing a messenger chat is only accepted in a direct message with the bot.** In a shared channel, the paired identity is the room rather than a person, which means everyone in it can drive your agents and approve permission requests. Chats paired before this rule keep working — they are not disconnected, they are yours — but are marked as shared and say what that means. A message from a chat that was never paired now gets at most a single "not connected" line rather than a reply.
+- **A Discord connection that has quietly died is now noticed.** The connection can stop delivering anything while still reporting itself as online, and the way it shows up is the thing this feature exists to prevent: you are waiting on your phone to approve something, and the 60-second automatic decision arrives instead. Unanswered heartbeats now close the socket so it reconnects. Separately, pressing a button on a card no longer risks "this interaction failed" appearing on a card that was in fact processed.
+- **The bot speaks the language the app is set to,** rather than translating the setup window and then sending cards in one fixed language. Goal updates are sent when the goal actually changes instead of on every refresh.
+- **Pulling an IDE window out of the app follows your cursor properly.** The outline that stands in for the window while it is being handed over appeared only if you had grabbed the title bar near its edge — grab it in the middle and there was no outline to hand over, so the window vanished from under your hand for as long as the new one took to build. It now appears whenever the cursor leaves the app, the in-app window is not closed until the outline is actually standing, and the new window reports when it has finished drawing rather than when it exists.
+- **The release page lists one row per operating system** — Windows, macOS, Linux — with the variants inside the row, instead of a row per file.
+- **PRIVACY.md and SECURITY.md describe what the code does,** including where the line actually falls on remote access and what is stored where; the README now states plainly that testing has been Windows-first and invites macOS and Linux reports as issues.
+
+### Fixed
+- **A window pulled out of the app no longer drops off the pointer** at the moment it turns into a real IDE window. It was mirroring a fold that never happened — the new window starts with its contents not yet arrived, which was read as "collapsed" — and shrank itself to a bubble while the cursor kept positioning it as a full-size window.
+- **Tools you switched off stopped coming back.** Filling in tools an agent never had the chance to be given ran on every restore rather than once, so any tool you had deliberately unchecked was re-checked on the next start. It went unnoticed while the list being filled in was a single name; with 45 it would have undone every choice, every time. Each configuration now carries a mark saying it has been filled in.
+- **Checking your usage no longer leaves a stray bubble on the canvas.** The check starts a short-lived session of its own, which the old hook path knew to keep quiet about and the new direct path did not.
+- **A session ending no longer schedules the same reflection twice.**
+
 ## [0.1.16] - 2026-08-31
 
 ### Fixed
@@ -370,7 +397,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - Dropped preset options from the custom agent settings.
 
-[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.1.16...HEAD
+[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.1.17...HEAD
+[0.1.17]: https://github.com/Vibisual/vibisual/compare/v0.1.16...v0.1.17
 [0.1.16]: https://github.com/Vibisual/vibisual/compare/v0.1.15...v0.1.16
 [0.1.15]: https://github.com/Vibisual/vibisual/compare/v0.1.14...v0.1.15
 [0.1.14]: https://github.com/Vibisual/vibisual/compare/v0.1.13...v0.1.14

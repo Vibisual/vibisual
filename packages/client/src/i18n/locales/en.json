@@ -191,7 +191,10 @@
       "revokeQr": "Revoke QR now",
       "expiresIn": "Expires in",
       "savePng": "Save PNG",
-      "discordPairHint": "Scan to invite the bot, then send this line in any channel it can see:",
+      "discordPairHint": "Scan to invite the bot, then send this line to it in a direct message:",
+      "dmOnlyHint": "Pairing is only accepted in a one-to-one direct message with the bot. In a shared channel, everyone in it could drive your agents.",
+      "sharedChatBadge": "Shared",
+      "sharedChatWarning": "This chat was paired before the direct-message-only rule. Anyone in it can send commands and approve permissions. Disconnect it and pair again in a DM.",
       "pairedChats": "Connected chats",
       "unpair": "Disconnect",
       "verbosityTitle": "What gets sent",
@@ -203,7 +206,7 @@
         "cards": "Only cards and summaries leave this machine. Ask for raw output with /log when you need it.",
         "full": "Replies and thinking are relayed as they arrive. Tool output and diffs are still withheld."
       },
-      "securityNote": "Only chats you paired are answered; everything else is ignored. Terminal access is never available over a messenger."
+      "securityNote": "Only chats you paired can send commands. Anything else gets at most a one-line \"not connected\" notice. Terminal access is never available over a messenger."
     },
     "guide": {
       "title": "Guide",
@@ -921,6 +924,32 @@
         "MultiEdit": "Apply several edits to one file at once.",
         "SendMessage": "Send a follow-up message to a running subagent.",
         "Artifact": "Create rich artifacts (documents, apps).",
+        "PowerShell": "Run PowerShell commands natively on Windows.",
+        "LSP": "Jump to definitions, find references, and read type errors through a language server.",
+        "Workflow": "Orchestrate many subagents from a script the agent writes.",
+        "ListAgents": "List other Claude Code sessions that can be messaged.",
+        "TaskCreate": "Create a task in the shared task list.",
+        "TaskGet": "Read one task from the shared task list.",
+        "TaskList": "List tasks in the shared task list.",
+        "TaskUpdate": "Update a task's status or details.",
+        "EnterPlanMode": "Switch into plan mode to design before acting.",
+        "EnterWorktree": "Move the session into a new git worktree.",
+        "ExitWorktree": "Leave the current git worktree.",
+        "PushNotification": "Send a desktop notification, and a phone push when Remote Control is connected.",
+        "SendUserFile": "Send a file to the user.",
+        "RemoteTrigger": "Trigger an action on a connected remote device.",
+        "SendFeedback": "Send feedback about Claude Code to Anthropic.",
+        "ShareOnboardingGuide": "Share a setup guide for this project with a teammate.",
+        "ReportFindings": "Report structured findings, as in a code review.",
+        "EndConversation": "End this session from inside the session.",
+        "ScheduleWakeup": "Schedule the session to wake itself up later.",
+        "CronCreate": "Create a scheduled recurring run.",
+        "CronList": "List scheduled recurring runs.",
+        "CronDelete": "Delete a scheduled recurring run.",
+        "ToolSearch": "Find the right tool on demand when many tools are connected.",
+        "ListMcpResourcesTool": "List resources exposed by connected MCP servers.",
+        "ReadMcpResourceTool": "Read one resource from a connected MCP server.",
+        "WaitForMcpServers": "Wait until connecting MCP servers are ready.",
         "strippedByEdgeHint": "Delegated through a STRICT edge — this agent cannot use it at runtime (restored when the edge is removed)"
       },
       "maxTurns": "Max Turns",
@@ -1009,10 +1038,29 @@
         "label": "Suggest the next prompt",
         "hint": "predicted after each turn"
       },
+      "includeHookEvents": {
+        "label": "Show hook events in the transcript",
+        "hint": "when each hook fires, inline"
+      },
       "betas": {
         "label": "Beta headers",
         "tip": "Beta headers sent with API requests. API-key users only — subscription auth ignores them.",
         "placeholder": "comma-separated"
+      },
+      "agentDefinitions": {
+        "label": "Session subagents",
+        "tip": "Subagent types this session can delegate to, defined here instead of as files. Nothing is written to disk, so they never leak into other projects. Name, description and prompt are all required — entries missing any of them are dropped.",
+        "namePlaceholder": "name (lowercase, hyphens)",
+        "descPlaceholder": "when to delegate to it",
+        "promptPlaceholder": "system prompt",
+        "add": "+ Subagent",
+        "remove": "Remove",
+        "needsTaskTool": "The Task tool is off, so nothing can call these."
+      },
+      "pluginDirs": {
+        "label": "Session plugins",
+        "tip": "Claude Code plugin folders or .zip files loaded for this session only, one path per line. These are Claude Code plugins, not Vibisual plugins.",
+        "placeholder": "one path per line"
       },
       "bashTimeout": {
         "label": "Bash timeout",
@@ -2168,6 +2216,8 @@
       "openFile": "Open in editor",
       "copyPath": "Copy path",
       "copied": "Copied",
+      "pathToInput": "Insert path into the input · copy",
+      "pathInserted": "Added to the input · copied",
       "truncated": "First {{count}} items only",
       "ctx": {
         "open": "Open",
@@ -2182,8 +2232,10 @@
         "newName": "New name",
         "confirmTrash": "Move \"{{name}}\" to the trash?",
         "confirmDelete": "Delete \"{{name}}\" permanently? This cannot be undone.",
+        "confirmMove": "Move \"{{name}}\" into \"{{folder}}\"?",
         "trashed": "Moved \"{{name}}\" to the trash",
         "deleted": "Deleted \"{{name}}\"",
+        "moved": "Moved \"{{name}}\" into \"{{folder}}\"",
         "err": {
           "nameEmpty": "Enter a name",
           "nameSeparator": "A name cannot contain / or \\",
@@ -2198,8 +2250,15 @@
           "offline": "Could not reach the app",
           "root": "The project root cannot be changed here",
           "outside": "That path is outside the project",
+          "intoSelf": "A folder can't be moved inside itself",
+          "crossDevice": "Can't move to another drive",
           "failed": "That did not work"
         }
+      },
+      "drop": {
+        "input": "Insert the path into the input",
+        "editor": "Open in the editor",
+        "folderBlocked": "Folders can't be opened in the editor"
       }
     },
     "editor": {

@@ -215,6 +215,25 @@ const api = {
       ipcRenderer.invoke('vibisual:overlay:ghost-nudge', payload),
     /** §17-6 (H-6) — 윤곽선 걷기(도로 앱 안 · 손 뗌). 밖으로 나간 경우는 main 이 스스로 걷는다. */
     ghostHide: (): Promise<boolean> => ipcRenderer.invoke('vibisual:overlay:ghost-hide'),
+    /**
+     * §17-6 (H-7) — **이 창이 다 그려졌다.** 끌어내서 만든 창은 부팅(스냅샷 → 짐 꺼내기 → IDE
+     * 마운트)이 `ready-to-show` 보다 한참 뒤에 끝난다 — main 은 이 신호를 받고서야 윤곽선을
+     * 걷는다(그전에 걷으면 투명한 빈 창만 커서 아래 남는다).
+     */
+    shellReady: (): Promise<boolean> => ipcRenderer.invoke('vibisual:overlay:shell-ready'),
+    /**
+     * §17-6 (H-8) — **앱 안 IDE 창을 끄는 동안 커서를 main 이 대신 본다.**
+     * 밖에서 끌던 손을 이어받은 판에는 이 창의 `mousedown` 이 없어 마우스 캡처가 없다 —
+     * 커서가 창 밖으로 나가면 렌더러에 이벤트가 끊겨 "밖으로 나갔다"가 영영 서지 않는다.
+     */
+    paneDragWatch: (on: boolean): Promise<boolean> =>
+      ipcRenderer.invoke('vibisual:ide:pane-drag-watch', on),
+    /** §17-6 (H-8) — 커서가 이 창 밖으로 나갔다(한 판에 한 번). 좌표는 **화면 좌표**다. */
+    onPaneDragEscape: (cb: (payload: { cursor: { x: number; y: number } }) => void): (() => void) => {
+      const listener = (_e: unknown, payload: { cursor: { x: number; y: number } }): void => cb(payload);
+      ipcRenderer.on('vibisual:ide:pane-drag-escape', listener);
+      return () => ipcRenderer.removeListener('vibisual:ide:pane-drag-escape', listener);
+    },
     /** §17-6 (H-4) — 이 창이 지금 커서에 매달려 있는가(그렇다면 이 창도 뗌을 듣는다). */
     onFollowDragState: (cb: (payload: { following: boolean }) => void): (() => void) => {
       const listener = (_e: unknown, payload: { following: boolean }): void => cb(payload);

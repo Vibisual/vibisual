@@ -42,7 +42,7 @@ import {
   easeFloatPushOffset,
   pushFloatGeoms,
   pushDockSize,
-  overflowPastClamp,
+  popOutGhostDecision,
   previewDockRect,
   resizeFloatGeom,
   resolveDockDrop,
@@ -77,6 +77,7 @@ import { IDETabBar } from './IDETabBar.js';
 import { IDESidebar } from './IDESidebar.js';
 import { IDESplitView } from './IDESplitView.js';
 import { IDEEditorPane } from './IDEEditorPane.js';
+import { useWorkspaceEntryDrop } from './useWorkspaceEntryDrop.js';
 import { useEditorFollow } from './useEditorFollow.js';
 import { IDEStatusBar } from './IDEStatusBar.js';
 import { VerifyDemoLayer } from './VerifyDemoLayer.js';
@@ -143,13 +144,13 @@ const EDGE_TICK_MS = 32;
  */
 const EDGE_NUDGE_PX = 72;
 /**
- * (H-6) 손을 뗐을 때 **그대로 내보낼** 문턱(px, 놓을 수 있는 자리 기준).
+ * (판올림 번호 발급 대기) (H-7) 팝아웃이 **윤곽선이 서기를** 기다리는 상한(ms).
  *
- * 윤곽선이 뜨는 문턱(`POP_OUT_GHOST_ENTER_PX`=24)과 벌려 둔다: 창을 화면 끝에 바짝 붙여 두려다
- * 몇 십 픽셀 더 간 손이 창을 밖으로 던지면 안 된다. 여기까지 끌었다면 "밖으로 뺀다" 말고 달리
- * 읽을 여지가 없다.
+ * 왕복은 같은 프로세스 안의 IPC 한 번이라 보통 한 프레임이면 끝난다. 그런데도 상한을 두는
+ * 까닭은, 대답이 영영 오지 않는 판에서 이 창이 **손도 안 듣고 닫히지도 않은 채** 멎기 때문이다
+ * — 그 경우엔 선 없이라도 넘어가는 편이 낫다(빈 구간 한 번 vs 창이 굳는 것).
  */
-const POP_OUT_COMMIT_PX = 120;
+const POP_OUT_GHOST_WAIT_MS = 160;
 
 /**
  * 이 창이 앉을 자리 — **사용자가 옮겨 둔 자리가 있으면 그것**, 없으면 계단식 초기 자리.
@@ -395,6 +396,12 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   //   순수 판정(`resolveIDEBodyLayout`)에 넘기고, 접힘은 컨텍스트로 자식들에게 흘린다.
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const bodyWidth = useElementWidth(bodyRef);
+  /**
+   * §5.5 #17-19 ⑧ — 탐색기에서 끌어온 파일을 받는 자리(대화 + 편집창). 활동바·사이드바는 일부러
+   * 빼 둔다 — 트리 위에서 끌고 다니는 동안 "입력창에 넣기" 띠가 뜨면 어디에 놓는 중인지 알 수 없다.
+   */
+  const dropContentRef = useRef<HTMLDivElement | null>(null);
+  const { state: entryDrop, handlers: entryDropHandlers } = useWorkspaceEntryDrop(agentId ?? '', dropContentRef, bodyRef);
   const sidebarCollapsed = useIDEPaneValue((o) => o.sidebarCollapsed);
   const sidebarView = useIDEPaneValue((o) => o.activeView);
   const editorOpenCount = useIDEPaneValue((o) => o.editorFiles.length);
@@ -1136,18 +1143,32 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     let ghostArmed = false;
     /** 윤곽선을 그 변 밖으로 밀어 낸 여분(px) — 가장자리 버팀 동안 자란다(H-6 ④). */
     let ghostPush = { dx: 0, dy: 0 };
+    /**
+     * (H-7) main 에 부탁해 둔 **OS 윤곽선이 실제로 섰는지**를 기다리는 손잡이.
+     *
+     * 팝아웃은 이것이 끝난 **뒤에** 앱 안 창을 닫는다 — 부탁하자마자 닫으면 그 왕복 동안 손
+     * 아래가 비고, 그것이 (H-6) ⑤ 가 없애기로 한 바로 그 구간이다.
+     */
+    let ghostShowPending: Promise<boolean> | null = null;
 
-    /** main 이 그리는 윤곽선의 크기·잡은 지점·무장 여부를 갈아 끼운다(여러 번 불러도 안전). */
-    function syncOsGhost(): void {
-      if (ghostKind !== 'os') return;
-      void window.api?.overlay?.ghostShow?.({
+    /** 윤곽선을 세워 달라는 부탁 한 번 — 크기·잡은 지점은 이 판의 값 그대로. */
+    function requestOsGhost(armed: boolean): Promise<boolean> | null {
+      const ov = window.api?.overlay;
+      if (!ov?.ghostShow) return null;
+      return ov.ghostShow({
         width: Math.round(nextW),
         height: Math.round(nextH),
         grabX: Math.round(init.grabRatioX * nextW),
         grabY: Math.round(init.grabRatioY * nextH),
         label: agentLabelRef.current,
-        armed: ghostArmed,
+        armed,
       });
+    }
+
+    /** main 이 그리는 윤곽선의 크기·잡은 지점·무장 여부를 갈아 끼운다(여러 번 불러도 안전). */
+    function syncOsGhost(): void {
+      if (ghostKind !== 'os') return;
+      void requestOsGhost(ghostArmed);
     }
 
     function showGhost(rect: FloatGeom, armed: boolean): void {
@@ -1162,16 +1183,11 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
         //   창이 서면 그쪽으로 넘긴다(둘 다 같은 자리를 그리므로 넘어가는 순간이 보이지 않는다).
         ghostKind = 'inapp';
         setPopOutGhost({ kind: 'inapp', armed });
-        const ov = window.api?.overlay;
-        if (ov?.ghostShow) {
-          void ov.ghostShow({
-            width: Math.round(nextW),
-            height: Math.round(nextH),
-            grabX: Math.round(init.grabRatioX * nextW),
-            grabY: Math.round(init.grabRatioY * nextH),
-            label: agentLabelRef.current,
-            armed,
-          }).then((ok) => {
+        const pending = requestOsGhost(armed);
+        if (pending) {
+          // (H-7) 팝아웃이 이 부탁을 기다릴 수 있게 손잡이를 남긴다(같은 부탁을 두 번 하지 않게).
+          ghostShowPending = pending;
+          void pending.then((ok) => {
             // 못 만들었거나(컴포지터 없는 환경 등) 그 사이 판이 끝났으면 앱 안 윤곽선 그대로 둔다.
             if (!ok || !ghostOn) return;
             ghostKind = 'os';
@@ -1191,6 +1207,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
       ghostOn = false;
       ghostArmed = false;
       ghostPush = { dx: 0, dy: 0 };
+      ghostShowPending = null;
       ghostRectRef.current = null;
       setPopOutGhost(null);
       void window.api?.overlay?.ghostHide?.();
@@ -1219,10 +1236,45 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
         if (ghostKind === 'os') void window.api?.overlay?.ghostNudge?.({ dx: 0, dy: 0 });
       }
     }
+    /**
+     * (판올림 번호 발급 대기) (H-8) **밖으로 나갔다는 소식을 main 에게서 듣는 귀.**
+     *
+     * 이 창에서 `mousedown` 이 일어난 판은 마우스 캡처 덕에 창 밖에서도 `mousemove` 가 온다.
+     * 그런데 밖에서 끌던 손을 **이어받은 판**(H-4 ③)은 눌린 곳이 이미 닫힌 창이라 캡처가 없다 —
+     * 커서가 나가는 순간 눈이 멀어 "밖으로 빼기"가 영영 서지 않는다. 그동안은 main 이 커서를
+     * 대신 보고 한 번 알려 준다. 캡처가 있는 판에서도 함께 달아 둔다 — 어느 쪽이 먼저 보든
+     * `popOutNow()` 는 한 번만 일어나고, 캡처가 언제 사라지는지는 OS 마다 다르기 때문이다.
+     */
+    let offEscape: (() => void) | null = null;
+    function stopEscapeWatch(): void {
+      if (offEscape) { offEscape(); offEscape = null; }
+      void window.api?.overlay?.paneDragWatch?.(false);
+    }
+    function startEscapeWatch(): void {
+      const ov = window.api?.overlay;
+      if (!ov?.paneDragWatch || !ov.onPaneDragEscape || offEscape) return;
+      offEscape = ov.onPaneDragEscape(({ cursor }) => {
+        if (poppedOut || !dragging) return;
+        // 화면 좌표를 창 안 좌표로 옮긴다(`window.screenX/Y` = 이 창의 콘텐츠 좌상단) — 그래야
+        //   새 창이 손 아래 그대로 앉고, 윤곽선도 같은 자리를 그린다.
+        const client = { x: cursor.x - window.screenX, y: cursor.y - window.screenY };
+        lastCursor = client;
+        lastRaw = dragFloatGeom({
+          x: client.x - init.grabRatioX * nextW,
+          y: client.y - init.grabRatioY * nextH,
+          w: nextW,
+          h: nextH,
+        }, viewportNow());
+        popOutNow();
+      });
+      void ov.paneDragWatch(true);
+    }
+
     function detach(): void {
       window.removeEventListener('mousemove', handleMove);
       window.removeEventListener('mouseup', handleUp);
       clearEdgeWatch();
+      stopEscapeWatch();
       // 밀어 둔 창들을 여기서 굳힌다 — 손을 떼든 밖으로 빠져나가든 이 자리는 반드시 지난다.
       settlePush();
       activeDragCleanupRef.current = null;
@@ -1247,6 +1299,12 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
      * 나타난다"가 된다 — 새 창이 실제로 보이는 순간 main 이 스스로 걷는다(같은 프로세스가 둘 다
      * 쥐고 있으므로 신호를 주고받을 필요가 없다). 잡은 지점에서 **밀어 낸 만큼을 빼** 넘기므로,
      * 새 창은 선이 서 있던 바로 그 자리에 선다.
+     *
+     * (H-7) **그 선이 서 있는지를 먼저 확인한다.** ⑤ 는 "선이 이미 있다"를 전제로 쓰였는데, 손이
+     * 빠르거나 잡은 지점이 가운데면 선을 켤 틈 없이 이 자리에 닿는다 — 그러면 인계할 선이 없어
+     * 앱 안 창이 닫힌 자리에 아무것도 남지 않는다(사용자 보고 — "앱을 넘어가는 순간 마우스에서
+     * 사라진다"). 이제 선이 없으면 **여기서 세우고, 실제로 선 뒤에** 앱 안 창을 닫는다. 기다리는
+     * 동안 손 아래에는 앱 안 창이 그대로 있으므로 비는 순간이 어느 쪽으로도 생기지 않는다.
      */
     function popOutNow(): void {
       if (poppedOut) return;
@@ -1255,16 +1313,41 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
       const push = { dx: ghostPush.dx, dy: ghostPush.dy };
       detach();
       clearDragVisuals();
-      // 선은 main 이 걷는다 — 우리 쪽 표시만 내린다(여기서 ghostHide 를 부르면 빈 화면이 생긴다).
-      ghostOn = false;
-      setPopOutGhost(null);
-      popOutToWindow({
-        size: { width: Math.round(nextW), height: Math.round(nextH) },
-        follow: {
-          grabX: Math.round(init.grabRatioX * nextW - push.dx),
-          grabY: Math.round(init.grabRatioY * nextH - push.dy),
-        },
-      });
+      // (H-7) 선이 아직 안 섰으면 지금 세운다 — 이미 부탁해 둔 것이 있으면 그것을 기다린다
+      //   (같은 부탁을 두 번 하면 main 이 창을 만들었다 지웠다 한다).
+      const standing: Promise<unknown> | null = ghostKind === 'os' && ghostOn
+        ? null
+        : (ghostShowPending ?? requestOsGhost(true));
+      let handedOff = false;
+      /** 선이 서기를 기다리는 사이에 손을 뗐는가 — 그 뗌은 아직 아무도 듣고 있지 않다. */
+      let releasedWhileWaiting = false;
+      // 뗌을 듣는 리스너는 `popOutToWindow` 가 창을 넘긴 **뒤에** 달린다. 그 사이의 뗌을 여기서
+      //   받아 두었다가 넘긴 직후에 풀어 주지 않으면, 새 창이 손을 뗀 뒤에도 커서를 따라다닌다.
+      function onEarlyRelease(): void {
+        releasedWhileWaiting = true;
+        handOff();
+      }
+      const handOff = (): void => {
+        if (handedOff) return;
+        handedOff = true;
+        window.removeEventListener('mouseup', onEarlyRelease, true);
+        // 선은 main 이 걷는다 — 우리 쪽 표시만 내린다(여기서 ghostHide 를 부르면 빈 화면이 생긴다).
+        ghostOn = false;
+        setPopOutGhost(null);
+        popOutToWindow({
+          size: { width: Math.round(nextW), height: Math.round(nextH) },
+          follow: {
+            grabX: Math.round(init.grabRatioX * nextW - push.dx),
+            grabY: Math.round(init.grabRatioY * nextH - push.dy),
+          },
+        });
+        if (releasedWhileWaiting && agentId) void window.api?.overlay?.dragEndFor?.(agentId);
+      };
+      if (!standing) { handOff(); return; }
+      window.addEventListener('mouseup', onEarlyRelease, true);
+      // 대답이 영영 안 와도 창이 멎은 채 갇히지는 않게 — 짧은 그물 하나(왕복은 보통 한 프레임).
+      window.setTimeout(handOff, POP_OUT_GHOST_WAIT_MS);
+      void standing.then(handOff, handOff);
     }
 
     /** 끌기 시작(또는 이어받기)에 딱 한 번 — 붙어 있거나 최대화·모달이던 창을 떠 있는 창으로. */
@@ -1303,6 +1386,11 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     /** 가두지 않은 **지금** 자리 — 윤곽선 판정과 버팀 시계가 함께 읽는다(둘이 갈리면 말이 달라진다). */
     let lastRaw: FloatGeom | null = null;
     /**
+     * (H-7) 마지막으로 본 커서 자리(앱 창 안 좌표). 윤곽선 판정이 **창 자리만으로는 모자라**
+     * 함께 읽는다 — 잡은 지점 때문에 창은 아직 안쪽인데 손은 이미 밖인 순간이 있다.
+     */
+    let lastCursor: { x: number; y: number } | null = null;
+    /**
      * (H-6) ② 이 판의 **기준점**. 상태(`floatPos`)는 여기 한 번만 쓰고, 그 뒤의 이동은 전부
      * `dragOffsetRef` + `transform` 이다 — `mousemove` 마다 상태를 바꾸면 창 전체가 다시 그려진다.
      */
@@ -1321,19 +1409,22 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     /**
      * (H-6) ③ 지금 선을 그려야 하는가 — **한 곳에서만** 정한다.
      *
-     * 켜는 이유가 둘(놓을 수 있는 자리를 넘어섰다 · 가장자리에 막힌 채 버티고 있다)인데 판정이
-     * 두 곳에 있으면 한쪽이 켜고 다른 쪽이 끄는 깜빡임이 생긴다.
+     * 켜는 이유가 셋(놓을 수 있는 자리를 넘어섰다 · 커서가 앱 밖으로 나갔다 · 가장자리에 막힌 채
+     * 버티고 있다)인데 판정이 여러 곳에 있으면 한쪽이 켜고 다른 쪽이 끄는 깜빡임이 생긴다.
+     * 문턱 자체는 순수 함수(`popOutGhostDecision`)가 쥔다 — 테스트가 닿는 자리에 둔다.
      */
     function refreshGhost(): void {
       if (poppedOut || !lastRaw) return;
       const vp = viewportNow();
-      const beyond = overflowPastClamp(lastRaw, vp);
       const byEdge = edgeTimer !== null && Date.now() - edgeStartedAt >= EDGE_GHOST_MS;
-      if (canPopOut && (beyond > IDE_FLOAT.POP_OUT_GHOST_ENTER_PX || byEdge)) {
-        showGhost(lastRaw, beyond >= POP_OUT_COMMIT_PX);
-      } else {
-        hideGhost();
-      }
+      const want = popOutGhostDecision({
+        geom: lastRaw,
+        cursor: lastCursor ?? { x: lastRaw.x, y: lastRaw.y },
+        vp,
+        edgeDwell: byEdge,
+      });
+      if (canPopOut && want.show) showGhost(lastRaw, want.armed);
+      else hideGhost();
     }
 
     function startEdgeWatch(cursor: { x: number; y: number }, vp: Viewport): void {
@@ -1385,6 +1476,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
         if (Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) return;
         dragging = true;
         enterFloating();
+        if (canPopOut) startEscapeWatch();
       }
       const vp = viewportNow();
       // (H-6) ① **끄는 동안에는 가두지 않는다.** `clampFloatGeom` 은 결과를 위한 안전망이라
@@ -1396,6 +1488,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
         h: nextH,
       }, vp);
       lastRaw = raw;
+      lastCursor = { x: ev.clientX, y: ev.clientY };
       if (!dragBase) {
         // 이 판의 기준점 — 상태 쓰기는 여기 한 번뿐이다(모달에서 막 떠 온 창의 옛 좌표도 여기서 맞는다).
         dragBase = { x: raw.x, y: raw.y };
@@ -1498,6 +1591,9 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
       // 이어받기 — 손은 이미 눌린 채다. 임계 6px 을 기다리면 그동안 창이 커서에서 떨어져 있다.
       dragging = true;
       enterFloating();
+      // (H-8) **이 판이 감시가 꼭 필요한 판이다.** 눌린 곳이 이미 닫힌 창이라 이 창에는 마우스
+      //   캡처가 없다 — 커서가 밖으로 나가면 아래 `mousemove` 가 더는 오지 않는다.
+      if (canPopOut) startEscapeWatch();
       // 알고 있으면 **지금** 손 아래에 앉힌다(화면 밖 좌표면 손대지 않는다 — 첫 이동이 잡아 준다).
       const vp = viewportNow();
       if (init.cursor && init.cursor.x >= 0 && init.cursor.y >= 0
@@ -1522,6 +1618,8 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
       window.removeEventListener('mousemove', handleMove);
       window.removeEventListener('mouseup', handleUp);
       clearEdgeWatch();
+      // (H-8) 언마운트로 판이 끊겨도 main 의 감시가 남지 않게(고아 타이머 ❌).
+      stopEscapeWatch();
       // (H-6) 언마운트로 판이 끊겨도 선은 남지 않는다 — 클릭통과 창이라 사용자가 없앨 수 없다.
       if (!poppedOut) hideGhost();
       // 밀어 둔 창들도 여기서 굳힌다 — 안 그러면 남의 창에 transform 만 남아 영영 어긋난다.
@@ -2656,10 +2754,41 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
           {(!bodyLayout.navDrawer || mobileNavOpen) && <IDEActivityBar />}
           {(!bodyLayout.sidebarDrawer || mobileNavOpen) && <IDESidebar agentId={agentId} />}
           {/* §5.5 #17-34 — 창 안 화면 분할. 안 나눴으면 종전처럼 `IDEMainArea` 한 벌만 그린다. */}
-          <IDESplitView agentId={agentId} isCustom={isCustom} />
-          {/* §5.5 #17-27 v4.87 — 내장 편집창. 대화를 덮지 않고 그 오른쪽에 선다(열린 파일이 없으면 렌더 ❌).
-              나란히 세울 폭이 안 남으면(폰이거나 창이 좁으면) 대화 위 오버레이로 뜬다. */}
-          <IDEEditorPane />
+          {/* §5.5 #17-19 ⑧ — 이 겹은 **자리만** 만든다(위치 기준 ❌ — `relative` 를 주면 좁은 폭에서
+              덮개로 뜨는 편집창의 `left-12` 가 활동바가 아니라 이 겹을 기준으로 잡혀 어긋난다). */}
+          <div
+            ref={dropContentRef}
+            className="flex min-h-0 min-w-0 flex-1"
+            onDragEnter={entryDropHandlers.onDragEnter}
+            onDragOver={entryDropHandlers.onDragOver}
+            onDragLeave={entryDropHandlers.onDragLeave}
+            onDrop={entryDropHandlers.onDrop}
+          >
+            <IDESplitView agentId={agentId} isCustom={isCustom} />
+            {/* §5.5 #17-27 v4.87 — 내장 편집창. 대화를 덮지 않고 그 오른쪽에 선다(열린 파일이 없으면 렌더 ❌).
+                나란히 세울 폭이 안 남으면(폰이거나 창이 좁으면) 대화 위 오버레이로 뜬다. */}
+            <IDEEditorPane />
+          </div>
+          {/* §5.5 #17-19 ⑧ — "지금 손을 떼면 무슨 일이 일어나는가". 폭은 **비율**이라 캔버스를
+              확대해도 띠가 어긋나지 않는다. 판정과 같은 값에서 나오므로 둘이 다른 말을 할 수 없다. */}
+          {entryDrop.zone && entryDrop.box && (
+            <div
+              className="pointer-events-none absolute inset-y-0 z-30 p-2"
+              style={{ left: `${entryDrop.box.leftPct}%`, width: `${entryDrop.box.widthPct}%` }}
+            >
+              <div className={`flex h-full w-full items-center justify-center rounded-lg border-2 border-dashed ${
+                entryDrop.blocked ? 'border-gray-600 bg-gray-900/40' : 'border-blue-400 bg-blue-500/10'
+              }`}>
+                <span className={`rounded px-2 py-1 text-[12px] font-medium ${
+                  entryDrop.blocked ? 'bg-gray-800 text-gray-400' : 'bg-blue-500/90 text-white'
+                }`}>
+                  {entryDrop.blocked
+                    ? t('ide.explorer.drop.folderBlocked')
+                    : t(entryDrop.zone === 'editor' ? 'ide.explorer.drop.editor' : 'ide.explorer.drop.input')}
+                </span>
+              </div>
+            </div>
+          )}
           {/* §5.5 #17-20 ④ v4.74 — 실행 출력. 디버그 뷰에서 [출력]을 누르면 열린다(같은 덮개 자리).
               활동바가 서랍이면 화면 전체, 자리에 서 있으면 그 오른쪽부터 — 덮개가 활동바를 가리면
               사이드바를 되부를 손잡이가 사라진다(편집창 덮개와 같은 규칙). */}

@@ -191,7 +191,10 @@
       "revokeQr": "QR 지금 폐기",
       "expiresIn": "남은 시간",
       "savePng": "PNG 저장",
-      "discordPairHint": "QR 로 봇을 초대한 뒤, 봇이 보이는 아무 채널에서 이 줄을 보내 주세요:",
+      "discordPairHint": "QR 로 봇을 초대한 뒤, 봇에게 직접 메시지로 이 줄을 보내 주세요:",
+      "dmOnlyHint": "연결은 봇과의 1:1 대화에서만 받습니다. 공용 채널에서 묶으면 그 방에 있는 사람 전원이 에이전트를 조작할 수 있습니다.",
+      "sharedChatBadge": "공용",
+      "sharedChatWarning": "DM 전용 규칙이 생기기 전에 묶인 대화입니다. 그 방의 누구나 명령을 보내고 권한을 승인할 수 있습니다. 끊고 1:1 대화에서 다시 연결해 주세요.",
       "pairedChats": "연결된 대화",
       "unpair": "연결 끊기",
       "verbosityTitle": "무엇을 보낼지",
@@ -203,7 +206,7 @@
         "cards": "카드와 요약만 이 PC 를 떠납니다. 원문이 필요하면 /log 로 그때만 가져오세요.",
         "full": "응답과 생각이 오는 대로 전달됩니다. 도구 출력과 diff 는 여전히 보내지 않습니다."
       },
-      "securityNote": "연결한 대화에만 답하고 그 밖의 발신자는 무시합니다. 메신저로는 터미널을 열 수 없습니다."
+      "securityNote": "명령은 연결한 대화만 보낼 수 있습니다. 그 밖에는 \"연결되지 않음\" 안내 한 줄이 최대치입니다. 메신저로는 터미널을 열 수 없습니다."
     },
     "guide": {
       "title": "가이드",
@@ -921,6 +924,32 @@
         "MultiEdit": "한 파일에 여러 편집을 한 번에 적용합니다.",
         "SendMessage": "실행 중인 서브에이전트에게 후속 메시지를 보냅니다.",
         "Artifact": "문서·앱 같은 아티팩트를 만듭니다.",
+        "PowerShell": "Windows에서 PowerShell 명령을 네이티브로 실행합니다.",
+        "LSP": "언어 서버를 통해 정의로 이동하고, 참조를 찾고, 타입 오류를 확인합니다.",
+        "Workflow": "agent가 작성하는 스크립트로 여러 subagent를 조율합니다.",
+        "ListAgents": "메시지를 보낼 수 있는 다른 Claude Code 세션을 나열합니다.",
+        "TaskCreate": "공유 작업 목록에 작업을 생성합니다.",
+        "TaskGet": "공유 작업 목록에서 작업을 하나 읽어옵니다.",
+        "TaskList": "공유 작업 목록의 작업을 나열합니다.",
+        "TaskUpdate": "작업의 상태나 세부 정보를 업데이트합니다.",
+        "EnterPlanMode": "실행하기 전에 설계할 수 있도록 계획 모드로 전환합니다.",
+        "EnterWorktree": "세션을 새 git Worktree로 이동합니다.",
+        "ExitWorktree": "현재 git Worktree에서 나갑니다.",
+        "PushNotification": "데스크톱 알림을 보내고, 원격 제어가 연결된 경우 휴대폰 푸시도 함께 보냅니다.",
+        "SendUserFile": "사용자에게 파일을 전송합니다.",
+        "RemoteTrigger": "연결된 원격 기기에서 동작을 실행합니다.",
+        "SendFeedback": "Claude Code에 대한 피드백을 Anthropic에 보냅니다.",
+        "ShareOnboardingGuide": "이 프로젝트의 설정 가이드를 팀원과 공유합니다.",
+        "ReportFindings": "코드 리뷰에서처럼 구조화된 결과를 보고합니다.",
+        "EndConversation": "세션 내부에서 이 세션을 종료합니다.",
+        "ScheduleWakeup": "세션이 나중에 스스로 깨어나도록 예약합니다.",
+        "CronCreate": "예약된 반복 실행을 생성합니다.",
+        "CronList": "예약된 반복 실행을 나열합니다.",
+        "CronDelete": "예약된 반복 실행을 삭제합니다.",
+        "ToolSearch": "연결된 도구가 많을 때 필요한 도구를 그때그때 찾습니다.",
+        "ListMcpResourcesTool": "연결된 MCP 서버가 제공하는 리소스를 나열합니다.",
+        "ReadMcpResourceTool": "연결된 MCP 서버에서 리소스를 하나 읽어옵니다.",
+        "WaitForMcpServers": "연결 중인 MCP 서버가 준비될 때까지 대기합니다.",
         "strippedByEdgeHint": "STRICT 엣지로 위임되는 도구 — 이 에이전트는 런타임에 사용 불가 (엣지 해제 시 복구)"
       },
       "maxTurns": "최대 턴 수",
@@ -1009,10 +1038,29 @@
         "label": "다음 프롬프트 제안",
         "hint": "턴마다 예측해 줍니다"
       },
+      "includeHookEvents": {
+        "label": "트랜스크립트에 hook 이벤트 표시",
+        "hint": "hook가 발생할 때마다 인라인으로"
+      },
       "betas": {
         "label": "베타 헤더",
         "tip": "API 요청에 실을 베타 헤더입니다. API 키 사용자 전용 — 구독 인증에서는 무시됩니다.",
         "placeholder": "콤마로 구분"
+      },
+      "agentDefinitions": {
+        "label": "세션 subagent",
+        "tip": "이 세션이 위임할 수 있는 subagent 유형을 파일이 아니라 여기에서 정의합니다. 디스크에는 아무것도 기록되지 않으므로 다른 프로젝트로 새어 나가지 않습니다. 이름, 설명, 프롬프트는 모두 필수이며 하나라도 빠진 항목은 제외됩니다.",
+        "namePlaceholder": "이름 (소문자, 하이픈)",
+        "descPlaceholder": "언제 위임할지",
+        "promptPlaceholder": "시스템 프롬프트",
+        "add": "+ Subagent",
+        "remove": "제거",
+        "needsTaskTool": "Task 도구가 꺼져 있어 이들을 호출할 수 없습니다."
+      },
+      "pluginDirs": {
+        "label": "세션 플러그인",
+        "tip": "이 세션에서만 로드할 Claude Code 플러그인 폴더 또는 .zip 파일이며, 한 줄에 경로를 하나씩 입력합니다. Vibisual 플러그인이 아니라 Claude Code 플러그인입니다.",
+        "placeholder": "한 줄에 경로 하나씩"
       },
       "bashTimeout": {
         "label": "Bash 타임아웃",
@@ -2168,6 +2216,8 @@
       "openFile": "에디터에서 열기",
       "copyPath": "경로 복사",
       "copied": "복사됨",
+      "pathToInput": "입력창에 경로 넣기 · 복사",
+      "pathInserted": "입력창에 넣고 복사했습니다",
       "truncated": "처음 {{count}}개만 표시",
       "ctx": {
         "open": "열기",
@@ -2182,8 +2232,10 @@
         "newName": "새 이름",
         "confirmTrash": "\"{{name}}\" 을(를) 휴지통으로 보낼까요?",
         "confirmDelete": "\"{{name}}\" 을(를) 영구히 지울까요? 되돌릴 수 없습니다.",
+        "confirmMove": "\"{{name}}\" 을(를) \"{{folder}}\" 폴더로 옮길까요?",
         "trashed": "\"{{name}}\" 을(를) 휴지통으로 보냈습니다",
         "deleted": "\"{{name}}\" 을(를) 지웠습니다",
+        "moved": "\"{{name}}\" 을(를) \"{{folder}}\" 로 옮겼습니다",
         "err": {
           "nameEmpty": "이름을 입력하세요",
           "nameSeparator": "이름에 / 나 \\ 는 쓸 수 없습니다",
@@ -2198,8 +2250,15 @@
           "offline": "앱에 닿지 못했습니다",
           "root": "프로젝트 루트는 여기서 바꿀 수 없습니다",
           "outside": "프로젝트 밖 경로입니다",
+          "intoSelf": "폴더를 자기 자신 안으로는 옮길 수 없습니다",
+          "crossDevice": "다른 드라이브로는 옮길 수 없습니다",
           "failed": "실패했습니다"
         }
+      },
+      "drop": {
+        "input": "입력창에 경로 넣기",
+        "editor": "편집창에서 열기",
+        "folderBlocked": "폴더는 편집창에서 열 수 없습니다"
       }
     },
     "editor": {

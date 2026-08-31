@@ -191,7 +191,10 @@
       "revokeQr": "Revocar QR ahora",
       "expiresIn": "Expira en",
       "savePng": "Guardar PNG",
-      "discordPairHint": "Escanea para invitar al bot y luego envía esta línea en cualquier canal que pueda ver:",
+      "discordPairHint": "Escaneá para invitar al bot y después mandale esta línea por mensaje directo:",
+      "dmOnlyHint": "El emparejamiento solo se acepta en un mensaje directo uno a uno con el bot. En un canal compartido, cualquiera que esté ahí podría manejar tus agentes.",
+      "sharedChatBadge": "Compartido",
+      "sharedChatWarning": "Este chat se emparejó antes de la regla de solo mensajes directos. Cualquiera que esté ahí puede mandar comandos y aprobar permisos. Desconectalo y emparejalo de nuevo por DM.",
       "pairedChats": "Chats conectados",
       "unpair": "Desconectar",
       "verbosityTitle": "Qué se envía",
@@ -203,7 +206,7 @@
         "cards": "Solo las tarjetas y los resúmenes salen de esta máquina. Pide la salida sin procesar con /log cuando la necesites.",
         "full": "Las respuestas y el razonamiento se retransmiten a medida que llegan. La salida de las herramientas y los diffs se siguen reteniendo."
       },
-      "securityNote": "Solo se responde a los chats que vinculaste; todo lo demás se ignora. El acceso a la terminal nunca está disponible a través de una app de mensajería."
+      "securityNote": "Solo los chats que emparejaste pueden mandar comandos. Al resto se le responde, a lo sumo, una línea de \"sin conexión\". Nunca se abre una terminal por mensajería."
     },
     "guide": {
       "title": "Guía",
@@ -921,6 +924,32 @@
         "MultiEdit": "Aplica varias ediciones a un mismo archivo a la vez.",
         "SendMessage": "Envía un mensaje de seguimiento a un subagente en marcha.",
         "Artifact": "Crea artefactos (documentos, aplicaciones).",
+        "PowerShell": "Ejecuta comandos de PowerShell de forma nativa en Windows.",
+        "LSP": "Salta a definiciones, busca referencias y lee errores de tipo mediante un servidor de lenguaje.",
+        "Workflow": "Orquesta muchos subagents desde un script que escribe el agent.",
+        "ListAgents": "Enumera otras sesiones de Claude Code a las que se les puede enviar mensajes.",
+        "TaskCreate": "Crea una tarea en la lista de tareas compartida.",
+        "TaskGet": "Lee una tarea de la lista de tareas compartida.",
+        "TaskList": "Enumera las tareas de la lista de tareas compartida.",
+        "TaskUpdate": "Actualiza el estado o los detalles de una tarea.",
+        "EnterPlanMode": "Cambia al modo de planificación para diseñar antes de actuar.",
+        "EnterWorktree": "Mueve la sesión a un nuevo git worktree.",
+        "ExitWorktree": "Sale del git worktree actual.",
+        "PushNotification": "Envía una notificación de escritorio y un push al celular cuando Control remoto esté conectado.",
+        "SendUserFile": "Envía un archivo al usuario.",
+        "RemoteTrigger": "Activa una acción en un dispositivo remoto conectado.",
+        "SendFeedback": "Envía comentarios sobre Claude Code a Anthropic.",
+        "ShareOnboardingGuide": "Comparte una guía de configuración de este proyecto con un compañero de equipo.",
+        "ReportFindings": "Reporta hallazgos estructurados, como en una revisión de código.",
+        "EndConversation": "Finaliza esta sesión desde dentro de la sesión.",
+        "ScheduleWakeup": "Programa la sesión para que se despierte sola más tarde.",
+        "CronCreate": "Crea una ejecución recurrente programada.",
+        "CronList": "Enumera las ejecuciones recurrentes programadas.",
+        "CronDelete": "Elimina una ejecución recurrente programada.",
+        "ToolSearch": "Encuentra la herramienta correcta bajo demanda cuando hay muchas herramientas conectadas.",
+        "ListMcpResourcesTool": "Enumera los recursos expuestos por los servidores MCP conectados.",
+        "ReadMcpResourceTool": "Lee un recurso de un servidor MCP conectado.",
+        "WaitForMcpServers": "Espera a que los servidores MCP en conexión estén listos.",
         "strippedByEdgeHint": "Delegado a través de un edge STRICT — este Agent no puede usarlo en tiempo de ejecución (se restaura cuando se elimina el edge)"
       },
       "maxTurns": "Turnos máximos",
@@ -1009,10 +1038,29 @@
         "label": "Sugerir el siguiente prompt",
         "hint": "predicho después de cada turno"
       },
+      "includeHookEvents": {
+        "label": "Mostrar eventos de hook en la transcripción",
+        "hint": "cuando se dispara cada hook, intercalado"
+      },
       "betas": {
         "label": "Cabeceras beta",
         "tip": "Cabeceras beta enviadas con las peticiones a la API. Solo para usuarios con clave de API — la autenticación por suscripción las ignora.",
         "placeholder": "separadas por comas"
+      },
+      "agentDefinitions": {
+        "label": "Subagents de la sesión",
+        "tip": "Tipos de subagent a los que esta sesión puede delegar, definidos aquí en vez de como archivos. No se escribe nada en el disco, así que nunca se filtran a otros proyectos. El nombre, la descripción y el prompt son obligatorios — las entradas a las que les falte alguno de estos se descartan.",
+        "namePlaceholder": "nombre (minúsculas, guiones)",
+        "descPlaceholder": "cuándo delegarle",
+        "promptPlaceholder": "prompt del sistema",
+        "add": "+ Subagent",
+        "remove": "Quitar",
+        "needsTaskTool": "La herramienta Task está desactivada, así que nada puede llamarlos."
+      },
+      "pluginDirs": {
+        "label": "Plugins de la sesión",
+        "tip": "Carpetas de plugins de Claude Code o archivos .zip cargados solo para esta sesión, una ruta por línea. Estos son plugins de Claude Code, no plugins de Vibisual.",
+        "placeholder": "una ruta por línea"
       },
       "bashTimeout": {
         "label": "Tiempo límite de Bash",
@@ -2168,6 +2216,8 @@
       "openFile": "Abrir en el editor",
       "copyPath": "Copiar ruta",
       "copied": "Copiado",
+      "pathToInput": "Insertar la ruta en el campo de entrada · copiar",
+      "pathInserted": "Agregada al campo de entrada · copiada",
       "truncated": "Solo los primeros {{count}} elementos",
       "ctx": {
         "open": "Abrir",
@@ -2182,8 +2232,10 @@
         "newName": "Nombre nuevo",
         "confirmTrash": "¿Mover \"{{name}}\" a la papelera?",
         "confirmDelete": "¿Eliminar \"{{name}}\" de forma permanente? No se puede deshacer.",
+        "confirmMove": "¿Mover \"{{name}}\" a \"{{folder}}\"?",
         "trashed": "Se movió \"{{name}}\" a la papelera",
         "deleted": "Se eliminó \"{{name}}\"",
+        "moved": "Se movió \"{{name}}\" a \"{{folder}}\"",
         "err": {
           "nameEmpty": "Escribe un nombre",
           "nameSeparator": "Un nombre no puede contener / ni \\",
@@ -2198,8 +2250,15 @@
           "offline": "No se pudo contactar con la aplicación",
           "root": "La raíz del proyecto no se cambia desde aquí",
           "outside": "Esa ruta está fuera del proyecto",
+          "intoSelf": "Una carpeta no se puede mover dentro de sí misma",
+          "crossDevice": "No se puede mover a otra unidad",
           "failed": "No funcionó"
         }
+      },
+      "drop": {
+        "input": "Insertar la ruta en el campo de entrada",
+        "editor": "Abrir en el editor",
+        "folderBlocked": "Las carpetas no se pueden abrir en el editor"
       }
     },
     "editor": {

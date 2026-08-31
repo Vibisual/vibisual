@@ -76,7 +76,7 @@ export function workspaceAbsPath(rootPath: string, relPath: string): string {
 }
 
 /**
- * §5.5 #17-19 ⑦ — 탐색기 우클릭이 내는 **쓰기 셋**(만들기 · 이름 바꾸기 · 삭제).
+ * §5.5 #17-19 ⑦⑧ — 탐색기가 내는 **쓰기 넷**(만들기 · 이름 바꾸기 · 삭제 · 옮기기).
  *
  * 조회(`fetchDir`)와 같은 모듈에 두는 이유는 담당이 같아서다 — 이 파일이 "서버와 하는 말" 전부다.
  * 실패는 서버가 준 사유 코드를 **그대로** 올려 보낸다(화면이 번역문을 고른다 — 여기서 문구를 만들면
@@ -84,16 +84,29 @@ export function workspaceAbsPath(rootPath: string, relPath: string): string {
  */
 export type WorkspaceMutateFailure =
   | 'outside' | 'root' | 'invalid-name' | 'exists' | 'not-found' | 'denied' | 'failed'
+  /** ⑧ 폴더를 자기 자신·자기 하위로 옮기려 했다 */
+  | 'into-self'
+  /** ⑧ 다른 볼륨이라 옮길 수 없다(정션·심볼릭 링크로 물린 경우) */
+  | 'cross-device'
   /** 서버에 닿지 못했다(앱이 잠깐 끊긴 경우) */
   | 'offline';
 
 export type WorkspaceMutateReply<T> = { ok: true; result: T } | { ok: false; error: WorkspaceMutateFailure };
 
-const MUTATE_FAILURES = new Set<string>(['outside', 'root', 'invalid-name', 'exists', 'not-found', 'denied', 'failed']);
+// ⚠ 서버가 사유를 늘리면 **여기도 함께 늘려야 한다** — 목록이 두 벌이라, 빠뜨린 사유는 조용히
+//   `failed`("실패했습니다")로 뭉개져 사용자가 진짜 이유를 영영 못 본다.
+const MUTATE_FAILURES = new Set<string>([
+  'outside', 'root', 'invalid-name', 'exists', 'not-found', 'denied', 'into-self', 'cross-device', 'failed',
+]);
 
-async function mutateEntry<T>(method: 'POST' | 'PATCH' | 'DELETE', body: unknown): Promise<WorkspaceMutateReply<T>> {
+async function mutateEntry<T>(
+  method: 'POST' | 'PATCH' | 'DELETE',
+  body: unknown,
+  /** 창구가 갈리는 것은 옮기기 하나뿐이다(`/move`) — 되물음도 결과도 다른 기능이라 길을 갈라 둔다. */
+  endpoint = '/api/workspace-entry',
+): Promise<WorkspaceMutateReply<T>> {
   try {
-    const res = await fetch('/api/workspace-entry', {
+    const res = await fetch(endpoint, {
       method,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -126,6 +139,18 @@ export function renameWorkspaceEntry(
   name: string,
 ): Promise<WorkspaceMutateReply<WorkspaceEntryResult>> {
   return mutateEntry<WorkspaceEntryResult>('PATCH', { root, path: relPath, name });
+}
+
+/**
+ * §5.5 #17-19 ⑧ 옮기기 — 이름은 그대로 두고 **사는 폴더**만 바꾼다(`toDir` = '' 이면 루트 바로 아래).
+ * 되물음은 화면이 이미 마쳤다는 전제다(되돌릴 수 없는 쓰기의 되물음은 언제나 화면의 몫).
+ */
+export function moveWorkspaceEntry(
+  root: string,
+  relPath: string,
+  toDir: string,
+): Promise<WorkspaceMutateReply<WorkspaceEntryResult>> {
+  return mutateEntry<WorkspaceEntryResult>('POST', { root, path: relPath, toDir }, '/api/workspace-entry/move');
 }
 
 /** 삭제 — 데스크톱 앱에서는 OS 휴지통으로 간다(`trashed` 가 어느 쪽이었는지 말해 준다). */

@@ -10,6 +10,7 @@ import {
   isPinnedToViewportEdge,
   isPulledFullyOut,
   overflowPastClamp,
+  popOutGhostDecision,
   splitSpansFromDrag,
   cascadeFloatGeoms,
   computeDockLayout,
@@ -29,6 +30,7 @@ import {
   previewDockRect,
   resolveDockDrop,
   type DockedPane,
+  type FloatGeom,
 } from './ideDockLayout.js';
 
 // §5.5 #17-1 (판올림 번호 발급 대기) — 창을 여러 개 붙이는 순간 좌표는 (변 × 스택 순서 × 반대편 도크)
@@ -500,6 +502,77 @@ describe('밖으로 빼는 구간(H-6)', () => {
       expect(isOutsideViewport(cursor, VP)).toBe(false);
       expect(isPulledFullyOut(rect, VP)).toBe(true);
     });
+  });
+});
+
+// (판올림 번호 발급 대기) §5.5 #17-6 (H-7) — **선을 켜는 이유가 하나 모자랐다.**
+//
+// (H-6) 은 창 자리(클램프 초과)로만 쟀는데, 창 좌상단은 `커서 - 잡은 지점`이다. 타이틀바를
+// 가운데쯤 잡으면 커서가 앱 밖으로 나가는 순간에도 창은 아직 클램프 안이라 선이 **한 번도 뜨지
+// 않았고**, 그 상태로 팝아웃이 나면 인계할 선이 없어 창이 커서에서 사라졌다(사용자 보고).
+describe('선을 켜는 이유는 셋이다(H-7 popOutGhostDecision)', () => {
+  const W = 700;
+  const H = 500;
+  /** 잡은 지점 `grabX` 로 타이틀바를 잡고 커서가 `cx` 에 있을 때의 창 자리. */
+  const geomFor = (cx: number, grabX: number, cy = 300, grabY = 20): FloatGeom =>
+    ({ x: cx - grabX, y: cy - grabY, w: W, h: H });
+
+  it('평범한 파킹에는 선이 뜨지 않는다 — (H-6) 이 지키던 성질', () => {
+    const parked = { x: VP.w - IDE_FLOAT.KEEP_VISIBLE.x, y: HEADER, w: W, h: H };
+    const cursor = { x: VP.w - 2, y: HEADER + 20 };
+    expect(popOutGhostDecision({ geom: parked, cursor, vp: VP, edgeDwell: false }).show).toBe(false);
+  });
+
+  it('커서가 앱 밖으로 나가면 잡은 지점과 무관하게 선이 뜬다 — 회귀의 핵심', () => {
+    // 타이틀바 가운데(350px)를 잡은 손. 창 좌상단은 아직 클램프 안이라 (H-6) 기준으로는 0 이다.
+    const grabX = 350;
+    const cursor = { x: VP.w + 4, y: 300 };
+    const geom = geomFor(cursor.x, grabX);
+    expect(overflowPastClamp(geom, VP)).toBe(0);
+    // 그런데도 손은 이미 앱 밖이다 — 여기서 선이 서 있어야 팝아웃이 인계할 것이 있다.
+    const d = popOutGhostDecision({ geom, cursor, vp: VP, edgeDwell: false });
+    expect(d.show).toBe(true);
+    expect(d.armed).toBe(true);
+  });
+
+  it('왼쪽으로 뺄 때도 마찬가지다 — 종전에는 오른쪽 끝을 잡은 손만 선을 봤다', () => {
+    const grabX = 350;
+    const cursor = { x: -4, y: 300 };
+    const geom = geomFor(cursor.x, grabX);
+    expect(overflowPastClamp(geom, VP)).toBe(0);
+    expect(popOutGhostDecision({ geom, cursor, vp: VP, edgeDwell: false }).show).toBe(true);
+  });
+
+  it('선이 서는 자리가 나가는 자리보다 앞이다 — 그 사이가 선이 먼저 서 있을 구간', () => {
+    const grabX = 350;
+    // 커서가 뷰포트를 막 벗어난 지점 — 아직 `POP_OUT_MARGIN`(24) 을 다 가지 않았다.
+    const cursor = { x: VP.w + 2, y: 300 };
+    expect(isOutsideViewport(cursor, VP)).toBe(false); // 아직 나가지 않았다
+    expect(popOutGhostDecision({ geom: geomFor(cursor.x, grabX), cursor, vp: VP, edgeDwell: false }).show).toBe(true);
+  });
+
+  it('창만 클램프를 넘어서도 선은 뜬다 — (H-6) 의 이유는 그대로 산다', () => {
+    const cursor = { x: VP.w - 40, y: 300 };
+    const geom = { x: VP.w - IDE_FLOAT.KEEP_VISIBLE.x + IDE_FLOAT.POP_OUT_GHOST_ENTER_PX + 1, y: HEADER, w: W, h: H };
+    expect(isOutsideViewport(cursor, VP)).toBe(false);
+    expect(popOutGhostDecision({ geom, cursor, vp: VP, edgeDwell: false }).show).toBe(true);
+  });
+
+  it('가장자리 버팀도 여전히 선을 켠다 — 최대화된 단일 모니터의 유일한 길', () => {
+    const geom = { x: 100, y: HEADER + 100, w: W, h: H };
+    const cursor = { x: VP.w - 1, y: 300 };
+    expect(popOutGhostDecision({ geom, cursor, vp: VP, edgeDwell: false }).show).toBe(false);
+    expect(popOutGhostDecision({ geom, cursor, vp: VP, edgeDwell: true }).show).toBe(true);
+  });
+
+  it('무장 문턱은 선이 뜨는 문턱보다 높다 — 보여 준 뒤에 내보낸다', () => {
+    expect(IDE_FLOAT.POP_OUT_GHOST_COMMIT_PX).toBeGreaterThan(IDE_FLOAT.POP_OUT_GHOST_ENTER_PX);
+    const parkedX = VP.w - IDE_FLOAT.KEEP_VISIBLE.x;
+    const cursor = { x: VP.w - 2, y: 300 };
+    const near = { x: parkedX + IDE_FLOAT.POP_OUT_GHOST_ENTER_PX + 1, y: HEADER, w: W, h: H };
+    const far = { x: parkedX + IDE_FLOAT.POP_OUT_GHOST_COMMIT_PX, y: HEADER, w: W, h: H };
+    expect(popOutGhostDecision({ geom: near, cursor, vp: VP, edgeDwell: false }).armed).toBe(false);
+    expect(popOutGhostDecision({ geom: far, cursor, vp: VP, edgeDwell: false }).armed).toBe(true);
   });
 });
 

@@ -33,6 +33,9 @@ import {
   closeOverlayByWindowId,
   expandOverlayByWindowId,
   collapseOverlayByWindowId,
+  overlayShellReady,
+  startPaneDragEscapeWatch,
+  stopPaneDragEscapeWatch,
   toggleMaximizeOverlaySelfByWindowId,
   startOverlayDragByWindowId,
   endOverlayDragByWindowId,
@@ -413,6 +416,14 @@ export function setupIpc(expressApp: Express): IpcHub {
     nudgePopOutGhost({ dx: Number(payload?.dx) || 0, dy: Number(payload?.dy) || 0 }),
   );
   ipcMain.handle('vibisual:overlay:ghost-hide', (): boolean => hidePopOutGhost());
+  // (H-7) 끌어내서 만든 창이 **자기 IDE 를 다 그렸다** — 선이 서 있던 자리를 창이 이어받은 순간이다.
+  //   `ready-to-show`(투명한 빈 문서의 첫 페인트)로는 이 순간을 알 수 없어 렌더러가 직접 말한다.
+  ipcMain.handle('vibisual:overlay:shell-ready', (event): boolean => overlayShellReady(event.sender.id));
+  // (H-8) 앱 안 IDE 창을 끄는 동안 커서를 main 이 대신 본다 — 이어받은 드래그에는 마우스 캡처가
+  //   없어, 커서가 창 밖으로 나가는 순간 렌더러가 눈이 먼다(그러면 밖으로 빼기가 영영 안 선다).
+  ipcMain.handle('vibisual:ide:pane-drag-watch', (event, on: unknown): boolean =>
+    (on ? startPaneDragEscapeWatch(event.sender.id) : stopPaneDragEscapeWatch(event.sender.id)),
+  );
   // §17-6 (H) — 꺼낸 창을 **끌어다 앱 안으로 합치기**(칩으로 줄여 커서 따라가기 + 메인 창 위 판정).
   ipcMain.handle('vibisual:overlay:redock-drag-start', (event): boolean =>
     startOverlayRedockDragByWindowId(event.sender.id),
@@ -626,6 +637,8 @@ export function setupIpc(expressApp: Express): IpcHub {
       ipcMain.removeHandler('vibisual:overlay:close-self');
       ipcMain.removeHandler('vibisual:overlay:expand-self');
       ipcMain.removeHandler('vibisual:overlay:collapse-self');
+      ipcMain.removeHandler('vibisual:overlay:shell-ready');
+      ipcMain.removeHandler('vibisual:ide:pane-drag-watch');
       ipcMain.removeHandler('vibisual:overlay:toggle-maximize-self');
       ipcMain.removeHandler('vibisual:overlay:drag-start');
       ipcMain.removeHandler('vibisual:overlay:drag-end');

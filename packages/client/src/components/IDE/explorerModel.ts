@@ -88,6 +88,26 @@ export function ancestorDirs(relPath: string): string[] {
   return result;
 }
 
+/**
+ * §5.5 #17-19 ③(c) — 치던 글의 **뒤에** 경로 한 토막을 붙인다.
+ *
+ * 앞에 끼워 넣지 않는다(스킬 삽입 `insertSkill` 과 반대) — 스킬은 명령의 첫 낱말이지만 경로는
+ * 문장의 목적어라, 이미 쓴 문장 앞에 서면 읽는 순서가 뒤집힌다. 여러 행을 연달아 누르면
+ * 공백 하나로 이어 붙어 목록이 된다.
+ *
+ * 이미 공백·줄바꿈으로 끝나면 **그것을 그대로 두고** 뒤에 붙인다 — `trimEnd` 로 접으면 사용자가
+ * 일부러 내린 줄이 사라져 경로가 앞 문장 꼬리에 달라붙는다.
+ */
+export function appendPathToInput(existing: string, path: string): string {
+  if (!path) return existing;
+  // 공백이 든 경로는 따옴표로 감싼다 — 안 감싸면 에이전트가 두 낱말로 읽는다(`Unreal Projects` 처럼
+  // 공백 든 폴더는 win/mac 에 흔하다). OS 파일을 대화에 떨어뜨리는 길(`insertDroppedPaths`)이 이미
+  // 쓰던 **같은 규칙**이다 — 한 입력창에 두 규칙이 있으면 그중 하나는 반드시 틀린 것으로 보인다.
+  const token = /\s/.test(path) ? `"${path}"` : path;
+  if (existing.length === 0) return `${token} `;
+  return /\s$/.test(existing) ? `${existing}${token} ` : `${existing} ${token} `;
+}
+
 // ─── §5.5 #17-19 ⑦ 우클릭이 내는 쓰기 — 그 자리에서 치는 이름과 실패 문구 ───────────────
 
 /**
@@ -125,6 +145,8 @@ export function workspaceMutateErrorKey(error: WorkspaceMutateFailure): string {
     case 'root': return 'ide.explorer.ctx.err.root';
     case 'outside': return 'ide.explorer.ctx.err.outside';
     case 'invalid-name': return 'ide.explorer.ctx.err.nameInvalidChar';
+    case 'into-self': return 'ide.explorer.ctx.err.intoSelf';
+    case 'cross-device': return 'ide.explorer.ctx.err.crossDevice';
     default: return 'ide.explorer.ctx.err.failed';
   }
 }

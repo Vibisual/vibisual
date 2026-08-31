@@ -1,6 +1,6 @@
 {
   "name": "@vibisual/desktop",
-  "version": "0.1.16",
+  "version": "0.1.17",
   "license": "Apache-2.0",
   "private": true,
   "type": "module",
@@ -24,7 +24,8 @@
     "publish:mac": "electron-vite build && electron-builder --mac --publish always",
     "publish:mac:arm64": "electron-vite build && electron-builder --mac --arm64 --publish always",
     "publish:mac:x64": "electron-vite build && electron-builder --mac --x64 --publish always",
-    "publish:linux": "electron-vite build && electron-builder --linux --publish always"
+    "publish:linux": "electron-vite build && electron-builder --linux --publish always",
+    "test": "vitest run"
   },
   "dependencies": {
     "@nut-tree-fork/nut-js": "^4.2.6",
@@ -56,6 +57,7 @@
     "rcedit": "^3.1.0",
     "tailwindcss": "^4.1.0",
     "typescript": "^5.7.0",
-    "vite": "^6.3.0"
+    "vite": "^6.3.0",
+    "vitest": "^4.1.9"
   }
 }

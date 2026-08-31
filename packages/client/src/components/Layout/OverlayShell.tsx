@@ -131,6 +131,32 @@ export function OverlayShell({ agentId, projectId, initiallyExpanded = false }: 
     });
   }, [initiallyExpanded, agent, agentId, openIDEOverlay]);
 
+  // (판올림 번호 발급 대기) §5.5 #17-6 (H-7) — 끌어내서 만든 창은 **다 그린 뒤에** 그렇다고 말한다.
+  //
+  // main 은 이 신호를 받고서야 커서를 따라오던 윤곽선을 걷는다. 종전에는 `ready-to-show` 에서
+  // 걷었는데, 이 창은 `transparent:true` 라 그 시점이 **React 가 마운트되기 전의 투명한 빈 창**
+  // 이고, 게다가 이 창은 그 뒤로도 스냅샷을 기다렸다가(위 effect) IDE 를 연다 — 그 사이 내내
+  // 커서 아래에는 아무것도 없다(사용자에게는 창이 사라진 것과 같다).
+  //
+  // 두 프레임을 기다리는 까닭: 첫 `requestAnimationFrame` 은 이 화면이 아직 합성되기 **전**이라,
+  // 거기서 말하면 한 프레임이 빈 채로 인계된다.
+  const shellReadySentRef = useRef(false);
+  useEffect(() => {
+    if (!initiallyExpanded || !expanded || shellReadySentRef.current) return;
+    let inner = 0;
+    const outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(() => {
+        if (shellReadySentRef.current) return;
+        shellReadySentRef.current = true;
+        void window.api?.overlay?.shellReady?.();
+      });
+    });
+    return () => {
+      cancelAnimationFrame(outer);
+      cancelAnimationFrame(inner);
+    };
+  }, [initiallyExpanded, expanded]);
+
   // §5.5 #17-6 (H) — 이미 서 있던 창에 짐이 **뒤늦게** 도착하는 길(그 창은 부팅을 다시 하지 않아
   //   위 pull 이 돌지 않는다 — 꺼내 둔 창이 있는 채로 앱 안에서 또 꺼냈을 때).
   useEffect(() => {
@@ -244,10 +270,25 @@ export function OverlayShell({ agentId, projectId, initiallyExpanded = false }: 
   }, []);
 
   // expanded 전이를 OS 창 크기 변경으로 미러. 초기(collapsed) 마운트에선 호출 ❌.
-  //   ⚠ 끌어내서 만든 창은 main 이 이미 IDE 크기다 — 첫 전이를 미러하면 그 크기를 "버블로 돌아갈
-  //     자리"로 기억해 접었을 때 창이 엉뚱한 곳에 앉는다. 그래서 시작값을 그 상태로 둔다.
-  const prevExpandedRef = useRef(initiallyExpanded);
+  //   ⚠ 끌어내서 만든 창은 main 이 이미 IDE 크기다 — 그 창의 **첫 펼침까지는 아무것도 미러하지
+  //     않는다**(`null` = 아직 기준이 없음).
+  //
+  // (판올림 번호 발급 대기) (H-7) 종전에는 시작값을 `initiallyExpanded`(=true)로 두었는데, 이 창의
+  //   `expanded` 는 스토어에서 오므로 **마운트 순간에는 false 다**(WS 스냅샷이 와야 IDE 를 연다).
+  //   그래서 첫 렌더에서 `true !== false` 로 읽혀 **일어나지도 않은 접힘을 미러**했다 —
+  //   `collapseSelf()` 가 창을 280×320 버블로 줄이고 `collapsedBounds`(태어난 자리)로 옮기는 동안
+  //   커서 폴링은 큰 창 기준 잡은 지점으로 계속 자리를 잡으므로, **창이 커서에서 떨어져 나간다**
+  //   (사용자 보고 — "실제 IDE 로 바뀔 때 마우스에서 탈락한다"). 그 뒤 스냅샷이 오면 `expandSelf()`
+  //   가 다시 키우는데, 그때의 기준은 이미 버블 자리라 창이 엉뚱한 곳에 앉는다.
+  const prevExpandedRef = useRef<boolean | null>(initiallyExpanded ? null : false);
   useEffect(() => {
+    if (prevExpandedRef.current === null) {
+      // 끌어내서 만든 창 — IDE 를 열기 전(false)은 **상태가 아직 도착하지 않은 것**이지 접힘이
+      //   아니다. 첫 펼침에 도달했을 때부터 기준을 잡는다(그 전이 자체도 미러하지 않는다 —
+      //   main 이 이미 IDE 크기로 만들어 두었다).
+      if (expanded) prevExpandedRef.current = true;
+      return;
+    }
     if (prevExpandedRef.current === expanded) return;
     prevExpandedRef.current = expanded;
     const overlay = window.api?.overlay;

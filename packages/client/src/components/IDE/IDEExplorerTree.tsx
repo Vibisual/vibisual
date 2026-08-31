@@ -4,6 +4,7 @@ import { WORKSPACE_DIR_ENTRY_MAX, workspaceEntryNameError } from '@vibisual/shar
 import type { WorkspaceEntry } from '@vibisual/shared';
 import type { ExplorerRow, ExplorerDirCache, ExplorerDraft } from './explorerModel.js';
 import { workspaceNameErrorKey } from './explorerModel.js';
+import { dragHasWorkspaceEntry } from './explorerDrag.js';
 
 /**
  * §5.5 #17-19 v4.71 — 탐색기 트리 본체(행 목록).
@@ -23,15 +24,28 @@ interface IDEExplorerTreeProps {
   truncated: ReadonlySet<string>;
   failed: ReadonlySet<string>;
   selectedPath: string | null;
-  /** §5.5 #17-19 ③(c) — 방금 복사한 행의 상대 경로(체크 표시가 그 행에만 뜨도록). */
+  /** §5.5 #17-19 ③(c) — 방금 누른 행의 상대 경로(체크 표시가 그 행에만 뜨도록). */
   copiedPath: string | null;
+  /**
+   * §5.5 #17-19 ③-1 (c) — 손잡이가 입력창에도 넣는가. 훅 버블은 읽기 전용이라(#17-29) 넣을
+   * 입력창이 없어 복사만 한다 — **문구가 갈리는 값**이라 손잡이 이름을 여기에 맞춰 고른다.
+   */
+  insertsIntoInput: boolean;
   /** §5.5 #17-19 ⑦ — 지금 이름을 치고 있는 자리(없으면 평소 트리 그대로). */
   draft: ExplorerDraft | null;
   onToggleDir: (relPath: string) => void;
   /** §5.13 (R-7) — 실행 여부까지 넘긴다(목록이 서버에게 받아 둔 값). 여는 곳은 호출부가 정한다. */
   onSelectFile: (relPath: string, executable?: boolean) => void;
   onOpenFile: (relPath: string) => void;
-  onCopyPath: (relPath: string) => void;
+  /** §5.5 #17-19 ③-1 — 경로 손잡이를 눌렀다. 입력창에 넣고 클립보드에도 남기는 일은 호출부가 한다. */
+  onTakePath: (relPath: string) => void;
+  /** §5.5 #17-19 ⑧ — 행을 집어 든 순간. 짐표는 호출부가 싣는다(루트를 아는 쪽이다). */
+  onEntryDragStart: (e: React.DragEvent, entry: WorkspaceEntry) => void;
+  onEntryDragEnd: () => void;
+  /** ⑧ — 그 폴더에 놓을 수 있는가(자기 자신·자기 하위·이미 사는 곳 ❌). 판정은 호출부가 쥔다. */
+  canDropInto: (targetDirRel: string) => boolean;
+  /** ⑧ — 폴더 위에서 손을 뗐다. 되물음과 실제 이동은 호출부. */
+  onEntryDrop: (e: React.DragEvent, targetDir: WorkspaceEntry) => void;
   onContextMenu: (e: React.MouseEvent, entry: WorkspaceEntry) => void;
   onRenameRequest: (entry: WorkspaceEntry) => void;
   onDeleteRequest: (entry: WorkspaceEntry) => void;
@@ -137,11 +151,16 @@ export const IDEExplorerTree = memo(function IDEExplorerTree({
   failed,
   selectedPath,
   copiedPath,
+  insertsIntoInput,
   draft,
   onToggleDir,
   onSelectFile,
   onOpenFile,
-  onCopyPath,
+  onTakePath,
+  onEntryDragStart,
+  onEntryDragEnd,
+  canDropInto,
+  onEntryDrop,
   onContextMenu,
   onRenameRequest,
   onDeleteRequest,
@@ -149,6 +168,43 @@ export const IDEExplorerTree = memo(function IDEExplorerTree({
   onDraftCancel,
 }: IDEExplorerTreeProps): React.JSX.Element {
   const { t } = useTranslation();
+  /** ⑧ — 지금 손이 올라가 있는 폴더(파란 테두리 하나만 뜬다). 표시 전용이라 이 컴포넌트의 상태다. */
+  const [dropDir, setDropDir] = useState<string | null>(null);
+
+  // 드래그가 **여기서 끝나지 않고** 사라지는 길이 있다 — Esc 취소, 창 밖 드롭, 금지 커서에서 놓기.
+  //   그때 `dragleave` 가 오지 않아 파란 테두리가 얼어붙는다(#17-34 가 같은 이유로 둔 대비).
+  useEffect(() => {
+    if (dropDir === null) return;
+    const clear = (): void => setDropDir(null);
+    window.addEventListener('dragend', clear);
+    window.addEventListener('drop', clear);
+    return () => {
+      window.removeEventListener('dragend', clear);
+      window.removeEventListener('drop', clear);
+    };
+  }, [dropDir]);
+
+  /** ⑧ — 폴더 위. 막힌 자리에서도 `preventDefault` 는 해야 커서가 우리 말(금지)을 한다. */
+  const handleFolderDragOver = useCallback((e: React.DragEvent, entry: WorkspaceEntry): void => {
+    if (!dragHasWorkspaceEntry(e.dataTransfer.types)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const allowed = canDropInto(entry.relPath);
+    e.dataTransfer.dropEffect = allowed ? 'move' : 'none';
+    setDropDir((prev) => {
+      const next = allowed ? entry.relPath : null;
+      return prev === next ? prev : next;
+    });
+  }, [canDropInto]);
+
+  const handleFolderDrop = useCallback((e: React.DragEvent, entry: WorkspaceEntry): void => {
+    if (!dragHasWorkspaceEntry(e.dataTransfer.types)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setDropDir(null);
+    if (!canDropInto(entry.relPath)) return;
+    onEntryDrop(e, entry);
+  }, [canDropInto, onEntryDrop]);
 
   /** ⑦ — 행 위에서의 F2(이름 바꾸기) · Delete(삭제, mac 은 ⌘⌫). 메뉴에 적어 둔 그대로 눌린다. */
   const handleRowKeyDown = useCallback((e: React.KeyboardEvent, entry: WorkspaceEntry): void => {
@@ -223,14 +279,22 @@ export const IDEExplorerTree = memo(function IDEExplorerTree({
             <li key={entry.relPath}>
               <button
                 type="button"
+                draggable
+                onDragStart={(e) => onEntryDragStart(e, entry)}
+                onDragEnd={onEntryDragEnd}
+                onDragOver={(e) => handleFolderDragOver(e, entry)}
+                onDragLeave={() => setDropDir((prev) => (prev === entry.relPath ? null : prev))}
+                onDrop={(e) => handleFolderDrop(e, entry)}
                 onClick={() => onToggleDir(entry.relPath)}
                 onContextMenu={(e) => onContextMenu(e, entry)}
                 onKeyDown={(e) => handleRowKeyDown(e, entry)}
                 title={entry.relPath}
                 className={`flex w-full items-center gap-1 py-[3px] pr-1 text-left text-[12px] transition-colors ${
-                  isSelected
-                    ? 'bg-blue-500/20 text-blue-100'
-                    : 'text-gray-400 hover:bg-gray-700/50 hover:text-gray-200'
+                  dropDir === entry.relPath
+                    ? 'bg-blue-500/25 text-blue-100 ring-1 ring-inset ring-blue-400'
+                    : isSelected
+                      ? 'bg-blue-500/20 text-blue-100'
+                      : 'text-gray-400 hover:bg-gray-700/50 hover:text-gray-200'
                 }`}
                 style={{ paddingLeft: pad }}
               >
@@ -273,6 +337,9 @@ export const IDEExplorerTree = memo(function IDEExplorerTree({
           <li key={entry.relPath} className="group/row relative">
             <button
               type="button"
+              draggable
+              onDragStart={(e) => onEntryDragStart(e, entry)}
+              onDragEnd={onEntryDragEnd}
               onClick={() => onSelectFile(entry.relPath, entry.executable === true)}
               onDoubleClick={() => onOpenFile(entry.relPath)}
               onContextMenu={(e) => onContextMenu(e, entry)}
@@ -296,7 +363,7 @@ export const IDEExplorerTree = memo(function IDEExplorerTree({
             {/*
               §5.5 #17-19 ③(c) — 행 손잡이 묶음. **고른 행에서는 늘 보이고**(지금 만질 행이라 손잡이가
               사라지면 안 된다), 고르지 않은 행에서는 마우스를 올렸을 때만 뜬다.
-              왼쪽이 경로 복사, 오른쪽이 앱 밖 편집기로 열기.
+              왼쪽이 경로 손잡이(입력창에 넣기 + 복사), 오른쪽이 앱 밖 편집기로 열기.
             */}
             <div
               className={`absolute right-0.5 top-1/2 -translate-y-1/2 items-center gap-0.5 ${
@@ -305,10 +372,14 @@ export const IDEExplorerTree = memo(function IDEExplorerTree({
             >
               <button
                 type="button"
-                onClick={() => onCopyPath(entry.relPath)}
+                onClick={() => onTakePath(entry.relPath)}
                 onContextMenu={(e) => onContextMenu(e, entry)}
-                title={isCopied ? t('ide.explorer.copied') : t('ide.explorer.copyPath')}
-                aria-label={t('ide.explorer.copyPath')}
+                title={
+                  isCopied
+                    ? t(insertsIntoInput ? 'ide.explorer.pathInserted' : 'ide.explorer.copied')
+                    : t(insertsIntoInput ? 'ide.explorer.pathToInput' : 'ide.explorer.copyPath')
+                }
+                aria-label={t(insertsIntoInput ? 'ide.explorer.pathToInput' : 'ide.explorer.copyPath')}
                 className={`rounded p-0.5 transition-colors hover:bg-gray-700 ${
                   isCopied ? 'text-emerald-400' : 'text-gray-500 hover:text-blue-300'
                 }`}

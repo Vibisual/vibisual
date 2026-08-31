@@ -50,6 +50,15 @@ const SUBAGENT_STATUSLINE_URL = `${BASE}/api/subagent-statusline`;
 // so a fresh token is written to settings.json.
 const TOKEN = readArg('--token');
 
+/**
+ * §3.6 (판올림 번호 발급 대기) — **기억 카드 주입 전용 모드.**
+ *
+ * HTTP 훅 경로에서 `PostToolUse` 는 두 갈래로 갈린다: 추적은 CLI 가 우리 서버로 직접 POST 하고,
+ * 기억 카드 주입(§5.10)만 이 스크립트가 맡는다 — 그것도 `if: Edit` / `if: Write` 로 걸려 있어
+ * **그 두 도구에서만 프로세스가 뜬다**(종전에는 모든 도구 호출마다 떴다). 이 모드에서는 추적
+ * 전송을 하지 않는다. 안 그러면 같은 이벤트가 두 번 처리된다.
+ */
+const BRAIN_NOTES_ONLY = process.argv.includes('--brain-notes-only');
 function hookHeaders(extra) {
   const h = { 'Content-Type': 'application/json', ...extra };
   if (TOKEN) h['x-vibisual-hook-token'] = TOKEN;
@@ -556,12 +565,18 @@ async function main() {
     response = warning
       ? { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: warning } }
       : { continue: true };
-  } else {
-    // 기존 fire-and-forget 경로 — 즉시 continue 응답.
+  } else {    // 기존 fire-and-forget 경로 — 즉시 continue 응답.
     response = { continue: true };
   }
   // Write stdout BEFORE the tracking fetch so Claude Code unblocks immediately.
   process.stdout.write(JSON.stringify(response) + '\n');
+
+  // §3.6 — `--brain-notes-only` 실행은 **기억 카드 주입 전용**이다. 추적은 같은 이벤트에 붙은
+  //   HTTP 엔트리가 맡으므로 여기서 또 보내면 같은 이벤트가 서버에서 두 번 처리된다(파일 편집
+  //   이력이 두 벌로 쌓인다). `if: Edit`/`if: Write` 필터가 이미 좁혀 주지만 **분기 안이 아니라
+  //   여기서** 막는다 — 필터가 바뀌거나 옛 설정이 남아 다른 이벤트가 들어와도 이 모드에서는
+  //   한 건도 나가지 않아야 한다(플래그 이름이 곧 규약이다).
+  if (BRAIN_NOTES_ONLY) return;
 
   // 권한 결과와 별도로 버블맵 트래킹용 /api/hook-event 는 모든 이벤트에 대해 전송.
   //

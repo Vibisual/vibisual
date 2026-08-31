@@ -10,6 +10,7 @@ import {
   createWorkspaceEntry,
   deleteWorkspaceEntry,
   fetchWorkspaceTrashAvailable,
+  moveWorkspaceEntry,
   openFolderByPath,
   openWorkspaceFile,
   renameWorkspaceEntry,
@@ -18,6 +19,19 @@ import {
 } from './useWorkspaceExplorer.js';
 import { useIDEProjectRoot } from './useIDEProjectRoot.js';
 import { readIDEPane, useIDEPaneActions, useIDEPaneKey } from './idePane.js';
+import { useInsertPathIntoInput } from './useInsertPathIntoInput.js';
+import {
+  WORKSPACE_DRAG_MIME,
+  WORKSPACE_DRAG_DIR_MIME,
+  clearActiveWorkspaceDrag,
+  decodeWorkspaceDrag,
+  encodeWorkspaceDrag,
+  parentRelOf,
+  readActiveWorkspaceDrag,
+  setActiveWorkspaceDrag,
+  workspaceMoveBlock,
+  type WorkspaceDragPayload,
+} from './explorerDrag.js';
 import { openWorkspaceTarget } from './openWorkspaceTarget.js';
 import { IDEContextMenu, type ContextMenuItem } from './IDEContextMenu.js';
 import { buildExplorerEntryMenuItems, buildExplorerRootMenuItems } from './explorerContextMenu.js';
@@ -42,6 +56,8 @@ export const IDEExplorerView = memo(function IDEExplorerView({ agentId }: { agen
   // §5.5 #17-1 — 탐색기에서 연 파일은 **이 창의** 편집창에 뜬다.
   const paneKey = useIDEPaneKey();
   const { openEditorFile: openInEditor, closeEditorFile } = useIDEPaneActions();
+  /** #17-29 — 훅 버블은 전면 읽기 전용이라 넣을 입력창 자체가 없다(그때는 복사만 하고 이름도 갈린다). */
+  const isCustom = useGraphStore((s) => s.nodeMap[agentId]?.customCreated ?? false);
   const { cache, expanded, loading, truncated, failed, rootError, toggleDir, collapseAll, refresh, refreshDir, expandDir } =
     useWorkspaceExplorer(rootPath);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
@@ -120,19 +136,40 @@ export const IDEExplorerView = memo(function IDEExplorerView({ agentId }: { agen
     openInEditor(editorFileFromAbsPath(absPath, rootPath));
   }, [rootPath, openInEditor]);
 
+  const insertPathIntoInput = useInsertPathIntoInput(agentId);
+
   /**
-   * §5.5 #17-19 ③(c) — 경로 복사는 **그 행의 손잡이**다(바닥 줄 ❌ — 고른 행 옆에서 바로 집는다).
+   * §5.5 #17-19 ③-1 (b) — 클립보드에 남기는 것은 **절대 경로**다.
    *
-   * 되돌림 타이머는 "그 사이 다른 행을 복사했으면 건드리지 않는다" — 그러지 않으면 앞 행의
-   * 타이머가 방금 복사한 뒷 행의 체크 표시를 지운다.
+   * 루트 기준 상대 경로는 루트 바로 밑의 파일에서 파일 이름과 글자 그대로 같아져, `경로 복사`를
+   * 눌렀는데 이름만 나오는 것으로 읽힌다(사용자 지적). 편집창 탭(#17-27)의 `경로 복사`(`absPath`)·
+   * 활동바 루트 복사(⑦-2)가 내놓는 문자열과 이제 같은 값이다.
+   *
+   * 되돌림 타이머는 "그 사이 다른 행을 눌렀으면 건드리지 않는다" — 그러지 않으면 앞 행의
+   * 타이머가 방금 누른 뒷 행의 체크 표시를 지운다.
    */
-  const handleCopyPath = useCallback((relPath: string) => {
-    if (!relPath) return;
-    void navigator.clipboard?.writeText(relPath).then(() => {
-      setCopiedPath(relPath);
-      window.setTimeout(() => setCopiedPath((prev) => (prev === relPath ? null : prev)), 1200);
-    }).catch(() => { /* 클립보드 거부는 조용히 무시 */ });
-  }, []);
+  const copyPathToClipboard = useCallback((relPath: string) => {
+    if (!relPath || !rootPath) return;
+    void navigator.clipboard?.writeText(workspaceAbsPath(rootPath, relPath))
+      .catch(() => { /* 클립보드 거부는 조용히 무시 */ });
+    setCopiedPath(relPath);
+    window.setTimeout(() => setCopiedPath((prev) => (prev === relPath ? null : prev)), 1200);
+  }, [rootPath]);
+
+  /**
+   * §5.5 #17-19 ③-1 — 행 손잡이(그 행 옆, 바닥 줄 ❌)를 누르면 **입력창에 넣고 클립보드에도 남긴다**.
+   *
+   * 우클릭 메뉴의 `경로 복사`와 일부러 갈라 둔다 — 다른 IDE 에서 그 메뉴 항목은 복사만 하는
+   * 자리라, 거기서 입력창에 타이핑까지 하면 놀란다. 손잡이 쪽은 이름도 그 둘을 다 적는다.
+   *
+   * 체크 표시는 **넣은 사실**에 반응한다(종전에는 클립보드 성공 콜백에만 달려 있어, 브라우저가
+   * 클립보드를 거절하면 넣어 놓고도 아무 일 없는 것처럼 보였다).
+   */
+  const handleTakePath = useCallback((relPath: string) => {
+    if (!relPath || !rootPath) return;
+    insertPathIntoInput(workspaceAbsPath(rootPath, relPath));
+    copyPathToClipboard(relPath);
+  }, [rootPath, insertPathIntoInput, copyPathToClipboard]);
 
   const rootLoading = loading.has('');
 
@@ -161,6 +198,82 @@ export const IDEExplorerView = memo(function IDEExplorerView({ agentId }: { agen
     const prefix = `${relPath}/`;
     return files.filter((f) => f.relPath === relPath || f.relPath.startsWith(prefix)).map((f) => f.relPath);
   }, [paneKey]);
+
+  /**
+   * §5.5 #17-19 ⑧ — 행을 집어 든다. 짐표에는 **종류(MIME)와 값**을 함께 싣는다 — `dragover` 중에는
+   * 값을 못 읽어 종류로만 판정하기 때문이다(#17-34 가 세운 규약 그대로).
+   *
+   * `text/plain` 도 함께 싣는 이유는 **바깥**이다 — 다른 앱·터미널·다른 입력칸에 놓으면 그 경로 글자가
+   * 그대로 떨어진다(우리 화면 밖에서도 헛손질이 되지 않게).
+   */
+  const handleEntryDragStart = useCallback((e: React.DragEvent, entry: WorkspaceEntry) => {
+    if (!rootPath) return;
+    const payload: WorkspaceDragPayload = {
+      root: rootPath,
+      relPath: entry.relPath,
+      name: entry.name,
+      isDirectory: entry.isDirectory,
+      absPath: workspaceAbsPath(rootPath, entry.relPath),
+    };
+    e.dataTransfer.effectAllowed = 'copyMove';
+    e.dataTransfer.setData(WORKSPACE_DRAG_MIME, encodeWorkspaceDrag(payload));
+    if (entry.isDirectory) e.dataTransfer.setData(WORKSPACE_DRAG_DIR_MIME, '1');
+    e.dataTransfer.setData('text/plain', payload.absPath);
+    setActiveWorkspaceDrag(payload);
+  }, [rootPath]);
+
+  const handleEntryDragEnd = useCallback(() => clearActiveWorkspaceDrag(), []);
+
+  /**
+   * ⑧ — 끌고 있는 동안의 판정(파란 테두리를 띄울지). 등록소가 비어 있으면 **막지 않는다** —
+   * 별창에서 건너온 짐이 그렇고, 그때는 손을 뗄 때 같은 판정이 한 번 더 선다.
+   */
+  const canDropInto = useCallback((targetDirRel: string): boolean => {
+    if (!rootPath) return false;
+    const drag = readActiveWorkspaceDrag();
+    if (!drag) return true;
+    return workspaceMoveBlock(drag, rootPath, targetDirRel) === null;
+  }, [rootPath]);
+
+  /**
+   * ⑧ — 폴더 위에서 손을 뗐다. **되물음은 여기서** 뜬다 — 되돌릴 수 없는 쓰기의 되물음은 언제나
+   * 화면의 몫이고(⑦ 삭제와 같은 분담), 방식도 그 자리와 같은 것 하나(`window.confirm`)를 쓴다.
+   *
+   * 옮기고 나면 **열려 있던 탭은 옛 경로를 가리킨다** — 그대로 두면 저장이 없는 파일로 간다.
+   * 그래서 영향을 받은 탭은 닫고, 방금 옮긴 그 파일만 새 자리에서 다시 연다(있던 자리를 잃지 않게).
+   */
+  const handleEntryDrop = useCallback((e: React.DragEvent, targetDir: WorkspaceEntry) => {
+    if (!rootPath) return;
+    const drag = decodeWorkspaceDrag(e.dataTransfer.getData(WORKSPACE_DRAG_MIME));
+    clearActiveWorkspaceDrag();
+    if (!drag) return;
+
+    const block = workspaceMoveBlock(drag, rootPath, targetDir.relPath);
+    if (block !== null) {
+      // 헛손질(제자리·자기 자신)은 조용히 넘긴다 — 사용자가 이미 아는 사실을 말할 필요가 없다.
+      if (block === 'into-self') setNotice({ text: t('ide.explorer.ctx.err.intoSelf'), tone: 'error' });
+      else if (block === 'other-root') setNotice({ text: t('ide.explorer.ctx.err.outside'), tone: 'error' });
+      return;
+    }
+    if (!window.confirm(t('ide.explorer.ctx.confirmMove', { name: drag.name, folder: targetDir.name }))) return;
+
+    const fromDir = parentRelOf(drag.relPath);
+    const openTabs = openTabsUnder(drag.relPath);
+    const wasOpen = openTabs.includes(drag.relPath);
+    void (async () => {
+      const reply = await moveWorkspaceEntry(rootPath, drag.relPath, targetDir.relPath);
+      if (!reply.ok) {
+        setNotice({ text: t(workspaceMutateErrorKey(reply.error)), tone: 'error' });
+        return;
+      }
+      refreshDir(fromDir);
+      refreshDir(targetDir.relPath);
+      for (const relPath of openTabs) closeEditorFile(relPath);
+      if (wasOpen && !reply.result.isDirectory) openInEditor(editorFileFromRelPath(reply.result.path, rootPath));
+      setSelectedPath((prev) => (prev === drag.relPath ? reply.result.path : prev));
+      setNotice({ text: t('ide.explorer.ctx.moved', { name: drag.name, folder: targetDir.name }), tone: 'info' });
+    })();
+  }, [rootPath, t, refreshDir, openTabsUnder, closeEditorFile, openInEditor]);
 
   const handleDraftCancel = useCallback(() => setDraft(null), []);
 
@@ -252,14 +365,14 @@ export const IDEExplorerView = memo(function IDEExplorerView({ agentId }: { agen
           revealFolder: () => revealInFileExplorer(entry.relPath),
           newFile: () => startCreate(entry.relPath, 'file'),
           newFolder: () => startCreate(entry.relPath, 'directory'),
-          copyPath: () => handleCopyPath(entry.relPath),
+          copyPath: () => copyPathToClipboard(entry.relPath),
           rename: () => startRename(entry),
           remove: () => requestDelete(entry),
         },
         t,
       ),
     });
-  }, [handleSelectFile, handleOpenFile, revealInFileExplorer, startCreate, handleCopyPath, startRename, requestDelete, t]);
+  }, [handleSelectFile, handleOpenFile, revealInFileExplorer, startCreate, copyPathToClipboard, startRename, requestDelete, t]);
 
   /** 트리 빈 자리 우클릭 — 대상은 루트다(자기 자신을 지우거나 이름 바꾸는 항목은 없다). */
   const handleRootContextMenu = useCallback((e: React.MouseEvent) => {
@@ -380,11 +493,16 @@ export const IDEExplorerView = memo(function IDEExplorerView({ agentId }: { agen
               failed={failed}
               selectedPath={selectedPath}
               copiedPath={copiedPath}
+              insertsIntoInput={isCustom}
               draft={draft}
               onToggleDir={toggleDir}
               onSelectFile={handleSelectFile}
               onOpenFile={handleOpenFile}
-              onCopyPath={handleCopyPath}
+              onTakePath={handleTakePath}
+              onEntryDragStart={handleEntryDragStart}
+              onEntryDragEnd={handleEntryDragEnd}
+              canDropInto={canDropInto}
+              onEntryDrop={handleEntryDrop}
               onContextMenu={handleRowContextMenu}
               onRenameRequest={startRename}
               onDeleteRequest={requestDelete}

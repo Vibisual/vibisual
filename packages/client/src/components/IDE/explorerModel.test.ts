@@ -5,6 +5,7 @@ import {
   splitRelPath,
   toRelativeFromRoot,
   ancestorDirs,
+  appendPathToInput,
   type ExplorerDirCache,
 } from './explorerModel.js';
 
@@ -120,5 +121,33 @@ describe('ancestorDirs', () => {
 
   it('최상위 항목은 조상이 없다', () => {
     expect(ancestorDirs('README.md')).toEqual([]);
+  });
+});
+
+describe('appendPathToInput', () => {
+  it('빈 입력창이면 경로 하나와 뒤 공백만 남는다', () => {
+    expect(appendPathToInput('', 'C:/work/a.ts')).toBe('C:/work/a.ts ');
+  });
+
+  it('치던 문장 뒤에 붙는다 — 앞에 끼워 넣지 않는다', () => {
+    expect(appendPathToInput('이 파일 고쳐줘', 'C:/work/a.ts')).toBe('이 파일 고쳐줘 C:/work/a.ts ');
+  });
+
+  it('연달아 누르면 공백 하나로 이어진다', () => {
+    const once = appendPathToInput('', 'C:/work/a.ts');
+    expect(appendPathToInput(once, 'C:/work/b.ts')).toBe('C:/work/a.ts C:/work/b.ts ');
+  });
+
+  it('사용자가 내린 줄바꿈은 접지 않는다 — 그 줄에 붙는다', () => {
+    expect(appendPathToInput('아래 파일들:\n', 'C:/work/a.ts')).toBe('아래 파일들:\nC:/work/a.ts ');
+  });
+
+  it('공백이 든 경로는 따옴표로 감싼다 — OS 파일 드롭과 같은 규칙', () => {
+    expect(appendPathToInput('', 'C:/Unreal Projects/a.ts')).toBe('"C:/Unreal Projects/a.ts" ');
+    expect(appendPathToInput('보다', 'C:/My Docs/b.ts')).toBe('보다 "C:/My Docs/b.ts" ');
+  });
+
+  it('경로가 비면 입력창을 건드리지 않는다', () => {
+    expect(appendPathToInput('그대로', '')).toBe('그대로');
   });
 });

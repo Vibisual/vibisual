@@ -191,7 +191,10 @@
       "revokeQr": "Revoca subito il QR",
       "expiresIn": "Scade tra",
       "savePng": "Salva PNG",
-      "discordPairHint": "Scansiona per invitare il bot, poi invia questa riga in un canale a cui ha accesso:",
+      "discordPairHint": "Scansiona per invitare il bot, poi mandagli questa riga in un messaggio diretto:",
+      "dmOnlyHint": "L’abbinamento si accetta solo in un messaggio diretto uno a uno con il bot. In un canale condiviso, chiunque sia lì potrebbe guidare i tuoi agenti.",
+      "sharedChatBadge": "Condivisa",
+      "sharedChatWarning": "Questa chat è stata abbinata prima della regola «solo messaggi diretti». Chiunque sia lì può inviare comandi e approvare permessi. Scollegala e riabbinala in DM.",
       "pairedChats": "Chat connesse",
       "unpair": "Disconnetti",
       "verbosityTitle": "Cosa viene inviato",
@@ -203,7 +206,7 @@
         "cards": "Solo schede e riepiloghi lasciano questa macchina. Richiedi l'output grezzo con /log quando ti serve.",
         "full": "Le risposte e il ragionamento vengono inoltrati man mano che arrivano. L'output dei tool e i diff restano comunque esclusi."
       },
-      "securityNote": "Solo le chat che hai associato ricevono risposta; il resto viene ignorato. L'accesso al terminale non è mai disponibile tramite un'app di messaggistica."
+      "securityNote": "Solo le chat che hai abbinato possono inviare comandi. Alle altre arriva al massimo una riga «non collegata». Da un messenger non si apre mai un terminale."
     },
     "guide": {
       "title": "Guida",
@@ -921,6 +924,32 @@
         "MultiEdit": "Applica più modifiche allo stesso file in una volta.",
         "SendMessage": "Invia un messaggio di follow-up a un subagente in esecuzione.",
         "Artifact": "Crea artefatti (documenti, app).",
+        "PowerShell": "Eseguire comandi PowerShell nativamente su Windows.",
+        "LSP": "Passare alle definizioni, trovare i riferimenti e leggere gli errori di tipo tramite un language server.",
+        "Workflow": "Orchestrare molti subagent da uno script che l'agente scrive.",
+        "ListAgents": "Elencare altre sessioni di Claude Code a cui è possibile inviare messaggi.",
+        "TaskCreate": "Creare un'attività nell'elenco attività condiviso.",
+        "TaskGet": "Leggere un'attività dall'elenco attività condiviso.",
+        "TaskList": "Elencare le attività nell'elenco attività condiviso.",
+        "TaskUpdate": "Aggiornare lo stato o i dettagli di un'attività.",
+        "EnterPlanMode": "Passare alla modalità di pianificazione per progettare prima di agire.",
+        "EnterWorktree": "Spostare la sessione in un nuovo git worktree.",
+        "ExitWorktree": "Uscire dal git worktree attuale.",
+        "PushNotification": "Inviare una notifica desktop e una notifica push sul telefono quando Controllo remoto è connesso.",
+        "SendUserFile": "Inviare un file all'utente.",
+        "RemoteTrigger": "Attivare un'azione su un dispositivo remoto connesso.",
+        "SendFeedback": "Inviare feedback su Claude Code ad Anthropic.",
+        "ShareOnboardingGuide": "Condividere una guida di configurazione per questo progetto con un collega.",
+        "ReportFindings": "Segnalare risultati strutturati, come in una code review.",
+        "EndConversation": "Terminare questa sessione dall'interno della sessione.",
+        "ScheduleWakeup": "Pianificare il risveglio automatico della sessione più avanti.",
+        "CronCreate": "Creare un'esecuzione ricorrente pianificata.",
+        "CronList": "Elencare le esecuzioni ricorrenti pianificate.",
+        "CronDelete": "Eliminare un'esecuzione ricorrente pianificata.",
+        "ToolSearch": "Trovare lo strumento giusto su richiesta quando sono connessi molti strumenti.",
+        "ListMcpResourcesTool": "Elencare le risorse esposte dai server MCP connessi.",
+        "ReadMcpResourceTool": "Leggere una risorsa da un server MCP connesso.",
+        "WaitForMcpServers": "Attendere che i server MCP in fase di connessione siano pronti.",
         "strippedByEdgeHint": "Delegato tramite un edge STRICT — questo agente non può usarlo in fase di esecuzione (viene ripristinato quando l'edge viene rimosso)"
       },
       "maxTurns": "Turni massimi",
@@ -1009,10 +1038,29 @@
         "label": "Suggerisci il prossimo prompt",
         "hint": "previsto dopo ogni turno"
       },
+      "includeHookEvents": {
+        "label": "Mostra eventi hook nella trascrizione",
+        "hint": "quando ogni hook si attiva, in linea"
+      },
       "betas": {
         "label": "Header beta",
         "tip": "Header beta inviati con le richieste API. Solo per utenti con chiave API — l’autenticazione ad abbonamento li ignora.",
         "placeholder": "separati da virgole"
+      },
+      "agentDefinitions": {
+        "label": "Subagent di sessione",
+        "tip": "Tipi di subagent a cui questa sessione può delegare, definiti qui invece che come file. Non viene scritto nulla su disco, quindi non trapelano mai in altri progetti. Nome, descrizione e prompt sono tutti obbligatori — le voci a cui ne manca anche uno vengono scartate.",
+        "namePlaceholder": "nome (minuscolo, trattini)",
+        "descPlaceholder": "quando delegargli",
+        "promptPlaceholder": "prompt di sistema",
+        "add": "+ Subagent",
+        "remove": "Rimuovi",
+        "needsTaskTool": "Lo strumento Task è disattivato, quindi nessuno può richiamarli."
+      },
+      "pluginDirs": {
+        "label": "Plugin di sessione",
+        "tip": "Cartelle di plugin di Claude Code o file .zip, caricati solo per questa sessione, un percorso per riga. Sono plugin di Claude Code, non plugin di Vibisual.",
+        "placeholder": "un percorso per riga"
       },
       "bashTimeout": {
         "label": "Timeout Bash",
@@ -2168,6 +2216,8 @@
       "openFile": "Apri nell'editor",
       "copyPath": "Copia percorso",
       "copied": "Copiato",
+      "pathToInput": "Inserisci il percorso nel campo di input · copia",
+      "pathInserted": "Aggiunto al campo di input · copiato",
       "truncated": "Solo i primi {{count}} elementi",
       "ctx": {
         "open": "Apri",
@@ -2182,8 +2232,10 @@
         "newName": "Nuovo nome",
         "confirmTrash": "Spostare «{{name}}» nel cestino?",
         "confirmDelete": "Eliminare «{{name}}» definitivamente? Non si può annullare.",
+        "confirmMove": "Spostare «{{name}}» in «{{folder}}»?",
         "trashed": "«{{name}}» spostato nel cestino",
         "deleted": "«{{name}}» eliminato",
+        "moved": "«{{name}}» spostato in «{{folder}}»",
         "err": {
           "nameEmpty": "Inserisci un nome",
           "nameSeparator": "Un nome non può contenere / o \\",
@@ -2198,8 +2250,15 @@
           "offline": "Non è stato possibile raggiungere l’app",
           "root": "La radice del progetto non si cambia da qui",
           "outside": "Questo percorso è fuori dal progetto",
+          "intoSelf": "Una cartella non può essere spostata dentro sé stessa",
+          "crossDevice": "Impossibile spostare su un altro disco",
           "failed": "Non ha funzionato"
         }
+      },
+      "drop": {
+        "input": "Inserisci il percorso nel campo di input",
+        "editor": "Apri nell'editor",
+        "folderBlocked": "Le cartelle non possono essere aperte nell'editor"
       }
     },
     "editor": {

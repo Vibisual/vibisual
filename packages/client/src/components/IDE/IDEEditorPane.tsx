@@ -584,6 +584,9 @@ export const IDEEditorPane = memo(function IDEEditorPane(): React.JSX.Element | 
   return (
     <div
       ref={shellRef}
+      // §5.5 #17-19 ⑧ — 끌어온 파일의 "오른쪽 자리" 판정이 이 패널의 실제 변을 쓴다(보이는 경계와
+      //   판정 경계가 어긋나면 사용자는 늘 틀린 쪽에 놓는다). 표식은 읽기 전용이라 동작에 영향 ❌.
+      data-ide-editor-pane=""
       className={shellClass}
       // 끄는 동안에는 rAF 가 DOM 에 직접 쓴 폭이 진실이다 — 그 사이 다른 이유로 리렌더가 나도
       //   같은 값을 다시 써서 화면이 옛 폭으로 튀지 않게 한다.

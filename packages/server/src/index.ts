@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { exec, execFile, spawn, type ChildProcess } from 'node:child_process';
 import multer from 'multer';
-import { DEFAULT_PORT, SESSION_SCAN_INTERVAL, FILE_EXISTENCE_CHECK_INTERVAL, SATELLITE_TYPES, IFRAME_PROXY_PATH, AGENT_IDLE_THRESHOLD_MS, AGENT_IDLE_SWEEP_INTERVAL_MS, INTERRUPT_RECONCILE_INTERVAL_MS, ZOMBIE_EXECUTING_GRACE_MS, SUBAGENT_DORMANT_IDLE_MS, TASK_EDGE_DISPATCH_DEFAULT_TIMEOUT_MS, TASK_EDGE_CRITIQUE_MAX_REWORK_LIMIT, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, SUPPORTED_UI_LOCALES, CONTI_AGENT_RULES, RULES_HISTORY_MAX, CANVAS_CLIPBOARD_SCHEMA_VERSION, AGENT_INTENT_FIRST_RULES, buildAgentCardCommonRules, AGENT_CARD_ENV_BASE, AGENT_CARD_ENV_TOKEN, buildAgentReportRules, buildAgentQuestionRules, buildAgentReviewRules, buildAgentFeedbackBlock, AGENT_FEEDBACK_SUMMARY_ITEM_MAX, CLAUDE_USAGE_POLL_INTERVAL_MS, CLAUDE_AUTH_POLL_INTERVAL_MS, CLAUDE_AUTO_UPDATE_BOOT_DELAY_MS, SESSION_GOAL_TEXT_MAX, buildSessionGoalRules, buildSessionGoalState, buildSessionGoalProtocol, CONTEXT_SOURCE_IDS, CONTEXT_PLUGIN_ID_PREFIX, CONTEXT_PREVIEW_MAX_CHARS, estimateTokens, VERIFICATION_VERDICT_SCHEMA_GUIDE, COST_MAP_SWEEP_INTERVAL_MS, normalizeTodoStatus, BUILTIN_SLASH_COMMANDS,
+import { DEFAULT_PORT, SESSION_SCAN_INTERVAL, FILE_EXISTENCE_CHECK_INTERVAL, SATELLITE_TYPES, IFRAME_PROXY_PATH, AGENT_IDLE_THRESHOLD_MS, AGENT_IDLE_SWEEP_INTERVAL_MS, INTERRUPT_RECONCILE_INTERVAL_MS, ZOMBIE_EXECUTING_GRACE_MS, SUBAGENT_DORMANT_IDLE_MS, TASK_EDGE_DISPATCH_DEFAULT_TIMEOUT_MS, TASK_EDGE_CRITIQUE_MAX_REWORK_LIMIT, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, SUPPORTED_UI_LOCALES, CONTI_AGENT_RULES, RULES_HISTORY_MAX, CANVAS_CLIPBOARD_SCHEMA_VERSION, AGENT_INTENT_FIRST_RULES, buildAgentCardCommonRules, AGENT_CARD_ENV_BASE, AGENT_CARD_ENV_TOKEN, buildAgentReportRules, buildAgentQuestionRules, buildAgentReviewRules, buildAgentFeedbackBlock, AGENT_FEEDBACK_SUMMARY_ITEM_MAX, CLAUDE_USAGE_POLL_INTERVAL_MS, CLAUDE_AUTH_POLL_INTERVAL_MS, CLAUDE_AUTO_UPDATE_BOOT_DELAY_MS, HOOK_TRANSPORT_REFRESH_DELAY_MS, SESSION_GOAL_TEXT_MAX, buildSessionGoalRules, buildSessionGoalState, buildSessionGoalProtocol, CONTEXT_SOURCE_IDS, CONTEXT_PLUGIN_ID_PREFIX, CONTEXT_PREVIEW_MAX_CHARS, estimateTokens, VERIFICATION_VERDICT_SCHEMA_GUIDE, COST_MAP_SWEEP_INTERVAL_MS, normalizeTodoStatus, BUILTIN_SLASH_COMMANDS,
   BRAIN_AXIS_IDS,
   BRAIN_CURATOR_PAGE_SIZE,
   BRAIN_TOPIC_MISC,
@@ -152,17 +152,19 @@ import {
 } from './services/worktreeLiveness.js';
 import { listWorkspaceDir, resolveWorkspacePath, statExternalPath, statWorkspacePath } from './services/workspaceExplorer.js';
 import { readWorkspaceFile, readWorkspaceImage, writeWorkspaceFile, writeWorkspaceImage } from './services/workspaceFile.js';
-// §5.5 #17-19 ⑦ — 탐색기 우클릭의 쓰기 셋(만들기·이름 바꾸기·삭제). 가드는 조회 쪽과 같은 것 하나.
+// §5.5 #17-19 ⑦⑧ — 탐색기가 내는 쓰기 넷(만들기·이름 바꾸기·삭제·옮기기). 가드는 조회 쪽과 같은 것 하나.
 import {
   createWorkspaceEntry,
   deleteWorkspaceEntry,
   isWorkspaceTrashAvailable,
+  moveWorkspaceEntry,
   renameWorkspaceEntry,
   type WorkspaceMutateError,
 } from './services/workspaceMutate.js';
 import type {
   WorkspaceEntryCreateRequest,
   WorkspaceEntryDeleteRequest,
+  WorkspaceEntryMoveRequest,
   WorkspaceEntryRenameRequest,
 } from '@vibisual/shared';
 // §5.5 #17-20 v4.74 — 디버그·실행 런처(실행 구성 스캔 + 외부 디버거 위임).
@@ -187,6 +189,17 @@ import { listDebugAdapters, findPidByCommandLine, commandFingerprint } from './s
 import { releaseWaitingNodeProcess } from './services/debug/cdpClient.js';
 import { loadAppState, saveAppState, patchAppState, appStateAddOpenProject, appStateRemoveOpenProject, appStatePruneStaleProjectNames, appStateGetSkillOrder, appStateSetSkillOrder, appStateRemoveSkillFromOrder, appStateGetSkillFavorites, appStateSetSkillFavorites, appStateGetRetention, appStateSetRetention } from './services/appState.js';
 import { ensureClaudeHooksInstalled } from './services/hookInstaller.js';
+// §3.6 (판올림 번호 발급 대기) — 훅 이벤트 생명주기 분류(순수 모듈 + 단위 테스트).
+//   라우트 안에 부등호로 흩어져 있으면 새 이벤트를 등록할 때마다 조용히 틀린다.
+import {
+  isTurnEndEventName,
+  isSessionEndEvent,
+  marksActivity,
+  raisesAwaitingInput,
+  clearsAwaitingInput,
+  needsSnapshotRefresh,
+  isTaskLedgerEvent,
+} from './services/hookEventClass.js';
 import {
   readUsageCollectorStatus,
   installStatusLine,
@@ -622,6 +635,36 @@ export async function runServer(): Promise<RunServerHandle> {
         return;
       }
 
+      /*
+       * §3.6 (판올림 번호 발급 대기) — **HTTP 훅으로 들어온 이벤트의 env 보강.**
+       *
+       * `handler.mjs` 는 `VIBISUAL_OWNER_AGENT_ID` 같은 env 를 읽어 본문에 실어 보냈지만,
+       * HTTP 훅은 CLI 가 원문 JSON 을 그대로 POST 하므로 본문을 손댈 수 없다. 대신 헤더 값에
+       * `$VAR` 를 쓸 수 있어 같은 값이 헤더로 온다 — 여기서 본문 필드로 되돌려, 아래 로직 전체가
+       * 어느 경로로 들어왔는지 모른 채 종전 그대로 돌게 한다.
+       *
+       * 잡히지 않은 env 는 **빈 문자열**로 치환되므로 빈 값은 "없음"으로 읽는다(빈 문자열을 그대로
+       * 실으면 소유자 조회가 빈 id 로 빗나가고, 그게 CMD 버블 귀속을 통째로 깬다).
+       */
+      const headerValue = (name: string): string | undefined => {
+        const v = req.headers[name];
+        const s = Array.isArray(v) ? v[0] : v;
+        return typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
+      };
+      // §4 — 사용량 probe(`claude -p "/usage"`)가 띄운 세션은 캔버스에 유령 버블을 남기면 안 된다.
+      //   command 경로에서는 handler.mjs 가 먼저 빠져나가지만, HTTP 경로에는 그 관문이 없다.
+      if (headerValue('x-vibisual-usage-probe') === '1') {
+        res.json({ continue: true });
+        return;
+      }
+      if (!body._vibisualOwnerAgentId) {
+        const ownerAgentId = headerValue('x-vibisual-owner-agent-id');
+        if (ownerAgentId) body._vibisualOwnerAgentId = ownerAgentId;
+      }
+      if (!body._vibisualOwnerTermId) {
+        const ownerTermId = headerValue('x-vibisual-owner-term-id');
+        if (ownerTermId) body._vibisualOwnerTermId = ownerTermId;
+      }
       // §5.10 v3.76 — **우리가 띄운 리플렉션 자식(`claude -p`)의 훅은 통째로 무시한다.**
       // 자식은 전역 settings.json 의 Vibisual 훅을 그대로 실행하므로(SessionStart→Stop), 이 이벤트가
       // 서버로 들어오면 ① markActive/markStop 이 "전체 활성 세션 0" 전이를 만들어 클라 완료 차임이
@@ -656,10 +699,20 @@ export async function runServer(): Promise<RunServerHandle> {
         typeof body.parent_tool_use_id === 'string';
       // §3.6 v4.89 — `StopFailure` 는 API 오류로 턴이 끝난 것이라 **종료의 일종**이다.
       //   분기에 안 넣으면 아래 `markActive` 로 떨어져 그 세션이 영영 active 로 남는다.
-      const isTurnEndEvent = body.hook_event_name === 'Stop' || body.hook_event_name === 'StopFailure';
+      const isTurnEndEvent = isTurnEndEventName(body.hook_event_name);
+      /*
+       * §3.6 (판올림 번호 발급 대기) — `SessionEnd` 는 **턴이 아니라 세션 자체**가 끝났다는 신고다.
+       *
+       * `StopFailure` 가 겪은 함정과 같은 자리다 — 등록만 하고 분기를 안 두면 아래 `markActive` 로
+       * 떨어져 **방금 끝난 세션이 영영 도는 것처럼 보인다.** `/clear`·`/resume` 로 갈아탄 경우도
+       * 그 대화는 끝난 것이므로 같게 취급한다(`reason` 은 표시용으로만 남는다).
+       *
+       * `isTurnEndEvent` 에는 넣지 않는다 — 그 변수는 아래에서 "서브에이전트 종료인가"를 가르는 데
+       * 쓰이는데, 세션 종료는 서브 마커와 무관하게 언제나 부모의 끝이다.
+       */
+      const isSessionEnd = isSessionEndEvent(body.hook_event_name);
       // 부모(감독관) 세션의 자기 턴이 실제로 끝났는가 — 서브에이전트 종료는 제외.
-      const isOwnStop = isTurnEndEvent && !isSubagentStop;
-
+      const isOwnStop = (isTurnEndEvent && !isSubagentStop) || isSessionEnd;
       // §5.3 #12-1 v3.43 — 헤드리스 감독관 배경 서브에이전트 대차대조.
       // 부모 턴이 끝나(sub idle) 자식 Task/Agent 서브에이전트만 백단에서 도는 동안, 부모 버블이
       // completed 로 강등되지 않게 pending 을 센다: PreToolUse(Task|Agent) ↑ / SubagentStop ↓ /
@@ -793,12 +846,16 @@ export async function runServer(): Promise<RunServerHandle> {
       // 자기 Stop 이 이어서 상태를 올바로 매긴다.
       if (isOwnStop) {
         agentTracker.markStop(body.session_id);
-        // §5.10 — 세션 종료 시 리플렉션 예약(디바운스, 실패해도 무시). managed/CMD/hook 세션 공통.
-        triggerBrainReflection(body.session_id, body.cwd);
-      } else if (!isTurnEndEvent && body.hook_event_name !== 'SubagentStop') {
+        /*
+         * §5.10 — 세션 종료 시 리플렉션 예약(디바운스, 실패해도 무시). managed/CMD/hook 세션 공통.
+         *
+         * `SessionEnd` 에서는 **예약하지 않는다** — 직전 `Stop` 이 이미 같은 세션을 예약했고,
+         * 리플렉션은 매 예약마다 자식을 띄우는 축이라(자기증식 전례) 종료 한 번에 두 번 태울 이유가 없다.
+         */
+        if (!isSessionEnd) triggerBrainReflection(body.session_id, body.cwd);
+      } else if (marksActivity(body.hook_event_name)) {
         agentTracker.markActive(body.session_id);
       }
-
       // sessionLifecycle에 활동 신호 전파 (PID는 여기서 알 수 없으므로 null)
       if (claudeSessionId && body.cwd) {
         lifecycle.registerFromToolUse(claudeSessionId, body.cwd, null);
@@ -842,13 +899,35 @@ export async function runServer(): Promise<RunServerHandle> {
        *    여기서는 스냅샷만 밀어 화면이 대기 표시에 멈춰 있지 않게 한다.
        *  - `PostCompact` — 압축이 끝났다. 카운터는 PreCompact 가 이미 올렸으므로 재방송만.
        */
-      if (body.hook_event_name === 'PermissionRequest') {
+      /*
+       * §3.6 (판올림 번호 발급 대기) — 신규 18종의 표시 처리.
+       *
+       * 판정은 `hookEventClass.ts` 가 갖는다(라우트 안에 부등호로 흩어져 있으면 새 이벤트를
+       * 등록할 때마다 조용히 틀린다 — `StopFailure` 가 그렇게 샜다).
+       *
+       *  - `Elicitation`       — MCP 서버가 도구 실행 도중 사용자에게 되묻는 순간. 답이 오기 전까지
+       *    세션이 멈춰 있는 것은 승인 대기와 같은 상태라 **같은 표시**를 쓴다(새 상태 ❌).
+       *  - `ElicitationResult` — 답이 왔다. 위 markActive 가 상태를 되돌리므로 재방송만.
+       *  - `PreModelSwitch` / `PostModelSwitch` / `WorktreeCreate` / `WorktreeRemove` /
+       *    `ConfigChange` / `CwdChanged` / `DirectoryAdded` / `SessionEnd` — 버블에 적힌 내용이
+       *    달라지는 사건이다. 종전에는 하나도 등록돼 있지 않아 화면이 **다음 도구 호출까지** 옛 값을
+       *    보여 줬다. 스냅샷 방송은 이미 디바운스+적응 backoff 를 타므로 부담이 늘지 않는다.
+       *  - `MessageDisplay` / `PostToolBatch` / `UserPromptExpansion` / `Setup` / `FileChanged` —
+       *    별도 표시가 없다(앞의 셋은 활동 갱신으로 충분하고, `MessageDisplay`·`FileChanged` 는
+       *    빈도가 높아 활동 갱신에서도 빠진다 — `hookEventClass` 주석 참고).
+       */
+      if (raisesAwaitingInput(body.hook_event_name)) {
         graphManager.setAgentNotificationStatus(body.session_id, 'awaiting_permission');
         broadcastSnapshot();
-      } else if (body.hook_event_name === 'PermissionDenied' || body.hook_event_name === 'PostCompact') {
+      } else if (clearsAwaitingInput(body.hook_event_name) || needsSnapshotRefresh(body.hook_event_name)) {
         broadcastSnapshot();
       }
 
+      // §5.5 #17-17 — 작업 장부(`TaskCreate`/`TaskUpdate`)가 낸 훅을 세션 목표 단계로 흘린다.
+      //   목표 창이 지금까지 REST 로 흉내 내던 것의 **원본**이다.
+      if (isTaskLedgerEvent(body.hook_event_name)) {
+        ingestTaskLedgerHook(body, bgOwnerAgentId ?? null, bgOwnerSub?.id ?? null);
+      }
       // §3.6-1 v4.89 — 어떤 CLAUDE.md·rules 가 실제로 로드됐는지 계측(표시 전용, 영속화 ❌).
       if (body.hook_event_name === 'InstructionsLoaded') {
         recordInstructionsLoaded(body.session_id, body as unknown as Record<string, unknown>);
@@ -1250,12 +1329,54 @@ export async function runServer(): Promise<RunServerHandle> {
     broadcastSnapshot();
   }
 
+  /**
+   * §3.6 (판올림 번호 발급 대기) — **훅 전송 경로를 HTTP 로 승격한다.**
+   *
+   * 부팅 최초 설치(desktop main)는 설치본 판올림을 아직 모른다. 모르는 채로 HTTP 훅을 깔면,
+   * 그 `type` 을 모르는 옛 CLI 가 훅을 통째로 버려 **이벤트가 0건**이 될 수 있다 — 화면에서는
+   * 앱이 죽은 것과 구별되지 않는다. 그래서 최초 설치는 종전 그대로 command 로 깔고, 판올림을
+   * 확인한 뒤 여기서 다시 부른다(인스톨러는 idempotent 라 바뀔 게 없으면 파일도 안 쓴다).
+   *
+   * 승격되면 순수 전달 이벤트에서 `handler.mjs` 자식 프로세스가 사라진다 — 이벤트를 15종에서
+   * 33종으로 늘린 지금 그 차이가 크다.
+   */
+  async function refreshHookTransport(reason: string): Promise<void> {
+    const skip = process.env['VIBISUAL_SKIP_HOOK_INSTALL'];
+    if (skip === '1' || skip === 'true') return;
+    if (process.env['VIBISUAL_HOME']?.trim()) return;
+    if (hookListenerPort === null || hookListenerToken === null || hookHandlerPath === null) return;
+    try {
+      const info = await getClaudeVersionInfo();
+      const r = ensureClaudeHooksInstalled(hookListenerPort, hookHandlerPath, hookListenerToken, {
+        transport: 'http',
+        cliVersion: info.current,
+      });
+      if (r.error) {
+        logger.warn(`[hooks] transport refresh failed (${reason}): ${r.error.message}`);
+        return;
+      }
+      if (r.installed) {
+        logger.info(`[hooks] transport=${r.transport} installed (${reason})`);
+      } else if (r.transportFallbackReason) {
+        logger.info(`[hooks] transport stays 'command' (${reason}) — ${r.transportFallbackReason}`);
+      }
+    } catch (err) {
+      logger.warn(`[hooks] transport refresh error (${reason}): ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  // 부팅 직후 1회. 설치 판정(1.2s)보다 뒤에 두어 갓 설치한 실행본의 판올림도 잡히게 한다.
+  setTimeout(() => { void refreshHookTransport('boot'); }, HOOK_TRANSPORT_REFRESH_DELAY_MS);
+
   // 자동/수동 업데이트로 실행본이 바뀐 뒤에도 같은 이유로 다시 태운다 — 새 버전이 추가한 모델·
   // effort 등급·슬래시 명령이 "다음 실행부터"가 아니라 그 자리에서 반영되게.
   onClaudeInstallSettled((progress) => {
-    if (progress.status === 'done') void reprimeClaudeDerivedCaches('cli-updated');
+    if (progress.status === 'done') {
+      void reprimeClaudeDerivedCaches('cli-updated');
+      // 판올림이 올라가면 HTTP 훅을 쓸 수 있게 됐을 수 있다.
+      void refreshHookTransport('cli-updated');
+    }
   });
-
   app.get('/api/claude-setup', (_req, res) => {
     const cached = graphManager.getClaudeSetup();
     if (cached) { res.json(cached); return; }
@@ -3618,8 +3739,61 @@ export async function runServer(): Promise<RunServerHandle> {
   }
 
   /**
-   * §5.5 #17-17 v4.46 — PUT /api/session-goal/:agentId/:subId — 세션 목표 저장(생성·수정·상태 변경).
+   * §5.5 #17-17 / §3.6 (판올림 번호 발급 대기) — **작업 장부(Task) 훅을 목표 단계로 흘린다.**
    *
+   * `TaskCreate`/`TaskUpdate` 도구가 `TaskCreated`/`TaskCompleted` 훅을 낸다. 이것이 목표 창이
+   * 지금까지 REST 로 흉내 내던 것의 **원본**이다 — 종전에는 그 도구도 목록에 없었고 훅도 걸려
+   * 있지 않아, 세션이 작업 장부를 써도 화면에는 한 줄도 오지 않았다.
+   *
+   * 단계 목록은 **본문(제목)으로 이어 붙인다** — 목표 창 규약이 "같은 본문이 같은 항목"이고,
+   * `rebuildGoalSteps` 가 그 규칙으로 id 를 물려주므로 여기서 별도 장부를 들 이유가 없다
+   * (새 저장소를 만들면 그것만 따로 비워지거나 따로 새는 자리가 하나 더 생긴다).
+   *
+   * 우리 관할이 아닌 세션(agentId·subAgentId 미상)은 조용히 지나간다 — 목표 창은 우리가 띄운
+   * 세션의 것이고, 남의 세션 훅으로 남의 카드를 만들지 않는다.
+   */
+  function ingestTaskLedgerHook(
+    body: HookEventPayload,
+    agentId: string | null,
+    subAgentId: string | null,
+  ): void {
+    if (!agentId || !subAgentId) return;
+    const rec = body as unknown as Record<string, unknown>;
+    const subject = typeof rec['task_subject'] === 'string' ? rec['task_subject'].trim() : '';
+    if (!subject) return; // 제목이 없으면 화면에 적을 것이 없다
+
+    const done = body.hook_event_name === 'TaskCompleted';
+    const prev = graphManager.getSessionGoal(subAgentId)?.steps ?? [];
+    const carried = prev.map((s) => ({ text: s.text, status: s.status }));
+    const idx = carried.findIndex((s) => s.text === subject);
+    if (idx >= 0) {
+      const hit = carried[idx];
+      // 완료 신고만 상태를 올린다. 생성 신고가 이미 진행 중인 항목을 pending 으로 되돌리면
+      //   화면의 퍼센트가 뒤로 간다(사용자에게는 그게 곧 "되감김"으로 읽힌다).
+      if (hit && done) carried[idx] = { text: hit.text, status: 'done' };
+    } else {
+      carried.push({ text: subject, status: done ? 'done' : 'pending' });
+    }
+
+    const existing = graphManager.getSessionGoal(subAgentId);
+    if (existing) {
+      graphManager.noteSessionGoalProgress(subAgentId, { steps: carried, source: 'plan' });
+    } else {
+      // 목표가 아직 없으면 **이 장부가 곧 목표**다 — `TodoWrite` 경로와 같은 규칙(§5.5 #17-17 ⑨).
+      graphManager.setSessionGoal({
+        agentId,
+        subAgentId,
+        text: subject.slice(0, SESSION_GOAL_TEXT_MAX),
+        status: 'active',
+        steps: carried,
+        authoredBy: 'session',
+      });
+    }
+    broadcastSnapshot();
+  }
+
+  /**
+   * §5.5 #17-17 v4.46 — PUT /api/session-goal/:agentId/:subId — 세션 목표 저장(생성·수정·상태 변경).   *
    * body: `{ text, status? }`. 목표 문장이 실제로 바뀌면 서버가 `revision++` 으로
    * plan 자동 폴백을 다시 연다(#17-17 ③). 진행률·이력은 보존한다 — 문장을 다듬는 것과
    * 진행을 되감는 것은 다른 일이다. loopback 화이트리스트에는 오르지 않는다(목표는 사용자 것).
@@ -9412,6 +9586,7 @@ export async function runServer(): Promise<RunServerHandle> {
       case 'denied': return 403;
       case 'outside':
       case 'root':
+      case 'into-self':
       case 'invalid-name': return 400;
       default: return 500;
     }
@@ -9460,6 +9635,34 @@ export async function runServer(): Promise<RunServerHandle> {
       res.json(outcome.result);
     } catch (err) {
       logger.error('PATCH /api/workspace-entry failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * POST /api/workspace-entry/move — §5.5 #17-19 ⑧ 옮기기(끌어다 폴더에 놓기).
+   *
+   * 이름 바꾸기(`PATCH`)와 **다른 창구**다 — 이름은 그대로 두고 사는 폴더만 바뀌며, 화면의 되물음도
+   * 다르다. 되물음 자체는 화면의 몫이고 여기서는 시키는 대로 옮긴다(#17-19 ⑦ 삭제와 같은 분담).
+   */
+  app.post('/api/workspace-entry/move', (req, res) => {
+    try {
+      const body = req.body as Partial<WorkspaceEntryMoveRequest>;
+      const resolvedRoot = readWorkspaceMutateRoot(body, res);
+      if (resolvedRoot === null) return;
+
+      const relPath = typeof body.path === 'string' ? body.path : '';
+      const toDir = typeof body.toDir === 'string' ? body.toDir : '';
+
+      const outcome = moveWorkspaceEntry(resolvedRoot, relPath, toDir);
+      if (!outcome.ok) {
+        res.status(workspaceMutateStatus(outcome.error)).json({ error: outcome.error });
+        return;
+      }
+      logger.info(`workspace-entry moved: ${relPath} → ${outcome.result.path}`);
+      res.json(outcome.result);
+    } catch (err) {
+      logger.error('POST /api/workspace-entry/move failed', err);
       res.status(500).json({ error: 'Internal server error' });
     }
   });
