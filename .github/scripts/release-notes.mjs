@@ -44,8 +44,8 @@ const OWNER = 'Vibisual';
 const REPO = 'vibisual';
 
 // ── 자산 분류 ────────────────────────────────────────────────────────────────
-// 표에 그릴 순서 = 이 배열의 순서. Windows 를 맨 위에 두는 것은 취향이 아니라
-// 다운로드 분포다(설치 사용자의 다수가 Windows).
+// `label` 은 **한 운영체제 안에서 갈래를 고르는 말**이다. 운영체제 이름은 여기 넣지 않는다 —
+// 그건 아래 OS_ROWS 가 붙인다.
 //
 // ⚠️ `match` 는 **위에서부터 처음 맞는 것**이 이긴다. `arm64.dmg` 가 `.dmg` 보다 먼저
 //    와야 한다 — 순서를 바꾸면 Apple Silicon dmg 가 Intel 줄에 실린다.
@@ -53,33 +53,51 @@ const KINDS = [
   {
     id: 'win',
     match: (n) => /-setup\.exe$/i.test(n),
-    label: '**Windows** 10 / 11 · 64-bit',
+    label: null, // 갈래가 하나뿐 — 고를 것이 없으면 고르라는 말도 없어야 한다.
   },
   {
     id: 'mac-arm64',
     match: (n) => /arm64\.dmg$/i.test(n),
-    label: '**macOS** · Apple Silicon (M1 and later)',
+    label: 'Apple Silicon (M1 and later)',
   },
   {
     id: 'mac-x64',
     match: (n) => /\.dmg$/i.test(n),
-    label: '**macOS** · Intel',
+    label: 'Intel',
   },
   {
     id: 'linux-deb',
     match: (n) => /\.deb$/i.test(n),
-    label: '**Linux** · Debian, Ubuntu, Mint',
+    label: 'Debian, Ubuntu, Mint',
   },
   {
     id: 'linux-rpm',
     match: (n) => /\.rpm$/i.test(n),
-    label: '**Linux** · Fedora, RHEL, openSUSE',
+    label: 'Fedora, RHEL, openSUSE',
   },
   {
     id: 'linux-appimage',
     match: (n) => /\.AppImage$/i.test(n),
-    label: '**Linux** · Arch, NixOS, anything else',
+    label: 'Arch, NixOS, anything else',
   },
+];
+
+/**
+ * 표는 **운영체제 한 줄**이다 — 윈도우 · 맥 · 리눅스, 셋.
+ *
+ * 갈래(맥 2 · 리눅스 3)를 저마다 한 줄로 펴면 표가 여섯 줄이 되는데, 그러면 처음 온 사람이
+ * 자기 줄을 찾기 전에 **리눅스 세 줄부터 읽어야 한다** — 리눅스를 안 쓰는 사람에게는 그
+ * 세 줄이 전부 잡음이고, 정작 "내 OS 는 어디"라는 물음의 답은 뒤로 밀린다. 운영체제로
+ * 먼저 좁히고 갈래는 그 칸 안에서 고르게 한다.
+ *
+ * 자산이 하나도 없는 운영체제는 **줄 자체가 빠진다**(없는 파일로 가는 죽은 링크 ❌).
+ * 표에 줄이 셋보다 적으면 그 OS 잡이 실패한 것이다 — v0.1.15 가 그랬다(맥 줄 없음).
+ */
+const OS_ROWS = [
+  // Windows 를 맨 위에 두는 것은 취향이 아니라 다운로드 분포다(설치 사용자의 다수가 Windows).
+  { os: '**Windows** 10 / 11 · 64-bit', kinds: ['win'] },
+  { os: '**macOS**', kinds: ['mac-arm64', 'mac-x64'] },
+  { os: '**Linux**', kinds: ['linux-deb', 'linux-rpm', 'linux-appimage'] },
 ];
 
 /** 자산 이름 → 종류 id. 설치 파일이 아니면 null(= 업데이터 전용). */
@@ -142,16 +160,23 @@ export function renderNotes({ version, assets, changelog }) {
     out.push('> [previous releases](https://github.com/Vibisual/vibisual/releases) instead.');
     out.push('');
   } else {
-    out.push('Pick the one row for your machine — that is the only file you need.');
+    out.push('Find your operating system — that row has the only file you need.');
     out.push('');
-    out.push('| Your machine | File |');
+    out.push('| Your machine | Download |');
     out.push('|---|---|');
-    for (const kind of KINDS) {
-      const asset = installers.get(kind.id);
-      if (!asset) continue;
-      const size = formatSize(asset.size);
-      const link = `[\`${asset.name}\`](${asset.browser_download_url})`;
-      out.push(`| ${kind.label} | ${link}${size ? ` · ${size}` : ''} |`);
+    for (const row of OS_ROWS) {
+      const cells = [];
+      for (const id of row.kinds) {
+        const asset = installers.get(id);
+        if (!asset) continue;
+        const size = formatSize(asset.size);
+        const link = `[\`${asset.name}\`](${asset.browser_download_url})`;
+        const variant = KINDS.find((k) => k.id === id)?.label;
+        cells.push(`${variant ? `${variant} — ` : ''}${link}${size ? ` · ${size}` : ''}`);
+      }
+      // 그 OS 의 자산이 하나도 없으면 줄을 그리지 않는다 — 표의 줄 수가 곧 발행된 OS 수다.
+      if (cells.length === 0) continue;
+      out.push(`| ${row.os} | ${cells.join('<br>')} |`);
     }
     out.push('');
 
@@ -363,6 +388,49 @@ function selftest() {
     failed++;
   }
 
+  // 표는 **운영체제 한 줄**이다. 갈래가 늘어도(리눅스 3종) 줄 수는 OS 수를 넘지 않는다 —
+  // 이 검사가 없으면 새 포장을 추가한 사람이 표에 네 번째 줄을 만들고도 모른다.
+  const bodyRows = (md) =>
+    md
+      .split('\n')
+      .filter((l) => l.startsWith('| ') && !l.startsWith('| Your machine') && !l.startsWith('|---'));
+  const full = renderNotes({
+    version: V,
+    assets: [
+      { name: `Vibisual-${V}-setup.exe`, size: 190 << 20, browser_download_url: 'https://x/exe' },
+      { name: `Vibisual-${V}-arm64.dmg`, size: 96 << 20, browser_download_url: 'https://x/arm' },
+      { name: `Vibisual-${V}.dmg`, size: 101 << 20, browser_download_url: 'https://x/intel' },
+      { name: `vibisual_${V}_amd64.deb`, size: 140 << 20, browser_download_url: 'https://x/deb' },
+      { name: `vibisual-${V}.x86_64.rpm`, size: 145 << 20, browser_download_url: 'https://x/rpm' },
+      { name: `Vibisual-${V}.AppImage`, size: 170 << 20, browser_download_url: 'https://x/img' },
+    ],
+    changelog: null,
+  });
+  const rows = bodyRows(full);
+  if (rows.length !== 3) {
+    console.error(`  ✗ 6종을 다 올렸는데 표가 ${rows.length}줄이다(윈도우·맥·리눅스 3줄이어야 한다)`);
+    failed++;
+  }
+  if (bodyRows(winOnly).length !== 1) {
+    console.error('  ✗ win 만 있는데 표가 1줄이 아니다');
+    failed++;
+  }
+  // 한 줄 안에 그 OS 의 갈래가 전부 들어 있어야 한다 — 줄을 줄이려고 갈래를 버리면 안 된다.
+  const linuxRow = rows.find((l) => l.includes('**Linux**')) ?? '';
+  for (const url of ['https://x/deb', 'https://x/rpm', 'https://x/img']) {
+    if (!linuxRow.includes(url)) {
+      console.error(`  ✗ 리눅스 줄에 ${url} 이 빠졌다`);
+      failed++;
+    }
+  }
+  const macRow = rows.find((l) => l.includes('**macOS**')) ?? '';
+  for (const url of ['https://x/arm', 'https://x/intel']) {
+    if (!macRow.includes(url)) {
+      console.error(`  ✗ 맥 줄에 ${url} 이 빠졌다`);
+      failed++;
+    }
+  }
+
   const changelog = extractChangelog(
     '# Changelog\n\n## [0.1.15] - 2026-09-01\n\nnewer\n\n## [0.1.14] - 2026-08-27\n\n### Fixed\n- thing\n\n## [0.1.13] - 2026-08-27\n\nolder\n',
     '0.1.14',
@@ -397,7 +465,7 @@ function selftest() {
     console.error(`selftest 실패 ${failed}건`);
     process.exit(1);
   }
-  console.log(`selftest 통과 — 분류 ${cases.length}건 + 렌더 3건 + 제목 ${titleCases.length}건`);
+  console.log(`selftest 통과 — 분류 ${cases.length}건 + 렌더 9건 + 제목 ${titleCases.length}건`);
 }
 
 // ── main ─────────────────────────────────────────────────────────────────────
