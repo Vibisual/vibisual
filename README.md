@@ -15,9 +15,14 @@ Design your agent team on a canvas, watch them work, and edit right there.
 *See your AI agents think.*
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/Vibisual/vibisual?color=blue)](https://github.com/Vibisual/vibisual/releases/latest)
+[![Build](https://img.shields.io/github/actions/workflow/status/Vibisual/vibisual/ci.yml?branch=main&label=build)](https://github.com/Vibisual/vibisual/actions/workflows/ci.yml)
+[![Downloads](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FVibisual%2Fvibisual%2Fmetrics%2Fbadge-downloads.json)](https://github.com/Vibisual/vibisual/releases)
 [![Node.js](https://img.shields.io/badge/node-%E2%89%A520-brightgreen.svg)](https://nodejs.org)
 [![Built with Claude Code](https://img.shields.io/badge/built%20with-Claude%20Code-7c3aed)](https://claude.com/claude-code)
 [![Status: early](https://img.shields.io/badge/status-early-orange)](#)
+
+English · [简体中文](README.zh-CN.md)
 
 </div>
 
@@ -94,7 +99,22 @@ fix it on the spot instead of switching to another app.
 Vibisual runs on top of the [Claude CLI](https://claude.com/claude-code),
 which must already be installed and available on your PATH.
 
-Download the build for your platform from the
+One line, if you would rather not pick a file yourself. Both scripts download a
+published release from GitHub and hand it to your system installer — read them
+first if you prefer ([install.sh](scripts/install.sh),
+[install.ps1](scripts/install.ps1)).
+
+```bash
+# macOS and Linux
+curl -fsSL https://raw.githubusercontent.com/Vibisual/vibisual/main/scripts/install.sh | sh
+```
+
+```powershell
+# Windows
+irm https://raw.githubusercontent.com/Vibisual/vibisual/main/scripts/install.ps1 | iex
+```
+
+Or download the build for your platform from the
 [Releases page](https://github.com/Vibisual/vibisual/releases/latest):
 
 | Platform | File | First launch |
@@ -163,11 +183,12 @@ git clone https://github.com/Vibisual/vibisual.git
 cd vibisual
 pnpm install
 
-# Build and launch the desktop app
-node scripts/runapp.mjs
+# Build every package, then launch the desktop app
+pnpm build
+pnpm --filter @vibisual/desktop preview
 
-# Build a Windows installer
-pnpm build:win
+# Build an installer for your platform
+pnpm build:win     # or build:mac, build:linux
 ```
 
 ### About the hook installer
@@ -184,14 +205,13 @@ three are known to start. Day-to-day development happens on Windows.
 
 ## Status
 
-Vibisual is currently an early preview release.
+Vibisual is an early preview. This 0.1.x line is meant for experimentation,
+demos, and feedback: expect bugs, incomplete features, rough edges, and
+occasional breaking changes. Pin a version if you need one that holds still.
 
-This 0.1.x preview is intended for experimentation, demos, and feedback.
-Expect bugs, incomplete features, rough edges, and occasional breaking
-changes.
-
-Vibisual is not recommended for critical production workflows or
-repositories containing highly sensitive data.
+It runs entirely on your own machine — no account, no telemetry, nothing sent
+to us — so what you point it at is your call, and nothing about your code
+leaves the room because you tried it.
 
 ## Security and privacy
 
@@ -199,13 +219,41 @@ Vibisual uses Claude Code hooks to visualize agent activity. Hook
 payloads may include prompts, tool calls, file paths, shell commands,
 session metadata, and other local development context.
 
-Vibisual is currently intended for local experimentation. Review the
-generated hook configuration before use, especially in repositories
-containing secrets, credentials, private code, customer data, or
-production systems.
+Review the generated hook configuration before pointing Vibisual at a
+repository that holds secrets, credentials, private code, customer data,
+or production access — the same review you would give any tool that runs
+commands on your behalf.
 
 Claude Code command hooks run with the permissions of your local user
 account. Only install and run hooks from code you trust.
+
+Vibisual collects nothing — no account, no telemetry, no analytics, no crash
+uploads. [PRIVACY.md](PRIVACY.md) lists exactly what leaves your machine and
+when, and [SECURITY.md](SECURITY.md) describes the security model and how to
+report a vulnerability privately.
+
+## Pricing
+
+The desktop app — the canvas, the IDE, the agents, the plugins — installs and
+runs with no account, no license key, and no usage cap, under Apache-2.0.
+
+> **Using Vibisual is free, and stays free.**
+
+Paid add-ons will come later, built **on top of** the free app rather than
+carved out of it: extra capacity, work that runs somewhere other than your own
+machine, features built for teams. The app you install stays free to use.
+
+## Star history
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Vibisual/vibisual/metrics/stars-dark.svg">
+  <img alt="Vibisual star history" src="https://raw.githubusercontent.com/Vibisual/vibisual/metrics/stars-light.svg" width="100%">
+</picture>
+
+Drawn from [`traction.csv`](https://github.com/Vibisual/vibisual/blob/metrics/traction.csv)
+on the `metrics` branch — a daily snapshot of the numbers GitHub already
+publishes about this repository. No third-party chart service is embedded here,
+so opening this page does not report you to anyone.
 
 ## License
 
