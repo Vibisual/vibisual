@@ -72,7 +72,7 @@
       "commandCenterHint": "コマンドセンターを開く — このプロジェクトで待っているものを確認します",
       "openNew": "新しいウィンドウで開く",
       "bringToFront": "前面に出す",
-      "settings": "エージェント設定",
+      "settings": "Agent設定",
       "expand": "展開",
       "collapse": "折りたたむ",
       "close": "ウィンドウを閉じる",
@@ -214,7 +214,7 @@
       "cat": {
         "start": "はじめに",
         "bubbleMap": "バブルマップ",
-        "agents": "エージェント",
+        "agents": "Agent",
         "taskEdges": "タスクエッジ",
         "ide": "IDEオーバーレイ",
         "navigation": "ナビゲーション",
@@ -244,11 +244,11 @@
       },
       "agents": {
         "intro": "受動的な追跡だけでなく、キャンバスから独自のエージェントを作成しオーケストレーションできます。",
-        "customT": "カスタムエージェント",
+        "customT": "Custom Agent",
         "customD": "キャンバスを右クリックすると、独自のエージェントバブルを起動しコマンドを与えられます。",
-        "autoT": "オートエージェント",
+        "autoT": "Auto Agent",
         "autoD": "やりたいことを普通の言葉で説明するだけで、ビルダーエージェントがチーム全体を設計・構築します。",
-        "configT": "エージェント設定",
+        "configT": "Agent設定",
         "configD": "バブルをクリックすると、モデル・ツール・権限モード・思考深度・分離・カラーを設定できます。",
         "pipelineT": "サブエージェントとパイプライン",
         "pipelineD": "独立したセッションを実行し、パイプライン・チーム・ハイブリッド戦略でエージェントを連携させます。"
@@ -307,7 +307,7 @@
       "memory": {
         "intro": "プロジェクトのメモリーは、うまくいったやり方を覚えて次の作業に読み込みます。既定はオフで、プロジェクトごとに切り替えます。オフにしても記録は消えません。",
         "turnOnT": "オンにする",
-        "turnOnD": "キャンバスの空白を右クリックして「プロジェクトのメモリーをオンにする」、または File > Options > プロジェクトのメモリーから。すぐ反映され、再起動は不要です。",
+        "turnOnD": "キャンバスの空白を右クリックして「プロジェクトのメモリーをオンにする」、またはファイル > オプション > プロジェクトのメモリーから。すぐ反映され、再起動は不要です。",
         "bubbleT": "メモリーバブル",
         "bubbleD": "オンにするとキャンバスにインディゴのバブルが現れ、保存された枚数を表示します。ダブルクリックでライブラリ、ホバーで概要。",
         "skillsT": "手順の記憶",
@@ -341,7 +341,7 @@
       "comingSoon": "近日対応",
       "comingSoonDesc": "このカテゴリは今後の設定用に予約されています。",
       "categories": {
-        "agent": "エージェントのデフォルト",
+        "agent": "Agentのデフォルト",
         "appearance": "表示",
         "notifications": "通知",
         "permissions": "権限",
@@ -363,6 +363,7 @@
         "scanning": "インストールを確認中…",
         "claudeCode": "Claude Code（使用中）",
         "current": "現在",
+        "versionLabel": "バージョン：",
         "latest": "最新 (npm)",
         "updateAvailable": "アップデートあり",
         "upToDate": "最新",
@@ -374,6 +375,7 @@
         "unknownVer": "不明",
         "restartHint": "選択を保存しました。新規スポーンエージェントに反映するにはVibisualを再起動してください。",
         "about": "概要",
+        "platform": "プラットフォーム",
         "repo": "GitHubリポジトリ",
         "marketplace": "VS Code MarketplaceのClaude Code",
         "selectionApplied": "選択を保存して適用しました — 新しく起動するエージェントにすぐ反映されます。",
@@ -463,7 +465,7 @@
             "desc": "セッションごとに残す自分のプロンプト数です。作り直せない原文なので余裕を持たせています。0 = 無制限。"
           },
           "subStreamRetentionDays": {
-            "label": "エージェント会話履歴の保存",
+            "label": "Agent会話履歴の保存",
             "desc": "起動時に一度整理します。稼働中および再度開ける一覧にあるセッションは古さに関係なく残します。0 = ずっと保存。"
           },
           "attachmentRetentionDays": {
@@ -510,7 +512,21 @@
       },
       "advanced": {
         "terminalScrollback": "ターミナルのスクロールバック（行数）",
-        "terminalScrollbackDesc": "CMDターミナルが保持する出力行数です。スクロールと{{shortcut}}検索はこの範囲を共有します。今後開くターミナルから適用されます。"
+        "terminalScrollbackDesc": "CMDターミナルが保持する出力行数です。スクロールと{{shortcut}}検索はこの範囲を共有します。今後開くターミナルから適用されます。",
+        "bgProbeTitle": "静かなバックグラウンド作業",
+        "bgProbeIntro": "バックグラウンドのコマンドが静かでも終わったとは限りません — 何かを待つコマンドはもともと静かです。そのため Vibisual は経過時間だけで項目を片付けることはありません。代わりに、終了マーカーがないまま長く静かな項目ができたら、小さな判定エージェントに一度だけ尋ねます: このコマンドに自分で終わる条件があるか、その条件がすでに満たされているか。",
+        "bgProbeEnabled": "静かな作業について尋ねる",
+        "bgProbeEnabledDesc": "オフにするとこの用途でモデルを呼びません。静かな項目は自分で外すまで一覧に残ります。",
+        "bgProbeQuiet": "この時間だけ静かなら尋ねる（分）",
+        "bgProbeQuietDesc": "静かな時間が決めるのは「いつ尋ねるか」だけで、答えではありません。0 にすると尋ねません。",
+        "bgProbeAutoClose": "答えが「終わった」なら項目を片付ける",
+        "bgProbeAutoCloseDesc": "オフにすると答えをカードに書くだけで、判断はあなたがします。「まだ動いています」と「判断できず」はどちらでも何も片付けません。",
+        "bgProbeKill": "そのコマンドが起動したプロセスも止める",
+        "bgProbeKillDesc": "一覧から消すだけではコマンドは動き続けます。そのセッションの下で、コマンドラインがこの作業と一致するプロセスだけに触れます。",
+        "bgProbeModel": "答えるモデル",
+        "bgProbeModelDesc": "ツールなしで、プロジェクトにアクセスせずに一度だけ尋ねます — 渡すのはコマンド本文と出力の末尾だけです。",
+        "bgProbeLoadError": "現在の設定を読み込めませんでした。",
+        "bgProbeSaveError": "保存できませんでした。何も変わっていません。"
       },
       "notifications": {
         "cmdBlocked": "CMDセッションが入力待ちのときに通知",
@@ -553,8 +569,8 @@
         "high": "複雑度: 高"
       },
       "topology": {
-        "pipeline": "Pipeline",
-        "team": "Team",
+        "pipeline": "パイプライン",
+        "team": "チーム",
         "ralph": "Ralph（チーム + クリティークループ）",
         "autopilot": "Autopilot（シングルエージェント）",
         "custom": "カスタム（ビルダー設計）"
@@ -602,7 +618,7 @@
       "distilling": "抽出中…",
       "distillFailed": "抽出できませんでした — もう一度お試しください",
       "proposalTitle": "低評価から提案されたルール",
-      "proposalHint": "以下のルールを確認・編集してください。適用した場合のみ、このエージェントのエージェントルールに追加されます（ルール履歴から取り消し可能）。",
+      "proposalHint": "以下のルールを確認・編集してください。適用した場合のみ、このagentのAgentルールに追加されます（ルール履歴から取り消し可能）。",
       "apply": "ルールに追加",
       "applying": "追加中…",
       "cancel": "キャンセル"
@@ -623,17 +639,20 @@
       "path": "パス",
       "sessionId": "セッションID",
       "type": "タイプ",
+      "agentBadge": "Agent",
       "status": "ステータス",
       "activity": "アクティビティ",
+      "activityEvents": "{{n}}件のイベント",
       "billableTokens": "課金トークン",
       "context": "コンテキスト",
       "model": "モデル",
       "tools": "ツール",
       "perm": "権限",
-      "agentSettings": "エージェント設定",
+      "agentSettings": "Agent設定",
       "hookAgentSettingsLocked": "フック登録済みエージェントはClaude Code自身が管理しています。設定の変更はキャンバスから作成したエージェントのみ可能です。",
       "files": "ファイル",
-      "activeAgents": "稼働中のエージェント",
+      "activeAgents": "稼働中のAgent",
+      "goToAgent": "このagentに移動",
       "lastTools": "最後のツール一覧",
       "contextCompacted": "コンテキスト圧縮済み",
       "compactSummary": "{{count}}回 · 最終 {{ago}}",
@@ -654,6 +673,14 @@
       "persist": "保持 (フェードアウトを防止)",
       "lastTool": "最後のツール",
       "contiHistory": "コンティ履歴"
+    },
+    "agentEventList": {
+      "prompt": "プロンプト",
+      "queueBadge": "キュー",
+      "tokenUsage": "トークン使用量",
+      "waited": "{{time}}待機",
+      "closePopup": "ポップアップを閉じる",
+      "result": "結果"
     },
     "contiHistory": {
       "title": "コンティ履歴",
@@ -679,6 +706,10 @@
       "addFrame": "コマを追加",
       "deleteFrame": "削除",
       "editFrame": "テキストを編集",
+      "frameLabel": "フレーム{{n}}",
+      "dragToReorder": "ドラッグして並べ替え",
+      "doubleClickToEdit": "ダブルクリックで編集",
+      "dropHere": "ここにドロップ",
       "editTitlePrompt": "コマタイトル:",
       "editActionPrompt": "コマアクション:",
       "zoomReset": "{{shortcut}} リセット",
@@ -692,7 +723,7 @@
       "renderTitle": "カットをタイムライン文書に移してレンダリングを開始します",
       "renderWorking": "受け渡し中…",
       "renderNoApp": "レンダリングするには動画アプリをインストールしてください",
-      "renderLinked": "{{app}} · {{status}}"
+      "renderLinked": "{{app}}・{{status}}"
     },
     "contiPrompt": {
       "title": "プロンプトで要素を修正",
@@ -734,6 +765,7 @@
       "addCommand": "コマンドを追加",
       "removeAttachment": "添付を削除",
       "uploading": "アップロード中...",
+      "attachmentError": "ERR",
       "attached": "添付済み",
       "waitingForUpload": "アップロードを待機中..."
     },
@@ -824,11 +856,11 @@
         "inactiveWarn": "ターゲットにツールがないため、このエッジはソースプロンプトに注入されません。ターゲットにツールを追加すると自動的に有効になります。",
         "footnote": "このセクションはエッジの状態から自動生成されます。サブエージェント実行時にプロンプトへ注入され、エージェントが委任の可否と方法を把握できるようにします。"
       },
-      "title": "エージェント設定",
+      "title": "Agent設定",
       "cancel": "キャンセル",
       "save": "保存",
       "saving": "保存中...",
-      "agentRules": "エージェントルール",
+      "agentRules": "Agentルール",
       "noRulesDefined": "ルール未定義 — クリックして編集",
       "lines": "{{count}}行",
       "projectContext": "プロジェクトコンテキスト",
@@ -848,7 +880,7 @@
         "default": "Manual — 危険な操作（書き込み・シェル）で確認を求めます。",
         "acceptEdits": "ファイル編集（Write、Edit）を自動承認。Bashは引き続き確認します。",
         "plan": "読み取り専用。ファイルの変更やコマンド実行はできません。",
-        "bypassPermissions": "確認なし。エージェントは全操作を無確認で実行します。",
+        "bypassPermissions": "確認なし。Agentは全操作を無確認で実行します。",
         "auto": "CLI の分類器が呼び出しごとに許可・拒否を判断します。Vibisual のポップアップは出ません。",
         "dontAsk": "確認しません。事前承認がないものは拒否 — 無人実行向け。"
       },
@@ -959,6 +991,9 @@
       "maxBudgetUsd": "予算 ($、0=∞)",
       "defaultSkills": "デフォルトスキル",
       "addSkill": "+ スキルを追加",
+      "skillSourceProject": "プロジェクト",
+      "skillSourceGlobal": "グローバル",
+      "skillSourcePlugin": "インストール済みプラグイン",
       "color": "カラー",
       "fieldTips": {
         "model": "このエージェントが使用するClaudeモデル。",
@@ -1111,7 +1146,8 @@
         "unset": "未設定",
         "on": "オン",
         "off": "オフ"
-      }
+      },
+      "contextNotAccessible": "アクセス不可（Claude Code内部）"
     },
     "permissionPrompt": {
       "title": "権限が必要",
@@ -1207,11 +1243,12 @@
       "project": "プロジェクト",
       "projectName": "名前",
       "projectPath": "パス",
-      "agents": "エージェント",
+      "agents": "Agent",
       "nodes": "ノード",
       "edges": "エッジ",
       "noProject": "アクティブなプロジェクトなし",
       "fps": "fps",
+      "inputLag": "入力遅延",
       "fpsTip": "レンダリングフレームレート",
       "visibility": "表示",
       "profiling": {
@@ -1267,7 +1304,7 @@
       "visible": "表示中 ({{count}})",
       "satellites": "サテライト {{count}}",
       "maxTitle": "このフォルダーの最大サテライト数",
-      "maxHint": "Enter · Esc",
+      "maxHint": "Enter・Esc",
       "maxSave": "保存",
       "noVisible": "表示ファイルなし"
     },
@@ -1280,6 +1317,7 @@
     },
     "serverList": {
       "heading": "サーバー ({{count}})",
+      "serverLabel": "サーバー",
       "refresh": "更新",
       "empty": "実行中のサーバーなし",
       "running": "実行中",
@@ -1370,12 +1408,12 @@
       "collectorFailed": "使用量コレクターの設定に接続できませんでした。",
       "collectorRestartHint": "これをオフにしていても Vibisual は定期的に使用量を取得します — コレクターは対話型セッション中に更新頻度を上げるだけです。",
       "localTitle": "Vibisual のこのプロジェクト",
-      "localAgents": "エージェント",
+      "localAgents": "Agent",
       "localInput": "入力トークン",
       "localOutput": "出力トークン",
       "localHint": "アクティブなプロジェクトタブのエージェントを集計しています。上のプラン上限はアカウント全体で、Vibisual 外の使用も含みます。",
       "emptyOff": "使用量データはまだありません — コレクターがオフです。下でオンにしてから、対話型の Claude Code セッションを一度開いてください。",
-      "emptyWaiting": "コレクターはオンで、最初の値を待っています。値は対話型の Claude Code セッションがステータスラインを描画したときに届きます（キャンバスのターミナルバブル、またはエディタの Claude Code）。Vibisual がヘッドレスで動かすエージェントにはステータスラインがないため報告しません。",
+      "emptyWaiting": "コレクターはオンで、最初の値を待っています。値は対話型の Claude Code セッションがステータスラインを描画したときに届きます（キャンバスのターミナルバブル、またはエディタの Claude Code）。Vibisual がヘッドレスで動かすAgentにはステータスラインがないため報告しません。",
       "refresh": "更新",
       "weeklyScoped": "週間上限 — {{model}}",
       "creditsTitle": "使用クレジット",
@@ -1414,12 +1452,12 @@
         "settingsSection": "設定セクション",
         "ideView": "IDE ビュー",
         "headerItem": "ヘッダー項目",
-        "agentPrompt": "エージェント強制",
+        "agentPrompt": "Agent強制",
         "contextMenuItem": "コンテキストメニュー",
         "hookSubscriber": "フック購読",
         "restRoute": "REST ルート",
         "wsMessage": "WS メッセージ",
-        "agentConfigField": "エージェント設定",
+        "agentConfigField": "Agent設定",
         "brainCardKind": "記憶カード種別",
         "bubbleType": "バブル種別",
         "edgeKind": "エッジ種別"
@@ -1584,6 +1622,12 @@
       "noAudio": "音声なしで書き出しました。",
       "downgraded": "レンダリングモードがダウングレードされました: {{id}}",
       "previewFailed": "プレビューを描画できませんでした。",
+      "errNoDoc": "No document is open.",
+      "errNoStage": "Could not find a place to attach the stage.",
+      "errNoRenderBackend": "No render mode is available on this device.",
+      "errNoOffscreen": "Offscreen windows are not available in this build.",
+      "errNoOffscreenBridge": "The offscreen bridge is not available.",
+      "errRequestFailed": "The request failed ({{status}}).",
       "reloaded": "他の場所でドキュメントが変更されたため、再読み込みしました。"
     },
     "cost": {
@@ -1720,7 +1764,7 @@
     "projectFolder": {
       "title": "プロジェクトフォルダーを選択",
       "intro": "Claude Code のインストールとサインインが完了しました。最後に、エージェントが作業するフォルダーを選んでください — 通常はプロジェクトまたはリポジトリのルートです。",
-      "blocked": "まだ何も作成していません — 開いているプロジェクトフォルダーがありません。エージェントは選んだフォルダーの中で作業するため、先にフォルダーを選んでください。",
+      "blocked": "まだ何も作成していません — 開いているプロジェクトフォルダーがありません。Agentは選んだフォルダーの中で作業するため、先にフォルダーを選んでください。",
       "detail": "Vibisual がプロジェクトについて保存するものはすべてそのフォルダーの中にあり、エージェントもその配下のファイルだけを読み書きできます。フォルダーは後から ファイル → フォルダーを開く で追加できます。",
       "cancelled": "まだフォルダーが選ばれていません。続けるにはフォルダーを選んでください。",
       "choose": "フォルダーを選択",
@@ -1796,13 +1840,13 @@
       "undockLabel": "固定を解除",
       "customLabel": "カスタム",
       "cmdLabel": "CMD",
-      "hookLabel": "Hook",
+      "hookLabel": "フック",
       "renameHint": "ダブルクリックで名前を変更 (F2)",
-      "renameInputLabel": "エージェント名",
-      "localLabel": "All Model",
+      "renameInputLabel": "Agent名",
+      "localLabel": "モデル一覧",
       "localSwitchModel": "このバブルが使うモデルを変更",
       "localContextUsed": "コンテキスト {{used}} / {{limit}} トークン（{{percent}}%）— 上限に達すると古いやり取りから削除されます",
-      "agentSettings": "エージェント設定",
+      "agentSettings": "Agent設定",
       "collapseLabel": "折りたたむ",
       "collapseHint": "折りたたみ — ウィンドウは残したままキャンバスを取り戻します（ヘッダーのウィンドウ一覧から再表示）",
       "resizeWindow": "ウィンドウのサイズ変更",
@@ -1877,9 +1921,9 @@
       "queuedRemove": "キューから削除",
       "mergedNotice": "{{count}}件の追加メッセージと一緒に送信済み",
       "dispatchMode": {
-        "wait": "Wait",
-        "merge": "Merge",
-        "immediate": "Now"
+        "wait": "待機",
+        "merge": "マージ",
+        "immediate": "今すぐ"
       },
       "dispatchModeTitle": {
         "wait": "Wait — 現在のターン終了後、このメッセージを独自のターンで実行",
@@ -1913,7 +1957,7 @@
       "inputCtxSelectAll": "すべて選択",
       "ctxSaveToBrain": "メモリーに保存",
       "stopAll": "すべて停止",
-      "stopAllTitle": "このエージェントが実行中のすべてを停止（他のタブ＋バックグラウンドのサブエージェント）",
+      "stopAllTitle": "このエージェントが実行中のすべてを停止（他のタブ＋バックグラウンド作業）",
       "stopSessionTitle": "このセッションと、それが開始したサブエージェントを停止（他のセッションタブは実行を継続）"
     },
     "memo": {
@@ -1950,7 +1994,7 @@
       "skills": "スキル",
       "bookmarks": "ブックマーク",
       "sessionSummary": "セッションサマリー",
-      "runningSubagents": "実行中のサブエージェント ({{count}})",
+      "runningSubagents": "バックグラウンド作業 ({{count}})",
       "loop": "リピートループ",
       "goal": "目標",
       "debug": "実行とデバッグ",
@@ -2052,7 +2096,7 @@
         "unreal": "エディターは-WaitForDebuggerを付けて起動し、デバッガーがアタッチされるまで一時停止します — 「デバッガーをアタッチ」を押してから、Visual Studioでブレークポイントを使用してください。ログはOutputにストリーミングされます。",
         "unsupported": "このコマンドに対応するデバッガーフラグは登録されていません。"
       },
-      "mcpTitle": "エージェントのデバッグツール",
+      "mcpTitle": "Agentのデバッグツール",
       "mcpHint": "Vibisualはデバッガーを同梱していません。これらは既存のMCPサーバーで、このエージェントに組み込むことで自らブレークポイントを設定し状態を検査できるようにします。",
       "mcpApplyHint": "変更後に開始したセッションに適用されます（実行中のセッションは既存のツールを維持します）。",
       "docs": "ドキュメント",
@@ -2119,11 +2163,11 @@
       "adapterMissing": "未インストール",
       "adapterDelegated": "委譲",
       "runtime": {
-        "node": "Node.js · JavaScript · TypeScript",
+        "node": "Node.js・JavaScript・TypeScript",
         "python": "Python",
         "go": "Go",
         "rust": "Rust · ネイティブ",
-        "dotnet": ".NET · C#",
+        "dotnet": ".NET・C#",
         "java": "Java",
         "unreal": "Unreal C++",
         "other": "その他"
@@ -2277,7 +2321,7 @@
       "binary": "バイナリファイル — 読み取り専用。",
       "truncated": "このファイルは大きいため先頭のみ表示しています — 読み取り専用。",
       "readError": "このファイルを読み込めません",
-      "plainLanguage": "text",
+      "plainLanguage": "テキスト",
       "imageEdit": "編集",
       "imageEditHint": "この画像にマークを付ける",
       "imageFit": "パネルに合わせる",
@@ -2337,13 +2381,13 @@
     },
     "statusBar": {
       "custom": "カスタム",
-      "hook": "Hook",
-      "context": "ctx: {{used}}/{{max}}",
+      "hook": "フック",
+      "context": "コンテキスト：{{used}}/{{max}}",
       "tokens": "{{in}}入力 / {{out}}出力",
       "sessionOne": "{{count}}セッション",
       "sessionMany": "{{count}}セッション",
       "autoCompact": "自動圧縮 {{value}}",
-      "autoCompactTip": "コンテキストがこのサイズに達すると CLI が会話を自動で要約して縮めます。エージェントごとはエージェント設定画面で、全体の既定値は File > Options > Agent Defaults で変更できます。"
+      "autoCompactTip": "コンテキストがこのサイズに達すると CLI が会話を自動で要約して縮めます。エージェントごとはAgent設定画面で、全体の既定値はファイル > オプション > Agentのデフォルトで変更できます。"
     },
     "search": {
       "placeholder": "会話内を検索",
@@ -2505,19 +2549,26 @@
       "dismiss": "閉じる"
     },
     "runningSubagents": {
-      "title": "実行中のサブエージェント",
+      "title": "バックグラウンド作業",
       "close": "閉じる",
-      "empty": "現在実行中のサブエージェントはありません。",
-      "untitled": "サブエージェント",
-      "scopeAll": "このエージェントが実行中のすべてのサブエージェントを表示しています。",
-      "scopeSession": "「{{label}}」が起動したサブエージェントを表示しています。",
-      "emptySession": "このセッションが起動したサブエージェントはありません。",
-      "hint": "ここに並ぶのは、このセッションがバックグラウンドで起動したサブエージェントだけです — 今のやり取り自体は数えません。動いている間は左のアイコンが点灯し、その下に件数が出ます。",
+      "empty": "現在バックグラウンドで動いている作業はありません。",
+      "untitled": "名称未設定の作業",
+      "kindAgent": "サブエージェント",
+      "kindAgentTip": "Task・Agent ツールで起動した AI の子です。モデルが動くためトークンを消費します。",
+      "kindShell": "シェル",
+      "kindShellTip": "バックグラウンドの Bash・Monitor コマンドです。モデルではなくコマンドが動くだけなのでトークンは消費しません。自分では終わらないコマンド（tail -f、while true）は、手動で外すまでここに残ります。",
+      "scopeAll": "このエージェントがバックグラウンドで動かしている作業をすべて表示しています。",
+      "scopeSession": "「{{label}}」セッションが起動したバックグラウンド作業のみ表示しています。",
+      "emptySession": "このセッションがバックグラウンドで動かしている作業はありません。",
+      "hint": "ここにはこのセッションがバックグラウンドで起動したものだけが並びます — 今おこなっている会話自体は数えません。サブエージェントはトークンを消費する AI の子で、シェルはトークンを消費しないバックグラウンドの Bash・Monitor コマンドです。動いている間は左のアイコンが点灯し、その下に件数が出ます。",
       "othersRunning": "他の場所であと {{count}} 件実行中",
       "startedAt": "開始 {{time}}",
       "endedAt": "終了 {{time}}",
       "finishedTitle": "たった今終了",
       "noResult": "結果は届きませんでした。",
+      "exitCode": "終了コード {{code}}",
+      "exitKilled": "停止されました",
+      "exitFromFileTip": "完了通知が届かなかったため、ハーネスが作業の出力ファイルに書き込んだ終了マーカーから読み取りました。",
       "resultRescued": "トランスクリプトから復元 — セッションには届いていません",
       "resultRescuedTitle": "この子エージェントは報告前に中断されたため（Stop、タブを閉じる、またはクラッシュ）、セッションはこれを受け取っていません。Vibisual がディスク上のエージェントトランスクリプトから読み戻しました。",
       "toggleResult": "結果の全文を開く・閉じる",
@@ -2525,8 +2576,23 @@
       "nowUsing": "今使っているツール",
       "duration": "{{value}} かかりました",
       "noResponse": "{{value}} 応答なし",
+      "quietFor": "{{value}} 静かなまま",
+      "quietForTip": "この作業の出力ファイルはその間変わっていません。静かでも終わったとは限りません — 何かを待つコマンドは正常に静かです。",
+      "probing": "まだ動いているか確認中",
+      "probingTip": "終了マーカーがないまま長く静かだったので、判定エージェントを一度だけ起動しました。聞くのは二つだけです — このコマンドに自分で終わる条件があるか、その条件がすでに満たされているか。",
+      "probeAlive": "まだ動いています",
+      "probeUnknown": "判断できず — そのままにします",
+      "probeFinished": "確認のうえ自動で片付け",
+      "probeTip": "終了条件: {{condition}} · 判定 {{model}}",
+      "probeTipNoCondition": "自分で終わる条件は見つかりませんでした · 判定 {{model}}",
+      "probeAt": "{{time}} に確認",
+      "closedByProcessGone": "セッションが消えたため片付け",
+      "closedByProcessGoneTip": "この作業を起動したセッションのプロセスがなくなりました。結果の届く先がないため一覧から外しました。",
+      "closedByUser": "自分で外しました",
+      "killedProcesses": "プロセス {{count}} 個を停止",
+      "killedProcessesTip": "片付けと同時に、このコマンドが起動したプロセスも停止しました。一覧から消すだけではコマンドは動き続けるためです。",
       "dismiss": "待機をやめる",
-      "dismissTip": "この一覧から外します。プロセスは停止しません — 子の停止はそれを起動したエージェントが TaskStop で行います。"
+      "dismissTip": "この一覧から外します。プロセスは止めません — サブエージェントは起動したエージェントが TaskStop で、シェルは KillShell で止めます。"
     },
     "loop": {
       "title": "リピートループ",
@@ -2741,7 +2807,7 @@
       },
       "src": {
         "skillsPrefix": "スキルプレフィックス",
-        "agentRules": "エージェントルール",
+        "agentRules": "Agentルール",
         "edges": "送信元エッジのルール",
         "feedback": "過去のユーザーフィードバック",
         "intentFirst": "先に意図を述べる",
@@ -2769,11 +2835,11 @@
         "hooks": "フック",
         "systemPrompt": "Claude Codeのシステムプロンプト",
         "brainSkills": "メモリー手順記憶",
-        "compactSelf": "エージェント自律圧縮"
+        "compactSelf": "Agent自律圧縮"
       },
       "hint": {
-        "tools": "エージェント設定でツール一覧を選んでください",
-        "mcp": "エージェント設定でMCPサーバーを接続してください",
+        "tools": "Agent設定でツール一覧を選んでください",
+        "mcp": "Agent設定でMCPサーバーを接続してください",
         "hooks": "フックはsettings.jsonにインストールされます"
       },
       "warn": {
@@ -2811,12 +2877,12 @@
         "src": {
           "skillsPrefix": {
             "what": "セッション開始時にそのスキルを読み込ませるため、Vibisualがあなたのメッセージの前に入力するスラッシュコマンド。",
-            "more": "エージェント設定のSkillsフィールドから取得されます。各スキルはプロンプトの上に/name行として送られます。",
+            "more": "Agent設定のSkillsフィールドから取得されます。各スキルはプロンプトの上に/name行として送られます。",
             "off": "メッセージだけが単独で送信され、それらのスキルは呼び出されません。"
           },
           "agentRules": {
             "what": "このエージェントバブルに対するあなた自身の常設指示。",
-            "more": "エージェント設定のAgent Rules欄から取得され、「# Agent Rules」見出しの下に追加されます。",
+            "more": "Agent設定のAgentルール欄から取得され、「# Agent Rules」見出しの下に追加されます。",
             "off": "エージェントはその常設指示を受け取らなくなります。"
           },
           "edges": {
@@ -2941,13 +3007,13 @@
           },
           "toolSchemas": {
             "what": "このエージェントが呼び出せるツール（Read、Edit、Bashなど）の定義。",
-            "more": "ツール一覧はエージェント設定が管理しています — そこで絞り込むとこの数値も小さくなります。",
-            "off": "代わりにエージェント設定でツール一覧を変更してください — ここのスイッチはロックされています。"
+            "more": "ツール一覧はAgent設定が管理しています — そこで絞り込むとこの数値も小さくなります。",
+            "off": "代わりにAgent設定でツール一覧を変更してください — ここのスイッチはロックされています。"
           },
           "mcp": {
             "what": "MCPサーバー経由で接続された追加ツール。",
             "more": "接続された各サーバーが、毎プロンプトに独自のツール定義を追加します。",
-            "off": "代わりにエージェント設定でサーバーを切断してください — ここのスイッチはロックされています。"
+            "off": "代わりにAgent設定でサーバーを切断してください — ここのスイッチはロックされています。"
           },
           "hooks": {
             "what": "Vibisualがこのセッションを認識できるようにするClaude Codeのフック。",
@@ -2993,8 +3059,8 @@
           },
           "tools": {
             "what": "エージェントが呼び出せるツールの定義。",
-            "more": "一覧はエージェント設定が管理しています。",
-            "off": "エージェント設定で変更してください — ここではオフにできません。"
+            "more": "一覧はAgent設定が管理しています。",
+            "off": "Agent設定で変更してください — ここではオフにできません。"
           },
           "system": {
             "what": "Claude Codeがこのプロジェクトの外で自ら追加するもの。",
@@ -3235,10 +3301,10 @@
       "pointerModeTouch": "タッチ",
       "pointerModeMouse": "マウス",
       "qualityHint": "画質／データ量 — 下げると解像度とFPSが小さくなります（クリックで切替）",
-      "quality_full": "Full",
-      "quality_saver": "Saver",
-      "quality_min": "Min",
-      "quality_auto": "AUTO",
+      "quality_full": "フル",
+      "quality_saver": "節約",
+      "quality_min": "最小",
+      "quality_auto": "オート",
       "snapshot": "現在のフレームを保存 (PNG)",
       "pause": "一時停止（データ節約）",
       "resume": "再開",
@@ -3316,12 +3382,31 @@
     },
     "taskEdge": {
       "iconHint": "クリック: 詳細 · ダブルクリック: 編集",
+      "critiqueIconLabel": "批評（ウォッチャー）",
       "pulse": {
         "sending": "コマンド送信",
         "completed": "完了報告",
         "error": "エラー"
       },
       "pulseDebugTitle": "[debug] {{label}} パルス 1.8秒"
+    },
+    "taskEdgeKind": {
+      "command": {
+        "label": "Command",
+        "description": "Instruction — \"please do this\""
+      },
+      "artifact": {
+        "label": "Artifact",
+        "description": "Hands over the result itself — the file or diff"
+      },
+      "request": {
+        "label": "Request",
+        "description": "Reverse request — \"I am stuck, please help\""
+      },
+      "critique": {
+        "label": "Critique",
+        "description": "Critique / review — audit and red-team role (the watcher)"
+      }
     },
     "taskEdgePopup": {
       "dragToMove": "ドラッグして移動",
@@ -3362,7 +3447,7 @@
       "schemaClear": "クリア",
       "returnFormat": "返却フォーマット",
       "returnFormatTooltip": "Artifact: 実際のファイル/diffパス。Summary: テキストサマリーのみ。Both: 両方。AIサマリーは誤りがある場合があります。検証が必要なものにはArtifactを推奨。",
-      "artifact": "Artifact",
+      "artifact": "成果物",
       "artifactTooltip": "Artifact: 実際のファイルパスまたはdiffを返却。自分で検証可能。",
       "summary": "サマリー",
       "summaryTooltip": "サマリー: 短いテキストサマリーのみ。速いが、AIサマリーは不正確な場合あり。",
@@ -3377,11 +3462,11 @@
       "priority": "優先度",
       "priorityTooltip": "複数のエッジが準備完了の場合の実行順。Highが最優先。デフォルトはNormal。",
       "priorityDisabledNote": "近日対応 — 優先度スケジューリングはまだ実装されていません。値はメタデータとして保存のみされます。",
-      "priorityLow": "Low",
+      "priorityLow": "低",
       "priorityLowTooltip": "Low: 他にキューなしの場合のみ実行。",
-      "priorityNormal": "Normal",
+      "priorityNormal": "中",
       "priorityNormalTooltip": "Normal: デフォルトの順序。",
-      "priorityHigh": "High",
+      "priorityHigh": "高",
       "priorityHighTooltip": "High: 他の保留中エッジより先に実行。",
       "cache": "キャッシュ",
       "cacheTooltip": "入力が一致する場合に前回の結果を再利用（トークン節約）。基礎データが頻繁に変わる場合はOFFにしてください。",
@@ -3418,15 +3503,23 @@
       "connect": "接続",
       "connectTooltip": "この設定でエッジを作成 (Ctrl/Cmd+Enter)。",
       "critiqueOptionsTip": "Critiqueエッジ専用。介入タイミング（Timing）と拒否時の強制内容（Authority）を設定します。他の種類のエッジには無視されます。",
+      "critiqueOptions": "批評オプション",
       "critiqueTimingTip": "Intermediate（デフォルト）: ターゲットの作業中、各マイルストーンでレビュー。頻繁・安全・低速。Final: 完了後に1回だけ最終レビュー。少頻度・高速。",
       "critiqueTimingIntermediateTip": "Intermediate: ターゲットの作業中、各マイルストーンでレビュー。（デフォルト）",
       "critiqueTimingFinalTip": "Final only: ターゲット完了後に1回だけ最終レビュー。",
+      "critiqueTiming": "タイミング",
+      "critiqueTimingIntermediate": "中間",
+      "critiqueTimingFinal": "最終のみ",
       "critiqueAuthorityTip": "Force rework（デフォルト）: 拒否時にターゲットは作業をやり直す必要あり。最大リワーク回数超過でコメントのみに自動降格し、親セッションへエスカレーション。Comment only: 拒否は参考扱いのみ、強制リワークなし。",
       "critiqueAuthorityForceTip": "Force rework: 拒否時にターゲットはやり直し必須。（デフォルト）",
       "critiqueAuthorityCommentTip": "Comment only: ターゲットは拒否を参考として受け取るのみ。強制リワークなし。",
+      "critiqueAuthority": "権限",
+      "critiqueAuthorityForce": "再作業を強制",
+      "critiqueAuthorityComment": "コメントのみ",
       "critiqueMaxReworkTip": "Force reworkモード中にターゲットがやり直せる最大回数。超過するとコメントのみに自動降格し、親セッションへエスカレーション。無限ループへの歯止め。",
       "critiqueMaxReworkActive": "最大{{max}}回。超過するとコメントのみに自動降格。",
-      "critiqueMaxReworkInactive": "Comment onlyモードでは使用されません。"
+      "critiqueMaxReworkInactive": "Comment onlyモードでは使用されません。",
+      "critiqueMaxRework": "最大再作業回数"
     }
   },
   "inspector": {
@@ -3463,7 +3556,7 @@
     "sendToOverlayLabel": "オーバーレイ",
     "removeFromOverlayLabel": "オーバーレイ中",
     "openIDE": "クリックしてIDEを開く",
-    "agentGone": "エージェント利用不可",
+    "agentGone": "Agent利用不可",
     "toggleShow": "デスクトップオーバーレイのバブルを表示",
     "toggleHide": "デスクトップオーバーレイのバブルを非表示",
     "menu": {
@@ -3511,8 +3604,8 @@
       "exitFullscreen": "フルスクリーン終了"
     },
     "contextMenu": {
-      "createCustomAgent": "カスタムエージェントを作成",
-      "createCmdAgent": "CMDエージェントを作成",
+      "createCustomAgent": "Custom Agentを作成",
+      "createCmdAgent": "CMD Agentを作成",
       "createCmdAgentHint": "自分で操作するインタラクティブターミナル（サブスクリプション課金）",
       "createAutoAgent": "Auto Agentを作成",
       "createAutoAgentHint": "メタエージェント — プロンプトからカスタムエージェントチームを自動スポーン",
@@ -3529,7 +3622,7 @@
       "appUninstall": "アンインストール",
       "appInstall": "インストール",
       "appsHelp": "行をクリックするとキャンバスにバブルとしてドロップされます。バブルをダブルクリックで開き、右クリックで管理します。",
-      "createLab": "エージェントラボ",
+      "createLab": "Agent Lab",
       "createLabHint": "同じタスクを設定だけ変えて複数回実行し、表で比較する",
       "createLocalAgent": "モデル一覧",
       "createLocalAgentHint": "このPCで動作するモデル用のバブルを置きます",
@@ -3663,7 +3756,7 @@
       "col": {
         "variant": "バリアント",
         "model": "モデル",
-        "effort": "Effort",
+        "effort": "労力",
         "permission": "権限",
         "status": "状態",
         "duration": "時間",
@@ -3742,7 +3835,7 @@
       "backendShort": "BE"
     },
     "notifications": {
-      "agentCompleted": "エージェント完了 — クリックして結果を表示",
+      "agentCompleted": "Agent完了 — クリックして結果を表示",
       "loopCompleted": "ループ完了 — クリックして結果を表示"
     },
     "bubble": {
@@ -3790,6 +3883,9 @@
       "snipFailed": "キャプチャに失敗しました: {{error}}"
     },
     "close": "閉じる",
+    "msg": {
+      "requestFailed": "Failed ({{status}})"
+    },
     "minimize": "最小化",
     "maximize": "最大化",
     "play": "再生",
@@ -3821,7 +3917,7 @@
       "fact": "事実"
     },
     "scopeProject": "プロジェクトメモリー",
-    "scopeAgent": "エージェントメモリー",
+    "scopeAgent": "Agentメモリー",
     "statusGhost": "要確認",
     "supersededNote": "以前の内容",
     "needsCheckBadge": "要確認",
@@ -3862,7 +3958,7 @@
     "summaryRecent": "最近保存",
     "openLibrary": "記憶ライブラリを開く",
     "trashedAt": "破棄日時",
-    "trashedMemories": "エージェントメモリー",
+    "trashedMemories": "Agentメモリー",
     "cardCountUnit": "枚",
     "restore": "復元",
     "purge": "完全に削除",
@@ -3877,7 +3973,7 @@
     "cardCountUnitSuffix": "",
     "feed": {
       "title": "プロジェクトメモリー",
-      "agentTitle": "このエージェントのメモリー",
+      "agentTitle": "このAgentのメモリー",
       "searchPlaceholder": "メモリーを検索…",
       "sectionRelated": "現在の作業に関連",
       "sectionRecent": "最近学んだこと",

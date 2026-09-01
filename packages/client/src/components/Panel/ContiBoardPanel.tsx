@@ -261,6 +261,7 @@ function FrameCard({
   isDragging: boolean;
   onPatchText: (patch: { title?: string; action?: string }) => void;
 }): React.JSX.Element {
+  const { t } = useTranslation();
   /** v1.61 — 커스텀 드래그에서 cursor offset 계산용 카드 root ref. */
   const cardRootRef = useRef<HTMLDivElement>(null);
   // §5.3 #28 v1.61 — title / action 더블클릭 → 인라인 편집. blur/Enter 커밋, Esc 취소.
@@ -305,9 +306,9 @@ function FrameCard({
         }}
         onClick={(e) => e.stopPropagation()}
         className="-mx-1 flex cursor-grab items-center justify-between gap-2 rounded-md bg-gray-900/50 px-3 py-2 transition-colors hover:bg-gray-900/80 active:cursor-grabbing"
-        title="Drag to reorder"
+        title={t('panel.contiBoard.dragToReorder')}
       >
-        <span className="text-[12px] font-semibold uppercase tracking-wider text-gray-300">FRAME {index + 1}</span>
+        <span className="text-[12px] font-semibold uppercase tracking-wider text-gray-300">{t('panel.contiBoard.frameLabel', { n: index + 1 })}</span>
         <svg className="h-5 w-5 text-gray-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <circle cx="9" cy="6" r="1.4" /><circle cx="15" cy="6" r="1.4" />
           <circle cx="9" cy="12" r="1.4" /><circle cx="15" cy="12" r="1.4" />
@@ -333,7 +334,7 @@ function FrameCard({
         <div
           onDoubleClick={beginEdit('title', frame.title)}
           className="cursor-text text-base font-semibold leading-tight text-gray-100"
-          title="Double-click to edit"
+          title={t('panel.contiBoard.doubleClickToEdit')}
         >
           {frame.title}
         </div>
@@ -379,7 +380,7 @@ function FrameCard({
         <div
           onDoubleClick={beginEdit('action', frame.action)}
           className="cursor-text text-xs leading-snug text-gray-300"
-          title="Double-click to edit"
+          title={t('panel.contiBoard.doubleClickToEdit')}
         >
           {frame.action}
         </div>
@@ -909,7 +910,7 @@ export function ContiBoardPanel(): React.JSX.Element | null {
                 <svg className="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M12 5v14M5 12l7 7 7-7" />
                 </svg>
-                <span className="text-[12px] font-semibold uppercase tracking-wider">Drop here</span>
+                <span className="text-[12px] font-semibold uppercase tracking-wider">{t('panel.contiBoard.dropHere')}</span>
               </div>
             </div>
           )}

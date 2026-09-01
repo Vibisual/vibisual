@@ -337,7 +337,7 @@ export function VideoStudioShell({ params }: AppShellProps): React.JSX.Element {
           status: 'done',
           progress: 1,
           bytes: btoa(binary),
-          ...(selection?.downgraded === true ? { note: `렌더 방식 강등: ${selection.chosen}` } : {}),
+          ...(selection?.downgraded === true ? { note: t('panel.videoStudio.downgraded', { id: selection.chosen }) } : {}),
         });
         setRenderPct(null);
         // 소리가 안 실렸으면 그대로 알린다 — 무음 파일을 받고 나서야 아는 일이 없게.

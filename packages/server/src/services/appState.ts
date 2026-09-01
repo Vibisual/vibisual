@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { AppState, AppStatePatch, RetentionSettings } from '@vibisual/shared';
-import { APP_STATE_BACKUP_GENERATIONS, normalizeRetentionSettings } from '@vibisual/shared';
+import { APP_STATE_BACKUP_GENERATIONS, normalizeRetentionSettings, normalizeBgTaskProbeSettings, type BackgroundTaskProbeSettings } from '@vibisual/shared';
 import { atomicWriteFileSync, rotateBackups, loadFromBackups } from './statePersistence.js';
 // 경로 대소문자 정책 SSOT — win32/darwin 만 접고 linux 는 접지 않는다.
 import { pathKey } from './pathKey.js';
@@ -181,6 +181,8 @@ function normalize(raw: Partial<AppState> | null | undefined): AppState {
     // §3.2.3 — 저장돼 있을 때만 실는다. 없으면 undefined 로 두어 `appStateGetRetention()` 이
     // 기본값을 내주게 한다(구버전 AppState 하위호환 + 기본값이 나중에 바뀌면 자동 추종).
     retention: raw.retention ? normalizeRetentionSettings(raw.retention) : undefined,
+    // §5.5 #17-9 ⑭(g) — 같은 규약: 저장돼 있을 때만 실어 기본값 변경을 자동 추종한다.
+    bgTaskProbe: raw.bgTaskProbe ? normalizeBgTaskProbeSettings(raw.bgTaskProbe) : undefined,
     updatedAt: typeof raw.updatedAt === 'number' ? raw.updatedAt : 0,
   };
 }
@@ -293,6 +295,7 @@ export function saveAppState(state: AppState): void {
     atomicWriteFileSync(APP_STATE_FILE, JSON.stringify(withTimestamp, null, 2));
     cached = withTimestamp;
     retentionMemo = null; // 다른 경로가 상태를 통째로 갈아끼웠을 수 있다 — 다음 조회 때 다시 만든다.
+    bgTaskProbeMemo = null; // 같은 이유 — 두 메모가 갈리면 한쪽만 옛 값을 들고 판정한다.
   } catch (err) {
     logger.error(`AppState save failed: ${err instanceof Error ? err.message : String(err)}`);
   }
@@ -338,6 +341,29 @@ export function appStateSetRetention(patch: Partial<RetentionSettings>): Retenti
   const current = loadAppState();
   saveAppState({ ...current, retention: merged });
   retentionMemo = merged; // saveAppState 가 방금 비운 메모를 확정값으로 다시 채운다.
+  return merged;
+}
+
+let bgTaskProbeMemo: BackgroundTaskProbeSettings | null = null;
+
+/**
+ * §5.5 #17-9 ⑭(g) — 표식 없이 조용한 백그라운드 작업을 스스로 판정할지.
+ * 저장된 값이 없으면 `DEFAULT_BG_TASK_PROBE_SETTINGS`. `quietMinutes: 0` 은 "끔"이다.
+ */
+export function appStateGetBgTaskProbe(): BackgroundTaskProbeSettings {
+  if (bgTaskProbeMemo) return bgTaskProbeMemo;
+  bgTaskProbeMemo = normalizeBgTaskProbeSettings(loadAppState().bgTaskProbe);
+  return bgTaskProbeMemo;
+}
+
+/** 판정 설정 부분 갱신 → 정규화 후 저장. 반환은 저장된 최종본. */
+export function appStateSetBgTaskProbe(
+  patch: Partial<BackgroundTaskProbeSettings>,
+): BackgroundTaskProbeSettings {
+  const merged = normalizeBgTaskProbeSettings({ ...appStateGetBgTaskProbe(), ...patch });
+  const current = loadAppState();
+  saveAppState({ ...current, bgTaskProbe: merged });
+  bgTaskProbeMemo = merged; // saveAppState 가 방금 비운 메모를 확정값으로 다시 채운다.
   return merged;
 }
 

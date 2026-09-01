@@ -72,7 +72,7 @@
       "commandCenterHint": "커맨드 센터 열기 — 이 프로젝트에서 지금 나를 기다리는 것 보기",
       "openNew": "새 창으로 열기",
       "bringToFront": "앞으로 가져오기",
-      "settings": "에이전트 설정",
+      "settings": "Agent 설정",
       "expand": "펴기",
       "collapse": "접기",
       "close": "창 닫기",
@@ -214,7 +214,7 @@
       "cat": {
         "start": "시작하기",
         "bubbleMap": "버블맵",
-        "agents": "에이전트",
+        "agents": "Agent",
         "taskEdges": "태스크 엣지",
         "ide": "IDE 오버레이",
         "navigation": "탐색",
@@ -244,11 +244,11 @@
       },
       "agents": {
         "intro": "수동 추적을 넘어, 캔버스에서 직접 에이전트를 만들고 조율할 수 있습니다.",
-        "customT": "커스텀 에이전트",
+        "customT": "Custom Agent",
         "customD": "캔버스에서 우클릭하면 나만의 에이전트 버블을 생성하고 명령을 내릴 수 있습니다.",
-        "autoT": "오토 에이전트",
+        "autoT": "Auto Agent",
         "autoD": "원하는 것을 평범한 말로 설명하면 빌더 에이전트가 팀 전체를 설계하고 구성합니다.",
-        "configT": "에이전트 설정",
+        "configT": "Agent 설정",
         "configD": "버블을 클릭해 모델, 도구, 권한 모드, 사고 깊이, 격리 모드, 색상을 설정합니다.",
         "pipelineT": "서브 에이전트 · 파이프라인",
         "pipelineD": "독립 세션을 실행하거나 파이프라인·팀·하이브리드 전략으로 에이전트를 연결합니다."
@@ -307,7 +307,7 @@
       "memory": {
         "intro": "프로젝트 메모리는 잘 통한 방식을 기억해 두었다가 다음 작업에 다시 실어 줍니다. 기본은 꺼짐이고 프로젝트마다 따로 켜며, 꺼도 기록은 지워지지 않습니다.",
         "turnOnT": "켜는 법",
-        "turnOnD": "캔버스 빈 곳을 우클릭해 \"프로젝트 메모리 켜기\"를 누르거나, File > Options > 프로젝트 메모리에서 켭니다. 바로 반영되며 재시작이 필요 없습니다.",
+        "turnOnD": "캔버스 빈 곳을 우클릭해 \"프로젝트 메모리 켜기\"를 누르거나, 파일 > 옵션 > 프로젝트 메모리에서 켭니다. 바로 반영되며 재시작이 필요 없습니다.",
         "bubbleT": "메모리 버블",
         "bubbleD": "켜면 캔버스에 인디고 버블이 서고 그 안에 쌓인 카드 수가 보입니다. 더블클릭하면 라이브러리가 열리고, 마우스를 올리면 요약이 뜹니다.",
         "skillsT": "절차 기억",
@@ -341,7 +341,7 @@
       "comingSoon": "준비 중",
       "comingSoonDesc": "이 항목은 향후 설정을 위해 예약되어 있습니다.",
       "categories": {
-        "agent": "에이전트 기본값",
+        "agent": "Agent 기본값",
         "appearance": "외관",
         "notifications": "알림",
         "permissions": "권한",
@@ -363,6 +363,7 @@
         "scanning": "설치 항목 검색 중…",
         "claudeCode": "Claude Code (사용 중)",
         "current": "현재",
+        "versionLabel": "버전:",
         "latest": "최신 (npm)",
         "updateAvailable": "업데이트 가능",
         "upToDate": "최신 상태",
@@ -374,6 +375,7 @@
         "unknownVer": "알 수 없음",
         "restartHint": "선택이 저장되었습니다. 새로 생성되는 에이전트에 적용하려면 Vibisual을 재시작하세요.",
         "about": "정보",
+        "platform": "플랫폼",
         "repo": "GitHub 저장소",
         "marketplace": "VS Code Marketplace의 Claude Code",
         "selectionApplied": "선택을 저장하고 바로 적용했습니다 — 새로 스폰되는 에이전트부터 이 실행본을 씁니다.",
@@ -463,7 +465,7 @@
             "desc": "세션마다 남기는 내 말풍선 개수입니다. 다시 만들 수 없는 원문이라 넉넉하게 둡니다. 0 = 무제한."
           },
           "subStreamRetentionDays": {
-            "label": "에이전트 대화 기록 보존",
+            "label": "Agent 대화 기록 보존",
             "desc": "앱을 켤 때 정리합니다. 살아있는 세션과 다시 열기 목록에 있는 세션은 나이와 무관하게 남깁니다. 0 = 계속 보존."
           },
           "attachmentRetentionDays": {
@@ -510,7 +512,21 @@
       },
       "advanced": {
         "terminalScrollback": "터미널 스크롤백 (줄)",
-        "terminalScrollbackDesc": "CMD 터미널이 보관하는 출력 줄 수입니다. 화면 스크롤과 {{shortcut}} 검색이 같은 범위를 씁니다. 새로 여는 터미널부터 적용됩니다."
+        "terminalScrollbackDesc": "CMD 터미널이 보관하는 출력 줄 수입니다. 화면 스크롤과 {{shortcut}} 검색이 같은 범위를 씁니다. 새로 여는 터미널부터 적용됩니다.",
+        "bgProbeTitle": "조용한 백그라운드 작업",
+        "bgProbeIntro": "백그라운드 명령이 조용하다고 끝난 것은 아닙니다 — 무언가를 기다리는 명령은 원래 조용합니다. 그래서 Vibisual 은 경과 시간만으로 항목을 내리지 않습니다. 대신 종료 표식 없이 오래 조용한 항목이 생기면, 작은 판정 에이전트에게 한 번만 물어봅니다: 이 명령에 스스로 끝나는 조건이 있는지, 그 조건이 이미 충족됐는지.",
+        "bgProbeEnabled": "조용한 작업에 물어보기",
+        "bgProbeEnabledDesc": "끄면 이 일로 모델을 부르지 않습니다. 조용한 항목은 직접 내리기 전까지 목록에 그대로 남습니다.",
+        "bgProbeQuiet": "이만큼 조용하면 물어보기 (분)",
+        "bgProbeQuietDesc": "조용한 시간은 언제 물어볼지만 정합니다 — 답을 정하지는 않습니다. 0 이면 물어보지 않습니다.",
+        "bgProbeAutoClose": "답이 \"끝났다\"이면 항목을 내리기",
+        "bgProbeAutoCloseDesc": "끄면 답을 카드에 적기만 하고 판단은 사용자가 합니다. \"아직 도는 중\"과 \"판단 못 함\"은 어느 쪽이든 아무것도 내리지 않습니다.",
+        "bgProbeKill": "그 명령이 띄운 프로세스도 함께 끊기",
+        "bgProbeKillDesc": "장부에서만 지우면 명령은 계속 돕니다. 그 세션 아래에서 명령줄이 이 작업과 맞는 프로세스만 손댑니다.",
+        "bgProbeModel": "답하는 모델",
+        "bgProbeModelDesc": "도구 없이, 프로젝트에 접근하지 않고 한 번만 묻습니다 — 명령 원문과 출력 꼬리 조금이 전부입니다.",
+        "bgProbeLoadError": "지금 설정을 읽지 못했습니다.",
+        "bgProbeSaveError": "저장하지 못했습니다. 아무것도 바뀌지 않았습니다."
       },
       "notifications": {
         "cmdBlocked": "CMD 세션이 입력을 기다리면 알림",
@@ -518,7 +534,7 @@
       }
     },
     "autoAgent": {
-      "title": "오토 에이전트",
+      "title": "Auto Agent",
       "description": "하네스 설정 자동 툴입니다. 목표를 설명하면 빌더 에이전트가 알맞은 에이전트·모델·도구·권한을 고르고 작업 연결(Task Edge)까지 엮어 멀티-에이전트 하네스를 자동 설계·실행합니다. 버블·엣지를 손으로 배치할 필요가 없습니다.",
       "placeholder": "목표를 설명해 주세요 — 예: \"대시보드에 OAuth 로그인 추가하고 테스트까지\". 에이전트·모델·도구를 골라 연결해 드립니다.",
       "send": "하네스 구축",
@@ -602,7 +618,7 @@
       "distilling": "요약 중…",
       "distillFailed": "요약에 실패했습니다 — 다시 시도해 주세요",
       "proposalTitle": "싫어요에서 뽑은 규칙 제안",
-      "proposalHint": "아래 규칙을 검토·수정하세요. 적용을 눌러야 이 에이전트의 Agent Rules 에 추가됩니다(Rules 히스토리로 되돌리기 가능).",
+      "proposalHint": "아래 규칙을 검토·수정하세요. 적용을 눌러야 이 에이전트의 Agent 규칙에 추가됩니다(Rules 히스토리로 되돌리기 가능).",
       "apply": "규칙에 추가",
       "applying": "추가 중…",
       "cancel": "취소"
@@ -623,17 +639,20 @@
       "path": "경로",
       "sessionId": "세션 ID",
       "type": "유형",
+      "agentBadge": "Agent",
       "status": "상태",
       "activity": "활동",
+      "activityEvents": "이벤트 {{n}}개",
       "billableTokens": "청구 토큰",
       "context": "컨텍스트",
       "model": "모델",
       "tools": "도구",
       "perm": "권한",
-      "agentSettings": "에이전트 설정",
+      "agentSettings": "Agent 설정",
       "hookAgentSettingsLocked": "훅으로 등록된 에이전트는 Claude Code 자체가 소유합니다. 설정은 캔버스에서 생성한 에이전트에서만 변경할 수 있습니다.",
       "files": "파일",
-      "activeAgents": "활성 에이전트",
+      "activeAgents": "활성 Agent",
+      "goToAgent": "이 agent로 이동",
       "lastTools": "마지막 도구",
       "contextCompacted": "컨텍스트 압축됨",
       "compactSummary": "{{count}}회 · 마지막 {{ago}}",
@@ -654,6 +673,14 @@
       "persist": "유지 (페이드 아웃 방지)",
       "lastTool": "마지막 도구",
       "contiHistory": "콘티 히스토리"
+    },
+    "agentEventList": {
+      "prompt": "프롬프트",
+      "queueBadge": "대기열",
+      "tokenUsage": "토큰 사용량",
+      "waited": "{{time}} 대기",
+      "closePopup": "팝업 닫기",
+      "result": "결과"
     },
     "contiHistory": {
       "title": "콘티 히스토리",
@@ -679,6 +706,10 @@
       "addFrame": "프레임 추가",
       "deleteFrame": "삭제",
       "editFrame": "텍스트 편집",
+      "frameLabel": "프레임 {{n}}",
+      "dragToReorder": "드래그하여 순서 변경",
+      "doubleClickToEdit": "더블클릭하여 편집",
+      "dropHere": "여기에 놓기",
       "editTitlePrompt": "프레임 제목:",
       "editActionPrompt": "프레임 액션:",
       "zoomReset": "{{shortcut}} 초기화",
@@ -734,6 +765,7 @@
       "addCommand": "명령 추가",
       "removeAttachment": "첨부 제거",
       "uploading": "업로드 중...",
+      "attachmentError": "오류",
       "attached": "첨부됨",
       "waitingForUpload": "업로드 대기 중..."
     },
@@ -768,7 +800,7 @@
       "untrackedLabel": "추적되지 않음",
       "recentCommits": "최근 커밋",
       "coAuthoredByClaude": "Claude와 공동 작성",
-      "worktrees": "Worktrees",
+      "worktrees": "Worktree",
       "goToWorktree": "Worktree {{name}}으로 이동",
       "uncommittedChangesTitle": "미커밋 변경사항",
       "mergeInto": "{{branch}}에 베이스 병합",
@@ -824,11 +856,11 @@
         "inactiveWarn": "대상 에이전트에 도구가 없어 이 엣지가 소스 프롬프트에 주입되지 않습니다. 대상에 도구를 추가하면 자동으로 복원됩니다.",
         "footnote": "이 섹션은 엣지 상태에서 자동 생성됩니다. 서브에이전트 실행 시 프롬프트에 주입되어 에이전트가 위임 가능 여부와 방식을 알 수 있습니다."
       },
-      "title": "에이전트 설정",
+      "title": "Agent 설정",
       "cancel": "취소",
       "save": "저장",
       "saving": "저장 중...",
-      "agentRules": "에이전트 규칙",
+      "agentRules": "Agent 규칙",
       "noRulesDefined": "규칙 없음 — 클릭하여 편집",
       "lines": "{{count}}줄",
       "projectContext": "프로젝트 컨텍스트",
@@ -848,7 +880,7 @@
         "default": "Manual — 위험한 작업(쓰기, 셸) 시 확인 요청.",
         "acceptEdits": "파일 편집(Write, Edit) 자동 승인. Bash는 여전히 확인 요청.",
         "plan": "읽기 전용. 파일 수정이나 명령 실행 불가.",
-        "bypassPermissions": "확인 없음. 에이전트가 모든 확인 없이 실행.",
+        "bypassPermissions": "확인 없음. Agent가 모든 확인 없이 실행.",
         "auto": "CLI 분류기가 호출마다 허용/차단을 판정합니다. Vibisual 팝업은 뜨지 않습니다.",
         "dontAsk": "묻지 않습니다. 사전 승인이 없으면 거부 — 자리를 비운 무인 실행용."
       },
@@ -959,6 +991,9 @@
       "maxBudgetUsd": "비용 상한 ($, 0=무제한)",
       "defaultSkills": "기본 스킬",
       "addSkill": "+ 스킬 추가",
+      "skillSourceProject": "프로젝트",
+      "skillSourceGlobal": "전역",
+      "skillSourcePlugin": "설치된 플러그인",
       "color": "색상",
       "fieldTips": {
         "model": "이 에이전트가 사용하는 Claude 모델.",
@@ -1111,7 +1146,8 @@
         "unset": "미설정",
         "on": "켬",
         "off": "끔"
-      }
+      },
+      "contextNotAccessible": "접근 불가 (Claude Code 내부)"
     },
     "permissionPrompt": {
       "title": "권한 필요",
@@ -1202,16 +1238,17 @@
       "conversationHistory": "대화 내역"
     },
     "debugPanel": {
-      "title": "Debug",
+      "title": "디버그",
       "close": "닫기",
       "project": "프로젝트",
       "projectName": "이름",
       "projectPath": "경로",
-      "agents": "에이전트",
+      "agents": "Agent",
       "nodes": "노드",
       "edges": "엣지",
       "noProject": "활성 프로젝트 없음",
       "fps": "fps",
+      "inputLag": "입력 지연",
       "fpsTip": "초당 렌더 프레임 수",
       "visibility": "가시성",
       "profiling": {
@@ -1231,8 +1268,8 @@
       "errorLog": "오류 로그",
       "noErrors": "캡처된 오류 없음",
       "servers": "서버",
-      "frontend": "Frontend",
-      "backend": "Backend",
+      "frontend": "프런트엔드",
+      "backend": "백엔드",
       "webSocket": "WebSocket",
       "actions": "액션",
       "restarting": "재시작 중...",
@@ -1280,6 +1317,7 @@
     },
     "serverList": {
       "heading": "서버 ({{count}})",
+      "serverLabel": "서버",
       "refresh": "새로고침",
       "empty": "실행 중인 서버 없음",
       "running": "실행 중",
@@ -1370,12 +1408,12 @@
       "collectorFailed": "사용량 수집기 설정에 연결하지 못했습니다.",
       "collectorRestartHint": "이 스위치가 꺼져 있어도 Vibisual 이 주기적으로 사용량을 받아옵니다 — 수집기는 대화형 세션이 도는 동안 그 값을 더 자주 갱신해 줄 뿐입니다.",
       "localTitle": "Vibisual 의 이 프로젝트",
-      "localAgents": "에이전트",
+      "localAgents": "Agent",
       "localInput": "입력 토큰",
       "localOutput": "출력 토큰",
       "localHint": "활성 프로젝트 탭의 에이전트 기준입니다. 위 플랜 한도는 계정 전체라 Vibisual 밖에서 쓴 몫도 포함합니다.",
       "emptyOff": "아직 사용량 데이터가 없습니다 — 수집기가 꺼져 있습니다. 아래에서 켜신 뒤 인터랙티브 Claude Code 세션을 한 번 열어 주세요.",
-      "emptyWaiting": "수집기는 켜져 있고 첫 값을 기다리는 중입니다. 값은 인터랙티브 Claude Code 세션이 상태줄을 그릴 때 들어옵니다 — 캔버스의 터미널 버블이나 에디터의 Claude Code 입니다. Vibisual 이 헤드리스로 돌리는 에이전트는 상태줄이 없어 보고하지 않습니다.",
+      "emptyWaiting": "수집기는 켜져 있고 첫 값을 기다리는 중입니다. 값은 인터랙티브 Claude Code 세션이 상태줄을 그릴 때 들어옵니다 — 캔버스의 터미널 버블이나 에디터의 Claude Code 입니다. Vibisual 이 헤드리스로 돌리는 Agent는 상태줄이 없어 보고하지 않습니다.",
       "refresh": "새로고침",
       "weeklyScoped": "주간 한도 — {{model}}",
       "creditsTitle": "사용 크레딧",
@@ -1414,12 +1452,12 @@
         "settingsSection": "설정 섹션",
         "ideView": "IDE 뷰",
         "headerItem": "헤더 항목",
-        "agentPrompt": "에이전트 집행",
+        "agentPrompt": "Agent 집행",
         "contextMenuItem": "컨텍스트 메뉴",
         "hookSubscriber": "훅 구독",
         "restRoute": "REST 라우트",
         "wsMessage": "WS 메시지",
-        "agentConfigField": "에이전트 설정",
+        "agentConfigField": "Agent 설정",
         "brainCardKind": "기억 카드 종류",
         "bubbleType": "버블 타입",
         "edgeKind": "엣지 종류"
@@ -1584,6 +1622,12 @@
       "noAudio": "소리 없이 나갔습니다.",
       "downgraded": "렌더 방식이 내려갔습니다: {{id}}",
       "previewFailed": "미리보기를 그리지 못했습니다.",
+      "errNoDoc": "No document is open.",
+      "errNoStage": "Could not find a place to attach the stage.",
+      "errNoRenderBackend": "No render mode is available on this device.",
+      "errNoOffscreen": "Offscreen windows are not available in this build.",
+      "errNoOffscreenBridge": "The offscreen bridge is not available.",
+      "errRequestFailed": "The request failed ({{status}}).",
       "reloaded": "다른 곳에서 문서가 바뀌어 다시 읽었습니다."
     },
     "cost": {
@@ -1720,7 +1764,7 @@
     "projectFolder": {
       "title": "프로젝트 폴더 선택",
       "intro": "Claude Code 설치와 로그인이 끝났습니다. 마지막으로 에이전트가 작업할 폴더를 선택하세요 — 보통 프로젝트나 저장소의 루트입니다.",
-      "blocked": "아직 아무것도 만들지 않았습니다 — 열려 있는 프로젝트 폴더가 없습니다. 에이전트는 선택한 폴더 안에서 작업하므로 폴더부터 선택하세요.",
+      "blocked": "아직 아무것도 만들지 않았습니다 — 열려 있는 프로젝트 폴더가 없습니다. Agent는 선택한 폴더 안에서 작업하므로 폴더부터 선택하세요.",
       "detail": "Vibisual이 프로젝트에 대해 저장하는 모든 것은 그 폴더 안에 있으며, 에이전트도 그 폴더 아래의 파일만 읽고 수정할 수 있습니다. 폴더는 나중에 파일 → 폴더 열기에서 더 추가할 수 있습니다.",
       "cancelled": "아직 폴더를 선택하지 않았습니다. 계속하려면 폴더를 선택하세요.",
       "choose": "폴더 선택",
@@ -1798,11 +1842,11 @@
       "cmdLabel": "CMD",
       "hookLabel": "Hook",
       "renameHint": "더블클릭하여 이름 변경 (F2)",
-      "renameInputLabel": "에이전트 이름",
-      "localLabel": "All Model",
+      "renameInputLabel": "Agent 이름",
+      "localLabel": "전체 모델",
       "localSwitchModel": "이 버블이 쓸 모델 바꾸기",
       "localContextUsed": "대화 창 {{used}} / {{limit}} 토큰 ({{percent}}%) — 넘치면 오래된 말부터 덜어 냅니다",
-      "agentSettings": "에이전트 설정",
+      "agentSettings": "Agent 설정",
       "collapseLabel": "접기",
       "collapseHint": "접기 — 창은 그대로 두고 캔버스를 돌려줍니다(헤더 [창] 목록에서 다시 펴기)",
       "resizeWindow": "창 크기 조절",
@@ -1913,7 +1957,7 @@
       "inputCtxSelectAll": "전체 선택",
       "ctxSaveToBrain": "메모리에 기억",
       "stopAll": "전체 중지",
-      "stopAllTitle": "이 에이전트가 돌리는 것 전부 중지(다른 탭 + 백그라운드 서브에이전트)",
+      "stopAllTitle": "이 에이전트가 돌리는 것 전부 중지(다른 탭 + 백그라운드 작업)",
       "stopSessionTitle": "이 세션과 여기서 시작된 서브 에이전트를 중지합니다 (다른 세션 탭은 계속 실행됩니다)"
     },
     "memo": {
@@ -1950,7 +1994,7 @@
       "skills": "스킬",
       "bookmarks": "북마크",
       "sessionSummary": "세션 요약",
-      "runningSubagents": "실행 중 서브에이전트 ({{count}})",
+      "runningSubagents": "백그라운드 작업 ({{count}})",
       "loop": "반복 루프",
       "goal": "목표",
       "debug": "실행·디버그",
@@ -2052,7 +2096,7 @@
         "unreal": "에디터가 -WaitForDebugger 로 떠서 디버거가 붙을 때까지 멈춰 섭니다 — [디버거 붙이기]를 누르고 Visual Studio 에서 중단점을 쓰세요. 로그는 [출력]으로 흐릅니다.",
         "unsupported": "이 명령에 얹을 디버그 인자를 알지 못합니다."
       },
-      "mcpTitle": "에이전트 디버그 도구",
+      "mcpTitle": "Agent 디버그 도구",
       "mcpHint": "Vibisual 은 디버거를 직접 만들지 않습니다. 이미 있는 MCP 서버를 이 에이전트에 연결해, 에이전트가 직접 브레이크포인트를 걸고 상태를 들여다보게 합니다.",
       "mcpApplyHint": "변경 이후에 시작되는 세션부터 적용됩니다(이미 떠 있는 세션은 그대로).",
       "docs": "문서",
@@ -2343,7 +2387,7 @@
       "sessionOne": "{{count}}개 세션",
       "sessionMany": "{{count}}개 세션",
       "autoCompact": "자동 압축 {{value}}",
-      "autoCompactTip": "컨텍스트가 이 크기에 이르면 CLI 가 대화를 스스로 요약해 줄입니다. 에이전트별로는 에이전트 설정 창에서, 전체 기본값은 File > Options > Agent Defaults 에서 바꿀 수 있습니다."
+      "autoCompactTip": "컨텍스트가 이 크기에 이르면 CLI 가 대화를 스스로 요약해 줄입니다. 에이전트별로는 Agent 설정 창에서, 전체 기본값은 파일 > 옵션 > Agent 기본값에서 바꿀 수 있습니다."
     },
     "search": {
       "placeholder": "대화에서 검색",
@@ -2505,19 +2549,26 @@
       "dismiss": "닫기"
     },
     "runningSubagents": {
-      "title": "실행 중 서브에이전트",
+      "title": "백그라운드 작업",
       "close": "닫기",
-      "empty": "지금 도는 서브에이전트가 없습니다.",
-      "untitled": "서브에이전트",
-      "scopeAll": "이 에이전트가 돌리는 서브에이전트 전부를 보고 있습니다.",
-      "scopeSession": "\"{{label}}\" 세션이 띄운 서브에이전트만 보고 있습니다.",
-      "emptySession": "이 세션이 띄운 서브에이전트가 없습니다.",
-      "hint": "이 자리는 이 세션이 백단에 띄운 서브에이전트만 보여 줍니다 — 지금 나누는 대화 자체는 세지 않습니다. 도는 동안에는 왼쪽 아이콘에 불이 들어오고 그 아래에 개수가 뜹니다.",
+      "empty": "지금 백단에서 도는 작업이 없습니다.",
+      "untitled": "이름 없는 작업",
+      "kindAgent": "서브에이전트",
+      "kindAgentTip": "Task·Agent 도구로 띄운 AI 자식입니다. 모델이 돌기 때문에 토큰을 씁니다.",
+      "kindShell": "셸",
+      "kindShellTip": "백그라운드 Bash·Monitor 명령입니다. 모델이 아니라 명령이 도는 것이라 토큰을 쓰지 않습니다. 스스로 끝나지 않는 명령(tail -f, while true)은 직접 내리기 전까지 여기 남습니다.",
+      "scopeAll": "이 에이전트가 백단에 돌리는 작업 전부를 보고 있습니다.",
+      "scopeSession": "\"{{label}}\" 세션이 백단에 띄운 작업만 보고 있습니다.",
+      "emptySession": "이 세션이 백단에 띄운 작업이 없습니다.",
+      "hint": "이 자리는 이 세션이 백단에 띄운 것만 보여 줍니다 — 지금 나누는 대화 자체는 세지 않습니다. 서브에이전트는 토큰을 쓰는 AI 자식이고, 셸은 토큰을 쓰지 않는 백그라운드 Bash·Monitor 명령입니다. 도는 동안에는 왼쪽 아이콘에 불이 들어오고 그 아래에 개수가 뜹니다.",
       "othersRunning": "다른 곳에서 {{count}}개 더 실행 중",
       "startedAt": "시작 {{time}}",
       "endedAt": "종료 {{time}}",
       "finishedTitle": "방금 끝난 것",
       "noResult": "결과가 오지 않았습니다.",
+      "exitCode": "종료 코드 {{code}}",
+      "exitKilled": "중지됨",
+      "exitFromFileTip": "끝 통지가 오지 않아, 하니스가 작업 출력 파일에 적어 둔 종료 표식에서 읽었습니다.",
       "resultRescued": "기록에서 복구 — 세션에는 전달되지 않음",
       "resultRescuedTitle": "이 자식은 보고하기 전에 끊겨(중지·탭 닫기·크래시) 세션이 이 내용을 받지 못했습니다. Vibisual 이 디스크에 남은 에이전트 기록에서 되찾은 것입니다.",
       "toggleResult": "결과 전문 펼치기·접기",
@@ -2525,8 +2576,23 @@
       "nowUsing": "지금 쓰고 있는 도구",
       "duration": "{{value}} 걸림",
       "noResponse": "무응답 {{value}}",
+      "quietFor": "{{value}} 째 조용",
+      "quietForTip": "이 작업의 출력 파일이 그동안 바뀌지 않았습니다. 조용하다고 끝난 것은 아닙니다 — 무언가를 기다리는 명령은 정상적으로 조용합니다.",
+      "probing": "아직 도는지 확인 중",
+      "probingTip": "종료 표식 없이 오래 조용해서, 판정 에이전트를 한 번 띄웠습니다. 이 명령이 스스로 끝나는 조건을 가졌는지, 그 조건이 이미 충족됐는지만 물어봅니다.",
+      "probeAlive": "아직 도는 중",
+      "probeUnknown": "판단 못 함 — 그대로 둡니다",
+      "probeFinished": "확인 후 자동 정리",
+      "probeTip": "끝나는 조건: {{condition}} · 판정 {{model}}",
+      "probeTipNoCondition": "스스로 끝나는 조건을 찾지 못했습니다 · 판정 {{model}}",
+      "probeAt": "{{time}} 에 확인",
+      "closedByProcessGone": "세션이 사라져 정리됨",
+      "closedByProcessGoneTip": "이 작업을 띄운 세션의 프로세스가 없어졌습니다. 결과를 받을 곳이 없어 목록에서 내렸습니다.",
+      "closedByUser": "직접 내림",
+      "killedProcesses": "프로세스 {{count}}개 끊음",
+      "killedProcessesTip": "정리하면서 이 명령이 띄운 프로세스를 함께 끊었습니다. 장부에서만 지우면 명령은 계속 돌기 때문입니다.",
       "dismiss": "더 안 기다림",
-      "dismissTip": "이 목록에서 내립니다. 프로세스를 끊지는 않습니다 — 자식을 끊는 것은 그 자식을 띄운 에이전트가 TaskStop 으로 합니다."
+      "dismissTip": "이 목록에서 내립니다. 프로세스를 끊지는 않습니다 — 서브에이전트는 그것을 띄운 에이전트가 TaskStop 으로, 셸은 KillShell 로 끊습니다."
     },
     "loop": {
       "title": "반복 루프",
@@ -2741,7 +2807,7 @@
       },
       "src": {
         "skillsPrefix": "스킬 앞머리",
-        "agentRules": "에이전트 규칙",
+        "agentRules": "Agent 규칙",
         "edges": "나가는 엣지 지시",
         "feedback": "지난 사용자 피드백",
         "intentFirst": "의도 먼저 말하기",
@@ -2769,11 +2835,11 @@
         "hooks": "훅",
         "systemPrompt": "Claude Code 시스템 프롬프트",
         "brainSkills": "메모리 절차 기억",
-        "compactSelf": "에이전트 자율 압축"
+        "compactSelf": "Agent 자율 압축"
       },
       "hint": {
-        "tools": "도구 목록은 에이전트 설정에서 고릅니다",
-        "mcp": "MCP 서버는 에이전트 설정에서 붙입니다",
+        "tools": "도구 목록은 Agent 설정에서 고릅니다",
+        "mcp": "MCP 서버는 Agent 설정에서 붙입니다",
         "hooks": "훅은 settings.json 에 등록돼 있습니다"
       },
       "warn": {
@@ -2811,12 +2877,12 @@
         "src": {
           "skillsPrefix": {
             "what": "Vibisual 이 사용자 메시지 앞에 대신 쳐 주는 슬래시 커맨드입니다. 이 스킬들을 켠 채로 세션이 시작됩니다.",
-            "more": "에이전트 설정의 Skills 칸에서 옵니다. 스킬 하나가 /이름 한 줄로 프롬프트 위에 붙습니다.",
+            "more": "Agent 설정의 Skills 칸에서 옵니다. 스킬 하나가 /이름 한 줄로 프롬프트 위에 붙습니다.",
             "off": "메시지만 그대로 나가고 그 스킬들은 불리지 않습니다."
           },
           "agentRules": {
             "what": "이 에이전트 버블에 사용자가 직접 적어 둔 상시 지시입니다.",
-            "more": "에이전트 설정의 Agent Rules 칸에서 오며, 프롬프트에 # Agent Rules 제목 아래로 붙습니다.",
+            "more": "Agent 설정의 Agent 규칙 칸에서 오며, 프롬프트에 # Agent Rules 제목 아래로 붙습니다.",
             "off": "에이전트가 그 상시 지시를 더 이상 받지 않습니다."
           },
           "edges": {
@@ -2941,13 +3007,13 @@
           },
           "toolSchemas": {
             "what": "이 에이전트가 부를 수 있는 도구의 정의입니다 — Read, Edit, Bash 같은 것들.",
-            "more": "도구 목록의 주인은 에이전트 설정입니다. 거기서 목록을 줄이면 이 숫자도 줄어듭니다.",
-            "off": "여기 토글은 잠겨 있습니다 — 도구 목록은 에이전트 설정에서 바꿉니다."
+            "more": "도구 목록의 주인은 Agent 설정입니다. 거기서 목록을 줄이면 이 숫자도 줄어듭니다.",
+            "off": "여기 토글은 잠겨 있습니다 — 도구 목록은 Agent 설정에서 바꿉니다."
           },
           "mcp": {
             "what": "MCP 서버로 붙인 추가 도구입니다.",
             "more": "붙인 서버마다 자기 도구 정의를 모든 프롬프트에 얹습니다.",
-            "off": "여기 토글은 잠겨 있습니다 — 서버는 에이전트 설정에서 뗍니다."
+            "off": "여기 토글은 잠겨 있습니다 — 서버는 Agent 설정에서 뗍니다."
           },
           "hooks": {
             "what": "Vibisual 이 이 세션을 볼 수 있게 해 주는 Claude Code 훅입니다.",
@@ -2993,8 +3059,8 @@
           },
           "tools": {
             "what": "에이전트가 부를 수 있는 도구의 정의입니다.",
-            "more": "목록의 주인은 에이전트 설정입니다.",
-            "off": "여기서는 못 끕니다 — 에이전트 설정에서 바꿉니다."
+            "more": "목록의 주인은 Agent 설정입니다.",
+            "off": "여기서는 못 끕니다 — Agent 설정에서 바꿉니다."
           },
           "system": {
             "what": "이 프로젝트 밖에서 Claude Code 가 알아서 얹는 것입니다.",
@@ -3238,7 +3304,7 @@
       "quality_full": "원본",
       "quality_saver": "절약",
       "quality_min": "최소",
-      "quality_auto": "AUTO",
+      "quality_auto": "자동",
       "snapshot": "현재 프레임 저장 (PNG)",
       "pause": "일시정지 (데이터 절감)",
       "resume": "다시 재생",
@@ -3274,7 +3340,7 @@
       "readOnlyHint": "켜면 조작 모드를 고를 수 없습니다(보기 전용)",
       "controlInWindow": "이 창에서의 원격 조작 — 기본은 끄기(마우스 미반영)",
       "delete": "캡처 버블 삭제",
-      "live": "LIVE",
+      "live": "라이브",
       "keysToggle": "특수키 · 붙여넣기",
       "controlTargetMissing": "조작 대상을 찾을 수 없습니다 · 소스를 다시 선택하세요",
       "controlEngineMissing": "조작 엔진을 불러오지 못했습니다 · 앱을 다시 실행해 주세요",
@@ -3316,12 +3382,31 @@
     },
     "taskEdge": {
       "iconHint": "클릭: 상세 · 더블클릭: 편집",
+      "critiqueIconLabel": "검토 (감시자)",
       "pulse": {
         "sending": "명령 전송",
         "completed": "완료 보고",
         "error": "오류"
       },
       "pulseDebugTitle": "[debug] {{label}} pulse 1.8s"
+    },
+    "taskEdgeKind": {
+      "command": {
+        "label": "Command",
+        "description": "Instruction — \"please do this\""
+      },
+      "artifact": {
+        "label": "Artifact",
+        "description": "Hands over the result itself — the file or diff"
+      },
+      "request": {
+        "label": "Request",
+        "description": "Reverse request — \"I am stuck, please help\""
+      },
+      "critique": {
+        "label": "Critique",
+        "description": "Critique / review — audit and red-team role (the watcher)"
+      }
     },
     "taskEdgePopup": {
       "dragToMove": "드래그하여 이동",
@@ -3418,15 +3503,23 @@
       "connect": "연결",
       "connectTooltip": "이 설정으로 엣지를 생성합니다 (Ctrl/Cmd+Enter).",
       "critiqueOptionsTip": "비평 엣지 전용. 개입 시점(Timing)과 거부 시 강제 사항(Authority)을 설정합니다. 다른 종류의 엣지에는 무시됩니다.",
+      "critiqueOptions": "검토 옵션",
       "critiqueTimingTip": "중간(기본값): 대상 작업 중 각 마일스톤마다 검토. 더 자주 / 더 안전 / 더 느림. 최종: 완료 후 단 한 번 검토. 덜 자주 / 더 빠름.",
       "critiqueTimingIntermediateTip": "중간: 대상 작업 중 각 마일스톤마다 검토. (기본값)",
       "critiqueTimingFinalTip": "최종만: 대상이 완료된 후 단 한 번 검토.",
+      "critiqueTiming": "시점",
+      "critiqueTimingIntermediate": "중간",
+      "critiqueTimingFinal": "최종만",
       "critiqueAuthorityTip": "강제 재작업(기본값): 거부 시 대상이 작업을 다시 해야 합니다. 최대 재작업 횟수를 초과하면 자동으로 댓글 전용으로 다운그레이드되어 부모 세션에 에스컬레이션됩니다. 댓글 전용: 거부는 참고용으로만 적용되며 강제 재작업 없음.",
       "critiqueAuthorityForceTip": "강제 재작업: 거부 시 대상이 다시 작업해야 합니다. (기본값)",
       "critiqueAuthorityCommentTip": "댓글 전용: 대상이 거부를 참고용으로만 받아들입니다. 강제 재작업 없음.",
+      "critiqueAuthority": "권한",
+      "critiqueAuthorityForce": "재작업 강제",
+      "critiqueAuthorityComment": "의견만",
       "critiqueMaxReworkTip": "강제 재작업 모드에서 대상이 재작업할 수 있는 최대 횟수. 초과 시 자동으로 댓글 전용으로 다운그레이드되어 부모 세션에 에스컬레이션됩니다. 무한 루프 방지용.",
       "critiqueMaxReworkActive": "최대 {{max}}회. 초과 시 댓글 전용으로 자동 다운그레이드됩니다.",
-      "critiqueMaxReworkInactive": "댓글 전용 모드에서는 사용되지 않습니다."
+      "critiqueMaxReworkInactive": "댓글 전용 모드에서는 사용되지 않습니다.",
+      "critiqueMaxRework": "최대 재작업"
     }
   },
   "inspector": {
@@ -3463,7 +3556,7 @@
     "sendToOverlayLabel": "오버레이",
     "removeFromOverlayLabel": "오버레이 중",
     "openIDE": "클릭하면 IDE 열림",
-    "agentGone": "에이전트 없음",
+    "agentGone": "Agent 없음",
     "toggleShow": "데스크톱 오버레이 버블 표시",
     "toggleHide": "데스크톱 오버레이 버블 숨김",
     "menu": {
@@ -3511,10 +3604,10 @@
       "exitFullscreen": "전체 화면 종료"
     },
     "contextMenu": {
-      "createCustomAgent": "커스텀 에이전트 만들기",
-      "createCmdAgent": "CMD 에이전트 만들기",
+      "createCustomAgent": "Custom Agent 만들기",
+      "createCmdAgent": "CMD Agent 만들기",
       "createCmdAgentHint": "직접 모는 인터랙티브 터미널 (구독 과금)",
-      "createAutoAgent": "오토 에이전트 만들기",
+      "createAutoAgent": "Auto Agent 만들기",
       "createAutoAgentHint": "메타 에이전트 — 자연어 한 줄로 커스텀 에이전트 군을 자동 spawn",
       "createWorktree": "Worktree 만들기",
       "createWorktreeHint": "최신 master 기준 새 작업 공간",
@@ -3529,7 +3622,7 @@
       "appUninstall": "삭제",
       "appInstall": "설치",
       "appsHelp": "행을 누르면 캔버스에 버블로 놓입니다. 버블을 더블클릭하면 열리고, 우클릭하면 관리합니다.",
-      "createLab": "에이전트 랩",
+      "createLab": "Agent Lab",
       "createLabHint": "같은 과제를 설정만 바꿔 여러 벌 돌리고 표로 비교하기",
       "createLocalAgent": "All Model 만들기",
       "createLocalAgentHint": "내 PC 에서 도는 모델용 버블을 놓습니다",
@@ -3663,7 +3756,7 @@
       "col": {
         "variant": "변형",
         "model": "모델",
-        "effort": "Effort",
+        "effort": "추론 강도",
         "permission": "권한",
         "status": "상태",
         "duration": "소요",
@@ -3742,7 +3835,7 @@
       "backendShort": "BE"
     },
     "notifications": {
-      "agentCompleted": "에이전트 완료 — 클릭하여 결과 보기",
+      "agentCompleted": "Agent 완료 — 클릭하여 결과 보기",
       "loopCompleted": "루프 완료 — 클릭하여 결과 보기"
     },
     "bubble": {
@@ -3750,7 +3843,7 @@
       "awaitingInput": "입력 대기 중",
       "idle": "대기",
       "dormant": "잠듦",
-      "autoIdle": "오토 에이전트 — 원하는 작업을 입력하세요",
+      "autoIdle": "Auto Agent — 원하는 작업을 입력하세요",
       "hint": {
         "enter": "더블클릭하여 진입",
         "openIDE": "더블클릭하여 IDE 열기",
@@ -3790,6 +3883,9 @@
       "snipFailed": "캡처 실패: {{error}}"
     },
     "close": "닫기",
+    "msg": {
+      "requestFailed": "Failed ({{status}})"
+    },
     "minimize": "최소화",
     "maximize": "최대화",
     "play": "재생",
@@ -3821,7 +3917,7 @@
       "fact": "사실"
     },
     "scopeProject": "프로젝트 메모리",
-    "scopeAgent": "개별 기억",
+    "scopeAgent": "Agent 메모리",
     "statusGhost": "재검토 필요",
     "supersededNote": "이전 내용 이력",
     "needsCheckBadge": "확인 필요",
@@ -3862,7 +3958,7 @@
     "summaryRecent": "최근 저장",
     "openLibrary": "기억 라이브러리 열기",
     "trashedAt": "휴지통 이동",
-    "trashedMemories": "개별 기억",
+    "trashedMemories": "Agent 메모리",
     "cardCountUnit": "장",
     "restore": "복구",
     "purge": "영구 삭제",
@@ -3877,7 +3973,7 @@
     "cardCountUnitSuffix": "",
     "feed": {
       "title": "프로젝트 메모리",
-      "agentTitle": "이 에이전트의 기억",
+      "agentTitle": "이 Agent의 기억",
       "searchPlaceholder": "기억 검색…",
       "sectionRelated": "지금 작업과 관련",
       "sectionRecent": "최근 배운 것",
@@ -4116,7 +4212,7 @@
     }
   },
   "localModel": {
-    "title": "All Model",
+    "title": "전체 모델",
     "subtitle": "내 PC 에서 도는 모델을 골라 버블에 매답니다",
     "installIntro": "로컬 모델을 돌리려면 추론 엔진이 필요합니다. 앱 설치 파일을 무겁게 만들지 않으려고 기본 번들에 넣지 않았고, 지금 한 번만 받아 두면 됩니다.",
     "installWhat": "받는 것 — GPU(Vulkan)·CPU 두 벌. 대부분의 그래픽카드가 Vulkan 한 벌로 커버되고, 안 되면 CPU 로 돕니다.",

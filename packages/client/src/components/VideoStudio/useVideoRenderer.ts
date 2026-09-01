@@ -12,6 +12,9 @@
 
 import { useCallback, useMemo, useRef } from 'react';
 import { resolveTimeline, type VideoAsset, type VideoDoc } from '@vibisual/video';
+// 여기서 던지는 오류 문구는 호출부가 `String(err)` 로 **화면에 그대로** 찍는다. 모듈 수준 함수
+// (`makeOffscreenBridge`)에서도 골라야 해서 훅이 아니라 i18n 인스턴스를 직접 쓴다(useWebSocket 선례).
+import i18n from '../../i18n/index.js';
 import {
   Canvas2DBackend,
   HtmlInCanvasBackend,
@@ -88,7 +91,7 @@ function makeOffscreenBridge(project: string, docId: string): OffscreenCaptureBr
     (await api!.invoke('vibistudio', action, payload)) as T;
   return {
     async probe() {
-      if (!api) return { available: false, reason: '이 실행 형태에서는 오프스크린 창을 쓸 수 없습니다.' };
+      if (!api) return { available: false, reason: i18n.t('panel.videoStudio.errNoOffscreen') };
       try {
         return await call<{ available: boolean; reason?: string }>('offscreen:probe');
       } catch (err) {
@@ -96,11 +99,11 @@ function makeOffscreenBridge(project: string, docId: string): OffscreenCaptureBr
       }
     },
     async open({ width, height }) {
-      if (!api) throw new Error('오프스크린 다리가 없습니다.');
+      if (!api) throw new Error(i18n.t('panel.videoStudio.errNoOffscreenBridge'));
       await call<null>('offscreen:open', { width, height, project, docId });
     },
     async captureAt(t) {
-      if (!api) throw new Error('오프스크린 다리가 없습니다.');
+      if (!api) throw new Error(i18n.t('panel.videoStudio.errNoOffscreenBridge'));
       return call<ArrayBuffer>('offscreen:capture', { t });
     },
     async close() {
@@ -176,7 +179,7 @@ export function useVideoRenderer(project: string, doc: VideoDoc | null): Rendere
 
   const render = useCallback(
     async (opts: { onProgress?: (p: RenderProgress) => void; signal?: AbortSignal }): Promise<RenderOutcome> => {
-      if (!doc || !timeline) throw new Error('문서가 없습니다.');
+      if (!doc || !timeline) throw new Error(i18n.t('panel.videoStudio.errNoDoc'));
 
       const warnings: string[] = [];
       // 소리를 먼저 섞는다 — 프레임과 달리 구간 단위라 렌더 루프 밖에서 한 번에 만든다.
@@ -188,7 +191,7 @@ export function useVideoRenderer(project: string, doc: VideoDoc | null): Rendere
       });
 
       const made = await makeBackend(doc);
-      if (!made) throw new Error('이 기기에서 쓸 수 있는 렌더 방식이 없습니다.');
+      if (!made) throw new Error(i18n.t('panel.videoStudio.errNoRenderBackend'));
 
       const result = await renderDoc({
         doc,
@@ -206,7 +209,7 @@ export function useVideoRenderer(project: string, doc: VideoDoc | null): Rendere
 
   const still = useCallback(
     async (t: number): Promise<string> => {
-      if (!doc || !timeline) throw new Error('문서가 없습니다.');
+      if (!doc || !timeline) throw new Error(i18n.t('panel.videoStudio.errNoDoc'));
       const canvas = document.createElement('canvas');
       canvas.width = doc.size.width;
       canvas.height = doc.size.height;

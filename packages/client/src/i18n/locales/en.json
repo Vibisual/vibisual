@@ -363,6 +363,7 @@
         "scanning": "Scanning installations…",
         "claudeCode": "Claude Code (in use)",
         "current": "Current",
+        "versionLabel": "Version:",
         "latest": "Latest (npm)",
         "updateAvailable": "Update available",
         "upToDate": "Up to date",
@@ -374,6 +375,7 @@
         "unknownVer": "unknown",
         "restartHint": "Selection saved. Restart Vibisual to apply it to newly spawned agents.",
         "about": "About",
+        "platform": "Platform",
         "repo": "GitHub repository",
         "marketplace": "Claude Code on VS Code Marketplace",
         "selectionApplied": "Selection saved and applied — newly spawned agents use it right away.",
@@ -510,7 +512,21 @@
       },
       "advanced": {
         "terminalScrollback": "Terminal scrollback (lines)",
-        "terminalScrollbackDesc": "How many output lines a CMD terminal keeps. Scrolling and {{shortcut}} search share this range. Applies to terminals opened from now on."
+        "terminalScrollbackDesc": "How many output lines a CMD terminal keeps. Scrolling and {{shortcut}} search share this range. Applies to terminals opened from now on.",
+        "bgProbeTitle": "Quiet background tasks",
+        "bgProbeIntro": "A background command that goes quiet is not necessarily finished — one that waits for something is quiet by design, so Vibisual never closes an item on elapsed time alone. Instead, when an item has been quiet for a long while with no end marker, a small judging agent is asked once whether the command has a condition under which it ends by itself and whether that condition is already met.",
+        "bgProbeEnabled": "Ask about quiet tasks",
+        "bgProbeEnabledDesc": "Off means no model is ever called for this — quiet items simply stay on the list until you remove them.",
+        "bgProbeQuiet": "Ask after this much silence (minutes)",
+        "bgProbeQuietDesc": "Silence only decides when to ask — it never decides the answer. 0 turns the asking off.",
+        "bgProbeAutoClose": "Clear the item when the answer is \"finished\"",
+        "bgProbeAutoCloseDesc": "Off means the answer is only written onto the card and you decide. \"Still running\" and \"could not tell\" never clear anything either way.",
+        "bgProbeKill": "Also stop the processes it had started",
+        "bgProbeKillDesc": "Clearing the list alone leaves the command running. Only processes under that session whose command line matches this task are touched.",
+        "bgProbeModel": "Model that answers",
+        "bgProbeModelDesc": "It is asked once, with no tools and no access to your project — only the command text and a short tail of its output.",
+        "bgProbeLoadError": "Could not read the current setting.",
+        "bgProbeSaveError": "Could not save. Nothing was changed."
       },
       "notifications": {
         "cmdBlocked": "Notify when a CMD session is waiting for input",
@@ -623,8 +639,10 @@
       "path": "Path",
       "sessionId": "Session ID",
       "type": "Type",
+      "agentBadge": "Agent",
       "status": "Status",
       "activity": "Activity",
+      "activityEvents": "{{n}} events",
       "billableTokens": "Billable Tokens",
       "context": "Context",
       "model": "Model",
@@ -634,6 +652,7 @@
       "hookAgentSettingsLocked": "Hook-registered agents are owned by Claude Code itself. Settings can only be changed for agents created from the canvas.",
       "files": "Files",
       "activeAgents": "Active Agents",
+      "goToAgent": "Go to this Agent",
       "lastTools": "Last tools",
       "contextCompacted": "Context compacted",
       "compactSummary": "{{count}}× · last {{ago}}",
@@ -654,6 +673,14 @@
       "persist": "Persist (prevent fade out)",
       "lastTool": "Last tool",
       "contiHistory": "Conti History"
+    },
+    "agentEventList": {
+      "prompt": "Prompt",
+      "queueBadge": "queue",
+      "tokenUsage": "Token Usage",
+      "waited": "waited {{time}}",
+      "closePopup": "Close popup",
+      "result": "Result"
     },
     "contiHistory": {
       "title": "Conti History",
@@ -679,6 +706,10 @@
       "addFrame": "Add Frame",
       "deleteFrame": "Delete",
       "editFrame": "Edit text",
+      "frameLabel": "FRAME {{n}}",
+      "dragToReorder": "Drag to reorder",
+      "doubleClickToEdit": "Double-click to edit",
+      "dropHere": "Drop here",
       "editTitlePrompt": "Frame title:",
       "editActionPrompt": "Frame action:",
       "zoomReset": "{{shortcut}} reset",
@@ -734,6 +765,7 @@
       "addCommand": "Add command",
       "removeAttachment": "Remove attachment",
       "uploading": "Uploading...",
+      "attachmentError": "ERR",
       "attached": "Attached",
       "waitingForUpload": "Waiting for upload..."
     },
@@ -959,6 +991,9 @@
       "maxBudgetUsd": "Budget ($, 0=∞)",
       "defaultSkills": "Default Skills",
       "addSkill": "+ Add Skill",
+      "skillSourceProject": "Project",
+      "skillSourceGlobal": "Global",
+      "skillSourcePlugin": "Installed Plugins",
       "color": "Color",
       "fieldTips": {
         "model": "The Claude model this agent uses.",
@@ -1111,7 +1146,8 @@
         "unset": "not set",
         "on": "on",
         "off": "off"
-      }
+      },
+      "contextNotAccessible": "Not accessible (Claude Code internal)"
     },
     "permissionPrompt": {
       "title": "Permission required",
@@ -1212,6 +1248,7 @@
       "edges": "Edges",
       "noProject": "No active project",
       "fps": "fps",
+      "inputLag": "Input lag",
       "fpsTip": "Render frames per second",
       "visibility": "Visibility",
       "profiling": {
@@ -1280,6 +1317,7 @@
     },
     "serverList": {
       "heading": "Servers ({{count}})",
+      "serverLabel": "Server",
       "refresh": "Refresh",
       "empty": "No running servers",
       "running": "running",
@@ -1584,6 +1622,12 @@
       "noAudio": "Exported without audio.",
       "downgraded": "Render mode was downgraded: {{id}}",
       "previewFailed": "Could not draw the preview.",
+      "errNoDoc": "No document is open.",
+      "errNoStage": "Could not find a place to attach the stage.",
+      "errNoRenderBackend": "No render mode is available on this device.",
+      "errNoOffscreen": "Offscreen windows are not available in this build.",
+      "errNoOffscreenBridge": "The offscreen bridge is not available.",
+      "errRequestFailed": "The request failed ({{status}}).",
       "reloaded": "The document changed elsewhere, so it was reloaded."
     },
     "cost": {
@@ -1913,7 +1957,7 @@
       "inputCtxSelectAll": "Select all",
       "ctxSaveToBrain": "Save to Memory",
       "stopAll": "Stop all",
-      "stopAllTitle": "Stop everything this agent is running (other tabs + background subagents)",
+      "stopAllTitle": "Stop everything this agent is running (other tabs + background tasks)",
       "stopSessionTitle": "Stop this session and the subagents it started (other session tabs keep running)"
     },
     "memo": {
@@ -1950,7 +1994,7 @@
       "skills": "Skills",
       "bookmarks": "Bookmarks",
       "sessionSummary": "Session summaries",
-      "runningSubagents": "Running subagents ({{count}})",
+      "runningSubagents": "Background tasks ({{count}})",
       "loop": "Repeat loop",
       "goal": "Goal",
       "debug": "Run and debug",
@@ -2505,19 +2549,26 @@
       "dismiss": "Dismiss"
     },
     "runningSubagents": {
-      "title": "Running subagents",
+      "title": "Background tasks",
       "close": "Close",
-      "empty": "No subagents are running right now.",
-      "untitled": "Subagent",
-      "scopeAll": "Showing every subagent this agent is running.",
-      "scopeSession": "Showing subagents started by \"{{label}}\".",
-      "emptySession": "This session has no subagents running.",
-      "hint": "This panel lists only the subagents this session has launched in the background — the conversation itself is not counted here. While they run, the icon lights up and shows how many.",
+      "empty": "Nothing is running in the background right now.",
+      "untitled": "Untitled task",
+      "kindAgent": "Subagent",
+      "kindAgentTip": "An AI child launched with the Task or Agent tool. It runs a model, so it spends tokens.",
+      "kindShell": "Shell",
+      "kindShellTip": "A background Bash or Monitor command. A command is running, not a model, so it spends no tokens. Commands that never exit on their own (tail -f, while true) stay here until you remove them.",
+      "scopeAll": "Showing every background task this agent is running.",
+      "scopeSession": "Showing background tasks started by \"{{label}}\".",
+      "emptySession": "This session has nothing running in the background.",
+      "hint": "This panel lists only what this session launched in the background — the conversation itself is not counted. Subagents are AI children that spend tokens; shells are background Bash or Monitor commands that spend none. While any of them run, the icon on the left lights up and shows how many.",
       "othersRunning": "{{count}} more running elsewhere",
       "startedAt": "Started at {{time}}",
       "endedAt": "Finished at {{time}}",
       "finishedTitle": "Just finished",
       "noResult": "No result was reported.",
+      "exitCode": "Exit code {{code}}",
+      "exitKilled": "Killed",
+      "exitFromFileTip": "The completion notice never arrived — this was read from the end marker the harness wrote into the task's output file.",
       "resultRescued": "Recovered from transcript — not delivered to the session",
       "resultRescuedTitle": "This child was cut off before it could report (Stop, tab close, or a crash), so the session never received this. Vibisual read it back from the agent transcript on disk.",
       "toggleResult": "Show or hide the full result",
@@ -2525,8 +2576,23 @@
       "nowUsing": "Tool it is using right now",
       "duration": "Took {{value}}",
       "noResponse": "No response for {{value}}",
+      "quietFor": "Quiet for {{value}}",
+      "quietForTip": "This task's output file has not changed for that long. Quiet does not mean finished — a command that is waiting for something is quiet by design.",
+      "probing": "Checking whether it is still running",
+      "probingTip": "It has been quiet for a long time with no end marker, so a judging agent was launched once. It is asked only two things: does this command have a condition under which it ends by itself, and is that condition already met.",
+      "probeAlive": "Still running",
+      "probeUnknown": "Could not tell — left as is",
+      "probeFinished": "Checked, then cleared automatically",
+      "probeTip": "Exit condition: {{condition}} · judged by {{model}}",
+      "probeTipNoCondition": "No self-terminating condition was found · judged by {{model}}",
+      "probeAt": "Checked at {{time}}",
+      "closedByProcessGone": "Cleared — its session is gone",
+      "closedByProcessGoneTip": "The process of the session that launched this task no longer exists. There is nowhere for a result to arrive, so it was taken off the list.",
+      "closedByUser": "Removed by you",
+      "killedProcesses": "{{count}} processes stopped",
+      "killedProcessesTip": "The processes this command had started were stopped along with the cleanup. Clearing the list alone would leave the command running.",
       "dismiss": "Stop waiting",
-      "dismissTip": "Remove from this list. Does not kill the process — the agent stops its own child with TaskStop."
+      "dismissTip": "Removes it from this list. It does not kill the process — a subagent is stopped by the agent that launched it (TaskStop), a shell with KillShell."
     },
     "loop": {
       "title": "Repeat loop",
@@ -3316,12 +3382,31 @@
     },
     "taskEdge": {
       "iconHint": "Click: details · Double-click: edit",
+      "critiqueIconLabel": "Critique (watcher)",
       "pulse": {
         "sending": "Send command",
         "completed": "Completion report",
         "error": "Error"
       },
       "pulseDebugTitle": "[debug] {{label}} pulse 1.8s"
+    },
+    "taskEdgeKind": {
+      "command": {
+        "label": "Command",
+        "description": "Instruction — \"please do this\""
+      },
+      "artifact": {
+        "label": "Artifact",
+        "description": "Hands over the result itself — the file or diff"
+      },
+      "request": {
+        "label": "Request",
+        "description": "Reverse request — \"I am stuck, please help\""
+      },
+      "critique": {
+        "label": "Critique",
+        "description": "Critique / review — audit and red-team role (the watcher)"
+      }
     },
     "taskEdgePopup": {
       "dragToMove": "Drag to move",
@@ -3418,15 +3503,23 @@
       "connect": "Connect",
       "connectTooltip": "Create the edge with these settings (Ctrl/Cmd+Enter).",
       "critiqueOptionsTip": "Critique-edge only. Sets when to intervene (Timing) and what to enforce on reject (Authority). Ignored for other kinds.",
+      "critiqueOptions": "Critique Options",
       "critiqueTimingTip": "Intermediate (default): review at each milestone during the target's work. More frequent / safer / slower. Final: a single final review after completion. Less frequent / faster.",
       "critiqueTimingIntermediateTip": "Intermediate: review at each milestone during the target's work. (default)",
       "critiqueTimingFinalTip": "Final only: a single final review after the target completes.",
+      "critiqueTiming": "Timing",
+      "critiqueTimingIntermediate": "Intermediate",
+      "critiqueTimingFinal": "Final only",
       "critiqueAuthorityTip": "Force rework (default): on reject the target must redo the work. Exceeding Max Rework auto-downgrades to comment-only and escalates to the parent session. Comment only: reject is advisory only, no forced rework.",
       "critiqueAuthorityForceTip": "Force rework: the target must redo on reject. (default)",
       "critiqueAuthorityCommentTip": "Comment only: the target only takes the reject as a reference. No forced rework.",
+      "critiqueAuthority": "Authority",
+      "critiqueAuthorityForce": "Force rework",
+      "critiqueAuthorityComment": "Comment only",
       "critiqueMaxReworkTip": "Max times the target may redo while in Force rework mode. Exceeding it auto-downgrades to comment-only and escalates to the parent session. A guard against infinite loops.",
       "critiqueMaxReworkActive": "Max {{max}} times. Auto-downgrades to comment-only when exceeded.",
-      "critiqueMaxReworkInactive": "Not used in Comment only mode."
+      "critiqueMaxReworkInactive": "Not used in Comment only mode.",
+      "critiqueMaxRework": "Max Rework"
     }
   },
   "inspector": {
@@ -3790,6 +3883,9 @@
       "snipFailed": "Capture failed: {{error}}"
     },
     "close": "Close",
+    "msg": {
+      "requestFailed": "Failed ({{status}})"
+    },
     "minimize": "Minimize",
     "maximize": "Maximize",
     "play": "Play",

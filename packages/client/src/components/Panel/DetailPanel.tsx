@@ -916,7 +916,7 @@ export function DetailPanel({
               <div className="flex items-center gap-3">
                 <div className="flex items-center gap-1.5">
                   <span className="text-xs text-gray-500">{t('panel.detailPanel.type')}</span>
-                  <span className="rounded-full px-2 py-0.5 text-xs font-medium" style={{ backgroundColor: `${color}20`, color }}>Agent</span>
+                  <span className="rounded-full px-2 py-0.5 text-xs font-medium" style={{ backgroundColor: `${color}20`, color }}>{t('panel.detailPanel.agentBadge')}</span>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <span className="text-xs text-gray-500">{t('panel.detailPanel.status')}</span>
@@ -1057,7 +1057,7 @@ export function DetailPanel({
             <>
               {/* Non-agent: Type */}
               <div className="flex items-center gap-2">
-                <span className="text-xs text-gray-500">Type</span>
+                <span className="text-xs text-gray-500">{t('panel.detailPanel.type')}</span>
                 <span className="rounded-full px-2.5 py-0.5 text-xs font-medium" style={{ backgroundColor: `${color}20`, color }}>
                   {node.bubbleType.replace('_', ' ')}
                 </span>
@@ -1065,7 +1065,7 @@ export function DetailPanel({
 
               {/* Non-agent: Status */}
               <div className="flex items-center gap-2">
-                <span className="text-xs text-gray-500">Status</span>
+                <span className="text-xs text-gray-500">{t('panel.detailPanel.status')}</span>
                 <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${statusInfo.classes}`}>
                   {statusInfo.label}
                 </span>
@@ -1077,27 +1077,27 @@ export function DetailPanel({
           {isGhost && node.ghostInfo && (
             <div className="flex flex-col gap-2 rounded border border-gray-700/50 bg-gray-800/40 p-2.5">
               <div className="flex items-center gap-2">
-                <span className="text-xs text-gray-500">Change</span>
+                <span className="text-xs text-gray-500">{t('panel.detailPanel.change')}</span>
                 <span className="rounded-full bg-red-500/20 px-2.5 py-0.5 text-xs font-medium text-red-400">
-                  {node.ghostInfo.changeType === 'deleted' ? 'Deleted' : 'Renamed'}
+                  {node.ghostInfo.changeType === 'deleted' ? t('panel.detailPanel.deleted') : t('panel.detailPanel.renamed')}
                 </span>
               </div>
               {node.ghostInfo.changeType === 'renamed' && node.ghostInfo.toPath && (
                 <div className="flex flex-col gap-0.5">
-                  <span className="text-xs text-gray-500">New path</span>
+                  <span className="text-xs text-gray-500">{t('panel.detailPanel.newPath')}</span>
                   <p className="truncate font-mono text-xs text-emerald-400">
                     {node.ghostInfo.toPath}
                   </p>
                 </div>
               )}
               <div className="flex flex-col gap-0.5">
-                <span className="text-xs text-gray-500">Original path</span>
+                <span className="text-xs text-gray-500">{t('panel.detailPanel.originalPath')}</span>
                 <p className="truncate font-mono text-xs text-gray-400">
                   {node.ghostInfo.fromPath}
                 </p>
               </div>
               <div className="flex flex-col gap-0.5">
-                <span className="text-xs text-gray-500">Original type</span>
+                <span className="text-xs text-gray-500">{t('panel.detailPanel.originalType')}</span>
                 <span className="text-xs text-gray-400">
                   {node.ghostInfo.originalBubbleType.replace('_', ' ')}
                 </span>
@@ -1113,7 +1113,7 @@ export function DetailPanel({
                   }}
                   className="h-3.5 w-3.5 rounded border-gray-600 bg-gray-700 accent-amber-500"
                 />
-                <span className="text-xs text-gray-400">Persist (prevent fade out)</span>
+                <span className="text-xs text-gray-400">{t('panel.detailPanel.persist')}</span>
               </label>
             </div>
           )}
@@ -1153,12 +1153,12 @@ export function DetailPanel({
           {!isAgent && !isRoot && (
             <>
               <div className="flex items-center justify-between">
-                <span className="text-xs text-gray-500">Activity</span>
-                <span className="text-xs font-medium text-gray-300">{node.activity} events</span>
+                <span className="text-xs text-gray-500">{t('panel.detailPanel.activity')}</span>
+                <span className="text-xs font-medium text-gray-300">{t('panel.detailPanel.activityEvents', { n: node.activity })}</span>
               </div>
               {node.lastTool && (
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-gray-500">Last tool</span>
+                  <span className="text-xs text-gray-500">{t('panel.detailPanel.lastTool')}</span>
                   <span className="text-xs font-medium text-gray-300">{node.lastTool}</span>
                 </div>
               )}
@@ -1168,7 +1168,7 @@ export function DetailPanel({
           {/* Child count (folders) */}
           {node.childCount !== undefined && (
             <div className="flex items-center justify-between">
-              <span className="text-xs text-gray-500">Files</span>
+              <span className="text-xs text-gray-500">{t('panel.detailPanel.files')}</span>
               <span className="text-xs font-medium text-gray-300">
                 {node.childCount}
               </span>
@@ -1178,7 +1178,7 @@ export function DetailPanel({
           {/* Connected Agents (비-에이전트 노드용) — 클릭 시 해당 에이전트로 공간 점프 */}
           {node.bubbleType !== 'agent' && node.activeAgentIds && node.activeAgentIds.length > 0 && (
             <div className="flex flex-col gap-1">
-              <span className="text-xs text-gray-500">Active Agents</span>
+              <span className="text-xs text-gray-500">{t('panel.detailPanel.activeAgents')}</span>
               <div className="flex flex-wrap gap-1">
                 {node.activeAgentIds.map((agentId) => {
                   const agent = agents.find((a) => a.id === agentId);
@@ -1194,7 +1194,7 @@ export function DetailPanel({
                         store.focusOnNode(agentId);
                       }}
                       className="cursor-pointer rounded-full bg-blue-500/20 px-2.5 py-0.5 text-xs font-medium text-blue-400 transition-colors hover:bg-blue-500/40 hover:text-blue-300"
-                      title="Go to this agent"
+                      title={t('panel.detailPanel.goToAgent')}
                     >
                       {agent?.label ?? agentId}
                     </button>

@@ -8,7 +8,7 @@ import { isReadOnlyHookAgent } from '@vibisual/shared';
 // §4 (첫 실행 온보딩) ③ — 서버가 "고른 폴더가 없다"로 돌려보낸 409 를 알아본다.
 import { isNoProjectFolderError } from '@vibisual/shared';
 import { DEFAULT_UI_LOCALE, STREAM_EVENTS_MAX_PER_SESSION, STREAM_EVENTS_TRIM_SLACK, STREAM_EVENTS_MAX_PER_INACTIVE_SESSION, STREAM_INACTIVE_SESSIONS_MAX, DIAGNOSTIC_LOG_MAX, STREAM_DENSITIES, IDE_EDITOR_MAX_TABS, IDE_EDITOR_WIDTH, DIFF_COMMENT_MAX } from '@vibisual/shared';
-import { changeUiLocale } from '../i18n/index.js';
+import i18n, { changeUiLocale } from '../i18n/index.js';
 import { calcFileSizeRange } from '../utils/sizeCalc.js';
 import { clientPathKey } from '../utils/platform.js';
 import { structuralShare } from './structuralShare.js';
@@ -3953,7 +3953,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       });
       const body = (await r.json()) as { ok?: boolean; error?: string; conti?: { id: string } };
       if (!r.ok || !body.ok || !body.conti) {
-        return { ok: false as const, error: body.error ?? `실패 (${r.status})` };
+        return { ok: false as const, error: body.error ?? i18n.t('common.msg.requestFailed', { status: r.status }) };
       }
       return { ok: true as const, contiId: body.conti.id };
     } catch (err) {

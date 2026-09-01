@@ -72,7 +72,7 @@
       "commandCenterHint": "Abrir el Centro de control — mira qué está esperando en este proyecto",
       "openNew": "Abrir en una ventana nueva",
       "bringToFront": "Traer al frente",
-      "settings": "Ajustes del agente",
+      "settings": "Ajustes del Agent",
       "expand": "Expandir",
       "collapse": "Contraer",
       "close": "Cerrar ventana",
@@ -213,8 +213,8 @@
       "subtitle": "Un recorrido por lo que Vibisual puede hacer — y un inventario de las funciones creadas hasta ahora.",
       "cat": {
         "start": "Primeros pasos",
-        "bubbleMap": "Bubble Map",
-        "agents": "Agentes",
+        "bubbleMap": "Mapa de burbujas",
+        "agents": "Agents",
         "taskEdges": "Task Edges",
         "ide": "Overlay del IDE",
         "navigation": "Navegación",
@@ -244,11 +244,11 @@
       },
       "agents": {
         "intro": "Más allá del seguimiento pasivo, puedes crear y orquestar tus propios agentes desde el lienzo.",
-        "customT": "Agente personalizado",
+        "customT": "Custom Agent",
         "customD": "Haz clic derecho en el lienzo para crear tu propia burbuja de agente y darle una instrucción.",
         "autoT": "Auto Agent",
         "autoD": "Describe lo que quieres en lenguaje natural; un agente constructor diseña y conecta todo un equipo por ti.",
-        "configT": "Configuración del agente",
+        "configT": "Configuración del Agent",
         "configD": "Haz clic en una burbuja para configurar su modelo, herramientas, modo de permisos, esfuerzo, aislamiento y color.",
         "pipelineT": "Sub-agentes y Pipelines",
         "pipelineD": "Ejecuta sesiones independientes y encadena agentes con estrategias de pipeline, equipos o híbridas."
@@ -307,7 +307,7 @@
       "memory": {
         "intro": "La memoria del proyecto guarda lo que funcionó y lo vuelve a cargar en la siguiente tarea. Viene desactivada — se activa por proyecto, y desactivarla nunca borra nada.",
         "turnOnT": "Cómo activarla",
-        "turnOnD": "Clic derecho en el lienzo vacío y «Activar la memoria del proyecto», o File > Options > Memoria del proyecto. Se aplica al instante — sin reiniciar.",
+        "turnOnD": "Clic derecho en el lienzo vacío y «Activar la memoria del proyecto», o Archivo > Opciones > Memoria del proyecto. Se aplica al instante — sin reiniciar.",
         "bubbleT": "La burbuja de memoria",
         "bubbleD": "Al activarla aparece una burbuja índigo en el lienzo con el número de tarjetas guardadas. Doble clic abre la biblioteca; al pasar el cursor muestra un resumen.",
         "skillsT": "Memoria de procedimientos",
@@ -341,7 +341,7 @@
       "comingSoon": "Próximamente",
       "comingSoonDesc": "Esta categoría está reservada para configuraciones futuras.",
       "categories": {
-        "agent": "Ajustes predeterminados del agente",
+        "agent": "Ajustes predeterminados del Agent",
         "appearance": "Apariencia",
         "notifications": "Notificaciones",
         "permissions": "Permisos",
@@ -363,6 +363,7 @@
         "scanning": "Escaneando instalaciones…",
         "claudeCode": "Claude Code (en uso)",
         "current": "Actual",
+        "versionLabel": "Versión:",
         "latest": "Última (npm)",
         "updateAvailable": "Actualización disponible",
         "upToDate": "Al día",
@@ -374,6 +375,7 @@
         "unknownVer": "desconocida",
         "restartHint": "Selección guardada. Reinicia Vibisual para aplicarla a los agentes recién lanzados.",
         "about": "Acerca de",
+        "platform": "Plataforma",
         "repo": "Repositorio de GitHub",
         "marketplace": "Claude Code en VS Code Marketplace",
         "selectionApplied": "Selección guardada y aplicada — los agentes recién creados la usan de inmediato.",
@@ -463,7 +465,7 @@
             "desc": "Tus propias instrucciones guardadas por sesión. No se pueden recrear, así que el límite es amplio. 0 = sin límite."
           },
           "subStreamRetentionDays": {
-            "label": "Historial de conversaciones del agente",
+            "label": "Historial de conversaciones del Agent",
             "desc": "Se limpia una vez al iniciar la app. Las sesiones activas o que siguen en la lista para reabrir se conservan sin importar su antigüedad. 0 = conservar siempre."
           },
           "attachmentRetentionDays": {
@@ -510,7 +512,21 @@
       },
       "advanced": {
         "terminalScrollback": "Historial de desplazamiento del terminal (líneas)",
-        "terminalScrollbackDesc": "Cuántas líneas de salida conserva un terminal CMD. El desplazamiento y la búsqueda con {{shortcut}} comparten este rango. Se aplica a los terminales que se abran a partir de ahora."
+        "terminalScrollbackDesc": "Cuántas líneas de salida conserva un terminal CMD. El desplazamiento y la búsqueda con {{shortcut}} comparten este rango. Se aplica a los terminales que se abran a partir de ahora.",
+        "bgProbeTitle": "Tareas en segundo plano en silencio",
+        "bgProbeIntro": "Un comando en segundo plano que se queda en silencio no está necesariamente terminado: el que espera algo está en silencio por diseño, así que Vibisual nunca cierra un elemento solo por el tiempo transcurrido. En su lugar, cuando un elemento lleva mucho rato en silencio y sin marca final, se le pregunta una sola vez a un pequeño agente de juicio: si este comando tiene una condición bajo la cual termina por sí solo y si esa condición ya se cumple.",
+        "bgProbeEnabled": "Preguntar por las tareas en silencio",
+        "bgProbeEnabledDesc": "Desactivado no se llama a ningún modelo para esto: los elementos en silencio se quedan en la lista hasta que los quites.",
+        "bgProbeQuiet": "Preguntar tras este silencio (minutos)",
+        "bgProbeQuietDesc": "El silencio solo decide cuándo preguntar, nunca la respuesta. Con 0 no se pregunta.",
+        "bgProbeAutoClose": "Quitar el elemento si la respuesta es «terminado»",
+        "bgProbeAutoCloseDesc": "Desactivado, la respuesta solo se escribe en la tarjeta y decides tú. «Sigue en marcha» y «no se pudo determinar» nunca quitan nada de todos modos.",
+        "bgProbeKill": "Detener también los procesos que había lanzado",
+        "bgProbeKillDesc": "Vaciar solo la lista deja el comando en marcha. Solo se tocan los procesos bajo esa sesión cuya línea de comandos coincide con esta tarea.",
+        "bgProbeModel": "Modelo que responde",
+        "bgProbeModelDesc": "Se le pregunta una vez, sin herramientas y sin acceso a tu proyecto: solo el texto del comando y un trozo corto del final de su salida.",
+        "bgProbeLoadError": "No se pudo leer el ajuste actual.",
+        "bgProbeSaveError": "No se pudo guardar. No se cambió nada."
       },
       "notifications": {
         "cmdBlocked": "Avisar cuando una sesión CMD esté esperando entrada",
@@ -602,7 +618,7 @@
       "distilling": "Destilando…",
       "distillFailed": "No se pudo destilar — inténtalo de nuevo",
       "proposalTitle": "Reglas propuestas a partir de lo que no te ha gustado",
-      "proposalHint": "Revisa y edita las reglas de abajo. Se añaden a las Reglas del agente de este agente solo cuando las aplicas (deshacer desde el historial de reglas).",
+      "proposalHint": "Revisa y edita las reglas de abajo. Se añaden a las Reglas del Agent de este Agent solo cuando las aplicas (deshacer desde el historial de reglas).",
       "apply": "Añadir a las reglas",
       "applying": "Añadiendo…",
       "cancel": "Cancelar"
@@ -623,17 +639,20 @@
       "path": "Ruta",
       "sessionId": "ID de sesión",
       "type": "Tipo",
+      "agentBadge": "Agent",
       "status": "Estado",
       "activity": "Actividad",
+      "activityEvents": "{{n}} eventos",
       "billableTokens": "Tokens facturables",
       "context": "Contexto",
       "model": "Modelo",
       "tools": "Herramientas",
       "perm": "Permisos",
-      "agentSettings": "Configuración del agente",
+      "agentSettings": "Configuración del Agent",
       "hookAgentSettingsLocked": "Los agentes registrados mediante hook son gestionados por Claude Code. La configuración solo puede cambiarse en agentes creados desde el lienzo.",
       "files": "Archivos",
-      "activeAgents": "Agentes activos",
+      "activeAgents": "Agents activos",
+      "goToAgent": "Ir a este agent",
       "lastTools": "Últimas herramientas",
       "contextCompacted": "Contexto compactado",
       "compactSummary": "{{count}}× · hace {{ago}}",
@@ -654,6 +673,14 @@
       "persist": "Persistir (impedir desvanecimiento)",
       "lastTool": "Última herramienta",
       "contiHistory": "Historial de Conti"
+    },
+    "agentEventList": {
+      "prompt": "Instrucción",
+      "queueBadge": "cola",
+      "tokenUsage": "Uso de tokens",
+      "waited": "esperó {{time}}",
+      "closePopup": "Cerrar ventana emergente",
+      "result": "Resultado"
     },
     "contiHistory": {
       "title": "Historial de Conti",
@@ -679,6 +706,10 @@
       "addFrame": "Añadir fotograma",
       "deleteFrame": "Eliminar",
       "editFrame": "Editar texto",
+      "frameLabel": "VIÑETA {{n}}",
+      "dragToReorder": "Arrastra para reordenar",
+      "doubleClickToEdit": "Haz doble clic para editar",
+      "dropHere": "Suelta aquí",
       "editTitlePrompt": "Título del fotograma:",
       "editActionPrompt": "Acción del fotograma:",
       "zoomReset": "{{shortcut}} restablecer",
@@ -713,11 +744,11 @@
       "opacity": "Opacidad",
       "size": "Tamaño",
       "contained": "Contenido",
-      "bubbles": "bubbles",
+      "bubbles": "burbujas",
       "delete": "Eliminar comentario"
     },
     "commandQueue": {
-      "prompts": "Prompts",
+      "prompts": "Instrucciones",
       "selectSession": "Seleccionar sesión",
       "newCommand": "Nuevo comando",
       "loading": "Cargando...",
@@ -734,6 +765,7 @@
       "addCommand": "Agregar comando",
       "removeAttachment": "Eliminar adjunto",
       "uploading": "Subiendo...",
+      "attachmentError": "ERR",
       "attached": "Adjuntado",
       "waitingForUpload": "Esperando carga..."
     },
@@ -824,11 +856,11 @@
         "inactiveWarn": "El destino no tiene herramientas, por lo que este edge no se inyecta en el prompt del origen. Añade herramientas al destino para restaurarlo automáticamente.",
         "footnote": "Esta sección se genera automáticamente a partir del estado del edge. Se inyecta en el prompt cuando se ejecuta el sub-agente, para que el agente sepa si puede delegar y cómo."
       },
-      "title": "Configuración del agente",
+      "title": "Configuración del Agent",
       "cancel": "Cancelar",
       "save": "Guardar",
       "saving": "Guardando...",
-      "agentRules": "Reglas del agente",
+      "agentRules": "Reglas del Agent",
       "noRulesDefined": "Sin reglas definidas — clic para editar",
       "lines": "{{count}} líneas",
       "projectContext": "Contexto del proyecto",
@@ -848,7 +880,7 @@
         "default": "Manual — pide confirmación en acciones de riesgo (escritura, shell).",
         "acceptEdits": "Aprueba automáticamente ediciones de archivos (Write, Edit). Aún solicita confirmación para Bash.",
         "plan": "Solo lectura. No puede modificar archivos ni ejecutar comandos.",
-        "bypassPermissions": "Sin confirmaciones. El agente actúa sin restricciones.",
+        "bypassPermissions": "Sin confirmaciones. El Agent actúa sin restricciones.",
         "auto": "El clasificador de la CLI decide en cada llamada. Vibisual no añade su propia ventana.",
         "dontAsk": "Nunca pregunta. Se deniega todo lo no aprobado de antemano — para ejecuciones sin supervisión."
       },
@@ -959,6 +991,9 @@
       "maxBudgetUsd": "Presupuesto ($, 0=∞)",
       "defaultSkills": "Habilidades predeterminadas",
       "addSkill": "+ Agregar habilidad",
+      "skillSourceProject": "Proyecto",
+      "skillSourceGlobal": "Global",
+      "skillSourcePlugin": "Plugins instalados",
       "color": "Color",
       "fieldTips": {
         "model": "El modelo Claude que usa este agente.",
@@ -1111,7 +1146,8 @@
         "unset": "sin definir",
         "on": "activado",
         "off": "desactivado"
-      }
+      },
+      "contextNotAccessible": "No accesible (interno de Claude Code)"
     },
     "permissionPrompt": {
       "title": "Permiso necesario",
@@ -1207,11 +1243,12 @@
       "project": "Proyecto",
       "projectName": "Nombre",
       "projectPath": "Ruta",
-      "agents": "Agentes",
+      "agents": "Agents",
       "nodes": "Nodos",
       "edges": "Edges",
       "noProject": "Sin proyecto activo",
       "fps": "fps",
+      "inputLag": "Retraso de entrada",
       "fpsTip": "Fotogramas por segundo de renderizado",
       "visibility": "Visibilidad",
       "profiling": {
@@ -1280,6 +1317,7 @@
     },
     "serverList": {
       "heading": "Servidores ({{count}})",
+      "serverLabel": "Servidor",
       "refresh": "Actualizar",
       "empty": "Sin servidores en ejecución",
       "running": "ejecutando",
@@ -1370,12 +1408,12 @@
       "collectorFailed": "No se pudo acceder a la configuración del recopilador de uso.",
       "collectorRestartHint": "Vibisual lee tu uso periódicamente aunque esto esté desactivado; el recopilador solo lo actualiza más a menudo mientras hay una sesión interactiva.",
       "localTitle": "Este proyecto en Vibisual",
-      "localAgents": "Agentes",
+      "localAgents": "Agents",
       "localInput": "Tokens de entrada",
       "localOutput": "Tokens de salida",
       "localHint": "Contado desde los agentes de la pestaña de proyecto activa. Los límites del plan de arriba son de toda la cuenta e incluyen trabajo hecho fuera de Vibisual.",
       "emptyOff": "Aún no hay datos de uso: el recopilador está desactivada. Actívalo abajo y luego abre una sesión interactiva de Claude Code una vez.",
-      "emptyWaiting": "El recopilador está activo y espera la primera lectura. Los valores llegan cuando una sesión interactiva de Claude Code dibuja su barra de estado: una burbuja de terminal en el lienzo o Claude Code en tu editor. Los agentes que Vibisual ejecuta sin interfaz no tienen barra de estado y nunca informan.",
+      "emptyWaiting": "El recopilador está activo y espera la primera lectura. Los valores llegan cuando una sesión interactiva de Claude Code dibuja su barra de estado: una burbuja de terminal en el lienzo o Claude Code en tu editor. Los Agents que Vibisual ejecuta sin interfaz no tienen barra de estado y nunca informan.",
       "refresh": "Actualizar",
       "weeklyScoped": "Límite semanal — {{model}}",
       "creditsTitle": "Créditos de uso",
@@ -1414,12 +1452,12 @@
         "settingsSection": "Sección de ajustes",
         "ideView": "Vista del IDE",
         "headerItem": "Elemento de cabecera",
-        "agentPrompt": "Aplicación al agente",
+        "agentPrompt": "Aplicación al Agent",
         "contextMenuItem": "Menú contextual",
         "hookSubscriber": "Suscriptor de hooks",
         "restRoute": "Ruta REST",
         "wsMessage": "Mensaje WS",
-        "agentConfigField": "Ajuste de agente",
+        "agentConfigField": "Ajuste de Agent",
         "brainCardKind": "Tipo de tarjeta",
         "bubbleType": "Tipo de burbuja",
         "edgeKind": "Tipo de conexión"
@@ -1584,6 +1622,12 @@
       "noAudio": "Exportado sin audio.",
       "downgraded": "El modo de renderizado se degradó: {{id}}",
       "previewFailed": "No se pudo dibujar la vista previa.",
+      "errNoDoc": "No document is open.",
+      "errNoStage": "Could not find a place to attach the stage.",
+      "errNoRenderBackend": "No render mode is available on this device.",
+      "errNoOffscreen": "Offscreen windows are not available in this build.",
+      "errNoOffscreenBridge": "The offscreen bridge is not available.",
+      "errRequestFailed": "The request failed ({{status}}).",
       "reloaded": "El documento cambió en otro lugar, así que se volvió a cargar."
     },
     "cost": {
@@ -1720,7 +1764,7 @@
     "projectFolder": {
       "title": "Elige una carpeta de proyecto",
       "intro": "Claude Code está instalado y con la sesión iniciada. El último paso es elegir la carpeta en la que trabajarán tus agentes — normalmente la raíz de un proyecto o repositorio.",
-      "blocked": "No se creó nada — todavía no hay ninguna carpeta de proyecto abierta. Los agentes trabajan dentro de la carpeta que elijas, así que elige una primero.",
+      "blocked": "No se creó nada — todavía no hay ninguna carpeta de proyecto abierta. Los Agents trabajan dentro de la carpeta que elijas, así que elige una primero.",
       "detail": "Todo lo que Vibisual guarda de un proyecto vive dentro de esa carpeta, y los agentes solo pueden leer y editar archivos que estén debajo de ella. Más adelante puedes abrir más carpetas desde Archivo → Abrir carpeta.",
       "cancelled": "Todavía no se ha elegido ninguna carpeta. Elige una para continuar.",
       "choose": "Elegir carpeta",
@@ -1798,11 +1842,11 @@
       "cmdLabel": "CMD",
       "hookLabel": "Hook",
       "renameHint": "Doble clic para renombrar (F2)",
-      "renameInputLabel": "Nombre del agente",
-      "localLabel": "All Model",
+      "renameInputLabel": "Nombre del Agent",
+      "localLabel": "Todos los modelos",
       "localSwitchModel": "Cambiar el modelo que usa esta burbuja",
       "localContextUsed": "Contexto {{used}} / {{limit}} tokens ({{percent}} %) — al llenarse se descartan los turnos más antiguos",
-      "agentSettings": "Ajustes del agente",
+      "agentSettings": "Ajustes del Agent",
       "collapseLabel": "Contraer",
       "collapseHint": "Contraer: conserva la ventana y devuelve el lienzo (vuelve a expandirla desde la lista de ventanas de la cabecera)",
       "resizeWindow": "Redimensionar ventana",
@@ -1824,7 +1868,7 @@
       "pastSessionsClose": "Cerrar",
       "loading": "Cargando...",
       "noClosedSessions": "No hay sesiones cerradas para restaurar.",
-      "agentTabLabel": "Agente",
+      "agentTabLabel": "Agent",
       "confirmCloseTitle": "¿Cerrar la sesión en ejecución?",
       "confirmCloseMessage": "La sesión todavía se está ejecutando. Cerrarla detendrá su trabajo. ¿Cerrar de todas formas?",
       "confirmCloseConfirm": "Cerrar",
@@ -1913,7 +1957,7 @@
       "inputCtxSelectAll": "Seleccionar todo",
       "ctxSaveToBrain": "Guardar en el Memoria",
       "stopAll": "Detener todo",
-      "stopAllTitle": "Detiene todo lo que este agente está ejecutando (otras pestañas + subagentes en segundo plano)",
+      "stopAllTitle": "Detiene todo lo que este agente está ejecutando (otras pestañas + tareas en segundo plano)",
       "stopSessionTitle": "Detiene esta sesión y los subagentes que inició (las demás pestañas de sesión siguen en ejecución)"
     },
     "memo": {
@@ -1950,7 +1994,7 @@
       "skills": "Habilidades",
       "bookmarks": "Marcadores",
       "sessionSummary": "Resúmenes de sesión",
-      "runningSubagents": "Subagentes en ejecución ({{count}})",
+      "runningSubagents": "Tareas en segundo plano ({{count}})",
       "loop": "Bucle de repetición",
       "goal": "Objetivo",
       "debug": "Ejecutar y depurar",
@@ -2052,7 +2096,7 @@
         "unreal": "El editor se inicia con -WaitForDebugger y se pausa hasta que se conecta un depurador — pulsa Adjuntar depurador y luego usa puntos de interrupción en Visual Studio. Su registro se transmite a Salida.",
         "unsupported": "No se conocen parámetros de depuración para este comando."
       },
-      "mcpTitle": "Herramientas de depuración del agente",
+      "mcpTitle": "Herramientas de depuración del Agent",
       "mcpHint": "Vibisual no incluye un depurador. Estos son servidores MCP existentes conectados a este agente para que pueda establecer puntos de interrupción e inspeccionar el estado por sí mismo.",
       "mcpApplyHint": "Se aplica a las sesiones iniciadas después del cambio (las sesiones ya en ejecución conservan sus herramientas).",
       "docs": "Documentación",
@@ -2343,7 +2387,7 @@
       "sessionOne": "{{count}} sesión",
       "sessionMany": "{{count}} sesiones",
       "autoCompact": "compactación auto {{value}}",
-      "autoCompactTip": "Cuando el contexto alcanza este tamaño, la CLI resume la conversación por sí sola. Cámbialo por agente en Ajustes del agente, o para todos en File > Options > Agent Defaults."
+      "autoCompactTip": "Cuando el contexto alcanza este tamaño, la CLI resume la conversación por sí sola. Cámbialo por agente en Configuración del Agent, o para todos en Archivo > Opciones > Ajustes predeterminados del Agent."
     },
     "search": {
       "placeholder": "Buscar en la conversación",
@@ -2505,19 +2549,26 @@
       "dismiss": "Descartar"
     },
     "runningSubagents": {
-      "title": "Subagentes en ejecución",
+      "title": "Tareas en segundo plano",
       "close": "Cerrar",
-      "empty": "No hay subagentes en ejecución en este momento.",
-      "untitled": "Subagente",
-      "scopeAll": "Mostrando todos los subagentes que este agente está ejecutando.",
-      "scopeSession": "Mostrando los subagentes iniciados por \"{{label}}\".",
-      "emptySession": "Esta sesión no tiene subagentes en ejecución.",
-      "hint": "Aquí solo aparecen los subagentes que esta sesión lanzó en segundo plano; la conversación en sí no se cuenta. Mientras se ejecutan, el icono de la izquierda se ilumina y muestra cuántos hay.",
+      "empty": "Ahora mismo no hay nada ejecutándose en segundo plano.",
+      "untitled": "Tarea sin nombre",
+      "kindAgent": "Subagente",
+      "kindAgentTip": "Un proceso hijo de IA lanzado con la herramienta Task o Agent. Ejecuta un modelo, por lo que consume tokens.",
+      "kindShell": "Shell",
+      "kindShellTip": "Un comando Bash o Monitor en segundo plano. Lo que se ejecuta es un comando, no un modelo, así que no consume tokens. Los comandos que nunca terminan por sí solos (tail -f, while true) se quedan aquí hasta que los quites.",
+      "scopeAll": "Mostrando todas las tareas en segundo plano de este agente.",
+      "scopeSession": "Mostrando solo las tareas en segundo plano lanzadas por «{{label}}».",
+      "emptySession": "Esta sesión no tiene nada ejecutándose en segundo plano.",
+      "hint": "Aquí solo aparece lo que esta sesión ha lanzado en segundo plano; la conversación en curso no se cuenta. Los subagentes son procesos hijos de IA que consumen tokens; los shells son comandos Bash o Monitor en segundo plano que no consumen ninguno. Mientras algo se ejecuta, el icono de la izquierda se ilumina y muestra debajo cuántos hay.",
       "othersRunning": "{{count}} más en ejecución en otro lugar",
       "startedAt": "Iniciado a las {{time}}",
       "endedAt": "Finalizó a las {{time}}",
       "finishedTitle": "Recién terminados",
       "noResult": "No llegó ningún resultado.",
+      "exitCode": "Código de salida {{code}}",
+      "exitKilled": "Detenido",
+      "exitFromFileTip": "El aviso de finalización nunca llegó: esto se leyó de la marca final que el harness escribió en el archivo de salida de la tarea.",
       "resultRescued": "Recuperado de la transcripción — no entregado a la sesión",
       "resultRescuedTitle": "Este proceso hijo se interrumpió antes de poder informar (Stop, cierre de pestaña o un fallo), así que la sesión nunca lo recibió. Vibisual lo recuperó leyendo la transcripción del agente en el disco.",
       "toggleResult": "Mostrar u ocultar el resultado completo",
@@ -2525,8 +2576,23 @@
       "nowUsing": "Herramienta que está usando ahora",
       "duration": "Tardó {{value}}",
       "noResponse": "Sin respuesta durante {{value}}",
+      "quietFor": "En silencio desde hace {{value}}",
+      "quietForTip": "El archivo de salida de esta tarea no ha cambiado en todo ese tiempo. Silencio no significa terminado: un comando que espera algo está en silencio por diseño.",
+      "probing": "Comprobando si sigue en marcha",
+      "probingTip": "Llevaba mucho tiempo en silencio y sin marca final, así que se lanzó una vez un agente de juicio. Solo se le preguntan dos cosas: si este comando tiene una condición bajo la cual termina por sí solo y si esa condición ya se cumple.",
+      "probeAlive": "Sigue en marcha",
+      "probeUnknown": "No se pudo determinar: se deja tal cual",
+      "probeFinished": "Comprobado y recogido automáticamente",
+      "probeTip": "Condición de fin: {{condition}} · juzgado por {{model}}",
+      "probeTipNoCondition": "No se encontró ninguna condición de fin propia · juzgado por {{model}}",
+      "probeAt": "Comprobado a las {{time}}",
+      "closedByProcessGone": "Recogido: su sesión ya no existe",
+      "closedByProcessGoneTip": "El proceso de la sesión que lanzó esta tarea ya no existe. Un resultado no tendría adónde llegar, así que se quitó de la lista.",
+      "closedByUser": "Lo quitaste tú",
+      "killedProcesses": "{{count}} procesos detenidos",
+      "killedProcessesTip": "Al recoger también se detuvieron los procesos que este comando había lanzado. Vaciar solo la lista dejaría el comando en marcha.",
       "dismiss": "Dejar de esperar",
-      "dismissTip": "Quita de esta lista. No termina el proceso: el agente detiene su propio subproceso con TaskStop."
+      "dismissTip": "Lo quita de esta lista. No detiene el proceso: a un subagente lo detiene el agente que lo lanzó (TaskStop) y a un shell, KillShell."
     },
     "loop": {
       "title": "Bucle de repetición",
@@ -2725,7 +2791,7 @@
         "session": "Esta sesión"
       },
       "control": {
-        "session": "prompt",
+        "session": "instrucción",
         "spawn": "lanzamiento",
         "external": "en otro sitio",
         "none": "bloqueado"
@@ -2741,7 +2807,7 @@
       },
       "src": {
         "skillsPrefix": "Prefijo de habilidad",
-        "agentRules": "Reglas del agente",
+        "agentRules": "Reglas del Agent",
         "edges": "Reglas de edges salientes",
         "feedback": "Feedback anterior del usuario",
         "intentFirst": "Anunciar la intención primero",
@@ -2769,11 +2835,11 @@
         "hooks": "Hooks",
         "systemPrompt": "Prompt del sistema de Claude Code",
         "brainSkills": "Procedimientos dla memoria",
-        "compactSelf": "Autocompactación del agente"
+        "compactSelf": "Autocompactación del Agent"
       },
       "hint": {
-        "tools": "Elige la lista de herramientas en Configuración del agente",
-        "mcp": "Conecta servidores MCP en Configuración del agente",
+        "tools": "Elige la lista de herramientas en Configuración del Agent",
+        "mcp": "Conecta servidores MCP en Configuración del Agent",
         "hooks": "Los hooks se instalan en settings.json"
       },
       "warn": {
@@ -2811,12 +2877,12 @@
         "src": {
           "skillsPrefix": {
             "what": "Comandos de barra que Vibisual escribe delante de tu mensaje para que la sesión arranque con esas habilidades cargadas.",
-            "more": "Viene del campo Habilidades en Configuración del agente. Cada habilidad se envía como una línea /nombre encima de tu prompt.",
+            "more": "Viene del campo Habilidades en Configuración del Agent. Cada habilidad se envía como una línea /nombre encima de tu prompt.",
             "off": "Tu mensaje se envía solo y esas habilidades no se invocan."
           },
           "agentRules": {
             "what": "Tus propias instrucciones permanentes para esta burbuja de agente.",
-            "more": "Viene del cuadro Reglas del agente en Configuración del agente, añadido bajo un encabezado \"# Agent Rules\".",
+            "more": "Viene del cuadro Reglas del Agent en Configuración del Agent, añadido bajo un encabezado \"# Agent Rules\".",
             "off": "El agente deja de recibir esas instrucciones permanentes."
           },
           "edges": {
@@ -2941,13 +3007,13 @@
           },
           "toolSchemas": {
             "what": "Las definiciones de las herramientas que este agente puede llamar — Read, Edit, Bash y el resto.",
-            "more": "La lista de herramientas la controla Configuración del agente; acortarla ahí reduce este número.",
-            "off": "Cambia la lista de herramientas en Configuración del agente — el interruptor de aquí está bloqueado."
+            "more": "La lista de herramientas la controla Configuración del Agent; acortarla ahí reduce este número.",
+            "off": "Cambia la lista de herramientas en Configuración del Agent — el interruptor de aquí está bloqueado."
           },
           "mcp": {
             "what": "Herramientas extra conectadas mediante servidores MCP.",
             "more": "Cada servidor conectado añade sus propias definiciones de herramientas a cada prompt.",
-            "off": "Desconecta el servidor en Configuración del agente — el interruptor de aquí está bloqueado."
+            "off": "Desconecta el servidor en Configuración del Agent — el interruptor de aquí está bloqueado."
           },
           "hooks": {
             "what": "Los hooks de Claude Code que permiten que Vibisual vea esta sesión.",
@@ -2993,8 +3059,8 @@
           },
           "tools": {
             "what": "Definiciones de las herramientas que el agente puede llamar.",
-            "more": "La lista la controla Configuración del agente.",
-            "off": "Cámbiala en Configuración del agente — no se puede desactivar aquí."
+            "more": "La lista la controla Configuración del Agent.",
+            "off": "Cámbiala en Configuración del Agent — no se puede desactivar aquí."
           },
           "system": {
             "what": "Algo que Claude Code añade por su cuenta, fuera de este proyecto.",
@@ -3316,12 +3382,31 @@
     },
     "taskEdge": {
       "iconHint": "Clic: detalles · Doble clic: editar",
+      "critiqueIconLabel": "Crítica (observador)",
       "pulse": {
         "sending": "Enviar comando",
         "completed": "Informe de finalización",
         "error": "Error"
       },
-      "pulseDebugTitle": "[debug] {{label}} pulse 1.8s"
+      "pulseDebugTitle": "[debug] pulso de {{label}} 1.8s"
+    },
+    "taskEdgeKind": {
+      "command": {
+        "label": "Command",
+        "description": "Instruction — \"please do this\""
+      },
+      "artifact": {
+        "label": "Artifact",
+        "description": "Hands over the result itself — the file or diff"
+      },
+      "request": {
+        "label": "Request",
+        "description": "Reverse request — \"I am stuck, please help\""
+      },
+      "critique": {
+        "label": "Critique",
+        "description": "Critique / review — audit and red-team role (the watcher)"
+      }
     },
     "taskEdgePopup": {
       "dragToMove": "Arrastra para mover",
@@ -3418,15 +3503,23 @@
       "connect": "Conectar",
       "connectTooltip": "Crear el edge con esta configuración (Ctrl/Cmd+Enter).",
       "critiqueOptionsTip": "Solo para edge de crítica. Establece cuándo intervenir (Momento) y qué aplicar al rechazar (Autoridad). Se ignora para otros tipos.",
+      "critiqueOptions": "Opciones de crítica",
       "critiqueTimingTip": "Intermedio (por defecto): revisión en cada hito durante el trabajo del destino. Más frecuente / más seguro / más lento. Final: una única revisión al completar. Menos frecuente / más rápido.",
       "critiqueTimingIntermediateTip": "Intermedio: revisión en cada hito durante el trabajo del destino. (por defecto)",
       "critiqueTimingFinalTip": "Solo final: una única revisión tras completar el destino.",
+      "critiqueTiming": "Momento",
+      "critiqueTimingIntermediate": "Intermedio",
+      "critiqueTimingFinal": "Solo final",
       "critiqueAuthorityTip": "Forzar revisión (por defecto): al rechazar, el destino debe rehacer el trabajo. Superar el máximo de revisiones lo degrada automáticamente a solo comentario y escala a la sesión padre. Solo comentario: el rechazo es orientativo, sin revisión forzada.",
       "critiqueAuthorityForceTip": "Forzar revisión: el destino debe rehacer al rechazar. (por defecto)",
       "critiqueAuthorityCommentTip": "Solo comentario: el destino toma el rechazo solo como referencia. Sin revisión forzada.",
+      "critiqueAuthority": "Autoridad",
+      "critiqueAuthorityForce": "Forzar retrabajo",
+      "critiqueAuthorityComment": "Solo comentario",
       "critiqueMaxReworkTip": "Número máximo de veces que el destino puede rehacer en modo Forzar revisión. Superarlo lo degrada automáticamente a solo comentario y escala a la sesión padre. Protección contra bucles infinitos.",
       "critiqueMaxReworkActive": "Máx. {{max}} veces. Se degrada a solo comentario al superarlo.",
-      "critiqueMaxReworkInactive": "No se usa en modo Solo comentario."
+      "critiqueMaxReworkInactive": "No se usa en modo Solo comentario.",
+      "critiqueMaxRework": "Retrabajos máx."
     }
   },
   "inspector": {
@@ -3463,7 +3556,7 @@
     "sendToOverlayLabel": "Overlay",
     "removeFromOverlayLabel": "En overlay",
     "openIDE": "Clic para abrir IDE",
-    "agentGone": "Agente no disponible",
+    "agentGone": "Agent no disponible",
     "toggleShow": "Mostrar burbujas del overlay de escritorio",
     "toggleHide": "Ocultar burbujas del overlay de escritorio",
     "menu": {
@@ -3511,8 +3604,8 @@
       "exitFullscreen": "Salir de pantalla completa"
     },
     "contextMenu": {
-      "createCustomAgent": "Crear agente personalizado",
-      "createCmdAgent": "Crear agente CMD",
+      "createCustomAgent": "Crear Custom Agent",
+      "createCmdAgent": "Crear CMD Agent",
       "createCmdAgentHint": "Terminal interactiva que manejas tú (facturación por suscripción)",
       "createAutoAgent": "Crear Auto Agent",
       "createAutoAgentHint": "Meta agente — lanza automáticamente un equipo de agentes personalizados a partir de tu prompt",
@@ -3529,7 +3622,7 @@
       "appUninstall": "Desinstalar",
       "appInstall": "Instalar",
       "appsHelp": "Haz clic en una fila para colocarla en el lienzo como burbuja. Haz doble clic en una burbuja para abrirla, o clic derecho para gestionarla.",
-      "createLab": "Laboratorio de agentes",
+      "createLab": "Agent Lab",
       "createLabHint": "Ejecuta la misma tarea con distintos ajustes y compara los resultados en una tabla",
       "createLocalAgent": "Todos los modelos",
       "createLocalAgentHint": "Coloca una burbuja para un modelo que se ejecuta en este PC",
@@ -3663,7 +3756,7 @@
       "col": {
         "variant": "Variante",
         "model": "Modelo",
-        "effort": "Effort",
+        "effort": "Esfuerzo",
         "permission": "Permiso",
         "status": "Estado",
         "duration": "Tiempo",
@@ -3707,11 +3800,11 @@
       "delete": "Eliminar",
       "deletePinnedHint": "Este estante está fijado. Desfíjalo primero.",
       "kindCommand": "Shell",
-      "kindPrompt": "Prompt",
+      "kindPrompt": "Instrucción",
       "newCommand": "Nuevo comando",
       "newPrompt": "Nuevo prompt",
       "addCommand": "+ Comando de shell",
-      "addPrompt": "+ Prompt",
+      "addPrompt": "+ Instrucción",
       "removeItem": "Eliminar elemento",
       "moveUp": "Subir",
       "moveDown": "Bajar",
@@ -3742,7 +3835,7 @@
       "backendShort": "BE"
     },
     "notifications": {
-      "agentCompleted": "Agente completado — haz clic para ver los resultados",
+      "agentCompleted": "Agent completado — haz clic para ver los resultados",
       "loopCompleted": "Bucle completado — haz clic para ver los resultados"
     },
     "bubble": {
@@ -3790,6 +3883,9 @@
       "snipFailed": "Error al capturar: {{error}}"
     },
     "close": "Cerrar",
+    "msg": {
+      "requestFailed": "Failed ({{status}})"
+    },
     "minimize": "Minimizar",
     "maximize": "Maximizar",
     "play": "Reproducir",
@@ -3821,7 +3917,7 @@
       "fact": "Hecho"
     },
     "scopeProject": "Memoria del proyecto",
-    "scopeAgent": "Memoria del agente",
+    "scopeAgent": "Memoria del Agent",
     "statusGhost": "Necesita revisión",
     "supersededNote": "Contenido anterior",
     "needsCheckBadge": "Revisar",
@@ -3862,7 +3958,7 @@
     "summaryRecent": "Guardadas recientemente",
     "openLibrary": "Abrir la biblioteca de memoria",
     "trashedAt": "Enviado a la papelera",
-    "trashedMemories": "Memorias del agente",
+    "trashedMemories": "Memorias del Agent",
     "cardCountUnit": " tarjetas",
     "restore": "Restaurar",
     "purge": "Eliminar permanentemente",
@@ -3877,7 +3973,7 @@
     "cardCountUnitSuffix": "",
     "feed": {
       "title": "Memoria del proyecto",
-      "agentTitle": "Memoria de este agente",
+      "agentTitle": "Memoria de este Agent",
       "searchPlaceholder": "Buscar memorias…",
       "sectionRelated": "Relacionado con el trabajo actual",
       "sectionRecent": "Aprendido recientemente",

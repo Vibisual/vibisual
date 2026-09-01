@@ -6,7 +6,7 @@ import { app, shell, BrowserWindow, protocol, screen, dialog, Notification } fro
 import { electronApp, optimizer } from '@electron-toolkit/utils';
 import { inject, type DispatchFunc } from 'light-my-request';
 import type { Express } from 'express';
-import { unloadAllLocalModels, runServer, shutdownDiskWriteQueue, setBroadcastSink, setHookListenerPort, setHookListenerToken, setHookListenerIdentityFile, setHookHandlerPath, setDebugLogDir, ensureClaudeHooksInstalled, refreshStatusLineIfInstalled, recordDiagnostic, subAgentManager, stopAllPlays, closeStaticHost, setCmdTerminalController, setCmdBlockedNotifier, setWorkspaceTrash } from '@vibisual/server';
+import { unloadAllLocalModels, runServer, shutdownDiskWriteQueue, setBroadcastSink, setHookListenerPort, setHookListenerToken, setHookListenerIdentityFile, setHookHandlerPath, setDebugLogDir, ensureClaudeHooksInstalled, refreshStatusLineIfInstalled, recordDiagnostic, subAgentManager, stopAllPlays, closeStaticHost, setCmdTerminalController, setCmdBlockedNotifier, setWorkspaceTrash, getUiLocale } from '@vibisual/server';
 import { IFRAME_PROXY_PATH, WORKSPACE_SITE_PATH } from '@vibisual/shared';
 import { setupIpc, type IpcHub } from './ipc';
 import { loadSecrets } from './secrets';
@@ -19,6 +19,7 @@ import { initAutoUpdater, stopAutoUpdater, isUpdateInstallPending, runPendingUpd
 import { openExternalWithNotice } from './externalOpen';
 import { killAllTerminals, terminalController, setTerminalCardIdentity } from './terminalManager';
 import { appendCrashLine, logAppStart, logCleanExit, startCrashReporter } from './crashLog';
+import { mainStrings, fmt } from './strings';
 
 // Vibisual desktop main — SCENARIO.md §3.7 (in-process 통합, 단일 프로세스).
 //
@@ -522,9 +523,10 @@ async function bootBackend(): Promise<void> {
       if (!Notification.isSupported()) return;
       const focused = BrowserWindow.getAllWindows().some((w) => !w.isDestroyed() && w.isFocused());
       if (focused) return;
+      const s = mainStrings(safeUiLocale());
       new Notification({
-        title: `Vibisual — ${notice.label} 이(가) 입력을 기다립니다`,
-        body: notice.reason ?? 'CMD 터미널이 사용자 응답을 기다리는 중입니다.',
+        title: fmt(s.cmdBlockedTitle, { label: notice.label }),
+        body: notice.reason ?? s.cmdBlockedBody,
         silent: false,
       }).show();
     } catch { /* 알림은 표시 전용 — 실패해도 작업에 영향 없음 */ }
@@ -659,6 +661,18 @@ function safeRunningWorkSummary(): { sessions: number; backgroundTasks: number; 
 }
 
 /**
+ * 네이티브 문구에 쓸 UI 언어. 서버 코어가 아직 안 떴거나 이미 정리된 뒤라도 **문구가 없어서는 안 되므로**
+ * 실패하면 `null` 로 떨어뜨린다 — `mainStrings` 가 그때 `en` 을 준다(침묵보다 영어가 낫다).
+ */
+function safeUiLocale(): string | null {
+  try {
+    return getUiLocale();
+  } catch {
+    return null;
+  }
+}
+
+/**
  * 종료 정리의 **시간 상한**. 소켓 `close()` 는 열려 있던 연결이 전부 끝나야 콜백이 오므로
  * (폰이 붙어 있거나 keep-alive 가 살아 있으면 분 단위로 끌린다) 상한이 없으면 프로세스가
  * 언제 사라지는지 아무도 모른다. 2026-08-27 실측 68초 — 그 사이 업데이트 설치기가 포기했다.
@@ -682,19 +696,26 @@ app.on('before-quit', (event) => {
   //   같은 경고가 두 번 뜨고, 사용자가 답하는 동안 종료가 늦어져 설치기가 포기한다.
   const work = isUpdateInstallPending() ? null : safeRunningWorkSummary();
   if (work && (work.sessions > 0 || work.backgroundTasks > 0)) {
+    // 언어는 서버 코어가 들고 있는 UI 로케일 하나를 따른다 — main 에는 i18next 가 없다(./strings).
+    const s = mainStrings(safeUiLocale());
+    const labels = work.labels.slice(0, 4).join(', ');
     const detail = [
-      work.sessions > 0 ? `세션 ${work.sessions}개 실행 중${work.labels.length > 0 ? `: ${work.labels.slice(0, 4).join(', ')}` : ''}` : '',
-      work.backgroundTasks > 0 ? `백그라운드 작업 ${work.backgroundTasks}개` : '',
-      '대화는 남아 다음 턴에 이어지지만, 커밋하지 않은 편집은 복구되지 않습니다.',
+      work.sessions > 0
+        ? (work.labels.length > 0
+          ? fmt(s.quitSessionsWithLabels, { count: work.sessions, labels })
+          : fmt(s.quitSessions, { count: work.sessions }))
+        : '',
+      work.backgroundTasks > 0 ? fmt(s.quitBackgroundTasks, { count: work.backgroundTasks }) : '',
+      s.quitDetailNote,
     ].filter(Boolean).join(String.fromCharCode(10));
     const picked = dialog.showMessageBoxSync({
       type: 'warning',
-      buttons: ['취소', '닫기'],
+      buttons: [s.quitBtnCancel, s.quitBtnClose],
       defaultId: 0,
       cancelId: 0,
       noLink: true,
-      title: '작업이 실행 중입니다',
-      message: '지금 닫으면 실행 중인 에이전트가 함께 종료됩니다.',
+      title: s.quitTitle,
+      message: s.quitMessage,
       detail,
     });
     if (picked === 0) { event.preventDefault(); return; }

@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.19] - 2026-09-01
+
+### Added
+- **Background work that has gone quiet is now asked about, once.** A shell started with `Bash run_in_background` reports back through a notification, and when that notification never arrives the row stays in the running list — for hours, long after the command itself has finished. A timer cannot settle it: the most common thing that sits there silently is a *legitimate* wait, a loop polling every ten seconds for files that have not appeared yet, and closing that would be worse than leaving it. So silence is only what starts the question, never the answer. After a stretch with no output, the command is read for the condition it exits on and a small model judges whether that condition has actually been met. `finished` moves the row down to what has just ended and can stop its process tree; `alive` and `unknown` leave the row exactly where it was and write the reason on it, so "why is this still here" is answered in the place you are already looking. The whole thing is budgeted so it cannot feed on itself — one judgement at a time, at most twelve an hour, and a row that comes back alive is not asked again until it has been quiet several times longer.
+- **A settings section for that judgement** — whether it runs at all, how long the silence must be, whether a `finished` verdict actually closes the row, whether closing also stops the process, and which model decides. Set the silence to zero and nothing is ever asked; switch it off and no model is called at all.
+- **The running list now says which rows are spending tokens.** Subagents started with `Task`/`Agent` and shells started with `Bash run_in_background` or `Monitor` were listed under one name, so a `tail -f` left running read as "my agent has been burning tokens for ten minutes" — the two cost different things and are stopped by different means. Every row now carries its kind, and the time since it last printed anything.
+- **Rows that have ended say how they ended** — the task reported back, its session disappeared, an end marker was found at the bottom of its output, a verdict closed it, or you closed it — along with the exit code recovered from the output file, whether it was killed rather than finishing on its own, and how many processes were stopped with it. All five previously looked identical and simply read "finished", which is the quickest way for automatic tidying to lose your trust. A shell reclaimed from its output file used to leave the result column permanently empty; it now says whether the command succeeded.
+
+### Fixed
+- **The word `Agent` was being translated.** It is one product term — the bubbles on the canvas, the tab labels, the settings window, the documentation and the identifiers in the code all use it — and once a locale renders it as its own word, what you see on screen and what you find in the docs or an error message stop being the same word, so searching for one does not lead to the other. A check found it translated in 254 places across 10 of the 12 languages. Translation rounds are done per language and each one independently decided that translating it read more naturally, which is exactly why nobody noticed: the results were grammatical and looked fine. The term is now held in Latin script in every language, with the surrounding grammar left to that language, and a test keeps it that way rather than trusting the next round to remember.
+- **Delegation arrow types were labelled in Korean in every language.** The names and descriptions shown for an arrow's kind came from a code table that was never part of the translations, so all twelve locales displayed Korean.
+- **The warning you get when closing the app with work still running was Korean-only** — as was the notification saying a terminal is waiting for you. Both are drawn by the operating system rather than by the app's own interface, which is where the translations stop. It was the sentence that matters most of the ones we show: that conversations survive but uncommitted edits do not.
+- **Text scattered across the panels that had never been translated** — the file-edit list, the queued-command attachments, the video studio's errors, the detail panel's type, status and ghost-file rows, the skill picker's groupings, the debug panel, the storyboard board and the preview server card — is now translated with the rest.
+
 ## [0.1.18] - 2026-09-01
 
 ### Added
@@ -416,7 +430,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - Dropped preset options from the custom agent settings.
 
-[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.1.18...HEAD
+[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.1.19...HEAD
+[0.1.19]: https://github.com/Vibisual/vibisual/compare/v0.1.18...v0.1.19
 [0.1.18]: https://github.com/Vibisual/vibisual/compare/v0.1.17...v0.1.18
 [0.1.17]: https://github.com/Vibisual/vibisual/compare/v0.1.16...v0.1.17
 [0.1.16]: https://github.com/Vibisual/vibisual/compare/v0.1.15...v0.1.16

@@ -7,6 +7,9 @@
  */
 
 import type { VideoDoc, VideoDocOp } from '@vibisual/video';
+// React 밖에서 문구를 고르는 통로 — `hooks/useWebSocket.ts` 와 같은 방식이다. 여기서 던지는
+// 오류는 `<pre>{error}</pre>` 로 **그대로 화면에 찍히므로** 사용자의 언어여야 한다.
+import i18n from '../../i18n/index.js';
 
 export interface DocEnvelope {
   readonly doc: VideoDoc;
@@ -39,7 +42,7 @@ export interface VideoJob {
 async function json<T>(res: Response): Promise<T> {
   const body = (await res.json()) as T & { ok?: boolean; error?: string };
   if (res.ok) return body;
-  throw new Error(body.error ?? `요청이 실패했습니다 (${res.status}).`);
+  throw new Error(body.error ?? i18n.t('panel.videoStudio.errRequestFailed', { status: res.status }));
 }
 
 export async function listDocs(project: string): Promise<DocSummary[]> {
@@ -69,7 +72,7 @@ export async function readDoc(project: string, docId: string): Promise<DocEnvelo
 
 export class VersionConflictError extends Error {
   constructor() {
-    super('다른 곳에서 문서가 바뀌었습니다. 다시 읽어 옵니다.');
+    super(i18n.t('panel.videoStudio.reloaded'));
     this.name = 'VersionConflictError';
   }
 }

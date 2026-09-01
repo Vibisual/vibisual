@@ -1,4 +1,4 @@
-import type { AgentProvider, LocalEngineBackend, BubbleType, BubbleStyleConfig, EdgeStyleConfig, AgentRole, PipelineChildConfig, PipelineType, AgentConfig, AgentDefinition, TaskEdgeTemplate, TaskEdgeKind, UiLocale, AutoAgentRole, AutoAgentTemplate, ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry, AgentFeedback, BrainTopicDef, BrainTopicIndexEntry, BrainCardType, BrainAuthority, BrainAxisId, BrainActivation, BrainSkill, StreamDensity, PluginContributionKind, SessionGoalStepStatus, CommandDispatchMode, CommandErrorCode, RunRuntime, RunConfig, McpServerPreset, AgentMemoryScope, DebugAdapterSpec, ProblemMatch, ProblemSeverity, RetentionSettings, PreviewDevicePreset, ShelfIconName, ShelfItemKind, CostPeriod, CostTotals, CostPeriodTotals, AuditRiskKind, AuditBoundaryConfig, AuditCounts, StoryboardPresetId, StoryboardPreset, LocalModelCatalogSort, WorkspacePathKind, CmdPaneNode, BuiltinSlashCommand, SessionMemo } from './types.js';
+import type { AgentProvider, LocalEngineBackend, BubbleType, BubbleStyleConfig, EdgeStyleConfig, AgentRole, PipelineChildConfig, PipelineType, AgentConfig, AgentDefinition, TaskEdgeTemplate, TaskEdgeKind, UiLocale, AutoAgentRole, AutoAgentTemplate, ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry, AgentFeedback, BrainTopicDef, BrainTopicIndexEntry, BrainCardType, BrainAuthority, BrainAxisId, BrainActivation, BrainSkill, StreamDensity, PluginContributionKind, SessionGoalStepStatus, CommandDispatchMode, CommandErrorCode, RunRuntime, RunConfig, McpServerPreset, AgentMemoryScope, DebugAdapterSpec, ProblemMatch, ProblemSeverity, RetentionSettings, BackgroundTaskProbeSettings, PreviewDevicePreset, ShelfIconName, ShelfItemKind, CostPeriod, CostTotals, CostPeriodTotals, AuditRiskKind, AuditBoundaryConfig, AuditCounts, StoryboardPresetId, StoryboardPreset, LocalModelCatalogSort, WorkspacePathKind, CmdPaneNode, BuiltinSlashCommand, SessionMemo } from './types.js';
 export type { ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry } from './types.js';
 // 경로 대소문자 정책 SSOT — win32/darwin 만 접고 linux 는 접지 않는다(`pathCase.ts`).
 import { legacyLowerPathKey, normalizePathShape, pathKey, type PlatformName } from './pathCase.js';
@@ -404,6 +404,63 @@ export const RETENTION_LOG_MAX = 500;
 export const RETENTION_DAY_MS = 24 * 60 * 60 * 1000;
 
 /** 보존 설정 기본값 — `AppState.retention` 이 없을 때(구버전) 이 값으로 판정한다. */
+/**
+ * §5.5 #17-9 ⑭ — **표식 없이 조용한 작업**을 한 번 물어보는 판정의 예산과 한계.
+ *
+ * ⑬ 이 끝난 것을 걷고 나면 남는 회색지대는 실측에서 **드물다** — 살아 있는 셸 17건 중 15건이
+ * 종료 표식을 갖고 있었고, 표식이 없던 2건이 전부 정당하게 대기 중인 폴링 루프였다
+ * (2026-09-01). 그래서 모델 호출이라는 비싼 수단을 쓸 수 있다: 대상이 하루 몇 건 수준이다.
+ * 반대로 이 값을 잘못 잡아 **매 항목마다 반복해서** 부르면 그 순간 자기증식이 된다.
+ */
+
+/** 이만큼 출력이 없으면 조사 착수. **시간은 착수 조건일 뿐 판정 근거가 아니다**(§5.5 #17-9 ⑩). */
+export const BG_TASK_QUIET_PROBE_MINUTES = 10;
+
+/** 판정 1회의 제한 시간. 넘기면 판정 없음(= 항목은 그대로) — 실측 4~15초라 넉넉하다. */
+export const BG_TASK_PROBE_TIMEOUT_MS = 90_000;
+
+/** 증거로 싣는 출력 꼬리 바이트. 프롬프트를 부풀리지 않으면서 마지막 상황을 담는 선. */
+export const BG_TASK_PROBE_TAIL_BYTES = 800;
+
+/** 명령에서 뽑아 상태를 조회할 경로 개수 상한 — 글롭 하나가 수천 건을 훑지 않게. */
+export const BG_TASK_PROBE_MAX_PATHS = 6;
+
+/** 한 경로가 글롭일 때 세어 볼 파일 수 상한. 개수만 알면 되므로 더 볼 이유가 없다. */
+export const BG_TASK_PROBE_GLOB_SCAN_MAX = 500;
+
+/** 모델이 쓴 사유를 화면·저장에 남길 때의 길이 상한. */
+export const BG_TASK_PROBE_REASON_MAX = 160;
+
+/**
+ * 앱 전체에서 **한 시간에** 낼 수 있는 판정 횟수. 이 상한이 자기증식을 막는 마지막 벽이다
+ * (선례: 매 Stop 마다 haiku 를 스폰해 토큰을 태운 리플렉션 · 90분에 Monitor 를 309번 띄운
+ * anthropics/claude-code#55151). 넘치면 조사를 미룰 뿐 항목은 그대로 남는다.
+ */
+export const BG_TASK_PROBE_MAX_PER_HOUR = 12;
+
+/** 동시에 도는 판정 수. 1 = 한 번에 하나 — 줄 세우면 상한과 함께 총량이 예측 가능해진다. */
+export const BG_TASK_PROBE_CONCURRENCY = 1;
+
+/**
+ * 같은 항목을 다시 물어보기까지의 배수. `alive` 로 나온 항목은 조용한 시간이 이 배수만큼
+ * 더 길어져야 다시 묻는다 — 그래야 몇 시간짜리 대기 하나가 판정을 반복해서 태우지 않는다.
+ */
+export const BG_TASK_PROBE_BACKOFF_FACTOR = 3;
+
+/** 백오프 상한(조용 임계의 배수). 이 이상으로는 간격이 벌어지지 않는다. */
+export const BG_TASK_PROBE_BACKOFF_MAX = 24;
+
+/** 판정 기본 모델. 실측(2026-09-01) 5/5 정확 · 건당 $0.013 으로 sonnet($0.022)보다 싸고 같은 답을 냈다. */
+export const BG_TASK_PROBE_MODEL = 'haiku';
+
+/** 판정 설정 기본값 — `AppState.bgTaskProbe` 가 없을 때(구버전) 이 값으로 동작한다. */
+export const DEFAULT_BG_TASK_PROBE_SETTINGS: BackgroundTaskProbeSettings = {
+  enabled: true,
+  quietMinutes: BG_TASK_QUIET_PROBE_MINUTES,
+  autoClose: true,
+  killProcess: true,
+  model: BG_TASK_PROBE_MODEL,
+};
 export const DEFAULT_RETENTION_SETTINGS: RetentionSettings = {
   fileEditRetentionDays: FILE_EDIT_RETENTION_DAYS,
   maxFileEditPaths: MAX_FILE_EDIT_PATHS,
@@ -429,6 +486,34 @@ export const RETENTION_LIMITS: Record<keyof RetentionSettings, { min: number; ma
   auditEntryMaxPerProject: { min: 0, max: 100_000, step: 50 },
   trashRetentionDays: { min: 0, max: 3650, step: 1 },
 };
+
+/** §5.5 #17-9 ⑭(g) — 판정 설정의 입력 한계. `quietMinutes: 0` 은 "끔"이라 허용한다. */
+export const BG_TASK_PROBE_LIMITS = { quietMinutes: { min: 0, max: 1440, step: 1 } } as const;
+
+/** 판정에 쓸 수 있는 모델 별칭 — 목록 밖 값은 기본값으로 되돌린다(임의 문자열이 CLI 로 새지 않게). */
+export const BG_TASK_PROBE_MODELS = ['haiku', 'sonnet', 'opus'] as const;
+
+/**
+ * 들어온 판정 설정을 안전한 값으로 정규화한다(서버·클라 공용 — 판정이 두 벌이 되면 어긋난다).
+ * 모르는 값·범위 밖·목록 밖 모델은 전부 기본값으로 되돌린다.
+ */
+export function normalizeBgTaskProbeSettings(
+  input?: Partial<BackgroundTaskProbeSettings> | null,
+): BackgroundTaskProbeSettings {
+  const out = { ...DEFAULT_BG_TASK_PROBE_SETTINGS };
+  if (!input || typeof input !== 'object') return out;
+  if (typeof input.enabled === 'boolean') out.enabled = input.enabled;
+  if (typeof input.autoClose === 'boolean') out.autoClose = input.autoClose;
+  if (typeof input.killProcess === 'boolean') out.killProcess = input.killProcess;
+  if (typeof input.quietMinutes === 'number' && Number.isFinite(input.quietMinutes)) {
+    const { min, max } = BG_TASK_PROBE_LIMITS.quietMinutes;
+    out.quietMinutes = Math.min(max, Math.max(min, Math.floor(input.quietMinutes)));
+  }
+  if (typeof input.model === 'string' && (BG_TASK_PROBE_MODELS as readonly string[]).includes(input.model)) {
+    out.model = input.model;
+  }
+  return out;
+}
 
 /**
  * 들어온 보존 설정을 안전한 값으로 정규화한다(서버·클라 공용 — 판정이 두 벌이 되면 어긋난다).
@@ -3142,7 +3227,12 @@ export const TASK_EDGE_AUTO_REWORK_COMMAND_LABEL = 'Rework on critique reject';
 export const TASK_EDGE_DISPATCH_DEFAULT_TIMEOUT_MS = 0;
 
 /** Task Edge 의미(kind)별 시각 스타일. v1.18
- * 엣지 상태 스타일(TASK_EDGE_STYLES)과 독립 — 색 hue는 kind에서, dash/animation은 status에서 온다. */
+ * 엣지 상태 스타일(TASK_EDGE_STYLES)과 독립 — 색 hue는 kind에서, dash/animation은 status에서 온다.
+ *
+ * ⚠️ `label`·`description` 을 **화면에 그리지 마라.** 여기 값은 한국어라 12개 로케일 전부에
+ * 한국어로 나갔었다(i18n 규칙 "다른 곳에서 문자열 import 해서 JSX 에 꽂기" 금지 항목).
+ * 사람이 읽는 두 칸의 정본은 `bubbleMap.taskEdgeKind.<kind>.{label,description}` 이다.
+ * 여기 남겨 두는 것은 코드에서 kind 를 식별할 때 쓰는 개발자용 이름 · 그리고 `color`/`icon` 때문이다. */
 export const TASK_EDGE_KIND_STYLES: Record<TaskEdgeKind, {
   color: string;
   label: string;

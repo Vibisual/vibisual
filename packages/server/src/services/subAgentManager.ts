@@ -4,13 +4,25 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import type { ProjectInfo, SubAgent, SubAgentStatus, QueuedCommand, CommandError, AgentConfig, SubAgentStreamEvent, StreamEventType, AgentViewJobState, RunningSubagentTask, FinishedSubagentTask, StreamTaskInfo, StreamTaskStatus, CmdTerminalSignal, CmdTerminalState, CmdPaneNode, CmdCliKind, SessionMemo } from '@vibisual/shared';
-import { CMD_PANE_SEPARATOR, CMD_BLOCK_REASON_MAX, collectCmdPaneIds, resolveCmdCliKind, DEFAULT_AGENT_CONFIG, isOpusModel, supportsFastMode, isForwardSubagentTextEnabled, resolveAliasToLatest, buildCmdCardProtocolRules, isNeverRenderedStreamEvent, formatSystemChip, normalizeBashTimeoutMs, TASK_CHIP_START_SUBTYPE, TASK_CHIP_END_SUBTYPE, parseSystemSubtype, parseSystemTaskInfo, capMapSize, SESSION_KEYED_MAP_MAX, resolveLocalToolGate, resolveAutoCompact, toCliPermissionMode, buildAgentsFlagJson, normalizePluginDirs, isHookStreamSubtype, HOOK_STREAM_SUBTYPES } from '@vibisual/shared';
+import { CMD_PANE_SEPARATOR, CMD_BLOCK_REASON_MAX, collectCmdPaneIds, resolveCmdCliKind, DEFAULT_AGENT_CONFIG, isOpusModel, supportsFastMode, isForwardSubagentTextEnabled, resolveAliasToLatest, buildCmdCardProtocolRules, isNeverRenderedStreamEvent, formatSystemChip, normalizeBashTimeoutMs, TASK_CHIP_START_SUBTYPE, TASK_CHIP_END_SUBTYPE, parseSystemSubtype, parseSystemTaskInfo, capMapSize, SESSION_KEYED_MAP_MAX, resolveLocalToolGate, resolveAutoCompact, toCliPermissionMode, buildAgentsFlagJson, normalizePluginDirs, isHookStreamSubtype, HOOK_STREAM_SUBTYPES, BG_TASK_PROBE_CONCURRENCY, BG_TASK_PROBE_MAX_PER_HOUR, BG_TASK_PROBE_BACKOFF_FACTOR, BG_TASK_PROBE_BACKOFF_MAX, DEFAULT_BG_TASK_PROBE_SETTINGS, type BackgroundTaskProbeResult, type BackgroundTaskProbeSettings } from '@vibisual/shared';
 import {
   createTurnSealState, noteTaskChip, mayTurnResume, noteTurnResumed, noteTurnSealed,
   listDisplayableLiveTasks, turnIdOfLiveTask, takeOrphanLiveTasks, LIVE_TASK_ORPHAN_GRACE_MS,
   isTurnResumeSignal, TURN_RESUME_GRACE_MS, shouldSleepResumedTurn,
   type TurnSealState, type LiveTaskInfo,
 } from './turnSeal.js';
+import { resolveSessionTasksDir, readTaskOutputState, type TaskEndMarker } from './backgroundTaskOutput.js';
+import {
+  runBackgroundTaskProbe, collectPathFacts, readOutputTail, type ProbeEvidence,
+} from './backgroundTaskProbe.js';
+import { terminateTaskProcesses } from './processDescendants.js';
+import { scanActiveBackgroundShells } from './backgroundShellWatcher.js';
+
+/**
+ * §5.5 #17-9 ⑭ — 판정 상태의 열쇠. **작업 id 만으로는 부족하다** — 하니스가 발급하는 `taskId` 는
+ * 세션 안에서만 유일해서, 탭이 여럿이면 서로 다른 작업이 한 칸을 덮어쓴다.
+ */
+const probeKey = (subId: string, taskId: string): string => `${subId}::${taskId}`;
 import { logger } from '../logger.js';
 import {
   runLocalTurn,
@@ -1020,6 +1032,19 @@ export class SubAgentManager {
   }
   /** subagentId → 실행 중인 자식 프로세스 (탭 닫기 시 종료용) */
   private runningChildren = new Map<string, ChildProcess>();
+  /**
+   * §5.5 #17-9 ⑭ — 항목별 판정 상태. 키는 `<subId>::<taskId>`.
+   *
+   * `thresholdMult` 가 지수 백오프다 — `alive` 로 나온 항목은 조용한 시간이 이 배수만큼 더
+   * 길어져야 다시 묻는다. 이 값이 없으면 몇 시간짜리 정당한 대기 하나가 판정을 계속 태운다.
+   */
+  private probeStates = new Map<string, { result?: BackgroundTaskProbeResult; thresholdMult: number }>();
+  /** 지금 판정이 도는 항목들 — 같은 항목을 두 번 띄우지 않고, 화면에 "확인 중"을 세운다. */
+  private probesInFlight = new Set<string>();
+  /** 최근 판정 시각들(시간당 상한 계산용). 한 시간 넘은 것은 버린다. */
+  private probeHistory: number[] = [];
+  /** 사용자 설정(머신 단위). 부팅 때 `AppState` 에서 주입되고, 없으면 기본값. */
+  private bgTaskProbeSettings: BackgroundTaskProbeSettings = DEFAULT_BG_TASK_PROBE_SETTINGS;
   /**
    * §5.3 v4.89 — sub.id → 이번 스폰에 얹을 환경변수(중첩 깊이 · 자동 기억 끄기).
    * 인자(`configArgs`)와 달리 env 는 spawn 시점에만 필요해 조립 지점과 사용 지점이 떨어져 있다.
@@ -2172,7 +2197,11 @@ export class SubAgentManager {
   }
 
   /** §5.5 #17-9 ⑦(b) — 내려간 항목을 "방금 끝난 것" 꼬리로 옮긴다(새 것이 앞, 상한 초과분은 버림). */
-  private archiveSubagentTask(parentAgentId: string, id: string, e: PendingSubagentEntry, result?: string): void {
+  private archiveSubagentTask(
+    parentAgentId: string, id: string, e: PendingSubagentEntry, result?: string,
+    /** §5.5 #17-9 ⑭ — 무엇 때문에 내려갔는가. 정상 보고(`notification`)면 굳이 적지 않는다. */
+    closedBy?: FinishedSubagentTask['closedBy'],
+  ): void {
     // §5.5 #17-9 ⑦(b) 확장 — 결과를 못 받고 내려가는 항목은 **디스크에서 한 번 건져 본다**.
     //   훅(`SubagentStop` / `PostToolUse`)은 자식이 제 발로 끝났을 때만 오므로, 프로세스 트리가
     //   끊긴 자리(사용자 [중지] · 탭 닫기 · 크래시)에서는 결과 칸이 영영 빈다 — 정작 자식이 해 놓은
@@ -2188,6 +2217,7 @@ export class SubAgentManager {
       startedAt: e.ts,
       endedAt: Date.now(),
       ...(e.toolCount ? { toolCount: e.toolCount } : {}),
+      ...(closedBy ? { closedBy } : {}),
       ...(result ? { result } : {}),
       ...(rescued ? { result: rescued, resultRescued: true } : {}),
     };
@@ -2334,8 +2364,14 @@ export class SubAgentManager {
     for (const [subId, state] of this.turnSealStates) {
       const sub = this.index.get(subId);
       if (!sub) continue;
+      const tasksDir = sub.sessionId ? resolveSessionTasksDir(sub.sessionId) : null;
       for (const { id, info } of listDisplayableLiveTasks(state)) {
         const list = byParent.get(sub.parentAgentId) ?? [];
+        // §5.5 #17-9 ⑭ — "얼마나 조용한가"와 "물어본 결과"를 같은 자리에서 함께 싣는다.
+        //   조용한 시간은 출력 파일 mtime 하나뿐이라(훅은 셸을 못 본다) 여기서 붙이지 않으면
+        //   화면은 시작 시각만 알고 "멈춘 건지 도는 건지"는 영영 말하지 못한다.
+        const lastOutputAt = tasksDir ? readTaskOutputState(tasksDir, id)?.lastOutputAtMs : undefined;
+        const probeState = this.probeStates.get(probeKey(sub.id, id));
         list.push({
           id,
           parentAgentId: sub.parentAgentId,
@@ -2343,11 +2379,187 @@ export class SubAgentManager {
           ...(info.description ? { description: info.description } : {}),
           startedAt: info.startedAt,
           origin: 'stream',
+          ...(lastOutputAt ? { lastOutputAt } : {}),
+          ...(this.probesInFlight.has(probeKey(sub.id, id)) ? { probing: true } : {}),
+          ...(probeState?.result ? { probe: probeState.result } : {}),
         });
         byParent.set(sub.parentAgentId, list);
       }
     }
     return byParent;
+  }
+
+  /**
+   * §5.5 #17-9 ⑭ — **표식 없이 오래 조용한 작업**을 하나 골라 물어보고, 답에 따라 유지·정리한다.
+   *
+   * ⓪(⑬)이 "끝났다고 적힌 것"을 걷고 ①이 "세션 프로세스가 없는 것"을 걷고 나면 마지막으로 남는
+   * 자리다. 여기는 코드가 답할 수 없다 — 조용함은 죽음의 증거가 아니고(⑩), 실측된 전형이 하필
+   * **정당한 대기**(`until [ 파일 11개 ]; do sleep 10; done`, 그때 8개)다. 그래서 이 축만 모델이 판정한다.
+   *
+   * **비동기라 sweep 밖에 있다.** `sweepOrphanedBackgroundTasks` 는 동기 함수이고 그 자리에서
+   * 몇 초짜리 모델 호출을 기다리면 5초 리컨사일 루프 전체가 멈춘다. 여기서는 **한 건만 띄우고
+   * 즉시 반환**하며, 결과는 도착한 뒤에 반영된다(그때 `onSubStatusChange` 로 화면을 민다).
+   *
+   * 예산이 이 기능의 안전장치다 — 동시 1건 · 시간당 상한 · 같은 항목은 지수 백오프.
+   * (선례: 매 Stop 마다 haiku 를 스폰해 토큰을 태운 리플렉션 · 90분에 Monitor 를 309번 띄운
+   * anthropics/claude-code#55151.)
+   */
+  maybeProbeQuietBackgroundTasks(now: number = Date.now()): void {
+    const settings = this.bgTaskProbeSettings;
+    if (!settings.enabled || settings.quietMinutes <= 0) return;
+    if (this.probesInFlight.size >= BG_TASK_PROBE_CONCURRENCY) return;
+    // 시간당 상한 — 지난 한 시간의 기록만 남기고 센다.
+    this.probeHistory = this.probeHistory.filter((t) => now - t < 3_600_000);
+    if (this.probeHistory.length >= BG_TASK_PROBE_MAX_PER_HOUR) return;
+
+    const candidate = this.pickQuietTaskForProbe(now, settings.quietMinutes);
+    if (!candidate) return;
+
+    const key = probeKey(candidate.subId, candidate.taskId);
+    this.probesInFlight.add(key);
+    this.probeHistory.push(now);
+    logger.info(`[bg-probe] 조사 착수 sub=${candidate.subId} key=${candidate.taskId} quiet=${candidate.evidence.quietMin}분 desc=${candidate.evidence.description ?? '-'}`);
+    this.onSubStatusChange?.(candidate.parentAgentId); // "확인 중" 을 곧바로 화면에
+
+    void runBackgroundTaskProbe(candidate.evidence, settings.model)
+      .then((result) => this.applyProbeVerdict(candidate, result, settings))
+      .catch((err) => { logger.warn(`[bg-probe] 판정 중 예외 — 항목은 그대로 둔다: ${String(err)}`); })
+      .finally(() => {
+        this.probesInFlight.delete(key);
+        this.onSubStatusChange?.(candidate.parentAgentId);
+      });
+  }
+
+  /**
+   * 조사할 항목 하나를 고른다 — **가장 오래 조용한 것 하나**.
+   *
+   * 고르는 조건: 표시 목록에 선 스트림 작업이고 · 종료 표식이 없고(있으면 ⓪ 소관) ·
+   * 조용한 시간이 임계(백오프 배수 포함)를 넘었고 · 그 명령을 트랜스크립트에서 읽어 낼 수 있다.
+   * 마지막 조건이 없으면 판정할 근거 자체가 없으므로 조용히 건너뛴다.
+   */
+  private pickQuietTaskForProbe(
+    now: number,
+    quietMinutes: number,
+  ): { subId: string; parentAgentId: string; taskId: string; command: string; sessionPid?: number; evidence: ProbeEvidence } | null {
+    let best: { subId: string; parentAgentId: string; taskId: string; command: string; sessionPid?: number; evidence: ProbeEvidence } | null = null;
+
+    for (const [subId, state] of this.turnSealStates) {
+      if (state.liveTasks.size === 0) continue;
+      const sub = this.index.get(subId);
+      if (!sub?.sessionId) continue;
+      const tasksDir = resolveSessionTasksDir(sub.sessionId, undefined, now);
+      if (!tasksDir) continue;
+
+      let shells: ReturnType<typeof scanActiveBackgroundShells> | null = null;
+      for (const { id, info } of listDisplayableLiveTasks(state)) {
+        const out = readTaskOutputState(tasksDir, id);
+        // 파일이 없으면 조용한 시간을 잴 시계가 없고, 표식이 있으면 ⓪ 이 이미 답을 냈다.
+        if (!out || out.end) continue;
+        const quietMin = Math.floor((now - out.lastOutputAtMs) / 60_000);
+        const key = probeKey(subId, id);
+        const st = this.probeStates.get(key);
+        // `alive` 로 나온 항목은 조용한 시간이 배수만큼 더 길어져야 다시 묻는다(지수 백오프).
+        const threshold = quietMinutes * (st?.thresholdMult ?? 1);
+        if (quietMin < threshold) continue;
+        if (best && quietMin <= best.evidence.quietMin) continue;
+
+        // 명령 원문은 그 세션 트랜스크립트에만 있다 — 한 세션당 한 번만 훑는다(증분 캐시).
+        if (shells === null) {
+          const cwd = this.projectResolver?.(sub.parentAgentId)?.path;
+          if (!cwd) break;
+          try {
+            shells = scanActiveBackgroundShells(getSessionJsonlPath(cwd, sub.sessionId));
+          } catch {
+            shells = [];
+          }
+        }
+        const shell = shells.find((s) => s.shellId === id);
+        if (!shell) continue; // 명령을 모르면 판정할 근거가 없다 — 조용히 건너뛴다.
+
+        best = {
+          subId,
+          parentAgentId: sub.parentAgentId,
+          taskId: id,
+          command: shell.command,
+          ...(this.runningChildren.get(subId)?.pid ? { sessionPid: this.runningChildren.get(subId)!.pid as number } : {}),
+          evidence: {
+            taskId: id,
+            ...(info.description ? { description: info.description } : {}),
+            command: shell.command,
+            startedAgoMin: Math.max(0, Math.floor((now - info.startedAt) / 60_000)),
+            quietMin,
+            outputBytes: (() => { try { return fs.statSync(shell.outputPath).size; } catch { return 0; } })(),
+            outputTail: readOutputTail(shell.outputPath),
+            paths: collectPathFacts(shell.command, now, process.platform),
+          },
+        };
+      }
+    }
+    return best;
+  }
+
+  /**
+   * 판정을 반영한다. **모르면 손대지 않는다** — `null`·`unknown`·`alive` 는 전부 항목을 남긴다.
+   */
+  private async applyProbeVerdict(
+    candidate: { subId: string; parentAgentId: string; taskId: string; command: string; sessionPid?: number },
+    result: BackgroundTaskProbeResult | null,
+    settings: BackgroundTaskProbeSettings,
+  ): Promise<void> {
+    const key = probeKey(candidate.subId, candidate.taskId);
+    if (!result) {
+      // 답을 못 받았다 — 다음 회차에 곧바로 다시 묻지 않도록 간격만 벌린다.
+      this.bumpProbeBackoff(key);
+      return;
+    }
+    this.probeStates.set(key, {
+      result,
+      thresholdMult: result.verdict === 'finished'
+        ? 1
+        : Math.min(BG_TASK_PROBE_BACKOFF_MAX, (this.probeStates.get(key)?.thresholdMult ?? 1) * BG_TASK_PROBE_BACKOFF_FACTOR),
+    });
+    capMapSize(this.probeStates, SESSION_KEYED_MAP_MAX);
+    logger.info(`[bg-probe] 판정 sub=${candidate.subId} key=${candidate.taskId} → ${result.verdict} · ${result.reason}`);
+
+    if (result.verdict !== 'finished' || !settings.autoClose) return;
+
+    const state = this.turnSealStates.get(candidate.subId);
+    const info = state?.liveTasks.get(candidate.taskId);
+    if (!state || !info) return; // 그 사이에 스스로 끝났다 — 정상 경로다.
+
+    // 장부를 내리기 **전에** 프로세스를 끊는다. 순서를 뒤집으면 실패했을 때 그 사실을 카드에 못 적는다.
+    let killedProcesses: number | null = null;
+    if (settings.killProcess) {
+      killedProcesses = await terminateTaskProcesses(candidate.sessionPid, candidate.command);
+    }
+    if (!state.liveTasks.delete(candidate.taskId)) return; // 그 사이 다른 경로가 내렸다
+    this.archiveStreamTask(
+      candidate.parentAgentId, candidate.subId, candidate.taskId, info, Date.now(), undefined,
+      { closedBy: 'probe', probe: result, ...(killedProcesses !== null ? { killedProcesses } : {}) },
+    );
+    this.probeStates.delete(key);
+    logger.info(`[bg-probe] 정리 완료 sub=${candidate.subId} key=${candidate.taskId} · 프로세스 ${killedProcesses ?? '미확인'}개`);
+    this.syncBgSubStatus(candidate.parentAgentId);
+  }
+
+  /** 답을 못 받았을 때의 간격 벌리기 — 같은 항목에 판정을 반복해 태우지 않는다. */
+  private bumpProbeBackoff(key: string): void {
+    const prev = this.probeStates.get(key);
+    this.probeStates.set(key, {
+      ...(prev?.result ? { result: prev.result } : {}),
+      thresholdMult: Math.min(BG_TASK_PROBE_BACKOFF_MAX, (prev?.thresholdMult ?? 1) * BG_TASK_PROBE_BACKOFF_FACTOR),
+    });
+    capMapSize(this.probeStates, SESSION_KEYED_MAP_MAX);
+  }
+
+  /** §5.5 #17-9 ⑭(g) — 사용자 설정 주입(머신 단위). 끄면 조사 자체를 하지 않는다. */
+  setBackgroundTaskProbeSettings(settings: BackgroundTaskProbeSettings): void {
+    this.bgTaskProbeSettings = settings;
+  }
+
+  /** 테스트·진단용 — 지금 걸린 판정 상태를 그대로 본다. */
+  getBackgroundTaskProbeState(subId: string, taskId: string): BackgroundTaskProbeResult | undefined {
+    return this.probeStates.get(probeKey(subId, taskId))?.result;
   }
 
   /**
@@ -2387,7 +2599,8 @@ export class SubAgentManager {
     const sub = this.index.get(subAgentId);
     for (const [id, info] of state.liveTasks) {
       logger.info(`[bg-subagent] session process ended — retiring live stream task sub=${subAgentId} key=${id} desc=${info.description ?? '-'}`);
-      if (sub) this.archiveStreamTask(sub.parentAgentId, subAgentId, id, info, now);
+      // 세션 프로세스가 끝나며 함께 걷힌 것이다 — 스스로 끝난 것이 아니므로 카드에 그렇게 적는다(⑭).
+      if (sub) this.archiveStreamTask(sub.parentAgentId, subAgentId, id, info, now, undefined, { closedBy: 'process-gone' });
     }
     state.liveTasks.clear();
     state.deliveredNotices = 0;
@@ -2395,19 +2608,41 @@ export class SubAgentManager {
     return true;
   }
 
-  /** 스트림 칩 1건을 "방금 끝난 것" 꼬리로 옮긴다 — 훅 항목의 `archiveSubagentTask` 와 짝. */
+  /**
+   * 스트림 칩 1건을 "방금 끝난 것" 꼬리로 옮긴다 — 훅 항목의 `archiveSubagentTask` 와 짝.
+   * @param end §5.5 #17-9 ⑬ 파일 표식으로 회수한 경우의 종료 사실(있으면 결과 칸을 채운다).
+   */
   private archiveStreamTask(
     parentAgentId: string,
     subAgentId: string,
     id: string,
     info: LiveTaskInfo,
     endedAt: number,
+    end?: TaskEndMarker,
+    /**
+     * §5.5 #17-9 ⑭ — **무엇 때문에** 내려갔는가와, 판정으로 내렸다면 그 판정.
+     * 내리는 길이 여럿인데 카드가 전부 똑같이 "끝남"으로만 보이면, 사용자는 자동으로 닫힌 것과
+     * 스스로 끝난 것을 구별할 수 없다 — 그 구별이 없으면 자동 정리는 신뢰를 잃는다.
+     */
+    closure?: {
+      closedBy?: FinishedSubagentTask['closedBy'];
+      probe?: BackgroundTaskProbeResult;
+      killedProcesses?: number;
+    },
   ): void {
     this.pushFinishedTask(parentAgentId, {
       id,
       parentAgentId,
       subAgentId,
       ...(info.description ? { description: info.description } : {}),
+      // 도는 동안 `collectLiveBackgroundTasks` 가 붙여 주던 표식을 끝난 뒤에도 그대로 들고 간다 —
+      //   이게 빠지면 "방금 끝난 것" 칸에서 셸이 서브에이전트로 둔갑한다.
+      origin: 'stream',
+      ...(end?.kind === 'exited' ? { exitCode: end.exitCode } : {}),
+      ...(end?.kind === 'killed' ? { killed: true } : {}),
+      ...(closure?.closedBy ? { closedBy: closure.closedBy } : {}),
+      ...(closure?.probe ? { probe: closure.probe } : {}),
+      ...(closure?.killedProcesses !== undefined ? { killedProcesses: closure.killedProcesses } : {}),
       startedAt: info.startedAt,
       endedAt,
     });
@@ -2452,7 +2687,7 @@ export class SubAgentManager {
     if (m && hit) {
       m.delete(taskId);
       // 결과 없이 "방금 끝난 것" 꼬리로 옮긴다 — 소리 없이 사라지면 사용자가 무엇이 사라졌는지 모른다.
-      this.archiveSubagentTask(parentAgentId, taskId, hit, undefined);
+      this.archiveSubagentTask(parentAgentId, taskId, hit, undefined, 'user');
       if (m.size === 0) this.pendingSubagentTasks.delete(parentAgentId);
       logger.info(`[bg-subagent] dismissed by user parent=${parentAgentId} key=${taskId}`);
       this.syncBgSubStatus(parentAgentId);
@@ -2461,7 +2696,12 @@ export class SubAgentManager {
     // 스트림 칩 쪽 — 이 에이전트에 속한 sub 들의 장부를 훑어 같은 id 를 내린다.
     for (const [subId, state] of this.turnSealStates) {
       if (this.index.get(subId)?.parentAgentId !== parentAgentId) continue;
-      if (!state.liveTasks.delete(taskId)) continue;
+      const info = state.liveTasks.get(taskId);
+      if (!info || !state.liveTasks.delete(taskId)) continue;
+      // 훅 항목과 달리 여기는 **그냥 지우고 끝**이었다. 같은 목록의 같은 × 를 눌렀는데 한쪽은 꼬리에
+      //   남고 한쪽은 흔적 없이 사라지면 사용자는 무엇이 사라졌는지 되짚을 수 없다. ⑭ 로 닫는 길이
+      //   늘어난 지금은 더더욱, **누가 내렸는지**가 카드에 남아야 자동 정리와 구별된다.
+      this.archiveStreamTask(parentAgentId, subId, taskId, info, Date.now(), undefined, { closedBy: 'user' });
       logger.info(`[bg-subagent] dismissed stream task by user parent=${parentAgentId} sub=${subId} key=${taskId}`);
       this.syncBgSubStatus(parentAgentId);
       return true;
@@ -2504,6 +2744,31 @@ export class SubAgentManager {
   sweepOrphanedBackgroundTasks(now: number = Date.now()): string[] {
     const touched = new Set<string>();
 
+    // ⓪ **끝났다고 적힌 것은 걷는다** (§5.5 #17-9 ⑬ · `backgroundTaskOutput.ts`).
+    //    ①② 는 "그 세션에 프로세스가 없으면"이 전제인데, 세션은 상주 프로세스라 **탭이 열려 있는
+    //    한 그 전제가 결코 성립하지 않는다** — 그래서 끝 통지를 놓친 작업이 영영 남았다. 이 단계만이
+    //    세션이 살아 있는 동안에도 내릴 수 있고, 근거는 시간이 아니라 **하니스 자신이 파일에 쓴 종료
+    //    표식**이라 도는 작업을 끝난 것으로 만드는 방향으로는 틀릴 수 없다(표식 없음 = 모름 = 그대로).
+    for (const [subId, state] of this.turnSealStates) {
+      if (state.liveTasks.size === 0) continue;
+      const sub = this.index.get(subId);
+      if (!sub?.sessionId) continue;
+      const tasksDir = resolveSessionTasksDir(sub.sessionId, undefined, now);
+      if (!tasksDir) continue; // 폴더를 못 찾음 = 힌트 없음 — 조용히 종전 동작으로.
+      for (const { id, info } of listDisplayableLiveTasks(state)) {
+        const probe = readTaskOutputState(tasksDir, id);
+        if (!probe?.end) continue;
+        // 끝난 시각은 **파일이 마지막으로 바뀐 때**다. "우리가 알아챈 때"로 적으면 카드에 10분 부푼
+        //   소요 시간이 남는다. 시작보다 앞설 수는 없으므로 하한을 건다.
+        const endedAt = Math.max(info.startedAt, Math.min(probe.lastOutputAtMs, now));
+        state.liveTasks.delete(id);
+        this.archiveStreamTask(sub.parentAgentId, subId, id, info, endedAt, probe.end, { closedBy: 'end-marker' });
+        const how = probe.end.kind === 'killed' ? 'killed' : `exit=${probe.end.exitCode}`;
+        logger.info(`[bg-subagent] end-marker swept sub=${subId} key=${id} ${how} desc=${info.description ?? '-'} (출력 파일이 종료를 적었다 — 끝 통지 미도달)`);
+        touched.add(sub.parentAgentId);
+      }
+    }
+
     // ① 스트림 칩 장부 — 훅이 못 보는 백그라운드 작업.
     for (const [subId, state] of this.turnSealStates) {
       const sub = this.index.get(subId);
@@ -2516,7 +2781,7 @@ export class SubAgentManager {
       if (!this.isSessionProcessGone(subId)) continue;
       for (const { id, info } of takeOrphanLiveTasks(state, now)) {
         logger.warn(`[bg-subagent] orphan stream task swept sub=${subId} key=${id} desc=${info.description ?? '-'} (세션 프로세스 없음 — 종료 이벤트를 놓친 자리)`);
-        this.archiveStreamTask(sub.parentAgentId, subId, id, info, now);
+        this.archiveStreamTask(sub.parentAgentId, subId, id, info, now, undefined, { closedBy: 'process-gone' });
         touched.add(sub.parentAgentId);
       }
     }

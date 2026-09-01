@@ -1304,7 +1304,7 @@ export const BubbleNode = memo(function BubbleNode({
             right: Math.max(2, Math.round(4 * ts)),
           }}
           title={t('common.bubble.awaitingPermission')}
-          aria-label="awaiting permission"
+          aria-label={t('common.bubble.awaitingPermission')}
         >
           {/* bell (lucide stroke) */}
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: '70%', height: '70%' }}>

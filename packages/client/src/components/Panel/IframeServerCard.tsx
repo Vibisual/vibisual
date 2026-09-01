@@ -87,7 +87,7 @@ export const IframeServerCard = memo(function IframeServerCard({
   return (
     <div className="flex flex-col gap-2 rounded border border-gray-700/60 bg-gray-800/40 p-2.5">
       <div className="flex items-center justify-between">
-        <span className="text-xs text-gray-500">Server</span>
+        <span className="text-xs text-gray-500">{t('panel.serverList.serverLabel')}</span>
         <div className="flex items-center gap-1.5">
           <span className={`rounded px-1.5 py-0.5 text-[12px] font-semibold ${kindClasses}`}>
             {kindLabel}

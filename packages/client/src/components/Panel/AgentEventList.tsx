@@ -86,10 +86,10 @@ function PromptDetailPopup({ event, sessionId, onClose }: PromptDetailPopupProps
             <svg className="h-4 w-4 text-blue-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
               <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
             </svg>
-            <span className="text-sm font-semibold text-gray-100">Prompt</span>
+            <span className="text-sm font-semibold text-gray-100">{t('panel.agentEventList.prompt')}</span>
             {event.source === 'queue' && (
               <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[12px] font-semibold text-amber-400">
-                queue
+                {t('panel.agentEventList.queueBadge')}
               </span>
             )}
             {sessionId && (
@@ -98,14 +98,14 @@ function PromptDetailPopup({ event, sessionId, onClose }: PromptDetailPopupProps
                 onClick={() => setShowTokens(true)}
                 className="rounded border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[12px] font-semibold text-amber-400 transition-colors hover:bg-amber-500/20"
               >
-                Token Usage
+                {t('panel.agentEventList.tokenUsage')}
               </button>
             )}
           </div>
           <div className="flex items-center gap-3">
             {event.source === 'queue' && event.queuedAt && (
               <span className="text-[12px] text-amber-400/70">
-                waited {formatWaitTime(event.queuedAt, event.timestamp)}
+                {t('panel.agentEventList.waited', { time: formatWaitTime(event.queuedAt, event.timestamp) })}
               </span>
             )}
             <span className="text-xs text-gray-500">{formatDate(event.timestamp)}</span>
@@ -113,7 +113,7 @@ function PromptDetailPopup({ event, sessionId, onClose }: PromptDetailPopupProps
               type="button"
               onClick={onClose}
               className="flex h-6 w-6 items-center justify-center rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200"
-              aria-label="Close popup"
+              aria-label={t('panel.agentEventList.closePopup')}
             >
               <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                 <line x1="18" y1="6" x2="6" y2="18" />
@@ -145,7 +145,7 @@ function PromptDetailPopup({ event, sessionId, onClose }: PromptDetailPopupProps
                 <svg className="h-3.5 w-3.5 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                   <path d="M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6ZM12 2v4m0 12v4M2 12h4m12 0h4" />
                 </svg>
-                <span className="text-xs font-semibold text-emerald-400">Result</span>
+                <span className="text-xs font-semibold text-emerald-400">{t('panel.agentEventList.result')}</span>
               </div>
               <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-emerald-200/90">
                 {event.response}

@@ -72,7 +72,7 @@
       "commandCenterHint": "Apri il Centro comandi — guarda che cosa ti aspetta in questo progetto",
       "openNew": "Apri in una nuova finestra",
       "bringToFront": "Porta in primo piano",
-      "settings": "Impostazioni agente",
+      "settings": "Impostazioni Agent",
       "expand": "Espandi",
       "collapse": "Comprimi",
       "close": "Chiudi finestra",
@@ -244,9 +244,9 @@
       },
       "agents": {
         "intro": "Oltre al monitoraggio passivo, puoi creare e orchestrare i tuoi agent direttamente dal canvas.",
-        "customT": "Agent personalizzato",
+        "customT": "Custom Agent",
         "customD": "Fai clic con il tasto destro sul canvas per generare una tua bolla agent e assegnarle un comando.",
-        "autoT": "Agent automatico",
+        "autoT": "Auto Agent",
         "autoD": "Descrivi ciò che vuoi in linguaggio naturale; un agent builder progetta e collega un intero team al posto tuo.",
         "configT": "Impostazioni Agent",
         "configD": "Fai clic su una bolla per impostare modello, strumenti, modalità permessi, sforzo, isolamento e colore.",
@@ -264,7 +264,7 @@
       },
       "ide": {
         "intro": "Fai doppio clic su un agent per aprire l'overlay IDE — il suo output in tempo reale, le sessioni e i report.",
-        "streamT": "Live stream",
+        "streamT": "Streaming live",
         "streamD": "Segui i messaggi dell'agent, le chiamate agli strumenti e i risultati man mano che avvengono.",
         "cardsT": "Schede Fatto / Da fare",
         "cardsD": "Il lavoro completato e le cose che devi fare tu vengono suddivisi in schede colorate.",
@@ -307,7 +307,7 @@
       "memory": {
         "intro": "La memoria del progetto conserva ciò che ha funzionato e lo ricarica nel lavoro successivo. Di base è spenta — la accendi progetto per progetto, e spegnerla non cancella mai nulla.",
         "turnOnT": "Come accenderla",
-        "turnOnD": "Clic destro sulla tela vuota e «Attiva la memoria del progetto», oppure File > Options > Memoria del progetto. Ha effetto subito — nessun riavvio.",
+        "turnOnD": "Clic destro sulla tela vuota e «Attiva la memoria del progetto», oppure File > Opzioni > Memoria del progetto. Ha effetto subito — nessun riavvio.",
         "bubbleT": "La bolla della memoria",
         "bubbleD": "Una volta accesa, sulla tela compare una bolla indaco con il numero di schede conservate. Doppio clic apre la libreria; il passaggio del mouse mostra un riepilogo.",
         "skillsT": "Memoria procedurale",
@@ -363,6 +363,7 @@
         "scanning": "Scansione installazioni…",
         "claudeCode": "Claude Code (in uso)",
         "current": "Corrente",
+        "versionLabel": "Versione:",
         "latest": "Ultima (npm)",
         "updateAvailable": "Aggiornamento disponibile",
         "upToDate": "Aggiornato",
@@ -374,6 +375,7 @@
         "unknownVer": "sconosciuto",
         "restartHint": "Selezione salvata. Riavvia Vibisual per applicarla ai nuovi agent avviati.",
         "about": "Informazioni",
+        "platform": "Piattaforma",
         "repo": "Repository GitHub",
         "marketplace": "Claude Code su VS Code Marketplace",
         "selectionApplied": "Selezione salvata e applicata — i nuovi agenti generati la useranno subito.",
@@ -463,7 +465,7 @@
             "desc": "I tuoi prompt conservati per sessione. Non possono essere ricreati, quindi il limite è generoso. 0 = illimitato."
           },
           "subStreamRetentionDays": {
-            "label": "Cronologia delle conversazioni dell'agente",
+            "label": "Cronologia delle conversazioni dell'Agent",
             "desc": "Ripulita una volta all'avvio. Le sessioni attive o ancora nell'elenco di riapertura vengono conservate indipendentemente dall'età. 0 = conserva per sempre."
           },
           "attachmentRetentionDays": {
@@ -510,7 +512,21 @@
       },
       "advanced": {
         "terminalScrollback": "Cronologia di scorrimento del terminale (righe)",
-        "terminalScrollbackDesc": "Quante righe di output mantiene un terminale CMD. Lo scorrimento e la ricerca con {{shortcut}} condividono questo intervallo. Si applica ai terminali aperti d'ora in poi."
+        "terminalScrollbackDesc": "Quante righe di output mantiene un terminale CMD. Lo scorrimento e la ricerca con {{shortcut}} condividono questo intervallo. Si applica ai terminali aperti d'ora in poi.",
+        "bgProbeTitle": "Attività in background silenziose",
+        "bgProbeIntro": "Un comando in background che diventa silenzioso non è per forza concluso: quello che sta aspettando qualcosa è silenzioso per natura, quindi Vibisual non chiude mai una voce solo per il tempo trascorso. Invece, quando una voce resta a lungo silenziosa e senza marcatore di fine, si interpella una sola volta un piccolo agente di giudizio: questo comando ha una condizione con cui termina da solo, e quella condizione è già soddisfatta?",
+        "bgProbeEnabled": "Chiedi delle attività silenziose",
+        "bgProbeEnabledDesc": "Disattivato, per questo non viene mai chiamato alcun modello: le voci silenziose restano nell'elenco finché non le togli tu.",
+        "bgProbeQuiet": "Chiedi dopo questo silenzio (minuti)",
+        "bgProbeQuietDesc": "Il silenzio decide solo quando chiedere, mai la risposta. 0 disattiva la domanda.",
+        "bgProbeAutoClose": "Togli la voce quando la risposta è «conclusa»",
+        "bgProbeAutoCloseDesc": "Disattivato, la risposta viene solo scritta sulla scheda e decidi tu. «Ancora in esecuzione» e «impossibile stabilirlo» non tolgono comunque mai nulla.",
+        "bgProbeKill": "Interrompi anche i processi che aveva avviato",
+        "bgProbeKillDesc": "Svuotare solo l'elenco lascia il comando in esecuzione. Si toccano solo i processi sotto quella sessione la cui riga di comando corrisponde a questa attività.",
+        "bgProbeModel": "Modello che risponde",
+        "bgProbeModelDesc": "Viene interpellato una volta, senza strumenti e senza accesso al tuo progetto: solo il testo del comando e un breve pezzo finale del suo output.",
+        "bgProbeLoadError": "Non è stato possibile leggere l'impostazione attuale.",
+        "bgProbeSaveError": "Non è stato possibile salvare. Non è stato cambiato nulla."
       },
       "notifications": {
         "cmdBlocked": "Notifica quando una sessione CMD è in attesa di input",
@@ -566,7 +582,7 @@
         "selfTestTip": "Esegue due controlli che devono deliberatamente fallire. Un gate può essere dimostrato solo da ciò che blocca, non da ciò che lascia passare.",
         "selfTestPass": "Il gate tiene — {{count}} controlli hanno bloccato ciò che dovevano",
         "selfTestFail": "{{count}} controllo/i non ha/hanno bloccato — il gate non è ancora affidabile",
-        "selfTestBadge": "self-test",
+        "selfTestBadge": "autotest",
         "metricHandsOff": "Autonome",
         "metricHandsOffHint": "{{verified}} di {{total}} esecuzioni completate senza chiamarti",
         "metricEscalated": "Ti hanno chiamato",
@@ -575,7 +591,7 @@
         "empty": "Nessuna esecuzione ancora. Invia una richiesta qui sopra e le prove del suo completamento saranno elencate qui.",
         "noEvidence": "Nessuna prova registrata — non è stato effettivamente eseguito nulla per questa esecuzione.",
         "evidenceCount": "{{passed}}/{{total}} superati",
-        "reworkCount": "rework {{used}}/{{budget}}",
+        "reworkCount": "rilavorazione {{used}}/{{budget}}",
         "lastVerdict": "Verdetto: {{verdict}}",
         "status": {
           "running": "In esecuzione",
@@ -623,8 +639,10 @@
       "path": "Percorso",
       "sessionId": "ID sessione",
       "type": "Tipo",
+      "agentBadge": "Agent",
       "status": "Stato",
       "activity": "Attività",
+      "activityEvents": "{{n}} eventi",
       "billableTokens": "Token fatturabili",
       "context": "Contesto",
       "model": "Modello",
@@ -634,6 +652,7 @@
       "hookAgentSettingsLocked": "Gli agent registrati via hook sono gestiti da Claude Code stesso. Le impostazioni possono essere modificate solo per gli agent creati dalla tela.",
       "files": "File",
       "activeAgents": "Agent attivi",
+      "goToAgent": "Vai a questo Agent",
       "lastTools": "Ultimi strumenti",
       "contextCompacted": "Contesto compresso",
       "compactSummary": "{{count}}× · ultimo {{ago}}",
@@ -654,6 +673,14 @@
       "persist": "Mantieni (impedisci dissolvenza)",
       "lastTool": "Ultimo strumento",
       "contiHistory": "Cronologia Conti"
+    },
+    "agentEventList": {
+      "prompt": "Richiesta",
+      "queueBadge": "coda",
+      "tokenUsage": "Utilizzo Token",
+      "waited": "attesa {{time}}",
+      "closePopup": "Chiudi popup",
+      "result": "Risultato"
     },
     "contiHistory": {
       "title": "Cronologia Conti",
@@ -679,6 +706,10 @@
       "addFrame": "Aggiungi fotogramma",
       "deleteFrame": "Elimina",
       "editFrame": "Modifica testo",
+      "frameLabel": "FOTOGRAMMA {{n}}",
+      "dragToReorder": "Trascina per riordinare",
+      "doubleClickToEdit": "Doppio clic per modificare",
+      "dropHere": "Rilascia qui",
       "editTitlePrompt": "Titolo fotogramma:",
       "editActionPrompt": "Azione fotogramma:",
       "zoomReset": "{{shortcut}} ripristina",
@@ -734,6 +765,7 @@
       "addCommand": "Aggiungi comando",
       "removeAttachment": "Rimuovi allegato",
       "uploading": "Caricamento...",
+      "attachmentError": "ERR",
       "attached": "Allegato",
       "waitingForUpload": "In attesa del caricamento..."
     },
@@ -768,7 +800,7 @@
       "untrackedLabel": "non tracciato",
       "recentCommits": "Commit recenti",
       "coAuthoredByClaude": "Co-autore: Claude",
-      "worktrees": "Worktrees",
+      "worktrees": "Worktree",
       "goToWorktree": "Vai al worktree {{name}}",
       "uncommittedChangesTitle": "Modifiche non committate",
       "mergeInto": "Unisci base in {{branch}}",
@@ -778,7 +810,7 @@
       "copy": "Copia",
       "copied": "Copiato",
       "close": "Chiudi",
-      "mergeBtn": "Merge",
+      "mergeBtn": "Unisci",
       "mergeTitle": "Esegui il merge di {{branch}} nel branch corrente",
       "mergeConflict": "Conflitto di merge",
       "mergeConflictNote": "Il branch principale è stato ripristinato con merge --abort. I file seguenti sono in conflitto — affidali all'agente che ha lavorato in questo worktree, oppure risolvili tu stesso.",
@@ -959,6 +991,9 @@
       "maxBudgetUsd": "Budget ($, 0=∞)",
       "defaultSkills": "Skill predefinite",
       "addSkill": "+ Aggiungi Skill",
+      "skillSourceProject": "Progetto",
+      "skillSourceGlobal": "Globale",
+      "skillSourcePlugin": "Plugin installati",
       "color": "Colore",
       "fieldTips": {
         "model": "Il modello Claude usato da questo agent.",
@@ -1111,7 +1146,8 @@
         "unset": "non impostato",
         "on": "attivo",
         "off": "disattivo"
-      }
+      },
+      "contextNotAccessible": "Non accessibile (interno di Claude Code)"
     },
     "permissionPrompt": {
       "title": "Permesso richiesto",
@@ -1212,6 +1248,7 @@
       "edges": "Edge",
       "noProject": "Nessun progetto attivo",
       "fps": "fps",
+      "inputLag": "Latenza input",
       "fpsTip": "Fotogrammi renderizzati al secondo",
       "visibility": "Visibilità",
       "profiling": {
@@ -1280,6 +1317,7 @@
     },
     "serverList": {
       "heading": "Server ({{count}})",
+      "serverLabel": "Server",
       "refresh": "Aggiorna",
       "empty": "Nessun server in esecuzione",
       "running": "in esecuzione",
@@ -1370,12 +1408,12 @@
       "collectorFailed": "Impossibile raggiungere le impostazioni del raccoglitore di utilizzo.",
       "collectorRestartHint": "Vibisual legge l'utilizzo a intervalli regolari anche con questa opzione disattivata: il collettore lo aggiorna solo più spesso durante una sessione interattiva.",
       "localTitle": "Questo progetto in Vibisual",
-      "localAgents": "Agenti",
+      "localAgents": "Agents",
       "localInput": "Token in ingresso",
       "localOutput": "Token in uscita",
       "localHint": "Conteggiato dagli agenti della scheda progetto attiva. I limiti del piano sopra valgono per tutto l’account e includono il lavoro svolto fuori da Vibisual.",
       "emptyOff": "Nessun dato di utilizzo — il raccoglitore è disattivata. Attivalo qui sotto, poi apri una volta una sessione interattiva di Claude Code.",
-      "emptyWaiting": "Il raccoglitore è attiva e attende la prima lettura. I valori arrivano quando una sessione interattiva di Claude Code disegna la sua barra di stato: una bolla terminale sulla tela o Claude Code nel tuo editor. Gli agenti che Vibisual esegue in modalità headless non hanno barra di stato e quindi non riportano nulla.",
+      "emptyWaiting": "Il raccoglitore è attiva e attende la prima lettura. I valori arrivano quando una sessione interattiva di Claude Code disegna la sua barra di stato: una bolla terminale sulla tela o Claude Code nel tuo editor. Gli Agents che Vibisual esegue in modalità headless non hanno barra di stato e quindi non riportano nulla.",
       "refresh": "Aggiorna",
       "weeklyScoped": "Limite settimanale — {{model}}",
       "creditsTitle": "Crediti di utilizzo",
@@ -1414,12 +1452,12 @@
         "settingsSection": "Sezione impostazioni",
         "ideView": "Vista IDE",
         "headerItem": "Elemento intestazione",
-        "agentPrompt": "Applicazione all’agente",
+        "agentPrompt": "Applicazione all’Agent",
         "contextMenuItem": "Menu contestuale",
         "hookSubscriber": "Sottoscrittore hook",
         "restRoute": "Rotta REST",
         "wsMessage": "Messaggio WS",
-        "agentConfigField": "Impostazione agente",
+        "agentConfigField": "Impostazione Agent",
         "brainCardKind": "Tipo di scheda",
         "bubbleType": "Tipo di bolla",
         "edgeKind": "Tipo di collegamento"
@@ -1584,6 +1622,12 @@
       "noAudio": "Esportato senza audio.",
       "downgraded": "La modalità di render è stata declassata: {{id}}",
       "previewFailed": "Impossibile disegnare l'anteprima.",
+      "errNoDoc": "No document is open.",
+      "errNoStage": "Could not find a place to attach the stage.",
+      "errNoRenderBackend": "No render mode is available on this device.",
+      "errNoOffscreen": "Offscreen windows are not available in this build.",
+      "errNoOffscreenBridge": "The offscreen bridge is not available.",
+      "errRequestFailed": "The request failed ({{status}}).",
       "reloaded": "Il documento è stato modificato altrove, quindi è stato ricaricato."
     },
     "cost": {
@@ -1720,7 +1764,7 @@
     "projectFolder": {
       "title": "Scegli una cartella di progetto",
       "intro": "Claude Code è installato e l’accesso è stato eseguito. L’ultimo passo è scegliere la cartella in cui lavoreranno i tuoi agenti — di solito la radice di un progetto o di un repository.",
-      "blocked": "Non è stato creato nulla — non c’è ancora nessuna cartella di progetto aperta. Gli agenti lavorano dentro la cartella che scegli, quindi scegline una prima.",
+      "blocked": "Non è stato creato nulla — non c’è ancora nessuna cartella di progetto aperta. Gli Agents lavorano dentro la cartella che scegli, quindi scegline una prima.",
       "detail": "Tutto ciò che Vibisual salva per un progetto vive dentro quella cartella, e gli agenti possono leggere e modificare solo i file al suo interno. Potrai aprire altre cartelle più tardi da File → Apri cartella.",
       "cancelled": "Non è ancora stata scelta nessuna cartella. Scegline una per continuare.",
       "choose": "Scegli cartella",
@@ -1802,7 +1846,7 @@
       "localLabel": "All Model",
       "localSwitchModel": "Cambia il modello usato da questa bolla",
       "localContextUsed": "Contesto {{used}} / {{limit}} token ({{percent}}%) — quando si riempie vengono scartati i turni più vecchi",
-      "agentSettings": "Impostazioni agente",
+      "agentSettings": "Impostazioni Agent",
       "collapseLabel": "Comprimi",
       "collapseHint": "Comprimi — mantiene la finestra e restituisce la tela (riespandila dall’elenco finestre nell’intestazione)",
       "resizeWindow": "Ridimensiona finestra",
@@ -1913,7 +1957,7 @@
       "inputCtxSelectAll": "Seleziona tutto",
       "ctxSaveToBrain": "Salva nel Memoria",
       "stopAll": "Interrompi tutto",
-      "stopAllTitle": "Interrompe tutto ciò che questo agent sta eseguendo (altre schede + subagent in background)",
+      "stopAllTitle": "Interrompe tutto ciò che questo agent sta eseguendo (altre schede + attività in background)",
       "stopSessionTitle": "Interrompe questa sessione e i subagent che ha avviato (le altre schede di sessione continuano a essere eseguite)"
     },
     "memo": {
@@ -1950,7 +1994,7 @@
       "skills": "Skill",
       "bookmarks": "Segnalibri",
       "sessionSummary": "Riepiloghi sessione",
-      "runningSubagents": "Subagent in esecuzione ({{count}})",
+      "runningSubagents": "Attività in background ({{count}})",
       "loop": "Ciclo di ripetizione",
       "goal": "Obiettivo",
       "debug": "Esegui e debug",
@@ -2077,9 +2121,9 @@
       "detach": "Scollega",
       "continue": "Continua",
       "pause": "Pausa",
-      "stepOver": "Step over",
-      "stepIn": "Step into",
-      "stepOut": "Step out",
+      "stepOver": "Passo successivo",
+      "stepIn": "Entra",
+      "stepOut": "Esci",
       "callStack": "Stack di chiamate",
       "variables": "Variabili",
       "watchPlaceholder": "Valuta un'espressione",
@@ -2092,8 +2136,8 @@
         "error": "Fallito"
       },
       "stoppedReason": {
-        "breakpoint": "breakpoint",
-        "step": "step",
+        "breakpoint": "punto di interruzione",
+        "step": "passo",
         "exception": "eccezione",
         "pause": "messo in pausa da te",
         "entry": "punto di ingresso",
@@ -2343,7 +2387,7 @@
       "sessionOne": "{{count}} sessione",
       "sessionMany": "{{count}} sessioni",
       "autoCompact": "compattazione auto {{value}}",
-      "autoCompactTip": "Quando il contesto raggiunge questa dimensione, la CLI riassume da sola la conversazione. Modificabile per singolo agente nelle Impostazioni agente, o per tutti in File > Options > Agent Defaults."
+      "autoCompactTip": "Quando il contesto raggiunge questa dimensione, la CLI riassume da sola la conversazione. Modificabile per singolo agente nelle Impostazioni Agent, o per tutti in File > Opzioni > Valori predefiniti Agent."
     },
     "search": {
       "placeholder": "Trova nella conversazione",
@@ -2505,19 +2549,26 @@
       "dismiss": "Ignora"
     },
     "runningSubagents": {
-      "title": "Subagent in esecuzione",
+      "title": "Attività in background",
       "close": "Chiudi",
-      "empty": "Nessun subagent in esecuzione al momento.",
-      "untitled": "Subagent",
-      "scopeAll": "Mostra tutti i subagent eseguiti da questo agent.",
-      "scopeSession": "Mostra i subagent avviati da \"{{label}}\".",
-      "emptySession": "Questa sessione non ha sottoagenti in esecuzione.",
-      "hint": "Qui compaiono solo i sottoagenti che questa sessione ha avviato in background — la conversazione in corso non viene conteggiata. Mentre sono attivi, l’icona a sinistra si illumina e mostra quanti sono.",
+      "empty": "Al momento non c'è nulla in esecuzione in background.",
+      "untitled": "Attività senza nome",
+      "kindAgent": "Subagent",
+      "kindAgentTip": "Un processo figlio di IA avviato con lo strumento Task o Agent. Esegue un modello, quindi consuma token.",
+      "kindShell": "Shell",
+      "kindShellTip": "Un comando Bash o Monitor in background. Gira un comando, non un modello: nessun token consumato. I comandi che non terminano mai da soli (tail -f, while true) restano qui finché non li rimuovi.",
+      "scopeAll": "Sono mostrate tutte le attività in background di questo agente.",
+      "scopeSession": "Sono mostrate solo le attività in background avviate da «{{label}}».",
+      "emptySession": "Questa sessione non ha nulla in esecuzione in background.",
+      "hint": "Qui compare solo ciò che questa sessione ha avviato in background: la conversazione in corso non viene conteggiata. I subagent sono processi figli di IA che consumano token; le shell sono comandi Bash o Monitor in background che non ne consumano. Finché qualcosa è in esecuzione, l'icona a sinistra si accende e mostra sotto il numero.",
       "othersRunning": "Altri {{count}} in esecuzione altrove",
       "startedAt": "Avviato alle {{time}}",
       "endedAt": "Terminato alle {{time}}",
       "finishedTitle": "Appena terminati",
       "noResult": "Nessun risultato è arrivato.",
+      "exitCode": "Codice di uscita {{code}}",
+      "exitKilled": "Interrotto",
+      "exitFromFileTip": "La notifica di completamento non è mai arrivata: questo è stato letto dal marcatore finale che l'harness ha scritto nel file di output dell'attività.",
       "resultRescued": "Recuperato dalla trascrizione — non consegnato alla sessione",
       "resultRescuedTitle": "Questo agente figlio è stato interrotto prima di poter inviare il report (Stop, chiusura della scheda o crash), quindi la sessione non lo ha mai ricevuto. Vibisual lo ha recuperato dalla trascrizione dell'agente su disco.",
       "toggleResult": "Mostra o nascondi il risultato completo",
@@ -2525,8 +2576,23 @@
       "nowUsing": "Strumento in uso in questo momento",
       "duration": "Ha richiesto {{value}}",
       "noResponse": "Nessuna risposta da {{value}}",
+      "quietFor": "In silenzio da {{value}}",
+      "quietForTip": "Il file di output di questa attività non è cambiato per tutto quel tempo. Silenzio non significa concluso: un comando che sta aspettando qualcosa è silenzioso per natura.",
+      "probing": "Controllo se è ancora in esecuzione",
+      "probingTip": "È rimasta a lungo in silenzio senza alcun marcatore di fine, quindi è stato avviato una volta un agente di giudizio. Gli si chiedono solo due cose: se questo comando ha una condizione con cui termina da solo e se quella condizione è già soddisfatta.",
+      "probeAlive": "Ancora in esecuzione",
+      "probeUnknown": "Impossibile stabilirlo — lasciata com'è",
+      "probeFinished": "Controllata e archiviata automaticamente",
+      "probeTip": "Condizione di fine: {{condition}} · giudizio di {{model}}",
+      "probeTipNoCondition": "Nessuna condizione di fine autonoma trovata · giudizio di {{model}}",
+      "probeAt": "Controllata alle {{time}}",
+      "closedByProcessGone": "Archiviata — la sua sessione non c'è più",
+      "closedByProcessGoneTip": "Il processo della sessione che ha avviato questa attività non esiste più. Un risultato non avrebbe dove arrivare, quindi la voce è stata tolta dall'elenco.",
+      "closedByUser": "Rimossa da te",
+      "killedProcesses": "{{count}} processi interrotti",
+      "killedProcessesTip": "Durante la pulizia sono stati interrotti anche i processi avviati da questo comando. Svuotare solo l'elenco lascerebbe il comando in esecuzione.",
       "dismiss": "Smetti di aspettare",
-      "dismissTip": "Rimuove da questo elenco. Non termina il processo: l’agente ferma il proprio figlio con TaskStop."
+      "dismissTip": "Lo rimuove dall'elenco. Non termina il processo: un subagent viene fermato dall'agente che l'ha avviato (TaskStop), una shell con KillShell."
     },
     "loop": {
       "title": "Ciclo di ripetizione",
@@ -2769,7 +2835,7 @@
         "hooks": "Hook",
         "systemPrompt": "System prompt di Claude Code",
         "brainSkills": "Procedure della memoria",
-        "compactSelf": "Autocompattazione dell’agente"
+        "compactSelf": "Autocompattazione dell’Agent"
       },
       "hint": {
         "tools": "Scegli l'elenco strumenti in Impostazioni Agent",
@@ -3316,12 +3382,31 @@
     },
     "taskEdge": {
       "iconHint": "Clic: dettagli · Doppio clic: modifica",
+      "critiqueIconLabel": "Critica (osservatore)",
       "pulse": {
         "sending": "Invia comando",
         "completed": "Rapporto di completamento",
         "error": "Errore"
       },
-      "pulseDebugTitle": "[debug] {{label}} pulse 1.8s"
+      "pulseDebugTitle": "[debug] {{label}} impulso 1.8s"
+    },
+    "taskEdgeKind": {
+      "command": {
+        "label": "Command",
+        "description": "Instruction — \"please do this\""
+      },
+      "artifact": {
+        "label": "Artifact",
+        "description": "Hands over the result itself — the file or diff"
+      },
+      "request": {
+        "label": "Request",
+        "description": "Reverse request — \"I am stuck, please help\""
+      },
+      "critique": {
+        "label": "Critique",
+        "description": "Critique / review — audit and red-team role (the watcher)"
+      }
     },
     "taskEdgePopup": {
       "dragToMove": "Trascina per spostare",
@@ -3362,16 +3447,16 @@
       "schemaClear": "Cancella",
       "returnFormat": "Formato Ritorno",
       "returnFormatTooltip": "Artifact: percorsi file/diff effettivi. Summary: solo testo riassuntivo. Both: entrambi. I riassunti AI possono essere errati; preferisci Artifact per tutto ciò che devi verificare.",
-      "artifact": "Artifact",
+      "artifact": "Artefatto",
       "artifactTooltip": "Artifact: restituisce il percorso file effettivo o il diff. Verificabile da te.",
-      "summary": "Summary",
+      "summary": "Riepilogo",
       "summaryTooltip": "Summary: breve testo riassuntivo. Veloce, ma i riassunti AI possono essere imprecisi.",
       "both": "Entrambi",
       "bothTooltip": "Both: restituisce l'artifact e un riassunto così puoi valutare prima di approfondire.",
       "timeout": "Timeout (ms)",
       "timeoutTooltip": "Durata massima di esecuzione in millisecondi. Lascia vuoto per illimitato. Esempio: 60000 = 1 minuto. Protegge da loop infiniti.",
       "timeoutPlaceholder": "illimitato",
-      "retry": "Retry",
+      "retry": "Riprova",
       "retryTooltip": "Quante volte riprovare in caso di errore. 0 = nessun retry. Utile per errori transitori come problemi di rete.",
       "retryDisabledNote": "Prossimamente — la logica di retry non è ancora implementata. Il valore viene salvato solo come metadato.",
       "priority": "Priorità",
@@ -3399,11 +3484,11 @@
       "commandOptionsTooltip": "Specifiche dell'edge comando (solo kind='command'). Ortogonale alla Politica di delega: controlla la FORMA della delega, non se è obbligatoria.",
       "commandModeLabel": "Modalità",
       "commandModeTooltip": "Come gli strumenti vengono condivisi tra parent e child. Shared: il parent mantiene tutti gli strumenti, può chiamare direttamente o delegare. Tool delegation: gli strumenti che ha il child vengono rimossi dal parent — delega forzata automaticamente. Mode delegation: gli strumenti restano condivisi ma il parent riceve istruzione di delegare le operazioni la cui modalità (plan / acceptEdits / modello specifico / skill) è la specialità del child.",
-      "commandModeShared": "Shared",
+      "commandModeShared": "Condiviso",
       "commandModeSharedTooltip": "Il parent mantiene gli strumenti. Sia parent che child possono eseguirli. La delega è raccomandata solo tramite prompt. (Predefinito — più sicuro.)",
-      "commandModeTool": "Tool delegation",
+      "commandModeTool": "Delega tool",
       "commandModeToolTooltip": "Gli strumenti del child agent vengono rimossi dal parent. Il parent deve dispatchare tramite questo edge per usarli. (= Comportamento strict pre-v1.44.)",
-      "commandModeMode": "Mode delegation",
+      "commandModeMode": "Delega modalità",
       "commandModeModeTooltip": "Il parent mantiene gli strumenti, ma il system prompt forza la delega delle operazioni la cui modalità (plan / acceptEdits / modello specifico / skill) è la specialità del child. L'iniezione di pseudo-tool è prevista per un round futuro.",
       "commandModeModeNote": "Mode delegation non rimuove strumenti — il parent riceve istruzione via system prompt di delegare le operazioni corrispondenti alla modalità del child. Il gating via hook PreToolUse è pianificato per un follow-up.",
       "commandStripPreview": "Strumenti da rimuovere dal parent",
@@ -3418,15 +3503,23 @@
       "connect": "Connetti",
       "connectTooltip": "Crea l'edge con queste impostazioni (Ctrl/Cmd+Invio).",
       "critiqueOptionsTip": "Solo edge Critique. Imposta quando intervenire (Timing) e cosa applicare al rifiuto (Authority). Ignorato per altri tipi.",
+      "critiqueOptions": "Opzioni critica",
       "critiqueTimingTip": "Intermedio (predefinito): revisione ad ogni traguardo durante il lavoro della destinazione. Più frequente / sicuro / lento. Finale: una sola revisione finale dopo il completamento. Meno frequente / veloce.",
       "critiqueTimingIntermediateTip": "Intermedio: revisione ad ogni traguardo durante il lavoro della destinazione. (predefinito)",
       "critiqueTimingFinalTip": "Solo finale: una sola revisione finale dopo che la destinazione completa.",
+      "critiqueTiming": "Tempistica",
+      "critiqueTimingIntermediate": "Intermedio",
+      "critiqueTimingFinal": "Solo finale",
       "critiqueAuthorityTip": "Forza rework (predefinito): al rifiuto la destinazione deve rifare il lavoro. Superare il Max Rework declassa automaticamente a solo commento ed escalation alla sessione parent. Solo commento: il rifiuto è solo consultivo, nessun rework forzato.",
       "critiqueAuthorityForceTip": "Forza rework: la destinazione deve rifare al rifiuto. (predefinito)",
       "critiqueAuthorityCommentTip": "Solo commento: la destinazione prende il rifiuto solo come riferimento. Nessun rework forzato.",
+      "critiqueAuthority": "Autorità",
+      "critiqueAuthorityForce": "Forza rilavorazione",
+      "critiqueAuthorityComment": "Solo commento",
       "critiqueMaxReworkTip": "Numero massimo di volte che la destinazione può rifare in modalità Forza rework. Superarlo declassa automaticamente a solo commento ed escalation alla sessione parent. Protezione contro loop infiniti.",
       "critiqueMaxReworkActive": "Max {{max}} volte. Declassa automaticamente a solo commento se superato.",
-      "critiqueMaxReworkInactive": "Non usato in modalità Solo commento."
+      "critiqueMaxReworkInactive": "Non usato in modalità Solo commento.",
+      "critiqueMaxRework": "Rilavorazione max"
     }
   },
   "inspector": {
@@ -3511,7 +3604,7 @@
       "exitFullscreen": "Esci da schermo intero"
     },
     "contextMenu": {
-      "createCustomAgent": "Crea Agent personalizzato",
+      "createCustomAgent": "Crea Custom Agent",
       "createCmdAgent": "Crea CMD Agent",
       "createCmdAgentHint": "Terminale interattivo che guidi tu (fatturazione ad abbonamento)",
       "createAutoAgent": "Crea Auto Agent",
@@ -3529,7 +3622,7 @@
       "appUninstall": "Disinstalla",
       "appInstall": "Installa",
       "appsHelp": "Fai clic su una riga per rilasciarla sul canvas come bolla. Fai doppio clic su una bolla per aprirla, clic con il tasto destro per gestirla.",
-      "createLab": "Laboratorio agenti",
+      "createLab": "Agent Lab",
       "createLabHint": "Esegui lo stesso compito con impostazioni diverse e confronta i risultati in una tabella",
       "createLocalAgent": "All Model",
       "createLocalAgentHint": "Colloca una bolla per un modello che gira su questo PC",
@@ -3542,7 +3635,7 @@
       "brainOffHint": "Disattivarlo non cancella nulla"
     },
     "bounds": {
-      "label": "Bubble Bounds",
+      "label": "Limiti bolle",
       "tooltip": "Area rettangolare che impedisce alle bolle di uscire dalla tela. Trascina un bordo per ridimensionare. Salvato per progetto."
     },
     "copy": {
@@ -3663,7 +3756,7 @@
       "col": {
         "variant": "Variante",
         "model": "Modello",
-        "effort": "Effort",
+        "effort": "Sforzo",
         "permission": "Permesso",
         "status": "Stato",
         "duration": "Durata",
@@ -3707,11 +3800,11 @@
       "delete": "Elimina",
       "deletePinnedHint": "Questo scaffale è bloccato. Sbloccalo prima.",
       "kindCommand": "Shell",
-      "kindPrompt": "Prompt",
+      "kindPrompt": "Richiesta",
       "newCommand": "Nuovo comando",
       "newPrompt": "Nuovo prompt",
       "addCommand": "+ Comando shell",
-      "addPrompt": "+ Prompt",
+      "addPrompt": "+ Richiesta",
       "removeItem": "Elimina elemento",
       "moveUp": "Sposta su",
       "moveDown": "Sposta giù",
@@ -3790,6 +3883,9 @@
       "snipFailed": "Cattura non riuscita: {{error}}"
     },
     "close": "Chiudi",
+    "msg": {
+      "requestFailed": "Failed ({{status}})"
+    },
     "minimize": "Riduci a icona",
     "maximize": "Ingrandisci",
     "play": "Riproduci",
