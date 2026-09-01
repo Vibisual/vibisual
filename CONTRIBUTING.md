@@ -78,19 +78,36 @@ In addition to the Apache 2.0 grant, by submitting a contribution you
 also grant 길근오 (the project owner) a **perpetual, worldwide,
 non-exclusive, royalty-free, irrevocable license** to:
 
-  1. Relicense your contribution under any OSI-approved open source
-     license, or under a commercial license used for the project's
-     official cloud or commercial offerings, provided that the
-     Apache 2.0 grant of your contribution remains in effect for
-     existing users.
+  1. Relicense your contribution, in whole or in part, under:
+
+       - any OSI-approved open source license;
+       - any source-available license that is not OSI-approved — for
+         example the Business Source License 1.1, the Functional
+         Source License, or a similar license that converts to an
+         open source license after a set period; or
+       - a proprietary or commercial license used for any product or
+         service this project offers, whether hosted, embedded, or
+         distributed as an application,
+
+     provided that the Apache 2.0 grant already published for your
+     contribution stays in effect for existing users of the versions
+     in which it was published.
 
   2. Sublicense your contribution as part of larger works that
      include the project.
 
-This allows the project to ship a paid hosted version, dual-license
-specific modules, or relicense the core to a different OSI-approved
-license in the future, without requiring sign-off from every past
-contributor.
+This keeps the project's licensing options open. It lets Vibisual ship
+a paid hosted or commercial edition, dual-license specific modules, or
+move the core to a different license later — including a
+source-available one such as BUSL-1.1 — without collecting sign-off
+from every past contributor. The projects that made that move cleanly
+(Sentry, HashiCorp) could do so because they asked for this grant up
+front; the ones that did not had to track down every contributor years
+later.
+
+What this grant does **not** allow is taking back what has already
+shipped. Every release published under Apache 2.0 stays under Apache
+2.0, and so does your contribution inside it.
 
 You retain full copyright in your contribution. You also retain the
 right to use, distribute, and license your contribution independently
@@ -114,7 +131,9 @@ bad-faith behavior will result in removal.
 2. Fork the repository and create a feature branch.
 3. Write tests where applicable.
 4. Run `pnpm typecheck` and `pnpm test` before pushing.
-5. Open a pull request with a clear description of what and why.
+5. Open a pull request with a clear description of what and why. The
+   pull request template asks you to confirm the sign-off and the
+   Additional License Grant above — please tick both boxes.
 
 ## Questions
 
