@@ -16,6 +16,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { BubbleData, ProjectCheckpoint } from '@vibisual/shared';
 import { ProjectGraph } from './projectGraph.js';
+import { pathKey } from './pathKey.js';
 
 let projRoot: string;
 let projName: string;
@@ -124,7 +125,9 @@ describe('부모가 같은 외부 폴더는 최상위에서 쪼개지지 않는�
 
     const tops = extFolders(graph);
     expect(tops).toHaveLength(1);
-    expect(tops[0]!.path).toBe(extRoot.replace(/\\/g, '/').toLowerCase());
+    // 기대값도 그 OS 의 규칙으로 접는다 — 여기에 .toLowerCase() 를 박으면 대소문자를
+    // 가리는 Linux 에서만 깨진다(win/mac 은 접히므로 개발기에서는 영영 안 보인다).
+    expect(tops[0]!.path).toBe(pathKey(extRoot));
     expect(childPathsOf(graph, tops[0]!)).toHaveLength(2);
   });
 });
