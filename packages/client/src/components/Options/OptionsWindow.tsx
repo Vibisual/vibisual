@@ -41,6 +41,7 @@ import { useGraphStore } from '../../stores/graphStore.js';
 import { setCanvasCover } from '../../stores/canvasVisibility.js';
 import { AccountTab } from './AccountTab.js';
 import { StorageTab } from './StorageTab.js';
+import { BgTaskProbeSection } from './BgTaskProbeSection.js';
 import { BrainSettingsTab } from '../Panel/BrainActivationPanel.js';
 import { NumberStepper } from './NumberStepper.js';
 // 단축키 라벨은 플랫폼이 정한다 — mac 에서 실제로 눌리는 키는 Ctrl 이 아니라 Command 다
@@ -147,6 +148,8 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
   // §4 — Storage 탭은 자기 state 로 편집한다. 창의 나가기 가드가 그 미저장분까지 지키려면
   //   탭이 dirty 를 위로 올려 줘야 한다(탭을 떠나거나 창이 닫히면 언마운트 시 false 로 풀린다).
   const [storageDirty, setStorageDirty] = useState(false);
+  // §5.5 #17-9 ⑭(g) — Advanced 탭의 판정 설정도 같은 이유로 자기 dirty 를 위로 올린다.
+  const [bgProbeDirty, setBgProbeDirty] = useState(false);
   // §4 — 저장 없이 나가려 할 때 뜨는 우리 디자인 확인 팝업(종전 `window.confirm` 대체).
   const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false);
 
@@ -235,9 +238,9 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
    * 그랬다 — `window.confirm` 은 Cancel 버튼에만 걸려 있었다).
    */
   const requestClose = useCallback(() => {
-    if (dirty || storageDirty) { setConfirmDiscardOpen(true); return; }
+    if (dirty || storageDirty || bgProbeDirty) { setConfirmDiscardOpen(true); return; }
     onClose();
-  }, [dirty, storageDirty, onClose]);
+  }, [dirty, storageDirty, bgProbeDirty, onClose]);
 
   const handleKeepEditing = useCallback(() => setConfirmDiscardOpen(false), []);
 
@@ -496,7 +499,7 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
                   </select>
                   {/* Version sub */}
                   <div className="mt-0.5 flex items-center gap-1 text-[12px] text-gray-500">
-                    <span className="uppercase tracking-wider">Version:</span>
+                    <span className="uppercase tracking-wider">{t('panel.options.version.versionLabel')}</span>
                     <select
                       value={effectiveVersionValue}
                       onChange={(e) => handleVersionChange(e.target.value)}
@@ -933,6 +936,10 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
                     {t('panel.options.advanced.terminalScrollbackDesc', { shortcut: shortcutLabel('Ctrl+F'), defaultValue: 'CMD 터미널이 보관하는 출력 줄 수입니다. 화면 스크롤과 {{shortcut}} 검색이 같은 범위를 씁니다. 새로 여는 터미널부터 적용됩니다.' })}
                   </p>
                 </div>
+
+                {/* §5.5 #17-9 ⑭(g) — 조용한 백그라운드 작업의 자동 판정. 머신 단위 설정이라
+                    Storage 탭과 같은 문법으로 자기 REST 를 직접 읽고 쓰고, 미저장만 창에 올린다. */}
+                <BgTaskProbeSection onDirtyChange={setBgProbeDirty} />
               </div>
             )}
 
@@ -1295,7 +1302,7 @@ function VersionTab({ info, loading, error, savingBin, binChanged, onSelect, onR
               <span className="text-gray-500">Node</span>
               <span className="font-mono text-gray-300">{info.runtime.node}</span>
               {info.runtime.electron && (<><span className="text-gray-500">Electron</span><span className="font-mono text-gray-300">{info.runtime.electron}</span></>)}
-              <span className="text-gray-500">Platform</span>
+              <span className="text-gray-500">{t('panel.options.version.platform')}</span>
               <span className="font-mono text-gray-300">{info.runtime.platform} · {info.runtime.arch}</span>
             </div>
             <div className="flex flex-wrap gap-3 text-[12px]">

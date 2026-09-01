@@ -489,11 +489,11 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
               className="w-full rounded border border-gray-700 bg-gray-800 px-2 py-1 text-xs text-gray-200 focus:border-blue-500 focus:outline-none"
               value={kind}
               onChange={(e) => setKind(e.target.value as TaskEdgeKind)}
-              {...tipProps(`${TASK_EDGE_KIND_STYLES[kind].label}: ${TASK_EDGE_KIND_STYLES[kind].description}`)}
+              {...tipProps(`${t(`bubbleMap.taskEdgeKind.${kind}.label`)}: ${t(`bubbleMap.taskEdgeKind.${kind}.description`)}`)}
             >
               {(Object.keys(TASK_EDGE_KIND_STYLES) as TaskEdgeKind[]).map((k) => (
-                <option key={k} value={k} title={TASK_EDGE_KIND_STYLES[k].description}>
-                  {TASK_EDGE_KIND_STYLES[k].icon} {TASK_EDGE_KIND_STYLES[k].label}
+                <option key={k} value={k} title={t(`bubbleMap.taskEdgeKind.${k}.description`)}>
+                  {TASK_EDGE_KIND_STYLES[k].icon} {t(`bubbleMap.taskEdgeKind.${k}.label`)}
                 </option>
               ))}
             </select>
@@ -613,14 +613,14 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
           <div className="mb-3 space-y-2.5 rounded border border-violet-500/40 bg-violet-500/5 p-2">
             <div className="flex items-center gap-1.5 text-[12px] uppercase tracking-wider text-violet-300">
               <span>{TASK_EDGE_KIND_STYLES.critique.icon}</span>
-              Critique Options
+              {t('bubbleMap.taskEdgePopup.critiqueOptions')}
               <InfoIcon title={t('bubbleMap.taskEdgePopup.critiqueOptionsTip')} />
             </div>
 
             {/* Timing */}
             <div>
               <div className="mb-1 flex items-center text-[12px] uppercase tracking-wider text-gray-500">
-                Timing
+                {t('bubbleMap.taskEdgePopup.critiqueTiming')}
                 <InfoIcon title={t('bubbleMap.taskEdgePopup.critiqueTimingTip')} />
               </div>
               <div className="flex rounded border border-gray-700 bg-gray-800 text-xs">
@@ -632,7 +632,7 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
                   onClick={() => setCritiqueTiming('intermediate')}
                   {...tipProps(t('bubbleMap.taskEdgePopup.critiqueTimingIntermediateTip'))}
                 >
-                  Intermediate
+                  {t('bubbleMap.taskEdgePopup.critiqueTimingIntermediate')}
                 </button>
                 <button
                   type="button"
@@ -642,7 +642,7 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
                   onClick={() => setCritiqueTiming('final')}
                   {...tipProps(t('bubbleMap.taskEdgePopup.critiqueTimingFinalTip'))}
                 >
-                  Final only
+                  {t('bubbleMap.taskEdgePopup.critiqueTimingFinal')}
                 </button>
               </div>
             </div>
@@ -651,7 +651,7 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <div className="mb-1 flex items-center text-[12px] uppercase tracking-wider text-gray-500">
-                  Authority
+                  {t('bubbleMap.taskEdgePopup.critiqueAuthority')}
                   <InfoIcon title={t('bubbleMap.taskEdgePopup.critiqueAuthorityTip')} />
                 </div>
                 <div className="flex rounded border border-gray-700 bg-gray-800 text-xs">
@@ -663,7 +663,7 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
                     onClick={() => setCritiqueAuthority('force-rework')}
                     {...tipProps(t('bubbleMap.taskEdgePopup.critiqueAuthorityForceTip'))}
                   >
-                    Force rework
+                    {t('bubbleMap.taskEdgePopup.critiqueAuthorityForce')}
                   </button>
                   <button
                     type="button"
@@ -673,13 +673,13 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
                     onClick={() => setCritiqueAuthority('comment-only')}
                     {...tipProps(t('bubbleMap.taskEdgePopup.critiqueAuthorityCommentTip'))}
                   >
-                    Comment only
+                    {t('bubbleMap.taskEdgePopup.critiqueAuthorityComment')}
                   </button>
                 </div>
               </div>
               <div>
                 <div className="mb-1 flex items-center text-[12px] uppercase tracking-wider text-gray-500">
-                  Max Rework
+                  {t('bubbleMap.taskEdgePopup.critiqueMaxRework')}
                   <InfoIcon title={t('bubbleMap.taskEdgePopup.critiqueMaxReworkTip')} />
                 </div>
                 <input

@@ -72,7 +72,7 @@
       "commandCenterHint": "कमांड सेंटर खोलें — देखें कि इस प्रोजेक्ट में आपका क्या इंतज़ार कर रहा है",
       "openNew": "नई विंडो में खोलें",
       "bringToFront": "सामने लाएँ",
-      "settings": "एजेंट सेटिंग्स",
+      "settings": "Agent सेटिंग्स",
       "expand": "फैलाएँ",
       "collapse": "समेटें",
       "close": "विंडो बंद करें",
@@ -143,7 +143,7 @@
       "qrRevoke": "अभी रद्द करें",
       "qrDownload": "इमेज सहेजें",
       "qrTarget": "एनकोड करने के लिए पता",
-      "qrTargetLan": "Wi-Fi",
+      "qrTargetLan": "वाई-फ़ाई",
       "qrTargetExternal": "इंटरनेट",
       "qrExpiresIn": "{{time}} तक मान्य",
       "qrExpired": "समय समाप्त — नया QR बनाएं।",
@@ -213,9 +213,9 @@
       "subtitle": "Vibisual क्या कर सकता है इसका दौरा — और अब तक बनी सुविधाओं की सूची।",
       "cat": {
         "start": "शुरुआत करें",
-        "bubbleMap": "Bubble Map",
+        "bubbleMap": "बबल मैप",
         "agents": "Agents",
-        "taskEdges": "Task Edges",
+        "taskEdges": "टास्क एजेज़",
         "ide": "IDE ओवरले",
         "navigation": "नेविगेशन",
         "history": "इतिहास और सहेजना",
@@ -239,7 +239,7 @@
         "sizeD": "बड़े bubbles को ज़्यादा बार छुआ गया है। पल्स करता bubble अभी सक्रिय है।",
         "contextT": "Context फिल",
         "contextD": "एक agent bubble पानी की तरह भरता है ताकि दिखे कि उसकी context window कितनी उपयोग में है।",
-        "ghostT": "Ghost nodes",
+        "ghostT": "घोस्ट नोड्स",
         "ghostD": "हटाए गए या नाम बदले गए nodes फीके ghosts के रूप में बने रहते हैं ताकि trail खोए नहीं।"
       },
       "agents": {
@@ -264,7 +264,7 @@
       },
       "ide": {
         "intro": "IDE overlay खोलने के लिए किसी agent पर डबल-क्लिक करें — उसका live output, sessions और reports।",
-        "streamT": "Live stream",
+        "streamT": "लाइव स्ट्रीम",
         "streamD": "Agent के messages, tool calls और results को होते ही फॉलो करें।",
         "cardsT": "Did / To-do कार्ड",
         "cardsD": "पूरा हुआ काम और वे चीज़ें जो आपको खुद करनी हैं, रंग-कोडेड कार्ड में बंटी होती हैं।",
@@ -279,7 +279,7 @@
         "panD": "Pan करने के लिए canvas खींचें और zoom करने के लिए scroll करें; minimap दिखाता है कि आप कहाँ हैं।",
         "tabsT": "टैब और detach",
         "tabsD": "हर खुला फ़ोल्डर एक टैब है; उसे अपनी खुद की विंडो में खोलने के लिए टैब को bar से बाहर खींचें।",
-        "inspectorT": "Inspector",
+        "inspectorT": "इंस्पेक्टर",
         "inspectorD": "elements को हाइलाइट करने के लिए Alt दबाए रखें और कॉपी करने के लिए क्लिक करें; एक क्षेत्र चुनने के लिए Shift-drag करें।",
         "copyT": "Copy और paste",
         "copyD": "Custom agents और edges चुनें, फिर उन्हें दूसरे प्रोजेक्ट में clone करने के लिए {{copy}} / {{paste}} दबाएं।"
@@ -288,7 +288,7 @@
         "intro": "Vibisual आपके प्रोजेक्ट्स को हर बार चलाने के बीच याद रखता है।",
         "saveT": "स्वतः सहेजना",
         "saveD": "पूरा graph डिस्क पर checkpoint होता है और अगली बार Vibisual खोलने पर पुनर्स्थापित हो जाता है।",
-        "replayT": "History replay",
+        "replayT": "इतिहास रीप्ले",
         "replayD": "यह देखने के लिए कि session के दौरान map कैसे बढ़ा, timeline को scrub करें।"
       },
       "shortcuts": {
@@ -297,9 +297,9 @@
         "bookmarkD": "Alt+1…0 किसी bubble या session को एक slot में पिन करता है; वापस जाने के लिए 1…0 दबाएं।",
         "sessionTabsT": "सेशन टैब",
         "sessionTabsD": "{{cycle}} / {{cycleBack}} सबसे आगे वाली IDE विंडो के अगले या पिछले सेशन टैब पर ले जाता है ({{pageNext}} / {{pagePrev}} भी वही करते हैं)। {{first}}…{{last}} सीधे N-वें टैब पर जाता है; {{last}} हमेशा आखिरी टैब होता है।",
-        "copyT": "Copy / paste",
+        "copyT": "कॉपी / पेस्ट",
         "copyD": "{{copy}} / {{paste}} चुने गए agents, edges और comment boxes को कॉपी और पेस्ट करता है।",
-        "inspectorT": "Inspector",
+        "inspectorT": "इंस्पेक्टर",
         "inspectorD": "inspect करने के लिए Alt दबाए रखें और किसी element को कॉपी करने के लिए क्लिक करें; region select के लिए Shift-drag करें।",
         "closeT": "बंद करें और रद्द करें",
         "closeD": "Esc मेनू, पॉपअप और IDE overlay को बंद कर देता है।"
@@ -307,7 +307,7 @@
       "memory": {
         "intro": "प्रोजेक्ट मेमोरी वह याद रखती है जो काम आया और अगले काम में उसे फिर से लगा देती है। डिफ़ॉल्ट रूप से बंद रहती है — हर प्रोजेक्ट में अलग से चालू करें, और बंद करने से कुछ भी नहीं मिटता।",
         "turnOnT": "चालू कैसे करें",
-        "turnOnD": "खाली कैनवास पर दायाँ क्लिक करके «प्रोजेक्ट मेमोरी चालू करें» चुनें, या File > Options > प्रोजेक्ट मेमोरी खोलें। तुरंत लागू — पुनः आरंभ की ज़रूरत नहीं।",
+        "turnOnD": "खाली कैनवास पर दायाँ क्लिक करके «प्रोजेक्ट मेमोरी चालू करें» चुनें, या फ़ाइल > विकल्प > प्रोजेक्ट मेमोरी खोलें। तुरंत लागू — पुनः आरंभ की ज़रूरत नहीं।",
         "bubbleT": "मेमोरी बबल",
         "bubbleD": "चालू करते ही कैनवास पर इंडिगो बबल दिखता है जिसमें सहेजे गए कार्ड की संख्या होती है। डबल-क्लिक से लाइब्रेरी खुलती है; कर्सर रखने पर सारांश।",
         "skillsT": "प्रक्रिया स्मृति",
@@ -363,6 +363,7 @@
         "scanning": "इंस्टॉलेशन स्कैन हो रही हैं…",
         "claudeCode": "Claude Code (उपयोग में)",
         "current": "वर्तमान",
+        "versionLabel": "वर्शन:",
         "latest": "नवीनतम (npm)",
         "updateAvailable": "अपडेट उपलब्ध",
         "upToDate": "अप टू डेट",
@@ -374,7 +375,8 @@
         "unknownVer": "अज्ञात",
         "restartHint": "चयन सहेजा गया। नए spawn किए गए agents पर लागू करने के लिए Vibisual पुनः शुरू करें।",
         "about": "परिचय",
-        "repo": "GitHub repository",
+        "platform": "प्लेटफ़ॉर्म",
+        "repo": "GitHub रिपॉज़िटरी",
         "marketplace": "VS Code Marketplace पर Claude Code",
         "selectionApplied": "चयन सहेजा और लागू किया गया — नए बनाए गए एजेंट इसे तुरंत उपयोग करेंगे।",
         "claudeAutoUpdate": {
@@ -400,7 +402,7 @@
         "tools": "टूल्स (allow-list)",
         "disallowedTools": "अस्वीकृत टूल्स (deny-list)",
         "rules": "डिफ़ॉल्ट नियम (markdown)",
-        "rulesPlaceholder": "# Optional default rules injected into every new agent\n- ...",
+        "rulesPlaceholder": "# हर नए Agent में जोड़े जाने वाले वैकल्पिक डिफ़ॉल्ट नियम\n- ...",
         "color": "डिफ़ॉल्ट Bubble रंग (hex, वैकल्पिक)"
       },
       "account": {
@@ -437,7 +439,7 @@
         "cleaning": "साफ़ हो रहा है…",
         "cleaned": "{{files}} फ़ाइल ({{size}}) कूड़ेदान में ले जाई गई — जब तक वहाँ हैं, आप उन्हें वापस ला सकते हैं।",
         "empty": "डिस्क पर अभी तक कोई प्रोजेक्ट डेटा नहीं है।",
-        "worktreesTitle": "Git worktrees",
+        "worktreesTitle": "Git Worktrees",
         "worktreesNote": "कभी स्वचालित रूप से नहीं हटाया जाता — इनमें आपका काम हो सकता है। यदि अब ज़रूरत नहीं है तो फ़ोल्डर खुद हटाएं।",
         "worktreeOrphan": "अनाथ",
         "units": {
@@ -463,7 +465,7 @@
             "desc": "हर सेशन में रखे जाने वाले आपके ही प्रॉम्प्ट। इन्हें फिर से नहीं बनाया जा सकता, इसलिए सीमा उदार रखी गई है। 0 = असीमित।"
           },
           "subStreamRetentionDays": {
-            "label": "एजेंट बातचीत का इतिहास",
+            "label": "Agent बातचीत का इतिहास",
             "desc": "ऐप शुरू होने पर एक बार साफ़ किया जाता है। चालू सेशन और फिर से खोलने की सूची में मौजूद सेशन उम्र चाहे जो हो, रखे जाते हैं। 0 = हमेशा रखें।"
           },
           "attachmentRetentionDays": {
@@ -510,7 +512,21 @@
       },
       "advanced": {
         "terminalScrollback": "टर्मिनल स्क्रॉलबैक (लाइनें)",
-        "terminalScrollbackDesc": "एक CMD टर्मिनल कितनी आउटपुट लाइनें रखता है। स्क्रॉलिंग और {{shortcut}} सर्च इसी रेंज को शेयर करते हैं। अब से खोले गए टर्मिनल पर लागू होता है।"
+        "terminalScrollbackDesc": "एक CMD टर्मिनल कितनी आउटपुट लाइनें रखता है। स्क्रॉलिंग और {{shortcut}} सर्च इसी रेंज को शेयर करते हैं। अब से खोले गए टर्मिनल पर लागू होता है।",
+        "bgProbeTitle": "शांत बैकग्राउंड काम",
+        "bgProbeIntro": "बैकग्राउंड में चलने वाला कोई कमांड शांत हो जाए तो ज़रूरी नहीं कि वह ख़त्म हो गया हो — जो किसी चीज़ का इंतज़ार कर रहा हो, वह स्वाभाविक रूप से शांत रहता है। इसीलिए Vibisual सिर्फ़ बीते समय के आधार पर कोई प्रविष्टि बंद नहीं करता। इसके बजाय, जब कोई प्रविष्टि बिना समाप्ति चिह्न के लंबे समय तक शांत रहती है, तो एक छोटे निर्णायक एजेंट से सिर्फ़ एक बार पूछा जाता है: क्या इस कमांड की कोई ऐसी शर्त है जिस पर यह ख़ुद ख़त्म होता है, और क्या वह शर्त पहले ही पूरी हो चुकी है।",
+        "bgProbeEnabled": "शांत कामों के बारे में पूछें",
+        "bgProbeEnabledDesc": "बंद रहने पर इसके लिए कोई मॉडल नहीं बुलाया जाता — शांत प्रविष्टियाँ तब तक सूची में रहती हैं जब तक आप उन्हें ख़ुद न हटाएँ।",
+        "bgProbeQuiet": "इतनी शांति के बाद पूछें (मिनट)",
+        "bgProbeQuietDesc": "शांति सिर्फ़ यह तय करती है कि कब पूछना है — जवाब कभी नहीं। 0 रखने पर पूछा ही नहीं जाता।",
+        "bgProbeAutoClose": "जवाब \"ख़त्म हो गया\" हो तो प्रविष्टि हटा दें",
+        "bgProbeAutoCloseDesc": "बंद रहने पर जवाब सिर्फ़ कार्ड पर लिखा जाता है और फ़ैसला आप करते हैं। \"अब भी चल रहा है\" और \"तय नहीं हो सका\" वैसे भी कभी कुछ नहीं हटाते।",
+        "bgProbeKill": "उसकी शुरू की हुई प्रक्रियाएँ भी रोकें",
+        "bgProbeKillDesc": "सिर्फ़ सूची ख़ाली करने से कमांड चलता ही रहता है। सिर्फ़ उसी सत्र के नीचे की उन प्रक्रियाओं को छुआ जाता है जिनकी कमांड लाइन इस काम से मेल खाती है।",
+        "bgProbeModel": "जवाब देने वाला मॉडल",
+        "bgProbeModelDesc": "उससे एक ही बार पूछा जाता है — बिना किसी टूल के और आपके प्रोजेक्ट तक पहुँच के बिना; सिर्फ़ कमांड का मूल पाठ और आउटपुट का थोड़ा-सा अंतिम हिस्सा दिया जाता है।",
+        "bgProbeLoadError": "मौजूदा सेटिंग नहीं पढ़ी जा सकी।",
+        "bgProbeSaveError": "सहेजा नहीं जा सका। कुछ भी नहीं बदला।"
       },
       "notifications": {
         "cmdBlocked": "जब कोई CMD सेशन इनपुट का इंतज़ार कर रहा हो, तो सूचित करें",
@@ -534,7 +550,7 @@
       "entryHint": "Sub-agents अब चल रहे हैं। अनुवर्ती कार्यों के लिए यहाँ बात करें।",
       "buildingHint": "Builder canvas पर agents और connections डिज़ाइन कर रहा है। इसे काम करते देखने के लिए यह bubble खोलें।",
       "activityTitle": "Builder गतिविधि",
-      "activityLive": "Live",
+      "activityLive": "लाइव",
       "activityWaiting": "Builder शुरू हो रहा है…",
       "phase": {
         "idle": "निष्क्रिय — शुरू करने के लिए अनुरोध टाइप करें",
@@ -553,11 +569,11 @@
         "high": "उच्च जटिलता"
       },
       "topology": {
-        "pipeline": "Pipeline",
-        "team": "Team",
-        "ralph": "Ralph (team + critique loop)",
-        "autopilot": "Autopilot (single agent)",
-        "custom": "Custom (builder-designed)"
+        "pipeline": "पाइपलाइन",
+        "team": "टीम",
+        "ralph": "Ralph (टीम + समीक्षा लूप)",
+        "autopilot": "ऑटोपायलट (एकल Agent)",
+        "custom": "कस्टम (बिल्डर-डिज़ाइन्ड)"
       },
       "run": {
         "title": "सत्यापित runs",
@@ -566,7 +582,7 @@
         "selfTestTip": "जानबूझकर विफल होने वाली दो जाँच चलाता है। कोई gate केवल इससे साबित होता है कि वह क्या रोकता है, इससे नहीं कि वह क्या पास करता है।",
         "selfTestPass": "Gate काम कर रहा है — {{count}} जाँच ने जो रोकना था वह रोका",
         "selfTestFail": "{{count}} जाँच रुकी नहीं — इस gate पर अभी भरोसा नहीं किया जा सकता",
-        "selfTestBadge": "self-test",
+        "selfTestBadge": "स्व-परीक्षण",
         "metricHandsOff": "बिना दखल",
         "metricHandsOffHint": "{{total}} में से {{verified}} runs आपको बुलाए बिना पूरे हुए",
         "metricEscalated": "आपको बुलाया",
@@ -575,7 +591,7 @@
         "empty": "अभी कोई run नहीं। ऊपर कोई अनुरोध भेजें और इसके पूरा होने का सबूत यहाँ दिखेगा।",
         "noEvidence": "कोई सबूत दर्ज नहीं — इस run के लिए वास्तव में कुछ नहीं चलाया गया।",
         "evidenceCount": "{{passed}}/{{total}} पास",
-        "reworkCount": "rework {{used}}/{{budget}}",
+        "reworkCount": "रीवर्क {{used}}/{{budget}}",
         "lastVerdict": "फैसला: {{verdict}}",
         "status": {
           "running": "चल रहा है",
@@ -602,7 +618,7 @@
       "distilling": "समेटा जा रहा है…",
       "distillFailed": "समेटा नहीं जा सका — फिर कोशिश करें",
       "proposalTitle": "आपकी नापसंद से सुझाए गए नियम",
-      "proposalHint": "नीचे दिए नियमों को समीक्षा करें और संपादित करें। ये इस agent के Agent Rules में तभी जुड़ते हैं जब आप Apply करें (Rules history से undo करें)।",
+      "proposalHint": "नीचे दिए नियमों को समीक्षा करें और संपादित करें। ये इस agent के Agent नियम में तभी जुड़ते हैं जब आप Apply करें (Rules history से undo करें)।",
       "apply": "नियमों में जोड़ें",
       "applying": "जोड़ा जा रहा है…",
       "cancel": "रद्द करें"
@@ -610,7 +626,7 @@
     "detailPanel": {
       "close": "बंद करें",
       "closePanel": "पैनल बंद करें",
-      "taskEdge": "Task Edge",
+      "taskEdge": "टास्क एज",
       "clickToRename": "नाम बदलने के लिए क्लिक करें",
       "clickToOpenFile": "फ़ाइल खोलने के लिए क्लिक करें",
       "clickToOpenFolder": "फ़ोल्डर खोलने के लिए क्लिक करें",
@@ -621,10 +637,12 @@
         "unpinnedTitle": "पिन करें (हटाने से रोकें)"
       },
       "path": "पथ",
-      "sessionId": "Session ID",
+      "sessionId": "सेशन आईडी",
       "type": "प्रकार",
+      "agentBadge": "Agent",
       "status": "स्थिति",
       "activity": "गतिविधि",
+      "activityEvents": "{{n}} इवेंट्स",
       "billableTokens": "बिल योग्य टोकन",
       "context": "संदर्भ",
       "model": "मॉडल",
@@ -634,6 +652,7 @@
       "hookAgentSettingsLocked": "Hook-registered agents Claude Code के अपने हैं। सेटिंग्स केवल canvas से बनाए गए agents के लिए बदली जा सकती हैं।",
       "files": "फ़ाइलें",
       "activeAgents": "सक्रिय Agents",
+      "goToAgent": "इस Agent पर जाएं",
       "lastTools": "अंतिम टूल्स",
       "contextCompacted": "Context संकुचित",
       "compactSummary": "{{count}}× · आखिरी {{ago}}",
@@ -653,10 +672,18 @@
       "originalType": "मूल प्रकार",
       "persist": "बनाए रखें (फीका होने से रोकें)",
       "lastTool": "अंतिम टूल",
-      "contiHistory": "Conti History"
+      "contiHistory": "Conti इतिहास"
+    },
+    "agentEventList": {
+      "prompt": "प्रॉम्प्ट",
+      "queueBadge": "क्यू",
+      "tokenUsage": "टोकन इस्तेमाल",
+      "waited": "{{time}} इंतज़ार किया",
+      "closePopup": "पॉपअप बंद करें",
+      "result": "परिणाम"
     },
     "contiHistory": {
-      "title": "Conti History",
+      "title": "Conti इतिहास",
       "generate": "नया conti बनाएं",
       "generateTitle": "parent agent को conti कमांड भेजने के लिए IDE overlay खोलें",
       "openBoard": "Conti board खोलें",
@@ -679,6 +706,10 @@
       "addFrame": "Frame जोड़ें",
       "deleteFrame": "हटाएं",
       "editFrame": "टेक्स्ट संपादित करें",
+      "frameLabel": "फ़्रेम {{n}}",
+      "dragToReorder": "क्रम बदलने के लिए खींचें",
+      "doubleClickToEdit": "संपादित करने के लिए डबल-क्लिक करें",
+      "dropHere": "यहां छोड़ें",
       "editTitlePrompt": "Frame शीर्षक:",
       "editActionPrompt": "Frame क्रिया:",
       "zoomReset": "{{shortcut}} रीसेट",
@@ -724,7 +755,7 @@
       "newSession": "नई Session",
       "newBadge": "नया",
       "newSessionBadge": "नई session",
-      "session": "Session:",
+      "session": "सेशन:",
       "change": "बदलें",
       "placeholder": "कमांड दर्ज करें... ({{paste}} से इमेज पेस्ट करें)",
       "run": "चलाएं",
@@ -734,6 +765,7 @@
       "addCommand": "कमांड जोड़ें",
       "removeAttachment": "अटैचमेंट हटाएं",
       "uploading": "अपलोड हो रहा है...",
+      "attachmentError": "ERR",
       "attached": "संलग्न",
       "waitingForUpload": "अपलोड की प्रतीक्षा..."
     },
@@ -763,9 +795,9 @@
       "commitTitleClean": "क्लीन working tree — कमिट करने को कुछ नहीं",
       "clean": "क्लीन working tree",
       "synced": "सिंक्ड",
-      "stagedLabel": "staged",
-      "modifiedLabel": "modified",
-      "untrackedLabel": "untracked",
+      "stagedLabel": "स्टेज्ड",
+      "modifiedLabel": "मॉडिफ़ाइड",
+      "untrackedLabel": "अनट्रैक्ड",
       "recentCommits": "हाल के कमिट्स",
       "coAuthoredByClaude": "Claude के सह-लेखन में",
       "worktrees": "Worktrees",
@@ -841,7 +873,7 @@
         "unknown": "{{name}} — नया जारी हुआ model। क्षमताएं और लागत family defaults से अनुमानित।"
       },
       "contextWindow": {
-        "oneMillion": "1M context window"
+        "oneMillion": "1M कॉन्टेक्स्ट विंडो"
       },
       "permissionMode": {
         "label": "अनुमति मोड",
@@ -864,10 +896,10 @@
         "addTool": "+ टूल ब्लॉक करें"
       },
       "customMode": {
-        "label": "Custom Mode",
+        "label": "कस्टम मोड",
         "tip": "Vibisual-only mode axis। Conti mode चालू सहेजने पर agent नियम conti-only ruleset से बदल दिए जाते हैं (पिछले नियम history में जाते हैं)। Review/Debug बाद में आएगा।",
         "none": "(कोई नहीं)",
-        "conti": "Conti mode",
+        "conti": "Conti मोड",
         "reviewDisabled": "Review mode (जल्द आएगा)",
         "debugDisabled": "Debug mode (जल्द आएगा)",
         "disabledNote": "जल्द आएगा — चयन अवरुद्ध है। सहेजी गई कॉन्फ़िगरेशन निष्क्रिय रहेगी।",
@@ -880,7 +912,7 @@
         "help": "हर रन पर agent प्रॉम्प्ट में इंजेक्ट किए जाने वाले कस्टम नियम (Markdown)"
       },
       "rulesHistory": {
-        "title": "History",
+        "title": "इतिहास",
         "empty": "अभी कोई history नहीं — जब आप नियम बदलकर सहेजेंगे, तो पिछला मान यहाँ कैप्चर होगा।",
         "preview": "प्रीव्यू",
         "restore": "पुनर्स्थापित करें",
@@ -959,6 +991,9 @@
       "maxBudgetUsd": "बजट ($, 0=∞)",
       "defaultSkills": "डिफ़ॉल्ट Skills",
       "addSkill": "+ Skill जोड़ें",
+      "skillSourceProject": "प्रोजेक्ट",
+      "skillSourceGlobal": "ग्लोबल",
+      "skillSourcePlugin": "इंस्टॉल्ड प्लगइन्स",
       "color": "रंग",
       "fieldTips": {
         "model": "यह agent जो Claude मॉडल उपयोग करता है।",
@@ -1111,7 +1146,8 @@
         "unset": "सेट नहीं",
         "on": "चालू",
         "off": "बंद"
-      }
+      },
+      "contextNotAccessible": "एक्सेस नहीं है (Claude Code आंतरिक)"
     },
     "permissionPrompt": {
       "title": "अनुमति आवश्यक",
@@ -1128,7 +1164,7 @@
       "title": "Claude Code अपडेट उपलब्ध",
       "current": "वर्तमान",
       "latest": "नवीनतम",
-      "binPath": "Binary",
+      "binPath": "बाइनरी",
       "vscodeNotice": "यह binary VS Code extension से आती है और auto-update नहीं हो सकती। अपडेट के लिए Marketplace खोलें।",
       "openMarketplace": "VS Code Marketplace खोलें",
       "unknownNotice": "कोई काम करती `claude` binary नहीं मिली। जारी रखने से पहले Claude Code मैन्युअल रूप से इंस्टॉल करें।",
@@ -1151,7 +1187,7 @@
       "linesCount": "{{count}} पंक्तियां",
       "errorsCount": "{{count}} त्रुटियां",
       "filterPlaceholder": "लॉग फ़िल्टर करें (substring मिलान)",
-      "autoScroll": "Auto-scroll",
+      "autoScroll": "ऑटो-स्क्रॉल",
       "clear": "साफ़ करें",
       "clearLocal": "स्थानीय buffer साफ़ करें (सर्वर tail जारी रहेगा)",
       "connecting": "सर्वर लॉग से जुड़ रहा है…",
@@ -1170,7 +1206,7 @@
       "linesCount": "{{count}} पंक्तियां",
       "errorsCount": "{{count}} त्रुटियां",
       "filterPlaceholder": "लॉग फ़िल्टर करें (substring मिलान)",
-      "autoScroll": "Auto-scroll",
+      "autoScroll": "ऑटो-स्क्रॉल",
       "recentOnly": "हाल के 200",
       "recentOnlyTitle": "केवल नवीनतम 200 पंक्तियां दिखाएं (buffer बाकी रखता है)",
       "clear": "साफ़ करें",
@@ -1189,8 +1225,8 @@
       "billable": "बिल योग्य",
       "input": "इनपुट",
       "output": "आउटपुट",
-      "cacheRead": "Cache Read (×0.1)",
-      "cacheCreate": "Cache Create",
+      "cacheRead": "कैश रीड (×0.1)",
+      "cacheCreate": "कैश क्रिएट",
       "actualSuffix": "{{count}} वास्तविक",
       "billableTokens": "बिल योग्य टोकन",
       "turns": "{{count}} टर्न्स",
@@ -1199,27 +1235,28 @@
       "categoryBreakdown": "श्रेणी विवरण",
       "estimate": "अनुमान",
       "noMatchingTurn": "कोई मिलान वाला टर्न नहीं मिला",
-      "conversationHistory": "Conversation History"
+      "conversationHistory": "बातचीत का इतिहास"
     },
     "debugPanel": {
-      "title": "Debug",
+      "title": "डीबग",
       "close": "बंद करें",
       "project": "प्रोजेक्ट",
       "projectName": "नाम",
       "projectPath": "पथ",
       "agents": "Agents",
-      "nodes": "Nodes",
-      "edges": "Edges",
+      "nodes": "नोड्स",
+      "edges": "एजेज़",
       "noProject": "कोई सक्रिय प्रोजेक्ट नहीं",
       "fps": "fps",
+      "inputLag": "इनपुट लैग",
       "fpsTip": "प्रति सेकंड रेंडर फ्रेम",
       "visibility": "दृश्यता",
       "profiling": {
-        "title": "Profiling",
+        "title": "प्रोफाइलिंग",
         "startNow": "अभी Profile करें",
         "collecting": "एकत्र हो रहा है…",
-        "manual": "manual",
-        "auto": "auto (< {{fps}} fps)",
+        "manual": "मैन्युअल",
+        "auto": "ऑटो (< {{fps}} fps)",
         "copy": "कॉपी करें",
         "copied": "कॉपी हो गया",
         "fpsRange": "FPS",
@@ -1231,8 +1268,8 @@
       "errorLog": "त्रुटि लॉग",
       "noErrors": "कोई त्रुटि नहीं",
       "servers": "सर्वर",
-      "frontend": "Frontend",
-      "backend": "Backend",
+      "frontend": "फ़्रंटएंड",
+      "backend": "बैकएंड",
       "webSocket": "WebSocket",
       "actions": "क्रियाएं",
       "restarting": "पुनः शुरू हो रहा है...",
@@ -1265,7 +1302,7 @@
       "loading": "लोड हो रहा है...",
       "empty": "खाली फ़ोल्डर",
       "visible": "दृश्यमान ({{count}})",
-      "satellites": "Satellites {{count}}",
+      "satellites": "सैटेलाइट {{count}}",
       "maxTitle": "इस फ़ोल्डर के अधिकतम satellites",
       "maxHint": "Enter · Esc",
       "maxSave": "सहेजें",
@@ -1280,6 +1317,7 @@
     },
     "serverList": {
       "heading": "सर्वर ({{count}})",
+      "serverLabel": "सर्वर",
       "refresh": "रिफ्रेश",
       "empty": "कोई चलता सर्वर नहीं",
       "running": "चल रहा है",
@@ -1290,14 +1328,14 @@
       "noCommand": "रीस्टार्ट उपलब्ध नहीं — स्टार्ट कमांड अज्ञात (एजेंट द्वारा रिपोर्ट किया गया सर्वर)"
     },
     "subAgent": {
-      "heading": "SubAgents ({{count}})",
+      "heading": "उप-Agents ({{count}})",
       "status": {
         "idle": "निष्क्रिय",
         "running": "चल रहा है",
         "done": "पूर्ण",
         "error": "त्रुटि"
       },
-      "tokensInOut": "{{in}}in {{out}}out"
+      "tokensInOut": "{{in}}इन {{out}}आउट"
     },
     "taskEdgeDetail": {
       "flow": "प्रवाह",
@@ -1309,15 +1347,15 @@
         "completed": "पूर्ण",
         "error": "त्रुटि"
       },
-      "gateAuto": "Auto",
-      "gateManual": "Manual",
-      "gate": "Gate: {{value}}",
-      "gateAutoTooltip": "Auto-forward",
+      "gateAuto": "ऑटो",
+      "gateManual": "मैन्युअल",
+      "gate": "गेट: {{value}}",
+      "gateAutoTooltip": "ऑटो-फ़ॉरवर्ड",
       "gateManualTooltip": "मानव अनुमोदन आवश्यक",
       "advanced": "उन्नत",
       "format": "फॉर्मेट",
-      "return": "Return",
-      "timeout": "Timeout",
+      "return": "वापसी",
+      "timeout": "टाइमआउट",
       "retry": "पुनः प्रयास",
       "cacheOn": "Cache चालू",
       "priority": "प्राथमिकता",
@@ -1328,9 +1366,9 @@
       "lastRun": "अंतिम रन",
       "lastResult": "अंतिम परिणाम",
       "errorLabel": "त्रुटि",
-      "bundle": "Bundle",
-      "bundleAutoGenerated": "auto-generated",
-      "bundlePrimary": "primary",
+      "bundle": "बंडल",
+      "bundleAutoGenerated": "ऑटो-जनरेटेड",
+      "bundlePrimary": "मुख्य",
       "bundleAutoArtifactDesc": "यह edge कमांड edge के लिए auto-generated result-return channel है। कमांड edge से संपादित या हटाएं।",
       "bundleBothDesc": "returnFormat=both होने के कारण artifact-return edge auto-generate हुआ। किसी भी एक को हटाने पर पूरा bundle हट जाता है।",
       "bundleAutoReworkDesc": "यह edge critique edge के लिए auto-generated rework-command channel है। critique edge से संपादित या हटाएं।",
@@ -1370,12 +1408,12 @@
       "collectorFailed": "उपयोग कलेक्टर सेटिंग्स तक नहीं पहुंच सके।",
       "collectorRestartHint": "यह बंद होने पर भी Vibisual नियमित रूप से उपयोग पढ़ता है — कलेक्टर सिर्फ़ इंटरैक्टिव सत्र के दौरान इसे अधिक बार ताज़ा करता है।",
       "localTitle": "Vibisual में यह प्रोजेक्ट",
-      "localAgents": "एजेंट",
+      "localAgents": "Agents",
       "localInput": "इनपुट टोकन",
       "localOutput": "आउटपुट टोकन",
       "localHint": "सक्रिय प्रोजेक्ट टैब के एजेंट से गिना गया। ऊपर की प्लान सीमाएं पूरे खाते की हैं और Vibisual के बाहर किए काम को भी शामिल करती हैं।",
       "emptyOff": "अभी कोई उपयोग डेटा नहीं — कलेक्टर बंद है। नीचे इसे चालू करें, फिर एक बार इंटरैक्टिव Claude Code सत्र खोलें।",
-      "emptyWaiting": "कलेक्टर चालू है और पहले मान की प्रतीक्षा कर रहा है। मान तब आते हैं जब कोई इंटरैक्टिव Claude Code सत्र अपनी स्टेटस लाइन बनाता है — कैनवास का टर्मिनल बबल, या आपके एडिटर का Claude Code। Vibisual जो एजेंट हेडलेस चलाता है उनमें स्टेटस लाइन नहीं होती, इसलिए वे कभी रिपोर्ट नहीं करते।",
+      "emptyWaiting": "कलेक्टर चालू है और पहले मान की प्रतीक्षा कर रहा है। मान तब आते हैं जब कोई इंटरैक्टिव Claude Code सत्र अपनी स्टेटस लाइन बनाता है — कैनवास का टर्मिनल बबल, या आपके एडिटर का Claude Code। Vibisual जो Agents हेडलेस चलाता है उनमें स्टेटस लाइन नहीं होती, इसलिए वे कभी रिपोर्ट नहीं करते।",
       "refresh": "ताज़ा करें",
       "weeklyScoped": "साप्ताहिक सीमा — {{model}}",
       "creditsTitle": "उपयोग क्रेडिट",
@@ -1414,12 +1452,12 @@
         "settingsSection": "सेटिंग सेक्शन",
         "ideView": "IDE व्यू",
         "headerItem": "हेडर आइटम",
-        "agentPrompt": "एजेंट प्रवर्तन",
+        "agentPrompt": "Agent प्रवर्तन",
         "contextMenuItem": "कॉन्टेक्स्ट मेन्यू",
         "hookSubscriber": "हुक सब्सक्राइबर",
         "restRoute": "REST रूट",
         "wsMessage": "WS संदेश",
-        "agentConfigField": "एजेंट सेटिंग",
+        "agentConfigField": "Agent सेटिंग",
         "brainCardKind": "मेमोरी कार्ड प्रकार",
         "bubbleType": "बबल प्रकार",
         "edgeKind": "एज प्रकार"
@@ -1584,6 +1622,12 @@
       "noAudio": "बिना ऑडियो के एक्सपोर्ट किया गया।",
       "downgraded": "रेंडर मोड डाउनग्रेड कर दिया गया: {{id}}",
       "previewFailed": "प्रीव्यू नहीं बनाया जा सका।",
+      "errNoDoc": "No document is open.",
+      "errNoStage": "Could not find a place to attach the stage.",
+      "errNoRenderBackend": "No render mode is available on this device.",
+      "errNoOffscreen": "Offscreen windows are not available in this build.",
+      "errNoOffscreenBridge": "The offscreen bridge is not available.",
+      "errRequestFailed": "The request failed ({{status}}).",
       "reloaded": "दस्तावेज़ कहीं और बदल गया, इसलिए इसे फिर से लोड किया गया।"
     },
     "cost": {
@@ -1720,7 +1764,7 @@
     "projectFolder": {
       "title": "प्रोजेक्ट फ़ोल्डर चुनें",
       "intro": "Claude Code इंस्टॉल हो गया है और साइन इन भी। आख़िरी क़दम है वह फ़ोल्डर चुनना जिसमें आपके एजेंट काम करेंगे — आम तौर पर किसी प्रोजेक्ट या रिपॉज़िटरी की रूट।",
-      "blocked": "कुछ भी नहीं बनाया गया — अभी कोई प्रोजेक्ट फ़ोल्डर खुला नहीं है। एजेंट आपके चुने हुए फ़ोल्डर के अंदर ही काम करते हैं, इसलिए पहले एक फ़ोल्डर चुनें।",
+      "blocked": "कुछ भी नहीं बनाया गया — अभी कोई प्रोजेक्ट फ़ोल्डर खुला नहीं है। Agents आपके चुने हुए फ़ोल्डर के अंदर ही काम करते हैं, इसलिए पहले एक फ़ोल्डर चुनें।",
       "detail": "Vibisual किसी प्रोजेक्ट के लिए जो कुछ भी सहेजता है वह उसी फ़ोल्डर के अंदर रहता है, और एजेंट भी उसी के नीचे की फ़ाइलें ही पढ़ या बदल सकते हैं। बाद में फ़ाइल → फ़ोल्डर खोलें से और फ़ोल्डर जोड़ सकते हैं।",
       "cancelled": "अभी तक कोई फ़ोल्डर नहीं चुना गया। आगे बढ़ने के लिए एक चुनें।",
       "choose": "फ़ोल्डर चुनें",
@@ -1742,7 +1786,7 @@
     },
     "imageAnnotate": {
       "tool": {
-        "view": "View",
+        "view": "देखें",
         "rect": "आयत",
         "ellipse": "अंडाकार",
         "arrow": "तीर",
@@ -1794,15 +1838,15 @@
       "dockTop": "ऊपर डॉक करें",
       "dockBottom": "नीचे डॉक करें",
       "undockLabel": "अनडॉक करें",
-      "customLabel": "Custom",
+      "customLabel": "कस्टम",
       "cmdLabel": "CMD",
-      "hookLabel": "Hook",
+      "hookLabel": "हुक",
       "renameHint": "नाम बदलने के लिए डबल-क्लिक करें (F2)",
       "renameInputLabel": "Agent का नाम",
-      "localLabel": "All Model",
+      "localLabel": "सभी मॉडल",
       "localSwitchModel": "इस बबल का मॉडल बदलें",
       "localContextUsed": "कॉन्टेक्स्ट {{used}} / {{limit}} टोकन ({{percent}}%) — भर जाने पर सबसे पुरानी बातें हटा दी जाती हैं",
-      "agentSettings": "एजेंट सेटिंग्स",
+      "agentSettings": "Agent सेटिंग्स",
       "collapseLabel": "समेटें",
       "collapseHint": "समेटें — विंडो बनी रहती है और कैनवास वापस मिलता है (हेडर की विंडो सूची से फिर फैलाएँ)",
       "resizeWindow": "विंडो का आकार बदलें",
@@ -1877,9 +1921,9 @@
       "queuedRemove": "Queue से हटाएं",
       "mergedNotice": "{{count}} follow-up(s) के साथ एक साथ भेजा गया",
       "dispatchMode": {
-        "wait": "Wait",
-        "merge": "Merge",
-        "immediate": "Now"
+        "wait": "प्रतीक्षा",
+        "merge": "मर्ज",
+        "immediate": "अभी"
       },
       "dispatchModeTitle": {
         "wait": "Wait — मौजूदा turn खत्म होने के बाद इस संदेश को उसके अपने turn में चलाएं",
@@ -1894,7 +1938,7 @@
       "slashHint": "↑↓ नेविगेट करें · Tab/Enter चुनें · Esc रद्द करें",
       "historyHintPrev": "पिछली कमांड के लिए फिर दबाएँ",
       "historyHintNext": "सबसे पुरानी कमांड के लिए फिर दबाएँ",
-      "slashBuiltin": "built-in",
+      "slashBuiltin": "बिल्ट-इन",
       "slashNeedsTerminal": "टर्मिनल चाहिए",
       "slashEmpty": "कोई मिलान skill नहीं",
       "slashLoading": "Skills लोड हो रही हैं…",
@@ -1913,7 +1957,7 @@
       "inputCtxSelectAll": "सभी चुनें",
       "ctxSaveToBrain": "मेमोरी में सहेजें",
       "stopAll": "सभी रोकें",
-      "stopAllTitle": "यह agent जो कुछ भी चला रहा है सब रोकें (अन्य टैब + background subagents)",
+      "stopAllTitle": "यह agent जो कुछ भी चला रहा है सब रोकें (अन्य टैब + बैकग्राउंड कार्य)",
       "stopSessionTitle": "इस session और इसके शुरू किए subagents को रोकें (अन्य session टैब चलते रहेंगे)"
     },
     "memo": {
@@ -1928,7 +1972,7 @@
     },
     "askQuestion": {
       "title": "प्रश्न",
-      "multiSelect": "multi",
+      "multiSelect": "मल्टी",
       "noteLabel": "नोट (वैकल्पिक)",
       "notePlaceholder": "अपने उत्तर के साथ भेजने के लिए एक टिप्पणी लिखें।",
       "otherLabel": "अन्य (स्वयं लिखें)",
@@ -1947,11 +1991,11 @@
       "mcp": "MCP",
       "files": "फ़ाइलें",
       "context": "Context स्रोत",
-      "skills": "Skills",
+      "skills": "स्किल्स",
       "bookmarks": "बुकमार्क",
       "sessionSummary": "Session सारांश",
-      "runningSubagents": "चल रहे subagents ({{count}})",
-      "loop": "Repeat loop",
+      "runningSubagents": "बैकग्राउंड कार्य ({{count}})",
+      "loop": "रिपीट लूप",
       "goal": "लक्ष्य",
       "debug": "Run और debug",
       "hooks": "सेशन हुक्स",
@@ -2005,9 +2049,9 @@
       "title": "Run और debug",
       "refresh": "Configurations पुनः स्कैन करें",
       "noProject": "इसकी run configurations देखने के लिए एक प्रोजेक्ट खोलें।",
-      "debugMode": "Debug mode",
+      "debugMode": "डीबग मोड",
       "debugModeHint": "उसी कमांड में debugger flags जोड़ता है ताकि debugger अटैच हो सके।",
-      "configs": "Run configurations",
+      "configs": "रन कॉन्फ़िगरेशन्स",
       "adhocRuns": "चैट से शुरू किया गया",
       "noConfigs": "कोई run configuration नहीं मिली। .vscode/launch.json, package.json scripts, या .vibisual/run.json में एक जोड़ें। Unreal projects (.uproject) स्वतः पहचाने जाते हैं।",
       "scanned": "स्कैन किया गया: {{files}}",
@@ -2016,7 +2060,7 @@
       "restart": "फिर चलाएं",
       "output": "आउटपुट",
       "running": "चल रहा है",
-      "exitCode": "exit {{code}}",
+      "exitCode": "एग्ज़िट {{code}}",
       "attachOnly": "केवल-Attach configuration — Vibisual इस process को शुरू नहीं करता।",
       "notApplied": "इस कमांड में debugger flags नहीं जोड़े जा सके। यह जैसा था वैसा ही चला।",
       "sendToAgent": "विफलता Agent को भेजें",
@@ -2052,20 +2096,20 @@
         "unreal": "Editor -WaitForDebugger के साथ शुरू होता है और debugger के अटैच होने तक रुका रहता है — Attach debugger दबाएं, फिर Visual Studio में breakpoints उपयोग करें। इसका log Output में स्ट्रीम होता है।",
         "unsupported": "इस कमांड के लिए कोई debugger flags ज्ञात नहीं हैं।"
       },
-      "mcpTitle": "Agent debug tools",
+      "mcpTitle": "Agent डीबग टूल",
       "mcpHint": "Vibisual कोई debugger शामिल नहीं करता। ये मौजूदा MCP servers इस agent से जोड़े गए हैं ताकि यह खुद breakpoints सेट करके state inspect कर सके।",
       "mcpApplyHint": "बदलाव के बाद शुरू हुए sessions पर लागू होता है (पहले से चल रहे sessions अपने tools बनाए रखते हैं)।",
-      "docs": "Docs",
+      "docs": "दस्तावेज़",
       "mcp": {
         "debugger": "Step debugger (7 भाषाएं)",
         "chromeDevtools": "ब्राउज़र (console · network · performance)",
         "chromeDevtoolsRequires": "पहले Chrome को --remote-debugging-port=9222 के साथ शुरू करें।",
         "unreal": "Unreal Engine",
         "unrealRequires": "Editor में Remote Control API plugin (port 30010) चालू करें।",
-        "lldb": "Native (LLDB)",
+        "lldb": "नेटिव (LLDB)",
         "lldbRequires": "PATH पर MCP support वाला LLDB build चाहिए।"
       },
-      "externalTitle": "External debuggers",
+      "externalTitle": "बाहरी डीबगर्स",
       "externalHint": "Native debugging (Unreal C++) इन tools का काम है — Vibisual उस debug engine को शामिल नहीं कर सकता।",
       "open": "खोलें",
       "notInstalled": "इंस्टॉल नहीं है",
@@ -2077,11 +2121,11 @@
       "detach": "अलग करें",
       "continue": "जारी रखें",
       "pause": "रोकें",
-      "stepOver": "Step over",
-      "stepIn": "Step into",
-      "stepOut": "Step out",
-      "callStack": "Call stack",
-      "variables": "Variables",
+      "stepOver": "स्टेप ओवर",
+      "stepIn": "स्टेप इन",
+      "stepOut": "स्टेप आउट",
+      "callStack": "कॉल स्टैक",
+      "variables": "वैरिएबल्स",
       "watchPlaceholder": "कोई expression evaluate करें",
       "evaluate": "Evaluate करें",
       "status": {
@@ -2092,11 +2136,11 @@
         "error": "विफल"
       },
       "stoppedReason": {
-        "breakpoint": "breakpoint",
-        "step": "step",
-        "exception": "exception",
+        "breakpoint": "ब्रेकपॉइंट",
+        "step": "स्टेप",
+        "exception": "एक्सेप्शन",
         "pause": "आपके द्वारा रोका गया",
-        "entry": "entry point",
+        "entry": "एंट्री पॉइंट",
         "other": "रुका हुआ"
       },
       "sessionError": {
@@ -2113,16 +2157,16 @@
         "debuggee-terminated": "Debug की जा रही process समाप्त हो गई।",
         "no-session": "वह debug session अब मौजूद नहीं है।"
       },
-      "adapterTitle": "Debug adapters",
+      "adapterTitle": "डीबग एडेप्टर्स",
       "adapterHint": "Breakpoints, stepping और variables इन्हीं से चलते हैं। यहाँ सूचीबद्ध हर एक commercial उपयोग के लिए मुफ़्त है — केवल Microsoft के engines नीचे delegated हैं।",
       "adapterReady": "तैयार",
       "adapterMissing": "इंस्टॉल नहीं है",
-      "adapterDelegated": "Delegated",
+      "adapterDelegated": "सौंपा गया",
       "runtime": {
         "node": "Node.js · JavaScript · TypeScript",
         "python": "Python",
         "go": "Go",
-        "rust": "Rust · native",
+        "rust": "Rust · नेटिव",
         "dotnet": ".NET · C#",
         "java": "Java",
         "unreal": "Unreal C++",
@@ -2174,10 +2218,10 @@
     "sidebar": {
       "files": "फ़ाइलें ({{count}})",
       "noFileEdits": "अभी कोई फ़ाइल संपादन नहीं",
-      "skills": "Skills ({{count}})",
-      "projectSkills": "Project ({{count}})",
-      "globalSkills": "Global ({{count}})",
-      "pluginSkills": "Plugins ({{count}})",
+      "skills": "स्किल्स ({{count}})",
+      "projectSkills": "प्रोजेक्ट ({{count}})",
+      "globalSkills": "ग्लोबल ({{count}})",
+      "pluginSkills": "प्लगइन्स ({{count}})",
       "favoriteSkills": "पसंदीदा ({{count}})",
       "favoriteAdd": "पसंदीदा में जोड़ें",
       "favoriteRemove": "पसंदीदा से हटाएं",
@@ -2205,7 +2249,7 @@
       "copySkillFailed": "{{count}} जगह विफल"
     },
     "explorer": {
-      "title": "Explorer",
+      "title": "एक्सप्लोरर",
       "refresh": "रिफ्रेश",
       "collapseAll": "फ़ोल्डर संकुचित करें",
       "edited": "संपादित फ़ाइलें ({{count}})",
@@ -2277,7 +2321,7 @@
       "binary": "Binary फ़ाइल — केवल पढ़ने योग्य।",
       "truncated": "इस बड़ी फ़ाइल की केवल शुरुआत दिखाई गई है — केवल पढ़ने योग्य।",
       "readError": "यह फ़ाइल पढ़ी नहीं जा सकी",
-      "plainLanguage": "text",
+      "plainLanguage": "टेक्स्ट",
       "imageEdit": "संपादित करें",
       "imageEditHint": "इस इमेज पर चिह्न लगाएं",
       "imageFit": "पैनल में फ़िट करें",
@@ -2336,14 +2380,14 @@
       }
     },
     "statusBar": {
-      "custom": "Custom",
-      "hook": "Hook",
+      "custom": "कस्टम",
+      "hook": "हुक",
       "context": "ctx: {{used}}/{{max}}",
-      "tokens": "{{in}} in / {{out}} out",
-      "sessionOne": "{{count}} session",
-      "sessionMany": "{{count}} sessions",
+      "tokens": "{{in}} इन / {{out}} आउट",
+      "sessionOne": "{{count}} सेशन",
+      "sessionMany": "{{count}} सेशन",
       "autoCompact": "ऑटो-कॉम्पैक्ट {{value}}",
-      "autoCompactTip": "कॉन्टेक्स्ट इस आकार तक पहुँचने पर CLI स्वयं बातचीत का सारांश बनाकर उसे छोटा कर देती है। प्रति एजेंट एजेंट सेटिंग्स में, और सभी के लिए File > Options > Agent Defaults में बदलें।"
+      "autoCompactTip": "कॉन्टेक्स्ट इस आकार तक पहुँचने पर CLI स्वयं बातचीत का सारांश बनाकर उसे छोटा कर देती है। प्रति एजेंट Agent सेटिंग्स में, और सभी के लिए फ़ाइल > विकल्प > Agent डिफ़ॉल्ट में बदलें।"
     },
     "search": {
       "placeholder": "Conversation में खोजें",
@@ -2418,7 +2462,7 @@
       "promptSuggestion": "अगले प्रॉम्प्ट का सुझाव"
     },
     "report": {
-      "title": "Work report",
+      "title": "काम की रिपोर्ट",
       "didTitle": "AI ने क्या किया",
       "userActionsTitle": "आपको क्या करना है",
       "nextStepsTitle": "अगले कदम",
@@ -2505,19 +2549,26 @@
       "dismiss": "हटाएं"
     },
     "runningSubagents": {
-      "title": "चल रहे subagents",
+      "title": "बैकग्राउंड कार्य",
       "close": "बंद करें",
-      "empty": "अभी कोई subagent नहीं चल रहा।",
-      "untitled": "Subagent",
-      "scopeAll": "यह agent जो भी subagent चला रहा है, सभी दिखाए जा रहे हैं।",
-      "scopeSession": "\"{{label}}\" द्वारा शुरू किए गए subagents दिखाए जा रहे हैं।",
-      "emptySession": "इस सत्र का कोई सबएजेंट नहीं चल रहा।",
-      "hint": "यहाँ सिर्फ़ वही सबएजेंट दिखते हैं जिन्हें इस सत्र ने पृष्ठभूमि में चलाया है — चल रही बातचीत खुद नहीं गिनी जाती। चलते समय बाईं ओर का आइकन जलता है और उसके नीचे संख्या दिखती है।",
+      "empty": "अभी बैकग्राउंड में कुछ भी नहीं चल रहा है।",
+      "untitled": "बिना नाम का कार्य",
+      "kindAgent": "सबएजेंट",
+      "kindAgentTip": "Task या Agent टूल से शुरू किया गया AI चाइल्ड। यह मॉडल चलाता है, इसलिए टोकन खर्च करता है।",
+      "kindShell": "शेल",
+      "kindShellTip": "बैकग्राउंड Bash या Monitor कमांड। मॉडल नहीं, कमांड चलती है — इसलिए कोई टोकन खर्च नहीं होता। जो कमांड खुद कभी खत्म नहीं होतीं (tail -f, while true) वे तब तक यहीं रहती हैं जब तक आप उन्हें हटा न दें।",
+      "scopeAll": "इस एजेंट के सभी बैकग्राउंड कार्य दिखाए जा रहे हैं।",
+      "scopeSession": "केवल \"{{label}}\" सेशन द्वारा शुरू किए गए बैकग्राउंड कार्य दिखाए जा रहे हैं।",
+      "emptySession": "इस सेशन का बैकग्राउंड में कुछ भी नहीं चल रहा है।",
+      "hint": "यहाँ केवल वही दिखता है जो इस सेशन ने बैकग्राउंड में शुरू किया — चल रही बातचीत खुद नहीं गिनी जाती। सबएजेंट AI चाइल्ड होते हैं जो टोकन खर्च करते हैं; शेल बैकग्राउंड Bash या Monitor कमांड होते हैं जो टोकन खर्च नहीं करते। जब तक कुछ चल रहा है, बाईं ओर का आइकन जलता है और उसके नीचे संख्या दिखती है।",
       "othersRunning": "कहीं और {{count}} और चल रहे हैं",
       "startedAt": "{{time}} पर शुरू",
       "endedAt": "{{time}} पर समाप्त",
       "finishedTitle": "अभी-अभी पूरा हुआ",
       "noResult": "कोई परिणाम नहीं आया।",
+      "exitCode": "एग्ज़िट कोड {{code}}",
+      "exitKilled": "रोक दिया गया",
+      "exitFromFileTip": "पूर्णता सूचना कभी नहीं आई — यह उस अंत-चिह्न से पढ़ा गया जिसे harness ने कार्य की आउटपुट फ़ाइल में लिखा था।",
       "resultRescued": "ट्रांसक्रिप्ट से पुनर्प्राप्त — सेशन को नहीं भेजा गया",
       "resultRescuedTitle": "यह चाइल्ड रिपोर्ट करने से पहले ही रुक गया (Stop, टैब बंद होना, या क्रैश), इसलिए सेशन को यह कभी नहीं मिला। Vibisual ने इसे डिस्क पर मौजूद एजेंट ट्रांसक्रिप्ट से वापस पढ़ा।",
       "toggleResult": "पूरा परिणाम दिखाएँ या छिपाएँ",
@@ -2525,11 +2576,26 @@
       "nowUsing": "अभी उपयोग हो रहा टूल",
       "duration": "{{value}} लगा",
       "noResponse": "{{value}} से कोई प्रतिक्रिया नहीं",
+      "quietFor": "{{value}} से शांत",
+      "quietForTip": "इतने समय से इस काम की आउटपुट फ़ाइल नहीं बदली है। शांत होने का मतलब ख़त्म होना नहीं है — जो कमांड किसी चीज़ का इंतज़ार कर रहा हो, वह स्वाभाविक रूप से शांत रहता है।",
+      "probing": "जाँच रहे हैं कि यह अब भी चल रहा है या नहीं",
+      "probingTip": "बिना किसी समाप्ति चिह्न के यह लंबे समय तक शांत रहा, इसलिए एक बार निर्णायक एजेंट चलाया गया। उससे सिर्फ़ दो बातें पूछी जाती हैं: क्या इस कमांड की कोई ऐसी शर्त है जिस पर यह ख़ुद ख़त्म होता है, और क्या वह शर्त पहले ही पूरी हो चुकी है।",
+      "probeAlive": "अब भी चल रहा है",
+      "probeUnknown": "तय नहीं हो सका — जैसा है वैसा ही रहने दिया",
+      "probeFinished": "जाँच के बाद अपने आप हटाया गया",
+      "probeTip": "समाप्ति की शर्त: {{condition}} · निर्णय {{model}}",
+      "probeTipNoCondition": "ख़ुद ख़त्म होने की कोई शर्त नहीं मिली · निर्णय {{model}}",
+      "probeAt": "{{time}} पर जाँचा गया",
+      "closedByProcessGone": "हटाया गया — इसका सत्र ही नहीं रहा",
+      "closedByProcessGoneTip": "जिस सत्र ने यह काम शुरू किया था उसकी प्रक्रिया अब मौजूद नहीं है। नतीजा पहुँचने की कोई जगह नहीं बची, इसलिए इसे सूची से हटा दिया गया।",
+      "closedByUser": "आपने हटाया",
+      "killedProcesses": "{{count}} प्रक्रियाएँ रोकी गईं",
+      "killedProcessesTip": "सफ़ाई के साथ इस कमांड की शुरू की हुई प्रक्रियाएँ भी रोक दी गईं। सिर्फ़ सूची ख़ाली करने से कमांड चलता ही रहता।",
       "dismiss": "इंतज़ार बंद करें",
-      "dismissTip": "इस सूची से हटाता है। प्रक्रिया समाप्त नहीं करता — एजेंट अपने चाइल्ड को TaskStop से रोकता है।"
+      "dismissTip": "इसे इस सूची से हटाता है। प्रोसेस बंद नहीं होती — सबएजेंट को शुरू करने वाला एजेंट TaskStop से रोकता है, और शेल को KillShell से।"
     },
     "loop": {
-      "title": "Repeat loop",
+      "title": "रिपीट लूप",
       "close": "बंद करें",
       "scopeSession": "Session \"{{label}}\" के लिए loop।",
       "scopeNone": "कोई session टैब चुना नहीं गया।",
@@ -2647,7 +2713,7 @@
         "full": "पूरी"
       },
       "measureNote": "Dyson और Haselgrove ने तीन अलग-अलग optima मापे: 95 characters प्रति line सबसे तेज़ पढ़ी गई, 35 ने सबसे अच्छी समझ दी, और 55 संतुलन बिंदु है।",
-      "chatAlign": "Conversation alignment",
+      "chatAlign": "बातचीत अलाइनमेंट",
       "chatAlignOn": "मेरे संदेश दाईं ओर, AI बाईं ओर align करें",
       "chatAlignNote": "किसी messenger app की तरह: आपके prompts दाएं किनारे से चिपके रहते हैं और अपने टेक्स्ट जितने सिकुड़ते हैं, AI के जवाब बाईं ओर रहते हैं। किसने क्या कहा यह केवल स्थिति से ही दिख जाता है, एक शब्द पढ़े बिना। Code, tables और tool boxes अपनी पूरी चौड़ाई बनाए रखते हैं।",
       "contentWidth": "Content चौड़ाई",
@@ -2662,7 +2728,7 @@
       },
       "fontSize": "टेक्स्ट आकार",
       "fontSizeNote": "Rello et al. (CHI 2016) ने 104 पाठकों के एक eye-tracking अध्ययन में पाया कि readability और समझ 18pt ({{px}}px) तक लगातार बेहतर होती गई।",
-      "lineHeight": "Line height",
+      "lineHeight": "लाइन की ऊंचाई",
       "lineHeightNote": "CJK typesetting {{cjk}} सुझाता है। उपयोगी बने रहने के लिए WCAG 1.4.12 को {{wcag}} चाहिए।",
       "letterSpacing": "अक्षर स्पेसिंग",
       "letterSpacingNote": "उपयोगी बने रहने के लिए WCAG 1.4.12 को {{max}}em तक चाहिए।",
@@ -2673,7 +2739,7 @@
       "font": "फ़ॉन्ट",
       "fontNote": "सूचीबद्ध सभी फ़ॉन्ट ऐप के साथ आते हैं, इसलिए हर मशीन पर एक जैसे दिखते हैं — इंस्टॉलेशन की ज़रूरत नहीं। हर एक commercial उपयोग के लिए मुफ़्त है (SIL Open Font License 1.1); डॉट से चिह्नित फ़ॉन्ट readability research से आते हैं।",
       "fontMissing": "इस सिस्टम पर इंस्टॉल नहीं है",
-      "fontResearch": "readability research",
+      "fontResearch": "पठनीयता रिसर्च",
       "fontSource": {
         "preset": "शामिल फ़ॉन्ट",
         "custom": "अपना फ़ॉन्ट"
@@ -2716,17 +2782,17 @@
       "locked": "इसे यहाँ से बंद नहीं किया जा सकता",
       "sort": {
         "category": "समूह",
-        "tokens": "Tokens",
+        "tokens": "टोकन",
         "updated": "तारीख",
         "name": "नाम"
       },
       "scope": {
-        "project": "Project",
+        "project": "प्रोजेक्ट",
         "session": "यह session"
       },
       "control": {
-        "session": "prompt",
-        "spawn": "spawn",
+        "session": "प्रॉम्प्ट",
+        "spawn": "स्पॉन",
         "external": "कहीं और",
         "none": "लॉक्ड"
       },
@@ -2740,7 +2806,7 @@
         "system": "Claude Code"
       },
       "src": {
-        "skillsPrefix": "Skill prefix",
+        "skillsPrefix": "स्किल प्रीफ़िक्स",
         "agentRules": "Agent नियम",
         "edges": "आउटबाउंड edge नियम",
         "feedback": "पिछला user फ़ीडबैक",
@@ -2755,25 +2821,25 @@
         "brainCards": "प्रोजेक्ट मेमोरी ब्रीफिंग",
         "brainTopics": "मेमोरी विषय index",
         "brainRules": "मेमोरी नियम frame",
-        "hookEnforcement": "Hook session injection",
+        "hookEnforcement": "हुक सेशन इंजेक्शन",
         "plugins": "सभी enforcement प्लगइन",
         "claudeMd": "CLAUDE.md फ़ाइलें",
-        "autoMemory": "Auto memory index",
+        "autoMemory": "ऑटो मेमोरी इंडेक्स",
         "skills": "Skills और slash कमांड",
         "bundledSkills": "बंडल्ड skills",
         "subagentDefs": "Subagent परिभाषाएं",
-        "workflows": "Workflows",
+        "workflows": "वर्कफ़्लोज़",
         "gitInstructions": "Git निर्देश",
         "toolSchemas": "टूल परिभाषाएं",
-        "mcp": "MCP servers",
-        "hooks": "Hooks",
-        "systemPrompt": "Claude Code system prompt",
+        "mcp": "MCP सर्वर",
+        "hooks": "हुक्स",
+        "systemPrompt": "Claude Code सिस्टम प्रॉम्प्ट",
         "brainSkills": "मेमोरी प्रक्रियाएँ",
-        "compactSelf": "एजेंट स्व-संक्षेपण"
+        "compactSelf": "Agent स्व-संक्षेपण"
       },
       "hint": {
-        "tools": "Agent Settings में tool list चुनें",
-        "mcp": "Agent Settings में MCP servers अटैच करें",
+        "tools": "Agent सेटिंग्स में tool list चुनें",
+        "mcp": "Agent सेटिंग्स में MCP servers अटैच करें",
         "hooks": "Hooks settings.json में इंस्टॉल होते हैं"
       },
       "warn": {
@@ -2790,7 +2856,7 @@
         "stateOn": "चालू — अगले प्रॉम्प्ट में जाता है",
         "stateOff": "बंद — अगले प्रॉम्प्ट से बाहर रहता है",
         "overrideBy": "आपने इसे {{scope}} स्तर पर बदला",
-        "sizeLine": "{{chars}} chars · ~{{tokens}} tokens",
+        "sizeLine": "{{chars}} कैरेक्टर्स · ~{{tokens}} टोकन",
         "loading": "पढ़ रहे हैं…",
         "error": "यह स्रोत नहीं पढ़ा जा सका।",
         "emptyBody": "इस turn पर यह कुछ नहीं जोड़ता — यह चालू है, पर अभी इसके लिए कोई सामग्री नहीं है।",
@@ -2811,12 +2877,12 @@
         "src": {
           "skillsPrefix": {
             "what": "Slash कमांड जो Vibisual आपके संदेश से पहले टाइप करता है ताकि session उन skills के साथ शुरू हो।",
-            "more": "Agent Settings के Skills फ़ील्ड से आता है। हर skill आपके प्रॉम्प्ट के ऊपर /name लाइन के रूप में भेजी जाती है।",
+            "more": "Agent सेटिंग्स के Skills फ़ील्ड से आता है। हर skill आपके प्रॉम्प्ट के ऊपर /name लाइन के रूप में भेजी जाती है।",
             "off": "आपका संदेश अकेला भेजा जाता है और वे skills invoke नहीं होतीं।"
           },
           "agentRules": {
             "what": "इस agent bubble के लिए आपके अपने स्थायी निर्देश।",
-            "more": "Agent Settings के Agent Rules बॉक्स से आता है, \"# Agent Rules\" heading के नीचे जोड़ा जाता है।",
+            "more": "Agent सेटिंग्स के Agent नियम बॉक्स से आता है, \"# Agent Rules\" heading के नीचे जोड़ा जाता है।",
             "off": "Agent को वे स्थायी निर्देश मिलना बंद हो जाते हैं।"
           },
           "edges": {
@@ -2941,13 +3007,13 @@
           },
           "toolSchemas": {
             "what": "इस agent के बुला सकने वाले tools की परिभाषाएं — Read, Edit, Bash और बाकी।",
-            "more": "Tool list Agent Settings के अधीन है; वहां इसे छोटा करने से यह संख्या भी घटती है।",
-            "off": "इसकी बजाय Agent Settings में tool list बदलें — यहाँ का स्विच लॉक है।"
+            "more": "Tool list Agent सेटिंग्स के अधीन है; वहां इसे छोटा करने से यह संख्या भी घटती है।",
+            "off": "इसकी बजाय Agent सेटिंग्स में tool list बदलें — यहाँ का स्विच लॉक है।"
           },
           "mcp": {
             "what": "MCP servers के ज़रिए जुड़े अतिरिक्त tools।",
             "more": "हर जुड़ा हुआ server हर प्रॉम्प्ट में अपनी tool परिभाषाएं जोड़ता है।",
-            "off": "इसकी बजाय Agent Settings में server अलग करें — यहाँ का स्विच लॉक है।"
+            "off": "इसकी बजाय Agent सेटिंग्स में server अलग करें — यहाँ का स्विच लॉक है।"
           },
           "hooks": {
             "what": "वे Claude Code hooks जो Vibisual को यह session देखने ही देते हैं।",
@@ -2993,8 +3059,8 @@
           },
           "tools": {
             "what": "उन tools की परिभाषाएं जिन्हें agent बुला सकता है।",
-            "more": "यह सूची Agent Settings के अधीन है।",
-            "off": "इसे Agent Settings में बदलें — यहाँ इसे बंद नहीं किया जा सकता।"
+            "more": "यह सूची Agent सेटिंग्स के अधीन है।",
+            "off": "इसे Agent सेटिंग्स में बदलें — यहाँ इसे बंद नहीं किया जा सकता।"
           },
           "system": {
             "what": "कुछ ऐसा जो Claude Code इस प्रोजेक्ट के बाहर खुद जोड़ता है।",
@@ -3232,16 +3298,16 @@
       "controlOff": "रिमोट कंट्रोल",
       "controlModeOff": "बंद",
       "pointerModeSwitch": "Pointer mode — Touch: जहाँ point करें वहीं क्लिक हो · Mouse: pointer हिलाने के लिए खींचें, फिर क्लिक के लिए टैप करें (बदलने के लिए क्लिक करें)",
-      "pointerModeTouch": "Touch",
-      "pointerModeMouse": "Mouse",
+      "pointerModeTouch": "टच",
+      "pointerModeMouse": "माउस",
       "qualityHint": "क्वालिटी / डेटा — कम मतलब छोटा resolution और FPS (बदलने के लिए क्लिक करें)",
-      "quality_full": "Full",
-      "quality_saver": "Saver",
-      "quality_min": "Min",
-      "quality_auto": "AUTO",
+      "quality_full": "पूर्ण",
+      "quality_saver": "सेवर",
+      "quality_min": "कम",
+      "quality_auto": "ऑटो",
       "snapshot": "मौजूदा frame सहेजें (PNG)",
       "pause": "Pause (डेटा बचाएं)",
-      "resume": "Resume",
+      "resume": "रिज़्यूम",
       "pausedTapResume": "Paused · resume के लिए टैप करें",
       "paste": "Clipboard पेस्ट करें (फ़ोन → PC)",
       "pasteShort": "पेस्ट करें",
@@ -3250,7 +3316,7 @@
       "controlTimeout": "Control स्वतः छोड़ें",
       "timeoutOff": "बंद",
       "pin": "हमेशा सबसे ऊपर (pin)",
-      "stillSaver": "Still-frame saver",
+      "stillSaver": "स्टिल-फ़्रेम सेवर",
       "readOnly": "Read-only (control लॉक करें)",
       "readOnlyOn": "Read-only — remote control लॉक है (सेटिंग्स में unlock करें)",
       "readOnlyShort": "केवल देखें",
@@ -3316,17 +3382,36 @@
     },
     "taskEdge": {
       "iconHint": "क्लिक: विवरण · डबल-क्लिक: संपादन",
+      "critiqueIconLabel": "समीक्षा (वॉचर)",
       "pulse": {
         "sending": "कमांड भेजें",
         "completed": "पूर्णता रिपोर्ट",
         "error": "त्रुटि"
       },
-      "pulseDebugTitle": "[debug] {{label}} pulse 1.8s"
+      "pulseDebugTitle": "[डीबग] {{label}} पल्स 1.8s"
+    },
+    "taskEdgeKind": {
+      "command": {
+        "label": "Command",
+        "description": "Instruction — \"please do this\""
+      },
+      "artifact": {
+        "label": "Artifact",
+        "description": "Hands over the result itself — the file or diff"
+      },
+      "request": {
+        "label": "Request",
+        "description": "Reverse request — \"I am stuck, please help\""
+      },
+      "critique": {
+        "label": "Critique",
+        "description": "Critique / review — audit and red-team role (the watcher)"
+      }
     },
     "taskEdgePopup": {
       "dragToMove": "स्थानांतरित करने के लिए खींचें",
       "editBadge": "संपादित करें",
-      "template": "Template",
+      "template": "टेम्पलेट",
       "templateTooltip": "एक preset pair चुनें। चुनने पर Type, Gate और सभी उन्नत विकल्प स्वतः भर जाते हैं।",
       "templateSelect": "Preset role pair। चुनने पर पूरा फॉर्म समझदार डिफ़ॉल्ट से भर जाता है।",
       "message": "संदेश",
@@ -3334,11 +3419,11 @@
       "messagePlaceholder": "कार्य निर्देश दर्ज करें...",
       "type": "प्रकार",
       "typeTooltip": "इस edge का अर्थ — Command (निर्देश), Artifact (उत्पाद), Request (सहायता अनुरोध), Critique (समीक्षा)। मानचित्र में Edge का रंग इसे दर्शाता है।",
-      "gate": "Gate",
+      "gate": "गेट",
       "gateTooltip": "Auto: सहेजते ही चलता है। Manual: मानव को Run दबाना होगा। विनाशकारी या उच्च-प्रभाव कार्यों के लिए Manual उपयोग करें।",
-      "autoBtn": "Auto",
+      "autoBtn": "ऑटो",
       "autoTooltip": "Auto: edge सहेजते ही तुरंत चलता है। तेज़, लेकिन मानव समीक्षा नहीं होती।",
-      "manualBtn": "Manual",
+      "manualBtn": "मैन्युअल",
       "manualTooltip": "Manual: मानव के Run दबाने तक रुकता है। विनाशकारी या उच्च-प्रभाव कार्यों के लिए सुरक्षित।",
       "advancedOptions": "उन्नत विकल्प",
       "advancedTooltip": "Message format / Return format / Timeout / Retry / Cache / Priority। Templates इन्हें समझदार डिफ़ॉल्ट से भरते हैं — आमतौर पर बदलाव की ज़रूरत नहीं। (Execution logic भविष्य का चरण है; यह version केवल मान संग्रहीत करता है।)",
@@ -3346,29 +3431,29 @@
       "advancedShow": "उन्नत विकल्प दिखाएं: message format, return format, timeout, retry, cache, priority।",
       "hide": "छिपाएं",
       "show": "दिखाएं",
-      "messageFormat": "Message Format",
+      "messageFormat": "मैसेज फ़ॉर्मेट",
       "messageFormatTooltip": "Free: आसान लेकिन अस्पष्ट। Schema: key/value, संरचित। महत्वपूर्ण या दोहराने योग्य कार्यों के लिए Schema पसंद करें।",
-      "freeText": "Free text",
+      "freeText": "फ़्री टेक्स्ट",
       "freeTextTooltip": "Free text: प्राकृतिक भाषा निर्देश। लिखने में तेज़, लेकिन AI सूक्ष्मता गलत समझ सकता है।",
-      "schema": "Schema",
+      "schema": "स्कीमा",
       "schemaTooltip": "Schema: संरचित key/value इनपुट। शुरुआत में अधिक काम, बाद में कम आश्चर्य।",
       "schemaEdit": "संपादित करें",
       "schemaEditTooltip": "Schema editor खोलें। स्रोत agent इस edge से भेजते समय जो format अपनाए वह लिखें।",
-      "schemaEditTitle": "Edge Message Schema",
+      "schemaEditTitle": "एज मैसेज स्कीमा",
       "schemaEditHint": "मुक्त-रूप टेक्स्ट। स्रोत agent को इस आकार में outbound message format करने का निर्देश दिया जाएगा। plain text के रूप में भेजने के लिए खाली छोड़ें।",
       "schemaPlaceholder": "उदाहरण:\n{\n  \"goal\": \"...\",\n  \"context\": \"...\",\n  \"acceptance\": [\"...\"]\n}\n\n— या प्राकृतिक भाषा —\nजवाब दें: 1) क्या बदला, 2) कौन सी फ़ाइलें, 3) कोई खुले जोखिम।",
       "schemaSet": "Schema सेट है",
       "schemaEmpty": "कोई schema नहीं (plain text के रूप में भेजेगा)",
       "schemaClear": "साफ़ करें",
-      "returnFormat": "Return Format",
+      "returnFormat": "वापसी फ़ॉर्मेट",
       "returnFormatTooltip": "Artifact: वास्तविक फ़ाइल/diff पथ। Summary: केवल टेक्स्ट सारांश। Both: दोनों। AI सारांश गलत हो सकते हैं; सत्यापित करने योग्य के लिए Artifact पसंद करें।",
-      "artifact": "Artifact",
+      "artifact": "आर्टिफ़ैक्ट",
       "artifactTooltip": "Artifact: वास्तविक फ़ाइल पथ या diff लौटाएं। आप सत्यापित कर सकते हैं।",
       "summary": "सारांश",
       "summaryTooltip": "Summary: केवल छोटा टेक्स्ट सारांश। तेज़, लेकिन AI सारांश गलत हो सकते हैं।",
       "both": "दोनों",
       "bothTooltip": "Both: artifact और सारांश दोनों लौटाएं ताकि गहराई में जाने से पहले स्कैन कर सकें।",
-      "timeout": "Timeout (ms)",
+      "timeout": "टाइमआउट (ms)",
       "timeoutTooltip": "मिलीसेकंड में अधिकतम रन अवधि। असीमित के लिए खाली छोड़ें। उदाहरण: 60000 = 1 मिनट। अनियंत्रित लूप से बचाता है।",
       "timeoutPlaceholder": "असीमित",
       "retry": "पुनः प्रयास",
@@ -3383,27 +3468,27 @@
       "priorityNormalTooltip": "Normal: डिफ़ॉल्ट क्रम।",
       "priorityHigh": "उच्च",
       "priorityHighTooltip": "High: अन्य लंबित edges से आगे जाता है।",
-      "cache": "Cache",
+      "cache": "कैश",
       "cacheTooltip": "इनपुट मेल खाने पर पिछला परिणाम पुनः उपयोग करें (टोकन बचाता है)। यदि अंतर्निहित डेटा अक्सर बदलता है तो बंद करें।",
       "cacheLabelTooltip": "इनपुट पिछले रन से मेल खाने पर पुनः चलाने की बजाय वह परिणाम उपयोग करें। टोकन बचाता है। यदि अंतर्निहित डेटा अक्सर बदलता है तो बंद करें।",
       "cacheLabel": "पिछला परिणाम पुनः उपयोग करें",
       "cacheDisabledNote": "जल्द आएगा — result cache अभी लागू नहीं है। मान केवल metadata के रूप में सहेजा जाता है।",
       "comingSoonSuffix": "(जल्द आएगा)",
-      "delegationPolicy": "Delegation Policy",
+      "delegationPolicy": "डेलिगेशन नीति",
       "delegationTooltip": "STRICT: इस edge के उद्देश्य से मेल खाते कार्य इसके माध्यम से delegate होने चाहिए। स्रोत agent स्वयं Read/Grep से नहीं संभाल सकता। AUTO: स्रोत agent लागत और उपयुक्तता के आधार पर स्वयं तय करता है (3+ exploration steps / purpose match / target suitability)। सरल 1-2 Read calls agent में रहते हैं।",
       "delegationStrict": "Strict (आवश्यक)",
       "delegationStrictTooltip": "Edge उद्देश्य मेल खाने पर अनिवार्य delegation। स्वयं-संभालना नहीं। (डिफ़ॉल्ट)",
       "delegationAuto": "Auto (निर्णय)",
       "delegationAutoTooltip": "स्रोत agent exploration लागत और उपयुक्तता के आधार पर स्वतः निर्णय करता है।",
-      "commandOptions": "Command Options",
+      "commandOptions": "कमांड विकल्प",
       "commandOptionsTooltip": "Command-edge विशेष विकल्प (केवल kind='command')। Delegation Policy से अलग: यह delegation के रूप को नियंत्रित करता है, न कि उसे लागू करने को।",
-      "commandModeLabel": "Mode",
+      "commandModeLabel": "मोड",
       "commandModeTooltip": "parent और child के बीच टूल्स कैसे साझा होते हैं। Shared: parent के पास सभी टूल्स। Tool delegation: child के टूल्स parent से हटा दिए जाते हैं। Mode delegation: टूल्स साझा रहते हैं लेकिन parent को child की specialty delegate करने का निर्देश मिलता है।",
-      "commandModeShared": "Shared",
+      "commandModeShared": "साझा",
       "commandModeSharedTooltip": "Parent के पास टूल्स रहते हैं। दोनों parent और child इन्हें चला सकते हैं। Delegation केवल prompt से अनुशंसित। (Default — सबसे सुरक्षित।)",
-      "commandModeTool": "Tool delegation",
+      "commandModeTool": "टूल डेलिगेशन",
       "commandModeToolTooltip": "Child agent के टूल्स parent से हटा दिए जाते हैं। Parent को इन्हें उपयोग करने के लिए इस edge से dispatch करना होगा। (= Pre-v1.44 strict व्यवहार।)",
-      "commandModeMode": "Mode delegation",
+      "commandModeMode": "मोड डेलिगेशन",
       "commandModeModeTooltip": "Parent के पास टूल्स रहते हैं, लेकिन system prompt उसे child की specialty वाले operations (plan / acceptEdits / specific model / skill) delegate करने के लिए निर्देशित करता है।",
       "commandModeModeNote": "Mode delegation कोई टूल नहीं हटाता — parent को system prompt के माध्यम से child के mode से मेल खाने वाले operations delegate करने को कहा जाता है। PreToolUse hook gating भविष्य में आएगा।",
       "commandStripPreview": "Parent से हटाए जाने वाले टूल्स",
@@ -3418,21 +3503,29 @@
       "connect": "कनेक्ट करें",
       "connectTooltip": "इन सेटिंग्स के साथ edge बनाएं (Ctrl/Cmd+Enter)।",
       "critiqueOptionsTip": "केवल Critique-edge के लिए। हस्तक्षेप का समय (Timing) और अस्वीकार पर क्या लागू हो (Authority) निर्धारित करता है। अन्य प्रकारों के लिए अनदेखा।",
+      "critiqueOptions": "समीक्षा विकल्प",
       "critiqueTimingTip": "Intermediate (डिफ़ॉल्ट): लक्ष्य के कार्य के दौरान प्रत्येक मील के पत्थर पर समीक्षा। अधिक बार / सुरक्षित / धीमा। Final: पूर्णता के बाद एकल अंतिम समीक्षा। कम बार / तेज़।",
       "critiqueTimingIntermediateTip": "Intermediate: लक्ष्य के कार्य के दौरान प्रत्येक मील के पत्थर पर समीक्षा। (डिफ़ॉल्ट)",
       "critiqueTimingFinalTip": "Final only: लक्ष्य के पूर्ण होने के बाद एकल अंतिम समीक्षा।",
+      "critiqueTiming": "टाइमिंग",
+      "critiqueTimingIntermediate": "मध्यवर्ती",
+      "critiqueTimingFinal": "सिर्फ़ अंतिम",
       "critiqueAuthorityTip": "Force rework (डिफ़ॉल्ट): अस्वीकार पर लक्ष्य को काम फिर करना होगा। Max Rework पार करने पर केवल comment पर auto-downgrade और parent session को escalate। Comment only: अस्वीकार केवल सलाहकारी, कोई forced rework नहीं।",
       "critiqueAuthorityForceTip": "Force rework: अस्वीकार पर लक्ष्य को फिर करना होगा। (डिफ़ॉल्ट)",
       "critiqueAuthorityCommentTip": "Comment only: लक्ष्य अस्वीकार को केवल संदर्भ के रूप में लेता है। कोई forced rework नहीं।",
+      "critiqueAuthority": "अधिकार",
+      "critiqueAuthorityForce": "जबरन रीवर्क",
+      "critiqueAuthorityComment": "सिर्फ़ कमेंट",
       "critiqueMaxReworkTip": "Force rework mode में लक्ष्य कितनी बार फिर कर सकता है। पार करने पर comment-only पर auto-downgrade और parent session को escalate। अनंत लूप से बचाव।",
       "critiqueMaxReworkActive": "अधिकतम {{max}} बार। पार करने पर comment-only पर auto-downgrade।",
-      "critiqueMaxReworkInactive": "Comment only mode में उपयोग नहीं।"
+      "critiqueMaxReworkInactive": "Comment only mode में उपयोग नहीं।",
+      "critiqueMaxRework": "अधिकतम रीवर्क"
     }
   },
   "inspector": {
     "modeShiftDrag": "Shift+drag: क्षेत्र चुनें",
     "modeInspector": "Inspector — कॉपी के लिए क्लिक करें, wheel: parent",
-    "modeRegion": "Region {{width}}×{{height}}",
+    "modeRegion": "क्षेत्र {{width}}×{{height}}",
     "copied": "{{summary}} कॉपी हो गया"
   },
   "layout": {
@@ -3529,7 +3622,7 @@
       "appUninstall": "अनइंस्टॉल करें",
       "appInstall": "इंस्टॉल करें",
       "appsHelp": "किसी पंक्ति पर क्लिक करके उसे बबल के रूप में कैनवस पर रखें। बबल खोलने के लिए डबल-क्लिक करें, प्रबंधित करने के लिए राइट-क्लिक करें।",
-      "createLab": "एजेंट लैब",
+      "createLab": "Agent Lab",
       "createLabHint": "एक ही कार्य को अलग-अलग सेटिंग्स के साथ चलाएँ और एक तालिका में तुलना करें",
       "createLocalAgent": "सभी मॉडल",
       "createLocalAgentHint": "इस कंप्यूटर पर चलने वाले मॉडल के लिए बबल रखता है",
@@ -3563,10 +3656,10 @@
       "jumpMissing": "बुकमार्क लक्ष्य अब उपलब्ध नहीं है"
     },
     "spec": {
-      "title": "Spec",
+      "title": "स्पेक",
       "untitled": "बिना शीर्षक Spec",
       "criteria": "Acceptance Criteria",
-      "cards": "Cards",
+      "cards": "कार्ड्स",
       "revision": "संशोधन {{count}}",
       "openBoard": "Spec board खोलें",
       "rename": "नाम बदलें",
@@ -3663,7 +3756,7 @@
       "col": {
         "variant": "वैरिएंट",
         "model": "मॉडल",
-        "effort": "Effort",
+        "effort": "प्रयास",
         "permission": "अनुमति",
         "status": "स्थिति",
         "duration": "समय",
@@ -3790,6 +3883,9 @@
       "snipFailed": "कैप्चर विफल: {{error}}"
     },
     "close": "बंद करें",
+    "msg": {
+      "requestFailed": "Failed ({{status}})"
+    },
     "minimize": "छोटा करें",
     "maximize": "बड़ा करें",
     "play": "चलाएँ",
@@ -3804,7 +3900,7 @@
   },
   "brain": {
     "bubbleLabel": "मेमोरी",
-    "trashBubbleLabel": "Trash",
+    "trashBubbleLabel": "ट्रैश",
     "trashCountShort": "{{n}}",
     "unseenBadge": "{{n}} अनदेखा",
     "reviewBadge": "{{n}} समीक्षा लंबित",
@@ -3821,7 +3917,7 @@
       "fact": "तथ्य"
     },
     "scopeProject": "प्रोजेक्ट मेमोरी",
-    "scopeAgent": "Agent Memory",
+    "scopeAgent": "Agent मेमोरी",
     "statusGhost": "समीक्षा आवश्यक",
     "supersededNote": "पिछली सामग्री",
     "needsCheckBadge": "जाँच ज़रूरी",
@@ -3852,7 +3948,7 @@
     "deleteConfirm": "हटाएं?",
     "deleteYes": "हटाएं",
     "loading": "लोड हो रहा है…",
-    "cardDetailTitle": "Memory Card",
+    "cardDetailTitle": "मेमोरी कार्ड",
     "summaryCards": "Memory कार्ड",
     "summaryUnseen": "अनदेखा",
     "summaryCurrent": "वर्तमान सत्य",
@@ -3888,7 +3984,7 @@
       "helpful": "मददगार",
       "refShort": "संदर्भ",
       "helpfulShort": "मददगार",
-      "scopeTagProject": "Project",
+      "scopeTagProject": "प्रोजेक्ट",
       "scopeTagAgent": "यह Agent",
       "empty": "दिखाने के लिए कोई Memories नहीं।",
       "loading": "लोड हो रहा है…",

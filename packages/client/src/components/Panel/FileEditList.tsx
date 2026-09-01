@@ -158,6 +158,7 @@ function EditDetailPopup({ edit, onClose }: EditDetailPopupProps): React.JSX.Ele
 export const FileEditList = memo(function FileEditList({
   edits,
 }: FileEditListProps): React.JSX.Element | null {
+  const { t } = useTranslation();
   const [selectedEdit, setSelectedEdit] = useState<FileEdit | null>(null);
   const handleClose = useCallback(() => setSelectedEdit(null), []);
 
@@ -167,7 +168,7 @@ export const FileEditList = memo(function FileEditList({
     <>
       <div className="flex flex-col gap-1">
         <span className="text-xs text-gray-500">
-          Edits ({edits.length})
+          {t('panel.fileEdit.editsHeading', { count: edits.length })}
         </span>
         <ScrollFade maxHeight={256}>
           <ul className="flex flex-col gap-1.5">
@@ -191,8 +192,8 @@ export const FileEditList = memo(function FileEditList({
                   <button
                     type="button"
                     className="shrink-0 rounded p-0.5 text-gray-500 opacity-0 transition-all hover:bg-violet-500/20 hover:text-violet-400 group-hover/item:opacity-100"
-                    aria-label="Open in editor"
-                    title="Open in VS Code"
+                    aria-label={t('panel.fileEdit.openInEditor')}
+                    title={t('panel.fileEdit.openInVSCode')}
                     onClick={(e) => {
                       e.stopPropagation();
                       openInEditor(edit.filePath, edit.newString);

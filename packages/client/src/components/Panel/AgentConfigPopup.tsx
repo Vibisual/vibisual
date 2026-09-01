@@ -1484,7 +1484,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                   ))}
                   {contextItems.some((i) => i.type === 'not_accessible') && (
                     <div className="mt-1 border-t border-gray-700/30 pt-1">
-                      <span className="px-2 text-[12px] font-medium text-gray-600">Not accessible (Claude Code internal)</span>
+                      <span className="px-2 text-[12px] font-medium text-gray-600">{t('panel.agentConfig.contextNotAccessible')}</span>
                       {contextItems.filter((i) => i.type === 'not_accessible').map((item) => (
                         <div key={item.name} className="flex flex-col gap-0.5 rounded px-2 py-1">
                           <div className="flex items-center gap-1.5">
@@ -2056,7 +2056,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                     {/* Project Skills */}
                     {availableSkills.some((s) => s.source === 'project' && !skills.includes(s.name)) && (
                       <>
-                        <div className="px-3 py-1 text-[12px] font-semibold uppercase tracking-wider text-emerald-500/70">Project</div>
+                        <div className="px-3 py-1 text-[12px] font-semibold uppercase tracking-wider text-emerald-500/70">{t('panel.agentConfig.skillSourceProject')}</div>
                         {availableSkills.filter((s) => s.source === 'project' && !skills.includes(s.name)).map((s) => (
                           <button key={s.name} type="button" onClick={() => { addSkill(s.name); skillPicker.close(); }} className="flex w-full flex-col gap-0.5 px-3 py-1.5 text-left transition-colors hover:bg-emerald-500/10">
                             <span className="text-xs font-medium text-emerald-400">{s.name}</span>
@@ -2068,7 +2068,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                     {/* Global Skills — 홈 ~/.claude (전 프로젝트 공통) */}
                     {availableSkills.some((s) => s.source === 'global' && !skills.includes(s.name)) && (
                       <>
-                        <div className="px-3 py-1 text-[12px] font-semibold uppercase tracking-wider text-sky-500/70">Global</div>
+                        <div className="px-3 py-1 text-[12px] font-semibold uppercase tracking-wider text-sky-500/70">{t('panel.agentConfig.skillSourceGlobal')}</div>
                         {availableSkills.filter((s) => s.source === 'global' && !skills.includes(s.name)).map((s) => (
                           <button key={s.name} type="button" onClick={() => { addSkill(s.name); skillPicker.close(); }} className="flex w-full flex-col gap-0.5 px-3 py-1.5 text-left transition-colors hover:bg-sky-500/10">
                             <span className="text-xs font-medium text-sky-400">{s.name}</span>
@@ -2080,7 +2080,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                     {/* Plugin Skills */}
                     {availableSkills.some((s) => s.source === 'plugin' && !skills.includes(s.name)) && (
                       <>
-                        <div className="px-3 py-1 text-[12px] font-semibold uppercase tracking-wider text-purple-500/70">Installed Plugins</div>
+                        <div className="px-3 py-1 text-[12px] font-semibold uppercase tracking-wider text-purple-500/70">{t('panel.agentConfig.skillSourcePlugin')}</div>
                         {availableSkills.filter((s) => s.source === 'plugin' && !skills.includes(s.name)).map((s) => (
                           <button key={s.name} type="button" onClick={() => { addSkill(s.name); skillPicker.close(); }} className="flex w-full flex-col gap-0.5 px-3 py-1.5 text-left transition-colors hover:bg-purple-500/10">
                             <div className="flex items-center gap-1.5">

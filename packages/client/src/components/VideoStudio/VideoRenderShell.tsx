@@ -3,6 +3,8 @@ import { resolveTimeline, type VideoDoc } from '@vibisual/video';
 import { HtmlSceneStage, MediabunnyMediaProvider } from '@vibisual/video/render';
 
 import { assetUrl, readDoc } from './videoApi.js';
+// 이 화면에는 훅을 걸 자리가 없다(카메라 앞 무대). 문구만 i18n 인스턴스에서 직접 고른다.
+import i18n from '../../i18n/index.js';
 
 /**
  * §5.13 (F) — 오프스크린 렌더 전용 화면.
@@ -59,7 +61,7 @@ export function VideoRenderShell({ params }: AppShellProps): React.JSX.Element {
         });
 
         const host = hostRef.current;
-        if (!host) throw new Error('무대를 붙일 자리를 찾지 못했습니다.');
+        if (!host) throw new Error(i18n.t('panel.videoStudio.errNoStage'));
 
         stage = new HtmlSceneStage({
           doc,

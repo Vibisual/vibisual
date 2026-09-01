@@ -288,7 +288,7 @@ function DebugPanelImpl({ onClose }: DebugPanelProps): React.JSX.Element {
         {/* v3.72 입력 지연 — FPS 옆에 나란히. "타자가 밀린다" 는 FPS 가 아니라 이 값이 말해준다.
             감시 무장 후 임계(200ms) 초과 인터랙션이 관측되면 그 값이 찍힌다. */}
         <div className="flex items-center justify-between gap-2 font-mono text-[12px]">
-          <span className="text-gray-500">Input lag</span>
+          <span className="text-gray-500">{t('panel.debugPanel.inputLag')}</span>
           <span className={lastSlowMs > 0 ? 'text-red-400' : 'text-gray-600'}>
             {lastSlowMs > 0 ? `${lastSlowMs}ms` : `< ${PERF_SLOW_INTERACTION_MS}ms`}
           </span>

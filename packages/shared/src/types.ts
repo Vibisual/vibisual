@@ -1825,6 +1825,49 @@ export interface SubAgent {
 }
 
 /**
+ * §5.5 #17-9 ⑭ — **표식 없이 오래 조용한 작업**을 한 번 물어보고 내린 판정.
+ *
+ * ⑬ 이 "끝났다고 적힌 것"을 걷고 나면 남는 것은 **아무 표식도 없이 조용한 항목**이다. 그 자리는
+ * 코드가 답할 수 없다 — 조용함은 죽음의 증거가 아니고(⑩), 실측된 전형이 하필 `until [ 파일 11개 ];
+ * do sleep 10; done` 같은 **정당한 대기**다. 그래서 이 축만은 **모델이 판정한다**(⑭(c)).
+ */
+export type BackgroundTaskVerdict = 'alive' | 'finished' | 'unknown';
+
+/** 판정 1회의 결과. 항목에 붙어 화면에 그대로 적힌다. */
+export interface BackgroundTaskProbeResult {
+  /** 판정을 받은 시각(ms epoch). */
+  at: number;
+  verdict: BackgroundTaskVerdict;
+  /** 한 줄 사유 — 모델이 쓴 문장 그대로(최대 `BG_TASK_PROBE_REASON_MAX` 자). */
+  reason: string;
+  /**
+   * 모델이 명령에서 읽어 낸 **스스로 끝나는 조건**. 이것이 판정의 뼈대다 —
+   * "쓸모 있나"라는 열린 질문은 실측에서 정당한 대기를 `finished` 로 오판했고(⑭(c)),
+   * "끝나는 조건이 무엇이고 지금 충족됐는가"로 쪼개자 오판이 사라졌다.
+   */
+  exitCondition?: string;
+  /** 어느 모델이 냈는가 — 나중에 "왜 이렇게 판정했나"를 되짚는 유일한 단서. */
+  model?: string;
+}
+
+/**
+ * §5.5 #17-9 ⑭(g) — 이 기능을 켜고 끄고 세게/약하게 하는 손잡이. **머신 단위**라
+ * `AppState` 에 산다(§3.2.3 설정 SSOT — 같은 사용자가 프로젝트마다 다르게 둘 이유가 없다).
+ */
+export interface BackgroundTaskProbeSettings {
+  /** 꺼 두면 조사 자체를 하지 않는다(모델 호출 0). */
+  enabled: boolean;
+  /** 이만큼 출력이 없으면 **조사 착수**. 0 이면 끔. 시간은 착수 조건일 뿐 판정 근거가 아니다. */
+  quietMinutes: number;
+  /** `finished` 판정을 실제로 반영해 목록에서 내릴지. 끄면 판정만 화면에 적고 그대로 둔다. */
+  autoClose: boolean;
+  /** 내릴 때 그 작업의 **프로세스 트리까지** 끊을지. 끄면 장부만 정리한다(유령 프로세스는 남는다). */
+  killProcess: boolean;
+  /** 판정에 쓸 모델 별칭. 실측에서 `haiku`·`sonnet` 둘 다 5/5 였으므로 싼 쪽이 기본이다. */
+  model: string;
+}
+
+/**
  * §5.5 #17-9 v3.51 — 지금 백그라운드에서 도는 서브에이전트 1건.
  * 감독관(커스텀 에이전트)이 `Task`/`Agent` 도구로 띄운 자식 하나에 대응하며, PreToolUse 훅의
  * `tool_use_id` + `tool_input` 에서 그대로 뽑는다(새 수집 경로 신설 ❌ — §5.3 #12-1 v3.43 대차대조 재사용).
@@ -1869,6 +1912,22 @@ export interface RunningSubagentTask {
   toolCount?: number;
   /** 자식 활동이 마지막으로 확인된 시각(ms epoch). 경과와 달리 **멈춰 있으면 멈춘다**. */
   lastActivityAt?: number;
+
+  /**
+   * §5.5 #17-9 ⑭ — 이 작업의 **출력 파일이 마지막으로 바뀐 시각**(ms epoch).
+   *
+   * `lastActivityAt` 과 다르다 — 그쪽은 훅이 본 **자식의 도구 사용**이라 셸에는 영영 안 붙는다.
+   * 이 값은 그 셸이 마지막으로 **무언가를 찍은** 때라, 화면의 "N분째 조용"과 조사 착수 판정이
+   * 함께 쓰는 단 하나의 시계다. 출력 파일을 못 찾으면 없다(= 조사도 하지 않는다).
+   */
+  lastOutputAt?: number;
+  /** 지금 판정 에이전트가 돌고 있는가 — 화면에 "확인 중" 한 줄이 선다. */
+  probing?: boolean;
+  /**
+   * 마지막 판정 1건. `alive`/`unknown` 이면 항목은 그대로 남고 이 줄만 붙는다
+   * (사용자가 "왜 아직 떠 있나"를 그 자리에서 읽는다). `finished` 면 곧 아래칸으로 내려간다.
+   */
+  probe?: BackgroundTaskProbeResult;
 }
 
 /**
@@ -1885,11 +1944,39 @@ export interface FinishedSubagentTask {
   description?: string;
   subagentType?: string;
   agentType?: string;
+  /**
+   * 도는 항목(`RunningSubagentTask.origin`)과 **같은 값을 그대로 물려받는다**.
+   * 끝난 뒤에도 "그게 AI 자식이었나 셸이었나"는 달라지지 않는데, 이 필드가 없으면 목록의 위칸(도는 것)만
+   * 종류를 말하고 아래칸(방금 끝난 것)은 못 말해 같은 화면에서 잣대가 갈린다.
+   */
+  origin?: 'hook' | 'stream';
   /** 시작·종료 시각(ms epoch) — 둘의 차가 소요 시간이다. */
   startedAt: number;
   endedAt: number;
   /** 끝날 때까지 쓴 도구 호출 수. */
   toolCount?: number;
+  /**
+   * §5.5 #17-9 ⑬ — 하니스가 작업 출력 파일 끝에 적어 둔 **종료 코드**.
+   *
+   * 끝 통지(`task_notification`)를 못 받고 **파일 표식으로** 회수한 셸에만 붙는다. 그런 항목은
+   * 결과 칸이 영영 비어 있어("결과가 오지 않았습니다") 성공인지 실패인지 알 길이 없었는데,
+   * 표식에는 그 답이 들어 있다.
+   */
+  exitCode?: number;
+  /** 표식이 `[killed]` 였는가 — 스스로 끝난 것이 아니라 **끊긴** 것이다(종료 코드 없음). */
+  killed?: boolean;
+  /**
+   * §5.5 #17-9 ⑭ — 이 항목이 **무엇 때문에** 내려갔는가.
+   *
+   * 내리는 길이 다섯으로 늘었는데(끝 통지 · 세션 프로세스 소멸 · 종료 표식 · 판정 · 사용자 ×)
+   * 카드에는 전부 똑같이 "끝남"으로만 보이면, 사용자는 **자동으로 닫힌 것**과 **스스로 끝난 것**을
+   * 구별할 수 없다. 그 구별이 없으면 자동 정리는 신뢰를 잃는다.
+   */
+  closedBy?: 'notification' | 'process-gone' | 'end-marker' | 'probe' | 'user';
+  /** `closedBy==='probe'` 일 때 그 판정(사유·끝나는 조건·모델)을 그대로 들고 내려온다. */
+  probe?: BackgroundTaskProbeResult;
+  /** 정리하며 함께 끊은 프로세스 수. 0 이면 이미 없었다는 뜻이다. */
+  killedProcesses?: number;
   /** 부모가 받아 든 자식의 최종 보고 발췌(최대 1,200자). 아직 안 붙었으면 undefined. */
   result?: string;
   /**
@@ -3252,6 +3339,12 @@ export interface AppState {
    * `DEFAULT_RETENTION_SETTINGS`(구버전 AppState 하위호환).
    */
   retention?: RetentionSettings;
+  /**
+   * §5.5 #17-9 ⑭(g) — 표식 없이 조용한 백그라운드 작업을 스스로 판정할지.
+   *
+   * 보존 설정과 같은 이유로 **머신 단위**다. optional — 없으면 `DEFAULT_BG_TASK_PROBE_SETTINGS`.
+   */
+  bgTaskProbe?: BackgroundTaskProbeSettings;
   /** 마지막 업데이트 타임스탬프 (epoch ms). */
   updatedAt: number;
 }

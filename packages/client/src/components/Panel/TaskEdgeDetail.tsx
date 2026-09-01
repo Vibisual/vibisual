@@ -122,9 +122,9 @@ export function TaskEdgeDetail({ edge }: TaskEdgeDetailProps): React.JSX.Element
                 color: kStyle.color,
                 border: `1px solid ${kStyle.color}40`,
               }}
-              title={kStyle.description}
+              title={t(`bubbleMap.taskEdgeKind.${kind}.description`)}
             >
-              {kStyle.icon} {kStyle.label}
+              {kStyle.icon} {t(`bubbleMap.taskEdgeKind.${kind}.label`)}
             </span>
           );
         })()}

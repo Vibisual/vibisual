@@ -20,6 +20,21 @@ import type { FinishedSubagentTask, RunningSubagentTask } from '@vibisual/shared
 
 const EMPTY: RunningSubagentTask[] = [];
 
+/**
+ * 이 항목이 **AI 자식**인가 **셸**인가 — 목록의 종류 칩이 쓰는 판정 한 곳.
+ *
+ * 이 목록에는 비용도 끊는 방법도 다른 둘이 섞인다. `Task`/`Agent` 로 띄운 서브에이전트는 모델이
+ * 돌아 토큰을 쓰고 그것을 띄운 에이전트가 `TaskStop` 으로 끊는다. `Bash run_in_background`·`Monitor`
+ * 로 띄운 셸은 명령이 돌 뿐이라 토큰을 안 쓰고 `KillShell` 로 끊는다. 종전에는 둘 다 "실행 중
+ * 서브에이전트" 한 이름으로 묶여 있어서 `tail -f` 한 줄이 **"내 AI 가 10분째 토큰을 태우는 중"**
+ * 으로 읽혔다(사용자 보고). 판정 근거는 서버가 이미 싣고 있던 `origin` 하나뿐이다 — 새 수집 경로 ❌.
+ *
+ * 미지정은 `'hook'` 취급(§5.5 #17-9 `RunningSubagentTask.origin` 규약) — 옛 항목과 호환된다.
+ */
+export function taskKindKey(origin: 'hook' | 'stream' | undefined): 'kindAgent' | 'kindShell' {
+  return origin === 'stream' ? 'kindShell' : 'kindAgent';
+}
+
 /** 지금 보고 있는 탭 기준 목록. 전부가 대상이면 원본 배열을 그대로 돌려준다(불필요한 리렌더 방지). */
 export function selectSessionTasks(
   all: RunningSubagentTask[] | undefined,

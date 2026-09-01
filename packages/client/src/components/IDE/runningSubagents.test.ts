@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { FinishedSubagentTask, RunningSubagentTask } from '@vibisual/shared';
-import { selectSessionTasks, selectSessionFinished, countSessionTasks, countOtherTasks } from './runningSubagents.js';
+import { selectSessionTasks, selectSessionFinished, countSessionTasks, countOtherTasks, taskKindKey } from './runningSubagents.js';
 
 /**
  * §5.5 #17-9 ③(a) v4.95 / ⑥ v5.07 — 활동바 항목과 사이드바 뷰가 **같은 수**를 보게 하는 산식 회귀.
@@ -133,5 +133,48 @@ describe('끝난 것은 배지 숫자를 흔들지 않는다', () => {
     // 도는 것 1건 + 끝난 것 3건 → 활동바가 보는 수는 여전히 1.
     expect(countSessionTasks([subA], 'sub-a')).toBe(1);
     expect(selectSessionFinished([doneA, doneA, doneA], 'sub-a')).toHaveLength(3);
+  });
+});
+
+/**
+ * §5.5 #17-9 ⑧ — **이름이 실제와 맞는가.**
+ *
+ * 이 목록에는 성격이 다른 둘이 섞이는데(모델이 도는 서브에이전트 / 명령만 도는 백그라운드 셸)
+ * 종전에는 둘 다 "실행 중 서브에이전트" 한 이름이었다. 그래서 `tail -f` 한 줄이 "내 AI 가 10분째
+ * 토큰을 태우는 중"으로 읽혔다(사용자 보고 2026-09-01 · 실측에서 그 tail 은 이미 끝난 패키징 로그를
+ * 보고 있었다). 여기서 고정하는 것은 **판정 한 곳**과 **12개 언어 전부에서 두 이름이 갈리는 것**이다 —
+ * 한 언어라도 같은 낱말이면 그 언어 사용자에게는 이 구분이 존재하지 않는 것과 같다.
+ */
+describe('종류 판정 — 서브에이전트인가 셸인가', () => {
+  it("스트림 칩(`Bash run_in_background`·`Monitor`)은 셸이다", () => {
+    expect(taskKindKey('stream')).toBe('kindShell');
+  });
+
+  it('훅 대차대조(Task/Agent)는 서브에이전트다', () => {
+    expect(taskKindKey('hook')).toBe('kindAgent');
+  });
+
+  it('미지정은 서브에이전트로 읽는다 — 옛 항목 호환(§5.5 #17-9 origin 규약)', () => {
+    expect(taskKindKey(undefined)).toBe('kindAgent');
+  });
+
+  it('끝난 항목도 같은 표식을 들고 온다 — 위칸·아래칸의 잣대가 갈리면 안 된다', () => {
+    const doneShell: FinishedSubagentTask = { ...doneA, origin: 'stream' };
+    expect(taskKindKey(doneShell.origin)).toBe('kindShell');
+    expect(taskKindKey(doneA.origin)).toBe('kindAgent');
+  });
+});
+
+describe('12개 언어 전부에서 두 이름이 갈린다', () => {
+  const LOCALES = ['en', 'ko', 'ja', 'zh-CN', 'de', 'es', 'es-419', 'fr', 'hi', 'id', 'it', 'pt-BR'] as const;
+  const KEYS = ['kindAgent', 'kindAgentTip', 'kindShell', 'kindShellTip'] as const;
+
+  it.each(LOCALES)('%s — 네 문자열이 있고 두 이름이 서로 다르다', async (locale) => {
+    const json = (await import(`../../i18n/locales/${locale}.json`)).default as {
+      ide: { runningSubagents: Record<string, string> };
+    };
+    const rs = json.ide.runningSubagents;
+    for (const k of KEYS) expect(rs[k], `${locale}.${k} 누락`).toBeTruthy();
+    expect(rs.kindAgent, `${locale}: 두 종류가 같은 낱말이면 구분이 없는 것과 같다`).not.toBe(rs.kindShell);
   });
 });

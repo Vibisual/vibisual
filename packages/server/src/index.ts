@@ -40,7 +40,7 @@ function isCmdTermId(v: string): boolean {
 }
 import { WORKSPACE_SITE_PATH, WORKSPACE_SITE_REWRITE_MAX_BYTES, workspaceSiteMime, workspaceSiteBase, parseWorkspaceSitePath, rewriteWorkspaceSiteHtml, rewriteWorkspaceSiteCss, injectWorkspaceSiteAgents, annotateWorkspaceSiteSource, workspaceSiteRewriteKind, WORKSPACE_IMAGE_MAX_BYTES, WORKSPACE_MEDIA_MAX_BYTES, workspaceMediaMime, BRAIN_INJECTION_TOP_K, BRAIN_INJECTION_TOKEN_BUDGET, BRAIN_FILE_WARN_ONCE_PER_SESSION, BRAIN_EXPERIENCE_TYPES, buildBrainRulesSection, buildBrainTopicIndexSection } from '@vibisual/shared';
 // §3.2.3 보존 정책 — 상한·기본값은 shared 한 곳, 파일 정리·실측은 storageRetention.
-import { RETENTION_LIMITS, DEFAULT_RETENTION_SETTINGS } from '@vibisual/shared';
+import { RETENTION_LIMITS, DEFAULT_RETENTION_SETTINGS, BG_TASK_PROBE_LIMITS, BG_TASK_PROBE_MODELS, DEFAULT_BG_TASK_PROBE_SETTINGS, type BackgroundTaskProbeSettings } from '@vibisual/shared';
 // §5.13 (Q) 대본 → 콘티 → 렌더.
 import { normalizeStoryboardPresetId, CONTI_SCRIPT_EXCERPT_MAX } from '@vibisual/shared';
 import type { ContiRenderLink, ContiRenderStatus } from '@vibisual/shared';
@@ -189,7 +189,7 @@ import { attachDebuggerToEditor } from './services/unrealProjectService.js';
 import { debugSessionManager, findFreePort, type DebugControlAction } from './services/debug/debugSessionManager.js';
 import { listDebugAdapters, findPidByCommandLine, commandFingerprint } from './services/debug/adapterProbe.js';
 import { releaseWaitingNodeProcess } from './services/debug/cdpClient.js';
-import { loadAppState, saveAppState, patchAppState, appStateAddOpenProject, appStateRemoveOpenProject, appStatePruneStaleProjectNames, appStateGetSkillOrder, appStateSetSkillOrder, appStateRemoveSkillFromOrder, appStateGetSkillFavorites, appStateSetSkillFavorites, appStateGetRetention, appStateSetRetention } from './services/appState.js';
+import { loadAppState, saveAppState, patchAppState, appStateAddOpenProject, appStateRemoveOpenProject, appStatePruneStaleProjectNames, appStateGetSkillOrder, appStateSetSkillOrder, appStateRemoveSkillFromOrder, appStateGetSkillFavorites, appStateSetSkillFavorites, appStateGetRetention, appStateSetRetention, appStateGetBgTaskProbe, appStateSetBgTaskProbe } from './services/appState.js';
 import { ensureClaudeHooksInstalled } from './services/hookInstaller.js';
 // §3.6 (판올림 번호 발급 대기) — 훅 이벤트 생명주기 분류(순수 모듈 + 단위 테스트).
 //   라우트 안에 부등호로 흩어져 있으면 새 이벤트를 등록할 때마다 조용히 틀린다.
@@ -278,6 +278,13 @@ export { subAgentManager, buildInteractiveClaudeArgs, buildInteractiveCliPrefill
 export { buildInteractivePluginBlockForAgent } from './services/pluginHost.js';
 // § 프로세스 트리 누수 — desktop 의 PTY(cmd.exe→claude) 종료 시 Windows 트리 전체를 회수하는 데 재사용.
 export { killTree } from './services/processTree.js';
+/**
+ * desktop main 이 **직접** 띄우는 네이티브 대화상자·OS 알림의 언어. 렌더러의 i18next 는 main 에서
+ * 못 쓰므로, 언어만 여기서 읽어 `main/strings.ts` 표에서 문구를 고른다(새 레일 ❌ — 이미 있는 값).
+ */
+export function getUiLocale(): UiLocale {
+  return graphManager.getUiLocale();
+}
 /**
  * §5.5 #17-20 ⑩ v4.94 — 앱이 접힐 때 붙어 있던 디버그 세션을 정리한다.
  * 남겨 두면 어댑터 자식 프로세스와 소켓이 그대로 살아 다음 실행에서 포트를 물고 있다.
@@ -10642,6 +10649,50 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
+  // ─── §5.5 #17-9 ⑭ 조용한 백그라운드 작업 판정 ───
+  //
+  // 모델을 부르는 기능이라 **끌 수 있어야 한다**(§3.2.3 규칙 1 과 같은 선). `quietMinutes: 0` 도 끔.
+
+  /** GET /api/bg-task-probe-settings — 현재 설정 + 입력 한계 + 기본값(설정 UI 의 "되돌리기"용). */
+  app.get('/api/bg-task-probe-settings', (_req, res) => {
+    try {
+      res.json({
+        settings: appStateGetBgTaskProbe(),
+        limits: BG_TASK_PROBE_LIMITS,
+        models: BG_TASK_PROBE_MODELS,
+        defaults: DEFAULT_BG_TASK_PROBE_SETTINGS,
+      });
+    } catch (err) {
+      logger.error('GET /api/bg-task-probe-settings failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /** PUT /api/bg-task-probe-settings — 부분 갱신. 정규화(범위·목록)는 shared 한 곳에서. */
+  app.put('/api/bg-task-probe-settings', (req, res) => {
+    try {
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const patch: Partial<BackgroundTaskProbeSettings> = {};
+      for (const key of ['enabled', 'autoClose', 'killProcess'] as const) {
+        if (typeof body[key] === 'boolean') patch[key] = body[key] as boolean;
+      }
+      if (typeof body['quietMinutes'] === 'number') patch.quietMinutes = body['quietMinutes'] as number;
+      if (typeof body['model'] === 'string') patch.model = body['model'] as string;
+      const settings = appStateSetBgTaskProbe(patch);
+      // 저장과 동시에 판정부에 먹인다 — 다음 회차부터 곧바로 새 값으로 돈다.
+      subAgentManager.setBackgroundTaskProbeSettings(settings);
+      res.json({
+        settings,
+        limits: BG_TASK_PROBE_LIMITS,
+        models: BG_TASK_PROBE_MODELS,
+        defaults: DEFAULT_BG_TASK_PROBE_SETTINGS,
+      });
+    } catch (err) {
+      logger.error('PUT /api/bg-task-probe-settings failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
   /** GET /api/storage-usage — 어디가 몇 MB 인지 실측(디스크를 훑으므로 사용자가 열 때만 돈다). */
   app.get('/api/storage-usage', (_req, res) => {
     try {
@@ -15073,6 +15124,10 @@ export async function runServer(): Promise<RunServerHandle> {
       }
     }, PROJECT_IDLE_UNLOAD_SWEEP_MS);
 
+    // §5.5 #17-9 ⑭(g) — 저장된 판정 설정을 부팅 때 한 번 먹인다. 이후 갱신은 PUT 라우트가 한다.
+    //   이 주입이 빠지면 사용자가 꺼 둔 기능이 재기동마다 되살아난다(설정이 저장돼도 안 읽히므로).
+    subAgentManager.setBackgroundTaskProbeSettings(appStateGetBgTaskProbe());
+
     // §5.3 — 사용자 인터럽트(Esc/Ctrl+C)·도구 거부 시 Claude Code 는 Stop 훅을 발사하지 않아
     // Hook 에이전트 버블이 active(파란 링)로 stuck 된다. 세션 JSONL 마지막 엔트리가 인터럽트
     // sentinel 이면 누락된 Stop 훅을 대신 시뮬레이트(markStop → completed → 60초 fade → idle).
@@ -15086,6 +15141,9 @@ export async function runServer(): Promise<RunServerHandle> {
       //   순서가 뒤집히면 유령이 세션·버블을 계속 활동 중으로 붙든다.
       const orphanParents = subAgentManager.sweepOrphanedBackgroundTasks();
       const deadActive = subAgentManager.reconcileDeadActiveSubs();
+      // §5.5 #17-9 ⑭ — 위 둘이 못 걷은 것(표식도 없고 세션은 살아 있는 것) 중 **가장 오래 조용한
+      //   하나**를 골라 물어본다. 비동기라 여기서 기다리지 않는다 — 착수만 하고 즉시 넘어간다.
+      subAgentManager.maybeProbeQuietBackgroundTasks();
       // 턴은 끝났는데 `executing` 으로 굳은 명령을 걷는다. 굳어 있는 동안 그 탭은 `busy` 로 잠겨
       //   **새 명령을 영영 못 받으므로**(앞 명령이 안 끝났으니 다음이 안 나간다), 종전에는 사용자가
       //   앱을 재기동하거나 [중지]를 눌러야만 풀렸다. 아래 잠듦 판정이 `executing` 을 "곧 쓸 자식"

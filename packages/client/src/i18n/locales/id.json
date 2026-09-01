@@ -72,7 +72,7 @@
       "commandCenterHint": "Buka Pusat Komando — lihat apa yang menunggu Anda di proyek ini",
       "openNew": "Buka di jendela baru",
       "bringToFront": "Bawa ke depan",
-      "settings": "Pengaturan agen",
+      "settings": "Pengaturan Agent",
       "expand": "Bentangkan",
       "collapse": "Ciutkan",
       "close": "Tutup jendela",
@@ -213,10 +213,10 @@
       "subtitle": "Tur singkat tentang apa yang bisa dilakukan Vibisual — dan daftar fitur yang sudah dibuat sejauh ini.",
       "cat": {
         "start": "Memulai",
-        "bubbleMap": "Bubble Map",
+        "bubbleMap": "Peta Bubble",
         "agents": "Agent",
         "taskEdges": "Task Edge",
-        "ide": "IDE Overlay",
+        "ide": "Overlay IDE",
         "navigation": "Navigasi",
         "history": "Riwayat & Penyimpanan",
         "shortcuts": "Pintasan",
@@ -244,7 +244,7 @@
       },
       "agents": {
         "intro": "Selain pelacakan pasif, Anda dapat membuat dan mengatur agent Anda sendiri dari canvas.",
-        "customT": "Agent Kustom",
+        "customT": "Custom Agent",
         "customD": "Klik kanan pada canvas untuk memunculkan bubble agent Anda sendiri dan berikan perintah.",
         "autoT": "Auto Agent",
         "autoD": "Jelaskan yang Anda inginkan dalam bahasa sehari-hari; sebuah builder agent akan merancang dan menyusun seluruh tim untuk Anda.",
@@ -259,12 +259,12 @@
         "drawD": "Seret dari satu bubble agent kustom ke bubble lainnya untuk membuat delegation edge di antara keduanya.",
         "kindsT": "Arti edge",
         "kindsD": "Command, artifact, request, atau critique — jenisnya menentukan apa yang mengalir melalui edge.",
-        "critiqueT": "Review & auto-rework",
+        "critiqueT": "Review & Rework Otomatis",
         "critiqueD": "Critique edge dapat memaksa agent tujuan mengerjakan ulang outputnya sampai reviewer menyetujuinya."
       },
       "ide": {
         "intro": "Klik dua kali pada agent untuk membuka IDE overlay — output langsung, sesi, dan laporannya.",
-        "streamT": "Live stream",
+        "streamT": "Live Stream",
         "streamD": "Ikuti pesan, pemanggilan tool, dan hasil dari agent saat itu terjadi.",
         "cardsT": "Kartu Selesai / To-do",
         "cardsD": "Pekerjaan yang selesai dan hal yang perlu Anda lakukan sendiri dipisahkan menjadi kartu berkode warna.",
@@ -275,7 +275,7 @@
       },
       "navigation": {
         "intro": "Bergerak cepat di peta besar.",
-        "panT": "Pan & zoom",
+        "panT": "Pan & Zoom",
         "panD": "Seret canvas untuk pan dan scroll untuk zoom; minimap menunjukkan posisi Anda.",
         "tabsT": "Tab & Lepas",
         "tabsD": "Setiap folder yang terbuka adalah sebuah tab; seret tab keluar dari bar untuk membukanya di jendela sendiri.",
@@ -307,7 +307,7 @@
       "memory": {
         "intro": "Memori Proyek menyimpan cara yang berhasil dan memuatnya kembali di tugas berikutnya. Bawaannya mati — Anda menyalakannya per proyek, dan mematikannya tidak pernah menghapus apa pun.",
         "turnOnT": "Cara menyalakan",
-        "turnOnD": "Klik kanan kanvas kosong lalu pilih «Aktifkan Memori Proyek», atau buka File > Options > Memori Proyek. Langsung berlaku — tanpa mulai ulang.",
+        "turnOnD": "Klik kanan kanvas kosong lalu pilih «Aktifkan Memori Proyek», atau buka File > Opsi > Memori Proyek. Langsung berlaku — tanpa mulai ulang.",
         "bubbleT": "Gelembung memori",
         "bubbleD": "Setelah aktif, gelembung indigo muncul di kanvas dengan jumlah kartu tersimpan. Klik ganda membuka pustaka; arahkan kursor untuk ringkasan.",
         "skillsT": "Memori prosedur",
@@ -363,6 +363,7 @@
         "scanning": "Memindai instalasi…",
         "claudeCode": "Claude Code (digunakan)",
         "current": "Saat ini",
+        "versionLabel": "Versi:",
         "latest": "Terbaru (npm)",
         "updateAvailable": "Pembaruan tersedia",
         "upToDate": "Sudah terbaru",
@@ -374,6 +375,7 @@
         "unknownVer": "tidak diketahui",
         "restartHint": "Pilihan disimpan. Mulai ulang Vibisual untuk menerapkannya ke agent yang baru dimunculkan.",
         "about": "Tentang",
+        "platform": "Platform",
         "repo": "Repositori GitHub",
         "marketplace": "Claude Code di VS Code Marketplace",
         "selectionApplied": "Pilihan disimpan dan diterapkan — agent yang baru dibuat langsung menggunakannya.",
@@ -463,7 +465,7 @@
             "desc": "Perintah Anda sendiri yang disimpan per sesi. Ini tidak bisa dibuat ulang, jadi batasnya longgar. 0 = tanpa batas."
           },
           "subStreamRetentionDays": {
-            "label": "Riwayat percakapan agen",
+            "label": "Riwayat percakapan Agent",
             "desc": "Dibersihkan sekali saat aplikasi dijalankan. Sesi yang aktif atau masih ada di daftar buka kembali tetap disimpan berapa pun usianya. 0 = simpan selamanya."
           },
           "attachmentRetentionDays": {
@@ -510,7 +512,21 @@
       },
       "advanced": {
         "terminalScrollback": "Scrollback terminal (baris)",
-        "terminalScrollbackDesc": "Berapa banyak baris output yang disimpan terminal CMD. Scroll dan pencarian {{shortcut}} berbagi rentang ini. Berlaku untuk terminal yang dibuka mulai sekarang."
+        "terminalScrollbackDesc": "Berapa banyak baris output yang disimpan terminal CMD. Scroll dan pencarian {{shortcut}} berbagi rentang ini. Berlaku untuk terminal yang dibuka mulai sekarang.",
+        "bgProbeTitle": "Tugas latar yang sunyi",
+        "bgProbeIntro": "Perintah latar yang menjadi sunyi belum tentu selesai — yang sedang menunggu sesuatu memang sunyi. Karena itu Vibisual tidak pernah menutup entri hanya berdasarkan waktu berjalan. Sebagai gantinya, ketika sebuah entri sudah lama sunyi tanpa penanda akhir, satu agen penilai kecil ditanya sekali saja: apakah perintah ini punya kondisi yang membuatnya berhenti sendiri, dan apakah kondisi itu sudah terpenuhi.",
+        "bgProbeEnabled": "Tanyakan soal tugas yang sunyi",
+        "bgProbeEnabledDesc": "Kalau mati, tidak ada model yang dipanggil untuk ini — entri yang sunyi tetap di daftar sampai Anda menghapusnya.",
+        "bgProbeQuiet": "Tanya setelah sunyi selama ini (menit)",
+        "bgProbeQuietDesc": "Sunyi hanya menentukan kapan bertanya — tidak pernah menentukan jawabannya. Isi 0 untuk tidak bertanya.",
+        "bgProbeAutoClose": "Hapus entri kalau jawabannya \"selesai\"",
+        "bgProbeAutoCloseDesc": "Kalau mati, jawabannya hanya ditulis di kartu dan Anda yang memutuskan. \"Masih berjalan\" dan \"tidak bisa dipastikan\" memang tidak pernah menghapus apa pun.",
+        "bgProbeKill": "Hentikan juga proses yang dijalankannya",
+        "bgProbeKillDesc": "Mengosongkan daftar saja membuat perintahnya tetap berjalan. Hanya proses di bawah sesi itu yang baris perintahnya cocok dengan tugas ini yang disentuh.",
+        "bgProbeModel": "Model yang menjawab",
+        "bgProbeModelDesc": "Ditanya sekali, tanpa perkakas dan tanpa akses ke proyek Anda — hanya teks perintah dan sepotong akhir keluarannya.",
+        "bgProbeLoadError": "Tidak bisa membaca pengaturan saat ini.",
+        "bgProbeSaveError": "Tidak bisa menyimpan. Tidak ada yang diubah."
       },
       "notifications": {
         "cmdBlocked": "Beri tahu saat sesi CMD menunggu input",
@@ -554,8 +570,8 @@
       },
       "topology": {
         "pipeline": "Pipeline",
-        "team": "Team",
-        "ralph": "Ralph (team + critique loop)",
+        "team": "Tim",
+        "ralph": "Ralph (tim + loop kritik)",
         "autopilot": "Autopilot (agent tunggal)",
         "custom": "Kustom (dirancang builder)"
       },
@@ -623,17 +639,20 @@
       "path": "Path",
       "sessionId": "ID Sesi",
       "type": "Tipe",
+      "agentBadge": "Agent",
       "status": "Status",
       "activity": "Aktivitas",
+      "activityEvents": "{{n}} event",
       "billableTokens": "Token Tertagih",
       "context": "Konteks",
       "model": "Model",
-      "tools": "Tools",
+      "tools": "Alat",
       "perm": "Izin",
       "agentSettings": "Pengaturan Agent",
       "hookAgentSettingsLocked": "Agent yang terdaftar via hook dimiliki oleh Claude Code itu sendiri. Pengaturan hanya bisa diubah untuk agent yang dibuat dari canvas.",
       "files": "File",
       "activeAgents": "Agent Aktif",
+      "goToAgent": "Pergi ke Agent ini",
       "lastTools": "Tool terakhir",
       "contextCompacted": "Konteks dipadatkan",
       "compactSummary": "{{count}}× · terakhir {{ago}}",
@@ -654,6 +673,14 @@
       "persist": "Pertahankan (cegah memudar)",
       "lastTool": "Tool terakhir",
       "contiHistory": "Riwayat Conti"
+    },
+    "agentEventList": {
+      "prompt": "Prompt",
+      "queueBadge": "antrean",
+      "tokenUsage": "Penggunaan Token",
+      "waited": "menunggu {{time}}",
+      "closePopup": "Tutup popup",
+      "result": "Hasil"
     },
     "contiHistory": {
       "title": "Riwayat Conti",
@@ -679,6 +706,10 @@
       "addFrame": "Tambah Frame",
       "deleteFrame": "Hapus",
       "editFrame": "Edit teks",
+      "frameLabel": "FRAME {{n}}",
+      "dragToReorder": "Seret untuk mengurutkan ulang",
+      "doubleClickToEdit": "Klik dua kali untuk mengedit",
+      "dropHere": "Lepaskan di sini",
       "editTitlePrompt": "Judul frame:",
       "editActionPrompt": "Aksi frame:",
       "zoomReset": "{{shortcut}} reset",
@@ -708,7 +739,7 @@
       "colorPicker": "Pemilih warna",
       "customColor": "Warna kustom",
       "textColor": "Warna teks",
-      "auto": "Auto",
+      "auto": "Otomatis",
       "fontSize": "Ukuran font",
       "opacity": "Opasitas",
       "size": "Ukuran",
@@ -717,7 +748,7 @@
       "delete": "Hapus komentar"
     },
     "commandQueue": {
-      "prompts": "Prompts",
+      "prompts": "Prompt",
       "selectSession": "Pilih Sesi",
       "newCommand": "Perintah Baru",
       "loading": "Memuat...",
@@ -734,6 +765,7 @@
       "addCommand": "Tambah perintah",
       "removeAttachment": "Hapus lampiran",
       "uploading": "Mengunggah...",
+      "attachmentError": "ERR",
       "attached": "Terlampir",
       "waitingForUpload": "Menunggu unggahan..."
     },
@@ -767,8 +799,8 @@
       "modifiedLabel": "modified",
       "untrackedLabel": "untracked",
       "recentCommits": "Commit terbaru",
-      "coAuthoredByClaude": "Co-authored by Claude",
-      "worktrees": "Worktrees",
+      "coAuthoredByClaude": "Turut ditulis oleh Claude",
+      "worktrees": "Worktree",
       "goToWorktree": "Pergi ke worktree {{name}}",
       "uncommittedChangesTitle": "Perubahan belum di-commit",
       "mergeInto": "Merge base ke {{branch}}",
@@ -902,7 +934,7 @@
         "unknown": "{{name}} — tingkat upaya penalaran yang didukung oleh CLI yang terinstal."
       },
       "tools": {
-        "label": "Tools",
+        "label": "Alat",
         "addTool": "+ Tambah Tool",
         "Read": "Baca isi file dari filesystem.",
         "Write": "Buat file baru atau timpa yang sudah ada.",
@@ -959,6 +991,9 @@
       "maxBudgetUsd": "Anggaran ($, 0=∞)",
       "defaultSkills": "Skill Default",
       "addSkill": "+ Tambah Skill",
+      "skillSourceProject": "Proyek",
+      "skillSourceGlobal": "Global",
+      "skillSourcePlugin": "Plugin Terpasang",
       "color": "Warna",
       "fieldTips": {
         "model": "Model Claude yang digunakan agent ini.",
@@ -1057,7 +1092,7 @@
         "tip": "Jenis subagent yang bisa didelegasikan oleh sesi ini, didefinisikan di sini, bukan sebagai file. Tidak ada yang ditulis ke disk, jadi tidak akan bocor ke proyek lain. Nama, deskripsi, dan prompt semuanya wajib diisi — entri yang tidak memiliki salah satunya akan diabaikan.",
         "namePlaceholder": "nama (huruf kecil, tanda hubung)",
         "descPlaceholder": "kapan didelegasikan ke sini",
-        "promptPlaceholder": "system prompt",
+        "promptPlaceholder": "prompt sistem",
         "add": "+ Subagent",
         "remove": "Hapus",
         "needsTaskTool": "Alat Task nonaktif, jadi tidak ada yang bisa memanggilnya."
@@ -1078,7 +1113,7 @@
         "label": "Versi",
         "latest": "Terbaru (alias)",
         "latestWith": "Terbaru ({{id}})",
-        "custom": "Custom…"
+        "custom": "Kustom…"
       },
       "local": {
         "noModel": "Belum ada model yang dipilih",
@@ -1111,7 +1146,8 @@
         "unset": "tidak disetel",
         "on": "aktif",
         "off": "nonaktif"
-      }
+      },
+      "contextNotAccessible": "Tidak dapat diakses (internal Claude Code)"
     },
     "permissionPrompt": {
       "title": "Izin diperlukan",
@@ -1212,6 +1248,7 @@
       "edges": "Edge",
       "noProject": "Tidak ada proyek aktif",
       "fps": "fps",
+      "inputLag": "Input lag",
       "fpsTip": "Frame render per detik",
       "visibility": "Visibilitas",
       "profiling": {
@@ -1219,7 +1256,7 @@
         "startNow": "Mulai profiling sekarang",
         "collecting": "Mengumpulkan…",
         "manual": "manual",
-        "auto": "auto (< {{fps}} fps)",
+        "auto": "otomatis (< {{fps}} fps)",
         "copy": "Salin",
         "copied": "Tersalin",
         "fpsRange": "FPS",
@@ -1280,6 +1317,7 @@
     },
     "serverList": {
       "heading": "Server ({{count}})",
+      "serverLabel": "Server",
       "refresh": "Segarkan",
       "empty": "Tidak ada server yang berjalan",
       "running": "berjalan",
@@ -1292,10 +1330,10 @@
     "subAgent": {
       "heading": "SubAgent ({{count}})",
       "status": {
-        "idle": "idle",
+        "idle": "menganggur",
         "running": "berjalan",
         "done": "selesai",
-        "error": "error"
+        "error": "galat"
       },
       "tokensInOut": "{{in}}masuk {{out}}keluar"
     },
@@ -1304,12 +1342,12 @@
       "goToSource": "Pergi ke agent sumber",
       "goToTarget": "Pergi ke agent tujuan",
       "status": {
-        "idle": "Idle",
+        "idle": "Menganggur",
         "executing": "Mengeksekusi",
         "completed": "Selesai",
-        "error": "Error"
+        "error": "Galat"
       },
-      "gateAuto": "Auto",
+      "gateAuto": "Otomatis",
       "gateManual": "Manual",
       "gate": "Gate: {{value}}",
       "gateAutoTooltip": "Teruskan otomatis",
@@ -1327,7 +1365,7 @@
       "created": "Dibuat",
       "lastRun": "Terakhir dijalankan",
       "lastResult": "Hasil terakhir",
-      "errorLabel": "Error",
+      "errorLabel": "Galat",
       "bundle": "Bundle",
       "bundleAutoGenerated": "dibuat otomatis",
       "bundlePrimary": "utama",
@@ -1370,12 +1408,12 @@
       "collectorFailed": "Tidak dapat menjangkau pengaturan pengumpul penggunaan.",
       "collectorRestartHint": "Vibisual tetap membaca penggunaan secara berkala meski ini dimatikan — kolektor hanya menyegarkannya lebih sering saat sesi interaktif berjalan.",
       "localTitle": "Proyek ini di Vibisual",
-      "localAgents": "Agen",
+      "localAgents": "Agent",
       "localInput": "Token masukan",
       "localOutput": "Token keluaran",
       "localHint": "Dihitung dari agen pada tab proyek aktif. Batas paket di atas berlaku untuk seluruh akun dan mencakup pekerjaan di luar Vibisual.",
       "emptyOff": "Belum ada data penggunaan — pengumpul nonaktif. Aktifkan di bawah, lalu buka sesi Claude Code interaktif sekali.",
-      "emptyWaiting": "Pengumpul aktif dan menunggu pembacaan pertama. Nilai masuk saat sesi Claude Code interaktif menggambar status line-nya — bubble terminal di kanvas, atau Claude Code di editor Anda. Agen yang dijalankan Vibisual secara headless tidak punya status line, jadi tidak pernah melapor.",
+      "emptyWaiting": "Pengumpul aktif dan menunggu pembacaan pertama. Nilai masuk saat sesi Claude Code interaktif menggambar status line-nya — bubble terminal di kanvas, atau Claude Code di editor Anda. Agent yang dijalankan Vibisual secara headless tidak punya status line, jadi tidak pernah melapor.",
       "refresh": "Segarkan",
       "weeklyScoped": "Batas mingguan — {{model}}",
       "creditsTitle": "Kredit penggunaan",
@@ -1414,12 +1452,12 @@
         "settingsSection": "Bagian pengaturan",
         "ideView": "Tampilan IDE",
         "headerItem": "Item header",
-        "agentPrompt": "Penegakan agen",
+        "agentPrompt": "Penegakan Agent",
         "contextMenuItem": "Menu konteks",
         "hookSubscriber": "Pelanggan hook",
         "restRoute": "Rute REST",
         "wsMessage": "Pesan WS",
-        "agentConfigField": "Pengaturan agen",
+        "agentConfigField": "Pengaturan Agent",
         "brainCardKind": "Tipe kartu memori",
         "bubbleType": "Tipe bubble",
         "edgeKind": "Tipe edge"
@@ -1525,8 +1563,8 @@
       "unknown": "Aplikasi tidak dikenal",
       "rename": "Ganti Nama",
       "renamePrompt": "Nama bubble",
-      "pin": "Pin",
-      "unpin": "Unpin",
+      "pin": "Sematkan",
+      "unpin": "Lepas Sematan",
       "delete": "Hapus",
       "deletePinnedHint": "Bubble ini sedang di-pin. Unpin dulu.",
       "detail": {
@@ -1584,6 +1622,12 @@
       "noAudio": "Diekspor tanpa audio.",
       "downgraded": "Mode render diturunkan: {{id}}",
       "previewFailed": "Gagal menampilkan pratinjau.",
+      "errNoDoc": "No document is open.",
+      "errNoStage": "Could not find a place to attach the stage.",
+      "errNoRenderBackend": "No render mode is available on this device.",
+      "errNoOffscreen": "Offscreen windows are not available in this build.",
+      "errNoOffscreenBridge": "The offscreen bridge is not available.",
+      "errRequestFailed": "The request failed ({{status}}).",
       "reloaded": "Dokumen berubah di tempat lain, jadi dimuat ulang."
     },
     "cost": {
@@ -1672,8 +1716,8 @@
       "cropSelection": "Simpan pilihan",
       "deleteSelection": "Hapus pilihan",
       "silence": "Bisukan pilihan",
-      "fadeIn": "Fade in",
-      "fadeOut": "Fade out",
+      "fadeIn": "Pudar masuk",
+      "fadeOut": "Pudar keluar",
       "louder": "Lebih keras +25%",
       "quieter": "Lebih pelan −20%",
       "undo": "Urungkan",
@@ -1758,8 +1802,8 @@
         "medium": "Sedang",
         "thick": "Tebal"
       },
-      "undo": "Undo ({{shortcut}})",
-      "redo": "Redo ({{shortcut}})",
+      "undo": "Urungkan ({{shortcut}})",
+      "redo": "Ulangi ({{shortcut}})",
       "clear": "Hapus semua tanda",
       "download": "Unduh PNG",
       "saveReplace": "Simpan",
@@ -1799,10 +1843,10 @@
       "hookLabel": "Hook",
       "renameHint": "Klik dua kali untuk ganti nama (F2)",
       "renameInputLabel": "Nama agent",
-      "localLabel": "All Model",
+      "localLabel": "Semua Model",
       "localSwitchModel": "Ganti model yang dipakai bubble ini",
       "localContextUsed": "Konteks {{used}} / {{limit}} token ({{percent}}%) — saat penuh, percakapan terlama akan dibuang",
-      "agentSettings": "Pengaturan agen",
+      "agentSettings": "Pengaturan Agent",
       "collapseLabel": "Ciutkan",
       "collapseHint": "Ciutkan — jendela tetap ada dan kanvas kembali (bentangkan lagi dari daftar jendela di header)",
       "resizeWindow": "Ubah ukuran jendela",
@@ -1913,7 +1957,7 @@
       "inputCtxSelectAll": "Pilih semua",
       "ctxSaveToBrain": "Simpan ke Memori",
       "stopAll": "Hentikan semua",
-      "stopAllTitle": "Hentikan semua yang dijalankan agent ini (tab lain + sub-agent di latar belakang)",
+      "stopAllTitle": "Hentikan semua yang dijalankan agent ini (tab lain + tugas latar belakang)",
       "stopSessionTitle": "Hentikan sesi ini beserta sub-agent yang dimulainya (tab sesi lain tetap berjalan)"
     },
     "memo": {
@@ -1947,10 +1991,10 @@
       "mcp": "MCP",
       "files": "File",
       "context": "Sumber konteks",
-      "skills": "Skills",
-      "bookmarks": "Bookmarks",
+      "skills": "Skill",
+      "bookmarks": "Bookmark",
       "sessionSummary": "Ringkasan sesi",
-      "runningSubagents": "Sub-agent berjalan ({{count}})",
+      "runningSubagents": "Tugas latar belakang ({{count}})",
       "loop": "Ulangi loop",
       "goal": "Sasaran",
       "debug": "Jalankan dan debug",
@@ -2139,7 +2183,7 @@
       }
     },
     "bookmarks": {
-      "title": "Bookmarks",
+      "title": "Bookmark",
       "empty": "Belum ada bookmark. Pilih teks di output, klik kanan, lalu pilih Bookmark.",
       "copy": "Salin",
       "jump": "Pergi ke sumber",
@@ -2174,7 +2218,7 @@
     "sidebar": {
       "files": "File ({{count}})",
       "noFileEdits": "Belum ada edit file",
-      "skills": "Skills ({{count}})",
+      "skills": "Skill ({{count}})",
       "projectSkills": "Proyek ({{count}})",
       "globalSkills": "Global ({{count}})",
       "pluginSkills": "Plugin ({{count}})",
@@ -2313,8 +2357,8 @@
         "copy": "Salin",
         "paste": "Tempel",
         "selectAll": "Pilih semua",
-        "undo": "Undo",
-        "redo": "Redo",
+        "undo": "Urungkan",
+        "redo": "Ulangi",
         "save": "Simpan",
         "reload": "Muat ulang dari disk",
         "copyPath": "Salin path",
@@ -2343,7 +2387,7 @@
       "sessionOne": "{{count}} sesi",
       "sessionMany": "{{count}} sesi",
       "autoCompact": "auto-compact {{value}}",
-      "autoCompactTip": "Saat konteks mencapai ukuran ini, CLI meringkas percakapan dengan sendirinya. Ubah per agen di Pengaturan Agen, atau untuk semua di File > Options > Agent Defaults."
+      "autoCompactTip": "Saat konteks mencapai ukuran ini, CLI meringkas percakapan dengan sendirinya. Ubah per agen di Pengaturan Agent, atau untuk semua di File > Opsi > Default Agent."
     },
     "search": {
       "placeholder": "Cari dalam percakapan",
@@ -2505,19 +2549,26 @@
       "dismiss": "Abaikan"
     },
     "runningSubagents": {
-      "title": "Subagent yang berjalan",
+      "title": "Tugas latar belakang",
       "close": "Tutup",
-      "empty": "Tidak ada subagent yang berjalan saat ini.",
-      "untitled": "Subagent",
-      "scopeAll": "Menampilkan semua subagent yang dijalankan agent ini.",
-      "scopeSession": "Menampilkan subagent yang dimulai oleh \"{{label}}\".",
-      "emptySession": "Sesi ini tidak menjalankan subagen apa pun.",
-      "hint": "Tempat ini hanya menampilkan subagen yang dijalankan sesi ini di latar belakang — percakapan yang sedang berlangsung tidak dihitung. Selama berjalan, ikon di kiri menyala dan menampilkan jumlahnya.",
+      "empty": "Tidak ada yang sedang berjalan di latar belakang.",
+      "untitled": "Tugas tanpa nama",
+      "kindAgent": "Subagen",
+      "kindAgentTip": "Proses anak AI yang dijalankan dengan alat Task atau Agent. Ia menjalankan model, jadi memakai token.",
+      "kindShell": "Shell",
+      "kindShellTip": "Perintah Bash atau Monitor di latar belakang. Yang berjalan adalah perintah, bukan model, jadi tidak memakai token. Perintah yang tidak pernah berhenti sendiri (tail -f, while true) akan tetap di sini sampai Anda menghapusnya.",
+      "scopeAll": "Menampilkan semua tugas latar belakang yang dijalankan agen ini.",
+      "scopeSession": "Hanya menampilkan tugas latar belakang yang dimulai oleh \"{{label}}\".",
+      "emptySession": "Sesi ini tidak menjalankan apa pun di latar belakang.",
+      "hint": "Daftar ini hanya memuat apa yang dijalankan sesi ini di latar belakang — percakapan yang sedang berlangsung tidak dihitung. Subagen adalah proses anak AI yang memakai token; shell adalah perintah Bash atau Monitor di latar belakang yang tidak memakai token. Selama ada yang berjalan, ikon di kiri menyala dan menampilkan jumlahnya.",
       "othersRunning": "{{count}} lagi berjalan di tempat lain",
       "startedAt": "Dimulai pukul {{time}}",
       "endedAt": "Selesai pukul {{time}}",
       "finishedTitle": "Baru saja selesai",
       "noResult": "Tidak ada hasil yang diterima.",
+      "exitCode": "Kode keluar {{code}}",
+      "exitKilled": "Dihentikan",
+      "exitFromFileTip": "Pemberitahuan selesai tidak pernah tiba — ini dibaca dari penanda akhir yang ditulis harness ke berkas keluaran tugas.",
       "resultRescued": "Dipulihkan dari transkrip — tidak terkirim ke sesi",
       "resultRescuedTitle": "Agent anak ini terputus sebelum sempat melapor (Stop, tab ditutup, atau crash), sehingga sesi tidak pernah menerimanya. Vibisual membacanya kembali dari transkrip agent yang tersimpan di disk.",
       "toggleResult": "Tampilkan atau sembunyikan hasil lengkap",
@@ -2525,8 +2576,23 @@
       "nowUsing": "Alat yang sedang dipakai",
       "duration": "Butuh {{value}}",
       "noResponse": "Tanpa respons selama {{value}}",
+      "quietFor": "Sunyi selama {{value}}",
+      "quietForTip": "Berkas keluaran tugas ini tidak berubah selama itu. Sunyi bukan berarti selesai — perintah yang sedang menunggu sesuatu memang sunyi.",
+      "probing": "Memeriksa apakah masih berjalan",
+      "probingTip": "Sudah lama sunyi tanpa penanda akhir, jadi agen penilai dijalankan sekali. Yang ditanyakan hanya dua: apakah perintah ini punya kondisi yang membuatnya berhenti sendiri, dan apakah kondisi itu sudah terpenuhi.",
+      "probeAlive": "Masih berjalan",
+      "probeUnknown": "Tidak bisa dipastikan — dibiarkan apa adanya",
+      "probeFinished": "Diperiksa, lalu dibereskan otomatis",
+      "probeTip": "Kondisi berhenti: {{condition}} · dinilai oleh {{model}}",
+      "probeTipNoCondition": "Tidak ditemukan kondisi berhenti sendiri · dinilai oleh {{model}}",
+      "probeAt": "Diperiksa pukul {{time}}",
+      "closedByProcessGone": "Dibereskan — sesinya sudah tidak ada",
+      "closedByProcessGoneTip": "Proses sesi yang menjalankan tugas ini sudah tidak ada. Hasilnya tidak punya tempat untuk sampai, jadi entri ini dikeluarkan dari daftar.",
+      "closedByUser": "Anda yang menghapusnya",
+      "killedProcesses": "{{count}} proses dihentikan",
+      "killedProcessesTip": "Saat dibereskan, proses yang dijalankan perintah ini ikut dihentikan. Kalau hanya daftarnya yang dikosongkan, perintahnya tetap berjalan.",
       "dismiss": "Berhenti menunggu",
-      "dismissTip": "Menghapus dari daftar ini. Tidak menghentikan proses — agen menghentikan anaknya sendiri dengan TaskStop."
+      "dismissTip": "Menghapusnya dari daftar ini. Prosesnya tidak dihentikan — subagen dihentikan oleh agen yang menjalankannya (TaskStop), shell dengan KillShell."
     },
     "loop": {
       "title": "Loop Pengulangan",
@@ -2769,7 +2835,7 @@
         "hooks": "Hooks",
         "systemPrompt": "System prompt Claude Code",
         "brainSkills": "Prosedur Memori",
-        "compactSelf": "Pemadatan mandiri agen"
+        "compactSelf": "Pemadatan mandiri Agent"
       },
       "hint": {
         "tools": "Pilih daftar tool di Pengaturan Agent",
@@ -3316,12 +3382,31 @@
     },
     "taskEdge": {
       "iconHint": "Klik: detail · Klik dua kali: edit",
+      "critiqueIconLabel": "Kritik (watcher)",
       "pulse": {
         "sending": "Kirim perintah",
         "completed": "Laporan penyelesaian",
         "error": "Error"
       },
       "pulseDebugTitle": "[debug] {{label}} pulse 1.8s"
+    },
+    "taskEdgeKind": {
+      "command": {
+        "label": "Command",
+        "description": "Instruction — \"please do this\""
+      },
+      "artifact": {
+        "label": "Artifact",
+        "description": "Hands over the result itself — the file or diff"
+      },
+      "request": {
+        "label": "Request",
+        "description": "Reverse request — \"I am stuck, please help\""
+      },
+      "critique": {
+        "label": "Critique",
+        "description": "Critique / review — audit and red-team role (the watcher)"
+      }
     },
     "taskEdgePopup": {
       "dragToMove": "Seret untuk pindah",
@@ -3336,7 +3421,7 @@
       "typeTooltip": "Arti edge ini — Command (instruksi), Artifact (hasil), Request (permintaan bantuan), Critique (ulasan). Warna edge mencerminkan ini di peta.",
       "gate": "Gate",
       "gateTooltip": "Auto: berjalan segera setelah disimpan. Manual: memerlukan manusia untuk tekan Run. Gunakan Manual untuk hal yang destruktif atau berdampak besar.",
-      "autoBtn": "Auto",
+      "autoBtn": "Otomatis",
       "autoTooltip": "Auto: dieksekusi segera saat edge disimpan. Tercepat, tapi melewati tinjauan manusia.",
       "manualBtn": "Manual",
       "manualTooltip": "Manual: menunggu manusia menekan Run. Lebih aman untuk tugas destruktif atau berdampak besar.",
@@ -3364,9 +3449,9 @@
       "returnFormatTooltip": "Artifact: path file/diff aktual. Summary: ringkasan teks saja. Both: keduanya. Ringkasan AI bisa salah; lebih baik Artifact untuk hal yang perlu diverifikasi.",
       "artifact": "Artifact",
       "artifactTooltip": "Artifact: kembalikan path file atau diff aktual. Dapat diverifikasi oleh Anda.",
-      "summary": "Summary",
+      "summary": "Ringkasan",
       "summaryTooltip": "Summary: ringkasan teks singkat saja. Cepat, tapi ringkasan AI bisa tidak akurat.",
-      "both": "Both",
+      "both": "Keduanya",
       "bothTooltip": "Both: kembalikan artifact dan summary sehingga Anda bisa scan sebelum masuk lebih dalam.",
       "timeout": "Timeout (ms)",
       "timeoutTooltip": "Durasi maksimal berjalan dalam milidetik. Kosongkan untuk tanpa batas. Contoh: 60000 = 1 menit. Mencegah perulangan tak terkendali.",
@@ -3399,11 +3484,11 @@
       "commandOptionsTooltip": "Detail command-edge (hanya kind='command'). Ortogonal terhadap Kebijakan Delegasi: ini mengontrol BENTUK delegasi, bukan apakah delegasi diberlakukan.",
       "commandModeLabel": "Mode",
       "commandModeTooltip": "Cara tools dibagikan antara induk dan anak. Shared: induk menyimpan semua tool, bisa memanggil langsung atau mendelegasikan. Tool delegation: tools yang dimiliki anak dihapus dari induk — delegasi diberlakukan secara alami. Mode delegation: tools tetap dibagikan tapi induk diinstruksikan untuk mendelegasikan operasi yang modenya (plan / acceptEdits / model tertentu / skill) adalah spesialisasi anak.",
-      "commandModeShared": "Shared",
+      "commandModeShared": "Bersama",
       "commandModeSharedTooltip": "Induk menyimpan tools. Induk dan anak bisa menjalankannya. Delegasi direkomendasikan via prompt saja. (Default — paling aman.)",
-      "commandModeTool": "Tool delegation",
+      "commandModeTool": "Delegasi Tool",
       "commandModeToolTooltip": "Tools yang dimiliki agent anak dihapus dari induk. Induk harus mengirimkan via edge ini untuk menggunakannya. (= Perilaku strict pra-v1.44.)",
-      "commandModeMode": "Mode delegation",
+      "commandModeMode": "Delegasi Mode",
       "commandModeModeTooltip": "Induk menyimpan tools, tapi system prompt memaksa delegasi operasi yang modenya (plan / acceptEdits / model tertentu / skill) adalah spesialisasi anak. Injeksi pseudo-tool direncanakan untuk putaran berikutnya.",
       "commandModeModeNote": "Mode delegation tidak menghapus tools apapun — induk diberitahu via system prompt untuk mendelegasikan operasi yang cocok dengan mode anak. Gating hook PreToolUse direncanakan sebagai tindak lanjut.",
       "commandStripPreview": "Tools yang akan dihapus dari induk",
@@ -3418,15 +3503,23 @@
       "connect": "Hubungkan",
       "connectTooltip": "Buat edge dengan pengaturan ini (Ctrl/Cmd+Enter).",
       "critiqueOptionsTip": "Khusus critique-edge. Mengatur kapan intervensi dilakukan (Timing) dan apa yang diberlakukan saat ditolak (Authority). Diabaikan untuk jenis lainnya.",
+      "critiqueOptions": "Opsi Kritik",
       "critiqueTimingTip": "Intermediate (default): tinjau di setiap tonggak selama pekerjaan target. Lebih sering / lebih aman / lebih lambat. Final: satu tinjauan akhir setelah selesai. Lebih jarang / lebih cepat.",
       "critiqueTimingIntermediateTip": "Intermediate: tinjau di setiap tonggak selama pekerjaan target. (default)",
       "critiqueTimingFinalTip": "Final only: satu tinjauan akhir setelah target selesai.",
+      "critiqueTiming": "Timing",
+      "critiqueTimingIntermediate": "Bertahap",
+      "critiqueTimingFinal": "Hanya Final",
       "critiqueAuthorityTip": "Force rework (default): saat ditolak target harus mengulang pekerjaan. Melebihi Max Rework otomatis diturunkan ke comment-only dan dieskalasi ke sesi induk. Comment only: penolakan hanya bersifat saran, tidak ada rework paksa.",
       "critiqueAuthorityForceTip": "Force rework: target harus mengulang saat ditolak. (default)",
       "critiqueAuthorityCommentTip": "Comment only: target hanya mengambil penolakan sebagai referensi. Tidak ada rework paksa.",
+      "critiqueAuthority": "Otoritas",
+      "critiqueAuthorityForce": "Paksa Rework",
+      "critiqueAuthorityComment": "Hanya Komentar",
       "critiqueMaxReworkTip": "Maks berapa kali target boleh mengulang dalam mode Force rework. Melebihinya otomatis diturunkan ke comment-only dan dieskalasi ke sesi induk. Penjaga terhadap perulangan tak terbatas.",
       "critiqueMaxReworkActive": "Maks {{max}} kali. Otomatis diturunkan ke comment-only jika dilampaui.",
-      "critiqueMaxReworkInactive": "Tidak digunakan dalam mode Comment only."
+      "critiqueMaxReworkInactive": "Tidak digunakan dalam mode Comment only.",
+      "critiqueMaxRework": "Maks Rework"
     }
   },
   "inspector": {
@@ -3446,8 +3539,8 @@
     "closeLeft": "Tutup ke Kiri",
     "closeRight": "Tutup ke Kanan",
     "closeAll": "Tutup Semua",
-    "pin": "Pin",
-    "unpin": "Unpin",
+    "pin": "Sematkan",
+    "unpin": "Lepas Sematan",
     "pinTooltip": "Tab yang di-pin terlindungi dari Tutup Lainnya / Tutup ke Kanan / Tutup Semua.",
     "setDefault": "Jadikan Default",
     "unsetDefault": "Hapus Default",
@@ -3511,7 +3604,7 @@
       "exitFullscreen": "Keluar layar penuh"
     },
     "contextMenu": {
-      "createCustomAgent": "Buat Agent Kustom",
+      "createCustomAgent": "Buat Custom Agent",
       "createCmdAgent": "Buat CMD Agent",
       "createCmdAgentHint": "Terminal interaktif yang Anda kendalikan (billing langganan)",
       "createAutoAgent": "Buat Auto Agent",
@@ -3529,9 +3622,9 @@
       "appUninstall": "Copot pemasangan",
       "appInstall": "Pasang",
       "appsHelp": "Klik baris untuk meletakkannya di canvas sebagai bubble. Klik dua kali bubble untuk membukanya, klik kanan untuk mengelolanya.",
-      "createLab": "Lab Agen",
+      "createLab": "Agent Lab",
       "createLabHint": "Jalankan tugas yang sama dengan pengaturan berbeda dan bandingkan hasilnya dalam satu tabel",
-      "createLocalAgent": "All Model",
+      "createLocalAgent": "Semua Model",
       "createLocalAgentHint": "Menaruh bubble untuk model yang berjalan di PC ini",
       "createShelf": "Rak script",
       "createShelfHint": "Menyimpan perintah dan prompt yang sering dipakai agar tetap satu klik jauhnya",
@@ -3591,8 +3684,8 @@
       "acknowledge": "Konfirmasi",
       "detach": "Lepas Tautan",
       "cardMissing": "Kartu (bubble tidak ditemukan)",
-      "pin": "Pin",
-      "unpin": "Unpin",
+      "pin": "Sematkan",
+      "unpin": "Lepas Sematan",
       "delete": "Hapus",
       "deletePinnedHint": "Spec ini sedang di-pin. Unpin dulu."
     },
@@ -3616,8 +3709,8 @@
       "openBrowser": "Buka di browser",
       "rename": "Ganti Nama",
       "renamePrompt": "Nama tombol",
-      "pin": "Pin",
-      "unpin": "Unpin",
+      "pin": "Sematkan",
+      "unpin": "Lepas Sematan",
       "delete": "Hapus",
       "deletePinnedHint": "Bubble ini sedang di-pin. Unpin dulu."
     },
@@ -3702,8 +3795,8 @@
       "importReplace": "Impor dan ganti semua",
       "imported": "{{added}} item berhasil diimpor ({{dropped}} dilewati)",
       "importFailed": "Tidak dapat mengimpor — itu bukan file rak.",
-      "pin": "Pin",
-      "unpin": "Unpin",
+      "pin": "Sematkan",
+      "unpin": "Lepas Sematan",
       "delete": "Hapus",
       "deletePinnedHint": "Rak ini sedang di-pin. Unpin dulu.",
       "kindCommand": "Shell",
@@ -3790,6 +3883,9 @@
       "snipFailed": "Gagal menangkap: {{error}}"
     },
     "close": "Tutup",
+    "msg": {
+      "requestFailed": "Failed ({{status}})"
+    },
     "minimize": "Perkecil",
     "maximize": "Perbesar",
     "play": "Putar",
@@ -3843,8 +3939,8 @@
     "createdAt": "Dibuat",
     "sourceSession": "Sesi sumber",
     "promote": "Promosikan ke Memori Proyek",
-    "pin": "Pin",
-    "unpin": "Unpin",
+    "pin": "Sematkan",
+    "unpin": "Lepas Sematan",
     "edit": "Edit",
     "save": "Simpan",
     "cancel": "Batal",
@@ -4116,7 +4212,7 @@
     }
   },
   "localModel": {
-    "title": "All Model",
+    "title": "Semua Model",
     "subtitle": "Pilih model yang berjalan di PC ini dan tautkan ke bubble",
     "installIntro": "Menjalankan model lokal membutuhkan inference engine. Ini tidak disertakan dalam paket dasar agar installer-nya tetap kecil — Anda hanya perlu mengunduhnya sekali.",
     "installWhat": "Yang Anda dapatkan — build GPU (Vulkan) dan CPU. Vulkan mendukung sebagian besar kartu grafis; tanpa itu, model tetap bisa berjalan di CPU.",

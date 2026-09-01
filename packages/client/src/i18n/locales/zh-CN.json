@@ -72,7 +72,7 @@
       "commandCenterHint": "打开指挥中心 — 查看这个项目里正在等你的事项",
       "openNew": "在新窗口中打开",
       "bringToFront": "置于前面",
-      "settings": "智能体设置",
+      "settings": "Agent 设置",
       "expand": "展开",
       "collapse": "折叠",
       "close": "关闭窗口",
@@ -244,9 +244,9 @@
       },
       "agents": {
         "intro": "除了被动跟踪之外，您还可以在画布上创建并编排自己的 Agent。",
-        "customT": "自定义 Agent",
+        "customT": "Custom Agent",
         "customD": "在画布上右键点击即可派生您自己的 Agent 气泡并向其下达命令。",
-        "autoT": "自动 Agent",
+        "autoT": "Auto Agent",
         "autoD": "用自然语言描述您的需求，构建者 Agent 会为您设计并搭建整个团队。",
         "configT": "Agent 设置",
         "configD": "点击气泡即可设置其模型、工具、权限模式、思考深度、隔离和颜色。",
@@ -307,7 +307,7 @@
       "memory": {
         "intro": "项目记忆会把有效的做法存下来，并在下次任务时重新载入。默认关闭，按项目开启；关闭不会删除任何内容。",
         "turnOnT": "如何开启",
-        "turnOnD": "在画布空白处右键选择“开启项目记忆”，或打开 File > Options > 项目记忆。立即生效，无需重启。",
+        "turnOnD": "在画布空白处右键选择“开启项目记忆”，或打开文件 > 选项 > 项目记忆。立即生效，无需重启。",
         "bubbleT": "记忆气泡",
         "bubbleD": "开启后画布上会出现靛蓝气泡，显示已存卡片数量。双击打开资料库，悬停查看摘要。",
         "skillsT": "流程记忆",
@@ -363,6 +363,7 @@
         "scanning": "正在扫描安装…",
         "claudeCode": "Claude Code（使用中）",
         "current": "当前版本",
+        "versionLabel": "版本：",
         "latest": "最新版（npm）",
         "updateAvailable": "有可用更新",
         "upToDate": "已是最新",
@@ -374,6 +375,7 @@
         "unknownVer": "未知",
         "restartHint": "已保存选择。重启 Vibisual 后将对新派生的 Agent 生效。",
         "about": "关于",
+        "platform": "平台",
         "repo": "GitHub 仓库",
         "marketplace": "VS Code Marketplace 上的 Claude Code",
         "selectionApplied": "已保存并应用选择 — 新派生的 Agent 会立即使用该选择。",
@@ -463,7 +465,7 @@
             "desc": "每个会话保留你自己输入的提示条数。这些无法重新生成，因此上限设得宽松。0 = 无限制。"
           },
           "subStreamRetentionDays": {
-            "label": "智能体对话记录保留",
+            "label": "Agent 对话记录保留",
             "desc": "启动时清理一次。正在运行以及仍在“重新打开”列表中的会话无论多旧都会保留。0 = 永久保留。"
           },
           "attachmentRetentionDays": {
@@ -510,7 +512,21 @@
       },
       "advanced": {
         "terminalScrollback": "终端回滚行数",
-        "terminalScrollbackDesc": "CMD 终端保留的输出行数。滚动和 {{shortcut}} 搜索共用此范围。仅对此后新打开的终端生效。"
+        "terminalScrollbackDesc": "CMD 终端保留的输出行数。滚动和 {{shortcut}} 搜索共用此范围。仅对此后新打开的终端生效。",
+        "bgProbeTitle": "安静的后台作业",
+        "bgProbeIntro": "后台命令安静下来并不等于已经结束 —— 正在等待某事的命令本来就是安静的，所以 Vibisual 从不仅凭耗时就关闭条目。取而代之，当某个条目长时间安静且没有结束标记时，会向一个小的判定智能体只问一次：这条命令是否有自行结束的条件，以及该条件是否已经满足。",
+        "bgProbeEnabled": "询问安静的作业",
+        "bgProbeEnabledDesc": "关闭后不会为此调用模型。安静的条目会一直留在列表里，直到你自己移除。",
+        "bgProbeQuiet": "安静达到多久后询问（分钟）",
+        "bgProbeQuietDesc": "安静时长只决定何时询问，不决定答案。设为 0 则不询问。",
+        "bgProbeAutoClose": "当答案是“已结束”时清理该条目",
+        "bgProbeAutoCloseDesc": "关闭后只把答案写在卡片上，由你来判断。“仍在运行”和“无法判断”无论如何都不会清理任何东西。",
+        "bgProbeKill": "同时停止该命令启动的进程",
+        "bgProbeKillDesc": "只清空列表的话命令仍会继续运行。只会处理该会话之下、命令行与此作业相符的进程。",
+        "bgProbeModel": "作答的模型",
+        "bgProbeModelDesc": "只问一次，不带工具，也不访问你的项目 —— 只给出命令原文和一小段输出末尾。",
+        "bgProbeLoadError": "无法读取当前设置。",
+        "bgProbeSaveError": "无法保存，未做任何更改。"
       },
       "notifications": {
         "cmdBlocked": "CMD 会话等待输入时通知我",
@@ -553,8 +569,8 @@
         "high": "高复杂度"
       },
       "topology": {
-        "pipeline": "Pipeline",
-        "team": "Team",
+        "pipeline": "流水线",
+        "team": "团队",
         "ralph": "Ralph（团队 + 评审循环）",
         "autopilot": "Autopilot（单 Agent）",
         "custom": "自定义（构建者设计）"
@@ -621,10 +637,12 @@
         "unpinnedTitle": "固定（防止删除）"
       },
       "path": "路径",
-      "sessionId": "Session ID",
+      "sessionId": "会话 ID",
       "type": "类型",
+      "agentBadge": "Agent",
       "status": "状态",
       "activity": "活动",
+      "activityEvents": "{{n}} 个事件",
       "billableTokens": "计费 Token",
       "context": "上下文",
       "model": "模型",
@@ -634,6 +652,7 @@
       "hookAgentSettingsLocked": "Hook 注册的 Agent 由 Claude Code 自身管理，设置仅可在画布中创建的 Agent 上修改。",
       "files": "文件",
       "activeAgents": "活跃 Agent",
+      "goToAgent": "跳转到该 Agent",
       "lastTools": "最近工具",
       "contextCompacted": "上下文已压缩",
       "compactSummary": "{{count}}次 · 最近 {{ago}}",
@@ -654,6 +673,14 @@
       "persist": "持久化（防止淡出）",
       "lastTool": "最后工具",
       "contiHistory": "Conti 历史"
+    },
+    "agentEventList": {
+      "prompt": "提示词",
+      "queueBadge": "队列",
+      "tokenUsage": "Token 用量",
+      "waited": "等待 {{time}}",
+      "closePopup": "关闭弹窗",
+      "result": "结果"
     },
     "contiHistory": {
       "title": "Conti 历史",
@@ -679,6 +706,10 @@
       "addFrame": "添加帧",
       "deleteFrame": "删除",
       "editFrame": "编辑文本",
+      "frameLabel": "分镜 {{n}}",
+      "dragToReorder": "拖拽排序",
+      "doubleClickToEdit": "双击编辑",
+      "dropHere": "拖放到此处",
       "editTitlePrompt": "帧标题：",
       "editActionPrompt": "帧动作：",
       "zoomReset": "{{shortcut}} 重置",
@@ -734,6 +765,7 @@
       "addCommand": "添加命令",
       "removeAttachment": "移除附件",
       "uploading": "上传中...",
+      "attachmentError": "ERR",
       "attached": "已附加",
       "waitingForUpload": "等待上传..."
     },
@@ -767,8 +799,8 @@
       "modifiedLabel": "已修改",
       "untrackedLabel": "未跟踪",
       "recentCommits": "最近提交",
-      "coAuthoredByClaude": "Co-authored by Claude",
-      "worktrees": "Worktrees",
+      "coAuthoredByClaude": "由 Claude 共同署名",
+      "worktrees": "Worktree",
       "goToWorktree": "前往 Worktree {{name}}",
       "uncommittedChangesTitle": "未提交的变更",
       "mergeInto": "将基础合并到 {{branch}}",
@@ -959,6 +991,9 @@
       "maxBudgetUsd": "预算（$，0=∞）",
       "defaultSkills": "默认技能",
       "addSkill": "+ 添加技能",
+      "skillSourceProject": "项目",
+      "skillSourceGlobal": "全局",
+      "skillSourcePlugin": "已安装的插件",
       "color": "颜色",
       "fieldTips": {
         "model": "此 Agent 使用的 Claude 模型。",
@@ -1111,7 +1146,8 @@
         "unset": "未设置",
         "on": "开",
         "off": "关"
-      }
+      },
+      "contextNotAccessible": "无法访问（Claude Code 内部）"
     },
     "permissionPrompt": {
       "title": "需要权限",
@@ -1212,6 +1248,7 @@
       "edges": "边",
       "noProject": "无活动项目",
       "fps": "fps",
+      "inputLag": "输入延迟",
       "fpsTip": "渲染帧率",
       "visibility": "可见性",
       "profiling": {
@@ -1280,6 +1317,7 @@
     },
     "serverList": {
       "heading": "服务器（{{count}}）",
+      "serverLabel": "服务器",
       "refresh": "刷新",
       "empty": "无运行中的服务器",
       "running": "运行中",
@@ -1370,12 +1408,12 @@
       "collectorFailed": "无法连接用量收集器设置。",
       "collectorRestartHint": "即使关闭此项，Vibisual 也会定期读取用量 — 收集器只是在交互式会话运行时更频繁地刷新。",
       "localTitle": "Vibisual 中的此项目",
-      "localAgents": "智能体",
+      "localAgents": "Agent",
       "localInput": "输入 token",
       "localOutput": "输出 token",
       "localHint": "按当前项目标签页的智能体统计。上方套餐额度为账户级，包含在 Vibisual 之外的用量。",
       "emptyOff": "尚无用量数据 — 收集器已关闭。请在下方开启，然后打开一次交互式 Claude Code 会话。",
-      "emptyWaiting": "收集器已开启，正在等待首个数值。交互式 Claude Code 会话渲染状态栏时数值才会到达（画布上的终端气泡，或编辑器中的 Claude Code）。Vibisual 以无头方式运行的智能体没有状态栏，因此不会上报。",
+      "emptyWaiting": "收集器已开启，正在等待首个数值。交互式 Claude Code 会话渲染状态栏时数值才会到达（画布上的终端气泡，或编辑器中的 Claude Code）。Vibisual 以无头方式运行的 Agent 没有状态栏，因此不会上报。",
       "refresh": "刷新",
       "weeklyScoped": "每周额度 — {{model}}",
       "creditsTitle": "使用积分",
@@ -1414,12 +1452,12 @@
         "settingsSection": "设置区块",
         "ideView": "IDE 视图",
         "headerItem": "标题栏项",
-        "agentPrompt": "智能体强制",
+        "agentPrompt": "Agent 强制",
         "contextMenuItem": "右键菜单",
         "hookSubscriber": "钩子订阅",
         "restRoute": "REST 路由",
         "wsMessage": "WS 消息",
-        "agentConfigField": "智能体设置",
+        "agentConfigField": "Agent 设置",
         "brainCardKind": "记忆卡片类型",
         "bubbleType": "气泡类型",
         "edgeKind": "连线类型"
@@ -1584,6 +1622,12 @@
       "noAudio": "导出时未包含音频。",
       "downgraded": "渲染模式已降级：{{id}}",
       "previewFailed": "无法绘制预览。",
+      "errNoDoc": "No document is open.",
+      "errNoStage": "Could not find a place to attach the stage.",
+      "errNoRenderBackend": "No render mode is available on this device.",
+      "errNoOffscreen": "Offscreen windows are not available in this build.",
+      "errNoOffscreenBridge": "The offscreen bridge is not available.",
+      "errRequestFailed": "The request failed ({{status}}).",
       "reloaded": "文档已在别处更改，因此已重新加载。"
     },
     "cost": {
@@ -1799,10 +1843,10 @@
       "hookLabel": "Hook",
       "renameHint": "双击重命名 (F2)",
       "renameInputLabel": "Agent 名称",
-      "localLabel": "All Model",
+      "localLabel": "所有模型",
       "localSwitchModel": "更换该气泡使用的模型",
       "localContextUsed": "上下文 {{used}} / {{limit}} 令牌（{{percent}}%）— 装满后会先丢弃最早的对话",
-      "agentSettings": "智能体设置",
+      "agentSettings": "Agent 设置",
       "collapseLabel": "折叠",
       "collapseHint": "折叠 — 保留窗口并归还画布（在标题栏窗口列表中重新展开）",
       "resizeWindow": "调整窗口大小",
@@ -1913,7 +1957,7 @@
       "inputCtxSelectAll": "全选",
       "ctxSaveToBrain": "保存到记忆",
       "stopAll": "全部停止",
-      "stopAllTitle": "停止此 Agent 正在运行的所有内容（其他标签页 + 后台子 Agent）",
+      "stopAllTitle": "停止此 Agent 正在运行的所有内容（其他标签页 + 后台任务）",
       "stopSessionTitle": "停止此 Session 及其启动的子 Agent（其他 Session 标签页继续运行）"
     },
     "memo": {
@@ -1950,7 +1994,7 @@
       "skills": "技能",
       "bookmarks": "书签",
       "sessionSummary": "Session 摘要",
-      "runningSubagents": "运行中的子 Agent（{{count}}）",
+      "runningSubagents": "后台任务 ({{count}})",
       "loop": "重复循环",
       "goal": "目标",
       "debug": "运行与调试",
@@ -2343,7 +2387,7 @@
       "sessionOne": "{{count}} 个 Session",
       "sessionMany": "{{count}} 个 Session",
       "autoCompact": "自动压缩 {{value}}",
-      "autoCompactTip": "当上下文达到该大小时，CLI 会自动总结并压缩对话。可在智能体设置中单独修改，或在 File > Options > Agent Defaults 中修改全局默认值。"
+      "autoCompactTip": "当上下文达到该大小时，CLI 会自动总结并压缩对话。可在 Agent 设置中单独修改，或在文件 > 选项 > Agent 默认值中修改全局默认值。"
     },
     "search": {
       "placeholder": "在对话中查找",
@@ -2505,19 +2549,26 @@
       "dismiss": "忽略"
     },
     "runningSubagents": {
-      "title": "运行中的子 Agent",
+      "title": "后台任务",
       "close": "关闭",
-      "empty": "当前没有正在运行的子 Agent。",
-      "untitled": "子 Agent",
-      "scopeAll": "显示此 Agent 正在运行的所有子 Agent。",
-      "scopeSession": "显示由“{{label}}”启动的子 Agent。",
-      "emptySession": "此会话没有启动中的子代理。",
-      "hint": "这里只列出此会话在后台启动的子代理 — 当前的对话本身不计入。运行期间左侧图标会亮起，并在下方显示数量。",
+      "empty": "当前没有正在后台运行的任务。",
+      "untitled": "未命名任务",
+      "kindAgent": "子智能体",
+      "kindAgentTip": "通过 Task·Agent 工具启动的 AI 子进程。它会运行模型，因此消耗 token。",
+      "kindShell": "Shell",
+      "kindShellTip": "后台 Bash·Monitor 命令。运行的是命令而非模型，因此不消耗 token。永不自行退出的命令（tail -f、while true）会一直留在这里，直到你手动移除。",
+      "scopeAll": "正在显示该智能体在后台运行的全部任务。",
+      "scopeSession": "仅显示“{{label}}”会话启动的后台任务。",
+      "emptySession": "此会话没有正在后台运行的任务。",
+      "hint": "这里只列出该会话在后台启动的内容 —— 当前对话本身不计入。子智能体是会消耗 token 的 AI 子进程；Shell 是不消耗 token 的后台 Bash·Monitor 命令。运行期间左侧图标会亮起并在下方显示数量。",
       "othersRunning": "其他地方还有 {{count}} 个在运行",
       "startedAt": "开始于 {{time}}",
       "endedAt": "结束于 {{time}}",
       "finishedTitle": "刚刚完成",
       "noResult": "未收到结果。",
+      "exitCode": "退出码 {{code}}",
+      "exitKilled": "已终止",
+      "exitFromFileTip": "完成通知未送达，因此从 harness 写入任务输出文件的结束标记中读取。",
       "resultRescued": "已从记录中恢复 — 未送达会话",
       "resultRescuedTitle": "该子代理在汇报前被中断（Stop、关闭标签页或崩溃），会话因此从未收到结果。Vibisual 已从磁盘上的代理记录中读回。",
       "toggleResult": "展开或收起完整结果",
@@ -2525,8 +2576,23 @@
       "nowUsing": "当前正在使用的工具",
       "duration": "耗时 {{value}}",
       "noResponse": "{{value}} 无响应",
+      "quietFor": "已安静 {{value}}",
+      "quietForTip": "这段时间内该作业的输出文件没有变化。安静并不等于结束 —— 正在等待某事的命令本来就是安静的。",
+      "probing": "正在确认是否还在运行",
+      "probingTip": "长时间安静且没有结束标记，因此启动了一次判定智能体。只问两件事：这条命令是否有自行结束的条件，以及该条件是否已经满足。",
+      "probeAlive": "仍在运行",
+      "probeUnknown": "无法判断 —— 保持原样",
+      "probeFinished": "确认后已自动清理",
+      "probeTip": "结束条件：{{condition}} · 判定 {{model}}",
+      "probeTipNoCondition": "未找到自行结束的条件 · 判定 {{model}}",
+      "probeAt": "{{time}} 确认",
+      "closedByProcessGone": "会话已消失，已清理",
+      "closedByProcessGoneTip": "启动该作业的会话进程已不存在。结果无处可送，因此从列表中移除。",
+      "closedByUser": "由你移除",
+      "killedProcesses": "已停止 {{count}} 个进程",
+      "killedProcessesTip": "清理时一并停止了该命令启动的进程。只清空列表的话命令仍会继续运行。",
       "dismiss": "不再等待",
-      "dismissTip": "从此列表中移除。不会终止进程 — 子任务由启动它的代理用 TaskStop 停止。"
+      "dismissTip": "从此列表中移除。不会终止进程 —— 子智能体由启动它的智能体用 TaskStop 停止，Shell 用 KillShell 停止。"
     },
     "loop": {
       "title": "重复循环",
@@ -2769,11 +2835,11 @@
         "hooks": "Hooks",
         "systemPrompt": "Claude Code 系统提示词",
         "brainSkills": "记忆流程记忆",
-        "compactSelf": "智能体自主压缩"
+        "compactSelf": "Agent 自主压缩"
       },
       "hint": {
-        "tools": "在 Agent Settings 中选择工具列表",
-        "mcp": "在 Agent Settings 中挂载 MCP 服务器",
+        "tools": "在 Agent 设置中选择工具列表",
+        "mcp": "在 Agent 设置中挂载 MCP 服务器",
         "hooks": "Hooks 安装在 settings.json 中"
       },
       "warn": {
@@ -2811,12 +2877,12 @@
         "src": {
           "skillsPrefix": {
             "what": "Vibisual 在您的消息前插入的斜杠命令，使 Session 一开始就加载这些技能。",
-            "more": "来自 Agent Settings 中的 Skills 字段。每个技能会作为一行 /名称 添加在您的提示词之前。",
+            "more": "来自 Agent 设置中的 Skills 字段。每个技能会作为一行 /名称 添加在您的提示词之前。",
             "off": "您的消息将单独发送，不会调用这些技能。"
           },
           "agentRules": {
             "what": "您为此 Agent 气泡设定的常驻指令。",
-            "more": "来自 Agent Settings 中的 Agent Rules 框，添加在“# Agent Rules”标题之下。",
+            "more": "来自 Agent 设置中的 Agent 规则框，添加在“# Agent Rules”标题之下。",
             "off": "该 Agent 将不再收到这些常驻指令。"
           },
           "edges": {
@@ -2941,13 +3007,13 @@
           },
           "toolSchemas": {
             "what": "此 Agent 可调用工具的定义 — Read、Edit、Bash 等。",
-            "more": "工具列表由 Agent Settings 管理；在那里缩短列表会使这个数字变小。",
-            "off": "请改到 Agent Settings 中修改工具列表 — 这里的开关已锁定。"
+            "more": "工具列表由 Agent 设置管理；在那里缩短列表会使这个数字变小。",
+            "off": "请改到 Agent 设置中修改工具列表 — 这里的开关已锁定。"
           },
           "mcp": {
             "what": "通过 MCP 服务器挂载的额外工具。",
             "more": "每个挂载的服务器都会把自己的工具定义添加到每条提示词中。",
-            "off": "请改到 Agent Settings 中卸载该服务器 — 这里的开关已锁定。"
+            "off": "请改到 Agent 设置中卸载该服务器 — 这里的开关已锁定。"
           },
           "hooks": {
             "what": "使 Vibisual 得以看到此 Session 的 Claude Code Hooks。",
@@ -2993,8 +3059,8 @@
           },
           "tools": {
             "what": "Agent 可调用工具的定义。",
-            "more": "该列表由 Agent Settings 管理。",
-            "off": "请到 Agent Settings 中修改 — 这里无法关闭。"
+            "more": "该列表由 Agent 设置管理。",
+            "off": "请到 Agent 设置中修改 — 这里无法关闭。"
           },
           "system": {
             "what": "Claude Code 在此项目之外自行添加的内容。",
@@ -3316,12 +3382,31 @@
     },
     "taskEdge": {
       "iconHint": "单击：详情 · 双击：编辑",
+      "critiqueIconLabel": "评审（观察者）",
       "pulse": {
         "sending": "发送命令",
         "completed": "完成报告",
         "error": "错误"
       },
-      "pulseDebugTitle": "[debug] {{label}} pulse 1.8s"
+      "pulseDebugTitle": "[debug] {{label}} 脉冲 1.8s"
+    },
+    "taskEdgeKind": {
+      "command": {
+        "label": "Command",
+        "description": "Instruction — \"please do this\""
+      },
+      "artifact": {
+        "label": "Artifact",
+        "description": "Hands over the result itself — the file or diff"
+      },
+      "request": {
+        "label": "Request",
+        "description": "Reverse request — \"I am stuck, please help\""
+      },
+      "critique": {
+        "label": "Critique",
+        "description": "Critique / review — audit and red-team role (the watcher)"
+      }
     },
     "taskEdgePopup": {
       "dragToMove": "拖动移位",
@@ -3362,7 +3447,7 @@
       "schemaClear": "清除",
       "returnFormat": "返回格式",
       "returnFormatTooltip": "Artifact：实际文件/diff 路径。Summary：仅文本摘要。Both：两者均有。AI 摘要可能有误；需验证的内容优先选 Artifact。",
-      "artifact": "Artifact",
+      "artifact": "产物",
       "artifactTooltip": "Artifact：返回实际文件路径或 diff。可由你验证。",
       "summary": "摘要",
       "summaryTooltip": "摘要：简短文本摘要。快速，但 AI 摘要可能不准确。",
@@ -3418,15 +3503,23 @@
       "connect": "连接",
       "connectTooltip": "使用当前设置创建此边（Ctrl/Cmd+Enter）。",
       "critiqueOptionsTip": "仅适用于 Critique 边。设置干预时机（Timing）和拒绝时的强制方式（Authority）。其他类型边忽略此项。",
+      "critiqueOptions": "评审选项",
       "critiqueTimingTip": "中间（默认）：在目标工作的每个里程碑处审查。更频繁 / 更安全 / 更慢。最终：完成后进行一次最终审查。较少干预 / 更快。",
       "critiqueTimingIntermediateTip": "中间：在目标工作的每个里程碑处审查。（默认）",
       "critiqueTimingFinalTip": "仅最终：在目标完成后进行一次最终审查。",
+      "critiqueTiming": "时机",
+      "critiqueTimingIntermediate": "过程中",
+      "critiqueTimingFinal": "仅最终",
       "critiqueAuthorityTip": "强制返工（默认）：拒绝时目标必须重做。超过最大返工次数后自动降级为仅评论并升级到父 Session。仅评论：拒绝仅作为建议，不强制返工。",
       "critiqueAuthorityForceTip": "强制返工：拒绝时目标必须重做。（默认）",
       "critiqueAuthorityCommentTip": "仅评论：目标仅将拒绝作为参考，不强制返工。",
+      "critiqueAuthority": "权限",
+      "critiqueAuthorityForce": "强制返工",
+      "critiqueAuthorityComment": "仅评论",
       "critiqueMaxReworkTip": "在强制返工模式下目标最多可重做的次数。超过后自动降级为仅评论并升级到父 Session。防止无限循环。",
       "critiqueMaxReworkActive": "最多 {{max}} 次。超出后自动降级为仅评论。",
-      "critiqueMaxReworkInactive": "仅评论模式下不适用。"
+      "critiqueMaxReworkInactive": "仅评论模式下不适用。",
+      "critiqueMaxRework": "最大返工次数"
     }
   },
   "inspector": {
@@ -3511,7 +3604,7 @@
       "exitFullscreen": "退出全屏"
     },
     "contextMenu": {
-      "createCustomAgent": "创建自定义 Agent",
+      "createCustomAgent": "创建 Custom Agent",
       "createCmdAgent": "创建 CMD Agent",
       "createCmdAgentHint": "由您操作的交互式终端（订阅计费）",
       "createAutoAgent": "创建 Auto Agent",
@@ -3529,7 +3622,7 @@
       "appUninstall": "卸载",
       "appInstall": "安装",
       "appsHelp": "点击一行即可将其作为气泡放置到画布上。双击气泡可打开，右键点击可管理。",
-      "createLab": "智能体实验室",
+      "createLab": "Agent Lab",
       "createLabHint": "用不同设置运行同一任务，并在一张表中比较结果",
       "createLocalAgent": "所有模型",
       "createLocalAgentHint": "放置一个用于本机模型的气泡",
@@ -3663,7 +3756,7 @@
       "col": {
         "variant": "变体",
         "model": "模型",
-        "effort": "Effort",
+        "effort": "强度",
         "permission": "权限",
         "status": "状态",
         "duration": "耗时",
@@ -3790,6 +3883,9 @@
       "snipFailed": "截取失败：{{error}}"
     },
     "close": "关闭",
+    "msg": {
+      "requestFailed": "Failed ({{status}})"
+    },
     "minimize": "最小化",
     "maximize": "最大化",
     "play": "播放",
