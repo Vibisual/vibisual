@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo as reactMemo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SessionMemo } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
-import { SessionMemoCard } from './SessionMemoCard.js';
+import { SessionMemoCard, type MemoSaveWhen } from './SessionMemoCard.js';
 import {
   canAddMemo,
   clampMemos,
@@ -25,6 +25,10 @@ import {
  * 스냅샷은 16~250ms 마다 통째로 오고 참조가 매번 새것이라, 글자를 치는 도중에 놓아주면 방금 친
  * 글자가 되돌아간다. 그래서 **"서버가 우리가 올린 그 값이 되었을 때"만** 놓아준다(`pushedRef`).
  * 새로 편집하면 그 표식을 즉시 지운다 — 안 그러면 한 박자 전 값과 같아진 순간 새 편집이 날아간다.
+ *
+ * ⚠ **카드에 넘기는 핸들러는 전부 정체성이 고정돼야 한다.** 카드마다 `(patch) => f(memo.id, patch)`
+ * 같은 새 클로저를 주면 `SessionMemoCard` 의 `memo()` 가 영영 헛돌아, 글자 하나에 24장이 통째로
+ * 다시 그려진다. 그래서 핸들러는 id 를 인자로 받고 현재 목록은 ref 로 읽는다(의존성 0개).
  */
 
 /** 타자·드래그가 잠잠해지면 올린다. 매 글자마다 왕복하지 않기 위한 창(ms). */
@@ -43,7 +47,7 @@ interface SessionMemoLayerProps {
   onSpawnConsumed: () => void;
 }
 
-export function SessionMemoLayer({
+function SessionMemoLayerImpl({
   agentId, sessionId, containerRef, spawnAt, onSpawnConsumed,
 }: SessionMemoLayerProps): React.JSX.Element {
   const serverMemos = useGraphStore((s) => (
@@ -77,13 +81,20 @@ export function SessionMemoLayer({
   }, [agentId, sessionId]);
 
   // 판 크기 추적 — 창을 좁히면 메모를 판 안으로 되돌려 그린다.
+  //   ⚠ 값이 같으면 **상태를 갈지 않는다**. contentRect 는 소수라 리사이즈 중 같은 픽셀에서도
+  //   새 객체가 나오고, 그때마다 판 전체가 다시 그려진다.
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    setBounds({ w: el.clientWidth, h: el.clientHeight });
+    const put = (w: number, h: number): void => {
+      const rw = Math.round(w);
+      const rh = Math.round(h);
+      setBounds((prev) => (prev.w === rw && prev.h === rh ? prev : { w: rw, h: rh }));
+    };
+    put(el.clientWidth, el.clientHeight);
     const ro = new ResizeObserver((entries) => {
       const r = entries[0]?.contentRect;
-      if (r) setBounds({ w: r.width, h: r.height });
+      if (r) put(r.width, r.height);
     });
     ro.observe(el);
     return () => ro.disconnect();
@@ -117,6 +128,11 @@ export function SessionMemoLayer({
     push(next, immediate);
   }, [push]);
 
+  const shown = useMemo(() => clampMemos(memos, bounds), [memos, bounds]);
+  // 핸들러가 의존성 없이 현재 목록을 읽는 창구 — 이것이 카드 `memo()` 를 살린다(위 ⚠ 참고).
+  const shownRef = useRef(shown);
+  shownRef.current = shown;
+
   // 우클릭 메뉴가 찍은 지점에 새 메모 한 장.
   useEffect(() => {
     if (!spawnAt) return;
@@ -125,34 +141,29 @@ export function SessionMemoLayer({
     if (!el) return;
     const rect = el.getBoundingClientRect();
     const board = { w: el.clientWidth, h: el.clientHeight };
-    const cur = draft ?? serverMemos ?? EMPTY_MEMOS;
+    const cur = shownRef.current;
     if (!canAddMemo(cur)) return;
     const memo = spawnMemo({ x: spawnAt.x - rect.left, y: spawnAt.y - rect.top }, cur, board);
     setAutoFocusId(memo.id);
     apply([...cur, memo], true);
-    // draft/serverMemos 를 의존성에 넣으면 스냅샷마다 재실행되어 같은 지점에 여러 장이 생긴다.
+    // 목록을 의존성에 넣으면 스냅샷마다 재실행되어 같은 지점에 여러 장이 생긴다.
     //   생성은 spawnAt 이 바뀌는 순간 1회다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spawnAt]);
 
-  const shown = useMemo(() => clampMemos(memos, bounds), [memos, bounds]);
-
-  const handleChange = useCallback((id: string, patch: MemoPatch) => {
-    apply(patchMemo(shown, id, patch));
-  }, [apply, shown]);
-
-  const handleCommit = useCallback(() => {
-    push(shown, true);
-  }, [push, shown]);
+  const handlePatch = useCallback((id: string, patch: MemoPatch, when: MemoSaveWhen) => {
+    apply(patchMemo(shownRef.current, id, patch), when === 'now');
+  }, [apply]);
 
   const handleRaise = useCallback((id: string) => {
-    const next = raiseMemo(shown, id);
-    if (next !== shown) apply(next, true);
-  }, [apply, shown]);
+    const cur = shownRef.current;
+    const next = raiseMemo(cur, id);
+    if (next !== cur) apply(next, true);
+  }, [apply]);
 
   const handleDelete = useCallback((id: string) => {
-    apply(removeMemo(shown, id), true);
-  }, [apply, shown]);
+    apply(removeMemo(shownRef.current, id), true);
+  }, [apply]);
 
   return (
     // 판 자체는 클릭을 먹지 않는다 — 대화 본문의 스크롤·선택·우클릭이 그대로 통과해야 한다.
@@ -165,12 +176,17 @@ export function SessionMemoLayer({
           bounds={bounds}
           zIndex={i + 1}
           autoFocus={memo.id === autoFocusId}
-          onChange={(patch) => handleChange(memo.id, patch)}
-          onCommit={handleCommit}
-          onRaise={() => handleRaise(memo.id)}
-          onDelete={() => handleDelete(memo.id)}
+          onPatch={handlePatch}
+          onRaise={handleRaise}
+          onDelete={handleDelete}
         />
       ))}
     </div>
   );
 }
+
+/**
+ * IDE 본문은 스트리밍 중 초당 수십 번 다시 그려진다 — 그때마다 이 판까지 따라 그릴 이유가 없다
+ * (props 는 탭이 바뀌거나 새 메모를 찍을 때만 바뀐다).
+ */
+export const SessionMemoLayer = reactMemo(SessionMemoLayerImpl);

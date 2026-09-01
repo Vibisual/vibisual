@@ -1,5 +1,13 @@
-import { describe, it, expect } from 'vitest';
-import { ProjectGraph } from './projectGraph.js';
+import { describe, it, expect, vi } from 'vitest';
+
+// §4 (설정 3층) — 에이전트 설정이 이제 전역 옵션 위에서 해소되므로, 이 파일이 실제
+//   `~/.vibisual/user-defaults.json`(사용자 기기마다 다르다)을 읽으면 도구 단언이 기기에 따라
+//   갈린다. 여기서는 "전역 기본값이 비어 있는" 상태를 고정한다.
+vi.mock('./userDefaultsService.js', () => ({
+  userDefaultsService: { get: () => ({ updatedAt: 1 }), subscribe: () => () => {} },
+}));
+
+const { ProjectGraph } = await import('./projectGraph.js');
 
 /**
  * §5.5 #17-17 v4.46 — 세션 목표(Goal) 회귀 테스트.
@@ -12,7 +20,7 @@ import { ProjectGraph } from './projectGraph.js';
  *      열려야 한다(새 목표엔 아직 아무도 신고한 적이 없으므로).
  */
 
-function seededGraph(): { graph: ProjectGraph; projectName: string } {
+function seededGraph(): { graph: InstanceType<typeof ProjectGraph>; projectName: string } {
   const graph = new ProjectGraph();
   const projectName = graph.registerProject(process.cwd()).name;
   return { graph, projectName };
@@ -385,16 +393,24 @@ describe('ProjectGraph — 세션 목표(Goal)', () => {
     const { graph, projectName } = seededGraph();
     const agent = graph.createCustomAgent('Goalie', undefined, projectName);
     // v4.59 이전 설정 — 화면에 체크박스가 없어서 TodoWrite 가 빠져 있다(사용자가 끈 것이 아니다).
-    graph.setAgentConfig(agent.id, {
-      model: 'opus',
-      tools: ['Read', 'Write', 'Edit', 'Bash'],
-      permissionMode: 'default',
-      skills: [],
-      maxTurns: 0,
-    });
+    //   §4 (설정 3층) 이후로 그 모양은 **디스크에서만** 온다: 지금 창으로 저장하면 "직접 고른
+    //   목록"이라는 세대 도장이 함께 찍히기 때문이다(그래서 setAgentConfig 로는 재현되지 않는다).
+    const legacy = {
+      ...graph.toProjectCheckpoint(projectName)!,
+      agentConfigOverrides: undefined,
+      agentConfigs: {
+        [agent.id]: {
+          model: 'opus',
+          tools: ['Read', 'Write', 'Edit', 'Bash'],
+          permissionMode: 'default',
+          skills: [],
+          maxTurns: 0,
+        },
+      },
+    };
 
     const revived = new ProjectGraph();
-    revived.restoreFromCheckpoint(graph.toProjectCheckpoint(projectName));
+    revived.restoreFromCheckpoint(legacy);
     const tools = revived.getAgentConfig(agent.id)?.tools ?? [];
     expect(tools).toContain('TodoWrite');
     expect(tools).toContain('Bash'); // 기존 선택은 그대로 보존

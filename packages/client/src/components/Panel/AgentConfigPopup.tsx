@@ -31,6 +31,9 @@ import {
   PERMISSION_MODES_WITHOUT_PROMPT,
   AVAILABLE_SETTING_SOURCES,
   AVAILABLE_AUTOCOMPACT_VALUES,
+  turnCompactTriggerTokens,
+  TURN_COMPACT_TRIGGER_RATIO,
+  resolveAutoCompact,
   normalizeBashTimeoutMs,
   BASH_TIMEOUT_MS_MAX,
   BASH_DEFAULT_TIMEOUT_MS_CLI_DEFAULT,
@@ -449,7 +452,12 @@ function AutoEdgeSection({
 
 export function AgentConfigPopup({ agentId, config, currentColor, onClose }: AgentConfigPopupProps): React.JSX.Element {
   const { t } = useTranslation();
-  const base = config ?? { ...DEFAULT_AGENT_CONFIG, color: currentColor };
+  // §4 (설정 3층) — 저장분이 아직 없는 버블의 기본값도 **설정 창을 따른다**. 종전에는 내장
+  //   기본값으로 떨어져, 같은 질문("이 에이전트의 기본은 무엇인가")에 이 창과 서버가 서로 다른
+  //   답을 했다 — 그 상태로 저장을 누르면 사용자가 고른 적 없는 내장 값이 그 버블에 못 박혔고,
+  //   창을 열자마자 모든 칸에 "기본값과 다름" 점이 붙었다.
+  const userDefaults = useGraphStore((st) => st.userDefaults);
+  const base = config ?? { ...resolveAgentDefaults(userDefaults), color: currentColor };
   // §5.19 (G) — 이 버블이 **내 PC 에서 도는 모델**인가. 아래 화면의 모든 갈림이 이 한 줄만 본다.
   //   `provider` 는 창을 열어 둔 사이에도 왕복마다 갱신되므로(문맥 게이지·누적 토큰) `base` 사본이
   //   아니라 **지금 값**(`config`)을 읽는다 — 사본을 그리면 열어 둔 창만 과거를 보여 준다.
@@ -581,8 +589,6 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
   const [excludeDynamicSections, setExcludeDynamicSections] = useState(base.excludeDynamicSystemPromptSections === true);
   const [settingSources, setSettingSources] = useState<string[]>([...(base.settingSources ?? [])]);
   const [safeMode, setSafeMode] = useState(base.safeMode === true);
-  // §4 (CLI 사양 추종) — 압축 축 둘. `autoCompact`(창 임계)와 직교라 함께 켤 수 있다.
-  const [compactAfterTurn, setCompactAfterTurn] = useState(base.compactAfterTurn === true);
   const [agentCanCompact, setAgentCanCompact] = useState(base.agentCanCompact === true);
   // §4 (Fast 모드) — 같은 Opus 를 출력 속도만 빠르게. 플래그가 아니라 settings 키라 서버가
   //   `--settings` 파일 한 장에 실어 보낸다. 미설정(false) 이면 그 키 자체가 안 생긴다.
@@ -868,7 +874,6 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
     excludeDynamicSystemPromptSections: excludeDynamicSections ? true : undefined,
     settingSources: settingSources.length > 0 ? settingSources : undefined,
     safeMode: safeMode ? true : undefined,
-    compactAfterTurn: compactAfterTurn ? true : undefined,
     agentCanCompact: agentCanCompact ? true : undefined,
     // §4 (Fast 모드) — 지원 모델일 때만 저장한다. 모델을 바꾼 뒤에도 값이 남아 있으면
     //   나중에 그 모델로 되돌렸을 때 사용자가 켠 적 없는 Fast 가 되살아난다.
@@ -907,17 +912,26 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
     memory, subagentDepth,
     isOpus, disallowedTools, rules, customMode,
     contextWindow, presetId, modelVersion, mcpServers,
-    fallbackModel, autoCompact, compactAfterTurn, agentCanCompact, excludeDynamicSections, settingSources, safeMode, fastMode, fastModeSupported, forwardSubagentText, replayUserMessages, promptSuggestions, includeHookEvents, betas, agentDefinitions, pluginDirs,
+    fallbackModel, autoCompact, agentCanCompact, excludeDynamicSections, settingSources, safeMode, fastMode, fastModeSupported, forwardSubagentText, replayUserMessages, promptSuggestions, includeHookEvents, betas, agentDefinitions, pluginDirs,
     bashDefaultTimeoutSec, bashMaxTimeoutSec,
     isLocal, buildLocalProvider,
   ]);
 
   // §4 — 이 창의 값이 **설정 창(Options › Agent Defaults)의 전역 기본값**과 어디서 갈라지는가.
-  //   두 화면이 같은 모양이라 표식이 없으면 어느 칸이 이 버블만의 값인지 알 길이 없다(전역을 바꾼
-  //   뒤에도 옛 값을 쥔 에이전트가 똑같이 보인다). 저장분이 아니라 **지금 폼이 저장하려는 값**으로
-  //   재므로 고르는 즉시 붙고 되돌리면 사라진다.
-  const userDefaults = useGraphStore((st) => st.userDefaults);
+  //   두 화면이 같은 모양이라 표식이 없으면 어느 칸이 이 버블만의 값인지 알 길이 없다.
+  //   저장분이 아니라 **지금 폼이 저장하려는 값**으로 재므로 고르는 즉시 붙고 되돌리면 사라진다.
+  //   §4 (설정 3층) — 점이 붙은 칸이 곧 **저장될 칸**이다(서버가 같은 판정으로 갈라진 칸만 남긴다).
   const agentDefaults = useMemo(() => resolveAgentDefaults(userDefaults), [userDefaults]);
+  // §4 (CLI 사양 추종) — 지금 고른 값이면 **실제로 몇 토큰에서 접히는가**. 고른 숫자는 CLI 에게
+  //   창 크기라 그보다 낮은 자리에서 접히므로, 그 숫자를 화면이 직접 말해야 놀라지 않는다.
+  //   3층 그대로다: 이 에이전트 값 → 설정 창 전역 기본 → 내장 기본. 'auto' 는 모델 창을 런타임에야
+  //   아는 값이라 숫자가 없다 → null.
+  // §4 — 화면에 적는 비율. 상수 한 곳(shared)에서 와야 값을 바꿔도 12개 로케일이 안 틀어진다.
+  const compactFoldsAtPercent = Math.round(TURN_COMPACT_TRIGGER_RATIO * 100);
+  const compactFoldsAtTokens = useMemo(
+    () => turnCompactTriggerTokens(resolveAutoCompact(autoCompact, userDefaults?.agentConfig?.autoCompact)),
+    [autoCompact, userDefaults],
+  );
   // 이 창이 **지금 그리지 않는** 축은 세지 않는다 — 화면의 점이 3개인데 머리의 숫자가 5 면
   //   그 숫자는 설명이 아니라 수수께끼가 된다.
   const hiddenDiffFields = useMemo(() => {
@@ -926,7 +940,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
       hidden.push(
         'model', 'modelVersion', 'contextWindow', 'fastMode', 'customMode', 'tools', 'disallowedTools',
         'maxTurns', 'isolation', 'effort', 'memory', 'subagentDepth', 'maxBudgetUsd', 'fallbackModel',
-        'autoCompact', 'compactAfterTurn', 'agentCanCompact', 'settingSources',
+        'autoCompact', 'agentCanCompact', 'settingSources',
         'excludeDynamicSystemPromptSections', 'safeMode', 'forwardSubagentText', 'replayUserMessages',
         'promptSuggestions', 'includeHookEvents', 'betas', 'agentDefinitions', 'pluginDirs',
         'bashDefaultTimeoutMs', 'bashMaxTimeoutMs', 'skills',
@@ -961,7 +975,6 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
     maxBudgetUsd: t('panel.agentConfig.maxBudgetUsd', { defaultValue: 'Budget ($, 0=Inf)' }),
     fallbackModel: t('panel.agentConfig.fallbackModel.label'),
     autoCompact: t('panel.agentConfig.autoCompact.label'),
-    compactAfterTurn: t('panel.agentConfig.compactAfterTurn.label'),
     agentCanCompact: t('panel.agentConfig.agentCanCompact.label'),
     settingSources: t('panel.agentConfig.settingSources.label'),
     excludeDynamicSystemPromptSections: t('panel.agentConfig.excludeDynamicSections.label'),
@@ -1745,24 +1758,20 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                 <div className="flex flex-col gap-1">
                   <label className="flex items-center text-[12px] font-medium text-gray-500">
                     {t('panel.agentConfig.autoCompact.label')}{diffDot('autoCompact')}
-                    <InfoTip text={t('panel.agentConfig.autoCompact.tip')} />
+                    <InfoTip text={t('panel.agentConfig.autoCompact.tip', { percent: compactFoldsAtPercent })} />
                   </label>
                   <CustomSelect value={autoCompact} onChange={setAutoCompact} options={AUTOCOMPACT_OPTIONS} />
-                  {/* §4 (CLI 사양 추종) — 위 드롭다운은 "얼마나 차면 접는가"(창 임계)이고, 아래 둘은
-                      "언제 접는가"(턴 경계 / 에이전트 판단)다. 축이 달라 함께 켤 수 있다. */}
+                  {/* §4 (CLI 사양 추종) — **이 숫자 하나가 전부다.** 옆에 있던 "턴이 끝나면 압축"
+                      체크박스는 같은 일을 해 헷갈리기만 했고(그리고 같은 숫자를 쓰는 한 CLI 가 늘 먼저
+                      접어 뜨지도 못했다) 이 값 안으로 합쳤다. 실제로 접히는 토큰 수는 고른 값과 다르므로
+                      숨기지 않고 여기서 직접 말한다. */}
+                  <span className="text-[12px] leading-snug text-gray-400">
+                    {compactFoldsAtTokens === null
+                      ? t('panel.agentConfig.autoCompact.foldsAtAuto', { percent: compactFoldsAtPercent })
+                      : t('panel.agentConfig.autoCompact.foldsAt', { tokens: `${Math.round(compactFoldsAtTokens / 1000)}k` })}
+                  </span>
+                  {/* §4 (CLI 사양 추종) — 이 축만 직교로 남는다: 숫자로 못 잡는 자리를 에이전트가 부른다. */}
                   <label className="mt-2 flex items-start gap-2 text-[12px] text-gray-400">
-                    <input
-                      type="checkbox"
-                      checked={compactAfterTurn}
-                      onChange={(e) => setCompactAfterTurn(e.target.checked)}
-                      className="mt-0.5 h-3.5 w-3.5 accent-blue-500"
-                    />
-                    <span>
-                      {t('panel.agentConfig.compactAfterTurn.label')}{diffDot('compactAfterTurn')}
-                      <span className="ml-1 text-gray-600">{t('panel.agentConfig.compactAfterTurn.hint')}</span>
-                    </span>
-                  </label>
-                  <label className="flex items-start gap-2 text-[12px] text-gray-400">
                     <input
                       type="checkbox"
                       checked={agentCanCompact}

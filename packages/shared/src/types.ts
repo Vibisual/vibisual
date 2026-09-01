@@ -1737,8 +1737,14 @@ export interface SessionMemo {
   /** 크기(px). `SESSION_MEMO.MIN_*` ~ `MAX_*` 로 clamp 된다. */
   w: number;
   h: number;
-  /** 배경색 hex(`#RRGGBB`). 글자색은 대비로 자동 결정(`pickReadableTextColor`). */
+  /** 종이색 hex(`#RRGGBB`). 실제로 보이는 색은 아래 `alpha` 와 섞은 결과다. */
   color: string;
+  /**
+   * 종이의 불투명도(0.2~1). **없으면 `SESSION_MEMO.DEFAULT_ALPHA`** — 기본값은 저장하지 않는다
+   * (`collapsed` 와 같은 규약). 글자색은 `color` 가 아니라 이 값을 섞은 **실제로 보이는 색**을
+   * 기준으로 정해진다(`memoSurface`) — 그래야 투명하게 낮춰도 대비가 무너지지 않는다.
+   */
+  alpha?: number;
   /** 제목줄만 남기고 접은 상태. */
   collapsed?: boolean;
   createdAt: number;
@@ -5018,8 +5024,23 @@ export interface ProjectCheckpoint {
   hiddenProjects?: string[];
   /** 파이프라인 상태 (parentId → PipelineState). optional로 하위호환 유지. */
   pipelines?: Record<string, PipelineState>;
-  /** 에이전트별 설정 (agent ID → AgentConfig). 디테일 패널에서 편집, 서버 재시작 시 복원. */
+  /**
+   * 에이전트별 설정 (agent ID → AgentConfig). 디테일 패널에서 편집, 서버 재시작 시 복원.
+   *
+   * §4 (설정 3층) — **이제 이 필드는 완성본(읽기 전용 사본)이다.** 권위는 아래
+   * `agentConfigOverrides` 로 옮겼고, 여기에는 세 층을 겹친 결과를 그대로 적는다.
+   * 지우지 않는 이유는 **되돌아간 구버전 앱이 이 필드만 읽기 때문**이다(§3.2.1-5) —
+   * 없애면 다운그레이드한 사용자의 모든 에이전트가 내장 기본으로 돌아간다.
+   */
   agentConfigs?: Record<string, AgentConfig>;
+  /**
+   * §4 (설정 3층) — 에이전트가 **자기 것으로 못 박은 칸만**(agent ID → 갈라진 칸).
+   *
+   * 없으면(구버전 저장분) 복원이 `agentConfigs` 를 그 시점 기본값과 대조해 만들어 낸다 —
+   * 그래서 판올림 직후에도 지금 동작이 그대로 유지된다(갈라져 있던 칸은 갈라진 채 남고,
+   * 기본값과 같던 칸은 위층을 따라간다).
+   */
+  agentConfigOverrides?: Record<string, Partial<AgentConfig>>;
   /** §4 v1.50 — 에이전트별 컨텍스트 컴팩션 누적 카운트(영속). 도구 시간/한도는 런타임이라 영속 ❌. */
   compactCounts?: Record<string, CompactCount>;
   /** 에이전트(session)별 관측된 도구 목록 (session_id → tool names). 훅에서 자동 수집. */
@@ -5235,8 +5256,10 @@ export interface ProjectIdentity {
    * id/label/sessionId/생성·position 같은 정체성은 여기서 권위를 갖는다.
    */
   customAgents: Record<string, BubbleData>;
-  /** 에이전트별 설정 (agent id → AgentConfig). */
+  /** 에이전트별 설정 (agent id → AgentConfig). §4 (설정 3층) 이후로는 세 층을 겹친 **완성본 사본** — 권위는 `agentConfigOverrides`. */
   agentConfigs: Record<string, AgentConfig>;
+  /** §4 (설정 3층) — 에이전트가 자기 것으로 못 박은 칸만. 없으면 위 완성본에서 되만든다(구버전 저장분 하위 호환). */
+  agentConfigOverrides?: Record<string, Partial<AgentConfig>>;
   /** 사용자 지정 라벨 (agent id → label). */
   customLabels: Record<string, string>;
   /** 커스텀 에이전트 세션의 소속 cwd (sessionId → cwd). 저장 필터·재개의 근거. */
@@ -5361,6 +5384,21 @@ export interface UserAdvancedDefaults extends Record<string, unknown> {
    */
   terminalScrollbackLines?: number;
 }
+
+/**
+ * §4 (설정 3층) — 설정 창이 **PUT 으로 보내는** 한 벌. 저장된 모양(`UserDefaults`)과 다른 타입인
+ * 이유는 `null` 때문이다.
+ *
+ * 서버는 카테고리 안을 **부분 머지**하므로 "이 칸을 비웠다"를 보내려면 그 키가 요청에 실려야
+ * 하는데, 종전 창은 미설정을 `undefined` 로 담았고 `JSON.stringify` 는 그 키를 **통째로 버린다**.
+ * 그래서 전역 기본값은 한 번 켜면 다시 끌 수 없었다(effort·isolation·safeMode·예산·타임아웃 …
+ * 되돌리려면 `~/.vibisual/user-defaults.json` 을 손으로 고쳐야 했다). `null` 은 전선을 건너가므로
+ * 지우겠다는 뜻을 실어 나를 수 있다 — 서버가 그 키를 지우고, 저장분에는 `null` 이 남지 않는다.
+ */
+export type AgentConfigPatch = { [K in keyof AgentConfig]?: AgentConfig[K] | null };
+
+/** 위와 같은 이유로 `agentConfig` 만 nullable 로 바꿔 받는 요청 본문. */
+export type UserDefaultsPatch = Omit<Partial<UserDefaults>, 'agentConfig'> & { agentConfig?: AgentConfigPatch };
 
 export interface UserDefaults {
   /** §4 v2.42 — 신규 에이전트 기본 설정. Partial — 미설정 필드는 `DEFAULT_AGENT_CONFIG` 사용. */
@@ -5793,15 +5831,6 @@ export interface AgentConfig {  /** 사용 모델 (예: "sonnet", "opus", "haiku
    * undefined = 미설정(플래그 없음 = CLI 기본).
    */
   autoCompact?: string;
-  /**
-   * §4 (CLI 사양 추종) — **턴이 끝나면 컨텍스트를 자동 압축**한다(`/compact` 1건을 그 세션 큐에).
-   *
-   * `autoCompact`(창 크기 임계)와 **축이 다르다** — 그건 "얼마나 차면 CLI 가 스스로 접는가"이고
-   * 이건 "일이 한 번 끝날 때마다 접는가"다. 임계는 작업 도중에도 터지지만 이쪽은 **항상 턴 경계**라
-   * 잘리는 자리가 안전하다(§5.5 #17-11 ⑪ 이 루프 회차 경계에서 세운 것과 같은 규율·같은 레일).
-   * `undefined`/`false` = 끔(기존 동작 그대로).
-   */
-  compactAfterTurn?: boolean;
   /**
    * §4 (CLI 사양 추종) — **작업 중 에이전트가 스스로 압축을 요청**할 수 있게 한다.
    *

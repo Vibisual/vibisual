@@ -231,7 +231,11 @@ export class AuditLogService {
     const at = input.at ?? Date.now();
     const state = this.state(input.projectName);
     const riskKinds = classifyToolRiskOnHost(input.toolName, input.toolInput ?? undefined, input.roots ?? []);
-    const { summary, target } = summarizeToolCall(input.toolName, input.toolInput ?? undefined);
+    // §2.1 #3 쓰기 축 — Bash 줄의 `target` 은 셸 명령에서 뽑는다. 플랫폼을 실어야 git bash 의
+    // `/c/…` 가 이 호스트에서 맞는 모양으로 온다(shared 는 `process.platform` 을 읽지 않는다).
+    const { summary, target } = summarizeToolCall(input.toolName, input.toolInput ?? undefined, {
+      platform: HOST_PLATFORM,
+    });
 
     const key = pendingKey(input, summary);
     // 승인 창구가 먼저 적어 둔 줄이 있으면 그 줄로 합친다(한 호출이 두 줄로 갈라지지 않게).

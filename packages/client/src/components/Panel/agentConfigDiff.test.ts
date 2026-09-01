@@ -9,9 +9,13 @@ import { describe, it, expect } from 'vitest';
 import {
   AGENT_CONFIG_COMPARED_FIELDS,
   AGENT_MAX_TURNS_UI_FALLBACK,
+  AGENT_TOOLS_BACKFILL_GEN,
   DEFAULT_AGENT_CONFIG,
   diffAgentConfigFromDefaults,
+  hasAgentConfigOverrides,
+  resolveAgentConfig,
   resolveAgentDefaults,
+  sparsifyAgentConfig,
   type AgentConfig,
 } from '@vibisual/shared';
 import popupSource from './AgentConfigPopup.tsx?raw';
@@ -48,7 +52,11 @@ describe('전역 기본값과의 차이 판정', () => {
   });
 
   it('도구·스킬은 집합으로 본다 — 순서는 뜻이 없다', () => {
-    const defaults = resolveAgentDefaults({ agentConfig: { tools: ['Read', 'Bash', 'Edit'], skills: ['a', 'b'] } });
+    // §4 (설정 3층) — 세대 도장이 있어야 "직접 고른 목록"이다. 없으면 백필이 한 번 채운다
+    //   (그게 없어서 판올림 전 프리셋이 48종 목록을 가렸다 — 저장 경로가 이 도장을 찍는다).
+    const defaults = resolveAgentDefaults({
+      agentConfig: { tools: ['Read', 'Bash', 'Edit'], toolsBackfillGen: AGENT_TOOLS_BACKFILL_GEN, skills: ['a', 'b'] },
+    });
     expect(diffAgentConfigFromDefaults(saved({ tools: ['Edit', 'Read', 'Bash'], skills: ['b', 'a'] }), defaults)).toEqual([]);
     expect(diffAgentConfigFromDefaults(saved({ tools: ['Read', 'Bash'], skills: ['a', 'b'] }), defaults)).toEqual(['tools']);
   });
@@ -125,5 +133,66 @@ describe('설정 창이 모든 축에 표식을 달았는가', () => {
   it('머리의 요약은 화면과 같은 목록을 센다', () => {
     expect(popupSource).toContain('diffFields.length > 0');
     expect(popupSource).toContain('hiddenDiffFields');
+  });
+});
+
+/**
+ * §4 (설정 3층) — 저장은 **갈라진 칸만**, 읽기는 **세 층을 겹쳐서**.
+ *
+ * 점을 찍는 것과 저장하는 것이 **같은 판정**이어야 한다. 두 벌이 되면 "점은 없는데 값은 못 박혀
+ * 있다"가 생기고, 그건 사용자가 화면으로는 절대 눈치챌 수 없는 어긋남이다.
+ */
+describe('갈라진 칸만 저장한다', () => {
+  it('점이 붙은 칸이 곧 저장되는 칸이다', () => {
+    const defaults = resolveAgentDefaults({ agentConfig: { model: 'sonnet' } });
+    const config = saved({ model: 'sonnet', effort: 'high', maxTurns: 10 });
+
+    const dotted = diffAgentConfigFromDefaults(config, defaults);
+    const stored = Object.keys(sparsifyAgentConfig(config, defaults)).filter((k) => k !== 'toolsBackfillGen');
+
+    expect(stored.sort()).toEqual([...dotted].sort());
+  });
+
+  it('손대지 않은 설정은 아무것도 저장하지 않는다', () => {
+    const defaults = resolveAgentDefaults({ agentConfig: { model: 'sonnet', effort: 'high' } });
+    expect(sparsifyAgentConfig({ ...defaults }, defaults)).toEqual({});
+  });
+
+  it('겹치면 원래 완성본으로 돌아온다(왕복 동등)', () => {
+    const defaults = resolveAgentDefaults({ agentConfig: { model: 'sonnet' } });
+    const config = saved({ model: 'opus', safeMode: true, maxTurns: 7 });
+
+    const resolved = resolveAgentConfig(sparsifyAgentConfig(config, defaults), { agentConfig: { model: 'sonnet' } });
+
+    expect(resolved.model).toBe('opus');
+    expect(resolved.safeMode).toBe(true);
+    expect(resolved.maxTurns).toBe(7);
+  });
+
+  it('위층이 정할 수 없는 정체성은 기본값과 같아 보여도 남긴다', () => {
+    const defaults = resolveAgentDefaults(undefined);
+    const stored = sparsifyAgentConfig({ ...defaults, executionMode: 'interactive-terminal' }, defaults);
+
+    expect(stored.executionMode).toBe('interactive-terminal');
+    // 정체성만으로는 "손댔다"가 아니다 — CMD 버블은 태어날 때부터 그것을 갖는다.
+    expect(hasAgentConfigOverrides(stored)).toBe(false);
+  });
+
+  it('도구를 못 박으면 세대 도장이 함께 남는다(다음 판올림의 백필 대상)', () => {
+    const defaults = resolveAgentDefaults(undefined);
+    const stored = sparsifyAgentConfig({ ...defaults, tools: ['Read'] }, defaults);
+
+    expect(stored.tools).toEqual(['Read']);
+    expect(stored.toolsBackfillGen).toBe(AGENT_TOOLS_BACKFILL_GEN);
+  });
+
+  it('점을 안 찍는 색도 갈라지면 저장된다 — 두 목록이 묻는 질문이 다르다', () => {
+    // `color` 는 점 목록에서만 빠진다(모든 버블에 붙으면 정보가 아니다). 저장에서는 빠지지
+    // 않으므로 ① 고른 색은 그 버블에 못 박히고 ② 안 고른 버블은 전역 색을 따라간다.
+    const defaults = resolveAgentDefaults({ agentConfig: { color: '#111111' } });
+
+    expect(diffAgentConfigFromDefaults(saved({ color: '#ff0000' }), defaults)).toEqual([]);
+    expect(sparsifyAgentConfig(saved({ color: '#ff0000' }), defaults).color).toBe('#ff0000');
+    expect(sparsifyAgentConfig(saved({ color: '#111111' }), defaults).color).toBeUndefined();
   });
 });

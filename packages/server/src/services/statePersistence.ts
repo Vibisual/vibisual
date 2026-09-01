@@ -255,6 +255,8 @@ function deriveIdentity(cp: ProjectCheckpoint): ProjectIdentity {
     agentCounter: cp.graph.agentCounter,
     customAgents,
     agentConfigs: cp.agentConfigs ?? {},
+    // §4 (설정 3층) — 갈라진 칸이 권위다. 완성본(`agentConfigs`)은 구버전 앱이 읽을 사본으로 함께 남긴다.
+    agentConfigOverrides: cp.agentConfigOverrides,
     customLabels: cp.customLabels ?? {},
     sessionCwds: cp.graph.refs.sessionCwds ?? {},
     taskEdges: cp.taskEdges ?? {},
@@ -914,6 +916,15 @@ function mergeIdentityIntoCheckpoint(cp: ProjectCheckpoint, identity: ProjectIde
       if (!(id in cp.agentConfigs)) cp.agentConfigs[id] = cfg;
     }
   }
+  // §4 (설정 3층) — 갈라진 칸도 같은 규칙으로 보충한다. **체크포인트에 그 필드가 아예 없으면
+  //   보충하지 않는다** — 없음은 "구버전 저장분"이라는 뜻이고, 그때는 복원이 완성본을 대조해
+  //   되만들어야 한다. 여기서 반쪽만 채우면 그 판정이 어긋나 나머지 에이전트가 전부 위층을
+  //   따르는 것으로 접힌다.
+  if (cp.agentConfigOverrides && identity.agentConfigOverrides) {
+    for (const [id, overrides] of Object.entries(identity.agentConfigOverrides)) {
+      if (!(id in cp.agentConfigOverrides)) cp.agentConfigOverrides[id] = overrides;
+    }
+  }
   // customLabels 보충.
   if (identity.customLabels && Object.keys(identity.customLabels).length > 0) {
     cp.customLabels = cp.customLabels ?? {};
@@ -1049,6 +1060,9 @@ function buildCheckpointSkeletonFromIdentity(identity: ProjectIdentity): Project
       inner: { edges: {}, groups: {}, refs: {} },
     },
     agentConfigs: { ...identity.agentConfigs },
+    // §4 (설정 3층) — identity 만 남은 복구 경로. 갈라진 칸이 있으면 그대로, 없으면(구버전 identity)
+    //   필드 자체를 두지 않아 복원이 완성본에서 되만들게 한다.
+    ...(identity.agentConfigOverrides ? { agentConfigOverrides: { ...identity.agentConfigOverrides } } : {}),
     customLabels: { ...identity.customLabels },
     taskEdges: { ...identity.taskEdges },
     commentBoxes: [...identity.commentBoxes],

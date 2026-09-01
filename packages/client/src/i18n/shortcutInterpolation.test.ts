@@ -40,6 +40,7 @@ const SHORTCUT_STRINGS: ReadonlyArray<{ key: string; vars: readonly string[]; ev
   { key: 'panel.contiBoard.zoomReset', vars: ['shortcut'], everyLocale: true },
   { key: 'panel.guide.navigation.copyD', vars: ['copy', 'paste'], everyLocale: true },
   { key: 'panel.guide.shortcuts.copyD', vars: ['copy', 'paste'], everyLocale: true },
+  { key: 'panel.guide.shortcuts.sessionTabsD', vars: ['cycle', 'cycleBack', 'pageNext', 'pagePrev', 'first', 'last'], everyLocale: true },
   { key: 'ide.imageAnnotate.hintDraw', vars: ['shortcut'], everyLocale: true },
   { key: 'ide.imageAnnotate.undo', vars: ['shortcut'], everyLocale: true },
   { key: 'ide.imageAnnotate.redo', vars: ['shortcut'], everyLocale: true },

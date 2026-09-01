@@ -295,6 +295,8 @@
         "intro": "Tastenkürzel beschleunigen Navigation und Bearbeitung. Sie pausieren, während Sie in einem Eingabefeld oder Terminal tippen.",
         "bookmarkT": "Bubble-Lesezeichen",
         "bookmarkD": "Alt+1…0 heftet eine Bubble oder Session an einen Slot; 1…0 drücken, um dorthin zurückzuspringen.",
+        "sessionTabsT": "Sitzungs-Tabs",
+        "sessionTabsD": "{{cycle}} / {{cycleBack}} wechselt zum nächsten oder vorherigen Sitzungs-Tab im vordersten IDE-Fenster ({{pageNext}} / {{pagePrev}} tun dasselbe). {{first}}…{{last}} springt direkt zum N-ten Tab; {{last}} ist immer der letzte.",
         "copyT": "Kopieren / Einfügen",
         "copyD": "{{copy}} / {{paste}} kopiert und fügt ausgewählte Agenten, Kanten und Kommentarfelder ein.",
         "inspectorT": "Inspector",
@@ -335,6 +337,7 @@
       "apply": "Anwenden",
       "cancel": "Abbrechen",
       "saving": "Wird gespeichert…",
+      "saveFailed": "Konnte nicht gespeichert werden — deine Änderungen sind noch da.",
       "comingSoon": "Demnächst",
       "comingSoonDesc": "Diese Kategorie ist für zukünftige Einstellungen reserviert.",
       "categories": {
@@ -999,11 +1002,13 @@
       },
       "autoCompact": {
         "label": "Auto-Verdichtung",
-        "tip": "Kontextgröße, ab der die CLI von selbst verdichtet. Ein kleinerer Wert verdichtet früher und häufiger.",
+        "tip": "Die Fenstergröße, an der die Verdichtung gemessen wird. Tatsächlich falten wir bei {{percent}} % davon, am Ende der Runde — damit mitten in der Arbeit nichts abgeschnitten wird; durchbricht eine einzelne Runde den restlichen Spielraum, faltet die CLI mitten in der Arbeit.",
         "unset": "Nicht gesetzt — folgt dem Standard in den Einstellungen.",
         "unsetLabel": "nicht gesetzt",
         "auto": "auto — die CLI wählt das Fenster.",
-        "tokens": "Verdichtet bei etwa {{tokens}} Token.",
+        "tokens": "Fenstergröße etwa {{tokens}} Token.",
+        "foldsAt": "Faltet bei etwa {{tokens}}, am Ende der jeweiligen Runde.",
+        "foldsAtAuto": "Faltet bei {{percent}} % des von der CLI gewählten Fensters, am Ende der jeweiligen Runde.",
         "unsetDefaultLabel": "nicht gesetzt ({{tokens}})",
         "globalTip": "Gilt für jeden Agenten ohne eigenen Wert für die automatische Verdichtung — auch für bereits laufende. Nicht gesetzt bedeutet: Standardwert wird verwendet."
       },
@@ -1094,10 +1099,6 @@
         "tip": "Welche Agent-CLI dieses CMD-Terminal startet. Alles außer Claude Code ist kein Kindprozess unserer Hooks, daher sind Gesprächs-Wiederaufnahme und Regel-Injektion nicht angebunden – der Status wird stattdessen aus der Terminalausgabe gelesen.",
         "nonClaudeNote": "Diese CLI ist nicht Claude Code, daher werden die folgenden Einstellungen (Modell, Berechtigungen, Tools, Regeln) nicht an sie übergeben. Der Status wird stattdessen aus der Terminalausgabe gelesen. Änderungen gelten für neue Sitzungen, die mit „+“ geöffnet werden.",
         "applyNote": "Eine geänderte CLI gilt für neue Sitzungen, die mit „+“ geöffnet werden – bereits laufende Terminals behalten das, womit sie gestartet wurden."
-      },
-      "compactAfterTurn": {
-        "label": "Nach Abschluss einer Runde verdichten",
-        "hint": "Faltet das Gespräch an jeder Rundengrenze zu einer Zusammenfassung — nie mitten in der Arbeit."
       },
       "agentCanCompact": {
         "label": "Agent darf während der Arbeit verdichten",

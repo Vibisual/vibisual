@@ -2,6 +2,8 @@ import type { AgentProvider, LocalEngineBackend, BubbleType, BubbleStyleConfig, 
 export type { ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry } from './types.js';
 // 경로 대소문자 정책 SSOT — win32/darwin 만 접고 linux 는 접지 않는다(`pathCase.ts`).
 import { legacyLowerPathKey, normalizePathShape, pathKey, type PlatformName } from './pathCase.js';
+// §2.1 #3 쓰기 축 — Bash 줄의 `target`(어느 파일을 고쳤나)을 그래프와 **같은 추출기**에서 뽑는다.
+import { extractBashWritePaths } from './bashCommandPaths.js';
 
 // ─── UI 다국어 (i18n) ───
 
@@ -307,6 +309,14 @@ export const MAX_BASH_HISTORY = 50;
 export const MAX_FILE_EDITS = 20;
 /** Write diff 합성 시 old/new 본문 한 쪽당 최대 보관 길이(문자). 초과분은 잘라 표식 추가 — 스냅샷/메모리 폭증 방지 */
 export const MAX_WRITE_DIFF_BYTES = 100_000;
+/**
+ * §2.1 #3 쓰기 축 — Bash diff 합성용 **사전 스냅샷**을 붙들어 두는 `tool_use_id` 개수 상한.
+ *
+ * 사전(Pre)에 뜬 본문은 사후(Post)가 오면 곧바로 소비돼 지워지므로 정상 흐름에서는 한 자릿수다.
+ * 이 상한은 사후가 영영 오지 않는 경우(중단·크래시·훅 유실)에만 쓰이는 안전망이다
+ * (§3.2.4 F′축 — 키가 늘 수 있는 자리는 다시 만들 수 있는 파생물에만 캡을 건다).
+ */
+export const BASH_WRITE_PENDING_MAX = 64;
 
 // ─── 보존 정책 (§3.2.3) ───
 //
@@ -1687,7 +1697,30 @@ export const BACKFILL_AGENT_TOOLS: readonly string[] = [...AVAILABLE_AGENT_TOOLS
  * - 세대 1 — v4.59 `TodoWrite` 외 (세대 표식이 없던 시절. 표식 없는 설정 = 세대 0 취급)
  * - 세대 2 — 공식 도구 표 45종 전체 수용
  */
-export const AGENT_TOOLS_BACKFILL_GEN = 2;/** §5.3 #12-2 v2.26 — AskUserQuestion 요청 타임아웃 (60s, permissionBroker 와 동일 윈도우) */
+export const AGENT_TOOLS_BACKFILL_GEN = 2;
+
+/**
+ * §4 (설정 3층) — 도구 목록에 **세대 도장이 찍히기 전 한 번만** 새 내장 도구를 채운다.
+ *
+ * 받는 것이 `Partial<AgentConfig>` 인 이유는 대상이 셋이기 때문이다 — 에이전트 오버라이드,
+ * 옛 저장분의 전체 설정, 그리고 **설정 창의 전역 프리셋**(`UserDefaults.agentConfig`).
+ * 종전에는 전역 프리셋만 이 백필을 못 받았고, 그 목록이 신규 에이전트의 씨앗이라
+ * **판올림 전에 정해 둔 목록이 앞으로 만들 모든 에이전트의 상한**이 됐다(실측 11/48).
+ * 게다가 씨앗을 받은 에이전트에는 `DEFAULT_AGENT_CONFIG` 의 현행 세대 도장이 함께 찍혀
+ * 백필이 "이미 돌았다"고 판단하므로, 그 누락은 어느 복원에서도 회복되지 않았다.
+ *
+ * `tools` 가 없는 설정은 **그대로 돌려준다** — 목록을 갖지 않은 것은 "고르지 않았다"이지
+ * "비워 뒀다"가 아니며, 여기서 채우면 위층을 따르던 설정이 자기 목록을 갖게 된다.
+ */
+export function backfillAgentTools<T extends Partial<AgentConfig>>(config: T): T {
+  if (!Array.isArray(config.tools)) return config;
+  if ((config.toolsBackfillGen ?? 0) >= AGENT_TOOLS_BACKFILL_GEN) return config;
+  const missing = BACKFILL_AGENT_TOOLS.filter((t) => !config.tools!.includes(t));
+  // 채울 게 없어도 도장은 찍는다 — 안 그러면 다음 복원에서 또 판정하러 들어온다.
+  return { ...config, tools: [...config.tools, ...missing], toolsBackfillGen: AGENT_TOOLS_BACKFILL_GEN };
+}
+
+/** §5.3 #12-2 v2.26 — AskUserQuestion 요청 타임아웃 (60s, permissionBroker 와 동일 윈도우) */
 export const ASK_USER_QUESTION_TIMEOUT_MS = 60_000;
 
 /** §4 v2.43 — 옵션창 Version 탭: 설치본 하나당 `--version` probe 타임아웃 (정상 응답 수십 ms) */
@@ -1910,8 +1943,11 @@ export const AVAILABLE_AUTOCOMPACT_VALUES: readonly string[] = [
  *
  * 400k 로 두는 이유 — 실측한 세션 최고점이 213k·231k·255k·349k 였다. 200k 면 **웬만한 세션이
  * 작업 도중 한 번은 잘리고**, 1M 이면 아무 일도 일어나지 않는다. 400k 는 그 분포 바로 위라
- * 평범한 세션은 끝까지 온전히 가고 길어지는 세션만 걸린다. 도중에 잘리는 것이 싫으면 임계가
- * 아니라 `compactAfterTurn`(턴 경계 압축)을 쓰는 것이 맞는 축이다.
+ * 평범한 세션은 끝까지 온전히 가고 길어지는 세션만 걸린다.
+ *
+ * ⚠ 이 값은 **`--autocompact` 에 실리는 창 크기이자 우리 턴 경계 압축의 기준**이다 — 사용자가 고르는
+ * 숫자는 이것 하나뿐이고(설정 창에 체크박스가 따로 없다), 실제로 접히는 자리는
+ * `turnCompactTriggerTokens` 가 정한다.
  */
 export const DEFAULT_AUTOCOMPACT_TOKENS = '400000';
 
@@ -1967,6 +2003,88 @@ export function resolveAutoCompact(agentValue?: string, userDefaultValue?: strin
     if (v && AVAILABLE_AUTOCOMPACT_VALUES.includes(v)) return v;
   }
   return DEFAULT_AUTOCOMPACT_TOKENS;
+}
+
+/**
+ * §4 (CLI 사양 추종) — `--autocompact` 값을 **토큰 수**로 읽는다. CLI 에게 이 숫자는 **창 크기**이지
+ * 자르는 지점이 아니다(설치본 2.1.251 `--help`: "Auto-compact window size"). 요약을 돌릴 여유가
+ * 있어야 하므로 CLI 는 이 선에 **닿기 전에** 접는다 — 그래서 이 숫자를 우리 발동선으로 그대로 쓰면
+ * CLI 가 항상 먼저 도달해 턴 경계 압축이 **영영 걸리지 않는다**(실제로 그렇게 만들어 봤다).
+ * 우리 선은 `turnCompactTriggerTokens` 가 이 값에서 한 단 낮춰 잡는다.
+ *
+ * `'auto'` 는 숫자가 아니다 — CLI 가 창 크기를 정하겠다는 뜻이므로, 그 모델의 창(`contextMax`)을
+ * 선으로 삼는다. 창 크기를 모르면 `null` 을 돌려주고, 부르는 쪽은 그것을 **"아직 판정 불가"**로
+ * 다뤄야 한다(모르는 채로 쏘면 종전의 매 턴 압축으로 되돌아간다).
+ */
+export function autoCompactThresholdTokens(resolved: string, contextMax?: number): number | null {
+  const n = Number(resolved);
+  if (Number.isFinite(n) && n > 0) return n;
+  return typeof contextMax === 'number' && contextMax > 0 ? contextMax : null;
+}
+
+/**
+ * §4 (CLI 사양 추종) — 우리가 **턴 경계에서** 접는 선을 자동 압축 값의 몇 배로 잡는가.
+ *
+ * 1.0 이면 안 된다 — CLI 는 그 값을 창 크기로 보고 그보다 **먼저** 접으므로, 같은 숫자를 쓰면
+ * 우리 차례가 오지 않는다. 0.8 은 400k 설정에서 320k 다: 한 턴이 대략 그 위 여백(약 8만 토큰)을
+ * 통째로 뚫지 않는 한 우리가 먼저 도달해 **안전한 자리**에서 접고, 뚫는 예외에서는 CLI 가 도중에
+ * 접는 최후 안전망이 그대로 남는다. 둘 중 무엇이 걸려도 압축은 일어난다 — 이 숫자가 정하는 것은
+ * "어디서 잘리는가"이지 "잘리는가"가 아니다.
+ */
+export const TURN_COMPACT_TRIGGER_RATIO = 0.8;
+
+/**
+ * §4 (CLI 사양 추종) — **턴이 끝났을 때 접기 시작하는 토큰 수.** 화면에 적히는 숫자도 이것이다.
+ *
+ * 자동 압축 값 하나에서 파생되므로 사용자가 고르는 숫자는 여전히 하나뿐이다(설정 창의 체크박스를
+ * 없앤 이유 — 같은 일을 하는 손잡이가 둘이면 헷갈리기만 한다). 값을 모르면 `null` 이고, 부르는
+ * 쪽은 그것을 **"아직 판정 불가"**로 다뤄야 한다.
+ */
+export function turnCompactTriggerTokens(resolved: string, contextMax?: number): number | null {
+  const window = autoCompactThresholdTokens(resolved, contextMax);
+  if (window === null) return null;
+  return Math.round(window * TURN_COMPACT_TRIGGER_RATIO);
+}
+
+/** `shouldCompactAfterTurn` 이 받는 것 — 판정에 필요한 사실만. 서버 객체를 통째로 넘기지 않는다. */
+export interface CompactAfterTurnInput {
+  /** 이번 턴에 에이전트가 스스로 요청했나(`agentCanCompact` 창구). 요청은 발동선을 묻지 않는다. */
+  requested: boolean;
+  /** `AgentConfig.autoCompact` — 이 에이전트가 따로 정한 값. */
+  autoCompact?: string;
+  /** 설정 창(Agent Defaults)의 전역 기본값. */
+  userAutoCompact?: string;
+  /** 턴이 끝난 지금 컨텍스트가 몇 토큰 차 있나. 모르면 undefined. */
+  contextUsed?: number;
+  /** 그 모델의 창 크기. `'auto'` 일 때만 쓰인다. */
+  contextMax?: number;
+}
+
+/**
+ * §4 (CLI 사양 추종) — **턴이 끝났다. 지금 접어야 하는가.**
+ *
+ * 켜고 끄는 스위치가 없다. 자동 압축 값을 고른 순간 "그 근처에서 접는다"는 뜻이고, 접는 자리는
+ * 언제나 **턴 경계**다 — 손잡이 둘(창 크기 + 턴 경계 체크박스)이 같은 일을 하며 헷갈리게 하던 것을
+ * 하나로 합친 결과다. 사용자가 고르는 숫자 하나가 "얼마나 차면"과 "언제 접는가"를 함께 정한다.
+ *
+ * 발동 조건 둘:
+ *  - **에이전트 요청**(`agentCanCompact`) — 무조건 참. 판단을 맡긴 축이라 우리가 되묻지 않으며,
+ *    발동선 아래(예: 120k)에서도 "이 일 끝났고 앞 맥락은 이제 필요 없다"고 부를 수 있다.
+ *  - **발동선 도달** — `turnCompactTriggerTokens` 를 넘긴 채 턴이 끝났을 때.
+ *
+ * ⚠ **컨텍스트를 못 재면 거짓**이다(`contextUsed` 없음/0). 모르는 채로 참을 돌려주면 매 턴 압축으로
+ * 조용히 되돌아간다 — 안 접히는 쪽이 사용자가 알아채고 고칠 수 있는 실패다(CLI 안전망도 남아 있다).
+ */
+export function shouldCompactAfterTurn(input: CompactAfterTurnInput): boolean {
+  if (input.requested) return true;
+  const used = input.contextUsed;
+  if (typeof used !== 'number' || !Number.isFinite(used) || used <= 0) return false;
+  const trigger = turnCompactTriggerTokens(
+    resolveAutoCompact(input.autoCompact, input.userAutoCompact),
+    input.contextMax,
+  );
+  if (trigger === null) return false;
+  return used >= trigger;
 }
 
 /**
@@ -3499,26 +3617,58 @@ export const SESSION_MEMO = {
   CASCADE_STEP: 18,
   /** 컨테이너 밖으로 나가지 않게 남겨 두는 최소 여백 (px) — 제목줄은 항상 잡을 수 있어야 한다. */
   EDGE_KEEP: 24,
+  /**
+   * 종이의 불투명도 기본값. 1 이 아닌 것이 의도다 — 메모는 **대화 위에 뜬 유리판**이라
+   * 아래 글이 비쳐야 "무엇을 가리고 있는지"가 보인다(뒤는 `backdrop-filter` 로 흐린다).
+   */
+  DEFAULT_ALPHA: 0.82,
+  /** 불투명도 하한/상한. 하한이 0 이 아닌 것도 의도 — 완전 투명이면 잡을 수 없는 유령이 된다. */
+  MIN_ALPHA: 0.2,
+  MAX_ALPHA: 1,
+  /** 불투명도 슬라이더 눈금. 저장은 소수 둘째 자리까지만(왕복 비교가 부동소수로 흔들리지 않게). */
+  ALPHA_STEP: 0.01,
 } as const;
 
 /**
- * 스티키 메모 팔레트 — 종이 색이라 **밝은 파스텔**이다(글자색은 대비로 자동 결정 —
- * `pickReadableTextColor`). `COMMENT_BOX_PALETTE`(캔버스 태그용 진한 색)와는 쓰임이 달라
- * 재사용하지 않는다 — 진한 배경에 검은 글씨는 메모지로 읽히지 않는다.
+ * 스티키 메모 팔레트 — **앱과 같은 색 언어**다. IDE 본문이 `bg-gray-950` 인 어두운 화면이라
+ * 밝은 파스텔 종이는 그 위에서 혼자 튀는 이물이었다. 지금은
+ * `COMMENT_BOX_PALETTE` 와 **같은 색상 계열의 깊은 판**이고, 불투명도(`SessionMemo.alpha`)를
+ * 얹어 아래 대화가 비치는 유리로 읽힌다. 글자색은 여전히 자동이다 — 다만 판정 기준이 색 자체가
+ * 아니라 **알파를 섞어 실제로 보이는 색**이라(`memoSurface`), 밝은 종이 한 칸(`paper`)을
+ * 골라도 대비가 무너지지 않는다.
  */
 export const SESSION_MEMO_PALETTE: readonly { id: string; label: string; color: string }[] = [
-  { id: 'yellow', label: 'Yellow', color: '#FDE68A' },
-  { id: 'orange', label: 'Orange', color: '#FED7AA' },
-  { id: 'pink', label: 'Pink', color: '#FBCFE8' },
-  { id: 'green', label: 'Green', color: '#BBF7D0' },
-  { id: 'teal', label: 'Teal', color: '#99F6E4' },
-  { id: 'blue', label: 'Blue', color: '#BFDBFE' },
-  { id: 'violet', label: 'Violet', color: '#DDD6FE' },
-  { id: 'white', label: 'White', color: '#F1F5F9' },
+  { id: 'slate', label: 'Slate', color: '#334155' },
+  { id: 'sky', label: 'Sky', color: '#075985' },
+  { id: 'teal', label: 'Teal', color: '#115E59' },
+  { id: 'emerald', label: 'Emerald', color: '#065F46' },
+  { id: 'amber', label: 'Amber', color: '#92400E' },
+  { id: 'rose', label: 'Rose', color: '#9F1239' },
+  { id: 'violet', label: 'Violet', color: '#5B21B6' },
+  { id: 'paper', label: 'Paper', color: '#E2E8F0' },
 ] as const;
 
-/** 새 메모의 기본색 — 팔레트 첫 칸(노랑)과 같아야 한다(`sessionMemo.test.ts` 가 지킨다). */
-export const SESSION_MEMO_DEFAULT_COLOR = '#FDE68A';
+/** 새 메모의 기본색 — 팔레트 첫 칸과 같아야 한다(`sessionMemo.test.ts` 가 지킨다). */
+export const SESSION_MEMO_DEFAULT_COLOR = '#334155';
+
+/**
+ * 옛 파스텔 팔레트 → 새 팔레트 이관표.
+ *
+ * 색을 갈아엎으면 **이미 붙여 둔 메모만 옛 색으로 남는다** — 사용자에게는 "고쳤다더니 내 메모는
+ * 그대로"로 보이고, 되돌릴 방법도 한 장씩 다시 고르는 것뿐이다. 그래서 정화 단계에서 한 번
+ * 갈아 끼운다(옛 8칸은 스와치로만 고를 수 있었으므로 **이 8개 값은 전부 우리가 넣은 것**이다 —
+ * 사용자가 손으로 고른 자유색을 덮어쓸 위험이 없다). 키는 대문자 `#RRGGBB`.
+ */
+export const SESSION_MEMO_LEGACY_COLOR_MAP: Readonly<Record<string, string>> = {
+  '#FDE68A': '#92400E', // yellow → amber
+  '#FED7AA': '#92400E', // orange → amber
+  '#FBCFE8': '#9F1239', // pink   → rose
+  '#BBF7D0': '#065F46', // green  → emerald
+  '#99F6E4': '#115E59', // teal   → teal
+  '#BFDBFE': '#075985', // blue   → sky
+  '#DDD6FE': '#5B21B6', // violet → violet
+  '#F1F5F9': '#E2E8F0', // white  → paper
+};
 
 /** `#RRGGBB` 만 통과. 임의 문자열이 style 속성으로 새어 들어가는 것을 막는다. */
 const SESSION_MEMO_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
@@ -3526,6 +3676,19 @@ const SESSION_MEMO_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 function clampNumber(v: unknown, min: number, max: number, fallback: number): number {
   if (typeof v !== 'number' || !Number.isFinite(v)) return fallback;
   return Math.round(Math.max(min, Math.min(max, v)));
+}
+
+/**
+ * 불투명도 정화 — 눈금(`ALPHA_STEP`)에 맞춘다. 좌표(`clampNumber`)와 달리 **정수로 반올림하면
+ * 안 되고**, 눈금을 곱해서도 안 된다: `Math.round(0.82 / 0.01) * 0.01 === 0.8200000000000001` 이라
+ * 기본값과 같은 값이 "다르다"로 판정돼, 기본값을 생략하는 규약이 조용히 무너진다(저장 왕복 비교도
+ * 영영 안 맞는다). 그래서 **나눗셈으로** 자릿수를 맞춘다.
+ */
+function clampMemoAlpha(v: unknown): number {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return SESSION_MEMO.DEFAULT_ALPHA;
+  const clamped = Math.max(SESSION_MEMO.MIN_ALPHA, Math.min(SESSION_MEMO.MAX_ALPHA, v));
+  const scale = Math.round(1 / SESSION_MEMO.ALPHA_STEP);
+  return Math.round(clamped * scale) / scale;
 }
 
 /**
@@ -3539,9 +3702,12 @@ export function sanitizeSessionMemo(input: unknown): SessionMemo | null {
   if (!id || !/^[\w-]{1,64}$/.test(id)) return null;
   const rawText = typeof n['text'] === 'string' ? n['text'] : '';
   const text = rawText.length > SESSION_MEMO.TEXT_MAX ? rawText.slice(0, SESSION_MEMO.TEXT_MAX) : rawText;
-  const color = typeof n['color'] === 'string' && SESSION_MEMO_COLOR_RE.test(n['color'])
+  const rawColor = typeof n['color'] === 'string' && SESSION_MEMO_COLOR_RE.test(n['color'])
     ? n['color']
     : SESSION_MEMO_DEFAULT_COLOR;
+  // 옛 파스텔 8칸은 새 팔레트로 갈아 끼운다(위 이관표 주석 참고).
+  const color = SESSION_MEMO_LEGACY_COLOR_MAP[rawColor.toUpperCase()] ?? rawColor;
+  const alpha = clampMemoAlpha(n['alpha']);
   const now = Date.now();
   const createdAt = clampNumber(n['createdAt'], 0, Number.MAX_SAFE_INTEGER, now);
   return {
@@ -3552,6 +3718,9 @@ export function sanitizeSessionMemo(input: unknown): SessionMemo | null {
     w: clampNumber(n['w'], SESSION_MEMO.MIN_W, SESSION_MEMO.MAX_W, SESSION_MEMO.DEFAULT_W),
     h: clampNumber(n['h'], SESSION_MEMO.MIN_H, SESSION_MEMO.MAX_H, SESSION_MEMO.DEFAULT_H),
     color,
+    // 기본값은 남기지 않는다(`collapsed` 와 같은 규약) — 옛 체크포인트가 새 필드로 부풀지 않고,
+    //   낙관 표시의 왕복 비교(`pushedRef`)도 판본 사이에서 흔들리지 않는다.
+    ...(alpha !== SESSION_MEMO.DEFAULT_ALPHA ? { alpha } : {}),
     ...(n['collapsed'] === true ? { collapsed: true } : {}),
     createdAt,
     updatedAt: clampNumber(n['updatedAt'], 0, Number.MAX_SAFE_INTEGER, createdAt),
@@ -7866,6 +8035,7 @@ export function classifyToolRisk(
 export function summarizeToolCall(
   toolName: string,
   toolInput?: Record<string, unknown> | null,
+  options?: { platform?: PlatformName },
 ): { summary: string; target?: string } {
   const input = toolInput ?? {};
   const command = typeof input['command'] === 'string' ? input['command'] : '';
@@ -7874,7 +8044,10 @@ export function summarizeToolCall(
 
   if (command) {
     const urls = command.match(AUDIT_URL_PATTERN);
-    const target = urls?.[0] ?? filePath;
+    // §2.1 #3 쓰기 축 — 셸로 고친 줄은 명령만 있고 **어느 파일인지가 비어 있었다**.
+    // 그래프가 쓰기 화살표를 세우는 것과 같은 추출기로 그 칸을 채운다(첫 경로 하나면 족하다).
+    const written = extractBashWritePaths(command, 1, { platform: options?.platform })[0];
+    const target = urls?.[0] ?? filePath ?? written;
     return {
       summary: auditClip(command, AUDIT_SUMMARY_MAX_CHARS),
       ...(target ? { target: auditClip(target, AUDIT_TARGET_MAX_CHARS) } : {}),

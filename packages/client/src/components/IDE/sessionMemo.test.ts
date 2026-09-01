@@ -2,6 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { SESSION_MEMO, SESSION_MEMO_DEFAULT_COLOR, SESSION_MEMO_PALETTE, sanitizeSessionMemos, type SessionMemo } from '@vibisual/shared';
 import {
   canAddMemo,
+  compositeOver,
+  memoAlpha,
+  memoSurface,
   clampMemoRect,
   clampMemos,
   moveMemo,
@@ -199,5 +202,51 @@ describe('팔레트 규약', () => {
 
   it('팔레트 색은 전부 #RRGGBB — style 로 그대로 나가도 안전하다', () => {
     for (const c of SESSION_MEMO_PALETTE) expect(c.color).toMatch(/^#[0-9A-Fa-f]{6}$/);
+  });
+});
+
+describe('불투명도(alpha) — 유리판의 두께', () => {
+  it('필드가 없으면 기본값이다(기본값은 저장하지 않는다)', () => {
+    expect(memoAlpha(memo())).toBe(SESSION_MEMO.DEFAULT_ALPHA);
+  });
+
+  it('범위 밖 값은 접힌다 — 완전 투명한 유령 카드가 생기지 않는다', () => {
+    expect(memoAlpha(memo({ alpha: 0 }))).toBe(SESSION_MEMO.MIN_ALPHA);
+    expect(memoAlpha(memo({ alpha: 9 }))).toBe(SESSION_MEMO.MAX_ALPHA);
+  });
+
+  it('기본값으로 되돌리면 alpha 키를 남기지 않는다(collapsed 와 같은 규약)', () => {
+    const list = [memo({ id: 'a', alpha: 0.4 })];
+    const out = patchMemo(list, 'a', { alpha: SESSION_MEMO.DEFAULT_ALPHA }, 3);
+    expect(out[0] && 'alpha' in out[0]).toBe(false);
+  });
+});
+
+describe('memoSurface — 글자색은 "고른 색"이 아니라 "보이는 색"으로 정한다', () => {
+  it('합성은 알파 0 이면 바닥색, 1 이면 고른 색 그대로', () => {
+    expect(compositeOver('#FFFFFF', 0, '#000000')).toBe('#000000');
+    expect(compositeOver('#FFFFFF', 1, '#000000')).toBe('#FFFFFF');
+  });
+
+  it('[회귀] 밝은 종이를 투명하게 낮추면 글자색이 흰색으로 뒤집힌다', () => {
+    // 색만 보고 판정하면 어두운 바닥 위 어두운 판에 **검은 글씨**를 얹어 아무것도 안 읽힌다.
+    const solid = memoSurface('#E2E8F0', 1);
+    const sheer = memoSurface('#E2E8F0', 0.2);
+    expect(solid.text).toBe('#0F172A');
+    expect(sheer.text).toBe('#F8FAFC');
+  });
+
+  it('거의 불투명하면 뒤를 흐리지 않는다(비칠 것이 없는데 합성기만 돈다)', () => {
+    expect(memoSurface(SESSION_MEMO_DEFAULT_COLOR, 1).blur).toBe(false);
+    expect(memoSurface(SESSION_MEMO_DEFAULT_COLOR, SESSION_MEMO.DEFAULT_ALPHA).blur).toBe(true);
+  });
+
+  it('배경은 rgba 로 나가고 알파가 그대로 실린다', () => {
+    expect(memoSurface('#334155', 0.5).background).toBe('rgba(51, 65, 85, 0.5)');
+  });
+
+  it('망가진 색이 style 로 새지 않는다 — 기본색으로 떨어진다', () => {
+    expect(memoSurface('red; background:url(x)', 1).background)
+      .toBe(memoSurface(SESSION_MEMO_DEFAULT_COLOR, 1).background);
   });
 });

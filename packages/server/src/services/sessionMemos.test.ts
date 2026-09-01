@@ -1,5 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { SESSION_MEMO, SESSION_MEMO_DEFAULT_COLOR, sanitizeSessionMemo, sanitizeSessionMemos, type SessionMemo } from '@vibisual/shared';
+import {
+  SESSION_MEMO,
+  SESSION_MEMO_DEFAULT_COLOR,
+  SESSION_MEMO_LEGACY_COLOR_MAP,
+  sanitizeSessionMemo,
+  sanitizeSessionMemos,
+  type SessionMemo,
+} from '@vibisual/shared';
 import { ProjectGraph } from './projectGraph.js';
 import { mergeSnapshots } from './projectGraphManager.js';
 import { subAgentManager } from './subAgentManager.js';
@@ -65,6 +72,30 @@ describe('sanitizeSessionMemo — 밖에서 온 값을 그대로 믿지 않는�
   it('collapsed 는 true 일 때만 남는다(저장 비교가 흔들리지 않게)', () => {
     expect('collapsed' in sanitizeSessionMemo({ ...memo(), collapsed: false })!).toBe(false);
     expect(sanitizeSessionMemo({ ...memo(), collapsed: true })!.collapsed).toBe(true);
+  });
+
+  it('불투명도는 범위 안으로 접히고 기본값은 남기지 않는다', () => {
+    expect('alpha' in sanitizeSessionMemo(memo())!).toBe(false);
+    expect('alpha' in sanitizeSessionMemo({ ...memo(), alpha: SESSION_MEMO.DEFAULT_ALPHA })!).toBe(false);
+    expect(sanitizeSessionMemo({ ...memo(), alpha: 0 })!.alpha).toBe(SESSION_MEMO.MIN_ALPHA);
+    expect(sanitizeSessionMemo({ ...memo(), alpha: 42 })!.alpha).toBe(SESSION_MEMO.MAX_ALPHA);
+    expect(sanitizeSessionMemo({ ...memo(), alpha: 'half' })!.alpha).toBeUndefined();
+  });
+
+  it('[회귀] 불투명도는 정수로 반올림되지 않는다 — 좌표와 같은 자로 재면 0 아니면 1 이 된다', () => {
+    expect(sanitizeSessionMemo({ ...memo(), alpha: 0.35 })!.alpha).toBeCloseTo(0.35, 5);
+  });
+
+  it('옛 파스텔 색은 새 팔레트로 갈아 끼운다 — "고쳤다는데 내 메모만 그대로"를 막는다', () => {
+    for (const [legacy, next] of Object.entries(SESSION_MEMO_LEGACY_COLOR_MAP)) {
+      expect(sanitizeSessionMemo({ ...memo(), color: legacy })!.color).toBe(next);
+      // 소문자로 저장된 옛 값도 같은 칸으로 간다.
+      expect(sanitizeSessionMemo({ ...memo(), color: legacy.toLowerCase() })!.color).toBe(next);
+    }
+  });
+
+  it('이관표에 없는 색은 사용자가 고른 자유색이라 건드리지 않는다', () => {
+    expect(sanitizeSessionMemo({ ...memo(), color: '#123ABC' })!.color).toBe('#123ABC');
   });
 });
 
@@ -179,6 +210,17 @@ describe('메인 탭 메모 — 영속 왕복 5지점', () => {
     revived.restoreFromCheckpoint(cp);
 
     expect(revived.getAgentMemos(agentId)[0]!.text).toBe('껐다 켜도 남아야 한다');
+  });
+
+  it('불투명도도 껐다 켜면 남는다(새 필드는 디스크 왕복을 안 타면 조용히 사라진다)', () => {
+    const { graph, projectName, agentId } = makeGraph();
+    graph.setAgentMemos(agentId, [memo({ alpha: 0.35 })]);
+
+    const revived = new ProjectGraph();
+    revived.registerProject(PROJECT_CWD);
+    revived.restoreFromCheckpoint(graph.toProjectCheckpoint(projectName)!);
+
+    expect(revived.getAgentMemos(agentId)[0]!.alpha).toBeCloseTo(0.35, 5);
   });
 
   it('복원 경로도 정화를 거친다 — 손상된 옛 파일이 그대로 좌표가 되지 않는다', () => {

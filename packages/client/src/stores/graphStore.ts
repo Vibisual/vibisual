@@ -5833,7 +5833,11 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     return { finishedSubagentTasks: next };
   }),
   applyAgentReports: (reports) => set({ agentReports: reports ?? {} }),
-  applyAgentMemos: (memos) => set({ agentMemos: memos ?? {} }),
+  // §5.5 #17-36 — **구조적 공유를 태운다.** 그냥 갈아끼우면 내용이 한 글자도 안 바뀐 스냅샷마다
+  //   `agentMemos[agentId]` 가 새 배열이 되어, 메모를 붙여 둔 화면이 초당 수십 번 리렌더된다
+  //   (`subAgents` 는 loadSnapshot 에서 이미 공유를 받고 있어 세션 메모에는 없던 증상이다).
+  //   드래그가 "늦게 따라오는" 체감의 절반이 여기서 나왔다.
+  applyAgentMemos: (memos) => set((s) => ({ agentMemos: structuralShare(s.agentMemos, memos ?? {}) })),
   applyAgentQuestions: (questions) => set({ agentQuestions: questions ?? {} }),
   applyAgentReviews: (reviews) => set({ agentReviews: reviews ?? {} }),
   applyReviewRequests: (list) => set({ reviewRequests: list ?? [] }),
@@ -6003,7 +6007,25 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     const rest = cur.downloads.filter((d) => d.downloadId !== p.downloadId);
     set({ localLlm: { ...cur, downloads: [...rest, p] } });
   },
-  applyUserDefaults: (d) => set({ userDefaults: d ?? null }),
+  /**
+   * §4 v2.42 — 사용자 옵션 반영.
+   *
+   * ⚠ **뒤늦게 도착한 옛 스냅샷이 방금 저장한 값을 덮지 않게 `updatedAt` 으로 막는다.**
+   * 이 값은 **두 통로**로 들어온다 — 즉시 적용되는 WS `user_defaults_updated` 와, 배치 타이머에
+   * 모였다 나중에 풀리는 `graph_snapshot`(useWebSocket 의 `flushSnapshot`)이다. 에이전트가 돌고
+   * 있으면 스냅샷이 계속 흐르므로, **저장 직전에 버퍼에 들어간 스냅샷이 저장 직후에 풀려**
+   * 옛 값을 다시 얹었다. 그러면 Options 창의 재시드 effect 가 폼을 옛 값으로 되돌려
+   * "디스크에는 저장됐는데 화면은 원래대로 돌아온다" = 사용자에게는 **저장 실패**로 보였다
+   * (돌고 있는 것이 없으면 스냅샷이 안 흘러 재현되지 않는다 — 그래서 "동작 중일 때만" 이다).
+   * 시각이 거꾸로 가는 payload 는 무조건 버린다(같은 시각은 통과 — 내용이 같다).
+   */
+  applyUserDefaults: (d) => {
+    if (d) {
+      const cur = get().userDefaults;
+      if (cur && typeof cur.updatedAt === 'number' && typeof d.updatedAt === 'number' && d.updatedAt < cur.updatedAt) return;
+    }
+    set({ userDefaults: d ?? null });
+  },
   setUiLocale: async (locale) => {
     const res = await fetch(`${API_BASE}/api/ui-locale`, {
       method: 'PUT',

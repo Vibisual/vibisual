@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { validatePathWithinRoot } from './pathValidator.js';
 // 경로 대소문자 정책 SSOT — win32/darwin 만 접고 linux 는 접지 않는다(`shared/pathCase.ts`).
-import { CASE_INSENSITIVE_FS, pathKey, samePath } from './pathKey.js';
+import { CASE_INSENSITIVE_FS, HOST_PLATFORM, pathKey, samePath } from './pathKey.js';
 import type {
   BubbleData,
   BubbleType,
@@ -101,6 +101,9 @@ import type { ServerKind, UiLocale, ExecutionMode, AgentProvider, ModelRegistry 
 // §5.22 — 권한·감사 경계.
 import type { AuditBoundaryConfig, AuditDecisionSource, ProjectAuditLog } from '@vibisual/shared';
 import { COST_MAP_ACTIVE_WINDOW_MS } from '@vibisual/shared';
+// §4 (설정 3층) — 에이전트 설정은 **갈라진 칸만** 저장하고 읽을 때 겹친다. 접힘 규칙은
+//   화면의 "기본값과 다름" 점과 **같은 함수**를 써야 어긋나지 않는다(shared 한 곳).
+import { resolveAgentConfig, sparsifyAgentConfig, hasAgentConfigOverrides, resolveAgentDefaults, backfillAgentTools } from '@vibisual/shared';
 // §5.5 #17-36 — 스티키 메모 상한/정화(디스크·REST 에서 온 값을 그대로 믿지 않는다).
 import { SESSION_MEMO, sanitizeSessionMemos } from '@vibisual/shared';
 // §7.11 — 루프백 주소 판정·추출(감지 폴백이 background 셸 밖의 서버도 회수하는 자리).
@@ -112,6 +115,8 @@ import {
 } from '@vibisual/shared';
 import { EdgeManager } from './edgeManager.js';
 import { extractBashReadPaths } from './bashReadPaths.js';
+// §2.1 #3 쓰기 축 — 셸로 고친 파일도 같은 버블 경로를 탄다(추출기는 shared 순수 모듈).
+import { extractBashWritePaths, BASH_WRITE_PATH_LIMIT, BASH_WRITE_PENDING_MAX } from '@vibisual/shared';
 import { extractPort, extractPortFromInlineEval, extractPortFromScriptFile, isPortAlive, resolveServingUrl, isProbeCommand, isVibisualLauncherCommand, isVibisualOwnPort } from './processChecker.js';
 import { BackgroundShellWatcher, parseBackgroundShellResponse, scanActiveBackgroundShells, stripAnsi } from './backgroundShellWatcher.js';
 import { subAgentManager, getCmdSessionIds } from './subAgentManager.js';
@@ -358,6 +363,50 @@ function resolveRelative(cwd: string, relPath: string): string {
 /** normalize() 결과가 절대 경로인지 (Windows 드라이브 또는 POSIX root).
  *  드라이브 문자는 대소문자를 가리지 않는다 — `normalize()` 가 더 이상 무조건 소문자로 접지 않으므로
  *  소문자만 보면 대소문자 구분 FS 에서 `C:/…` 를 상대경로로 오판한다. */
+/**
+ * 이 도구 이벤트가 **사후**인가(§3.6 v4.89).
+ *
+ * `PostToolUseFailure` 도 사후다 — 실패한 도구도 **끝난 도구**이고, 그때 파일은 이미 중간까지
+ * 바뀌었을 수 있다. 이 판정이 자리마다 흩어지면 새 종료류 이벤트가 늘 때 한쪽만 고쳐진다.
+ */
+/**
+ * diff 한 쪽에 실을 만큼만 디스크에서 읽는다 — `Write` 의 사전 본문과 §2.1 #3 Bash 쓰기 축 공용.
+ *
+ * 훅 경로 차단 방지 — 거대 파일은 통째 읽지 않고 경계 prefix 만 뜬다(어차피 `clampDiffSide` 가 자른다).
+ * 없거나 못 읽으면 `null`. `rejectBinary` 를 켜면 NUL 바이트가 보이는 순간 `null` 이다 —
+ * 셸 리다이렉트는 이미지·아카이브를 향할 때가 있고, 그 100KB 를 문자로 옮기면 이력과 스냅샷에
+ * 읽을 수 없는 쓰레기가 눌러앉는다(`Write` 는 종전 동작 유지 — 이 옵션을 켜지 않는다).
+ */
+function readDiffSideFromDisk(rawPath: string, opts?: { rejectBinary?: boolean }): string | null {
+  try {
+    const fsPath = rawPath.replace(/[\\/]/g, path.sep);
+    const st = fs.existsSync(fsPath) ? fs.statSync(fsPath) : null;
+    if (!st || !st.isFile()) return null;
+    const cap = MAX_WRITE_DIFF_BYTES + 64;
+    let text: string;
+    if (st.size <= cap) {
+      text = fs.readFileSync(fsPath, 'utf8');
+    } else {
+      const fd = fs.openSync(fsPath, 'r');
+      try {
+        const buf = Buffer.allocUnsafe(cap);
+        const read = fs.readSync(fd, buf, 0, cap, 0);
+        text = buf.toString('utf8', 0, read);
+      } finally {
+        fs.closeSync(fd);
+      }
+    }
+    if (opts?.rejectBinary && text.includes('\0')) return null;
+    return text;
+  } catch {
+    return null; // 바이너리/권한/인코딩 실패 → 판정 불가
+  }
+}
+
+function isPostToolPhase(payload: HookEventPayload): boolean {
+  return payload.hook_event_name === 'PostToolUse' || payload.hook_event_name === 'PostToolUseFailure';
+}
+
 function isAbsoluteNormalized(normalizedPath: string): boolean {
   return /^[a-zA-Z]:\//.test(normalizedPath) || normalizedPath.startsWith('/');
 }
@@ -580,6 +629,15 @@ function extractDirToolFiles(
 /** §2.1 #3 — Bash 로 읽은 경로에 붙일 도구 이름. `READ_TOOLS` 에 속해야 엣지가 읽기 방향으로 선다. */
 const BASH_READ_TOOL_NAME = 'Read';
 
+/** §2.1 #3 쓰기 축 — Bash 로 고친 경로에 붙일 도구 이름. `READ_TOOLS` **밖**이라 엣지가 쓰기 방향으로 선다. */
+const BASH_WRITE_TOOL_NAME = 'Write';
+
+/** 외부 노드 키의 표식 — `<wtPrefix>__ext__<절대경로>`. 키 조립·해체가 한 자리에서 나오게 한다. */
+const EXT_KEY_MARK = '__ext__';
+
+/** 접합(junction) 외부 폴더에 찍힐 도구 이름 — 에이전트가 직접 만진 자리가 아니다. */
+const EXTERNAL_JUNCTION_TOOL = 'Folder';
+
 /** 파일 경로 없는 특수 도구 → BubbleType 매핑 */
 const SPECIAL_TOOL_TYPES: Record<string, BubbleType> = {
   Bash: 'bash',
@@ -606,26 +664,11 @@ function iframePortKey(url: string | undefined): string | null {
   }
 }
 
-/**
- * §5.5 #17-17 ⑨ v4.59 — 디스크에서 읽은 에이전트 설정의 도구 목록 백필(복원·병합 공용).
- *
- * `TodoWrite` 는 v4.59 전까지 `AVAILABLE_AGENT_TOOLS` 에 없어 **설정창에 체크박스로 존재한 적이
- * 없었다**. 그러니 옛 설정에 그 항목이 없는 것은 "사용자가 껐다"가 아니라 "고를 기회가 없었다"이며,
- * 그대로 두면 판올림 전에 만든 에이전트는 계속 계획을 세우지 못해 목표창(#17-17)이 빈 채로 남는다.
- *
- * §4 (CLI 사양 추종) — **세대 도장으로 한 번만 돈다.** 종전에는 표식이 없어 복원·병합 때마다
- * 돌았고, 그래서 "사용자가 끈 도구가 재시작마다 되살아나는" 동작이었다(목록이 `TodoWrite` 하나뿐일
- * 때는 티가 안 났을 뿐이다). 목록이 공식 표 45종으로 커진 지금은 그것이 **모든 해제 선택을 매번
- * 되돌리는** 동작이 되므로, `toolsBackfillGen` 이 현행 세대에 도달한 설정은 건드리지 않는다.
- * 결과적으로 "고를 기회가 없던 것"은 한 번 채워지고, 그 뒤의 해제는 사용자 뜻으로 남는다.
- */
-function backfillAgentConfigTools(config: AgentConfig): AgentConfig {
-  if (!Array.isArray(config.tools)) return config;
-  if ((config.toolsBackfillGen ?? 0) >= AGENT_TOOLS_BACKFILL_GEN) return config;
-  const missing = BACKFILL_AGENT_TOOLS.filter((t) => !config.tools.includes(t));
-  // 채울 게 없어도 도장은 찍는다 — 안 그러면 다음 복원에서 또 판정하러 들어온다.
-  return { ...config, tools: [...config.tools, ...missing], toolsBackfillGen: AGENT_TOOLS_BACKFILL_GEN };
-}
+// §4 (설정 3층) — 도구 목록 백필은 shared `backfillAgentTools` 한 곳으로 옮겼다.
+//   여기 있던 시절에는 **에이전트 설정만** 백필을 받고 설정 창의 전역 프리셋은 못 받았는데,
+//   그 프리셋이 신규 에이전트의 씨앗이라 판올림 전에 골라 둔 목록이 앞으로 만들 모든
+//   에이전트의 상한이 됐다(실측 11/48). 세 대상이 같은 함수를 쓰게 하는 것이 그 수리다.
+
 /**
  * §5.5 #17-17 v4.46 — 디스크에서 읽은 세션 목표 정규화(복원·병합 공용).
  * 구버전 체크포인트에는 없던 필드가 있을 수 있어 기본값을 채우고, 퍼센트·이력 길이를 계약대로 조인다
@@ -976,6 +1019,9 @@ export class ProjectGraph {
    */
   private existenceMissCount = new Map<string, number>();
 
+  /** 외부 폴더 접합 트리 재구성 중인가 — 재구성이 불러오는 제거·업서트가 다시 재구성을 부르는 것을 막는다. */
+  private rebuildingExternalTree = false;
+
   /** 에이전트(session)별 Bash 히스토리 (session_id → 최신순 엔트리) */
   private bashHistory = new Map<string, BashEntry[]>();
   /** tool_use_id → BashEntry 빠른 조회용 (PostToolUse에서 output 매칭) */
@@ -1030,8 +1076,28 @@ export class ProjectGraph {
   /** 탭 닫기로 숨긴 프로젝트 (데이터 보존, 스냅샷에서만 제외) */
   private hiddenProjects = new Set<string>();
 
-  /** 에이전트별 설정 (agent ID → AgentConfig). 디테일 패널에서 편집, checkpoint에 저장 */
-  private agentConfigs = new Map<string, AgentConfig>();
+  /**
+   * §4 (설정 3층) — 에이전트가 **자기 것으로 못 박은 칸만**(agent ID → 갈라진 칸).
+   *
+   * 종전에는 여기에 완성된 설정 한 벌이 들어 있었고, 그 한 벌은 `createCustomAgent` 가 버블을
+   * 만드는 순간 전역 기본값을 통째로 복사해 넣은 것이었다. 그래서 설정 창을 나중에 고쳐도
+   * 이미 있는 버블에는 닿지 않았고, 저장분만 봐서는 **어느 칸이 사용자의 뜻인지 알 수 없었다.**
+   * 이제 갈라진 칸만 두고 `getAgentConfig` 가 읽는 순간 세 층을 겹친다 —
+   * 그래야 "안 건드린 칸은 설정 창을 따라간다"가 성립한다.
+   *
+   * 빈 객체가 들어 있는 것과 키가 아예 없는 것은 **다르다**: 빈 객체 = "그런 에이전트가 있고
+   * 전부 위층을 따른다", 키 없음 = "그런 에이전트를 모른다"(`getAgentConfig` 가 `undefined`).
+   */
+  private agentConfigOverrides = new Map<string, Partial<AgentConfig>>();
+  /**
+   * §4 (설정 3층) — 라이브 세션에서 **관측된** 모델(agent ID → 모델 패밀리). 영속 ❌.
+   *
+   * 훅으로 잡은 외부 세션은 우리가 띄운 것이 아니라 설정이라 부를 것이 없다 — 그 버블의 모델은
+   * 관측이 유일한 진실이다. 종전에는 이 관측을 설정에 **써 넣어서**, 사용자가 고른 적 없는 값이
+   * 자기 값처럼 굳고 도구 목록까지 함께 덮였다(설정 창의 도구 선택이 읽히지 않던 원인).
+   * 이제 저장하지 않고 읽는 순간에만 얹으며, **자기 `model` 을 못 박은 에이전트는 건드리지 않는다.**
+   */
+  private detectedAgentModels = new Map<string, string>();
   /** 에이전트(session)별 관측된 도구 (session_id → Set<tool_name>). 훅 이벤트에서 자동 수집 */
   private observedTools = new Map<string, Set<string>>();
   /** 사용자가 직접 수동 편집한 에이전트 설정 (agent ID Set). 수동 편집 시 자동 동기화 비활성화 */
@@ -1629,9 +1695,73 @@ export class ProjectGraph {
 
   // ─── 에이전트 설정 ───
 
-  /** 에이전트 설정 조회 (없으면 undefined) */
+  /**
+   * §4 (설정 3층) — 그 시점의 **기본값 한 벌**(내장 + 설정 창). 한 스냅샷 안에서 여러 번 겹치므로
+   * 전역 옵션의 `updatedAt` 을 열쇠로 캐시한다(설정 창을 고치면 다음 조회에서 저절로 새로 만들어진다).
+   */
+  private agentDefaultsCache: { key: number; value: AgentConfig } | null = null;
+  private currentAgentDefaults(): AgentConfig {
+    const defaults = userDefaultsService.get();
+    const key = defaults.updatedAt ?? 0;
+    if (!this.agentDefaultsCache || this.agentDefaultsCache.key !== key) {
+      this.agentDefaultsCache = { key, value: resolveAgentDefaults(defaults) };
+    }
+    return this.agentDefaultsCache.value;
+  }
+
+  /**
+   * 에이전트 설정 조회 — **세 층을 겹친 완성본**(없으면 undefined).
+   *
+   * 부르는 쪽(스폰 인자 조립·화면·REST)은 종전과 똑같은 완전한 객체를 받는다. 달라진 것은
+   * "안 건드린 칸의 값이 어디서 오는가" 하나뿐이다 — 저장분이 아니라 지금의 설정 창에서 온다.
+   */
   getAgentConfig(agentId: string): AgentConfig | undefined {
-    return this.agentConfigs.get(agentId);
+    const overrides = this.agentConfigOverrides.get(agentId);
+    if (!overrides) return undefined;
+    const resolved = resolveAgentConfig(overrides, userDefaultsService.get());
+    // 훅으로 잡은 외부 세션의 모델은 관측이 유일한 진실이다(우리가 띄운 것이 아니라 고른 값이 없다).
+    //   자기 `model` 을 못 박은 에이전트는 그 뜻이 우선이라 얹지 않는다.
+    if (overrides.model === undefined) {
+      const detected = this.detectedAgentModels.get(agentId);
+      if (detected) resolved.model = detected;
+    }
+    return resolved;
+  }
+
+  /** §4 (설정 3층) — 이 에이전트가 자기 것으로 못 박은 칸만(영속·마이그레이션용). */
+  getAgentConfigOverrides(agentId: string): Partial<AgentConfig> | undefined {
+    return this.agentConfigOverrides.get(agentId);
+  }
+
+  /**
+   * §4 (설정 3층) — 저장분에서 오버라이드 한 벌을 되만든다. **복원과 병합이 같이 쓴다.**
+   *
+   * 저장분 모양이 둘이라(판올림 전 완성본 / 판올림 후 갈라진 칸) 되만드는 규칙이 두 곳에 흩어지면
+   * 한쪽만 고쳐지는 날이 온다. 그래서 한 곳이다.
+   *
+   * **판올림 전 저장분은 그 시점 기본값과 대조해 옮긴다.** 그래야 지금 동작이 그대로 유지된다 —
+   * 기본값과 달랐던 칸은 갈라진 채로 남아 계속 그 값으로 돌고, 기본값과 같던 칸은 위층을
+   * 따라가는데 그 위층의 값이 곧 방금까지 쓰던 값이라 결과가 바뀌지 않는다. 앞으로 설정 창을
+   * 고쳤을 때만 차이가 난다(그게 이번에 요청받은 동작이다).
+   *
+   * 도구 백필은 **옮기기 전에** 돈다. 옛 저장분에는 세대 도장이 없어 목록이 짧은데, 먼저 채우지
+   * 않으면 그 짧은 목록이 "사용자가 고른 목록"으로 못 박혀 앞으로 영영 새 도구를 못 받는다.
+   */
+  private readAgentConfigOverrides(
+    cp: Pick<ProjectCheckpoint, 'agentConfigs' | 'agentConfigOverrides'>,
+  ): Map<string, Partial<AgentConfig>> {
+    const out = new Map<string, Partial<AgentConfig>>();
+    if (cp.agentConfigOverrides) {
+      for (const [id, overrides] of Object.entries(cp.agentConfigOverrides)) {
+        out.set(id, backfillAgentTools(overrides));
+      }
+      return out;
+    }
+    const defaults = this.currentAgentDefaults();
+    for (const [id, config] of Object.entries(cp.agentConfigs ?? {})) {
+      out.set(id, sparsifyAgentConfig(backfillAgentTools(config), defaults));
+    }
+    return out;
   }
 
   /** 에이전트 설정 저장 (사용자 수동 편집) */
@@ -1641,7 +1771,7 @@ export class ProjectGraph {
     //   사용자가 직접 바꾼 이름은 기본 라벨 모양이 아니라서 여기 걸리지 않는다 — 지키려고 플래그를
     //   따로 두지 않는 이유다.
     const boundName = config.provider?.modelName?.trim();
-    const hadModel = !!this.agentConfigs.get(agentId)?.provider?.modelId;
+    const hadModel = !!this.agentConfigOverrides.get(agentId)?.provider?.modelId;
     if (boundName && config.provider?.modelId && !hadModel) {
       for (const agent of this.agents.values()) {
         if (agent.id !== agentId) continue;
@@ -1649,14 +1779,35 @@ export class ProjectGraph {
         break;
       }
     }
-    this.agentConfigs.set(agentId, config);
-    this.manuallyConfigured.add(agentId);
-    logger.info(`Agent config updated (manual): ${agentId}`);
+    // §4 (설정 3층) — 넘어온 완성본에서 **위층과 갈라진 칸만** 남긴다.
+    //   그래서 창을 열어 아무것도 안 고치고 저장하면 못 박히는 칸이 하나도 없다(종전에는 그
+    //   한 번으로 그 시점 전역값 한 벌이 통째로 굳었고, 자동 동기화에서도 영구히 빠졌다).
+    const overrides = sparsifyAgentConfig(config, this.currentAgentDefaults());
+    this.agentConfigOverrides.set(agentId, overrides);
+    // "손댔다"의 판정도 저장분에서 나온다 — 되돌려 저장하면 자동 동기화로 다시 돌아간다.
+    if (hasAgentConfigOverrides(overrides)) this.manuallyConfigured.add(agentId);
+    else this.manuallyConfigured.delete(agentId);
+    logger.info(`Agent config updated (manual): ${agentId} (pinned=${Object.keys(overrides).length})`);
   }
 
-  /** 전체 에이전트 설정 스냅샷 */
+  /**
+   * 전체 에이전트 설정 스냅샷 — **완성본**(전선·구버전 저장분용).
+   *
+   * 화면과 구버전 앱은 완전한 설정 한 벌을 기대하므로 여기서 세 층을 겹쳐 넘긴다.
+   * 권위 있는 저장분은 `getAgentConfigOverridesSnapshot()` 쪽이다.
+   */
   getAgentConfigsSnapshot(): Record<string, AgentConfig> {
-    return Object.fromEntries(this.agentConfigs);
+    const out: Record<string, AgentConfig> = {};
+    for (const agentId of this.agentConfigOverrides.keys()) {
+      const resolved = this.getAgentConfig(agentId);
+      if (resolved) out[agentId] = resolved;
+    }
+    return out;
+  }
+
+  /** §4 (설정 3층) — 갈라진 칸만 모은 스냅샷(영속 권위). */
+  getAgentConfigOverridesSnapshot(): Record<string, Partial<AgentConfig>> {
+    return Object.fromEntries(this.agentConfigOverrides);
   }
 
   /** 훅 이벤트에서 관측한 도구를 기록 */
@@ -1667,40 +1818,26 @@ export class ProjectGraph {
   }
 
   /**
-   * 실제 에이전트 정보(모델) → AgentConfig 자동 동기화.
-   * 사용자가 수동 편집한 에이전트는 건너뜀.
-   * 도구 목록은 동기화하지 않음 — 관측된 도구 ≠ 허용 도구 (기본은 전체 허용).
-   * getSnapshot() 시점에 호출하여 항상 최신 상태 반영.
+   * §4 (설정 3층) — 라이브 세션에서 관측한 모델을 **따로 기록**하고, 에이전트 버블마다 설정 자리를
+   * 하나씩 열어 둔다. `getSnapshot()` 마다 돈다.
+   *
+   * **종전에는 이 함수가 설정을 직접 고쳤다.** 관측한 모델을 저장분에 써 넣고, 그러면서 도구 목록을
+   * `DEFAULT_AGENT_CONFIG.tools` 로 되돌렸다("tools reset to all"). 그 되돌림 때문에 **설정 창의
+   * 도구 선택은 신규 에이전트에서 한 번도 살아남지 못했다** — 생성이 전역 목록을 넣으면 다음
+   * 스냅샷이 내장 목록으로 덮었다(실측: 전역 11종 · 살아 있는 에이전트 22종). 두 경로가 서로
+   * 반대 방향으로 싸운 것이라 한쪽을 이기게 하는 게 아니라, **관측을 저장에서 떼어 내** 끝낸다.
+   *
+   * 이제 여기서 하는 일은 둘뿐이다 — ① 관측 모델을 휘발성 맵에 기록(읽을 때만 얹힌다),
+   * ② 처음 보는 에이전트 버블에 **빈 오버라이드**를 열어 그 버블에도 설정 창구가 생기게 한다.
    */
   private syncDetectedAgentConfigs(enrichedAgents: BubbleData[]): void {
-    const allToolsSet = new Set(AVAILABLE_AGENT_TOOLS);
-
     for (const agent of enrichedAgents) {
       if (agent.bubbleType !== 'agent') continue;
-      // 수동 편집된 에이전트는 자동 동기화 스킵
-      if (this.manuallyConfigured.has(agent.id)) continue;
-
+      if (!this.agentConfigOverrides.has(agent.id)) this.agentConfigOverrides.set(agent.id, {});
+      // 자기 `model` 을 못 박은 에이전트는 관측으로 덮지 않는다(사용자가 고른 값이 우선).
+      if (this.agentConfigOverrides.get(agent.id)?.model !== undefined) continue;
       const detectedModel = parseModelFamily(agent.modelName);
-
-      const existing = this.agentConfigs.get(agent.id);
-
-      // 수동 편집 안 한 에이전트: 도구는 항상 전체 허용 (기본값)
-      const existingToolsAreDefault = !existing?.tools
-        || (existing.tools.length === allToolsSet.size && existing.tools.every((t) => allToolsSet.has(t)));
-      const needsToolFix = existing && !existingToolsAreDefault;
-
-      const newModel = detectedModel ?? existing?.model ?? DEFAULT_AGENT_CONFIG.model;
-      const modelChanged = !existing || existing.model !== newModel;
-
-      if (!modelChanged && !needsToolFix) continue;
-
-      const config: AgentConfig = {
-        ...(existing ?? { ...DEFAULT_AGENT_CONFIG }),
-        model: newModel,
-        tools: [...DEFAULT_AGENT_CONFIG.tools],
-      };
-      this.agentConfigs.set(agent.id, config);
-      logger.debug(`Agent config auto-synced: ${agent.id} (model=${newModel}${needsToolFix ? ', tools reset to all' : ''})`);
+      if (detectedModel) this.detectedAgentModels.set(agent.id, detectedModel);
     }
   }
 
@@ -2005,23 +2142,18 @@ export class ProjectGraph {
       position,
     };
     this.agents.set(sessionId, agent);
-    // §4 v2.42 — 신규 에이전트 기본 설정 = DEFAULT_AGENT_CONFIG 위에 userDefaults.agentConfig 머지.
-    // 사용자가 Options 창에서 정의한 디폴트가 새 에이전트에 자동 적용. 기존 에이전트엔 영향 ❌.
-    const userAgentDefaults = userDefaultsService.get().agentConfig ?? {};
-    // §4 v2.63 — 우클릭 "CMD Agent" 전용. 사용자 토글 ❌ — 2트랙(헤드리스 하네스 vs 인터랙티브 cmd) 분리.
-    this.agentConfigs.set(agent.id, {
-      ...DEFAULT_AGENT_CONFIG,
-      ...userAgentDefaults,
-      tools: userAgentDefaults.tools ? [...userAgentDefaults.tools] : [...DEFAULT_AGENT_CONFIG.tools],
-      skills: userAgentDefaults.skills ? [...userAgentDefaults.skills] : [...DEFAULT_AGENT_CONFIG.skills],
-      // §4 v2.63 — executionMode 는 userDefaults 에서 **절대 상속하지 않는다**(레거시 토글 잔재 차단).
-      //   CMD 는 우클릭 "CMD Agent"(명시 options) 로만 baked. 일반 커스텀 에이전트는 항상 헤드리스.
-      executionMode: cmdMode ? 'interactive-terminal' as const : undefined,
-      // §5.19 — provider 도 같은 규약이다: userDefaults 에서 상속하지 않고 **생성 시 명시된 것만** baked.
-      //   이 값이 없으면 이 에이전트는 지금까지와 똑같은 claude 경로를 탄다.
-      ...(localMode && options?.provider ? { provider: options.provider } : {}),
-      ...(cmdMode ? { color: CMD_AGENT_COLOR } : {}),
-      ...(localMode ? { color: LOCAL_AGENT_COLOR } : {}),
+    // §4 (설정 3층) — 신규 에이전트는 **아무것도 복사하지 않는다.** 종전에는 여기서 전역 기본값
+    //   한 벌을 통째로 베껴 넣었고(v2.42), 그래서 그 뒤에 설정 창을 고쳐도 이 버블에는 영영
+    //   닿지 않았다. 이제 빈 오버라이드로 태어나 `getAgentConfig` 가 읽을 때마다 설정 창을
+    //   따라간다 — 사용자가 이 창에서 고친 칸만 그 시점에 여기 쌓인다.
+    //
+    //   태어날 때부터 갖는 것은 **위층이 정할 수 없는 정체성**뿐이다.
+    //   §4 v2.63 — executionMode 는 userDefaults 에서 절대 상속하지 않는다(레거시 토글 잔재 차단).
+    //     CMD 는 우클릭 "CMD Agent"(명시 options) 로만 baked. 일반 커스텀 에이전트는 항상 헤드리스.
+    //   §5.19 — provider 도 같은 규약: 생성 시 명시된 것만 baked. 없으면 지금까지의 claude 경로.
+    this.agentConfigOverrides.set(agent.id, {
+      ...(cmdMode ? { executionMode: 'interactive-terminal' as const, color: CMD_AGENT_COLOR } : {}),
+      ...(localMode && options?.provider ? { provider: options.provider, color: LOCAL_AGENT_COLOR } : {}),
     });
     // activeProject name → 해당 프로젝트의 원본 cwd 조회
     const cwd = this.resolveProjectCwd(projectName ?? null);
@@ -3293,7 +3425,8 @@ export class ProjectGraph {
         // §5.3 #28 (L) v1.58 — 콘티 작업 트래커 cascade
         this.activeContiWork.delete(agent.id);
         // 메모리 누수 방지 — 사용자 명시 삭제 시 per-agent Map/Set 정리(좀비 카드 누적 차단)
-        this.agentConfigs.delete(agent.id);
+        this.agentConfigOverrides.delete(agent.id);
+        this.detectedAgentModels.delete(agent.id);
         this.agentReports.delete(agent.id);
         this.agentMemos.delete(agent.id);
         this.agentQuestions.delete(agent.id);
@@ -3355,6 +3488,9 @@ export class ProjectGraph {
         // 사용자 삭제 → 연결 엣지 완전 제거(고아 방지). ghost 변환 경로는 이 분기 오지 않음.
         this.mainEdges.removeByPredicate((e) => removedIds.has(e.source) || removedIds.has(e.target));
         this.innerEdges.removeByPredicate((e) => removedIds.has(e.source) || removedIds.has(e.target));
+        // 외부 폴더가 빠지면 남은 형제들의 부모가 달라진다 — 계층을 다시 세워
+        // 부모를 잃은 폴더가 최상위도 자식도 아닌 채로 화면에서 사라지지 않게 한다(§2.1 #5).
+        if (this.externalKeyParts(nodePath)) this.rebuildExternalFolderTree();
         logger.info(`Bubble removed: node "${node.label}"`);
         return;
       }
@@ -3719,6 +3855,8 @@ export class ProjectGraph {
       const specialType = SPECIAL_TOOL_TYPES[payload.tool_name];
       if (specialType === 'bash') {
         this.recordBashEntry(payload);
+        // §2.1 #3 쓰기 축 — 셸로 고친 파일의 수정 이력(사전 스냅샷 → 사후 대조).
+        this.recordBashFileEdits(payload);
       }
 
       const agent = this.touchAgent(payload.session_id, payload.cwd);
@@ -3778,6 +3916,9 @@ export class ProjectGraph {
         // §2.1 #3 — Bash 로 읽은 파일도 같은 파일/폴더 버블 경로를 탄다(도구명은 `Read` 로 정규화).
         // 이게 없으면 `sed`/`cat` 으로 읽는 동안 캔버스는 직전 Edit/Write 상태로 얼어붙는다.
         if (specialType === 'bash') this.routeBashReadPaths(agent, payload);
+        // §2.1 #3 쓰기 축 — 셸로 고친 파일도 같은 경로로. **사후에만** 흘린다(사전에는 새 파일이
+        // 아직 없고, 실행되지 않은 명령에 쓰기 화살표를 세우면 그건 거짓이다).
+        if (specialType === 'bash') this.routeBashWritePaths(agent, payload);
         return result;
       }
 
@@ -3941,6 +4082,64 @@ export class ProjectGraph {
         allowWorktreeMigration: false,
       });
     }
+  }
+
+  /**
+   * §2.1 #3 쓰기 축 — Bash 명령에서 **쓰기로 확실한 경로만** 뽑아 같은 파일/폴더 버블 경로로 흘린다.
+   *
+   * 도구명을 `Write` 로 정규화하면 `READ_TOOLS` **밖**이라 기존 방향 규칙이 그대로
+   * **에이전트 → 파일** 화살표를 세운다(§2.1 "한 쌍에 방향은 하나").
+   *
+   * 읽기 축과 다른 점 셋:
+   *  ① **사후에만** 돈다 — 사전에는 새로 만들 파일이 아직 없고, 실행되지 않은 명령에 화살표를
+   *     세우면 그건 거짓이다. 실패한 도구(`PostToolUseFailure`)도 사후로 센다(중간까지 쓰였을 수 있다).
+   *  ② **워크트리 이주 판정을 탄다** — 쓰기는 "그 워크트리로 옮겨 앉았다"는 신호다(읽기는 안 탄다).
+   *  ③ 사전에 떠 둔 디스크 본문과 지금을 견줘 **diff 를 합성**한다(`recordBashFileEdits`).
+   *
+   * 디스크에 실재하는 **파일**만 채택하는 것은 읽기와 같다 — 지워진 파일·`cp` 의 폴더 목적지가
+   * 파일 버블로 서지 않게.
+   */
+  private routeBashWritePaths(agent: BubbleData, payload: HookEventPayload): void {
+    if (!isPostToolPhase(payload)) return;
+    for (const absPath of this.bashWritePathsFor(payload)) {
+      let isFile = false;
+      try {
+        isFile = fs.statSync(absPath).isFile();
+      } catch {
+        isFile = false;
+      }
+      if (!isFile) continue;
+      this.routeToolFilePath(agent, payload, normalize(absPath), BASH_WRITE_TOOL_NAME, {
+        isDirectory: false,
+      });
+    }
+  }
+
+  /**
+   * §2.1 #3 쓰기 축 — 이 Bash 호출이 고친 **절대 경로**들.
+   *
+   * 사전·사후가 **같은 목록**을 봐야 diff 의 두 쪽이 같은 파일을 가리킨다. 그래서 뽑는 자리는
+   * 여기 하나다. 상대 경로는 세션 cwd 로 올린다 — 안 올리면 `recordFileEdit` 이 서버 프로세스의
+   * cwd 를 보고 엉뚱한 자리를 읽어 diff 가 통째로 빈다(§5.19 로컬 도구 경로가 겪은 그 사고).
+   */
+  private bashWritePathsFor(payload: HookEventPayload): string[] {
+    const cmd = typeof payload.tool_input?.['command'] === 'string' ? payload.tool_input['command'] : '';
+    if (!cmd) return [];
+    let raw: string[];
+    try {
+      raw = extractBashWritePaths(cmd, BASH_WRITE_PATH_LIMIT, { platform: HOST_PLATFORM });
+    } catch (err) {
+      logger.debug('extractBashWritePaths failed', err);
+      return [];
+    }
+    const cwd = this.sessionCwds.get(payload.session_id) ?? payload.cwd;
+    const out: string[] = [];
+    for (const p of raw) {
+      const norm = normalize(p);
+      if (isAbsoluteNormalized(norm)) out.push(norm);
+      else if (cwd) out.push(resolveRelative(cwd, norm));
+    }
+    return out;
   }
 
   /** 세션 cwd → 그 세션이 속한 **탭** 프로젝트 이름(워크트리면 부모 탭). 못 찾으면 null. */
@@ -4522,7 +4721,11 @@ export class ProjectGraph {
       completedCommands: this.serializeCompletedCommands(),
       hiddenProjects: this.hiddenProjects.size > 0 ? [...this.hiddenProjects] : undefined,
       pipelines: pipelineManager.getPipelinesSnapshot(),
-      agentConfigs: this.agentConfigs.size > 0 ? Object.fromEntries(this.agentConfigs) : undefined,
+      // §4 (설정 3층) — 권위는 `agentConfigOverrides`(갈라진 칸만). `agentConfigs` 는 완성본 사본으로
+      //   계속 적는다 — 되돌아간 구버전 앱은 그 필드만 읽으므로, 빼면 다운그레이드한 사용자의
+      //   에이전트가 전부 내장 기본으로 돌아간다(§3.2.1-5).
+      agentConfigs: this.agentConfigOverrides.size > 0 ? this.getAgentConfigsSnapshot() : undefined,
+      agentConfigOverrides: this.agentConfigOverrides.size > 0 ? this.getAgentConfigOverridesSnapshot() : undefined,
       observedTools: this.observedTools.size > 0
         ? Object.fromEntries([...this.observedTools].map(([k, v]) => [k, [...v]]))
         : undefined,
@@ -4853,10 +5056,15 @@ export class ProjectGraph {
       }
     }
 
-    // agentConfigs 필터
+    // agentConfigs 필터 — §4 (설정 3층) 완성본과 갈라진 칸을 **같은 기준으로** 함께 거른다
+    //   (한쪽만 걸러 두면 다른 프로젝트의 설정이 이 체크포인트에 섞여 저장된다).
     const filteredAgentConfigs: Record<string, AgentConfig> = {};
-    for (const [agentId, config] of this.agentConfigs) {
-      if (projectBubbleIds.has(agentId)) filteredAgentConfigs[agentId] = config;
+    const filteredAgentConfigOverrides: Record<string, Partial<AgentConfig>> = {};
+    for (const [agentId, overrides] of this.agentConfigOverrides) {
+      if (!projectBubbleIds.has(agentId)) continue;
+      filteredAgentConfigOverrides[agentId] = overrides;
+      const resolved = this.getAgentConfig(agentId);
+      if (resolved) filteredAgentConfigs[agentId] = resolved;
     }
 
     // taskEdges 필터 (v1.85) — projectId 보유 엣지는 그 값으로 스코프(엔드포인트 에이전트가
@@ -4895,6 +5103,7 @@ export class ProjectGraph {
       commandQueues: Object.keys(commandQueues).length > 0 ? commandQueues : undefined,
       completedCommands: Object.keys(completedCommands).length > 0 ? completedCommands : undefined,
       agentConfigs: Object.keys(filteredAgentConfigs).length > 0 ? filteredAgentConfigs : undefined,
+      agentConfigOverrides: Object.keys(filteredAgentConfigOverrides).length > 0 ? filteredAgentConfigOverrides : undefined,
       taskEdges: Object.keys(filteredTaskEdges).length > 0 ? filteredTaskEdges : undefined,
       observedTools: this.observedTools.size > 0
         ? Object.fromEntries(
@@ -5453,11 +5662,9 @@ export class ProjectGraph {
       this.commandQueuesRef.set(sessionId, remaining);
     }
 
-    // agentConfigs 병합
-    if (cp.agentConfigs) {
-      for (const [agentId, config] of Object.entries(cp.agentConfigs)) {
-        if (!this.agentConfigs.has(agentId)) this.agentConfigs.set(agentId, backfillAgentConfigTools(config));
-      }
+    // agentConfigs 병합 — §4 (설정 3층) 저장분 모양이 둘이라 되만드는 자리는 한 곳이다.
+    for (const [agentId, overrides] of this.readAgentConfigOverrides(cp)) {
+      if (!this.agentConfigOverrides.has(agentId)) this.agentConfigOverrides.set(agentId, overrides);
     }
 
     // observedTools 병합
@@ -5613,6 +5820,8 @@ export class ProjectGraph {
 
     // 구 체크포인트 호환: 미스코프 node id 재해싱
     this.regenerateScopedNodeIds();
+    // 옵 체크포인트는 외부 폴더가 전부 최상위로 평탄하게 적혀 있다 — 지금 규칙으로 다시 세운다(§2.1 #5).
+    this.rebuildExternalFolderTree();
 
     logger.info(
       `Checkpoint merged: ${cp.project.name} (seq=${cp.seq}, ` +
@@ -5728,10 +5937,8 @@ export class ProjectGraph {
     }
 
     // agentConfigs 복원
-    if (cp.agentConfigs) {
-      this.agentConfigs = new Map(
-        Object.entries(cp.agentConfigs).map(([id, cfg]) => [id, backfillAgentConfigTools(cfg)]),
-      );
+    if (cp.agentConfigOverrides || cp.agentConfigs) {
+      this.agentConfigOverrides = this.readAgentConfigOverrides(cp);
       // §4 v2.63 — 색 기반 레거시 토글 마이그레이션은 제거. executionMode 가 이제 PUT 에서 보존되는
       //   에이전트 정체성이라, CMD 에이전트 색을 teal 에서 바꾸면 색 휴리스틱이 executionMode 를 잘못
       //   지우는 footgun 이 된다. 누수 원인은 createCustomAgent(상속 차단) + userDefaultsService(잔재 정리)
@@ -6144,6 +6351,8 @@ export class ProjectGraph {
 
     // 구 체크포인트 호환: 미스코프 node id 를 현재 스코프 규칙으로 재해싱 (프로젝트 간 merge 충돌 방지)
     this.regenerateScopedNodeIds();
+    // 옵 체크포인트는 외부 폴더가 전부 최상위로 평탄하게 적혀 있다 — 지금 규칙으로 다시 세운다(§2.1 #5).
+    this.rebuildExternalFolderTree();
 
     logger.info(`Checkpoint restored: ${cp.project.name} (seq=${cp.seq}, ${this.agents.size} agents, ${this.nodes.size} nodes)`);
   }
@@ -6415,7 +6624,7 @@ export class ProjectGraph {
     //   자기 인터랙티브 claude 세션의 redirect 된 hook 스트림(touchAgent active + Stop completed)
     //   으로 상태가 정해진다 — Hook 에이전트와 동일. 서브가 0개라 여기서 강등하면 활동 중에도
     //   10초 sweep 마다 completed 로 튀어 엣지가 뜯기는 오완료 회귀가 난다.
-    if (this.agentConfigs.get(parentAgentId)?.executionMode === 'interactive-terminal') {
+    if (this.agentConfigOverrides.get(parentAgentId)?.executionMode === 'interactive-terminal') {
       return false;
     }
     let found: BubbleData | null = null;
@@ -6951,7 +7160,8 @@ export class ProjectGraph {
     this.poppedCommandsRef.delete(sessionId);
     this.agentWorktreeReadCounts.delete(sessionId);
     // 메모리 누수 방지 — 에이전트 영구 제거 시 per-agent Map/Set 정리(좀비 카드 누적 차단)
-    this.agentConfigs.delete(agent.id);
+    this.agentConfigOverrides.delete(agent.id);
+    this.detectedAgentModels.delete(agent.id);
     this.agentReports.delete(agent.id);
     // §5.5 #17-36 — 메인 탭 메모도 이 에이전트의 소지품이다(세션 메모는 sub 객체와 함께 사라진다).
     this.agentMemos.delete(agent.id);
@@ -7655,7 +7865,7 @@ export class ProjectGraph {
       //   대화 UUID(.jsonl)에 쌓인다(hook 이 session_id 를 합성 세션으로 rewrite → readUserMessages(cwd,
       //   합성세션)은 항상 빈 배열). recordCmdTermSession 이 적어둔 termId→UUID 맵에서 UUID 들을 모아
       //   각각 읽어 합친다(세션 탭이 여러 개면 여러 UUID). 병합 시 id 에 UUID 접두 → React 키 충돌 방지.
-      const isCmd = this.agentConfigs.get(agent.id)?.executionMode === 'interactive-terminal';
+      const isCmd = this.agentConfigOverrides.get(agent.id)?.executionMode === 'interactive-terminal';
       let events: AgentEvent[];
       if (isCmd) {
         const merged: AgentEvent[] = [];
@@ -8125,8 +8335,7 @@ export class ProjectGraph {
     if (!payload.tool_input) return;
     // §3.6 v4.89 — 실패한 도구도 **끝난 도구**다. `PostToolUseFailure` 를 사후로 안 세면
     //   같은 tool_use_id 로 사전 엔트리가 한 번 더 만들어져 히스토리에 중복으로 남는다.
-    const isPost = payload.hook_event_name === 'PostToolUse'
-      || payload.hook_event_name === 'PostToolUseFailure';
+    const isPost = isPostToolPhase(payload);
     const toolUseId = payload.tool_use_id;
 
     if (isPost) {
@@ -8885,6 +9094,70 @@ export class ProjectGraph {
   private fileEditSeen = new Set<string>();
 
   /**
+   * §2.1 #3 쓰기 축 — Bash diff 합성용 **사전 스냅샷**(`tool_use_id` → 절대경로 → 그때의 디스크 본문).
+   * `null` 은 "그때 그 자리에 파일이 없었다(또는 이진이라 못 읽었다)"는 뜻이다.
+   */
+  private bashWritePre = new Map<string, Map<string, string | null>>();
+
+  /**
+   * §2.1 #3 쓰기 축 — 셸로 고친 파일의 **수정 이력**을 남긴다.
+   *
+   * `Edit`/`Write` 는 도구 입력에 old/new 가 실려 오지만 셸 명령에는 그런 것이 없다. 그래서
+   * `Write` 가 이미 쓰는 수법을 그대로 쓴다 — **사전에 디스크를 한 번, 사후에 다시 한 번** 떠서
+   * 그 둘을 diff 의 양쪽으로 삼는다.
+   *
+   * **내용이 그대로면 적지 않는다.** 이것이 오탐의 마지막 관문이다 — 우리가 쓰기로 잘못 읽은
+   * 명령은 파일을 바꾸지 않으므로 여기서 조용히 걸러지고, 가짜 diff 가 이력에 남지 않는다.
+   * 같은 이유로 **사전 스냅샷이 아예 없으면 적지 않는다** — 비교 대상 없이 적으면 멀쩡한 파일이
+   * "통째로 새로 쓰였다"로 보인다.
+   *
+   * 한 명령이 여러 파일을 고칠 수 있으므로 중복 방지 키는 `tool_use_id` 가 아니라 `<uid>:<경로>` 다
+   * (uid 하나로 막으면 두 번째 파일부터 조용히 사라진다).
+   */
+  private recordBashFileEdits(payload: HookEventPayload): void {
+    const uid = payload.tool_use_id;
+    if (!uid) return; // 짝을 지을 수 없으면 사전·사후를 이을 방법이 없다.
+    const paths = this.bashWritePathsFor(payload);
+    if (paths.length === 0) return;
+
+    if (!isPostToolPhase(payload)) {
+      const snap = new Map<string, string | null>();
+      for (const abs of paths) snap.set(abs, readDiffSideFromDisk(abs, { rejectBinary: true }));
+      this.bashWritePre.set(uid, snap);
+      // 사후가 영영 오지 않는 경우(중단·크래시·훅 유실)를 위한 안전망 — §3.2.4 F′축.
+      capMapSize(this.bashWritePre, BASH_WRITE_PENDING_MAX);
+      return;
+    }
+
+    const pre = this.bashWritePre.get(uid);
+    this.bashWritePre.delete(uid);
+    if (!pre) return;
+    const sessionCwd = this.sessionCwds.get(payload.session_id);
+
+    for (const absPath of paths) {
+      const seenKey = `${uid}:${pathKey(absPath)}`;
+      if (this.fileEditSeen.has(seenKey)) continue;
+      const after = readDiffSideFromDisk(absPath, { rejectBinary: true });
+      if (after === null) continue; // 지워졌거나 이진이라 diff 로 옮길 수 없다.
+      const before = pre.get(absPath) ?? '';
+      if (before === after) continue; // 안 바뀌었다 — 오탐이거나 no-op 이다.
+
+      this.fileEditSeen.add(seenKey);
+      this.appendFileEdit(
+        this.canonicalFileKey(normalize(absPath), sessionCwd),
+        {
+          id: seenKey,
+          filePath: absPath.replace(/\\/g, '/'),
+          oldString: this.clampDiffSide(before),
+          newString: this.clampDiffSide(after),
+          timestamp: Date.now(),
+        },
+        'bash',
+      );
+    }
+  }
+
+  /**
    * fileEdits 맵 키를 사용자가 클릭하는 노드 키와 동일하게 산출한다.
    * `routeToolFilePath` 의 **세 갈래를 모두** 미러한다 —
    *   ① internal: 파일의 owning project 기준 상대경로(+ worktree namespace prefix, processInternalFile)
@@ -8939,7 +9212,7 @@ export class ProjectGraph {
 
   /** 외부 파일 위성의 노드 키 — `registerExternalSatellite` 가 실제로 쓰는 키와 같아야 한다. */
   private externalFileNodeKey(normAbs: string, wtPrefix = ''): string {
-    return `${wtPrefix}__ext__${this.externalParentFolder(normAbs)}/${path.basename(normAbs)}`;
+    return this.externalFolderKey(wtPrefix, `${this.externalParentFolder(normAbs)}/${path.basename(normAbs)}`);
   }
 
   /** Write diff 한 쪽 본문 대용량 가드 — 초과분은 잘라 표식 추가(스냅샷/메모리 폭증 방지) */
@@ -8987,28 +9260,7 @@ export class ProjectGraph {
       oldStr = '';
       // 쓰기 직전 디스크 내용(= old). PreToolUse 만 정확 — Post 는 이미 덮어쓴 상태라 old 복구 불가.
       if (payload.hook_event_name === 'PreToolUse') {
-        try {
-          const fsPath = rawPath.replace(/[\\/]/g, path.sep);
-          const st = fs.existsSync(fsPath) ? fs.statSync(fsPath) : null;
-          if (st && st.isFile()) {
-            // 훅 경로 차단 방지 — 거대 파일은 통째 읽지 않고 경계 prefix 만(어차피 clamp 됨)
-            const cap = MAX_WRITE_DIFF_BYTES + 64;
-            if (st.size <= cap) {
-              oldStr = fs.readFileSync(fsPath, 'utf8');
-            } else {
-              const fd = fs.openSync(fsPath, 'r');
-              try {
-                const buf = Buffer.allocUnsafe(cap);
-                const read = fs.readSync(fd, buf, 0, cap, 0);
-                oldStr = buf.toString('utf8', 0, read);
-              } finally {
-                fs.closeSync(fd);
-              }
-            }
-          }
-        } catch {
-          oldStr = ''; // 바이너리/권한/인코딩 실패 → 신규 취급
-        }
+        oldStr = readDiffSideFromDisk(rawPath) ?? '';
       }
     }
 
@@ -9027,7 +9279,15 @@ export class ProjectGraph {
     };
 
     if (uid) this.fileEditSeen.add(uid);
+    this.appendFileEdit(key, entry, tool.toLowerCase());
+  }
 
+  /**
+   * 편집 한 건을 그 파일의 이력에 얹는다 — **병합창·항목 수·나이·경로 LRU 네 축이 여기 한 곳**이다
+   * (§3.2.3). `Edit`/`Write` 훅 경로와 §2.1 #3 Bash 쓰기 축이 같은 길을 쓴다(두 벌이 되면
+   * 한쪽만 고쳐져 상한이 어긋난다).
+   */
+  private appendFileEdit(key: string, entry: FileEdit, toolLabel: string): void {
     let list = this.fileEdits.get(key);
     if (!list) { list = []; this.fileEdits.set(key, list); }
 
@@ -9068,7 +9328,7 @@ export class ProjectGraph {
     // E축 — 편집 이력을 든 **경로 키 개수** 상한(우리에게 없던 축 — 597개까지 늘었던 자리)
     this.enforceFileEditPathCap(retention.maxFileEditPaths);
 
-    logger.debug(`Recorded file ${tool.toLowerCase()}: ${key} (${list.length} total${withinMergeWindow ? ', merged' : ''})`);
+    logger.debug(`Recorded file ${toolLabel}: ${key} (${list.length} total${withinMergeWindow ? ', merged' : ''})`);
   }
 
   /**
@@ -9647,10 +9907,15 @@ export class ProjectGraph {
     return topFolder;
   }
 
-  /** 외부 파일/폴더 처리 — §2.1 v1.55 평탄화.
+  /** 외부 파일/폴더 처리 — §2.1 v1.55 평탄화 + 접합 트리.
    *  드라이브 루트부터 펼치는 1자형 폴더 체인 ❌. 에이전트가 만진 파일의 **직속 부모 폴더 1개**만
    *  `external_folder` 버블로 업서트하고 그 폴더에 파일을 satellite 로 등록한다.
    *  같은 부모 폴더 안의 다른 파일이 들어오면 같은 버블에 누적 (라벨/카운트/satellite 갱신).
+   *
+   *  등록이 끝나면 `rebuildExternalFolderTree` 가 외부 폴더끼리의 조상-자손을 다시 세운다 —
+   *  부모가 같은 폴더들이 최상위에서 끝없이 쪼개지지 않게(§2.1 #5). 그래서 이 함수가 돌려주는
+   *  것은 만진 폴더가 아니라 **그 폴더가 속한 최상위 조상**이다(내부 폴더가 첫 세그먼트를
+   *  돌려주는 것과 대칭 — 에이전트 엣지는 캔버스에 실제로 뜨는 버블에 걸려야 한다).
    *
    *  worktreeBubbleKey + wtPrefix 가 주어지면 외부 폴더가 워크트리 버블의 children 으로 들어가고
    *  키는 wtPrefix 로 네임스페이스됨(이주된 에이전트의 외부 접근이 부모 캔버스 top-level 을 오염시키지 않게).
@@ -9670,7 +9935,7 @@ export class ProjectGraph {
     // 파일이면 부모 폴더가 외부 폴더, 디렉토리면 그 디렉토리 자체가 외부 폴더
     const folderAbs = isDirectory ? normAbs : this.externalParentFolder(normAbs);
 
-    const folderKey = `${wtPrefix}__ext__${folderAbs}`;
+    const folderKey = this.externalFolderKey(wtPrefix, folderAbs);
 
     // §2.1 v2.28 invariant — external_folder 버블 ↔ 위성 ≥ 1.
     // Grep/Glob 결과 0/파싱 실패면 폴더 자체도 생성하지 않는다(폴더만 떠 있고 위성 0 금지).
@@ -9704,12 +9969,14 @@ export class ProjectGraph {
       // 결과가 하위 디렉토리에 있어도 중간 폴더 버블 없이 grep 한 폴더 1개의 위성으로 평탄화.
       // 결과 0/파싱 실패 케이스는 위에서 early return (§2.1 v2.28 invariant).
       for (const absFile of resultFiles) {
-        const fileKey = `${wtPrefix}__ext__${absFile}`;
+        const fileKey = this.externalFolderKey(wtPrefix, absFile);
         this.registerExternalSatellite(folderKey, fileKey, toolName, agentId, projectName);
       }
     }
 
-    return folderKey;
+    // 외부 폴더끼리의 계층을 다시 세우고, 이 폴더가 속한 최상위 조상을 돌려준다.
+    const assigned = this.rebuildExternalFolderTree();
+    return this.externalTopAncestor(folderKey, assigned);
   }
 
   /** 외부 폴더의 파일 위성 1개 등록 — 노드/계층/내부 엣지/satellite/카운트 갱신 (§2.1). */
@@ -9736,8 +10003,17 @@ export class ProjectGraph {
   }
 
   /** external_folder 버블을 업서트 — 라벨은 전체 절대경로(§2.1 v1.55).
-   *  과거 버그/구버전 잔존으로 file 타입으로 등록됐다면 external_folder 로 상향 보정. */
-  private ensureExternalFolder(key: string, absolutePath: string, toolName: string): void {
+   *  과거 버그/구버전 잔존으로 file 타입으로 등록됐다면 external_folder 로 상향 보정.
+   *
+   *  `quiet` 는 접합 버블 전용 — 에이전트가 만진 적 없는 자리라 활동 카운트를 올리지도,
+   *  이미 식은 버블을 다시 `active` 로 되살리지도 않는다(가짜 활동 금지). 라벨은
+   *  `rebuildExternalFolderTree` 가 부모 관계를 보고 마지막에 확정하므로 여기서는 처음 만들 때만 적는다. */
+  private ensureExternalFolder(
+    key: string,
+    absolutePath: string,
+    toolName: string,
+    opts?: { quiet?: boolean },
+  ): void {
     const existing = this.nodes.get(key);
     if (!existing) {
       this.nodes.set(key, {
@@ -9746,8 +10022,8 @@ export class ProjectGraph {
         bubbleType: 'external_folder',
         path: absolutePath,
         absolutePath,
-        status: 'active',
-        activity: 1,
+        status: opts?.quiet ? 'idle' : 'active',
+        activity: opts?.quiet ? 0 : 1,
         lastActivity: Date.now(),
         lastTool: toolName,
         childCount: 0,
@@ -9760,13 +10036,267 @@ export class ProjectGraph {
       existing.id = `folder-${hashString(`${this.nodeScope()}::${key}`)}`;
       existing.satelliteFileCount = existing.satelliteFileCount ?? 0;
     }
-    existing.label = `(ext) ${absolutePath}`;
     existing.path = absolutePath;
     existing.absolutePath = absolutePath;
+    if (opts?.quiet) return;
+    existing.label = `(ext) ${absolutePath}`;
     existing.status = 'active';
     existing.activity += 1;
     existing.lastActivity = Date.now();
     existing.lastTool = toolName;
+  }
+
+  // ─── 외부 폴더 접합 트리 (§2.1 #5) ───
+
+  /** 외부 노드 키(`<wtPrefix>__ext__<절대경로>`)를 네임스페이스와 절대경로로 가른다. */
+  private externalKeyParts(key: string): { prefix: string; abs: string } | null {
+    const i = key.indexOf(EXT_KEY_MARK);
+    if (i < 0) return null;
+    return { prefix: key.slice(0, i), abs: key.slice(i + EXT_KEY_MARK.length) };
+  }
+
+  /** 외부 폴더 키 조립 — `externalKeyParts` 의 역함수. */
+  private externalFolderKey(prefix: string, abs: string): string {
+    return `${prefix}${EXT_KEY_MARK}${abs}`;
+  }
+
+  /** 드라이브 루트(`c:`) / POSIX 루트(`/`) 인가 — 접합 버블로 만들지 않을 자리. */
+  private static isDriveRootPath(abs: string): boolean {
+    return abs === '' || abs === '/' || /^[a-zA-Z]:$/.test(abs);
+  }
+
+  /** 외부 폴더 네임스페이스(wtPrefix) → 그 워크트리 버블 키. 최상위 스코프면 null.
+   *  prefix 는 `wt<hash(워크트리경로)>__` 라 등록된 프로젝트를 되짚으면 복원된다(새 영속 상태 ❌). */
+  private worktreeKeyForExtPrefix(prefix: string): string | null {
+    if (!prefix) return null;
+    for (const key of this.projects.keys()) {
+      if (`wt${hashString(key).toString(36)}__` === prefix) return key;
+    }
+    return null;
+  }
+
+  /**
+   * 만진 외부 폴더 절대경로 목록 → **압축 트라이**. 반환: 재질화된 경로 → 부모 경로(null=최상위).
+   *
+   * 버블이 되는 것은 두 가지뿐이다 —
+   *  ① 에이전트가 실제로 만진 폴더(`touched`)
+   *  ② 자식이 **둘 이상**인 분기점(접합)
+   * 자식이 하나뿐인 경유 폴더는 만들지 않는다. 그래서 외부 폴더가 하나뿐이면 결과는
+   * §2.1 v1.55 평탄화와 완전히 같다(최상위 1개 · 경유 버블 0개).
+   * 드라이브 루트는 분기점이어도 접합으로 만들지 않는다 — 만진 적 없는 `c:` 가 최상위에 서면
+   * "에이전트가 실제로 사용한 위치"라는 외부 폴더의 뜻이 무너진다.
+   */
+  private static compressExternalTrie(absPaths: string[]): Map<string, string | null> {
+    interface TrieNode {
+      abs: string;
+      touched: boolean;
+      children: Map<string, TrieNode>;
+    }
+    const roots = new Map<string, TrieNode>();
+
+    for (const abs of absPaths) {
+      const segs = abs.split('/');
+      let level = roots;
+      let node: TrieNode | undefined;
+      for (let i = 0; i < segs.length; i++) {
+        const seg = segs[i]!;
+        // POSIX 절대경로는 첫 세그먼트가 빈 문자열 — 그 자리의 경로는 `/` 다.
+        const stepAbs = segs.slice(0, i + 1).join('/') || '/';
+        let child = level.get(seg);
+        if (!child) {
+          child = { abs: stepAbs, touched: false, children: new Map() };
+          level.set(seg, child);
+        }
+        node = child;
+        level = child.children;
+      }
+      if (node) node.touched = true;
+    }
+
+    const result = new Map<string, string | null>();
+    const walk = (node: TrieNode, materializedAncestor: string | null): void => {
+      const isBranch = node.children.size >= 2 && !ProjectGraph.isDriveRootPath(node.abs);
+      const materialized = node.touched || isBranch;
+      let nextAncestor = materializedAncestor;
+      if (materialized) {
+        result.set(node.abs, materializedAncestor);
+        nextAncestor = node.abs;
+      }
+      for (const child of node.children.values()) walk(child, nextAncestor);
+    };
+    for (const root of roots.values()) walk(root, null);
+    return result;
+  }
+
+  /**
+   * 외부 폴더 계층을 다시 세운다 — §2.1 #5 "같은 부모면 같은 버블 밑으로".
+   *
+   * 종전에는 에이전트가 만진 외부 폴더가 **하나도 빠짐없이 최상위 버블**이 됐다. 부모가 같아도
+   * 묶이지 않아, 세션마다 새로 생기는 `…/<세션UUID>/tasks` 같은 경로가 캔버스를 끝없이 쪼갰다
+   * (실측: 한 프로젝트에서 외부 폴더 48개 · 그중 17개가 부모가 같은 형제).
+   * 이제 **내부 폴더와 같은 규율**로 조상-자손을 세운다 — 부모 버블 하나를 열고 들어간다.
+   *
+   * "만진 폴더" 판정은 **위성 ≥ 1**(§2.1 v2.28 invariant)로 한다 — 접합인지 아닌지를
+   * 새 영속 필드로 적지 않기 위해서다(체크포인트를 왕복해도 같은 답이 나온다).
+   *
+   * @returns 재질화된 외부 폴더 키 → 부모 키(null=최상위). 호출자가 최상위 조상을 되짚는 데 쓴다.
+   */
+  private rebuildExternalFolderTree(): Map<string, string | null> {
+    const assigned = new Map<string, string | null>();
+    if (this.rebuildingExternalTree) return assigned;
+    this.rebuildingExternalTree = true;
+    try {
+      // ① 살아 있는 외부 폴더를 네임스페이스별로 모아 "만진 것 / 접합" 으로 가른다.
+      //    `all` 은 ③의 청소 범위 — 외부 폴더의 부모가 될 수 있는 자리는 같은 네임스페이스의
+      //    외부 폴더와 워크트리 컨테이너뿐이라, `childrenMap` 전체를 훑을 필요가 없다(훅 경로다).
+      const groups = new Map<string, { touched: string[]; junctions: Set<string>; all: Set<string> }>();
+      for (const [key, node] of this.nodes) {
+        if (node.bubbleType !== 'external_folder') continue;
+        const parts = this.externalKeyParts(key);
+        if (!parts) continue;
+        let group = groups.get(parts.prefix);
+        if (!group) {
+          group = { touched: [], junctions: new Set(), all: new Set() };
+          groups.set(parts.prefix, group);
+        }
+        group.all.add(key);
+        if ((this.satelliteMap.get(key)?.size ?? 0) > 0) group.touched.push(parts.abs);
+        else group.junctions.add(key);
+      }
+
+      for (const [prefix, group] of groups) {
+        const container = this.worktreeKeyForExtPrefix(prefix);
+        const tree = ProjectGraph.compressExternalTrie(group.touched);
+        const liveKeys = new Set<string>();
+
+        // ② 노드 업서트 + 부모 배선. 얕은 곳부터 — 부모가 먼저 서야 registerChild 가 카운트를 맞춘다.
+        const ordered = [...tree.keys()].sort((a, b) => a.split('/').length - b.split('/').length);
+        for (const abs of ordered) {
+          const key = this.externalFolderKey(prefix, abs);
+          const parentAbs = tree.get(abs) ?? null;
+          const parentKey = parentAbs === null ? null : this.externalFolderKey(prefix, parentAbs);
+          liveKeys.add(key);
+          assigned.set(key, parentKey);
+
+          // 접합은 에이전트가 만진 적 없다 — 활동 카운트를 올리지 않는다(가짜 활동 금지).
+          this.ensureExternalFolder(key, abs, EXTERNAL_JUNCTION_TOOL, { quiet: true });
+
+          if (parentKey) {
+            this.registerChild(parentKey, key);
+            this.topLevelPaths.delete(key);
+            if (container) this.detachChild(container, key);
+            const parentNode = this.nodes.get(parentKey);
+            const childNode = this.nodes.get(key);
+            if (parentNode && childNode) {
+              this.innerEdges.upsert(parentNode.id, parentNode, childNode, EXTERNAL_JUNCTION_TOOL);
+            }
+          } else if (container) {
+            this.registerChild(container, key);
+            this.topLevelPaths.delete(key);
+          } else {
+            this.topLevelPaths.add(key);
+          }
+
+          // 라벨: 최상위는 전체 절대경로(어디인지 알아야 한다), 중첩은 부모로부터의 상대경로
+          // — 내부 폴더가 폴더명만 보여 주는 것과 같은 규율. 전체 경로는 `absolutePath` 에 남는다.
+          const node = this.nodes.get(key);
+          if (node) {
+            node.label = parentAbs === null
+              ? `(ext) ${abs}`
+              : abs.slice(parentAbs.length + 1) || abs;
+          }
+        }
+
+        // ③ 옛 부모-자식 배선 청소 — 다른 부모에게 옮겨 간 외부 폴더가 양쪽에 걸려 있지 않게.
+        //    워크트리 컨테이너 부착은 ②가 관리하므로 건드리지 않는다.
+        //    훑는 범위는 이 네임스페이스의 외부 폴더뿐 — 외부 폴더를 자식으로 갖는 자리는 거기와
+        //    컨테이너밖에 없다(훅 경로라 `childrenMap` 전량 순회를 피한다).
+        for (const parentKey of group.all) {
+          const children = this.childrenMap.get(parentKey);
+          if (!children) continue;
+          for (const childKey of [...children]) {
+            if (!liveKeys.has(childKey)) continue;
+            if ((assigned.get(childKey) ?? null) !== parentKey) this.detachChild(parentKey, childKey);
+          }
+        }
+
+        // ④ 접합은 자기 자손의 소속·참조·생사를 물려받는다.
+        //    - 소속·참조: 체크포인트 노드 필터(`getProjectNodePaths`)를 통과하고,
+        //      자손이 dismiss 로 사라질 때 함께 정리되려면 있어야 한다.
+        //    - 생사(`lastActivity`/`status`): 접합은 스스로 만져지는 일이 없어 TTL 만으로는
+        //      **자식이 살아 있는데 부모만 먼저 식어 사라진다**. 그러면 자식은 최상위도 아니고
+        //      부모도 없어 스냅샷에서 통째로 사라진다(자손보다 먼저 죽지 않게 물려받는다).
+        //    깊은 곳부터 —  접합이 여러 겹이면 아래에서 위로 전파돼야 한다.
+        const deepFirst = [...tree.keys()].sort((a, b) => b.split('/').length - a.split('/').length);
+        for (const abs of deepFirst) {
+          const key = this.externalFolderKey(prefix, abs);
+          if ((this.satelliteMap.get(key)?.size ?? 0) > 0) continue; // 만진 폴더는 이미 자기 것이 있다
+          const children = this.childrenMap.get(key);
+          if (!children) continue;
+          const node = this.nodes.get(key);
+          for (const childKey of children) {
+            const childProject = this.nodeProjectNames.get(childKey);
+            if (childProject && !this.nodeProjectNames.has(key)) this.nodeProjectNames.set(key, childProject);
+            for (const agentId of this.nodeAgentRefs.get(childKey) ?? []) this.addAgentRef(key, agentId);
+            const childNode = this.nodes.get(childKey);
+            if (node && childNode) {
+              node.lastActivity = Math.max(node.lastActivity ?? 0, childNode.lastActivity ?? 0);
+              if (childNode.status === 'active') node.status = 'active';
+            }
+          }
+        }
+
+        // ⑤ 더 이상 분기점이 아닌 접합은 껍데기만 지운다(자식은 ②에서 이미 새 부모로 옮겨 갔다 —
+        //    `removeBubble` 의 자식 동반 제거를 태우면 멀쩡한 폴더까지 딸려 나간다).
+        for (const key of group.junctions) {
+          if (liveKeys.has(key)) continue;
+          const node = this.nodes.get(key);
+          if (!node || node.pinned || node.preservePinned) continue;
+          this.dropExternalJunction(key, node.id);
+        }
+      }
+
+      this.bumpMutationVersion();
+      return assigned;
+    } finally {
+      this.rebuildingExternalTree = false;
+    }
+  }
+
+  /** 부모-자식 링크 1개 해제 (childCount 동기화 포함). 노드 자체는 건드리지 않는다. */
+  private detachChild(parentKey: string, childKey: string): void {
+    const children = this.childrenMap.get(parentKey);
+    if (!children) return;
+    if (!children.delete(childKey)) return;
+    if (children.size === 0) this.childrenMap.delete(parentKey);
+    const parent = this.nodes.get(parentKey);
+    if (parent) parent.childCount = children.size;
+  }
+
+  /** 쓸모를 다한 접합 버블 껍데기 제거 — 자식은 이미 다른 부모로 옮겨 간 뒤에만 호출한다. */
+  private dropExternalJunction(key: string, nodeId: string): void {
+    this.nodes.delete(key);
+    this.childrenMap.delete(key);
+    this.satelliteMap.delete(key);
+    this.topLevelPaths.delete(key);
+    this.nodeAgentRefs.delete(key);
+    this.nodeProjectNames.delete(key);
+    this.existenceMissCount.delete(key);
+    for (const [parentKey] of [...this.childrenMap]) this.detachChild(parentKey, key);
+    this.mainEdges.removeByPredicate((e) => e.source === nodeId || e.target === nodeId);
+    this.innerEdges.removeByPredicate((e) => e.source === nodeId || e.target === nodeId);
+  }
+
+  /** 외부 폴더 키의 **최상위 조상** — 에이전트 엣지가 걸릴 자리(내부 폴더가 첫 세그먼트를
+   *  돌려주는 것과 대칭). 부모 사슬이 끊겨 있으면 자기 자신. */
+  private externalTopAncestor(key: string, assigned: Map<string, string | null>): string {
+    let cur = key;
+    for (let hop = 0; hop < 64; hop++) {
+      const parent = assigned.get(cur);
+      if (!parent) return cur;
+      cur = parent;
+    }
+    return cur;
   }
 
   // ─── Task Edge (에이전트 간 작업 흐름) ───
@@ -11366,7 +11896,7 @@ export class ProjectGraph {
         ?? null;
       if (!projectName) return;
       // 타임라인 좌측 dot 색은 그 에이전트의 설정 색(버블과 같은 색). 없으면 클라 기본값이 쓴다.
-      const agentColor = this.agentConfigs.get(agent.id)?.color;
+      const agentColor = this.getAgentConfig(agent.id)?.color;
       this.auditLogService.record({
         projectName,
         sessionId: payload.session_id,

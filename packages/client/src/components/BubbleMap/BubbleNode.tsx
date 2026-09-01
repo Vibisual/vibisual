@@ -860,8 +860,11 @@ export const BubbleNode = memo(function BubbleNode({
     if (isFolder) {
       // §2.1 v1.55 — 외부 폴더는 평탄화로 satellite 만 가지므로 satelliteFileCount 우선.
       //   내부 폴더는 기존 childCount(직속 하위 폴더 수) 우선.
+      //   §2.1 #5 접합 트리 — 만진 파일이 없는 **접합** 외부 폴더는 위성이 0이다.
+      //   그대로 두면 "0 files" 로 떠서 빈 버블처럼 보이므로 하위 폴더 수로 떨어진다.
+      const satCount = data.satelliteFileCount ?? 0;
       const count = data.bubbleType === 'external_folder'
-        ? (data.satelliteFileCount ?? data.childCount ?? 0)
+        ? (satCount > 0 ? satCount : (data.childCount ?? 0))
         : (data.childCount ?? 0);
       lines.push({ key: 'files', text: `${count} files`, fontSize: px(10, 6), cls: 'text-white/60', priority: 100 });
       return lines;

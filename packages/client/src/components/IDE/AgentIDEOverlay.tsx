@@ -2733,6 +2733,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
           subAgents={subAgents}
           isCustom={isCustom}
           onNewSession={handleNewSession}
+          isFrontPane={isFrontPane}
         />
 
         {/* Body: Activity bar + Sidebar + Main area.
