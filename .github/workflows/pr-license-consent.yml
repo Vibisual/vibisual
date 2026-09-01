@@ -1,0 +1,50 @@
+# PR 라이선스 동의 확인 — 병합 버튼 위에서 막는다.
+#
+# ⚠️ 이 워크플로가 왜 생겼는지(2026-09-01):
+#    DCO 워크플로는 커밋의 `Signed-off-by:` 를 검사한다. 그런데 그 서명은 "제출할 권리가
+#    있다"는 확인일 뿐, CONTRIBUTING.md 의 **추가 라이선스 허락**(재라이선스·서브라이선스)에
+#    동의했다는 뜻이 아니다. 그 조항 하나에 이 프로젝트의 유료 전환·소유권 이전 가능성이
+#    걸려 있는데, 확인하는 장치는 PR 템플릿의 확인란 — 즉 **사람의 성실성**뿐이었다.
+#
+#    막아야 할 대상은 남이 아니라 우리 자신의 "급하니까"다. 소유자는 보호 규칙을 우회할 수
+#    있고(실제로 그렇게 푸시한 적이 있다), 그렇게 한 번 병합되면 그 모듈은 영구히 잠긴다.
+#    그래서 규칙을 사람의 기억에서 떼어내 **병합 버튼 위의 검사**로 옮긴다.
+#
+# ⚠️ PR 본문은 반드시 `env:` 로 넘긴다. `run:` 안에 ${{ ... }} 로 직접 박으면 본문에 셸
+#    메타문자를 넣은 PR 하나로 러너에서 임의 명령이 돈다(스크립트 주입).
+#
+# 판정은 .github/scripts/pr-license-consent.mjs 한 곳이고, `--selftest` 14건이 그 판정을
+# 고정한다. 소유자 본인의 PR 은 통과시킨다 — 자기 자신에게 받을 허락이 없기 때문이다.
+#
+# 이 검사를 실제 차단으로 만들려면 GitHub 설정에서 required status check 로 걸어야 한다.
+# 걸지 않으면 붉게 뜨기만 하고 병합은 눌린다.
+
+name: Licensing
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: licensing-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  consent:
+    # 이 이름이 곧 required status check 의 이름이 된다. 바꾸면 설정이 끊긴다.
+    name: Licensing consent
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 판정 로직 자체 검사
+        run: node .github/scripts/pr-license-consent.mjs --selftest
+
+      - name: PR 본문의 동의 확인란 검사
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          AUTHOR_ASSOCIATION: ${{ github.event.pull_request.author_association }}
+        run: node .github/scripts/pr-license-consent.mjs

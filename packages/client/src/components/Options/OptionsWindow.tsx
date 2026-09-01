@@ -13,7 +13,7 @@ import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { TERMINAL_SCROLLBACK_LINES, TERMINAL_SCROLLBACK_MIN, TERMINAL_SCROLLBACK_MAX, clampTerminalScrollback } from '@vibisual/shared';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
-import type { AgentConfig, UserDefaults, ClaudeInstallsInfo, ClaudeInstall, UiLocale } from '@vibisual/shared';
+import type { AgentConfig, UserDefaults, UserDefaultsPatch, ClaudeInstallsInfo, ClaudeInstall, UiLocale } from '@vibisual/shared';
 import {
   AVAILABLE_AGENT_TOOLS,
   DEFAULT_AGENT_CONFIG,
@@ -21,6 +21,9 @@ import {
   AVAILABLE_SETTING_SOURCES,
   AVAILABLE_AUTOCOMPACT_VALUES,
   DEFAULT_AUTOCOMPACT_TOKENS,
+  turnCompactTriggerTokens,
+  TURN_COMPACT_TRIGGER_RATIO,
+  resolveAutoCompact,
   isOpusModel,
   supportsFastMode,
   resolveAliasToLatest,
@@ -82,6 +85,9 @@ interface OptionsWindowProps {
 export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.Element | null {
   const { t } = useTranslation();
   const userDefaults = useGraphStore((s) => s.userDefaults);
+  // §4 — Apply 응답을 그 자리에서 스토어에 앉힌다. WS 를 기다리면 그 사이에 배치 타이머가
+  //   들고 있던 **저장 직전 스냅샷**이 먼저 풀려 폼이 옛 값으로 되돌아간다(= 저장 실패로 보인다).
+  const applyUserDefaults = useGraphStore((s) => s.applyUserDefaults);
   const modelRegistry = useGraphStore((s) => s.modelRegistry);
   // §4 v3.24 — Appearance › Language. 폰(max-md)에선 헤더 LanguageSwitcher 가 숨겨져 여기가 유일한 변경 경로.
   //   Apply/Cancel dirty 흐름과 독립 — 선택 즉시 적용(헤더 스위처와 동일 setUiLocale 경로).
@@ -118,8 +124,7 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
   //   id·콤마 목록·구버전 저장분) '직접 입력'으로 연다 — 목록에 없다고 값을 버리지 않는다.
   const [fallbackCustom, setFallbackCustom] = useState(() => isOffListFallback(baseAgent.fallbackModel, modelRegistry));
   const [autoCompact, setAutoCompact] = useState(baseAgent.autoCompact ?? '');
-  // §4 (CLI 사양 추종) — 압축 '언제' 축 둘의 전역 기본값. 위 드롭다운('얼마나')과 직교한다.
-  const [compactAfterTurn, setCompactAfterTurn] = useState(baseAgent.compactAfterTurn === true);
+  // §4 (CLI 사양 추종) — 숫자로 못 잡는 자리를 에이전트가 부르는 축. 위 드롭다운과 직교한다.
   const [agentCanCompact, setAgentCanCompact] = useState(baseAgent.agentCanCompact === true);
   const [excludeDynamicSections, setExcludeDynamicSections] = useState(baseAgent.excludeDynamicSystemPromptSections === true);
   const [settingSources, setSettingSources] = useState<string[]>([...(baseAgent.settingSources ?? [])]);
@@ -136,6 +141,9 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
   // §4 (CMD ④) — CMD 세션이 백그라운드에서 막혔을 때 OS 알림을 띄울지. 기본 켬.
   const [cmdBlockedNotify, setCmdBlockedNotify] = useState(true);
   const [saving, setSaving] = useState(false);
+  // §4 — 마지막 Apply 가 서버에 닿지 못했는가. 종전에는 실패가 성공과 구분되지 않아
+  //   "저장했는데 안 된다"의 원인을 사용자가 알 수 없었다.
+  const [saveError, setSaveError] = useState(false);
   // §4 — Storage 탭은 자기 state 로 편집한다. 창의 나가기 가드가 그 미저장분까지 지키려면
   //   탭이 dirty 를 위로 올려 줘야 한다(탭을 떠나거나 창이 닫히면 언마운트 시 false 로 풀린다).
   const [storageDirty, setStorageDirty] = useState(false);
@@ -203,7 +211,6 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
     setFallbackModel(baseAgent.fallbackModel ?? '');
     setFallbackCustom(isOffListFallback(baseAgent.fallbackModel, modelRegistry));
     setAutoCompact(baseAgent.autoCompact ?? '');
-    setCompactAfterTurn(baseAgent.compactAfterTurn === true);
     setAgentCanCompact(baseAgent.agentCanCompact === true);
     setExcludeDynamicSections(baseAgent.excludeDynamicSystemPromptSections === true);
     setSettingSources([...(baseAgent.settingSources ?? [])]);
@@ -261,6 +268,16 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
   const backdrop = useBackdropDismiss(requestClose);
 
   const isOpus = isOpusModel(model);
+  // §4 (CLI 사양 추종) — 지금 고른 값이면 **실제로 몇 토큰에서 접히는가**. 고른 숫자는 CLI 에게
+  //   창 크기라 그보다 낮은 자리에서 접히므로, 그 숫자를 화면이 직접 말해야 놀라지 않는다.
+  //   여긴 전역 기본값을 정하는 창이라 위층이 없다(에이전트 설정 → **여기** → 내장 기본).
+  //   `'auto'` 는 모델 창을 런타임에야 아는 값이라 숫자가 없다 → null.
+  // §4 — 화면에 적는 비율. 상수 한 곳(shared)에서 와야 값을 바꿔도 12개 로케일이 안 틀어진다.
+  const compactFoldsAtPercent = Math.round(TURN_COMPACT_TRIGGER_RATIO * 100);
+  const compactFoldsAtTokens = useMemo(
+    () => turnCompactTriggerTokens(resolveAutoCompact(autoCompact, undefined)),
+    [autoCompact],
+  );
   // §4 (Fast 모드) — `--model` 로 나가는 값과 같은 규칙으로 판정(서버 `wantsFastMode` 와 동일).
   const fastModeSupported = supportsFastMode(modelVersion?.trim() || model);
   const oneMillionEnabled = contextWindow !== '200k';
@@ -324,51 +341,62 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
   const handleApply = useCallback(async () => {
     setSaving(true);
     try {
-      const patch: Partial<UserDefaults> = {
+      // §4 (설정 3층) — **미설정은 `null` 로 보낸다.** 종전에는 `undefined` 였는데
+      //   `JSON.stringify` 가 그 키를 통째로 버려 서버의 부분 머지가 옛 값을 그대로 남겼다 —
+      //   그래서 전역 기본값은 한 번 켜면 이 창에서 다시 끌 수 없었다(effort·isolation·safeMode·
+      //   예산·타임아웃 … 되돌리려면 `~/.vibisual/user-defaults.json` 을 손으로 고쳐야 했다).
+      //   `null` 은 전선을 건너가고, 서버가 그 키를 지운다(저장분에 `null` 은 남지 않는다).
+      const patch: UserDefaultsPatch = {
         agentConfig: {
           model,
-          modelVersion,
+          modelVersion: modelVersion ?? null,
           permissionMode,
-          permissionTimeoutPolicy: permissionTimeoutPolicy === 'deny' ? 'deny' : undefined,
-          effort: (isOpus && effort !== 'default') ? effort : undefined,
-          maxTurns: maxTurns > 0 ? maxTurns : undefined,
-          maxBudgetUsd: maxBudgetUsd > 0 ? maxBudgetUsd : undefined,
-          isolation: isolation !== 'none' ? isolation : undefined,
-          contextWindow: isOpus && contextWindow === '200k' ? '200k' : undefined,
+          permissionTimeoutPolicy: permissionTimeoutPolicy === 'deny' ? 'deny' : null,
+          effort: (isOpus && effort !== 'default') ? effort : null,
+          maxTurns: maxTurns > 0 ? maxTurns : null,
+          maxBudgetUsd: maxBudgetUsd > 0 ? maxBudgetUsd : null,
+          isolation: isolation !== 'none' ? isolation : null,
+          contextWindow: isOpus && contextWindow === '200k' ? '200k' : null,
           tools,
-          disallowedTools: disallowedTools.length > 0 ? disallowedTools : undefined,
-          rules: rules.trim() || undefined,
-          color: color || undefined,
+          disallowedTools: disallowedTools.length > 0 ? disallowedTools : null,
+          rules: rules.trim() || null,
+          color: color || null,
           skills: [...(userDefaults?.agentConfig?.skills ?? DEFAULT_AGENT_CONFIG.skills)],
-          // §4 (CLI 사양 추종) — 미설정은 undefined 로 보내 플래그가 붙지 않게 한다.
-          fallbackModel: fallbackModel.trim() || undefined,
-          autoCompact: autoCompact.trim() || undefined,
-          compactAfterTurn: compactAfterTurn ? true : undefined,
-          agentCanCompact: agentCanCompact ? true : undefined,
-          excludeDynamicSystemPromptSections: excludeDynamicSections ? true : undefined,
-          settingSources: settingSources.length > 0 ? settingSources : undefined,
-          safeMode: safeMode ? true : undefined,
+          fallbackModel: fallbackModel.trim() || null,
+          autoCompact: autoCompact.trim() || null,
+          agentCanCompact: agentCanCompact ? true : null,
+          excludeDynamicSystemPromptSections: excludeDynamicSections ? true : null,
+          settingSources: settingSources.length > 0 ? settingSources : null,
+          safeMode: safeMode ? true : null,
           // §4 (Fast 모드) — 지원 모델일 때만 저장(모델을 바꿔 두고 나중에 되돌렸을 때의 부활 방지).
-          fastMode: fastMode && fastModeSupported ? true : undefined,
-          betas: betas.split(',').map((b) => b.trim()).filter(Boolean).length > 0 ? betas.split(',').map((b) => b.trim()).filter(Boolean) : undefined,
-          // §4 (CLI 사양 추종) — 초 → ms. 0/범위 밖은 undefined = 미설정(스폰 env 키 자체가 안 붙는다).
-          bashDefaultTimeoutMs: bashSecToMs(bashDefaultTimeoutSec),
-          bashMaxTimeoutMs: bashSecToMs(bashMaxTimeoutSec),
+          fastMode: fastMode && fastModeSupported ? true : null,
+          betas: betas.split(',').map((b) => b.trim()).filter(Boolean).length > 0 ? betas.split(',').map((b) => b.trim()).filter(Boolean) : null,
+          // §4 (CLI 사양 추종) — 초 → ms. 0/범위 밖은 미설정(스폰 env 키 자체가 안 붙는다).
+          bashDefaultTimeoutMs: bashSecToMs(bashDefaultTimeoutSec) ?? null,
+          bashMaxTimeoutMs: bashSecToMs(bashMaxTimeoutSec) ?? null,
         },
         // §4 (CMD ③④) — 이 창이 **모르는 키는 스프레드로 그대로 통과**시킨다(부분 페이로드가
         //   남의 설정을 지우는 사고를 막는 규약 — agent-config PUT 과 같은 이유).
         advanced: { ...(userDefaults?.advanced ?? {}), terminalScrollbackLines: clampTerminalScrollback(terminalScrollback) },
         notifications: { ...(userDefaults?.notifications ?? {}), cmdBlocked: cmdBlockedNotify },
       };
-      await fetch(`${API_BASE}/api/user-defaults`, {
+      const res = await fetch(`${API_BASE}/api/user-defaults`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(patch),
       });
+      // §4 — 서버가 거절했으면 **dirty 를 내리지 않는다**. 종전에는 500 이어도 그대로 내려서
+      //   실패가 성공과 똑같이 보였다(창을 닫아도 경고가 없었다).
+      if (!res.ok) { setSaveError(true); return; }
+      const body = await res.json() as { ok?: boolean; userDefaults?: UserDefaults };
+      if (body.ok !== true) { setSaveError(true); return; }
+      // 저장된 값을 그 자리에서 반영 — 늦게 풀리는 옛 스냅샷은 store 의 `updatedAt` 가드가 막는다.
+      if (body.userDefaults) applyUserDefaults(body.userDefaults);
+      setSaveError(false);
       setDirty(false);
-    } catch { /* ignore */ }
+    } catch { setSaveError(true); }
     finally { setSaving(false); }
-  }, [model, modelVersion, permissionMode, permissionTimeoutPolicy, isOpus, effort, maxTurns, maxBudgetUsd, isolation, contextWindow, tools, disallowedTools, rules, color, userDefaults, fallbackModel, autoCompact, compactAfterTurn, agentCanCompact, excludeDynamicSections, settingSources, safeMode, fastMode, fastModeSupported, betas, bashDefaultTimeoutSec, bashMaxTimeoutSec, terminalScrollback, cmdBlockedNotify]);
+  }, [applyUserDefaults, model, modelVersion, permissionMode, permissionTimeoutPolicy, isOpus, effort, maxTurns, maxBudgetUsd, isolation, contextWindow, tools, disallowedTools, rules, color, userDefaults, fallbackModel, autoCompact, agentCanCompact, excludeDynamicSections, settingSources, safeMode, fastMode, fastModeSupported, betas, bashDefaultTimeoutSec, bashMaxTimeoutSec, terminalScrollback, cmdBlockedNotify]);
 
   if (!open) return null;
 
@@ -630,22 +658,19 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
                           </option>
                         ))}
                       </select>
+                      {/* §4 (CLI 사양 추종) — **이 숫자 하나가 전부다.** 종전에는 옆에 "턴이 끝나면 압축"
+                          체크박스가 따로 있었는데 같은 일을 해 헷갈리기만 했다(그리고 같은 숫자를 쓰는 한
+                          CLI 가 늘 먼저 접어 뜨지도 못했다). 이제 값을 고르면 접는 자리는 언제나 턴 경계이며,
+                          **실제로 접히는 토큰 수를 여기서 직접 말한다** — 고른 값과 다른 숫자라 숨기면 안 된다. */}
+                      <span className="text-[12px] leading-snug text-gray-400">
+                        {compactFoldsAtTokens === null
+                          ? t('panel.agentConfig.autoCompact.foldsAtAuto', { percent: compactFoldsAtPercent })
+                          : t('panel.agentConfig.autoCompact.foldsAt', { tokens: `${Math.round(compactFoldsAtTokens / 1000)}k` })}
+                      </span>
                       {/* §9 — 설명문도 가독 하한 12px. 위계는 크기가 아니라 색으로 낮춘다. */}
                       <span className="text-[12px] leading-snug text-gray-600">{t('panel.agentConfig.autoCompact.globalTip')}</span>
-                      {/* §4 (CLI 사양 추종) — '얼마나 차면'(위 드롭다운) 과 '언제'(아래 둘)는 직교한다. */}
+                      {/* §4 (CLI 사양 추종) — 이 축만 직교로 남는다: 숫자로 못 잡는 자리를 에이전트가 부른다. */}
                       <label className="mt-1 flex items-start gap-2 text-[12px] text-gray-400">
-                        <input
-                          type="checkbox"
-                          checked={compactAfterTurn}
-                          onChange={(e) => { setDirty(true); setCompactAfterTurn(e.target.checked); }}
-                          className="mt-0.5 h-3.5 w-3.5 accent-blue-500"
-                        />
-                        <span>
-                          {t('panel.agentConfig.compactAfterTurn.label')}
-                          <span className="ml-1 text-gray-600">{t('panel.agentConfig.compactAfterTurn.hint')}</span>
-                        </span>
-                      </label>
-                      <label className="flex items-start gap-2 text-[12px] text-gray-400">
                         <input
                           type="checkbox"
                           checked={agentCanCompact}
@@ -949,6 +974,12 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
 
         {/* Footer — Apply / Cancel */}
         <div className="flex items-center justify-end gap-2 border-t border-gray-700 px-4 py-3">
+          {saveError && (
+            <span className="mr-auto flex items-center gap-1.5 text-[12px] text-red-400">
+              <svg className="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v5"/><path d="M12 16h.01"/></svg>
+              {t('panel.options.saveFailed', { defaultValue: 'Could not save — your changes are still here.' })}
+            </span>
+          )}
           <button
             type="button"
             onClick={requestClose}

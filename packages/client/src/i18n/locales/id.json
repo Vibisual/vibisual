@@ -295,6 +295,8 @@
         "intro": "Pintasan keyboard mempercepat navigasi dan pengeditan. Pintasan ini nonaktif sementara saat Anda mengetik di input atau terminal.",
         "bookmarkT": "Bookmark Bubble",
         "bookmarkD": "Alt+1…0 menyematkan bubble atau sesi ke sebuah slot; tekan 1…0 untuk kembali ke sana.",
+        "sessionTabsT": "Tab sesi",
+        "sessionTabsD": "{{cycle}} / {{cycleBack}} berpindah ke tab sesi berikutnya atau sebelumnya di jendela IDE terdepan ({{pageNext}} / {{pagePrev}} melakukan hal yang sama). {{first}}…{{last}} langsung menuju tab ke-N; {{last}} selalu tab terakhir.",
         "copyT": "Salin / tempel",
         "copyD": "{{copy}} / {{paste}} menyalin dan menempelkan agent, edge, dan kotak komentar yang dipilih.",
         "inspectorT": "Inspector",
@@ -335,6 +337,7 @@
       "apply": "Terapkan",
       "cancel": "Batal",
       "saving": "Menyimpan…",
+      "saveFailed": "Tidak dapat menyimpan — perubahan Anda masih ada.",
       "comingSoon": "Segera hadir",
       "comingSoonDesc": "Kategori ini dicadangkan untuk pengaturan mendatang.",
       "categories": {
@@ -999,11 +1002,13 @@
       },
       "autoCompact": {
         "label": "Pemadatan otomatis",
-        "tip": "Ukuran konteks saat CLI mulai memadatkan sendiri. Nilai lebih kecil memadatkan lebih awal dan lebih sering.",
+        "tip": "Ukuran jendela yang menjadi acuan pemadatan. Pada praktiknya kami melipat pada {{percent}}% dari nilai itu, di akhir giliran tersebut — agar tidak terpotong di tengah tugas; jika satu giliran menembus seluruh sisa margin, CLI yang melipat di tengah tugas.",
         "unset": "Belum diatur — mengikuti nilai bawaan di jendela Pengaturan.",
         "unsetLabel": "tidak disetel",
         "auto": "auto — CLI memilih jendelanya.",
-        "tokens": "Padatkan sekitar {{tokens}} token.",
+        "tokens": "Ukuran jendela sekitar {{tokens}} token.",
+        "foldsAt": "Melipat sekitar {{tokens}}, di akhir giliran tersebut.",
+        "foldsAtAuto": "Melipat pada {{percent}}% jendela yang dipilih CLI, di akhir giliran tersebut.",
         "unsetDefaultLabel": "belum diatur ({{tokens}})",
         "globalTip": "Berlaku untuk semua agen yang tidak punya nilai auto-compact sendiri — termasuk yang sedang berjalan. Biarkan kosong untuk memakai nilai bawaan."
       },
@@ -1094,10 +1099,6 @@
         "tip": "CLI agent mana yang diluncurkan oleh terminal CMD ini. Selain Claude Code, CLI lain bukan anak dari hook kami, sehingga resume percakapan dan injeksi rule tidak terpasang — statusnya dibaca dari output terminal sebagai gantinya.",
         "nonClaudeNote": "CLI ini bukan Claude Code, jadi pengaturan di bawah (model, izin, tool, rule) tidak diteruskan ke sana. Statusnya dibaca dari output terminal sebagai gantinya. Perubahan berlaku untuk sesi baru yang dibuka dengan \"+\".",
         "applyNote": "CLI yang diubah berlaku untuk sesi baru yang dibuka dengan \"+\" — terminal yang sudah berjalan tetap memakai CLI yang dipakai sejak semula."
-      },
-      "compactAfterTurn": {
-        "label": "Padatkan saat giliran selesai",
-        "hint": "Melipat percakapan menjadi ringkasan di setiap batas giliran — tidak pernah di tengah tugas."
       },
       "agentCanCompact": {
         "label": "Izinkan agen memadatkan saat bekerja",

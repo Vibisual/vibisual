@@ -295,6 +295,8 @@
         "intro": "键盘快捷键可加快导航和编辑速度。在输入框或终端中输入时快捷键会暂停生效。",
         "bookmarkT": "气泡书签",
         "bookmarkD": "Alt+1…0 可将气泡或 Session 固定到对应槽位；按 1…0 即可跳转回该槽位。",
+        "sessionTabsT": "会话标签页",
+        "sessionTabsD": "{{cycle}} / {{cycleBack}} 可切换到最前面 IDE 窗口的下一个或上一个会话标签页（{{pageNext}} / {{pagePrev}} 效果相同）。{{first}}…{{last}} 直接跳到第 N 个标签页，{{last}} 始终是最后一个。",
         "copyT": "复制 / 粘贴",
         "copyD": "{{copy}} / {{paste}}可复制和粘贴所选的 Agent、边和批注框。",
         "inspectorT": "检查器",
@@ -335,6 +337,7 @@
       "apply": "应用",
       "cancel": "取消",
       "saving": "保存中…",
+      "saveFailed": "未能保存——你的更改仍然保留。",
       "comingSoon": "即将推出",
       "comingSoonDesc": "此分类保留给未来的设置。",
       "categories": {
@@ -999,11 +1002,13 @@
       },
       "autoCompact": {
         "label": "自动压缩",
-        "tip": "CLI 开始自动压缩对话的上下文大小。数值越小，压缩越早、越频繁。",
+        "tip": "压缩所依据的窗口大小。实际上会在达到该值的 {{percent}}% 之后、于该轮结束处折叠——这样不会在任务中途截断；若单轮直接冲破剩余余量，则由 CLI 在中途折叠。",
         "unset": "未设置 — 沿用设置窗口中的默认值。",
         "unsetLabel": "未设置",
         "auto": "auto — 由 CLI 选择窗口。",
-        "tokens": "约 {{tokens}} 个 token 时压缩。",
+        "tokens": "窗口大小约 {{tokens}} 个 token。",
+        "foldsAt": "达到约 {{tokens}} 时，在该轮结束处折叠。",
+        "foldsAtAuto": "达到 CLI 所定窗口的 {{percent}}% 时，在该轮结束处折叠。",
         "unsetDefaultLabel": "未设置 ({{tokens}})",
         "globalTip": "适用于所有未单独设置自动压缩的智能体，包括已在运行的。留空则使用内置默认值。"
       },
@@ -1094,10 +1099,6 @@
         "tip": "该 CMD 终端启动的 Agent CLI。除 Claude Code 以外，其他 CLI 都不是我们的 Hooks 系统的子进程，因此无法接入对话续接与规则注入——其状态会改为从终端输出中读取。",
         "nonClaudeNote": "该 CLI 并非 Claude Code，因此下方设置(模型、权限、工具、规则)不会传递给它。其状态改为从终端输出中读取。更改仅对通过“+”新开的会话生效。",
         "applyNote": "更改 CLI 后仅对通过“+”新开的会话生效——已在运行的终端将保留其启动时的设置。"
-      },
-      "compactAfterTurn": {
-        "label": "一轮结束后压缩",
-        "hint": "在每轮边界把对话折叠为摘要——绝不在任务中途截断。"
       },
       "agentCanCompact": {
         "label": "允许智能体在工作中自行压缩",

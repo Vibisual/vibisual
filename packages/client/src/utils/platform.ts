@@ -115,9 +115,14 @@ const MAC_MODIFIER_ORDER = ['⌃', '⌥', '⇧', '⌘'] as const;
  *
  * `Ctrl` 이 `⌘` 로 가는 것이 핵심이다 — 이 앱의 단축키는 전부 `ctrlKey || metaKey` 라
  * mac 에서 실제로 눌리는 키가 Command 이기 때문이다(Control 이 아니다).
+ *
+ * ⚠ **`Control` 토큰만 예외로 진짜 Control(`⌃`)** 이다 — §5.5 #17-37 의 `Ctrl+Tab` 처럼
+ * mac 에서 `⌘` 가 OS 에 이미 잡혀 있는(⌘Tab = 앱 전환) 자리에 쓴다. 그 자리는 판정도
+ * `ctrlKey` 만 보므로 라벨과 동작이 한 벌로 어긋나지 않는다. 그 외에는 종전대로 `Ctrl`.
  */
 const MAC_MODIFIER: Record<string, string> = {
-  ctrl: '⌘', control: '⌘', cmd: '⌘', command: '⌘', meta: '⌘', mod: '⌘',
+  ctrl: '⌘', cmd: '⌘', command: '⌘', meta: '⌘', mod: '⌘',
+  control: '⌃',
   alt: '⌥', option: '⌥', opt: '⌥',
   shift: '⇧',
 };
@@ -128,7 +133,11 @@ const MAC_KEY: Record<string, string> = {
   backspace: '⌫', delete: '⌦', del: '⌦',
   tab: '⇥', escape: 'Esc', esc: 'Esc',
   up: '↑', down: '↓', left: '←', right: '→',
+  pageup: '⇞', pagedown: '⇟',
 };
+
+/** mac 이 아닌 곳의 표기 — 뜻이 갈리는 `Control` 만 사람이 쓰는 말(`Ctrl`)로 되돌린다. */
+const WIN_MODIFIER: Record<string, string> = { control: 'Ctrl' };
 
 /**
  * `'Ctrl+Shift+Z'` → `['Ctrl','Shift','Z']`.
@@ -146,11 +155,12 @@ function splitCombo(combo: string): string[] {
  *
  * - mac: 기호를 이어 붙인다 — `Ctrl+S` → `⌘S`, `Ctrl+Shift+Z` → `⇧⌘Z`, `Ctrl+Enter` → `⌘↩`.
  * - 그 외: 받은 그대로 `+` 로 잇는다 — `Ctrl+S` → `Ctrl+S`.
+ * - `Control` 토큰은 **진짜 Control** — `Control+Tab` → mac `⌃⇥`, 그 외 `Ctrl+Tab`(#17-37 ③).
  */
 export function formatShortcut(combo: string, mac: boolean): string {
   const tokens = splitCombo(combo);
   if (tokens.length === 0) return combo;
-  if (!mac) return tokens.join('+');
+  if (!mac) return tokens.map((token) => WIN_MODIFIER[token.toLowerCase()] ?? token).join('+');
 
   const mods: string[] = [];
   const keys: string[] = [];

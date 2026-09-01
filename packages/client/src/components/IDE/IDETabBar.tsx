@@ -15,6 +15,8 @@ import { serializeRunningLoops, parseRunningLoops } from './sessionLoopIndicator
 // §5.5 #17-34 — 탭을 본문으로 끌면 화면이 나뉜다. 탭바는 짐표만 실어 주고 판정·배치는 분할 쪽이 한다.
 import { SESSION_DRAG_MIME, encodeSessionDrag, sessionIdMime, sessionOwnerMime } from './splitDrop.js';
 import { cellSessionIds } from './splitLayout.js';
+// §5.5 #17-37 — 세션 탭 전환 단축키. 키를 뜻으로, 뜻을 갈 탭으로 바꾸는 판정은 저 모듈 한 곳에 있다.
+import { resolveTabSwitchIntent, applyTabSwitch, type TabKey } from './tabSwitchKeys.js';
 import { useIDESlotKey } from './ideSlot.js';
 import { useSelectSessionInSplit } from './useSplitDrop.js';
 import { useIsNarrowViewport } from '../../hooks/useIsMobile.js';
@@ -27,6 +29,8 @@ interface IDETabBarProps {
   subAgents: SubAgent[];
   isCustom: boolean;
   onNewSession: () => void;
+  /** 이 창이 맨 앞인가 — §5.5 #17-37 탭 전환 단축키는 맨 앞 창 하나만 받는다(#17-1 (H-5) 와 같은 판정). */
+  isFrontPane: boolean;
 }
 
 // 도트 색표는 `utils/sessionStatus` 한 곳에 산다 — 종전에는 같은 표가 여기·사이드바·패널 세 벌로
@@ -54,6 +58,7 @@ export const IDETabBar = memo(function IDETabBar({
   subAgents,
   isCustom,
   onNewSession,
+  isFrontPane,
 }: IDETabBarProps): React.JSX.Element {
   const { t } = useTranslation();
   const activeSessionId = useIDEPaneValue((o) => o.activeSessionId);
@@ -153,6 +158,35 @@ export const IDETabBar = memo(function IDETabBar({
     const ids = subAgents.map((s) => s.id);
     if (sameOrder(ids, localOrder) || !sameMembers(ids, localOrder)) setLocalOrder(null);
   }, [subAgents, localOrder]);
+
+  // §5.5 #17-37 — 세션 탭 전환 단축키가 세는 대상 = **탭 줄에 실제로 그려진 순서**(드래그로 바꾼
+  //   로컬 순서 포함). 훅 에이전트의 메인 탭(세션 `null`)도 한 칸으로 센다 — 커스텀에는 그 탭이 없다.
+  const tabOrder = useMemo<TabKey[]>(
+    () => [...(isCustom ? [] : [null]), ...orderedSubs.map((s) => s.id)],
+    [isCustom, orderedSubs],
+  );
+
+  // §5.5 #17-37 — 판정은 순수 모듈(`tabSwitchKeys`)이 하고, 여기서는 그 결과를 **탭을 누르는 그 문**
+  //   으로 흘린다(#17-37 ⑥ — 분할 창에서 이미 떠 있는 세션이면 초점만 그 칸으로 간다).
+  //   ⚠ capture 단계 + `stopPropagation` — 글을 쓰다가 옆 세션을 보러 가는 동작이라 입력창·xterm
+  //   터미널에 포커스가 있어도 먹어야 하고, 삼키지 않으면 터미널이 같은 키를 셸로 흘려보낸다(④).
+  useEffect(() => {
+    // 창이 여럿이면 맨 앞 하나만 받는다 — #17-1 (H-5)·Escape 와 같은 판정(새 축 ❌).
+    if (!isFrontPane) return;
+    const onSwitchKey = (e: KeyboardEvent): void => {
+      const intent = resolveTabSwitchIntent(e);
+      if (!intent) return;
+      if (editingId) return; // 탭 이름을 고치는 중에는 비켜선다(F2 와 같은 자리).
+      // 우리 키로 읽혔으면 **갈 곳이 없어도 삼킨다** — 탭이 하나뿐일 때만 같은 키가 터미널에
+      //   탭 문자를 흘려보내면, 사용자에게는 단축키가 '가끔 새는' 물건이 된다.
+      e.preventDefault();
+      e.stopPropagation();
+      const next = applyTabSwitch(tabOrder, activeSessionId, intent);
+      if (next) selectSessionInSplit(next.target);
+    };
+    window.addEventListener('keydown', onSwitchKey, true);
+    return () => window.removeEventListener('keydown', onSwitchKey, true);
+  }, [isFrontPane, editingId, tabOrder, activeSessionId, selectSessionInSplit]);
 
   const handleDragStart = useCallback((e: React.DragEvent, subId: string) => {
     // 닫기 버튼/이름 편집 입력 위에서 시작된 드래그는 무시. 탭 div 가 draggable 이라 X 위에서 살짝만

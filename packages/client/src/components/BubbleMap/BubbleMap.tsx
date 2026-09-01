@@ -1707,7 +1707,17 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
     // §2.1 #5 v1.55 — 외부 폴더 버블은 "에이전트가 프로젝트 밖에서 실제로 만진 위치" 를 가리킨다.
     // 안으로 들어가 봐야 그 위성 파일은 이미 이 캔버스에 함께 떠 있으므로, 더블클릭은 SSOT 대로
     // **OS 탐색기에서 그 절대경로** 를 연다(§7.10 폴더 열기 인프라 재사용 — 새 레일 ❌).
+    //
+    // 단, 접합 트리(§2.1 #5)가 생긴 뒤로는 외부 폴더도 **하위 외부 폴더를 가질 수 있다**.
+    // 그때는 안에 볼 것이 있으므로 내부 폴더와 똑같이 드릴다운한다 — 그러지 않으면 부모 밑으로
+    // 묶인 폴더들이 영영 열리지 않아, 묶은 것이 곧 숨긴 것이 된다.
     if (data.bubbleType === 'external_folder') {
+      const hasSubFolders = (store.children[data.id] ?? [])
+        .some((c) => c.bubbleType === 'external_folder' || c.bubbleType === 'internal_folder');
+      if (hasSubFolders) {
+        store.enterFolder(data.id);
+        return;
+      }
       fetch(`/api/open-node-folder`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

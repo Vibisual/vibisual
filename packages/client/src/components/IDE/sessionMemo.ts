@@ -1,4 +1,5 @@
 import { SESSION_MEMO, SESSION_MEMO_DEFAULT_COLOR, type SessionMemo } from '@vibisual/shared';
+import { pickReadableTextColor } from '../../utils/commentBoxStyle.js';
 
 /**
  * sessionMemo.ts — §5.5 #17-36 스티키 메모의 **순수 계산**(React·DOM 없음).
@@ -20,7 +21,15 @@ export interface MemoBounds {
 }
 
 /** 한 장을 갱신할 때 바꿀 수 있는 값들(`updatedAt` 은 자동). */
-export type MemoPatch = Partial<Pick<SessionMemo, 'text' | 'x' | 'y' | 'w' | 'h' | 'color' | 'collapsed'>>;
+export type MemoPatch = Partial<Pick<SessionMemo, 'text' | 'x' | 'y' | 'w' | 'h' | 'color' | 'alpha' | 'collapsed'>>;
+
+/** 위치·크기 넷 — 끄는 동안 화면이 들고 있는 임시 사각형. */
+export interface MemoRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
 
 function clamp(v: number, min: number, max: number): number {
   return Math.round(Math.max(min, Math.min(max, v)));
@@ -134,6 +143,8 @@ export function patchMemo(
   const merged: SessionMemo = { ...cur, ...patch, updatedAt: now };
   // collapsed 는 false 를 남기지 않는다(기본값이라 없는 것과 같다 — 저장 비교가 흔들리지 않게).
   if (!merged.collapsed) delete merged.collapsed;
+  // alpha 도 같은 규약 — 기본값이면 필드를 지운다(서버 정화본과 글자 그대로 같아야 낙관 표시가 풀린다).
+  if (merged.alpha === undefined || merged.alpha === SESSION_MEMO.DEFAULT_ALPHA) delete merged.alpha;
   const same = (Object.keys(patch) as (keyof MemoPatch)[]).every((k) => cur[k] === patch[k]);
   if (same) return memos;
   const next = [...memos];
@@ -168,4 +179,94 @@ export function resizeMemo(memo: SessionMemo, start: { w: number; h: number }, d
  * `pickReadableTextColor`(코멘트 박스)와 같은 YIQ 근사지만, 이 파일은 클라 IDE 전용이라
  * 그쪽 유틸을 그대로 가져다 쓴다(중복 구현 ❌ — `utils/commentBoxStyle.ts`).
  */
-export { pickReadableTextColor } from '../../utils/commentBoxStyle.js';
+export { pickReadableTextColor };
+
+
+// ─── 종이의 겉모습 (색 × 불투명도) ───
+
+/**
+ * 메모가 놓인 바닥색 — IDE 본문(`bg-gray-950`). 합성 결과를 계산할 기준이라 상수로 박아 둔다.
+ *
+ * 왜 필요한가: 메모는 이제 **반투명 유리판**이라, 사용자가 고른 `color` 는 화면에 그대로 나오지
+ * 않는다. 알파 0.3 짜리 밝은 종이는 실제로는 어두운 회색으로 보이는데, 글자색을 `color` 로
+ * 판정하면 그 위에 **검은 글씨**를 얹어 아무것도 안 읽힌다. 그래서 판정은 항상 합성 결과로 한다.
+ */
+export const MEMO_BASE_SURFACE = '#030712';
+
+/** 한 장의 실제 불투명도 — 필드가 없으면 기본값(§ 저장은 기본값을 생략한다). */
+export function memoAlpha(memo: Pick<SessionMemo, 'alpha'>): number {
+  const a = memo.alpha;
+  if (typeof a !== 'number' || !Number.isFinite(a)) return SESSION_MEMO.DEFAULT_ALPHA;
+  return Math.max(SESSION_MEMO.MIN_ALPHA, Math.min(SESSION_MEMO.MAX_ALPHA, a));
+}
+
+/** `#RRGGBB` → [r,g,b]. 모양이 어긋나면 기본색으로 떨어진다(style 로 새는 값 ❌). */
+export function hexToRgbTriple(hex: string): [number, number, number] {
+  const m = /^#([0-9a-fA-F]{6})$/.exec(hex.trim());
+  const body = m?.[1] ?? SESSION_MEMO_DEFAULT_COLOR.slice(1);
+  return [
+    parseInt(body.slice(0, 2), 16),
+    parseInt(body.slice(2, 4), 16),
+    parseInt(body.slice(4, 6), 16),
+  ];
+}
+
+function toHex(rgb: [number, number, number]): string {
+  return `#${rgb.map((v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('').toUpperCase()}`;
+}
+
+/** 알파를 얹은 색을 바닥색 위에 합성한 결과(= 눈에 보이는 색). */
+export function compositeOver(hex: string, alpha: number, baseHex: string = MEMO_BASE_SURFACE): string {
+  const [r, g, b] = hexToRgbTriple(hex);
+  const [br, bg, bb] = hexToRgbTriple(baseHex);
+  const a = Math.max(0, Math.min(1, alpha));
+  return toHex([r * a + br * (1 - a), g * a + bg * (1 - a), b * a + bb * (1 - a)]);
+}
+
+function rgba(hex: string, alpha: number): string {
+  const [r, g, b] = hexToRgbTriple(hex);
+  return `rgba(${r}, ${g}, ${b}, ${Math.round(Math.max(0, Math.min(1, alpha)) * 1000) / 1000})`;
+}
+
+/** 한 장의 겉모습 — 화면은 이 값만 style 로 옮겨 적는다(색 산수는 전부 여기서). */
+export interface MemoSurface {
+  /** 카드 배경(반투명). */
+  background: string;
+  /** 눈에 보이는 색 `#RRGGBB` — 글자색 판정의 기준. */
+  composite: string;
+  /** 본문 글자색. */
+  text: string;
+  /** 테두리. */
+  border: string;
+  /** 제목줄에 한 겹 더 얹는 색(밝은 판이면 어둡게, 어두운 판이면 밝게). */
+  headerTint: string;
+  /** 구분선·손잡이처럼 글자보다 옅게 그리는 선. */
+  hairline: string;
+  /** 위쪽 유리 하이라이트(inset shadow). */
+  glassEdge: string;
+  /** 뒤를 흐릴지 — 거의 불투명하면 흐릴 것이 없다(불필요한 backdrop-filter 는 합성 비용만 든다). */
+  blur: boolean;
+}
+
+/** 거의 불투명하면 `backdrop-filter` 를 걸지 않는다 — 비칠 것이 없는데 합성기만 돌린다. */
+const OPAQUE_ENOUGH = 0.97;
+
+/**
+ * 색 + 불투명도 → 화면에 쓸 값들. **순수 함수라 테스트로 못 박을 수 있다** — "투명하게 낮췄더니
+ * 글씨가 안 보인다"는 눈으로 잡기 어려운 종류의 실패다.
+ */
+export function memoSurface(color: string, alpha: number, baseHex: string = MEMO_BASE_SURFACE): MemoSurface {
+  const composite = compositeOver(color, alpha, baseHex);
+  const text = pickReadableTextColor(composite);
+  const light = text === '#0F172A'; // 밝은 판 = 어두운 글자
+  return {
+    background: rgba(color, alpha),
+    composite,
+    text,
+    border: light ? 'rgba(15, 23, 42, 0.28)' : 'rgba(255, 255, 255, 0.14)',
+    headerTint: light ? 'rgba(15, 23, 42, 0.07)' : 'rgba(255, 255, 255, 0.07)',
+    hairline: light ? 'rgba(15, 23, 42, 0.14)' : 'rgba(255, 255, 255, 0.12)',
+    glassEdge: light ? 'rgba(255, 255, 255, 0.45)' : 'rgba(255, 255, 255, 0.10)',
+    blur: alpha < OPAQUE_ENOUGH,
+  };
+}

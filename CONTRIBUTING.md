@@ -120,6 +120,30 @@ an employer IP policy, for example — please open a discussion first. We
 would rather build the idea ourselves from your issue than leave part of
 the project unable to move.
 
+## Merging (for maintainers)
+
+Two checks gate every pull request. Both must be green before the merge button
+is used:
+
+| Check | What it proves |
+|---|---|
+| `Signed-off-by` | Every commit carries a DCO sign-off matching its author |
+| `Licensing consent` | The pull request body confirms the Additional License Grant |
+
+**Never merge past a red one of these — not for your own pull request, not in a
+hurry.** A single contribution merged without recorded consent pins the module it
+touches to Apache 2.0 permanently: it can no longer be dual-licensed, moved to a
+source-available license, or shipped in a paid edition. The only ways back are to
+track the contributor down for written consent, or to tear the code out. Both
+arrive as a bill years later, usually during diligence.
+
+Repository admins can bypass required checks. That is the one hole no automation
+can close, which is why it is written here instead. If a merge does slip through,
+the **Merged PR audit** workflow opens an issue naming the pull request. Resolve
+it by getting the contributor to confirm the Additional License Grant in writing
+on that pull request, or by reverting the merge. Closing the issue because the
+code works does not fix the licensing.
+
 ## Code of Conduct
 
 Be kind. Assume good intent. Personal attacks, harassment, and

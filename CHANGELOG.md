@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.18] - 2026-09-01
+
+### Added
+- **Files an agent edits through the shell now show up on the canvas.** The canvas knew which files a Bash command *read*, and nothing at all about the ones it wrote — so an agent that built a file with `>`, a heredoc, `tee`, `sed -i`, `cp`, `mv` or `touch` left no file bubble, no arrow pointing at it, and no entry in the edit history. Not a partial record: zero. Those commands are now read for their destinations, the file is compared before and after, and the difference is reconstructed from the disk itself — so the change is visible even though nothing announced it. A command that rewrites a file with identical content is not recorded, and one that touches several files records all of them rather than the first. The audit log's "which file" column, previously blank on every shell line, is filled from the same reading.
+- **Session tabs can be switched from the keyboard.** `Ctrl+Tab` and `Ctrl+Shift+Tab` step through the tabs of the front IDE window, `Ctrl+PageDown` and `Ctrl+PageUp` do the same, and `Ctrl+1` through `Ctrl+9` jump straight to a tab — with `Ctrl+9` always meaning the last one, however many there are. On macOS these stay on the real Control key rather than Command, because `⌘Tab` belongs to the system and never reaches an application; the shortcut is displayed the way it actually behaves.
+- **Sticky notes can be made transparent.** A note laid over a conversation used to hide whatever it covered, which is the opposite of what a note pinned to a passage is for. The colour picker now carries an opacity slider over a chequerboard, so you can see how much is showing through, and the palette opens with the colours meant for that surface before the full picker. The text colour is decided from the colour you end up seeing rather than the one you picked — lower a pale note's opacity over a dark transcript and the writing flips to stay legible instead of fading into it.
+
+### Changed
+- **An agent's settings are resolved in three layers — the agent, the settings window, then the built-in defaults.** Until now the defaults were copied into an agent at the moment it was created, which sounds equivalent and is not: from then on the agent held a snapshot, so changing the settings window did nothing to a bubble that already existed, and there was no longer any way to tell which of its values you had actually chosen. Each agent now stores only the values that differ, so an untouched setting follows the window and a deliberate one stays put. Configurations saved by earlier versions are migrated by comparing them against the defaults, which keeps them behaving exactly as they did.
+- **Compaction at the end of a turn now waits until the context is actually filling up.** "Compact when a turn ends" did what it said — *every* turn — so a short exchange was folded into a summary and its detail was gone, and since compacting is itself a model call it spent tokens and rate limit on each one. Worse, it and the automatic-compaction setting were two controls for one behaviour, and with both aiming at the same number the CLI always folded first, so the checkbox could never fire at all. There is now one control: the context size. The conversation is folded at a fraction of it, at the end of whichever turn crosses the line, so nothing is cut mid-task. The decision reads the same context measurement the status bar displays, and when that number cannot be read, nothing is folded.
+- **Folders outside the project are arranged into a tree.** They were all placed at the top level, so folders that shared a parent were scattered rather than grouped — one running project had forty-eight of them at the top, seventeen being siblings under a single directory, and every new session added another. They now nest by ancestry like project folders do, while still skipping the single-child chains from the drive root that make a canvas unreadable. A folder that only exists to join others together can be opened, which it could not before: grouping something and hiding it are the same thing if there is no way in.
+- **Contributions are accepted under stated licence terms.** A pull request now asks the contributor to confirm the terms before it can be merged, and merged pull requests are checked afterwards, so the project's licensing rests on a recorded answer rather than an assumption.
+
+### Fixed
+- **Global options that appeared not to save.** Saving while an agent was running could put the old values straight back: settings arrive both immediately and inside the batched canvas updates, and an update captured just before the save would arrive just after it, at which point the window re-seeded its form from it. What you had typed was on disk and gone from the screen, which reads as a failed save — and it never happened when nothing was running, which is the worst way for a bug to behave. Updates that are older than what is already shown are now discarded. Separately, clearing a global default was impossible — an empty field was dropped on the way out rather than sent, so a default could be switched on and never off — and a save that genuinely fails now says so instead of leaving you to guess.
+- **The tools you picked in the settings window no longer cap every agent you create.** When the tool list grew from 22 names to 45, existing agents were filled in with the new ones but the settings window's own list was not, so a preset chosen before that release quietly became the ceiling for everything made after it — eleven tools where forty-eight were available. The window's list is filled in the same way, once.
+- **Keeping an agent's model in step no longer resets its tools.** Writing an observed model back into an agent's settings rewrote the rest of the entry with the built-in defaults, so a tool selection made in the settings window never survived on a newly created agent.
+- **A folder that only groups other folders no longer reads as empty.** With no files of its own, it reported "0 files" and looked like a bubble with nothing in it; it now counts what it contains.
+
 ## [0.1.17] - 2026-09-01
 
 ### Added
@@ -397,7 +416,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - Dropped preset options from the custom agent settings.
 
-[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.1.17...HEAD
+[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.1.18...HEAD
+[0.1.18]: https://github.com/Vibisual/vibisual/compare/v0.1.17...v0.1.18
 [0.1.17]: https://github.com/Vibisual/vibisual/compare/v0.1.16...v0.1.17
 [0.1.16]: https://github.com/Vibisual/vibisual/compare/v0.1.15...v0.1.16
 [0.1.15]: https://github.com/Vibisual/vibisual/compare/v0.1.14...v0.1.15

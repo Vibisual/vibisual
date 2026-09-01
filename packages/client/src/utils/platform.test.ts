@@ -64,6 +64,24 @@ describe('formatShortcut — 단축키 라벨', () => {
     expect(formatShortcut('Ctrl+Alt+Shift+P', true)).toBe('⌥⇧⌘P');
   });
 
+  // §5.5 #17-37 ③ — mac 에서 Cmd+Tab 은 OS 앱 전환이라 그 자리만 **진짜 Control** 이다.
+  it('Control 토큰은 mac 에서 ⌃ — 세션 탭 전환(Ctrl+Tab)이 ⌘Tab 으로 잘못 안내되지 않는다', () => {
+    expect(formatShortcut('Control+Tab', true)).toBe('⌃⇥');
+    expect(formatShortcut('Control+Tab', false)).toBe('Ctrl+Tab');
+    expect(formatShortcut('Control+Shift+Tab', true)).toBe('⌃⇧⇥');
+    expect(formatShortcut('Control+Shift+Tab', false)).toBe('Ctrl+Shift+Tab');
+  });
+
+  it('Ctrl 은 그대로 ⌘ 다 — 예외는 Control 토큰 하나뿐', () => {
+    expect(formatShortcut('Ctrl+Tab', true)).toBe('⌘⇥');
+  });
+
+  it('PageUp/PageDown 은 mac 기호(⇞·⇟)로', () => {
+    expect(formatShortcut('Ctrl+PageDown', true)).toBe('⌘⇟');
+    expect(formatShortcut('Ctrl+PageUp', true)).toBe('⌘⇞');
+    expect(formatShortcut('Ctrl+PageDown', false)).toBe('Ctrl+PageDown');
+  });
+
   it('Alt·Shift 단독도 기호로', () => {
     expect(formatShortcut('Alt+1', true)).toBe('⌥1');
     expect(formatShortcut('Shift+Tab', true)).toBe('⇧⇥');

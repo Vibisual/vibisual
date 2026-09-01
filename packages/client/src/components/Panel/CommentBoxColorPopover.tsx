@@ -6,15 +6,29 @@ import { POPUP_DISMISS } from '../../hooks/popupDismiss.js';
 interface Props {
   /** 현재 선택된 hex (#RRGGBB) */
   value: string;
-  /** 슬라이더/드래그 라이브 갱신 (PATCH 없음) */
-  onLive: (hex: string) => void;
+  /**
+   * 현재 불투명도(0~1). **주면 알파 슬라이더가 뜬다** — 안 주면 종전대로 색만 고르는 도구다.
+   * (코멘트 박스는 알파 축이 없고, 스티키 메모(§5.5 #17-36)는 있다.)
+   */
+  alpha?: number;
+  /**
+   * 맨 윗줄에 놓을 호출부 전용 빠른 칸. 주면 그 화면의 팔레트가 먼저 보이고, 아래의 범용
+   * 확장 팔레트는 그대로 남는다(자유색을 고를 길을 막지 않는다).
+   */
+  presets?: readonly { id: string; label: string; color: string }[];
+  /** 슬라이더/드래그 라이브 갱신 (PATCH 없음) — 알파를 안 쓰는 호출부는 두 번째 인자를 무시하면 된다. */
+  onLive: (hex: string, alpha: number) => void;
   /** 손 떼는 시점 1회 PATCH */
-  onCommit: (hex: string) => void;
+  onCommit: (hex: string, alpha: number) => void;
   /** 팝오버 닫기 */
   onClose: () => void;
   /** 트리거 버튼의 화면 좌표 (popover 위치 anchor) */
   anchor: { x: number; y: number };
 }
+
+/** 알파 슬라이더 트랙 뒤의 체커보드 — 투명한 만큼 이 무늬가 비쳐 "얼마나 뚫렸는지"가 보인다. */
+const CHECKERBOARD =
+  'repeating-conic-gradient(#94A3B8 0% 25%, #E2E8F0 0% 50%) 50% / 8px 8px';
 
 // ─── HSV ↔ RGB ↔ HEX 유틸 ───
 
@@ -73,9 +87,13 @@ function hsvToHex(h: number, s: number, v: number): string {
  * - HEX 직접 입력
  * - 외부 클릭 / Esc 닫기
  */
-export function CommentBoxColorPopover({ value, onLive, onCommit, onClose, anchor }: Props): React.JSX.Element {
+export function CommentBoxColorPopover({ value, alpha, presets, onLive, onCommit, onClose, anchor }: Props): React.JSX.Element {
   const { t } = useTranslation();
   const popRef = useRef<HTMLDivElement>(null);
+  const hasAlpha = typeof alpha === 'number';
+  // 알파를 안 쓰는 호출부에는 항상 1 을 돌려준다(콜백 시그니처는 하나로 유지).
+  const alphaRef = useRef(typeof alpha === 'number' ? alpha : 1);
+  alphaRef.current = typeof alpha === 'number' ? alpha : 1;
 
   // HSV 내부 상태 — value prop(hex) 와 양방향 동기화
   const initialHsv = useMemo<[number, number, number]>(() => {
@@ -130,8 +148,8 @@ export function CommentBoxColorPopover({ value, onLive, onCommit, onClose, ancho
     setV(nv);
     const hex = hsvToHex(h, ns, nv);
     setHexInput(hex);
-    if (commit) onCommit(hex);
-    else onLive(hex);
+    if (commit) onCommit(hex, alphaRef.current);
+    else onLive(hex, alphaRef.current);
   }, [h, onLive, onCommit]);
 
   const onPadPointerDown = useCallback((e: React.PointerEvent) => {
@@ -161,8 +179,8 @@ export function CommentBoxColorPopover({ value, onLive, onCommit, onClose, ancho
     setH(nh);
     const hex = hsvToHex(nh, s, v);
     setHexInput(hex);
-    if (commit) onCommit(hex);
-    else onLive(hex);
+    if (commit) onCommit(hex, alphaRef.current);
+    else onLive(hex, alphaRef.current);
   }, [s, v, onLive, onCommit]);
 
   const onHuePointerDown = useCallback((e: React.PointerEvent) => {
@@ -181,9 +199,40 @@ export function CommentBoxColorPopover({ value, onLive, onCommit, onClose, ancho
     updateFromHue(e.clientX, true);
   }, [updateFromHue]);
 
+  // ─── 알파 슬라이더 드래그 ───
+  const alphaTrackRef = useRef<HTMLDivElement>(null);
+  const alphaDraggingRef = useRef(false);
+  const updateFromAlpha = useCallback((clientX: number, commit: boolean) => {
+    const el = alphaTrackRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    // 0 은 잡을 수 없는 유령이 되므로 하한을 둔다(호출부가 자기 하한으로 다시 접는다).
+    const na = Math.max(0.05, Math.min(1, Math.round(((clientX - r.left) / r.width) * 100) / 100));
+    alphaRef.current = na;
+    const hex = hsvToHex(h, s, v);
+    if (commit) onCommit(hex, na);
+    else onLive(hex, na);
+  }, [h, s, v, onLive, onCommit]);
+
+  const onAlphaPointerDown = useCallback((e: React.PointerEvent) => {
+    e.preventDefault();
+    alphaDraggingRef.current = true;
+    (e.target as Element).setPointerCapture(e.pointerId);
+    updateFromAlpha(e.clientX, false);
+  }, [updateFromAlpha]);
+  const onAlphaPointerMove = useCallback((e: React.PointerEvent) => {
+    if (!alphaDraggingRef.current) return;
+    updateFromAlpha(e.clientX, false);
+  }, [updateFromAlpha]);
+  const onAlphaPointerUp = useCallback((e: React.PointerEvent) => {
+    if (!alphaDraggingRef.current) return;
+    alphaDraggingRef.current = false;
+    updateFromAlpha(e.clientX, true);
+  }, [updateFromAlpha]);
+
   // ─── 팔레트/그레이스케일 클릭 ───
   const handlePaletteClick = useCallback((hex: string) => {
-    onCommit(hex);
+    onCommit(hex, alphaRef.current);
     setHexInput(hex);
     const [rr, gg, bb] = hexToRgb(hex);
     const [hh, ss, vv] = rgbToHsv(rr, gg, bb);
@@ -195,7 +244,7 @@ export function CommentBoxColorPopover({ value, onLive, onCommit, onClose, ancho
     setHexInput(raw);
     const normalized = raw.startsWith('#') ? raw : `#${raw}`;
     if (/^#[0-9a-fA-F]{6}$/.test(normalized)) {
-      onLive(normalized);
+      onLive(normalized, alphaRef.current);
       const [rr, gg, bb] = hexToRgb(normalized);
       const [hh, ss, vv] = rgbToHsv(rr, gg, bb);
       setH(hh); setS(ss); setV(vv);
@@ -203,13 +252,13 @@ export function CommentBoxColorPopover({ value, onLive, onCommit, onClose, ancho
   }, [onLive]);
   const handleHexCommit = useCallback(() => {
     const normalized = hexInput.startsWith('#') ? hexInput : `#${hexInput}`;
-    if (/^#[0-9a-fA-F]{6}$/.test(normalized)) onCommit(normalized);
+    if (/^#[0-9a-fA-F]{6}$/.test(normalized)) onCommit(normalized, alphaRef.current);
     else setHexInput(value);
   }, [hexInput, value, onCommit]);
 
   // 위치 — 우측 우선, 화면 밖이면 좌측 플립
   const POP_W = 240;
-  const POP_H = 360;
+  const POP_H = 360 + (hasAlpha ? 30 : 0) + (presets ? 30 : 0);
   const screenW = typeof window !== 'undefined' ? window.innerWidth : 1024;
   const screenH = typeof window !== 'undefined' ? window.innerHeight : 768;
   const left = anchor.x + POP_W + 8 < screenW ? anchor.x + 8 : Math.max(8, anchor.x - POP_W - 8);
@@ -282,6 +331,60 @@ export function CommentBoxColorPopover({ value, onLive, onCommit, onClose, ancho
           style={{ left: `${huePos}%` }}
         />
       </div>
+
+      {/* 알파 슬라이더 — 체커보드 위에 "투명 → 현재 색" 그라디언트를 얹어 지금 얼마나 뚫렸는지 보인다. */}
+      {hasAlpha && (
+        <div className="mt-2 flex items-center gap-2">
+          <div
+            ref={alphaTrackRef}
+            className="relative h-3 flex-1 cursor-ew-resize touch-none overflow-hidden rounded-full border border-gray-700"
+            style={{ background: CHECKERBOARD }}
+            onPointerDown={onAlphaPointerDown}
+            onPointerMove={onAlphaPointerMove}
+            onPointerUp={onAlphaPointerUp}
+            onPointerCancel={onAlphaPointerUp}
+            role="slider"
+            aria-label={t('panel.commentBox.opacity', 'Opacity')}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(alphaRef.current * 100)}
+            tabIndex={0}
+          >
+            <div
+              className="pointer-events-none absolute inset-0"
+              style={{ background: `linear-gradient(to right, transparent, ${hsvToHex(h, s, v)})` }}
+            />
+            <div
+              className="pointer-events-none absolute top-1/2 h-4 w-1 -translate-x-1/2 -translate-y-1/2 rounded-sm border border-gray-900 bg-white"
+              style={{ left: `${alphaRef.current * 100}%` }}
+            />
+          </div>
+          <span className="w-8 flex-shrink-0 text-right font-mono text-[12px] tabular-nums text-gray-400">
+            {Math.round(alphaRef.current * 100)}
+          </span>
+        </div>
+      )}
+
+      {/* 호출부 전용 빠른 칸(있을 때만) — 그 화면이 쓰는 색부터 눈에 들어오게 맨 위. */}
+      {presets && (
+        <div className="mt-3 grid grid-cols-8 gap-1">
+          {presets.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => handlePaletteClick(p.color)}
+              className={`h-4 w-4 rounded-full border transition-all ${
+                value.toLowerCase() === p.color.toLowerCase()
+                  ? 'border-white ring-1 ring-white/40'
+                  : 'border-gray-700/50 hover:scale-110 hover:border-gray-400'
+              }`}
+              style={{ backgroundColor: p.color }}
+              aria-label={p.label}
+              title={p.label}
+            />
+          ))}
+        </div>
+      )}
 
       {/* 빠른 팔레트 */}
       <div className="mt-3 grid grid-cols-8 gap-1">

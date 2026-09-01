@@ -295,6 +295,8 @@
         "intro": "Keyboard shortcuts speed up navigation and editing. They pause while you type in an input or terminal.",
         "bookmarkT": "Bubble bookmarks",
         "bookmarkD": "Alt+1…0 pins a bubble or session to a slot; press 1…0 to jump back to it.",
+        "sessionTabsT": "Session tabs",
+        "sessionTabsD": "{{cycle}} / {{cycleBack}} steps to the next or previous session tab in the front IDE window, and {{pageNext}} / {{pagePrev}} do the same. {{first}}…{{last}} jumps straight to the Nth tab; {{last}} is always the last one.",
         "copyT": "Copy / paste",
         "copyD": "{{copy}} / {{paste}} copies and pastes selected agents, edges and comment boxes.",
         "inspectorT": "Inspector",
@@ -335,6 +337,7 @@
       "apply": "Apply",
       "cancel": "Cancel",
       "saving": "Saving…",
+      "saveFailed": "Could not save — your changes are still here.",
       "comingSoon": "Coming soon",
       "comingSoonDesc": "This category is reserved for future settings.",
       "categories": {
@@ -999,11 +1002,13 @@
       },
       "autoCompact": {
         "label": "Auto-compact",
-        "tip": "Context size at which the CLI starts compacting on its own. A smaller value compacts earlier and more often.",
+        "tip": "The window size compaction is measured against. In practice we fold at {{percent}}% of it, at the end of that turn — so nothing is cut mid-task; if a single turn blows through the remaining headroom, the CLI folds mid-task instead.",
         "unset": "Not set — follows the default in Settings.",
         "unsetLabel": "unset",
         "auto": "auto — the CLI picks the window.",
-        "tokens": "Compact at about {{tokens}} tokens.",
+        "tokens": "Window size about {{tokens}} tokens.",
+        "foldsAt": "Folds at about {{tokens}}, at the end of that turn.",
+        "foldsAtAuto": "Folds at {{percent}}% of the window the CLI picks, at the end of that turn.",
         "unsetDefaultLabel": "unset ({{tokens}})",
         "globalTip": "Applies to every agent that has no auto-compact value of its own — including ones already running. Leave it unset to use the built-in default."
       },
@@ -1094,10 +1099,6 @@
         "tip": "Which agent CLI this CMD terminal launches. Anything other than Claude Code is not a child of our hooks, so conversation resume and rule injection are not attached — its status is read from terminal output instead.",
         "nonClaudeNote": "This CLI is not Claude Code, so the settings below (model, permissions, tools, rules) are not passed to it. Its status is read from terminal output instead. Changes apply to new sessions opened with \"+\".",
         "applyNote": "A changed CLI applies to new sessions opened with \"+\" — terminals already running keep what they started with."
-      },
-      "compactAfterTurn": {
-        "label": "Compact when a turn ends",
-        "hint": "Folds the conversation into a summary at every turn boundary — never mid-task."
       },
       "agentCanCompact": {
         "label": "Let the agent compact during work",

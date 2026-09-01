@@ -62,9 +62,11 @@ export function calcBubbleSize(
   // §2.1 v1.55 — 외부 폴더는 평탄화로 child 가 없고 satellite 만 가지므로
   // satelliteFileCount 폴백을 적용해 실제 만진 파일 수에 비례하게.
   if (bubble.bubbleType === 'internal_folder' || bubble.bubbleType === 'external_folder') {
+    // §2.1 #5 접합 트리 — 접합 외부 폴더는 위성 0이라 하위 폴더 수로 떨어진다(BubbleNode 카운트와 같은 규칙).
+    const extSat = bubble.satelliteFileCount ?? 0;
     const boostCount =
       bubble.bubbleType === 'external_folder'
-        ? (bubble.satelliteFileCount ?? bubble.childCount ?? 0)
+        ? (extSat > 0 ? extSat : (bubble.childCount ?? 0))
         : (bubble.childCount ?? 0);
     if (boostCount > 0) {
       const childBoost = Math.min(boostCount * 3, 30);

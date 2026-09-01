@@ -295,6 +295,8 @@
         "intro": "Os atalhos de teclado agilizam a navegação e a edição. Eles ficam pausados enquanto você digita em um campo ou terminal.",
         "bookmarkT": "Marcadores de bolha",
         "bookmarkD": "Alt+1…0 fixa uma bolha ou sessão em um slot; pressione 1…0 para voltar a ela.",
+        "sessionTabsT": "Abas de sessão",
+        "sessionTabsD": "{{cycle}} / {{cycleBack}} vai para a aba de sessão seguinte ou anterior da janela do IDE em primeiro plano ({{pageNext}} / {{pagePrev}} fazem o mesmo). {{first}}…{{last}} pula direto para a N-ésima aba; {{last}} é sempre a última.",
         "copyT": "Copiar / colar",
         "copyD": "{{copy}} / {{paste}} copia e cola agentes, conexões e caixas de comentário selecionados.",
         "inspectorT": "Inspetor",
@@ -335,6 +337,7 @@
       "apply": "Aplicar",
       "cancel": "Cancelar",
       "saving": "Salvando…",
+      "saveFailed": "Não foi possível salvar — suas alterações continuam aqui.",
       "comingSoon": "Em breve",
       "comingSoonDesc": "Esta categoria está reservada para configurações futuras.",
       "categories": {
@@ -999,11 +1002,13 @@
       },
       "autoCompact": {
         "label": "Compactação automática",
-        "tip": "Tamanho de contexto a partir do qual a CLI compacta sozinha. Um valor menor compacta mais cedo e com mais frequência.",
+        "tip": "O tamanho de janela usado como referência para a compactação. Na prática dobramos a {{percent}}% desse valor, ao fim daquele turno — para não cortar no meio da tarefa; se um único turno atravessar toda a margem restante, a CLI dobra no meio da tarefa.",
         "unset": "Não definido — segue o padrão da janela de Configurações.",
         "unsetLabel": "sem definir",
         "auto": "auto — a CLI escolhe a janela.",
-        "tokens": "Compacta perto de {{tokens}} tokens.",
+        "tokens": "Tamanho de janela de cerca de {{tokens}} tokens.",
+        "foldsAt": "Dobra por volta de {{tokens}}, ao fim daquele turno.",
+        "foldsAtAuto": "Dobra a {{percent}}% da janela escolhida pela CLI, ao fim daquele turno.",
         "unsetDefaultLabel": "não definido ({{tokens}})",
         "globalTip": "Aplica-se a todos os agentes sem um valor próprio de compactação automática, inclusive os que já estão em execução. Deixe sem definir para usar o padrão interno."
       },
@@ -1094,10 +1099,6 @@
         "tip": "Qual CLI de agent este terminal CMD inicia. Qualquer coisa além do Claude Code não é filha dos nossos hooks, então a retomada da conversa e a injeção de regras não são anexadas — em vez disso, o status dela é lido a partir da saída do terminal.",
         "nonClaudeNote": "Esta CLI não é o Claude Code, então as configurações abaixo (modelo, permissões, ferramentas, regras) não são passadas a ela. Em vez disso, o status dela é lido a partir da saída do terminal. As alterações se aplicam a novas sessões abertas com \"+\".",
         "applyNote": "Uma CLI alterada se aplica a novas sessões abertas com \"+\" — os terminais já em execução mantêm o que tinham ao iniciar."
-      },
-      "compactAfterTurn": {
-        "label": "Compactar ao fim de um turno",
-        "hint": "Dobra a conversa em um resumo a cada limite de turno — nunca no meio da tarefa."
       },
       "agentCanCompact": {
         "label": "Permitir que o agente compacte durante o trabalho",

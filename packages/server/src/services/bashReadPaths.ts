@@ -13,6 +13,18 @@
  */
 // 경로 대소문자 정책 SSOT — win32/darwin 만 접고 linux 는 접지 않는다(디스크 접근 없음).
 import { pathKey } from './pathKey.js';
+// 셸 토크나이저·경로 모양 판정은 **쓰기 축과 한 벌**이다(shared `bashCommandPaths.ts`).
+// 두 벌이 되면 한쪽만 고쳐져 "읽기는 안 버리는데 쓰기는 버리는" 명령이 생긴다(§2.1 #3).
+import {
+  tokenizeShellCommand,
+  splitShellSegments,
+  normalizeShellCommandName as normalizeCommandName,
+  readShellCdTarget as readCdTarget,
+  isUnusableShellArg as isUnusableArg,
+  looksLikeShellPath as looksLikePath,
+  isAbsoluteShellPath as isAbsolutePath,
+  toNativeDriveShellPath as toNativeDrivePath,
+} from '@vibisual/shared';
 
 /** 한 Bash 명령에서 뽑는 경로 상한 — `find`/`ls` 류 대량 경로가 버블을 폭증시키지 않게. */
 export const BASH_READ_PATH_LIMIT = 4;
@@ -73,68 +85,6 @@ const MUTATING_COMMANDS = new Set([
   'python', 'python3', 'powershell', 'pwsh', 'cmd', 'bash', 'sh', 'zsh', 'awk',
 ]);
 
-/** 파일로 볼 수 없는 인자 — stdin·널 장치·변수·글롭·숫자. */
-function isUnusableArg(arg: string): boolean {
-  if (!arg || arg === '-') return true;
-  if (arg.startsWith('$')) return true;
-  if (/[*?]/.test(arg)) return true;
-  if (/^\d+$/.test(arg)) return true;
-  const lower = arg.toLowerCase();
-  return lower === 'nul' || lower.startsWith('/dev/');
-}
-
-/** 경로처럼 생겼는가 — 구분자가 있거나 확장자가 붙어 있으면 경로로 본다. */
-function looksLikePath(arg: string): boolean {
-  return /[\\/]/.test(arg) || /\.[A-Za-z0-9]{1,8}$/.test(arg);
-}
-
-/** Windows 드라이브(`C:/`, `C:\`) 또는 POSIX 루트. */
-function isAbsolutePath(p: string): boolean {
-  return /^[A-Za-z]:[\\/]/.test(p) || p.startsWith('/');
-}
-
-/** git bash 가 쓰는 MSYS 드라이브 경로(`/c/work/...`)를 네이티브(`c:/work/...`)로.
- *  이 변환을 안 하면 같은 파일이 프로젝트 밖 `(ext) /c/work/...` 고아 버블로 새로 박힌다. */
-function toNativeDrivePath(p: string): string {
-  const m = p.match(/^\/([A-Za-z])\/(.*)$/);
-  return m ? `${m[1]}:/${m[2]}` : p;
-}
-
-/** 따옴표를 존중하며 토큰으로 자른다. 연산자(`&&` `||` `;` `|` 개행)는 자체 토큰으로 남긴다. */
-function tokenize(command: string): string[] {
-  const tokens: string[] = [];
-  let cur = '';
-  let quote: '"' | "'" | null = null;
-  let hasContent = false;
-
-  const push = (): void => {
-    if (hasContent) tokens.push(cur);
-    cur = '';
-    hasContent = false;
-  };
-
-  for (let i = 0; i < command.length; i++) {
-    const ch = command[i]!;
-
-    if (quote) {
-      if (ch === quote) quote = null;
-      else { cur += ch; hasContent = true; }
-      continue;
-    }
-    if (ch === '"' || ch === "'") { quote = ch; hasContent = true; continue; }
-    if (ch === ' ' || ch === '\t' || ch === '\r') { push(); continue; }
-    if (ch === '\n' || ch === ';') { push(); tokens.push(';'); continue; }
-    if (ch === '&' && command[i + 1] === '&') { push(); tokens.push('&&'); i++; continue; }
-    if (ch === '|' && command[i + 1] === '|') { push(); tokens.push('||'); i++; continue; }
-    if (ch === '|') { push(); tokens.push('|'); continue; }
-    cur += ch;
-    hasContent = true;
-  }
-  push();
-  return tokens;
-}
-
-const SEPARATORS = new Set(['&&', '||', ';', '|']);
 
 /** `2>/dev/null` · `2>&1` 처럼 무해한 리다이렉트만 걷어낸다. 남은 `>` 는 쓰기 신호로 본다. */
 function stripHarmlessRedirects(segment: readonly string[]): string[] {
@@ -152,20 +102,6 @@ function isMutatingSegment(segment: readonly string[]): boolean {
   return segment.some(
     (tok) => tok.includes('>') || MUTATING_FLAGS.some((re) => re.test(tok)),
   );
-}
-
-/** `/usr/bin/cat` · `cat.exe` → `cat` */
-function normalizeCommandName(raw: string): string {
-  const base = raw.split(/[\\/]/).pop() ?? raw;
-  return base.replace(/\.(exe|cmd|bat)$/i, '').toLowerCase();
-}
-
-/** `cd <dir>` 세그먼트면 그 경로를, 아니면 null. */
-function readCdTarget(segment: readonly string[]): string | null {
-  if (segment.length < 2) return null;
-  if (normalizeCommandName(segment[0]!) !== 'cd') return null;
-  const target = segment.slice(1).find((t) => !t.startsWith('-'));
-  return target && !isUnusableArg(target) ? target : null;
 }
 
 /** 한 세그먼트에서 읽은 파일 경로들을 뽑는다. 읽기 명령이 아니면 빈 배열. */
@@ -234,14 +170,7 @@ export function extractBashReadPaths(
     ? toNativeDrivePath
     : (p: string): string => p;
 
-  const tokens = tokenize(command);
-  const segments: string[][] = [];
-  let cur: string[] = [];
-  for (const tok of tokens) {
-    if (SEPARATORS.has(tok)) { segments.push(cur); cur = []; continue; }
-    cur.push(tok);
-  }
-  segments.push(cur);
+  const segments = splitShellSegments(tokenizeShellCommand(command));
 
   const seen = new Set<string>();
   const out: string[] = [];

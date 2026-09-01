@@ -17,8 +17,44 @@ import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import type { UserDefaults } from '@vibisual/shared';
+import type { UserDefaults, UserDefaultsPatch } from '@vibisual/shared';
+import { AGENT_TOOLS_BACKFILL_GEN, backfillAgentTools } from '@vibisual/shared';
 import { logger } from '../logger.js';
+
+/**
+ * §4 (설정 3층) — 카테고리 안을 부분 머지하되 **`null` 은 "그 키를 지운다"** 로 읽는다.
+ *
+ * 설정 창은 미설정을 `undefined` 로 담았고 `JSON.stringify` 가 그 키를 버렸기 때문에, 서버에는
+ * "비웠다"가 도착한 적이 없었다 — 그래서 전역 기본값은 한 번 켜면 창에서 끌 수 없었다.
+ * `null` 은 전선을 건너므로 그 뜻을 실어 나를 수 있고, 저장분에는 남지 않는다.
+ */
+function mergeCategory<T extends object>(
+  prev: T | undefined,
+  patch: { [K in keyof T]?: T[K] | null } | undefined,
+): T | undefined {
+  if (patch === undefined) return prev;
+  const next: Record<string, unknown> = { ...(prev ?? {}) };
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === null) delete next[key];
+    else if (value !== undefined) next[key] = value;
+  }
+  return next as T;
+}
+
+/**
+ * §4 (설정 3층) — 이번 저장이 **도구 목록을 명시했으면** 현행 세대 도장을 함께 찍는다.
+ *
+ * 도장은 "이 목록은 지금 화면에서 직접 고른 것"이라는 표식이라, 없으면 다음 부팅의 백필이
+ * 사용자가 방금 해제한 도구를 되살린다. 목록을 안 보낸 저장은 건드리지 않는다 — 그때 찍으면
+ * 아직 백필을 못 받은 옛 프리셋이 채워지지도 않은 채 "이미 받았다"로 굳는다.
+ */
+function stampToolsGen(
+  merged: UserDefaults['agentConfig'],
+  patch: UserDefaultsPatch['agentConfig'],
+): UserDefaults['agentConfig'] {
+  if (!merged || !Array.isArray(patch?.tools)) return merged;
+  return { ...merged, toolsBackfillGen: AGENT_TOOLS_BACKFILL_GEN };
+}
 
 const STORE_DIR = path.join(os.homedir(), '.vibisual');
 const STORE_FILE = path.join(STORE_DIR, 'user-defaults.json');
@@ -43,6 +79,13 @@ class UserDefaultsService {
           if (parsed.agentConfig && 'executionMode' in parsed.agentConfig) {
             delete (parsed.agentConfig as { executionMode?: unknown }).executionMode;
           }
+          // §4 (설정 3층) — 전역 프리셋의 도구 목록도 **에이전트 설정과 같은 백필**을 받는다.
+          //   여기서만 빠져 있었고, 그 목록이 곧 신규 에이전트의 씨앗이라 판올림 전에 골라 둔
+          //   목록이 앞으로 만들 모든 에이전트의 상한이 됐다(실측 11/48 — 씨앗에는 현행 세대
+          //   도장이 함께 찍혀 어느 복원에서도 회복되지 않았다).
+          //   디스크에는 다음 `update()` 때 함께 적힌다 — 부팅만으로 홈 디렉터리에 쓰지 않는다
+          //   (테스트가 실제 사용자 파일을 건드리지 않게 하는 규율).
+          if (parsed.agentConfig) parsed.agentConfig = backfillAgentTools(parsed.agentConfig);
           logger.info(`[userDefaults] loaded from ${STORE_FILE}`);
           return { ...parsed, updatedAt: parsed.updatedAt ?? Date.now() };
         }
@@ -59,7 +102,8 @@ class UserDefaultsService {
 
   /**
    * 부분 머지 저장 — top-level 카테고리(agentConfig/appearance/...) 마다 합치되,
-   * 카테고리 안 필드는 patch 가 명시한 것만 덮어쓴다. `undefined` 로 지운다는 의도면 클라가 명시 send 해야 함.
+   * 카테고리 안 필드는 patch 가 명시한 것만 덮어쓴다. **지우려면 `null` 을 보낸다**
+   * (`undefined` 는 `JSON.stringify` 가 키째 버려 서버에 도착하지 않는다 — §4 설정 3층).
    *
    * §5.11 v3.88 — `enabledPlugins` 는 **배열 통째 교체**가 의도된 동작이다(스프레드가 그대로 처리).
    * 켜고 끈 결과 전체를 보내는 값이라, 머지하면 "껐다"가 반영되지 않는다.
@@ -68,22 +112,25 @@ class UserDefaultsService {
    * 이유로 통째 교체지만, 맵 자체를 통째 교체하면 **클라가 보낸 한 프로젝트만 남고 나머지 프로젝트의
    * 설정이 전부 사라진다**(창 두 개를 띄워 두면 곧바로 재현된다).
    */
-  async update(patch: Partial<UserDefaults>): Promise<UserDefaults> {
+  async update(patch: UserDefaultsPatch): Promise<UserDefaults> {
     const prev = this.defaults;
     const next: UserDefaults = {
       ...prev,
-      ...patch,
+      ...(patch as Partial<UserDefaults>),
       enabledPluginsByProject: patch.enabledPluginsByProject !== undefined
         ? { ...(prev.enabledPluginsByProject ?? {}), ...patch.enabledPluginsByProject }
         : prev.enabledPluginsByProject,
-      agentConfig: patch.agentConfig !== undefined ? { ...(prev.agentConfig ?? {}), ...patch.agentConfig } : prev.agentConfig,
-      appearance:  patch.appearance  !== undefined ? { ...(prev.appearance  ?? {}), ...patch.appearance  } : prev.appearance,
-      notifications: patch.notifications !== undefined ? { ...(prev.notifications ?? {}), ...patch.notifications } : prev.notifications,
-      permissions:   patch.permissions   !== undefined ? { ...(prev.permissions   ?? {}), ...patch.permissions   } : prev.permissions,
-      advanced:      patch.advanced      !== undefined ? { ...(prev.advanced      ?? {}), ...patch.advanced      } : prev.advanced,
+      // §4 (설정 3층) — 목록을 새로 저장하면 **그 자리에서 세대 도장을 찍는다.** 안 찍으면
+      //   다음 부팅의 백필이 "고를 기회가 없어서 빠진 것"으로 오인해 방금 끈 도구를 되살린다
+      //   (에이전트 오버라이드에서 `sparsifyAgentConfig` 가 하는 것과 같은 규칙).
+      agentConfig: stampToolsGen(mergeCategory(prev.agentConfig, patch.agentConfig), patch.agentConfig),
+      appearance:  mergeCategory(prev.appearance,  patch.appearance),
+      notifications: mergeCategory(prev.notifications, patch.notifications),
+      permissions:   mergeCategory(prev.permissions,   patch.permissions),
+      advanced:      mergeCategory(prev.advanced,      patch.advanced),
       // §4 (Claude Code CLI 자동 업데이트) — 다른 카테고리와 같은 부분 머지. 미설정 = 켬이라
       // 이 키가 없는 기존 사용자는 앱을 켤 때 CLI 가 최신으로 유지된다.
-      claudeAutoUpdate: patch.claudeAutoUpdate !== undefined ? { ...(prev.claudeAutoUpdate ?? {}), ...patch.claudeAutoUpdate } : prev.claudeAutoUpdate,
+      claudeAutoUpdate: mergeCategory(prev.claudeAutoUpdate, patch.claudeAutoUpdate),
       updatedAt: Date.now(),
     };
     this.defaults = next;

@@ -1,0 +1,82 @@
+# 병합된 PR 사후 감사 — 우회해서 들어온 것이 조용히 지나가지 않게 한다.
+#
+# ⚠️ 왜 앞단 검사만으로 부족한가(2026-09-01):
+#    required status check 는 저장소 관리자가 우회할 수 있다. 이 저장소는 "Changes must be
+#    made through a pull request" 규칙이 걸려 있는데도 소유자 권한으로 main 에 직접 푸시된
+#    적이 있고, GitHub 은 그때 `Bypassed rule violations` 라고만 답했다. 앞단은 남을 막을
+#    뿐 우리 자신은 못 막는다.
+#
+#    동의 없이 병합된 코드는 그 모듈을 영구히 Apache-2.0 에 묶는다. 문제는 그 사실이
+#    **몇 년 뒤 인수 실사에서** 드러난다는 점이다. 이 감사는 막지 못하는 대신 그 시차를
+#    며칠로 줄인다 — 문제가 생기면 이슈가 열린다.
+#
+# ⚠️ pull_request_target 을 쓰는 이유: fork 에서 온 PR 은 `pull_request` 이벤트에서
+#    토큰이 읽기 전용이라 이슈를 열 수 없다. 대신 이 이벤트는 base 저장소 권한으로 돌기
+#    때문에 **PR 코드를 절대 체크아웃하거나 실행하지 않는다** — 여기서는 base 의 스크립트만
+#    돌리고, PR 정보는 API 로만 읽는다.
+#
+# 이슈가 열렸다면 코드가 도는지와 무관하게, 기여자의 서면 확인을 받거나 되돌린 뒤에 닫는다.
+
+name: Merged PR audit
+
+on:
+  pull_request_target:
+    types: [closed]
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: write
+
+jobs:
+  audit:
+    name: Consent and sign-off audit
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      # base 브랜치를 받는다(기본 동작). PR 쪽 ref 를 지정하지 않는 것이 이 워크플로의 안전선.
+      - uses: actions/checkout@v4
+
+      - name: 판정 로직 자체 검사
+        run: |
+          set -euo pipefail
+          node .github/scripts/pr-license-consent.mjs --selftest
+          node .github/scripts/merged-pr-audit.mjs --selftest
+
+      - name: 병합된 PR 감사
+        id: audit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          AUTHOR_ASSOCIATION: ${{ github.event.pull_request.author_association }}
+          REPORT_PATH: audit-report.md
+        run: |
+          set -uo pipefail
+          gh api --paginate "repos/${{ github.repository }}/pulls/${PR_NUMBER}/commits" \
+            > commits.json
+          if node .github/scripts/merged-pr-audit.mjs < commits.json; then
+            echo "clean=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "clean=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 문제가 있으면 이슈를 연다
+        if: steps.audit.outputs.clean == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          TITLE="Licensing: merged #${PR_NUMBER} without recorded consent"
+
+          # 같은 PR 로 이미 열린 이슈가 있으면 또 열지 않는다.
+          EXISTING=$(gh issue list --state open --search "in:title \"merged #${PR_NUMBER} without recorded consent\"" \
+            --json number --jq '.[0].number // empty')
+
+          if [ -n "$EXISTING" ]; then
+            echo "이미 이슈 #${EXISTING} 가 열려 있다 — 새로 열지 않는다."
+            exit 0
+          fi
+
+          gh issue create --title "$TITLE" --body-file audit-report.md

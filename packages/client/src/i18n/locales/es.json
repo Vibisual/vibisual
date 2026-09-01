@@ -295,6 +295,8 @@
         "intro": "Los atajos de teclado agilizan la navegación y la edición. Se desactivan mientras escribes en un campo o terminal.",
         "bookmarkT": "Marcadores de burbujas",
         "bookmarkD": "Alt+1…0 ancla una burbuja o sesión a una ranura; pulsa 1…0 para volver a ella.",
+        "sessionTabsT": "Pestañas de sesión",
+        "sessionTabsD": "{{cycle}} / {{cycleBack}} pasa a la pestaña de sesión siguiente o anterior de la ventana del IDE en primer plano ({{pageNext}} / {{pagePrev}} hacen lo mismo). {{first}}…{{last}} salta directamente a la pestaña N; {{last}} es siempre la última.",
         "copyT": "Copiar / pegar",
         "copyD": "{{copy}} / {{paste}} copia y pega los agentes, edges y cuadros de comentario seleccionados.",
         "inspectorT": "Inspector",
@@ -335,6 +337,7 @@
       "apply": "Aplicar",
       "cancel": "Cancelar",
       "saving": "Guardando…",
+      "saveFailed": "No se pudo guardar: tus cambios siguen aquí.",
       "comingSoon": "Próximamente",
       "comingSoonDesc": "Esta categoría está reservada para configuraciones futuras.",
       "categories": {
@@ -999,11 +1002,13 @@
       },
       "autoCompact": {
         "label": "Compactado automático",
-        "tip": "Tamaño de contexto a partir del cual la CLI compacta por sí sola. Un valor menor compacta antes y con más frecuencia.",
+        "tip": "El tamaño de ventana con el que se mide la compactación. En la práctica plegamos al {{percent}} % de ese valor, al final de ese turno, para no cortar a mitad de tarea; si un solo turno atraviesa el margen restante, la CLI pliega a mitad de tarea.",
         "unset": "Sin definir — sigue el valor predeterminado de la ventana de Ajustes.",
         "unsetLabel": "sin definir",
         "auto": "auto — la CLI elige la ventana.",
-        "tokens": "Compacta en torno a {{tokens}} tokens.",
+        "tokens": "Tamaño de ventana de unos {{tokens}} tokens.",
+        "foldsAt": "Pliega en torno a {{tokens}}, al final de ese turno.",
+        "foldsAtAuto": "Pliega al {{percent}} % de la ventana que elija la CLI, al final de ese turno.",
         "unsetDefaultLabel": "sin definir ({{tokens}})",
         "globalTip": "Se aplica a todos los agentes que no tengan su propio valor de compactación automática, incluidos los que ya están en marcha. Déjalo sin definir para usar el valor predeterminado integrado."
       },
@@ -1094,10 +1099,6 @@
         "tip": "Qué CLI de agente lanza este terminal CMD. Cualquier CLI que no sea Claude Code no es un proceso hijo de nuestros hooks, así que la reanudación de la conversación y la inyección de reglas no están disponibles — en su lugar, su estado se lee de la salida del terminal.",
         "nonClaudeNote": "Esta CLI no es Claude Code, así que los ajustes de abajo (modelo, permisos, herramientas, reglas) no se le pasan. En su lugar, su estado se lee de la salida del terminal. Los cambios se aplican a las sesiones nuevas abiertas con «+».",
         "applyNote": "Un cambio de CLI se aplica a las sesiones nuevas abiertas con «+» — los terminales que ya están en ejecución mantienen lo que tenían al iniciarse."
-      },
-      "compactAfterTurn": {
-        "label": "Compactar al terminar un turno",
-        "hint": "Pliega la conversación en un resumen en cada límite de turno, nunca a mitad de tarea."
       },
       "agentCanCompact": {
         "label": "Permitir que el agente compacte durante el trabajo",

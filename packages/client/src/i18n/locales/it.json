@@ -295,6 +295,8 @@
         "intro": "Le scorciatoie da tastiera velocizzano la navigazione e la modifica. Vengono sospese mentre digiti in un campo di input o nel terminale.",
         "bookmarkT": "Segnalibri delle bolle",
         "bookmarkD": "Alt+1…0 fissa una bolla o una sessione in uno slot; premi 1…0 per tornarci direttamente.",
+        "sessionTabsT": "Schede di sessione",
+        "sessionTabsD": "{{cycle}} / {{cycleBack}} passa alla scheda di sessione successiva o precedente nella finestra IDE in primo piano ({{pageNext}} / {{pagePrev}} fanno lo stesso). {{first}}…{{last}} salta direttamente all'ennesima scheda; {{last}} è sempre l'ultima.",
         "copyT": "Copia / incolla",
         "copyD": "{{copy}} / {{paste}} copia e incolla gli agent, gli edge e i riquadri di commento selezionati.",
         "inspectorT": "Inspector",
@@ -335,6 +337,7 @@
       "apply": "Applica",
       "cancel": "Annulla",
       "saving": "Salvataggio…",
+      "saveFailed": "Impossibile salvare: le tue modifiche sono ancora qui.",
       "comingSoon": "Prossimamente",
       "comingSoonDesc": "Questa categoria è riservata a impostazioni future.",
       "categories": {
@@ -999,11 +1002,13 @@
       },
       "autoCompact": {
         "label": "Compattazione automatica",
-        "tip": "Dimensione di contesto oltre la quale la CLI compatta da sola. Un valore più piccolo compatta prima e più spesso.",
+        "tip": "La dimensione della finestra su cui si misura la compattazione. In pratica ripieghiamo all'{{percent}}% di quel valore, alla fine del turno, per non tagliare a metà lavoro; se un singolo turno supera tutto il margine rimasto, ripiega la CLI a metà lavoro.",
         "unset": "Non impostato — segue il valore predefinito della finestra Impostazioni.",
         "unsetLabel": "non impostato",
         "auto": "auto — la CLI sceglie la finestra.",
-        "tokens": "Compatta intorno a {{tokens}} token.",
+        "tokens": "Dimensione finestra circa {{tokens}} token.",
+        "foldsAt": "Ripiega attorno a {{tokens}}, alla fine di quel turno.",
+        "foldsAtAuto": "Ripiega all'{{percent}}% della finestra scelta dalla CLI, alla fine di quel turno.",
         "unsetDefaultLabel": "non impostato ({{tokens}})",
         "globalTip": "Si applica a tutti gli agenti privi di un proprio valore di compattazione automatica, compresi quelli già in esecuzione. Lascialo non impostato per usare il valore predefinito integrato."
       },
@@ -1094,10 +1099,6 @@
         "tip": "Quale CLI agente avvia questo terminale CMD. Qualsiasi CLI diversa da Claude Code non è figlia dei nostri hook, quindi la ripresa della conversazione e l'iniezione delle regole non sono collegate — il suo stato viene invece letto dall'output del terminale.",
         "nonClaudeNote": "Questa CLI non è Claude Code, quindi le impostazioni sottostanti (modello, permessi, tool, regole) non le vengono trasmesse. Il suo stato viene invece letto dall'output del terminale. Le modifiche si applicano alle nuove sessioni aperte con \"+\".",
         "applyNote": "Una CLI modificata si applica alle nuove sessioni aperte con \"+\" — i terminali già in esecuzione mantengono le impostazioni con cui sono partiti."
-      },
-      "compactAfterTurn": {
-        "label": "Compatta a fine turno",
-        "hint": "Ripiega la conversazione in un riassunto a ogni confine di turno, mai a metà lavoro."
       },
       "agentCanCompact": {
         "label": "Consenti all'agente di compattare durante il lavoro",

@@ -215,6 +215,8 @@ export type {
   ModelRegistryEntry,
   BuiltinSlashCommand,
   UserDefaults,
+  UserDefaultsPatch,
+  AgentConfigPatch,
   UserNotificationDefaults,
   UserAdvancedDefaults,
   PluginContributionKind,
@@ -364,6 +366,7 @@ export type {
 export type { ModelPricing } from './constants.js';
 /** §5.19 (H) — 로컬 도구 한 건의 처리 방식(allow/ask/deny). */
 export type { LocalToolGate } from './constants.js';
+export type { CompactAfterTurnInput } from './constants.js';
 
 export {
   DEFAULT_PORT,
@@ -389,6 +392,7 @@ export {
   MAX_BASH_HISTORY,
   MAX_FILE_EDITS,
   MAX_WRITE_DIFF_BYTES,
+  BASH_WRITE_PENDING_MAX,
   FILE_EDIT_RETENTION_DAYS,
   MAX_FILE_EDIT_PATHS,
   FILE_EDIT_MERGE_WINDOW_MS,
@@ -545,6 +549,7 @@ export {
   AVAILABLE_AGENT_TOOLS,
   BACKFILL_AGENT_TOOLS,
   AGENT_TOOLS_BACKFILL_GEN,
+  backfillAgentTools,
   CLI_BUILTIN_TOOLS,
   LEGACY_AGENT_TOOLS,  ASK_USER_QUESTION_TIMEOUT_MS,
   CLAUDE_VERSION_PROBE_TIMEOUT_MS,
@@ -570,6 +575,10 @@ export {
   AVAILABLE_AUTOCOMPACT_VALUES,
   DEFAULT_AUTOCOMPACT_TOKENS,
   resolveAutoCompact,
+  autoCompactThresholdTokens,
+  turnCompactTriggerTokens,
+  TURN_COMPACT_TRIGGER_RATIO,
+  shouldCompactAfterTurn,
   AGENT_COMPACT_COMMAND,
   buildAgentSelfCompactRule,
   DEFAULT_AGENT_CONFIG,
@@ -604,6 +613,7 @@ export {
   SESSION_MEMO,
   SESSION_MEMO_PALETTE,
   SESSION_MEMO_DEFAULT_COLOR,
+  SESSION_MEMO_LEGACY_COLOR_MAP,
   CAPTURE_BUBBLE_DEFAULTS,
   CAPTURE_SNAP,
   CAPTURE_PLAYTEST,
@@ -1293,15 +1303,36 @@ export {
   samePath,
 } from './pathCase.js';
 
+// §2.1 #3 — Bash 명령에서 경로를 뽑는 공용 셸 파서. 토크나이저는 읽기(서버 `bashReadPaths.ts`)와
+// 쓰기(여기)가 한 벌을 나눠 쓴다. 쓰기 추출기가 shared 인 이유는 §5.22 감사 원장의 `target` 도
+// 같은 답을 봐야 하기 때문(`summarizeToolCall` 은 순수 함수라 서버 모듈을 부를 수 없다).
+export {
+  BASH_WRITE_PATH_LIMIT,
+  SHELL_SEGMENT_SEPARATORS,
+  tokenizeShellCommand,
+  splitShellSegments,
+  normalizeShellCommandName,
+  isUnusableShellArg,
+  looksLikeShellPath,
+  isAbsoluteShellPath,
+  toNativeDriveShellPath,
+  readShellCdTarget,
+  extractBashWritePaths,
+} from './bashCommandPaths.js';
+
 // §4 — 개별 에이전트 설정이 설정 창의 전역 기본값과 어디서 갈라지는지. "미설정"의 표기가 필드마다
 // 달라서(effort:'default' · isolation:'none' · maxTurns:0 · forwardSubagentText:undefined=켬)
 // 접힘 규칙을 화면이 아니라 한 곳에 둔다.
 export type { AgentConfigComparedField } from './agentConfigDiff.js';
 export {
   AGENT_CONFIG_IDENTITY_FIELDS,
+  AGENT_CONFIG_NON_INHERITED_FIELDS,
   AGENT_CONFIG_COMPARED_FIELDS,
   AGENT_MAX_TURNS_UI_FALLBACK,
   resolveAgentDefaults,
+  resolveAgentConfig,
+  sparsifyAgentConfig,
+  hasAgentConfigOverrides,
   normalizeAgentFieldForCompare,
   agentFieldDiffers,
   diffAgentConfigFromDefaults,

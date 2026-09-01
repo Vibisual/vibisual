@@ -18,6 +18,8 @@ import { DEFAULT_PORT, SESSION_SCAN_INTERVAL, FILE_EXISTENCE_CHECK_INTERVAL, SAT
 } from '@vibisual/shared';
 import type { HookEventPayload, WSMessage, SubAgentStreamEvent, QueuedCommand, SessionTokenData, PipelineType, AgentConfig, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, SubAgentHistoryItem, UiLocale, PermissionDecision, RulesHistoryEntry, Conti, CanvasClipboardPayload, CanvasPasteResponse, AskUserQuestionDecision, AskUserQuestionAnswer, AskUserQuestionOption, AskUserQuestionItem, AskUserQuestionToolInput, AgentReport, AgentQuestions, AgentQuestionItem, AgentReview, AgentList, AgentFeedback, AgentFeedbackTargetType, AgentFeedbackVerdict, BrainCard, BrainCardInput, BrainCardType, BrainCardScope, BrainInjectionEvent, ClaudeUsageInfo, ClaudeAuthStatus, VerificationVerdict, VerificationKind, VerificationAttempt, EscalationReason, AutoAgentRun, ShelfItemKind } from '@vibisual/shared';
 import { LOCAL_MODEL_CATALOG_SORTS } from '@vibisual/shared';
+// §4 (설정 3층) — 빠진 칸을 상수로 메우지 않기 위한 기준선(내장 + 설정 창).
+import { resolveAgentDefaults } from '@vibisual/shared';
 // §4 (첫 실행 온보딩) ③ — 폴더를 고르기 전 생성 요청을 서버도 같은 코드로 거절한다.
 import { NO_PROJECT_FOLDER_ERROR } from '@vibisual/shared';
 // §4 (CMD 터미널 업그레이드) — pane 트리 정합 + 임베디드 PTY 제어(⑤⑥).
@@ -52,7 +54,7 @@ import { REVIEW_FILES_MAX, REVIEW_DIFF_MAX_BYTES, REVIEW_REASON_MAX } from '@vib
 import { serializeAppliesTo } from './services/brainCanonical.js';
 // §5.5 #17-11 v3.79 — 세션 반복 실행(루프).
 import type { SessionLoop, SessionLoopMode, SessionLoopContextMode, SessionGoalStatus, SessionGoalProgressSource, SessionGoalStepStatus } from '@vibisual/shared';
-import { SESSION_LOOP_MAX_ITERATIONS, SESSION_LOOP_DEFAULT_TOTAL, SESSION_LOOP_DEFAULT_INTERVAL_MS, SESSION_LOOP_MAX_INTERVAL_MS, SESSION_LOOP_COMMAND_MAX, SESSION_LOOP_COMPACT_COMMAND, SESSION_LOOP_CLEAR_COMMAND, SESSION_LOOP_PATH_MAX, SESSION_LOOP_MAX_COST_USD_LIMIT, SESSION_LOOP_MAX_DURATION_LIMIT_MS, AGENT_COMPACT_COMMAND, buildAgentSelfCompactRule } from '@vibisual/shared';
+import { SESSION_LOOP_MAX_ITERATIONS, SESSION_LOOP_DEFAULT_TOTAL, SESSION_LOOP_DEFAULT_INTERVAL_MS, SESSION_LOOP_MAX_INTERVAL_MS, SESSION_LOOP_COMMAND_MAX, SESSION_LOOP_COMPACT_COMMAND, SESSION_LOOP_CLEAR_COMMAND, SESSION_LOOP_PATH_MAX, SESSION_LOOP_MAX_COST_USD_LIMIT, SESSION_LOOP_MAX_DURATION_LIMIT_MS, AGENT_COMPACT_COMMAND, buildAgentSelfCompactRule, shouldCompactAfterTurn } from '@vibisual/shared';
 // §5.5 #17-11 ⑫(a)(g) — 루프 회차 프롬프트 합성(순수 모듈) + 누적 비용 추정(모델 레지스트리 가격).
 import { composeLoopRoundText } from './services/sessionLoopPrompt.js';
 // §5.5 #17-35 — 검증(Verify): 프롬프트 조립·판정 해석은 화면 없이 시험되는 순수 모듈에 있다.
@@ -221,7 +223,7 @@ import { cancelDownload, deleteModel, downloadModel, listDownloads, listModels, 
 import { listLoadedModels, verifyModelOutput } from './services/localRunner.js';
 import { getClaudeVersionInfo, getClaudeInstallsInfo, installLatestClaude, getInflightInstall, invalidateLatestCache, autoUpdateClaudeIfEnabled, onClaudeInstallSettled } from './services/claudeVersionService.js';
 import { agentTracker, setSnapshotScheduler as setAgentTrackerSnapshotScheduler } from './services/agentTracker.js';
-import { discoverSessions, findPidBySession, isProcessAlive, readSessionTokenData, setLivenessProbeListener } from './services/sessionDiscovery.js';
+import { discoverSessions, findPidBySession, isProcessAlive, readContextInfo, readSessionTokenData, setLivenessProbeListener } from './services/sessionDiscovery.js';
 import { SessionLifecycleManager } from './services/sessionLifecycle.js';
 import { subAgentManager, recordCmdTermSession } from './services/subAgentManager.js';
 // §5.5 #17-9 ⑦ — 자식 도구 한 줄 요약 · Task 결과 본문 추출(판본 흔들림을 흡수하는 순수 함수).
@@ -517,7 +519,8 @@ export async function runServer(): Promise<RunServerHandle> {
   });
   app.put('/api/user-defaults', async (req, res) => {
     try {
-      const patch = req.body as Partial<import('@vibisual/shared').UserDefaults>;
+      // §4 (설정 3층) — 카테고리 안의 `null` 은 "그 칸을 비운다"는 뜻이다(설정 창이 그렇게 보낸다).
+      const patch = req.body as import('@vibisual/shared').UserDefaultsPatch;
       if (!patch || typeof patch !== 'object') {
         res.status(400).json({ ok: false, error: 'invalid body' });
         return;
@@ -2602,15 +2605,47 @@ export async function runServer(): Promise<RunServerHandle> {
   const compactRequestedSubs = new Set<string>();
 
   /**
+   * §4 (CLI 사양 추종) — 이 세션의 컨텍스트가 **지금 몇 토큰 차 있는가**(창 크기와 함께).
+   *
+   * 화면 게이지(IDEStatusBar)가 보는 값과 **같은 출처**를 쓴다 — 판정과 표시가 어긋나면
+   * "400k 라고 적혀 있는데 왜 안 접히지"를 아무도 설명할 수 없다.
+   *  - claude CLI 세션 — 세션 JSONL 의 마지막 assistant 엔트리(증분 캐시라 매 턴 읽어도 싸다).
+   *  - 로컬 모델(§5.19) — JSONL 이 없다. 엔진이 왕복마다 실어 준 값이 `AgentConfig.provider` 에 있다.
+   * 둘 다 없으면 `null` — **모르면 쏘지 않는다**(모르는 채로 쏘면 종전의 매 턴 압축이다).
+   */
+  function readTurnEndContext(sub: { id: string; sessionId?: string }, config?: AgentConfig): { used: number; max?: number } | null {
+    const local = config?.provider;
+    if (local && typeof local.contextUsed === 'number' && local.contextUsed > 0) {
+      return { used: local.contextUsed, ...(typeof local.contextLimit === 'number' && local.contextLimit > 0 ? { max: local.contextLimit } : {}) };
+    }
+    const subSessionId = sub.sessionId;
+    if (!subSessionId) return null;
+    const cwd = graphManager.getAgentCwd(subSessionId);
+    if (!cwd) return null;
+    const info = readContextInfo(cwd, subSessionId);
+    if (!info || info.contextUsed <= 0) return null;
+    return { used: info.contextUsed, ...(info.contextMax > 0 ? { max: info.contextMax } : {}) };
+  }
+
+  /**
    * §4 (CLI 사양 추종) — 턴이 끝났다. 압축을 걸어야 하면 그 세션 큐에 `/compact` 한 건을 얹는다.
    *
-   * 발동 조건은 둘 — 설정 `compactAfterTurn`(항상) 또는 에이전트가 이번 턴에 요청(`agentCanCompact`).
+   * **켜고 끄는 스위치가 없다.** 사용자가 고르는 숫자는 자동 압축 값 하나뿐이고, 접는 자리는 언제나
+   * 턴 경계다 — 창 크기와 턴 경계 체크박스가 같은 일을 하며 헷갈리게 하던 것을 하나로 합쳤다.
+   * 발동 조건 둘은 `shouldCompactAfterTurn`(shared) 한 곳이 판정한다:
+   *  - 에이전트가 이번 턴에 요청(`agentCanCompact`) — **무조건** 쏜다. 판단을 맡긴 축이라 되묻지 않는다.
+   *  - 발동선 도달 — 자동 압축 값의 80%(`turnCompactTriggerTokens`)를 넘긴 채 턴이 끝났을 때.
+   *    같은 숫자를 쓰면 안 된다: CLI 에게 그 값은 **창 크기**라 거기 닿기 전에 스스로 접어 버려,
+   *    우리 차례가 영영 오지 않는다(그렇게 만들어 봤고 옵션이 죽었다). 한 단 낮춰야 평소에는
+   *    우리가 안전한 자리에서 먼저 접고, 한 턴이 그 여백을 통째로 뚫는 예외에서만 CLI 가 도중에 접는다.
+   *
    * 새 실행 레일이 아니라 §5.5 #17-11 ⑪ 이 쓰는 그 명령 큐다(사용자가 입력창에 치는 것과 같은 길).
    *
    * 안 쏘는 자리를 분명히 한다:
    *  - 방금 끝난 것이 **압축 자신**이면 ❌ — 압축이 압축을 부르는 무한 고리가 된다.
    *  - 그 세션에 **루프가 `contextMode` 로 이미 압축을 담당**하면 ❌ — 회차 경계에서 두 번 돈다.
    *  - 큐에 아직 안 끝난 명령이 있으면 ❌ — 직렬 보장(루프 압축과 같은 규약). 다음 턴 끝에 다시 본다.
+   *  - 컨텍스트를 **못 재면** ❌ — 아래 `readTurnEndContext` 참고(모르면 쏘지 않는다).
    */
   function maybeCompactAfterTurn(cmd: QueuedCommand, sessionId: string): boolean {
     const subAgentId = cmd.subAgentId;
@@ -2622,7 +2657,16 @@ export async function runServer(): Promise<RunServerHandle> {
 
     const agentId = graphManager.findAgentIdBySession(sessionId) ?? sub.parentAgentId;
     const config = agentId ? graphManager.getAgentConfig(agentId) : undefined;
-    if (!requested && config?.compactAfterTurn !== true) return false;
+    // 발동선 게이트 — 선은 스폰이 `--autocompact` 에 실은 그 값에서 **같은 판정**으로 파생된다.
+    //   컨텍스트 측정은 요청이 없을 때만 한다(요청은 발동선을 묻지 않으므로 읽을 이유가 없다).
+    const ctx = requested ? null : readTurnEndContext(sub, config);
+    if (!shouldCompactAfterTurn({
+      requested,
+      autoCompact: config?.autoCompact,
+      userAutoCompact: userDefaultsService.get().agentConfig?.autoCompact,
+      contextUsed: ctx?.used,
+      contextMax: ctx?.max,
+    })) return false;
 
     // 압축이 압축을 부르지 않게. 사용자가 직접 친 `/compact` 뒤에도 또 쏘지 않는다.
     const text = cmd.text.trim();
@@ -2645,7 +2689,7 @@ export async function runServer(): Promise<RunServerHandle> {
       subAgentId,
       status: 'queued',
     });
-    logger.info(`[turn-compact] queued ${AGENT_COMPACT_COMMAND} sub=${subAgentId} by=${requested ? 'agent' : 'config'}`);
+    logger.info(`[turn-compact] queued ${AGENT_COMPACT_COMMAND} sub=${subAgentId} by=${requested ? 'agent' : 'config'}${ctx ? ` used=${ctx.used}` : ''}`);
     processNextCommand(sessionId);
     return true;
   }
@@ -3119,9 +3163,15 @@ export async function runServer(): Promise<RunServerHandle> {
   const autoAgentRuntime = new AutoAgentRuntime({
     graphManager,
     setAgentConfig: (agentId, config) => {
-      // index.ts 의 PUT /api/agent-config 와 동일 효과 — 최소형(머지 X, 풀 set).
-      // partial 입력이라도 호출자가 머지 후 전달 가정. 여기선 전체로 저장.
-      graphManager.setAgentConfig(agentId, config as import('@vibisual/shared').AgentConfig);
+      // §4 (설정 3층) — 부분 입력이 와도 **빠진 칸이 지워지지 않게** 지금 값 위에 얹어 넘긴다.
+      //   종전 주석은 "호출자가 머지 후 전달 가정" 이었는데, 가정을 지키는 쪽이 여기여야
+      //   빌더가 한 칸만 바꿔도 나머지가 온전하다(PUT 핸들러가 `base` 를 두는 것과 같은 규율).
+      const base = graphManager.getAgentConfig(agentId) ?? resolveAgentDefaults(userDefaultsService.get());
+      const merged: AgentConfig = { ...base };
+      for (const [key, value] of Object.entries(config)) {
+        if (value !== undefined) (merged as unknown as Record<string, unknown>)[key] = value;
+      }
+      graphManager.setAgentConfig(agentId, merged);
     },
     enqueueCommand: (sessionId, text) => {
       // 빌더는 auto-agent 버블(customCreated) 자기 세션의 sub 로 돈다. `POST /api/commands/:sessionId`
@@ -7212,9 +7262,14 @@ export async function runServer(): Promise<RunServerHandle> {
         res.status(400).json({ error: 'config body required' });
         return;
       }
+      // §4 (설정 3층) — **빠진 칸의 기준선.** 이 핸들러는 body 로 config 한 벌을 새로 짓는데,
+      //   종전에는 없는 칸을 `'sonnet'`·`'default'`·`[]` 같은 상수로 메웠다. 그래서 이 창을 모르는
+      //   경로(루프백 빌더처럼 일부만 보내는 곳)가 저장하면 모델이 조용히 강등되고 도구가 비었다.
+      //   기준선은 상수가 아니라 **그 에이전트의 지금 값**(없으면 설정 창 기본값)이어야 한다.
+      const base = graphManager.getAgentConfig(agentId) ?? resolveAgentDefaults(userDefaultsService.get());
       // v1.37 — Bash 자동 포함 제거: 툴 구성은 사용자 책임.
       //         Bash 를 제거하면 dispatch curl 경로가 동작 안 할 수 있음 — 사용자가 인지하고 선택.
-      const tools = Array.isArray(body.tools) ? body.tools.filter((t): t is string => typeof t === 'string') : [];
+      const tools = Array.isArray(body.tools) ? body.tools.filter((t): t is string => typeof t === 'string') : [...base.tools];
       // §5.3 #28 (K) v1.48 — prev config snapshot (rules diff + customMode 전이 감지용)
       const prev = graphManager.getAgentConfig(agentId);
       const prevRules = typeof prev?.rules === 'string' ? prev.rules : '';
@@ -7254,10 +7309,10 @@ export async function runServer(): Promise<RunServerHandle> {
       }
 
       const config: AgentConfig = {
-        model: typeof body.model === 'string' ? body.model : 'sonnet',
+        model: typeof body.model === 'string' ? body.model : base.model,
         tools,
-        permissionMode: typeof body.permissionMode === 'string' ? body.permissionMode : 'default',
-        skills: Array.isArray(body.skills) ? body.skills.filter((s): s is string => typeof s === 'string') : [],
+        permissionMode: typeof body.permissionMode === 'string' ? body.permissionMode : base.permissionMode,
+        skills: Array.isArray(body.skills) ? body.skills.filter((s): s is string => typeof s === 'string') : [...base.skills],
         color: typeof body.color === 'string' ? body.color : undefined,
         maxTurns: typeof body.maxTurns === 'number' ? body.maxTurns : undefined,
         isolation: typeof body.isolation === 'string' ? body.isolation : undefined,
@@ -7310,8 +7365,8 @@ export async function runServer(): Promise<RunServerHandle> {
           ? body.fallbackModel.trim() : undefined,
         autoCompact: typeof body.autoCompact === 'string' && AVAILABLE_AUTOCOMPACT_VALUES.includes(body.autoCompact.trim()) && body.autoCompact.trim()
           ? body.autoCompact.trim() : undefined,
-        // §4 (CLI 사양 추종) — 압축 축 둘. `autoCompact`(창 임계)와 직교하므로 함께 켤 수 있다.
-        compactAfterTurn: body.compactAfterTurn === true ? true : undefined,
+        // §4 (CLI 사양 추종) — 턴 경계 압축은 스위치가 아니라 `autoCompact` 값에서 파생된다(합쳐진 축).
+        //   여기 남은 것은 **에이전트가 스스로 부르는** 직교 축 하나뿐이다.
         agentCanCompact: body.agentCanCompact === true ? true : undefined,
         excludeDynamicSystemPromptSections: body.excludeDynamicSystemPromptSections === true ? true : undefined,
         settingSources: Array.isArray(body.settingSources)
