@@ -15,6 +15,7 @@ import {
   describePathFact,
   extractCliResultText,
   extractGlobTokens,
+  globToRegExp,
   parseProbeVerdict,
   toNativeProbePath,
   type ProbeEvidence,
@@ -76,6 +77,33 @@ describe('toNativeProbePath', () => {
   it('mac·linux 에서는 손대지 않는다 — /c 로 시작하는 진짜 경로가 있다', () => {
     expect(toNativeProbePath('/c/tmp/x.log', 'darwin')).toBe('/c/tmp/x.log');
     expect(toNativeProbePath('/var/log/app.log', 'linux')).toBe('/var/log/app.log');
+  });
+});
+
+describe('globToRegExp — 대소문자는 그 OS 의 파일시스템 규칙을 따른다', () => {
+  // 여기서 접으면 `matchCount` 가 부풀고, 그 수가 `-ge 11` 같은 종료 조건의 충족 여부를 가르는
+  // 유일한 값이라 — 아직 기다리는 중인 루프가 "조건을 채웠다"로 읽혀 죽는다.
+  it('linux 에서 OUT-1.JSON 은 out-*.json 이 아니다', () => {
+    const rx = globToRegExp('out-*.json', 'linux');
+    expect(rx.test('out-1.json')).toBe(true);
+    expect(rx.test('OUT-1.JSON')).toBe(false);
+  });
+
+  it('win32·darwin 에서는 같은 파일이라 접는다', () => {
+    expect(globToRegExp('out-*.json', 'win32').test('OUT-1.JSON')).toBe(true);
+    expect(globToRegExp('out-*.json', 'darwin').test('OUT-1.JSON')).toBe(true);
+  });
+
+  it('정규식 메타문자는 글자 그대로 본다 — `.` 이 아무 글자가 되면 안 된다', () => {
+    const rx = globToRegExp('a.b*.log', 'linux');
+    expect(rx.test('a.bXX.log')).toBe(true);
+    expect(rx.test('aXbYY.log')).toBe(false);
+  });
+
+  it('`?` 는 한 글자다', () => {
+    const rx = globToRegExp('f?.txt', 'linux');
+    expect(rx.test('f1.txt')).toBe(true);
+    expect(rx.test('f12.txt')).toBe(false);
   });
 });
 

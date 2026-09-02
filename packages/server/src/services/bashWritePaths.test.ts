@@ -116,6 +116,46 @@ describe('extractBashWritePaths — 쓰기가 아닌 것은 세지 않는다', (
   });
 });
 
+describe('extractBashWritePaths — 값이 **떨어져** 오는 리다이렉트', () => {
+  // 종전에는 붙어 온 모양(`<<EOF`)만 heredoc 으로 봤다. 셸에서는 공백을 둔 `<< EOF` 도 똑같은
+  // heredoc 인데, 그 모양에서는 본문 건너뛰기가 안 걸려 **본문 줄이 명령으로 파싱**됐다.
+  it('heredoc 을 `<< EOF` 로 열어도 본문은 명령이 아니다 — 남의 글이 "고친 파일"이 되면 안 된다', () => {
+    const cmd = 'cat > note.md << EOF\necho hacked > evil.txt\nEOF';
+    expect(extractBashWritePaths(cmd, 4, posix)).toEqual(['note.md']);
+  });
+
+  it('`tee out << EOF` 의 구분자 EOF 는 파일이 아니다', () => {
+    // `tee` 는 인자를 전부 대상으로 읽는 명령이라, 건너뛰지 못한 구분자가 그대로 파일이 됐다.
+    const cmd = 'tee out.log << EOF\nbody\nEOF';
+    expect(extractBashWritePaths(cmd, 4, posix)).toEqual(['out.log']);
+  });
+
+  it('`<<- EOF` 가 명령의 나머지를 삼키지 않는다 — heredoc 뒤의 진짜 쓰기가 사라졌었다', () => {
+    // `HEREDOC_PATTERN` 이 `<<-` 의 구분자를 `-` 로 읽어, 오지 않는 종료 표식을 끝까지 기다렸다.
+    const cmd = 'cat > a.txt <<- EOF\nbody\nEOF\necho done > b.txt';
+    expect(extractBashWritePaths(cmd, 4, posix)).toEqual(['a.txt', 'b.txt']);
+  });
+
+  it('입력 리다이렉트의 대상은 읽기다 — 쓰기로 세면 가짜 diff 가 된다', () => {
+    expect(extractBashWritePaths('tee < in.txt', 4, posix)).toEqual([]);
+    expect(extractBashWritePaths('tee out.log < in.txt', 4, posix)).toEqual(['out.log']);
+    expect(extractBashWritePaths('touch a.ts < in.txt', 4, posix)).toEqual(['a.ts']);
+  });
+
+  it('`>|` 는 파이프가 아니라 덮어쓰기다 — 대상이 통째로 빠졌었다', () => {
+    // 토크나이저가 `|` 에서 끊는 바람에 `>` 만 남아 대상이 사라지고, 그 파일 이름은 다음
+    // 세그먼트의 **명령** 자리로 밀려났다.
+    expect(extractBashWritePaths('echo x >| out.txt', 4, posix)).toEqual(['out.txt']);
+    expect(extractBashWritePaths('echo x >|out.txt', 4, posix)).toEqual(['out.txt']);
+    expect(extractBashWritePaths('echo x 2>| err.log', 4, posix)).toEqual(['err.log']);
+  });
+
+  it('`||` 는 여전히 세그먼트를 가른다 — 위 수정이 이것을 건드리면 안 된다', () => {
+    expect(extractBashWritePaths('echo a > a.txt || echo b > b.txt', 4, posix))
+      .toEqual(['a.txt', 'b.txt']);
+  });
+});
+
 describe('extractBashWritePaths — 플랫폼', () => {
   it('win32 에서만 MSYS 경로를 드라이브 경로로 되돌린다', () => {
     expect(extractBashWritePaths('echo x > /c/tmp/a.txt', 4, win)).toEqual(['c:/tmp/a.txt']);

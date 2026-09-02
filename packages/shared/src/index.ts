@@ -1329,6 +1329,9 @@ export {
   SHELL_SEGMENT_SEPARATORS,
   tokenizeShellCommand,
   splitShellSegments,
+  // heredoc 본문 걷어내기 — 읽기·쓰기가 **같은 함수**를 써야 한쪽만 뚫려 있지 않다(§2.1 #3).
+  stripHeredocBodies,
+  readHeredocDelimiter,
   normalizeShellCommandName,
   isUnusableShellArg,
   looksLikeShellPath,

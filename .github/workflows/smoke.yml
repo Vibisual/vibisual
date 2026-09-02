@@ -30,14 +30,21 @@ on:
         description: '검증할 릴리스 태그 (비우면 최신 릴리스)'
         required: false
         default: ''
+      publish:
+        description: '통과하면 draft 를 해제해 공개 발행한다 (스모크가 막아 draft 로 남은 릴리스를 고친 뒤 되살리는 손잡이)'
+        type: boolean
+        required: false
+        default: false
   # 릴리스 빌드가 **끝난 뒤**에 돈다. `release: [published]` 는 쓸 수 없다 — 4개 잡 중 처음 끝난
   # 하나가 릴리스를 만드는 순간 발화하므로, 나머지 셋의 자산이 아직 안 올라온 상태를 재게 된다.
   workflow_run:
     workflows: ['Release']
     types: [completed]
 
+# ⚠️ `write` 다 — 이 워크플로가 **공개 발행의 유일한 스위치**이기 때문이다(아래 `publish` 잡).
+# 자산은 draft 로 올라오고, 여기서 실기 검증을 통과해야 공개로 바뀐다.
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   smoke:
@@ -78,8 +85,11 @@ jobs:
           if [ -z "$TAG" ]; then TAG="${{ github.event.workflow_run.head_branch }}"; fi
           case "$TAG" in v*) ;; *) TAG="" ;; esac
           if [ -z "$TAG" ]; then
-            TAG=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName)
-            echo "태그를 못 받아 최신 릴리스로 떨어졌다."
+            # ⚠️ `gh release view` 를 쓰지 마라 — 그것은 **draft 를 건너뛴다.** 우리가 재려는 것은
+            #    방금 올라온 draft 이므로 그걸로 떨어지면 한 판올림 옛것을 검증하고 통과시킨다.
+            #    `gh release list` 는 권한이 있으면 draft 도 함께 준다.
+            TAG=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1 --json tagName -q '.[0].tagName')
+            echo "태그를 못 받아 최신 릴리스(draft 포함)로 떨어졌다."
           fi
           echo "검증 대상 태그: $TAG"
           echo "TAG=$TAG" >> "$GITHUB_ENV"
@@ -452,3 +462,63 @@ jobs:
           }
           Write-Host "OK — 25초 생존. 앱이 떴다."
           Stop-Process -Id $p.Id -Force
+
+  # ── 발행(공개) — **여기가 유일한 공개 전환점이다** ──────────────────────────
+  #
+  # 자산은 draft 로 올라온다(`electron-builder.yml` 의 `releaseType: draft`). draft 인 동안에는
+  # 업데이터가 피드를 읽지 못하므로 **어떤 설치본에도 도달하지 않는다.** 위 4종 러너가 전부
+  # 통과하고 자산 11종이 다 있을 때만 이 잡이 draft 를 해제한다 — 공개는 검증의 결과다.
+  #
+  # 이 게이트가 없던 시절이 정확히 v0.1.19 다: 태그를 미는 순간 공개 발행이 끝났고 "설치가
+  # 되는가"는 그 **뒤에** 쟀다. Windows 인스톨러가 0xC0000005 로 죽은 것을 알았을 때 자산은
+  # 이미 공개였고, 설치본은 그것을 받아 실패하는 상태였다. 결함이 아니라 순서가 원인이었다.
+  publish:
+    needs: smoke
+    # `success()` 는 매트릭스 4종이 **전부** 통과했을 때만 참이다(fail-fast:false 여도 그렇다 —
+    # 그 옵션은 "형제를 취소하지 않는다"일 뿐 결론을 바꾸지 않는다).
+    #
+    # 자동 경로는 **릴리스가 띄운 회차일 때만**이다. 옛 태그를 손으로 검증하다가 그 옛 릴리스가
+    # 실수로 공개되는 일이 없어야 한다. 스모크에 막혀 draft 로 남은 것을 고친 뒤 되살릴 때는
+    # `publish: true` 를 켜서 부른다(그게 그 손잡이의 존재 이유다).
+    if: >-
+      success() &&
+      ((github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+       || (github.event_name == 'workflow_dispatch' && inputs.publish))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Resolve tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.tag }}"
+          if [ -z "$TAG" ]; then TAG="${{ github.event.workflow_run.head_branch }}"; fi
+          case "$TAG" in v*) ;; *) TAG="" ;; esac
+          if [ -z "$TAG" ]; then
+            # 위 smoke 잡과 같은 이유로 `gh release view` ❌ — draft 를 건너뛴다.
+            TAG=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1 --json tagName -q '.[0].tagName')
+          fi
+          echo "발행 대상 태그: $TAG"
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+
+      # 실행이 되는 것과 **세 OS 에 다 도달하는 것**은 다른 문제다. 스모크는 4종 러너에서
+      # 앱이 뜨는지만 보므로, 자산 한 종이 통째로 빠진 것(v0.1.12 의 Intel dmg)은 못 잡는다.
+      # 공개 직전에 세는 이유가 그것이다 — 여기서 걸리면 릴리스는 draft 로 남는다.
+      - name: 자산 11종 검사 (한 종이라도 없으면 공개하지 않는다)
+        shell: bash
+        run: node .github/scripts/check-release-assets.mjs "$TAG"
+
+      - name: draft 해제 — 공개 발행
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
+          echo "공개 발행됨: $TAG"
+          echo "이제부터 설치된 앱이 이 판올림을 감지한다(피드가 공개로 열렸다)."

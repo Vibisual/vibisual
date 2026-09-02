@@ -64,6 +64,11 @@ export function tokenizeShellCommand(command: string): string[] {
     if (ch === ' ' || ch === '\t' || ch === '\r') { push(); continue; }
     if (ch === '\n' || ch === ';') { push(); tokens.push(';'); continue; }
     if (ch === '&' && command[i + 1] === '&') { push(); tokens.push('&&'); i++; continue; }
+    // `>|` 는 파이프가 아니라 **noclobber 무시 리다이렉트**다(`set -o noclobber` 아래의 덮어쓰기).
+    //   여기서 끊으면 `>` 만 남아 대상이 사라지고(쓴 파일 기록 0건) 그 파일 이름은 다음 세그먼트의
+    //   **명령**으로 둔갑한다 — `redirectTargets` 의 `target.startsWith('|')` 갈래가 영영 안 돌던
+    //   이유가 이것이다(그 갈래는 이 토큰이 통째로 와야 성립한다).
+    if (ch === '|' && /^\d*>>?$/.test(cur)) { cur += ch; hasContent = true; continue; }
     if (ch === '|' && command[i + 1] === '|') { push(); tokens.push('||'); i++; continue; }
     if (ch === '|') { push(); tokens.push('|'); continue; }
     cur += ch;
@@ -83,6 +88,55 @@ export function splitShellSegments(tokens: readonly string[]): string[][] {
   }
   segments.push(cur);
   return segments.filter((s) => s.length > 0);
+}
+
+/** heredoc 시작(`<<EOF` · `<<-EOF`). 토크나이저가 따옴표를 벗기므로 `<<'EOF'` 도 이 모양으로 온다. */
+const HEREDOC_PATTERN = /^<<-?(.+)$/;
+
+/**
+ * 이 세그먼트가 heredoc 을 열었으면 그 **종료 표식**을, 아니면 `null`.
+ *
+ * 두 모양을 다 본다. `<<EOF` 는 한 토큰이고, `<< EOF` 는 토크나이저가 공백에서 끊어 구분자가
+ * **다음 토큰**으로 온다. 떨어져 온 모양을 먼저 보는 것이 중요하다 — `<<-` 는 `HEREDOC_PATTERN`
+ * 에도 걸리는데 그때 구분자를 `-` 로 잘못 읽어, 오지 않는 표식을 기다리며 명령 끝까지 삼킨다.
+ */
+export function readHeredocDelimiter(segment: readonly string[]): string | null {
+  for (let i = 0; i < segment.length; i++) {
+    const tok = segment[i]!;
+    if (tok === '<<' || tok === '<<-') {
+      const next = segment[i + 1];
+      if (next && !SHELL_SEGMENT_SEPARATORS.has(next)) return next;
+      continue;
+    }
+    const h = tok.match(HEREDOC_PATTERN);
+    if (h?.[1]) return h[1];
+  }
+  return null;
+}
+
+/**
+ * heredoc **본문** 세그먼트를 걷어 낸다 — 읽기·쓰기가 같은 답을 보게 하는 한 곳.
+ *
+ * 본문은 셸이 명령으로 실행하지 않는 **글**이다. 그것을 세그먼트로 파싱하면 남의 글이 우리 판정이
+ * 된다: `cat > doc.md <<'EOF'` 안에 예시로 적힌 `sed -n '1,5p' secrets/key.pem` 한 줄이
+ * "에이전트가 그 파일을 읽었다"는 화살표를 세운다(실측 — 쓰기 축은 막고 있었고 읽기 축은 뚫려
+ * 있었다. 토크나이저를 한 벌로 나눠 쓰면서 이 판정만 한쪽에 있었던 것이 원인이다).
+ *
+ * **여는 세그먼트는 남긴다** — `cat > f <<'EOF'` 의 `f` 는 거기 있고 그것은 진짜 쓰기다.
+ * 종료 표식만 홀로 선 세그먼트에서 본문이 끝난다(표식을 못 만나면 명령 끝까지가 본문이다).
+ */
+export function stripHeredocBodies(segments: readonly (readonly string[])[]): string[][] {
+  const out: string[][] = [];
+  let delimiter: string | null = null;
+  for (const segment of segments) {
+    if (delimiter !== null) {
+      if (segment.length === 1 && segment[0] === delimiter) delimiter = null;
+      continue;
+    }
+    out.push([...segment]);
+    delimiter = readHeredocDelimiter(segment);
+  }
+  return out;
 }
 
 /** `/usr/bin/cat` · `cat.exe` → `cat` */
@@ -136,9 +190,6 @@ const ENV_ASSIGN_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*=/;
 /** `>out.txt` · `2>>log` · `>` · `2>&1` — 앞머리에서만 매칭한다(따옴표 안의 `a > b` 오탐 차단). */
 const REDIRECT_PATTERN = /^(\d*)(>>?)(.*)$/;
 
-/** heredoc 시작(`<<EOF` · `<<-EOF`). 토크나이저가 따옴표를 벗기므로 `<<'EOF'` 도 이 모양으로 온다. */
-const HEREDOC_PATTERN = /^<<-?(.+)$/;
-
 /** 인자를 파일 목록으로 읽는 쓰기 명령(플래그는 건너뛴다). */
 const WRITE_FILE_ARG_COMMANDS: ReadonlySet<string> = new Set(['tee', 'touch']);
 
@@ -177,9 +228,13 @@ function positionalArgs(segment: readonly string[]): string[] {
       seenCommand = true;
       continue;
     }
-    if (REDIRECT_PATTERN.test(tok) || HEREDOC_PATTERN.test(tok) || tok.startsWith('<')) {
+    if (REDIRECT_PATTERN.test(tok) || tok.startsWith('<')) {
       // 리다이렉트 대상은 아래 `redirectTargets` 가 따로 본다 — 값이 떨어져 오면 그 토큰도 건너뛴다.
-      if (/^\d*>>?$/.test(tok)) i++;
+      //   **출력(`>`)만 건너뛰던 것이 오탐의 원인이었다.** 입력 리다이렉트와 heredoc 도 값이 떨어져
+      //   올 수 있는데 그 토큰이 그대로 남아, `tee out.txt < in.txt` 의 `in.txt`(읽기일 뿐이다)와
+      //   `tee out.txt << EOF` 의 구분자 `EOF` 가 **고친 파일**로 기록됐다. 쓰기 오탐의 대가는
+      //   읽기보다 크다(가짜 diff) — 그래서 값이 떨어져 오는 네 모양을 전부 건너뛴다.
+      if (/^\d*>>?\|?$/.test(tok) || tok === '<' || tok === '<<' || tok === '<<-') i++;
       continue;
     }
     if (!endOfFlags && tok === '--') { endOfFlags = true; continue; }
@@ -201,14 +256,17 @@ function redirectTargets(segment: readonly string[]): string[] {
     if (!m) continue;
     let target = m[3] ?? '';
     if (target.startsWith('&')) continue; // `2>&1` — 파일이 아니라 다른 fd 다.
+    // `>|f` (noclobber 무시) — **비어 있는지 보기 전에** 벗긴다. 순서를 뒤집으면 `>| f` 처럼
+    //   떨어져 온 모양에서 `target` 이 `'|'` 라 "비지 않았다"로 읽혀 다음 토큰을 안 가져오고,
+    //   벗긴 뒤엔 빈 문자열이라 그대로 버려진다(그 쓰기가 통째로 사라진다).
+    if (target.startsWith('|')) target = target.slice(1);
     if (!target) {
       const next = segment[i + 1];
       if (!next || SHELL_SEGMENT_SEPARATORS.has(next)) continue;
       target = next;
       i++;
     }
-    if (target.startsWith('|')) target = target.slice(1); // `>|f` (noclobber 무시)
-    if (!target || isUnusableShellArg(target)) continue;
+    if (isUnusableShellArg(target)) continue;
     out.push(target);
   }
   return out;
@@ -263,32 +321,19 @@ export function extractBashWritePaths(
   const platform = opts?.platform ?? FALLBACK_PLATFORM;
   const toNative = platform === 'win32' ? toNativeDriveShellPath : (p: string): string => p;
 
-  const segments = splitShellSegments(tokenizeShellCommand(command));
+  // heredoc **본문**은 셸이 실행하지 않는 글이라 애초에 세그먼트 목록에서 뺀다(읽기 축과 공용).
+  //   여는 세그먼트는 남으므로 `cat > f <<'EOF'` 의 `f` 는 그대로 잡힌다.
+  const segments = stripHeredocBodies(splitShellSegments(tokenizeShellCommand(command)));
 
   const seen = new Set<string>();
   const out: string[] = [];
   let base: string | null = null;
-  /** heredoc 본문을 먹는 중이면 그 종료 표식. */
-  let heredocDelimiter: string | null = null;
 
   for (const segment of segments) {
-    if (heredocDelimiter !== null) {
-      // 종료 표식만 홀로 선 세그먼트를 만나야 본문이 끝난다.
-      if (segment.length === 1 && segment[0] === heredocDelimiter) heredocDelimiter = null;
-      continue;
-    }
-
     const cdTarget = readShellCdTarget(segment);
     if (cdTarget) { base = cdTarget.replace(/[\\/]+$/, ''); continue; }
 
     const candidates = [...redirectTargets(segment), ...commandWriteTargets(segment)];
-
-    // 이 세그먼트가 heredoc 을 열었으면 **경로를 챙긴 뒤** 본문 건너뛰기를 켠다
-    // (`cat > f <<'EOF'` 의 `f` 는 이 세그먼트에 있다).
-    for (const tok of segment) {
-      const h = tok.match(HEREDOC_PATTERN);
-      if (h?.[1]) { heredocDelimiter = h[1]; break; }
-    }
 
     for (const raw of candidates) {
       if (isUnusableShellArg(raw)) continue;

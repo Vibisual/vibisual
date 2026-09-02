@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.20] - 2026-09-02
+
+### Changed
+- **A version is now published only after it has been installed and run.** Until now, pushing the tag *was* the release: the files went public the moment the build finished, and the check that installs them on each operating system ran afterwards. That order meant the check could only ever report a problem, never prevent one — and it is the order that let 0.1.19 out. The files now go up privately first, where the updater cannot see them and no installed app can reach them. Four machines — Windows, both kinds of Mac, and Linux — then download them, install them the way you would, and run the app for real; separately, all eleven published files are counted, because an app that runs on the machines we test says nothing about the one build that failed to upload at all. Only when every one of those passes does the release become visible. A version that fails at any point simply never appears: your app keeps what it has, and there is nothing to withdraw.
+
+### Fixed
+- **The Windows installer for 0.1.19 did not install anything.** It stopped with an access violation a few seconds after starting and left nothing behind — no program, no shortcut, no entry in the installed-programs list — so anyone who downloaded it, or pressed the update button, stayed on the version they already had. The published file itself was intact, its checksum matching the release feed exactly, and nothing in the build had changed: the same code, the same tools and the same settings had produced a working installer one version earlier. This release is built afresh. The more useful change is the one above — a build that behaves like that one can no longer reach anybody, because it would not be published in the first place.
+- **On Linux, a background task that was still waiting could be judged finished and stopped.** The check that decides whether a quiet task has met its own exit condition counts the files it is waiting for, and it compared their names while ignoring capitalisation. On Linux that is wrong — `OUT-1.JSON` is not `out-*.json` there — so the count came out too high, and a loop patiently waiting for eleven files could be told it already had them. That number is the whole basis of the verdict, which means the mistake ended in exactly what the feature exists to avoid: killing work that was doing its job.
+- **A path written inside a heredoc was recorded as a file the agent had touched.** Text produced with `cat > doc.md <<'EOF' … EOF` is a document, not a list of commands, and the write side already knew that. The read side did not: it parsed the body line by line, so an example command sitting inside a README — `sed -n '1,5p' secrets/key.pem` — put that path on the canvas as a file the agent had just read, with an arrow to say so. The two sides deliberately share one shell tokenizer precisely so they cannot drift; this judgement had been left on only one of them. It is now one function that both use.
+- **A heredoc opened with a space was not recognised at all.** `<< EOF` is the same heredoc as `<<EOF`, but only the attached form was matched — so the body was read as commands, and anything inside it that looked like a write became a file the agent had supposedly edited. `<<- EOF` failed in the opposite direction: its delimiter was misread as `-`, so the parser waited for a terminator that never arrived and swallowed the rest of the command, losing every real edit that came after the heredoc.
+- **`>|` was treated as a pipe.** Overwriting a file with `>|` — the form you need when `noclobber` is set — split the command at the `|`, so the destination vanished entirely: no file bubble, no arrow, no edit history. Its name was left standing where the next command should have been.
+- **The target of an input redirect was counted as written.** `tee out.log < in.txt` listed `in.txt` among the files the command had modified, and `tee out.log << EOF` listed the delimiter `EOF` as one. Only the destination of an output redirect belongs on that list — a false write is worse than a false read, because it is what a reconstructed diff is built from.
+
 ## [0.1.19] - 2026-09-01
 
 ### Added
@@ -430,7 +443,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - Dropped preset options from the custom agent settings.
 
-[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.1.19...HEAD
+[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.1.20...HEAD
+[0.1.20]: https://github.com/Vibisual/vibisual/compare/v0.1.19...v0.1.20
 [0.1.19]: https://github.com/Vibisual/vibisual/compare/v0.1.18...v0.1.19
 [0.1.18]: https://github.com/Vibisual/vibisual/compare/v0.1.17...v0.1.18
 [0.1.17]: https://github.com/Vibisual/vibisual/compare/v0.1.16...v0.1.17
