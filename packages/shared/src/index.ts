@@ -1187,7 +1187,22 @@ export type { WorkspaceOpenAction, WorkspaceOpenAppClaim, WorkspaceOpenPlan, Med
 export type { MediaToolsInfo, MediaConvertJob, MediaConvertStatus } from './types.js';
 
 // §9 v3.89 — graph_snapshot 키맵 슬라이스 증분 (서버 인코딩 / 클라 복원 공용)
-export { diffKeyedSlice, applyKeyedSliceDelta } from './keyedSliceDelta.js';
+export { diffKeyedSlice, applyKeyedSliceDelta, DELTA_SLICE_KEYS } from './keyedSliceDelta.js';
+export type { DeltaSliceKey } from './keyedSliceDelta.js';
+
+// §9 — 스코프드 스냅샷 구독의 **슬라이스 축**(규칙 단일 소유는 `sliceScope.ts` 머리말).
+export {
+  SLICE_SCOPE_GROUPS,
+  SLICE_SCOPE_GROUP_NAMES,
+  SCOPABLE_SLICE_KEYS,
+  ALWAYS_SHIPPED_SLICES,
+  SLICE_TABLES_ARE_DISJOINT,
+  isSliceScopeGroup,
+  resolveSliceShipSet,
+  stripScopedOutSlices,
+  carryForwardScopedSlices,
+} from './sliceScope.js';
+export type { SliceScopeGroup, ScopableSliceKey, AlwaysShippedSliceKey } from './sliceScope.js';
 
 // §3.2.4 F축 — 바이트 예산 LRU 캐시.
 export { ByteBudgetCache, approximateStringBytes, capMapSize } from './byteBudgetCache.js';

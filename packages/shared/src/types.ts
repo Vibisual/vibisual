@@ -3352,6 +3352,19 @@ export interface SetProjectScopePayload {
    *   빈 채로 굳는다 — 프로젝트 축이 세운 안전 기본값과 같은 규칙.
    */
   folders?: string[];
+  /**
+   * §9 슬라이스 스코프 — 이 창이 **지금 읽고 있는 슬라이스 묶음**(`SliceScopeGroup` 이름 목록).
+   * 서버는 모든 창 선언의 합집합에 든 슬라이스만 싣고, 나머지는 스냅샷에서 지운다.
+   *
+   * 값의 뜻·목록·근거는 `sliceScope.ts` 가 단독 소유한다. 여기서 `string[]` 인 것은 **전선에서
+   * 온 값을 그대로 믿지 않기 때문**이다 — 서버가 `isSliceScopeGroup` 으로 걸러 받는다.
+   *
+   * ⚠ **optional 인 것이 계약이다.** 폴더 축의 `folders` 와 같은 규칙 — 이 필드를 안 보내는 창이
+   *   하나라도 붙어 있으면 서버는 슬라이스 범위를 **적용하지 않는다**(= 전량). 그 창은 자기가
+   *   무엇을 읽는지 말할 방법이 없고, 침묵이 축소로 읽히면 그 창의 데이터가 영영 안 온다.
+   *   빈 배열(`[]`)은 "나는 스코프 대상 슬라이스를 하나도 안 읽는다"는 **유효한 선언**이다.
+   */
+  slices?: string[];
 }
 
 // ─── §7.11 v1.44 Iframe 서버 로그 스트리밍 ───
@@ -4572,6 +4585,18 @@ export interface GraphSnapshot {
    */
   scopedFolders?: string[];
   /**
+   * §9 슬라이스 스코프 — **이 스냅샷이 실제로 실어 온 스코프 대상 슬라이스 목록**.
+   *
+   * 없으면(`undefined`) 슬라이스 범위를 적용하지 않은 전량 스냅샷이다(선언한 창이 없을 때 ·
+   * 슬라이스 축을 모르는 창이 하나라도 붙어 있을 때 · 구버전 서버).
+   *
+   * 있으면 `SCOPABLE_SLICE_KEYS` 중 **여기 없는 것은 이번 스냅샷에서 지워졌다**는 뜻이고,
+   * 클라는 그것을 "비어 있다"가 아니라 **"아직 안 온 것"**으로 읽어 직전 값을 그대로 이어받는다
+   * (§9 ⑥ 과 같은 알약 · 규칙은 `carryForwardScopedSlices` 단독 소유). 이 신고가 없으면 클라의
+   * `?? {}` 폴백이 걸려 **사용자 눈에는 데이터가 날아간 것으로 보인다** — 그래서 필수다.
+   */
+  scopedSlices?: string[];
+  /**
    * §9 폴더 스코프 — **범위와 무관하게 전량으로 잰** 파일 버블 상대 크기 척도(바이트).
    *
    * 종전에는 클라가 받은 스냅샷에서 직접 쟀는데, 폴더 범위를 좁히면 그 입력이 줄어 **폴더를
@@ -4916,9 +4941,23 @@ export interface KeyedSliceDelta<T> {
 }
 
 /** graph_snapshot 에 함께 실리는 증분 묶음. 해당 슬라이스는 본문에서 생략된다. */
+/**
+ * 증분으로 대체된 키맵 슬라이스들. 어느 슬라이스가 이 길을 타는지는 `DELTA_SLICE_KEYS` 가
+ * 단독으로 정한다(서버·클라 한 벌) — 여기 필드를 늘릴 때 그 목록에도 같은 이름을 넣어라.
+ */
 export interface GraphSnapshotDeltas {
   fileEdits?: KeyedSliceDelta<FileEdit[]>;
   bashHistory?: KeyedSliceDelta<BashEntry[]>;
+  agentReports?: KeyedSliceDelta<AgentReport[]>;
+  agentMemos?: KeyedSliceDelta<SessionMemo[]>;
+  agentQuestions?: KeyedSliceDelta<AgentQuestions[]>;
+  agentReviews?: KeyedSliceDelta<AgentReview[]>;
+  agentLists?: KeyedSliceDelta<AgentList[]>;
+  sessionGoals?: KeyedSliceDelta<SessionGoal>;
+  agentFeedbacks?: KeyedSliceDelta<AgentFeedback[]>;
+  brainInjections?: KeyedSliceDelta<BrainInjectionEvent[]>;
+  agentEvents?: KeyedSliceDelta<AgentEvent[]>;
+  nodeProjects?: KeyedSliceDelta<string>;
 }
 
 /**
@@ -4928,10 +4967,16 @@ export interface GraphSnapshotDeltas {
  * (`buildConnectionMessages`). 증분은 그 뒤의 브로드캐스트에만 실린다.
  */
 export type GraphSnapshotWire =
-  Omit<GraphSnapshot, 'fileEdits' | 'bashHistory'>
+  Omit<GraphSnapshot, 'fileEdits' | 'bashHistory' | 'agentEvents' | 'nodeProjects'>
   & {
     fileEdits?: Record<string, FileEdit[]>;
     bashHistory?: Record<string, BashEntry[]>;
+    /**
+     * 증분으로 빠질 수 있어 optional 이다 — `GraphSnapshot` 에서는 여전히 필수다.
+     * 클라는 델타를 푼 뒤 전체 맵을 되돌리므로 화면이 보는 값은 종전과 같다.
+     */
+    agentEvents?: Record<string, AgentEvent[]>;
+    nodeProjects?: Record<string, string>;
     deltas?: GraphSnapshotDeltas;
   };
 

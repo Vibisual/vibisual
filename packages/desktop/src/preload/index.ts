@@ -1,6 +1,9 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import { electronAPI } from '@electron-toolkit/preload';
 import type { UpdateState, AgentConfig, MobileAccessState, ChatBridgeState, ChatChannelKind, ChatVerbosity, CaptureSourceInfo, CaptureInputEvent, CaptureSourceKind, CaptureTargetRect, CaptureInjectResult, PreviewSnipRect, PageRegionCapture, ExternalOpenFailure } from '@vibisual/shared';
+// §9 — 스냅샷 무복사 경로의 채널명·디코더. electron 무의존 순수 모듈이라 preload 번들에 그대로
+// 들어간다. main 과 **같은 상수**를 쓰게 해 채널명이 양쪽에서 따로 흘러가지 않게 한다.
+import { WS_BUFFER_CHANNEL, WS_BUFFER_READY_CHANNEL, WS_OBJECT_CHANNEL, decodeWire } from '../main/snapshotWire';
 
 // Preload — SCENARIO.md §3.7 / §3.4 contextBridge surface.
 //
@@ -57,6 +60,40 @@ export interface OverlayListWire {
   userVisible: boolean;
 }
 
+// ─── §9 스냅샷 무복사 수신 ──────────────────────────────────────────────────
+//
+// main 은 `graph_snapshot` 을 창 수와 무관하게 **1회만** 인코딩해 UTF-8 바이트로 민다
+// (`WS_BUFFER_CHANNEL`). 깊은 객체를 창마다 구조화 클론하던 종전 경로의 메인 스레드 점유를
+// 없애기 위함이다(설계·함정은 `main/snapshotWire.ts` 주석).
+//
+// **렌더러는 이 변경을 몰라야 한다.** 여기서 TextDecoder 로 문자열을 되돌려, 종전에 창이 2개
+// 이상일 때 이미 흐르던 것과 **똑같은 모양**(문자열)으로 `onMessage` 콜백에 넘긴다.
+// `install-packaged-transport.ts` 의 IpcWebSocket 은 그 문자열을 MessageEvent.data 로 싣고,
+// `useWebSocket` 이 `typeof raw === 'string'` 가지에서 JSON.parse 한다 — 손댈 곳이 없다.
+//
+// 구독은 `onMessage` 마다 새 엔트리 객체로 담는다. 같은 함수 참조가 두 번 구독돼도 해지가
+// 서로를 지우지 않게 하기 위함(Set<함수> 였다면 하나를 끊을 때 둘 다 끊긴다).
+interface WsListenerEntry { cb: (payload: unknown) => void }
+const wsBufferListeners = new Set<WsListenerEntry>();
+
+// 바이트 채널을 **로드 시점에** 붙이고 곧바로 능력을 신고한다.
+//   - 붙이기가 신고보다 먼저여야, 신고 직후 날아온 첫 바이트를 흘리지 않는다.
+//   - 신고가 없으면 main 은 이 창에 바이트를 보내지 않는다(구버전 preload 취급 → 종전 경로).
+//     postMessage 는 리스너가 없어도 조용히 사라져 실패를 감지할 수 없기 때문에, 낙관 대신
+//     신고제로 뒤집어 놓은 것이다. 이 신고를 지우면 화면이 통째로 조용히 죽는다.
+ipcRenderer.on(WS_BUFFER_CHANNEL, (_e, payload: unknown) => {
+  let text: string;
+  try {
+    text = decodeWire(payload);
+  } catch (err) {
+    // 디코드가 깨져도 렌더러를 죽이지 않는다 — 다음 스냅샷이 곧 온다(성능 경로일 뿐이다).
+    console.error('[preload] ws buffer decode failed', err);
+    return;
+  }
+  for (const entry of wsBufferListeners) entry.cb(text);
+});
+ipcRenderer.send(WS_BUFFER_READY_CHANNEL);
+
 const api = {
   serverInfo: (): Promise<ServerInfo> => ipcRenderer.invoke('vibisual:server-info'),
   /**
@@ -73,9 +110,17 @@ const api = {
   /** IpcWebSocket 생성 시 호출 → main 이 초기 connection_ack + graph_snapshot 을 푸시한다. */
   connect: (): Promise<void> => ipcRenderer.invoke('vibisual:ws-connect'),
   onMessage: (cb: (payload: unknown) => void): (() => void) => {
+    // 두 길을 함께 구독한다. 바이트 채널(무복사 경로)과 종전 객체 채널 —
+    // 후자는 폴백이자, ipc.ts 의 초기 ack·`vibisual:ws-connect` 스냅샷이 그대로 쓰는 길이라
+    // **없어지지 않는다.** 한쪽만 구독하면 그 경로의 메시지가 통째로 사라진다.
     const listener = (_e: unknown, payload: unknown): void => cb(payload);
-    ipcRenderer.on('vibisual:ws', listener);
-    return () => ipcRenderer.removeListener('vibisual:ws', listener);
+    ipcRenderer.on(WS_OBJECT_CHANNEL, listener);
+    const entry: WsListenerEntry = { cb };
+    wsBufferListeners.add(entry);
+    return () => {
+      ipcRenderer.removeListener(WS_OBJECT_CHANNEL, listener);
+      wsBufferListeners.delete(entry);
+    };
   },
   /** §5.4 #14-1 별창 surface. */
   window: {

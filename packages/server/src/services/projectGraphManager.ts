@@ -75,6 +75,14 @@ import type {
   AgentProvider,
 } from '@vibisual/shared';
 import { DEFAULT_AUDIT_BOUNDARY, DEFAULT_UI_LOCALE, ROOT_NODE_KEY_PREFIX } from '@vibisual/shared';
+// §9 슬라이스 스코프 — 규칙 전문은 `shared/src/sliceScope.ts` 머리말이 단독 소유한다.
+import {
+  isSliceScopeGroup,
+  resolveSliceShipSet,
+  stripScopedOutSlices,
+  type ScopableSliceKey,
+  type SliceScopeGroup,
+} from '@vibisual/shared';
 import { ProjectGraph, resolveGitWorktreeParent, type ProcessResult } from './projectGraph.js';
 // §5.22 — 권한·감사 경계(승인 창구가 원장에 적을 때 쓰는 입력 모양).
 import type { AuditRecordInput } from './auditLog.js';
@@ -2566,6 +2574,20 @@ export class ProjectGraphManager {
    */
   private clientFolderScopes = new Map<object, Set<string> | null>();
 
+  /**
+   * §9 슬라이스 스코프 — 창 → 그 창이 **지금 읽고 있는 슬라이스 묶음**(`SliceScopeGroup`).
+   *
+   * 폴더 축과 같은 모양이고 같은 이유로 별도 맵이다 — `null` 은 **"이 창은 슬라이스 축을
+   * 선언하지 않았다"**(구버전 클라 · 자기가 무엇을 읽는지 말할 수 없는 창)이고, 그런 창이
+   * 하나라도 있으면 합집합은 통째로 `null`(= 전량)이 된다. 빈 집합은 "스코프 대상 슬라이스를
+   * 하나도 안 읽는다"는 **유효한 선언**이라 좁혀도 된다.
+   *
+   * ⚠ **창별로 다른 슬라이스를 보내면 안 된다.** `broadcastBus.lastSentSlices` 가 모듈 전역
+   *   기준점 하나라, 창마다 페이로드가 갈리면 증분이 틀린 값을 복원한다(`sliceScope.ts` 함정 ①).
+   *   그래서 여기서 만드는 것은 항상 **합집합 한 벌**이다.
+   */
+  private clientSliceScopes = new Map<object, Set<SliceScopeGroup> | null>();
+
   /** §9 배경 탭 유휴 해제 — 표시명 → 마지막으로 어떤 창의 구독 범위에 들어 있던 시각(epoch ms). */
   private lastInScopeAt = new Map<string, number>();
   /** §9 — 서버 기동 시각. "이 세션에서 한 번도 본 적 없는" 프로젝트의 유휴 기준점. */
@@ -2581,7 +2603,7 @@ export class ProjectGraphManager {
    *  · 그 프로젝트가 stub(=내려가 있음)이면 **자동으로 다시 올린다** — §9 "탭을 클릭하면
    *    되살아난다"의 실행 지점이다(사용자가 [불러오기]를 한 번 더 누르게 하지 않는다).
    */
-  setClientProjectScope(client: object, projects: string[], folders?: string[]): void {
+  setClientProjectScope(client: object, projects: string[], folders?: string[], slices?: string[]): void {
     const names = projects.filter((p) => typeof p === 'string' && p.length > 0);
     this.clientScopes.set(client, new Set(names));
     // §9 폴더 스코프 — 같은 선언에 얹혀 온다. **안 보냈으면(undefined) 미선언**이라 전량으로
@@ -2590,6 +2612,15 @@ export class ProjectGraphManager {
       client,
       Array.isArray(folders)
         ? new Set(folders.filter((f) => typeof f === 'string' && f.length > 0))
+        : null,
+    );
+    // §9 슬라이스 스코프 — 셋째 축도 **같은 선언에 얹혀** 온다(한 메시지 = 한 왕복). 폴더 축과
+    //   똑같이 `undefined` = 미선언(전량), `[]` = "아무 것도 안 읽는다"는 유효한 선언이다.
+    //   모르는 그룹 이름은 조용히 버린다 — 전선에서 온 값을 그대로 믿지 않는다.
+    this.clientSliceScopes.set(
+      client,
+      Array.isArray(slices)
+        ? new Set(slices.filter(isSliceScopeGroup))
         : null,
     );
     const now = Date.now();
@@ -2657,6 +2688,20 @@ export class ProjectGraphManager {
   clearClientProjectScope(client: object): void {
     this.clientScopes.delete(client);
     this.clientFolderScopes.delete(client);
+    // 슬라이스 선언도 같은 수명이다 — 남겨 두면 닫힌 창 때문에 합집합이 넓어진 채로 굳는다.
+    this.clientSliceScopes.delete(client);
+  }
+
+  /**
+   * §9 슬라이스 스코프 — 지금 유효한 슬라이스 범위(모든 창 선언의 **합집합**).
+   * `null` 이면 "제한 없음" — 호출자는 모든 슬라이스를 실어야 한다.
+   *
+   * 판정은 `resolveSliceShipSet` 한 곳이 한다(규칙 단일 소유). `null` 이 되는 두 경우는 폴더 축과
+   * 똑같이 **좁히면 화면이 깨지는** 상황이다: 선언한 창이 하나도 없거나, 슬라이스 축을 모르는
+   * 창이 하나라도 붙어 있거나.
+   */
+  getEffectiveSliceScope(): ReadonlySet<ScopableSliceKey> | null {
+    return resolveSliceShipSet(this.clientSliceScopes.values());
   }
 
   /**
@@ -2746,7 +2791,7 @@ export class ProjectGraphManager {
    *   범위는 `getBroadcastSnapshot()` 에만 적용한다.
    */
   getSnapshot(): GraphSnapshot {
-    return this.buildSnapshot(null, null);
+    return this.buildSnapshot(null, null, null);
   }
 
   /**
@@ -2754,10 +2799,18 @@ export class ProjectGraphManager {
    * 선언한 창이 없으면 전체와 같다(안전 기본값).
    */
   getBroadcastSnapshot(): GraphSnapshot {
-    return this.buildSnapshot(this.getEffectiveProjectScope(), this.getEffectiveFolderScope());
+    return this.buildSnapshot(
+      this.getEffectiveProjectScope(),
+      this.getEffectiveFolderScope(),
+      this.getEffectiveSliceScope(),
+    );
   }
 
-  private buildSnapshot(scope: Set<string> | null, folderScope: Set<string> | null): GraphSnapshot {
+  private buildSnapshot(
+    scope: Set<string> | null,
+    folderScope: Set<string> | null,
+    sliceScope: ReadonlySet<ScopableSliceKey> | null,
+  ): GraphSnapshot {
     const visibleInstances = this.visibleInstanceList();
 
     // B 진단(§3.2.2) — 라이브 스냅샷은 visibleInstances(비-worktree · 비-hidden)만 병합하므로,
@@ -3007,6 +3060,20 @@ export class ProjectGraphManager {
 
     // §4 v2.42 — 사용자 글로벌 옵션 주입 (Options 창 데이터)
     snapshot = { ...snapshot, userDefaults: userDefaultsService.get() };
+
+    // §9 슬라이스 스코프 — **조립이 전부 끝난 뒤 여기 한 곳에서만** 범위 밖 슬라이스를 지운다.
+    //   위쪽 주입 지점마다 조금씩 빼면 한 곳만 빠져도 그 슬라이스가 조용히 계속 실리거나(최적화
+    //   무효) 조용히 사라진다(기능 손상). 제거 지점이 하나면 그 사고가 생길 자리가 없다.
+    //
+    //   ⚠ 지우는 대상은 `SCOPABLE_SLICE_KEYS` 뿐이다 — 전역 집계·탭 표시·캔버스 골격은 그 목록에
+    //   들어갈 수 없으므로(`sliceScope.ts` 의 두 표가 컴파일 타임에 배타적이다) 여기서 실수로
+    //   빠질 방법이 없다. 범위를 적용했으면 **실은 목록을 그대로 되돌려 준다** — 클라가 "빈 것"과
+    //   "아직 안 온 것"을 가르는 유일한 근거이고, 그것이 없으면 클라의 `?? {}` 폴백이 걸려
+    //   사용자 눈에는 데이터가 날아간 것으로 보인다.
+    if (sliceScope !== null) {
+      const stripped = stripScopedOutSlices(snapshot, sliceScope);
+      snapshot = { ...stripped.snapshot, scopedSlices: stripped.scopedSlices };
+    }
 
     return snapshot;
   }

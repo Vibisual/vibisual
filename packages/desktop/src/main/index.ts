@@ -9,6 +9,8 @@ import type { Express } from 'express';
 import { unloadAllLocalModels, runServer, shutdownDiskWriteQueue, flushPendingCheckpointSave, setBroadcastSink, setHookListenerPort, setHookListenerToken, setHookListenerIdentityFile, setHookHandlerPath, setDebugLogDir, ensureClaudeHooksInstalled, refreshStatusLineIfInstalled, recordDiagnostic, subAgentManager, stopAllPlays, closeStaticHost, setCmdTerminalController, setCmdBlockedNotifier, setWorkspaceTrash, getUiLocale } from '@vibisual/server';
 import { IFRAME_PROXY_PATH, WORKSPACE_SITE_PATH } from '@vibisual/shared';
 import { setupIpc, type IpcHub } from './ipc';
+// §9 — 스냅샷 팬아웃(1회 인코딩 → 창마다 바이트 postMessage, 실패 시 종전 send 폴백).
+import { broadcastToWindows, initWsFanout } from './wsFanout';
 import { loadSecrets } from './secrets';
 import { loadHookIdentity, saveHookIdentity, hookIdentityPath } from './hookIdentity';
 import { configureWindowManager, closeAll as closeAllDetachedWindows, closeAllOverlays, closeAllCommandCenters } from './windowManager';
@@ -463,22 +465,24 @@ async function bootBackend(): Promise<void> {
     console.log(`[main] merged ${Object.keys(secrets.env).length} secret(s) from ${secrets.path}`);
   }
 
+  // §9 — preload 의 "바이트 채널을 안다" 신고를 받을 창구를 먼저 연다.
+  // createWindow() 보다 반드시 앞서야 한다(preload 는 로드되자마자 신고한다).
+  initWsFanout();
+
   // broadcast sink — server 코어의 push 단일 창구를 모든 renderer 로 IPC 전송.
   // runServer 이전에 등록해야 부팅 중 push 가 유실되지 않는다.
   setBroadcastSink((msg) => {
-    // §9 v3.40 — 창이 2개 이상(별창/오버레이)이면 1회만 JSON 직렬화해 문자열로 팬아웃.
-    // webContents.send 는 호출 시점에 메인 스레드에서 동기 구조화 클론을 수행하므로,
-    // 대형 graph_snapshot 객체를 창 수만큼 깊은 클론하면 전수조사급 부하에서 입력 스레드가
-    // 막힌다. 문자열 클론은 사실상 memcpy. 단일 창이면 객체 그대로(renderer 가 파싱 생략).
-    // useWebSocket 은 문자열·객체 양쪽을 수용한다.
-    const wins = BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed());
-    const wire: unknown = wins.length >= 2 ? JSON.stringify(msg) : msg;
-    for (const win of wins) {
-      if (!win.isDestroyed()) win.webContents.send('vibisual:ws', wire);
-    }
+    // §9 — 창 수와 무관하게 **1회만** 인코딩해(JSON + UTF-8 바이트) 창마다 postMessage 로 민다.
+    // webContents.send 는 호출 시점에 메인 스레드에서 동기 구조화 클론을 수행하므로, 400KB 급
+    // graph_snapshot 객체를 그대로 실으면 그 깊은 순회가 곧 입력 지연이 된다. 종전엔 창이 2개
+    // 이상일 때만 문자열로 접었는데, **사용자 대부분인 단일 창**이 여전히 깊은 클론을 타고 있었다.
+    // 평평한 바이트의 클론은 깊은 순회가 아니라 memcpy 다. 판정·폴백·detach 방지는 전부
+    // snapshotWire.ts 에 있다(그래야 실기 없이 검증된다). 받는 쪽 preload 가 TextDecoder 로
+    // 문자열을 되돌려 주므로 renderer 계약은 종전 그대로다.
+    const json = broadcastToWindows(msg);
     // §4 v3.16 — 모바일 웹 접속 모드가 켜져 있으면 LAN WebSocket 클라이언트에도 팬아웃.
     // 위에서 이미 직렬화했으면 그 문자열을 재사용(스냅샷 재직렬화 방지).
-    mobileBroadcast(msg, typeof wire === 'string' ? wire : undefined);
+    mobileBroadcast(msg, json ?? undefined);
     // §4 메신저 브리지 — 페어링된 대화가 하나도 없으면 즉시 반환하므로 꺼져 있을 때 비용 0.
     //   하행은 이 한 줄이 전부다(새 브로드캐스트 레일 ❌).
     chatBroadcast(msg);

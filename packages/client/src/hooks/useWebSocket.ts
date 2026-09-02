@@ -1,7 +1,10 @@
-import { useEffect, useRef, useCallback, useState } from 'react';
-import type { WSMessage, GraphSnapshot, GraphSnapshotWire, SubAgentStreamEvent, ProjectHydratedPayload, ProjectUnloadedPayload, IframeLogInitPayload, IframeLogAppendPayload, ServerLogInitPayload, ServerLogAppendPayload, PermissionRequest, PermissionDecision, ClaudeInstallProgress, ClaudeSetupProgress, AskUserQuestionRequest, AskUserQuestionDecision, DebugEventPayload, HookFiredPayload } from '@vibisual/shared';
-import { applyKeyedSliceDelta, MAX_RECONNECT_ATTEMPTS, RECONNECT_BASE_DELAY, WS_BATCH_INTERVAL, WS_STREAM_BATCH_INTERVAL, WS_BATCH_INTERVAL_MAX, WS_BATCH_BACKOFF_FACTOR } from '@vibisual/shared';
-import { useGraphStore } from '../stores/graphStore.js';
+import { useEffect, useRef, useCallback, useMemo, useState } from 'react';
+import type { WSMessage, GraphSnapshot, GraphSnapshotWire, SubAgentStreamEvent, ProjectHydratedPayload, ProjectUnloadedPayload, IframeLogInitPayload, IframeLogAppendPayload, ServerLogInitPayload, ServerLogAppendPayload, PermissionRequest, PermissionDecision, ClaudeInstallProgress, ClaudeSetupProgress, AskUserQuestionRequest, AskUserQuestionDecision, DebugEventPayload, HookFiredPayload, KeyedSliceDelta, DeltaSliceKey } from '@vibisual/shared';
+import { applyKeyedSliceDelta, DELTA_SLICE_KEYS, MAX_RECONNECT_ATTEMPTS, RECONNECT_BASE_DELAY, WS_BATCH_INTERVAL, WS_STREAM_BATCH_INTERVAL, WS_BATCH_INTERVAL_MAX, WS_BATCH_BACKOFF_FACTOR } from '@vibisual/shared';
+// §9 슬라이스 스코프 — 규칙 전문은 `shared/src/sliceScope.ts` 머리말이 단독 소유한다.
+import { carryForwardScopedSlices, type SliceScopeGroup } from '@vibisual/shared';
+import { useGraphStore, selectRenderedIDEPaneKeys } from '../stores/graphStore.js';
+import { useActivePluginModules } from '../plugins/host.js';
 import { batchStoreNotify } from '../stores/batchedNotify.js';
 import { structuralShare } from '../stores/structuralShare.js';
 // §5.5 #17-20 ⑩ v4.94 — 디버그 세션은 프로세스 수명이라 그래프 스토어가 아닌 런타임 스토어가 받는다.
@@ -58,6 +61,25 @@ function isWSMessage(data: unknown): data is WSMessage {
 const EMPTY_RECORD: Record<string, never> = {};
 const EMPTY_LIST: never[] = [];
 
+/**
+ * §9 슬라이스 스코프 — **이 창이 메인 캔버스 창인가.**
+ *
+ * `main.tsx` 의 창 라우팅은 전부 `location.hash` 로 갈린다(별창 `#detached=…` · 버블 오버레이
+ * `#overlay=…` · 우클릭 메뉴 `#overlaymenu=…` · 지휘통제실 `#command=…` · 내부 앱 `#app=…`).
+ * 해시가 비어 있는 창이 곧 메인 캔버스 창(`App`)이다.
+ *
+ * **왜 메인 창만 선언하나**: 슬라이스 선언은 "이 창이 무엇을 읽는가"인데, 그 판정을 창 종류마다
+ * 확증하지 못했다. 예를 들어 지휘통제실(`CommandCenterBoard`)은 IDE 레인 없이도 `agentReports`·
+ * `agentReviews`·`agentQuestions` 를 읽는다 — 그 창이 "안 읽는다"고 잘못 선언하면 보드가 빈다.
+ * 확증 못 한 창은 **선언 자체를 안 한다**. 미선언 창이 하나라도 있으면 합집합이 통째로 전량이
+ * 되므로(§9 안전 기본값), 보조 창이 떠 있는 동안에는 이 축이 아무것도 좁히지 않을 뿐 **틀린
+ * 값이 가지는 않는다.** 창별 판정을 넓히는 것은 그 창 파일들과 함께 해야 할 다음 작업이다.
+ */
+function isMainCanvasWindow(): boolean {
+  if (typeof window === 'undefined') return false; // 판정 불가 → 선언하지 않는다(= 전량)
+  return window.location.hash.replace(/^#/, '').length === 0;
+}
+
 function isGraphSnapshot(data: unknown): data is GraphSnapshotWire {
   return (
     typeof data === 'object' &&
@@ -102,10 +124,7 @@ export function useWebSocket(url: string): UseWebSocketReturn {
    * 버린다. 증분은 누적이라 버려진 메시지의 변경분은 영영 사라진다. 그래서 합성은 flush 가 아니라
    * **메시지가 도착할 때마다** 한다(비용은 얕은 복사 1회).
    */
-  const keyedShadowRef = useRef<{
-    fileEdits: NonNullable<GraphSnapshotWire['fileEdits']>;
-    bashHistory: NonNullable<GraphSnapshotWire['bashHistory']>;
-  }>({ fileEdits: {}, bashHistory: {} });
+  const keyedShadowRef = useRef<Partial<Record<DeltaSliceKey, Record<string, unknown>>>>({});
 
   /**
    * §9 — **직전에 반영한 스냅샷**(구조적 공유의 비교 상대).
@@ -124,17 +143,41 @@ export function useWebSocket(url: string): UseWebSocketReturn {
   /** 전선에서 온 스냅샷 → 증분을 푼 뒤 직전 스냅샷과 구조적 공유를 태운 것(이후 경로는 종전과 동일). */
   const materializeSnapshot = useCallback((wire: GraphSnapshotWire): GraphSnapshotWire => {
     const shadow = keyedShadowRef.current;
-    shadow.fileEdits = wire.deltas?.fileEdits
-      ? applyKeyedSliceDelta(shadow.fileEdits, wire.deltas.fileEdits)
-      : (wire.fileEdits ?? {});
-    shadow.bashHistory = wire.deltas?.bashHistory
-      ? applyKeyedSliceDelta(shadow.bashHistory, wire.deltas.bashHistory)
-      : (wire.bashHistory ?? {});
+    const deltaRec = wire.deltas as unknown as Record<string, KeyedSliceDelta<unknown> | undefined> | undefined;
     let full = wire;
-    if (wire.deltas) {
-      full = { ...wire, fileEdits: shadow.fileEdits, bashHistory: shadow.bashHistory };
-      delete full.deltas;
+    if (wire.deltas) full = { ...wire };
+    const fullRec = full as unknown as Record<string, unknown>;
+    const wireRec = wire as unknown as Record<string, Record<string, unknown> | undefined>;
+
+    // 슬라이스 목록은 서버와 **한 벌**(`DELTA_SLICE_KEYS`) — 한쪽만 늘면 조용히 어긋난다.
+    for (const key of DELTA_SLICE_KEYS) {
+      const delta = deltaRec?.[key];
+      if (delta) {
+        // 증분이 왔다 — 직전 그림자 위에 얹어 종전과 똑같은 전체 맵으로 되돌린다.
+        const merged = applyKeyedSliceDelta(shadow[key] ?? {}, delta);
+        shadow[key] = merged;
+        fullRec[key] = merged;
+        continue;
+      }
+      // 전량이 왔다(또는 그 슬라이스가 아직 없다) — 다음 증분의 기준점만 갱신하고
+      // `full` 은 건드리지 않는다. 없는 필드를 `{}` 로 채우면 그 기능을 안 쓰는 사람에게
+      // 매번 새 빈 객체가 가서 §9 ③(`?? {}` 는 고정 참조)이 깨진다.
+      shadow[key] = wireRec[key] ?? {};
     }
+    if (wire.deltas) delete full.deltas;
+    // §9 슬라이스 스코프 — **범위 밖이라 안 온 슬라이스는 직전 값을 그대로 이어받는다.**
+    //
+    // ⚠ 이게 없으면 아래 `applyGraphSnapshot` 의 `snap.bashHistory ?? {}` 부류가 걸려 **사용자
+    //   눈에는 데이터가 날아간 것으로 보인다**(§9 ⑥ — 범위 밖은 "비어 있는 것"이 아니라 "아직
+    //   안 온 것"이다). 직전 값을 **같은 참조로** 넣으므로 바로 아래 `structuralShare` 도 그대로
+    //   통과해 리렌더가 나지 않는다.
+    //
+    // ⚠ `keyedShadowRef` 로는 부족하다 — 그쪽은 `DELTA_SLICE_KEYS` 만 덮고, 델타를 안 타는
+    //   슬라이스(`verificationRuns` 등)는 거기 없다. 그래서 기준은 **직전 전체 스냅샷**이다.
+    //
+    // 서버가 `scopedSlices` 를 안 실었으면(범위 미적용 · 구버전 서버) 아무것도 하지 않는다 —
+    // 그때 없는 슬라이스는 진짜로 없는 것이라, 이어받으면 지워진 값이 되살아난다.
+    full = carryForwardScopedSlices(lastWireRef.current, full, wire.scopedSlices);
     // 서버 권위 순수 JSON 이므로 구조적 공유의 전제(structuralShare.ts 주석)를 그대로 만족한다.
     const shared = structuralShare(lastWireRef.current, full);
     lastWireRef.current = shared;
@@ -678,6 +721,37 @@ export function useWebSocket(url: string): UseWebSocketReturn {
   const navStack = useGraphStore((s) => s.navStack);
   const currentFolderId = useGraphStore((s) => s.currentFolderId);
 
+  // §9 슬라이스 스코프 — 이 창이 **지금 읽고 있는 슬라이스 묶음**. 서버는 모든 창 선언의 합집합에
+  //   든 슬라이스만 싣는다(창별로 가르면 전선 증분의 기준점이 어긋난다 — `sliceScope.ts` 함정 ①).
+  //
+  //   판정 기준은 **코드로 확인한 독자**뿐이다. 그룹 정의와 근거는 `sliceScope.ts` 가 소유하고,
+  //   여기서는 "그 화면이 지금 켜져 있는가"만 본다.
+  //
+  //   ⚠ 구독은 **불리언 하나**로 잡는다. `selectRenderedIDEPaneKeys(s)` 는 호출마다 새 배열이라
+  //   그대로 구독하면 zustand v5 가 "캐시되지 않은 스냅샷"으로 보고 무한 리렌더로 간다
+  //   (`IDEPaneHost` 가 배운 것과 같은 규약).
+  const ideLaneOpen = useGraphStore((s) => selectRenderedIDEPaneKeys(s).length > 0);
+  //   플러그인은 IDE 레인과 **독립**이다 — `usePluginData` 의 슬롯이 캔버스 버블 배지와
+  //   DetailPanel 섹션에 들어가므로, IDE 를 닫아도 켠 플러그인이 이 둘을 읽을 수 있다.
+  const activePluginModules = useActivePluginModules();
+  const pluginReadsAgentData = useMemo(() => {
+    for (const m of activePluginModules) {
+      for (const need of m.needs ?? []) {
+        if (need === 'agentReports' || need === 'agentReviews') return true;
+      }
+    }
+    return false;
+  }, [activePluginModules]);
+  const sliceGroupsKey = useMemo(() => {
+    // 보조 창(별창·오버레이·지휘통제실·내부 앱)은 **선언하지 않는다** — `isMainCanvasWindow` 주석 참조.
+    if (!isMainCanvasWindow()) return null;
+    const groups: SliceScopeGroup[] = [];
+    if (ideLaneOpen) groups.push('ideLane');
+    if (pluginReadsAgentData) groups.push('pluginAgentData');
+    // 정렬해 둔다 — 선언 문자열이 순서 때문에 달라져 같은 상태를 두 번 보내지 않게.
+    return groups.sort().join(',');
+  }, [ideLaneOpen, pluginReadsAgentData]);
+
   // 연결 상태를 스토어에도 실어 둔다 — 헤더 인디케이터만 알고 있으면 캔버스가 "끊겨서 비어 있는
   // 것"을 "불러오는 중"이라고 잘못 말한다. 값 하나를 두 화면이 같이 본다(설정은 여기 한 곳).
   useEffect(() => {
@@ -694,15 +768,21 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     // 폴더 축은 프로젝트 축과 **한 선언에 함께** 실린다 — 드릴다운이 두 번 왕복하지 않게.
     // 폴더 밖(메인 뷰)이면 빈 배열이고, 그것도 유효한 선언이다("나는 지금 폴더 밖이다").
     const folders = currentFolderId ? [...navStack, currentFolderId] : [...navStack];
-    const declared = JSON.stringify([activeProject, folders]);
+    // §9 슬라이스 축도 **같은 선언에 함께** 실린다(한 메시지 = 한 왕복). `null` 이면 이 창이
+    //   슬라이스 축을 말할 수 없다는 뜻이라 필드 자체를 빼고 보낸다 — 그러면 서버가 전량으로
+    //   되돌아간다(빈 배열 `[]` 은 "아무것도 안 읽는다"는 다른 뜻이므로 여기서 섞으면 안 된다).
+    const slices = sliceGroupsKey === null
+      ? undefined
+      : sliceGroupsKey === '' ? [] : sliceGroupsKey.split(',');
+    const declared = JSON.stringify([activeProject, folders, sliceGroupsKey]);
     if (declaredScopeRef.current === declared) return;
     declaredScopeRef.current = declared;
     send({
       type: 'set-project-scope',
       timestamp: Date.now(),
-      payload: { projects: [activeProject], folders },
+      payload: { projects: [activeProject], folders, ...(slices ? { slices } : {}) },
     });
-  }, [status, activeProject, navStack, currentFolderId, send]);
+  }, [status, activeProject, navStack, currentFolderId, sliceGroupsKey, send]);
 
   return { status, send, reconnect, getLastSnapshotAt };
 }
