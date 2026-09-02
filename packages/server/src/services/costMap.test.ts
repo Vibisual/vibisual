@@ -235,3 +235,125 @@ describe('CostMapService — 캡·영속', () => {
     expect(svc.getSnapshot()).toEqual([]);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────
+// §5.21 — "추정" 축. `measured` 와 **직교한다**: 저쪽은 "턴을 못 읽었다", 이쪽은 "턴은 읽었는데
+// 그 모델의 단가를 모른다". 새 모델이 나온 직후가 정확히 이 상태이며, 표를 손으로 갱신하기
+// 전까지 화면은 금액 옆에 표식을 달아 자릿수를 장담하지 않는다.
+// ─────────────────────────────────────────────────────────────────────
+
+describe('CostMapService — 추정 표식', () => {
+  it('아는 모델만 쓴 세션에는 깃발이 붙지 않는다', () => {
+    const svc = new CostMapService();
+    svc.sweep([session()], reader({ 'sess-1': [turn({ model: 'claude-opus-5' })] }), REGISTRY);
+
+    const map = svc.getSnapshot()[0]!;
+    expect(map.sessions[0]!.estimated).toBeUndefined();
+    expect(map.periods.all.estimated).toBeUndefined();
+    expect(map.unseededModels).toBeUndefined();
+  });
+
+  it('모르는 모델이 섞이면 세션·에이전트·프로젝트 합이 모두 추정이 된다', () => {
+    const svc = new CostMapService();
+    svc.sweep(
+      [session()],
+      reader({ 'sess-1': [turn({ model: 'claude-opus-5' }), turn({ model: 'claude-fable-9' })] }),
+      REGISTRY,
+    );
+
+    const map = svc.getSnapshot()[0]!;
+    expect(map.sessions[0]!.estimated).toBe(true);
+    expect(map.agents[0]!.estimated).toBe(true);
+    expect(map.periods.all.estimated).toBe(true);
+    expect(map.days[0]!.estimated).toBe(true);
+  });
+
+  it('미상 모델의 이름을 남긴다 — 무엇을 채워야 하는지까지 말한다', () => {
+    const svc = new CostMapService();
+    svc.sweep([session()], reader({ 'sess-1': [turn({ model: 'claude-fable-9' })] }), REGISTRY);
+
+    const map = svc.getSnapshot()[0]!;
+    expect(map.sessions[0]!.unseededModels).toEqual(['claude-fable-9']);
+    expect(map.unseededModels).toEqual(['claude-fable-9']);
+  });
+
+  it('0토큰 턴은 추정으로 세지 않는다 — <synthetic> 이 세션을 물들이면 표식이 늑대소년이 된다', () => {
+    const svc = new CostMapService();
+    const synthetic = turn({
+      model: '<synthetic>',
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheCreateTokens: 0,
+    });
+    svc.sweep(
+      [session()],
+      reader({ 'sess-1': [turn({ model: 'claude-opus-5' }), synthetic] }),
+      REGISTRY,
+    );
+
+    const map = svc.getSnapshot()[0]!;
+    expect(map.sessions[0]!.estimated).toBeUndefined();
+    expect(map.sessions[0]!.unseededModels).toBeUndefined();
+  });
+
+  it('날짜형 ID 는 시드로 접히므로 추정이 아니다 (실제 대화록에 있는 형태)', () => {
+    const svc = new CostMapService();
+    svc.sweep([session()], reader({ 'sess-1': [turn({ model: 'claude-haiku-4-5-20251001' })] }), REGISTRY);
+
+    expect(svc.getSnapshot()[0]!.sessions[0]!.estimated).toBeUndefined();
+  });
+
+  it('증분 스윕에서도 추정 깃발과 미상 목록이 이어진다', () => {
+    const svc = new CostMapService();
+    const first = [turn({ model: 'claude-fable-9' })];
+    svc.sweep([session()], reader({ 'sess-1': first }), REGISTRY);
+    // 두 번째 스윕은 **뒤에 붙은 턴만** 읽는다 — 앞 턴을 다시 안 보므로 깃발이 살아 있어야 한다.
+    svc.sweep([session()], reader({ 'sess-1': [...first, turn({ model: 'claude-opus-5' })] }), REGISTRY);
+
+    const entry = svc.getSnapshot()[0]!.sessions[0]!;
+    expect(entry.turns).toBe(2);
+    expect(entry.estimated).toBe(true);
+    expect(entry.unseededModels).toEqual(['claude-fable-9']);
+  });
+
+  it('체크포인트 왕복에서 살아남는다 — 껐다 켜면 표식이 사라지면 안 된다', () => {
+    const svc = new CostMapService();
+    svc.sweep([session()], reader({ 'sess-1': [turn({ model: 'claude-fable-9' })] }), REGISTRY);
+    const saved = svc.toCheckpoint('proj')!;
+
+    const restored = new CostMapService();
+    restored.restore(saved);
+    const map = restored.getSnapshot()[0]!;
+    expect(map.sessions[0]!.estimated).toBe(true);
+    expect(map.unseededModels).toEqual(['claude-fable-9']);
+
+    const mergedSvc = new CostMapService();
+    mergedSvc.merge(saved);
+    expect(mergedSvc.getSnapshot()[0]!.sessions[0]!.estimated).toBe(true);
+  });
+
+  it('표가 갱신되면 미상 목록에서 그 이름이 빠진다 — 이미 고친 것을 계속 부르지 않는다', () => {
+    const svc = new CostMapService();
+    svc.sweep([session()], reader({ 'sess-1': [turn({ model: 'claude-fable-9' })] }), REGISTRY);
+    expect(svc.getSnapshot()[0]!.unseededModels).toEqual(['claude-fable-9']);
+
+    // 그 모델이 이제 레지스트리에 단가를 갖고 들어왔다(= 표를 채운 것과 같은 상태).
+    const filled: ModelRegistry = {
+      entries: [{
+        id: 'claude-fable-9',
+        family: 'fable',
+        pricing: { input: 7, output: 35, cacheRead: 0.7, cacheWrite: 8.75 },
+        source: 'api',
+      }],
+      updatedAt: 0,
+      sourceMix: 'api-merged',
+    };
+    svc.sweep([session()], reader({ 'sess-1': [turn({ model: 'claude-fable-9' }), turn()] }), filled);
+
+    const map = svc.getSnapshot()[0]!;
+    expect(map.unseededModels).toBeUndefined();
+    // 금액 자체는 여전히 추정이다 — 그 돈은 실제로 폴백 단가로 계산됐고, 되돌려 뺄 방법이 없다.
+    expect(map.sessions[0]!.estimated).toBe(true);
+  });
+});

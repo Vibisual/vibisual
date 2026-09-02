@@ -31,6 +31,8 @@ import {
   PERMISSION_MODES_WITHOUT_PROMPT,
   AVAILABLE_SETTING_SOURCES,
   AVAILABLE_AUTOCOMPACT_VALUES,
+  AUTOCOMPACT_OFF,
+  isAutoCompactOn,
   turnCompactTriggerTokens,
   TURN_COMPACT_TRIGGER_RATIO,
   resolveAutoCompact,
@@ -46,6 +48,7 @@ import {
 import { HexColorPicker } from 'react-colorful';
 import { ScrollFade } from '../ScrollFade.js';
 import { applyLocalProviderDraft } from './localProviderPayload.js';
+import { AutoCompactConfirm, type AutoCompactConfirmKind } from './AutoCompactConfirm.js';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { useBackdropDismiss, useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 
@@ -57,8 +60,12 @@ const API_BASE = '';
 interface SelectOption { value: string; description: string; disabled?: boolean; label?: string }
 
 // §4 v2.77 — Model 드롭다운은 더 이상 3종 하드코딩이 아니라 레지스트리 기반 동적 목록(`listModelFamilies`).
-//   기본 alias(폴백) 만 상수로 둔다.
-const KNOWN_MODEL_FAMILIES = ['opus', 'sonnet', 'haiku'] as const;
+//   여기 적는 것은 **전용 설명문(i18n `panel.agentConfig.model.<패밀리>`)을 가진 패밀리**이고,
+//   그 밖은 `model.unknown` 폴백 문구로 그려진다.
+// (판올림 번호 발급 대기) — `fable` 추가. 시드에 버젓이 있는 출시 모델인데 이 목록에 없어서
+//   "newly released model. Capabilities and cost inferred from family defaults" 로 설명됐는데,
+//   그때 fable 은 패밀리 디폴트 자체가 없어 폴백값으로 떨어지고 있었으므로 문장까지 사실과 달랐다.
+const KNOWN_MODEL_FAMILIES = ['opus', 'sonnet', 'haiku', 'fable'] as const;
 // §4 (CLI 사양 추종) — 권한 모드는 설치된 CLI 내부 enum 과 같은 6종. 하드코딩 사본을 두지 않고
 //   shared 상수를 그대로 쓴다(CLI 가 값을 늘리면 여기 한 줄이 아니라 shared 한 곳만 고친다).
 const PERMISSION_VALUES = AVAILABLE_PERMISSION_MODES;
@@ -502,12 +509,17 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
   //   종전처럼 CLI 판단에 맡기려면 `'auto'` 를 고른다.
   const AUTOCOMPACT_OPTIONS: SelectOption[] = useMemo(() => AVAILABLE_AUTOCOMPACT_VALUES.map((v) => ({
     value: v,
-    label: v === '' ? t('panel.agentConfig.autoCompact.unsetLabel') : v === 'auto' ? 'auto' : `${Number(v) / 1000}k`,
+    label: v === ''
+      ? t('panel.agentConfig.autoCompact.unsetLabel')
+      : v === AUTOCOMPACT_OFF ? t('panel.agentConfig.autoCompact.offLabel')
+        : v === 'auto' ? 'auto' : `${Number(v) / 1000}k`,
     description: v === ''
       ? t('panel.agentConfig.autoCompact.unset')
-      : v === 'auto'
-        ? t('panel.agentConfig.autoCompact.auto')
-        : t('panel.agentConfig.autoCompact.tokens', { tokens: `${Number(v) / 1000}k` }),
+      : v === AUTOCOMPACT_OFF
+        ? t('panel.agentConfig.autoCompact.off')
+        : v === 'auto'
+          ? t('panel.agentConfig.autoCompact.auto')
+          : t('panel.agentConfig.autoCompact.tokens', { tokens: `${Number(v) / 1000}k` }),
   })), [t]);
   // §5.3 v4.89 — 자기 기억 범위. 'default' 는 저장하지 않는 값(= 레포 공용 기억)이라 목록 맨 앞에 둔다.
   const MEMORY_OPTIONS: SelectOption[] = useMemo(() => (
@@ -932,6 +944,36 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
     () => turnCompactTriggerTokens(resolveAutoCompact(autoCompact, userDefaults?.agentConfig?.autoCompact)),
     [autoCompact, userDefaults],
   );
+  // §4 — 지금 켜져 있는가. 꺼짐도 `turnCompactTriggerTokens` 는 null 이라(선이 없다) 화면에서
+  //   `'auto'`(창을 아직 모름)와 뒤섞이지 않도록 이 술어로 먼저 가른다.
+  const autoCompactOn = isAutoCompactOn(resolveAutoCompact(autoCompact, userDefaults?.agentConfig?.autoCompact));
+  // §4 (CLI 사양 추종) — 켜는 방향에만 세우는 비용 확인 관문(2026-09-02 사용자 지시).
+  //   설정 창과 **같은 컴포넌트**를 쓴다 — 두 벌로 두면 한쪽만 고쳐져 문구가 어긋난다.
+  const [compactConfirm, setCompactConfirm] = useState<{ kind: AutoCompactConfirmKind; value: string } | null>(null);
+
+  const requestAutoCompact = (next: string): void => {
+    // 미설정(`''`)으로 옮기는 것도 전역이 켜져 있으면 "켜는 행위"다 — 3층 해소 뒤로 판정한다.
+    if (!autoCompactOn && isAutoCompactOn(resolveAutoCompact(next, userDefaults?.agentConfig?.autoCompact))) {
+      setCompactConfirm({ kind: 'window', value: next });
+      return;
+    }
+    setAutoCompact(next);
+  };
+
+  const requestAgentCanCompact = (next: boolean): void => {
+    if (next && !agentCanCompact) {
+      setCompactConfirm({ kind: 'agentSelf', value: '' });
+      return;
+    }
+    setAgentCanCompact(next);
+  };
+
+  const confirmCompact = (): void => {
+    if (!compactConfirm) return;
+    if (compactConfirm.kind === 'agentSelf') setAgentCanCompact(true);
+    else setAutoCompact(compactConfirm.value);
+    setCompactConfirm(null);
+  };
   // 이 창이 **지금 그리지 않는** 축은 세지 않는다 — 화면의 점이 3개인데 머리의 숫자가 5 면
   //   그 숫자는 설명이 아니라 수수께끼가 된다.
   const hiddenDiffFields = useMemo(() => {
@@ -1555,7 +1597,9 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
             {!isLocal && (
             <div className="flex flex-col gap-1.5">
               <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.tools.label')}<InfoTip text={FIELD_TIPS.tools} />{diffDot('tools')}</label>
-              <div className="flex flex-wrap gap-1.5">
+              {/* 기본값이 도구 45종이라 칩이 아홉 줄까지 늘어나, 이 창에서 아래 칸(권한·스킬)이
+                  스크롤 저 밑으로 밀렸다. 네 줄쯤에서 멈추고 그 뒤는 안에서 스크롤한다. */}
+              <ScrollFade maxHeight={124}><div className="flex flex-wrap gap-1.5">
                 {tools.map((tool) => {
                   const stripped = strictStripSet.has(tool);
                   if (!stripped) {
@@ -1586,7 +1630,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                     </HoverTip>
                   );
                 })}
-              </div>
+              </div></ScrollFade>
               <div className="relative">
                 <button ref={toolPicker.btnRef} type="button" onClick={toolPicker.toggle} disabled={availableToAdd.length === 0} className="rounded border border-dashed border-gray-600 px-2.5 py-1 text-xs text-gray-500 hover:border-blue-500 hover:text-blue-400 disabled:opacity-30">{t('panel.agentConfig.tools.addTool')}</button>
                 {toolPicker.open && createPortal(
@@ -1614,7 +1658,8 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                   defaultValue: 'CLI --disallowedTools 로 강제 차단. Tools(allow) 에 포함되어 있어도 우선됩니다. 모든 도구를 사용자 책임으로 두되, 특정 도구만 한 번에 금지하고 싶을 때 사용.',
                 })} />
               </label>
-              <div className="flex flex-wrap gap-1.5">
+              {/* 금지 목록도 45종까지 갈 수 있다 — 허용 칩과 같은 상한을 준다. */}
+              <ScrollFade maxHeight={124}><div className="flex flex-wrap gap-1.5">
                 {disallowedTools.map((tool) => {
                   const desc = t(`panel.agentConfig.tools.${tool}`, { defaultValue: '' });
                   const chip = (
@@ -1630,7 +1675,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                   );
                   return desc ? <HoverTip key={tool} text={desc} className="inline-flex">{chip}</HoverTip> : chip;
                 })}
-              </div>
+              </div></ScrollFade>
               <div className="relative">
                 <button
                   ref={denyPicker.btnRef}
@@ -1760,22 +1805,24 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                     {t('panel.agentConfig.autoCompact.label')}{diffDot('autoCompact')}
                     <InfoTip text={t('panel.agentConfig.autoCompact.tip', { percent: compactFoldsAtPercent })} />
                   </label>
-                  <CustomSelect value={autoCompact} onChange={setAutoCompact} options={AUTOCOMPACT_OPTIONS} />
+                  <CustomSelect value={autoCompact} onChange={requestAutoCompact} options={AUTOCOMPACT_OPTIONS} />
                   {/* §4 (CLI 사양 추종) — **이 숫자 하나가 전부다.** 옆에 있던 "턴이 끝나면 압축"
                       체크박스는 같은 일을 해 헷갈리기만 했고(그리고 같은 숫자를 쓰는 한 CLI 가 늘 먼저
                       접어 뜨지도 못했다) 이 값 안으로 합쳤다. 실제로 접히는 토큰 수는 고른 값과 다르므로
-                      숨기지 않고 여기서 직접 말한다. */}
-                  <span className="text-[12px] leading-snug text-gray-400">
-                    {compactFoldsAtTokens === null
-                      ? t('panel.agentConfig.autoCompact.foldsAtAuto', { percent: compactFoldsAtPercent })
-                      : t('panel.agentConfig.autoCompact.foldsAt', { tokens: `${Math.round(compactFoldsAtTokens / 1000)}k` })}
+                      숨기지 않고 여기서 직접 말한다. 꺼져 있으면 "접지 않는다"고 그대로 말한다. */}
+                  <span className={`text-[12px] leading-snug ${autoCompactOn ? 'text-gray-400' : 'text-gray-500'}`}>
+                    {!autoCompactOn
+                      ? t('panel.agentConfig.autoCompact.foldsAtOff')
+                      : compactFoldsAtTokens === null
+                        ? t('panel.agentConfig.autoCompact.foldsAtAuto', { percent: compactFoldsAtPercent })
+                        : t('panel.agentConfig.autoCompact.foldsAt', { tokens: `${Math.round(compactFoldsAtTokens / 1000)}k` })}
                   </span>
                   {/* §4 (CLI 사양 추종) — 이 축만 직교로 남는다: 숫자로 못 잡는 자리를 에이전트가 부른다. */}
                   <label className="mt-2 flex items-start gap-2 text-[12px] text-gray-400">
                     <input
                       type="checkbox"
                       checked={agentCanCompact}
-                      onChange={(e) => setAgentCanCompact(e.target.checked)}
+                      onChange={(e) => requestAgentCanCompact(e.target.checked)}
                       className="mt-0.5 h-3.5 w-3.5 accent-blue-500"
                     />
                     <span>
@@ -1912,6 +1959,10 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                 {agentDefinitions.length > 0 && !tools.includes('Task') && (
                   <span className="text-[12px] text-amber-500/80">{t('panel.agentConfig.agentDefinitions.needsTaskTool')}</span>
                 )}
+                {/* 정의 하나가 이름·설명·프롬프트 세 칸짜리 카드라, 서넛만 넣어도 이 창의 절반을
+                    먹는다. 두 장 남짓 높이에서 멈추고 그 안에서 스크롤한다. */}
+                {agentDefinitions.length > 0 && (
+                <ScrollFade maxHeight={280}><div className="flex flex-col gap-1.5">
                 {agentDefinitions.map((def, i) => (
                   <div key={i} className="flex flex-col gap-1 rounded border border-gray-700/70 bg-gray-800/40 p-2">
                     <div className="flex items-center gap-1.5">
@@ -1950,6 +2001,8 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                     />
                   </div>
                 ))}
+                </div></ScrollFade>
+                )}
                 <button
                   type="button"
                   onClick={() => setAgentDefinitions([...agentDefinitions, { name: '', description: '', prompt: '' }])}
@@ -2027,7 +2080,8 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
             {!isLocal && (
             <div className="flex flex-col gap-1.5">
               <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.defaultSkills')}<InfoTip text={FIELD_TIPS.skills} />{diffDot('skills')}</label>
-              <div className="flex flex-wrap gap-1.5">
+              {/* 스킬은 플러그인이 딸려 오면서 늘어난다 — 고른 만큼 세 줄까지만 펼치고 그 뒤는 스크롤. */}
+              <ScrollFade maxHeight={96}><div className="flex flex-wrap gap-1.5">
                 {skills.map((s) => {
                   const info = availableSkills.find((a) => a.name === s);
                   const chipTone = info?.source === 'project'
@@ -2048,7 +2102,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                   );
                   return info?.description ? <HoverTip key={s} text={info.description} className="inline-flex">{chip}</HoverTip> : chip;
                 })}
-              </div>
+              </div></ScrollFade>
               <div className="relative">
                 <button ref={skillPicker.btnRef} type="button" onClick={skillPicker.toggle} disabled={availableSkills.filter((s) => !skills.includes(s.name)).length === 0} className="rounded border border-dashed border-gray-600 px-2.5 py-1 text-xs text-gray-500 hover:border-emerald-500 hover:text-emerald-400 disabled:opacity-30">{t('panel.agentConfig.addSkill')}</button>
                 {skillPicker.open && createPortal(
@@ -2262,6 +2316,18 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
             </div>
           </div>
         </div>
+      )}
+
+      {/* §4 (CLI 사양 추종) — 압축을 켜기 전 비용 확인. 취소하면 값이 앉지 않아 꺼진 채로 남는다. */}
+      {compactConfirm && (
+        <AutoCompactConfirm
+          kind={compactConfirm.kind}
+          pendingLabel={compactConfirm.value === 'auto'
+            ? 'auto'
+            : compactConfirm.value ? `${Number(compactConfirm.value) / 1000}k` : ''}
+          onCancel={() => setCompactConfirm(null)}
+          onConfirm={confirmCompact}
+        />
       )}
     </div>,
     document.body,

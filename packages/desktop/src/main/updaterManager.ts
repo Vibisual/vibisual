@@ -1,3 +1,4 @@
+import { promises as fs } from 'node:fs';
 import { app, BrowserWindow } from 'electron';
 import pkg from 'electron-updater';
 import {
@@ -5,7 +6,9 @@ import {
   resolveUpdateDelivery,
   releasesPageUrl,
   toProcessArch,
+  reduceUpdateState,
   type UpdateDelivery,
+  type UpdateEvent,
   type UpdateState,
 } from '@vibisual/shared';
 import { recordDiagnostic } from '@vibisual/server';
@@ -67,8 +70,19 @@ function broadcast(): void {
   }
 }
 
-function patchState(patch: Partial<UpdateState>): void {
-  state = { ...state, ...patch };
+/**
+ * 업데이터 신호를 **규칙 한 곳**(`reduceUpdateState`)에 통과시켜 상태로 바꾼다.
+ *
+ * ⚠️ 상태를 바꾸는 길은 이것 하나다. 종전의 `patchState({ phase: … })` 처럼 임의 패치를
+ * 허용하면 규칙이 다시 호출부로 흩어지고, 흩어진 규칙은 테스트가 못 붙든다.
+ *
+ * 이벤트마다 `phase` 를 직접 찍던 것을 여기로 모은 이유: 주기 체크가
+ * 이미 받아 둔 업데이트를 지우고 있었다. 오프라인에서 4시간짜리 체크가 실패하면
+ * `phase:'error'` 가 되어 `quitAndInstall` 이 거절했고, 디스크에 멀쩡히 있는 설치본을 다음
+ * 성공 체크까지 못 깔았다. 규칙을 순수 함수로 뽑으면 그 전이를 단위 테스트로 붙들 수 있다.
+ */
+function applyEvent(ev: UpdateEvent): void {
+  state = reduceUpdateState(state, ev);
   broadcast();
 }
 
@@ -103,48 +117,45 @@ async function beginSelfInstall(version: string): Promise<void> {
   try {
     const arch = toProcessArch(process.arch);
     if (!arch) {
-      patchState({
-        phase: 'error',
-        error: `unsupported architecture: ${process.arch}`,
+      applyEvent({
+        kind: 'error',
+        message: `unsupported architecture: ${process.arch}`,
         errorCode: 'arch-mismatch',
+        at: Date.now(),
       });
       return;
     }
 
-    patchState({ phase: 'downloading', percent: 0, newVersion: version });
+    applyEvent({ kind: 'download-started', version });
     const result = await prepareSelfInstall({
       version,
       arch,
       exePath: app.getPath('exe'),
       onProgress: (percent, bytesPerSecond) => {
-        patchState({ phase: 'downloading', percent, bytesPerSecond });
+        applyEvent({ kind: 'progress', percent, bytesPerSecond });
       },
     });
 
     if (!result.ok) {
       console.warn(`[updater] self-install prepare failed (${result.code}):`, result.message);
       recordDiagnostic('main', 'warn', `self-install ${result.code}: ${result.message}`);
-      patchState({
-        phase: 'error',
-        error: result.message,
-        errorCode: result.code,
-        percent: undefined,
-        bytesPerSecond: undefined,
-        checkedAt: Date.now(),
-      });
+      // ⚠️ 앞서 받아 둔 번들이 있으면 리듀서가 그 자리로 되돌린다 — 0.1.20 받기가 실패했다고
+      //    이미 꺼내 둔 0.1.19 를 못 깔게 되면 그건 실패 두 개다.
+      applyEvent({ kind: 'error', message: result.message, errorCode: result.code, at: Date.now() });
       return;
     }
 
+    // 앞 버전을 꺼내 둔 작업 폴더는 여기서 지운다. 안 지우면 새 버전이 올라올 때마다 tmp 에
+    // **통째로 꺼낸 .app 한 벌**(수백 MB)이 그대로 쌓인다 — 교체 스크립트는 자기 것만 지운다.
+    const superseded = staged;
     staged = result.staged;
+    if (superseded && superseded.workDir !== result.staged.workDir) {
+      void fs.rm(superseded.workDir, { recursive: true, force: true })
+        .then(() => console.log(`[updater] cleaned superseded staging ${superseded.version}`))
+        .catch(() => undefined);
+    }
     console.log(`[updater] self-install staged ${version} at ${staged.stagedAppPath}`);
-    patchState({
-      phase: 'downloaded',
-      newVersion: version,
-      percent: 100,
-      bytesPerSecond: undefined,
-      error: undefined,
-      errorCode: undefined,
-    });
+    applyEvent({ kind: 'downloaded', version });
   } finally {
     preparing = false;
   }
@@ -183,37 +194,37 @@ export function initAutoUpdater(): void {
   autoUpdater.autoInstallOnAppQuit = !selfInstall;
 
   autoUpdater.on('checking-for-update', () => {
-    patchState({ phase: 'checking', error: undefined });
+    applyEvent({ kind: 'checking' });
   });
   autoUpdater.on('update-available', (info) => {
-    patchState({
-      phase: 'available',
-      newVersion: info.version,
+    applyEvent({
+      kind: 'available',
+      version: info.version,
       releaseNotes: typeof info.releaseNotes === 'string' ? info.releaseNotes : undefined,
-      error: undefined,
-      errorCode: undefined,
     });
     // self-install 은 여기서부터 우리 경로다 — electron-updater 는 "새 버전이 있다"까지만 한다.
     if (selfInstall) void beginSelfInstall(info.version);
   });
   autoUpdater.on('update-not-available', () => {
-    patchState({ phase: 'up-to-date', newVersion: undefined, checkedAt: Date.now(), error: undefined });
+    applyEvent({ kind: 'not-available', at: Date.now() });
   });
   autoUpdater.on('download-progress', (p) => {
-    patchState({
-      phase: 'downloading',
+    applyEvent({
+      kind: 'progress',
       percent: Math.round(p.percent),
       bytesPerSecond: Math.round(p.bytesPerSecond),
     });
   });
   autoUpdater.on('update-downloaded', (info) => {
-    patchState({ phase: 'downloaded', newVersion: info.version, percent: 100, error: undefined });
+    applyEvent({ kind: 'downloaded', version: info.version });
   });
   autoUpdater.on('error', (err: unknown) => {
     const message = err instanceof Error ? err.message : String(err);
     console.warn('[updater] error:', message);
     recordDiagnostic('main', 'warn', `auto-update: ${message}`, err instanceof Error ? err.stack : undefined);
-    patchState({ phase: 'error', error: message, checkedAt: Date.now() });
+    // ⚠️ 받아 둔 것이 있으면 리듀서가 `downloaded` 로 되돌린다 — 오프라인 체크 한 번이
+    //    이미 받아 둔 설치본을 못 쓰게 만들던 자리다. 실패 자체는 위 진단 로그에 남는다.
+    applyEvent({ kind: 'error', message, at: Date.now() });
   });
 
   // 첫 체크는 윈도우가 뜬 직후(~10s)에 1회 — 부팅 직후 새 버전을 빨리 알린다.
@@ -236,7 +247,9 @@ export async function checkForUpdates(): Promise<UpdateState> {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.warn('[updater] checkForUpdates failed:', message);
-    patchState({ phase: 'error', error: message, checkedAt: Date.now() });
+    // 주기 체크가 오프라인에서 던지는 자리다 — 받아 둔 것이 있으면 리듀서가 지키고,
+    // 없을 때만 화면이 실패를 말한다.
+    applyEvent({ kind: 'error', message, at: Date.now() });
   }
   return state;
 }
@@ -330,8 +343,13 @@ export function quitAndInstall(): boolean {
     return true;
   }
 
-  if (state.phase !== 'downloaded') return false;
-  if (delivery === 'self-install' && !staged) return false;
+  // 설치의 근거는 **`readyVersion`** 이다 — "지금 누르면 깔리는 그 버전". `phase` 만 보면
+  // 주기 체크가 잠시 지나가는 사이에 눌린 클릭이 거절되고, 반대로 화면이 말한 버전과 실제로
+  // 깔리는 것이 어긋날 수 있다.
+  if (state.phase !== 'downloaded' || !state.readyVersion) return false;
+  // mac 은 우리가 꺼내 둔 번들을 바꾼다 — 화면이 약속한 버전과 **같은 것**일 때만 간다.
+  // (0.1.19 를 꺼내 둔 채 0.1.20 을 받다 실패하면 둘이 어긋날 수 있는 자리다.)
+  if (delivery === 'self-install' && staged?.version !== state.readyVersion) return false;
   installPending = true;
   // 평소 닫기와 **같은** 정리 경로를 탄다(체크포인트 flush·자식 회수). 설치기는 그 끝에서 뜬다.
   app.quit();

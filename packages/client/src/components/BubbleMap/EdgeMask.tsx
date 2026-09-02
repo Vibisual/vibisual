@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useNodes, useEdges } from '@xyflow/react';
 import type { BubbleData } from '@vibisual/shared';
 import { calcBubbleSize } from '../../utils/sizeCalc.js';
+import { useHeatScale } from '../../hooks/useHeatScale.js';
 
 /**
  * 엣지가 버블 영역을 지나갈 때 해당 부분만 투명하게 만드는 SVG 마스크.
@@ -36,6 +37,8 @@ interface MaskCircle {
 export function EdgeMask(): null {
   const nodes = useNodes();
   const edges = useEdges();
+  // §5.24 — 실측(`node.measured`)이 아직 없는 프레임의 폴백도 렌더와 **같은 자**를 써야 한다.
+  const heat = useHeatScale();
   const maskSvgRef = useRef<SVGSVGElement | null>(null);
 
   // 1회: mask 정의용 SVG를 body에 생성
@@ -71,7 +74,7 @@ export function EdgeMask(): null {
       const mh = node.measured?.height;
       const size = typeof mw === 'number' && typeof mh === 'number' && mw > 0 && mh > 0
         ? Math.min(mw, mh)
-        : calcBubbleSize(data, localRange);
+        : calcBubbleSize(data, localRange, heat);
       const r = size / 2 - RADIUS_SHRINK;
       if (r <= 0) continue;
       circles.push({
@@ -143,7 +146,7 @@ export function EdgeMask(): null {
       const maskId = (src && sourceToMaskId.get(src)) || MASK_ID;
       g.setAttribute('mask', `url(#${maskId})`);
     }
-  }, [nodes, edges]);
+  }, [nodes, edges, heat]);
 
   return null;
 }

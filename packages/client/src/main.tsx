@@ -12,6 +12,7 @@ import { InspectorOverlay } from './components/Inspector/InspectorOverlay.js';
 import { GlobalTextFieldContextMenu } from './components/Layout/GlobalTextFieldContextMenu.js';
 import { ExternalOpenNotice } from './components/Layout/ExternalOpenNotice.js';
 import { installRendererDiagnostics } from './utils/diagnostics.js';
+import { installPersistFlushBridge } from './utils/persistFlush.js';
 // §5.5 — 읽기 설정 글꼴은 OS 설치에 기대지 않고 앱에 동봉해 싣는다(`scripts/fetch-reading-fonts.mjs`).
 // index.css 보다 먼저 실어야 `--font-sans` 첫 후보(Pretendard)가 첫 페인트부터 잡힌다.
 import './assets/fonts/fonts.css';
@@ -20,6 +21,14 @@ import './i18n/index.js';
 
 // §4 v1.98 — renderer 에러 캡처 설치(가능한 한 일찍 — 부팅 초기 에러도 잡도록).
 installRendererDiagnostics();
+
+// §3.2.1 — 종료 직전 main 의 "지금 초안을 밀어라"를 받는 창구.
+//
+// 세션 입력 초안·IDE 폼 초안·명령 히스토리는 debounce 로 쓰고 `pagehide`/`beforeunload` 에서
+// 즉시 flush 하는데, 앱 종료는 창을 정상으로 닫지 않고 `app.exit(0)` 으로 내려서 그 이벤트가
+// 뜨지 않는다. **창 종류를 가리지 않아야 하므로 shell 안이 아니라 부팅 지점에 둔다** —
+// 별창·오버레이 창·지휘통제실 창·내부 앱 창에도 입력칸이 있다(InspectorOverlay 와 같은 이유).
+installPersistFlushBridge();
 
 const rootElement = document.getElementById('root');
 if (!rootElement) throw new Error('Root element not found');

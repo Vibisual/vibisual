@@ -3,7 +3,7 @@ import { Virtuoso, type VirtuosoHandle, type StateSnapshot } from 'react-virtuos
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import type { QueuedCommand, CommandError, SubAgent, SubAgentStreamEvent, AgentEvent, AgentReport, AgentQuestions, AgentReview, AgentList, AskUserQuestionRequest } from '@vibisual/shared';
-import { STREAM_DENSITIES, STREAM_COMPACT_TEXT_CLAMP_LINES, STREAM_COMPACT_TEXT_CLAMP_CHARS, slashCommandNeedsTerminal, SESSION_MEMO, type StreamDensity } from '@vibisual/shared';
+import { STREAM_DENSITIES, STREAM_COMPACT_TEXT_CLAMP_LINES, STREAM_COMPACT_TEXT_CLAMP_CHARS, slashCommandNeedsTerminal, SESSION_MEMO, VOICE_INPUT, isVoiceToggleKey, mergeVoiceText, type StreamDensity } from '@vibisual/shared';
 import { useSessionRunning } from '../../hooks/useSessionRunning.js';
 import { clampStreamText } from './streamDensity.js';
 import type { TodoItem } from '@vibisual/shared';
@@ -40,13 +40,22 @@ import { AgentListCard } from './AgentListCard.js';
 import { UnseenCardPills, type UnseenCardMeta } from './UnseenCardPills.js';
 import { IDETerminalPanes } from './IDETerminalPanes.js';
 import { SessionMemoLayer } from './SessionMemoLayer.js';
-import { canAddMemoCount } from './sessionMemo.js';
+import { canAddMemoCount, hasHiddenMemoHeaders } from './sessionMemo.js';
 import { SystemNode, parseSystemSubtype, parseSystemTaskInfo } from './SystemNode.js';
-import { ThinkingLiveLine } from './ThinkingIndicator.js';
+import { ThinkingLiveLine, StepTraceLine, WriteTraceLine } from './ThinkingIndicator.js';
+import { collectThinkRuns, shouldTraceWriting, toolGroupElapsedMs } from './turnSteps.js';
+import { thinkTraceText, writeTraceText, toolElapsedText } from './stepTraceText.js';
 // §5.5 #17-18 ⑤ v4.77 — 대기 중 덧말의 상태·컨트롤은 이 말풍선이 갖는다(옛 대기 줄 대체).
 import { CollapsiblePrompt, AiSpeakerGlyph, type PromptCommandState } from './CollapsiblePrompt.js';
 import { INPUT_FIELD_SIZING, INPUT_MAX_HEIGHT, autosizeInput } from './inputAutosize.js';
 import { decideArrowKey, getCommandHistory, hasCommandHistory, seedCommandHistory, type HistoryNavState } from './commandHistory.js';
+// §5.5 #17-38 — 음성 받아쓰기. 마이크 수명은 훅이, 키·글 끼우기 판정은 shared 가, "듣는 중" 표시는 오버레이가 맡는다.
+import { useVoiceDictation } from '../../hooks/useVoiceDictation.js';
+import { resolveVoicePort, type VoicePortResult } from '../../hooks/voiceOpenGate.js';
+import { useVoiceAsr } from '../../hooks/useVoiceAsr.js';
+import { VoiceInputOverlay } from './VoiceInputOverlay.js';
+import { VoiceInstallDialog } from './VoiceInstallDialog.js';
+import { shortcutLabel } from '../../utils/platform.js';
 
 /** SDK 가 생각 중 반복 송출하는 system 펄스 subtype — 본문에 쌓이지 않게 라이브 1줄로 대체. */
 const THINKING_PULSE_SUBTYPE = 'thinking_tokens';
@@ -152,11 +161,23 @@ function performBookmarkScroll(container: HTMLElement, anchorId: string | undefi
 
 interface TerminalEntry {
   id: string;
-  type: 'command' | 'text' | 'thinking' | 'tool_use' | 'tool_result' | 'result' | 'error' | 'system';
+  type: 'command' | 'text' | 'thinking' | 'tool_use' | 'tool_result' | 'result' | 'error' | 'system' | 'step';
   text: string;
   timestamp: number;
   sessionLabel?: string;
   toolName?: string;
+  /**
+   * §5.5 #17-39 — **마지막 조각이 도착한 시각**. `timestamp`(첫 조각) 와의 차이가 곧 걸린 시간이다.
+   * 사고 자국(`type==='step'`)과 합쳐진 본문(`type==='text'`) 둘 다 이 필드를 쓴다(Sub 탭 `endedAt` 과 대칭).
+   */
+  endedAt?: number;
+  /** §5.5 #17-39 — 사고 자국의 분량(글자). `text` 는 비어 있다 — 사고 **원문은 담지 않는다**. */
+  stepChars?: number;
+  /**
+   * `type==='command'` 일 때 **내가 보낸 시각**. 위 `timestamp` 는 §5.5 #17-18 ⑥ 대로 말풍선이 설
+   * 자리(= 나간 시각 · 대기 중이면 `PENDING_COMMAND_TS` 꼬리 표식)라 시각 표기에 쓸 수 없다.
+   */
+  submittedAt?: number;
   /**
    * §5.5 #17-18 ⑤ v4.77 — `type==='command'` 일 때 그 명령의 큐 상태. 말풍선이 이 값으로 색을 정하고,
    * 대기 중이면 [대기|합치기|즉시]·삭제 컨트롤을 스스로 띄운다(옛 입력창 위 대기 줄 대체).
@@ -232,13 +253,14 @@ function mainTimelineNodeId(n: MainTimelineNode): string {
 /** 이 노드 바로 뒤에 붙은 한 줄이라야 발송 보고로 본다. */
 const MAIN_ECHO_CARD_TYPES: ReadonlySet<MainTimelineNode['t']> = new Set(['report', 'question', 'review', 'list']);
 
-/** 뒤로 훑을 때 건너뛰는 노드 — 그 자체로는 에이전트가 "한 말"이 아니다(도구 묶음·회색 잡음·라이브 1줄). */
+/** 뒤로 훑을 때 건너뛰는 노드 — 그 자체로는 에이전트가 "한 말"이 아니다(도구 묶음·회색 잡음·라이브 1줄·자국). */
 function isMainEchoSkip(n: MainTimelineNode): boolean {
   if (n.t !== 'item') return false;
   const it = n.item;
   if (it.kind === 'group') return it.groupType === 'tool';
   if (it.kind === 'thinking-live') return true;
-  if (it.kind === undefined) return it.type === 'system' || it.type === 'tool_use' || it.type === 'tool_result';
+  // §5.5 #17-39 — 단계 자국(`step`)도 말이 아니다(Sub 탭 CARD_ECHO_SKIP_KINDS 와 같은 목록).
+  if (it.kind === undefined) return it.type === 'system' || it.type === 'tool_use' || it.type === 'tool_result' || it.type === 'step';
   return false;
 }
 
@@ -299,6 +321,25 @@ function buildEntries(
   const entries: TerminalEntry[] = [];
   const subLabelMap = new Map(subAgents.map((s) => [s.id, s.label]));
 
+  /**
+   * §5.5 #17-39 — 사고 런 → 단계 자국 항목. 런 판정은 Sub 탭 파서와 **같은 규칙**을 담은
+   * `collectThinkRuns` 한 곳에서 하므로, 같은 대화가 탭에 따라 자국 개수가 달라지지 않는다.
+   * 건너뛸 이벤트도 파서와 같은 둘(펄스·숨김 system)을 넘긴다.
+   */
+  const pushThinkTraces = (events: SubAgentStreamEvent[], label?: string): void => {
+    for (const run of collectThinkRuns(events, (e) => isThinkingPulse(e) || isHiddenSystemEvent(e))) {
+      entries.push({
+        id: `step-${run.firstId}`,
+        type: 'step',
+        text: '',
+        timestamp: run.startedAt,
+        endedAt: run.endedAt,
+        stepChars: run.chars,
+        ...(label ? { sessionLabel: label } : {}),
+      });
+    }
+  };
+
   // 메인 뷰: Hook 에이전트의 기존 프롬프트+결과 표시
   if (activeSessionId === null && agentEvents.length > 0) {
     for (const evt of agentEvents) {
@@ -307,6 +348,8 @@ function buildEntries(
         type: 'command',
         text: evt.message,
         timestamp: evt.timestamp,
+        // 훅 이벤트는 큐를 거치지 않는다 — 잡힌 그 시각이 곧 사용자가 보낸 시각이다.
+        submittedAt: evt.timestamp,
       });
       if (evt.response) {
         entries.push({
@@ -339,6 +382,8 @@ function buildEntries(
       // §5.5 #17-18 ⑥ — 큐에 넣은 시각이 아니라 **나간 시각**에 선다. 대기 중이면 꼬리로 밀려
       //   화면 맨 아래에 남고(=다음에 나갈 것), dispatch 되는 순간 그 자리에 고정돼 턴 경계선이 된다.
       timestamp: commandAnchorTs(cmd),
+      // 말풍선이 "언제 보낸 글인가"를 말할 때 쓰는 값은 그 꼬리 표식이 아니라 실제 투입 시각이다.
+      submittedAt: cmd.timestamp,
       sessionLabel,
       command: {
         status: cmd.status,
@@ -368,6 +413,8 @@ function buildEntries(
           toolName: evt.toolName,
         });
       }
+      // §5.5 #17-39 — 사고는 위에서 본문으로 안 쌓았지만, **얼마나 걸렸는지는 남긴다**.
+      pushThinkTraces(events, label);
     }
   } else {
     // 특정 세션만
@@ -384,6 +431,8 @@ function buildEntries(
           toolName: evt.toolName,
         });
       }
+      // §5.5 #17-39 — 사고 자국(세션 하나만 볼 때도 전체 보기와 같은 규칙).
+      pushThinkTraces(events);
     }
   }
 
@@ -430,8 +479,10 @@ function buildEntries(
     const prev = coalesced[coalesced.length - 1];
     if (e.type === 'text' && prev && prev.type === 'text' && prev.sessionLabel === e.sessionLabel) {
       prev.text += e.text;
+      // §5.5 #17-39 — 합쳐진 말풍선의 끝 시각(작성 자국의 "걸린 시간"). Sub 탭 textBuf.lastTs 와 같은 값.
+      prev.endedAt = e.timestamp;
     } else {
-      coalesced.push(e.type === 'text' ? { ...e } : e); // text 는 합치기 대상이라 사본(원본 불변)
+      coalesced.push(e.type === 'text' ? { ...e, endedAt: e.timestamp } : e); // text 는 합치기 대상이라 사본(원본 불변)
     }
   }
   return coalesced;
@@ -641,8 +692,18 @@ const TYPE_STYLES: Record<string, { color: string; prefix: string }> = {
  * `exempt`(화면의 마지막 본문)는 지금 하는 말이자 결론이라 자르지 않는다. 훅을 쓰므로 별도 컴포넌트
  * (TerminalLine 은 분기마다 early return 이라 그 안에서 훅을 부를 수 없다).
  */
+/**
+ * §5.5 #17-39 — 메인 탭 단계 자국. 훅(`useTranslation`)을 쓰므로 `TerminalLine` 안이 아니라 별도 조각
+ * (그쪽은 분기마다 early return 이라 훅을 부를 수 없다 — `TerminalTextLine` 과 같은 이유).
+ */
+function TerminalStepLine({ entry }: { entry: TerminalEntry }): React.JSX.Element {
+  const { t, i18n } = useTranslation();
+  const ms = (entry.endedAt ?? entry.timestamp) - entry.timestamp;
+  return <StepTraceLine text={thinkTraceText(t, i18n.language, ms, entry.stepChars ?? 0)} />;
+}
+
 function TerminalTextLine({ entry, density, exempt }: { entry: TerminalEntry; density: StreamDensity; exempt: boolean }): React.JSX.Element {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const clamped = useMemo(
     () => (density === 'compact' && !exempt
       ? clampStreamText(entry.text, STREAM_COMPACT_TEXT_CLAMP_LINES, STREAM_COMPACT_TEXT_CLAMP_CHARS)
@@ -651,6 +712,11 @@ function TerminalTextLine({ entry, density, exempt }: { entry: TerminalEntry; de
   );
   const [open, toggleOpen] = useStreamToggle(`text-more-${entry.id}`, false);
   const body = clamped && !open ? clamped.text : entry.text;
+  // §5.5 #17-39 — 작성 자국(Sub 탭 TextBlock 과 같은 문턱·같은 문구 함수). 메인 탭의 본문 항목은
+  //   buildEntries 가 연속 델타를 합쳐 만든 것이라 끝 시각이 따로 없다 — 분량만 적는다(시간은 0).
+  const writeTrace = density !== 'compact' && shouldTraceWriting(entry.text.length)
+    ? writeTraceText(t, i18n.language, (entry.endedAt ?? entry.timestamp) - entry.timestamp, entry.text.length)
+    : null;
   return (
     <div className="px-3 py-1 max-md:px-1.5">
       <div className="flex gap-2">
@@ -683,6 +749,8 @@ function TerminalTextLine({ entry, density, exempt }: { entry: TerminalEntry; de
 }
 
 function TerminalLine({ entry, density, exempt, agentId }: { entry: TerminalEntry; density?: StreamDensity; exempt?: boolean; agentId?: string }): React.JSX.Element {
+  // §5.5 #17-39 — 단계 자국(끝난 사고 런). Sub 탭과 **같은 조각·같은 문구 함수**를 쓴다.
+  if (entry.type === 'step') return <TerminalStepLine entry={entry} />;
   // SDK system 메시지 subtype([task_started] 등)은 날 텍스트 대신 깔끔한 칩으로.
   if (entry.type === 'system') {
     const subtype = parseSystemSubtype(entry.text);
@@ -699,7 +767,7 @@ function TerminalLine({ entry, density, exempt, agentId }: { entry: TerminalEntr
     return (
       // §4 v3.24 — 폰(max-md)에선 좌우 여백 압축(Sub 탭 블록들과 동일 방침).
       <div className="px-3 py-1 max-md:px-1.5">
-        <CollapsiblePrompt prompt={entry.text} command={command} />
+        <CollapsiblePrompt prompt={entry.text} command={command} submittedAt={entry.submittedAt} />
       </div>
     );
   }
@@ -783,6 +851,9 @@ function TerminalGroupLine({ group, density }: { group: TerminalGroup; density?:
   const isRun = group.runCount !== undefined;
   // 접혀 있을 때 보여줄 가장 최근 도구 호출(진행 중이면 그게 지금 하는 일).
   const latestUse = isRun ? [...group.entries].reverse().find((e) => e.type === 'tool_use') : undefined;
+  // §5.5 #17-39 — 이 묶음이 걸린 시간(Sub 탭 ToolGroupBlock 과 같은 함수·같은 규칙).
+  //   **진행 중에는 재지 않는다** — 끝을 모르는 채로 적으면 매 틱 숫자가 바뀌며 헤더가 깜빡인다.
+  const elapsed = group.isActive ? '' : toolElapsedText(t, toolGroupElapsedMs(group.entries.map((e) => e.timestamp)));
 
   // §5.5 #17-24 ① — 간결에는 도구 묶음이 **아예 도달하지 않는다**(진행 중이든 완료든 applyMainDensity 가
   //   배열에서 뺐다). 종전의 "진행 중 한 줄" 분기는 그 줄이 생겼다 사라지며 화면을 깜빡이게 해 없앴다.
@@ -841,6 +912,8 @@ function TerminalGroupLine({ group, density }: { group: TerminalGroup; density?:
               <span className="flex-shrink-0 tabular-nums text-[12px] text-gray-500">
                 {t('ide.streamRenderer.toolRun', { count: group.runCount })}
               </span>
+              {/* §5.5 #17-39 — 이 묶음이 걸린 시간. 잴 수 없으면(호출 하나) 아무것도 붙이지 않는다. */}
+              {elapsed && <span className="flex-shrink-0 tabular-nums text-[12px] text-gray-600">{elapsed}</span>}
               {(group.toolNames ?? []).slice(0, TOOL_GROUP_NAME_CHIPS).map((name) => (
                 <span key={name} className="flex-shrink-0 rounded bg-gray-700/40 px-1 py-0.5 text-[12px] font-medium text-gray-500">
                   {name}
@@ -921,6 +994,16 @@ interface TerminalInputProps {
   activeSessionId: string | null;
 }
 
+/**
+ * §5.5 #17-38 — **이미 누가 먹은 키인가.**
+ *
+ * 한 문서에 IDE 판이 둘 이상 떠 있으면(분할·중첩) window 리스너도 그 수만큼 서고, 같은
+ * 키 하나에 받아쓰기가 켜졌다 곧바로 꺼진다. 먼저 잡은 쪽이 그 이벤트에 표시를 남기면
+ * 뒤엣것은 비켜선다. 창이 여럿인 경우는 여기 걸리지 않는다 — 초점 없는 창은 애초에
+ * 키 이벤트를 받지 않는다.
+ */
+const handledVoiceKeys = new WeakSet<KeyboardEvent>();
+
 const API_BASE = '';
 
 /**
@@ -998,6 +1081,110 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
   useEffect(() => () => {
     if (arrowProbeRef.current !== null) clearTimeout(arrowProbeRef.current);
   }, []);
+
+  // ─── §5.5 #17-38 음성 받아쓰기 ───
+  // 인식 언어 = 화면 언어(사용자가 이미 고른 값이라 따로 물을 것이 없다).
+  const uiLocale = useGraphStore((s) => s.uiLocale);
+  // 창 단위 단축키의 임자 판정 — 분할 중에는 초점 칸만 받는다(#17-34 Ctrl+F·배율과 같은 규칙).
+  const voiceCellFocused = useSplitCellFocused();
+  const inputRootRef = useRef<HTMLDivElement>(null);
+  /**
+   * 확정된 말은 **커서 자리에** 들어간다(항상 맨 뒤 ❌ — 문장 가운데를 고치다 마이크를 켜는
+   * 일이 실제로 있고, 그때 말한 것이 끝에 붙으면 그 문장을 다시 손봐야 한다).
+   * 끼우는 규칙 자체는 shared `mergeVoiceText` 한 곳이고, 여기서는 그 결과를 스토어와
+   * 커서 위치로 옮겨 놓기만 한다.
+   */
+  const handleVoiceCommit = useCallback((chunk: string) => {
+    const el = textareaRef.current;
+    const current = el?.value ?? '';
+    const selStart = el?.selectionStart ?? current.length;
+    const selEnd = el?.selectionEnd ?? current.length;
+    const merged = mergeVoiceText(current, selStart, selEnd, chunk);
+    setText(merged.text);
+    // 스토어를 거쳐 값이 다시 그려진 **다음** 프레임에 커서를 세운다 — 지금 세우면 되감긴다.
+    requestAnimationFrame(() => {
+      const el2 = textareaRef.current;
+      if (!el2) return;
+      el2.setSelectionRange(merged.caret, merged.caret);
+      autosizeInput(el2); // 여러 줄이 한꺼번에 들어와도 입력창이 바로 늘어나게
+    });
+  }, [setText]);
+  // §5.5 #17-38 ⑬ — 인식기가 준비돼 있는지는 **서버가 디스크를 보고** 답한다. 준비가 안 됐으면
+  //   마이크를 열지 않고 설치 창을 띄운다(열었다 곧 닫으면 OS 표시가 깜빡여 고장으로 읽힌다).
+  const voiceAsr = useVoiceAsr();
+  const [voiceInstallOpen, setVoiceInstallOpen] = useState(false);
+  const voiceSessionKey = `${agentId}:${activeSessionId ?? 'none'}`;
+  const voiceAsrRef = useRef(voiceAsr);
+  voiceAsrRef.current = voiceAsr;
+
+  /**
+   * 누름 → 마이크 사이의 왕복을 하나로 줄인다. 이미 "준비됨"을 물어 둔 판에서는 다시 묻지 않고
+   * 곧장 엔진을 띄우고, 그 값이 거짓말이었으면(폴더를 지웠으면) 실패한 자리에서 서버에게
+   * 되묻는다 — 판정의 정본은 여전히 서버(디스크)다([voiceOpenGate.ts](../../hooks/voiceOpenGate.ts)).
+   */
+  const requestVoicePort = useCallback(async (): Promise<VoicePortResult> => resolveVoicePort({
+    knownReady: voiceAsrRef.current.state?.ready ?? null,
+    refresh: async () => (await voiceAsrRef.current.refresh())?.ready ?? null,
+    openSession: () => voiceAsrRef.current.openSession(voiceSessionKey),
+  }), [voiceSessionKey]);
+
+  const handleVoiceSessionEnd = useCallback(() => {
+    voiceAsrRef.current.closeSession(voiceSessionKey);
+  }, [voiceSessionKey]);
+
+  const handleVoiceNeedsInstall = useCallback(() => {
+    setVoiceInstallOpen(true);
+  }, []);
+
+  const voice = useVoiceDictation({
+    locale: uiLocale,
+    enabled: true,
+    onCommit: handleVoiceCommit,
+    resolvePort: requestVoicePort,
+    onNeedsInstall: handleVoiceNeedsInstall,
+    onSessionEnd: handleVoiceSessionEnd,
+  });
+  const voiceActive = voice.status === 'starting' || voice.status === 'listening';
+  const voiceRef = useRef(voice);
+  voiceRef.current = voice;
+  const voiceShortcut = useMemo(() => shortcutLabel(VOICE_INPUT.SHORTCUT), []);
+
+  /**
+   * 단축키(#17-38 ③) — **초점이 입력창에 없어도** 같은 손짓이 먹는다.
+   *
+   * ⚠ 창이 여럿일 수 있다(버블 오버레이 창 #17-6). window 리스너 하나만 두고 "이 칸이
+   *   초점"만 보면 **떠 있는 IDE 수만큼 켜졌다 꺼진다** — 그래서 초점이 실제로 이 판
+   *   안에 있는지(data-ide-main)까지 함께 본다. 판정이 하나뿐이라 두 번 토글될 자리가 없다.
+   *
+   * ⚠ capture 단계다. 듣는 중의 Escape 는 "받아쓰기 취소"가 먼저여야 하는데, bubble 로 받으면
+   *   입력창의 Escape(슬래시 목록 열림 시 입력 비우기)가 먼저 돌아 쓰던 글까지 날아간다.
+   */
+  useEffect(() => {
+    if (!voiceCellFocused) return;
+    const onKey = (e: KeyboardEvent): void => {
+      const v = voiceRef.current;
+      const listening = v.status === 'starting' || v.status === 'listening';
+      const toggle = isVoiceToggleKey(e);
+      // 듣는 중이 아닐 때의 Escape 는 우리 것이 아니다 — 종전 흐름(슬래시 목록 닫기 등)에 넘긴다.
+      const cancel = e.key === 'Escape' && listening;
+      if (!toggle && !cancel) return;
+
+      const root = inputRootRef.current?.closest('[data-ide-main]') ?? null;
+      if (root === null) return;
+      const active = document.activeElement;
+      // 초점이 이 판 안에 있거나, 아직 아무 데도 잡히지 않았을 때(창을 막 연 직후)만 우리 것이다.
+      if (!root.contains(active) && active !== null && active !== document.body) return;
+      if (handledVoiceKeys.has(e)) return;
+      handledVoiceKeys.add(e);
+
+      e.preventDefault();
+      e.stopPropagation();
+      if (toggle) v.toggle();
+      else v.cancel();
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [voiceCellFocused]);
 
   // §5.5 #17-2 v2.30 / #17-4 v2.32 — 슬래시 자동완성. `useAvailableSkills` 가 모듈 캐시를 공유.
   // v2.59 — 이 에이전트가 속한 프로젝트의 스킬만 자동완성(탭별 개별 조회).
@@ -1498,10 +1685,34 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
   }, [inputCtx, t, replaceInputRange]);
 
   return (
-    <div className="relative flex flex-col gap-1.5 border-t border-gray-700 bg-gray-900/80 px-3 py-2">
+    <div ref={inputRootRef} className="relative flex flex-col gap-1.5 border-t border-gray-700 bg-gray-900/80 px-3 py-2">
+      {/* §5.5 #17-38 — "지금 듣고 있다"는 입력창 **위**에 뜬다. 말한 것은 아래 입력창의 글이 되고,
+          아직 확정되지 않은 말만 이 줄에 머문다(사용자 지시 — 텍스트는 창에, 이펙트는 창 위에). */}
+      <VoiceInstallDialog
+        open={voiceInstallOpen}
+        state={voiceAsr.state}
+        uiLocale={uiLocale}
+        onInstall={() => { void voiceAsr.install(); }}
+        onCancel={() => { void voiceAsr.cancel(); }}
+        onClose={() => { setVoiceInstallOpen(false); }}
+        onReady={() => {
+          // §5.19 (B) — 창이 스스로 끝을 알리고 물러나며, 누른 사람이 하려던 일이 이어진다.
+          setVoiceInstallOpen(false);
+          voiceRef.current.start();
+        }}
+      />
+      <VoiceInputOverlay
+        status={voice.status}
+        error={voice.error}
+        interim={voice.interim}
+        analyserRef={voice.analyserRef}
+        onStop={voice.stop}
+        onDismissError={voice.dismissError}
+      />
       {/* §5.5 #17-23 ⑤ — 히스토리 진입 힌트. 경계에서 방향키를 처음 눌렀을 때만 뜨고,
-          같은 방향으로 한 번 더 누르면 실제로 히스토리로 들어간다. 꺼낼 게 없으면 아예 안 뜬다. */}
-      {historyHint !== null && !slashOpen && (
+          같은 방향으로 한 번 더 누르면 실제로 히스토리로 들어간다. 꺼낼 게 없으면 아예 안 뜬다.
+          받아쓰기 중에는 내린다 — 같은 자리를 두 장이 나눠 쓰지 않는다(방향키 안내는 지금 쓸모가 없다). */}
+      {historyHint !== null && !slashOpen && !voiceActive && (
         <div className="pointer-events-none absolute bottom-full left-3 mb-1 flex items-center gap-1.5 rounded border border-gray-700 bg-gray-900 px-2 py-1 text-[12px] text-gray-300 shadow-lg">
           <span className="flex h-4 w-4 items-center justify-center rounded border border-gray-600 bg-gray-800 text-gray-300">
             <svg
@@ -1532,7 +1743,7 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
       )}
       {/* §5.5 #17-2 v2.30 — 슬래시 자동완성 드롭다운 (입력행 바로 위) */}
       {slashOpen && slashState && (
-        <div ref={slashListRef} className="absolute bottom-full left-0 right-0 mb-1 max-h-72 overflow-y-auto rounded-t border border-b-0 border-gray-700 bg-gray-900 shadow-lg scrollbar-thin">
+        <div ref={slashListRef} className={`absolute bottom-full left-0 right-0 max-h-72 overflow-y-auto rounded-t border border-b-0 border-gray-700 bg-gray-900 shadow-lg scrollbar-thin ${voiceActive ? 'mb-[46px]' : 'mb-1'}`}>
           {slashState.matched.length === 0 ? (
             <div className="px-3 py-2 text-[12px] text-gray-500">
               {skillsLoaded ? t('ide.mainArea.slashEmpty') : t('ide.mainArea.slashLoading')}
@@ -1686,6 +1897,31 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
             data-ide-input-session={activeSessionId ?? ''}
           />
         </div>
+        {/* §5.5 #17-38 — 마이크. 실행/중지 왼쪽에 상주하고, 듣는 중에는 같은 자리에서 빨갛게 뛴다.
+            `aria-pressed` 로 켜짐을 알린다(색만으로는 읽어 주는 도구에 전달되지 않는다). */}
+        <button
+          type="button"
+          onClick={voice.toggle}
+          aria-pressed={voiceActive}
+          aria-label={t(voiceActive ? 'ide.mainArea.voiceStop' : 'ide.mainArea.voiceStart', { shortcut: voiceShortcut })}
+          title={t(voiceActive ? 'ide.mainArea.voiceStop' : 'ide.mainArea.voiceStart', { shortcut: voiceShortcut })}
+          className={`relative flex h-7 w-7 flex-shrink-0 items-center justify-center rounded border transition-colors ${
+            voiceActive
+              ? 'border-rose-500/60 bg-rose-500/15 text-rose-300 hover:bg-rose-500/25'
+              : voice.status === 'error'
+                ? 'border-red-500/40 text-red-400 hover:bg-red-500/10'
+                : 'border-gray-700 text-gray-400 hover:border-gray-500 hover:bg-gray-800 hover:text-gray-200'
+          }`}
+        >
+          {voiceActive && (
+            <span className="absolute inset-0 animate-pulse rounded bg-rose-500/10" aria-hidden="true" />
+          )}
+          <svg className="relative h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+            <line x1="12" y1="19" x2="12" y2="22" />
+          </svg>
+        </button>
         {sessionRunning ? (
           // 실행 중: 좌측 [중지](마우스 클릭 전용) + 우측 [덧말](Enter=추가 대화).
           //   중지는 실행을 끊는 파괴적 동작이라 마우스로만 — Enter 는 handleSubmit(덧말)에 배정.
@@ -2559,6 +2795,13 @@ export const IDEMainArea = memo(function IDEMainArea({
       ? (s.subAgents[agentId]?.find((x) => x.id === activeSessionId)?.memos?.length ?? 0)
       : (s.agentMemos[agentId]?.length ?? 0)
   ));
+  // §5.5 #17-36 ⑨ — 이 화면에 **이름이 가려진** 메모가 있나. 불린 하나만 돌려주므로 스냅샷마다
+  //   새 참조가 나오지 않는다(배열을 그대로 돌려주면 매 스냅샷이 리렌더가 된다 — 스토어 규약).
+  const memoHeadersHidden = useGraphStore((s) => hasHiddenMemoHeaders(
+    (activeSessionId
+      ? s.subAgents[agentId]?.find((x) => x.id === activeSessionId)?.memos
+      : s.agentMemos[agentId]) ?? [],
+  ));
   const setAgentSessionInputText = useGraphStore((s) => s.setAgentSessionInputText);
   const addCommand = useGraphStore((s) => s.addCommand);
 
@@ -2632,6 +2875,9 @@ export const IDEMainArea = memo(function IDEMainArea({
 
   const closeCtxMenu = useCallback(() => setCtxMenu(null), []);
   const clearMemoSpawn = useCallback(() => setMemoSpawn(null), []);
+  // §5.5 #17-36 ⑨ — [겹친 메모 펼치기] 요청 신호. 값이 바뀌면 판(SessionMemoLayer)이 1회 수행한다.
+  const [memoSpread, setMemoSpread] = useState<number | null>(null);
+  const clearMemoSpread = useCallback(() => setMemoSpread(null), []);
 
   const ctxItems = useMemo<ContextMenuItem[]>(() => {
     const sel = ctxMenu?.selection ?? '';
@@ -2735,8 +2981,17 @@ export const IDEMainArea = memo(function IDEMainArea({
           setMemoSpawn({ x: ctxMenu.x, y: ctxMenu.y });
         },
       },
+      // §5.5 #17-36 ⑨ — 겹쳐 둔 것을 떼어 놓는다. 두 장 미만이면 겹칠 자리가 없으므로 항목 자체를
+      //   내지 않고, 두 장 이상인데 안 겹쳤으면 **이유를 달아 흐린다**(있다가 없어지는 항목 ❌).
+      ...(memoCount >= 2 ? [{
+        id: 'spread-memos',
+        label: t('ide.mainArea.ctxSpreadMemos'),
+        disabled: !memoHeadersHidden,
+        disabledTitle: t('ide.mainArea.ctxSpreadMemosNone'),
+        onClick: () => { setMemoSpread(Date.now()); },
+      }] : []),
     ];
-  }, [ctxMenu, isReadOnly, t, agentId, activeSessionId, setAgentSessionInputText, addCommand, memoCount]);
+  }, [ctxMenu, isReadOnly, t, agentId, activeSessionId, setAgentSessionInputText, addCommand, memoCount, memoHeadersHidden]);
 
   // 스트림 데이터 조립: 서브 탭이면 해당 스트림만, 메인이면 전체
   const streams = useMemo<Record<string, SubAgentStreamEvent[]>>(() => {
@@ -3371,6 +3626,9 @@ export const IDEMainArea = memo(function IDEMainArea({
   return (
     <div
       className="relative flex min-h-0 min-w-0 flex-1 flex-col"
+      // §5.5 #17-38 ③ — 창 단위 단축키가 "초점이 이 판 안에 있는가"를 물을 때 보는 표식.
+      //   칸(분할)마다 이 판이 하나씩이라 창이 여럿이어도 임자가 하나로 정해진다.
+      data-ide-main={agentId}
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -3406,6 +3664,8 @@ export const IDEMainArea = memo(function IDEMainArea({
           containerRef={ideBodyRef}
           spawnAt={memoSpawn}
           onSpawnConsumed={clearMemoSpawn}
+          spreadRequest={memoSpread}
+          onSpreadConsumed={clearMemoSpread}
         />
         {/* 본문 텍스트 줌 배율 표시 — Ctrl+휠/Ctrl±/핀치로 배율이 바뀐 직후에만 우측 상단에 떠 "지금 몇 배인지"
             기준을 잡아주고, 손을 떼면 잠시 뒤 스르륵 사라진다(zoomBadgeVisible). 페이드 전환을 위해 항상

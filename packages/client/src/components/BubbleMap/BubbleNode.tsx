@@ -3,8 +3,10 @@ import { Handle, Position } from '@xyflow/react';
 import { useTranslation } from 'react-i18next';
 import type { BubbleData, BubbleStyleConfig } from '@vibisual/shared';
 import { BUBBLE_STYLES, HOOK_AGENT_STYLE, BUBBLE_TEXT_WIDTH_RATIO, BUBBLE_TEXT_REF_SIZE, GIT_STATUS_CONFIG } from '@vibisual/shared';
+import { heatColor, heatRatio, isHeatBubbleType } from '@vibisual/shared';
 import { calcBubbleSize } from '../../utils/sizeCalc.js';
-import { useGraphStore, selectIDEActiveSessionForAgent, selectActiveBrainSummary } from '../../stores/graphStore.js';
+import { useHeatScale } from '../../hooks/useHeatScale.js';
+import { useGraphStore, selectIDEActiveSessionForAgent, selectActiveBrainSummary, selectSpecStaleTitle } from '../../stores/graphStore.js';
 import { isAgentDormant } from '../../utils/sessionStatus.js';
 import { PluginBubbleBadgeSlot } from '../../plugins/host.js';
 // §5.19 (G) — 로컬 버블 정체 판정은 패널과 **같은 함수**를 쓴다(두 화면이 어긋나지 않게).
@@ -14,6 +16,7 @@ import { planBubbleText, BUBBLE_LINE_HEIGHT, type BubbleBottomLine, type BubbleC
 // 클릭=선택 / 더블클릭=열기 를 가르는 상태기계는 캔버스 **공용 한 벌**이다 — 이 버블이 그 기준이고,
 // 앱·캡처·스펙·랩·선반·플레이·메모 버블이 같은 것을 쓴다(따로 두면 손버릇이 갈린다).
 import { SELECT_DEFER_MS, useBubbleSelectGesture } from './bubbleSelectGesture.js';
+import { shouldDismissOnSelect } from './agentDismiss.js';
 
 type BubbleNodeData = BubbleData & Record<string, unknown>;
 
@@ -118,6 +121,12 @@ const ICON_PATHS: Record<BubbleStyleConfig['icon'], { viewBox: string; d: string
   video: {
     viewBox: '0 0 24 24',
     d: 'M2 6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6zm8 3 5 3-5 3V9z',
+    fill: false,
+  },
+  // §5.23 — 도메인 버블. 경선·위선이 그려진 지구(lucide `globe`).
+  globe: {
+    viewBox: '0 0 24 24',
+    d: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z',
     fill: false,
   },
 };
@@ -306,17 +315,9 @@ export const BubbleNode = memo(function BubbleNode({
    * 자동 재생성도 하지 않는다(§5.15). 셀렉터가 **원시값**을 돌려주므로 스냅샷이 흘러도
    * 실제로 낡음 여부가 바뀔 때만 리렌더한다.
    */
-  const specStaleTitle = useGraphStore((s) => {
-    if (data.bubbleType !== 'agent' || s.specDocs.length === 0) return null;
-    for (const doc of s.specDocs) {
-      for (const item of doc.items) {
-        if (item.taskAgentId !== data.id) continue;
-        if ((item.generatedRevision ?? 0) >= doc.bodyRevision) continue;
-        return doc.title || doc.id;
-      }
-    }
-    return null;
-  });
+  const specStaleTitle = useGraphStore((s) => (
+    data.bubbleType === 'agent' ? selectSpecStaleTitle(s, data.id) : null
+  ));
   // §5.10 — 휴지통 배지: 현재 프로젝트의 trashed 에이전트 수.
   //   store.agents 는 전 프로젝트 합본이라 여기서 세면 다른 프로젝트의 휴지통까지 합산된다(§3.5 프로젝트
   //   독립성 위반). 개수는 BubbleMap 이 프로젝트 필터를 거쳐 data.activity 로 실어 보낸다.
@@ -354,14 +355,25 @@ export const BubbleNode = memo(function BubbleNode({
     const timer = setTimeout(() => setInjectionPulse(false), remain);
     return () => clearTimeout(timer);
   }, [isBrainBubble, latestInjectionAt]);
+  // §5.24 — 히트맵 척도. 켜져 있고 이 버블이 "읽히는 것"일 때만 색·지름이 갈린다.
+  const heat = useHeatScale();
+  const heatOn = !!heat && isHeatBubbleType(data.bubbleType);
   const style = useMemo<BubbleStyleConfig>(() => {
+    // 히트 재도색이 타입 색·사용자 지정 색보다 앞선다 — 모드를 켠 동안은 색이 "얼마나 읽혔나"를
+    //   말하기 때문이다. 대상은 file/폴더/domain 넷뿐이고 에이전트는 애초에 대상이 아니라
+    //   `AgentConfig.color` 오버라이드와 부딪히지 않는다.
+    if (heatOn && heat) {
+      const r = heatRatio(data.readCount, heat);
+      // 글로우는 한 단계 더 뜨겁게 — 본체와 같은 색이면 평평해 보인다.
+      return { ...baseStyle, color: heatColor(r), glow: heatColor(Math.min(1, r + 0.25)) };
+    }
     if (!customColor) return baseStyle;
     return { ...baseStyle, color: customColor, glow: customColor };
-  }, [baseStyle, customColor]);
+  }, [baseStyle, customColor, heatOn, heat, data.readCount]);
   const localRange = (data as Record<string, unknown>)['_localRange'] as { min: number; max: number } | undefined;
   const globalRange = useGraphStore((s) => s.fileSizeRange);
   const range = localRange ?? globalRange;
-  const size = useMemo(() => calcBubbleSize(data, range), [data.activity, data.status, data.bubbleType, data.childCount, data.fileSize, range]);
+  const size = useMemo(() => calcBubbleSize(data, range, heat), [data.activity, data.status, data.bubbleType, data.childCount, data.fileSize, data.readCount, range, heat]);
   // 단일 스케일 팩터 — 모든 텍스트/아이콘이 이 비율로 비례 축소/확대
   const ts = size / BUBBLE_TEXT_REF_SIZE;
   const isActive = data.status === 'active';
@@ -441,19 +453,23 @@ export const BubbleNode = memo(function BubbleNode({
   //  - 없으면 사용자가 IDE 에서 골라본 sub 로 전환(요구사항: "동작중인게 없을 경우 그 선택한거로 변경")
   // §5.3 #12-1 — 백단 작업 중임을 말하는 것은 **기존 동작중 이펙트 하나**다(별도 색·배지 ❌).
   //   서버가 그동안 버블을 `active` 로 유지하므로 위 `isActive` 경로가 그대로 그 일을 한다.
-  const subAgentsMap = useGraphStore((s) => s.subAgents);
+  // §9 — **자기 것만 구독한다.** 종전엔 `s.subAgents` 맵 통째였다: `loadSnapshot` 의 구조적 공유가
+  //   에이전트 하나의 배열만 새것으로 바꿔도 **맵 자체는 새 참조**가 되므로, 어느 에이전트 하나가
+  //   한 줄을 뱉을 때마다 화면의 **모든 버블**이 리렌더됐다(버블 200개면 200벌). 키 하나만 보면
+  //   구조적 공유가 준 배열 참조가 그대로라 바뀐 그 버블만 깨어난다.
+  const mySubAgents = useGraphStore((s) => s.subAgents[data.id]);
   // §5.5 #17-1 — 창이 여럿이므로 "IDE 의 활성 세션"이 아니라 **이 버블을 띄운 창의** 활성 세션을 본다.
   const ideActiveSessionId = useGraphStore((s) => selectIDEActiveSessionForAgent(s, data.id));
   const stickySelectedSubId = useGraphStore((s) => s.selectedSubByAgent[data.id]);
   // §2.4 (잠듦) — 서버가 유휴로 판정해 이 에이전트의 claude 자식 프로세스를 회수해 둔 상태.
   //   세션이 여럿이면 전부 잠들었을 때만 잠든 것이다(하나라도 자식을 들고 있으면 아니다).
   const isDormant = useMemo(
-    () => isAgentDormant(isAgent ? subAgentsMap[data.id] : undefined),
-    [isAgent, subAgentsMap, data.id],
+    () => isAgentDormant(isAgent ? mySubAgents : undefined),
+    [isAgent, mySubAgents],
   );
   const effectiveSubOverride = useMemo(() => {
     if (!isAgent || !data.customCreated) return null;
-    const subs = subAgentsMap[data.id];
+    const subs = mySubAgents;
     if (!subs || subs.length === 0) return null;
     const activeSub = subs.find((s) => s.status === 'active');
     if (activeSub) return activeSub;
@@ -468,7 +484,7 @@ export const BubbleNode = memo(function BubbleNode({
       if (selected) return selected;
     }
     return null; // 서버 default 유지
-  }, [isAgent, data.customCreated, data.id, subAgentsMap, ideActiveSessionId, stickySelectedSubId]);
+  }, [isAgent, data.customCreated, mySubAgents, ideActiveSessionId, stickySelectedSubId]);
 
   // override 가 "있으면" 그 sub 기준으로만 일관되게 표기한다.
   // 부분 폴백(모델명만 override, 컨텍스트는 data.* 폴백)을 허용하면 라벨은 #16 인데 게이지는
@@ -605,10 +621,8 @@ export const BubbleNode = memo(function BubbleNode({
     const id = rawId.startsWith('sat-') ? rawId.slice(4) : rawId;
     useGraphStore.getState().selectNode(id);
 
-    // 확인 dismiss(§2.4) — `error` 도 대상이다. 실패 버블은 idle sweep 에서 **일부러 제외**돼
-    //   자동으로 사라지지 않으므로(거짓 idle 세탁 금지), 사용자가 확인해서 내리는 이 길이 없으면
-    //   캔버스에 영영 남는다.
-    if (data.bubbleType === 'agent' && (data.status === 'completed' || data.status === 'error')) {
+    // 확인 dismiss(§2.4) — 어느 상태가 대상인지는 `agentDismiss` 한 벌이 정한다.
+    if (data.bubbleType === 'agent' && shouldDismissOnSelect(data.status)) {
       fetch(`/api/dismiss-agent`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

@@ -29,6 +29,13 @@ interface TaskEdgePopupProps {
 const POPUP_WIDTH = 384; // w-96
 const VIEWPORT_MARGIN = 12;
 
+/**
+ * 박탈 프리뷰에 **처음부터 펼쳐 두는** 도구 칩 수. 도구 기본값이 45종이라 교집합도 그대로 45개가
+ * 되어, 프리뷰 한 블록이 팝업 높이를 다 먹고 아래 버튼들이 스크롤 밖으로 밀렸다. w-96 팝업에서
+ * 10개면 약 두 줄 — 나머지는 `+N` 을 눌러 펼친다(프리뷰는 요약이지 목록이 아니다).
+ */
+const STRIP_PREVIEW_CHIPS = 10;
+
 // v1.55 — 사용자가 마지막으로 고른 Critique 옵션 값을 기억해 다음 신규 엣지의 기본값으로 재사용.
 //          편집 모드(existingEdge)나 템플릿 명시 선택(handleTemplateSelect)에는 영향 ❌.
 const CRITIQUE_DEFAULTS_STORAGE_KEY = 'vibisual.taskEdge.critiqueDefaults';
@@ -224,6 +231,8 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
     const tgtSet = new Set(tgt.tools);
     return src.tools.filter((tool) => tgtSet.has(tool));
   }, [agentConfigs, sourceAgentId, targetAgentId]);
+  /** 프리뷰 칩을 다 펼쳐 두었는가. 기본은 접힘(STRIP_PREVIEW_CHIPS 개까지). */
+  const [stripExpanded, setStripExpanded] = useState(false);
 
   // ─── Viewport-aware positioning + user drag ─────────────────────────────
   const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
@@ -585,11 +594,21 @@ export function TaskEdgePopup({ sourceAgentId, targetAgentId, screenX, screenY, 
                 </div>
                 {stripPreview.length > 0 ? (
                   <div className="flex flex-wrap gap-1 rounded border border-gray-700 bg-gray-800/60 px-2 py-1.5">
-                    {stripPreview.map((tool) => (
+                    {(stripExpanded ? stripPreview : stripPreview.slice(0, STRIP_PREVIEW_CHIPS)).map((tool) => (
                       <span key={tool} className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[12px] text-amber-300">
                         {tool}
                       </span>
                     ))}
+                    {stripPreview.length > STRIP_PREVIEW_CHIPS && (
+                      <button
+                        type="button"
+                        onClick={() => setStripExpanded((v) => !v)}
+                        title={stripPreview.slice(STRIP_PREVIEW_CHIPS).join(', ')}
+                        className="rounded bg-gray-700/60 px-1.5 py-0.5 text-[12px] text-gray-300 transition-colors hover:bg-gray-600/60 hover:text-amber-200"
+                      >
+                        {stripExpanded ? '…' : `+${stripPreview.length - STRIP_PREVIEW_CHIPS}`}
+                      </button>
+                    )}
                   </div>
                 ) : (
                   <div className="rounded border border-gray-700 bg-gray-800/40 px-2 py-1.5 text-[12px] text-gray-500">

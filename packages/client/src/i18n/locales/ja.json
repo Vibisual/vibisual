@@ -526,7 +526,19 @@
         "bgProbeModel": "答えるモデル",
         "bgProbeModelDesc": "ツールなしで、プロジェクトにアクセスせずに一度だけ尋ねます — 渡すのはコマンド本文と出力の末尾だけです。",
         "bgProbeLoadError": "現在の設定を読み込めませんでした。",
-        "bgProbeSaveError": "保存できませんでした。何も変わっていません。"
+        "bgProbeSaveError": "保存できませんでした。何も変わっていません。",
+        "sessionProbeTitle": "「実行中…」のまま止まったセッション",
+        "sessionProbeIntro": "作業が終わったあとも、セッションが長く「実行中…」のまま残ることがあります — セッションを終える合図はすべて自己申告なので、ひとつ失われるだけで誰も片付けなくなるからです。経過時間でも判断できません。長いビルドを待つセッションと、静かに死んだセッションは見た目がまったく同じです。そこで 10 分ごとに、小さな判定エージェントにセッション 1 つについて一度だけ尋ねます — 何を待っているのか、それはまだ来るのか。",
+        "sessionProbeEnabled": "実行中のセッションが本当に動いているか確認する",
+        "sessionProbeEnabledDesc": "オフにするとこの用途でモデルを呼びません。ほかの仕組みが片付けるまで、セッションは「実行中…」のまま残ります。",
+        "sessionProbeQuiet": "この時間だけ静かなら尋ねる（分）",
+        "sessionProbeQuietDesc": "静かな時間が決めるのは「いつ尋ねるか」だけで、答えではありません。「まだ動いています」と答えたセッションは、次に尋ねるまでの間隔がだんだん長くなります。0 にすると尋ねません。",
+        "sessionProbeAutoClose": "答えが「終わった」ならセッションを終了する",
+        "sessionProbeAutoCloseDesc": "オフにすると答えをステータスバーに表示するだけで、判断はあなたがします。「まだ動いています」「止まっているようです」「判断できず」はどれも何も終了させません。またここでプロセスを止めることはありません — セッションを「動いていない」と記すだけです。",
+        "sessionProbeModel": "答えるモデル",
+        "sessionProbeModelDesc": "ツールなしで、プロジェクトにアクセスせずに一度だけ尋ねます — 渡すのはそのセッションが最後に話し、行ったことの末尾だけです。一度に 1 セッションのみ、1 時間に 12 回までです。",
+        "sessionProbeLoadError": "現在の設定を読み込めませんでした。",
+        "sessionProbeSaveError": "保存できませんでした。何も変わっていません。"
       },
       "notifications": {
         "cmdBlocked": "CMDセッションが入力待ちのときに通知",
@@ -867,9 +879,10 @@
       "contextItems": "{{count}}件",
       "model": {
         "label": "モデル",
-        "opus": "最高性能。最良の推論と複雑なタスクに最適。最高コスト。",
+        "opus": "高性能。複雑なエージェント型コーディングと推論に最適。コスト高。",
         "sonnet": "性能とコストのバランス型。ほとんどのタスクに適しています。",
         "haiku": "最速・最安。シンプルな読み取り専用タスクに最適。",
+        "fable": "最高性能。最も難しい推論と長時間タスクに最適。最高コスト。",
         "unknown": "{{name}} — 新しくリリースされたモデル。性能とコストはファミリーのデフォルト値から推定されています。"
       },
       "contextWindow": {
@@ -1044,8 +1057,24 @@
         "tokens": "ウィンドウサイズ 約 {{tokens}} トークン。",
         "foldsAt": "約 {{tokens}} に達すると、そのターンが終わる位置で畳みます。",
         "foldsAtAuto": "CLI が決めたウィンドウの {{percent}}% に達すると、そのターンが終わる位置で畳みます。",
-        "unsetDefaultLabel": "未設定 ({{tokens}})",
-        "globalTip": "自動圧縮を個別に設定していないすべてのエージェントに適用されます — すでに実行中のものも含みます。未設定のままなら組み込みの既定値を使います。"
+        "unsetDefaultLabel": "未設定（既定: オフ）",
+        "globalTip": "自動圧縮を個別に設定していないすべてのエージェントに適用されます — すでに実行中のものも含みます。未設定のままなら組み込みの既定値を使います。",
+        "offLabel": "オフ",
+        "off": "オフ — 圧縮しません。要約の呼び出しがないためトークンを消費しません。",
+        "foldsAtOff": "圧縮しません。会話が長くなるとターンごとに重くなり、モデルのウィンドウに達すると CLI が作業の途中で一度だけ折りたたみます。",
+        "confirm": {
+          "title": "自動圧縮をオンにしますか？（{{value}}）",
+          "titleSelf": "エージェント自身による圧縮をオンにしますか？",
+          "costHeading": "オンにするとトークン費用が発生します",
+          "costBody": "圧縮は会話を消す整理ではなく、会話全体をモデルに再び読み込ませて要約を作る別のモデル呼び出しです。折りたたむたびに入力・出力トークンとプラン使用量を消費します。",
+          "costSample": "実測例（{{runs}} 回の平均）: 一度あたり約 {{tokens}} トークンを読み直し、約 {{seconds}} 秒停止します。実際の値は会話の長さとモデルによって変わります。",
+          "selfBody": "エージェントがコンテキストが重いと判断すると圧縮を要求し、そのターンの終了後に実行されます。要求 1 回が要約呼び出し 1 回なので、同じトークン費用がかかります。",
+          "offHeading": "オフのままにすると",
+          "offBody": "折りたたまないと、たまった会話をターンごとにまるごと再送するため、費用も遅延も増え続けます。モデルのウィンドウに達すると CLI が作業の途中で折りたたむか、ウィンドウを超えてセッションが途切れることがあります。",
+          "everyTime": "この確認はオフにして再びオンにするたびに表示されます。",
+          "cancel": "キャンセル（オフのまま）",
+          "enable": "確認しました — オンにする"
+        }
       },
       "settingSources": {
         "label": "設定ソース",
@@ -1308,6 +1337,21 @@
       "maxSave": "保存",
       "noVisible": "表示ファイルなし"
     },
+    "webEntry": {
+      "count": "項目 {{count}}",
+      "maxTitle": "このドメインの最大項目数",
+      "maxHint": "Enter 保存 · Esc 取消",
+      "empty": "まだ記録がありません",
+      "clearAll": "すべて消去",
+      "clearConfirm": "消去",
+      "clearCancel": "キャンセル",
+      "kindSearch": "検索",
+      "kindFetch": "取得",
+      "checkHint": "チェックするとこの項目が削除されます",
+      "openExternal": "ブラウザーで開く",
+      "resultCount": "結果 {{count}}件",
+      "truncated": "…(省略)"
+    },
     "rootFileList": {
       "files": "ファイル",
       "loading": "読み込み中...",
@@ -1334,6 +1378,12 @@
         "running": "実行中",
         "done": "完了",
         "error": "エラー"
+      },
+      "probe": {
+        "checking": "確認中…",
+        "working": "動作を確認",
+        "stuck": "停止の可能性",
+        "finished": "終了した模様"
       },
       "tokensInOut": "{{in}}入力 {{out}}出力"
     },
@@ -1656,6 +1706,9 @@
       "empty": "このプロジェクトではまだ何も測定されていません。",
       "emptyHint": "コストはAgentがターンを完了すると表示されます。これは課金額ではなく、セッションのトランスクリプトから読み取った値です。",
       "estimateNote": "トークン数と公開価格から算出した推定値です。",
+      "estimatedMark": "推定",
+      "estimatedMarkHint": "単価が不明なモデルが含まれるため、代替単価で換算しています。実際の金額と異なる場合があります。",
+      "unseededNote": "{{models}} の単価が表にないため、代替単価で換算しています。この金額は実際と異なる場合があります。",
       "retiredNote": "古いセッションの{{cost}}は、全期間の合計に含まれています。",
       "sessions_one": "{{count}}件のセッション",
       "sessions_other": "{{count}}件のセッション",
@@ -1770,6 +1823,10 @@
       "choose": "フォルダーを選択",
       "picking": "選択中…",
       "later": "後で"
+    },
+    "folderList": {
+      "loadingMore": "さらに読み込み中… ({{loaded}} / {{total}})",
+      "retry": "読み込めませんでした — 再試行"
     }
   },
   "ide": {
@@ -1873,7 +1930,17 @@
       "confirmCloseMessage": "セッションがまだ実行中です。閉じると作業が停止します。それでも閉じますか?",
       "confirmCloseConfirm": "閉じる",
       "confirmCloseCancel": "キャンセル",
-      "hiddenRunning": "この先に実行中のタブが {{count}} 個 — クリックで移動"
+      "hiddenRunning": "この先に実行中のタブが {{count}} 個 — クリックで移動",
+      "sortTabs": "タブを並べ替え",
+      "sortAnchorTitle": "優先の位置",
+      "sortAnchorRight": "右基準",
+      "sortAnchorLeft": "左基準",
+      "sortByRunning": "実行中",
+      "sortByQuestions": "質問カード",
+      "sortByReviews": "確認カード",
+      "sortByUserActions": "あなたの対応",
+      "sortByPinned": "ピン留め",
+      "sortByRecent": "最新順"
     },
     "terminal": {
       "unavailable": "組み込みターミナルはVibisualデスクトップアプリでのみ使用できます。",
@@ -1949,6 +2016,8 @@
       "ctxSendAsPrompt": "新しいプロンプトとして送信",
       "ctxSelectAll": "すべて選択",
       "ctxAddMemo": "付箋メモを追加",
+      "ctxSpreadMemos": "重なったメモを広げる",
+      "ctxSpreadMemosNone": "重なったメモはありません",
       "jumpToBottom": "最下部へスクロール",
       "ctxSelectionRequired": "先にテキストを選択してください",
       "inputCtxCut": "切り取り",
@@ -1958,10 +2027,53 @@
       "ctxSaveToBrain": "メモリーに保存",
       "stopAll": "すべて停止",
       "stopAllTitle": "このエージェントが実行中のすべてを停止（他のタブ＋バックグラウンド作業）",
-      "stopSessionTitle": "このセッションと、それが開始したサブエージェントを停止（他のセッションタブは実行を継続）"
+      "stopSessionTitle": "このセッションと、それが開始したサブエージェントを停止（他のセッションタブは実行を継続）",
+      "voiceStart": "音声入力 ({{shortcut}})",
+      "voiceStop": "音声入力を終了 ({{shortcut}})",
+      "voiceStarting": "マイクを準備しています…",
+      "voiceListening": "聞いています — お話しください",
+      "voiceCancelHint": "Esc で取り消し",
+      "voiceDone": "完了",
+      "voiceErrUnsupported": "このビルドでは音声認識を利用できません。",
+      "voiceErrPermission": "マイクへのアクセスが拒否されました。システムのプライバシー設定でこのアプリに許可してから、もう一度お試しください。",
+      "voiceErrDevice": "マイクが見つかりません。接続してからもう一度お試しください。",
+      "voiceErrNetwork": "音声認識サービスに接続できませんでした。",
+      "voiceErrLanguage": "音声認識が現在の表示言語に対応していません。",
+      "voiceErrUnknown": "音声入力が停止しました。もう一度お試しください。",
+      "voiceErrDismiss": "閉じる"
+    },
+    "voiceInstall": {
+      "title": "音声入力の準備",
+      "intro": "音声入力はすべてこのコンピューター上で動きます。準備には約 {{size}} を一度だけダウンロードし、その後はオフラインで動作します。",
+      "noteSize": "約 {{size}} をダウンロードしてディスクに保存します（エンジン + 音声モデル）。これは一度だけです。",
+      "noteResume": "いつでも中断できます。すでにダウンロードした分は残り、再開するとそこから続きます。",
+      "notePrivacy": "音声はこのコンピューターの外に出ません — アカウントもインターネットも使わず、録音も保存もしません。",
+      "noteFirstRun": "準備後に初めて話すときは、モデルの読み込みに数秒かかります。",
+      "noteLicense": "音声モデル: NVIDIA Nemotron ASR (OpenMDW-1.1)。エンジン: sherpa-onnx (Apache-2.0)。",
+      "langPrimary": "このモデルは現在の表示言語を完全にサポートしています。",
+      "langBroad": "このモデルは現在の表示言語を一段低い精度でサポートしています。",
+      "langNone": "このモデルの対応言語に現在の表示言語がありません — 認識精度が低いか、動作しない場合があります。",
+      "stageEngine": "エンジンをダウンロード中",
+      "stageExtract": "エンジンを展開中",
+      "stageModel": "音声モデルをダウンロード中",
+      "stageVerify": "ファイルを確認中",
+      "stageReady": "準備完了",
+      "stageCanceled": "中断しました",
+      "canceledHint": "中断しました。ダウンロード済みの分は残っているため、再開するとそこから続きます。",
+      "failed": "準備に失敗しました。",
+      "cancel": "中断",
+      "later": "後で",
+      "retry": "再試行",
+      "start": "インストールして開始"
     },
     "memo": {
       "title": "メモ",
+      "tabHint": "ドラッグで切り離し · 他のメモに重ねるとまとめる",
+      "mergeHint": "タイトルバーを他のメモに重ねるとまとめられます",
+      "stacked": "下に {{n}} 件 — クリックで次を前面に",
+      "rename": "名前を変更",
+      "namePlaceholder": "名前（空欄 = 本文の 1 行目）",
+      "renameHint": "F2 · ダブルクリック · 右クリックで名前を変更",
       "placeholder": "メモを入力…",
       "color": "カラー",
       "collapse": "折りたたみ",
@@ -2381,13 +2493,21 @@
     },
     "statusBar": {
       "custom": "カスタム",
+      "customTip": "キャンバス上で自分が作成したエージェントです。コマンドを送信でき、セッションをタブとして開けます。",
       "hook": "フック",
+      "hookTip": "Claude Code のフックイベントから検出されたバブルです。読み取り専用のためコマンドは送信できません。",
+      "statusTip": "ここに表示されているセッションの実行状態です — 実行中・待機・完了・エラー。",
+      "modelTip": "このセッションが最後のターンで実際に使ったモデルです。最初のターンの前は、このエージェントに設定されたモデルを表示します。",
+      "modelUnknown": "不明",
       "context": "コンテキスト：{{used}}/{{max}}",
+      "contextTip": "コンテキストウィンドウが今どれだけ埋まっているか — 最後のターンの入力をこのモデルのウィンドウと比べた値です。累計ではないため、圧縮されると下がります。",
       "tokens": "{{in}}入力 / {{out}}出力",
+      "tokensTip": "このセッションが開始してから使ったトークンの合計です。入力にはキャッシュ読み取り・書き込みも含まれるため、出力よりはるかに速く増えます。累計なので減りません。",
+      "autoCompact": "自動圧縮 {{value}}",
+      "autoCompactTip": "コンテキストがこのサイズに達すると CLI が会話を自動で要約して縮めます。エージェントごとはAgent設定画面で、全体の既定値はファイル > オプション > Agentのデフォルトで変更できます。",
       "sessionOne": "{{count}}セッション",
       "sessionMany": "{{count}}セッション",
-      "autoCompact": "自動圧縮 {{value}}",
-      "autoCompactTip": "コンテキストがこのサイズに達すると CLI が会話を自動で要約して縮めます。エージェントごとはAgent設定画面で、全体の既定値はファイル > オプション > Agentのデフォルトで変更できます。"
+      "sessionsTip": "このエージェントで開いているセッションタブの数です。"
     },
     "search": {
       "placeholder": "会話内を検索",
@@ -2421,6 +2541,15 @@
       "modelFallback": "モデル代替",
       "interrupt": "中断",
       "permissionDenied": "権限拒否"
+    },
+    "stepTrace": {
+      "underSec": "1秒未満",
+      "sec": "{{sec}}秒",
+      "minSec": "{{min}}分{{sec}}秒",
+      "hourMin": "{{hour}}時間{{min}}分",
+      "thought": "{{duration}}考えました",
+      "wrote": "{{value}}文字を作成",
+      "chars": "{{value}}文字"
     },
     "streamRenderer": {
       "noActivity": "このセッションにアクティビティがありません",
@@ -3601,7 +3730,14 @@
       "lock": "キャンバスをロック",
       "unlock": "キャンバスのロックを解除",
       "fullscreen": "フルスクリーン",
-      "exitFullscreen": "フルスクリーン終了"
+      "exitFullscreen": "フルスクリーン終了",
+      "heatmap": "読み取りヒートマップ",
+      "heatmapOff": "読み取りヒートマップをオフ"
+    },
+    "heatmap": {
+      "title": "読み取り回数",
+      "empty": "まだ読み取りがありません",
+      "max": "最大 {{n}} 回"
     },
     "contextMenu": {
       "createCustomAgent": "Custom Agentを作成",

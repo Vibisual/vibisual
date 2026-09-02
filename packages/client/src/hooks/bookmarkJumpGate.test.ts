@@ -61,3 +61,67 @@ describe('resolveJumpTarget', () => {
       .toEqual({ ok: true, stub: true });
   });
 });
+
+/**
+ * §9 폴더 스코프 — 서버가 "그리는 폴더 + 한 칸 앞"만 실으면서 생긴 **두 번째 게이트 예외**.
+ *
+ * 다른 폴더 안의 버블은 사라져서가 아니라 아직 안 와서 `nodeMap` 에 없다. 그 자리를 "없어진
+ * 대상" 으로 읽으면 다른 폴더로는 영영 점프하지 못한다 — stub 예외와 같은 이유·같은 처리.
+ */
+describe('resolveJumpTarget — 폴더 스코프 예외', () => {
+  const inFolder: Bookmark = {
+    kind: 'bubble',
+    projectName: 'alpha',
+    folderId: 'folder-a',
+    nodeId: 'node-deep',
+    label: 'Deep',
+  };
+
+  it('범위 밖 폴더의 버블은 아직 안 온 것으로 보고 이동시킨다', () => {
+    expect(resolveJumpTarget(inFolder, {
+      projects: loaded,
+      stubProjects: {},
+      nodeMap: {},                       // 그 폴더가 안 실려 노드가 없다
+      snapshotFolderScope: ['folder-b'], // 지금 실린 것은 다른 폴더
+    })).toEqual({ ok: true, stub: false });
+  });
+
+  it('범위 **안**인데 노드가 없으면 진짜 사라진 것이다 — 게이트가 그대로 잡는다', () => {
+    expect(resolveJumpTarget(inFolder, {
+      projects: loaded,
+      stubProjects: {},
+      nodeMap: {},
+      snapshotFolderScope: ['folder-a'], // 그 폴더는 실려 왔는데 노드가 없다
+    })).toEqual({ ok: false, reason: 'missing-target' });
+  });
+
+  it('폴더 범위 미적용(전량)이면 예외가 열리지 않는다 — 구버전 서버에서 게이트가 무력해지면 안 된다', () => {
+    expect(resolveJumpTarget(inFolder, {
+      projects: loaded,
+      stubProjects: {},
+      nodeMap: {},
+      snapshotFolderScope: null,
+    })).toEqual({ ok: false, reason: 'missing-target' });
+    // 필드 자체가 없는 호출부(구버전 코드 경로)도 같다.
+    expect(resolveJumpTarget(inFolder, { projects: loaded, stubProjects: {}, nodeMap: {} }))
+      .toEqual({ ok: false, reason: 'missing-target' });
+  });
+
+  it('메인 캔버스 버블(folderId=null)에는 예외가 없다 — 최상위는 범위와 무관하게 항상 온다', () => {
+    expect(resolveJumpTarget(bubble, {
+      projects: loaded,
+      stubProjects: {},
+      nodeMap: {},
+      snapshotFolderScope: [],
+    })).toEqual({ ok: false, reason: 'missing-target' });
+  });
+
+  it('세션 북마크에는 예외가 없다 — 에이전트는 폴더 범위와 무관하게 항상 실린다', () => {
+    expect(resolveJumpTarget(session, {
+      projects: loaded,
+      stubProjects: {},
+      nodeMap: {},
+      snapshotFolderScope: [],
+    })).toEqual({ ok: false, reason: 'missing-target' });
+  });
+});

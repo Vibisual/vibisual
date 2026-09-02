@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import type { ProjectInfo, SubAgent, SubAgentStatus, QueuedCommand, CommandError, AgentConfig, SubAgentStreamEvent, StreamEventType, AgentViewJobState, RunningSubagentTask, FinishedSubagentTask, StreamTaskInfo, StreamTaskStatus, CmdTerminalSignal, CmdTerminalState, CmdPaneNode, CmdCliKind, SessionMemo } from '@vibisual/shared';
-import { CMD_PANE_SEPARATOR, CMD_BLOCK_REASON_MAX, collectCmdPaneIds, resolveCmdCliKind, DEFAULT_AGENT_CONFIG, isOpusModel, supportsFastMode, isForwardSubagentTextEnabled, resolveAliasToLatest, buildCmdCardProtocolRules, isNeverRenderedStreamEvent, formatSystemChip, normalizeBashTimeoutMs, TASK_CHIP_START_SUBTYPE, TASK_CHIP_END_SUBTYPE, parseSystemSubtype, parseSystemTaskInfo, capMapSize, SESSION_KEYED_MAP_MAX, resolveLocalToolGate, resolveAutoCompact, toCliPermissionMode, buildAgentsFlagJson, normalizePluginDirs, isHookStreamSubtype, HOOK_STREAM_SUBTYPES, BG_TASK_PROBE_CONCURRENCY, BG_TASK_PROBE_MAX_PER_HOUR, BG_TASK_PROBE_BACKOFF_FACTOR, BG_TASK_PROBE_BACKOFF_MAX, DEFAULT_BG_TASK_PROBE_SETTINGS, type BackgroundTaskProbeResult, type BackgroundTaskProbeSettings } from '@vibisual/shared';
+import { CMD_PANE_SEPARATOR, CMD_BLOCK_REASON_MAX, collectCmdPaneIds, resolveCmdCliKind, DEFAULT_AGENT_CONFIG, isOpusModel, supportsFastMode, isForwardSubagentTextEnabled, resolveAliasToLatest, buildCmdCardProtocolRules, isNeverRenderedStreamEvent, formatSystemChip, normalizeBashTimeoutMs, TASK_CHIP_START_SUBTYPE, TASK_CHIP_END_SUBTYPE, parseSystemSubtype, parseSystemTaskInfo, capMapSize, SESSION_KEYED_MAP_MAX, resolveLocalToolGate, resolveAutoCompact, isAutoCompactOn, toCliPermissionMode, buildAgentsFlagJson, normalizePluginDirs, isHookStreamSubtype, HOOK_STREAM_SUBTYPES, BG_TASK_PROBE_CONCURRENCY, BG_TASK_PROBE_MAX_PER_HOUR, BG_TASK_PROBE_BACKOFF_FACTOR, BG_TASK_PROBE_BACKOFF_MAX, DEFAULT_BG_TASK_PROBE_SETTINGS, type BackgroundTaskProbeResult, type BackgroundTaskProbeSettings, SESSION_PROBE_CONCURRENCY, SESSION_PROBE_MAX_PER_HOUR, SESSION_PROBE_BACKOFF_FACTOR, SESSION_PROBE_BACKOFF_MAX, DEFAULT_SESSION_PROBE_SETTINGS, type SessionLivenessProbeResult, type SessionLivenessProbeSettings } from '@vibisual/shared';
 import {
   createTurnSealState, noteTaskChip, mayTurnResume, noteTurnResumed, noteTurnSealed,
   listDisplayableLiveTasks, turnIdOfLiveTask, takeOrphanLiveTasks, LIVE_TASK_ORPHAN_GRACE_MS,
@@ -15,6 +15,11 @@ import { resolveSessionTasksDir, readTaskOutputState, type TaskEndMarker } from 
 import {
   runBackgroundTaskProbe, collectPathFacts, readOutputTail, type ProbeEvidence,
 } from './backgroundTaskProbe.js';
+// §2.4 — 세션 생존 판정. 위 백그라운드 판정과 같은 계약(중립 cwd · 도구 없음 · 질문 쪼개기).
+import {
+  runSessionLivenessProbe, resolveSessionTranscript, summarizeTranscriptTail,
+  type SessionProbeEvidence,
+} from './sessionLivenessProbe.js';
 import { terminateTaskProcesses } from './processDescendants.js';
 import { scanActiveBackgroundShells } from './backgroundShellWatcher.js';
 
@@ -228,11 +233,18 @@ function buildConfigArgs(config: AgentConfig, ctx?: ConfigArgsContext): string[]
 
   // §4 (CLI 사양 추종) — 아래 넷은 인터랙티브·헤드리스 양쪽에서 유효한 일반 플래그라 여기서 붙인다.
   //   (`--fallback-model` 은 `--print` 전용이라 여기가 아니라 스폰부 printFlags 에 있다.)
-  // §4 (CLI 사양 추종) — `--autocompact` 는 **항상 실린다**. 값은 3층(에이전트 → 설정 창 →
-  //   내장 기본)에서 `resolveAutoCompact` 한 곳이 정한다. 종전처럼 "미설정이면 플래그 없음"으로
-  //   두면 CLI 기본이 모델 창 전체라, `[1m]` 을 붙이는 우리 스폰에서 압축이 100만 토큰에서야
-  //   걸린다(= 실질적으로 압축 없음). CLI 판단에 맡기고 싶은 사람은 `'auto'` 를 고른다.
-  args.push('--autocompact', resolveAutoCompact(config.autoCompact, ctx?.userAutoCompact));
+  // §4 (CLI 사양 추종) — `--autocompact` 값은 3층(에이전트 → 설정 창 → 내장 기본 **꺼짐**)에서
+  //   `resolveAutoCompact` 한 곳이 정한다. CLI 판단에 맡기고 싶은 사람은 `'auto'` 를 고른다.
+  //
+  //   ⚠ **꺼짐이면 플래그를 싣지 않는다** — `off` 는 우리 축의 값이지 CLI 의 값이 아니다.
+  //   설치본은 `auto` 또는 100k~1M 만 받고 `--autocompact off` 를 주면 `argument 'off' is
+  //   invalid` 로 **즉시 종료**해 그 에이전트가 영영 못 뜬다(실측 2.1.252). 플래그를 생략하면
+  //   CLI 기본(창 전체)이라 `[1m]` 스폰에서는 사실상 압축이 없고, 창에 닿을 때 CLI 가 한 번
+  //   접는 최후 안전망만 남는다 — 그것이 사용자가 "끔"으로 산 상태의 정확한 의미다.
+  const resolvedAutoCompact = resolveAutoCompact(config.autoCompact, ctx?.userAutoCompact);
+  if (isAutoCompactOn(resolvedAutoCompact)) {
+    args.push('--autocompact', resolvedAutoCompact);
+  }
   if (config.excludeDynamicSystemPromptSections) {
     args.push('--exclude-dynamic-system-prompt-sections');
   }
@@ -1043,6 +1055,14 @@ export class SubAgentManager {
   private probesInFlight = new Set<string>();
   /** 최근 판정 시각들(시간당 상한 계산용). 한 시간 넘은 것은 버린다. */
   private probeHistory: number[] = [];
+
+  // ─── §2.4 세션 생존 판정 ("실행중…"이 진짜인가) ───
+  //   위 백그라운드 판정과 **같은 예산 구조**를 쓴다(동시 1건 · 시간당 상한 · 지수 백오프).
+  //   축을 나눠 두는 이유는 하나가 예산을 다 먹으면 다른 하나가 영영 못 묻기 때문이다.
+  private sessionProbeSettings: SessionLivenessProbeSettings = DEFAULT_SESSION_PROBE_SETTINGS;
+  private sessionProbeStates = new Map<string, { result?: SessionLivenessProbeResult; thresholdMult: number }>();
+  private sessionProbesInFlight = new Set<string>();
+  private sessionProbeHistory: number[] = [];
   /** 사용자 설정(머신 단위). 부팅 때 `AppState` 에서 주입되고, 없으면 기본값. */
   private bgTaskProbeSettings: BackgroundTaskProbeSettings = DEFAULT_BG_TASK_PROBE_SETTINGS;
   /**
@@ -2560,6 +2580,193 @@ export class SubAgentManager {
   /** 테스트·진단용 — 지금 걸린 판정 상태를 그대로 본다. */
   getBackgroundTaskProbeState(subId: string, taskId: string): BackgroundTaskProbeResult | undefined {
     return this.probeStates.get(probeKey(subId, taskId))?.result;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // §2.4 — "실행중…"을 에이전트가 직접 확인한다
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /** §2.4 — 사용자 설정 주입(머신 단위). 끄면 판정 자체를 하지 않는다(모델 호출 0). */
+  setSessionProbeSettings(settings: SessionLivenessProbeSettings): void {
+    this.sessionProbeSettings = settings;
+  }
+
+  /** 테스트·진단용 — 그 세션에 걸린 마지막 판정. */
+  getSessionProbeState(subId: string): SessionLivenessProbeResult | undefined {
+    return this.sessionProbeStates.get(subId)?.result;
+  }
+
+  /**
+   * §2.4 — **돌고 있다고 표시되는 세션 하나**를 골라 에이전트에게 물어보고, 답에 따라 유지·종료한다.
+   *
+   * 고르는 대상이 핵심이다 — `hasLivingWork` 이 **참**인 세션만 본다. 그 술어가 거짓이면 이미
+   * `reconcileDeadActiveSubs`·`sealZombieExecutingCommands` 가 걷어 갔다. 즉 여기 남는 것은
+   * **기존 다섯 장치가 손댈 수 없는 자리**뿐이고, 그래서 이 축만 모델이 판정한다.
+   *
+   * **비동기라 스윕 밖에 있다.** 여기서 몇 초짜리 모델 호출을 기다리면 주기 루프가 멈춘다 —
+   * 한 건만 띄우고 즉시 반환하며, 결과는 도착한 뒤에 반영된다.
+   */
+  maybeProbeRunningSessions(
+    queues: Map<string, QueuedCommand[]>,
+    now: number = Date.now(),
+  ): void {
+    const settings = this.sessionProbeSettings;
+    if (!settings.enabled) return;
+    if (this.sessionProbesInFlight.size >= SESSION_PROBE_CONCURRENCY) return;
+    this.sessionProbeHistory = this.sessionProbeHistory.filter((t) => now - t < 3_600_000);
+    if (this.sessionProbeHistory.length >= SESSION_PROBE_MAX_PER_HOUR) return;
+
+    const candidate = this.pickSessionForProbe(queues, now, settings.quietMinutes);
+    if (!candidate) return;
+
+    this.sessionProbesInFlight.add(candidate.subId);
+    this.sessionProbeHistory.push(now);
+    const sub = this.index.get(candidate.subId);
+    if (sub) sub.probing = true;
+    logger.info(
+      `[session-probe] 확인 착수 sub=${candidate.subId} quiet=${candidate.evidence.quietMin ?? '?'}분 `
+      + `label=${candidate.evidence.label ?? '-'}`,
+    );
+    this.onSubStatusChange?.(candidate.parentAgentId); // "확인 중" 을 곧바로 화면에
+
+    void runSessionLivenessProbe(candidate.evidence, settings.model)
+      .then((result) => { this.applySessionProbeVerdict(candidate, result, settings, queues); })
+      .catch((err) => { logger.warn(`[session-probe] 판정 중 예외 — 세션은 그대로 둔다: ${String(err)}`); })
+      .finally(() => {
+        this.sessionProbesInFlight.delete(candidate.subId);
+        const after = this.index.get(candidate.subId);
+        if (after) delete after.probing;
+        this.onSubStatusChange?.(candidate.parentAgentId);
+      });
+  }
+
+  /**
+   * 이 세션의 명령을 **큐 전체에서** 훑는다 — 키를 짐작하지 않는다.
+   *
+   * `commandQueues` 의 키는 **훅 세션 id**(`graphManager.findSessionByAgentId`)이고 `SubAgent.sessionId`
+   * 는 **CLI 가 발급한 세션 UUID** 다. 이름이 같아서 헷갈리지만 서로 다른 namespace 라, 후자로
+   * 조회하면 늘 빈 배열이 나온다. 그러면 ⓐ 큐에 명령이 쌓여 있어도 증거에는 `0` 으로 실려 모델이
+   * "기다리는 것이 없다"로 읽고 ⓑ 종료 판정에서 붙들린 명령을 못 풀어 그 탭이 "쉬는 중"인데 새
+   * 명령은 못 받는 자리에 갇힌다. 소유는 `cmd.subAgentId` 로만 가른다 —
+   * `sealZombieExecutingCommands` 가 쓰는 것과 같은 방식이다.
+   */
+  private commandsOfSub(queues: Map<string, QueuedCommand[]>, subId: string): QueuedCommand[] {
+    const out: QueuedCommand[] = [];
+    for (const queue of queues.values()) {
+      for (const cmd of queue) { if (cmd.subAgentId === subId) out.push(cmd); }
+    }
+    return out;
+  }
+
+  /**
+   * 물어볼 세션 하나를 고른다 — **가장 오래 조용한 것 하나**.
+   *
+   * 조건: 화면에 도는 중으로 서 있고(`status==='active'`) · `hasLivingWork` 이 참이라 기존 장치가
+   * 못 걷고 · 대화록을 찾을 수 있고 · 조용한 시간이 임계(백오프 배수 포함)를 넘었을 것.
+   * 대화록을 못 찾으면 판정 근거 자체가 없으므로 조용히 건너뛴다.
+   */
+  private pickSessionForProbe(
+    queues: Map<string, QueuedCommand[]>,
+    now: number,
+    quietMinutes: number,
+  ): { subId: string; parentAgentId: string; evidence: SessionProbeEvidence } | null {
+    let best: { subId: string; parentAgentId: string; evidence: SessionProbeEvidence } | null = null;
+
+    for (const sub of this.index.values()) {
+      if (sub.status !== 'active') continue;
+      // 기존 다섯 장치가 걷을 수 있는 자리면 그쪽에 맡긴다 — 두 축이 같은 세션을 다투면 안 된다.
+      if (!this.hasLivingWork(sub.id)) continue;
+      if (this.sessionProbesInFlight.has(sub.id)) continue;
+      if (!sub.sessionId) continue;
+
+      const tx = resolveSessionTranscript(sub.sessionId, undefined, now);
+      if (!tx) continue;
+
+      const quietMin = Math.floor((now - tx.mtimeMs) / 60_000);
+      const st = this.sessionProbeStates.get(sub.id);
+      // `working` 으로 나온 세션은 조용한 시간이 배수만큼 더 길어져야 다시 묻는다(지수 백오프).
+      const threshold = quietMinutes * (st?.thresholdMult ?? 1);
+      if (quietMin < threshold) continue;
+      if (best && best.evidence.quietMin !== undefined && quietMin <= best.evidence.quietMin) continue;
+
+      const seal = this.turnSealStates.get(sub.id);
+      const queue = this.commandsOfSub(queues, sub.id);
+      best = {
+        subId: sub.id,
+        parentAgentId: sub.parentAgentId,
+        evidence: {
+          subId: sub.id,
+          ...(sub.label ? { label: sub.label } : {}),
+          startedAgoMin: Math.max(0, Math.floor((now - sub.createdAt) / 60_000)),
+          quietMin,
+          transcriptBytes: tx.bytes,
+          tail: summarizeTranscriptTail(tx.file),
+          runningTaskCount: seal ? listDisplayableLiveTasks(seal).length : 0,
+          queuedCommandCount: queue.filter((c) => c.status === 'queued').length,
+          processAlive: this.isSubRunning(sub.id),
+        },
+      };
+    }
+    return best;
+  }
+
+  /**
+   * 판정을 반영한다. `finished` 만 세션을 내리고, `stuck` 은 **화면에 세우기만 한다** —
+   * 멈춘 것처럼 보이는 세션과 긴 빌드를 기다리는 멀쩡한 세션은 증거로 구분되지 않아서,
+   * 우리가 정하면 남의 작업을 죽인다(판단은 사용자 몫).
+   */
+  private applySessionProbeVerdict(
+    candidate: { subId: string; parentAgentId: string },
+    result: SessionLivenessProbeResult | null,
+    settings: SessionLivenessProbeSettings,
+    queues: Map<string, QueuedCommand[]>,
+  ): void {
+    if (!result) {
+      // 답을 못 받았다 — 다음 회차에 곧바로 다시 묻지 않도록 간격만 벌린다.
+      this.bumpSessionProbeBackoff(candidate.subId);
+      return;
+    }
+    this.sessionProbeStates.set(candidate.subId, {
+      result,
+      // `finished` 는 곧 내려가므로 배수를 늘릴 이유가 없다. 나머지는 지수로 벌린다.
+      thresholdMult: result.verdict === 'finished'
+        ? 1
+        : Math.min(
+          SESSION_PROBE_BACKOFF_MAX,
+          (this.sessionProbeStates.get(candidate.subId)?.thresholdMult ?? 1) * SESSION_PROBE_BACKOFF_FACTOR,
+        ),
+    });
+    capMapSize(this.sessionProbeStates, SESSION_KEYED_MAP_MAX);
+
+    const sub = this.index.get(candidate.subId);
+    if (sub) sub.probe = result;
+    logger.info(`[session-probe] 판정 sub=${candidate.subId} → ${result.verdict} · ${result.reason}`);
+
+    if (result.verdict !== 'finished' || !settings.autoClose) return;
+    if (!sub || sub.status !== 'active') return; // 그 사이 스스로 끝났다 — 정상 경로다.
+
+    // 상태를 내리면서 **붙들려 있던 명령도 함께 푼다.** 하나만 하면 그 탭은 "쉬는 중"으로 보이면서
+    // 새 명령은 못 받는 자리에 갇힌다(`sealZombieExecutingCommands` 가 지키는 것과 같은 짝).
+    const closedAt = Date.now();
+    sub.status = 'idle';
+    sub.lastActivityAt = closedAt;
+    for (const cmd of this.commandsOfSub(queues, sub.id)) {
+      if (cmd.status !== 'executing') continue;
+      cmd.status = 'completed';
+      cmd.result = `[확인] 에이전트 판정으로 종료: ${result.reason}`;
+    }
+    logger.info(`[session-probe] 종료 sub=${candidate.subId} · ${result.reason}`);
+    this.onSubStatusChange?.(candidate.parentAgentId);
+  }
+
+  /** 답을 못 받았을 때의 간격 벌리기 — 같은 세션에 판정을 반복해 태우지 않는다. */
+  private bumpSessionProbeBackoff(subId: string): void {
+    const prev = this.sessionProbeStates.get(subId);
+    this.sessionProbeStates.set(subId, {
+      ...(prev?.result ? { result: prev.result } : {}),
+      thresholdMult: Math.min(SESSION_PROBE_BACKOFF_MAX, (prev?.thresholdMult ?? 1) * SESSION_PROBE_BACKOFF_FACTOR),
+    });
+    capMapSize(this.sessionProbeStates, SESSION_KEYED_MAP_MAX);
   }
 
   /**

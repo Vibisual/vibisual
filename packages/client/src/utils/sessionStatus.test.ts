@@ -8,6 +8,7 @@ import {
   type QueuedCommand,
   type RunningSubagentTask,
   type SubAgent,
+  type SessionLivenessProbeResult,
 } from '@vibisual/shared';
 import {
   NODE_STATUS_AS_SUB_STATUS,
@@ -17,6 +18,7 @@ import {
   buildSessionRunInputs,
   sessionRunStateOf,
   serializeBusySubIds,
+  sessionProbeNote,
   parseBusySubIds,
   isAgentDormant,
 } from './sessionStatus.js';
@@ -268,5 +270,51 @@ describe('isAgentDormant — 자식 프로세스를 하나도 안 들고 있는�
 
   it('하나라도 자식을 들고 있으면 잠든 것이 아니다 — 그 버블은 여전히 메모리를 쓴다', () => {
     expect(isAgentDormant([sub('a', true), sub('b')])).toBe(false);
+  });
+});
+
+describe('sessionProbeNote — §2.4 "실행중…" 옆의 한 마디', () => {
+  // 넣는 칸만 받는다 — `Partial<SubAgent>` 를 펼치면 필수 칸까지 undefined 로 넓어진다.
+  const sub = (extra: { probing?: boolean; probe?: SessionLivenessProbeResult }): SubAgent => ({
+    id: 's1',
+    sessionId: 'sess-1',
+    label: 'Sub #1',
+    parentAgentId: 'agent-1',
+    status: 'active',
+    createdAt: 0,
+    lastActivityAt: 0,
+    ...(extra.probing === undefined ? {} : { probing: extra.probing }),
+    ...(extra.probe === undefined ? {} : { probe: extra.probe }),
+  });
+
+  it('판정이 없으면 아무 말도 하지 않는다 — 스피너만 있던 종전 화면 그대로', () => {
+    expect(sessionProbeNote(sub({}))).toBeNull();
+    expect(sessionProbeNote(null)).toBeNull();
+    expect(sessionProbeNote(undefined)).toBeNull();
+  });
+
+  it('물어보는 중이면 그 사실을 곧바로 말한다', () => {
+    const note = sessionProbeNote(sub({ probing: true }));
+    expect(note?.key).toBe('panel.subAgent.probe.checking');
+    expect(note?.warn).toBe(false);
+  });
+
+  it('stuck 만 경고 색이다 — 사용자를 부르는 자리는 하나뿐이어야 한다', () => {
+    const stuck = sessionProbeNote(sub({ probe: { at: 1, verdict: 'stuck', reason: '사용자 답을 기다림' } }));
+    expect(stuck?.warn).toBe(true);
+    expect(stuck?.detail).toBe('사용자 답을 기다림');
+
+    const working = sessionProbeNote(sub({ probe: { at: 1, verdict: 'working', reason: '빌드 진행 중' } }));
+    expect(working?.warn).toBe(false);
+    expect(working?.key).toBe('panel.subAgent.probe.working');
+  });
+
+  it('unknown 은 적지 않는다 — 할 말이 없으면 비워 두는 편이 낫다', () => {
+    expect(sessionProbeNote(sub({ probe: { at: 1, verdict: 'unknown', reason: '' } }))).toBeNull();
+  });
+
+  it('물어보는 중이 판정보다 앞선다 — 방금 시작한 확인이 옛 답에 가려지면 안 된다', () => {
+    const note = sessionProbeNote(sub({ probing: true, probe: { at: 1, verdict: 'working', reason: 'x' } }));
+    expect(note?.key).toBe('panel.subAgent.probe.checking');
   });
 });

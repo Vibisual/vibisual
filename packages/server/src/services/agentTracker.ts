@@ -77,13 +77,17 @@ export class AgentTracker {
     logger.info(`Agent force-stopped → completed (session: ${sessionId})`);
   }
 
-  /** 유저가 확인 → 빨강 끄고 idle 복귀 */
-  dismiss(sessionId: string): void {
+  /**
+   * 유저가 확인 → 빨강 끄고 idle 복귀.
+   * @returns 즉시 제거된 전유 file/folder 버블 id 목록(걷을 게 없었으면 빈 배열).
+   */
+  dismiss(sessionId: string): string[] {
     // 사용자 확인 dismiss → purgeNodes=true: 그 에이전트가 전유하던 file/folder
     // 버블을 idle(5분 TTL)이 아니라 즉시 제거 (§2.4 v1.82).
-    graphManager.markAgentIdle(sessionId, true);
+    const purged = graphManager.markAgentIdle(sessionId, true);
     broadcastSnapshot();
-    logger.info(`Agent acknowledged → idle + purged owned file/folder bubbles (session: ${sessionId})`);
+    logger.info(`Agent acknowledged → idle + purged ${purged.length} owned file/folder bubble(s) (session: ${sessionId})`);
+    return purged;
   }
 
   activeCount(): number {

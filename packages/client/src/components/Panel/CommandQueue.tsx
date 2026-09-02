@@ -276,12 +276,12 @@ function CommandInputPopup({ agentId, onSubmit, onClose }: CommandInputPopupProp
                   >
                     <span className="flex h-2 w-2 flex-shrink-0 rounded-full bg-emerald-400" />
                     <div className="min-w-0 flex-1">
-                      <span className="block text-xs font-medium text-gray-200">{sub.label}</span>
+                      <span className="block truncate text-xs font-medium text-gray-200" title={sub.label}>{sub.label}</span>
                       {sub.lastCommand && (
                         <span className="block truncate text-[12px] text-gray-500">{sub.lastCommand}</span>
                       )}
                     </div>
-                    <span className="text-[12px] text-gray-500">
+                    <span className="flex-shrink-0 whitespace-nowrap text-[12px] text-gray-500">
                       {new Date(sub.lastActivityAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                     </span>
                   </button>
@@ -307,13 +307,13 @@ function CommandInputPopup({ agentId, onSubmit, onClose }: CommandInputPopupProp
           <div className="p-4">
             {/* 선택된 세션 표시 */}
             <div className="mb-3 flex items-center gap-2">
-              <span className="text-[12px] text-gray-500">{t('panel.commandQueue.session')}</span>
+              <span className="flex-shrink-0 text-[12px] text-gray-500">{t('panel.commandQueue.session')}</span>
               {selectedSubId ? (
-                <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[12px] font-medium text-emerald-400">
+                <span className="min-w-0 truncate rounded bg-emerald-500/15 px-1.5 py-0.5 text-[12px] font-medium text-emerald-400">
                   {idleSubs.find((s) => s.id === selectedSubId)?.label ?? selectedSubId}
                 </span>
               ) : (
-                <span className="rounded bg-blue-500/15 px-1.5 py-0.5 text-[12px] font-medium text-blue-400">
+                <span className="flex-shrink-0 rounded bg-blue-500/15 px-1.5 py-0.5 text-[12px] font-medium text-blue-400">
                   {t('panel.commandQueue.newBadge')}
                 </span>
               )}
@@ -321,7 +321,7 @@ function CommandInputPopup({ agentId, onSubmit, onClose }: CommandInputPopupProp
                 <button
                   type="button"
                   onClick={() => setStep('select')}
-                  className="text-[12px] text-gray-500 hover:text-gray-300"
+                  className="flex-shrink-0 whitespace-nowrap text-[12px] text-gray-500 hover:text-gray-300"
                 >
                   {t('panel.commandQueue.change')}
                 </button>
@@ -470,7 +470,7 @@ function DraggableItem({
         <div className="mt-0.5 flex flex-wrap items-center gap-1">
           {/* subagent 라벨 */}
           {sub && (
-            <span className={`inline-block rounded px-1 py-px text-[12px] font-medium ${
+            <span className={`inline-block max-w-full truncate rounded px-1 py-px text-[12px] font-medium ${
               isExecuting ? 'bg-blue-500/15 text-blue-400' : 'bg-gray-600/30 text-gray-500'
             }`}>
               {sub.label}

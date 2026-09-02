@@ -2,11 +2,11 @@ import { join } from 'node:path';
 import { createServer, type Server as HttpServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
-import { app, shell, BrowserWindow, protocol, screen, dialog, Notification } from 'electron';
+import { app, shell, BrowserWindow, protocol, screen, dialog, Notification, session } from 'electron';
 import { electronApp, optimizer } from '@electron-toolkit/utils';
 import { inject, type DispatchFunc } from 'light-my-request';
 import type { Express } from 'express';
-import { unloadAllLocalModels, runServer, shutdownDiskWriteQueue, setBroadcastSink, setHookListenerPort, setHookListenerToken, setHookListenerIdentityFile, setHookHandlerPath, setDebugLogDir, ensureClaudeHooksInstalled, refreshStatusLineIfInstalled, recordDiagnostic, subAgentManager, stopAllPlays, closeStaticHost, setCmdTerminalController, setCmdBlockedNotifier, setWorkspaceTrash, getUiLocale } from '@vibisual/server';
+import { unloadAllLocalModels, runServer, shutdownDiskWriteQueue, flushPendingCheckpointSave, setBroadcastSink, setHookListenerPort, setHookListenerToken, setHookListenerIdentityFile, setHookHandlerPath, setDebugLogDir, ensureClaudeHooksInstalled, refreshStatusLineIfInstalled, recordDiagnostic, subAgentManager, stopAllPlays, closeStaticHost, setCmdTerminalController, setCmdBlockedNotifier, setWorkspaceTrash, getUiLocale } from '@vibisual/server';
 import { IFRAME_PROXY_PATH, WORKSPACE_SITE_PATH } from '@vibisual/shared';
 import { setupIpc, type IpcHub } from './ipc';
 import { loadSecrets } from './secrets';
@@ -19,6 +19,8 @@ import { initAutoUpdater, stopAutoUpdater, isUpdateInstallPending, runPendingUpd
 import { openExternalWithNotice } from './externalOpen';
 import { killAllTerminals, terminalController, setTerminalCardIdentity } from './terminalManager';
 import { appendCrashLine, logAppStart, logCleanExit, startCrashReporter } from './crashLog';
+// §3.2.1 — 종료 직전 렌더러가 아직 안 저장한 손글씨(세션 입력·IDE 폼 초안·명령 히스토리)를 받아 낸다.
+import { flushRendererDrafts } from './rendererFlush';
 import { mainStrings, fmt } from './strings';
 
 // Vibisual desktop main — SCENARIO.md §3.7 (in-process 통합, 단일 프로세스).
@@ -605,6 +607,23 @@ if (!gotSingleInstanceLock) {
   app.whenReady().then(async () => {
   electronApp.setAppUserModelId('com.vibisual.app');
 
+  // §5.5 #17-38 — **마이크를 열 수 있게 한다.** 받아쓰기는 렌더러의 getUserMedia 로 마이크를
+  //   여는데, 패키지 앱의 렌더러는 file:// 에서 뜨고 Electron 은 그 출처의 media 권한을 앱이
+  //   명시적으로 받아 주지 않으면 거절한다(숨김 창 실측: 처리기가 없으면 음성 인식이 곧바로
+  //   not-allowed 로 죽는다). 요청(request)과 확인(check) 두 경로가 따로라 둘 다 답해야 한다 —
+  //   getUserMedia 는 확인 경로를 먼저 밟는다.
+  //
+  //   **목록을 좁히지 않는 것이 의도다.** 종전에는 처리기 자체가 없어 Electron 기본값으로
+  //   돌았고, 여기서 아는 것만 골라 허용하면 이미 도는 기능(화면 캡처·클립보드·알림·전체화면)
+  //   중 무엇이 조용히 죽을지 실기 없이 알 수 없다. 노출면도 늘지 않는다 — 이 세션에 뜨는
+  //   것은 우리 번들과 로컬 프리뷰뿐이고, 바깥 주소는 기본 브라우저로 내보낸다(§5.13 (R-6)).
+  //   모든 창이 defaultSession 하나를 쓰므로(커스텀 partition ❌) 이 한 벌이 전부를 덮는다.
+  const allowPermission = (): true => true;
+  session.defaultSession.setPermissionRequestHandler((_wc, _permission, callback) => {
+    callback(allowPermission());
+  });
+  session.defaultSession.setPermissionCheckHandler(allowPermission);
+
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window);
   });
@@ -728,12 +747,27 @@ app.on('before-quit', (event) => {
   // 없으면 그 사이 팅긴 것으로 판별된다.
   logCleanExit();
 
-  // §5.4 #14-1 — 메인 종료 시 detached 별창 일괄 정리(서버 영속화 ❌, in-memory 라 자연 소멸).
-  closeAllDetachedWindows();
-  // §5.5 #17-6 — 오버레이 위젯 창 일괄 정리.
-  closeAllOverlays();
-  // §5.12 — 지휘통제실 창 일괄 정리(영속화 ❌ — 재시작 시 복원하지 않는다).
-  closeAllCommandCenters();
+  // §3.2.1 — 렌더러가 아직 디스크에 안 앉힌 손글씨(세션 입력 초안 §5.3 #28 · IDE 폼 초안 §5.5 ⑬ ·
+  //   명령 히스토리 §5.5 #17-23)를 먼저 받아 낸다. 그 셋은 타이핑 핫패스를 지키려고 400ms
+  //   debounce 로 쓰고 `pagehide`/`beforeunload` 에서 즉시 flush 하기로 돼 있는데, 우리 종료는
+  //   창을 정상으로 닫지 않고 `app.exit(0)` 으로 프로세스를 내리므로 **그 이벤트가 뜨지 않는다**.
+  //   ⚠ 이 요청은 **창 정리보다 위**에 있어야 한다 — 닫힌 창은 답하지 않는다.
+  const draftFlush = flushRendererDrafts().catch((err: unknown) => {
+    console.warn('[main] flushRendererDrafts failed:', err);
+  });
+
+  // 창 정리는 그 답을 받은 뒤에 한다(순서가 뒤집히면 그 창의 초안을 잃는다).
+  // 어차피 마지막은 `app.exit(0)` 이라 몇 ms 늦게 닫히는 것 자체는 아무 차이가 없다.
+  const windowsClosed = draftFlush.then(() => {
+    // §5.4 #14-1 — 메인 종료 시 detached 별창 일괄 정리(서버 영속화 ❌, in-memory 라 자연 소멸).
+    closeAllDetachedWindows();
+    // §5.5 #17-6 — 오버레이 위젯 창 일괄 정리.
+    closeAllOverlays();
+    // §5.12 — 지휘통제실 창 일괄 정리(영속화 ❌ — 재시작 시 복원하지 않는다).
+    closeAllCommandCenters();
+  }).catch((err: unknown) => {
+    console.warn('[main] window cleanup failed:', err);
+  });
 
   // §4 v2.44 — 업데이트 체크 타이머 해제.
   stopAutoUpdater();
@@ -790,6 +824,18 @@ app.on('before-quit', (event) => {
     console.warn('[main] unloadAllLocalModels failed:', err);
   }
 
+  // §9 — 코얼레스된 체크포인트 창을 **지금 동기로** 마무리한다(§3.2.1 내구성).
+  //   ⚠ 반드시 아래 `shutdownDiskWriteQueue()` **앞**이다 — 순서가 뒤집히면 이 저장이 만든 쓰기가
+  //     큐에 남은 채 프로세스가 사라진다. 예약이 없으면 no-op 이라 종료가 느려지지 않는다.
+  //   ⚠ 이것이 없으면 서버의 `process 'exit'` 만 남는데, 우리 종료 경로는 전부 `app.exit(0)` 이라
+  //     그 이벤트가 돌지 않을 수 있다 — 정상 종료·업데이트 설치마다 마지막 창(0.5~5초) 분량이
+  //     조용히 사라지던 자리다.
+  try {
+    flushPendingCheckpointSave();
+  } catch (err) {
+    console.warn('[main] flushPendingCheckpointSave failed:', err);
+  }
+
   // §9 — 체크포인트 디스크 쓰기 워커: 남은 쓰기를 동기로 마무리하고 스레드를 내린다.
   //   여기서 정리해 두면 뒤따르는 process 'exit' flush 는 아무것도 남지 않은 상태에서 no-op 이 된다.
   try {
@@ -819,5 +865,7 @@ app.on('before-quit', (event) => {
     finishQuit();
   }, QUIT_CLEANUP_TIMEOUT_MS);
 
-  Promise.all([listenerClose, mobileClose, chatClose, subShutdown, playShutdown]).finally(finishQuit);
+  // `windowsClosed` 가 여기 들어 있으므로 렌더러 초안 flush 가 끝나기 전에는 나가지 않는다
+  // (그 안에서도 상한을 지키므로 워치독보다 먼저 풀린다).
+  Promise.all([windowsClosed, listenerClose, mobileClose, chatClose, subShutdown, playShutdown]).finally(finishQuit);
 });

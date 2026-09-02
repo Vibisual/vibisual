@@ -11,20 +11,35 @@ interface Props {
   screenY: number;
   onClose: () => void;
   onCommit: (next: number) => void;
+  /**
+   * 허용 범위. 안 주면 §7.5 폴더 위성 상한(`SATELLITE_MAX_BOUNDS`).
+   * §7.22 도메인 버블은 `WEB_ENTRY_MAX_BOUNDS`(1~100)를 준다 — **같은 일에 창을 두 벌 만들지
+   * 않는다**(한쪽만 고쳐져 어긋난다).
+   */
+  bounds?: { MIN: number; MAX: number };
+  /** 제목 i18n 키. 안 주면 폴더 위성 문구. */
+  titleKey?: string;
+  /** 하단 힌트 i18n 키. 안 주면 폴더 위성 문구. */
+  hintKey?: string;
 }
 
-const { MIN, MAX } = SATELLITE_MAX_BOUNDS;
-const clamp = (n: number): number => Math.min(MAX, Math.max(MIN, Math.round(n)));
-
-/** §7.5 v1.62 — 폴더 위성 표시 상한을 포인터 옆 작은 팝업에서 편집 */
+/** §7.5 v1.62 — 버블별 표시 상한을 포인터 옆 작은 팝업에서 편집(§7.22 도메인 버블 공용) */
 export function SatelliteMaxPopup({
   value,
   screenX,
   screenY,
   onClose,
   onCommit,
+  bounds,
+  titleKey,
+  hintKey,
 }: Props): React.JSX.Element {
   const { t } = useTranslation();
+  const { MIN, MAX } = bounds ?? SATELLITE_MAX_BOUNDS;
+  const clamp = useCallback(
+    (n: number): number => Math.min(MAX, Math.max(MIN, Math.round(n))),
+    [MIN, MAX],
+  );
   const [draft, setDraft] = useState(value);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -35,7 +50,7 @@ export function SatelliteMaxPopup({
     const next = clamp(draft);
     if (next !== value) onCommit(next);
     onClose();
-  }, [draft, value, onCommit, onClose]);
+  }, [draft, value, onCommit, onClose, clamp]);
 
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -63,7 +78,7 @@ export function SatelliteMaxPopup({
     >
       <div className="mb-2 flex items-center justify-between">
         <span className="text-[12px] font-semibold text-violet-300">
-          {t('panel.folderFileTree.maxTitle')}
+          {t(titleKey ?? 'panel.folderFileTree.maxTitle')}
         </span>
         <button
           type="button"
@@ -126,7 +141,7 @@ export function SatelliteMaxPopup({
       />
 
       <div className="mt-2 flex items-center justify-between">
-        <span className="text-[12px] text-gray-500">{t('panel.folderFileTree.maxHint')}</span>
+        <span className="text-[12px] text-gray-500">{t(hintKey ?? 'panel.folderFileTree.maxHint')}</span>
         <button
           type="button"
           onClick={commit}

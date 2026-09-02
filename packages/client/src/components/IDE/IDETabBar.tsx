@@ -24,6 +24,10 @@ import {
   findHiddenRunningTabs, sameHiddenRunningTabs, noHiddenRunningTabs,
   type HiddenRunningTabs, type TabBox,
 } from './hiddenRunningTabs.js';
+// §5.5 #17-40 — 탭이 꽉 차 오른쪽 고정 + 와 붙게 되면 인라인 + 는 물러난다.
+import { shouldShowInlineNew } from './inlineNewButton.js';
+// §5.5 #17-41 — 탭 정렬 손잡이. 줄 세우는 판정은 `tabSort.ts` 가, 커밋은 아래 `commitOrder` 하나가 맡는다.
+import { IDETabSortMenu } from './IDETabSortMenu.js';
 
 interface IDETabBarProps {
   subAgents: SubAgent[];
@@ -235,20 +239,29 @@ export const IDETabBar = memo(function IDETabBar({
     e.preventDefault();
   }, []);
 
-  // 손을 떼는 순간(드롭·취소·바깥 릴리스 모두 여기로 온다) 화면에 보이는 순서를 그대로 커밋한다.
-  const handleDragEnd = useCallback(() => {
-    setDraggingId(null);
-    if (!agentId || !localOrder) return;
-    if (sameOrder(subAgents.map((s) => s.id), localOrder)) { setLocalOrder(null); return; }
+  /**
+   * 탭 순서 커밋 — **손으로 끌어 맞춘 순서와 정렬 버튼이 세운 순서가 같은 문으로 나간다**(§5.5 #17-41).
+   * 화면을 먼저 바꾸고(로컬 순서) 서버에 보낸다 — 서버 왕복을 기다리면 정렬을 눌러도 한 박자 늦게 움직인다.
+   */
+  const commitOrder = useCallback((order: string[]) => {
+    if (!agentId) return;
+    if (sameOrder(subAgents.map((s) => s.id), order)) { setLocalOrder(null); return; }
+    setLocalOrder(order);
     fetch(`/api/subagents/${agentId}/order`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ order: localOrder }),
+      body: JSON.stringify({ order }),
     })
       // snapshot 이 권위 — 커밋이 거절되면 로컬 순서를 놓아 서버 순서로 되돌아간다.
       .then((r) => { if (!r.ok) setLocalOrder(null); })
       .catch(() => setLocalOrder(null));
-  }, [agentId, localOrder, subAgents]);
+  }, [agentId, subAgents]);
+
+  // 손을 떼는 순간(드롭·취소·바깥 릴리스 모두 여기로 온다) 화면에 보이는 순서를 그대로 커밋한다.
+  const handleDragEnd = useCallback(() => {
+    setDraggingId(null);
+    if (localOrder) commitOrder(localOrder);
+  }, [localOrder, commitOrder]);
 
   // 활성 탭이 닫히는 집합에 포함되면 인접한 생존 탭(앞→뒤 순)으로 이동, 없으면 null.
   // 단일/일괄 닫기 공용 — 일괄 닫기에서 active 가 대상에 있어도 한 번에 올바른 생존 탭을 고른다.
@@ -378,6 +391,11 @@ export const IDETabBar = memo(function IDETabBar({
   const runningIdsRef = useRef<ReadonlySet<string>>(new Set<string>());
   const hiddenRef = useRef<HiddenRunningTabs>(noHiddenRunningTabs());
 
+  // §5.5 #17-40 — 마지막 탭 옆에 붙어 따라다니는 인라인 + (새 세션). 탭이 폭을 다 먹어
+  //   오른쪽 고정 + 옆까지 밀려오면 같은 버튼이 두 번 찍힌 것처럼 보여 감춘다.
+  //   판정은 순수 모듈이 하고, 여기서는 **바뀔 때만** display 를 쓴다(스크롤마다 리렌더 ❌).
+  const inlineNewRef = useRef<HTMLButtonElement>(null);
+
   const syncHiddenRunning = useCallback((el: HTMLDivElement) => {
     const boxes: TabBox[] = [];
     for (const child of Array.from(el.children)) {
@@ -402,12 +420,38 @@ export const IDETabBar = memo(function IDETabBar({
     if (id) setSession(id);
   }, [setSession]);
 
+  /**
+   * §5.5 #17-40 — 마지막 탭이 끝나는 자리로 인라인 + 노출을 정한다.
+   * 스크롤마다 도는 자리라 값이 **바뀔 때만** style 을 쓴다(쓰기 → 읽기가 곧 강제 리플로우다).
+   * 인라인 버튼 자기 폭은 세지 않는다 — 숨겼다가 자리가 남아 다시 뜨는 진동을 막는다.
+   */
+  const syncInlineNew = useCallback((el: HTMLDivElement) => {
+    const btn = inlineNewRef.current;
+    if (!btn) return;
+    let tabsRight = 0;
+    for (let i = el.children.length - 1; i >= 0; i -= 1) {
+      const child = el.children[i];
+      // 탭이 아닌 자식(인라인 + 자신)은 `data-tab-id` 가 없어 자연히 걸러진다.
+      if (!(child instanceof HTMLElement) || !child.dataset.tabId) continue;
+      tabsRight = child.offsetLeft + child.offsetWidth;
+      break;
+    }
+    const show = shouldShowInlineNew(tabsRight, el.clientWidth);
+    // 지금 상태는 별도 ref 가 아니라 **버튼 자신에게** 묻는다 — 인라인 style 읽기라
+    //   리플로우가 없고, 버튼이 다시 마운트되어도 기억과 화면이 어긋나지 않는다.
+    if ((btn.style.display !== 'none') === show) return;
+    btn.style.display = show ? '' : 'none';
+  }, []);
+
   const updateScrollState = useCallback(() => {
     const el = scrollRef.current;
     const fL = fadeLeftRef.current;
     const fR = fadeRightRef.current;
     const th = thumbRef.current;
     if (!el || !fL || !fR || !th) return;
+    // §5.5 #17-40 — 인라인 + 를 먼저 정리한다. 이 버튼이 사라지면 `scrollWidth` 가 줄어드니
+    //   아래 페이드·썸 계산은 **정리된 뒤의** 폭을 봐야 한 프레임 어긋나지 않는다.
+    syncInlineNew(el);
     const overflow = el.scrollWidth - el.clientWidth;
     fL.classList.toggle('visible', el.scrollLeft > 4);
     fR.classList.toggle('visible', overflow - el.scrollLeft > 4);
@@ -424,7 +468,7 @@ export const IDETabBar = memo(function IDETabBar({
     th.style.opacity = '1';
     th.style.width = `${width}px`;
     th.style.transform = `translateX(${left}px)`;
-  }, [syncHiddenRunning]);
+  }, [syncHiddenRunning, syncInlineNew]);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -705,9 +749,11 @@ export const IDETabBar = memo(function IDETabBar({
         );
           })}
           {/* 세션 탭 바로 옆 인라인 New 버튼 — 우측 끝 + 버튼이 멀어서, 마지막 탭 옆에 바로 붙는다(크롬식).
-              §5.5 #17-29 — 훅 버블은 읽기 전용이라 세션을 새로 붙일 손잡이 자체를 두지 않는다. */}
+              §5.5 #17-29 — 훅 버블은 읽기 전용이라 세션을 새로 붙일 손잡이 자체를 두지 않는다.
+              §5.5 #17-40 — 탭이 폭을 다 먹어 오른쪽 고정 + 에 붙으면 `syncInlineNew` 가 이 버튼을 감춘다. */}
           {isCustom && (
           <button
+            ref={inlineNewRef}
             type="button"
             onClick={onNewSession}
             className="flex h-8 w-8 flex-shrink-0 items-center justify-center self-end text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300"
@@ -758,6 +804,10 @@ export const IDETabBar = memo(function IDETabBar({
           style={{ opacity: 0, width: 0 }}
         />
       </div>
+
+      {/* §5.5 #17-41 — 탭 정렬. `+` 바로 왼쪽에 서고, 세울 줄이 있을 때(세션 2개 이상)만 뜬다.
+          정렬은 세션을 만들지 않으므로 훅 버블에서도 쓸 수 있다(#17-29 의 읽기 전용 경계 밖). */}
+      <IDETabSortMenu subs={orderedSubs} agentId={agentId} onSort={commitOrder} />
 
       {/* New tab button — 커스텀 에이전트만(§5.5 #17 / #17-29 훅 버블 = 읽기 전용) */}
       {isCustom && (

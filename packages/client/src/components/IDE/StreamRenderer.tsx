@@ -20,7 +20,7 @@ import type { Components } from 'react-markdown';
 import type { SubAgentStreamEvent, QueuedCommand, CommandError, AgentReport, AgentQuestions, AgentReview, AgentList, AskUserQuestionRequest } from '@vibisual/shared';
 import { SystemNode, parseSystemSubtype, parseSystemTaskInfo } from './SystemNode.js';
 import { useAttachmentThumbs } from './attachmentThumb.js';
-import { ThinkingLiveLine } from './ThinkingIndicator.js';
+import { ThinkingLiveLine, StepTraceLine, WriteTraceLine } from './ThinkingIndicator.js';
 import { AgentReportCard } from './AgentReportCard.js';
 import { FeedbackButtons } from './FeedbackButtons.js';
 import { useGraphStore } from '../../stores/graphStore.js';
@@ -45,8 +45,10 @@ import { toolPreview } from './toolPreview.js';
 import {
   mergeCardsIntoItems, IncrementalStreamParser,
   type StreamText, type StreamGroup, type StreamSystem, type StreamResult, type StreamError,
-  type StreamCommand, type StreamItemFull,
+  type StreamCommand, type StreamItemFull, type StreamStep,
 } from './streamItems.js';
+import { shouldTraceWriting, toolGroupElapsedMs } from './turnSteps.js';
+import { thinkTraceText, writeTraceText, toolElapsedText } from './stepTraceText.js';
 import { describeCommandError, parseStreamErrorContent } from './commandError.js';
 import {
   applyStreamDensity, sameDisplayItem, displayItemId, clampStreamText,
@@ -442,7 +444,7 @@ const remarkPlugins = [remarkGfm];
  *  뒤섞여 오히려 지저분해 보이므로, **박스를 걷어내고 평범한 본문 텍스트**로 둔다. 다만 "AI 가 말하는 것"임은
  *  왼쪽의 작은 스파클 글리프로만 표식(도구/생각=좌측 세로바 박스, 내 입력=우측 sky 말풍선과 자연히 구분). */
 const TextBlock = memo(function TextBlock({ item, density, exempt }: { item: StreamText; density: StreamDensity; exempt: boolean }): React.JSX.Element {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   // §5.5 #17-21 ② — 간결에서는 앞 N줄(또는 N자)만 남기고 [더 보기]로 접는다.
   //   `exempt`(화면의 마지막 본문)는 지금 하는 말이자 그 턴의 결론이라 자르지 않는다.
   const clamped = useMemo(
@@ -454,6 +456,11 @@ const TextBlock = memo(function TextBlock({ item, density, exempt }: { item: Str
   // 펼침은 #17-16 ④ 모듈 저장소 — 가상 리스트가 언마운트해도 펼쳐 둔 채로 돌아온다.
   const [open, toggleOpen] = useStreamToggle(`text-more-${item.id}`, false);
   const body = clamped && !open ? clamped.text : item.content;
+  // §5.5 #17-39 — 작성 자국. **긴 본문에만** 붙인다(짧은 대답 밑의 숫자는 소음이다).
+  //   `간결` 은 핵심만 남기는 밀도라 자국도 붙이지 않는다(#17-21 과 같은 갈래).
+  const writeTrace = density !== 'compact' && shouldTraceWriting(item.content.length)
+    ? writeTraceText(t, i18n.language, (item.endedAt ?? item.timestamp) - item.timestamp, item.content.length)
+    : null;
   return (
     // §4 v3.24 — 폰(max-md)에선 좌우 여백 압축(카톡/텔레그램 밀도) — 데스크톱 px-4 유지.
     <div className="px-4 py-1 max-md:px-1.5">
@@ -475,6 +482,7 @@ const TextBlock = memo(function TextBlock({ item, density, exempt }: { item: Str
               {open ? t('ide.streamRenderer.showLess') : t('ide.streamRenderer.showMoreLines', { count: clamped.hiddenLines })}
             </button>
           )}
+          {writeTrace && <WriteTraceLine text={writeTrace} />}
         </div>
       </div>
     </div>
@@ -684,6 +692,13 @@ const ToolGroupBlock = memo(function ToolGroupBlock({ item, density }: { item: S
   // §5.5 #17-24 ① — 간결에는 도구 묶음이 **아예 도달하지 않는다**(진행 중이든 완료든 streamDensity 가
   //   배열에서 뺐다). 종전의 "진행 중 한 줄" 분기는 그 줄이 생겼다 사라지며 화면을 깜빡이게 해 없앴다.
 
+  // §5.5 #17-39 — 이 묶음이 걸린 시간. **진행 중에는 재지 않는다** — 끝을 모르는 채로 적으면 매 틱 숫자가
+  //   바뀌며 헤더가 깜빡인다(자라는 자국 ❌ 는 사고 자국과 같은 규율).
+  const elapsed = useMemo(
+    () => (item.active ? '' : toolElapsedText(t, toolGroupElapsedMs(item.children.map((c) => c.timestamp)))),
+    [item.active, item.children, t],
+  );
+
   return (
     <div className={`mx-2 my-1 overflow-hidden rounded-md border-l-2 max-md:mx-1 ${item.active ? 'border-blue-500/70' : 'border-gray-700'}`}>
       <button
@@ -709,6 +724,8 @@ const ToolGroupBlock = memo(function ToolGroupBlock({ item, density }: { item: S
         <span className="flex-shrink-0 tabular-nums text-[12px] text-gray-500">
           {t('ide.streamRenderer.toolRun', { count: item.toolCount })}
         </span>
+        {/* §5.5 #17-39 — 이 묶음이 걸린 시간. 잴 수 없으면(호출 하나) 아무것도 붙이지 않는다. */}
+        {elapsed && <span className="flex-shrink-0 tabular-nums text-[12px] text-gray-600">{elapsed}</span>}
         <span className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
           {shownNames.map((name) => (
             <span key={name} className="flex-shrink-0 rounded bg-gray-700/40 px-1 py-0.5 text-[12px] font-medium text-gray-500">
@@ -834,7 +851,7 @@ function CommandBlock({ item, agentId }: { item: StreamCommand; agentId?: string
   return (
     <div className="px-4 py-2 max-md:px-1.5" data-cmd-id={item.id}>
       {/* 프롬프트 — 사용자 입력은 길이와 무관하게 항상 "내 메시지" 말풍선으로. */}
-      <CollapsiblePrompt prompt={item.prompt} command={commandState} />
+      <CollapsiblePrompt prompt={item.prompt} command={commandState} submittedAt={item.submittedAt} />
       {/* 앱이 내려가 끊겼다가 보존된 세션으로 다시 이어 돌린 명령 — 그 사실을 말하지 않으면
           사용자에겐 "왜 처음부터 다시 하지?" 또는 "왜 멈춰 있지?" 로 보인다. */}
       {item.restartResumed && (
@@ -920,6 +937,17 @@ function NestedFrame({ label, children }: { label: string; children: React.React
   );
 }
 
+/**
+ * §5.5 #17-39 — 사고 자국 한 줄. 문구 조립은 `stepTraceText` 가 하고 모양은 `StepTraceLine` 이 그린다.
+ * 자기 안에서 `useTranslation` 을 부르는 이유는 `renderStreamItem` 이 컴포넌트가 아니라 함수여서다
+ * (TextBlock·ToolBlock 이 이미 쓰는 방식 그대로).
+ */
+const StepTraceBlock = memo(function StepTraceBlock({ item }: { item: StreamStep }): React.JSX.Element {
+  const { t, i18n } = useTranslation();
+  const text = thinkTraceText(t, i18n.language, item.endedAt - item.timestamp, item.chars);
+  return <StepTraceLine text={text} />;
+});
+
 /** 단일 스트림 아이템 → 블록 엘리먼트. 북마크 이동 앵커용 `data-stream-item-id` 래퍼로 감싼다.
  *  zoom — IDE 본문 텍스트 줌 배율. **스크롤러(가상 리스트 뷰포트)가 아니라 각 항목 래퍼**에 걸어,
  *  Virtuoso 가 zoom 반영된 실제 항목 높이를 그대로 측정(가상화·스크롤 계산과 일관)하게 한다. */
@@ -938,6 +966,8 @@ function renderStreamItem(item: StreamDisplayItem, liveLabels: LiveLabels, zoom:
     case 'command':  inner = <CommandBlock item={item} agentId={feedbackCtx?.agentId} />; break;
     // §5.5 #17-24 ② — 항목은 그대로 두고 라벨·색만 바꾼다(생각 중 ↔ 작업 중).
     case 'thinking-live': inner = <ThinkingLiveLine label={liveLabels[item.mode]} mode={item.mode} />; break;
+    // §5.5 #17-39 — 끝난 사고 런이 그 자리에 남긴 자국(원문 ❌ 시간·분량만).
+    case 'step':     inner = <StepTraceBlock item={item} />; break;
     // §5.5 #17-18 ⑦-2 — `live` = 이 카드가 속한 턴이 아직 도는 중(헤더 `작업 중` 배지).
     case 'report':   inner = <AgentReportCard report={item.report} review={item.review} live={item.live} />; break;
     case 'question': inner = <AgentQuestionCard questions={item.questions} live={item.live} />; break;

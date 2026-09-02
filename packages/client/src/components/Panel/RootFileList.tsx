@@ -1,8 +1,13 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { FolderFileEntry } from '@vibisual/shared';
+import type { BubbleData, FolderFileEntry } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { ScrollFade } from '../ScrollFade.js';
+import { clientPathKey } from '../../utils/platform.js';
+import { visibleRowsFrom } from './rootFileRows.js';
+import { FOLDER_ROW_HEIGHT, flattenFolderLevels, type FolderTreeRow } from './folderFileRows.js';
+import { useFolderFilePages } from './useFolderFilePages.js';
+import { PagedRowList } from './PagedRowList.js';
 
 const API_BASE = '';
 
@@ -11,20 +16,37 @@ const VISIBLE_MAX_HEIGHT = 104;
 /** Files 영역 최대 높이 */
 const MAX_LIST_HEIGHT = 400;
 
+/** 루트 패널은 **1단계 플랫 리스트**다 — 폴더를 펼치지 않으므로 펼침 집합은 늘 비어 있다. */
+const NO_EXPANDED: ReadonlySet<string> = new Set<string>();
+
 interface RootFileListProps {
   /** 루트 노드의 path (서버 키, __root__:프로젝트명 또는 폴더 path) */
   folderPath: string;
   /** 프로젝트 이름 (API 호출용) */
   projectName: string;
+  /**
+   * 이 루트/폴더의 **절대 경로**(스냅샷 값 그대로).
+   *
+   * 서버 노드 키는 프로젝트 루트 기준 **상대 경로**라 `docs` 처럼 흔한 이름은 어느 프로젝트
+   * 것인지 알 수 없다 — 프로젝트를 여러 개 열어 두면 먼저 등록된 인스턴스가 답해 **남의
+   * 프로젝트 파일 목록**이 그려졌다(`open-node-file` 이 `absolutePath` 를 함께 보내는 것과 같은
+   * 이유). 이 값을 실어 보내면 서버가 인스턴스를 정확히 찍는다.
+   */
+  folderAbsPath?: string | undefined;
   /** 폴더 내부 Root인 경우: 폴더 노드 ID (children에서 visible 판단) */
   parentNodeId?: string;
 }
 
-/** Root 패널 — 1단계 플랫 리스트, 체크 시 캔버스에 독립 버블 생성/삭제 */
-export function RootFileList({ folderPath, projectName, parentNodeId }: RootFileListProps): React.JSX.Element {
+/**
+ * Root 패널 — 1단계 플랫 리스트, 체크 시 캔버스에 독립 버블 생성/삭제.
+ *
+ * 목록은 `FOLDER_FILES_PAGE_SIZE` 단위로 이어 받는다(§7.5). 종전에는 서버가 폴더를 통째로
+ * 재귀해 보냈는데, **이 패널은 그중 최상위 한 겹만 그렸다** — 읽고·보내고·파싱한 나머지는
+ * 전부 버려졌고, 사용자 홈이 외부 폴더 버블이면 그 헛일 하나가 창을 세웠다.
+ */
+export function RootFileList({ folderPath, projectName, folderAbsPath, parentNodeId }: RootFileListProps): React.JSX.Element {
   const { t } = useTranslation();
-  const [entries, setEntries] = useState<FolderFileEntry[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { levels, rootLoading, loadMore } = useFolderFilePages(folderPath, folderAbsPath);
 
   // "Visible" 판정 SSOT = 캔버스가 실제로 렌더 중인 집합 (canvasVisibleNodeIds).
   // topFolders 멤버십(에이전트가 한 번이라도 쓴 파일 전부 누적)으로 판정하면
@@ -32,51 +54,63 @@ export function RootFileList({ folderPath, projectName, parentNodeId }: RootFile
   const topFolders = useGraphStore((s) => s.topFolders);
   const storeChildren = useGraphStore((s) => s.children);
   const canvasVisibleNodeIds = useGraphStore((s) => s.canvasVisibleNodeIds);
-  const visiblePaths = useMemo(() => {
-    const set = new Set<string>();
+  const visibleNodes = useMemo<BubbleData[]>(() => {
     if (parentNodeId) {
       // 폴더 내부 Root → 캔버스가 그 폴더 드릴다운 시 렌더하는 children 그대로
       // (canvas 는 ghost/disappearing 자식도 페이드아웃으로 렌더하므로 제외하지 않음)
-      const kids = storeChildren[parentNodeId] ?? [];
-      for (const c of kids) set.add(c.path.toLowerCase());
-    } else {
-      // 프로젝트 Root → 캔버스 최상위 렌더 집합(filteredFolders) 그대로
-      for (const f of topFolders) {
-        if (canvasVisibleNodeIds[f.id]) set.add(f.path.toLowerCase());
-      }
+      return storeChildren[parentNodeId] ?? [];
     }
-    return set;
+    // 프로젝트 Root → 캔버스 최상위 렌더 집합(filteredFolders) 그대로
+    return topFolders.filter((f) => canvasVisibleNodeIds[f.id]);
   }, [topFolders, storeChildren, canvasVisibleNodeIds, parentNodeId]);
 
-  // 파일시스템에서 1단계 목록 로드
-  const loadEntries = useCallback(() => {
-    setLoading(true);
-    fetch(`${API_BASE}/api/folder-files?nodePath=${encodeURIComponent(folderPath)}`)
-      .then((r) => {
-        if (!r.ok) return { files: [] };
-        return r.json();
-      })
-      .then((data: { files: FolderFileEntry[] }) => {
-        setEntries(data.files ?? []);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
-  }, [folderPath]);
+  const visiblePaths = useMemo(() => {
+    const set = new Set<string>();
+    for (const n of visibleNodes) set.add(clientPathKey(n.path));
+    return set;
+  }, [visibleNodes]);
 
-  // visible 상태 변경(ghost 전환 등) 시 파일 목록 재조회
-  const visibleKey = useMemo(() => [...visiblePaths].sort().join('|'), [visiblePaths]);
-  useEffect(() => { loadEntries(); }, [loadEntries, visibleKey]);
+  /** 지금까지 받아 온 루트 겹의 항목들 — "표시됨" 행의 이름 보강에 쓴다. */
+  const entries = useMemo(() => levels.get('')?.entries ?? [], [levels]);
 
-  // 독립 버블 토글 → /api/root/toggle (폴더 내부면 parentPath 포함)
+  // 독립 버블 토글 → /api/root/toggle (폴더 내부면 parentPath 포함).
+  //
+  // ⚠ 토글 뒤에 목록을 **다시 읽지 않는다**. 체크 여부는 store(캔버스 렌더 집합)에서 오고 이
+  //   토글은 디스크를 건드리지 않는다 — 종전의 재조회는 트리를 통째로 다시 걷는 헛일이었고,
+  //   페이지 방식에서는 그때까지 스크롤해 받아 둔 장들까지 되돌린다(§7.5 · §7.6 같은 규율).
   const handleToggle = useCallback((filePath: string, show: boolean) => {
     fetch(`${API_BASE}/api/root/toggle`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ projectName, filePath, show, parentPath: parentNodeId ? folderPath : undefined }),
+      body: JSON.stringify({
+        projectName,
+        filePath,
+        show,
+        parentPath: parentNodeId ? folderPath : undefined,
+        absolutePath: folderAbsPath ?? null,
+      }),
     }).catch(() => {});
-  }, [projectName, parentNodeId, folderPath]);
+  }, [projectName, parentNodeId, folderPath, folderAbsPath]);
 
-  if (loading) {
+  // "표시됨" 은 디스크 목록을 거르지 않고 **캔버스에 뜬 노드에서 직접** 만든다 —
+  // 목록이 감추는 `.claude` / `node_modules` 버블도 여기 나와야 체크 해제할 수 있다.
+  const visibleEntries = useMemo(
+    () => visibleRowsFrom(visibleNodes, entries, clientPathKey),
+    [visibleNodes, entries],
+  );
+
+  // 루트 겹 하나만 편다(펼침 ❌ — 이 패널은 1단계다).
+  const rows = useMemo(() => flattenFolderLevels(levels, NO_EXPANDED), [levels]);
+
+  const renderEntry = useCallback((row: Extract<FolderTreeRow, { kind: 'entry' }>) => (
+    <RootFileRow
+      entry={row.entry}
+      isVisible={visiblePaths.has(clientPathKey(row.entry.relativePath))}
+      onToggle={handleToggle}
+    />
+  ), [visiblePaths, handleToggle]);
+
+  if (rootLoading) {
     return (
       <div className="flex flex-col gap-1">
         <span className="text-xs text-gray-500">{t('panel.rootFileList.files')}</span>
@@ -85,7 +119,7 @@ export function RootFileList({ folderPath, projectName, parentNodeId }: RootFile
     );
   }
 
-  if (entries.length === 0) {
+  if (rows.length === 0 && visibleEntries.length === 0) {
     return (
       <div className="flex flex-col gap-1">
         <span className="text-xs text-gray-500">{t('panel.rootFileList.files')}</span>
@@ -93,8 +127,6 @@ export function RootFileList({ folderPath, projectName, parentNodeId }: RootFile
       </div>
     );
   }
-
-  const visibleEntries = entries.filter((e) => visiblePaths.has(e.relativePath.toLowerCase()));
 
   return (
     <div className="flex flex-col">
@@ -105,12 +137,14 @@ export function RootFileList({ folderPath, projectName, parentNodeId }: RootFile
       </div>
 
       <div className="overflow-hidden rounded border border-gray-800 bg-gray-950/50">
-        {/* Visible 영역 */}
+        {/* Visible 영역 — 캔버스에 뜬 것만이라 길어지지 않는다 */}
         <div className="border-b border-gray-800">
           <ScrollFade maxHeight={VISIBLE_MAX_HEIGHT} className="px-2 py-1">
             {visibleEntries.length > 0 ? (
               visibleEntries.map((entry) => (
-                <RootFileRow key={entry.relativePath} entry={entry} isVisible onToggle={handleToggle} />
+                <div key={entry.relativePath} style={{ height: FOLDER_ROW_HEIGHT }}>
+                  <RootFileRow entry={entry} isVisible onToggle={handleToggle} />
+                </div>
               ))
             ) : (
               <span className="text-[12px] text-gray-600">{t('panel.rootFileList.noVisible')}</span>
@@ -118,20 +152,13 @@ export function RootFileList({ folderPath, projectName, parentNodeId }: RootFile
           </ScrollFade>
         </div>
 
-        {/* Files 영역 */}
-        <ScrollFade maxHeight={MAX_LIST_HEIGHT} className="px-2 py-1">
-          {entries.map((entry) => {
-            const isVisible = visiblePaths.has(entry.relativePath.toLowerCase());
-            return (
-              <RootFileRow
-                key={entry.relativePath}
-                entry={entry}
-                isVisible={isVisible}
-                onToggle={handleToggle}
-              />
-            );
-          })}
-        </ScrollFade>
+        {/* Files 영역 — 한 장씩 이어 받고, 보이는 행만 DOM 에 */}
+        <PagedRowList
+          rows={rows}
+          maxHeight={MAX_LIST_HEIGHT}
+          onNeedMore={loadMore}
+          renderEntry={renderEntry}
+        />
       </div>
     </div>
   );
@@ -147,7 +174,7 @@ interface RootFileRowProps {
 
 function RootFileRow({ entry, isVisible, onToggle }: RootFileRowProps): React.JSX.Element {
   return (
-    <label className="flex cursor-pointer items-center gap-1.5 rounded px-1 py-0.5 text-[12px] text-gray-400 hover:bg-gray-800/50 hover:text-gray-200">
+    <label className="flex h-full cursor-pointer items-center gap-1.5 rounded px-1 text-[12px] text-gray-400 hover:bg-gray-800/50 hover:text-gray-200">
       <input
         type="checkbox"
         className="checkbox-slate"
@@ -164,11 +191,6 @@ function RootFileRow({ entry, isVisible, onToggle }: RootFileRowProps): React.JS
         </svg>
       )}
       <span className="truncate">{entry.name}</span>
-      {entry.isDirectory && entry.children && (
-        <span className="ml-auto flex-shrink-0 text-[12px] text-gray-600">
-          {entry.children.length}
-        </span>
-      )}
     </label>
   );
 }

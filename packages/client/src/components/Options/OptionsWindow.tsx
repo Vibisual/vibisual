@@ -13,6 +13,7 @@ import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { TERMINAL_SCROLLBACK_LINES, TERMINAL_SCROLLBACK_MIN, TERMINAL_SCROLLBACK_MAX, clampTerminalScrollback } from '@vibisual/shared';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
+import { ScrollFade } from '../ScrollFade.js';
 import type { AgentConfig, UserDefaults, UserDefaultsPatch, ClaudeInstallsInfo, ClaudeInstall, UiLocale } from '@vibisual/shared';
 import {
   AVAILABLE_AGENT_TOOLS,
@@ -20,7 +21,9 @@ import {
   AVAILABLE_PERMISSION_MODES,
   AVAILABLE_SETTING_SOURCES,
   AVAILABLE_AUTOCOMPACT_VALUES,
+  AUTOCOMPACT_OFF,
   DEFAULT_AUTOCOMPACT_TOKENS,
+  isAutoCompactOn,
   turnCompactTriggerTokens,
   TURN_COMPACT_TRIGGER_RATIO,
   resolveAutoCompact,
@@ -42,12 +45,14 @@ import { setCanvasCover } from '../../stores/canvasVisibility.js';
 import { AccountTab } from './AccountTab.js';
 import { StorageTab } from './StorageTab.js';
 import { BgTaskProbeSection } from './BgTaskProbeSection.js';
+import { SessionProbeSection } from './SessionProbeSection.js';
 import { BrainSettingsTab } from '../Panel/BrainActivationPanel.js';
 import { NumberStepper } from './NumberStepper.js';
 // 단축키 라벨은 플랫폼이 정한다 — mac 에서 실제로 눌리는 키는 Ctrl 이 아니라 Command 다
 //   (핸들러는 이미 ctrlKey || metaKey 를 함께 보므로 **표시만** 어긋나 있었다).
 import { shortcutLabel } from '../../utils/platform.js';
 import { UnsavedChangesDialog } from './UnsavedChangesDialog.js';
+import { AutoCompactConfirm, type AutoCompactConfirmKind } from '../Panel/AutoCompactConfirm.js';
 
 const API_BASE = '';
 
@@ -150,6 +155,7 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
   const [storageDirty, setStorageDirty] = useState(false);
   // §5.5 #17-9 ⑭(g) — Advanced 탭의 판정 설정도 같은 이유로 자기 dirty 를 위로 올린다.
   const [bgProbeDirty, setBgProbeDirty] = useState(false);
+  const [sessionProbeDirty, setSessionProbeDirty] = useState(false);
   // §4 — 저장 없이 나가려 할 때 뜨는 우리 디자인 확인 팝업(종전 `window.confirm` 대체).
   const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false);
 
@@ -238,9 +244,9 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
    * 그랬다 — `window.confirm` 은 Cancel 버튼에만 걸려 있었다).
    */
   const requestClose = useCallback(() => {
-    if (dirty || storageDirty || bgProbeDirty) { setConfirmDiscardOpen(true); return; }
+    if (dirty || storageDirty || bgProbeDirty || sessionProbeDirty) { setConfirmDiscardOpen(true); return; }
     onClose();
-  }, [dirty, storageDirty, bgProbeDirty, onClose]);
+  }, [dirty, storageDirty, bgProbeDirty, sessionProbeDirty, onClose]);
 
   const handleKeepEditing = useCallback(() => setConfirmDiscardOpen(false), []);
 
@@ -281,6 +287,40 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
     () => turnCompactTriggerTokens(resolveAutoCompact(autoCompact, undefined)),
     [autoCompact],
   );
+  // §4 — 지금 켜져 있는가. **꺼짐도 `turnCompactTriggerTokens` 는 null 을 주므로**(선이 없다)
+  //   아래 표시에서 `'auto'`(창을 아직 모름)와 뒤섞이지 않도록 이 술어로 먼저 가른다.
+  const autoCompactOn = isAutoCompactOn(resolveAutoCompact(autoCompact, undefined));
+  // §4 (CLI 사양 추종) — 압축을 **켜는 방향에만** 세우는 확인 관문(2026-09-02 사용자 지시).
+  //   끄기는 확인 없이 즉시고, 켜진 값 사이의 이동(400k → 500k)도 통과시킨다 — 매번 막으면
+  //   경고가 소음이 되어 읽히지 않는다. 확인을 "봤음"으로 기억하지 않으므로 끄고 다시 켜면 또 뜬다.
+  const [compactConfirm, setCompactConfirm] = useState<{ kind: AutoCompactConfirmKind; value: string } | null>(null);
+
+  const requestAutoCompact = (next: string): void => {
+    if (!autoCompactOn && isAutoCompactOn(resolveAutoCompact(next, undefined))) {
+      setCompactConfirm({ kind: 'window', value: next });
+      return;
+    }
+    setDirty(true);
+    setAutoCompact(next);
+  };
+
+  const requestAgentCanCompact = (next: boolean): void => {
+    // 에이전트 자율 요청도 `/compact` 를 부르는 유료 축이라 같은 확인을 거친다(끄기는 즉시).
+    if (next && !agentCanCompact) {
+      setCompactConfirm({ kind: 'agentSelf', value: '' });
+      return;
+    }
+    setDirty(true);
+    setAgentCanCompact(next);
+  };
+
+  const confirmCompact = (): void => {
+    if (!compactConfirm) return;
+    setDirty(true);
+    if (compactConfirm.kind === 'agentSelf') setAgentCanCompact(true);
+    else setAutoCompact(compactConfirm.value);
+    setCompactConfirm(null);
+  };
   // §4 (Fast 모드) — `--model` 로 나가는 값과 같은 규칙으로 판정(서버 `wantsFastMode` 와 동일).
   const fastModeSupported = supportsFastMode(modelVersion?.trim() || model);
   const oneMillionEnabled = contextWindow !== '200k';
@@ -650,14 +690,15 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
                       <label className="text-[12px] font-medium text-gray-500">{t('panel.agentConfig.autoCompact.label')}</label>
                       <select
                         value={autoCompact}
-                        onChange={(e) => { setDirty(true); setAutoCompact(e.target.value); }}
+                        onChange={(e) => requestAutoCompact(e.target.value)}
                         className="rounded border border-gray-700 bg-gray-900 px-2 py-1.5 text-xs text-gray-200 outline-none hover:border-gray-600 focus:border-blue-500"
                       >
                         {AVAILABLE_AUTOCOMPACT_VALUES.map((v) => (
                           <option key={v} value={v}>
                             {v === ''
-                              ? t('panel.agentConfig.autoCompact.unsetDefaultLabel', { tokens: `${Number(DEFAULT_AUTOCOMPACT_TOKENS) / 1000}k` })
-                              : v === 'auto' ? 'auto' : `${Number(v) / 1000}k`}
+                              ? t('panel.agentConfig.autoCompact.unsetDefaultLabel')
+                              : v === AUTOCOMPACT_OFF ? t('panel.agentConfig.autoCompact.offLabel')
+                                : v === 'auto' ? 'auto' : `${Number(v) / 1000}k`}
                           </option>
                         ))}
                       </select>
@@ -665,10 +706,12 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
                           체크박스가 따로 있었는데 같은 일을 해 헷갈리기만 했다(그리고 같은 숫자를 쓰는 한
                           CLI 가 늘 먼저 접어 뜨지도 못했다). 이제 값을 고르면 접는 자리는 언제나 턴 경계이며,
                           **실제로 접히는 토큰 수를 여기서 직접 말한다** — 고른 값과 다른 숫자라 숨기면 안 된다. */}
-                      <span className="text-[12px] leading-snug text-gray-400">
-                        {compactFoldsAtTokens === null
-                          ? t('panel.agentConfig.autoCompact.foldsAtAuto', { percent: compactFoldsAtPercent })
-                          : t('panel.agentConfig.autoCompact.foldsAt', { tokens: `${Math.round(compactFoldsAtTokens / 1000)}k` })}
+                      <span className={`text-[12px] leading-snug ${autoCompactOn ? 'text-gray-400' : 'text-gray-500'}`}>
+                        {!autoCompactOn
+                          ? t('panel.agentConfig.autoCompact.foldsAtOff')
+                          : compactFoldsAtTokens === null
+                            ? t('panel.agentConfig.autoCompact.foldsAtAuto', { percent: compactFoldsAtPercent })
+                            : t('panel.agentConfig.autoCompact.foldsAt', { tokens: `${Math.round(compactFoldsAtTokens / 1000)}k` })}
                       </span>
                       {/* §9 — 설명문도 가독 하한 12px. 위계는 크기가 아니라 색으로 낮춘다. */}
                       <span className="text-[12px] leading-snug text-gray-600">{t('panel.agentConfig.autoCompact.globalTip')}</span>
@@ -677,7 +720,7 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
                         <input
                           type="checkbox"
                           checked={agentCanCompact}
-                          onChange={(e) => { setDirty(true); setAgentCanCompact(e.target.checked); }}
+                          onChange={(e) => requestAgentCanCompact(e.target.checked)}
                           className="mt-0.5 h-3.5 w-3.5 accent-blue-500"
                         />
                         <span>
@@ -798,7 +841,10 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
                 {/* Tools allow-list */}
                 <div className="flex flex-col gap-1">
                   <label className="text-xs font-medium text-gray-400">{t('panel.options.agent.tools', { defaultValue: 'Tools (allow-list)' })}</label>
-                  <div className="flex flex-wrap gap-1.5 rounded border border-gray-700/60 bg-gray-900/40 p-2">
+                  {/* 도구 45종을 다 펼치면 이 두 칸(허용·금지)만으로 탭 하나가 채워진다 — 네 줄쯤에서
+                      멈추고 안에서 스크롤한다. 고르는 판이라 목록 자체는 그대로 다 들어 있다. */}
+                  <ScrollFade maxHeight={124} className="rounded border border-gray-700/60 bg-gray-900/40">
+                  <div className="flex flex-wrap gap-1.5 p-2">
                     {AVAILABLE_AGENT_TOOLS.map((tool) => (
                       <button
                         key={tool}
@@ -814,12 +860,14 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
                       </button>
                     ))}
                   </div>
+                  </ScrollFade>
                 </div>
 
                 {/* Disallowed tools (deny-list) */}
                 <div className="flex flex-col gap-1">
                   <label className="text-xs font-medium text-gray-400">{t('panel.options.agent.disallowedTools', { defaultValue: 'Disallowed Tools (deny-list)' })}</label>
-                  <div className="flex flex-wrap gap-1.5 rounded border border-gray-700/60 bg-gray-900/40 p-2">
+                  <ScrollFade maxHeight={124} className="rounded border border-gray-700/60 bg-gray-900/40">
+                  <div className="flex flex-wrap gap-1.5 p-2">
                     {AVAILABLE_AGENT_TOOLS.map((tool) => (
                       <button
                         key={tool}
@@ -835,6 +883,7 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
                       </button>
                     ))}
                   </div>
+                  </ScrollFade>
                 </div>
 
                 {/* Rules */}
@@ -940,6 +989,10 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
                 {/* §5.5 #17-9 ⑭(g) — 조용한 백그라운드 작업의 자동 판정. 머신 단위 설정이라
                     Storage 탭과 같은 문법으로 자기 REST 를 직접 읽고 쓰고, 미저장만 창에 올린다. */}
                 <BgTaskProbeSection onDirtyChange={setBgProbeDirty} />
+
+                {/* §2.4 — "실행중…" 으로 굳은 세션의 자동 판정. 바로 위와 같은 문법(머신 단위
+                    설정 · 자기 REST · 미저장만 창에 올림)이라 두 손잡이가 나란히 읽힌다. */}
+                <SessionProbeSection onDirtyChange={setSessionProbeDirty} />
               </div>
             )}
 
@@ -1015,6 +1068,18 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
         onKeepEditing={handleKeepEditing}
         onDiscard={handleDiscardAndClose}
       />
+
+      {/* §4 (CLI 사양 추종) — 압축을 켜기 전 비용 확인. 취소하면 값이 앉지 않아 꺼진 채로 남는다. */}
+      {compactConfirm && (
+        <AutoCompactConfirm
+          kind={compactConfirm.kind}
+          pendingLabel={compactConfirm.value === 'auto'
+            ? 'auto'
+            : compactConfirm.value ? `${Number(compactConfirm.value) / 1000}k` : ''}
+          onCancel={() => setCompactConfirm(null)}
+          onConfirm={confirmCompact}
+        />
+      )}
     </div>,
     document.body,
   );

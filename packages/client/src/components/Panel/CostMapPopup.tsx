@@ -19,6 +19,34 @@ import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
 // 기간을 다시 자르지 않는다 — 세션 표만 `lastAt` 으로 거르는데, 그건 "그 기간에 움직인
 // 세션"을 고르는 일이지 금액을 다시 계산하는 일이 아니다(줄의 금액은 세션 누적이다).
 
+/** 에이전트·세션 표 하나가 차지할 수 있는 최대 높이(px). 약 8줄 — 그 뒤는 표 안에서 스크롤한다. */
+const COST_TABLE_MAX_HEIGHT = 240;
+
+/**
+ * "추정" 표식 — 그 금액에 **단가를 모르는 모델**의 몫이 섞였다는 뜻.
+ *
+ * 아래 각주의 "추정"과 **다른 말이다.** 각주는 모든 숫자에 늘 붙는 일반 단서(청구서가 아니라
+ * 토큰 × 공개 가격이다)이고, 이 표식은 "그 모델의 값을 우리가 **아예 모른다**"는 특정 상태다 —
+ * 새 모델이 나온 직후가 정확히 그 자리다(`/v1/models` 는 가격을 돌려주지 않아 단가 표는 손으로
+ * 갱신한다). 그래서 툴팁은 가능하면 **모델 이름을 대고** 무엇을 채워야 하는지까지 말한다.
+ *
+ * 글자 크기는 12px 하한을 지킨다 — 한글은 그 아래로 내려가면 획이 뭉개진다(§9).
+ */
+export function EstimatedMark({ models }: { models?: readonly string[] }): React.JSX.Element {
+  const { t } = useTranslation();
+  const title = models && models.length > 0
+    ? t('panel.cost.unseededNote', { models: models.join(', ') })
+    : t('panel.cost.estimatedMarkHint');
+  return (
+    <span
+      title={title}
+      className="flex-shrink-0 rounded border border-amber-500/40 bg-amber-500/10 px-1 py-px text-[12px] font-semibold leading-tight text-amber-400/90"
+    >
+      {t('panel.cost.estimatedMark')}
+    </span>
+  );
+}
+
 interface CostMapPopupProps {
   onClose: () => void;
 }
@@ -34,7 +62,15 @@ function TokenCell({ label, value }: { label: string; value: number }): React.JS
 }
 
 /** 합계 카드 — 그 기간의 비용 한 값 + 토큰 4종. */
-function TotalsCard({ totals, measured }: { totals: CostTotals; measured: boolean }): React.JSX.Element {
+function TotalsCard({
+  totals,
+  measured,
+  unseededModels,
+}: {
+  totals: CostTotals;
+  measured: boolean;
+  unseededModels?: readonly string[];
+}): React.JSX.Element {
   const { t } = useTranslation();
   const tone = costTextToneClass(toneOf(totals.costUsd, measured));
 
@@ -42,8 +78,11 @@ function TotalsCard({ totals, measured }: { totals: CostTotals; measured: boolea
     <div className="flex flex-col gap-3 rounded border border-gray-700 bg-gray-800/40 px-3 py-2.5">
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-xs font-semibold text-gray-300">{t('panel.cost.totalCost')}</span>
-        <span className={`font-mono text-2xl font-bold tabular-nums ${tone}`}>
-          {measured ? formatCostUsd(totals.costUsd) : t('panel.cost.notMeasured')}
+        <span className="flex items-baseline gap-1.5">
+          {measured && totals.estimated && <EstimatedMark models={unseededModels} />}
+          <span className={`font-mono text-2xl font-bold tabular-nums ${tone}`}>
+            {measured ? formatCostUsd(totals.costUsd) : t('panel.cost.notMeasured')}
+          </span>
         </span>
       </div>
       <div className="grid grid-cols-4 gap-2">
@@ -63,6 +102,8 @@ function CostRow({
   tokens,
   costUsd,
   measured,
+  estimated,
+  unseededModels,
   onClick,
 }: {
   name: string;
@@ -70,6 +111,10 @@ function CostRow({
   tokens: number;
   costUsd: number;
   measured: boolean;
+  /** 이 줄의 금액에 단가 미상 모델의 몫이 섞였는가. */
+  estimated?: boolean;
+  /** 그 줄이 만난 미상 모델 — 있으면 툴팁이 이름을 댄다. */
+  unseededModels?: readonly string[];
   onClick?: () => void;
 }): React.JSX.Element {
   const { t } = useTranslation();
@@ -81,8 +126,13 @@ function CostRow({
       <span className="w-16 flex-shrink-0 text-right font-mono text-[12px] tabular-nums text-gray-400">
         {measured ? formatTokenCount(tokens) : '—'}
       </span>
-      <span className={`w-20 flex-shrink-0 text-right font-mono text-xs font-semibold tabular-nums ${tone}`}>
-        {measured ? formatCostUsd(costUsd) : t('panel.cost.notMeasured')}
+      {/* 표식은 금액 **칸 안**에 함께 앉힌다 — 바깥에 칸을 하나 더 만들면 표식이 없는 줄에도
+          그 폭이 늘 비어 있어 이름 칸을 영구히 갉아먹는다. */}
+      <span className="flex w-28 flex-shrink-0 items-center justify-end gap-1">
+        {measured && estimated && <EstimatedMark models={unseededModels} />}
+        <span className={`font-mono text-xs font-semibold tabular-nums ${tone}`}>
+          {measured ? formatCostUsd(costUsd) : t('panel.cost.notMeasured')}
+        </span>
       </span>
     </>
   );
@@ -109,7 +159,7 @@ function TableHead(): React.JSX.Element {
       <span className="min-w-0 flex-1">{t('panel.cost.colName')}</span>
       <span className="w-24 flex-shrink-0 text-right">{t('panel.cost.colModel')}</span>
       <span className="w-16 flex-shrink-0 text-right">{t('panel.cost.colTokens')}</span>
-      <span className="w-20 flex-shrink-0 text-right">{t('panel.cost.colCost')}</span>
+      <span className="w-28 flex-shrink-0 text-right">{t('panel.cost.colCost')}</span>
     </div>
   );
 }
@@ -215,12 +265,19 @@ export function CostMapPopup({ onClose }: CostMapPopupProps): React.JSX.Element 
               </div>
             ) : (
               <>
-                <TotalsCard totals={totals ?? map.periods.all} measured={map.measured} />
+                <TotalsCard
+                  totals={totals ?? map.periods.all}
+                  measured={map.measured}
+                  unseededModels={map.unseededModels}
+                />
 
                 {/* 에이전트 표 */}
                 <div className="flex flex-col rounded border border-gray-700 bg-gray-800/30">
                   <div className="px-3 py-1.5 text-xs font-semibold text-gray-300">{t('panel.cost.agentsTitle')}</div>
                   <TableHead />
+                  {/* 표는 에이전트·세션 수만큼 자란다 — 오래 쓴 프로젝트에서는 세션이 수백 줄이 되어
+                      아래 주석·합계가 스크롤 저 밑으로 밀린다. 두 표 모두 제 높이 안에서 스크롤한다. */}
+                  <ScrollFade maxHeight={COST_TABLE_MAX_HEIGHT}>
                   {agents.map((a) => (
                     <CostRow
                       key={a.agentId}
@@ -229,18 +286,21 @@ export function CostMapPopup({ onClose }: CostMapPopupProps): React.JSX.Element 
                       tokens={costTokenTotal(a.periods[period])}
                       costUsd={a.periods[period].costUsd}
                       measured={a.measured}
+                      estimated={a.periods[period].estimated}
                       onClick={() => {
                         selectNode(a.agentId);
                         onClose();
                       }}
                     />
                   ))}
+                  </ScrollFade>
                 </div>
 
                 {/* 세션 표 */}
                 <div className="flex flex-col rounded border border-gray-700 bg-gray-800/30">
                   <div className="px-3 py-1.5 text-xs font-semibold text-gray-300">{t('panel.cost.sessionsTitle')}</div>
                   <TableHead />
+                  <ScrollFade maxHeight={COST_TABLE_MAX_HEIGHT}>
                   {sessions.map((s) => (
                     <CostRow
                       key={s.sessionId}
@@ -249,8 +309,11 @@ export function CostMapPopup({ onClose }: CostMapPopupProps): React.JSX.Element 
                       tokens={costTokenTotal(s)}
                       costUsd={s.costUsd}
                       measured={s.measured}
+                      estimated={s.estimated}
+                      unseededModels={s.unseededModels}
                     />
                   ))}
+                  </ScrollFade>
                   <div className="px-3 py-1.5 text-[12px] leading-relaxed text-gray-500">
                     {t('panel.cost.sessionCumulativeNote')}
                   </div>
@@ -258,6 +321,12 @@ export function CostMapPopup({ onClose }: CostMapPopupProps): React.JSX.Element 
 
                 <div className="flex flex-col gap-1 text-[12px] leading-relaxed text-gray-500">
                   <span>{t('panel.cost.estimateNote')}</span>
+                  {/* 표식이 실제로 떠 있을 때만 — 늘 붙어 있는 문장은 아무도 읽지 않는다. */}
+                  {map.unseededModels && map.unseededModels.length > 0 && (
+                    <span className="text-amber-400/80">
+                      {t('panel.cost.unseededNote', { models: map.unseededModels.join(', ') })}
+                    </span>
+                  )}
                   {map.retired && map.retired.costUsd > 0 && (
                     <span>{t('panel.cost.retiredNote', { cost: formatCostUsd(map.retired.costUsd) })}</span>
                   )}

@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { formatCostUsd } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { costTextToneClass, findCostMap, toneOf } from '../../utils/costMap.js';
-import { CostMapPopup } from './CostMapPopup.js';
+import { CostMapPopup, EstimatedMark } from './CostMapPopup.js';
 
 // SCENARIO.md §5.21 / §7.19 — 비용 줄(사용량 팝업 하단).
 //
@@ -53,9 +53,14 @@ export function CostPill({ open, onOpenChange }: CostPillProps): React.JSX.Eleme
   const today = map?.measured ? map.periods.today.costUsd : undefined;
   const tone = costTextToneClass(toneOf(today, map?.measured ?? false));
   const label = today === undefined ? '—' : formatCostUsd(today);
+  // **오늘 몫**이 추정인지만 본다 — 지난달에 한 번 스친 미상 모델 때문에 오늘 금액에 표식이
+  // 붙으면 그 표식은 "지금 뭔가 모르는 게 돌고 있다"는 뜻을 잃는다(날짜 버킷이 이걸 갈라 준다).
+  const estimated = today !== undefined && (map?.periods.today.estimated ?? false);
   const title = today === undefined
     ? t('panel.cost.pillEmpty')
-    : `${t('panel.cost.pillLabel')}: ${label}`;
+    : estimated
+      ? `${t('panel.cost.pillLabel')}: ${label} — ${t('panel.cost.estimatedMarkHint')}`
+      : `${t('panel.cost.pillLabel')}: ${label}`;
 
   return (
     <>
@@ -72,6 +77,7 @@ export function CostPill({ open, onOpenChange }: CostPillProps): React.JSX.Eleme
         </span>
         <span className="text-xs font-semibold text-gray-200">{t('panel.cost.pillLabel')}</span>
         <span className="flex-1" />
+        {estimated && <EstimatedMark models={map?.unseededModels} />}
         <span className={`font-mono text-sm font-bold tabular-nums ${tone}`}>{label}</span>
         <svg
           className="h-3.5 w-3.5 flex-shrink-0 text-gray-600"

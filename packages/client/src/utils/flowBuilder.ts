@@ -1,6 +1,6 @@
 import type { Node, Edge, XYPosition } from '@xyflow/react';
 import { MarkerType } from '@xyflow/react';
-import type { BubbleData } from '@vibisual/shared';
+import type { BubbleData, HeatScale } from '@vibisual/shared';
 import {
   EDGE_STYLE,
   AGENT_CLUSTER_BASE_RADIUS,
@@ -46,9 +46,14 @@ export function buildFlowEdge(input: EdgeInput): Edge {
 
 // ─── 반경 조회 ───
 
-export function findRadius(bubbles: BubbleData[], id: string): number {
+/**
+ * §5.24 — `heat` 는 **필수 인자**다(옵션 ❌). 레이아웃이 쓰는 지름과 `BubbleNode` 가 그리는 지름이
+ * 어긋나면 그 버블만 다른 크기로 앉아 화살표가 빗나간다 — 빠뜨림을 주석이 아니라 타입 검사가 막게 한다.
+ * 히트맵이 꺼져 있으면 호출부가 `undefined` 를 **명시적으로** 넘긴다.
+ */
+export function findRadius(bubbles: BubbleData[], id: string, heat: HeatScale | undefined): number {
   const b = bubbles.find((x) => x.id === id);
-  return b ? calcBubbleSize(b) / 2 : 45;
+  return b ? calcBubbleSize(b, undefined, heat) / 2 : 45;
 }
 
 // ─── 방사형 레이아웃 ───
@@ -67,6 +72,7 @@ export function radialLayout(
   items: BubbleData[],
   cx: number,
   cy: number,
+  heat: HeatScale | undefined,
   opts?: LayoutOptions,
 ): Map<string, XYPosition> {
   const positions = new Map<string, XYPosition>();
@@ -74,14 +80,14 @@ export function radialLayout(
   const oy = opts?.offsetY ?? 0;
 
   if (centers.length === 1) {
-    const size = calcBubbleSize(centers[0]!);
+    const size = calcBubbleSize(centers[0]!, undefined, heat);
     positions.set(centers[0]!.id, { x: cx + ox - size / 2, y: cy + oy - size / 2 });
   } else if (centers.length > 1) {
     const clusterR = AGENT_CLUSTER_BASE_RADIUS + centers.length * AGENT_CLUSTER_RADIUS_PER_AGENT;
     const step = (2 * Math.PI) / centers.length;
     for (let i = 0; i < centers.length; i++) {
       const c = centers[i]!;
-      const size = calcBubbleSize(c);
+      const size = calcBubbleSize(c, undefined, heat);
       const angle = step * i - Math.PI / 2;
       positions.set(c.id, {
         x: cx + ox + Math.cos(angle) * clusterR - size / 2,
@@ -101,7 +107,7 @@ export function radialLayout(
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
     if (!item) continue;
-    const size = calcBubbleSize(item);
+    const size = calcBubbleSize(item, undefined, heat);
     const angle = angleStep * i - Math.PI / 2;
     positions.set(item.id, {
       x: cx + Math.cos(angle) * baseRadius - size / 2,

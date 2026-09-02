@@ -30,6 +30,15 @@ export interface CanvasLoadingInputs {
   activeIsStub: boolean;
   /** 마지막 스냅샷이 실어 온 구독 범위. `null` = 범위 미적용(= 전량이 왔다). */
   snapshotScope: string[] | null;
+  /**
+   * §9 폴더 스코프 — 지금 들어가 있는 폴더의 노드 id. `null` = 폴더 밖(메인 뷰).
+   *
+   * 폴더 축은 프로젝트 축과 **같은 함정을 한 칸 아래에서** 갖는다: 폴더에 막 들어간 직후의
+   * 빈 내부 뷰와, 자식이 하나도 없는 진짜 빈 폴더가 화면상 완전히 같다.
+   */
+  currentFolderId: string | null;
+  /** 마지막 스냅샷이 적용한 폴더 범위. `null` = 범위 미적용(= 폴더 슬라이스가 전량이다). */
+  snapshotFolderScope: string[] | null;
   /** 이 창이 스냅샷을 한 번이라도 받았는가. */
   snapshotReceived: boolean;
   /** WebSocket 연결 상태(헤더 인디케이터와 같은 값). */
@@ -53,6 +62,22 @@ function hasActiveProjectData(i: CanvasLoadingInputs): boolean {
 }
 
 /**
+ * 지금 **열어 둔 폴더의 내용**이 손에 들어와 있는가.
+ *
+ * 프로젝트 축과 같은 규칙을 그대로 물려받는다 — 세지 않고, 서버가 되돌려 준 범위로 판정한다.
+ * 자식이 0개인 폴더도 범위 안에는 들어 있으므로, 이 한 줄이 빈 폴더와 안 온 폴더를 가른다.
+ *
+ * ⚠ 서버는 "그리는 폴더 + 한 칸 앞"을 미리 실어 주므로 정상적인 드릴다운에서는 여기 걸릴 일이
+ *   거의 없다. 걸리는 자리는 재연결 직후·저장된 위치로 복원한 직후처럼 **선언이 아직 안 나간**
+ *   순간이고, 그때가 바로 사용자가 빈 화면을 오해하는 순간이다.
+ */
+function hasOpenFolderData(i: CanvasLoadingInputs): boolean {
+  if (i.currentFolderId === null) return true;      // 폴더 밖이면 볼 것이 없다
+  if (i.snapshotFolderScope === null) return true;  // 범위 미적용 = 폴더 슬라이스가 전량이다
+  return i.snapshotFolderScope.includes(i.currentFolderId);
+}
+
+/**
  * 캔버스가 띄울 상태를 정한다.
  *
  * 순서가 규칙이다.
@@ -60,9 +85,12 @@ function hasActiveProjectData(i: CanvasLoadingInputs): boolean {
  *    겹치면 사용자가 무엇을 눌러야 하는지 헷갈린다(같은 자리에 두 개의 안내 ❌).
  *  ② 데이터가 왔으면 `ready` — **비어 있어도** 그렇다(빈 프로젝트에 영구 스피너를 씌우지 않는다).
  *  ③ 못 받았으면, 기다릴 소켓이 살아 있는지로 문구가 갈린다.
+ *
+ * ②는 **프로젝트와 폴더 두 축을 모두** 본다 — 탭은 다 왔는데 방금 들어간 폴더의 자식이 아직
+ * 안 왔으면 그 화면도 똑같이 "아직 안 온 것"이다(§9 폴더 스코프).
  */
 export function resolveCanvasLoadingState(i: CanvasLoadingInputs): CanvasLoadingState {
   if (i.activeIsStub) return 'ready';
-  if (hasActiveProjectData(i)) return 'ready';
+  if (hasActiveProjectData(i) && hasOpenFolderData(i)) return 'ready';
   return i.connectionStatus === 'connected' ? 'loading' : 'reconnecting';
 }

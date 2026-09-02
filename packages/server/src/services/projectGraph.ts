@@ -13,6 +13,8 @@ import type {
   ActivityEdge,
   EdgeSnapshot,
   FileEdit,
+  WebEntry,
+  WebToolExtraction,
   HookEventPayload,
   GraphSnapshot,
   AgentPhase,
@@ -21,6 +23,7 @@ import type {
   ProjectAgentCounts,
   QueuedCommand,
   FolderFileEntry,
+  FolderFilePage,
   GhostChangeType,
   GhostInfo,
   PipelineType,
@@ -96,7 +99,7 @@ import type {
   ContextOverrideMap,
   SessionMemo,
 } from '@vibisual/shared';
-import { LOCAL_AGENT_COLOR, ALL_MODEL_DEFAULT_LABEL_RE, MAX_BASH_HISTORY, MAX_FILE_EDITS, MAX_WRITE_DIFF_BYTES, DEFAULT_MAX_SATELLITES, SATELLITE_MAX_BOUNDS, MAX_AGENTS, SATELLITE_TYPES, AGENT_FADE_DURATION, BUBBLE_TTL, GHOST_FADE_DURATION, FILE_EXISTENCE_MISS_THRESHOLD, FRONTEND_SERVER_PATTERNS, IFRAME_DEAD_GRACE_MS, parseModelFamily, DEFAULT_AGENT_CONFIG, AVAILABLE_AGENT_TOOLS, BACKFILL_AGENT_TOOLS, AGENT_TOOLS_BACKFILL_GEN, DEFAULT_UI_LOCALE, COMMENT_BOX_DEFAULTS, READ_TOOLS, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, AGENT_REPORT_MAX_PER_AGENT, AGENT_QUESTIONS_MAX_PER_AGENT, AGENT_REVIEWS_MAX_PER_AGENT, AGENT_LISTS_MAX_PER_AGENT, AGENT_FEEDBACK_MAX_PER_AGENT, DELETED_AGENT_TOMBSTONE_MAX, CMD_AGENT_COLOR, MAX_AGENT_EVENTS, BRAIN_INJECTIONS_MAX_PER_AGENT, SESSION_GOAL_NOTE_MAX, SESSION_GOAL_HISTORY_MAX, SESSION_GOAL_STEPS_MAX, SESSION_GOAL_STEP_TEXT_MAX, SESSION_GOAL_TEXT_MAX, AUTO_AGENT_RUN_MAX_PER_AGENT, AUTO_AGENT_RUN_DEFAULT_REWORK_BUDGET, isExpiredByDays, capMapSize, SESSION_KEYED_MAP_MAX, ROOT_NODE_KEY_PREFIX, LEGACY_ROOT_NODE_KEY, SPEC_TITLE_MAX, SPEC_BODY_MAX, SPEC_MAX_ITEMS, SPEC_ITEM_TEXT_MAX, REVIEW_FILES_MAX, REVIEW_DIFF_MAX_BYTES, REVIEW_REQUESTS_MAX_PER_PROJECT, REVIEW_DECISIONS_MAX, REVIEW_REASON_MAX, LAB_TITLE_MAX, LAB_TASK_MAX, LAB_VARIANT_LABEL_MAX, LAB_RULES_APPEND_MAX, LAB_SUMMARY_MAX, LAB_MAX_VARIANTS, LAB_RUNS_MAX_PER_PROJECT, SHELF_TITLE_MAX, SHELF_LABEL_MAX, SHELF_COMMAND_MAX, SHELF_PROMPT_MAX, SHELF_MAX_ITEMS, SHELF_BUBBLES_MAX_PER_PROJECT, SHELF_RUN_OUTPUT_MAX_CHARS, normalizeShelfIcon, normalizeShelfColor, isSessionRunning, agentBadgeShare, VERIFICATION_RUNS_MAX_PER_SESSION, VERIFICATION_ATTEMPTS_MAX, VERIFICATION_REASON_MAX, VERIFICATION_DEMO_MAX_PER_SESSION, VERIFICATION_DEMO_STEPS_MAX, VERIFICATION_DEMO_STEP_TEXT_MAX, VERIFICATION_DEMO_LABEL_MAX, VERIFICATION_DEMO_EXPECTED_MAX, VERIFICATION_DEMO_FRAMES_MAX } from '@vibisual/shared';
+import { LOCAL_AGENT_COLOR, ALL_MODEL_DEFAULT_LABEL_RE, MAX_BASH_HISTORY, MAX_FILE_EDITS, MAX_WRITE_DIFF_BYTES, DEFAULT_MAX_SATELLITES, SATELLITE_MAX_BOUNDS, FOLDER_FILES_PAGE_SIZE, FOLDER_FILES_PAGE_MAX, MAX_AGENTS, SATELLITE_TYPES, FOLDER_BUBBLE_TYPES, AGENT_FADE_DURATION, BUBBLE_TTL, GHOST_FADE_DURATION, FILE_EXISTENCE_MISS_THRESHOLD, FRONTEND_SERVER_PATTERNS, IFRAME_DEAD_GRACE_MS, parseModelFamily, DEFAULT_AGENT_CONFIG, AVAILABLE_AGENT_TOOLS, BACKFILL_AGENT_TOOLS, AGENT_TOOLS_BACKFILL_GEN, DEFAULT_UI_LOCALE, COMMENT_BOX_DEFAULTS, READ_TOOLS, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, AGENT_REPORT_MAX_PER_AGENT, AGENT_QUESTIONS_MAX_PER_AGENT, AGENT_REVIEWS_MAX_PER_AGENT, AGENT_LISTS_MAX_PER_AGENT, AGENT_FEEDBACK_MAX_PER_AGENT, DELETED_AGENT_TOMBSTONE_MAX, CMD_AGENT_COLOR, MAX_AGENT_EVENTS, BRAIN_INJECTIONS_MAX_PER_AGENT, SESSION_GOAL_NOTE_MAX, SESSION_GOAL_HISTORY_MAX, SESSION_GOAL_STEPS_MAX, SESSION_GOAL_STEP_TEXT_MAX, SESSION_GOAL_TEXT_MAX, AUTO_AGENT_RUN_MAX_PER_AGENT, AUTO_AGENT_RUN_DEFAULT_REWORK_BUDGET, isExpiredByDays, capMapSize, SESSION_KEYED_MAP_MAX, ROOT_NODE_KEY_PREFIX, LEGACY_ROOT_NODE_KEY, SPEC_TITLE_MAX, SPEC_BODY_MAX, SPEC_MAX_ITEMS, SPEC_ITEM_TEXT_MAX, REVIEW_FILES_MAX, REVIEW_DIFF_MAX_BYTES, REVIEW_REQUESTS_MAX_PER_PROJECT, REVIEW_DECISIONS_MAX, REVIEW_REASON_MAX, LAB_TITLE_MAX, LAB_TASK_MAX, LAB_VARIANT_LABEL_MAX, LAB_RULES_APPEND_MAX, LAB_SUMMARY_MAX, LAB_MAX_VARIANTS, LAB_RUNS_MAX_PER_PROJECT, SHELF_TITLE_MAX, SHELF_LABEL_MAX, SHELF_COMMAND_MAX, SHELF_PROMPT_MAX, SHELF_MAX_ITEMS, SHELF_BUBBLES_MAX_PER_PROJECT, SHELF_RUN_OUTPUT_MAX_CHARS, normalizeShelfIcon, normalizeShelfColor, isSessionRunning, agentBadgeShare, VERIFICATION_RUNS_MAX_PER_SESSION, VERIFICATION_ATTEMPTS_MAX, VERIFICATION_REASON_MAX, VERIFICATION_DEMO_MAX_PER_SESSION, VERIFICATION_DEMO_STEPS_MAX, VERIFICATION_DEMO_STEP_TEXT_MAX, VERIFICATION_DEMO_LABEL_MAX, VERIFICATION_DEMO_EXPECTED_MAX, VERIFICATION_DEMO_FRAMES_MAX, DEFAULT_MAX_WEB_ENTRIES, WEB_ENTRY_MAX_BOUNDS, WEB_TOOLS, WEB_KEY_MARK, webNodeKey, extractWebEntry, toolAxis } from '@vibisual/shared';
 import type { ServerKind, UiLocale, ExecutionMode, AgentProvider, ModelRegistry } from '@vibisual/shared';
 // §5.22 — 권한·감사 경계.
 import type { AuditBoundaryConfig, AuditDecisionSource, ProjectAuditLog } from '@vibisual/shared';
@@ -114,9 +117,13 @@ import {
   LOOPBACK_SNIFF_PROBE_TTL_MS,
 } from '@vibisual/shared';
 import { EdgeManager } from './edgeManager.js';
+import { resolveFolderShipSet } from './folderScope.js';
+import { isHeatBubbleType } from '@vibisual/shared';
 import { extractBashReadPaths } from './bashReadPaths.js';
 // §2.1 #3 쓰기 축 — 셸로 고친 파일도 같은 버블 경로를 탄다(추출기는 shared 순수 모듈).
 import { extractBashWritePaths, BASH_WRITE_PATH_LIMIT, BASH_WRITE_PENDING_MAX } from '@vibisual/shared';
+// §2.1 #3 — 편집 계열 도구 입력 모양은 shared 한 곳만 안다(클라 `IDE/diffTool.ts` 와 같은 파서).
+import { EDIT_INPUT_TOOLS, parseEditToolObject, joinEditHunks } from '@vibisual/shared';
 import { extractPort, extractPortFromInlineEval, extractPortFromScriptFile, isPortAlive, resolveServingUrl, isProbeCommand, isVibisualLauncherCommand, isVibisualOwnPort } from './processChecker.js';
 import { BackgroundShellWatcher, parseBackgroundShellResponse, scanActiveBackgroundShells, stripAnsi } from './backgroundShellWatcher.js';
 import { subAgentManager, getCmdSessionIds } from './subAgentManager.js';
@@ -138,6 +145,12 @@ import { dbg } from './debugLog.js';
 import { userDefaultsService } from './userDefaultsService.js';
 
 // ─── 유틸 (순수 함수) ───
+
+/**
+ * §9 폴더 스코프 — "하위 폴더 없음"의 공용 빈 배열.
+ * 조회마다 `[]` 를 새로 만들면 스냅샷 1건에 폴더 수만큼 쓰레기가 생긴다(그걸 없애려고 넣은 축이다).
+ */
+const EMPTY_ID_LIST: readonly string[] = [];
 
 /**
  * §5.14 v4.62 — 디스크에서 올라온 플레이 버블의 실행 상태를 내린다.
@@ -463,13 +476,24 @@ function detectWorktree(
   return null;
 }
 
-/** 도구별 파일 경로 추출 */
-const FILE_PATH_KEYS: Record<string, string> = {
-  Read: 'file_path',
-  Write: 'file_path',
-  Edit: 'file_path',
-  Grep: 'path',
-  Glob: 'path',
+/**
+ * 도구별 파일 경로 추출 — **이 표에 없는 도구는 캔버스에 존재하지 않는다**(버블 ✗ 화살표 ✗ 이력 ✗).
+ *
+ * §2.1 #3 — `MultiEdit`/`NotebookEdit` 는 우리 감사 원장(`AUDIT_WRITE_TOOLS`)과 IDE 스트림
+ * (`DIFF_INPUT_TOOLS`)은 이미 보고 있었는데 **이 표에만 빠져 있었다**. 그래서 노트북 셀을 고치거나
+ * 한 파일에 여러 수정을 넣으면 감사에는 남는데 지도에는 한 획도 안 그려지는 어긋남이 있었다.
+ * 둘 다 `READ_TOOLS` 밖이라 방향 규칙이 그대로 **에이전트 → 파일**(쓰기) 화살표를 세운다.
+ */
+const FILE_PATH_KEYS: Record<string, readonly string[]> = {
+  Read: ['file_path'],
+  Write: ['file_path'],
+  Edit: ['file_path'],
+  MultiEdit: ['file_path'],
+  // 후보가 둘인 유일한 도구 — 정규 칸은 `notebook_path` 지만 `file_path` 로 오는 호출도 있다.
+  // 후보 목록을 두는 이유가 이것 하나다(shared `parseEditToolObject` 의 폴백과 같은 순서).
+  NotebookEdit: ['notebook_path', 'file_path'],
+  Grep: ['path'],
+  Glob: ['path'],
 };
 
 /** Grep/Glob의 path는 보통 디렉토리 — 파일 취급하면 (ext) 레이블/타입이 꼬인다. */
@@ -479,10 +503,13 @@ function extractFilePath(
   toolInput: Record<string, unknown>,
   toolName: string,
 ): string | null {
-  const key = FILE_PATH_KEYS[toolName];
-  if (!key) return null;
-  const raw = toolInput[key];
-  return typeof raw === 'string' ? normalize(raw) : null;
+  const keys = FILE_PATH_KEYS[toolName];
+  if (!keys) return null;
+  for (const key of keys) {
+    const raw = toolInput[key];
+    if (typeof raw === 'string') return normalize(raw);
+  }
+  return null;
 }
 
 /** tool_response에서 Bash 출력 텍스트 추출 */
@@ -635,6 +662,9 @@ const BASH_WRITE_TOOL_NAME = 'Write';
 /** 외부 노드 키의 표식 — `<wtPrefix>__ext__<절대경로>`. 키 조립·해체가 한 자리에서 나오게 한다. */
 const EXT_KEY_MARK = '__ext__';
 
+/** §5.23 — 도메인 버블에 붙일 도구 이름. `READ_TOOLS` 에 속해야 엣지가 읽기 방향(도메인 → 에이전트)으로 선다. */
+const WEB_READ_TOOL_NAME = 'Read';
+
 /** 접합(junction) 외부 폴더에 찍힐 도구 이름 — 에이전트가 직접 만진 자리가 아니다. */
 const EXTERNAL_JUNCTION_TOOL = 'Folder';
 
@@ -711,6 +741,9 @@ function summarizeGoalSeed(command: string): string {
 
 /** 자동 생성 목표 머리글의 최대 길이 — 사용자가 적거나 에이전트가 다듬은 문장에는 적용되지 않는다. */
 const GOAL_SEED_MAX = 200;
+
+/** 활성 에이전트 id 집합 메모의 벽시계 상한(ms) — 스냅샷 한 벌을 짓는 동안만 재사용하고 그 밖에서는 다시 센다(스냅샷 캐시 TTL 보다 늘 짧게). */
+const ACTIVE_AGENT_MEMO_MS = 50;
 
 /** §5.5 #17-17 v4.47 — 체크리스트에서 퍼센트 파생 (`done/전체`). 단계가 없으면 0. */
 function deriveGoalPercent(steps: SessionGoalStep[]): number {
@@ -993,6 +1026,23 @@ export class ProjectGraph {
   private topLevelPaths = new Set<string>();
   /** 폴더별 최근 작업 파일 (folder relative path → file relative paths) */
   private satelliteMap = new Map<string, Set<string>>();
+  /**
+   * §2.1 #5 — **외부 폴더 조상의 물려받은 위성**(외부 폴더 키 → 자손이 만진 파일 키).
+   *
+   * 내부 폴더는 만진 파일을 **모든 조상 폴더**에 위성으로 등록한다(`processInternalFile` 마지막
+   * 루프) — 그래서 최상위 폴더 버블 주위에 "지금 읽고 쓴 파일"이 뜬다. 외부 폴더는 직속 부모
+   * 하나에만 달았고, 접합 트리가 생긴 뒤로는 최상위에 서는 것이 **접합**(스스로 만져진 적 없는
+   * 조상)이라 **가장 밖에서는 파일이 한 개도 보이지 않았다**. 사용자 보고 "가장 밖에는 읽거나
+   * 쓴 파일 버블이 나와 있어야지"의 정체다.
+   *
+   * 이 맵을 `satelliteMap` 과 **따로 두는 이유**는 하나다 — 접합/만진 폴더 판정이
+   * `satelliteMap` 크기 하나로 돌아가기 때문이다(§2.1 v2.28 invariant). 조상에 위성을 직접
+   * 심으면 접합이 "만진 폴더"로 승격돼 1자형 경유 체인이 통째로 되살아난다(v1.55 평탄화 붕괴).
+   * 그래서 **표시 전용 파생값**으로 두고, `rebuildExternalFolderTree` 가 트리를 세울 때마다
+   * 통째로 다시 만든다. 체크포인트에는 저장하지 않는다 — 복원 직후에도 같은 rebuild 가
+   * 돌아 같은 답이 나오므로 새 영속 필드가 필요 없다.
+   */
+  private externalRollupSatellites = new Map<string, Set<string>>();
   /** 위성 버블 위치 — 클라이언트가 계산한 위치를 서버에 동기화 (sat-{nodeId} → {x,y}) */
   private satellitePositions = new Map<string, { x: number; y: number }>();
   /** 폴더별 위성 표시 상한 — 노드의 maxSatellites 우선, 없으면 기본값(§7.5). */
@@ -1061,6 +1111,11 @@ export class ProjectGraph {
   private onSnapshotChange?: () => void;
   /** 파일별 수정 기록 (normalized file path → 최신순 FileEdit[]) */
   private fileEdits = new Map<string, FileEdit[]>();
+  /**
+   * §5.23 — 도메인 버블별 웹 이력 (노드 키 `__web__<host>` → 최신 우선 `WebEntry[]`).
+   * 상한은 버블마다 `BubbleData.maxWebEntries` 가 정한다(없으면 `DEFAULT_MAX_WEB_ENTRIES`).
+   */
+  private domainEntries = new Map<string, WebEntry[]>();
 
   /** 메인 뷰 엣지 (agent ↔ top folder) */
   private mainEdges = new EdgeManager();
@@ -1292,14 +1347,39 @@ export class ProjectGraph {
   private statCache = new Map<string, { size: number; cachedAt: number } | null>();
 
   /**
+   * §9 (2c) `resolveAbsolutePath` 결과 캐시 — 노드 키 → 그때의 (루트·프로젝트명·답).
+   *
+   * `enrichNode` 가 노드마다 부르므로 `getSnapshot()` 1회에 노드 수만큼 `path.resolve` 가 돌았다
+   * (이 저장소 실측 2,467 노드 · **3.5ms/스냅샷**). 답은 (키·루트·프로젝트명)의 함수라 그 셋을
+   * 함께 담아 두고 **쓸 때마다 대조**한다 — 무효화 장부가 필요 없다(자세한 까닭은 그 함수 주석).
+   *
+   * 상한을 두는 이유: 노드가 지워져도 키가 남으므로, 오래 켜 두면 없는 키가 계속 쌓인다.
+   * 넘치면 통째로 비운다 — 다음 스냅샷 한 번이 다시 채우고 정확성에는 영향이 없다.
+   */
+  private static readonly ABS_PATH_CACHE_MAX = 20_000;
+  private absPathCache = new Map<string, { root: string; projectName: string | undefined; value: string | null }>();
+
+  /**
    * (2b) getSnapshot 결과 캐시.
    * mutationVersion 이 바뀌거나 TTL 이 지나면 재계산.
    * TTL 상한은 worst-case staleness 자가치유 안전망 — mutationVersion 누락 경로 대비.
    */
   private static readonly SNAPSHOT_CACHE_TTL = 200; // ms — 클라 coalescence(16ms) 한참 위
+  /**
+   * 캐시 슬롯 상한. 실제로 공존하는 키는 보통 **둘**이다 — 서버 내부용 전량(`''`)과 지금 창들이
+   * 선언한 폴더 범위 1벌(범위는 manager 가 합집합 1개로 접어 내려온다). 그래도 상한을 두는 것은
+   * 사용자가 폴더를 옮겨 다니면 키가 바뀌기 때문 — 무제한이면 그게 곧 캐시 누수다.
+   */
+  private static readonly SNAPSHOT_CACHE_SLOTS = 4;
   /** 상태 변경을 추적하는 단조증가 버전 카운터 */
   private mutationVersion = 0;
-  private snapshotCache: { snapshot: GraphSnapshot; version: number; cachedAt: number } | null = null;
+  /**
+   * (2b) getSnapshot 결과 캐시 — **폴더 범위별로 슬롯이 갈린다.**
+   *
+   * ⚠ 슬롯을 하나로 두면 안 된다. 내부용 전량 호출(REST·명령 dispatch)과 전선용 스코프 호출이
+   *   번갈아 오면서 서로의 캐시를 계속 밀어내, 캐시가 있다는 사실이 오히려 매 호출 재계산이 된다.
+   */
+  private snapshotCache = new Map<string, { snapshot: GraphSnapshot; version: number; cachedAt: number }>();
 
   /**
    * §9 "저장은 바뀐 프로젝트만" — 이 인스턴스가 지난 저장 이후 바뀌었는지 판정하는 단조 카운터.
@@ -1315,8 +1395,8 @@ export class ProjectGraph {
   /** 상태 변경 진입점에서 호출 — mutationVersion 증가 + 스냅샷 캐시 무효화 */
   private bumpMutationVersion(): void {
     this.mutationVersion += 1;
-    // 캐시 참조를 null 로 교체해 같은 tick 의 getSnapshot 이 즉시 재계산하도록 보장
-    this.snapshotCache = null;
+    // 슬롯을 통째로 비워 같은 tick 의 getSnapshot 이 어느 범위로 오든 즉시 재계산하도록 보장
+    this.snapshotCache.clear();
   }
 
   // ─── 히스토리 API ───
@@ -3396,7 +3476,9 @@ export class ProjectGraph {
         const activeIds = this.getActiveAgentIds(agent.id);
         this.mainEdges.removeAgentRefs(agent.id, activeIds);
         this.innerEdges.removeAgentRefs(agent.id, activeIds);
-        this.removeAgentRefs(agent.id, activeIds);
+        // 버블 자체가 사라지는 유일한 경로 → 소유 기록에서도 이 id 를 지운다(`forget`).
+        // 다른 경로(강등·휴지통)는 기록을 남겨야 확인 dismiss 가 걷을 대상을 안다.
+        this.removeAgentRefs(agent.id, activeIds, true);
         // 사용자 삭제 → 버블이 사라지므로 해당 엣지도 완전 제거(고아 엣지 방지)
         this.mainEdges.removeByPredicate((e) => e.source === agent.id || e.target === agent.id);
         this.innerEdges.removeByPredicate((e) => e.source === agent.id || e.target === agent.id);
@@ -3468,6 +3550,9 @@ export class ProjectGraph {
         this.topLevelPaths.delete(nodePath);
         this.nodeAgentRefs.delete(nodePath);
         this.existenceMissCount.delete(nodePath);
+        // §5.23 — 버블이 사라지면 그 도메인의 이력도 같이 간다(주인 없는 이력은 화면에
+        // 닿지 못한 채 체크포인트만 불린다 — `fileEdits` 가 597키까지 자란 그 자리).
+        this.domainEntries.delete(nodePath);
         // 자식/위성도 함께 제거
         if (children) {
           for (const cp of children) {
@@ -3922,6 +4007,12 @@ export class ProjectGraph {
         return result;
       }
 
+      // §5.23 — 웹 도구는 파일 경로가 없다. 도메인 버블 축이 받는다(사후 한정).
+      if (WEB_TOOLS.has(payload.tool_name)) {
+        this.routeWebTool(agent, payload);
+        return null;
+      }
+
       const filePath = extractFilePath(payload.tool_input, payload.tool_name);
       if (!filePath) return null;
       return this.routeToolFilePath(agent, payload, filePath, payload.tool_name);
@@ -4142,6 +4233,168 @@ export class ProjectGraph {
     return out;
   }
 
+  // ─── §5.23 도메인 버블 ───
+
+  /**
+   * §5.23 — `WebFetch`/`WebSearch` 한 건을 도메인 버블 + 항목으로 흘린다.
+   *
+   * **사후(`PostToolUse`)에만** 흘린다 — 사전에는 결과가 없어 항목이 빈 채로 서고, 실행되지 않은
+   * 호출에 화살표를 세우면 그건 거짓이다(§2.1 #3 쓰기 축과 같은 이유).
+   *
+   * 화살표는 **도메인 → 에이전트**(읽기)다. 도구 이름을 `Read` 로 정규화해 §2.1 "한 쌍에 방향은
+   * 하나" 규칙을 그대로 태운다(Bash 읽기가 쓰는 수법 그대로) — 노드의 `lastTool` 에는 실제 도구
+   * 이름이 남는다.
+   */
+  private routeWebTool(agent: BubbleData, payload: HookEventPayload): void {
+    if (!isPostToolPhase(payload)) return;
+    const toolName = payload.tool_name ?? '';
+    if (!toolName) return;
+    let found: WebToolExtraction | null;
+    try {
+      found = extractWebEntry(
+        toolName,
+        payload.tool_input,
+        payload.tool_response,
+        Date.now(),
+        payload.tool_use_id ?? '',
+      );
+    } catch (err) {
+      logger.debug('extractWebEntry failed', err);
+      return;
+    }
+    // 모르는 것을 도메인으로 넘겨짚지 않는다 — 호스트를 못 세우면 버블도 항목도 만들지 않는다.
+    if (!found) return;
+
+    const key = webNodeKey(found.host);
+    this.ensureDomainNode(key, found.host, toolName);
+    this.topLevelPaths.add(key);
+    // 외부 폴더와 같은 규율 — 그 작업을 한 세션이 속한 탭 프로젝트로 귀속시켜야
+    // `toProjectCheckpoint` 의 노드 필터를 통과해 껐다 켜도 남는다(§2.1 #5).
+    const projName = this.resolveOwnerTabProjectName(
+      this.sessionCwds.get(payload.session_id) ?? payload.cwd,
+    );
+    if (projName) this.nodeProjectNames.set(key, projName);
+    this.addAgentRef(key, agent.id);
+
+    found.entry.agentId = agent.id;
+    this.appendWebEntry(key, found.entry);
+
+    const node = this.nodes.get(key);
+    if (node) this.mainEdges.upsert(agent.id, agent, node, WEB_READ_TOOL_NAME, agent.id);
+  }
+
+  /** 도메인 버블 1개 업서트. 외부 폴더(`ensureExternalFolder`)와 같은 모양이다. */
+  private ensureDomainNode(key: string, host: string, toolName: string): void {
+    const existing = this.nodes.get(key);
+    if (!existing) {
+      this.nodes.set(key, {
+        id: `domain-${hashString(`${this.nodeScope()}::${key}`)}`,
+        label: host,
+        bubbleType: 'domain',
+        path: host,
+        status: 'active',
+        activity: 1,
+        lastActivity: Date.now(),
+        lastTool: toolName,
+        childCount: 0,
+      });
+      // §5.24 — 웹 도구는 읽기 축이다(§5.23 이 엣지를 `Read` 로 정규화하는 것과 같은 사실).
+      this.bumpHeat(this.nodes.get(key)!, toolName);
+      return;
+    }
+    existing.bubbleType = 'domain';
+    existing.label = host;
+    existing.path = host;
+    existing.status = 'active';
+    existing.activity += 1;
+    this.bumpHeat(existing, toolName);
+    existing.lastActivity = Date.now();
+    existing.lastTool = toolName;
+  }
+
+  /** 이 도메인 버블의 항목 상한 — 노드의 `maxWebEntries` 우선, 없으면 기본값(§5.23). */
+  private domainMaxEntries(key: string): number {
+    const raw = this.nodes.get(key)?.maxWebEntries;
+    if (typeof raw !== 'number' || !Number.isFinite(raw)) return DEFAULT_MAX_WEB_ENTRIES;
+    return Math.min(WEB_ENTRY_MAX_BOUNDS.MAX, Math.max(WEB_ENTRY_MAX_BOUNDS.MIN, Math.floor(raw)));
+  }
+
+  /** 항목 1건 추가 — 최신이 위. 상한 초과분은 FIFO(오래된 것부터) 잘린다. */
+  private appendWebEntry(key: string, entry: WebEntry): void {
+    let list = this.domainEntries.get(key);
+    if (!list) { list = []; this.domainEntries.set(key, list); }
+    list.unshift(entry);
+    this.trimWebEntries(key, list);
+  }
+
+  /** 목록을 그 버블의 상한까지 줄인다(오래된 것부터). */
+  private trimWebEntries(key: string, list: WebEntry[]): void {
+    const cap = this.domainMaxEntries(key);
+    if (list.length > cap) list.splice(cap);
+  }
+
+  /** 도메인 노드 ID → 내부 키. 없으면 null. 노드 ID 는 프로젝트 스코프가 섞여 유일하다. */
+  private domainKeyById(nodeId: string): string | null {
+    for (const [key, node] of this.nodes) {
+      if (node.bubbleType === 'domain' && node.id === nodeId) return key;
+    }
+    return null;
+  }
+
+  /**
+   * 도메인 버블별 항목 상한을 저장 + 기존 목록을 새 상한까지 즉시 FIFO 트림
+   * (§7.5 `setFolderMaxSatellites` 선례와 동일).
+   */
+  setDomainMaxEntries(nodeId: string, max: number): boolean {
+    const key = this.domainKeyById(nodeId);
+    if (!key) return false;
+    const node = this.nodes.get(key);
+    if (!node) return false;
+    const clamped = Math.min(
+      WEB_ENTRY_MAX_BOUNDS.MAX,
+      Math.max(WEB_ENTRY_MAX_BOUNDS.MIN, Math.floor(max)),
+    );
+    node.maxWebEntries = clamped;
+    const list = this.domainEntries.get(key);
+    if (list) this.trimWebEntries(key, list);
+    this.bumpMutationVersion();
+    return true;
+  }
+
+  /** 체크 = 제거 (§5.23). 그 항목 한 줄을 목록에서 뺀다. 없으면 false. */
+  removeWebEntry(nodeId: string, entryId: string): boolean {
+    const key = this.domainKeyById(nodeId);
+    if (!key) return false;
+    const list = this.domainEntries.get(key);
+    if (!list) return false;
+    const idx = list.findIndex((e) => e.id === entryId);
+    if (idx < 0) return false;
+    list.splice(idx, 1);
+    if (list.length === 0) this.domainEntries.delete(key);
+    this.bumpMutationVersion();
+    return true;
+  }
+
+  /** 그 도메인의 항목을 통째로 비운다. 버블 자체는 남는다(사용자가 따로 지운다). */
+  clearWebEntries(nodeId: string): boolean {
+    const key = this.domainKeyById(nodeId);
+    if (!key) return false;
+    this.domainEntries.delete(key);
+    this.bumpMutationVersion();
+    return true;
+  }
+
+  /** 도메인별 웹 이력 → domain node ID 기준 Record (`buildFileEditsRecord` 와 같은 규약). */
+  private buildDomainEntriesRecord(): Record<string, WebEntry[]> {
+    const result: Record<string, WebEntry[]> = {};
+    for (const [key, entries] of this.domainEntries) {
+      const node = this.nodes.get(key);
+      if (!node) continue;
+      result[node.id] = entries;
+    }
+    return result;
+  }
+
   /** 세션 cwd → 그 세션이 속한 **탭** 프로젝트 이름(워크트리면 부모 탭). 못 찾으면 null. */
   private resolveOwnerTabProjectName(sessionCwd: string | undefined): string | null {
     if (!sessionCwd) return null;
@@ -4150,58 +4403,56 @@ export class ProjectGraph {
     return this.resolveTabProjectName(proj, sessionCwd);
   }
 
+  /**
+   * 파일 하나의 디스크 크기 — **statSync TTL 캐시의 유일한 소유자**(2a).
+   *
+   * `enrichNode` 와 `getFileSizeExtent` 가 같은 답을 봐야 한다. 두 벌로 두면 한쪽만 고쳐져
+   * "버블에 적힌 크기"와 "크기 척도"가 어긋난다 — 셸 토크나이저를 한 벌로 묶은 것과 같은 규율.
+   *
+   * @returns 크기(바이트). 파일이 없거나 파일이 아니면 `undefined`(음성 캐시).
+   */
+  private lookupFileSize(absPath: string): number | undefined {
+    const now = Date.now();
+    const cached = this.statCache.get(absPath);
+    if (cached !== undefined) {
+      const ttl = cached === null ? ProjectGraph.STAT_MISS_TTL : ProjectGraph.STAT_CACHE_TTL;
+      if (now - (cached?.cachedAt ?? 0) < ttl) {
+        // null(음성 캐시) 이면 크기 미상 — 기존 동작과 동일
+        return cached === null ? undefined : cached.size;
+      }
+    }
+    try {
+      const stat = fs.statSync(absPath);
+      if (stat.isFile()) {
+        this.statCache.set(absPath, { size: stat.size, cachedAt: now });
+        return stat.size;
+      }
+      this.statCache.delete(absPath);
+      return undefined;
+    } catch {
+      this.statCache.set(absPath, null);  // 파일 없음 — 음성 캐시 기록
+      return undefined;
+    }
+  }
+
   /** 노드에 activeAgentIds + absolutePath + fileSize + satelliteFileCount 부착한 복사본 반환 */
   private enrichNode(nodePath: string, node: BubbleData): BubbleData {
     // 노드 자체가 absolutePath 를 들고 있으면(§2.1 v1.55 외부 폴더) 그걸 우선 — resolve 폴백 null 로 덮어쓰지 않도록.
-    const resolvedAbs = this.resolveAbsolutePath(nodePath);
-    const absPath = node.absolutePath ?? resolvedAbs ?? undefined;
+    // §9 — 그 경우엔 **아예 풀지 않는다.** 종전엔 먼저 풀어 놓고 버렸다(외부 폴더 노드마다 헛일).
+    const absPath = node.absolutePath ?? this.resolveAbsolutePath(nodePath) ?? undefined;
     const enriched: BubbleData = { ...node, absolutePath: absPath };
 
     // file 타입: 디스크 크기 부착 (2a: statSync TTL 캐시로 핫패스 디스크 I/O 절감)
     if (node.bubbleType === 'file' && absPath) {
-      const now = Date.now();
-      const cached = this.statCache.get(absPath);
-      if (cached !== undefined) {
-        // 캐시 히트 — TTL 체크
-        const ttl = cached === null ? ProjectGraph.STAT_MISS_TTL : ProjectGraph.STAT_CACHE_TTL;
-        if (now - (cached?.cachedAt ?? 0) < ttl) {
-          if (cached !== null) enriched.fileSize = cached.size;
-          // null(음성 캐시) 이면 fileSize 미설정 — 기존 동작과 동일
-        } else {
-          // TTL 만료 → 재조회
-          try {
-            const stat = fs.statSync(absPath);
-            if (stat.isFile()) {
-              const entry = { size: stat.size, cachedAt: now };
-              this.statCache.set(absPath, entry);
-              enriched.fileSize = stat.size;
-            } else {
-              this.statCache.delete(absPath);
-            }
-          } catch {
-            // 파일 없음 — 음성 캐시 기록
-            this.statCache.set(absPath, null);
-          }
-        }
-      } else {
-        // 캐시 미스 → 최초 조회
-        try {
-          const stat = fs.statSync(absPath);
-          if (stat.isFile()) {
-            this.statCache.set(absPath, { size: stat.size, cachedAt: now });
-            enriched.fileSize = stat.size;
-          }
-        } catch {
-          this.statCache.set(absPath, null);
-        }
-      }
+      const size = this.lookupFileSize(absPath);
+      if (size !== undefined) enriched.fileSize = size;
     }
 
-    // 폴더 타입: satelliteFileCount 를 satelliteMap 으로부터 항상 최신화
+    // 폴더 타입: satelliteFileCount 를 위성 목록으로부터 항상 최신화
     // (§2.1 v1.55 — UI 카운트 SSOT. external_folder 는 평탄화로 satellite 만 가짐)
+    // 외부 조상이 물려받은 위성도 함께 센다 — 화면에 뜬 개수와 헤더 숫자가 어긋나면 안 된다.
     if (node.bubbleType === 'external_folder' || node.bubbleType === 'internal_folder') {
-      const sat = this.satelliteMap.get(nodePath);
-      enriched.satelliteFileCount = sat ? sat.size : 0;
+      enriched.satelliteFileCount = this.effectiveSatelliteKeys(nodePath).length;
     }
 
     // worktree 타입: 내부에서 도는 active 에이전트를 집계해 파일 버블과 동일하게
@@ -4240,15 +4491,14 @@ export class ProjectGraph {
 
     const refs = this.nodeAgentRefs.get(nodePath);
     // active 상태 에이전트만 필터 (§5.10 휴지통 에이전트는 활성 참조로 치지 않는다 — getActiveAgentIds 와 같은 규칙)
+    // 소유 기록이 강등에서 살아남게 되면서(§2.4) `refs` 는 더 이상 대부분 비어 있지 않다 —
+    // 종전의 "ref 마다 전체 에이전트 순회" 는 노드×참조×에이전트로 곱해지므로, 판 단위로
+    // 캐시된 Set 조회로 바꾼다(같은 답, 곱셈 하나를 덜어 낸다).
     const activeIds: string[] = [];
-    if (refs) {
+    if (refs && refs.size > 0) {
+      const live = this.activeAgentIdSet();
       for (const agentId of refs) {
-        for (const agent of this.agents.values()) {
-          if (agent.id === agentId && agent.status === 'active' && !agent.trashed) {
-            activeIds.push(agentId);
-            break;
-          }
-        }
+        if (live.has(agentId)) activeIds.push(agentId);
       }
     }
     if (activeIds.length > 0) {
@@ -4325,16 +4575,26 @@ export class ProjectGraph {
     return proj !== undefined && this.hiddenProjects.has(proj.name);
   }
 
-  getSnapshot(): GraphSnapshot {
-    // (2b) 스냅샷 캐시 — mutationVersion 불변 + TTL 이내이면 재계산 생략
+  /**
+   * @param folderScope §9 폴더 스코프 — 창들이 선언한 내비 경로 id 의 합집합.
+   *   `null`/생략이면 **전량**이다(서버 내부용 호출·구버전 클라·선언한 창 없음).
+   *   자세한 규칙은 `folderScope.ts`.
+   */
+  getSnapshot(folderScope: ReadonlySet<string> | null = null): GraphSnapshot {
+    // (2b) 스냅샷 캐시 — mutationVersion 불변 + TTL 이내 + **같은 폴더 범위**이면 재계산 생략
     const nowMs = Date.now();
-    if (this.snapshotCache !== null) {
-      const { snapshot: cached, version, cachedAt } = this.snapshotCache;
+    // 빈 범위(new Set() = 지금 폴더 밖이다)와 미적용(null = 전량)은 **완전히 다른 요청**이라
+    //   키가 겹치면 안 된다. 접두어 없이 이으면 둘 다 빈 문자열이 돼, 메인 뷰의 좁은 스냅샷이
+    //   직전 전량 스냅샷을 그대로 돌려받는다(좁힌 적이 없는 것처럼 보인다).
+    const cacheKey = folderScope === null ? 'all' : 's:' + [...folderScope].sort().join('|');
+    {
+      const hit = this.snapshotCache.get(cacheKey);
       if (
-        version === this.mutationVersion &&
-        nowMs - cachedAt < ProjectGraph.SNAPSHOT_CACHE_TTL
+        hit !== undefined &&
+        hit.version === this.mutationVersion &&
+        nowMs - hit.cachedAt < ProjectGraph.SNAPSHOT_CACHE_TTL
       ) {
-        return cached;
+        return hit.snapshot;
       }
     }
 
@@ -4345,10 +4605,37 @@ export class ProjectGraph {
       .filter((e): e is { key: string; node: BubbleData } => e.node !== undefined && this.isAlive(e.node) && !this.isNodeHidden(e.key))
       .map((e) => this.enrichNode(e.key, e.node));
 
+    // §9 폴더 스코프 — "그리는 폴더 + 한 칸 앞"만 싣는다(`folderScope.ts` 가 규칙 단일 소유).
+    //   `null` 이면 종전과 완전히 같다(전량). 좁힐 때만 아래 세 슬라이스가 걸러진다.
+    //
+    //   "한 칸 앞" 을 위한 하위 폴더 목록은 **선언된 폴더 것만** 만든다 — 전부 만들면 이 최적화가
+    //   없애려던 전수 순회를 여기서 도로 하는 셈이다(childrenMap 은 실측 459개 · 자식 2,866개).
+    const scopedChildFolders = new Map<string, string[]>();
+    if (folderScope !== null && folderScope.size > 0) {
+      for (const [parentPath, childPaths] of this.childrenMap) {
+        const parent = this.nodes.get(parentPath);
+        if (!parent || !folderScope.has(parent.id)) continue;
+        const kids: string[] = [];
+        for (const cp of childPaths) {
+          const child = this.nodes.get(cp);
+          if (child && FOLDER_BUBBLE_TYPES.has(child.bubbleType)) kids.push(child.id);
+        }
+        scopedChildFolders.set(parent.id, kids);
+      }
+    }
+    const shipFolders = resolveFolderShipSet(
+      topFolders.map((f) => f.id),
+      folderScope,
+      (folderId) => scopedChildFolders.get(folderId) ?? EMPTY_ID_LIST,
+    );
+    const shipsFolder = (folderId: string): boolean => shipFolders === null || shipFolders.has(folderId);
+
     const children: Record<string, BubbleData[]> = {};
     for (const [parentPath, childPaths] of this.childrenMap) {
       const parent = this.nodes.get(parentPath);
       if (!parent || !this.isAlive(parent)) continue;
+      // 범위 밖이면 `enrichNode` 자체를 부르지 않는다 — 전선 부피뿐 아니라 CPU 도 함께 준다.
+      if (!shipsFolder(parent.id)) continue;
       children[parent.id] = [...childPaths]
         .map((cp) => ({ key: cp, node: this.nodes.get(cp) }))
         .filter((e): e is { key: string; node: BubbleData } => e.node !== undefined && this.isAlive(e.node))
@@ -4360,17 +4647,28 @@ export class ProjectGraph {
     for (const [parentPath] of this.childrenMap) {
       const parent = this.nodes.get(parentPath);
       if (!parent) continue;
+      if (!shipsFolder(parent.id)) continue;
       const edges = this.innerEdges.getByGroup(parent.id);
       if (edges.length > 0) innerEdges[parent.id] = edges;
     }
 
     // 위성 파일 (folder ID → 최근 작업 파일 BubbleData[])
+    // ⚠ 훑는 대상은 `satelliteMap` 만이 아니다 — 외부 폴더 **조상**은 자기 위성이 없어
+    //   그 맵에 아예 없는데도, 자손이 만진 파일을 물려받아 화면에 띄워야 한다(§2.1 #5).
+    //   그래서 두 맵의 키 합집합을 돈다.
     const satellites: Record<string, BubbleData[]> = {};
-    for (const [folderPath, filePaths] of this.satelliteMap) {
+    const satelliteFolderKeys = new Set<string>(this.satelliteMap.keys());
+    for (const k of this.externalRollupSatellites.keys()) satelliteFolderKeys.add(k);
+    for (const folderPath of satelliteFolderKeys) {
       const folder = this.nodes.get(folderPath);
       if (!folder || !this.isAlive(folder)) continue;
+      // 폴더 위성은 그 **폴더 버블이 그려질 때만** 보인다(`collectSatellites` 는 그리는 부모의
+      // 것만 읽는다). 그래서 children 과 같은 범위를 그대로 쓴다.
+      // ⚠ 바로 아래 **에이전트 영구 위성**(bash/iframe/conti)은 이 축과 무관하다 — 에이전트는
+      //   폴더 안에 들어가 있어도 메인 캔버스에 그려지므로 범위와 상관없이 항상 싣는다.
+      if (!shipsFolder(folder.id)) continue;
       const files: BubbleData[] = [];
-      for (const fp of filePaths) {
+      for (const fp of this.effectiveSatelliteKeys(folderPath)) {
         const node = this.nodes.get(fp);
         if (node && SATELLITE_TYPES.has(node.bubbleType) && this.isAlive(node)) {
           files.push(this.enrichNode(fp, node));
@@ -4515,6 +4813,8 @@ export class ProjectGraph {
       agentProjects: this.buildAgentProjects(),
       nodeProjects: this.buildNodeProjects(),
       fileEdits: this.buildFileEditsRecord(),
+      // §5.23 도메인 버블별 웹 이력
+      domainEntries: this.buildDomainEntriesRecord(),
       commandQueues: this.buildCommandQueuesRecord(),
       completedCommands: this.buildCompletedCommandsRecord(),
       // §5.5 #17-9 v3.51 — 지금 백단에서 도는 Task 서브에이전트(런타임 전용, 영속화 ❌ — 체크포인트
@@ -4550,6 +4850,15 @@ export class ProjectGraph {
               contextUsed: info.contextUsed,
               contextMax: info.contextMax,
               modelName: s.modelName ?? info.modelName,
+              // §5.5 — **누적 토큰도 여기서 실어 준다.** `subAgentManager` 는 이 값을 명령이
+              //   *끝날 때만* 갱신한다(터미널 경로 두 곳). 그래서 (a) 도는 중인 세션은 턴이 끝날
+              //   때까지 숫자가 얼어 있었고, (b) 명령을 한 번도 마치지 않은 세션은 값이 아예 없어
+              //   IDE 상태바가 버블 값(= 모든 sub 합계)으로 굴러떨어졌다 — "세션을 넘겨도 숫자가
+              //   안 변한다"의 나머지 절반. 합산식은 `readSessionTokenData` 와 **같다**
+              //   (input + cacheRead + cacheCreate). 여기서 만드는 것은 스냅샷용 복사본이라
+              //   매니저의 누적 상태(명령별 delta 계산의 기준)는 건드리지 않는다.
+              totalInputTokens: info.cumulativeInputTokens,
+              totalOutputTokens: info.cumulativeOutputTokens,
             };
           });
         }
@@ -4610,9 +4919,80 @@ export class ProjectGraph {
       brainInjections: this.getBrainInjectionsRecord(),
     };
 
-    // (2b) 계산 결과를 캐시에 저장
-    this.snapshotCache = { snapshot, version: this.mutationVersion, cachedAt: nowMs };
+    // (2b) 계산 결과를 캐시에 저장 — 슬롯 상한을 넘으면 가장 오래 전에 넣은 것부터 버린다
+    //      (Map 은 삽입 순서를 지키므로 첫 키가 곧 가장 오래된 슬롯이다).
+    if (this.snapshotCache.size >= ProjectGraph.SNAPSHOT_CACHE_SLOTS) {
+      const oldest = this.snapshotCache.keys().next();
+      if (!oldest.done) this.snapshotCache.delete(oldest.value);
+    }
+    this.snapshotCache.set(cacheKey, { snapshot, version: this.mutationVersion, cachedAt: nowMs });
     return snapshot;
+  }
+
+  /**
+   * §9 폴더 스코프 — **범위와 무관하게 항상 전량으로 재는 값 ①**: 파일 버블의 상대 크기 척도.
+   *
+   * 종전에는 클라가 스냅샷의 `satellites`+`topFolders` 에서 직접 쟀다. 폴더 범위를 좁히면 그
+   * 입력이 줄어들어 **폴더를 드나들 때마다 파일 버블 크기가 바뀐다** — 최적화가 화면을 흔드는
+   * 종류의 손상이라, 프로젝트 축이 탭 목록·전역 집계에 세운 규칙(④)을 그대로 물려받아
+   * 서버가 전량으로 재서 실어 준다.
+   *
+   * 재는 대상은 좁히기 **이전** 스냅샷이 싣던 것과 정확히 같다 — 살아 있는 폴더의 위성 파일과
+   * 최상위 파일 노드(숨긴 프로젝트 제외).
+   */
+  getFileSizeExtent(): { min: number; max: number } {
+    let min = Infinity;
+    let max = 0;
+    // ⚠ `node.fileSize` 를 읽으면 안 된다 — 그 값은 `enrichNode` 가 붙이는 것이고, 메모리의
+    //   원본 노드에는 없다(체크포인트에도 저장되지 않는다). 같은 캐시를 같은 규칙으로 본다.
+    const take = (nodePath: string, node: BubbleData | undefined): void => {
+      if (!node || node.bubbleType !== 'file') return;
+      const absPath = node.absolutePath ?? this.resolveAbsolutePath(nodePath) ?? undefined;
+      if (!absPath) return;
+      const size = this.lookupFileSize(absPath);
+      if (size === undefined) return;
+      if (size < min) min = size;
+      if (size > max) max = size;
+    };
+    for (const [folderPath, filePaths] of this.satelliteMap) {
+      const folder = this.nodes.get(folderPath);
+      if (!folder || !this.isAlive(folder)) continue;
+      for (const fp of filePaths) {
+        const node = this.nodes.get(fp);
+        if (node && SATELLITE_TYPES.has(node.bubbleType) && this.isAlive(node)) take(fp, node);
+      }
+    }
+    for (const p of this.topLevelPaths) {
+      const node = this.nodes.get(p);
+      if (node && this.isAlive(node) && !this.isNodeHidden(p)) take(p, node);
+    }
+    return { min: min === Infinity ? 0 : min, max };
+  }
+
+  /**
+   * §9 폴더 스코프 — **범위와 무관하게 항상 전량으로 재는 값 ②**: §5.24 히트맵 상대 척도.
+   *
+   * 위와 같은 이유다 — 좁힌 노드로 재면 폴더를 드나들 때마다 히트맵 색이 통째로 바뀐다.
+   *
+   * 소유 프로젝트를 모르는 노드는 클라가 쓰던 규칙 그대로 **어느 프로젝트에나 센다**(그래서
+   * 따로 돌려주고, 합칠 때 각 프로젝트 값에 얹는다). 바닥은 언제나 0 이라 최대값만 잰다.
+   */
+  getReadCountMaxes(): { byProject: Record<string, number>; unowned: number } {
+    const byProject: Record<string, number> = {};
+    let unowned = 0;
+    for (const [nodePath, node] of this.nodes) {
+      if (!isHeatBubbleType(node.bubbleType)) continue;
+      if (!this.isAlive(node) || this.isNodeHidden(nodePath)) continue;
+      const c = node.readCount;
+      if (typeof c !== 'number' || !Number.isFinite(c) || c <= 0) continue;
+      const owner = this.nodeProjectNames.get(nodePath);
+      if (owner === undefined) {
+        if (c > unowned) unowned = c;
+        continue;
+      }
+      if (c > (byProject[owner] ?? 0)) byProject[owner] = c;
+    }
+    return { byProject, unowned };
   }
 
   getUiLocale(): UiLocale {
@@ -4675,6 +5055,8 @@ export class ProjectGraph {
     for (const [k, v] of this.runningServers) runningServers[k] = v;
     const fileEdits: Record<string, FileEdit[]> = {};
     for (const [k, v] of this.fileEdits) fileEdits[k] = v;
+    const domainEntries: Record<string, WebEntry[]> = {};
+    for (const [k, v] of this.domainEntries) domainEntries[k] = v;
 
     return {
       version: 1,
@@ -4703,6 +5085,7 @@ export class ProjectGraph {
         bashHistory,
         runningServers,
         fileEdits,
+        domainEntries,
       },
 
       edges: {
@@ -5017,6 +5400,12 @@ export class ProjectGraph {
     for (const [filePath, edits] of this.fileEdits) {
       if (projectNodePaths.has(filePath) && this.nodes.has(filePath)) fileEdits[filePath] = edits;
     }
+    // §5.23 — 도메인 이력도 같은 기준(노드가 이 프로젝트 것이고 살아 있는 키만).
+    // 여기 빠뜨리면 껐다 켤 때 통째로 사라진다(§3.2 영속 함정).
+    const domainEntries: Record<string, WebEntry[]> = {};
+    for (const [key, entries] of this.domainEntries) {
+      if (projectNodePaths.has(key) && this.nodes.has(key)) domainEntries[key] = entries;
+    }
 
     // 엣지 필터
     const mainSnapshot = this.filterEdgeSnapshot(this.mainEdges.toSnapshot(), projectBubbleIds);
@@ -5092,7 +5481,7 @@ export class ProjectGraph {
         refs: { nodeAgentRefs, sessionCwds, nodeProjectRoots },
       },
 
-      activity: { bashHistory, runningServers, fileEdits },
+      activity: { bashHistory, runningServers, fileEdits, domainEntries },
 
       edges: { main: mainSnapshot, inner: innerSnapshot },
 
@@ -5387,6 +5776,10 @@ export class ProjectGraph {
         this.fileEdits.set(k, v);
         for (const e of v) this.fileEditSeen.add(e.id);
       }
+    }
+    // §5.23 — 구버전 체크포인트에는 없다(`?? {}`, §3.2.1-5 하위 호환).
+    for (const [k, v] of Object.entries(cp.activity.domainEntries ?? {})) {
+      if (!this.domainEntries.has(k)) this.domainEntries.set(k, v);
     }
 
     // v1.6: dormant 에이전트 병합
@@ -5860,11 +6253,24 @@ export class ProjectGraph {
     this.nodeAgentRefs = new Map(
       Object.entries(cp.graph.refs.nodeAgentRefs).map(([k, v]) => [k, new Set(v)]),
     );
+    // 소유 기록은 강등에서 살아남지만(위 `removeAgentRefs` 주석), 그러면 **사라진 에이전트의 id**
+    // 가 노드에 눌러앉을 수 있다. 지우는 자리는 `removeBubble` 하나뿐이라 그 경로를 안 지난
+    // 소멸(옛 저장분·수동 편집)이 남는다 — 복원 때 한 번 훑어 살아 있는 버블 id 만 남긴다
+    // (§3.2.3 E축 "키 자체를 버린다"의 값 판). 눌러도 못 여는 id 는 소유 기록으로서 쓸모가 없다.
+    const liveAgentBubbleIds = new Set<string>();
+    for (const a of this.agents.values()) liveAgentBubbleIds.add(a.id);
+    for (const refs of this.nodeAgentRefs.values()) {
+      for (const ref of refs) {
+        if (!liveAgentBubbleIds.has(ref)) refs.delete(ref);
+      }
+    }
     this.sessionCwds = new Map(Object.entries(cp.graph.refs.sessionCwds));
     this.nodeProjectNames = new Map(Object.entries(cp.graph.refs.nodeProjectRoots ?? {}));
     this.bashHistory = new Map(Object.entries(cp.activity.bashHistory));
     this.runningServers = new Map(Object.entries(cp.activity.runningServers));
     this.fileEdits = new Map(Object.entries(cp.activity.fileEdits));
+    // §5.23 — 없으면 빈 상태로 렌더(에러 ❌, §3.2.1-5).
+    this.domainEntries = new Map(Object.entries(cp.activity.domainEntries ?? {}));
 
     // 파생 인덱스 재구축
     this.fileEditSeen.clear();
@@ -6565,9 +6971,12 @@ export class ProjectGraph {
    * @param purgeNodes 사용자 확인 dismiss 경로에서만 `true` — 그 에이전트가 전유하던
    *   file/folder 버블을 idle 대신 즉시 제거(§2.4 "확인 dismiss → 전유 file/folder 즉시 소멸", v1.82).
    *   자동 timeout idle(`expireCompletedAgents`/idle 스윕)은 `false`(기본) — 5분 TTL grace 유지.
+   * @returns 즉시 제거된 버블 id 목록(`purgeNodes=false` 면 항상 빈 배열). 호출자가 "걷을 게
+   *   있었나"를 알아야 헛 broadcast·헛 저장을 피할 수 있다.
    */
-  markAgentIdle(sessionId?: string, purgeNodes = false): void {
+  markAgentIdle(sessionId?: string, purgeNodes = false): string[] {
     this.bumpMutationVersion();
+    let purged: string[] = [];
     if (sessionId) {
       const agent = this.agents.get(sessionId);
       if (agent) {
@@ -6578,13 +6987,14 @@ export class ProjectGraph {
           for (const sat of agent.persistSatellites) sat.status = 'idle';
         }
         const activeIds = this.getActiveAgentIds(agent.id);
-        if (purgeNodes) this.removeAgentRefsPurging(agent.id, activeIds);
+        if (purgeNodes) purged = this.removeAgentRefsPurging(agent.id, activeIds);
         else this.removeAgentRefs(agent.id, activeIds);
         this.mainEdges.removeAgentRefs(agent.id, activeIds);
         this.innerEdges.removeAgentRefs(agent.id, activeIds);
         this.removeAgentFileFolderEdges(agent.id);
       }
     }
+    return purged;
   }
 
   /** 파일/폴더 버블 ID 집합. this.nodes 가 path-keyed 이라 bubble id → bubbleType 역인덱스가 필요. */
@@ -6593,7 +7003,9 @@ export class ProjectGraph {
     for (const n of this.nodes.values()) {
       if (n.bubbleType === 'file'
         || n.bubbleType === 'internal_folder'
-        || n.bubbleType === 'external_folder') {
+        || n.bubbleType === 'external_folder'
+        // §5.23 — 도메인도 "에이전트가 읽은 것"이라 같은 규칙으로 걷힌다.
+        || n.bubbleType === 'domain') {
         ids.add(n.id);
       }
     }
@@ -7455,8 +7867,11 @@ export class ProjectGraph {
     this.bumpMutationVersion();
     let converted = 0;
     for (const [nodePath, node] of this.nodes) {
+      // §5.23 — `domain` 은 디스크에 없다. 넣으면 매 스윕마다 miss 가 누적돼
+      // 살아 있는 버블이 Ghost 로 돌아간다.
       if (node.bubbleType === 'ghost' || node.bubbleType === 'agent' ||
-          node.bubbleType === 'root' || node.bubbleType === 'bash') continue;
+          node.bubbleType === 'root' || node.bubbleType === 'bash' ||
+          node.bubbleType === 'domain') continue;
       // `__special__` 가상 버블만 스킵. `__ext__` 외부 노드는 resolveAbsolutePath 가 실경로로 변환하므로 통과시킨다.
       if (nodePath.startsWith('__special__')) continue;
 
@@ -7573,6 +7988,9 @@ export class ProjectGraph {
   /** 노드 키 → 절대 경로 변환 (가상 버블은 null, 경로 탈출 시 null) */
   resolveAbsolutePath(key: string): string | null {
     if (key.startsWith('__special__')) return null;
+    // §5.23 — 도메인 버블은 디스크에 없다. 여기서 막지 않으면 `<root>/__web__github.com` 이라는
+    // 없는 경로가 나와 "탐색기에서 열기"가 엉뚱한 자리를 가리킨다.
+    if (key.startsWith(WEB_KEY_MARK)) return null;
     if (key.startsWith('__ext__')) return key.substring(7);
     // 워크트리 네임스페이스 키 `wt<hash36>__...` 처리
     //  - `wt<hash>____ext__<absPath>` (외부 폴더/파일) → absPath 그대로 반환
@@ -7599,9 +8017,13 @@ export class ProjectGraph {
     if (ProjectGraph.isRootKey(key)) {
       const projName = ProjectGraph.projectNameFromRootKey(key);
       if (projName) {
-        const proj = this.getProjectByName(projName);
-        if (proj) return proj.path;
+        // 이름이 박힌 루트 키(`__root__:<프로젝트>`)는 **그 프로젝트를 가진 인스턴스만** 답한다.
+        // 자기 root 로 물러서면 남의 루트 키에도 "안다"고 답하게 되고, Manager 의 "첫 non-null
+        // 인스턴스가 이긴다" 루프가 엉뚱한 프로젝트의 디스크 트리를 돌려준다 — 루트 패널이
+        // 다른 프로젝트의 파일 목록을 그리고, 그 경로로 체크하면 404 가 나던 버그의 뿌리다.
+        return this.getProjectByName(projName)?.path ?? null;
       }
+      // 이름 없는 레거시 루트 키(`__root__`)만 자기 루트로 해석한다.
       return this.root ?? null;
     }
     if (path.isAbsolute(key)) return key;
@@ -7609,8 +8031,24 @@ export class ProjectGraph {
     const projectName = this.nodeProjectNames.get(key);
     const root = projectName ? (this.getProjectByName(projectName)?.path ?? this.root) : this.root;
     if (!root) return null;
+    // §9 — 여기가 `getSnapshot()` 의 가장 뜨거운 자리다: 노드마다 한 번씩 불려 이 저장소 실측
+    //   2,467 노드 기준 스냅샷 1건에 **3.5ms**(`path.resolve` 2회 + 정규화 + 접두 비교)를 태웠다.
+    //   같은 (키·루트)면 답이 항상 같으므로 기억해 둔다.
+    //
+    //   ⚠ **무효화 장부를 두지 않는다.** 결과가 달라지려면 `root` 나 이 키의 프로젝트 이름이
+    //   바뀌어야 하는데, 그 둘은 Map 조회 한 번이라 path 계산보다 훨씬 싸다. 그래서 캐시에 그때의
+    //   두 값을 함께 넣어 두고 **쓸 때마다 대조**한다 — 갱신 지점이 20곳 넘게 흩어져 있어(프로젝트
+    //   추가·닫기·워크트리·체크포인트 복원·노드 이동) 무효화를 손으로 심으면 한 곳만 빠져도
+    //   경로가 조용히 옛것으로 남는다. 스스로 검증하는 캐시는 그 실수를 할 수 없다.
+    const cached = this.absPathCache.get(key);
+    if (cached !== undefined && cached.root === root && cached.projectName === projectName) {
+      return cached.value;
+    }
     // path traversal 방지: root 내부 경로만 허용
-    return validatePathWithinRoot(key, root);
+    const value = validatePathWithinRoot(key, root);
+    if (this.absPathCache.size >= ProjectGraph.ABS_PATH_CACHE_MAX) this.absPathCache.clear();
+    this.absPathCache.set(key, { root, projectName, value });
+    return value;
   }
 
   /** 비활성화: 디스크 삭제된 파일 버블 자동 제거 안 함 (수동 삭제만 허용) */
@@ -7626,24 +8064,61 @@ export class ProjectGraph {
     'coverage', '.svelte-kit', '__pycache__', '.venv', 'save',
   ]);
 
-  /** 폴더 노드의 파일 트리를 디스크에서 읽어 반환 */
-  listFolderFiles(nodePath: string): FolderFileEntry[] | null {
+  /**
+   * 폴더 노드의 파일 목록을 **한 겹·한 페이지**만 디스크에서 읽어 반환한다(§7.5).
+   *
+   * 종전 `listFolderFiles` 는 폴더를 통째로 재귀해 돌려줬다. 프로젝트 안에서는 `IGNORED_DIRS`
+   * 가 우연히 막아 줬을 뿐이고, **외부 폴더 버블에는 그 방벽이 없어** 사용자 홈을 고르면
+   * 61만 항목을 동기로 훑으며 메인 프로세스(=창)를 통째로 세웠다.
+   *
+   * @param nodePath 폴더 노드 키(`__root__:<프로젝트>` · 프로젝트 상대경로 · `__ext__<절대경로>`).
+   * @param opts.subPath 이 폴더 **아래로 펼친** 상대경로. 비면 폴더 자신의 겹.
+   * @param opts.cursor 이전 응답의 `nextCursor`(이 겹에서의 오프셋). 없으면 첫 장.
+   * @param opts.limit 이번 장의 최대 개수(`FOLDER_FILES_PAGE_MAX` 로 클램프).
+   */
+  listFolderFilePage(
+    nodePath: string,
+    opts: { subPath?: string | null; cursor?: string | null; limit?: number } = {},
+  ): FolderFilePage | null {
     const absPath = this.resolveAbsolutePath(nodePath);
     if (!absPath) return null;
+
+    // 펼친 하위 겹 — 노드가 가리키는 폴더 **안**으로만 내려간다. 이 창구는 프로젝트 루트
+    // 가드(`isWithinOpenableRoots`)를 쓰지 않으므로(외부 폴더가 이 라우트의 전제다) 이탈 검사를
+    // 스스로 갖는다. 판정은 기존 `validatePathWithinRoot` 하나 — 새 가드를 발명하지 않는다
+    // (win/mac 은 케이스를 접고 linux 는 구분하는 pathKey 규칙이 거기 이미 들어 있다).
+    const sub = (opts.subPath ?? '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+    const targetAbs = sub ? validatePathWithinRoot(sub, absPath) : absPath;
+    if (!targetAbs) return null;
+
     try {
-      if (!fs.existsSync(absPath) || !fs.statSync(absPath).isDirectory()) return null;
+      if (!fs.existsSync(targetAbs) || !fs.statSync(targetAbs).isDirectory()) return null;
     } catch { return null; }
 
-    // 이 폴더에 등록된 위성 파일 경로 Set
+    // 이 폴더에 등록된 위성 파일 경로 Set — 위성은 **폴더 노드**에 달리므로 하위 겹도 같은 집합을 본다.
     const satSet = this.satelliteMap.get(nodePath) ?? new Set<string>();
 
     // root 키는 relDir을 빈 문자열로 시작 (파일 경로가 'packages/...' 형태가 되도록)
-    const relDir = ProjectGraph.isRootKey(nodePath) ? '' : nodePath;
-    return this.readDirTree(absPath, relDir, satSet);
+    const baseRel = ProjectGraph.isRootKey(nodePath) ? '' : nodePath;
+    const relDir = sub ? foldCase(baseRel ? `${baseRel}/${sub}` : sub) : baseRel;
+
+    const level = this.readDirLevel(targetAbs, relDir, satSet);
+    const limit = Math.max(1, Math.min(opts.limit ?? FOLDER_FILES_PAGE_SIZE, FOLDER_FILES_PAGE_MAX));
+    const parsed = Number.parseInt(opts.cursor ?? '0', 10);
+    const start = Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+    const entries = level.slice(start, start + limit);
+    const end = start + entries.length;
+    return { entries, nextCursor: end < level.length ? String(end) : null, total: level.length };
   }
 
-  /** 재귀적으로 디렉토리 트리 읽기 */
-  private readDirTree(absDir: string, relDir: string, satSet: Set<string>): FolderFileEntry[] {
+  /**
+   * 디렉토리 **한 겹**을 읽어 정렬해 돌려준다 — 재귀하지 않는다.
+   *
+   * ⚠ **여기에 재귀를 다시 넣지 마라.** 종전 `readDirTree` 는 깊이·개수·시간 제한 없이 내려가,
+   * 사용자 홈이 외부 폴더 버블로 뜨면 30초로도 다 못 읽는 61만 항목을 훑었다(§7.5).
+   * 하위는 사용자가 그 폴더를 펼칠 때 `subPath` 로 다시 부른다.
+   */
+  private readDirLevel(absDir: string, relDir: string, satSet: Set<string>): FolderFileEntry[] {
     let entries: fs.Dirent[];
     try {
       entries = fs.readdirSync(absDir, { withFileTypes: true });
@@ -7651,29 +8126,18 @@ export class ProjectGraph {
 
     const result: FolderFileEntry[] = [];
     for (const entry of entries) {
-      if (entry.name.startsWith('.') && entry.isDirectory()) continue;
-      if (entry.isDirectory() && ProjectGraph.IGNORED_DIRS.has(entry.name)) continue;
+      const isDirectory = entry.isDirectory();
+      if (entry.name.startsWith('.') && isDirectory) continue;
+      if (isDirectory && ProjectGraph.IGNORED_DIRS.has(entry.name)) continue;
 
       // `normalize()` 가 만든 노드 키와 맞물리도록 같은 규칙으로 접는다(linux 는 접지 않는다).
       const relPath = foldCase(relDir ? `${relDir}/${entry.name}` : entry.name);
-
-      if (entry.isDirectory()) {
-        const children = this.readDirTree(path.join(absDir, entry.name), relPath, satSet);
-        result.push({
-          name: entry.name,
-          relativePath: relPath,
-          isDirectory: true,
-          children,
-          isSatellite: satSet.has(relPath),
-        });
-      } else {
-        result.push({
-          name: entry.name,
-          relativePath: relPath,
-          isDirectory: false,
-          isSatellite: satSet.has(relPath),
-        });
-      }
+      result.push({
+        name: entry.name,
+        relativePath: relPath,
+        isDirectory,
+        isSatellite: satSet.has(relPath),
+      });
     }
 
     // 디렉토리 먼저, 파일 나중 (각각 알파벳 순)
@@ -7790,10 +8254,14 @@ export class ProjectGraph {
     const proj = this.getProjectByName(projectName);
     if (!proj) return false;
     const normFile = foldCase(filePath);
-    const absPath = proj.path + '/' + normFile;
-    if (!fs.existsSync(absPath)) return false;
+    // 경로 탈출(`..`) 차단 — 루트 밖을 가리키면 여기서 끝낸다(toggleSatellite 와 같은 규칙).
+    const absPath = validatePathWithinRoot(normFile, proj.path);
+    if (!absPath) return false;
 
     if (show) {
+      // 켤 때만 디스크에 있어야 한다. **끄기는 디스크와 무관하다** — 파일이 지워진 뒤에도
+      // 버블은 캔버스에 남으므로, 존재를 요구하면 그 버블을 영영 체크 해제할 수 없다.
+      if (!fs.existsSync(absPath)) return false;
       const isDir = fs.statSync(absPath).isDirectory();
       const bubbleType: BubbleType = isDir ? 'internal_folder' : 'file';
       const node = this.upsertNode(normFile, bubbleType, 'manual', !isDir);
@@ -7822,14 +8290,20 @@ export class ProjectGraph {
     // filePath is already a full relative path from listFolderFiles (e.g., "packages/client/src/utils")
     const childKey = foldCase(filePath);
     const absChild = this.resolveAbsolutePath(childKey);
-    if (!absChild || !fs.existsSync(absChild)) return false;
+    if (!absChild) return false;
 
     if (show) {
+      // 켤 때만 디스크에 있어야 한다(끄기는 디스크와 무관 — toggleRootChild 와 같은 규칙).
+      if (!fs.existsSync(absChild)) return false;
       const isDir = fs.statSync(absChild).isDirectory();
       const bubbleType: BubbleType = isDir ? 'internal_folder' : 'file';
       const node = this.upsertNode(childKey, bubbleType, 'manual', !isDir);
       node.status = 'idle';
       node.pinned = true;
+      // 부모의 프로젝트 소속을 물려준다 — 캔버스 필터가 "소속 모르면 숨긴다" 라서
+      // 이걸 빠뜨리면 체크는 됐는데 버블이 안 뜬다(toggleRootChild 와 같은 교정).
+      const parentProjectName = this.nodeProjectNames.get(parentPath) ?? this.getPrimaryProject()?.name;
+      if (parentProjectName) this.nodeProjectNames.set(childKey, parentProjectName);
       this.registerChild(parentPath, childKey);
     } else {
       const node = this.nodes.get(childKey);
@@ -9222,46 +9696,43 @@ export class ProjectGraph {
   }
 
   /**
-   * Edit / Write 도구 호출 → 파일 수정 기록 추가 (Pre/Post 모두 수용, dedup).
-   * - Edit: tool_input.old_string → new_string.
-   * - Write: 디스크 직전 내용 → tool_input.content 로 diff 합성. old 는 PreToolUse 시점
-   *   디스크에서 읽어야 정확(Post 는 이미 새 내용). 신규 파일 / Pre 미수신 / 읽기 실패 → old="".
-   * 확장자 필터 없음 — 모니터링 세션이 쓴 모든 파일(.md/.json/.ts/.lock 등) 캡처.
+   * 편집 계열 도구 호출 → 파일 수정 기록 추가 (Pre/Post 모두 수용, dedup).
+   *
+   * 입력 모양은 **shared `parseEditToolObject` 한 곳**이 안다(§2.1 #3) — 네 도구를 여기서 다시
+   * 분해하면 도구 입력이 바뀔 때 클라 `IDE/diffTool.ts` 와 어긋난다.
+   * - `Edit`         old_string → new_string
+   * - `MultiEdit`    조각 여러 개 → **이력 한 줄**로 접는다(`joinEditHunks` 머리말: 조각마다
+   *                  한 줄씩 쌓으면 한 호출이 `MAX_FILE_EDITS` 를 먹고 병합창이 없는 diff 를 만든다)
+   * - `Write`        디스크 직전 내용 → tool_input.content 로 diff 합성. old 는 PreToolUse 시점
+   *                  디스크에서 읽어야 정확(Post 는 이미 새 내용). 신규/Pre 미수신/읽기 실패 → old=""
+   * - `NotebookEdit` new_source(셀 본문). `old_source` 가 없으면 old="" (없는 이전 본문 ❌)
+   *
+   * 확장자 필터 없음 — 모니터링 세션이 쓴 모든 파일(.md/.json/.ts/.ipynb/.lock 등) 캡처.
    */
   private recordFileEdit(payload: HookEventPayload): void {
     const tool = payload.tool_name;
-    if ((tool !== 'Edit' && tool !== 'Write') || !payload.tool_input) return;
+    if (!tool || !EDIT_INPUT_TOOLS.has(tool) || !payload.tool_input) return;
 
     // tool_use_id 중복 방지 (Pre/Post 같은 uid). add 는 엔트리 확정 직전에 — 중도 bail 한
     // Pre 가 후속 Post 를 막지 않도록.
     const uid = payload.tool_use_id;
     if (uid && this.fileEditSeen.has(uid)) return;
 
-    const rawPath = payload.tool_input['file_path'];
-    if (typeof rawPath !== 'string') return;
+    const parsed = parseEditToolObject(tool, payload.tool_input);
+    if (!parsed) return;
+
+    const rawPath = parsed.filePath;
     const absPath = normalize(rawPath);
     // 라우팅과 **같은** 세션 cwd 를 쓴다(routeToolFilePath 와 동일 — payload.cwd 폴백 ❌).
     const key = this.canonicalFileKey(absPath, this.sessionCwds.get(payload.session_id));
 
-    let oldStr: string;
-    let newStr: string;
+    const joined = joinEditHunks(parsed.hunks);
+    let oldStr = joined.oldString;
+    let newStr = joined.newString;
 
-    if (tool === 'Edit') {
-      const o = payload.tool_input['old_string'];
-      const n = payload.tool_input['new_string'];
-      if (typeof o !== 'string' || typeof n !== 'string') return;
-      oldStr = o;
-      newStr = n;
-    } else {
-      // Write — content = 새 전체 본문
-      const content = payload.tool_input['content'];
-      if (typeof content !== 'string') return;
-      newStr = content;
-      oldStr = '';
-      // 쓰기 직전 디스크 내용(= old). PreToolUse 만 정확 — Post 는 이미 덮어쓴 상태라 old 복구 불가.
-      if (payload.hook_event_name === 'PreToolUse') {
-        oldStr = readDiffSideFromDisk(rawPath) ?? '';
-      }
+    // Write — 쓰기 직전 디스크 내용(= old). PreToolUse 만 정확(Post 는 이미 덮어쓴 상태라 복구 불가).
+    if (parsed.mode === 'create' && payload.hook_event_name === 'PreToolUse') {
+      oldStr = readDiffSideFromDisk(rawPath) ?? '';
     }
 
     oldStr = this.clampDiffSide(oldStr);
@@ -9487,6 +9958,30 @@ export class ProjectGraph {
     refs.add(agentId);
   }
 
+  /**
+   * 지금 `active` 인(휴지통 제외) 에이전트 버블 id 집합 — **스냅샷 한 벌을 짓는 동안만** 재사용.
+   *
+   * 노드마다 다시 세면 노드×참조×에이전트로 곱해지므로 한 번만 센다. 유효 조건은 판
+   * (`mutationVersion`)이 같고 `ACTIVE_AGENT_MEMO_MS` 안일 때 — **`mutationVersion` 은 전수가
+   * 아니라서**(훅 경로 일부는 올리지 않는다) 판만 믿으면 놓친 전이가 영영 반영되지 않는다.
+   * 벽시계 상한을 함께 걸어, 이 메모가 스냅샷 캐시(§3.2 판+TTL)보다 낡을 수 없게 못 박는다.
+   */
+  private activeAgentIdMemo: { version: number; at: number; ids: Set<string> } | null = null;
+
+  private activeAgentIdSet(): Set<string> {
+    const now = Date.now();
+    const memo = this.activeAgentIdMemo;
+    if (memo && memo.version === this.mutationVersion && now - memo.at < ACTIVE_AGENT_MEMO_MS) {
+      return memo.ids;
+    }
+    const ids = new Set<string>();
+    for (const agent of this.agents.values()) {
+      if (agent.status === 'active' && !agent.trashed) ids.add(agent.id);
+    }
+    this.activeAgentIdMemo = { version: this.mutationVersion, at: now, ids };
+    return ids;
+  }
+
   /** excludeId 제외한 현재 active 에이전트 ID Set */
   private getActiveAgentIds(excludeId: string): Set<string> {
     const ids = new Set<string>();
@@ -9500,12 +9995,25 @@ export class ProjectGraph {
     return ids;
   }
 
-  /** 특정 에이전트의 모든 노드 참조 제거 → 참조 0인 노드 idle 전환 */
-  private removeAgentRefs(agentId: string, activeIds?: Set<string>): void {
+  /**
+   * 특정 에이전트의 활성 표시를 내린다 → 활성 참조가 없는 노드는 idle 전환.
+   *
+   * ⚠ **소유 기록(`nodeAgentRefs`)은 지우지 않는다.** 활성 판정은 `otherActiveIds` 필터가 하므로
+   * "누가 이 버블을 만졌나"를 함께 지울 이유가 없고, 지우면 §2.4 v1.82 "확인 dismiss → 전유
+   * file/folder 즉시 소멸" 이 근거를 잃는다. 종전에는 `refs.delete(agentId)` + `refs.clear()` 로
+   * 강등 시점에 기록을 통째로 버렸고, 그래서 세션이 끝난 뒤(=`setAgentStatus('completed')` 뒤)
+   * 사용자가 그 버블을 눌러도 `removeAgentRefsPurging` 의 `refs.has(agentId)` 가 false 라 **한 장도
+   * 걷히지 않았다**(실측: 살아 있는 checkpoint.json 의 `nodeAgentRefs` 2,425칸 중 2,409칸이 빈 배열).
+   * 그 고아 버블들이 "껐다 켜도 남는 것"의 정체다.
+   *
+   * @param forget 에이전트가 **영구히 사라질 때만** `true` — 그때는 죽은 id 가 노드에 눌러앉지
+   *   않도록 기록에서 지운다(`removeBubble` 의 에이전트 삭제 경로 한정).
+   */
+  private removeAgentRefs(agentId: string, activeIds?: Set<string>, forget = false): void {
     const now = Date.now();
     const otherActiveIds = activeIds ?? this.getActiveAgentIds(agentId);
     for (const [nodePath, refs] of this.nodeAgentRefs) {
-      refs.delete(agentId);
+      if (forget) refs.delete(agentId);
       let hasActiveRef = false;
       for (const ref of refs) {
         if (otherActiveIds.has(ref)) { hasActiveRef = true; break; }
@@ -9516,7 +10024,7 @@ export class ProjectGraph {
           node.status = node.bubbleType === 'ghost' ? 'disappearing' : 'idle';
           node.lastActivity = now;
         }
-        refs.clear();
+        if (forget) refs.clear();
       }
     }
   }
@@ -9548,7 +10056,9 @@ export class ProjectGraph {
         const isFileFolder =
           node.bubbleType === 'file' ||
           node.bubbleType === 'internal_folder' ||
-          node.bubbleType === 'external_folder';
+          node.bubbleType === 'external_folder' ||
+          // §5.23 — 도메인 버블도 확인 dismiss 로 즉시 내려간다(폴더 버블과 같은 수명).
+          node.bubbleType === 'domain';
         if (isFileFolder && !node.preservePinned && !node.pinned) {
           toRemove.push(node.id); // 즉시 제거 대상 (refs 순회 후 일괄 처리)
         } else {
@@ -9807,9 +10317,23 @@ export class ProjectGraph {
     }
     node.status = 'active';
     node.activity += 1;
+    // §5.24 — 읽기 히트맵의 축. `activity` 는 합산이라 "읽었나 고쳤나"를 구별하지 못한다.
+    this.bumpHeat(node, toolName);
     node.lastActivity = Date.now();
     node.lastTool = toolName;
     return node;
+  }
+
+  /**
+   * §5.24 — 도구 이름으로 읽기/쓰기 카운터를 가른다. 판정은 shared `toolAxis()` 한 곳이고,
+   * **표 밖의 이름은 어느 쪽도 올리지 않는다**(`manual` 처럼 도구가 아닌 경로로 생긴 버블).
+   * 그래서 `readCount + writeCount ≤ activity` 이며 그 차이 자체가 정보다.
+   */
+  private bumpHeat(node: BubbleData, toolName: string): void {
+    const axis = toolAxis(toolName);
+    if (!axis) return;
+    if (axis === 'read') node.readCount = (node.readCount ?? 0) + 1;
+    else node.writeCount = (node.writeCount ?? 0) + 1;
   }
 
   private registerChild(parentPath: string, childPath: string): void {
@@ -10029,6 +10553,8 @@ export class ProjectGraph {
         childCount: 0,
         satelliteFileCount: 0,
       });
+      // §5.24 — quiet 은 "실제로 만진 것이 아님"(접합 조상 세우기 등)이라 히트로 세지 않는다.
+      if (!opts?.quiet) this.bumpHeat(this.nodes.get(key)!, toolName);
       return;
     }
     if (existing.bubbleType === 'file') {
@@ -10042,6 +10568,7 @@ export class ProjectGraph {
     existing.label = `(ext) ${absolutePath}`;
     existing.status = 'active';
     existing.activity += 1;
+    this.bumpHeat(existing, toolName);
     existing.lastActivity = Date.now();
     existing.lastTool = toolName;
   }
@@ -10256,11 +10783,76 @@ export class ProjectGraph {
         }
       }
 
+      this.rebuildExternalRollupSatellites(assigned);
       this.bumpMutationVersion();
       return assigned;
     } finally {
       this.rebuildingExternalTree = false;
     }
+  }
+
+  /**
+   * 외부 폴더 조상에게 **자손이 만진 파일**을 물려준다 — §2.1 #5 "가장 밖에도 읽고 쓴 파일이 뜬다".
+   *
+   * 내부 폴더가 만진 파일을 모든 조상에 위성으로 다는 것과 **같은 규율**이다. 다른 점은 심는
+   * 자리 하나뿐 — `satelliteMap` 이 아니라 파생 맵(`externalRollupSatellites`)에 심는다.
+   * 그래야 접합/만진 폴더 판정(위성 ≥ 1)이 흔들리지 않는다(그 이유는 필드 선언부 주석에).
+   *
+   * 매번 통째로 다시 만든다. 트리가 바뀌면 조상도 바뀌므로 증분으로 고치면 옛 조상에 남은
+   * 위성이 영영 안 걷힌다 — 지워진 폴더의 파일이 최상위에 유령으로 떠 있는 종류의 손상이다.
+   *
+   * @param assigned `rebuildExternalFolderTree` 가 방금 세운 자식 키 → 부모 키(null=최상위).
+   */
+  private rebuildExternalRollupSatellites(assigned: ReadonlyMap<string, string | null>): void {
+    this.externalRollupSatellites.clear();
+    for (const [key] of assigned) {
+      const own = this.satelliteMap.get(key);
+      if (!own || own.size === 0) continue; // 접합은 스스로 만진 것이 없다 — 물려줄 것도 없다
+      let ancestor = assigned.get(key) ?? null;
+      // 최상위까지 올라가며 모든 조상에 얹는다(내부 폴더의 조상 루프와 같은 모양).
+      while (ancestor) {
+        let set = this.externalRollupSatellites.get(ancestor);
+        if (!set) {
+          set = new Set();
+          this.externalRollupSatellites.set(ancestor, set);
+        }
+        for (const fileKey of own) set.add(fileKey);
+        ancestor = assigned.get(ancestor) ?? null;
+      }
+    }
+    // 상한 — 자손이 많으면 조상 하나에 수백 개가 몰린다. 폴더별 상한까지 **최근 것부터** 남긴다
+    // (§7.5 maxSatellites 를 그대로 따른다 — 조상이라고 더 많이 띄우지 않는다).
+    for (const [key, set] of this.externalRollupSatellites) {
+      const cap = this.folderMaxSatellites(key);
+      if (set.size <= cap) continue;
+      const kept = [...set]
+        .sort((a, b) => (this.nodes.get(b)?.lastActivity ?? 0) - (this.nodes.get(a)?.lastActivity ?? 0))
+        .slice(0, cap);
+      this.externalRollupSatellites.set(key, new Set(kept));
+    }
+  }
+
+  /**
+   * 이 폴더 버블 주위에 실제로 뜰 위성 파일 키 — **표시의 단일 창구**.
+   *
+   * 자기 것(`satelliteMap`) + 외부 조상이 물려받은 것(`externalRollupSatellites`)을 합쳐
+   * 폴더 상한까지 최근순으로 자른다. 물려받은 것이 없으면(내부 폴더 전부·만진 외부 폴더)
+   * 자기 것 그대로라 종전 동작과 한 글자도 다르지 않다.
+   *
+   * 스냅샷의 위성 목록과 헤더 카운트(`satelliteFileCount`)가 **같은 함수**를 봐야 한다 —
+   * 두 벌이 되면 "3 files" 라고 적힌 버블 주위에 2개만 뜨는 어긋남이 생긴다.
+   */
+  private effectiveSatelliteKeys(folderPath: string): string[] {
+    const own = this.satelliteMap.get(folderPath);
+    const inherited = this.externalRollupSatellites.get(folderPath);
+    if (!inherited || inherited.size === 0) return own ? [...own] : [];
+    const merged = new Set<string>(own ?? []);
+    for (const k of inherited) merged.add(k);
+    const cap = this.folderMaxSatellites(folderPath);
+    if (merged.size <= cap) return [...merged];
+    return [...merged]
+      .sort((a, b) => (this.nodes.get(b)?.lastActivity ?? 0) - (this.nodes.get(a)?.lastActivity ?? 0))
+      .slice(0, cap);
   }
 
   /** 부모-자식 링크 1개 해제 (childCount 동기화 포함). 노드 자체는 건드리지 않는다. */
@@ -10278,6 +10870,7 @@ export class ProjectGraph {
     this.nodes.delete(key);
     this.childrenMap.delete(key);
     this.satelliteMap.delete(key);
+    this.externalRollupSatellites.delete(key);
     this.topLevelPaths.delete(key);
     this.nodeAgentRefs.delete(key);
     this.nodeProjectNames.delete(key);

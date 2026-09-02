@@ -21,12 +21,14 @@ import {
   COST_MAP_AGENTS_MAX,
   COST_MAP_DAYS_MAX,
   COST_MAP_SESSIONS_MAX,
+  COST_MAP_UNSEEDED_MODELS_MAX,
   addCostTotals,
   buildCostPeriodTotals,
   calculateTokenCost,
   costDayKey,
   emptyCostTotals,
   hasCostActivity,
+  isPricingEstimated,
 } from '@vibisual/shared';
 
 /** 스윕 한 번에 넘기는 세션 한 줄 — 호출부가 그래프에서 뽑아 채운다. */
@@ -52,6 +54,19 @@ export type TurnReader = (cwd: string, sessionId: string) => TurnTokenUsage[] | 
 /** 세션 원장 한 줄의 내부 표현(스냅샷에서 `days` 를 떼기 전 원본). */
 type LedgerEntry = CostSessionEntry & { days: Record<string, CostTotals> };
 
+/**
+ * 이 턴의 금액이 **추정**인가 — 단가를 모르는 모델로 환산했으면 true.
+ *
+ * **토큰이 0인 턴은 보지 않는다.** `<synthetic>`(대답 없이 끝난 턴)이 모델 자리에 그대로 앉는데,
+ * 실측(2026-09-02 로컬 대화록)상 240건 전부 0토큰이었다. 금액에 1원도 못 보태는 줄 때문에 세션
+ * 전체가 "추정"으로 물들면 그 표식은 늑대소년이 되고, 정작 새 모델이 왔을 때 아무도 안 본다.
+ */
+function turnEstimated(turn: TurnTokenUsage, registry: ModelRegistry | null): boolean {
+  const tokens = turn.inputTokens + turn.outputTokens + turn.cacheReadTokens + turn.cacheCreateTokens;
+  if (tokens <= 0) return false;
+  return isPricingEstimated(turn.model, registry);
+}
+
 /** 턴 하나의 비용 — 그 턴이 말한 모델의 단가로 4종을 각각 환산한다. */
 function turnCost(turn: TurnTokenUsage, registry: ModelRegistry | null): number {
   return calculateTokenCost(
@@ -64,14 +79,26 @@ function turnCost(turn: TurnTokenUsage, registry: ModelRegistry | null): number 
   ).total;
 }
 
-/** 합계에 턴 하나를 더한 **새** 객체. */
-function accrueTurn(base: CostTotals, turn: TurnTokenUsage, registry: ModelRegistry | null): CostTotals {
+/**
+ * 합계에 턴 하나를 더한 **새** 객체.
+ *
+ * `estimated` 는 호출부가 이미 판정해 넘긴다 — 세션 합과 날짜 버킷이 같은 턴을 두 번 먹으므로
+ * 여기서 다시 계산하면 레지스트리 조회가 턴마다 두 번 돈다.
+ */
+function accrueTurn(
+  base: CostTotals,
+  turn: TurnTokenUsage,
+  registry: ModelRegistry | null,
+  estimated: boolean,
+): CostTotals {
   return {
     inputTokens: base.inputTokens + turn.inputTokens,
     outputTokens: base.outputTokens + turn.outputTokens,
     cacheReadTokens: base.cacheReadTokens + turn.cacheReadTokens,
     cacheCreateTokens: base.cacheCreateTokens + turn.cacheCreateTokens,
     costUsd: base.costUsd + turnCost(turn, registry),
+    // 한 번 추정이 섞이면 그 합계는 계속 추정이다(금액을 되돌려 뺄 방법이 없다).
+    ...(base.estimated || estimated ? { estimated: true } : {}),
   };
 }
 
@@ -89,6 +116,13 @@ export class CostMapService {
   private ledgers = new Map<string, Map<string, LedgerEntry>>();
   private retired = new Map<string, CostTotals>();
   private updatedAt = new Map<string, number>();
+  /**
+   * 마지막 스윕이 쓴 레지스트리 — `build()` 가 "이 모델이 **아직도** 표에 없나"를 되물을 때만 쓴다.
+   * 표가 갱신되면 원장에 박힌 옛 ID 는 더 이상 미상이 아니므로, 툴팁이 이미 고친 이름을 계속
+   * 부르지 않게 하려면 그리는 시점의 표를 봐야 한다(금액 자체는 그때 값 그대로 둔다 — 그 돈은
+   * 실제로 폴백 단가로 계산됐다).
+   */
+  private lastRegistry: ModelRegistry | null = null;
 
   /**
    * 세션들을 훑어 원장을 갱신한다. 바뀐 게 있으면 true.
@@ -103,6 +137,7 @@ export class CostMapService {
     now: number = Date.now(),
   ): boolean {
     let changed = false;
+    this.lastRegistry = registry;
 
     for (const s of sessions) {
       if (!s.sessionId || !s.cwd || !s.projectName) continue;
@@ -151,12 +186,16 @@ export class CostMapService {
       let model = resume ? prev.model : undefined;
       let firstAt = resume ? prev.firstAt : 0;
       let lastAt = resume ? prev.lastAt : 0;
+      // 이어 읽는 세션은 앞서 만난 미상 모델을 그대로 이어받는다 — 증분이라 옛 턴은 다시 안 본다.
+      const unseeded = new Set<string>(resume ? (prev.unseededModels ?? []) : []);
 
       for (let i = resume ? prev.turns : 0; i < turns.length; i++) {
         const turn = turns[i]!;
-        totals = accrueTurn(totals, turn, registry);
+        const estimated = turnEstimated(turn, registry);
+        if (estimated && turn.model) unseeded.add(turn.model);
+        totals = accrueTurn(totals, turn, registry, estimated);
         const key = costDayKey(turn.timestamp || now);
-        days[key] = accrueTurn(days[key] ?? emptyCostTotals(), turn, registry);
+        days[key] = accrueTurn(days[key] ?? emptyCostTotals(), turn, registry, estimated);
         if (turn.model) model = turn.model;
         if (turn.timestamp) {
           if (!firstAt || turn.timestamp < firstAt) firstAt = turn.timestamp;
@@ -172,6 +211,9 @@ export class CostMapService {
         projectName: s.projectName,
         ...(s.label ? { label: s.label } : {}),
         ...(model ? { model } : {}),
+        ...(unseeded.size > 0
+          ? { unseededModels: [...unseeded].slice(0, COST_MAP_UNSEEDED_MODELS_MAX) }
+          : {}),
         turns: turns.length,
         firstAt: firstAt || now,
         lastAt: lastAt || now,
@@ -284,6 +326,11 @@ export class CostMapService {
     const periods = buildCostPeriodTotals(days, now);
     if (retired) periods.all = addCostTotals(periods.all, retired);
 
+    // 원장에 남은 미상 ID 의 합집합 — 단, **지금 표 기준으로 다시 걸러** 이미 채워 넣은 모델은 뺀다.
+    const unseededModels = [...new Set(sessions.flatMap((e) => e.unseededModels ?? []))]
+      .filter((m) => isPricingEstimated(m, this.lastRegistry))
+      .slice(0, COST_MAP_UNSEEDED_MODELS_MAX);
+
     return {
       projectName,
       sessions,
@@ -292,6 +339,7 @@ export class CostMapService {
       periods,
       ...(retired ? { retired } : {}),
       measured: sessions.some((s) => s.measured),
+      ...(unseededModels.length > 0 ? { unseededModels } : {}),
       updatedAt: this.updatedAt.get(projectName) ?? 0,
     };
   }

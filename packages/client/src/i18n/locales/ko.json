@@ -526,7 +526,19 @@
         "bgProbeModel": "답하는 모델",
         "bgProbeModelDesc": "도구 없이, 프로젝트에 접근하지 않고 한 번만 묻습니다 — 명령 원문과 출력 꼬리 조금이 전부입니다.",
         "bgProbeLoadError": "지금 설정을 읽지 못했습니다.",
-        "bgProbeSaveError": "저장하지 못했습니다. 아무것도 바뀌지 않았습니다."
+        "bgProbeSaveError": "저장하지 못했습니다. 아무것도 바뀌지 않았습니다.",
+        "sessionProbeTitle": "\"실행중…\" 으로 굳은 세션",
+        "sessionProbeIntro": "일이 끝난 뒤에도 세션이 오래도록 \"실행중…\" 으로 남을 수 있습니다 — 세션을 끝내는 신호가 모두 자기 신고라, 하나만 유실돼도 아무도 내리지 않기 때문입니다. 경과 시간으로 가릴 수도 없습니다. 긴 빌드를 기다리는 세션과 조용히 죽은 세션은 겉모습이 똑같습니다. 그래서 10분마다 작은 판정 에이전트에게 세션 하나에 대해 한 번만 묻습니다 — 무엇을 기다리는지, 그것이 아직 오고 있는지.",
+        "sessionProbeEnabled": "실행중인 세션이 정말 도는 중인지 확인하기",
+        "sessionProbeEnabledDesc": "끄면 이 일로 모델을 부르지 않습니다. 다른 장치가 내리기 전까지 세션은 \"실행중…\" 으로 남습니다.",
+        "sessionProbeQuiet": "이만큼 조용하면 물어보기 (분)",
+        "sessionProbeQuietDesc": "조용한 시간은 언제 물어볼지만 정합니다 — 답을 정하지는 않습니다. \"아직 도는 중\"이라고 답한 세션은 다시 물을 때까지 점점 더 오래 그대로 둡니다. 0 이면 물어보지 않습니다.",
+        "sessionProbeAutoClose": "답이 \"끝났다\"이면 세션을 내리기",
+        "sessionProbeAutoCloseDesc": "끄면 답을 상태바에 적기만 하고 판단은 사용자가 합니다. \"아직 도는 중\"·\"멈춘 것 같음\"·\"판단 못 함\"은 어느 쪽이든 아무것도 내리지 않습니다. 그리고 여기서 프로세스를 죽이지는 않습니다 — 세션을 더 이상 도는 중이 아님으로 표시할 뿐입니다.",
+        "sessionProbeModel": "답하는 모델",
+        "sessionProbeModelDesc": "도구 없이, 프로젝트에 접근하지 않고 한 번만 묻습니다 — 그 세션이 마지막으로 말하고 한 일의 꼬리 조금이 전부입니다. 한 번에 한 세션만, 시간당 12번까지만 묻습니다.",
+        "sessionProbeLoadError": "지금 설정을 읽지 못했습니다.",
+        "sessionProbeSaveError": "저장하지 못했습니다. 아무것도 바뀌지 않았습니다."
       },
       "notifications": {
         "cmdBlocked": "CMD 세션이 입력을 기다리면 알림",
@@ -867,9 +879,10 @@
       "contextItems": "{{count}}개 항목",
       "model": {
         "label": "모델",
-        "opus": "가장 강력. 최고 수준의 추론과 복잡한 태스크. 비용 높음.",
+        "opus": "매우 강력. 복잡한 에이전트 코딩과 추론에 최적. 비용 높음.",
         "sonnet": "성능과 비용의 균형. 대부분의 태스크에 적합.",
         "haiku": "가장 빠르고 저렴. 간단한 읽기 전용 태스크에 최적.",
+        "fable": "가장 강력. 가장 어려운 추론과 장기 작업에 최적. 비용 최고.",
         "unknown": "{{name}} — 새로 출시된 모델. 가격·성능은 패밀리 기본값으로 추정."
       },
       "contextWindow": {
@@ -1044,8 +1057,24 @@
         "tokens": "창 크기 약 {{tokens}} 토큰.",
         "foldsAt": "약 {{tokens}} 에 이르면 그 턴이 끝나는 자리에서 접습니다.",
         "foldsAtAuto": "CLI 가 정한 창의 {{percent}}% 에 이르면 그 턴이 끝나는 자리에서 접습니다.",
-        "unsetDefaultLabel": "미설정 ({{tokens}})",
-        "globalTip": "자동 압축을 따로 정하지 않은 모든 에이전트에 적용됩니다 — 이미 돌고 있는 에이전트도 포함입니다. 비워 두면 내장 기본값을 씁니다."
+        "unsetDefaultLabel": "미설정 (기본: 꺼짐)",
+        "globalTip": "자동 압축을 따로 정하지 않은 모든 에이전트에 적용됩니다 — 이미 돌고 있는 에이전트도 포함입니다. 비워 두면 내장 기본값을 씁니다.",
+        "offLabel": "꺼짐",
+        "off": "꺼짐 — 접지 않습니다. 요약 호출이 없어 토큰을 쓰지 않습니다.",
+        "foldsAtOff": "접지 않습니다. 대화가 길어지면 매 턴이 무거워지고, 모델 창에 닿으면 CLI 가 작업 도중에 한 번 접습니다.",
+        "confirm": {
+          "title": "자동 압축을 켤까요? ({{value}})",
+          "titleSelf": "에이전트가 스스로 압축하도록 켤까요?",
+          "costHeading": "켜면 토큰 비용이 발생합니다",
+          "costBody": "압축은 대화를 지우는 정리가 아니라, 대화 전체를 모델에 다시 먹여 요약을 만드는 별도의 모델 호출입니다. 접을 때마다 입력·출력 토큰과 플랜 사용량을 씁니다.",
+          "costSample": "실측 예 ({{runs}}회 평균): 한 번에 약 {{tokens}} 토큰을 다시 읽고 약 {{seconds}}초 멈춥니다. 실제 값은 대화 길이와 모델에 따라 달라집니다.",
+          "selfBody": "에이전트가 컨텍스트가 무겁다고 판단하면 스스로 압축을 요청하고, 그 턴이 끝난 뒤 실행됩니다. 요청 한 번이 곧 요약 호출 한 번이라 같은 토큰 비용이 발생합니다.",
+          "offHeading": "끈 채로 두면 어떻게 되나요",
+          "offBody": "접지 않으면 쌓인 대화를 매 턴 통째로 다시 실어 비용과 지연이 함께 늘어납니다. 모델 창에 닿으면 CLI 가 작업 도중에 한 번 접거나, 창을 넘겨 세션이 끊길 수 있습니다.",
+          "everyTime": "이 확인은 끄고 다시 켤 때마다 나타납니다.",
+          "cancel": "취소 (끈 채로 두기)",
+          "enable": "확인했습니다 — 켜기"
+        }
       },
       "settingSources": {
         "label": "설정 계층",
@@ -1308,6 +1337,21 @@
       "maxSave": "저장",
       "noVisible": "표시 파일 없음"
     },
+    "webEntry": {
+      "count": "항목 {{count}}",
+      "maxTitle": "이 도메인의 최대 항목 수",
+      "maxHint": "Enter 저장 · Esc 취소",
+      "empty": "아직 기록 없음",
+      "clearAll": "모두 비우기",
+      "clearConfirm": "비우기",
+      "clearCancel": "취소",
+      "kindSearch": "검색",
+      "kindFetch": "가져오기",
+      "checkHint": "체크하면 이 항목이 지워집니다",
+      "openExternal": "브라우저에서 열기",
+      "resultCount": "결과 {{count}}건",
+      "truncated": "…(잘림)"
+    },
     "rootFileList": {
       "files": "파일",
       "loading": "불러오는 중...",
@@ -1334,6 +1378,12 @@
         "running": "실행 중",
         "done": "완료",
         "error": "오류"
+      },
+      "probe": {
+        "checking": "확인 중…",
+        "working": "동작 확인됨",
+        "stuck": "멈춘 것 같음",
+        "finished": "끝난 것 같음"
       },
       "tokensInOut": "입력 {{in}} 출력 {{out}}"
     },
@@ -1656,6 +1706,9 @@
       "empty": "이 프로젝트에서는 아직 측정된 항목이 없습니다.",
       "emptyHint": "비용은 agent가 턴을 마치면 나타납니다 — 청구 금액이 아닌, 세션 트랜스크립트에서 읽어온 값입니다.",
       "estimateNote": "토큰 수와 공개된 가격을 기준으로 추정한 값입니다.",
+      "estimatedMark": "추정",
+      "estimatedMarkHint": "단가를 모르는 모델이 섞여 있어 대체 단가로 환산했습니다. 실제 금액과 다를 수 있습니다.",
+      "unseededNote": "{{models}} 의 단가가 표에 없어 대체 단가로 환산했습니다. 이 금액은 실제와 다를 수 있습니다.",
       "retiredNote": "이전 세션의 비용({{cost}})은 전체 기간 합계에 포함됩니다.",
       "sessions_one": "세션 {{count}}개",
       "sessions_other": "세션 {{count}}개",
@@ -1770,6 +1823,10 @@
       "choose": "폴더 선택",
       "picking": "선택하는 중…",
       "later": "나중에"
+    },
+    "folderList": {
+      "loadingMore": "더 불러오는 중… ({{loaded}} / {{total}})",
+      "retry": "불러오지 못했습니다 — 다시 시도"
     }
   },
   "ide": {
@@ -1873,7 +1930,17 @@
       "confirmCloseMessage": "아직 동작 중인 세션이 있습니다. 닫으면 작업이 중단됩니다. 그래도 닫으시겠습니까?",
       "confirmCloseConfirm": "닫기",
       "confirmCloseCancel": "취소",
-      "hiddenRunning": "이쪽에 가려진 실행 중 탭 {{count}}개 — 눌러서 이동"
+      "hiddenRunning": "이쪽에 가려진 실행 중 탭 {{count}}개 — 눌러서 이동",
+      "sortTabs": "탭 정렬",
+      "sortAnchorTitle": "정렬 기준",
+      "sortAnchorRight": "오른쪽 기준",
+      "sortAnchorLeft": "왼쪽 기준",
+      "sortByRunning": "실행중",
+      "sortByQuestions": "질문 카드",
+      "sortByReviews": "검수 카드",
+      "sortByUserActions": "내가 할 일",
+      "sortByPinned": "고정",
+      "sortByRecent": "최신순"
     },
     "terminal": {
       "unavailable": "임베디드 터미널은 Vibisual 데스크톱 앱에서만 사용할 수 있습니다.",
@@ -1949,6 +2016,8 @@
       "ctxSendAsPrompt": "새 명령으로 전송",
       "ctxSelectAll": "전체 선택",
       "ctxAddMemo": "메모지 붙이기",
+      "ctxSpreadMemos": "겹친 메모 펼치기",
+      "ctxSpreadMemosNone": "겹친 메모가 없습니다",
       "jumpToBottom": "맨 아래로",
       "ctxSelectionRequired": "텍스트를 먼저 선택하세요",
       "inputCtxCut": "잘라내기",
@@ -1958,10 +2027,53 @@
       "ctxSaveToBrain": "메모리에 기억",
       "stopAll": "전체 중지",
       "stopAllTitle": "이 에이전트가 돌리는 것 전부 중지(다른 탭 + 백그라운드 작업)",
-      "stopSessionTitle": "이 세션과 여기서 시작된 서브 에이전트를 중지합니다 (다른 세션 탭은 계속 실행됩니다)"
+      "stopSessionTitle": "이 세션과 여기서 시작된 서브 에이전트를 중지합니다 (다른 세션 탭은 계속 실행됩니다)",
+      "voiceStart": "음성 입력 ({{shortcut}})",
+      "voiceStop": "음성 입력 끝내기 ({{shortcut}})",
+      "voiceStarting": "마이크를 여는 중…",
+      "voiceListening": "듣고 있습니다 — 말씀하세요",
+      "voiceCancelHint": "Esc 로 취소",
+      "voiceDone": "완료",
+      "voiceErrUnsupported": "이 빌드에서는 음성 인식을 쓸 수 없습니다.",
+      "voiceErrPermission": "마이크 사용이 거부되었습니다. 시스템 개인 정보 설정에서 이 앱에 마이크를 허용한 뒤 다시 시도해 주세요.",
+      "voiceErrDevice": "마이크를 찾지 못했습니다. 연결한 뒤 다시 시도해 주세요.",
+      "voiceErrNetwork": "음성 인식 서비스에 연결하지 못했습니다.",
+      "voiceErrLanguage": "음성 인식이 현재 화면 언어를 지원하지 않습니다.",
+      "voiceErrUnknown": "음성 입력이 중지되었습니다. 다시 시도해 주세요.",
+      "voiceErrDismiss": "닫기"
+    },
+    "voiceInstall": {
+      "title": "음성 입력 준비",
+      "intro": "음성 입력은 전부 이 컴퓨터에서 돌아갑니다. 준비하려면 약 {{size}} 를 한 번 내려받고, 그 뒤로는 인터넷 없이 동작합니다.",
+      "noteSize": "약 {{size}} 를 내려받아 디스크에 둡니다(엔진 + 음성 모델). 이 과정은 한 번뿐입니다.",
+      "noteResume": "언제든 중단할 수 있습니다. 받아 둔 것은 남아 있고, 다시 시작하면 그 자리에서 이어받습니다.",
+      "notePrivacy": "음성은 이 컴퓨터 밖으로 나가지 않습니다 — 계정도, 인터넷도 쓰지 않고 녹음이나 저장도 하지 않습니다.",
+      "noteFirstRun": "준비한 뒤 처음 말할 때는 모델을 올리는 데 몇 초가 걸립니다.",
+      "noteLicense": "음성 모델: NVIDIA Nemotron ASR(OpenMDW-1.1). 엔진: sherpa-onnx(Apache-2.0).",
+      "langPrimary": "이 모델은 지금 화면 언어를 완전히 지원합니다.",
+      "langBroad": "이 모델은 지금 화면 언어를 한 등급 낮은 정확도로 지원합니다.",
+      "langNone": "이 모델의 지원 목록에 지금 화면 언어가 없습니다 — 인식이 나쁘거나 되지 않을 수 있습니다.",
+      "stageEngine": "엔진 받는 중",
+      "stageExtract": "엔진 푸는 중",
+      "stageModel": "음성 모델 받는 중",
+      "stageVerify": "파일 확인 중",
+      "stageReady": "준비됨",
+      "stageCanceled": "중단됨",
+      "canceledHint": "중단했습니다. 받아 둔 것은 남아 있어 다시 시작하면 그 자리에서 이어받습니다.",
+      "failed": "준비하지 못했습니다.",
+      "cancel": "중단",
+      "later": "나중에",
+      "retry": "다시 시도",
+      "start": "설치하고 시작"
     },
     "memo": {
       "title": "메모",
+      "tabHint": "끌어내면 떼어내기 · 다른 메모 위에 놓으면 합치기",
+      "mergeHint": "제목줄을 끌어 다른 메모 위에 놓으면 합쳐집니다",
+      "stacked": "밑에 {{n}}장 — 누르면 다음 장이 위로",
+      "rename": "이름 바꾸기",
+      "namePlaceholder": "이름 (비우면 본문 첫 줄)",
+      "renameHint": "F2 · 더블클릭 · 우클릭으로 이름 바꾸기",
       "placeholder": "메모를 적으세요…",
       "color": "색",
       "collapse": "접기",
@@ -2381,13 +2493,21 @@
     },
     "statusBar": {
       "custom": "커스텀",
+      "customTip": "캔버스에서 직접 만든 에이전트입니다. 명령을 보낼 수 있고 세션을 탭으로 열 수 있습니다.",
       "hook": "Hook",
+      "hookTip": "Claude Code 훅 이벤트로 감지된 버블입니다. 읽기 전용이라 명령을 보낼 수 없습니다.",
+      "statusTip": "여기 보이는 세션의 실행 상태입니다 — 실행 중·대기·완료·오류.",
+      "modelTip": "이 세션이 마지막 턴에 실제로 쓴 모델입니다. 첫 턴 전에는 이 에이전트에 설정된 모델을 보여 줍니다.",
+      "modelUnknown": "모름",
       "context": "컨텍스트: {{used}}/{{max}}",
+      "contextTip": "지금 컨텍스트 창이 얼마나 찼는지 — 마지막 턴의 입력을 이 모델의 창 크기와 견준 값입니다. 누적이 아니라서 압축되면 다시 내려갑니다.",
       "tokens": "입력 {{in}} / 출력 {{out}}",
+      "tokensTip": "이 세션이 시작한 뒤 쓴 토큰 총합입니다. 입력에는 캐시 읽기·쓰기가 함께 세어져 출력보다 훨씬 빨리 오릅니다. 누적이라 줄지 않습니다.",
+      "autoCompact": "자동 압축 {{value}}",
+      "autoCompactTip": "컨텍스트가 이 크기에 이르면 CLI 가 대화를 스스로 요약해 줄입니다. 에이전트별로는 Agent 설정 창에서, 전체 기본값은 파일 > 옵션 > Agent 기본값에서 바꿀 수 있습니다.",
       "sessionOne": "{{count}}개 세션",
       "sessionMany": "{{count}}개 세션",
-      "autoCompact": "자동 압축 {{value}}",
-      "autoCompactTip": "컨텍스트가 이 크기에 이르면 CLI 가 대화를 스스로 요약해 줄입니다. 에이전트별로는 Agent 설정 창에서, 전체 기본값은 파일 > 옵션 > Agent 기본값에서 바꿀 수 있습니다."
+      "sessionsTip": "이 에이전트에 열려 있는 세션 탭 수입니다."
     },
     "search": {
       "placeholder": "대화에서 검색",
@@ -2421,6 +2541,15 @@
       "modelFallback": "모델 대체",
       "interrupt": "중단됨",
       "permissionDenied": "권한 거부"
+    },
+    "stepTrace": {
+      "underSec": "1초 미만",
+      "sec": "{{sec}}초",
+      "minSec": "{{min}}분 {{sec}}초",
+      "hourMin": "{{hour}}시간 {{min}}분",
+      "thought": "{{duration}} 동안 사고함",
+      "wrote": "{{value}}자 작성",
+      "chars": "{{value}}자"
     },
     "streamRenderer": {
       "noActivity": "이 세션에 활동 없음",
@@ -3601,7 +3730,14 @@
       "lock": "캔버스 잠금",
       "unlock": "캔버스 잠금 해제",
       "fullscreen": "전체 화면",
-      "exitFullscreen": "전체 화면 종료"
+      "exitFullscreen": "전체 화면 종료",
+      "heatmap": "읽기 히트맵",
+      "heatmapOff": "읽기 히트맵 끄기"
+    },
+    "heatmap": {
+      "title": "읽은 횟수",
+      "empty": "아직 읽은 것이 없습니다",
+      "max": "최대 {{n}}회"
     },
     "contextMenu": {
       "createCustomAgent": "Custom Agent 만들기",
