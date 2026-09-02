@@ -902,6 +902,61 @@ export function normalizeSessionLoop(loop: SessionLoop): SessionLoop {
   return normalized;
 }
 
+// ─── §9 (2d) 슬라이스별 버전 ───
+
+/**
+ * §9 (2d) — **버전이 붙은 `Map`.** 키가 들고 나고 바뀌는 것을 스스로 센다.
+ *
+ * **왜 상속인가** — 슬라이스 memo 는 "이 맵은 안 바뀌었다"가 **틀리면 그 자리에서
+ * 변경이 사라지는** 판정이다. 그런데 이 소스 맵들을 고치는 자리는 수십 곳이고 앞으로도 늘어난다.
+ * 변경 지점마다 bump 를 손으로 심는 방식은 **반드시 한 곳을 빠뜨린다** — 이 파일에 이미
+ * 전례가 있다(`mutationVersion` 은 `createCustomAgent` 경로에서 안 올라간다). `set`/`delete`/
+ * `clear` 를 가로채면 **기존 호출 코드를 한 줄도 안 고치고** 전 경로가 자동으로 잡힌다 —
+ * 누락이 구조적으로 불가능해진다.
+ *
+ * ⚠ **제자리 변경은 여기서 안 잡힌다** — `map.get(k)!.push(x)` 처럼 값을 직접 만지고
+ *   `set` 을 다시 안 부르면 버전이 그대로다. 그래서 `memoSlice` 에 TTL 안전망이 함께
+ *   걸려 있다(까닭은 `SLICE_MEMO_TTL` 주석). **이 둘은 한 쌍이다 — 한쪽만 남기지 마라.**
+ *
+ * ⚠ 생성자에 초기 항목을 못 넘기게 **일부러** 막아 둔다. `Map` 생성자는 스펙상 이
+ *   클래스의 `set` 을 꺼내 부르는데, 클래스 필드는 `super()` 뒤에 깔리므로 그때
+ *   `mapVersion` 은 아직 없다. 복원 경로는 빈 맵을 만든 뒤 `set` 으로 채워라.
+ */
+export class VersionedMap<K, V> extends Map<K, V> {
+  private mapVersion = 0;
+
+  constructor() {
+    super();
+  }
+
+  /** 변경 시각이 아니라 **횟수**다 — 같은 tick 안의 연속 변경도 구분된다. */
+  get version(): number {
+    return this.mapVersion;
+  }
+
+  override set(key: K, value: V): this {
+    this.mapVersion += 1;
+    return super.set(key, value);
+  }
+
+  override delete(key: K): boolean {
+    const existed = super.delete(key);
+    // 없는 키를 지우는 호출은 변경이 아니다 — 여기서 올리면 정리 스윕이 돌 때마다 memo 가 빗나간다.
+    if (existed) this.mapVersion += 1;
+    return existed;
+  }
+
+  override clear(): void {
+    if (this.size > 0) this.mapVersion += 1;
+    super.clear();
+  }
+}
+
+/** `memoSlice` 가 "안 바뀌었나"를 묻는 대상. `VersionedMap` 이 구조적으로 이 모양이다. */
+export interface SliceVersionSource {
+  readonly version: number;
+}
+
 // ─── ProjectGraph 클래스 ───
 
 export interface ProcessResult {
@@ -1159,63 +1214,63 @@ export class ProjectGraph {
   private manuallyConfigured = new Set<string>();
 
   /** 에이전트 간 작업 흐름 엣지 (TaskEdge ID → TaskEdge) */
-  private taskEdges = new Map<string, TaskEdge>();
+  private taskEdges = new VersionedMap<string, TaskEdge>();
 
   /**
    * §5.3 #10-2 v2.37 — Auto Agent 가 생성한 서브 군의 메타 (autoAgentSessionId → AutoAgentSummary).
    * 영속화 대상 (ProjectCheckpoint.autoAgentSummaries).
    */
-  private autoAgentSummaries = new Map<string, AutoAgentSummary>();
+  private autoAgentSummaries = new VersionedMap<string, AutoAgentSummary>();
   /**
    * §5.3 #10-3 v4.98 — 검증 런 (autoAgentSessionId → AutoAgentRun[], 최신이 뒤).
    * 영속화 대상 (ProjectCheckpoint.autoAgentRuns). ring buffer 캡 = AUTO_AGENT_RUN_MAX_PER_AGENT.
    * `autoAgentSummaries` 와 달리 요청마다 레코드가 늘어난다(덮어쓰지 않는다).
    */
-  private autoAgentRuns = new Map<string, AutoAgentRun[]>();
+  private autoAgentRuns = new VersionedMap<string, AutoAgentRun[]>();
   /**
    * §4 v2.52 — 에이전트 작업 신고 (agentId → AgentReport[]). did/userActions 색 구분용.
    * 영속화 대상 (ProjectCheckpoint.agentReports). ring buffer 캡 = AGENT_REPORT_MAX_PER_AGENT.
    */
-  private agentReports = new Map<string, AgentReport[]>();
+  private agentReports = new VersionedMap<string, AgentReport[]>();
   /**
    * §5.5 #17-36 — **메인 탭**(세션 미선택)에서 만든 스티키 메모 (agentId → SessionMemo[]).
    * 세션 탭 메모는 그 세션의 소지품이라 `SubAgent.memos` 에 있고, 붙일 세션이 없는 메인 탭
    * 메모만 여기 산다. 영속화 대상 (ProjectCheckpoint.agentMemos). 장수 상한 = SESSION_MEMO.MAX_PER_OWNER.
    */
-  private agentMemos = new Map<string, SessionMemo[]>();
+  private agentMemos = new VersionedMap<string, SessionMemo[]>();
   /**
    * §5.10 Project Brain — 주입 이벤트 (agentId → BrainInjectionEvent[]). "기억 N장 참조" 칩 +
    * Brain→에이전트 일시 엣지 연출용 신호(카드 id/title 만). **런타임 전용 — 체크포인트 미영속**
    * (재시작 시 자연 비움; 주입 이력은 카드 refCount 로 남는다). ring buffer 캡 = BRAIN_INJECTIONS_MAX_PER_AGENT.
    */
-  private brainInjections = new Map<string, BrainInjectionEvent[]>();
+  private brainInjections = new VersionedMap<string, BrainInjectionEvent[]>();
   /**
    * §4 v2.60 — 에이전트 질문 카드 (agentId → AgentQuestions[]). 질문 + 제안 프롬프트.
    * 영속화 대상 (ProjectCheckpoint.agentQuestions). ring buffer 캡 = AGENT_QUESTIONS_MAX_PER_AGENT.
    */
-  private agentQuestions = new Map<string, AgentQuestions[]>();
+  private agentQuestions = new VersionedMap<string, AgentQuestions[]>();
   /**
    * §4 v2.70 — 에이전트 검수 요청 카드 (agentId → AgentReview[]). changes/checkpoints 검수용.
    * 영속화 대상 (ProjectCheckpoint.agentReviews). ring buffer 캡 = AGENT_REVIEWS_MAX_PER_AGENT.
    */
-  private agentReviews = new Map<string, AgentReview[]>();
+  private agentReviews = new VersionedMap<string, AgentReview[]>();
   /**
    * §4 v2.84 — 에이전트 번호 목록 정렬 카드 (agentId → AgentList[]). 번호/순서 목록 정렬용.
    * 영속화 대상 (ProjectCheckpoint.agentLists). ring buffer 캡 = AGENT_LISTS_MAX_PER_AGENT.
    */
-  private agentLists = new Map<string, AgentList[]>();
+  private agentLists = new VersionedMap<string, AgentList[]>();
   /**
    * §4 v3.21 — 에이전트 피드백 (agentId → AgentFeedback[]). 좋아요/싫어요 → 규칙 되먹임용.
    * 영속화 대상 (ProjectCheckpoint.agentFeedbacks). ring buffer 캡 = AGENT_FEEDBACK_MAX_PER_AGENT.
    */
-  private agentFeedbacks = new Map<string, AgentFeedback[]>();
+  private agentFeedbacks = new VersionedMap<string, AgentFeedback[]>();
   /**
    * §5.5 #17-11 v3.79 — 세션 반복 실행(루프) 설정 (subAgentId → SessionLoop).
    * 키가 **세션 탭 ID** 인 것이 핵심 — 탭마다 다른 반복 명령을 갖는다.
    * 영속화 대상 (ProjectCheckpoint.sessionLoops) — 사용자가 짜 넣은 설정 + 진행 카운트라
    * 재시작 후에도 이어져야 한다(회차 발사·정지 판단은 index.ts 런타임이 담당).
    */
-  private sessionLoops = new Map<string, SessionLoop>();
+  private sessionLoops = new VersionedMap<string, SessionLoop>();
   /**
    * §5.5 #17-35 — 검증 실행 이력 (subAgentId → VerificationRun[], **최신이 앞**).
    * 루프·목표와 같은 키 축(세션 탭)이다. 세션당 `VERIFICATION_RUNS_MAX_PER_SESSION` 건에서 자른다 —
@@ -1223,21 +1278,21 @@ export class ProjectGraph {
    * 영속화 대상 (ProjectCheckpoint.verificationRuns) — "무엇이 언제 실제로 돌아서 통과했는가" 는
    * 세션이 끝나도 남아야 할 근거다. identity.json 은 아니다(실행 기록 ≠ 정체성 — §5.16 과 같은 판단).
    */
-  private verificationRuns = new Map<string, VerificationRun[]>();
+  private verificationRuns = new VersionedMap<string, VerificationRun[]>();
   /**
    * §5.5 #17-35 ⑧ — 시연(재현 절차) 목록 (subAgentId → VerificationDemo[], **최신이 앞**).
    * 실행 이력과 같은 키 축(세션 탭)이고 세션당 `VERIFICATION_DEMO_MAX_PER_SESSION` 건에서 자른다.
    * 영상은 여기 없다 — 단계 문장과 프레임 경로만 산다(⑧-2). 그림 파일 자체는 `.vibisual/verify-demos/`
    * 에 있고, 그 폴더를 지우는 것은 삭제 경로의 일이다(이 맵은 경로만 든다).
    */
-  private verificationDemos = new Map<string, VerificationDemo[]>();
+  private verificationDemos = new VersionedMap<string, VerificationDemo[]>();
   /**
    * §5.5 #17-17 v4.46 — 세션 목표 (subAgentId → SessionGoal).
    * 루프와 같은 키 축(세션 탭)이지만 실행 주체가 아니라 **방향**이다 — 명령을 발사하지 않고
    * 매 턴 dispatchContext 에 다시 실려 세션을 조향하고, 진행률 퍼센트를 사용자에게 답한다.
    * 영속화 대상 (ProjectCheckpoint.sessionGoals + identity.json — 사용자가 쓴 문장이라 정체성).
    */
-  private sessionGoals = new Map<string, SessionGoal>();
+  private sessionGoals = new VersionedMap<string, SessionGoal>();
   /**
    * §5.5 #17-28 — 컨텍스트 주입원 오버라이드. 프로젝트 층 하나 + 세션 탭별 층.
    *
@@ -1316,18 +1371,18 @@ export class ProjectGraph {
    */
   private auditLogService = new AuditLogService(() => appStateGetRetention().auditEntryMaxPerProject);
   /** §5.3 #28 v1.47 — 콘티 (contiId → Conti). 에이전트 cascade 삭제. */
-  private contis = new Map<string, Conti>();
+  private contis = new VersionedMap<string, Conti>();
 
   /**
    * §5.3 #28 (L) v1.58 — 콘티 인플라이트 작업 추적 (agentId → ActiveContiWork).
    * 트리거 측에서 workId 발급, 첫 응답에 contiId 머지. 영속화 ❌.
    */
-  private activeContiWork = new Map<string, ActiveContiWork>();
+  private activeContiWork = new VersionedMap<string, ActiveContiWork>();
 
   /** §4 v1.50 — 에이전트(session)별 도구 실행 시간 ring buffer (최근 5건). 영속화 ❌. */
-  private recentToolDurations = new Map<string, ToolDurationEntry[]>();
+  private recentToolDurations = new VersionedMap<string, ToolDurationEntry[]>();
   /** §4 v1.50 — 에이전트(session)별 컨텍스트 컴팩션 카운트 + 마지막 시각. ProjectCheckpoint 영속. */
-  private compactCounts = new Map<string, CompactCount>();
+  private compactCounts = new VersionedMap<string, CompactCount>();
   private uiLocale: UiLocale = DEFAULT_UI_LOCALE;
   /**
    * 프로젝트별 루트 캔버스 바운딩 박스 크기(half-width/height). 키 = projectName.
@@ -1397,6 +1452,66 @@ export class ProjectGraph {
     this.mutationVersion += 1;
     // 슬롯을 통째로 비워 같은 tick 의 getSnapshot 이 어느 범위로 오든 즉시 재계산하도록 보장
     this.snapshotCache.clear();
+  }
+
+  // ─── §9 (2d) 슬라이스별 버전 메모이제이션 ───
+
+  /**
+   * (2d) 슬라이스 memo 안전망 TTL — **`SNAPSHOT_CACHE_TTL` 과 같은 창을 일부러 쓴다.**
+   *
+   * `VersionedMap` 은 키 변경만 잡는다. 값을 제자리로 만지고 `set` 을 다시 안 부르는 자리
+   * (예: `appendVerificationAttempt` 의 `run.attempts.push`, `closeAutoAgentRun` 의 `run.status = …`)는
+   * 버전이 안 올라 memo 가 "안 바뀜"으로 읽는다. 이 TTL 이 그 경우의 **최대 지연을 창 하나로
+   * 묶는다 — 유실 경로는 없다.**
+   *
+   * 왜 하필 같은 값인가: 더 길게 잡으면 스냅샷 캐시가 먼저 살아나 memo 만 묵은 채로 남고,
+   * 짧게 잡으면 스냅샷 캐시가 빗나갈 때마다 memo 도 같이 빗나가 이 최적화가 0 이 된다.
+   *
+   * ⚠ **이 안전망을 걷어내지 마라.** "감지(`VersionedMap`) + TTL" 두 층은 이 저장소의 기존
+   *   규약이다 — §9 「저장은 바뀐 프로젝트만」 이 `mutationVersion` 옆에 `CHECKPOINT_QUIET_SWEEP_MS`
+   *   강제 스윕을 두는 것과 같은 사고다. 한 층만 남기면 조용한 데이터 유실로 돌아온다.
+   */
+  private static readonly SLICE_MEMO_TTL = ProjectGraph.SNAPSHOT_CACHE_TTL;
+
+  /**
+   * (2d) 슬라이스 이름 → 지난 결과. 키 수가 슬라이스 개수(수십)로 **고정**이라
+   * `snapshotCache` 와 달리 슬롯 상한이 필요 없다(키가 늘지 않으므로 캐시 누수가 안 된다).
+   */
+  private sliceMemo = new Map<
+    string,
+    { source: SliceVersionSource; version: number; builtAt: number; value: unknown }
+  >();
+
+  /**
+   * (2d) — **안 바뀐 슬라이스는 순회조차 하지 않는다.**
+   *
+   * 종전엔 `mutationVersion` 이 **전역 하나**라 어느 슬라이스가 바뀌었는지 몰랐고,
+   * 그래서 한 슬라이스가 바뀌면 키맵 슬라이스 **전부**를 다시 순회했다. `stableCopy` 는
+   * "복사"를 아꼈지만 "순회"는 그대로 지불했다(에이전트가 도는 내내 16~250ms 마다).
+   *
+   * 소스 버전이 그대로면 지난 결과를 **같은 참조로** 돌려준다. 같은 참조인 것이 핵심이다 —
+   * `broadcastBus` 의 증분이 참조 비교로 걸리기 때문이다(새 객체를 돌려주면 전선 부피가 도로 불어난다).
+   *
+   * `source` 객체 자체도 대조하는 이유: 체크포인트 복원이 맵 필드를 **통째로 갈아 끼우는**
+   * 자리가 있어서(`taskEdges`·`contis`), 새 맵의 버전이 우연히 0 으로 같아도 지난 결과가 새 나가지 않게.
+   *
+   * ⚠ build 가 만든 결과를 **나중에 제자리로 고치지 마라.** 이전에 내준 참조와 같은 객체라,
+   *   고치는 순간 이미 전선에 오른 스냅샷까지 소급변경된다.
+   */
+  private memoSlice<T>(key: string, source: SliceVersionSource, build: () => T): T {
+    const now = Date.now();
+    const hit = this.sliceMemo.get(key);
+    if (
+      hit !== undefined &&
+      hit.source === source &&
+      hit.version === source.version &&
+      now - hit.builtAt < ProjectGraph.SLICE_MEMO_TTL
+    ) {
+      return hit.value as T;
+    }
+    const value = build();
+    this.sliceMemo.set(key, { source, version: source.version, builtAt: now, value });
+    return value;
   }
 
   // ─── 히스토리 API ───
@@ -2307,7 +2422,10 @@ export class ProjectGraph {
 
   /** §5.3 #10-2 v2.37 — 전체 요약 메타 맵 (broadcast 스냅샷용) */
   getAutoAgentSummaries(): Record<string, AutoAgentSummary> {
-    return Object.fromEntries(this.autoAgentSummaries);
+    // §9 (2d) — **얕은** 사본이라 값 객체를 제자리로 고쳐도 공유 참조를 통해 그대로 보인다.
+    //   그래서 여기서 memo 가 놓칠 수 있는 것은 **키 변경뿐**이고, 그건 `VersionedMap` 이 전부 잡는다.
+    return this.memoSlice('autoAgentSummaries', this.autoAgentSummaries, () =>
+      Object.fromEntries(this.autoAgentSummaries));
   }
 
   // ── §5.3 #10-3 v4.98 — 검증 런 ────────────────────────────────────────────
@@ -2437,8 +2555,12 @@ export class ProjectGraph {
 
   /** 전체 런 맵 (broadcast 스냅샷·체크포인트용) */
   getAutoAgentRunsRecord(): Record<string, AutoAgentRun[]> | undefined {
-    if (this.autoAgentRuns.size === 0) return undefined;
-    return Object.fromEntries(this.autoAgentRuns);
+    // §9 (2d) — 얕은 사본(위 `getAutoAgentSummaries` 와 같은 이유). `appendVerificationAttempt`
+    //   가 `run.attempts` 를 제자리로 민다는 사실이 여기서 문제가 안 되는 까닭도 그것이다.
+    return this.memoSlice('autoAgentRuns', this.autoAgentRuns, () => {
+      if (this.autoAgentRuns.size === 0) return undefined;
+      return Object.fromEntries(this.autoAgentRuns);
+    });
   }
 
   /**
@@ -2457,10 +2579,15 @@ export class ProjectGraph {
 
   /** §4 v2.52 — 작업 신고 전체 맵 (broadcast 스냅샷/체크포인트용). 빈 맵이면 undefined. */
   getAgentReportsRecord(): Record<string, AgentReport[]> | undefined {
-    if (this.agentReports.size === 0) return undefined;
-    const out: Record<string, AgentReport[]> = {};
-    for (const [k, v] of this.agentReports) out[k] = [...v];
-    return out;
+    // §9 (2d) — 소스 맵이 그대로면 순회조차 안 한다(`memoSlice` 주석).
+    //   값 배열은 `list.push(...)` 뒤에 반드시 `this.agentReports.set(...)` 을 다시 부르는 것을
+    //   확인했다 — 그래서 제자리 append 도 `VersionedMap` 이 잡는다.
+    return this.memoSlice('agentReports', this.agentReports, () => {
+      if (this.agentReports.size === 0) return undefined;
+      const out: Record<string, AgentReport[]> = {};
+      for (const [k, v] of this.agentReports) out[k] = this.stableCopy(v);
+      return out;
+    });
   }
 
   /**
@@ -2484,10 +2611,15 @@ export class ProjectGraph {
 
   /** §5.5 #17-36 — 메모 전체 맵 (broadcast 스냅샷/체크포인트용). 빈 맵이면 undefined. */
   getAgentMemosRecord(): Record<string, SessionMemo[]> | undefined {
-    if (this.agentMemos.size === 0) return undefined;
-    const out: Record<string, SessionMemo[]> = {};
-    for (const [k, v] of this.agentMemos) out[k] = [...v];
-    return out;
+    // §9 (2d) — 소스 맵이 그대로면 순회조차 안 한다(`memoSlice` 주석).
+    //   값 배열은 `list.push(...)` 뒤에 반드시 `this.agentMemos.set(...)` 을 다시 부르는 것을
+    //   확인했다 — 그래서 제자리 append 도 `VersionedMap` 이 잡는다.
+    return this.memoSlice('agentMemos', this.agentMemos, () => {
+      if (this.agentMemos.size === 0) return undefined;
+      const out: Record<string, SessionMemo[]> = {};
+      for (const [k, v] of this.agentMemos) out[k] = this.stableCopy(v);
+      return out;
+    });
   }
 
   /**
@@ -2525,10 +2657,15 @@ export class ProjectGraph {
 
   /** §5.10 — 주입 이벤트 전체 맵 (broadcast 스냅샷용). 빈 맵이면 undefined. */
   getBrainInjectionsRecord(): Record<string, BrainInjectionEvent[]> | undefined {
-    if (this.brainInjections.size === 0) return undefined;
-    const out: Record<string, BrainInjectionEvent[]> = {};
-    for (const [k, v] of this.brainInjections) out[k] = [...v];
-    return out;
+    // §9 (2d) — 소스 맵이 그대로면 순회조차 안 한다(`memoSlice` 주석).
+    //   값 배열은 `list.push(...)` 뒤에 반드시 `this.brainInjections.set(...)` 을 다시 부르는 것을
+    //   확인했다 — 그래서 제자리 append 도 `VersionedMap` 이 잡는다.
+    return this.memoSlice('brainInjections', this.brainInjections, () => {
+      if (this.brainInjections.size === 0) return undefined;
+      const out: Record<string, BrainInjectionEvent[]> = {};
+      for (const [k, v] of this.brainInjections) out[k] = this.stableCopy(v);
+      return out;
+    });
   }
 
   /**
@@ -2573,10 +2710,15 @@ export class ProjectGraph {
 
   /** §4 v2.60 — 질문 카드 전체 맵 (broadcast 스냅샷/체크포인트용). 빈 맵이면 undefined. */
   getAgentQuestionsRecord(): Record<string, AgentQuestions[]> | undefined {
-    if (this.agentQuestions.size === 0) return undefined;
-    const out: Record<string, AgentQuestions[]> = {};
-    for (const [k, v] of this.agentQuestions) out[k] = [...v];
-    return out;
+    // §9 (2d) — 소스 맵이 그대로면 순회조차 안 한다(`memoSlice` 주석).
+    //   값 배열은 `list.push(...)` 뒤에 반드시 `this.agentQuestions.set(...)` 을 다시 부르는 것을
+    //   확인했다 — 그래서 제자리 append 도 `VersionedMap` 이 잡는다.
+    return this.memoSlice('agentQuestions', this.agentQuestions, () => {
+      if (this.agentQuestions.size === 0) return undefined;
+      const out: Record<string, AgentQuestions[]> = {};
+      for (const [k, v] of this.agentQuestions) out[k] = this.stableCopy(v);
+      return out;
+    });
   }
 
   /**
@@ -2595,10 +2737,15 @@ export class ProjectGraph {
 
   /** §4 v2.70 — 검수 요청 카드 전체 맵 (broadcast 스냅샷/체크포인트용). 빈 맵이면 undefined. */
   getAgentReviewsRecord(): Record<string, AgentReview[]> | undefined {
-    if (this.agentReviews.size === 0) return undefined;
-    const out: Record<string, AgentReview[]> = {};
-    for (const [k, v] of this.agentReviews) out[k] = [...v];
-    return out;
+    // §9 (2d) — 소스 맵이 그대로면 순회조차 안 한다(`memoSlice` 주석).
+    //   값 배열은 `list.push(...)` 뒤에 반드시 `this.agentReviews.set(...)` 을 다시 부르는 것을
+    //   확인했다 — 그래서 제자리 append 도 `VersionedMap` 이 잡는다.
+    return this.memoSlice('agentReviews', this.agentReviews, () => {
+      if (this.agentReviews.size === 0) return undefined;
+      const out: Record<string, AgentReview[]> = {};
+      for (const [k, v] of this.agentReviews) out[k] = this.stableCopy(v);
+      return out;
+    });
   }
 
   /**
@@ -2617,10 +2764,15 @@ export class ProjectGraph {
 
   /** §4 v2.84 — 번호 목록 정렬 카드 전체 맵 (broadcast 스냅샷/체크포인트용). 빈 맵이면 undefined. */
   getAgentListsRecord(): Record<string, AgentList[]> | undefined {
-    if (this.agentLists.size === 0) return undefined;
-    const out: Record<string, AgentList[]> = {};
-    for (const [k, v] of this.agentLists) out[k] = [...v];
-    return out;
+    // §9 (2d) — 소스 맵이 그대로면 순회조차 안 한다(`memoSlice` 주석).
+    //   값 배열은 `list.push(...)` 뒤에 반드시 `this.agentLists.set(...)` 을 다시 부르는 것을
+    //   확인했다 — 그래서 제자리 append 도 `VersionedMap` 이 잡는다.
+    return this.memoSlice('agentLists', this.agentLists, () => {
+      if (this.agentLists.size === 0) return undefined;
+      const out: Record<string, AgentList[]> = {};
+      for (const [k, v] of this.agentLists) out[k] = this.stableCopy(v);
+      return out;
+    });
   }
 
   /**
@@ -2653,10 +2805,15 @@ export class ProjectGraph {
 
   /** §4 v3.21 — 피드백 전체 맵 (broadcast 스냅샷/체크포인트용). 빈 맵이면 undefined. */
   getAgentFeedbacksRecord(): Record<string, AgentFeedback[]> | undefined {
-    if (this.agentFeedbacks.size === 0) return undefined;
-    const out: Record<string, AgentFeedback[]> = {};
-    for (const [k, v] of this.agentFeedbacks) out[k] = [...v];
-    return out;
+    // §9 (2d) — 소스 맵이 그대로면 순회조차 안 한다(`memoSlice` 주석).
+    //   값 배열은 `list.push(...)` 뒤에 반드시 `this.agentFeedbacks.set(...)` 을 다시 부르는 것을
+    //   확인했다 — 그래서 제자리 append 도 `VersionedMap` 이 잡는다.
+    return this.memoSlice('agentFeedbacks', this.agentFeedbacks, () => {
+      if (this.agentFeedbacks.size === 0) return undefined;
+      const out: Record<string, AgentFeedback[]> = {};
+      for (const [k, v] of this.agentFeedbacks) out[k] = this.stableCopy(v);
+      return out;
+    });
   }
 
   /** §4 v3.21 — 한 에이전트의 피드백 목록 (스폰 다이제스트 주입/distill 용). */
@@ -2716,10 +2873,14 @@ export class ProjectGraph {
 
   /** 루프 전체 맵 (broadcast 스냅샷/체크포인트용). 빈 맵이면 undefined. */
   getSessionLoopsRecord(): Record<string, SessionLoop> | undefined {
-    if (this.sessionLoops.size === 0) return undefined;
-    const out: Record<string, SessionLoop> = {};
-    for (const [k, v] of this.sessionLoops) out[k] = { ...v };
-    return out;
+    // §9 (2d) — 루프는 항상 `set` 으로 통째 교체된다(`setSessionLoop`/`updateSessionLoop`).
+    //   그래서 맵 버전이 곧 이 사본의 유효기간이다.
+    return this.memoSlice('sessionLoops', this.sessionLoops, () => {
+      if (this.sessionLoops.size === 0) return undefined;
+      const out: Record<string, SessionLoop> = {};
+      for (const [k, v] of this.sessionLoops) out[k] = { ...v };
+      return out;
+    });
   }
 
   // ─── §5.5 #17-35 — 검증(Verify) ───
@@ -2799,10 +2960,15 @@ export class ProjectGraph {
 
   /** 검증 전체 맵 (broadcast 스냅샷/체크포인트용). 빈 맵이면 undefined. */
   getVerificationRunsRecord(): Record<string, VerificationRun[]> | undefined {
-    if (this.verificationRuns.size === 0) return undefined;
-    const out: Record<string, VerificationRun[]> = {};
-    for (const [k, v] of this.verificationRuns) out[k] = v.map((r) => ({ ...r, attempts: [...r.attempts] }));
-    return out;
+    // §9 (2d) — 이 슬라이스는 **깊은 사본**이라 제자리 변경이 사본에 안 비친다.
+    //   갱신 경로는 전부 `set` 을 타지만(`updateVerificationRun` 은 배열을 복사해 다시 넣는다)
+    //   그것만 믿지 않는다 — `SLICE_MEMO_TTL` 이 둘째 층이다.
+    return this.memoSlice('verificationRuns', this.verificationRuns, () => {
+      if (this.verificationRuns.size === 0) return undefined;
+      const out: Record<string, VerificationRun[]> = {};
+      for (const [k, v] of this.verificationRuns) out[k] = v.map((r) => ({ ...r, attempts: [...r.attempts] }));
+      return out;
+    });
   }
 
   // ─── §5.5 #17-35 ⑨ — 시연(재현 절차) ───
@@ -2879,12 +3045,15 @@ export class ProjectGraph {
 
   /** 시연 전체 맵 (broadcast 스냅샷/체크포인트용). 빈 맵이면 undefined. */
   getVerificationDemosRecord(): Record<string, VerificationDemo[]> | undefined {
-    if (this.verificationDemos.size === 0) return undefined;
-    const out: Record<string, VerificationDemo[]> = {};
-    for (const [k, v] of this.verificationDemos) {
-      out[k] = v.map((d) => ({ ...d, steps: [...d.steps], frames: [...d.frames] }));
-    }
-    return out;
+    // §9 (2d) — `verificationRuns` 와 같은 규약(깊은 사본 + TTL 둘째 층).
+    return this.memoSlice('verificationDemos', this.verificationDemos, () => {
+      if (this.verificationDemos.size === 0) return undefined;
+      const out: Record<string, VerificationDemo[]> = {};
+      for (const [k, v] of this.verificationDemos) {
+        out[k] = v.map((d) => ({ ...d, steps: [...d.steps], frames: [...d.frames] }));
+      }
+      return out;
+    });
   }
 
   // ─── §5.5 #17-28 — 컨텍스트 주입원 오버라이드 ───
@@ -3251,11 +3420,34 @@ export class ProjectGraph {
   }
 
   /** 목표 전체 맵 (broadcast 스냅샷/체크포인트용). 빈 맵이면 undefined. */
+  /**
+   * §9 — 세션 목표의 전선용 사본 메모(`sliceCopyCache` 와 같은 규약, 객체 판).
+   *
+   * 여기는 배열이 아니라 **객체 하나가 통째로 교체**되는 자리다(`sessionGoals.set(k, next)` —
+   * `steps`/`history` 를 제자리로 고치는 곳이 한 군데도 없다). 그래서 원본 객체의 **참조 자체**가
+   * 곧 버전이고, 길이·양끝을 볼 필요가 없다. 종전에는 목표 93개를 매 스냅샷마다 3중으로 깊은
+   * 복사해(실측 171KB) 한 세션이 한 칸 나아갈 때마다 나머지 92개까지 새 참조로 다시 실렸다.
+   */
+  private sessionGoalViewCache = new WeakMap<SessionGoal, SessionGoal>();
+
   getSessionGoalsRecord(): Record<string, SessionGoal> | undefined {
-    if (this.sessionGoals.size === 0) return undefined;
-    const out: Record<string, SessionGoal> = {};
-    for (const [k, v] of this.sessionGoals) out[k] = { ...v, steps: [...v.steps], history: [...v.history] };
-    return out;
+    // §9 (2d) — 바깥층(순회) memo. 안쪽 `sessionGoalViewCache` 는 값 하나의 사본 memo 라
+    //   **층이 다르다 — 한쪽이 있다고 다른 쪽을 지우지 마라.** 이쪽이 없으면 목표 93개 순회가
+    //   매 스냅샷마다 돌고, 저쪽이 없으면 TTL 이 지날 때마다 93개가 전부 새 참조로 바뀌어
+    //   증분이 통째로 무너진다.
+    return this.memoSlice('sessionGoals', this.sessionGoals, () => {
+      if (this.sessionGoals.size === 0) return undefined;
+      const out: Record<string, SessionGoal> = {};
+      for (const [k, v] of this.sessionGoals) {
+        let view = this.sessionGoalViewCache.get(v);
+        if (view === undefined) {
+          view = { ...v, steps: [...v.steps], history: [...v.history] };
+          this.sessionGoalViewCache.set(v, view);
+        }
+        out[k] = view;
+      }
+      return out;
+    });
   }
 
   /** 캔버스에서 파이프라인 에이전트 생성 (부모 1 + 자식 4 원자적 생성) */
@@ -6365,7 +6557,10 @@ export class ProjectGraph {
 
     // taskEdges 복원
     if (cp.taskEdges) {
-      this.taskEdges = new Map(Object.entries(cp.taskEdges));
+      // ⚠ `VersionedMap` 은 생성자로 초기 항목을 못 받는다(그쪽 주석) — 빈 맵에 부어 넣는다.
+      const restoredTaskEdges = new VersionedMap<string, TaskEdge>();
+      for (const [edgeId, edge] of Object.entries(cp.taskEdges)) restoredTaskEdges.set(edgeId, edge);
+      this.taskEdges = restoredTaskEdges;
       // 복원 시 executing → idle (프로세스 이미 종료)
       for (const edge of this.taskEdges.values()) {
         if (edge.status === 'executing') edge.status = 'idle';
@@ -6451,7 +6646,7 @@ export class ProjectGraph {
 
     // v1.47 — Conti 복원
     // §5.3 #28 (L) v1.58 — 이전 체크포인트 호환: workId/updatedAt 누락 시 폴백 채움
-    this.contis = new Map();
+    this.contis = new VersionedMap<string, Conti>();
     if (cp.contis) {
       for (const [cid, c] of Object.entries(cp.contis)) {
         const restored: Conti = sanitizeContiOnLoad({
@@ -7238,17 +7433,22 @@ export class ProjectGraph {
   }
 
   getRecentToolDurations(): Record<string, ToolDurationEntry[]> {
-    const out: Record<string, ToolDurationEntry[]> = {};
-    for (const [sid, arr] of this.recentToolDurations) {
-      if (arr.length > 0) out[sid] = arr;
-    }
-    return out;
+    // §9 (2d) — 적재는 `arr.push` 뒤에 반드시 `set` 을 다시 부른다(바로 위 기록 경로).
+    return this.memoSlice('recentToolDurations', this.recentToolDurations, () => {
+      const out: Record<string, ToolDurationEntry[]> = {};
+      for (const [sid, arr] of this.recentToolDurations) {
+        if (arr.length > 0) out[sid] = arr;
+      }
+      return out;
+    });
   }
 
   getCompactCounts(): Record<string, CompactCount> {
-    const out: Record<string, CompactCount> = {};
-    for (const [sid, c] of this.compactCounts) out[sid] = c;
-    return out;
+    return this.memoSlice('compactCounts', this.compactCounts, () => {
+      const out: Record<string, CompactCount> = {};
+      for (const [sid, c] of this.compactCounts) out[sid] = c;
+      return out;
+    });
   }
 
   setCompactCounts(map: Record<string, CompactCount>): void {
@@ -9886,6 +10086,41 @@ export class ProjectGraph {
     { len: number; head: FileEdit | undefined; absPath: string; out: FileEdit[] }
   >();
 
+  /**
+   * §9 — 스냅샷 키맵 슬라이스의 **배열 복사본 메모**. 키는 원본 배열 자체(WeakMap → 함께 수거).
+   *
+   * 바로 위 `fileEditsViewCache` 가 파일 편집 하나에 하던 것을 **키맵 슬라이스 전반**으로 넓힌 것이다.
+   *
+   * **왜 복사가 필요한가** — 내부 배열은 *제자리로* 바뀐다(`push` + 상한 트림 `splice`). 원본을
+   * 그대로 실으면 전선 델타(`broadcastBus.encodeSnapshotMessage`)의 참조 비교가 "안 바뀜"으로 읽어
+   * **변경분이 유실된다**.
+   *
+   * **왜 캐시가 필요한가** — 반대로 매번 새로 복사하면 모든 키가 매 스냅샷마다 새 참조가 되어
+   * 그 델타도, 클라 `structuralShare` 도 통째로 무력해진다. 실측(2026-09-02 · 이 저장소의 살아
+   * 있는 checkpoint): 키맵 슬라이스 **941KB 의 참조 유지율 0%** — 한 에이전트가 한 줄을 뱉을 때마다
+   * `agentReports` 240KB · `sessionGoals` 171KB · `agentReviews` 153KB 가 통째로 다시 전선을 탔다.
+   *
+   * 무효화 판정은 **길이 + 첫 원소 + 마지막 원소**다. 이 맵들의 변경은 전부 한쪽 끝에 붙이고 다른
+   * 쪽 끝을 잘라내는 모양이라(`AGENT_REPORT_MAX_PER_AGENT` 등 상한 트림) 셋 중 하나가 반드시
+   * 달라진다. 원소 자체는 만들어진 뒤 바뀌지 않는다 — 고칠 때는 **새 객체로 교체**한다(위 `fileEdits`
+   * 가 `head` 를 제자리 수정하지 않는 것과 같은 규율).
+   */
+  private sliceCopyCache = new WeakMap<
+    readonly unknown[],
+    { len: number; head: unknown; tail: unknown; out: readonly unknown[] }
+  >();
+
+  /** 안 바뀐 배열은 지난 복사본을 그대로 돌려준다(규약 본문은 `sliceCopyCache` 주석). */
+  private stableCopy<T>(src: readonly T[]): T[] {
+    const memo = this.sliceCopyCache.get(src);
+    if (memo && memo.len === src.length && memo.head === src[0] && memo.tail === src[src.length - 1]) {
+      return memo.out as T[];
+    }
+    const out = [...src];
+    this.sliceCopyCache.set(src, { len: src.length, head: src[0], tail: src[src.length - 1], out });
+    return out;
+  }
+
   /** 파일별 edit history → file node ID 기준 Record */
   private buildFileEditsRecord(): Record<string, FileEdit[]> {
     const result: Record<string, FileEdit[]> = {};
@@ -11235,7 +11470,9 @@ export class ProjectGraph {
 
   /** Task Edge 스냅샷 (GraphSnapshot용) */
   getTaskEdgesSnapshot(): Record<string, TaskEdge> {
-    return Object.fromEntries(this.taskEdges);
+    // §9 (2d) — 얕은 사본. 엣지 객체 필드(status 등)를 제자리로 고치는 곳이 여럿 있지만
+    //   공유 참조라 그 변경은 memo 를 통과해 그대로 보인다.
+    return this.memoSlice('taskEdges', this.taskEdges, () => Object.fromEntries(this.taskEdges));
   }
 
   // ─── Comment Box (v1.45) — 언리얼 블프 스타일 주석 ───
@@ -12732,7 +12969,9 @@ export class ProjectGraph {
 
   /** snapshot/checkpoint 직렬화 (Object) */
   getContisRecord(): Record<string, Conti> {
-    return Object.fromEntries(this.contis);
+    // §9 (2d) — 얕은 사본. 콘티는 `c.frames.push` 처럼 제자리로 많이 바뀌는데, 그 값들은
+    //   공유 참조라 memo 가 걸려도 내용은 최신이다. memo 가 막는 것은 순회 비용뿐.
+    return this.memoSlice('contis', this.contis, () => Object.fromEntries(this.contis));
   }
 
   /**
@@ -12783,7 +13022,8 @@ export class ProjectGraph {
 
   /** 모든 인플라이트 작업 (snapshot 직렬화용) */
   getActiveContiWorkRecord(): Record<string, ActiveContiWork> {
-    return Object.fromEntries(this.activeContiWork);
+    return this.memoSlice('activeContiWork', this.activeContiWork, () =>
+      Object.fromEntries(this.activeContiWork));
   }
 
   /** 작업 시작 — workId 발급 후 트래커에 저장. 이미 있으면 덮어쓰지 않고 기존 반환. */

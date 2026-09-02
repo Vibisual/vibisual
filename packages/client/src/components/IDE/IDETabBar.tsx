@@ -805,10 +805,6 @@ export const IDETabBar = memo(function IDETabBar({
         />
       </div>
 
-      {/* §5.5 #17-41 — 탭 정렬. `+` 바로 왼쪽에 서고, 세울 줄이 있을 때(세션 2개 이상)만 뜬다.
-          정렬은 세션을 만들지 않으므로 훅 버블에서도 쓸 수 있다(#17-29 의 읽기 전용 경계 밖). */}
-      <IDETabSortMenu subs={orderedSubs} agentId={agentId} onSort={commitOrder} />
-
       {/* New tab button — 커스텀 에이전트만(§5.5 #17 / #17-29 훅 버블 = 읽기 전용) */}
       {isCustom && (
         <button
@@ -823,6 +819,10 @@ export const IDETabBar = memo(function IDETabBar({
           </svg>
         </button>
       )}
+
+      {/* §5.5 #17-41 — 탭 정렬. `+` 바로 오른쪽에 서고, 세울 줄이 있을 때(세션 2개 이상)만 뜬다.
+          정렬은 세션을 만들지 않으므로 훅 버블에서도 쓸 수 있다(#17-29 의 읽기 전용 경계 밖). */}
+      <IDETabSortMenu subs={orderedSubs} agentId={agentId} onSort={commitOrder} />
 
       {/* History(폴더) button — 이 cwd에서 쓰였던 과거 세션을 다시 열기.
           §5.5 #17-29 — 되살리기도 세션 추가라 훅 버블에는 두지 않는다. */}

@@ -1,7 +1,7 @@
 import type {
-  WSMessage, GraphSnapshot, GraphSnapshotWire, GraphSnapshotDeltas,
+  WSMessage, GraphSnapshot, GraphSnapshotWire, GraphSnapshotDeltas, DeltaSliceKey,
 } from '@vibisual/shared';
-import { diffKeyedSlice } from '@vibisual/shared';
+import { diffKeyedSlice, DELTA_SLICE_KEYS } from '@vibisual/shared';
 import { logger } from './logger.js';
 
 export type BroadcastSink = (message: WSMessage) => void;
@@ -29,11 +29,28 @@ export function setBroadcastSink(sink: BroadcastSink | null): void {
 //  · 값 비교는 **참조 비교**다(ProjectGraph 가 안 바뀐 배열의 참조를 유지한다). 내용이 같아도
 //    참조가 바뀌면 그냥 한 번 더 보낼 뿐 — 틀린 값이 가는 방향의 오차는 생기지 않는다.
 
-/** 직전 브로드캐스트에서 보낸 키맵(참조 비교용 기준점). */
-const lastSentSlices: {
-  fileEdits: GraphSnapshot['fileEdits'] | null;
-  bashHistory: GraphSnapshot['bashHistory'] | null;
-} = { fileEdits: null, bashHistory: null };
+/**
+ * 직전 브로드캐스트에서 보낸 키맵(참조 비교용 기준점). 슬라이스 목록은 `DELTA_SLICE_KEYS` 한 벌.
+ *
+ * 2026-09-02 — 종전에는 `fileEdits`·`bashHistory` 둘만 이 길을 탔다. 나머지 키맵 슬라이스는
+ * **서버가 매 스냅샷마다 새로 복사**해 내보내고 있어서 여기 넣어 봐야 소용이 없었다(참조가 매번
+ * 달라 전부 "바뀜"으로 잡힌다). `ProjectGraph` 가 안 바뀐 배열의 사본을 재사용하도록 고친 뒤,
+ * 실측 참조 유지분이 941KB 중 **115KB → 782KB** 가 되어 이 목록을 넓힐 값이 생겼다.
+ */
+const lastSentSlices = new Map<DeltaSliceKey, Record<string, unknown> | null>();
+
+// ─── §9 슬라이스 스코프와의 관계 — **왜 여기 기준점이 하나뿐인가** ─────────────────
+//
+// 위 `lastSentSlices` 는 **모듈 전역 Map 하나**다. 그것이 성립하는 전제는 "모든 창에 똑같은
+// 페이로드 한 벌이 나간다"이고, 세 스코프 축(프로젝트·폴더·슬라이스)이 전부 **창별이 아니라
+// 창 선언의 합집합**인 이유가 바로 이것이다. 창마다 다른 슬라이스를 보내는 순간 이 기준점이
+// 어긋나 **증분이 틀린 값을 복원한다**(누구 기준의 "직전"인지가 정해지지 않는다).
+// 창별로 가르고 싶으면 기준점을 창마다 두는 작업이 먼저다 — 훨씬 큰 작업이고 여기서 할 일이 아니다.
+//
+// 스코프로 빠진 슬라이스는 스냅샷에서 **필드째 사라지므로** 아래 `next === undefined` 가지를 탄다:
+// 델타를 만들지 않고 기준점만 비운다 → 다시 실리기 시작하면 `diffKeyedSlice(null, …)` 가 `null` 을
+// 돌려주어 **전량으로 한 번 가고 그 뒤부터 증분이 붙는다**(값 유실 없음). 이 왕복은
+// `sliceScopeSubscription.test.ts` 가 고정한다.
 
 /**
  * graph_snapshot 메시지를 전선 형태로 변환한다(원본 스냅샷 객체는 건드리지 않는다 —
@@ -45,24 +62,31 @@ function encodeSnapshotMessage(message: WSMessage): WSMessage {
 
   const deltas: GraphSnapshotDeltas = {};
   const wire: GraphSnapshotWire = { ...snap };
+  const snapRec = snap as unknown as Record<string, Record<string, unknown> | undefined>;
+  const wireRec = wire as unknown as Record<string, unknown>;
+  const deltaRec = deltas as unknown as Record<string, unknown>;
+  let encoded = false;
 
-  const nextFileEdits = snap.fileEdits ?? {};
-  const fileEditsDelta = diffKeyedSlice(lastSentSlices.fileEdits, nextFileEdits);
-  if (fileEditsDelta) {
-    deltas.fileEdits = fileEditsDelta;
-    delete wire.fileEdits;
+  for (const key of DELTA_SLICE_KEYS) {
+    const next = snapRec[key];
+    // 이 스냅샷에 그 슬라이스가 **아예 없다**. 두 경우가 여기로 온다 — ① optional 필드가 비어
+    // undefined(그 기능을 안 쓴다) ② §9 슬라이스 스코프가 범위 밖이라 지웠다. 둘 다 델타를 만들지
+    // 않고 기준점만 비운다 — 없는 것을 `{}` 로 바꿔 보내면 "안 쓰는 기능"에 매번 새 빈 객체가 가서
+    // §9 ③(`?? {}` 는 고정 참조)이 깨진다. 다음에 생기면 전량으로 한 번 가고 그때부터 증분이 붙는다.
+    if (next === undefined) {
+      lastSentSlices.set(key, null);
+      continue;
+    }
+    const delta = diffKeyedSlice(lastSentSlices.get(key) ?? null, next);
+    if (delta) {
+      deltaRec[key] = delta;
+      delete wireRec[key];
+      encoded = true;
+    }
+    lastSentSlices.set(key, next);
   }
-  lastSentSlices.fileEdits = nextFileEdits;
 
-  const nextBash = snap.bashHistory ?? {};
-  const bashDelta = diffKeyedSlice(lastSentSlices.bashHistory, nextBash);
-  if (bashDelta) {
-    deltas.bashHistory = bashDelta;
-    delete wire.bashHistory;
-  }
-  lastSentSlices.bashHistory = nextBash;
-
-  if (deltas.fileEdits === undefined && deltas.bashHistory === undefined) return message;
+  if (!encoded) return message;
   wire.deltas = deltas;
   return { ...message, payload: wire };
 }
@@ -72,8 +96,7 @@ function encodeSnapshotMessage(message: WSMessage): WSMessage {
  * 다음 브로드캐스트가 전체 스냅샷이 된다(안전 리셋).
  */
 export function resetSnapshotDeltaBaseline(): void {
-  lastSentSlices.fileEdits = null;
-  lastSentSlices.bashHistory = null;
+  lastSentSlices.clear();
 }
 
 /** 서버 코어의 푸시 단일 창구. sink 미설정 시 조용히 드롭(부팅 초기 윈도우). */

@@ -18,6 +18,25 @@ import {
 } from '@vibisual/shared';
 import type { BubbleType } from '@vibisual/shared';
 
+/** 램프 판정용 소도구 — 상수표의 `#RRGGBB` 만 먹인다. */
+const rgb = (hex: string): [number, number, number] => {
+  const n = Number.parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff];
+};
+const lum = (hex: string): number => {
+  const [r, g, b] = rgb(hex);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+/**
+ * 명도 정점이 앉은 비율. **색을 박아 두지 않고 램프에서 직접 찾는다** — 램프를 손봐도
+ * 시험이 "정점까지 밝아지고 그 위는 색상으로 갈린다"는 규칙 자체를 계속 지킨다.
+ */
+const PEAK_INDEX = HEATMAP_RAMP.reduce(
+  (best, hex, i) => (lum(hex) > lum(HEATMAP_RAMP[best] ?? hex) ? i : best),
+  0,
+);
+const PEAK = PEAK_INDEX / (HEATMAP_RAMP.length - 1);
+
 describe('toolAxis — 도구 이름을 읽기/쓰기 축으로 가른다', () => {
   it('READ_TOOLS 는 읽기', () => {
     expect(toolAxis('Read')).toBe('read');
@@ -102,17 +121,30 @@ describe('heatColor — 램프', () => {
     }
   });
 
-  it('명도가 단조 증가한다 — 색을 구별하지 못해도 밝기로 순서가 읽힌다', () => {
-    const lum = (hex: string): number => {
-      const n = Number.parseInt(hex.slice(1), 16);
-      return 0.2126 * ((n >> 16) & 0xff) + 0.7152 * ((n >> 8) & 0xff) + 0.0722 * (n & 0xff);
-    };
+  it('명도는 노랑 정점까지 단조 증가한다 — 램프의 대부분은 밝기만으로 순서가 읽힌다', () => {
     let prev = -1;
     for (let i = 1; i <= 10; i++) {
-      const cur = lum(heatColor(i / 10));
+      const cur = lum(heatColor((PEAK * i) / 10));
       expect(cur).toBeGreaterThan(prev);
       prev = cur;
     }
+  });
+
+  it('정점 위 뜨거운 구간은 초록 성분이 단조로 빠진다 — 노랑 → 주황 → 빨강', () => {
+    let prev = 256;
+    for (let i = 0; i <= 10; i++) {
+      const g = rgb(heatColor(PEAK + ((1 - PEAK) * i) / 10))[1];
+      expect(g).toBeLessThan(prev);
+      prev = g;
+    }
+  });
+
+  it('가장 뜨거운 끝은 빨강, 가장 차가운 끝은 파랑 — 명도가 겹쳐도 색상이 갈린다', () => {
+    const hot = rgb(heatColor(1));
+    expect(hot[0]).toBeGreaterThan(hot[1] * 2);
+    expect(hot[0]).toBeGreaterThan(hot[2] * 2);
+    const cold = rgb(heatColor(0.0001));
+    expect(cold[2]).toBeGreaterThan(cold[0]);
   });
 
   it('쓰레기 비율은 안 읽음으로 떨어진다', () => {

@@ -67,3 +67,37 @@ export function applyKeyedSliceDelta<T>(
   for (const key of changedKeys) next[key] = delta.changed[key] as T;
   return next;
 }
+
+/**
+ * §9 — **델타로 실어 보내는 키맵 슬라이스 목록.** 서버(`broadcastBus`)와 클라(`useWebSocket`)가
+ * 이 한 벌을 함께 본다.
+ *
+ * 두 벌로 갈리면 증상이 조용하다 — 서버에만 늘리면 그 슬라이스는 영영 도착하지 않고(클라가 델타를
+ * 풀 줄 모른다), 클라에만 늘리면 아무 일도 일어나지 않은 채 전량 전송이 남는다. 새 키맵 슬라이스를
+ * 스냅샷에 더할 때는 여기 한 줄이 전부다.
+ *
+ * ⚠ **여기 넣기 전에 그 슬라이스가 참조를 유지하는지 확인하라.** 매 스냅샷마다 새로 만드는
+ * 슬라이스를 넣으면 델타는 "전부 바뀜"으로 잡혀 부피가 줄기는커녕 `changed` 사본만 한 벌 더 든다.
+ * 참조를 지키는 자리는 서버 `ProjectGraph.stableCopy` / `sessionGoalViewCache` 다
+ * (실측 2026-09-02: 그 둘을 넣기 전 키맵 941KB 의 참조 유지율은 **0%** 였다).
+ */
+export const DELTA_SLICE_KEYS = [
+  'fileEdits',
+  'bashHistory',
+  'agentReports',
+  'agentMemos',
+  'agentQuestions',
+  'agentReviews',
+  'agentLists',
+  'sessionGoals',
+  'agentFeedbacks',
+  'brainInjections',
+  // 아래 둘은 `GraphSnapshot` 에서 **필수** 필드라 `GraphSnapshotWire` 가 따로 optional 로 연다.
+  // `nodeProjects` 는 키가 노드 수만큼(실측 2,476개) 늘지만 값이 짧은 문자열이라 비교가 싸고,
+  // 노드가 새로 뜨거나 사라질 때만 바뀌므로 정지 상태에서는 통째로 빠진다.
+  'agentEvents',
+  'nodeProjects',
+] as const;
+
+/** `DELTA_SLICE_KEYS` 의 한 항목. */
+export type DeltaSliceKey = typeof DELTA_SLICE_KEYS[number];
