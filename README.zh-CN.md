@@ -14,6 +14,9 @@
 
 *See your AI agents think.*
 
+**[vibisual.pro](https://vibisual.pro)** — 项目主页 · [文档](https://vibisual.pro/docs/) · [博客](https://vibisual.pro/blog/)
+
+[![Website](https://img.shields.io/badge/website-vibisual.pro-0ea5b7)](https://vibisual.pro)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Downloads](https://img.shields.io/github/downloads/Vibisual/vibisual/total?label=downloads&color=blue)](https://github.com/Vibisual/vibisual/releases)
 [![Node.js](https://img.shields.io/badge/node-%E2%89%A520-brightgreen.svg)](https://nodejs.org)

@@ -14,6 +14,9 @@ Design your agent team on a canvas, watch them work, and edit right there.
 
 *See your AI agents think.*
 
+**[vibisual.pro](https://vibisual.pro)** — the project site · [Docs](https://vibisual.pro/docs/) · [Blog](https://vibisual.pro/blog/)
+
+[![Website](https://img.shields.io/badge/website-vibisual.pro-0ea5b7)](https://vibisual.pro)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/Vibisual/vibisual?color=blue)](https://github.com/Vibisual/vibisual/releases/latest)
 [![Build](https://img.shields.io/github/actions/workflow/status/Vibisual/vibisual/ci.yml?branch=main&label=build)](https://github.com/Vibisual/vibisual/actions/workflows/ci.yml)
