@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -223,5 +224,100 @@ describe('release publishing — 검증이 발행보다 앞선다', () => {
     const src = read('.github/scripts/release-notes.mjs');
     // 태그 단건 조회만 쓰면 draft 에 404 라 매 릴리스가 본문 없이 지나간다(v0.1.14 의 재발).
     expect(src).toContain('/releases?per_page=');
+  });
+
+  it('draft 를 태그에 묶는 스텝이 있다 (GitHub 은 draft 에 태그를 안 붙인다)', () => {
+    const wf = read('.github/workflows/release.yml');
+    // v0.1.20 이 여기서 통째로 막혔다: 태그를 먼저 밀어 두었는데도 draft 는 `untagged-<id>` 로
+    // 남았고, 태그로 찾는 것이 전부 빗나가 스모크 4종이 "release not found" 로 즉사했다.
+    // 설치본은 멀쩡했는데 **검증이 시작조차 못 했다.**
+    expect(wf).toContain('tag_name=');
+    expect(wf).toMatch(/gh api -X PATCH .*releases/);
+    // 묶였는지 확인하지 않고 지나가면 실패가 스모크까지 밀려간다 — 거기서는 원인이 안 보인다.
+    expect(wf).toContain('::error::태그를 못 묶었다');
+  });
+});
+
+describe('release 완수 — 초록을 볼 때까지 간다', () => {
+  const loadRetry = async (): Promise<Record<string, any>> =>
+    await import(pathToFileURL(path.join(REPO, '.github/scripts/releaseRetry.mjs')).href);
+
+  /** 워크플로 matrix 에서 실제 값들을 뽑는다 — 표가 현실과 어긋나면 재시도가 아무것도 못 짚는다. */
+  const smokeLabels = (): string[] =>
+    [...read('.github/workflows/smoke.yml').matchAll(/^\s*label:\s*(.+)$/gm)].map((m) => m[1].trim());
+  const releaseScripts = (): string[] =>
+    [...read('.github/workflows/release.yml').matchAll(/^\s*script:\s*(.+)$/gm)].map((m) => m[1].trim());
+
+  it('재시도 판단표가 smoke.yml 의 실제 잡 라벨과 정확히 짝이다', async () => {
+    const { PLATFORMS, platformForSmokeJob } = await loadRetry();
+    const labels = smokeLabels();
+    expect(labels.length).toBe(PLATFORMS.length);
+    // 워크플로에 있는 라벨 하나하나가 표에서 **유일하게** 짚여야 한다. 한쪽만 고치면
+    // 재시도는 조용히 "다시 지을 것 없음"으로 지나가고, 릴리스는 영영 draft 에 남는다.
+    for (const label of labels) {
+      const hit = platformForSmokeJob(`smoke (${label})`);
+      expect(hit, `smoke 라벨 "${label}" 을 표가 못 짚는다`).not.toBeNull();
+      expect(hit.smokeLabel).toBe(label);
+    }
+  });
+
+  it('재시도 판단표가 release.yml 의 실제 빌드 잡과 정확히 짝이다', async () => {
+    const { PLATFORMS, platformForReleaseJob } = await loadRetry();
+    const scripts = releaseScripts();
+    expect(scripts.length).toBe(PLATFORMS.length);
+    for (const script of scripts) {
+      // GitHub 이 조립하는 이름 그대로: `release (<os>, <script>)`
+      const hit = platformForReleaseJob(`release (some-runner, ${script})`);
+      expect(hit, `release script "${script}" 를 표가 못 짚는다`).not.toBeNull();
+      expect(hit.script).toBe(script);
+    }
+    // mac 둘이 서로를 삼키지 않는가 — 부분문자열이라 가장 조용히 틀리는 자리다.
+    expect(platformForReleaseJob('release (macos-15-intel, release:mac:x64)').key).toBe('mac-x64');
+    expect(platformForReleaseJob('release (macos-latest, release:mac:arm64)').key).toBe('mac-arm64');
+  });
+
+  it('깨진 플랫폼만 다시 짓는다 (넷을 다 짓는 것은 20분이 넘게 든다)', async () => {
+    const { planRepair } = await loadRetry();
+    const jobs = [
+      { name: 'smoke (linux-x64 (AppImage))', conclusion: 'success' },
+      { name: 'smoke (mac-arm64 (dmg))', conclusion: 'success' },
+      { name: 'smoke (mac-x64 (dmg))', conclusion: 'success' },
+      { name: 'smoke (win-x64 (nsis))', conclusion: 'failure' },
+      { name: 'publish', conclusion: 'skipped' },
+    ];
+    const plan = planRepair(jobs);
+    expect(plan.kind).toBe('rebuild');
+    expect(plan.platforms.map((p: any) => p.key)).toEqual(['win']);
+  });
+
+  it('설치는 다 통과했는데 빨가면 먼저 재검증만 한다 (그래도 빨가면 그때 전부 다시 짓는다)', async () => {
+    const { planRepair, PLATFORMS } = await loadRetry();
+    const jobs = [
+      { name: 'smoke (linux-x64 (AppImage))', conclusion: 'success' },
+      { name: 'smoke (mac-arm64 (dmg))', conclusion: 'success' },
+      { name: 'smoke (mac-x64 (dmg))', conclusion: 'success' },
+      { name: 'smoke (win-x64 (nsis))', conclusion: 'success' },
+      { name: 'publish', conclusion: 'failure' },
+    ];
+    expect(planRepair(jobs).kind).toBe('reverify');
+    const second = planRepair(jobs, { reverifyTried: true });
+    expect(second.kind).toBe('rebuild');
+    expect(second.platforms.length).toBe(PLATFORMS.length);
+  });
+
+  // ⚠️ `scripts/release.mjs` 는 **개인 자산**이라 공개 저장소에 없다(`.gitignore: /scripts/*.mjs`).
+  //    CI 체크아웃에는 파일 자체가 없으니 **있을 때만** 잰다 — 없다고 실패시키면 CI 가 영영 빨갛다.
+  //    (위의 표·워크플로 검사는 공개 파일만 보므로 CI 에서도 그대로 돈다. 그래서 표를
+  //     `.github/scripts/` 로 옮겼다 — 정작 지켜야 할 어긋남이 저쪽에서 나기 때문이다.)
+  const hasReleaseScript = fs.existsSync(path.join(REPO, 'scripts/release.mjs'));
+  it.skipIf(!hasReleaseScript)('릴리스 스크립트의 완수 조건은 태그가 아니라 공개다', () => {
+    const src = read('scripts/release.mjs');
+    // 공개될 때까지 몰고 간다 — 한 번 재고 마는 함수로 되돌리면 "완수"가 다시 태그가 된다.
+    expect(src).toContain('driveToPublished');
+    // draft 로 끝나면 실패다. exitCode 를 지우면 백그라운드 실행에서 성공으로 읽힌다.
+    expect(src).toContain('process.exitCode = 1');
+    expect(src).toContain('이 릴리스는 **완수되지 않았다**');
+    // 25분짜리 재빌드로 가기 전에 값싼 원인(태그 미결합)을 먼저 배제한다.
+    expect(src).toContain('ensureDraftTagBound');
   });
 });
