@@ -501,6 +501,34 @@ const api = {
       return () => ipcRenderer.removeListener('vibisual:external-open-failed', listener);
     },
   },
+
+  /**
+   * §3.2.1 — 종료 직전 "아직 디스크에 안 앉힌 손글씨를 지금 밀어라".
+   *
+   * 세션 입력 초안·IDE 폼 초안·명령 히스토리는 타이핑 핫패스를 지키려고 debounce 로 쓰고
+   * `pagehide`/`beforeunload`/`visibilitychange` 에서 즉시 flush 한다. 그런데 앱 종료는 창을
+   * 정상으로 닫지 않고 `app.exit(0)` 으로 프로세스를 내리므로 **그 세 이벤트가 뜨지 않는다** —
+   * main 이 대신 물어봐 주는 길이다.
+   *
+   * `cb` 가 던져도 **반드시 답한다** — 답이 없으면 main 이 상한(600ms)까지 기다렸다 나가고,
+   * 그만큼 다른 창의 초안 저장까지 늦어진다.
+   */
+  lifecycle: {
+    onFlushDrafts: (cb: () => void): (() => void) => {
+      // 채널 이름 정본은 main 의 `rendererFlushPlan.ts` — 바꾸면 양쪽을 함께 고친다.
+      const listener = (_e: unknown, payload: { requestId?: number } | undefined): void => {
+        try {
+          cb();
+        } catch (err) {
+          console.error('[preload] flush-drafts handler failed', err);
+        } finally {
+          ipcRenderer.send('vibisual:lifecycle:flush-drafts:done', payload?.requestId ?? 0);
+        }
+      };
+      ipcRenderer.on('vibisual:lifecycle:flush-drafts', listener);
+      return () => ipcRenderer.removeListener('vibisual:lifecycle:flush-drafts', listener);
+    },
+  },
 };
 
 if (process.contextIsolated) {

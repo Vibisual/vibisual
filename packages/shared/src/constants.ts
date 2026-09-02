@@ -1,4 +1,4 @@
-import type { AgentProvider, LocalEngineBackend, BubbleType, BubbleStyleConfig, EdgeStyleConfig, AgentRole, PipelineChildConfig, PipelineType, AgentConfig, AgentDefinition, TaskEdgeTemplate, TaskEdgeKind, UiLocale, AutoAgentRole, AutoAgentTemplate, ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry, AgentFeedback, BrainTopicDef, BrainTopicIndexEntry, BrainCardType, BrainAuthority, BrainAxisId, BrainActivation, BrainSkill, StreamDensity, PluginContributionKind, SessionGoalStepStatus, CommandDispatchMode, CommandErrorCode, RunRuntime, RunConfig, McpServerPreset, AgentMemoryScope, DebugAdapterSpec, ProblemMatch, ProblemSeverity, RetentionSettings, BackgroundTaskProbeSettings, PreviewDevicePreset, ShelfIconName, ShelfItemKind, CostPeriod, CostTotals, CostPeriodTotals, AuditRiskKind, AuditBoundaryConfig, AuditCounts, StoryboardPresetId, StoryboardPreset, LocalModelCatalogSort, WorkspacePathKind, CmdPaneNode, BuiltinSlashCommand, SessionMemo } from './types.js';
+import type { AgentProvider, LocalEngineBackend, BubbleType, BubbleStyleConfig, EdgeStyleConfig, AgentRole, PipelineChildConfig, PipelineType, AgentConfig, AgentDefinition, TaskEdgeTemplate, TaskEdgeKind, UiLocale, AutoAgentRole, AutoAgentTemplate, ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry, AgentFeedback, BrainTopicDef, BrainTopicIndexEntry, BrainCardType, BrainAuthority, BrainAxisId, BrainActivation, BrainSkill, StreamDensity, PluginContributionKind, SessionGoalStepStatus, CommandDispatchMode, CommandErrorCode, RunRuntime, RunConfig, McpServerPreset, AgentMemoryScope, DebugAdapterSpec, ProblemMatch, ProblemSeverity, RetentionSettings, BackgroundTaskProbeSettings, SessionLivenessProbeSettings, PreviewDevicePreset, ShelfIconName, ShelfItemKind, CostPeriod, CostTotals, CostPeriodTotals, AuditRiskKind, AuditBoundaryConfig, AuditCounts, StoryboardPresetId, StoryboardPreset, LocalModelCatalogSort, WorkspacePathKind, CmdPaneNode, BuiltinSlashCommand, SessionMemo } from './types.js';
 export type { ModelPricing, ModelFamily, KnownModelFamily, ModelRegistry, ModelRegistryEntry } from './types.js';
 // 경로 대소문자 정책 SSOT — win32/darwin 만 접고 linux 는 접지 않는다(`pathCase.ts`).
 import { legacyLowerPathKey, normalizePathShape, pathKey, type PlatformName } from './pathCase.js';
@@ -265,6 +265,15 @@ export const BUBBLE_STYLES: Record<BubbleType, BubbleStyleConfig> = {
     ringIdle: 'border-cyan-300',
     ringActive: 'border-cyan-500 shadow-lg shadow-cyan-500/30',
   },
+  // §5.23 도메인 버블 — iframe(sky-500)과 같은 계열이되 두 단계 어둡다.
+  // 둘 다 "웹"이라 계열을 나누는 쪽이 오히려 읽히고, 명도로 갈린다.
+  domain: {
+    color: '#0369A1',
+    glow: '#7DD3FC',
+    icon: 'globe',
+    ringIdle: 'border-sky-300',
+    ringActive: 'border-sky-600 shadow-lg shadow-sky-600/30',
+  },
 };
 
 /**
@@ -291,6 +300,18 @@ export const BUBBLE_COLORS: Record<BubbleType, string> = Object.fromEntries(
 
 /** Read 계열 도구 — 데이터가 파일→폴더→에이전트 방향으로 흐름 */
 export const READ_TOOLS: ReadonlySet<string> = new Set(['Read', 'Grep', 'Glob']);
+
+/**
+ * §5.24 — **쓰기로 확실한** 도구. 읽기(`READ_TOOLS`)의 짝이며 히트 카운터를 가르는 데 쓴다.
+ * Bash 로 읽고/쓴 것은 §2.1 #3 이 이미 `Read`/`Write` 로 정규화해 보내므로 이 표를 그대로 탄다.
+ * **표 밖은 세지 않는다** — `manual`(사용자 고정) 같은 비-도구 이름을 쓰기로 넘겨짚지 않기 위함.
+ */
+export const WRITE_TOOLS: ReadonlySet<string> = new Set([
+  'Write',
+  'Edit',
+  'MultiEdit',
+  'NotebookEdit',
+]);
 
 // ─── 엣지 스타일 Config ───
 
@@ -461,6 +482,83 @@ export const DEFAULT_BG_TASK_PROBE_SETTINGS: BackgroundTaskProbeSettings = {
   killProcess: true,
   model: BG_TASK_PROBE_MODEL,
 };
+// ─── §2.4 세션 생존 판정 ("실행중…"이 진짜인가) ───
+//
+// `isSessionRunning` 의 근거 셋은 전부 자기 신고 깃발이라 끄는 쪽이 실패하면 영영 도는 것처럼
+// 보인다. 이 축만 **에이전트가 직접** 답한다. 구조·예산은 §5.5 #17-9 ⑭ 백그라운드 작업 판정을
+// 그대로 따른다(두 벌이 되면 한쪽만 고쳐져 어긋난다).
+
+/** 판정 주기 — 사용자 지정 값. 돌고 있다고 표시되는 세션을 이 간격으로 훑는다. */
+export const SESSION_PROBE_INTERVAL_MS = 10 * 60 * 1000;
+
+/**
+ * 대화록이 이만큼 조용해야 판정 착수. **조용함은 판정 근거가 아니라 착수 조건일 뿐이다** —
+ * 방금 출력한 세션은 답이 뻔하므로 묻지 않는다(토큰 절약이 유일한 목적).
+ */
+export const SESSION_PROBE_QUIET_MINUTES = 3;
+
+/** 판정 1회의 제한 시간. 넘기면 판정 없음(= 세션 그대로). */
+export const SESSION_PROBE_TIMEOUT_MS = 90_000;
+
+/** 증거로 싣는 대화록 꼬리 바이트. 프롬프트를 부풀리지 않으면서 마지막 상황을 담는 선. */
+export const SESSION_PROBE_TAIL_BYTES = 1_200;
+
+/** 모델이 쓴 사유·대기 대상을 화면·저장에 남길 때의 길이 상한. */
+export const SESSION_PROBE_REASON_MAX = 160;
+
+/**
+ * 앱 전체에서 **한 시간에** 낼 수 있는 세션 판정 횟수. 자기증식을 막는 마지막 벽이다
+ * (선례: 매 Stop 마다 haiku 를 스폰해 토큰을 태운 브레인 리플렉션). 넘치면 미룰 뿐 세션은 그대로.
+ */
+export const SESSION_PROBE_MAX_PER_HOUR = 12;
+
+/** 동시에 도는 세션 판정 수. 1 = 한 번에 하나 — 총량이 예측 가능해진다. */
+export const SESSION_PROBE_CONCURRENCY = 1;
+
+/**
+ * 같은 세션을 다시 묻기까지의 배수. `working` 으로 나온 세션은 조용한 시간이 이 배수만큼 더
+ * 길어져야 다시 묻는다 — 몇 시간짜리 정당한 작업 하나가 판정을 반복해서 태우지 않게.
+ */
+export const SESSION_PROBE_BACKOFF_FACTOR = 3;
+
+/** 백오프 상한(조용 임계의 배수). */
+export const SESSION_PROBE_BACKOFF_MAX = 24;
+
+/** 판정 기본 모델 — 값싼 쪽. 질문을 쪼개 물으면 haiku 로 충분하다는 것이 ⑭ 의 실측 결과다. */
+export const SESSION_PROBE_MODEL = 'haiku';
+
+/** 판정 설정 기본값 — `AppState.sessionProbe` 가 없을 때(구버전) 이 값으로 동작한다. */
+export const DEFAULT_SESSION_PROBE_SETTINGS: SessionLivenessProbeSettings = {
+  enabled: true,
+  quietMinutes: SESSION_PROBE_QUIET_MINUTES,
+  autoClose: true,
+  model: SESSION_PROBE_MODEL,
+};
+
+/** 설정 UI 입력 한계. `quietMinutes: 0` 은 "조용함과 무관하게 물음"이라 허용한다. */
+export const SESSION_PROBE_LIMITS = { quietMinutes: { min: 0, max: 1440, step: 1 } } as const;
+
+/** 판정에 쓸 수 있는 모델 별칭 — 목록 밖 값은 기본값으로(임의 문자열이 CLI 로 새지 않게). */
+export const SESSION_PROBE_MODELS = ['haiku', 'sonnet', 'opus'] as const;
+
+/** 들어온 세션 판정 설정을 안전한 값으로 정규화한다(서버·클라 공용). */
+export function normalizeSessionProbeSettings(
+  input?: Partial<SessionLivenessProbeSettings> | null,
+): SessionLivenessProbeSettings {
+  const out = { ...DEFAULT_SESSION_PROBE_SETTINGS };
+  if (!input || typeof input !== 'object') return out;
+  if (typeof input.enabled === 'boolean') out.enabled = input.enabled;
+  if (typeof input.autoClose === 'boolean') out.autoClose = input.autoClose;
+  if (typeof input.quietMinutes === 'number' && Number.isFinite(input.quietMinutes)) {
+    const { min, max } = SESSION_PROBE_LIMITS.quietMinutes;
+    out.quietMinutes = Math.min(max, Math.max(min, Math.floor(input.quietMinutes)));
+  }
+  if (typeof input.model === 'string' && (SESSION_PROBE_MODELS as readonly string[]).includes(input.model)) {
+    out.model = input.model;
+  }
+  return out;
+}
+
 export const DEFAULT_RETENTION_SETTINGS: RetentionSettings = {
   fileEditRetentionDays: FILE_EDIT_RETENTION_DAYS,
   maxFileEditPaths: MAX_FILE_EDIT_PATHS,
@@ -958,6 +1056,43 @@ export const DEFAULT_MAX_SATELLITES = 5;
 /** 사용자가 패널에서 폴더별 Max 를 편집할 때 허용 범위(클램프 경계). */
 export const SATELLITE_MAX_BOUNDS = { MIN: 1, MAX: 50 } as const;
 
+// ─── 폴더 목록 지연 로딩 (§7.5) ───
+
+/**
+ * `GET /api/folder-files` 가 **한 겹**에서 한 번에 돌려주는 엔트리 수.
+ *
+ * 종전에는 폴더를 통째로 재귀해 전부 실어 보냈다 — 사용자 홈이 외부 폴더 버블로 뜨면
+ * 61만 항목·83MB 가 되고, 서버가 메인 프로세스와 한 몸이라 창이 통째로 멈췄다(§7.5).
+ * 이제 이 값만큼 끊어 보내고 목록 바닥에 닿을 때마다 다음 장을 부른다.
+ */
+export const FOLDER_FILES_PAGE_SIZE = 100;
+
+/**
+ * 클라이언트가 `limit` 을 직접 줄 때 서버가 잘라 내는 상한.
+ * 한 번의 요청이 페이지 개념을 무력화하고 통째 열거로 되돌아가는 것을 막는다.
+ */
+export const FOLDER_FILES_PAGE_MAX = 500;
+
+// ─── 도메인 버블 상한 (§5.23) ───
+
+/** 도메인 버블당 쌓이는 항목 기본 상한. 노드에 `maxWebEntries` 가 없으면 이 값. */
+export const DEFAULT_MAX_WEB_ENTRIES = 20;
+/** 사용자가 패널에서 도메인별 최대 개수를 편집할 때 허용 범위(클램프 경계). */
+export const WEB_ENTRY_MAX_BOUNDS = { MIN: 1, MAX: 100 } as const;
+/** 한 항목이 들고 있는 문자열(결과 요약·물음·검색어) 한 칸의 상한 — §3.2.3 C축. */
+export const WEB_ENTRY_TEXT_MAX = 2000;
+/** 한 검색 항목이 기억하는 결과 호스트 수 상한 — 칩이 줄을 넘기지 않게. */
+export const WEB_ENTRY_RESULT_HOSTS_MAX = 8;
+/**
+ * `WebSearch` 를 모으는 의사 호스트. 검색은 특정 사이트를 부르는 일이 아니라 호스트가 없다 —
+ * 결과에 나온 도메인으로 버블을 만들면 캔버스가 검색 결과 목록이 된다(§5.23).
+ */
+export const WEB_SEARCH_HOST = 'web-search';
+/** 도메인 노드 키의 표식 — `__web__<host>`. 키 조립·해체가 한 자리에서 나오게 한다. */
+export const WEB_KEY_MARK = '__web__';
+/** 도메인 버블을 만드는 도구들. 이 집합 밖은 이 축이 보지 않는다. */
+export const WEB_TOOLS: ReadonlySet<string> = new Set(['WebFetch', 'WebSearch']);
+
 // ─── 버블 크기 ───
 
 export const NODE_MIN_SIZE = 70;
@@ -965,6 +1100,31 @@ export const NODE_MAX_SIZE = 180;
 /** 파일(위성) 버블 최소/최대 크기 */
 export const FILE_MIN_SIZE = 40;
 export const FILE_MAX_SIZE = 90;
+
+// ─── §5.24 읽기 히트맵 ───
+
+/** 히트맵 모드에서 파일·폴더·도메인이 **함께 쓰는** 지름 범위(한 자여야 서로 비교된다). */
+export const HEAT_MIN_SIZE = 44;
+export const HEAT_MAX_SIZE = 150;
+
+/**
+ * 히트 램프 5칸 — 어둡고 차가운 쪽에서 밝고 뜨거운 쪽으로 **명도가 단조 증가**한다.
+ * 색을 구별하지 못해도 밝기만으로 순서가 읽히므로 색각 이상에서 무너지지 않는다
+ * (빨강-초록 램프를 쓰지 않는 이유). 사이 값은 선형 보간한다.
+ */
+export const HEATMAP_RAMP: readonly string[] = [
+  '#312E81', // indigo-900 — 거의 안 읽음
+  '#1D4ED8', // blue-700
+  '#0891B2', // cyan-600
+  '#65A30D', // lime-600
+  '#FACC15', // yellow-400 — 가장 뜨겁다
+];
+
+/**
+ * **한 번도 안 읽은** 버블의 색. 램프의 최저온과 **일부러 다르다** —
+ * "가장 차갑다"와 "아직 안 읽었다"는 다른 사실이고, 섞으면 안 읽은 것이 조금 읽은 것처럼 보인다.
+ */
+export const HEATMAP_ZERO_COLOR = '#374151'; // gray-700
 /** iframe 버블 높이 (네모, 고정) — 너비는 클라 쪽 레이아웃이 직접 산출한다. */
 export const IFRAME_BUBBLE_HEIGHT = 90;
 
@@ -975,13 +1135,44 @@ export const IFRAME_BUBBLE_HEIGHT = 90;
 // 콜사이트는 `getModelContextLimit(modelId, registry?)` 헬퍼 통일.
 
 /**
- * @deprecated v2.40 — 풀ID 기반 컨텍스트 한도 테이블 폐기.
- * 컨텍스트 한도 = 패밀리 디폴트(`MODEL_FAMILY_DEFAULTS`) 만으로 충분. Opus = 1M, Sonnet/Haiku = 200k.
- * `getModelContextLimit` 헬퍼가 (1) 레지스트리 entry → (2) 패밀리 디폴트 → (3) `DEFAULT_CONTEXT_LIMIT` 순으로 해소.
- * 시드 테이블 유지 안 함 — 신규 풀ID 출시 시 코드 수정 불필요.
+ * 풀ID → 컨텍스트 한도(토큰) **시드**.
+ *
+ * v2.40 이 이 테이블을 비우며 "패밀리 디폴트만으로 충분(Opus=1M, Sonnet/Haiku=200k)"이라고 적었는데,
+ * 그 전제는 깨졌다 — 같은 sonnet 안에서 **Sonnet 5/4.6 은 1M, Sonnet 4.5 는 200K** 다. 패밀리 하나에
+ * 한 값만 두면 둘 중 하나는 반드시 틀린다. 그래서 **아는 풀ID 는 여기 정확히 적고**, 패밀리 디폴트는
+ * §4 v2.38 이 준 원래 역할("처음 보는 풀ID 폴백")로 되돌린다.
+ *
+ * 출처는 Anthropic 공개 문서 — 모델 개요표(`platform.claude.com/docs/en/about-claude/models/overview`)
+ * 의 Context window 행 + 가격표의 long-context 주석("Claude 4.6 and later models ... include the full
+ * 1M token context window"). 확인 2026-09-02.
+ *
+ * 해소 순서는 `getModelContextLimit` — (1) 레지스트리 entry → (2) 이 시드 → (3) 패밀리 디폴트 → (4) `DEFAULT_CONTEXT_LIMIT`.
+ * `ANTHROPIC_API_KEY` 가 있으면 `/v1/models` 의 `max_input_tokens` 가 (1) 에서 이 시드를 덮어 최신을 따라간다.
  */
-export const MODEL_CONTEXT_LIMITS: Record<string, number> = {};
-/** 알 수 없는 모델의 기본 컨텍스트 한도 — 패밀리 추론 실패 시 최종 폴백. */
+export const MODEL_CONTEXT_LIMITS: Record<string, number> = {
+  // 1M 세대 — 4.6 이후는 1M 이 표준가에 포함된다(장문 프리미엄 ❌).
+  'claude-fable-5-1': 1_000_000,
+  'claude-fable-5': 1_000_000,
+  'claude-opus-5': 1_000_000,
+  'claude-opus-4-8': 1_000_000,
+  'claude-opus-4-7': 1_000_000,
+  'claude-opus-4-6': 1_000_000,
+  'claude-sonnet-5': 1_000_000,
+  'claude-sonnet-4-6': 1_000_000,
+  // 200K 세대 — 4.5 이하. 은퇴 모델도 남긴다(지난 세션 JSONL 에 그 ID 가 그대로 남아 조회된다).
+  'claude-opus-4-5': 200_000,
+  'claude-opus-4-1': 200_000,
+  'claude-opus-4-0': 200_000,
+  'claude-sonnet-4-5': 200_000,
+  'claude-sonnet-4-0': 200_000,
+  'claude-haiku-4-5': 200_000,
+};
+/**
+ * 알 수 없는 모델의 기본 컨텍스트 한도 — 패밀리 추론까지 실패할 때만.
+ *
+ * **낮은 쪽으로 둔다.** 실제보다 작게 잡으면 게이지가 일찍 차서 성가신 정도지만, 크게 잡으면
+ * 넘치기 직전까지 아무 경고도 못 준다. 현행 모델의 실제 하한(Haiku 4.5)과도 같은 값이다.
+ */
 export const DEFAULT_CONTEXT_LIMIT = 200_000;
 
 // ─── 에이전트 ───
@@ -1313,6 +1504,22 @@ export const SATELLITE_ORBIT_GAP = 20;
 /** 위성으로 허용되는 버블 타입 */
 export const SATELLITE_TYPES: ReadonlySet<BubbleType> = new Set<BubbleType>(['file', 'bash', 'ghost', 'iframe']);
 
+/**
+ * **안에 들어갈 수 있는** 폴더 버블 타입 — 더블클릭하면 `children` 을 펼쳐 내부 뷰가 되는 것들.
+ *
+ * §9 폴더 스코프드 스냅샷이 "한 칸 앞"을 계산할 때 쓴다: 지금 그리는 폴더 안에서 사용자가
+ * 다음에 누를 수 있는 것이 이 타입의 자식이므로, 그 자식들의 `children` 까지 미리 실어야
+ * 드릴다운이 왕복 없이 즉시 열린다.
+ *
+ * `pipeline` 은 뺀다 — 내부를 `pipelineChildren` 이라는 **다른 슬라이스**로 그리므로 이 축과
+ * 무관하다(여기 넣으면 쓰지도 않을 `children` 을 실어 나른다).
+ */
+export const FOLDER_BUBBLE_TYPES: ReadonlySet<BubbleType> = new Set<BubbleType>([
+  'internal_folder',
+  'external_folder',
+  'worktree',
+]);
+
 // ─── 네트워크 (서버 유틸) ───
 
 /** TCP 연결 확인 타임아웃 (ms) */
@@ -1425,33 +1632,87 @@ export const PHYSICS_SLEEP_FRAMES = 15;
 // 콜사이트는 `getModelPricing(modelId, registry?)` 헬퍼 통일.
 
 /**
- * @deprecated v2.40 — 풀ID 기반 가격 테이블 폐기.
- * 가격 = 패밀리 디폴트(`MODEL_FAMILY_DEFAULTS`) 만으로 추정. Anthropic 의 패밀리내 minor 버전이 가격이 같다는
- * 관찰에 기반 — 새로운 가격대가 등장하면 그때 `MODEL_FAMILY_DEFAULTS` 만 갱신.
- * `getModelPricing` 헬퍼가 (1) 레지스트리 entry.pricing → (2) 패밀리 디폴트 → (3) `DEFAULT_PRICING` 순.
+ * 단가 한 벌 만들기 — **캐시 두 값은 기본 입력가에서 파생한다**(손으로 옮겨 적지 않는다).
+ *
+ * Anthropic 공개 가격표의 배수: 5분 캐시 쓰기 = 입력가 × 1.25, 캐시 읽기 = 입력가 × 0.1.
+ * 예외가 하나 있어 `cacheReadMultiplier` 를 열어 둔다 — **Fable 5.1 / Mythos 5.1 만 캐시 읽기가 0.025×** 다
+ * (가격표 각주: "All other models use the standard 0.1x multiplier").
+ * 부동소수 꼬리(3 × 0.1 = 0.30000000000000004)는 6자리에서 끊는다.
  */
-export const MODEL_PRICING: Record<string, ModelPricing> = {};
-
-/** 알 수 없는 모델 최종 폴백 — 패밀리 추론도 실패할 때만(보수적 = Opus 톤). */
-export const DEFAULT_PRICING: ModelPricing = { input: 15, output: 75, cacheRead: 1.50, cacheWrite: 18.75 };
+function makePricing(input: number, output: number, cacheReadMultiplier = 0.1): ModelPricing {
+  const round = (v: number): number => Math.round(v * 1e6) / 1e6;
+  return {
+    input,
+    output,
+    cacheRead: round(input * cacheReadMultiplier),
+    cacheWrite: round(input * 1.25),
+  };
+}
 
 /**
- * §4 v2.38 — 패밀리별 디폴트(미지의 풀ID 폴백).
- * Anthropic `/v1/models` 가 신규 풀ID 만 알려주고 가격/한도는 안 주므로 패밀리 톤으로 추정.
- * 정확한 값은 시드 테이블 업데이트(또는 displayName 기반 룩업) 로 보강.
+ * 풀ID → 가격 **시드**.
  *
- * §4 v2.77 — `Record<KnownModelFamily,…>` 로 좁힘. 새 패밀리(fable/mythos 등)는 이 테이블에 없으므로
- * `getModelPricing`/`getModelContextLimit` 가 `isKnownFamily` 가드로 걸러 `DEFAULT_*` 폴백한다.
+ * v2.40 이 이 테이블을 비운 근거는 "패밀리 내 minor 버전은 가격이 같다"는 관찰이었는데, 그 관찰은
+ * 깨졌다 — 같은 sonnet 안에서 **Sonnet 5 는 $2/$10, Sonnet 4.6 은 $3/$15** 다. 패밀리 하나에 한 값만
+ * 두면 둘 중 하나는 반드시 틀리므로, **아는 풀ID 는 여기 정확히 적는다**(컨텍스트 시드와 같은 규율).
+ *
+ * 출처는 Anthropic 공개 가격표(`platform.claude.com/docs/en/about-claude/pricing`) 의 Model pricing 표.
+ * 확인 2026-09-02. 은퇴 모델(Opus 4.1 등)도 남겨 둔다 — 드롭다운에는 없지만 **지난 세션의 JSONL 에**
+ * 그 ID 가 남아 있어 `getModelPricing(view.lastModel)` 이 그대로 조회하기 때문이다.
+ *
+ * 해소 순서는 `getModelPricing` — (1) 레지스트리 entry.pricing → (2) 이 시드 → (3) 패밀리 디폴트 → (4) `DEFAULT_PRICING`.
  */
-export const MODEL_FAMILY_DEFAULTS: Record<KnownModelFamily, { contextWindow: number; pricing: ModelPricing }> = {
-  opus:   { contextWindow: 1_000_000, pricing: { input: 15,   output: 75, cacheRead: 1.50, cacheWrite: 18.75 } },
-  sonnet: { contextWindow:   200_000, pricing: { input:  3,   output: 15, cacheRead: 0.30, cacheWrite:  3.75 } },
-  haiku:  { contextWindow:   200_000, pricing: { input:  0.80, output: 4, cacheRead: 0.08, cacheWrite:  1.00 } },
+export const MODEL_PRICING: Record<string, ModelPricing> = {
+  'claude-fable-5-1': makePricing(10, 50, 0.025),
+  'claude-fable-5': makePricing(10, 50),
+  'claude-opus-5': makePricing(5, 25),
+  'claude-opus-4-8': makePricing(5, 25),
+  'claude-opus-4-7': makePricing(5, 25),
+  'claude-opus-4-6': makePricing(5, 25),
+  'claude-opus-4-5': makePricing(5, 25),
+  'claude-opus-4-1': makePricing(15, 75),
+  'claude-opus-4-0': makePricing(15, 75),
+  'claude-sonnet-5': makePricing(2, 10),
+  'claude-sonnet-4-6': makePricing(3, 15),
+  'claude-sonnet-4-5': makePricing(3, 15),
+  'claude-sonnet-4-0': makePricing(3, 15),
+  'claude-haiku-4-5': makePricing(1, 5),
 };
 
-/** §4 v2.77 — `MODEL_FAMILY_DEFAULTS` 키(=디폴트 테이블 보유 패밀리)인지 판정. */
+/**
+ * 알 수 없는 모델 최종 폴백 — 패밀리 추론까지 실패할 때만.
+ *
+ * **현행 최고가 티어**(Fable = $10/$50)로 둔다. 종전 값 $15/$75 는 은퇴한 Opus 4.1 의 단가라
+ * 지금은 **어떤 현행 모델보다도 비싸서**, 모르는 모델의 비용을 최소 1.5배 부풀렸다.
+ * 캐시 읽기는 보수적으로 표준 0.1× 를 쓴다(0.025× 는 Fable 5.1 계열 전용 할인이라 폴백에 쓰면 과소계상).
+ */
+export const DEFAULT_PRICING: ModelPricing = makePricing(10, 50);
+
+/**
+ * §4 v2.38 — 패밀리별 디폴트(**처음 보는 풀ID** 폴백).
+ * Anthropic `/v1/models` 는 신규 풀ID·컨텍스트는 주지만 **가격은 주지 않으므로**, 시드에도 없는 ID 는
+ * 그 패밀리의 **현재 latest** 단가로 추정한다(처음 보는 ID 는 새로 나온 것일 확률이 높다).
+ *
+ * §4 v2.77 — `Record<KnownModelFamily,…>` 로 좁힘.
+ * (판올림 번호 발급 대기) — fable/mythos 를 실제로 채운다. 종전에는 이 둘이 표에 없어 `isKnownFamily` 가
+ * 걸러내고 `DEFAULT_*` 로 떨어졌는데, 그 폴백이 $15/$75 · 200K 라 **Fable 에이전트의 비용이 1.5배 과대,
+ * 컨텍스트가 5배 과소**로 나왔다(문맥 게이지가 실제 20% 지점에서 100% 로 보임).
+ */
+export const MODEL_FAMILY_DEFAULTS: Record<KnownModelFamily, { contextWindow: number; pricing: ModelPricing }> = {
+  fable:  { contextWindow: 1_000_000, pricing: makePricing(10, 50, 0.025) },
+  mythos: { contextWindow: 1_000_000, pricing: makePricing(10, 50, 0.025) },
+  opus:   { contextWindow: 1_000_000, pricing: makePricing(5, 25) },
+  sonnet: { contextWindow: 1_000_000, pricing: makePricing(2, 10) },
+  haiku:  { contextWindow:   200_000, pricing: makePricing(1, 5) },
+};
+
+/**
+ * §4 v2.77 — `MODEL_FAMILY_DEFAULTS` 키(=디폴트 테이블 보유 패밀리)인지 판정.
+ * **표에서 직접 읽는다** — 손으로 적은 `===` 목록은 표에 패밀리를 추가할 때 같이 고치는 것을 잊으면
+ * 조용히 어긋난다(fable 이 표에 없어서가 아니라 이 목록에 없어서 폴백되는 사고가 실제로 있었다).
+ */
 export function isKnownFamily(family: string | undefined | null): family is KnownModelFamily {
-  return family === 'opus' || family === 'sonnet' || family === 'haiku';
+  return !!family && Object.prototype.hasOwnProperty.call(MODEL_FAMILY_DEFAULTS, family);
 }
 
 /**
@@ -1488,30 +1749,93 @@ export function parseModelSemver(id: string): [number, number] {
  * registry 가 없으면 (1) 건너뛰고 (2)~(4) 만 평가 — 클라/서버 어느 쪽에서도 호출 가능.
  */
 export function getModelPricing(modelId: string | undefined | null, registry?: ModelRegistry | null): ModelPricing {
-  if (!modelId) return DEFAULT_PRICING;
-  const entry = registry?.entries.find((e) => e.id === modelId);
-  if (entry?.pricing) return entry.pricing;
-  const seed = MODEL_PRICING[modelId];
-  if (seed) return seed;
-  const family = parseFamilyFromFullId(modelId);
-  // §4 v2.77 — known 패밀리만 디폴트 테이블 보유. 미지 패밀리(fable/mythos 등)는 보수적 폴백.
-  if (isKnownFamily(family)) return MODEL_FAMILY_DEFAULTS[family].pricing;
-  return DEFAULT_PRICING;
+  return resolveModelPricing(modelId, registry).pricing;
+}
+
+/**
+ * §4 — **조회용 정규화.** Anthropic 은 같은 모델을 두 모양으로 부른다: 별칭형 `claude-haiku-4-5` 와
+ * 날짜형 `claude-haiku-4-5-20251001`. 트랜스크립트에는 **날짜형이 그대로** 남는다(실측 2026-09-02:
+ * 로컬 대화록 135,150 턴 중 1,225 턴이 날짜형 haiku, 캐시읽기만 10.2M 토큰).
+ *
+ * 표는 별칭형 한 벌만 들고 있으므로 날짜형은 시드를 **빗나가 패밀리 디폴트로 떨어진다.** haiku 는
+ * 우연히 값이 같아 티가 안 났지만 `claude-opus-4-5-<날짜>` 였다면 컨텍스트가 200K 대신 1M(5배)로
+ * 잡혔다 — 직전 라운드에 fable 에서 고친 것과 **같은 종류의 사고**다.
+ *
+ * 꼬리의 `[1m]` 같은 변형 표기도 함께 뗀다(`claude-opus-5[1m]` → `claude-opus-5`).
+ * 여기까지 접고도 못 찾으면 그때가 **정말 모르는 모델**이고, 그 자리가 "추정" 표식이 뜨는 자리다.
+ */
+export function normalizeModelId(id: string): string {
+  return id.replace(/\[[^\]]*\]$/, '').replace(/-\d{8}$/, '');
+}
+
+/**
+ * §4 — 단가가 **어디서 왔나**. 화면의 "추정" 표식과 `scripts/model-table-check.mjs` 가 같은 판정을 쓴다.
+ *
+ * - `registry` / `seed` = 그 모델의 값을 **우리가 안다**(공개 가격표에서 옮겨 둔 값).
+ * - `family` / `default` = **모르는 모델**이라 폴백으로 환산했다 — 자릿수가 틀릴 수 있다.
+ */
+export type ModelPricingSource = 'registry' | 'seed' | 'family' | 'default';
+
+/**
+ * 단가 + 그 출처. `getModelPricing` 은 이것의 얇은 껍데기다 — 해소 순서를 **한 벌만** 두기 위해서다
+ * (두 벌이면 한쪽만 고쳐 놓고 못 알아채는 드리프트가 생긴다. `isKnownFamily` 가 그렇게 어긋나
+ *  fable 이 통째로 폴백을 탔다).
+ *
+ * 순서: (1) 레지스트리 entry.pricing → (2) 시드 `MODEL_PRICING` → (3) 패밀리 디폴트 → (4) `DEFAULT_PRICING`.
+ * (1)(2) 는 **정규화한 ID 로도** 한 번 더 찾는다.
+ */
+export function resolveModelPricing(
+  modelId: string | undefined | null,
+  registry?: ModelRegistry | null,
+): { pricing: ModelPricing; source: ModelPricingSource } {
+  if (!modelId) return { pricing: DEFAULT_PRICING, source: 'default' };
+  const base = normalizeModelId(modelId);
+  const entry = registry?.entries.find((e) => e.id === modelId || e.id === base);
+  if (entry?.pricing) return { pricing: entry.pricing, source: 'registry' };
+  const seed = MODEL_PRICING[modelId] ?? MODEL_PRICING[base];
+  if (seed) return { pricing: seed, source: 'seed' };
+  const family = parseFamilyFromFullId(base);
+  // §4 v2.77 — known 패밀리만 디폴트 테이블 보유. 미지 패밀리는 보수적 폴백.
+  if (isKnownFamily(family)) return { pricing: MODEL_FAMILY_DEFAULTS[family].pricing, source: 'family' };
+  return { pricing: DEFAULT_PRICING, source: 'default' };
+}
+
+/**
+ * 이 모델의 금액을 **"추정"으로 표시해야 하는가** — 폴백으로 환산했으면 true.
+ *
+ * 모델 이름 자체가 없는 턴도 추정이다. 그때 `DEFAULT_PRICING`(현행 최상위 티어)으로 환산하는데,
+ * 아무 표식 없이 그리면 그 숫자를 사실로 읽게 된다.
+ */
+export function isPricingEstimated(modelId: string | undefined | null, registry?: ModelRegistry | null): boolean {
+  const source = resolveModelPricing(modelId, registry).source;
+  return source === 'family' || source === 'default';
 }
 
 /**
  * §4 v2.38 — 풀ID → 컨텍스트 한도(토큰). 우선순위는 `getModelPricing` 과 동일 구조.
  */
 export function getModelContextLimit(modelId: string | undefined | null, registry?: ModelRegistry | null): number {
-  if (!modelId) return DEFAULT_CONTEXT_LIMIT;
-  const entry = registry?.entries.find((e) => e.id === modelId);
-  if (entry?.contextWindow) return entry.contextWindow;
-  const seed = MODEL_CONTEXT_LIMITS[modelId];
-  if (seed) return seed;
-  const family = parseFamilyFromFullId(modelId);
+  return resolveModelContextLimit(modelId, registry).contextWindow;
+}
+
+/**
+ * 컨텍스트 한도 + 그 출처. `resolveModelPricing` 과 **같은 골격**이다 — 한쪽만 정규화를 타면
+ * 같은 ID 가 단가는 맞고 한도는 틀리는, 화면에서 절대 못 알아챌 어긋남이 생긴다.
+ */
+export function resolveModelContextLimit(
+  modelId: string | undefined | null,
+  registry?: ModelRegistry | null,
+): { contextWindow: number; source: ModelPricingSource } {
+  if (!modelId) return { contextWindow: DEFAULT_CONTEXT_LIMIT, source: 'default' };
+  const base = normalizeModelId(modelId);
+  const entry = registry?.entries.find((e) => e.id === modelId || e.id === base);
+  if (entry?.contextWindow) return { contextWindow: entry.contextWindow, source: 'registry' };
+  const seed = MODEL_CONTEXT_LIMITS[modelId] ?? MODEL_CONTEXT_LIMITS[base];
+  if (seed) return { contextWindow: seed, source: 'seed' };
+  const family = parseFamilyFromFullId(base);
   // §4 v2.77 — known 패밀리만 디폴트 테이블 보유. 미지 패밀리는 보수적 폴백.
-  if (isKnownFamily(family)) return MODEL_FAMILY_DEFAULTS[family].contextWindow;
-  return DEFAULT_CONTEXT_LIMIT;
+  if (isKnownFamily(family)) return { contextWindow: MODEL_FAMILY_DEFAULTS[family].contextWindow, source: 'family' };
+  return { contextWindow: DEFAULT_CONTEXT_LIMIT, source: 'default' };
 }
 
 /**
@@ -1568,8 +1892,14 @@ export const AVAILABLE_AGENT_MODELS: readonly string[] = [
  * `ANTHROPIC_API_KEY` 가 있으면 `/v1/models`(공식 API)가 이 시드를 덮어써 최신을 따라간다.
  * 없으면 여기가 목록의 전부이므로, 새 모델이 나오면 이 배열을 갱신한다.
  * 날짜 붙은 변형(`…-20251001`)은 UI 노이즈라 넣지 않는다(구 cli-scan 의 필터와 같은 기준).
+ *
+ * **이 배열은 alias 해소에도 쓰인다** — CLI 가 bare alias 로 모르는 패밀리(fable 등)는
+ * `subAgentManager` 가 여기서 나온 latest 풀ID 로 치환해서 넘긴다. 그래서 한 세대 뒤처지면
+ * "최신을 골랐는데 구모델이 뜨는" 조용한 오작동이 된다 — 실제로 `claude-fable-5-1` 이 나온 뒤에도
+ * 이 배열에 `claude-fable-5` 만 있어서 `fable` 이 구 5.0 으로 해소되고 있었다(2026-09-02 확인).
  */
 export const AVAILABLE_AGENT_MODEL_FULL_IDS: readonly string[] = [
+  'claude-fable-5-1',
   'claude-fable-5',
   'claude-opus-5',
   'claude-sonnet-5',
@@ -2013,11 +2343,52 @@ export const AVAILABLE_SETTING_SOURCES: readonly string[] = ['user', 'project', 
 
 /**
  * §4 (CLI 사양 추종) — `--autocompact` 드롭다운이 그리는 값.
- * 맨 앞 `''` 는 "미설정"(플래그 없음), `'auto'` 는 CLI 판단, 나머지는 토큰 수(CLI 허용 100k~1M).
+ * 맨 앞 `''` 는 "미설정"(=위층을 따름), `'off'` 는 **꺼짐**, `'auto'` 는 CLI 판단,
+ * 나머지는 토큰 수(CLI 허용 100k~1M).
  */
 export const AVAILABLE_AUTOCOMPACT_VALUES: readonly string[] = [
-  '', 'auto', '100000', '200000', '400000', '500000', '1000000',
+  '', 'off', 'auto', '100000', '200000', '400000', '500000', '1000000',
 ];
+
+/**
+ * §4 (CLI 사양 추종) — "접지 않는다"를 뜻하는 우리 축 값.
+ *
+ * ⚠ **CLI 에 보내는 값이 아니다.** 설치본은 `--autocompact` 에 `auto` 또는 100k~1M 만 받고,
+ * `off`·`0` 을 주면 `argument 'off' is invalid` 로 **즉시 종료**한다(실측 2.1.252 —
+ * `--help` + `--print` probe). 꺼짐은 **플래그를 아예 싣지 않는 것**으로 표현하며, 그러면
+ * CLI 기본(창 전체)이라 Opus `[1m]` 에서는 사실상 압축이 없고 창에 닿을 때 한 번 접는
+ * 최후 안전망만 남는다 — 그것이 우리가 파는 "꺼짐"의 정확한 의미다.
+ *
+ * 문자열을 여기저기 흩뿌리면 한 곳만 고쳐져 어긋나므로 비교는 전부 이 상수를 쓴다.
+ */
+export const AUTOCOMPACT_OFF = 'off';
+
+/** `resolveAutoCompact` 가 돌려준 값이 "접는다"는 뜻인가. 꺼짐/빈 값이면 false. */
+export function isAutoCompactOn(resolved: string): boolean {
+  const v = resolved.trim();
+  return v !== '' && v !== AUTOCOMPACT_OFF;
+}
+
+/**
+ * §4 (CLI 사양 추종) — 비용 확인 팝업이 인용하는 **압축 1회의 실측 표본**.
+ *
+ * "토큰이 든다"는 말만으로는 크기 감각이 안 서고, 감각이 없으면 경고는 그냥 클릭해 넘기는 관문이
+ * 된다. 그래서 숫자를 함께 보인다 — 이 저장소 트랜스크립트의 `compact_boundary` 기록
+ * `runs` 회를 그대로 집계한 값이다(추정치가 아니다).
+ *
+ * ⚠ 사용자 환경마다 다르므로 팝업 문구는 이것을 **"실측 예"** 로 소개해야 한다. 자기 환경의
+ * 확정 비용으로 읽히면 그것은 거짓말이 된다.
+ */
+export const AUTOCOMPACT_COST_SAMPLE = {
+  /** 집계한 압축 횟수 */
+  runs: 23,
+  /** 요약에 먹인 대화 크기(=입력 토큰) 평균 */
+  avgInputTokens: 364_566,
+  /** 접은 뒤 남은 컨텍스트 평균 */
+  avgAfterTokens: 10_386,
+  /** 1회가 멈춰 있던 시간(초) 평균 */
+  avgSeconds: 150,
+} as const;
 
 /**
  * §4 (CLI 사양 추종) — 아무도 정하지 않았을 때 실릴 `--autocompact` 내장 기본값.
@@ -2033,8 +2404,22 @@ export const AVAILABLE_AUTOCOMPACT_VALUES: readonly string[] = [
  * ⚠ 이 값은 **`--autocompact` 에 실리는 창 크기이자 우리 턴 경계 압축의 기준**이다 — 사용자가 고르는
  * 숫자는 이것 하나뿐이고(설정 창에 체크박스가 따로 없다), 실제로 접히는 자리는
  * `turnCompactTriggerTokens` 가 정한다.
+ *
+ * ⚠ **더 이상 "아무도 정하지 않았을 때"의 값이 아니다**(2026-09-02 사용자 지시). 내장 기본은
+ * `DEFAULT_AUTOCOMPACT`(=꺼짐)로 옮겼고, 이 상수는 **사용자가 비용 확인 팝업에서 "켜기"를
+ * 눌렀을 때 앉힐 권장 시작값**으로 남는다. 위 400k 근거(실측 세션 최고점 분포)는 그대로 유효하다.
  */
 export const DEFAULT_AUTOCOMPACT_TOKENS = '400000';
+
+/**
+ * §4 (CLI 사양 추종) — 아무도 정하지 않았을 때의 내장 기본 = **꺼짐**(2026-09-02 사용자 지시).
+ *
+ * 종전 기본은 400k 였다. 압축은 공짜 정리가 아니라 **대화 전체를 다시 먹여 요약을 만드는 모델
+ * 호출 1회**라 접을 때마다 토큰과 플랜 한도를 쓴다(이 저장소 실측 23회: 회당 입력 평균 364,566
+ * 토큰 · 평균 150초 정지). 돈이 나가는 축이 사용자가 고른 적 없는 채로 켜져 있으면 안 되므로
+ * 기본을 끄고, 켜는 것은 **비용 확인 팝업을 거친 명시 선택**으로만 되게 한다.
+ */
+export const DEFAULT_AUTOCOMPACT = AUTOCOMPACT_OFF;
 
 /**
  * §4 (CLI 사양 추종) — 턴 경계·에이전트 요청으로 보내는 압축 명령.
@@ -2087,7 +2472,7 @@ export function resolveAutoCompact(agentValue?: string, userDefaultValue?: strin
     const v = raw?.trim();
     if (v && AVAILABLE_AUTOCOMPACT_VALUES.includes(v)) return v;
   }
-  return DEFAULT_AUTOCOMPACT_TOKENS;
+  return DEFAULT_AUTOCOMPACT;
 }
 
 /**
@@ -2102,6 +2487,10 @@ export function resolveAutoCompact(agentValue?: string, userDefaultValue?: strin
  * 다뤄야 한다(모르는 채로 쏘면 종전의 매 턴 압축으로 되돌아간다).
  */
 export function autoCompactThresholdTokens(resolved: string, contextMax?: number): number | null {
+  // 꺼짐이면 선 자체가 없다 — **가장 먼저 걸러야 한다.** `Number('off')` 는 NaN 이라
+  // 아래 `contextMax` 폴백으로 굴러떨어지고, 그러면 꺼 둔 에이전트가 창 크기를 발동선으로
+  // 삼아 접기 시작한다(끈 적이 없는 압축이 도는 자리다).
+  if (!isAutoCompactOn(resolved)) return null;
   const n = Number(resolved);
   if (Number.isFinite(n) && n > 0) return n;
   return typeof contextMax === 'number' && contextMax > 0 ? contextMax : null;
@@ -2151,6 +2540,10 @@ export interface CompactAfterTurnInput {
  * 켜고 끄는 스위치가 없다. 자동 압축 값을 고른 순간 "그 근처에서 접는다"는 뜻이고, 접는 자리는
  * 언제나 **턴 경계**다 — 손잡이 둘(창 크기 + 턴 경계 체크박스)이 같은 일을 하며 헷갈리게 하던 것을
  * 하나로 합친 결과다. 사용자가 고르는 숫자 하나가 "얼마나 차면"과 "언제 접는가"를 함께 정한다.
+ *
+ * ⚠ **꺼짐(`AUTOCOMPACT_OFF`)이면 발동선이 없다** — `autoCompactThresholdTokens` 가 null 을 주므로
+ * 아래 둘째 조건은 영영 걸리지 않는다. 다만 `agentCanCompact` 는 **직교 축**이라 꺼짐에서도
+ * 에이전트 요청은 그대로 돈다 — 그 스위치도 켤 때 같은 비용 확인을 거치므로 몰래 도는 것이 아니다.
  *
  * 발동 조건 둘:
  *  - **에이전트 요청**(`agentCanCompact`) — 무조건 참. 판단을 맡긴 축이라 우리가 되묻지 않으며,
@@ -3699,12 +4092,28 @@ export const SESSION_MEMO = {
   HEADER_H: 28,
   /** 본문 상한 (자). 넘치면 잘라 저장한다. */
   TEXT_MAX: 4000,
+  /**
+   * 이름 상한 (자). 제목줄에 들어가는 한 줄이라 본문과 상한이 다르다 — 화면에서는 폭에 맞춰
+   * `…` 로 줄지만(CSS), **저장까지 무한히 길어지면 안 된다**(§3.2.3 "쓸수록 커지는 것에 상한").
+   */
+  NAME_MAX: 60,
   /** 한 세션(또는 메인 탭)이 가질 수 있는 메모 장수 상한. */
   MAX_PER_OWNER: 24,
   /** 좌표 상한 (px) — 창 밖 좌표가 들어와도 여기서 멈춘다(복원 시 화면 밖 실종 방지). */
   MAX_COORD: 20000,
-  /** 같은 자리에 겹쳐 만들 때 계단식으로 밀어 놓는 간격 (px). */
+  /** 같은 자리에 겹쳐 만들 때 계단식으로 밀어 놓는 간격 (px). [펼치기]가 자리를 찾는 격자도 이 눈금이다. */
   CASCADE_STEP: 18,
+  /**
+   * 손이 올라간 카드를 **잠시** 맨 앞으로 올릴 때 쓰는 z. 장수 상한(24)보다 한참 위라 어떤 카드보다
+   * 앞에 서고, 판(`z-[15]`) 안에서만 유효하므로 IDE 크롬(검색바·줌 배지)을 가리지 않는다.
+   * 저장되는 값이 아니다 — **겹쳐 둔 순서는 그대로 두고 보기만 바꾸는** 것이 이 값의 요점이다.
+   */
+  PEEK_Z: 1000,
+  /**
+   * [겹친 메모 펼치기]가 빈자리를 찾을 때 넓혀 가는 고리의 최대 수(고리 하나 = `CASCADE_STEP`).
+   * 유한한 이유는 판이 꽉 찼을 때 **못 찾는 것이 정상**이기 때문이다 — 그때는 제자리에 둔다.
+   */
+  SPREAD_MAX_RING: 48,
   /** 컨테이너 밖으로 나가지 않게 남겨 두는 최소 여백 (px) — 제목줄은 항상 잡을 수 있어야 한다. */
   EDGE_KEEP: 24,
   /**
@@ -3782,6 +4191,22 @@ function clampMemoAlpha(v: unknown): number {
 }
 
 /**
+ * 메모 이름 정화 — **한 줄로 접고**, 앞뒤 공백을 떼고, 상한까지 자른다. 빈 값이면 `''`(= 필드 없음).
+ *
+ * ⚠ 화면과 서버가 **같은 함수**를 써야 한다. 카드가 올린 이름과 서버가 정화한 이름이 한 글자라도
+ * 다르면 낙관 표시의 왕복 비교(`SessionMemoLayer.pushedRef`)가 영영 안 맞아, 그 판의 메모가
+ * 다른 창의 변경을 다시는 따라가지 못한다. 그래서 이 규칙은 클라에 복제하지 않고 여기 하나만 둔다.
+ *
+ * 줄바꿈·탭을 공백 하나로 접는 것도 의도다 — 제목줄은 한 줄이라, 개행이 들어오면 저장값과 보이는
+ * 값이 어긋난다(붙여넣기 한 번으로 쉽게 들어온다).
+ */
+export function normalizeMemoName(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  const oneLine = raw.replace(/\s+/g, ' ').trim();
+  return oneLine.length > SESSION_MEMO.NAME_MAX ? oneLine.slice(0, SESSION_MEMO.NAME_MAX).trim() : oneLine;
+}
+
+/**
  * §5.5 #17-36 — 신뢰할 수 없는 입력(REST body·옛 체크포인트)에서 메모 1장을 안전하게 복원한다.
  * 모양이 어긋나면 `null`(= 그 장은 버린다). `sanitizeCmdPaneTree` 와 같은 자리·같은 규약이다.
  */
@@ -3798,6 +4223,10 @@ export function sanitizeSessionMemo(input: unknown): SessionMemo | null {
   // 옛 파스텔 8칸은 새 팔레트로 갈아 끼운다(위 이관표 주석 참고).
   const color = SESSION_MEMO_LEGACY_COLOR_MAP[rawColor.toUpperCase()] ?? rawColor;
   const alpha = clampMemoAlpha(n['alpha']);
+  const name = normalizeMemoName(n['name']);
+  // 묶음 이름표는 id 와 같은 모양만 통과 — 임의 문자열이 그룹 키·DOM 속성으로 새지 않게.
+  const rawGroup = typeof n['groupId'] === 'string' ? n['groupId'].trim() : '';
+  const groupId = /^[\w-]{1,64}$/.test(rawGroup) ? rawGroup : '';
   const now = Date.now();
   const createdAt = clampNumber(n['createdAt'], 0, Number.MAX_SAFE_INTEGER, now);
   return {
@@ -3810,8 +4239,12 @@ export function sanitizeSessionMemo(input: unknown): SessionMemo | null {
     color,
     // 기본값은 남기지 않는다(`collapsed` 와 같은 규약) — 옛 체크포인트가 새 필드로 부풀지 않고,
     //   낙관 표시의 왕복 비교(`pushedRef`)도 판본 사이에서 흔들리지 않는다.
+    //   이름도 같다 — 빈 이름은 "이름 없음"이지 "빈 문자열을 붙였다"가 아니다.
+    ...(name ? { name } : {}),
     ...(alpha !== SESSION_MEMO.DEFAULT_ALPHA ? { alpha } : {}),
     ...(n['collapsed'] === true ? { collapsed: true } : {}),
+    ...(groupId ? { groupId } : {}),
+    ...(groupId && n['groupActive'] === true ? { groupActive: true } : {}),
     createdAt,
     updatedAt: clampNumber(n['updatedAt'], 0, Number.MAX_SAFE_INTEGER, createdAt),
   };
@@ -3832,7 +4265,67 @@ export function sanitizeSessionMemos(input: unknown): SessionMemo[] {
     out.push(memo);
     if (out.length >= SESSION_MEMO.MAX_PER_OWNER) break;
   }
-  return out;
+  return repairMemoGroups(out);
+}
+
+/**
+ * 합쳐진 묶음의 **무결성 보정** — 정화의 마지막 단계다. 고치는 것 셋.
+ *  ① **혼자 남은 묶음은 묶음이 아니다** — 이름표를 지운다. 탭이 하나뿐인 탭 줄은 화면에서
+ *    "왜 여기만 다르게 생겼지"가 되고, 마지막 장이 빠진 뒤 그 상태로 저장되는 일이 실제로 생긴다
+ *    (장수 상한에 걸려 뒷장이 잘렸을 때 · 옛 판본이 저장했을 때 · 다른 창이 동시에 지웠을 때).
+ *  ② **활성 탭은 묶음당 정확히 하나** — 없으면 마지막 장을 세우고(빈 카드 ❌), 여럿이면 마지막
+ *    하나만 남긴다. 이 보정이 없으면 "탭은 3개인데 본문이 안 보이는 카드"가 나오는데, 화면에는
+ *    고장으로 보이고 원인은 파일 안에 있다.
+ *  ③ **묶음 안의 자리·크기는 활성 장을 따른다** — 한 카드로 그려지므로 멤버끼리 좌표가 다르면
+ *    어느 것을 믿을지 규칙이 없다. 활성 장 하나를 정본으로 삼아 나머지를 맞춘다.
+ *
+ * 값이 하나도 안 바뀌면 **같은 배열**을 돌려준다(저장 왕복 비교가 흔들리지 않게).
+ */
+export function repairMemoGroups(memos: SessionMemo[]): SessionMemo[] {
+  const members = new Map<string, SessionMemo[]>();
+  for (const m of memos) {
+    if (!m.groupId) continue;
+    const list = members.get(m.groupId);
+    if (list) list.push(m);
+    else members.set(m.groupId, [m]);
+  }
+  if (members.size === 0) return memos;
+
+  /** 각 묶음의 정본 장(활성) — 표시된 것 중 마지막, 없으면 마지막 멤버. */
+  const anchors = new Map<string, SessionMemo>();
+  for (const [gid, list] of members) {
+    if (list.length < 2) continue;
+    const marked = list.filter((m) => m.groupActive === true);
+    const anchor = marked[marked.length - 1] ?? list[list.length - 1];
+    if (anchor) anchors.set(gid, anchor);
+  }
+
+  let changed = false;
+  const out = memos.map((m) => {
+    if (!m.groupId) return m;
+    const anchor = anchors.get(m.groupId);
+    if (!anchor) {
+      // ① 혼자 남은 묶음.
+      changed = true;
+      const solo: SessionMemo = { ...m };
+      delete solo.groupId;
+      delete solo.groupActive;
+      return solo;
+    }
+    const active = anchor.id === m.id;
+    const same = (m.groupActive === true) === active
+      && m.x === anchor.x && m.y === anchor.y && m.w === anchor.w && m.h === anchor.h
+      && (m.collapsed === true) === (anchor.collapsed === true);
+    if (same) return m;
+    changed = true;
+    const next: SessionMemo = { ...m, x: anchor.x, y: anchor.y, w: anchor.w, h: anchor.h };
+    if (active) next.groupActive = true;
+    else delete next.groupActive;
+    if (anchor.collapsed === true) next.collapsed = true;
+    else delete next.collapsed;
+    return next;
+  });
+  return changed ? out : memos;
 }
 
 
@@ -7569,6 +8062,12 @@ export const COST_MAP_AGENTS_MAX = 200;
 /** 날짜 버킷 보관 일수(키 개수 캡). 최신 순으로 남긴다. */
 export const COST_MAP_DAYS_MAX = 180;
 
+/**
+ * "추정" 툴팁에 이름을 대 줄 **단가 미상 모델** 개수 상한(§9 키 개수 캡).
+ * 목록이 길어질수록 정보가 아니라 소음이 된다 — 몇 개만 보여도 무엇을 고칠지는 충분히 안다.
+ */
+export const COST_MAP_UNSEEDED_MODELS_MAX = 8;
+
 /** 이 금액을 넘으면 배지·표가 경고 색으로 바뀐다(USD). */
 export const COST_WARN_USD = 5;
 
@@ -7591,6 +8090,9 @@ export function addCostTotals(a: CostTotals, b: CostTotals): CostTotals {
     cacheReadTokens: a.cacheReadTokens + b.cacheReadTokens,
     cacheCreateTokens: a.cacheCreateTokens + b.cacheCreateTokens,
     costUsd: a.costUsd + b.costUsd,
+    // 추정은 **전염된다** — 한쪽이라도 단가 미상의 몫을 담고 있으면 합계도 추정이다.
+    // 접는 자리(날짜·기간·에이전트·프로젝트)가 전부 이 함수를 지나므로 여기서 한 번만 OR 한다.
+    ...(a.estimated || b.estimated ? { estimated: true } : {}),
   };
 }
 
@@ -7643,7 +8145,7 @@ export function isCostDayInPeriod(date: string, period: CostPeriod, now: number)
 
 /** 날짜 버킷들에서 한 기간의 합을 접는다. */
 export function sumCostDays(
-  days: readonly { date: string; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreateTokens: number; costUsd: number }[],
+  days: readonly (CostTotals & { date: string })[],
   period: CostPeriod,
   now: number,
 ): CostTotals {
@@ -7657,7 +8159,7 @@ export function sumCostDays(
 
 /** 기간 프리셋 4종을 한 번에 접는다. */
 export function buildCostPeriodTotals(
-  days: readonly { date: string; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreateTokens: number; costUsd: number }[],
+  days: readonly (CostTotals & { date: string })[],
   now: number,
 ): CostPeriodTotals {
   return {

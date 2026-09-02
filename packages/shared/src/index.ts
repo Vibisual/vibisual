@@ -127,6 +127,9 @@ export type {
   Result,
   BashEntry,
   FileEdit,
+  // §5.23 도메인 버블
+  WebEntry,
+  WebEntryKind,
   ServerEntry,
   AgentEvent,
   TodoItem,
@@ -172,6 +175,7 @@ export type {
   EdgeSnapshot,
   ProjectMeta,
   FolderFileEntry,
+  FolderFilePage,
   WorkspaceEntry,
   WorkspaceDirListing,
   WorkspacePathKind,
@@ -269,6 +273,9 @@ export type {
   AppStatePatch,
   RetentionSettings,
   BackgroundTaskVerdict,
+  SessionLivenessVerdict,
+  SessionLivenessProbeResult,
+  SessionLivenessProbeSettings,
   BackgroundTaskProbeResult,
   BackgroundTaskProbeSettings,
   RetentionLogEntry,
@@ -366,7 +373,7 @@ export type {
   TermUnavailableFrame,
 } from './types.js';
 
-export type { ModelPricing } from './constants.js';
+export type { ModelPricing, ModelPricingSource } from './constants.js';
 /** §5.19 (H) — 로컬 도구 한 건의 처리 방식(allow/ask/deny). */
 export type { LocalToolGate } from './constants.js';
 export type { CompactAfterTurnInput } from './constants.js';
@@ -387,11 +394,16 @@ export {
   HOOK_AGENT_STYLE,
   BUBBLE_COLORS,
   READ_TOOLS,
+  WRITE_TOOLS,
   EDGE_STYLE,
   NODE_MIN_SIZE,
   NODE_MAX_SIZE,
   FILE_MIN_SIZE,
   FILE_MAX_SIZE,
+  HEAT_MIN_SIZE,
+  HEAT_MAX_SIZE,
+  HEATMAP_RAMP,
+  HEATMAP_ZERO_COLOR,
   MAX_BASH_HISTORY,
   MAX_FILE_EDITS,
   MAX_WRITE_DIFF_BYTES,
@@ -421,6 +433,21 @@ export {
   BG_TASK_PROBE_LIMITS,
   BG_TASK_PROBE_MODELS,
   normalizeBgTaskProbeSettings,
+  // §2.4 — 세션 생존 판정("실행중…"이 진짜인가). 구조·예산은 위 백그라운드 판정과 같은 계약.
+  SESSION_PROBE_INTERVAL_MS,
+  SESSION_PROBE_QUIET_MINUTES,
+  SESSION_PROBE_TIMEOUT_MS,
+  SESSION_PROBE_TAIL_BYTES,
+  SESSION_PROBE_REASON_MAX,
+  SESSION_PROBE_MAX_PER_HOUR,
+  SESSION_PROBE_CONCURRENCY,
+  SESSION_PROBE_BACKOFF_FACTOR,
+  SESSION_PROBE_BACKOFF_MAX,
+  SESSION_PROBE_MODEL,
+  DEFAULT_SESSION_PROBE_SETTINGS,
+  SESSION_PROBE_LIMITS,
+  SESSION_PROBE_MODELS,
+  normalizeSessionProbeSettings,
   RETENTION_LIMITS,
   normalizeRetentionSettings,
   isExpiredByDays,
@@ -437,6 +464,17 @@ export {
   SESSION_KEYED_MAP_MAX,
   DEFAULT_MAX_SATELLITES,
   SATELLITE_MAX_BOUNDS,
+  // §7.5 폴더 목록 지연 로딩
+  FOLDER_FILES_PAGE_SIZE,
+  FOLDER_FILES_PAGE_MAX,
+  // §5.23 도메인 버블 상한·표식
+  DEFAULT_MAX_WEB_ENTRIES,
+  WEB_ENTRY_MAX_BOUNDS,
+  WEB_ENTRY_TEXT_MAX,
+  WEB_ENTRY_RESULT_HOSTS_MAX,
+  WEB_SEARCH_HOST,
+  WEB_KEY_MARK,
+  WEB_TOOLS,
   WORKSPACE_DIR_ENTRY_MAX,
   WORKSPACE_FILE_MAX_BYTES,
   IDE_EDITOR_MAX_TABS,
@@ -484,6 +522,7 @@ export {
   ORBIT_RADIUS_PER_ITEM,
   SATELLITE_ORBIT_GAP,
   SATELLITE_TYPES,
+  FOLDER_BUBBLE_TYPES,
   GHOST_FADE_DURATION,
   PANEL_DEFAULT_WIDTH,
   PANEL_MIN_WIDTH,
@@ -526,6 +565,10 @@ export {
   listEffortLevels,
   getModelPricing,
   getModelContextLimit,
+  normalizeModelId,
+  resolveModelPricing,
+  resolveModelContextLimit,
+  isPricingEstimated,
   resolveAliasToLatest,
   TOKEN_BYTES_RATIO,
   TOKEN_SUBAGENT_FETCH_CONCURRENCY,
@@ -591,7 +634,11 @@ export {
   normalizePluginDirs,
   AVAILABLE_SETTING_SOURCES,
   AVAILABLE_AUTOCOMPACT_VALUES,
+  AUTOCOMPACT_OFF,
+  AUTOCOMPACT_COST_SAMPLE,
+  DEFAULT_AUTOCOMPACT,
   DEFAULT_AUTOCOMPACT_TOKENS,
+  isAutoCompactOn,
   resolveAutoCompact,
   autoCompactThresholdTokens,
   turnCompactTriggerTokens,
@@ -670,6 +717,8 @@ export {
   CMD_PANE_MAX,
   CMD_PANE_SEPARATOR,
   sanitizeCmdPaneTree,
+  normalizeMemoName,
+  repairMemoGroups,
   sanitizeSessionMemo,
   sanitizeSessionMemos,
   collectCmdPaneIds,
@@ -807,6 +856,7 @@ export {
   COST_WARN_USD,
   COST_DANGER_USD,
   COST_PERIODS,
+  COST_MAP_UNSEEDED_MODELS_MAX,
   emptyCostTotals,
   addCostTotals,
   costTokenTotal,
@@ -1297,6 +1347,10 @@ export {
   macUpdateAssetName,
   macUpdateAssetUrl,
 } from './updateDelivery.js';
+// §4 — 업데이트 상태 전이 규칙. **받아 둔 것은 체크 결과로 지워지지 않는다**(sticky downloaded).
+// 주기 체크가 실패했다는 이유로 이미 받아 둔 업데이트를 못 깔게 되던 것을 여기서 막는다.
+export type { UpdateEvent } from './updateState.js';
+export { reduceUpdateState, compareVersions, isNewerVersion } from './updateState.js';
 // §3.7 — 바깥 브라우저 열기 실패 판정. 리눅스의 `shell.openExternal` 은 실패해도 resolve 하므로
 // (xdg-open 을 wait=false 로 띄운다) 프라미스 대신 "열어 줄 프로그램이 있는가"를 잰다. 폴백 ❌.
 export type {
@@ -1340,6 +1394,45 @@ export {
   readShellCdTarget,
   extractBashWritePaths,
 } from './bashCommandPaths.js';
+
+// §5.23 — 도메인 버블의 공용 추출기. 서버 그래프(버블 세우기)와 §5.22 감사 원장(`target` 채우기)이
+// **같은 함수**를 부른다 — 두 벌이 되면 "버블은 섰는데 원장은 비어 있는" 상태가 된다.
+export type { WebToolExtraction } from './webToolEntry.js';
+export {
+  webNodeKey,
+  webHostFromNodeKey,
+  webHostFromUrl,
+  clampWebText,
+  readWebResponseText,
+  readWebResponseError,
+  extractResultHosts,
+  extractResultCount,
+  extractWebEntry,
+} from './webToolEntry.js';
+
+// §5.24 — 읽기 히트맵. 서버가 `toolAxis()` 로 카운터를 가르고, 클라가 같은 파일의 `heatRatio`/
+// `heatColor`/`heatSize` 로 그 값을 지름·색으로 옮긴다. 판정이 두 벌이면 "숫자는 올랐는데 색이
+// 안 변하는" 상태가 된다.
+export type { HeatScale, ToolAxis } from './heatmap.js';
+export {
+  toolAxis,
+  isHeatBubbleType,
+  heatRatio,
+  heatColor,
+  heatSize,
+} from './heatmap.js';
+
+// §2.1 #3 — 편집 계열 도구(`Edit`/`MultiEdit`/`Write`/`NotebookEdit`)의 **입력 모양**을 아는
+// 유일한 자리. 종전에는 클라 `IDE/diffTool.ts` 한 곳에만 있어 서버 그래프가 `MultiEdit`/
+// `NotebookEdit` 를 아예 몰랐다(버블·쓰기 화살표·수정 이력 0). 셸 토크나이저와 같은 규율 —
+// 파서가 두 벌이 되면 도구 입력이 바뀔 때 한쪽만 고쳐진다.
+export type { EditToolHunk, EditToolMode, ParsedEditToolInput } from './editToolInput.js';
+export {
+  EDIT_INPUT_TOOLS,
+  parseEditToolObject,
+  parseEditToolInputJson,
+  joinEditHunks,
+} from './editToolInput.js';
 
 // §4 — 개별 에이전트 설정이 설정 창의 전역 기본값과 어디서 갈라지는지. "미설정"의 표기가 필드마다
 // 달라서(effort:'default' · isolation:'none' · maxTurns:0 · forwardSubagentText:undefined=켬)
@@ -1421,3 +1514,56 @@ export {
   resolveOnboardingStep,
   isNoProjectFolderError,
 } from './onboarding.js';
+
+// §5.5 #17-38 — 음성 받아쓰기. 단축키 판정·커서 자리 끼워넣기·실패 사유 접기의 정본 한 곳.
+export type {
+  VoiceInputStatus,
+  VoiceInputErrorCode,
+  VoiceKeyLike,
+  VoiceTextMerge,
+} from './voiceInput.js';
+export {
+  VOICE_INPUT,
+  isFatalVoiceError,
+  mapVoiceError,
+  mapMediaError,
+  isVoiceToggleKey,
+  voiceRecognitionLang,
+  pushVoiceLevel,
+  emptyVoiceLevels,
+  levelFromTimeDomain,
+  mergeVoiceText,
+} from './voiceInput.js';
+
+// §5.5 #17-38 ⑫ — 오프라인 받아쓰기 엔진. 자산 고르기·모델 목록·언어 등급·오디오 변환의 정본 한 곳.
+export type {
+  VoiceEngineAssetLike,
+  VoiceModelRole,
+  VoiceModelFile,
+  VoiceModelSource,
+  VoiceAsrLanguageTier,
+  VoiceAsrInstallStage,
+  VoiceAsrInstallProgress,
+  VoiceAsrState,
+} from './voiceAsr.js';
+export {
+  VOICE_ASR,
+  VOICE_ASR_ENGINE_DIR_NAME,
+  VOICE_ASR_MODEL_DIR_NAME,
+  VOICE_ASR_RELEASE_SCAN_MAX,
+  VOICE_MODEL_SOURCES,
+  SHERPA_RELEASES_LIST_API,
+  voiceEnginePlatformToken,
+  voiceEngineArchToken,
+  voiceEngineBinName,
+  scoreVoiceEngineAsset,
+  pickVoiceEngineAsset,
+  voiceModelTotalBytes,
+  voiceModelFileUrl,
+  voiceModelDiskName,
+  voiceAsrLanguageTier,
+  voiceInstallPercent,
+  isVoiceInstallRunning,
+  downsampleTo16k,
+  float32Bytes,
+} from './voiceAsr.js';

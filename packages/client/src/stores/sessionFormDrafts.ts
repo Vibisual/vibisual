@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import { create } from 'zustand';
+import { registerPersistFlush } from '../utils/persistFlush.js';
 
 // §5.5 #17-11 ⑬ — 세션 스코프 폼 초안(제출 전 입력 보존).
 //
@@ -25,8 +26,9 @@ export interface SessionFormDraft {
   at: number;
 }
 
-/** localStorage 키. */
-const STORAGE_KEY = 'vibisual:sessionFormDrafts';
+/** localStorage 키. (회귀 테스트가 "종료 flush 뒤 여기에 앉았는가"를 확인하므로 export 한다.) */
+export const SESSION_FORM_DRAFT_STORAGE_KEY = 'vibisual:sessionFormDrafts';
+const STORAGE_KEY = SESSION_FORM_DRAFT_STORAGE_KEY;
 /** 보관 상한(폼 × 스코프 조합 수). 넘으면 오래된 초안부터 버린다. */
 export const SESSION_FORM_DRAFT_MAX = 120;
 /** 한 칸에 담을 문자열 상한 — 초안은 손글씨지 파일이 아니다. */
@@ -158,6 +160,10 @@ function scheduleSaveDrafts(drafts: Record<string, SessionFormDraft>): void {
     }
   }, SAVE_DEBOUNCE_MS);
 }
+
+// §3.2.1 — 앱 종료는 `app.exit(0)` 이라 아래 세 이벤트가 안 뜬다. main 이 종료 직전에
+//   물어봐 주는 창구에도 같은 flush 를 올린다.
+registerPersistFlush(flushDrafts);
 
 if (typeof window !== 'undefined') {
   window.addEventListener('pagehide', flushDrafts);

@@ -3,12 +3,19 @@ import type { SessionMemo } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
 import { SessionMemoCard, type MemoSaveWhen } from './SessionMemoCard.js';
 import {
+  activateMemoTab,
   canAddMemo,
   clampMemos,
+  detachMemo,
+  memoCards,
+  mergeMemos,
   patchMemo,
   raiseMemo,
+  raiseNextUnder,
   removeMemo,
   spawnMemo,
+  spreadOverlappingMemos,
+  stackedUnderCounts,
   type MemoBounds,
   type MemoPatch,
 } from './sessionMemo.js';
@@ -25,6 +32,12 @@ import {
  * 스냅샷은 16~250ms 마다 통째로 오고 참조가 매번 새것이라, 글자를 치는 도중에 놓아주면 방금 친
  * 글자가 되돌아간다. 그래서 **"서버가 우리가 올린 그 값이 되었을 때"만** 놓아준다(`pushedRef`).
  * 새로 편집하면 그 표식을 즉시 지운다 — 안 그러면 한 박자 전 값과 같아진 순간 새 편집이 날아간다.
+ *
+ * **겹침은 막지 않는다** — 이동에 충돌 회피를 넣지 않는 것이 의도다(포스트잇은 원래 겹쳐 붙인다).
+ * 대신 겹친 뒤에 잃는 것을 돌려준다: 각 장이 자기 밑에 깔아 놓은 장수를 여기서 한 번에 세어
+ * (`stackedUnderCounts`) 카드가 배지를 달게 하고, 배지를 누르면 바로 밑장을 위로 올리며
+ * (`raiseNextUnder`), 우클릭 메뉴의 [펼치기]는 판 크기를 아는 이 층이 수행한다
+ * (`spreadOverlappingMemos`) — 카드도 메뉴도 판 크기를 모른다.
  *
  * ⚠ **카드에 넘기는 핸들러는 전부 정체성이 고정돼야 한다.** 카드마다 `(patch) => f(memo.id, patch)`
  * 같은 새 클로저를 주면 `SessionMemoCard` 의 `memo()` 가 영영 헛돌아, 글자 하나에 24장이 통째로
@@ -45,10 +58,16 @@ interface SessionMemoLayerProps {
   /** 우클릭 메뉴가 넘긴 생성 지점(화면 좌표). 소비하면 `onSpawnConsumed` 로 알린다. */
   spawnAt: { x: number; y: number } | null;
   onSpawnConsumed: () => void;
+  /**
+   * 우클릭 메뉴의 [겹친 메모 펼치기] 요청 — 값이 바뀔 때 1회 수행하는 **신호**라 내용은 아무 숫자나
+   * 상관없다(`spawnAt` 과 같은 규약). 판 크기를 아는 것이 이 층뿐이라 메뉴가 직접 못 한다.
+   */
+  spreadRequest: number | null;
+  onSpreadConsumed: () => void;
 }
 
 function SessionMemoLayerImpl({
-  agentId, sessionId, containerRef, spawnAt, onSpawnConsumed,
+  agentId, sessionId, containerRef, spawnAt, onSpawnConsumed, spreadRequest, onSpreadConsumed,
 }: SessionMemoLayerProps): React.JSX.Element {
   const serverMemos = useGraphStore((s) => (
     sessionId
@@ -161,6 +180,57 @@ function SessionMemoLayerImpl({
     if (next !== cur) apply(next, true);
   }, [apply]);
 
+  /** 겹침 배지 — 이 장이 덮고 있는 것 중 바로 밑장을 위로. 자리는 그대로, 순서만 바뀐다. */
+  const handleRaiseUnder = useCallback((id: string) => {
+    const cur = shownRef.current;
+    const next = raiseNextUnder(cur, id);
+    if (next !== cur) apply(next, true);
+  }, [apply]);
+
+  // [겹친 메모 펼치기] — 판 크기를 아는 곳이 여기뿐이라 이 층이 수행한다.
+  //   목록을 의존성에 넣지 않는 이유는 생성(spawnAt)과 같다 — 스냅샷마다 재실행되면 안 된다.
+  useEffect(() => {
+    if (spreadRequest === null) return;
+    onSpreadConsumed();
+    const el = containerRef.current;
+    if (!el) return;
+    const cur = shownRef.current;
+    const next = spreadOverlappingMemos(cur, { w: el.clientWidth, h: el.clientHeight });
+    if (next !== cur) apply(next, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spreadRequest]);
+
+  /**
+   * 각 장이 자기 밑에 깔아 놓은 장수 — 카드가 배지를 그릴 때 쓴다. **여기서 한 번에** 계산하는
+   * 것이 요점이다(카드마다 목록 전체를 훑으면 24장이 24번씩 훑는다).
+   */
+  const underCounts = useMemo(() => stackedUnderCounts(shown), [shown]);
+
+  /** 합쳐진 것끼리 묶어 **카드 목록**으로 — 화면은 장이 아니라 카드를 그린다. */
+  const cards = useMemo(() => memoCards(shown), [shown]);
+
+  const handleActivateTab = useCallback((id: string) => {
+    const cur = shownRef.current;
+    const next = activateMemoTab(cur, id);
+    if (next !== cur) apply(next, true);
+  }, [apply]);
+
+  /** 합치기 — 자리는 받는 쪽이 정하므로 판 크기가 필요 없다. */
+  const handleMerge = useCallback((dragId: string, targetId: string, wholeCard: boolean) => {
+    const cur = shownRef.current;
+    const next = mergeMemos(cur, dragId, targetId, wholeCard);
+    if (next !== cur) apply(next, true);
+  }, [apply]);
+
+  /** 떼어내기 — 놓은 자리를 판 안으로 접어야 하므로 판 크기를 아는 이 층이 한다. */
+  const handleDetach = useCallback((id: string, at: { x: number; y: number }) => {
+    const el = containerRef.current;
+    if (!el) return; // 판을 모르면 어디에 놓을지도 모른다 — 엉뚱한 자리로 떨어뜨리지 않는다.
+    const cur = shownRef.current;
+    const next = detachMemo(cur, id, at, { w: el.clientWidth, h: el.clientHeight });
+    if (next !== cur) apply(next, true);
+  }, [apply, containerRef]);
+
   const handleDelete = useCallback((id: string) => {
     apply(removeMemo(shownRef.current, id), true);
   }, [apply]);
@@ -169,16 +239,22 @@ function SessionMemoLayerImpl({
     // 판 자체는 클릭을 먹지 않는다 — 대화 본문의 스크롤·선택·우클릭이 그대로 통과해야 한다.
     //   층은 대화(기본)와 창 크롬(검색바·줌 배지 z-20, 드롭 덮개 z-30) 사이다 — 메모가 도구를 가리지 않는다.
     <div className="pointer-events-none absolute inset-0 z-[15]" data-session-memo-layer={sessionId ?? 'main'}>
-      {shown.map((memo, i) => (
+      {cards.map((card) => (
         <SessionMemoCard
-          key={memo.id}
-          memo={memo}
+          key={card.key}
+          memo={card.active}
+          tabs={card.members}
           bounds={bounds}
-          zIndex={i + 1}
-          autoFocus={memo.id === autoFocusId}
+          zIndex={card.zIndex}
+          stackedUnder={underCounts.get(card.active.id) ?? 0}
+          autoFocus={card.active.id === autoFocusId}
           onPatch={handlePatch}
           onRaise={handleRaise}
+          onRaiseUnder={handleRaiseUnder}
           onDelete={handleDelete}
+          onActivateTab={handleActivateTab}
+          onMerge={handleMerge}
+          onDetach={handleDetach}
         />
       ))}
     </div>

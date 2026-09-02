@@ -21,6 +21,7 @@
  * 쓰기는 명령을 보낸 순간에만 일어난다. 저장고는 세 겹으로 상한을 둔다(항목 길이 / 세션당 항목 수 /
  * 전체 문자 예산·세션 수) — 붙여넣은 로그 한 덩어리나 오래 쓴 프로젝트가 저장고를 삼키지 않게.
  */
+import { registerPersistFlush } from '../../utils/persistFlush.js';
 
 /** 저장 포맷 버전 — 올리면 옛 값은 조용히 버려진다(히스토리는 잃어도 되는 편의 기능). */
 export const HISTORY_STORE_VERSION = 2;
@@ -455,6 +456,10 @@ export function dropSessionCommandHistory(agentId: string, sessionId: string | n
   cache = { v: HISTORY_STORE_VERSION, sessions };
   scheduleSave();
 }
+
+// §3.2.1 — 앱 종료는 `app.exit(0)` 이라 아래 세 이벤트가 안 뜬다. main 이 종료 직전에
+//   물어봐 주는 창구에도 같은 flush 를 올린다(모듈이 로드된 창에서만 등록된다).
+registerPersistFlush(flushCommandHistory);
 
 if (typeof window !== 'undefined') {
   window.addEventListener('pagehide', flushCommandHistory);

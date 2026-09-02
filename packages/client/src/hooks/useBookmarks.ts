@@ -59,6 +59,11 @@ export type JumpDecision =
  *
  * stub(미hydrate) 프로젝트는 노드가 애초에 스냅샷에 실리지 않으므로 게이트를 적용하지 않는다 —
  * 적용하면 "아직 안 연 프로젝트로는 영영 못 간다"가 된다. 대신 탭 전환까지만 한다(호출부 참조).
+ *
+ * §9 폴더 스코프도 **정확히 같은 예외**다. 서버는 지금 그리는 폴더와 그 한 칸 앞만 싣기 때문에,
+ * 다른 폴더 안의 버블은 사라져서가 아니라 **아직 안 와서** `nodeMap` 에 없다. 그 자리를
+ * "없어진 대상"으로 읽으면 "다른 폴더로는 영영 못 간다"가 된다 — stub 과 한 글자도 다르지 않다.
+ * 점프 자체가 그 폴더로 들어가면서(`enterFolderDeep`) 선언이 나가고 데이터가 따라온다.
  */
 export function resolveJumpTarget(
   bm: Bookmark,
@@ -66,6 +71,8 @@ export function resolveJumpTarget(
     projects: Record<string, unknown>;
     stubProjects: Record<string, unknown>;
     nodeMap: Record<string, unknown>;
+    /** §9 마지막 스냅샷이 적용한 폴더 범위. `null`/미지정 = 범위 미적용(= 폴더가 전량 왔다). */
+    snapshotFolderScope?: string[] | null;
   },
 ): JumpDecision {
   const loaded = !!state.projects[bm.projectName];
@@ -73,7 +80,16 @@ export function resolveJumpTarget(
   if (!loaded && !stub) return { ok: false, reason: 'unknown-project' };
   if (stub) return { ok: true, stub: true };
   const targetId = bm.kind === 'session' ? bm.agentId : bm.nodeId;
-  if (!state.nodeMap[targetId]) return { ok: false, reason: 'missing-target' };
+  if (!state.nodeMap[targetId]) {
+    // 폴더 안의 버블 북마크인데 그 폴더가 이번 스냅샷의 범위 밖이면 "없어진 것"이 아니다.
+    // 에이전트(session)는 범위와 무관하게 항상 실리므로 이 예외를 타지 않는다.
+    const scope = state.snapshotFolderScope;
+    const pending = bm.kind === 'bubble'
+      && bm.folderId !== null
+      && scope !== null && scope !== undefined
+      && !scope.includes(bm.folderId);
+    if (!pending) return { ok: false, reason: 'missing-target' };
+  }
   return { ok: true, stub: false };
 }
 

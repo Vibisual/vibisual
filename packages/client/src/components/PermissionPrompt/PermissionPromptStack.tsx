@@ -14,6 +14,14 @@ const BASE_Z = 100_000;
 /** 스택 카드 cascading offset — 뒤 카드일수록 위·우측으로 밀려 꼬리만 보이게. */
 const STACK_OFFSET_Y = 14;
 const STACK_OFFSET_X = 10;
+/**
+ * 더미로 **그려 두는** 카드 수(맨 앞 포함). 종전에는 대기 중인 요청을 전부 그렸는데, 카드마다
+ * `depth × 14px` 위로 밀고 `1 − 0.03 × depth` 로 줄이는 식이라 상한이 없었다 — 10장이면 이미
+ * 140px 위로 밀려 화면 밖으로 나가고, 34장이면 배율이 음수라 카드가 뒤집힌다. 꼬리는 장식일
+ * 뿐이고 개수는 맨 앞 카드의 `N / total` 배지가 말해 주므로, 넷만 그리고 나머지는 그리지 않는다
+ * (카드마다 0.5초 타이머가 하나씩 붙어 있어 안 그리는 편이 가볍기도 하다).
+ */
+const STACK_VISIBLE = 4;
 /** 클릭 피드백(플래시) 지속 시간 — 버튼 눌림 → 모달 색상 플래시 → 제거 */
 const FLASH_DURATION_MS = 220;
 
@@ -97,11 +105,13 @@ function PermissionModal({
 
   const seconds = Math.ceil(remaining / 1000);
 
-  // 스택 뒤쪽 카드: 꼬리만 보이게 밀어냄.
-  const translateY = depth * -STACK_OFFSET_Y; // 위로 밀어 올림
-  const translateX = depth * STACK_OFFSET_X;  // 오른쪽으로 밀어냄
-  const scale = 1 - depth * 0.03;             // 뒤로 갈수록 살짝 작게
-  const opacity = depth === 0 ? 1 : Math.max(0.45, 1 - depth * 0.18);
+  // 스택 뒤쪽 카드: 꼬리만 보이게 밀어냄. 깊이는 STACK_VISIBLE 에서 멈춘다 — 그 너머로 곱하면
+  //   화면 밖으로 나가거나 배율이 음수가 되어 카드가 뒤집힌다.
+  const tailDepth = Math.min(depth, STACK_VISIBLE - 1);
+  const translateY = tailDepth * -STACK_OFFSET_Y; // 위로 밀어 올림
+  const translateX = tailDepth * STACK_OFFSET_X;  // 오른쪽으로 밀어냄
+  const scale = 1 - tailDepth * 0.03;             // 뒤로 갈수록 살짝 작게
+  const opacity = tailDepth === 0 ? 1 : Math.max(0.45, 1 - tailDepth * 0.18);
 
   const flashOverlay = flash && (
     <div
@@ -343,6 +353,8 @@ export function PermissionPromptStack(): React.JSX.Element | null {
       {ordered.map((req, i) => {
         // i 는 오래된 → 최신(top), depth 는 top=0, 뒤로 갈수록 ↑ (꼬리)
         const indexFromTop = total - 1 - i;
+        // 더미 뒤쪽은 그리지 않는다 — 보이지도 않으면서 타이머만 늘어난다(STACK_VISIBLE 주석 참고).
+        if (indexFromTop >= STACK_VISIBLE) return null;
         const isTop = indexFromTop === 0;
         const zIndex = BASE_Z + i;
         return (

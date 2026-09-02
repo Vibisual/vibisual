@@ -95,6 +95,12 @@ mac:
   # so regenerate all three together.
   icon: resources/icons/icon.icns
   category: public.app-category.developer-tools
+  # §5.5 #17-38 — 마이크 사용 문구. macOS 는 이 키가 Info.plist 에 없으면 첫
+  # `getUserMedia({audio})` 에서 **앱을 죽인다**(TCC 가 SIGABRT 로 끝낸다) — 거절이 아니라
+  # 즉사라 화면에 사유를 띄울 기회조차 없다. 이 문구는 권한 창에 그대로 보이므로
+  # "언제·왜 쓰는지"를 적는다(애플 심사 기준이기도 하다).
+  extendInfo:
+    NSMicrophoneUsageDescription: Vibisual uses the microphone only while voice input is switched on, to turn what you say into text in the command box. Nothing is recorded or stored.
 
 # deb/rpm 은 **homepage 가 없으면 포장 단계에서 죽는다**(fpm 의 --url).
 # 이 값은 루트 package.json 에만 있는데 electron-builder 는 앱 디렉터리(packages/desktop)의

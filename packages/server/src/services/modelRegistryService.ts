@@ -53,15 +53,72 @@ const HELP_PROBE_TIMEOUT_MS = 4_000;
  */
 const EFFORT_HELP_RE = /--effort\b[\s\S]{0,240}?\(([^)]+)\)/i;
 
-interface ApiModelEntry {
+export interface ApiModelEntry {
   id: string;
   display_name?: string;
   created_at?: string; // ISO 8601
   type?: string;
+  /**
+   * 컨텍스트 한도(입력 토큰). `/v1/models` 가 2026-03 부터 내려 준다.
+   * ⚠ 필드 이름은 `context_window` 가 **아니다** — 그런 필드는 응답에 없다.
+   */
+  max_input_tokens?: number;
 }
 
 interface ApiResponse {
   data?: ApiModelEntry[];
+}
+
+/**
+ * `/v1/models` 응답 한 건 → 레지스트리 entry. 패밀리를 못 읽거나 모델이 아닌 것(`claude-code-…`)은 `null`.
+ *
+ * **순수 함수로 떼어 둔 이유**: 이 매핑이 조용히 한 필드를 안 읽으면 화면에는 폴백값이 그럴듯하게
+ * 계속 뜨고 아무도 모른다(컨텍스트를 안 읽어 Fable 게이지가 5배 일찍 찼던 자리가 정확히 그것이다).
+ * 네트워크·API 키 없이 단위 테스트로 고정할 수 있어야 한다.
+ */
+export function mapApiModelEntry(m: ApiModelEntry): ModelRegistryEntry | null {
+  const family = parseFamilyFromFullId(m.id);
+  if (!family || NON_MODEL_FAMILIES.has(family)) return null;
+  const parsed = m.created_at ? Date.parse(m.created_at) : undefined;
+  // 컨텍스트 한도는 **API 가 주는 유일한 사양값**이다(가격은 안 준다). 안 받으면 시드에도 없는
+  // 신규 풀ID 가 패밀리 디폴트로 떨어져, 한 패밀리에 여러 세대가 섞이면 반드시 한쪽이 틀린다
+  // (Sonnet 5 = 1M vs Sonnet 4.5 = 200K). 0·음수·비수치는 값이 아니므로 버리고 시드에 맡긴다.
+  const ctx = m.max_input_tokens;
+  return {
+    id: m.id,
+    family,
+    displayName: m.display_name,
+    createdAt: parsed !== undefined && Number.isNaN(parsed) ? undefined : parsed,
+    contextWindow: typeof ctx === 'number' && Number.isFinite(ctx) && ctx > 0 ? ctx : undefined,
+    source: 'api',
+  };
+}
+
+/**
+ * 공개 문서 시드 + `/v1/models` entries 머지 (id 기준).
+ *
+ * 필드마다 `api ?? seed` 인 이유: API 가 그 필드를 **안 준 것**과 **비운 것**을 구분하지 않고 덮으면,
+ * 응답에 없는 필드 하나 때문에 시드가 갖고 있던 정확한 값이 지워진다. 가격(`pricing`)은 API 가
+ * 아예 주지 않으므로 항상 시드/패밀리 디폴트가 살아남는다.
+ */
+export function mergeSeedAndApiEntries(apiEntries: readonly ModelRegistryEntry[]): ModelRegistryEntry[] {
+  const byId = new Map<string, ModelRegistryEntry>();
+  for (const seed of MODEL_SEED_ENTRIES) byId.set(seed.id, { ...seed });
+  for (const api of apiEntries) {
+    const prev = byId.get(api.id);
+    if (prev) {
+      byId.set(api.id, {
+        ...prev,
+        displayName: api.displayName ?? prev.displayName,
+        createdAt: api.createdAt ?? prev.createdAt,
+        contextWindow: api.contextWindow ?? prev.contextWindow,
+        source: 'api',
+      });
+    } else {
+      byId.set(api.id, api);
+    }
+  }
+  return [...byId.values()];
 }
 
 interface CachedRegistry {
@@ -256,30 +313,12 @@ class ModelRegistryService {
     }
   }
 
-  /**
-   * 공개 문서 시드 + `/v1/models` API entries 머지.
-   * 같은 id 는 API 가 displayName/createdAt 으로 enrich, source 우선순위는 API > seed.
-   */
+  /** 공개 문서 시드 + `/v1/models` API entries 머지 — 규칙은 `mergeSeedAndApiEntries`(순수·테스트됨). */
   private buildMerged(apiEntries: ModelRegistryEntry[]): ModelRegistry {
-    const byId = new Map<string, ModelRegistryEntry>();
-    for (const seed of MODEL_SEED_ENTRIES) byId.set(seed.id, { ...seed });
-    for (const api of apiEntries) {
-      const prev = byId.get(api.id);
-      if (prev) {
-        byId.set(api.id, {
-          ...prev,
-          displayName: api.displayName ?? prev.displayName,
-          createdAt: api.createdAt ?? prev.createdAt,
-          source: 'api',
-        });
-      } else {
-        byId.set(api.id, api);
-      }
-    }
     const sourceMix: ModelRegistry['sourceMix'] =
       apiEntries.length > 0 ? 'api-merged' : 'seed-only';
     return {
-      entries: [...byId.values()],
+      entries: mergeSeedAndApiEntries(apiEntries),
       updatedAt: Date.now(),
       sourceMix,
       // §4 — CLI --help 에서 파싱한 effort 등급을 registry 에 실어 같은 WS/REST 경로로 전파.
@@ -306,16 +345,8 @@ class ModelRegistryService {
       const json = (await res.json()) as ApiResponse;
       const out: ModelRegistryEntry[] = [];
       for (const m of json.data ?? []) {
-        const family = parseFamilyFromFullId(m.id);
-        if (!family || NON_MODEL_FAMILIES.has(family)) continue;
-        const createdAt = m.created_at ? Date.parse(m.created_at) : undefined;
-        out.push({
-          id: m.id,
-          family,
-          displayName: m.display_name,
-          createdAt: Number.isNaN(createdAt) ? undefined : createdAt,
-          source: 'api',
-        });
+        const entry = mapApiModelEntry(m);
+        if (entry) out.push(entry);
       }
       return out;
     } finally {

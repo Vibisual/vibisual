@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useOutsidePressDismiss } from '../../hooks/usePopupDismiss.js';
 import { POPUP_DISMISS } from '../../hooks/popupDismiss.js';
+import { pickReadableTextColor } from '../../utils/commentBoxStyle.js';
 
 interface Props {
   /** 현재 선택된 hex (#RRGGBB) */
@@ -29,6 +30,14 @@ interface Props {
 /** 알파 슬라이더 트랙 뒤의 체커보드 — 투명한 만큼 이 무늬가 비쳐 "얼마나 뚫렸는지"가 보인다. */
 const CHECKERBOARD =
   'repeating-conic-gradient(#94A3B8 0% 25%, #E2E8F0 0% 50%) 50% / 8px 8px';
+
+/**
+ * 색 칸의 테두리. **회색 테두리를 두르지 않는 것이 요점**이다 — 종전 `border-gray-700/50` 은
+ * 16px 칸에서 색의 23% 를 먹으면서, 정작 필요한 자리(`#0F172A` 같은 어두운 칸이 `bg-gray-900`
+ * 바닥에 녹는 것)에서는 회색끼리라 경계가 서지 않았다. 흰색 반투명 헤어라인은 반대로 군다:
+ * 어두운 칸에서는 또렷하고 밝은 칸에서는 스스로 사라진다(밝은 칸은 이미 바닥과 갈린다).
+ */
+const SWATCH_EDGE = 'inset 0 0 0 1px rgba(255,255,255,0.18)';
 
 // ─── HSV ↔ RGB ↔ HEX 유틸 ───
 
@@ -80,12 +89,77 @@ function hsvToHex(h: number, s: number, v: number): string {
 }
 
 /**
+ * 색 한 칸.
+ *
+ * **칸에서 색이 차지하는 넓이가 이 도구의 성능이다.** 종전 칸은 격자 한 칸(23.5px)
+ * 안에 16×16 으로 고정돼 있었고 거기에 1px 테두리까지 둘러, 실제로 보이는 색은
+ * 14×14(196px²) — 칸(552px²)의 **35%** 뿐이고 나머지는 여백과 회색 테두리였다.
+ * 이제 칸을 꽉 채우고(`aspect-square w-full`) 테두리를 안쪽 헤어라인으로 바꾼다.
+ *
+ * **고른 표시가 색을 덮지 않는다.** 종전 `border-white` 2px + ring 은 16px 칸에서
+ * 색의 44% 를 지웠고, 하필 가장 밝은 칸(`#F8FAFC`)에서는 흰 테두리가 흰 색 위에 얹혀
+ * **골랐는지조차 보이지 않았다.** 표식의 색은 그 칸의 밝기가 정한다
+ * (`pickReadableTextColor` — 코멘트 박스·스티키 메모가 이미 쓰는 그 함수. 판정 기준을
+ * 새로 만들면 같은 색을 두 곳이 다르게 읽는다).
+ *
+ * **호버는 색을 한 픽셀도 가리지 않는다** — 칸을 키우고 그림자로 띄운다. 종전
+ * `scale-110` 은 16px 칸에서 1.6px 이라 눈에 잡히지 않았다. 그림자는 `filter` 계열이라
+ * 인라인 `boxShadow`(헤어라인·선택 링)와 겹치지 않는다 — ring 유틸은 같은 `box-shadow`
+ * 속성을 쓰므로 인라인에 덮여 그려지지 않는다.
+ */
+function Swatch({ color, label, selected, onPick }: {
+  color: string;
+  label: string;
+  selected: boolean;
+  onPick: (hex: string) => void;
+}): React.JSX.Element {
+  const ink = pickReadableTextColor(color);
+  return (
+    <button
+      type="button"
+      onClick={() => onPick(color)}
+      className={`relative aspect-square w-full rounded transition-transform hover:z-10 hover:scale-[1.18] hover:drop-shadow-[0_2px_6px_rgba(0,0,0,0.65)] ${
+        selected ? 'z-10 scale-105' : ''
+      }`}
+      style={{
+        backgroundColor: color,
+        boxShadow: selected ? `inset 0 0 0 2px ${ink}, ${SWATCH_EDGE}` : SWATCH_EDGE,
+      }}
+      aria-label={label}
+      aria-pressed={selected}
+      title={label}
+    >
+      {selected && (
+        <svg
+          className="absolute inset-0 m-auto h-3 w-3"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke={ink}
+          strokeWidth={3.5}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+        >
+          <path d="M20 6 9 17l-5-5" />
+        </svg>
+      )}
+    </button>
+  );
+}
+
+/**
  * 어두운 톤 패널에 맞춘 자체 색 선택 팝오버 (네이티브 OS 다이얼로그 완전 대체).
  * - 2D 채도/명도 패드 (자유 색 선택)
  * - Hue 슬라이더 (무지개 바)
  * - 확장 팔레트 + 그레이스케일 (빠른 선택)
  * - HEX 직접 입력
  * - 외부 클릭 / Esc 닫기
+ *
+ * **색을 고르는 도구에서 가장 커야 하는 것은 색이다** (사용자 지시 — "색 선택툴의 색이
+ * 좀더 잘보이게"). 그래서 이 파일의 치수는 전부 "색이 몇 픽셀을 차지하는가"로 정해진다:
+ * 칸은 격자를 꽉 채우고, 테두리·선택 표시·손잡이는 색을 덮지 않는 쪽으로 그린다
+ * (자세한 근거는 `Swatch`·`SWATCH_EDGE` 주석). §9 의 "'안 보인다'를 색부터 손대서 풀지
+ * 말라 — 크기 문제다"가 글자에 대해 세운 규율을 색 칸에 그대로 적용한 것이다.
  */
 export function CommentBoxColorPopover({ value, alpha, presets, onLive, onCommit, onClose, anchor }: Props): React.JSX.Element {
   const { t } = useTranslation();
@@ -256,13 +330,18 @@ export function CommentBoxColorPopover({ value, alpha, presets, onLive, onCommit
     else setHexInput(value);
   }, [hexInput, value, onCommit]);
 
-  // 위치 — 우측 우선, 화면 밖이면 좌측 플립
-  const POP_W = 240;
-  const POP_H = 360 + (hasAlpha ? 30 : 0) + (presets ? 30 : 0);
+  // 위치 — 우측 우선, 화면 밖이면 좌측 플립.
+  // 폭 240 → 264: 격자 한 칸이 23.5 → 26.5px 이 되어 칸을 꽉 채우는 것과 합쳐 색 면적이
+  // 196 → 702px²(약 3.6배)가 된다. 24px 넓어질 뿐이라 앵커 옆에 붙는 성격은 그대로다.
+  const POP_W = 264;
+  const POP_H = 431 + (hasAlpha ? 22 : 0) + (presets ? 52 : 0);
   const screenW = typeof window !== 'undefined' ? window.innerWidth : 1024;
   const screenH = typeof window !== 'undefined' ? window.innerHeight : 768;
   const left = anchor.x + POP_W + 8 < screenW ? anchor.x + 8 : Math.max(8, anchor.x - POP_W - 8);
   const top = Math.max(8, Math.min(anchor.y, screenH - POP_H - 8));
+  // 칸이 커지며 키가 자랐다 — 낮은 창에서 아래가 잘리지 않게 화면 안으로 묶고 넘치면 스크롤한다
+  // (종전에는 `top` 하한 8 에 걸린 뒤 남는 만큼 그냥 화면 밖으로 나갔다 — HEX 입력칸이 대상이다).
+  const maxHeight = Math.max(200, screenH - 16);
 
   // 패드 배경: hue 색을 기반으로 한 saturation/value 그라디언트
   const hueOnly = hsvToHex(h, 1, 1);
@@ -276,8 +355,8 @@ export function CommentBoxColorPopover({ value, alpha, presets, onLive, onCommit
   return (
     <div
       ref={popRef}
-      className="fixed z-50 rounded-lg border border-gray-700 bg-gray-900 p-3 shadow-2xl"
-      style={{ left, top, width: POP_W }}
+      className="fixed z-50 overflow-y-auto overscroll-contain rounded-lg border border-gray-700 bg-gray-900 p-3 shadow-2xl"
+      style={{ left, top, width: POP_W, maxHeight }}
       role="dialog"
       aria-label={t('panel.commentBox.colorPicker', 'Color picker')}
     >
@@ -298,18 +377,20 @@ export function CommentBoxColorPopover({ value, alpha, presets, onLive, onCommit
       {/* Sat/Val 2D 패드 */}
       <div
         ref={padRef}
-        className="relative h-[140px] w-full cursor-crosshair touch-none rounded border border-gray-700 overflow-hidden"
+        className="relative h-[156px] w-full cursor-crosshair touch-none rounded border border-gray-700 overflow-hidden"
         style={{ background: padBg }}
         onPointerDown={onPadPointerDown}
         onPointerMove={onPadPointerMove}
         onPointerUp={onPadPointerUp}
       >
+        {/* 커서 안을 지금 고른 색으로 채운다 — 손가락·커서에 가려지는 그 자리의 색을 되돌려 준다. */}
         <div
-          className="pointer-events-none absolute h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white"
+          className="pointer-events-none absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white"
           style={{
             left: `${cursorX}%`,
             top: `${cursorY}%`,
-            boxShadow: '0 0 0 1px rgba(0,0,0,0.6)',
+            backgroundColor: hsvToHex(h, s, v),
+            boxShadow: '0 0 0 1px rgba(0,0,0,0.7)',
           }}
         />
       </div>
@@ -317,7 +398,7 @@ export function CommentBoxColorPopover({ value, alpha, presets, onLive, onCommit
       {/* Hue 슬라이더 */}
       <div
         ref={hueRef}
-        className="relative mt-2 h-3 w-full cursor-ew-resize touch-none rounded-full border border-gray-700 overflow-hidden"
+        className="relative mt-2 h-3.5 w-full cursor-ew-resize touch-none rounded-full border border-gray-700"
         style={{
           background:
             'linear-gradient(to right, #FF0000 0%, #FFFF00 17%, #00FF00 33%, #00FFFF 50%, #0000FF 67%, #FF00FF 83%, #FF0000 100%)',
@@ -326,9 +407,12 @@ export function CommentBoxColorPopover({ value, alpha, presets, onLive, onCommit
         onPointerMove={onHuePointerMove}
         onPointerUp={onHuePointerUp}
       >
+        {/* 손잡이는 막대가 아니라 **창**이다 — 가운데가 뚫려 있어 지금 잡은 색을 그대로 보여 준다.
+            종전 `w-1` 흰 막대는 1px 테두리를 빼면 심지가 2px 이라 어디를 잡았는지 잘 안 보였고,
+            무엇보다 그 자리의 색을 가렸다. 트랙 밖으로 나가야 하므로 `overflow-hidden` 은 뗀다. */}
         <div
-          className="pointer-events-none absolute top-1/2 h-4 w-1 -translate-x-1/2 -translate-y-1/2 rounded-sm border border-gray-900 bg-white"
-          style={{ left: `${huePos}%` }}
+          className="pointer-events-none absolute top-1/2 h-[18px] w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-[3px] border-2 border-white"
+          style={{ left: `${huePos}%`, boxShadow: '0 0 0 1px rgba(0,0,0,0.55)' }}
         />
       </div>
 
@@ -337,7 +421,7 @@ export function CommentBoxColorPopover({ value, alpha, presets, onLive, onCommit
         <div className="mt-2 flex items-center gap-2">
           <div
             ref={alphaTrackRef}
-            className="relative h-3 flex-1 cursor-ew-resize touch-none overflow-hidden rounded-full border border-gray-700"
+            className="relative h-3.5 flex-1 cursor-ew-resize touch-none rounded-full border border-gray-700"
             style={{ background: CHECKERBOARD }}
             onPointerDown={onAlphaPointerDown}
             onPointerMove={onAlphaPointerMove}
@@ -350,13 +434,15 @@ export function CommentBoxColorPopover({ value, alpha, presets, onLive, onCommit
             aria-valuenow={Math.round(alphaRef.current * 100)}
             tabIndex={0}
           >
+            {/* 트랙의 `overflow-hidden` 을 뗐으므로(손잡이가 위아래로 삐져나온다) 이 겹은
+                스스로 둥글어야 한다 — 안 그러면 네 모서리가 체커보드 위로 각지게 튀어나온다. */}
             <div
-              className="pointer-events-none absolute inset-0"
+              className="pointer-events-none absolute inset-0 rounded-full"
               style={{ background: `linear-gradient(to right, transparent, ${hsvToHex(h, s, v)})` }}
             />
             <div
-              className="pointer-events-none absolute top-1/2 h-4 w-1 -translate-x-1/2 -translate-y-1/2 rounded-sm border border-gray-900 bg-white"
-              style={{ left: `${alphaRef.current * 100}%` }}
+              className="pointer-events-none absolute top-1/2 h-[18px] w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-[3px] border-2 border-white"
+              style={{ left: `${alphaRef.current * 100}%`, boxShadow: '0 0 0 1px rgba(0,0,0,0.55)' }}
             />
           </div>
           <span className="w-8 flex-shrink-0 text-right font-mono text-[12px] tabular-nums text-gray-400">
@@ -365,22 +451,18 @@ export function CommentBoxColorPopover({ value, alpha, presets, onLive, onCommit
         </div>
       )}
 
-      {/* 호출부 전용 빠른 칸(있을 때만) — 그 화면이 쓰는 색부터 눈에 들어오게 맨 위. */}
+      {/* 호출부 전용 빠른 칸(있을 때만) — 그 화면이 쓰는 색부터 눈에 들어오게 맨 위.
+          종전에는 동그라미라 범용 팔레트와 구분됐는데, 칸을 꽉 채우려면 네모여야 하므로
+          (원은 같은 칸에서 색 면적을 21% 잃는다) 그 구분은 아래 경계선이 대신한다. */}
       {presets && (
-        <div className="mt-3 grid grid-cols-8 gap-1">
+        <div className="mt-3 grid grid-cols-8 gap-1 border-b border-gray-800 pb-3">
           {presets.map((p) => (
-            <button
+            <Swatch
               key={p.id}
-              type="button"
-              onClick={() => handlePaletteClick(p.color)}
-              className={`h-4 w-4 rounded-full border transition-all ${
-                value.toLowerCase() === p.color.toLowerCase()
-                  ? 'border-white ring-1 ring-white/40'
-                  : 'border-gray-700/50 hover:scale-110 hover:border-gray-400'
-              }`}
-              style={{ backgroundColor: p.color }}
-              aria-label={p.label}
-              title={p.label}
+              color={p.color}
+              label={p.label}
+              selected={value.toLowerCase() === p.color.toLowerCase()}
+              onPick={handlePaletteClick}
             />
           ))}
         </div>
@@ -390,47 +472,47 @@ export function CommentBoxColorPopover({ value, alpha, presets, onLive, onCommit
       <div className="mt-3 grid grid-cols-8 gap-1">
         {EXTENDED_PALETTE.map((row) =>
           row.map((c) => (
-            <button
+            <Swatch
               key={c}
-              type="button"
-              onClick={() => handlePaletteClick(c)}
-              className={`h-4 w-4 rounded border transition-all ${
-                value.toLowerCase() === c.toLowerCase()
-                  ? 'border-white ring-1 ring-white/40'
-                  : 'border-gray-700/50 hover:scale-110 hover:border-gray-400'
-              }`}
-              style={{ backgroundColor: c }}
-              aria-label={c}
-              title={c}
+              color={c}
+              label={c}
+              selected={value.toLowerCase() === c.toLowerCase()}
+              onPick={handlePaletteClick}
             />
           )),
         )}
       </div>
       <div className="mt-1 grid grid-cols-8 gap-1">
         {GRAYSCALE_ROW.map((c) => (
-          <button
+          <Swatch
             key={c}
-            type="button"
-            onClick={() => handlePaletteClick(c)}
-            className={`h-4 w-4 rounded border transition-all ${
-              value.toLowerCase() === c.toLowerCase()
-                ? 'border-white ring-1 ring-white/40'
-                : 'border-gray-700/50 hover:scale-110 hover:border-gray-400'
-            }`}
-            style={{ backgroundColor: c }}
-            aria-label={c}
-            title={c}
+            color={c}
+            label={c}
+            selected={value.toLowerCase() === c.toLowerCase()}
+            onPick={handlePaletteClick}
           />
         ))}
       </div>
 
       {/* HEX 입력 + 미리보기 */}
       <div className="mt-3 flex items-center gap-2">
+        {/* 미리보기는 **실제로 나올 모습**이어야 한다 — 종전에는 알파를 무시하고 원색을 칠해,
+            30% 로 낮춰 놓고도 여기만 진하게 보였다(고른 색과 나올 색이 달랐다). 체커보드 위에
+            같은 알파로 얹어 얼마나 뚫렸는지까지 그대로 보인다. 알파를 안 쓰는 호출부는 1 이라
+            종전과 완전히 같은 그림이다. */}
         <div
-          className="h-6 w-6 flex-shrink-0 rounded border border-gray-700"
-          style={{ backgroundColor: /^#[0-9a-fA-F]{6}$/.test(hexInput) ? hexInput : value }}
+          className="relative h-8 w-8 flex-shrink-0 overflow-hidden rounded border border-gray-700"
+          style={{ background: CHECKERBOARD }}
           aria-hidden
-        />
+        >
+          <div
+            className="absolute inset-0"
+            style={{
+              backgroundColor: /^#[0-9a-fA-F]{6}$/.test(hexInput) ? hexInput : value,
+              opacity: alphaRef.current,
+            }}
+          />
+        </div>
         <input
           type="text"
           value={hexInput}

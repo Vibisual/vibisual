@@ -320,7 +320,8 @@ export const READING_WIDE_ITEM_KINDS: ReadonlySet<string> = new Set(['tool', 'to
  */
 export const READING_USER_ITEM_KINDS: ReadonlySet<string> = new Set(['command']);
 // §5.5 #17-12 ③ — 실패 사유(`error`)도 누구의 말이 아니라 **일어난 일**이다(정렬 대상 ❌).
-export const READING_NEUTRAL_ITEM_KINDS: ReadonlySet<string> = new Set(['system', 'error']);
+// §5.5 #17-39 — 단계 자국(`step`)도 같다. 사고는 말이 아니라 **걸린 시간**이라 좌우 어느 쪽도 아니다.
+export const READING_NEUTRAL_ITEM_KINDS: ReadonlySet<string> = new Set(['system', 'error', 'step']);
 
 export type ReadingSpeaker = 'user' | 'ai' | null;
 

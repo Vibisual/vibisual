@@ -34,6 +34,9 @@ export function CanvasLoadingHint(): React.JSX.Element | null {
   const snapshotScope = useGraphStore((s) => s.snapshotScope);
   const snapshotReceived = useGraphStore((s) => s.snapshotReceived);
   const connectionStatus = useGraphStore((s) => s.connectionStatus);
+  // §9 폴더 스코프 — 프로젝트 축과 같은 판정을 폴더에도 건다(같은 알약, 같은 문구).
+  const currentFolderId = useGraphStore((s) => s.currentFolderId);
+  const snapshotFolderScope = useGraphStore((s) => s.snapshotFolderScope);
 
   const state = resolveCanvasLoadingState({
     activeProject,
@@ -41,6 +44,8 @@ export function CanvasLoadingHint(): React.JSX.Element | null {
     snapshotScope,
     snapshotReceived,
     connectionStatus,
+    currentFolderId,
+    snapshotFolderScope,
   });
 
   // 두 축을 나눠 든다. `mounted` = DOM 에 있는가 · `shown` = 불투명한가.

@@ -133,13 +133,12 @@ describe('부모가 같은 외부 폴더는 최상위에서 쪼개지지 않는�
 });
 
 describe('접합 버블은 만진 폴더처럼 굴지 않는다', () => {
-  it('접합은 위성 0 · 하위 폴더 수를 childCount 로 갖는다', () => {
+  it('접합의 children 은 여전히 하위 폴더뿐이다 (경유 체인을 되살리지 않는다)', () => {
     const graph = makeGraph();
     editExternal(graph, 'work/alpha/one.txt', 'toolu-1');
     editExternal(graph, 'work/beta/two.txt', 'toolu-2');
 
     const junction = extFolders(graph)[0]!;
-    expect(junction.satelliteFileCount ?? 0).toBe(0);
     expect(junction.childCount).toBe(2);
   });
 
@@ -268,5 +267,125 @@ describe('경로 모양은 세 OS 를 다 받는다 (멀티플랫폼 축 ①)', 
     editPosixExternal(graph, '/opt/two.txt', 'toolu-p2');
 
     expect(topExtPaths(graph)).toEqual(['/opt', '/srv']);
+  });
+});
+
+describe('가장 밖에도 읽고 쓴 파일이 뜬다 — 조상 위성 롤업 (§2.1 #5)', () => {
+  /** 그 폴더 버블 주위에 뜰 위성 파일의 절대경로들. */
+  function satPathsOf(graph: ProjectGraph, folder: BubbleData): string[] {
+    return (graph.getSnapshot().satellites[folder.id] ?? [])
+      .filter((s) => s.bubbleType === 'file')
+      .map((s) => s.absolutePath ?? s.path)
+      .sort();
+  }
+
+  it('최상위 접합에 자손이 만진 파일이 위성으로 뜬다 (내부 폴더와 같은 규율)', () => {
+    const graph = makeGraph();
+    const one = editExternal(graph, 'work/alpha/one.txt', 'toolu-1');
+    const two = editExternal(graph, 'work/beta/two.txt', 'toolu-2');
+
+    const top = extFolders(graph)[0]!;
+    expect(top.path.endsWith('/work')).toBe(true);
+
+    const sats = satPathsOf(graph, top);
+    expect(sats).toHaveLength(2);
+    expect(sats.some((p) => p.endsWith('/one.txt'))).toBe(true);
+    expect(sats.some((p) => p.endsWith('/two.txt'))).toBe(true);
+
+    // 위성 파일 노드에는 **절대경로가 실려 있어야 한다** — 클라의 더블클릭 이동(`satelliteNavigate`)이
+    // 그것으로 폴더를 찾는다. 노드 키(`__ext__…`)만 오면 눌러도 아무 데도 못 간다.
+    const satNodes = graph.getSnapshot().satellites[top.id] ?? [];
+    expect(satNodes.map((s) => s.absolutePath).sort()).toEqual([one, two].map((a) => pathKey(a)).sort());
+    for (const s of satNodes) expect(s.path.includes('__ext__')).toBe(true);
+  });
+
+  it('헤더 카운트도 뜬 위성 수와 같다 (숫자와 그림이 어긋나지 않는다)', () => {
+    const graph = makeGraph();
+    editExternal(graph, 'work/alpha/one.txt', 'toolu-1');
+    editExternal(graph, 'work/beta/two.txt', 'toolu-2');
+
+    const top = extFolders(graph)[0]!;
+    expect(top.satelliteFileCount).toBe(satPathsOf(graph, top).length);
+    expect(top.satelliteFileCount).toBe(2);
+  });
+
+  it('여러 겹이면 중간 조상도 함께 물려받는다', () => {
+    const graph = makeGraph();
+    editExternal(graph, 'work/alpha/deep/one.txt', 'toolu-1');
+    editExternal(graph, 'work/alpha/other/two.txt', 'toolu-2');
+    editExternal(graph, 'work/beta/three.txt', 'toolu-3');
+
+    const top = extFolders(graph)[0]!;
+    expect(top.path.endsWith('/work')).toBe(true);
+    expect(satPathsOf(graph, top)).toHaveLength(3);
+
+    const snap = graph.getSnapshot();
+    const alpha = (snap.children[top.id] ?? []).find((c) => c.path.endsWith('/work/alpha'));
+    expect(alpha).toBeDefined();
+    // 중간 접합(alpha)은 자기 밑의 둘만 물려받는다 — 형제(beta)의 것까지 끌어오지 않는다.
+    expect(satPathsOf(graph, alpha!)).toHaveLength(2);
+  });
+
+  it('만진 폴더는 자기 위성 + 자손 것을 함께 갖는다', () => {
+    const graph = makeGraph();
+    editExternal(graph, 'root.txt', 'toolu-r');       // extRoot 자체를 만진다
+    editExternal(graph, 'deep/one.txt', 'toolu-d1');
+    editExternal(graph, 'other/two.txt', 'toolu-d2');
+
+    const top = extFolders(graph)[0]!;
+    expect(top.path).toBe(pathKey(extRoot));
+    expect(satPathsOf(graph, top)).toHaveLength(3);
+  });
+
+  it('물려받는 것도 폴더 상한(maxSatellites)을 넘지 않는다', () => {
+    const graph = makeGraph();
+    for (let i = 0; i < 8; i++) editExternal(graph, `work/s${i}/f.txt`, `toolu-c${i}`);
+
+    const top = extFolders(graph)[0]!;
+    // DEFAULT_MAX_SATELLITES = 5 — 자손이 8개여도 조상에 몰리지 않는다.
+    expect(satPathsOf(graph, top)).toHaveLength(5);
+    expect(top.satelliteFileCount).toBe(5);
+  });
+
+  it('롤업은 표시 전용이다 — 체크포인트에 접합 위성이 저장되지 않는다', () => {
+    const graph = makeGraph();
+    editExternal(graph, 'work/alpha/one.txt', 'toolu-1');
+    editExternal(graph, 'work/beta/two.txt', 'toolu-2');
+
+    const cp = graph.toProjectCheckpoint(projName);
+    // 접합 키(= 만진 적 없는 폴더)에 satelliteMap 항목이 생기면 그 폴더가 "만진 폴더"로
+    // 승격돼 1자형 경유 체인이 되살아난다(v1.55 평탄화 붕괴). 저장분에는 없어야 한다.
+    const junctionKeys = Object.entries(cp.graph.nodes)
+      .filter(([, n]) => n.bubbleType === 'external_folder' && n.path.endsWith('/work'))
+      .map(([k]) => k);
+    expect(junctionKeys).toHaveLength(1);
+    expect(cp.graph.hierarchy.satelliteMap[junctionKeys[0]!] ?? []).toHaveLength(0);
+
+    // 복원해도 접합 판정이 그대로라 최상위는 여전히 하나, 위성은 다시 물려받는다.
+    const revived = makeGraph();
+    revived.restoreFromCheckpoint(cp);
+    const tops = extFolders(revived);
+    expect(tops).toHaveLength(1);
+    expect(satPathsOf(revived, tops[0]!)).toHaveLength(2);
+  });
+
+  it('자손이 빠지면 조상의 물려받은 위성도 함께 걷힌다 (유령 금지)', () => {
+    const graph = makeGraph();
+    editExternal(graph, 'work/alpha/one.txt', 'toolu-1');
+    editExternal(graph, 'work/beta/two.txt', 'toolu-2');
+
+    const junction = extFolders(graph)[0]!;
+    const beta = (graph.getSnapshot().children[junction.id] ?? [])
+      .find((c) => c.bubbleType === 'external_folder' && c.path.endsWith('/beta'));
+    expect(beta).toBeDefined();
+    graph.removeBubble(beta!.id);
+
+    // 형제가 하나로 줄어 접합은 사라지고 alpha 가 최상위로 올라온다 — 그때 남는 위성은
+    // alpha 자기 것 하나뿐이어야 한다(사라진 beta 의 파일이 따라 올라오면 유령이다).
+    const tops = extFolders(graph);
+    expect(tops).toHaveLength(1);
+    const sats = satPathsOf(graph, tops[0]!);
+    expect(sats).toHaveLength(1);
+    expect(sats[0]!.endsWith('/one.txt')).toBe(true);
   });
 });

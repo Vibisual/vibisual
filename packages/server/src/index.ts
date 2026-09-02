@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { exec, execFile, spawn, type ChildProcess } from 'node:child_process';
 import multer from 'multer';
-import { DEFAULT_PORT, SESSION_SCAN_INTERVAL, FILE_EXISTENCE_CHECK_INTERVAL, SATELLITE_TYPES, IFRAME_PROXY_PATH, AGENT_IDLE_THRESHOLD_MS, AGENT_IDLE_SWEEP_INTERVAL_MS, INTERRUPT_RECONCILE_INTERVAL_MS, ZOMBIE_EXECUTING_GRACE_MS, SUBAGENT_DORMANT_IDLE_MS, TASK_EDGE_DISPATCH_DEFAULT_TIMEOUT_MS, TASK_EDGE_CRITIQUE_MAX_REWORK_LIMIT, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, SUPPORTED_UI_LOCALES, CONTI_AGENT_RULES, RULES_HISTORY_MAX, CANVAS_CLIPBOARD_SCHEMA_VERSION, AGENT_INTENT_FIRST_RULES, buildAgentCardCommonRules, AGENT_CARD_ENV_BASE, AGENT_CARD_ENV_TOKEN, buildAgentReportRules, buildAgentQuestionRules, buildAgentReviewRules, buildAgentFeedbackBlock, AGENT_FEEDBACK_SUMMARY_ITEM_MAX, CLAUDE_USAGE_POLL_INTERVAL_MS, CLAUDE_AUTH_POLL_INTERVAL_MS, CLAUDE_AUTO_UPDATE_BOOT_DELAY_MS, HOOK_TRANSPORT_REFRESH_DELAY_MS, SESSION_GOAL_TEXT_MAX, buildSessionGoalRules, buildSessionGoalState, buildSessionGoalProtocol, CONTEXT_SOURCE_IDS, CONTEXT_PLUGIN_ID_PREFIX, CONTEXT_PREVIEW_MAX_CHARS, estimateTokens, VERIFICATION_VERDICT_SCHEMA_GUIDE, COST_MAP_SWEEP_INTERVAL_MS, normalizeTodoStatus, BUILTIN_SLASH_COMMANDS,
+import { DEFAULT_PORT, SESSION_SCAN_INTERVAL, FILE_EXISTENCE_CHECK_INTERVAL, SATELLITE_TYPES, IFRAME_PROXY_PATH, AGENT_IDLE_THRESHOLD_MS, AGENT_IDLE_SWEEP_INTERVAL_MS, INTERRUPT_RECONCILE_INTERVAL_MS, ZOMBIE_EXECUTING_GRACE_MS, SUBAGENT_DORMANT_IDLE_MS, SESSION_PROBE_INTERVAL_MS, TASK_EDGE_DISPATCH_DEFAULT_TIMEOUT_MS, TASK_EDGE_CRITIQUE_MAX_REWORK_LIMIT, TASK_EDGE_AUTO_REWORK_COMMAND_LABEL, SUPPORTED_UI_LOCALES, CONTI_AGENT_RULES, RULES_HISTORY_MAX, CANVAS_CLIPBOARD_SCHEMA_VERSION, AGENT_INTENT_FIRST_RULES, buildAgentCardCommonRules, AGENT_CARD_ENV_BASE, AGENT_CARD_ENV_TOKEN, buildAgentReportRules, buildAgentQuestionRules, buildAgentReviewRules, buildAgentFeedbackBlock, AGENT_FEEDBACK_SUMMARY_ITEM_MAX, CLAUDE_USAGE_POLL_INTERVAL_MS, CLAUDE_AUTH_POLL_INTERVAL_MS, CLAUDE_AUTO_UPDATE_BOOT_DELAY_MS, HOOK_TRANSPORT_REFRESH_DELAY_MS, SESSION_GOAL_TEXT_MAX, buildSessionGoalRules, buildSessionGoalState, buildSessionGoalProtocol, CONTEXT_SOURCE_IDS, CONTEXT_PLUGIN_ID_PREFIX, CONTEXT_PREVIEW_MAX_CHARS, estimateTokens, VERIFICATION_VERDICT_SCHEMA_GUIDE, COST_MAP_SWEEP_INTERVAL_MS, normalizeTodoStatus, BUILTIN_SLASH_COMMANDS,
   BRAIN_AXIS_IDS,
   BRAIN_CURATOR_PAGE_SIZE,
   BRAIN_TOPIC_MISC,
@@ -41,6 +41,8 @@ function isCmdTermId(v: string): boolean {
 import { WORKSPACE_SITE_PATH, WORKSPACE_SITE_REWRITE_MAX_BYTES, workspaceSiteMime, workspaceSiteBase, parseWorkspaceSitePath, rewriteWorkspaceSiteHtml, rewriteWorkspaceSiteCss, injectWorkspaceSiteAgents, annotateWorkspaceSiteSource, workspaceSiteRewriteKind, WORKSPACE_IMAGE_MAX_BYTES, WORKSPACE_MEDIA_MAX_BYTES, workspaceMediaMime, BRAIN_INJECTION_TOP_K, BRAIN_INJECTION_TOKEN_BUDGET, BRAIN_FILE_WARN_ONCE_PER_SESSION, BRAIN_EXPERIENCE_TYPES, buildBrainRulesSection, buildBrainTopicIndexSection } from '@vibisual/shared';
 // §3.2.3 보존 정책 — 상한·기본값은 shared 한 곳, 파일 정리·실측은 storageRetention.
 import { RETENTION_LIMITS, DEFAULT_RETENTION_SETTINGS, BG_TASK_PROBE_LIMITS, BG_TASK_PROBE_MODELS, DEFAULT_BG_TASK_PROBE_SETTINGS, type BackgroundTaskProbeSettings } from '@vibisual/shared';
+// §2.4 — 세션 생존 판정 설정(위 백그라운드 판정과 같은 계약).
+import { SESSION_PROBE_LIMITS, SESSION_PROBE_MODELS, DEFAULT_SESSION_PROBE_SETTINGS, type SessionLivenessProbeSettings } from '@vibisual/shared';
 // §5.13 (Q) 대본 → 콘티 → 렌더.
 import { normalizeStoryboardPresetId, CONTI_SCRIPT_EXCERPT_MAX } from '@vibisual/shared';
 import type { ContiRenderLink, ContiRenderStatus } from '@vibisual/shared';
@@ -189,7 +191,7 @@ import { attachDebuggerToEditor } from './services/unrealProjectService.js';
 import { debugSessionManager, findFreePort, type DebugControlAction } from './services/debug/debugSessionManager.js';
 import { listDebugAdapters, findPidByCommandLine, commandFingerprint } from './services/debug/adapterProbe.js';
 import { releaseWaitingNodeProcess } from './services/debug/cdpClient.js';
-import { loadAppState, saveAppState, patchAppState, appStateAddOpenProject, appStateRemoveOpenProject, appStatePruneStaleProjectNames, appStateGetSkillOrder, appStateSetSkillOrder, appStateRemoveSkillFromOrder, appStateGetSkillFavorites, appStateSetSkillFavorites, appStateGetRetention, appStateSetRetention, appStateGetBgTaskProbe, appStateSetBgTaskProbe } from './services/appState.js';
+import { loadAppState, saveAppState, patchAppState, appStateAddOpenProject, appStateRemoveOpenProject, appStatePruneStaleProjectNames, appStateGetSkillOrder, appStateSetSkillOrder, appStateRemoveSkillFromOrder, appStateGetSkillFavorites, appStateSetSkillFavorites, appStateGetRetention, appStateSetRetention, appStateGetBgTaskProbe, appStateSetBgTaskProbe, appStateGetSessionProbe, appStateSetSessionProbe } from './services/appState.js';
 import { ensureClaudeHooksInstalled } from './services/hookInstaller.js';
 // §3.6 (판올림 번호 발급 대기) — 훅 이벤트 생명주기 분류(순수 모듈 + 단위 테스트).
 //   라우트 안에 부등호로 흩어져 있으면 새 이벤트를 등록할 때마다 조용히 틀린다.
@@ -217,6 +219,19 @@ import { invalidateClaudeBinCache, setClaudeBinOverrideWriter } from './services
 import { isAgentViewEnabled, reconcileOnBoot as agentViewReconcileOnBoot } from './services/claudeAgentViewService.js';
 import type { AgentProvider } from '@vibisual/shared';
 import { getEngineState, getInflightEngineInstall, installEngine, uninstallEngine } from './services/localEngineService.js';
+// §5.5 #17-38 ⑫ — 오프라인 받아쓰기(설치·엔진 수명). 오디오 표본은 여기를 지나가지 않는다.
+import {
+  cancelVoiceInstall,
+  getVoiceAsrState,
+  installVoiceAsr,
+  removeVoiceAsr,
+} from './services/voiceAsrService.js';
+import {
+  ensureVoiceEngine,
+  holdVoiceEngine,
+  releaseVoiceEngine,
+  stopVoiceEngine,
+} from './services/voiceRecognizerService.js';
 import { getLocalHardware, invalidateLocalHardware } from './services/localHardwareService.js';
 import { toLocalHookPayload } from './services/localHookPayload.js';
 import { cancelDownload, deleteModel, downloadModel, listDownloads, listModels, listRepoFiles, searchCatalog, setModelDownloadedHook } from './services/localModelService.js';
@@ -241,6 +256,7 @@ import { gitStatusService, type WorktreeResolveInfo } from './services/gitStatus
 import { generateContiFrames, generateContiFramesFromScript, patchContiElement, createEmptyConti, contiId, parseContiResponse, type ContiContextInput } from './services/contiManager.js';
 import { logger } from './logger.js';
 import { enableAsyncDiskWrites, flushPendingDiskWritesSync } from './services/diskWriteQueue.js';
+import { CheckpointCoalescer, setActiveCheckpointCoalescer } from './services/checkpointCoalescer.js';
 import { diagnosticService } from './services/diagnosticService.js';
 
 // §5.10 Project Brain — 파일 접근 경고를 세션+파일 조합당 1회만 내기 위한 인메모리 집합.
@@ -257,6 +273,9 @@ function normPathForWarn(p: string): string {
 export { setBroadcastSink, broadcast, type BroadcastSink } from './broadcastBus.js';
 // §9 — 체크포인트 디스크 쓰기 워커. desktop main 의 before-quit 가 남은 쓰기를 마무리하고 워커를 내린다.
 export { shutdownDiskWriteQueue, flushPendingDiskWritesSync, getDiskWriteQueueStats } from './services/diskWriteQueue.js';
+// §9 — 코얼레스된 체크포인트 창. desktop main 의 before-quit 가 디스크 큐를 내리기 **직전에**
+// 이걸 불러 미저장분을 동기로 마무리한다(§3.2.1 내구성 — `app.exit(0)` 은 'exit' 를 안 돌린다).
+export { flushPendingCheckpointSave, hasPendingCheckpointSave } from './services/checkpointCoalescer.js';
 export {
   handleClientMessage,
   handleClientDisconnect,
@@ -6430,17 +6449,26 @@ export async function runServer(): Promise<RunServerHandle> {
         return;
       }
       const sessionId = graphManager.findSessionByAgentId(agentId);
+      let purged = 0;
       if (sessionId) {
-        agentTracker.dismiss(sessionId);
-        // §5.10 — dismiss 도 세션 종료 신호 → 리플렉션 예약(실패 무시).
-        triggerBrainReflection(sessionId);
+        // 확인 dismiss 는 이제 `idle` 잔상 버블에서도 온다(§2.4 — 종료·크래시로 남은 것을
+        // 눌러서 걷는 길). 그 클릭은 "세션이 방금 끝났다"가 아니므로 아래 두 가지를 가른다.
+        const statusBefore = graphManager.getAgentBySession(sessionId)?.status;
+        const wasSessionEnd = statusBefore === 'completed' || statusBefore === 'error';
+        purged = agentTracker.dismiss(sessionId).length;
+        // §5.10 — 리플렉션은 **진짜 세션 종료 신호**에만 예약한다(실패 무시). idle 잔상을 누를
+        //   때마다 걸면 클릭 한 번이 리플렉션 한 벌이 되어 토큰이 샌다.
+        if (wasSessionEnd) triggerBrainReflection(sessionId);
         // markAgentIdle 이 파일/폴더 엣지를 삭제 → 클라에 즉시 반영해야
         // 완료 에이전트 dismiss 시 폴더 버블이 화면에서 사라진다(고정 제외).
         // 형제 변이 엔드포인트와 동일하게 broadcast + saveCheckpoint 쌍으로 마감.
-        broadcastSnapshot();
-        saveCheckpoint();
+        // 걷을 것도 끝낼 세션도 없었으면(이미 idle + 전유 버블 0) 저장까지 갈 이유가 없다.
+        if (wasSessionEnd || purged > 0) {
+          broadcastSnapshot();
+          saveCheckpoint();
+        }
       }
-      res.json({ ok: true });
+      res.json({ ok: true, purged });
     } catch (err) {
       logger.error('POST /api/dismiss-agent failed', err);
       res.status(500).json({ error: 'Internal server error' });
@@ -7830,6 +7858,86 @@ export async function runServer(): Promise<RunServerHandle> {
     })();
   });
 
+  // ── §5.5 #17-38 ⑫ 오프라인 받아쓰기 ──────────────────────────────────────
+  //
+  // 마이크를 누르면 화면이 먼저 여기에 묻는다. 준비돼 있으면 곧장 듣기 시작하고, 아니면
+  // 설치 창이 뜬다(§5.19 (B) "준비됐는지는 그 버블을 눌렀을 때 판정한다" 와 같은 흐름).
+
+  /** GET /api/voice-asr — 지금 이 PC 가 받아쓰기를 할 수 있는가. 판정 근거는 **디스크의 실물**. */
+  app.get('/api/voice-asr', (_req, res) => {
+    try {
+      res.json({ ok: true, state: getVoiceAsrState() });
+    } catch (err) {
+      logger.error('GET /api/voice-asr failed', err);
+      res.status(500).json({ ok: false, error: (err as Error).message });
+    }
+  });
+
+  /**
+   * POST /api/voice-asr/install — 엔진 + 모델을 한 흐름으로 받는다.
+   * 동시 호출은 같은 in-flight 를 돌려준다. 진행은 WS `voice_asr_progress`.
+   */
+  app.post('/api/voice-asr/install', (_req, res) => {
+    try {
+      res.json({ ok: true, progress: installVoiceAsr() });
+    } catch (err) {
+      logger.error('POST /api/voice-asr/install failed', err);
+      res.status(500).json({ ok: false, error: (err as Error).message });
+    }
+  });
+
+  /** POST /api/voice-asr/install/cancel — 중간에 그만둔다. 받다 만 것은 남겨 다음에 이어받는다. */
+  app.post('/api/voice-asr/install/cancel', (_req, res) => {
+    res.json({ ok: true, canceled: cancelVoiceInstall() });
+  });
+
+  /** DELETE /api/voice-asr — 받아 둔 엔진·모델을 지운다. 묻는 것은 화면 몫(§5.19 (B)). */
+  app.delete('/api/voice-asr', (_req, res) => {
+    void (async (): Promise<void> => {
+      try {
+        stopVoiceEngine();
+        await removeVoiceAsr();
+        res.json({ ok: true });
+      } catch (err) {
+        logger.error('DELETE /api/voice-asr failed', err);
+        res.status(500).json({ ok: false, error: (err as Error).message });
+      }
+    })();
+  });
+
+  /**
+   * POST /api/voice-asr/session/start — 받아쓰기 한 번을 시작한다.
+   *
+   * 엔진이 안 떠 있으면 **여기서 띄운다**(모델 적재에 몇 초 든다). 돌려주는 것은 포트 하나이고,
+   * 표본은 화면이 그 포트로 곧장 보낸다 — 초당 64KB 를 메인 스레드에 붓지 않기 위해서다.
+   */
+  app.post('/api/voice-asr/session/start', (req, res) => {
+    void (async (): Promise<void> => {
+      const body = req.body as { sessionId?: string } | undefined;
+      const sessionId = typeof body?.sessionId === 'string' ? body.sessionId : '';
+      if (!sessionId) {
+        res.status(400).json({ ok: false, error: 'sessionId required' });
+        return;
+      }
+      try {
+        holdVoiceEngine(sessionId);
+        const port = await ensureVoiceEngine();
+        res.json({ ok: true, port });
+      } catch (err) {
+        releaseVoiceEngine(sessionId);
+        logger.error('POST /api/voice-asr/session/start failed', err);
+        res.status(500).json({ ok: false, error: (err as Error).message });
+      }
+    })();
+  });
+
+  /** POST /api/voice-asr/session/stop — 이 받아쓰기가 끝났다. 마지막 하나가 놓으면 엔진이 유휴로. */
+  app.post('/api/voice-asr/session/stop', (req, res) => {
+    const body = req.body as { sessionId?: string } | undefined;
+    if (typeof body?.sessionId === 'string' && body.sessionId) releaseVoiceEngine(body.sessionId);
+    res.json({ ok: true });
+  });
+
   /**
    * GET /api/local-llm/catalog?q=&sort= — 받을 수 있는 저장소 검색(조회로 만든다, 하드코딩 목록 ❌).
    * `sort` 는 §5.19 (E) 의 네 축(내려받기·하트·트렌딩·최근) 중 하나. 모르는 값이 오면
@@ -9008,7 +9116,20 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
-  /** GET /api/folder-files — 폴더의 파일 트리 (디스크 기반) */
+  /** GET /api/folder-files — 폴더의 파일 트리 (디스크 기반).
+   *  `absolutePath` 를 함께 받으면 그것으로 프로젝트 인스턴스를 먼저 찍는다 —
+   *  노드 키는 프로젝트 루트 기준 상대 경로라 `docs` 처럼 흔한 이름은 다른 프로젝트 것이
+   *  먼저 답할 수 있다(`open-node-file` 과 같은 규약, 프로젝트 컨텍스트 보존). */
+  /**
+   * GET /api/folder-files — §7.5 폴더 목록: 디렉터리 **한 겹**의 **한 페이지**.
+   *
+   * `?nodePath=<폴더 노드 키>` 에 세 가지를 더 받는다 — `relPath`(그 폴더 아래로 펼친 자리),
+   * `cursor`(이전 응답의 `nextCursor`), `limit`(장당 개수). 답은 `FolderFilePage` 다.
+   *
+   * 종전에는 폴더를 통째로 재귀해 `{ files }` 한 벌로 돌려줬고, 외부 폴더 버블이 사용자 홈이면
+   * 그 동기 열거가 메인 프로세스를 세워 창이 "응답 없음"이 됐다. 이 창구를 나누지 않고 그대로
+   * 페이지화한 것은 `absolutePath` 인스턴스 라우팅·위성 매칭 규약을 두 벌로 만들지 않기 위함이다.
+   */
   app.get('/api/folder-files', (req, res) => {
     try {
       const nodePath = req.query['nodePath'];
@@ -9016,12 +9137,25 @@ export async function runServer(): Promise<RunServerHandle> {
         res.status(400).json({ error: 'nodePath query required' });
         return;
       }
-      const tree = graphManager.listFolderFiles(nodePath);
-      if (!tree) {
+      const absHint = req.query['absolutePath'];
+      const subPath = req.query['relPath'];
+      const cursor = req.query['cursor'];
+      const rawLimit = req.query['limit'];
+      const limit = typeof rawLimit === 'string' ? Number.parseInt(rawLimit, 10) : NaN;
+      const page = graphManager.listFolderFilePage(
+        nodePath,
+        typeof absHint === 'string' ? absHint : null,
+        {
+          subPath: typeof subPath === 'string' ? subPath : null,
+          cursor: typeof cursor === 'string' ? cursor : null,
+          ...(Number.isFinite(limit) ? { limit } : {}),
+        },
+      );
+      if (!page) {
         res.status(404).json({ error: 'Folder not found' });
         return;
       }
-      res.json({ files: tree });
+      res.json(page);
     } catch (err) {
       logger.error('GET /api/folder-files failed', err);
       res.status(500).json({ error: 'Internal server error' });
@@ -10485,16 +10619,21 @@ export async function runServer(): Promise<RunServerHandle> {
   /** POST /api/satellite/toggle — 위성 표시 토글 */
   app.post('/api/satellite/toggle', (req, res) => {
     try {
-      const { folderPath, filePath, show } = req.body as {
+      const { folderPath, filePath, show, absolutePath } = req.body as {
         folderPath?: string;
         filePath?: string;
         show?: boolean;
+        /** 그 폴더의 절대경로 — 인스턴스 라우팅 힌트(같은 이름의 폴더가 여러 프로젝트에 있을 때). */
+        absolutePath?: string | null;
       };
       if (typeof folderPath !== 'string' || typeof filePath !== 'string' || typeof show !== 'boolean') {
         res.status(400).json({ error: 'folderPath, filePath, show required' });
         return;
       }
-      const ok = graphManager.toggleSatellite(folderPath, filePath, show);
+      const ok = graphManager.toggleSatellite(
+        folderPath, filePath, show,
+        typeof absolutePath === 'string' && absolutePath.length > 0 ? absolutePath : null,
+      );
       if (!ok) {
         res.status(404).json({ error: 'File not found' });
         return;
@@ -10530,6 +10669,74 @@ export async function runServer(): Promise<RunServerHandle> {
     }
   });
 
+  // ─── §5.23 도메인 버블 ───
+
+  /** POST /api/domain-entries/max — 도메인 버블별 항목 상한 편집 (§7.22) */
+  app.post('/api/domain-entries/max', (req, res) => {
+    try {
+      const { nodeId, max } = req.body as { nodeId?: string; max?: number };
+      if (typeof nodeId !== 'string' || typeof max !== 'number' || !Number.isFinite(max)) {
+        res.status(400).json({ error: 'nodeId, max required' });
+        return;
+      }
+      const ok = graphManager.setDomainMaxEntries(nodeId, max);
+      if (!ok) {
+        res.status(404).json({ error: 'Domain bubble not found' });
+        return;
+      }
+      broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getBroadcastSnapshot() });
+      saveCheckpoint();
+      res.json({ ok: true });
+    } catch (err) {
+      logger.error('POST /api/domain-entries/max failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /** POST /api/domain-entries/check — 체크 = 그 항목 제거 (§5.23) */
+  app.post('/api/domain-entries/check', (req, res) => {
+    try {
+      const { nodeId, entryId } = req.body as { nodeId?: string; entryId?: string };
+      if (typeof nodeId !== 'string' || typeof entryId !== 'string') {
+        res.status(400).json({ error: 'nodeId, entryId required' });
+        return;
+      }
+      const ok = graphManager.removeWebEntry(nodeId, entryId);
+      if (!ok) {
+        res.status(404).json({ error: 'Entry not found' });
+        return;
+      }
+      broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getBroadcastSnapshot() });
+      saveCheckpoint();
+      res.json({ ok: true });
+    } catch (err) {
+      logger.error('POST /api/domain-entries/check failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /** POST /api/domain-entries/clear — 그 도메인의 항목을 통째로 비운다 (§7.22) */
+  app.post('/api/domain-entries/clear', (req, res) => {
+    try {
+      const { nodeId } = req.body as { nodeId?: string };
+      if (typeof nodeId !== 'string') {
+        res.status(400).json({ error: 'nodeId required' });
+        return;
+      }
+      const ok = graphManager.clearWebEntries(nodeId);
+      if (!ok) {
+        res.status(404).json({ error: 'Domain bubble not found' });
+        return;
+      }
+      broadcast({ type: 'graph_snapshot', timestamp: Date.now(), payload: graphManager.getBroadcastSnapshot() });
+      saveCheckpoint();
+      res.json({ ok: true });
+    } catch (err) {
+      logger.error('POST /api/domain-entries/clear failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
   /** POST /api/file-edits/unlimited — 파일 버블별 diff 무한 저장 토글 (§7.4) */
   app.post('/api/file-edits/unlimited', (req, res) => {
     try {
@@ -10555,20 +10762,24 @@ export async function runServer(): Promise<RunServerHandle> {
   /** POST /api/root/toggle — 루트 패널에서 독립 버블 추가/제거 (폴더 내부 Root도 지원) */
   app.post('/api/root/toggle', (req, res) => {
     try {
-      const { projectName, filePath, show, parentPath } = req.body as {
+      const { projectName, filePath, show, parentPath, absolutePath } = req.body as {
         projectName?: string;
         filePath?: string;
         show?: boolean;
         parentPath?: string;
+        /** 목록을 뽑아 온 그 폴더/루트의 절대경로 — 인스턴스 라우팅 힌트(프로젝트 컨텍스트 보존). */
+        absolutePath?: string | null;
       };
       if (typeof projectName !== 'string' || typeof filePath !== 'string' || typeof show !== 'boolean') {
         res.status(400).json({ error: 'projectName, filePath, show required' });
         return;
       }
+      const absHint = typeof absolutePath === 'string' && absolutePath.length > 0 ? absolutePath : null;
       const ok = typeof parentPath === 'string'
-        ? graphManager.toggleFolderChild(parentPath, filePath, show)
-        : graphManager.toggleRootChild(projectName, filePath, show);
+        ? graphManager.toggleFolderChild(parentPath, filePath, show, absHint)
+        : graphManager.toggleRootChild(projectName, filePath, show, absHint);
       if (!ok) {
+        logger.warn(`root/toggle miss: project="${projectName}" file="${filePath}" parent="${parentPath ?? '-'}" abs="${absHint ?? '-'}"`);
         res.status(404).json({ error: 'File not found' });
         return;
       }
@@ -10689,6 +10900,50 @@ export async function runServer(): Promise<RunServerHandle> {
       });
     } catch (err) {
       logger.error('PUT /api/bg-task-probe-settings failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  // ─── §2.4 "실행중…"이 진짜인가 — 세션 생존 판정 ───
+  //
+  // 위와 같은 이유로 **끌 수 있어야 한다**. 끄면 모델 호출이 0 이 되고 종전 동작으로 돌아간다.
+
+  /** GET /api/session-probe-settings — 현재 설정 + 입력 한계 + 기본값(설정 UI 의 "되돌리기"용). */
+  app.get('/api/session-probe-settings', (_req, res) => {
+    try {
+      res.json({
+        settings: appStateGetSessionProbe(),
+        limits: SESSION_PROBE_LIMITS,
+        models: SESSION_PROBE_MODELS,
+        defaults: DEFAULT_SESSION_PROBE_SETTINGS,
+      });
+    } catch (err) {
+      logger.error('GET /api/session-probe-settings failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /** PUT /api/session-probe-settings — 부분 갱신. 정규화(범위·목록)는 shared 한 곳에서. */
+  app.put('/api/session-probe-settings', (req, res) => {
+    try {
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const patch: Partial<SessionLivenessProbeSettings> = {};
+      for (const key of ['enabled', 'autoClose'] as const) {
+        if (typeof body[key] === 'boolean') patch[key] = body[key] as boolean;
+      }
+      if (typeof body['quietMinutes'] === 'number') patch.quietMinutes = body['quietMinutes'] as number;
+      if (typeof body['model'] === 'string') patch.model = body['model'] as string;
+      const settings = appStateSetSessionProbe(patch);
+      // 저장과 동시에 판정부에 먹인다 — 다음 회차부터 곧바로 새 값으로 돈다.
+      subAgentManager.setSessionProbeSettings(settings);
+      res.json({
+        settings,
+        limits: SESSION_PROBE_LIMITS,
+        models: SESSION_PROBE_MODELS,
+        defaults: DEFAULT_SESSION_PROBE_SETTINGS,
+      });
+    } catch (err) {
+      logger.error('PUT /api/session-probe-settings failed', err);
       res.status(500).json({ error: 'Internal server error' });
     }
   });
@@ -13922,33 +14177,32 @@ export async function runServer(): Promise<RunServerHandle> {
   // 도착하는 전수조사에선 이벤트당 저장이 스레드를 포화시켜 앱 전체가 동결됐다.
   // #4 원칙(이벤트 동기 즉시 저장)은 사용자 조작·설정·정체성 변경 등 나머지 모든 호출
   // 지점에서 그대로 — 여기서 묶는 것은 hook-event 도구 이벤트뿐이다. 비정상 종료로 잃을
-  // 수 있는 건 최대 창 하나(≤5s) 분량의 휘발성 그래프 상태이고, 정상 종료는 아래
-  // 'exit' 동기 flush 가 보장한다(과거 디바운스 설정-유실 결함의 재발 경로 없음).
-  let checkpointTimer: ReturnType<typeof setTimeout> | null = null;
-  let checkpointDelay = CHECKPOINT_BATCH_INTERVAL;
+  // 수 있는 건 최대 창 하나(≤5s) 분량의 휘발성 그래프 상태이고, 정상 종료는 desktop main 의
+  // `before-quit` 가 `flushPendingCheckpointSave()` 를 **명시적으로 불러** 보장한다.
+  //
+  // ⚠ 종전에는 그 보장이 아래 `process 'exit'` 한 곳에만 있었다. 그런데 Electron 의 모든
+  //   종료 경로는 `app.exit(0)` 으로 끝나고 그때 Node 의 `exit` 이벤트는 돌지 않을 수 있어,
+  //   정상 종료·업데이트 설치마다 마지막 창(0.5~5초) 분량이 조용히 사라질 수 있었다.
+  //   창 관리는 `checkpointCoalescer.ts` 가 단독 소유하고(테스트로 고정), 아래 'exit' 는
+  //   최후 그물로 남는다 — 같은 `flushSync()` 를 지나므로 두 번 불려도 두 번 저장되지 않는다.
+  const checkpointCoalescer = new CheckpointCoalescer({
+    save: saveCheckpoint,
+    baseIntervalMs: CHECKPOINT_BATCH_INTERVAL,
+    maxIntervalMs: CHECKPOINT_BATCH_INTERVAL_MAX,
+    backoffFactor: WS_BATCH_BACKOFF_FACTOR,
+    onError: (err, phase) => {
+      // 종료 중 저장 실패는 다음 부팅의 §3.2.1-4 백업 복구에 위임한다(정리를 끊지 않는다).
+      logger.warn(`checkpoint ${phase} save failed: ${err instanceof Error ? err.message : String(err)}`);
+    },
+  });
+  setActiveCheckpointCoalescer(checkpointCoalescer);
   function scheduleCheckpoint(): void {
-    if (checkpointTimer !== null) return; // 이미 예약됨 — trailing flush 가 최신 상태를 저장
-    checkpointTimer = setTimeout(() => {
-      checkpointTimer = null;
-      const t0 = performance.now();
-      // §9 "저장은 바뀐 프로젝트만" — 이 경로(훅 도구 이벤트 코얼레스)에서만 좁힌다.
-      //   `processHookEvent` 가 변경 카운터를 반드시 올리므로 여기서는 판정이 신뢰된다.
-      saveCheckpoint({ dirtyOnly: true });
-      const cost = performance.now() - t0;
-      checkpointDelay = Math.min(
-        Math.max(CHECKPOINT_BATCH_INTERVAL, cost * WS_BATCH_BACKOFF_FACTOR),
-        CHECKPOINT_BATCH_INTERVAL_MAX,
-      );
-    }, checkpointDelay);
+    checkpointCoalescer.schedule();
   }
   process.on('exit', () => {
-    // 'exit' 핸들러는 동기 작업만 허용 — saveCheckpoint 는 전 구간 동기라 안전.
-    if (checkpointTimer !== null) {
-      clearTimeout(checkpointTimer);
-      checkpointTimer = null;
-      // §9 — 종료 flush 는 변경 판정을 타지 않는다(전 프로젝트 전량, 내구성 우선).
-      try { saveCheckpoint(); } catch { /* 종료 중 저장 실패는 다음 부팅 백업 복구에 위임 */ }
-    }
+    // 최후 그물 — `before-quit` 가 이미 마무리했으면 여기서는 no-op 이다.
+    // 'exit' 핸들러는 동기 작업만 허용 — flushSync/saveCheckpoint 는 전 구간 동기라 안전.
+    checkpointCoalescer.flushSync();
     // §9 — 워커에 넘긴 뒤 아직 디스크에 앉지 않은 쓰기를 동기로 마무리한다(§3.2.1 내구성).
     //   'exit' 는 동기 작업만 허용되므로 이 flush 도 전 구간 동기다.
     try { flushPendingDiskWritesSync(); } catch { /* 마지막 방어선 — 실패해도 다음 부팅이 백업으로 복구 */ }
@@ -15127,6 +15381,16 @@ export async function runServer(): Promise<RunServerHandle> {
     // §5.5 #17-9 ⑭(g) — 저장된 판정 설정을 부팅 때 한 번 먹인다. 이후 갱신은 PUT 라우트가 한다.
     //   이 주입이 빠지면 사용자가 꺼 둔 기능이 재기동마다 되살아난다(설정이 저장돼도 안 읽히므로).
     subAgentManager.setBackgroundTaskProbeSettings(appStateGetBgTaskProbe());
+
+    // §2.4 — **"실행중…"이 진짜인가**를 에이전트가 확인한다. 위와 같은 이유로 부팅 때 한 번 먹인다.
+    subAgentManager.setSessionProbeSettings(appStateGetSessionProbe());
+    //   10분마다 **한 건**만 물어본다. 이 축이 메우는 자리는 위 다섯 장치가 손댈 수 없는 곳이다 —
+    //   `hasLivingWork` 이 참이라 아무도 못 걷는데 실제로는 끝났거나 멈춘 세션. 그 판정은 마지막
+    //   기록의 *뜻*을 읽어야 나오므로 코드가 아니라 모델이 답한다(§2.4 · `sessionLivenessProbe.ts`).
+    //   비동기라 여기서 기다리지 않는다 — 착수만 하고 즉시 넘어간다.
+    setInterval(() => {
+      subAgentManager.maybeProbeRunningSessions(commandQueues);
+    }, SESSION_PROBE_INTERVAL_MS);
 
     // §5.3 — 사용자 인터럽트(Esc/Ctrl+C)·도구 거부 시 Claude Code 는 Stop 훅을 발사하지 않아
     // Hook 에이전트 버블이 active(파란 링)로 stuck 된다. 세션 JSONL 마지막 엔트리가 인터럽트

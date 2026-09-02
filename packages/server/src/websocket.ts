@@ -107,9 +107,11 @@ export function handleClientMessage(
 
   // §9 스코프드 스냅샷 구독 — 이 창이 지금 그리는 프로젝트를 선언한다(응답은 스냅샷 1벌).
   if (message.type === 'set-project-scope') {
-    const { projects } = (message.payload ?? {}) as SetProjectScopePayload;
+    const { projects, folders } = (message.payload ?? {}) as SetProjectScopePayload;
     if (!Array.isArray(projects)) return;
-    graphManager.setClientProjectScope(conn, projects);
+    // §9 폴더 스코프 — 같은 선언에 얹혀 온다. 배열이 아니면(구버전 클라) 그대로 넘겨
+    //   "미선언 = 전량" 으로 처리되게 한다(여기서 `[]` 로 정규화하면 그 창의 폴더 내부가 빈다).
+    graphManager.setClientProjectScope(conn, projects, Array.isArray(folders) ? folders : undefined);
     // ⚠ **즉시 1벌을 돌려주는 것이 필수다.** 브로드캐스트는 "무언가 바뀔 때" 나가므로, 조용한
     //   프로젝트로 탭을 옮기면 다음 변경이 올 때까지 캔버스가 빈 채로 남는다. 첫 연결
     //   (`buildConnectionMessages`)과 같은 이유·같은 형태(증분 아닌 전체)로 한 벌 보낸다.

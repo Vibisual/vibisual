@@ -19,6 +19,7 @@ import { TokenUsagePopup } from './TokenUsagePopup.js';
 import { AgentConfigPopup } from './AgentConfigPopup.js';
 import { localProviderOf, localToolVerdictOf } from '../LocalModel/localModelEntry.js';
 import { FolderFileTree } from './FolderFileTree.js';
+import { WebEntryList } from './WebEntryList.js';
 import { RootFileList } from './RootFileList.js';
 import { TaskEdgeDetail } from './TaskEdgeDetail.js';
 import { CommentBoxDetail } from './CommentBoxDetail.js';
@@ -117,6 +118,7 @@ export function DetailPanel({
   const runningServers = useGraphStore((s) => s.runningServers);
   const agentEvents = useGraphStore((s) => s.agentEvents);
   const fileEdits = useGraphStore((s) => s.fileEdits);
+  const domainEntries = useGraphStore((s) => s.domainEntries);
   const currentFolderIdForRoot = useGraphStore((s) => s.currentFolderId);
   const rawNode = selectedNodeId ? nodeMap[selectedNodeId] : undefined;
   // 폴더 내부에서 현재 폴더 자신이 선택된 경우 → root 타입으로 표시
@@ -189,10 +191,14 @@ export function DetailPanel({
   const [showSessionTokens, setShowSessionTokens] = useState(false);
   const [showConfigPopup, setShowConfigPopup] = useState(false);
   const [showIframeLogs, setShowIframeLogs] = useState(false);
+  /** 도구 요약 줄을 펼쳐 두었는가. 기본은 접힘(두 줄 고정) — 아래 Row 3 참고. */
+  const [toolsExpanded, setToolsExpanded] = useState(false);
 
   // 노드 전환 시 iframe 로그 팝업 자동 닫기 (구독 해제까지 함께 발생)
   useEffect(() => {
     setShowIframeLogs(false);
+    // 도구 줄도 접은 상태로 되돌린다 — 펼쳐 둔 채 다른 버블로 옮기면 그 버블 패널이 대뜸 길다.
+    setToolsExpanded(false);
   }, [selectedNodeId]);
 
   // §4 v3.16 — 4개 패널 블록(노드/태스크엣지/코멘트박스 등)이 공유하는 래퍼 class·style.
@@ -355,9 +361,19 @@ export function DetailPanel({
       ? t('panel.agentConfig.local.toolsNone', { defaultValue: '이 모델은 도구를 못 씁니다 — 대화만 합니다.' })
       : t('panel.agentConfig.local.toolsUnknown', { defaultValue: '아직 확인 전입니다 — 다음 턴에 도구를 실어 보내 확인합니다.' });
 
+  /**
+   * 요약 줄이 그릴 도구 이름들. 로컬 버블은 고정 한 벌, 클로드 버블은 설정에 저장된 목록
+   * (없으면 최소 한 벌). 목록과 hover 툴팁이 **같은 배열**을 보게 한 곳에서 만든다.
+   */
+  const toolNames: readonly string[] = localProvider
+    ? LOCAL_TOOL_NAMES
+    : (agentConfig?.tools ?? ['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob']);
+
   const isAgent = node?.bubbleType === 'agent';
   const isFile = node?.bubbleType === 'file';
   const isFolder = node?.bubbleType === 'internal_folder' || node?.bubbleType === 'external_folder';
+  /** §5.23 — 도메인 버블. 디스크 경로가 없으므로 `hasPath` 대상이 아니다(탐색기 열기 ❌). */
+  const isDomain = node?.bubbleType === 'domain';
   const isRoot = node?.bubbleType === 'root';
   const isGhost = node?.bubbleType === 'ghost';
   const isWorktree = node?.bubbleType === 'worktree';
@@ -1007,22 +1023,31 @@ export function DetailPanel({
                     </span>
                   )}
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="w-12 flex-shrink-0 text-xs text-gray-500">{t('panel.detailPanel.tools')}</span>
-                  <div className="flex flex-wrap gap-1">
-                    {localProvider
-                      // 고르는 목록이 아니라 **언제나 이 한 벌**이 간다 — 파랑(=허용된 도구) 대신
-                      //   읽기 전용 회색이고, 엣지 도구 박탈(strictStripSet)도 걸리지 않는다.
-                      ? LOCAL_TOOL_NAMES.map((tool) => (
-                        <span key={tool} className="rounded bg-gray-700/40 px-1.5 py-0.5 text-[12px] text-gray-300">{tool}</span>
-                      ))
-                      : (agentConfig?.tools ?? ['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob']).map((tool) => {
-                        const stripped = strictStripSet.has(tool);
-                        const cls = stripped
-                          ? 'rounded bg-gray-700/30 px-1.5 py-0.5 text-[12px] text-gray-500 line-through'
-                          : 'rounded bg-blue-500/10 px-1.5 py-0.5 text-[12px] text-blue-400';
-                        return <span key={tool} className={cls}>{tool}</span>;
-                      })}
+                {/* 도구는 이제 45종이 기본이다. 알약을 다 펼치면 이 한 칸이 열 줄을 먹어 요약이
+                    요약이 아니게 된다 — **두 줄로 못 박고 나머지는 `…`(CSS 말줄임)로 접는다.**
+                    개수로 자르지 않는 이유는 패널 폭이 240~720px 로 변하기 때문이다. 줄 수로 접어야
+                    어느 폭에서도 높이가 일정하다. 전체는 ① hover 툴팁 ② 눌러서 펼치기 ③ 설정 창,
+                    셋으로 닿는다. */}
+                <div className="flex items-start gap-2">
+                  <span className="w-12 flex-shrink-0 pt-px text-xs text-gray-500">{t('panel.detailPanel.tools')}</span>
+                  <div
+                    className={`min-w-0 flex-1 cursor-pointer break-words text-[12px] leading-relaxed ${toolsExpanded ? '' : 'line-clamp-2'}`}
+                    title={toolNames.join(', ')}
+                    onClick={() => setToolsExpanded((v) => !v)}
+                  >
+                    {toolNames.map((tool, i) => {
+                      // 로컬은 고르는 목록이 아니라 **언제나 이 한 벌**이 간다 — 파랑(=허용된 도구)
+                      //   대신 읽기 전용 회색이고, 엣지 도구 박탈(strictStripSet)도 걸리지 않는다.
+                      const cls = localProvider
+                        ? 'text-gray-300'
+                        : strictStripSet.has(tool) ? 'text-gray-500 line-through' : 'text-blue-400';
+                      return (
+                        <span key={tool}>
+                          {i > 0 && <span className="text-gray-600">, </span>}
+                          <span className={cls}>{tool}</span>
+                        </span>
+                      );
+                    })}
                   </div>
                 </div>
                 {/* §5.19 (H) — 목록이 간다고 쓰는 것은 아니다. 이 모델이 실제로 도구를 부르는지는
@@ -1179,7 +1204,9 @@ export function DetailPanel({
           {node.bubbleType !== 'agent' && node.activeAgentIds && node.activeAgentIds.length > 0 && (
             <div className="flex flex-col gap-1">
               <span className="text-xs text-gray-500">{t('panel.detailPanel.activeAgents')}</span>
-              <div className="flex flex-wrap gap-1">
+              {/* 이 파일·폴더를 건드린 에이전트 수만큼 늘어난다 — 바쁜 폴더에서는 칩이 예닐곱 줄이
+                  되어 아래 내용을 밀어낸다. 세 줄까지만 보이고 그 뒤는 스크롤(집 표준). */}
+              <ScrollFade maxHeight={76}><div className="flex flex-wrap gap-1">
                 {node.activeAgentIds.map((agentId) => {
                   const agent = agents.find((a) => a.id === agentId);
                   return (
@@ -1200,7 +1227,7 @@ export function DetailPanel({
                     </button>
                   );
                 })}
-              </div>
+              </div></ScrollFade>
             </div>
           )}
 
@@ -1299,6 +1326,7 @@ export function DetailPanel({
             <RootFileList
               folderPath={rootEffectivePath}
               projectName={node.label}
+              folderAbsPath={rootEffectiveAbsPath ?? undefined}
               parentNodeId={currentFolderId ?? undefined}
             />
           )}
@@ -1307,8 +1335,18 @@ export function DetailPanel({
           {isFolder && !isRoot && (
             <FolderFileTree
               folderPath={node.path}
+              folderAbsPath={node.absolutePath ?? undefined}
               nodeId={node.id}
               maxSatellites={node.maxSatellites}
+            />
+          )}
+
+          {/* §7.22 — 도메인 버블: 웹 이력(체크 = 제거) */}
+          {isDomain && (
+            <WebEntryList
+              nodeId={node.id}
+              entries={domainEntries[node.id] ?? []}
+              maxWebEntries={node.maxWebEntries}
             />
           )}
 

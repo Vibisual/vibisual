@@ -19,7 +19,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { AgentConfig } from '@vibisual/shared';
-import { DEFAULT_AGENT_CONFIG, DEFAULT_AUTOCOMPACT_TOKENS, AVAILABLE_AUTOCOMPACT_VALUES, AVAILABLE_PERMISSION_MODES, toCliPermissionMode, AVAILABLE_AGENT_TOOLS, CLI_BUILTIN_TOOLS, LEGACY_AGENT_TOOLS, BACKFILL_AGENT_TOOLS, AGENT_TOOLS_BACKFILL_GEN } from '@vibisual/shared';
+import { DEFAULT_AGENT_CONFIG, DEFAULT_AUTOCOMPACT, DEFAULT_AUTOCOMPACT_TOKENS, AVAILABLE_AUTOCOMPACT_VALUES, AVAILABLE_PERMISSION_MODES, toCliPermissionMode, AVAILABLE_AGENT_TOOLS, CLI_BUILTIN_TOOLS, LEGACY_AGENT_TOOLS, BACKFILL_AGENT_TOOLS, AGENT_TOOLS_BACKFILL_GEN } from '@vibisual/shared';
 
 // Fast 모드·자기 기억은 `--settings` **파일**로 나간다 — 사용자 홈(`~/.vibisual`)에 쓰지 않도록
 // `os.homedir()` 만 임시 폴더로 돌린다(다른 테스트가 실제 app-state 를 더럽혔던 선례를 반복하지 않는다).
@@ -130,10 +130,20 @@ describe('스폰 인자 — 신규 CLI 옵션', () => {
     }
   });
 
-  // §4 (CLI 사양 추종) — `--autocompact` 만 예외다. 미설정을 "플래그 없음"으로 두면 CLI 기본이
-  //   모델 창 전체라 `[1m]` 스폰에서 압축이 100만 토큰에서야 걸린다(= 실질적으로 압축 없음).
-  it('자동 압축은 미설정이어도 내장 기본값으로 항상 실린다', () => {
-    expect(valueOf(buildInteractiveClaudeArgs(cfg()), '--autocompact')).toBe(DEFAULT_AUTOCOMPACT_TOKENS);
+  // §4 (CLI 사양 추종) — 내장 기본은 **꺼짐**이다(2026-09-02 사용자 지시). 압축은 접을 때마다
+  //   대화 전체를 다시 먹이는 요약 호출 1회가 나가는 **유료 축**이라, 사용자가 고른 적 없는 채로
+  //   켜져 있으면 안 된다. 종전에는 여기서 400k 가 항상 실렸다.
+  it('자동 압축은 기본이 꺼짐이라 미설정이면 플래그가 나가지 않는다', () => {
+    expect(buildInteractiveClaudeArgs(cfg())).not.toContain('--autocompact');
+  });
+
+  // ⚠ 이 검사가 무너지면 **꺼 둔 에이전트가 전부 못 뜬다** — CLI 는 `--autocompact off` 를
+  //   `argument 'off' is invalid` 로 거부하고 **즉시 종료**한다(실측 2.1.252). `off` 는 우리 축의
+  //   값이지 CLI 의 값이 아니며, 꺼짐은 "플래그를 싣지 않는 것"으로만 표현된다.
+  it("'off' 는 CLI 값이 아니라 무플래그다 — 그대로 실으면 스폰이 즉사한다", () => {
+    const args = buildInteractiveClaudeArgs(cfg({ autoCompact: 'off' }), { userAutoCompact: '400000' });
+    expect(args).not.toContain('--autocompact');
+    expect(args).not.toContain('off');
   });
 
   it('설정하면 그대로 실린다', () => {
@@ -154,8 +164,8 @@ describe('스폰 인자 — 신규 CLI 옵션', () => {
 
   it('빈 값·빈 배열은 미설정과 같다 — 빈 플래그를 흘리지 않는다', () => {
     const args = buildInteractiveClaudeArgs(cfg({ autoCompact: '   ', settingSources: [], betas: ['', '  '] }));
-    // 공백뿐인 자동 압축은 "미설정"이므로 빈 플래그를 흘리지 않고 내장 기본으로 떨어진다.
-    expect(valueOf(args, '--autocompact')).toBe(DEFAULT_AUTOCOMPACT_TOKENS);
+    // 공백뿐인 자동 압축은 "미설정"이므로 빈 플래그를 흘리지 않고 내장 기본(=꺼짐)으로 떨어진다.
+    expect(args).not.toContain('--autocompact');
     expect(args).not.toContain('--setting-sources');
     expect(args).not.toContain('--betas');
   });
@@ -171,12 +181,13 @@ describe('스폰 인자 — 신규 CLI 옵션', () => {
       expect(valueOf(args, '--autocompact')).toBe('1000000');
     });
 
-    it('둘 다 미설정이면 내장 기본 400k', () => {
-      expect(valueOf(buildInteractiveClaudeArgs(cfg(), {}), '--autocompact')).toBe('400000');
+    it('둘 다 미설정이면 내장 기본 = 꺼짐이라 플래그가 나가지 않는다', () => {
+      expect(buildInteractiveClaudeArgs(cfg(), {})).not.toContain('--autocompact');
     });
 
-    // 드롭다운에 400k 가 실제로 서 있어야 사용자가 기본값을 되돌릴 수 있다.
-    it('내장 기본값은 선택 목록 안의 값이다', () => {
+    // 드롭다운에 실제로 서 있어야 사용자가 되돌릴 수 있다 — 꺼짐(내장 기본)과 켜기 권장값(400k) 둘 다.
+    it('내장 기본값과 켜기 권장값은 둘 다 선택 목록 안의 값이다', () => {
+      expect(AVAILABLE_AUTOCOMPACT_VALUES).toContain(DEFAULT_AUTOCOMPACT);
       expect(AVAILABLE_AUTOCOMPACT_VALUES).toContain(DEFAULT_AUTOCOMPACT_TOKENS);
     });
 
@@ -187,9 +198,10 @@ describe('스폰 인자 — 신규 CLI 옵션', () => {
 
     // CLI 는 범위 밖 값을 무시하지 않고 `argument … is invalid` 로 즉시 종료한다(실측 2.1.247).
     //   저장분이 오염돼도 그 에이전트가 영영 못 뜨는 일이 없도록 내장 기본으로 떨어뜨린다.
-    it.each(['50000', '2000000', 'abc'])('CLI 가 거부할 값(%s)은 스폰을 죽이지 않고 내장 기본으로 떨어진다', (bad) => {
+    it.each(['50000', '2000000', 'abc'])('CLI 가 거부할 값(%s)은 스폰을 죽이지 않고 내장 기본(꺼짐)으로 떨어진다', (bad) => {
       const args = buildInteractiveClaudeArgs(cfg({ autoCompact: bad }), { userAutoCompact: bad });
-      expect(valueOf(args, '--autocompact')).toBe(DEFAULT_AUTOCOMPACT_TOKENS);
+      expect(args).not.toContain('--autocompact');
+      expect(args).not.toContain(bad);
     });
   });
 

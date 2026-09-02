@@ -3,6 +3,7 @@ import {
   SESSION_MEMO,
   SESSION_MEMO_DEFAULT_COLOR,
   SESSION_MEMO_LEGACY_COLOR_MAP,
+  normalizeMemoName,
   sanitizeSessionMemo,
   sanitizeSessionMemos,
   type SessionMemo,
@@ -96,6 +97,76 @@ describe('sanitizeSessionMemo — 밖에서 온 값을 그대로 믿지 않는�
 
   it('이관표에 없는 색은 사용자가 고른 자유색이라 건드리지 않는다', () => {
     expect(sanitizeSessionMemo({ ...memo(), color: '#123ABC' })!.color).toBe('#123ABC');
+  });
+
+  it('이름은 한 줄로 접히고 상한에서 잘린다 — 제목줄은 한 줄이다', () => {
+    expect(sanitizeSessionMemo({ ...memo(), name: '  배포\n전\t점검  ' })!.name).toBe('배포 전 점검');
+    expect(sanitizeSessionMemo({ ...memo(), name: 'ㄱ'.repeat(SESSION_MEMO.NAME_MAX + 40) })!.name)
+      .toHaveLength(SESSION_MEMO.NAME_MAX);
+  });
+
+  it('빈 이름·문자열이 아닌 이름은 키를 남기지 않는다(= 본문 첫 줄이 다시 제목)', () => {
+    expect('name' in sanitizeSessionMemo(memo())!).toBe(false);
+    expect('name' in sanitizeSessionMemo({ ...memo(), name: '   ' })!).toBe(false);
+    expect('name' in sanitizeSessionMemo({ ...memo(), name: 42 })!).toBe(false);
+  });
+
+  it('[회귀] 화면과 서버가 같은 자로 이름을 잰다 — 어긋나면 낙관 표시가 영영 안 풀린다', () => {
+    // 카드가 올리는 값 = `normalizeMemoName` 를 지난 값. 서버가 그 값을 또 정화해도 그대로여야 한다.
+    for (const raw of ['  두 칸  이름 ', '줄\n바꿈', 'ㄱ'.repeat(SESSION_MEMO.NAME_MAX + 5), '']) {
+      const fromClient = normalizeMemoName(raw);
+      expect(sanitizeSessionMemo({ ...memo(), name: fromClient })!.name ?? '').toBe(fromClient);
+    }
+  });
+});
+
+describe('합쳐진 묶음 — 정화가 무결성을 보정한다', () => {
+  const pair = (over: Partial<SessionMemo> = {}, over2: Partial<SessionMemo> = {}): SessionMemo[] => ([
+    memo({ id: 'memo-a', groupId: 'mg-1', ...over }),
+    memo({ id: 'memo-b', groupId: 'mg-1', groupActive: true, ...over2 }),
+  ]);
+
+  it('묶음 이름표는 id 와 같은 모양만 통과한다(임의 문자열이 DOM 키로 새지 않게)', () => {
+    expect(sanitizeSessionMemo({ ...memo(), groupId: 'mg-1' })?.groupId).toBe('mg-1');
+    expect(sanitizeSessionMemo({ ...memo(), groupId: 'has space' })?.groupId).toBeUndefined();
+    expect(sanitizeSessionMemo({ ...memo(), groupId: 42 })?.groupId).toBeUndefined();
+  });
+
+  it('묶음이 없으면 활성 표시도 남기지 않는다(고아 필드 ❌)', () => {
+    expect('groupActive' in sanitizeSessionMemo({ ...memo(), groupActive: true })!).toBe(false);
+  });
+
+  it('혼자 남은 묶음은 묶음이 아니다 — 이름표를 지운다', () => {
+    const out = sanitizeSessionMemos([memo({ id: 'memo-a', groupId: 'mg-1', groupActive: true })]);
+    expect(out[0]?.groupId).toBeUndefined();
+    expect(out[0]?.groupActive).toBeUndefined();
+  });
+
+  it('활성 탭이 없으면 마지막 장을 세운다 — 탭은 있는데 본문이 빈 카드 ❌', () => {
+    const out = sanitizeSessionMemos([
+      memo({ id: 'memo-a', groupId: 'mg-1' }),
+      memo({ id: 'memo-b', groupId: 'mg-1' }),
+    ]);
+    expect(out.map((m) => m.groupActive === true)).toEqual([false, true]);
+  });
+
+  it('활성 탭이 여럿이면 하나만 남긴다', () => {
+    const out = sanitizeSessionMemos(pair({ groupActive: true }));
+    expect(out.filter((m) => m.groupActive === true)).toHaveLength(1);
+    expect(out.find((m) => m.groupActive === true)?.id).toBe('memo-b');
+  });
+
+  it('묶음 안의 자리·크기·접힘은 활성 장을 따른다 — 한 카드인데 좌표가 갈리면 규칙이 없다', () => {
+    const out = sanitizeSessionMemos(pair({ x: 10, y: 10 }, { x: 300, y: 200, collapsed: true }));
+    for (const m of out) {
+      expect([m.x, m.y]).toEqual([300, 200]);
+      expect(m.collapsed).toBe(true);
+    }
+  });
+
+  it('고칠 것이 없으면 값을 흔들지 않는다(저장 왕복 비교가 흔들리지 않게)', () => {
+    const clean = sanitizeSessionMemos(pair());
+    expect(sanitizeSessionMemos(clean)).toEqual(clean);
   });
 });
 
@@ -221,6 +292,33 @@ describe('메인 탭 메모 — 영속 왕복 5지점', () => {
     revived.restoreFromCheckpoint(graph.toProjectCheckpoint(projectName)!);
 
     expect(revived.getAgentMemos(agentId)[0]!.alpha).toBeCloseTo(0.35, 5);
+  });
+
+  it('사람이 붙인 이름도 껐다 켜면 남는다 — 코드가 되살릴 수 없는 글이다', () => {
+    const { graph, projectName, agentId } = makeGraph();
+    graph.setAgentMemos(agentId, [memo({ name: '배포 전 점검' })]);
+
+    const revived = new ProjectGraph();
+    revived.registerProject(PROJECT_CWD);
+    revived.restoreFromCheckpoint(graph.toProjectCheckpoint(projectName)!);
+
+    expect(revived.getAgentMemos(agentId)[0]!.name).toBe('배포 전 점검');
+  });
+
+  it('합쳐 둔 묶음도 껐다 켜면 그대로다 — 켰더니 낱장으로 흩어져 있으면 안 된다', () => {
+    const { graph, projectName, agentId } = makeGraph();
+    graph.setAgentMemos(agentId, [
+      memo({ id: 'memo-a', groupId: 'mg-1' }),
+      memo({ id: 'memo-b', groupId: 'mg-1', groupActive: true }),
+    ]);
+
+    const revived = new ProjectGraph();
+    revived.registerProject(PROJECT_CWD);
+    revived.restoreFromCheckpoint(graph.toProjectCheckpoint(projectName)!);
+
+    const out = revived.getAgentMemos(agentId);
+    expect(out.map((m) => m.groupId)).toEqual(['mg-1', 'mg-1']);
+    expect(out.find((m) => m.groupActive === true)?.id).toBe('memo-b');
   });
 
   it('복원 경로도 정화를 거친다 — 손상된 옛 파일이 그대로 좌표가 되지 않는다', () => {

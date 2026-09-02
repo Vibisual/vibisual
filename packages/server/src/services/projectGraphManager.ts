@@ -20,7 +20,7 @@ import type {
   ProjectMetaSnapshot,
   QueuedCommand,
   ServerEntry,
-  FolderFileEntry,
+  FolderFilePage,
   AgentConfig,
   TaskEdge,
   TaskEdgeStatus,
@@ -74,7 +74,7 @@ import type {
   ExecutionMode,
   AgentProvider,
 } from '@vibisual/shared';
-import { DEFAULT_AUDIT_BOUNDARY, DEFAULT_UI_LOCALE } from '@vibisual/shared';
+import { DEFAULT_AUDIT_BOUNDARY, DEFAULT_UI_LOCALE, ROOT_NODE_KEY_PREFIX } from '@vibisual/shared';
 import { ProjectGraph, resolveGitWorktreeParent, type ProcessResult } from './projectGraph.js';
 // §5.22 — 권한·감사 경계(승인 창구가 원장에 적을 때 쓰는 입력 모양).
 import type { AuditRecordInput } from './auditLog.js';
@@ -90,7 +90,7 @@ import { userDefaultsService } from './userDefaultsService.js';
 import { logger } from '../logger.js';
 import { dbg, dbgOnChange } from './debugLog.js';
 // 경로 대소문자 정책 SSOT — win32/darwin 만 접고 linux 는 접지 않는다.
-import { pathKey } from './pathKey.js';
+import { isWithinRoot, pathKey } from './pathKey.js';
 
 // ─── 유틸 ───
 
@@ -180,6 +180,7 @@ function emptySnapshot(): GraphSnapshot {
     agentProjects: {},
     nodeProjects: {},
     fileEdits: {},
+    domainEntries: {},
     commandQueues: {},
     completedCommands: {},
     subAgents: {},
@@ -239,6 +240,7 @@ export function mergeSnapshots(a: GraphSnapshot, b: GraphSnapshot): GraphSnapsho
     agentProjects: { ...a.agentProjects, ...b.agentProjects },
     nodeProjects: { ...a.nodeProjects, ...b.nodeProjects },
     fileEdits: { ...a.fileEdits, ...b.fileEdits },
+    domainEntries: { ...a.domainEntries, ...b.domainEntries },
     commandQueues: { ...a.commandQueues, ...b.commandQueues },
     completedCommands: { ...a.completedCommands, ...b.completedCommands },
     subAgents: { ...a.subAgents, ...b.subAgents },
@@ -1391,16 +1393,19 @@ export class ProjectGraphManager {
     return changed;
   }
 
-  markAgentIdle(sessionId?: string, purgeNodes = false): void {
+  /** @returns 확인 dismiss(`purgeNodes=true`)로 즉시 제거된 버블 id 목록. 그 외 경로는 빈 배열. */
+  markAgentIdle(sessionId?: string, purgeNodes = false): string[] {
     if (sessionId) {
       const inst = this.getInstanceForSession(sessionId);
-      if (inst) { inst.markAgentIdle(sessionId, purgeNodes); return; }
+      if (inst) return inst.markAgentIdle(sessionId, purgeNodes);
+      const purged: string[] = [];
       for (const i of this.instances.values()) {
-        i.markAgentIdle(sessionId, purgeNodes);
+        purged.push(...i.markAgentIdle(sessionId, purgeNodes));
       }
-    } else {
-      for (const i of this.instances.values()) i.markAgentIdle();
+      return purged;
     }
+    for (const i of this.instances.values()) i.markAgentIdle();
+    return [];
   }
 
   /** 모든 인스턴스에서 idle 에이전트의 파일/폴더 엣지를 일괄 삭제. 기동 청소용.
@@ -1606,8 +1611,11 @@ export class ProjectGraphManager {
     return inst.createPipeline(type, label, position, projectName);
   }
 
-  toggleRootChild(projectName: string, filePath: string, show: boolean): boolean {
-    const inst = this.getInstanceByName(projectName) ?? this.primaryInstance();
+  toggleRootChild(projectName: string, filePath: string, show: boolean, rootAbsPath?: string | null): boolean {
+    // 이름보다 절대경로가 세다 — 표시명이 전역 유일화(`client (other)`)돼 이름 매칭이 빗나가도
+    // 클라가 스냅샷에서 들고 온 루트 절대경로면 인스턴스를 정확히 찍는다.
+    const inst = this.instanceForNodePath(`${ROOT_NODE_KEY_PREFIX}${projectName}`, rootAbsPath)
+      ?? this.primaryInstance();
     return inst ? inst.toggleRootChild(projectName, filePath, show) : false;
   }
 
@@ -2233,7 +2241,9 @@ export class ProjectGraphManager {
     return false;
   }
 
-  toggleSatellite(folderPath: string, filePath: string, show: boolean): boolean {
+  toggleSatellite(folderPath: string, filePath: string, show: boolean, folderAbsPath?: string | null): boolean {
+    const routed = this.instanceForNodePath(folderPath, folderAbsPath);
+    if (routed) return routed.toggleSatellite(folderPath, filePath, show);
     for (const inst of this.instances.values()) {
       const ok = inst.toggleSatellite(folderPath, filePath, show);
       if (ok) return true;
@@ -2257,7 +2267,69 @@ export class ProjectGraphManager {
     return false;
   }
 
-  toggleFolderChild(parentPath: string, filePath: string, show: boolean): boolean {
+  // ─── §5.23 도메인 버블 ───
+
+  /** 도메인 버블별 항목 상한 편집(§7.22). 노드 ID 는 프로젝트 스코프가 섞여 유일하다. */
+  setDomainMaxEntries(nodeId: string, max: number): boolean {
+    for (const inst of this.instances.values()) {
+      const ok = inst.setDomainMaxEntries(nodeId, max);
+      if (ok) return true;
+    }
+    return false;
+  }
+
+  /** 체크 = 제거 — 항목 한 줄을 그 도메인 목록에서 뺀다(§5.23). */
+  removeWebEntry(nodeId: string, entryId: string): boolean {
+    for (const inst of this.instances.values()) {
+      const ok = inst.removeWebEntry(nodeId, entryId);
+      if (ok) return true;
+    }
+    return false;
+  }
+
+  /** 그 도메인의 항목을 통째로 비운다(버블 자체는 남는다). */
+  clearWebEntries(nodeId: string): boolean {
+    for (const inst of this.instances.values()) {
+      const ok = inst.clearWebEntries(nodeId);
+      if (ok) return true;
+    }
+    return false;
+  }
+
+  /**
+   * **노드 키의 프로젝트 소속을 먼저 확정한다** — "첫 non-null 인스턴스가 이긴다" 루프의 해독제.
+   *
+   * 노드 키(`docs`, `packages/client`)는 프로젝트 루트 기준 **상대 경로**라 이름만으로는 어느
+   * 프로젝트 것인지 알 수 없다. 두 프로젝트가 똑같이 `docs` 를 가지면 먼저 등록된 쪽이 답해
+   * 다른 프로젝트의 디스크 트리가 패널에 그려진다(`open-node-file` 이 `absolutePath` 를 함께
+   * 받는 것과 같은 이유). 그래서 라우팅 힌트를 순서대로 본다:
+   *
+   *  ① `absolutePath` — 클라가 스냅샷에서 그대로 들고 온 값. 그 경로를 품는 인스턴스 루트 중
+   *     **가장 깊은 것**이 이긴다(워크트리가 부모 프로젝트보다 우선).
+   *  ② 이름이 박힌 루트 키(`__root__:<프로젝트>`) — 이름으로 인스턴스를 찍는다.
+   *
+   * 둘 다 없으면 `null` → 호출자는 종전대로 전 인스턴스를 훑는다(단일 프로젝트에선 같은 답).
+   */
+  private instanceForNodePath(nodePath: string, absolutePath?: string | null): ProjectGraph | null {
+    if (typeof absolutePath === 'string' && absolutePath.length > 0) {
+      let best: ProjectGraph | null = null;
+      let bestLen = -1;
+      for (const [rootKey, inst] of this.instances) {
+        if (!isWithinRoot(absolutePath, rootKey)) continue;
+        if (rootKey.length > bestLen) { best = inst; bestLen = rootKey.length; }
+      }
+      if (best) return best;
+    }
+    if (nodePath.startsWith(ROOT_NODE_KEY_PREFIX)) {
+      const projName = nodePath.substring(ROOT_NODE_KEY_PREFIX.length);
+      if (projName) return this.getInstanceByName(projName);
+    }
+    return null;
+  }
+
+  toggleFolderChild(parentPath: string, filePath: string, show: boolean, parentAbsPath?: string | null): boolean {
+    const routed = this.instanceForNodePath(parentPath, parentAbsPath);
+    if (routed) return routed.toggleFolderChild(parentPath, filePath, show);
     for (const inst of this.instances.values()) {
       const ok = inst.toggleFolderChild(parentPath, filePath, show);
       if (ok) return true;
@@ -2265,15 +2337,27 @@ export class ProjectGraphManager {
     return false;
   }
 
-  listFolderFiles(nodePath: string): FolderFileEntry[] | null {
+  /** 폴더 한 겹의 한 페이지(§7.5). 인스턴스 라우팅 규약은 `toggleFolderChild` 와 같다. */
+  listFolderFilePage(
+    nodePath: string,
+    absolutePath?: string | null,
+    opts: { subPath?: string | null; cursor?: string | null; limit?: number } = {},
+  ): FolderFilePage | null {
+    const routed = this.instanceForNodePath(nodePath, absolutePath);
+    if (routed) return routed.listFolderFilePage(nodePath, opts);
     for (const inst of this.instances.values()) {
-      const result = inst.listFolderFiles(nodePath);
+      const result = inst.listFolderFilePage(nodePath, opts);
       if (result !== null) return result;
     }
     return null;
   }
 
   resolveAbsolutePath(nodePath: string): string | null {
+    const routed = this.instanceForNodePath(nodePath);
+    if (routed) {
+      const hit = routed.resolveAbsolutePath(nodePath);
+      if (hit !== null) return hit;
+    }
     for (const inst of this.instances.values()) {
       const result = inst.resolveAbsolutePath(nodePath);
       if (result !== null) return result;
@@ -2472,6 +2556,16 @@ export class ProjectGraphManager {
   /** 클라이언트(창) → 그 창이 필요한 프로젝트 표시명 집합. 키는 conn 객체 자체(창 정체성). */
   private clientScopes = new Map<object, Set<string>>();
 
+  /**
+   * §9 폴더 스코프 — 창 → 그 창이 열어 둔 폴더의 내비 경로(노드 id) 집합.
+   *
+   * 값이 `null` 인 항목은 **"이 창은 폴더 축을 선언하지 않았다"**(구버전 클라)는 뜻이고,
+   * 그런 창이 하나라도 있으면 합집합은 통째로 `null`(= 전량)이 된다 — `getEffectiveFolderScope`.
+   * 프로젝트 축과 달리 "빈 배열"과 "미선언"이 **다른 뜻**이라 별도 맵으로 둔다
+   * (빈 배열 = "나는 지금 폴더 밖(메인 뷰)이다" — 좁혀도 되는 유효한 선언).
+   */
+  private clientFolderScopes = new Map<object, Set<string> | null>();
+
   /** §9 배경 탭 유휴 해제 — 표시명 → 마지막으로 어떤 창의 구독 범위에 들어 있던 시각(epoch ms). */
   private lastInScopeAt = new Map<string, number>();
   /** §9 — 서버 기동 시각. "이 세션에서 한 번도 본 적 없는" 프로젝트의 유휴 기준점. */
@@ -2487,9 +2581,17 @@ export class ProjectGraphManager {
    *  · 그 프로젝트가 stub(=내려가 있음)이면 **자동으로 다시 올린다** — §9 "탭을 클릭하면
    *    되살아난다"의 실행 지점이다(사용자가 [불러오기]를 한 번 더 누르게 하지 않는다).
    */
-  setClientProjectScope(client: object, projects: string[]): void {
+  setClientProjectScope(client: object, projects: string[], folders?: string[]): void {
     const names = projects.filter((p) => typeof p === 'string' && p.length > 0);
     this.clientScopes.set(client, new Set(names));
+    // §9 폴더 스코프 — 같은 선언에 얹혀 온다. **안 보냈으면(undefined) 미선언**이라 전량으로
+    //   되돌아간다(빈 배열 = "폴더 밖" 이라는 유효한 선언과 구분해야 한다).
+    this.clientFolderScopes.set(
+      client,
+      Array.isArray(folders)
+        ? new Set(folders.filter((f) => typeof f === 'string' && f.length > 0))
+        : null,
+    );
     const now = Date.now();
     for (const name of names) {
       this.lastInScopeAt.set(name, now);
@@ -2554,6 +2656,26 @@ export class ProjectGraphManager {
   /** §9 — 창이 닫히면 그 선언을 지운다. 남겨 두면 합집합이 넓어진 채로 굳고 유휴 해제도 막힌다. */
   clearClientProjectScope(client: object): void {
     this.clientScopes.delete(client);
+    this.clientFolderScopes.delete(client);
+  }
+
+  /**
+   * §9 폴더 스코프 — 지금 유효한 폴더 범위(모든 창 선언의 합집합).
+   * `null` 이면 "제한 없음" — 호출자는 폴더 슬라이스를 전량으로 실어야 한다.
+   *
+   * `null` 이 되는 경우는 둘이고, 둘 다 **좁히면 화면이 깨지는** 상황이다.
+   *  · 선언한 창이 하나도 없다(부팅 직후 · 구버전 클라만 붙어 있음).
+   *  · 폴더 축을 모르는 창이 **하나라도** 있다 — 그 창은 자기가 연 폴더를 말할 방법이 없으므로,
+   *    좁히면 그 창의 폴더 내부가 영영 빈 채로 남는다. 한 창의 침묵이 전체를 전량으로 되돌린다.
+   */
+  getEffectiveFolderScope(): Set<string> | null {
+    if (this.clientFolderScopes.size === 0) return null;
+    const union = new Set<string>();
+    for (const set of this.clientFolderScopes.values()) {
+      if (set === null) return null;
+      for (const id of set) union.add(id);
+    }
+    return union;
   }
 
   /**
@@ -2624,7 +2746,7 @@ export class ProjectGraphManager {
    *   범위는 `getBroadcastSnapshot()` 에만 적용한다.
    */
   getSnapshot(): GraphSnapshot {
-    return this.buildSnapshot(null);
+    return this.buildSnapshot(null, null);
   }
 
   /**
@@ -2632,10 +2754,10 @@ export class ProjectGraphManager {
    * 선언한 창이 없으면 전체와 같다(안전 기본값).
    */
   getBroadcastSnapshot(): GraphSnapshot {
-    return this.buildSnapshot(this.getEffectiveProjectScope());
+    return this.buildSnapshot(this.getEffectiveProjectScope(), this.getEffectiveFolderScope());
   }
 
-  private buildSnapshot(scope: Set<string> | null): GraphSnapshot {
+  private buildSnapshot(scope: Set<string> | null, folderScope: Set<string> | null): GraphSnapshot {
     const visibleInstances = this.visibleInstanceList();
 
     // B 진단(§3.2.2) — 라이브 스냅샷은 visibleInstances(비-worktree · 비-hidden)만 병합하므로,
@@ -2697,7 +2819,7 @@ export class ProjectGraphManager {
 
     const subSnaps = scopedInstances.map((inst) => {
       const pj = instProj.get(inst);
-      const snap = inst.getSnapshot();
+      const snap = inst.getSnapshot(folderScope);
       if (!pj) return snap;
       const to = displayNames.get(pj.id);
       return to ? relabelSubSnapshot(snap, pj.raw, to) : snap;
@@ -2713,8 +2835,29 @@ export class ProjectGraphManager {
       const projectsAll: Record<string, ProjectInfo> = { ...snapshot.projects };
       const agentCounts: Record<string, ProjectAgentCounts> = {};
       let activeAgentCountAll = 0;
+      // §9 폴더 스코프 — 상대 척도 둘도 여기서 **전량으로** 잰다. 좁힌 노드로 재면 폴더를
+      //   드나들 때마다 버블 크기와 히트맵 색이 바뀐다(같은 칸의 같은 이유).
+      let fileMin = Infinity;
+      let fileMax = 0;
+      const readMaxByProject: Record<string, number> = {};
+      let readMaxUnowned = 0;
       for (const inst of visibleInstances) {
         activeAgentCountAll += inst.getActiveAgentCount();
+        {
+          const extent = inst.getFileSizeExtent();
+          if (extent.max > 0) {
+            if (extent.min < fileMin) fileMin = extent.min;
+            if (extent.max > fileMax) fileMax = extent.max;
+          }
+          const heat = inst.getReadCountMaxes();
+          if (heat.unowned > readMaxUnowned) readMaxUnowned = heat.unowned;
+          const display = displayNameOfInstance(inst);
+          const pj = instProj.get(inst);
+          for (const [rawName, max] of Object.entries(heat.byProject)) {
+            const key = pj && display && rawName === pj.raw ? display : rawName;
+            if (max > (readMaxByProject[key] ?? 0)) readMaxByProject[key] = max;
+          }
+        }
         const display = displayNameOfInstance(inst);
         const pj = instProj.get(inst);
         // 탭 목록: 범위 밖 인스턴스의 ProjectInfo 를 표시명으로 얹는다(프로젝트당 수백 바이트).
@@ -2737,11 +2880,20 @@ export class ProjectGraphManager {
             : counts;
         }
       }
+      // 소유 프로젝트를 모르는 노드는 클라가 쓰던 규칙대로 **어느 프로젝트에나** 센다.
+      //   그래서 마지막에 모든 프로젝트 칸에 그 바닥을 얹는다(칸이 없던 프로젝트도 만든다).
+      if (readMaxUnowned > 0) {
+        for (const name of Object.keys(projectsAll)) {
+          if (readMaxUnowned > (readMaxByProject[name] ?? 0)) readMaxByProject[name] = readMaxUnowned;
+        }
+      }
       snapshot = {
         ...snapshot,
         projects: projectsAll,
         projectAgentCounts: agentCounts,
         activeAgentCount: activeAgentCountAll,
+        fileSizeRange: { min: fileMin === Infinity ? 0 : fileMin, max: fileMax },
+        readCountMaxByProject: readMaxByProject,
       };
     }
 
@@ -2751,6 +2903,11 @@ export class ProjectGraphManager {
     //   범위를 적용하지 않았으면(= 전량) 싣지 않는다(구버전 클라에게도 종전과 같은 스냅샷).
     if (scope !== null) {
       snapshot = { ...snapshot, scopedProjects: [...scope] };
+    }
+    // §9 폴더 스코프 — 같은 이유로 **적용한 폴더 범위**도 되돌려 준다. 클라는 이걸로 열어 둔
+    //   폴더의 내용이 아직 안 온 것과 원래 빈 폴더를 가른다(둘 다 화면에서는 빈 내부 뷰다).
+    if (folderScope !== null) {
+      snapshot = { ...snapshot, scopedFolders: [...folderScope] };
     }
 
     // Manager 레벨 task edges 는 fallback(인스턴스 없을 때) 용도만 — overlay 하되

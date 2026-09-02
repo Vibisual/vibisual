@@ -342,6 +342,19 @@ export interface PackagedApi {
   app?: PackagedAppApi;
   /** §3.7 — 바깥 브라우저 열기 실패 알림. web 모드·구버전 preload 에선 부재. */
   externalOpen?: PackagedExternalOpenApi;
+  /** §3.2.1 — 종료 직전 초안 flush 물음. web 모드·구버전 preload 에선 부재. */
+  lifecycle?: PackagedLifecycleApi;
+}
+
+/**
+ * §3.2.1 — 종료 직전 "아직 디스크에 안 앉힌 손글씨를 지금 밀어라" surface.
+ *
+ * 앱 종료는 창을 정상으로 닫지 않고 `app.exit(0)` 으로 프로세스를 내리므로 renderer 의
+ * `pagehide`/`beforeunload` 가 뜨지 않는다 — main 이 대신 물어봐 주는 **한 방향**의 길이다.
+ * 받는 쪽 구현은 `utils/persistFlush.ts`.
+ */
+export interface PackagedLifecycleApi {
+  onFlushDrafts(cb: () => void): () => void;
 }
 
 /**

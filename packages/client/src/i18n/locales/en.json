@@ -526,7 +526,19 @@
         "bgProbeModel": "Model that answers",
         "bgProbeModelDesc": "It is asked once, with no tools and no access to your project — only the command text and a short tail of its output.",
         "bgProbeLoadError": "Could not read the current setting.",
-        "bgProbeSaveError": "Could not save. Nothing was changed."
+        "bgProbeSaveError": "Could not save. Nothing was changed.",
+        "sessionProbeTitle": "Sessions stuck on \"running\"",
+        "sessionProbeIntro": "A session can sit on \"running\" long after its work ended, because the signals that end a session are all self-reported — if one is missed, nothing takes it down. Elapsed time cannot settle it either: a session waiting on a long build looks exactly like one that quietly died. So every 10 minutes a small judging agent is asked once, about a single session, what it is waiting for and whether that is still coming.",
+        "sessionProbeEnabled": "Check whether running sessions are really running",
+        "sessionProbeEnabledDesc": "Off means no model is ever called for this — sessions stay on \"running\" until something else takes them down.",
+        "sessionProbeQuiet": "Ask after this much silence (minutes)",
+        "sessionProbeQuietDesc": "Silence only decides when to ask — it never decides the answer. A session that answers \"still working\" is left alone for longer and longer before being asked again. 0 turns the asking off.",
+        "sessionProbeAutoClose": "End the session when the answer is \"finished\"",
+        "sessionProbeAutoCloseDesc": "Off means the answer is only shown in the status bar and you decide. \"Still working\", \"stuck\" and \"could not tell\" never end anything either way — and nothing here kills a process; the session is simply marked as no longer running.",
+        "sessionProbeModel": "Model that answers",
+        "sessionProbeModelDesc": "It is asked once, with no tools and no access to your project — only a short tail of what that session last said and did. At most one session is asked at a time, and no more than 12 times an hour.",
+        "sessionProbeLoadError": "Could not read the current setting.",
+        "sessionProbeSaveError": "Could not save. Nothing was changed."
       },
       "notifications": {
         "cmdBlocked": "Notify when a CMD session is waiting for input",
@@ -867,9 +879,10 @@
       "contextItems": "{{count}} items",
       "model": {
         "label": "Model",
-        "opus": "Most capable. Best reasoning and complex tasks. Highest cost.",
+        "opus": "Highly capable. Best for complex agentic coding and reasoning. High cost.",
         "sonnet": "Balanced performance and cost. Good for most tasks.",
         "haiku": "Fastest and cheapest. Best for simple read-only tasks.",
+        "fable": "Most capable. For the most demanding reasoning and long-horizon work. Highest cost.",
         "unknown": "{{name}} — newly released model. Capabilities and cost inferred from family defaults."
       },
       "contextWindow": {
@@ -1044,8 +1057,24 @@
         "tokens": "Window size about {{tokens}} tokens.",
         "foldsAt": "Folds at about {{tokens}}, at the end of that turn.",
         "foldsAtAuto": "Folds at {{percent}}% of the window the CLI picks, at the end of that turn.",
-        "unsetDefaultLabel": "unset ({{tokens}})",
-        "globalTip": "Applies to every agent that has no auto-compact value of its own — including ones already running. Leave it unset to use the built-in default."
+        "unsetDefaultLabel": "unset (default: off)",
+        "globalTip": "Applies to every agent that has no auto-compact value of its own — including ones already running. Leave it unset to use the built-in default.",
+        "offLabel": "off",
+        "off": "off — never folds. No summarization call, so no tokens spent.",
+        "foldsAtOff": "Never folds. Long conversations get heavier every turn, and the CLI folds once mid-task when the model window fills.",
+        "confirm": {
+          "title": "Turn auto-compact on? ({{value}})",
+          "titleSelf": "Let the agent compact on its own?",
+          "costHeading": "Turning this on costs tokens",
+          "costBody": "Compaction is not free cleanup — it feeds the whole conversation back to the model to write a summary, as a separate model call. Every fold spends input and output tokens, and your plan usage.",
+          "costSample": "Measured example (avg of {{runs}} runs): about {{tokens}} tokens re-read per fold, pausing about {{seconds}} seconds. Your numbers vary with conversation length and model.",
+          "selfBody": "The agent asks to compact when it judges the context is heavy, and it runs after that turn ends. Each request is one summarization call, so it costs the same tokens.",
+          "offHeading": "What you lose by leaving it off",
+          "offBody": "Without folding, the whole accumulated conversation is resent every turn, so cost and latency both climb. When the model window fills, the CLI folds once mid-task — or the session breaks past the window.",
+          "everyTime": "You will see this every time you turn it back on.",
+          "cancel": "Cancel (leave it off)",
+          "enable": "I understand — turn it on"
+        }
       },
       "settingSources": {
         "label": "Setting sources",
@@ -1308,6 +1337,21 @@
       "maxSave": "Save",
       "noVisible": "No visible files"
     },
+    "webEntry": {
+      "count": "Entries {{count}}",
+      "maxTitle": "Max entries for this domain",
+      "maxHint": "Enter · Esc",
+      "empty": "Nothing recorded yet",
+      "clearAll": "Clear all",
+      "clearConfirm": "Clear",
+      "clearCancel": "Cancel",
+      "kindSearch": "Search",
+      "kindFetch": "Fetch",
+      "checkHint": "Check to remove this entry",
+      "openExternal": "Open in browser",
+      "resultCount": "{{count}} results",
+      "truncated": "…(truncated)"
+    },
     "rootFileList": {
       "files": "Files",
       "loading": "Loading...",
@@ -1334,6 +1378,12 @@
         "running": "running",
         "done": "done",
         "error": "error"
+      },
+      "probe": {
+        "checking": "checking…",
+        "working": "confirmed working",
+        "stuck": "may be stuck",
+        "finished": "looks finished"
       },
       "tokensInOut": "{{in}}in {{out}}out"
     },
@@ -1656,6 +1706,9 @@
       "empty": "Nothing measured yet in this project.",
       "emptyHint": "Costs appear once an agent finishes a turn — they are read from the session transcript, not billed amounts.",
       "estimateNote": "Estimated from token counts and published prices.",
+      "estimatedMark": "est.",
+      "estimatedMarkHint": "Includes a model with no price on file, so a fallback rate was used. The amount may be off.",
+      "unseededNote": "No price on file for {{models}}, so a fallback rate was used. This amount may be off.",
       "retiredNote": "{{cost}} from older sessions is folded into the all-time total.",
       "sessions_one": "{{count}} session",
       "sessions_other": "{{count}} sessions",
@@ -1770,6 +1823,10 @@
       "choose": "Choose Folder",
       "picking": "Choosing…",
       "later": "Later"
+    },
+    "folderList": {
+      "loadingMore": "Loading more… ({{loaded}} / {{total}})",
+      "retry": "Couldn't load — retry"
     }
   },
   "ide": {
@@ -1873,7 +1930,17 @@
       "confirmCloseMessage": "A session is still running. Closing it will stop its work. Close anyway?",
       "confirmCloseConfirm": "Close",
       "confirmCloseCancel": "Cancel",
-      "hiddenRunning": "{{count}} running tab(s) out of view — click to jump"
+      "hiddenRunning": "{{count}} running tab(s) out of view — click to jump",
+      "sortTabs": "Sort tabs",
+      "sortAnchorTitle": "Priority side",
+      "sortAnchorRight": "From the right",
+      "sortAnchorLeft": "From the left",
+      "sortByRunning": "Running",
+      "sortByQuestions": "Question cards",
+      "sortByReviews": "Review cards",
+      "sortByUserActions": "My to-dos",
+      "sortByPinned": "Pinned",
+      "sortByRecent": "Most recent"
     },
     "terminal": {
       "unavailable": "The embedded terminal is available only in the Vibisual desktop app.",
@@ -1949,6 +2016,8 @@
       "ctxSendAsPrompt": "Send as new prompt",
       "ctxSelectAll": "Select all",
       "ctxAddMemo": "Add sticky memo",
+      "ctxSpreadMemos": "Spread out overlapping memos",
+      "ctxSpreadMemosNone": "No overlapping memos",
       "jumpToBottom": "Scroll to bottom",
       "ctxSelectionRequired": "Select text first",
       "inputCtxCut": "Cut",
@@ -1958,10 +2027,53 @@
       "ctxSaveToBrain": "Save to Memory",
       "stopAll": "Stop all",
       "stopAllTitle": "Stop everything this agent is running (other tabs + background tasks)",
-      "stopSessionTitle": "Stop this session and the subagents it started (other session tabs keep running)"
+      "stopSessionTitle": "Stop this session and the subagents it started (other session tabs keep running)",
+      "voiceStart": "Voice input ({{shortcut}})",
+      "voiceStop": "Stop voice input ({{shortcut}})",
+      "voiceStarting": "Opening the microphone…",
+      "voiceListening": "Listening — speak now",
+      "voiceCancelHint": "Esc to discard",
+      "voiceDone": "Done",
+      "voiceErrUnsupported": "Speech recognition is not available in this build.",
+      "voiceErrPermission": "Microphone access was denied. Allow it for this app in your system privacy settings, then try again.",
+      "voiceErrDevice": "No microphone was found. Connect one and try again.",
+      "voiceErrNetwork": "Could not reach the speech recognition service.",
+      "voiceErrLanguage": "Speech recognition does not support the current interface language.",
+      "voiceErrUnknown": "Voice input stopped. Please try again.",
+      "voiceErrDismiss": "Dismiss"
+    },
+    "voiceInstall": {
+      "title": "Set up voice input",
+      "intro": "Voice input runs entirely on this computer. Setting it up downloads about {{size}} once — after that it works offline.",
+      "noteSize": "Downloads and keeps about {{size}} on disk (engine + speech model). This happens only once.",
+      "noteResume": "You can stop at any time. Whatever was already downloaded is kept, and starting again continues from there.",
+      "notePrivacy": "Your voice never leaves this computer — no account, no internet, nothing is recorded or stored.",
+      "noteFirstRun": "The first time you speak after setup, the model takes a few seconds to load.",
+      "noteLicense": "Speech model: NVIDIA Nemotron ASR (OpenMDW-1.1). Engine: sherpa-onnx (Apache-2.0).",
+      "langPrimary": "This model fully supports your interface language.",
+      "langBroad": "This model supports your interface language at a lower accuracy tier.",
+      "langNone": "This model does not list your interface language — recognition may be poor or may not work.",
+      "stageEngine": "Downloading the engine",
+      "stageExtract": "Unpacking the engine",
+      "stageModel": "Downloading the speech model",
+      "stageVerify": "Checking the files",
+      "stageReady": "Ready",
+      "stageCanceled": "Stopped",
+      "canceledHint": "Stopped. What was downloaded is kept — starting again continues from there.",
+      "failed": "Setup failed.",
+      "cancel": "Stop",
+      "later": "Not now",
+      "retry": "Try again",
+      "start": "Install and start"
     },
     "memo": {
       "title": "Memo",
+      "tabHint": "Drag out to detach · drop on another memo to merge",
+      "mergeHint": "Drag the title bar onto another memo to merge them",
+      "stacked": "{{n}} hidden underneath — click to bring up the next one",
+      "rename": "Rename",
+      "namePlaceholder": "Name (empty = first line of the memo)",
+      "renameHint": "F2 · double-click · right-click to rename",
       "placeholder": "Type a note…",
       "color": "Color",
       "collapse": "Collapse",
@@ -2381,13 +2493,21 @@
     },
     "statusBar": {
       "custom": "Custom",
+      "customTip": "An agent you created on the canvas. You can send it commands and open sessions as tabs.",
       "hook": "Hook",
+      "hookTip": "Detected from Claude Code hook events. Read-only — you cannot send commands to it.",
+      "statusTip": "Run state of the session shown here: running, waiting, done, or failed.",
+      "modelTip": "The model this session used on its last turn. Before the first turn it shows the model configured for this agent.",
+      "modelUnknown": "unknown",
       "context": "ctx: {{used}}/{{max}}",
+      "contextTip": "How full the context window is right now — the last turn's input against this model's window. Not a running total: it drops after a compaction.",
       "tokens": "{{in}} in / {{out}} out",
+      "tokensTip": "Total tokens this session has used since it started. Input counts cache reads and cache writes too, so it climbs far faster than output. Cumulative — it only goes up.",
+      "autoCompact": "auto-compact {{value}}",
+      "autoCompactTip": "The CLI summarizes the conversation by itself once context reaches this size. Change it per agent in Agent Settings, or for all agents in File > Options > Agent Defaults.",
       "sessionOne": "{{count}} session",
       "sessionMany": "{{count}} sessions",
-      "autoCompact": "auto-compact {{value}}",
-      "autoCompactTip": "The CLI summarizes the conversation by itself once context reaches this size. Change it per agent in Agent Settings, or for all agents in File > Options > Agent Defaults."
+      "sessionsTip": "How many session tabs are open on this agent."
     },
     "search": {
       "placeholder": "Find in conversation",
@@ -2421,6 +2541,15 @@
       "modelFallback": "Model fallback",
       "interrupt": "Interrupted",
       "permissionDenied": "Permission denied"
+    },
+    "stepTrace": {
+      "underSec": "under 1s",
+      "sec": "{{sec}}s",
+      "minSec": "{{min}}m {{sec}}s",
+      "hourMin": "{{hour}}h {{min}}m",
+      "thought": "Thought for {{duration}}",
+      "wrote": "Wrote {{value}} chars",
+      "chars": "{{value}} chars"
     },
     "streamRenderer": {
       "noActivity": "No activity in this session",
@@ -3601,7 +3730,14 @@
       "lock": "Lock canvas",
       "unlock": "Unlock canvas",
       "fullscreen": "Fullscreen",
-      "exitFullscreen": "Exit fullscreen"
+      "exitFullscreen": "Exit fullscreen",
+      "heatmap": "Read heatmap",
+      "heatmapOff": "Turn off read heatmap"
+    },
+    "heatmap": {
+      "title": "Reads",
+      "empty": "Nothing read yet",
+      "max": "max {{n}}"
     },
     "contextMenu": {
       "createCustomAgent": "Create Custom Agent",

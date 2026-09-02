@@ -28,6 +28,7 @@ import type {
 } from '@vibisual/shared';
 import { THINKING_PULSE_SUBTYPE, HIDDEN_SYSTEM_SUBTYPES, isHiddenSystemSubtype } from '@vibisual/shared';
 import { parseSystemSubtype } from './SystemNode.js';
+import { shouldTraceThinking, type ThinkRun } from './turnSteps.js';
 
 // ─── 계획(TodoWrite) 인식 (§5.5 #17-12) ───
 
@@ -160,10 +161,34 @@ export interface StreamText {
   content: string;
   timestamp: number;
   /**
+   * §5.5 #17-39 — 이 말풍선의 **마지막 델타가 도착한 시각**. `timestamp`(첫 델타) 와의 차이가 곧
+   * "이만큼 쓰는 데 걸린 시간" 이다. 델타가 하나뿐이면 `timestamp` 와 같다(= 걸린 시간 0).
+   */
+  endedAt?: number;
+  /**
    * §4 (스트림 3종 ①) — 이 말풍선이 **중첩 서브에이전트(Task)** 가 한 말이면 그 Task 호출의 id.
    * 미설정 = 이 에이전트 자신이 한 말(종전 그대로).
    */
   nestedUnderToolUseId?: string;
+}
+
+/**
+ * §5.5 #17-39 — **단계 자국**. 끝난 사고 런 하나가 남기는 한 줄(`1분 13초 동안 사고함 · 4,182자`).
+ *
+ * #17-15 가 없앤 것은 사고 **원문**을 보여 주는 표면이다. 이 항목은 원문을 담지 않는다 —
+ * 길이(`chars`)와 시각 둘뿐이라, 사고를 버퍼에 쌓지 않는다는 #17-15 ② 는 그대로다.
+ * 자국은 **봉인된 런에만** 생긴다(자라는 자국 ❌ — 지금 생각 중은 라이브 1줄이 맡는다).
+ */
+export interface StreamStep {
+  kind: 'step';
+  id: string;
+  phase: 'thinking';
+  /** 런이 시작한 시각 = 이 자국이 설 자리(사고가 있던 그 자리). */
+  timestamp: number;
+  /** 런이 끝난 시각. `timestamp` 와의 차이가 걸린 시간. */
+  endedAt: number;
+  /** 그동안 흘러나온 사고 분량(글자 수). 원문은 어디에도 남기지 않는다. */
+  chars: number;
 }
 
 export interface StreamSystem {
@@ -266,6 +291,12 @@ export interface StreamCommand {
   result: string;
   status: string;
   timestamp: number;
+  /**
+   * **내가 보낸 시각**(`QueuedCommand.timestamp` = 큐 투입). 위 `timestamp` 는 §5.5 #17-18 ⑥ 대로
+   * 말풍선이 설 자리(= 나간 시각 · 대기 중이면 `PENDING_COMMAND_TS` 꼬리 표식)라 **시각 표기에
+   * 쓸 수 없다** — 대기 중 덧말이 서기 275760년에 보낸 글이 된다. 말풍선의 `오늘 14:32` 는 이 값이다.
+   */
+  submittedAt?: number;
   /** v2.61 — 전송한 paste 이미지 첨부의 절대경로(완료 후에도 보존). basename 으로 blob preview 조회. */
   attachments?: string[];
   /** §5.5 #17-18 v4.68 — 이 프롬프트에 함께 실려 나간 덧말 수(합치기). 0/undefined = 단독. */
@@ -291,7 +322,7 @@ export interface StreamCommand {
 }
 
 export type StreamItem =
-  | StreamText | StreamGroup | StreamSystem | StreamResult | StreamError | StreamPlan
+  | StreamText | StreamGroup | StreamSystem | StreamResult | StreamError | StreamPlan | StreamStep
   | StreamThinkingLive | StreamReport | StreamQuestion | StreamReview | StreamList | StreamAsk;
 
 export type StreamItemFull = StreamItem | StreamCommand;
@@ -362,6 +393,8 @@ function buildCommandItems(commands: QueuedCommand[] | undefined, hasStream: boo
         status: cmd.status,
         // §5.5 #17-18 ⑥ — 큐에 넣은 시각이 아니라 **나간 시각**(대기 중이면 꼬리).
         timestamp: commandAnchorTs(cmd),
+        // 말풍선이 "언제 보낸 글인가"를 말할 때 쓰는 값은 그 꼬리 표식이 아니라 실제 투입 시각이다.
+        submittedAt: cmd.timestamp,
         attachments: cmd.attachments,
         mergedCount: cmd.mergedCount,
         restartResumed: cmd.restartResumed,
@@ -376,6 +409,43 @@ function buildCommandItems(commands: QueuedCommand[] | undefined, hasStream: boo
 
 function computeAgentBusy(commands: QueuedCommand[] | undefined): boolean {
   return !!commands && commands.some((c) => c.status === 'executing' || c.status === 'queued');
+}
+
+/**
+ * §5.5 #17-39 — 봉인된 사고 런 → 자국 항목. 문턱(`shouldTraceThinking`)을 못 넘으면 `null` —
+ * 순간 사고마다 한 줄을 내주면 그 줄이 곧 소음이 된다.
+ *
+ * 전체 재구축·증분 파서가 **같은 함수**를 쓴다. 두 벌이 되면 한쪽만 문턱이 바뀌어 같은 대화가
+ * 경로에 따라 다르게 그려진다(등가성 테스트가 그 순간 걸린다).
+ */
+function thinkRunToStep(run: ThinkRun): StreamStep | null {
+  if (!shouldTraceThinking(run)) return null;
+  return {
+    kind: 'step',
+    id: `step-${run.firstId}`,
+    phase: 'thinking',
+    timestamp: run.startedAt,
+    endedAt: run.endedAt,
+    chars: run.chars,
+  };
+}
+
+/** 사고 이벤트 하나를 열린 런에 보탠다(없으면 연다). **원문은 담지 않고 길이만 센다.** */
+function extendThinkRun(open: ThinkRun | null, evt: SubAgentStreamEvent): ThinkRun {
+  if (!open) {
+    return {
+      firstId: evt.id, startedAt: evt.timestamp, endedAt: evt.timestamp, chars: evt.content.length,
+      ...(evt.nestedUnderToolUseId ? { nested: evt.nestedUnderToolUseId } : {}),
+    };
+  }
+  open.endedAt = evt.timestamp;
+  open.chars += evt.content.length;
+  return open;
+}
+
+/** §4 (스트림 3종 ①) — 이 사고가 열린 런과 **주인이 다른가**(부모 ↔ 중첩 Task). 다르면 런을 끊는다. */
+function thinkOwnerChanged(open: ThinkRun | null, evt: SubAgentStreamEvent): boolean {
+  return !!open && open.nested !== evt.nestedUnderToolUseId;
 }
 
 /**
@@ -437,6 +507,8 @@ export function buildBaseItems(events: SubAgentStreamEvent[], commands?: QueuedC
   }
 
   let textBuf: { ids: string[]; chunks: string[]; ts: number; lastTs: number; nested?: string } | null = null;
+  // §5.5 #17-39 — 열린 사고 런(원문 ❌ 길이만). 봉인될 때 자국 한 줄이 된다.
+  let thinkBuf: ThinkRun | null = null;
 
   function flushText(): void {
     if (!textBuf) return;
@@ -445,9 +517,18 @@ export function buildBaseItems(events: SubAgentStreamEvent[], commands?: QueuedC
       id: textBuf.ids[0]!,
       content: textBuf.chunks.join(''),
       timestamp: textBuf.ts,
+      endedAt: textBuf.lastTs,
       ...(textBuf.nested ? { nestedUnderToolUseId: textBuf.nested } : {}),
     });
     textBuf = null;
+  }
+
+  /** 사고 런이 끝났다 — 자국을 그 자리에 세운다(뒤이어 올 본문·도구보다 먼저 push 되어야 순서가 맞는다). */
+  function flushThink(): void {
+    if (!thinkBuf) return;
+    const step = thinkRunToStep(thinkBuf);
+    thinkBuf = null;
+    if (step) items.push(step);
   }
 
   let i = 0;
@@ -459,7 +540,18 @@ export function buildBaseItems(events: SubAgentStreamEvent[], commands?: QueuedC
 
     // §5.5 #17-15 — 사고 원문은 아이템으로 만들지 않는다(라이브 1줄이 유일한 표면).
     //   다만 **텍스트 런의 경계**로는 남긴다 — 사고를 사이에 둔 앞뒤 설명은 종전처럼 두 말풍선.
-    if (evt.eventType === 'thinking') { flushText(); i++; continue; }
+    // §5.5 #17-39 — 원문 대신 **얼마나 걸렸고 얼마나 나왔는지**만 런에 모은다(원문 버퍼 ❌).
+    if (evt.eventType === 'thinking') {
+      flushText();
+      // 주인이 바뀌면 런을 끊는다 — 부모와 자식의 사고를 한 덩어리로 재면 아무도 안 쓴 시간이 적힌다.
+      if (thinkOwnerChanged(thinkBuf, evt)) flushThink();
+      thinkBuf = extendThinkRun(thinkBuf, evt);
+      i++;
+      continue;
+    }
+
+    // 사고가 아닌 이벤트가 왔다 = 사고 런이 끝났다. 자국은 뒤이어 올 항목보다 **먼저** 선다.
+    flushThink();
 
     if (evt.eventType === 'text') {
       if (textBuf && crossesCommand(textBuf.lastTs, evt.timestamp)) flushText();
@@ -560,7 +652,7 @@ export function isCardEchoText(content: string): boolean {
 }
 
 /** 뒤로 훑을 때 건너뛰는 항목 — 그 자체로는 에이전트가 "한 말"이 아니다(도구 줄·회색 잡음·라이브 1줄). */
-const CARD_ECHO_SKIP_KINDS: ReadonlySet<StreamItemFull['kind']> = new Set(['tool', 'system', 'thinking-live']);
+const CARD_ECHO_SKIP_KINDS: ReadonlySet<StreamItemFull['kind']> = new Set(['tool', 'system', 'thinking-live', 'step']);
 /** 이 항목 바로 뒤에 붙은 한 줄이라야 발송 보고로 본다. */
 const CARD_ECHO_HOST_KINDS: ReadonlySet<StreamItemFull['kind']> = new Set(['report', 'question', 'review', 'list']);
 
@@ -708,11 +800,20 @@ function sameAttachments(a?: string[], b?: string[]): boolean {
 export function sameStreamItem(a: StreamItemFull, b: StreamItemFull): boolean {
   if (a.kind !== b.kind) return false;
   switch (b.kind) {
-    case 'text':
+    // §5.5 #17-39 — 본문 말풍선은 끝난 시각도 렌더(작성 자국)에 쓰이므로 비교에 넣는다.
+    case 'text': {
+      const x = a as StreamText;
+      return x.content === b.content && x.endedAt === b.endedAt;
+    }
     case 'system':
     case 'result':
     case 'error':
-      return (a as StreamText | StreamSystem | StreamResult | StreamError).content === b.content;
+      return (a as StreamSystem | StreamResult | StreamError).content === b.content;
+    // §5.5 #17-39 — 단계 자국. 봉인된 뒤로는 안 바뀌지만, 앞쪽 절단·재구축으로 같은 id 가 다시 오면 비교된다.
+    case 'step': {
+      const x = a as StreamStep;
+      return x.phase === b.phase && x.endedAt === b.endedAt && x.chars === b.chars;
+    }
     case 'tool': {
       const x = a as StreamGroup;
       return x.toolName === b.toolName && x.input === b.input && x.output === b.output && x.isActive === b.isActive;
@@ -795,6 +896,8 @@ export class IncrementalStreamParser {
   private sortedCmdTs: number[] = [];
 
   private openText: OpenBuf | null = null;
+  /** §5.5 #17-39 — 열린 사고 런(원문 ❌ 길이만). 봉인될 때 자국 한 줄이 된다. */
+  private openThink: ThinkRun | null = null;
   /** 짝 없는 tool_use 아이템의 items 인덱스(FIFO). */
   private pending: number[] = [];
 
@@ -811,6 +914,7 @@ export class IncrementalStreamParser {
     this.consumed = 0;
     this.lastId = null;
     this.openText = null;
+    this.openThink = null;
     this.pending = [];
   }
 
@@ -823,6 +927,17 @@ export class IncrementalStreamParser {
   }
 
   private sealText(): void { this.openText = null; }
+
+  /**
+   * §5.5 #17-39 — 사고 런 봉인 → 자국 한 줄. **끝에 push** 하므로 `pending`·`openText.idx` 가 가리키는
+   * 기존 인덱스는 밀리지 않는다(전체 재구축의 `flushThink` 와 같은 자리·같은 순서).
+   */
+  private sealThink(): void {
+    if (!this.openThink) return;
+    const step = thinkRunToStep(this.openThink);
+    this.openThink = null;
+    if (step) this.items.push(step);
+  }
 
   /** 비-도구 이벤트 도착 → 마지막 비-도구 경계가 갱신되므로 그 앞의 미페어 tool 은 전부 비활성. */
   private deactivatePending(): void {
@@ -842,10 +957,17 @@ export class IncrementalStreamParser {
 
     // §5.5 #17-15 — 사고 원문은 아이템으로 만들지 않는다. 텍스트 런의 경계 역할만 남긴다
     //   (buildBaseItems 와 동일 규약 — 등가성 테스트가 이 대칭을 못박는다).
+    // §5.5 #17-39 — 원문 대신 걸린 시간·분량만 런에 모은다.
     if (type === 'thinking') {
       this.sealText();
+      // 주인이 바뀌면 런을 끊는다(buildBaseItems 와 같은 규약 — 등가성 테스트가 이 대칭을 못박는다).
+      if (thinkOwnerChanged(this.openThink, evt)) this.sealThink();
+      this.openThink = extendThinkRun(this.openThink, evt);
       return;
     }
+
+    // 사고 런이 끝났다 — 자국은 뒤이어 올 항목보다 **먼저** 선다(전체 재구축과 같은 순서).
+    this.sealThink();
 
     if (type === 'text') {
       if (this.openText && this.crossesCommand(this.openText.lastTs, evt.timestamp)) this.sealText();
@@ -855,13 +977,14 @@ export class IncrementalStreamParser {
       const nest = evt.nestedUnderToolUseId ? { nestedUnderToolUseId: evt.nestedUnderToolUseId } : {};
       if (!this.openText) {
         const idx = this.items.length;
-        this.items.push({ kind: 'text', id: evt.id, content: evt.content, timestamp: evt.timestamp, ...nest });
+        this.items.push({ kind: 'text', id: evt.id, content: evt.content, timestamp: evt.timestamp, endedAt: evt.timestamp, ...nest });
         this.openText = { idx, firstId: evt.id, firstTs: evt.timestamp, lastTs: evt.timestamp, chunks: [evt.content], nested: evt.nestedUnderToolUseId };
       } else {
         const b = this.openText;
         b.chunks.push(evt.content);
         b.lastTs = evt.timestamp;
-        this.items[b.idx] = { kind: 'text', id: b.firstId, content: b.chunks.join(''), timestamp: b.firstTs, ...nest };
+        // §5.5 #17-39 — 마지막 델타 시각까지 갱신한다(전체 재구축의 `flushText` 와 같은 값).
+        this.items[b.idx] = { kind: 'text', id: b.firstId, content: b.chunks.join(''), timestamp: b.firstTs, endedAt: b.lastTs, ...nest };
       }
       return;
     }

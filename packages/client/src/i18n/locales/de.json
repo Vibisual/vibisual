@@ -526,7 +526,19 @@
         "bgProbeModel": "Antwortendes Modell",
         "bgProbeModelDesc": "Es wird einmal gefragt, ohne Werkzeuge und ohne Zugriff auf Ihr Projekt – nur der Befehlstext und ein kurzes Stück vom Ende der Ausgabe.",
         "bgProbeLoadError": "Die aktuelle Einstellung konnte nicht gelesen werden.",
-        "bgProbeSaveError": "Speichern nicht möglich. Es wurde nichts geändert."
+        "bgProbeSaveError": "Speichern nicht möglich. Es wurde nichts geändert.",
+        "sessionProbeTitle": "Sitzungen, die auf „läuft…\" hängen bleiben",
+        "sessionProbeIntro": "Eine Sitzung kann lange nach Abschluss der Arbeit auf „läuft…\" stehen bleiben, denn die Signale, die eine Sitzung beenden, sind allesamt Selbstauskünfte — geht eines verloren, nimmt sie niemand mehr herunter. Auch die verstrichene Zeit klärt das nicht: Eine Sitzung, die auf einen langen Build wartet, sieht genauso aus wie eine, die still gestorben ist. Deshalb wird alle 10 Minuten ein kleiner Prüf-Agent einmal zu genau einer Sitzung befragt — worauf sie wartet und ob das noch kommt.",
+        "sessionProbeEnabled": "Prüfen, ob laufende Sitzungen wirklich laufen",
+        "sessionProbeEnabledDesc": "Aus bedeutet, dass dafür nie ein Modell aufgerufen wird — Sitzungen bleiben auf „läuft…\", bis etwas anderes sie herunternimmt.",
+        "sessionProbeQuiet": "Nach so viel Stille fragen (Minuten)",
+        "sessionProbeQuietDesc": "Die Stille entscheidet nur, wann gefragt wird — nie die Antwort. Eine Sitzung, die „arbeitet noch\" antwortet, wird vor der nächsten Frage immer länger in Ruhe gelassen. 0 schaltet das Fragen aus.",
+        "sessionProbeAutoClose": "Sitzung beenden, wenn die Antwort „fertig\" lautet",
+        "sessionProbeAutoCloseDesc": "Aus bedeutet, dass die Antwort nur in der Statusleiste erscheint und Sie entscheiden. „Arbeitet noch\", „hängt fest\" und „nicht feststellbar\" beenden ohnehin nie etwas — und hier wird kein Prozess beendet; die Sitzung wird lediglich als nicht mehr laufend markiert.",
+        "sessionProbeModel": "Modell, das antwortet",
+        "sessionProbeModelDesc": "Es wird einmal gefragt, ohne Werkzeuge und ohne Zugriff auf Ihr Projekt — nur ein kurzes Ende dessen, was diese Sitzung zuletzt gesagt und getan hat. Es wird höchstens eine Sitzung gleichzeitig gefragt und nicht öfter als 12-mal pro Stunde.",
+        "sessionProbeLoadError": "Die aktuelle Einstellung konnte nicht gelesen werden.",
+        "sessionProbeSaveError": "Speichern nicht möglich. Es wurde nichts geändert."
       },
       "notifications": {
         "cmdBlocked": "Benachrichtigen, wenn eine CMD-Sitzung auf eine Eingabe wartet",
@@ -867,9 +879,10 @@
       "contextItems": "{{count}} Einträge",
       "model": {
         "label": "Modell",
-        "opus": "Leistungsstärkstes Modell. Bestes Denkvermögen und komplexe Aufgaben. Höchste Kosten.",
+        "opus": "Sehr leistungsstark. Ideal für komplexes agentisches Programmieren und Denken. Hohe Kosten.",
         "sonnet": "Ausgewogene Leistung und Kosten. Gut für die meisten Aufgaben.",
         "haiku": "Schnellstes und günstigstes Modell. Am besten für einfache Nur-Lesen-Aufgaben.",
+        "fable": "Höchste Leistungsfähigkeit. Für anspruchsvollstes Denken und langlaufende Aufgaben. Höchste Kosten.",
         "unknown": "{{name}} — neu veröffentlichtes Model. Fähigkeiten und Kosten aus Familien-Standardwerten abgeleitet."
       },
       "contextWindow": {
@@ -1044,8 +1057,24 @@
         "tokens": "Fenstergröße etwa {{tokens}} Token.",
         "foldsAt": "Faltet bei etwa {{tokens}}, am Ende der jeweiligen Runde.",
         "foldsAtAuto": "Faltet bei {{percent}} % des von der CLI gewählten Fensters, am Ende der jeweiligen Runde.",
-        "unsetDefaultLabel": "nicht gesetzt ({{tokens}})",
-        "globalTip": "Gilt für jeden Agenten ohne eigenen Wert für die automatische Verdichtung — auch für bereits laufende. Nicht gesetzt bedeutet: Standardwert wird verwendet."
+        "unsetDefaultLabel": "nicht gesetzt (Standard: aus)",
+        "globalTip": "Gilt für jeden Agenten ohne eigenen Wert für die automatische Verdichtung — auch für bereits laufende. Nicht gesetzt bedeutet: Standardwert wird verwendet.",
+        "offLabel": "aus",
+        "off": "aus — es wird nie gefaltet. Kein Zusammenfassungsaufruf, also keine Token.",
+        "foldsAtOff": "Wird nie gefaltet. Lange Gespräche werden mit jedem Zug schwerer, und wenn das Modellfenster voll ist, faltet die CLI einmal mitten in der Arbeit.",
+        "confirm": {
+          "title": "Auto-Komprimierung einschalten? ({{value}})",
+          "titleSelf": "Den Agenten selbst komprimieren lassen?",
+          "costHeading": "Das Einschalten kostet Token",
+          "costBody": "Komprimierung ist kein kostenloses Aufräumen — das gesamte Gespräch wird dem Modell erneut zugeführt, um eine Zusammenfassung zu schreiben: ein eigener Modellaufruf. Jede Faltung verbraucht Eingabe- und Ausgabe-Token sowie dein Plankontingent.",
+          "costSample": "Gemessenes Beispiel (Mittel aus {{runs}} Läufen): rund {{tokens}} Token werden pro Faltung erneut gelesen, mit etwa {{seconds}} Sekunden Pause. Deine Werte hängen von Gesprächslänge und Modell ab.",
+          "selfBody": "Der Agent bittet um Komprimierung, wenn er den Kontext für zu schwer hält; ausgeführt wird sie nach dem Ende dieses Zuges. Jede Anfrage ist ein Zusammenfassungsaufruf und kostet dieselben Token.",
+          "offHeading": "Was du verlierst, wenn es aus bleibt",
+          "offBody": "Ohne Faltung wird das gesamte angesammelte Gespräch in jedem Zug erneut gesendet — Kosten und Wartezeit steigen mit. Ist das Modellfenster voll, faltet die CLI einmal mitten in der Arbeit, oder die Sitzung bricht jenseits des Fensters ab.",
+          "everyTime": "Diese Rückfrage erscheint jedes Mal, wenn du es wieder einschaltest.",
+          "cancel": "Abbrechen (aus lassen)",
+          "enable": "Verstanden — einschalten"
+        }
       },
       "settingSources": {
         "label": "Einstellungsquellen",
@@ -1308,6 +1337,21 @@
       "maxSave": "Speichern",
       "noVisible": "Keine sichtbaren Dateien"
     },
+    "webEntry": {
+      "count": "Einträge {{count}}",
+      "maxTitle": "Max. Einträge für diese Domain",
+      "maxHint": "Enter · Esc",
+      "empty": "Noch nichts erfasst",
+      "clearAll": "Alle löschen",
+      "clearConfirm": "Löschen",
+      "clearCancel": "Abbrechen",
+      "kindSearch": "Suche",
+      "kindFetch": "Abruf",
+      "checkHint": "Ankreuzen entfernt diesen Eintrag",
+      "openExternal": "Im Browser öffnen",
+      "resultCount": "{{count}} Ergebnisse",
+      "truncated": "…(gekürzt)"
+    },
     "rootFileList": {
       "files": "Dateien",
       "loading": "Laden...",
@@ -1334,6 +1378,12 @@
         "running": "läuft",
         "done": "fertig",
         "error": "Fehler"
+      },
+      "probe": {
+        "checking": "wird geprüft…",
+        "working": "Betrieb bestätigt",
+        "stuck": "möglicherweise blockiert",
+        "finished": "scheint fertig"
       },
       "tokensInOut": "{{in}}ein {{out}}aus"
     },
@@ -1656,6 +1706,9 @@
       "empty": "In diesem Projekt wurde noch nichts gemessen.",
       "emptyHint": "Kosten erscheinen, sobald ein Agent einen Turn abschließt — sie werden aus dem Sitzungsprotokoll gelesen, nicht aus abgerechneten Beträgen.",
       "estimateNote": "Geschätzt anhand von Token-Anzahl und veröffentlichten Preisen.",
+      "estimatedMark": "ca.",
+      "estimatedMarkHint": "Enthält ein Modell ohne hinterlegten Preis; es wurde ein Ersatztarif verwendet. Der Betrag kann abweichen.",
+      "unseededNote": "Für {{models}} ist kein Preis hinterlegt; es wurde ein Ersatztarif verwendet. Dieser Betrag kann abweichen.",
       "retiredNote": "{{cost}} aus älteren Sitzungen ist in die Gesamtsumme eingerechnet.",
       "sessions_one": "{{count}} Sitzung",
       "sessions_other": "{{count}} Sitzungen",
@@ -1770,6 +1823,10 @@
       "choose": "Ordner auswählen",
       "picking": "Wird ausgewählt…",
       "later": "Später"
+    },
+    "folderList": {
+      "loadingMore": "Weitere werden geladen… ({{loaded}} / {{total}})",
+      "retry": "Laden fehlgeschlagen — erneut versuchen"
     }
   },
   "ide": {
@@ -1873,7 +1930,17 @@
       "confirmCloseMessage": "Eine Session läuft noch. Schließen stoppt ihre Arbeit. Trotzdem schließen?",
       "confirmCloseConfirm": "Schließen",
       "confirmCloseCancel": "Abbrechen",
-      "hiddenRunning": "{{count}} laufende Tab(s) außer Sicht — zum Springen klicken"
+      "hiddenRunning": "{{count}} laufende Tab(s) außer Sicht — zum Springen klicken",
+      "sortTabs": "Tabs sortieren",
+      "sortAnchorTitle": "Prioritätsseite",
+      "sortAnchorRight": "Von rechts",
+      "sortAnchorLeft": "Von links",
+      "sortByRunning": "Läuft",
+      "sortByQuestions": "Fragekarten",
+      "sortByReviews": "Prüfkarten",
+      "sortByUserActions": "Ihre Aufgaben",
+      "sortByPinned": "Angeheftet",
+      "sortByRecent": "Zuletzt aktiv"
     },
     "terminal": {
       "unavailable": "Das eingebettete Terminal ist nur in der Vibisual-Desktop-App verfügbar.",
@@ -1949,6 +2016,8 @@
       "ctxSendAsPrompt": "Als neuen Prompt senden",
       "ctxSelectAll": "Alles auswählen",
       "ctxAddMemo": "Memo hinzufügen",
+      "ctxSpreadMemos": "Überlappende Memos entzerren",
+      "ctxSpreadMemosNone": "Keine überlappenden Memos",
       "jumpToBottom": "Zum Ende scrollen",
       "ctxSelectionRequired": "Zuerst Text auswählen",
       "inputCtxCut": "Ausschneiden",
@@ -1958,10 +2027,53 @@
       "ctxSaveToBrain": "Im Memory speichern",
       "stopAll": "Alles stoppen",
       "stopAllTitle": "Alles stoppen, was dieser Agent ausführt (andere Tabs + Hintergrundaufgaben)",
-      "stopSessionTitle": "Diese Session und die von ihr gestarteten Unteragenten stoppen (andere Session-Tabs laufen weiter)"
+      "stopSessionTitle": "Diese Session und die von ihr gestarteten Unteragenten stoppen (andere Session-Tabs laufen weiter)",
+      "voiceStart": "Spracheingabe ({{shortcut}})",
+      "voiceStop": "Spracheingabe beenden ({{shortcut}})",
+      "voiceStarting": "Mikrofon wird geöffnet…",
+      "voiceListening": "Hört zu — sprechen Sie jetzt",
+      "voiceCancelHint": "Esc zum Verwerfen",
+      "voiceDone": "Fertig",
+      "voiceErrUnsupported": "In diesem Build ist keine Spracherkennung verfügbar.",
+      "voiceErrPermission": "Der Zugriff auf das Mikrofon wurde verweigert. Erlauben Sie ihn für diese App in den Datenschutzeinstellungen des Systems und versuchen Sie es erneut.",
+      "voiceErrDevice": "Kein Mikrofon gefunden. Schließen Sie eines an und versuchen Sie es erneut.",
+      "voiceErrNetwork": "Der Spracherkennungsdienst war nicht erreichbar.",
+      "voiceErrLanguage": "Die Spracherkennung unterstützt die aktuelle Oberflächensprache nicht.",
+      "voiceErrUnknown": "Die Spracheingabe wurde beendet. Bitte versuchen Sie es erneut.",
+      "voiceErrDismiss": "Schließen"
+    },
+    "voiceInstall": {
+      "title": "Spracheingabe einrichten",
+      "intro": "Die Spracheingabe läuft vollständig auf diesem Computer. Für die Einrichtung werden einmalig etwa {{size}} heruntergeladen — danach funktioniert sie offline.",
+      "noteSize": "Lädt etwa {{size}} herunter und behält sie auf der Festplatte (Engine + Sprachmodell). Das geschieht nur einmal.",
+      "noteResume": "Sie können jederzeit abbrechen. Bereits Heruntergeladenes bleibt erhalten, und ein erneuter Start setzt dort fort.",
+      "notePrivacy": "Ihre Stimme verlässt diesen Computer nicht — kein Konto, kein Internet, nichts wird aufgezeichnet oder gespeichert.",
+      "noteFirstRun": "Wenn Sie nach der Einrichtung zum ersten Mal sprechen, braucht das Modell einige Sekunden zum Laden.",
+      "noteLicense": "Sprachmodell: NVIDIA Nemotron ASR (OpenMDW-1.1). Engine: sherpa-onnx (Apache-2.0).",
+      "langPrimary": "Dieses Modell unterstützt Ihre Oberflächensprache vollständig.",
+      "langBroad": "Dieses Modell unterstützt Ihre Oberflächensprache mit geringerer Genauigkeit.",
+      "langNone": "Dieses Modell führt Ihre Oberflächensprache nicht auf — die Erkennung kann schlecht sein oder gar nicht funktionieren.",
+      "stageEngine": "Engine wird heruntergeladen",
+      "stageExtract": "Engine wird entpackt",
+      "stageModel": "Sprachmodell wird heruntergeladen",
+      "stageVerify": "Dateien werden geprüft",
+      "stageReady": "Bereit",
+      "stageCanceled": "Abgebrochen",
+      "canceledHint": "Abgebrochen. Das Heruntergeladene bleibt erhalten — ein erneuter Start setzt dort fort.",
+      "failed": "Einrichtung fehlgeschlagen.",
+      "cancel": "Abbrechen",
+      "later": "Später",
+      "retry": "Erneut versuchen",
+      "start": "Installieren und starten"
     },
     "memo": {
       "title": "Memo",
+      "tabHint": "Herausziehen zum Lösen · auf ein anderes Memo ziehen zum Zusammenführen",
+      "mergeHint": "Titelleiste auf ein anderes Memo ziehen, um sie zusammenzuführen",
+      "stacked": "Darunter {{n}} — klicken, um das nächste hervorzuholen",
+      "rename": "Umbenennen",
+      "namePlaceholder": "Name (leer = erste Zeile der Notiz)",
+      "renameHint": "F2 · Doppelklick · Rechtsklick zum Umbenennen",
       "placeholder": "Notiz eingeben…",
       "color": "Farbe",
       "collapse": "Einklappen",
@@ -2381,13 +2493,21 @@
     },
     "statusBar": {
       "custom": "Benutzerdefiniert",
+      "customTip": "Ein Agent, den du selbst auf der Leinwand erstellt hast. Du kannst ihm Befehle schicken und seine Sessions als Tabs öffnen.",
       "hook": "Hook",
+      "hookTip": "Aus Claude-Code-Hook-Ereignissen erkannt. Schreibgeschützt — du kannst ihm keine Befehle schicken.",
+      "statusTip": "Laufzustand der hier gezeigten Session: läuft, wartet, fertig oder fehlgeschlagen.",
+      "modelTip": "Das Modell, das diese Session in ihrer letzten Runde tatsächlich genutzt hat. Vor der ersten Runde steht hier das für diesen Agent eingestellte Modell.",
+      "modelUnknown": "unbekannt",
       "context": "Kontext: {{used}}/{{max}}",
+      "contextTip": "Wie voll das Kontextfenster gerade ist — die Eingabe der letzten Runde gemessen am Fenster dieses Modells. Kein laufender Gesamtwert: nach einer Verdichtung fällt er wieder.",
       "tokens": "{{in}} ein / {{out}} aus",
+      "tokensTip": "Summe der Tokens, die diese Session seit dem Start verbraucht hat. Die Eingabe zählt auch Cache-Lese- und Cache-Schreibvorgänge mit und steigt deshalb weit schneller als die Ausgabe. Kumulativ — sie sinkt nie.",
+      "autoCompact": "Auto-Verdichtung {{value}}",
+      "autoCompactTip": "Sobald der Kontext diese Größe erreicht, fasst die CLI das Gespräch von selbst zusammen. Pro Agent in den Agent-Einstellungen änderbar, global unter Datei > Optionen > Agent-Standardwerte.",
       "sessionOne": "{{count}} Session",
       "sessionMany": "{{count}} Sessions",
-      "autoCompact": "Auto-Verdichtung {{value}}",
-      "autoCompactTip": "Sobald der Kontext diese Größe erreicht, fasst die CLI das Gespräch von selbst zusammen. Pro Agent in den Agent-Einstellungen änderbar, global unter Datei > Optionen > Agent-Standardwerte."
+      "sessionsTip": "Wie viele Session-Tabs für diesen Agent geöffnet sind."
     },
     "search": {
       "placeholder": "Im Gespräch suchen",
@@ -2421,6 +2541,15 @@
       "modelFallback": "Modell-Fallback",
       "interrupt": "Unterbrochen",
       "permissionDenied": "Zugriff verweigert"
+    },
+    "stepTrace": {
+      "underSec": "unter 1 s",
+      "sec": "{{sec}} s",
+      "minSec": "{{min}} min {{sec}} s",
+      "hourMin": "{{hour}} Std. {{min}} min",
+      "thought": "{{duration}} nachgedacht",
+      "wrote": "{{value}} Zeichen geschrieben",
+      "chars": "{{value}} Zeichen"
     },
     "streamRenderer": {
       "noActivity": "Keine Aktivität in dieser Session",
@@ -3601,7 +3730,14 @@
       "lock": "Arbeitsfläche sperren",
       "unlock": "Arbeitsfläche entsperren",
       "fullscreen": "Vollbild",
-      "exitFullscreen": "Vollbild beenden"
+      "exitFullscreen": "Vollbild beenden",
+      "heatmap": "Lese-Heatmap",
+      "heatmapOff": "Lese-Heatmap ausschalten"
+    },
+    "heatmap": {
+      "title": "Lesevorgänge",
+      "empty": "Noch nichts gelesen",
+      "max": "max. {{n}}"
     },
     "contextMenu": {
       "createCustomAgent": "Custom Agent erstellen",

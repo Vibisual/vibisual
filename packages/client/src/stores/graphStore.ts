@@ -1,17 +1,19 @@
 import { create } from 'zustand';
 // §5.5 #17-20 ⑩ v4.94 — 중단점을 켜고 끄면 붙어 있는 세션에도 바로 밀어 넣는다(단방향: graphStore → debugSessions).
 import { useDebugSessions, pushBreakpointsToSession } from './debugSessions.js';
-import type { BubbleData, ActivityEdge, BashEntry, ServerEntry, AgentEvent, FileEdit, AgentPhase, ProjectInfo, QueuedCommand, SubAgent, RunningSubagentTask, FinishedSubagentTask, ServerKind, PipelineType, PipelineState, AgentConfig, SubAgentStreamEvent, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, UiLocale, ProjectMetaSnapshot, AppState, AppStatePatch, CommentBox, CaptureBubble, DebugBreakpoint, AppBubble, PlayBubble, PlayRecipeCandidate, SpecDoc, LabRun, LabVariantConfig, ShelfBubble, ShelfItem, ShelfItemKind, ProjectCostMap, ProjectAuditLog, AuditBoundaryConfig, Conti, ActiveContiWork, ContiRenderStatus, StoryboardPresetId, ToolDurationEntry, CompactCount, RateLimitInfo,
-  ClaudeUsageInfo, ClaudeAuthStatus, ClaudeSetupState, ClaudeSetupProgress, DiagnosticEntry, AutoAgentSummary, AutoAgentRun, ModelRegistry, LocalLlmState, LocalEngineProgress, LocalModelDownloadProgress, UserDefaults, AgentReport, AgentQuestions, AgentReview, ReviewRequest, AgentList, AgentFeedback, AgentFeedbackTargetType, AgentFeedbackVerdict, BrainSummary, BrainInjectionEvent, BrainCard, BrainCardType, BrainCardScope, BrainCardStatus, PluginFactMap, VerificationRun, VerificationDemo, SessionLoop, SessionLoopMode, SessionLoopContextMode, SessionGoal, SessionGoalStatus, SessionGoalStepStatus } from '@vibisual/shared';
+import type { BubbleData, ActivityEdge, BashEntry, ServerEntry, AgentEvent, FileEdit, WebEntry, AgentPhase, ProjectInfo, QueuedCommand, SubAgent, RunningSubagentTask, FinishedSubagentTask, ServerKind, PipelineType, PipelineState, AgentConfig, SubAgentStreamEvent, TaskEdge, TaskEdgeForwardMode, TaskEdgeKind, TaskEdgeMessageFormat, TaskEdgeReturnFormat, TaskEdgePriority, TaskEdgeCritiqueTiming, TaskEdgeCritiqueAuthority, TaskEdgeCommandMode, UiLocale, ProjectMetaSnapshot, AppState, AppStatePatch, CommentBox, CaptureBubble, DebugBreakpoint, AppBubble, PlayBubble, PlayRecipeCandidate, SpecDoc, LabRun, LabVariantConfig, ShelfBubble, ShelfItem, ShelfItemKind, ProjectCostMap, ProjectAuditLog, AuditBoundaryConfig, Conti, ActiveContiWork, ContiRenderStatus, StoryboardPresetId, ToolDurationEntry, CompactCount, RateLimitInfo,
+  ClaudeUsageInfo, ClaudeAuthStatus, ClaudeSetupState, ClaudeSetupProgress, DiagnosticEntry, AutoAgentSummary, AutoAgentRun, ModelRegistry, LocalLlmState, LocalEngineProgress, LocalModelDownloadProgress, UserDefaults, AgentReport, AgentQuestions, AgentReview, ReviewRequest, AgentList, AgentFeedback, AgentFeedbackTargetType, AgentFeedbackVerdict, BrainSummary, BrainInjectionEvent, BrainCard, BrainCardType, BrainCardScope, BrainCardStatus, PluginFactMap, VerificationRun, VerificationDemo, SessionLoop, SessionLoopMode, SessionLoopContextMode, SessionGoal, SessionGoalStatus, SessionGoalStepStatus, VoiceAsrState, VoiceAsrInstallProgress } from '@vibisual/shared';
 import type { StreamDensity, CommandDispatchMode, ProjectAgentCounts, SessionMemo } from '@vibisual/shared';
 import { isReadOnlyHookAgent } from '@vibisual/shared';
 // §4 (첫 실행 온보딩) ③ — 서버가 "고른 폴더가 없다"로 돌려보낸 409 를 알아본다.
 import { isNoProjectFolderError } from '@vibisual/shared';
 import { DEFAULT_UI_LOCALE, STREAM_EVENTS_MAX_PER_SESSION, STREAM_EVENTS_TRIM_SLACK, STREAM_EVENTS_MAX_PER_INACTIVE_SESSION, STREAM_INACTIVE_SESSIONS_MAX, DIAGNOSTIC_LOG_MAX, STREAM_DENSITIES, IDE_EDITOR_MAX_TABS, IDE_EDITOR_WIDTH, DIFF_COMMENT_MAX } from '@vibisual/shared';
 import i18n, { changeUiLocale } from '../i18n/index.js';
-import { calcFileSizeRange } from '../utils/sizeCalc.js';
+import { calcFileSizeRange, calcReadCountRange } from '../utils/sizeCalc.js';
 import { clientPathKey } from '../utils/platform.js';
+import { registerPersistFlush } from '../utils/persistFlush.js';
 import { structuralShare } from './structuralShare.js';
+import { batchedNotify } from './batchedNotify.js';
 import { diffSubAcknowledgements } from './subAckDiff.js';
 import type { ReadingSettings } from '../components/IDE/reading/readingModel.js';
 import {
@@ -48,6 +50,7 @@ import {
 import type { SplitDropSide } from '../components/IDE/splitDrop.js';
 import type { FollowSkipReason } from '../components/IDE/editorFollow.js';
 import type { DiffComment } from '../components/IDE/diffCommentPrompt.js';
+import { normalizeTabSortAnchor, type TabSortAnchor } from '../components/IDE/tabSort.js';
 import { clearCapturePlaytest } from './capturePlaytest.js';
 import { resolveLocalEntry } from '../components/LocalModel/localModelEntry.js';
 
@@ -170,6 +173,8 @@ function normalizeStreamDensity(value: string | null | undefined): StreamDensity
 const IDE_READING_KEY = 'vibisual:ideReading';
 const DEFAULT_SUBAGENTS_KEY = 'vibisual:defaultSubAgents';
 const TAB_PINS_KEY = 'vibisual:tabPins';
+// §5.5 #17-41 — 세션 탭 정렬이 어느 쪽을 기준으로 삼는가(오른쪽 기본). 순수 클라 표시 환경설정.
+const IDE_TAB_SORT_ANCHOR_KEY = 'vibisual:ideTabSortAnchor';
 const SUBAGENT_LABELS_KEY = 'vibisual:subAgentLabels';
 // 서브에이전트 완료 확인(ack) 상태 — 재시작 후에도 "확인함(회색)" 이 유지되도록 localStorage 영속.
 // 없으면 부팅 시 메모리 기본값 {} 으로 시작 → idle sub 들이 전부 미확인(녹색)으로 회귀.
@@ -312,6 +317,10 @@ function scheduleSaveSessionInputDrafts(drafts: Record<string, AgentSessionInput
   }, 400);
 }
 
+// §3.2.1 — 앱 종료는 `app.exit(0)` 이라 아래 세 이벤트가 안 뜬다. main 이 종료 직전에
+//   물어봐 주는 창구에도 같은 flush 를 올린다(입력창에 치던 문장을 잃지 않는다).
+registerPersistFlush(flushSessionInputDrafts);
+
 if (typeof window !== 'undefined') {
   window.addEventListener('pagehide', flushSessionInputDrafts);
   window.addEventListener('beforeunload', flushSessionInputDrafts);
@@ -386,6 +395,36 @@ async function postCreate(path: string, body: unknown, get: () => GraphState): P
  */
 export function selectActiveBrainSummary(state: { brain: Record<string, BrainSummary>; activeProject: string | null }): BrainSummary | null {
   return (state.activeProject ? state.brain[state.activeProject] : null) ?? null;
+}
+
+/**
+ * §5.15 · §9 — "이 작업 카드가 나온 스펙이 그 뒤 바뀌었나" 를 **버블당 O(1)** 로 답한다.
+ *
+ * 종전엔 버블마다 선택자 안에서 전 스펙 × 전 항목을 훑었다. 선택자는 스토어가 통지할 때마다 버블
+ * 수만큼 다시 도므로, 화면에 버블 200개면 스냅샷 1건에 그 전수 스캔이 **200벌**이었다(스펙을 하나도
+ * 안 쓰는 사람도 예외가 아니다 — 빈 배열 확인만 200번).
+ *
+ * `specDocs` 배열의 **참조가 그대로면** 지난 결과를 그대로 쓴다. 스냅샷은 구조적 공유를 타므로
+ * 스펙을 실제로 고치지 않는 한 이 참조는 유지되고, 표는 스펙이 바뀐 그때 한 번만 다시 지어진다.
+ */
+let specStaleCache: { src: readonly SpecDoc[]; map: Record<string, string> } | null = null;
+export function selectSpecStaleTitle(state: { specDocs: SpecDoc[] }, agentId: string): string | null {
+  const docs = state.specDocs;
+  if (docs.length === 0) return null;
+  if (!specStaleCache || specStaleCache.src !== docs) {
+    const map: Record<string, string> = {};
+    for (const doc of docs) {
+      for (const item of doc.items) {
+        const target = item.taskAgentId;
+        if (!target) continue;
+        if ((item.generatedRevision ?? 0) >= doc.bodyRevision) continue;
+        // 먼저 만난 스펙이 이긴다 — 종전 선택자(첫 일치에서 return)와 같은 답을 내기 위함.
+        if (map[target] === undefined) map[target] = doc.title || doc.id;
+      }
+    }
+    specStaleCache = { src: docs, map };
+  }
+  return specStaleCache.map[agentId] ?? null;
 }
 
 /**
@@ -1277,6 +1316,8 @@ interface GraphState {
   nodeProjects: Record<string, string>;
   /** 파일별 수정 기록 (file node ID → 최신순 FileEdit[]) */
   fileEdits: Record<string, FileEdit[]>;
+  /** §5.23 — 도메인 버블별 웹 이력 (domain node ID → 최신순 WebEntry[]) */
+  domainEntries: Record<string, WebEntry[]>;
   /** 에이전트별 명령 대기열 (agent ID → queued/executing만) */
   queuedCommands: Record<string, QueuedCommand[]>;
   /** 에이전트별 완료/에러 명령 아카이브 (agent ID → completed/error, Results 표시용) */
@@ -1322,6 +1363,18 @@ interface GraphState {
   registerAttachmentPreview: (basename: string, blobUrl: string) => void;
   /** 현재 보이는 파일 버블들의 크기 범위 (상대 크기 계산용) */
   fileSizeRange: { min: number; max: number };
+  /**
+   * §5.24 — 읽기 히트맵 모드 on/off. **클라이언트 전용 표시 상태**다(서버 전송 ❌ · 영속 ❌).
+   * §3.1 이 금지한 것은 클라가 상태를 만들고·바꾸고·만료시키는 것이고, 이것은 서버가 준 같은
+   * 데이터를 **어떻게 그릴지**의 선택이라 그 금지에 해당하지 않는다(잠금 토글·전체화면과 같은 칸).
+   */
+  heatmapMode: boolean;
+  toggleHeatmapMode: () => void;
+  /**
+   * §5.24 — 히트 상대 척도. **바닥은 언제나 0**이라 최대값 하나면 충분하다.
+   * 지금 활성 프로젝트의 히트 대상 버블(`isHeatBubbleType`) 중 가장 큰 `readCount`.
+   */
+  readCountRange: { max: number };
   addCommand: (agentId: string, text: string, subAgentId?: string | null, attachments?: string[]) => void;
   removeCommand: (agentId: string, commandId: string) => void;
   reorderCommands: (agentId: string, fromIndex: number, toIndex: number) => void;
@@ -1409,6 +1462,14 @@ interface GraphState {
   modelRegistry: ModelRegistry | null;
   /** §5.19 — 로컬 LLM(엔진 설치 상태·받아 둔 모델·내려받기). 서버가 디스크를 읽어 싣는다. */
   localLlm: LocalLlmState | null;
+  /**
+   * §5.5 #17-38 ⑫ — 오프라인 받아쓰기의 설치 상태. **서버가 디스크를 보고 판정한 값**이고
+   * 화면은 그대로 그린다(§3.1) — 여기서 "있는 것 같다"를 계산하지 않는다.
+   */
+  voiceAsr: VoiceAsrState | null;
+  applyVoiceAsrState: (state: VoiceAsrState | null) => void;
+  /** 설치 진행 push — 스냅샷을 기다리면 650MB 짜리 막대가 뚝뚝 끊긴다(§5.19 와 같은 이유). */
+  applyVoiceAsrProgress: (p: VoiceAsrInstallProgress) => void;
   /** §4 v2.42 — 사용자 글로벌 옵션 (Options 창 SSOT). */
   userDefaults: UserDefaults | null;
   /** §4 v1.50 — Claude.ai 한도 사용률 (글로벌, 외부 statusline 푸시). */
@@ -1608,6 +1669,18 @@ interface GraphState {
   /** 스냅샷에서 받은 프로젝트별 집계를 반영(별도 액션 — loadSnapshot 위치 인자 ❌). */
   applyProjectAgentCounts: (counts: Record<string, ProjectAgentCounts>) => void;
   /**
+   * §9 폴더 스코프 — 서버가 **전량으로 재서** 실어 준 상대 척도 둘을 반영한다.
+   *
+   * `loadSnapshot` 은 받은 스냅샷에서 직접 재는데, 폴더 범위를 좁히면 그 입력이 줄어
+   * 폴더를 드나들 때마다 파일 버블 크기와 히트맵 색이 바뀐다. 서버 값이 오면 그쪽이 권위다.
+   * **`loadSnapshot` 뒤에 불러야 한다**(직접 잰 값을 덮어쓰는 순서). 안 오면(구버전 서버)
+   * 아무것도 하지 않아 종전 동작 그대로다.
+   */
+  applySnapshotScales: (
+    fileSizeRange: { min: number; max: number } | undefined,
+    readCountMaxByProject: Record<string, number> | undefined,
+  ) => void;
+  /**
    * §9 — **마지막 스냅샷이 실어 온 구독 범위**(표시명 배열). `null` = 범위 미적용(전량).
    *
    * "지금 탭의 버블이 아직 안 온 것"과 "원래 비어 있는 것"을 가르는 값 — 판정은
@@ -1618,6 +1691,15 @@ interface GraphState {
   snapshotReceived: boolean;
   /** 스냅샷에서 받은 구독 범위를 반영(별도 액션 — loadSnapshot 위치 인자 ❌). */
   applySnapshotScope: (scope: string[] | undefined) => void;
+  /**
+   * §9 폴더 스코프 — **마지막 스냅샷이 적용한 폴더 범위**(노드 id 배열). `null` = 범위 미적용(전량).
+   *
+   * 프로젝트 축과 같은 쓰임의 한 칸 아래다 — 폴더에 막 들어가 아직 내용이 안 온 것과
+   * 원래 빈 폴더를 가른다. 판정은 마찬가지로 `canvasLoading.ts` 단독 소유.
+   */
+  snapshotFolderScope: string[] | null;
+  /** 스냅샷에서 받은 폴더 범위를 반영. */
+  applySnapshotFolderScope: (scope: string[] | undefined) => void;
   /**
    * WebSocket 연결 상태. `useWebSocket` 이 소유하지만 **캔버스도 읽어야** "연결이 끊겨 비어
    * 있는 것"을 "불러오는 중"으로 잘못 말하지 않는다(헤더 인디케이터와 같은 값).
@@ -1851,6 +1933,13 @@ interface GraphState {
    */
   tabPins: Record<string, true>;
   setTabPin: (key: string, pinned: boolean) => void;
+  /**
+   * §5.5 #17-41 — 세션 탭 정렬 기준(localStorage 영속). `right`(기본)면 우선순위가 높은 탭이
+   * 오른쪽 끝에, `left`면 왼쪽 끝에 모인다. 정렬 **결과**는 서버(탭 순서)로 가지만 이 기준 자체는
+   * 서버가 알 필요가 없다 — 읽기 설정·밀도와 같은 순수 클라 표시 환경설정이다.
+   */
+  ideTabSortAnchor: TabSortAnchor;
+  setIdeTabSortAnchor: (anchor: TabSortAnchor) => void;
   /**
    * TabBar Default 탭 (localStorage 영속). 값은 Pin 키 포맷과 동일(`project:<name>` | `iframe:<id>`).
    * 부트 시 마지막 활성 탭이 없으면 이 Default 탭을 활성화한다. null이면 없음.
@@ -2385,6 +2474,8 @@ interface GraphState {
   applyAgentReports: (reports: Record<string, AgentReport[]> | undefined) => void;
   /** §5.5 #17-36 — graph_snapshot 의 메인 탭 스티키 메모 반영. */
   applyAgentMemos: (memos: Record<string, SessionMemo[]> | undefined) => void;
+  /** §5.23 — graph_snapshot 의 도메인 버블 웹 이력 반영. */
+  applyDomainEntries: (entries: Record<string, WebEntry[]> | undefined) => void;
   /** §4 v2.60 — graph_snapshot 의 에이전트 질문 카드 반영. */
   applyAgentQuestions: (questions: Record<string, AgentQuestions[]> | undefined) => void;
   /** §4 v2.70 — graph_snapshot 의 에이전트 검수 요청 카드 반영. */
@@ -2632,7 +2723,10 @@ export function isStoreChannelSelection(
   );
 }
 
-export const useGraphStore = create<GraphState>((set, get) => ({
+// §9 — 스냅샷 1건은 `set()` 을 36번 부른다(loadSnapshot 1 + apply* 35). zustand 는 호출마다
+//   구독자 전원의 선택자를 다시 돌리므로 그 36벌이 통째로 낭비였다(실측 5.01ms → 0.15ms, 33배).
+//   `batchStoreNotify()` 로 감싼 구간은 통지가 1회로 접힌다 — 상태는 종전대로 즉시 갱신된다.
+export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, get) => ({
   projects: {},
   stubProjects: {},
   closingProjectPaths: {},
@@ -2654,6 +2748,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   agentProjects: {},
   nodeProjects: {},
   fileEdits: {},
+  domainEntries: {},
   queuedCommands: {},
   completedCommands: {},
   subAgents: {},
@@ -2719,6 +2814,9 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       return { attachmentPreviews: { ...state.attachmentPreviews, [basename]: blobUrl } };
     }),
   fileSizeRange: { min: 0, max: 0 },
+  heatmapMode: false,
+  toggleHeatmapMode: () => set((state) => ({ heatmapMode: !state.heatmapMode })),
+  readCountRange: { max: 0 },
   addCommand: (agentId, text, subAgentId, attachments) => {
     const sid = findSessionId(get().agents, agentId);
     if (!sid) return;
@@ -2896,6 +2994,22 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     projectAgentCounts: structuralShare(s.projectAgentCounts, counts),
   })),
 
+  applySnapshotScales: (fileSizeRange, readCountMaxByProject) => set((s) => {
+    const out: Partial<GraphState> = {};
+    if (fileSizeRange
+      && (fileSizeRange.min !== s.fileSizeRange.min || fileSizeRange.max !== s.fileSizeRange.max)) {
+      out.fileSizeRange = fileSizeRange;
+    }
+    if (readCountMaxByProject) {
+      // 활성 프로젝트가 아직 안 정해졌으면 클라가 쓰던 규칙 그대로 **전부**를 대상으로 잰다.
+      const max = s.activeProject !== null
+        ? (readCountMaxByProject[s.activeProject] ?? 0)
+        : Object.values(readCountMaxByProject).reduce((a, b) => (b > a ? b : a), 0);
+      if (max !== s.readCountRange.max) out.readCountRange = { max };
+    }
+    return out;
+  }),
+
   snapshotScope: null,
   snapshotReceived: false,
   applySnapshotScope: (scope) => set((s) => {
@@ -2908,6 +3022,18 @@ export const useGraphStore = create<GraphState>((set, get) => ({
         && s.snapshotScope.every((n, i) => n === next[i]);
     if (same && s.snapshotReceived) return {};
     return { ...(same ? {} : { snapshotScope: next }), snapshotReceived: true };
+  }),
+
+  snapshotFolderScope: null,
+  applySnapshotFolderScope: (scope) => set((s) => {
+    const next = scope ?? null;
+    // 같은 이유로 참조를 유지한다 — 폴더를 옮기지 않는 한 스냅샷마다 이 값이 새것이면 안 된다.
+    const same = next === null
+      ? s.snapshotFolderScope === null
+      : s.snapshotFolderScope !== null
+        && s.snapshotFolderScope.length === next.length
+        && s.snapshotFolderScope.every((n, i) => n === next[i]);
+    return same ? {} : { snapshotFolderScope: next };
   }),
 
   connectionStatus: 'connecting',
@@ -3765,6 +3891,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   sessionGoals: {},
   modelRegistry: null,
   localLlm: null,
+  voiceAsr: null,
   userDefaults: null,
   rateLimits: null,
   claudeUsage: null,
@@ -4063,6 +4190,9 @@ export const useGraphStore = create<GraphState>((set, get) => ({
         ?? [...new Set(Object.values(agentProjects))][0]
         ?? null;
       if (resolvedProject !== state.activeProject) saveActiveProject(resolvedProject);
+      // §5.24 — 히트 상대 척도. `fileSizeRange` 와 같은 자리·같은 방식(파생 순수 계산)이되,
+      //   **지금 활성 프로젝트 소속만** 잰다(§3.5 — 다른 탭의 뜨거운 파일이 이 지도를 눌러선 안 된다).
+      const readCountRange = calcReadCountRange(Object.values(nodeMap), nodeProjects, resolvedProject);
       let nextPreviews = state.attachmentPreviews;
       let previewChanged = false;
       for (const [bn, url] of Object.entries(state.attachmentPreviews)) {
@@ -4139,6 +4269,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
         subAgents: share(state.subAgents, subAgents),
         ...(ackChanged ? { acknowledgedSubAgents: nextAck } : {}),
         fileSizeRange: share(state.fileSizeRange, fileSizeRange),
+        readCountRange: share(state.readCountRange, readCountRange),
         agentPhase: share(state.agentPhase, agentPhase),
         activeAgentCount,
         pipelineChildren: share(state.pipelineChildren, pipelineChildren),
@@ -4449,6 +4580,12 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     saveJSON(TAB_PINS_KEY, next);
     return { tabPins: next };
   }),
+  ideTabSortAnchor: normalizeTabSortAnchor(loadJSON<string | null>(IDE_TAB_SORT_ANCHOR_KEY, null)),
+  setIdeTabSortAnchor: (anchor) => set(() => {
+    const next = normalizeTabSortAnchor(anchor);
+    saveJSON(IDE_TAB_SORT_ANCHOR_KEY, next);
+    return { ideTabSortAnchor: next };
+  }),
   defaultTabbarKey: loadJSON<string | null>(DEFAULT_TABBAR_KEY, null),
   setDefaultTabbar: (key) => set(() => {
     saveJSON(DEFAULT_TABBAR_KEY, key);
@@ -4499,7 +4636,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     return { subAgentLabels: next };
   }),
   appState: null,
-  applyAppState: (appState) => set({ appState: appState ?? null }),
+  applyAppState: (appState) => set((s) => ({ appState: structuralShare(s.appState, appState ?? null) })),
   patchAppState: async (patch) => {
     try {
       await fetch(`${API_BASE}/api/app-state`, {
@@ -4516,7 +4653,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   toggleDebug: () => set((s) => ({ debugMode: !s.debugMode })),
   layoutBoundsByProject: {},
   applyLayoutBoundsByProject: (map) =>
-    set({ layoutBoundsByProject: map ?? {} }),
+    set((s) => ({ layoutBoundsByProject: structuralShare(s.layoutBoundsByProject, map ?? {}) })),
   setLayoutBoundsSize: (halfWidth, halfHeight) => {
     const hw = Math.min(8000, Math.max(300, Math.round(halfWidth)));
     const hh = Math.min(8000, Math.max(300, Math.round(halfHeight)));
@@ -4939,11 +5076,20 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     const touched = new Set<string>();
     const now = Date.now();
     for (const event of events) {
-      const prev = nextStreams[event.subAgentId];
+      const sid = event.subAgentId;
+      let buf = nextStreams[sid];
+      // §9 — 버퍼 복사는 **세션마다 배치당 한 번**. 종전엔 이벤트마다 `[...prev]` 로 전체를 베껴,
+      //   4,000줄 상한(STREAM_EVENTS_MAX_PER_SESSION) 버퍼에 30줄이 들어오면 12만 칸을 복사하고
+      //   4,000칸짜리 죽은 배열 29개를 남겼다 — 프레임을 끊는 쪽은 복사 자체보다 그 GC 압력이다.
+      //   복사본은 이 함수 밖으로 나가기 전이라 그 자리에서 계속 이어 써도 스토어 값은 안 건드린다.
+      if (!touched.has(sid)) {
+        buf = buf ? buf.slice() : [];
+        nextStreams[sid] = buf;
+        touched.add(sid);
+      }
       // 단건 경로와 같은 규칙 — 도장이 가리키는 제 턴 자리에 꽂는다.
-      nextStreams[event.subAgentId] = prev ? insertEventInTurnOrder([...prev], event).buffer : [event];
-      nextLast[event.subAgentId] = now;
-      touched.add(event.subAgentId);
+      insertEventInTurnOrder(buf!, event);
+      nextLast[sid] = now;
     }
     // 성능: 이번 배치로 늘어난 세션만 활성/비활성 차등 상한 적용(초과 시 오래된 것부터 절단).
     // 활성 세션은 slack 여유를 둬 상한 도달 후에도 대부분 순수 append 를 유지(증분 파서 유효).
@@ -5717,12 +5863,12 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     set({ uiLocale: locale });
     changeUiLocale(locale);
   },
-  applyV150Metrics: (recentToolDurations, compactCounts, rateLimits, claudeUsage) => set({
-    recentToolDurations: recentToolDurations ?? {},
-    compactCounts: compactCounts ?? {},
-    rateLimits: rateLimits ?? null,
-    claudeUsage: claudeUsage ?? null,
-  }),
+  applyV150Metrics: (recentToolDurations, compactCounts, rateLimits, claudeUsage) => set((s) => ({
+    recentToolDurations: structuralShare(s.recentToolDurations, recentToolDurations ?? {}),
+    compactCounts: structuralShare(s.compactCounts, compactCounts ?? {}),
+    rateLimits: structuralShare(s.rateLimits, rateLimits ?? null),
+    claudeUsage: structuralShare(s.claudeUsage, claudeUsage ?? null),
+  })),
   // §4 v4.82 — 로그인 상태. 서버가 판정 전이면 필드가 없어 null 로 남고, 그동안 팝업은 뜨지 않는다.
   applyClaudeAuth: (auth) => set((s) => {
     if (!auth) return s.claudeAuth === null ? {} : { claudeAuth: null };
@@ -5815,39 +5961,38 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       return false;
     }
   },
-  applySkillUsageCounts: (counts) => set({ skillUsageCounts: counts ?? {} }),
-  applyAutoAgentSummaries: (summaries) => set({ autoAgentSummaries: summaries ?? {} }),
-  applyAutoAgentRuns: (runs) => set({ autoAgentRuns: runs ?? {} }),
+  applySkillUsageCounts: (counts) => set((s) => ({ skillUsageCounts: structuralShare(s.skillUsageCounts, counts ?? {}) })),
+  applyAutoAgentSummaries: (summaries) => set((s) => ({ autoAgentSummaries: structuralShare(s.autoAgentSummaries, summaries ?? {}) })),
+  applyAutoAgentRuns: (runs) => set((s) => ({ autoAgentRuns: structuralShare(s.autoAgentRuns, runs ?? {}) })),
   // §5.5 #17-9 v3.51 — 서버가 매 스냅샷에 전량을 싣는다. 비면(=다 끝남) 빈 맵으로 교체 →
   //   활동바 아이콘/배지가 사라지고, 열려 있던 패널은 컴포넌트 쪽 가드가 닫는다.
-  applyRunningSubagentTasks: (tasks) => set((s) => {
-    const next = tasks ?? {};
-    const prevKeys = Object.keys(s.runningSubagentTasks);
-    if (prevKeys.length === 0 && Object.keys(next).length === 0) return {};
-    return { runningSubagentTasks: next };
-  }),
+  applyRunningSubagentTasks: (tasks) => set((s) => ({
+    runningSubagentTasks: structuralShare(s.runningSubagentTasks, tasks ?? {}),
+  })),
   // §5.5 #17-9 ⑦(b) — 도는 것과 같은 규약(서버가 매 스냅샷에 전량). 빈 스냅샷이 반복될 때만 no-op.
-  applyFinishedSubagentTasks: (tasks) => set((s) => {
-    const next = tasks ?? {};
-    if (Object.keys(s.finishedSubagentTasks).length === 0 && Object.keys(next).length === 0) return {};
-    return { finishedSubagentTasks: next };
-  }),
-  applyAgentReports: (reports) => set({ agentReports: reports ?? {} }),
+  applyFinishedSubagentTasks: (tasks) => set((s) => ({
+    finishedSubagentTasks: structuralShare(s.finishedSubagentTasks, tasks ?? {}),
+  })),
+  applyAgentReports: (reports) => set((s) => ({ agentReports: structuralShare(s.agentReports, reports ?? {}) })),
   // §5.5 #17-36 — **구조적 공유를 태운다.** 그냥 갈아끼우면 내용이 한 글자도 안 바뀐 스냅샷마다
   //   `agentMemos[agentId]` 가 새 배열이 되어, 메모를 붙여 둔 화면이 초당 수십 번 리렌더된다
   //   (`subAgents` 는 loadSnapshot 에서 이미 공유를 받고 있어 세션 메모에는 없던 증상이다).
   //   드래그가 "늦게 따라오는" 체감의 절반이 여기서 나왔다.
   applyAgentMemos: (memos) => set((s) => ({ agentMemos: structuralShare(s.agentMemos, memos ?? {}) })),
-  applyAgentQuestions: (questions) => set({ agentQuestions: questions ?? {} }),
-  applyAgentReviews: (reviews) => set({ agentReviews: reviews ?? {} }),
-  applyReviewRequests: (list) => set({ reviewRequests: list ?? [] }),
-  applyAgentLists: (lists) => set({ agentLists: lists ?? {} }),
-  applyAgentFeedbacks: (feedbacks) => set({ agentFeedbacks: feedbacks ?? {} }),
+  // §5.23 — `applyAgentMemos` 와 같은 이유로 **구조적 공유를 태운다.** 그냥 갈아끼우면
+  //   내용이 한 글자도 안 바뀐 스냅샷마다 `domainEntries[nodeId]` 가 새 배열이 되어
+  //   도메인 패널을 열어 둔 화면이 초당 수십 번 리렌더된다.
+  applyDomainEntries: (entries) => set((s) => ({ domainEntries: structuralShare(s.domainEntries, entries ?? {}) })),
+  applyAgentQuestions: (questions) => set((s) => ({ agentQuestions: structuralShare(s.agentQuestions, questions ?? {}) })),
+  applyAgentReviews: (reviews) => set((s) => ({ agentReviews: structuralShare(s.agentReviews, reviews ?? {}) })),
+  applyReviewRequests: (list) => set((s) => ({ reviewRequests: structuralShare(s.reviewRequests, list ?? []) })),
+  applyAgentLists: (lists) => set((s) => ({ agentLists: structuralShare(s.agentLists, lists ?? {}) })),
+  applyAgentFeedbacks: (feedbacks) => set((s) => ({ agentFeedbacks: structuralShare(s.agentFeedbacks, feedbacks ?? {}) })),
   // §5.5 #17-11 v3.79 — 서버가 매 스냅샷에 전량을 싣는다(삭제도 곧 사라짐으로 반영).
-  applySessionLoops: (loops) => set({ sessionLoops: loops ?? {} }),
+  applySessionLoops: (loops) => set((s) => ({ sessionLoops: structuralShare(s.sessionLoops, loops ?? {}) })),
   // §5.5 #17-35 — 검증 이력도 서버가 매 스냅샷에 전량을 싣는다(삭제도 곧 사라짐으로 반영).
-  applyVerificationRuns: (runs) => set({ verificationRuns: runs ?? {} }),
-  applyVerificationDemos: (demos) => set({ verificationDemos: demos ?? {} }),
+  applyVerificationRuns: (runs) => set((s) => ({ verificationRuns: structuralShare(s.verificationRuns, runs ?? {}) })),
+  applyVerificationDemos: (demos) => set((s) => ({ verificationDemos: structuralShare(s.verificationDemos, demos ?? {}) })),
   createVerificationDemo: async (input) => {
     // §5.5 #17-29 — 시연은 그 버블에 명령을 실어 보내기 위한 재료다. 훅 버블에는 만들지 않는다.
     if (isReadOnlyHookAgent(get().agents.find((a) => a.id === input.agentId))) return 'read-only';
@@ -5948,7 +6093,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     }).catch(() => {});
   },
   // §5.5 #17-17 v4.46 — 서버가 매 스냅샷에 전량을 싣는다(삭제도 곧 사라짐으로 반영).
-  applySessionGoals: (goals) => set({ sessionGoals: goals ?? {} }),
+  applySessionGoals: (goals) => set((s) => ({ sessionGoals: structuralShare(s.sessionGoals, goals ?? {}) })),
   saveSessionGoal: async (input) => {
     await fetch(`${API_BASE}/api/session-goal/${encodeURIComponent(input.agentId)}/${encodeURIComponent(input.subAgentId)}`, {
       method: 'PUT',
@@ -5992,10 +6137,11 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   applyDiagnosticLog: (log) => {
     const arr = log ?? [];
     // 서버가 이미 ring buffer 로 trim 하지만, 클라에서도 동일 상한을 방어적으로 적용.
-    set({ diagnosticLog: arr.length > DIAGNOSTIC_LOG_MAX ? arr.slice(arr.length - DIAGNOSTIC_LOG_MAX) : arr });
+    const trimmed = arr.length > DIAGNOSTIC_LOG_MAX ? arr.slice(arr.length - DIAGNOSTIC_LOG_MAX) : arr;
+    set((st) => ({ diagnosticLog: structuralShare(st.diagnosticLog, trimmed) }));
   },
-  applyModelRegistry: (reg) => set({ modelRegistry: reg ?? null }),
-  applyLocalLlm: (state) => set({ localLlm: state ?? null }),
+  applyModelRegistry: (reg) => set((s) => ({ modelRegistry: structuralShare(s.modelRegistry, reg ?? null) })),
+  applyLocalLlm: (state) => set((s) => ({ localLlm: structuralShare(s.localLlm, state ?? null) })),
   applyLocalEngineProgress: (p) => {
     const cur = get().localLlm;
     if (!cur) return;
@@ -6006,6 +6152,29 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     if (!cur) return;
     const rest = cur.downloads.filter((d) => d.downloadId !== p.downloadId);
     set({ localLlm: { ...cur, downloads: [...rest, p] } });
+  },
+  applyVoiceAsrState: (state) => set((s) => ({ voiceAsr: structuralShare(s.voiceAsr, state) })),
+  applyVoiceAsrProgress: (p) => {
+    const cur = get().voiceAsr;
+    // 아직 상태를 안 받아 온 창에도 막대는 서야 한다 — 없으면 최소 골격을 세워 얹는다.
+    const base: VoiceAsrState = cur ?? {
+      engineInstalled: false,
+      modelInstalled: false,
+      ready: false,
+      diskBytes: 0,
+    };
+    // 설치가 끝나면 그 자리에서 `ready` 로 올린다 — 창이 REST 왕복을 한 번 더 기다리지 않고
+    // 곧바로 물러나 받아쓰기를 시작할 수 있다(#17-38 ⑬ "끝나는 순간 듣기 시작한다").
+    const ready = p.stage === 'ready' ? true : base.ready;
+    set({
+      voiceAsr: {
+        ...base,
+        ready,
+        engineInstalled: ready ? true : base.engineInstalled,
+        modelInstalled: ready ? true : base.modelInstalled,
+        install: p,
+      },
+    });
   },
   /**
    * §4 v2.42 — 사용자 옵션 반영.
@@ -6024,7 +6193,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       const cur = get().userDefaults;
       if (cur && typeof cur.updatedAt === 'number' && typeof d.updatedAt === 'number' && d.updatedAt < cur.updatedAt) return;
     }
-    set({ userDefaults: d ?? null });
+    set((s) => ({ userDefaults: structuralShare(s.userDefaults, d ?? null) }));
   },
   setUiLocale: async (locale) => {
     const res = await fetch(`${API_BASE}/api/ui-locale`, {
@@ -6156,7 +6325,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     set({ claudeVersionDismissed: true, claudeVersionModalOpen: false });
     void fetch(`${API_BASE}/api/claude-version/dismiss-session`, { method: 'POST' }).catch(() => {});
   },
-}));
+})));
 
 // IDE 텍스트 줌 다중 창 동기화 — 별창/메인이 각자 렌더러(독립 store)라, 한 창에서 Ctrl+휠로 바꾼 배율을
 //   다른 창도 즉시 따라오도록 localStorage `storage` 이벤트로 반영(다른 탭/창에서의 변경만 발화).

@@ -154,6 +154,38 @@ export function buildSessionRunInputs(src: SessionRunInputSources): SessionRunIn
 }
 
 /**
+ * §2.4 — **"실행중…" 옆에 붙는 한 마디.** 스피너만으로는 정보가 0 이라 사용자가 "아직도?"를
+ * 판단할 근거가 없다(그게 이 축이 생긴 이유다). 서버가 붙여 준 판정을 낱말로 접기만 한다 —
+ * 여기서 상태를 만들거나 전이시키지 않는다(§3.1 서버 = SSOT).
+ *
+ * `finished` 는 일부러 다루지 않는다 — 그 판정을 받은 세션은 서버가 이미 내렸으므로 화면에
+ * "실행중"으로 서 있지 않다(자동 종료를 꺼 둔 경우에만 잠깐 보이고, 그때는 사유가 더 쓸모 있다).
+ */
+export function sessionProbeNote(sub: SubAgent | null | undefined): {
+  /** i18n 키. */
+  key: string;
+  /** 경고 색으로 그릴지 — `stuck` 하나뿐이다(사용자를 부르는 자리). */
+  warn: boolean;
+  /** 모델이 쓴 사유. 있으면 툴팁으로 붙인다. */
+  detail?: string;
+} | null {
+  if (!sub) return null;
+  if (sub.probing) return { key: 'panel.subAgent.probe.checking', warn: false };
+  const probe = sub.probe;
+  if (!probe) return null;
+  switch (probe.verdict) {
+    case 'stuck':
+      return { key: 'panel.subAgent.probe.stuck', warn: true, ...(probe.reason ? { detail: probe.reason } : {}) };
+    case 'working':
+      return { key: 'panel.subAgent.probe.working', warn: false, ...(probe.reason ? { detail: probe.reason } : {}) };
+    case 'finished':
+      return { key: 'panel.subAgent.probe.finished', warn: false, ...(probe.reason ? { detail: probe.reason } : {}) };
+    default:
+      return null; // unknown = 할 말이 없다. 아무것도 안 적는 편이 낫다.
+  }
+}
+
+/**
  * §2.4 (잠듦) — 이 에이전트가 **지금 claude 자식 프로세스를 하나도 들고 있지 않은가**.
  *
  * 판정·전환은 전부 서버가 한다(`sweepDormantIdleSubs`). 여기서는 시간을 재지도, 상태를 바꾸지도

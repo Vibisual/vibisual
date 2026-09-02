@@ -223,12 +223,16 @@ export function UpdateButton(): React.JSX.Element | null {
   if (phase !== 'available' && phase !== 'downloading' && phase !== 'downloaded') return null;
 
   if (phase === 'downloaded') {
+    // ⚠️ **`readyVersion` 을 먼저 본다** — 화면이 약속하는 버전은 "지금 누르면 깔리는 그것"
+    //    이어야 한다. `newVersion` 은 받는 중인 것을 가리킬 수 있어(0.1.19 를 받아 둔 채
+    //    0.1.20 을 받는 동안) 둘이 갈린다. 구버전 main 이 보낸 상태에는 없으므로 폴백한다.
+    const readyVersion = state.readyVersion ?? state.newVersion ?? '';
     return (
       <>
         <button
           type="button"
           onClick={() => setConfirmOpen(true)}
-          title={t('header.update.restartTooltip', { version: state.newVersion ?? '' })}
+          title={t('header.update.restartTooltip', { version: readyVersion })}
           className="app-nodrag flex items-center gap-1.5 rounded-md bg-blue-600 px-2.5 py-1 text-[12px] font-medium text-white transition-colors duration-150 hover:bg-blue-500"
         >
           <RestartIcon />
@@ -236,7 +240,7 @@ export function UpdateButton(): React.JSX.Element | null {
         </button>
         {confirmOpen && (
           <UpdateConfirmModal
-            version={state.newVersion ?? ''}
+            version={readyVersion}
             onCancel={() => setConfirmOpen(false)}
             onConfirm={() => { setConfirmOpen(false); install(); }}
           />

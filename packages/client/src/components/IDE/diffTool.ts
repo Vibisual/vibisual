@@ -13,28 +13,18 @@ const MAX_DP_CELLS = 1_200_000;
 
 // ─── 타입 ───
 
-/** 한 편집 조각 — 이전 텍스트 → 이후 텍스트. Write 는 oldText='' (전량 추가). */
-export interface EditHunk {
-  oldText: string;
-  newText: string;
-}
-
-/** create = 새 파일 생성(Write), edit = 기존 파일 부분 수정. */
-export type EditMode = 'edit' | 'create';
-
-/** Edit 계열 도구 input 을 diff 렌더용으로 정규화한 표현. */
-export interface ParsedEdit {
-  toolName: string;
-  filePath: string;
-  mode: EditMode;
-  hunks: EditHunk[];
-}
+// 도구 입력 모양은 **shared 가 안다**(§2.1 #3) — 종전에는 이 파일에만 있어서 서버 그래프가
+// `MultiEdit`/`NotebookEdit` 를 아예 모르는 채로 살았다(버블·쓰기 화살표·수정 이력 0). 아래 이름은
+// 이 모듈의 기존 사용처(DiffView·StreamRenderer·editorFollow)를 위한 별칭이다.
+export type { EditToolHunk as EditHunk, EditToolMode as EditMode } from '@vibisual/shared';
+export type { ParsedEditToolInput as ParsedEdit } from '@vibisual/shared';
+import { parseEditToolInputJson, type ParsedEditToolInput } from '@vibisual/shared';
 
 /**
  * §5.5 #17-12 — 이 편집이 몇 줄짜리인지(자동 펼침 판정용 어림값).
  * 조각마다 이전/이후 중 큰 쪽 줄 수를 더한다 — LCS 를 돌리지 않고도 "긴 diff 인가"를 가릴 수 있다.
  */
-export function editSizeLines(parsed: ParsedEdit): number {
+export function editSizeLines(parsed: ParsedEditToolInput): number {
   let total = 0;
   for (const h of parsed.hunks) {
     const oldLines = h.oldText === '' ? 0 : h.oldText.split('\n').length;
@@ -70,69 +60,13 @@ export interface DiffRow {
 
 // ─── 입력 파싱 ───
 
-function readString(obj: Record<string, unknown>, key: string): string | null {
-  const v = obj[key];
-  return typeof v === 'string' ? v : null;
-}
-
 /**
  * 도구 이름 + input(JSON 문자열) → ParsedEdit. Edit 계열이 아니거나 JSON 파싱 실패(스트리밍 중 미완성 등)면 null.
- * - Edit:         { file_path, old_string, new_string }
- * - MultiEdit:    { file_path, edits: [{ old_string, new_string }] }
- * - Write:        { file_path, content }                      → create
- * - NotebookEdit: { notebook_path, new_source, old_source? }
+ *
+ * 모양을 아는 것은 shared `parseEditToolInputJson` 하나다 — 서버 그래프(`recordFileEdit`)도 같은
+ * 파서를 본다. 여기 다시 분해하면 도구 입력이 바뀔 때 **한쪽만 고쳐져** 캔버스와 IDE 가 어긋난다.
  */
-export function parseEditToolInput(toolName: string, input: string): ParsedEdit | null {
-  let obj: Record<string, unknown>;
-  try {
-    const parsed: unknown = JSON.parse(input);
-    if (typeof parsed !== 'object' || parsed === null) return null;
-    obj = parsed as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-
-  switch (toolName) {
-    case 'Edit': {
-      const filePath = readString(obj, 'file_path');
-      const oldText = readString(obj, 'old_string');
-      const newText = readString(obj, 'new_string');
-      if (filePath === null || oldText === null || newText === null) return null;
-      return { toolName, filePath, mode: 'edit', hunks: [{ oldText, newText }] };
-    }
-    case 'MultiEdit': {
-      const filePath = readString(obj, 'file_path');
-      const editsRaw = obj['edits'];
-      if (filePath === null || !Array.isArray(editsRaw)) return null;
-      const hunks: EditHunk[] = [];
-      for (const e of editsRaw) {
-        if (typeof e !== 'object' || e === null) continue;
-        const rec = e as Record<string, unknown>;
-        const oldText = readString(rec, 'old_string');
-        const newText = readString(rec, 'new_string');
-        if (oldText === null || newText === null) continue;
-        hunks.push({ oldText, newText });
-      }
-      if (hunks.length === 0) return null;
-      return { toolName, filePath, mode: 'edit', hunks };
-    }
-    case 'Write': {
-      const filePath = readString(obj, 'file_path');
-      const content = readString(obj, 'content');
-      if (filePath === null || content === null) return null;
-      return { toolName, filePath, mode: 'create', hunks: [{ oldText: '', newText: content }] };
-    }
-    case 'NotebookEdit': {
-      const filePath = readString(obj, 'notebook_path') ?? readString(obj, 'file_path');
-      const newText = readString(obj, 'new_source');
-      if (filePath === null || newText === null) return null;
-      const oldText = readString(obj, 'old_source') ?? '';
-      return { toolName, filePath, mode: 'edit', hunks: [{ oldText, newText }] };
-    }
-    default:
-      return null;
-  }
-}
+export const parseEditToolInput = parseEditToolInputJson;
 
 // ─── 시퀀스 LCS diff (라인·단어 공용) ───
 
@@ -251,7 +185,7 @@ export function computeLineDiff(oldText: string, newText: string): DiffRow[] {
 }
 
 /** ParsedEdit 요약 — 추가/삭제 라인 수(헤더 배지용). */
-export function summarizeEdit(parsed: ParsedEdit): { added: number; removed: number } {
+export function summarizeEdit(parsed: ParsedEditToolInput): { added: number; removed: number } {
   let added = 0;
   let removed = 0;
   for (const h of parsed.hunks) {

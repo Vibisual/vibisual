@@ -1,5 +1,6 @@
 import { NODE_MIN_SIZE, NODE_MAX_SIZE, FILE_MIN_SIZE, FILE_MAX_SIZE, IFRAME_BUBBLE_HEIGHT } from '@vibisual/shared';
-import type { BubbleData } from '@vibisual/shared';
+import { heatRatio, heatSize, isHeatBubbleType } from '@vibisual/shared';
+import type { BubbleData, HeatScale } from '@vibisual/shared';
 
 /** 활동량 기반 크기 계산을 위한 상한 */
 const MAX_EXPECTED_ACTIVITY = 50;
@@ -14,7 +15,16 @@ const MAX_EXPECTED_ACTIVITY = 50;
 export function calcBubbleSize(
   bubble: BubbleData,
   fileSizeRange?: { min: number; max: number },
+  heat?: HeatScale,
 ): number {
+  // §5.24 — 히트맵 모드. 파일 용량·자식 수·activity 대신 **읽기 횟수 상대값 하나**가 지름을 정한다.
+  //   대상은 "에이전트가 읽는 것"(file/internal_folder/external_folder/domain) 넷뿐이고,
+  //   나머지는 아래 평상시 규칙 그대로다 — 에이전트가 쪼그라들면 무엇이 도는지 안 보이고
+  //   root/back 이 작아지면 탐색 자체가 어려워진다.
+  if (heat && isHeatBubbleType(bubble.bubbleType)) {
+    return heatSize(heatRatio(bubble.readCount, heat));
+  }
+
   // iframe 타입: 원형 버블, 고정 지름
   if (bubble.bubbleType === 'iframe') {
     return IFRAME_BUBBLE_HEIGHT;
@@ -112,4 +122,29 @@ export function calcFileSizeRange(files: BubbleData[]): { min: number; max: numb
     }
   }
   return { min: min === Infinity ? 0 : min, max };
+}
+
+/**
+ * §5.24 — 히트 상대 척도를 잰다. **바닥은 언제나 0**이라 최대값 하나만 돌려준다.
+ *
+ * **프로젝트별로 잰다** — 다른 탭의 뜨거운 파일 하나가 지금 보는 프로젝트를 통째로 차갑게 눌러
+ * 버리면 안 된다(§3.5 프로젝트 독립성). 소속을 모르는 노드는 **포함**한다 — 빼면 척도가 작아져
+ * 실제보다 뜨겁게 보이므로, 오차의 방향을 안전한 쪽(덜 뜨겁게)으로 둔다.
+ */
+export function calcReadCountRange(
+  nodes: Iterable<BubbleData>,
+  nodeProjects: Record<string, string>,
+  activeProject: string | null,
+): { max: number } {
+  let max = 0;
+  for (const n of nodes) {
+    if (!isHeatBubbleType(n.bubbleType)) continue;
+    if (activeProject) {
+      const owner = nodeProjects[n.id];
+      if (owner !== undefined && owner !== activeProject) continue;
+    }
+    const c = n.readCount;
+    if (typeof c === 'number' && Number.isFinite(c) && c > max) max = c;
+  }
+  return { max };
 }

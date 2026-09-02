@@ -46,7 +46,9 @@ function genEvents(rnd: () => number, n: number): SubAgentStreamEvent[] {
     const base = { id, subAgentId: 'S', parentAgentId: 'P', timestamp: ts };
     switch (kind) {
       case 'text': out.push({ ...base, eventType: 'text', content: `t${i}_${Math.floor(rnd() * 100)}` }); break;
-      case 'thinking': out.push({ ...base, eventType: 'thinking', content: `k${i}_${Math.floor(rnd() * 100)}` }); break;
+      // §5.5 #17-39 — 사고 길이를 문턱 양쪽으로 섞는다. 짧기만 하면 자국이 한 번도 안 생겨
+      //   `step` 항목의 증분/전체 등가성이 **한 번도 검증되지 않는다**(구멍이 조용히 열린다).
+      case 'thinking': out.push({ ...base, eventType: 'thinking', content: rnd() < 0.5 ? `k${i}_${Math.floor(rnd() * 100)}` : 'k'.repeat(120) }); break;
       case 'tool_use': {
         const toolName = TOOLS[Math.floor(rnd() * TOOLS.length)]!;
         const content = toolName === 'TodoWrite' ? todoInput(rnd, i) : `in${i}`;
@@ -92,11 +94,15 @@ function genCommands(rnd: () => number, events: SubAgentStreamEvent[]): QueuedCo
 /** 렌더에 영향 주는 필드만 뽑아 비교 가능한 평문으로. */
 function normItem(it: StreamItemFull): unknown {
   switch (it.kind) {
-    case 'text': case 'system': case 'result': case 'error': return { k: it.kind, id: it.id, c: it.content, ts: it.timestamp };
+    // §5.5 #17-39 — 본문의 끝 시각(작성 자국)도 렌더에 쓰이므로 등가성 비교에 넣는다.
+    case 'text': return { k: 'text', id: it.id, c: it.content, ts: it.timestamp, end: it.endedAt };
+    case 'system': case 'result': case 'error': return { k: it.kind, id: it.id, c: it.content, ts: it.timestamp };
     case 'tool': return { k: 'tool', id: it.id, n: it.toolName, in: it.input, out: it.output, a: it.isActive, ts: it.timestamp };
     case 'command': return { k: 'command', id: it.id, p: it.prompt, r: it.result, s: it.status, e: it.error, ts: it.timestamp };
     case 'thinking-live': return { k: 'thinking-live', id: it.id, m: it.mode, ts: it.timestamp };
     case 'plan': return { k: 'plan', id: it.id, todos: it.todos, sup: !!it.superseded, ts: it.timestamp };
+    // §5.5 #17-39 — 자국은 시간·분량이 전부다. 한 필드라도 빼면 두 파서가 어긋나도 통과한다.
+    case 'step': return { k: 'step', id: it.id, ph: it.phase, ts: it.timestamp, end: it.endedAt, ch: it.chars };
     default: return { k: it.kind, id: it.id, ts: it.timestamp };
   }
 }
@@ -110,6 +116,9 @@ function normBase(b: BaseItemsResult): unknown {
 
 describe('IncrementalStreamParser === buildBaseItems', () => {
   it('매 prefix 마다 증분 == 전체 (랜덤 시퀀스 × 청크)', () => {
+    // §5.5 #17-39 — 자국 항목이 실제로 만들어진 횟수. 0 이면 위 등가성이 자국을 **한 번도 안 본** 것이라
+    //   구멍이 조용히 열린다(생성기의 사고 길이가 문턱 아래로 내려가면 그렇게 된다).
+    let stepsSeen = 0;
     for (let seed = 1; seed <= 120; seed++) {
       const rnd = mulberry32(seed);
       const n = 5 + Math.floor(rnd() * 180);
@@ -125,8 +134,10 @@ describe('IncrementalStreamParser === buildBaseItems', () => {
         const inc = parser.sync(prefix, commands);
         const full = buildBaseItems(prefix, commands);
         expect(normBase(inc), `seed=${seed} consumed=${consumed}`).toEqual(normBase(full));
+        if (consumed === events.length) stepsSeen += full.items.filter((i) => i.kind === 'step').length;
       }
     }
+    expect(stepsSeen, '랜덤 시퀀스가 자국을 한 번도 만들지 않았다 — 등가성이 step 을 검증하지 못한다').toBeGreaterThan(0);
   });
 
   it('폴백: commands 변경 후에도 == 전체', () => {
@@ -197,6 +208,68 @@ describe('IncrementalStreamParser === buildBaseItems', () => {
     expect(JSON.stringify(full.items)).not.toContain('한참 생각한 내용');
     // 다만 텍스트 런의 경계로는 남는다 — 앞뒤 설명이 한 말풍선으로 합쳐지지 않는다.
     expect(full.items.map((i) => (i.kind === 'text' ? i.content : ''))).toEqual(['앞', '뒤']);
+    expect(normBase(new IncrementalStreamParser().sync(events, []))).toEqual(normBase(full));
+  });
+
+  it('§5.5 #17-39 — 봉인된 긴 사고 런은 그 자리에 **자국 한 줄**을 남긴다(원문은 여전히 없다)', () => {
+    const events: SubAgentStreamEvent[] = [
+      { id: 'a', subAgentId: 'S', parentAgentId: 'P', timestamp: 1_000, eventType: 'text', content: '앞' },
+      { id: 'b', subAgentId: 'S', parentAgentId: 'P', timestamp: 2_000, eventType: 'thinking', content: '한참 생각한 내용'.repeat(20) },
+      { id: 'b2', subAgentId: 'S', parentAgentId: 'P', timestamp: 75_000, eventType: 'thinking', content: '더 생각' },
+      { id: 'c', subAgentId: 'S', parentAgentId: 'P', timestamp: 76_000, eventType: 'text', content: '뒤' },
+    ];
+    const full = buildBaseItems(events, []);
+    expect(full.items.map((i) => i.kind)).toEqual(['text', 'step', 'text']);
+    const step = full.items[1]!;
+    expect(step.kind === 'step' && step.timestamp).toBe(2_000);
+    expect(step.kind === 'step' && step.endedAt).toBe(75_000);   // 걸린 시간 = 1분 13초
+    expect(step.kind === 'step' && step.chars).toBe('한참 생각한 내용'.repeat(20).length + '더 생각'.length);
+    // 자국이 생겨도 **사고 원문은 어디에도 남지 않는다**(#17-15 ② 불변).
+    expect(JSON.stringify(full.items)).not.toContain('한참 생각한 내용');
+    expect(normBase(new IncrementalStreamParser().sync(events, []))).toEqual(normBase(full));
+  });
+
+  it('§5.5 #17-39 — 아직 안 끝난 사고 런은 자국이 되지 않는다(자라는 자국 ❌)', () => {
+    const open: SubAgentStreamEvent[] = [
+      { id: 'a', subAgentId: 'S', parentAgentId: 'P', timestamp: 1_000, eventType: 'text', content: '앞' },
+      { id: 'b', subAgentId: 'S', parentAgentId: 'P', timestamp: 2_000, eventType: 'thinking', content: 'z'.repeat(500) },
+    ];
+    expect(buildBaseItems(open, []).items.map((i) => i.kind)).toEqual(['text']);
+    // 뒤이어 무엇이든 오는 순간 자국이 선다 — 그 시각이 곧 끝난 시각이다.
+    const sealed = [...open, { id: 'c', subAgentId: 'S', parentAgentId: 'P', timestamp: 9_000, eventType: 'tool_use', toolName: 'Read', content: 'in' } as SubAgentStreamEvent];
+    expect(buildBaseItems(sealed, []).items.map((i) => i.kind)).toEqual(['text', 'step', 'tool']);
+    // 증분도 같은 순간에 같은 자국을 만든다(한쪽만 봉인하면 화면이 갈린다).
+    const parser = new IncrementalStreamParser();
+    parser.sync(open, []);
+    expect(normBase(parser.sync(sealed, []))).toEqual(normBase(buildBaseItems(sealed, [])));
+  });
+
+  it('§5.5 #17-39 — 주인이 바뀌면 사고 런을 끊는다(부모 + 중첩 Task 를 한 덩어리로 재지 않는다)', () => {
+    const events: SubAgentStreamEvent[] = [
+      { id: 'p1', subAgentId: 'S', parentAgentId: 'P', timestamp: 1_000, eventType: 'thinking', content: 'p'.repeat(200) },
+      { id: 'n1', subAgentId: 'S', parentAgentId: 'P', timestamp: 40_000, eventType: 'thinking', content: 'n'.repeat(200), nestedUnderToolUseId: 'task-1' },
+      { id: 'z', subAgentId: 'S', parentAgentId: 'P', timestamp: 41_000, eventType: 'text', content: '끝' },
+    ];
+    const full = buildBaseItems(events, []);
+    expect(full.items.map((i) => i.kind)).toEqual(['step', 'step', 'text']);
+    const steps = full.items.filter((i) => i.kind === 'step');
+    // 부모의 사고는 1,000 에 열려 1,000 에 닫힌다 — 자식이 생각한 40초가 부모 앞으로 달리지 않는다.
+    expect(steps.map((i) => [i.timestamp, i.endedAt, i.chars])).toEqual([
+      [1_000, 1_000, 200],
+      [40_000, 40_000, 200],
+    ]);
+    expect(normBase(new IncrementalStreamParser().sync(events, []))).toEqual(normBase(full));
+  });
+
+  it('§5.5 #17-39 — 본문 말풍선은 마지막 델타 시각을 든다(작성 자국의 걸린 시간)', () => {
+    const events: SubAgentStreamEvent[] = [
+      { id: 'a', subAgentId: 'S', parentAgentId: 'P', timestamp: 1_000, eventType: 'text', content: '앞' },
+      { id: 'b', subAgentId: 'S', parentAgentId: 'P', timestamp: 22_000, eventType: 'text', content: '뒤' },
+    ];
+    const full = buildBaseItems(events, []);
+    const txt = full.items[0]!;
+    expect(txt.kind === 'text' && txt.timestamp).toBe(1_000);
+    expect(txt.kind === 'text' && txt.endedAt).toBe(22_000);
     expect(normBase(new IncrementalStreamParser().sync(events, []))).toEqual(normBase(full));
   });
 

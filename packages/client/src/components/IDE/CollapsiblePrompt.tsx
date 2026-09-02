@@ -17,11 +17,17 @@
  * 구분한다(실행 중 = emerald / 대기 = slate / 합치기 = violet / 즉시 = amber / 보낸 뒤 = 기존 sky).
  * [대기|합치기|즉시] 칩과 삭제(×)도 대기 줄이 아니라 **그 말풍선 안**에 있다 — 사용자가 자기 글을
  * 보면서 그 자리에서 방식을 바꾼다.
+ *
+ * **말풍선은 자기가 언제 보낸 글인지 말한다.** 스트림의 도구 잔줄에는 시각이 붙어 있는데 정작 내가
+ * 보낸 명령에는 없어서, 며칠에 걸친 세션을 되감으면 `/release` 라고 적힌 말풍선이 언제 친 것인지 알
+ * 수 없었다(사용자 보고). 이름표 옆에 `오늘 14:32` / `어제 09:07` / `9월 2일 14:32` 를 늘 띄우고,
+ * 호버하면 요일·초까지 있는 전체 표기가 뜬다 — 규칙과 로케일 처리는 [`promptStamp.ts`](./promptStamp.ts).
  */
 import { useState, useMemo, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { COMMAND_DISPATCH_MODES, DEFAULT_COMMAND_DISPATCH_MODE, type CommandDispatchMode } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore.js';
+import { formatPromptStamp } from './promptStamp.js';
 
 /** 접이식(여러 줄/긴 입력)으로 다룰지 — 짧은 한 줄이면 정적 말풍선. */
 export function isLongUserPrompt(prompt: string): boolean {
@@ -69,6 +75,8 @@ interface PromptTone {
   hover: string;
   chip: string;
   label: string;
+  /** 보낸 시각 — 이름표(`label`)보다 한 단계 죽여 읽는 순서를 「나 → 본문 → 시각」으로 둔다. */
+  stamp: string;
   body: string;
   chevron: string;
   copyIdle: string;
@@ -84,6 +92,7 @@ const PROMPT_TONES: Record<'sky' | 'emerald' | 'slate' | 'violet' | 'amber', Pro
     hover: 'hover:bg-sky-500/20',
     chip: 'bg-sky-400/25 text-sky-200',
     label: 'text-sky-200/80',
+    stamp: 'text-sky-200/55',
     body: 'text-sky-50',
     chevron: 'text-sky-200/60 group-hover/hdr:text-sky-100',
     copyIdle: 'border-sky-300/20 bg-sky-950/40 text-sky-200/70 hover:border-sky-300/40 hover:bg-sky-900/50 hover:text-sky-50',
@@ -97,6 +106,7 @@ const PROMPT_TONES: Record<'sky' | 'emerald' | 'slate' | 'violet' | 'amber', Pro
     hover: 'hover:bg-emerald-500/20',
     chip: 'bg-emerald-400/25 text-emerald-200',
     label: 'text-emerald-200/80',
+    stamp: 'text-emerald-200/55',
     body: 'text-emerald-50',
     chevron: 'text-emerald-200/60 group-hover/hdr:text-emerald-100',
     copyIdle: 'border-emerald-300/20 bg-emerald-950/40 text-emerald-200/70 hover:border-emerald-300/40 hover:bg-emerald-900/50 hover:text-emerald-50',
@@ -110,6 +120,7 @@ const PROMPT_TONES: Record<'sky' | 'emerald' | 'slate' | 'violet' | 'amber', Pro
     hover: 'hover:bg-slate-500/15',
     chip: 'bg-slate-400/20 text-slate-200',
     label: 'text-slate-300/80',
+    stamp: 'text-slate-300/55',
     body: 'text-slate-100',
     chevron: 'text-slate-300/60 group-hover/hdr:text-slate-100',
     copyIdle: 'border-slate-300/20 bg-slate-950/40 text-slate-300/70 hover:border-slate-300/40 hover:bg-slate-900/50 hover:text-slate-50',
@@ -123,6 +134,7 @@ const PROMPT_TONES: Record<'sky' | 'emerald' | 'slate' | 'violet' | 'amber', Pro
     hover: 'hover:bg-violet-500/20',
     chip: 'bg-violet-400/25 text-violet-200',
     label: 'text-violet-200/80',
+    stamp: 'text-violet-200/55',
     body: 'text-violet-50',
     chevron: 'text-violet-200/60 group-hover/hdr:text-violet-100',
     copyIdle: 'border-violet-300/20 bg-violet-950/40 text-violet-200/70 hover:border-violet-300/40 hover:bg-violet-900/50 hover:text-violet-50',
@@ -136,6 +148,7 @@ const PROMPT_TONES: Record<'sky' | 'emerald' | 'slate' | 'violet' | 'amber', Pro
     hover: 'hover:bg-amber-500/20',
     chip: 'bg-amber-400/25 text-amber-200',
     label: 'text-amber-200/80',
+    stamp: 'text-amber-200/55',
     body: 'text-amber-50',
     chevron: 'text-amber-200/60 group-hover/hdr:text-amber-100',
     copyIdle: 'border-amber-300/20 bg-amber-950/40 text-amber-200/70 hover:border-amber-300/40 hover:bg-amber-900/50 hover:text-amber-50',
@@ -186,8 +199,16 @@ export function DispatchModeIcon({ mode }: { mode: CommandDispatchMode }): React
   );
 }
 
-export function CollapsiblePrompt({ prompt, command }: { prompt: string; command?: PromptCommandState }): React.JSX.Element {
-  const { t } = useTranslation();
+export function CollapsiblePrompt({ prompt, command, submittedAt }: {
+  prompt: string;
+  command?: PromptCommandState;
+  /**
+   * **내가 보낸 시각**(`QueuedCommand.timestamp`). 말풍선을 세우는 정렬 anchor(§5.5 #17-18 ⑥ —
+   * 대기 중이면 `PENDING_COMMAND_TS` 꼬리 표식)와 **다른 값**이다. 없으면 시각을 그리지 않는다.
+   */
+  submittedAt?: number;
+}): React.JSX.Element {
+  const { t, i18n } = useTranslation();
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<number | null>(null);
@@ -214,7 +235,11 @@ export function CollapsiblePrompt({ prompt, command }: { prompt: string; command
     }).catch(() => { /* clipboard 권한 거부 — 조용히 무시 */ });
   }, [prompt]);
 
-  // 사람 아이콘 칩 + "나" 라벨 (+ 상태 배지) — 접이식/정적 말풍선이 공유하는 본인 입력 표식.
+  // 보낸 시각 — 렌더마다 새로 만든다(값을 붙들어 두면 자정을 넘겨도 "오늘"이 그대로 남는다).
+  //   `Intl` 인스턴스는 promptStamp 안에서 로케일별로 재사용되므로 이 계산 자체는 싸다.
+  const stamp = formatPromptStamp(submittedAt, i18n.language);
+
+  // 사람 아이콘 칩 + "나" 라벨 (+ 보낸 시각 + 상태 배지) — 접이식/정적 말풍선이 공유하는 본인 입력 표식.
   const identity = (
     <>
       <span className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full ${tone.chip}`}>
@@ -224,6 +249,16 @@ export function CollapsiblePrompt({ prompt, command }: { prompt: string; command
         </svg>
       </span>
       <span className={`flex-shrink-0 text-[12px] font-semibold uppercase tracking-wide ${tone.label}`}>{t('ide.streamRenderer.youTyped')}</span>
+      {/* 언제 보낸 글인가 — 되감을 때 날짜가 붙은 표기(어제·그 전)가 눈에 걸리도록 한 단계 굵게. */}
+      {stamp && (
+        <time
+          dateTime={stamp.iso}
+          title={stamp.title}
+          className={`flex-shrink-0 text-[12px] tabular-nums ${stamp.aged ? 'font-medium' : 'font-normal'} ${tone.stamp}`}
+        >
+          {stamp.text}
+        </time>
+      )}
       {/* 실행 중 / 대기 중 — 색만으로 못 읽는 사람을 위해 글자로도 한 번 말한다. */}
       {command?.status === 'executing' && (
         <span className={`flex flex-shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[12px] font-semibold ${tone.badge}`}>

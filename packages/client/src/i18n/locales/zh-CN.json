@@ -526,7 +526,19 @@
         "bgProbeModel": "作答的模型",
         "bgProbeModelDesc": "只问一次，不带工具，也不访问你的项目 —— 只给出命令原文和一小段输出末尾。",
         "bgProbeLoadError": "无法读取当前设置。",
-        "bgProbeSaveError": "无法保存，未做任何更改。"
+        "bgProbeSaveError": "无法保存，未做任何更改。",
+        "sessionProbeTitle": "卡在\"运行中…\"的会话",
+        "sessionProbeIntro": "工作结束后，会话仍可能长时间停在\"运行中…\" — 因为结束会话的信号全都靠自我上报，只要丢失一个就没有任何机制会把它放下。经过时间也无法判断：等待长时间构建的会话，和悄然死掉的会话看起来一模一样。因此每 10 分钟会就其中一个会话向一个小型判定代理提一次问 — 它在等什么，那件事还会来吗。",
+        "sessionProbeEnabled": "检查运行中的会话是否真的在运行",
+        "sessionProbeEnabledDesc": "关闭后不会为此调用模型。在其他机制将其放下之前，会话会一直停在\"运行中…\"。",
+        "sessionProbeQuiet": "安静这么久后询问（分钟）",
+        "sessionProbeQuietDesc": "安静时长只决定何时提问，不决定答案。回答\"仍在工作\"的会话，下次提问的间隔会越来越长。设为 0 则不提问。",
+        "sessionProbeAutoClose": "当答案是\"已结束\"时结束该会话",
+        "sessionProbeAutoCloseDesc": "关闭后只在状态栏显示答案，由你来判断。\"仍在工作\"\"似乎卡住\"\"无法判断\"都不会结束任何东西。这里也不会终止任何进程 — 只是把会话标记为不再运行。",
+        "sessionProbeModel": "作答的模型",
+        "sessionProbeModelDesc": "只问一次，不带任何工具，也不访问你的项目 — 只提供该会话最后所说和所做内容的一小段末尾。一次只问一个会话，每小时最多 12 次。",
+        "sessionProbeLoadError": "无法读取当前设置。",
+        "sessionProbeSaveError": "无法保存，未做任何更改。"
       },
       "notifications": {
         "cmdBlocked": "CMD 会话等待输入时通知我",
@@ -867,9 +879,10 @@
       "contextItems": "{{count}} 项",
       "model": {
         "label": "模型",
-        "opus": "能力最强。推理与复杂任务最佳。成本最高。",
+        "opus": "能力很强。最适合复杂的智能体编码与推理。成本较高。",
         "sonnet": "性能与成本均衡。适合大多数任务。",
         "haiku": "最快最便宜。最适合简单只读任务。",
+        "fable": "能力最强。适合最艰难的推理与长周期任务。成本最高。",
         "unknown": "{{name}} — 新发布的模型。能力和费用根据同系列默认值推断。"
       },
       "contextWindow": {
@@ -1044,8 +1057,24 @@
         "tokens": "窗口大小约 {{tokens}} 个 token。",
         "foldsAt": "达到约 {{tokens}} 时，在该轮结束处折叠。",
         "foldsAtAuto": "达到 CLI 所定窗口的 {{percent}}% 时，在该轮结束处折叠。",
-        "unsetDefaultLabel": "未设置 ({{tokens}})",
-        "globalTip": "适用于所有未单独设置自动压缩的智能体，包括已在运行的。留空则使用内置默认值。"
+        "unsetDefaultLabel": "未设置（默认：关闭）",
+        "globalTip": "适用于所有未单独设置自动压缩的智能体，包括已在运行的。留空则使用内置默认值。",
+        "offLabel": "关闭",
+        "off": "关闭 — 不做压缩。没有摘要调用，因此不消耗令牌。",
+        "foldsAtOff": "不做压缩。对话变长后每轮都会更重，达到模型窗口时 CLI 会在任务中途折叠一次。",
+        "confirm": {
+          "title": "要开启自动压缩吗？（{{value}}）",
+          "titleSelf": "要允许智能体自行压缩吗？",
+          "costHeading": "开启会产生令牌费用",
+          "costBody": "压缩不是免费的清理，而是把整段对话重新喂给模型来生成摘要的一次独立模型调用。每折叠一次都会消耗输入与输出令牌以及套餐用量。",
+          "costSample": "实测示例（{{runs}} 次平均）：每次约重新读取 {{tokens}} 个令牌，暂停约 {{seconds}} 秒。实际数值随对话长度和模型而变。",
+          "selfBody": "智能体判断上下文过重时会请求压缩，并在该轮结束后执行。一次请求就是一次摘要调用，费用相同。",
+          "offHeading": "保持关闭会怎样",
+          "offBody": "不折叠时，累积的对话每轮都会整体重发，费用和延迟都会持续上升。达到模型窗口时，CLI 会在任务中途折叠一次，或者会话因超出窗口而中断。",
+          "everyTime": "每次关闭后重新开启时，都会再次出现此确认。",
+          "cancel": "取消（保持关闭）",
+          "enable": "我已了解 — 开启"
+        }
       },
       "settingSources": {
         "label": "设置来源",
@@ -1308,6 +1337,21 @@
       "maxSave": "保存",
       "noVisible": "无可见文件"
     },
+    "webEntry": {
+      "count": "条目 {{count}}",
+      "maxTitle": "该域名的最大条目数",
+      "maxHint": "Enter 保存 · Esc 取消",
+      "empty": "暂无记录",
+      "clearAll": "全部清空",
+      "clearConfirm": "清空",
+      "clearCancel": "取消",
+      "kindSearch": "搜索",
+      "kindFetch": "抓取",
+      "checkHint": "勾选即删除该条目",
+      "openExternal": "在浏览器中打开",
+      "resultCount": "{{count}} 条结果",
+      "truncated": "…（已截断）"
+    },
     "rootFileList": {
       "files": "文件",
       "loading": "加载中...",
@@ -1334,6 +1378,12 @@
         "running": "运行中",
         "done": "已完成",
         "error": "错误"
+      },
+      "probe": {
+        "checking": "检查中…",
+        "working": "已确认运行",
+        "stuck": "可能已卡住",
+        "finished": "似乎已结束"
       },
       "tokensInOut": "{{in}} 输入 {{out}} 输出"
     },
@@ -1656,6 +1706,9 @@
       "empty": "此项目尚未测得任何数据。",
       "emptyHint": "费用会在 Agent 完成一个轮次后出现——它们是从会话记录中读取的,而非账单金额。",
       "estimateNote": "根据 Token 数量与公开价格估算得出。",
+      "estimatedMark": "估算",
+      "estimatedMarkHint": "其中包含单价未知的模型，已按备用单价折算。实际金额可能有出入。",
+      "unseededNote": "表中没有 {{models}} 的单价，已按备用单价折算。此金额可能与实际不符。",
       "retiredNote": "来自旧会话的 {{cost}} 已并入全部时间总计。",
       "sessions_one": "{{count}} 个会话",
       "sessions_other": "{{count}} 个会话",
@@ -1770,6 +1823,10 @@
       "choose": "选择文件夹",
       "picking": "选择中…",
       "later": "稍后"
+    },
+    "folderList": {
+      "loadingMore": "正在加载更多… ({{loaded}} / {{total}})",
+      "retry": "加载失败 — 重试"
     }
   },
   "ide": {
@@ -1873,7 +1930,17 @@
       "confirmCloseMessage": "该 Session 仍在运行中。关闭将停止其工作。仍要关闭吗？",
       "confirmCloseConfirm": "关闭",
       "confirmCloseCancel": "取消",
-      "hiddenRunning": "该方向有 {{count}} 个运行中的标签页 — 点击跳转"
+      "hiddenRunning": "该方向有 {{count}} 个运行中的标签页 — 点击跳转",
+      "sortTabs": "排序标签页",
+      "sortAnchorTitle": "优先侧",
+      "sortAnchorRight": "以右侧为准",
+      "sortAnchorLeft": "以左侧为准",
+      "sortByRunning": "运行中",
+      "sortByQuestions": "问题卡片",
+      "sortByReviews": "核实卡片",
+      "sortByUserActions": "我的待办",
+      "sortByPinned": "已固定",
+      "sortByRecent": "最近活动"
     },
     "terminal": {
       "unavailable": "内嵌终端仅在 Vibisual 桌面应用中可用。",
@@ -1949,6 +2016,8 @@
       "ctxSendAsPrompt": "作为新提示发送",
       "ctxSelectAll": "全选",
       "ctxAddMemo": "添加便签",
+      "ctxSpreadMemos": "展开重叠的便签",
+      "ctxSpreadMemosNone": "没有重叠的便签",
       "jumpToBottom": "滚动到底部",
       "ctxSelectionRequired": "请先选择文本",
       "inputCtxCut": "剪切",
@@ -1958,10 +2027,53 @@
       "ctxSaveToBrain": "保存到记忆",
       "stopAll": "全部停止",
       "stopAllTitle": "停止此 Agent 正在运行的所有内容（其他标签页 + 后台任务）",
-      "stopSessionTitle": "停止此 Session 及其启动的子 Agent（其他 Session 标签页继续运行）"
+      "stopSessionTitle": "停止此 Session 及其启动的子 Agent（其他 Session 标签页继续运行）",
+      "voiceStart": "语音输入 ({{shortcut}})",
+      "voiceStop": "结束语音输入 ({{shortcut}})",
+      "voiceStarting": "正在打开麦克风…",
+      "voiceListening": "正在聆听 — 请开始说话",
+      "voiceCancelHint": "按 Esc 取消",
+      "voiceDone": "完成",
+      "voiceErrUnsupported": "此版本不支持语音识别。",
+      "voiceErrPermission": "麦克风权限被拒绝。请在系统隐私设置中允许本应用使用麦克风后重试。",
+      "voiceErrDevice": "未找到麦克风。请连接后重试。",
+      "voiceErrNetwork": "无法连接语音识别服务。",
+      "voiceErrLanguage": "语音识别不支持当前界面语言。",
+      "voiceErrUnknown": "语音输入已停止，请重试。",
+      "voiceErrDismiss": "关闭"
+    },
+    "voiceInstall": {
+      "title": "设置语音输入",
+      "intro": "语音输入完全在本机运行。设置时只需下载约 {{size}}，之后即可离线使用。",
+      "noteSize": "下载并在磁盘上保留约 {{size}}（引擎 + 语音模型）。此过程只进行一次。",
+      "noteResume": "可以随时停止。已下载的部分会保留，再次开始时从该处继续。",
+      "notePrivacy": "您的语音不会离开这台电脑 — 不需要账号、不需要联网，也不会录制或保存。",
+      "noteFirstRun": "设置完成后第一次说话时，模型加载需要几秒钟。",
+      "noteLicense": "语音模型：NVIDIA Nemotron ASR（OpenMDW-1.1）。引擎：sherpa-onnx（Apache-2.0）。",
+      "langPrimary": "该模型完全支持当前界面语言。",
+      "langBroad": "该模型对当前界面语言的支持处于较低的准确度等级。",
+      "langNone": "该模型未列出当前界面语言 — 识别效果可能很差或无法工作。",
+      "stageEngine": "正在下载引擎",
+      "stageExtract": "正在解压引擎",
+      "stageModel": "正在下载语音模型",
+      "stageVerify": "正在检查文件",
+      "stageReady": "已就绪",
+      "stageCanceled": "已停止",
+      "canceledHint": "已停止。已下载的部分会保留，再次开始时从该处继续。",
+      "failed": "设置失败。",
+      "cancel": "停止",
+      "later": "以后再说",
+      "retry": "重试",
+      "start": "安装并开始"
     },
     "memo": {
       "title": "便签",
+      "tabHint": "拖出可分离 · 拖到其他便签上可合并",
+      "mergeHint": "将标题栏拖到其他便签上即可合并",
+      "stacked": "下方还有 {{n}} 个 — 点击将下一个移到最上层",
+      "rename": "重命名",
+      "namePlaceholder": "名称（留空 = 便签首行）",
+      "renameHint": "F2 · 双击 · 右键重命名",
       "placeholder": "输入备注…",
       "color": "颜色",
       "collapse": "折叠",
@@ -2381,13 +2493,21 @@
     },
     "statusBar": {
       "custom": "自定义",
+      "customTip": "你在画布上自己创建的 Agent。可以向它发送命令，并以标签页打开 Session。",
       "hook": "Hook",
+      "hookTip": "从 Claude Code 的 Hook 事件中检测到的气泡。只读，无法向它发送命令。",
+      "statusTip": "此处显示的 Session 的运行状态 —— 运行中、等待、完成或出错。",
+      "modelTip": "该 Session 在最后一轮实际使用的模型。首轮之前显示的是为该 Agent 配置的模型。",
+      "modelUnknown": "未知",
       "context": "上下文：{{used}}/{{max}}",
+      "contextTip": "上下文窗口当前的占用情况 —— 最后一轮的输入与该模型窗口大小之比。它不是累计值，压缩后会回落。",
       "tokens": "{{in}} 输入 / {{out}} 输出",
+      "tokensTip": "该 Session 自启动以来使用的 token 总量。输入包含缓存读取与缓存写入，因此增长远快于输出。累计值，只增不减。",
+      "autoCompact": "自动压缩 {{value}}",
+      "autoCompactTip": "当上下文达到该大小时，CLI 会自动总结并压缩对话。可在 Agent 设置中单独修改，或在文件 > 选项 > Agent 默认值中修改全局默认值。",
       "sessionOne": "{{count}} 个 Session",
       "sessionMany": "{{count}} 个 Session",
-      "autoCompact": "自动压缩 {{value}}",
-      "autoCompactTip": "当上下文达到该大小时，CLI 会自动总结并压缩对话。可在 Agent 设置中单独修改，或在文件 > 选项 > Agent 默认值中修改全局默认值。"
+      "sessionsTip": "该 Agent 上打开的 Session 标签页数量。"
     },
     "search": {
       "placeholder": "在对话中查找",
@@ -2421,6 +2541,15 @@
       "modelFallback": "模型回退",
       "interrupt": "已中断",
       "permissionDenied": "权限被拒绝"
+    },
+    "stepTrace": {
+      "underSec": "不到 1 秒",
+      "sec": "{{sec}} 秒",
+      "minSec": "{{min}} 分 {{sec}} 秒",
+      "hourMin": "{{hour}} 小时 {{min}} 分",
+      "thought": "思考了 {{duration}}",
+      "wrote": "写入 {{value}} 字",
+      "chars": "{{value}} 字"
     },
     "streamRenderer": {
       "noActivity": "此 Session 暂无活动",
@@ -3601,7 +3730,14 @@
       "lock": "锁定画布",
       "unlock": "解锁画布",
       "fullscreen": "全屏",
-      "exitFullscreen": "退出全屏"
+      "exitFullscreen": "退出全屏",
+      "heatmap": "读取热力图",
+      "heatmapOff": "关闭读取热力图"
+    },
+    "heatmap": {
+      "title": "读取次数",
+      "empty": "尚未读取任何内容",
+      "max": "最多 {{n}} 次"
     },
     "contextMenu": {
       "createCustomAgent": "创建 Custom Agent",

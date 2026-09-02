@@ -289,7 +289,7 @@ export type NodeStatus =
   | 'awaiting_permission';
 
 /** 버블 타입 — 시각 카테고리 */
-export type BubbleType = 'agent' | 'internal_folder' | 'external_folder' | 'file' | 'bash' | 'root' | 'back' | 'ghost' | 'iframe' | 'pipeline' | 'worktree' | 'conti' | 'auto' | 'brain' | 'trash' | 'video' | 'spec' | 'lab' | 'shelf';
+export type BubbleType = 'agent' | 'internal_folder' | 'external_folder' | 'file' | 'bash' | 'root' | 'back' | 'ghost' | 'iframe' | 'pipeline' | 'worktree' | 'conti' | 'auto' | 'brain' | 'trash' | 'video' | 'spec' | 'lab' | 'shelf' | 'domain';
 
 // ─── 화면/프로그램 캡처 (§5.9 capture 버블) ───
 //
@@ -1024,6 +1024,19 @@ export interface CostTotals {
   cacheCreateTokens: number;
   /** `calculateTokenCost` 로 4종을 각각 환산한 합(USD). */
   costUsd: number;
+  /**
+   * 이 합계 안에 **단가를 모르는 모델**의 몫이 섞여 있는가 — 화면은 금액 옆에 "추정"을 붙인다.
+   *
+   * `measured` 와 **직교한 축**이다. `measured:false` 는 "턴을 하나도 못 읽었다"이고, 이 깃발은
+   * "턴은 읽었는데 그 모델의 단가가 우리 표에 없어 패밀리 디폴트·`DEFAULT_PRICING` 으로
+   * 환산했다"이다. 새 모델이 나온 직후가 정확히 이 상태이며(`/v1/models` 는 가격을 돌려주지
+   * 않으므로 단가 표는 손으로 갱신할 수밖에 없다), 그때 금액을 말없이 그리면 그 자릿수를
+   * 사실로 읽게 된다.
+   *
+   * `addCostTotals` 가 OR 로 전파하므로 날짜 버킷·기간 합·에이전트 합·프로젝트 합까지 저절로
+   * 따라간다 — 접는 자리마다 따로 세지 않는다(두 군데서 세면 어긋났을 때 진실을 못 가린다).
+   */
+  estimated?: boolean;
 }
 
 /** §5.21 — 팝업 기간 탭. 임의 구간 질의는 하지 않는다(사용자 달력과 같은 눈금이면 충분). */
@@ -1059,6 +1072,15 @@ export interface CostSessionEntry extends CostTotals {
   label?: string;
   /** 마지막 턴이 말한 모델. */
   model?: string;
+  /**
+   * 이 세션이 쓴 모델 중 **단가 표에 없던** 것들(`COST_MAP_UNSEEDED_MODELS_MAX` 로 자른다).
+   *
+   * `estimated` 가 "믿지 마라"까지만 말한다면 이 목록은 **무엇을 고쳐야 하는지**를 말한다 —
+   * 화면 툴팁이 그 ID 를 그대로 보여 주고, `scripts/model-table-check.mjs` 가 같은 ID 로
+   * 시드에 붙일 줄을 찍어 준다. 원장에 실어 두는 이유는 스윕이 증분이기 때문이다:
+   * 체크포인트에서 되살아난 세션은 이미 읽은 턴을 다시 읽지 않으므로, 여기 없으면 영영 못 만든다.
+   */
+  unseededModels?: string[];
   /** 읽어들인 턴 수. 0 이면 `measured:false`. */
   turns: number;
   firstAt: number;
@@ -1109,6 +1131,11 @@ export interface ProjectCostMap {
   retired?: CostTotals;
   /** 이 프로젝트에서 턴을 하나라도 읽었는가. */
   measured: boolean;
+  /**
+   * 이 프로젝트에서 마주친 **단가 미상 모델** 전부(세션 원장의 합집합, 캡 적용).
+   * 금액이 왜 추정인지 화면이 이름을 대고 답하는 근거다.
+   */
+  unseededModels?: string[];
   updatedAt: number;
 }
 
@@ -1477,7 +1504,7 @@ export interface GhostInfo {
 export interface BubbleStyleConfig {
   color: string;
   glow: string;
-  icon: 'agent' | 'folder' | 'file' | 'terminal' | 'root' | 'back' | 'ghost' | 'iframe' | 'pipeline' | 'conti' | 'auto' | 'brain' | 'trash' | 'video' | 'spec' | 'lab' | 'shelf';
+  icon: 'agent' | 'folder' | 'file' | 'terminal' | 'root' | 'back' | 'ghost' | 'iframe' | 'pipeline' | 'conti' | 'auto' | 'brain' | 'trash' | 'video' | 'spec' | 'lab' | 'shelf' | 'globe';
   ringIdle: string;
   ringActive: string;
 }
@@ -1525,6 +1552,22 @@ export interface BubbleData {
    * 자동 영속(별도 toCheckpoint 로직 불요 — maxSatellites/preservePinned 선례).
    */
   unlimitedFileEdits?: boolean;
+  /**
+   * 도메인 버블별 항목 표시 상한 (사용자가 디테일 패널에서 편집, §5.23 · §7.22).
+   * undefined 면 `DEFAULT_MAX_WEB_ENTRIES`(=20). `domain` 타입만 의미.
+   * 초과 시 서버 `appendWebEntry` 가 FIFO(오래된 것부터) 제거.
+   * 노드 직렬화로 ProjectCheckpoint 에 자동 영속(별도 toCheckpoint 로직 불요 — maxSatellites 선례).
+   */
+  maxWebEntries?: number;
+  /**
+   * §5.24 — 읽기 도구가 이 버블을 건드린 누적 횟수. 히트맵 모드의 **유일한** 축이다.
+   * `activity`(읽기+쓰기 합산)와 별개 칸 — 합산값으로는 "30번 읽은 파일"과 "30번 고친 파일"이
+   * 구별되지 않아 읽기 히트맵이 성립하지 않는다. 판정은 shared `toolAxis()` 한 곳.
+   * 노드 직렬화로 ProjectCheckpoint 에 자동 영속(별도 toCheckpoint 로직 불요 — maxSatellites 선례).
+   */
+  readCount?: number;
+  /** §5.24 — 쓰기 도구가 이 버블을 건드린 누적 횟수. `readCount` 와 한 쌍. */
+  writeCount?: number;
   fileSize?: number;
   /** fade 시작 시각 (completed → 60초 후 idle 전환) */
   fadeStartedAt?: number;
@@ -1695,6 +1738,45 @@ export interface FileEdit {
   timestamp: number;
 }
 
+// ─── 도메인 버블 (§5.23) ───
+
+/**
+ * 웹 항목의 갈래 — 검색인가, 가져오기인가. **셋째 갈래를 늘리기 전에** 그것이 정말
+ * "에이전트가 웹을 읽은 일"인지 §5.23 경계와 먼저 대조한다(브라우저가 아니다).
+ */
+export type WebEntryKind = 'search' | 'fetch';
+
+/**
+ * 도메인 버블에 쌓이는 한 줄 = 그 호스트에서 한 번 일어난 일 (§5.23).
+ *
+ * 못 읽은 값은 **채우지 않는다** — 결과 파싱에 실패하면 `result` 를 비운 채 저장하고
+ * 화면이 `—` 로 그린다(0·빈 문자열로 채우면 "결과가 없었다"는 거짓말이 된다).
+ */
+export interface WebEntry {
+  id: string;
+  kind: WebEntryKind;
+  /** `kind='search'` — 에이전트가 넣은 검색어. */
+  query?: string;
+  /** `kind='fetch'` — 요청 URL 전문(호스트는 버블이 들고, 여기는 경로·쿼리까지). */
+  url?: string;
+  /** `kind='fetch'` — 그 페이지에 무엇을 물었나(`prompt` 인자). */
+  prompt?: string;
+  /** 결과 본문 요약 꼬리. `WEB_ENTRY_TEXT_MAX` 로 잘린다. */
+  result?: string;
+  /** 잘렸으면 true — 화면이 "…(잘림)"을 말한다. */
+  resultTruncated?: boolean;
+  /** `kind='search'` — 결과 건수(못 세면 미설정). */
+  resultCount?: number;
+  /** `kind='search'` — 결과에 나온 대표 호스트들. **이걸로 버블을 만들지 않는다**(§5.23). */
+  resultHosts?: string[];
+  /** 일어난 시각(ms). */
+  at: number;
+  /** 실패했으면 그 사유 한 줄. 웹은 파일과 달리 막히는 일이 잦아 "왜 못 읽었나"가 정보다. */
+  error?: string;
+  /** 이 항목을 만든 에이전트 버블 ID. */
+  agentId?: string;
+}
+
 /** 실행 중인 서버 프로세스 항목 */
 export interface ServerEntry {
   id: string;
@@ -1731,6 +1813,13 @@ export interface SessionMemo {
   id: string;
   /** 본문. 상한 `SESSION_MEMO.TEXT_MAX`. */
   text: string;
+  /**
+   * 사람이 붙인 이름(제목줄에 보인다). **없으면 본문 첫 줄**이 대신 서고, 그것마저 없으면 라벨이다
+   * — 그래서 이름을 지우는 것이 곧 "자동 제목으로 되돌리기"다(별도 스위치 ❌).
+   * 한 줄로 접어 상한 `SESSION_MEMO.NAME_MAX` 까지만 저장하고, 빈 값이면 **필드를 남기지 않는다**
+   * (`collapsed`·`alpha` 와 같은 규약 — 옛 체크포인트가 새 필드로 부풀지 않는다).
+   */
+  name?: string;
   /** 컨테이너 좌상단 기준 위치(px). */
   x: number;
   y: number;
@@ -1747,6 +1836,21 @@ export interface SessionMemo {
   alpha?: number;
   /** 제목줄만 남기고 접은 상태. */
   collapsed?: boolean;
+  /**
+   * **합쳐진 묶음의 이름표.** 같은 값을 가진 장들은 화면에서 **한 카드**가 되고 제목줄이 탭 줄이
+   * 된다(브라우저 탭과 같은 언어). 없으면 혼자 서 있는 장이다.
+   *
+   * 별도의 `MemoGroup` 레코드를 두지 않는 것이 의도다 — 묶음이 자기 레코드를 가지면 마지막 장이
+   * 빠진 뒤 **빈 묶음이 남고**(지우는 것을 잊을 자리), 그것이 체크포인트에 실려 영영 따라다닌다.
+   * 이름표만 두면 묶음은 장들의 파생값이라 저절로 사라진다. 장수가 1 이면 묶음이 아니므로 정화
+   * 단계에서 이름표를 지운다.
+   */
+  groupId?: string;
+  /**
+   * 그 묶음에서 **지금 보이는** 장(= 활성 탭). 묶음당 정확히 하나이며, 정화가 그 사실을 보정한다.
+   * 혼자인 장에는 없다.
+   */
+  groupActive?: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -1822,6 +1926,13 @@ export interface SubAgent {
    * 체크포인트에 그대로 실리고, 세션이 제거되면 이 객체와 함께 사라진다(별도 정리 경로 ❌).
    */
   memos?: SessionMemo[];
+  /**
+   * §2.4 — **"실행중…"이 진짜인가**를 에이전트가 낸 마지막 판정. 런타임 표시용이라 영속하지
+   * 않는다(앱을 껐다 켜면 그 세션은 어차피 돌고 있지 않다 — 옛 판정을 되살리면 거짓말이 된다).
+   */
+  probe?: SessionLivenessProbeResult;
+  /** 지금 그 판정을 물어보는 중인가 — 화면에 "확인 중"을 곧바로 세우기 위한 런타임 플래그. */
+  probing?: boolean;
 }
 
 /**
@@ -1864,6 +1975,53 @@ export interface BackgroundTaskProbeSettings {
   /** 내릴 때 그 작업의 **프로세스 트리까지** 끊을지. 끄면 장부만 정리한다(유령 프로세스는 남는다). */
   killProcess: boolean;
   /** 판정에 쓸 모델 별칭. 실측에서 `haiku`·`sonnet` 둘 다 5/5 였으므로 싼 쪽이 기본이다. */
+  model: string;
+}
+
+/**
+ * §2.4 — **"실행중…"이 진짜인가**를 에이전트가 낸 판정.
+ *
+ * `isSessionRunning` 의 근거 셋은 전부 우리가 켜고 꺼야 하는 깃발이라, 끄는 쪽이 한 번 실패하면
+ * 세션이 영영 도는 것처럼 보인다. 이 판정만이 **깃발 밖의 답**이다.
+ */
+export type SessionLivenessVerdict =
+  /** 지금도 일하는 중 — 그대로 둔다. */
+  | 'working'
+  /** 할 일이 끝났는데 표시만 남았다 — 종료한다. */
+  | 'finished'
+  /** 멈췄거나 답을 기다린다 — **종료하지 않고** 사용자에게 세운다. */
+  | 'stuck'
+  /** 증거로 못 가린다 — 그대로 둔다. */
+  | 'unknown';
+
+/** 세션 판정 1회의 결과. 세션에 붙어 화면에 그대로 적힌다. */
+export interface SessionLivenessProbeResult {
+  /** 판정을 받은 시각(ms epoch). */
+  at: number;
+  verdict: SessionLivenessVerdict;
+  /**
+   * 모델이 읽어 낸 **이 세션이 기다리는 것**. 판정의 뼈대다 — 열린 질문("아직 도나")으로 물으면
+   * 값싼 모델이 정당한 대기를 끝난 것으로 오판하므로, 「무엇을 기다리나 → 그것이 오고 있나」로 쪼갠다.
+   */
+  waitingFor?: string;
+  /** 한 줄 사유 — 모델이 쓴 문장 그대로(최대 `SESSION_PROBE_REASON_MAX` 자). */
+  reason: string;
+  /** 어느 모델이 냈는가 — 나중에 "왜 이렇게 판정했나"를 되짚는 유일한 단서. */
+  model?: string;
+}
+
+/** §2.4 — 세션 생존 판정 설정. `AppState.sessionProbe` 로 영속된다. */
+export interface SessionLivenessProbeSettings {
+  /** 꺼 두면 판정 자체를 하지 않는다(모델 호출 0). */
+  enabled: boolean;
+  /**
+   * 대화록이 이만큼 조용해야 **판정 착수**. 0 이면 조용함과 무관하게 주기마다 묻는다.
+   * 방금 출력한 세션까지 물으면 답이 뻔한 자리에 토큰을 태운다.
+   */
+  quietMinutes: number;
+  /** `finished` 판정을 실제로 반영해 세션을 내릴지. 끄면 판정만 화면에 적고 그대로 둔다. */
+  autoClose: boolean;
+  /** 판정에 쓸 모델 별칭. */
   model: string;
 }
 
@@ -2783,6 +2941,9 @@ export type WSMessageType =
   // §5.19 — 로컬 LLM 엔진 설치 / 모델 내려받기 진행(본체는 graph_snapshot.localLlm)
   | 'local_engine_progress'
   | 'local_model_progress'
+  // §5.5 #17-38 ⑫ — 오프라인 받아쓰기: 설치 진행 / 인식 결과(중간·확정)
+  | 'voice_asr_progress'
+  | 'voice_asr_transcript'
   // §5.3 #12-2 v2.26 — AskUserQuestion IDE 인라인 카드
   | 'ask_user_question'
   | 'ask_user_question_resolved'
@@ -3178,6 +3339,19 @@ export interface ProjectUnloadedPayload {
 export interface SetProjectScopePayload {
   /** 이 창이 필요한 프로젝트 표시명 목록. 빈 배열 = "지금은 아무것도 안 본다"(탭 0개). */
   projects: string[];
+  /**
+   * §9 폴더 스코프 — 이 창이 **지금 열어 둔 폴더의 내비 경로**(조상 → 현재 폴더 순, 노드 id).
+   * 메인 뷰(폴더 밖)면 빈 배열이다.
+   *
+   * 프로젝트 축과 같은 선언에 얹는 이유는 둘이 늘 함께 바뀌기 때문이다 — 탭을 옮기면 폴더도
+   * 풀리고, 폴더에 들어가도 프로젝트는 그대로다. 한 메시지 = 한 왕복이라 드릴다운이 두 번
+   * 왕복하지 않는다.
+   *
+   * ⚠ **optional 인 것이 계약이다.** 이 필드를 안 보내는 창(구버전 클라)이 하나라도 붙어 있으면
+   *   서버는 폴더 범위를 **적용하지 않는다**(= 전량). 침묵이 축소로 읽히면 그 창의 폴더 내부가
+   *   빈 채로 굳는다 — 프로젝트 축이 세운 안전 기본값과 같은 규칙.
+   */
+  folders?: string[];
 }
 
 // ─── §7.11 v1.44 Iframe 서버 로그 스트리밍 ───
@@ -3345,6 +3519,12 @@ export interface AppState {
    * 보존 설정과 같은 이유로 **머신 단위**다. optional — 없으면 `DEFAULT_BG_TASK_PROBE_SETTINGS`.
    */
   bgTaskProbe?: BackgroundTaskProbeSettings;
+  /**
+   * §2.4 — "실행중…"이 진짜인지 에이전트에게 물어 확인할지.
+   *
+   * 위 판정과 같은 이유로 **머신 단위**다. optional — 없으면 `DEFAULT_SESSION_PROBE_SETTINGS`.
+   */
+  sessionProbe?: SessionLivenessProbeSettings;
   /** 마지막 업데이트 타임스탬프 (epoch ms). */
   updatedAt: number;
 }
@@ -4378,6 +4558,33 @@ export interface GraphSnapshot {
    * 판정 규칙은 클라 `components/BubbleMap/canvasLoading.ts` 단일 소유.
    */
   scopedProjects?: string[];
+  /**
+   * §9 폴더 스코프 — **이 스냅샷을 만들 때 적용한 폴더 범위**(창들이 선언한 내비 경로의 합집합).
+   *
+   * 없으면(`undefined`) 폴더 범위를 적용하지 않은 전량 스냅샷이다(선언한 창이 없을 때 ·
+   * 구버전 클라가 하나라도 붙어 있을 때 · 구버전 서버). 있으면 `children`/`innerEdges` 와
+   * 폴더 위성은 **그리는 폴더와 그 한 칸 앞**만 실려 있다.
+   *
+   * 쓰임은 `scopedProjects` 와 같다 — 클라가 **"열어 둔 폴더의 내용이 아직 안 온 것"과 "원래
+   * 빈 폴더"를 구분**한다. 서버가 실제로 싣는 집합은 이보다 넓지만(최상위 폴더·한 칸 앞),
+   * 되돌려 주는 것은 **선언 그대로**다 — 클라가 확인하려는 것은 "내가 지금 보는 폴더를 서버가
+   * 알고 만들었는가" 하나이기 때문이다.
+   */
+  scopedFolders?: string[];
+  /**
+   * §9 폴더 스코프 — **범위와 무관하게 전량으로 잰** 파일 버블 상대 크기 척도(바이트).
+   *
+   * 종전에는 클라가 받은 스냅샷에서 직접 쟀는데, 폴더 범위를 좁히면 그 입력이 줄어 **폴더를
+   * 드나들 때마다 파일 버블 크기가 바뀐다**. 탭 목록·전역 집계와 같은 칸에 두는 값이다.
+   * 없으면(구버전 서버) 클라가 종전대로 직접 잰다.
+   */
+  fileSizeRange?: { min: number; max: number };
+  /**
+   * §9 폴더 스코프 — **범위와 무관하게 전량으로 잰** §5.24 히트맵 상대 척도(프로젝트 표시명 →
+   * 그 프로젝트의 가장 큰 `readCount`). 바닥은 언제나 0 이라 최대값만 싣는다.
+   * 없으면 클라가 종전대로 직접 잰다.
+   */
+  readCountMaxByProject?: Record<string, number>;
   /** boot 시 stub 상태인 프로젝트 메타 (projectName → ProjectMetaSnapshot). hydrate 완료 시 projects로 이동 */
   stubProjects?: Record<string, ProjectMetaSnapshot>;
   /** 앱 전역 탭 라이프사이클 상태 (openProjects / lastActive / default / pinned). 서버가 authoritative. */
@@ -4401,6 +4608,11 @@ export interface GraphSnapshot {
   nodeProjects: Record<string, string>;
   /** 파일별 수정 기록 (file node ID → 최신순 FileEdit[]) */
   fileEdits: Record<string, FileEdit[]>;
+  /**
+   * 도메인 버블별 웹 이력 (domain node ID → 최신순 `WebEntry[]`, §5.23).
+   * 키가 **노드 ID** 인 것은 `fileEdits` 와 같은 규약이다(클라가 노드에서 바로 찾는다).
+   */
+  domainEntries: Record<string, WebEntry[]>;
   /** 에이전트별 명령 대기열 (agent ID → queued/executing만, 서버가 관리) */
   commandQueues: Record<string, QueuedCommand[]>;
   /** 에이전트별 완료/에러 명령 아카이브 (agent ID → completed/error, Results 표시용) */
@@ -4723,7 +4935,13 @@ export type GraphSnapshotWire =
     deltas?: GraphSnapshotDeltas;
   };
 
-/** 폴더 내 파일/디렉토리 엔트리 (폴더 트리 표시용) */
+/**
+ * 폴더 **한 겹**의 파일/디렉토리 엔트리 (폴더 트리 표시용 · §7.5).
+ *
+ * ⚠ **`children` 이 없는 것은 누락이 아니라 설계다.** 하위는 사용자가 그 폴더를 펼치는 순간
+ * `relativePath` 를 가리켜 다시 조회한다. 종전에는 여기에 재귀 트리가 통째로 들어왔고, 사용자
+ * 홈이 외부 폴더 버블로 뜨면 61만 항목이 실려 창이 멈췄다 — 다시 재귀를 넣지 마라.
+ */
 export interface FolderFileEntry {
   /** 파일/폴더 이름 */
   name: string;
@@ -4731,10 +4949,23 @@ export interface FolderFileEntry {
   relativePath: string;
   /** 디렉토리 여부 */
   isDirectory: boolean;
-  /** 하위 엔트리 (디렉토리일 때만) */
-  children?: FolderFileEntry[];
   /** 현재 위성으로 표시 중인지 */
   isSatellite: boolean;
+}
+
+/**
+ * `GET /api/folder-files` 응답 — 한 겹의 **한 페이지**(§7.5).
+ *
+ * 목록 바닥에 닿을 때마다 `nextCursor` 로 다음 장을 부른다. `total` 이 있어 화면은
+ * "100 / 4,812" 처럼 얼마나 남았는지 말할 수 있다(끝을 모른 채 스크롤하지 않는다).
+ */
+export interface FolderFilePage {
+  /** 이번 장의 엔트리 — 폴더 먼저, 그다음 이름순. */
+  entries: FolderFileEntry[];
+  /** 다음 장을 가리키는 커서. `null` 이면 이 겹은 끝이다. */
+  nextCursor: string | null;
+  /** 이 겹의 전체 항목 수(무시 목록·숨김 폴더를 걸러 낸 뒤). */
+  total: number;
 }
 
 /**
@@ -5092,6 +5323,12 @@ export interface ProjectCheckpoint {
     bashHistory: Record<string, BashEntry[]>;
     runningServers: Record<string, ServerEntry[]>;
     fileEdits: Record<string, FileEdit[]>;
+    /**
+     * 도메인 버블별 웹 이력 (§5.23). **정체성이 아니라 이력**이라 `fileEdits`·`bashHistory` 와
+     * 같은 칸에 두어 `activity.json`(고빈도·순수휘발)로 함께 흐른다 — `identity.json` 을
+     * 건드리지 않는다(§3.2.2). optional 이라 구버전 체크포인트도 그대로 열린다(§3.2.1-5).
+     */
+    domainEntries?: Record<string, WebEntry[]>;
   };
 
   edges: {
@@ -5659,12 +5896,17 @@ export interface PluginManifest {
 /**
  * 모델 패밀리 alias — UI 드롭다운 + `--model` CLI alias.
  *
- * §4 v2.77 — `opus/sonnet/haiku` 는 디폴트 가격·컨텍스트 테이블(`MODEL_FAMILY_DEFAULTS`)을 가진
- * **알려진 패밀리**. 신규 패밀리(fable/mythos 등)도 동적으로 수용하도록 string 으로 확장한다 —
- * 미지 패밀리는 패밀리 디폴트가 없어 `DEFAULT_PRICING`/`DEFAULT_CONTEXT_LIMIT` 로 폴백.
- * `(string & {})` 트릭으로 임의 string 을 받되 에디터 자동완성은 known 3종을 계속 노출.
+ * §4 v2.77 — 디폴트 가격·컨텍스트 테이블(`MODEL_FAMILY_DEFAULTS`)을 가진 **알려진 패밀리**.
+ * 그 밖의 패밀리도 동적으로 수용하도록 string 으로 확장한다 — 미지 패밀리는 패밀리 디폴트가 없어
+ * `DEFAULT_PRICING`/`DEFAULT_CONTEXT_LIMIT` 로 폴백한다.
+ * `(string & {})` 트릭으로 임의 string 을 받되 에디터 자동완성은 known 패밀리를 계속 노출.
+ *
+ * (판올림 번호 발급 대기) — **fable·mythos 를 known 으로 승격**. 이 둘은 "언젠가 나올지도 모르는 미지"가
+ * 아니라 이미 출시된 실제 패밀리인데 known 3종에 없어서 단가·컨텍스트가 통째로 폴백값으로 계산됐다.
+ * 이 유니온은 `MODEL_FAMILY_DEFAULTS` 의 키와 **반드시 같아야 한다**(그쪽이 `Record<KnownModelFamily,…>`
+ * 라 타입 검사가 누락을 잡아 준다 — 한쪽만 늘리면 빌드가 깨지므로 조용한 어긋남은 생기지 않는다).
  */
-export type KnownModelFamily = 'opus' | 'sonnet' | 'haiku';
+export type KnownModelFamily = 'opus' | 'sonnet' | 'haiku' | 'fable' | 'mythos';
 export type ModelFamily = KnownModelFamily | (string & {});
 
 /**
@@ -6717,6 +6959,17 @@ export interface UpdateState {
   currentVersion: string;
   /** 발견된 새 버전 (available/downloading/downloaded 일 때). */
   newVersion?: string;
+  /**
+   * **지금 설치하면 깔리는 버전.** 다 받아서 디스크에 있는 것 하나만 여기 들어간다.
+   *
+   * `newVersion` 과 나눈 이유: 0.1.19 를 받아 둔 채 0.1.20 을 받는 동안 둘은 **다르다.**
+   * 하나로 겸하면 0.1.20 다운로드가 실패했을 때 무엇으로 되돌아갈지 알 수 없고, mac 에서는
+   * 화면이 "0.1.20 준비 완료"라고 하면서 실제로는 0.1.19 번들을 교체하는 어긋남이 생긴다.
+   * **설치의 근거는 이 필드 하나다**(`quitAndInstall` 이 이것으로 판정한다).
+   *
+   * optional — 구버전 main 이 보낸 상태에는 없다(§3 하위 호환). 없으면 받아 둔 것이 없다는 뜻.
+   */
+  readyVersion?: string;
   /** 다운로드 진행률 0~100 (downloading 일 때). */
   percent?: number;
   /** 다운로드 속도 (bytes/sec, downloading 일 때). */

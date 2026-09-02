@@ -9,8 +9,14 @@ import { parseModelFamily } from '@vibisual/shared';
 import { defineInspector, ICONS } from '../sdk/index.js';
 import type { PluginBubbleContext } from '../sdk/index.js';
 
-/** 사고 비용이 큰 순서. 알 수 없는 패밀리는 중간으로 본다. */
-const WEIGHT: Record<string, number> = { haiku: 1, sonnet: 2, opus: 3 };
+/**
+ * 사고 비용이 큰 순서. 알 수 없는 패밀리는 중간으로 본다.
+ *
+ * fable/mythos 는 opus 위 티어다(입력 단가 $10 vs $5). 여기 없으면 아래 `?? 2` 가 물어 **sonnet 급**으로
+ * 취급되고, 그러면 3턴짜리 작업에 최상위 모델을 물려 둬도 강등 제안이 뜨지 않는다 — 이 인스펙터가
+ * 존재하는 이유가 바로 그 자리다.
+ */
+const WEIGHT: Record<string, number> = { haiku: 1, sonnet: 2, opus: 3, fable: 4, mythos: 4 };
 
 function family(ctx: PluginBubbleContext): string {
   return parseModelFamily(ctx.agentConfig?.model ?? '') || (ctx.agentConfig?.model ?? '');

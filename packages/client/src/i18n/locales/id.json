@@ -526,7 +526,19 @@
         "bgProbeModel": "Model yang menjawab",
         "bgProbeModelDesc": "Ditanya sekali, tanpa perkakas dan tanpa akses ke proyek Anda — hanya teks perintah dan sepotong akhir keluarannya.",
         "bgProbeLoadError": "Tidak bisa membaca pengaturan saat ini.",
-        "bgProbeSaveError": "Tidak bisa menyimpan. Tidak ada yang diubah."
+        "bgProbeSaveError": "Tidak bisa menyimpan. Tidak ada yang diubah.",
+        "sessionProbeTitle": "Sesi yang macet di \"berjalan…\"",
+        "sessionProbeIntro": "Sebuah sesi bisa tetap berstatus \"berjalan…\" lama setelah pekerjaannya selesai, karena sinyal yang mengakhiri sesi semuanya dilaporkan sendiri — bila satu saja hilang, tidak ada yang menurunkannya. Waktu yang berlalu juga tidak bisa memutuskan: sesi yang menunggu build panjang tampak persis sama dengan sesi yang mati diam-diam. Karena itu, setiap 10 menit satu agen penilai kecil ditanya sekali tentang satu sesi — apa yang sedang ditunggunya, dan apakah hal itu masih akan datang.",
+        "sessionProbeEnabled": "Periksa apakah sesi yang berjalan benar-benar berjalan",
+        "sessionProbeEnabledDesc": "Jika dimatikan, tidak ada model yang dipanggil untuk ini — sesi akan tetap \"berjalan…\" sampai ada hal lain yang menurunkannya.",
+        "sessionProbeQuiet": "Tanyakan setelah sesenyap ini (menit)",
+        "sessionProbeQuietDesc": "Keheningan hanya menentukan kapan bertanya — tidak pernah menentukan jawabannya. Sesi yang menjawab \"masih bekerja\" dibiarkan makin lama sebelum ditanya lagi. 0 mematikan pertanyaan.",
+        "sessionProbeAutoClose": "Akhiri sesi bila jawabannya \"selesai\"",
+        "sessionProbeAutoCloseDesc": "Jika dimatikan, jawaban hanya ditampilkan di bilah status dan Anda yang memutuskan. \"Masih bekerja\", \"sepertinya macet\", dan \"tidak bisa dipastikan\" tidak pernah mengakhiri apa pun — dan tidak ada proses yang dihentikan di sini; sesi hanya ditandai sebagai tidak lagi berjalan.",
+        "sessionProbeModel": "Model yang menjawab",
+        "sessionProbeModelDesc": "Ia ditanya sekali, tanpa alat dan tanpa akses ke proyek Anda — hanya potongan singkat dari apa yang terakhir dikatakan dan dilakukan sesi itu. Paling banyak satu sesi ditanya pada satu waktu, dan tidak lebih dari 12 kali per jam.",
+        "sessionProbeLoadError": "Tidak bisa membaca pengaturan saat ini.",
+        "sessionProbeSaveError": "Tidak bisa menyimpan. Tidak ada yang diubah."
       },
       "notifications": {
         "cmdBlocked": "Beri tahu saat sesi CMD menunggu input",
@@ -867,9 +879,10 @@
       "contextItems": "{{count}} item",
       "model": {
         "label": "Model",
-        "opus": "Paling canggih. Penalaran terbaik dan tugas kompleks. Biaya tertinggi.",
+        "opus": "Sangat canggih. Terbaik untuk coding agentik kompleks dan penalaran. Biaya tinggi.",
         "sonnet": "Performa dan biaya seimbang. Cocok untuk sebagian besar tugas.",
         "haiku": "Tercepat dan termurah. Terbaik untuk tugas sederhana yang hanya baca.",
+        "fable": "Paling canggih. Untuk penalaran paling berat dan tugas berdurasi panjang. Biaya tertinggi.",
         "unknown": "{{name}} — model yang baru dirilis. Kemampuan dan biaya diperkirakan dari default keluarganya."
       },
       "contextWindow": {
@@ -1044,8 +1057,24 @@
         "tokens": "Ukuran jendela sekitar {{tokens}} token.",
         "foldsAt": "Melipat sekitar {{tokens}}, di akhir giliran tersebut.",
         "foldsAtAuto": "Melipat pada {{percent}}% jendela yang dipilih CLI, di akhir giliran tersebut.",
-        "unsetDefaultLabel": "belum diatur ({{tokens}})",
-        "globalTip": "Berlaku untuk semua agen yang tidak punya nilai auto-compact sendiri — termasuk yang sedang berjalan. Biarkan kosong untuk memakai nilai bawaan."
+        "unsetDefaultLabel": "tidak diatur (bawaan: mati)",
+        "globalTip": "Berlaku untuk semua agen yang tidak punya nilai auto-compact sendiri — termasuk yang sedang berjalan. Biarkan kosong untuk memakai nilai bawaan.",
+        "offLabel": "mati",
+        "off": "mati — tidak pernah dipadatkan. Tidak ada panggilan ringkasan, jadi tidak memakai token.",
+        "foldsAtOff": "Tidak pernah dipadatkan. Percakapan panjang makin berat tiap giliran, dan saat jendela model penuh CLI memadatkan sekali di tengah pekerjaan.",
+        "confirm": {
+          "title": "Nyalakan pemadatan otomatis? ({{value}})",
+          "titleSelf": "Izinkan agen memadatkan sendiri?",
+          "costHeading": "Menyalakannya memakan biaya token",
+          "costBody": "Pemadatan bukan pembersihan gratis — seluruh percakapan dikirim ulang ke model untuk membuat ringkasan, sebagai panggilan model tersendiri. Setiap pemadatan memakai token masukan dan keluaran serta kuota paket Anda.",
+          "costSample": "Contoh terukur (rata-rata {{runs}} kali): sekitar {{tokens}} token dibaca ulang tiap pemadatan, dengan jeda sekitar {{seconds}} detik. Angka Anda berbeda tergantung panjang percakapan dan model.",
+          "selfBody": "Agen meminta pemadatan saat menilai konteksnya berat, dan dijalankan setelah giliran itu selesai. Setiap permintaan adalah satu panggilan ringkasan, jadi biayanya sama.",
+          "offHeading": "Yang hilang jika dibiarkan mati",
+          "offBody": "Tanpa pemadatan, seluruh percakapan yang menumpuk dikirim ulang setiap giliran, sehingga biaya dan jeda sama-sama naik. Saat jendela model penuh, CLI memadatkan sekali di tengah pekerjaan, atau sesi terputus karena melewati jendela.",
+          "everyTime": "Konfirmasi ini muncul setiap kali Anda menyalakannya kembali.",
+          "cancel": "Batal (biarkan mati)",
+          "enable": "Saya mengerti — nyalakan"
+        }
       },
       "settingSources": {
         "label": "Sumber setelan",
@@ -1308,6 +1337,21 @@
       "maxSave": "Simpan",
       "noVisible": "Tidak ada file yang terlihat"
     },
+    "webEntry": {
+      "count": "Entri {{count}}",
+      "maxTitle": "Maks. entri untuk domain ini",
+      "maxHint": "Enter · Esc",
+      "empty": "Belum ada catatan",
+      "clearAll": "Hapus semua",
+      "clearConfirm": "Hapus",
+      "clearCancel": "Batal",
+      "kindSearch": "Pencarian",
+      "kindFetch": "Ambil",
+      "checkHint": "Centang untuk menghapus entri ini",
+      "openExternal": "Buka di peramban",
+      "resultCount": "{{count}} hasil",
+      "truncated": "…(dipotong)"
+    },
     "rootFileList": {
       "files": "File",
       "loading": "Memuat...",
@@ -1334,6 +1378,12 @@
         "running": "berjalan",
         "done": "selesai",
         "error": "galat"
+      },
+      "probe": {
+        "checking": "memeriksa…",
+        "working": "terkonfirmasi berjalan",
+        "stuck": "mungkin macet",
+        "finished": "tampaknya selesai"
       },
       "tokensInOut": "{{in}}masuk {{out}}keluar"
     },
@@ -1656,6 +1706,9 @@
       "empty": "Belum ada yang terukur di proyek ini.",
       "emptyHint": "Biaya muncul setelah agent menyelesaikan satu giliran — biaya ini dibaca dari transkrip sesi, bukan jumlah yang ditagihkan.",
       "estimateNote": "Diperkirakan dari jumlah token dan harga yang dipublikasikan.",
+      "estimatedMark": "est.",
+      "estimatedMarkHint": "Termasuk model yang harganya belum tercatat, jadi tarif cadangan yang dipakai. Jumlahnya bisa berbeda.",
+      "unseededNote": "Harga {{models}} belum tercatat, jadi tarif cadangan yang dipakai. Jumlah ini bisa berbeda.",
       "retiredNote": "{{cost}} dari sesi lama digabungkan ke dalam total sepanjang waktu.",
       "sessions_one": "{{count}} sesi",
       "sessions_other": "{{count}} sesi",
@@ -1770,6 +1823,10 @@
       "choose": "Pilih Folder",
       "picking": "Memilih…",
       "later": "Nanti"
+    },
+    "folderList": {
+      "loadingMore": "Memuat lagi… ({{loaded}} / {{total}})",
+      "retry": "Gagal memuat — coba lagi"
     }
   },
   "ide": {
@@ -1873,7 +1930,17 @@
       "confirmCloseMessage": "Sesi ini masih berjalan. Menutupnya akan menghentikan pekerjaannya. Tetap tutup?",
       "confirmCloseConfirm": "Tutup",
       "confirmCloseCancel": "Batal",
-      "hiddenRunning": "{{count}} tab berjalan tersembunyi di sini — klik untuk lompat"
+      "hiddenRunning": "{{count}} tab berjalan tersembunyi di sini — klik untuk lompat",
+      "sortTabs": "Urutkan tab",
+      "sortAnchorTitle": "Sisi prioritas",
+      "sortAnchorRight": "Dari kanan",
+      "sortAnchorLeft": "Dari kiri",
+      "sortByRunning": "Berjalan",
+      "sortByQuestions": "Kartu pertanyaan",
+      "sortByReviews": "Kartu pemeriksaan",
+      "sortByUserActions": "Tugas Anda",
+      "sortByPinned": "Disematkan",
+      "sortByRecent": "Terbaru"
     },
     "terminal": {
       "unavailable": "Terminal tertanam hanya tersedia di aplikasi desktop Vibisual.",
@@ -1949,6 +2016,8 @@
       "ctxSendAsPrompt": "Kirim sebagai prompt baru",
       "ctxSelectAll": "Pilih semua",
       "ctxAddMemo": "Tambah memo tempel",
+      "ctxSpreadMemos": "Uraikan memo yang bertumpuk",
+      "ctxSpreadMemosNone": "Tidak ada memo yang bertumpuk",
       "jumpToBottom": "Gulir ke bawah",
       "ctxSelectionRequired": "Pilih teks terlebih dahulu",
       "inputCtxCut": "Potong",
@@ -1958,10 +2027,53 @@
       "ctxSaveToBrain": "Simpan ke Memori",
       "stopAll": "Hentikan semua",
       "stopAllTitle": "Hentikan semua yang dijalankan agent ini (tab lain + tugas latar belakang)",
-      "stopSessionTitle": "Hentikan sesi ini beserta sub-agent yang dimulainya (tab sesi lain tetap berjalan)"
+      "stopSessionTitle": "Hentikan sesi ini beserta sub-agent yang dimulainya (tab sesi lain tetap berjalan)",
+      "voiceStart": "Input suara ({{shortcut}})",
+      "voiceStop": "Hentikan input suara ({{shortcut}})",
+      "voiceStarting": "Membuka mikrofon…",
+      "voiceListening": "Mendengarkan — silakan bicara",
+      "voiceCancelHint": "Esc untuk membatalkan",
+      "voiceDone": "Selesai",
+      "voiceErrUnsupported": "Pengenalan suara tidak tersedia di build ini.",
+      "voiceErrPermission": "Akses mikrofon ditolak. Izinkan aplikasi ini di pengaturan privasi sistem, lalu coba lagi.",
+      "voiceErrDevice": "Mikrofon tidak ditemukan. Sambungkan satu lalu coba lagi.",
+      "voiceErrNetwork": "Tidak dapat menjangkau layanan pengenalan suara.",
+      "voiceErrLanguage": "Pengenalan suara tidak mendukung bahasa antarmuka saat ini.",
+      "voiceErrUnknown": "Input suara berhenti. Silakan coba lagi.",
+      "voiceErrDismiss": "Tutup"
+    },
+    "voiceInstall": {
+      "title": "Siapkan input suara",
+      "intro": "Input suara berjalan sepenuhnya di komputer ini. Penyiapan mengunduh sekitar {{size}} satu kali — setelah itu berfungsi secara offline.",
+      "noteSize": "Mengunduh dan menyimpan sekitar {{size}} di disk (mesin + model suara). Ini hanya terjadi sekali.",
+      "noteResume": "Anda dapat menghentikannya kapan saja. Bagian yang sudah diunduh tetap tersimpan, dan memulai lagi akan melanjutkan dari titik itu.",
+      "notePrivacy": "Suara Anda tidak keluar dari komputer ini — tanpa akun, tanpa internet, dan tidak ada yang direkam atau disimpan.",
+      "noteFirstRun": "Saat pertama kali berbicara setelah penyiapan, model perlu beberapa detik untuk dimuat.",
+      "noteLicense": "Model suara: NVIDIA Nemotron ASR (OpenMDW-1.1). Mesin: sherpa-onnx (Apache-2.0).",
+      "langPrimary": "Model ini sepenuhnya mendukung bahasa antarmuka Anda.",
+      "langBroad": "Model ini mendukung bahasa antarmuka Anda pada tingkat akurasi yang lebih rendah.",
+      "langNone": "Model ini tidak mencantumkan bahasa antarmuka Anda — pengenalan mungkin buruk atau tidak berfungsi.",
+      "stageEngine": "Mengunduh mesin",
+      "stageExtract": "Membuka paket mesin",
+      "stageModel": "Mengunduh model suara",
+      "stageVerify": "Memeriksa berkas",
+      "stageReady": "Siap",
+      "stageCanceled": "Dihentikan",
+      "canceledHint": "Dihentikan. Bagian yang sudah diunduh tetap tersimpan — memulai lagi akan melanjutkan dari titik itu.",
+      "failed": "Penyiapan gagal.",
+      "cancel": "Hentikan",
+      "later": "Nanti saja",
+      "retry": "Coba lagi",
+      "start": "Pasang dan mulai"
     },
     "memo": {
       "title": "Memo",
+      "tabHint": "Seret keluar untuk melepas · jatuhkan ke memo lain untuk menggabungkan",
+      "mergeHint": "Seret bilah judul ke memo lain untuk menggabungkannya",
+      "stacked": "{{n}} di bawahnya — klik untuk memunculkan berikutnya",
+      "rename": "Ganti nama",
+      "namePlaceholder": "Nama (kosong = baris pertama memo)",
+      "renameHint": "F2 · klik dua kali · klik kanan untuk ganti nama",
       "placeholder": "Ketik catatan…",
       "color": "Warna",
       "collapse": "Ciutkan",
@@ -2381,13 +2493,21 @@
     },
     "statusBar": {
       "custom": "Kustom",
+      "customTip": "Agen yang Anda buat sendiri di kanvas. Anda bisa mengirimkan perintah dan membuka sesinya sebagai tab.",
       "hook": "Hook",
+      "hookTip": "Terdeteksi dari event Hook Claude Code. Hanya-baca — Anda tidak bisa mengirim perintah ke sini.",
+      "statusTip": "Status jalan dari sesi yang ditampilkan di sini: berjalan, menunggu, selesai, atau gagal.",
+      "modelTip": "Model yang benar-benar dipakai sesi ini pada giliran terakhirnya. Sebelum giliran pertama, yang tampil adalah model yang disetel untuk agen ini.",
+      "modelUnknown": "tidak diketahui",
       "context": "ctx: {{used}}/{{max}}",
+      "contextTip": "Seberapa penuh jendela konteks saat ini — masukan giliran terakhir dibandingkan jendela model ini. Bukan total kumulatif: nilainya turun setelah pemadatan.",
       "tokens": "{{in}} masuk / {{out}} keluar",
+      "tokensTip": "Total token yang dipakai sesi ini sejak dimulai. Masukan juga menghitung pembacaan dan penulisan cache, jadi naiknya jauh lebih cepat daripada keluaran. Kumulatif — hanya bertambah.",
+      "autoCompact": "auto-compact {{value}}",
+      "autoCompactTip": "Saat konteks mencapai ukuran ini, CLI meringkas percakapan dengan sendirinya. Ubah per agen di Pengaturan Agent, atau untuk semua di File > Opsi > Default Agent.",
       "sessionOne": "{{count}} sesi",
       "sessionMany": "{{count}} sesi",
-      "autoCompact": "auto-compact {{value}}",
-      "autoCompactTip": "Saat konteks mencapai ukuran ini, CLI meringkas percakapan dengan sendirinya. Ubah per agen di Pengaturan Agent, atau untuk semua di File > Opsi > Default Agent."
+      "sessionsTip": "Berapa tab sesi yang terbuka pada agen ini."
     },
     "search": {
       "placeholder": "Cari dalam percakapan",
@@ -2421,6 +2541,15 @@
       "modelFallback": "Model cadangan",
       "interrupt": "Dihentikan",
       "permissionDenied": "Izin ditolak"
+    },
+    "stepTrace": {
+      "underSec": "kurang dari 1 dtk",
+      "sec": "{{sec}} dtk",
+      "minSec": "{{min}} mnt {{sec}} dtk",
+      "hourMin": "{{hour}} jam {{min}} mnt",
+      "thought": "Berpikir selama {{duration}}",
+      "wrote": "Menulis {{value}} karakter",
+      "chars": "{{value}} karakter"
     },
     "streamRenderer": {
       "noActivity": "Tidak ada aktivitas di sesi ini",
@@ -3601,7 +3730,14 @@
       "lock": "Kunci canvas",
       "unlock": "Buka kunci canvas",
       "fullscreen": "Layar penuh",
-      "exitFullscreen": "Keluar layar penuh"
+      "exitFullscreen": "Keluar layar penuh",
+      "heatmap": "Peta panas pembacaan",
+      "heatmapOff": "Matikan peta panas pembacaan"
+    },
+    "heatmap": {
+      "title": "Jumlah baca",
+      "empty": "Belum ada yang dibaca",
+      "max": "maks. {{n}}"
     },
     "contextMenu": {
       "createCustomAgent": "Buat Custom Agent",

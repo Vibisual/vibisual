@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import type { BubbleData, ActivityEdge, PipelineState, BrainCardType } from '@vibisual/shared';
 import { BUBBLE_COLORS, LAYOUT_CENTER_X, LAYOUT_CENTER_Y, PIPELINE_PARENT_BUBBLE_ID } from '@vibisual/shared';
 import { collectSatellites } from '../utils/satellite.js';
+import { useHeatScale } from './useHeatScale.js';
 import {
   radialLayout,
   buildFlowEdge,
@@ -38,6 +39,8 @@ export function useBubbleLayout({
   satellitePositions,
   residentBubbles = [],
 }: UseBubbleLayoutProps): ViewData {
+  // §5.24 — 히트맵이 켜져 있으면 배치도 렌더와 **같은 자**를 써야 한다(안 그러면 화살표가 빗나간다).
+  const heat = useHeatScale();
   return useMemo(() => {
     if (agents.length === 0 && folders.length === 0 && residentBubbles.length === 0) return EMPTY_VIEW_DATA;
 
@@ -46,7 +49,7 @@ export function useBubbleLayout({
     // §5.10 — 상주 버블(brain/trash)은 폴더처럼 홈 주변을 공전(items)하되 물리 standalone.
     const foldersWithResident = [...folders, ...residentBubbles];
     const allBubbles = [...agents, ...foldersWithResident];
-    const layout = radialLayout(agents, foldersWithResident, cx, cy);
+    const layout = radialLayout(agents, foldersWithResident, cx, cy, heat);
 
     const flowEdges = edges.map((e) => {
       const folder = folders.find((f) => f.id === e.target)
@@ -58,12 +61,12 @@ export function useBubbleLayout({
         label: e.label,
         isActive: e.isActive,
         color: folder ? BUBBLE_COLORS[folder.bubbleType] : '#64748b',
-        sourceRadius: findRadius(allBubbles, e.source),
-        targetRadius: findRadius(allBubbles, e.target),
+        sourceRadius: findRadius(allBubbles, e.source, heat),
+        targetRadius: findRadius(allBubbles, e.target, heat),
       });
     });
 
-    const satInfos = collectSatellites([...agents, ...folders], satellites, satellitePositions);
+    const satInfos = collectSatellites([...agents, ...folders], satellites, heat, satellitePositions);
     const satFlowEdges = buildSatelliteEdges(satInfos);
 
     return {
@@ -72,7 +75,7 @@ export function useBubbleLayout({
       flowEdges: [...flowEdges, ...satFlowEdges],
       satInfos,
     };
-  }, [agents, folders, edges, satellites, satellitePositions, residentBubbles]);
+  }, [agents, folders, edges, satellites, satellitePositions, residentBubbles, heat]);
 }
 
 // ─── §5.10 기억/휴지통 내부 뷰 데이터 Hook ───
@@ -126,7 +129,8 @@ export function useInteriorLayout({ view, trashedAgents }: UseInteriorLayoutProp
 
     const navBubbles = [backBubble];
     const allBubbles = [...navBubbles, ...contentBubbles];
-    const layout = radialLayout(navBubbles, contentBubbles, cx, cy, { offsetX: -300, offsetY: -150 });
+    // 버려진 에이전트만 있는 뷰라 히트 대상이 없다 — 척도를 넘기지 않는다.
+    const layout = radialLayout(navBubbles, contentBubbles, cx, cy, undefined, { offsetX: -300, offsetY: -150 });
 
     return {
       bubbles: allBubbles,
@@ -166,6 +170,7 @@ export function useFolderLayout({
   satellites,
   satellitePositions,
 }: UseFolderLayoutProps): ViewData {
+  const heat = useHeatScale();
   return useMemo(() => {
     const cx = LAYOUT_CENTER_X;
     const cy = LAYOUT_CENTER_Y;
@@ -213,7 +218,7 @@ export function useFolderLayout({
         || connected.has(c.id));
     })();
     const allBubbles = [...navBubbles, ...visibleChildren, ...extraAgents];
-    const layout = radialLayout(navBubbles, [...visibleChildren, ...extraAgents], cx, cy, { offsetX: -300, offsetY: -150 });
+    const layout = radialLayout(navBubbles, [...visibleChildren, ...extraAgents], cx, cy, heat, { offsetX: -300, offsetY: -150 });
 
     const flowEdges = innerEdges.map((e) => {
       const child = visibleChildren.find((i) => i.id === e.source) ?? visibleChildren.find((i) => i.id === e.target);
@@ -224,8 +229,8 @@ export function useFolderLayout({
         label: e.label,
         isActive: e.isActive,
         color: child ? BUBBLE_COLORS[child.bubbleType] : '#64748b',
-        sourceRadius: findRadius(allBubbles, e.source === folderId ? backBubble.id : e.source),
-        targetRadius: findRadius(allBubbles, e.target === folderId ? backBubble.id : e.target),
+        sourceRadius: findRadius(allBubbles, e.source === folderId ? backBubble.id : e.source, heat),
+        targetRadius: findRadius(allBubbles, e.target === folderId ? backBubble.id : e.target, heat),
       });
     });
 
@@ -244,14 +249,14 @@ export function useFolderLayout({
         label: e.label,
         isActive: e.isActive,
         color: '#64748b',
-        sourceRadius: findRadius(allBubbles, e.source),
-        targetRadius: findRadius(allBubbles, e.target),
+        sourceRadius: findRadius(allBubbles, e.source, heat),
+        targetRadius: findRadius(allBubbles, e.target, heat),
       }));
 
     const folderItems = visibleChildren.filter(
       (i) => i.bubbleType === 'internal_folder' || i.bubbleType === 'external_folder',
     );
-    const satInfos = collectSatellites(folderItems, satellites, satellitePositions);
+    const satInfos = collectSatellites(folderItems, satellites, heat, satellitePositions);
     const satFlowEdges = buildSatelliteEdges(satInfos);
 
     return {
@@ -260,7 +265,7 @@ export function useFolderLayout({
       flowEdges: [...flowEdges, ...agentFlowEdges, ...satFlowEdges],
       satInfos,
     };
-  }, [folderId, folderData, agents, children, innerEdges, agentEdges, satellites, satellitePositions]);
+  }, [folderId, folderData, agents, children, innerEdges, agentEdges, satellites, satellitePositions, heat]);
 }
 
 // ─── 파이프라인 내부 뷰 데이터 Hook ───
@@ -296,7 +301,8 @@ export function usePipelineLayout({
 
     const navBubbles = [parentsBubble];
     const allBubbles = [...navBubbles, ...pipelineChildren];
-    const layout = radialLayout(navBubbles, pipelineChildren, cx, cy, { offsetX: -200, offsetY: -100 });
+    // 파이프라인 에이전트만 있는 뷰라 히트 대상이 없다.
+    const layout = radialLayout(navBubbles, pipelineChildren, cx, cy, undefined, { offsetX: -200, offsetY: -100 });
 
     return {
       bubbles: allBubbles,

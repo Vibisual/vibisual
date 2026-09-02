@@ -2,6 +2,8 @@ import { useEffect, useRef, useCallback, useState } from 'react';
 import type { WSMessage, GraphSnapshot, GraphSnapshotWire, SubAgentStreamEvent, ProjectHydratedPayload, ProjectUnloadedPayload, IframeLogInitPayload, IframeLogAppendPayload, ServerLogInitPayload, ServerLogAppendPayload, PermissionRequest, PermissionDecision, ClaudeInstallProgress, ClaudeSetupProgress, AskUserQuestionRequest, AskUserQuestionDecision, DebugEventPayload, HookFiredPayload } from '@vibisual/shared';
 import { applyKeyedSliceDelta, MAX_RECONNECT_ATTEMPTS, RECONNECT_BASE_DELAY, WS_BATCH_INTERVAL, WS_STREAM_BATCH_INTERVAL, WS_BATCH_INTERVAL_MAX, WS_BATCH_BACKOFF_FACTOR } from '@vibisual/shared';
 import { useGraphStore } from '../stores/graphStore.js';
+import { batchStoreNotify } from '../stores/batchedNotify.js';
+import { structuralShare } from '../stores/structuralShare.js';
 // §5.5 #17-20 ⑩ v4.94 — 디버그 세션은 프로세스 수명이라 그래프 스토어가 아닌 런타임 스토어가 받는다.
 import { useDebugSessions } from '../stores/debugSessions.js';
 import { useHookFires } from '../stores/hookFires.js';
@@ -45,6 +47,16 @@ function isWSMessage(data: unknown): data is WSMessage {
     'timestamp' in data
   );
 }
+
+/**
+ * §9 — 서버가 안 싣는 슬라이스의 **빈 값 고정 참조**.
+ *
+ * `snap.agentReports ?? {}` 처럼 매번 새 빈 객체를 지어 넘기면, 그 슬라이스를 구독하는 화면은
+ * 서버가 그 필드를 **한 번도 안 보내는 동안에도** 스냅샷 주기(16ms)마다 리렌더된다 — 값이 없는데
+ * 값이 바뀐 것으로 읽히는 자리다. 항상 같은 참조를 넘겨 "없음"이 조용하도록 만든다.
+ */
+const EMPTY_RECORD: Record<string, never> = {};
+const EMPTY_LIST: never[] = [];
 
 function isGraphSnapshot(data: unknown): data is GraphSnapshotWire {
   return (
@@ -95,7 +107,21 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     bashHistory: NonNullable<GraphSnapshotWire['bashHistory']>;
   }>({ fileEdits: {}, bashHistory: {} });
 
-  /** 전선에서 온 스냅샷 → 증분을 푼 완전한 스냅샷(이후 경로는 종전과 동일). */
+  /**
+   * §9 — **직전에 반영한 스냅샷**(구조적 공유의 비교 상대).
+   *
+   * `loadSnapshot` 은 자기 30여 개 슬라이스에 이미 구조적 공유를 태우지만, 그 뒤에 이어지는
+   * `apply*` 35개는 **받은 값을 그대로 갈아끼운다** — 내용이 한 글자도 안 바뀐 스냅샷에도
+   * `agentReports`·`sessionGoals`·`costMaps` … 가 매번 새 참조가 되어, 그것을 보는 화면 전부가
+   * 16ms 주기로 리렌더됐다(실측 스냅샷 1건당 리렌더 유발 612건).
+   *
+   * 액션 35개를 각각 고치는 대신 **전선에서 받은 시점에 한 번** 공유를 태운다 — 이후 경로는
+   * 종전과 완전히 같고, 안 바뀐 슬라이스는 앞선 스냅샷의 참조를 그대로 들고 내려간다.
+   * `loadSnapshot` 쪽 공유도 첫 `Object.is` 에서 끝나므로 총 비교량은 늘지 않는다.
+   */
+  const lastWireRef = useRef<GraphSnapshotWire | null>(null);
+
+  /** 전선에서 온 스냅샷 → 증분을 푼 뒤 직전 스냅샷과 구조적 공유를 태운 것(이후 경로는 종전과 동일). */
   const materializeSnapshot = useCallback((wire: GraphSnapshotWire): GraphSnapshotWire => {
     const shadow = keyedShadowRef.current;
     shadow.fileEdits = wire.deltas?.fileEdits
@@ -104,13 +130,21 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     shadow.bashHistory = wire.deltas?.bashHistory
       ? applyKeyedSliceDelta(shadow.bashHistory, wire.deltas.bashHistory)
       : (wire.bashHistory ?? {});
-    if (!wire.deltas) return wire;
-    const full: GraphSnapshotWire = { ...wire, fileEdits: shadow.fileEdits, bashHistory: shadow.bashHistory };
-    delete full.deltas;
-    return full;
+    let full = wire;
+    if (wire.deltas) {
+      full = { ...wire, fileEdits: shadow.fileEdits, bashHistory: shadow.bashHistory };
+      delete full.deltas;
+    }
+    // 서버 권위 순수 JSON 이므로 구조적 공유의 전제(structuralShare.ts 주석)를 그대로 만족한다.
+    const shared = structuralShare(lastWireRef.current, full);
+    lastWireRef.current = shared;
+    return shared;
   }, []);
 
-  const applyGraphSnapshot = useCallback((snap: GraphSnapshotWire) => {
+  // §9 — 아래 36번의 `set()`(loadSnapshot 1 + apply* 35)은 **한 사건**이다. zustand 는 호출마다
+  //   구독자 전원의 선택자를 다시 돌리므로, 묶지 않으면 스냅샷 1건에 그 재평가를 36벌 지불한다
+  //   (실측 구독 4,000개 기준 5.01ms → 0.15ms). 상태 갱신은 종전과 완전히 같고 **통지만** 접힌다.
+  const applyGraphSnapshot = useCallback((snap: GraphSnapshotWire) => batchStoreNotify(() => {
     // [perf-snapshot] 계측 — 콘솔에서 `__VIBI_PERF__ = true` 로 켠다(기본 off, 프로덕션 비용 0).
     // loadSnapshot(그래프 전체 재구축) vs 이후 apply*(~22개 슬라이스 set) 중 어디가 무거운지 분리 측정.
     const PERF = !!(globalThis as unknown as { __VIBI_PERF__?: boolean }).__VIBI_PERF__;
@@ -151,34 +185,40 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     );
     // §9 스코프드 구독 — 프로젝트별 에이전트 집계(탭 배지). **구독 범위 밖 프로젝트도 들어 있다.**
     //   같은 이유로 별도 액션(loadSnapshot 위치 인자 ❌).
-    useGraphStore.getState().applyProjectAgentCounts(snap.projectAgentCounts ?? {});
+    useGraphStore.getState().applyProjectAgentCounts(snap.projectAgentCounts ?? EMPTY_RECORD);
     // §9 스코프드 구독 — **이 스냅샷이 어느 프로젝트를 실어 왔는지**. 없으면(구버전 서버 · 선언한
     //   창이 없을 때) 전량이라는 뜻이라 `undefined` 를 그대로 넘긴다. 캔버스의 "불러오는 중"
     //   표시가 이 값 하나로 켜지고 꺼진다.
     useGraphStore.getState().applySnapshotScope(snap.scopedProjects);
+    // §9 폴더 스코프 — 한 칸 아래의 같은 값. 지금 열어 둔 폴더가 이 목록에 없으면 그 내부는
+    //   비어 있는 것이 아니라 아직 안 온 것이다.
+    useGraphStore.getState().applySnapshotFolderScope(snap.scopedFolders);
+    // §9 폴더 스코프 — 서버가 전량으로 잰 상대 척도(파일 크기 · 히트맵). **loadSnapshot 뒤**라야
+    //   직접 잰 값을 덮는다. 안 오면(구버전 서버) 아무것도 안 하므로 종전 동작 그대로다.
+    useGraphStore.getState().applySnapshotScales(snap.fileSizeRange, snap.readCountMaxByProject);
     // §5.13 v4.45 — 앱 버블은 별도 액션으로 반영한다(loadSnapshot 의 위치 인자를 늘리면
     //   호출부 한 곳만 어긋나도 조용히 다른 값이 들어간다).
-    useGraphStore.getState().applyAppBubbles(snap.appBubbles ?? []);
+    useGraphStore.getState().applyAppBubbles(snap.appBubbles ?? EMPTY_LIST);
     // §5.14 v4.62 — 플레이 버블도 같은 이유로 별도 액션.
-    useGraphStore.getState().applyPlayBubbles(snap.playBubbles ?? []);
+    useGraphStore.getState().applyPlayBubbles(snap.playBubbles ?? EMPTY_LIST);
     // §5.15 — 스펙 보드도 같은 이유로 별도 액션.
-    useGraphStore.getState().applySpecDocs(snap.specDocs ?? []);
+    useGraphStore.getState().applySpecDocs(snap.specDocs ?? EMPTY_LIST);
     // §5.18 — 에이전트 랩도 같은 이유로 별도 액션(비교 표는 서버 값 그대로 그린다).
-    useGraphStore.getState().applyLabRuns(snap.labRuns ?? []);
+    useGraphStore.getState().applyLabRuns(snap.labRuns ?? EMPTY_LIST);
     // §5.20 — 스크립트 선반도 같은 이유로 별도 액션(항목의 마지막 결과는 서버 값 그대로 그린다).
-    useGraphStore.getState().applyShelfBubbles(snap.shelfBubbles ?? []);
+    useGraphStore.getState().applyShelfBubbles(snap.shelfBubbles ?? EMPTY_LIST);
     // §5.21 — 비용·토큰 지도. 기간 합계·정렬까지 서버가 접어 실어 주므로 그대로 넣는다.
-    useGraphStore.getState().applyCostMaps(snap.costMaps ?? []);
+    useGraphStore.getState().applyCostMaps(snap.costMaps ?? EMPTY_LIST);
     // §5.22 — 감사 원장. 위험·거부 집계까지 서버가 접어 실어 주므로 그대로 넣는다.
-    useGraphStore.getState().applyAuditLogs(snap.auditLogs ?? []);
+    useGraphStore.getState().applyAuditLogs(snap.auditLogs ?? EMPTY_LIST);
     // §5.16 — 리뷰·승인 레인. 서버가 전량을 싣고, 사람이 치운 리뷰는 곧 사라짐으로 반영된다.
-    useGraphStore.getState().applyReviewRequests(snap.reviewRequests ?? []);
+    useGraphStore.getState().applyReviewRequests(snap.reviewRequests ?? EMPTY_LIST);
     // §5.5 #17-20 ⑩ v4.94 — 중단점(프로젝트별). 세션이 없어도 편집창 gutter 가 이 값을 그린다.
-    useGraphStore.getState().applyDebugBreakpoints(snap.debugBreakpoints ?? {});
+    useGraphStore.getState().applyDebugBreakpoints(snap.debugBreakpoints ?? EMPTY_RECORD);
     // §5.11 v4.65 — 집행 플러그인의 실측(프로젝트별). 켠 것이 없으면 서버가 필드를 안 실으므로 빈 맵으로 비운다.
-    useGraphStore.getState().applyPluginFacts(snap.pluginFacts ?? {});
+    useGraphStore.getState().applyPluginFacts(snap.pluginFacts ?? EMPTY_RECORD);
     const _tLoad = PERF ? performance.now() : 0;
-    store.applyStubProjects(snap.stubProjects ?? {});
+    store.applyStubProjects(snap.stubProjects ?? EMPTY_RECORD);
     store.applyAppState(snap.appState);
     if (snap.uiLocale) store.applyUiLocale(snap.uiLocale);
     store.applyLayoutBoundsByProject(snap.layoutBoundsByProject);
@@ -194,6 +234,8 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     store.applyFinishedSubagentTasks(snap.finishedSubagentTasks);
     store.applyAgentReports(snap.agentReports);
     store.applyAgentMemos(snap.agentMemos);
+    // §5.23 — 도메인 버블 웹 이력
+    store.applyDomainEntries(snap.domainEntries);
     store.applyAgentQuestions(snap.agentQuestions);
     store.applyAgentReviews(snap.agentReviews);
     store.applyAgentLists(snap.agentLists);
@@ -218,7 +260,7 @@ export function useWebSocket(url: string): UseWebSocketReturn {
         `loadSnapshot=${(_tLoad - _t0).toFixed(1)}ms apply*=${(_t1 - _tLoad).toFixed(1)}ms subAgents=${subs}`,
       );
     }
-  }, []);
+  }), []);
 
   const flushSnapshot = useCallback(() => {
     snapshotTimerRef.current = null;
@@ -527,6 +569,11 @@ export function useWebSocket(url: string): UseWebSocketReturn {
             store.applyLocalModelProgress(parsed.payload as import('@vibisual/shared').LocalModelDownloadProgress);
             break;
           }
+          case 'voice_asr_progress': {
+            // §5.5 #17-38 ⑫ — 받아쓰기 엔진·모델 설치 진행(650MB 라 이 줄이 유일한 피드백이다).
+            store.applyVoiceAsrProgress(parsed.payload as import('@vibisual/shared').VoiceAsrInstallProgress);
+            break;
+          }
           case 'user_defaults_updated': {
             // §4 v2.42 — 사용자가 Options 창에서 Apply → 다른 창들도 즉시 반영.
             store.applyUserDefaults(parsed.payload as import('@vibisual/shared').UserDefaults);
@@ -625,6 +672,11 @@ export function useWebSocket(url: string): UseWebSocketReturn {
   //   서버는 "선언한 창이 하나도 없으면 전부 보낸다"가 기본값이라, 침묵이 곧 안전 쪽이다.
   //   여기서 성급히 `[]` 를 보내면 활성 프로젝트를 정하기도 전에 데이터가 끊긴다.
   const activeProject = useGraphStore((s) => s.activeProject);
+  // §9 폴더 스코프 — 이 창이 **지금 열어 둔 폴더의 내비 경로**. 서버는 이 경로의 폴더들과
+  //   그 한 칸 앞(하위 폴더)만 `children`/`innerEdges`/폴더 위성에 싣는다.
+  //   실측(살아 있는 checkpoint.json): 세 슬라이스 1,306,933 → 72,938 바이트(5.6%).
+  const navStack = useGraphStore((s) => s.navStack);
+  const currentFolderId = useGraphStore((s) => s.currentFolderId);
 
   // 연결 상태를 스토어에도 실어 둔다 — 헤더 인디케이터만 알고 있으면 캔버스가 "끊겨서 비어 있는
   // 것"을 "불러오는 중"이라고 잘못 말한다. 값 하나를 두 화면이 같이 본다(설정은 여기 한 곳).
@@ -638,14 +690,19 @@ export function useWebSocket(url: string): UseWebSocketReturn {
       declaredScopeRef.current = null; // 재연결하면 다시 선언해야 한다(서버 쪽 선언은 창과 함께 사라진다)
       return;
     }
-    if (!activeProject || declaredScopeRef.current === activeProject) return;
-    declaredScopeRef.current = activeProject;
+    if (!activeProject) return;
+    // 폴더 축은 프로젝트 축과 **한 선언에 함께** 실린다 — 드릴다운이 두 번 왕복하지 않게.
+    // 폴더 밖(메인 뷰)이면 빈 배열이고, 그것도 유효한 선언이다("나는 지금 폴더 밖이다").
+    const folders = currentFolderId ? [...navStack, currentFolderId] : [...navStack];
+    const declared = JSON.stringify([activeProject, folders]);
+    if (declaredScopeRef.current === declared) return;
+    declaredScopeRef.current = declared;
     send({
       type: 'set-project-scope',
       timestamp: Date.now(),
-      payload: { projects: [activeProject] },
+      payload: { projects: [activeProject], folders },
     });
-  }, [status, activeProject, send]);
+  }, [status, activeProject, navStack, currentFolderId, send]);
 
   return { status, send, reconnect, getLastSnapshotAt };
 }

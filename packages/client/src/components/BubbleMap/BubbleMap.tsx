@@ -47,6 +47,7 @@ import { useBrainActivation } from '../../hooks/useBrainActivation.js';
 import { useTrashedAgents } from '../../hooks/useTrashedAgents.js';
 import { CanvasContextMenu } from './CanvasContextMenu.js';
 import { canCreateMainViewBubble } from './canvasScope.js';
+import { shouldDismissOnOpen } from './agentDismiss.js';
 import { DebugOverlay } from './DebugOverlay.js';
 import { LayoutBoundsBox } from './LayoutBoundsBox.js';
 import { CanvasControls } from './CanvasControls.js';
@@ -64,6 +65,7 @@ import { useCanvasClipboard } from '../../hooks/useCanvasClipboard.js';
 import { useBookmarks } from '../../hooks/useBookmarks.js';
 import { useCoarsePointer, useIsNarrowViewport, useLongPress, isNarrowViewportNow } from '../../hooks/useIsMobile.js';
 import { isCanvasSurfaceTarget } from './canvasSurface.js';
+import { folderCandidates, resolveSatelliteFolderId } from './satelliteNavigate.js';
 import { useTranslation } from 'react-i18next';
 
 const nodeTypes: NodeTypes = { bubble: BubbleNode, commentBox: CommentBoxNode, captureNode: CaptureNode, appNode: AppBubbleNode, playNode: PlayNode, playPreviewNode: PlayPreviewNode, specNode: SpecNode, labNode: LabNode, shelfNode: ShelfNode };
@@ -1757,7 +1759,8 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       // §6 v2.74 — completed 에이전트는 더블클릭(IDE 열어 확인)도 "확인"이므로
       // 싱글 클릭(BubbleNode.performSelect)과 동일하게 확인 dismiss(idle 전환 +
       // 전유 file/folder 소멸)를 함께 발동. fire-and-forget, 실패 무시.
-      if (data.status === 'completed') {
+      // 싱글 클릭보다 좁은 조건인 이유는 `agentDismiss` 주석에 있다(잔상은 걷지 않고 열어 본다).
+      if (shouldDismissOnOpen(data.status)) {
         fetch(`/api/dismiss-agent`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1782,25 +1785,13 @@ export const BubbleMap = memo(function BubbleMap(): React.JSX.Element {
       });
       return;
     }
-    // 위성 파일 더블클릭 → 파일이 있는 폴더 내부로 진입
+    // 위성 파일 더블클릭 → 파일이 있는 폴더 내부로 진입.
+    // 판정은 `satelliteNavigate` 한 곳 — 내부/외부 위성이 같은 규칙으로 움직여야 한다
+    // (외부는 노드 키에 `__ext__` 가 붙어 폴더의 `path` 와 절대 안 맞는다 · 자세한 것은 그 파일).
     if (node.id.startsWith('sat-')) {
-      const filePath = data.path;
-      const parentPath = filePath.substring(0, filePath.lastIndexOf('/'));
-      if (!parentPath) return;
-
-      // children 전체에서 해당 경로의 폴더 찾기
       const { children: allChildren, topFolders: tops } = useGraphStore.getState();
-      for (const items of Object.values(allChildren)) {
-        const folder = items.find((f) => f.path === parentPath);
-        if (folder) {
-          store.enterFolderDeep(folder.id);
-          return;
-        }
-      }
-      const topMatch = tops.find((f) => f.path === parentPath);
-      if (topMatch) {
-        store.enterFolderDeep(topMatch.id);
-      }
+      const folderId = resolveSatelliteFolderId(data, folderCandidates(tops, allChildren));
+      if (folderId) store.enterFolderDeep(folderId);
     }
   }, []);
 

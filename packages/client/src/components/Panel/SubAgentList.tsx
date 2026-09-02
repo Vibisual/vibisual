@@ -45,35 +45,39 @@ export const SubAgentList = memo(function SubAgentList({
           return (
             <li
               key={sub.id}
-              className="flex items-center gap-2 rounded border border-gray-700/50 bg-gray-800/60 px-2.5 py-1.5"
+              className="flex flex-col gap-1 rounded border border-gray-700/50 bg-gray-800/60 px-2.5 py-1.5"
             >
-              <span className={`h-2 w-2 flex-shrink-0 rounded-full ${SESSION_STATUS_DOT[runState]}`} />
-              <div className="min-w-0 flex-1">
-                <span className="block text-xs font-medium text-gray-200">
+              {/* 1행: 도트 + 이름 + 상태. 이름은 긴 경로가 와도 한 줄로 잘린다(전체는 title 로).
+                  종전에는 잘림이 없어 경로가 오른쪽 칸(상태·토큰) 위로 넘어가 겹쳐 보였다. */}
+              <div className="flex items-center gap-2">
+                <span className={`h-2 w-2 flex-shrink-0 rounded-full ${SESSION_STATUS_DOT[runState]}`} />
+                <span className="min-w-0 flex-1 truncate text-xs font-medium text-gray-200" title={sub.label}>
                   {sub.label}
                 </span>
-                {sub.lastCommand && (
-                  <span className="block truncate text-[12px] text-gray-500">
-                    {sub.lastCommand}
-                  </span>
-                )}
-              </div>
-              <div className="flex flex-col items-end gap-0.5">
-                <span className={`text-[12px] ${runState === 'error' ? 'text-red-400' : 'text-gray-500'}`}>
+                <span className={`flex-shrink-0 whitespace-nowrap text-[12px] ${runState === 'error' ? 'text-red-400' : 'text-gray-500'}`}>
                   {t(SESSION_STATUS_LABEL_KEY[runState])}
                 </span>
-                {/* §2.4 (잠듦) — 이 세션의 자식 프로세스는 회수됐다. 다음 명령이 --resume 으로 되살린다. */}
-                {sub.dormant && (
-                  <span className="text-[12px] text-gray-500">
-                    {t('common.bubble.dormant')}
-                  </span>
-                )}
+              </div>
+              {sub.lastCommand && (
+                <span className="block truncate pl-4 text-[12px] text-gray-500" title={sub.lastCommand}>
+                  {sub.lastCommand}
+                </span>
+              )}
+              {/* 2행: 메타 — 토큰·잠듦은 왼쪽, 시각은 오른쪽 끝. 패널은 240px 까지 좁아지므로
+                  이것들이 이름과 가로를 나눠 쓰면 이름이 설 자리가 없어진다. 아래로 내려 제 줄을 준다. */}
+              <div className="flex items-center gap-2 pl-4 text-[12px]">
                 {(sub.totalInputTokens ?? 0) > 0 && (
-                  <span className="text-[12px] text-violet-400/70">
+                  <span className="min-w-0 truncate text-violet-400/70">
                     {t('panel.subAgent.tokensInOut', { in: formatTokenShort(sub.totalInputTokens ?? 0), out: formatTokenShort(sub.totalOutputTokens ?? 0) })}
                   </span>
                 )}
-                <span className="text-[12px] text-gray-600">
+                {/* §2.4 (잠듦) — 이 세션의 자식 프로세스는 회수됐다. 다음 명령이 --resume 으로 되살린다. */}
+                {sub.dormant && (
+                  <span className="flex-shrink-0 whitespace-nowrap text-gray-500">
+                    {t('common.bubble.dormant')}
+                  </span>
+                )}
+                <span className="ml-auto flex-shrink-0 whitespace-nowrap text-gray-600">
                   {formatTime(sub.lastActivityAt)}
                 </span>
               </div>

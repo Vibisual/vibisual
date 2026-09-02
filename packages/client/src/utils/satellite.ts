@@ -1,5 +1,5 @@
 import type { XYPosition } from '@xyflow/react';
-import type { BubbleData, BubbleType } from '@vibisual/shared';
+import type { BubbleData, BubbleType, HeatScale } from '@vibisual/shared';
 import { BUBBLE_COLORS, READ_TOOLS, SATELLITE_ORBIT_GAP } from '@vibisual/shared';
 import { calcBubbleSize, calcFileSizeRange } from './sizeCalc.js';
 
@@ -26,6 +26,11 @@ export interface SatelliteInfo {
   total: number;
   /** 같은 부모 위성들끼리의 파일 크기 범위 (상대 크기 계산용) */
   localRange: { min: number; max: number };
+  /**
+   * §5.24 — 히트 척도(꺼져 있으면 `undefined`). `localRange` 와 **같은 칸**에 실어 나른다 —
+   * `placeSatellitePositions` 가 배치용 지름을 다시 계산할 때 렌더와 같은 자를 쓰게 하기 위함.
+   */
+  heat: HeatScale | undefined;
 }
 
 // ─── 위성 데이터 수집 ───
@@ -50,6 +55,7 @@ const HIDDEN_SATELLITE_TYPES: ReadonlySet<BubbleType> = new Set<BubbleType>(['ba
 export function collectSatellites(
   parents: BubbleData[],
   satellites: Record<string, BubbleData[]>,
+  heat: HeatScale | undefined,
   savedPositions?: Record<string, { x: number; y: number }>,
 ): SatelliteInfo[] {
   const result: SatelliteInfo[] = [];
@@ -60,7 +66,7 @@ export function collectSatellites(
     const files = satellites[parent.id];
     if (!files || files.length === 0) continue;
 
-    const parentSize = calcBubbleSize(parent);
+    const parentSize = calcBubbleSize(parent, undefined, heat);
 
     // 서버가 TTL 필터링 완료 — null 체크 + 중복 제거 + 숨김 타입(§2.4 v4.48) 제외
     const aliveFiles = files.filter(
@@ -86,7 +92,7 @@ export function collectSatellites(
         activity: 1,
         position: savedPos ?? file.position,
       };
-      const satSize = calcBubbleSize(satBubble, localRange);
+      const satSize = calcBubbleSize(satBubble, localRange, heat);
       const isRead = file.lastTool ? READ_TOOLS.has(file.lastTool) : false;
 
       result.push({
@@ -106,6 +112,7 @@ export function collectSatellites(
         index: i,
         total: aliveFiles.length,
         localRange,
+        heat,
       });
     }
   }
@@ -139,7 +146,7 @@ export function placeSatellitePositions(
     const anchor = { x: parentPos.x + ps / 2, y: parentPos.y + ps / 2 };
 
     // 부모 중심 반경 SAT_SPAWN_RADIUS 내에서 충돌 없는 위치 탐색
-    const satSize = calcBubbleSize(sat.bubble, sat.localRange);
+    const satSize = calcBubbleSize(sat.bubble, sat.localRange, sat.heat);
     const minDist = Math.max(SAT_SPAWN_MIN_DIST, satSize);
     let placed = false;
     for (let i = 0; i < SAT_SPAWN_MAX_TRIES; i++) {

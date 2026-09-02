@@ -1,5 +1,12 @@
 import { useRef, useEffect, useCallback, useState } from 'react';
 
+/** 지금 보이는 구간 — `onViewport` 가 알려주는 값. */
+export interface ScrollViewport {
+  scrollTop: number;
+  clientHeight: number;
+  scrollHeight: number;
+}
+
 interface ScrollFadeProps {
   /** 최대 높이 (px). fill=true일 때는 무시됨. */
   maxHeight?: number;
@@ -7,6 +14,13 @@ interface ScrollFadeProps {
   fill?: boolean;
   /** 추가 CSS 클래스 */
   className?: string;
+  /**
+   * 스크롤·크기가 바뀔 때마다 보이는 구간을 알려준다(§7.5 폴더 목록의 윈도잉·이어 받기).
+   *
+   * 이미 걸려 있는 `scroll` 리스너와 `ResizeObserver` 에서 함께 부르므로 **리스너가 늘지 않는다**
+   * — 목록마다 자기 스크롤 컨테이너를 따로 만들면 위/아래 그라데이션 규약이 두 벌이 된다.
+   */
+  onViewport?: (v: ScrollViewport) => void;
   children: React.ReactNode;
 }
 
@@ -17,16 +31,25 @@ interface ScrollFadeProps {
  * - fill=false (기본): maxHeight로 고정 높이 제한. className은 내부 스크롤 div에 적용.
  * - fill=true: flex 부모 남은 공간 채움. className은 외부 래퍼에 적용.
  */
-export function ScrollFade({ maxHeight, fill, className = '', children }: ScrollFadeProps): React.JSX.Element {
+export function ScrollFade({ maxHeight, fill, className = '', onViewport, children }: ScrollFadeProps): React.JSX.Element {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [showTop, setShowTop] = useState(false);
   const [showBottom, setShowBottom] = useState(false);
+
+  // 콜백은 ref 로 잡는다 — 인라인 함수를 의존성에 두면 렌더마다 리스너가 다시 걸린다.
+  const onViewportRef = useRef(onViewport);
+  onViewportRef.current = onViewport;
 
   const update = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
     setShowTop(el.scrollTop > 4);
     setShowBottom(el.scrollHeight - el.scrollTop - el.clientHeight > 4);
+    onViewportRef.current?.({
+      scrollTop: el.scrollTop,
+      clientHeight: el.clientHeight,
+      scrollHeight: el.scrollHeight,
+    });
   }, []);
 
   useEffect(() => {

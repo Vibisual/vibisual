@@ -43,27 +43,42 @@ export function structuralShare<T>(prev: unknown, next: T): T {
   if (nextIsArray) {
     const p = prev as unknown[];
     const n = next as unknown[];
-    const out = new Array<unknown>(n.length);
     // 길이가 달라도 겹치는 앞부분은 원소 참조를 재사용한다(스트림처럼 뒤에 append 되는 배열에서
     // 기존 원소들의 참조가 유지돼, 원소 단위 memo 가 살아남는다).
-    let allSame = p.length === n.length;
+    // §9 — **첫 차이를 만나기 전까지는 아무것도 만들지 않는다.** 종전엔 결과 배열을 무조건 지어
+    //   놓고 "다 같으면" 버렸다 — 대부분의 스냅샷은 대부분이 그대로이므로, 그 버리는 몫이 곧
+    //   3MB 짜리 트리 하나만큼의 쓰레기였다(비용은 CPU 보다 그 GC 로 나간다).
+    let out: unknown[] | null = p.length === n.length ? null : new Array<unknown>(n.length);
     for (let i = 0; i < n.length; i++) {
       const shared = structuralShare(p[i], n[i]);
-      out[i] = shared;
-      if (allSame && !Object.is(shared, p[i])) allSame = false;
+      if (out !== null) { out[i] = shared; continue; }
+      if (!Object.is(shared, p[i])) {
+        // 여기서 처음 갈라진다 — 앞부분은 값이 같다고 이미 확인했으므로 그대로 옮긴다.
+        out = new Array<unknown>(n.length);
+        for (let j = 0; j < i; j++) out[j] = p[j];
+        out[i] = shared;
+      }
     }
-    return (allSame ? (prev as unknown) : out) as T;
+    return (out === null ? (prev as unknown) : out) as T;
   }
 
   const p = prev as Record<string, unknown>;
   const n = next as Record<string, unknown>;
   const nextKeys = Object.keys(n);
-  let allSame = Object.keys(p).length === nextKeys.length;
-  const out: Record<string, unknown> = {};
-  for (const k of nextKeys) {
-    const shared = structuralShare(p[k], n[k]);
-    out[k] = shared;
-    if (allSame && !Object.is(shared, p[k])) allSame = false;
+  // 같은 이유로 객체 쪽도 첫 차이에서야 만든다.
+  let out: Record<string, unknown> | null = null;
+  if (Object.keys(p).length !== nextKeys.length) {
+    out = {};
   }
-  return (allSame ? (prev as unknown) : out) as T;
+  for (let i = 0; i < nextKeys.length; i++) {
+    const k = nextKeys[i]!;
+    const shared = structuralShare(p[k], n[k]);
+    if (out !== null) { out[k] = shared; continue; }
+    if (!Object.is(shared, p[k])) {
+      out = {};
+      for (let j = 0; j < i; j++) { const pk = nextKeys[j]!; out[pk] = p[pk]; }
+      out[k] = shared;
+    }
+  }
+  return (out === null ? (prev as unknown) : out) as T;
 }

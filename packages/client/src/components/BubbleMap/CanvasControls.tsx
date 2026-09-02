@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Panel, useReactFlow, useStore, useStoreApi } from '@xyflow/react';
 import { useTranslation } from 'react-i18next';
 import { useIsNarrowViewport } from '../../hooks/useIsMobile';
+import { HEATMAP_RAMP, HEATMAP_ZERO_COLOR } from '@vibisual/shared';
 import { useGraphStore } from '../../stores/graphStore';
 
 /** 공통 stroke SVG 래퍼 — lucide 톤 (viewBox 24, fill none, currentColor, round). */
@@ -57,6 +58,12 @@ const ExitFullscreenIcon = (): React.JSX.Element => (
     <path d="M8 3v3a2 2 0 0 1-2 2H3M16 3v3a2 2 0 0 0 2 2h3M3 16h3a2 2 0 0 1 2 2v3M21 16h-3a2 2 0 0 0-2 2v3" />
   </Glyph>
 );
+// §5.24 읽기 히트맵 — 불꽃. "열"을 한 글리프로 말하는 가장 짧은 기호다.
+const HeatIcon = (): React.JSX.Element => (
+  <Glyph>
+    <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5Z" />
+  </Glyph>
+);
 const RefreshIcon = ({ spinning }: { spinning?: boolean }): React.JSX.Element => (
   <svg
     viewBox="0 0 24 24"
@@ -74,6 +81,36 @@ const RefreshIcon = ({ spinning }: { spinning?: boolean }): React.JSX.Element =>
     <path d="M3 21v-5h5" />
   </svg>
 );
+
+/**
+ * §5.24 — 히트 범례. **이것이 "상대적"이라는 말을 화면에서 성립시키는 유일한 장치다** —
+ * 숫자가 없으면 사용자는 색이 절대 기준인지 상대 기준인지 알 수 없다.
+ *
+ * 값이 0 인(=아직 아무것도 안 읽은) 프로젝트에서는 램프 대신 한 줄만 둔다 —
+ * 0 을 최대로 둔 램프는 모든 버블이 최고온으로 그려져 거짓말이 된다.
+ */
+function HeatLegend({ max }: { max: number }): React.JSX.Element {
+  const { t } = useTranslation();
+  return (
+    <div className="rounded-lg border border-white/10 bg-gray-900/60 px-2 py-1.5 shadow-md shadow-black/30 backdrop-blur-md">
+      <div className="mb-1 text-[12px] font-medium text-gray-300">{t('canvas.heatmap.title')}</div>
+      {max <= 0 ? (
+        <div className="text-[12px] text-gray-500">{t('canvas.heatmap.empty')}</div>
+      ) : (
+        <div className="flex items-center gap-1.5">
+          <span className="text-[12px] tabular-nums text-gray-500">0</span>
+          {/* 램프는 런타임 상수 배열에서 오므로 Tailwind 클래스로 표현할 수 없다 —
+              동적 색은 캔버스 전반과 같이 style 로 준다(버블 본체 색과 같은 예외). */}
+          <span
+            className="h-2 w-24 rounded-sm ring-1 ring-inset ring-white/10"
+            style={{ background: `linear-gradient(to right, ${HEATMAP_ZERO_COLOR} 0%, ${HEATMAP_RAMP.join(', ')})` }}
+          />
+          <span className="text-[12px] tabular-nums text-gray-300">{t('canvas.heatmap.max', { n: max })}</span>
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface CtrlButtonProps {
   label: string;
@@ -116,6 +153,10 @@ export function CanvasControls(): React.JSX.Element {
   // 새로고침 — 활성 프로젝트 스냅샷을 서버(디스크)에서 다시 불러온다(버블/에이전트 재적재).
   const activeProject = useGraphStore((s) => s.activeProject);
   const isHydrating = useGraphStore((s) => (activeProject ? !!s.hydratingProjects[activeProject] : false));
+  // §5.24 — 읽기 히트맵. 캔버스를 **보는 방식**을 바꾸는 것이라 줌·핏·잠금과 같은 줄에 선다.
+  const heatmapMode = useGraphStore((s) => s.heatmapMode);
+  const heatMax = useGraphStore((s) => s.readCountRange.max);
+  const toggleHeatmapMode = useGraphStore((s) => s.toggleHeatmapMode);
 
   // 모바일 웹 접속(§4)에서만 노출되는 전체화면 토글. Fullscreen API 로 문서 루트를 확대하고,
   // fullscreenchange 를 구독해 다른 경로(ESC·시스템 제스처)로 풀려도 상태가 어긋나지 않게 한다.
@@ -154,6 +195,8 @@ export function CanvasControls(): React.JSX.Element {
 
   return (
     <Panel position="bottom-left" className="!mb-12 !ml-3">
+      <div className="flex flex-col items-start gap-1.5">
+      {heatmapMode && <HeatLegend max={heatMax} />}
       <div className="flex flex-col divide-y divide-white/10 overflow-hidden rounded-lg border border-white/10 bg-gray-900/60 shadow-md shadow-black/30 backdrop-blur-md">
         <CtrlButton label={t('canvas.controls.zoomIn')} onClick={handleZoomIn}>
           <PlusIcon />
@@ -163,6 +206,13 @@ export function CanvasControls(): React.JSX.Element {
         </CtrlButton>
         <CtrlButton label={t('canvas.controls.fitView')} onClick={handleFitView}>
           <FitIcon />
+        </CtrlButton>
+        <CtrlButton
+          label={heatmapMode ? t('canvas.controls.heatmapOff') : t('canvas.controls.heatmap')}
+          onClick={toggleHeatmapMode}
+          active={heatmapMode}
+        >
+          <HeatIcon />
         </CtrlButton>
         <CtrlButton
           label={t('canvas.controls.refresh', { defaultValue: 'Reload project' })}
@@ -186,6 +236,7 @@ export function CanvasControls(): React.JSX.Element {
             {isFullscreen ? <ExitFullscreenIcon /> : <FullscreenIcon />}
           </CtrlButton>
         )}
+      </div>
       </div>
     </Panel>
   );
