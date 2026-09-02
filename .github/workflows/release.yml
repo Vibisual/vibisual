@@ -198,6 +198,44 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     steps:
+      # ⚠️ **draft 릴리스에는 태그가 붙지 않는다.** GitHub 은 draft 를 만들 때 `tag_name` 을 받고도
+      #    태그에 묶지 않고 `untagged-<id>` 로 남겨 둔다 — 태그를 실제로 거는 것은 "공개"의 일부라서다.
+      #    (우리가 태그를 **먼저 밀어 두었는데도** 그렇다. 확인함: v0.1.20 의 draft 가 그 상태였다.)
+      #
+      #    그래서 이 한 스텝이 없으면 그 뒤가 **전부** 빗나간다. 태그로 찾는 것들이기 때문이다:
+      #      · 스모크 4종의 `gh release download <TAG>`  → `release not found` 로 넷 다 즉사
+      #      · `check-release-assets.mjs <TAG>`          → 릴리스 자체를 못 찾음(exit 2)
+      #      · `gh release edit <TAG> --draft=false`     → 공개 전환이 영영 일어나지 않음
+      #      · `release-notes.mjs`                       → 본문 없이 지나감
+      #    v0.1.20 이 실제로 그렇게 됐다 — 설치본은 멀쩡했는데 **검증이 시작조차 못 했다.**
+      #    releaseType 을 draft 로 바꾼 순간 생긴 자리이고, 고칠 곳은 여기 하나다.
+      - name: draft 를 태그에 묶는다 (draft 는 태그가 안 붙는다 — 이게 없으면 검증이 시작도 못 한다)
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          VER="${TAG#v}"
+          # draft 는 `/releases/tags/<tag>` 에 안 잡힌다(404). 목록에서 **이름(=버전)으로** 찾는다 —
+          # electron-builder 가 `name: <version>` 으로 만들기 때문에 이것이 유일하게 남은 손잡이다.
+          ID=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+                 --jq "[.[] | select(.draft == true and (.tag_name == \"$TAG\" or .name == \"$VER\"))][0].id")
+          if [ -z "$ID" ] || [ "$ID" = "null" ]; then
+            echo "::warning::$TAG 에 해당하는 draft 릴리스가 없다 — 빌드가 전부 실패했을 때 여기로 온다."
+            exit 0
+          fi
+          BEFORE=$(gh api "repos/$GITHUB_REPOSITORY/releases/$ID" --jq .tag_name)
+          if [ "$BEFORE" = "$TAG" ]; then
+            echo "이미 $TAG 로 묶여 있다 (release #$ID) — 그대로 둔다."
+            exit 0
+          fi
+          echo "release #$ID: $BEFORE → $TAG 로 묶는다 (draft 는 유지)"
+          AFTER=$(gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$ID" -f tag_name="$TAG" --jq .tag_name)
+          # 묶이지 않았는데 조용히 지나가면 스모크가 "release not found" 로 죽는다 — 여기서 끊는다.
+          [ "$AFTER" = "$TAG" ] || { echo "::error::태그를 못 묶었다 (tag_name=$AFTER)"; exit 1; }
+          echo "묶음 확인 — tag_name=$AFTER"
+
       - name: Checkout
         uses: actions/checkout@v4
 
