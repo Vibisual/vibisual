@@ -244,9 +244,9 @@ describe('release 완수 — 초록을 볼 때까지 간다', () => {
 
   /** 워크플로 matrix 에서 실제 값들을 뽑는다 — 표가 현실과 어긋나면 재시도가 아무것도 못 짚는다. */
   const smokeLabels = (): string[] =>
-    [...read('.github/workflows/smoke.yml').matchAll(/^\s*label:\s*(.+)$/gm)].map((m) => m[1].trim());
+    [...read('.github/workflows/smoke.yml').matchAll(/^\s*label:\s*(.+)$/gm)].map((m) => (m[1] ?? '').trim());
   const releaseScripts = (): string[] =>
-    [...read('.github/workflows/release.yml').matchAll(/^\s*script:\s*(.+)$/gm)].map((m) => m[1].trim());
+    [...read('.github/workflows/release.yml').matchAll(/^\s*script:\s*(.+)$/gm)].map((m) => (m[1] ?? '').trim());
 
   it('재시도 판단표가 smoke.yml 의 실제 잡 라벨과 정확히 짝이다', async () => {
     const { PLATFORMS, platformForSmokeJob } = await loadRetry();
