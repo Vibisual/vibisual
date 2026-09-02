@@ -111,6 +111,28 @@ describe('extractBashReadPaths — 바꾸는 낌새가 있으면 버린다', () 
     expect(extractBashReadPaths(cmd, 4, win)).toEqual([]);
   });
 
+  // 위 시험은 **본문이 우연히 읽기 명령이 아니어서** 통과하고 있었다. 본문 첫 낱말이 화이트리스트에
+  // 있으면 그대로 새어 나갔다 — 문서에 예시로 적어 둔 명령 한 줄이 "그 파일을 읽었다"는 버블·화살표를
+  // 세운다. 쓰기 축은 이 판정을 갖고 있었고 읽기 축만 없었다(토크나이저는 한 벌인데 판정은 한쪽에만).
+  it('heredoc **본문**은 명령이 아니다 — 문서에 적힌 경로가 읽은 파일이 되면 안 된다', () => {
+    expect(extractBashReadPaths("python <<'EOF'\ncat /etc/passwd\nEOF", 4, posix)).toEqual([]);
+    expect(
+      extractBashReadPaths("cat > doc.md <<'EOF'\nsed -n '1,5p' secrets/key.pem\nEOF", 4, posix),
+    ).toEqual([]);
+  });
+
+  it('`<< EOF` 처럼 공백을 둔 heredoc 도 본문을 버린다', () => {
+    expect(extractBashReadPaths('ssh host << EOF\ncat /var/log/app.log\nEOF', 4, posix)).toEqual([]);
+  });
+
+  it('heredoc 이 끝난 뒤의 읽기는 다시 본다 — 본문 건너뛰기가 명령을 삼키면 안 된다', () => {
+    const cmd = "python <<'EOF'\nbody\nEOF\ncat src/a.ts";
+    expect(extractBashReadPaths(cmd, 4, posix)).toEqual(['src/a.ts']);
+    // `<<-` 는 구분자를 `-` 로 잘못 읽어 명령 끝까지 삼키던 자리다.
+    expect(extractBashReadPaths('python <<- EOF\nbody\nEOF\ncat src/a.ts', 4, posix))
+      .toEqual(['src/a.ts']);
+  });
+
   it('powershell 안의 내용은 우리가 판정하지 않는다', () => {
     expect(
       extractBashReadPaths(`powershell -NoProfile -Command "Get-Content x.txt"`, 4, posix),

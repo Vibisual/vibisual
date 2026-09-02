@@ -302,15 +302,39 @@ function ghHeaders() {
   };
 }
 
+/**
+ * 그 태그의 릴리스를 읽는다 — **draft 도 찾는다.**
+ *
+ * ⚠️ `/releases/tags/<tag>` 하나만 쓰면 안 된다. 그 경로는 **draft 에 404** 를 준다.
+ * 자산은 이제 draft 로 올라오고(`electron-builder.yml` 의 `releaseType: draft` — 실기 검증을
+ * 통과해야 공개된다) 본문은 그보다 **먼저** 붙어야 하므로, 태그 경로만 보면 매 릴리스마다
+ * "아직 빌드 중"이라며 본문 없이 지나간다. 태그 경로를 먼저 보고(공개된 것 재생성용),
+ * 없으면 목록에서 `tag_name` 으로 찾는다(방금 올라온 draft).
+ */
 async function fetchRelease(version) {
-  const url = `https://api.github.com/repos/${OWNER}/${REPO}/releases/tags/v${version}`;
-  const res = await fetch(url, { headers: ghHeaders() });
-  if (!res.ok) {
-    throw new Error(
-      `릴리스 v${version} 을 못 읽었다 (HTTP ${res.status}). 아직 빌드 중이거나 태그가 없다.`,
+  const tag = `v${version}`;
+  const direct = await fetch(
+    `https://api.github.com/repos/${OWNER}/${REPO}/releases/tags/${tag}`,
+    { headers: ghHeaders() },
+  );
+  if (direct.ok) return direct.json();
+
+  for (let page = 1; page <= 3; page++) {
+    const res = await fetch(
+      `https://api.github.com/repos/${OWNER}/${REPO}/releases?per_page=100&page=${page}`,
+      { headers: ghHeaders() },
     );
+    if (!res.ok) break;
+    const list = await res.json();
+    const hit = list.find((r) => r.tag_name === tag);
+    if (hit) return hit;
+    if (list.length < 100) break;
   }
-  return res.json();
+
+  throw new Error(
+    `릴리스 ${tag} 를 못 읽었다 (태그 조회 HTTP ${direct.status}, 목록에도 없음). ` +
+      '아직 빌드 중이거나 태그가 없다.',
+  );
 }
 
 /**

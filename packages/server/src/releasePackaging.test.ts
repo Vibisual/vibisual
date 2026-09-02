@@ -162,3 +162,66 @@ describe('release packaging — mac/linux', () => {
     expect(head).toContain('kdialog'); // Linux — KDE 계열
   });
 });
+
+/**
+ * §4 v2.44 — **발행은 실기 검증을 통과한 결과여야 한다.**
+ *
+ * v0.1.19 가 이 검사를 만든 사고다. 그때는 태그 push 가 곧 공개 발행이라, Windows 인스톨러가
+ * `0xC0000005` 로 죽어 아무것도 설치하지 못한다는 사실을 **이미 공개된 뒤에** 알았다. 자산은
+ * 나가 있었고 설치본은 그것을 받아 실패하는 상태였으며, 되돌릴 방법이 없었다.
+ *
+ * 원인은 그 빌드의 결함이 아니라 **순서**였다 — 검증이 발행보다 뒤에 있으면, 검증이 무엇을
+ * 찾아내든 이미 늦다. 그래서 순서를 뒤집었다: 자산은 draft 로 올라가고(업데이터는 draft 를
+ * 읽지 못한다), 4종 러너의 실기 설치 + 자산 11종 검사를 통과해야 공개로 바뀐다.
+ *
+ * 아래 검사들은 그 순서가 **되돌아가지 못하게** 잠근다. 한 줄만 바꿔도 게이트 전체가 사라지는
+ * 구조라(예: `releaseType` 을 `release` 로) 사람의 기억에 맡길 수 없다.
+ */
+describe('release publishing — 검증이 발행보다 앞선다', () => {
+  it('자산은 draft 로 올라간다 (draft 면 업데이터가 못 읽는다 = 사용자에게 도달하지 않는다)', () => {
+    const yml = read('packages/desktop/electron-builder.yml');
+    const live = yml.split('\n').filter((line) => !line.trim().startsWith('#'));
+    const releaseType = live.find((line) => line.includes('releaseType:'));
+    expect(releaseType).toBeDefined();
+    // `release` 로 되돌리면 태그 push 가 다시 곧 공개가 된다 — 그 순간 게이트는 없는 것이다.
+    expect(releaseType).toContain('draft');
+  });
+
+  it('스모크가 전부 통과해야 공개로 바뀐다 (publish 잡이 smoke 를 needs 로 건다)', () => {
+    const wf = read('.github/workflows/smoke.yml');
+    expect(wf).toContain('publish:');
+    expect(wf).toContain('needs: smoke');
+    // 공개 전환은 draft 해제 한 번뿐이다 — 그 명령이 사라지면 릴리스는 영영 draft 로 남는다.
+    expect(wf).toContain('--draft=false');
+    // draft 를 해제하려면 쓰기 권한이 필요하다. `read` 로 되돌리면 조용히 실패한다.
+    expect(wf).toMatch(/permissions:\s*\n\s*contents:\s*write/);
+  });
+
+  it('공개 직전에 자산 11종을 센다 (스모크는 실행만 보지 한 종이 통째로 빠진 것은 못 본다)', () => {
+    const wf = read('.github/workflows/smoke.yml');
+    expect(wf).toContain('check-release-assets.mjs');
+    const script = read('.github/scripts/check-release-assets.mjs');
+    // draft 를 세야 하므로 태그 단건 조회에 기댈 수 없다 — 그 경로는 draft 에 404 를 준다.
+    expect(script).toContain('/releases?per_page=');
+    // v0.1.12 가 Intel dmg 없이 발행된 자리 — 그 이름이 목록에서 빠지면 다시 그렇게 된다.
+    expect(script).toContain('-arm64.dmg');
+    expect(script).toContain('.dmg');
+    expect(script).toContain('.deb');
+    expect(script).toContain('.rpm');
+  });
+
+  it('태그를 못 받았을 때 draft 를 건너뛰는 조회로 떨어지지 않는다', () => {
+    const wf = read('.github/workflows/smoke.yml');
+    const live = wf.split('\n').filter((line) => !line.trim().startsWith('#'));
+    // `gh release view` 는 draft 를 건너뛴다. 그것으로 떨어지면 **방금 올라온 draft 대신
+    // 한 판올림 옛 공개본**을 검증하고, 그 통과를 근거로 새 판올림을 공개해 버린다.
+    expect(live.filter((line) => line.includes('gh release view'))).toEqual([]);
+    expect(wf).toContain('gh release list');
+  });
+
+  it('릴리스 본문 생성기가 draft 릴리스를 찾을 수 있다 (본문은 공개보다 먼저 붙는다)', () => {
+    const src = read('.github/scripts/release-notes.mjs');
+    // 태그 단건 조회만 쓰면 draft 에 404 라 매 릴리스가 본문 없이 지나간다(v0.1.14 의 재발).
+    expect(src).toContain('/releases?per_page=');
+  });
+});

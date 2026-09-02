@@ -43,6 +43,7 @@ import {
   BG_TASK_PROBE_TAIL_BYTES,
   BG_TASK_PROBE_TIMEOUT_MS,
   extractBashWritePaths,
+  isCaseInsensitiveFs,
   type BackgroundTaskProbeResult,
   type BackgroundTaskVerdict,
 } from '@vibisual/shared';
@@ -81,17 +82,28 @@ export interface ProbeEvidence {
 /** 파일 조회를 주입 가능하게 — 세 OS 를 개발기 한 대에서 단위 테스트하기 위함. */
 export interface ProbeFsProbe {
   stat(p: string): { isFile: boolean; isDir: boolean; size: number; mtimeMs: number } | null;
-  /** 글롭 패턴에 맞는 파일 수와 가장 최근 mtime. 못 읽으면 null. */
-  glob(pattern: string): { count: number; newestMtimeMs: number } | null;
+  /**
+   * 글롭 패턴에 맞는 파일 수와 가장 최근 mtime. 못 읽으면 null.
+   * `platform` 을 받는 이유는 **대소문자 규칙이 OS 마다 다르기 때문**이다(아래 `globToRegExp`).
+   */
+  glob(pattern: string, platform: NodeJS.Platform): { count: number; newestMtimeMs: number } | null;
 }
 
 const minutesSince = (ms: number, now: number): number =>
   Math.max(0, Math.round((now - ms) / 60_000));
 
-/** 정규식 메타문자를 막고 글롭 `*`/`?` 만 살린다. */
-function globToRegExp(base: string): RegExp {
+/**
+ * 정규식 메타문자를 막고 글롭 `*`/`?` 만 살린다.
+ *
+ * **대소문자는 그 OS 의 파일시스템 규칙을 따른다.** 종전에는 늘 `i` 였는데, linux 에서 `OUT-1.JSON`
+ * 은 `out-*.json` 이 **아니다**. 여기서 접으면 `matchCount` 가 부풀고, 그 수는 `-ge 11` 같은 종료
+ * 조건의 충족 여부를 가르는 유일한 값이라 — 아직 기다리는 중인 루프가 "조건을 이미 채웠다"로 읽혀
+ * `finished` 판정을 받고 죽는다. 이 모듈이 막으려던 바로 그 사고다(멀티플랫폼 1축 — 경로를 접지 마라).
+ */
+export function globToRegExp(base: string, platform: NodeJS.Platform): RegExp {
   const escaped = base.replace(/[.+^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`^${escaped.replace(/\*/g, '.*').replace(/\?/g, '.')}$`, 'i');
+  const source = `^${escaped.replace(/\*/g, '.*').replace(/\?/g, '.')}$`;
+  return new RegExp(source, isCaseInsensitiveFs(platform) ? 'i' : '');
 }
 
 /** 실제 디스크를 읽는 기본 구현 — **읽기 전용**이다. */
@@ -104,12 +116,12 @@ export const realFsProbe: ProbeFsProbe = {
       return null;
     }
   },
-  glob(pattern) {
+  glob(pattern, platform) {
     const dir = path.dirname(pattern);
     const base = path.basename(pattern);
     // 글롭은 파일 이름 자리에만 허용한다 — 디렉터리 자리까지 펼치면 한 번의 판정이 트리를 훑는다.
     if (!base.includes('*') || dir.includes('*')) return null;
-    const rx = globToRegExp(base);
+    const rx = globToRegExp(base, platform);
     let names: string[];
     try {
       names = fs.readdirSync(dir);
@@ -197,7 +209,7 @@ export function collectPathFacts(
   for (const raw of tokens) {
     const nativePath = toNativeProbePath(raw, platform);
     if (raw.includes('*')) {
-      const g = probe.glob(nativePath);
+      const g = probe.glob(nativePath, platform);
       facts.push(g
         ? {
             raw,

@@ -18,6 +18,7 @@ import { pathKey } from './pathKey.js';
 import {
   tokenizeShellCommand,
   splitShellSegments,
+  stripHeredocBodies,
   normalizeShellCommandName as normalizeCommandName,
   readShellCdTarget as readCdTarget,
   isUnusableShellArg as isUnusableArg,
@@ -170,7 +171,11 @@ export function extractBashReadPaths(
     ? toNativeDrivePath
     : (p: string): string => p;
 
-  const segments = splitShellSegments(tokenizeShellCommand(command));
+  // heredoc **본문**은 셸이 명령으로 실행하지 않는 글이다. 종전에는 본문 줄도 그대로 세그먼트가
+  //   되어, 문서 안에 예시로 적힌 `sed -n '1,5p' secrets/key.pem` 한 줄이 "그 파일을 읽었다"는
+  //   버블·화살표를 세웠다. 쓰기 축은 이 판정을 갖고 있었고 읽기 축만 없어서 생긴 어긋남이라,
+  //   판정을 shared 로 올려 **두 축이 같은 함수를 쓴다**(§2.1 #3 — 토크나이저는 한 벌).
+  const segments = stripHeredocBodies(splitShellSegments(tokenizeShellCommand(command)));
 
   const seen = new Set<string>();
   const out: string[] = [];

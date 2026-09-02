@@ -169,6 +169,18 @@ publish:
   provider: github
   owner: Vibisual
   repo: vibisual
-  # electron-builder 기본값은 draft(초안) — 업데이터(autoUpdater)는 draft 릴리스를 읽지 못한다.
-  # release 로 두어야 태그 푸시 시 정식 발행되어 설치된 앱이 latest.yml 을 감지한다.
-  releaseType: release
+  # ⚠️ **draft 로 올린다 — 이 한 줄이 "깨진 설치본은 사용자에게 도달할 수 없다"의 전부다.**
+  #
+  # 업데이터(autoUpdater)가 draft 릴리스를 **읽지 못한다**는 성질을 안전장치로 쓴다. 태그를 밀면
+  # 자산은 draft 로 올라가고 그때까지는 아무에게도 보이지 않는다. `smoke.yml` 이 그 draft 자산을
+  # **실제로 내려받아 설치하고 실행**해 보고, 4종 러너가 전부 통과하고 자산 11종이 다 있을 때만
+  # 그 워크플로의 `publish` 잡이 draft 를 해제한다. **공개는 검증을 통과한 결과이지 시작이 아니다.**
+  #
+  # 종전에는 `release` 였다. 그래서 태그를 미는 순간 공개 발행이 끝나 있었고 "설치가 되는가"는
+  # 그 **뒤에** 쟀다. v0.1.19 의 Windows 인스톨러가 0xC0000005 로 죽은 것을 알았을 때는 자산이
+  # 이미 공개였고 설치본이 그것을 받는 상태였다 — 되돌릴 수 없었다. 결함이 아니라 **순서**가
+  # 원인이었고, 그래서 개별 빌드를 다시 짓는 대신 순서를 바꿨다.
+  #
+  # 🔒 이 값을 `release` 로 되돌리면 그 게이트가 통째로 사라진다. `releasePackaging.test.ts` 가
+  #    되돌림을 CI 에서 실패시킨다.
+  releaseType: draft
