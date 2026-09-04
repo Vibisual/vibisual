@@ -103,6 +103,23 @@ describe('전역 기본값과의 차이 판정', () => {
     expect(diffAgentConfigFromDefaults(saved({ forwardSubagentText: false }), defaults)).toEqual(['forwardSubagentText']);
   });
 
+  it('확장 사고도 켬이 기본이라 껐을 때만 다르다 — 그리고 그때만 저장된다', () => {
+    const defaults = resolveAgentDefaults(undefined);
+    expect(diffAgentConfigFromDefaults(saved({ thinking: undefined }), defaults)).toEqual([]);
+    expect(diffAgentConfigFromDefaults(saved({ thinking: true }), defaults)).toEqual([]);
+    expect(diffAgentConfigFromDefaults(saved({ thinking: false }), defaults)).toEqual(['thinking']);
+    // 점이 붙는 칸이 곧 못 박히는 칸이다(§4 설정 3층) — 두 판정이 갈라지면 화면으로는 안 보인다.
+    expect(sparsifyAgentConfig(saved({ thinking: true }), defaults)).not.toHaveProperty('thinking');
+    expect(sparsifyAgentConfig(saved({ thinking: false }), defaults).thinking).toBe(false);
+  });
+
+  it('전역에서 사고를 끄면 안 건드린 에이전트도 따라 꺼진다 — 되켠 칸만 갈라진다', () => {
+    const defaults = resolveAgentDefaults({ agentConfig: { thinking: false } });
+    expect(resolveAgentConfig({}, { agentConfig: { thinking: false } }).thinking).toBe(false);
+    expect(diffAgentConfigFromDefaults(saved({ thinking: false }), defaults)).toEqual([]);
+    expect(diffAgentConfigFromDefaults(saved({ thinking: true }), defaults)).toEqual(['thinking']);
+  });
+
   it('창이 그리지 않는 축은 세지 않는다', () => {
     const defaults = resolveAgentDefaults({ agentConfig: { model: 'sonnet', effort: 'high' } });
     const config = saved({ model: 'opus', effort: 'low' });

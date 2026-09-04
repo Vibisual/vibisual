@@ -944,6 +944,7 @@
         "high": "Raisonnement approfondi. Plus lent mais minutieux.",
         "xhigh": "Raisonnement très élevé (Opus 4.7+). Recommandé pour la plupart des tâches de codage.",
         "max": "Raisonnement maximal, sans limite de tokens (Opus 4.8). Pour les décisions les plus difficiles ; peut sur-analyser les tâches simples.",
+        "ultracode": "Raisonnement extra-élevé et orchestration automatique de workflows de sous-agents en parallèle (Opus 4.8+). Le niveau le plus puissant, et le plus coûteux.",
         "unknown": "{{name}} — niveau d'effort de raisonnement pris en charge par la CLI installée."
       },
       "tools": {
@@ -1094,6 +1095,12 @@
         "hint": "le même Opus, sortie plus rapide",
         "unsupported": "Opus 4.8 / Opus 5 uniquement",
         "tip": "Exécute le même modèle Opus avec une sortie plus rapide — sans redescendre vers un modèle plus petit. Ce n’est pas une option de la CLI : un agent headless est traité comme une session Agent SDK et n’accepte le mode Fast que via les réglages, donc Vibisual l’ajoute au fichier de réglages qu’il écrit déjà pour cet agent. Les modèles non compatibles ignorent ce réglage sans aucun message."
+      },
+      "thinking": {
+        "label": "Réflexion étendue",
+        "hint": "activée — réfléchit avant de répondre",
+        "offHint": "désactivée — répond sans phase de réflexion",
+        "tip": "Active ou désactive la réflexion étendue pour cet agent. C'est un axe distinct de l'Effort, qui règle la profondeur du raisonnement. Ce n'est pas une option de la CLI : le Claude Code installé ne l'expose que sous forme du réglage alwaysThinkingEnabled, donc Vibisual la transmet dans le fichier de réglages qu'il écrit déjà pour cet agent. Elle est activée par défaut et seule la désactivation est enregistrée : un agent auquel vous n'avez jamais touché continue donc de suivre vos propres réglages Claude Code."
       },
       "forwardSubagentText": {
         "label": "Afficher la sortie des sous-agents",
@@ -2037,10 +2044,26 @@
       "voiceErrUnsupported": "La reconnaissance vocale n'est pas disponible dans cette version.",
       "voiceErrPermission": "L'accès au microphone a été refusé. Autorisez-le pour cette application dans les réglages de confidentialité du système, puis réessayez.",
       "voiceErrDevice": "Aucun microphone détecté. Branchez-en un, puis réessayez.",
+      "voiceErrNoDevice": "Aucun microphone détecté. Veuillez en connecter un.",
+      "voiceErrDeviceBusy": "Une autre application utilise le microphone. Fermez-la et réessayez.",
       "voiceErrNetwork": "Impossible de joindre le service de reconnaissance vocale.",
+      "voiceErrEngine": "Impossible de démarrer le moteur de reconnaissance vocale local. Réinstallez la saisie vocale et réessayez.",
       "voiceErrLanguage": "La reconnaissance vocale ne prend pas en charge la langue actuelle de l'interface.",
       "voiceErrUnknown": "La saisie vocale s'est arrêtée. Veuillez réessayer.",
-      "voiceErrDismiss": "Fermer"
+      "voiceErrDismiss": "Fermer",
+      "voiceMicHintRightClick": "Clic droit : paramètres du microphone",
+      "voiceMicSettingsAction": "Comment résoudre le problème",
+      "voiceMicSettingsTitle": "Paramètres du microphone",
+      "voiceMicSettingsBody": "Cette application a besoin que l'accès au microphone soit autorisé par votre système d'exploitation.",
+      "voiceMicSettingsBlockedBody": "Impossible d'ouvrir le microphone. Cela signifie généralement que l'accès au microphone est désactivé dans les paramètres de votre système.",
+      "voiceMicSettingsNoDeviceBody": "Aucun microphone n'est connecté à ce PC. Connectez-en un et réessayez.",
+      "voiceMicSettingsOpen": "Ouvrir les paramètres",
+      "voiceMicSettingsHintWin": "Activez à la fois « Accès au microphone » et « Autoriser les applications de bureau à accéder à votre microphone » en bas de la liste. En raison du mode d'installation de cette application, son nom n'apparaît pas dans la liste des applications.",
+      "voiceMicSettingsHintMac": "Activez Vibisual dans Confidentialité et sécurité > Microphone. Si vous venez de l'activer, redémarrez l'application pour que cela prenne effet.",
+      "voiceMicSettingsHintLinux": "Vérifiez qu'un microphone est sélectionné comme périphérique d'entrée dans vos paramètres audio et qu'il n'est pas coupé. Si PulseAudio/PipeWire n'a pas d'entrée par défaut, l'application ne peut voir aucun périphérique non plus.",
+      "voiceMicSettingsDeviceNote": "Si l'accès est déjà activé, vérifiez qu'un microphone est bien branché — les microphones débranchés apparaissent toujours grisés dans la liste des périphériques.",
+      "voiceMicSettingsHiddenNote": "Si un microphone est déjà connecté, les réglages de votre système peuvent le masquer — voir la note ci-dessous.",
+      "voiceMicSettingsShortcutNote": "Saisie vocale avec {{shortcut}}"
     },
     "voiceInstall": {
       "title": "Configurer la saisie vocale",

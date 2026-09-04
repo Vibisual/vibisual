@@ -152,67 +152,111 @@ export function pickVoiceEngineAsset<T extends VoiceEngineAssetLike>(
 /** 인식기가 요구하는 네 조각. 하나라도 없으면 엔진이 뜨지 않는다. */
 export type VoiceModelRole = 'encoder' | 'decoder' | 'joiner' | 'tokens';
 
-export interface VoiceModelFile {
-  role: VoiceModelRole;
-  /** 저장소 안의 경로 = 디스크에 놓일 파일 이름. */
-  file: string;
-  /** 카탈로그가 알려 준 바이트 수. 받은 뒤 이 값과 대조한다(반쪽 파일을 성공으로 치지 않기 위해). */
-  sizeBytes: number;
+/**
+ * 모델도 **엔진과 같은 발행처의 릴리스 자산**에서 받는다 — 허깅페이스 제3자 export ❌.
+ *
+ * 종전에는 NVIDIA `nemotron-3.5-asr-streaming-0.6b` 를 sherpa-onnx 가 읽는 모양으로 내보낸
+ * **제3자 허깅페이스 저장소** 두 곳을 들고 있었다(앞이 죽으면 뒤로). 그런데 그 export 는
+ * **우리 엔진이 못 읽는다** — 실측 2026-09-03: 그렇게 받은 `encoder.onnx` 를 물리면
+ * `sherpa-onnx-online-websocket-server` 가 모델 적재 중 **한 줄도 남기지 않고 즉사**한다
+ * (Windows 예외 `0xC0000409`). 화면에는 원인이 아니라 "포트를 안 열었다"만 남아, 사용자는
+ * 700MB 를 받고도 마이크를 누를 때마다 "여는 중…" 20초 뒤 실패만 보게 된다.
+ * 자산 이름과 크기(decoder·joiner·tokens 바이트 일치)까지 같은데 **encoder 내용만 다르다** —
+ * 이름·크기로는 절대 못 걸러지는 종류의 어긋남이다.
+ *
+ * 그래서 **모델을 고르는 곳을 엔진과 같은 자리로 옮긴다**: `k2-fsa/sherpa-onnx` 의
+ * `asr-models` 릴리스. 얻는 것 셋 —
+ *  ① **엔진과 짝이 맞는다**(같은 사람이 같은 판올림으로 내보낸 것이라 못 읽는 조합이 안 생긴다),
+ *  ② **저장소 소멸 대비가 필요 없다**(엔진이 사라지면 어차피 받아쓰기가 없다 — 우리가 이미
+ *     의존하는 한 곳으로 줄어든다),
+ *  ③ **한 번에 받는다**(tar.bz2 453MB → 원본 682MB. 네 파일 왕복이 한 왕복이 되고,
+ *     크기 검증이 **압축본 하나**로 접힌다).
+ *
+ * ⚠ **판올림 번호를 박지 않는다** — 자산 이름의 날짜(`2026-06-11`)와 판올림은 언제든 바뀐다.
+ * 릴리스에 그때 실제로 있는 자산 중 우리가 쓸 수 있는 것을 **점수로 고른다**(엔진과 같은 규율).
+ */
+export const SHERPA_ASR_MODELS_API =
+  'https://api.github.com/repos/k2-fsa/sherpa-onnx/releases/tags/asr-models';
+
+/**
+ * 어느 토막 길이(chunk)를 고를 것인가 — 자산은 `80·160·320·560·1120ms` 다섯 벌이다.
+ *
+ * 짧을수록 중간 글자가 빨리 뜨고 길수록 정확하다. 받아쓰기는 **문단을 부르는 일**이라
+ * (#17-38 머리말 — 짧은 명령이 아니라 길게 설명하는 지시) 몇십 ms 의 체감 차이보다 정확도가
+ * 낫고, 그렇다고 1120ms 는 말끝이 눈에 띄게 늦게 붙는다. 가운데인 **560ms** 를 고른다.
+ */
+export const VOICE_MODEL_CHUNK_MS = 560;
+
+/**
+ * 이 자산이 우리가 쓸 모델인가, 쓸 수 있다면 얼마나 나은가. `null` = 아니다.
+ *
+ * 엔진 자산(`scoreVoiceEngineAsset`)과 같은 규율이다 — **반드시 있어야 하는 것**과
+ * **있으면 안 되는 것**을 둘 다 본다. 화이트리스트만 두면 새 변종이 생겼을 때 조용히 그것을
+ * 골라 버리고, 블랙리스트만 두면 남의 모델을 우리 것으로 읽는다.
+ */
+export function scoreVoiceModelAsset(name: string): number | null {
+  if (!name.endsWith('.tar.bz2')) return null;
+  // 이 한 벌만이 §5.5 #17-38 ⑫ 가 고른 그 모델이다(다국어 40 로케일 · 스트리밍 RNNT).
+  if (!name.startsWith('sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-')) return null;
+  // int8 이 아니면 2GB 를 넘는다 — 받게 할 수 없다.
+  if (!name.includes('-int8')) return null;
+
+  const chunk = voiceModelAssetChunkMs(name);
+  if (chunk === null) return null;
+  // 고른 토막 길이에 **가까울수록** 높다. 그 자산이 사라진 판올림에서도 옆 것으로 이어진다.
+  return 10_000 - Math.abs(chunk - VOICE_MODEL_CHUNK_MS);
 }
 
-export interface VoiceModelSource {
-  /** 허깅페이스 저장소. */
-  repo: string;
-  files: readonly VoiceModelFile[];
+/** 자산 이름에 적힌 토막 길이(ms). 없으면 `null` — 우리 자산이 아니다. */
+export function voiceModelAssetChunkMs(name: string): number | null {
+  const m = /-(\d+)ms-/.exec(name);
+  const raw = m?.[1];
+  if (raw === undefined) return null;
+  const value = Number.parseInt(raw, 10);
+  return Number.isFinite(value) ? value : null;
+}
+
+/** 여러 자산 중 가장 나은 것 하나. 동점이면 이름 역순(대개 더 새 것)으로 못 박아 재현 가능하게. */
+export function pickVoiceModelAsset<T extends VoiceEngineAssetLike>(
+  assets: readonly T[],
+): T | null {
+  let best: T | null = null;
+  let bestScore = -1;
+  for (const asset of assets) {
+    const score = scoreVoiceModelAsset(asset.name);
+    if (score === null) continue;
+    if (score > bestScore || (score === bestScore && best !== null && asset.name > best.name)) {
+      best = asset;
+      bestScore = score;
+    }
+  }
+  return best;
 }
 
 /**
- * 받을 곳 — **두 벌을 든다.**
+ * 압축을 푼 폴더 안의 파일 이름 → 우리가 아는 역할.
  *
- * 여기 적힌 것은 NVIDIA `nemotron-3.5-asr-streaming-0.6b`(OpenMDW-1.1)를 sherpa-onnx 가 읽는
- * 모양으로 내보낸 것이다. 원본 저장소는 NVIDIA 것이지만 **그 형식 그대로는 우리 엔진이 못 읽어**
- * 제3자 export 를 받는다. 그런 저장소는 사라질 수 있으므로 앞의 것이 죽으면 뒤의 것으로 간다
- * (§5.19 (D) "박아 두면 그 자산이 사라진 날 설치가 죽는다" 의 같은 계열 대비).
- *
- * ⚠ **`tokens.txt` 를 저장소 사이에서 섞지 마라** — 두 저장소의 tokens 는 크기가 다르다.
- * 한 저장소의 네 파일은 한 벌로만 쓴다.
+ * 자산 안의 이름은 `encoder.int8.onnx` 처럼 **양자화 표기가 붙어** 있고 그 표기는 판올림마다
+ * 달라질 수 있다(`.int8.` → `.fp16.`). 그래서 이름을 박지 않고 **앞머리로** 가른다.
+ * `null` 이면 우리가 안 쓰는 곁다리다(README·test_wavs 등) — 버린다.
  */
-export const VOICE_MODEL_SOURCES: readonly VoiceModelSource[] = [
-  {
-    repo: 'apbaxel/sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-int8',
-    files: [
-      { role: 'encoder', file: 'encoder.int8.onnx', sizeBytes: 657_601_403 },
-      { role: 'decoder', file: 'decoder.int8.onnx', sizeBytes: 14_978_075 },
-      { role: 'joiner', file: 'joiner.int8.onnx', sizeBytes: 9_504_438 },
-      { role: 'tokens', file: 'tokens.txt', sizeBytes: 131_440 },
-    ],
-  },
-  {
-    repo: 'Masterx/sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-560ms-2026-06-11',
-    files: [
-      { role: 'encoder', file: 'encoder.int8.onnx', sizeBytes: 657_601_403 },
-      { role: 'decoder', file: 'decoder.int8.onnx', sizeBytes: 14_978_075 },
-      { role: 'joiner', file: 'joiner.int8.onnx', sizeBytes: 9_504_438 },
-      { role: 'tokens', file: 'tokens.txt', sizeBytes: 144_528 },
-    ],
-  },
-];
-
-/** 모델 전체 크기 — 설치 창이 **받기 전에** 얼마인지 말하기 위한 값. */
-export function voiceModelTotalBytes(source: VoiceModelSource): number {
-  let total = 0;
-  for (const f of source.files) total += f.sizeBytes;
-  return total;
+export function voiceModelRoleForFile(fileName: string): VoiceModelRole | null {
+  const lower = fileName.toLowerCase();
+  if (lower === 'tokens.txt') return 'tokens';
+  if (!lower.endsWith('.onnx')) return null;
+  if (lower.startsWith('encoder')) return 'encoder';
+  if (lower.startsWith('decoder')) return 'decoder';
+  if (lower.startsWith('joiner')) return 'joiner';
+  return null;
 }
 
-/** 직링크. `?download=true` 는 허깅페이스가 리다이렉트 대신 본문을 주게 하는 규약(§5.19 (E) 동일). */
-export function voiceModelFileUrl(repo: string, file: string): string {
-  const parts = file
-    .split('/')
-    .map((p) => encodeURIComponent(p))
-    .join('/');
-  return `https://huggingface.co/${repo}/resolve/main/${parts}?download=true`;
-}
+/**
+ * 설치 창이 **받기 전에** 말할 대략치(바이트). 릴리스를 조회하기 전에는 실제 크기를 모른다.
+ *
+ * **적게 말하지 않는다** — 압축본은 453MB 지만 디스크에 남는 것은 682MB 다. 사용자가 알아야
+ * 하는 숫자는 "받고 나면 얼마나 차지하는가" 쪽이다(⑬ "주의사항을 접지 않는다").
+ */
+export const VOICE_MODEL_DISK_APPROX_BYTES = 682_000_000;
 
 /** 디스크에 놓인 이름 — 저장소가 달라도 역할이 같으면 같은 이름이라 엔진 인자가 안 흔들린다. */
 export function voiceModelDiskName(role: VoiceModelRole): string {
@@ -287,8 +331,14 @@ export interface VoiceAsrState {
   ready: boolean;
   /** 설치돼 있으면 어느 판올림인지(엔진). 모르면 생략. */
   engineVersion?: string;
-  /** 모델을 어느 저장소에서 받았는지. */
-  modelRepo?: string;
+  /**
+   * 어느 릴리스 자산으로 깔린 모델인지(자산 파일명).
+   *
+   * **이 값이 없으면 깔린 것으로 치지 않는다** — 폐기된 허깅페이스 경로로 받은 옛 설치는
+   * 파일 이름이 지금과 같아서(`encoder.onnx` …) 있는지만 보면 "설치됨"으로 읽히고, 그대로
+   * 두면 그 사용자는 영영 엔진이 즉사하는 모델을 물린 채 산다. 자산 이름이 곧 이주 표식이다.
+   */
+  modelAsset?: string;
   /** 두 폴더가 차지하는 바이트 — 지울 때 얼마가 도는지 사용자가 알아야 한다. */
   diskBytes: number;
   /** 지금 돌고 있는 설치가 있으면 그 진행 상황. */

@@ -20,21 +20,22 @@ import { spawn } from 'node:child_process';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import {
+  SHERPA_ASR_MODELS_API,
   SHERPA_RELEASES_LIST_API,
   VOICE_ASR,
   VOICE_ASR_ENGINE_DIR_NAME,
   VOICE_ASR_MODEL_DIR_NAME,
   VOICE_ASR_RELEASE_SCAN_MAX,
-  VOICE_MODEL_SOURCES,
+  VOICE_MODEL_DISK_APPROX_BYTES,
   pickVoiceEngineAsset,
+  pickVoiceModelAsset,
   voiceEngineBinName,
   voiceModelDiskName,
-  voiceModelFileUrl,
-  voiceModelTotalBytes,
+  voiceModelRoleForFile,
   type VoiceAsrInstallProgress,
   type VoiceAsrInstallStage,
   type VoiceAsrState,
-  type VoiceModelSource,
+  type VoiceModelRole,
   type WSMessage,
 } from '@vibisual/shared';
 import { broadcast } from '../broadcastBus.js';
@@ -46,7 +47,13 @@ const META_NAME = '.vibisual-voice.json';
 interface InstallMeta {
   engineVersion?: string;
   engineAsset?: string;
-  modelRepo?: string;
+  /**
+   * 어느 릴리스 자산으로 깔린 모델인가.
+   *
+   * 옛 설치(허깅페이스 제3자 export)는 **파일 이름이 지금과 같다** — 있는지만 보면 "설치됨"이
+   * 되고, 그 사용자는 엔진이 즉사하는 모델을 영영 물린 채 산다. 이 칸이 비어 있으면 옛 설치다.
+   */
+  modelAsset?: string;
 }
 
 export function voiceEngineDir(): string {
@@ -106,19 +113,59 @@ function writeMeta(patch: InstallMeta): void {
   }
 }
 
-/** 이 저장소의 네 조각이 **전부, 크기까지 맞게** 디스크에 있는가. */
-export function modelFilesPresent(source: VoiceModelSource, dir: string): boolean {
-  for (const f of source.files) {
-    const target = path.join(dir, voiceModelDiskName(f.role));
-    let st: fs.Stats;
+/**
+ * 모델 쪽 설치 메타 — **모델 폴더 안에** 둔다.
+ *
+ * 엔진 메타(`META_NAME`)와 한 파일로 묶지 않는 이유: 사용자가 엔진 폴더만 지우면 모델은
+ * 멀쩡한데 "어느 자산으로 깔았는지"를 잃어 682MB 를 다시 받게 된다. 설명하는 대상 옆에
+ * 두면 그 일이 없다(§5.19 (B) "판정은 플래그가 아니라 디스크의 실물" 과 같은 결 —
+ * 이 파일도 모델 폴더를 지우면 함께 사라진다).
+ */
+const MODEL_META_NAME = '.vibisual-voice-model.json';
+
+interface ModelMeta {
+  /** 릴리스 자산 파일명. **이 값이 곧 이주 표식**이다(옛 허깅페이스 설치에는 없다). */
+  asset?: string;
+  /** 그 자산이 실린 릴리스 태그. */
+  release?: string;
+}
+
+export function readModelMeta(dir: string = voiceModelDir()): ModelMeta {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(dir, MODEL_META_NAME), 'utf8')) as ModelMeta;
+  } catch {
+    return {};
+  }
+}
+
+function writeModelMeta(dir: string, patch: ModelMeta): void {
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, MODEL_META_NAME), JSON.stringify(patch, null, 2), 'utf8');
+  } catch (err) {
+    logger.warn(`[voiceAsr] model meta write failed: ${String(err)}`);
+  }
+}
+
+/** 인식기가 요구하는 네 조각. 하나라도 없으면 엔진이 뜨지 않는다. */
+const MODEL_ROLES: readonly VoiceModelRole[] = ['encoder', 'decoder', 'joiner', 'tokens'];
+
+/**
+ * 네 조각이 **전부, 비어 있지 않게** 디스크에 있는가.
+ *
+ * 종전에는 조각마다 **바이트 수를 박아 두고 대조**했다. 파일을 하나씩 받던 때에는 그것이
+ * 반쪽 파일을 걸러 주는 유일한 장치였지만, 이제는 압축본 하나를 받아 풀므로 그 자리가
+ * **`downloadResumable` 의 크기 검증 + tar 의 성공 여부**로 옮겨 갔다(반쯤 받힌 압축본은
+ * 풀리지 않고, 풀리다 만 폴더는 조각이 모자란다). 남은 위험은 "이름은 있는데 0바이트"뿐이라
+ * 그것만 본다 — 박아 둔 숫자는 판올림 한 번에 낡고, 낡으면 멀쩡한 설치가 미설치로 읽힌다.
+ */
+export function modelFilesPresent(dir: string): boolean {
+  for (const role of MODEL_ROLES) {
     try {
-      st = fs.statSync(target);
+      if (fs.statSync(path.join(dir, voiceModelDiskName(role))).size <= 0) return false;
     } catch {
       return false;
     }
-    // 크기를 대조하지 않으면 **반쪽 파일**을 설치 완료로 친다 — 그 상태에서 엔진은
-    // "onnx 를 못 읽는다"로 죽고, 화면에는 원인이 아니라 결과만 뜬다.
-    if (st.size !== f.sizeBytes) return false;
   }
   return true;
 }
@@ -207,8 +254,16 @@ export function getVoiceAsrState(): VoiceAsrState {
   const modelRoot = voiceModelDir();
   const bin = findVoiceEngineBin(engineRoot);
   const meta = readMeta();
-  const source = VOICE_MODEL_SOURCES.find((s) => s.repo === meta.modelRepo) ?? VOICE_MODEL_SOURCES[0];
-  const modelOk = source !== undefined && modelFilesPresent(source, modelRoot);
+  const modelMeta = readModelMeta(modelRoot);
+  /**
+   * **자산 표식이 없으면 깔린 것으로 치지 않는다.**
+   *
+   * 폐기된 허깅페이스 경로로 받은 옛 설치는 파일 이름이 지금과 똑같아서(`encoder.onnx` …)
+   * 있는지만 보면 "설치됨"이 된다. 그런데 그 `encoder.onnx` 는 **엔진이 적재하다 즉사**하는
+   * 물건이라(⑫), 그대로 두면 그 사용자는 700MB 를 받아 두고도 마이크를 누를 때마다
+   * 20초 뒤 실패만 본다. 표식이 비어 있으면 설치 창을 다시 띄워 **한 번 더 받게** 한다.
+   */
+  const modelOk = modelFilesPresent(modelRoot) && modelMeta.asset !== undefined;
   const engineOk = bin !== null;
   const state: VoiceAsrState = {
     engineInstalled: engineOk,
@@ -217,7 +272,7 @@ export function getVoiceAsrState(): VoiceAsrState {
     diskBytes: dirBytes(engineRoot) + dirBytes(modelRoot),
   };
   if (meta.engineVersion !== undefined) state.engineVersion = meta.engineVersion;
-  if (modelOk && source !== undefined) state.modelRepo = source.repo;
+  if (modelOk && modelMeta.asset !== undefined) state.modelAsset = modelMeta.asset;
   const running = getInflightVoiceInstall();
   if (running) state.install = running;
   return state;
@@ -342,6 +397,57 @@ function extractArchive(archivePath: string, destDir: string): Promise<void> {
   });
 }
 
+/**
+ * 푼 폴더를 **평탄하게** 만든다 — 네 조각을 모델 폴더 바로 아래 **우리 이름**으로 놓는다.
+ *
+ * 자산은 `sherpa-onnx-nemotron-…-560ms-int8-2026-06-11/encoder.int8.onnx` 처럼 한 겹 아래에,
+ * 그리고 판올림마다 달라지는 이름으로 들어 있다(`findVoiceEngineBin` 이 실행본을 훑는 것과
+ * 같은 이유). 여기서 한 번 정리해 두면 **엔진에 넘기는 인자가 흔들리지 않는다** —
+ * `voiceRecognizerService` 는 `voiceModelDiskName(role)` 네 개만 알면 된다.
+ *
+ * 곁다리(README·test_wavs)는 옮기지 않고 남은 폴더째 지운다 — 셋 다 안 쓰는데 `test_wavs`
+ * 하나가 수 MB 다.
+ */
+async function flattenModelDir(root: string): Promise<void> {
+  const found = new Map<VoiceModelRole, string>();
+  const strays: string[] = [];
+
+  const walk = async (dir: string, depth: number): Promise<void> => {
+    if (depth > 4) return;
+    let entries: fs.Dirent[];
+    try {
+      entries = await fsp.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) {
+        if (dir === root) strays.push(full);
+        await walk(full, depth + 1);
+        continue;
+      }
+      const role = voiceModelRoleForFile(e.name);
+      if (role === null) continue;
+      const prev = found.get(role);
+      // 한 역할에 후보가 둘이면(`encoder.int8.onnx` / `encoder.fp32.onnx`) **우리가 고른
+      // 자산의 것**인 int8 을 먼저 잡는다 — 아니면 어느 쪽이 잡힐지가 훑는 순서에 달린다.
+      if (prev === undefined || (!prev.includes('int8') && e.name.includes('int8'))) {
+        found.set(role, full);
+      }
+    }
+  };
+  await walk(root, 0);
+
+  for (const [role, from] of found) {
+    const to = path.join(root, voiceModelDiskName(role));
+    if (path.resolve(from) === path.resolve(to)) continue;
+    await fsp.rm(to, { force: true });
+    await fsp.rename(from, to);
+  }
+  for (const dir of strays) await fsp.rm(dir, { recursive: true, force: true });
+}
+
 interface ReleaseAsset {
   name: string;
   browser_download_url: string;
@@ -375,13 +481,9 @@ export function pickVoiceRelease(
 export function installVoiceAsr(): VoiceAsrInstallProgress {
   if (inflight) return toProgress(inflight);
 
-  const source = VOICE_MODEL_SOURCES[0];
-  if (!source) throw new Error('no voice model source');
-
   const engineRoot = voiceEngineDir();
   const modelRoot = voiceModelDir();
   const engineDone = findVoiceEngineBin(engineRoot) !== null;
-  const modelBytes = voiceModelTotalBytes(source);
 
   const session: InstallSession = {
     installId: randomUUID(),
@@ -389,9 +491,10 @@ export function installVoiceAsr(): VoiceAsrInstallProgress {
     receivedBytes: 0,
     totalBytes: 0,
     doneBytes: 0,
-    // 엔진 자산 크기는 릴리스를 조회해야 알 수 있다. 조회 전에는 모델 몫만 잡아 두고,
-    // 자산을 고른 뒤 총량을 늘린다(막대가 뒤로 가지 않도록 **늘리기만** 한다).
-    grandTotalBytes: modelBytes,
+    // 엔진·모델 자산 크기는 **릴리스를 조회해야** 알 수 있다. 조회 전 몇 초 동안 막대가
+    // 비어 보이지 않게 대략치를 잡아 두고, 자산을 고른 뒤 실제 크기로 고쳐 잡는다.
+    // (고쳐 잡으면 총량이 줄어 막대가 **앞으로** 뛴다 — 뒤로 가지 않으므로 규약대로다.)
+    grandTotalBytes: VOICE_MODEL_DISK_APPROX_BYTES,
     abort: new AbortController(),
     lastPushAt: 0,
   };
@@ -416,7 +519,7 @@ export function installVoiceAsr(): VoiceAsrInstallProgress {
         if (!picked) throw new Error(`no engine asset for ${process.platform}/${process.arch}`);
 
         const assetBytes = picked.asset.size ?? 0;
-        session.grandTotalBytes = modelBytes + assetBytes;
+        session.grandTotalBytes = VOICE_MODEL_DISK_APPROX_BYTES + assetBytes;
         setStage('engine', picked.asset.name);
 
         await fsp.mkdir(tmpDir, { recursive: true });
@@ -452,30 +555,34 @@ export function installVoiceAsr(): VoiceAsrInstallProgress {
       }
 
       // ── 2) 모델 ──
+      // **엔진과 같은 발행처의 릴리스 자산**에서 받는다(⑫ — 제3자 export 는 엔진이 못 읽는다).
       setStage('model');
-      await fsp.mkdir(modelRoot, { recursive: true });
-      for (const f of source.files) {
-        const dest = path.join(modelRoot, voiceModelDiskName(f.role));
-        let have = 0;
-        try {
-          have = fs.statSync(dest).size;
-        } catch {
-          have = 0;
-        }
-        if (have === f.sizeBytes) {
-          session.doneBytes += f.sizeBytes;
-          session.receivedBytes = 0;
-          pushProgress(true);
-          continue;
-        }
-        session.item = f.file;
+      const modelRes = await fetch(SHERPA_ASR_MODELS_API, {
+        headers: { accept: 'application/vnd.github+json', 'user-agent': 'vibisual' },
+        signal: session.abort.signal,
+      });
+      if (!modelRes.ok) throw new Error(`model release ${String(modelRes.status)}`);
+      const modelRelease = (await modelRes.json()) as ReleaseEntry;
+      const modelAsset = pickVoiceModelAsset(modelRelease.assets ?? []);
+      if (modelAsset === null) throw new Error('no voice model asset in the asr-models release');
+
+      const modelBytes = modelAsset.size ?? 0;
+      // 실제 크기를 알았으니 총량을 고쳐 잡는다(엔진 몫은 이미 `doneBytes` 에 들어가 있다).
+      session.grandTotalBytes = session.doneBytes + modelBytes;
+
+      if (modelFilesPresent(modelRoot) && readModelMeta(modelRoot).asset === modelAsset.name) {
+        // 이미 **그 자산으로** 깔려 있다 — 엔진만 다시 받은 사용자가 682MB 를 또 받지 않는다.
+        session.doneBytes += modelBytes;
         session.receivedBytes = 0;
-        session.totalBytes = f.sizeBytes;
         pushProgress(true);
+      } else {
+        setStage('model', modelAsset.name);
+        await fsp.mkdir(tmpDir, { recursive: true });
+        const modelArchive = path.join(tmpDir, modelAsset.name);
         await downloadResumable(
-          voiceModelFileUrl(source.repo, f.file),
-          dest,
-          f.sizeBytes,
+          modelAsset.browser_download_url,
+          modelArchive,
+          modelBytes,
           session.abort.signal,
           (received, total) => {
             session.receivedBytes = received;
@@ -483,15 +590,27 @@ export function installVoiceAsr(): VoiceAsrInstallProgress {
             pushProgress();
           },
         );
-        session.doneBytes += f.sizeBytes;
+
+        setStage('extracting', modelAsset.name);
+        // **풀기 전에 옛것을 비운다** — 폐기된 허깅페이스 설치가 남아 있으면 역할 파일이 섞여
+        // 어느 것이 지금 자산의 것인지 알 수 없게 된다(옛 `encoder.onnx` 하나가 남아도 즉사한다).
+        await fsp.rm(modelRoot, { recursive: true, force: true });
+        await fsp.mkdir(modelRoot, { recursive: true });
+        // 압축본은 임시 폴더에 두되 **푸는 곳은 모델 폴더**다 — 그래야 아래 평탄화가
+        // 같은 파일시스템 안의 `rename` 이라 657MB 를 다시 복사하지 않는다(드라이브가 갈리면
+        // `rename` 은 EXDEV 로 죽는다).
+        await extractArchive(modelArchive, modelRoot);
+        await flattenModelDir(modelRoot);
+        session.doneBytes += modelBytes;
         session.receivedBytes = 0;
       }
 
       // ── 3) 검증 ──
       setStage('verifying');
-      if (!modelFilesPresent(source, modelRoot)) throw new Error('model files incomplete after download');
+      if (!modelFilesPresent(modelRoot)) throw new Error('model files incomplete after download');
       if (findVoiceEngineBin(engineRoot) === null) throw new Error('engine binary missing after install');
-      writeMeta({ modelRepo: source.repo });
+      // 표식은 **검증을 통과한 뒤에** 적는다 — 먼저 적으면 반쯤 풀린 폴더가 "설치됨"이 된다.
+      writeModelMeta(modelRoot, { asset: modelAsset.name, release: modelRelease.tag_name ?? '' });
       setStage('ready');
     } catch (err) {
       const canceled = session.abort.signal.aborted;

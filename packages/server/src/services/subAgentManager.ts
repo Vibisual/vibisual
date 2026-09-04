@@ -283,6 +283,7 @@ function buildConfigArgs(config: AgentConfig, ctx?: ConfigArgsContext): string[]
   const settingsPlan = prepareAgentSettings({
     memory: config.memory,
     fastMode: wantsFastMode(config),
+    thinking: config.thinking,
     agentName: ctx?.agentName ?? 'agent',
     projectRoot: ctx?.projectRoot,
   });
@@ -325,9 +326,12 @@ function buildConfigEnv(config: AgentConfig | undefined, ctx?: ConfigArgsContext
 
   Object.assign(env, buildBashTimeoutEnv(config));
 
+  // ⚠ 위 `buildConfigArgs` 와 **같은 입력**을 줘야 한다 — 파일 이름이 본문 해시라, 한쪽만 키를
+  //   더하면 인자가 가리키는 파일과 여기서 만든 파일이 서로 다른 장이 된다.
   const plan = prepareAgentSettings({
     memory: config.memory,
     fastMode: wantsFastMode(config),
+    thinking: config.thinking,
     agentName: ctx?.agentName ?? 'agent',
     projectRoot: ctx?.projectRoot,
   });

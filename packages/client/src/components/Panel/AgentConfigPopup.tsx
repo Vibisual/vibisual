@@ -19,6 +19,7 @@ import {
   isOpusModel,
   supportsFastMode,
   isForwardSubagentTextEnabled,
+  isThinkingEnabled,
   resolveAliasToLatest,
   listModelFamilies,
   listEffortLevels,
@@ -605,6 +606,10 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
   // §4 (Fast 모드) — 같은 Opus 를 출력 속도만 빠르게. 플래그가 아니라 settings 키라 서버가
   //   `--settings` 파일 한 장에 실어 보낸다. 미설정(false) 이면 그 키 자체가 안 생긴다.
   const [fastMode, setFastMode] = useState(base.fastMode === true);
+  // §4 (Thinking on/off) — 확장 사고 자체를 켜고 끈다(`effort` 는 깊이라 직교 축). 플래그가 아니라
+  //   settings 키(`alwaysThinkingEnabled`)라 Fast 와 **같은 설정 파일 한 장**에 실린다.
+  //   기본이 켬이라 판정 함수를 거친다 — undefined/true = 켬, 명시 false 만 끔.
+  const [thinking, setThinking] = useState(isThinkingEnabled(base.thinking));
   // §4 (스트림 3종) — CLI 가 주는데 우리가 안 받던 것들. ①은 기본 켬이라 판정 함수를 거친다.
   const [forwardSubagentText, setForwardSubagentText] = useState(isForwardSubagentTextEnabled(base.forwardSubagentText));
   const [replayUserMessages, setReplayUserMessages] = useState(base.replayUserMessages === true);
@@ -890,6 +895,8 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
     // §4 (Fast 모드) — 지원 모델일 때만 저장한다. 모델을 바꾼 뒤에도 값이 남아 있으면
     //   나중에 그 모델로 되돌렸을 때 사용자가 켠 적 없는 Fast 가 되살아난다.
     fastMode: fastMode && fastModeSupported ? true : undefined,
+    // §4 (Thinking on/off) — 켬이 기본이라 **끌 때만** 값을 남긴다(undefined = 켬 = 그 키를 안 만든다).
+    thinking: thinking ? undefined : false,
     // §4 (스트림 3종) — ①은 켬이 기본이라 **끌 때만** 값을 남긴다(undefined = 켬).
     forwardSubagentText: forwardSubagentText ? undefined : false,
     replayUserMessages: replayUserMessages ? true : undefined,
@@ -924,7 +931,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
     memory, subagentDepth,
     isOpus, disallowedTools, rules, customMode,
     contextWindow, presetId, modelVersion, mcpServers,
-    fallbackModel, autoCompact, agentCanCompact, excludeDynamicSections, settingSources, safeMode, fastMode, fastModeSupported, forwardSubagentText, replayUserMessages, promptSuggestions, includeHookEvents, betas, agentDefinitions, pluginDirs,
+    fallbackModel, autoCompact, agentCanCompact, excludeDynamicSections, settingSources, safeMode, fastMode, fastModeSupported, thinking, forwardSubagentText, replayUserMessages, promptSuggestions, includeHookEvents, betas, agentDefinitions, pluginDirs,
     bashDefaultTimeoutSec, bashMaxTimeoutSec,
     isLocal, buildLocalProvider,
   ]);
@@ -981,7 +988,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
     if (isLocal) {
       hidden.push(
         'model', 'modelVersion', 'contextWindow', 'fastMode', 'customMode', 'tools', 'disallowedTools',
-        'maxTurns', 'isolation', 'effort', 'memory', 'subagentDepth', 'maxBudgetUsd', 'fallbackModel',
+        'maxTurns', 'isolation', 'effort', 'memory', 'subagentDepth', 'maxBudgetUsd', 'thinking', 'fallbackModel',
         'autoCompact', 'agentCanCompact', 'settingSources',
         'excludeDynamicSystemPromptSections', 'safeMode', 'forwardSubagentText', 'replayUserMessages',
         'promptSuggestions', 'includeHookEvents', 'betas', 'agentDefinitions', 'pluginDirs',
@@ -1015,6 +1022,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
     memory: t('panel.agentConfig.memory.label'),
     subagentDepth: t('panel.agentConfig.subagentDepth.label'),
     maxBudgetUsd: t('panel.agentConfig.maxBudgetUsd', { defaultValue: 'Budget ($, 0=Inf)' }),
+    thinking: t('panel.agentConfig.thinking.label'),
     fallbackModel: t('panel.agentConfig.fallbackModel.label'),
     autoCompact: t('panel.agentConfig.autoCompact.label'),
     agentCanCompact: t('panel.agentConfig.agentCanCompact.label'),
@@ -1047,7 +1055,8 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
       // 저장분에 값이 없을 때의 **뜻이 축마다 다르다** — 전부 "미설정"이라 적으면 거짓말이 된다.
       case 'contextWindow': return raw === '200k' ? '200k' : '1M';
       case 'permissionTimeoutPolicy': return raw === 'deny' ? 'deny' : 'allow';
-      case 'forwardSubagentText': return raw === false ? off : on;
+      case 'forwardSubagentText':
+      case 'thinking': return raw === false ? off : on;
       case 'maxTurns': return String(typeof raw === 'number' && raw > 0 ? raw : AGENT_MAX_TURNS_UI_FALLBACK);
       case 'rules': {
         const body = typeof raw === 'string' ? raw.trim() : '';
@@ -1771,6 +1780,36 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                   />
                 </div>
               </div>
+              {/* §4 (Thinking on/off) — 바로 위 Effort(사고 **깊이**) 와 직교하는 축: 사고 자체를 켜고 끈다.
+                  그래서 같은 블록 안, 그 칸 아래 전체 폭에 둔다. 기본이 켬이라 끄면 값이 남는다. */}
+              <label className="col-span-2 flex cursor-pointer items-center gap-2 rounded border border-gray-700/60 bg-gray-900/40 px-2.5 py-1.5 hover:border-gray-600">
+                <input
+                  type="checkbox"
+                  checked={thinking}
+                  onChange={(e) => setThinking(e.target.checked)}
+                  className="h-3.5 w-3.5 accent-indigo-500"
+                />
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className={`h-3.5 w-3.5 ${thinking ? 'text-indigo-400' : 'text-gray-600'}`}
+                  aria-hidden="true"
+                >
+                  <path d="M9.5 20.5h5" />
+                  <path d="M10 17.5v-1.2a5.5 5.5 0 1 1 4 0v1.2" />
+                </svg>
+                <span className="text-xs text-gray-300">
+                  {t('panel.agentConfig.thinking.label')}{diffDot('thinking')}
+                  <span className="ml-1 text-gray-600">
+                    {thinking ? t('panel.agentConfig.thinking.hint') : t('panel.agentConfig.thinking.offHint')}
+                  </span>
+                </span>
+                <InfoTip text={t('panel.agentConfig.thinking.tip')} />
+              </label>
             </div>
             )}
 

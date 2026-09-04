@@ -6,6 +6,7 @@ import {
   levelFromTimeDomain,
   pushVoiceLevel,
   type VoiceInputErrorCode,
+  isMicAccessFixable,
   type VoiceInputStatus,
 } from '@vibisual/shared';
 import { shortcutLabel } from '../../utils/platform.js';
@@ -29,6 +30,11 @@ interface VoiceInputOverlayProps {
   analyserRef: React.MutableRefObject<AnalyserNode | null>;
   onStop: () => void;
   onDismissError: () => void;
+  /**
+   * §5.5 #17-38 ⑮ — 이 실패를 **OS 설정에서 풀 수 있을 때** 그리로 가는 문을 연다.
+   * 사유만 말하고 끝내면 사용자는 어디를 만져야 하는지 모른 채 같은 버튼만 다시 누른다.
+   */
+  onOpenMicSettings: () => void;
 }
 
 /**
@@ -98,7 +104,13 @@ const ERROR_KEY: Record<VoiceInputErrorCode, string> = {
   unsupported: 'ide.mainArea.voiceErrUnsupported',
   permission: 'ide.mainArea.voiceErrPermission',
   device: 'ide.mainArea.voiceErrDevice',
+  // 마이크가 **아예 없다** — 설정을 켜라가 아니라 **꽂으라고** 말해야 하는 자리다.
+  'no-device': 'ide.mainArea.voiceErrNoDevice',
+  // 있는데 다른 앱이 쥐고 있다 — 꽂으라고 하면 꽂힌 마이크를 다시 꽂아 보게 된다.
+  'device-busy': 'ide.mainArea.voiceErrDeviceBusy',
   network: 'ide.mainArea.voiceErrNetwork',
+  // 인식기는 이 PC 에서 돈다 — "서비스에 닿지 못했다"가 아니라 "엔진이 안 떴다"가 사실이다.
+  engine: 'ide.mainArea.voiceErrEngine',
   language: 'ide.mainArea.voiceErrLanguage',
   'no-speech': 'ide.mainArea.voiceErrUnknown',
   aborted: 'ide.mainArea.voiceErrUnknown',
@@ -106,7 +118,7 @@ const ERROR_KEY: Record<VoiceInputErrorCode, string> = {
 };
 
 export function VoiceInputOverlay({
-  status, error, interim, analyserRef, onStop, onDismissError,
+  status, error, interim, analyserRef, onStop, onDismissError, onOpenMicSettings,
 }: VoiceInputOverlayProps): React.JSX.Element | null {
   const { t } = useTranslation();
 
@@ -119,6 +131,18 @@ export function VoiceInputOverlay({
           <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
         </svg>
         <span className="min-w-0 flex-1">{t(ERROR_KEY[error])}</span>
+        {/* §5.5 #17-38 ⑮ — 권한·장치로 막힌 실패는 **OS 설정에서 풀 수 있다.** 그 문을 여기 둔다.
+            `device` 도 태우는 이유는 win 에서 "데스크톱 앱 허용"이 꺼지면 권한 문제가
+            `NotFoundError`(=장치 없음)로 오기 때문이다(`isMicAccessFixable` 주석). */}
+        {isMicAccessFixable(error) && (
+          <button
+            type="button"
+            onClick={onOpenMicSettings}
+            className="flex h-5 flex-shrink-0 items-center rounded border border-red-400/40 px-1.5 text-[12px] font-semibold text-red-100 transition-colors hover:bg-red-500/25"
+          >
+            {t('ide.mainArea.voiceMicSettingsAction')}
+          </button>
+        )}
         <button
           type="button"
           onClick={onDismissError}

@@ -944,6 +944,7 @@
         "high": "深度推理。较慢但更彻底。",
         "xhigh": "超高推理深度（Opus 4.7+）。推荐用于大多数编码工作。",
         "max": "最大推理强度，无 Token 限制（Opus 4.8）。适用于最复杂的判断场景；可能会对简单任务过度思考。",
+        "ultracode": "超高强度推理，并自动编排并行子代理工作流 (Opus 4.8+)。能力最强，成本也最高。",
         "unknown": "{{name}} — 已安装 CLI 支持的思考深度等级。"
       },
       "tools": {
@@ -1094,6 +1095,12 @@
         "hint": "同一个 Opus，输出更快",
         "unsupported": "仅 Opus 4.8 / Opus 5",
         "tip": "让同一个 Opus 模型以更快的速度输出 — 并不是降级到更小的模型。这不是 CLI 参数：无头代理会被当作 Agent SDK 会话，只接受以设置方式开启，因此 Vibisual 会把它写进本代理已有的设置文件里一起传过去。不支持的模型会静默忽略该设置。"
+      },
+      "thinking": {
+        "label": "扩展思考",
+        "hint": "开 — 回答前先思考",
+        "offHint": "关 — 不经思考直接回答",
+        "tip": "为该代理开启或关闭扩展思考。它与决定思考深度的思考深度（Effort）是两个独立的维度。这不是 CLI 参数：已安装的 Claude Code 只通过 alwaysThinkingEnabled 设置项提供它，因此 Vibisual 会把它写进本就为该代理生成的设置文件里。默认开启，只有关闭时才会保存，所以你没有改动过的代理会沿用你自己的 Claude Code 设置。"
       },
       "forwardSubagentText": {
         "label": "显示子代理输出",
@@ -2037,10 +2044,26 @@
       "voiceErrUnsupported": "此版本不支持语音识别。",
       "voiceErrPermission": "麦克风权限被拒绝。请在系统隐私设置中允许本应用使用麦克风后重试。",
       "voiceErrDevice": "未找到麦克风。请连接后重试。",
+      "voiceErrNoDevice": "未找到麦克风。请连接麦克风。",
+      "voiceErrDeviceBusy": "另一个应用正在使用麦克风。请关闭该应用后重试。",
       "voiceErrNetwork": "无法连接语音识别服务。",
+      "voiceErrEngine": "无法启动本地语音引擎。请重新安装语音输入并重试。",
       "voiceErrLanguage": "语音识别不支持当前界面语言。",
       "voiceErrUnknown": "语音输入已停止，请重试。",
-      "voiceErrDismiss": "关闭"
+      "voiceErrDismiss": "关闭",
+      "voiceMicHintRightClick": "右键点击：麦克风设置",
+      "voiceMicSettingsAction": "如何解决",
+      "voiceMicSettingsTitle": "麦克风设置",
+      "voiceMicSettingsBody": "此应用需要操作系统允许访问麦克风。",
+      "voiceMicSettingsBlockedBody": "无法打开麦克风。这通常意味着操作系统设置中已关闭麦克风访问权限。",
+      "voiceMicSettingsNoDeviceBody": "此电脑未连接麦克风。请连接麦克风后重试。",
+      "voiceMicSettingsOpen": "打开设置",
+      "voiceMicSettingsHintWin": "在列表底部同时打开“麦克风访问权限”和“允许桌面应用访问你的麦克风”。由于本应用的安装方式，它的名称不会出现在应用列表中。",
+      "voiceMicSettingsHintMac": "在“隐私与安全性”>“麦克风”中启用 Vibisual。如果刚启用，需要重启应用才能生效。",
+      "voiceMicSettingsHintLinux": "检查声音设置中是否已将麦克风选为输入设备，并确认未被静音。如果 PulseAudio/PipeWire 没有默认输入设备，应用同样无法识别任何设备。",
+      "voiceMicSettingsDeviceNote": "如果访问权限已开启，请检查是否确实插入了麦克风——已断开的麦克风在设备列表中仍会以灰色显示。",
+      "voiceMicSettingsHiddenNote": "如果已经连接了麦克风，可能是操作系统设置将其隐藏了——请参见下方说明。",
+      "voiceMicSettingsShortcutNote": "按 {{shortcut}} 进行语音输入"
     },
     "voiceInstall": {
       "title": "设置语音输入",

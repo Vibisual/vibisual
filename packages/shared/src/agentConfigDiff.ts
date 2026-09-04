@@ -7,7 +7,7 @@
  *
  * 판정을 shared 한 곳에 두는 이유는 **"미설정"의 표기가 필드마다 다르기 때문**이다
  * (`effort: 'default'` · `isolation: 'none'` · `maxTurns: 0` · `autoCompact: ''` ·
- * `forwardSubagentText: undefined` = 켬). 그 접힘 규칙이 화면 코드에 흩어지면 같은 값을 두고
+ * `forwardSubagentText`/`thinking`: `undefined` = 켬). 그 접힘 규칙이 화면 코드에 흩어지면 같은 값을 두고
  * 한쪽은 "다름", 다른 쪽은 "같음"이라 답하는 날이 온다.
  */
 
@@ -67,6 +67,7 @@ export const AGENT_CONFIG_COMPARED_FIELDS = [
   'memory',
   'subagentDepth',
   'maxBudgetUsd',
+  'thinking',
   'fallbackModel',
   'autoCompact',
   'agentCanCompact',
@@ -156,8 +157,11 @@ export function normalizeAgentFieldForCompare(field: AgentConfigComparedField | 
     // 1M 이 기본이고 opt-out 만 저장한다.
     case 'contextWindow':
       return value === '200k' ? '200k' : '';
-    // 유일하게 **켬이 기본**인 축 — 끌 때만 값(false)이 남는다.
+    // **켬이 기본**인 축 — 끌 때만 값(false)이 남는다. 여기 있는 이름은 `isXxxEnabled`(shared)
+    //   가 `value !== false` 로 판정하는 것과 **같은 집합**이어야 한다. 한쪽만 늘면 "체크는
+    //   켜져 있는데 점이 붙는다"가 생기고, 그건 화면으로는 설명되지 않는 어긋남이다.
     case 'forwardSubagentText':
+    case 'thinking':
       return value === false ? 'off' : '';
     // 칸이 0 을 표현하지 못한다(위 상수 주석).
     case 'maxTurns': {

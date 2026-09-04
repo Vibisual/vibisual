@@ -944,6 +944,7 @@
         "high": "Raciocínio profundo. Mais lento, porém detalhado.",
         "xhigh": "Raciocínio extra-alto (Opus 4.7+). Recomendado para a maioria das tarefas de código.",
         "max": "Raciocínio máximo, sem limite de tokens (Opus 4.8). Para as decisões mais difíceis; pode complicar tarefas simples.",
+        "ultracode": "Raciocínio extra alto e orquestração automática de fluxos de trabalho com subagentes em paralelo (Opus 4.8+). O nível mais potente e também o mais caro.",
         "unknown": "{{name}} — nível de esforço de raciocínio suportado pela CLI instalada."
       },
       "tools": {
@@ -1094,6 +1095,12 @@
         "hint": "o mesmo Opus, saída mais rápida",
         "unsupported": "somente Opus 4.8 / Opus 5",
         "tip": "Executa o mesmo modelo Opus com saída mais rápida — não rebaixa para um modelo menor. Não é uma opção da CLI: um agente headless é tratado como uma sessão do Agent SDK e só aceita o modo Fast ativado pelas configurações, então o Vibisual o inclui no arquivo de configurações que já escreve para este agente. Modelos sem suporte ignoram a configuração sem nenhum aviso."
+      },
+      "thinking": {
+        "label": "Pensamento estendido",
+        "hint": "ligado — pensa antes de responder",
+        "offHint": "desligado — responde sem passar pelo raciocínio",
+        "tip": "Liga ou desliga o pensamento estendido deste agente. É um eixo separado do Esforço, que define a profundidade do raciocínio. Não é uma flag da CLI: o Claude Code instalado só o expõe como a configuração alwaysThinkingEnabled, então o Vibisual o envia no arquivo de configurações que já escreve para este agente. Vem ligado por padrão e só é salvo quando você desliga, de modo que um agente em que você nunca mexeu continua seguindo as suas próprias configurações do Claude Code."
       },
       "forwardSubagentText": {
         "label": "Mostrar a saída dos subagentes",
@@ -2037,10 +2044,26 @@
       "voiceErrUnsupported": "O reconhecimento de voz não está disponível nesta versão.",
       "voiceErrPermission": "O acesso ao microfone foi negado. Permita-o para este app nas configurações de privacidade do sistema e tente novamente.",
       "voiceErrDevice": "Nenhum microfone encontrado. Conecte um e tente novamente.",
+      "voiceErrNoDevice": "Nenhum microfone encontrado. Conecte um microfone.",
+      "voiceErrDeviceBusy": "Outro aplicativo está usando o microfone. Feche-o e tente novamente.",
       "voiceErrNetwork": "Não foi possível acessar o serviço de reconhecimento de voz.",
+      "voiceErrEngine": "Não foi possível iniciar o motor de voz local. Reinstale a entrada de voz e tente novamente.",
       "voiceErrLanguage": "O reconhecimento de voz não é compatível com o idioma atual da interface.",
       "voiceErrUnknown": "A entrada de voz foi interrompida. Tente novamente.",
-      "voiceErrDismiss": "Fechar"
+      "voiceErrDismiss": "Fechar",
+      "voiceMicHintRightClick": "Clique com o botão direito: configurações de microfone",
+      "voiceMicSettingsAction": "Como resolver",
+      "voiceMicSettingsTitle": "Configurações de microfone",
+      "voiceMicSettingsBody": "Este app precisa que o acesso ao microfone seja permitido pelo seu sistema operacional.",
+      "voiceMicSettingsBlockedBody": "Não foi possível abrir o microfone. Isso geralmente significa que o acesso ao microfone está desativado nas configurações do sistema.",
+      "voiceMicSettingsNoDeviceBody": "Nenhum microfone está conectado a este PC. Conecte um e tente novamente.",
+      "voiceMicSettingsOpen": "Abrir configurações",
+      "voiceMicSettingsHintWin": "Ative \"Acesso ao microfone\" e \"Permitir que aplicativos de área de trabalho acessem seu microfone\" na parte inferior da lista. Devido à forma como este app é instalado, o nome dele não aparece na lista de aplicativos.",
+      "voiceMicSettingsHintMac": "Ative o Vibisual em Privacidade e Segurança > Microfone. Se você acabou de ativar, reinicie o app para que a alteração tenha efeito.",
+      "voiceMicSettingsHintLinux": "Verifique se o microfone está selecionado como dispositivo de entrada nas configurações de som e se não está mudo. Se o PulseAudio/PipeWire não tiver uma entrada padrão, o app também não conseguirá detectar nenhum dispositivo.",
+      "voiceMicSettingsDeviceNote": "Se o acesso já estiver ativado, verifique se o microfone está realmente conectado — microfones desconectados continuam aparecendo esmaecidos na lista de dispositivos.",
+      "voiceMicSettingsHiddenNote": "Se um microfone já estiver conectado, as configurações do seu sistema operacional podem estar ocultando-o — veja a observação abaixo.",
+      "voiceMicSettingsShortcutNote": "Entrada por voz com {{shortcut}}"
     },
     "voiceInstall": {
       "title": "Configurar a entrada de voz",

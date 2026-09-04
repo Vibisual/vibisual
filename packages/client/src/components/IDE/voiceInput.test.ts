@@ -180,8 +180,11 @@ describe('실패 사유 — 화면이 원인을 말할 수 있게', () => {
 
   it('마이크 열기 실패는 다른 표로 접는다 — 어느 단계가 막혔는지 갈려야 한다', () => {
     expect(mapMediaError('NotAllowedError')).toBe('permission');
+    // `NotFoundError` 는 아직 `device` 다 — 여기서는 "없다"고 단정할 수 없다(win 의 권한 차단도
+    //   같은 이름으로 온다). 좁히는 것은 장치 목록을 본 `refineDeviceError` 의 일이다(⑯).
     expect(mapMediaError('NotFoundError')).toBe('device');
-    expect(mapMediaError('NotReadableError')).toBe('device');
+    // 있는데 다른 앱이 쥔 것은 **따로 말한다** — "찾지 못했다"로 접으면 꽂힌 마이크를 다시 꽂아 본다.
+    expect(mapMediaError('NotReadableError')).toBe('device-busy');
     expect(mapMediaError('AbortError')).toBe('aborted');
     expect(mapMediaError('WhoKnowsError')).toBe('unknown');
   });

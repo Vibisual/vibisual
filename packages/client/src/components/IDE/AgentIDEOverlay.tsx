@@ -357,7 +357,19 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   const localProvider = useGraphStore((s) => (agentId ? s.agentConfigs[agentId]?.provider : undefined));
   const isLocalAgent = !!localProvider;
 
-  const [maximized, setMaximized] = useState(false);
+  /**
+   * §5.5 #17-1 — 최대화는 **슬롯이 들고 있다**(`float`·`dockSide` 와 같은 자리).
+   *
+   * 종전에는 `useState(false)` 라 컴포넌트가 언마운트되는 순간 풀렸다 — 상단에 붙여 최대화해 둔
+   * 창이, 프로젝트 탭을 옮겼다 돌아오면 **붙은 변만** 살아 돌아오고 최대화는 사라졌다(사용자 보고).
+   * 창 하나가 프로젝트 탭마다 마운트/언마운트되는 구조라, 창의 모양은 로컬 상태로 둘 수 없다.
+   */
+  const maximized = useIDEPaneValue((o) => o.maximized);
+  const setPaneMaximized = useGraphStore((s) => s.setIDEPaneMaximized);
+  const setMaximized = useCallback((next: boolean | ((prev: boolean) => boolean)) => {
+    const cur = selectIDEPane(useGraphStore.getState(), paneKey).maximized;
+    setPaneMaximized(paneKey, typeof next === 'function' ? next(cur) : next);
+  }, [paneKey, setPaneMaximized]);
   /**
    * §5.5 #17-6 (H-5) — **독립 창의 OS 최대화 상태.** 앱 안 창의 `maximized`(창 안 레이아웃)와는
    * 다루는 대상이 다르다 — 이쪽은 OS 창 자체다.
@@ -381,7 +393,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
       return;
     }
     setMaximized((v) => !v);
-  }, [fullWindow]);
+  }, [fullWindow, setMaximized]);
 
   // §4 v3.24 — 폰(max-md)에선 좌측 내비(활동바+사이드바)를 기본 숨기고, 타이틀바 토글 버튼으로만 연다
   //   (좁은 화면에서 활동바 48px 가 본문을 상시 짓누르지 않게). 이 값은 이제 **판정의 입력 하나**일 뿐이고,
@@ -719,13 +731,15 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
       } else {
         setMode('modal');
       }
-      setMaximized(false);
+      // ⚠ 여기서 최대화를 풀지 않는다. 이 갈래는 **마운트마다** 지나간다(`prevRef` 는 새 컴포넌트에서
+      //   다시 null 로 시작한다) — 프로젝트 탭을 옮겼다 돌아오는 것도 여기로 온다. 종전에는 그때마다
+      //   `setMaximized(false)` 가 돌아, 붙은 변만 복원되고 최대화는 매번 풀렸다. 창이 정말 새로
+      //   서거나 버블이 갈릴 때 초기화하는 것은 슬롯을 세우는 `openIDEOverlay` 의 몫이다.
     } else if (agentId && prev.agentId && prev.agentId !== agentId && !projectChanged) {
       setFlashKey((k) => k + 1);
     } else if (!agentId && prev.agentId) {
-      // 닫힘 — 로컬 상태 리셋
+      // 닫힘 — 로컬 상태 리셋(최대화는 슬롯째 사라진다 — `closeIDEOverlay` 가 슬롯을 지운다).
       setMode('modal');
-      setMaximized(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentId, overlayProjectId]);
@@ -1626,7 +1640,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
       settlePush();
       dragOffsetRef.current = { dx: 0, dy: 0 };
     };
-  }, [mode, maximized, floatSize.w, floatSize.h, disableDock, viewportNow, otherDockedPanes, paneKey, setPaneDock, dockSizeAtDrop, commitFloat, canPopOut, popOutToWindow, scheduleDragFrame]);
+  }, [mode, maximized, setMaximized, floatSize.w, floatSize.h, disableDock, viewportNow, otherDockedPanes, paneKey, setPaneDock, dockSizeAtDrop, commitFloat, canPopOut, popOutToWindow, scheduleDragFrame]);
 
   /**
    * 타이틀바 mousedown.
@@ -1812,7 +1826,7 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
     });
     setMaximized(false);
     setMode('docked');
-  }, [otherDockedPanes, paneKey, setPaneDock, viewportNow, dockSizeAtDrop]);
+  }, [otherDockedPanes, paneKey, setPaneDock, viewportNow, dockSizeAtDrop, setMaximized]);
 
   /**
    * 이 창을 접는다 — 닫지 않고 화면에서만 내린다(붙어 있던 변·열어 둔 파일 그대로).
@@ -1872,7 +1886,8 @@ export const AgentIDEOverlay = memo(function AgentIDEOverlay({
   useEffect(() => {
     if (layoutEpoch === 0 || fullWindow || !agentId) return;
     const slot = selectIDEPane(useGraphStore.getState(), paneKey);
-    setMaximized(false);
+    // 최대화는 프리셋 쪽(`applyIDEWindowLayout`)이 이미 풀었다 — 자리를 다시 정하는 프리셋만
+    //   푼다(전부 접기/펴기는 배치를 안 건드리므로 최대화도 그대로 둔다).
     if (slot.dockSide && !disableDock) {
       setMode('docked');
       return;

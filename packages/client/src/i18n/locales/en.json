@@ -944,6 +944,7 @@
         "high": "Deep reasoning. Slower but thorough.",
         "xhigh": "Extra-high reasoning (Opus 4.7+). Recommended for most coding work.",
         "max": "Maximum reasoning, no token limit (Opus 4.8). For the hardest judgment calls; may overthink simple tasks.",
+        "ultracode": "Extra-high reasoning plus automatically orchestrated parallel sub-agent workflows (Opus 4.8+). The most capable level, and the most expensive.",
         "unknown": "{{name}} — reasoning effort level supported by the installed CLI."
       },
       "tools": {
@@ -1094,6 +1095,12 @@
         "hint": "same Opus, faster output",
         "unsupported": "Opus 4.8 / Opus 5 only",
         "tip": "Runs the same Opus model with faster output — it does not drop down to a smaller model. This is not a CLI flag: a headless agent is treated as an Agent SDK session, which accepts fast mode only as a settings opt-in, so Vibisual passes it in the settings file it already writes for this agent. Models that do not support it ignore the setting without any message."
+      },
+      "thinking": {
+        "label": "Extended thinking",
+        "hint": "on — thinks before answering",
+        "offHint": "off — answers without a thinking pass",
+        "tip": "Turns extended thinking on or off for this agent. This is a separate axis from Effort, which sets how deep the thinking goes. It is not a CLI flag: the installed Claude Code exposes it only as the alwaysThinkingEnabled setting, so Vibisual passes it in the settings file it already writes for this agent. Thinking is on by default and only turning it off is stored, so an agent you never touched keeps following your own Claude Code settings."
       },
       "forwardSubagentText": {
         "label": "Show subagent output",
@@ -2037,10 +2044,26 @@
       "voiceErrUnsupported": "Speech recognition is not available in this build.",
       "voiceErrPermission": "Microphone access was denied. Allow it for this app in your system privacy settings, then try again.",
       "voiceErrDevice": "No microphone was found. Connect one and try again.",
+      "voiceErrNoDevice": "No microphone found. Please connect a microphone.",
+      "voiceErrDeviceBusy": "Another app is using the microphone. Close it and try again.",
       "voiceErrNetwork": "Could not reach the speech recognition service.",
+      "voiceErrEngine": "Could not start the on-device speech engine. Reinstall voice input and try again.",
       "voiceErrLanguage": "Speech recognition does not support the current interface language.",
       "voiceErrUnknown": "Voice input stopped. Please try again.",
-      "voiceErrDismiss": "Dismiss"
+      "voiceErrDismiss": "Dismiss",
+      "voiceMicHintRightClick": "Right-click: microphone settings",
+      "voiceMicSettingsAction": "How to fix",
+      "voiceMicSettingsTitle": "Microphone settings",
+      "voiceMicSettingsBody": "This app needs microphone access to be allowed by your OS.",
+      "voiceMicSettingsBlockedBody": "Could not open the microphone. Usually this means microphone access is turned off in your OS settings.",
+      "voiceMicSettingsNoDeviceBody": "No microphone is connected to this PC. Connect one and try again.",
+      "voiceMicSettingsOpen": "Open settings",
+      "voiceMicSettingsHintWin": "Turn on both \"Microphone access\" and \"Let desktop apps access your microphone\" at the bottom of the list. Because of how this app is installed, its name does not appear in the app list.",
+      "voiceMicSettingsHintMac": "Enable Vibisual under Privacy & Security > Microphone. If you just enabled it, restart the app for it to take effect.",
+      "voiceMicSettingsHintLinux": "Check that a microphone is selected as the input device in your sound settings and that it is not muted. If PulseAudio/PipeWire has no default input, the app cannot see any device either.",
+      "voiceMicSettingsDeviceNote": "If access is already on, check that a microphone is actually plugged in — disconnected microphones still appear greyed out in the device list.",
+      "voiceMicSettingsHiddenNote": "If a microphone is already connected, your OS settings may be hiding it — see the note below.",
+      "voiceMicSettingsShortcutNote": "Voice input with {{shortcut}}"
     },
     "voiceInstall": {
       "title": "Set up voice input",

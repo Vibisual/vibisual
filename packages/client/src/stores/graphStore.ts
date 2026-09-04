@@ -658,6 +658,15 @@ export interface IDEOverlayState {
    */
   float: FloatGeom | null;
   /**
+   * §5.5 #17-1 — 최대화해 둔 창(헤더 아래 풀스크린). 붙은 변(`dockSide`)은 **지우지 않는다** —
+   * 최대화는 그 위에 덮이는 표시 상태라, 복원하면 붙어 있던 자리로 그대로 돌아간다.
+   *
+   * `float` 와 같은 이유로 슬롯에 산다: 컴포넌트 로컬 상태로 두면 **언마운트마다 풀렸다** —
+   * 프로젝트 탭을 옮겼다 돌아오면 붙은 변만 복원되고 최대화는 사라져, 사용자가 만든 배치의
+   * 절반만 돌아왔다(도킹은 살고 최대화는 죽는 어긋남).
+   */
+  maximized: boolean;
+  /**
    * §5.5 #17-1 — 접어 둔 창. 접히면 **그리지도 않고 자리도 먹지 않는다**(캔버스가 그만큼 돌아온다).
    * 닫기와 다르다 — 붙어 있던 변·두께·열어 둔 파일이 그대로 남아 펴면 그 자리로 돌아온다.
    * 접힌 창을 잃어버리지 않도록 헤더 [창] 메뉴가 개수와 목록을 계속 들고 있다.
@@ -703,6 +712,7 @@ export const DEFAULT_IDE_OVERLAY: IDEOverlayState = {
   dockSpan: 1,
   z: 0,
   float: null,
+  maximized: false,
   collapsed: false,
   openMode: 'modal',
   editorFiles: [],
@@ -2284,6 +2294,11 @@ interface GraphState {
    * 매 프레임 쓰면 창 수만큼 리렌더가 붙으므로 **끝났을 때만** 부른다.
    */
   setIDEPaneFloat: (paneKey: string | null | undefined, geom: FloatGeom) => void;
+  /**
+   * §5.5 #17-1 — 최대화/복원. 붙은 변은 건드리지 않는다(복원하면 그 자리로 돌아간다).
+   * 창의 모양 중 **로컬 상태로 두면 언마운트에 사라지는** 마지막 하나라 여기로 올렸다.
+   */
+  setIDEPaneMaximized: (paneKey: string | null | undefined, maximized: boolean) => void;
   setIDEActiveSession: (sessionId: string | null, paneKey?: string | null) => void;
   setIDEActiveView: (view: IDEViewType, paneKey?: string | null) => void;
   toggleIDESidebar: (paneKey?: string | null) => void;
@@ -5263,6 +5278,9 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
             dockSpan: keepDock ? prev!.dockSpan : 1,
             z: seq,
             float: keepDock ? prev?.float ?? null : null,
+            // 붙어 있던 자리를 이어받는 재사용이면 **최대화도 그 자리의 성질**이다(우측에 붙여 크게
+            //   펴 둔 창에서 버블만 갈아 끼우는 종전 패턴 — 갈아 끼울 때마다 크기가 줄면 안 된다).
+            maximized: keepDock ? prev?.maximized ?? false : false,
             collapsed: false,
             openMode,
             // §5.5 #17-27 — 편집창은 IDE 를 새로 열 때(=에이전트 교체) 빈 상태에서 시작한다.
@@ -5338,7 +5356,9 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
 
     if (kind === 'undockAll') {
       // 자리는 그대로 두고 떼기만 한다 — 사용자가 잡아 둔 배치를 지우지 않는다.
-      for (const o of open) write(o.paneKey, { dockSide: null, openMode: 'floating' });
+      // 자리를 새로 정하는 프리셋은 **최대화를 푼다** — 안 그러면 늘어놓은 배치 위에 한 창이
+      //   여전히 화면을 덮어 "정리 버튼을 눌렀는데 아무 일도 안 일어난" 화면이 된다.
+      for (const o of open) write(o.paneKey, { dockSide: null, openMode: 'floating', maximized: false });
       return { ideOverlays: next, ideLayoutEpoch: epoch };
     }
 
@@ -5350,7 +5370,7 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
       open.forEach((o, i) => {
         const g = geoms[i];
         if (!g) return;
-        write(o.paneKey, { dockSide: null, openMode: 'floating', float: clampFloatGeom(g, vp) });
+        write(o.paneKey, { dockSide: null, openMode: 'floating', float: clampFloatGeom(g, vp), maximized: false });
       });
       return { ideOverlays: next, ideLayoutEpoch: epoch };
     }
@@ -5358,7 +5378,7 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
     if (kind === 'tabRight') {
       // 전부 오른쪽 **한 칸**에 겹친다(같은 order = 탭). 화면은 한 번만 잘리고 창은 탭으로 오간다.
       const size = clampDockSize('right', open[0]!.dockSide === 'right' ? open[0]!.dockSize : defaultDockSize('right'), vp, []);
-      for (const o of open) write(o.paneKey, { dockSide: 'right', dockSize: size, dockOrder: 0, dockSpan: 1 });
+      for (const o of open) write(o.paneKey, { dockSide: 'right', dockSize: size, dockOrder: 0, dockSpan: 1, maximized: false });
       return { ideOverlays: next, ideLayoutEpoch: epoch };
     }
 
@@ -5374,6 +5394,7 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
         dockSize: each,
         dockOrder: 0,
         dockSpan: 1,
+        maximized: false,
       });
     });
     return { ideOverlays: next, ideLayoutEpoch: epoch };
@@ -5408,6 +5429,13 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
     const prev = cur.float;
     if (prev && prev.x === geom.x && prev.y === geom.y && prev.w === geom.w && prev.h === geom.h) return {};
     return { ideOverlays: { ...s.ideOverlays, [key]: { ...cur, float: geom } } };
+  }),
+  setIDEPaneMaximized: (paneKey, maximized) => set((s) => {
+    const key = resolvePaneKey(s, paneKey);
+    if (!key) return {};
+    const cur = s.ideOverlays[key];
+    if (!cur || cur.maximized === maximized) return {};
+    return { ideOverlays: { ...s.ideOverlays, [key]: { ...cur, maximized } } };
   }),
   setIDEPaneDock: (paneKey, dock) => set((s) => {
     const key = resolvePaneKey(s, paneKey);

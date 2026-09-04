@@ -22,6 +22,11 @@ import { logger } from '../logger.js';
  *   인정한다. 그런데 `--settings` 는 **두 번 주면 병합이 아니라 뒤엣것이 앞엣것을 통째로 덮는다**
  *   (실측). 그래서 기억용 한 장 + Fast 용 한 장으로 나눌 수 없고, 이 모듈이 **설정 파일 한 장을
  *   조립하는 단일 창구**가 된다. 새 settings 키가 필요해지면 여기 `SettingsBody` 에 한 줄 더한다.
+ *
+ * §4 (Thinking on/off) — 그 "한 줄 더" 의 첫 사례.
+ *   확장 사고를 끄는 것도 CLI 플래그가 없고 settings 키(`alwaysThinkingEnabled`) 하나뿐이라
+ *   같은 파일에 실린다. Fast 와 방향만 반대다 — Fast 는 **켤 때만**, 사고는 **끌 때만** 키를 만든다
+ *   (둘 다 "사용자가 자기 settings 에 적어 둔 값을 우리가 덮지 않는다"는 같은 규율의 두 얼굴).
  */
 
 /** 생성 파일이 사는 곳 — 사용자 레포 밖(`~/.vibisual`), MCP 생성 파일과 같은 자리. */
@@ -64,6 +69,12 @@ interface SettingsBody {
   autoMemoryDirectory?: string;
   /** §4 (Fast 모드) — 헤드리스 스폰이 Fast 를 쓰려면 반드시 이 층에 있어야 하는 opt-in. */
   fastMode?: boolean;
+  /**
+   * §4 (Thinking on/off) — 확장 사고를 끄는 유일한 창구.
+   * 설치본 설정 스키마 원문: *"When false, thinking is disabled. When absent or true, thinking is
+   * enabled automatically for supported models."* → **끌 때만 `false` 를 적고**, 켬은 키를 안 만든다.
+   */
+  alwaysThinkingEnabled?: boolean;
 }
 
 export interface AgentSettingsInput {
@@ -71,6 +82,8 @@ export interface AgentSettingsInput {
   memory?: AgentMemoryScope;
   /** `AgentConfig.fastMode` — true 일 때만 키가 실린다. */
   fastMode?: boolean;
+  /** `AgentConfig.thinking` — **false 일 때만** 키가 실린다(undefined/true = 켬 = 무개입). */
+  thinking?: boolean;
   /** 기억 폴더 이름이 될 에이전트 식별자. */
   agentName: string;
   /** 프로젝트 루트(= 스폰 cwd). `'project'`/`'local'` 범위에서만 쓰인다. */
@@ -84,7 +97,7 @@ export interface AgentSettingsInput {
  * 돌려 스폰 자체는 평소대로 되게 한다 — 설정 파일 실패가 작업을 막으면 안 된다.
  */
 export function prepareAgentSettings(input: AgentSettingsInput): AgentSettingsPlan | null {
-  const { memory, fastMode, agentName, projectRoot } = input;
+  const { memory, fastMode, thinking, agentName, projectRoot } = input;
   const body: SettingsBody = {};
   const env: Record<string, string> = {};
 
@@ -98,6 +111,11 @@ export function prepareAgentSettings(input: AgentSettingsInput): AgentSettingsPl
 
   // Fast 는 켰을 때만 키를 만든다. false 를 명시로 써 넣으면 사용자 설정의 true 를 덮어 버린다.
   if (fastMode) body.fastMode = true;
+
+  // 사고는 **반대 방향의 같은 규율**이다 — 기본이 켬이라 껐을 때만 키를 만든다.
+  //   켬일 때 `true` 를 써 넣으면 사용자가 자기 `~/.claude/settings.json` 에서 꺼 둔 것을
+  //   우리가 조용히 되켜는 셈이 된다(그쪽이 우리 화면에는 보이지 않는 층이라 더 나쁘다).
+  if (thinking === false) body.alwaysThinkingEnabled = false;
 
   const hasEnv = Object.keys(env).length > 0;
   if (Object.keys(body).length === 0) return hasEnv ? { env } : null;

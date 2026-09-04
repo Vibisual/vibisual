@@ -20,6 +20,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { spawn } from 'node:child_process';
 import {
+  EFFORT_LEVEL_PROBE_CANDIDATES,
   MODEL_SEED_ENTRIES,
   parseFamilyFromFullId,
   parseModelSemver,
@@ -29,6 +30,13 @@ import {
 import { logger } from '../logger.js';
 import { getClaudeBin, noteClaudeSpawnFailure } from './claudeBin.js';
 import { buildCliInvocation } from './claudeCliRun.js';
+import {
+  EFFORT_PROBE_SENTINEL,
+  isEffortValueRejected,
+  isUsableProbeOutput,
+  mergeProbedEffortLevels,
+  planEffortProbeCandidates,
+} from './effortLevelProbe.js';
 
 /**
  * §4 v2.77 — 패밀리 화이트리스트 해제로 잡힐 수 있는 **비모델** 토큰의 패밀리명.
@@ -43,7 +51,10 @@ const CACHE_TTL_MS = 12 * 60 * 60 * 1000; // 12h
 const API_URL = 'https://api.anthropic.com/v1/models';
 const API_VERSION = '2023-06-01';
 const FETCH_TIMEOUT_MS = 8_000;
-/** §4 — `claude --help` 실행 타임아웃(정상 응답 수백 ms). effort 등급 파싱용. */
+/**
+ * §4 — CLI probe 실행 타임아웃(정상 응답 수백 ms).
+ * `--help`(등급 목록 파싱)와 `--effort <값> --version`(값 수락 여부) 두 probe 가 함께 쓴다.
+ */
 const HELP_PROBE_TIMEOUT_MS = 4_000;
 /**
  * §4 — `claude --help` 에서 `--effort <level>` 의 허용 등급을 뽑는 정규식.
@@ -163,16 +174,74 @@ class ModelRegistryService {
     } catch { /* PATH 미발견 */ }
     if (!binPath) return undefined;
 
-    const help = await new Promise<string>((resolve) => {
+    const help = await this.runCliCapture(binPath, ['--help']);
+
+    if (!help) return undefined;
+    const m = EFFORT_HELP_RE.exec(help);
+    if (!m?.[1]) return undefined;
+    const levels = m[1]
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .filter((s) => /^[a-z][a-z0-9-]*$/.test(s) && s !== 'default');
+    // 중복 제거, 최소 1개 이상일 때만 채택.
+    const uniq = [...new Set(levels)];
+    if (uniq.length === 0) return undefined;
+
+    // §4 — 도움말은 CLI 가 받는 값을 **전부 적어 두지 않는다**(`ultracode` 가 그 자리). 도움말 밖
+    //   후보만 실측으로 찔러 받아들여지는 것을 뒤에 붙인다. 도움말이 이미 적은 값은 안 찌른다.
+    const extra = await this.probeExtraEffortLevels(binPath, uniq);
+    const merged = mergeProbedEffortLevels(uniq, extra);
+    logger.info(`[modelRegistry] cli effort levels: ${merged.join(', ')} (help=${uniq.length}, probed=${extra.length})`);
+    return merged;
+  }
+
+  /**
+   * §4 — 도움말에 없는 effort 등급 후보를 **설치본에 직접 물어** 수락되는 것만 돌려준다.
+   *
+   * 순서가 곧 안전장치다. **보정 먼저** — 무효값(`EFFORT_PROBE_SENTINEL`)이 거절당하는 것을 확인해야
+   * "경고가 없다"를 "수락했다"로 읽을 수 있다. 값 검증을 하지 않는 판올림에서는 무효값도 조용히
+   * 지나가므로 그때는 후보를 통째로 버린다(모르는 것을 수락으로 넘겨짚지 않는다).
+   *
+   * probe 는 `--effort <값> --version` 이다 — 세션도 네트워크도 타지 않고 즉시 끝나며,
+   * 값 검증은 그보다 먼저 돌아 경고가 출력에 남는다(실측 2.1.259). 순차 실행이라 부팅 때
+   * 자식이 몰리지 않고, 후보가 없으면(=도움말이 이미 다 적었으면) **한 번도 뜨지 않는다.**
+   */
+  private async probeExtraEffortLevels(binPath: string, helpLevels: readonly string[]): Promise<string[]> {
+    const candidates = planEffortProbeCandidates(helpLevels, EFFORT_LEVEL_PROBE_CANDIDATES);
+    if (candidates.length === 0) return [];
+
+    const sentinelOut = await this.runCliCapture(binPath, ['--effort', EFFORT_PROBE_SENTINEL, '--version']);
+    if (!isUsableProbeOutput(sentinelOut) || !isEffortValueRejected(sentinelOut, EFFORT_PROBE_SENTINEL)) {
+      logger.info('[modelRegistry] effort value probe skipped — installed CLI does not reject an invalid --effort value');
+      return [];
+    }
+
+    const accepted: string[] = [];
+    for (const level of candidates) {
+      const out = await this.runCliCapture(binPath, ['--effort', level, '--version']);
+      if (!isUsableProbeOutput(out) || isEffortValueRejected(out, level)) continue;
+      accepted.push(level);
+    }
+    return accepted;
+  }
+
+  /**
+   * CLI 를 인자 그대로 한 번 띄우고 stdout+stderr 를 합쳐 돌려준다(실패·타임아웃이면 빈 문자열).
+   *
+   * `--help`(등급 목록)와 `--effort <값> --version`(값 수락 여부) 두 probe 가 **같은 창구**를 쓴다 —
+   * 갈라 두면 셸 경유·타임아웃·spawn 실패 처리를 한쪽만 고치는 날이 온다.
+   */
+  private runCliCapture(binPath: string, args: readonly string[]): Promise<string> {
+    return new Promise<string>((resolve) => {
       let done = false;
       let out = '';
       const finish = (text: string): void => { if (!done) { done = true; resolve(text); } };
       let child: ReturnType<typeof spawn>;
       try {
-        // detached 를 **일부러 안 붙인다** — `--help` 는 손자를 만들지 않고 즉시 끝나는 probe 다
+        // detached 를 **일부러 안 붙인다** — 이 probe 들은 손자를 만들지 않고 즉시 끝난다
         //   (단일 kill 로 회수하므로 프로세스 그룹이 필요 없다).
         // 셸 경유 여부는 공용 창구가 정한다(공백 든 설치 경로 대응).
-        const invocation = buildCliInvocation(binPath, ['--help'], process.platform);
+        const invocation = buildCliInvocation(binPath, [...args], process.platform);
         child = spawn(invocation.file, invocation.args, {
           shell: invocation.shell,
           windowsHide: true,
@@ -187,19 +256,6 @@ class ModelRegistryService {
       child.on('error', (err) => { clearTimeout(timer); noteClaudeSpawnFailure(err); finish(''); });
       child.on('close', () => { clearTimeout(timer); finish(out); });
     });
-
-    if (!help) return undefined;
-    const m = EFFORT_HELP_RE.exec(help);
-    if (!m?.[1]) return undefined;
-    const levels = m[1]
-      .split(',')
-      .map((s) => s.trim().toLowerCase())
-      .filter((s) => /^[a-z][a-z0-9-]*$/.test(s) && s !== 'default');
-    // 중복 제거, 최소 1개 이상일 때만 채택.
-    const uniq = [...new Set(levels)];
-    if (uniq.length === 0) return undefined;
-    logger.info(`[modelRegistry] cli --help effort levels: ${uniq.join(', ')}`);
-    return uniq;
   }
 
   /**

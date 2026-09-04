@@ -1961,6 +1961,18 @@ export function isForwardSubagentTextEnabled(value: boolean | undefined): boolea
 }
 
 /**
+ * §4 (Thinking on/off) — 이 에이전트의 확장 사고가 켜져 있는가.
+ *
+ * `isForwardSubagentTextEnabled` 와 **같은 규율**이다 — `undefined`(한 번도 안 만짐)와 `true` 는 켬,
+ * 명시 `false` 만 끔. 설치본 설정 스키마의 `alwaysThinkingEnabled`("absent or true → enabled")를
+ * 그대로 옮긴 것이라, 우리 판정과 CLI 판정이 어긋나지 않는다. 서버의 설정 파일 조립과 클라
+ * 체크박스가 이 함수 하나를 봐야 화면과 실제가 갈라지지 않는다.
+ */
+export function isThinkingEnabled(value: boolean | undefined): boolean {
+  return value !== false;
+}
+
+/**
  * §4 (Fast 모드) — 이 모델에서 Fast 모드가 실제로 켜지는가.
  *
  * 설치된 CLI 의 판정을 그대로 옮긴 것이다 — CLI 는 모델 capability 에 `fast_mode` 가 있거나
@@ -2585,6 +2597,23 @@ export function shouldCompactAfterTurn(input: CompactAfterTurnInput): boolean {
 export const AVAILABLE_EFFORT_LEVELS: readonly string[] = [
   'default', 'low', 'medium', 'high', 'xhigh', 'max',
 ];
+
+/**
+ * §4 — `claude --help` 가 **적어 두지 않은** effort 등급 후보.
+ *
+ * CLI 는 도움말의 `--effort <level> (…)` 괄호에 5등급만 적지만, 그 목록 밖 값을 전부 거부하지는 않는다.
+ * `ultracode`(xhigh + 동적 워크플로우 자동 편성 · 2026-05 Opus 4.8 동시 출시)가 그 자리다 —
+ * 도움말에 없으면서 **경고 없이 수락**된다(실측 2.1.259: `--effort ultracode --version` 은 무경고,
+ * `--effort zzzbogus --version` 은 `Warning: Unknown --effort value …`). 도움말만 믿으면
+ * **CLI 가 받는데 사용자는 고를 수 없는 등급**이 생기므로, 여기 적힌 후보는 부팅 시 한 번씩
+ * 실측 probe 해서 **받아들여지는 것만** 목록에 더한다(`effortLevelProbe.ts`).
+ *
+ * §4 규약 (4) 의 "판정 근거는 추측이 아니라 설치본 실측" 을 **값** 축으로 넓힌 것이다 —
+ * 종전 probe 는 "플래그가 있는가" 였고 이쪽은 "그 플래그가 이 값을 받는가" 다.
+ * ⚠ 이 목록에 이름을 적는 것만으로는 아무것도 켜지지 않는다 — CLI 가 거부하면 그대로 빠지고,
+ * CLI 가 값 검증 자체를 안 하는 판올림이면(보정 probe 실패) 후보를 통째로 버린다.
+ */
+export const EFFORT_LEVEL_PROBE_CANDIDATES: readonly string[] = ['ultracode'];
 
 /**
  * §4 — Effort(사고 깊이) 드롭다운의 **동적** 옵션 목록.
