@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.22] - 2026-09-04
+
+### Added
+- **Extended thinking can be turned off per agent.** Effort already set how deep an agent thinks, but there was no way to say it should not think at all — and for short, mechanical work the thinking pass is time and tokens spent on a question that was never hard. The agent settings now carry a switch of its own, separate from Effort. The installed Claude Code exposes no command-line flag for this; it is a setting, so Vibisual writes it into the settings file it already prepares for that agent. Thinking stays on unless you turn it off, and only the off state is stored — an agent you never touched keeps following whatever your own Claude Code settings say, rather than being quietly switched back on by us.
+- **The Effort list now includes levels the help text does not mention.** The dropdown is built from what `claude --help` prints, which is the right source — except the help does not list everything the CLI accepts. `ultracode` is exactly that: it is taken without complaint but never appears in the printed list, so it was a level the tool would run and you could not choose. Candidates outside the help text are now asked about directly at startup and added only if the installed version actually accepts them. The check calibrates itself first with a value that cannot be real: if that one is *also* accepted, the version does not validate the option at all, and nothing is added rather than guessing.
+- **When the microphone will not open, the app opens the settings page for you.** Saying "allow microphone access in your system settings" is accurate and still leaves you hunting: the page is somewhere different on each OS, and on Windows the switch that actually decides it — "Let desktop apps access your microphone" — sits at the bottom of a long list, below an app list that does not contain our name at all. Right-clicking the microphone button, or the button on the error, now opens that page directly, with a line saying what to change once you are there. On Linux there is no such page to open, so it says what to check in your sound settings instead of offering a button that would do nothing.
+- **IDE windows remember that they were maximised.** Maximising a window and then switching project tabs brought back the docking but not the maximised state, so half of the arrangement you had made came back and half did not. It is now kept with the rest of the window's shape. Restoring returns it to the edge it was docked to, reusing a docked slot for a different bubble keeps the size rather than shrinking each time, and a layout preset un-maximises — otherwise pressing "tidy up" leaves one window still covering everything.
+
+### Changed
+- **A microphone failure now says which failure it was.** Everything that was not a permission problem read "microphone not found", so someone whose microphone was being held by a video call was told to plug one in, and someone with no microphone at all went looking through settings that were already on. There are now separate answers for no device connected, a device another app is using, and a speech engine that would not start — the last of which used to read as a network problem, which it never was, since the recogniser runs on your own machine. Where the cause genuinely cannot be narrowed down, it says both possibilities rather than picking one.
+- **A microphone that Windows is hiding no longer reads as a missing one.** With "let desktop apps access your microphone" turned off, Windows does not refuse the request — it reports that there is no device, so a connected microphone and a blocked one produced the same message. The device list is now consulted, which reports how many inputs exist even without permission, and the wording follows: nothing connected asks you to connect one, while a device that exists but will not open points at access instead.
+
+### Fixed
+- **Voice models are now taken from the same place as the engine.** The download used a third-party re-export whose files have exactly the same names as the ones the engine expects, so an installation looked complete and then died on startup — after a 650MB download, every press of the microphone ended in a failure twenty seconds later. Models come from the engine's own publisher now, and the install records which release it came from, so an older installation is recognised as the wrong one and offered again instead of being trusted because the filenames match.
+- **A speech engine that died on startup was waited on for twenty seconds anyway.** The app polled the port until the timeout even when the process was already gone, so a failure that was known immediately was reported as "did not open its port" long after it had actually crashed. It now stops the moment the process exits, and reports the reason it exited.
+- **Reinstalling the voice engine no longer re-downloads the model.** The two are separate downloads, but only the engine's own installation was recorded — so anyone who reinstalled the engine paid for the 650MB model a second time. The model now records its own state next to itself, which also means deleting only the engine folder leaves the model intact.
+- **The speech engine stopped leaving a log file in whatever folder the app started in.** That folder can be one of your own projects, and a stray `log.txt` appearing in it is not something the app should be doing.
+
 ## [0.1.21] - 2026-09-03
 
 ### Added
@@ -470,7 +488,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - Dropped preset options from the custom agent settings.
 
-[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.1.21...HEAD
+[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.1.22...HEAD
+[0.1.22]: https://github.com/Vibisual/vibisual/compare/v0.1.21...v0.1.22
 [0.1.21]: https://github.com/Vibisual/vibisual/compare/v0.1.20...v0.1.21
 [0.1.20]: https://github.com/Vibisual/vibisual/compare/v0.1.19...v0.1.20
 [0.1.19]: https://github.com/Vibisual/vibisual/compare/v0.1.18...v0.1.19

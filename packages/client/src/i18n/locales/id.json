@@ -944,6 +944,7 @@
         "high": "Penalaran mendalam. Lebih lambat tapi menyeluruh.",
         "xhigh": "Penalaran ekstra tinggi (Opus 4.7+). Direkomendasikan untuk sebagian besar pekerjaan coding.",
         "max": "Penalaran maksimal, tanpa batas token (Opus 4.8). Untuk keputusan tersulit; mungkin terlalu berlebihan untuk tugas sederhana.",
+        "ultracode": "Penalaran ekstra tinggi plus orkestrasi otomatis alur kerja sub-agen paralel (Opus 4.8+). Level paling mampu sekaligus paling mahal.",
         "unknown": "{{name}} — tingkat upaya penalaran yang didukung oleh CLI yang terinstal."
       },
       "tools": {
@@ -1094,6 +1095,12 @@
         "hint": "Opus yang sama, keluaran lebih cepat",
         "unsupported": "hanya Opus 4.8 / Opus 5",
         "tip": "Menjalankan model Opus yang sama dengan keluaran lebih cepat — bukan turun ke model yang lebih kecil. Ini bukan flag CLI: agen headless diperlakukan sebagai sesi Agent SDK dan hanya menerima mode Fast bila diaktifkan lewat setelan, jadi Vibisual menaruhnya di berkas setelan yang memang sudah ditulis untuk agen ini. Model yang tidak mendukungnya mengabaikan setelan itu tanpa pesan apa pun."
+      },
+      "thinking": {
+        "label": "Penalaran diperluas",
+        "hint": "aktif — berpikir dulu sebelum menjawab",
+        "offHint": "nonaktif — menjawab tanpa tahap berpikir",
+        "tip": "Mengaktifkan atau menonaktifkan penalaran diperluas untuk agen ini. Ini sumbu yang terpisah dari Upaya, yang mengatur kedalaman penalaran. Ini bukan flag CLI: Claude Code yang terpasang hanya menyediakannya sebagai setelan alwaysThinkingEnabled, jadi Vibisual mengirimkannya lewat berkas setelan yang memang sudah ditulis untuk agen ini. Bawaannya aktif dan hanya penonaktifannya yang disimpan, sehingga agen yang tidak pernah Anda ubah tetap mengikuti setelan Claude Code Anda sendiri."
       },
       "forwardSubagentText": {
         "label": "Tampilkan keluaran subagen",
@@ -2037,10 +2044,26 @@
       "voiceErrUnsupported": "Pengenalan suara tidak tersedia di build ini.",
       "voiceErrPermission": "Akses mikrofon ditolak. Izinkan aplikasi ini di pengaturan privasi sistem, lalu coba lagi.",
       "voiceErrDevice": "Mikrofon tidak ditemukan. Sambungkan satu lalu coba lagi.",
+      "voiceErrNoDevice": "Mikrofon tidak ditemukan. Silakan sambungkan mikrofon.",
+      "voiceErrDeviceBusy": "Aplikasi lain sedang menggunakan mikrofon. Tutup aplikasi tersebut lalu coba lagi.",
       "voiceErrNetwork": "Tidak dapat menjangkau layanan pengenalan suara.",
+      "voiceErrEngine": "Engine ucapan di perangkat tidak dapat dimulai. Pasang ulang input suara lalu coba lagi.",
       "voiceErrLanguage": "Pengenalan suara tidak mendukung bahasa antarmuka saat ini.",
       "voiceErrUnknown": "Input suara berhenti. Silakan coba lagi.",
-      "voiceErrDismiss": "Tutup"
+      "voiceErrDismiss": "Tutup",
+      "voiceMicHintRightClick": "Klik kanan: pengaturan mikrofon",
+      "voiceMicSettingsAction": "Cara memperbaikinya",
+      "voiceMicSettingsTitle": "Pengaturan mikrofon",
+      "voiceMicSettingsBody": "Aplikasi ini memerlukan izin akses mikrofon dari OS Anda.",
+      "voiceMicSettingsBlockedBody": "Tidak dapat membuka mikrofon. Biasanya ini berarti akses mikrofon dinonaktifkan di pengaturan OS Anda.",
+      "voiceMicSettingsNoDeviceBody": "Tidak ada mikrofon yang tersambung ke PC ini. Sambungkan satu lalu coba lagi.",
+      "voiceMicSettingsOpen": "Buka pengaturan",
+      "voiceMicSettingsHintWin": "Aktifkan \"Akses mikrofon\" dan \"Izinkan aplikasi desktop mengakses mikrofon Anda\" di bagian bawah daftar. Karena cara aplikasi ini diinstal, namanya tidak muncul dalam daftar aplikasi.",
+      "voiceMicSettingsHintMac": "Aktifkan Vibisual di Privacy & Security > Microphone. Jika baru saja mengaktifkannya, mulai ulang aplikasi agar perubahan berlaku.",
+      "voiceMicSettingsHintLinux": "Periksa apakah mikrofon sudah dipilih sebagai perangkat input di pengaturan suara dan tidak dalam kondisi mute. Jika PulseAudio/PipeWire tidak memiliki input default, aplikasi juga tidak dapat mendeteksi perangkat apa pun.",
+      "voiceMicSettingsDeviceNote": "Jika akses sudah aktif, periksa apakah mikrofon benar-benar terpasang — mikrofon yang terputus tetap muncul berwarna abu-abu (greyed out) di daftar perangkat.",
+      "voiceMicSettingsHiddenNote": "Jika mikrofon sudah tersambung, pengaturan OS Anda mungkin menyembunyikannya — lihat catatan di bawah.",
+      "voiceMicSettingsShortcutNote": "Input suara dengan {{shortcut}}"
     },
     "voiceInstall": {
       "title": "Siapkan input suara",

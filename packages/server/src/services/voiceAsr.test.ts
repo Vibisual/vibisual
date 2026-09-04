@@ -1,20 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import {
   VOICE_ASR,
-  VOICE_MODEL_SOURCES,
+  VOICE_MODEL_CHUNK_MS,
+  VOICE_MODEL_DISK_APPROX_BYTES,
   downsampleTo16k,
   float32Bytes,
   isVoiceInstallRunning,
   pickVoiceEngineAsset,
+  pickVoiceModelAsset,
   scoreVoiceEngineAsset,
+  scoreVoiceModelAsset,
   voiceAsrLanguageTier,
   voiceEngineArchToken,
   voiceEngineBinName,
   voiceEnginePlatformToken,
   voiceInstallPercent,
+  voiceModelAssetChunkMs,
   voiceModelDiskName,
-  voiceModelFileUrl,
-  voiceModelTotalBytes,
+  voiceModelRoleForFile,
   type VoiceAsrInstallProgress,
 } from '@vibisual/shared';
 import { voiceExtractAttempts } from './voiceAsrService.js';
@@ -114,34 +117,83 @@ describe('엔진 자산 고르기', () => {
   });
 });
 
-describe('모델', () => {
-  it('저장소마다 네 조각을 전부 든다', () => {
-    expect(VOICE_MODEL_SOURCES.length).toBeGreaterThanOrEqual(2);
-    for (const src of VOICE_MODEL_SOURCES) {
-      const roles = src.files.map((f) => f.role).sort();
-      expect(roles).toEqual(['decoder', 'encoder', 'joiner', 'tokens']);
-      for (const f of src.files) expect(f.sizeBytes).toBeGreaterThan(0);
-    }
+/**
+ * `asr-models` 릴리스의 실제 자산 이름(2026-09-03 조회 발췌).
+ *
+ * 지어낸 이름으로 고정하면 그 표는 실제 릴리스와 어긋난 채 초록으로 남는다 — 엔진 자산 표와
+ * 같은 규율이다. 우리 것이 아닌 이웃 자산을 섞어 두는 것이 요점이다(모델을 잘못 집어 오면
+ * 엔진이 한 줄도 안 남기고 죽으므로, 이 표가 그 사고를 막는 유일한 그물이다).
+ */
+const MODEL_ASSETS = [
+  'sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-80ms-int8-2026-06-11.tar.bz2',
+  'sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-160ms-int8-2026-06-11.tar.bz2',
+  'sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-320ms-int8-2026-06-11.tar.bz2',
+  'sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-560ms-int8-2026-06-11.tar.bz2',
+  'sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-1120ms-int8-2026-06-11.tar.bz2',
+  // 이웃 — 전부 우리 것이 아니다.
+  'sherpa-onnx-nemotron-speech-streaming-en-0.6b-560ms-int8-2026-04-25.tar.bz2',
+  'sherpa-onnx-nemo-parakeet-unified-en-0.6b-int8-streaming-560ms.tar.bz2',
+  'sherpa-onnx-nemo-streaming-fast-conformer-transducer-en-480ms-int8.tar.bz2',
+  'sherpa-onnx-streaming-zipformer-korean-2024-06-16.tar.bz2',
+];
+
+describe('모델 자산 고르기', () => {
+  it('우리 모델이 아닌 자산은 전부 거른다', () => {
+    expect(scoreVoiceModelAsset('sherpa-onnx-nemo-parakeet-unified-en-0.6b-int8-streaming-560ms.tar.bz2')).toBeNull();
+    expect(scoreVoiceModelAsset('sherpa-onnx-nemotron-speech-streaming-en-0.6b-560ms-int8-2026-04-25.tar.bz2')).toBeNull();
+    expect(scoreVoiceModelAsset('sherpa-onnx-streaming-zipformer-korean-2024-06-16.tar.bz2')).toBeNull();
+    // int8 이 아니면 2GB 를 넘는다 — 받게 하지 않는다.
+    expect(scoreVoiceModelAsset('sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-560ms-2026-06-11.tar.bz2')).toBeNull();
+    // 압축본이 아니면 우리가 푸는 방법을 모른다.
+    expect(scoreVoiceModelAsset('sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-560ms-int8-2026-06-11.zip')).toBeNull();
   });
 
-  it('전체 크기는 600MB 대다 — 화면이 받기 전에 말하는 값', () => {
-    const first = VOICE_MODEL_SOURCES[0];
-    expect(first).toBeDefined();
-    if (!first) return;
-    const total = voiceModelTotalBytes(first);
-    expect(total).toBeGreaterThan(600_000_000);
-    expect(total).toBeLessThan(800_000_000);
+  it('토막 길이가 목표(560ms)에 가까운 것을 고른다', () => {
+    const picked = pickVoiceModelAsset(asAssets(MODEL_ASSETS));
+    expect(picked?.name).toBe('sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-560ms-int8-2026-06-11.tar.bz2');
+    expect(VOICE_MODEL_CHUNK_MS).toBe(560);
   });
 
-  it('디스크 이름은 역할이 정한다 — 저장소가 달라도 엔진 인자가 안 흔들린다', () => {
+  it('목표 자산이 사라진 판올림에서도 가장 가까운 옆 것으로 이어진다', () => {
+    const without560 = MODEL_ASSETS.filter((n) => !n.includes('-560ms-'));
+    const picked = pickVoiceModelAsset(asAssets(without560));
+    // 320ms(차 240) 이 1120ms(차 560) 보다 가깝다.
+    expect(picked?.name).toContain('-320ms-');
+  });
+
+  it('맞는 자산이 없으면 null — 엉뚱한 모델을 집어 오지 않는다', () => {
+    expect(pickVoiceModelAsset(asAssets(['sherpa-onnx-streaming-zipformer-korean-2024-06-16.tar.bz2']))).toBeNull();
+    expect(pickVoiceModelAsset([])).toBeNull();
+  });
+
+  it('토막 길이는 이름에서 읽는다', () => {
+    expect(voiceModelAssetChunkMs('sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-80ms-int8-2026-06-11.tar.bz2')).toBe(80);
+    expect(voiceModelAssetChunkMs('sherpa-onnx-v1.13.7-win-x64-shared.tar.bz2')).toBeNull();
+  });
+});
+
+describe('모델 파일', () => {
+  it('디스크 이름은 역할이 정한다 — 자산이 달라도 엔진 인자가 안 흔들린다', () => {
     expect(voiceModelDiskName('encoder')).toBe('encoder.onnx');
     expect(voiceModelDiskName('tokens')).toBe('tokens.txt');
   });
 
-  it('직링크는 resolve/main + download=true', () => {
-    expect(voiceModelFileUrl('a/b', 'encoder.int8.onnx')).toBe(
-      'https://huggingface.co/a/b/resolve/main/encoder.int8.onnx?download=true',
-    );
+  it('압축 안의 이름은 앞머리로 가른다 — 양자화 표기가 판올림마다 달라진다', () => {
+    expect(voiceModelRoleForFile('encoder.int8.onnx')).toBe('encoder');
+    expect(voiceModelRoleForFile('decoder.fp16.onnx')).toBe('decoder');
+    expect(voiceModelRoleForFile('joiner.onnx')).toBe('joiner');
+    expect(voiceModelRoleForFile('tokens.txt')).toBe('tokens');
+  });
+
+  it('곁다리는 옮기지 않는다', () => {
+    expect(voiceModelRoleForFile('README.md')).toBeNull();
+    expect(voiceModelRoleForFile('0.wav')).toBeNull();
+    expect(voiceModelRoleForFile('bpe.model')).toBeNull();
+  });
+
+  it('받기 전에 말하는 대략치는 600MB 대다', () => {
+    expect(VOICE_MODEL_DISK_APPROX_BYTES).toBeGreaterThan(600_000_000);
+    expect(VOICE_MODEL_DISK_APPROX_BYTES).toBeLessThan(800_000_000);
   });
 });
 

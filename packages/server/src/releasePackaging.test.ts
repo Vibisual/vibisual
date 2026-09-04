@@ -232,9 +232,37 @@ describe('release publishing — 검증이 발행보다 앞선다', () => {
     // 남았고, 태그로 찾는 것이 전부 빗나가 스모크 4종이 "release not found" 로 즉사했다.
     // 설치본은 멀쩡했는데 **검증이 시작조차 못 했다.**
     expect(wf).toContain('tag_name=');
-    expect(wf).toMatch(/gh api -X PATCH .*releases/);
+    // 묶는 일은 `prepare` 잡이 자산보다 **먼저** 한다 — draft 를 만들 때 tag_name 을 실어 둔다.
+    expect(wf).toMatch(/gh api -X POST .*releases[\s\S]*?-f tag_name=/);
     // 묶였는지 확인하지 않고 지나가면 실패가 스모크까지 밀려간다 — 거기서는 원인이 안 보인다.
-    expect(wf).toContain('::error::태그를 못 묶었다');
+    expect(wf).toContain('로 묶이지 않았다');
+  });
+
+  /**
+   * v0.1.21 이 갈라진 자리.
+   *
+   * 네 OS 잡이 동시에 출발하는데, electron-publish 의 `getOrCreateRelease()` 는 릴리스 목록에서
+   * `tag_name` 이 태그(또는 버전)와 같은 것만 재사용한다. GitHub 은 draft 에 태그를 걸지 않으므로
+   * (`untagged-<id>`) 먼저 도착한 잡이 만든 draft 를 뒤따라온 잡이 자기 것이 아니라고 보고
+   * **새로 만든다.** 실제로 draft 가 둘이 됐고 Linux 자산 4종만 태그 없는 쪽에 남아,
+   * 스모크의 `gh release download <TAG> --pattern '*.AppImage'` 가 자산을 못 찾아 죽었다.
+   * 검증이 실패했으니 공개 전환도 없었고 사이트의 최신 버전은 v0.1.20 에 멈춰 있었다.
+   *
+   * 고침은 순서다: 자리를 **먼저 하나 만들고** 태그를 박아 둔다. 그러면 네 잡이 전부 그것을 찾는다.
+   * 이 배선이 풀리면 증상이 다음 릴리스에서야, 그것도 스모크 실패라는 엉뚱한 얼굴로 나타난다.
+   */
+  it('올릴 draft 를 먼저 만드는 준비 잡이 있고, 릴리스 잡 넷이 그것에 매여 있다', () => {
+    const wf = read('.github/workflows/release.yml');
+    expect(wf).toContain('prepare:');
+    // 준비 잡이 릴리스 잡보다 먼저 돌아야 의미가 있다 — 이 줄이 떨어지면 넷이 다시 각자 만든다.
+    expect(wf).toMatch(/release:\s*\n\s*needs:\s*prepare/);
+  });
+
+  it('자산이 여러 draft 로 갈라지면 릴리스가 실패한다 (조용히 지나가면 스모크에서야 드러난다)', () => {
+    const wf = read('.github/workflows/release.yml');
+    // 갈라짐을 세려면 draft 를 전부 봐야 한다 — 단건 조회로는 두 번째가 안 보인다.
+    expect(wf).toContain('/releases?per_page=');
+    expect(wf).toContain('자산이 갈라졌다');
   });
 });
 

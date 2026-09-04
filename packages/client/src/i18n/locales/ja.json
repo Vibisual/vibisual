@@ -944,6 +944,7 @@
         "high": "深い推論。遅いが網羅的。",
         "xhigh": "超高度な推論（Opus 4.7+）。ほとんどのコーディング作業に推奨。",
         "max": "最大の推論力、トークン上限なし（Opus 4.8）。最も難しい判断が必要な場面向け。簡単なタスクでは考えすぎる場合があります。",
+        "ultracode": "超高度な推論に加え、並列サブエージェントのワークフローを自動編成 (Opus 4.8+)。最も強力ですが、コストも最大です。",
         "unknown": "{{name}} — インストール済みCLIがサポートする思考深度レベル。"
       },
       "tools": {
@@ -1094,6 +1095,12 @@
         "hint": "同じ Opus のまま出力が速くなります",
         "unsupported": "Opus 4.8 / Opus 5 のみ",
         "tip": "同じ Opus モデルを出力速度だけ速くして動かします — 小さいモデルに落とすわけではありません。CLI フラグではありません: ヘッドレスのエージェントは Agent SDK セッションとして扱われ、設定によるオプトインしか受け付けないため、Vibisual がこのエージェント用にすでに書いている設定ファイルへ一緒に載せて渡します。対応していないモデルは、何のメッセージもなくこの設定を無視します。"
+      },
+      "thinking": {
+        "label": "拡張思考",
+        "hint": "オン — 答える前に考えます",
+        "offHint": "オフ — 考えずにそのまま答えます",
+        "tip": "このエージェントの拡張思考をオン・オフします。思考の深さを決める思考深度（Effort）とは別の軸です。CLI フラグではありません: インストール済みの Claude Code は alwaysThinkingEnabled 設定としてのみ公開しているため、Vibisual はこのエージェント用にすでに書いている設定ファイルに載せて渡します。既定はオンで、オフにしたときだけ保存されるので、触っていないエージェントはご自身の Claude Code 設定に従います。"
       },
       "forwardSubagentText": {
         "label": "サブエージェントの出力を表示",
@@ -2037,10 +2044,26 @@
       "voiceErrUnsupported": "このビルドでは音声認識を利用できません。",
       "voiceErrPermission": "マイクへのアクセスが拒否されました。システムのプライバシー設定でこのアプリに許可してから、もう一度お試しください。",
       "voiceErrDevice": "マイクが見つかりません。接続してからもう一度お試しください。",
+      "voiceErrNoDevice": "マイクが見つかりません。マイクを接続してください。",
+      "voiceErrDeviceBusy": "別のアプリがマイクを使用中です。そのアプリを閉じてからもう一度お試しください。",
       "voiceErrNetwork": "音声認識サービスに接続できませんでした。",
+      "voiceErrEngine": "オンデバイス音声認識エンジンを起動できませんでした。音声入力を再インストールしてから、もう一度お試しください。",
       "voiceErrLanguage": "音声認識が現在の表示言語に対応していません。",
       "voiceErrUnknown": "音声入力が停止しました。もう一度お試しください。",
-      "voiceErrDismiss": "閉じる"
+      "voiceErrDismiss": "閉じる",
+      "voiceMicHintRightClick": "右クリック: マイク設定",
+      "voiceMicSettingsAction": "対処方法",
+      "voiceMicSettingsTitle": "マイク設定",
+      "voiceMicSettingsBody": "このアプリを使用するには、OSでマイクへのアクセスを許可する必要があります。",
+      "voiceMicSettingsBlockedBody": "マイクを開けませんでした。多くの場合、OSの設定でマイクへのアクセスがオフになっています。",
+      "voiceMicSettingsNoDeviceBody": "このPCにマイクが接続されていません。接続してからもう一度お試しください。",
+      "voiceMicSettingsOpen": "設定を開く",
+      "voiceMicSettingsHintWin": "リストの下部にある「マイクへのアクセス」と「デスクトップアプリにマイクへのアクセスを許可する」を両方オンにしてください。このアプリのインストール方法上、アプリ一覧に名前が表示されません。",
+      "voiceMicSettingsHintMac": "「プライバシーとセキュリティ」>「マイク」でVibisualを有効にしてください。有効にした直後の場合は、反映のためアプリを再起動してください。",
+      "voiceMicSettingsHintLinux": "サウンド設定でマイクが入力デバイスとして選択されており、ミュートになっていないか確認してください。PulseAudio/PipeWireにデフォルトの入力デバイスがない場合、アプリからもデバイスを検出できません。",
+      "voiceMicSettingsDeviceNote": "アクセスが既にオンになっている場合は、マイクが実際に接続されているか確認してください。切断されたマイクもデバイス一覧にはグレーアウト表示で残ります。",
+      "voiceMicSettingsHiddenNote": "マイクをすでに接続している場合は、OSの設定で非表示になっている可能性があります。下記の注意事項をご確認ください。",
+      "voiceMicSettingsShortcutNote": "{{shortcut}} で音声入力"
     },
     "voiceInstall": {
       "title": "音声入力の準備",

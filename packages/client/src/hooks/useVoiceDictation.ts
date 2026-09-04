@@ -4,6 +4,7 @@ import {
   isFatalVoiceError,
   mapMediaError,
   mapVoiceError,
+  refineDeviceError,
   voiceRecognitionLang,
   type VoiceInputErrorCode,
   type VoiceInputStatus,
@@ -70,6 +71,29 @@ export interface VoiceDictationHandle {
   toggle: () => void;
   /** 실패 안내를 내린다. 사유는 사용자가 읽은 뒤에만 사라진다(스스로 사라지면 못 읽는다). */
   dismissError: () => void;
+}
+
+/**
+ * 이 PC 에 붙어 있는 **입력(마이크) 장치 수**. 못 물어봤으면 `null`(= 모름, ≠ 0).
+ *
+ * `enumerateDevices()` 는 **권한이 없어도 목록의 길이는 알려 준다**(label 만 빈 문자열이 된다 —
+ * 지문 채취를 막으려는 명세의 의도). 그래서 `getUserMedia` 가 실패한 뒤에도 "물건이 아예 없는
+ * 것"과 "있는데 못 여는 것"을 가를 수 있다 — 이 둘은 사용자가 할 일이 완전히 다르다.
+ *
+ * ⚠ **0 과 `null` 을 섞지 않는다.** 못 물어본 것을 0 으로 접으면, 목록을 못 읽는 판에서
+ * 마이크가 멀쩡히 꽂힌 사용자에게 "연결해 주세요"가 뜬다(고치라는 안내가 곧 거짓말이 된다).
+ */
+async function countAudioInputs(): Promise<number | null> {
+  try {
+    if (typeof navigator === 'undefined') return null;
+    const enumerate = navigator.mediaDevices?.enumerateDevices;
+    if (enumerate === undefined) return null;
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    return devices.filter((d) => d.kind === 'audioinput').length;
+  } catch {
+    // 물어보다 실패한 것은 **모른다**는 뜻이다 — 없다는 뜻이 아니다.
+    return null;
+  }
 }
 
 /**
@@ -289,7 +313,9 @@ export function useVoiceDictation(options: UseVoiceDictationOptions): VoiceDicta
           onNeedsInstallRef.current();
         } else {
           // 받아 둔 것은 있는데 엔진이 안 떴다 — 설치 창이 아니라 사유를 보여 준다.
-          finish('network');
+          // **`network` 가 아니다** — 인식기는 이 PC 에서 도므로 회선 이야기를 하면 거짓이고,
+          // 사용자가 할 일도 다르다(§5.5 #17-38 ⑫ · `VoiceInputErrorCode.engine`).
+          finish('engine');
         }
         return;
       }
@@ -350,7 +376,12 @@ export function useVoiceDictation(options: UseVoiceDictationOptions): VoiceDicta
         // 낡은 켜기의 실패는 화면에 옮기지 않는다 — 지금 살아 있는 켜기까지 함께 멎는다.
         if (!alive()) return;
         const name = err instanceof Error ? err.name : String(err);
-        finish(mapMediaError(name));
+        const mapped = mapMediaError(name);
+        // §5.5 #17-38 ⑯ — **"없다"와 "막혔다"를 여기서 가른다.** `NotFoundError` 하나에 두 원인이
+        //   들어오므로(win 의 "데스크톱 앱 허용"이 꺼지면 장치가 꽂혀 있어도 이 실패가 온다),
+        //   장치 목록을 한 번 더 물어 0개일 때만 "연결해 주세요"로 좁힌다. 목록을 못 물어봤으면
+        //   좁히지 않는다 — 넘겨짚은 안내가 진짜 원인을 가리는 쪽이 더 나쁘다(⑥ 과 같은 규율).
+        finish(refineDeviceError(mapped, await countAudioInputs()));
       }
     })();
   }, [enabled, attachRecognition, finish]);

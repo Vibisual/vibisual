@@ -6301,6 +6301,23 @@ export interface AgentConfig {  /** 사용 모델 (예: "sonnet", "opus", "haiku
    */
   fastMode?: boolean;
   /**
+   * §4 (Thinking on/off) — 이 에이전트가 **확장 사고(extended thinking)를 하는가.**
+   * `effort`(사고의 깊이)와 직교한다 — 이쪽은 사고 자체를 켜고 끄는 축이다.
+   *
+   * ⚠ **CLI 플래그가 아니다.** 설치본 `--help` 에 사고를 끄는 플래그는 없고, 실체는 settings 키
+   * `alwaysThinkingEnabled` 하나다(확장 번들 `claude-code-settings.schema.json` 원문: *"When false,
+   * thinking is disabled. When absent or true, thinking is enabled automatically for supported
+   * models."*). 그래서 이 값은 인자가 아니라 **설정 파일**로 나간다(`buildConfigArgs` →
+   * `prepareAgentSettings`) — Fast 모드와 **같은 한 장**에 실린다(`--settings` 를 두 번 주면
+   * 뒤엣것이 앞엣것을 통째로 덮으므로 따로 붙일 수 없다).
+   *
+   * **기본 켬**(undefined = 켬). 끄려면 명시 `false` — 그때만 `alwaysThinkingEnabled: false` 가
+   * 실린다. 켬일 때 `true` 를 써 넣지 않는 이유는 Fast 모드와 대칭이다: 사용자가 자기
+   * `~/.claude/settings.json` 에서 꺼 둔 것을 우리가 조용히 되켜면 안 된다
+   * (`forwardSubagentText` 와 같은 "켬이 기본, 끔만 저장" 규율).
+   */
+  thinking?: boolean;
+  /**
    * §4 (스트림 3종 ①) — `--forward-subagent-text`. 중첩 서브에이전트(Task)의 말·사고를
    * `parent_tool_use_id` 를 달아 부모 스트림으로 흘려 준다.
    *

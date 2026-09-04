@@ -944,6 +944,7 @@
         "high": "Tiefes Denken. Langsamer, aber gründlich.",
         "xhigh": "Besonders tiefes Denken (Opus 4.7+). Empfohlen für die meisten Coding-Aufgaben.",
         "max": "Maximales Reasoning, kein Token-Limit (Opus 4.8). Für die schwierigsten Entscheidungen; kann bei einfachen Aufgaben überdenken.",
+        "ultracode": "Extrem hohe Reasoning-Tiefe plus automatisch orchestrierte parallele Subagenten-Workflows (Opus 4.8+). Die leistungsfähigste Stufe — und die teuerste.",
         "unknown": "{{name}} — von der installierten CLI unterstützte Denktiefe-Stufe."
       },
       "tools": {
@@ -1094,6 +1095,12 @@
         "hint": "dasselbe Opus, schnellere Ausgabe",
         "unsupported": "nur Opus 4.8 / Opus 5",
         "tip": "Lässt dasselbe Opus-Modell mit schnellerer Ausgabe laufen — es wird nicht auf ein kleineres Modell heruntergestuft. Das ist kein CLI-Flag: Ein Headless-Agent gilt als Agent-SDK-Sitzung und akzeptiert den Fast-Modus nur als Opt-in über die Einstellungen, daher legt Vibisual ihn in die Einstellungsdatei, die es für diesen Agenten ohnehin schreibt. Modelle ohne Unterstützung ignorieren die Einstellung kommentarlos."
+      },
+      "thinking": {
+        "label": "Erweitertes Denken",
+        "hint": "an — denkt nach, bevor es antwortet",
+        "offHint": "aus — antwortet ohne Denkschritt",
+        "tip": "Schaltet das erweiterte Denken für diesen Agenten ein oder aus. Das ist eine eigene Achse, unabhängig vom Aufwand, der die Denktiefe festlegt. Es ist kein CLI-Flag: Das installierte Claude Code bietet es nur als Einstellung alwaysThinkingEnabled an, deshalb übergibt Vibisual es in der Einstellungsdatei, die es für diesen Agenten ohnehin schreibt. Standardmäßig ist es an, und gespeichert wird nur das Ausschalten — ein Agent, den Sie nie angefasst haben, folgt also weiterhin Ihren eigenen Claude-Code-Einstellungen."
       },
       "forwardSubagentText": {
         "label": "Subagenten-Ausgabe zeigen",
@@ -2037,10 +2044,26 @@
       "voiceErrUnsupported": "In diesem Build ist keine Spracherkennung verfügbar.",
       "voiceErrPermission": "Der Zugriff auf das Mikrofon wurde verweigert. Erlauben Sie ihn für diese App in den Datenschutzeinstellungen des Systems und versuchen Sie es erneut.",
       "voiceErrDevice": "Kein Mikrofon gefunden. Schließen Sie eines an und versuchen Sie es erneut.",
+      "voiceErrNoDevice": "Kein Mikrofon gefunden. Bitte ein Mikrofon anschließen.",
+      "voiceErrDeviceBusy": "Eine andere App verwendet das Mikrofon. Bitte schließen und erneut versuchen.",
       "voiceErrNetwork": "Der Spracherkennungsdienst war nicht erreichbar.",
+      "voiceErrEngine": "Die lokale Spracherkennungs-Engine konnte nicht gestartet werden. Installiere die Spracheingabe neu und versuche es erneut.",
       "voiceErrLanguage": "Die Spracherkennung unterstützt die aktuelle Oberflächensprache nicht.",
       "voiceErrUnknown": "Die Spracheingabe wurde beendet. Bitte versuchen Sie es erneut.",
-      "voiceErrDismiss": "Schließen"
+      "voiceErrDismiss": "Schließen",
+      "voiceMicHintRightClick": "Rechtsklick: Mikrofoneinstellungen",
+      "voiceMicSettingsAction": "So beheben Sie das Problem",
+      "voiceMicSettingsTitle": "Mikrofoneinstellungen",
+      "voiceMicSettingsBody": "Diese App benötigt Mikrofonzugriff, der von Ihrem Betriebssystem erlaubt sein muss.",
+      "voiceMicSettingsBlockedBody": "Das Mikrofon konnte nicht geöffnet werden. Meist bedeutet das, dass der Mikrofonzugriff in Ihren Systemeinstellungen deaktiviert ist.",
+      "voiceMicSettingsNoDeviceBody": "An diesen PC ist kein Mikrofon angeschlossen. Bitte eines anschließen und erneut versuchen.",
+      "voiceMicSettingsOpen": "Einstellungen öffnen",
+      "voiceMicSettingsHintWin": "Aktivieren Sie unten in der Liste sowohl „Mikrofonzugriff“ als auch „Desktop-Apps den Zugriff auf Ihr Mikrofon erlauben“. Aufgrund der Installationsart dieser App erscheint ihr Name nicht in der App-Liste.",
+      "voiceMicSettingsHintMac": "Aktivieren Sie Vibisual unter Datenschutz & Sicherheit > Mikrofon. Wenn Sie es gerade aktiviert haben, starten Sie die App neu, damit die Änderung wirksam wird.",
+      "voiceMicSettingsHintLinux": "Prüfen Sie, ob in Ihren Soundeinstellungen ein Mikrofon als Eingabegerät ausgewählt und nicht stummgeschaltet ist. Hat PulseAudio/PipeWire kein Standardeingabegerät, kann die App ebenfalls kein Gerät erkennen.",
+      "voiceMicSettingsDeviceNote": "Ist der Zugriff bereits aktiviert, prüfen Sie, ob wirklich ein Mikrofon angeschlossen ist — getrennte Mikrofone werden in der Geräteliste weiterhin grau angezeigt.",
+      "voiceMicSettingsHiddenNote": "Falls bereits ein Mikrofon angeschlossen ist, blenden die Systemeinstellungen es möglicherweise aus — siehe Hinweis unten.",
+      "voiceMicSettingsShortcutNote": "Spracheingabe mit {{shortcut}}"
     },
     "voiceInstall": {
       "title": "Spracheingabe einrichten",

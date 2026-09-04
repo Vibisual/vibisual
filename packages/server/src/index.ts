@@ -248,6 +248,7 @@ import { validatePathWithinRoot } from './services/pathValidator.js';
 // 경로 대소문자 정책 SSOT — win32/darwin 만 접고 linux 는 접지 않는다(`shared/pathCase.ts`).
 import { CASE_INSENSITIVE_FS, pathKey, samePath } from './services/pathKey.js';
 import { openFile, openFileAtSearch, openFolder, openWithDefaultApp } from './services/editorLauncher.js';
+import { isMicSettingsOpenable, openMicSettings, micSettingsHintKey } from './services/micSettingsOpener.js';
 // §5.13 (R-8) — 못 읽는 영상·소리를 우리 안에서 열기 위한 변환 레일.
 import { detectMediaTools, installMediaTools } from './services/mediaTools.js';
 import { mediaConvertService } from './services/mediaConvert.js';
@@ -316,6 +317,11 @@ export { setDebugLogDir } from './services/debugLog.js';
 // §5.5 #17-19 ⑦ — 탐색기 삭제가 쓸 **OS 휴지통** 통로. 세 OS 의 휴지통 규약이 전부 다르므로
 // 이미 옳게 다루는 Electron `shell.trashItem` 을 desktop main 이 부팅 때 꽂는다(주입 없으면 영구 삭제).
 export { setWorkspaceTrash, isWorkspaceTrashAvailable, type WorkspaceTrashItem } from './services/workspaceMutate.js';
+
+// §5.5 #17-38 ⑮ — OS 마이크 설정 창을 여는 통로. 여는 대상이 파일이 아니라 `ms-settings:` 같은
+// 설정 URI 라 경로 가드를 쓰는 `/api/open-external` 로는 갈 수 없다(임의 URI 문을 열게 된다).
+// 휴지통과 같은 규율으로 desktop main 이 `shell.openExternal` 을 부팅 때 꽂는다.
+export { setMicSettingsOpener } from './services/micSettingsOpener.js';
 
 // §5.14 v4.62 — 앱 종료 시 플레이 버블이 띄운 서버·정적 호스트 정리(main 이 before-quit 에서 호출).
 export { stopAllPlays } from './services/playRunner.js';
@@ -7414,6 +7420,9 @@ export async function runServer(): Promise<RunServerHandle> {
         // §4 (Fast 모드) — settings 키로만 켜지는 축(플래그 아님). 모델 지원 여부는 저장이 아니라
         //   스폰부(`wantsFastMode`)가 판정한다 — 사용자가 모델을 Opus 로 되돌리면 값이 그대로 살아난다.
         fastMode: body.fastMode === true ? true : undefined,
+        // §4 (Thinking on/off) — 사고도 settings 키로만 꺼지는 축이며 **기본이 켬**이라,
+        //   명시 `false` 만 저장한다(미지정·true = 켬 = 키를 안 만든다 = 종전과 같은 스폰).
+        thinking: body.thinking === false ? false : undefined,
         // §4 (스트림 3종) — ①은 **기본 켬**이라 저장 규약이 반대다: 명시 `false` 만 남기고
         //   그 밖(미지정·true)은 undefined = 켬. ②③은 평범하게 true 만 저장한다.
         forwardSubagentText: body.forwardSubagentText === false ? false : undefined,
@@ -9931,6 +9940,36 @@ export async function runServer(): Promise<RunServerHandle> {
       res.json({ ok: true });
     } catch (err) {
       logger.error('POST /api/open-external failed', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  /**
+   * GET /api/mic-settings — §5.5 #17-38 ⑮ 이 PC 에서 마이크 설정 창을 열 수 있는가.
+   *
+   * 화면이 [설정 열기] 버튼을 그릴지 정하는 근거다. linux 는 열 창이 데스크톱 환경마다 갈려
+   * 열 수 없다고 답하고(`openable: false`), 그때 화면은 버튼 대신 **무엇을 확인해야 하는지**를
+   * 글로 보여 준다 — 눌러도 아무 일이 없는 버튼을 그리지 않기 위해서다.
+   */
+  app.get('/api/mic-settings', (_req, res) => {
+    res.json({
+      openable: isMicSettingsOpenable(),
+      hintKey: micSettingsHintKey(),
+    });
+  });
+
+  /**
+   * POST /api/mic-settings/open — §5.5 #17-38 ⑮ OS 의 마이크 설정 창을 연다.
+   *
+   * **본문에서 URL 을 받지 않는다.** 여는 주소는 `micSettingsTarget()` 이 플랫폼으로 정한
+   * 그 하나뿐이고, 그래서 이 라우트는 임의 URI 를 여는 문이 되지 않는다(페어링된 모바일 기기도
+   * 이 라우트에 닿는다 — `/api/open-external` 의 가드 주석과 같은 이유).
+   */
+  app.post('/api/mic-settings/open', (_req, res) => {
+    try {
+      res.json(openMicSettings());
+    } catch (err) {
+      logger.error('POST /api/mic-settings/open failed', err);
       res.status(500).json({ error: 'Internal server error' });
     }
   });

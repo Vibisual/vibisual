@@ -251,6 +251,53 @@ describe('IDE 창 여러 개 (§5.5 #17-1)', () => {
     expect(selectIDEPane(useGraphStore.getState(), PROJ).float).toEqual({ x: 120, y: 80, w: 700, h: 500 });
   });
 
+  it('최대화도 슬롯이 들고 있다 — 프로젝트 탭을 옮겼다 돌아와도 안 풀린다', () => {
+    // 사용자 보고: 상단에 붙여 최대화해 둔 창이, 다른 프로젝트에 갔다 오면 **붙은 변만** 살아
+    //   돌아오고 최대화는 사라졌다. 창은 프로젝트 탭마다 언마운트되므로 컴포넌트 로컬 상태로는
+    //   지킬 수 없다 — `float`·`dockSide` 와 같은 자리에 있어야 한다.
+    open(A1, 'new');
+    useGraphStore.getState().setIDEPaneDock(PROJ, { side: 'top', size: 420, order: 0 });
+    useGraphStore.getState().setIDEPaneMaximized(PROJ, true);
+    // 다른 프로젝트로 갔다 온다 — 창 컴포넌트가 통째로 언마운트/재마운트되는 것과 같은 일이다.
+    useGraphStore.setState({ activeProject: 'other' });
+    expect(selectRenderedIDEPaneKeys(useGraphStore.getState())).toEqual([]);
+    useGraphStore.setState({ activeProject: PROJ });
+    const back = selectIDEPane(useGraphStore.getState(), PROJ);
+    expect(back.maximized).toBe(true);
+    // 최대화는 붙은 변 **위에 덮이는** 상태다 — 복원하면 그 자리로 돌아가야 하므로 변은 남는다.
+    expect(back.dockSide).toBe('top');
+  });
+
+  it('최대화를 풀면 붙어 있던 변은 그대로다(복원 = 그 자리로 돌아가기)', () => {
+    open(A1, 'new');
+    useGraphStore.getState().setIDEPaneDock(PROJ, { side: 'top', size: 420, order: 0 });
+    useGraphStore.getState().setIDEPaneMaximized(PROJ, true);
+    useGraphStore.getState().setIDEPaneMaximized(PROJ, false);
+    const st = selectIDEPane(useGraphStore.getState(), PROJ);
+    expect(st.maximized).toBe(false);
+    expect(st.dockSide).toBe('top');
+  });
+
+  it('창을 닫았다 다시 열면 최대화는 풀려 있다(슬롯째 사라졌다가 새로 선다)', () => {
+    open(A1, 'new');
+    useGraphStore.getState().setIDEPaneMaximized(PROJ, true);
+    useGraphStore.getState().closeIDEOverlay(PROJ);
+    open(A1, 'new');
+    expect(selectIDEPane(useGraphStore.getState(), PROJ).maximized).toBe(false);
+  });
+
+  it('붙은 자리를 재사용해 버블만 갈아 끼우면 최대화는 그 자리의 성질로 남는다', () => {
+    open(A1, 'new');
+    useGraphStore.getState().setIDEPaneDock(PROJ, { side: 'right', size: 480, order: 0 });
+    useGraphStore.getState().setIDEPaneMaximized(PROJ, true);
+    // 북마크 점프처럼 창을 쌓지 않는 진입점 — 맨 앞 창의 자리를 그대로 물려받는다.
+    open(A2);
+    const st = selectIDEPane(useGraphStore.getState(), PROJ);
+    expect(st.agentId).toBe(A2);
+    expect(st.dockSide).toBe('right');
+    expect(st.maximized).toBe(true);
+  });
+
   it('버블이 사라진 창은 유령으로 잡혀 헤더에서 닫을 수 있다(배지만 오르는 상태 ❌)', () => {
     open(A1, 'new');
     // 그 에이전트 버블이 스냅샷에서 빠졌다(삭제·휴지통).
@@ -398,6 +445,24 @@ describe('레이아웃 프리셋 (applyIDEWindowLayout)', () => {
     expect(s.ideOverlays[keys[2]!]!.collapsed).toBe(true);
     expect(s.ideOverlays[keys[2]!]!.dockSide).toBeNull();
     expect(s.ideOverlays[keys[0]!]!.dockSide).toBe('right');
+  });
+
+  it('자리를 새로 정하는 프리셋은 최대화를 푼다(정리했는데 한 창이 여전히 덮는 상태 ❌)', () => {
+    const keys = openThree();
+    for (const k of keys) useGraphStore.getState().setIDEPaneMaximized(k, true);
+    useGraphStore.getState().applyIDEWindowLayout('tile', VP);
+    for (const k of keys) expect(useGraphStore.getState().ideOverlays[k]!.maximized).toBe(false);
+    for (const k of keys) useGraphStore.getState().setIDEPaneMaximized(k, true);
+    useGraphStore.getState().applyIDEWindowLayout('tabRight', VP);
+    for (const k of keys) expect(useGraphStore.getState().ideOverlays[k]!.maximized).toBe(false);
+  });
+
+  it('전부 접기/펴기는 배치를 안 건드리므로 최대화도 그대로 둔다', () => {
+    const keys = openThree();
+    useGraphStore.getState().setIDEPaneMaximized(keys[0]!, true);
+    useGraphStore.getState().applyIDEWindowLayout('collapseAll', VP);
+    useGraphStore.getState().applyIDEWindowLayout('expandAll', VP);
+    expect(useGraphStore.getState().ideOverlays[keys[0]!]!.maximized).toBe(true);
   });
 
   it('전부 접기/펴기는 접힌 창까지 함께 움직인다', () => {

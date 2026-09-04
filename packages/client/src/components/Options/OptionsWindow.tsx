@@ -29,6 +29,7 @@ import {
   resolveAutoCompact,
   isOpusModel,
   supportsFastMode,
+  isThinkingEnabled,
   resolveAliasToLatest,
   listModelFamilies,
   listEffortLevels,
@@ -137,6 +138,8 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
   const [safeMode, setSafeMode] = useState(baseAgent.safeMode === true);
   // §4 (Fast 모드) — 신규 에이전트 기본값. Opus 계열에서만 실제로 켜진다.
   const [fastMode, setFastMode] = useState(baseAgent.fastMode === true);
+  // §4 (Thinking on/off) — 확장 사고. 기본이 켬이라 판정 함수를 거친다(명시 false 만 끔).
+  const [thinking, setThinking] = useState(isThinkingEnabled(baseAgent.thinking));
   const [betas, setBetas] = useState((baseAgent.betas ?? []).join(', '));
   // §4 (CLI 사양 추종) — Bash 타임아웃 기본값(초). 0 = 미설정 = CLI 기본(기본 2분 / 상한 10분).
   const [bashDefaultTimeoutSec, setBashDefaultTimeoutSec] = useState(bashMsToSec(baseAgent.bashDefaultTimeoutMs));
@@ -225,6 +228,7 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
     setSettingSources([...(baseAgent.settingSources ?? [])]);
     setSafeMode(baseAgent.safeMode === true);
     setFastMode(baseAgent.fastMode === true);
+    setThinking(isThinkingEnabled(baseAgent.thinking));
     setBetas((baseAgent.betas ?? []).join(', '));
     setBashDefaultTimeoutSec(bashMsToSec(baseAgent.bashDefaultTimeoutMs));
     setBashMaxTimeoutSec(bashMsToSec(baseAgent.bashMaxTimeoutMs));
@@ -413,6 +417,8 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
           safeMode: safeMode ? true : null,
           // §4 (Fast 모드) — 지원 모델일 때만 저장(모델을 바꿔 두고 나중에 되돌렸을 때의 부활 방지).
           fastMode: fastMode && fastModeSupported ? true : null,
+          // §4 (Thinking on/off) — 켬이 기본이라 **끌 때만** 값을 남긴다. `null` = 그 칸을 비운다(= 켬).
+          thinking: thinking ? null : false,
           betas: betas.split(',').map((b) => b.trim()).filter(Boolean).length > 0 ? betas.split(',').map((b) => b.trim()).filter(Boolean) : null,
           // §4 (CLI 사양 추종) — 초 → ms. 0/범위 밖은 미설정(스폰 env 키 자체가 안 붙는다).
           bashDefaultTimeoutMs: bashSecToMs(bashDefaultTimeoutSec) ?? null,
@@ -439,7 +445,7 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
       setDirty(false);
     } catch { setSaveError(true); }
     finally { setSaving(false); }
-  }, [applyUserDefaults, model, modelVersion, permissionMode, permissionTimeoutPolicy, isOpus, effort, maxTurns, maxBudgetUsd, isolation, contextWindow, tools, disallowedTools, rules, color, userDefaults, fallbackModel, autoCompact, agentCanCompact, excludeDynamicSections, settingSources, safeMode, fastMode, fastModeSupported, betas, bashDefaultTimeoutSec, bashMaxTimeoutSec, terminalScrollback, cmdBlockedNotify]);
+  }, [applyUserDefaults, model, modelVersion, permissionMode, permissionTimeoutPolicy, isOpus, effort, maxTurns, maxBudgetUsd, isolation, contextWindow, tools, disallowedTools, rules, color, userDefaults, fallbackModel, autoCompact, agentCanCompact, excludeDynamicSections, settingSources, safeMode, fastMode, fastModeSupported, thinking, betas, bashDefaultTimeoutSec, bashMaxTimeoutSec, terminalScrollback, cmdBlockedNotify]);
 
   if (!open) return null;
 
@@ -787,6 +793,22 @@ export function OptionsWindow({ open, onClose }: OptionsWindowProps): React.JSX.
                       {t('panel.agentConfig.fastMode.label')}
                       <span className="ml-1 text-gray-600">
                         {fastModeSupported ? t('panel.agentConfig.fastMode.hint') : t('panel.agentConfig.fastMode.unsupported')}
+                      </span>
+                    </span>
+                  </label>
+                  {/* §4 (Thinking on/off) — 확장 사고를 켜고 끈다(Effort 는 깊이라 직교 축).
+                      기본이 켬이라 끄면 스폰 설정 파일에 `alwaysThinkingEnabled: false` 가 실린다. */}
+                  <label className="flex items-start gap-2 text-[12px] text-gray-400">
+                    <input
+                      type="checkbox"
+                      checked={thinking}
+                      onChange={(e) => { setDirty(true); setThinking(e.target.checked); }}
+                      className="mt-0.5 h-3.5 w-3.5 accent-indigo-500"
+                    />
+                    <span>
+                      {t('panel.agentConfig.thinking.label')}
+                      <span className="ml-1 text-gray-600">
+                        {thinking ? t('panel.agentConfig.thinking.hint') : t('panel.agentConfig.thinking.offHint')}
                       </span>
                     </span>
                   </label>

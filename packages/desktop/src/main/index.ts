@@ -6,7 +6,7 @@ import { app, shell, BrowserWindow, protocol, screen, dialog, Notification, sess
 import { electronApp, optimizer } from '@electron-toolkit/utils';
 import { inject, type DispatchFunc } from 'light-my-request';
 import type { Express } from 'express';
-import { unloadAllLocalModels, runServer, shutdownDiskWriteQueue, flushPendingCheckpointSave, setBroadcastSink, setHookListenerPort, setHookListenerToken, setHookListenerIdentityFile, setHookHandlerPath, setDebugLogDir, ensureClaudeHooksInstalled, refreshStatusLineIfInstalled, recordDiagnostic, subAgentManager, stopAllPlays, closeStaticHost, setCmdTerminalController, setCmdBlockedNotifier, setWorkspaceTrash, getUiLocale } from '@vibisual/server';
+import { unloadAllLocalModels, runServer, shutdownDiskWriteQueue, flushPendingCheckpointSave, setBroadcastSink, setHookListenerPort, setHookListenerToken, setHookListenerIdentityFile, setHookHandlerPath, setDebugLogDir, ensureClaudeHooksInstalled, refreshStatusLineIfInstalled, recordDiagnostic, subAgentManager, stopAllPlays, closeStaticHost, setCmdTerminalController, setCmdBlockedNotifier, setWorkspaceTrash, setMicSettingsOpener, getUiLocale } from '@vibisual/server';
 import { IFRAME_PROXY_PATH, WORKSPACE_SITE_PATH } from '@vibisual/shared';
 import { setupIpc, type IpcHub } from './ipc';
 // §9 — 스냅샷 팬아웃(1회 인코딩 → 창마다 바이트 postMessage, 실패 시 종전 send 폴백).
@@ -519,6 +519,11 @@ async function bootBackend(): Promise<void> {
   //   하나뿐이라 세 OS 분기를 우리가 다시 쓰지 않는다. 주입이 없는 실행 형태에서는 서버가 영구 삭제로
   //   떨어지고, 그 사실은 응답의 `trashed:false` 로 화면까지 전해진다.
   setWorkspaceTrash((absPath) => shell.trashItem(absPath));
+  // §5.5 #17-38 ⑮ — 마이크가 막혔을 때 **OS 의 마이크 설정 창을 우리가 연다**(사유만 말하고 끝내지
+  //   않는다). 여는 주소는 서버가 플랫폼으로 정한 하나뿐이고 여기서는 URL 을 만들지 않는다 —
+  //   임의 URI 를 여는 문이 되지 않게 하기 위해서다. 웹 단독 실행에서는 주입이 없어 서버가
+  //   `openable:false` 로 답하고, 화면은 버튼 대신 무엇을 확인해야 하는지를 글로 보여 준다.
+  setMicSettingsOpener((url) => { void shell.openExternal(url); });
   // §4 (⑦) — PTY 안의 에이전트가 헤드리스와 **같은** 카드 엔드포인트를 curl 로 부를 수 있도록
   //   loopback 신원을 터미널 env 로 실어 보낸다(없으면 종전 `::VIBISUAL-CARD::` 마커 폴백).
   setTerminalCardIdentity({ port: hookPort, token: hookToken, identityFile: hookIdentityPath().replace(/\\/g, '/') });

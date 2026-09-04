@@ -52,7 +52,78 @@ permissions:
   contents: write
 
 jobs:
+  # ── 올릴 자리를 먼저 하나 만든다 ──────────────────────────────────────────────
+  # ⚠️ 이 잡이 없으면 **네 잡이 각자 릴리스를 만든다.** v0.1.21 이 실제로 그렇게 갈라졌다 —
+  #    draft 가 둘이 되고(자산 12개 + Linux 자산 4개), Linux 것만 태그 없는 쪽에 남아
+  #    스모크의 `gh release download <TAG> --pattern '*.AppImage'` 가
+  #    `no assets match the file pattern` 으로 죽었다. 검증이 실패했으니 공개 전환도 없었고,
+  #    사이트의 최신 버전 배지는 v0.1.20 에 멈춘 채였다.
+  #
+  #    원인은 경합이 아니라 **찾는 방법**이다. electron-publish 의 `getOrCreateRelease()` 는
+  #    릴리스 목록을 훑어 `release.tag_name === tag || release.tag_name === version` 인 것만
+  #    재사용한다(electron-publish/out/gitHubPublisher.js). 그런데 GitHub 은 draft 를 만들 때
+  #    `tag_name` 을 받고도 태그를 걸지 않고 `untagged-<id>` 로 남긴다 — 태그를 실제로 거는 것은
+  #    "공개"의 일부이기 때문이다. 그래서 먼저 도착한 잡이 만든 draft 를 뒤따라온 잡이
+  #    **자기 것이 아니라고 판단하고 새로 만든다.** 넷이 동시에 출발하므로 몇 개로 갈릴지는
+  #    그날의 타이밍이 정한다(v0.1.20 은 운 좋게 하나였다).
+  #
+  #    고칠 자리는 그 판정식이다: draft 를 **우리가 먼저 만들면서 `tag_name` 을 태그로 박아 두면**
+  #    네 잡이 전부 첫 번째 조건에 걸려 같은 릴리스에 올린다. GitHub 은 draft 를
+  #    `/releases/tags/<tag>` 로 조회시켜 주지는 않지만(404), **목록에는 그 값을 그대로 실어 준다** —
+  #    electron-publish 가 보는 것이 정확히 그 목록이라 이 방법이 통한다.
+  #
+  # 🔒 `release` 잡에서 `needs: prepare` 를 떼지 마라. 떼는 순간 네 잡이 다시 각자 만든다.
+  prepare:
+    name: 올릴 draft 를 하나 만든다
+    runs-on: ubuntu-latest
+    outputs:
+      release-id: ${{ steps.draft.outputs.id }}
+    steps:
+      - name: draft 준비 (있으면 그대로, 없으면 만들어 태그에 묶는다)
+        id: draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # 수동 트리거(workflow_dispatch)는 태그가 없다. 그때는 자리를 만들지 않고 지나간다 —
+          # electron-builder 가 종전처럼 스스로 만든다(테스트 빌드라 갈라져도 잃을 것이 없다).
+          if [ "${GITHUB_REF_TYPE}" != "tag" ]; then
+            echo "태그 푸시가 아니다 — draft 를 미리 만들지 않는다."
+            exit 0
+          fi
+
+          TAG="${GITHUB_REF_NAME}"
+          VER="${TAG#v}"
+
+          # 이미 있으면 그것을 쓴다 — 재실행(re-run)으로 이 잡이 두 번 돌 때 자리가 늘어나면
+          # 애초에 막으려던 그 상황이 된다. draft 는 태그 단건 조회에 안 잡히므로 목록에서 찾는다.
+          # electron-publish 와 **같은 판정식**을 쓴다(tag_name 이 태그 또는 버전) — 판정이 갈리면
+          # 우리는 "있다"고 보고 그쪽은 "없다"고 봐서 결국 또 하나가 더 생긴다.
+          ID=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+                 --jq "[.[] | select(.draft == true and (.tag_name == \"$TAG\" or .tag_name == \"$VER\"))][0].id")
+
+          if [ -n "$ID" ] && [ "$ID" != "null" ]; then
+            echo "이미 $TAG 로 묶인 draft 가 있다 (release #$ID) — 그대로 쓴다."
+          else
+            echo "draft 를 새로 만든다 — tag_name=$TAG"
+            # name 은 electron-builder 가 만들 때와 같은 `<version>` 으로 맞춘다. 뒤따르는
+            # release-notes.mjs · notes 잡이 이름으로도 찾기 때문에 여기서 어긋나면 안 된다.
+            ID=$(gh api -X POST "repos/$GITHUB_REPOSITORY/releases" \
+                   -f tag_name="$TAG" -f name="$VER" -F draft=true -F prerelease=false \
+                   --jq .id)
+          fi
+
+          # 만들어 두기만 하고 tag_name 이 안 실렸으면 이 잡은 아무 것도 안 한 것과 같다 —
+          # 그 상태로 넘어가면 네 잡이 또 각자 만든다. 여기서 끊는다.
+          BOUND=$(gh api "repos/$GITHUB_REPOSITORY/releases/$ID" --jq .tag_name)
+          [ "$BOUND" = "$TAG" ] || { echo "::error::draft #$ID 의 tag_name 이 $BOUND 다 — $TAG 로 묶이지 않았다"; exit 1; }
+
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
+          echo "준비 완료 — release #$ID (tag_name=$BOUND, draft)"
+
   release:
+    needs: prepare
     strategy:
       fail-fast: false
       matrix:
@@ -209,7 +280,13 @@ jobs:
       #      · `release-notes.mjs`                       → 본문 없이 지나감
       #    v0.1.20 이 실제로 그렇게 됐다 — 설치본은 멀쩡했는데 **검증이 시작조차 못 했다.**
       #    releaseType 을 draft 로 바꾼 순간 생긴 자리이고, 고칠 곳은 여기 하나다.
-      - name: draft 를 태그에 묶는다 (draft 는 태그가 안 붙는다 — 이게 없으면 검증이 시작도 못 한다)
+      #
+      # ⚠️ 묶는 일 자체는 이제 **`prepare` 잡이 자산보다 먼저** 한다(위 머리말 참고). 여기 남은 것은
+      #    "정말 하나로 모였는가"를 재는 일이다. 순서를 이렇게 나눈 이유: 자산이 다 올라온 **뒤에**
+      #    묶으면, 그 사이에 잡들이 이미 각자 릴리스를 만들어 버렸을 수 있고 그때는 늦다.
+      #    v0.1.21 이 정확히 그랬다 — 이 스텝은 갈라진 둘 중 `[0]` 하나만 태그에 묶었고,
+      #    Linux 자산 4종이 든 나머지 하나는 `untagged-…` 로 남아 스모크에서 발견됐다.
+      - name: 자산이 한 릴리스에 모였는지 확인한다 (갈라졌으면 여기서 끊는다)
         if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -217,24 +294,31 @@ jobs:
           set -euo pipefail
           TAG="${GITHUB_REF_NAME}"
           VER="${TAG#v}"
-          # draft 는 `/releases/tags/<tag>` 에 안 잡힌다(404). 목록에서 **이름(=버전)으로** 찾는다 —
-          # electron-builder 가 `name: <version>` 으로 만들기 때문에 이것이 유일하게 남은 손잡이다.
-          ID=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
-                 --jq "[.[] | select(.draft == true and (.tag_name == \"$TAG\" or .name == \"$VER\"))][0].id")
-          if [ -z "$ID" ] || [ "$ID" = "null" ]; then
+
+          # 이번 버전에 해당하는 draft 를 **전부** 센다. `prepare` 가 하나를 태그로 묶어 두었으므로
+          # 정상이면 그 하나뿐이다. 이름(=버전)까지 함께 보는 이유는, 갈라진 쪽은 태그가 없고
+          # `name` 만 버전으로 남기 때문이다 — 그게 v0.1.21 의 두 번째 draft 를 찾아낸 손잡이였다.
+          MATCHES=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+                      --jq "[.[] | select(.draft == true and (.tag_name == \"$TAG\" or .name == \"$VER\"))]")
+          COUNT=$(echo "$MATCHES" | jq 'length')
+
+          if [ "$COUNT" -eq 0 ]; then
             echo "::warning::$TAG 에 해당하는 draft 릴리스가 없다 — 빌드가 전부 실패했을 때 여기로 온다."
             exit 0
           fi
-          BEFORE=$(gh api "repos/$GITHUB_REPOSITORY/releases/$ID" --jq .tag_name)
-          if [ "$BEFORE" = "$TAG" ]; then
-            echo "이미 $TAG 로 묶여 있다 (release #$ID) — 그대로 둔다."
-            exit 0
+
+          if [ "$COUNT" -gt 1 ]; then
+            echo "::error::$TAG 의 draft 가 $COUNT 개다 — 자산이 갈라졌다. prepare 잡이 건너뛰어졌거나 release 잡의 needs 가 떨어졌다."
+            echo "$MATCHES" | jq -r '.[] | "  release #\(.id) tag_name=\(.tag_name) name=\(.name) assets=\(.assets|length)"'
+            echo "  → 자산을 한쪽으로 합치고 빈 draft 를 지운 뒤 스모크를 다시 돌려야 한다."
+            exit 1
           fi
-          echo "release #$ID: $BEFORE → $TAG 로 묶는다 (draft 는 유지)"
-          AFTER=$(gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$ID" -f tag_name="$TAG" --jq .tag_name)
+
+          ID=$(echo "$MATCHES" | jq -r '.[0].id')
+          BOUND=$(echo "$MATCHES" | jq -r '.[0].tag_name')
           # 묶이지 않았는데 조용히 지나가면 스모크가 "release not found" 로 죽는다 — 여기서 끊는다.
-          [ "$AFTER" = "$TAG" ] || { echo "::error::태그를 못 묶었다 (tag_name=$AFTER)"; exit 1; }
-          echo "묶음 확인 — tag_name=$AFTER"
+          [ "$BOUND" = "$TAG" ] || { echo "::error::release #$ID 가 $TAG 로 안 묶여 있다 (tag_name=$BOUND)"; exit 1; }
+          echo "확인 — release #$ID 하나에 모였다 (tag_name=$BOUND, assets=$(echo "$MATCHES" | jq '.[0].assets|length'))"
 
       - name: Checkout
         uses: actions/checkout@v4

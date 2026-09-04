@@ -60,10 +60,41 @@ export type VoiceInputErrorCode =
   | 'unsupported'
   /** 마이크 사용이 거부됐다(브라우저 권한 또는 OS 개인정보 설정). */
   | 'permission'
-  /** 마이크를 못 찾았거나 열지 못했다. */
+  /**
+   * 마이크를 못 찾았거나 열지 못했다 — **원인을 더 좁히지 못한 경우.**
+   *
+   * `no-device`·`device-busy` 가 갈라 나간 뒤 남는 자리다(장치 목록을 못 물어봤거나,
+   * 목록엔 있는데 왜 안 열리는지 모를 때). 여기 남으면 화면은 두 가능성(권한·연결)을
+   * 모두 말한다 — 좁히지 못했으면 좁혀서 말하지 않는 것이 맞다.
+   */
   | 'device'
+  /**
+   * **이 PC 에 마이크가 아예 없다**(연결된 입력 장치 0개).
+   *
+   * `permission` 과 갈라 두는 이유는 `engine`/`network` 를 가른 것과 같다 — 사용자가 할 일이
+   * 다르다. 권한은 설정을 켜는 일이고 이쪽은 **물건을 꽂는 일**이다. 뭉뚱그리면 마이크가 없는
+   * 사람이 설정만 뒤지고(그 설정은 이미 켜져 있다), 반대로 권한이 막힌 사람이 멀쩡한 마이크를
+   * 다시 꽂아 본다. 특히 Windows 는 연결되지 않은 장치도 소리 설정 목록에 회색으로 남겨 두어
+   * 사용자에게는 "있음"으로 읽히므로, 화면이 **없다고 분명히 말해 주어야** 한다.
+   */
+  | 'no-device'
+  /**
+   * 마이크는 **있는데 다른 앱이 쥐고 있다**(`NotReadableError` — OS 가 장치를 못 넘겨준다).
+   *
+   * 종전에는 이것도 `device` 로 접혀 "마이크를 찾지 못했습니다"가 떴는데, 그 문장을 읽은
+   * 사용자는 **연결된 마이크를 다시 꽂아 본다** — 실제로 할 일은 화상회의·녹음 앱을 끄는 것이다.
+   */
+  | 'device-busy'
   /** 인식 서비스에 닿지 못했다. */
   | 'network'
+  /**
+   * 받아 둔 인식기가 **이 PC 에서 뜨지 않았다**(⑫ — 엔진은 우리 것이고 밖에 있지 않다).
+   *
+   * `network` 와 갈라 두는 이유: 인식기가 내 PC 에서 도는 이상 "서비스에 닿지 못했다"는
+   * 사실이 아니고, 사용자가 할 일도 다르다(회선을 보는 것이 아니라 다시 받는 것이다).
+   * 뭉뚱그리면 화면이 원인을 가린다 — ⑬ "실패는 사유까지 말한다".
+   */
+  | 'engine'
   /** 이 언어를 인식기가 모른다. */
   | 'language'
   /** 아무 말도 못 들었다(치명 ❌ — 계속 듣는다). */
@@ -117,8 +148,13 @@ export function mapMediaError(name: string | undefined | null): VoiceInputErrorC
       return 'permission';
     case 'NotFoundError':
     case 'OverconstrainedError':
-    case 'NotReadableError':
+      // 여기서는 아직 "없다"고 단정하지 않는다 — win 에서 "데스크톱 앱 허용" 이 꺼져도
+      //   같은 `NotFoundError` 가 오기 때문이다(권한인데 장치 없음으로 읽히는 자리).
+      //   장치 목록을 물어본 뒤 `refineDeviceError` 가 `no-device` 로 좁힌다.
       return 'device';
+    case 'NotReadableError':
+      // 목록에는 있는데 OS 가 못 넘겨준다 = 다른 앱이 쥐고 있다. 꽂으라고 하면 안 되는 자리다.
+      return 'device-busy';
     case 'AbortError':
       return 'aborted';
     default:
@@ -286,4 +322,126 @@ export function mergeVoiceText(
     // 뒤 공백까지 지나서 서면 다음 말이 두 칸 띄어 들어간다 — 끼운 말의 끝에 세운다.
     caret: start + inserted.length - (needsTrail ? 1 : 0),
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// §5.5 #17-38 ⑮ — 막힌 곳이 OS 마다 다르다: 사유를 말하는 것에서 **데려다 주는 것**으로
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 마이크가 안 열릴 때 **사용자가 실제로 가야 할 곳**.
+ *
+ * ⑥ 은 실패의 사유를 갈라 화면이 "할 수 있는 일"을 말하게 했지만, 거기서 멈췄다 — 문장은
+ * 정확한데(“시스템 개인 정보 설정에서 허용해 주세요”) 그 설정이 **어디 있는지는 OS 마다
+ * 다르고**, 특히 Windows 는 스위치가 둘이라(앱별 목록 + 그 위의 "데스크톱 앱 허용") 안내문만
+ * 읽고 찾아가는 사람은 대개 앱별 목록에서 우리 이름을 못 찾고 되돌아온다(우리는 unpackaged 앱이라
+ * 그 목록에 이름이 없다 — ⑫ 의 MSIX identity 부재와 같은 뿌리).
+ *
+ * 그래서 사유를 말하는 데서 한 걸음 더 간다: **그 설정 창을 우리가 연다.** 여는 주소는 세 OS 가
+ * 전부 다르므로 판정을 여기 한 곳에 두고 `platform` 을 **인자로 받는다** — 실기(mac·linux) 없이
+ * 세 OS 를 단위 테스트로 확인할 수 있는 유일한 방법이다([multiplatform.md] "플랫폼 분기는 인자로").
+ */
+export interface VoiceMicSettingsTarget {
+  /**
+   * OS 설정을 여는 주소. win 은 `ms-settings:` URI, mac 은 `x-apple.systempreferences:`
+   * 앵커, linux 는 데스크톱 환경마다 갈려 **주소가 없다**(`null`) — 없는 것을 지어내면
+   * 눌러도 아무 일이 없는 버튼이 된다.
+   */
+  url: string | null;
+  /**
+   * 그 창에서 **무엇을 만져야 하는지** 가리키는 번역 키. 창만 띄우고 끝내면 사용자는 열린
+   * 설정 화면에서 다시 길을 잃는다 — 특히 win 의 두 번째 스위치는 목록 위쪽에 접혀 있다.
+   */
+  hintKey: string;
+}
+
+/**
+ * `platform` → 마이크 설정 창.
+ *
+ * **win 이 두 갈래인 이유**: `ms-settings:privacy-microphone` 한 장에 스위치가 둘 있다 —
+ * ⓐ "마이크 액세스"(기기 전체) ⓑ "데스크톱 앱이 마이크에 액세스하도록 허용"(목록 맨 아래).
+ * 우리처럼 nsis 로 깔린 앱은 ⓑ 하나로 판가름 나는데, 그 스위치는 앱 목록을 한참 내려야 나와
+ * 안내 없이는 못 찾는다. 그래서 주소는 하나여도 **힌트를 반드시 함께 준다.**
+ *
+ * **mac 은 앵커까지 준다** — `Privacy_Microphone` 앵커가 없으면 개인정보 보호 첫 장만 열리고
+ * 마이크 항목은 목록에서 다시 찾아야 한다. macOS 13+ 의 시스템 설정에서도 이 앵커는 유효하다.
+ *
+ * **linux 는 `null` 이 정답이다** — GNOME 은 `gnome-control-center`, KDE 는 `systemsettings`,
+ * 그마저 배포판이 안 깔았을 수 있고 애초에 리눅스의 마이크 차단은 권한 UI 가 아니라
+ * PulseAudio/PipeWire 의 기본 입력 장치 문제다(정본 표의 linux 칸과 같은 판정). 열 수 없는
+ * 창을 여는 척하는 대신 **무엇을 확인해야 하는지**를 글로 말한다.
+ */
+export function micSettingsTarget(platform: string): VoiceMicSettingsTarget {
+  switch (platform) {
+    case 'win32':
+      return {
+        url: 'ms-settings:privacy-microphone',
+        hintKey: 'ide.mainArea.voiceMicSettingsHintWin',
+      };
+    case 'darwin':
+      return {
+        url: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone',
+        hintKey: 'ide.mainArea.voiceMicSettingsHintMac',
+      };
+    default:
+      return { url: null, hintKey: 'ide.mainArea.voiceMicSettingsHintLinux' };
+  }
+}
+
+/**
+ * 이 실패가 **OS 설정으로 가서 풀 수 있는 것**인가.
+ *
+ * `permission` 은 당연하고, **`device` 도 포함한다** — Windows 에서 "데스크톱 앱 허용"이 꺼져
+ * 있으면 `getUserMedia` 가 `NotAllowedError` 가 아니라 **`NotFoundError`** 로 온다(장치가 있는데
+ * 목록 자체를 안 보여 준다 — 정본 표 win 칸에 적힌 그 자리다). 즉 화면에는 "마이크를 찾지
+ * 못했습니다"가 뜨지만 실제 원인이 권한인 경우가 있고, 그 사람에게 설정 문을 안 열어 주면
+ * 영영 장치만 다시 꽂아 보게 된다. 둘을 함께 태우는 것이 **사용자가 덜 헤매는 쪽**이다.
+ *
+ * **`no-device` 도 태운다 — 다만 그 화면의 주된 안내는 "꽂으세요"다.** 장치가 0개인 것이
+ * 확인됐어도 win 에서는 그 0 이 **OS 가 감춘 결과**일 수 있어(같은 "데스크톱 앱 허용"), 설정
+ * 문을 아예 닫아 두면 그 사람에게는 막다른 길이 된다. 그래서 문은 열어 두되 **문구의 무게를
+ * 바꾼다**(⑯) — 오류 줄과 팝업 본문은 연결을 먼저 말하고, 설정은 곁들이는 선택지로 남긴다.
+ *
+ * **`device-busy` 는 태우지 않는다** — 그 사람이 할 일은 설정이 아니라 **다른 앱을 끄는 것**이다.
+ * 설정 창을 열어 주면 이미 켜져 있는 스위치를 보게 되어 안내가 오히려 원인을 가린다.
+ */
+export function isMicAccessFixable(code: VoiceInputErrorCode): boolean {
+  return code === 'permission' || code === 'device' || code === 'no-device';
+}
+
+/**
+ * `device` 를 **장치 목록으로 한 번 더 좁힌다** — "없다"와 "막혔다"를 가르는 유일한 길.
+ *
+ * `getUserMedia` 의 실패만으로는 이 둘을 못 가른다. Windows 에서 "데스크톱 앱이 마이크에
+ * 액세스하도록 허용" 이 꺼져 있으면 **장치가 멀쩡히 꽂혀 있어도 `NotFoundError`** 가 오기
+ * 때문이다(OS 가 목록 자체를 감춘다 — 거절하지 않는다). 그래서 이름이 같은 실패 하나에
+ * 서로 다른 두 원인이 들어온다.
+ *
+ * 가르는 근거는 `enumerateDevices()` 다. 이 API 는 **권한 없이도 목록의 길이는 알려 준다**
+ * (label 만 빈 문자열이 된다 — 지문 채취를 막으려는 명세의 의도). 따라서:
+ *
+ * - 입력 장치가 **0개** → 물건이 없거나 OS 가 통째로 감췄다. 사용자가 할 일은 **꽂는 것**이고,
+ *   설정이 원인이어도 그 화면은 [설정 열기] 를 함께 띄우므로 막다른 길이 되지 않는다.
+ * - 입력 장치가 **1개 이상인데 못 열었다** → 물건은 있는데 못 쓴다 = 권한 쪽이 훨씬 유력하다.
+ *   여기서 "연결해 주세요"라고 하면 **꽂혀 있는 마이크를 다시 꽂아 보게** 만든다.
+ *
+ * `count` 를 **인자로 받는다** — 이 판정은 순수 함수라 실기 없이 단위 테스트로 고정된다
+ * (`navigator` 를 여기서 만지면 그 분기는 영영 검증되지 않는다 — 멀티플랫폼 규칙과 같은 규율).
+ *
+ * @param count 입력(오디오) 장치 수. 목록을 **못 물어봤으면 `null`** — 그때는 좁히지 않는다.
+ */
+export function refineDeviceError(
+  code: VoiceInputErrorCode,
+  count: number | null,
+): VoiceInputErrorCode {
+  // 좁히는 대상은 `device` 하나뿐이다. `permission` 은 이미 원인이 분명하고,
+  //   `device-busy` 는 목록에 있다는 것이 전제라 여기서 뒤집으면 안 된다.
+  if (code !== 'device') return code;
+  if (count === null) return code;
+  return count === 0 ? 'no-device' : code;
+}
+
+/** 이 실패가 **마이크를 꽂으라고 말해야 하는** 경우인가(설정을 켜라가 아니라). */
+export function isNoDeviceError(code: VoiceInputErrorCode): boolean {
+  return code === 'no-device';
 }

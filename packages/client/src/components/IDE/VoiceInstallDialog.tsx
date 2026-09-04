@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  VOICE_MODEL_SOURCES,
+  VOICE_MODEL_DISK_APPROX_BYTES,
   isVoiceInstallRunning,
   voiceAsrLanguageTier,
   voiceInstallPercent,
-  voiceModelTotalBytes,
   type VoiceAsrState,
 } from '@vibisual/shared';
 import { useBackdropDismiss } from '../../hooks/usePopupDismiss.js';
@@ -53,13 +52,17 @@ export function VoiceInstallDialog(props: VoiceInstallDialogProps): JSX.Element 
   const failed = progress?.stage === 'error';
   const ready = state?.ready === true;
 
-  /** 모델 몫 + 엔진 몫(대략) — 받기 전에 얼마인지 말하기 위한 값. */
-  const totalBytes = useMemo(() => {
-    const source = VOICE_MODEL_SOURCES[0];
-    const model = source ? voiceModelTotalBytes(source) : 0;
-    // 엔진 자산은 플랫폼마다 18~25MB 라 25MB 로 잡아 말한다 — **적게 말하지 않는다.**
-    return model + 25_000_000;
-  }, []);
+  /**
+   * 모델 몫 + 엔진 몫(대략) — 받기 전에 얼마인지 말하기 위한 값.
+   *
+   * 실제 크기는 릴리스를 조회해야 알 수 있고 그 조회는 [설치]를 누른 뒤에 돈다. 여기서는
+   * **디스크에 남는 양**으로 말한다(내려받는 압축본보다 크다) — 적게 말하지 않는다.
+   */
+  const totalBytes = useMemo(
+    // 엔진 자산은 플랫폼마다 18~25MB 라 25MB 로 잡는다.
+    () => VOICE_MODEL_DISK_APPROX_BYTES + 25_000_000,
+    [],
+  );
 
   const tier = voiceAsrLanguageTier(uiLocale);
 

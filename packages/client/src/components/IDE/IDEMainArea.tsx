@@ -3,7 +3,7 @@ import { Virtuoso, type VirtuosoHandle, type StateSnapshot } from 'react-virtuos
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import type { QueuedCommand, CommandError, SubAgent, SubAgentStreamEvent, AgentEvent, AgentReport, AgentQuestions, AgentReview, AgentList, AskUserQuestionRequest } from '@vibisual/shared';
-import { STREAM_DENSITIES, STREAM_COMPACT_TEXT_CLAMP_LINES, STREAM_COMPACT_TEXT_CLAMP_CHARS, slashCommandNeedsTerminal, SESSION_MEMO, VOICE_INPUT, isVoiceToggleKey, mergeVoiceText, type StreamDensity } from '@vibisual/shared';
+import { STREAM_DENSITIES, STREAM_COMPACT_TEXT_CLAMP_LINES, STREAM_COMPACT_TEXT_CLAMP_CHARS, slashCommandNeedsTerminal, SESSION_MEMO, VOICE_INPUT, isVoiceToggleKey, mergeVoiceText, isMicAccessFixable, isNoDeviceError, type StreamDensity } from '@vibisual/shared';
 import { useSessionRunning } from '../../hooks/useSessionRunning.js';
 import { clampStreamText } from './streamDensity.js';
 import type { TodoItem } from '@vibisual/shared';
@@ -51,10 +51,12 @@ import { INPUT_FIELD_SIZING, INPUT_MAX_HEIGHT, autosizeInput } from './inputAuto
 import { decideArrowKey, getCommandHistory, hasCommandHistory, seedCommandHistory, type HistoryNavState } from './commandHistory.js';
 // §5.5 #17-38 — 음성 받아쓰기. 마이크 수명은 훅이, 키·글 끼우기 판정은 shared 가, "듣는 중" 표시는 오버레이가 맡는다.
 import { useVoiceDictation } from '../../hooks/useVoiceDictation.js';
+import { useMicSettings } from '../../hooks/useMicSettings.js';
 import { resolveVoicePort, type VoicePortResult } from '../../hooks/voiceOpenGate.js';
 import { useVoiceAsr } from '../../hooks/useVoiceAsr.js';
 import { VoiceInputOverlay } from './VoiceInputOverlay.js';
 import { VoiceInstallDialog } from './VoiceInstallDialog.js';
+import { MicSettingsPopup } from './MicSettingsPopup.js';
 import { shortcutLabel } from '../../utils/platform.js';
 
 /** SDK 가 생각 중 반복 송출하는 system 펄스 subtype — 본문에 쌓이지 않게 라이브 1줄로 대체. */
@@ -1148,6 +1150,26 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
   const voiceRef = useRef(voice);
   voiceRef.current = voice;
   const voiceShortcut = useMemo(() => shortcutLabel(VOICE_INPUT.SHORTCUT), []);
+  // §5.5 #17-38 ⑮ — 마이크가 막혔을 때 **데려다 주는** 판. 우클릭으로도, 실패 안내의
+  //   [해결 방법] 으로도 같은 판이 뜬다(같은 물음에 대한 답이라 두 벌로 만들지 않는다).
+  const micSettings = useMicSettings();
+  const [micPopupOpen, setMicPopupOpen] = useState(false);
+  // 이 판이 "고장 안내"인지 "그냥 설정 보기"인지 — 머리말이 갈린다.
+  const micBlocked = voice.status === 'error' && voice.error !== null && isMicAccessFixable(voice.error);
+  // 마이크가 **아예 없는 것이 확인된** 경우 — 팝업이 연결을 먼저 말한다.
+  const micNoDevice = voice.error !== null && isNoDeviceError(voice.error);
+  const handleOpenMicSettings = useCallback((): void => {
+    void micSettings.open();
+  }, [micSettings]);
+  /**
+   * 마이크 버튼 **우클릭** — 설정 판을 연다.
+   * 전역 입력칸 메뉴가 이 자리를 가로채지 않게 기본 메뉴를 막는다(입력창의 `data-text-menu` 와 같은 규율).
+   */
+  const handleMicContextMenu = useCallback((e: React.MouseEvent): void => {
+    e.preventDefault();
+    e.stopPropagation();
+    setMicPopupOpen((prev) => !prev);
+  }, []);
 
   /**
    * 단축키(#17-38 ③) — **초점이 입력창에 없어도** 같은 손짓이 먹는다.
@@ -1708,6 +1730,18 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
         analyserRef={voice.analyserRef}
         onStop={voice.stop}
         onDismissError={voice.dismissError}
+        onOpenMicSettings={() => { setMicPopupOpen(true); }}
+      />
+      {/* §5.5 #17-38 ⑮ — 마이크 설정 판. 오버레이와 같은 `bottom-full` 레일이라 새 축이 없고,
+          듣는 줄과 동시에 뜨지 않는다(막혀서 뜨는 판이라 듣는 중일 수 없다). */}
+      <MicSettingsPopup
+        open={micPopupOpen}
+        openable={micSettings.openable}
+        hintKey={micSettings.hintKey}
+        blocked={micBlocked}
+        noDevice={micNoDevice}
+        onOpenSettings={handleOpenMicSettings}
+        onClose={() => { setMicPopupOpen(false); }}
       />
       {/* §5.5 #17-23 ⑤ — 히스토리 진입 힌트. 경계에서 방향키를 처음 눌렀을 때만 뜨고,
           같은 방향으로 한 번 더 누르면 실제로 히스토리로 들어간다. 꺼낼 게 없으면 아예 안 뜬다.
@@ -1902,9 +1936,13 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
         <button
           type="button"
           onClick={voice.toggle}
+          onContextMenu={handleMicContextMenu}
           aria-pressed={voiceActive}
           aria-label={t(voiceActive ? 'ide.mainArea.voiceStop' : 'ide.mainArea.voiceStart', { shortcut: voiceShortcut })}
-          title={t(voiceActive ? 'ide.mainArea.voiceStop' : 'ide.mainArea.voiceStart', { shortcut: voiceShortcut })}
+          // §5.5 #17-38 ⑮ — 호버 힌트는 **단축키 + 우클릭으로 할 수 있는 일**을 함께 말한다.
+          //   우클릭 메뉴는 보이지 않는 기능이라 알려 주지 않으면 아무도 찾지 못한다.
+          //   `aria-label` 은 동작 이름만 유지한다 — 읽어 주는 도구에 힌트까지 읽히면 길어진다.
+          title={`${t(voiceActive ? 'ide.mainArea.voiceStop' : 'ide.mainArea.voiceStart', { shortcut: voiceShortcut })}\n${t('ide.mainArea.voiceMicHintRightClick')}`}
           className={`relative flex h-7 w-7 flex-shrink-0 items-center justify-center rounded border transition-colors ${
             voiceActive
               ? 'border-rose-500/60 bg-rose-500/15 text-rose-300 hover:bg-rose-500/25'

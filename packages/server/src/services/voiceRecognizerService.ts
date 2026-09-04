@@ -18,12 +18,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
-import {
-  VOICE_ASR,
-  VOICE_MODEL_SOURCES,
-  voiceModelDiskName,
-  type VoiceModelSource,
-} from '@vibisual/shared';
+import { VOICE_ASR, voiceModelDiskName } from '@vibisual/shared';
 import { logger } from '../logger.js';
 import { processGroupSpawnOptions, terminateChildTree } from './processTree.js';
 import { findVoiceEngineBin, modelFilesPresent, voiceEngineDir, voiceModelDir } from './voiceAsrService.js';
@@ -65,10 +60,21 @@ function freePort(): Promise<number> {
   });
 }
 
-/** 그 포트가 실제로 받아 주기 시작했는가 — 프로세스가 떴다고 포트가 열린 것은 아니다. */
-function waitForPort(port: number, deadline: number): Promise<void> {
+/**
+ * 그 포트가 실제로 받아 주기 시작했는가 — 프로세스가 떴다고 포트가 열린 것은 아니다.
+ *
+ * ⚠ **자식이 이미 죽었으면 그 자리에서 그만둔다.** 종전에는 죽은 프로세스의 포트를 한도
+ * (20초)가 찰 때까지 200ms 마다 두드렸다 — 모델을 못 읽어 **즉사**하는 판(⑫ 의 그 사고)에서
+ * 사용자는 "마이크를 여는 중…"을 20초 보고 나서야 실패를 들었고, 그마저 사유가 아니라
+ * "포트를 안 열었다"였다. 죽은 것을 아는데 기다리는 것은 기다림이 아니라 침묵이다.
+ */
+function waitForPort(port: number, deadline: number, exited: () => boolean): Promise<void> {
   return new Promise((resolve, reject) => {
     const attempt = (): void => {
+      if (exited()) {
+        reject(new Error('engine exited before opening its port'));
+        return;
+      }
       if (Date.now() > deadline) {
         reject(new Error('engine did not open its port in time'));
         return;
@@ -135,11 +141,6 @@ function armIdleTimer(): void {
   }, IDLE_SHUTDOWN_MS);
 }
 
-function activeModelSource(): VoiceModelSource | null {
-  const dir = voiceModelDir();
-  for (const s of VOICE_MODEL_SOURCES) if (modelFilesPresent(s, dir)) return s;
-  return null;
-}
 
 /**
  * 엔진이 돌고 있으면 그 포트를, 아니면 띄우고 나서 그 포트를 돌려준다.
@@ -155,10 +156,9 @@ export async function ensureVoiceEngine(): Promise<number> {
   starting = (async (): Promise<number> => {
     const bin = findVoiceEngineBin(voiceEngineDir());
     if (bin === null) throw new Error('voice engine not installed');
-    const source = activeModelSource();
-    if (source === null) throw new Error('voice model not installed');
-
     const modelRoot = voiceModelDir();
+    if (!modelFilesPresent(modelRoot)) throw new Error('voice model not installed');
+
     const port = await freePort();
     const args = [
       `--port=${String(port)}`,
@@ -166,6 +166,9 @@ export async function ensureVoiceEngine(): Promise<number> {
       `--encoder=${path.join(modelRoot, voiceModelDiskName('encoder'))}`,
       `--decoder=${path.join(modelRoot, voiceModelDiskName('decoder'))}`,
       `--joiner=${path.join(modelRoot, voiceModelDiskName('joiner'))}`,
+      // 이 옵션을 안 주면 엔진이 **지금 작업 폴더에 `log.txt` 를 만든다** — 그 폴더는 우리가
+      // 고른 곳이 아니라 앱이 뜬 자리라(사용자 프로젝트일 수도 있다) 남의 트리를 더럽힌다.
+      `--log-file=${path.join(voiceEngineDir(), 'engine-log.txt')}`,
       // 우리는 한 사람이 한 번에 말한다 — 묶음 처리를 크게 잡을 이유가 없고,
       // 짧게 돌수록 중간 글자가 빨리 뜬다.
       '--max-batch-size=1',
@@ -198,7 +201,7 @@ export async function ensureVoiceEngine(): Promise<number> {
     });
 
     try {
-      await waitForPort(port, Date.now() + VOICE_ASR.ENGINE_START_TIMEOUT_MS);
+      await waitForPort(port, Date.now() + VOICE_ASR.ENGINE_START_TIMEOUT_MS, () => exited);
     } catch (err) {
       if (!exited) terminateChildTree(child);
       throw new Error(`${err instanceof Error ? err.message : String(err)} — ${tail.slice(-300)}`);
