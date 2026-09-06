@@ -195,15 +195,19 @@ function PermissionModal({
         </div>
 
         {/* §5.22 — 위험 띠. 위험 3종으로 분류된 호출일 때만 뜨고, 모드가 통과시켰을 호출을
-            경계가 되돌려 물은 것이면 왜 지금 묻는지도 한 줄로 말한다. */}
-        {(request.risk?.length ?? 0) > 0 && (
+            경계가 되돌려 물은 것이면 왜 지금 묻는지도 한 줄로 말한다.
+            §5.3 #12-1-A — 사용자가 그 도구를 **직접 확인 목록에 넣어** 붙잡힌 호출도 같은 띠를
+            쓴다(새 모달·새 띠 ❌). 그쪽은 위험 판정 없이도 뜰 수 있으므로 조건이 둘이다. */}
+        {((request.risk?.length ?? 0) > 0 || request.askedByTool === true) && (
           <div className="flex flex-col gap-1 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2">
             <div className="flex flex-wrap items-center gap-1.5">
               <svg className="h-3.5 w-3.5 flex-shrink-0 text-amber-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M12 3 4.5 6v5.5c0 4.5 3.1 8.3 7.5 9.5 4.4-1.2 7.5-5 7.5-9.5V6Z" />
               </svg>
               <span className="text-[12px] font-semibold text-amber-200">
-                {t('panel.audit.promptRiskTitle', { defaultValue: 'Risky action' })}
+                {(request.risk?.length ?? 0) > 0
+                  ? t('panel.audit.promptRiskTitle', { defaultValue: 'Risky action' })
+                  : t('panel.permissionPrompt.askedByToolTitle', { defaultValue: 'Tool you asked to confirm' })}
               </span>
               {request.risk?.map((kind) => (
                 <span key={kind} className={`rounded border px-1.5 py-0.5 text-[12px] font-semibold ${riskToneClass(kind)}`}>
@@ -211,13 +215,23 @@ function PermissionModal({
                 </span>
               ))}
             </div>
-            {request.escalated && (
+            {/* §5.3 #12-1-A — 사용자가 지목해서 붙잡힌 것이 **먼저**다. 그 사람이 방금 자기 손으로
+                켠 설정이라 "왜 내 bypass 가 안 먹나"의 답이 여기 있고, 감사 경계 문구가 대신 뜨면
+                켠 적 없는 기능을 원인으로 읽게 된다. */}
+            {request.askedByTool === true ? (
+              <span className="text-[12px] leading-relaxed text-amber-200/80">
+                {t('panel.permissionPrompt.askedByToolHint', {
+                  defaultValue: 'You marked {{tool}} as "ask before use" in this agent’s settings — so it asks even in Bypass mode.',
+                  tool: request.toolName,
+                })}
+              </span>
+            ) : request.escalated ? (
               <span className="text-[12px] leading-relaxed text-amber-200/80">
                 {t('panel.audit.promptEscalatedHint', {
                   defaultValue: 'Your permission mode would have allowed this automatically — the audit boundary is asking first.',
                 })}
               </span>
-            )}
+            ) : null}
           </div>
         )}
 

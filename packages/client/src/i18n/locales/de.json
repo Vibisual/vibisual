@@ -908,6 +908,13 @@
         "tip": "Per CLI --disallowedTools fest gesperrt. Hat Vorrang vor der Erlaubnisliste (Tools). Verwenden, um ein einzelnes Tool zu deaktivieren, ohne die Erlaubnisliste neu aufzubauen.",
         "addTool": "+ Tool sperren"
       },
+      "askTools": {
+        "label": "Vor Verwendung nachfragen",
+        "summary_one": "Dieses 1 Tool fragt jedes Mal um deine Zustimmung — egal, welcher Berechtigungsmodus eingestellt ist, sogar Bypass.",
+        "summary_other": "Diese {{count}} Tools fragen jedes Mal um deine Zustimmung — egal, welcher Berechtigungsmodus eingestellt ist, sogar Bypass.",
+        "toggleAria": "Vor Verwendung von {{tool}} nachfragen",
+        "chipHint": "Fragt jedes Mal um deine Zustimmung — selbst im Bypass-Modus."
+      },
       "customMode": {
         "label": "Benutzermodus",
         "tip": "Vibisual-eigene Modusachse. Conti-Modus EIN überschreibt beim Speichern die Agent-Regeln mit dem Conti-Regelwerk (vorherige Regeln werden im Verlauf gespeichert). Review/Debug folgt später.",
@@ -1194,7 +1201,9 @@
       "denyReasonPlaceholder": "z. B. falscher Pfad, unsicherer Befehl",
       "shortcutHint": "{{shortcut}} = Zulassen · Esc = Ablehnen",
       "stackCount": "{{current}} von {{total}} ausstehend",
-      "emptyToolInput": "(leer)"
+      "emptyToolInput": "(leer)",
+      "askedByToolTitle": "Tool, bei dem du eine Bestätigung angefordert hast",
+      "askedByToolHint": "Du hast {{tool}} in den Einstellungen dieses Agenten als „vor Verwendung nachfragen“ markiert — daher fragt es sogar im Bypass-Modus nach."
     },
     "claudeVersionGate": {
       "title": "Claude Code-Update verfügbar",
@@ -2063,7 +2072,12 @@
       "voiceMicSettingsHintLinux": "Prüfen Sie, ob in Ihren Soundeinstellungen ein Mikrofon als Eingabegerät ausgewählt und nicht stummgeschaltet ist. Hat PulseAudio/PipeWire kein Standardeingabegerät, kann die App ebenfalls kein Gerät erkennen.",
       "voiceMicSettingsDeviceNote": "Ist der Zugriff bereits aktiviert, prüfen Sie, ob wirklich ein Mikrofon angeschlossen ist — getrennte Mikrofone werden in der Geräteliste weiterhin grau angezeigt.",
       "voiceMicSettingsHiddenNote": "Falls bereits ein Mikrofon angeschlossen ist, blenden die Systemeinstellungen es möglicherweise aus — siehe Hinweis unten.",
-      "voiceMicSettingsShortcutNote": "Spracheingabe mit {{shortcut}}"
+      "voiceMicSettingsShortcutNote": "Spracheingabe mit {{shortcut}}",
+      "voiceDenoiseLabel": "Lautsprecher- und Hintergrundgeräusche herausfiltern",
+      "voiceDenoiseHint": "Unterdrückt den Schall, der von Ihren Lautsprechern zurück ins Mikrofon gelangt, sowie gleichmäßige Geräusche wie Lüfter und Tastatur. Schalten Sie dies aus, wenn Ihr Audio-Interface das bereits übernimmt.",
+      "voiceEchoUnavailable": "Dieses Mikrofon unterstützt keine Echounterdrückung, daher kann Lautsprecherton mitaufgenommen werden. Mit Kopfhörern lässt sich das sicher vermeiden.",
+      "voiceRespaceLabel": "Koreanische Wortabstände wiederherstellen",
+      "voiceRespaceHint": "Die Spracherkennung gibt Koreanisch ohne Leerzeichen aus; dies trennt an Partikeln und Endungen. Regelbasiert und daher nicht perfekt — Sie können das Ergebnis im Eingabefeld korrigieren."
     },
     "voiceInstall": {
       "title": "Spracheingabe einrichten",

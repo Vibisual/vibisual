@@ -908,6 +908,13 @@
         "tip": "通过 CLI --disallowedTools 强制屏蔽。优先级高于允许列表（工具）。适用于不重建允许列表而只关闭单个工具的场景。",
         "addTool": "+ 屏蔽工具"
       },
+      "askTools": {
+        "label": "使用前询问",
+        "summary_one": "这 1 个工具每次都会请求你的批准——无论权限模式是什么，即使是 Bypass。",
+        "summary_other": "这 {{count}} 个工具每次都会请求你的批准——无论权限模式是什么，即使是 Bypass。",
+        "toggleAria": "使用 {{tool}} 前询问",
+        "chipHint": "每次都会请求你的批准——即使在 Bypass 模式下也是如此。"
+      },
       "customMode": {
         "label": "自定义模式",
         "tip": "Vibisual 专属模式轴。开启 Conti 模式并保存后，Agent 规则将被 Conti 专属规则集覆盖（原规则保留在历史中）。Review/Debug 后续推出。",
@@ -1194,7 +1201,9 @@
       "denyReasonPlaceholder": "如：路径错误、不安全命令",
       "shortcutHint": "{{shortcut}} = 允许 · Esc = 拒绝",
       "stackCount": "{{current}} / {{total}} 待处理",
-      "emptyToolInput": "（空）"
+      "emptyToolInput": "（空）",
+      "askedByToolTitle": "你要求确认的工具",
+      "askedByToolHint": "你在该 Agent 的设置中将 {{tool}} 标记为“使用前询问”——因此即使在 Bypass 模式下也会询问。"
     },
     "claudeVersionGate": {
       "title": "Claude Code 有可用更新",
@@ -2063,7 +2072,12 @@
       "voiceMicSettingsHintLinux": "检查声音设置中是否已将麦克风选为输入设备，并确认未被静音。如果 PulseAudio/PipeWire 没有默认输入设备，应用同样无法识别任何设备。",
       "voiceMicSettingsDeviceNote": "如果访问权限已开启，请检查是否确实插入了麦克风——已断开的麦克风在设备列表中仍会以灰色显示。",
       "voiceMicSettingsHiddenNote": "如果已经连接了麦克风，可能是操作系统设置将其隐藏了——请参见下方说明。",
-      "voiceMicSettingsShortcutNote": "按 {{shortcut}} 进行语音输入"
+      "voiceMicSettingsShortcutNote": "按 {{shortcut}} 进行语音输入",
+      "voiceDenoiseLabel": "过滤扬声器声音与环境噪音",
+      "voiceDenoiseHint": "消除从扬声器传回麦克风的声音，并抑制风扇、键盘等持续噪音。如果您的音频接口已做处理，请关闭此项。",
+      "voiceEchoUnavailable": "此麦克风不支持回声消除，扬声器的声音可能会混入。使用耳机可以彻底避免。",
+      "voiceRespaceLabel": "自动还原韩语分词空格",
+      "voiceRespaceHint": "识别引擎输出的韩语没有空格，此功能按助词和词尾进行切分。基于规则，并不完美，结果可在输入框中修改。"
     },
     "voiceInstall": {
       "title": "设置语音输入",

@@ -908,6 +908,13 @@
         "tip": "Force-blocked via CLI --disallowedTools. Takes precedence over the allow list (Tools). Use this when you want a single tool off without rebuilding the allow list.",
         "addTool": "+ Block tool"
       },
+      "askTools": {
+        "label": "Ask before use",
+        "summary_one": "This 1 tool asks for your approval every time — whatever the permission mode is, even Bypass.",
+        "summary_other": "These {{count}} tools ask for your approval every time — whatever the permission mode is, even Bypass.",
+        "toggleAria": "Ask before using {{tool}}",
+        "chipHint": "Asks for your approval every time — even in Bypass mode."
+      },
       "customMode": {
         "label": "Custom Mode",
         "tip": "Vibisual-only mode axis. Saving Conti mode ON overwrites the agent rules with the conti-only ruleset (previous rules go to history). Review/Debug coming later.",
@@ -1194,7 +1201,9 @@
       "denyReasonPlaceholder": "e.g. wrong path, unsafe command",
       "shortcutHint": "{{shortcut}} = Allow · Esc = Deny",
       "stackCount": "{{current}} of {{total}} pending",
-      "emptyToolInput": "(empty)"
+      "emptyToolInput": "(empty)",
+      "askedByToolTitle": "Tool you asked to confirm",
+      "askedByToolHint": "You marked {{tool}} as “ask before use” in this agent’s settings — so it asks even in Bypass mode."
     },
     "claudeVersionGate": {
       "title": "Claude Code update available",
@@ -2063,7 +2072,12 @@
       "voiceMicSettingsHintLinux": "Check that a microphone is selected as the input device in your sound settings and that it is not muted. If PulseAudio/PipeWire has no default input, the app cannot see any device either.",
       "voiceMicSettingsDeviceNote": "If access is already on, check that a microphone is actually plugged in — disconnected microphones still appear greyed out in the device list.",
       "voiceMicSettingsHiddenNote": "If a microphone is already connected, your OS settings may be hiding it — see the note below.",
-      "voiceMicSettingsShortcutNote": "Voice input with {{shortcut}}"
+      "voiceMicSettingsShortcutNote": "Voice input with {{shortcut}}",
+      "voiceDenoiseLabel": "Filter out speaker and background noise",
+      "voiceDenoiseHint": "Cancels sound coming back from your speakers and suppresses steady noise like fans and typing. Turn this off if your audio interface already handles it.",
+      "voiceEchoUnavailable": "This microphone does not support echo cancellation, so speaker audio may leak in. Headphones will stop it for certain.",
+      "voiceRespaceLabel": "Restore Korean word spacing",
+      "voiceRespaceHint": "The recognizer emits Korean without spaces; this splits it at particles and endings. It is rule-based, so it is not perfect — you can fix the result in the input box."
     },
     "voiceInstall": {
       "title": "Set up voice input",

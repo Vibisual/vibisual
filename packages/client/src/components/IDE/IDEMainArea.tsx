@@ -3,7 +3,7 @@ import { Virtuoso, type VirtuosoHandle, type StateSnapshot } from 'react-virtuos
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import type { QueuedCommand, CommandError, SubAgent, SubAgentStreamEvent, AgentEvent, AgentReport, AgentQuestions, AgentReview, AgentList, AskUserQuestionRequest } from '@vibisual/shared';
-import { STREAM_DENSITIES, STREAM_COMPACT_TEXT_CLAMP_LINES, STREAM_COMPACT_TEXT_CLAMP_CHARS, slashCommandNeedsTerminal, SESSION_MEMO, VOICE_INPUT, isVoiceToggleKey, mergeVoiceText, isMicAccessFixable, isNoDeviceError, type StreamDensity } from '@vibisual/shared';
+import { STREAM_DENSITIES, STREAM_COMPACT_TEXT_CLAMP_LINES, STREAM_COMPACT_TEXT_CLAMP_CHARS, slashCommandNeedsTerminal, SESSION_MEMO, VOICE_INPUT, isVoiceToggleKey, mergeVoiceText, polishVoiceChunk, isMicAccessFixable, isNoDeviceError, type StreamDensity } from '@vibisual/shared';
 import { useSessionRunning } from '../../hooks/useSessionRunning.js';
 import { clampStreamText } from './streamDensity.js';
 import type { TodoItem } from '@vibisual/shared';
@@ -30,7 +30,7 @@ import { FOLLOW_SKIP_SHORT_KEYS, followSessionKey } from './editorFollow.js';
 import { useVirtuosoFrontShift } from './frontShift.js';
 import { readingItemAttrsNoProse } from './reading/readingModel.js';
 import { useStreamToggle, streamToggleProps, STREAM_TOGGLE_ATTR } from './streamToggle.js';
-import { findTextRangeInContainer, scrollRangeIntoCenter, scrollElementIntoCenter, flashElement, findItemElement, resolveAnchorIdFromSelection, markRange, clearFindHighlight } from './bookmarkScroll.js';
+import { findTextRangeInContainer, scrollRangeIntoCenter, scrollElementIntoCenter, flashElement, findItemElement, resolveAnchorIdFromSelection, markRange, clearFindHighlight, highlightSearchMatches } from './bookmarkScroll.js';
 import { isFindableTextKind, findTextMatches } from './streamSearch.js';
 import { AskQuestionCard } from './AskQuestionCard.js';
 import { AgentReportCard } from './AgentReportCard.js';
@@ -143,6 +143,9 @@ function performBookmarkScroll(container: HTMLElement, anchorId: string | undefi
   if (anchorId) {
     const el = findItemElement(container, anchorId);
     if (el) {
+      // 인-페이지 검색(preserveFocus)은 **검색어가 든 그 줄**을 중앙에 놓고 선택 색으로 칠한다.
+      //   항목 중앙 정렬만 하면 카드가 화면보다 길 때 정작 검색어는 화면 밖에 남는다.
+      if (preserveFocus && highlightSearchMatches(container, el, text)) return true;
       scrollElementIntoCenter(container, el);
       flashElement(el);
       // 항목 안에서 정확한 텍스트도 표시해 주면 더 좋다(있으면).
@@ -151,6 +154,7 @@ function performBookmarkScroll(container: HTMLElement, anchorId: string | undefi
       return true;
     }
   }
+  if (preserveFocus && highlightSearchMatches(container, container, text)) return true;
   const range = findTextRangeInContainer(container, text);
   if (range) {
     scrollRangeIntoCenter(container, range, preserveFocus);
@@ -1090,6 +1094,16 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
   // 창 단위 단축키의 임자 판정 — 분할 중에는 초점 칸만 받는다(#17-34 Ctrl+F·배율과 같은 규칙).
   const voiceCellFocused = useSplitCellFocused();
   const inputRootRef = useRef<HTMLDivElement>(null);
+  // §5.5 #17-38 ⑰⑱ — 받아쓰기 두 스위치(잡음 억제 · 띄어쓰기 복원). 줌·밀도와 동형인 순수 클라
+  //   환경설정이라 서버로 가지 않는다. 마이크 팝업에서 켜고 끈다.
+  const voiceDenoise = useGraphStore((s) => s.ideVoiceDenoise);
+  const voiceRespace = useGraphStore((s) => s.ideVoiceRespace);
+  const setIdeVoiceDenoise = useGraphStore((s) => s.setIdeVoiceDenoise);
+  const setIdeVoiceRespace = useGraphStore((s) => s.setIdeVoiceRespace);
+  // 확정 콜백은 인식기에 **한 번 붙인 함수**로 계속 도므로, 스위치를 바꾼 뒤에도 옛 값이 박히지
+  //   않게 ref 로 읽는다(같은 이유로 훅 안에서도 콜백은 전부 ref 다).
+  const voiceRespaceRef = useRef(voiceRespace);
+  voiceRespaceRef.current = voiceRespace;
   /**
    * 확정된 말은 **커서 자리에** 들어간다(항상 맨 뒤 ❌ — 문장 가운데를 고치다 마이크를 켜는
    * 일이 실제로 있고, 그때 말한 것이 끝에 붙으면 그 문장을 다시 손봐야 한다).
@@ -1101,7 +1115,12 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
     const current = el?.value ?? '';
     const selStart = el?.selectionStart ?? current.length;
     const selEnd = el?.selectionEnd ?? current.length;
-    const merged = mergeVoiceText(current, selStart, selEnd, chunk);
+    // §5.5 #17-38 ⑱ — **끼우기 전에** 토막 안의 띄어쓰기를 복원한다. 엔진은 공백을 내지 않아
+    //   한국어가 통째로 붙어 온다(엔진 `--help` 실측: spacing 옵션 없음). 순서가 중요하다 —
+    //   `mergeVoiceText` 는 **토막과 기존 글 사이**의 경계만 다루므로, 여기서 먼저 다듬어야
+    //   사람이 손으로 쓴 앞뒤 글은 건드리지 않고 새로 들어온 말만 끊긴다.
+    const polished = polishVoiceChunk(chunk, voiceRespaceRef.current);
+    const merged = mergeVoiceText(current, selStart, selEnd, polished);
     setText(merged.text);
     // 스토어를 거쳐 값이 다시 그려진 **다음** 프레임에 커서를 세운다 — 지금 세우면 되감긴다.
     requestAnimationFrame(() => {
@@ -1142,6 +1161,8 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
     locale: uiLocale,
     enabled: true,
     onCommit: handleVoiceCommit,
+    // ⑰ — 켜는 그 순간의 값이 제약이 된다. 듣는 도중 바꾸면 다음 켜기부터 반영된다.
+    denoise: voiceDenoise,
     resolvePort: requestVoicePort,
     onNeedsInstall: handleVoiceNeedsInstall,
     onSessionEnd: handleVoiceSessionEnd,
@@ -1742,6 +1763,11 @@ function TerminalInput({ agentId, activeSessionId }: TerminalInputProps): React.
         noDevice={micNoDevice}
         onOpenSettings={handleOpenMicSettings}
         onClose={() => { setMicPopupOpen(false); }}
+        denoise={voiceDenoise}
+        onDenoiseChange={setIdeVoiceDenoise}
+        respace={voiceRespace}
+        onRespaceChange={setIdeVoiceRespace}
+        echoUnavailable={voice.echoUnavailable}
       />
       {/* §5.5 #17-23 ⑤ — 히스토리 진입 힌트. 경계에서 방향키를 처음 눌렀을 때만 뜨고,
           같은 방향으로 한 번 더 누르면 실제로 히스토리로 들어간다. 꺼낼 게 없으면 아예 안 뜬다.

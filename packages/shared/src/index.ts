@@ -1018,6 +1018,8 @@ export {
   LOCAL_EXIT_PLAN_TOOL,
   LOCAL_NETWORK_TOOLS,
   resolveLocalToolGate,
+  shouldAskForTool,
+  canPromptForPermission,
   normalizeAgentProvider,
   ALL_MODEL_DEFAULT_LABEL_RE,
   buildCmdCardProtocolRules,
@@ -1556,6 +1558,18 @@ export {
   refineDeviceError,
   isNoDeviceError,
 } from './voiceInput.js';
+
+// §5.5 #17-38 ⑰⑱ — 마이크를 **어떻게 받을지**(에코 제거·잡음 억제)와 받아 온 글을 **어떻게
+// 다듬을지**(한국어 띄어쓰기 복원). 위 voiceInput 이 "어디에 꽂을지"라면 이쪽은 그 앞뒤다.
+export type { VoiceAudioProcessing } from './voiceAudio.js';
+export {
+  voiceAudioConstraints,
+  readVoiceProcessing,
+  shouldWarnEcho,
+  polishVoiceChunk,
+} from './voiceAudio.js';
+// 띄어쓰기 규칙 본체 — 조사·어미 목록과 경계 판정은 그 자체로 한 덩어리라 파일을 나눴다.
+export { respaceKorean, hasHangul } from './voiceKoSpacing.js';
 
 // §5.5 #17-38 ⑫ — 오프라인 받아쓰기 엔진. 자산 고르기·모델 고르기·언어 등급·오디오 변환의 정본 한 곳.
 export type {

@@ -908,6 +908,13 @@
         "tip": "Bloccati forzatamente via CLI --disallowedTools. Ha precedenza sull'elenco consentiti (Strumenti). Usa questa opzione per disattivare un singolo strumento senza ricostruire l'elenco consentiti.",
         "addTool": "+ Blocca strumento"
       },
+      "askTools": {
+        "label": "Chiedi prima dell'uso",
+        "summary_one": "Questo 1 tool chiede la tua approvazione ogni volta, qualunque sia la modalità di autorizzazione, anche Bypass.",
+        "summary_other": "Questi {{count}} tool chiedono la tua approvazione ogni volta, qualunque sia la modalità di autorizzazione, anche Bypass.",
+        "toggleAria": "Chiedi prima di usare {{tool}}",
+        "chipHint": "Chiede la tua approvazione ogni volta, anche in modalità Bypass."
+      },
       "customMode": {
         "label": "Modalità personalizzata",
         "tip": "Asse modalità esclusivo Vibisual. Salvando con Conti ON le regole dell'agent vengono sovrascritte con il ruleset conti (le regole precedenti vanno in cronologia). Review/Debug in arrivo.",
@@ -1194,7 +1201,9 @@
       "denyReasonPlaceholder": "es. percorso errato, comando non sicuro",
       "shortcutHint": "{{shortcut}} = Consenti · Esc = Nega",
       "stackCount": "{{current}} di {{total}} in attesa",
-      "emptyToolInput": "(vuoto)"
+      "emptyToolInput": "(vuoto)",
+      "askedByToolTitle": "Tool per cui hai chiesto conferma",
+      "askedByToolHint": "Hai contrassegnato {{tool}} come “chiedi prima dell'uso” nelle impostazioni di questo agente, quindi chiede conferma anche in modalità Bypass."
     },
     "claudeVersionGate": {
       "title": "Aggiornamento Claude Code disponibile",
@@ -2063,7 +2072,12 @@
       "voiceMicSettingsHintLinux": "Verifica che nelle impostazioni audio sia selezionato un microfono come dispositivo di input e che non sia disattivato. Se PulseAudio/PipeWire non ha un input predefinito, anche l'app non riuscirà a rilevare alcun dispositivo.",
       "voiceMicSettingsDeviceNote": "Se l'accesso è già attivo, verifica che sia effettivamente collegato un microfono — i microfoni scollegati continuano a comparire in grigio nell'elenco dei dispositivi.",
       "voiceMicSettingsHiddenNote": "Se un microfono è già collegato, le impostazioni del sistema operativo potrebbero nasconderlo — vedi la nota qui sotto.",
-      "voiceMicSettingsShortcutNote": "Input vocale con {{shortcut}}"
+      "voiceMicSettingsShortcutNote": "Input vocale con {{shortcut}}",
+      "voiceDenoiseLabel": "Filtra il suono degli altoparlanti e il rumore di fondo",
+      "voiceDenoiseHint": "Annulla il suono che rientra nel microfono dagli altoparlanti e riduce i rumori costanti come ventole e tastiera. Disattivalo se la tua interfaccia audio lo fa già.",
+      "voiceEchoUnavailable": "Questo microfono non supporta la cancellazione dell’eco, quindi l’audio degli altoparlanti potrebbe filtrare. Con le cuffie il problema sparisce del tutto.",
+      "voiceRespaceLabel": "Ripristina la spaziatura del coreano",
+      "voiceRespaceHint": "Il riconoscitore restituisce il coreano senza spazi; questa opzione lo divide in base a particelle e desinenze. È basata su regole, quindi non è perfetta: puoi correggere il risultato nel campo di testo."
     },
     "voiceInstall": {
       "title": "Configura l’inserimento vocale",

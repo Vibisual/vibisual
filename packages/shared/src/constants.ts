@@ -2347,6 +2347,28 @@ export const PERMISSION_MODES_WITHOUT_PROMPT: readonly string[] = [
   'bypassPermissions', 'plan', 'auto', 'dontAsk',
 ];
 
+/**
+ * §5.3 #12-1-A — **이 설정에서 승인 팝업이 뜰 수 있는가.** `permissionTimeoutPolicy` 토글을
+ * 보일지 결정하는 자리이고, 판정이 두 벌이 되지 않게 여기 한 곳에 둔다.
+ *
+ * 종전에는 `PERMISSION_MODES_WITHOUT_PROMPT` 하나로 끝났지만, 도구별 확인 목록(`askTools`)이
+ * 생기면서 그 목록이 비어 있지 않으면 **`bypassPermissions`·`auto` 에서도 팝업이 뜬다** —
+ * 그때 토글을 숨기면 사용자는 60초 무응답 정책을 **볼 수도 고칠 수도 없는데** 카드는 뜨는
+ * 상태가 된다.
+ *
+ * `plan`·`dontAsk` 는 목록과 무관하게 그대로 숨긴다 — 전자는 실행 자체가 없고 후자는 팝업
+ * 대신 즉시 거부라, 확인 목록이 그 둘을 되돌리지 않는다(서버 판정도 같은 규칙이다).
+ */
+export function canPromptForPermission(
+  permissionMode: string | undefined,
+  askTools: readonly string[] | undefined,
+): boolean {
+  const mode = permissionMode || 'default';
+  if (mode === 'plan' || mode === 'dontAsk') return false;
+  if (askTools && askTools.length > 0) return true;
+  return !PERMISSION_MODES_WITHOUT_PROMPT.includes(mode);
+}
+
 /** 선택 가능한 격리 모드 */
 export const AVAILABLE_ISOLATION_MODES: readonly string[] = [
   'none', 'worktree',
@@ -7820,6 +7842,26 @@ export const LOCAL_EXIT_PLAN_TOOL = 'ExitPlanMode';
 
 /** 바깥으로 나가는 도구 — 밖에서 받아 오는 일이라 사람이 한 번 본다. */
 export const LOCAL_NETWORK_TOOLS: readonly string[] = ['WebFetch', 'WebSearch'];
+
+/**
+ * §5.3 #12-1-A — **이 호출이 사용자가 지목한 "물어봐야 하는 도구"인가.**
+ *
+ * `permissionMode` 는 모드 단위라 한 도구만 붙잡을 방법이 없다. 사용자가 `bypassPermissions` 를
+ * 고른 뜻은 "읽고 찾고 고치는 것을 매번 묻지 말라"이지 "무엇이든 말없이 하라"가 아니다 —
+ * 걱정되는 것은 그중 몇 가지뿐인데, 그 몇 가지 때문에 모드 전체를 내려야 했다. 이 함수가 그 한 칸이다.
+ *
+ * **판정은 여기 한 곳에서만.** 훅 경로(`POST /api/permission-check`)와 로컬 경로
+ * (`subAgentManager` 의 `requestTool`)가 같은 함수를 부른다 — 두 벌이 되면 헤드리스에서는
+ * 물어보고 로컬 모델에서는 안 묻는 상태가 생기고, 사용자에게는 "켰는데 안 먹는다"로만 보인다.
+ *
+ * 비교는 **정확한 이름 일치**다(대소문자 접기 ❌ — 도구 이름은 CLI 가 정한 식별자이고
+ * `Read` 와 `read` 는 같은 것이 아니다). 목록이 비었거나 없으면 `false` = 종전과 완전히 동일.
+ */
+export function shouldAskForTool(askTools: readonly string[] | undefined, toolName: string): boolean {
+  if (!askTools || askTools.length === 0) return false;
+  if (!toolName) return false;
+  return askTools.includes(toolName);
+}
 
 /** 도구 한 건을 어떻게 처리할지. `ask` 만 사람에게 팝업이 뜬다. */
 export type LocalToolGate = 'allow' | 'ask' | 'deny';

@@ -3019,6 +3019,12 @@ export interface PermissionRequest {
   escalated?: boolean;
   /** §5.22 — 이 요청이 원장의 어느 줄인지(결정을 그 줄에 적기 위한 키). */
   auditEntryId?: string;
+  /**
+   * §5.3 #12-1-A — 이 카드가 뜬 이유가 **사용자가 그 도구를 확인 목록에 넣었기 때문**인가.
+   * 카드가 "왜 지금 묻는지"를 한 줄로 말할 수 있게 하는 표식(§5.22 `escalated` 와 같은 자리).
+   * 모드가 원래 묻는 호출(`default` 의 가변 도구 등)에는 붙지 않는다 — 그건 종전 그대로다.
+   */
+  askedByTool?: boolean;
 }
 
 /** §5.3 #12-1 v1.43 — 권한 승인 결정 (클라→서버 REST 바디 + 서버→클라 broadcast payload) */
@@ -6107,6 +6113,17 @@ export interface AgentConfig {  /** 사용 모델 (예: "sonnet", "opus", "haiku
   effort?: string;
   /** 차단 도구 목록 — 이 도구들은 사용 불가 (예: ["Write", "Edit"]) */
   disallowedTools?: string[];
+  /**
+   * §5.3 #12-1-A — **도구별 확인 목록.** 여기 든 도구는 `permissionMode` 가 무엇이든
+   * (`bypassPermissions` 포함) 실행 전에 기존 승인 카드(`PermissionPromptStack`)를 만난다.
+   *
+   * `tools`(가질 수 있는 능력) · `disallowedTools`(못 쓰는 것) 과 **직교**한다 —
+   * 이 목록의 뜻은 "쓸 수 있되 **물어보고** 쓴다"이다.
+   *
+   * `undefined`/빈 배열이면 종전과 **완전히 동일**(기본 꺼짐 — 사용자가 고른 모드를 말없이
+   * 무르지 않는다). 판정은 `shouldAskForTool` 한 곳이고 훅 경로·로컬 경로가 그 함수를 함께 쓴다.
+   */
+  askTools?: string[];
   /**
    * §5.5 #17-20 ⑥ v4.74 — 이 에이전트에 붙일 MCP 서버 프리셋 id 목록(`MCP_SERVER_PRESETS`).
    * 켜면 `buildConfigArgs` 가 `--mcp-config <생성 파일>` + `--allowedTools mcp__<id>` 를 싣는다.

@@ -37,10 +37,66 @@ export interface MicSettingsPopupProps {
   noDevice: boolean;
   onOpenSettings: () => void;
   onClose: () => void;
+  /** §5.5 #17-38 ⑰ — 잡음·에코 억제를 걸 것인가(기본 켜짐). */
+  denoise: boolean;
+  onDenoiseChange: (on: boolean) => void;
+  /** §5.5 #17-38 ⑱ — 인식된 한국어의 띄어쓰기를 복원할 것인가(기본 켜짐). */
+  respace: boolean;
+  onRespaceChange: (on: boolean) => void;
+  /**
+   * ⑰ — 에코 제거를 **부탁했는데 장치가 못 해서** 꺼진 채 열렸는가. 참이면 스위치 밑에 한 줄이
+   * 붙어 헤드폰을 권한다 — 켜 두었는데도 소리가 들어오는 사람에게 그 이유를 말해 주는 자리다.
+   */
+  echoUnavailable: boolean;
+}
+
+/**
+ * 팝업 안의 켜기/끄기 한 줄. 스위치가 둘이라 모양을 한 곳에 둔다 — 두 벌이 되면 한쪽만 고쳐진다.
+ *
+ * `role="switch"` + `aria-checked` 로 낸다(체크박스 ❌) — 이 줄은 폼을 제출하는 항목이 아니라
+ * **지금 곧바로 켜고 끄는 손잡이**라, 읽어 주는 프로그램이 그렇게 말해야 뜻이 맞는다.
+ */
+function ToggleRow({
+  label, hint, checked, onChange,
+}: {
+  label: string;
+  hint: string;
+  checked: boolean;
+  onChange: (on: boolean) => void;
+}): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={() => { onChange(!checked); }}
+      className="flex w-full items-start gap-2.5 rounded px-1 py-1.5 text-left transition-colors hover:bg-gray-800/60"
+    >
+      <span
+        className={`mt-0.5 flex h-4 w-7 flex-shrink-0 items-center rounded-full transition-colors ${
+          checked ? 'bg-blue-600' : 'bg-gray-700'
+        }`}
+        aria-hidden="true"
+      >
+        <span
+          className={`h-3 w-3 rounded-full bg-white transition-transform ${
+            checked ? 'translate-x-3.5' : 'translate-x-0.5'
+          }`}
+        />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[12px] font-medium text-gray-200">{label}</span>
+        {/* 12px 이 한글 가독 하한이다 — 그보다 작으면 획이 무너진다(`typographyFloor.test.ts`).
+            위계는 크기가 아니라 **색**으로 준다(라벨 `text-gray-200` ↔ 설명 `text-gray-500`). */}
+        <span className="mt-0.5 block text-[12px] leading-[1.45] text-gray-500">{hint}</span>
+      </span>
+    </button>
+  );
 }
 
 export function MicSettingsPopup({
   open, openable, hintKey, blocked, noDevice, onOpenSettings, onClose,
+  denoise, onDenoiseChange, respace, onRespaceChange, echoUnavailable,
 }: MicSettingsPopupProps): React.JSX.Element | null {
   const { t } = useTranslation();
   const ref = useRef<HTMLDivElement | null>(null);
@@ -116,6 +172,38 @@ export function MicSettingsPopup({
       <p className="mt-2 text-[12px] leading-4 text-gray-500">
         {t(noDevice ? 'ide.mainArea.voiceMicSettingsHiddenNote' : 'ide.mainArea.voiceMicSettingsDeviceNote')}
       </p>
+
+      {/* §5.5 #17-38 ⑰⑱ — 소리를 **어떻게 받을지**와 받아 온 글을 **어떻게 다듬을지**.
+          권한 안내와 같은 판에 두는 이유: 사용자가 마이크에 문제를 느꼈을 때 여는 판이 여기
+          하나이고(우클릭·[해결 방법] 둘 다 이 판으로 온다), 판을 하나 더 만들면 "마이크 관련
+          설정"이 두 곳으로 갈린다. 위쪽 안내와는 구분선으로 가른다 — 저건 고장 안내고 이건 선택이다. */}
+      <div className="mt-2.5 border-t border-gray-800 pt-2">
+        <ToggleRow
+          label={t('ide.mainArea.voiceDenoiseLabel')}
+          hint={t('ide.mainArea.voiceDenoiseHint')}
+          checked={denoise}
+          onChange={onDenoiseChange}
+        />
+        {/* 켜 두었는데도 소리가 들어오는 사람에게 **그 이유**를 말한다. 제약은 `ideal` 이라
+            장치가 못 하면 조용히 꺼진 채 열리고, 말해 주지 않으면 우리가 아무 일도 안 한 줄 안다.
+            꺼 둔 사람에게는 뜨지 않는다 — 부탁하지도 않은 것을 못 했다고 말할 수는 없다. */}
+        {denoise && echoUnavailable && (
+          <p className="mb-1 ml-9 flex items-start gap-1.5 text-[12px] leading-[1.45] text-amber-400/90">
+            <svg className="mt-0.5 h-3 w-3 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
+              <line x1="12" y1="9" x2="12" y2="13" />
+              <line x1="12" y1="17" x2="12.01" y2="17" />
+            </svg>
+            <span>{t('ide.mainArea.voiceEchoUnavailable')}</span>
+          </p>
+        )}
+        <ToggleRow
+          label={t('ide.mainArea.voiceRespaceLabel')}
+          hint={t('ide.mainArea.voiceRespaceHint')}
+          checked={respace}
+          onChange={onRespaceChange}
+        />
+      </div>
 
       <div className="mt-2.5 flex items-center justify-between gap-2">
         <span className="text-[12px] text-gray-600">

@@ -908,6 +908,12 @@
         "tip": "CLI --disallowedTools로 강제 차단. 허용 목록(도구)보다 우선합니다. 허용 목록을 재구성하지 않고 특정 도구만 끄고 싶을 때 사용하세요.",
         "addTool": "+ 도구 차단"
       },
+      "askTools": {
+        "label": "쓰기 전에 확인",
+        "summary_other": "이 {{count}}개 도구는 권한 모드가 무엇이든(Bypass 라도) 쓰기 전에 매번 확인을 받습니다.",
+        "toggleAria": "{{tool}} 을(를) 쓰기 전에 확인받기",
+        "chipHint": "쓰기 전에 매번 확인을 받습니다 — Bypass 모드에서도 묻습니다."
+      },
       "customMode": {
         "label": "커스텀 모드",
         "tip": "Vibisual 전용 모드 축. Conti 모드 ON으로 저장하면 에이전트 규칙이 콘티 전용 규칙셋으로 덮어씌워집니다 (이전 규칙은 히스토리에 보존). Review/Debug는 추후 추가 예정.",
@@ -1194,7 +1200,9 @@
       "denyReasonPlaceholder": "예: 잘못된 경로, 안전하지 않은 명령",
       "shortcutHint": "{{shortcut}} = 허용 · Esc = 거부",
       "stackCount": "{{total}}개 중 {{current}}번째",
-      "emptyToolInput": "(없음)"
+      "emptyToolInput": "(없음)",
+      "askedByToolTitle": "확인하기로 하신 도구",
+      "askedByToolHint": "이 에이전트 설정에서 {{tool}} 을(를) ‘쓰기 전에 확인’ 으로 지정하셨습니다 — 그래서 Bypass 모드에서도 여쭙습니다."
     },
     "claudeVersionGate": {
       "title": "Claude Code 업데이트 가능",
@@ -2063,7 +2071,12 @@
       "voiceMicSettingsHintLinux": "시스템 소리 설정의 입력 장치에서 마이크가 선택되어 있는지, 음소거가 아닌지 확인해 주세요. PulseAudio/PipeWire 의 기본 입력이 비어 있으면 앱에서도 장치가 보이지 않습니다.",
       "voiceMicSettingsDeviceNote": "설정이 이미 켜져 있다면 마이크가 실제로 연결되어 있는지 확인해 주세요 — 연결되지 않은 마이크도 목록에는 회색으로 남아 있습니다.",
       "voiceMicSettingsHiddenNote": "마이크를 이미 연결하셨다면, OS 설정이 마이크를 감추고 있을 수 있습니다 — 아래 안내를 확인해 주세요.",
-      "voiceMicSettingsShortcutNote": "{{shortcut}} 로 음성 입력"
+      "voiceMicSettingsShortcutNote": "{{shortcut}} 로 음성 입력",
+      "voiceDenoiseLabel": "주변 소리·스피커 소리 걸러내기",
+      "voiceDenoiseHint": "스피커로 나간 소리가 마이크로 되돌아오는 것과 팬·키보드 같은 주변 잡음을 줄입니다. 오디오 인터페이스에서 이미 처리하고 계시면 꺼 두세요.",
+      "voiceEchoUnavailable": "이 마이크는 에코 제거를 지원하지 않아 스피커 소리가 섞일 수 있습니다. 헤드폰을 쓰시면 확실히 막힙니다.",
+      "voiceRespaceLabel": "한국어 띄어쓰기 자동 복원",
+      "voiceRespaceHint": "인식기가 붙여서 내보내는 한국어를 조사·어미 단위로 끊어 줍니다. 규칙 기반이라 완벽하지는 않고, 결과는 입력창에서 고치실 수 있습니다."
     },
     "voiceInstall": {
       "title": "음성 입력 준비",

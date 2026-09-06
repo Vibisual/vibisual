@@ -908,6 +908,13 @@
         "tip": "Diblokir paksa via CLI --disallowedTools. Mengambil prioritas di atas daftar izin (Tools). Gunakan ini jika ingin menonaktifkan satu tool tanpa membangun ulang daftar izin.",
         "addTool": "+ Blokir tool"
       },
+      "askTools": {
+        "label": "Tanya sebelum digunakan",
+        "summary_one": "1 alat ini meminta persetujuan Anda setiap kali — apa pun mode izinnya, bahkan Bypass.",
+        "summary_other": "{{count}} alat ini meminta persetujuan Anda setiap kali — apa pun mode izinnya, bahkan Bypass.",
+        "toggleAria": "Tanya sebelum menggunakan {{tool}}",
+        "chipHint": "Meminta persetujuan Anda setiap kali — bahkan dalam mode Bypass."
+      },
       "customMode": {
         "label": "Mode Kustom",
         "tip": "Sumbu mode khusus Vibisual. Menyimpan dengan Conti mode ON akan menimpa aturan agent dengan ruleset khusus conti (aturan sebelumnya masuk ke riwayat). Review/Debug akan hadir kemudian.",
@@ -1194,7 +1201,9 @@
       "denyReasonPlaceholder": "mis. path salah, perintah tidak aman",
       "shortcutHint": "{{shortcut}} = Izinkan · Esc = Tolak",
       "stackCount": "{{current}} dari {{total}} tertunda",
-      "emptyToolInput": "(kosong)"
+      "emptyToolInput": "(kosong)",
+      "askedByToolTitle": "Alat yang Anda minta untuk dikonfirmasi",
+      "askedByToolHint": "Anda menandai {{tool}} sebagai “tanya sebelum digunakan” di pengaturan agent ini — jadi ia tetap bertanya bahkan dalam mode Bypass."
     },
     "claudeVersionGate": {
       "title": "Pembaruan Claude Code tersedia",
@@ -2063,7 +2072,12 @@
       "voiceMicSettingsHintLinux": "Periksa apakah mikrofon sudah dipilih sebagai perangkat input di pengaturan suara dan tidak dalam kondisi mute. Jika PulseAudio/PipeWire tidak memiliki input default, aplikasi juga tidak dapat mendeteksi perangkat apa pun.",
       "voiceMicSettingsDeviceNote": "Jika akses sudah aktif, periksa apakah mikrofon benar-benar terpasang — mikrofon yang terputus tetap muncul berwarna abu-abu (greyed out) di daftar perangkat.",
       "voiceMicSettingsHiddenNote": "Jika mikrofon sudah tersambung, pengaturan OS Anda mungkin menyembunyikannya — lihat catatan di bawah.",
-      "voiceMicSettingsShortcutNote": "Input suara dengan {{shortcut}}"
+      "voiceMicSettingsShortcutNote": "Input suara dengan {{shortcut}}",
+      "voiceDenoiseLabel": "Saring suara speaker dan derau sekitar",
+      "voiceDenoiseHint": "Meredam suara yang kembali dari speaker ke mikrofon serta derau tetap seperti kipas dan ketikan. Matikan jika antarmuka audio Anda sudah menanganinya.",
+      "voiceEchoUnavailable": "Mikrofon ini tidak mendukung peredam gema, jadi suara speaker bisa ikut terekam. Memakai headphone pasti mengatasinya.",
+      "voiceRespaceLabel": "Pulihkan spasi kata bahasa Korea",
+      "voiceRespaceHint": "Mesin pengenal mengeluarkan bahasa Korea tanpa spasi; fitur ini memisahkannya pada partikel dan akhiran. Berbasis aturan sehingga tidak sempurna — hasilnya dapat Anda perbaiki di kotak masukan."
     },
     "voiceInstall": {
       "title": "Siapkan input suara",

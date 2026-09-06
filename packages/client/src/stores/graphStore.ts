@@ -136,6 +136,14 @@ const DEFAULT_TABBAR_KEY = 'vibisual:defaultTabbar';
 // IDE 본문(스트림/대화) 텍스트 줌 배율 — Ctrl+휠로 조절, 캔버스·창 UI 와 무관한 순수 클라 표시 환경설정.
 //   localStorage 영속(앱·창 재시작 후에도 유지) + storage 이벤트로 다중 창 동기화. 캔버스 zoom 과 별개.
 const IDE_TEXT_ZOOM_KEY = 'vibisual:ideTextZoom';
+// §5.5 #17-38 ⑰⑱ — 받아쓰기 두 스위치. 줌·밀도와 동형인 순수 클라 환경설정(서버 미전달).
+//   ⑰ 잡음/에코 억제: 마이크를 열 때 거는 제약. 끄면 장치 기본값으로 연다 —
+//      **오디오 인터페이스로 이미 처리하는 사용자**는 이중 처리로 소리가 뭉개지므로 끌 수 있어야 한다.
+//   ⑱ 띄어쓰기 복원: 엔진이 붙여 내는 한국어를 규칙으로 끊는다. 규칙 기반이라 틀리는 자리가
+//      있고, 되돌릴 길이 없으면 받아쓰기 자체를 못 쓰게 된다. 둘 다 **기본 켜짐** — 고쳐야 할
+//      결함을 고친 것이라 켜진 쪽이 정상이고, 끄기는 예외적인 사용자의 몫이다.
+const IDE_VOICE_DENOISE_KEY = 'vibisual:ideVoiceDenoise';
+const IDE_VOICE_RESPACE_KEY = 'vibisual:ideVoiceRespace';
 // §5.5 #17-27 — 내장 편집창 폭(px). 줌·밀도와 동형인 순수 클라 표시 환경설정(서버 미전달).
 const IDE_EDITOR_WIDTH_KEY = 'vibisual:ideEditorWidth';
 function clampIdeEditorWidth(w: number): number {
@@ -2450,6 +2458,18 @@ interface GraphState {
   seedSeenSkills: (keys: string[]) => void;
   /** 스킬을 본 것으로 표시(클릭 시). 이미 본 것이면 무변경. */
   markSkillSeen: (key: string) => void;
+  /**
+   * §5.5 #17-38 ⑰ — 받아쓰기 마이크에 **잡음·에코 억제**를 걸 것인가. 기본 켜짐.
+   * 켜면 `voiceAudioConstraints` 가 에코 제거·잡음 억제·자동 이득을 `ideal` 로 요구한다.
+   */
+  ideVoiceDenoise: boolean;
+  setIdeVoiceDenoise: (on: boolean) => void;
+  /**
+   * §5.5 #17-38 ⑱ — 인식된 한국어의 **띄어쓰기를 복원**할 것인가. 기본 켜짐.
+   * 엔진은 공백을 내지 않으므로(엔진 `--help` 실측) 끄면 붙어 나온 그대로 입력창에 들어간다.
+   */
+  ideVoiceRespace: boolean;
+  setIdeVoiceRespace: (on: boolean) => void;
   /** IDE 본문(스트림/대화) 텍스트 줌 배율(1 = 100%). Ctrl+휠로 조절. 캔버스·창 UI 와 무관. localStorage 영속. */
   ideTextZoom: number;
   /** IDE 본문 텍스트 줌 배율 설정(0.6~2.4 로 클램프 + 영속). */
@@ -4606,6 +4626,20 @@ export const useGraphStore = create<GraphState>(batchedNotify<GraphState>((set, 
     saveJSON(DEFAULT_TABBAR_KEY, key);
     return { defaultTabbarKey: key };
   }),
+  // §5.5 #17-38 ⑰⑱ — 둘 다 **기본 켜짐**. 저장된 값이 없거나 참·거짓이 아니면(손으로 고친
+  //   localStorage) 켜진 것으로 읽는다 — 결함을 고친 쪽이 정상이고, 끄기가 예외다.
+  ideVoiceDenoise: loadJSON<boolean>(IDE_VOICE_DENOISE_KEY, true) !== false,
+  setIdeVoiceDenoise: (on) => set((state) => {
+    if (state.ideVoiceDenoise === on) return state;
+    saveJSON(IDE_VOICE_DENOISE_KEY, on);
+    return { ideVoiceDenoise: on };
+  }),
+  ideVoiceRespace: loadJSON<boolean>(IDE_VOICE_RESPACE_KEY, true) !== false,
+  setIdeVoiceRespace: (on) => set((state) => {
+    if (state.ideVoiceRespace === on) return state;
+    saveJSON(IDE_VOICE_RESPACE_KEY, on);
+    return { ideVoiceRespace: on };
+  }),
   ideTextZoom: clampIdeTextZoom(loadJSON<number>(IDE_TEXT_ZOOM_KEY, DEFAULT_IDE_TEXT_ZOOM)),
   setIdeTextZoom: (z) => set((state) => {
     const next = clampIdeTextZoom(z);
@@ -6363,5 +6397,21 @@ if (typeof window !== 'undefined') {
     let z = 1;
     try { z = e.newValue ? (JSON.parse(e.newValue) as number) : 1; } catch { z = 1; }
     useGraphStore.setState({ ideTextZoom: clampIdeTextZoom(z) });
+  });
+}
+
+// §5.5 #17-38 ⑰⑱ — 받아쓰기 두 스위치도 같은 규약으로 창 사이를 따라간다. 별창과 메인이
+//   각자 렌더러(독립 store)라 이것이 없으면 **한 창에서 끈 스위치가 다른 창에서는 켜진 채**로
+//   남는다. 팝업을 어느 창에서 열었느냐에 따라 다른 값이 보이면, 사용자는 자기가 끈 것이
+//   안 먹혔다고 읽는다(줌과 달리 눈에 바로 안 보이는 값이라 더 그렇다).
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (e) => {
+    if (e.key !== IDE_VOICE_DENOISE_KEY && e.key !== IDE_VOICE_RESPACE_KEY) return;
+    // 지운 경우(`newValue === null`)는 기본값으로 돌아간다 — 둘 다 **기본 켜짐**이다.
+    let on = true;
+    try { on = e.newValue === null ? true : (JSON.parse(e.newValue) as boolean) !== false; } catch { on = true; }
+    useGraphStore.setState(
+      e.key === IDE_VOICE_DENOISE_KEY ? { ideVoiceDenoise: on } : { ideVoiceRespace: on },
+    );
   });
 }

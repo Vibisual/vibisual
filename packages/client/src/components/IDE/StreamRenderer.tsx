@@ -13,7 +13,7 @@
 import { memo, useState, useMemo, useRef, useCallback, useContext, createContext, forwardRef, useImperativeHandle, Children, isValidElement } from 'react';
 import { Virtuoso, type VirtuosoHandle, type StateSnapshot } from 'react-virtuoso';
 import { useTranslation } from 'react-i18next';
-import { findTextRangeInContainer, scrollRangeIntoCenter, scrollElementIntoCenter, flashElement, findItemElement, markRange } from './bookmarkScroll.js';
+import { findTextRangeInContainer, scrollRangeIntoCenter, scrollElementIntoCenter, flashElement, findItemElement, markRange, highlightSearchMatches } from './bookmarkScroll.js';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Components } from 'react-markdown';
@@ -1107,6 +1107,9 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
       if (anchorId) {
         const el = findItemElement(cont, anchorId);
         if (el) {
+          // 인-페이지 검색(preserveFocus)은 검색어가 든 그 줄을 중앙에 놓고 선택 색으로 칠한다
+          //   (메인 탭 performBookmarkScroll 과 같은 규칙 — 두 탭의 도착 연출이 갈리지 않게).
+          if (preserveFocus && highlightSearchMatches(cont, el, text)) return;
           scrollElementIntoCenter(cont, el);
           flashElement(el);
           const range = findTextRangeInContainer(el, text);
@@ -1114,6 +1117,7 @@ export const StreamRenderer = memo(forwardRef<StreamRendererHandle, StreamRender
           return;
         }
       }
+      if (preserveFocus && highlightSearchMatches(cont, cont, text)) return;
       const range = findTextRangeInContainer(cont, text);
       if (range) scrollRangeIntoCenter(cont, range, preserveFocus);
     }, idx >= 0 ? 280 : 60);

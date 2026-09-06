@@ -908,6 +908,13 @@
         "tip": "CLI --disallowedToolsで強制ブロック。許可リスト（ツール）より優先されます。許可リストを再構築せずに特定ツールをOFFにしたい場合に使用してください。",
         "addTool": "+ ツールをブロック"
       },
+      "askTools": {
+        "label": "使用前に確認",
+        "summary_one": "このツールは毎回、承認を求めます。パーミッションモードが何であっても、バイパスモードでも同様です。",
+        "summary_other": "これら{{count}}個のツールは毎回、承認を求めます。パーミッションモードが何であっても、バイパスモードでも同様です。",
+        "toggleAria": "{{tool}}の使用前に確認する",
+        "chipHint": "毎回、承認を求めます。バイパスモードでも同様です。"
+      },
       "customMode": {
         "label": "カスタムモード",
         "tip": "Vibisual独自のモード軸。Contiモード ONで保存するとエージェントルールがConti専用ルールセットで上書きされます（以前のルールは履歴に保存）。Review/Debugは後日対応予定。",
@@ -1194,7 +1201,9 @@
       "denyReasonPlaceholder": "例: 誤ったパス、安全でないコマンド",
       "shortcutHint": "{{shortcut}} = 許可 · Esc = 拒否",
       "stackCount": "{{total}}件中{{current}}件目",
-      "emptyToolInput": "（空）"
+      "emptyToolInput": "（空）",
+      "askedByToolTitle": "確認を求めたツール",
+      "askedByToolHint": "このagentの設定で{{tool}}を「使用前に確認」に指定したため、バイパスモードでも確認を求めます。"
     },
     "claudeVersionGate": {
       "title": "Claude Code アップデートあり",
@@ -2063,7 +2072,12 @@
       "voiceMicSettingsHintLinux": "サウンド設定でマイクが入力デバイスとして選択されており、ミュートになっていないか確認してください。PulseAudio/PipeWireにデフォルトの入力デバイスがない場合、アプリからもデバイスを検出できません。",
       "voiceMicSettingsDeviceNote": "アクセスが既にオンになっている場合は、マイクが実際に接続されているか確認してください。切断されたマイクもデバイス一覧にはグレーアウト表示で残ります。",
       "voiceMicSettingsHiddenNote": "マイクをすでに接続している場合は、OSの設定で非表示になっている可能性があります。下記の注意事項をご確認ください。",
-      "voiceMicSettingsShortcutNote": "{{shortcut}} で音声入力"
+      "voiceMicSettingsShortcutNote": "{{shortcut}} で音声入力",
+      "voiceDenoiseLabel": "スピーカー音・周囲の雑音を抑える",
+      "voiceDenoiseHint": "スピーカーから出た音がマイクに回り込むのを打ち消し、ファンやタイピングなどの定常的な雑音を抑えます。オーディオインターフェース側で処理している場合はオフにしてください。",
+      "voiceEchoUnavailable": "このマイクはエコーキャンセルに対応していないため、スピーカーの音が混ざることがあります。ヘッドホンを使えば確実に防げます。",
+      "voiceRespaceLabel": "韓国語の分かち書きを自動補正",
+      "voiceRespaceHint": "認識エンジンは韓国語を空白なしで出力するため、助詞や語尾で区切ります。ルールベースなので完璧ではありません。結果は入力欄で修正できます。"
     },
     "voiceInstall": {
       "title": "音声入力の準備",
