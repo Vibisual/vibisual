@@ -908,6 +908,13 @@
         "tip": "Bloqués via CLI --disallowedTools. Prioritaire sur la liste d'autorisation (Outils). À utiliser pour désactiver un outil unique sans reconstruire la liste.",
         "addTool": "+ Bloquer un outil"
       },
+      "askTools": {
+        "label": "Demander avant utilisation",
+        "summary_one": "Cet outil vous demande votre approbation à chaque fois — quel que soit le mode de permission, même Bypass.",
+        "summary_other": "Ces {{count}} outils vous demandent votre approbation à chaque fois — quel que soit le mode de permission, même Bypass.",
+        "toggleAria": "Demander avant d'utiliser {{tool}}",
+        "chipHint": "Demande votre approbation à chaque fois — même en mode Bypass."
+      },
       "customMode": {
         "label": "Mode personnalisé",
         "tip": "Axe de mode exclusif à Vibisual. L'activation du mode Conti écrase les règles de l'agent avec le jeu de règles conti (les règles précédentes sont conservées dans l'historique). Review/Debug à venir.",
@@ -1194,7 +1201,9 @@
       "denyReasonPlaceholder": "ex. : mauvais chemin, commande non sécurisée",
       "shortcutHint": "{{shortcut}} = Autoriser · Esc = Refuser",
       "stackCount": "{{current}} sur {{total}} en attente",
-      "emptyToolInput": "(vide)"
+      "emptyToolInput": "(vide)",
+      "askedByToolTitle": "Outil pour lequel vous avez demandé une confirmation",
+      "askedByToolHint": "Vous avez marqué {{tool}} comme « à demander avant utilisation » dans les paramètres de cet agent — il demande donc une confirmation même en mode Bypass."
     },
     "claudeVersionGate": {
       "title": "Mise à jour Claude Code disponible",
@@ -2063,7 +2072,12 @@
       "voiceMicSettingsHintLinux": "Vérifiez qu'un microphone est sélectionné comme périphérique d'entrée dans vos paramètres audio et qu'il n'est pas coupé. Si PulseAudio/PipeWire n'a pas d'entrée par défaut, l'application ne peut voir aucun périphérique non plus.",
       "voiceMicSettingsDeviceNote": "Si l'accès est déjà activé, vérifiez qu'un microphone est bien branché — les microphones débranchés apparaissent toujours grisés dans la liste des périphériques.",
       "voiceMicSettingsHiddenNote": "Si un microphone est déjà connecté, les réglages de votre système peuvent le masquer — voir la note ci-dessous.",
-      "voiceMicSettingsShortcutNote": "Saisie vocale avec {{shortcut}}"
+      "voiceMicSettingsShortcutNote": "Saisie vocale avec {{shortcut}}",
+      "voiceDenoiseLabel": "Filtrer le son des haut-parleurs et le bruit ambiant",
+      "voiceDenoiseHint": "Supprime le son qui revient des haut-parleurs vers le micro et atténue les bruits constants comme les ventilateurs ou le clavier. Désactivez cette option si votre interface audio s’en charge déjà.",
+      "voiceEchoUnavailable": "Ce micro ne prend pas en charge l’annulation d’écho : le son des haut-parleurs peut donc être capté. Un casque règle le problème à coup sûr.",
+      "voiceRespaceLabel": "Rétablir les espaces du coréen",
+      "voiceRespaceHint": "La reconnaissance renvoie le coréen sans espaces ; cette option le découpe aux particules et aux terminaisons. Basée sur des règles, elle n’est pas parfaite — vous pouvez corriger le résultat dans le champ de saisie."
     },
     "voiceInstall": {
       "title": "Configurer la saisie vocale",

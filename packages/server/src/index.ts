@@ -97,7 +97,7 @@ import { classifyToolRiskOnHost } from './services/auditLog.js';
 import type { AuditDecisionSource, AuditBoundaryConfig } from '@vibisual/shared';
 import { askUserQuestionBroker } from './services/askUserQuestionBroker.js';
 import { AutoAgentRuntime } from './services/autoAgentRuntime.js';
-import { BUBBLE_COLORS, READ_TOOLS, WS_BATCH_INTERVAL, WS_BATCH_INTERVAL_MAX, WS_BATCH_BACKOFF_FACTOR, CHECKPOINT_BATCH_INTERVAL, CHECKPOINT_BATCH_INTERVAL_MAX, CHECKPOINT_QUIET_SWEEP_MS, PROJECT_IDLE_UNLOAD_MS, PROJECT_IDLE_UNLOAD_SWEEP_MS, PROJECT_IDLE_UNLOAD_PRESSURE_MS } from '@vibisual/shared';
+import { BUBBLE_COLORS, READ_TOOLS, shouldAskForTool, WS_BATCH_INTERVAL, WS_BATCH_INTERVAL_MAX, WS_BATCH_BACKOFF_FACTOR, CHECKPOINT_BATCH_INTERVAL, CHECKPOINT_BATCH_INTERVAL_MAX, CHECKPOINT_QUIET_SWEEP_MS, PROJECT_IDLE_UNLOAD_MS, PROJECT_IDLE_UNLOAD_SWEEP_MS, PROJECT_IDLE_UNLOAD_PRESSURE_MS } from '@vibisual/shared';
 import { broadcast } from './broadcastBus.js';
 import { graphManager } from './services/projectGraphManager.js';
 import { modelRegistryService } from './services/modelRegistryService.js';
@@ -7557,9 +7557,26 @@ export async function runServer(): Promise<RunServerHandle> {
       const mode = config.permissionMode || 'default';
       const EDIT_TOOLS = new Set(['Write', 'Edit', 'NotebookEdit', 'MultiEdit']);
 
+      /*
+       * §5.3 #12-1-A — **도구별 확인 목록.** 사용자가 이 버블의 설정창에서 지목한 도구는
+       * 모드가 무엇이든 아래 단축을 타지 않고 사람에게 간다.
+       *
+       * 자리가 여기인 이유가 이 항목의 전부다 — `bypassPermissions`·`auto`·`acceptEdits` 의
+       * 편집 통과 **앞**이어야 그 셋에서 실제로 붙잡힌다(뒤에 두면 영영 안 탄다). 반대로
+       * 관할·커스텀 가드(`not-managed`·`view-only-agent`)보다는 **뒤**라, 훅 버블은 이 목록을
+       * 가질 수 없고 붙잡히지도 않는다(§12-1 절대 규칙 불변 — 위에서 이미 돌아섰다).
+       *
+       * `plan`·`dontAsk` 는 아래에서 종전대로 처리된다 — 전자는 실행 자체가 없어 일어나지도
+       * 않을 호출에 사람을 세우는 일이고, 후자는 이미 사람 없이 안전한 답을 낸다(되물으면
+       * 무인 실행에 60초 팝업이 쌓인다). 읽기 전용 도구 통과보다는 **앞**이다 — 사용자가
+       * `Read` 를 굳이 골랐다면 "읽는 것도 보고 싶다"는 뜻이고, 안 고르면 종전 그대로다.
+       */
+      const askedByTool = shouldAskForTool(config.askTools, toolName)
+        && mode !== 'plan' && mode !== 'dontAsk';
+
       // §5.22 — `!escalate` 가 붙은 단축은 **위험 3종이 아닐 때만** 탄다. 경계를 끄면
       //   `escalate` 가 늘 false 라 아래는 종전 그대로 동작한다.
-      if (!escalate && mode === 'bypassPermissions') {
+      if (!escalate && !askedByTool && mode === 'bypassPermissions') {
         noteAuditDecision('allow', 'policy', 'bypass');
         res.json({ ok: true, decision: 'allow', reason: 'bypass' });
         return;
@@ -7574,16 +7591,16 @@ export async function runServer(): Promise<RunServerHandle> {
       // §4 (CLI 사양 추종) — `auto` 는 **판정을 CLI 모델 분류기에 맡긴 모드**다. 여기서 또 팝업을 띄우면
       //   같은 호출을 두 번 묻는 셈이고 사용자가 auto 를 고른 의미가 사라진다 — 우리는 비관여로 통과시키고
       //   차단은 CLI 가 한다(거부 시 transcript 에 분류기 사유가 남는다).
-      if (!escalate && mode === 'auto') {
+      if (!escalate && !askedByTool && mode === 'auto') {
         res.json({ ok: true, decision: 'allow', reason: 'cli-auto-classifier' });
         return;
       }
       // §5.22 — 읽기 전용 도구의 통과도 종전 그대로다(위험 3종 어디에도 걸리지 않는다).
-      if (READ_TOOLS.has(toolName)) {
+      if (!askedByTool && READ_TOOLS.has(toolName)) {
         res.json({ ok: true, decision: 'allow', reason: 'read-only' });
         return;
       }
-      if (!escalate && mode === 'acceptEdits' && EDIT_TOOLS.has(toolName)) {
+      if (!escalate && !askedByTool && mode === 'acceptEdits' && EDIT_TOOLS.has(toolName)) {
         noteAuditDecision('allow', 'policy', 'accept-edits');
         res.json({ ok: true, decision: 'allow', reason: 'accept-edits' });
         return;
@@ -7627,6 +7644,8 @@ export async function runServer(): Promise<RunServerHandle> {
           // §5.22 — 카드가 "왜 지금 묻는지"를 말할 수 있게 위험 판정을 함께 싣는다.
           ...(riskKinds.length > 0 ? { risk: riskKinds } : {}),
           ...(escalate ? { escalated: true } : {}),
+          // §5.3 #12-1-A — 카드가 "왜 지금 묻는지"를 말할 수 있게. 모드가 원래 묻는 호출에는 안 붙는다.
+          ...(askedByTool ? { askedByTool: true } : {}),
           ...(auditEntryId ? { auditEntryId } : {}),
         }, timeoutPolicy);
       } finally {

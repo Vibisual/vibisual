@@ -29,7 +29,7 @@ import {
   normalizeSubagentDepth,
   SUBAGENT_DEPTH_MAX,
   AVAILABLE_PERMISSION_MODES,
-  PERMISSION_MODES_WITHOUT_PROMPT,
+  canPromptForPermission,
   AVAILABLE_SETTING_SOURCES,
   AVAILABLE_AUTOCOMPACT_VALUES,
   AUTOCOMPACT_OFF,
@@ -287,23 +287,71 @@ function CustomSelect({ value, onChange, options, disabled }: {
 
 // ─── Tool Chip with Tooltip ───
 
-function ToolChip({ tool, onRemove, variant }: {
+/**
+ * §5.3 #12-1-A — 도구 칩에 얹는 **[확인] 토글**. 켜면 그 도구는 권한 모드가 무엇이든
+ * (`bypassPermissions` 포함) 실행 전에 기존 승인 카드를 만난다.
+ *
+ * 손 모양(방패)은 lucide 톤 stroke SVG 다 — 이모지 ❌(OS·폰트별로 모양이 달라진다).
+ * 색은 `currentColor` 로 받아 부모의 on/off 색을 그대로 따른다.
+ */
+function AskToolToggle({ on, onToggle, label }: {
+  on: boolean; onToggle: () => void; label: string;
+}): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-pressed={on}
+      aria-label={label}
+      className={`ml-0.5 shrink-0 transition-colors ${on ? 'text-amber-400 hover:text-amber-300' : 'text-gray-500/70 hover:text-amber-400'}`}
+    >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+        {on && <path d="M12 8v4" />}
+        {on && <path d="M12 16h.01" />}
+      </svg>
+    </button>
+  );
+}
+
+function ToolChip({ tool, onRemove, variant, ask, onToggleAsk }: {
   tool: string; onRemove: () => void; variant: 'allowed' | 'blocked';
+  /** §5.3 #12-1-A — 이 도구가 확인 목록에 들어 있는가. `onToggleAsk` 가 없으면 토글 자체를 안 그린다. */
+  ask?: boolean;
+  onToggleAsk?: () => void;
 }): React.JSX.Element {
   const { t } = useTranslation();
   const desc = t(`panel.agentConfig.tools.${tool}`, { defaultValue: '' });
+  const askOn = ask === true;
   const colors = variant === 'allowed'
     ? { bg: 'bg-blue-500/15', text: 'text-blue-400', close: 'text-blue-400/60 hover:text-red-400' }
     : { bg: 'bg-red-500/15', text: 'text-red-400', close: 'text-red-400/60 hover:text-red-300' };
+  // 켜진 칩은 색으로 먼저 말한다 — 아이콘 하나만 바뀌면 칩이 많을 때 눈에 안 띈다.
+  const bg = askOn && variant === 'allowed' ? 'bg-amber-500/15' : colors.bg;
+  const text = askOn && variant === 'allowed' ? 'text-amber-300' : colors.text;
+
+  const askLabel = t('panel.agentConfig.askTools.toggleAria', {
+    defaultValue: 'Ask before using {{tool}}',
+    tool,
+  });
 
   const chip = (
-    <span className={`flex items-center gap-1 rounded-full ${colors.bg} px-2.5 py-0.5 text-xs font-medium ${colors.text}`}>
+    <span className={`flex items-center gap-1 rounded-full ${bg} px-2.5 py-0.5 text-xs font-medium ${text}`}>
       {tool}
+      {onToggleAsk && <AskToolToggle on={askOn} onToggle={onToggleAsk} label={askLabel} />}
       <button type="button" onClick={onRemove} className={`ml-0.5 ${colors.close}`}>×</button>
     </span>
   );
 
-  return desc ? <HoverTip text={desc} className="inline-flex">{chip}</HoverTip> : chip;
+  // 확인이 켜져 있으면 그 사실을 설명 위에 한 줄로 먼저 말한다(호버가 유일한 설명 자리다).
+  const askHint = t('panel.agentConfig.askTools.chipHint', {
+    defaultValue: 'Asks for your approval every time — even in bypass mode.',
+  });
+  const tip = askOn ? (desc ? `${askHint}
+
+${desc}` : askHint) : desc;
+
+  return tip ? <HoverTip text={tip} className="inline-flex">{chip}</HoverTip> : chip;
 }
 
 // ─── Main Component ───
@@ -629,6 +677,14 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
   const [bashMaxTimeoutSec, setBashMaxTimeoutSec] = useState(bashMsToSec(base.bashMaxTimeoutMs));
   // §4 v1.53 — disallowedTools UI 노출 (Tools 아래 빨간 칩 라인)
   const [disallowedTools, setDisallowedTools] = useState<string[]>([...(base.disallowedTools ?? [])]);
+  /**
+   * §5.3 #12-1-A — 도구별 확인 목록. Tools(가질 수 있는 능력)·Disallowed(못 쓰는 것)와 **직교**한다 —
+   * 이 목록의 뜻은 "쓸 수 있되 **물어보고** 쓴다"이고, 권한 모드가 통과시켰을 호출을 되돌려 묻는다.
+   */
+  const [askTools, setAskTools] = useState<string[]>([...(base.askTools ?? [])]);
+  const toggleAskTool = useCallback((tool: string): void => {
+    setAskTools((prev) => (prev.includes(tool) ? prev.filter((x) => x !== tool) : [...prev, tool]));
+  }, []);
   // §4 v1.53 — Opus 1M 컨텍스트 토글. **기본 ON** — undefined/'1m' 둘 다 체크, '200k' 만 언체크.
   const [contextWindow, setContextWindow] = useState<'1m' | '200k' | undefined>(base.contextWindow);
   const oneMillionEnabled = contextWindow !== '200k';
@@ -828,7 +884,12 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
     [model, modelVersion],
   );
 
-  const removeTool = useCallback((t: string) => setTools((p) => p.filter((x) => x !== t)), []);
+  const removeTool = useCallback((t: string) => {
+    setTools((p) => p.filter((x) => x !== t));
+    // §5.3 #12-1-A — 능력에서 뺀 도구가 확인 목록에 남으면, 화면 어디에도 안 보이는 채로 저장된다
+    //   (칩이 사라지면 토글도 함께 사라진다). 다시 추가했을 때 사용자가 켠 적 없는 확인이 되살아난다.
+    setAskTools((p) => (p.includes(t) ? p.filter((x) => x !== t) : p));
+  }, []);
   const removeSkill = useCallback((s: string) => setSkills((p) => p.filter((x) => x !== s)), []);
 
   const addSkill = useCallback((name: string) => {
@@ -865,6 +926,8 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
     subagentDepth: normalizeSubagentDepth(subagentDepth),
     effort: (isOpus && effort !== 'default') ? effort : undefined,
     disallowedTools: disallowedTools.length > 0 ? disallowedTools : undefined,
+    // §5.3 #12-1-A — 빈 목록은 undefined 로. "고르지 않았다"가 기본이고 그때는 종전과 완전히 같다.
+    askTools: askTools.length > 0 ? askTools : undefined,
     rules: rules.trim() || undefined,
     // §5.3 #12-1 v1.90 — 'deny' 만 저장, 'allow'(기본)는 undefined 로 직렬화 최소화
     permissionTimeoutPolicy: permissionTimeoutPolicy === 'deny' ? 'deny' : undefined,
@@ -929,7 +992,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
   }), [
     model, tools, permissionMode, permissionTimeoutPolicy, skills, color, maxTurns, maxBudgetUsd, isolation, effort,
     memory, subagentDepth,
-    isOpus, disallowedTools, rules, customMode,
+    isOpus, disallowedTools, askTools, rules, customMode,
     contextWindow, presetId, modelVersion, mcpServers,
     fallbackModel, autoCompact, agentCanCompact, excludeDynamicSections, settingSources, safeMode, fastMode, fastModeSupported, thinking, forwardSubagentText, replayUserMessages, promptSuggestions, includeHookEvents, betas, agentDefinitions, pluginDirs,
     bashDefaultTimeoutSec, bashMaxTimeoutSec,
@@ -987,7 +1050,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
     const hidden: string[] = [];
     if (isLocal) {
       hidden.push(
-        'model', 'modelVersion', 'contextWindow', 'fastMode', 'customMode', 'tools', 'disallowedTools',
+        'model', 'modelVersion', 'contextWindow', 'fastMode', 'customMode', 'tools', 'disallowedTools', 'askTools',
         'maxTurns', 'isolation', 'effort', 'memory', 'subagentDepth', 'maxBudgetUsd', 'thinking', 'fallbackModel',
         'autoCompact', 'agentCanCompact', 'settingSources',
         'excludeDynamicSystemPromptSections', 'safeMode', 'forwardSubagentText', 'replayUserMessages',
@@ -996,9 +1059,9 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
       );
     }
     if (isShellOnly) hidden.push('model', 'modelVersion', 'contextWindow', 'fastMode');
-    if (PERMISSION_MODES_WITHOUT_PROMPT.includes(permissionMode)) hidden.push('permissionTimeoutPolicy');
+    if (!canPromptForPermission(permissionMode, askTools)) hidden.push('permissionTimeoutPolicy');
     return hidden;
-  }, [isLocal, isShellOnly, permissionMode]);
+  }, [isLocal, isShellOnly, permissionMode, askTools]);
   const diffFields = useMemo(
     () => diffAgentConfigFromDefaults(buildPayload(), agentDefaults, { skip: hiddenDiffFields }),
     [buildPayload, agentDefaults, hiddenDiffFields],
@@ -1016,6 +1079,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
     rules: t('panel.agentConfig.agentRules'),
     tools: t('panel.agentConfig.tools.label'),
     disallowedTools: t('panel.agentConfig.disallowedTools.label', { defaultValue: 'Disallowed Tools' }),
+    askTools: t('panel.agentConfig.askTools.label', { defaultValue: 'Ask before use' }),
     maxTurns: t('panel.agentConfig.maxTurns'),
     isolation: t('panel.agentConfig.isolation.label'),
     effort: t('panel.agentConfig.effort.label'),
@@ -1342,8 +1406,10 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
 
             {/* §5.3 #12-1 v1.90 — On no response (60s) fallback. 팝업이 원천적으로 안 뜨는 모드
                 (bypassPermissions·plan·auto·dontAsk)에서는 무의미해서 숨긴다 — §4 CLI 사양 추종으로
-                auto·dontAsk 가 늘었으므로 조건을 shared 목록 한 곳으로 모았다. */}
-            {!PERMISSION_MODES_WITHOUT_PROMPT.includes(permissionMode) && (
+                auto·dontAsk 가 늘었으므로 조건을 shared 판정 한 곳으로 모았다.
+                §5.3 #12-1-A — 도구별 확인 목록이 비어 있지 않으면 bypass·auto 에서도 카드가 뜨므로
+                그때는 이 토글을 **다시 보여야 한다**(숨기면 정책을 볼 수도 고칠 수도 없다). */}
+            {canPromptForPermission(permissionMode, askTools) && (
               <div className="flex flex-col gap-1.5">
                 <label className="flex items-center text-xs font-medium text-gray-400">
                   {t('panel.agentConfig.permissionTimeoutPolicy.label', { defaultValue: 'On no response (60s)' })}{diffDot('permissionTimeoutPolicy')}
@@ -1605,14 +1671,28 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
             {/* Tools */}
             {!isLocal && (
             <div className="flex flex-col gap-1.5">
-              <label className="flex items-center text-xs font-medium text-gray-400">{t('panel.agentConfig.tools.label')}<InfoTip text={FIELD_TIPS.tools} />{diffDot('tools')}</label>
+              <label className="flex items-center text-xs font-medium text-gray-400">
+                {t('panel.agentConfig.tools.label')}<InfoTip text={FIELD_TIPS.tools} />{diffDot('tools')}
+                {/* §5.3 #12-1-A — 확인 목록은 Tools 안에 살고 별도 라벨 줄이 없다. 그 축의 표식은
+                    이 줄에 함께 붙인다 — 점이 없으면 그 칸만 조용히 "기본값과 같은 것처럼" 보인다. */}
+                {diffDot('askTools')}
+              </label>
               {/* 기본값이 도구 45종이라 칩이 아홉 줄까지 늘어나, 이 창에서 아래 칸(권한·스킬)이
                   스크롤 저 밑으로 밀렸다. 네 줄쯤에서 멈추고 그 뒤는 안에서 스크롤한다. */}
               <ScrollFade maxHeight={124}><div className="flex flex-wrap gap-1.5">
                 {tools.map((tool) => {
                   const stripped = strictStripSet.has(tool);
                   if (!stripped) {
-                    return <ToolChip key={tool} tool={tool} variant="allowed" onRemove={() => removeTool(tool)} />;
+                    return (
+                      <ToolChip
+                        key={tool}
+                        tool={tool}
+                        variant="allowed"
+                        onRemove={() => removeTool(tool)}
+                        ask={askTools.includes(tool)}
+                        onToggleAsk={() => toggleAskTool(tool)}
+                      />
+                    );
                   }
                   const desc = t(`panel.agentConfig.tools.${tool}`, { defaultValue: '' });
                   const stripHint = t('panel.agentConfig.tools.strippedByEdgeHint', {
@@ -1640,6 +1720,24 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                   );
                 })}
               </div></ScrollFade>
+              {/* §5.3 #12-1-A — 켠 도구가 하나라도 있으면 **관계**를 한 줄로 말한다. 방패 아이콘만
+                  보고는 "권한 모드를 이미 bypass 로 뒀는데 왜 물어보나"에 답할 수 없다. */}
+              {askTools.length > 0 && (
+                <div className="flex items-start gap-1.5 rounded border border-amber-500/25 bg-amber-500/[0.07] px-2 py-1.5 text-[12px] leading-snug text-amber-300/90">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mt-px h-3.5 w-3.5 shrink-0">
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                    <path d="M12 8v4" />
+                    <path d="M12 16h.01" />
+                  </svg>
+                  <span>
+                    {t('panel.agentConfig.askTools.summary', {
+                      defaultValue_one: 'This 1 tool asks for your approval every time — whatever the permission mode is, even Bypass.',
+                      defaultValue_other: 'These {{count}} tools ask for your approval every time — whatever the permission mode is, even Bypass.',
+                      count: askTools.length,
+                    })}
+                  </span>
+                </div>
+              )}
               <div className="relative">
                 <button ref={toolPicker.btnRef} type="button" onClick={toolPicker.toggle} disabled={availableToAdd.length === 0} className="rounded border border-dashed border-gray-600 px-2.5 py-1 text-xs text-gray-500 hover:border-blue-500 hover:text-blue-400 disabled:opacity-30">{t('panel.agentConfig.tools.addTool')}</button>
                 {toolPicker.open && createPortal(

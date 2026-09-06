@@ -4,7 +4,10 @@ import {
   isFatalVoiceError,
   mapMediaError,
   mapVoiceError,
+  readVoiceProcessing,
   refineDeviceError,
+  shouldWarnEcho,
+  voiceAudioConstraints,
   voiceRecognitionLang,
   type VoiceInputErrorCode,
   type VoiceInputStatus,
@@ -40,6 +43,13 @@ export interface UseVoiceDictationOptions {
   /** 최종 확정된 토막. 입력창이 커서 자리에 끼워 넣는다. */
   onCommit: (chunk: string) => void;
   /**
+   * §5.5 #17-38 ⑰ — 마이크에 **잡음·에코 억제**를 걸 것인가.
+   *
+   * 끄면 `{ audio: true }` 로 열어 장치 기본값에 맡긴다 — 오디오 인터페이스가 이미 처리하는
+   * 사용자는 이중 처리로 소리가 뭉개지기 때문이다. 생략하면 켜진 것으로 본다(결함을 고친 쪽).
+   */
+  denoise?: boolean;
+  /**
    * §5.5 #17-38 ⑫ — 인식기를 띄우고 표본을 보낼 포트를 받아 온다.
    * 실패는 **사유까지 갈라서** 돌려준다([voiceOpenGate.ts](./voiceOpenGate.ts)) — 아직 안 받은
    * 것과 받아 뒀는데 엔진이 안 뜬 것은 사용자가 할 일이 서로 다르다.
@@ -61,6 +71,15 @@ export interface VoiceDictationHandle {
   supported: boolean;
   /** 파형을 그릴 쪽이 읽어 갈 분석기. 듣는 중이 아니면 `null`. */
   analyserRef: React.MutableRefObject<AnalyserNode | null>;
+  /**
+   * §5.5 #17-38 ⑰ — **에코 제거를 부탁했는데 장치가 못 해서 꺼진 채 열렸는가.**
+   *
+   * 제약은 `ideal` 이라 부탁이지 보장이 아니다(`exact` 로 걸면 못 하는 장치에서 마이크가 아예
+   * 안 열린다). 꺼진 것을 화면이 **알아야** "헤드폰을 쓰시면 낫습니다"를 말할 수 있다 —
+   * 말해 주지 않으면 사용자는 우리가 아무 일도 안 한 줄 안다. 모르는 판(`null` 보고)에서는
+   * 거짓이다 — 넘겨짚은 안내가 진짜 원인을 가리는 쪽이 더 나쁘다(⑥ 과 같은 규율).
+   */
+  echoUnavailable: boolean;
   /** 듣기 시작. 이미 듣는 중이면 아무 일도 하지 않는다. */
   start: () => void;
   /** 듣기를 끝낸다 — 말하던 마지막 토막은 확정해서 넣는다. */
@@ -108,10 +127,13 @@ const STOP_GRACE_MS = 1200;
 
 export function useVoiceDictation(options: UseVoiceDictationOptions): VoiceDictationHandle {
   const { locale, enabled, onCommit, resolvePort, onNeedsInstall, onSessionEnd } = options;
+  const denoise = options.denoise ?? true;
 
   const [status, setStatus] = useState<VoiceInputStatus>('idle');
   const [error, setError] = useState<VoiceInputErrorCode | null>(null);
   const [interim, setInterim] = useState('');
+  /** ⑰ — 에코 제거를 부탁했는데 장치가 못 한 판. 켜는 순간 판정하고 끄면 내린다. */
+  const [echoUnavailable, setEchoUnavailable] = useState(false);
 
   // 콜백·설정은 ref 로 들고 다닌다 — 인식기는 한 번 붙인 핸들러로 계속 도는데, 매 렌더마다
   //   새 함수로 갈아 끼우면 그 사이에 온 결과가 옛 클로저로 들어간다.
@@ -119,6 +141,10 @@ export function useVoiceDictation(options: UseVoiceDictationOptions): VoiceDicta
   onCommitRef.current = onCommit;
   const localeRef = useRef(locale);
   localeRef.current = locale;
+  // ⑰ — 켜는 그 순간의 값을 읽어야 한다. 켜 둔 채 스위치를 바꾸면 다음 켜기부터 반영된다
+  //   (이미 열린 트랙의 제약을 바꾸는 `applyConstraints` 는 장치에 따라 스트림이 끊긴다).
+  const denoiseRef = useRef(denoise);
+  denoiseRef.current = denoise;
   const resolvePortRef = useRef(resolvePort);
   resolvePortRef.current = resolvePort;
   const onNeedsInstallRef = useRef(onNeedsInstall);
@@ -182,6 +208,8 @@ export function useVoiceDictation(options: UseVoiceDictationOptions): VoiceDicta
     wantListeningRef.current = false;
     teardown();
     setInterim('');
+    // ⑰ 경고는 **듣는 동안에만** 뜬다 — 끝난 뒤에도 남으면 다음에 켤 때 옛 판정이 먼저 보인다.
+    setEchoUnavailable(false);
     setStatus(code === null ? 'idle' : 'error');
     if (code !== null) setError(code);
   }, [teardown]);
@@ -322,12 +350,25 @@ export function useVoiceDictation(options: UseVoiceDictationOptions): VoiceDicta
       const { port } = resolved;
 
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        // §5.5 #17-38 ⑰ — **`{ audio: true }` 로 열지 않는다.** 그건 "기본값에 맡긴다"는 뜻이고,
+        //   그 기본값은 브라우저·OS·드라이버가 각자 정한다 — 스피커로 나간 소리가 그대로 마이크로
+        //   되돌아오는 판이 실제로 있었다(사용자 보고). 제약은 `ideal` 이라 못 하는 장치에서도
+        //   열리고(⑰ 주석), 켜져서 열렸는지는 아래에서 트랙에게 되묻는다.
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: denoiseRef.current ? voiceAudioConstraints() : true,
+        });
         // 여는 사이에 껐거나 다시 켰으면 지금 연 것을 바로 되돌린다(좀비 마이크 방지).
         if (!alive()) {
           rollback(stream, null);
           return;
         }
+
+        // 부탁한 것이 **실제로 켜졌는가**. `ideal` 은 보장이 아니므로 트랙에게 되묻는다 —
+        //   꺼진 채 열렸으면 화면이 헤드폰을 권할 수 있어야 한다(우리가 아무 일도 안 한 것처럼
+        //   보이지 않게). 스위치를 꺼 둔 사용자에게는 애초에 부탁하지 않았으므로 말하지 않는다.
+        const track = stream.getAudioTracks()[0];
+        const settings = track?.getSettings?.() ?? null;
+        setEchoUnavailable(denoiseRef.current && shouldWarnEcho(readVoiceProcessing(settings)));
 
         // 파형과 인식은 **같은 컨텍스트**를 쓴다 — 두 벌을 열면 표본율이 갈려 인식이 조용히 어긋난다.
         let ctx: AudioContext | null = null;
@@ -392,6 +433,8 @@ export function useVoiceDictation(options: UseVoiceDictationOptions): VoiceDicta
     // 화면은 곧바로 내린다 — 누른 사람은 끝났다고 여긴다.
     setStatus('idle');
     setInterim('');
+    // ⑰ 경고도 함께 내린다 — 이 길은 `finish` 를 거치지 않으므로 여기서 따로 지운다.
+    setEchoUnavailable(false);
 
     const rec = recognitionRef.current;
     if (rec === null) {
@@ -475,6 +518,7 @@ export function useVoiceDictation(options: UseVoiceDictationOptions): VoiceDicta
     // 인식기를 우리가 들고 오므로 이 환경에 있느냐는 물음은 사라졌다 — 없으면 **받으면 된다**.
     supported: true,
     analyserRef,
+    echoUnavailable,
     start,
     stop,
     cancel,

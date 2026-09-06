@@ -908,6 +908,13 @@
         "tip": "Bloqueadas à força via CLI --disallowedTools. Tem precedência sobre a lista de permissões (Ferramentas). Use quando quiser desativar uma ferramenta específica sem reconstruir a lista de permissões.",
         "addTool": "+ Bloquear ferramenta"
       },
+      "askTools": {
+        "label": "Perguntar antes de usar",
+        "summary_one": "Esta 1 ferramenta pede sua aprovação toda vez — seja qual for o modo de permissão, mesmo o Bypass.",
+        "summary_other": "Estas {{count}} ferramentas pedem sua aprovação toda vez — seja qual for o modo de permissão, mesmo o Bypass.",
+        "toggleAria": "Perguntar antes de usar {{tool}}",
+        "chipHint": "Pede sua aprovação toda vez — mesmo no modo Bypass."
+      },
       "customMode": {
         "label": "Modo personalizado",
         "tip": "Eixo de modo exclusivo do Vibisual. Salvar com o modo Conti ATIVO sobrescreve as regras do agente com o conjunto de regras exclusivo do conti (as regras anteriores vão para o histórico). Review/Debug em breve.",
@@ -1194,7 +1201,9 @@
       "denyReasonPlaceholder": "ex.: caminho errado, comando inseguro",
       "shortcutHint": "{{shortcut}} = Permitir · Esc = Negar",
       "stackCount": "{{current}} de {{total}} pendentes",
-      "emptyToolInput": "(vazio)"
+      "emptyToolInput": "(vazio)",
+      "askedByToolTitle": "Ferramenta que você pediu para confirmar",
+      "askedByToolHint": "Você marcou {{tool}} como “perguntar antes de usar” nas configurações deste agent — então ele pergunta mesmo no modo Bypass."
     },
     "claudeVersionGate": {
       "title": "Atualização do Claude Code disponível",
@@ -2063,7 +2072,12 @@
       "voiceMicSettingsHintLinux": "Verifique se o microfone está selecionado como dispositivo de entrada nas configurações de som e se não está mudo. Se o PulseAudio/PipeWire não tiver uma entrada padrão, o app também não conseguirá detectar nenhum dispositivo.",
       "voiceMicSettingsDeviceNote": "Se o acesso já estiver ativado, verifique se o microfone está realmente conectado — microfones desconectados continuam aparecendo esmaecidos na lista de dispositivos.",
       "voiceMicSettingsHiddenNote": "Se um microfone já estiver conectado, as configurações do seu sistema operacional podem estar ocultando-o — veja a observação abaixo.",
-      "voiceMicSettingsShortcutNote": "Entrada por voz com {{shortcut}}"
+      "voiceMicSettingsShortcutNote": "Entrada por voz com {{shortcut}}",
+      "voiceDenoiseLabel": "Filtrar o som das caixas e o ruído de fundo",
+      "voiceDenoiseHint": "Cancela o som que volta das caixas para o microfone e reduz ruídos constantes, como ventoinhas e digitação. Desative se a sua interface de áudio já cuida disso.",
+      "voiceEchoUnavailable": "Este microfone não tem cancelamento de eco, então o som das caixas pode vazar. Com fones de ouvido o problema some de vez.",
+      "voiceRespaceLabel": "Restaurar os espaços do coreano",
+      "voiceRespaceHint": "O reconhecedor devolve o coreano sem espaços; isto separa por partículas e terminações. É baseado em regras, então não é perfeito — você pode corrigir o resultado na caixa de entrada."
     },
     "voiceInstall": {
       "title": "Configurar a entrada de voz",

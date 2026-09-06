@@ -61,6 +61,8 @@ export const AGENT_CONFIG_COMPARED_FIELDS = [
   'rules',
   'tools',
   'disallowedTools',
+  // §5.3 #12-1-A — 도구별 확인 목록. 설정 창(전역 기본)에 칸이 없어 언제나 이 버블만의 값이다.
+  'askTools',
   'maxTurns',
   'isolation',
   'effort',

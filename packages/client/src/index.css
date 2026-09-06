@@ -934,14 +934,21 @@ html.overlay-window .react-flow__node {
   -webkit-app-region: no-drag;
 }
 
-/* §5.5 #17 대화 인-페이지 검색(Ctrl+F) — 찾은 텍스트 하이라이트.
+/* §5.5 #17 대화 인-페이지 검색(Ctrl+F) — 찾은 텍스트 하이라이트 두 벌.
  * document selection(파란 선택영역)으로 칠하면 브라우저가 selection 을 본문으로 옮기며 포커스를 쥔
  * 검색 입력창의 caret 을 함께 지워, 한 번 검색한 뒤로는 그 칸에 이어서 타이핑을 못 한다.
  * 그래서 selection 을 건드리지 않는 CSS Custom Highlight 로 칠한다(bookmarkScroll.markRange).
- * 브라우저 찾기막대와 같은 감각으로 어두운 본문 위에서 한눈에 띄는 불투명 앰버. */
+ *
+ * 색(v3.46 사용자 지시 — "이용자가 드래그해서 텍스트 선택한 것처럼"): 종전 앰버는 찾기막대 감각이라
+ * "선택했다" 로 읽히지 않았다. 지금 가 있는 자리는 **드래그 선택과 같은 파랑**으로 칠해 눈이 바로
+ * 그리로 가게 하고(`::selection` 과 같은 톤), 같은 문단 안의 나머지 출현은 옅은 파랑으로 깔아
+ * "여기 더 있다" 만 알린다 — 둘이 같은 색이면 몇 번째로 이동한 건지 구분할 수 없다. */
 ::highlight(vibisual-find) {
-  background-color: #fbbf24; /* amber-400 */
-  color: #0b0f14; /* 어두운 본문 톤 — 앰버 위 대비 */
+  background-color: #2563eb; /* blue-600 — 드래그 선택과 같은 톤 */
+  color: #f8fafc;
+}
+::highlight(vibisual-find-all) {
+  background-color: rgb(37 99 235 / 0.28); /* 같은 파랑을 옅게 — 본문 글자는 그대로 읽힌다 */
 }
 
 /* §5.5 #17-27 ⑭ — 이미지 미리보기 바탕. 투명 PNG 의 알파를 눈으로 확인하는 바둑판.
