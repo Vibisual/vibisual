@@ -42,6 +42,14 @@ if (!rawTag) {
 const tag = rawTag.startsWith('v') ? rawTag : `v${rawTag}`;
 const version = tag.slice(1);
 
+/**
+ * 매니페스트에 적히는 발행일. **오늘이 아니라 그 릴리스가 공개된 날**이다 — 지난 태그를
+ * 손으로 다시 지을 때 오늘 날짜가 박히면, 채널 쪽에는 없던 판올림이 오늘 나온 것처럼 보이고
+ * winget 쪽 검사는 그 날짜로 "새 판올림"을 판정한다. 릴리스를 못 보는 로컬(`--sums`) 모드에서만
+ * 오늘로 떨어진다 — 그 모드는 제출용이 아니라 확인용이다.
+ */
+let releaseDate = new Date().toISOString().slice(0, 10);
+
 function ghHeaders() {
   const h = { Accept: 'application/vnd.github+json', 'User-Agent': 'vibisual-packaging' };
   const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
@@ -60,7 +68,7 @@ async function loadChecksums() {
   const local = args.indexOf('--sums');
   // 로컬 모드는 릴리스를 안 보므로 자산 크기를 알 수 없다 — flatpak 의 `size` 는 0 으로 남고,
   // 아래 flathub() 가 그 자리에 손으로 채우라는 표식을 남긴다.
-  if (local >= 0) return { sums: parseSums(readFileSync(args[local + 1], 'utf8')), sizes: {} };
+  if (local >= 0) return { sums: parseSums(readFileSync(args[local + 1], 'utf8')), sizes: {}, date: '' };
 
   const res = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/releases?per_page=100`, {
     headers: ghHeaders(),
@@ -82,7 +90,10 @@ async function loadChecksums() {
   if (!body.ok) throw new Error(`SHA256SUMS.txt 내려받기 실패: HTTP ${body.status}`);
   // 크기는 API 응답에 이미 들어 있다 — 파일을 받아 재지 않는다.
   const sizes = Object.fromEntries((rel.assets ?? []).map((a) => [a.name, a.size]));
-  return { sums: parseSums(await body.text()), sizes };
+  // 발행일도 여기서 온다 — draft 였다가 공개된 릴리스는 `created_at`(태그를 민 날)과
+  // `published_at`(공개된 날)이 다르고, 채널이 알아야 하는 것은 뒤쪽이다.
+  const date = String(rel.published_at || rel.created_at || '').slice(0, 10);
+  return { sums: parseSums(await body.text()), sizes, date };
 }
 
 function parseSums(text) {
@@ -130,7 +141,7 @@ InstallModes:
   - silent
   - silentWithProgress
 UpgradeBehavior: install
-ReleaseDate: ${new Date().toISOString().slice(0, 10)}
+ReleaseDate: ${releaseDate}
 Installers:
   - Architecture: x64
     InstallerUrl: ${dl(exe)}
@@ -309,7 +320,7 @@ exec zypak-wrapper /app/main/vibisual "$@"
   </screenshots>
   <content_rating type="oars-1.1"/>
   <releases>
-    <release version="${version}" date="${new Date().toISOString().slice(0, 10)}">
+    <release version="${version}" date="${releaseDate}">
       <url type="details">${REPO_URL}/releases/tag/${tag}</url>
     </release>
   </releases>
@@ -319,7 +330,8 @@ exec zypak-wrapper /app/main/vibisual "$@"
 }
 
 // ── 실행 ──────────────────────────────────────────────────────────────────────
-const { sums, sizes } = await loadChecksums();
+const { sums, sizes, date } = await loadChecksums();
+if (date) releaseDate = date;
 
 const groups = {
   [path.join(OUT, 'winget', version)]: winget(sums),
