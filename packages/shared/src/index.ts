@@ -752,6 +752,8 @@ export {
   STREAM_EVENTS_MAX_PER_INACTIVE_SESSION,
   STREAM_INACTIVE_SESSIONS_MAX,
   UPDATE_CHECK_INTERVAL_MS,
+  UPDATE_FEED_URL,
+  UPDATE_FEED_PROBE_TIMEOUT_MS,
   AUTO_AGENT_LAYOUT_RADIUS,
   AUTO_AGENT_MAX_CLARIFYING_QUESTIONS,
   AUTO_AGENT_ROLE_POLICY,
@@ -1370,6 +1372,11 @@ export {
 // 주기 체크가 실패했다는 이유로 이미 받아 둔 업데이트를 못 깔게 되던 것을 여기서 막는다.
 export type { UpdateEvent } from './updateState.js';
 export { reduceUpdateState, compareVersions, isNewerVersion } from './updateState.js';
+// §4 — 업데이트 피드를 어디서 받는가. 기본은 GitHub 그대로이고, 프록시 주소가 설정돼 있고
+// 실제로 닿을 때만 그쪽으로 간다(https 강제 · 닿지 않으면 폴백). 판정은 순수 함수라
+// 세 플랫폼·네 실패 모양을 실기 없이 전부 시험할 수 있다.
+export type { UpdateFeedInput, UpdateFeedChoice } from './updateFeed.js';
+export { resolveUpdateFeed, updateFeedFileName } from './updateFeed.js';
 // §3.7 — 바깥 브라우저 열기 실패 판정. 리눅스의 `shell.openExternal` 은 실패해도 resolve 하므로
 // (xdg-open 을 wait=false 로 띄운다) 프라미스 대신 "열어 줄 프로그램이 있는가"를 잰다. 폴백 ❌.
 export type {

@@ -4406,6 +4406,25 @@ export const CANVAS_CLIPBOARD_DEFAULT_PASTE_OFFSET = 40;
  */
 export const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
 
+/**
+ * 업데이트 피드를 우리 프록시로 받을 주소. **비어 있으면 종전대로 GitHub 을 직접 본다.**
+ *
+ * 프록시(`infra/update-proxy/`)를 배포한 뒤 그 주소를 여기 한 줄 적으면, 다음 빌드부터
+ * 앱이 그쪽으로 업데이트를 묻는다 — 그 요청 수가 곧 "돌고 있는 설치 수"다. 받는 파일과
+ * 무결성 검사는 그대로다(프록시는 yml 을 넘겨주고 설치 파일은 GitHub 으로 302).
+ *
+ * 채택 규칙과 안전장치(https 강제·닿지 않으면 GitHub 폴백)는 `updateFeed.ts` 에 있다.
+ * 실행 시 `VIBISUAL_UPDATE_FEED_URL` 로 덮어쓸 수 있다(자체 호스팅·시험용).
+ */
+export const UPDATE_FEED_URL = '';
+
+/**
+ * 프록시가 살아 있는지 확인할 때 기다리는 시간 (ms). 넘기면 GitHub 기본 피드로 간다.
+ * 짧게 잡는다 — 이 대기는 첫 업데이트 확인을 그만큼 늦추는데, 업데이트 확인은 급한 일이
+ * 아니지만 **프록시가 죽었을 때 사용자를 기다리게 하는 것**은 그냥 손해다.
+ */
+export const UPDATE_FEED_PROBE_TIMEOUT_MS = 4000;
+
 // ─── 진단 에러 로그 (§4 v1.98) ───
 
 /** 서버 diagnosticService ring buffer 최대 보관 건수. 초과 시 가장 오래된 것부터 제거. */
