@@ -266,6 +266,69 @@ describe('release publishing — 검증이 발행보다 앞선다', () => {
   });
 });
 
+/**
+ * 2026-09-07 — **다운로드 수는 사용자의 것이어야 한다.**
+ *
+ * GitHub 의 릴리스 자산 다운로드 수는 우리가 밖에 내보이는 유일한 채택 지표다
+ * (`vibisual-site` 의 `stats.json` → 사이트의 "설치 수"). 그런데 스모크가 검증할 설치본을
+ * `gh release download` 로 받으면서 **그 숫자를 우리 CI 가 채우고 있었다.**
+ *
+ * 실측(2026-09-07): 공개 릴리스의 설치본 다운로드 134회 중 릴리스가 없는 날의 증가는 **0**
+ * 이었고(metrics 브랜치 `traction.csv` 9/3→9/4 · 9/5→9/6), 릴리스당 합계는 스모크가 들어온
+ * 2026-08-27(v0.1.14) 을 경계로 0~6 에서 7~40 으로 뛰었다. 릴리스 한 번에 6회가 구조적으로
+ * 쌓였다 — win 1 · linux 2 · mac arm64 1 · mac x64 2(`--pattern '*.dmg'` 가 arm64 것까지 집는다).
+ *
+ * 업계 통상은 **CI 가 릴리스 자산을 아예 건드리지 않는 것**이다. 잡 사이의 산출물은
+ * `actions/upload-artifact`/`download-artifact` 로 넘기고, 릴리스 자산 URL 은 사용자만
+ * 지나가는 길로 비워 둔다. 게이트는 약해지지 않는다 — 아티팩트는 릴리스에 올라간 그 파일에서
+ * 같은 자리에 올라가고, 업로드 손상은 사용자 기기의 electron-updater 가 `latest*.yml` 의
+ * sha512 로 설치 직전에 다시 검사한다.
+ *
+ * 이 검사는 그 경로가 되돌아가지 못하게 잠근다. 한 줄만 되돌리면(스모크에서 다시
+ * `gh release download`) 지표는 조용히 다시 오염되고, 그 사실은 몇 달 뒤 통계를 뜯어봐야 드러난다.
+ */
+describe('릴리스 다운로드 수 — CI 는 자산을 건드리지 않는다', () => {
+  const liveLines = (rel: string): string[] =>
+    read(rel)
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('#'));
+
+  it('스모크는 설치본을 아티팩트로 받는다', () => {
+    const wf = read('.github/workflows/smoke.yml');
+    expect(wf).toContain('actions/download-artifact');
+    // 교차 워크플로 조회에는 릴리스 런 id 와 `actions: read` 가 둘 다 필요하다.
+    // 하나만 빠져도 매번 폴백으로 떨어져 오염이 조용히 되살아난다.
+    expect(wf).toContain('run-id:');
+    expect(wf).toMatch(/permissions:[\s\S]*?actions:\s*read/);
+  });
+
+  it('릴리스 잡이 스모크가 받을 설치본을 아티팩트로 올린다', () => {
+    const wf = read('.github/workflows/release.yml');
+    expect(wf).toContain('actions/upload-artifact');
+  });
+
+  it('아티팩트 이름이 release.yml 과 smoke.yml 에서 정확히 짝이다', () => {
+    const names = (rel: string): string[] =>
+      [...read(rel).matchAll(/^\s*artifact:\s*(.+)$/gm)].map((m) => (m[1] ?? '').trim()).sort();
+    const built = names('.github/workflows/release.yml');
+    const consumed = names('.github/workflows/smoke.yml');
+    expect(built.length).toBe(4);
+    // 이름이 어긋나면 네 잡이 전부 폴백으로 떨어진다 — 워크플로는 초록이라 아무도 모른다.
+    expect(consumed).toEqual(built);
+  });
+
+  it('스모크의 `gh release download` 는 폴백 스텝 안에만 있다', () => {
+    const lines = liveLines('.github/workflows/smoke.yml');
+    const fallbackAt = lines.findIndex((line) => line.includes("steps.installers.outcome != 'success'"));
+    // 폴백 가드 자체가 사라지면 그 아래 다운로드는 무조건 도는 기본 경로가 된다.
+    expect(fallbackAt).toBeGreaterThan(-1);
+    const early = lines
+      .slice(0, fallbackAt)
+      .filter((line) => line.includes('gh release download'));
+    expect(early).toEqual([]);
+  });
+});
+
 describe('release 완수 — 초록을 볼 때까지 간다', () => {
   const loadRetry = async (): Promise<Record<string, any>> =>
     await import(pathToFileURL(path.join(REPO, '.github/scripts/releaseRetry.mjs')).href);
