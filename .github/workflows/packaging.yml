@@ -1,0 +1,134 @@
+# 배포 채널(winget · Homebrew tap)에 새 판올림을 올린다.
+#
+# ⚠️ **릴리스 자산을 내려받지 않는다.** 매니페스트가 요구하는 sha256 은 릴리스 잡이 지은
+#    직후에 계산해 `SHA256SUMS.txt` 로 발행해 둔 것을 읽는다(몇 KB 짜리 텍스트라 설치 수
+#    집계에 안 잡힌다). 흔히 쓰는 `winget-releaser` 액션은 해시를 구하려고 설치본을 받는데,
+#    그러면 2026-09-07 에 스모크에서 걷어낸 오염이 다른 문으로 되살아난다 — 그래서 쓰지 않고
+#    우리가 만든 매니페스트로 직접 PR 을 연다.
+#
+# ⚠️ **시크릿이 없으면 아무 데도 안 보낸다.** 매니페스트만 아티팩트로 남기고 끝난다.
+#    남의 저장소에 PR 을 여는 일이라, 토큰을 넣는 행위 자체가 "보내도 된다"는 승인이다.
+
+name: Packaging
+
+on:
+  # 스모크가 draft 를 해제해 **공개된 뒤**에 돈다. draft 상태에서 매니페스트를 내보내면
+  # 아직 아무도 받을 수 없는 URL 을 남에게 알리는 꼴이다.
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '매니페스트를 지을 태그 (비우면 최신 공개 릴리스)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  manifests:
+    runs-on: ubuntu-latest
+    # ⚠️ 시크릿을 **잡 수준**에 둔다 — 스텝의 `if:` 는 그 스텝 자신의 env 를 아직 못 본다.
+    #    스텝에 두면 조건이 항상 거짓이 되어 아무 데도 안 보내는 채로 조용히 초록이 된다.
+    env:
+      WINGET_FORK_TOKEN: ${{ secrets.WINGET_FORK_TOKEN }}
+      TAP_DEPLOY_KEY: ${{ secrets.TAP_DEPLOY_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: 태그 확정
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.tag }}"
+          if [ -z "$TAG" ]; then TAG="${{ github.event.release.tag_name }}"; fi
+          if [ -z "$TAG" ]; then
+            TAG=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1 --exclude-drafts \
+                    --json tagName -q '.[0].tagName')
+          fi
+          echo "대상: $TAG"
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "VERSION=${TAG#v}" >> "$GITHUB_ENV"
+
+      - name: 매니페스트 생성
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node .github/scripts/build-packaging-manifests.mjs "$TAG"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packaging-manifests-${{ env.VERSION }}
+          path: packaging/generated
+          retention-days: 30
+
+      # ── winget ────────────────────────────────────────────────────────────
+      # `microsoft/winget-pkgs` 의 우리 포크에 브랜치를 만들어 밀고 PR 을 연다.
+      # 준비물: 그 포크 + `WINGET_FORK_TOKEN`(포크에 쓰기 · PR 생성 권한).
+      - name: winget PR
+        if: env.WINGET_FORK_TOKEN != ''
+        env:
+          GH_TOKEN: ${{ secrets.WINGET_FORK_TOKEN }}
+          FORK: ${{ vars.WINGET_FORK || 'Vibisual/winget-pkgs' }}
+        run: |
+          set -euo pipefail
+          DEST="manifests/v/Vibisual/Vibisual/$VERSION"
+          # 포크를 상류에 맞춘다 — 서버가 fast-forward 해 준다(내려받지 않는다).
+          # 갈라져 있으면 실패하는데, 그때도 PR 은 열 수 있으므로 막지 않는다.
+          gh repo sync "$FORK" --source microsoft/winget-pkgs --branch master || true
+          # ⚠️ 통째로 받지 않는다. winget-pkgs 는 매니페스트 수십만 개짜리 저장소라
+          #    평범한 클론은 러너 디스크와 시간을 통째로 먹는다. 우리가 손대는 것은
+          #    폴더 하나뿐이므로 블롭 없이 받아 그 폴더만 편다.
+          git clone --depth 1 --filter=blob:none --sparse \
+            "https://x-access-token:${WINGET_FORK_TOKEN}@github.com/${FORK}.git" fork
+          cd fork
+          git sparse-checkout set --no-cone "manifests/v/Vibisual"
+          git config user.name  "vibisual-bot"
+          git config user.email "noreply@vibisual.pro"
+          git checkout -b "vibisual-$VERSION"
+          mkdir -p "$DEST"
+          cp ../packaging/generated/winget/"$VERSION"/* "$DEST/"
+          git add "$DEST"
+          git commit -m "New version: Vibisual.Vibisual version $VERSION"
+          git push -u origin "vibisual-$VERSION"
+          gh pr create --repo microsoft/winget-pkgs \
+            --head "${FORK%%/*}:vibisual-$VERSION" --base master \
+            --title "New version: Vibisual.Vibisual version $VERSION" \
+            --body "Automated submission from ${{ github.server_url }}/${{ github.repository }} (release $TAG)."
+
+      # ── Homebrew tap ──────────────────────────────────────────────────────
+      # 공식 homebrew-cask 는 인지도 요건에 막혀 있다(별 75 등) — 그 전까지는 우리 tap 이다.
+      #
+      # ⚠️ PAT 이 아니라 **배포키**로 민다. PAT 은 그 계정이 닿는 모든 저장소에 쓸 수 있어,
+      #    캐스크 파일 한 줄을 고치는 일에 견주면 권한이 과하다. 배포키는 이 tap 하나에만
+      #    유효하므로 새더라도 그 저장소에서 키를 지우는 것으로 끝난다.
+      - name: Homebrew tap 갱신
+        if: env.TAP_DEPLOY_KEY != ''
+        env:
+          TAP: ${{ vars.HOMEBREW_TAP || 'Vibisual/homebrew-tap' }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          # 여러 줄짜리 비밀이라 printf 로 그대로 쏟는다(echo 는 셸마다 개행을 다르게 다룬다).
+          printf '%s\n' "$TAP_DEPLOY_KEY" > ~/.ssh/tap_key
+          chmod 600 ~/.ssh/tap_key
+          ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
+          # IdentitiesOnly — 러너에 다른 키가 얹혀 있어도 이 키만 쓴다.
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/tap_key -o IdentitiesOnly=yes"
+          git clone --depth 1 "git@github.com:${TAP}.git" tap
+          cd tap
+          git config user.name  "vibisual-bot"
+          git config user.email "noreply@vibisual.pro"
+          mkdir -p Casks
+          cp ../packaging/generated/homebrew/Casks/vibisual.rb Casks/vibisual.rb
+          git add Casks/vibisual.rb
+          # 내용이 그대로면 커밋하지 않는다 — 빈 커밋이 쌓이면 이력이 읽히지 않는다.
+          # ⚠️ `git diff --quiet`(스테이징 전) 으로는 안 된다. 캐스크가 아직 추적되지 않는
+          #    **첫 회에** 그 비교가 "바뀐 것 없음"을 내놓아, 정작 첫 파일이 영영 안 올라간다.
+          if git diff --cached --quiet; then echo "바뀐 것이 없다."; exit 0; fi
+          git commit -m "vibisual $VERSION"
+          git push

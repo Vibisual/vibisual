@@ -111,6 +111,10 @@ jobs:
         run: |
           set -euo pipefail
           # 파일명 규약: arm64 는 `-arm64.dmg`, Intel 은 접미사 없는 `.dmg`.
+          # ⚠️ 여기는 릴리스 자산을 그대로 받는다 — 이 워크플로가 재려는 것이 "공개된 그 파일을
+          #    사용자가 받아서 열 수 있는가"라서다. 그래서 다운로드 수가 1 오른다. 손으로만 도는
+          #    워크플로라(workflow_dispatch 전용) 지표를 왜곡할 규모가 아니지만, 자동으로 도는
+          #    자리(`smoke.yml`)에는 절대 이 경로를 되돌리지 마라 — 거기는 아티팩트로 받는다.
           if [ "${{ matrix.arch }}" = "arm64" ]; then
             gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*-arm64.dmg' --dir artifact
           else

@@ -3,7 +3,11 @@ import { app, BrowserWindow } from 'electron';
 import pkg from 'electron-updater';
 import {
   UPDATE_CHECK_INTERVAL_MS,
+  UPDATE_FEED_URL,
+  UPDATE_FEED_PROBE_TIMEOUT_MS,
   resolveUpdateDelivery,
+  resolveUpdateFeed,
+  updateFeedFileName,
   releasesPageUrl,
   toProcessArch,
   reduceUpdateState,
@@ -234,14 +238,84 @@ export function initAutoUpdater(): void {
   initialTimer = setTimeout(() => {
     void checkForUpdates();
   }, 10_000);
+  // (피드 주소 결정은 `checkForUpdates` 가 첫 호출에서 한 번만 한다 — 아래 configureFeed.)
   checkTimer = setInterval(() => {
     void checkForUpdates();
   }, UPDATE_CHECK_INTERVAL_MS);
 }
 
+/**
+ * 업데이트 피드를 우리 프록시로 돌린다 — **한 번만, 그리고 안 되면 조용히 종전 그대로.**
+ *
+ * 왜 프록시를 두는지는 shared `updateFeed.ts` 머리말에 있다(요지: 업데이트 확인 요청 로그가
+ * 데스크톱 앱에서 "쓰는 사람 수"를 재는 업계 통상 경로인데, GitHub 에 직접 물으면 우리에게
+ * 남는 것이 `latest.yml` 다운로드 수 한 줄뿐이라 1대인지 여럿인지 가릴 수 없다).
+ *
+ * 이 함수는 **깨지지 않는 것**이 첫째 목표다:
+ *   - `UPDATE_FEED_URL` 이 비어 있으면(배포 전 기본값) 네트워크도 안 건드리고 그냥 돌아온다.
+ *     그러면 `setFeedURL` 이 호출되지 않으므로 electron-updater 는 `app-update.yml` 에
+ *     구워진 GitHub 프로바이더를 그대로 쓴다 = **오늘 동작과 완전히 같다.**
+ *   - 주소가 있어도 실제로 응답하는지 먼저 확인하고, 안 되면 GitHub 으로 둔다.
+ *   - `setFeedURL` 자체가 던져도 삼킨다(던진 시점에는 아직 바뀌지 않았으므로 역시 종전 동작).
+ *
+ * 결정은 세션당 1회다. 도중에 프록시가 죽으면 그 세션은 계속 실패하는데, 그건 종전에
+ * GitHub 이 죽었을 때와 같은 상태이고 다음 실행에서 폴백으로 복구된다.
+ */
+let feedConfigured: Promise<void> | null = null;
+
+function configureFeed(): Promise<void> {
+  if (!feedConfigured) feedConfigured = applyFeedUrl();
+  return feedConfigured;
+}
+
+async function applyFeedUrl(): Promise<void> {
+  const configured = UPDATE_FEED_URL;
+  const override = process.env.VIBISUAL_UPDATE_FEED_URL;
+
+  // 주소부터 본다 — 안 쓰기로 돼 있으면 네트워크를 건드릴 이유가 없다.
+  const dry = resolveUpdateFeed({ configured, override });
+  if (dry.kind === 'default') {
+    if (dry.reason !== 'not-configured') {
+      console.warn(`[updater] update feed ignored (${dry.reason}) — staying on GitHub`);
+    }
+    return;
+  }
+
+  const reachable = await probeFeed(dry.url);
+  const choice = resolveUpdateFeed({ configured, override, reachable });
+  if (choice.kind !== 'generic') {
+    console.warn(`[updater] update feed unreachable — staying on GitHub (${dry.url})`);
+    return;
+  }
+
+  try {
+    autoUpdater.setFeedURL({ provider: 'generic', url: choice.url });
+    console.log(`[updater] update feed → ${choice.url}`);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn('[updater] setFeedURL failed — staying on GitHub:', message);
+  }
+}
+
+/** 프록시가 이 플랫폼의 피드 파일을 실제로 내주는가. 실패·시간초과는 전부 `false`. */
+async function probeFeed(base: string): Promise<boolean> {
+  const url = `${base}/${updateFeedFileName(process.platform)}`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), UPDATE_FEED_PROBE_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { method: 'HEAD', signal: controller.signal });
+    return res.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** 업데이트 체크 트리거. 사용자가 버튼으로 수동 호출하거나 타이머가 자동 호출. */
 export async function checkForUpdates(): Promise<UpdateState> {
   if (!app.isPackaged) return state;
+  await configureFeed();
   try {
     await autoUpdater.checkForUpdates();
   } catch (err) {
