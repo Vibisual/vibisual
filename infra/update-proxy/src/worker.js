@@ -232,7 +232,18 @@ export default {
     if (request.method !== 'GET' && request.method !== 'HEAD') {
       return new Response('method not allowed', { status: 405 });
     }
-    if (name === 'stats') return serveStats(env);
+    // 집계는 요청마다 KV 를 30일 × 3접두사 = 90회 훑는다. 엣지 캐시를 앞에 두지 않으면
+    // 이 주소를 아는 누구든 두드리는 것만으로 무료 읽기 한도를 태울 수 있다(그러면 계수가
+    // 아니라 **집계 조회**가 죽는다 — 쓰기는 별 한도라 계수 자체는 계속 돈다).
+    if (name === 'stats') {
+      const cache = caches.default;
+      const hit = await cache.match(request);
+      if (hit) return hit;
+      const res = await serveStats(env);
+      // 실패한 응답은 캐시하지 않는다 — 10분 동안 같은 오류를 되돌려 주게 된다.
+      if (res.status === 200) ctx.waitUntil(cache.put(request, res.clone()));
+      return res;
+    }
     if (FEED_FILES.has(name)) return serveFeed(request, env, ctx, name);
     // 자산은 GitHub 이 내준다 — 우리는 길만 알려준다.
     if (ASSET_EXT.test(name) && !name.includes('/')) {
