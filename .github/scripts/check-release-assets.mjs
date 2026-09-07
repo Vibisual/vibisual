@@ -39,6 +39,10 @@ const NEED_EXACT = [
   ['mac   피드', 'latest-mac.yml'],
   ['linux AppImage', `Vibisual-${version}.AppImage`],
   ['linux 피드', 'latest-linux.yml'],
+  // 배포 채널 3종(winget · Homebrew Cask · Flathub)의 매니페스트가 여기서 sha256 을 읽는다.
+  // 이게 빠지면 그 채널들이 값을 구하려고 설치본을 **다시 받게** 되고, 그건 우리가 없앤
+  // 다운로드 수 오염을 다른 문으로 되살리는 짓이다. 그래서 없으면 발행하지 않는다.
+  ['체크섬', 'SHA256SUMS.txt'],
 ];
 
 /**

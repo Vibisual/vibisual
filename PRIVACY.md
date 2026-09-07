@@ -1,10 +1,20 @@
 # Privacy
 
-**Vibisual collects nothing.** There is no account, no sign-in, no telemetry, no
-analytics, and no crash-report upload. The app you install sends us nothing, and
-there is no server of ours for it to send anything to. Should an optional
-service ever be offered, it would be something you choose to turn on, and this
-file would say so.
+**Vibisual collects nothing about what you do.** There is no account, no
+sign-in, no telemetry, no analytics SDK inside the app, and no crash-report
+upload. Your prompts, your code, your file paths, and your canvas never reach us.
+
+At most one request can reach a server we run, and only one: **the update
+check.** The app has to ask somewhere whether a newer version exists, and asking
+is the whole of it — the request carries no identifier, no project data, and no
+usage information. Whether it reaches us or goes straight to GitHub depends on
+the build: the constant `UPDATE_FEED_URL` in `packages/shared/src/constants.ts`
+names the address, and while it is empty — as it is in the build this file ships
+with — the check goes to GitHub directly and **no request of any kind reaches
+us.** Section 1 below describes both cases and what is kept in each.
+
+Should any other optional service ever be offered, it would be something you
+choose to turn on, and this file would say so.
 
 This document exists so you can verify that rather than take it on faith.
 
@@ -32,16 +42,44 @@ Deleting those directories deletes the data. Nothing is mirrored anywhere.
 
 ## What leaves your machine, and when
 
-None of it reaches us — we run no server for it to reach. What follows is every
-outside address this code can contact. The first five happen while the app simply
-runs, or through tools you were already using; the ones after that stay unused
-until you switch on the feature that needs them.
+Apart from the update check described in item 1, none of it reaches us. What
+follows is every outside address this code can contact. The first five happen
+while the app simply runs, or through tools you were already using; the ones
+after that stay unused until you switch on the feature that needs them.
 
-**1. Update checks, and the update itself — to GitHub.** While the app runs it
-asks the GitHub Releases API whether a newer version exists, on start and then
-every four hours. GitHub sees what any web request shows: your IP address and
-user agent. When a newer version does exist, the app downloads it from GitHub as
-well, and how it is applied depends on your platform. On Windows and Linux the
+**1. Update checks, and the update itself.** While the app runs it asks whether
+a newer version exists, on start and then every four hours. The answer is a small
+`latest.yml` (`latest-mac.yml`, `latest-linux.yml`) listing the newest version
+and its SHA-512 digest.
+
+*Where it asks* depends on `UPDATE_FEED_URL`, as described at the top of this
+file. While that constant is empty the question goes to GitHub and nothing
+reaches us. When it names our update proxy, the question goes there instead and
+the proxy answers with the same file — it forwards the installer download itself
+back to GitHub with a redirect, so the bytes you install never pass through us.
+If the proxy does not answer, the app falls back to GitHub on its own.
+
+*What our proxy keeps, if the build uses one.* We want one number: roughly how
+many installations are running. The request already carries an IP address and a
+user agent, as every web request does. We do not store either. They are combined
+with a secret and **that day's date**, hashed with SHA-256, and only the first
+sixteen hex characters are written down — because the date is part of the input,
+the same machine hashes to an unrelated value tomorrow, so yesterday's records
+cannot be linked to today's. Each record holds that hash, the date, and which of
+the three platforms asked. It expires automatically after 35 days. There are no
+cookies, no device identifiers, and no query strings; the aggregate is published
+at `/stats` and contains only dates and counts. The source is
+[`infra/update-proxy/src/worker.js`](infra/update-proxy/src/worker.js) — about
+two hundred lines, and this paragraph is a description of it rather than a
+promise about it. Our lawful basis is legitimate interest in delivering updates
+and in knowing the size of the installed base; Cloudflare operates the edge that
+runs this code and acts as our processor. Because nothing we store can be traced
+back to a person — that is the point of the rotating salt — we cannot look up,
+export, or delete an individual's records, and neither can anyone else.
+
+When a newer version does exist, the app downloads it from GitHub — always from
+GitHub, whichever host answered the question above — and how it is applied
+depends on your platform. On Windows and Linux the
 downloaded installer runs when you quit. On macOS the app fetches the release
 asset itself, checks it against the SHA-256 digest GitHub publishes for that
 asset, confirms the binary matches your processor architecture, and swaps the
@@ -119,20 +157,54 @@ third party — neither Anthropic nor us.
 - **Search the web from the right-click menu.** Opens your own browser with the
   text you selected as the search words.
 
+## The website
+
+[vibisual.pro](https://vibisual.pro) is a static page served by GitHub Pages. It
+sets no cookies and asks for no consent banner because it has nothing to consent
+to. It also makes **no third-party requests at all** — the web fonts and the
+React runtime are served by the site itself rather than from a CDN, precisely so
+that loading the page does not hand your address to anyone we did not choose.
+
+For the same reason there is no Google Analytics, no Plausible, and no Cloudflare
+beacon on it. Counting visits, when it is switched on, goes to the same update
+proxy described in item 1 and sends exactly one value: `view`, or `download` when
+you click a link to a release file. No path, no referrer, no cookie, no device
+identifier. It is stored the same way as the update check — a hash of that day's
+salt, expiring after 35 days — and the script is disabled until the proxy address
+is filled in, at which point it becomes visible in the page source.
+
+GitHub Pages keeps its own server logs as the host, under
+[GitHub's privacy statement](https://docs.github.com/site-policy/privacy-policies/github-privacy-statement).
+The numbers on the page (stars, release version, download counts) are read from
+a `stats.json` file we publish, not from your browser calling anyone.
+
 ## What we know about you
 
-Aggregate, public counters — nothing more. GitHub publishes how many times each
-release file has been downloaded and how many people starred the repository, and
-a scheduled workflow copies those public numbers into a CSV so the project has a
-growth curve over time. That data is produced by GitHub's servers, contains no
-identifiers, and would exist whether or not we recorded it. The application
-itself reports nothing.
+Aggregate counters — nothing more, and nothing that names a person.
+
+- **Public GitHub counters.** How many times each release file was downloaded
+  and how many people starred the repository. That data is produced by GitHub's
+  servers and would exist whether or not we recorded it. A scheduled workflow
+  copies it into a CSV so the project has a growth curve over time.
+  Until 2026-09-07 those download counts were mostly our own CI fetching
+  installers to test them; that fetch now goes through a private build artifact
+  instead, so the figure counts people rather than robots.
+- **Update-check counts**, if the build points at our proxy — the daily,
+  de-duplicated total described in item 1, broken down by platform and nothing
+  else.
+- **Page views** on the website, as described just above.
+
+The application itself reports nothing. There is no path by which a prompt, a
+file name, a project path, or anything you typed reaches us.
 
 ## Children
 
-Vibisual is a developer tool and is not directed at children. Because it
-collects no personal data at all, there is nothing for us to delete on request —
-but if you believe otherwise, please open an issue.
+Vibisual is a developer tool and is not directed at children. The only data we
+hold that has any connection to an individual machine is the salted daily hash
+described in item 1, and it is designed so that it cannot be tied back to a
+person or a device — which also means we cannot find and delete a particular
+one on request. Everything else stays on your computer, where deleting it is
+yours to do. If you believe otherwise, please open an issue.
 
 ## Changes
 

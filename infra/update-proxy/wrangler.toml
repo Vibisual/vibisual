@@ -1,0 +1,21 @@
+name = "vibisual-update"
+main = "src/worker.js"
+compatibility_date = "2026-09-01"
+
+# 방문 표식 저장고. 아래 `id` 는 `wrangler kv namespace create VISITS` 가 찍어 주는 값으로
+# 바꿔야 한다 — 그 전까지는 배포가 실패한다(비어 있는 id 로 조용히 도는 것보다 낫다).
+[[kv_namespaces]]
+binding = "VISITS"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+
+# 무료 요금제의 요청 한도(하루 10만) 안에서 도는 규모다 — 설치 하나가 하루 6~7회 묻는다.
+
+# 배포 뒤 커스텀 도메인을 붙이려면 아래 주석을 풀고 자기 도메인으로 바꾼다.
+# 도메인 없이 `*.workers.dev` 주소를 그대로 써도 동작하지만, 주소가 앱 빌드에 박히므로
+# 나중에 바꾸기 어렵다 — 도메인을 쥐고 시작하는 편이 낫다.
+# routes = [
+#   { pattern = "update.example.com", custom_domain = true }
+# ]
+
+[observability]
+enabled = true

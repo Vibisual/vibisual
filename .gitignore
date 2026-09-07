@@ -136,4 +136,7 @@ dev/
 # 공개 저장소에 나가면 안 되는 전략 자산이라 폴더 단위로 차단(새 파일도 자동 보호).
 /seeding/
 
+# 배포 채널 매니페스트는 릴리스마다 새로 짓는다 (packaging/README.md)
+packaging/generated/
+
 # === Auto-added by gitignore-guard (private dev assets) ===
