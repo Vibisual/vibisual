@@ -130,13 +130,17 @@ jobs:
         include:
           - os: windows-latest
             script: release:win
+            artifact: installer-win-x64
           # mac 은 **아키텍처마다 그 아키텍처의 러너에서** 짓는다 — 아래 주석 참고.
           - os: macos-latest        # Apple Silicon (arm64)
             script: release:mac:arm64
+            artifact: installer-mac-arm64
           - os: macos-15-intel      # Intel (x64)
             script: release:mac:x64
+            artifact: installer-mac-x64
           - os: ubuntu-latest
             script: release:linux
+            artifact: installer-linux-x64
     runs-on: ${{ matrix.os }}
     # continue-on-error 는 걷어냈다(2026-08-26). 이 줄이 걸어 둔 조건 — "mac 이 실제로 초록으로
     # 도는 것을 한 번 확인하면" — 은 v0.1.11 에서 충족됐다(run 32344953534, mac 잡 success).
@@ -255,6 +259,70 @@ jobs:
           MAC_APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           MAC_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
+      # ── 체크섬 ────────────────────────────────────────────────────────────────
+      # winget · Homebrew Cask · Flathub 는 매니페스트에 **sha256** 을 적어야 한다. 그 값을
+      # 나중에 구하려면 발행된 자산을 다시 받아야 하는데, 그건 우리가 방금 없앤 오염(다운로드
+      # 수)을 다른 문으로 되살리는 짓이다. 여기서는 방금 지은 파일이 손에 있으므로 공짜다.
+      #
+      # 사용자에게도 쓸모가 있다 — 받은 설치본이 우리가 낸 그 파일인지 확인할 수단이 지금까지
+      # 없었다(미서명 배포라 더 그렇다). 발행되는 `SHA256SUMS.txt` 가 그 자리다.
+      - name: Checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd packages/desktop/dist
+          # macOS 러너에는 `sha256sum` 이 없다 — `shasum -a 256` 이 같은 형식을 낸다.
+          sum() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1"; else shasum -a 256 "$1"; fi; }
+          out="SHA256SUMS-${{ matrix.artifact }}.txt"
+          : > "$out"
+          shopt -s nullglob
+          for f in *-setup.exe *.dmg *.AppImage *.deb *.rpm; do sum "$f" >> "$out"; done
+          cat "$out"
+
+      # 체크섬만 따로 올린다(몇 KB). 설치본 아티팩트와 합쳐 두면 이걸 쓰는 `notes` 잡이
+      # 700MB 를 받아야 한다.
+      - name: Upload checksums
+        uses: actions/upload-artifact@v4
+        with:
+          name: checksums-${{ matrix.artifact }}
+          path: packages/desktop/dist/SHA256SUMS-*.txt
+          retention-days: 14
+          if-no-files-found: warn
+
+      # ── 스모크가 검증할 사본 (릴리스 자산 카운터를 건드리지 않는 경로) ────────────
+      # ⚠️ 스모크가 `gh release download` 로 받으면 **그 다운로드가 릴리스 자산 카운터에 잡힌다.**
+      #    릴리스 한 번마다 6회가 쌓였다 — win setup.exe 1 · linux deb+AppImage 2 · mac arm64 dmg 1 ·
+      #    mac x64 는 `--pattern '*.dmg'` 가 arm64 것까지 함께 집어 2. 재시도·`/reinstall-*`
+      #    까지 더하면 릴리스당 10~15회다.
+      #
+      #    실측(2026-09-07): 공개 릴리스 설치본 다운로드 134회 중, **릴리스가 없는 날의 증가는 0**
+      #    이었고(metrics 브랜치 traction.csv 9/3→9/4, 9/5→9/6), 릴리스당 합계는 스모크가 들어온
+      #    2026-08-27(v0.1.14) 을 경계로 0~6 에서 7~40 으로 뛰었다. 즉 공개 지표인 "설치 수"를
+      #    우리 CI 가 채우고 있었다 — 사이트(`vibisual-site` 의 stats.json)가 그 숫자를 그대로
+      #    노출하므로 남에게도 틀린 수를 보여 준다.
+      #
+      #    그래서 검증용 사본은 **Actions 아티팩트**로 넘긴다(업계 통상 경로). 게이트가 약해지지
+      #    않는다 — 아티팩트는 릴리스에 올라간 바로 그 파일에서 같은 자리에 올라가고, 업로드가
+      #    깨졌을 가능성은 사용자 쪽 electron-updater 가 `latest*.yml` 의 sha512 로 설치 직전에
+      #    다시 검사한다(그 검사는 우리가 아니라 사용자 기기에서 도는 것이라 CI 로 대체할 수 없다).
+      - name: Upload installers for smoke
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          # 러너마다 자기 OS 산출물만 있다 — mac arm64 러너에는 `-arm64.dmg`, Intel 러너에는
+          # 접미사 없는 `.dmg` 만 나오므로 같은 글롭으로 각자 제 것만 집는다.
+          path: |
+            packages/desktop/dist/*-setup.exe
+            packages/desktop/dist/*.dmg
+            packages/desktop/dist/*.AppImage
+            packages/desktop/dist/*.deb
+          # 이미 압축된 설치본이라 다시 압축해 봐야 시간만 쓴다.
+          compression-level: 0
+          # 스모크는 릴리스 직후에 돈다. 손으로 옛 태그를 검증할 때만 만료가 문제인데,
+          # 그때는 스모크가 릴리스 자산 폴백으로 떨어지고 경고를 남긴다.
+          retention-days: 14
+          if-no-files-found: warn
+
   # ── 릴리스 본문 ───────────────────────────────────────────────────────────────
   # electron-builder 는 자산만 올리고 **본문을 쓰지 않는다.** 그대로 두면 릴리스 페이지는
   # 이름순으로 흩어진 파일 16개가 전부이고, "내 OS 것"을 고르는 데 필요한 지식
@@ -319,6 +387,52 @@ jobs:
           # 묶이지 않았는데 조용히 지나가면 스모크가 "release not found" 로 죽는다 — 여기서 끊는다.
           [ "$BOUND" = "$TAG" ] || { echo "::error::release #$ID 가 $TAG 로 안 묶여 있다 (tag_name=$BOUND)"; exit 1; }
           echo "확인 — release #$ID 하나에 모였다 (tag_name=$BOUND, assets=$(echo "$MATCHES" | jq '.[0].assets|length'))"
+
+      # ── SHA256SUMS.txt 발행 ───────────────────────────────────────────────
+      # 네 잡이 각자 낸 체크섬을 한 파일로 모아 릴리스 자산으로 올린다. 이 파일이
+      # winget · Homebrew Cask · Flathub 매니페스트의 sha256 공급원이고(그래서 그쪽이
+      # 설치본을 다시 받을 필요가 없다), 사용자가 받은 파일을 확인하는 수단이기도 하다.
+      - name: Collect checksums
+        if: github.ref_type == 'tag'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: checksums-*
+          path: sums
+          merge-multiple: true
+
+      - name: Publish SHA256SUMS.txt
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          VER="${TAG#v}"
+          if ! ls sums/SHA256SUMS-*.txt >/dev/null 2>&1; then
+            echo "::warning::체크섬 아티팩트가 없다 — 빌드 잡이 전부 실패했을 때 여기로 온다."
+            exit 0
+          fi
+          # 파일 이름 순으로 모아 두면 판올림이 달라도 diff 가 읽힌다.
+          cat sums/SHA256SUMS-*.txt | sort -k2 > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+          # ⚠️ `gh release upload <TAG>` 를 쓰지 마라 — 그 경로는 `/releases/tags/<tag>` 라
+          #    **draft 에 404** 다(이 워크플로가 여러 번 걸렸던 자리와 같은 함정).
+          #    릴리스 id 로 직접 올린다.
+          ID=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+                 --jq "[.[] | select(.draft == true and (.tag_name == \"$TAG\" or .name == \"$VER\"))][0].id")
+          if [ -z "$ID" ] || [ "$ID" = "null" ]; then
+            echo "::warning::$TAG 의 draft 를 못 찾아 체크섬을 올리지 못했다."
+            exit 0
+          fi
+          # 재실행이면 같은 이름이 이미 있다 — 지우고 올린다(그대로 두면 422).
+          OLD=$(gh api "repos/$GITHUB_REPOSITORY/releases/$ID/assets" \
+                  --jq '.[] | select(.name == "SHA256SUMS.txt") | .id' || true)
+          for a in $OLD; do gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$a" >/dev/null; done
+          gh api --method POST -H "Content-Type: text/plain" \
+            "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$ID/assets?name=SHA256SUMS.txt" \
+            --input SHA256SUMS.txt >/dev/null
+          echo "SHA256SUMS.txt 를 release #$ID 에 올렸다."
 
       - name: Checkout
         uses: actions/checkout@v4
