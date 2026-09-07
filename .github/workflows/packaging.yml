@@ -33,7 +33,7 @@ jobs:
     #    스텝에 두면 조건이 항상 거짓이 되어 아무 데도 안 보내는 채로 조용히 초록이 된다.
     env:
       WINGET_FORK_TOKEN: ${{ secrets.WINGET_FORK_TOKEN }}
-      TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
+      TAP_DEPLOY_KEY: ${{ secrets.TAP_DEPLOY_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -77,8 +77,16 @@ jobs:
         run: |
           set -euo pipefail
           DEST="manifests/v/Vibisual/Vibisual/$VERSION"
-          git clone --depth 1 "https://x-access-token:${WINGET_FORK_TOKEN}@github.com/${FORK}.git" fork
+          # 포크를 상류에 맞춘다 — 서버가 fast-forward 해 준다(내려받지 않는다).
+          # 갈라져 있으면 실패하는데, 그때도 PR 은 열 수 있으므로 막지 않는다.
+          gh repo sync "$FORK" --source microsoft/winget-pkgs --branch master || true
+          # ⚠️ 통째로 받지 않는다. winget-pkgs 는 매니페스트 수십만 개짜리 저장소라
+          #    평범한 클론은 러너 디스크와 시간을 통째로 먹는다. 우리가 손대는 것은
+          #    폴더 하나뿐이므로 블롭 없이 받아 그 폴더만 편다.
+          git clone --depth 1 --filter=blob:none --sparse \
+            "https://x-access-token:${WINGET_FORK_TOKEN}@github.com/${FORK}.git" fork
           cd fork
+          git sparse-checkout set --no-cone "manifests/v/Vibisual"
           git config user.name  "vibisual-bot"
           git config user.email "noreply@vibisual.pro"
           git checkout -b "vibisual-$VERSION"
@@ -94,20 +102,33 @@ jobs:
 
       # ── Homebrew tap ──────────────────────────────────────────────────────
       # 공식 homebrew-cask 는 인지도 요건에 막혀 있다(별 75 등) — 그 전까지는 우리 tap 이다.
+      #
+      # ⚠️ PAT 이 아니라 **배포키**로 민다. PAT 은 그 계정이 닿는 모든 저장소에 쓸 수 있어,
+      #    캐스크 파일 한 줄을 고치는 일에 견주면 권한이 과하다. 배포키는 이 tap 하나에만
+      #    유효하므로 새더라도 그 저장소에서 키를 지우는 것으로 끝난다.
       - name: Homebrew tap 갱신
-        if: env.TAP_TOKEN != ''
+        if: env.TAP_DEPLOY_KEY != ''
         env:
           TAP: ${{ vars.HOMEBREW_TAP || 'Vibisual/homebrew-tap' }}
         run: |
           set -euo pipefail
-          git clone --depth 1 "https://x-access-token:${TAP_TOKEN}@github.com/${TAP}.git" tap
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          # 여러 줄짜리 비밀이라 printf 로 그대로 쏟는다(echo 는 셸마다 개행을 다르게 다룬다).
+          printf '%s\n' "$TAP_DEPLOY_KEY" > ~/.ssh/tap_key
+          chmod 600 ~/.ssh/tap_key
+          ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
+          # IdentitiesOnly — 러너에 다른 키가 얹혀 있어도 이 키만 쓴다.
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/tap_key -o IdentitiesOnly=yes"
+          git clone --depth 1 "git@github.com:${TAP}.git" tap
           cd tap
           git config user.name  "vibisual-bot"
           git config user.email "noreply@vibisual.pro"
           mkdir -p Casks
           cp ../packaging/generated/homebrew/Casks/vibisual.rb Casks/vibisual.rb
-          # 내용이 그대로면 커밋하지 않는다 — 빈 커밋이 쌓이면 이력이 읽히지 않는다.
-          if git diff --quiet; then echo "바뀐 것이 없다."; exit 0; fi
           git add Casks/vibisual.rb
+          # 내용이 그대로면 커밋하지 않는다 — 빈 커밋이 쌓이면 이력이 읽히지 않는다.
+          # ⚠️ `git diff --quiet`(스테이징 전) 으로는 안 된다. 캐스크가 아직 추적되지 않는
+          #    **첫 회에** 그 비교가 "바뀐 것 없음"을 내놓아, 정작 첫 파일이 영영 안 올라간다.
+          if git diff --cached --quiet; then echo "바뀐 것이 없다."; exit 0; fi
           git commit -m "vibisual $VERSION"
           git push
