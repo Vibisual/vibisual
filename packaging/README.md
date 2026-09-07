@@ -21,8 +21,8 @@ node .github/scripts/build-packaging-manifests.mjs v0.1.23
 
 | 채널 | 상태 | 막는 것 |
 |---|---|---|
-| **winget** (Windows) | 바로 낼 수 있다 | 없음. `microsoft/winget-pkgs` 는 인지도 요건이 없다 |
-| **Homebrew — 우리 tap** (macOS) | 바로 낼 수 있다 | 없음. `Vibisual/homebrew-tap` 저장소만 만들면 된다 |
+| **winget** (Windows) | 포크는 준비됨 | `WINGET_FORK_TOKEN`(PAT). 포크에 밀고 상류에 PR 을 여는 데 필요하다 |
+| **Homebrew — 우리 tap** (macOS) | **켜져 있다** | 없음. 저장소·배포키 모두 준비돼 있다 |
 | **Homebrew — 공식 cask** | **막혀 있다** | 인지도 요건(별 75 · 포크 30 · 워처 30 중 하나). 현재 별 1 |
 | **Flathub** (Linux) | 사람 손이 한 번 필요하다 | 첫 제출은 리뷰 과정이다. 매니페스트는 여기서 짓는다 |
 
@@ -33,10 +33,14 @@ node .github/scripts/build-packaging-manifests.mjs v0.1.23
 ## 제출
 
 - **winget** — `.github/workflows/packaging.yml` 이 릴리스 공개 뒤 자동으로 PR 을 연다.
-  `WINGET_FORK_TOKEN` 시크릿(자기 계정의 `winget-pkgs` 포크에 쓸 수 있는 PAT)이 있어야
-  돈다. 없으면 매니페스트만 아티팩트로 남기고 조용히 지나간다.
-- **Homebrew tap** — 같은 워크플로가 `TAP_TOKEN` 이 있을 때 `Vibisual/homebrew-tap` 의
-  `Casks/vibisual.rb` 를 갱신한다.
+  포크(`Vibisual/winget-pkgs`)는 만들어 두었고, 남은 것은 `WINGET_FORK_TOKEN` 시크릿뿐이다
+  (그 포크에 쓰고 `microsoft/winget-pkgs` 에 PR 을 열 수 있는 PAT). 여기만 배포키를 못 쓴다 —
+  배포키는 저장소에 밀 수는 있어도 **남의 저장소에 PR 을 열지는 못하기** 때문이다.
+  없으면 매니페스트만 아티팩트로 남기고 조용히 지나간다.
+- **Homebrew tap** — 같은 워크플로가 `Vibisual/homebrew-tap` 의 `Casks/vibisual.rb` 를
+  갱신한다. **PAT 이 아니라 배포키**(`TAP_DEPLOY_KEY`)로 민다 — PAT 은 그 계정이 닿는 모든
+  저장소에 쓸 수 있어 캐스크 한 줄을 고치는 일에 견주면 권한이 과하고, 배포키는 이 tap
+  하나에만 유효해 새더라도 그 저장소에서 키를 지우는 것으로 끝난다. 이미 걸려 있다.
 - **Flathub** — `flathub/flathub` 에 새 브랜치로 PR 을 여는 1회성 과정이다.
   `packaging/generated/flathub/` 의 세 파일이 그 PR 의 내용이고, `extra-data` 의 `size` 가
   0 이면 실제 바이트 수로 채워야 한다(생성기가 릴리스에서 읽어 채우지만, `--sums` 로
