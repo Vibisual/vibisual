@@ -27,7 +27,12 @@ npx wrangler login
 npx wrangler kv namespace create VISITS
 #   → 찍혀 나온 id 를 wrangler.toml 의 REPLACE_WITH_KV_NAMESPACE_ID 자리에 넣는다
 
-# 하루치 소금 (아무 긴 임의 문자열). 이게 없으면 계수 없이 프록시만 한다.
+# 하루치 소금. 이게 없으면 계수 없이 프록시만 한다. 값은 아무 긴 임의 문자열이면 되는데,
+# 고르느라 멈추지 않도록 만들어 붙인다(붙여 넣으라고 하면 프롬프트가 뜬다).
+#   openssl rand -base64 32
+#   (openssl 이 없으면) node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+# ⚠️ 이 값을 나중에 바꾸면 그날 이후의 표식이 전부 달라진다 — 어제와 오늘이 끊긴다는 뜻이라
+#    사고가 아니면 바꾸지 마라(바꾸는 것 자체가 안전장치이긴 하다).
 npx wrangler secret put HASH_SALT
 
 npx wrangler deploy
@@ -37,9 +42,18 @@ npx wrangler deploy
 동작을 먼저 확인한다.
 
 ```bash
-curl -I https://<주소>/latest.yml     # 200 + text/yaml
-curl -s  https://<주소>/stats | head  # 날짜별 집계
+curl -I https://<주소>/latest.yml            # 200 + text/yaml
+curl -s -o /dev/null -w '%{http_code}\n' -X POST "https://<주소>/px?e=view"   # 204
+curl -s  https://<주소>/stats | head         # 날짜별 집계
+
+# ⚠️ `/stats` 는 엣지에 10분 캐시된다 — 방금 센 것이 바로 안 보이는 것이 정상이다.
+#    그 캐시가 없으면 이 주소를 아는 누구든 두드리는 것만으로 KV 읽기 한도를 태울 수 있다.
 ```
+
+## 사이트에 물리기
+
+사이트(`html/index.html`, 별도 저장소 `Vibisual/vibisual-site`)의 `ENDPOINT` 상수에
+`https://<주소>/px` 를 적는다. 비어 있으면 **요청 자체가 나가지 않는다.**
 
 ## 앱에 물리기
 
