@@ -64,6 +64,9 @@ nsis:
   # oneClick:true + perMachine:false = per-user 무인 설치/업데이트(관리자 권한 불필요).
   oneClick: true
   perMachine: false
+  # 새 설치에서 설치 프로그램이 가끔 0xC0000005 로 죽는 electron-builder 24 템플릿 결함을 비껴간다.
+  # 까닭·방법은 그 파일 머리말. 지우면 Windows 스모크가 다시 가끔 빨개진다(23회 중 6회였다).
+  include: build/installer.nsh
   # allowToChangeInstallationDirectory 는 oneClick:false 에서만 유효 — 제거.
   artifactName: ${productName}-${version}-setup.${ext}
   # Brand bubble — installer wizard window, uninstaller, and Start-menu/Desktop shortcuts

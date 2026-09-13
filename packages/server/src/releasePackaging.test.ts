@@ -178,6 +178,70 @@ describe('release packaging — mac/linux', () => {
  * 아래 검사들은 그 순서가 **되돌아가지 못하게** 잠근다. 한 줄만 바꿔도 게이트 전체가 사라지는
  * 구조라(예: `releaseType` 을 `release` 로) 사람의 기억에 맡길 수 없다.
  */
+describe('Windows 설치 프로그램 — 새 설치가 가끔 죽지 않는다', () => {
+  // electron-builder 24.13.3 의 multiUser.nsh 는 새 설치(이전 설치 위치 없음)에서 기본 폴더 문자열을
+  // `*$2(&w${NSIS_MAX_STRLEN} .s)` 로 읽는다. 그 NSIS 빌드는 NSIS_MAX_STRLEN=8192 라 수십 바이트짜리
+  // 문자열 뒤로 16KB 를 복사하고, 힙 배치가 나쁘면 System.dll(+0x1581)이 0xC0000005 로 죽는다
+  // (2026-09-13 스모크 23회 중 6회 — 같은 설치본이 러너마다 갈렸다). 설치본이 아무것도 설치하지 않고
+  // 끝나므로 **처음 받는 사람**이 맞는 실패다. build/installer.nsh 의 preInit 이 그 줄을 비껴간다.
+  const OVERREAD = '(&w${NSIS_MAX_STRLEN} .s)';
+  const NSH = 'packages/desktop/build/installer.nsh';
+  const codeOf = (src: string): string =>
+    src
+      .split(/\r?\n/)
+      .filter((line) => !/^\s*[;#]/.test(line))
+      .join('\n');
+
+  it('nsis.include 가 설치 스크립트를 가리키고, 그 파일이 있다', () => {
+    const yml = read('packages/desktop/electron-builder.yml');
+    const nsisBlock = yml.slice(yml.indexOf('\nnsis:'), yml.indexOf('\nmac:'));
+    expect(nsisBlock).toMatch(/^\s+include:\s*build\/installer\.nsh\s*$/m);
+    expect(fs.existsSync(path.join(REPO, NSH))).toBe(true);
+  });
+
+  it('preInit 은 이전 설치 위치가 비었을 때만 기본 폴더를 먼저 적고, 문제의 읽기를 쓰지 않는다', () => {
+    const code = codeOf(read(NSH));
+    expect(code).toContain('!macro preInit');
+    // 제거 프로그램을 만드는 단계는 빌드 기계에서 실행된다 — 거기서 레지스트리를 건드리면 안 된다.
+    expect(code).toContain('!ifndef BUILD_UNINSTALLER');
+    expect(code).toContain('lstrcpynW');
+    expect(code).not.toContain(OVERREAD);
+    // 이미 깔린 사람의 위치를 덮지 않는다 — 쓰기는 "비었는가" 분기 안에만 있다.
+    const readAt = code.indexOf('ReadRegStr $0 HKCU "${INSTALL_REGISTRY_KEY}" InstallLocation');
+    const ifAt = code.indexOf('${If} $0 == ""');
+    const writeAt = code.indexOf('WriteRegStr HKCU "${INSTALL_REGISTRY_KEY}" InstallLocation "$0\\${APP_FILENAME}"');
+    expect(readAt).toBeGreaterThan(-1);
+    expect(ifAt).toBeGreaterThan(readAt);
+    expect(writeAt).toBeGreaterThan(ifAt);
+    expect(code.indexOf('WriteRegStr')).toBe(writeAt);
+  });
+
+  it('템플릿이 preInit 을 문제의 읽기보다 먼저 부르고, 적어 둔 값이 있으면 그 읽기를 건너뛴다', () => {
+    // 비껴가기가 성립하는 두 전제를 **실제로 설치된** electron-builder 템플릿에서 잰다.
+    // electron-builder 를 올려 순서가 바뀌면 여기서 넘어진다 — 그때 installer.nsh 를 다시 본다.
+    const fromDesktop = createRequire(path.join(REPO, 'packages/desktop/package.json'));
+    const builderPkg = fs.realpathSync(fromDesktop.resolve('electron-builder/package.json'));
+    const libRoot = path.dirname(createRequire(builderPkg).resolve('app-builder-lib/package.json'));
+    const nsi = fs.readFileSync(path.join(libRoot, 'templates/nsis/installer.nsi'), 'utf8');
+    const multiUser = fs.readFileSync(path.join(libRoot, 'templates/nsis/multiUser.nsh'), 'utf8');
+
+    const initAt = nsi.indexOf('Function .onInit');
+    const onInit = nsi.slice(initAt, nsi.indexOf('FunctionEnd', initAt));
+    expect(onInit.indexOf('!insertmacro preInit')).toBeGreaterThan(-1);
+    expect(onInit.indexOf('!insertmacro preInit')).toBeLessThan(onInit.indexOf('!insertmacro initMultiUser'));
+
+    const macroAt = multiUser.indexOf('!macro setInstallModePerUser');
+    const perUser = multiUser.slice(macroAt, multiUser.indexOf('!macroend', macroAt));
+    expect(macroAt).toBeGreaterThan(-1);
+    if (perUser.includes(OVERREAD)) {
+      // 결함이 있는 판이면 — 레지스트리 값이 있을 때 그 읽기가 else 쪽에 있어야 비껴가기가 먹힌다.
+      const readAt = perUser.indexOf('ReadRegStr $perUserInstallationFolder HKCU "${INSTALL_REGISTRY_KEY}" InstallLocation');
+      expect(readAt).toBeGreaterThan(-1);
+      expect(perUser.indexOf(OVERREAD)).toBeGreaterThan(perUser.indexOf('${else}', readAt));
+    }
+  });
+});
+
 describe('release publishing — 검증이 발행보다 앞선다', () => {
   it('자산은 draft 로 올라간다 (draft 면 업데이터가 못 읽는다 = 사용자에게 도달하지 않는다)', () => {
     const yml = read('packages/desktop/electron-builder.yml');

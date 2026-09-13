@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.25] - 2026-09-13
+
+### Fixed
+- **The Windows installer no longer sometimes quits without installing anything.** On a PC where Vibisual had never been installed, the installer could crash within a second of starting and leave nothing behind — it happened in 6 of 23 test installs, and the same installer file passed or failed from one machine to the next. While choosing the default install folder, a step of the installer toolkit copied thousands of bytes past the end of that folder's name and crashed whenever that memory was not readable. The installer now sets the same default folder before that step runs, so the step is skipped. Updating an existing installation never went through it, and the install folder is unchanged.
+
 ## [0.1.24] - 2026-09-13
 
 ### Fixed
@@ -561,7 +566,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - Dropped preset options from the custom agent settings.
 
-[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.1.24...HEAD
+[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.1.25...HEAD
+[0.1.25]: https://github.com/Vibisual/vibisual/compare/v0.1.24...v0.1.25
 [0.1.24]: https://github.com/Vibisual/vibisual/compare/v0.1.23...v0.1.24
 [0.1.23]: https://github.com/Vibisual/vibisual/compare/v0.1.22...v0.1.23
 [0.1.22]: https://github.com/Vibisual/vibisual/compare/v0.1.21...v0.1.22
