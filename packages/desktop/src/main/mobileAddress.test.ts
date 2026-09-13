@@ -101,7 +101,7 @@ describe('세 OS 의 어댑터 이름', () => {
 });
 
 describe('목록 세우기', () => {
-  /** 사용자 실측 구성 + 가상 어댑터를 섞은 것. OS 가 주는 순서는 뒤죽박죽이다. */
+  /** 실측한 구성과 같은 모양(주소는 가상 값) + 가상 어댑터를 섞은 것. OS 가 주는 순서는 뒤죽박죽이다. */
   const inputs: MobileAddressInput[] = [
     { url: 'http://172.30.16.1:54957', address: '172.30.16.1', adapter: 'vEthernet (WSL)' },
     { url: 'http://100.101.102.103:54957', address: '100.101.102.103', adapter: 'Tailscale' },

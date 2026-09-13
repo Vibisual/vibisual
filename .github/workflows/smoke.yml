@@ -583,10 +583,37 @@ jobs:
           echo "발행 대상 태그: $TAG"
           echo "TAG=$TAG" >> "$GITHUB_ENV"
 
+      # draft 의 태그 묶음은 **풀릴 수 있다** — draft 를 고치면서 `tag_name` 을 빼고 보내면 GitHub 이
+      # `untagged-<hash>` 로 되돌린다(2026-09-13 임시 draft 로 확인). v0.1.23 이 그 상태로 여기까지 와서,
+      # 설치 검증 4종이 전부 초록인데도 아래 검사가 "릴리스를 못 찾았다"로 멈췄고 공개가 30분 늦었다.
+      # 이 잡이 공개로 가는 유일한 문이므로, 앞에서 무엇이 태그를 풀었든 여기서는 찾아져야 한다.
+      - name: draft 가 태그에 묶여 있는지 확인 (풀려 있으면 다시 묶는다)
+        shell: bash
+        run: |
+          set -euo pipefail
+          VER="${TAG#v}"
+          ID=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+                 --jq "[.[] | select(.draft == true and (.tag_name == \"$TAG\" or .name == \"$VER\"))][0].id // empty")
+          if [ -z "$ID" ]; then
+            echo "$TAG 의 draft 가 없다 — 이미 공개됐거나 아직 안 올라왔다. 판정은 다음 스텝이 한다."
+            exit 0
+          fi
+          BOUND=$(gh api "repos/$GITHUB_REPOSITORY/releases/$ID" --jq .tag_name)
+          if [ "$BOUND" = "$TAG" ]; then
+            echo "release #$ID 는 $TAG 에 묶여 있다."
+            exit 0
+          fi
+          echo "::warning::release #$ID 의 tag_name 이 $BOUND 다 — $TAG 로 다시 묶는다"
+          AFTER=$(gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$ID" -f tag_name="$TAG" --jq .tag_name)
+          [ "$AFTER" = "$TAG" ] || { echo "::error::release #$ID 를 $TAG 로 묶지 못했다 (tag_name=$AFTER)"; exit 1; }
+          echo "다시 묶었다 — release #$ID (tag_name=$AFTER)"
+
       # 실행이 되는 것과 **세 OS 에 다 도달하는 것**은 다른 문제다. 스모크는 4종 러너에서
       # 앱이 뜨는지만 보므로, 자산 한 종이 통째로 빠진 것(v0.1.12 의 Intel dmg)은 못 잡는다.
       # 공개 직전에 세는 이유가 그것이다 — 여기서 걸리면 릴리스는 draft 로 남는다.
-      - name: 자산 11종 검사 (한 종이라도 없으면 공개하지 않는다)
+      # (몇 종인지는 적지 않는다 — 목록의 정본은 check-release-assets.mjs 하나다. 이름에 적어 둔 "11종"이
+      #  SHA256SUMS.txt 가 더해진 뒤에도 그대로 남아 있었다.)
+      - name: 자산 검사 (한 종이라도 없으면 공개하지 않는다)
         shell: bash
         run: node .github/scripts/check-release-assets.mjs "$TAG"
 
