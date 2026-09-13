@@ -20,7 +20,7 @@ import {
 // §5.5 #17-27 ⑮ — 이 규약이 어긋나면 증상은 **흰 사각형 하나**다(404 도 오류도 화면에 안 뜬다).
 // 조립(클라)과 해석(서버)이 같은 파일에 있는 이유가 그것이고, 여기서 그 왕복을 못 박는다.
 
-const WIN_ROOT = 'C:/work/AIProjects/vibisual';
+const WIN_ROOT = 'C:/work/projects/vibisual';
 const NIX_ROOT = '/srv/projects/vibisual';
 
 describe('isWorkspaceHtmlPath — 페이지로 여는 확장자', () => {

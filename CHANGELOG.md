@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.24] - 2026-09-13
+
+### Fixed
+- **Download links on the release page no longer break the moment a release goes public.** The table of files was written while the release was still a draft, using the draft's own addresses — and those stop working as soon as the release is published, so every link in the tables of 0.1.22 and 0.1.23 led to a "not found" page until it was rewritten by hand. The links now use the version's permanent address, which is the one that keeps working after publishing.
+- **A release that has passed every install check no longer sits unpublished.** Writing the release notes quietly detached the draft from its version tag, so the final step could not find the release it had just verified and stopped — 0.1.23 reached installed apps about half an hour late for that reason. The notes now keep the tag attached, and the publishing step re-attaches it before counting the files, whatever detached it.
+
 ## [0.1.23] - 2026-09-13
 
 ### Added
@@ -553,7 +559,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - Dropped preset options from the custom agent settings.
 
-[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.1.23...HEAD
+[Unreleased]: https://github.com/Vibisual/vibisual/compare/v0.1.24...HEAD
+[0.1.24]: https://github.com/Vibisual/vibisual/compare/v0.1.23...v0.1.24
 [0.1.23]: https://github.com/Vibisual/vibisual/compare/v0.1.22...v0.1.23
 [0.1.22]: https://github.com/Vibisual/vibisual/compare/v0.1.21...v0.1.22
 [0.1.21]: https://github.com/Vibisual/vibisual/compare/v0.1.20...v0.1.21

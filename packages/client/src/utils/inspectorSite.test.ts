@@ -9,7 +9,7 @@ import { buildSiteClipboardText, siteHitSummary, siteRelPathFromUrl } from './in
  * 받은 쪽은 그 줄을 믿고 고치기 시작한다. 없는 위치보다 **틀린 위치**가 나쁘다.
  */
 
-const ROOT = 'C:/work/AIProjects/vibisual';
+const ROOT = 'C:/work/projects/vibisual';
 
 function hit(over: Partial<WorkspaceSiteInspectHit> = {}): WorkspaceSiteInspectHit {
   return {

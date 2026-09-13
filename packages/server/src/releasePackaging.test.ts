@@ -239,6 +239,49 @@ describe('release publishing — 검증이 발행보다 앞선다', () => {
   });
 
   /**
+   * v0.1.23 이 30분 늦게, 그것도 죽은 링크를 단 채 공개된 자리.
+   *
+   * ① 본문 생성기가 draft 에 **본문만** PATCH 하자 GitHub 이 태그 묶음을 `untagged-<hash>` 로 풀었다
+   *    (2026-09-13 임시 draft 로 확인 — tag_name 을 함께 보내면 유지된다). 설치 검증 4종은 전부
+   *    초록이었는데 publish 잡의 자산 검사가 태그로 릴리스를 못 찾아 멈췄다.
+   * ② 본문의 다운로드 링크를 draft 의 `browser_download_url`(untagged 주소)로 만들어서, 공개되는 순간
+   *    표의 링크가 전부 404 가 됐다(v0.1.22 도 같았고 둘 다 본문을 손으로 다시 써서 살렸다).
+   */
+  const loadNotes = async (): Promise<Record<string, any>> =>
+    await import(pathToFileURL(path.join(REPO, '.github/scripts/release-notes.mjs')).href);
+
+  it('본문을 고쳐도 draft 의 태그 묶음이 풀리지 않는다 (tag_name 을 같이 보낸다)', async () => {
+    const { notesPatchPayload } = await loadNotes();
+    expect(notesPatchPayload({ name: '0.1.24' }, '0.1.24', 'body').tag_name).toBe('v0.1.24');
+  });
+
+  it('본문의 다운로드 링크는 draft 주소가 아니라 태그 주소다 (공개되는 순간 404 가 되지 않는다)', async () => {
+    const { renderNotes } = await loadNotes();
+    const V = '0.1.24';
+    const draftUrl = (name: string) =>
+      `https://github.com/Vibisual/vibisual/releases/download/untagged-0123456789abcdef0123/${name}`;
+    const body: string = renderNotes({
+      version: V,
+      assets: [`Vibisual-${V}-setup.exe`, `Vibisual-${V}-arm64.dmg`, `vibisual_${V}_amd64.deb`].map((name) => ({
+        name,
+        size: 150 << 20,
+        browser_download_url: draftUrl(name),
+      })),
+      changelog: null,
+    });
+    expect(body).not.toContain('untagged-');
+    expect(body).toContain(`https://github.com/Vibisual/vibisual/releases/download/v${V}/Vibisual-${V}-setup.exe`);
+  });
+
+  it('공개 잡은 자산을 세기 전에 draft 를 태그에 다시 묶는다 (앞에서 무엇이 풀었든 찾아져야 한다)', () => {
+    const wf = read('.github/workflows/smoke.yml');
+    const publish = wf.slice(wf.indexOf('\n  publish:'));
+    const bind = publish.indexOf('-f tag_name="$TAG"');
+    expect(bind, '공개 잡에 태그 다시 묶기가 없다').toBeGreaterThan(-1);
+    expect(publish.indexOf('check-release-assets.mjs')).toBeGreaterThan(bind);
+  });
+
+  /**
    * v0.1.21 이 갈라진 자리.
    *
    * 네 OS 잡이 동시에 출발하는데, electron-publish 의 `getOrCreateRelease()` 는 릴리스 목록에서
@@ -410,5 +453,8 @@ describe('release 완수 — 초록을 볼 때까지 간다', () => {
     expect(src).toContain('이 릴리스는 **완수되지 않았다**');
     // 25분짜리 재빌드로 가기 전에 값싼 원인(태그 미결합)을 먼저 배제한다.
     expect(src).toContain('ensureDraftTagBound');
+    // 공개 여부·스모크 상태는 토큰으로 묻는다 — 토큰 없는 호출의 시간당 60회가 바닥나면 스모크가
+    // 빨갛게 끝난 것도, 공개된 것도 못 본 채 45분을 채운다(v0.1.23).
+    expect(src).toContain('headers: apiHeaders()');
   });
 });

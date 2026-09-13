@@ -2,7 +2,7 @@
  * 루트 패널(§7.5 `RootFileList`)의 **프로젝트 컨텍스트 보존**을 고정한다.
  *
  * 실제 사고: 프로젝트를 여러 개 열어 둔 상태에서 vibisual 루트 버블을 눌렀더니 패널에
- * **다른 프로젝트(P_2DGame)의 폴더 목록**(`_temp`, `app`, `sim2d`, `steam` …)이 그려졌다.
+ * **먼저 열어 둔 다른 프로젝트의 폴더 목록**이 그려졌다.
  * 그래서 ① 에이전트가 실제로 쓰는 폴더는 목록에 없어 체크가 안 되고 ② 체크하면 그 경로가
  * 이 프로젝트에는 없어 404 라 버블이 안 뜨고 ③ 파일도 남의 것이 나왔다 — 증상 셋이 한 뿌리.
  *
@@ -50,7 +50,7 @@ function makeProjectDir(tag: string, dirs: string[]): string {
 
 /** 두 프로젝트를 **등록 순서대로** 한 매니저에 올린다(먼저 등록된 쪽이 종전에는 항상 이겼다). */
 function twoProjects(): { manager: ProjectGraphManager; first: string; second: string; firstName: string; secondName: string } {
-  const first = makeProjectDir('first', ['docs', 'sim2d', 'steam']);
+  const first = makeProjectDir('first', ['docs', 'engine', 'levels']);
   const second = makeProjectDir('second', ['docs', 'packages', 'scripts']);
   const manager = new ProjectGraphManager();
   const firstName = manager.registerProject(first).name;
@@ -68,13 +68,13 @@ describe('루트 패널 — 노드 키가 어느 프로젝트 것인지 잃지 �
     const tree = manager.listFolderFilePage(`__root__:${secondName}`);
 
     expect(names(tree)).toEqual(['docs', 'packages', 'scripts']);
-    expect(names(tree)).not.toContain('sim2d');
+    expect(names(tree)).not.toContain('engine');
   });
 
   it('첫 프로젝트의 루트 키도 여전히 자기 트리를 준다 (라우팅이 한쪽만 고치지 않았다)', () => {
     const { manager, firstName } = twoProjects();
 
-    expect(names(manager.listFolderFilePage(`__root__:${firstName}`))).toEqual(['docs', 'sim2d', 'steam']);
+    expect(names(manager.listFolderFilePage(`__root__:${firstName}`))).toEqual(['docs', 'engine', 'levels']);
   });
 
   it('남의 루트 키에는 "모른다"고 답한다 — 자기 root 로 물러서면 매니저 루프가 가로챈다', () => {

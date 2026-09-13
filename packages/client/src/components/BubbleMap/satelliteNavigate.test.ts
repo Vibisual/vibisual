@@ -50,26 +50,26 @@ describe('ancestorPaths — 깊은 것부터', () => {
 });
 
 describe('외부 위성 파일 → 폴더 찾기 (눌러도 아무 일이 없던 자리)', () => {
-  const tasks = folder('folder-tasks', 'c:/users/aa/tmp/claude/sess-1/tasks');
-  const work = folder('folder-work', 'c:/users/aa/tmp/claude');
+  const tasks = folder('folder-tasks', 'c:/work/tmp/claude/sess-1/tasks');
+  const work = folder('folder-work', 'c:/work/tmp/claude');
 
   it('노드 키(`__ext__`)가 아니라 절대경로로 부모를 찾는다', () => {
     const file = {
-      path: '__ext__c:/users/aa/tmp/claude/sess-1/tasks/out.json',
-      absolutePath: 'c:/users/aa/tmp/claude/sess-1/tasks/out.json',
+      path: '__ext__c:/work/tmp/claude/sess-1/tasks/out.json',
+      absolutePath: 'c:/work/tmp/claude/sess-1/tasks/out.json',
     };
     expect(resolveSatelliteFolderId(file, [work, tasks])).toBe('folder-tasks');
   });
 
   it('종전 규칙(노드 키 부모 비교)만 있었다면 못 찾았다는 사실을 함께 고정', () => {
-    const keyParent = '__ext__c:/users/aa/tmp/claude/sess-1/tasks';
+    const keyParent = '__ext__c:/work/tmp/claude/sess-1/tasks';
     expect([work, tasks].some((f) => f.path === keyParent)).toBe(false);
   });
 
   it('직속 부모가 아직 안 실려 왔으면 있는 것 중 가장 깊은 조상으로 들어간다', () => {
     const file = {
-      path: '__ext__c:/users/aa/tmp/claude/sess-1/tasks/out.json',
-      absolutePath: 'c:/users/aa/tmp/claude/sess-1/tasks/out.json',
+      path: '__ext__c:/work/tmp/claude/sess-1/tasks/out.json',
+      absolutePath: 'c:/work/tmp/claude/sess-1/tasks/out.json',
     };
     // §9 폴더 스코프 — 최상위 캔버스에는 "한 칸 앞"까지만 온다.
     expect(resolveSatelliteFolderId(file, [work])).toBe('folder-work');
@@ -77,8 +77,8 @@ describe('외부 위성 파일 → 폴더 찾기 (눌러도 아무 일이 없던
 
   it('워크트리 네임스페이스가 붙은 키도 같다', () => {
     const file = {
-      path: 'wt1a2b__ext__c:/users/aa/tmp/claude/sess-1/tasks/out.json',
-      absolutePath: 'c:/users/aa/tmp/claude/sess-1/tasks/out.json',
+      path: 'wt1a2b__ext__c:/work/tmp/claude/sess-1/tasks/out.json',
+      absolutePath: 'c:/work/tmp/claude/sess-1/tasks/out.json',
     };
     expect(resolveSatelliteFolderId(file, [work, tasks])).toBe('folder-tasks');
   });

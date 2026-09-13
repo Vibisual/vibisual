@@ -135,8 +135,8 @@ describe('resolveSessionTasksDir — 슬러그 규칙을 재현하지 않고 세
   });
 
   it('<tmp>/<슬러그>/<sessionId>/tasks 를 한 겹 훑어 찾는다', () => {
-    fs.mkdirSync(path.join(root, 'C--Users-aa-Other', 'sess-aaa', 'tasks'), { recursive: true });
-    const want = path.join(root, 'C--Users-aa-Proj', 'sess-bbb', 'tasks');
+    fs.mkdirSync(path.join(root, 'C--work-other', 'sess-aaa', 'tasks'), { recursive: true });
+    const want = path.join(root, 'C--work-proj', 'sess-bbb', 'tasks');
     fs.mkdirSync(want, { recursive: true });
     expect(resolveSessionTasksDir('sess-bbb', root)).toBe(want);
   });

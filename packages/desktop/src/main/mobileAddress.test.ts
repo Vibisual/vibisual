@@ -20,7 +20,7 @@ import {
 
 describe('대역 판정', () => {
   it('RFC 6598 CGNAT 는 100.64 ~ 100.127 만이다', () => {
-    expect(isCgnatAddress('100.77.197.38')).toBe(true); // Tailscale 실측 주소
+    expect(isCgnatAddress('100.101.102.103')).toBe(true); // Tailscale 이 나눠 주는 대역의 주소(가상 값)
     expect(isCgnatAddress('100.64.0.1')).toBe(true);
     expect(isCgnatAddress('100.127.255.255')).toBe(true);
     // 경계 밖 — 100.x 라고 다 CGNAT 가 아니다(100.63/100.128 은 공인 대역).
@@ -29,7 +29,7 @@ describe('대역 판정', () => {
   });
 
   it('RFC 1918 사설 대역만 랜으로 본다', () => {
-    expect(isPrivateLanAddress('192.168.219.101')).toBe(true);
+    expect(isPrivateLanAddress('192.168.0.23')).toBe(true);
     expect(isPrivateLanAddress('10.0.0.5')).toBe(true);
     expect(isPrivateLanAddress('172.16.0.1')).toBe(true);
     expect(isPrivateLanAddress('172.31.255.254')).toBe(true);
@@ -55,16 +55,16 @@ describe('대역 판정', () => {
 describe('세 OS 의 어댑터 이름', () => {
   it('Tailscale — 이름이 셋 다 다른데 전부 VPN 으로 읽힌다', () => {
     // Windows: 어댑터 이름이 그대로 제품명.
-    expect(classifyMobileAddress('100.77.197.38', 'Tailscale')).toEqual({ kind: 'vpn', product: 'Tailscale' });
+    expect(classifyMobileAddress('100.101.102.103', 'Tailscale')).toEqual({ kind: 'vpn', product: 'Tailscale' });
     // Linux.
-    expect(classifyMobileAddress('100.77.197.38', 'tailscale0')).toEqual({ kind: 'vpn', product: 'Tailscale' });
+    expect(classifyMobileAddress('100.101.102.103', 'tailscale0')).toEqual({ kind: 'vpn', product: 'Tailscale' });
     // macOS: 공용 터널 이름이라 제품을 알 수 없다 — 종류만 말하고 이름은 지어내지 않는다.
-    expect(classifyMobileAddress('100.77.197.38', 'utun3')).toEqual({ kind: 'vpn', product: null });
+    expect(classifyMobileAddress('100.101.102.103', 'utun3')).toEqual({ kind: 'vpn', product: null });
   });
 
   it('진짜 랜은 세 OS 어느 이름이든 lan 이다', () => {
     for (const adapter of ['이더넷', 'Wi-Fi', 'en0', 'en1', 'eth0', 'wlan0', 'enp3s0']) {
-      expect(classifyMobileAddress('192.168.219.101', adapter)).toEqual({ kind: 'lan', product: null });
+      expect(classifyMobileAddress('192.168.0.23', adapter)).toEqual({ kind: 'lan', product: null });
     }
   });
 
@@ -76,7 +76,7 @@ describe('세 OS 의 어댑터 이름', () => {
       .toEqual({ kind: 'virtual', product: 'Hyper-V' });
     expect(classifyMobileAddress('192.168.56.1', 'VirtualBox Host-Only Network'))
       .toEqual({ kind: 'virtual', product: 'VirtualBox' });
-    expect(classifyMobileAddress('192.168.222.1', 'VMware Network Adapter VMnet8'))
+    expect(classifyMobileAddress('192.168.200.1', 'VMware Network Adapter VMnet8'))
       .toEqual({ kind: 'virtual', product: 'VMware' });
     // Linux.
     expect(classifyMobileAddress('172.17.0.1', 'docker0')).toEqual({ kind: 'virtual', product: 'Docker' });
@@ -101,19 +101,19 @@ describe('세 OS 의 어댑터 이름', () => {
 });
 
 describe('목록 세우기', () => {
-  /** 사용자 실측 구성 + 가상 어댑터를 섞은 것. OS 가 주는 순서는 뒤죽박죽이다. */
+  /** 실측한 구성과 같은 모양(주소는 가상 값) + 가상 어댑터를 섞은 것. OS 가 주는 순서는 뒤죽박죽이다. */
   const inputs: MobileAddressInput[] = [
     { url: 'http://172.30.16.1:54957', address: '172.30.16.1', adapter: 'vEthernet (WSL)' },
-    { url: 'http://100.77.197.38:54957', address: '100.77.197.38', adapter: 'Tailscale' },
+    { url: 'http://100.101.102.103:54957', address: '100.101.102.103', adapter: 'Tailscale' },
     { url: 'http://169.254.9.9:54957', address: '169.254.9.9', adapter: 'Wi-Fi' },
-    { url: 'http://192.168.219.101:54957', address: '192.168.219.101', adapter: '이더넷' },
+    { url: 'http://192.168.0.23:54957', address: '192.168.0.23', adapter: '이더넷' },
   ];
 
   it('되는 순서로 세우고 추천은 하나뿐이다', () => {
     const out = buildMobileAddressEntries(inputs);
     expect(out.map((e) => e.kind)).toEqual(['lan', 'vpn', 'virtual', 'linkLocal']);
     expect(out.filter((e) => e.recommended)).toHaveLength(1);
-    expect(out[0]?.address).toBe('192.168.219.101');
+    expect(out[0]?.address).toBe('192.168.0.23');
     expect(out[0]?.recommended).toBe(true);
   });
 
@@ -154,8 +154,8 @@ describe('QR 대상 순서', () => {
   // 열리는가"를 정한다.
   const inputs: MobileAddressInput[] = [
     { url: 'http://172.30.16.1:1', address: '172.30.16.1', adapter: 'vEthernet (WSL)' },
-    { url: 'http://192.168.219.101:1', address: '192.168.219.101', adapter: '이더넷' },
-    { url: 'http://100.77.197.38:1', address: '100.77.197.38', adapter: 'Tailscale' },
+    { url: 'http://192.168.0.23:1', address: '192.168.0.23', adapter: '이더넷' },
+    { url: 'http://100.101.102.103:1', address: '100.101.102.103', adapter: 'Tailscale' },
     { url: 'https://203.0.113.7:8443', address: '203.0.113.7', adapter: '', external: true },
   ];
 
@@ -185,8 +185,8 @@ describe('QR 대상 순서', () => {
 
   it('외부가 없으면 QR 도 랜부터다 — 순서만 다를 뿐 없는 길을 만들지 않는다', () => {
     const qr = buildMobileAddressEntries([
-      { url: 'http://100.77.197.38:1', address: '100.77.197.38', adapter: 'Tailscale' },
-      { url: 'http://192.168.219.101:1', address: '192.168.219.101', adapter: '이더넷' },
+      { url: 'http://100.101.102.103:1', address: '100.101.102.103', adapter: 'Tailscale' },
+      { url: 'http://192.168.0.23:1', address: '192.168.0.23', adapter: '이더넷' },
     ], MOBILE_QR_KIND_ORDER);
     expect(qr.map((e) => e.kind)).toEqual(['lan', 'vpn']);
   });

@@ -144,7 +144,22 @@ export function extractChangelog(markdown, version) {
 
 // ── 본문 렌더 ────────────────────────────────────────────────────────────────
 /**
- * @param {{ version: string, assets: Array<{name:string,size:number,browser_download_url:string}>, changelog?: string|null }} input
+ * 자산을 받는 주소 — **태그로 만든다.** API 가 주는 `browser_download_url` 을 그대로 쓰면 안 된다.
+ *
+ * 본문은 draft 인 동안 쓰인다(공개는 스모크를 통과한 뒤다). 그런데 draft 의 `browser_download_url` 은
+ * `releases/download/untagged-<hash>/…` 이고, 그 주소는 **공개되는 순간 404** 가 된다. v0.1.22·v0.1.23 은
+ * 공개 직후 표의 링크가 전부 죽어 있어 본문을 손으로 다시 써서 살렸다(2026-09-13 실측: untagged 주소 404,
+ * 태그 주소 302). 공개된 릴리스의 주소가 곧 이 모양이므로 draft 때 미리 만들어 둔다.
+ *
+ * @param {string} version `0.1.24` 형태
+ * @param {string} name 자산 파일 이름
+ */
+export function assetDownloadUrl(version, name) {
+  return `https://github.com/${OWNER}/${REPO}/releases/download/v${version}/${encodeURIComponent(name)}`;
+}
+
+/**
+ * @param {{ version: string, assets: Array<{name:string,size:number,browser_download_url?:string}>, changelog?: string|null }} input
  * @returns {string} 릴리스 본문 마크다운
  */
 export function renderNotes({ version, assets, changelog }) {
@@ -170,7 +185,7 @@ export function renderNotes({ version, assets, changelog }) {
         const asset = installers.get(id);
         if (!asset) continue;
         const size = formatSize(asset.size);
-        const link = `[\`${asset.name}\`](${asset.browser_download_url})`;
+        const link = `[\`${asset.name}\`](${assetDownloadUrl(version, asset.name)})`;
         const variant = KINDS.find((k) => k.id === id)?.label;
         cells.push(`${variant ? `${variant} — ` : ''}${link}${size ? ` · ${size}` : ''}`);
       }
@@ -358,20 +373,47 @@ export function releaseTitle(currentName, version) {
   return ours.includes(now) ? version : null;
 }
 
+/**
+ * 본문을 고칠 때 보낼 값.
+ *
+ * ⚠️ `tag_name` 을 **반드시 같이** 보낸다. draft 에 본문만 보내면 GitHub 이 태그 묶음을 풀어
+ *    `untagged-<hash>` 로 되돌린다 — 2026-09-13 임시 draft 로 확인했다(본문만 PATCH → untagged,
+ *    tag_name 을 함께 PATCH → 유지). v0.1.23 에서 이 스크립트가 본문을 쓴 직후 태그가 풀려, 스모크의
+ *    공개 잡이 태그로 릴리스를 못 찾고 멈췄다(설치 검증 4종은 전부 초록이었다).
+ *
+ * @param {{ name?: string|null }} release 지금 릴리스
+ * @param {string} version `0.1.24` 형태
+ * @param {string} body 새 본문
+ */
+export function notesPatchPayload(release, version, body) {
+  const payload = { body, tag_name: `v${version}` };
+  const nextTitle = releaseTitle(release.name, version);
+  if (nextTitle !== null) payload.name = nextTitle;
+  return payload;
+}
+
 async function applyNotes(release, version, body) {
   const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
   if (!token) throw new Error('--apply 에는 GH_TOKEN(또는 GITHUB_TOKEN)이 필요하다.');
 
-  const nextTitle = releaseTitle(release.name, version);
-  const payload = { body };
-  if (nextTitle !== null) payload.name = nextTitle;
+  const payload = notesPatchPayload(release, version, body);
+  const url = `https://api.github.com/repos/${OWNER}/${REPO}/releases/${release.id}`;
+  const patch = (data) =>
+    fetch(url, { method: 'PATCH', headers: { ...ghHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
 
-  const res = await fetch(
-    `https://api.github.com/repos/${OWNER}/${REPO}/releases/${release.id}`,
-    { method: 'PATCH', headers: { ...ghHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify(payload) },
-  );
+  const res = await patch(payload);
   if (!res.ok) {
     throw new Error(`릴리스 갱신 실패 (HTTP ${res.status}): ${await res.text()}`);
+  }
+  // 고친 뒤에도 태그에 묶여 있는지 응답으로 확인한다 — 풀린 채 지나가면 공개 잡이 릴리스를 못 찾는다.
+  // 풀려 있으면 태그만 한 번 더 묶어 본다. 그래도 안 되면 조용히 넘기지 않고 잡을 빨갛게 만든다.
+  let after = await res.json();
+  if (after.tag_name !== payload.tag_name) {
+    const again = await patch({ tag_name: payload.tag_name });
+    if (again.ok) after = await again.json();
+  }
+  if (after.tag_name !== payload.tag_name) {
+    throw new Error(`본문은 썼지만 태그 묶음이 풀렸고 다시 묶지 못했다 (tag_name=${after.tag_name}, 기대 ${payload.tag_name}).`);
   }
   return payload.name ?? release.name;
 }
@@ -406,17 +448,19 @@ function selftest() {
   }
 
   // 표 렌더 — 없는 플랫폼 줄이 그려지지 않는지(죽은 링크 방지).
+  // 입력 자산의 주소는 **실제로 들어오는 모양**(draft 의 untagged 주소)으로 둔다 — 본문은 draft 때 쓰인다.
+  const draftUrl = (name) => `https://github.com/${OWNER}/${REPO}/releases/download/untagged-5d02f298966051e71200/${name}`;
   const winOnly = renderNotes({
     version: V,
-    assets: [{ name: `Vibisual-${V}-setup.exe`, size: 158681849, browser_download_url: 'https://x/exe' }],
+    assets: [{ name: `Vibisual-${V}-setup.exe`, size: 158681849, browser_download_url: draftUrl(`Vibisual-${V}-setup.exe`) }],
     changelog: null,
   });
   if (winOnly.includes('Apple Silicon (M1')) {
     console.error('  ✗ mac 자산이 없는데 mac 줄이 그려졌다');
     failed++;
   }
-  if (!winOnly.includes('https://x/exe')) {
-    console.error('  ✗ win 자산 링크가 표에 없다');
+  if (!winOnly.includes(assetDownloadUrl(V, `Vibisual-${V}-setup.exe`))) {
+    console.error('  ✗ win 자산 링크가 표에 없다(태그 주소여야 한다)');
     failed++;
   }
 
@@ -429,15 +473,20 @@ function selftest() {
   const full = renderNotes({
     version: V,
     assets: [
-      { name: `Vibisual-${V}-setup.exe`, size: 190 << 20, browser_download_url: 'https://x/exe' },
-      { name: `Vibisual-${V}-arm64.dmg`, size: 96 << 20, browser_download_url: 'https://x/arm' },
-      { name: `Vibisual-${V}.dmg`, size: 101 << 20, browser_download_url: 'https://x/intel' },
-      { name: `vibisual_${V}_amd64.deb`, size: 140 << 20, browser_download_url: 'https://x/deb' },
-      { name: `vibisual-${V}.x86_64.rpm`, size: 145 << 20, browser_download_url: 'https://x/rpm' },
-      { name: `Vibisual-${V}.AppImage`, size: 170 << 20, browser_download_url: 'https://x/img' },
-    ],
+      [`Vibisual-${V}-setup.exe`, 190],
+      [`Vibisual-${V}-arm64.dmg`, 96],
+      [`Vibisual-${V}.dmg`, 101],
+      [`vibisual_${V}_amd64.deb`, 140],
+      [`vibisual-${V}.x86_64.rpm`, 145],
+      [`Vibisual-${V}.AppImage`, 170],
+    ].map(([name, mb]) => ({ name, size: mb << 20, browser_download_url: draftUrl(name) })),
     changelog: null,
   });
+  // 공개되는 순간 404 가 되는 draft 주소가 본문에 한 글자도 새면 안 된다(v0.1.22·v0.1.23 의 죽은 링크).
+  if (full.includes('untagged-') || winOnly.includes('untagged-')) {
+    console.error('  ✗ 본문에 draft 주소(untagged-)가 들어갔다 — 공개되면 그 링크는 404 다');
+    failed++;
+  }
   const rows = bodyRows(full);
   if (rows.length !== 3) {
     console.error(`  ✗ 6종을 다 올렸는데 표가 ${rows.length}줄이다(윈도우·맥·리눅스 3줄이어야 한다)`);
@@ -449,18 +498,24 @@ function selftest() {
   }
   // 한 줄 안에 그 OS 의 갈래가 전부 들어 있어야 한다 — 줄을 줄이려고 갈래를 버리면 안 된다.
   const linuxRow = rows.find((l) => l.includes('**Linux**')) ?? '';
-  for (const url of ['https://x/deb', 'https://x/rpm', 'https://x/img']) {
-    if (!linuxRow.includes(url)) {
-      console.error(`  ✗ 리눅스 줄에 ${url} 이 빠졌다`);
+  for (const name of [`vibisual_${V}_amd64.deb`, `vibisual-${V}.x86_64.rpm`, `Vibisual-${V}.AppImage`]) {
+    if (!linuxRow.includes(assetDownloadUrl(V, name))) {
+      console.error(`  ✗ 리눅스 줄에 ${name} 의 태그 주소가 빠졌다`);
       failed++;
     }
   }
   const macRow = rows.find((l) => l.includes('**macOS**')) ?? '';
-  for (const url of ['https://x/arm', 'https://x/intel']) {
-    if (!macRow.includes(url)) {
-      console.error(`  ✗ 맥 줄에 ${url} 이 빠졌다`);
+  for (const name of [`Vibisual-${V}-arm64.dmg`, `Vibisual-${V}.dmg`]) {
+    if (!macRow.includes(assetDownloadUrl(V, name))) {
+      console.error(`  ✗ 맥 줄에 ${name} 의 태그 주소가 빠졌다`);
       failed++;
     }
+  }
+
+  // 본문을 고칠 때 태그를 같이 보내는가 — 빠지면 draft 의 태그 묶음이 풀린다(v0.1.23).
+  if (notesPatchPayload({ name: V }, V, 'x').tag_name !== `v${V}`) {
+    console.error('  ✗ 본문 갱신 값에 tag_name 이 없다 — draft 에 보내면 태그가 untagged 로 풀린다');
+    failed++;
   }
 
   const changelog = extractChangelog(
@@ -497,7 +552,7 @@ function selftest() {
     console.error(`selftest 실패 ${failed}건`);
     process.exit(1);
   }
-  console.log(`selftest 통과 — 분류 ${cases.length}건 + 렌더 9건 + 제목 ${titleCases.length}건`);
+  console.log(`selftest 통과 — 분류 ${cases.length}건 + 렌더 10건 + 본문 갱신 값 1건 + 제목 ${titleCases.length}건`);
 }
 
 // ── main ─────────────────────────────────────────────────────────────────────
