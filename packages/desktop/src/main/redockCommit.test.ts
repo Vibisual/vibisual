@@ -17,7 +17,8 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const SRC = readFileSync(join(HERE, 'windowManager.ts'), 'utf8');
+// Windows 체크아웃은 줄 끝을 CRLF 로 바꾼다(.gitattributes 없음) — 여러 줄 표식이 어긋나지 않게 LF 로 맞춰 읽는다.
+const SRC = readFileSync(join(HERE, 'windowManager.ts'), 'utf8').replace(/\r\n/g, '\n');
 
 /** 그 함수의 본문만 잘라 본다 — 파일의 다른 자리와 섞이지 않게. */
 function block(src: string, startMarker: string, endMarker: string): string {

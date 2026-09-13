@@ -13,7 +13,8 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const SRC = readFileSync(join(HERE, 'windowManager.ts'), 'utf8');
+// Windows 체크아웃은 줄 끝을 CRLF 로 바꾼다(.gitattributes 없음) — 여러 줄 표식이 어긋나지 않게 LF 로 맞춰 읽는다.
+const SRC = readFileSync(join(HERE, 'windowManager.ts'), 'utf8').replace(/\r\n/g, '\n');
 
 /** 그 함수의 본문만 잘라 본다 — 파일의 다른 자리와 섞이지 않게. */
 function block(src: string, startMarker: string, endMarker: string): string {
@@ -112,7 +113,7 @@ describe('(H-19) 창이 알려 오는 크기는 순수 함수가 가른다', () 
 // (`Header.tsx` 의 `app-nodrag` 덮개)가 `pointermove` 마다 `vibisual:window:move-self` 를 부르는데,
 // 그 핸들러만 `setPosition` 에 남아 있어서 잡고 끄는 동안 본체 창이 계속 커졌다(사용자 보고 —
 // "여기를 잡고 잡아 끌면 에디터가 점점 커진다"). 오버레이 창과 **같은 규칙**을 여기서 함께 집행한다.
-const IPC = readFileSync(join(HERE, 'ipc.ts'), 'utf8');
+const IPC = readFileSync(join(HERE, 'ipc.ts'), 'utf8').replace(/\r\n/g, '\n');
 
 /** move-self 핸들러 본문만 — 파일의 다른 창 채널과 섞이지 않게. */
 function moveSelfBody(): string {

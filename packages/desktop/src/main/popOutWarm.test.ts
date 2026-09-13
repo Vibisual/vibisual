@@ -15,8 +15,9 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const WM = readFileSync(join(__dirname, 'windowManager.ts'), 'utf8');
-const IPC = readFileSync(join(__dirname, 'ipc.ts'), 'utf8');
+// Windows 체크아웃은 줄 끝을 CRLF 로 바꾼다(.gitattributes 없음) — 여러 줄 표식이 어긋나지 않게 LF 로 맞춰 읽는다.
+const WM = readFileSync(join(__dirname, 'windowManager.ts'), 'utf8').replace(/\r\n/g, '\n');
+const IPC = readFileSync(join(__dirname, 'ipc.ts'), 'utf8').replace(/\r\n/g, '\n');
 
 /** 두 표식 사이만 잘라 본다 — 파일의 닮은 자리(`ready-to-show` 는 네 곳에 있다)와 섞이지 않게. */
 function between(src: string, startMarker: string, endMarker: string): string {
