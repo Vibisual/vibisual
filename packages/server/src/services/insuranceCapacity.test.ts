@@ -21,6 +21,12 @@ import { InsuranceLedgerService } from './insuranceLedger.js';
 // 동안 디스크 blob 은 513개까지 자랐고 그중 **177개(22.5MB)가 아무도 가리키지 않는 고아**였다
 // (실측 2026-09-09 · 금고 76MB). 미러 쪽은 걷어 내는 자리가 아예 없었다.
 
+// 사본 상한(500줄)을 실제로 넘겨 봐야 하는 시험은 작은 파일 쓰기를 수백 번 한다. 개발기 Windows 에서는
+// 3초 남짓인데 GitHub 의 windows-latest 러너는 작은 파일 I/O 가 훨씬 느려 같은 시험이 44.6초가 걸렸고
+// 기본 제한(30초)을 넘겨 떨어졌다(2026-09-13 CI · ubuntu·macos 는 통과). 한 줄당 비용은 일정해
+// 코드가 느려진 것이 아니다 — 판정은 그대로 두고 이 시험들에만 넉넉한 제한을 준다.
+const CAP_WALK_TIMEOUT_MS = 180_000;
+
 const PROJECT = 'demo';
 
 let tmp: string;
@@ -159,7 +165,7 @@ describe('§5.26 (H) 캡에 밀려난 줄의 바이트를 그 자리에서 회�
     expect(blobsOnDisk().size).toBe(cap);
     expect(blobsOnDisk()).toEqual(referencedShas());
     expect(led?.retired?.bytes).toBeGreaterThan(0);
-  });
+  }, CAP_WALK_TIMEOUT_MS);
 
   it('남은 줄이 아직 가리키는 해시는 지우지 않는다 — 한 벌을 여럿이 가리킨다', () => {
     // 같은 내용으로 두 줄(= blob 한 벌). 그 뒤 상한을 **딱 하나만** 넘겨 옛 쪽 한 줄만 밀어낸다.
@@ -176,7 +182,7 @@ describe('§5.26 (H) 캡에 밀려난 줄의 바이트를 그 자리에서 회�
     // 살아 있는 다른 줄이 아직 가리키므로 blob 은 남아야 한다 — 지우면 그 줄의 되돌리기가 조용히 죽는다.
     expect(blobsOnDisk().has(sha!)).toBe(true);
     expect(vault.readBlob(PROJECT, sha!)).not.toBeNull();
-  });
+  }, CAP_WALK_TIMEOUT_MS);
 
   it('마커가 상한을 넘으면 밀려난 세션의 미러도 회수된다', () => {
     const cap = INSURANCE_MARKERS_MAX_PER_PROJECT;
@@ -214,7 +220,7 @@ describe('§5.26 (H) 캡에 밀려난 줄의 바이트를 그 자리에서 회�
   it('회수한 바이트는 `retired.bytes` 로 접힌다 — 숫자는 줄지 않는다', () => {
     for (let i = 0; i < INSURANCE_PREIMAGES_MAX_PER_PROJECT + 2; i += 1) addPreimage(`b-${i}`);
     expect(ledger.full(PROJECT)?.retired?.bytes).toBeGreaterThan(0);
-  });
+  }, CAP_WALK_TIMEOUT_MS);
 });
 
 describe('§5.26 (H) 보존 한 바퀴 — 부팅 정리가 부르는 그 길', () => {
@@ -303,7 +309,7 @@ describe('§5.26 (H) measure() — 훅 경로에서 금고를 다시 훑지 않�
   it('캡 회수를 한참 겪은 뒤에도 갓 잰 값과 같다', () => {
     for (let i = 0; i < INSURANCE_PREIMAGES_MAX_PER_PROJECT + 20; i += 1) addPreimage(`d-${i}`);
     expect(vault.measure(PROJECT)).toBe(newVault().measure(PROJECT));
-  });
+  }, CAP_WALK_TIMEOUT_MS);
 
   it('보존 한 바퀴는 캐시를 버리고 다시 잰다 — 바깥에서 폴더가 바뀌었을 수 있다', () => {
     for (let i = 0; i < 3; i += 1) addPreimage(`c-${i}`);
