@@ -17,8 +17,9 @@ import {
   keepDragRegionsFresh,
 } from './dragRegions';
 
+// Windows 체크아웃은 줄 끝을 CRLF 로 바꾼다(.gitattributes 없음) — 여러 줄 표식이 어긋나지 않게 LF 로 맞춰 읽는다.
 function source(name: string): string {
-  return readFileSync(fileURLToPath(new URL(`./${name}`, import.meta.url)), 'utf8');
+  return readFileSync(fileURLToPath(new URL(`./${name}`, import.meta.url)), 'utf8').replace(/\r\n/g, '\n');
 }
 
 /** `BrowserWindow` 흉내 — 이 배선이 실제로 만지는 것만 있다. */
