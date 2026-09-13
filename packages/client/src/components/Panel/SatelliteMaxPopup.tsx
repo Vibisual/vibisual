@@ -84,7 +84,7 @@ export function SatelliteMaxPopup({
           type="button"
           onClick={onClose}
           className="rounded p-0.5 text-gray-500 hover:bg-gray-800 hover:text-gray-200"
-          aria-label="close"
+          aria-label={t('common.close')}
         >
           <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <line x1="18" y1="6" x2="6" y2="18" />
@@ -99,7 +99,7 @@ export function SatelliteMaxPopup({
           type="button"
           onClick={() => step(-1)}
           disabled={draft <= MIN}
-          aria-label="decrease"
+          aria-label={t('panel.folderFileTree.maxDecrease')}
           className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded border border-gray-700 text-gray-300 hover:border-violet-500 hover:text-violet-300 disabled:cursor-not-allowed disabled:opacity-30"
         >
           <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
@@ -120,7 +120,7 @@ export function SatelliteMaxPopup({
           type="button"
           onClick={() => step(1)}
           disabled={draft >= MAX}
-          aria-label="increase"
+          aria-label={t('panel.folderFileTree.maxIncrease')}
           className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded border border-gray-700 text-gray-300 hover:border-violet-500 hover:text-violet-300 disabled:cursor-not-allowed disabled:opacity-30"
         >
           <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">

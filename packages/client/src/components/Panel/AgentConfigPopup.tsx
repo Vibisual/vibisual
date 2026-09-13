@@ -1961,7 +1961,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                         type="button"
                         onClick={() => removeTool(tool)}
                         className="ml-0.5 no-underline text-gray-500 hover:text-red-400"
-                        aria-label="remove"
+                        aria-label={t('panel.agentConfig.tools.removeTool', { tool })}
                       >×</button>
                     </span>
                   );
@@ -2029,7 +2029,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                         type="button"
                         onClick={() => setDisallowedTools((p) => p.filter((x) => x !== tool))}
                         className="ml-0.5 text-red-400/60 hover:text-red-300"
-                        aria-label="remove"
+                        aria-label={t('panel.agentConfig.tools.removeTool', { tool })}
                       >×</button>
                     </span>
                   );
@@ -2707,7 +2707,7 @@ export function AgentConfigPopup({ agentId, config, currentColor, onClose }: Age
                   value={rules}
                   onChange={(e) => { setRules(e.target.value); setHistoryPreviewTs(null); }}
                   autoFocus
-                  placeholder={"# Rules\n- Follow the implementation plan exactly\n- Run tests after each change\n- Report immediately if any existing tests break"}
+                  placeholder={t('panel.agentConfig.rulesEditor.placeholder')}
                   className="scrollbar-thin mx-4 mt-2 flex-1 resize-none rounded border border-gray-700 bg-gray-800 p-3 font-mono text-sm leading-relaxed text-gray-200 outline-none placeholder:text-gray-600 focus:border-blue-500"
                 />
                 {/* v1.33 — 자동 주입되는 outbound 엣지 섹션 전체 미리보기 */}

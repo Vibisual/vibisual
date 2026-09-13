@@ -250,6 +250,15 @@ describe('release publishing — 검증이 발행보다 앞선다', () => {
   const loadNotes = async (): Promise<Record<string, any>> =>
     await import(pathToFileURL(path.join(REPO, '.github/scripts/release-notes.mjs')).href);
 
+  it('이 시험이 import 하는 스크립트는 #! 로 시작하지 않는다 (Windows 러너의 CRLF 에서 Vitest 가 못 읽는다)', () => {
+    // Windows 러너는 CRLF 로 체크아웃하고, Vitest 는 `#!…\r\n` 으로 시작하는 모듈을
+    // `SyntaxError: Invalid or unexpected token` 으로 거절한다 — 개발기(LF)와 ubuntu·macos 는 통과해서
+    // 3-OS CI 에서야 드러났다(2026-09-13 #39). 실행은 어디서나 `node <파일>` 이라 hashbang 이 필요 없다.
+    for (const rel of ['.github/scripts/release-notes.mjs', '.github/scripts/releaseRetry.mjs']) {
+      expect(read(rel).startsWith('#!'), `${rel} 첫 줄의 #! 를 지워라`).toBe(false);
+    }
+  });
+
   it('본문을 고쳐도 draft 의 태그 묶음이 풀리지 않는다 (tag_name 을 같이 보낸다)', async () => {
     const { notesPatchPayload } = await loadNotes();
     expect(notesPatchPayload({ name: '0.1.24' }, '0.1.24', 'body').tag_name).toBe('v0.1.24');

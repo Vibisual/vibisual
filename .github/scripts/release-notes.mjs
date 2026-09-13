@@ -1,6 +1,10 @@
-#!/usr/bin/env node
 /**
  * release-notes.mjs — 릴리스 페이지 본문(다운로드 안내)을 자산 목록에서 생성한다.
+ *
+ * ⚠️ 첫 줄에 `#!` 를 두지 마라. 계약 시험(`releasePackaging.test.ts`)이 이 파일을 import 하는데,
+ *    Windows 러너는 CRLF 로 체크아웃하고 Vitest 는 `#!…\r\n` 으로 시작하는 모듈을
+ *    `SyntaxError: Invalid or unexpected token` 으로 못 읽는다(2026-09-13 CI #39 — ubuntu·macos 는
+ *    통과, 같은 러너의 `node … --selftest` 도 통과). 실행은 어디서나 `node` 로 한다.
  *
  * SCENARIO.md §4 v2.44 자동 업데이트 릴리스 자동화의 마지막 한 칸.
  *
